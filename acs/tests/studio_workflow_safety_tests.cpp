@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FLocalFileAssetLocking の所有権境界・敵対 record テスト。
+// CLocalFileAssetLocking の所有権境界・敵対 record テスト。
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "gameframework/StudioWorkflow.h"
@@ -87,7 +87,7 @@ struct FLockTempPath {
 };
 
 struct FRaceAcquire {
-    FLocalFileAssetLocking Backend;
+    CLocalFileAssetLocking Backend;
     const char* Path = nullptr;
     const char* Owner = nullptr;
     HANDLE Start = nullptr;
@@ -106,7 +106,7 @@ DWORD WINAPI RaceAcquireProc(void* value) noexcept {
 ACS_TEST(StudioWorkflowLockSafety, CheckedAcquireQueryAndReleaseRoundTrip)
 {
     FLockTempPath path(L"round_trip");
-    FLocalFileAssetLocking backend;
+    CLocalFileAssetLocking backend;
 
     const FLocalAssetLockResult acquired =
         backend.TryLockAsset(path.AssetUtf8, "artist_a");
@@ -136,8 +136,8 @@ ACS_TEST(StudioWorkflowLockSafety, CheckedAcquireQueryAndReleaseRoundTrip)
 ACS_TEST(StudioWorkflowLockSafety, WrongOwnerOrGenerationNeverDeletesLock)
 {
     FLockTempPath path(L"ownership");
-    FLocalFileAssetLocking owner_backend;
-    FLocalFileAssetLocking other_backend;
+    CLocalFileAssetLocking owner_backend;
+    CLocalFileAssetLocking other_backend;
     const FLocalAssetLockResult acquired =
         owner_backend.TryLockAsset(path.AssetUtf8, "owner");
     EXPECT_TRUE(acquired.Succeeded());
@@ -175,7 +175,7 @@ ACS_TEST(StudioWorkflowLockSafety, WrongOwnerOrGenerationNeverDeletesLock)
 ACS_TEST(StudioWorkflowLockSafety, MaliciousRecordsAreRejectedTransactionally)
 {
     FLockTempPath path(L"corrupt");
-    FLocalFileAssetLocking backend;
+    CLocalFileAssetLocking backend;
     FAssetLockInfo sentinel{};
     sentinel.asset_path = "preserved_path";
     sentinel.locker_user = "preserved_owner";
@@ -210,7 +210,7 @@ ACS_TEST(StudioWorkflowLockSafety, MaliciousRecordsAreRejectedTransactionally)
     EXPECT_EQ(backend.TryQueryLock(path.AssetUtf8, sentinel).error,
               ELocalAssetLockError::CorruptRecord);
 
-    char oversized[FLocalFileAssetLocking::kMaxRecordBytes + 1] = {};
+    char oversized[CLocalFileAssetLocking::kMaxRecordBytes + 1] = {};
     EXPECT_TRUE(path.WriteLock(oversized, sizeof(oversized)));
     EXPECT_EQ(backend.TryQueryLock(path.AssetUtf8, sentinel).error,
               ELocalAssetLockError::RecordTooLarge);
@@ -220,17 +220,17 @@ ACS_TEST(StudioWorkflowLockSafety, MaliciousRecordsAreRejectedTransactionally)
 ACS_TEST(StudioWorkflowLockSafety, BoundedInputsAndExistingFileFailClosed)
 {
     FLockTempPath path(L"bounds");
-    FLocalFileAssetLocking backend;
+    CLocalFileAssetLocking backend;
 
-    char long_owner[FLocalFileAssetLocking::kMaxUserChars + 1] = {};
-    for (int i = 0; i < FLocalFileAssetLocking::kMaxUserChars; ++i) {
+    char long_owner[CLocalFileAssetLocking::kMaxUserChars + 1] = {};
+    for (int i = 0; i < CLocalFileAssetLocking::kMaxUserChars; ++i) {
         long_owner[i] = 'a';
     }
     EXPECT_EQ(backend.TryLockAsset(path.AssetUtf8, long_owner).error,
               ELocalAssetLockError::OwnerTooLong);
 
-    char long_path[FLocalFileAssetLocking::kMaxPathChars + 1] = {};
-    for (int i = 0; i < FLocalFileAssetLocking::kMaxPathChars; ++i) {
+    char long_path[CLocalFileAssetLocking::kMaxPathChars + 1] = {};
+    for (int i = 0; i < CLocalFileAssetLocking::kMaxPathChars; ++i) {
         long_path[i] = 'p';
     }
     EXPECT_EQ(backend.TryLockAsset(long_path, "owner").error,

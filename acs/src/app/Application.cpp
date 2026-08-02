@@ -114,18 +114,18 @@ void CApplication::FRuntimeFoundationLifetime::InitializeLogger(const FLogConfig
         symbol_resolver_preexisting = FStackTrace::IsSymbolResolverInitialized();
         lifetime_active = true;
     }
-    if (FLogger::IsInitialized()) {
+    if (CLogger::IsInitialized()) {
         InitializeMemoryDiagnostics();
         return;
     }
-    FLogger::Init(config);
-    logger_owned = FLogger::IsInitialized();
+    CLogger::Init(config);
+    logger_owned = CLogger::IsInitialized();
     InitializeMemoryDiagnostics();
 }
 
 void CApplication::FRuntimeFoundationLifetime::InitializeMemoryDiagnostics() noexcept
 {
-    if (!FCrtDebugHeapDiagnostics::IsSupported() || CrtHeapScope.IsActive()) {
+    if (!CCrtDebugHeapDiagnostics::IsSupported() || CrtHeapScope.IsActive()) {
         return;
     }
 
@@ -160,16 +160,16 @@ void CApplication::FRuntimeFoundationLifetime::InitializeMemoryDiagnostics() noe
 
 TResult<void> CApplication::FRuntimeFoundationLifetime::InitializeMemorySystem(const FMemorySystemConfig& config) noexcept
 {
-    if (FMemorySystem::Get(ESegment::Default) != nullptr) return Ok();
-    const auto result = FMemorySystem::Init(config);
+    if (CMemorySystem::Get(ESegment::Default) != nullptr) return Ok();
+    const auto result = CMemorySystem::Init(config);
     if (result.IsOk()) memory_system_owned = true;
     return result;
 }
 
 TResult<void> CApplication::FRuntimeFoundationLifetime::InitializeThreadPool(u32 worker_count) noexcept
 {
-    if (FThreadPool::WorkerCount() != 0) return Ok();
-    const auto result = FThreadPool::Init(worker_count);
+    if (CThreadPool::WorkerCount() != 0) return Ok();
+    const auto result = CThreadPool::Init(worker_count);
     if (result.IsOk()) thread_pool_owned = true;
     return result;
 }
@@ -177,19 +177,19 @@ TResult<void> CApplication::FRuntimeFoundationLifetime::InitializeThreadPool(u32
 void CApplication::FRuntimeFoundationLifetime::Release() noexcept
 {
     if (thread_pool_owned) {
-        FThreadPool::Shutdown();
+        CThreadPool::Shutdown();
         thread_pool_owned = false;
     }
     if (lifetime_active && !symbol_resolver_preexisting && FStackTrace::IsSymbolResolverInitialized()) {
         FStackTrace::ShutdownSymbolResolver();
     }
     if (memory_system_owned) {
-        FMemorySystem::Shutdown();
+        CMemorySystem::Shutdown();
         memory_system_owned = false;
     }
     if (logger_owned) {
-        FLogger::Flush();
-        FLogger::Shutdown();
+        CLogger::Flush();
+        CLogger::Shutdown();
         logger_owned = false;
     }
     (void)CrtHeapScope.End();
@@ -201,11 +201,11 @@ void CApplication::FRuntimeFoundationLifetime::Release() noexcept
 // FWindow から Event を受け取るブリッジ
 // 1) Input サブシステムに流して状態を更新
 // 2) アプリ派生クラスの OnEvent も呼ぶ
-// 3) リサイズ時は FRenderer にも通知
+// 3) リサイズ時は CRenderer にも通知
 void CApplication::EventBridge(void* user_data, const FEvent& event) noexcept
 {
     CApplication* const app = static_cast<CApplication*>(user_data);
-    FInput::OnEvent(event);
+    CInput::OnEvent(event);
     if (app->m_RendererFailurePending) return;
     if (event.type == EEventType::WindowResize && !app->m_Window.IsMinimized()) {
         if (!app->m_Renderer.OnResize(event.resize.width, event.resize.height)) {
@@ -255,22 +255,22 @@ int CApplication::Run(const FAppConfig& configuration) noexcept
     lc.file_path = configuration.log_file;
     m_RuntimeFoundationLifetime.InitializeLogger(lc);
 
-    ACS_LOG_INFO("ACS FApplication starting up...");
+    ACS_LOG_INFO("ACS CApplication starting up...");
 
     // メモリシステム初期化
     const auto memory_result = m_RuntimeFoundationLifetime.InitializeMemorySystem(
-        configuration.memory ? *configuration.memory : FMemorySystem::DefaultConfig());
+        configuration.memory ? *configuration.memory : CMemorySystem::DefaultConfig());
     if (memory_result.IsErr()) {
-        ACS_LOG_ERROR("FMemorySystem::Init failed: %s", memory_result.Error().message);
+        ACS_LOG_ERROR("CMemorySystem::Init failed: %s", memory_result.Error().message);
         m_RuntimeFoundationLifetime.Release();
         m_RunActive = false;
         return 1;
     }
 
-    // FThreadPool 起動
+    // CThreadPool 起動
     const auto thread_pool_result = m_RuntimeFoundationLifetime.InitializeThreadPool(configuration.worker_count);
     if (thread_pool_result.IsErr()) {
-        ACS_LOG_ERROR("FThreadPool::Init failed: %s", thread_pool_result.Error().message);
+        ACS_LOG_ERROR("CThreadPool::Init failed: %s", thread_pool_result.Error().message);
         m_RuntimeFoundationLifetime.Release();
         m_RunActive = false;
         return 2;
@@ -297,7 +297,7 @@ int CApplication::Run(const FAppConfig& configuration) noexcept
     // レンダラ初期化
     const auto rr = m_Renderer.Init(m_Window, configuration.enable_gpu_debug);
     if (rr.IsErr()) {
-        ACS_LOG_ERROR("FRenderer::Init failed: %s", rr.Error().message);
+        ACS_LOG_ERROR("CRenderer::Init failed: %s", rr.Error().message);
         m_Renderer.Shutdown();
         m_Window = FWindow{};
         m_RuntimeFoundationLifetime.Release();
@@ -318,7 +318,7 @@ int CApplication::Run(const FAppConfig& configuration) noexcept
     AAssetSubsystem* const asset_subsystem = GetSubsystem<AAssetSubsystem>();
     if (!engine_subsystems_initialized || timer_subsystem == nullptr || asset_subsystem == nullptr ||
         timer_subsystem->GetTimers() != &m_Timers || asset_subsystem->GetAssets() != &m_Assets) {
-        ACS_LOG_ERROR("FApplication: Engine subsystem initialization failed");
+        ACS_LOG_ERROR("CApplication: Engine subsystem initialization failed");
         m_EngineSubsystems.Deinitialize();
         m_Timers.Clear();
         m_Events.Clear();
@@ -338,11 +338,11 @@ int CApplication::Run(const FAppConfig& configuration) noexcept
     // メインループ
     while (m_bRunning && !m_Window.ShouldClose()) {
         // フレーム先頭処理
-        FInput::Update();            // 押下状態を 1 フレーム進める
+        CInput::Update();            // 押下状態を 1 フレーム進める
         m_Window.PollEvents();      // OS メッセージ処理
         if (m_RendererFailurePending) {
             ACS_LOG_ERROR(
-                "FApplication: renderer resize failed; "
+                "CApplication: renderer resize failed; "
                 "stopping before frame recording");
             renderer_failed = true;
             break;
@@ -356,7 +356,7 @@ int CApplication::Run(const FAppConfig& configuration) noexcept
             m_Window.WaitForEvents(configuration.minimized_wait_ms);
             continue;
         }
-        FMemorySystem::ResetTemp(); // Temp セグメントを毎フレーム巻き戻し
+        CMemorySystem::ResetTemp(); // Temp セグメントを毎フレーム巻き戻し
         m_Dt = m_FrameTimer.Tick();
 
         // Engine の PreUpdate を生時間で進め、既存タイマーを OnUpdate より前に発火させる。
@@ -383,7 +383,7 @@ int CApplication::Run(const FAppConfig& configuration) noexcept
             OnRender();
             if (!m_Renderer.EndFrame()) {
                 ACS_LOG_ERROR(
-                    "FApplication: renderer submit/present failed; "
+                    "CApplication: renderer submit/present failed; "
                     "stopping the main loop");
                 renderer_failed = true;
                 break;
@@ -421,9 +421,9 @@ int CApplication::Run(const FAppConfig& configuration) noexcept
     // 派生デストラクタが GPU/既定アロケータ由来のメンバを安全に解放できるよう、
     // Renderer/Window/ThreadPool/MemorySystem/Logger はオブジェクト破棄まで生存させる。
     if (renderer_failed)
-        ACS_LOG_ERROR("ACS FApplication stopped after a renderer failure.");
+        ACS_LOG_ERROR("ACS CApplication stopped after a renderer failure.");
     else
-        ACS_LOG_INFO("ACS FApplication run completed cleanly.");
+        ACS_LOG_INFO("ACS CApplication run completed cleanly.");
     m_RunCompleted = true;
     m_RunActive = false;
     return renderer_failed ? 6 : 0;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FBuffSystem / FCinematicsDirector の «コールバック再入» 安全性テスト
+// CBuffSystem / CCinematicsDirector の «コールバック再入» 安全性テスト
 //
 // どちらも Tick/FireUpTo で配列を走査しながらユーザーコールバックを発火する。
 // コールバックが同オブジェクトの ApplyBuff / Clear 等を呼んで内部配列を再確保・
@@ -15,10 +15,10 @@ using namespace acs::game;
 
 namespace {
 
-// ---- FBuffSystem: tick callback が同 owner へ ApplyBuff して配列を再確保させる ----
+// ---- CBuffSystem: tick callback が同 owner へ ApplyBuff して配列を再確保させる ----
 
 struct FBuffReentryCtx {
-    FBuffSystem* sys      = nullptr;
+    CBuffSystem* sys      = nullptr;
     FBuffOwnerId owner{};
     u32          tick_fires = 0;
     u32          applied    = 0;
@@ -42,7 +42,7 @@ void OnBuffTickReapply(void* user, FBuffOwnerId owner, const char* /*buff_id*/,
 
 ACS_TEST(DirectorReentrancy, BuffTickCallbackMayApplyBuffsSafely)
 {
-    FBuffSystem sys;
+    CBuffSystem sys;
     // tick する毒 buff。
     FBuffDef poison{};
     poison.id                = "poison";
@@ -103,10 +103,10 @@ ACS_TEST(DirectorReentrancy, BuffTickCallbackMayApplyBuffsSafely)
 
 namespace {
 
-// ---- FCinematicsDirector: event callback が同 director を Clear する ----
+// ---- CCinematicsDirector: event callback が同 director を Clear する ----
 
 struct FCineReentryCtx {
-    FCinematicsDirector* dir  = nullptr;
+    CCinematicsDirector* dir  = nullptr;
     u32                  fires = 0;
     bool                 cleared_on_first = true;
 };
@@ -135,7 +135,7 @@ FTimelineKeyframe MakeEventKf(f32 t, u32 id) noexcept
 
 ACS_TEST(DirectorReentrancy, CinematicsEventCallbackMayClearSafely)
 {
-    FCinematicsDirector dir;
+    CCinematicsDirector dir;
     // 同一フレームで一括発火される 3 つのイベント keyframe。
     dir.AddKeyframe(MakeEventKf(0.1f, 100u));
     dir.AddKeyframe(MakeEventKf(0.1f, 200u));
@@ -170,7 +170,7 @@ ACS_TEST(DirectorReentrancy, CinematicsEventCallbackMayClearSafely)
 
 ACS_TEST(DirectorReentrancy, CinematicsFiresInTimeOrderAndSkipCompletes)
 {
-    FCinematicsDirector dir;
+    CCinematicsDirector dir;
     dir.AddKeyframe(MakeEventKf(3.0f, 30u));
     dir.AddKeyframe(MakeEventKf(1.0f, 10u));   // 逆順で追加 → 内部で昇順ソート
     dir.AddKeyframe(MakeEventKf(2.0f, 20u));

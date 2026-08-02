@@ -2,12 +2,12 @@
 // ACS Easy — 実装
 //
 // 設計:
-//   ・acs::FApplication は使わず、独立した入口として自前でエンジンを起動する。
+//   ・acs::CApplication は使わず、独立した入口として自前でエンジンを起動する。
 //   ・状態は単一のグローバル EasyState（このファイル内のみ）。単一スレッド前提。
 //   ・OpenWindow で起動、NextFrame で 1 フレーム駆動（前フレーム提示 → 入力 →
 //     クリア → 描画開始）、ウィンドウが閉じたら NextFrame 内で後始末する。
-//   ・図形・スプライト・文字は FSpriteBatch に集約。回転は FSpriteBatch::DrawRotated、
-//     カメラは FSpriteBatch::SetView（VS でワールド→スクリーン変換）。
+//   ・図形・スプライト・文字は CSpriteBatch に集約。回転は CSpriteBatch::DrawRotated、
+//     カメラは CSpriteBatch::SetView（VS でワールド→スクリーン変換）。
 //   ・公開 API の位置 (x,y) はすべて図形・画像の左上に統一（円のみ中心）。
 #include "easy/Easy.h"
 
@@ -173,7 +173,7 @@ struct FEasyState {
     /** NextFrame が false を返し、後始末も済んだ。 */
     bool finished    = false;
 
-    /** FSpriteBatch::Begin 済み (この間だけ描画可能)。 */
+    /** CSpriteBatch::Begin 済み (この間だけ描画可能)。 */
     bool frame_open  = false;
 
     /** Quit() が呼ばれた。 */
@@ -474,7 +474,7 @@ bool LoadDefaultFont(IRhiDevice& device) noexcept {
 /**
  * フォントのグリフを並べ、scale 倍で拡縮してテキストを描く。
  *
- * @details UTF-8 をデコードしながらアトラスのグリフを FSpriteBatch に積む。\n で改行する。
+ * @details UTF-8 をデコードしながらアトラスのグリフを CSpriteBatch に積む。\n で改行する。
  * @param x 左上の X 座標。
  * @param y 左上の Y 座標。
  * @param text 描画する文字列 (UTF-8)。
@@ -506,7 +506,7 @@ void DrawTextScaled(f32 x, f32 y, const char* text, FVec4 color, f32 scale) noex
 }
 
 /**
- * ウィンドウイベントを Input / FRenderer へ橋渡しするコールバック。
+ * ウィンドウイベントを Input / CRenderer へ橋渡しするコールバック。
  *
  * @details リサイズ時はレンダラとポストプロセスのリサイズも行う。
  * @param user 未使用のユーザポインタ。
@@ -527,7 +527,7 @@ void EasyEventBridge(void* /*user*/, const FEvent& e) noexcept {
 }
 
 /**
- * FThreadPool / FJobGraph に渡すタスク関数 (Closure を実行する)。
+ * CThreadPool / CJobGraph に渡すタスク関数 (Closure を実行する)。
  *
  * @details 完了カウンタは pool が自動で Done するためここでは触らない。
  * @param user 実行する jobdetail::Closure へのポインタ。
@@ -767,7 +767,7 @@ FSaveEntry* FindSave(const char* key) noexcept {
 void WriteSaveFile() noexcept {
     FILE* f = nullptr;
     if (fopen_s(&f, "save.dat", "wb") != 0 || !f) {
-        // FLogger 稼働中のみ警告（OpenWindow 前/終了後の Save でも安全に）
+        // CLogger 稼働中のみ警告（OpenWindow 前/終了後の Save でも安全に）
         if (g_state.booted && !g_state.finished)
             ACS_LOG_WARN("easy: セーブファイルに書き込めません");
         return;
@@ -909,7 +909,7 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
         }
     }
 
-    // 7. アセット・描画ヘルパ（ポスト有効時は FSpriteBatch を HDR RT 向けに作る）
+    // 7. アセット・描画ヘルパ（ポスト有効時は CSpriteBatch を HDR RT 向けに作る）
     g_state.assets.Restart();
     g_state.assets.RegisterDefaultLoaders();
     const EFormat batch_fmt = g_state.post_available
@@ -1048,7 +1048,7 @@ bool NextFrame() noexcept {
         return false;
     }
     g_state.batch.Begin(*cl, g_state.window.Width(), g_state.window.Height());
-    // カメラを恒等（カメラ無し）にリセット。FSpriteBatch::Begin の既定と一致させる。
+    // カメラを恒等（カメラ無し）にリセット。CSpriteBatch::Begin の既定と一致させる。
     g_state.cam_x    = static_cast<f32>(g_state.window.Width())  * 0.5f;
     g_state.cam_y    = static_cast<f32>(g_state.window.Height()) * 0.5f;
     g_state.cam_zoom = 1.0f;
@@ -1198,7 +1198,7 @@ void DrawRectOutline(f32 x, f32 y, f32 width, f32 height,
 void DrawRectRotated(f32 x, f32 y, f32 width, f32 height,
                      f32 degrees, FColor color) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
-    // 左上指定を中心へ変換して FSpriteBatch に渡す
+    // 左上指定を中心へ変換して CSpriteBatch に渡す
     g_state.batch.DrawRectRotated(x + width * 0.5f, y + height * 0.5f,
                                  width, height, degrees * kDeg2Rad, ToVec4(color));
 }

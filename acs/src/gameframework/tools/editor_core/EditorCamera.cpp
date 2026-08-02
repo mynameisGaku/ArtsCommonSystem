@@ -5,7 +5,7 @@
 //   ・2D / 3D の Pan / Orbit / Dolly の数式実装
 //   ・spherical 座標 (yaw, pitch, distance) から eye 算出
 //   ・Reset / FrameToBoundingSphere / FrameToBoundingBox2D の自動配置
-//   ・Tick での FCamera2D 互換 smoothing 補間
+//   ・Tick での CCamera2D 互換 smoothing 補間
 // を実装する。すべて noexcept、STL 不使用、内部 state は POD のみ。
 
 #include "gameframework/tools/editor_core/EditorCamera.h"

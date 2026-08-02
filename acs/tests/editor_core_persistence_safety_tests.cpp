@@ -36,7 +36,7 @@ constexpr char kCanonicalTheme[] =
     "warning 0.90 0.60 0.10 1\n"
     "error 0.90 0.10 0.20 1\n";
 
-class FTestPanel final : public FEditorPanel {
+class FTestPanel final : public AEditorPanel {
 public:
     explicit FTestPanel(const char* title = "PanelA") noexcept
         : m_Title(title) {}
@@ -106,7 +106,7 @@ bool WriteRawFile(
 } // namespace
 
 ACS_TEST(EditorCorePersistenceSafety, ThemeParsesCanonicalV1) {
-    FEditorTheme theme;
+    CEditorTheme theme;
     const FEditorThemePersistenceResult result =
         theme.TryParseThemeText(kCanonicalTheme, sizeof(kCanonicalTheme) - 1u);
 
@@ -120,7 +120,7 @@ ACS_TEST(EditorCorePersistenceSafety, ThemeParsesCanonicalV1) {
 }
 
 ACS_TEST(EditorCorePersistenceSafety, ThemeRejectsHostileTextTransactionally) {
-    FEditorTheme theme;
+    CEditorTheme theme;
     theme.ApplyPreset(EEditorThemePreset::Sepia);
     theme.SetFontScale(1.75f);
     theme.SetRoundedCorners(7.0f);
@@ -158,7 +158,7 @@ ACS_TEST(EditorCorePersistenceSafety, WorkspaceCommitsOnlyAfterFullValidation) {
     if (!imgui.IsValid()) return;
 
     FTestPanel panel;
-    FEditorWorkspace workspace;
+    CEditorWorkspace workspace;
     workspace.RegisterPanel(&panel);
     panel.SetVisible(true);
     panel.SetDockTarget(false);
@@ -207,7 +207,7 @@ ACS_TEST(EditorCorePersistenceSafety, WorkspaceTitleWithSpacesRoundTripsV1) {
         path, sizeof(path) / sizeof(path[0]), L"layout.acslayout");
 
     FTestPanel panel("Panel With Spaces");
-    FEditorWorkspace workspace;
+    CEditorWorkspace workspace;
     workspace.RegisterPanel(&panel);
     panel.SetVisible(false);
     panel.SetDockTarget(true);
@@ -247,7 +247,7 @@ ACS_TEST(EditorCorePersistenceSafety, WorkspaceLoadsNonNullTerminatedEmptyIni) {
     EXPECT_TRUE(WriteRawFile(path, kLayout, static_cast<u32>(sizeof(kLayout) - 1u)));
 
     /** 明示長の file buffer を読み込む検証対象 workspace。 */
-    FEditorWorkspace workspace;
+    CEditorWorkspace workspace;
     /** 空 ini の読み込み結果。 */
     const FEditorWorkspacePersistenceResult result = workspace.TryLoadLayout(path);
     EXPECT_TRUE(result.Succeeded());
@@ -263,7 +263,7 @@ ACS_TEST(EditorCorePersistenceSafety, WorkspaceRejectsInvalidPanelTitles) {
     if (!imgui.IsValid()) return;
 
     FTestPanel panel("Panel Name");
-    FEditorWorkspace workspace;
+    CEditorWorkspace workspace;
     workspace.RegisterPanel(&panel);
     panel.SetVisible(true);
     panel.SetDockTarget(false);
@@ -327,7 +327,7 @@ ACS_TEST(EditorCorePersistenceSafety, WorkspaceRejectsInvalidPanelTitles) {
     constexpr char suffix[] = " 0 1\n";
     usize size = sizeof(prefix) - 1u;
     std::memcpy(too_long, prefix, size);
-    for (usize i = 0u; i <= FEditorWorkspace::kMaxPanelTitleBytes; ++i) {
+    for (usize i = 0u; i <= CEditorWorkspace::kMaxPanelTitleBytes; ++i) {
         too_long[size++] = 'A';
     }
     std::memcpy(too_long + size, suffix, sizeof(suffix) - 1u);
@@ -350,7 +350,7 @@ ACS_TEST(EditorCorePersistenceSafety, WorkspaceRejectsInvalidPanelTitles) {
     };
     for (const char* invalid_title : invalid_titles) {
         FTestPanel invalid_panel(invalid_title);
-        FEditorWorkspace invalid_workspace;
+        CEditorWorkspace invalid_workspace;
         invalid_workspace.RegisterPanel(&invalid_panel);
         result = invalid_workspace.TrySaveLayout(path);
         EXPECT_EQ(
@@ -361,16 +361,16 @@ ACS_TEST(EditorCorePersistenceSafety, WorkspaceRejectsInvalidPanelTitles) {
 }
 
 ACS_TEST(EditorCorePersistenceSafety, ParserBoundsAreCheckedBeforeScanning) {
-    FEditorTheme theme;
-    FEditorWorkspace workspace;
+    CEditorTheme theme;
+    CEditorWorkspace workspace;
 
     EXPECT_EQ(
         theme.TryParseThemeText(
-                 "", FEditorTheme::kMaxThemeBytes + 1u).error,
+                 "", CEditorTheme::kMaxThemeBytes + 1u).error,
         EEditorThemePersistenceError::InputTooLarge);
     EXPECT_EQ(
         workspace.TryParseLayoutText(
-                     "", FEditorWorkspace::kMaxLayoutBytes + 1u).error,
+                     "", CEditorWorkspace::kMaxLayoutBytes + 1u).error,
         EEditorWorkspacePersistenceError::InputTooLarge);
     EXPECT_EQ(
         theme.TryParseThemeText(nullptr, 0u).error,
@@ -396,7 +396,7 @@ ACS_TEST(EditorCorePersistenceSafety, ThemeSaveIsAtomicForOpenReaders) {
         return;
     }
 
-    FEditorTheme saved;
+    CEditorTheme saved;
     saved.ApplyPreset(EEditorThemePreset::DarkBlue);
     saved.SetFontScale(1.5f);
     const FEditorThemePersistenceResult save_result =
@@ -412,7 +412,7 @@ ACS_TEST(EditorCorePersistenceSafety, ThemeSaveIsAtomicForOpenReaders) {
         old_bytes, original, sizeof(original) - 1u) == 0);
     EXPECT_TRUE(::CloseHandle(old_reader));
 
-    FEditorTheme loaded;
+    CEditorTheme loaded;
     const FEditorThemePersistenceResult load_result =
         loaded.TryLoadTheme(path);
     EXPECT_TRUE(load_result.Succeeded());

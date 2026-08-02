@@ -4,7 +4,7 @@
 // 次の共通 2D stack を接続する:
 //   CSceneServices(Default2D | Camera2D | Physics2D)
 //   ルート ANode ツリー
-//   world と HUD の描画で共有する 1 つの FSpriteBatch
+//   world と HUD の描画で共有する 1 つの CSpriteBatch
 //
 // 利用側は scene ごとに同じ root/update/render 接続を再実装せず、
 // OnReady/OnTick/OnFixedTick/OnDrawWorld/OnDrawHud を override する。
@@ -22,7 +22,7 @@ namespace acs::game {
  *
  * @details
  * 共通の 2D スタック (CSceneServices(Default2D | Camera2D | Physics2D)、root ANode ツリー、
- * world/HUD 描画用の共有 FSpriteBatch) を配線する。利用者は root/update/render の定型
+ * world/HUD 描画用の共有 CSpriteBatch) を配線する。利用者は root/update/render の定型
  * 処理を毎シーン書き直す代わりに OnReady/OnTick/OnFixedTick/OnDrawWorld/OnDrawHud を
  * override する。平面反射とステンシルマスクをオプションで有効化できる。
  */
@@ -64,11 +64,11 @@ public:
     const ANode& Root() const noexcept { return *m_Root; }
 
     /**
-     * world/HUD 描画に使う共有 FSpriteBatch を返す。
+     * world/HUD 描画に使う共有 CSpriteBatch を返す。
      *
-     * @return 共有 FSpriteBatch への参照。
+     * @return 共有 CSpriteBatch への参照。
      */
-    FSpriteBatch& SpriteBatch() noexcept { return m_Sprites; }
+    CSpriteBatch& SpriteBatch() noexcept { return m_Sprites; }
 
     /**
      * 1 ワールド単位あたりのピクセル数を設定する。
@@ -88,7 +88,7 @@ public:
      * 画面ピクセル座標をワールド座標へ変換する (マウスピッキング用)。
      *
      * @details
-     * 入力は左上原点の画面ピクセル (FInput::MousePos() の値)。AScene2D のレンダリング
+     * 入力は左上原点の画面ピクセル (CInput::MousePos() の値)。AScene2D のレンダリング
      * (ppu * camera zoom、camera 中心) と厳密に逆対応するので、CCamera2D::ScreenToWorld
      * (ppu 非考慮) ではなくこちらを使う。画面サイズは直近の OnRender でキャッシュした値を用いる。
      * @param screen_px 変換する画面ピクセル座標 (左上原点)。
@@ -217,21 +217,21 @@ protected:
      * world view でのカスタム描画フック (root ツリー描画の後に呼ばれる)。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
-     * @param sb 現パスに配線された FSpriteBatch。
+     * @param sb 現パスに配線された CSpriteBatch。
      */
-    virtual void OnDrawWorld(FRenderContext& /*rc*/, FSpriteBatch& /*sb*/) noexcept {}
+    virtual void OnDrawWorld(FRenderContext& /*rc*/, CSpriteBatch& /*sb*/) noexcept {}
 
     /**
      * HUD view でのカスタム描画フック (画面座標、カメラ非依存)。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
-     * @param sb 現パスに配線された FSpriteBatch。
+     * @param sb 現パスに配線された CSpriteBatch。
      */
-    virtual void OnDrawHud(FRenderContext& /*rc*/, FSpriteBatch& /*sb*/) noexcept {}
+    virtual void OnDrawHud(FRenderContext& /*rc*/, CSpriteBatch& /*sb*/) noexcept {}
 
 private:
     /**
-     * 共有 FSpriteBatch を遅延初期化する。
+     * 共有 CSpriteBatch を遅延初期化する。
      *
      * @param rc デバイス・カラーフォーマット取得用のレンダーコンテキスト。
      * @return 利用可能なら true、初期化失敗なら false。
@@ -239,7 +239,7 @@ private:
     bool EnsureSpriteBatch(FRenderContext& rc) noexcept;
 
     /**
-     * 反射オフスクリーン pass 専用の別 FSpriteBatch を遅延初期化する。
+     * 反射オフスクリーン pass 専用の別 CSpriteBatch を遅延初期化する。
      *
      * @details 合成 pass と GPU バッファを共有しないよう分離している。
      * @param rc デバイス・カラーフォーマット取得用のレンダーコンテキスト。
@@ -256,7 +256,7 @@ private:
     bool EnsureSceneRt(FRenderContext& rc) noexcept;
 
     /**
-     * 水面深度捕捉 pass 専用の別 FSpriteBatch を遅延初期化する。
+     * 水面深度捕捉 pass 専用の別 CSpriteBatch を遅延初期化する。
      *
      * @return 利用可能なら true、初期化失敗なら false。
      */
@@ -295,19 +295,19 @@ private:
     TObjectPtr<ANode> m_Root;
 
     /** world/HUD 描画用の共有スプライトバッチ。 */
-    FSpriteBatch m_Sprites;
+    CSpriteBatch m_Sprites;
 
     /** m_Sprites が初期化済みかのフラグ。 */
     bool         m_SpritesReady = false;
 
     /** 反射オフスクリーン pass 専用のスプライトバッチ。 */
-    FSpriteBatch m_SceneSprites;
+    CSpriteBatch m_SceneSprites;
 
     /** m_SceneSprites が初期化済みかのフラグ。 */
     bool         m_SceneSpritesReady = false;
 
     /** 水面深度捕捉 pass 専用のスプライトバッチ。 */
-    FSpriteBatch m_WaterDepthSprites;
+    CSpriteBatch m_WaterDepthSprites;
 
     /** m_WaterDepthSprites が初期化済みかのフラグ。 */
     bool         m_WaterDepthSpritesReady = false;

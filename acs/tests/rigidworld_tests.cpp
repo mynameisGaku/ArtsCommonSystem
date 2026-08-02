@@ -16,7 +16,7 @@ using namespace acs::game;
 
 // 動的円が静的床に落ちて静止する (めり込みなし・速度 ~0)。+Y=画面下。
 ACS_TEST(RigidWorld2D, DynamicCircleRestsOnFloor) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     w.AddStaticAabb(FVec2{ 0.0f, 10.0f }, FVec2{ 10.0f, 0.5f }, 0.0f);  // 上端 y=9.5
     const u32 ball = w.AddCircle(FVec2{ 0.0f, 0.0f }, 0.5f, 1.0f, 0.0f);
 
@@ -30,7 +30,7 @@ ACS_TEST(RigidWorld2D, DynamicCircleRestsOnFloor) {
 
 // 等質量・正面衝突・反発 1 → 速度が入れ替わる (弾性衝突、運動量保存)。
 ACS_TEST(RigidWorld2D, ElasticHeadOnSwapsVelocity) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     const u32 a = w.AddCircle(FVec2{ -2.0f, 0.0f }, 0.5f, 1.0f, 1.0f);
     const u32 b = w.AddCircle(FVec2{  2.0f, 0.0f }, 0.5f, 1.0f, 1.0f);
     w.SetVelocity(a, FVec2{  3.0f, 0.0f });
@@ -45,7 +45,7 @@ ACS_TEST(RigidWorld2D, ElasticHeadOnSwapsVelocity) {
 
 // 軽いボディが重いボディに衝突: 重い方はほとんど動かない (運動量はわずかしか移らない)。
 ACS_TEST(RigidWorld2D, HeavyBodyBarelyMoves) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     const u32 light = w.AddCircle(FVec2{ -2.0f, 0.0f }, 0.5f,    1.0f, 0.0f);
     const u32 heavy = w.AddCircle(FVec2{  0.0f, 0.0f }, 0.5f, 1000.0f, 0.0f);
     w.SetVelocity(light, FVec2{ 5.0f, 0.0f });
@@ -58,7 +58,7 @@ ACS_TEST(RigidWorld2D, HeavyBodyBarelyMoves) {
 
 // 動的 AABB (箱) が静的床に落ちて静止する。
 ACS_TEST(RigidWorld2D, DynamicBoxRestsOnFloor) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     w.AddStaticAabb(FVec2{ 0.0f, 10.0f }, FVec2{ 10.0f, 0.5f }, 0.0f);   // 上端 y=9.5
     const u32 box = w.AddDynamicAabb(FVec2{ 0.0f, 0.0f }, FVec2{ 0.5f, 0.5f }, 1.0f, 0.0f);
 
@@ -72,7 +72,7 @@ ACS_TEST(RigidWorld2D, DynamicBoxRestsOnFloor) {
 // 2 点接触マニフォルドにより箱は安定して水平を保ち、不自然な回転 (こけ・スピン) をしない
 // = 物理的に正しい (箱は転がり剛体でない)。
 ACS_TEST(RigidWorld2D, FrictionSlowsSlidingBox) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     w.AddStaticAabb(FVec2{ 0.0f, 10.0f }, FVec2{ 50.0f, 0.5f }, 0.0f, 0.6f);
     const u32 box = w.AddDynamicAabb(FVec2{ 0.0f, 9.0f }, FVec2{ 0.5f, 0.5f }, 1.0f, 0.0f, 0.6f);
     w.SetVelocity(box, FVec2{ 3.0f, 0.0f });
@@ -88,7 +88,7 @@ ACS_TEST(RigidWorld2D, FrictionSlowsSlidingBox) {
 
 // 箱が箱の上に積み上がって安定する (沈み込み/爆発しない)。
 ACS_TEST(RigidWorld2D, BoxStacksStably) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     w.AddStaticAabb(FVec2{ 0.0f, 10.0f }, FVec2{ 10.0f, 0.5f }, 0.0f);   // 床上端 9.5
     const u32 b1 = w.AddDynamicAabb(FVec2{ 0.0f, 9.0f }, FVec2{ 0.5f, 0.5f }, 1.0f, 0.0f);  // 床上
     const u32 b2 = w.AddDynamicAabb(FVec2{ 0.0f, 8.0f }, FVec2{ 0.5f, 0.5f }, 1.0f, 0.0f);  // b1 上
@@ -102,7 +102,7 @@ ACS_TEST(RigidWorld2D, BoxStacksStably) {
 
 // 角速度は接触が無ければ保存され、角度が積分される。
 ACS_TEST(RigidWorld2D, SpinPersistsWithoutContact) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     const u32 c = w.AddCircle(FVec2{ 0.0f, 0.0f }, 0.5f, 1.0f);
     w.SetAngularVelocity(c, 2.0f);
     for (int i = 0; i < 60; ++i) w.Step(1.0f / 60.0f, FVec2{ 0.0f, 0.0f });   // 1.0s, 接触なし
@@ -112,7 +112,7 @@ ACS_TEST(RigidWorld2D, SpinPersistsWithoutContact) {
 
 // 床上を滑る円は摩擦で回転を生じる (転がり始める)。
 ACS_TEST(RigidWorld2D, CircleRollsFromFriction) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     w.AddStaticAabb(FVec2{ 0.0f, 10.0f }, FVec2{ 50.0f, 0.5f }, 0.0f, 0.6f);
     const u32 ball = w.AddCircle(FVec2{ 0.0f, 9.0f }, 0.5f, 1.0f, 0.0f, 0.6f);
     w.SetVelocity(ball, FVec2{ 3.0f, 0.0f });
@@ -122,7 +122,7 @@ ACS_TEST(RigidWorld2D, CircleRollsFromFriction) {
 
 // 中心を通る正面衝突 (摩擦0) は回転を生じない (法線の腕が 0)。
 ACS_TEST(RigidWorld2D, CentralCollisionNoSpin) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     const u32 a = w.AddCircle(FVec2{ -2.0f, 0.0f }, 0.5f, 1.0f, 1.0f, 0.0f);
     const u32 b = w.AddCircle(FVec2{  2.0f, 0.0f }, 0.5f, 1.0f, 1.0f, 0.0f);
     w.SetVelocity(a, FVec2{  3.0f, 0.0f });
@@ -136,7 +136,7 @@ ACS_TEST(RigidWorld2D, CentralCollisionNoSpin) {
 // AABB では「見えない水平面」で止まってしまうが、OBB なら傾いた面で正しく滑り、x も y も
 // 斜面方向へ動く (= 現実の斜面の挙動)。
 ACS_TEST(RigidWorld2D, BoxSlidesDownSlope) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     const u32 slope = w.AddStaticAabb(FVec2{ 0.0f, 10.0f }, FVec2{ 40.0f, 0.5f }, 0.0f, 0.05f);
     w.SetAngle(slope, 0.45f);   // 約 26° の斜面
     const u32 box = w.AddDynamicAabb(FVec2{ 0.0f, 8.0f }, FVec2{ 0.5f, 0.5f }, 1.0f, 0.0f, 0.05f);
@@ -150,7 +150,7 @@ ACS_TEST(RigidWorld2D, BoxSlidesDownSlope) {
 
 // SetDamping の角減衰で、接触が無くても角速度が時間とともに自然に弱まる (逆転はしない)。
 ACS_TEST(RigidWorld2D, AngularDampingSlowsSpin) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     const u32 c = w.AddCircle(FVec2{ 0.0f, 0.0f }, 0.5f, 1.0f);
     w.SetAngularVelocity(c, 4.0f);
     w.SetDamping(c, 0.0f, 2.0f);   // 角減衰 2/s
@@ -162,7 +162,7 @@ ACS_TEST(RigidWorld2D, AngularDampingSlowsSpin) {
 
 // 凸ポリゴン (三角形) が静的床に落ちて底辺で安定して静止する。
 ACS_TEST(RigidWorld2D, PolygonRestsOnFloor) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     w.AddStaticAabb(FVec2{ 0.0f, 10.0f }, FVec2{ 20.0f, 0.5f }, 0.0f, 0.5f);   // 上端 y=9.5
     const FVec2 tri[3] = { { 0.0f, -0.6f }, { 0.6f, 0.5f }, { -0.6f, 0.5f } }; // 上頂点・底辺 y=0.5
     const u32 p = w.AddPolygon(FVec2{ 0.0f, 5.0f }, tri, 3u, 1.0f, 0.0f, 0.5f);
@@ -175,7 +175,7 @@ ACS_TEST(RigidWorld2D, PolygonRestsOnFloor) {
 
 // 円が凸ポリゴン (静的) の傾いた辺に当たって止まる (すり抜けない)。
 ACS_TEST(RigidWorld2D, CircleVsPolygonBlocks) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     const FVec2 quad[4] = { { -3.0f, 0.0f }, { 3.0f, 0.0f }, { 3.0f, 1.0f }, { -3.0f, 1.0f } };  // 横長台
     w.AddPolygon(FVec2{ 0.0f, 10.0f }, quad, 4u, 0.0f, 0.0f, 0.5f);          // 静的ポリゴン (mass 0)
     const u32 ball = w.AddCircle(FVec2{ 0.0f, 5.0f }, 0.5f, 1.0f, 0.0f);     // 上から落ちる
@@ -188,7 +188,7 @@ ACS_TEST(RigidWorld2D, CircleVsPolygonBlocks) {
 
 // point / overlap クエリ。
 ACS_TEST(RigidWorld2D, QueryPointAndOverlap) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     const u32 c0 = w.AddCircle(FVec2{ 0.0f, 0.0f }, 1.0f, 1.0f);
     const u32 b1 = w.AddStaticAabb(FVec2{ 5.0f, 0.0f }, FVec2{ 1.0f, 1.0f });
 
@@ -203,7 +203,7 @@ ACS_TEST(RigidWorld2D, QueryPointAndOverlap) {
 
 // レイキャスト: 最近接ヒット / 逆向き miss / 距離外 miss。
 ACS_TEST(RigidWorld2D, RaycastHitsNearest) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     w.AddCircle(FVec2{ 5.0f, 0.0f }, 1.0f, 1.0f);          // x=5 の円 (左端 x=4)
     w.AddStaticAabb(FVec2{ 10.0f, 0.0f }, FVec2{ 1.0f, 1.0f });
 
@@ -219,7 +219,7 @@ ACS_TEST(RigidWorld2D, RaycastHitsNearest) {
 
 // ボディ削除 (tombstone) と slot 再利用。
 ACS_TEST(RigidWorld2D, RemoveBodyAndReuse) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     const u32 a = w.AddCircle(FVec2{ 0.0f, 0.0f }, 0.5f, 1.0f);
     const u32 b = w.AddCircle(FVec2{ 3.0f, 0.0f }, 0.5f, 1.0f);
     EXPECT_EQ(w.Count(), 2u);
@@ -238,7 +238,7 @@ ACS_TEST(RigidWorld2D, RemoveBodyAndReuse) {
 
 // センサ: 衝突応答せず素通りしつつ、OverlapBody で重なりを検出できる。
 ACS_TEST(RigidWorld2D, SensorDetectsButDoesNotBlock) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     const u32 sensor = w.AddSensorCircle(FVec2{ 0.0f, 5.0f }, 1.0f);   // (0,5) のトリガ域
     const u32 ball   = w.AddCircle(FVec2{ 0.0f, 0.0f }, 0.5f, 1.0f);   // 落下 (+Y=下)
 
@@ -257,7 +257,7 @@ ACS_TEST(RigidWorld2D, SensorDetectsButDoesNotBlock) {
 
 // OverlapBody は自身を除き、重なっているボディだけを返す。
 ACS_TEST(RigidWorld2D, OverlapBodyExcludesSelf) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     const u32 zone = w.AddSensorAabb(FVec2{ 0.0f, 0.0f }, FVec2{ 2.0f, 2.0f });
     w.AddCircle(FVec2{ 0.0f, 0.0f }, 0.5f, 1.0f);    // 域内
     w.AddCircle(FVec2{ 1.5f, 0.0f }, 0.5f, 1.0f);    // 域内
@@ -271,14 +271,14 @@ ACS_TEST(RigidWorld2D, OverlapBodyExcludesSelf) {
 // 縦に 2.0 伸びて重なる = 衝突が angle を見ている (AABB 近似では誤検出/見逃しになる)。
 ACS_TEST(RigidWorld2D, ObbOverlapRespectsRotation) {
     {
-        FRigidWorld2D w;
+        CRigidWorld2D w;
         const u32 a = w.AddDynamicAabb(FVec2{ 0.0f, 0.0f }, FVec2{ 2.0f, 0.2f }, 1.0f);
         w.AddDynamicAabb(FVec2{ 0.0f, 1.0f }, FVec2{ 2.0f, 0.2f }, 1.0f);   // 軸並行 → y に隙間
         u32 out[8];
         EXPECT_EQ(w.OverlapBody(a, out, 8u), 0u);                          // 重ならない
     }
     {
-        FRigidWorld2D w;
+        CRigidWorld2D w;
         const u32 a = w.AddDynamicAabb(FVec2{ 0.0f, 0.0f }, FVec2{ 2.0f, 0.2f }, 1.0f);
         const u32 b = w.AddDynamicAabb(FVec2{ 0.0f, 1.0f }, FVec2{ 2.0f, 0.2f }, 1.0f);
         w.SetAngle(b, 1.5707963f);                                         // 90° → 縦に伸びる
@@ -290,7 +290,7 @@ ACS_TEST(RigidWorld2D, ObbOverlapRespectsRotation) {
 // CCD: 高速な円が薄い静的壁をすり抜けない (トンネリング防止)。CCD 無効だと貫通する。
 ACS_TEST(RigidWorld2D, CcdPreventsWallTunneling) {
     // 薄い縦壁 (x=0, 厚み 0.2) に、左から超高速で円を撃ち込む (1 step で 20 units 移動)。
-    auto setup = [](FRigidWorld2D& w) -> u32 {
+    auto setup = [](CRigidWorld2D& w) -> u32 {
         w.AddStaticAabb(FVec2{ 0.0f, 0.0f }, FVec2{ 0.1f, 5.0f }, 0.0f);
         const u32 ball = w.AddCircle(FVec2{ -5.0f, 0.0f }, 0.3f, 1.0f, 0.0f);
         w.SetVelocity(ball, FVec2{ 1200.0f, 0.0f });   // 1200 px/s → dt=1/60 で 20/step
@@ -299,13 +299,13 @@ ACS_TEST(RigidWorld2D, CcdPreventsWallTunneling) {
 
     // CCD 無効: 1 step で壁を貫通して反対側へ抜ける。
     {
-        FRigidWorld2D w; const u32 ball = setup(w);
+        CRigidWorld2D w; const u32 ball = setup(w);
         for (int i = 0; i < 3; ++i) w.Step(1.0f / 60.0f, FVec2{ 0.0f, 0.0f });
         EXPECT_TRUE(w.Position(ball).x > 1.0f);     // すり抜けた (右側へ)
     }
     // CCD 有効: 壁の手前で止まる。
     {
-        FRigidWorld2D w; const u32 ball = setup(w);
+        CRigidWorld2D w; const u32 ball = setup(w);
         w.SetCcd(ball, true);
         for (int i = 0; i < 10; ++i) w.Step(1.0f / 60.0f, FVec2{ 0.0f, 0.0f });
         const f32 x = w.Position(ball).x;
@@ -316,7 +316,7 @@ ACS_TEST(RigidWorld2D, CcdPreventsWallTunneling) {
 
 // CCD: 高速落下する円が薄い床をすり抜けず、床上で止まる。
 ACS_TEST(RigidWorld2D, CcdStopsFastFallOnThinFloor) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     w.AddStaticAabb(FVec2{ 0.0f, 10.0f }, FVec2{ 10.0f, 0.1f }, 0.0f);   // 薄い床 (上端 y=9.9)
     const u32 ball = w.AddCircle(FVec2{ 0.0f, 0.0f }, 0.3f, 1.0f, 0.0f);
     w.SetCcd(ball, true);
@@ -331,7 +331,7 @@ ACS_TEST(RigidWorld2D, CcdStopsFastFallOnThinFloor) {
 
 // CCD: 低速な通常の落下では CCD が早すぎる停止を起こさず、従来どおり床上で静止する (非回帰)。
 ACS_TEST(RigidWorld2D, CcdDoesNotBreakNormalRest) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     w.AddStaticAabb(FVec2{ 0.0f, 10.0f }, FVec2{ 10.0f, 0.5f }, 0.0f);   // 上端 y=9.5
     const u32 ball = w.AddCircle(FVec2{ 0.0f, 0.0f }, 0.5f, 1.0f, 0.0f);
     w.SetCcd(ball, true);                            // CCD 有効でも通常落下は変わらない
@@ -344,7 +344,7 @@ ACS_TEST(RigidWorld2D, CcdDoesNotBreakNormalRest) {
 
 // 空ワールド / 静的同士 / 範囲外アクセスが安全 (クラッシュしない・不動)。
 ACS_TEST(RigidWorld2D, StaticAndEmptyAreSafe) {
-    FRigidWorld2D w;
+    CRigidWorld2D w;
     w.Step(1.0f / 60.0f, FVec2{ 0.0f, 10.0f });   // 空ワールド
 
     w.AddStaticAabb(FVec2{ 0.0f,  0.0f }, FVec2{ 1.0f, 1.0f });

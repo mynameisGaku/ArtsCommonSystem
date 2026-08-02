@@ -278,7 +278,7 @@ EHotReloadResult ConvertNativeUtf16ToUtf8(
     // FILE_NOTIFY_INFORMATION の filename 由来で MAX_PATH 級に収まる想定)。
     char  stack_buf[1024];
     char* buf = stack_buf;
-    FAllocator* alloc = nullptr;
+    IAllocator* alloc = nullptr;
     if (static_cast<usize>(need) >= sizeof(stack_buf)) {
         alloc = out.GetAllocator();
         buf = static_cast<char*>(alloc->Alloc(static_cast<usize>(need),
@@ -1142,7 +1142,7 @@ void CHotReloadWatcher::ClearEvents() noexcept {
 // 診断を含む instance storage を追加しない契約も compile time で固定する。
 static_assert(
     sizeof(CHotReloadWatcher) == 1u,
-    "Shipping FHotReloadWatcher must remain storage-free");
+    "Shipping CHotReloadWatcher must remain storage-free");
 constexpr FHotReloadDiagnostics kShippingZeroDiagnostics{};
 static_assert(
     kShippingZeroDiagnostics.enqueued_event_count == 0u &&

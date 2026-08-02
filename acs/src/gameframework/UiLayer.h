@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CUiLayer (acs::ui::FWidget tree を AScene に繋ぐ glue)
+// GameFramework Pillar H — CUiLayer (acs::AWidget tree を AScene に繋ぐ glue)
 //
 // 役割:
-//   既存の `acs::ui` FWidget システム (Widget.h / Widgets.h / UiRenderer.h) は
+//   既存の `acs::ui` AWidget システム (Widget.h / Widgets.h / UiRenderer.h) は
 //   retained-mode UI として強力だが、ゲームコード側 (AScene) から直接触るには
 //   ボイラープレートが多い。CUiLayer は **AScene のライフサイクル (Init / Tick /
-//   HandleInput / Shutdown) と FWidget tree を結ぶ薄い層** で、典型的なゲーム UI
+//   HandleInput / Shutdown) と AWidget tree を結ぶ薄い層** で、典型的なゲーム UI
 //   (ボタン / テキスト表示) を最小 API で扱えるようにする。
 //
-//   Pillar H 上のリッチな UI 構築 (FStackPanel / FSlider / FTextInput etc.) は
+//   Pillar H 上のリッチな UI 構築 (AStackPanel / ASlider / ATextInput etc.) は
 //   引き続き `acs::ui` を直接使う想定で、本 layer は **「シーンに数個の UI
 //   要素を貼り付けるだけのゲーム」** の DX (タイトル画面、HUD、ポーズメニュー
 //   など) を改善する位置付け。
@@ -33,10 +33,10 @@
 //   };
 //
 // 設計選択:
-//   ・**自前の軽量実装**: acs::ui の FWidget tree は使わず、ハンドル付きの
+//   ・**自前の軽量実装**: acs::ui の AWidget tree は使わず、ハンドル付きの
 //     FWidgetEntry を TArray で保持して button/text の追加・削除・可視性・
-//     ヒットテスト・押下クエリ・即時描画 (Draw) まで完全動作させる。FSlider /
-//     FCheckbox / FTextInput 等のリッチ widget が要るときは `acs::ui` を直接使う。
+//     ヒットテスト・押下クエリ・即時描画 (Draw) まで完全動作させる。ASlider /
+//     ACheckbox / ATextInput 等のリッチ widget が要るときは `acs::ui` を直接使う。
 //   ・**ハンドルは u32 単調増加**: 削除後の再利用は行わない (世代カウンタ不要、
 //     現実的に 1 シーンで数千 widget を超えることはまずないため uint32 で十分)。
 //     0 は invalid handle 予約。
@@ -48,9 +48,9 @@
 //   ・**全 noexcept**: ACS 全体方針。Init / Shutdown は冪等で再呼び出し安全。
 //
 // 範囲外:
-//   ・実 `acs::ui::FWidget` ツリー構築 (FStackPanel / FButton / FLabel の生成)
-//   ・`FUiRenderer` による描画 (FRenderContext から FSpriteBatch / FFont を受ける)
-//   ・`FEvent` → hit-test → FWidget::OnPointerDown 等の配送
+//   ・実 `acs::AWidget` ツリー構築 (AStackPanel / AButton / ALabel の生成)
+//   ・`CUiRenderer` による描画 (FRenderContext から CSpriteBatch / FFont を受ける)
+//   ・`FEvent` → hit-test → AWidget::OnPointerDown 等の配送
 //   ・focus / keyboard navigation (Tab 移動 / Enter 確定)
 //   ・MVVM TObservable<T> との bind (現状はポーリング型 IsButtonPressed)
 //   ・slider / checkbox / text input / radio などの追加 widget kind
@@ -75,7 +75,7 @@ class FRenderContext;
 /**
  * CUiLayer が扱う widget の種類。
  *
- * @details 現状はボタンとテキストのみ (FSlider / FCheckbox / FTextInput は範囲外)。
+ * @details 現状はボタンとテキストのみ (ASlider / ACheckbox / ATextInput は範囲外)。
  */
 enum class EWidgetKind : u8 {
     /** 未設定 / 無効。 */
@@ -121,11 +121,11 @@ struct FWidgetEntry {
 };
 
 /**
- * acs::ui の FWidget tree を AScene のライフサイクルに繋ぐ薄い glue 層。
+ * acs::ui の AWidget tree を AScene のライフサイクルに繋ぐ薄い glue 層。
  *
  * @details
- * AScene の Init / Tick / HandleInput / Shutdown と FWidget tree を結び、典型的なゲーム UI
- * (ボタン / テキスト表示) を最小 API で扱えるようにする。現状は実 FWidget 生成 / 描画 /
+ * AScene の Init / Tick / HandleInput / Shutdown と AWidget tree を結び、典型的なゲーム UI
+ * (ボタン / テキスト表示) を最小 API で扱えるようにする。現状は実 AWidget 生成 / 描画 /
  * ヒットテストは未接続の state holder で、ハンドル付きの FWidgetEntry を TArray で保持し、
  * 追加・削除・可視性・押下クエリは完全動作する。ハンドルは u32 単調増加で再利用しない
  * (0 は invalid 予約)。const char* は非所有 (寿命は呼び出し側保証)。非コピー・非ムーブ、
@@ -155,7 +155,7 @@ public:
      * UI レイヤを初期化する (AScene::OnEnter から呼ぶ)。
      *
      * @details
-     * FWidget tree の root を確保する (現状は stub、実装時は acs::ui::FContainer を root として
+     * AWidget tree の root を確保する (現状は stub、実装時は acs::AContainer を root として
      * new する)。冪等で再呼び出し安全 (二度 Init してもメモリリークしない)。
      */
     void Init() noexcept;
@@ -167,7 +167,7 @@ public:
      * UI 状態を更新する (AScene::OnUpdate から呼ぶ)。
      *
      * @details
-     * 現状は just_pressed フラグの伝搬ハンドリングのみ。実装時に acs::ui::FWidget::Layout
+     * 現状は just_pressed フラグの伝搬ハンドリングのみ。実装時に acs::AWidget::Layout
      * 再計算と tween / animation の更新を入れる。
      * @param dt 前フレームからの経過秒。
      */
@@ -188,8 +188,8 @@ public:
      * 登録 widget を描画する (AScene::OnDrawHud から呼ぶ)。
      *
      * @details
-     * rc の FSpriteBatch + FFont で描画する (ボタンは hover/押下で色変化、Text はラベル)。
-     * FSpriteBatch セッションが開いている前提で、FFont が無い環境では矩形のみ描画する。
+     * rc の CSpriteBatch + FFont で描画する (ボタンは hover/押下で色変化、Text はラベル)。
+     * CSpriteBatch セッションが開いている前提で、FFont が無い環境では矩形のみ描画する。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
     void Draw(FRenderContext& rc) const noexcept;

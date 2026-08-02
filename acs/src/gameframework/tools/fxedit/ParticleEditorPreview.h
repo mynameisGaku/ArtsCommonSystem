@@ -20,14 +20,14 @@
 //     (= 古い emitter を Destroy → 新 def で Create) ので、UI 上の値変更が
 //     即座に preview に反映される。
 //
-// 設計選択 (FDebugOverlay と同 Pillar の延長線上):
+// 設計選択 (CDebugOverlay と同 Pillar の延長線上):
 //   ・**CParticleEffectSystem を所有しない**: preview はあくまで「外部の
 //     CParticleEffectSystem 上に 1 個 emitter を立てる」スタイル。テスト時には
 //     fake system を渡せるし、in-game ツール時には本番 system を共有できる。
 //   ・**def の copy を内部保持**: 編集中 def を caller のポインタ経由でも、
 //     内部 snapshot 経由でも参照できる。`RecreatePreviewEmitter(system, def)`
 //     に渡された `def` を copy し、`CreateEmitter(copy, spawn_pos)` で新規 instance 化。
-//   ・**frame budget 60-frame ring**: FDebugOverlay と同じ循環バッファ方式
+//   ・**frame budget 60-frame ring**: CDebugOverlay と同じ循環バッファ方式
 //     (容量固定 / push 不可時は上書き)。`GraphFps()` は履歴の算術平均を返す。
 //   ・**非コピー・非ムーブ**: 内部に `FEmitterHandle` (= system 内 slot を指す
 //     handle) を保持するため、ムーブで複製されると DestroyEmitter のタイミングが
@@ -39,7 +39,7 @@
 // 範囲外:
 //   ・curve editor (color/size の時間カーブ編集)
 //   ・preset library (json/tdat 保存・読み込み)
-//   ・GPU sprite preview (実際の FSpriteBatch 統合)
+//   ・GPU sprite preview (実際の CSpriteBatch 統合)
 //   ・複数 emitter の同時 preview (現状 1 個固定)
 #pragma once
 
@@ -212,7 +212,7 @@ public:
     f32  GraphFps() const noexcept;
 
 private:
-    /** frame budget ring buffer の容量 (FDebugOverlay と揃える 60 frame)。 */
+    /** frame budget ring buffer の容量 (CDebugOverlay と揃える 60 frame)。 */
     static constexpr u32 kFpsHistoryCap = 60u;
 
     /** 編集中 emitter (system 上の 1 instance) を指す handle。 */
@@ -236,7 +236,7 @@ private:
     /** 直近 Tick で記録した pool 容量。 */
     u32   m_LastCapacity     = 0u;
 
-    /** 直近 60 frame の fps 履歴 ring (FDebugOverlay と同パターン)。 */
+    /** 直近 60 frame の fps 履歴 ring (CDebugOverlay と同パターン)。 */
     TArray<f32> m_FpsHistory;
 
     /** fps 履歴 ring の書き込み位置。 */

@@ -7,10 +7,10 @@ using namespace acs;
 
 namespace helloraycast3d {
 
-void FRaycastTargets::Init() noexcept {
+void CRaycastTargets::Init() noexcept {
     for (u32 i = 0; i < kNumObjects; ++i) {
         const f32 a = (kPi * 2.0f) * static_cast<f32>(i) / kNumObjects;
-        FObject& o = m_Objects[i];
+        FRaycastTarget& o = m_Objects[i];
         // 球と立方体を交互に / 上下に段差を付けて見栄えに変化を出す
         o.kind     = (i & 1) ? EShapeKind::Sphere : EShapeKind::Cube;
         o.position = { Sin(a) * kObjectArenaR,
@@ -24,16 +24,16 @@ void FRaycastTargets::Init() noexcept {
     m_HitIndex = -1;
 }
 
-void FRaycastTargets::SetHit(i32 index, FVec3 point) noexcept {
+void CRaycastTargets::SetHit(i32 index, FVec3 point) noexcept {
     m_HitIndex = index;
     m_HitPoint = point;
 }
 
-void FRaycastTargets::ClearHit() noexcept {
+void CRaycastTargets::ClearHit() noexcept {
     m_HitIndex = -1;
 }
 
-FVec3 FRaycastTargets::m_HsvToRgb(f32 h, f32 s, f32 v) noexcept {
+FVec3 CRaycastTargets::m_HsvToRgb(f32 h, f32 s, f32 v) noexcept {
     // h を [0,1) に折り返す (負値も拾えるように 2 段階で)
     h = h - static_cast<i32>(h);
     if (h < 0) h += 1.0f;

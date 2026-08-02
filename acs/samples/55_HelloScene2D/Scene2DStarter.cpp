@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloScene2D - ACS 2D ゲームの実用的な開始例。
 //
-// FScene2D 基盤の次の機能を示す:
+// AScene2D 基盤の次の機能を示す:
 //   - ルートノードツリー
 //   - FRenderContext 経由で共有する SpriteBatch
 //   - ASprite2DComponent による描画
@@ -19,7 +19,7 @@ constexpr FActionId kMoveX("MoveX");
 constexpr FActionId kMoveY("MoveY");
 constexpr FActionId kQuit("Quit");
 
-class FStarterScene final : public FScene2D
+class AStarterScene final : public AScene2D
 {
 public:
     void OnReady() noexcept override
@@ -32,7 +32,7 @@ public:
         input.BindAxisKeys(kMoveY, EKey::S, EKey::W);
         input.BindKey(kQuit, EKey::Escape);
 
-        FCollisionWorld2D& physics = Services().Physics();
+        CCollisionWorld2D& physics = Services().Physics();
         physics.Init(1.0f);
         physics.AddAabb(FAabb2{FVec2{0.0f, 2.25f}, FVec2{8.0f, 0.35f}});
         physics.AddAabb(FAabb2{FVec2{-4.25f, 0.0f}, FVec2{0.35f, 2.5f}});
@@ -75,7 +75,7 @@ public:
         Services().Camera().SetTargetPos(m_Player->Position2D(), 8.0f);
     }
 
-    void OnDrawWorld(FRenderContext& /*rc*/, FSpriteBatch& sb) noexcept override
+    void OnDrawWorld(FRenderContext& /*rc*/, CSpriteBatch& sb) noexcept override
     {
         // A small grid so camera/scale are obvious.
         for (i32 x = -8; x <= 8; ++x)
@@ -90,7 +90,7 @@ public:
         }
     }
 
-    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override
+    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override
     {
         sb.DrawRect(12.0f, 12.0f, 360.0f, 54.0f, FVec4{0.0f, 0.0f, 0.0f, 0.45f});
         // Text omitted intentionally: this starter has no font dependency.
@@ -110,12 +110,12 @@ private:
     APhysicsBody2D* m_PlayerBody = nullptr;
 };
 
-class FStarterGame final : public FGame
+class CStarterGame final : public CGame
 {
 protected:
-    TUniquePtr<FScene> InitialScene() noexcept override { return MakeUnique<FStarterScene>(); }
+    TUniquePtr<AScene> InitialScene() noexcept override { return MakeUnique<AStarterScene>(); }
 };
 
 }; // namespace
 
-ACS_GAME_MAIN(FStarterGame)
+ACS_GAME_MAIN(CStarterGame)

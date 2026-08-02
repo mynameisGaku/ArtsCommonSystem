@@ -27,12 +27,12 @@ namespace {
 
 constexpr f32 kWaterHalfExtent = 7.8f;
 
-TSharedPtr<FMeshAsset> MakeWaterGrid(f32 width, f32 depth,
+TSharedPtr<AMeshAsset> MakeWaterGrid(f32 width, f32 depth,
                                      u32 columns, u32 rows) noexcept {
     if (columns < 2) columns = 2;
     if (rows < 2) rows = 2;
-    auto mesh = MakeShared<FMeshAsset>();
-    if (!mesh) return TSharedPtr<FMeshAsset>();
+    auto mesh = MakeShared<AMeshAsset>();
+    if (!mesh) return TSharedPtr<AMeshAsset>();
 
     auto& vertices = mesh->Vertices();
     auto& indices = mesh->Indices();
@@ -80,9 +80,9 @@ TSharedPtr<FMeshAsset> MakeWaterGrid(f32 width, f32 depth,
     return mesh;
 }
 
-TSharedPtr<FMeshAsset> MakeFloorPlane(f32 width, f32 depth) noexcept {
-    auto mesh = MakeShared<FMeshAsset>();
-    if (!mesh) return TSharedPtr<FMeshAsset>();
+TSharedPtr<AMeshAsset> MakeFloorPlane(f32 width, f32 depth) noexcept {
+    auto mesh = MakeShared<AMeshAsset>();
+    if (!mesh) return TSharedPtr<AMeshAsset>();
     auto& vertices = mesh->Vertices();
     auto& indices = mesh->Indices();
     const f32 half_width = width * 0.5f;
@@ -123,7 +123,7 @@ TResult<TUniquePtr<IRhiTexture>> CreateFloorTexture(IRhiDevice& device) noexcept
     constexpr u32 kSize = 256;
     constexpr usize kBytes =
         static_cast<usize>(kSize) * static_cast<usize>(kSize) * 4u;
-    FAllocator& allocator = DefaultAllocator();
+    IAllocator& allocator = DefaultAllocator();
     u8* pixels = static_cast<u8*>(allocator.Alloc(kBytes));
     if (!pixels) {
         return Err<TUniquePtr<IRhiTexture>>(
@@ -162,7 +162,7 @@ TResult<TUniquePtr<IRhiTexture>> CreateFloorTexture(IRhiDevice& device) noexcept
 
 } // namespace
 
-void FHelloWater3DApp::OnStart() noexcept {
+void CHelloWater3DApp::OnStart() noexcept {
     IRhiDevice* device = GetRenderer().Device();
     IRhiSwapchain* swapchain = GetRenderer().Swapchain();
     if (!device || !swapchain) {
@@ -248,7 +248,7 @@ void FHelloWater3DApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloWater3D initialized: %s", device->BackendName());
 }
 
-bool FHelloWater3DApp::ResizeFrameResources(
+bool CHelloWater3DApp::ResizeFrameResources(
     u32 width, u32 height, bool resize_post_process) noexcept {
     if (width == 0 || height == 0) return true;
 
@@ -291,7 +291,7 @@ bool FHelloWater3DApp::ResizeFrameResources(
     return true;
 }
 
-void FHelloWater3DApp::OnEvent(const FEvent& event) noexcept {
+void CHelloWater3DApp::OnEvent(const FEvent& event) noexcept {
     if (event.type != EEventType::WindowResize
         || event.resize.width == 0 || event.resize.height == 0) {
         return;
@@ -303,7 +303,7 @@ void FHelloWater3DApp::OnEvent(const FEvent& event) noexcept {
     }
 }
 
-void FHelloWater3DApp::UpdateCamera() noexcept {
+void CHelloWater3DApp::UpdateCamera() noexcept {
     const f32 cosine_pitch = Cos(m_CameraPitch);
     m_CameraPosition = FVec3{
         m_CameraTarget.x
@@ -315,13 +315,13 @@ void FHelloWater3DApp::UpdateCamera() noexcept {
     m_Camera.SetLookAt(m_CameraPosition, m_CameraTarget, FVec3::Up());
 }
 
-bool FHelloWater3DApp::MouseToWater(FVec3& world_point) noexcept {
+bool CHelloWater3DApp::MouseToWater(FVec3& world_point) noexcept {
     IRhiSwapchain* swapchain = GetRenderer().Swapchain();
     if (!swapchain || swapchain->Width() == 0 || swapchain->Height() == 0) {
         return false;
     }
 
-    const FVec2 mouse = FInput::MousePos();
+    const FVec2 mouse = CInput::MousePos();
     const FRay3 ray = ScreenPointToRay(
         m_Camera, mouse.x, mouse.y,
         static_cast<f32>(swapchain->Width()),
@@ -342,8 +342,8 @@ bool FHelloWater3DApp::MouseToWater(FVec3& world_point) noexcept {
     return true;
 }
 
-void FHelloWater3DApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) {
+void CHelloWater3DApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) {
         Quit();
         return;
     }
@@ -352,35 +352,35 @@ void FHelloWater3DApp::OnUpdate(f32 dt) noexcept {
     m_PostParams.delta_time = dt;
     m_PostParams.grain_time += dt;
 
-    const FVec2 mouse_delta = FInput::MouseDelta();
-    if (FInput::IsMouseButtonDown(EMouseButton::Right)) {
+    const FVec2 mouse_delta = CInput::MouseDelta();
+    if (CInput::IsMouseButtonDown(EMouseButton::Right)) {
         m_CameraYaw += mouse_delta.x * 0.006f;
         m_CameraPitch += mouse_delta.y * 0.005f;
     }
     const f32 keyboard_turn = 1.2f * dt;
-    if (FInput::IsKeyDown(EKey::Left)) m_CameraYaw -= keyboard_turn;
-    if (FInput::IsKeyDown(EKey::Right)) m_CameraYaw += keyboard_turn;
-    if (FInput::IsKeyDown(EKey::Up)) m_CameraPitch += keyboard_turn * 0.72f;
-    if (FInput::IsKeyDown(EKey::Down)) m_CameraPitch -= keyboard_turn * 0.72f;
+    if (CInput::IsKeyDown(EKey::Left)) m_CameraYaw -= keyboard_turn;
+    if (CInput::IsKeyDown(EKey::Right)) m_CameraYaw += keyboard_turn;
+    if (CInput::IsKeyDown(EKey::Up)) m_CameraPitch += keyboard_turn * 0.72f;
+    if (CInput::IsKeyDown(EKey::Down)) m_CameraPitch -= keyboard_turn * 0.72f;
     if (m_CameraPitch < 0.14f) m_CameraPitch = 0.14f;
     if (m_CameraPitch > 1.28f) m_CameraPitch = 1.28f;
-    m_CameraDistance -= FInput::MouseWheel() * 0.85f;
+    m_CameraDistance -= CInput::MouseWheel() * 0.85f;
     if (m_CameraDistance < 4.5f) m_CameraDistance = 4.5f;
     if (m_CameraDistance > 20.0f) m_CameraDistance = 20.0f;
     UpdateCamera();
 
     m_Water.Update(dt);
-    if (FInput::IsKeyPressed(EKey::C)) m_Water.ClearDisturbances();
-    if (FInput::IsKeyPressed(EKey::Space)) {
+    if (CInput::IsKeyPressed(EKey::C)) m_Water.ClearDisturbances();
+    if (CInput::IsKeyPressed(EKey::Space)) {
         (void)m_Water.AddDisturbance(FVec3{0, 0, 0}, 0.25f, 0.30f);
     }
 
     FVec3 water_point{};
     m_MouseHitsWater = MouseToWater(water_point);
     const bool pressed =
-        FInput::IsMouseButtonPressed(EMouseButton::Left);
+        CInput::IsMouseButtonPressed(EMouseButton::Left);
     const bool dragging =
-        FInput::IsMouseButtonDown(EMouseButton::Left);
+        CInput::IsMouseButtonDown(EMouseButton::Left);
 
     if (pressed && m_MouseHitsWater) {
         (void)m_Water.AddDisturbance(water_point, 0.17f, 0.24f);
@@ -420,7 +420,7 @@ void FHelloWater3DApp::OnUpdate(f32 dt) noexcept {
     }
 }
 
-bool FHelloWater3DApp::OnCustomFrame() noexcept {
+bool CHelloWater3DApp::OnCustomFrame() noexcept {
     IRhiCommandList* command_list = GetRenderer().CommandList();
     IRhiSwapchain* swapchain = GetRenderer().Swapchain();
     IRhiTexture* hdr = m_Post.HdrRenderTarget();
@@ -461,7 +461,7 @@ bool FHelloWater3DApp::OnCustomFrame() noexcept {
     // The water samples a stable copy, never the render target it writes.
     m_Blit.Copy(*command_list, *hdr, *m_SceneCopy);
     // Depth must be an SRV for physically reconstructed water thickness. Bind
-    // no DSV here; FWaterSurface3D selects its manual-depth-test pipeline.
+    // no DSV here; CWaterSurface3D selects its manual-depth-test pipeline.
     command_list->BeginRenderToTextureLoad(*hdr, nullptr);
     command_list->SetViewport(viewport);
     command_list->SetScissor(scissor);
@@ -488,7 +488,7 @@ bool FHelloWater3DApp::OnCustomFrame() noexcept {
         std::snprintf(
             status, sizeof(status),
             "persistent ripples: %u / %u    FPS: %.1f",
-            m_Water.ActiveRippleCount(), FWaterSurface3D::kMaxRipples,
+            m_Water.ActiveRippleCount(), CWaterSurface3D::kMaxRipples,
             static_cast<double>(FPS()));
         m_Batch.DrawString(
             m_Font, status, 20, 42,
@@ -498,7 +498,7 @@ bool FHelloWater3DApp::OnCustomFrame() noexcept {
             "LMB click: impact  LMB drag: wake  RMB drag/arrows: orbit  wheel: zoom  C: clear",
             20, 64, FVec4{0.74f, 0.86f, 1.0f, 1.0f});
     }
-    const FVec2 mouse = FInput::MousePos();
+    const FVec2 mouse = CInput::MousePos();
     const FVec4 cursor_color = m_MouseHitsWater
         ? FVec4{0.62f, 1.0f, 0.78f, 0.92f}
         : FVec4{1.0f, 0.45f, 0.32f, 0.82f};
@@ -514,7 +514,7 @@ bool FHelloWater3DApp::OnCustomFrame() noexcept {
     return true;
 }
 
-void FHelloWater3DApp::OnShutdown() noexcept {
+void CHelloWater3DApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();

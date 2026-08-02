@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — FGameOverScene 実装。
+// HelloFullGame — AGameOverScene 実装。
 #include "GameOverScene.h"
 #include "FullGameApp.h"
 #include "TitleScene.h"
@@ -17,13 +17,13 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void FGameOverScene::OnEnter() noexcept {
+void AGameOverScene::OnEnter() noexcept {
     FInputMap& im = Services().Input();
     im.ClearAll();
     im.BindKey(FActionId("Reset"), EKey::R);
     im.BindKey(FActionId("Quit"),  EKey::Escape);
 
-    auto& app = static_cast<FFullGameApp&>(GetGame());
+    auto& app = static_cast<CFullGameApp&>(GetGame());
     m_SavedBest    = app.GetHighScore().best_score;
     m_bIsNewRecord = m_FinalScore >= m_SavedBest && m_FinalScore > 0;
 
@@ -36,29 +36,29 @@ void FGameOverScene::OnEnter() noexcept {
                  static_cast<unsigned long long>(m_SavedBest));
 }
 
-void FGameOverScene::OnExit() noexcept {
+void AGameOverScene::OnExit() noexcept {
     ACS_LOG_INFO("[GameOver] exit");
 }
 
-void FGameOverScene::OnUpdate(f32 dt) noexcept {
+void AGameOverScene::OnUpdate(f32 dt) noexcept {
     const FInputMap& im = Services().Input();
     if (im.IsPressed(FActionId("Quit"))) {
         GetGame().Quit();
         return;
     }
     if (im.IsPressed(FActionId("Reset"))) {
-        Scenes().ChangeScene(MakeUnique<FTitleScene>());
+        Scenes().ChangeScene(MakeUnique<ATitleScene>());
         return;
     }
     _state_sec += dt;
 }
 
-void FGameOverScene::OnRender(FRenderContext& rc) noexcept {
-    auto& app = static_cast<FFullGameApp&>(GetGame());
+void AGameOverScene::OnRender(FRenderContext& rc) noexcept {
+    auto& app = static_cast<CFullGameApp&>(GetGame());
     app.EnsureSpritesInitialized();
     if (!app.SpritesReady()) return;
 
-    FSpriteBatch& sb = app.Sprites();
+    CSpriteBatch& sb = app.Sprites();
     const u32 sw = rc.Width();
     const u32 sh = rc.Height();
     sb.Begin(rc.Cmd(), sw, sh);

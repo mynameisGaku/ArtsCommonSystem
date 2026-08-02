@@ -26,7 +26,7 @@
 // 設計選択:
 //   ・**type_name は const char* literal 前提**: drawer name は登録元が永続所有する
 //     リテラル文字列を想定。本 registry はコピー所有しない (= STL `std::string` 不使用)。
-//     比較は per-byte ループ (FSettings / FEntitlementRegistry と同じ StrEq pattern)。
+//     比較は per-byte ループ (CSettings / CEntitlementRegistry と同じ StrEq pattern)。
 //   ・**`DrawerFn` は raw 関数ポインタ + `FPropertyContext`**: ACS は std::function 禁止。
 //     `FPropertyContext` は POD 構造体で、必要な情報 (data ポインタ / 表示名 / tooltip /
 //     min/max / enum labels / out_changed) を 1 つにまとめて渡す。引数増減で

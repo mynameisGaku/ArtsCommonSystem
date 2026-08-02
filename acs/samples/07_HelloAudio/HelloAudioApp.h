@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloAudio — FApplication 派生クラス。
+// HelloAudio — CApplication 派生クラス。
 //
 // 動作:
 //   ・カレントディレクトリの "test.wav" を読み込んで再生
@@ -15,7 +15,7 @@
 
 namespace helloaudio {
 
-class FHelloAudioApp : public acs::FApplication {
+class CHelloAudioApp : public acs::CApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -23,7 +23,7 @@ public:
 
 private:
     acs::CAudioEngine m_Engine;
-    acs::TSharedPtr<acs::FAsset> m_Audio;
+    acs::TSharedPtr<acs::AAsset> m_Audio;
     acs::FSoundHandle    m_Handle = acs::kInvalidSound;
     acs::f32            m_Volume = 1.0f;
 };

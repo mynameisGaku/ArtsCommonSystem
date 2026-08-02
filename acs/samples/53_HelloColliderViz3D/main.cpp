@@ -3,4 +3,4 @@
 #include "Viz3DApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(viz3d::FViz3DApp)
+ACS_DEFINE_MAIN(viz3d::CViz3DApp)

@@ -4,7 +4,7 @@
 // ノードに付けると、その world 位置を光源として lit スプライト (PBR マテリアル) を
 // 照らす。半径・色・強度を持つ。エディタでは Add Component で付けて gizmo で動かせる。
 // 値はリフレクション (ACS_RPROP) でエディタが保持し、DrawScene がライトを集めて
-// FSpriteBatch::SetLights に渡す。
+// CSpriteBatch::SetLights に渡す。
 #pragma once
 
 #include "gameframework/AComponent.h"

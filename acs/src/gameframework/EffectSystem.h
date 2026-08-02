@@ -2,7 +2,7 @@
 // GameFramework Pillar I — CEffectSystem (画面演出指揮)
 //
 // 画面エフェクトの中央指揮塔: Flash (全画面色被せ) / HitStop (一時停止) /
-// FCamera Shake (CCamera2D 連携) をひとまとめにし、描画側 / CGame ループ /
+// CCamera Shake (CCamera2D 連携) をひとまとめにし、描画側 / CGame ループ /
 // CCamera2D が「pull する側」になる単純なバスとして振る舞う。
 //
 // 設計選択 (Pillar I):

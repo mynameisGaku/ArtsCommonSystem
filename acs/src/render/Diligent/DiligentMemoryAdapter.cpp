@@ -244,10 +244,10 @@ private:
 };
 
 /**
- * ACS の FAllocator へ委譲する Diligent::IMemoryAllocator 実装。
+ * ACS の IAllocator へ委譲する Diligent::IMemoryAllocator 実装。
  *
  * @details
- * Diligent の確保・解放要求を backing FAllocator へ流す。アライメントは max_align_t に
+ * Diligent の確保・解放要求を backing IAllocator へ流す。アライメントは max_align_t に
  * 固定し、確保ごとに確保元を記録するため、アダプタの再バインド後も正しい元へ解放できる。
  */
 class FAcsMemoryAllocator final : public Diligent::IMemoryAllocator {

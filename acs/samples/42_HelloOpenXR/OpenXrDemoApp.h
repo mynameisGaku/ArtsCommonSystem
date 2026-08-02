@@ -4,7 +4,7 @@
 
 namespace helloopenxr {
 
-class FOpenXrDemoApp {
+class COpenXrDemoApp {
 public:
     int Run() noexcept;
 };

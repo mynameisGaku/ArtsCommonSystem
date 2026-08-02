@@ -15,7 +15,7 @@
 #include "container/String.h"
 #include "container/StringView.h"
 #include "memory/SharedPtr.h"
-#include "asset/MeshAsset.h"   // FMeshAsset / FAsset (Render→Asset 経由で gameframework から可視)
+#include "asset/MeshAsset.h"   // AMeshAsset / AAsset (Render→Asset 経由で gameframework から可視)
 #include "gameframework/AComponent.h"
 #include "gameframework/Material2D.h"   // FMaterial2D (.acsmat マテリアルアセット = 2D と共通の材質型)
 
@@ -132,22 +132,22 @@ public:
      * CPU メッシュアセット (頂点/インデックス) を «所有» して設定する。
      *
      * @details
-     * editor の 3D ノード mesh (TSharedPtr<FAsset>) と同じ所有モデル。non-null を渡すと種別も
+     * editor の 3D ノード mesh (TSharedPtr<AAsset>) と同じ所有モデル。non-null を渡すと種別も
      * Mesh に切り替える。コンポーネントが強参照を持つので、ノードが生きている間メッシュは
      * 解放されない (= 描画/ピックの side-table 不要)。
-     * @param a 所有するメッシュアセット (FMeshAsset を指す FAsset。null で外す)。
+     * @param a 所有するメッシュアセット (AMeshAsset を指す AAsset。null で外す)。
      */
-    void SetMeshAsset(TSharedPtr<FAsset> a) noexcept {
-        m_MeshAsset = static_cast<TSharedPtr<FAsset>&&>(a);
+    void SetMeshAsset(TSharedPtr<AAsset> a) noexcept {
+        m_MeshAsset = static_cast<TSharedPtr<AAsset>&&>(a);
         if (m_MeshAsset) m_Prim = EMeshPrimitive3D::Mesh;
     }
 
     /**
-     * 所有しているメッシュアセット (FAsset 基底) への共有ポインタを返す。
+     * 所有しているメッシュアセット (AAsset 基底) への共有ポインタを返す。
      *
      * @return 所有メッシュアセット (未設定なら空)。
      */
-    const TSharedPtr<FAsset>& MeshAsset() const noexcept { return m_MeshAsset; }
+    const TSharedPtr<AAsset>& MeshAsset() const noexcept { return m_MeshAsset; }
 
     /**
      * メッシュアセットを所有しているかを返す。
@@ -157,12 +157,12 @@ public:
     bool HasMeshAsset() const noexcept { return static_cast<bool>(m_MeshAsset); }
 
     /**
-     * 所有メッシュを FMeshAsset 型として返す (頂点/インデックスへの直接アクセス)。
+     * 所有メッシュを AMeshAsset 型として返す (頂点/インデックスへの直接アクセス)。
      *
-     * @details 本コンポーネントが保持する FAsset は常に FMeshAsset 前提 (ローダ出力)。
-     * @return FMeshAsset へのポインタ (未設定なら nullptr)。
+     * @details 本コンポーネントが保持する AAsset は常に AMeshAsset 前提 (ローダ出力)。
+     * @return AMeshAsset へのポインタ (未設定なら nullptr)。
      */
-    FMeshAsset* Mesh() const noexcept { return static_cast<FMeshAsset*>(m_MeshAsset.Get()); }
+    AMeshAsset* Mesh() const noexcept { return static_cast<AMeshAsset*>(m_MeshAsset.Get()); }
 
     // --- マテリアルアセット (.acsmat) 参照 ---------------------------------------------
     // 2D の ANode::m_Mat (ランタイム POD の材質状態) に相当するものをコンポーネントへ持たせる。
@@ -212,8 +212,8 @@ private:
     /** アルベド色 (RGBA、既定 白)。 */
     FVec4            m_Color{ 1, 1, 1, 1 };
 
-    /** 所有する CPU メッシュアセット (FMeshAsset。prim==Mesh で描画/ピックに使う)。 */
-    TSharedPtr<FAsset> m_MeshAsset;
+    /** 所有する CPU メッシュアセット (AMeshAsset。prim==Mesh で描画/ピックに使う)。 */
+    TSharedPtr<AAsset> m_MeshAsset;
 
     /** 外部レンダラが紐付ける非所有ポインタ (GPU メッシュ等、エンジンは非解釈)。 */
     void*            m_RenderHandle = nullptr;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FSaveArchive の往復・破損/改竄検知テスト
+// CSaveArchive の往復・破損/改竄検知テスト
 //
 // .acssave はユーザーが改竄し得る外部入力なので、正常往復だけでなく
 // «壊れた/悪意あるファイルを安全に拒否できるか» を重点的に検証する:
@@ -179,20 +179,20 @@ ACS_TEST(SaveArchive, RoundTripPreservesPayloadVersionAndPeeks)
     out.Level = 42u;
     out.Name[0] = 'G'; out.Name[1] = 'a'; out.Name[2] = 'k'; out.Name[3] = 'u';
 
-    const auto wr = FSaveArchive::WriteToFile(path.Get(), 3u, &out, sizeof(out));
+    const auto wr = CSaveArchive::WriteToFile(path.Get(), 3u, &out, sizeof(out));
     EXPECT_TRUE(wr.IsOk());
 
     // Peek 系は header のみで正しい値を返す。
-    const auto ver = FSaveArchive::PeekVersion(path.Get());
+    const auto ver = CSaveArchive::PeekVersion(path.Get());
     EXPECT_TRUE(ver.IsOk());
     if (ver.IsOk()) EXPECT_EQ(ver.Value(), 3u);
-    const auto sz = FSaveArchive::PeekPayloadSize(path.Get());
+    const auto sz = CSaveArchive::PeekPayloadSize(path.Get());
     EXPECT_TRUE(sz.IsOk());
     if (sz.IsOk()) EXPECT_EQ(sz.Value(), static_cast<u64>(sizeof(out)));
 
     FTestProfile in{};
     u64 actual = 0;
-    const auto rd = FSaveArchive::ReadFromFile(path.Get(), &in, sizeof(in), 3u, actual);
+    const auto rd = CSaveArchive::ReadFromFile(path.Get(), &in, sizeof(in), 3u, actual);
     EXPECT_TRUE(rd.IsOk());
     EXPECT_EQ(actual, static_cast<u64>(sizeof(out)));
     EXPECT_TRUE(MemCmp(&in, &out, sizeof(out)) == 0);
@@ -209,18 +209,18 @@ ACS_TEST(SaveArchive, TamperedPayloadFailsCrc)
 
     FTestProfile out{};
     out.Gold = 100u;
-    EXPECT_TRUE(FSaveArchive::WriteToFile(path.Get(), 1u, &out, sizeof(out)).IsOk());
+    EXPECT_TRUE(CSaveArchive::WriteToFile(path.Get(), 1u, &out, sizeof(out)).IsOk());
 
     // payload 先頭 (offset 24 = header 直後) の Gold を 1 バイト改竄する。
     const u8 evil = 0xFFu;
-    EXPECT_TRUE(PatchFileBytes(path.Get(), FSaveArchive::kHeaderSize, &evil, 1u));
+    EXPECT_TRUE(PatchFileBytes(path.Get(), CSaveArchive::kHeaderSize, &evil, 1u));
 
     FTestProfile in{};
     in.Gold = 0xDEADBEEFu;
     in.Level = 0xCAFEBABEu;
     FTestProfile before = in;
     u64 actual = 0;
-    const auto rd = FSaveArchive::ReadFromFile(path.Get(), &in, sizeof(in), 1u, actual);
+    const auto rd = CSaveArchive::ReadFromFile(path.Get(), &in, sizeof(in), 1u, actual);
     EXPECT_TRUE(rd.IsErr());
     if (rd.IsErr()) EXPECT_EQ(rd.Error().subcode, Sub(ESaveArchiveSubCode::kSubChecksumFail));
     EXPECT_TRUE(MemCmp(&in, &before, sizeof(in)) == 0);
@@ -232,10 +232,10 @@ ACS_TEST(SaveArchive, HugeClaimedPayloadSizeIsRejectedBeforeAllocation)
     FTempSavePath path(L"hugesize");
 
     FTestProfile out{};
-    EXPECT_TRUE(FSaveArchive::WriteToFile(path.Get(), 1u, &out, sizeof(out)).IsOk());
+    EXPECT_TRUE(CSaveArchive::WriteToFile(path.Get(), 1u, &out, sizeof(out)).IsOk());
 
     // header の payload_size (offset 0x0C, u64 LE) を 2^62 に改竄する。
-    // PeekPayloadSize がこの申告値をそのまま返すと、呼び出し側 (FProgression::Load 等) が
+    // PeekPayloadSize がこの申告値をそのまま返すと、呼び出し側 (CProgression::Load 等) が
     // 「確保するサイズ」として信じて巨大確保 → OOM/DoS になる。実ファイルサイズとの
     // 照合で弾くことを検証する回帰テスト。
     const u64 huge = 1ull << 62;
@@ -243,14 +243,14 @@ ACS_TEST(SaveArchive, HugeClaimedPayloadSizeIsRejectedBeforeAllocation)
     for (u32 i = 0; i < 8; ++i) huge_le[i] = static_cast<u8>((huge >> (8u * i)) & 0xFFu);
     EXPECT_TRUE(PatchFileBytes(path.Get(), 12u, huge_le, 8u));
 
-    const auto sz = FSaveArchive::PeekPayloadSize(path.Get());
+    const auto sz = CSaveArchive::PeekPayloadSize(path.Get());
     EXPECT_TRUE(sz.IsErr());
     if (sz.IsErr()) EXPECT_EQ(sz.Error().subcode, Sub(ESaveArchiveSubCode::kSubPayloadTooLarge));
 
     // ReadFromFile 側も同じ理由で拒否する (out_capacity 検査より前のサイズ整合検査)。
     FTestProfile in{};
     u64 actual = 0;
-    const auto rd = FSaveArchive::ReadFromFile(path.Get(), &in, sizeof(in), 1u, actual);
+    const auto rd = CSaveArchive::ReadFromFile(path.Get(), &in, sizeof(in), 1u, actual);
     EXPECT_TRUE(rd.IsErr());
     if (rd.IsErr()) EXPECT_EQ(rd.Error().subcode, Sub(ESaveArchiveSubCode::kSubPayloadTooLarge));
 }
@@ -261,13 +261,13 @@ ACS_TEST(SaveArchive, VersionMismatchReturnsMigrationNeededWithoutWriting)
 
     FTestProfile out{};
     out.Gold = 777u;
-    EXPECT_TRUE(FSaveArchive::WriteToFile(path.Get(), 1u, &out, sizeof(out)).IsOk());
+    EXPECT_TRUE(CSaveArchive::WriteToFile(path.Get(), 1u, &out, sizeof(out)).IsOk());
 
     // 期待 version=2 で読む → migration 要求。buffer は書き込まれない。
     FTestProfile in{};
     in.Gold = 0xDEADBEEFu;
     u64 actual = 0;
-    const auto rd = FSaveArchive::ReadFromFile(path.Get(), &in, sizeof(in), 2u, actual);
+    const auto rd = CSaveArchive::ReadFromFile(path.Get(), &in, sizeof(in), 2u, actual);
     EXPECT_TRUE(rd.IsErr());
     if (rd.IsErr()) EXPECT_EQ(rd.Error().subcode, Sub(ESaveArchiveSubCode::kSubMigrationNeeded));
     EXPECT_EQ(in.Gold, 0xDEADBEEFu);                   // buffer 未変更
@@ -279,11 +279,11 @@ ACS_TEST(SaveArchive, BufferTooSmallIsRejected)
     FTempSavePath path(L"toosmall");
 
     FTestProfile out{};
-    EXPECT_TRUE(FSaveArchive::WriteToFile(path.Get(), 1u, &out, sizeof(out)).IsOk());
+    EXPECT_TRUE(CSaveArchive::WriteToFile(path.Get(), 1u, &out, sizeof(out)).IsOk());
 
     u8 tiny[4] = {0xA5u, 0xA5u, 0xA5u, 0xA5u};
     u64 actual = 0;
-    const auto rd = FSaveArchive::ReadFromFile(path.Get(), tiny, sizeof(tiny), 1u, actual);
+    const auto rd = CSaveArchive::ReadFromFile(path.Get(), tiny, sizeof(tiny), 1u, actual);
     EXPECT_TRUE(rd.IsErr());
     if (rd.IsErr()) EXPECT_EQ(rd.Error().subcode, Sub(ESaveArchiveSubCode::kSubBufferTooSmall));
     EXPECT_EQ(tiny[0], 0xA5u);
@@ -298,16 +298,16 @@ ACS_TEST(SaveArchive, TruncatedFileIsRejectedAsBadMagic)
     FTempSavePath path(L"truncated");
 
     FTestProfile out{};
-    EXPECT_TRUE(FSaveArchive::WriteToFile(path.Get(), 1u, &out, sizeof(out)).IsOk());
-    EXPECT_TRUE(TruncateFile(path.Get(), FSaveArchive::kHeaderSize - 1u));
+    EXPECT_TRUE(CSaveArchive::WriteToFile(path.Get(), 1u, &out, sizeof(out)).IsOk());
+    EXPECT_TRUE(TruncateFile(path.Get(), CSaveArchive::kHeaderSize - 1u));
 
     FTestProfile in{};
     u64 actual = 0;
-    const auto rd = FSaveArchive::ReadFromFile(path.Get(), &in, sizeof(in), 1u, actual);
+    const auto rd = CSaveArchive::ReadFromFile(path.Get(), &in, sizeof(in), 1u, actual);
     EXPECT_TRUE(rd.IsErr());
     if (rd.IsErr()) EXPECT_EQ(rd.Error().subcode, Sub(ESaveArchiveSubCode::kSubBadMagic));
 
-    const auto sz = FSaveArchive::PeekPayloadSize(path.Get());
+    const auto sz = CSaveArchive::PeekPayloadSize(path.Get());
     EXPECT_TRUE(sz.IsErr());
     if (sz.IsErr()) EXPECT_EQ(sz.Error().subcode, Sub(ESaveArchiveSubCode::kSubBadMagic));
 }
@@ -319,16 +319,16 @@ ACS_TEST(SaveArchive, TruncatedPayloadIsRejectedWithoutChangingOutput)
     FTestProfile saved{};
     saved.Gold = 91u;
     saved.Level = 7u;
-    EXPECT_TRUE(FSaveArchive::WriteToFile(path.Get(), 1u, &saved, sizeof(saved)).IsOk());
+    EXPECT_TRUE(CSaveArchive::WriteToFile(path.Get(), 1u, &saved, sizeof(saved)).IsOk());
     EXPECT_TRUE(TruncateFile(path.Get(),
-                             FSaveArchive::kHeaderSize + sizeof(saved) - 1u));
+                             CSaveArchive::kHeaderSize + sizeof(saved) - 1u));
 
     FTestProfile output{};
     output.Gold = 0x12345678u;
     output.Level = 0x87654321u;
     const FTestProfile before = output;
     u64 actual = 0;
-    const auto rd = FSaveArchive::ReadFromFile(path.Get(), &output, sizeof(output), 1u, actual);
+    const auto rd = CSaveArchive::ReadFromFile(path.Get(), &output, sizeof(output), 1u, actual);
     EXPECT_TRUE(rd.IsErr());
     if (rd.IsErr()) {
         EXPECT_EQ(rd.Error().subcode, Sub(ESaveArchiveSubCode::kSubSizeMismatch));
@@ -336,7 +336,7 @@ ACS_TEST(SaveArchive, TruncatedPayloadIsRejectedWithoutChangingOutput)
     EXPECT_TRUE(MemCmp(&output, &before, sizeof(output)) == 0);
     EXPECT_EQ(actual, 0ull);
 
-    const auto size = FSaveArchive::PeekPayloadSize(path.Get());
+    const auto size = CSaveArchive::PeekPayloadSize(path.Get());
     EXPECT_TRUE(size.IsErr());
     if (size.IsErr()) {
         EXPECT_EQ(size.Error().subcode, Sub(ESaveArchiveSubCode::kSubSizeMismatch));
@@ -349,14 +349,14 @@ ACS_TEST(SaveArchive, TrailingDataIsRejectedWithoutChangingOutput)
 
     FTestProfile saved{};
     saved.Gold = 300u;
-    EXPECT_TRUE(FSaveArchive::WriteToFile(path.Get(), 1u, &saved, sizeof(saved)).IsOk());
+    EXPECT_TRUE(CSaveArchive::WriteToFile(path.Get(), 1u, &saved, sizeof(saved)).IsOk());
     EXPECT_TRUE(AppendFileByte(path.Get(), 0xCCu));
 
     FTestProfile output{};
     output.Gold = 0xA5A5A5A5u;
     const FTestProfile before = output;
     u64 actual = 0;
-    const auto rd = FSaveArchive::ReadFromFile(path.Get(), &output, sizeof(output), 1u, actual);
+    const auto rd = CSaveArchive::ReadFromFile(path.Get(), &output, sizeof(output), 1u, actual);
     EXPECT_TRUE(rd.IsErr());
     if (rd.IsErr()) {
         EXPECT_EQ(rd.Error().subcode, Sub(ESaveArchiveSubCode::kSubSizeMismatch));
@@ -364,7 +364,7 @@ ACS_TEST(SaveArchive, TrailingDataIsRejectedWithoutChangingOutput)
     EXPECT_TRUE(MemCmp(&output, &before, sizeof(output)) == 0);
     EXPECT_EQ(actual, 0ull);
 
-    const auto size = FSaveArchive::PeekPayloadSize(path.Get());
+    const auto size = CSaveArchive::PeekPayloadSize(path.Get());
     EXPECT_TRUE(size.IsErr());
     if (size.IsErr()) {
         EXPECT_EQ(size.Error().subcode, Sub(ESaveArchiveSubCode::kSubSizeMismatch));
@@ -378,7 +378,7 @@ ACS_TEST(SaveArchive, AtomicWriteFailurePreservesExistingSave)
     FTestProfile original{};
     original.Gold = 111u;
     original.Level = 2u;
-    EXPECT_TRUE(FSaveArchive::WriteToFile(path.Get(), 1u, &original, sizeof(original)).IsOk());
+    EXPECT_TRUE(CSaveArchive::WriteToFile(path.Get(), 1u, &original, sizeof(original)).IsOk());
 
     // 実装が使う temp path を directory で占有し、CreateFileW を確実に失敗させる。
     wchar_t temp_path[MAX_PATH + 128] = {};
@@ -391,7 +391,7 @@ ACS_TEST(SaveArchive, AtomicWriteFailurePreservesExistingSave)
     FTestProfile replacement{};
     replacement.Gold = 999u;
     replacement.Level = 50u;
-    const auto write = FSaveArchive::WriteToFile(path.Get(), 2u,
+    const auto write = CSaveArchive::WriteToFile(path.Get(), 2u,
                                                  &replacement, sizeof(replacement));
     EXPECT_TRUE(write.IsErr());
 
@@ -401,7 +401,7 @@ ACS_TEST(SaveArchive, AtomicWriteFailurePreservesExistingSave)
 
     FTestProfile loaded{};
     u64 actual = 0;
-    const auto read = FSaveArchive::ReadFromFile(path.Get(), &loaded, sizeof(loaded), 1u, actual);
+    const auto read = CSaveArchive::ReadFromFile(path.Get(), &loaded, sizeof(loaded), 1u, actual);
     EXPECT_TRUE(read.IsOk());
     EXPECT_EQ(actual, static_cast<u64>(sizeof(original)));
     EXPECT_TRUE(MemCmp(&loaded, &original, sizeof(original)) == 0);
@@ -414,7 +414,7 @@ ACS_TEST(SaveArchive, AtomicReplaceKeepsExistingReaderSnapshotConsistent)
     FTestProfile original{};
     original.Gold = 10u;
     original.Level = 1u;
-    EXPECT_TRUE(FSaveArchive::WriteToFile(path.Get(), 1u, &original, sizeof(original)).IsOk());
+    EXPECT_TRUE(CSaveArchive::WriteToFile(path.Get(), 1u, &original, sizeof(original)).IsOk());
 
     HANDLE old_reader = ::CreateFileW(path.Get(), GENERIC_READ,
                                       FILE_SHARE_READ | FILE_SHARE_DELETE,
@@ -424,14 +424,14 @@ ACS_TEST(SaveArchive, AtomicReplaceKeepsExistingReaderSnapshotConsistent)
     FTestProfile replacement{};
     replacement.Gold = 20u;
     replacement.Level = 2u;
-    const auto write = FSaveArchive::WriteToFile(path.Get(), 2u,
+    const auto write = CSaveArchive::WriteToFile(path.Get(), 2u,
                                                  &replacement, sizeof(replacement));
     EXPECT_TRUE(write.IsOk());
 
     // 置換前に開いた handle は古い file object の完全な snapshot を読み続ける。
     FTestProfile old_snapshot{};
     LARGE_INTEGER payload_offset{};
-    payload_offset.QuadPart = static_cast<LONGLONG>(FSaveArchive::kHeaderSize);
+    payload_offset.QuadPart = static_cast<LONGLONG>(CSaveArchive::kHeaderSize);
     EXPECT_TRUE(::SetFilePointerEx(old_reader, payload_offset, nullptr, FILE_BEGIN) != 0);
     DWORD got = 0;
     EXPECT_TRUE(::ReadFile(old_reader, &old_snapshot,
@@ -444,7 +444,7 @@ ACS_TEST(SaveArchive, AtomicReplaceKeepsExistingReaderSnapshotConsistent)
 
     FTestProfile current{};
     u64 actual = 0;
-    const auto read = FSaveArchive::ReadFromFile(path.Get(), &current, sizeof(current), 2u, actual);
+    const auto read = CSaveArchive::ReadFromFile(path.Get(), &current, sizeof(current), 2u, actual);
     EXPECT_TRUE(read.IsOk());
     EXPECT_TRUE(MemCmp(&current, &replacement, sizeof(replacement)) == 0);
 }
@@ -455,9 +455,9 @@ ACS_TEST(SaveArchive, InvalidWriteDoesNotTruncateExistingSave)
 
     FTestProfile original{};
     original.Gold = 444u;
-    EXPECT_TRUE(FSaveArchive::WriteToFile(path.Get(), 1u, &original, sizeof(original)).IsOk());
+    EXPECT_TRUE(CSaveArchive::WriteToFile(path.Get(), 1u, &original, sizeof(original)).IsOk());
 
-    const auto write = FSaveArchive::WriteToFile(path.Get(), 2u, nullptr, 1u);
+    const auto write = CSaveArchive::WriteToFile(path.Get(), 2u, nullptr, 1u);
     EXPECT_TRUE(write.IsErr());
     if (write.IsErr()) {
         EXPECT_EQ(write.Error().subcode, Sub(ESaveArchiveSubCode::kSubInvalidArgument));
@@ -465,7 +465,7 @@ ACS_TEST(SaveArchive, InvalidWriteDoesNotTruncateExistingSave)
 
     FTestProfile loaded{};
     u64 actual = 0;
-    const auto read = FSaveArchive::ReadFromFile(path.Get(), &loaded, sizeof(loaded), 1u, actual);
+    const auto read = CSaveArchive::ReadFromFile(path.Get(), &loaded, sizeof(loaded), 1u, actual);
     EXPECT_TRUE(read.IsOk());
     EXPECT_TRUE(MemCmp(&loaded, &original, sizeof(original)) == 0);
 }
@@ -476,12 +476,12 @@ ACS_TEST(SaveArchive, OversizedWriteIsRejectedBeforeReadingPayload)
 
     FTestProfile original{};
     original.Gold = 808u;
-    EXPECT_TRUE(FSaveArchive::WriteToFile(path.Get(), 1u, &original, sizeof(original)).IsOk());
+    EXPECT_TRUE(CSaveArchive::WriteToFile(path.Get(), 1u, &original, sizeof(original)).IsOk());
 
     // 1 byte しかない入力 pointer と上限超過 size。size を先に拒否できれば範囲外を読まない。
     const u8 one_byte = 0x5Au;
-    const auto write = FSaveArchive::WriteToFile(path.Get(), 2u, &one_byte,
-                                                 FSaveArchive::kMaxPayloadSize + 1u);
+    const auto write = CSaveArchive::WriteToFile(path.Get(), 2u, &one_byte,
+                                                 CSaveArchive::kMaxPayloadSize + 1u);
     EXPECT_TRUE(write.IsErr());
     if (write.IsErr()) {
         EXPECT_EQ(write.Error().subcode, Sub(ESaveArchiveSubCode::kSubPayloadTooLarge));
@@ -489,7 +489,7 @@ ACS_TEST(SaveArchive, OversizedWriteIsRejectedBeforeReadingPayload)
 
     FTestProfile loaded{};
     u64 actual = 0;
-    const auto read = FSaveArchive::ReadFromFile(path.Get(), &loaded, sizeof(loaded), 1u, actual);
+    const auto read = CSaveArchive::ReadFromFile(path.Get(), &loaded, sizeof(loaded), 1u, actual);
     EXPECT_TRUE(read.IsOk());
     EXPECT_TRUE(MemCmp(&loaded, &original, sizeof(original)) == 0);
 }
@@ -498,14 +498,14 @@ ACS_TEST(SaveArchive, EmptyPayloadRoundTripsWithoutOutputBuffer)
 {
     FTempSavePath path(L"empty");
 
-    EXPECT_TRUE(FSaveArchive::WriteToFile(path.Get(), 9u, nullptr, 0u).IsOk());
+    EXPECT_TRUE(CSaveArchive::WriteToFile(path.Get(), 9u, nullptr, 0u).IsOk());
 
-    const auto size = FSaveArchive::PeekPayloadSize(path.Get());
+    const auto size = CSaveArchive::PeekPayloadSize(path.Get());
     EXPECT_TRUE(size.IsOk());
     if (size.IsOk()) EXPECT_EQ(size.Value(), 0ull);
 
     u64 actual = 99u;
-    const auto read = FSaveArchive::ReadFromFile(path.Get(), nullptr, 0u, 9u, actual);
+    const auto read = CSaveArchive::ReadFromFile(path.Get(), nullptr, 0u, 9u, actual);
     EXPECT_TRUE(read.IsOk());
     EXPECT_EQ(actual, 0ull);
 }

@@ -6,7 +6,7 @@
 #include "container/Array.h"
 
 namespace acs {
-class FAllocator;
+class IAllocator;
 }
 
 namespace acs::game {
@@ -81,7 +81,7 @@ public:
     CBeatGrid() noexcept = default;
 
     /** 決定論的な確保失敗テストやサブシステム固有 allocator を利用可能にする。 */
-    explicit CBeatGrid(FAllocator& allocator) noexcept;
+    explicit CBeatGrid(IAllocator& allocator) noexcept;
 
     ~CBeatGrid() noexcept = default;
 

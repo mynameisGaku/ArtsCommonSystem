@@ -7,9 +7,9 @@
 
 #include "foundation/Log.h"
 
-static_assert(!acs::FLogger::CompiledEnabled<acs::ELogSeverity::Trace>());
-static_assert(!acs::FLogger::CompiledEnabled<acs::ELogSeverity::Debug>());
-static_assert(acs::FLogger::CompiledEnabled<acs::ELogSeverity::Info>());
+static_assert(!acs::CLogger::CompiledEnabled<acs::ELogSeverity::Trace>());
+static_assert(!acs::CLogger::CompiledEnabled<acs::ELogSeverity::Debug>());
+static_assert(acs::CLogger::CompiledEnabled<acs::ELogSeverity::Info>());
 
 /** 無効な固定レベルログが引数評価とリンク参照を残さないことを返す。 */
 int main()

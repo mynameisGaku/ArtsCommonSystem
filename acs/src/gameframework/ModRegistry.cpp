@@ -20,7 +20,7 @@ bool CModRegistry::IdEquals(const char* a, const char* b) noexcept {
 void CModRegistry::Register(const FModInfo& info) noexcept {
     if (info.id == nullptr) {
         // id 無しは管理不能 (Find/Enable で参照できない) ので拒否。
-        ACS_LOG_WARN("FModRegistry::Register: skipped entry with null id (name=%s)",
+        ACS_LOG_WARN("CModRegistry::Register: skipped entry with null id (name=%s)",
                      info.name ? info.name : "(null)");
         return;
     }
@@ -29,7 +29,7 @@ void CModRegistry::Register(const FModInfo& info) noexcept {
     // 検出するのが本来だが、二重防御として警告ログだけ出す。
     for (u32 i = 0; i < m_Mods.Size(); ++i) {
         if (IdEquals(m_Mods[i].id, info.id)) {
-            ACS_LOG_WARN("FModRegistry::Register: duplicate id '%s' ignored", info.id);
+            ACS_LOG_WARN("CModRegistry::Register: duplicate id '%s' ignored", info.id);
             return;
         }
     }

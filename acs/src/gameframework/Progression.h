@@ -138,7 +138,7 @@ struct FMilestoneState {
     /** 達成済みフラグ。 */
     bool        achieved           = false;
 
-    /** 達成時の FClock::MillisSinceStartup() (起動からの ms、0 は未達成/未取得)。 */
+    /** 達成時の CClock::MillisSinceStartup() (起動からの ms、0 は未達成/未取得)。 */
     u64         achieved_timestamp = 0;
 };
 

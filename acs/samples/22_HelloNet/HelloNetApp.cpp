@@ -15,12 +15,12 @@ using namespace acs;
 
 namespace hellonet {
 
-int FHelloNetApp::Run() noexcept {
+int CHelloNetApp::Run() noexcept {
     FLogConfig lc{};
     lc.console = true;
-    FLogger::Init(lc);
+    CLogger::Init(lc);
 
-    if (auto r = FNetwork::Init(); r.IsErr()) {
+    if (auto r = CNetwork::Init(); r.IsErr()) {
         ACS_LOG_ERROR("Network::Init failed: %s", r.Error().message);
         return 1;
     }
@@ -39,7 +39,7 @@ int FHelloNetApp::Run() noexcept {
     if (cr.IsErr()) {
         ACS_LOG_ERROR("Connect failed: %s", cr.Error().message);
         server.Join();
-        FNetwork::Shutdown();
+        CNetwork::Shutdown();
         return 3;
     }
     FTcpConnection client = Move(cr.Value());
@@ -55,8 +55,8 @@ int FHelloNetApp::Run() noexcept {
     }
 
     server.Join();
-    FNetwork::Shutdown();
-    FLogger::Shutdown();
+    CNetwork::Shutdown();
+    CLogger::Shutdown();
     return 0;
 }
 

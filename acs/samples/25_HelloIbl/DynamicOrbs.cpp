@@ -17,7 +17,7 @@ namespace helloibl {
 namespace {
 
 // オーブの発光色。emissive ベース + base_color にも同じ色を与えると、
-// FPbrShader の emissive 寄与と reflection の見た目が一致する。
+// CPbrShader の emissive 寄与と reflection の見た目が一致する。
 constexpr FVec3 kOrbGlow[kDynCount] = {
     FVec3{1.00f, 0.45f, 0.15f},   // 暖色オレンジ
     FVec3{0.25f, 1.00f, 0.40f},   // 緑
@@ -26,16 +26,16 @@ constexpr FVec3 kOrbGlow[kDynCount] = {
 
 } // anonymous namespace
 
-void UpdateDynamicOrbs(FHelloIblApp& app) noexcept {
+void UpdateDynamicOrbs(CHelloIblApp& app) noexcept {
     // prev ← 前フレームの curr。OnCustomFrame の冒頭で呼ぶこと
-    // (FPbrShader が curr を読み、FMotionVector が prev/curr を比べる)。
+    // (CPbrShader が curr を読み、CMotionVector が prev/curr を比べる)。
     for (u32 i = 0; i < kDynCount; ++i) {
         app.m_DynPrev[i] = app.m_DynCurr[i];
         app.m_DynCurr[i] = app.ComputeDynTransform(i, app.m_AnimTime);
     }
 }
 
-void DrawDynamicOrbs(FHelloIblApp& app) noexcept {
+void DrawDynamicOrbs(CHelloIblApp& app) noexcept {
     IRhiCommandList* cl = app.GetRenderer().CommandList();
     if (!cl) return;
 

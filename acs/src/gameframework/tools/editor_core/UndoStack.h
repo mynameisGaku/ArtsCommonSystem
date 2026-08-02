@@ -158,7 +158,7 @@ public:
      * @param command 積む command。所有権が移る。nullptr は no-op。
      * @param allocator command を解放するアロケータ。
      */
-    void Push(AEditorCommand* command, FAllocator& allocator) noexcept;
+    void Push(AEditorCommand* command, IAllocator& allocator) noexcept;
 
     /**
      * undo を 1 件巻き戻す。

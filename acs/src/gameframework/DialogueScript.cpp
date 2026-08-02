@@ -258,7 +258,7 @@ void CDialogueScript::RunUntilBlocked() noexcept {
 
     while (_state == EDialogueScriptState::Playing) {
         if (++guard > guard_max) {
-            ACS_LOG_WARN("FDialogueScript::RunUntilBlocked: Jump ラベル循環を検知 (op数=%u)。スクリプトを終了します。", n);
+            ACS_LOG_WARN("CDialogueScript::RunUntilBlocked: Jump ラベル循環を検知 (op数=%u)。スクリプトを終了します。", n);
             EnterFinished();
             return;
         }

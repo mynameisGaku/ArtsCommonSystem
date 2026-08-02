@@ -3,7 +3,7 @@
 //
 // 設計:
 //   ・retained-mode UI (ImGui のような毎フレーム再構築でなく、ツリーを保持)
-//   ・MVVM 駆動: 各 AWidget は TObservable<T> プロパティを公開し、FViewModel と Bind 可能
+//   ・MVVM 駆動: 各 AWidget は TObservable<T> プロパティを公開し、CViewModel と Bind 可能
 //   ・CSpriteBatch + FFont で描画 (Diligent / Dx12 を意識しない)
 //   ・親 → 子の所有を TUniquePtr<AWidget> で表現、Add で子を取り込む
 //   ・Layout は親の Layout モードに応じて子に再帰的に配置
@@ -288,7 +288,7 @@ inline FUiRect ComputeAnchoredRect(const FUiRect& parent, const FUiAnchor& a) no
  * @details
  * 親が TUniquePtr<AWidget> で子を所有し、Layout (親が呼ぶ) / Render (CUiRenderer が呼ぶ) /
  * 入力イベント (On*) を仮想メソッドで提供する。各派生は TObservable<T> プロパティを公開して
- * MVVM の FViewModel と Bind できる。非コピー。
+ * MVVM の CViewModel と Bind できる。非コピー。
  */
 class AWidget {
 public:

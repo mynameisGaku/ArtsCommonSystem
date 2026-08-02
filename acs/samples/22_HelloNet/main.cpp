@@ -10,10 +10,10 @@
 //   ・メインスレッドからクライアント接続して送受信
 //   ・受信したテキストをコンソール出力
 //
-// HelloNet は window / renderer を要らないため FApplication 派生ではなく自前 main。
+// HelloNet は window / renderer を要らないため CApplication 派生ではなく自前 main。
 #include "HelloNetApp.h"
 
 int main() {
-    hellonet::FHelloNetApp app;
+    hellonet::CHelloNetApp app;
     return app.Run();
 }

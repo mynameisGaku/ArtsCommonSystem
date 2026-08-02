@@ -57,7 +57,7 @@
 // 設計選択:
 //   ・**AEditorPanel 継承**: 共通基盤を利用する。Title = "Animation Curve Editor"、DrawUI override。
 //   ・**curve は raw pointer の非所有保持**: caller が own する設計
-//     (AParticleEditorPanel が FParticleEffectSystem を参照渡しで受けるのと
+//     (AParticleEditorPanel が CParticleEffectSystem を参照渡しで受けるのと
 //     同じ方針)。本 panel は curve の寿命に関与せず、`m_Curve == nullptr` 時は
 //     「(No curve bound)」を表示。
 //   ・**canvas は ImGui::InvisibleButton + GetWindowDrawList()**: ImGui の

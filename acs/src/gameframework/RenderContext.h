@@ -2,12 +2,12 @@
 // GameFramework Pillar A — FRenderContext
 //
 // 全シーン共有の描画コンテキスト。「現フレームの IRhiCommandList と画面サイズ」
-// を保持する軽量参照ホルダに、FSpriteBatch / FFont / 共通シェーダを足して
+// を保持する軽量参照ホルダに、CSpriteBatch / FFont / 共通シェーダを足して
 // 「シーン切替でパイプライン再構築しない」を実現する。
 //
 // AScene 側はこれを OnRender(rc) で受け取り、必要なら rc.Cmd()/Width()/Height()
 // から描画コマンドを発行する。素の RHI を直接叩いてもよいし、ユーザーが自分の
-// FSpriteBatch を持ってもよい。
+// CSpriteBatch を持ってもよい。
 #pragma once
 
 #include "foundation/Types.h"
@@ -15,8 +15,8 @@
 
 namespace acs {
 class IRhiCommandList;
-class FRenderer;
-class FSpriteBatch;
+class CRenderer;
+class CSpriteBatch;
 class FFont;
 class IRhiTexture;
 }
@@ -27,7 +27,7 @@ namespace acs::game {
  * 全シーン共有の描画コンテキスト。
  *
  * @details
- * 現フレームの IRhiCommandList と画面サイズを保持する軽量参照ホルダ。FSpriteBatch /
+ * 現フレームの IRhiCommandList と画面サイズを保持する軽量参照ホルダ。CSpriteBatch /
  * FFont / 反射テクスチャ / world→screen 変換などをまとめ、シーン切替でパイプラインを
  * 再構築せずに描画できるようにする。AScene 側は OnRender(rc) でこれを受け取り、
  * rc.Cmd()/Width()/Height() から描画コマンドを発行する。
@@ -50,12 +50,12 @@ public:
      * フレーム冒頭で CGame が呼び、描画リソースを配線する。
      *
      * @details m_Font はこの後 CGame が _SetFont で配線する (game 寿命で共有)。
-     * @param r 描画に使う FRenderer。
+     * @param r 描画に使う CRenderer。
      * @param cl 現フレームのコマンドリスト。
      * @param w 画面の幅 (px)。
      * @param h 画面の高さ (px)。
      */
-    void _BeginFrame(FRenderer& r, IRhiCommandList& cl, u32 w, u32 h) noexcept {
+    void _BeginFrame(CRenderer& r, IRhiCommandList& cl, u32 w, u32 h) noexcept {
         m_Renderer = &r;
         m_Cmd      = &cl;
         m_Width    = w;
@@ -92,11 +92,11 @@ public:
     IRhiCommandList& Cmd() const noexcept { return *m_Cmd; }
 
     /**
-     * 描画に使う FRenderer を返す。
+     * 描画に使う CRenderer を返す。
      *
-     * @return 配線済みの FRenderer 参照。
+     * @return 配線済みの CRenderer 参照。
      */
-    FRenderer&        GetRenderer() const noexcept { return *m_Renderer; }
+    CRenderer&        GetRenderer() const noexcept { return *m_Renderer; }
 
     /**
      * 画面の幅を返す。
@@ -122,11 +122,11 @@ public:
     /**
      * 現パス用の 2D 描画バッチを配線する。
      *
-     * @details AScene2D または独自ホストが設定する。コンポーネントは FSpriteBatch を
+     * @details AScene2D または独自ホストが設定する。コンポーネントは CSpriteBatch を
      * 自前で持たずに HasSprites()/Sprites() で利用できる。
-     * @param sb 配線する FSpriteBatch (nullptr で解除)。
+     * @param sb 配線する CSpriteBatch (nullptr で解除)。
      */
-    void _SetSpriteBatch(FSpriteBatch* sb) noexcept { m_Sprites = sb; }
+    void _SetSpriteBatch(CSpriteBatch* sb) noexcept { m_Sprites = sb; }
 
     /**
      * 2D 描画バッチが配線済みかを返す。
@@ -138,9 +138,9 @@ public:
     /**
      * 配線済みの 2D 描画バッチを返す。
      *
-     * @return FSpriteBatch 参照。
+     * @return CSpriteBatch 参照。
      */
-    FSpriteBatch& Sprites() const noexcept { return *m_Sprites; }
+    CSpriteBatch& Sprites() const noexcept { return *m_Sprites; }
 
     /**
      * 全シーン共有の UI フォントを配線する。
@@ -276,14 +276,14 @@ public:
     bool StencilMaskActive() const noexcept { return m_StencilMaskActive; }
 
 private:
-    /** 描画に使う FRenderer (フレーム冒頭に配線)。 */
-    FRenderer*        m_Renderer = nullptr;
+    /** 描画に使う CRenderer (フレーム冒頭に配線)。 */
+    CRenderer*        m_Renderer = nullptr;
 
     /** 現フレームのコマンドリスト (フレーム外では nullptr)。 */
     IRhiCommandList* m_Cmd      = nullptr;
 
     /** 現パスの 2D 描画バッチ (未配線なら nullptr)。 */
-    FSpriteBatch*    m_Sprites  = nullptr;
+    CSpriteBatch*    m_Sprites  = nullptr;
 
     /** 全シーン共有の UI フォント (未配線なら nullptr)。 */
     FFont*            m_Font     = nullptr;

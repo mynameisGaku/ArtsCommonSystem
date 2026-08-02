@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FSettings 永続化境界の厳格解析・トランザクション性・原子的保存テスト。
+// CSettings 永続化境界の厳格解析・トランザクション性・原子的保存テスト。
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "gameframework/Settings.h"
@@ -166,7 +166,7 @@ struct FSettingsTempPath {
 ACS_TEST(SettingsSafety, CheckedRoundTripPreservesAllSupportedKinds)
 {
     FSettingsTempPath path(L"round_trip");
-    FSettings source;
+    CSettings source;
     source.SetF32("audio.master", 0.8125f);
     source.SetI32("display.width", -2147483647);
     source.SetBool("display.vsync", true);
@@ -176,7 +176,7 @@ ACS_TEST(SettingsSafety, CheckedRoundTripPreservesAllSupportedKinds)
     EXPECT_TRUE(saved.Succeeded());
     EXPECT_EQ(saved.Entries, 4u);
 
-    FSettings loaded;
+    CSettings loaded;
     const FSettingsPersistenceResult result = loaded.TryLoad(path.Path);
     EXPECT_TRUE(result.Succeeded());
     EXPECT_EQ(result.Entries, 4u);
@@ -196,7 +196,7 @@ ACS_TEST(SettingsSafety, CorruptLoadPreservesOwnedPointersAndExistingState)
     const char valid[] = "s:name=stable\ni:count=42\n";
     EXPECT_TRUE(path.Write(valid, sizeof(valid) - 1u));
 
-    FSettings settings;
+    CSettings settings;
     EXPECT_TRUE(settings.TryLoad(path.Path).Succeeded());
     const char* const stable_pointer = settings.GetString("name");
     EXPECT_TRUE(TextEquals(stable_pointer, "stable"));
@@ -216,7 +216,7 @@ ACS_TEST(SettingsSafety, CorruptLoadPreservesOwnedPointersAndExistingState)
 ACS_TEST(SettingsSafety, StrictScalarGrammarRejectsOverflowAndInvalidTokens)
 {
     FSettingsTempPath path(L"strict_scalars");
-    FSettings settings;
+    CSettings settings;
     settings.SetI32("preserved", 99);
 
     const char integer_overflow[] = "i:value=2147483648\n";
@@ -254,7 +254,7 @@ ACS_TEST(SettingsSafety, StrictScalarGrammarRejectsOverflowAndInvalidTokens)
 ACS_TEST(SettingsSafety, EmbeddedNulAndOversizedInputAreRejectedTransactionally)
 {
     FSettingsTempPath path(L"input_limits");
-    FSettings settings;
+    CSettings settings;
     settings.SetBool("preserved", true);
 
     const char embedded_nul[] = {
@@ -268,7 +268,7 @@ ACS_TEST(SettingsSafety, EmbeddedNulAndOversizedInputAreRejectedTransactionally)
         ESettingsPersistenceError::EmbeddedNul);
     EXPECT_TRUE(settings.GetBool("preserved"));
 
-    EXPECT_TRUE(path.MakeSparse(FSettings::kMaxPersistenceBytes + 1u));
+    EXPECT_TRUE(path.MakeSparse(CSettings::kMaxPersistenceBytes + 1u));
     EXPECT_EQ(
         settings.TryLoad(path.Path).Error,
         ESettingsPersistenceError::FileTooLarge);
@@ -278,23 +278,23 @@ ACS_TEST(SettingsSafety, EmbeddedNulAndOversizedInputAreRejectedTransactionally)
 ACS_TEST(SettingsSafety, LineAndKeyLimitsAreEnforced)
 {
     FSettingsTempPath path(L"line_limits");
-    char oversized_line[FSettings::kMaxPersistenceLineBytes + 2u]{};
+    char oversized_line[CSettings::kMaxPersistenceLineBytes + 2u]{};
     oversized_line[0] = '#';
     for (usize i = 1u; i < sizeof(oversized_line); ++i) {
         oversized_line[i] = 'x';
     }
     EXPECT_TRUE(path.Write(oversized_line, sizeof(oversized_line)));
 
-    FSettings settings;
+    CSettings settings;
     const FSettingsPersistenceResult line_result = settings.TryLoad(path.Path);
     EXPECT_EQ(line_result.Error, ESettingsPersistenceError::LineTooLong);
     EXPECT_EQ(line_result.Line, 1u);
 
-    char oversized_key[FSettings::kMaxPersistenceKeyBytes + 8u]{};
+    char oversized_key[CSettings::kMaxPersistenceKeyBytes + 8u]{};
     oversized_key[0] = 'i';
     oversized_key[1] = ':';
     usize position = 2u;
-    for (usize i = 0u; i <= FSettings::kMaxPersistenceKeyBytes; ++i) {
+    for (usize i = 0u; i <= CSettings::kMaxPersistenceKeyBytes; ++i) {
         oversized_key[position++] = 'k';
     }
     oversized_key[position++] = '=';
@@ -309,15 +309,15 @@ ACS_TEST(SettingsSafety, LineAndKeyLimitsAreEnforced)
 ACS_TEST(SettingsSafety, EntryLimitIsRejectedBeforeCommit)
 {
     FSettingsTempPath path(L"entry_limit");
-    EXPECT_TRUE(path.WriteEntryRecords(FSettings::kMaxPersistenceEntries + 1u));
+    EXPECT_TRUE(path.WriteEntryRecords(CSettings::kMaxPersistenceEntries + 1u));
 
-    FSettings settings;
+    CSettings settings;
     settings.SetString("stable", "pointer");
     const char* const pointer = settings.GetString("stable");
     const FSettingsPersistenceResult result = settings.TryLoad(path.Path);
 
     EXPECT_EQ(result.Error, ESettingsPersistenceError::EntryLimitExceeded);
-    EXPECT_EQ(result.Line, FSettings::kMaxPersistenceEntries + 1u);
+    EXPECT_EQ(result.Line, CSettings::kMaxPersistenceEntries + 1u);
     EXPECT_EQ(settings.Count(), 1u);
     EXPECT_TRUE(settings.GetString("stable") == pointer);
 }
@@ -327,7 +327,7 @@ ACS_TEST(SettingsSafety, AtomicSaveIgnoresLegacyTempCollisionAndPreservesFileOnV
     FSettingsTempPath path(L"atomic");
     EXPECT_TRUE(path.WriteLegacyCollision("do-not-touch"));
 
-    FSettings settings;
+    CSettings settings;
     settings.SetString("mode", "old");
     EXPECT_TRUE(settings.TrySave(path.Path).Succeeded());
     EXPECT_TRUE(path.LegacyCollisionExists());
@@ -336,7 +336,7 @@ ACS_TEST(SettingsSafety, AtomicSaveIgnoresLegacyTempCollisionAndPreservesFileOnV
     const FSettingsPersistenceResult rejected = settings.TrySave(path.Path);
     EXPECT_EQ(rejected.Error, ESettingsPersistenceError::UnrepresentableText);
 
-    FSettings verifier;
+    CSettings verifier;
     EXPECT_TRUE(verifier.TryLoad(path.Path).Succeeded());
     EXPECT_TRUE(TextEquals(verifier.GetString("mode"), "old"));
     EXPECT_TRUE(path.LegacyCollisionExists());
@@ -345,7 +345,7 @@ ACS_TEST(SettingsSafety, AtomicSaveIgnoresLegacyTempCollisionAndPreservesFileOnV
 ACS_TEST(SettingsSafety, AtomicSaveKeepsOpenReaderSnapshot)
 {
     FSettingsTempPath path(L"reader_snapshot");
-    FSettings settings;
+    CSettings settings;
     settings.SetString("version", "old");
     EXPECT_TRUE(settings.TrySave(path.Path).Succeeded());
 
@@ -367,7 +367,7 @@ ACS_TEST(SettingsSafety, AtomicSaveKeepsOpenReaderSnapshot)
     old_bytes[old_size < sizeof(old_bytes) ? old_size : sizeof(old_bytes) - 1u] = '\0';
     EXPECT_TRUE(TextEquals(old_bytes, "s:version=old\n"));
 
-    FSettings fresh_reader;
+    CSettings fresh_reader;
     EXPECT_TRUE(fresh_reader.TryLoad(path.Path).Succeeded());
     EXPECT_TRUE(TextEquals(fresh_reader.GetString("version"), "new"));
 }
@@ -377,7 +377,7 @@ ACS_TEST(SettingsSafety, EmptyDocumentCommitsAnEmptyStore)
     FSettingsTempPath path(L"empty");
     EXPECT_TRUE(path.Write(nullptr, 0u));
 
-    FSettings settings;
+    CSettings settings;
     settings.SetI32("old", 1);
     EXPECT_TRUE(settings.TryLoad(path.Path).Succeeded());
     EXPECT_EQ(settings.Count(), 0u);
@@ -386,7 +386,7 @@ ACS_TEST(SettingsSafety, EmptyDocumentCommitsAnEmptyStore)
 
 ACS_TEST(SettingsSafety, LegacyResultApiCarriesStableCheckedSubcode)
 {
-    FSettings settings;
+    CSettings settings;
     const TResult<void> result = settings.Load(nullptr);
     EXPECT_TRUE(result.IsErr());
     EXPECT_EQ(

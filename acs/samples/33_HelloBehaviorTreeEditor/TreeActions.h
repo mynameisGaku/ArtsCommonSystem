@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloBehaviorTreeEditor — Task/Action Fn 群 + Condition Fn の宣言。
 //
-// Action Fn は `acs::game::FBtAction::Fn` (= EBtStatus(*)(void*, f32) noexcept)、
-// Condition Fn は `FBtConditionRegistry::Fn` (= bool(*)(void*) noexcept) のシグネチャ。
+// Action Fn は `acs::game::ABtAction::Fn` (= EBtStatus(*)(void*, f32) noexcept)、
+// Condition Fn は `CBtConditionRegistry::Fn` (= bool(*)(void*) noexcept) のシグネチャ。
 // blackboard は `hellobt::Blackboard*` (= FBtBlackboard*) に restore し、変数は名前で
 // Get/Set してアクセスする。Tree 構築側 (TreeBuilder) と Scene 側から関数ポインタとして
 // 参照されるので宣言を共有ヘッダに分離する。

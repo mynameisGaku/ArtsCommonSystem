@@ -3,6 +3,6 @@
 #include "LocalMatchmakerDemoApp.h"
 
 int main() {
-    hellomatch::FLocalMatchmakerDemoApp App;
+    hellomatch::CLocalMatchmakerDemoApp App;
     return App.Run();
 }

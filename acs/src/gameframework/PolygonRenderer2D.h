@@ -58,7 +58,7 @@ public:
             const f32 ly = m_Verts[i].y * wt.scale.y;
             w[i] = FVec2{ wt.position.x + lx * c - ly * s, wt.position.y + lx * s + ly * c };
         }
-        FSpriteBatch& sb = rc.Sprites();
+        CSpriteBatch& sb = rc.Sprites();
         for (u32 i = 1u; i + 1u < m_Count; ++i)   // vert 0 を扇の中心に三角形ファン
             sb.DrawTriangle(w[0].x, w[0].y, w[i].x, w[i].y, w[i + 1u].x, w[i + 1u].y, m_Color);
     }

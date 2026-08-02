@@ -3,7 +3,7 @@
 //
 //   Title シーン (テキストのみ) ── [Space] ──▶ Level シーン (タイルマップ)
 //          ▲───────────────────── [Esc] ──────────────┘
-//   遷移は FGame::TransitionTo() の FadeInOut で行う (暗転中にシーン差し替え)。
+//   遷移は CGame::TransitionTo() の FadeInOut で行う (暗転中にシーン差し替え)。
 //   タイルは ATilemapComponent が 2x2 アトラスのセルとして描画する。
 #include "gameframework/GameFramework.h"
 #include "render/IRhiTexture.h"
@@ -17,8 +17,8 @@ namespace {
 constexpr FActionId kStart("Start");
 constexpr FActionId kBack ("Back");
 
-class FTitleScene;
-class FLevelScene;
+class ATitleScene;
+class ALevelScene;
 
 // 2x2 = 4 タイルのアトラス (各セル 32x32 → 64x64)。
 //   cell0=草(緑) cell1=石(灰) cell2=水(青) cell3=砂(黄)
@@ -56,7 +56,7 @@ TUniquePtr<IRhiTexture> MakeTileAtlas(IRhiDevice& device) noexcept {
     return Move(r.Value());
 }
 
-class FLevelScene final : public FScene2D {
+class ALevelScene final : public AScene2D {
 public:
     void OnReady() noexcept override {
         SetPixelsPerUnit(48.0f);
@@ -83,9 +83,9 @@ public:
         GetGame().SetClearColor(0.05f, 0.06f, 0.08f);
     }
 
-    void OnTick(f32 dt) noexcept override;   // 下で定義 (FTitleScene を参照するため)
+    void OnTick(f32 dt) noexcept override;   // 下で定義 (ATitleScene を参照するため)
 
-    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override {
         sb.DrawRect(8.0f, 8.0f, 470.0f, 30.0f, FVec4{0, 0, 0, 0.45f});
         if (rc.HasFont()) {
             sb.DrawString(rc.GetFont(), "Level (tilemap)  [Esc] -> title",
@@ -97,7 +97,7 @@ private:
     TUniquePtr<IRhiTexture> m_Atlas;
 };
 
-class FTitleScene final : public FScene2D {
+class ATitleScene final : public AScene2D {
 public:
     void OnReady() noexcept override {
         Services().Input().ClearAll();
@@ -108,7 +108,7 @@ public:
 
     void OnTick(f32 dt) noexcept override;   // 下で定義
 
-    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override {
         sb.DrawRect(8.0f, 8.0f, 540.0f, 30.0f, FVec4{0, 0, 0, 0.45f});
         if (rc.HasFont()) {
             sb.DrawString(rc.GetFont(), "HelloTilemap Title   [Space] start   [Esc] quit",
@@ -118,29 +118,29 @@ public:
 };
 
 // ---- 相互参照する OnTick は両クラス定義後に out-of-line で実装 ----
-void FLevelScene::OnTick(f32 /*dt*/) noexcept {
+void ALevelScene::OnTick(f32 /*dt*/) noexcept {
     if (GetGame().Fade().IsActive()) return;          // 遷移中は入力を無視
     if (Services().Input().IsPressed(kBack)) {
-        GetGame().TransitionTo(MakeUnique<FTitleScene>(), 0.3f, 0.3f);
+        GetGame().TransitionTo(MakeUnique<ATitleScene>(), 0.3f, 0.3f);
     }
 }
 
-void FTitleScene::OnTick(f32 /*dt*/) noexcept {
+void ATitleScene::OnTick(f32 /*dt*/) noexcept {
     if (GetGame().Fade().IsActive()) return;
     if (Services().Input().IsPressed(kStart)) {
-        GetGame().TransitionTo(MakeUnique<FLevelScene>(), 0.3f, 0.3f);
+        GetGame().TransitionTo(MakeUnique<ALevelScene>(), 0.3f, 0.3f);
     } else if (Services().Input().IsPressed(kBack)) {
         GetGame().Quit();
     }
 }
 
-class FTilemapGame final : public FGame {
+class CTilemapGame final : public CGame {
 protected:
-    TUniquePtr<FScene> InitialScene() noexcept override {
-        return MakeUnique<FTitleScene>();
+    TUniquePtr<AScene> InitialScene() noexcept override {
+        return MakeUnique<ATitleScene>();
     }
 };
 
 } // namespace
 
-ACS_GAME_MAIN(FTilemapGame)
+ACS_GAME_MAIN(CTilemapGame)

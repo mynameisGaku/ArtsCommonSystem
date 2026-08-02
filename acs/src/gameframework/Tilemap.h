@@ -172,7 +172,7 @@ public:
     FTilemap() noexcept = default;
 
     /** 外側の layer array に呼び出し側所有の allocator を使う。 */
-    explicit FTilemap(FAllocator& allocator) noexcept : m_Layers(allocator) {}
+    explicit FTilemap(IAllocator& allocator) noexcept : m_Layers(allocator) {}
 
     /** 破棄する (レイヤーバッファは TArray が解放)。 */
     ~FTilemap() noexcept = default;

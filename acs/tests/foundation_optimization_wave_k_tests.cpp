@@ -70,7 +70,7 @@ void FillPayload(TArray<u8>& Bytes, usize Size, u32 Seed) noexcept
 bool WriteTwoRawFiles(const wchar_t* Path, const TArray<u8>& First, const TArray<u8>& Second) noexcept
 {
     /** 検証 package の writer。 */
-    assetpack::FAcpakWriter Writer;
+    assetpack::CAcpakWriter Writer;
     if (Writer.Open(Path, assetpack::AcpakFlagNone).IsErr()) return false;
     if (Writer.AddFile(L"stream/first.bin", First.Data(), First.Size()).IsErr()) {
         return false;
@@ -90,7 +90,7 @@ public:
     /** loader が生成する asset 型を返す。 */
     AssetType TypeId() const noexcept override
     {
-        return FBinaryAsset::StaticType();
+        return ABinaryAsset::StaticType();
     }
 
     /** loader が担当する検証用拡張子を返す。 */
@@ -100,18 +100,18 @@ public:
     }
 
     /** release 指示まで待って binary asset を生成する。 */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId, const TArray<byte>&) noexcept override
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId, const TArray<byte>&) noexcept override
     {
         Entered.FetchAdd(1u);
         while (Release.Load(EMemoryOrder::Acquire) == 0u) Yield();
         /** 新規 binary asset の確保結果。 */
-        auto Binary = MakeShared<FBinaryAsset>();
+        auto Binary = MakeShared<ABinaryAsset>();
         if (!Binary.Get()) {
             return ACS_ERR(Memory, 1950u, "FBlockingWaveKLoader: allocation failed");
         }
         /** interface 型へ昇格した asset。 */
-        TSharedPtr<FAsset> Asset(Move(Binary));
-        return TResult<TSharedPtr<FAsset>>(OkInit, Move(Asset));
+        TSharedPtr<AAsset> Asset(Move(Binary));
+        return TResult<TSharedPtr<AAsset>>(OkInit, Move(Asset));
     }
 
     /** loader へ進入した回数。 */
@@ -123,7 +123,7 @@ public:
 /** registry shutdown thread と共有する状態。 */
 struct FRegistryShutdownContext {
     /** shutdown 対象 registry。 */
-    FAssetRegistry* Registry = nullptr;
+    CAssetRegistry* Registry = nullptr;
     /** shutdown 完了時に 1 となる flag。 */
     TAtomic<u32> Finished{0u};
 };
@@ -140,7 +140,7 @@ void ShutdownRegistry(void* User) noexcept
 /** 並行圧縮 read worker と共有する状態。 */
 struct FCompressedReadContext {
     /** 読み取り対象 reader。 */
-    assetpack::FAcpakReader* Reader = nullptr;
+    assetpack::CAcpakReader* Reader = nullptr;
     /** 比較元 payload。 */
     const TArray<u8>* Expected = nullptr;
     /** worker 固有の出力先。 */
@@ -373,7 +373,7 @@ ACS_TEST(FoundationOptimizationWaveK, InternerIsBoundedAndPinnedPathsSurviveRese
     static_assert(kFirstPath[kFirstLength] == L'\0');
 
     /** 有界保持と参照寿命を検証する interner。 */
-    FAssetPathInterner Interner;
+    CAssetPathInterner Interner;
     /** 先頭 path の初回 intern 結果。 */
     auto FirstResult = Interner.Intern(kFirstPath, kFirstLength);
     /** 先頭 path の再 intern 結果。 */
@@ -432,16 +432,16 @@ ACS_TEST(FoundationOptimizationWaveK, AsyncPathOwnershipSkipsHotHitsAndSurvivesS
     constexpr const wchar_t* kPath = L"acs_wave_k_registry.wvk";
     /** loader へ渡す検証 payload。 */
     constexpr u8 kPayload[] = {9u, 7u, 5u, 3u};
-    (void)FFileSystem::Delete(kPath);
-    EXPECT_TRUE(FFileSystem::WriteAllBytes(kPath, kPayload, sizeof(kPayload)).IsOk());
+    (void)CFileSystem::Delete(kPath);
+    EXPECT_TRUE(CFileSystem::WriteAllBytes(kPath, kPayload, sizeof(kPayload)).IsOk());
 
-    FThreadPool::Shutdown();
-    EXPECT_TRUE(FThreadPool::Init(2u).IsOk());
+    CThreadPool::Shutdown();
+    EXPECT_TRUE(CThreadPool::Init(2u).IsOk());
 
     /** 非同期 job の完了境界を制御する loader。 */
     FBlockingWaveKLoader Loader;
     /** path ownership と coalescing を検証する registry。 */
-    FAssetRegistry Registry;
+    CAssetRegistry Registry;
     Registry.RegisterLoader(&Loader);
 
     /** physical read を開始する最初の future。 */
@@ -513,8 +513,8 @@ ACS_TEST(FoundationOptimizationWaveK, AsyncPathOwnershipSkipsHotHitsAndSurvivesS
     if (ShutdownThread.IsOk()) ShutdownThread.Value().Join();
     EXPECT_EQ(ShutdownContext.Finished.Load(EMemoryOrder::Acquire), 1u);
 
-    FThreadPool::Shutdown();
-    (void)FFileSystem::Delete(kPath);
+    CThreadPool::Shutdown();
+    (void)CFileSystem::Delete(kPath);
 }
 
 ACS_TEST(FoundationOptimizationWaveK, LegacyBatchFallbackReportsPartialCommit)
@@ -545,7 +545,7 @@ ACS_TEST(FoundationOptimizationWaveK, MappedBatchKeepsAtomicSnapshotAndCrcCommit
 {
     /** mapping snapshot 検証用 package path。 */
     constexpr const wchar_t* kPath = L"acs_wave_k_mapped.acpak";
-    (void)FFileSystem::Delete(kPath);
+    (void)CFileSystem::Delete(kPath);
 
     /** 置換前 package の先頭 payload。 */
     TArray<u8> OldFirst;
@@ -564,7 +564,7 @@ ACS_TEST(FoundationOptimizationWaveK, MappedBatchKeepsAtomicSnapshotAndCrcCommit
     EXPECT_TRUE(WriteTwoRawFiles(kPath, OldFirst, OldSecond));
 
     /** 置換前 snapshot を保持する reader。 */
-    assetpack::FAcpakReader OldReader;
+    assetpack::CAcpakReader OldReader;
     EXPECT_TRUE(OldReader.Open(kPath).IsOk());
     EXPECT_TRUE(OldReader.ReadDiagnostics().mapped_view_active);
     EXPECT_TRUE(WriteTwoRawFiles(kPath, NewFirst, NewSecond));
@@ -598,14 +598,14 @@ ACS_TEST(FoundationOptimizationWaveK, MappedBatchKeepsAtomicSnapshotAndCrcCommit
     EXPECT_EQ(BatchDiagnostics.buffered_read_count, 0ull);
 
     /** 置換後 snapshot を読む reader。 */
-    assetpack::FAcpakReader NewReader;
+    assetpack::CAcpakReader NewReader;
     EXPECT_TRUE(NewReader.Open(kPath).IsOk());
     EXPECT_TRUE(NewReader.ReadFile(L"stream/first.bin", FirstOut.Data(), FirstOut.Size()).IsOk());
     EXPECT_TRUE(EqualBytes(FirstOut.Data(), NewFirst.Data(), NewFirst.Size()));
 
     // bridge も後続 UTF-8 エラーより先行 read を優先し、部分完了数を維持する。
     /** UTF-8 batch 変換を検証する bridge reader。 */
-    assetpack::FAcpakGameReader BridgeReader;
+    assetpack::CAcpakGameReader BridgeReader;
     EXPECT_TRUE(BridgeReader.Mount("acs_wave_k_mapped.acpak").IsOk());
     MemSet(FirstOut.Data(), 0xCCu, FirstOut.Size());
     /** 二番目 request で拒否する不正 UTF-8。 */
@@ -675,7 +675,7 @@ ACS_TEST(FoundationOptimizationWaveK, MappedBatchKeepsAtomicSnapshotAndCrcCommit
 
     // raw mapped 経路でも CRC 成功前に caller buffer を変更しない。
     /** payload offset を得るための reader。 */
-    assetpack::FAcpakReader OffsetReader;
+    assetpack::CAcpakReader OffsetReader;
     EXPECT_TRUE(OffsetReader.Open(kPath).IsOk());
     /** 破損させる先頭 manifest entry。 */
     const assetpack::FAcpakFileEntry* Entry = OffsetReader.FindEntry(L"stream/first.bin");
@@ -685,15 +685,15 @@ ACS_TEST(FoundationOptimizationWaveK, MappedBatchKeepsAtomicSnapshotAndCrcCommit
     OffsetReader.Close();
 
     /** package 全体の読み込み結果。 */
-    auto ArchiveResult = FFileSystem::ReadAllBytes(kPath);
+    auto ArchiveResult = CFileSystem::ReadAllBytes(kPath);
     EXPECT_TRUE(ArchiveResult.IsOk());
     if (ArchiveResult.IsOk() && DataOffset < ArchiveResult.Value().Size()) {
         ArchiveResult.Value()[static_cast<usize>(DataOffset)] ^= 0x5Au;
-        EXPECT_TRUE(FFileSystem::WriteAllBytes(kPath, ArchiveResult.Value().Data(), ArchiveResult.Value().Size()).IsOk());
+        EXPECT_TRUE(CFileSystem::WriteAllBytes(kPath, ArchiveResult.Value().Data(), ArchiveResult.Value().Size()).IsOk());
     }
 
     /** CRC 失敗時の transaction 出力を検証する reader。 */
-    assetpack::FAcpakReader CorruptReader;
+    assetpack::CAcpakReader CorruptReader;
     EXPECT_TRUE(CorruptReader.Open(kPath).IsOk());
     MemSet(FirstOut.Data(), 0xA5u, FirstOut.Size());
     /** 破損 payload の read 結果。 */
@@ -701,7 +701,7 @@ ACS_TEST(FoundationOptimizationWaveK, MappedBatchKeepsAtomicSnapshotAndCrcCommit
     EXPECT_TRUE(CorruptResult.IsErr());
     EXPECT_TRUE(AllBytesEqual(FirstOut.Data(), FirstOut.Size(), 0xA5u));
     CorruptReader.Close();
-    (void)FFileSystem::Delete(kPath);
+    (void)CFileSystem::Delete(kPath);
 }
 
 ACS_TEST(FoundationOptimizationWaveK, CompressedScratchIsBoundedAndConcurrentSafe)
@@ -710,7 +710,7 @@ ACS_TEST(FoundationOptimizationWaveK, CompressedScratchIsBoundedAndConcurrentSaf
     constexpr const wchar_t* kPath = L"acs_wave_k_compressed.acpak";
     /** 同時 read worker 数。 */
     constexpr u32 kWorkerCount = 4u;
-    (void)FFileSystem::Delete(kPath);
+    (void)CFileSystem::Delete(kPath);
 
     /** 圧縮して格納する検証 payload。 */
     TArray<u8> Payload;
@@ -718,14 +718,14 @@ ACS_TEST(FoundationOptimizationWaveK, CompressedScratchIsBoundedAndConcurrentSaf
     EXPECT_EQ(Payload.Size(), 2u * 1024u * 1024u);
 
     /** 圧縮 package の writer。 */
-    assetpack::FAcpakWriter Writer;
+    assetpack::CAcpakWriter Writer;
     EXPECT_TRUE(Writer.Open(kPath, assetpack::AcpakFlagCompressed).IsOk());
     EXPECT_TRUE(Writer.AddFile(L"compressed/payload.bin", Payload.Data(), Payload.Size()).IsOk());
     EXPECT_TRUE(Writer.Finalize().IsOk());
     Writer.Close();
 
     /** scratch 再利用と並行 fallback を検証する reader。 */
-    assetpack::FAcpakReader Reader;
+    assetpack::CAcpakReader Reader;
     EXPECT_TRUE(Reader.Open(kPath).IsOk());
     /** 保持 scratch を warmup する出力先。 */
     TArray<u8> WarmOutput;
@@ -788,7 +788,7 @@ ACS_TEST(FoundationOptimizationWaveK, CompressedScratchIsBoundedAndConcurrentSaf
     EXPECT_EQ(Reset.scratch_fallback_count, 0ull);
 
     Reader.Close();
-    (void)FFileSystem::Delete(kPath);
+    (void)CFileSystem::Delete(kPath);
 }
 
 ACS_TEST(FoundationOptimizationWaveK, SceneDependenciesDeduplicateAndKeepErrorOrder)
@@ -796,7 +796,7 @@ ACS_TEST(FoundationOptimizationWaveK, SceneDependenciesDeduplicateAndKeepErrorOr
     /** 同一 material の共有を返す reader。 */
     FScenePackReader SharedReader(EScenePackMode::SharedDependency);
     /** shared dependency の load 先 scene。 */
-    FScene3D SharedScene;
+    CScene3D SharedScene;
     /** shared dependency scene の load 結果。 */
     const FScene3DLoadResult SharedResult = TryLoadScene3DAssetPack(SharedScene, SharedReader, "main.acscene");
     EXPECT_TRUE(SharedResult.Succeeded());
@@ -808,7 +808,7 @@ ACS_TEST(FoundationOptimizationWaveK, SceneDependenciesDeduplicateAndKeepErrorOr
     /** 先行 decode と後続 read を失敗させる reader。 */
     FScenePackReader FailureReader(EScenePackMode::EarlierDecodeFailure);
     /** transaction 不変性を確認する既存 node 付き scene。 */
-    FScene3D FailureScene;
+    CScene3D FailureScene;
     FailureScene.Spawn(FStringView("Keep"));
     /** 複合失敗 scene の load 結果。 */
     const FScene3DLoadResult FailureResult = TryLoadScene3DAssetPack(FailureScene, FailureReader, "main.acscene");
@@ -823,7 +823,7 @@ ACS_TEST(FoundationOptimizationWaveK, SceneDependenciesDeduplicateAndKeepErrorOr
 
 ACS_TEST(FoundationOptimizationWaveK, PublicLayoutReport)
 {
-    std::printf("[WaveK] layout-v2 FAssetPathInternerDiagnostics=%zu/%zu FAssetRegistryDiagnostics=%zu/%zu FAcpakReadDiagnostics=%zu/%zu FAssetPackReadRequest=%zu/%zu FAssetPathInterner=%zu/%zu FAcpakReader=%zu/%zu\n", sizeof(FAssetPathInternerDiagnostics), alignof(FAssetPathInternerDiagnostics), sizeof(FAssetRegistryDiagnostics), alignof(FAssetRegistryDiagnostics), sizeof(assetpack::FAcpakReadDiagnostics), alignof(assetpack::FAcpakReadDiagnostics), sizeof(FAssetPackReadRequest), alignof(FAssetPackReadRequest), sizeof(FAssetPathInterner), alignof(FAssetPathInterner), sizeof(assetpack::FAcpakReader), alignof(assetpack::FAcpakReader));
+    std::printf("[WaveK] layout-v2 FAssetPathInternerDiagnostics=%zu/%zu FAssetRegistryDiagnostics=%zu/%zu FAcpakReadDiagnostics=%zu/%zu FAssetPackReadRequest=%zu/%zu CAssetPathInterner=%zu/%zu CAcpakReader=%zu/%zu\n", sizeof(FAssetPathInternerDiagnostics), alignof(FAssetPathInternerDiagnostics), sizeof(FAssetRegistryDiagnostics), alignof(FAssetRegistryDiagnostics), sizeof(assetpack::FAcpakReadDiagnostics), alignof(assetpack::FAcpakReadDiagnostics), sizeof(FAssetPackReadRequest), alignof(FAssetPackReadRequest), sizeof(CAssetPathInterner), alignof(CAssetPathInterner), sizeof(assetpack::CAcpakReader), alignof(assetpack::CAcpakReader));
     EXPECT_EQ(alignof(FAssetPathInternerDiagnostics), alignof(u64));
     EXPECT_EQ(alignof(FAssetRegistryDiagnostics), alignof(u64));
     EXPECT_EQ(alignof(assetpack::FAcpakReadDiagnostics), alignof(u64));

@@ -5,7 +5,7 @@
 //   柱 (occluder) のシルエットに沿った柔らかい影が落ちる。
 // ・[B] でブロブ影のみの軽量モードに切替 (動的影 OFF / フラット照明)。
 //
-// 影は FLighting2D が occluder mask を ray-march して出す。occluder は
+// 影は CLighting2D が occluder mask を ray-march して出す。occluder は
 // 「柱スプライトを白で焼いたシルエット」なので矩形でなく丸い影になる。
 #pragma once
 
@@ -17,7 +17,7 @@
 
 namespace hellolight2d {
 
-class FLight2DApp : public acs::FApplication {
+class CLight2DApp : public acs::CApplication {
 public:
     void OnStart() noexcept override;
     bool OnCustomFrame() noexcept override;
@@ -33,11 +33,11 @@ private:
     // ambient + 光源を毎フレーム更新。
     void UpdateLights(acs::u32 w, acs::u32 h) noexcept;
 
-    acs::FSpriteBatch m_SceneBatch;   // パスごとに別 batch (VB エイリアス回避)
-    acs::FSpriteBatch m_OccBatch;
-    acs::FSpriteBatch m_HudBatch;
-    acs::FLighting2D  m_Lighting;
-    acs::FBlobShadow  m_Blob;
+    acs::CSpriteBatch m_SceneBatch;   // パスごとに別 batch (VB エイリアス回避)
+    acs::CSpriteBatch m_OccBatch;
+    acs::CSpriteBatch m_HudBatch;
+    acs::CLighting2D  m_Lighting;
+    acs::CBlobShadow  m_Blob;
     acs::FFont         m_Font;
     bool              m_bFontReady = false;
 

@@ -75,7 +75,7 @@ struct FPostProcessParams {
     /** フィルムグレイン強度 0..0.1。 */
     f32   grain_intensity    = 0.015f;
 
-    /** procedural noise のシード (FApplication から dt 累積)。 */
+    /** procedural noise のシード (CApplication から dt 累積)。 */
     f32   grain_time         = 0.0f;
 
     /**

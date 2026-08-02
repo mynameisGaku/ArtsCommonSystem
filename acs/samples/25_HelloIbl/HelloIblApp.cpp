@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloIbl — FHelloIblApp の実装 (薄い orchestration レイヤ)。
+// HelloIbl — CHelloIblApp の実装 (薄い orchestration レイヤ)。
 //
 // 各 pass は helper file (ShadowPass / GBufferPass / ScreenSpaceEffects /
 // RefractionPass / DynamicOrbs / SceneDraw / PbrLightingBindings /
@@ -13,8 +13,8 @@
 //   ・HDR RT: skybox → IBL sphere grid → 動的オーブ → ガラス球 (refraction)
 //   ・geometry G-buffer pass: motion vector + world normal を MRT に焼く
 //   ・SSR / SSAO / SSGI を計算 (次フレーム用に 1-frame latency)
-//   ・FPostProcess: Bloom + ACES tonemap + CAS sharpen + auto-expo + grading
-//   ・FSpriteBatch HUD (LDR backbuffer に sub-window + テキスト)
+//   ・CPostProcess: Bloom + ACES tonemap + CAS sharpen + auto-expo + grading
+//   ・CSpriteBatch HUD (LDR backbuffer に sub-window + テキスト)
 #include "HelloIblApp.h"
 #include "IblEnvBuilder.h"
 #include "IblLightmapBaker.h"
@@ -31,7 +31,7 @@ using namespace acs;
 
 namespace helloibl {
 
-void FHelloIblApp::OnStart() noexcept {
+void CHelloIblApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
     IRhiSwapchain* sc = GetRenderer().Swapchain();
@@ -40,7 +40,7 @@ void FHelloIblApp::OnStart() noexcept {
     const u32 sw = sc->Width();
     const u32 sh = sc->Height();
 
-    // HDR FPostProcess (Bloom + ACES Tonemap) — HDR RT は R16G16B16A16_Float
+    // HDR CPostProcess (Bloom + ACES Tonemap) — HDR RT は R16G16B16A16_Float
     ACS_SAMPLE_INIT(m_Post.Init(*dev, sw, sh, GetRenderer().ColorFormat()));
 
     // シーン側は HDR RT format に揃える
@@ -53,7 +53,7 @@ void FHelloIblApp::OnStart() noexcept {
     auto plane  = Primitive::MakePlane(40.0f, 40.0f);
     ACS_SAMPLE_INIT(UploadMesh(*dev, *plane, m_GmPlane));
 
-    // FShadowMap: 2048 px × 3 cascade atlas (CSM)
+    // CShadowMap: 2048 px × 3 cascade atlas (CSM)
     ACS_SAMPLE_INIT(m_Shadow.Init(*dev, 2048, /*cascade_count=*/3));
     // SSR: HDR と同フォーマット / 同サイズで scratch を確保
     ACS_SAMPLE_INIT(m_Ssr.Init(*dev, m_Post.HdrFormat(), sw, sh));
@@ -97,7 +97,7 @@ void FHelloIblApp::OnStart() noexcept {
         m_Lightmap = Move(lm_r.Value());
     }
 
-    // FSpriteBatch は LDR backbuffer (tonemap 後)
+    // CSpriteBatch は LDR backbuffer (tonemap 後)
     ACS_SAMPLE_INIT(m_Batch.Init(*dev, GetRenderer().ColorFormat()));
     (void)FSample::TryLoadDefaultUIFont(m_Font, *dev, 18.0f, 1024, true);
 
@@ -130,7 +130,7 @@ void FHelloIblApp::OnStart() noexcept {
 
     // CAS sharpening: subtle clarity boost、UE5 デフォルト相当 0.4
     m_PostParams.cas_strength    = 0.4f;
-    // SSR は FPbrShader 側で合成するので tonemap 側の SSR は無効化。intensity 0 に
+    // SSR は CPbrShader 側で合成するので tonemap 側の SSR は無効化。intensity 0 に
     // しないと fallback bloom mip が誤加算される。
     m_PostParams.ssr_intensity   = 0.0f;
 
@@ -142,64 +142,64 @@ void FHelloIblApp::OnStart() noexcept {
     }
 }
 
-FMat4 FHelloIblApp::ComputeDynTransform(u32 i, f32 t) const noexcept {
+FMat4 CHelloIblApp::ComputeDynTransform(u32 i, f32 t) const noexcept {
     const f32 a = t * 1.8f + static_cast<f32>(i) * (2.0f * kPi / 3.0f);
     const f32 r = 2.2f;
     return FMat4::Translation(FVec3{ Cos(a) * r, 3.0f + Sin(a) * r, 1.0f });
 }
 
-void FHelloIblApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloIblApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
 
     // 1/2/3/4/5 で env preset 切替。SH9 mode が有効中は SH 9 係数も再計算が必要。
     // preset ごとに露出目標を変える → m_AdaptedExposure がじわっと追従して
     // eye adaptation (目が明暗に慣れる) 演出になる。
-    if (FInput::IsKeyPressed(EKey::Num1)) {
+    if (CInput::IsKeyPressed(EKey::Num1)) {
         m_Sky.PresetDay();    m_CurrentPreset = 0;
         m_bNeedRecapture = true; m_bNeedSh9Rebuild = m_bUseSh9;
         m_ExposureTarget = 0.7f;     // Day: 明るいので露出を絞る
     }
-    if (FInput::IsKeyPressed(EKey::Num2)) {
+    if (CInput::IsKeyPressed(EKey::Num2)) {
         m_Sky.PresetSunset(); m_CurrentPreset = 1;
         m_bNeedRecapture = true; m_bNeedSh9Rebuild = m_bUseSh9;
         m_ExposureTarget = 1.0f;
     }
-    if (FInput::IsKeyPressed(EKey::Num3)) {
+    if (CInput::IsKeyPressed(EKey::Num3)) {
         m_Sky.PresetNight();  m_CurrentPreset = 2;
         m_bNeedRecapture = true; m_bNeedSh9Rebuild = m_bUseSh9;
         m_ExposureTarget = 1.8f;     // Night: 暗いので露出を上げる
     }
-    if (FInput::IsKeyPressed(EKey::Num4)) {
+    if (CInput::IsKeyPressed(EKey::Num4)) {
         m_CurrentPreset = 3;
         m_bNeedStudioHdr = true; m_bNeedSh9Rebuild = m_bUseSh9;
         m_ExposureTarget = 1.0f;
     }
-    if (FInput::IsKeyPressed(EKey::Num5)) {
+    if (CInput::IsKeyPressed(EKey::Num5)) {
         m_CurrentPreset = 4;
         m_bNeedAtmosphere = true; m_bNeedSh9Rebuild = m_bUseSh9;
         m_ExposureTarget = 0.85f;
     }
 
-    if (FInput::IsKeyPressed(EKey::I)) m_DisplayMode = (m_DisplayMode + 1) % 7;
+    if (CInput::IsKeyPressed(EKey::I)) m_DisplayMode = (m_DisplayMode + 1) % 7;
     // SH9 toggle: 現在の irradiance cubemap から計算した SH 9 で diffuse を再構築
-    if (FInput::IsKeyPressed(EKey::S)) {
+    if (CInput::IsKeyPressed(EKey::S)) {
         m_bUseSh9 = !m_bUseSh9;
         m_bNeedSh9Rebuild = m_bUseSh9;     // 必要なときに再計算
     }
-    if (FInput::IsKeyPressed(EKey::C)) m_bUseClearcoat = !m_bUseClearcoat;
-    if (FInput::IsKeyPressed(EKey::Z)) m_bUseAnisotropy = !m_bUseAnisotropy;
-    if (FInput::IsKeyPressed(EKey::L)) m_bUseAreaLight = !m_bUseAreaLight;
-    if (FInput::IsKeyPressed(EKey::G)) m_bUseProbeGrid = !m_bUseProbeGrid;
-    if (FInput::IsKeyPressed(EKey::F)) m_bUseFog = !m_bUseFog;
-    if (FInput::IsKeyPressed(EKey::H)) m_bUseShadows = !m_bUseShadows;
-    if (FInput::IsKeyPressed(EKey::R)) m_ShowSsr = !m_ShowSsr;
-    if (FInput::IsKeyPressed(EKey::X)) m_ShowRefraction = !m_ShowRefraction;
-    if (FInput::IsKeyPressed(EKey::O)) m_bUseSsao = !m_bUseSsao;
-    if (FInput::IsKeyPressed(EKey::T)) m_bUseTaa  = !m_bUseTaa;
-    if (FInput::IsKeyPressed(EKey::J)) m_bUseSsgi = !m_bUseSsgi;
-    if (FInput::IsKeyPressed(EKey::K)) m_bUseLightmap = !m_bUseLightmap;
-    if (FInput::IsKeyPressed(EKey::M)) m_bUseMotionVec = !m_bUseMotionVec;
-    if (FInput::IsKeyPressed(EKey::B)) m_PostParams.bloom_enabled = !m_PostParams.bloom_enabled;
+    if (CInput::IsKeyPressed(EKey::C)) m_bUseClearcoat = !m_bUseClearcoat;
+    if (CInput::IsKeyPressed(EKey::Z)) m_bUseAnisotropy = !m_bUseAnisotropy;
+    if (CInput::IsKeyPressed(EKey::L)) m_bUseAreaLight = !m_bUseAreaLight;
+    if (CInput::IsKeyPressed(EKey::G)) m_bUseProbeGrid = !m_bUseProbeGrid;
+    if (CInput::IsKeyPressed(EKey::F)) m_bUseFog = !m_bUseFog;
+    if (CInput::IsKeyPressed(EKey::H)) m_bUseShadows = !m_bUseShadows;
+    if (CInput::IsKeyPressed(EKey::R)) m_ShowSsr = !m_ShowSsr;
+    if (CInput::IsKeyPressed(EKey::X)) m_ShowRefraction = !m_ShowRefraction;
+    if (CInput::IsKeyPressed(EKey::O)) m_bUseSsao = !m_bUseSsao;
+    if (CInput::IsKeyPressed(EKey::T)) m_bUseTaa  = !m_bUseTaa;
+    if (CInput::IsKeyPressed(EKey::J)) m_bUseSsgi = !m_bUseSsgi;
+    if (CInput::IsKeyPressed(EKey::K)) m_bUseLightmap = !m_bUseLightmap;
+    if (CInput::IsKeyPressed(EKey::M)) m_bUseMotionVec = !m_bUseMotionVec;
+    if (CInput::IsKeyPressed(EKey::B)) m_PostParams.bloom_enabled = !m_PostParams.bloom_enabled;
 
     // film grain アニメ用に時間累積 + 動的球の公転時刻
     m_PostParams.grain_time += dt;
@@ -209,10 +209,10 @@ void FHelloIblApp::OnUpdate(f32 dt) noexcept {
 
     // 視点を矢印 (回転) + WASD (移動) で操作
     const f32 mv = 4.0f * dt, tr = 1.5f * dt;
-    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
-    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += tr;
-    if (FInput::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
-    if (FInput::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
+    if (CInput::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
+    if (CInput::IsKeyDown(EKey::Right)) m_CamYaw += tr;
+    if (CInput::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
+    if (CInput::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
     const f32 limit = 0.45f * kPi;
     if (m_CamPitch >  limit) m_CamPitch =  limit;
     if (m_CamPitch < -limit) m_CamPitch = -limit;
@@ -221,19 +221,19 @@ void FHelloIblApp::OnUpdate(f32 dt) noexcept {
                  -Sin(m_CamPitch),
                   Cos(m_CamYaw) * Cos(m_CamPitch) };
     FVec3 right{ Cos(m_CamYaw), 0, -Sin(m_CamYaw) };
-    if (FInput::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
-    if (FInput::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
-    if (FInput::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
-    if (FInput::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
+    if (CInput::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
+    if (CInput::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
+    if (CInput::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
+    if (CInput::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
     m_Camera.SetLookAt(m_CamPos, m_CamPos + forward);
 }
 
 // OnCustomFrame() で HDR 経路に切替えてデフォルトフローを置き換える。
 // 1) IBL build (必要なら、RT を一時的に切替)
 // 2) HDR RT にシーン (skybox + sphere grid) を描画
-// 3) FPostProcess.Render で Bloom + Tonemap → LDR backbuffer
-// 4) FSpriteBatch HUD を LDR backbuffer に
-bool FHelloIblApp::OnCustomFrame() noexcept {
+// 3) CPostProcess.Render で Bloom + Tonemap → LDR backbuffer
+// 4) CSpriteBatch HUD を LDR backbuffer に
+bool CHelloIblApp::OnCustomFrame() noexcept {
     IRhiDevice*      dev   = GetRenderer().Device();
     IRhiCommandList* cl    = GetRenderer().CommandList();
     IRhiSwapchain*   sc    = GetRenderer().Swapchain();
@@ -254,7 +254,7 @@ bool FHelloIblApp::OnCustomFrame() noexcept {
 
     UpdateDynamicOrbs(*this);
 
-    // TAA Halton(2,3) sub-pixel jitter を skybox / FPbrShader / SSR / SSAO の
+    // TAA Halton(2,3) sub-pixel jitter を skybox / CPbrShader / SSR / SSAO の
     // VP に適用する。複数フレームの累積でエッジが滑らかになる。
     const FMat4 vp_no_jitter = m_Camera.ViewProjection();
     const FMat4 vp_for_render = BuildJitteredViewProjection(*this, vp_no_jitter,
@@ -299,11 +299,11 @@ bool FHelloIblApp::OnCustomFrame() noexcept {
 
     // SH9 mode: 現在の env cubemap (sky or studio HDR) から SH 9 を計算
     if (m_bNeedSh9Rebuild) {
-        // Studio HDR は別 builder で既に焼かれている。それ以外は FSky 評価から焼く。
+        // Studio HDR は別 builder で既に焼かれている。それ以外は CSky 評価から焼く。
         if (m_CurrentPreset != 3) {
             BuildEquirectFromSky(m_Sky, m_EquirectRgba);
         }
-        FImageBasedLighting::ComputeSh9FromEquirect(
+        CImageBasedLighting::ComputeSh9FromEquirect(
             m_EquirectRgba.Data(), kEquirectWidth, kEquirectHeight, m_Sh9);
         m_bNeedSh9Rebuild = false;
     }
@@ -364,7 +364,7 @@ bool FHelloIblApp::OnCustomFrame() noexcept {
     m_PrevVpNoJitter = vp_no_jitter;
     m_TaaPrevVpValid = true;
 
-    // ===== 3) FSpriteBatch HUD (LDR backbuffer) =====
+    // ===== 3) CSpriteBatch HUD (LDR backbuffer) =====
     DrawHud(*this, sc->Width(), sc->Height());
 
     cl->EndRenderToSwapchain(*sc, buf_idx);
@@ -373,7 +373,7 @@ bool FHelloIblApp::OnCustomFrame() noexcept {
     return true;
 }
 
-void FHelloIblApp::OnShutdown() noexcept {
+void CHelloIblApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();

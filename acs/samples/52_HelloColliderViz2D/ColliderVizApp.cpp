@@ -19,7 +19,7 @@ namespace {
 constexpr u32 kTexW = 128, kTexH = 128;
 
 // (a,b) を太さ thickness の線として描く (回転矩形)。
-void DrawLine(FSpriteBatch& sb, FVec2 a, FVec2 b, f32 thickness, FVec4 color) noexcept {
+void DrawLine(CSpriteBatch& sb, FVec2 a, FVec2 b, f32 thickness, FVec4 color) noexcept {
     const f32 dx = b.x - a.x, dy = b.y - a.y;
     const f32 len = std::sqrt(dx * dx + dy * dy);
     if (len < 1e-3f) return;
@@ -27,7 +27,7 @@ void DrawLine(FSpriteBatch& sb, FVec2 a, FVec2 b, f32 thickness, FVec4 color) no
     sb.DrawRectRotated((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f, len, thickness, ang, color);
 }
 
-void DrawRing(FSpriteBatch& sb, FVec2 c, f32 r, FVec4 color) noexcept {
+void DrawRing(CSpriteBatch& sb, FVec2 c, f32 r, FVec4 color) noexcept {
     constexpr int kSeg = 20;
     for (int i = 0; i < kSeg; ++i) {
         const f32 a0 = (static_cast<f32>(i)     / kSeg) * 6.2831853f;
@@ -39,7 +39,7 @@ void DrawRing(FSpriteBatch& sb, FVec2 c, f32 r, FVec4 color) noexcept {
 
 } // namespace
 
-void FColliderVizApp::OnStart() noexcept {
+void CColliderVizApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -86,15 +86,15 @@ void FColliderVizApp::OnStart() noexcept {
     m_PolyId = m_World.AddPolygon(screen_hull);
 }
 
-void FColliderVizApp::OnUpdate(f32) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) { Quit(); return; }
-    m_Probe = FInput::MousePos();
+void CColliderVizApp::OnUpdate(f32) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) { Quit(); return; }
+    m_Probe = CInput::MousePos();
     TArray<acs::game::FShapeId> hits;
     m_World.OverlapCircle(FCircle{ m_Probe, 18.0f }, hits);
     m_bOverlap = hits.Size() > 0;
 }
 
-void FColliderVizApp::OnRender() noexcept {
+void CColliderVizApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     if (!cl || !sc) return;
@@ -147,7 +147,7 @@ void FColliderVizApp::OnRender() noexcept {
     m_Batch.End();
 }
 
-void FColliderVizApp::OnShutdown() noexcept {
+void CColliderVizApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     if (m_bFontReady) m_Font.Shutdown();
     m_SpriteTex.Reset();

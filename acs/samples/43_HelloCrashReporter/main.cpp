@@ -3,7 +3,6 @@
 #include "CrashReporterDemoApp.h"
 
 int main() {
-    hellocrash::FCrashReporterDemoApp App;
+    hellocrash::CCrashReporterDemoApp App;
     return App.Run();
 }
-

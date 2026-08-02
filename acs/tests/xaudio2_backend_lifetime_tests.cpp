@@ -13,13 +13,13 @@ namespace {
 constexpr u32 kWaitTimeoutMilliseconds = 3000u;
 
 struct FBackendOperationContext {
-    FXAudio2Backend* Backend = nullptr;
+    CXAudio2Backend* Backend = nullptr;
     TAtomic<u32> Finished{0u};
     u32 ActiveVoiceCount = 0u;
 };
 
 struct FBackendShutdownContext {
-    FXAudio2Backend* Backend = nullptr;
+    CXAudio2Backend* Backend = nullptr;
     TAtomic<u32> Finished{0u};
 };
 
@@ -36,7 +36,7 @@ bool WaitForValue(const TAtomic<u32>& Value, u32 Expected) noexcept
     return false;
 }
 
-bool WaitForShutdownRequest(const FXAudio2Backend& Backend) noexcept
+bool WaitForShutdownRequest(const CXAudio2Backend& Backend) noexcept
 {
     for (u32 Elapsed = 0u; Elapsed < kWaitTimeoutMilliseconds; ++Elapsed)
     {
@@ -67,7 +67,7 @@ void ShutdownThread(void* UserData)
 
 int main()
 {
-    FXAudio2Backend Backend;
+    CXAudio2Backend Backend;
     if (Backend.InitializeLifecycleTestState().IsErr())
     {
         return 1;
@@ -75,7 +75,7 @@ int main()
 
     TAtomic<u32> GateEntered{0u};
     TAtomic<u32> GateRelease{0u};
-    FXAudio2Backend::ConfigureLifecycleOperationTestGate(&GateEntered, &GateRelease);
+    CXAudio2Backend::ConfigureLifecycleOperationTestGate(&GateEntered, &GateRelease);
 
     i32 ExitCode = 0;
     FBackendOperationContext FirstOperation;
@@ -163,7 +163,7 @@ int main()
     {
         Backend.Shutdown();
     }
-    FXAudio2Backend::ConfigureLifecycleOperationTestGate(nullptr, nullptr);
+    CXAudio2Backend::ConfigureLifecycleOperationTestGate(nullptr, nullptr);
 
     if (ExitCode == 0 && ShutdownContext.Finished.Load(EMemoryOrder::Acquire) == 0u)
     {

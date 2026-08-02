@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloLocalization — FApplication 実装。
+// HelloLocalization — CApplication 実装。
 #include "HelloLocalizationApp.h"
 #include "Types.h"
 
@@ -16,7 +16,7 @@ using namespace acs;
 
 namespace helloloc {
 
-void FHelloLocalizationApp::OnStart() noexcept
+void CHelloLocalizationApp::OnStart() noexcept
 {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) {
@@ -33,15 +33,15 @@ void FHelloLocalizationApp::OnStart() noexcept
     (void)FSample::TryLoadDefaultUIFont(m_FontSmall, *dev, 20.0f, 1024, true);
 }
 
-void FHelloLocalizationApp::OnUpdate(f32 /*dt*/) noexcept
+void CHelloLocalizationApp::OnUpdate(f32 /*dt*/) noexcept
 {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
-    if (FInput::IsKeyPressed(EKey::F1)) SwitchTo(0);
-    if (FInput::IsKeyPressed(EKey::F2)) SwitchTo(1);
-    if (FInput::IsKeyPressed(EKey::F3)) SwitchTo(2);
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (CInput::IsKeyPressed(EKey::F1)) SwitchTo(0);
+    if (CInput::IsKeyPressed(EKey::F2)) SwitchTo(1);
+    if (CInput::IsKeyPressed(EKey::F3)) SwitchTo(2);
 }
 
-void FHelloLocalizationApp::OnRender() noexcept
+void CHelloLocalizationApp::OnRender() noexcept
 {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
@@ -71,7 +71,7 @@ void FHelloLocalizationApp::OnRender() noexcept
     m_Batch.End();
 }
 
-void FHelloLocalizationApp::OnShutdown() noexcept
+void CHelloLocalizationApp::OnShutdown() noexcept
 {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_FontSmall.Shutdown();
@@ -79,7 +79,7 @@ void FHelloLocalizationApp::OnShutdown() noexcept
     m_Batch.Shutdown();
 }
 
-void FHelloLocalizationApp::SwitchTo(u32 idx) noexcept
+void CHelloLocalizationApp::SwitchTo(u32 idx) noexcept
 {
     const char* src = (idx == 0) ? kLangJa : (idx == 1) ? kLangEn : kLangFr;
     if (m_Loc.LoadActiveBytes(reinterpret_cast<const u8*>(src), std::strlen(src)).IsOk()) {

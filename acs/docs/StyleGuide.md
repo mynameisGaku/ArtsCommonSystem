@@ -100,16 +100,17 @@ class IRhiDevice { virtual ~IRhiDevice() noexcept = default; /* pure virtual */ 
 - 新規の型 alias 宣言には **`using` を使う**。公開namespaceの`typedef`は追加しない。
   `AssetType = u32`はasset familyの移行設計が確定するまで、場所・名前・参照先を固定した
   登録済み例外として維持する。
-- `FAsset`とその直接・間接派生は、役割を断定せずexact migration debtへ登録する。
+- `AAsset`とその直接・間接派生は、ownerに所有され多態的に扱われる`A`として登録済みである。
   修飾名、単純名、公開alias chainの基底を解決し、曖昧または解決不能なら監査を
-  fail-closedにする。structや`FScoped*`も例外にしない。
+  fail-closedにする。structや`FScoped*`も名前だけで例外にしない。
 - 操作のないデータ中心classは`F`、`Draw` / `Render`など明白な処理を持つstructは`C`候補とする。
   valueのconstructor・accessor・operatorは`F`のままとし、member initializerの関数呼び出しと
   function-pointer fieldをmethodと誤認しない。
 - 元の単語が prefix と同じ文字で始まっても prefix は省略しない。例: `FileSystem` → `FFileSystem`、`Font` → `FFont`、`ErrCategory` → `EErrCategory`。
 - template / interface / objectの分類は意味に基づく。現waveが`A`と機械確定するのは、
   `acs::AObject`の推移実継承またはscope解決した`ACS_OBJECT` / `ACS_REGISTER_OBJECT`実登録である。
-  その他のobject候補はmanual debtでreviewする。macro定義中と`#if 0`中の記述は実登録ではない。
+  未登録のobject候補はR020fで拒否し、review済みcommitでregistryまたはdebtへ反映する。
+  現行debtは0件である。macro定義中と`#if 0`中の記述は実登録ではない。
   機能classには`C`を使う。
 
 **UE5 との対応**:
@@ -951,7 +952,7 @@ JSONのtop-levelは `schema_version`, `scanned_file_count`, `violation_count`, `
 `scripts/audit_cpp_type_roles.py`は、宣言構文だけでなく仮想操作、状態・寿命操作を根拠に
 `A` / `C` / `F` / `I` / `T` / `E`を照合する。機能を持つ具象classは`C`、データ・値・handleは
 `F`である。`A`は名前だけで推定せず、現waveは`AObject`推移実継承または実際の
-ACS object登録を機械確定し、その他のobject候補をmanual debtにする。macro定義中と
+ACS object登録を機械確定し、その他のobject候補を未登録debtとして拒否する。macro定義中と
 `#if 0`中の`ACS_OBJECT(Type)`は登録として扱わない。
 
 同じ監査は、公開headerのnamespace直下にある意味付きscalar/value aliasをR020dで検証する。
@@ -968,12 +969,13 @@ ecs、scriptingのmodule走査は補助gateとして残す。詳細と実行方�
 hard canonical定義とcompatibility aliasは`#if SOME_FLAG` / `#else`へ分けず、unconditionalに
 一件だけ宣言する。両branchに同じ宣言があってもraw scanでは重複契約違反となる。
 
-未レビューの公開型326件は`cpp_type_role_migration_debt.json`へexact登録する。監査は
-candidate 200件とmanual 126件をpublic collectorから再構成し、追加、消失、移動、分類driftを
-R020fにする。default 326件はsemantic hashでもfreezeし、review済みの分類訂正またはdebtを
-支払うwaveだけがentry、件数、baseline hashを同じcommitで更新する。`violations=0`は
-hard canonicalとdebt不変を示し、
-全型review完了を意味しない。
+`cpp_type_role_migrations.json`はreview済み335件の正規型、定義header、旧名aliasの公開先、
+宣言種別、接頭辞をexact登録する。`cpp_type_role_migration_debt.json`は現在0件である。
+監査はpublic collectorから未解決候補を再構成し、追加、消失、移動、分類driftをR020fにする。
+registry 335件とdebt 0件はそれぞれ独立した件数とsemantic hashでfreezeし、review済みの
+分類訂正または移行waveだけがsource、entry、件数、baseline hashを同じcommitで更新する。
+sampleは旧`F`定義128件を`A` 25件、`C` 77件、値・データの`F` 26件へ確定し、移行対象
+102件の旧tokenを0件にした。型名へ合わせるためのfile renameは行わない。
 台帳はsymlink、junction、reparse pointを含まない通常fileに置き、BOMなしUTF-8、CR 0件、
 LF改行、最終LFちょうど1件へ固定する。`schema_version`はexact integerとし、物理byte契約を
 JSON parseより先に検証する。
@@ -1088,7 +1090,8 @@ scalar監査対象外である。新規宣言には`using`を使い、公開name
 コメント、通常の文字列・文字リテラル、raw string 内の HLSL、qualified elaborated-type
 宣言 (`class namespace::FType`) は字句解析で除外する。現waveの型役割補助監査R020cは、
 `AObject`の推移実継承またはmacro定義以外の`ACS_OBJECT` / `ACS_REGISTER_OBJECT`実呼び出しを
-`A`と機械確定し、その他のobject候補はmanual debtでreviewする。`I`の純粋仮想分類も同監査でreviewする。
+`A`と機械確定し、その他の未登録object候補はR020fで拒否する。現行debtは0件である。
+`I`の純粋仮想分類も同監査でreviewする。
 非template class / struct / union の `T` prefix と、型名中の underscore は違反とする。
 
 ### D. ライフサイクル / `noexcept` / `override` (R030-R039)
@@ -1165,6 +1168,7 @@ auto _r = ThreadPool::Submit(t);  // acs-lint: NOLINT(R033)
 | 2026-07-30 | v2.8 | `F`を値・handle・serviceの正規接頭辞として明確化し、型の意味を照合する`audit_cpp_type_roles.py`、自己試験、event / scripting実走査gateを追加。`class` / `struct`構文を役割判定に使わず、旧`C` serviceの再流入をR020cで検出する。 |
 | 2026-08-01 | v2.9 | namespace公開の意味付きscalar/value aliasを`F`へ正規化し、R020d/R020e、全`src`走査、正規reference entryを追加。callback/delegate/関数ポインタはprefix自由、template aliasは今回のscalar監査対象外、`AssetType`は後続移行まで固定例外とした。 |
 | 2026-08-01 | v3.0 | `A`をowner / registryに所有され多態的に扱われるobject、`C`を機能class、`F`をデータ・値・handleへ再定義。現waveの`A`機械確定を`AObject`推移実継承またはscope解決済み実登録macroに固定し、`AObject`とC4のhard canonical、326件のexact migration debt、R020f、raw非依存public collectorを追加した。 |
+| 2026-08-02 | v3.1 | 旧326件の分類を完了し、review済みmigration registry 335件、debt 0件へ更新。sampleの旧`F`定義128件を`A` 25件、`C` 77件、値・データの`F` 26件へ確定し、file名は維持した。 |
 
 ---
 

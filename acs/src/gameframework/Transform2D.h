@@ -11,7 +11,7 @@
 //   ・world.rotation = parent.rotation + local.rotation
 //   ・world.position = parent.position + Rotate(parent.scale * local.position, parent.rotation)
 //
-// ToMat4() は FSpriteBatch::SetView や 4x4 行列が必要な場面でだけ使う (合成内では
+// ToMat4() は CSpriteBatch::SetView や 4x4 行列が必要な場面でだけ使う (合成内では
 // 使わない、誤差/コストを避けるため)。
 #pragma once
 
@@ -80,7 +80,7 @@ struct FTransform2D {
     }
 
     /**
-     * 4x4 行列に変換する (FSpriteBatch::SetView 等で 4x4 が必要なとき用)。
+     * 4x4 行列に変換する (CSpriteBatch::SetView 等で 4x4 が必要なとき用)。
      *
      * @details Z=0 平面で T * R * S を row-major (acs/Math 規約) で展開する。合成内では誤差/コストを避けるため使わない。
      * @return この transform を表す 4x4 行列。

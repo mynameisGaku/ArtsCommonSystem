@@ -61,7 +61,7 @@ struct FParsedNode {
     char Name[kScene3DSerializeMaxNameBytes + 1u]{};
     char MeshPath[kScene3DSerializeMaxMeshPathBytes + 1u]{};
     char MaterialPath[kScene3DSerializeMaxMaterialPathBytes + 1u]{};
-    TSharedPtr<FAsset> LoadedMesh;
+    TSharedPtr<AAsset> LoadedMesh;
     FMaterial2D LoadedMaterial{};
 };
 
@@ -1490,25 +1490,25 @@ bool ReadPackEntry(
     return true;
 }
 
-TResult<TSharedPtr<FAsset>> DecodeMesh(
+TResult<TSharedPtr<AAsset>> DecodeMesh(
     const char* path, const TArray<byte>& bytes) noexcept {
     if (EndsWithIgnoreCase(path, ".glb")) {
-        FGlbAssetLoader loader;
+        CGlbAssetLoader loader;
         return loader.LoadFromBytes(kInvalidAssetId, bytes);
     }
     if (EndsWithIgnoreCase(path, ".gltf")) {
-        FGltfAssetLoader loader;
+        CGltfAssetLoader loader;
         return loader.LoadFromBytes(kInvalidAssetId, bytes);
     }
     if (EndsWithIgnoreCase(path, ".obj")) {
-        FObjAssetLoader loader;
+        CObjAssetLoader loader;
         return loader.LoadFromBytes(kInvalidAssetId, bytes);
     }
     if (EndsWithIgnoreCase(path, ".fbx")) {
-        FFbxAssetLoader loader;
+        CFbxAssetLoader loader;
         return loader.LoadFromBytes(kInvalidAssetId, bytes);
     }
-    return TResult<TSharedPtr<FAsset>>(
+    return TResult<TSharedPtr<AAsset>>(
         ACS_ERR(Asset, 496, "Scene3D mesh format is unsupported"));
 }
 
@@ -1523,7 +1523,7 @@ enum class ESceneDependencyKind : u8 {
 /** 同じ path と種別を参照する node 群を一件へまとめた record。 */
 struct FSceneDependencyRecord {
     /** allocator と dependency identity を指定して構築する。 */
-    FSceneDependencyRecord(FAllocator& Allocator, ESceneDependencyKind InKind, const char* InPath, u64 InHash) noexcept
+    FSceneDependencyRecord(IAllocator& Allocator, ESceneDependencyKind InKind, const char* InPath, u64 InHash) noexcept
         : Nodes(Allocator), Kind(InKind), Path(InPath), Hash(InHash)
     {
     }

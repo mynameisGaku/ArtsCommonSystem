@@ -11,7 +11,7 @@
 
 namespace helloac {
 
-class FAnimCurveScene : public acs::game::FScene {
+class AAnimCurveScene : public acs::game::AScene {
 public:
     void OnEnter() noexcept override;
     void OnExit()  noexcept override;
@@ -28,9 +28,9 @@ private:
     // 固有の File メニューと Workspace の Window/Layout メニューを並べられる)。
     void m_DrawFileMenu() noexcept;
 
-    acs::game::editor_core::FEditorWorkspace m_Workspace;
-    acs::game::editor_core::FEditorTheme     m_Theme;
-    acs::game::animcurve::FAnimCurveEditorPanel m_CurvePanel;
+    acs::game::editor_core::CEditorWorkspace m_Workspace;
+    acs::game::editor_core::CEditorTheme     m_Theme;
+    acs::game::animcurve::AAnimCurveEditorPanel m_CurvePanel;
 
     // 編集対象の FAnimationCurve。Scene が所有し、panel は raw 参照を保持する。
     acs::game::FAnimationCurve m_ExampleCurve;

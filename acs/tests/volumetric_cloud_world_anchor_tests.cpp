@@ -328,7 +328,7 @@ ACS_TEST(EditorStartup, FallbackSkyCompileIsBoundedAndOffOwnerThread) {
     EXPECT_TRUE(workerBegin < workerEnd);
     const std::string worker = editorSource.substr(
         workerBegin, workerEnd - workerBegin);
-    EXPECT_TRUE(Contains(worker, "FSky::CompileShadersCpu()"));
+    EXPECT_TRUE(Contains(worker, "CSky::CompileShadersCpu()"));
     EXPECT_FALSE(Contains(worker, "CreateRhi"));
     EXPECT_FALSE(Contains(worker, "renderer.Device()"));
 
@@ -360,7 +360,7 @@ ACS_TEST(EditorStartup,
     const std::string worker = editorSource.substr(
         workerBegin, workerEnd - workerBegin);
     EXPECT_TRUE(Contains(
-        worker, "FVolumetricClouds::CompileShadersCpu()"));
+        worker, "CVolumetricClouds::CompileShadersCpu()"));
     EXPECT_FALSE(Contains(worker, "CreateRhi"));
     EXPECT_FALSE(Contains(worker, "renderer.Device()"));
 
@@ -377,7 +377,7 @@ ACS_TEST(EditorStartup,
         "EFormat::R16G16B16A16_Float)"));
 
     const std::size_t publishBegin = skySource.find(
-        "TResult<void> FVolumetricClouds::InitWithCompiledShaders");
+        "TResult<void> CVolumetricClouds::InitWithCompiledShaders");
     const std::size_t candidateBuild = skySource.find(
         "candidate.InitCandidateWithCompiledShaders", publishBegin);
     const std::size_t failedBuild = skySource.find(
@@ -397,9 +397,9 @@ ACS_TEST(EditorStartup,
     EXPECT_TRUE(oldShutdown < publish);
 
     const std::size_t ownerBuildBegin = skySource.find(
-        "TResult<void> FVolumetricClouds::InitCandidateWithCompiledShaders");
+        "TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders");
     const std::size_t ownerBuildEnd = skySource.find(
-        "bool FVolumetricClouds::EnsureSize", ownerBuildBegin);
+        "bool CVolumetricClouds::EnsureSize", ownerBuildBegin);
     EXPECT_TRUE(ownerBuildBegin != std::string::npos);
     EXPECT_TRUE(ownerBuildEnd != std::string::npos);
     EXPECT_TRUE(ownerBuildBegin < ownerBuildEnd);
@@ -517,9 +517,9 @@ ACS_TEST(VolumetricClouds,
         CompactShader(ReadEditorAbiSource());
     EXPECT_TRUE(!editorSource.empty());
 
-    // Perspective keeps the existing FSky fallback when the volumetric path
+    // Perspective keeps the existing CSky fallback when the volumetric path
     // is unavailable.  Orthographic mode must disable both ray marchers:
-    // the GPU gate above and FSky's 48-step analytic fallback.
+    // the GPU gate above and CSky's 48-step analytic fallback.
     const char* volumetricGate =
         "if(h.q_cloud_coverage>0.001f&&!renderOrtho&&"
         "hdrRt!=nullptr){";
@@ -612,7 +612,7 @@ ACS_TEST(VolumetricClouds, LayerIntersectionHandlesInsideAndAboveCamera) {
 }
 
 ACS_TEST(VolumetricClouds, LayerSettingsAreSanitized) {
-    FVolumetricClouds clouds;
+    CVolumetricClouds clouds;
     clouds.SetLayer(FVolumetricCloudLayer{20.0f, 10.0f, 0.0f});
 
     EXPECT_NEAR(clouds.Layer().base_height, 10.0f, 1e-6f);
@@ -627,7 +627,7 @@ ACS_TEST(VolumetricClouds, LayerSettingsAreSanitized) {
 }
 
 ACS_TEST(VolumetricClouds, NonFiniteLayerSettingsUseFiniteDefaults) {
-    FVolumetricClouds clouds;
+    CVolumetricClouds clouds;
     const f32 nan = std::numeric_limits<f32>::quiet_NaN();
     const f32 infinity = std::numeric_limits<f32>::infinity();
 
@@ -643,7 +643,7 @@ ACS_TEST(VolumetricClouds, NonFiniteLayerSettingsUseFiniteDefaults) {
 }
 
 ACS_TEST(VolumetricClouds, UnrepresentableLayerThicknessUsesFiniteDefaults) {
-    FVolumetricClouds clouds;
+    CVolumetricClouds clouds;
     const f32 maximum = std::numeric_limits<f32>::max();
 
     clouds.SetLayer(FVolumetricCloudLayer{maximum, maximum, 2.0f});
@@ -1377,9 +1377,9 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(source, "m_ResolvePs"));
 
     const std::size_t renderBegin = compactSource.find(
-        "voidFVolumetricClouds::RenderCompute(");
+        "voidCVolumetricClouds::RenderCompute(");
     const std::size_t renderEnd = compactSource.find(
-        "voidFVolumetricClouds::Composite(", renderBegin);
+        "voidCVolumetricClouds::Composite(", renderBegin);
     EXPECT_TRUE(renderBegin != std::string::npos);
     EXPECT_TRUE(renderEnd != std::string::npos);
     if (renderBegin != std::string::npos &&
@@ -4120,7 +4120,7 @@ ACS_TEST(VolumetricClouds,
 ACS_TEST(VolumetricClouds,
          RawDx12ShaderCompilationAcceptsHoistedCloudCbLayout) {
 #if !WITH_RENDER_DILIGENT
-    auto compiled = FVolumetricClouds::CompileShadersCpu();
+    auto compiled = CVolumetricClouds::CompileShadersCpu();
     EXPECT_TRUE(compiled.IsOk());
     if (compiled.IsOk()) {
         EXPECT_EQ(
@@ -4200,7 +4200,7 @@ ACS_TEST(VolumetricClouds,
     auto deviceResult = CreateRhiDevice(config);
     if (deviceResult.IsErr()) return;
 
-    FVolumetricClouds clouds;
+    CVolumetricClouds clouds;
     const auto initResult =
         clouds.Init(*deviceResult.Value(), EFormat::R16G16B16A16_Float);
     EXPECT_TRUE(initResult.IsOk());
@@ -4318,7 +4318,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(!source.empty());
 
     const std::size_t ensure = source.find(
-        "bool FVolumetricClouds::EnsureSize");
+        "bool CVolumetricClouds::EnsureSize");
     const std::size_t sameSize = source.find(
         "m_W == hw && m_H == hh && m_FullW == fw && m_FullH == fh) return true;",
         ensure);
@@ -4909,7 +4909,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(VolumetricCloudViewCutDetected(
         FMat4::Identity(), FVec3{}, singularMatrix, FVec3{}));
 
-    FSky sky;
+    CSky sky;
     sky.SetSunDirection(FVec3{nan, 1.0f, 0.0f});
     ExpectVec3Near(sky.SunDirection(), FVec3{0.0f, 1.0f, 0.0f}, 0.0f);
 }

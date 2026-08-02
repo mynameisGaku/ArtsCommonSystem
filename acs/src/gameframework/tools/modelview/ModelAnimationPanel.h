@@ -19,12 +19,12 @@
 //   ・`Tick(dt)` で Playing 状態の場合 `m_CurrentTime += dt * m_Speed` を進める
 //   ・duration 到達時、looping ならラップ、そうでなければ Stopped に遷移
 //   ・毎 Tick 終端で `m_OnFrameCb(user, clip_index, time_sec)` を発火し、
-//     呼出側 (ModelViewportRenderer 等) が FAnimationPlayer に時刻を反映する
+//     呼出側 (ModelViewportRenderer 等) が CAnimationPlayer に時刻を反映する
 //
 // 役割分担 (本 panel と外部):
 //   ・本 panel は **時刻の進行 + clip 選択 + UI control** だけを持つ。
 //     実際の bone palette 計算 / GPU 反映 / mesh 描画は呼出側 (renderer +
-//     FAnimationPlayer) に委譲する。`OnFrameCallback` がその橋渡し点。
+//     CAnimationPlayer) に委譲する。`OnFrameCallback` がその橋渡し点。
 //   ・clip メタ情報 (name / duration / looping / clip_index) は外部 (model
 //     loader) が確定済みの値を `SetClips` で push する。本 panel は中身を
 //     コピー所有 (= FAnimationClipBinding 配列を TArray<>); pointer は持たない。
@@ -46,7 +46,7 @@
 //
 //   // 毎フレーム:
 //   anim.Tick(dt);          // m_CurrentTime += dt * speed (Playing 中のみ)
-//   // → callback 内で FAnimationPlayer::SetTime(clip_index, time_sec) を呼ぶ
+//   // → callback 内で CAnimationPlayer::SetTime(clip_index, time_sec) を呼ぶ
 //
 // 設計選択 (AModelAnimationPanel):
 //   ・**AEditorPanel 継承**: Title / DrawUI を override。
@@ -58,7 +58,7 @@
 //     `std::string` を使えないため、ポインタ寿命は呼出側責任。
 //   ・**Playing 状態は enum** (`EAnimationPlayState`): Stopped / Playing /
 //     Paused の三状態。E-prefix 規約 (`enum class E*` + 基底 u8)。
-//   ・**Tick (dt) を panel 内に持つ**: FSpriteAnimator と同設計 — DrawUI は
+//   ・**Tick (dt) を panel 内に持つ**: CSpriteAnimator と同設計 — DrawUI は
 //     ImGui 描画専任、時刻進行は別 hook (= Workspace の OnFrameBegin 経由 or
 //     FSample 側が明示的に Tick) に分離してテスト容易性を確保。本 panel の
 //     AEditorPanel::OnFrameBegin は override せず、呼出側が Tick(dt) を直接
@@ -73,7 +73,7 @@
 //     未対応。0 は実質
 //     一時停止と同義だが、UX を明確にするため 0 ではなく 0.1 を下限にする。
 //   ・**BlendWeight slider [0, 1]**: 現状は **単一 clip 再生** のため
-//     表示のみで再生にはほぼ影響しない (= renderer 側が FAnimationPlayer に
+//     表示のみで再生にはほぼ影響しない (= renderer 側が CAnimationPlayer に
 //     渡して final pose に blend する想定)。複数 clip blending を
 //     入れる際に「複数 layer の weight」を扱う primary slot として再利用する。
 //   ・**AnimationFrameCallback は raw 関数ポインタ + void* user**: ACS は
@@ -90,7 +90,7 @@
 //   ・複数 clip の同時 blending (= 全身 vs 上半身レイヤ等)。
 //     本 panel は primary slot のみ。
 //   ・タイムライン上のキー打ち / イベントマーカー (= AnimCurveEditor の役割)。
-//   ・root motion 抽出 / カメラ追従 (= FCinematicsDirector との連携範疇)。
+//   ・root motion 抽出 / カメラ追従 (= CCinematicsDirector との連携範疇)。
 //   ・clip 圧縮設定 / curve 編集 (= model importer の役割)。
 //   ・retargeting (= bone mapping エディタの役割)。
 #pragma once
@@ -136,7 +136,7 @@ struct FAnimationClipBinding {
     /** clip 既定のループ可否 (UI の Loop checkbox で override 可能)。 */
     bool        is_looping   = false;
 
-    /** 外部 FAnimationPlayer 内のクリップ ID (callback にそのまま渡す。中身は解釈しない)。 */
+    /** 外部 CAnimationPlayer 内のクリップ ID (callback にそのまま渡す。中身は解釈しない)。 */
     u32         clip_index   = 0u;
 };
 
@@ -148,7 +148,7 @@ struct FAnimationClipBinding {
  * Time slider / Loop checkbox / Speed slider / BlendWeight slider を ImGui で描画する。
  * clip メタ情報は SetClips で値コピー所有し、Tick(dt) で Playing 中の時刻を進めて
  * 終端で OnFrameCallback を発火する。実際の bone palette 計算や GPU 反映は呼出側
- * (renderer + FAnimationPlayer) に委譲し、本 panel は時刻進行と UI control のみを持つ。
+ * (renderer + CAnimationPlayer) に委譲し、本 panel は時刻進行と UI control のみを持つ。
  */
 class AModelAnimationPanel : public acs::game::editor_core::AEditorPanel {
 public:
@@ -336,7 +336,7 @@ public:
      * Playing 中は m_CurrentTime += dt * m_Speed を進める。duration 到達時、loop 有効
      * (clip.is_looping || m_LoopOverride) なら余りを wrap、loop 無効なら time = duration +
      * state = Stopped に遷移する。終端で m_OnFrameCb を 1 度発火する (設定時)。clip 未選択 /
-     * Stopped / Paused / dt <= 0 はすべて no-op (FSpriteAnimator と同方針、巻き戻し非対応)。
+     * Stopped / Paused / dt <= 0 はすべて no-op (CSpriteAnimator と同方針、巻き戻し非対応)。
      * @param dt 前フレームからの経過秒 (0 以下は no-op)。
      */
     void Tick(f32 dt) noexcept;
@@ -344,7 +344,7 @@ public:
     /**
      * Tick 終端で呼ばれる callback を設定する。
      *
-     * @details cb の引数 clip_index は FAnimationClipBinding::clip_index (外部 FAnimationPlayer ID)。
+     * @details cb の引数 clip_index は FAnimationClipBinding::clip_index (外部 CAnimationPlayer ID)。
      * @param cb 設定する callback (nullptr で解除)。
      * @param user cb の第 1 引数に渡す任意ポインタ。
      */
@@ -398,7 +398,7 @@ private:
     /** blend weight (現状は表示 + callback 出力のみ、再生には影響しない)。 */
     f32 m_BlendWeight = 1.0f;
 
-    /** Tick 終端で呼ばれる callback (外部 FAnimationPlayer への時刻反映点)。 */
+    /** Tick 終端で呼ばれる callback (外部 CAnimationPlayer への時刻反映点)。 */
     AnimationFrameCallback m_OnFrameCb = nullptr;
 
     /** m_OnFrameCb の第 1 引数に渡す任意ポインタ。 */

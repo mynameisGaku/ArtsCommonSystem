@@ -34,13 +34,13 @@ void GenerateSpriteTexture(u8* out) noexcept {
     }
 }
 
-void FHelloSpriteApp::OnStart() noexcept {
+void CHelloSpriteApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
     if (auto r = m_Batch.Init(*dev, GetRenderer().ColorFormat(), kMaxSprites);
         r.IsErr()) {
-        ACS_LOG_ERROR("FSpriteBatch::Init failed: %s", r.Error().message);
+        ACS_LOG_ERROR("CSpriteBatch::Init failed: %s", r.Error().message);
         Quit();
         return;
     }
@@ -61,11 +61,11 @@ void FHelloSpriteApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloSprite initialized");
 }
 
-void FHelloSpriteApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloSpriteApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
 
-    if (FInput::IsKeyPressed(EKey::Space))     SpawnSprites(m_SpriteCount + 10);
-    if (FInput::IsKeyPressed(EKey::Backspace)) SpawnSprites(m_SpriteCount >= 10 ? m_SpriteCount - 10 : 0);
+    if (CInput::IsKeyPressed(EKey::Space))     SpawnSprites(m_SpriteCount + 10);
+    if (CInput::IsKeyPressed(EKey::Backspace)) SpawnSprites(m_SpriteCount >= 10 ? m_SpriteCount - 10 : 0);
 
     // 壁にぶつかったら反射 (s.x/s.y を境界内にクランプしてから速度反転)。
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -81,7 +81,7 @@ void FHelloSpriteApp::OnUpdate(f32 dt) noexcept {
     }
 }
 
-void FHelloSpriteApp::OnRender() noexcept {
+void CHelloSpriteApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Tex) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -102,13 +102,13 @@ void FHelloSpriteApp::OnRender() noexcept {
     m_Batch.End();
 }
 
-void FHelloSpriteApp::OnShutdown() noexcept {
+void CHelloSpriteApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Tex.Reset();
     m_Batch.Shutdown();
 }
 
-void FHelloSpriteApp::SpawnSprites(u32 n) noexcept {
+void CHelloSpriteApp::SpawnSprites(u32 n) noexcept {
     if (n > kMaxSprites) n = kMaxSprites;
     // 簡易擬似乱数 (xorshift)
     u32 seed = 12345 + n;

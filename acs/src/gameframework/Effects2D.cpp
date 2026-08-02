@@ -647,7 +647,7 @@ void AWater2DComponent::OnUpdate(f32 dt) noexcept {
 /** GPU 水面 (TopDown) または波変位 → 反射 → 本体 → 泡 (SideView) を描画する。 */
 void AWater2DComponent::OnDraw(FRenderContext& rc) noexcept {
     if (!rc.HasSprites() || m_TCount == 0) return;
-    FSpriteBatch& sb = rc.Sprites();
+    CSpriteBatch& sb = rc.Sprites();
     const FVec2 o = Owner().World2D().position;
 
     const bool topDown = (m_Style == EWaterStyle::TopDown);
@@ -850,7 +850,7 @@ void AWater2DComponent::OnDraw(FRenderContext& rc) noexcept {
 }
 
 /** 加算パスで空色・コースティクス・リップル輪 glow を頂点カラーで描く。 */
-void AWater2DComponent::DrawCaustics(FSpriteBatch& sb, const FVec2* disp) noexcept {
+void AWater2DComponent::DrawCaustics(CSpriteBatch& sb, const FVec2* disp) noexcept {
     // 空色 (薄いフラット加算)。TopDown で平面反射の代わりに水面を少し明るくする。
     if (m_SkyAlpha > 0.0f) {
         const FVec4 sky{ m_SkyTint.x * m_SkyAlpha, m_SkyTint.y * m_SkyAlpha, m_SkyTint.z * m_SkyAlpha, 1.0f };
@@ -880,7 +880,7 @@ void AWater2DComponent::DrawCaustics(FSpriteBatch& sb, const FVec2* disp) noexce
 }
 
 /** コースティクスが強く位相が合った頂点に、散発的な小さなきらめき矩形を加算で描く。 */
-void AWater2DComponent::DrawGlints(FSpriteBatch& sb, const FVec2* disp) noexcept {
+void AWater2DComponent::DrawGlints(CSpriteBatch& sb, const FVec2* disp) noexcept {
     const f32 sz = ((m_MaxX - m_MinX) + (m_MaxY - m_MinY)) * 0.006f + 0.02f;
     u32 drawn = 0;
     for (u32 i = 0; i < m_VCount && drawn < 30; ++i) {
@@ -898,7 +898,7 @@ void AWater2DComponent::DrawGlints(FSpriteBatch& sb, const FVec2* disp) noexcept
 /** 根元から先端へ縦積みの矩形を時間で揺らし、黄→橙→赤のグラデーションで炎を描く。 */
 void AFire2DComponent::OnDraw(FRenderContext& rc) noexcept {
     if (!rc.HasSprites()) return;
-    FSpriteBatch& sb = rc.Sprites();
+    CSpriteBatch& sb = rc.Sprites();
     const FVec2 base = Owner().World2D().position;   // 炎の根元
     const u32   M    = 14;
     const f32   H    = m_H * (0.7f + 0.3f * m_Intensity);
@@ -949,7 +949,7 @@ void ATrail2DComponent::OnUpdate(f32 dt) noexcept {
 /** 隣接サンプル点を先細り・先頭ほど不透明な帯 (三角形 2 枚) で繋いで残像を描く。 */
 void ATrail2DComponent::OnDraw(FRenderContext& rc) noexcept {
     if (!rc.HasSprites() || m_Count < 2) return;
-    FSpriteBatch& sb = rc.Sprites();
+    CSpriteBatch& sb = rc.Sprites();
     for (u32 i = 0; i + 1 < m_Count; ++i) {
         const FVec2 a = m_Pts[i];
         const FVec2 b = m_Pts[i + 1];
@@ -1030,7 +1030,7 @@ void AStencilClip2DComponent::OnDraw(FRenderContext& rc) noexcept {
     m_Active = false;
     // stencil バッファが用意されていないパスではマスクせず素通し。
     if (!rc.HasSprites() || !rc.StencilMaskActive() || m_TriCount == 0) return;
-    FSpriteBatch& sb = rc.Sprites();
+    CSpriteBatch& sb = rc.Sprites();
     const FVec2 o = Owner().World2D().position;
 
     // 1) マスク形状をステンシルへ焼く。色は不可視 (alpha 0)、debug 時のみ可視。

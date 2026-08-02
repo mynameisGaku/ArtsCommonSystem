@@ -3,6 +3,6 @@
 #include "AssetPackBridgeDemoApp.h"
 
 int main() {
-    helloassetpack::FAssetPackBridgeDemoApp App;
+    helloassetpack::CAssetPackBridgeDemoApp App;
     return App.Run();
 }

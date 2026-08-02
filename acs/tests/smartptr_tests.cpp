@@ -12,7 +12,7 @@
 
 using namespace acs;
 
-static_assert(IsSameV<FObject, AObject>, "旧FObject名はAObjectの互換別名である必要があります");
+static_assert(IsSameV<FObject, AObject>, "旧名はAObjectの互換別名である必要があります");
 
 namespace {
 

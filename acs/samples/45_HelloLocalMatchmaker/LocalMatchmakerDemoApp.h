@@ -4,7 +4,7 @@
 
 namespace hellomatch {
 
-class FLocalMatchmakerDemoApp {
+class CLocalMatchmakerDemoApp {
 public:
     int Run() noexcept;
 };

@@ -1442,7 +1442,7 @@ f32 g_MaterialClock = 0.0f;   // アニメ付きマテリアル用の共有経�
 void SetMaterialClock(f32 seconds) noexcept { g_MaterialClock = seconds; }
 f32  MaterialClock() noexcept { return g_MaterialClock; }
 
-bool ApplyMaterial(FSpriteBatch& sb, const FMaterial2D& mat, f32 time_sec) noexcept {
+bool ApplyMaterial(CSpriteBatch& sb, const FMaterial2D& mat, f32 time_sec) noexcept {
     if (mat.effect == ESpriteEffect::None) return false;
     FEffectParams p = mat.params;
     if (mat.animated) p.time = time_sec;

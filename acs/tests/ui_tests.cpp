@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // ACS UI — Widget レイアウト + 入力ハンドリング
-// (FRenderer 不要、Layout 計算 + Observable 値伝搬の純 logic テスト)
+// (CRenderer 不要、Layout 計算 + Observable 値伝搬の純 logic テスト)
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -21,9 +21,9 @@ using namespace acs;
 namespace {
 
 /** TextInput の transactional editing を allocation failure 下で検証する backing。 */
-class FUiSwitchableFailAllocator final : public FAllocator {
+class FUiSwitchableFailAllocator final : public IAllocator {
 public:
-    explicit FUiSwitchableFailAllocator(FAllocator& backing) noexcept
+    explicit FUiSwitchableFailAllocator(IAllocator& backing) noexcept
         : m_Backing(&backing) {}
 
     void SetFailing(bool failing) noexcept { m_Failing = failing; }
@@ -37,7 +37,7 @@ public:
     }
 
 private:
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
     bool m_Failing = false;
 };
 
@@ -50,7 +50,7 @@ FEvent MakeUiKeyEvent(EKey key, bool down) noexcept {
 }
 
 void FeedUiKey(EKey key, bool down) noexcept {
-    FInput::OnEvent(MakeUiKeyEvent(key, down));
+    CInput::OnEvent(MakeUiKeyEvent(key, down));
 }
 
 void FeedUiMouseMove(f32 x, f32 y) noexcept {
@@ -58,7 +58,7 @@ void FeedUiMouseMove(f32 x, f32 y) noexcept {
     event.type = EEventType::MouseMoved;
     event.mouse_move.x = x;
     event.mouse_move.y = y;
-    FInput::OnEvent(event);
+    CInput::OnEvent(event);
 }
 
 void FeedUiLeftMouse(bool down) noexcept {
@@ -66,18 +66,18 @@ void FeedUiLeftMouse(bool down) noexcept {
     event.type = down ? EEventType::MouseButtonPressed
                       : EEventType::MouseButtonReleased;
     event.mouse_button.button = EMouseButton::Left;
-    FInput::OnEvent(event);
+    CInput::OnEvent(event);
 }
 
 void FeedUiChar(u32 codepoint) noexcept {
     FEvent event{};
     event.type = EEventType::CharInput;
     event.char_input.codepoint = codepoint;
-    FInput::OnEvent(event);
+    CInput::OnEvent(event);
 }
 
 /**
- * FInput はプロセス共有なので、UI Dispatch テストが使う入力を解放済みの
+ * CInput はプロセス共有なので、UI Dispatch テストが使う入力を解放済みの
  * フレーム境界へ揃える。
  */
 void ResetUiInputFeed() noexcept {
@@ -99,21 +99,21 @@ void ResetUiInputFeed() noexcept {
     };
     for (EKey key : kKeys) FeedUiKey(key, false);
     FeedUiLeftMouse(false);
-    FInput::Update();
+    CInput::Update();
 }
 
-/** root 自身をクリックして FUiInput の focus を与え、mouse release まで進める。 */
-void FocusUiRoot(FUiInput& input, FWidget& root) noexcept {
+/** root 自身をクリックして CUiInput の focus を与え、mouse release まで進める。 */
+void FocusUiRoot(CUiInput& input, AWidget& root) noexcept {
     FeedUiMouseMove(8.0f, 8.0f);
     FeedUiLeftMouse(true);
     input.Dispatch(root);
-    FInput::Update();
+    CInput::Update();
     FeedUiLeftMouse(false);
     input.Dispatch(root);
-    FInput::Update();
+    CInput::Update();
 }
 
-class FUiMutableCallbackRoot final : public FContainer {
+class FUiMutableCallbackRoot final : public AContainer {
 public:
     void RemoveAllChildren() noexcept { m_Children.Clear(); }
 
@@ -130,7 +130,7 @@ enum class EUiRemovalCallback : u8 {
     Key,
 };
 
-class FUiRemovingCallbackWidget final : public FWidget {
+class FUiRemovingCallbackWidget final : public AWidget {
 public:
     FUiRemovingCallbackWidget(FUiMutableCallbackRoot& owner,
                               EUiRemovalCallback callback,
@@ -186,14 +186,14 @@ private:
 
 // ---- StackPanel: 縦並び ----------------------------------------------------
 ACS_TEST(Ui, StackPanelVertical) {
-    FStackPanel root;
+    AStackPanel root;
     root.dir = EStackDir::Vertical;
     root.padding = FUiPadding{ 8, 8, 8, 8 };
     root.spacing = 4.0f;
 
-    auto* a = root.Add<FLabel>("A");
-    auto* b = root.Add<FLabel>("B");
-    auto* c = root.Add<FLabel>("C");
+    auto* a = root.Add<ALabel>("A");
+    auto* b = root.Add<ALabel>("B");
+    auto* c = root.Add<ALabel>("C");
     a->requested.h = 20;
     b->requested.h = 30;
     c->requested.h = 25;
@@ -214,13 +214,13 @@ ACS_TEST(Ui, StackPanelVertical) {
 
 // ---- StackPanel: 横並び ----------------------------------------------------
 ACS_TEST(Ui, StackPanelHorizontal) {
-    FStackPanel root;
+    AStackPanel root;
     root.dir = EStackDir::Horizontal;
     root.padding = FUiPadding{ 0, 0, 0, 0 };
     root.spacing = 10.0f;
 
-    auto* a = root.Add<FLabel>("A");
-    auto* b = root.Add<FLabel>("B");
+    auto* a = root.Add<ALabel>("A");
+    auto* b = root.Add<ALabel>("B");
     a->requested.w = 50;
     b->requested.w = 80;
 
@@ -234,31 +234,31 @@ ACS_TEST(Ui, StackPanelHorizontal) {
 
 // ---- HitTest 再帰: 子の方が優先される -------------------------------------
 ACS_TEST(Ui, HitTestRecursive) {
-    FStackPanel root;
+    AStackPanel root;
     root.padding = FUiPadding{ 0, 0, 0, 0 };
-    auto* btn = root.Add<FButton>("Click");
+    auto* btn = root.Add<AButton>("Click");
     btn->requested.h = 30.0f;
 
     root.Layout(0, 0, 200, 100);
     EXPECT_EQ(btn->rect.x, 0.0f);
     EXPECT_EQ(btn->rect.y, 0.0f);
 
-    FWidget* hit = root.HitTestRecursive(50, 15);
+    AWidget* hit = root.HitTestRecursive(50, 15);
     EXPECT_TRUE(hit == btn);
 
-    FWidget* miss = root.HitTestRecursive(50, 99);
+    AWidget* miss = root.HitTestRecursive(50, 99);
     // ボタンの外、root のヒットエリアには入る
     EXPECT_TRUE(miss == &root);
 
-    FWidget* outside = root.HitTestRecursive(500, 500);
+    AWidget* outside = root.HitTestRecursive(500, 500);
     EXPECT_TRUE(outside == nullptr);
 }
 
 // ---- Button: pointer down/up でクリック検出 -------------------------------
 ACS_TEST(Ui, ButtonClick) {
-    FStackPanel root;
+    AStackPanel root;
     root.padding = FUiPadding{ 0, 0, 0, 0 };
-    auto* btn = root.Add<FButton>("OK");
+    auto* btn = root.Add<AButton>("OK");
     btn->requested.h = 30.0f;
     root.Layout(0, 0, 100, 50);
 
@@ -279,9 +279,9 @@ ACS_TEST(Ui, ButtonClick) {
 
 // ---- Button: pointer up が rect 外なら click 発生せず ---------------------
 ACS_TEST(Ui, ButtonReleaseOutsideNoClick) {
-    FStackPanel root;
+    AStackPanel root;
     root.padding = FUiPadding{ 0, 0, 0, 0 };
-    auto* btn = root.Add<FButton>("OK");
+    auto* btn = root.Add<AButton>("OK");
     btn->requested.h = 30.0f;
     root.Layout(0, 0, 100, 50);
 
@@ -299,9 +299,9 @@ ACS_TEST(Ui, ButtonReleaseOutsideNoClick) {
 
 // ---- Slider: ドラッグで value 更新 ----------------------------------------
 ACS_TEST(Ui, SliderValueUpdate) {
-    FStackPanel root;
+    AStackPanel root;
     root.padding = FUiPadding{ 0, 0, 0, 0 };
-    auto* sl = root.Add<FSlider>(0.0f, 100.0f);
+    auto* sl = root.Add<ASlider>(0.0f, 100.0f);
     sl->requested.h = 24.0f;
     root.Layout(0, 0, 200, 50);
 
@@ -325,9 +325,9 @@ ACS_TEST(Ui, SliderValueUpdate) {
 
 // ---- Checkbox: 値トグル --------------------------------------------------
 ACS_TEST(Ui, CheckboxToggle) {
-    FStackPanel root;
+    AStackPanel root;
     root.padding = FUiPadding{ 0, 0, 0, 0 };
-    auto* cb = root.Add<FCheckbox>("Test");
+    auto* cb = root.Add<ACheckbox>("Test");
     cb->requested.h = 24.0f;
     root.Layout(0, 0, 100, 30);
 
@@ -346,7 +346,7 @@ ACS_TEST(Ui, CheckboxToggle) {
 
 // ---- TextInput: 文字入力で末尾追加 ----------------------------------------
 ACS_TEST(Ui, TextInputTyping) {
-    FTextInput ti;
+    ATextInput ti;
     ti.focused = true;
     ti.OnTextInput('H');
     ti.OnTextInput('i');
@@ -357,7 +357,7 @@ ACS_TEST(Ui, TextInputTyping) {
 
 // ---- TextInput: focus 外と不正 scalar は無視、正規 Unicode は UTF-8 化 ------------
 ACS_TEST(Ui, TextInputFiltering) {
-    FTextInput ti;
+    ATextInput ti;
     ti.OnTextInput('X');            // focus 外 → 無視
     EXPECT_EQ(ti.text.Get().Size(), usize(0));
 
@@ -376,7 +376,7 @@ ACS_TEST(Ui, TextInputFiltering) {
 
 // ---- TextInput: Backspace で末尾削除 (空でも安全) -------------------------
 ACS_TEST(Ui, TextInputBackspace) {
-    FTextInput ti;
+    ATextInput ti;
     ti.focused = true;
     ti.OnTextInput('a');
     ti.OnTextInput('b');
@@ -397,7 +397,7 @@ ACS_TEST(Ui, TextInputBackspace) {
 
 // ---- TextInput: UTF-8 cursor 移動・中間挿入・削除は codepoint 単位 ---------------
 ACS_TEST(Ui, TextInputUtf8CursorEditing) {
-    FTextInput ti;
+    ATextInput ti;
     ti.focused = true;
     EXPECT_TRUE(ti.TryInsertCodepoint('A'));
     EXPECT_TRUE(ti.TryInsertCodepoint(0x3042));   // あ (3 bytes)
@@ -424,7 +424,7 @@ ACS_TEST(Ui, TextInputUtf8CursorEditing) {
 
 // ---- TextInput: Home/End/Left/Right/Delete と key release -----------------------
 ACS_TEST(Ui, TextInputNavigationAndDelete) {
-    FTextInput ti;
+    ATextInput ti;
     ti.focused = true;
     ti.OnTextInput('A');
     ti.OnTextInput(0x3042); // あ
@@ -453,7 +453,7 @@ ACS_TEST(Ui, TextInputNavigationAndDelete) {
 
 // ---- TextInput: cursor API は codepoint 途中を拒否し外部更新後も正規化 -----------
 ACS_TEST(Ui, TextInputCursorBoundaryAndExternalTextChange) {
-    FTextInput ti;
+    ATextInput ti;
     ti.text.Set(FString{"A\xE3\x81\x82" "B"});
     EXPECT_EQ(ti.CursorByteOffset(), usize(5)); // default は末尾追従
 
@@ -472,7 +472,7 @@ ACS_TEST(Ui, TextInputCursorBoundaryAndExternalTextChange) {
 
 // ---- TextInput: configurable byte cap は multibyte を途中で受け入れない ----------
 ACS_TEST(Ui, TextInputMaxBytesIsAtomic) {
-    FTextInput ti;
+    ATextInput ti;
     ti.focused = true;
     EXPECT_TRUE(ti.TrySetMaxTextBytes(4));
     EXPECT_TRUE(ti.TryInsertCodepoint('A'));
@@ -481,7 +481,7 @@ ACS_TEST(Ui, TextInputMaxBytesIsAtomic) {
     EXPECT_TRUE(ti.text.Get() == FStringView("A\xE3\x81\x82"));
     EXPECT_EQ(ti.CursorByteOffset(), usize(4));
 
-    EXPECT_FALSE(ti.TrySetMaxTextBytes(FTextInput::kHardMaxTextBytes + 1u));
+    EXPECT_FALSE(ti.TrySetMaxTextBytes(ATextInput::kHardMaxTextBytes + 1u));
     EXPECT_EQ(ti.MaxTextBytes(), usize(4));
     EXPECT_TRUE(ti.TrySetMaxTextBytes(0));
     EXPECT_FALSE(ti.TryInsertCodepoint('C'));
@@ -491,7 +491,7 @@ ACS_TEST(Ui, TextInputMaxBytesIsAtomic) {
 
 // ---- TextInput: external binding 正規化も失敗時は commit しない -----------------
 ACS_TEST(Ui, TextInputFailedEditDoesNotCommitStagedCursorNormalization) {
-    FTextInput ti;
+    ATextInput ti;
     ti.text.Set(FString{"ABC"});
     EXPECT_TRUE(ti.TrySetCursorByteOffset(2));
     EXPECT_TRUE(ti.TrySetMaxTextBytes(1));
@@ -509,9 +509,9 @@ ACS_TEST(Ui, TextInputFailedEditDoesNotCommitStagedCursorNormalization) {
 
 // ---- TextInput: OOM 時は text と cursor をともに変更しない -----------------------
 ACS_TEST(Ui, TextInputAllocationFailurePreservesState) {
-    FSystemAllocator backing;
+    CSystemAllocator backing;
     FUiSwitchableFailAllocator allocator(backing);
-    FTextInput ti;
+    ATextInput ti;
     FString initial(allocator);
     EXPECT_TRUE(initial.TryAppend("abcdefghijklmnopqrstuvwxyzABCDEF")); // 32 bytes
     ti.text.Set(Move(initial));
@@ -531,7 +531,7 @@ ACS_TEST(Ui, TextInputAllocationFailurePreservesState) {
 
 // ---- TextInput: programmatic selection は UTF-8 境界を維持して置換する -----------
 ACS_TEST(Ui, TextInputSelectionReplacementAndBoundaries) {
-    FTextInput ti;
+    ATextInput ti;
     ti.focused = true;
     ti.text.Set(FString{"A\xE3\x81\x82\xF0\x9F\x98\x80" "B"});
 
@@ -568,7 +568,7 @@ ACS_TEST(Ui, TextInputSelectionReplacementAndBoundaries) {
 
 // ---- TextInput: Backspace/Delete は選択範囲を優先して削除する -------------------
 ACS_TEST(Ui, TextInputSelectionDeletionAndNavigation) {
-    FTextInput ti;
+    ATextInput ti;
     ti.focused = true;
     ti.text.Set(FString{"A\xE3\x81\x82" "BC"});
 
@@ -602,7 +602,7 @@ ACS_TEST(Ui, TextInputSelectionDeletionAndNavigation) {
 
 // ---- TextInput: Shift 移動は UTF-8 境界を保って選択を拡張・折り畳む ----------
 ACS_TEST(Ui, TextInputShiftSelectionUsesUtf8Boundaries) {
-    FTextInput ti;
+    ATextInput ti;
     ti.focused = true;
     ti.text.Set(FString{"A\xE3\x81\x82\xF0\x9F\x98\x80" "B"});
 
@@ -660,7 +660,7 @@ ACS_TEST(Ui, TextInputShiftSelectionUsesUtf8Boundaries) {
 
 // ---- TextInput: Shift 選択は anchor を越えて逆方向へ伸ばせる ----------------
 ACS_TEST(Ui, TextInputShiftSelectionCanReverseDirection) {
-    FTextInput ti;
+    ATextInput ti;
     ti.focused = true;
     ti.text.Set(FString{"A\xE3\x81\x82\xF0\x9F\x98\x80" "B"});
     EXPECT_TRUE(ti.TrySetCursorByteOffset(4)); // 「あ」の直後を anchor にする
@@ -700,7 +700,7 @@ ACS_TEST(Ui, TextInputShiftSelectionCanReverseDirection) {
 
 // ---- TextInput: Ctrl+A と従来 OnKey override の互換転送 --------------------
 ACS_TEST(Ui, TextInputCtrlAAndLegacyOnKeyCompatibility) {
-    FTextInput ti;
+    ATextInput ti;
     ti.focused = true;
     ti.text.Set(FString{"A\xE3\x81\x82" "B"});
 
@@ -733,7 +733,7 @@ ACS_TEST(Ui, TextInputCtrlAAndLegacyOnKeyCompatibility) {
     ti.OnKey(0x41, true, control);
     EXPECT_FALSE(ti.HasSelection());
 
-    class FUiLegacyKeyWidget final : public FWidget {
+    class FUiLegacyKeyWidget final : public AWidget {
     public:
         void OnKey(i32 key, bool pressed_) noexcept override {
             LastKey = key;
@@ -747,7 +747,7 @@ ACS_TEST(Ui, TextInputCtrlAAndLegacyOnKeyCompatibility) {
     };
 
     FUiLegacyKeyWidget legacy;
-    FWidget* const widget = &legacy;
+    AWidget* const widget = &legacy;
     FUiKeyModifiers modified;
     modified.bShift = true;
     widget->OnKey(0x25, true, modified);
@@ -758,17 +758,17 @@ ACS_TEST(Ui, TextInputCtrlAAndLegacyOnKeyCompatibility) {
 
 // ---- TextInput: nested 3→2 OnKey 後に外側 modifier snapshot を復元する ----
 ACS_TEST(Ui, TextInputNestedLegacyOnKeyRestoresOuterModifiers) {
-    class FUiNestedLegacyTextInput final : public FTextInput {
+    class FUiNestedLegacyTextInput final : public ATextInput {
     public:
         void OnKey(i32 key, bool pressed_) noexcept override {
             ++CallCount;
             if (!bInNestedCall && pressed_) {
                 bInNestedCall = true;
                 const FUiKeyModifiers inner_modifiers{};
-                FTextInput::OnKey(0x0D, true, inner_modifiers);
+                ATextInput::OnKey(0x0D, true, inner_modifiers);
                 bInNestedCall = false;
             }
-            FTextInput::OnKey(key, pressed_);
+            ATextInput::OnKey(key, pressed_);
         }
 
         i32 CallCount = 0;
@@ -781,7 +781,7 @@ ACS_TEST(Ui, TextInputNestedLegacyOnKeyRestoresOuterModifiers) {
     FUiKeyModifiers outer_modifiers;
     outer_modifiers.bShift = true;
 
-    FWidget* const widget = &input;
+    AWidget* const widget = &input;
     widget->OnKey(0x25, true, outer_modifiers);
     EXPECT_EQ(input.CallCount, 2);
     EXPECT_EQ(input.CursorByteOffset(), usize(2));
@@ -793,7 +793,7 @@ ACS_TEST(Ui, TextInputNestedLegacyOnKeyRestoresOuterModifiers) {
 ACS_TEST(Ui, UiInputDispatchesKeyPressAndReleaseToLegacyOverride) {
     ResetUiInputFeed();
 
-    class FUiLegacyDispatchProbe final : public FWidget {
+    class FUiLegacyDispatchProbe final : public AWidget {
     public:
         void OnKey(i32 key, bool pressed_) noexcept override {
             if (CallCount < 2) {
@@ -810,7 +810,7 @@ ACS_TEST(Ui, UiInputDispatchesKeyPressAndReleaseToLegacyOverride) {
 
     FUiLegacyDispatchProbe root;
     root.Layout(0.0f, 0.0f, 100.0f, 40.0f);
-    FUiInput input;
+    CUiInput input;
     FocusUiRoot(input, root);
     EXPECT_TRUE(root.focused);
 
@@ -824,7 +824,7 @@ ACS_TEST(Ui, UiInputDispatchesKeyPressAndReleaseToLegacyOverride) {
     EXPECT_TRUE(root.Pressed[0]);
 
     // Shift を保持したまま Left を解放し、同じ旧 override へ false を届ける。
-    FInput::Update();
+    CInput::Update();
     FeedUiKey(EKey::Left, false);
     input.Dispatch(root);
     EXPECT_EQ(root.CallCount, 2);
@@ -836,11 +836,11 @@ ACS_TEST(Ui, UiInputDispatchesKeyPressAndReleaseToLegacyOverride) {
     ResetUiInputFeed();
 }
 
-// ---- UiInput: Shift 選択・Ctrl+A・AltGr を実 FInput フィードから検証する ----
+// ---- UiInput: Shift 選択・Ctrl+A・AltGr を実 CInput フィードから検証する ----
 ACS_TEST(Ui, UiInputDispatchesTextEditingModifiers) {
     ResetUiInputFeed();
 
-    class FUiTextDispatchProbe final : public FTextInput {
+    class FUiTextDispatchProbe final : public ATextInput {
     public:
         void OnKey(i32 key, bool pressed_,
                    const FUiKeyModifiers& modifiers) noexcept override {
@@ -856,7 +856,7 @@ ACS_TEST(Ui, UiInputDispatchesTextEditingModifiers) {
                 }
                 ++ControlACallCount;
             }
-            FTextInput::OnKey(key, pressed_, modifiers);
+            ATextInput::OnKey(key, pressed_, modifiers);
         }
 
         i32 ControlACallCount = 0;
@@ -869,7 +869,7 @@ ACS_TEST(Ui, UiInputDispatchesTextEditingModifiers) {
     FUiTextDispatchProbe root;
     root.Layout(0.0f, 0.0f, 140.0f, 40.0f);
     root.text.Set(FString{"A\xE3\x81\x82" "B"});
-    FUiInput input;
+    CUiInput input;
     FocusUiRoot(input, root);
 
     FeedUiKey(EKey::RightShift, true);
@@ -880,17 +880,17 @@ ACS_TEST(Ui, UiInputDispatchesTextEditingModifiers) {
     EXPECT_EQ(root.SelectionStart(), usize(4));
     EXPECT_EQ(root.SelectionEnd(), usize(5));
 
-    // key release も届くが、FTextInput は公開契約どおり編集しない。
-    FInput::Update();
+    // key release も届くが、ATextInput は公開契約どおり編集しない。
+    CInput::Update();
     FeedUiKey(EKey::Left, false);
     input.Dispatch(root);
     EXPECT_EQ(root.CursorByteOffset(), usize(4));
     EXPECT_EQ(root.SelectionStart(), usize(4));
     EXPECT_EQ(root.SelectionEnd(), usize(5));
 
-    FInput::Update();
+    CInput::Update();
     FeedUiKey(EKey::RightShift, false);
-    FInput::Update();
+    CInput::Update();
 
     FeedUiKey(EKey::RightCtrl, true);
     FeedUiKey(EKey::A, true);
@@ -901,9 +901,9 @@ ACS_TEST(Ui, UiInputDispatchesTextEditingModifiers) {
     EXPECT_EQ(root.SelectionEnd(), usize(5));
 
     // Ctrl を先に離しても、A の解放は押下を受けた widget へ対応付けて配送する。
-    FInput::Update();
+    CInput::Update();
     FeedUiKey(EKey::RightCtrl, false);
-    FInput::Update();
+    CInput::Update();
     FeedUiKey(EKey::A, false);
     input.Dispatch(root);
     EXPECT_TRUE(root.bSawControlARelease);
@@ -911,7 +911,7 @@ ACS_TEST(Ui, UiInputDispatchesTextEditingModifiers) {
     EXPECT_EQ(root.ControlACallCount, 2);
     EXPECT_EQ(root.SelectionStart(), usize(0));
     EXPECT_EQ(root.SelectionEnd(), usize(5));
-    FInput::Update();
+    CInput::Update();
 
     root.ClearSelection();
     FeedUiKey(EKey::LeftCtrl, true);
@@ -971,14 +971,14 @@ ACS_TEST(Ui, WidgetInputIdentitySeparatesModulesAndSkipsZeroAtWrap) {
 ACS_TEST(Ui, UiInputRejectsReusedRootAddress) {
     ResetUiInputFeed();
 
-    class FUiLifetimeProbe final : public FWidget {
+    class FUiLifetimeProbe final : public AWidget {
     public:
         void OnKey(i32, bool) noexcept override { ++KeyCalls; }
         i32 KeyCalls = 0;
     };
 
     alignas(FUiLifetimeProbe) u8 storage[sizeof(FUiLifetimeProbe)]{};
-    FUiInput input;
+    CUiInput input;
 
     auto* first = ::new (static_cast<void*>(storage)) FUiLifetimeProbe();
     first->Layout(0.0f, 0.0f, 100.0f, 40.0f);
@@ -1010,18 +1010,18 @@ ACS_TEST(Ui, UiInputRejectsReusedRootAddress) {
 ACS_TEST(Ui, UiInputDropsRemovedChildIdentity) {
     ResetUiInputFeed();
 
-    class FUiMutableInputRoot final : public FContainer {
+    class FUiMutableInputRoot final : public AContainer {
     public:
         void RemoveAllChildren() noexcept { m_Children.Clear(); }
         void OnKey(i32, bool) noexcept override { ++KeyCalls; }
         i32 KeyCalls = 0;
     };
-    class FUiChildProbe final : public FWidget {};
+    class FUiChildProbe final : public AWidget {};
 
     FUiMutableInputRoot root;
     root.Add<FUiChildProbe>();
     root.Layout(0.0f, 0.0f, 100.0f, 40.0f);
-    FUiInput input;
+    CUiInput input;
     FocusUiRoot(input, root);
 
     root.RemoveAllChildren();
@@ -1037,11 +1037,11 @@ ACS_TEST(Ui, UiInputDropsRemovedChildIdentity) {
     ResetUiInputFeed();
 }
 
-// ---- UiInput: FTextInput 派生の旧2引数 OnKey も実 Dispatch から受け取る -----
+// ---- UiInput: ATextInput 派生の旧2引数 OnKey も実 Dispatch から受け取る -----
 ACS_TEST(Ui, UiInputDispatchesToLegacyTextInputOverride) {
     ResetUiInputFeed();
 
-    class FUiLegacyTextInputProbe final : public FTextInput {
+    class FUiLegacyTextInputProbe final : public ATextInput {
     public:
         void OnKey(i32 key, bool pressed_) noexcept override {
             if (CallCount < 2) {
@@ -1049,7 +1049,7 @@ ACS_TEST(Ui, UiInputDispatchesToLegacyTextInputOverride) {
                 Pressed[CallCount] = pressed_;
             }
             ++CallCount;
-            FTextInput::OnKey(key, pressed_);
+            ATextInput::OnKey(key, pressed_);
         }
 
         i32 Keys[2]{};
@@ -1060,7 +1060,7 @@ ACS_TEST(Ui, UiInputDispatchesToLegacyTextInputOverride) {
     FUiLegacyTextInputProbe root;
     root.Layout(0.0f, 0.0f, 120.0f, 40.0f);
     root.text.Set(FString{"AB"});
-    FUiInput input;
+    CUiInput input;
     FocusUiRoot(input, root);
 
     FeedUiKey(EKey::RightShift, true);
@@ -1072,7 +1072,7 @@ ACS_TEST(Ui, UiInputDispatchesToLegacyTextInputOverride) {
     EXPECT_EQ(root.SelectionStart(), usize(1));
     EXPECT_EQ(root.SelectionEnd(), usize(2));
 
-    FInput::Update();
+    CInput::Update();
     FeedUiKey(EKey::Left, false);
     input.Dispatch(root);
     EXPECT_EQ(root.CallCount, 2);
@@ -1085,11 +1085,11 @@ ACS_TEST(Ui, UiInputDispatchesToLegacyTextInputOverride) {
     ResetUiInputFeed();
 }
 
-// ---- FTextInput bridge: 旧2引数 override が自身を除去しても snapshot に触れない
+// ---- ATextInput bridge: 旧2引数 override が自身を除去しても snapshot に触れない
 ACS_TEST(Ui, LegacyTextInputOverrideMayRemoveItself) {
     ResetUiInputFeed();
 
-    class FUiRemovingLegacyTextInput final : public FTextInput {
+    class FUiRemovingLegacyTextInput final : public ATextInput {
     public:
         FUiRemovingLegacyTextInput(FUiMutableCallbackRoot& owner,
                                    i32& call_count) noexcept
@@ -1113,7 +1113,7 @@ ACS_TEST(Ui, LegacyTextInputOverrideMayRemoveItself) {
     i32 call_count = 0;
     root.Add<FUiRemovingLegacyTextInput>(root, call_count);
     root.Layout(0.0f, 0.0f, 120.0f, 40.0f);
-    FUiInput input;
+    CUiInput input;
     FocusUiRoot(input, root);
 
     FeedUiKey(EKey::Left, true);
@@ -1121,10 +1121,10 @@ ACS_TEST(Ui, LegacyTextInputOverrideMayRemoveItself) {
     EXPECT_EQ(call_count, 1);
     EXPECT_EQ(root.ChildCount(), usize(0));
 
-    FInput::Update();
+    CInput::Update();
     FeedUiKey(EKey::Left, false);
     input.Dispatch(root);
-    FInput::Update();
+    CInput::Update();
     input.Reset(root);
     ResetUiInputFeed();
 }
@@ -1145,29 +1145,29 @@ ACS_TEST(Ui, UiInputCallbacksMayRemoveCurrentOrOtherChild) {
             ResetUiInputFeed();
 
             FUiMutableCallbackRoot root;
-            if (!remove_self) root.Add<FWidget>();
+            if (!remove_self) root.Add<AWidget>();
             i32 call_count = 0;
             FUiRemovingCallbackWidget* const target =
                 root.Add<FUiRemovingCallbackWidget>(
                     root, callback, remove_self, call_count);
             root.Layout(0.0f, 0.0f, 120.0f, 40.0f);
-            FUiInput input;
+            CUiInput input;
 
             switch (callback) {
             case EUiRemovalCallback::PointerMove:
                 FeedUiMouseMove(8.0f, 8.0f);
                 input.Dispatch(root);
-                FInput::Update();
+                CInput::Update();
                 break;
 
             case EUiRemovalCallback::PointerDown:
                 FeedUiMouseMove(8.0f, 8.0f);
                 FeedUiLeftMouse(true);
                 input.Dispatch(root);
-                FInput::Update();
+                CInput::Update();
                 FeedUiLeftMouse(false);
                 input.Dispatch(root);
-                FInput::Update();
+                CInput::Update();
                 break;
 
             case EUiRemovalCallback::PointerUp:
@@ -1178,17 +1178,17 @@ ACS_TEST(Ui, UiInputCallbacksMayRemoveCurrentOrOtherChild) {
                 FocusUiRoot(input, root);
                 FeedUiChar('Q');
                 input.Dispatch(root);
-                FInput::Update();
+                CInput::Update();
                 break;
 
             case EUiRemovalCallback::Key:
                 FocusUiRoot(input, root);
                 FeedUiKey(EKey::Left, true);
                 input.Dispatch(root);
-                FInput::Update();
+                CInput::Update();
                 FeedUiKey(EKey::Left, false);
                 input.Dispatch(root);
-                FInput::Update();
+                CInput::Update();
                 break;
             }
 
@@ -1216,8 +1216,8 @@ ACS_TEST(Ui, ButtonClickSubscriberMayRemoveCurrentOrOtherChild) {
         ResetUiInputFeed();
 
         FUiMutableCallbackRoot root;
-        if (!remove_self) root.Add<FWidget>();
-        FButton* const button = root.Add<FButton>("Remove");
+        if (!remove_self) root.Add<AWidget>();
+        AButton* const button = root.Add<AButton>("Remove");
         struct FContext {
             FUiMutableCallbackRoot* Root = nullptr;
             i32 Calls = 0;
@@ -1235,7 +1235,7 @@ ACS_TEST(Ui, ButtonClickSubscriberMayRemoveCurrentOrOtherChild) {
             &context);
 
         root.Layout(0.0f, 0.0f, 120.0f, 40.0f);
-        FUiInput input;
+        CUiInput input;
         FocusUiRoot(input, root);
 
         EXPECT_EQ(context.Calls, 1);
@@ -1259,7 +1259,7 @@ ACS_TEST(Ui, ButtonFalsePulseSubscriberMayRemoveCurrentChild) {
     ResetUiInputFeed();
 
     FUiMutableCallbackRoot root;
-    FButton* const button = root.Add<FButton>("RemoveOnFalse");
+    AButton* const button = root.Add<AButton>("RemoveOnFalse");
     struct FContext {
         FUiMutableCallbackRoot* Root = nullptr;
         i32 FalseCalls = 0;
@@ -1275,7 +1275,7 @@ ACS_TEST(Ui, ButtonFalsePulseSubscriberMayRemoveCurrentChild) {
         &context);
 
     root.Layout(0.0f, 0.0f, 120.0f, 40.0f);
-    FUiInput input;
+    CUiInput input;
     FocusUiRoot(input, root);
 
     EXPECT_EQ(context.FalseCalls, 1);
@@ -1293,8 +1293,8 @@ ACS_TEST(Ui, TextInputSubscriberMayRemoveCurrentOrOtherChild) {
         ResetUiInputFeed();
 
         FUiMutableCallbackRoot root;
-        if (!remove_self) root.Add<FWidget>();
-        FTextInput* const text_input = root.Add<FTextInput>();
+        if (!remove_self) root.Add<AWidget>();
+        ATextInput* const text_input = root.Add<ATextInput>();
         struct FContext {
             FUiMutableCallbackRoot* Root = nullptr;
             i32 Calls = 0;
@@ -1311,11 +1311,11 @@ ACS_TEST(Ui, TextInputSubscriberMayRemoveCurrentOrOtherChild) {
             &context);
 
         root.Layout(0.0f, 0.0f, 120.0f, 40.0f);
-        FUiInput input;
+        CUiInput input;
         FocusUiRoot(input, root);
         FeedUiChar('Q');
         input.Dispatch(root);
-        FInput::Update();
+        CInput::Update();
 
         EXPECT_EQ(context.Calls, 1);
         if (remove_self) {
@@ -1341,8 +1341,8 @@ ACS_TEST(Ui, TextInputEraseSubscriberMayRemoveCurrentOrOtherChild) {
         ResetUiInputFeed();
 
         FUiMutableCallbackRoot root;
-        if (!remove_self) root.Add<FWidget>();
-        FTextInput* const text_input = root.Add<FTextInput>();
+        if (!remove_self) root.Add<AWidget>();
+        ATextInput* const text_input = root.Add<ATextInput>();
         text_input->text.Set(FString{"AB"});
         struct FContext {
             FUiMutableCallbackRoot* Root = nullptr;
@@ -1363,14 +1363,14 @@ ACS_TEST(Ui, TextInputEraseSubscriberMayRemoveCurrentOrOtherChild) {
             &context);
 
         root.Layout(0.0f, 0.0f, 120.0f, 40.0f);
-        FUiInput input;
+        CUiInput input;
         FocusUiRoot(input, root);
         FeedUiKey(EKey::Backspace, true);
         input.Dispatch(root);
-        FInput::Update();
+        CInput::Update();
         FeedUiKey(EKey::Backspace, false);
         input.Dispatch(root);
-        FInput::Update();
+        CInput::Update();
 
         EXPECT_EQ(context.Calls, 1);
         if (remove_self) {
@@ -1390,28 +1390,28 @@ ACS_TEST(Ui, TextInputEraseSubscriberMayRemoveCurrentOrOtherChild) {
 
 // ---- UiRenderer: hidden root は Layout と render callback をともに省略する ----
 ACS_TEST(Ui, UiRendererSkipsHiddenRootLayoutAndRendering) {
-    class FUiRenderChildProbe final : public FWidget {
+    class FUiRenderChildProbe final : public AWidget {
     public:
         void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
             ++LayoutCalls;
-            FWidget::Layout(x, y, w, h);
+            AWidget::Layout(x, y, w, h);
         }
 
-        void Render(FUiRenderer&) noexcept override { ++RenderCalls; }
+        void Render(CUiRenderer&) noexcept override { ++RenderCalls; }
 
         i32 LayoutCalls = 0;
         i32 RenderCalls = 0;
     };
-    class FUiRenderRootProbe final : public FContainer {
+    class FUiRenderRootProbe final : public AContainer {
     public:
         void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
             ++LayoutCalls;
-            FContainer::Layout(x, y, w, h);
+            AContainer::Layout(x, y, w, h);
         }
 
-        void Render(FUiRenderer& renderer) noexcept override {
+        void Render(CUiRenderer& renderer) noexcept override {
             ++RenderCalls;
-            FWidget::Render(renderer);
+            AWidget::Render(renderer);
         }
 
         i32 LayoutCalls = 0;
@@ -1420,7 +1420,7 @@ ACS_TEST(Ui, UiRendererSkipsHiddenRootLayoutAndRendering) {
 
     FUiRenderRootProbe root;
     FUiRenderChildProbe* const child = root.Add<FUiRenderChildProbe>();
-    FUiRenderer renderer;
+    CUiRenderer renderer;
     root.visible = false;
     const bool hidden_visited = ui_detail::VisitVisibleUiRoot(
         root, 120.0f, 40.0f,
@@ -1446,9 +1446,9 @@ ACS_TEST(Ui, UiRendererSkipsHiddenRootLayoutAndRendering) {
 ACS_TEST(Ui, UiInputNoArgResetReinitializesLiveRootOnNextDispatch) {
     ResetUiInputFeed();
 
-    FWidget root;
+    AWidget root;
     root.Layout(0.0f, 0.0f, 100.0f, 40.0f);
-    FUiInput input;
+    CUiInput input;
     FocusUiRoot(input, root);
     EXPECT_TRUE(root.hovered);
     EXPECT_TRUE(root.focused);
@@ -1466,7 +1466,7 @@ ACS_TEST(Ui, UiInputNoArgResetReinitializesLiveRootOnNextDispatch) {
 
 // ---- TextInput: binding 短縮時は cursor と anchor を同じ境界へ正規化する --------
 ACS_TEST(Ui, TextInputSelectionNormalizesAfterExternalBindingChange) {
-    FTextInput ti;
+    ATextInput ti;
     ti.SelectAll();
     ti.text.Set(FString{"Q"});
     EXPECT_FALSE(ti.HasSelection()); // 空文字列での SelectAll は後続 binding を選択しない
@@ -1493,9 +1493,9 @@ ACS_TEST(Ui, TextInputSelectionNormalizesAfterExternalBindingChange) {
 
 // ---- TextInput: selection 編集失敗は全状態と通知回数を維持する -----------------
 ACS_TEST(Ui, TextInputSelectionFailureIsTransactional) {
-    FSystemAllocator backing;
+    CSystemAllocator backing;
     FUiSwitchableFailAllocator allocator(backing);
-    FTextInput ti;
+    ATextInput ti;
     FString initial(allocator);
     EXPECT_TRUE(initial.TryAppend("abcdefghijklmnopqrstuvwxyzABCDEF")); // 32 bytes
     ti.text.Set(Move(initial));
@@ -1624,10 +1624,10 @@ ACS_TEST(Ui, AnchorPointCorners) {
 
 // ---- AnchorPanel: 子をアンカーで配置し、リサイズで追従する ---------------
 ACS_TEST(Ui, AnchorPanelResponsive) {
-    FAnchorPanel hud;
-    auto* tl  = hud.Add<FLabel>("tl");
-    auto* br  = hud.Add<FLabel>("br");
-    auto* bar = hud.Add<FContainer>();
+    AAnchorPanel hud;
+    auto* tl  = hud.Add<ALabel>("tl");
+    auto* br  = hud.Add<ALabel>("br");
+    auto* bar = hud.Add<AContainer>();
     tl->anchor  = FUiAnchor::Point({0, 0}, 80, 24, 8, 8);     // 左上固定
     br->anchor  = FUiAnchor::Point({1, 1}, 80, 24, -88, -32); // 右下固定
     bar->anchor = FUiAnchor::Stretch(0, 0, 0, 40);            // 上端を左右いっぱい (高さは下40除く)
@@ -1652,8 +1652,8 @@ ACS_TEST(Ui, AnchorPanelResponsive) {
 
 // ---- AnchorPanel: 非 visible な子は配置スキップ ---------------------------
 ACS_TEST(Ui, AnchorPanelSkipsHidden) {
-    FAnchorPanel p;
-    auto* a = p.Add<FLabel>("a");
+    AAnchorPanel p;
+    auto* a = p.Add<ALabel>("a");
     a->anchor = FUiAnchor::Point({0, 0}, 50, 50, 10, 10);
     a->visible = false;
     a->rect = { -1, -1, -1, -1 };   // 番兵

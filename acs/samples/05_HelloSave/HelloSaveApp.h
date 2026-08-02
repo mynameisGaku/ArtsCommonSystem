@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloSave — FApplication 派生クラス。
+// HelloSave — CApplication 派生クラス。
 //
 // 動作:
 //   ・起動時に %APPDATA%\acs_demo\hello_save.ini を読み込む
@@ -22,7 +22,7 @@
 
 namespace hellosave {
 
-class FHelloSaveApp : public acs::FApplication {
+class CHelloSaveApp : public acs::CApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -33,7 +33,7 @@ private:
     void FlushAndSave() noexcept;
 
     acs::FStorage     m_Store;
-    acs::FSpriteBatch m_Batch;
+    acs::CSpriteBatch m_Batch;
     acs::FFont        m_FontBig;
     acs::FFont        m_FontSmall;
 

@@ -8,7 +8,7 @@
 //   `ICrashReporterBackend` インターフェイスと NotImplemented を返すだけの
 //   `CCrashReporterStub` のみを提供する。
 //
-//   ・タイトル側 (acs::FApplication) は ICrashReporterBackend* を持ち、
+//   ・タイトル側 (acs::CApplication) は ICrashReporterBackend* を持ち、
 //   ・実装 (CrashReporterSentry, CrashReporterCrashpad 等) はプロジェクト個別に
 //     差し込む。
 //   これにより、(a) ACS Foundation/GameFramework の依存最小化、(b) ネットワーク
@@ -119,7 +119,7 @@ struct FCrashContext {
  * @details
  * Sentry / Crashpad / Backtrace.io / BugSnag 等の具象実装を差し込むためのインターフェイス。
  * 1 タイトルにつき通常 1 インスタンス (Singleton 的運用) で、寿命はタイトル側
- * (acs::FApplication 等) が握る。全 API は二次クラッシュ防止のため noexcept。
+ * (acs::CApplication 等) が握る。全 API は二次クラッシュ防止のため noexcept。
  */
 class ICrashReporterBackend {
 public:

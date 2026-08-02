@@ -33,7 +33,7 @@ CVoiceChatLoopbackBackend::CVoiceChatLoopbackBackend() noexcept : CVoiceChatLoop
 }
 
 /** 指定 allocator を全チャンネルの可変長状態へ固定して構築する。 */
-CVoiceChatLoopbackBackend::CVoiceChatLoopbackBackend(FAllocator& allocator) noexcept
+CVoiceChatLoopbackBackend::CVoiceChatLoopbackBackend(IAllocator& allocator) noexcept
     : m_Allocator(&allocator),
       m_Channels{FChannel(allocator), FChannel(allocator), FChannel(allocator), FChannel(allocator)}
 {
@@ -61,10 +61,10 @@ TResult<void> CVoiceChatBackendStub::JoinChannel(EVoiceChannel ch, const char* c
     (void)channel_id;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatBackendStub::JoinChannel called before Init()");
+                       "CVoiceChatBackendStub::JoinChannel called before Init()");
     }
     return ACS_ERR(Generic, kSubVoiceNotImplemented,
-                   "FVoiceChatBackendStub: JoinChannel is not implemented (link real voice SDK)");
+                   "CVoiceChatBackendStub: JoinChannel is not implemented (link real voice SDK)");
 }
 
 /** チャンネル離脱 (未初期化なら NotInitialized、それ以外は NotImplemented)。 */
@@ -72,10 +72,10 @@ TResult<void> CVoiceChatBackendStub::LeaveChannel(EVoiceChannel ch) noexcept {
     (void)ch;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatBackendStub::LeaveChannel called before Init()");
+                       "CVoiceChatBackendStub::LeaveChannel called before Init()");
     }
     return ACS_ERR(Generic, kSubVoiceNotImplemented,
-                   "FVoiceChatBackendStub: LeaveChannel is not implemented (link real voice SDK)");
+                   "CVoiceChatBackendStub: LeaveChannel is not implemented (link real voice SDK)");
 }
 
 /** ローカルミュート (未初期化なら NotInitialized、それ以外は NotImplemented)。 */
@@ -83,10 +83,10 @@ TResult<void> CVoiceChatBackendStub::SetLocalMute(bool muted) noexcept {
     (void)muted;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatBackendStub::SetLocalMute called before Init()");
+                       "CVoiceChatBackendStub::SetLocalMute called before Init()");
     }
     return ACS_ERR(Generic, kSubVoiceNotImplemented,
-                   "FVoiceChatBackendStub: SetLocalMute is not implemented (link real voice SDK)");
+                   "CVoiceChatBackendStub: SetLocalMute is not implemented (link real voice SDK)");
 }
 
 /** 参加者ミュート (未初期化なら NotInitialized、それ以外は NotImplemented)。 */
@@ -95,10 +95,10 @@ TResult<void> CVoiceChatBackendStub::SetParticipantMute(const char* user_id, boo
     (void)muted;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatBackendStub::SetParticipantMute called before Init()");
+                       "CVoiceChatBackendStub::SetParticipantMute called before Init()");
     }
     return ACS_ERR(Generic, kSubVoiceNotImplemented,
-                   "FVoiceChatBackendStub: SetParticipantMute is not implemented (link real voice SDK)");
+                   "CVoiceChatBackendStub: SetParticipantMute is not implemented (link real voice SDK)");
 }
 
 /** 参加者音量設定 (未初期化なら NotInitialized、それ以外は NotImplemented)。 */
@@ -107,10 +107,10 @@ TResult<void> CVoiceChatBackendStub::SetParticipantVolume(const char* user_id, f
     (void)volume;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatBackendStub::SetParticipantVolume called before Init()");
+                       "CVoiceChatBackendStub::SetParticipantVolume called before Init()");
     }
     return ACS_ERR(Generic, kSubVoiceNotImplemented,
-                   "FVoiceChatBackendStub: SetParticipantVolume is not implemented (link real voice SDK)");
+                   "CVoiceChatBackendStub: SetParticipantVolume is not implemented (link real voice SDK)");
 }
 
 /** Stub では誰も join していない扱いで常に 0 を返す。 */
@@ -128,11 +128,11 @@ TResult<FVoiceParticipant> CVoiceChatBackendStub::GetParticipant(EVoiceChannel c
     if (!m_Initialized) {
         return TResult<FVoiceParticipant>(
             ACS_ERR(Generic, kSubVoiceNotInitialized,
-                    "FVoiceChatBackendStub::GetParticipant called before Init()"));
+                    "CVoiceChatBackendStub::GetParticipant called before Init()"));
     }
     return TResult<FVoiceParticipant>(
         ACS_ERR(Generic, kSubVoiceNotImplemented,
-                "FVoiceChatBackendStub: GetParticipant is not implemented (link real voice SDK)"));
+                "CVoiceChatBackendStub: GetParticipant is not implemented (link real voice SDK)"));
 }
 
 /** Stub は event pump を持たないので何もしない。 */
@@ -268,7 +268,7 @@ void CVoiceChatLoopbackBackend::Shutdown() noexcept {
 TResult<void> CVoiceChatLoopbackBackend::JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatLoopbackBackend::JoinChannel called before Init()");
+                       "CVoiceChatLoopbackBackend::JoinChannel called before Init()");
     }
     FChannel& c = Chan(ch);
     c.joined = true;
@@ -283,7 +283,7 @@ TResult<void> CVoiceChatLoopbackBackend::JoinChannel(EVoiceChannel ch, const cha
 TResult<void> CVoiceChatLoopbackBackend::LeaveChannel(EVoiceChannel ch) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatLoopbackBackend::LeaveChannel called before Init()");
+                       "CVoiceChatLoopbackBackend::LeaveChannel called before Init()");
     }
     FChannel& c = Chan(ch);
     c.joined      = false;
@@ -297,7 +297,7 @@ TResult<void> CVoiceChatLoopbackBackend::LeaveChannel(EVoiceChannel ch) noexcept
 TResult<void> CVoiceChatLoopbackBackend::SetLocalMute(bool muted) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatLoopbackBackend::SetLocalMute called before Init()");
+                       "CVoiceChatLoopbackBackend::SetLocalMute called before Init()");
     }
     m_LocalMuted = muted;
     return Ok();
@@ -307,11 +307,11 @@ TResult<void> CVoiceChatLoopbackBackend::SetLocalMute(bool muted) noexcept {
 TResult<void> CVoiceChatLoopbackBackend::SetParticipantMute(const char* user_id, bool muted) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatLoopbackBackend::SetParticipantMute called before Init()");
+                       "CVoiceChatLoopbackBackend::SetParticipantMute called before Init()");
     }
     if (user_id == nullptr) {
         return ACS_ERR(Generic, kSubVoiceBadArgument,
-                       "FVoiceChatLoopbackBackend::SetParticipantMute: null user_id");
+                       "CVoiceChatLoopbackBackend::SetParticipantMute: null user_id");
     }
     // 全チャンネル横断で一致 user を mute する (同 user が複数 ch に居る場合に対応)。
     bool found = false;
@@ -325,7 +325,7 @@ TResult<void> CVoiceChatLoopbackBackend::SetParticipantMute(const char* user_id,
     }
     if (!found) {
         return ACS_ERR(Generic, kSubVoiceUnknownUser,
-                       "FVoiceChatLoopbackBackend::SetParticipantMute: unknown user_id");
+                       "CVoiceChatLoopbackBackend::SetParticipantMute: unknown user_id");
     }
     return Ok();
 }
@@ -334,11 +334,11 @@ TResult<void> CVoiceChatLoopbackBackend::SetParticipantMute(const char* user_id,
 TResult<void> CVoiceChatLoopbackBackend::SetParticipantVolume(const char* user_id, f32 volume) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatLoopbackBackend::SetParticipantVolume called before Init()");
+                       "CVoiceChatLoopbackBackend::SetParticipantVolume called before Init()");
     }
     if (user_id == nullptr) {
         return ACS_ERR(Generic, kSubVoiceBadArgument,
-                       "FVoiceChatLoopbackBackend::SetParticipantVolume: null user_id");
+                       "CVoiceChatLoopbackBackend::SetParticipantVolume: null user_id");
     }
     // 0.0〜2.0 に clamp (1.0 超で増幅も許容、mix 時に最終 clamp されるため安全)。
     f32 v = volume;
@@ -356,7 +356,7 @@ TResult<void> CVoiceChatLoopbackBackend::SetParticipantVolume(const char* user_i
     }
     if (!found) {
         return ACS_ERR(Generic, kSubVoiceUnknownUser,
-                       "FVoiceChatLoopbackBackend::SetParticipantVolume: unknown user_id");
+                       "CVoiceChatLoopbackBackend::SetParticipantVolume: unknown user_id");
     }
     return Ok();
 }
@@ -374,18 +374,18 @@ TResult<FVoiceParticipant> CVoiceChatLoopbackBackend::GetParticipant(EVoiceChann
     if (!m_Initialized) {
         return TResult<FVoiceParticipant>(
             ACS_ERR(Generic, kSubVoiceNotInitialized,
-                    "FVoiceChatLoopbackBackend::GetParticipant called before Init()"));
+                    "CVoiceChatLoopbackBackend::GetParticipant called before Init()"));
     }
     FChannel& c = Chan(ch);
     if (!c.joined) {
         return TResult<FVoiceParticipant>(
             ACS_ERR(Generic, kSubVoiceNotJoined,
-                    "FVoiceChatLoopbackBackend::GetParticipant: channel not joined"));
+                    "CVoiceChatLoopbackBackend::GetParticipant: channel not joined"));
     }
     if (index >= c.participants.Size()) {
         return TResult<FVoiceParticipant>(
             ACS_ERR(Generic, kSubVoiceBadArgument,
-                    "FVoiceChatLoopbackBackend::GetParticipant: index out of range"));
+                    "CVoiceChatLoopbackBackend::GetParticipant: index out of range"));
     }
     const FLoopParticipant& p = c.participants[index];
     FVoiceParticipant out;
@@ -410,16 +410,16 @@ TResult<void> CVoiceChatLoopbackBackend::AddParticipant(EVoiceChannel ch, const 
                                                         const char* display_name) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatLoopbackBackend::AddParticipant called before Init()");
+                       "CVoiceChatLoopbackBackend::AddParticipant called before Init()");
     }
     if (user_id == nullptr || user_id[0] == '\0') {
         return ACS_ERR(Generic, kSubVoiceBadArgument,
-                       "FVoiceChatLoopbackBackend::AddParticipant: empty user_id");
+                       "CVoiceChatLoopbackBackend::AddParticipant: empty user_id");
     }
     FChannel& c = Chan(ch);
     if (!c.joined) {
         return ACS_ERR(Generic, kSubVoiceNotJoined,
-                       "FVoiceChatLoopbackBackend::AddParticipant: channel not joined");
+                       "CVoiceChatLoopbackBackend::AddParticipant: channel not joined");
     }
     // 冪等: 既存 user は表示名のみ更新して成功扱い。
     const u32 idx = FindParticipant(c, user_id);
@@ -442,17 +442,17 @@ TResult<void> CVoiceChatLoopbackBackend::AddParticipant(EVoiceChannel ch, const 
 TResult<void> CVoiceChatLoopbackBackend::RemoveParticipant(EVoiceChannel ch, const char* user_id) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatLoopbackBackend::RemoveParticipant called before Init()");
+                       "CVoiceChatLoopbackBackend::RemoveParticipant called before Init()");
     }
     if (user_id == nullptr) {
         return ACS_ERR(Generic, kSubVoiceBadArgument,
-                       "FVoiceChatLoopbackBackend::RemoveParticipant: null user_id");
+                       "CVoiceChatLoopbackBackend::RemoveParticipant: null user_id");
     }
     FChannel& c = Chan(ch);
     const u32 idx = FindParticipant(c, user_id);
     if (idx >= c.participants.Size()) {
         return ACS_ERR(Generic, kSubVoiceUnknownUser,
-                       "FVoiceChatLoopbackBackend::RemoveParticipant: unknown user_id");
+                       "CVoiceChatLoopbackBackend::RemoveParticipant: unknown user_id");
     }
     // 順序維持の必要が薄いので swap-remove。pump_target が末尾を指していたら
     // 補正する (swap で末尾要素が idx に移動するため)。
@@ -467,13 +467,13 @@ TResult<void> CVoiceChatLoopbackBackend::RemoveParticipant(EVoiceChannel ch, con
 TResult<void> CVoiceChatLoopbackBackend::SetPumpTarget(EVoiceChannel ch, const char* user_id) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatLoopbackBackend::SetPumpTarget called before Init()");
+                       "CVoiceChatLoopbackBackend::SetPumpTarget called before Init()");
     }
     FChannel& c = Chan(ch);
     const u32 idx = FindParticipant(c, user_id);
     if (idx >= c.participants.Size()) {
         return ACS_ERR(Generic, kSubVoiceUnknownUser,
-                       "FVoiceChatLoopbackBackend::SetPumpTarget: unknown user_id");
+                       "CVoiceChatLoopbackBackend::SetPumpTarget: unknown user_id");
     }
     c.pump_target = idx;
     return Ok();
@@ -509,20 +509,20 @@ TResult<void> CVoiceChatLoopbackBackend::PushLocalFrame(EVoiceChannel ch, const 
                                                         u32 sample_count) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatLoopbackBackend::PushLocalFrame called before Init()");
+                       "CVoiceChatLoopbackBackend::PushLocalFrame called before Init()");
     }
     if (sample_count > kVoiceMaxFrameSamples) {
         return ACS_ERR(Generic, kSubVoiceBadArgument,
-                       "FVoiceChatLoopbackBackend::PushLocalFrame: frame too large");
+                       "CVoiceChatLoopbackBackend::PushLocalFrame: frame too large");
     }
     if (sample_count != 0 && pcm == nullptr) {
         return ACS_ERR(Generic, kSubVoiceBadArgument,
-                       "FVoiceChatLoopbackBackend::PushLocalFrame: null pcm");
+                       "CVoiceChatLoopbackBackend::PushLocalFrame: null pcm");
     }
     FChannel& c = Chan(ch);
     if (!c.joined) {
         return ACS_ERR(Generic, kSubVoiceNotJoined,
-                       "FVoiceChatLoopbackBackend::PushLocalFrame: channel not joined");
+                       "CVoiceChatLoopbackBackend::PushLocalFrame: channel not joined");
     }
 
     // 実データから RMS / peak を算出 (VAD / メーター用)。ミュート中でも計測はする
@@ -571,11 +571,11 @@ TResult<void> CVoiceChatLoopbackBackend::PushLocalFrameF32(EVoiceChannel ch, con
                                                            u32 sample_count) noexcept {
     if (sample_count > kVoiceMaxFrameSamples) {
         return ACS_ERR(Generic, kSubVoiceBadArgument,
-                       "FVoiceChatLoopbackBackend::PushLocalFrameF32: frame too large");
+                       "CVoiceChatLoopbackBackend::PushLocalFrameF32: frame too large");
     }
     if (sample_count != 0 && pcm == nullptr) {
         return ACS_ERR(Generic, kSubVoiceBadArgument,
-                       "FVoiceChatLoopbackBackend::PushLocalFrameF32: null pcm");
+                       "CVoiceChatLoopbackBackend::PushLocalFrameF32: null pcm");
     }
     // float [-1,1] → int16 量子化してから int16 経路に合流。
     i16 staging[kVoiceMaxFrameSamples];
@@ -674,7 +674,7 @@ CVoiceChatLoopbackBackend& GetVoiceLoopback() noexcept {
         }
 
         // backend を先に破棄してから allocator を破棄する宣言順にする。
-        FSystemAllocator allocator;
+        CSystemAllocator allocator;
         CVoiceChatLoopbackBackend backend;
     };
     static FVoiceLoopbackState s_state;

@@ -67,7 +67,7 @@ static_assert(detail::TLogLiteralInfo<const char[16]>::IsLiteral);
 static_assert(!detail::TLogLiteralInfo<const char*>::IsLiteral);
 static_assert(detail::ClassifyLogDispatch("literal message") == detail::ELogDispatchKind::Literal);
 static_assert(detail::ClassifyLogDispatch("value=%u") == detail::ELogDispatchKind::Formatted);
-static_assert(FLogger::CompiledEnabled<ELogSeverity::Fatal>());
+static_assert(CLogger::CompiledEnabled<ELogSeverity::Fatal>());
 
 } // 無名名前空間
 

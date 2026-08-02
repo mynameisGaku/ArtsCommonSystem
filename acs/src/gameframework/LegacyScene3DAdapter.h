@@ -97,10 +97,10 @@ public:
     ESceneProjectionMode ProjectionMode() const noexcept { return m_Projection; }
 
     /** Camera used for standalone preview/gameplay. */
-    FCamera& Camera() noexcept { return m_Camera; }
+    CCamera& Camera() noexcept { return m_Camera; }
 
     /** Read-only standalone camera. */
-    const FCamera& Camera() const noexcept { return m_Camera; }
+    const CCamera& Camera() const noexcept { return m_Camera; }
 
     /** Deterministically selected authored camera, or null for frame-scene fallback. */
     const FScene3DCameraState* AuthoredCamera() const noexcept {
@@ -299,11 +299,11 @@ private:
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
     u32 CollectWaterDraws(
-        FWaterDraw (&draws)[FWaterSurface3D::kMaxTrackedSurfaces],
+        FWaterDraw (&draws)[CWaterSurface3D::kMaxTrackedSurfaces],
         IRhiTexture* depth, u32 width, u32 height) const noexcept;
     bool DrawPbrScene(
         FRenderContext& context,
-        FPbrShader& shader,
+        CPbrShader& shader,
         const FWaterDraw* excluded_water,
         u32 excluded_count,
         bool subsurface_mrt = false) noexcept;
@@ -317,17 +317,17 @@ private:
         FRenderContext& context,
         const FWaterDraw* water_draws,
         u32 water_count) noexcept;
-    FPbrShader& ActiveHdrShader() noexcept {
+    CPbrShader& ActiveHdrShader() noexcept {
         return m_HdrShaders[m_HdrActiveSlot];
     }
-    const FPbrShader& ActiveHdrShader() const noexcept {
+    const CPbrShader& ActiveHdrShader() const noexcept {
         return m_HdrShaders[m_HdrActiveSlot];
     }
 
     CScene3D m_Graph;
     FScene3DLoadResult m_LoadResult{};
-    FPbrShader m_HdrShaders[2];
-    FPbrShader::FCompiledShaders m_HdrPendingShaders{};
+    CPbrShader m_HdrShaders[2];
+    CPbrShader::FCompiledShaders m_HdrPendingShaders{};
     FThread m_HdrCompileWorker;
     std::atomic<i32> m_HdrCompileWorkerState{0};
     IRhiDevice* m_HdrCompileDevice = nullptr;
@@ -336,7 +336,7 @@ private:
     u8 m_HdrActiveSlot = 0u;
     u8 m_HdrPendingSlot = 1u;
     bool m_HdrPendingIsInitialized = false;
-    FPbrShader::FCompiledShaders m_HdrSsssPendingShaders{};
+    CPbrShader::FCompiledShaders m_HdrSsssPendingShaders{};
     FThread m_HdrSsssCompileWorker;
     std::atomic<i32> m_HdrSsssCompileWorkerState{0};
     IRhiDevice* m_HdrSsssCompileDevice = nullptr;
@@ -344,8 +344,8 @@ private:
     EFormat m_HdrSsssCompileDepthFormat = EFormat::D32_Float;
     u8 m_HdrSsssPendingSlot = 0u;
     bool m_HdrSsssPendingIsInitialized = false;
-    FSubsurfaceScattering m_Ssss;
-    FSubsurfaceScattering::FCompiledShaders m_SsssPendingShaders{};
+    CSubsurfaceScattering m_Ssss;
+    CSubsurfaceScattering::FCompiledShaders m_SsssPendingShaders{};
     FThread m_SsssCompileWorker;
     std::atomic<i32> m_SsssCompileWorkerState{0};
     IRhiDevice* m_SsssCompileDevice = nullptr;
@@ -356,20 +356,20 @@ private:
     TUniquePtr<IRhiTexture> m_SsssPendingDiffuse;
     TUniquePtr<IRhiTexture> m_SsssPendingMaterial;
     TUniquePtr<IRhiTexture> m_SsssPendingNormal;
-    FPostProcess m_Post;
-    FPostProcess::FCompiledShaders m_PostPendingShaders{};
+    CPostProcess m_Post;
+    CPostProcess::FCompiledShaders m_PostPendingShaders{};
     FThread m_PostCompileWorker;
     std::atomic<i32> m_PostCompileWorkerState{0};
-    FBlit m_Blit;
-    FBlit::FCompiledShaders m_BlitPendingShaders{};
+    CBlit m_Blit;
+    CBlit::FCompiledShaders m_BlitPendingShaders{};
     FThread m_BlitCompileWorker;
     std::atomic<i32> m_BlitCompileWorkerState{0};
-    FSky m_Sky;
-    FSky::FCompiledShaders m_SkyPendingShaders{};
+    CSky m_Sky;
+    CSky::FCompiledShaders m_SkyPendingShaders{};
     FThread m_SkyCompileWorker;
     std::atomic<i32> m_SkyCompileWorkerState{0};
-    FWaterSurface3D m_Water;
-    FWaterSurface3D::FCompiledShaders m_WaterPendingShaders{};
+    CWaterSurface3D m_Water;
+    CWaterSurface3D::FCompiledShaders m_WaterPendingShaders{};
     FThread m_WaterCompileWorker;
     std::atomic<i32> m_WaterCompileWorkerState{0};
     TUniquePtr<IRhiTexture> m_WaterBackground;
@@ -378,7 +378,7 @@ private:
     FGpuMesh m_Sphere;
     FGpuMesh m_Plane;
     TArray<FCustomGpuMesh> m_CustomMeshes;
-    FCamera m_Camera;
+    CCamera m_Camera;
     FScene3DCameraState m_AuthoredCamera{};
     bool m_UseAuthoredCamera = false;
     bool m_HasExplicitCameraOverride = false;

@@ -329,7 +329,7 @@ public:
     // ---------------------------------------------------------- マテリアル
 
     /**
-     * この node に焼き込んだマテリアル効果の状態 (FSpriteBatch 型に依存しない軽量 POD)。
+     * この node に焼き込んだマテリアル効果の状態 (CSpriteBatch 型に依存しない軽量 POD)。
      *
      * @details ANode.h を軽く保つため、効果プリセットの値だけをここに持つ
      *          (ESpriteEffect の整数値 + パラメータ)。DrawTree が rc.Sprites().SetEffect へ渡す。

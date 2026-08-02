@@ -3,7 +3,7 @@
 //
 // 本ファイルは状態保持と preset 適用ロジックのみを持つ。「実際に色覚補正を
 // LUT で適用する」「実際に字幕を表示する」「実際にスクリーンリーダに発話
-// させる」のは caller (FRenderer / UI / TTS バックエンド) の責務。
+// させる」のは caller (CRenderer / UI / TTS バックエンド) の責務。
 #include "gameframework/AccessibilityProfile.h"
 
 namespace acs::game {

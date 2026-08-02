@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloAudio — FApplication 実装。
+// HelloAudio — CApplication 実装。
 #include "HelloAudioApp.h"
 
 #include "app/Sample.h"
@@ -11,7 +11,7 @@ using namespace acs;
 
 namespace helloaudio {
 
-void FHelloAudioApp::OnStart() noexcept {
+void CHelloAudioApp::OnStart() noexcept {
     ACS_SAMPLE_INIT(m_Engine.Init());
     // wav / mp3 / flac / ogg のいずれでも OK（拡張子を変えるだけ）
     auto a = GetAssets().Load(L"test.wav");
@@ -23,23 +23,23 @@ void FHelloAudioApp::OnStart() noexcept {
     m_Audio = a.Value();
 }
 
-void FHelloAudioApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloAudioApp::OnUpdate(f32 /*dt*/) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
 
-    if (FInput::IsKeyPressed(EKey::Space)) {
+    if (CInput::IsKeyPressed(EKey::Space)) {
         if (m_Handle.IsValid()) {
             m_Engine.Stop(m_Handle);
             m_Handle = kInvalidSound;
         } else if (m_Audio) {
-            auto* a = static_cast<FAudioAsset*>(m_Audio.Get());
+            auto* a = static_cast<AAudioAsset*>(m_Audio.Get());
             m_Handle = m_Engine.Play(*a, m_Volume, /*loop*/ false);
         }
     }
-    if (FInput::IsKeyPressed(EKey::Up))   { m_Volume += 0.1f; if (m_Volume > 1) m_Volume = 1; m_Engine.SetVolume(m_Handle, m_Volume); }
-    if (FInput::IsKeyPressed(EKey::Down)) { m_Volume -= 0.1f; if (m_Volume < 0) m_Volume = 0; m_Engine.SetVolume(m_Handle, m_Volume); }
+    if (CInput::IsKeyPressed(EKey::Up))   { m_Volume += 0.1f; if (m_Volume > 1) m_Volume = 1; m_Engine.SetVolume(m_Handle, m_Volume); }
+    if (CInput::IsKeyPressed(EKey::Down)) { m_Volume -= 0.1f; if (m_Volume < 0) m_Volume = 0; m_Engine.SetVolume(m_Handle, m_Volume); }
 }
 
-void FHelloAudioApp::OnShutdown() noexcept {
+void CHelloAudioApp::OnShutdown() noexcept {
     m_Engine.Shutdown();
 }
 

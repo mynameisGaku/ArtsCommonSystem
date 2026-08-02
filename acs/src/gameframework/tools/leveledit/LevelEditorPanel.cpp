@@ -433,7 +433,7 @@ void ALevelEditorPanel::DrawUI() noexcept {
                                    ? (canvas_size.x / ortho_w_world)
                                    : 1.0f;
 
-        // FCamera への mouse input 流し込み (= 2D pan / zoom)。
+        // CCamera への mouse input 流し込み (= 2D pan / zoom)。
         // canvas hover 中だけ吸い上げる (= ImGui の他 widget を奪わない)。
         if (canvas_hovered) {
             // wheel: zoom

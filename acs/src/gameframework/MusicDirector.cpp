@@ -44,12 +44,12 @@ CMusicDirector::CMusicDirector() noexcept {
 /** 指定 state の連続区間末尾に track を挿入し、state インデックスを更新する。 */
 void CMusicDirector::RegisterTrack(EMusicState state, const FMusicTrack& track) noexcept {
     if (track.asset_path == nullptr) {
-        ACS_LOG_WARN("FMusicDirector::RegisterTrack: asset_path=nullptr → ignored");
+        ACS_LOG_WARN("CMusicDirector::RegisterTrack: asset_path=nullptr → ignored");
         return;
     }
     const u32 state_idx = static_cast<u32>(state);
     if (state_idx >= kStateCount) {
-        ACS_LOG_WARN("FMusicDirector::RegisterTrack: invalid state=%u → ignored", state_idx);
+        ACS_LOG_WARN("CMusicDirector::RegisterTrack: invalid state=%u → ignored", state_idx);
         return;
     }
 
@@ -58,7 +58,7 @@ void CMusicDirector::RegisterTrack(EMusicState state, const FMusicTrack& track) 
     normalized.intensity_min = Clamp01(track.intensity_min);
     normalized.intensity_max = Clamp01(track.intensity_max);
     if (normalized.intensity_min > normalized.intensity_max) {
-        ACS_LOG_WARN("FMusicDirector::RegisterTrack: intensity_min(%.3f) > max(%.3f) → swapped",
+        ACS_LOG_WARN("CMusicDirector::RegisterTrack: intensity_min(%.3f) > max(%.3f) → swapped",
                      normalized.intensity_min, normalized.intensity_max);
         const f32 tmp = normalized.intensity_min;
         normalized.intensity_min = normalized.intensity_max;
@@ -118,7 +118,7 @@ usize CMusicDirector::FindTrackForState(EMusicState state, f32 intensity) const 
 void CMusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
     const u32 state_idx = static_cast<u32>(state);
     if (state_idx >= kStateCount) {
-        ACS_LOG_WARN("FMusicDirector::SetState: invalid state=%u → ignored", state_idx);
+        ACS_LOG_WARN("CMusicDirector::SetState: invalid state=%u → ignored", state_idx);
         return;
     }
 
@@ -161,7 +161,7 @@ bool CMusicDirector::IsTransitioning() const noexcept {
 void CMusicDirector::SetIntensity(f32 intensity_0_to_1) noexcept {
     const f32 c = Clamp01(intensity_0_to_1);
     if (c != intensity_0_to_1) {
-        ACS_LOG_WARN("FMusicDirector::SetIntensity: out-of-range %.3f → clamped to %.3f",
+        ACS_LOG_WARN("CMusicDirector::SetIntensity: out-of-range %.3f → clamped to %.3f",
                      intensity_0_to_1, c);
     }
     m_Intensity = c;
@@ -170,16 +170,16 @@ void CMusicDirector::SetIntensity(f32 intensity_0_to_1) noexcept {
 /** pending stinger を更新し、結線済みなら即時に SFX を重ね再生する。 */
 void CMusicDirector::PlayStinger(const char* asset_path, f32 volume) noexcept {
     if (asset_path == nullptr) {
-        ACS_LOG_WARN("FMusicDirector::PlayStinger: asset_path=nullptr → ignored");
+        ACS_LOG_WARN("CMusicDirector::PlayStinger: asset_path=nullptr → ignored");
         return;
     }
     if (volume <= 0.0f) {
-        ACS_LOG_WARN("FMusicDirector::PlayStinger: volume=%.3f <= 0 → ignored", volume);
+        ACS_LOG_WARN("CMusicDirector::PlayStinger: volume=%.3f <= 0 → ignored", volume);
         return;
     }
     if (m_StingerPending) {
         // 既存 pending を上書き (最新採用ポリシー、スタックしない)。
-        ACS_LOG_WARN("FMusicDirector::PlayStinger: pending stinger overwritten (%s → %s)",
+        ACS_LOG_WARN("CMusicDirector::PlayStinger: pending stinger overwritten (%s → %s)",
                      m_StingerPath, asset_path);
     }
     // pending 情報は ConsumeStinger 用に常に保持 (結線有無に依らず)。

@@ -24,7 +24,7 @@
 //   ・状態遷移: Unloaded → Queued → Loading → Loaded → Unloading → Unloaded。
 //     Tick() で「同時 Loading 数 ≤ max_concurrent_loads」を保ちつつキューを進める。
 //   ・実アセットロード: 1 chunk = 1 CAssetBundle。SetAssetRegistry() で app 所有の
-//     FAssetRegistry を差し込むと、Loading 遷移時に bundle.BeginLoad(registry) を発行し、
+//     CAssetRegistry を差し込むと、Loading 遷移時に bundle.BeginLoad(registry) を発行し、
 //     bundle.Progress()/IsLoaded() で実完了を判定、Unloading で bundle.Unload() する。
 //     registry が未設定 (nullptr) のときは simulated load time = 0.5s/chunk の
 //     フォールバックで進行する (ヘッドレステスト / registry を持たない用途向け)。
@@ -41,7 +41,7 @@
 #include "memory/UniquePtr.h"
 #include "math/Vec.h"
 
-namespace acs { class FAssetRegistry; }
+namespace acs { class CAssetRegistry; }
 
 namespace acs::game {
 
@@ -121,7 +121,7 @@ enum class EChunkState : u8 {
  * ライフサイクルは Init() → 毎フレーム SetViewerPos + Tick → ClearAll() (シーン終了時)。
  * Tick() は (1) 範囲内チャンクを Queued に挿入、(2) Loading 上限内で
  * Queued→Loading→Loaded を進行、(3) 範囲外の Loaded を Unloading→Unloaded に遷移、を
- * 行う。SetAssetRegistry() で実 FAssetRegistry を差すと各チャンクが 1 CAssetBundle を
+ * 行う。SetAssetRegistry() で実 CAssetRegistry を差すと各チャンクが 1 CAssetBundle を
  * 実ロードし、未設定時は simulated load time でフォールバックする。non-copy / non-move。
  */
 class CStreamingDirector {
@@ -165,21 +165,21 @@ public:
      * 実アセットロード用の registry を差し込む。
      *
      * @details
-     * app 所有 (FApplication::GetAssets() / CGame 経由、非所有 raw ptr)。設定すると各
+     * app 所有 (CApplication::GetAssets() / CGame 経由、非所有 raw ptr)。設定すると各
      * チャンクが Loading に入るとき CAssetBundle::BeginLoad(*registry) を発行し、進捗/
      * 完了を bundle から取得する。nullptr を渡す (= 未設定) と simulated load time
      * フォールバックで動作する。既に Loading 中のチャンクには影響しない (次に Loading へ
      * 昇格するものから適用)。
-     * @param registry 接続する FAssetRegistry (nullptr で simulated フォールバック)。
+     * @param registry 接続する CAssetRegistry (nullptr で simulated フォールバック)。
      */
-    void            SetAssetRegistry(FAssetRegistry* registry) noexcept { m_Registry = registry; }
+    void            SetAssetRegistry(CAssetRegistry* registry) noexcept { m_Registry = registry; }
 
     /**
      * 現在接続中の registry を返す。
      *
-     * @return 設定済みの FAssetRegistry (未設定なら nullptr)。
+     * @return 設定済みの CAssetRegistry (未設定なら nullptr)。
      */
-    FAssetRegistry* GetAssetRegistry() const noexcept { return m_Registry; }
+    CAssetRegistry* GetAssetRegistry() const noexcept { return m_Registry; }
 
     /**
      * チャンク (cx, cy) → アセットパスを組み立てる printf 風フォーマットを設定する。
@@ -354,7 +354,7 @@ private:
     u32 m_MaxConcurrentLoads = 4;
 
     /** 実アセットロード接続先 (非所有)。null なら simulated フォールバック。 */
-    FAssetRegistry* m_Registry = nullptr;
+    CAssetRegistry* m_Registry = nullptr;
 
     /** チャンクパス組み立てフォーマット (空なら kDefaultChunkPathFormat を使用)。 */
     FString m_ChunkPathFormat;

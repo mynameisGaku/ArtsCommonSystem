@@ -71,7 +71,7 @@ public:
     void Render() noexcept;
 
     /**
-     * ウィンドウイベントを ImGui の IO に転送する (FApplication::OnEvent から呼ぶ)。
+     * ウィンドウイベントを ImGui の IO に転送する (CApplication::OnEvent から呼ぶ)。
      *
      * @details マウスのボタン・移動・スクロールと文字入力を ImGuiIO へ反映する (キー入力は未対応)。
      * @param e 転送する入力・ウィンドウイベント。

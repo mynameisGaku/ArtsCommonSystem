@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloCinematicsEditor — CineEditorScene。
-// editor_core の FEditorWorkspace + FEditorTheme と
-// cinetimeline::FCinematicsTimelineEditorPanel を 1 個の Workspace に集約し、
-// FCinematicsDirector を bind して 3 個の初期 keyframe を持つ Scene。
+// editor_core の CEditorWorkspace + CEditorTheme と
+// cinetimeline::ACinematicsTimelineEditorPanel を 1 個の Workspace に集約し、
+// CCinematicsDirector を bind して 3 個の初期 keyframe を持つ Scene。
 #pragma once
 
 #include "gameframework/GameFramework.h"
@@ -15,7 +15,7 @@
 
 namespace hellocine {
 
-class FCineEditorScene : public acs::game::FScene {
+class ACineEditorScene : public acs::game::AScene {
 public:
     void OnEnter() noexcept override;
     void OnExit()  noexcept override;
@@ -27,14 +27,14 @@ private:
     static constexpr const char* kCinePath = "preset.acscinetimeline";
 
     // ---- editor_core ----
-    acs::game::editor_core::FEditorWorkspace                  m_Workspace;
-    acs::game::editor_core::FEditorTheme                      m_Theme;
+    acs::game::editor_core::CEditorWorkspace                  m_Workspace;
+    acs::game::editor_core::CEditorTheme                      m_Theme;
 
     // ---- cinetimeline ----
-    acs::game::cinetimeline::FCinematicsTimelineEditorPanel   m_CinePanel;
+    acs::game::cinetimeline::ACinematicsTimelineEditorPanel   m_CinePanel;
 
-    // ---- 編集対象の FCinematicsDirector (= Scene が所有、panel は raw 参照) ----
-    acs::game::FCinematicsDirector                            m_Director;
+    // ---- 編集対象の CCinematicsDirector (= Scene が所有、panel は raw 参照) ----
+    acs::game::CCinematicsDirector                            m_Director;
 
     // ---- runtime callback (= keyframe 発火可視化用、ACS_LOG_INFO に出力) ----
     static void OnCamera(void* /*user*/, acs::FVec2 target, acs::f32 zoom, acs::f32 dur) noexcept;

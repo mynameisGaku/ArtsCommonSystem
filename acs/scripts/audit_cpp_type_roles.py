@@ -32,6 +32,26 @@ from audit_cpp_conventions import (
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 ROLE_NAME = re.compile(r"^[ACEFIT][A-Z0-9][A-Za-z0-9]*$")
 OBJECT_MACROS = frozenset({"ACS_OBJECT", "ACS_REGISTER_OBJECT"})
+
+# module単位の走査でも所有objectの継承関係を判定する正規基底。
+EXTERNAL_MANAGED_BASES = frozenset(
+    {
+        "acs::AObject",
+        "acs::game::AComponent",
+        "acs::game::ANode",
+        "acs::game::AScene",
+        "acs::game::AScene2D",
+    }
+)
+LEGACY_IDENTITY_MACRO_ARGUMENTS = {
+    "ACS_GAME_SUBSYSTEM_KIND": frozenset({0}),
+    "ACS_REGISTER_ASSET": frozenset({0}),
+    "ACS_REGISTER_SCENE": frozenset({0}),
+    "ACS_REGISTER_SYSTEM": frozenset({0}),
+    "ACS_RTTI": frozenset({0, 1}),
+    "ACS_RTTI_ROOT": frozenset({0}),
+    "ACS_SUBSYSTEM_KIND": frozenset({0}),
+}
 ACCESS_WORDS = frozenset({"public", "private", "protected", "virtual"})
 VALUE_WORDS = frozenset(
     {
@@ -87,6 +107,7 @@ VALUE_WORDS = frozenset(
 )
 BEHAVIOR_WORDS = frozenset(
     {
+        "App",
         "Allocator",
         "Application",
         "Backend",
@@ -122,6 +143,8 @@ BEHAVIOR_WORDS = frozenset(
         "System",
         "Thread",
         "Tracker",
+        "ViewModel",
+        "Vm",
         "Watcher",
         "Writer",
     }
@@ -226,8 +249,8 @@ SCALAR_TYPE_NAMES = frozenset(
 DETAIL_NAMESPACE_NAMES = frozenset({"detail", "internal", "private"})
 PUBLIC_HEADER_SUFFIXES = frozenset({".h", ".hh", ".hpp", ".hxx", ".inl"})
 TYPE_ROLE_MIGRATION_SCHEMA_VERSION = 2
-DEFAULT_TYPE_ROLE_MIGRATION_ENTRY_COUNT = 150
-DEFAULT_TYPE_ROLE_MIGRATION_SEMANTIC_SHA256 = "2A8C41746F2F9FD2777A84A1869351766FCD384BF67A68FEBAADABE0C439CEA8"
+DEFAULT_TYPE_ROLE_MIGRATION_ENTRY_COUNT = 335
+DEFAULT_TYPE_ROLE_MIGRATION_SEMANTIC_SHA256 = "44C90E6BF0F40A8BC460DAFD0C87F991F88BE0C4C57291FE4B23B6B5DEAC16D5"
 DEFAULT_TYPE_ROLE_MIGRATIONS = (
     Path(os.path.abspath(__file__)).parent / "data" / "cpp_type_role_migrations.json"
 )
@@ -384,6 +407,25 @@ LEGACY_COMPATIBILITY_PATHS.update({
     "acs::ComponentTypeId": "ecs/ComponentId.h",
     "acs::EventTypeId": "event/EventTypeId.h",
 })
+# 互換headerが公開する正規化済み型のqualified re-export契約。
+LEGACY_COMPATIBILITY_REEXPORTS = frozenset({
+    ("gameframework/Subsystem.h", ("acs", "game"), "acs::FSubsystem"),
+    (
+        "gameframework/SubsystemCollection.h",
+        ("acs", "game"),
+        "acs::FSubsystemCollection",
+    ),
+    (
+        "gameframework/SubsystemRegistry.h",
+        ("acs", "game"),
+        "acs::FSubsystemAutoRegister",
+    ),
+    (
+        "gameframework/SubsystemRegistry.h",
+        ("acs", "game"),
+        "acs::FSubsystemRegistry",
+    ),
+})
 CANONICAL_OBJECT_AND_CLASS_TYPES = {
     canonical: (path, kind, prefix)
     for _, canonical, path, _, kind, prefix in REGISTERED_TYPE_ROLE_MIGRATIONS
@@ -426,8 +468,8 @@ PREMIGRATION_SCALAR_ALIASES = {
 DEBT_SCHEMA_VERSION = 1
 SCHEMA_VERSION = 3
 DEBT_WAVE = "acf-role-review-wave-1"
-DEFAULT_DEBT_ENTRY_COUNT = 181
-DEFAULT_DEBT_SEMANTIC_SHA256 = "C677BD392E85BB96B13A4A49DD3450E2CD733DDE3541FEE34A009838A5092392"
+DEFAULT_DEBT_ENTRY_COUNT = 0
+DEFAULT_DEBT_SEMANTIC_SHA256 = "4F53CDA18C2BAA0C0354BB5F9A3ECBE5ED12AB4D8E11BA873C2F11161202B945"
 DEFAULT_MIGRATION_DEBT = Path(os.path.abspath(__file__)).parent / "data" / "cpp_type_role_migration_debt.json"
 
 
@@ -448,12 +490,25 @@ class FTypeDefinition:
     source_relative_path: Optional[str]
     has_local_scope: bool
     is_nested_type: bool
+    visible_managed_references: tuple[tuple[str, str], ...]
+    declared_managed_reference_scopes: tuple[tuple[str, tuple[str, ...]], ...]
 
     @property
     def qualified_name(self) -> str:
         """名前空間と外側の型を含む完全修飾名を返す。"""
 
         return "::".join((*self.scope, self.name))
+
+
+@dataclass(frozen=True)
+class FManagedVisibilityDeclaration:
+    """名前空間scopeで宣言された名前と、直接解決できた管理基底を保持する。"""
+
+    position: int
+    owner_scope: tuple[str, ...]
+    declared_name: Optional[str]
+    managed_references: tuple[tuple[str, str], ...]
+    namespace_target: Optional[tuple[str, ...]]
 
 
 @dataclass(frozen=True)
@@ -911,10 +966,18 @@ def _base_references(tokens: Sequence[FToken]) -> tuple[str, ...]:
             continue
         names = [before_template[last_name].text]
         cursor = last_name - 1
-        while cursor >= 1 and before_template[cursor].text == "::" and IDENTIFIER.match(before_template[cursor - 1].text):
+        while (
+            cursor >= 1
+            and before_template[cursor].text == "::"
+            and IDENTIFIER.match(before_template[cursor - 1].text)
+            and before_template[cursor - 1].text not in ACCESS_WORDS
+        ):
             names.insert(0, before_template[cursor - 1].text)
             cursor -= 2
-        references.append("::".join(names))
+        reference = "::".join(names)
+        if cursor >= 0 and before_template[cursor].text == "::":
+            reference = f"::{reference}"
+        references.append(reference)
     return tuple(references)
 
 
@@ -979,6 +1042,427 @@ def _definition_scope(
         any(kind == "local" for kind, _ in contexts),
         any(kind == "type" for kind, _ in contexts),
     )
+
+
+def _qualified_using_reference(
+    tokens: Sequence[FToken],
+) -> Optional[tuple[bool, tuple[str, ...]]]:
+    """対象が単純な修飾名なら、global指定と構成要素を返す。"""
+
+    position = 0
+    absolute = position < len(tokens) and tokens[position].text == "::"
+    if absolute:
+        position += 1
+    names: list[str] = []
+    while position < len(tokens):
+        if not IDENTIFIER.match(tokens[position].text):
+            return None
+        names.append(tokens[position].text)
+        position += 1
+        if position == len(tokens):
+            break
+        if tokens[position].text != "::":
+            return None
+        position += 1
+    return (absolute, tuple(names)) if names else None
+
+
+def _managed_base_visibility_by_definition(
+    tokens: Sequence[FToken],
+    type_bodies: dict[int, str],
+    body_starts: frozenset[int],
+) -> dict[
+    int,
+    tuple[
+        tuple[tuple[str, str], ...],
+        tuple[tuple[str, tuple[str, ...]], ...],
+    ],
+]:
+    """各型定義より前に同じ名前空間で可視になった管理基底を返す。"""
+
+    external_names = {
+        tuple(name.split("::")): name for name in EXTERNAL_MANAGED_BASES
+    }
+    external_namespaces = frozenset(name[:-1] for name in external_names)
+    external_types = frozenset(external_names)
+    contexts: list[tuple[str, tuple[str, ...]]] = []
+    declarations: list[FManagedVisibilityDeclaration] = []
+    visibility: dict[
+        int,
+        tuple[
+            tuple[tuple[str, str], ...],
+            tuple[tuple[str, tuple[str, ...]], ...],
+        ],
+    ] = {}
+
+    def current_namespace() -> tuple[str, ...]:
+        return tuple(
+            name
+            for kind, names in contexts
+            if kind == "namespace"
+            for name in names
+            if name != "__linkage__"
+        )
+
+    def is_namespace_scope() -> bool:
+        return all(
+            kind in {"namespace", "inline", "anonymous", "linkage"}
+            for kind, _ in contexts
+        )
+
+    def is_inline_namespace_brace(brace_position: int) -> bool:
+        """波括弧がinline namespaceを開始する場合だけtrueを返す。"""
+
+        statement_start = brace_position - 1
+        while (
+            statement_start >= 0
+            and tokens[statement_start].text not in {";", "{", "}"}
+        ):
+            statement_start -= 1
+        segment = tokens[statement_start + 1 : brace_position]
+        return any(item.text == "namespace" for item in segment) and any(
+            item.text == "inline" for item in segment
+        )
+
+    def namespace_imports(
+        resolved_namespace: tuple[str, ...],
+        visible_prefix: tuple[str, ...] = (),
+    ) -> tuple[tuple[str, str], ...]:
+        """外部名前空間から見える基底参照と完全修飾名を作る。"""
+
+        return tuple(
+            sorted(
+                (
+                    "::".join(
+                        (*visible_prefix, *parts[len(resolved_namespace) :])
+                    ),
+                    qualified,
+                )
+                for parts, qualified in external_names.items()
+                if parts[: len(resolved_namespace)] == resolved_namespace
+            )
+        )
+
+    def resolve_namespace_reference(
+        scope: tuple[str, ...],
+        position: int,
+        reference: tuple[bool, tuple[str, ...]],
+    ) -> Optional[tuple[str, ...]]:
+        """namespace参照をabsolute指定またはC++の親scope順で解決する。"""
+
+        absolute, names = reference
+        if absolute:
+            return names if names in external_namespaces else None
+        for depth in range(len(scope), -1, -1):
+            owner_scope = scope[:depth]
+            nearest = tuple(
+                declaration
+                for declaration in declarations
+                if declaration.position < position
+                and declaration.declared_name == names[0]
+                and declaration.owner_scope == owner_scope
+            )
+            if nearest:
+                targets = frozenset(
+                    declaration.namespace_target for declaration in nearest
+                )
+                if len(targets) != 1 or None in targets:
+                    return None
+                target = next(iter(targets))
+                candidate = (*target, *names[1:])
+                return candidate if candidate in external_namespaces else None
+            candidate = (*owner_scope, *names)
+            if candidate in external_namespaces:
+                return candidate
+        return None
+
+    def resolve_type_reference(
+        scope: tuple[str, ...],
+        position: int,
+        reference: tuple[bool, tuple[str, ...]],
+    ) -> Optional[tuple[str, ...]]:
+        """型参照をnamespace aliasと同じscope規則で外部管理基底へ解決する。"""
+
+        absolute, names = reference
+        if absolute:
+            return names if names in external_types else None
+        if len(names) > 1:
+            namespace_target = resolve_namespace_reference(
+                scope,
+                position,
+                (False, names[:-1]),
+            )
+            if namespace_target is None:
+                return None
+            candidate = (*namespace_target, names[-1])
+            return candidate if candidate in external_types else None
+        for depth in range(len(scope), -1, -1):
+            owner_scope = scope[:depth]
+            nearest = tuple(
+                declaration
+                for declaration in declarations
+                if declaration.position < position
+                and declaration.declared_name == names[0]
+                and declaration.owner_scope == owner_scope
+            )
+            if nearest:
+                targets = frozenset(
+                    target
+                    for declaration in nearest
+                    for visible_name, target in declaration.managed_references
+                    if visible_name == names[0]
+                )
+                if len(targets) == 1:
+                    return tuple(next(iter(targets)).split("::"))
+                return None
+            candidate = (*owner_scope, *names)
+            if candidate in external_types:
+                return candidate
+        return None
+
+    def append_named_declaration(
+        position: int,
+        owner_scope: tuple[str, ...],
+        name: str,
+        resolved_type: Optional[tuple[str, ...]] = None,
+        namespace_target: Optional[tuple[str, ...]] = None,
+    ) -> None:
+        """宣言名を必ず記録し、管理対象へ解決できた場合だけ対応を付ける。"""
+
+        managed_references = (
+            ((name, external_names[resolved_type]),)
+            if resolved_type is not None
+            else namespace_imports(namespace_target, (name,))
+            if namespace_target is not None
+            else ()
+        )
+        declarations.append(
+            FManagedVisibilityDeclaration(
+                position,
+                owner_scope,
+                name,
+                managed_references,
+                namespace_target,
+            )
+        )
+
+    for position, token in enumerate(tokens):
+        if position in body_starts:
+            definition_scope = current_namespace()
+            active_records = tuple(
+                record
+                for record in declarations
+                if record.position < position
+                and definition_scope[: len(record.owner_scope)]
+                == record.owner_scope
+            )
+            records_by_name: dict[
+                str,
+                list[FManagedVisibilityDeclaration],
+            ] = {}
+            for record in active_records:
+                if record.declared_name is not None:
+                    records_by_name.setdefault(record.declared_name, []).append(record)
+            visible: set[tuple[str, str]] = set()
+            declared_names = frozenset(records_by_name)
+            declared_scopes: list[tuple[str, tuple[str, ...]]] = []
+            for declared_name, records in records_by_name.items():
+                nearest_depth = max(len(record.owner_scope) for record in records)
+                nearest = tuple(
+                    record
+                    for record in records
+                    if len(record.owner_scope) == nearest_depth
+                )
+                declared_scopes.append((declared_name, nearest[0].owner_scope))
+                if all(record.managed_references for record in nearest):
+                    visible.update(
+                        managed_reference
+                        for record in nearest
+                        for managed_reference in record.managed_references
+                    )
+            visible.update(
+                managed_reference
+                for record in active_records
+                if record.declared_name is None
+                for managed_reference in record.managed_references
+                if managed_reference[0].split("::", 1)[0] not in declared_names
+            )
+            visibility[position] = (
+                tuple(sorted(visible)),
+                tuple(sorted(declared_scopes)),
+            )
+            if is_namespace_scope():
+                append_named_declaration(
+                    position,
+                    current_namespace(),
+                    type_bodies[position],
+                )
+
+        if token.text == "using" and is_namespace_scope():
+            end = position + 1
+            while end < len(tokens) and tokens[end].text not in {";", "{", "}"}:
+                end += 1
+            if end < len(tokens) and tokens[end].text == ";":
+                owner_scope = current_namespace()
+                payload = tokens[position + 1 : end]
+                if payload and payload[0].text == "namespace":
+                    reference = _qualified_using_reference(payload[1:])
+                    resolved_namespace = (
+                        resolve_namespace_reference(
+                            owner_scope,
+                            position,
+                            reference,
+                        )
+                        if reference is not None
+                        else None
+                    )
+                    if resolved_namespace is not None:
+                        declarations.append(
+                            FManagedVisibilityDeclaration(
+                                position,
+                                owner_scope,
+                                None,
+                                namespace_imports(resolved_namespace),
+                                None,
+                            )
+                        )
+                else:
+                    equals_position = (
+                        _skip_attributes(payload, 1)
+                        if payload and IDENTIFIER.match(payload[0].text)
+                        else len(payload)
+                    )
+                    if (
+                        equals_position < len(payload)
+                        and payload[equals_position].text == "="
+                    ):
+                        alias_name = payload[0].text
+                        reference = _qualified_using_reference(
+                            payload[equals_position + 1 :]
+                        )
+                        resolved_type = (
+                            resolve_type_reference(owner_scope, position, reference)
+                            if reference is not None
+                            else None
+                        )
+                        append_named_declaration(
+                            position,
+                            owner_scope,
+                            alias_name,
+                            resolved_type,
+                        )
+                    else:
+                        reference = _qualified_using_reference(payload)
+                        resolved_type = (
+                            resolve_type_reference(
+                                owner_scope,
+                                position,
+                                reference,
+                            )
+                            if reference is not None
+                            else None
+                        )
+                        if reference is not None:
+                            append_named_declaration(
+                                position,
+                                owner_scope,
+                                reference[1][-1],
+                                resolved_type,
+                            )
+
+        if token.text == "typedef" and is_namespace_scope():
+            end = position + 1
+            while end < len(tokens) and tokens[end].text not in {";", "{", "}"}:
+                end += 1
+            if end < len(tokens) and tokens[end].text == ";":
+                owner_scope = current_namespace()
+                payload = tokens[position + 1 : end]
+                name_position = _typedef_name_position(payload)
+                if name_position is not None:
+                    alias_name = payload[name_position].text
+                    reference = _qualified_using_reference(payload[:name_position])
+                    resolved_type = (
+                        resolve_type_reference(owner_scope, position, reference)
+                        if reference is not None
+                        else None
+                    )
+                    append_named_declaration(
+                        position,
+                        owner_scope,
+                        alias_name,
+                        resolved_type,
+                    )
+
+        if token.text == "namespace" and is_namespace_scope():
+            end = position + 1
+            while end < len(tokens) and tokens[end].text not in {";", "{", "}"}:
+                end += 1
+            if (
+                end < len(tokens)
+                and tokens[end].text == ";"
+                and position + 3 < end
+                and IDENTIFIER.match(tokens[position + 1].text)
+                and tokens[position + 2].text == "="
+            ):
+                owner_scope = current_namespace()
+                alias_name = tokens[position + 1].text
+                reference = _qualified_using_reference(tokens[position + 3 : end])
+                resolved_namespace = (
+                    resolve_namespace_reference(
+                        owner_scope,
+                        position,
+                        reference,
+                    )
+                    if reference is not None
+                    else None
+                )
+                append_named_declaration(
+                    position,
+                    owner_scope,
+                    alias_name,
+                    namespace_target=resolved_namespace,
+                )
+            elif end < len(tokens) and tokens[end].text == "{":
+                owner_scope = current_namespace()
+                names = tuple(
+                    item.text
+                    for item in tokens[position + 1 : end]
+                    if IDENTIFIER.match(item.text) and item.text != "inline"
+                )
+                if names:
+                    declaration_scope = owner_scope
+                    for name in names:
+                        direct_target = (*declaration_scope, name)
+                        if direct_target not in external_namespaces:
+                            append_named_declaration(
+                                position,
+                                declaration_scope,
+                                name,
+                            )
+                        declaration_scope = direct_target
+
+        if token.text == "{":
+            enclosing_type = type_bodies.get(position)
+            if enclosing_type is not None:
+                contexts.append(("type", (enclosing_type,)))
+                continue
+            namespace = _namespace_for_brace(tokens, position)
+            if namespace == ("__linkage__",):
+                contexts.append(("linkage", namespace))
+            elif namespace:
+                contexts.append(
+                    (
+                        "inline" if is_inline_namespace_brace(position) else "namespace",
+                        namespace,
+                    )
+                )
+            elif namespace is not None:
+                contexts.append(("anonymous", ()))
+            else:
+                contexts.append(("local", ()))
+        elif token.text == "}" and contexts:
+            contexts.pop()
+    return visibility
 
 
 def _type_definitions(
@@ -1050,9 +1534,18 @@ def _type_definitions(
         body_start: name_token.text
         for _, name_token, _, _, _, _, body_start in parsed
     }
+    managed_visibility = _managed_base_visibility_by_definition(
+        tokens,
+        type_bodies,
+        frozenset(type_bodies),
+    )
     definitions: list[FTypeDefinition] = []
     for keyword, name_token, bases, base_references, body, is_template, body_start in parsed:
         scope, has_local_scope, is_nested_type = _definition_scope(tokens, body_start, type_bodies)
+        visible_references, declared_scopes = managed_visibility.get(
+            body_start,
+            ((), ()),
+        )
         definitions.append(
             FTypeDefinition(
                 path,
@@ -1068,6 +1561,8 @@ def _type_definitions(
                 source_relative_path,
                 has_local_scope,
                 is_nested_type,
+                visible_references,
+                declared_scopes,
             )
         )
     return tuple(definitions)
@@ -1697,6 +2192,7 @@ def _audit_legacy_alias_uses(
     path: Path,
     tokens: Sequence[FToken],
     aliases: Sequence[FTypeAlias],
+    macro_definition_lines: frozenset[int],
 ) -> tuple[FViolation, ...]:
     """一時互換名がalias宣言以外の製品sourceへ再流入していないかを検査する。"""
 
@@ -1715,12 +2211,25 @@ def _audit_legacy_alias_uses(
         for qualified_name, qualified_target in LEGACY_COMPATIBILITY_ALIASES.items()
         if qualified_name.rsplit("::", 1)[-1] in declared_names
     }
+    allowed_positions = {
+        *_legacy_using_declaration_positions(
+            path,
+            tokens,
+            frozenset(legacy_names),
+        ),
+        *_legacy_identity_macro_positions(
+            tokens,
+            frozenset(legacy_names),
+            macro_definition_lines,
+        ),
+    }
     violations: list[FViolation] = []
     for position, token in enumerate(tokens):
         canonical_name = legacy_names.get(token.text)
         if (
             canonical_name is None
             or (path, token.text, token.line, token.column) in declared_positions
+            or (token.text, token.line, token.column) in allowed_positions
         ):
             continue
         violations.append(
@@ -1736,6 +2245,137 @@ def _audit_legacy_alias_uses(
             )
         )
     return tuple(violations)
+
+
+def _legacy_using_declaration_positions(
+    path: Path,
+    tokens: Sequence[FToken],
+    legacy_names: frozenset[str],
+) -> frozenset[tuple[str, int, int]]:
+    """登録済みheaderとnamespace内のqualified re-exportだけを許可する。"""
+
+    allowed: set[tuple[str, int, int]] = set()
+    source_root = _source_tree_root(path)
+    if source_root is None:
+        return frozenset()
+    try:
+        relative_path = path.relative_to(source_root).as_posix()
+    except ValueError:
+        return frozenset()
+    for position, token in enumerate(tokens):
+        if token.text != "using":
+            continue
+        cursor = position + 1
+        declaration: list[FToken] = []
+        while cursor < len(tokens) and tokens[cursor].text != ";":
+            if tokens[cursor].text in {"=", "{", "}"}:
+                declaration = []
+                break
+            declaration.append(tokens[cursor])
+            cursor += 1
+        if not declaration or cursor >= len(tokens):
+            continue
+        name_token = declaration[-1]
+        if name_token.text not in legacy_names or "::" not in {
+            item.text for item in declaration
+        }:
+            continue
+        scope, local_scope, type_scope = _definition_scope(tokens, position, {})
+        if local_scope or type_scope:
+            continue
+        argument = "".join(item.text for item in declaration)
+        absolute = argument.startswith("::")
+        argument = argument.lstrip(":")
+        resolved_name = argument if absolute else "::".join((*scope, argument))
+        if (relative_path, scope, resolved_name) in LEGACY_COMPATIBILITY_REEXPORTS:
+            allowed.add((name_token.text, name_token.line, name_token.column))
+            continue
+        expected_path = LEGACY_COMPATIBILITY_PATHS.get(resolved_name)
+        if expected_path != relative_path:
+            continue
+        segments = resolved_name.split("::")
+        if segments[:2] == ["acs", "game"]:
+            expected_scope = ("acs",)
+        elif segments[:1] == ["acs"] and relative_path.startswith("gameframework/"):
+            expected_scope = ("acs", "game")
+        else:
+            continue
+        if scope == expected_scope:
+            allowed.add((name_token.text, name_token.line, name_token.column))
+    return frozenset(allowed)
+
+
+def _legacy_identity_macro_positions(
+    tokens: Sequence[FToken],
+    legacy_names: frozenset[str],
+    macro_definition_lines: frozenset[int],
+) -> frozenset[tuple[str, int, int]]:
+    """保存済み実行時IDを維持するmacro引数内の登録済み旧名だけを許可する。"""
+
+    allowed: set[tuple[str, int, int]] = set()
+    for position, token in enumerate(tokens):
+        allowed_argument_indexes = LEGACY_IDENTITY_MACRO_ARGUMENTS.get(token.text)
+        if (
+            allowed_argument_indexes is None
+            or token.line in macro_definition_lines
+            or position + 1 >= len(tokens)
+            or tokens[position + 1].text != "("
+        ):
+            continue
+        depth = 1
+        cursor = position + 2
+        arguments: list[list[FToken]] = [[]]
+        while cursor < len(tokens) and depth > 0:
+            argument_token = tokens[cursor]
+            if argument_token.text == "(":
+                depth += 1
+            elif argument_token.text == ")":
+                depth -= 1
+            if depth == 1 and argument_token.text == ",":
+                arguments.append([])
+            elif depth > 0:
+                arguments[-1].append(argument_token)
+            cursor += 1
+        if depth != 0:
+            continue
+        for argument_index in sorted(allowed_argument_indexes):
+            if argument_index >= len(arguments):
+                continue
+            argument = arguments[argument_index]
+            absolute = bool(argument and argument[0].text == "::")
+            while argument and argument[0].text == "::":
+                argument = argument[1:]
+            if (
+                not argument
+                or any(
+                    not IDENTIFIER.match(item.text)
+                    if item_index % 2 == 0
+                    else item.text != "::"
+                    for item_index, item in enumerate(argument)
+                )
+            ):
+                continue
+            qualified_argument = "".join(item.text for item in argument)
+            if absolute and "::" not in qualified_argument:
+                continue
+            matches = tuple(
+                qualified_name
+                for qualified_name in LEGACY_COMPATIBILITY_ALIASES
+                if qualified_name == qualified_argument
+                or (
+                    not absolute and "::" not in qualified_argument
+                    and qualified_name.rsplit("::", 1)[-1] == qualified_argument
+                )
+            )
+            if len(matches) == 1 and argument[-1].text in legacy_names:
+                allowed.add(
+                    (
+                        argument[-1].text,
+                        argument[-1].line,
+                        argument[-1].column,
+                    )
+                )
+    return frozenset(allowed)
 
 
 def _macro_definition_lines(source: str) -> frozenset[int]:
@@ -2010,6 +2650,7 @@ def _expected_prefix(
     if (
         definition.keyword == "class"
         and features.has_probable_data
+        and not behavior_named
         and not features.methods
         and not features.has_virtual
         and not features.has_destructor
@@ -2057,9 +2698,10 @@ def _managed_names(
     """acs::AObject実継承と実際のACS_OBJECT登録を修飾名でたどる。"""
 
     qualified_names = frozenset(
-        {definition.qualified_name for definition in definitions} | {"acs::AObject"}
+        {definition.qualified_name for definition in definitions}
+        | set(EXTERNAL_MANAGED_BASES)
     )
-    managed = {"acs::AObject"}
+    managed = set(EXTERNAL_MANAGED_BASES)
     for scope, reference in registered_references:
         resolved = _resolve_qualified_reference(
             scope,
@@ -2206,19 +2848,24 @@ def _resolve_qualified_reference(
     reference: str,
     qualified_names: frozenset[str],
     context: str,
+    allow_unique_leaf: bool = True,
+    minimum_scope_depth: int = 0,
 ) -> Optional[str]:
     """C++の親scope探索順で型参照を一つの完全修飾名へ解決する。"""
 
+    absolute = reference.startswith("::")
     names = tuple(part for part in reference.split("::") if part)
     if not names:
         return None
-    if names[0] == "acs":
+    if absolute:
         candidate = "::".join(names)
         return candidate if candidate in qualified_names else None
-    for depth in range(len(scope), -1, -1):
+    for depth in range(len(scope), minimum_scope_depth - 1, -1):
         candidate = "::".join((*scope[:depth], *names))
         if candidate in qualified_names:
             return candidate
+    if not allow_unique_leaf:
+        return None
     leaf_matches = sorted(
         name for name in qualified_names if name.rsplit("::", 1)[-1] == names[-1]
     )
@@ -2238,12 +2885,52 @@ def _resolve_base_reference(
 ) -> Optional[str]:
     """definitionのscopeから基底型参照を完全修飾名へ解決する。"""
 
-    return _resolve_qualified_reference(
+    unqualified_reference = reference[2:] if reference.startswith("::") else reference
+    first_name = unqualified_reference.split("::", 1)[0]
+    visible_matches = tuple(
+        qualified_name
+        for visible_reference, qualified_name in definition.visible_managed_references
+        if visible_reference == reference
+    )
+    declaration_scopes = tuple(
+        owner_scope
+        for declared_name, owner_scope in definition.declared_managed_reference_scopes
+        if declared_name == first_name
+    )
+    has_visible_declaration = not reference.startswith("::") and bool(
+        declaration_scopes
+    )
+    if visible_matches:
+        if len(visible_matches) == 1:
+            return visible_matches[0]
+        raise ValueError(
+            "using で可視な管理基底が一意に解決されません: "
+            f"{definition.qualified_name} -> {reference}: {visible_matches}"
+        )
+    lexical = _resolve_qualified_reference(
+        definition.scope,
+        reference,
+        qualified_names,
+        definition.qualified_name,
+        False,
+        len(declaration_scopes[0]) if has_visible_declaration else 0,
+    )
+    if lexical is not None:
+        return lexical
+    if has_visible_declaration:
+        return None
+    external_leaf_names = frozenset(
+        name.rsplit("::", 1)[-1] for name in EXTERNAL_MANAGED_BASES
+    )
+    if reference.rsplit("::", 1)[-1] in external_leaf_names:
+        return None
+    fallback = _resolve_qualified_reference(
         definition.scope,
         reference,
         qualified_names,
         definition.qualified_name,
     )
+    return None if fallback in EXTERNAL_MANAGED_BASES else fallback
 
 
 def _asset_family_names(
@@ -2564,7 +3251,9 @@ def scan_tree(
         )
     definitions: list[FTypeDefinition] = []
     aliases: list[FTypeAlias] = []
-    tokenized_files: list[tuple[Path, tuple[FToken, ...]]] = []
+    tokenized_files: list[
+        tuple[Path, tuple[FToken, ...], frozenset[int]]
+    ] = []
     registered_references: set[tuple[tuple[str, ...], str]] = set()
     source_root = _source_tree_root(resolved_root)
     migration_debt = (
@@ -2575,12 +3264,16 @@ def scan_tree(
     for path in files:
         source = path.read_text(encoding="utf-8-sig")
         tokens = _tokens(source)
+        legacy_use_tokens = lex_cpp(source)
         file_aliases = _namespace_aliases(path, tokens, source_root)
-        tokenized_files.append((path, tuple(tokens)))
+        macro_definition_lines = _macro_definition_lines(source)
+        tokenized_files.append(
+            (path, tuple(legacy_use_tokens), macro_definition_lines)
+        )
         definitions.extend(_type_definitions(path, tokens, source_root))
         aliases.extend(file_aliases)
         registered_references.update(
-            _registered_object_references(tokens, _macro_definition_lines(source))
+            _registered_object_references(tokens, macro_definition_lines)
         )
     managed_names = _managed_names(definitions, frozenset(registered_references))
     type_violations, counts = _audit_definitions(definitions, managed_names)
@@ -2595,8 +3288,13 @@ def scan_tree(
     )
     alias_use_violations = tuple(
         violation
-        for path, tokens in tokenized_files
-        for violation in _audit_legacy_alias_uses(path, tokens, aliases)
+        for path, tokens, macro_definition_lines in tokenized_files
+        for violation in _audit_legacy_alias_uses(
+            path,
+            tokens,
+            aliases,
+            macro_definition_lines,
+        )
     )
     violations = tuple(
         sorted(
@@ -2710,7 +3408,7 @@ def run_self_test() -> bool:
 const char* Text = "class AStringUtility {};";
 const char* Shader = R"code(struct CShaderManager { private: int Value; };)code";
 class AObject;
-class AActor : public AObject { public: virtual ~AActor() = default; private: int State; };
+class AActor : public acs::AObject { public: virtual ~AActor() = default; private: int State; };
 class AActorChild : public AActor { public: ~AActorChild() override = default; };
 class ARegistered { public: virtual ~ARegistered() = default; };
 ACS_OBJECT(ARegistered)
@@ -2769,7 +3467,7 @@ class COptions { private: int Value; };
 class MessageBroker { public: void Clear(); };
 class URegistry { public: void Register(); };
 class Readable { public: virtual void Read() = 0; };
-class Entity : public AObject {};
+class Entity : public acs::AObject {};
 template<typename T> class Box { T Value; };
 enum class State { Ready };
 class CLuaVm { public: virtual void Shutdown() = 0; };
@@ -2781,7 +3479,7 @@ template<typename T> class FBox { T Value; };
 enum class FState { Ready };
 class TConcrete { public: void Run(); };
 class IConcrete { private: int Value; };
-struct AEntity : public AObject {};
+struct AEntity : public acs::AObject {};
 namespace acs {
 using EventTypeId = u32;
 using ComponentTypeId = u32;
@@ -3152,6 +3850,254 @@ EventTypeId LegacyEventType = 0;
             )
             return False
 
+        external_managed_path = root / "external-managed-bases.cpp"
+        external_managed_path.write_text(
+            "namespace vendor { struct FNode {}; class ANode { public: void Run(); }; "
+            "namespace game { struct FNode {}; } "
+            "namespace acs::game { using ANode = ::vendor::FNode; } } "
+            "namespace acs::fake { using ANode = ::vendor::FNode; } "
+            "namespace sample { "
+            "class ASceneProbe : public acs::game::AScene {}; "
+            "class AScene2DProbe : public acs::game::AScene2D {}; "
+            "class ANodeProbe : public acs::game::ANode {}; "
+            "class AComponentProbe : public acs::game::AComponent {}; "
+            "class AFalseProbe : public acs::fake::ANode { public: void Run(); }; "
+            "} "
+            "namespace using_namespace { using namespace acs::game; "
+            "class AVisibleNodeProbe : public ANode {}; "
+            "namespace child { class AVisibleSceneProbe : public AScene2D {}; } } "
+            "namespace using_declaration { using acs::game::AComponent; "
+            "class AVisibleComponentProbe : public AComponent {}; } "
+            "namespace using_parent_namespace { using namespace acs; "
+            "class ARelativeQualifiedProbe : public game::ANode {}; } "
+            "namespace reopened { using acs::game::ANode; } "
+            "namespace reopened { class AReopenedProbe : public ANode {}; } "
+            "namespace foreign { class AForeignProbe : public ANode { public: void Run(); }; } "
+            "class AGlobalProbe : public ANode { public: void Run(); }; "
+            "namespace after { class AAfterProbe : public ANode { public: void Run(); }; "
+            "using acs::game::ANode; } "
+            "namespace sibling_source { using acs::game::ANode; } "
+            "namespace sibling_target { class ASiblingProbe : public ANode { public: void Run(); }; } "
+            "namespace inner_scope { namespace child { using acs::game::ANode; "
+            "class AInnerProbe : public ANode {}; } "
+            "class AOuterProbe : public ANode { public: void Run(); }; } "
+            "namespace { using acs::game::ANode; } "
+            "namespace anonymous_target { "
+            "class AAnonymousLeakProbe : public ANode { public: void Run(); }; } "
+            "namespace alias_reopened { namespace ag = acs::game; } "
+            "namespace alias_reopened { namespace child { "
+            "class AAliasReopenedProbe : public ag::ANode {}; } } "
+            "namespace alias_after { "
+            "class AAliasAfterProbe : public ag::ANode { public: void Run(); }; "
+            "namespace ag = acs::game; } "
+            "namespace alias_sibling_source { namespace ag = acs::game; } "
+            "namespace alias_sibling_target { "
+            "class AAliasSiblingProbe : public ag::ANode { public: void Run(); }; } "
+            "namespace alias_inner_scope { namespace child { namespace ag = acs::game; } "
+            "class AAliasOuterProbe : public ag::ANode { public: void Run(); }; } "
+            "namespace { namespace hidden_ag = acs::game; } "
+            "namespace alias_anonymous_target { "
+            "class AAliasAnonymousProbe : public hidden_ag::ANode { public: void Run(); }; } "
+            "namespace unknown_ag = vendor::game; "
+            "class AUnknownAliasProbe : public unknown_ag::ANode { public: void Run(); }; "
+            "namespace alias_chain { namespace root = acs; "
+            "namespace game_alias = root::game; "
+            "class AAliasChainProbe : public game_alias::ANode { public: void Run(); }; } "
+            "namespace alias_cycle { namespace left = right; namespace right = left; "
+            "class AAliasCycleProbe : public left::ANode { public: void Run(); }; } "
+            "namespace alias_shadow { namespace ag = acs::game; "
+            "namespace inherited { class AInheritedAliasProbe : public ag::ANode {}; } "
+            "namespace child { namespace ag = vendor; "
+            "class AShadowAlias : public ag::ANode { public: void Run(); }; } } "
+            "namespace using_shadow { using acs::game::ANode; "
+            "namespace inherited { class AInheritedUsingProbe : public ANode {}; } "
+            "namespace child { using vendor::ANode; "
+            "class AShadowUsing : public ANode { public: void Run(); }; } } "
+            "namespace local_type_shadow { using ::acs::game::ANode; "
+            "namespace child { class ANode { public: void Run(); }; "
+            "class ALocalTypeShadow : public ANode { public: void Run(); }; } } "
+            "namespace local_struct_shadow { using ::acs::game::ANode; "
+            "namespace child { struct ANode { void Run(); }; "
+            "class ALocalStructShadow : public ANode { public: void Run(); }; } } "
+            "namespace local_union_shadow { using ::acs::game::ANode; "
+            "namespace child { union ANode { int Value; void Run(); }; "
+            "class ALocalUnionShadow : public ANode { public: void Run(); }; } } "
+            "namespace local_enum_shadow { using ::acs::game::ANode; "
+            "namespace child { enum class ANode { Value }; "
+            "class ALocalEnumShadow : public ANode { public: void Run(); }; } } "
+            "namespace local_after_shadow { using ::acs::game::ANode; "
+            "namespace child { class ABeforeShadow : public ANode {}; "
+            "struct ANode { int Value; }; } } "
+            "namespace local_sibling_shadow { using ::acs::game::ANode; "
+            "namespace source { struct ANode { int Value; }; } "
+            "namespace target { class ASiblingShadow : public ANode {}; } } "
+            "namespace qualified_class_shadow { namespace ag = acs::game; "
+            "namespace child { class ag { public: using ANode = ::vendor::FNode; }; "
+            "class AQualifiedClassShadow : public ag::ANode { public: void Run(); }; } } "
+            "namespace qualified_struct_shadow { namespace ag = acs::game; "
+            "namespace child { struct ag { using ANode = ::vendor::FNode; }; "
+            "class AQualifiedStructShadow : public ag::ANode { public: void Run(); }; } } "
+            "namespace qualified_union_shadow { namespace ag = acs::game; "
+            "namespace child { union ag { using ANode = ::vendor::FNode; }; "
+            "class AQualifiedUnionShadow : public ag::ANode { public: void Run(); }; } } "
+            "namespace qualified_after_shadow { namespace ag = acs::game; "
+            "namespace child { class ABeforeShadow : public ag::ANode {}; "
+            "struct ag { using ANode = ::vendor::FNode; }; } } "
+            "namespace qualified_sibling_shadow { namespace ag = acs::game; "
+            "namespace source { struct ag { using ANode = ::vendor::FNode; }; } "
+            "namespace target { class ASiblingShadow : public ag::ANode {}; } } "
+            "namespace directive_class_shadow { using namespace ::acs::game; "
+            "namespace child { class ANode { public: void Run(); }; "
+            "class ADirectiveClassShadow : public ANode { public: void Run(); }; } } "
+            "namespace directive_after_shadow { using namespace ::acs::game; "
+            "namespace child { class ABeforeShadow : public ANode {}; "
+            "struct ANode { int Value; }; } } "
+            "namespace parent_alias_class_shadow { using ANode = ::acs::game::ANode; "
+            "namespace child { class ANode { public: void Run(); }; "
+            "class AParentAliasClassShadow : public ANode { public: void Run(); }; } } "
+            "namespace parent_typedef_class_shadow { typedef ::acs::game::ANode ANode; "
+            "namespace child { class ANode { public: void Run(); }; "
+            "class AParentTypedefClassShadow : public ANode { public: void Run(); }; } } "
+            "namespace type_alias_positive { using Base = acs::game::ANode; "
+            "class ATypeAliasProbe : public Base {}; } "
+            "namespace typedef_positive { typedef acs::game::ANode Base; "
+            "class ATypedefProbe : public Base {}; } "
+            "namespace type_alias_shadow { using acs::game::ANode; "
+            "namespace child { using ANode = vendor::ANode; "
+            "class AShadowTypeAlias : public ANode { public: void Run(); }; } } "
+            "namespace typedef_shadow { using acs::game::ANode; "
+            "namespace child { typedef vendor::ANode ANode; "
+            "class AShadowTypedef : public ANode { public: void Run(); }; } } "
+            "namespace attributed_alias_positive { "
+            "using Base [[deprecated]] = ::acs::game::ANode; "
+            "class AAttributedAlias : public Base {}; } "
+            "namespace attributed_typedef_positive { "
+            "typedef ::acs::game::ANode Base [[deprecated]]; "
+            "class AAttributedTypedef : public Base {}; } "
+            "namespace attributed_alias_shadow { using acs::game::ANode; "
+            "namespace child { using ANode [[deprecated]] = vendor::ANode; "
+            "class AAttributedAliasShadow : public ANode { public: void Run(); }; } } "
+            "namespace attributed_typedef_shadow { using acs::game::ANode; "
+            "namespace child { typedef vendor::ANode ANode [[deprecated]]; "
+            "class AAttributedTypedefShadow : public ANode { public: void Run(); }; } } "
+            "namespace type_alias_after { "
+            "class ATypeAliasAfter : public Base { public: void Run(); }; "
+            "using Base = acs::game::ANode; } "
+            "namespace type_alias_sibling_source { using Base = acs::game::ANode; } "
+            "namespace type_alias_sibling_target { "
+            "class ATypeAliasSibling : public Base { public: void Run(); }; } "
+            "namespace typedef_after { "
+            "class ATypedefAfter : public Base { public: void Run(); }; "
+            "typedef acs::game::ANode Base; } "
+            "namespace typedef_sibling_source { typedef acs::game::ANode Base; } "
+            "namespace typedef_sibling_target { "
+            "class ATypedefSibling : public Base { public: void Run(); }; } "
+            "namespace chain_using_namespace { namespace root = acs; "
+            "using namespace root::game; class AChainNamespace : public ANode {}; } "
+            "namespace chain_using_declaration { namespace root = acs; "
+            "using root::game::ANode; class AChainDeclaration : public ANode {}; } "
+            "namespace inline_scope { inline namespace v1 { namespace ag = acs::game; "
+            "using acs::game::AComponent; } namespace child { "
+            "class AInlineAlias : public ag::ANode {}; "
+            "class AInlineUsing : public AComponent {}; } } "
+            "namespace inline_parent { namespace ag = acs::game; "
+            "using acs::game::AComponent; inline namespace v1 { "
+            "class AInlineParentAlias : public ag::ANode {}; "
+            "class AInlineParentUsing : public AComponent {}; } } "
+            "namespace { namespace repeated_ag = acs::game; } "
+            "namespace { using acs::game::AComponent; } "
+            "namespace anonymous_reopen_target { "
+            "class AAnonymousAlias : public repeated_ag::ANode {}; "
+            "class AAnonymousUsing : public AComponent {}; } "
+            "namespace vendor::relative_lookup { "
+            "using acs::game::ANode; class ARelativeUsing : public ANode { public: void Run(); }; "
+            "namespace ag = acs::game; class ARelativeAlias : public ag::ANode { public: void Run(); }; "
+            "using RelativeBase = acs::game::ANode; "
+            "class ARelativeTypeAlias : public RelativeBase { public: void Run(); }; "
+            "typedef acs::game::ANode RelativeTypedef; "
+            "class ARelativeTypedef : public RelativeTypedef { public: void Run(); }; "
+            "class ARelativeDirect : public acs::game::ANode { public: void Run(); }; } "
+            "namespace vendor::absolute_lookup { "
+            "using ::acs::game::ANode; class AAbsoluteUsing : public ANode {}; "
+            "namespace absolute_ag = ::acs::game; class AAbsoluteAlias : public absolute_ag::ANode {}; "
+            "using AbsoluteBase = ::acs::game::ANode; class AAbsoluteTypeAlias : public AbsoluteBase {}; "
+            "typedef ::acs::game::ANode AbsoluteTypedef; class AAbsoluteTypedef : public AbsoluteTypedef {}; "
+            "class AAbsoluteDirect : public ::acs::game::ANode {}; } "
+            "using namespace acs::game; "
+            "namespace global_using { class AGlobalUsingProbe : public ANode {}; } "
+            "namespace direct_ag = acs::game; "
+            "namespace direct_alias_positive { "
+            "class ADirectAliasProbe : public direct_ag::ANode {}; } "
+            "namespace acs_alias = acs; "
+            "namespace parent_alias_positive { "
+            "class AParentAliasProbe : public acs_alias::game::ANode {}; }",
+            encoding="utf-8",
+        )
+        external_managed_violations = scan_tree(external_managed_path).violations
+        if [
+            (item.rule, item.qualified_type, item.expected_prefix)
+            for item in external_managed_violations
+        ] != [
+            ("ACS-R020c", "vendor::ANode", "C"),
+            ("ACS-R020c", "sample::AFalseProbe", "C"),
+            ("ACS-R020c", "foreign::AForeignProbe", "C"),
+            ("ACS-R020c", "AGlobalProbe", "C"),
+            ("ACS-R020c", "after::AAfterProbe", "C"),
+            ("ACS-R020c", "sibling_target::ASiblingProbe", "C"),
+            ("ACS-R020c", "inner_scope::AOuterProbe", "C"),
+            ("ACS-R020c", "alias_after::AAliasAfterProbe", "C"),
+            ("ACS-R020c", "alias_sibling_target::AAliasSiblingProbe", "C"),
+            ("ACS-R020c", "alias_inner_scope::AAliasOuterProbe", "C"),
+            ("ACS-R020c", "AUnknownAliasProbe", "C"),
+            ("ACS-R020c", "alias_cycle::AAliasCycleProbe", "C"),
+            ("ACS-R020c", "alias_shadow::child::AShadowAlias", "C"),
+            ("ACS-R020c", "using_shadow::child::AShadowUsing", "C"),
+            ("ACS-R020c", "local_type_shadow::child::ANode", "C"),
+            ("ACS-R020c", "local_type_shadow::child::ALocalTypeShadow", "C"),
+            ("ACS-R020c", "local_struct_shadow::child::ANode", "C"),
+            ("ACS-R020c", "local_struct_shadow::child::ALocalStructShadow", "C"),
+            ("ACS-R020c", "local_union_shadow::child::ANode", "C"),
+            ("ACS-R020c", "local_union_shadow::child::ALocalUnionShadow", "C"),
+            ("ACS-R020c", "local_enum_shadow::child::ANode", "E"),
+            ("ACS-R020c", "local_enum_shadow::child::ALocalEnumShadow", "C"),
+            ("ACS-R020c", "local_after_shadow::child::ANode", "F"),
+            ("ACS-R020c", "local_sibling_shadow::source::ANode", "F"),
+            ("ACS-R020c", "qualified_class_shadow::child::ag", "C"),
+            ("ACS-R020c", "qualified_class_shadow::child::AQualifiedClassShadow", "C"),
+            ("ACS-R020c", "qualified_struct_shadow::child::ag", "F"),
+            ("ACS-R020c", "qualified_struct_shadow::child::AQualifiedStructShadow", "C"),
+            ("ACS-R020c", "qualified_union_shadow::child::ag", "F"),
+            ("ACS-R020c", "qualified_union_shadow::child::AQualifiedUnionShadow", "C"),
+            ("ACS-R020c", "qualified_after_shadow::child::ag", "F"),
+            ("ACS-R020c", "qualified_sibling_shadow::source::ag", "F"),
+            ("ACS-R020c", "directive_class_shadow::child::ANode", "C"),
+            ("ACS-R020c", "directive_class_shadow::child::ADirectiveClassShadow", "C"),
+            ("ACS-R020c", "directive_after_shadow::child::ANode", "F"),
+            ("ACS-R020c", "parent_alias_class_shadow::child::ANode", "C"),
+            ("ACS-R020c", "parent_alias_class_shadow::child::AParentAliasClassShadow", "C"),
+            ("ACS-R020c", "parent_typedef_class_shadow::child::ANode", "C"),
+            ("ACS-R020c", "parent_typedef_class_shadow::child::AParentTypedefClassShadow", "C"),
+            ("ACS-R020c", "type_alias_shadow::child::AShadowTypeAlias", "C"),
+            ("ACS-R020c", "typedef_shadow::child::AShadowTypedef", "C"),
+            ("ACS-R020c", "attributed_alias_shadow::child::AAttributedAliasShadow", "C"),
+            ("ACS-R020c", "attributed_typedef_shadow::child::AAttributedTypedefShadow", "C"),
+            ("ACS-R020c", "type_alias_after::ATypeAliasAfter", "C"),
+            ("ACS-R020c", "type_alias_sibling_target::ATypeAliasSibling", "C"),
+            ("ACS-R020c", "typedef_after::ATypedefAfter", "C"),
+            ("ACS-R020c", "typedef_sibling_target::ATypedefSibling", "C"),
+            ("ACS-R020c", "vendor::relative_lookup::ARelativeUsing", "C"),
+            ("ACS-R020c", "vendor::relative_lookup::ARelativeAlias", "C"),
+            ("ACS-R020c", "vendor::relative_lookup::ARelativeTypeAlias", "C"),
+            ("ACS-R020c", "vendor::relative_lookup::ARelativeTypedef", "C"),
+            ("ACS-R020c", "vendor::relative_lookup::ARelativeDirect", "C"),
+        ]:
+            print(
+                "type role external managed base self-test failed: "
+                f"{external_managed_violations}",
+                file=sys.stderr,
+            )
+            return False
+
         role_boundary_path = root / "role-boundary.h"
         role_boundary_path.write_text(
             "namespace acs { class CWidget { public: int Value; }; "
@@ -3169,6 +4115,24 @@ EventTypeId LegacyEventType = 0;
         ]:
             print(
                 f"type role C/F boundary self-test failed: {role_boundary_violations}",
+                file=sys.stderr,
+            )
+            return False
+
+        behavior_name_path = root / "behavior-role-names.h"
+        behavior_name_path.write_text(
+            "namespace sample { "
+            "struct CHelloApp { static int Run(); }; "
+            "class CPlayerVm { public: int Value; }; "
+            "class CPlayerViewModel { public: int Value; }; "
+            "}",
+            encoding="utf-8",
+        )
+        behavior_name_violations = scan_tree(behavior_name_path).violations
+        if behavior_name_violations:
+            print(
+                "type role behavior name self-test failed: "
+                f"{behavior_name_violations}",
                 file=sys.stderr,
             )
             return False
@@ -3856,6 +4820,52 @@ EventTypeId LegacyEventType = 0;
             print("type role compatibility presence self-test failed", file=sys.stderr)
             return False
 
+        # 全335件のpresenceは直前の一括fixtureで固定し、同じfilesystem変異の反復は
+        # role・同居/分離path・scalarを横断する代表契約へ限定する。
+        legacy_contract_names = frozenset(
+            {
+                "acs::ComponentSignatureId",
+                "acs::ComponentTypeId",
+                "acs::EventTypeId",
+                "acs::FAudioEngine",
+                "acs::FAllocator",
+                "acs::scripting::FLuaVm",
+                "acs::FMessageBroker",
+                "acs::FObject",
+                "acs::FTimerManager",
+                "acs::game::FGame",
+                "acs::game::FScene",
+            }
+        )
+        canonical_contract_names = frozenset(
+            {
+                "acs::AObject",
+                "acs::CAudioEngine",
+                "acs::scripting::CLuaVm",
+                "acs::CMessageBroker",
+                "acs::CTimerManager",
+                "acs::IAllocator",
+                "acs::FSubsystemOwner",
+                "acs::game::AScene",
+                "acs::game::CGame",
+                "acs::game::FRenderContext",
+            }
+        )
+        missing_legacy_contracts = legacy_contract_names.difference(
+            LEGACY_COMPATIBILITY_ALIASES
+        )
+        missing_canonical_contracts = canonical_contract_names.difference(
+            CANONICAL_OBJECT_AND_CLASS_TYPES
+        )
+        if missing_legacy_contracts or missing_canonical_contracts:
+            print(
+                "type role bounded mutation contract registration failed: "
+                f"legacy={sorted(missing_legacy_contracts)} "
+                f"canonical={sorted(missing_canonical_contracts)}",
+                file=sys.stderr,
+            )
+            return False
+
         # loaderが返した分離path契約を実際のpresence監査へ接続する。
         split_legacy, split_canonical, split_path, split_legacy_path, split_kind, split_prefix = (
             split_entry
@@ -3956,6 +4966,149 @@ EventTypeId LegacyEventType = 0;
                         except OSError:
                             break
                         parent = parent.parent
+        reexport_sources = dict(presence_sources)
+        reexport_sources["gameframework/Forward.h"] = (
+            f"{reexport_sources['gameframework/Forward.h']}\n"
+            "namespace acs { using game::FGame; }"
+        )
+        reexport_sources["gameframework/Subsystem.h"] = (
+            "namespace acs { namespace game { using ::acs::FSubsystem; } }"
+        )
+        reexport_sources["gameframework/SubsystemCollection.h"] = (
+            "namespace acs { namespace game { using ::acs::FSubsystemCollection; } }"
+        )
+        reexport_sources["gameframework/SubsystemRegistry.h"] = (
+            "namespace acs { namespace game { "
+            "using ::acs::FSubsystemAutoRegister; "
+            "using ::acs::FSubsystemRegistry; } }"
+        )
+        if scan_presence_mutation(reexport_sources).violations:
+            print("type role legacy qualified re-export self-test failed", file=sys.stderr)
+            return False
+        wrong_reexport_sources = dict(reexport_sources)
+        wrong_reexport_sources["gameframework/WrongLegacyReexport.h"] = (
+            "namespace rogue { using acs::game::FGame; }"
+        )
+        wrong_reexport_sources["gameframework/WrongSubsystemReexport.h"] = (
+            "namespace acs { namespace game { using ::acs::FSubsystem; } }"
+        )
+        wrong_reexport_violations = scan_presence_mutation(
+            wrong_reexport_sources
+        ).violations
+        if [
+            (item.rule, item.type_name) for item in wrong_reexport_violations
+        ] != [
+            ("ACS-R020e", "FGame"),
+            ("ACS-R020e", "FSubsystem"),
+        ]:
+            print(
+                "type role wrong legacy re-export self-test failed: "
+                f"{wrong_reexport_violations}",
+                file=sys.stderr,
+            )
+            return False
+        identity_sources = dict(presence_sources)
+        identity_sources["gameframework/LegacyIdentity.cpp"] = (
+            "ACS_REGISTER_SYSTEM(FGame)\n"
+            "ACS_REGISTER_SYSTEM(::acs::game::FGame)"
+        )
+        if scan_presence_mutation(identity_sources).violations:
+            print("type role legacy identity macro self-test failed", file=sys.stderr)
+            return False
+        unrelated_macro_sources = dict(presence_sources)
+        unrelated_macro_sources["gameframework/LegacyUseMacro.cpp"] = (
+            "ACS_UNRELATED(FGame)"
+        )
+        unrelated_macro_violations = scan_presence_mutation(
+            unrelated_macro_sources
+        ).violations
+        if [
+            (item.rule, item.type_name) for item in unrelated_macro_violations
+        ] != [("ACS-R020e", "FGame")]:
+            print(
+                "type role unrelated legacy macro self-test failed: "
+                f"{unrelated_macro_violations}",
+                file=sys.stderr,
+            )
+            return False
+        absolute_identity_sources = dict(presence_sources)
+        absolute_identity_sources["gameframework/AbsoluteLegacyIdentity.cpp"] = (
+            "ACS_REGISTER_SYSTEM(::FGame)\n"
+            "ACS_REGISTER_SYSTEM(rogue::FGame)"
+        )
+        absolute_identity_violations = scan_presence_mutation(
+            absolute_identity_sources
+        ).violations
+        if [
+            (item.rule, item.type_name)
+            for item in absolute_identity_violations
+        ] != [
+            ("ACS-R020e", "FGame"),
+            ("ACS-R020e", "FGame"),
+        ]:
+            print(
+                "type role absolute legacy identity self-test failed: "
+                f"{absolute_identity_violations}",
+                file=sys.stderr,
+            )
+            return False
+        nested_identity_sources = dict(presence_sources)
+        nested_identity_sources["gameframework/NestedLegacyIdentity.cpp"] = (
+            "ACS_REGISTER_SYSTEM(Wrapper<FGame>)"
+        )
+        nested_identity_violations = scan_presence_mutation(
+            nested_identity_sources
+        ).violations
+        if [
+            (item.rule, item.type_name) for item in nested_identity_violations
+        ] != [("ACS-R020e", "FGame")]:
+            print(
+                "type role nested legacy identity self-test failed: "
+                f"{nested_identity_violations}",
+                file=sys.stderr,
+            )
+            return False
+        wrong_identity_argument_sources = dict(presence_sources)
+        wrong_identity_argument_sources["gameframework/WrongLegacyIdentity.cpp"] = (
+            "ACS_REGISTER_SYSTEM(CGame, sizeof(FGame))"
+        )
+        wrong_identity_argument_sources["gameframework/UnbalancedLegacyIdentity.cpp"] = (
+            "#if 0\nACS_REGISTER_SYSTEM(FGame\n#endif"
+        )
+        wrong_identity_argument_violations = scan_presence_mutation(
+            wrong_identity_argument_sources
+        ).violations
+        if [
+            (item.rule, item.type_name)
+            for item in wrong_identity_argument_violations
+        ] != [
+            ("ACS-R020e", "FGame"),
+            ("ACS-R020e", "FGame"),
+        ]:
+            print(
+                "type role wrong legacy identity argument self-test failed: "
+                f"{wrong_identity_argument_violations}",
+                file=sys.stderr,
+            )
+            return False
+        fake_directive_sources = dict(presence_sources)
+        fake_directive_sources["gameframework/FakeDirective.cpp"] = (
+            "/* #if 0 */\n"
+            "R\"tag(#endif)tag\";\n"
+            "namespace acs::game { FGame* ActiveLegacy = nullptr; }"
+        )
+        fake_directive_violations = scan_presence_mutation(
+            fake_directive_sources
+        ).violations
+        if [
+            (item.rule, item.type_name) for item in fake_directive_violations
+        ] != [("ACS-R020e", "FGame")]:
+            print(
+                "type role fake preprocessor directive self-test failed: "
+                f"{fake_directive_violations}",
+                file=sys.stderr,
+            )
+            return False
         conditional_alias_sources = dict(presence_sources)
         conditional_alias_sources["audio/AudioEngine.h"] = presence_sources["audio/AudioEngine.h"].replace(
             "using FAudioEngine=CAudioEngine;",
@@ -3977,7 +5130,13 @@ EventTypeId LegacyEventType = 0;
                 file=sys.stderr,
             )
             return False
-        for case_index, (qualified_name, canonical_name) in enumerate(sorted(LEGACY_COMPATIBILITY_ALIASES.items())):
+        for case_index, (qualified_name, canonical_name) in enumerate(
+            (
+                item
+                for item in sorted(LEGACY_COMPATIBILITY_ALIASES.items())
+                if item[0] in legacy_contract_names
+            )
+        ):
             alias_name = qualified_name.rsplit("::", 1)[-1]
             target_name = canonical_name.rsplit("::", 1)[-1]
             expected_path = LEGACY_COMPATIBILITY_PATHS[qualified_name]
@@ -4078,7 +5237,7 @@ EventTypeId LegacyEventType = 0;
         }
         registered_canonical_names = [entry[1] for entry in REGISTERED_TYPE_ROLE_MIGRATIONS]
         for legacy, canonical, _, legacy_path, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS:
-            if legacy is None:
+            if legacy is None or legacy not in legacy_contract_names:
                 continue
             if legacy_path is None:
                 print(f"type role legacy path pairing failed: {legacy}", file=sys.stderr)
@@ -4126,6 +5285,7 @@ EventTypeId LegacyEventType = 0;
                 f"{'struct' if kind == 'class' else 'class'} {canonical.rsplit('::', 1)[-1]} {{}};",
             )
             for _, canonical, expected_path, _, kind, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
+            if canonical in canonical_contract_names
         }
         for case_index, (qualified_name, (expected_path, declaration, wrong_declaration)) in enumerate(sorted(canonical_type_declarations.items())):
             namespace = qualified_name.rsplit("::", 1)[0]
@@ -4235,7 +5395,7 @@ EventTypeId LegacyEventType = 0;
             print(f"type role required callback bypass self-test failed: {bypass_violations}", file=sys.stderr)
             return False
 
-        for case_index, qualified_name in enumerate(sorted(LEGACY_COMPATIBILITY_ALIASES)):
+        for case_index, qualified_name in enumerate(sorted(legacy_contract_names)):
             alias_name = qualified_name.rsplit("::", 1)[-1]
             namespace = qualified_name.rsplit("::", 1)[0]
             reentry_sources = dict(presence_sources)
@@ -4245,7 +5405,7 @@ EventTypeId LegacyEventType = 0;
                 print(f"type role legacy reentry self-test failed: {qualified_name}: {reentry_violations}", file=sys.stderr)
                 return False
 
-        for case_index, qualified_name in enumerate(sorted(LEGACY_COMPATIBILITY_ALIASES)):
+        for case_index, qualified_name in enumerate(sorted(legacy_contract_names)):
             alias_name = qualified_name.rsplit("::", 1)[-1]
             namespace = qualified_name.rsplit("::", 1)[0]
             forward_sources = dict(presence_sources)

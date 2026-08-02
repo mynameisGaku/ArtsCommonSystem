@@ -91,7 +91,7 @@ void LocalBounds(
         maximum.y = 0.0f;
         return;
     }
-    const FMeshAsset* mesh = component.Mesh();
+    const AMeshAsset* mesh = component.Mesh();
     if (component.Primitive() != EMeshPrimitive3D::Mesh
         || mesh == nullptr || mesh->Vertices().IsEmpty()) {
         return;
@@ -261,9 +261,9 @@ const ANode* FindCameraByStableIdRecursive(
 bool IsPlanarWaterMesh(const AMeshComponent3D& component) noexcept {
     if (component.Primitive() == EMeshPrimitive3D::Plane) return true;
     if (component.Primitive() != EMeshPrimitive3D::Mesh) return false;
-    const FMeshAsset* mesh = component.Mesh();
+    const AMeshAsset* mesh = component.Mesh();
     return mesh != nullptr
-        && FWaterSurface3D::IsLocalXzSurfaceMesh(*mesh);
+        && CWaterSurface3D::IsLocalXzSurfaceMesh(*mesh);
 }
 
 FRayHit3 RaycastMeshLocal(
@@ -297,7 +297,7 @@ FRayHit3 RaycastMeshLocal(
         break;
     }
 
-    const FMeshAsset* mesh = component.Mesh();
+    const AMeshAsset* mesh = component.Mesh();
     if (mesh == nullptr || mesh->Vertices().Size() < 3u)
         return FRayHit3{};
     const auto& vertices = mesh->Vertices();
@@ -745,7 +745,7 @@ bool ALegacyScene3DAdapter::AddWaterWake(
 void ALegacyScene3DAdapter::OnEnter() noexcept {
     GetGame().SetClearColor(0.025f, 0.035f, 0.055f, 1.0f);
     // Keep lighting, visible sky, fog and water reflection on one authored
-    // environment. The simple FSky cloud layer stays disabled here: the
+    // environment. The simple CSky cloud layer stays disabled here: the
     // production volumetric-cloud system is a separate scene feature.
     m_Sky.PresetDay();
     m_Sky.SetSunDirection(Normalize(FVec3{0.45f, 0.82f, -0.38f}));
@@ -786,17 +786,17 @@ void ALegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
     m_PostParams.grain_time += m_PostParams.delta_time;
     m_Graph.Update(dt);
     RefreshAuthoredCameraPose();
-    if (FInput::IsKeyPressed(EKey::Escape)) {
+    if (CInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
 
     if (!m_UseAuthoredCamera) {
         const f32 turn = 1.45f * dt;
-        if (FInput::IsKeyDown(EKey::Left)) m_Yaw -= turn;
-        if (FInput::IsKeyDown(EKey::Right)) m_Yaw += turn;
-        if (FInput::IsKeyDown(EKey::Up)) m_Pitch += turn * 0.75f;
-        if (FInput::IsKeyDown(EKey::Down)) m_Pitch -= turn * 0.75f;
+        if (CInput::IsKeyDown(EKey::Left)) m_Yaw -= turn;
+        if (CInput::IsKeyDown(EKey::Right)) m_Yaw += turn;
+        if (CInput::IsKeyDown(EKey::Up)) m_Pitch += turn * 0.75f;
+        if (CInput::IsKeyDown(EKey::Down)) m_Pitch -= turn * 0.75f;
         const f32 pitch_limit = 0.475f * kPi;
         if (m_Pitch > pitch_limit) m_Pitch = pitch_limit;
         if (m_Pitch < -pitch_limit) m_Pitch = -pitch_limit;
@@ -806,14 +806,14 @@ void ALegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
         const FVec3 horizontal_forward{
             Sin(m_Yaw), 0.0f, Cos(m_Yaw)};
         const FVec3 right{Cos(m_Yaw), 0.0f, -Sin(m_Yaw)};
-        if (FInput::IsKeyDown(EKey::W))
+        if (CInput::IsKeyDown(EKey::W))
             m_Target += horizontal_forward * move;
-        if (FInput::IsKeyDown(EKey::S))
+        if (CInput::IsKeyDown(EKey::S))
             m_Target -= horizontal_forward * move;
-        if (FInput::IsKeyDown(EKey::D)) m_Target += right * move;
-        if (FInput::IsKeyDown(EKey::A)) m_Target -= right * move;
-        if (FInput::IsKeyDown(EKey::E)) m_Target.y += move;
-        if (FInput::IsKeyDown(EKey::Q)) m_Target.y -= move;
+        if (CInput::IsKeyDown(EKey::D)) m_Target += right * move;
+        if (CInput::IsKeyDown(EKey::A)) m_Target -= right * move;
+        if (CInput::IsKeyDown(EKey::E)) m_Target.y += move;
+        if (CInput::IsKeyDown(EKey::Q)) m_Target.y -= move;
     }
     UpdateCameraView();
 }
@@ -828,7 +828,7 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     UpdateCameraProjection(context.Width(), context.Height());
     UpdateCameraView();
 
-    FRenderer& renderer = context.GetRenderer();
+    CRenderer& renderer = context.GetRenderer();
     IRhiDevice* device = renderer.Device();
     IRhiSwapchain* swapchain = renderer.Swapchain();
     IRhiTexture* depth = renderer.DepthBuffer();
@@ -846,7 +846,7 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         return;
     }
 
-    FWaterDraw water_draws[FWaterSurface3D::kMaxTrackedSurfaces]{};
+    FWaterDraw water_draws[CWaterSurface3D::kMaxTrackedSurfaces]{};
     u32 water_count = CollectWaterDraws(
         water_draws, depth, context.Width(), context.Height());
 
@@ -1003,7 +1003,7 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
 
 bool ALegacyScene3DAdapter::DrawPbrScene(
     FRenderContext& context,
-    FPbrShader& shader,
+    CPbrShader& shader,
     const FWaterDraw* excluded_water,
     u32 excluded_count,
     bool subsurface_mrt) noexcept {
@@ -1122,10 +1122,10 @@ bool ALegacyScene3DAdapter::EnsureGpu(FRenderContext& context) noexcept {
     if (device == nullptr) return false;
     m_GpuAttempted = true;
 
-    const TSharedPtr<FMeshAsset> cube = Primitive::MakeCube();
-    const TSharedPtr<FMeshAsset> sphere =
+    const TSharedPtr<AMeshAsset> cube = Primitive::MakeCube();
+    const TSharedPtr<AMeshAsset> sphere =
         Primitive::MakeSphere(0.5f, 48u, 24u);
-    const TSharedPtr<FMeshAsset> plane = Primitive::MakePlane();
+    const TSharedPtr<AMeshAsset> plane = Primitive::MakePlane();
     if (!cube || !sphere || !plane
         || UploadMesh(*device, *cube, m_Cube).IsErr()
         || UploadMesh(*device, *sphere, m_Sphere).IsErr()
@@ -1170,7 +1170,7 @@ bool ALegacyScene3DAdapter::EnsureHdrFrameResources(
 
     if (m_PostGpuState == EShaderGpuState::Unavailable) {
         if (device.SupportsAsyncShaderCompilation()) {
-            auto result = FPostProcess::BeginCompileShadersAsync(device);
+            auto result = CPostProcess::BeginCompileShadersAsync(device);
             if (result.IsErr()) {
                 m_PostGpuState = EShaderGpuState::Failed;
                 ACS_LOG_WARN(
@@ -1198,7 +1198,7 @@ bool ALegacyScene3DAdapter::EnsureHdrFrameResources(
         m_HdrShaders[m_HdrPendingSlot].Shutdown();
         m_HdrPendingIsInitialized = false;
         if (device.SupportsAsyncShaderCompilation()) {
-            auto result = FPbrShader::BeginCompileShadersAsync(
+            auto result = CPbrShader::BeginCompileShadersAsync(
                 device, false);
             if (result.IsErr()) {
                 m_HdrShaderGpuState = EShaderGpuState::Failed;
@@ -1233,7 +1233,7 @@ bool ALegacyScene3DAdapter::EnsureHdrFrameResources(
         scene_needs_subsurface);
     if (m_SkyGpuState == ESkyGpuState::Unavailable) {
         if (device.SupportsAsyncShaderCompilation()) {
-            auto result = FSky::BeginCompileShadersAsync(device);
+            auto result = CSky::BeginCompileShadersAsync(device);
             if (result.IsErr()) {
                 m_SkyGpuState = ESkyGpuState::Failed;
                 ACS_LOG_WARN(
@@ -1266,7 +1266,7 @@ bool ALegacyScene3DAdapter::EnsureHdrFrameResources(
     if (scene_needs_blit
         && m_BlitGpuState == EShaderGpuState::Unavailable) {
         if (device.SupportsAsyncShaderCompilation()) {
-            auto result = FBlit::BeginCompileShadersAsync(device);
+            auto result = CBlit::BeginCompileShadersAsync(device);
             if (result.IsErr()) {
                 m_BlitGpuState = EShaderGpuState::Failed;
                 ACS_LOG_WARN(
@@ -1361,7 +1361,7 @@ bool ALegacyScene3DAdapter::EnsureHdrFrameResources(
         && scene_has_water) {
         if (device.SupportsAsyncShaderCompilation()) {
             auto result =
-                FWaterSurface3D::BeginCompileShadersAsync(device);
+                CWaterSurface3D::BeginCompileShadersAsync(device);
             if (result.IsErr()) {
                 m_WaterGpuState = EWaterGpuState::Failed;
                 ACS_LOG_WARN(
@@ -1395,7 +1395,7 @@ void ALegacyScene3DAdapter::SkyCpuCompileWorkerEntry(
     void* user) noexcept {
     auto& runtime =
         *static_cast<ALegacyScene3DAdapter*>(user);
-    auto result = FSky::CompileShadersCpu();
+    auto result = CSky::CompileShadersCpu();
     const bool succeeded = result.IsOk();
     if (succeeded) {
         runtime.m_SkyPendingShaders = Move(result.Value());
@@ -1413,7 +1413,7 @@ void ALegacyScene3DAdapter::WaterCpuCompileWorkerEntry(
     void* user) noexcept {
     auto& runtime =
         *static_cast<ALegacyScene3DAdapter*>(user);
-    auto result = FWaterSurface3D::CompileShadersCpu();
+    auto result = CWaterSurface3D::CompileShadersCpu();
     const bool succeeded = result.IsOk();
     if (succeeded) {
         runtime.m_WaterPendingShaders = Move(result.Value());
@@ -1432,7 +1432,7 @@ void ALegacyScene3DAdapter::HdrPbrCpuCompileWorkerEntry(
     auto& runtime =
         *static_cast<ALegacyScene3DAdapter*>(user);
     bool succeeded = false;
-    auto shaders = FPbrShader::CompileShadersCpu(false);
+    auto shaders = CPbrShader::CompileShadersCpu(false);
     if (shaders.IsErr()) {
         ACS_LOG_WARN(
             "LegacyScene3DAdapter: HDR PBR CPU shader compilation failed; "
@@ -1468,7 +1468,7 @@ void ALegacyScene3DAdapter::HdrSsssCpuCompileWorkerEntry(
     auto& runtime =
         *static_cast<ALegacyScene3DAdapter*>(user);
     bool succeeded = false;
-    auto shaders = FPbrShader::CompileShadersCpu(true);
+    auto shaders = CPbrShader::CompileShadersCpu(true);
     if (shaders.IsErr()) {
         ACS_LOG_WARN(
             "LegacyScene3DAdapter: SSSS PBR CPU shader compilation "
@@ -1506,7 +1506,7 @@ void ALegacyScene3DAdapter::SubsurfaceCpuCompileWorkerEntry(
     void* user) noexcept {
     auto& runtime =
         *static_cast<ALegacyScene3DAdapter*>(user);
-    auto shaders = FSubsurfaceScattering::CompileShadersCpu();
+    auto shaders = CSubsurfaceScattering::CompileShadersCpu();
     bool succeeded = false;
     if (shaders.IsErr()) {
         ACS_LOG_WARN(
@@ -1543,7 +1543,7 @@ void ALegacyScene3DAdapter::PostCpuCompileWorkerEntry(
     void* user) noexcept {
     auto& runtime =
         *static_cast<ALegacyScene3DAdapter*>(user);
-    auto result = FPostProcess::CompileShadersCpu();
+    auto result = CPostProcess::CompileShadersCpu();
     const bool succeeded = result.IsOk();
     if (succeeded) {
         runtime.m_PostPendingShaders = Move(result.Value());
@@ -1561,7 +1561,7 @@ void ALegacyScene3DAdapter::BlitCpuCompileWorkerEntry(
     void* user) noexcept {
     auto& runtime =
         *static_cast<ALegacyScene3DAdapter*>(user);
-    auto result = FBlit::CompileShadersCpu();
+    auto result = CBlit::CompileShadersCpu();
     const bool succeeded = result.IsOk();
     if (succeeded) {
         runtime.m_BlitPendingShaders = Move(result.Value());
@@ -1857,7 +1857,7 @@ void ALegacyScene3DAdapter::AdvanceHdrPbrInitialization(
         return;
     }
 
-    FPbrShader& candidate = m_HdrShaders[m_HdrPendingSlot];
+    CPbrShader& candidate = m_HdrShaders[m_HdrPendingSlot];
     const auto result = candidate.InitWithCompiledShaders(
         device, Move(m_HdrPendingShaders),
         m_Post.HdrFormat(), m_FrameDepthFormat);
@@ -1936,7 +1936,7 @@ void ALegacyScene3DAdapter::AdvanceHdrSsssInitialization(
             && std::strcmp(backend_name, "DX12") == 0;
         if (device.SupportsAsyncShaderCompilation()) {
             auto result =
-                FPbrShader::BeginCompileShadersAsync(device, true);
+                CPbrShader::BeginCompileShadersAsync(device, true);
             if (result.IsErr()) {
                 m_HdrSsssGpuState = EShaderGpuState::Failed;
                 ACS_LOG_WARN(
@@ -2006,7 +2006,7 @@ void ALegacyScene3DAdapter::AdvanceHdrSsssInitialization(
         return;
     }
 
-    FPbrShader& candidate = m_HdrShaders[m_HdrSsssPendingSlot];
+    CPbrShader& candidate = m_HdrShaders[m_HdrSsssPendingSlot];
     const auto result = candidate.InitWithCompiledShaders(
         device, Move(m_HdrSsssPendingShaders),
         m_Post.HdrFormat(), m_FrameDepthFormat);
@@ -2086,7 +2086,7 @@ void ALegacyScene3DAdapter::AdvanceSubsurfaceInitialization(
             && std::strcmp(backend_name, "DX12") == 0;
         if (device.SupportsAsyncShaderCompilation()) {
             auto result =
-                FSubsurfaceScattering::BeginCompileShadersAsync(device);
+                CSubsurfaceScattering::BeginCompileShadersAsync(device);
             if (result.IsErr()) {
                 m_SsssGpuState = EShaderGpuState::Failed;
                 ACS_LOG_WARN(
@@ -2571,7 +2571,7 @@ void ALegacyScene3DAdapter::AdvanceWaterInitialization(
 }
 
 u32 ALegacyScene3DAdapter::CollectWaterDraws(
-    FWaterDraw (&draws)[FWaterSurface3D::kMaxTrackedSurfaces],
+    FWaterDraw (&draws)[CWaterSurface3D::kMaxTrackedSurfaces],
     IRhiTexture* depth,
     u32 width,
     u32 height) const noexcept {
@@ -2615,7 +2615,7 @@ u32 ALegacyScene3DAdapter::CollectWaterDraws(
             }
         }
         if (!enabled || !visible
-            || count >= FWaterSurface3D::kMaxTrackedSurfaces) {
+            || count >= CWaterSurface3D::kMaxTrackedSurfaces) {
             continue;
         }
         const AMeshComponent3D* mesh = FindMesh(*node);
@@ -2668,7 +2668,7 @@ void ALegacyScene3DAdapter::DrawWaterFallback(
     const FWaterDraw* water_draws,
     u32 water_count) noexcept {
     if (water_draws == nullptr || water_count == 0u) return;
-    FPbrShader& shader = ActiveHdrShader();
+    CPbrShader& shader = ActiveHdrShader();
     for (u32 index = 0u; index < water_count; ++index) {
         const FWaterDraw& draw = water_draws[index];
         if (draw.Node == nullptr || draw.Water == nullptr
@@ -2705,7 +2705,7 @@ bool ALegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
         AMeshComponent3D* component = FindMesh(*node);
         if (component != nullptr
             && component->Primitive() == EMeshPrimitive3D::Mesh) {
-            FMeshAsset* mesh = component->Mesh();
+            AMeshAsset* mesh = component->Mesh();
             if (mesh == nullptr) return false;
             FCustomGpuMesh uploaded;
             uploaded.Component = component;

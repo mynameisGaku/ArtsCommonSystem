@@ -6,7 +6,7 @@
 //   問い合わせるための **抽象 seam**。
 //   ACS 本体は具象な net stack (gRPC / HTTPS / WebSocket / Steam ISteamNetworking
 //   等) を抱え込まず、interface だけを提供する。
-//   ・タイトル側 (acs::FApplication) は IBackendClient* / IMatchmaker* を持ち、
+//   ・タイトル側 (acs::CApplication) は IBackendClient* / IMatchmaker* を持ち、
 //   ・実装 (BackendClientHttp, BackendClientSteam, MatchmakerGlicko2 等) は
 //     プロジェクト個別に差し込む。
 //   これにより、(a) ACS Foundation/GameFramework の依存最小化、(b) サーバ無し
@@ -90,7 +90,7 @@ struct FBackendError {
  *
  * @details
  * 1 タイトルにつき通常 1 インスタンス (Singleton 的運用)。
- * 寿命はタイトル側 (acs::FApplication 等) が握る。
+ * 寿命はタイトル側 (acs::CApplication 等) が握る。
  */
 class IBackendClient {
 public:

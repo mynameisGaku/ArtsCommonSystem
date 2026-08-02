@@ -40,7 +40,7 @@
 //   ・実行するとゲーム画面とは別に黒いコンソール窓が出る。これはログ表示用で
 //     正常。ゲーム画面を閉じれば一緒に終了する。
 //
-// もっと本格的に作りたくなったら、acs::FApplication を直接使う方法へ進める
+// もっと本格的に作りたくなったら、acs::CApplication を直接使う方法へ進める
 // （docs/QUICKSTART.md 参照）。easy はその入口に過ぎない。
 // ============================================================================
 #pragma once
@@ -51,9 +51,9 @@
 // 以下はジョブ/並列 API の「テンプレート実装」に必要 (初学者は意識しなくてよい)。
 #include "foundation/SourceLoc.h"
 #include "memory/Memory.h"            // DefaultAllocator
-#include "memory/Allocator.h"         // FAllocator
-#include "threading/ThreadPool.h"     // FThreadPool / Task / CompletionCounter
-#include "threading/JobGraph.h"       // FJobGraph (依存グラフ)
+#include "memory/Allocator.h"         // IAllocator
+#include "threading/ThreadPool.h"     // CThreadPool / Task / CompletionCounter
+#include "threading/JobGraph.h"       // CJobGraph (依存グラフ)
 
 namespace acs::easy {
 
@@ -1747,7 +1747,7 @@ bool Slider(f32 x, f32 y, f32 width, f32* value, f32 min, f32 max) noexcept;
  */
 void SetUiColors(FColor base, FColor hover, FColor active, FColor text) noexcept;
 
-// 内部は本格的なワークスチール FThreadPool / 依存グラフ FJobGraph。
+// 内部は本格的なワークスチール CThreadPool / 依存グラフ CJobGraph。
 // ★重要: ジョブの中身(関数/ラムダ)は「別のスレッド」で走る。その中で描画系や他の easy 関数を
 //   呼んではいけない(画面状態はメインスレッド専用)。中では計算だけして、結果は捕捉した変数に書く。
 // ★初期化は不要: OpenWindow 済みならそのまま、未起動でも初回使用時に自動でワーカを起動する。
@@ -1849,7 +1849,7 @@ namespace jobdetail {
     /**
      * スレッドプールのワーカ起動を保証する。
      *
-     * @details 未起動なら初回使用で FThreadPool を自動 Init する (Easy.cpp に実体)。
+     * @details 未起動なら初回使用で CThreadPool を自動 Init する (Easy.cpp に実体)。
      * @return ワーカが 1 つ以上利用可能なら true。
      */
     bool     Ready() noexcept;

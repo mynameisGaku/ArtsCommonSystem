@@ -100,7 +100,7 @@ ACS_TEST(Json, ParserLimitsAllocatorAndNonFiniteContracts)
     EXPECT_EQ(TooDeep.Error().subcode, kSubJsonDepth);
 
     // DOM の全確保を観測する明示 allocator。
-    FSystemAllocator Allocator;
+    CSystemAllocator Allocator;
     {
         // SSO を超える key と value を持つパース結果。
         auto Parsed = ParseJson(FStringView{"{\"long-key-for-explicit-allocator\":\"long-value-for-explicit-allocator\",\"array\":[1,2,3,4,5,6]}"}, Allocator);

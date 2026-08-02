@@ -223,7 +223,7 @@ void CScoreSystem::RegisterMilestone(u64 milestone_score) noexcept {
     const usize n = m_Milestones.Size();
     for (usize i = 0; i < n; ++i) {
         if (m_Milestones[i] == milestone_score) {
-            ACS_LOG_WARN("FScoreSystem: duplicate milestone ignored (%llu)",
+            ACS_LOG_WARN("CScoreSystem: duplicate milestone ignored (%llu)",
                          static_cast<unsigned long long>(milestone_score));
             return;
         }

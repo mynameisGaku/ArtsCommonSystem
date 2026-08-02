@@ -3,6 +3,6 @@
 #include "OpenXrDemoApp.h"
 
 int main() {
-    helloopenxr::FOpenXrDemoApp App;
+    helloopenxr::COpenXrDemoApp App;
     return App.Run();
 }

@@ -2,7 +2,7 @@
 // GameFramework Pillar H — CDebugOverlay (state holder)
 //
 // FPS / メモリ / シーン名 / カスタム watch をテキストで表示するための **状態保持
-// クラス**。実描画 (FSpriteBatch / ImGui / `acs::easy::DrawString` 等) は呼出し側の
+// クラス**。実描画 (CSpriteBatch / ImGui / `acs::easy::DrawString` 等) は呼出し側の
 // 責務。本クラスは「何を出すべきか」を保持・更新するだけで、グラフィック層に依存
 // しない (テスト / Headless 環境でも動作)。
 //
@@ -17,7 +17,7 @@
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           m_Overlay.Tick(dt);
-//           if (FInput::IsKeyPressed(EKey::F3)) m_Overlay.Toggle();
+//           if (CInput::IsKeyPressed(EKey::F3)) m_Overlay.Toggle();
 //       }
 //       void OnDraw() noexcept override {
 //           if (!m_Overlay.IsVisible()) return;
@@ -63,7 +63,7 @@ namespace acs::game {
  * FPS / シーン名 / カスタム watch を保持・更新する状態保持クラス。
  *
  * @details
- * 実描画 (FSpriteBatch / ImGui / DrawString 等) は呼出し側の責務で、本クラスは
+ * 実描画 (CSpriteBatch / ImGui / DrawString 等) は呼出し側の責務で、本クラスは
  * 「何を出すべきか」を保持・更新するだけでグラフィック層に依存しない (テスト /
  * Headless でも動作)。dt から瞬間 fps を算出し 60 frame の循環バッファで平均 /
  * 最小 / 最大を計測する。watch は label / value とも caller 所有のポインタを保持

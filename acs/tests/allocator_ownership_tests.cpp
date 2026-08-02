@@ -21,7 +21,7 @@ using namespace acs::game;
 
 namespace {
 
-class FOwnershipAllocator final : public FAllocator {
+class FOwnershipAllocator final : public IAllocator {
 public:
     struct FHeader {
         FOwnershipAllocator* owner;
@@ -75,7 +75,7 @@ public:
         return "OwnershipTest";
     }
 
-    FSystemAllocator backing;
+    CSystemAllocator backing;
     u64 outstanding_bytes = 0;
     u32 outstanding_allocations = 0;
     u32 foreign_free_count = 0;
@@ -84,7 +84,7 @@ public:
 
 class FDefaultAllocatorScope {
 public:
-    explicit FDefaultAllocatorScope(FAllocator& Allocator) noexcept : previous(&DefaultAllocator())
+    explicit FDefaultAllocatorScope(IAllocator& Allocator) noexcept : previous(&DefaultAllocator())
     {
         SetDefaultAllocator(&Allocator);
     }
@@ -98,7 +98,7 @@ public:
     FDefaultAllocatorScope& operator=(const FDefaultAllocatorScope&) = delete;
 
 private:
-    FAllocator* previous;
+    IAllocator* previous;
 };
 
 struct FPoolValue {
@@ -109,7 +109,7 @@ struct FPoolValue {
 };
 
 #if WITH_RENDER_DX12_RAW
-class FOwnershipCommand final : public editor_core::FEditorCommand {
+class FOwnershipCommand final : public editor_core::AEditorCommand {
 public:
     explicit FOwnershipCommand(i32* Value) noexcept : m_Value(Value)
     {
@@ -143,7 +143,7 @@ ACS_TEST(AllocatorOwnership, ParticlePoolReturnsToOriginalAllocator)
     FOwnershipAllocator Second;
     FDefaultAllocatorScope RestoreScope(First);
 
-    FParticleSystem Particles;
+    CParticleSystem Particles;
     const auto InitializationResult = Particles.Init(64);
     EXPECT_TRUE(InitializationResult.IsOk());
     EXPECT_TRUE(First.outstanding_allocations > 0u);
@@ -162,7 +162,7 @@ ACS_TEST(AllocatorOwnership, ParticleInitFailureLeavesEmptyState)
     FailingAllocator.fail_allocations = true;
     FDefaultAllocatorScope RestoreScope(FailingAllocator);
 
-    FParticleSystem Particles;
+    CParticleSystem Particles;
     const auto InitializationResult = Particles.Init(64);
     EXPECT_TRUE(InitializationResult.IsErr());
     EXPECT_EQ(Particles.Capacity(), 0u);
@@ -176,7 +176,7 @@ ACS_TEST(AllocatorOwnership, DevConsoleUsesConstructionAllocator)
     FOwnershipAllocator First;
     FOwnershipAllocator Second;
     {
-        FDevConsole Console(First);
+        CDevConsole Console(First);
         Console.PushHistory("allocator ownership");
         Console.Log("diagnostic line");
         EXPECT_TRUE(First.outstanding_allocations > 0u);
@@ -237,10 +237,10 @@ ACS_TEST(AllocatorOwnership, UndoStackKeepsCommandAllocator)
     i32 Value = 0;
 
     {
-        editor_core::FUndoStack Stack;
+        editor_core::CUndoStack Stack;
         auto Command = MakeUniqueIn<FOwnershipCommand>(First, &Value);
         EXPECT_TRUE(static_cast<bool>(Command));
-        Stack.Push(TUniquePtr<editor_core::FEditorCommand>(Move(Command)));
+        Stack.Push(TUniquePtr<editor_core::AEditorCommand>(Move(Command)));
         EXPECT_EQ(Value, 1);
 
         FDefaultAllocatorScope RestoreScope(Second);

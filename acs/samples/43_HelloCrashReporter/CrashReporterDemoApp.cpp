@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloCrashReporter - FCrashReporterDemoApp implementation.
+// HelloCrashReporter - CCrashReporterDemoApp implementation.
 #include "CrashReporterDemoApp.h"
 
 #include "crashwin/WindowsCrashReporter.h"
@@ -21,14 +21,14 @@ bool FileExists(const char* Path) noexcept {
 
 } // namespace
 
-int FCrashReporterDemoApp::Run() noexcept {
+int CCrashReporterDemoApp::Run() noexcept {
     std::puts("=== ACS HelloCrashReporter ===");
-    std::puts("backend: REAL Windows DbgHelp MiniDumpWriteDump (FWindowsCrashReporter)");
+    std::puts("backend: REAL Windows DbgHelp MiniDumpWriteDump (CWindowsCrashReporter)");
 
     acs::crashwin::FWindowsCrashReporterConfig Config{};
     Config.DumpDirectory = "hello_crash_dumps";
 
-    acs::crashwin::FWindowsCrashReporter Reporter(Config);
+    acs::crashwin::CWindowsCrashReporter Reporter(Config);
     auto Init = Reporter.Init("acs.samples.hello_crash_reporter", "dev");
     if (Init.IsErr()) {
         std::printf("Init: FAILED (%s)\n", Init.Error().message);

@@ -14,13 +14,13 @@ using namespace acs;
 namespace {
 
 void AddWaterMeshVertex(
-    FMeshAsset& mesh, FVec3 position,
+    AMeshAsset& mesh, FVec3 position,
     FVec3 normal = FVec3{0.0f, 1.0f, 0.0f}) {
     mesh.Vertices().PushBack(
         FMeshVertex{position, normal, 0.0f, 0.0f});
 }
 
-void AddWaterMeshQuadIndices(FMeshAsset& mesh) {
+void AddWaterMeshQuadIndices(AMeshAsset& mesh) {
     mesh.Indices().PushBack(0u);
     mesh.Indices().PushBack(1u);
     mesh.Indices().PushBack(2u);
@@ -94,22 +94,22 @@ std::string ReadWaterRepositorySource(const char* relative_path) {
 } // namespace
 
 ACS_TEST(Water3DRippleLifetime, ReservedPoolsNeverOverwriteEachOther) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     params.ripple_lifetime = 1.0f;
     params.ripple_damping = 0.0f;
     water.SetParams(params);
 
-    for (u32 i = 0; i < FWaterSurface3D::kImpactRippleSlots; ++i) {
+    for (u32 i = 0; i < CWaterSurface3D::kImpactRippleSlots; ++i) {
         EXPECT_TRUE(water.AddDisturbance(
             FVec3{static_cast<f32>(i), 0.0f, 0.0f}, 0.15f, 0.20f));
     }
     EXPECT_FALSE(water.AddDisturbance(
         FVec3{100.0f, 0.0f, 0.0f}, 0.15f, 0.20f));
     EXPECT_EQ(
-        water.ActiveRippleCount(), FWaterSurface3D::kImpactRippleSlots);
+        water.ActiveRippleCount(), CWaterSurface3D::kImpactRippleSlots);
 
-    for (u32 i = 0; i < FWaterSurface3D::kWakeRippleSlots; ++i) {
+    for (u32 i = 0; i < CWaterSurface3D::kWakeRippleSlots; ++i) {
         EXPECT_TRUE(water.AddWake(
             FVec3{static_cast<f32>(i), 0.0f, 1.0f},
             FVec3{4.0f, 0.0f, 1.0f}, 0.20f, 0.18f));
@@ -117,12 +117,12 @@ ACS_TEST(Water3DRippleLifetime, ReservedPoolsNeverOverwriteEachOther) {
     EXPECT_FALSE(water.AddWake(
         FVec3{200.0f, 0.0f, 0.0f},
         FVec3{4.0f, 0.0f, 1.0f}, 0.20f, 0.18f));
-    EXPECT_EQ(water.ActiveRippleCount(), FWaterSurface3D::kMaxRipples);
+    EXPECT_EQ(water.ActiveRippleCount(), CWaterSurface3D::kMaxRipples);
 }
 
 ACS_TEST(Water3DRippleLifetime,
          ConservativeDisplacementBoundTracksTheSubmittedSurface) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     params.wave_amplitude = 2.0f;
     params.ripple_lifetime = 2.0f;
@@ -150,7 +150,7 @@ ACS_TEST(Water3DRippleLifetime,
 
     water.Update(1.5f);
     const f32 amplitude_scale =
-        FWaterSurface3D::EvaluateRippleAmplitudeScale(
+        CWaterSurface3D::EvaluateRippleAmplitudeScale(
             1.5f, 2.0f, 0.0f);
     EXPECT_NEAR(
         water.ConservativeDisplacementBoundForSurface(
@@ -162,7 +162,7 @@ ACS_TEST(Water3DRippleLifetime,
 
 ACS_TEST(Water3DRippleLifetime,
          LowFrequencyMotionResamplesAContinuousThreeDimensionalWake) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     params.ripple_lifetime = 2.0f;
     params.ripple_damping = 0.0f;
@@ -182,14 +182,14 @@ ACS_TEST(Water3DRippleLifetime,
 
 ACS_TEST(Water3DRippleLifetime,
          SegmentResamplingUsesReservedCapacityWithoutReplacingImpacts) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     params.ripple_lifetime = 4.0f;
     params.ripple_damping = 0.0f;
     water.SetParams(params);
 
     for (u32 impact = 0u;
-         impact < FWaterSurface3D::kImpactRippleSlots; ++impact) {
+         impact < CWaterSurface3D::kImpactRippleSlots; ++impact) {
         EXPECT_TRUE(water.AddDisturbanceForSurface(
             7u, FVec3{static_cast<f32>(impact), 0.0f, 0.0f},
             0.15f, 0.20f));
@@ -199,10 +199,10 @@ ACS_TEST(Water3DRippleLifetime,
         FVec3{100.0f, 0.0f, 0.0f},
         0.25f, 0.10f, 0.18f, 0.16f);
 
-    EXPECT_EQ(wakes, FWaterSurface3D::kWakeRippleSlots);
+    EXPECT_EQ(wakes, CWaterSurface3D::kWakeRippleSlots);
     EXPECT_EQ(
         water.ActiveRippleCountForSurface(7u),
-        FWaterSurface3D::kMaxRipples);
+        CWaterSurface3D::kMaxRipples);
     EXPECT_EQ(water.AddWakeSegmentForSurface(
                   7u, FVec3{100.0f, 0.0f, 0.0f},
                   FVec3{101.0f, 0.0f, 0.0f},
@@ -210,12 +210,12 @@ ACS_TEST(Water3DRippleLifetime,
               0u);
     EXPECT_EQ(
         water.ActiveRippleCountForSurface(7u),
-        FWaterSurface3D::kMaxRipples);
+        CWaterSurface3D::kMaxRipples);
 }
 
 ACS_TEST(Water3DRippleLifetime,
          SeparatelyResampledSegmentsKeepIndependentAges) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     params.ripple_lifetime = 1.0f;
     params.ripple_damping = 0.0f;
@@ -244,7 +244,7 @@ ACS_TEST(Water3DRippleLifetime,
 
 ACS_TEST(Water3DRippleLifetime,
          SamplesWithinOneSegmentRetainTheirHistoricalAges) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     params.ripple_lifetime = 1.0f;
     params.ripple_damping = 0.0f;
@@ -265,7 +265,7 @@ ACS_TEST(Water3DRippleLifetime,
 
 ACS_TEST(Water3DRippleLifetime,
          SegmentOlderThanLifetimeKeepsOnlyItsVisibleTail) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     params.ripple_lifetime = 1.0f;
     params.ripple_damping = 0.0f;
@@ -282,7 +282,7 @@ ACS_TEST(Water3DRippleLifetime,
 
 ACS_TEST(Water3DRippleLifetime,
          MalformedWakeSegmentsNeverConsumePersistentSlots) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     const f32 nan = std::numeric_limits<f32>::quiet_NaN();
 
     EXPECT_EQ(water.AddWakeSegment(
@@ -325,13 +325,13 @@ ACS_TEST(Water3DSampleContract,
 }
 
 ACS_TEST(Water3DRippleLifetime, FullImpactPoolDropsNewEventWithoutRefreshingOldOne) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     params.ripple_lifetime = 1.0f;
     params.ripple_damping = 0.0f;
     water.SetParams(params);
 
-    for (u32 i = 0; i < FWaterSurface3D::kImpactRippleSlots; ++i) {
+    for (u32 i = 0; i < CWaterSurface3D::kImpactRippleSlots; ++i) {
         EXPECT_TRUE(water.AddDisturbance(
             FVec3{static_cast<f32>(i), 0.0f, 0.0f},
             0.15f, 0.20f));
@@ -348,7 +348,7 @@ ACS_TEST(Water3DRippleLifetime, FullImpactPoolDropsNewEventWithoutRefreshingOldO
 }
 
 ACS_TEST(Water3DRippleLifetime, UpdateConsumesTheFullDeltaTime) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     params.ripple_lifetime = 0.75f;
     params.ripple_damping = 0.0f;
@@ -370,7 +370,7 @@ ACS_TEST(Water3DRippleLifetime, LifetimeTailIsContinuousAndMonotonic) {
     f32 previous = 1.0f;
     for (u32 sample = 0; sample <= 400u; ++sample) {
         const f32 age = lifetime * static_cast<f32>(sample) / 400.0f;
-        const f32 scale = FWaterSurface3D::EvaluateRippleAmplitudeScale(
+        const f32 scale = CWaterSurface3D::EvaluateRippleAmplitudeScale(
             age, lifetime, 0.0f);
         EXPECT_TRUE(std::isfinite(scale));
         EXPECT_TRUE(scale >= 0.0f);
@@ -379,27 +379,27 @@ ACS_TEST(Water3DRippleLifetime, LifetimeTailIsContinuousAndMonotonic) {
     }
 
     // The physical response is unchanged until the final 35% of the lifetime.
-    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    EXPECT_NEAR(CWaterSurface3D::EvaluateRippleAmplitudeScale(
                     lifetime * 0.65f, lifetime, 0.0f),
                 1.0f, 1e-6f);
-    EXPECT_TRUE(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    EXPECT_TRUE(CWaterSurface3D::EvaluateRippleAmplitudeScale(
                     lifetime * 0.90f, lifetime, 0.0f) > 0.0f);
-    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    EXPECT_NEAR(CWaterSurface3D::EvaluateRippleAmplitudeScale(
                     lifetime, lifetime, 0.0f),
                 0.0f, 1e-7f);
 
     // Smootherstep has zero slope at release. A finite-difference sample near
     // the endpoint must therefore already be visually negligible.
-    EXPECT_TRUE(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    EXPECT_TRUE(CWaterSurface3D::EvaluateRippleAmplitudeScale(
                     lifetime * 0.999f, lifetime, 0.0f) < 1e-6f);
 
     const f32 h = lifetime * 0.001f;
-    const f32 at_end = FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    const f32 at_end = CWaterSurface3D::EvaluateRippleAmplitudeScale(
         lifetime, lifetime, 0.0f);
-    const f32 before_end = FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    const f32 before_end = CWaterSurface3D::EvaluateRippleAmplitudeScale(
         lifetime - h, lifetime, 0.0f);
     const f32 twice_before_end =
-        FWaterSurface3D::EvaluateRippleAmplitudeScale(
+        CWaterSurface3D::EvaluateRippleAmplitudeScale(
             lifetime - 2.0f * h, lifetime, 0.0f);
     const f32 endpoint_slope = (at_end - before_end) / h;
     const f32 endpoint_curvature =
@@ -409,7 +409,7 @@ ACS_TEST(Water3DRippleLifetime, LifetimeTailIsContinuousAndMonotonic) {
 }
 
 ACS_TEST(Water3DRippleLifetime, SmallRippleFadesBeforeSlotIsReleased) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     params.ripple_lifetime = 1.0f;
     params.ripple_damping = 0.0f;
@@ -432,33 +432,33 @@ ACS_TEST(Water3DRippleLifetime, SmallRippleFadesBeforeSlotIsReleased) {
 }
 
 ACS_TEST(Water3DRippleLifetime, DampingAndLifetimeEnvelopeRemainFinite) {
-    const f32 scale = FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    const f32 scale = CWaterSurface3D::EvaluateRippleAmplitudeScale(
         1.0f, 4.0f, 0.78f);
     EXPECT_NEAR(scale, std::exp(-0.78f), 1e-6f);
-    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    EXPECT_NEAR(CWaterSurface3D::EvaluateRippleAmplitudeScale(
                     1.0f, 0.0f, 0.78f),
                 0.0f, 1e-7f);
-    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    EXPECT_NEAR(CWaterSurface3D::EvaluateRippleAmplitudeScale(
                     std::numeric_limits<f32>::max(), 3600.0f, 64.0f),
                 0.0f, 1e-7f);
     const f32 nan = std::numeric_limits<f32>::quiet_NaN();
     const f32 infinity = std::numeric_limits<f32>::infinity();
-    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    EXPECT_NEAR(CWaterSurface3D::EvaluateRippleAmplitudeScale(
                     nan, 4.0f, 0.78f),
                 0.0f, 1e-7f);
-    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    EXPECT_NEAR(CWaterSurface3D::EvaluateRippleAmplitudeScale(
                     1.0f, infinity, 0.78f),
                 0.0f, 1e-7f);
-    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    EXPECT_NEAR(CWaterSurface3D::EvaluateRippleAmplitudeScale(
                     1.0f, 4.0f, nan),
                 0.0f, 1e-7f);
-    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    EXPECT_NEAR(CWaterSurface3D::EvaluateRippleAmplitudeScale(
                     -1.0f, 4.0f, -1.0f),
                 1.0f, 1e-7f);
 }
 
 ACS_TEST(Water3DRippleLifetime, ZeroContributionReleasesSlotWithoutCutoffPop) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     params.ripple_lifetime = 3600.0f;
     params.ripple_damping = 64.0f;
@@ -473,7 +473,7 @@ ACS_TEST(Water3DRippleLifetime, ZeroContributionReleasesSlotWithoutCutoffPop) {
 }
 
 ACS_TEST(Water3DRippleLifetime, NegativeAmplitudeUsesTheSameLifetimeTail) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     params.ripple_lifetime = 1.0f;
     params.ripple_damping = 0.0f;
@@ -488,7 +488,7 @@ ACS_TEST(Water3DRippleLifetime, NegativeAmplitudeUsesTheSameLifetimeTail) {
 }
 
 ACS_TEST(Water3DRippleLifetime, MalformedEventsNeverPoisonPersistentPool) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     const f32 nan = std::numeric_limits<f32>::quiet_NaN();
     const f32 infinity = std::numeric_limits<f32>::infinity();
 
@@ -509,7 +509,7 @@ ACS_TEST(Water3DRippleLifetime, MalformedEventsNeverPoisonPersistentPool) {
 }
 
 ACS_TEST(Water3DRippleLifetime, AuthoringParamsAreFiniteAndPhysical) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     const f32 nan = std::numeric_limits<f32>::quiet_NaN();
     const f32 infinity = std::numeric_limits<f32>::infinity();
@@ -547,7 +547,7 @@ ACS_TEST(Water3DRippleLifetime, AuthoringParamsAreFiniteAndPhysical) {
 }
 
 ACS_TEST(Water3DRippleLifetime, HugeFiniteFlowDirectionNormalizesWithoutOverflow) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     const f32 maximum = std::numeric_limits<f32>::max();
     params.flow_direction = FVec2{maximum, maximum};
@@ -561,7 +561,7 @@ ACS_TEST(Water3DRippleLifetime, HugeFiniteFlowDirectionNormalizesWithoutOverflow
 }
 
 ACS_TEST(Water3DRippleLifetime, HugeFiniteDeltaNeverPoisonsAnimationState) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams params{};
     params.ripple_lifetime = 3600.0f;
     params.ripple_damping = 0.0f;
@@ -584,7 +584,7 @@ ACS_TEST(Water3DRippleLifetime, HugeFiniteDeltaNeverPoisonsAnimationState) {
 }
 
 ACS_TEST(Water3DRippleLifetime, HugeFiniteEventCoordinatesStayBounded) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     const f32 maximum = std::numeric_limits<f32>::max();
 
     EXPECT_TRUE(water.AddDisturbance(
@@ -600,7 +600,7 @@ ACS_TEST(Water3DRippleLifetime, HugeFiniteEventCoordinatesStayBounded) {
 }
 
 ACS_TEST(Water3DRippleLifetime, WakeAcceptsFullThreeDimensionalVelocity) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     EXPECT_TRUE(water.AddWake(
         FVec3{2.0f, 3.0f, 4.0f},
         FVec3{0.0f, 6.0f, 0.0f}, 0.2f, 0.3f));
@@ -608,12 +608,12 @@ ACS_TEST(Water3DRippleLifetime, WakeAcceptsFullThreeDimensionalVelocity) {
 }
 
 ACS_TEST(Water3DRippleLifetime, SixtyFourSurfacesOwnIndependentEventPools) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     for (u64 surface = 1u;
-         surface <= FWaterSurface3D::kMaxTrackedSurfaces;
+         surface <= CWaterSurface3D::kMaxTrackedSurfaces;
          ++surface) {
         for (u32 impact = 0u;
-             impact < FWaterSurface3D::kImpactRippleSlots;
+             impact < CWaterSurface3D::kImpactRippleSlots;
              ++impact) {
             EXPECT_TRUE(water.AddDisturbanceForSurface(
                 surface,
@@ -622,7 +622,7 @@ ACS_TEST(Water3DRippleLifetime, SixtyFourSurfacesOwnIndependentEventPools) {
                 0.2f, 0.3f));
         }
         for (u32 wake = 0u;
-             wake < FWaterSurface3D::kWakeRippleSlots;
+             wake < CWaterSurface3D::kWakeRippleSlots;
              ++wake) {
             EXPECT_TRUE(water.AddWakeForSurface(
                 surface,
@@ -633,11 +633,11 @@ ACS_TEST(Water3DRippleLifetime, SixtyFourSurfacesOwnIndependentEventPools) {
         }
         EXPECT_EQ(
             water.ActiveRippleCountForSurface(surface),
-            FWaterSurface3D::kMaxRipples);
+            CWaterSurface3D::kMaxRipples);
     }
     EXPECT_EQ(
         water.ActiveRippleCount(),
-        FWaterSurface3D::kMaxStoredRipples);
+        CWaterSurface3D::kMaxStoredRipples);
     EXPECT_FALSE(water.AddDisturbanceForSurface(
         65u, FVec3{65.0f, 0.0f, 0.0f}, 0.2f, 0.3f));
 
@@ -645,19 +645,19 @@ ACS_TEST(Water3DRippleLifetime, SixtyFourSurfacesOwnIndependentEventPools) {
     EXPECT_EQ(water.ActiveRippleCountForSurface(17u), 0u);
     EXPECT_EQ(
         water.ActiveRippleCount(),
-        FWaterSurface3D::kMaxStoredRipples -
-            FWaterSurface3D::kMaxRipples);
+        CWaterSurface3D::kMaxStoredRipples -
+            CWaterSurface3D::kMaxRipples);
     EXPECT_TRUE(water.AddDisturbanceForSurface(
         65u, FVec3{65.0f, 0.0f, 0.0f}, 0.2f, 0.3f));
     EXPECT_EQ(water.ActiveRippleCountForSurface(65u), 1u);
     EXPECT_EQ(
         water.ActiveRippleCountForSurface(1u),
-        FWaterSurface3D::kMaxRipples);
+        CWaterSurface3D::kMaxRipples);
 }
 
 ACS_TEST(Water3DRippleLifetime,
          DenseActiveIterationDoesNotSkipSwapCompactedEvents) {
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     FWaterSurface3DParams short_params{};
     short_params.ripple_lifetime = 0.5f;
     short_params.ripple_damping = 0.0f;
@@ -814,26 +814,26 @@ ACS_TEST(Water3DEditorContract,
 }
 
 ACS_TEST(Water3DMeshContract, AcceptsFiniteLocalXzSurface) {
-    FMeshAsset mesh;
+    AMeshAsset mesh;
     AddWaterMeshVertex(mesh, FVec3{-1.0f, 2.0f, -1.0f});
     AddWaterMeshVertex(mesh, FVec3{ 1.0f, 2.0f, -1.0f});
     AddWaterMeshVertex(mesh, FVec3{ 1.0f, 2.0f,  1.0f});
     AddWaterMeshVertex(mesh, FVec3{-1.0f, 2.0f,  1.0f});
     AddWaterMeshQuadIndices(mesh);
 
-    EXPECT_TRUE(FWaterSurface3D::IsLocalXzSurfaceMesh(mesh));
+    EXPECT_TRUE(CWaterSurface3D::IsLocalXzSurfaceMesh(mesh));
 }
 
 ACS_TEST(Water3DMeshContract, RejectsWarpedOrVerticalCustomSurface) {
-    FMeshAsset warped;
+    AMeshAsset warped;
     AddWaterMeshVertex(warped, FVec3{-1.0f, 0.0f, -1.0f});
     AddWaterMeshVertex(warped, FVec3{ 1.0f, 0.0f, -1.0f});
     AddWaterMeshVertex(warped, FVec3{ 1.0f, 0.4f,  1.0f});
     AddWaterMeshVertex(warped, FVec3{-1.0f, 0.0f,  1.0f});
     AddWaterMeshQuadIndices(warped);
-    EXPECT_FALSE(FWaterSurface3D::IsLocalXzSurfaceMesh(warped));
+    EXPECT_FALSE(CWaterSurface3D::IsLocalXzSurfaceMesh(warped));
 
-    FMeshAsset vertical;
+    AMeshAsset vertical;
     AddWaterMeshVertex(
         vertical, FVec3{-1.0f, -1.0f, 0.0f},
         FVec3{0.0f, 0.0f, 1.0f});
@@ -846,11 +846,11 @@ ACS_TEST(Water3DMeshContract, RejectsWarpedOrVerticalCustomSurface) {
     vertical.Indices().PushBack(0u);
     vertical.Indices().PushBack(1u);
     vertical.Indices().PushBack(2u);
-    EXPECT_FALSE(FWaterSurface3D::IsLocalXzSurfaceMesh(vertical));
+    EXPECT_FALSE(CWaterSurface3D::IsLocalXzSurfaceMesh(vertical));
 }
 
 ACS_TEST(Water3DMeshContract, RejectsMalformedCustomSurfaceIndices) {
-    FMeshAsset mesh;
+    AMeshAsset mesh;
     AddWaterMeshVertex(mesh, FVec3{-1.0f, 0.0f, -1.0f});
     AddWaterMeshVertex(mesh, FVec3{ 1.0f, 0.0f, -1.0f});
     AddWaterMeshVertex(mesh, FVec3{ 0.0f, 0.0f,  1.0f});
@@ -858,5 +858,5 @@ ACS_TEST(Water3DMeshContract, RejectsMalformedCustomSurfaceIndices) {
     mesh.Indices().PushBack(1u);
     mesh.Indices().PushBack(9u);
 
-    EXPECT_FALSE(FWaterSurface3D::IsLocalXzSurfaceMesh(mesh));
+    EXPECT_FALSE(CWaterSurface3D::IsLocalXzSurfaceMesh(mesh));
 }

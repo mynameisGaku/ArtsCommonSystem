@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // ネットワークサブシステム初期化（WSAStartup ラッパ）
 //
-// 使い方: アプリ起動時に一度 CNetwork::Init() を呼ぶ。FApplication が
+// 使い方: アプリ起動時に一度 CNetwork::Init() を呼ぶ。CApplication が
 //         Audio/Network 系を自動初期化することは無いので、明示的に呼ぶこと。
 #pragma once
 
@@ -27,7 +27,7 @@ struct FNetworkDiagnostics {
  *
  * @details
  * 全メンバが static。多重 Init は内部の参照カウントで安全に扱い、最後の Shutdown で
- * 実際に WSACleanup を呼ぶ。FApplication は自動初期化しないので明示的に呼ぶこと。
+ * 実際に WSACleanup を呼ぶ。CApplication は自動初期化しないので明示的に呼ぶこと。
  */
 class CNetwork {
 public:

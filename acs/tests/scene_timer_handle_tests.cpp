@@ -16,23 +16,23 @@ static_assert(alignof(game::FSceneTimerHandle) == alignof(u32), "シーンタイ
 static_assert(offsetof(game::FSceneTimerHandle, m_Packed) == 0u, "packed 値は先頭にある必要があります");
 static_assert(__is_standard_layout(game::FSceneTimerHandle), "シーンタイマーハンドルは標準レイアウトである必要があります");
 static_assert(IsTriviallyCopyableV<game::FSceneTimerHandle>, "シーンタイマーハンドルはバイト復元可能である必要があります");
-static_assert(sizeof(game::FSceneTimer) == 40u, "シーンタイマー本体の公開配置が変わりました");
+static_assert(sizeof(game::CSceneTimer) == 40u, "シーンタイマー本体の公開配置が変わりました");
 static_assert(sizeof(FTimerHandle) == 8u, "event タイマーハンドルは独立した 8byte 型です");
 static_assert(!IsSameV<FTimerHandle, game::FSceneTimerHandle>, "event とシーンのハンドルを統合してはいけません");
 static_assert(IsSameV<game::TimerCallback, void(*)(void*) noexcept>, "シーンタイマーのコールバック契約が変わりました");
-static_assert(IsSameV<decltype(static_cast<game::FSceneTimer*>(nullptr)->SetTimeout(1.0f, nullptr, nullptr)), game::FSceneTimerHandle>, "SetTimeout は正規シーンタイマーハンドルを返す必要があります");
-static_assert(IsSameV<decltype(static_cast<game::FSceneTimer*>(nullptr)->SetInterval(1.0f, nullptr, nullptr)), game::FSceneTimerHandle>, "SetInterval は正規シーンタイマーハンドルを返す必要があります");
+static_assert(IsSameV<decltype(static_cast<game::CSceneTimer*>(nullptr)->SetTimeout(1.0f, nullptr, nullptr)), game::FSceneTimerHandle>, "SetTimeout は正規シーンタイマーハンドルを返す必要があります");
+static_assert(IsSameV<decltype(static_cast<game::CSceneTimer*>(nullptr)->SetInterval(1.0f, nullptr, nullptr)), game::FSceneTimerHandle>, "SetInterval は正規シーンタイマーハンドルを返す必要があります");
 static_assert(noexcept(game::FSceneTimerHandle::Pack(0u, 1u)), "Pack は noexcept である必要があります");
 static_assert(noexcept(game::FSceneTimerHandle{}.IsValid()), "IsValid は noexcept である必要があります");
 static_assert(noexcept(game::FSceneTimerHandle{}.Index()), "Index は noexcept である必要があります");
 static_assert(noexcept(game::FSceneTimerHandle{}.Gen()), "Gen は noexcept である必要があります");
-static_assert(noexcept(static_cast<game::FSceneTimer*>(nullptr)->SetTimeout(1.0f, nullptr, nullptr)), "SetTimeout は noexcept である必要があります");
-static_assert(noexcept(static_cast<game::FSceneTimer*>(nullptr)->SetInterval(1.0f, nullptr, nullptr)), "SetInterval は noexcept である必要があります");
-static_assert(noexcept(static_cast<game::FSceneTimer*>(nullptr)->Cancel(game::FSceneTimerHandle{})), "Cancel は noexcept である必要があります");
-static_assert(noexcept(static_cast<game::FSceneTimer*>(nullptr)->CancelAll()), "CancelAll は noexcept である必要があります");
-static_assert(noexcept(static_cast<const game::FSceneTimer*>(nullptr)->IsActive(game::FSceneTimerHandle{})), "IsActive は noexcept である必要があります");
-static_assert(noexcept(static_cast<const game::FSceneTimer*>(nullptr)->ActiveCount()), "ActiveCount は noexcept である必要があります");
-static_assert(noexcept(static_cast<game::FSceneTimer*>(nullptr)->Tick(0.0f)), "Tick は noexcept である必要があります");
+static_assert(noexcept(static_cast<game::CSceneTimer*>(nullptr)->SetTimeout(1.0f, nullptr, nullptr)), "SetTimeout は noexcept である必要があります");
+static_assert(noexcept(static_cast<game::CSceneTimer*>(nullptr)->SetInterval(1.0f, nullptr, nullptr)), "SetInterval は noexcept である必要があります");
+static_assert(noexcept(static_cast<game::CSceneTimer*>(nullptr)->Cancel(game::FSceneTimerHandle{})), "Cancel は noexcept である必要があります");
+static_assert(noexcept(static_cast<game::CSceneTimer*>(nullptr)->CancelAll()), "CancelAll は noexcept である必要があります");
+static_assert(noexcept(static_cast<const game::CSceneTimer*>(nullptr)->IsActive(game::FSceneTimerHandle{})), "IsActive は noexcept である必要があります");
+static_assert(noexcept(static_cast<const game::CSceneTimer*>(nullptr)->ActiveCount()), "ActiveCount は noexcept である必要があります");
+static_assert(noexcept(static_cast<game::CSceneTimer*>(nullptr)->Tick(0.0f)), "Tick は noexcept である必要があります");
 
 namespace {
 
@@ -148,7 +148,7 @@ ACS_TEST(SceneTimerHandle, PackedGoldenBytesRoundTrip)
 ACS_TEST(SceneTimerHandle, ExistingSceneTimerTraceRemainsStable)
 {
     /** 呼び出し側が所有して毎フレーム進めるシーンタイマー。 */
-    game::FSceneTimer timer;
+    game::CSceneTimer timer;
     /** 発火順を観測する追跡領域。 */
     FSceneTimerTrace trace{};
 
@@ -186,7 +186,7 @@ ACS_TEST(SceneTimerHandle, ExistingSceneTimerTraceRemainsStable)
 ACS_TEST(SceneTimerHandle, SceneAndEventZeroDelayPoliciesStayDistinct)
 {
     /** 0 秒登録を拒否するシーン寿命のタイマー。 */
-    game::FSceneTimer scene_timer;
+    game::CSceneTimer scene_timer;
     /** 発火回数を記録する追跡領域。 */
     FSceneTimerTrace trace{};
     /** シーンタイマーが 0 秒登録を拒否した結果。 */

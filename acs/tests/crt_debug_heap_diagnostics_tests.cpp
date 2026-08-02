@@ -35,12 +35,12 @@ int __cdecl ReentrantCrtReportHook(int, char*, int*)
     const int debug_flags_before = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
     const bool exit_check_before = (debug_flags_before & _CRTDBG_LEAK_CHECK_DF) != 0;
 
-    if (!FCrtDebugHeapDiagnostics::CheckHeapIntegrity()) {
+    if (!CCrtDebugHeapDiagnostics::CheckHeapIntegrity()) {
         (void)::InterlockedExchange(&g_ReentrantCheckWasRejected, 1);
     }
-    (void)FCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(17007);
-    (void)FCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(!exit_check_before);
-    FCrtDebugHeapDiagnostics::DumpAllLiveObjects();
+    (void)CCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(17007);
+    (void)CCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(!exit_check_before);
+    CCrtDebugHeapDiagnostics::DumpAllLiveObjects();
 
     const bool configuration_preserved = _crtBreakAlloc == break_allocation_before &&
                                          _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG) == debug_flags_before;
@@ -67,7 +67,7 @@ DWORD WINAPI RunConcurrentHeapChecks(void* OpaqueContext)
     if (::WaitForSingleObject(Context->StartEvent, 5000u) != WAIT_OBJECT_0) return 2u;
 
     for (usize Iteration = 0u; Iteration < 200u; ++Iteration) {
-        if (!FCrtDebugHeapDiagnostics::CheckHeapIntegrity()) {
+        if (!CCrtDebugHeapDiagnostics::CheckHeapIntegrity()) {
             (void)::InterlockedIncrement(Context->FailureCount);
         }
     }
@@ -94,11 +94,11 @@ DWORD WINAPI EndProcessConfigurationOnWorker(void* opaque_context)
 ACS_TEST(CrtDebugHeapDiagnostics, ReportsBuildSupport)
 {
 #if ACS_TEST_CRT_DEBUG_HEAP_AVAILABLE
-    EXPECT_TRUE(FCrtDebugHeapDiagnostics::IsSupported());
+    EXPECT_TRUE(CCrtDebugHeapDiagnostics::IsSupported());
 #else
-    EXPECT_FALSE(FCrtDebugHeapDiagnostics::IsSupported());
+    EXPECT_FALSE(CCrtDebugHeapDiagnostics::IsSupported());
 #endif
-    EXPECT_TRUE(FCrtDebugHeapDiagnostics::CheckHeapIntegrity());
+    EXPECT_TRUE(CCrtDebugHeapDiagnostics::CheckHeapIntegrity());
 }
 
 ACS_TEST(CrtDebugHeapDiagnostics, ConcurrentHeapChecksAreSerializedSafely)
@@ -292,9 +292,9 @@ ACS_TEST(CrtDebugHeapDiagnostics, DirectSettersDoNotOverrideActiveConfigurationS
     EXPECT_TRUE(process_configuration.Begin(configuration));
 
 #if ACS_TEST_CRT_DEBUG_HEAP_AVAILABLE
-    EXPECT_EQ(FCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(17004), 17003);
+    EXPECT_EQ(CCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(17004), 17003);
     EXPECT_EQ(_crtBreakAlloc, 17003l);
-    EXPECT_FALSE(FCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(true));
+    EXPECT_FALSE(CCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(true));
     EXPECT_TRUE((_CrtSetDbgFlag(_CRTDBG_REPORT_FLAG) & _CRTDBG_LEAK_CHECK_DF) == 0);
 #endif
     process_configuration.End();
@@ -307,22 +307,22 @@ ACS_TEST(CrtDebugHeapDiagnostics, DirectProcessSettingsCanBeRestored)
     const bool original_exit_check = (original_flags & _CRTDBG_LEAK_CHECK_DF) != 0;
     const long original_break_allocation = _crtBreakAlloc;
 
-    const bool previous_exit_check = FCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(!original_exit_check);
+    const bool previous_exit_check = CCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(!original_exit_check);
     EXPECT_EQ(previous_exit_check, original_exit_check);
     const int changed_flags = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
     EXPECT_EQ((changed_flags & _CRTDBG_LEAK_CHECK_DF) != 0, !original_exit_check);
-    (void)FCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(original_exit_check);
+    (void)CCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(original_exit_check);
 
-    const i64 previous_break_allocation = FCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(17002);
+    const i64 previous_break_allocation = CCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(17002);
     EXPECT_EQ(previous_break_allocation, static_cast<i64>(original_break_allocation));
     EXPECT_EQ(_crtBreakAlloc, 17002l);
-    (void)FCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(original_break_allocation);
+    (void)CCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(original_break_allocation);
 
     EXPECT_EQ(_CrtSetDbgFlag(_CRTDBG_REPORT_FLAG), original_flags);
     EXPECT_EQ(_crtBreakAlloc, original_break_allocation);
 #else
-    EXPECT_FALSE(FCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(true));
-    EXPECT_EQ(FCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(1), -1);
+    EXPECT_FALSE(CCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(true));
+    EXPECT_EQ(CCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(1), -1);
 #endif
 }
 
@@ -343,9 +343,9 @@ ACS_TEST(CrtDebugHeapDiagnostics, DiagnosticScopeBlocksIndependentProcessSetting
     const long break_allocation_before = _crtBreakAlloc;
 
     EXPECT_FALSE(process_configuration.Begin(process_configuration_values));
-    EXPECT_EQ(FCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(17005), static_cast<i64>(break_allocation_before));
+    EXPECT_EQ(CCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(17005), static_cast<i64>(break_allocation_before));
     EXPECT_EQ(_crtBreakAlloc, break_allocation_before);
-    EXPECT_EQ(FCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(!exit_check_before), exit_check_before);
+    EXPECT_EQ(CCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(!exit_check_before), exit_check_before);
     EXPECT_EQ((_CrtSetDbgFlag(_CRTDBG_REPORT_FLAG) & _CRTDBG_LEAK_CHECK_DF) != 0, exit_check_before);
 #else
     EXPECT_TRUE(process_configuration.Begin(process_configuration_values));
@@ -439,7 +439,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, ReportHookReentryIsBoundedAndDoesNotMutateSett
 
     void* const live_allocation = std::malloc(53u);
     _CRT_REPORT_HOOK const previous_hook = _CrtSetReportHook(ReentrantCrtReportHook);
-    FCrtDebugHeapDiagnostics::DumpAllLiveObjects();
+    CCrtDebugHeapDiagnostics::DumpAllLiveObjects();
     (void)_CrtSetReportHook(previous_hook);
     std::free(live_allocation);
 

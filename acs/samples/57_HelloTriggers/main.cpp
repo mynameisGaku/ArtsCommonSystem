@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloTriggers - Package B 検証コンソール: 衝突レイヤ/マスク + トリガ enter/exit。
 //
-// 1) FCollisionWorld2D のレイヤ/マスク絞り込み (player/pickup/wall) を assert。
+// 1) CCollisionWorld2D のレイヤ/マスク絞り込み (player/pickup/wall) を assert。
 // 2) ATriggerComponent をノードに付け、world.Tick 経由で OnEnter/OnExit が
 //    マスクに従って正しく発火することを assert。GPU 不要・ヘッドレスで完結。
 #include "gameframework/GameFramework.h"
@@ -42,7 +42,7 @@ int main() {
 
     // ---- 1) CollisionWorld2D layer / mask ----
     {
-        FCollisionWorld2D world;
+        CCollisionWorld2D world;
         world.Init(1.0f);
         world.AddAabb(FAabb2{FVec2{0, 0}, FVec2{1, 1}}, kWall);
         world.AddCircle(FCircle{FVec2{0, 0}, 0.5f}, kPickup);
@@ -63,7 +63,7 @@ int main() {
 
     // ---- 2) node tree + world.Tick 経由の ATriggerComponent enter/exit ----
     {
-        FTriggerWorld2D tw;
+        CTriggerWorld2D tw;
         tw.Init();
         ANode root;
 

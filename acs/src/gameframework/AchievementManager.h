@@ -46,7 +46,7 @@
 //     ローカル進捗は影響を受けない。
 //   ・**max_progress に達したら自動 unlock**: SetProgress / IncrementProgress 経由
 //     で current_progress が max に達した瞬間に unlocked = true、Bridge へ送信、
-//     unlock_timestamp を FClock::MillisSinceStartup() で記録。Unlock() を直接
+//     unlock_timestamp を CClock::MillisSinceStartup() で記録。Unlock() を直接
 //     呼んだ場合は current_progress を max_progress に固定する。
 //   ・**unlock_timestamp は起動からの ms**: 永続化 (Pillar J Serialize) と合わせ
 //     て使う想定だが、「起動以降のみ意味を持つ」相対時間で十分。
@@ -101,8 +101,8 @@ struct FAchievementDef {
  *
  * @details
  * FAchievementDef と同 index 位置で 1:1 対応する。id は Def 側のリテラルを参照コピー
- * して検索 / 表示で扱いやすくする。unlock_timestamp は FClock::MillisSinceStartup() の値
- * (起動からの ms) で、0 は「未 unlock」または「unlock 時に FClock 未取得」を表す。
+ * して検索 / 表示で扱いやすくする。unlock_timestamp は CClock::MillisSinceStartup() の値
+ * (起動からの ms) で、0 は「未 unlock」または「unlock 時に CClock 未取得」を表す。
  */
 struct FAchievementProgress {
     /** 対応する Def の id を指す参照コピー (所有しない)。 */
@@ -117,7 +117,7 @@ struct FAchievementProgress {
     /** unlock 済みか。 */
     bool        unlocked         = false;
 
-    /** unlock 時刻 (FClock::MillisSinceStartup()、起動からの ms。0 = 未 unlock)。 */
+    /** unlock 時刻 (CClock::MillisSinceStartup()、起動からの ms。0 = 未 unlock)。 */
     u64         unlock_timestamp = 0;
 };
 

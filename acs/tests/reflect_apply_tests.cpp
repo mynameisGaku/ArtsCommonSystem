@@ -48,7 +48,7 @@ const FReflectField* FindField(const FTypeDesc& d, const char* name) noexcept {
 
 // 多態型でも offsetof が «実行時の実オフセット» と一致することを確認 (これが効けば値適用が成立)。
 ACS_TEST(ReflectApply, OffsetMatchesRuntimeForPolymorphic) {
-    const FTypeDesc* d = FTypeRegistry::Get().FindByName("FApplyMover");
+    const FTypeDesc* d = CTypeRegistry::Get().FindByName("FApplyMover");
     EXPECT_TRUE(d != nullptr);
     EXPECT_EQ(d->field_count, (u32)4);
 
@@ -66,7 +66,7 @@ ACS_TEST(ReflectApply, OffsetMatchesRuntimeForPolymorphic) {
 
 // 反射 defaults でインスタンスを初期化できる。
 ACS_TEST(ReflectApply, ApplyDefaults) {
-    const FTypeDesc* d = FTypeRegistry::Get().FindByName("FApplyMover");
+    const FTypeDesc* d = CTypeRegistry::Get().FindByName("FApplyMover");
     FApplyMover m;
     m.speed = 99.0f; m.count = -1; m.active = false; m.vel = FVec2{ 8, 8 };   // 汚す
     ApplyDefaults(&m, *d);
@@ -78,7 +78,7 @@ ACS_TEST(ReflectApply, ApplyDefaults) {
 
 // authored 値を名前で実メンバへ書き込める (= エディタ編集値の適用)。
 ACS_TEST(ReflectApply, ApplyAuthoredValuesByName) {
-    const FTypeDesc* d = FTypeRegistry::Get().FindByName("FApplyMover");
+    const FTypeDesc* d = CTypeRegistry::Get().FindByName("FApplyMover");
     FApplyMover m;
     f32 v[4];
 
@@ -104,7 +104,7 @@ ACS_TEST(ReflectApply, ApplyAuthoredValuesByName) {
 
 // factory で実体化 → 既定値適用 → authored 値適用 → 破棄、の一連が動く。
 ACS_TEST(ReflectApply, FactoryCreateThenApply) {
-    FTypeRegistry& reg = FTypeRegistry::Get();
+    CTypeRegistry& reg = CTypeRegistry::Get();
     const FTypeDesc* d = reg.FindByName("FApplyMover");
     EXPECT_TRUE(d != nullptr);
 
@@ -135,7 +135,7 @@ ACS_REGISTER_COMPONENT(FRefHolder,
 
 // target フィールドが ObjectRef 種別で反射され、既定 -1 を持つ。
 ACS_TEST(ReflectApply, ObjectRefFieldKind) {
-    const FTypeDesc* d = FTypeRegistry::Get().FindByName("FRefHolder");
+    const FTypeDesc* d = CTypeRegistry::Get().FindByName("FRefHolder");
     EXPECT_TRUE(d != nullptr);
     const FReflectField* f = FindField(*d, "target");
     EXPECT_TRUE(f != nullptr);
@@ -145,7 +145,7 @@ ACS_TEST(ReflectApply, ObjectRefFieldKind) {
 
 // 参照 ID を実メンバへ書き込み / 読み出しできる。
 ACS_TEST(ReflectApply, ObjectRefApplyAndRead) {
-    const FTypeDesc* d = FTypeRegistry::Get().FindByName("FRefHolder");
+    const FTypeDesc* d = CTypeRegistry::Get().FindByName("FRefHolder");
     const FReflectField* f = FindField(*d, "target");
     FRefHolder h;
     f32 v[4] = { 42.0f, 0, 0, 0 };            // 参照先 ID = 42
@@ -169,7 +169,7 @@ ACS_REGISTER_METHOD(FMethodHost, Bump,
 
 ACS_TEST(ReflectMethod, RegisterAndInvoke) {
     FTypeId owner = AcsTypeHash("FMethodHost");
-    auto& reg = FMethodRegistry::Get();
+    auto& reg = CMethodRegistry::Get();
     EXPECT_TRUE(reg.CountOfOwner(owner) >= 1u);
     const FReflectMethod* m = reg.Find(owner, "Bump");
     EXPECT_TRUE(m != nullptr);
@@ -206,7 +206,7 @@ ACS_TEST(ReflectMethod, DuplicateSourcesPromoteOnUnregister)
     const FReflectMethod second{owner,   "Run",           &SecondDynamicMethod, nullptr,
                                 nullptr, METHOD_ARG_NONE, METHOD_ARG_NONE,      METHOD_CALL_IN_EDITOR};
 
-    FMethodRegistry& registry = FMethodRegistry::Get();
+    CMethodRegistry& registry = CMethodRegistry::Get();
     registry.Register(first);
     registry.Register(second);
     EXPECT_EQ(registry.CountOfOwner(owner), 1u);

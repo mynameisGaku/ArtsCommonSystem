@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // ASprite2DComponent - ANode 向けの最小 render component。
 //
-// AScene2D が FRenderContext に設定した FSpriteBatch を通じて、色付き矩形または
+// AScene2D が FRenderContext に設定した CSpriteBatch を通じて、色付き矩形または
 // texture を描画する。Size は world 単位で、owner transform から
 // position/rotation/scale を取得する。
 #pragma once
@@ -21,7 +21,7 @@ namespace acs::game {
  * ANode に色付き矩形 / テクスチャを描く最小の描画コンポーネント。
  *
  * @details
- * AScene2D が FRenderContext に差し込んだ FSpriteBatch を通じて、owner の world
+ * AScene2D が FRenderContext に差し込んだ CSpriteBatch を通じて、owner の world
  * transform を pivot に矩形 1 枚を積む。サイズは world 単位で、位置・回転・スケールは
  * owner の transform から供給される。テクスチャ未設定なら tint 色の塗り潰し矩形を、
  * 設定済みなら UV サブ矩形 + tint でテクスチャを描く。
@@ -132,7 +132,7 @@ public:
     FVec2 UvMax() const noexcept { return m_UvMax; }
 
     /**
-     * 描画フック。owner の world transform を pivot に矩形 1 枚を FSpriteBatch へ積む。
+     * 描画フック。owner の world transform を pivot に矩形 1 枚を CSpriteBatch へ積む。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar — btedit / bake 用ガードノード
 //
-// エディタのグラフ (メタミラー) を「実行可能な FBehaviorTree」に焼く (bake) とき、
+// エディタのグラフ (メタミラー) を「実行可能な CBehaviorTree」に焼く (bake) とき、
 // composite / transform-decorator / action は core ランタイムノード
-// (FBtSelector / FBtSequence / FBtDecorator / FBtAction) にそのまま対応するが、
+// (ABtSelector / ABtSequence / ABtDecorator / ABtAction) にそのまま対応するが、
 // Condition / Compare デコレーターには core 側に対応物が無い。そこで btedit 側に
-// FBtNode のサブクラスとして「条件ガードノード」を定義する。これらは core FBtNode を
+// ABtNode のサブクラスとして「条件ガードノード」を定義する。これらは core ABtNode を
 // 継承するので、core の composite と混在した 1 本のツリーを構成できる。
 //
 //   ABtConditionNode : 条件 bool 関数が true のときだけ子を実行 (= Condition デコレーター)
@@ -27,12 +27,12 @@ class ABtConditionNode;
 using FBtConditionNode = ABtConditionNode;
 
 /**
- * 条件 bool 関数で子をガードする FBtNode (bake された Condition デコレーター)。
+ * 条件 bool 関数で子をガードする ABtNode (bake された Condition デコレーター)。
  *
  * @details fn(bb) が true のときだけ子を Tick し、その結果を返す。false (または fn 未設定)
  *          なら子を実行せず Failure。
  */
-class ABtConditionNode : public FBtNode {
+class ABtConditionNode : public ABtNode {
 public:
     ACS_RTTI(FBtConditionNode, FBtNode)
 
@@ -50,7 +50,7 @@ public:
     ~ABtConditionNode() noexcept override = default;
 
     /** ガードする子を設定する。 */
-    void SetChild(TUniquePtr<FBtNode> child) noexcept { m_Child = Move(child); }
+    void SetChild(TUniquePtr<ABtNode> child) noexcept { m_Child = Move(child); }
 
     /** 条件 true のときだけ子を Tick して返す (false / 子なし / fn 未設定は Failure)。 */
     EBtStatus Tick(void* blackboard, f32 dt) noexcept override {
@@ -63,14 +63,14 @@ private:
     Fn                  m_Fn;
 
     /** ガードされる子ノード。 */
-    TUniquePtr<FBtNode> m_Child;
+    TUniquePtr<ABtNode> m_Child;
 };
 
 class ABtCompareNode;
 using FBtCompareNode = ABtCompareNode;
 
 /**
- * 変数と定数の比較で子をガードする FBtNode (bake された Compare デコレーター)。
+ * 変数と定数の比較で子をガードする ABtNode (bake された Compare デコレーター)。
  *
  * @details
  * editor インタプリタと同じ 2 つの変数解決モデルを bake 時に固定する:
@@ -83,7 +83,7 @@ using FBtCompareNode = ABtCompareNode;
  * 注意: 1 本の baked ツリーは単一の blackboard モデルで tick すること
  * (dynamic なら FBtBlackboard、schema なら対応する raw 構造体)。
  */
-class ABtCompareNode : public FBtNode {
+class ABtCompareNode : public ABtNode {
 public:
     ACS_RTTI(FBtCompareNode, FBtNode)
 
@@ -116,7 +116,7 @@ public:
     ~ABtCompareNode() noexcept override = default;
 
     /** ガードする子を設定する。 */
-    void SetChild(TUniquePtr<FBtNode> child) noexcept { m_Child = Move(child); }
+    void SetChild(TUniquePtr<ABtNode> child) noexcept { m_Child = Move(child); }
 
     /** 比較 true のときだけ子を Tick して返す (false / 子なしは Failure)。 */
     EBtStatus Tick(void* blackboard, f32 dt) noexcept override {
@@ -153,7 +153,7 @@ private:
     EBtVarType          m_Type;
 
     /** ガードされる子ノード。 */
-    TUniquePtr<FBtNode> m_Child;
+    TUniquePtr<ABtNode> m_Child;
 };
 
 } // namespace acs::game::btedit

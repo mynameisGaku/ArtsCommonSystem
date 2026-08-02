@@ -14,7 +14,7 @@ using namespace acs;
 
 namespace hellomvvm {
 
-void FHelloMvvmApp::OnStart() noexcept {
+void CHelloMvvmApp::OnStart() noexcept {
     ACS_SAMPLE_INIT(m_Imgui.Init(GetWindow(), GetRenderer()));
 
     // Subscribe で値の変化をフックできる。ここではログに流して
@@ -57,11 +57,11 @@ void FHelloMvvmApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloMVVM initialized");
 }
 
-void FHelloMvvmApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloMvvmApp::OnUpdate(f32 /*dt*/) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
 }
 
-void FHelloMvvmApp::OnRender() noexcept {
+void CHelloMvvmApp::OnRender() noexcept {
     m_Imgui.NewFrame();
 
     ImGui::SetNextWindowSize(ImVec2(440, 720), ImGuiCond_FirstUseEver);
@@ -149,7 +149,7 @@ void FHelloMvvmApp::OnRender() noexcept {
     m_Imgui.Render();
 }
 
-void FHelloMvvmApp::OnShutdown() noexcept {
+void CHelloMvvmApp::OnShutdown() noexcept {
     // Reset/delete を OnShutdown 側で明示的に走らせることで、
     // Subscribe の解除順を ImGui::Shutdown より前に固定する。
     delete m_Ratio; m_Ratio = nullptr;
@@ -158,7 +158,7 @@ void FHelloMvvmApp::OnShutdown() noexcept {
     m_Imgui.Shutdown();
 }
 
-void FHelloMvvmApp::OnEvent(const FEvent& e) noexcept {
+void CHelloMvvmApp::OnEvent(const FEvent& e) noexcept {
     m_Imgui.OnEvent(e);
 }
 

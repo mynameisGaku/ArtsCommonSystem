@@ -49,7 +49,7 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const AImageA
         return ACS_ERR(Render, 81, "UploadTexture: unsupported pixel format");
 
     // R8G8B8 (3ch) は GPU では 4ch にパディングが必要
-    // 簡易対応: FImageAsset::Pixels() がそのまま 4ch でない場合はエラー
+    // 簡易対応: AImageAsset::Pixels() がそのまま 4ch でない場合はエラー
     // （ImageAssetLoader 側で 4ch に拡張する責務とする）
     FTextureDesc d{};
     d.width  = img.Width();

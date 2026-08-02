@@ -23,7 +23,7 @@ namespace hellolightmap {
 
 // 面 q のテクセル (tu,tv)∈[0,1] を world 座標へ変換する。
 // MakePlane の uv 規約 (u→ローカル +X, v→ローカル -Z) でローカル平面座標に
-// 戻し、quad の model 行列で world へ変換する。これで描画時に FPbrShader が
+// 戻し、quad の model 行列で world へ変換する。これで描画時に CPbrShader が
 // mesh の uv で lightmap を引く位置と、baker が焼いた位置が厳密に一致する
 // (回転・平行移動は model に委ねるので軸の取り違えが起きない)。
 acs::FVec3 TexelToWorld(const FQuad& q, acs::f32 tu, acs::f32 tv) noexcept;
@@ -31,7 +31,7 @@ acs::FVec3 TexelToWorld(const FQuad& q, acs::f32 tu, acs::f32 tv) noexcept;
 // 1 本の path をトレースし、texel への入射放射輝度を返す。
 // origin から cosine-weighted hemisphere へ飛ばし、拡散面で反射を繰り返す。
 // 光源 (天井) に届いたら、それまでの throughput を掛けた放射輝度を返す。
-// throughput は receiver の albedo を畳まない (FPbrShader が描画時に lm * albedo
+// throughput は receiver の albedo を畳まない (CPbrShader が描画時に lm * albedo
 // するため)。cosine-weighted なので複数 path の平均 = 入射 irradiance の平均。
 acs::FVec3 PathTrace(acs::FVec3 origin, acs::FVec3 normal,
                     const FQuad (&quads)[kQuadCount], FRng& rng) noexcept;
@@ -40,7 +40,7 @@ acs::FVec3 PathTrace(acs::FVec3 origin, acs::FVec3 normal,
 // 各 texel から kBakeRays 本の path を hemisphere へ飛ばし、最大
 // kBounceDepth 回まで拡散反射を追跡。固定係数の擬似 1-bounce ではなく、
 // 赤/緑壁の多重反射 color bleeding が物理的に出る。結果は入射 irradiance の
-// 平均で、描画時に FPbrShader が albedo を掛ける。
+// 平均で、描画時に CPbrShader が albedo を掛ける。
 // 最後に 3x3 box blur で MC ノイズを均してから HDR texture を生成する。
 void BakeLightmaps(acs::IRhiDevice& dev, FQuad (&quads)[kQuadCount]) noexcept;
 

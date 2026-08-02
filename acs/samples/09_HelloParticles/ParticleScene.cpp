@@ -10,33 +10,33 @@ using namespace acs;
 
 namespace helloparticles {
 
-bool FParticleScene::Init(IRhiTexture* glow_tex, FVec2 initial_pos) noexcept {
+bool CParticleScene::Init(IRhiTexture* glow_tex, FVec2 initial_pos) noexcept {
     if (auto r = m_Ps.Init(kParticleCapacity); r.IsErr()) return false;
     m_Ps.SetTexture(glow_tex);
     ApplyPreset(0, initial_pos);
     return true;
 }
 
-void FParticleScene::Shutdown() noexcept {
+void CParticleScene::Shutdown() noexcept {
     m_Ps.Shutdown();
 }
 
-void FParticleScene::Update(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Space)) {
+void CParticleScene::Update(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Space)) {
         m_Ps.Emitter().active = !m_Ps.Emitter().active;
     }
 
-    FVec2 mp = FInput::MousePos();
-    if (FInput::IsKeyPressed(EKey::Num1)) ApplyPreset(0, mp);
-    if (FInput::IsKeyPressed(EKey::Num2)) ApplyPreset(1, mp);
-    if (FInput::IsKeyPressed(EKey::Num3)) ApplyPreset(2, mp);
-    if (FInput::IsKeyPressed(EKey::Num4)) ApplyPreset(3, mp);
+    FVec2 mp = CInput::MousePos();
+    if (CInput::IsKeyPressed(EKey::Num1)) ApplyPreset(0, mp);
+    if (CInput::IsKeyPressed(EKey::Num2)) ApplyPreset(1, mp);
+    if (CInput::IsKeyPressed(EKey::Num3)) ApplyPreset(2, mp);
+    if (CInput::IsKeyPressed(EKey::Num4)) ApplyPreset(3, mp);
 
     // エミッタを毎フレームマウス位置に追従
     m_Ps.Emitter().position = mp;
 
     // 左クリックで爆発
-    if (FInput::IsMouseButtonPressed(EMouseButton::Left)) {
+    if (CInput::IsMouseButtonPressed(EMouseButton::Left)) {
         FEmitterDesc burst = FEmitterDesc::Sparks(mp);
         burst.rate_per_sec = 0;            // バーストのみ
         burst.life_seconds = 0.8f;
@@ -50,7 +50,7 @@ void FParticleScene::Update(f32 dt) noexcept {
     m_Ps.Update(dt);
 }
 
-void FParticleScene::Render(FSpriteBatch& batch,
+void CParticleScene::Render(CSpriteBatch& batch,
                            FFont& font,
                            u32 screen_h,
                            f32 fps) noexcept {
@@ -72,7 +72,7 @@ void FParticleScene::Render(FSpriteBatch& batch,
     }
 }
 
-void FParticleScene::ApplyPreset(u32 idx, FVec2 pos) noexcept {
+void CParticleScene::ApplyPreset(u32 idx, FVec2 pos) noexcept {
     m_Preset = idx;
     FEmitterDesc d;
     switch (idx) {

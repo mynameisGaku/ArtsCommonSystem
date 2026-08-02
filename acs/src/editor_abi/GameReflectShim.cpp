@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameReflectShim — ユーザーのゲームプロジェクトを「リフレクション DLL」としてビルドする際に
-// 一緒にコンパイルされ、この DLL の FTypeRegistry に登録された型 (= ユーザー定義の
+// 一緒にコンパイルされ、この DLL の CTypeRegistry に登録された型 (= ユーザー定義の
 // コンポーネント/オブジェクト + エンジン型) を C ABI で外部 (editor_abi) へ公開する。
 //
 // editor_abi は LoadLibrary でこの DLL をロードし、これらの関数で型スキーマを列挙して
-// ディープコピーし、自分の FTypeRegistry に登録する (DLL ごとに別インスタンスの singleton
+// ディープコピーし、自分の CTypeRegistry に登録する (DLL ごとに別インスタンスの singleton
 // を跨ぐための唯一の手段)。値ベースのスキーマ (ACS_RPROP*) なので名前/種別/既定値だけで足りる。
 #include "gameframework/Reflect.h"
 #include "gameframework/ReflectCatalog.h"
@@ -13,8 +13,8 @@
 #include "gameframework/ComponentFactory.h" // CreateComponentByName (DLL ローカル factory)
 #include "gameframework/ReflectApply.h"     // ApplyValueByName (authored 値を実体へ)
 #include "gameframework/RenderContext.h"    // FRenderContext (OnDraw に渡す)
-#include "gameframework/SceneServices.h"    // FSceneServices (DLL 所有 → cross-DLL 安全)
-#include "render/SpriteBatch.h"             // FSpriteBatch (editor 所有を共有)
+#include "gameframework/SceneServices.h"    // CSceneServices (DLL 所有 → cross-DLL 安全)
+#include "render/SpriteBatch.h"             // CSpriteBatch (editor 所有を共有)
 #include "platform/Input.h"                 // acs::Input (この DLL の g_input を FInputMap が poll)
 #include "platform/Event.h"                 // acs::FEvent (キーイベント合成)
 #include "memory/UniquePtr.h"
@@ -30,38 +30,38 @@ GR_API void acs_game_reflect_init() noexcept {
     AcsRegisterEngineTypes();   // エンジンカタログを強制リンク (ユーザー型は静的初期化で登録済み)
 }
 
-/** この DLL の FTypeRegistry に登録された型の総数。 */
+/** この DLL の CTypeRegistry に登録された型の総数。 */
 GR_API unsigned acs_game_reflect_count() noexcept {
-    return FTypeRegistry::Get().Count();
+    return CTypeRegistry::Get().Count();
 }
 
 /** i 番目の型名 (範囲外は "")。 */
 GR_API const char* acs_game_reflect_name(unsigned i) noexcept {
-    const FTypeDesc* d = FTypeRegistry::Get().At(i);
+    const FTypeDesc* d = CTypeRegistry::Get().At(i);
     return (d != nullptr && d->name != nullptr) ? d->name : "";
 }
 
 /** i 番目の型カテゴリ (ETypeCategory の整数、範囲外は -1)。 */
 GR_API int acs_game_reflect_category(unsigned i) noexcept {
-    const FTypeDesc* d = FTypeRegistry::Get().At(i);
+    const FTypeDesc* d = CTypeRegistry::Get().At(i);
     return (d != nullptr) ? static_cast<int>(d->category) : -1;
 }
 
 /** i 番目の型のフィールド数。 */
 GR_API unsigned acs_game_reflect_field_count(unsigned i) noexcept {
-    const FTypeDesc* d = FTypeRegistry::Get().At(i);
+    const FTypeDesc* d = CTypeRegistry::Get().At(i);
     return (d != nullptr) ? d->field_count : 0u;
 }
 
 /** i 番目の型の j 番目フィールド名 (範囲外は "")。 */
 GR_API const char* acs_game_reflect_field_name(unsigned i, unsigned j) noexcept {
-    const FTypeDesc* d = FTypeRegistry::Get().At(i);
+    const FTypeDesc* d = CTypeRegistry::Get().At(i);
     return (d != nullptr && d->fields != nullptr && j < d->field_count) ? d->fields[j].name : "";
 }
 
 /** i 番目の型の j 番目フィールド種別 (EFieldKind の整数、範囲外は 0)。 */
 GR_API int acs_game_reflect_field_kind(unsigned i, unsigned j) noexcept {
-    const FTypeDesc* d = FTypeRegistry::Get().At(i);
+    const FTypeDesc* d = CTypeRegistry::Get().At(i);
     if (d == nullptr || d->fields == nullptr || j >= d->field_count) return 0;
     return static_cast<int>(d->fields[j].kind);
 }
@@ -69,7 +69,7 @@ GR_API int acs_game_reflect_field_kind(unsigned i, unsigned j) noexcept {
 /** i 番目の型の j 番目フィールド既定値 (4 成分を out[4] へ)。 */
 GR_API void acs_game_reflect_field_defaults(unsigned i, unsigned j, float* out) noexcept {
     if (out == nullptr) return;
-    const FTypeDesc* d = FTypeRegistry::Get().At(i);
+    const FTypeDesc* d = CTypeRegistry::Get().At(i);
     if (d != nullptr && d->fields != nullptr && j < d->field_count) {
         for (int k = 0; k < 4; ++k) out[k] = d->fields[j].defaults[k];
     } else {
@@ -169,7 +169,7 @@ GR_API int acs_game_scene_set_prop(void* scene, int idx, int slot, const char* f
     if (s == nullptr || idx < 0 || static_cast<unsigned>(idx) >= s->nodes.Size() || field == nullptr) return 0;
     AComponent* c = s->nodes[static_cast<u32>(idx)]->ComponentAt(static_cast<u32>(slot));
     if (c == nullptr) return 0;
-    const FTypeDesc* d = FTypeRegistry::Get().FindByName(c->ReflectName());
+    const FTypeDesc* d = CTypeRegistry::Get().FindByName(c->ReflectName());
     if (d == nullptr) return 0;
     const float v[4] = { x, y, z, w };
     return ApplyValueByName(static_cast<void*>(c), *d, field, v) ? 1 : 0;
@@ -180,7 +180,7 @@ GR_API void acs_game_scene_tick(void* scene, float dt) noexcept {
     auto* s = static_cast<FGamePlayScene*>(scene);
     if (s == nullptr || !s->root) return;
     if (s->services) {
-        // FScene2D と同じ 2 段モデル: PreUpdate(Clock) → OnUpdate → PostUpdate(Tweens/Seq/Camera)。
+        // AScene2D と同じ 2 段モデル: PreUpdate(Clock) → OnUpdate → PostUpdate(Tweens/Seq/Camera)。
         s->services->_PreUpdate(dt);
         const float sdt = s->services->_ScaledDt(dt);
         s->root->UpdateTree(sdt);
@@ -205,13 +205,13 @@ GR_API void acs_game_scene_get_transform(void* scene, int idx, float* x, float* 
  * Play シーンを描画する: 各ノード/コンポーネントの OnDraw を editor の SpriteBatch へ積む。
  *
  * @details
- * sb は editor 所有の FSpriteBatch で、呼び出し側 (editor_abi) が Begin + (world view への)
+ * sb は editor 所有の CSpriteBatch で、呼び出し側 (editor_abi) が Begin + (world view への)
  * SetView 済みであること。FRenderContext に sb と world→screen ビューを配線し DrawTree を呼ぶ。
  * **全 OnDraw の vtable 呼び出しは本 DLL 内で起きる**ため、ユーザー定義コンポーネントの描画も
  * cross-DLL 安全 (factory/所有/tick と同じ「DLL 内で完結」方式)。Cmd() は配線しない
  * (2D コンポーネントは rc.HasSprites()/Sprites() のみ使う) ので、Cmd 依存の描画は対象外。
  * @param scene Play シーンハンドル。
- * @param sprite_batch editor 所有の FSpriteBatch (void* で受けて cast)。
+ * @param sprite_batch editor 所有の CSpriteBatch (void* で受けて cast)。
  * @param view_cx world→screen ビュー中心 X (rc.ViewCenter)。
  * @param view_cy world→screen ビュー中心 Y。
  * @param view_scale world→screen スケール (rc.ViewScale)。
@@ -235,7 +235,7 @@ GR_API void acs_game_scene_draw(void* scene, void* sprite_batch,
  * editor から渡されたキーイベントを «この DLL の» acs::Input へ流す。
  *
  * @details
- * FInputMap (FSceneServices::Input) は poll ベースで、query 時に acs::FInput::* を呼ぶ。
+ * FInputMap (CSceneServices::Input) は poll ベースで、query 時に acs::CInput::* を呼ぶ。
  * acs::Input の状態はモジュールごとのグローバルなので、ユーザーコンポーネント (この reflect DLL)
  * が読む g_input へ届けるには «この DLL 内» で OnEvent する必要がある。よって editor_abi は本関数を
  * 通して入力をフィードする (editor_abi 自身の g_input では届かない)。

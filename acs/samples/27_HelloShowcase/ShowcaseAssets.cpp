@@ -17,7 +17,7 @@ namespace helloshowcase {
 namespace {
 
 // 1 つの Init 呼び出しに失敗したら IsErr で抜けるための短縮マクロ。
-// ACS_SAMPLE_INIT は FApplication::Quit() を必要とするため、free function 内では
+// ACS_SAMPLE_INIT は CApplication::Quit() を必要とするため、free function 内では
 // 使えない。代わりに TResult を伝搬する形にする。
 #define HS_TRY(expr)                                                              \
     do {                                                                          \
@@ -37,7 +37,7 @@ TResult<void> InitializeAssets(FAssets& a, IRhiDevice& dev,
     // HDR + Bloom + ACES tonemap
     HS_TRY(a.post.Init(dev, sw, sh, color_fmt));
 
-    // FSky / PBR / mesh は全部 HDR format で初期化
+    // CSky / PBR / mesh は全部 HDR format で初期化
     HS_TRY(a.sky.Init(dev, a.post.HdrFormat(), depth_fmt));
     a.sky.PresetDay();
     HS_TRY(a.pbr.Init(dev, a.post.HdrFormat(), depth_fmt));
@@ -47,7 +47,7 @@ TResult<void> InitializeAssets(FAssets& a, IRhiDevice& dev,
     auto plane = Primitive::MakePlane(kFloorSize, kFloorSize);
     HS_TRY(UploadMesh(dev, *plane, a.gm_floor));
 
-    // SSR は env reflection を FPbrShader 側で合成する (1 フレーム遅延)
+    // SSR は env reflection を CPbrShader 側で合成する (1 フレーム遅延)
     HS_TRY(a.ssr.Init(dev, a.post.HdrFormat(), sw, sh));
     // Hi-Z coarse min-depth — SSR の skip-ahead 用 1/8 解像度
     HS_TRY(a.hiz.Init(dev, sw, sh));

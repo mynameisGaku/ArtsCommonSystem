@@ -3,4 +3,4 @@
 #include "HelloSpriteApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hellosprite::FHelloSpriteApp)
+ACS_DEFINE_MAIN(hellosprite::CHelloSpriteApp)

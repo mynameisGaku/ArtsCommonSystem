@@ -2,11 +2,11 @@
 // HelloSceneInspector — Inspector 系 4 panel + Selection + Seam の束ね役。
 //
 // Scene 本体から panel の配線責任を切り出すための薄いコンテナ。
-// 1) Init で 4 panel + FSelectionService + FInspectorSeam を起動 + 配線
+// 1) Init で 4 panel + CSelectionService + CInspectorSeam を起動 + 配線
 // 2) Shutdown で逆順 teardown
 // 3) DrawUI で 1 フレーム分の描画 (root / game / seam は呼び出し側が供給)
 //
-// 4 panel 間の選択共有は FSelectionService が source of truth。Hierarchy が
+// 4 panel 間の選択共有は CSelectionService が source of truth。Hierarchy が
 // 選択を更新し、Inspector が読む。
 #pragma once
 
@@ -16,13 +16,13 @@
 #include "gameframework/tools/inspector/EditorToolbar.h"
 #include "gameframework/tools/inspector/SelectionService.h"
 
-namespace acs::game { class FGame; class ANode; }
+namespace acs::game { class CGame; class ANode; }
 
 namespace helloscene {
 
-class FPanelLayout {
+class CPanelLayout {
 public:
-    FPanelLayout() noexcept = default;
+    CPanelLayout() noexcept = default;
 
     void Init()     noexcept;
     void Shutdown() noexcept;
@@ -39,14 +39,14 @@ public:
 
     // 1 フレーム分の panel 描画。`game` は Toolbar が GetGame に渡す対象、
     // `root` は Hierarchy が辿るツリーのルート。
-    void DrawUI(acs::game::FGame& game, acs::game::ANode& root) noexcept;
+    void DrawUI(acs::game::CGame& game, acs::game::ANode& root) noexcept;
 
 private:
-    acs::game::inspector::FHierarchyPanel   m_HierarchyPanel;
-    acs::game::inspector::FInspectorPanel   m_InspectorPanel;
-    acs::game::inspector::FEditorToolbar    m_Toolbar;
-    acs::game::inspector::FSelectionService m_Selection;
-    acs::game::FInspectorSeam               m_Seam;
+    acs::game::inspector::AHierarchyPanel   m_HierarchyPanel;
+    acs::game::inspector::AInspectorPanel   m_InspectorPanel;
+    acs::game::inspector::AEditorToolbar    m_Toolbar;
+    acs::game::inspector::CSelectionService m_Selection;
+    acs::game::CInspectorSeam               m_Seam;
 };
 
 } // namespace helloscene

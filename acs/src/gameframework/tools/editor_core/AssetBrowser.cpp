@@ -439,7 +439,7 @@ EAssetKind CAssetBrowser::ClassifyByExtension(const wchar_t* path) noexcept {
     if (EndsWithIgnoreCase(path, L".particle")) return EAssetKind::Particle;
     // FAnimation
     if (EndsWithIgnoreCase(path, L".anim"))     return EAssetKind::Animation;
-    // FBehaviorTree
+    // CBehaviorTree
     if (EndsWithIgnoreCase(path, L".bt"))       return EAssetKind::BehaviorTree;
     // FTilemap
     if (EndsWithIgnoreCase(path, L".tilemap"))  return EAssetKind::Tilemap;

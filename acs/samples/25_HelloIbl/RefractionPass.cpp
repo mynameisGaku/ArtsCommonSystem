@@ -13,7 +13,7 @@ using namespace acs;
 
 namespace helloibl {
 
-void RenderRefractionPass(FHelloIblApp& app, const FMat4& vp_for_render,
+void RenderRefractionPass(CHelloIblApp& app, const FMat4& vp_for_render,
                           const FViewport& vp, const FScissorRect& svr) noexcept {
     if (!app.m_ShowRefraction) return;
 

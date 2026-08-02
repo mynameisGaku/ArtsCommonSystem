@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar A — CSceneServices
 //
-// シーンが必要なサービス (CSceneClock / FTweenManager / CSequenceRunner / FInputMap)
+// シーンが必要なサービス (CSceneClock / CTweenManager / CSequenceRunner / FInputMap)
 // を bit flag (`ESvc`) で宣言、CSceneServices が遅延 alloc して保持する取り付けハブ。
 // CGame/CSceneManager が自動で tick + scene 切替に追従。
 //
@@ -63,7 +63,7 @@ enum class ESvc : u32 {
     /** CSceneClock (時間スケール付き dt)。 */
     Clock      = 1u << 0,
 
-    /** FTweenManager (補間アニメーション)。 */
+    /** CTweenManager (補間アニメーション)。 */
     Tweens     = 1u << 1,
 
     /** CSequenceRunner (時系列スクリプト)。 */
@@ -78,7 +78,7 @@ enum class ESvc : u32 {
     /** CCollisionWorld2D (2D 衝突)。 */
     Physics2D  = 1u << 5,
 
-    /** FTriggerWorld2D (overlap enter/stay/exit イベント)。 */
+    /** CTriggerWorld2D (overlap enter/stay/exit イベント)。 */
     Triggers   = 1u << 6,
 
     /** 2D ゲームの既定セット (Clock | Tweens | Sequences | Input)。 */
@@ -170,12 +170,12 @@ public:
     CSceneClock&          Clock()     noexcept;
 
     /**
-     * FTweenManager への参照を返す。
+     * CTweenManager への参照を返す。
      *
      * @details ESvc::Tweens が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return tween サービスへの参照。
      */
-    FTweenManager&        Tweens()    noexcept;
+    CTweenManager&        Tweens()    noexcept;
 
     /**
      * CSequenceRunner への参照を返す。
@@ -210,12 +210,12 @@ public:
     CCollisionWorld2D&    Physics()   noexcept;
 
     /**
-     * FTriggerWorld2D への参照を返す。
+     * CTriggerWorld2D への参照を返す。
      *
      * @details ESvc::Triggers が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return トリガサービスへの参照。
      */
-    FTriggerWorld2D&      Triggers()  noexcept;
+    CTriggerWorld2D&      Triggers()  noexcept;
 
     /**
      * scene.OnUpdate の前に呼ぶ前段 tick (利用者は触らない)。
@@ -255,7 +255,7 @@ private:
     TUniquePtr<CSceneClock>     m_Clock;
 
     /** tween サービス (未要求なら null)。 */
-    TUniquePtr<FTweenManager>   m_Tweens;
+    TUniquePtr<CTweenManager>   m_Tweens;
 
     /** sequence サービス (未要求なら null)。 */
     TUniquePtr<CSequenceRunner> m_Sequences;
@@ -270,7 +270,7 @@ private:
     TUniquePtr<CCollisionWorld2D>    m_Physics;
 
     /** トリガサービス (未要求なら null)。 */
-    TUniquePtr<FTriggerWorld2D>      m_Triggers;
+    TUniquePtr<CTriggerWorld2D>      m_Triggers;
 };
 
 } // namespace acs::game

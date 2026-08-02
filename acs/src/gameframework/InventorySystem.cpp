@@ -79,7 +79,7 @@ void CInventorySystem::RegisterItem(const FItemDef& def) noexcept {
 
     // 同 id の 2 重登録は no-op (アセット二重ロード保護)。
     if (FindItemSlot(def.id) != kNotFound) {
-        ACS_LOG_WARN("FInventorySystem: duplicate item registration ignored ('%s')", def.id);
+        ACS_LOG_WARN("CInventorySystem: duplicate item registration ignored ('%s')", def.id);
         return;
     }
 

@@ -9,23 +9,23 @@
 
 namespace acs {
     class IRhiCommandList;
-    class FSpriteBatch;
+    class CSpriteBatch;
     class FFont;
 }
 
 namespace helloraycast3d {
 
-class FRaycastTargets;
+class CRaycastTargets;
 
-class FHudRenderer {
+class CHudRenderer {
 public:
     // font が未ロード (AtlasTexture が無い) の場合は何もしない。
-    static void Draw(acs::FSpriteBatch& batch,
+    static void Draw(acs::CSpriteBatch& batch,
                      acs::FFont& font,
                      acs::IRhiCommandList& cl,
                      acs::u32 screen_w,
                      acs::u32 screen_h,
-                     const FRaycastTargets& targets) noexcept;
+                     const CRaycastTargets& targets) noexcept;
 };
 
 } // namespace helloraycast3d

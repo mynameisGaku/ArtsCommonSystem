@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloParticles — FApplication 実装。
+// HelloParticles — CApplication 実装。
 #include "HelloParticlesApp.h"
 
 #include "app/Sample.h"
@@ -34,11 +34,11 @@ void GenerateGlow(u8* out) noexcept {
 
 } // namespace
 
-void FHelloParticlesApp::OnStart() noexcept {
+void CHelloParticlesApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
-    // FSpriteBatch (2D 描画) と Glow テクスチャ (粒の見た目) を準備
+    // CSpriteBatch (2D 描画) と Glow テクスチャ (粒の見た目) を準備
     ACS_SAMPLE_INIT(m_Batch.Init(*dev, GetRenderer().ColorFormat()));
 
     // パーティクルの粒テクスチャを CPU 側で 1 枚だけ生成し GPU へ転送
@@ -61,12 +61,12 @@ void FHelloParticlesApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloParticles initialized");
 }
 
-void FHelloParticlesApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloParticlesApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Scene.Update(dt);
 }
 
-void FHelloParticlesApp::OnRender() noexcept {
+void CHelloParticlesApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -82,7 +82,7 @@ void FHelloParticlesApp::OnRender() noexcept {
     m_Batch.End();
 }
 
-void FHelloParticlesApp::OnShutdown() noexcept {
+void CHelloParticlesApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Scene.Shutdown();

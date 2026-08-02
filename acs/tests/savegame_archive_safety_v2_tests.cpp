@@ -19,7 +19,7 @@ constexpr u16 SaveSub(ESaveArchiveSubCode code) noexcept {
     return static_cast<u16>(static_cast<u32>(code));
 }
 
-class FAlwaysFailAllocator final : public FAllocator {
+class FAlwaysFailAllocator final : public IAllocator {
 public:
     void* Alloc(usize, usize, FSourceLoc) noexcept override { return nullptr; }
     void Free(void*) noexcept override {}
@@ -161,10 +161,10 @@ ACS_TEST(SaveGameArchiveSafetyV2, ValidateFileReturnsVerifiedMetadata) {
     FTempSavePath path(L"validate_metadata");
     const u8 payload[] = {0x10u, 0x00u, 0x20u, 0x00u, 0x30u};
     EXPECT_TRUE(
-        FSaveArchive::WriteToFile(
+        CSaveArchive::WriteToFile(
             path.Path, 42u, payload, sizeof(payload)).IsOk());
 
-    const auto result = FSaveArchive::ValidateFile(path.Path);
+    const auto result = CSaveArchive::ValidateFile(path.Path);
     EXPECT_TRUE(result.IsOk());
     if (result.IsOk()) {
         EXPECT_EQ(result.Value().Version, 42u);
@@ -179,12 +179,12 @@ ACS_TEST(SaveGameArchiveSafetyV2, ValidateFileRejectsCrcAndTrailingData) {
     FTempSavePath crc_path(L"validate_crc");
     const u8 payload[] = {1u, 2u, 3u, 4u};
     EXPECT_TRUE(
-        FSaveArchive::WriteToFile(
+        CSaveArchive::WriteToFile(
             crc_path.Path, 1u, payload, sizeof(payload)).IsOk());
     EXPECT_TRUE(PatchByte(
-        crc_path.Path, FSaveArchive::kHeaderSize, 0xFEu));
+        crc_path.Path, CSaveArchive::kHeaderSize, 0xFEu));
 
-    const auto crc_result = FSaveArchive::ValidateFile(crc_path.Path);
+    const auto crc_result = CSaveArchive::ValidateFile(crc_path.Path);
     EXPECT_TRUE(crc_result.IsErr());
     if (crc_result.IsErr()) {
         EXPECT_EQ(
@@ -194,11 +194,11 @@ ACS_TEST(SaveGameArchiveSafetyV2, ValidateFileRejectsCrcAndTrailingData) {
 
     FTempSavePath trailing_path(L"validate_trailing");
     EXPECT_TRUE(
-        FSaveArchive::WriteToFile(
+        CSaveArchive::WriteToFile(
             trailing_path.Path, 1u, payload, sizeof(payload)).IsOk());
     EXPECT_TRUE(AppendByte(trailing_path.Path, 0xCCu));
     const auto trailing_result =
-        FSaveArchive::ValidateFile(trailing_path.Path);
+        CSaveArchive::ValidateFile(trailing_path.Path);
     EXPECT_TRUE(trailing_result.IsErr());
     if (trailing_result.IsErr()) {
         EXPECT_EQ(
@@ -211,15 +211,15 @@ ACS_TEST(SaveGameArchiveSafetyV2, ValidateFileRejectsOversizedDeclaration) {
     FTempSavePath path(L"validate_oversized");
     const u8 payload = 0x5Au;
     EXPECT_TRUE(
-        FSaveArchive::WriteToFile(
+        CSaveArchive::WriteToFile(
             path.Path, 1u, &payload, sizeof(payload)).IsOk());
 
     u8 encoded_size[8] = {};
     WriteU64LE(
-        encoded_size, FSaveArchive::kMaxPayloadSize + 1u);
+        encoded_size, CSaveArchive::kMaxPayloadSize + 1u);
     EXPECT_TRUE(PatchBytes(path.Path, 12u, encoded_size, 8u));
 
-    const auto result = FSaveArchive::ValidateFile(path.Path);
+    const auto result = CSaveArchive::ValidateFile(path.Path);
     EXPECT_TRUE(result.IsErr());
     if (result.IsErr()) {
         EXPECT_EQ(
@@ -251,11 +251,11 @@ ACS_TEST(SaveGameArchiveSafetyV2, StaleTempCollisionRetriesSafely) {
 
     const FSlotPayload payload{73u, {'s', 'a', 'f', 'e', 0u}};
     EXPECT_TRUE(
-        FSaveArchive::WriteToFile(
+        CSaveArchive::WriteToFile(
             path.Path, 3u, &payload, sizeof(payload)).IsOk());
     EXPECT_TRUE(
         ::GetFileAttributesW(stale_path) != INVALID_FILE_ATTRIBUTES);
-    EXPECT_TRUE(FSaveArchive::ValidateFile(path.Path).IsOk());
+    EXPECT_TRUE(CSaveArchive::ValidateFile(path.Path).IsOk());
     EXPECT_TRUE(::DeleteFileW(stale_path) != 0);
 }
 
@@ -301,7 +301,7 @@ ACS_TEST(SaveGameArchiveSafetyV2, TryInitOomPreservesBorrowedPath) {
 ACS_TEST(SaveGameArchiveSafetyV2, InvalidPathsFailBeforePayloadAccess) {
     const u8 one_byte = 0x55u;
     const auto empty =
-        FSaveArchive::WriteToFile(L"", 1u, &one_byte, 1u);
+        CSaveArchive::WriteToFile(L"", 1u, &one_byte, 1u);
     EXPECT_TRUE(empty.IsErr());
     if (empty.IsErr()) {
         EXPECT_EQ(
@@ -309,14 +309,14 @@ ACS_TEST(SaveGameArchiveSafetyV2, InvalidPathsFailBeforePayloadAccess) {
             SaveSub(ESaveArchiveSubCode::kSubInvalidArgument));
     }
 
-    wchar_t too_long[FSaveArchive::kMaxPathChars + 2u] = {};
-    for (usize i = 0; i <= FSaveArchive::kMaxPathChars; ++i) {
+    wchar_t too_long[CSaveArchive::kMaxPathChars + 2u] = {};
+    for (usize i = 0; i <= CSaveArchive::kMaxPathChars; ++i) {
         too_long[i] = L'a';
     }
-    too_long[FSaveArchive::kMaxPathChars + 1u] = L'\0';
+    too_long[CSaveArchive::kMaxPathChars + 1u] = L'\0';
 
     const auto path_result =
-        FSaveArchive::ValidateFile(too_long);
+        CSaveArchive::ValidateFile(too_long);
     EXPECT_TRUE(path_result.IsErr());
     if (path_result.IsErr()) {
         EXPECT_EQ(

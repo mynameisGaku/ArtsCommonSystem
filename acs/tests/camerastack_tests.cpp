@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FCameraStack (Pillar E) の動作確認テスト — 特に Push/Pop 遷移の後勝ち契約
+// CCameraStack (Pillar E) の動作確認テスト — 特に Push/Pop 遷移の後勝ち契約
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "gameframework/Camera2D.h"
@@ -9,11 +9,11 @@ using namespace acs;
 using namespace acs::game;
 
 ACS_TEST(CameraStack, PushPopBasics) {
-    FCamera2D a, b;
+    CCamera2D a, b;
     a.SetPosition({0, 0});
     b.SetPosition({100, 0});
 
-    FCameraStack st;
+    CCameraStack st;
     st.PushCamera(a, 0.0f);
     EXPECT_EQ(st.Depth(), 1u);
     EXPECT_TRUE(st.Active() == &a);
@@ -34,12 +34,12 @@ ACS_TEST(CameraStack, PushPopBasics) {
 }
 
 ACS_TEST(CameraStack, PushDuringPopFinalizesPendingPop) {
-    FCamera2D a, b, c;
+    CCamera2D a, b, c;
     a.SetPosition({0, 0});
     b.SetPosition({100, 0});
     c.SetPosition({200, 0});
 
-    FCameraStack st;
+    CCameraStack st;
     st.PushCamera(a, 0.0f);
     st.PushCamera(b, 0.0f);
     EXPECT_EQ(st.Depth(), 2u);

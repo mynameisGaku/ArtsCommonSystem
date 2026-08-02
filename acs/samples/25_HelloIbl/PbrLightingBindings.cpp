@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloIbl — FPbrShader の lighting / 補助テクスチャ bind 集約。
+// HelloIbl — CPbrShader の lighting / 補助テクスチャ bind 集約。
 //
 // HDR 描画パスで sphere grid / floor を描く前に呼ぶ。IBL / 太陽 / SSAO / SSGI /
 // SSR / Shadow / Fog / probe grid / area light を一括で bind する。
@@ -14,21 +14,21 @@ using namespace acs;
 
 namespace helloibl {
 
-// 各 bind helper は FHelloIblApp の private (m_Pbr / m_Ibl / m_Shadow…) を直接触るため
-// friend 宣言済み (FHelloIblApp.h)。匿名名前空間に入れると friend と一致しなくなるので
+// 各 bind helper は CHelloIblApp の private (m_Pbr / m_Ibl / m_Shadow…) を直接触るため
+// friend 宣言済み (HelloIblApp.h)。匿名名前空間に入れると friend と一致しなくなるので
 // namespace 直下に置く。
-void BindIbl(FHelloIblApp& app) noexcept {
+void BindIbl(CHelloIblApp& app) noexcept {
     app.m_Pbr.SetIbl(app.m_Ibl.IrradianceMap(), app.m_Ibl.PrefilterMap(), app.m_Ibl.BrdfLut(),
                     app.m_Ibl.PrefilterMips());
     app.m_Pbr.SetSh9(app.m_bUseSh9 ? app.m_Sh9 : nullptr);
 }
 
-void BindSun(FHelloIblApp& app, const FMat4& vp_for_render, const FDirLight& sun) noexcept {
+void BindSun(CHelloIblApp& app, const FMat4& vp_for_render, const FDirLight& sun) noexcept {
     app.m_Pbr.SetLights(vp_for_render, app.m_Camera.Eye(), &sun, 1, FVec3{0, 0, 0});
     app.m_Pbr.SetPointLights(nullptr, 0);
 }
 
-void BindSsao(FHelloIblApp& app) noexcept {
+void BindSsao(CHelloIblApp& app) noexcept {
     IRhiTexture* hdr = app.m_Post.HdrRenderTarget();
     if (!hdr) return;
     // 注: SSAO 無効時も viewport サイズは渡す。SSGI / SSR が screen UV を
@@ -41,7 +41,7 @@ void BindSsao(FHelloIblApp& app) noexcept {
     }
 }
 
-void BindSsgi(FHelloIblApp& app) noexcept {
+void BindSsgi(CHelloIblApp& app) noexcept {
     if (app.m_bUseSsgi && app.m_bSsgiWarm) {
         app.m_Pbr.SetSsgi(app.m_Ssgi.OutputTexture(), /*intensity=*/0.6f);
     } else {
@@ -49,8 +49,8 @@ void BindSsgi(FHelloIblApp& app) noexcept {
     }
 }
 
-void BindSsr(FHelloIblApp& app) noexcept {
-    // FPbrShader 側で roughness 依存合成 (rough 面ほど反射が弱まる)。
+void BindSsr(CHelloIblApp& app) noexcept {
+    // CPbrShader 側で roughness 依存合成 (rough 面ほど反射が弱まる)。
     if (app.m_ShowSsr && app.m_SsrWarm) {
         app.m_Pbr.SetSsr(app.m_Ssr.OutputTexture(), /*intensity=*/1.0f);
     } else {
@@ -58,10 +58,10 @@ void BindSsr(FHelloIblApp& app) noexcept {
     }
 }
 
-void BindShadow(FHelloIblApp& app) noexcept {
+void BindShadow(CHelloIblApp& app) noexcept {
     if (app.m_bUseShadows) {
-        FMat4 vps   [FShadowMap::kMaxCascades] = {};
-        f32  splits[FShadowMap::kMaxCascades] = {};
+        FMat4 vps   [CShadowMap::kMaxCascades] = {};
+        f32  splits[CShadowMap::kMaxCascades] = {};
         for (u32 c = 0; c < app.m_Shadow.CascadeCount(); ++c) {
             vps[c]    = app.m_Shadow.LightViewProjection(c);
             splits[c] = app.m_Shadow.CascadeSplit(c);
@@ -75,7 +75,7 @@ void BindShadow(FHelloIblApp& app) noexcept {
     }
 }
 
-void BindFog(FHelloIblApp& app) noexcept {
+void BindFog(CHelloIblApp& app) noexcept {
     // 青灰色の解析積分 height fog。HG 前方散乱で太陽方向に自然な光だまりを作る。
     if (app.m_bUseFog) {
         app.m_Pbr.SetFog(FVec3{0.62f, 0.70f, 0.82f},
@@ -87,10 +87,10 @@ void BindFog(FHelloIblApp& app) noexcept {
     }
 }
 
-void BindProbeGrid(FHelloIblApp& app) noexcept {
+void BindProbeGrid(CHelloIblApp& app) noexcept {
     if (app.m_bUseProbeGrid) {
         // 計算済 m_Sh9 (現 env の SH9) をベースに、左右の probe を赤/青に着色
-        FPbrShader::FLightProbe p[2];
+        CPbrShader::FLightProbe p[2];
         p[0].position = FVec3{-4.0f, 1.5f, 3.0f};   // 左 probe (赤光)
         for (u32 k = 0; k < 9; ++k) p[0].sh9[k] = app.m_Sh9[k];
         p[0].sh9[0] = p[0].sh9[0] + FVec4{2.5f, 0.4f, 0.4f, 0};   // l=0 (DC) に赤を強める
@@ -106,10 +106,10 @@ void BindProbeGrid(FHelloIblApp& app) noexcept {
     }
 }
 
-void BindAreaLight(FHelloIblApp& app) noexcept {
+void BindAreaLight(CHelloIblApp& app) noexcept {
     // 球グリッドの前方上空に置いた 2x1 矩形パネル
     if (app.m_bUseAreaLight) {
-        FPbrShader::FAreaLight rect;
+        CPbrShader::FAreaLight rect;
         rect.center = FVec3{0.0f, 4.0f, 1.0f};      // 上空、camera 側
         rect.axis_x = FVec3{1.0f, 0.0f, 0.0f};      // 横半幅 = 1
         rect.axis_y = FVec3{0.0f, 0.0f, 0.5f};      // 奥行半高 = 0.5
@@ -120,7 +120,7 @@ void BindAreaLight(FHelloIblApp& app) noexcept {
     }
 }
 
-void BindPbrLighting(FHelloIblApp& app, const FMat4& vp_for_render, const FDirLight& sun) noexcept {
+void BindPbrLighting(CHelloIblApp& app, const FMat4& vp_for_render, const FDirLight& sun) noexcept {
     BindIbl(app);
     BindSun(app, vp_for_render, sun);
     BindSsao(app);

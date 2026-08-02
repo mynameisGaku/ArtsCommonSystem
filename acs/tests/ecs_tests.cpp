@@ -69,7 +69,7 @@ struct FMoveOnlyComp {
 };
 
 /** 常に確保失敗する backing (command buffer の OOM 契約検証用)。 */
-class FEcbFailAllocator final : public FAllocator {
+class FEcbFailAllocator final : public IAllocator {
 public:
     void* Alloc(usize /*Size*/, usize /*Alignment*/, FSourceLoc /*Location*/) noexcept override
     {
@@ -83,7 +83,7 @@ public:
 }
 
 ACS_TEST(Ecs, CreateDestroy) {
-    FWorld w;
+    CWorld w;
     FEntityId a = w.Create();
     FEntityId b = w.Create();
     EXPECT_TRUE(w.IsAlive(a));
@@ -95,7 +95,7 @@ ACS_TEST(Ecs, CreateDestroy) {
 }
 
 ACS_TEST(Ecs, AddGetRemoveComponent) {
-    FWorld w;
+    CWorld w;
     FEntityId e = w.Create();
     w.Add<FPosition>(e, {1, 2, 3});
     EXPECT_TRUE(w.Has<FPosition>(e));
@@ -111,9 +111,9 @@ ACS_TEST(Ecs, CanonicalComponentIdentifiersPreserveRuntimeContracts)
     /** 検査用コンポーネントへ割り当てられた実行時番号。 */
     const FComponentTypeId id = GetComponentTypeId<FPosition>();
     /** 型登録で得た操作情報。 */
-    const FComponentOps& registered = FComponentRegistry::Register<FPosition>();
+    const FComponentOps& registered = CComponentRegistry::Register<FPosition>();
     /** 同じ番号から取り直した操作情報。 */
-    const FComponentOps& fetched = FComponentRegistry::Get(id);
+    const FComponentOps& fetched = CComponentRegistry::Get(id);
 
     EXPECT_TRUE(&registered == &fetched);
     EXPECT_EQ(id, TComponentTypeTraits<FPosition>::RuntimeId());
@@ -122,7 +122,7 @@ ACS_TEST(Ecs, CanonicalComponentIdentifiersPreserveRuntimeContracts)
 }
 
 ACS_TEST(Ecs, GenerationInvalidatesOldId) {
-    FWorld w;
+    CWorld w;
     FEntityId a = w.Create();
     w.Destroy(a);
     FEntityId b = w.Create();  // 同じ index を再利用するが世代が違う
@@ -132,7 +132,7 @@ ACS_TEST(Ecs, GenerationInvalidatesOldId) {
 
 ACS_TEST(Ecs, ClearReleasesAllStateAndAllowsReuse)
 {
-    FWorld world;
+    CWorld world;
     const FEntityId old_entity = world.Create();
     world.Add<FPosition>(old_entity, FPosition{1.0f, 2.0f, 3.0f});
     EXPECT_EQ(world.EntityCount(), 1u);
@@ -150,7 +150,7 @@ ACS_TEST(Ecs, ClearReleasesAllStateAndAllowsReuse)
 }
 
 ACS_TEST(Ecs, QueryIteratesMatching) {
-    FWorld w;
+    CWorld w;
     for (int i = 0; i < 100; ++i) {
         FEntityId e = w.Create();
         w.Add<FPosition>(e, {(f32)i, 0, 0});
@@ -163,7 +163,7 @@ ACS_TEST(Ecs, QueryIteratesMatching) {
 
 ACS_TEST(Ecs, QuerySnapshotRejectsDestroyedGenerationAndDefersReusedSlot)
 {
-    FWorld world;
+    CWorld world;
     const FEntityId first = world.Create();
     const FEntityId stale = world.Create();
     world.Add<FPosition>(first, {1.0f, 0.0f, 0.0f});
@@ -191,14 +191,14 @@ ACS_TEST(Ecs, QuerySnapshotRejectsDestroyedGenerationAndDefersReusedSlot)
 }
 
 ACS_TEST(Ecs, SystemSchedulerRuns) {
-    FWorld w;
+    CWorld w;
     for (int i = 0; i < 10; ++i) {
         FEntityId e = w.Create();
         w.Add<FPosition>(e, {0, 0, 0});
         w.Add<FVelocity>(e, {1, 0, 0});
     }
-    FSystemScheduler s;
-    s.Add([](FWorld& w, f32 dt){
+    CSystemScheduler s;
+    s.Add([](CWorld& w, f32 dt){
         w.Query<FPosition, FVelocity>().Each([dt](FEntityId, FPosition& p, FVelocity& v){
             p.x += v.dx * dt;
         });
@@ -214,7 +214,7 @@ ACS_TEST(Ecs, SystemSchedulerRuns) {
 
 ACS_TEST(Ecs, EntityCommandBufferDefersAndAppliesStructuralChanges)
 {
-    FWorld w;
+    CWorld w;
     const FEntityId a = w.Create();
     const FEntityId b = w.Create();
     const FEntityId c = w.Create();
@@ -255,7 +255,7 @@ ACS_TEST(Ecs, EntityCommandBufferDefersAndAppliesStructuralChanges)
 
 ACS_TEST(Ecs, EntityCommandBufferRemoveAndClearDiscardsWithoutApplying)
 {
-    FWorld w;
+    CWorld w;
     const FEntityId e = w.Create();
     w.Add<FPosition>(e, {1, 2, 3});
     w.Add<FVelocity>(e, {4, 5, 6});
@@ -282,7 +282,7 @@ ACS_TEST(Ecs, EntityCommandBufferRemoveAndClearDiscardsWithoutApplying)
 
 ACS_TEST(Ecs, EntityCommandBufferGracefullyHandlesOutOfMemory)
 {
-    FWorld w;
+    CWorld w;
     const FEntityId e = w.Create();
 
     // command buffer 自身のストレージを常時失敗 backing に載せると、記録は落ちるが
@@ -302,8 +302,8 @@ ACS_TEST(Ecs, EntityCommandBufferGracefullyHandlesOutOfMemory)
 
 ACS_TEST(Ecs, EntityCommandBufferInlinesSmallValuesAfterBatchReserve)
 {
-    FWorld world;
-    FSystemAllocator allocator;
+    CWorld world;
+    CSystemAllocator allocator;
     FEntityCommandBuffer commands(world, allocator);
     constexpr usize kCount = 128u;
     EXPECT_TRUE(commands.TryReserve(kCount));
@@ -327,14 +327,14 @@ ACS_TEST(Ecs, WorldCopyFromSnapshotAndRollback)
 {
     // rollback netcode の要件: snapshot 時の EntityId は復元後も有効、snapshot 後に
     // 作った EntityId は復元で無効、値・コンポーネント構成・生存状態が完全に巻き戻る。
-    FWorld w;
+    CWorld w;
     const FEntityId a = w.Create();
     w.Add<FPosition>(a, {1, 2, 3});
     w.Add<FHealth>(a, {10});
     const FEntityId b = w.Create();
     w.Add<FPosition>(b, {4, 5, 6});
 
-    FWorld snap;
+    CWorld snap;
     EXPECT_TRUE(snap.CopyFrom(w));
     EXPECT_EQ(snap.EntityCount(), 2u);
 
@@ -372,12 +372,12 @@ ACS_TEST(Ecs, WorldCopyFromSnapshotAndRollback)
 ACS_TEST(Ecs, WorldCopyFromRejectsNonCopyableComponents)
 {
     // 非コピー型の SparseSet を持つ World は複製できず、部分複製も残さない。
-    FWorld w;
+    CWorld w;
     const FEntityId e = w.Create();
     w.Add<FPosition>(e, {1, 2, 3});
     w.Add<FMoveOnlyComp>(e, FMoveOnlyComp{5});
 
-    FWorld snap;
+    CWorld snap;
     EXPECT_FALSE(snap.CopyFrom(w));
     EXPECT_EQ(snap.EntityCount(), 0u);   // 失敗時は空 (Clear 済み) に戻る
     EXPECT_FALSE(snap.IsAlive(e));
@@ -389,7 +389,7 @@ ACS_TEST(Ecs, WorldCopyFromRejectsNonCopyableComponents)
 
 ACS_TEST(Ecs, EntityCommandBufferDeferredCreate)
 {
-    FWorld w;
+    CWorld w;
     FEntityCommandBuffer cmd(w);
     cmd.Create();
     cmd.CreateWith<FHealth>(FHealth{42});
@@ -415,9 +415,9 @@ ACS_TEST(Ecs, ParallelCommandBufferRecordsFromWorkersAndApplies)
 {
     // EachParallel の fn 内から FParallelEntityCommandBuffer へロックなしで記録し、
     // 完了後の Flush で一括適用できることを検証する (per-worker スロット分離の実地確認)。
-    EXPECT_TRUE(FThreadPool::Init(4).IsOk());
+    EXPECT_TRUE(CThreadPool::Init(4).IsOk());
     {
-        FWorld w;
+        CWorld w;
         constexpr u32 kCount = 2000u;
         for (u32 i = 0; i < kCount; ++i) {
             const FEntityId e = w.Create();
@@ -451,16 +451,16 @@ ACS_TEST(Ecs, ParallelCommandBufferRecordsFromWorkersAndApplies)
         w.Query<FVelocity>().Each([&with_velocity](FEntityId, FVelocity&) { ++with_velocity; });
         EXPECT_EQ(with_velocity, kCount - kDestroyed);
     }
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 ACS_TEST(Ecs, ParallelCommandBufferDeferredCreateSpawnsAfterFlush)
 {
     // EachParallel 中の生成は World::Create がスレッドセーフでないため CreateWith で
     // 遅延記録し、Flush で一括生成する (並列スポーンの実地確認)。
-    EXPECT_TRUE(FThreadPool::Init(4).IsOk());
+    EXPECT_TRUE(CThreadPool::Init(4).IsOk());
     {
-        FWorld w;
+        CWorld w;
         constexpr u32 kCount = 500u;
         for (u32 i = 0; i < kCount; ++i) {
             const FEntityId e = w.Create();
@@ -482,14 +482,14 @@ ACS_TEST(Ecs, ParallelCommandBufferDeferredCreateSpawnsAfterFlush)
         w.Query<FHealth>().Each([&spawned](FEntityId, FHealth&) { ++spawned; });
         EXPECT_EQ(spawned, kCount / 2u);
     }
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 ACS_TEST(Ecs, ParallelCommandBufferWorksWithoutThreadPool)
 {
     // プール未初期化でも構築できる (スロット = 非ワーカー用の 1 本)。逐次 Each からの
     // 記録・Flush が単体の FEntityCommandBuffer と同じに動くことを確認する。
-    FWorld w;
+    CWorld w;
     const FEntityId a = w.Create();
     const FEntityId b = w.Create();
     w.Add<FHealth>(a, {5});
@@ -518,7 +518,7 @@ ACS_TEST(Ecs, ParallelCommandBufferWorksWithoutThreadPool)
 
 ACS_TEST(Ecs, QueryEachExcludingSkipsEntitiesWithExcludedComponents)
 {
-    FWorld w;
+    CWorld w;
     for (int i = 0; i < 20; ++i) {
         const FEntityId e = w.Create();
         w.Add<FPosition>(e, {static_cast<f32>(i), 0, 0});
@@ -542,7 +542,7 @@ ACS_TEST(Ecs, QueryEachExcludingSkipsEntitiesWithExcludedComponents)
 
 ACS_TEST(Ecs, QueryOptionalSpecializationReturnsNullablePointers)
 {
-    FWorld world;
+    CWorld world;
     const FEntityId with_optional = world.Create();
     const FEntityId without_optional = world.Create();
     world.Add<FPosition>(with_optional, {1.0f, 0.0f, 0.0f});

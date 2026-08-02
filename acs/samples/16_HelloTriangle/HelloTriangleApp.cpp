@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloTriangle — FApplication 実装。
+// HelloTriangle — CApplication 実装。
 #include "HelloTriangleApp.h"
 #include "Shaders.h"
 #include "Types.h"
@@ -11,7 +11,7 @@ using namespace acs;
 
 namespace hellotri {
 
-void FHelloTriangleApp::OnStart() noexcept {
+void CHelloTriangleApp::OnStart() noexcept {
     // === シェーダ === (同じ HLSL ソースから entry を変えて VS / PS を 2 回コンパイル)
     FShaderDesc vs_desc{};
     vs_desc.stage = EShaderStage::Vertex;
@@ -75,11 +75,11 @@ void FHelloTriangleApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloTriangle initialized");
 }
 
-void FHelloTriangleApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloTriangleApp::OnUpdate(f32 /*dt*/) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
 }
 
-void FHelloTriangleApp::OnRender() noexcept {
+void CHelloTriangleApp::OnRender() noexcept {
     // BeginFrame は基底クラスが先に呼んでくれる (クリア済み)。
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Pipeline || !m_Vb) return;
@@ -89,7 +89,7 @@ void FHelloTriangleApp::OnRender() noexcept {
     cl->Draw(3);
 }
 
-void FHelloTriangleApp::OnShutdown() noexcept {
+void CHelloTriangleApp::OnShutdown() noexcept {
     // GPU が描画完了するまで待ってからリソースを解放
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Pipeline.Reset();

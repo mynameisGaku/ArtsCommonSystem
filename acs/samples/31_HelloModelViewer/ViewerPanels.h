@@ -2,7 +2,7 @@
 // HelloModelViewer — エディタ UI 集約レイヤ (workspace + 4 panel + asset browser + theme)。
 //
 // 役割:
-//   ・editor_core (Workspace / FAssetBrowser / FEditorTheme) と modelview 配下の
+//   ・editor_core (Workspace / CAssetBrowser / CEditorTheme) と modelview 配下の
 //     4 panel (Viewer / Inspector / Material / Animation) を 1 個のオブジェクトに
 //     束ねる。
 //   ・各 panel の登録順 / shutdown 順 / 1 フレーム描画順を Scene から隠す。
@@ -23,40 +23,40 @@
 
 namespace hellomv {
 
-class FViewerPanels {
+class CViewerPanels {
 public:
     // theme preset 適用 → workspace 初期化 → asset browser 起動 → 4 panel 登録。
-    // FEditorWorkspace::RegisterPanel は内部で `panel->OnInit(*this)` を呼ぶので、
+    // CEditorWorkspace::RegisterPanel は内部で `panel->OnInit(*this)` を呼ぶので、
     // 個別に panel.OnInit を呼ぶと二重初期化になる (= 呼ばない)。
     void Init(const wchar_t* asset_root) noexcept;
 
-    // 逆順 shutdown。FEditorWorkspace::Shutdown は登録済み panel に OnShutdown を
+    // 逆順 shutdown。CEditorWorkspace::Shutdown は登録済み panel に OnShutdown を
     // 1 度ずつ呼んでから list を Clear するので、個別 UnregisterPanel は不要。
-    // FEditorTheme::Shutdown は API として存在しない (Dtor で十分)。
+    // CEditorTheme::Shutdown は API として存在しない (Dtor で十分)。
     void Shutdown() noexcept;
 
     // OnUpdate からカメラ姿勢を引くため viewer panel を露出。
-    acs::game::modelview::FModelViewerPanel&    Viewer()    noexcept { return m_ViewerPanel; }
+    acs::game::modelview::AModelViewerPanel&    Viewer()    noexcept { return m_ViewerPanel; }
 
     // OnUpdate で animation 時間を進めるため animation panel を露出。
-    acs::game::modelview::FModelAnimationPanel& Animation() noexcept { return m_AnimationPanel; }
+    acs::game::modelview::AModelAnimationPanel& Animation() noexcept { return m_AnimationPanel; }
 
     // OnRender が File メニュー描画のために theme / workspace を必要とする。
-    acs::game::editor_core::FEditorWorkspace&   Workspace() noexcept { return m_Workspace; }
-    acs::game::editor_core::FEditorTheme&       Theme()     noexcept { return m_Theme; }
+    acs::game::editor_core::CEditorWorkspace&   Workspace() noexcept { return m_Workspace; }
+    acs::game::editor_core::CEditorTheme&       Theme()     noexcept { return m_Theme; }
 
     // 1 フレーム分の panel 群 + asset browser を描画する。
     // ImGui::Begin 系を含むため NewFrame() と Render() の間でしか呼べない。
     void Draw(acs::f32 dt) noexcept;
 
 private:
-    acs::game::editor_core::FEditorWorkspace   m_Workspace;
-    acs::game::editor_core::FAssetBrowser      m_AssetBrowser;
-    acs::game::editor_core::FEditorTheme       m_Theme;
-    acs::game::modelview::FModelViewerPanel    m_ViewerPanel;
-    acs::game::modelview::FModelInspectorPanel m_InfoPanel;
-    acs::game::modelview::FModelMaterialPanel  m_MaterialPanel;
-    acs::game::modelview::FModelAnimationPanel m_AnimationPanel;
+    acs::game::editor_core::CEditorWorkspace   m_Workspace;
+    acs::game::editor_core::CAssetBrowser      m_AssetBrowser;
+    acs::game::editor_core::CEditorTheme       m_Theme;
+    acs::game::modelview::AModelViewerPanel    m_ViewerPanel;
+    acs::game::modelview::AModelInspectorPanel m_InfoPanel;
+    acs::game::modelview::AModelMaterialPanel  m_MaterialPanel;
+    acs::game::modelview::AModelAnimationPanel m_AnimationPanel;
 };
 
 } // namespace hellomv

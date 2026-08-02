@@ -43,7 +43,7 @@ i32 RunAudioVolumeSafetyTest() noexcept
     Samples[3] = 0u;
 
     /** 公開Play経路へ渡す短い音声アセット。 */
-    FAudioAsset Asset(48000u, 1u, ESampleFormat::PCM_S16, 2u, Move(Samples));
+    AAudioAsset Asset(48000u, 1u, ESampleFormat::PCM_S16, 2u, Move(Samples));
 
     /** 実音声機器を使わず公開操作を実行する音声エンジン。 */
     CAudioEngine Engine;

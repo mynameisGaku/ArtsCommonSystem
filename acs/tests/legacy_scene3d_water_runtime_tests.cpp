@@ -29,7 +29,7 @@ void ExpectVec3Near(FVec3 actual, FVec3 expected, f32 epsilon) noexcept {
 }
 
 FScene3DSpawnResult SpawnWaterPlane(
-    FLegacyScene3DAdapter& runtime,
+    ALegacyScene3DAdapter& runtime,
     FStringView name) noexcept {
     FScene3DSpawnResult spawned = runtime.Graph().TrySpawn(name);
     if (!spawned) return spawned;
@@ -39,8 +39,8 @@ FScene3DSpawnResult SpawnWaterPlane(
     return spawned;
 }
 
-TSharedPtr<FMeshAsset> MakePlanarTriangle() noexcept {
-    TSharedPtr<FMeshAsset> mesh = MakeShared<FMeshAsset>();
+TSharedPtr<AMeshAsset> MakePlanarTriangle() noexcept {
+    TSharedPtr<AMeshAsset> mesh = MakeShared<AMeshAsset>();
     if (!mesh) return {};
     mesh->Vertices().PushBack(
         FMeshVertex{FVec3{0.0f, 0.0f, 0.0f},
@@ -60,7 +60,7 @@ TSharedPtr<FMeshAsset> MakePlanarTriangle() noexcept {
 } // namespace
 
 ACS_TEST(LegacyScene3DWaterRuntime, TransformedPlaneUsesExactWorldHit) {
-    FLegacyScene3DAdapter runtime;
+    ALegacyScene3DAdapter runtime;
     FScene3DSpawnResult surface =
         SpawnWaterPlane(runtime, FStringView("TransformedWater"));
     EXPECT_TRUE(surface.Succeeded());
@@ -100,7 +100,7 @@ ACS_TEST(LegacyScene3DWaterRuntime, TransformedPlaneUsesExactWorldHit) {
 }
 
 ACS_TEST(LegacyScene3DWaterRuntime, OpaqueForegroundRejectsInteraction) {
-    FLegacyScene3DAdapter runtime;
+    ALegacyScene3DAdapter runtime;
     FScene3DSpawnResult surface =
         SpawnWaterPlane(runtime, FStringView("OccludedWater"));
     EXPECT_TRUE(surface.Succeeded());
@@ -132,7 +132,7 @@ ACS_TEST(LegacyScene3DWaterRuntime, OpaqueForegroundRejectsInteraction) {
 }
 
 ACS_TEST(LegacyScene3DWaterRuntime, HiddenAncestorRejectsDirectInteraction) {
-    FLegacyScene3DAdapter runtime;
+    ALegacyScene3DAdapter runtime;
     FScene3DSpawnResult group =
         runtime.Graph().TrySpawn(FStringView("WaterGroup"));
     EXPECT_TRUE(group.Succeeded());
@@ -157,15 +157,15 @@ ACS_TEST(LegacyScene3DWaterRuntime, HiddenAncestorRejectsDirectInteraction) {
 }
 
 ACS_TEST(LegacyScene3DWaterRuntime, CustomWaterUsesAuthoredTriangles) {
-    FLegacyScene3DAdapter runtime;
+    ALegacyScene3DAdapter runtime;
     FScene3DSpawnResult surface =
         runtime.Graph().TrySpawn(FStringView("TriangleWater"));
     EXPECT_TRUE(surface.Succeeded());
     auto& mesh_component =
         surface.Node->AddComponent<AMeshComponent3D>();
-    TSharedPtr<FMeshAsset> triangle = MakePlanarTriangle();
+    TSharedPtr<AMeshAsset> triangle = MakePlanarTriangle();
     EXPECT_TRUE(static_cast<bool>(triangle));
-    mesh_component.SetMeshAsset(TSharedPtr<FAsset>(triangle));
+    mesh_component.SetMeshAsset(TSharedPtr<AAsset>(triangle));
     surface.Node->AddComponent<AWaterSurface3DComponent>();
 
     FWaterRaycastHit hit{};
@@ -184,16 +184,16 @@ ACS_TEST(LegacyScene3DWaterRuntime, CustomWaterUsesAuthoredTriangles) {
 }
 
 ACS_TEST(LegacyScene3DWaterRuntime, NonPlanarCustomMeshStaysOpaque) {
-    FLegacyScene3DAdapter runtime;
+    ALegacyScene3DAdapter runtime;
     FScene3DSpawnResult surface =
         runtime.Graph().TrySpawn(FStringView("NonPlanarWater"));
     EXPECT_TRUE(surface.Succeeded());
     auto& mesh_component =
         surface.Node->AddComponent<AMeshComponent3D>();
-    TSharedPtr<FMeshAsset> mesh = MakePlanarTriangle();
+    TSharedPtr<AMeshAsset> mesh = MakePlanarTriangle();
     EXPECT_TRUE(static_cast<bool>(mesh));
     mesh->Vertices()[2].position.y = 1.0f;
-    mesh_component.SetMeshAsset(TSharedPtr<FAsset>(mesh));
+    mesh_component.SetMeshAsset(TSharedPtr<AAsset>(mesh));
     surface.Node->AddComponent<AWaterSurface3DComponent>();
 
     FWaterRaycastHit hit{};
@@ -216,7 +216,7 @@ ACS_TEST(LegacyScene3DCameraRuntime,
         "N3D 30 -1 -1 -4 5 6 10 20 30 7 0.5 3 1 1 1 1 Cinematic\n"
         "CAM3D 30 camera-a 1 5 1 45 18 0.2 4000\n";
 
-    FLegacyScene3DAdapter runtime;
+    ALegacyScene3DAdapter runtime;
     const FScene3DLoadResult loaded =
         runtime.LoadText(kScene, sizeof(kScene) - 1u);
     EXPECT_TRUE(loaded.Succeeded());
@@ -332,7 +332,7 @@ ACS_TEST(LegacyScene3DCameraRuntime,
         "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Camera\n"
         "CAM3D 1 bad/id 0 0 1 60 10 0.1 1000\n";
 
-    FLegacyScene3DAdapter runtime;
+    ALegacyScene3DAdapter runtime;
     runtime.Graph().Spawn(FStringView("Keep"));
     const FScene3DLoadResult optics =
         runtime.LoadText(kInvalidOptics, sizeof(kInvalidOptics) - 1u);
@@ -358,7 +358,7 @@ ACS_TEST(LegacyScene3DCameraRuntime,
         "N3D 30 -1 -1 4 5 6 0 20 0 1 1 1 1 1 1 1 Cinematic\n"
         "CAM3D 30 cinematic.main 1 3 0 45 21 0.2 12000\n";
 
-    FScene3D source;
+    CScene3D source;
     FScene3DLoadResult loaded =
         TryLoadScene3DText(source, kScene, sizeof(kScene) - 1u);
     EXPECT_TRUE(loaded.Succeeded());
@@ -383,7 +383,7 @@ ACS_TEST(LegacyScene3DCameraRuntime,
         saved_text,
         "CAM3D 3 cinematic.main 1 3 0") != nullptr);
 
-    FScene3D destination;
+    CScene3D destination;
     destination.Spawn(FStringView("MustBeReplaced"));
     const FScene3DLoadResult roundtrip = TryLoadScene3DText(
         destination, saved_text, saved.BytesWritten);
@@ -434,7 +434,7 @@ ACS_TEST(LegacyScene3DCameraRuntime,
     EXPECT_EQ(component.Priority(), 7);
     EXPECT_NEAR(component.FovYDegrees(), 75.0f, 1.0e-6f);
 
-    FScene3D duplicate_component_scene;
+    CScene3D duplicate_component_scene;
     ANode& camera_node =
         duplicate_component_scene.Spawn(FStringView("Camera"));
     ACameraComponent3D& first =

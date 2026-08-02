@@ -87,7 +87,7 @@
 //   ・自動矩形検出 (Aseprite 風 trimming / connected component 解析)
 //   ・複数 frame の box-select / 一括操作
 //   ・カスタム pivot guide 線描画 (現状は数値表示のみ)
-//   ・animation timeline 連携 (FSpriteAnimator との結合は別 panel)
+//   ・animation timeline 連携 (CSpriteAnimator との結合は別 panel)
 //   ・.acsatlas serializer 実装 (= FSample 35 側で stub callback のみ)
 #pragma once
 

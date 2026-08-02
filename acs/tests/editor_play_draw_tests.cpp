@@ -59,10 +59,10 @@ ACS_TEST(EditorPlayDraw, DrawTreeInvokesComponentOnDrawWithWiredContext) {
     AProbeDrawComponent& probe = child.AddComponent<AProbeDrawComponent>();
 
     // acs_game_scene_draw と同じ配線: SpriteBatch + world view。
-    // 実 FSpriteBatch を stack に置く (Init しないので GPU 不要、LightsActive()=0 で安全)。
+    // 実 CSpriteBatch を stack に置く (Init しないので GPU 不要、LightsActive()=0 で安全)。
     // DrawTree はマテリアル無しノードで rc.Sprites().LightsActive() を問い合わせるため、
     // fake ポインタではなく CPU 側だけで成立する実体が要る。
-    FSpriteBatch sprites;
+    CSpriteBatch sprites;
     FRenderContext rc;
     rc._SetSpriteBatch(&sprites);
     rc._SetView2D(FVec2{ 12.0f, 34.0f }, 2.0f);
@@ -84,7 +84,7 @@ ACS_TEST(EditorPlayDraw, HiddenNodeSkipsOnDraw) {
     AProbeDrawComponent& probe = child.AddComponent<AProbeDrawComponent>();
     child.SetVisible(false);
 
-    FSpriteBatch sprites;
+    CSpriteBatch sprites;
     FRenderContext rc;
     rc._SetSpriteBatch(&sprites);
     root.DrawTree(rc);

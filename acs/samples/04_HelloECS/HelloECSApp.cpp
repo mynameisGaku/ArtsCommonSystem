@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloECS — FApplication 実装。
+// HelloECS — CApplication 実装。
 //
 // 学習ポイント:
 //   ・SparseSet ベースの O(1) Add/Remove
@@ -28,7 +28,7 @@ using namespace acs;
 
 namespace hello04 {
 
-void FHelloEcsApp::OnStart() noexcept {
+void CHelloEcsApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -54,7 +54,7 @@ void FHelloEcsApp::OnStart() noexcept {
     // Timer コールバックは OnUpdate と同じメインスレッドで呼ばれるので、
     // ここから MessageBroker::Publish (シングルスレッド契約) を呼んで安全。
     GetTimers().SetInterval(5.0f, [](void* user){
-        auto* self = static_cast<FHelloEcsApp*>(user);
+        auto* self = static_cast<CHelloEcsApp*>(user);
         self->SpawnRandomEntities(30);
         self->GetEvents().Publish<FSpawnEvent>(
             FSpawnEvent{ self->GetWorld().EntityCount() });
@@ -63,9 +63,9 @@ void FHelloEcsApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloECS initialized (entities=%u)", GetWorld().EntityCount());
 }
 
-void FHelloEcsApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
-    if (FInput::IsKeyPressed(EKey::Space)) {
+void CHelloEcsApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (CInput::IsKeyPressed(EKey::Space)) {
         SpawnRandomEntities(50);
         // Publish はメインスレッド (= 並列ループの外) から呼ぶ契約。
         GetEvents().Publish<FSpawnEvent>(FSpawnEvent{ GetWorld().EntityCount() });
@@ -75,7 +75,7 @@ void FHelloEcsApp::OnUpdate(f32 dt) noexcept {
     const f32 sh = static_cast<f32>(GetRenderer().Swapchain()->Height());
 
     // ラムダ内は別スレッドから呼ばれるので、外部の共有資源 (MessageBroker /
-    // FSpriteBatch など) に触らないこと。Position / Velocity は Entity 毎に
+    // CSpriteBatch など) に触らないこと。Position / Velocity は Entity 毎に
     // 独立しているので並列化して安全。
     // grain=64 は demo の Entity 数が少ないため意図的に小さい (実プロジェクト
     // では 1024 程度を目安に — タスク生成オーバーヘッドを減らす)。
@@ -90,7 +90,7 @@ void FHelloEcsApp::OnUpdate(f32 dt) noexcept {
         }, 64);
 }
 
-void FHelloEcsApp::OnRender() noexcept {
+void CHelloEcsApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Tex) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -99,7 +99,7 @@ void FHelloEcsApp::OnRender() noexcept {
     m_Batch.Begin(*cl, sw, sh);
     m_Batch.DrawRect(0, 0, (f32)sw, (f32)sh, FVec4{0.05f, 0.06f, 0.1f, 1});
 
-    // 描画は FSpriteBatch のコマンド記録がスレッド非安全なので必ず逐次 Each()。
+    // 描画は CSpriteBatch のコマンド記録がスレッド非安全なので必ず逐次 Each()。
     // EachParallel をここで使うと未定義動作になる。
     const f32 r = 8.0f;
     GetWorld().Query<FPosition, FColor>().Each(
@@ -111,15 +111,15 @@ void FHelloEcsApp::OnRender() noexcept {
     m_Batch.End();
 }
 
-void FHelloEcsApp::OnShutdown() noexcept {
+void CHelloEcsApp::OnShutdown() noexcept {
     m_Tex.Reset();
     m_Batch.Shutdown();
 }
 
-void FHelloEcsApp::SpawnRandomEntities(u32 n) noexcept {
+void CHelloEcsApp::SpawnRandomEntities(u32 n) noexcept {
     const f32 sw = static_cast<f32>(GetRenderer().Swapchain()->Width());
     const f32 sh = static_cast<f32>(GetRenderer().Swapchain()->Height());
-    FWorld& w = GetWorld();
+    CWorld& w = GetWorld();
     for (u32 i = 0; i < n; ++i) {
         FEntityId e = w.Create();
         w.Add(e, FPosition{ FVec2{ m_Rnd() * sw, m_Rnd() * sh } });
@@ -128,7 +128,7 @@ void FHelloEcsApp::SpawnRandomEntities(u32 n) noexcept {
     }
 }
 
-f32 FHelloEcsApp::m_Rnd() noexcept {
+f32 CHelloEcsApp::m_Rnd() noexcept {
     m_Seed ^= m_Seed << 13; m_Seed ^= m_Seed >> 17; m_Seed ^= m_Seed << 5;
     return static_cast<f32>(m_Seed & 0xFFFFFFu) / 16777216.0f;
 }

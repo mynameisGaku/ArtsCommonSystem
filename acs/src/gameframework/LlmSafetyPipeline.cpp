@@ -390,7 +390,7 @@ bool StoreRedacted(const char* src, u32 len, const char** out_ptr) noexcept {
     bool truncated = false;
     bool redacted  = RedactPii(src, len, buf, kFilteredBufSize, &truncated);
     if (truncated) {
-        ACS_LOG_WARN("FLlmSafetyPipeline: redaction buffer truncated (len=%u)", len);
+        ACS_LOG_WARN("CLlmSafetyPipeline: redaction buffer truncated (len=%u)", len);
     }
     *out_ptr = buf;
     return redacted;
@@ -409,7 +409,7 @@ void CLlmSafetyPipeline::Init(ESafetyRule rules) noexcept {
     m_RefusedCount    = 0;
     m_FilteredCount   = 0;
     m_Initialized      = true;
-    ACS_LOG_DEBUG("FLlmSafetyPipeline: Init (rules=0x%08X)", static_cast<u32>(rules));
+    ACS_LOG_DEBUG("CLlmSafetyPipeline: Init (rules=0x%08X)", static_cast<u32>(rules));
 }
 
 void CLlmSafetyPipeline::SetTokenBudget(u32 max_input_tokens, u32 max_output_tokens) noexcept {
@@ -478,7 +478,7 @@ FSafetyResult CLlmSafetyPipeline::ValidateInput(const char* user_text) noexcept 
                 r.verdict        = ESafetyVerdict::Refused;
                 r.refusal_reason = "jailbreak attempt detected";
                 ++m_RefusedCount;
-                ACS_LOG_WARN("FLlmSafetyPipeline: jailbreak pattern matched ('%s')",
+                ACS_LOG_WARN("CLlmSafetyPipeline: jailbreak pattern matched ('%s')",
                              kJailbreakPatterns[i]);
                 return r;
             }
@@ -531,7 +531,7 @@ FSafetyResult CLlmSafetyPipeline::FilterOutput(const char* llm_response) noexcep
                 r.verdict        = ESafetyVerdict::Refused;
                 r.refusal_reason = "character anchor violation";
                 ++m_RefusedCount;
-                ACS_LOG_WARN("FLlmSafetyPipeline: refusal keyword matched ('%s')",
+                ACS_LOG_WARN("CLlmSafetyPipeline: refusal keyword matched ('%s')",
                              kRefusalKeywords[i]);
                 return r;
             }
@@ -560,7 +560,7 @@ FSafetyResult CLlmSafetyPipeline::FilterOutput(const char* llm_response) noexcep
             r.verdict       = ESafetyVerdict::Filtered;
             r.filtered_text = redacted_ptr;
             ++m_FilteredCount;
-            ACS_LOG_DEBUG("FLlmSafetyPipeline: PII redacted from response");
+            ACS_LOG_DEBUG("CLlmSafetyPipeline: PII redacted from response");
             return r;
         }
         // 無置換 → Pass。redacted_ptr は入力コピーそのものなので再利用する。

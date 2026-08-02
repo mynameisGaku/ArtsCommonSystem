@@ -16,7 +16,7 @@
 // 設計選択:
 //   ・**caller が機能を適用する**: 本クラスは設定値を保持するだけ。実際に
 //     「色覚 LUT を差し替える」「字幕を表示する」「スクリーンリーダに発話させる」
-//     のは FRenderer / UI / TTS バックエンドの責務。GameFramework モジュールから
+//     のは CRenderer / UI / TTS バックエンドの責務。GameFramework モジュールから
 //     具体的サブシステムへの依存を切る (Pillar 規約)。
 //   ・**プリセットは「上書き」**: ApplyPreset() は現設定を破棄して preset の
 //     値で全フィールドを再設定する。「Dyslexia の上に colorblind=Protanopia」
@@ -187,7 +187,7 @@ enum class EPreset : u8 {
  * @details
  * 色覚補正・モーション低減・字幕・スクリーンリーダ・片手操作などの設定値を 1 つ保持する。
  * 本クラスは値を持つだけで、実際の機能適用 (色覚 LUT 差し替え・字幕表示・TTS 発話) は
- * caller (FRenderer / UI / TTS バックエンド) の責務。CGame のメンバとして 1 インスタンスのみ
+ * caller (CRenderer / UI / TTS バックエンド) の責務。CGame のメンバとして 1 インスタンスのみ
  * 存在する設計のため非コピー・非ムーブ。
  */
 class FAccessibilityProfile {

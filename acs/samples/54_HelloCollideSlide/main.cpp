@@ -21,7 +21,7 @@ int main() {
 
     // ---- (0) ResolveCircle 直接: 床にめり込んだ円は上に押し出される ----
     {
-        FCollisionWorld2D w; w.Init(8.0f);
+        CCollisionWorld2D w; w.Init(8.0f);
         w.AddAabb(FAabb2{ FVec2{0, 10}, FVec2{100, 10} });         // 上面 y=0 (床は y∈[0,20]=画面下)
         const FVec2 push = w.ResolveCircle(FCircle{ FVec2{0, -0.5f}, 1.0f }); // 中心 y=-0.5 → 0.5 めり込み
         const bool t0 = push.y < -0.3f && std::fabs(push.x) < 0.01f;
@@ -31,7 +31,7 @@ int main() {
 
     // ---- (1) 円 body: 重力で落下 → 床で静止しつつ右へスライド ----
     {
-        FCollisionWorld2D w; w.Init(8.0f);
+        CCollisionWorld2D w; w.Init(8.0f);
         w.AddAabb(FAabb2{ FVec2{0, 10}, FVec2{100, 10} });         // 床、上面 y=0 (本体 y∈[0,20]=画面下)
         ANode node;
         node.SetPosition2D(FVec2{ 0, -5 });                   // 床より上 = 小さい Y
@@ -51,7 +51,7 @@ int main() {
 
     // ---- (2) ポリゴン body も同様にスライド ----
     {
-        FCollisionWorld2D w; w.Init(8.0f);
+        CCollisionWorld2D w; w.Init(8.0f);
         w.AddAabb(FAabb2{ FVec2{0, 10}, FVec2{100, 10} });        // 床は y∈[0,20]=画面下
         ANode node;
         node.SetPosition2D(FVec2{ 0, -5 });                  // 床より上 = 小さい Y

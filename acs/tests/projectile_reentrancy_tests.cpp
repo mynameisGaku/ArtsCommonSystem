@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FProjectileSystem のコールバック再入 (callback 内 Despawn) の回帰テスト
+// CProjectileSystem のコールバック再入 (callback 内 Despawn) の回帰テスト
 //
 // OnHit / OnExpire コールバック内で同じ弾を Despawn すると、修正前は Tick 側の
 // 内部 despawn と二重実行になり m_AliveCount が二重デクリメントされていた
@@ -16,7 +16,7 @@ namespace {
 
 /** コールバックから System 本体へ再入するためのフィクスチャ。 */
 struct FProjFixture {
-    FProjectileSystem* sys = nullptr;
+    CProjectileSystem* sys = nullptr;
     u32 hit_owner  = 0;   // この owner_id の弾だけ命中させる
     u32 hit_fired  = 0;
     u32 expire_fired = 0;
@@ -52,7 +52,7 @@ void DespawnOnExpire(void* user, FProjectileId id, const char* /*def*/) noexcept
 } // namespace
 
 ACS_TEST(ProjectileReentrancy, HitCallbackDespawnKeepsCountConsistent) {
-    FProjectileSystem sys;
+    CProjectileSystem sys;
     sys.Init(8);
 
     FProjectileDef def{};
@@ -86,7 +86,7 @@ ACS_TEST(ProjectileReentrancy, HitCallbackDespawnKeepsCountConsistent) {
 }
 
 ACS_TEST(ProjectileReentrancy, ExpireCallbackDespawnKeepsCountConsistent) {
-    FProjectileSystem sys;
+    CProjectileSystem sys;
     sys.Init(4);
 
     FProjectileDef def{};

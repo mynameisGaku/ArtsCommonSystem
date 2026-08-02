@@ -3,7 +3,7 @@
 //
 // 学習ポイント:
 //   ・FSample::TryLoadDefaultUIFont で OS 標準フォントを読み込みアトラス焼き
-//   ・FSpriteBatch::DrawString で UTF-8 文字列を描画
+//   ・CSpriteBatch::DrawString で UTF-8 文字列を描画
 //   ・FFont::MeasureWidth でテキスト幅を取って中央寄せ
 //
 // 注: OS 標準フォント (Windows: meiryo.ttc, Mac: ヒラギノ等) に依存。
@@ -16,7 +16,7 @@
 
 namespace hellotext {
 
-class FHelloTextApp : public acs::FApplication {
+class CHelloTextApp : public acs::CApplication {
 public:
     void OnStart()            noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -24,7 +24,7 @@ public:
     void OnShutdown()         noexcept override;
 
 private:
-    acs::FSpriteBatch m_Batch;
+    acs::CSpriteBatch m_Batch;
     acs::FFont        m_TitleFont;
     acs::FFont        m_BodyFont;
     acs::FFont        m_SmallFont;

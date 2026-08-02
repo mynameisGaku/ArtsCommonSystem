@@ -2,7 +2,7 @@
 // ATilemapComponent — FTilemap (data) を ANode 上で描画する AComponent。
 //
 // グリッドアトラス (cols×rows のタイル) テクスチャを持ち、各レイヤの非空タイルを
-// その atlas セルの UV で FSpriteBatch に描く。タイル ID v (1-based、0=空) は
+// その atlas セルの UV で CSpriteBatch に描く。タイル ID v (1-based、0=空) は
 // セル index (v-1) に対応する。owner ノードの world 位置がマップ原点になるので、
 // タイルマップを丸ごと移動/配置できる。
 //
@@ -32,7 +32,7 @@ namespace acs::game {
  *
  * @details
  * グリッドアトラス (cols×rows のタイル) テクスチャを持ち、各レイヤの非空タイルを
- * その atlas セルの UV で FSpriteBatch に描く。タイル ID v (1-based、0=空) はセル
+ * その atlas セルの UV で CSpriteBatch に描く。タイル ID v (1-based、0=空) はセル
  * index (v-1) に対応する。owner ノードの world 位置がマップ原点になるので、タイル
  * マップを丸ごと移動/配置できる。BuildCollision で指定レイヤを物理ワールドへ AABB
  * 登録してソリッド化できる。
@@ -99,12 +99,12 @@ public:
     void BuildCollision(CCollisionWorld2D& world, u32 layer, u32 collision_layer_bit) noexcept;
 
     /**
-     * 全レイヤの非空タイルを FSpriteBatch へ描画する。
+     * 全レイヤの非空タイルを CSpriteBatch へ描画する。
      *
      * @details
      * レイヤ 0 を最背面として前面へ順に描く。アトラス設定時はタイル ID から算出した
      * セルの UV 矩形で描画し、未設定時は tile id 由来の色でデバッグ矩形を描く。rc に
-     * FSpriteBatch が無い場合は何もしない。
+     * CSpriteBatch が無い場合は何もしない。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
     void OnDraw(FRenderContext& rc) noexcept override;

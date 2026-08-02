@@ -5,13 +5,13 @@
 // WPF エディタは XAML で「枠」(メニュー/Hierarchy/Inspector/Console) を描き、
 // ビューポートだけネイティブ HWND としてホストする。本 DLL はその HWND にエンジンの
 // DX12 スワップチェインを作り、エディタ・シーン (ノード階層 + 2D transform) を
-// FSpriteBatch で描画し、シーンの列挙 / 選択 / transform 編集を C ABI で公開する。
+// CSpriteBatch で描画し、シーンの列挙 / 選択 / transform 編集を C ABI で公開する。
 //
 //   create / attach(hwnd) / render(dt) / resize / destroy / version
 //   node_count / node_id_at / node_parent / node_name / node_get_transform /
 //   node_set_transform / select / selected
 //
-// シーンモデルは当面 ABI 内の軽量表現 (将来 ANode/FScene2D に差し替え可能)。
+// シーンモデルは当面 ABI 内の軽量表現 (将来 ANode/AScene2D に差し替え可能)。
 // =============================================================================
 #include "render/Renderer.h"
 #include "render/RhiTypes.h"
@@ -27,17 +27,17 @@
 #include "threading/ThreadPool.h"
 #include "threading/Mutex.h"
 #include "threading/ScopedLock.h"
-#include "gameframework/Reflect.h"          // FTypeRegistry / FTypeDesc / ETypeCategory
+#include "gameframework/Reflect.h"          // CTypeRegistry / FTypeDesc / ETypeCategory
 #include "gameframework/ReflectCatalog.h"   // AcsRegisterEngineTypes (エンジン型カタログ)
 #include "gameframework/ANode.h"           // 実シーングラフ ANode / FTransform2D
-#include "gameframework/RigidWorld2D.h"     // FRigidWorld2D (Play モードの物理プレビュー)
+#include "gameframework/RigidWorld2D.h"     // CRigidWorld2D (Play モードの物理プレビュー)
 #include "gameframework/PrimitiveRenderer2D.h"  // APrimitiveRenderer2D::DrawShape (形状描画)
 #include "gameframework/Material2D.h"       // FMaterial2D (マテリアルアセット = 効果プリセット)
 #include "gameframework/Light2DComponent.h" // ComputeLightDirCone (ライト角度→方向/円錐)
 #include "gameframework/ComponentFactory.h" // CreateComponentByName (反射名→実コンポーネント)
 #include "gameframework/ReflectApply.h"     // ApplyFieldValue (authored 値を実体へ適用)
-#include "gameframework/ReflectMethod.h"    // FMethodRegistry / InvokeMethodByName (関数リフレクション)
-#include "gameframework/Scene3D.h"          // FScene3D (3D シーングラフ = 3D ノードの実コンテナ)
+#include "gameframework/ReflectMethod.h"    // CMethodRegistry / InvokeMethodByName (関数リフレクション)
+#include "gameframework/Scene3D.h"          // CScene3D (3D シーングラフ = 3D ノードの実コンテナ)
 #include "gameframework/ANode.h"           // ANode / AComponent
 #include "gameframework/MeshComponent3D.h"  // AMeshComponent3D (prim/color/mesh の native 保持)
 #include "gameframework/WaterSurface3DComponent.h"
@@ -51,30 +51,30 @@
 #include "render/IRhiTexture.h"             // IRhiTexture (スプライト)
 #include "render/IRhiCommandList.h"
 #include "render/RenderAssets.h"            // UploadTexture / UploadMesh / FGpuMesh
-#include "render/DebugDraw.h"               // FDebugDraw3D (グリッド/ギズモ/選択 AABB の線)
-#include "render/Sky.h"                     // FSky (エンジン標準の手続きスカイ。Phase2: kSky3DHLSL を置換)
-#include "render/PbrShader.h"               // FPbrShader (エンジン標準 PBR。Phase2: メッシュ移行先)
+#include "render/DebugDraw.h"               // CDebugDraw3D (グリッド/ギズモ/選択 AABB の線)
+#include "render/Sky.h"                     // CSky (エンジン標準の手続きスカイ。Phase2: kSky3DHLSL を置換)
+#include "render/PbrShader.h"               // CPbrShader (エンジン標準 PBR。Phase2: メッシュ移行先)
 #include "render/StandardShader.h"          // FDirLight (有向光源)
-#include "render/PostProcess.h"             // FPostProcess (HDR→ACES トーンマップ)
+#include "render/PostProcess.h"             // CPostProcess (HDR→ACES トーンマップ)
 #include "render/SubsurfaceScattering.h"    // diffuse-only bilateral SSSS
-#include "render/Ssao.h"                    // FSsao (GTAO + contact shadow。q_ssao_* を配線)
-#include "render/Ssr.h"                     // FSsr (画面空間反射。q_ssr_* を配線)
-#include "render/HiZ.h"                     // FHiZ (SSR の full min-depth pyramid)
-#include "render/Ssgi.h"                    // FSsgi (画面空間 1 バウンス GI。q_ssgi_* を配線)
-#include "render/MotionVector.h"            // FMotionVector (motion+normal G-buffer。TAA/SSR/SSGI の reproject 用)
-#include "render/RefractionShader.h"        // FRefractionShader (ガラス/水の屈折。opaque シーンを IOR で曲げて sample)
+#include "render/Ssao.h"                    // CSsao (GTAO + contact shadow。q_ssao_* を配線)
+#include "render/Ssr.h"                     // CSsr (画面空間反射。q_ssr_* を配線)
+#include "render/HiZ.h"                     // CHiZ (SSR の full min-depth pyramid)
+#include "render/Ssgi.h"                    // CSsgi (画面空間 1 バウンス GI。q_ssgi_* を配線)
+#include "render/MotionVector.h"            // CMotionVector (motion+normal G-buffer。TAA/SSR/SSGI の reproject 用)
+#include "render/RefractionShader.h"        // CRefractionShader (ガラス/水の屈折。opaque シーンを IOR で曲げて sample)
 #include "render/WaterSurface3D.h"
-#include "render/Ibl.h"                     // FImageBasedLighting (FSky から env→irradiance/prefilter→SetIbl)
-#include "render/Atmosphere.h"              // FAtmosphere (物理大気散乱を equirect に焼く → IBL/背景)
+#include "render/Ibl.h"                     // CImageBasedLighting (CSky から env→irradiance/prefilter→SetIbl)
+#include "render/Atmosphere.h"              // CAtmosphere (物理大気散乱を equirect に焼く → IBL/背景)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
-#include "asset/MeshAsset.h"                // FMeshAsset
+#include "asset/MeshAsset.h"                // AMeshAsset
 #include "math/Camera.h"                    // CCamera (透視 + lookAt)
 #include "math/CameraRig.h"                 // ScreenPointToRay (透視/正射 両対応のピックレイ)
 #include "math/Mat.h"                       // FMat4 (model 行列の合成)
 #include "math/Math.h"                      // kDeg2Rad
 #include "math/Collision3D.h"               // Aabb3 (選択ハイライト)
 #include "collision/MeshCollider.h"         // exact cached BVH hit testing for custom water
-#include "asset/ImageAsset.h"               // FImageAsset / ImageAssetLoader (stb_image)
+#include "asset/ImageAsset.h"               // AImageAsset / ImageAssetLoader (stb_image)
 #include "asset/AssetId.h"                  // kInvalidAssetId
 #include "platform/FileSystem.h"            // FileSystem::ReadAllBytes
 #include "editor_abi/EditorProfiler.h"       // renderer profiler snapshot ABI
@@ -216,7 +216,7 @@ struct AEditorNode : public game::ANode {
 };
 
 /** ゲーム DLL から取り込んだユーザー定義型のスキーマ (ディープコピー。DLL アンロード後も有効)。
- *  自前バッファに名前/フィールドを持ち、安定アドレスの FTypeDesc をエディタの FTypeRegistry へ
+ *  自前バッファに名前/フィールドを持ち、安定アドレスの FTypeDesc をエディタの CTypeRegistry へ
  *  登録する → AttachComponent / インスペクタ / シリアライズが engine 型と同じ経路で動く。
  *  ※ TArray 再確保でアドレスが動かないよう、必ず New で個別確保し TArray<FUserType*> で持つ。 */
 struct FUserType {
@@ -294,19 +294,19 @@ struct AEditor3DRecordComponent : public acs::game::AComponent {
     char  prefab_src[256]  = {};              ///< 非空なら prefab/blueprint インスタンス (.acsprefab/.acsbp パス。2D AEditorNode 鏡映)。
     bool  is_empty         = false;           ///< true なら «空ノード» (描画しないグループ用トランスフォーム。2D の空ノード相当)。
     TArray<FVec2> poly_pts;                   ///< 3点以上なら手続きポリゴン (z=0)。再生成用の元 2D 頂点列。
-    FGpuMesh       gm_cache;                    ///< Phase2: prim==Mesh の GPU メッシュキャッシュ (FPbrShader 描画用)。
+    FGpuMesh       gm_cache;                    ///< Phase2: prim==Mesh の GPU メッシュキャッシュ (CPbrShader 描画用)。
     CMeshCollider  water_hit_collider;          ///< CPU BVH, built lazily for exact water pointer hits.
     const void*    water_hit_collider_src = nullptr;
     const void*    water_surface_validation_src = nullptr;
     bool           water_surface_local_xz = false;
     bool           water_surface_fallback_logged = false;
-    const void*   gm_cache_src = nullptr;      ///< gm_cache の元 FMeshAsset ポインタ (変化時に再アップロード)。
+    const void*   gm_cache_src = nullptr;      ///< gm_cache の元 AMeshAsset ポインタ (変化時に再アップロード)。
     bool          material_textures_loaded = false;
     TUniquePtr<IRhiTexture> material_albedo_tex;
     TUniquePtr<IRhiTexture> material_normal_tex;
     TUniquePtr<IRhiTexture>
         material_expression_tex[kShaderExpressionMaxTextureSlots];
-    FMat4         prev_world = FMat4::Identity(); ///< 前フレームの world 行列 (FMotionVector のモーションベクタ用、実行時のみ・非シリアライズ)。
+    FMat4         prev_world = FMat4::Identity(); ///< 前フレームの world 行列 (CMotionVector のモーションベクタ用、実行時のみ・非シリアライズ)。
     bool          prev_world_valid = false;       ///< prev_world が前フレーム値を持つか (新規ノードは初回 motion=0)。
     bool          has_scene_camera = false;       ///< CAM3D authored camera component is present.
     char          scene_camera_id[
@@ -414,11 +414,11 @@ struct FEditorHost {
     // owner thread joins and publishes pbr3d_ready.
     FThread       startup_worker;
     std::atomic<i32> startup_worker_state{0}; // 0=idle, 1=running, 2=ok, -1=failed
-    u32           startup_worker_kind = 0u; // 0=none, 1=PBR, 2=SSGI, 3=FSky, 4=clouds, 6=SSSS, 7=post
+    u32           startup_worker_kind = 0u; // 0=none, 1=PBR, 2=SSGI, 3=CSky, 4=clouds, 6=SSSS, 7=post
     f32           startup_worker_elapsed_ms = 0.0f;
     // Diligent owns the compiler threads; submission, status polling and every
     // PSO/resource operation remain on the HWND/render-owner thread.
-    u32           startup_async_shader_kind = 0u; // 0=none, 1=PBR, 3=FSky, 4=clouds, 5=SSAO, 7=post
+    u32           startup_async_shader_kind = 0u; // 0=none, 1=PBR, 3=CSky, 4=clouds, 5=SSAO, 7=post
     editor_profiler::FTimePoint startup_async_shader_begin{};
     CSky::FCompiledShaders startup_sky_shaders{};
     CPbrShader::FCompiledShaders startup_pbr_shaders{};
@@ -473,7 +473,7 @@ struct FEditorHost {
 
     // プロジェクト設定 (UE の Project Settings 相当)。acs_editor_settings_load で
     // <project>/Config/ProjectSettings.ini を読み、変更のたび保存 + エンジンへ適用する。
-    game::FProjectSettings      settings;
+    game::CProjectSettings      settings;
     char                        settings_path[512] = {};
     FVec3                       ambient      = FVec3{ 0.10f, 0.11f, 0.13f };   // Rendering.AmbientColor
     f32                         light_height = 90.0f;                          // Rendering.LightHeight
@@ -493,7 +493,7 @@ struct FEditorHost {
     f32   q_exposure         = 1.05f; f32  q_cg_saturation   = 1.10f; f32 q_cg_contrast = 1.12f;
     i32   q_tonemap          = 0;     bool q_auto_exposure   = false;  // 0=ACES 1=AgX 2=Reinhard / 自動露出(eye adaptation)
     bool  q_fog_on           = false; f32  q_fog_density     = 0.015f; f32 q_fog_height_falloff = 0.10f;  // 既定OFF (単一色ハイトフォグ。FogDensity>0 で有効)。非忠実な cubemap aerial-perspective ハックは撤去済
-    i32   q_sky_mode         = 0;     // 0=FSky(グラデ+雲) / 1=FAtmosphere(物理大気散乱)。要 Diligent (IBL 経路)
+    i32   q_sky_mode         = 0;     // 0=CSky(グラデ+雲) / 1=CAtmosphere(物理大気散乱)。要 Diligent (IBL 経路)
     f32   q_cloud_coverage   = 0.50f; f32 q_cloud_density = 1.6f; f32 q_cloud_wind = 1.0f;
     f32   q_cloud_render_scale = 0.75f;   // quality multiplier for the internal quarter-dimension trace policy
     f32   q_cloud_base       = 1500.0f; f32 q_cloud_top = 4000.0f; f32 q_cloud_noise_scale = 0.035f; // world-space volumetric cloud layer
@@ -609,9 +609,9 @@ struct FEditorHost {
     u32                      ssss_pending_w = 0, ssss_pending_h = 0;
     u32                      ssss_frame_resource_state = 0u; // 0=idle, 1=diffuse ready, 2=failed
     u32                      ssss_frame_failed_w = 0, ssss_frame_failed_h = 0;
-    // SSAO (GTAO + contact shadow)。法線 G-buffer プリパス → FSsao → FPbrShader.SetSsao で ambient に乗算。
+    // SSAO (GTAO + contact shadow)。法線 G-buffer プリパス → CSsao → CPbrShader.SetSsao で ambient に乗算。
     acs::CSsao               ssao3d;                   // エンジン GTAO。法線 gbuffer + depth を要求
-    bool                     ssao_ready = false;       // FSsao Init 成否
+    bool                     ssao_ready = false;       // CSsao Init 成否
     bool                     ssao_pipe_ready = false;  // 法線プリパスのパイプライン成否
     u32                      ssao_w = 0, ssao_h = 0;
     bool                     ssao_computed = false;    // 今フレーム AO を焼いたか (main パスで SetSsao 判定)
@@ -621,14 +621,14 @@ struct FEditorHost {
     TUniquePtr<IRhiShader>   normal_vs, normal_ps;
     TUniquePtr<IRhiBuffer>   normal_cb;                // b0: view_proj (プリパス専用・上書き回避)
     // SSR (画面空間反射)。SSAO と同じ法線+深度 G-buffer + 前フレーム scene color から反射を焼く。
-    acs::CSsr                ssr3d;                    // エンジン SSR。出力は FPbrShader.SetSsr で roughness ブレンド
+    acs::CSsr                ssr3d;                    // エンジン SSR。出力は CPbrShader.SetSsr で roughness ブレンド
     bool                     ssr_ready = false;
     u32                      ssr_w = 0, ssr_h = 0;
     bool                     ssr_computed = false;     // 今フレーム SSR を焼いたか (次フレームの SetSsr 用)
     acs::CHiZ                hiz3d;                    // 偶奇 texture ping-pong の full mip min-depth pyramid
     bool                     hiz3d_ready = false;
     u32                      hiz3d_w = 0, hiz3d_h = 0;
-    acs::CSsgi               ssgi3d;                   // エンジン SSGI (1 バウンス間接光)。出力は FPbrShader.SetSsgi で ambient に加算
+    acs::CSsgi               ssgi3d;                   // エンジン SSGI (1 バウンス間接光)。出力は CPbrShader.SetSsgi で ambient に加算
     bool                     ssgi_ready = false;
     u32                      ssgi_w = 0, ssgi_h = 0;
     bool                     ssgi_init_tried = false;
@@ -647,7 +647,7 @@ struct FEditorHost {
     bool                     mv_ready = false;
     u32                      mv_w = 0, mv_h = 0;
     bool                     mv_computed = false;      // 今フレーム motion を焼いたか
-    // 屈折 (ガラス/水): opaque シーンを複製 (blit) → FRefractionShader が IOR で曲げて sample。要 env cubemap (Diligent)。
+    // 屈折 (ガラス/水): opaque シーンを複製 (blit) → CRefractionShader が IOR で曲げて sample。要 env cubemap (Diligent)。
     acs::CRefractionShader   refr3d;
     bool                     refr_ready = false;
     acs::CWaterSurface3D     water3d;
@@ -675,7 +675,7 @@ struct FEditorHost {
     // god rays (光芒): 太陽スクリーン位置から bright pass を放射状 march して光の筋を加算。scene 複製は refr_bg 共用。
     bool                     q_godray_on = false; f32 q_godray_intensity = 0.5f; f32 q_godray_decay = 0.96f;
     f32                      q_vignette = 0.0f; f32 q_chromatic = 0.0f; f32 q_grain = 0.0f;  // シネマフィルタ (既定 0=クリーン)
-    // モーションブラー: FMotionVector の UV 空間 motion に沿って scene を多タップ平均。scene 複製は refr_bg 共用。
+    // モーションブラー: CMotionVector の UV 空間 motion に沿って scene を多タップ平均。scene 複製は refr_bg 共用。
     bool                     q_motionblur_on = false; f32 q_motionblur_intensity = 1.0f;
     TUniquePtr<IRhiPipeline> mblur_pipe;
     TUniquePtr<IRhiShader>   mblur_vs, mblur_ps;
@@ -690,11 +690,11 @@ struct FEditorHost {
     FVec3                    prev_temporal_camera_eye{};
     bool                     temporal_camera_pose_valid = false;
     u32                      taa_frame = 0;                // TAA Halton ジッタ列のフレームインデックス
-    // IBL (鏡面+拡散 環境光)。FSky を env cubemap 化 → irradiance/prefilter/BRDF-LUT → FPbrShader.SetIbl。
+    // IBL (鏡面+拡散 環境光)。CSky を env cubemap 化 → irradiance/prefilter/BRDF-LUT → CPbrShader.SetIbl。
     acs::CImageBasedLighting  ibl3d;                    // Diligent backend 専用 (raw-DX12 は失敗 → SH9 フォールバック)
-    acs::CSkyAtmosphere      sky_atmo;                 // GPU Hillaire 大気 (compute LUT)。SkyMode==1 で CPU FAtmosphere を置換
+    acs::CSkyAtmosphere      sky_atmo;                 // GPU Hillaire 大気 (compute LUT)。SkyMode==1 で CPU CAtmosphere を置換
     bool                     sky_atmo_tried = false;   // Init を一度試したか
-    acs::CVolumetricClouds   vclouds3d;                // GPU レイマーチ volumetric clouds (Phase4)。FSky 2D 雲を置換
+    acs::CVolumetricClouds   vclouds3d;                // GPU レイマーチ volumetric clouds (Phase4)。CSky 2D 雲を置換
     bool                     vclouds_ready = false;    // Init 済み
     bool                     vclouds_tried = false;    // Init を一度試したか
     f32                      vclouds_time  = 0.0f;     // 雲アニメ用時間
@@ -732,9 +732,9 @@ struct FEditorHost {
     TArray<FVec3> scene_mesh_local_center;
     TArray<f32> scene_mesh_local_radius;
     TArray<u8> scene_mesh_visible;
-    game::FHierarchyVisibilityBatch scene_mesh_hierarchy_visibility;
+    game::CHierarchyVisibilityBatch scene_mesh_hierarchy_visibility;
     bool scene_mesh_hierarchy_batch_ready = false;
-    game::FHierarchyWorldTransformBatch scene_mesh_world_batch;
+    game::CHierarchyWorldTransformBatch scene_mesh_world_batch;
     bool scene_mesh_world_batch_ready = false;
     TArray<FVec3> frustum_centers_scratch;
     TArray<f32> frustum_radii_scratch;
@@ -773,7 +773,7 @@ struct FEditorHost {
     int          next_id3d     = 1;
     int          clip3d        = -1;      // 3D コピー&ペースト用クリップボード (コピー元ノード id)
     bool         scene3d_seeded = false;  // 初回 3D 切替でデフォルトシーンを置いたか
-    game::FScene3D scene3d;               // 3D シーングラフ (各ノード = root の子 ANode + AEditor3DRecordComponent)
+    game::CScene3D scene3d;               // 3D シーングラフ (各ノード = root の子 ANode + AEditor3DRecordComponent)
     TArray<FVec2> poly3d_pts;             // Ortho ポリゴン描画中の頂点 (XY, z=0 平面へ逆射影済み)
     // 3D ギズモのドラッグ状態。
     //   ハンドル: 0=非活性, 1=X, 2=Y, 3=Z 軸, 4=XY, 5=YZ, 6=XZ 平面。
@@ -816,12 +816,12 @@ struct FEditorHost {
     f32                            play_cam3d_pitch = 0.0f;
     f32                            play_cam3d_dist = 14.0f;
     FVec3                          play_cam3d_target{0.0f, 1.0f, 0.0f};
-    TUniquePtr<game::FRigidWorld2D> play_world;
+    TUniquePtr<game::CRigidWorld2D> play_world;
     TArray<u32>                    play_body;                 // world ボディ index (play_node と parallel)
     TArray<int>                    play_node;                 // 対応する編集ノード id (parallel)
 
     // ユーザー定義型 (ゲーム DLL から取り込んだスキーマ)。Build/HotReload で再読込される。
-    // ヒープ実体のアドレスは安定 (TArray 再確保は TUniquePtr を move するだけ) → FTypeRegistry が
+    // ヒープ実体のアドレスは安定 (TArray 再確保は TUniquePtr を move するだけ) → CTypeRegistry が
     // 保持する desc ポインタが無効化されない。
     TArray<TUniquePtr<FUserType>> user_types;
 
@@ -1081,7 +1081,7 @@ void LoadNodeMaterialTextures(FEditorHost& h, AEditorNode* n) noexcept {
 static int LightComponentSlot(const AEditorNode* n) noexcept {
     static game::FTypeId s_id = 0;
     if (s_id == 0) {
-        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName("ALight2DComponent");
+        const game::FTypeDesc* d = game::CTypeRegistry::Get().FindByName("ALight2DComponent");
         if (d != nullptr) s_id = d->id;
     }
     if (s_id == 0) return -1;
@@ -1094,7 +1094,7 @@ static int LightComponentSlot(const AEditorNode* n) noexcept {
 static int ShadowCasterSlot(const AEditorNode* n) noexcept {
     static game::FTypeId s_id = 0;
     if (s_id == 0) {
-        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName("AShadowCaster2DComponent");
+        const game::FTypeDesc* d = game::CTypeRegistry::Get().FindByName("AShadowCaster2DComponent");
         if (d != nullptr) s_id = d->id;
     }
     if (s_id == 0) return -1;
@@ -1133,7 +1133,7 @@ AEditorNode* AddEditorNode(FEditorHost& h, int parent_id, const char* nm,
 void InitCompProps(AEditorNode* n, u32 slot) noexcept {
     for (u32 p = 0; p < AEditorNode::kMaxProps; ++p)
         for (u32 k = 0; k < 4; ++k) n->comp_props[slot][p][k] = 0.0f;
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[slot]);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(n->components[slot]);
     if (d == nullptr) return;
     const u32 nf = d->field_count < AEditorNode::kMaxProps ? d->field_count : AEditorNode::kMaxProps;
     for (u32 p = 0; p < nf; ++p)
@@ -1148,7 +1148,7 @@ void InitCompProps(AEditorNode* n, u32 slot) noexcept {
 bool AttachComponent(AEditorNode* n, const char* type_name) noexcept {
     if (n == nullptr || type_name == nullptr) return false;
     game::AcsRegisterEngineTypes();
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName(type_name);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindByName(type_name);
     if (d == nullptr || d->category != game::ETypeCategory::Component) return false;
     for (u32 i = 0; i < n->component_count; ++i) if (n->components[i] == d->id) return true; // 重複
     if (n->component_count >= AEditorNode::kMaxComponents) return false;                      // 容量
@@ -1213,7 +1213,7 @@ int EmitNodePoly(char* buf, int cur, int cap, const AEditorNode* n) noexcept {
 
 int EmitCompProps(char* buf, int cur, int cap, const AEditorNode* n) noexcept {
     for (u32 c = 0; c < n->component_count && cur < cap; ++c) {
-        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[c]);
+        const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(n->components[c]);
         const u32 nf = CompPropCount2D(d);
         for (u32 p = 0; p < nf && cur < cap; ++p) {
             const f32* v = n->comp_props[c][p];
@@ -1279,7 +1279,7 @@ void RemapClonedObjectRefs(FEditorHost& h, const TArray<int>& oldIds, const TArr
         AEditorNode* node = FindNode(h, newIds[n]);
         if (node == nullptr) continue;
         for (u32 slot = 0; slot < node->component_count; ++slot) {
-            const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(node->components[slot]);
+            const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(node->components[slot]);
             if (d == nullptr) continue;
             const u32 nf = (d->field_count < AEditorNode::kMaxProps) ? d->field_count : AEditorNode::kMaxProps;
             for (u32 prop = 0; prop < nf; ++prop) {
@@ -1448,7 +1448,7 @@ const char* SerializeScene(FEditorHost& h) noexcept {
     for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i) {
         const AEditorNode* n = h.nodes[i];
         for (u32 cmp = 0; cmp < n->component_count && cur < cap; ++cmp) {
-            const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[cmp]);
+            const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(n->components[cmp]);
             if (d != nullptr && d->name != nullptr)
                 cur += std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
                                      "COMP %d %s\n", n->editor_id, d->name);
@@ -1754,7 +1754,7 @@ bool ValidateEditorScene2DText(const char* text) noexcept {
                 return false;
             }
             const game::FTypeDesc* descriptor =
-                game::FTypeRegistry::Get().FindByName(type_name);
+                game::CTypeRegistry::Get().FindByName(type_name);
             if (descriptor == nullptr ||
                 descriptor->category != game::ETypeCategory::Component) {
                 return false;
@@ -1793,7 +1793,7 @@ bool ValidateEditorScene2DText(const char* text) noexcept {
             }
             if (target_component == nullptr) return false;
             const game::FTypeDesc* descriptor =
-                game::FTypeRegistry::Get().FindById(
+                game::CTypeRegistry::Get().FindById(
                     target_component->type_id);
             if (descriptor == nullptr ||
                 property >= descriptor->field_count) {
@@ -2102,7 +2102,7 @@ const char* SerializeSubtree(FEditorHost& h, AEditorNode* root) noexcept {
     for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {
         const AEditorNode* n = sub[i];
         for (u32 c = 0; c < n->component_count && cur < cap; ++c) {
-            const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[c]);
+            const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(n->components[c]);
             if (d != nullptr && d->name != nullptr) {
                 const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur), "COMP %d %s\n", n->editor_id, d->name);
                 if (w < 0 || w >= cap - cur) { buf[cap - 1] = '\0'; return buf; }
@@ -2210,7 +2210,7 @@ int PasteSubtree(FEditorHost& h, const char* text, int target_parent) noexcept {
                     // ObjectRef プロパティは subtree 内を指す参照だけ new id へ付け替える
                     // (外部を指す参照は元のまま = prefab 内部リンクが複製後も保たれる)。
                     if (node != nullptr && slot < node->component_count) {
-                        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(node->components[slot]);
+                        const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(node->components[slot]);
                         if (d != nullptr && prop < d->field_count
                             && d->fields[prop].kind == game::EFieldKind::ObjectRef) {
                             const int rm = MapId(static_cast<int>(a));
@@ -2487,7 +2487,7 @@ void SetNodeWorldPosition(FEditorHost& h, AEditorNode* n, f32 wx, f32 wy) noexce
 int PrimitiveShape(const AEditorNode* n) noexcept {
     static game::FTypeId s_prId = 0;
     if (s_prId == 0) {
-        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName("APrimitiveRenderer2D");
+        const game::FTypeDesc* d = game::CTypeRegistry::Get().FindByName("APrimitiveRenderer2D");
         if (d != nullptr) s_prId = d->id;
     }
     if (s_prId == 0) return -1;
@@ -2940,7 +2940,7 @@ int PickNode(const FEditorHost& h, f32 screen_x, f32 screen_y) noexcept {
 }
 
 // エンジンログをエディタの C# コンソールへ橋渡しする SPSC リング。
-// producer = FLogger の writer スレッド (EditorLogSink 経由)、consumer = C# UI の poll。
+// producer = CLogger の writer スレッド (EditorLogSink 経由)、consumer = C# UI の poll。
 namespace {
 struct FLogRing {
     static constexpr unsigned N   = 512;    // 2 のべき乗
@@ -3436,14 +3436,14 @@ float4 PSMain(VSOut v) : SV_TARGET {
                    + kdA * albedo * SkyCol(N)              // IBL 拡散 (環境照度)
                    + Fr  * SkyCol(R);                       // IBL 鏡面 (環境反射)
     float3 col = (ambient + Lo) * 0.78;                     // 露出 (やや絞ってコントラストを出す)
-    return float4(col, 1.0);                                // Phase2: 線形出力 (FPostProcess が一度だけ ACES+ガンマ)
+    return float4(col, 1.0);                                // Phase2: 線形出力 (CPostProcess が一度だけ ACES+ガンマ)
 }
 )";
 
 struct FM3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; FVec4 cam_pos; FVec4 sky_zenith, sky_horizon, sky_ground; FMat4 light_vp; };
 
 // 法線 G-buffer プリパス: M3DVtx (既に world 座標+法線) を world normal として RGBA16F に出す。
-// FSsao が GTAO の slice 計算に world normal を要求する (depth 微分法線はブロック状になるため)。
+// CSsao が GTAO の slice 計算に world normal を要求する (depth 微分法線はブロック状になるため)。
 const char* kNormalGBuf3DHLSL = R"(
 #pragma pack_matrix(row_major)
 cbuffer NFrame : register(b0) { float4x4 view_proj; };
@@ -3630,7 +3630,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// モーションブラー: FMotionVector の motion (prev_uv - curr_uv、UV 空間) に沿って scene を多タップ平均。
+// モーションブラー: CMotionVector の motion (prev_uv - curr_uv、UV 空間) に沿って scene を多タップ平均。
 // 画素単位 cap、深度/速度 bilateral、同一深度 velocity dilation で境界 bleed と大速度の縞を抑える。
 const char* kMotionBlur3DHLSL = R"(
 Texture2D    sceneTex          : register(t0);
@@ -3757,7 +3757,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     else          sky = lerp(horizon.rgb, ground.rgb,  saturate(-t * 1.6));       // 地平→地面側
     float  sd = max(dot(dir, normalize(sun.xyz)), 0.0);
     sky += float3(1.0, 0.94, 0.80) * (pow(sd, 600.0) * 2.2 + pow(sd, 40.0) * 0.35 + pow(sd, 8.0) * 0.10); // 太陽 (円盤 + 控えめハロ)
-    return float4(sky, 1.0);   // Phase2: 線形出力 (FPostProcess が一度だけ tonemap。Reinhard も除去)
+    return float4(sky, 1.0);   // Phase2: 線形出力 (CPostProcess が一度だけ tonemap。Reinhard も除去)
 }
 )";
 
@@ -3807,7 +3807,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 struct FGridCb { FMat4 view_proj; FVec4 gctr; };
 
-/** 空グラデーション (FSky と同じ y-up) を SH9 放射輝度係数へ射影する (FPbrShader::SetSh9 用)。
+/** 空グラデーション (CSky と同じ y-up) を SH9 放射輝度係数へ射影する (CPbrShader::SetSh9 用)。
  *  Sh9Irradiance が内部でコサイン畳み込みするので «放射輝度» を渡す。irradiance≈π×平均輝度に
  *  なるため入力放射輝度は控えめ。係数順序 [0]Y00 [1]y [2]z [3]x [4]xy [5]yz [6]Y20 [7]xz [8]x²-y²
  *  はシェーダの Sh9Irradiance に一致させる。 */
@@ -3824,7 +3824,7 @@ inline FMat4 ApplyTaaJitter(FMat4 vp, float jx, float jy) noexcept {
     return vp;
 }
 
-// SH9 環境光の強さ。実際の空色 (FSky と同じ・従来のダミー色より明るい) を使うので控えめに絞り、
+// SH9 環境光の強さ。実際の空色 (CSky と同じ・従来のダミー色より明るい) を使うので控えめに絞り、
 // «暖色の直射 vs 青い陰» のコントラスト=立体感を残す (直射は 3 点ライトが確保)。鏡面 fallback も兼ねる。
 constexpr float kSh9Ambient = 0.55f;
 
@@ -3858,7 +3858,7 @@ constexpr u32 kPhysicalSkyCpuFallbackWidth = 512u;
 constexpr u32 kPhysicalSkyCpuFallbackHeight = 256u;
 
 void ComputeSkySh9(FVec4 out[9], FVec3 zenith, FVec3 horizon, FVec3 ground) noexcept {
-    // 空の放射輝度 (linear) を SH9 へ射影。zenith/horizon/ground は «実際に描く FSky と同じ色» を渡し、
+    // 空の放射輝度 (linear) を SH9 へ射影。zenith/horizon/ground は «実際に描く CSky と同じ色» を渡し、
     // 環境光(拡散)と鏡面反射(Sh9Radiance)を背景の空と一致させる。時間帯プリセットにも追従する。
     for (int i = 0; i < 9; ++i) out[i] = FVec4{ 0, 0, 0, 0 };
     const int N = 2048; const float PI = 3.14159265f;
@@ -3882,7 +3882,7 @@ void ComputeSkySh9(FVec4 out[9], FVec3 zenith, FVec3 horizon, FVec3 ground) noex
     for (int i = 0; i < 9; ++i) { out[i].x *= w; out[i].y *= w; out[i].z *= w; }
 }
 
-/** Compile only raw-DX12 FSky bytecode away from the window owner thread. */
+/** Compile only raw-DX12 CSky bytecode away from the window owner thread. */
 void SkyCompileWorkerEntry(void* user) noexcept {
     auto& h = *static_cast<FEditorHost*>(user);
     const editor_profiler::FTimePoint begin =
@@ -3893,7 +3893,7 @@ void SkyCompileWorkerEntry(void* user) noexcept {
         h.startup_sky_shaders = Move(result.Value());
     } else {
         ACS_LOG_ERROR(
-            "[3D] FSky async CPU compile failed: %s",
+            "[3D] CSky async CPU compile failed: %s",
             result.Error().message);
     }
     h.startup_worker_elapsed_ms =
@@ -3919,7 +3919,7 @@ bool BeginSkyCompileWorker(FEditorHost& h) noexcept {
         h.startup_worker_kind = 0u;
         h.startup_worker_state.store(0, std::memory_order_release);
         ACS_LOG_ERROR(
-            "[acs_editor_abi] failed to create FSky CPU compile worker: %s",
+            "[acs_editor_abi] failed to create CSky CPU compile worker: %s",
             worker_result.Error().message);
         return false;
     }
@@ -3950,16 +3950,16 @@ void PbrCompileWorkerEntry(void* user) noexcept {
         ok = result.IsOk();
         if (!ok) {
             ACS_LOG_ERROR(
-                "[3D] FPbrShader background candidate creation failed: %s",
+                "[3D] CPbrShader background candidate creation failed: %s",
                 result.Error().message);
         }
     } else if (shaders.IsErr()) {
         ACS_LOG_ERROR(
-            "[3D] FPbrShader async CPU compile failed: %s",
+            "[3D] CPbrShader async CPU compile failed: %s",
             shaders.Error().message);
     } else {
         ACS_LOG_ERROR(
-            "[3D] FPbrShader background candidate has no device");
+            "[3D] CPbrShader background candidate has no device");
     }
     h.startup_worker_elapsed_ms =
         editor_profiler::ElapsedMilliseconds(begin);
@@ -4009,7 +4009,7 @@ void SsgiCompileWorkerEntry(void* user) noexcept {
         h.startup_ssgi_shaders = Move(result.Value());
     } else {
         ACS_LOG_ERROR(
-            "[3D] FSsgi async CPU compile failed: %s",
+            "[3D] CSsgi async CPU compile failed: %s",
             result.Error().message);
     }
     h.startup_worker_elapsed_ms =
@@ -4120,7 +4120,7 @@ void PostCompileWorkerEntry(void* user) noexcept {
         h.startup_post_shaders = Move(result.Value());
     } else {
         ACS_LOG_ERROR(
-            "[3D] FPostProcess async CPU compile failed: %s",
+            "[3D] CPostProcess async CPU compile failed: %s",
             result.Error().message);
     }
     h.startup_worker_elapsed_ms =
@@ -4165,7 +4165,7 @@ void CloudCompileWorkerEntry(void* user) noexcept {
         h.startup_cloud_shaders = Move(result.Value());
     } else {
         ACS_LOG_ERROR(
-            "[3D] FVolumetricClouds async CPU compile failed: %s",
+            "[3D] CVolumetricClouds async CPU compile failed: %s",
             result.Error().message);
     }
     h.startup_worker_elapsed_ms =
@@ -4324,8 +4324,8 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     if (dev == nullptr) return false;
     const EFormat cf = h.renderer.ColorFormat();
     const EFormat df = h.renderer.DepthFormat();
-    // Phase2: 3D シーンは «線形 HDR RT» に描いて FPostProcess(ACES) で一度だけ tonemap する。
-    // そのため色を出すパイプは全て HDR フォーマットで作る (cf=backbuffer は FPostProcess の出力のみ)。
+    // Phase2: 3D シーンは «線形 HDR RT» に描いて CPostProcess(ACES) で一度だけ tonemap する。
+    // そのため色を出すパイプは全て HDR フォーマットで作る (cf=backbuffer は CPostProcess の出力のみ)。
     const EFormat hdrf = EFormat::R16G16B16A16_Float;
     if (h.r3d_init_phase == 0u) {
     if (h.dbg3d.Init(*dev, hdrf).IsErr()) { ACS_LOG_ERROR("[3D] DebugDraw3D init 失敗"); return false; }
@@ -4368,7 +4368,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     return false;
     }
 
-    // 法線 G-buffer プリパス用パイプライン (SSAO/FSsao 入力)。M3DVtx → world normal を RGBA16F へ。
+    // 法線 G-buffer プリパス用パイプライン (SSAO/CSsao 入力)。M3DVtx → world normal を RGBA16F へ。
     if (h.r3d_init_phase == 1u) {
     {
         FShaderDesc nvs{}; nvs.stage = EShaderStage::Vertex; nvs.hlsl_source = kNormalGBuf3DHLSL; nvs.entry_point = "VSMain"; nvs.debug_name = "NormalGBuf.VS";
@@ -4379,7 +4379,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             FPipelineDesc np{};
             np.vs = h.normal_vs.Get(); np.ps = h.normal_ps.Get();
             np.topology     = EPrimitiveTopology::TriangleList;
-            np.rt_format    = hdrf;                 // RGBA16F (FSsao の normal gbuffer 期待形式)
+            np.rt_format    = hdrf;                 // RGBA16F (CSsao の normal gbuffer 期待形式)
             np.depth_format = df;
             np.depth_test   = true; np.depth_write = true;
             np.cull_mode    = ECullMode::None;
@@ -4405,10 +4405,10 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     return false;
     }
 
-    // 屈折 (ガラス/水): FRefractionShader + opaque シーン複製 blit パイプライン。要 env cubemap (Diligent IBL)。
+    // 屈折 (ガラス/水): CRefractionShader + opaque シーン複製 blit パイプライン。要 env cubemap (Diligent IBL)。
     if (h.r3d_init_phase == 2u) {
     { auto rr = h.refr3d.Init(*dev, hdrf, df); h.refr_ready = rr.IsOk();
-      if (!h.refr_ready) ACS_LOG_WARN("[3D] FRefractionShader Init 失敗 (屈折無効): %s", rr.Error().message); }
+      if (!h.refr_ready) ACS_LOG_WARN("[3D] CRefractionShader Init 失敗 (屈折無効): %s", rr.Error().message); }
     h.r3d_init_phase = 3u;
     return false;
     }
@@ -4596,8 +4596,8 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     return false;
     }
 
-    // Phase2: エンジン標準スカイ FSky。自前 kSky3DHLSL と同じ «depth off の背景フルスクリーン三角» 方式
-    // (2D の FSpriteBatch と同じ depth-off エンジンパス) なのでこの文脈で描けるはず + 手続き雲つき。
+    // Phase2: エンジン標準スカイ CSky。自前 kSky3DHLSL と同じ «depth off の背景フルスクリーン三角» 方式
+    // (2D の CSpriteBatch と同じ depth-off エンジンパス) なのでこの文脈で描けるはず + 手続き雲つき。
     if (h.r3d_init_phase == 8u) {
     const char* const backend_name = dev->BackendName();
     const bool raw_dx12 = backend_name != nullptr &&
@@ -4616,7 +4616,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             }
             h.sky3d_ready = false;
             ACS_LOG_WARN(
-                "[3D] FSky asynchronous shader submission failed: %s",
+                "[3D] CSky asynchronous shader submission failed: %s",
                 shader_result.Error().message);
         } else {
             const EShaderStatus shader_status =
@@ -4640,18 +4640,18 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.sky3d_ready = sky_result.IsOk();
                 if (h.sky3d_ready) {
                     ACS_LOG_INFO(
-                        "[3D] FSky backend compile %.2f ms; "
+                        "[3D] CSky backend compile %.2f ms; "
                         "owner RHI commit %.2f ms",
                         compile_ms, commit_ms);
                 } else {
                     ACS_LOG_WARN(
-                        "[3D] FSky owner-thread RHI commit failed: %s",
+                        "[3D] CSky owner-thread RHI commit failed: %s",
                         sky_result.Error().message);
                 }
             } else {
                 h.startup_sky_shaders = {};
                 h.sky3d_ready = false;
-                ACS_LOG_ERROR("[3D] FSky asynchronous shader compile failed");
+                ACS_LOG_ERROR("[3D] CSky asynchronous shader compile failed");
             }
         }
     } else if (raw_dx12) {
@@ -4662,12 +4662,12 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 return false;
             }
             ACS_LOG_WARN(
-                "[3D] FSky CPU compile worker unavailable; using synchronous init");
+                "[3D] CSky CPU compile worker unavailable; using synchronous init");
             const auto sky_result = h.sky3d.Init(*dev, hdrf, df);
             h.sky3d_ready = sky_result.IsOk();
             if (!h.sky3d_ready) {
                 ACS_LOG_WARN(
-                    "[3D] FSky synchronous init failed: %s",
+                    "[3D] CSky synchronous init failed: %s",
                     sky_result.Error().message);
             }
         } else {
@@ -4690,11 +4690,11 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.sky3d_ready = sky_result.IsOk();
                 if (!h.sky3d_ready) {
                     ACS_LOG_WARN(
-                        "[3D] FSky owner-thread RHI commit failed: %s",
+                        "[3D] CSky owner-thread RHI commit failed: %s",
                         sky_result.Error().message);
                 } else {
                     ACS_LOG_INFO(
-                        "[3D] FSky CPU compile %.2f ms; owner RHI commit %.2f ms",
+                        "[3D] CSky CPU compile %.2f ms; owner RHI commit %.2f ms",
                         h.startup_worker_elapsed_ms,
                         commit_ms);
                 }
@@ -4708,7 +4708,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
         h.sky3d_ready = sky_result.IsOk();
         if (!h.sky3d_ready) {
             ACS_LOG_WARN(
-                "[3D] FSky init failed on %s: %s",
+                "[3D] CSky init failed on %s: %s",
                 backend_name != nullptr ? backend_name : "unknown backend",
                 sky_result.Error().message);
         }
@@ -4720,7 +4720,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
           h.sky3d.SetHorizonColor(FVec3{ 0.62f, 0.70f, 0.80f });
           h.sky3d.SetGroundColor (FVec3{ 0.20f, 0.19f, 0.21f });
     } else {
-        ACS_LOG_WARN("[3D] FSky unavailable; using fallback sky");
+        ACS_LOG_WARN("[3D] CSky unavailable; using fallback sky");
     }
     h.r3d_init_phase = 9u;
     return false;
@@ -4748,7 +4748,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             }
             h.pbr3d_ready = false;
             ACS_LOG_ERROR(
-                "[3D] FPbrShader asynchronous shader submission failed: %s",
+                "[3D] CPbrShader asynchronous shader submission failed: %s",
                 shader_result.Error().message);
         } else {
             const EShaderStatus shader_status =
@@ -4776,19 +4776,19 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.pbr3d_ready = pbr_result.IsOk();
                 if (h.pbr3d_ready) {
                     ACS_LOG_INFO(
-                        "[3D] FPbrShader backend compile %.2f ms; "
+                        "[3D] CPbrShader backend compile %.2f ms; "
                         "owner RHI commit %.2f ms",
                         compile_ms, commit_ms);
                 } else {
                     ACS_LOG_ERROR(
-                        "[3D] FPbrShader owner-thread RHI commit failed: %s",
+                        "[3D] CPbrShader owner-thread RHI commit failed: %s",
                         pbr_result.Error().message);
                 }
             } else {
                 h.startup_pbr_shaders = {};
                 h.pbr3d_ready = false;
                 ACS_LOG_ERROR(
-                    "[3D] FPbrShader asynchronous shader compile failed");
+                    "[3D] CPbrShader asynchronous shader compile failed");
             }
         }
     } else if (raw_dx12) {
@@ -4807,7 +4807,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             h.pbr3d_ready = pbr_result.IsOk();
             if (!h.pbr3d_ready) {
                 ACS_LOG_ERROR(
-                    "[3D] FPbrShader synchronous init failed: %s",
+                    "[3D] CPbrShader synchronous init failed: %s",
                     pbr_result.Error().message);
             }
         } else {
@@ -4832,7 +4832,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                     editor_profiler::ElapsedMilliseconds(publish_begin);
                 h.startup_phase_elapsed_override_ms += publish_ms;
                 ACS_LOG_INFO(
-                    "[3D] FPbrShader background full init %.2f ms; "
+                    "[3D] CPbrShader background full init %.2f ms; "
                     "owner publication %.3f ms",
                     h.startup_worker_elapsed_ms, publish_ms);
             } else {
@@ -4848,7 +4848,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
         h.pbr3d_ready = pbr_result.IsOk();
         if (!h.pbr3d_ready) {
             ACS_LOG_ERROR(
-                "[3D] FPbrShader init failed on %s: %s",
+                "[3D] CPbrShader init failed on %s: %s",
                 backend_name != nullptr ? backend_name : "unknown backend",
                 pbr_result.Error().message);
         }
@@ -4859,10 +4859,10 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
           h.pbr3d.SetSh9(sh9);                                     // 拡散 ambient + Sh9Radiance(鏡面 fallback) 兼用
           h.sh9_dirty = false;
           if (used_async_compile) {
-              ACS_LOG_INFO("[3D] FPbrShader async init OK + SH9 IBL");
+              ACS_LOG_INFO("[3D] CPbrShader async init OK + SH9 IBL");
           }
     } else {
-        ACS_LOG_WARN("[3D] FPbrShader unavailable; using mesh fallback");
+        ACS_LOG_WARN("[3D] CPbrShader unavailable; using mesh fallback");
     }
     h.r3d_init_phase = 10u;
     return false;
@@ -5073,13 +5073,13 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                         h.post3d_w = startup_w;
                         h.post3d_h = startup_h;
                         ACS_LOG_INFO(
-                            "[3D] FPostProcess backend compile %.2f ms; "
+                            "[3D] CPostProcess backend compile %.2f ms; "
                             "owner RHI commit %.2f ms",
                             compile_ms, commit_ms);
                     } else {
                         h.startup_post_shaders = {};
                         ACS_LOG_WARN(
-                            "[3D] FPostProcess owner-thread RHI commit "
+                            "[3D] CPostProcess owner-thread RHI commit "
                             "failed: %s",
                             result.Error().message);
                     }
@@ -5087,7 +5087,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                     h.startup_post_shaders = {};
                     h.post3d_ready = false;
                     ACS_LOG_ERROR(
-                        "[3D] FPostProcess asynchronous shader compile "
+                        "[3D] CPostProcess asynchronous shader compile "
                         "failed; continuing without the post stack");
                 }
             } else if (h.startup_async_shader_kind != 0u) {
@@ -5108,7 +5108,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 }
                 use_sync_fallback = true;
                 ACS_LOG_WARN(
-                    "[3D] FPostProcess asynchronous shader submission "
+                    "[3D] CPostProcess asynchronous shader submission "
                     "failed; using synchronous fallback: %s",
                     shader_result.Error().message);
             }
@@ -5142,13 +5142,13 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                         h.post3d_w = startup_w;
                         h.post3d_h = startup_h;
                         ACS_LOG_INFO(
-                            "[3D] FPostProcess CPU compile %.2f ms; "
+                            "[3D] CPostProcess CPU compile %.2f ms; "
                             "owner RHI commit %.2f ms",
                             h.startup_worker_elapsed_ms, commit_ms);
                     } else {
                         h.startup_post_shaders = {};
                         ACS_LOG_WARN(
-                            "[3D] FPostProcess owner-thread RHI commit "
+                            "[3D] CPostProcess owner-thread RHI commit "
                             "failed: %s",
                             result.Error().message);
                     }
@@ -5156,7 +5156,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                     h.startup_post_shaders = {};
                     h.post3d_ready = false;
                     ACS_LOG_ERROR(
-                        "[3D] FPostProcess CPU shader compile failed; "
+                        "[3D] CPostProcess CPU shader compile failed; "
                         "continuing without the post stack");
                 }
             } else if (h.startup_worker_kind != 0u ||
@@ -5171,7 +5171,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             } else {
                 use_sync_fallback = true;
                 ACS_LOG_WARN(
-                    "[3D] FPostProcess CPU compile worker unavailable; "
+                    "[3D] CPostProcess CPU compile worker unavailable; "
                     "using synchronous fallback");
             }
         } else {
@@ -5190,7 +5190,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.post3d_h = startup_h;
             } else {
                 ACS_LOG_WARN(
-                    "[3D] FPostProcess synchronous fallback failed: %s",
+                    "[3D] CPostProcess synchronous fallback failed: %s",
                     result.Error().message);
             }
         }
@@ -5218,7 +5218,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.startup_ssao_shaders = {};
                 if (shader_status == EShaderStatus::Failed) {
                     ACS_LOG_WARN(
-                        "[3D] FSsao asynchronous shader compile failed; "
+                        "[3D] CSsao asynchronous shader compile failed; "
                         "retrying synchronously");
                 }
             }
@@ -5242,7 +5242,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 return false;
             }
             ACS_LOG_WARN(
-                "[3D] FSsao asynchronous shader submission failed; "
+                "[3D] CSsao asynchronous shader submission failed; "
                 "retrying synchronously: %s",
                 shader_result.Error().message);
         }
@@ -5283,7 +5283,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.ssao_h = startup_h;
                 if (compiled_ssao_ready) {
                     ACS_LOG_INFO(
-                        "[3D] FSsao backend compile completed; "
+                        "[3D] CSsao backend compile completed; "
                         "owner RHI commit %.2f ms",
                         editor_profiler::ElapsedMilliseconds(
                             owner_commit_begin));
@@ -5292,7 +5292,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.startup_ssao_shaders = {};
                 h.ssao_w = 0u;
                 h.ssao_h = 0u;
-                ACS_LOG_WARN("[3D] FSsao startup init failed: %s",
+                ACS_LOG_WARN("[3D] CSsao startup init failed: %s",
                              result.Error().message);
             }
         }
@@ -5315,7 +5315,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             } else {
                 h.ssr_w = 0u;
                 h.ssr_h = 0u;
-                ACS_LOG_WARN("[3D] FSsr startup init failed: %s",
+                ACS_LOG_WARN("[3D] CSsr startup init failed: %s",
                              result.Error().message);
             }
         }
@@ -5333,7 +5333,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             } else {
                 h.hiz3d_w = 0u;
                 h.hiz3d_h = 0u;
-                ACS_LOG_WARN("[3D] FHiZ startup init failed: %s",
+                ACS_LOG_WARN("[3D] CHiZ startup init failed: %s",
                              result.Error().message);
             }
         }
@@ -5370,14 +5370,14 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                     h.ssgi_w = startup_w;
                     h.ssgi_h = startup_h;
                     ACS_LOG_INFO(
-                        "[3D] FSsgi CPU compile %.2f ms; owner RHI commit %.2f ms",
+                        "[3D] CSsgi CPU compile %.2f ms; owner RHI commit %.2f ms",
                         h.startup_worker_elapsed_ms,
                         commit_ms);
                 } else {
                     h.ssgi_w = 0u;
                     h.ssgi_h = 0u;
                     ACS_LOG_WARN(
-                        "[3D] FSsgi owner-thread RHI commit failed: %s",
+                        "[3D] CSsgi owner-thread RHI commit failed: %s",
                         result.Error().message);
                 }
             } else {
@@ -5412,7 +5412,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                         } else {
                             h.ssgi_w = 0u;
                             h.ssgi_h = 0u;
-                            ACS_LOG_WARN("[3D] FSsgi startup init failed: %s",
+                            ACS_LOG_WARN("[3D] CSsgi startup init failed: %s",
                                          result.Error().message);
                         }
                 } else {
@@ -5441,14 +5441,14 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                             h.ssgi_w = startup_w;
                             h.ssgi_h = startup_h;
                             ACS_LOG_INFO(
-                                "[3D] FSsgi CPU compile %.2f ms; owner RHI commit %.2f ms",
+                                "[3D] CSsgi CPU compile %.2f ms; owner RHI commit %.2f ms",
                                 h.startup_worker_elapsed_ms,
                                 commit_ms);
                         } else {
                             h.ssgi_w = 0u;
                             h.ssgi_h = 0u;
                             ACS_LOG_WARN(
-                                "[3D] FSsgi owner-thread RHI commit failed: %s",
+                                "[3D] CSsgi owner-thread RHI commit failed: %s",
                                 result.Error().message);
                         }
                     } else {
@@ -5467,7 +5467,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 } else {
                     h.ssgi_w = 0u;
                     h.ssgi_h = 0u;
-                    ACS_LOG_WARN("[3D] FSsgi startup init failed: %s",
+                    ACS_LOG_WARN("[3D] CSsgi startup init failed: %s",
                                  result.Error().message);
                 }
             }
@@ -5488,7 +5488,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             } else {
                 h.mv_w = 0u;
                 h.mv_h = 0u;
-                ACS_LOG_WARN("[3D] FMotionVector startup init failed: %s",
+                ACS_LOG_WARN("[3D] CMotionVector startup init failed: %s",
                              result.Error().message);
             }
         }
@@ -5536,7 +5536,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.vclouds_ready = result.IsOk();
                 if (h.vclouds_ready) {
                     ACS_LOG_INFO(
-                        "[3D] FVolumetricClouds CPU compile %.2f ms; "
+                        "[3D] CVolumetricClouds CPU compile %.2f ms; "
                         "owner RHI commit %.2f ms",
                         h.startup_worker_elapsed_ms, commit_ms);
                 } else {
@@ -5584,7 +5584,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                     h.vclouds_ready = result.IsOk();
                     if (h.vclouds_ready) {
                         ACS_LOG_INFO(
-                            "[3D] FVolumetricClouds backend compile %.2f ms; "
+                            "[3D] CVolumetricClouds backend compile %.2f ms; "
                             "owner RHI commit %.2f ms",
                             compile_ms, commit_ms);
                     } else {
@@ -5955,7 +5955,7 @@ void Seed3DScene(FEditorHost& h) noexcept {
     }
 }
 
-/** 2D ポリゴン点列 (XY 平面、z=0) からフラットな FMeshAsset を作る (扇状三角形分割、法線+Z)。
+/** 2D ポリゴン点列 (XY 平面、z=0) からフラットな AMeshAsset を作る (扇状三角形分割、法線+Z)。
  *  «2D は内部的に 3D 空間 (z=0) にある» を体現: 2D ポリゴンを 3D シーンのノードとして持つ。 */
 TSharedPtr<AAsset> MakeFlatPolygon3D(const FVec2* pts, u32 n) noexcept {
     if (pts == nullptr || n < 3) return nullptr;
@@ -6117,14 +6117,14 @@ FVec4 NColor(game::ANode* n) noexcept {
     return (m != nullptr) ? m->Color() : FVec4{ 0.80f, 0.80f, 0.85f, 1.0f };
 }
 
-/** ノードのカスタムメッシュ FMeshAsset (prim!=Mesh や未設定は null)。 */
+/** ノードのカスタムメッシュ AMeshAsset (prim!=Mesh や未設定は null)。 */
 const AMeshAsset* NMesh(game::ANode* n) noexcept {
     game::AMeshComponent3D* m = Mesh3D(n);
     return (m != nullptr) ? m->Mesh() : nullptr;
 }
 
-/** Phase2: ノードを FPbrShader (DrawIndexed) で描くための FGpuMesh を返す。
- *  prim 0/1/2 は共有プリミティブ、prim 3 (Mesh/ポリゴン) はノードの FMeshAsset を on-demand
+/** Phase2: ノードを CPbrShader (DrawIndexed) で描くための FGpuMesh を返す。
+ *  prim 0/1/2 は共有プリミティブ、prim 3 (Mesh/ポリゴン) はノードの AMeshAsset を on-demand
  *  アップロードして AEditor3DRecordComponent にキャッシュ (元メッシュが変われば再アップロード)。失敗は nullptr。 */
 FGpuMesh* GpuMeshForNode3D(FEditorHost& h, game::ANode* nn) noexcept {
     const int prim = NPrim(nn);
@@ -7646,7 +7646,7 @@ int ParentId3D(FEditorHost& h, game::ANode* n) noexcept {
     return (r != nullptr) ? r->id : -1;
 }
 
-/** メッシュファイル (.gltf/.glb/.obj/.fbx、UTF-8 path) を読み込んで FMeshAsset を返す (失敗 null)。 */
+/** メッシュファイル (.gltf/.glb/.obj/.fbx、UTF-8 path) を読み込んで AMeshAsset を返す (失敗 null)。 */
 TSharedPtr<AAsset> LoadMeshFile(const char* path) noexcept {
     if (path == nullptr || path[0] == '\0') return nullptr;
     wchar_t wpath[512];
@@ -8545,7 +8545,7 @@ void Pass_UpdateSh9(FEditorHost& h) noexcept {
     }
 }
 
-// IBL: FSky/物理大気を env cubemap 化 → irradiance + specular prefilter + BRDF-LUT を焼き FPbrShader へ。
+// IBL: CSky/物理大気を env cubemap 化 → irradiance + specular prefilter + BRDF-LUT を焼き CPbrShader へ。
 // per-slice cubemap 描画なので «描画パスの外» (BeginShadowPass より前) で呼ぶこと。
 void Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
     if (h.pbr3d_ready && h.sky3d_ready && (h.ibl_ready ? h.ibl_dirty : !h.ibl_tried)) {
@@ -8555,7 +8555,7 @@ void Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
             h.sky3d.SetSunColor(h.sun_color);
             h.sky3d.SetZenithColor(h.sky_zenith); h.sky3d.SetHorizonColor(h.sky_horizon); h.sky3d.SetGroundColor(h.sky_ground);
             if (h.ibl_ready && h.ibl_dirty) { idev->WaitIdle(); h.ibl3d.ResetEnvCubemap(); }   // 空変更 → 再キャプチャ
-            // Procedural FSky still stores its analytic disc in the captured
+            // Procedural CSky still stores its analytic disc in the captured
             // cubemap and must exclude it from indirect convolutions.  The
             // physical-atmosphere bake is scattering-only: its solar disc is
             // rendered analytically at display resolution below, so masking an
@@ -8598,7 +8598,7 @@ void Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
                         skyWidth,
                         skyHeight).IsOk();
                 } else {
-                    ok = h.ibl3d.EnsureEnvCubemap(*idev, *cl, h.sky3d).IsOk();   // FSky 手続き式を env cubemap に
+                    ok = h.ibl3d.EnsureEnvCubemap(*idev, *cl, h.sky3d).IsOk();   // CSky 手続き式を env cubemap に
                 }
                 ok = ok && h.ibl3d.EnsureIrradiance(*idev, *cl).IsOk()
                         && h.ibl3d.EnsurePrefilter(*idev, *cl).IsOk();
@@ -8607,7 +8607,7 @@ void Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
             h.ibl_dirty = false;
             if (!ok) { h.ibl_tried = true; ACS_LOG_WARN("[3D] IBL 生成失敗 (Diligent backend 必須?)。SH9 にフォールバック"); }
             else       ACS_LOG_INFO("[3D] IBL 環境光 OK (%s→irradiance+prefilter %u mip+BRDF-LUT)",
-                                    h.q_sky_mode == 1 ? "物理大気" : "FSky", h.ibl3d.PrefilterMips());
+                                    h.q_sky_mode == 1 ? "物理大気" : "CSky", h.ibl3d.PrefilterMips());
         }
     }
 }
@@ -8688,7 +8688,7 @@ FShadowOut Pass_Shadows(FEditorHost& h, IRhiCommandList* cl, u32 dvCount,
             cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(FM3DVtx));
             cl->Draw(dvCount, 0);
             cl->EndShadowPass(*h.shadow.DepthTexture());
-            o.shadowOn = true;   // シャドウマップ有効 (本パスで FPbrShader が PCF サンプル)
+            o.shadowOn = true;   // シャドウマップ有効 (本パスで CPbrShader が PCF サンプル)
         }
     }
     return o;
@@ -8719,7 +8719,7 @@ void AdvanceRuntimeSsgi(FEditorHost& h, u32 width, u32 height) noexcept {
                 h.ssgi_w = 0u;
                 h.ssgi_h = 0u;
                 ACS_LOG_WARN(
-                    "[3D] hot-enabled FSsgi owner RHI commit failed: %s",
+                    "[3D] hot-enabled CSsgi owner RHI commit failed: %s",
                     result.Error().message);
             }
         } else {
@@ -8768,7 +8768,7 @@ void AdvanceRuntimeSsgi(FEditorHost& h, u32 width, u32 height) noexcept {
     } else {
         h.ssgi_w = 0u;
         h.ssgi_h = 0u;
-        ACS_LOG_WARN("[3D] hot-enabled FSsgi init failed: %s",
+        ACS_LOG_WARN("[3D] hot-enabled CSsgi init failed: %s",
                      result.Error().message);
     }
 }
@@ -9465,7 +9465,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     }
 
     // --- SH9 環境光を «現在の空» に追従させて再計算 (時間帯プリセット切替・空色変更に反応) ---
-    //     拡散 ambient (Sh9Irradiance) と鏡面 fallback (Sh9Radiance) の両方の元データ。背景 FSky と
+    //     拡散 ambient (Sh9Irradiance) と鏡面 fallback (Sh9Radiance) の両方の元データ。背景 CSky と
     //     同じ色を使うので金属の映り込みが背景と整合する。空が変わらない限り再計算しない (sh9_dirty)。
     Pass_UpdateSh9(h);
 
@@ -9549,7 +9549,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                         h.ssao_w = scW;
                         h.ssao_h = scH;
                     } else {
-                        ACS_LOG_ERROR("[3D] FSsao resize failed: %s",
+                        ACS_LOG_ERROR("[3D] CSsao resize failed: %s",
                                       sr.Error().message);
                         h.ssao3d.Shutdown();
                         h.ssao_ready = false;
@@ -9566,7 +9566,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                     } else {
                         h.ssao_w = 0u;
                         h.ssao_h = 0u;
-                        ACS_LOG_ERROR("[3D] FSsao Init failed: %s",
+                        ACS_LOG_ERROR("[3D] CSsao Init failed: %s",
                                       sr.Error().message);
                     }
                 }
@@ -9576,7 +9576,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                         h.ssr_w = scW;
                         h.ssr_h = scH;
                     } else {
-                        ACS_LOG_ERROR("[3D] FSsr resize failed: %s",
+                        ACS_LOG_ERROR("[3D] CSsr resize failed: %s",
                                       rr.Error().message);
                         h.ssr3d.Shutdown();
                         h.ssr_ready = false;
@@ -9594,7 +9594,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                     } else {
                         h.ssr_w = 0u;
                         h.ssr_h = 0u;
-                        ACS_LOG_ERROR("[3D] FSsr Init failed: %s",
+                        ACS_LOG_ERROR("[3D] CSsr Init failed: %s",
                                       rr.Error().message);
                     }
                 }
@@ -9604,7 +9604,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                         h.hiz3d_w = scW;
                         h.hiz3d_h = scH;
                     } else {
-                        ACS_LOG_WARN("[3D] FHiZ resize failed: %s",
+                        ACS_LOG_WARN("[3D] CHiZ resize failed: %s",
                                      hr.Error().message);
                         h.hiz3d.Shutdown();
                         h.hiz3d_ready = false;
@@ -9622,7 +9622,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                         h.hiz3d_w = 0u;
                         h.hiz3d_h = 0u;
                         ACS_LOG_WARN(
-                            "[3D] FHiZ Init failed (SSR DDA fallback): %s",
+                            "[3D] CHiZ Init failed (SSR DDA fallback): %s",
                             hr.Error().message);
                     }
                 }
@@ -9632,7 +9632,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                         h.ssgi_w = scW;
                         h.ssgi_h = scH;
                     } else {
-                        ACS_LOG_ERROR("[3D] FSsgi resize failed: %s",
+                        ACS_LOG_ERROR("[3D] CSsgi resize failed: %s",
                                       gr.Error().message);
                         h.ssgi3d.Shutdown();
                         h.ssgi_ready = false;
@@ -9649,7 +9649,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                         h.mv_w = scW;
                         h.mv_h = scH;
                     } else {
-                        ACS_LOG_ERROR("[3D] FMotionVector resize failed: %s",
+                        ACS_LOG_ERROR("[3D] CMotionVector resize failed: %s",
                                       mr.Error().message);
                         h.mv3d.Shutdown();
                         h.mv_ready = false;
@@ -9666,7 +9666,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                     } else {
                         h.mv_w = 0u;
                         h.mv_h = 0u;
-                        ACS_LOG_ERROR("[3D] FMotionVector Init failed: %s",
+                        ACS_LOG_ERROR("[3D] CMotionVector Init failed: %s",
                                       mr.Error().message);
                     }
                 }
@@ -9724,7 +9724,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
 
     // --- 空気遠近法 + 局所高度フォグ: 48x48x96 のカメラ空間 froxel。
     //     q_fog_on のときは surface 単位の近似ではなく、camera→depth の 24-step 散乱積分を主経路にする。
-    //     compute 不可なら下の FPbrShader 解析積分へ自動 fallback。
+    //     compute 不可なら下の CPbrShader 解析積分へ自動 fallback。
     // Cloud march と同じ範囲まで積分し、horizon cloud を 300-unit
     // far slice へ誤って clamp しない。Squared Z + 96 slices で近景精度も維持する。
     constexpr f32 kFogVolumeMaxDist = acs::kVolumetricCloudMaxDistance;
@@ -9776,7 +9776,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         }
     }
 
-    // --- FMotionVector: motion G-buffer を per-node (主パスと同型) で焼き TAA/SSR/SSGI の reproject に供給 ---
+    // --- CMotionVector: motion G-buffer を per-node (主パスと同型) で焼き TAA/SSR/SSGI の reproject に供給 ---
     //     no-jitter の vp/prev で «真の幾何モーション» (カメラ + オブジェクト両方) を出す。静止物は motion≈カメラ分、
     //     動く物 (play/ドラッグ) はその差分も入り ghost が消える。TAA/SSR/SSGI が ON のときだけ焼く。
     const bool motionHistoryReady = h.mv_computed;
@@ -9887,7 +9887,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         invalidateMotionHistory();
     }
 
-    // Phase2: 3D シーンを «線形 HDR RT» へ描く → 末尾で FPostProcess(ACES) が一度だけ tonemap。post3d 遅延初期化。
+    // Phase2: 3D シーンを «線形 HDR RT» へ描く → 末尾で CPostProcess(ACES) が一度だけ tonemap。post3d 遅延初期化。
     IRhiDevice* pdev = h.renderer.Device();
     if (pdev != nullptr && h.post3d_ready &&
         (h.post3d_w != scW || h.post3d_h != scH)) {
@@ -9897,7 +9897,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             h.post3d_h = scH;
         } else {
             ACS_LOG_ERROR(
-                "[3D] FPostProcess resize failed: %s",
+                "[3D] CPostProcess resize failed: %s",
                 resize_result.Error().message);
         }
     }
@@ -9911,14 +9911,14 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             hdrRt != nullptr && scSwap != nullptr);
 
     // --- Phase4 volumetric clouds: render pass の «外» で雲を compute レイマーチ (UAV へ書く)。
-    //     composite は AP 後まで遅延する。FSky の 2D 雲は無効化して二重描画回避。
+    //     composite は AP 後まで遅延する。CSky の 2D 雲は無効化して二重描画回避。
     bool cloudsActive = false;
     if (h.q_cloud_coverage > 0.001f && !renderOrtho && hdrRt != nullptr) {
         IRhiDevice* cdev = h.renderer.Device();
         if (cdev != nullptr) {
             if (!h.vclouds_tried) { h.vclouds_tried = true;
                 h.vclouds_ready = h.vclouds3d.Init(*cdev, EFormat::R16G16B16A16_Float).IsOk();
-                if (!h.vclouds_ready) ACS_LOG_WARN("[3D] FVolumetricClouds Init 失敗 (FSky 2D 雲にフォールバック)"); }
+                if (!h.vclouds_ready) ACS_LOG_WARN("[3D] CVolumetricClouds Init 失敗 (CSky 2D 雲にフォールバック)"); }
             // 雲は «空 pass を End → compute dispatch (pass 外で UAV→SRV 遷移が成立)» する。
             // compute をここ (pass 前) で dispatch すると、後段 composite の SRV 読みへの
             // UAV→SRV 遷移が pass を跨げず書込みが見えない (実測)。よってここでは gate のみ。
@@ -9936,7 +9936,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
       FScissorRect rsr{}; rsr.right = static_cast<i32>(scW); rsr.bottom = static_cast<i32>(scH); cl->SetScissor(rsr); }
 
     // --- (1) スカイ: 物理大気モード(q_sky_mode==1 + IBL 焼成済)は env cubemap を skybox 描画して «背景=IBL=一致»。
-    //         それ以外はエンジン標準 FSky (グラデ + 手続き雲)。FSky Init 失敗時のみ自前 kSky3DHLSL。
+    //         それ以外はエンジン標準 CSky (グラデ + 手続き雲)。CSky Init 失敗時のみ自前 kSky3DHLSL。
     {
     editor_profiler::FCpuScope atmosphereScope(
         h.profiler_work.atmosphere_cpu_ms);
@@ -9965,7 +9965,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         h.sky3d.SetGroundColor(h.sky_ground);
         h.sky3d.SetCloudsEnabled(
             h.q_cloud_coverage > 0.001f &&
-            !renderOrtho && !cloudsActive);   // Ortho と volumetric 雲では 48-step FSky fallback を止める
+            !renderOrtho && !cloudsActive);   // Ortho と volumetric 雲では 48-step CSky fallback を止める
         h.sky3d.SetClouds(h.q_cloud_coverage, h.q_cloud_density);
         h.sky3d.SetCloudWind(h.q_cloud_wind);
         h.sky3d.Render(*cl, cam);
@@ -10066,7 +10066,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         cl->SetScissor(ssss_scissor);
     }
 
-    // --- (2) ノードのメッシュ本体: エンジン標準 FPbrShader (HDR 線形出力)。per-node DrawMesh で
+    // --- (2) ノードのメッシュ本体: エンジン標準 CPbrShader (HDR 線形出力)。per-node DrawMesh で
     //     model + 材質(metallic/roughness/baseColor + Substrate ロブ + emissive)+ キャスト影。
     //     DrawMesh が «object CB リングの現在バッファ» を毎draw bind するので per-object が正しく出る。
     auto draw_aggregate_mesh_fallback = [&]() noexcept {
@@ -10115,7 +10115,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         // SSAO (GTAO) visibility を ambient へ乗算 (今フレーム焼けていれば)。screen UV でサンプル。
         if (h.ssao_computed) h.pbr3d.SetSsao(h.ssao3d.OutputTexture(), h.q_ssao_intensity, scW, scH);
         else                 h.pbr3d.SetSsao(nullptr, 0.0f, scW, scH);
-        // SSR: 前フレームの反射結果を roughness/Fresnel でブレンド (FPbrShader 内)。本フレーム分は本パス後に焼く。
+        // SSR: 前フレームの反射結果を roughness/Fresnel でブレンド (CPbrShader 内)。本フレーム分は本パス後に焼く。
         // Init / resize / re-enable 後の最初の main pass では history RT はまだ未描画。
         // ssr_ready だけで bind すると未初期化 HDR を反射として読むため、直近の
         // Render が完了したことも必須にする。本フレーム分は main pass 後に焼かれ、
@@ -10154,7 +10154,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             [&](u32 node_index) noexcept {
                 ssss_mrt_draws_valid = DrawEditorPbrNode(h, *cl, all3d[node_index], SceneMeshWorldTransform(h, node_index, all3d[node_index]), ssss_mrt_bound) && ssss_mrt_draws_valid;
             });
-    } else {   // フォールバック: 自前 kMesh3DHLSL (FPbrShader 不可時)
+    } else {   // フォールバック: 自前 kMesh3DHLSL (CPbrShader 不可時)
         draw_aggregate_mesh_fallback();
     }
     }
@@ -10318,7 +10318,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         DrawGizmo3DOverlay(h, *cl, vp, camPos);
     }
 
-    // Phase2: HDR RT → FPostProcess(ACES + 軽 Bloom)で backbuffer へ一度だけ tonemap。
+    // Phase2: HDR RT → CPostProcess(ACES + 軽 Bloom)で backbuffer へ一度だけ tonemap。
     //         グリッド/ギズモも HDR に線形で乗っているので正しく tonemap される。editor は
     //         ビネット/色収差/グレイン無効でクリーンに。
     if (hdrRt != nullptr && scSwap != nullptr) {
@@ -10435,7 +10435,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
 
         // --- ボリューメトリック雲の合成 ---
         // AP 後・屈折背景 capture 前に合成する。これによりガラス/水の
-        // FRefractionShader は雲を完成済み HDR 背景として正しく屈折 sample する。
+        // CRefractionShader は雲を完成済み HDR 背景として正しく屈折 sample する。
         // 完成した scene depth を point sample し、手前の opaque geometry も維持する。
         if (cloudsActive && h.renderer.DepthBuffer() != nullptr) {
             editor_profiler::FCpuScope cloudScope(
@@ -10467,7 +10467,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
 
         // --- 屈折 (ガラス/水): transmission>0 のノードを «opaque シーンを IOR で曲げて sample» して描く ---
         //     opaque + AP + cloud HDR を refr_bg へ blit → hdrRt を clear せず load 再オープン (opaque+depth 保持) →
-        //     FRefractionShader で描画。env cubemap で Fresnel 反射 (要 Diligent IBL)。
+        //     CRefractionShader で描画。env cubemap で Fresnel 反射 (要 Diligent IBL)。
         if (h.refr_ready && h.blit_ready && h.ibl_ready && h.ibl3d.EnvCubemap() != nullptr) {
             const bool anyRefr =
                 editor_frustum_culling::AnySubmittedNode(
@@ -11782,7 +11782,7 @@ ACS_EDITOR_API int acs_editor_resize(void* handle, uint32_t width, uint32_t heig
         return 0;
     }
     // The managed host coalesces a Win32 move/size interaction to its stable
-    // final dimensions. FRenderer owns exactly one WaitIdle; backend Resize
+    // final dimensions. CRenderer owns exactly one WaitIdle; backend Resize
     // implementations only recreate buffers.
     if (!host->renderer.OnResize(width, height)) return 0;
     host->resource_mutation_idle = true;
@@ -11910,7 +11910,7 @@ ACS_EDITOR_API int acs_editor_quality_fog_x1000(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->q_fog_on) ? static_cast<int>(host->q_fog_density * 1000.0f + 0.5f) : 0;
 }
-/** 空モード (0=FSky / 1=物理大気)。設定反映の確認用。 */
+/** 空モード (0=CSky / 1=物理大気)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_sky_mode(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? host->q_sky_mode : 0;
@@ -12330,7 +12330,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
 
     // ユーザー型記述子はグローバルレジストリからポインタ参照される。ホスト所有領域を
     // 先に破棄すると次の create/destroy 周回で dangling になるため、登録元だけを外す。
-    game::FTypeRegistry& type_registry = game::FTypeRegistry::Get();
+    game::CTypeRegistry& type_registry = game::CTypeRegistry::Get();
     for (u32 i = 0; i < host->user_types.Size(); ++i) {
         (void)type_registry.Unregister(&host->user_types[i]->desc);
     }
@@ -13738,7 +13738,7 @@ static bool EnsurePreviewPbr(FEditorHost& h, u32 size) noexcept {
     IRhiDevice* dev = h.renderer.Device();
     if (dev == nullptr) return false;
 
-    // SH9 supplies the preview environment radiance, but FPbrShader still
+    // SH9 supplies the preview environment radiance, but CPbrShader still
     // samples the split-sum BRDF LUT for metallic/specular response.  Its
     // generic no-IBL fallback is intentionally black, so provide a compact
     // UE-style analytic LUT plus valid cube bindings for this studio path.
@@ -13981,7 +13981,7 @@ static int RenderPreview(FEditorHost& h, u32 size, u8* out_rgba, u32 out_size, D
 }
 
 /**
- * Draw a true indexed studio model through FPbrShader.  This is the material
+ * Draw a true indexed studio model through CPbrShader.  This is the material
  * editor's authoritative preview path for both legacy PBR and Substrate:
  * WorldPosition/WorldNormal/UV/Time and texture expressions therefore see
  * the same inputs and bytecode interpreter as the 3D viewport.
@@ -14041,7 +14041,7 @@ static int RenderPbrMaterialPreview(
         camera.ViewProjection(), eye, lights, 1u,
         FVec3{0.018f, 0.021f, 0.028f});
     shader.SetPointLights(nullptr, 0u);
-    // FPbrShader's production area-light integrator intentionally exposes
+    // CPbrShader's production area-light integrator intentionally exposes
     // its 4x4 samples on mirror-like materials.  That is useful in motion,
     // but a static swatch reveals the individual dots.  The preview instead
     // uses the continuous SH9 studio reflection below plus smooth key/fill
@@ -14260,7 +14260,7 @@ ACS_EDITOR_API int acs_editor_render_preview_material(void* handle, const char* 
                 if (fx) sb.ClearEffect();
             });
     }
-    // Toon keeps its production SpriteBatch toon shader. FPbrShader does not
+    // Toon keeps its production SpriteBatch toon shader. CPbrShader does not
     // implement the cel ramps/rim/spec-threshold contract.
     if (mat.pbr.shadingMode == 1) {
         const FLitMaterialParams toon =
@@ -14314,7 +14314,7 @@ ACS_EDITOR_API int acs_editor_render_preview_material(void* handle, const char* 
 static int RigidBodySlot(const AEditorNode* n) noexcept {
     static game::FTypeId s_rbId = 0;
     if (s_rbId == 0) {
-        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName("ARigidBody2D");
+        const game::FTypeDesc* d = game::CTypeRegistry::Get().FindByName("ARigidBody2D");
         if (d != nullptr) s_rbId = d->id;
     }
     if (s_rbId == 0) return -1;
@@ -14327,7 +14327,7 @@ static int RigidBodySlot(const AEditorNode* n) noexcept {
  *  プロパティ (bodyType/shape/restitution/friction/mass/damping) はコンポーネントの
  *  編集値 (comp_props、スキーマ順) から読む。動的のみ書き戻し対象に記録する。 */
 static void EditorBuildPlayWorld(FEditorHost& h) noexcept {
-    h.play_world = MakeUnique<game::FRigidWorld2D>();
+    h.play_world = MakeUnique<game::CRigidWorld2D>();
     h.play_body.Clear();
     h.play_node.Clear();
     if (h.play_world.Get() == nullptr) return;
@@ -14649,34 +14649,34 @@ ACS_EDITOR_API void acs_editor_set_marquee(void* handle, int active, float x0, f
 // -----------------------------------------------------------------------------
 // エンジンが ACS_REGISTER* で把握している全型 (Component / System / Scene / Asset /
 // enum …) を、エディタがハードコードせず実行時に列挙できるようにする。handle 不要
-// (プロセス唯一の FTypeRegistry を引く)。AcsRegisterEngineTypes() は create 時に
+// (プロセス唯一の CTypeRegistry を引く)。AcsRegisterEngineTypes() は create 時に
 // 呼ばれ済みだが、念のため各エントリで冪等に確定しておく。
 // =============================================================================
 
 /** 登録されているエンジン型の総数。 */
 ACS_EDITOR_API int acs_editor_type_count(void) {
     acs::game::AcsRegisterEngineTypes();
-    return static_cast<int>(acs::game::FTypeRegistry::Get().Count());
+    return static_cast<int>(acs::game::CTypeRegistry::Get().Count());
 }
 
 /** index 番目の型名 (範囲外は "")。 */
 ACS_EDITOR_API const char* acs_editor_type_name_at(int index) {
     if (index < 0) return "";
-    const auto* d = acs::game::FTypeRegistry::Get().At(static_cast<u32>(index));
+    const auto* d = acs::game::CTypeRegistry::Get().At(static_cast<u32>(index));
     return (d != nullptr && d->name != nullptr) ? d->name : "";
 }
 
 /** index 番目の型のカテゴリ (ETypeCategory の整数値、範囲外は -1)。 */
 ACS_EDITOR_API int acs_editor_type_category_at(int index) {
     if (index < 0) return -1;
-    const auto* d = acs::game::FTypeRegistry::Get().At(static_cast<u32>(index));
+    const auto* d = acs::game::CTypeRegistry::Get().At(static_cast<u32>(index));
     return (d != nullptr) ? static_cast<int>(d->category) : -1;
 }
 
 /** index 番目の型が default 構築可能か (factory で生成できる = 1)。 */
 ACS_EDITOR_API int acs_editor_type_instantiable_at(int index) {
     if (index < 0) return 0;
-    const auto* d = acs::game::FTypeRegistry::Get().At(static_cast<u32>(index));
+    const auto* d = acs::game::CTypeRegistry::Get().At(static_cast<u32>(index));
     if (d == nullptr) return 0;
     return ((d->traits & acs::game::TRAIT_INSTANTIABLE) != 0u) ? 1 : 0;
 }
@@ -14684,7 +14684,7 @@ ACS_EDITOR_API int acs_editor_type_instantiable_at(int index) {
 /** index 番目の型のフィールド数 (Component/Struct)、または列挙値数 (Enum)。 */
 ACS_EDITOR_API int acs_editor_type_member_count_at(int index) {
     if (index < 0) return 0;
-    const auto* d = acs::game::FTypeRegistry::Get().At(static_cast<u32>(index));
+    const auto* d = acs::game::CTypeRegistry::Get().At(static_cast<u32>(index));
     if (d == nullptr) return 0;
     return static_cast<int>(d->category == acs::game::ETypeCategory::Enum
                                 ? d->enum_count : d->field_count);
@@ -14731,7 +14731,7 @@ static bool IsImportedUserType(const game::FTypeDesc* descriptor) noexcept
  * ゲームのリフレクション DLL をロードし、ユーザー定義の Component 型スキーマを取り込む。
  *
  * @details DLL の C ABI (acs_game_reflect_*) で型を列挙し、エンジンに無い Component をディープ
- * コピーして host->user_types に保持 + エディタの FTypeRegistry へ登録する (→ AttachComponent /
+ * コピーして host->user_types に保持 + エディタの CTypeRegistry へ登録する (→ AttachComponent /
  * インスペクタ / シリアライズが engine 型と同経路で動く)。既存型は in-place 更新。コピー後 DLL は
  * FreeLibrary する (再ビルドで上書き可能に)。
  * @return 取り込んだ/更新した型数、LoadLibrary 失敗 -1、シンボル欠如 -2。
@@ -14762,7 +14762,7 @@ ACS_EDITOR_API int acs_editor_load_game_dll(void* handle, const char* path) {
         if (tn == nullptr || tn[0] == '\0') continue;
         const game::FTypeId id = game::AcsTypeHash(tn);
         FUserType* ut = FindUserType(*host, id);
-        const game::FTypeDesc* eng = game::FTypeRegistry::Get().FindById(id);
+        const game::FTypeDesc* eng = game::CTypeRegistry::Get().FindById(id);
         if (eng != nullptr && ut == nullptr && !IsImportedUserType(eng)) {
             continue; // 実エンジン型 (= editor registry に既存) は上書きしない。
         }
@@ -14784,7 +14784,7 @@ ACS_EDITOR_API int acs_editor_load_game_dll(void* handle, const char* path) {
             for (int k = 0; k < 4; ++k) ut->fields[j].defaults[k] = d4[k];
         }
         ut->Rebuild(category, fc);
-        if (isNew && !game::FTypeRegistry::Get().Register(&ut->desc)) {
+        if (isNew && !game::CTypeRegistry::Get().Register(&ut->desc)) {
             // 固定長レジストリが満杯なら、未登録の記述子をホストへ残さない。
             host->user_types.PopBack();
             continue;
@@ -14816,7 +14816,7 @@ ACS_EDITOR_API int acs_editor_instantiate_scene(void* handle) {
     for (u32 i = 0; i < host->nodes.Size(); ++i) {
         AEditorNode* n = host->nodes[i];
         for (u32 s = 0; s < n->component_count; ++s) {
-            const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[s]);
+            const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(n->components[s]);
             if (d == nullptr || d->name == nullptr) continue;
             TUniquePtr<game::AComponent> comp = game::CreateComponentByName(d->name);
             if (!comp) continue;                       // 非 Component / Abstract はスキップ
@@ -15007,7 +15007,7 @@ ACS_EDITOR_API int acs_editor_logic_play_start(void* handle, const char* dll_pat
         const game::FTransform2D t = n->Local2D();
         sh.set_transform(scene, idx, t.position.x, t.position.y, t.rotation, t.scale.x, t.scale.y);
         for (u32 s = 0; s < n->component_count; ++s) {
-            const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[s]);
+            const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(n->components[s]);
             if (d == nullptr || d->name == nullptr) continue;
             const int dslot = sh.add_component(scene, idx, d->name);
             if (dslot < 0) continue;                       // DLL の registry に無い型はスキップ
@@ -16919,7 +16919,7 @@ static int EmitNode3DBlock(char* out, int cur, int cap, FEditorHost* host,
         if (cur < cap) out[cur++] = '\n';
     }
     for (u32 c = 0; c < r->component_count && cur < cap; ++c) {                     // アタッチ済みコンポーネント
-        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(r->components[c]);
+        const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(r->components[c]);
         if (d == nullptr || d->name == nullptr) continue;
         const int wc = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "CMP3D %d %s\n", r->id, d->name);
         if (wc < 0 || wc >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
@@ -17120,7 +17120,7 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
                     return false;
                 }
                 const game::FTypeDesc* descriptor =
-                    game::FTypeRegistry::Get().FindByName(type_name);
+                    game::CTypeRegistry::Get().FindByName(type_name);
                 if (descriptor == nullptr ||
                     descriptor->category != game::ETypeCategory::Component) {
                     return false;
@@ -17340,7 +17340,7 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
         }
         if (component_record == nullptr) return false;
         const game::FTypeDesc* descriptor =
-            game::FTypeRegistry::Get().FindById(component_record->type_id);
+            game::CTypeRegistry::Get().FindById(component_record->type_id);
         if (descriptor == nullptr ||
             property_record.property >= descriptor->field_count) {
             return false;
@@ -17354,7 +17354,7 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
         if (!structural.TryPushBack(auxiliary[index])) return false;
     }
 
-    game::FScene3D staging;
+    game::CScene3D staging;
     const game::FScene3DLoadResult parsed = game::TryLoadScene3DText(
         staging, structural.Data(), structural.Size());
     if (!parsed.Succeeded()) return false;
@@ -17932,7 +17932,7 @@ ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {
     const f32 aspect = W / H;
     const FRay3 ray = acs::ScreenPointToRay(EditorCam3D(*host, aspect).ViewProjection(), sx, sy, W, H);
 
-    // ノード交差は engine の FScene3D::Raycast に委譲 (回転/スケール/階層を扱う OBB ピック)。
+    // ノード交差は engine の CScene3D::Raycast に委譲 (回転/スケール/階層を扱う OBB ピック)。
     int best = -1;
     const game::FNodeId hitId = host->scene3d.Raycast(ray);
     if (hitId.IsValid()) {
@@ -18685,7 +18685,7 @@ ACS_EDITOR_API const char* acs_editor_node_component_name_at(void* handle, int i
     auto* host = static_cast<FEditorHost*>(handle);
     const AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr || index < 0 || index >= static_cast<int>(n->component_count)) return "";
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[static_cast<u32>(index)]);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(n->components[static_cast<u32>(index)]);
     return (d != nullptr && d->name != nullptr) ? d->name : "";
 }
 
@@ -18708,7 +18708,7 @@ ACS_EDITOR_API int acs_editor_node_remove_component_at(void* handle, int id, int
 static bool AttachComponent3D(AEditor3DRecordComponent* r, const char* type_name) noexcept {
     if (r == nullptr || type_name == nullptr) return false;
     game::AcsRegisterEngineTypes();
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName(type_name);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindByName(type_name);
     if (d == nullptr || d->category != game::ETypeCategory::Component) return false;
     for (u32 i = 0; i < r->component_count; ++i) if (r->components[i] == d->id) return true;  // 重複
     if (r->component_count >= AEditor3DRecordComponent::kMaxComponents) return false;                          // 容量
@@ -18737,7 +18737,7 @@ ACS_EDITOR_API const char* acs_editor_node3d_component_name_at(void* handle, int
     auto* host = static_cast<FEditorHost*>(handle);
     AEditor3DRecordComponent* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
     if (r == nullptr || index < 0 || index >= static_cast<int>(r->component_count)) return "";
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(r->components[static_cast<u32>(index)]);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(r->components[static_cast<u32>(index)]);
     return (d != nullptr && d->name != nullptr) ? d->name : "";
 }
 ACS_EDITOR_API int acs_editor_node3d_remove_component_at(void* handle, int id, int index) {
@@ -18800,9 +18800,9 @@ ACS_EDITOR_API int acs_editor_node3d_invoke_method(void* handle, int id, int slo
     AEditor3DRecordComponent* r = Rec3D(FindNode3DNode(*host, id));
     if (r == nullptr || slot < 0 || slot >= static_cast<int>(r->component_count)) return 0;
     const game::FTypeId tid = r->components[static_cast<u32>(slot)];
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(tid);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(tid);
     if (d == nullptr) return 0;
-    void* obj = game::FTypeRegistry::Get().CreateById(tid);   // 一時実体化 (factory)
+    void* obj = game::CTypeRegistry::Get().CreateById(tid);   // 一時実体化 (factory)
     if (obj == nullptr) return 0;
     game::ApplyDefaults(obj, *d);                             // C++ 既定値で初期化
     const u32 nf = CompPropCount(d);                          // 編集値 (authored) を実体へ適用
@@ -18811,7 +18811,7 @@ ACS_EDITOR_API int acs_editor_node3d_invoke_method(void* handle, int id, int slo
         game::ApplyFieldValue(obj, d->fields[p], v);
     }
     const bool ok = game::InvokeMethodByName(tid, obj, method_name);   // メソッド起動
-    game::FTypeRegistry::Get().Destroy(tid, obj);             // 一時実体を破棄
+    game::CTypeRegistry::Get().Destroy(tid, obj);             // 一時実体を破棄
     return ok ? 1 : 0;
 }
 
@@ -18854,7 +18854,7 @@ ACS_EDITOR_API void acs_editor_node3d_set_enabled(void* handle, int id, int enab
 ACS_EDITOR_API int acs_editor_component_prop_count(const char* type_name) {
     if (type_name == nullptr) return 0;
     game::AcsRegisterEngineTypes();
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName(type_name);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindByName(type_name);
     return static_cast<int>(CompPropCount(d));
 }
 
@@ -18862,7 +18862,7 @@ ACS_EDITOR_API int acs_editor_component_prop_count(const char* type_name) {
 ACS_EDITOR_API const char* acs_editor_component_prop_name_at(const char* type_name, int index) {
     if (type_name == nullptr || index < 0) return "";
     game::AcsRegisterEngineTypes();
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName(type_name);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindByName(type_name);
     if (d == nullptr || index >= static_cast<int>(CompPropCount(d))) return "";
     const char* nm = d->fields[static_cast<u32>(index)].name;
     return (nm != nullptr) ? nm : "";
@@ -18872,7 +18872,7 @@ ACS_EDITOR_API const char* acs_editor_component_prop_name_at(const char* type_na
 ACS_EDITOR_API int acs_editor_component_prop_kind_at(const char* type_name, int index) {
     if (type_name == nullptr || index < 0) return -1;
     game::AcsRegisterEngineTypes();
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName(type_name);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindByName(type_name);
     if (d == nullptr || index >= static_cast<int>(CompPropCount(d))) return -1;
     return static_cast<int>(d->fields[static_cast<u32>(index)].kind);
 }
@@ -18882,7 +18882,7 @@ ACS_EDITOR_API int acs_editor_component_prop_kind_at(const char* type_name, int 
 ACS_EDITOR_API int acs_editor_component_prop_flags_at(const char* type_name, int index) {
     if (type_name == nullptr || index < 0) return 0;
     game::AcsRegisterEngineTypes();
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName(type_name);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindByName(type_name);
     if (d == nullptr || index >= static_cast<int>(CompPropCount(d))) return 0;
     return static_cast<int>(d->fields[static_cast<u32>(index)].flags);
 }
@@ -18905,7 +18905,7 @@ ACS_EDITOR_API int acs_editor_component_prop_default_at(
     if (type_name == nullptr || index < 0) return 0;
     game::AcsRegisterEngineTypes();
     const game::FTypeDesc* const descriptor =
-        game::FTypeRegistry::Get().FindByName(type_name);
+        game::CTypeRegistry::Get().FindByName(type_name);
     if (descriptor == nullptr ||
         index >= static_cast<int>(CompPropCount(descriptor))) {
         return 0;
@@ -18927,7 +18927,7 @@ ACS_EDITOR_API int acs_editor_component_prop_default_at(
 ACS_EDITOR_API const char* acs_editor_component_prop_category_at(const char* type_name, int index) {
     if (type_name == nullptr || index < 0) return "";
     game::AcsRegisterEngineTypes();
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName(type_name);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindByName(type_name);
     if (d == nullptr || index >= static_cast<int>(CompPropCount(d))) return "";
     const char* c = d->fields[static_cast<u32>(index)].category;
     return (c != nullptr) ? c : "";
@@ -18939,14 +18939,14 @@ ACS_EDITOR_API const char* acs_editor_component_prop_category_at(const char* typ
 ACS_EDITOR_API int acs_editor_component_method_count(const char* type_name) {
     if (type_name == nullptr) return 0;
     game::AcsRegisterEngineTypes();
-    return static_cast<int>(game::FMethodRegistry::Get().CountOfOwner(game::AcsTypeHash(type_name)));
+    return static_cast<int>(game::CMethodRegistry::Get().CountOfOwner(game::AcsTypeHash(type_name)));
 }
 
 /** 型の index 番目の反射メソッド名 (範囲外は "")。 */
 ACS_EDITOR_API const char* acs_editor_component_method_name_at(const char* type_name, int index) {
     if (type_name == nullptr || index < 0) return "";
     game::AcsRegisterEngineTypes();
-    const game::FReflectMethod* m = game::FMethodRegistry::Get().AtOfOwner(game::AcsTypeHash(type_name), static_cast<u32>(index));
+    const game::FReflectMethod* m = game::CMethodRegistry::Get().AtOfOwner(game::AcsTypeHash(type_name), static_cast<u32>(index));
     return (m != nullptr && m->name != nullptr) ? m->name : "";
 }
 
@@ -18954,7 +18954,7 @@ ACS_EDITOR_API const char* acs_editor_component_method_name_at(const char* type_
 ACS_EDITOR_API int acs_editor_component_method_flags_at(const char* type_name, int index) {
     if (type_name == nullptr || index < 0) return 0;
     game::AcsRegisterEngineTypes();
-    const game::FReflectMethod* m = game::FMethodRegistry::Get().AtOfOwner(game::AcsTypeHash(type_name), static_cast<u32>(index));
+    const game::FReflectMethod* m = game::CMethodRegistry::Get().AtOfOwner(game::AcsTypeHash(type_name), static_cast<u32>(index));
     return (m != nullptr) ? static_cast<int>(m->flags) : 0;
 }
 
@@ -18967,9 +18967,9 @@ ACS_EDITOR_API int acs_editor_node_invoke_method(void* handle, int id, int slot,
     AEditorNode* n = FindNode(*host, id);
     if (n == nullptr || slot < 0 || slot >= static_cast<int>(n->component_count)) return 0;
     const game::FTypeId tid = n->components[static_cast<u32>(slot)];
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(tid);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(tid);
     if (d == nullptr) return 0;
-    void* obj = game::FTypeRegistry::Get().CreateById(tid);   // 一時実体化 (factory)
+    void* obj = game::CTypeRegistry::Get().CreateById(tid);   // 一時実体化 (factory)
     if (obj == nullptr) return 0;
     game::ApplyDefaults(obj, *d);                             // C++ 既定値で初期化
     const u32 nf = CompPropCount2D(d);                        // 編集値 (authored) を実体へ適用
@@ -18978,7 +18978,7 @@ ACS_EDITOR_API int acs_editor_node_invoke_method(void* handle, int id, int slot,
         game::ApplyFieldValue(obj, d->fields[p], v);
     }
     const bool ok = game::InvokeMethodByName(tid, obj, method_name);   // メソッド起動
-    game::FTypeRegistry::Get().Destroy(tid, obj);             // 一時実体を破棄
+    game::CTypeRegistry::Get().Destroy(tid, obj);             // 一時実体を破棄
     return ok ? 1 : 0;
 }
 
@@ -18991,9 +18991,9 @@ ACS_EDITOR_API int acs_editor_node_invoke_method_arg(void* handle, int id, int s
     AEditorNode* n = FindNode(*host, id);
     if (n == nullptr || slot < 0 || slot >= static_cast<int>(n->component_count)) return 0;
     const game::FTypeId tid = n->components[static_cast<u32>(slot)];
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(tid);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(tid);
     if (d == nullptr) return 0;
-    void* obj = game::FTypeRegistry::Get().CreateById(tid);
+    void* obj = game::CTypeRegistry::Get().CreateById(tid);
     if (obj == nullptr) return 0;
     game::ApplyDefaults(obj, *d);
     const u32 nf = CompPropCount2D(d);
@@ -19002,7 +19002,7 @@ ACS_EDITOR_API int acs_editor_node_invoke_method_arg(void* handle, int id, int s
         game::ApplyFieldValue(obj, d->fields[p], v);
     }
     const bool ok = game::InvokeMethodByNameArg(tid, obj, method_name, arg != nullptr ? arg : "");
-    game::FTypeRegistry::Get().Destroy(tid, obj);
+    game::CTypeRegistry::Get().Destroy(tid, obj);
     return ok ? 1 : 0;
 }
 
@@ -19017,9 +19017,9 @@ ACS_EDITOR_API int acs_editor_node_invoke_method_ret(void* handle, int id, int s
     AEditorNode* n = FindNode(*host, id);
     if (n == nullptr || slot < 0 || slot >= static_cast<int>(n->component_count)) return 0;
     const game::FTypeId tid = n->components[static_cast<u32>(slot)];
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(tid);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(tid);
     if (d == nullptr) return 0;
-    void* obj = game::FTypeRegistry::Get().CreateById(tid);
+    void* obj = game::CTypeRegistry::Get().CreateById(tid);
     if (obj == nullptr) return 0;
     game::ApplyDefaults(obj, *d);
     const u32 nf = CompPropCount2D(d);
@@ -19028,7 +19028,7 @@ ACS_EDITOR_API int acs_editor_node_invoke_method_ret(void* handle, int id, int s
         game::ApplyFieldValue(obj, d->fields[p], v);
     }
     const bool ok = game::InvokeMethodByNameRet(tid, obj, method_name, arg != nullptr ? arg : "", out, outcap);
-    game::FTypeRegistry::Get().Destroy(tid, obj);
+    game::CTypeRegistry::Get().Destroy(tid, obj);
     return ok ? 1 : 0;
 }
 
@@ -19037,13 +19037,13 @@ ACS_EDITOR_API int acs_editor_node_invoke_method_ret(void* handle, int id, int s
 /** 登録済み «全» 反射メソッド数 (所有型を問わない)。 */
 ACS_EDITOR_API int acs_editor_method_count() {
     game::AcsRegisterEngineTypes();
-    return static_cast<int>(game::FMethodRegistry::Get().Count());
+    return static_cast<int>(game::CMethodRegistry::Get().Count());
 }
 
 /** i 番目の反射メソッド名 (範囲外は "")。 */
 ACS_EDITOR_API const char* acs_editor_method_name_at(int i) {
     game::AcsRegisterEngineTypes();
-    auto& r = game::FMethodRegistry::Get();
+    auto& r = game::CMethodRegistry::Get();
     if (i < 0 || static_cast<u32>(i) >= r.Count()) return "";
     const char* nm = r.At(static_cast<u32>(i)).name;
     return (nm != nullptr) ? nm : "";
@@ -19052,16 +19052,16 @@ ACS_EDITOR_API const char* acs_editor_method_name_at(int i) {
 /** i 番目の反射メソッドの所有型名 (ハッシュ→型名を解決。未登録型は "")。 */
 ACS_EDITOR_API const char* acs_editor_method_owner_at(int i) {
     game::AcsRegisterEngineTypes();
-    auto& r = game::FMethodRegistry::Get();
+    auto& r = game::CMethodRegistry::Get();
     if (i < 0 || static_cast<u32>(i) >= r.Count()) return "";
-    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(r.At(static_cast<u32>(i)).owner);
+    const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(r.At(static_cast<u32>(i)).owner);
     return (d != nullptr && d->name != nullptr) ? d->name : "";
 }
 
 /** i 番目の反射メソッドのフラグ (bit0=BlueprintCallable, bit1=CallInEditor)。 */
 ACS_EDITOR_API int acs_editor_method_flags_at(int i) {
     game::AcsRegisterEngineTypes();
-    auto& r = game::FMethodRegistry::Get();
+    auto& r = game::CMethodRegistry::Get();
     if (i < 0 || static_cast<u32>(i) >= r.Count()) return 0;
     return static_cast<int>(r.At(static_cast<u32>(i)).flags);
 }
@@ -19069,7 +19069,7 @@ ACS_EDITOR_API int acs_editor_method_flags_at(int i) {
 /** i 番目の反射メソッドの引数種別 (0=None,1=F32,2=I32,3=Str)。 */
 ACS_EDITOR_API int acs_editor_method_argkind_at(int i) {
     game::AcsRegisterEngineTypes();
-    auto& r = game::FMethodRegistry::Get();
+    auto& r = game::CMethodRegistry::Get();
     if (i < 0 || static_cast<u32>(i) >= r.Count()) return 0;
     return static_cast<int>(r.At(static_cast<u32>(i)).argKind);
 }
@@ -19077,7 +19077,7 @@ ACS_EDITOR_API int acs_editor_method_argkind_at(int i) {
 /** i 番目の反射メソッドの戻り値種別 (0=None/void,1=F32,2=I32,3=Str)。 */
 ACS_EDITOR_API int acs_editor_method_retkind_at(int i) {
     game::AcsRegisterEngineTypes();
-    auto& r = game::FMethodRegistry::Get();
+    auto& r = game::CMethodRegistry::Get();
     if (i < 0 || static_cast<u32>(i) >= r.Count()) return 0;
     return static_cast<int>(r.At(static_cast<u32>(i)).retKind);
 }

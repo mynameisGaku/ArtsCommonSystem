@@ -2,7 +2,7 @@
 // =============================================================================
 // gameframework/Camera2D の検証:
 //   target 追従 (snap / 指数 smoothing / デッドゾーン)、bounds clamp、trauma shake 減衰、
-//   world↔screen 座標往復を確認する (これまで未テストだった FCamera2D を固定)。
+//   world↔screen 座標往復を確認する (これまで未テストだった CCamera2D を固定)。
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -16,7 +16,7 @@ using namespace acs::game;
 
 // smoothing<=0 は即スナップ。
 ACS_TEST(Camera2D, SnapFollow) {
-    FCamera2D cam;
+    CCamera2D cam;
     cam.SetTargetPos(FVec2{ 10.0f, 5.0f }, 0.0f);
     cam.Tick(1.0f / 60.0f);
     EXPECT_NEAR(cam.Position().x, 10.0f, 1e-4f);
@@ -25,7 +25,7 @@ ACS_TEST(Camera2D, SnapFollow) {
 
 // 指数 smoothing: dt 後に 1-exp(-s·dt) の割合だけ詰める。
 ACS_TEST(Camera2D, ExponentialSmoothing) {
-    FCamera2D cam;
+    CCamera2D cam;
     cam.SetTargetPos(FVec2{ 10.0f, 0.0f }, 5.0f);
     cam.Tick(0.2f);                                   // 1-exp(-1)=0.632
     EXPECT_NEAR(cam.Position().x, 6.32f, 0.05f);
@@ -34,7 +34,7 @@ ACS_TEST(Camera2D, ExponentialSmoothing) {
 
 // bounds clamp: target が範囲外でも position は矩形内。
 ACS_TEST(Camera2D, BoundsClamp) {
-    FCamera2D cam;
+    CCamera2D cam;
     cam.SetBounds(FVec2{ 0.0f, 0.0f }, FVec2{ 5.0f, 5.0f });
     cam.SetTargetPos(FVec2{ 10.0f, 10.0f }, 0.0f);
     cam.Tick(1.0f / 60.0f);
@@ -44,7 +44,7 @@ ACS_TEST(Camera2D, BoundsClamp) {
 
 // デッドゾーン: 箱の中は動かず、外に出たら target を箱の縁に保つ。
 ACS_TEST(Camera2D, Deadzone) {
-    FCamera2D cam;   // position (0,0)
+    CCamera2D cam;   // position (0,0)
     cam.SetDeadzone(FVec2{ 2.0f, 2.0f });
 
     cam.SetTargetPos(FVec2{ 1.0f, 0.0f }, 0.0f);      // 箱の中 (|1|<2)
@@ -58,7 +58,7 @@ ACS_TEST(Camera2D, Deadzone) {
 
 // trauma shake: shake が出て、減衰して 0 に戻ると offset も消える。
 ACS_TEST(Camera2D, ShakeDecays) {
-    FCamera2D cam;
+    CCamera2D cam;
     cam.SetShakeAmplitude(0.5f);
     cam.SetShakeDecayRate(1.0f);
     cam.AddShake(1.0f);
@@ -75,7 +75,7 @@ ACS_TEST(Camera2D, ShakeDecays) {
 
 // world↔screen 往復 (zoom 込み、shake なし)。
 ACS_TEST(Camera2D, ScreenWorldRoundTrip) {
-    FCamera2D cam;
+    CCamera2D cam;
     cam.SetPosition(FVec2{ 10.0f, 20.0f });
     cam.SetZoom(2.0f);
     const FVec2 world{ 15.0f, 25.0f };

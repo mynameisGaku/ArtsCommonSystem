@@ -40,9 +40,9 @@ usize ProcessHeapBusyBytes() noexcept
 bool CycleThreadPool(u32 cycle_count) noexcept
 {
     for (u32 i = 0; i < cycle_count; ++i) {
-        auto result = FThreadPool::Init(2);
+        auto result = CThreadPool::Init(2);
         if (result.IsErr()) return false;
-        FThreadPool::Shutdown();
+        CThreadPool::Shutdown();
     }
     return true;
 }
@@ -150,7 +150,7 @@ void SubmitRaceMain(void* user) noexcept
     auto* context = static_cast<FSubmitRaceContext*>(user);
     while (context->stop.Load(EMemoryOrder::Acquire) == 0) {
         FTask task{&CountRaceTask, context, nullptr};
-        if (FThreadPool::Submit(task).IsOk())
+        if (CThreadPool::Submit(task).IsOk())
             context->accepted.FetchAdd(1);
         else
             Yield();
@@ -159,7 +159,7 @@ void SubmitRaceMain(void* user) noexcept
 
 void ShutdownFromTask(void* user, u32) noexcept
 {
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
     static_cast<TAtomic<u32>*>(user)->Store(1, EMemoryOrder::Release);
 }
 
@@ -302,7 +302,7 @@ ACS_TEST(Threading, ThreadNameIsOwnedBySpawnContext)
 }
 
 ACS_TEST(Threading, ThreadPoolSubmitMany) {
-    auto rinit = FThreadPool::Init(4);
+    auto rinit = CThreadPool::Init(4);
     EXPECT_TRUE(rinit.IsOk());
 
     TAtomic<u32> counter{0};
@@ -315,12 +315,12 @@ ACS_TEST(Threading, ThreadPoolSubmitMany) {
         };
         t.user = &counter;
         t.counter = &done;
-        (void)FThreadPool::Submit(t);
+        (void)CThreadPool::Submit(t);
     }
-    FThreadPool::Wait(done);
+    CThreadPool::Wait(done);
     EXPECT_EQ(counter.Load(), N);
 
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 ACS_TEST(Threading, ThreadPoolRepeatedShutdownReleasesWorkerStorage)
@@ -343,11 +343,11 @@ ACS_TEST(Threading, ThreadPoolRepeatedShutdownReleasesWorkerStorage)
 
 ACS_TEST(Threading, ThreadPoolShutdownDrainsOwnedPayloads)
 {
-    EXPECT_TRUE(FThreadPool::Init(1).IsOk());
+    EXPECT_TRUE(CThreadPool::Init(1).IsOk());
 
     FBlockingTaskContext blocked{};
     FCompletionCounter completed;
-    EXPECT_TRUE(FThreadPool::Submit(FTask{&BlockingTask, &blocked, &completed}).IsOk());
+    EXPECT_TRUE(CThreadPool::Submit(FTask{&BlockingTask, &blocked, &completed}).IsOk());
     while (blocked.entered.Load(EMemoryOrder::Acquire) == 0)
         Yield();
 
@@ -355,7 +355,7 @@ ACS_TEST(Threading, ThreadPoolShutdownDrainsOwnedPayloads)
     TAtomic<u32> destroyed{0};
     for (u32 i = 0; i < kPayloadCount; ++i) {
         auto* payload = new FOwnedTaskPayload{&destroyed};
-        auto result = FThreadPool::Submit(FTask{&DeleteOwnedTask, payload, &completed});
+        auto result = CThreadPool::Submit(FTask{&DeleteOwnedTask, payload, &completed});
         EXPECT_TRUE(result.IsOk());
         if (result.IsErr()) delete payload;
     }
@@ -365,7 +365,7 @@ ACS_TEST(Threading, ThreadPoolShutdownDrainsOwnedPayloads)
     EXPECT_TRUE(releaser.IsOk());
 
     // 修正前は running=0 でワーカーが即終了し、背後の payload と counter を残していた。
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
     if (releaser.IsOk()) releaser.Value().Join();
 
     EXPECT_TRUE(completed.Finished());
@@ -374,50 +374,50 @@ ACS_TEST(Threading, ThreadPoolShutdownDrainsOwnedPayloads)
 
 ACS_TEST(Threading, ThreadPoolSubmitShutdownRaceIsLifetimeSafe)
 {
-    EXPECT_TRUE(FThreadPool::Init(4).IsOk());
+    EXPECT_TRUE(CThreadPool::Init(4).IsOk());
 
     FSubmitRaceContext context{};
     auto submitter = FThread::Spawn(&SubmitRaceMain, &context);
     EXPECT_TRUE(submitter.IsOk());
     SleepMs(20);
 
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
     context.stop.Store(1, EMemoryOrder::Release);
     if (submitter.IsOk()) submitter.Value().Join();
 
     EXPECT_EQ(context.executed.Load(EMemoryOrder::Acquire), context.accepted.Load(EMemoryOrder::Acquire));
-    EXPECT_EQ(FThreadPool::WorkerCount(), 0u);
+    EXPECT_EQ(CThreadPool::WorkerCount(), 0u);
 }
 
 ACS_TEST(Threading, WorkerShutdownAvoidsSelfJoin)
 {
-    EXPECT_TRUE(FThreadPool::Init(1).IsOk());
+    EXPECT_TRUE(CThreadPool::Init(1).IsOk());
 
     TAtomic<u32> returned{0};
     FCompletionCounter completed;
-    EXPECT_TRUE(FThreadPool::Submit(FTask{&ShutdownFromTask, &returned, &completed}).IsOk());
-    FThreadPool::Wait(completed);
+    EXPECT_TRUE(CThreadPool::Submit(FTask{&ShutdownFromTask, &returned, &completed}).IsOk());
+    CThreadPool::Wait(completed);
 
     EXPECT_EQ(returned.Load(EMemoryOrder::Acquire), 1u);
-    EXPECT_EQ(FThreadPool::WorkerCount(), 1u);
-    FThreadPool::Shutdown();
+    EXPECT_EQ(CThreadPool::WorkerCount(), 1u);
+    CThreadPool::Shutdown();
 }
 
 ACS_TEST(Threading, ParallelForCovers) {
-    auto rinit = FThreadPool::Init(4);
+    auto rinit = CThreadPool::Init(4);
     EXPECT_TRUE(rinit.IsOk());
     TAtomic<u32> seen{0};
-    (void)FThreadPool::ParallelFor(0, 10000, 64,
+    (void)CThreadPool::ParallelFor(0, 10000, 64,
         [](u32 /*i*/, u32 /*w*/, void* user){
             static_cast<TAtomic<u32>*>(user)->FetchAdd(1);
         }, &seen);
     EXPECT_EQ(seen.Load(), 10000u);
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 // ノードプール経由で大量タスクを処理（Heap フォールバックが起きても破綻しない）
 ACS_TEST(Threading, ThreadPoolHighLoad) {
-    auto rinit = FThreadPool::Init(4);
+    auto rinit = CThreadPool::Init(4);
     EXPECT_TRUE(rinit.IsOk());
     TAtomic<u32> counter{0};
     FCompletionCounter done;
@@ -429,25 +429,25 @@ ACS_TEST(Threading, ThreadPoolHighLoad) {
         };
         t.user = &counter;
         t.counter = &done;
-        (void)FThreadPool::Submit(t);
+        (void)CThreadPool::Submit(t);
     }
-    FThreadPool::Wait(done);
+    CThreadPool::Wait(done);
     EXPECT_EQ(counter.Load(), N);
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 // 入れ子 ParallelFor がデッドロックしないこと（help-stealing が効く）
 ACS_TEST(Threading, NestedParallelFor) {
-    auto rinit = FThreadPool::Init(4);
+    auto rinit = CThreadPool::Init(4);
     EXPECT_TRUE(rinit.IsOk());
     TAtomic<u32> total{0};
-    (void)FThreadPool::ParallelFor(0, 10, 1,
+    (void)CThreadPool::ParallelFor(0, 10, 1,
         [](u32 /*i*/, u32 /*w*/, void* user){
-            (void)FThreadPool::ParallelFor(0, 100, 16,
+            (void)CThreadPool::ParallelFor(0, 100, 16,
                 [](u32 /*j*/, u32 /*w*/, void* u2){
                     static_cast<TAtomic<u32>*>(u2)->FetchAdd(1);
                 }, user);
         }, &total);
     EXPECT_EQ(total.Load(), 1000u);
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }

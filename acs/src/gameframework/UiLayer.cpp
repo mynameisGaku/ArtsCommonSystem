@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar H — CUiLayer 実装
 //
-// state holder を完全実装する。実 `acs::ui` FWidget tree 構築 / 描画 /
+// state holder を完全実装する。実 `acs::ui` AWidget tree 構築 / 描画 /
 // hit-test / event 配送は seam として未接続で、Init / Tick / HandleInput の中身は
 // state 操作と TODO コメントのみ。これにより Scene 側は通常通り
 // AddButton / AddText / SetVisible / Remove を呼び始めることができ、後から
@@ -37,7 +37,7 @@ void CUiLayer::Init() noexcept {
     if (m_Initialized) {
         // 冪等性確保。重複 Init はログのみで何もしない (Shutdown 経由せず再 Init
         // するケースもあり得るが、現状は警告レベルではなく Debug で記録)。
-        ACS_LOG_DEBUG("FUiLayer::Init called twice (ignored)");
+        ACS_LOG_DEBUG("CUiLayer::Init called twice (ignored)");
         return;
     }
     // 自前の軽量 WidgetEntry 配列で Button/Text を直接保持・描画する設計のため、
@@ -45,7 +45,7 @@ void CUiLayer::Init() noexcept {
     m_Widgets.Clear();
     m_NextHandle = 1;
     m_Initialized = true;
-    ACS_LOG_DEBUG("FUiLayer::Init: ready");
+    ACS_LOG_DEBUG("CUiLayer::Init: ready");
 }
 
 void CUiLayer::Shutdown() noexcept {
@@ -56,7 +56,7 @@ void CUiLayer::Shutdown() noexcept {
     m_Widgets.Clear();
     m_NextHandle = 1;
     m_Initialized = false;
-    ACS_LOG_DEBUG("FUiLayer::Shutdown: state cleared");
+    ACS_LOG_DEBUG("CUiLayer::Shutdown: state cleared");
 }
 
 void CUiLayer::Tick(f32 /*dt*/) noexcept {
@@ -123,7 +123,7 @@ u32 CUiLayer::HitTopButton(f32 x, f32 y) const noexcept {
 
 void CUiLayer::Draw(FRenderContext& rc) const noexcept {
     if (!rc.HasSprites()) return;
-    FSpriteBatch& sb = rc.Sprites();
+    CSpriteBatch& sb = rc.Sprites();
     const bool has_font = rc.HasFont();
     for (u32 i = 0; i < m_Widgets.Size(); ++i) {
         const FWidgetEntry& e = m_Widgets[i];
@@ -153,7 +153,7 @@ u32 CUiLayer::WidgetCount() const noexcept {
 u32 CUiLayer::AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size) noexcept {
     if (!m_Initialized) {
         // Init せずに使われたら warn (Scene 側の OnEnter で Init 漏れ検出)。
-        ACS_LOG_WARN("FUiLayer::AddButton called before Init (ignored)");
+        ACS_LOG_WARN("CUiLayer::AddButton called before Init (ignored)");
         return 0;
     }
     FWidgetEntry e{};
@@ -170,7 +170,7 @@ u32 CUiLayer::AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size) noex
 
 u32 CUiLayer::AddText(const char* text, acs::FVec2 pos) noexcept {
     if (!m_Initialized) {
-        ACS_LOG_WARN("FUiLayer::AddText called before Init (ignored)");
+        ACS_LOG_WARN("CUiLayer::AddText called before Init (ignored)");
         return 0;
     }
     FWidgetEntry e{};
@@ -201,7 +201,7 @@ bool CUiLayer::IsButtonPressed(u32 handle) const noexcept {
 void CUiLayer::SetVisible(u32 handle, bool visible) noexcept {
     const u32 idx = FindIndex(handle);
     if (idx == kInvalidIndex) {
-        ACS_LOG_WARN("FUiLayer::SetVisible: invalid handle %u", handle);
+        ACS_LOG_WARN("CUiLayer::SetVisible: invalid handle %u", handle);
         return;
     }
     m_Widgets[idx].visible = visible;
@@ -212,7 +212,7 @@ void CUiLayer::Remove(u32 handle) noexcept {
     if (idx == kInvalidIndex) {
         // 削除で invalid を渡すケースは「既に消されたものを再度消す」など
         // 起こり得るので Debug レベルに留める (Warn だとログが煩い)。
-        ACS_LOG_DEBUG("FUiLayer::Remove: invalid handle %u (already removed?)", handle);
+        ACS_LOG_DEBUG("CUiLayer::Remove: invalid handle %u (already removed?)", handle);
         return;
     }
     // 末尾と swap して PopBack (順序非保持の高速削除、ハンドル探索は線形なので

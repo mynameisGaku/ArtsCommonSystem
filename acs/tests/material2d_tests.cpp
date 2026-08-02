@@ -296,7 +296,7 @@ ACS_TEST(Material2D, CheckedParserRejectsOutOfRangeIntegerAndLongLine) {
 }
 
 ACS_TEST(ProjectSettingsSafety, CheckedLoadIsTransactionalAndRejectsDuplicates) {
-    FProjectSettings settings;
+    CProjectSettings settings;
     settings.ResetToDefaults();
     EXPECT_TRUE(settings.Set("Game", "WindowWidth", "777"));
 
@@ -312,7 +312,7 @@ ACS_TEST(ProjectSettingsSafety, CheckedLoadIsTransactionalAndRejectsDuplicates) 
 }
 
 ACS_TEST(ProjectSettingsSafety, CheckedLoadRejectsEmbeddedNulAndInvalidBuiltin) {
-    FProjectSettings settings;
+    CProjectSettings settings;
     settings.ResetToDefaults();
     EXPECT_TRUE(settings.Set("Game", "WindowWidth", "777"));
 
@@ -340,7 +340,7 @@ ACS_TEST(ProjectSettingsSafety, CheckedLoadRejectsEmbeddedNulAndInvalidBuiltin) 
 }
 
 ACS_TEST(ProjectSettingsSafety, UnknownKeysAreCustomAndEmptyInputUsesDefaults) {
-    FProjectSettings settings;
+    CProjectSettings settings;
     constexpr char custom[] = "[Plugin]\nMode=Experimental\n";
     FProjectSettingsLoadResult result =
         settings.TryLoadText(custom, sizeof(custom) - 1u);
@@ -359,7 +359,7 @@ ACS_TEST(ProjectSettingsSafety, UnknownKeysAreCustomAndEmptyInputUsesDefaults) {
 }
 
 ACS_TEST(ProjectSettingsSafety, TypedGettersRequireCanonicalFiniteValues) {
-    FProjectSettings settings;
+    CProjectSettings settings;
     settings.ResetToDefaults();
     EXPECT_TRUE(settings.Set("Game", "WindowWidth", "123junk"));
     EXPECT_EQ(settings.GetInt("Game", "WindowWidth", 55), 55);
@@ -374,7 +374,7 @@ ACS_TEST(ProjectSettingsSafety, TypedGettersRequireCanonicalFiniteValues) {
 }
 
 ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadable) {
-    FProjectSettings settings;
+    CProjectSettings settings;
     settings.ResetToDefaults();
     const FSettingEntry* base = settings.Find("Rendering", "CloudBaseHeight");
     const FSettingEntry* top = settings.Find("Rendering", "CloudTopHeight");
@@ -406,7 +406,7 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
 
 // --- ANode のマテリアル状態 ------------------------------------------------
 ACS_TEST(ProjectSettingsSafety, AerialPerspectiveIsBuiltinAndSettable) {
-    FProjectSettings settings;
+    CProjectSettings settings;
     settings.ResetToDefaults();
 
     const FSettingEntry* aerial =

@@ -49,7 +49,7 @@ void PrewarmRhiProcessSingletons() noexcept
     // EngineFactoryD3D12Impl は Meyers シングルトンで、初回呼び出し時にメンバ
     // std::string が CRT ヒープへ確保される (debug CRT では _Container_proxy 16B)。
     // デバイス生成前 = CRT リーク計測スコープの外でここを踏んでおくことで、
-    // FApplication スコープの終了ダンプに残留ブロックとして現れるのを防ぐ。
+    // CApplication スコープの終了ダンプに残留ブロックとして現れるのを防ぐ。
     // 戻り値は借用参照で、ここでは使わない。
     (void)Diligent::GetEngineFactoryD3D12();
 }

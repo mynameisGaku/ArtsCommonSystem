@@ -7,4 +7,4 @@
 #include "HelloUIApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(helloui::FHelloUiApp)
+ACS_DEFINE_MAIN(helloui::CHelloUiApp)

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloLights — FApplication 派生クラス。
+// HelloLights — CApplication 派生クラス。
 //
 // 役割分担: このクラスは GPU リソースとカメラ入力の所有者。毎フレームの
 // ライト計算と物体描画は LightsScene に委譲し、App は薄く保つ。
@@ -16,7 +16,7 @@
 
 namespace hellolights {
 
-class FHelloLightsApp : public acs::FApplication {
+class CHelloLightsApp : public acs::CApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -24,12 +24,12 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    FLightsScene             m_Scene;
-    acs::FStandardShader     m_Shader;
+    CLightsScene             m_Scene;
+    acs::CStandardShader     m_Shader;
     acs::FGpuMesh            m_GmCube;
     acs::FGpuMesh            m_GmSphere;
     acs::FGpuMesh            m_GmPlane;
-    acs::FSpriteBatch        m_Batch;
+    acs::CSpriteBatch        m_Batch;
     acs::FFont               m_Font;
     acs::CCamera             m_Camera;
     acs::FVec3               m_CamPos    {0, 3, -8};

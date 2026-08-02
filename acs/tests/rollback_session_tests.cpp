@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FRollbackSession (rollback netcode 統合層) の動作確認テスト
+// CRollbackSession (rollback netcode 統合層) の動作確認テスト
 //
 // 予測 (繰り返し) / 遅延確定入力の bit 一致省略 / 誤予測の自動巻き戻し再実行 /
 // 予測上限 (lockstep 退化) / リング追い出し後の入力拒否を検証する。
@@ -19,12 +19,12 @@ struct FSeqC { u32 h = 0; };
 
 /** 1 World 分のテストフィクスチャ (sim コールバックの user データ)。 */
 struct FRbFixture {
-    FWorld*   world = nullptr;
+    CWorld*   world = nullptr;
     FEntityId players[2] = {};
     FEntityId seq = {};
     u32      player_count = 2;
 
-    void Setup(FWorld& w, u32 count) noexcept
+    void Setup(CWorld& w, u32 count) noexcept
     {
         world        = &w;
         player_count = count;
@@ -38,7 +38,7 @@ struct FRbFixture {
 };
 
 /** 決定論 sim: 各プレイヤーの buttons を座標へ積み、順序依存ハッシュも更新する。 */
-void SessionSim(FWorld& w, u32 tick, const FInputFrame* inputs, u32 input_count, void* user) noexcept
+void SessionSim(CWorld& w, u32 tick, const FInputFrame* inputs, u32 input_count, void* user) noexcept
 {
     FRbFixture* fx = static_cast<FRbFixture*>(user);
     for (u32 p = 0; p < input_count; ++p) {
@@ -81,8 +81,8 @@ void ExpectWorldsEqual(const FRbFixture& a, const FRbFixture& b) noexcept
 } // namespace
 
 ACS_TEST(RollbackSession, InitContract) {
-    FWorld w;
-    FRollbackSession s;
+    CWorld w;
+    CRollbackSession s;
     FRollbackSessionConfig cfg;
 
     EXPECT_FALSE(s.Init(nullptr, cfg));
@@ -108,11 +108,11 @@ ACS_TEST(RollbackSession, InitContract) {
 }
 
 ACS_TEST(RollbackSession, PredictionRepeatsLastConfirmedInput) {
-    FWorld w;
+    CWorld w;
     FRbFixture fx;
     fx.Setup(w, 1);
 
-    FRollbackSession s;
+    CRollbackSession s;
     FRollbackSessionConfig cfg;
     cfg.player_count   = 1;
     cfg.history_length = 8;
@@ -147,7 +147,7 @@ ACS_TEST(RollbackSession, MispredictionRollsBackAndConverges) {
     const auto B = [](u32 t) noexcept -> u8 { return static_cast<u8>(((t * 2u) % 4u) + 1u); };
     constexpr u32 kTicks = 7;
 
-    FWorld auth_world;
+    CWorld auth_world;
     FRbFixture auth;
     auth.Setup(auth_world, 2);
     for (u32 t = 0; t < kTicks; ++t) {
@@ -156,11 +156,11 @@ ACS_TEST(RollbackSession, MispredictionRollsBackAndConverges) {
     }
 
     // セッション側: p0 は毎 tick 確定、p1 は 6 tick 分まとめて遅延到着。
-    FWorld sim_world;
+    CWorld sim_world;
     FRbFixture fx;
     fx.Setup(sim_world, 2);
 
-    FRollbackSession s;
+    CRollbackSession s;
     FRollbackSessionConfig cfg;
     cfg.player_count   = 2;
     cfg.history_length = 8;
@@ -190,11 +190,11 @@ ACS_TEST(RollbackSession, MispredictionRollsBackAndConverges) {
 }
 
 ACS_TEST(RollbackSession, EvictedTickInputIsRejected) {
-    FWorld w;
+    CWorld w;
     FRbFixture fx;
     fx.Setup(w, 1);
 
-    FRollbackSession s;
+    CRollbackSession s;
     FRollbackSessionConfig cfg;
     cfg.player_count   = 1;
     cfg.history_length = 4;
@@ -221,11 +221,11 @@ ACS_TEST(RollbackSession, EvictedTickInputIsRejected) {
 }
 
 ACS_TEST(RollbackSession, MaxPredictionDegradesToLockstep) {
-    FWorld w;
+    CWorld w;
     FRbFixture fx;
     fx.Setup(w, 2);
 
-    FRollbackSession s;
+    CRollbackSession s;
     FRollbackSessionConfig cfg;
     cfg.player_count   = 2;
     cfg.history_length = 8;
@@ -252,11 +252,11 @@ ACS_TEST(RollbackSession, MaxPredictionDegradesToLockstep) {
 }
 
 ACS_TEST(RollbackSession, ResetRestartsSession) {
-    FWorld w;
+    CWorld w;
     FRbFixture fx;
     fx.Setup(w, 1);
 
-    FRollbackSession s;
+    CRollbackSession s;
     FRollbackSessionConfig cfg;
     cfg.player_count   = 1;
     cfg.history_length = 4;

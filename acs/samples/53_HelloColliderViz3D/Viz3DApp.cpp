@@ -17,7 +17,7 @@ using namespace acs;
 
 namespace viz3d {
 
-void FViz3DApp::OnStart() noexcept {
+void CViz3DApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -26,7 +26,7 @@ void FViz3DApp::OnStart() noexcept {
     m_bFontReady = FSample::TryLoadDefaultUIFont(m_Font, *dev, 18.0f, 1024, false).IsOk();
 
     // メッシュ (球) を生成 → 位置 / インデックスを取り出す。
-    TSharedPtr<FMeshAsset> mesh = Primitive::MakeSphere(1.0f, 20, 10);
+    TSharedPtr<AMeshAsset> mesh = Primitive::MakeSphere(1.0f, 20, 10);
     for (usize i = 0; i < mesh->Vertices().Size(); ++i) m_MeshPos.PushBack(mesh->Vertices()[i].position);
     for (usize i = 0; i < mesh->Indices().Size(); ++i)  m_MeshIdx.PushBack(mesh->Indices()[i]);
 
@@ -35,12 +35,12 @@ void FViz3DApp::OnStart() noexcept {
                                      m_HullPos, m_HullIdx));
 }
 
-void FViz3DApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) { Quit(); return; }
+void CViz3DApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) { Quit(); return; }
     m_Time += (dt > 0.0f && dt < 0.1f) ? dt : (1.0f / 60.0f);
 }
 
-void FViz3DApp::OnRender() noexcept {
+void CViz3DApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     if (!cl || !sc) return;
@@ -91,7 +91,7 @@ void FViz3DApp::OnRender() noexcept {
     }
 }
 
-void FViz3DApp::OnShutdown() noexcept {
+void CViz3DApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     if (m_bFontReady) m_Font.Shutdown();
     m_Batch.Shutdown();

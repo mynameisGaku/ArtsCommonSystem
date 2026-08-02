@@ -105,7 +105,7 @@ ACS_TEST(Transform3D, SoABatchMatchesScalarComposeAndSupportsInPlaceUpdate)
 
 ACS_TEST(Transform3D, HierarchyBatchMatchesScalarAtMaximumDepthWithoutRecursiveStack) {
     constexpr u32 kChainCount = 8u;
-    FScene3D scene;
+    CScene3D scene;
     TArray<ANode*> preorder;
     EXPECT_TRUE(preorder.TryReserve(static_cast<usize>(kChainCount) * kNodeMaxTreeDepth));
     for (u32 chain = 0u; chain < kChainCount; ++chain) {
@@ -122,7 +122,7 @@ ACS_TEST(Transform3D, HierarchyBatchMatchesScalarAtMaximumDepthWithoutRecursiveS
         }
     }
 
-    FHierarchyWorldTransformBatch batch;
+    CHierarchyWorldTransformBatch batch;
     EXPECT_TRUE(batch.Evaluate(&scene.Root(), preorder.Size()));
     EXPECT_EQ(batch.Count(), preorder.Size());
     for (usize index = 0u; index < preorder.Size(); ++index) {
@@ -272,7 +272,7 @@ ACS_TEST(Transform3D, ComposeRotationMatchesMatrixProduct) {
 // --- 親の transform が子の World() に合成される (2 段) -----------------------
 ACS_TEST(Node3D, HierarchyVisibilityBatchMatchesScalarAndFallsBackSafely)
 {
-    FScene3D scene;
+    CScene3D scene;
     ANode& first = scene.Spawn(FStringView("First"));
     ANode& first_child = scene.Spawn(FStringView("FirstChild"), &first);
     ANode& first_sibling = scene.Spawn(FStringView("FirstSibling"), &first);
@@ -282,21 +282,21 @@ ACS_TEST(Node3D, HierarchyVisibilityBatchMatchesScalarAndFallsBackSafely)
     second_child.SetEnabled(false);
 
     ANode* preorder[5] = {&first, &first_child, &first_sibling, &second, &second_child};
-    FHierarchyVisibilityBatch batch;
+    CHierarchyVisibilityBatch batch;
     EXPECT_TRUE(batch.Evaluate(preorder, 5u, &scene.Root()));
     EXPECT_EQ(batch.ScalarFallbackCount(), 0u);
-    for (u32 index = 0u; index < 5u; ++index) EXPECT_EQ(batch.IsVisible(index), FHierarchyVisibilityBatch::EvaluateScalar(preorder[index]));
+    for (u32 index = 0u; index < 5u; ++index) EXPECT_EQ(batch.IsVisible(index), CHierarchyVisibilityBatch::EvaluateScalar(preorder[index]));
 
     ANode* malformed[2] = {&first_child, &first};
     EXPECT_TRUE(batch.Evaluate(malformed, 2u, &scene.Root()));
     EXPECT_EQ(batch.ScalarFallbackCount(), 1u);
-    for (u32 index = 0u; index < 2u; ++index) EXPECT_EQ(batch.IsVisible(index), FHierarchyVisibilityBatch::EvaluateScalar(malformed[index]));
+    for (u32 index = 0u; index < 2u; ++index) EXPECT_EQ(batch.IsVisible(index), CHierarchyVisibilityBatch::EvaluateScalar(malformed[index]));
     EXPECT_FALSE(batch.Evaluate(nullptr, static_cast<usize>(-1), &scene.Root()));
 }
 
 ACS_TEST(Node3D, HierarchyVisibilityBatchRetainsParityUnderStress)
 {
-    FScene3D scene;
+    CScene3D scene;
     TArray<ANode*> nodes;
     nodes.Reserve(1024u);
     u32 authored_index = 0u;
@@ -314,11 +314,11 @@ ACS_TEST(Node3D, HierarchyVisibilityBatchRetainsParityUnderStress)
             ++authored_index;
         }
     }
-    FHierarchyVisibilityBatch batch;
+    CHierarchyVisibilityBatch batch;
     for (u32 iteration = 0u; iteration < 64u; ++iteration) {
         EXPECT_TRUE(batch.Evaluate(nodes.Data(), nodes.Size(), &scene.Root()));
         EXPECT_EQ(batch.ScalarFallbackCount(), 0u);
-        for (u32 index = 0u; index < nodes.Size(); ++index) EXPECT_EQ(batch.IsVisible(index), FHierarchyVisibilityBatch::EvaluateScalar(nodes[index]));
+        for (u32 index = 0u; index < nodes.Size(); ++index) EXPECT_EQ(batch.IsVisible(index), CHierarchyVisibilityBatch::EvaluateScalar(nodes[index]));
     }
 }
 
@@ -469,11 +469,11 @@ ACS_TEST(Node3D, NameSetGet) {
     EXPECT_TRUE(n.Name() == FStringView("Renamed"));
 }
 
-// === FScene3D ===============================================================
+// === CScene3D ===============================================================
 
 // --- Spawn で root 配下にノードが増える / NodeCount -------------------------
 ACS_TEST(Scene3D, SpawnAndCount) {
-    FScene3D scene;
+    CScene3D scene;
     EXPECT_EQ(scene.NodeCount(), 1u);                 // root のみ
     EXPECT_EQ(scene.Root().ChildCount(), 0u);
 
@@ -488,7 +488,7 @@ ACS_TEST(Scene3D, SpawnAndCount) {
 
 // --- FindByName で root / 子 / 不在を解決 -----------------------------------
 ACS_TEST(Scene3D, FindByName) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& a = scene.Spawn(FStringView("Player"));
     scene.Spawn(FStringView("Weapon"), &a);
 
@@ -501,7 +501,7 @@ ACS_TEST(Scene3D, FindByName) {
 
 // --- Update が subtree に伝播し、Destroy が次 Update で reap される ----------
 ACS_TEST(Scene3D, UpdatePropagatesAndReaps) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& a = scene.Spawn(FStringView("A"));
     auto& c = a.AddComponent<ACounterComponent3D>();
 
@@ -519,7 +519,7 @@ ACS_TEST(Scene3D, UpdatePropagatesAndReaps) {
 
 // --- generational id: Spawn 登録 / Get / IdOf 往復 -------------------------
 ACS_TEST(Scene3D, IdRegistryGetAndIdOf) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& a = scene.Spawn(FStringView("A"));
     const FNodeId ida = a.Id();
     EXPECT_TRUE(ida.IsValid());
@@ -534,7 +534,7 @@ ACS_TEST(Scene3D, IdRegistryGetAndIdOf) {
 }
 
 ACS_TEST(Scene3D, TrySpawnSuccessRegistersExactlyOnce) {
-    FScene3D scene;
+    CScene3D scene;
     const FScene3DSpawnResult result =
         scene.TrySpawn(FStringView("Checked"));
     EXPECT_TRUE(result.Succeeded());
@@ -548,8 +548,8 @@ ACS_TEST(Scene3D, TrySpawnSuccessRegistersExactlyOnce) {
 }
 
 ACS_TEST(Scene3D, TrySpawnRejectsForeignParentWithoutMutation) {
-    FScene3D scene;
-    FScene3D other_scene;
+    CScene3D scene;
+    CScene3D other_scene;
     ANode& foreign_parent = other_scene.Spawn(FStringView("Foreign"));
     const u32 tree_before = scene.NodeCount();
     const u32 registered_before = scene.RegisteredCount();
@@ -573,7 +573,7 @@ ACS_TEST(Scene3D, TrySpawnRejectsForeignParentWithoutMutation) {
 }
 
 ACS_TEST(Scene3D, TrySpawnRollsBackPoolWhenParentIsPendingDestroy) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& parent = scene.Spawn(FStringView("Parent"));
     parent.Destroy();
     const u32 tree_before = scene.NodeCount();
@@ -592,7 +592,7 @@ ACS_TEST(Scene3D, TrySpawnRollsBackPoolWhenParentIsPendingDestroy) {
 }
 
 ACS_TEST(Scene3D, TrySpawnRollsBackPoolAtTreeDepthLimit) {
-    FScene3D scene;
+    CScene3D scene;
     ANode* parent = &scene.Root();
     for (u32 depth = 1u; depth <= kNodeMaxTreeDepth; ++depth) {
         const FScene3DSpawnResult added =
@@ -617,8 +617,8 @@ ACS_TEST(Scene3D, TrySpawnRollsBackPoolAtTreeDepthLimit) {
 }
 
 ACS_TEST(NodePool, DuplicateAndForeignRegistrationAreRejected) {
-    FNodePool first_pool;
-    FNodePool second_pool;
+    CNodePool first_pool;
+    CNodePool second_pool;
     first_pool.Init(4u);
     second_pool.Init(4u);
     auto node = NewObject<ANode>(FStringView("Registered"));
@@ -654,7 +654,7 @@ ACS_TEST(NodePool, DuplicateAndForeignRegistrationAreRejected) {
 }
 
 ACS_TEST(NodePool, ClearAllReusesSlotsWithoutCapacityGrowth) {
-    FNodePool pool;
+    CNodePool pool;
     pool.Init(4u);
     auto first_node = NewObject<ANode>();
     auto second_node = NewObject<ANode>();
@@ -681,7 +681,7 @@ ACS_TEST(NodePool, ClearAllReusesSlotsWithoutCapacityGrowth) {
 
 // --- Destroy(id): Update まで valid、reap 後は stale -------------------------
 ACS_TEST(Scene3D, DestroyByIdGoesStaleAfterUpdate) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& a = scene.Spawn(FStringView("A"));
     const FNodeId ida = a.Id();
     EXPECT_EQ(scene.RegisteredCount(), 2u);            // root + A
@@ -699,7 +699,7 @@ ACS_TEST(Scene3D, DestroyByIdGoesStaleAfterUpdate) {
 
 // --- slot 再利用時の世代不一致で旧 handle が stale 検出される -----------------
 ACS_TEST(Scene3D, StaleHandleAfterSlotReuse) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& a = scene.Spawn(FStringView("A"));
     const FNodeId old = a.Id();
     scene.Destroy(old);
@@ -718,7 +718,7 @@ ACS_TEST(Scene3D, StaleHandleAfterSlotReuse) {
 
 // --- 直接 node->Destroy() でも pool が self-heal する ------------------------
 ACS_TEST(Scene3D, DirectDestroyAlsoPurged) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& a = scene.Spawn(FStringView("A"));
     const FNodeId ida = a.Id();
     a.Destroy();                                       // scene.Destroy ではなく直接
@@ -728,7 +728,7 @@ ACS_TEST(Scene3D, DirectDestroyAlsoPurged) {
 }
 
 ACS_TEST(Scene3D, DestroyingParentPurgesDescendantHandlesBeforeReap) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& parent = scene.Spawn(FStringView("Parent"));
     ANode& child = scene.Spawn(FStringView("Child"), &parent);
     ANode& grandchild = scene.Spawn(FStringView("Grandchild"), &child);
@@ -749,11 +749,11 @@ ACS_TEST(Scene3D, DestroyingParentPurgesDescendantHandlesBeforeReap) {
     EXPECT_EQ(scene.NodeCount(), 1u);
 }
 
-// === FScene3D::Raycast ======================================================
+// === CScene3D::Raycast ======================================================
 
 // --- 上からのレイが原点の cube に当たり、t が正しい --------------------------
 ACS_TEST(Scene3DRaycast, HitsCubeFromAbove) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& cube = scene.Spawn(FStringView("Cube"));
     cube.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
     cube.Local().position = FVec3{ 0, 0, 0 };
@@ -767,7 +767,7 @@ ACS_TEST(Scene3DRaycast, HitsCubeFromAbove) {
 
 // --- 外れるレイは invalid を返す --------------------------------------------
 ACS_TEST(Scene3DRaycast, MissReturnsInvalid) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& cube = scene.Spawn(FStringView("Cube"));
     cube.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
     FRay3 ray{ FVec3{ 10, 5, 10 }, FVec3{ 0, -1, 0 } };  // cube から遠い
@@ -776,7 +776,7 @@ ACS_TEST(Scene3DRaycast, MissReturnsInvalid) {
 
 // --- 2 つのうち手前のノードを返す -------------------------------------------
 ACS_TEST(Scene3DRaycast, ReturnsNearest) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& near_ = scene.Spawn(FStringView("Near"));
     near_.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
     near_.Local().position = FVec3{ 0, 0, 2 };
@@ -793,7 +793,7 @@ ACS_TEST(Scene3DRaycast, ReturnsNearest) {
 
 // --- スケールで AABB が拡大し、単位 cube なら外れるレイが当たる (OBB) --------
 ACS_TEST(Scene3DRaycast, RespectsScale) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& cube = scene.Spawn(FStringView("Cube"));
     cube.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
     cube.Local().scale = FVec3{ 3, 3, 3 };              // 半幅 1.5
@@ -804,7 +804,7 @@ ACS_TEST(Scene3DRaycast, RespectsScale) {
 
 // --- 回転した cube を正しく OBB ピック (90°Z 回転で縦長 box) -----------------
 ACS_TEST(Scene3DRaycast, RespectsRotation) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& box = scene.Spawn(FStringView("Box"));
     box.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
     box.Local().scale = FVec3{ 3, 0.5f, 0.5f };        // X に長い棒
@@ -817,7 +817,7 @@ ACS_TEST(Scene3DRaycast, RespectsRotation) {
 
 // --- AMeshComponent3D の無いノードはピック対象外 ----------------------------
 ACS_TEST(Scene3DRaycast, IgnoresNodesWithoutMesh) {
-    FScene3D scene;
+    CScene3D scene;
     ANode& empty = scene.Spawn(FStringView("Empty"));   // mesh component なし
     empty.Local().position = FVec3{ 0, 0, 0 };
     FRay3 ray{ FVec3{ 0, 5, 0 }, FVec3{ 0, -1, 0 } };
@@ -863,7 +863,7 @@ ACS_TEST(MeshComponent3D, ConstructWithPrimitive) {
 
 // --- save → load の往復で構造/transform/メッシュ記述が一致する ---------------
 ACS_TEST(Scene3DSerialize, RoundTrip) {
-    FScene3D a;
+    CScene3D a;
     // Box: cube・赤・pos/euler/scale 非自明
     ANode& box = a.Spawn(FStringView("Box"));
     box.Local().position = FVec3{ 1, 2, 3 };
@@ -885,7 +885,7 @@ ACS_TEST(Scene3DSerialize, RoundTrip) {
     const u32 wrote = SaveScene3DText(a, buf, sizeof(buf));
     EXPECT_TRUE(wrote > 0);
 
-    FScene3D b;
+    CScene3D b;
     EXPECT_TRUE(LoadScene3DText(b, buf));
     // 構造一致 (root + 4 ノード)
     EXPECT_EQ(b.NodeCount(), a.NodeCount());
@@ -919,13 +919,13 @@ ACS_TEST(Scene3DSerialize, RoundTrip) {
 
 // --- Load は既存内容を置き換える (二重 Load で増殖しない) -------------------
 ACS_TEST(Scene3DSerialize, LoadReplacesExisting) {
-    FScene3D a;
+    CScene3D a;
     a.Spawn(FStringView("One"));
     a.Spawn(FStringView("Two"));
     char buf[1024];
     SaveScene3DText(a, buf, sizeof(buf));
 
-    FScene3D b;
+    CScene3D b;
     b.Spawn(FStringView("OldA"));
     b.Spawn(FStringView("OldB"));
     b.Spawn(FStringView("OldC"));
@@ -941,18 +941,18 @@ ACS_TEST(Scene3DSerialize, LoadReplacesExisting) {
 
 // --- 空シーン (root のみ) の往復 --------------------------------------------
 ACS_TEST(Scene3DSerialize, EmptyScene) {
-    FScene3D a;
+    CScene3D a;
     char buf[256];
     const u32 wrote = SaveScene3DText(a, buf, sizeof(buf));
     EXPECT_TRUE(wrote > 0);                        // root 行は出る
-    FScene3D b;
+    CScene3D b;
     b.Spawn(FStringView("X"));
     EXPECT_TRUE(LoadScene3DText(b, buf));
     EXPECT_EQ(b.NodeCount(), 1u);                  // root のみ
 }
 
 ACS_TEST(Scene3DSerialize, CheckedSaveReportsCapacityWithoutPartialOutput) {
-    FScene3D scene;
+    CScene3D scene;
     scene.Spawn(FStringView("Child"));
 
     const FScene3DSaveResult query = TrySaveScene3DText(scene, nullptr, 0u);
@@ -987,7 +987,7 @@ ACS_TEST(Scene3DSerialize, CheckedSaveRejectsUnsafeNameWithoutWriting) {
     std::memset(long_name, 'N', sizeof(long_name));
     long_name[sizeof(long_name) - 1u] = '\0';
 
-    FScene3D scene;
+    CScene3D scene;
     scene.Root().SetName(FStringView(long_name));
     char output[512];
     std::memset(output, 0x33, sizeof(output));
@@ -1007,7 +1007,7 @@ ACS_TEST(Scene3DSerialize, InvalidParentAndTruncationAreTransactional) {
     constexpr char kTruncated[] =
         "N3D 0 -1 -1 0 0 0 0 0 0 1 1 1 1 1 Root\n";
 
-    FScene3D scene;
+    CScene3D scene;
     scene.Spawn(FStringView("Keep"));
     const FScene3DLoadResult invalid_parent =
         TryLoadScene3DText(scene, kInvalidParent, sizeof(kInvalidParent) - 1u);
@@ -1038,7 +1038,7 @@ ACS_TEST(Scene3DSerialize, RejectsHugeDuplicateAndNonFiniteDeclarations) {
     constexpr char kInvalidPrimitive[] =
         "N3D 0 -1 99 0 0 0 0 0 0 1 1 1 1 1 1 1 Root\n";
 
-    FScene3D scene;
+    CScene3D scene;
     const FScene3DLoadResult overflow =
         TryLoadScene3DText(scene, kOverflowId, sizeof(kOverflowId) - 1u);
     EXPECT_EQ(static_cast<u32>(overflow.Error),
@@ -1077,7 +1077,7 @@ ACS_TEST(Scene3DSerialize, RejectsDeepTreeBeforeReplacingDestination) {
         cursor += static_cast<u32>(written);
     }
 
-    FScene3D scene;
+    CScene3D scene;
     scene.Spawn(FStringView("Keep"));
     const FScene3DLoadResult result = TryLoadScene3DText(scene, text, cursor);
     EXPECT_EQ(static_cast<u32>(result.Error),
@@ -1092,7 +1092,7 @@ ACS_TEST(Scene3DSerialize, RejectsInvalidMeshRecordsAndOversizedInput) {
         "N3D 0 -1 3 0 0 0 0 0 0 1 1 1 1 1 1 1 Root\n"
         "MSH3D 0 Assets/a.obj\n"
         "MSH3D 0 Assets/b.obj\n";
-    FScene3D scene;
+    CScene3D scene;
     const FScene3DLoadResult orphan =
         TryLoadScene3DText(scene, kOrphanMesh, sizeof(kOrphanMesh) - 1u);
     EXPECT_EQ(static_cast<u32>(orphan.Error),
@@ -1112,7 +1112,7 @@ ACS_TEST(Scene3DSerialize, RejectsInvalidMeshRecordsAndOversizedInput) {
 ACS_TEST(Scene3DSerialize, RejectsLongLineAndEmbeddedNullTransactionally) {
     char long_line[kScene3DSerializeMaxLineBytes + 2u];
     std::memset(long_line, 'X', sizeof(long_line));
-    FScene3D scene;
+    CScene3D scene;
     scene.Spawn(FStringView("Keep"));
     const FScene3DLoadResult too_long =
         TryLoadScene3DText(scene, long_line, sizeof(long_line));
@@ -1131,7 +1131,7 @@ ACS_TEST(Scene3DSerialize, RejectsLongLineAndEmbeddedNullTransactionally) {
 }
 
 ACS_TEST(Scene3DSerialize, CheckedLoadReportsCountsAndConsumesExactInput) {
-    FScene3D source;
+    CScene3D source;
     ANode& mesh_node = source.Spawn(FStringView("Mesh"));
     mesh_node.AddComponent<AMeshComponent3D>().SetMeshPath(
         FStringView("Assets/mesh.obj"));
@@ -1140,7 +1140,7 @@ ACS_TEST(Scene3DSerialize, CheckedLoadReportsCountsAndConsumesExactInput) {
         TrySaveScene3DText(source, text, sizeof(text));
     EXPECT_TRUE(saved.Succeeded());
 
-    FScene3D destination;
+    CScene3D destination;
     const FScene3DLoadResult loaded =
         TryLoadScene3DText(destination, text, saved.BytesWritten);
     EXPECT_TRUE(loaded.Succeeded());
@@ -1163,7 +1163,7 @@ ACS_TEST(Scene3DSerialize, LoadsEditorV2WithSparseIdsMultipleRootsAndComponents)
         "N3D 99 42 2 0 5 0 0 0 0 1 1 1 1 0.5 0.25 1 Child\r\n"
         "SEL3D 99\r\n";
 
-    FScene3D scene;
+    CScene3D scene;
     scene.Spawn(FStringView("Old"));
     const FScene3DLoadResult result =
         TryLoadScene3DText(scene, kEditorScene, sizeof(kEditorScene) - 1u);
@@ -1210,7 +1210,7 @@ ACS_TEST(Scene3DSerialize, RejectsUnsupportedEditorDirectiveTransactionally) {
         "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Root\n"
         "SPR3D 1 Assets/sprite.png\n";
 
-    FScene3D scene;
+    CScene3D scene;
     scene.Spawn(FStringView("Keep"));
     const FScene3DLoadResult result =
         TryLoadScene3DText(
@@ -1237,7 +1237,7 @@ ACS_TEST(Scene3DSerialize, RejectsInvalidEditorSelectionTransactionally) {
         "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Root\n"
         "SEL3D 0\n";
 
-    FScene3D scene;
+    CScene3D scene;
     scene.Spawn(FStringView("Keep"));
 
     const FScene3DLoadResult missing = TryLoadScene3DText(
@@ -1265,13 +1265,13 @@ ACS_TEST(MeshComponent3D, OwnsMeshAsset) {
     EXPECT_TRUE(m.Mesh() == nullptr);
 
     // メッシュを作って 2 頂点入れる
-    TSharedPtr<FMeshAsset> mesh = MakeShared<FMeshAsset>();
+    TSharedPtr<AMeshAsset> mesh = MakeShared<AMeshAsset>();
     mesh->Vertices().PushBack(FMeshVertex{ FVec3{0,0,0}, FVec3{0,1,0}, 0.0f, 0.0f });
     mesh->Vertices().PushBack(FMeshVertex{ FVec3{1,0,0}, FVec3{0,1,0}, 1.0f, 0.0f });
-    FMeshAsset* raw = mesh.Get();
+    AMeshAsset* raw = mesh.Get();
 
     // Asset 基底へアップキャストして所有させる (種別が Mesh に切り替わる)
-    m.SetMeshAsset(TSharedPtr<FAsset>(mesh));
+    m.SetMeshAsset(TSharedPtr<AAsset>(mesh));
     EXPECT_TRUE(m.HasMeshAsset());
     EXPECT_TRUE(m.Primitive() == EMeshPrimitive3D::Mesh);
     EXPECT_TRUE(m.Mesh() == raw);
@@ -1283,14 +1283,14 @@ ACS_TEST(MeshComponent3D, OwnsMeshAsset) {
     EXPECT_EQ(m.Mesh()->Vertices().Size(), 2u);
 
     // null を渡すと外れる (種別はそのまま Mesh)
-    m.SetMeshAsset(TSharedPtr<FAsset>{});
+    m.SetMeshAsset(TSharedPtr<AAsset>{});
     EXPECT_TRUE(!m.HasMeshAsset());
     EXPECT_TRUE(m.Mesh() == nullptr);
 }
 
 ACS_TEST(MeshAsset, MutableAccessAdvancesGeometryRevision) {
-    FMeshAsset mesh;
-    const FMeshAsset& read_only = mesh;
+    AMeshAsset mesh;
+    const AMeshAsset& read_only = mesh;
 
     const u64 initial = mesh.GeometryRevision();
     (void)read_only.Vertices();

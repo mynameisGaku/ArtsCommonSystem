@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloGameFramework — Pause scene。Gameplay の上に push される overlay。
 //
-// FSequence + FSequenceRunner で Wait → Call → Wait → Call の Loop(0)=無限 を組み、
+// FSequence + CSequenceRunner で Wait → Call → Wait → Call の Loop(0)=無限 を組み、
 // Pause を抜けるまで「still paused...」を周期的にログ出力するデモ。
 #pragma once
 
@@ -9,7 +9,7 @@
 
 namespace hellogf {
 
-class FPauseScene : public acs::game::FScene {
+class APauseScene : public acs::game::AScene {
 public:
     void OnEnter()             noexcept override;
     void OnExit()              noexcept override;
@@ -20,8 +20,8 @@ public:
     static void LogStillPaused2(void* user) noexcept;
 
 private:
-    acs::game::FSequenceRunner m_Seqs;
-    acs::game::FSceneClock     m_Clock;
+    acs::game::CSequenceRunner m_Seqs;
+    acs::game::CSceneClock     m_Clock;
 };
 
 } // namespace hellogf

@@ -2,9 +2,9 @@
 // 標準ウィジェット — ALabel / AButton / ASlider / ACheckbox / ATextInput
 //
 // すべての widget は TObservable<T> プロパティで状態を公開しているので、
-// MVVM の Bind* で FViewModel と直結できる:
+// MVVM の Bind* で CViewModel と直結できる:
 //
-//   class FPlayerViewModel : public FViewModel { TObservable<f32> hp{100}; };
+//   class FPlayerViewModel : public CViewModel { TObservable<f32> hp{100}; };
 //   FPlayerViewModel vm;
 //   AStackPanel root;
 //   auto* sl = root.Add<ASlider>(0.0f, 100.0f);

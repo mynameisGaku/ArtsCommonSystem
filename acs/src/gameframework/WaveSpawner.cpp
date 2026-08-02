@@ -109,7 +109,7 @@ void CWaveSpawner::TransitionTo(EWaveState next) noexcept {
 void CWaveSpawner::StartWaves() noexcept {
     // 進行中の呼び出しは誤用なので警告 + no-op (= 意図しない state 巻き戻しを防ぐ)。
     if (_state == EWaveState::Spawning || _state == EWaveState::WaitingClear) {
-        ACS_LOG_WARN("FWaveSpawner::StartWaves: already running (state=%u)",
+        ACS_LOG_WARN("CWaveSpawner::StartWaves: already running (state=%u)",
                      static_cast<u32>(_state));
         return;
     }

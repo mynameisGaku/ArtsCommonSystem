@@ -62,7 +62,7 @@ TResult<void> SaveSlot_SaveBytes(const wchar_t* file_path,
     if (payload_size > static_cast<usize>(CSaveArchive::kMaxPayloadSize)) {
         return ACS_ERR(IO,
                        static_cast<u16>(ESaveArchiveSubCode::kSubPayloadTooLarge),
-                       "TSaveSlot::Save: payload exceeds FSaveArchive safety limit");
+                       "TSaveSlot::Save: payload exceeds CSaveArchive safety limit");
     }
     return CSaveArchive::WriteToFile(file_path,
                                     version,
@@ -92,7 +92,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
     if (payload_size > static_cast<usize>(CSaveArchive::kMaxPayloadSize)) {
         return ACS_ERR(IO,
                        static_cast<u16>(ESaveArchiveSubCode::kSubPayloadTooLarge),
-                       "TSaveSlot::Load: payload exceeds FSaveArchive safety limit");
+                       "TSaveSlot::Load: payload exceeds CSaveArchive safety limit");
     }
 
     TArray<u8> temporary;
@@ -129,7 +129,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
 /** SaveSlot_Exists の実装 (未初期化なら警告なしで false、それ以外は FileSystem::Exists へ委譲)。 */
 bool SaveSlot_Exists(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return false;
-    return FFileSystem::Exists(file_path);
+    return CFileSystem::Exists(file_path);
 }
 
 /**
@@ -139,7 +139,7 @@ bool SaveSlot_Exists(const wchar_t* file_path) noexcept {
  */
 TResult<void> SaveSlot_Delete(const wchar_t* file_path) noexcept {
     ACS_TRY(CheckInitialized(file_path, "Delete"));
-    const auto result = FFileSystem::Delete(file_path);
+    const auto result = CFileSystem::Delete(file_path);
     if (result.IsOk()) return Ok();
 
     const u32 os_error = result.Error().os_error;

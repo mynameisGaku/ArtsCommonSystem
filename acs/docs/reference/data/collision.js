@@ -16,7 +16,7 @@ ACS_REF.modules.push({
       members: [
         { sig: "TResult<void> BuildFromAlpha(const u8* rgba, u32 w, u32 h, u8 alpha_threshold = 128, f32 simplify_epsilon = 1.5f)", ret: "成功/失敗(<t>Result</t>)", desc: "RGBA8 画像(上から下・左から右に詰めた配列)を読み、<code>alpha &gt;= threshold</code> の画素を「内側」として<t>凸包</t>と<t>輪郭</t>を作る。<code>simplify_epsilon</code> は輪郭の許容誤差(px)で、大きいほど頂点が減る。", when: "テクスチャを読み込んだ直後に 1 回呼ぶ。単一の塊・穴なしの絵が前提。" },
         { sig: "bool ContainsPoint(FVec2 p) const", ret: "内側なら true", desc: "簡略化済み<t>輪郭</t>ポリゴンで点の内外を判定する(<t>レイ交差法</t>、凹形状にも対応)。座標はピクセル空間(左上原点)。", sample: "if (col.ContainsPoint({px, py})) Select();" },
-        { sig: "FConvexPoly2 HullPolygon() const", ret: "凸ポリゴン", desc: "<t>凸包</t>を物理用の <code>FConvexPoly2</code>(最大 16 頂点)に変換して返す。頂点が多ければ均等に間引く。<code>FCollisionWorld2D::AddPolygon</code> にそのまま渡せる。", when: "2D 物理ワールドにこのスプライトを当たり判定として登録する時。" },
+        { sig: "FConvexPoly2 HullPolygon() const", ret: "凸ポリゴン", desc: "<t>凸包</t>を物理用の <code>FConvexPoly2</code>(最大 16 頂点)に変換して返す。頂点が多ければ均等に間引く。<code>CCollisionWorld2D::AddPolygon</code> にそのまま渡せる。", when: "2D 物理ワールドにこのスプライトを当たり判定として登録する時。" },
         { sig: "const FVec2* Hull() const / u32 HullCount() const", ret: "凸包の頂点配列と個数", desc: "生成された<t>凸包</t>の頂点列。常に有効で、物理で扱いやすい形。" },
         { sig: "const FVec2* Outline() const / u32 OutlineCount() const", ret: "輪郭の頂点配列と個数", desc: "簡略化された<t>輪郭</t>の頂点列。凹んだ形にも沿う、見た目に忠実な形。" },
         { sig: "FAabb2 Bounds() const", ret: "外接矩形", desc: "形を囲む 2D の<t>AABB</t>(軸並行の最小矩形)。粗い当たり判定の前段に使える。" },

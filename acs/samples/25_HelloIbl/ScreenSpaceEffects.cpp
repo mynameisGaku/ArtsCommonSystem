@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloIbl — SSR / SSAO / SSGI の dispatch (1-frame latency 設計)。
 //
-// いずれも color pass の後、FPostProcess の前に走る。出力は次フレームの
-// FPbrShader が読む (1-frame latency)。60 FPS なら 16ms 遅延でカメラ追従が
+// いずれも color pass の後、CPostProcess の前に走る。出力は次フレームの
+// CPbrShader が読む (1-frame latency)。60 FPS なら 16ms 遅延でカメラ追従が
 // 微かに遅れる程度、視覚的に許容。frame 0 は未書込みで garbage を読みうるため
-// m_XxxWarm フラグが立つまで FPbrShader 側は null bind (フォールバック値) に戻す。
+// m_XxxWarm フラグが立つまで CPbrShader 側は null bind (フォールバック値) に戻す。
 #include "HelloIblApp.h"
 
 using namespace acs;
 
 namespace helloibl {
 
-void RenderSsrPass(FHelloIblApp& app, const FMat4& vp_for_render,
+void RenderSsrPass(CHelloIblApp& app, const FMat4& vp_for_render,
                    const FMat4& inv_vp, const FMat4& vp_no_jitter) noexcept {
     if (!app.m_ShowSsr) return;
     if (!app.m_MotionGBufferValid) {
@@ -25,9 +25,9 @@ void RenderSsrPass(FHelloIblApp& app, const FMat4& vp_for_render,
     IRhiTexture*     depth = app.GetRenderer().DepthBuffer();
     if (!dev || !cl || !hdr || !depth) return;
 
-    // SSR を計算して m_Ssr.OutputTexture() に書く。最終合成は FPbrShader 側で
+    // SSR を計算して m_Ssr.OutputTexture() に書く。最終合成は CPbrShader 側で
     // roughness 依存に env prefilter と blend する。intensity は 1.0 固定 —
-    // 反射強度は FPbrShader::SetSsr 側で一元管理する。
+    // 反射強度は CPbrShader::SetSsr 側で一元管理する。
 
     // temporal SSR の reproject 用に前フレームの jitter なし VP を渡す。
     // frame 0 は未確定なので現 VP を渡し reprojection を無効化。
@@ -43,10 +43,10 @@ void RenderSsrPass(FHelloIblApp& app, const FMat4& vp_for_render,
                     app.m_Camera.Eye(),
                     /*intensity=*/1.0f,
                     motion_tex);
-    app.m_SsrWarm = true;     // 次フレームから FPbrShader が SSR texture を読める
+    app.m_SsrWarm = true;     // 次フレームから CPbrShader が SSR texture を読める
 }
 
-void RenderSsaoPass(FHelloIblApp& app, const FMat4& vp_for_render,
+void RenderSsaoPass(CHelloIblApp& app, const FMat4& vp_for_render,
                     const FMat4& inv_vp, const FVec3& sun_dir) noexcept {
     if (!app.m_bUseSsao) return;
     if (!app.m_MotionGBufferValid) {
@@ -67,10 +67,10 @@ void RenderSsaoPass(FHelloIblApp& app, const FMat4& vp_for_render,
                      app.m_Camera.Eye(), sun_dir,
                      /*intensity=*/1.0f,
                      /*radius=*/0.5f);
-    app.m_bSsaoWarm = true;     // 次フレームから FPbrShader が SSAO texture を読める
+    app.m_bSsaoWarm = true;     // 次フレームから CPbrShader が SSAO texture を読める
 }
 
-void RenderSsgiPass(FHelloIblApp& app, const FMat4& vp_for_render,
+void RenderSsgiPass(CHelloIblApp& app, const FMat4& vp_for_render,
                     const FMat4& inv_vp, const FMat4& vp_no_jitter) noexcept {
     if (!app.m_bUseSsgi) return;
     if (!app.m_MotionGBufferValid) {

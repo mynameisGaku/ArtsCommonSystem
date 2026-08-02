@@ -74,7 +74,7 @@ void CEconomyDirector::RegisterCurrency(const FCurrencyDef& def) noexcept {
 
     // 同 id の 2 重登録は no-op (アセット二重ロード保護)。
     if (FindCurrencySlot(def.id) != kNotFound) {
-        ACS_LOG_WARN("FEconomyDirector: duplicate currency registration ignored ('%s')", def.id);
+        ACS_LOG_WARN("CEconomyDirector: duplicate currency registration ignored ('%s')", def.id);
         return;
     }
 
@@ -130,7 +130,7 @@ void CEconomyDirector::RegisterItem(const FShopItem& item) noexcept {
 
     // 同 item_id の 2 重登録は no-op (アセット二重ロード保護)。
     if (FindItemSlot(item.item_id) != kNotFound) {
-        ACS_LOG_WARN("FEconomyDirector: duplicate item registration ignored ('%s')", item.item_id);
+        ACS_LOG_WARN("CEconomyDirector: duplicate item registration ignored ('%s')", item.item_id);
         return;
     }
 
@@ -180,7 +180,7 @@ bool CEconomyDirector::PurchaseItem(const char* item_id) noexcept {
     if (cur_slot == kNotFound) {
         // 商品が未登録通貨を指していたケース (起動順序エラー等)。
         ACS_LOG_WARN(
-            "FEconomyDirector: item '%s' references unknown currency '%s'",
+            "CEconomyDirector: item '%s' references unknown currency '%s'",
             item.item_id,
             item.currency_id != nullptr ? item.currency_id : "<null>");
         if (m_OnPurchase != nullptr) {

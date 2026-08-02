@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FScriptHost の外部source・call・native registryトランザクション契約。
+// CScriptHost の外部source・call・native registryトランザクション契約。
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "foundation/Platform.h"
@@ -143,7 +143,7 @@ private:
 ACS_TEST(ScriptHostSafety, SourceValidationPrecedesBackendExecution)
 {
     FMockScriptVm vm;
-    FScriptHost host;
+    CScriptHost host;
     host.Init(&vm);
 
     const char embedded_nul[] = {'a', '\0', 'b'};
@@ -178,7 +178,7 @@ ACS_TEST(ScriptHostSafety, BackendFailureFiresCallback)
 {
     FMockScriptVm vm;
     vm.FailLoad = true;
-    FScriptHost host;
+    CScriptHost host;
     FErrorCapture capture;
     host.Init(&vm);
     host.SetOnErrorCallback(&CaptureError, &capture);
@@ -192,7 +192,7 @@ ACS_TEST(ScriptHostSafety, BackendFailureFiresCallback)
 ACS_TEST(ScriptHostSafety, FailedCallPreservesCallerReturnValue)
 {
     FMockScriptVm vm;
-    FScriptHost host;
+    CScriptHost host;
     host.Init(&vm);
 
     FScriptValue output{};
@@ -216,7 +216,7 @@ ACS_TEST(ScriptHostSafety, FailedCallPreservesCallerReturnValue)
 ACS_TEST(ScriptHostSafety, CallRejectsInvalidArgumentsBeforeBackend)
 {
     FMockScriptVm vm;
-    FScriptHost host;
+    CScriptHost host;
     host.Init(&vm);
 
     FScriptValue one{};
@@ -241,7 +241,7 @@ ACS_TEST(ScriptHostSafety, CallRejectsInvalidArgumentsBeforeBackend)
 ACS_TEST(ScriptHostSafety, NativeRegistryRollsBackBackendFailures)
 {
     FMockScriptVm vm;
-    FScriptHost host;
+    CScriptHost host;
     host.Init(&vm);
     int first_user = 1;
     int second_user = 2;
@@ -272,7 +272,7 @@ ACS_TEST(ScriptHostSafety, NativeRegistryRollsBackBackendFailures)
 ACS_TEST(ScriptHostSafety, NativeNamesAreBounded)
 {
     FMockScriptVm vm;
-    FScriptHost host;
+    CScriptHost host;
     host.Init(&vm);
 
     char too_long[kMaxScriptFunctionNameBytes + 2u] = {};
@@ -290,7 +290,7 @@ ACS_TEST(ScriptHostSafety, NativeNamesAreBounded)
 ACS_TEST(ScriptHostSafety, NativeRegistryOwnsFunctionNames)
 {
     FMockScriptVm vm;
-    FScriptHost host;
+    CScriptHost host;
     host.Init(&vm);
 
     char transient_name[] = "Transient";
@@ -309,7 +309,7 @@ ACS_TEST(ScriptHostSafety, NativeRegistryOwnsFunctionNames)
 ACS_TEST(ScriptHostSafety, FileInputIsValidatedBeforeBackend)
 {
     FMockScriptVm vm;
-    FScriptHost host;
+    CScriptHost host;
     host.Init(&vm);
     FTempScriptPath path(L"input");
 
@@ -337,7 +337,7 @@ ACS_TEST(ScriptHostSafety, FileInputIsValidatedBeforeBackend)
 ACS_TEST(ScriptHostSafety, FilePathsAreBoundedBeforeIo)
 {
     FMockScriptVm vm;
-    FScriptHost host;
+    CScriptHost host;
     host.Init(&vm);
 
     const TResult<void> null_path = host.LoadAndRun(nullptr);

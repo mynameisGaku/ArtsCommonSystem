@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloSave — FApplication 実装。
+// HelloSave — CApplication 実装。
 #include "HelloSaveApp.h"
 
 #include "app/Sample.h"
@@ -14,7 +14,7 @@ using namespace acs;
 
 namespace hellosave {
 
-void FHelloSaveApp::OnStart() noexcept {
+void CHelloSaveApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -45,15 +45,15 @@ void FHelloSaveApp::OnStart() noexcept {
                  static_cast<long long>(m_HighScore));
 }
 
-void FHelloSaveApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloSaveApp::OnUpdate(f32 /*dt*/) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
 
-    if (FInput::IsKeyPressed(EKey::Space)) {
+    if (CInput::IsKeyPressed(EKey::Space)) {
         ++m_Clicks;
         if (m_Clicks > m_HighScore) m_HighScore = m_Clicks;
         m_Dirty = true;
     }
-    if (FInput::IsKeyPressed(EKey::R)) {
+    if (CInput::IsKeyPressed(EKey::R)) {
         // Clear() は launches も消すので、本セッションを 1 回目として再播種する。
         m_Store.Clear();
         m_Clicks = 0;
@@ -62,12 +62,12 @@ void FHelloSaveApp::OnUpdate(f32 /*dt*/) noexcept {
         m_Store.SetString("player_name", "プレイヤー");
         m_Dirty = true;
     }
-    if (FInput::IsKeyPressed(EKey::S)) {
+    if (CInput::IsKeyPressed(EKey::S)) {
         FlushAndSave();
     }
 }
 
-void FHelloSaveApp::OnRender() noexcept {
+void CHelloSaveApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -120,7 +120,7 @@ void FHelloSaveApp::OnRender() noexcept {
     m_Batch.End();
 }
 
-void FHelloSaveApp::OnShutdown() noexcept {
+void CHelloSaveApp::OnShutdown() noexcept {
     // GPU リソース破棄前に保存しておけば、保存中クラッシュでもプレイデータは無事。
     FlushAndSave();
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
@@ -129,7 +129,7 @@ void FHelloSaveApp::OnShutdown() noexcept {
     m_Batch.Shutdown();
 }
 
-void FHelloSaveApp::FlushAndSave() noexcept {
+void CHelloSaveApp::FlushAndSave() noexcept {
     m_Store.SetInt("clicks",     m_Clicks);
     m_Store.SetInt("high_score", m_HighScore);
     if (auto r = m_Store.Save(m_SavePath); r.IsErr()) {

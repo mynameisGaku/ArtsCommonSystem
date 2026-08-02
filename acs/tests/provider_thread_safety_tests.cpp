@@ -49,7 +49,7 @@ IScriptVm& ProvideScriptVm() noexcept
 
 ISteamworksBridge& ProvideSteamworksBridge() noexcept
 {
-    return FSteamworksBridgeStub::GetStub();
+    return CSteamworksBridgeStub::GetStub();
 }
 
 struct FProviderRaceContext {
@@ -93,7 +93,7 @@ ACS_TEST(GameFramework, DefaultProvidersSupportConcurrentRegistrationAndLookup)
                         &GetDefaultMlRuntime() != &GetMlRuntimeStub() ||
                         &GetDefaultOpenXrBridge() != &GetXrStub() ||
                         &GetDefaultScriptVm() != &GetVmStub() ||
-                        &GetDefaultSteamworksBridge() != &FSteamworksBridgeStub::GetStub()) {
+                        &GetDefaultSteamworksBridge() != &CSteamworksBridgeStub::GetStub()) {
                         RaceContext->FailureCount.FetchAdd(1u);
                     }
                 }

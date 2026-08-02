@@ -2,7 +2,7 @@
 // GameFramework Pillar — SceneInspector / AEditorToolbar
 //
 // editor ウィンドウ上端に表示するツールバー。再生制御 (Play / Pause / Step)、
-// Scene 保存、FDebugOverlay 表示切替を 1 行に並べる。CSelectionService と並ぶ
+// Scene 保存、CDebugOverlay 表示切替を 1 行に並べる。CSelectionService と並ぶ
 // 「editor の中央 UI 部品」で、AHierarchyPanel / AInspectorPanel と同じ親
 // ウィンドウから DrawUI を呼ばれる想定。
 //
@@ -16,14 +16,14 @@
 //   // toolbar が内部で CGame::SetTimeScale(0/1) を切り替えている。
 //
 // 設計選択 (Pillar SceneInspector):
-//   ・**Play / Pause / Step / Save / FDebugOverlay の 5 アクション**: 最低限の
+//   ・**Play / Pause / Step / Save / CDebugOverlay の 5 アクション**: 最低限の
 //     editor インタラクション集合。Unity / Godot エディタの中央バーから
 //     "再生制御 + 保存 + デバッグ表示" だけ抜き出した形。
 //   ・**状態は EEditorState で 1 個保持**: Playing / Paused / Stepping の 3 値。
 //     Stepping は「1 fixed step 進めたら自動で Paused に戻る」一時状態として
 //     扱い、外側の CGame ループは TimeScale=1 で 1 フレーム走らせた後に
 //     再度 SetTimeScale(0) する責任を持つ (本クラスは状態保持と遷移のみ)。
-//   ・**CGame への time_scale 反映は本クラスが行う**: FPauseDirector のように
+//   ・**CGame への time_scale 反映は本クラスが行う**: CPauseDirector のように
 //     「caller に値だけ返す」設計も検討したが、editor はゲームコードを
 //     触らずに使われる前提なので、本クラスが直接 `CGame::SetTimeScale(...)` を
 //     呼ぶ。Play 時に戻す scale は `m_NormalTimeScale` (= Pause 直前の値) を
@@ -31,9 +31,9 @@
 //   ・**Save callback は外部委譲**: scene の serialize 形式 (JSON / binary /
 //     ACS Pak) は editor 統合層が決める。本クラスは「Save ボタンが押された」
 //     という通知だけを発火する。
-//   ・**FDebugOverlay の所有は外側**: ここでは bool flag (`m_ShowDebugOverlay`)
+//   ・**CDebugOverlay の所有は外側**: ここでは bool flag (`m_ShowDebugOverlay`)
 //     だけを保持する。実描画は外側コードが flag を見て OverlayDirector を
-//     呼ぶ責務。これで FDebugOverlay 本体への依存を回避し、ship build で
+//     呼ぶ責務。これで CDebugOverlay 本体への依存を回避し、ship build で
 //     editor だけ消したいケースをサポートする。
 //   ・**E prefix enum (E + 形容詞)**: ACS 規約。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用**: ACS 規約。
@@ -81,13 +81,13 @@ enum class EEditorState : u8 {
 using SaveSceneCallback = void (*)(void* user) noexcept;
 
 /**
- * 再生制御 + Save + FDebugOverlay 切替を 1 行に並べる editor ツールバー。
+ * 再生制御 + Save + CDebugOverlay 切替を 1 行に並べる editor ツールバー。
  *
  * @details
- * Play / Pause / Step / Save / FDebugOverlay の 5 アクションを持ち、再生状態を
+ * Play / Pause / Step / Save / CDebugOverlay の 5 アクションを持ち、再生状態を
  * EEditorState で 1 個保持する。TimeScale への反映 (Play 復帰時の m_NormalTimeScale
  * 書き戻し、Pause 時の 0 設定) は本クラスが直接 CGame に対して行う。Save は外部
- * callback へ委譲し、FDebugOverlay は表示要望 flag のみを保持する。
+ * callback へ委譲し、CDebugOverlay は表示要望 flag のみを保持する。
  * editor_core::AEditorPanel を継承する。
  */
 class AEditorToolbar : public ::acs::game::editor_core::AEditorPanel {
@@ -147,7 +147,7 @@ public:
      * 毎フレーム呼ぶツールバー描画。
      *
      * @details
-     * 独立 ImGui window に Play / Pause / Step / Save / FDebugOverlay のボタン行を描画する。
+     * 独立 ImGui window に Play / Pause / Step / Save / CDebugOverlay のボタン行を描画する。
      * ボタン操作の結果は末尾で 1 度だけ CGame に反映し、Stepping は同フレームで Paused へ戻す。
      * m_Game が nullptr のときは UI のみ描画して TimeScale 反映を skip する。
      */
@@ -187,7 +187,7 @@ public:
     void SetOnSaveSceneCallback(SaveSceneCallback cb, void* user) noexcept;
 
     /**
-     * FDebugOverlay の表示要望 flag を設定する。
+     * CDebugOverlay の表示要望 flag を設定する。
      *
      * @details 実描画は外側のコードが本 flag を見て切り替える。
      * @param b 表示したいなら true。
@@ -195,7 +195,7 @@ public:
     void SetShowDebugOverlay(bool b) noexcept { m_ShowDebugOverlay = b; }
 
     /**
-     * FDebugOverlay の表示要望 flag を返す。
+     * CDebugOverlay の表示要望 flag を返す。
      *
      * @return 表示要望が立っていれば true。
      */
@@ -218,7 +218,7 @@ private:
     /** Pause 直前の time scale (Play 復帰時にこの値を書き戻す。既定 1.0f)。 */
     f32               m_NormalTimeScale  = 1.0f;
 
-    /** FDebugOverlay の表示要望 flag (caller が flag を見て描画する)。 */
+    /** CDebugOverlay の表示要望 flag (caller が flag を見て描画する)。 */
     bool              m_ShowDebugOverlay = false;
 
     /** Save ボタンクリック時に呼ぶ callback (未登録なら nullptr)。 */

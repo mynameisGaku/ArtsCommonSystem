@@ -21,7 +21,7 @@ int main() {
     bool ok = true;
 
     // ---- (1) Cube ----
-    TSharedPtr<FMeshAsset> cube = Primitive::MakeCube(2.0f);
+    TSharedPtr<AMeshAsset> cube = Primitive::MakeCube(2.0f);
     CMeshCollider col;
     if (col.BuildFromMesh(*cube).IsErr()) { std::puts("cube: build FAILED"); return 2; }
 
@@ -52,7 +52,7 @@ int main() {
     ok = ok && hit_down && miss_up && hit_side && tri_ok;
 
     // ---- (2) Sphere ----
-    TSharedPtr<FMeshAsset> sph = Primitive::MakeSphere(1.0f, 32, 16);
+    TSharedPtr<AMeshAsset> sph = Primitive::MakeSphere(1.0f, 32, 16);
     CMeshCollider scol;
     if (scol.BuildFromMesh(*sph).IsErr()) { std::puts("sphere: build FAILED"); return 3; }
     FRayHit3 sh = scol.Raycast(FRay3{ {0, 5, 0}, {0, -1, 0} });

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # HelloSceneInspector — SceneInspector デモ。
-# ANode ツリー (root → wheel → spoke[0/1] など複数階層) を `FHierarchyPanel`
+# ANode ツリー (root → wheel → spoke[0/1] など複数階層) を `AHierarchyPanel`
 # で可視化し、`InspectorPanel` が `IInspectableProvider` 経由で公開された
 # field を ImGui で編集する単一ウィンドウのエディタサンプル。`EditorToolbar`
 # で Play/Pause/Step などのコマンドを発行、`SelectionService` で 4 パネル間の
@@ -13,7 +13,7 @@
 #   main.cpp                    - ACS_GAME_MAIN(SceneInspectorApp) のみ
 #   SceneNodes.{h,cpp}          - PlayerNode + WheelNode
 #   PanelLayout.{h,cpp}         - 4 panel + Selection + Seam の束ね
-#   SceneInspectorScene.{h,cpp} - ANode ツリー + FPanelLayout を持つ FScene
+#   SceneInspectorScene.{h,cpp} - ANode ツリー + CPanelLayout を持つ AScene
 #   SceneInspectorApp.{h,cpp}   - Game 派生クラス (ImGui lifecycle ラッパ)
 add_executable(hello_scene_inspector WIN32
     main.cpp

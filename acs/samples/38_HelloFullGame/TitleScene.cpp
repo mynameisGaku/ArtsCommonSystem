@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — FTitleScene 実装。
+// HelloFullGame — ATitleScene 実装。
 #include "TitleScene.h"
 #include "FullGameApp.h"
 #include "GameplayScene.h"
@@ -17,7 +17,7 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void FTitleScene::OnEnter() noexcept {
+void ATitleScene::OnEnter() noexcept {
     GetGame().SetClearColor(m_BgColor.x, m_BgColor.y, m_BgColor.z);
 
     // 背景色を 2 秒 ping-pong する FTween (Services 経由で自動 tick される)
@@ -32,26 +32,26 @@ void FTitleScene::OnEnter() noexcept {
     im.BindKey(FActionId("Quit"),  EKey::Escape);
 
     // BGM 切替 (state-only、ログのみ出る)
-    auto& app = static_cast<FFullGameApp&>(GetGame());
+    auto& app = static_cast<CFullGameApp&>(GetGame());
     app.Music().SetState(EMusicState::Calm, 1.0f);
     app.Audio().PlayBgm("bgm_title", 1.0f, true);
 
     ACS_LOG_INFO("[Title] enter - Press Space to start, Esc to quit");
 }
 
-void FTitleScene::OnExit() noexcept {
+void ATitleScene::OnExit() noexcept {
     if (HasServices()) Services().Tweens().CancelAll();
     ACS_LOG_INFO("[Title] exit");
 }
 
-void FTitleScene::OnUpdate(f32 dt) noexcept {
+void ATitleScene::OnUpdate(f32 dt) noexcept {
     const FInputMap& im = Services().Input();
     if (im.IsPressed(FActionId("Quit"))) {
         GetGame().Quit();
         return;
     }
     if (im.IsPressed(FActionId("Start"))) {
-        Scenes().ChangeScene(MakeUnique<FGameplayScene>());
+        Scenes().ChangeScene(MakeUnique<AGameplayScene>());
         return;
     }
 
@@ -67,12 +67,12 @@ void FTitleScene::OnUpdate(f32 dt) noexcept {
     m_PulseSec += dt;
 }
 
-void FTitleScene::OnRender(FRenderContext& rc) noexcept {
-    auto& app = static_cast<FFullGameApp&>(GetGame());
+void ATitleScene::OnRender(FRenderContext& rc) noexcept {
+    auto& app = static_cast<CFullGameApp&>(GetGame());
     app.EnsureSpritesInitialized();
     if (!app.SpritesReady()) return;
 
-    FSpriteBatch& sb = app.Sprites();
+    CSpriteBatch& sb = app.Sprites();
     const u32 sw = rc.Width();
     const u32 sh = rc.Height();
     sb.Begin(rc.Cmd(), sw, sh);

@@ -1,4 +1,4 @@
-# 「Hello Vertex-Space SSS」サンプル: FVertexScatter (頂点空間サブサーフェス
+# 「Hello Vertex-Space SSS」サンプル: CVertexScatter (頂点空間サブサーフェス
 # スキャタリング) で肌の内部散乱を表現する例。
 #
 # 構成:

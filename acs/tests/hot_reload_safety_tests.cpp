@@ -29,7 +29,7 @@ bool IsValidNativeNotificationFields(
 namespace {
 
 struct FDispatchProbe {
-    FHotReloadWatcher* watcher = nullptr;
+    CHotReloadWatcher* watcher = nullptr;
     u32 first_calls = 0u;
     u32 second_calls = 0u;
     EHotReloadResult nested_tick = EHotReloadResult::Success;
@@ -57,11 +57,11 @@ void FirstCallback(void* user, const FHotReloadEvent& event) noexcept {
 }
 
 void ShutdownCallback(void* user, const FHotReloadEvent&) noexcept {
-    static_cast<FHotReloadWatcher*>(user)->Shutdown();
+    static_cast<CHotReloadWatcher*>(user)->Shutdown();
 }
 
 struct FEnqueueProbe {
-    FHotReloadWatcher* watcher = nullptr;
+    CHotReloadWatcher* watcher = nullptr;
     u32 calls = 0u;
 };
 
@@ -74,7 +74,7 @@ void EnqueueCallback(void* user, const FHotReloadEvent&) noexcept {
 }
 
 struct FClearAndEnqueueProbe {
-    FHotReloadWatcher* watcher = nullptr;
+    CHotReloadWatcher* watcher = nullptr;
     u32 calls = 0u;
     EHotReloadResult enqueue_result = EHotReloadResult::Success;
     bool saw_initial = false;
@@ -103,7 +103,7 @@ void ClearAndEnqueueCallback(
 }
 
 struct FConsumeAndEnqueueProbe {
-    FHotReloadWatcher* watcher = nullptr;
+    CHotReloadWatcher* watcher = nullptr;
     u32 calls = 0u;
     EHotReloadResult enqueue_result = EHotReloadResult::Success;
     bool saw_a = false;
@@ -173,7 +173,7 @@ usize BuildSyntheticNativeRecord(
 
 void RejectingEnqueueCallback(
     void* user, const FHotReloadEvent&) noexcept {
-    auto* watcher = static_cast<FHotReloadWatcher*>(user);
+    auto* watcher = static_cast<CHotReloadWatcher*>(user);
     (void)watcher->TryEnqueueEvent(nullptr, 99u);
 }
 
@@ -246,7 +246,7 @@ ACS_TEST(HotReloadSafety, DiagnosticCounterIncrementSaturates) {
 }
 
 ACS_TEST(HotReloadSafety, DiagnosticsAreStickyAndExplicitlyCleared) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     u32 callback_calls = 0u;
     EXPECT_EQ(
         watcher.TryWatchFile("Assets/watched.txt"),
@@ -306,7 +306,7 @@ ACS_TEST(HotReloadSafety, NativeOverflowAndRearmFailureRequireRescan) {
     using internal::ResetHotReloadNativeFaultForTesting;
 
     ResetHotReloadNativeFaultForTesting();
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     EXPECT_TRUE(ConfigureHotReloadNativeFaultForTesting(
         EHotReloadNativeFaultForTesting::NativeOverflow));
     EXPECT_EQ(
@@ -352,7 +352,7 @@ ACS_TEST(HotReloadSafety, SyntheticParserRejectsOffsetAtBufferEnd) {
         EHotReloadNativeFaultForTesting::SyntheticBuffer,
         bytes, byte_count));
 
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     EXPECT_EQ(watcher.TryTick(0.0f), EHotReloadResult::OsError);
     EXPECT_EQ(watcher.PendingEventCount(), 1u);
 
@@ -384,7 +384,7 @@ ACS_TEST(HotReloadSafety, SyntheticNativeConversionOomIsDistinguished) {
             SyntheticBufferConversionOutOfMemory,
         bytes, byte_count));
 
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     EXPECT_EQ(
         watcher.TryTick(0.0f), EHotReloadResult::OutOfMemory);
     EXPECT_EQ(watcher.PendingEventCount(), 0u);
@@ -409,7 +409,7 @@ ACS_TEST(HotReloadSafety, TickReturnPriorityDoesNotRewriteLastFailure) {
     EXPECT_TRUE(ConfigureHotReloadNativeFaultForTesting(
         EHotReloadNativeFaultForTesting::NativeOverflow));
 
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     EXPECT_EQ(
         watcher.TryRegisterCallback(
             &RejectingEnqueueCallback, &watcher),
@@ -436,7 +436,7 @@ ACS_TEST(HotReloadSafety, TickReturnPriorityDoesNotRewriteLastFailure) {
 #endif
 
 ACS_TEST(HotReloadSafety, CheckedFileRegistrationOwnsAndDeduplicatesPaths) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     char mutable_path[] = "owned.txt";
 
     EXPECT_EQ(
@@ -454,12 +454,12 @@ ACS_TEST(HotReloadSafety, CheckedFileRegistrationOwnsAndDeduplicatesPaths) {
 }
 
 ACS_TEST(HotReloadSafety, InvalidUtf8AndBoundariesAreRejectedTransactionally) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     const char malformed[] = {
         static_cast<char>(0xC3), static_cast<char>(0x28), '\0'};
     char control[] = {'a', '\n', 'b', '\0'};
-    char too_long[FHotReloadWatcher::kMaxPathBytes + 2u] = {};
-    for (u32 i = 0u; i < FHotReloadWatcher::kMaxPathBytes + 1u; ++i) {
+    char too_long[CHotReloadWatcher::kMaxPathBytes + 2u] = {};
+    for (u32 i = 0u; i < CHotReloadWatcher::kMaxPathBytes + 1u; ++i) {
         too_long[i] = 'a';
     }
 
@@ -482,38 +482,38 @@ ACS_TEST(HotReloadSafety, InvalidUtf8AndBoundariesAreRejectedTransactionally) {
 }
 
 ACS_TEST(HotReloadSafety, WatchedPathAndCallbackLimitsAreEnforced) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     char path[64] = {};
-    for (u32 i = 0u; i < FHotReloadWatcher::kMaxWatchedPaths; ++i) {
+    for (u32 i = 0u; i < CHotReloadWatcher::kMaxWatchedPaths; ++i) {
         (void)std::snprintf(path, sizeof(path), "Assets/item_%u.txt", i);
         EXPECT_EQ(
             watcher.TryWatchFile(path),
             EHotReloadResult::Success);
     }
-    EXPECT_EQ(watcher.WatchedCount(), FHotReloadWatcher::kMaxWatchedPaths);
+    EXPECT_EQ(watcher.WatchedCount(), CHotReloadWatcher::kMaxWatchedPaths);
     EXPECT_EQ(
         watcher.TryWatchFile("Assets/overflow.txt"),
         EHotReloadResult::LimitExceeded);
 
-    u32 callback_users[FHotReloadWatcher::kMaxCallbacks + 1u] = {};
-    for (u32 i = 0u; i < FHotReloadWatcher::kMaxCallbacks; ++i) {
+    u32 callback_users[CHotReloadWatcher::kMaxCallbacks + 1u] = {};
+    for (u32 i = 0u; i < CHotReloadWatcher::kMaxCallbacks; ++i) {
         EXPECT_EQ(
             watcher.TryRegisterCallback(&SecondCallback, &callback_users[i]),
             EHotReloadResult::Success);
     }
     EXPECT_EQ(
         watcher.TryRegisterCallback(
-            &SecondCallback, &callback_users[FHotReloadWatcher::kMaxCallbacks]),
+            &SecondCallback, &callback_users[CHotReloadWatcher::kMaxCallbacks]),
         EHotReloadResult::LimitExceeded);
 }
 
 ACS_TEST(HotReloadSafety, PendingQueueLimitIsEnforcedWithoutPartialAppend) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     EXPECT_EQ(
         watcher.TrySetDebounceSeconds(0.0f),
         EHotReloadResult::Success);
     char path[64] = {};
-    for (u32 i = 0u; i < FHotReloadWatcher::kMaxPendingEvents; ++i) {
+    for (u32 i = 0u; i < CHotReloadWatcher::kMaxPendingEvents; ++i) {
         (void)std::snprintf(path, sizeof(path), "Assets/event_%u.txt", i);
         EXPECT_EQ(
             watcher.TryEnqueueEvent(path, static_cast<u64>(i)),
@@ -521,18 +521,18 @@ ACS_TEST(HotReloadSafety, PendingQueueLimitIsEnforcedWithoutPartialAppend) {
     }
     EXPECT_EQ(
         watcher.PendingEventCount(),
-        FHotReloadWatcher::kMaxPendingEvents);
+        CHotReloadWatcher::kMaxPendingEvents);
     EXPECT_EQ(
         watcher.TryEnqueueEvent("Assets/event_overflow.txt", 9999u),
         EHotReloadResult::LimitExceeded);
     EXPECT_EQ(
         watcher.PendingEventCount(),
-        FHotReloadWatcher::kMaxPendingEvents);
+        CHotReloadWatcher::kMaxPendingEvents);
 
     const FHotReloadDiagnostics diagnostics = watcher.CaptureDiagnostics();
     EXPECT_EQ(
         diagnostics.enqueued_event_count,
-        static_cast<u64>(FHotReloadWatcher::kMaxPendingEvents));
+        static_cast<u64>(CHotReloadWatcher::kMaxPendingEvents));
     EXPECT_EQ(diagnostics.rejected_event_count, 1u);
     EXPECT_EQ(diagnostics.loss_incident_count, 1u);
     EXPECT_EQ(
@@ -541,7 +541,7 @@ ACS_TEST(HotReloadSafety, PendingQueueLimitIsEnforcedWithoutPartialAppend) {
 }
 
 ACS_TEST(HotReloadSafety, DirectoryOsFailureDoesNotPublishRegistration) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     EXPECT_EQ(
         watcher.TryWatchDirectory("C:\\<>\\acs_hot_reload_missing"),
         EHotReloadResult::OsError);
@@ -564,7 +564,7 @@ ACS_TEST(HotReloadSafety, FileRegistrationCanPromoteToDirectoryWatcher) {
     if (bytes <= 0) return;
     utf8_path[bytes] = '\0';
 
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     EXPECT_EQ(watcher.TryWatchFile(utf8_path),
               EHotReloadResult::Success);
     EXPECT_EQ(watcher.TryWatchDirectory(utf8_path, false),
@@ -575,7 +575,7 @@ ACS_TEST(HotReloadSafety, FileRegistrationCanPromoteToDirectoryWatcher) {
 }
 
 ACS_TEST(HotReloadSafety, CallbackRegistrationIsCheckedAndRemovable) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     int user = 0;
 
     EXPECT_EQ(
@@ -596,7 +596,7 @@ ACS_TEST(HotReloadSafety, CallbackRegistrationIsCheckedAndRemovable) {
 }
 
 ACS_TEST(HotReloadSafety, DebounceConfigurationAndTickRejectNonFiniteValues) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     EXPECT_EQ(
         watcher.TrySetDebounceSeconds(0.25f),
         EHotReloadResult::Success);
@@ -625,7 +625,7 @@ ACS_TEST(HotReloadSafety, DebounceConfigurationAndTickRejectNonFiniteValues) {
 }
 
 ACS_TEST(HotReloadSafety, SamePathBurstsCoalesceAndConsumeOwnsPath) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     EXPECT_EQ(
         watcher.TrySetDebounceSeconds(0.10f),
         EHotReloadResult::Success);
@@ -660,7 +660,7 @@ ACS_TEST(HotReloadSafety, SamePathBurstsCoalesceAndConsumeOwnsPath) {
 }
 
 ACS_TEST(HotReloadSafety, DebounceCoalescesWithNewestQueuedSamePath) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     EXPECT_EQ(
         watcher.TrySetDebounceSeconds(0.05f),
         EHotReloadResult::Success);
@@ -692,7 +692,7 @@ ACS_TEST(HotReloadSafety, DebounceCoalescesWithNewestQueuedSamePath) {
 }
 
 ACS_TEST(HotReloadSafety, PositiveSubMillisecondDebounceUsesOneClockTick) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     EXPECT_EQ(
         watcher.TrySetDebounceSeconds(0.0005f),
         EHotReloadResult::Success);
@@ -719,7 +719,7 @@ ACS_TEST(HotReloadSafety, PositiveSubMillisecondDebounceUsesOneClockTick) {
 }
 
 ACS_TEST(HotReloadSafety, CallbackDispatchRejectsTickReentryAndHonorsUnregister) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     FDispatchProbe probe{};
     probe.watcher = &watcher;
 
@@ -749,7 +749,7 @@ ACS_TEST(HotReloadSafety, CallbackDispatchRejectsTickReentryAndHonorsUnregister)
 }
 
 ACS_TEST(HotReloadSafety, ShutdownFromCallbackAbortsRemainingDispatchSafely) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     EXPECT_EQ(
         watcher.TryWatchFile("Assets/watched.txt"),
         EHotReloadResult::Success);
@@ -769,7 +769,7 @@ ACS_TEST(HotReloadSafety, ShutdownFromCallbackAbortsRemainingDispatchSafely) {
 }
 
 ACS_TEST(HotReloadSafety, ClearAndEnqueueFromCallbackDefersReplacementEvent) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     FClearAndEnqueueProbe probe{&watcher};
     u32 observer_calls = 0u;
     EXPECT_EQ(
@@ -812,7 +812,7 @@ ACS_TEST(HotReloadSafety, ClearAndEnqueueFromCallbackDefersReplacementEvent) {
 }
 
 ACS_TEST(HotReloadSafety, ConsumeAndEnqueueFromCallbackPreservesNextTickFifo) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     FConsumeAndEnqueueProbe probe{&watcher};
     u32 observer_calls = 0u;
     EXPECT_EQ(
@@ -863,7 +863,7 @@ ACS_TEST(HotReloadSafety, ConsumeAndEnqueueFromCallbackPreservesNextTickFifo) {
 }
 
 ACS_TEST(HotReloadSafety, CallbackEnqueuedEventsAreDeferredToNextTick) {
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     FEnqueueProbe probe{&watcher, 0u};
     EXPECT_EQ(
         watcher.TryRegisterCallback(&EnqueueCallback, &probe),

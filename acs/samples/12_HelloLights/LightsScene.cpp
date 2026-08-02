@@ -8,7 +8,7 @@ using namespace acs;
 
 namespace hellolights {
 
-void FLightsScene::Build() noexcept {
+void CLightsScene::Build() noexcept {
     m_Objects.Clear();
     for (u32 i = 0; i < kCubeCount; ++i) {
         // 開始位相 0.4f はカメラ初期位置と物体が重ならないようにずらすため。
@@ -26,7 +26,7 @@ void FLightsScene::Build() noexcept {
     }
 }
 
-void FLightsScene::Render(FStandardShader&  shader,
+void CLightsScene::Render(CStandardShader&  shader,
                          IRhiCommandList& cl,
                          const CCamera&    camera,
                          const FGpuMesh&   plane,

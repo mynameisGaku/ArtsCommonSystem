@@ -2,8 +2,8 @@
 // HelloSceneInspector — Scene 上に置く ANode サブクラス。
 //
 // APlayerNode: Inspector に field を公開する典型実装 (ANode + IInspectableProvider
-//             多重継承)。fields 配列は Provider が所有し、FInspectorSeam にはコピー
-//             せずポインタだけ渡す契約 (FInspectorSeam.h 設計選択)。
+//             多重継承)。fields 配列は Provider が所有し、CInspectorSeam にはコピー
+//             せずポインタだけ渡す契約 (InspectorSeam.h 設計選択)。
 // AWheelNode:  回転する ANode サブクラス。Hierarchy で複数階層の見え方を
 //             デモするために用意。
 #pragma once

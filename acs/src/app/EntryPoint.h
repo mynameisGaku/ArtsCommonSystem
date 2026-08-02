@@ -2,7 +2,7 @@
 // 共通エントリポイントマクロ
 //
 // 使い方:
-//   class FMyGame : public acs::FApplication { ... };
+//   class FMyGame : public acs::CApplication { ... };
 //   ACS_DEFINE_MAIN(FMyGame)
 //
 // 効果: int main() を自動生成する。FAppConfig はデフォルト値を使用。
@@ -40,7 +40,7 @@
      * AppClass をスタックに構築し、`FAppConfig{}` を渡して Run() を呼ぶ実装関数を作り、
      * main と、UNICODE 契約に対応する WinMain または wWinMain を出して
      * そこへ委譲する (コンソール・Win32 両サブシステム対応)。
-     * @param AppClass FApplication を継承したアプリ型。
+     * @param AppClass CApplication を継承したアプリ型。
      */
     #define ACS_DEFINE_MAIN(AppClass)                                          \
         static int acs_run_main_impl() {                                       \
@@ -56,7 +56,7 @@
      *
      * @details
      * ACS_DEFINE_MAIN と同じだが、既定設定の代わりに cfg_factory() の戻り値を Run() に渡す。
-     * @param AppClass FApplication を継承したアプリ型。
+     * @param AppClass CApplication を継承したアプリ型。
      * @param cfg_factory FAppConfig を返す呼び出し可能オブジェクト (関数等)。
      */
     #define ACS_DEFINE_MAIN_WITH_CONFIG(AppClass, cfg_factory)                 \
@@ -71,7 +71,7 @@
     /**
      * AppClass を既定 FAppConfig で起動する main() を生成する (非 Windows)。
      *
-     * @param AppClass FApplication を継承したアプリ型。
+     * @param AppClass CApplication を継承したアプリ型。
      */
     #define ACS_DEFINE_MAIN(AppClass)                                          \
         int main() {                                                           \
@@ -83,7 +83,7 @@
     /**
      * cfg_factory が返す FAppConfig で AppClass を起動する main() を生成する (非 Windows)。
      *
-     * @param AppClass FApplication を継承したアプリ型。
+     * @param AppClass CApplication を継承したアプリ型。
      * @param cfg_factory FAppConfig を返す呼び出し可能オブジェクト (関数等)。
      */
     #define ACS_DEFINE_MAIN_WITH_CONFIG(AppClass, cfg_factory)                 \

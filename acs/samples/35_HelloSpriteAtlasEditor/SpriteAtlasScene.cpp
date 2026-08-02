@@ -15,7 +15,7 @@ namespace hellosa {
 // ----------------------------------------------------------------------------
 // OnEnter — workspace 初期化 + dummy FSpritePack 構築 + editor panel 登録
 // ----------------------------------------------------------------------------
-void FSpriteAtlasScene::OnEnter() noexcept {
+void ASpriteAtlasScene::OnEnter() noexcept {
     // editor らしいニュートラルグレー (背景は ImGui に隠れるが viewport の
     // 外側のクリア色を編集向けに揃える)。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
@@ -53,7 +53,7 @@ void FSpriteAtlasScene::OnEnter() noexcept {
     f.y = 0u;
     m_Pack.AddFrame(f);
 
-    // FEditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶため、
+    // CEditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶため、
     // panel.OnInit を別途呼ぶ必要は無い。SetSpritePack は Init / OnInit の
     // どちらより後でも構わない (panel が pack の存在を毎フレーム確認するため)。
     m_EditorPanel.Init();
@@ -66,8 +66,8 @@ void FSpriteAtlasScene::OnEnter() noexcept {
 // ----------------------------------------------------------------------------
 // OnExit — 逆順 shutdown
 // ----------------------------------------------------------------------------
-void FSpriteAtlasScene::OnExit() noexcept {
-    // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
+void ASpriteAtlasScene::OnExit() noexcept {
+    // CEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
     // 呼んでから list を Clear するため、個別 UnregisterPanel は不要。
     m_Workspace.Shutdown();
     // panel 本体の internal state を解放 (name pool / selection クリア)。
@@ -86,8 +86,8 @@ void FSpriteAtlasScene::OnExit() noexcept {
 // ImGui 関連 (Workspace::TickAllPanels が呼ぶ DrawDockSpace / MenuBar / panel
 // DrawUI) はすべて OnRender 側へ。ImGui::Begin 等は NewFrame() と Render() の
 // 間でしか呼べないため、ここで Workspace::TickAllPanels は呼ばない。
-void FSpriteAtlasScene::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) {
+void ASpriteAtlasScene::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -97,7 +97,7 @@ void FSpriteAtlasScene::OnUpdate(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 // OnRender — File menu (Save/Load stub) → Workspace 全描画
 // ----------------------------------------------------------------------------
-void FSpriteAtlasScene::OnRender(FRenderContext& /*rc*/) noexcept {
+void ASpriteAtlasScene::OnRender(FRenderContext& /*rc*/) noexcept {
     // ImGui は同一フレーム内で BeginMainMenuBar を複数回呼んでも 1 個の bar に
     // マージするので、本 sample 専用の File メニューを Workspace の Window/
     // Layout メニューと並べて表示できる。

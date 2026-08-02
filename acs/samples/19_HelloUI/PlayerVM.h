@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloUI — Player FViewModel。
+// HelloUI — Player CViewModel。
 //
 // hp / mana / invincible / name の Observable プロパティと、HP の表示用に
 // f32 から変換した文字列を載せる hp_label を持つ。View (Slider / Checkbox /
@@ -11,7 +11,7 @@
 
 namespace helloui {
 
-class FPlayerVm : public acs::FViewModel {
+class CPlayerVm : public acs::CViewModel {
 public:
     acs::TObservable<acs::f32>    hp        { 100.0f };
     acs::TObservable<acs::f32>    mana      { 50.0f };

@@ -47,7 +47,7 @@ void CCameraStack::PushCamera(CCamera2D& cam, f32 blend_duration) noexcept {
         }
     }
     if (m_Entries.Size() >= kMaxLayers) {
-        ACS_LOG_WARN("FCameraStack::PushCamera: layer cap reached (%u) — ignored",
+        ACS_LOG_WARN("CCameraStack::PushCamera: layer cap reached (%u) — ignored",
                      kMaxLayers);
         return;
     }
@@ -63,7 +63,7 @@ void CCameraStack::PushCamera(CCamera2D& cam, f32 blend_duration) noexcept {
 /** top をフェードアウト状態に切り替える (実際の除去は Tick で行う)。 */
 void CCameraStack::PopCamera(f32 blend_duration) noexcept {
     if (m_Entries.Size() <= 1) {
-        ACS_LOG_WARN("FCameraStack::PopCamera on stack of size %u (need >=2) — ignored",
+        ACS_LOG_WARN("CCameraStack::PopCamera on stack of size %u (need >=2) — ignored",
                      static_cast<u32>(m_Entries.Size()));
         return;
     }

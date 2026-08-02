@@ -28,7 +28,7 @@ bool SameEffectiveInput(const FInputFrame& a, const FInputFrame& b) noexcept
 
 } // namespace
 
-bool CRollbackSession::Init(FWorld* world, const FRollbackSessionConfig& config) noexcept
+bool CRollbackSession::Init(CWorld* world, const FRollbackSessionConfig& config) noexcept
 {
     // 再 Init に備えて先に未初期化状態へ戻す (失敗時もこの状態で返す)。
     m_World = nullptr;

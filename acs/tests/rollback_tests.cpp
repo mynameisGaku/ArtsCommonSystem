@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // FRollbackBuffer (ECS World スナップショット履歴) の動作確認テスト
 //
-// リング上書き / 復元契約 / 非コピー型の拒否に加えて、FLockstep (入力履歴) と
+// リング上書き / 復元契約 / 非コピー型の拒否に加えて、CLockstep (入力履歴) と
 // 組み合わせた GGPO 風の「予測ミス → 巻き戻し → 権威入力で再シミュレーション」
 // ループが権威フルシミュレーションと bit 一致することを検証する。
 #include "test/Test.h"
@@ -35,7 +35,7 @@ struct FRbMoveOnlyComp {
  * @param w 進める World。
  * @param in この tick の入力。
  */
-void SimStep(FWorld& w, const game::FInputFrame& in) noexcept
+void SimStep(CWorld& w, const game::FInputFrame& in) noexcept
 {
     w.Query<FGridPos>().Each([&](FEntityId, FGridPos& p) {
         p.x += (in.buttons & 0x1) ? 2 : 1;
@@ -53,7 +53,7 @@ ACS_TEST(RollbackBuffer, InitShutdownContract) {
     EXPECT_FALSE(rb.Init(0));            // 容量 0 は拒否
     EXPECT_EQ(rb.Capacity(), 0u);
 
-    FWorld w;
+    CWorld w;
     EXPECT_FALSE(rb.SaveFrame(0, w));    // 未初期化では保存できない
     EXPECT_FALSE(rb.RestoreFrame(0, w));
 
@@ -72,7 +72,7 @@ ACS_TEST(RollbackBuffer, InitShutdownContract) {
 }
 
 ACS_TEST(RollbackBuffer, SaveRestoreRoundtrip) {
-    FWorld w;
+    CWorld w;
     FEntityId a = w.Create();
     FEntityId b = w.Create();
     w.Add<FGridPos>(a, {10, 20});
@@ -108,7 +108,7 @@ ACS_TEST(RollbackBuffer, SaveRestoreRoundtrip) {
 }
 
 ACS_TEST(RollbackBuffer, RingEvictsOldTicks) {
-    FWorld w;
+    CWorld w;
     FEntityId e = w.Create();
     w.Add<FGridPos>(e, {0, 0});
 
@@ -139,11 +139,11 @@ ACS_TEST(RollbackBuffer, RingEvictsOldTicks) {
 }
 
 ACS_TEST(RollbackBuffer, NonCopyableComponentRejected) {
-    FWorld good;
+    CWorld good;
     FEntityId g = good.Create();
     good.Add<FGridPos>(g, {1, 2});
 
-    FWorld bad;
+    CWorld bad;
     FEntityId e = bad.Create();
     bad.Add<FRbMoveOnlyComp>(e, FRbMoveOnlyComp{7});
 
@@ -155,7 +155,7 @@ ACS_TEST(RollbackBuffer, NonCopyableComponentRejected) {
     // 同じ slot への失敗保存は、古い有効履歴も無効化する (壊れた復元をさせない)。
     EXPECT_FALSE(rb.SaveFrame(3, bad));
     EXPECT_FALSE(rb.HasFrame(3));
-    FWorld sink;
+    CWorld sink;
     EXPECT_FALSE(rb.RestoreFrame(3, sink));
 }
 
@@ -168,7 +168,7 @@ ACS_TEST(RollbackBuffer, LockstepResimulationConverges) {
     };
 
     // --- 権威フルシミュレーション (正解) -----------------------------------
-    FWorld auth;
+    CWorld auth;
     FEntityId a1 = auth.Create();
     FEntityId a2 = auth.Create();
     auth.Add<FGridPos>(a1, {0, 0});
@@ -179,11 +179,11 @@ ACS_TEST(RollbackBuffer, LockstepResimulationConverges) {
         SimStep(auth, f);
     }
 
-    // --- クライアント側: 権威入力を FLockstep に記録しつつ予測実行 ---------
-    game::FLockstep ls;
+    // --- クライアント側: 権威入力を CLockstep に記録しつつ予測実行 ---------
+    game::CLockstep ls;
     ls.Init(game::ENetMode::Local, 60);
 
-    FWorld sim;
+    CWorld sim;
     FEntityId s1 = sim.Create();
     FEntityId s2 = sim.Create();
     sim.Add<FGridPos>(s1, {0, 0});

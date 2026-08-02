@@ -9,7 +9,7 @@ using namespace acs::mlonnx;
 
 ACS_TEST(MlOnnx, RepeatedCreateSessionFailuresRemainRestartable)
 {
-    FOnnxMlRuntime runtime;
+    COnnxMlRuntime runtime;
     EXPECT_TRUE(runtime.Init().IsOk());
 
     for (u32 i = 0; i < 32; ++i) {

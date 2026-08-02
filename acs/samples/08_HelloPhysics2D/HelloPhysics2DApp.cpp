@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloPhysics2D — FApplication 実装。
+// HelloPhysics2D — CApplication 実装。
 #include "HelloPhysics2DApp.h"
 
 #include "app/Sample.h"
@@ -37,7 +37,7 @@ void GenerateBallTexture(u8* out) noexcept {
 
 } // namespace
 
-void FHelloPhysics2DApp::OnStart() noexcept {
+void CHelloPhysics2DApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -64,15 +64,15 @@ void FHelloPhysics2DApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloPhysics2D initialized");
 }
 
-void FHelloPhysics2DApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloPhysics2DApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
 
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
     m_Scene.Update(dt, sw, sh);
 }
 
-void FHelloPhysics2DApp::OnRender() noexcept {
+void CHelloPhysics2DApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Tex) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -87,7 +87,7 @@ void FHelloPhysics2DApp::OnRender() noexcept {
     m_Batch.End();
 }
 
-void FHelloPhysics2DApp::OnShutdown() noexcept {
+void CHelloPhysics2DApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Tex.Reset();

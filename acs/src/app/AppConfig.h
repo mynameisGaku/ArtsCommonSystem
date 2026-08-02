@@ -8,7 +8,7 @@
 namespace acs {
 
 /**
- * FApplication::Run に渡す起動オプション一式。
+ * CApplication::Run に渡す起動オプション一式。
  *
  * @details
  * ウィンドウ・ロガー・メモリシステム・スレッドプール・レンダラ・背景色の初期値を
@@ -43,7 +43,7 @@ struct FAppConfig {
     /** メモリシステム設定 (nullptr で既定設定を使う)。 */
     const FMemorySystemConfig* memory = nullptr;
 
-    /** FThreadPool のワーカースレッド数 (0 でハードウェア並列数から自動決定)。 */
+    /** CThreadPool のワーカースレッド数 (0 でハードウェア並列数から自動決定)。 */
     u32            worker_count = 0;
 
     /** レンダラの GPU デバッグレイヤを有効にするか (Debug ビルド時に有効推奨)。 */

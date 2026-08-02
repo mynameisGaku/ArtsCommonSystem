@@ -49,11 +49,11 @@ bool LabelEquals(const char* a, const char* b) noexcept {
 void CSceneCommandQueue::Enqueue(const char* label, SceneCommandFn fn, void* user,
                                  u32 priority, bool one_shot) noexcept {
     if (label == nullptr) {
-        ACS_LOG_WARN("FSceneCommandQueue::Enqueue: null label ignored");
+        ACS_LOG_WARN("CSceneCommandQueue::Enqueue: null label ignored");
         return;
     }
     if (fn == nullptr) {
-        ACS_LOG_WARN("FSceneCommandQueue::Enqueue: null fn for label '%s' ignored", label);
+        ACS_LOG_WARN("CSceneCommandQueue::Enqueue: null fn for label '%s' ignored", label);
         return;
     }
 
@@ -70,11 +70,11 @@ void CSceneCommandQueue::Enqueue(const char* label, SceneCommandFn fn, void* use
 void CSceneCommandQueue::EnqueueIfAbsent(const char* label, SceneCommandFn fn, void* user,
                                          u32 priority) noexcept {
     if (label == nullptr) {
-        ACS_LOG_WARN("FSceneCommandQueue::EnqueueIfAbsent: null label ignored");
+        ACS_LOG_WARN("CSceneCommandQueue::EnqueueIfAbsent: null label ignored");
         return;
     }
     if (fn == nullptr) {
-        ACS_LOG_WARN("FSceneCommandQueue::EnqueueIfAbsent: null fn for label '%s' ignored", label);
+        ACS_LOG_WARN("CSceneCommandQueue::EnqueueIfAbsent: null fn for label '%s' ignored", label);
         return;
     }
 

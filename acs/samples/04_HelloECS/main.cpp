@@ -7,4 +7,4 @@
 #include "HelloECSApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hello04::FHelloEcsApp)
+ACS_DEFINE_MAIN(hello04::CHelloEcsApp)

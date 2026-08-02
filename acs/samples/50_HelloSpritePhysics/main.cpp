@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloSpritePhysics — スプライトの凸包コライダーを FCollisionWorld2D に
+// HelloSpritePhysics — スプライトの凸包コライダーを CCollisionWorld2D に
 // polygon shape として登録し、実際に当たり判定 (overlap / raycast) させる検証
 // コンソール。alpha → 凸包 → 物理ワールド統合を assert で確認。ヘッドレス完結。
 #include "collision/SpriteCollider.h"
@@ -9,7 +9,7 @@
 #include <cstdio>
 
 using namespace acs;
-using acs::game::FCollisionWorld2D;
+using acs::game::CCollisionWorld2D;
 using acs::game::FShapeId;
 
 namespace {
@@ -38,7 +38,7 @@ int main() {
 
     bool ok = hull.count >= 3 && hull.count <= FConvexPoly2::kMaxVerts;
 
-    FCollisionWorld2D world;
+    CCollisionWorld2D world;
     world.Init(64.0f);
     const FShapeId poly_id = world.AddPolygon(hull);
     const FShapeId wall_id = world.AddAabb(FAabb2{ {300, 300}, {20, 20} });

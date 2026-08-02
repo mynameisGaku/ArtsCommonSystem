@@ -6,7 +6,7 @@
 //   ・焚き火 (AFire2DComponent) にマウスが近づくと炎の勢いが増す。
 //
 // すべて SpriteBatch のプリミティブを手続き生成して描くので HLSL 不要。
-// マウス→ワールド変換は FScene2D::ScreenToWorld (ppu 対応) を使う。
+// マウス→ワールド変換は AScene2D::ScreenToWorld (ppu 対応) を使う。
 #include "gameframework/GameFramework.h"
 #include "platform/Input.h"
 #include "platform/InputCodes.h"
@@ -17,7 +17,7 @@ using namespace acs::game;
 
 namespace {
 
-class FEffectsScene final : public FScene2D {
+class AEffectsScene final : public AScene2D {
 public:
     void OnReady() noexcept override {
         SetPixelsPerUnit(48.0f);
@@ -109,15 +109,15 @@ public:
     }
 
     void OnTick(f32 /*dt*/) noexcept override {
-        if (FInput::IsKeyPressed(EKey::Escape)) { GetGame().Quit(); return; }
+        if (CInput::IsKeyPressed(EKey::Escape)) { GetGame().Quit(); return; }
 
-        const FVec2 mw = ScreenToWorld(FInput::MousePos());   // ppu 対応のピッキング
+        const FVec2 mw = ScreenToWorld(CInput::MousePos());   // ppu 対応のピッキング
         if (m_Player) m_Player->SetPosition2D(mw);
 
         // 水: なぞると波紋、左クリックで splash (各水域に対して)。
-        const FVec2 md = FInput::MouseDelta();
+        const FVec2 md = CInput::MouseDelta();
         const f32 sp = Sqrt(md.x * md.x + md.y * md.y);          // px/frame
-        const bool click = FInput::IsMouseButtonPressed(EMouseButton::Left);
+        const bool click = CInput::IsMouseButtonPressed(EMouseButton::Left);
         for (u32 i = 0; i < m_WaterCount; ++i) {
             AWater2DComponent* w = m_Waters[i];
             if (sp > 1.0f && w->ContainsPoint(mw)) w->Disturb(mw.x, 0.05f + sp * 0.0006f);
@@ -130,7 +130,7 @@ public:
         }
     }
 
-    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override {
         sb.DrawRect(8.0f, 8.0f, 640.0f, 30.0f, FVec4{0.0f, 0.0f, 0.0f, 0.45f});
         if (rc.HasFont()) {
             sb.DrawString(rc.GetFont(),
@@ -147,13 +147,13 @@ private:
     FVec2              m_FirePos{0.0f, 0.0f};
 };
 
-class FEffectsGame final : public FGame {
+class CEffectsGame final : public CGame {
 protected:
-    TUniquePtr<FScene> InitialScene() noexcept override {
-        return MakeUnique<FEffectsScene>();
+    TUniquePtr<AScene> InitialScene() noexcept override {
+        return MakeUnique<AEffectsScene>();
     }
 };
 
 } // namespace
 
-ACS_GAME_MAIN(FEffectsGame)
+ACS_GAME_MAIN(CEffectsGame)

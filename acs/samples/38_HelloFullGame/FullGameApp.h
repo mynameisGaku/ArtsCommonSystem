@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — FGame 派生のアプリケーションクラス。
-// FAudioDirector / FMusicDirector / FGameFlow / TSaveSlot<FHighScore> /
-// FSpriteBatch / FFont を共有資産として保持し、各 scene からアクセスさせる。
+// HelloFullGame — CGame 派生のアプリケーションクラス。
+// CAudioDirector / CMusicDirector / CGameFlow / TSaveSlot<FHighScore> /
+// CSpriteBatch / FFont を共有資産として保持し、各 scene からアクセスさせる。
 #pragma once
 
 #include "gameframework/GameFramework.h"
@@ -11,20 +11,20 @@
 
 namespace hellofg {
 
-class FFullGameApp : public acs::game::FGame {
+class CFullGameApp : public acs::game::CGame {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
     void OnShutdown() noexcept override;
 
     // ----- 共通サービスへのアクセサ -----
-    acs::game::FAudioDirector& Audio()   noexcept { return m_Audio; }
-    acs::game::FMusicDirector& Music()   noexcept { return m_Music; }
-    acs::game::FGameFlow&      Flow()    noexcept { return m_Flow; }
-    acs::FSpriteBatch&         Sprites() noexcept { return m_Sprites; }
+    acs::game::CAudioDirector& Audio()   noexcept { return m_Audio; }
+    acs::game::CMusicDirector& Music()   noexcept { return m_Music; }
+    acs::game::CGameFlow&      Flow()    noexcept { return m_Flow; }
+    acs::CSpriteBatch&         Sprites() noexcept { return m_Sprites; }
     bool                      SpritesReady() const noexcept { return m_SpriteInitialized; }
 
-    // FSpriteBatch + FFont を初回 OnRender で 1 度だけ初期化。Init は FRenderer
+    // CSpriteBatch + FFont を初回 OnRender で 1 度だけ初期化。Init は CRenderer
     // がフレームを始めて Device が生きてからでないと安全に呼べないため遅延。
     void EnsureSpritesInitialized() noexcept;
 
@@ -37,15 +37,15 @@ public:
     void SaveHighScoreIfBetter(acs::u64 final_score) noexcept;
 
 protected:
-    acs::TUniquePtr<acs::game::FScene> InitialScene() noexcept override;
+    acs::TUniquePtr<acs::game::AScene> InitialScene() noexcept override;
 
 private:
-    acs::game::FAudioDirector            m_Audio;
-    acs::game::FMusicDirector            m_Music;
-    acs::game::FGameFlow                 m_Flow;
+    acs::game::CAudioDirector            m_Audio;
+    acs::game::CMusicDirector            m_Music;
+    acs::game::CGameFlow                 m_Flow;
     acs::game::TSaveSlot<FHighScore>      m_HighscoreSlot;
     FHighScore                           m_Highscore{};
-    acs::FSpriteBatch                    m_Sprites;
+    acs::CSpriteBatch                    m_Sprites;
     acs::FFont                           m_FontTitle;
     acs::FFont                           m_FontBody;
     bool                                m_SpriteInitialized = false;

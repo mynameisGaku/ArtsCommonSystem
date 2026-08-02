@@ -103,7 +103,7 @@ public:
     /** 未初期化状態で構築する。使用前に Init を呼ぶこと。 */
     CMimallocAllocator() noexcept = default;
 
-    /** ヒープを破棄する。未解放確保があれば FLogger 非依存の診断を出す。 */
+    /** ヒープを破棄する。未解放確保があれば CLogger 非依存の診断を出す。 */
     ~CMimallocAllocator() noexcept override;
 
     /** ヒープを単独所有するためコピーしない。 */

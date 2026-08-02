@@ -12,7 +12,7 @@ using namespace acs::game;
 namespace hellofg {
 
 void WaveOnSpawn(void* user, const char* /*enemy_id*/, FVec2 /*ignored_pos*/) noexcept {
-    auto* scene = static_cast<FGameplayScene*>(user);
+    auto* scene = static_cast<AGameplayScene*>(user);
 
     // 4 辺のうちランダムに 1 辺選び、その辺上のランダム位置に湧かせる。
     // margin は world エッジから余白を取って画面外湧きすぎないようにするため。
@@ -43,7 +43,7 @@ void WaveOnSpawn(void* user, const char* /*enemy_id*/, FVec2 /*ignored_pos*/) no
 
 void WaveOnState(void* user, u32 wave_index,
                  EWaveState /*from*/, EWaveState to) noexcept {
-    auto* scene = static_cast<FGameplayScene*>(user);
+    auto* scene = static_cast<AGameplayScene*>(user);
     if (to == EWaveState::AllComplete) {
         ACS_LOG_INFO("[Gameplay] all %u waves cleared! VICTORY!", wave_index + 1u);
         scene->RequestGameOver(/*victory=*/true);
@@ -56,7 +56,7 @@ void WaveOnState(void* user, u32 wave_index,
 
 bool ProjectileOnHitTest(void* user, const FProjectileInstance& p,
                          u32& out_target, f32& out_dmg) noexcept {
-    auto* scene = static_cast<FGameplayScene*>(user);
+    auto* scene = static_cast<AGameplayScene*>(user);
     const FEnemyInstance* enemies = scene->GetEnemies().Data();
 
     // 敵プールを線形に走査。最初にヒットした index を返す (= 弾は 1 体しか抜かない)。
@@ -79,7 +79,7 @@ bool ProjectileOnHitTest(void* user, const FProjectileInstance& p,
 
 void ProjectileOnHit(void* user, FProjectileId /*pid*/, const char* /*def_id*/,
                      u32 target_id, f32 dmg) noexcept {
-    auto* scene = static_cast<FGameplayScene*>(user);
+    auto* scene = static_cast<AGameplayScene*>(user);
     scene->GetEnemies().ApplyHit(*scene, scene->GetHealth(), target_id, dmg);
 }
 

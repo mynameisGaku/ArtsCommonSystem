@@ -10,7 +10,7 @@ ACS_REF.modules.push({
       name: "FAccessibilityProfile",
       kind: "クラス", header: "gameframework/AccessibilityProfile.h",
       summary: "色覚補正・モーション低減・字幕・片手操作などの<b>アクセシビリティ設定を保持する箱</b>。値を持つだけで、実際の適用 (LUT 差し替え / 字幕表示など) はレンダラや UI 側が <code>Get()</code> で読んで行う。",
-      when: "近代タイトル並みの配慮機能を 1 箇所で管理したい時。<code>FGame</code> に 1 個だけ持たせる想定 (非コピー・非ムーブ)。",
+      when: "近代タイトル並みの配慮機能を 1 箇所で管理したい時。<code>CGame</code> に 1 個だけ持たせる想定 (非コピー・非ムーブ)。",
       sample: "FAccessibilityProfile prof;\nprof.ApplyPreset(EPreset::Dyslexia);     // 識字困難向け一括設定\nprof.SetScreenShakeScale(0.5f);          // 画面振動を半分に\nif (prof.AreSubtitlesEnabled()) ShowSubtitles();",
       members: [
         { sig: "void Set(const FAccessibilitySettings& s)", desc: "UI から受け取ったスナップショットで全フィールドを上書きする。" },
@@ -37,11 +37,11 @@ ACS_REF.modules.push({
       sample: "profile.SetColorblindMode(EColorblindMode::Deuteranopia); // 緑色弱補正\nprofile.SetMotionReduction(EMotionReduction::Reduced);\nprofile.ApplyPreset(EPreset::OneHanded);"
     },
     {
-      name: "FAchievementManager",
+      name: "CAchievementManager",
       kind: "クラス", header: "gameframework/AchievementManager.h",
       summary: "実績 (アチーブメント) の<b>定義・進捗・解除</b>を一括管理し、解除時に Steamworks 等の<t>プラットフォーム SDK</t> へ伝える高レベルマネージャ。SDK 未接続ならローカル進捗だけ追うオフラインモードで動く。",
       when: "「ボス撃破」「累計 100km 歩いた」のような実績を扱いたい時。起動時に全実績を登録し、ゲーム中に進捗を流し込む。",
-      sample: "FAchievementManager am;\nam.RegisterAchievement({ \"ACH_WALK_100KM\", \"Marathon\", \"...\", 100, false });\nam.AttachSteamworks(&bridge);             // 任意。null で detach\nam.IncrementProgress(\"ACH_WALK_100KM\", 1); // 1km 歩いた\nam.Unlock(\"ACH_BOSS_01\");                  // 即時解除",
+      sample: "CAchievementManager am;\nam.RegisterAchievement({ \"ACH_WALK_100KM\", \"Marathon\", \"...\", 100, false });\nam.AttachSteamworks(&bridge);             // 任意。null で detach\nam.IncrementProgress(\"ACH_WALK_100KM\", 1); // 1km 歩いた\nam.Unlock(\"ACH_BOSS_01\");                  // 即時解除",
       members: [
         { sig: "void RegisterAchievement(const FAchievementDef& def)", desc: "実績を定義として登録する (起動時に 1 度ずつ)。同 id の 2 重登録は無視。", when: "ゲーム起動時に全実績をまとめて登録する。" },
         { sig: "void SetProgress(const char* id, u32 progress)", desc: "進捗を絶対値で設定。max に達したら自動で解除 + SDK 送信。" },
@@ -51,7 +51,8 @@ ACS_REF.modules.push({
         { sig: "u32 TotalCount() const / u32 UnlockedCount() const", desc: "総数・解除済み数。「23/50 unlocked」表示用。" },
         { sig: "const FAchievementProgress* AllStates(u32& out_count) const", ret: "全状態の配列", desc: "全実績の状態を連続バッファで返す。一覧 UI で走査する。" },
         { sig: "void AttachSteamworks(ISteamworksBridge* bridge)", desc: "Storefront SDK を接続する。nullptr で切断 (= ローカルのみ追跡)。" },
-        { sig: "void Tick(f32 dt)", desc: "将来の統計/タイマー更新用フック。現状は no-op。" }
+        { sig: "void Tick(f32 dt)", desc: "将来の統計/タイマー更新用フック。現状は no-op。" },
+        { sig: "using FAchievementManager = CAchievementManager", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAchievementManager</code> を使う。" }
       ]
     },
     {
@@ -62,18 +63,19 @@ ACS_REF.modules.push({
       sample: "FAchievementDef d{ \"ACH_SECRET\", \"True Ending\", \"...\", 1, /*secret*/true };\nam.RegisterAchievement(d);\nconst FAchievementProgress* p = am.GetState(\"ACH_SECRET\");\nif (p &amp;&amp; p->unlocked) { /* 解除済み */ }"
     },
     {
-      name: "FAmbientDirector",
+      name: "CAmbientDirector",
       kind: "クラス", header: "gameframework/AmbientDirector.h",
       summary: "1 日の<b>時刻 (0〜24h) に応じて空の色・環境光・太陽方向を補間する</b>時刻ドライバ (time-of-day)。レンダラは 3 つの色/ベクトルを毎フレーム pull するだけで朝昼夕夜の表情が出る。",
       when: "屋外シーンで時間経過の昼夜サイクルを出したい時。",
-      sample: "FAmbientDirector amb;\namb.SetTimeOfDay(6.5f);      // 朝焼け開始\namb.SetTimeScale(0.1f);      // リアル 1s = 0.1 game-hour\n// 毎フレーム:\namb.Tick(dt);\nrenderer.SetSkyColor(amb.SkyColor());\nrenderer.SetSunDir (amb.SunDirection());",
+      sample: "CAmbientDirector amb;\namb.SetTimeOfDay(6.5f);      // 朝焼け開始\namb.SetTimeScale(0.1f);      // リアル 1s = 0.1 game-hour\n// 毎フレーム:\namb.Tick(dt);\nrenderer.SetSkyColor(amb.SkyColor());\nrenderer.SetSunDir (amb.SunDirection());",
       members: [
         { sig: "void SetTimeOfDay(f32 hours)", desc: "現在時刻を [0,24) で設定する (範囲外は剰余で正規化)。" },
         { sig: "void AdvanceTime(f32 dt_hours)", desc: "ゲーム時間を dt_hours だけ進める (負値は 0 にクランプ)。" },
         { sig: "FVec3 SkyColor() const / FVec3 AmbientColor() const / FVec3 SunDirection() const", ret: "補間結果", desc: "現在時刻での空色・環境光色・太陽方向ベクトルを返す。" },
         { sig: "bool IsDay() const / bool IsNight() const", desc: "6:00〜18:00 を昼として昼夜を判定する。" },
         { sig: "void SetTimeScale(f32 game_hours_per_real_sec)", desc: "リアル 1 秒で進めるゲーム時間を設定する。既定 1/60 (= リアル 1 分でゲーム 1 時間)。" },
-        { sig: "void Tick(f32 dt)", desc: "リアル秒 dt をタイムスケール換算してゲーム時間を進める。毎フレーム呼ぶ。" }
+        { sig: "void Tick(f32 dt)", desc: "リアル秒 dt をタイムスケール換算してゲーム時間を進める。毎フレーム呼ぶ。" },
+        { sig: "using FAmbientDirector = CAmbientDirector", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAmbientDirector</code> を使う。" }
       ]
     },
     {
@@ -118,17 +120,18 @@ ACS_REF.modules.push({
       when: "<code>TrySetKeys</code> または <code>TrySetWrapModes</code> で曲線の前後を設定する時。"
     },
     {
-      name: "FAnimationCurveArchive",
+      name: "CAnimationCurveArchive",
       kind: "クラス", header: "gameframework/AnimationCurveArchive.h",
       summary: "<t>FAnimationCurve</t> を固定幅 little-endian wire record として保存・復元する bounded codec。CRC、version、exact size、全 key と wrap mode を検証し、失敗時は出力 buffer と復元先曲線を変更しない。",
       when: "曲線をエディタデータや save file に永続化し、破損・旧 version・過大入力を明示的に診断したい時。",
-      sample: "u64 size = FAnimationCurveArchive::EncodedSize(curve);\nTArray&lt;u8&gt; bytes;\nbytes.TryResize(static_cast&lt;usize&gt;(size));\nu64 written = 0;\nauto saved = FAnimationCurveArchive::Encode(curve, bytes.Data(), size, written);\nFAnimationCurve restored;\nauto loaded = FAnimationCurveArchive::Decode(bytes.Data(), written, restored);",
+      sample: "u64 size = CAnimationCurveArchive::EncodedSize(curve);\nTArray&lt;u8&gt; bytes;\nbytes.TryResize(static_cast&lt;usize&gt;(size));\nu64 written = 0;\nauto saved = CAnimationCurveArchive::Encode(curve, bytes.Data(), size, written);\nFAnimationCurve restored;\nauto loaded = CAnimationCurveArchive::Decode(bytes.Data(), written, restored);",
       members: [
         { sig: "u64 EncodedSize(const FAnimationCurve&amp;) noexcept", desc: "正準 wire record の必要 byte 数を返す。" },
         { sig: "FAnimationCurveArchiveResult Encode(const FAnimationCurve&amp;, void*, u64 capacity, u64&amp; out_size) noexcept", desc: "全入力を検証後に caller buffer へ正準 encoding する。容量不足でも必要量を返し、buffer は変更しない。" },
         { sig: "FAnimationCurveArchiveResult Decode(const void*, u64 size, FAnimationCurve&amp;) noexcept", desc: "magic/version/size/CRC/key を全検証し、成功時だけ復元先を置換する。trailing data も拒否する。" },
-        { sig: "FAnimationCurveArchiveResult SaveToFile(const wchar_t*, const FAnimationCurve&amp;) / LoadFromFile(const wchar_t*, FAnimationCurve&amp;)", desc: "<code>FSaveArchive</code> の検証済み atomic envelope を介して file 保存/復元する。" },
-        { sig: "kWireVersion / kHeaderSize / kKeyRecordSize / kMaxEncodedSize", desc: "wire format と最大 65,536 keys に対応する公開境界。" }
+        { sig: "FAnimationCurveArchiveResult SaveToFile(const wchar_t*, const FAnimationCurve&amp;) / LoadFromFile(const wchar_t*, FAnimationCurve&amp;)", desc: "<code>CSaveArchive</code> の検証済み atomic envelope を介して file 保存/復元する。" },
+        { sig: "kWireVersion / kHeaderSize / kKeyRecordSize / kMaxEncodedSize", desc: "wire format と最大 65,536 keys に対応する公開境界。" },
+        { sig: "using FAnimationCurveArchive = CAnimationCurveArchive", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAnimationCurveArchive</code> を使う。" }
       ]
     },
     {
@@ -137,11 +140,11 @@ ACS_REF.modules.push({
       summary: "buffer 不足、magic/version/header/size/CRC 不正、key 過多、曲線データ不正、OOM、永続化失敗を安定 enum と詳細 field で返す。<code>curve_error</code> は曲線 semantic error、<code>required_size</code> は必要容量を保持する。"
     },
     {
-      name: "FAnimationGraph",
+      name: "CAnimationGraph",
       kind: "クラス", header: "gameframework/AnimationGraph.h",
       summary: "3D スケルトンアニメ向けの<b><t>ステートマシン</t>型ブレンドグラフ</b>。「どの clip を / いつから / どの blend 比率で再生するか」を制御する。実際のボーン計算や描画は呼出側に任せ、本クラスは clip index と blend alpha を提供する。",
       when: "Idle/Walk/Run/Jump などキャラの状態に応じてアニメを切り替え、状態間を滑らかにブレンドしたい時。",
-      sample: "FAnimationGraph g;\ng.Init();\nu32 idle = g.AddClip({ \"Idle\", 2.0f, true, 1.0f });\nu32 walk = g.AddClip({ \"Walk\", 1.2f, true, 1.0f });\ng.AddStateNode({ \"Idle\", EAnimationGraphState::Idle, idle, 0.15f, 0.15f });\ng.AddStateNode({ \"Walk\", EAnimationGraphState::Walk, walk, 0.15f, 0.15f });\ng.AddTransition({ EAnimationGraphState::Idle, EAnimationGraphState::Walk, 0.1f, \"speed\", false });\n// 毎フレーム:\ng.SetParam(\"speed\", current_speed);\ng.Tick(dt);",
+      sample: "CAnimationGraph g;\ng.Init();\nu32 idle = g.AddClip({ \"Idle\", 2.0f, true, 1.0f });\nu32 walk = g.AddClip({ \"Walk\", 1.2f, true, 1.0f });\ng.AddStateNode({ \"Idle\", EAnimationGraphState::Idle, idle, 0.15f, 0.15f });\ng.AddStateNode({ \"Walk\", EAnimationGraphState::Walk, walk, 0.15f, 0.15f });\ng.AddTransition({ EAnimationGraphState::Idle, EAnimationGraphState::Walk, 0.1f, \"speed\", false });\n// 毎フレーム:\ng.SetParam(\"speed\", current_speed);\ng.Tick(dt);",
       members: [
         { sig: "void Init() / void Shutdown()", desc: "全 state/clip/transition/param を初期化する / 解放する (多重呼び出し可)。" },
         { sig: "u32 AddClip(const FAnimationClipBinding& clip)", ret: "clip index", desc: "再生 clip のメタ情報を登録し、index を返す。" },
@@ -152,13 +155,14 @@ ACS_REF.modules.push({
         { sig: "EAnimationGraphState CurrentState() const / f32 CurrentBlendAlpha() const / u32 CurrentClipIndex() const", desc: "現在の状態・ブレンド比率 (0..1)・再生 clip index を取得する。描画側へ渡す。" },
         { sig: "void Tick(f32 dt)", desc: "clip 時刻とブレンドを進め、トリガー/遷移条件を評価する主処理。dt<=0 は無視。" },
         { sig: "void Reset()", desc: "実行時状態だけ初期化する (clip/state/transition 設定は維持)。" },
-        { sig: "void SetOnStateEnterCallback(StateEnterCallback cb, void* user) / void SetOnClipEndCallback(ClipEndCallback cb, void* user)", desc: "状態遷移時 / clip 終端到達時に呼ぶ<t>コールバック</t>を登録する。" }
+        { sig: "void SetOnStateEnterCallback(StateEnterCallback cb, void* user) / void SetOnClipEndCallback(ClipEndCallback cb, void* user)", desc: "状態遷移時 / clip 終端到達時に呼ぶ<t>コールバック</t>を登録する。" },
+        { sig: "using FAnimationGraph = CAnimationGraph", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAnimationGraph</code> を使う。" }
       ]
     },
     {
       name: "FAnimationClipBinding / FAnimationStateNode / FAnimationTransition",
       kind: "構造体", header: "gameframework/AnimationGraph.h",
-      summary: "<t>FAnimationGraph</t> を組み立てる 3 つの部品。<b>FAnimationClipBinding</b>=clip メタ情報 (名前/長さ/ループ/速度)、<b>FAnimationStateNode</b>=1 状態 (ID/clip/入退場 blend 長)、<b>FAnimationTransition</b>=遷移ルール (from/to/条件 param/しきい値)。",
+      summary: "<t>CAnimationGraph</t> を組み立てる 3 つの部品。<b>FAnimationClipBinding</b>=clip メタ情報 (名前/長さ/ループ/速度)、<b>FAnimationStateNode</b>=1 状態 (ID/clip/入退場 blend 長)、<b>FAnimationTransition</b>=遷移ルール (from/to/条件 param/しきい値)。",
       when: "<code>AddClip</code> / <code>AddStateNode</code> / <code>AddTransition</code> にそれぞれ渡す。",
       sample: "FAnimationClipBinding jump{ \"Jump\", 0.8f, /*loop*/false, 1.0f };\nFAnimationStateNode  s{ \"Jump\", EAnimationGraphState::Jump, g.AddClip(jump), 0.1f, 0.2f };\ng.AddStateNode(s);"
     },
@@ -180,7 +184,7 @@ ACS_REF.modules.push({
       name: "FAppStateSlot",
       kind: "クラス", header: "gameframework/AppState.h",
       summary: "シーンを跨いで生き残る<b>型消去の永続状態スロット</b>。任意の型 <code>T</code> を 1 つだけ格納し、どのシーンからも取り出せる。<t>RTTI</t> 不使用で、型不一致の取得は nullptr を返す。",
-      when: "ハイスコアやプレイヤープロフィールなど、シーン遷移で消えてほしくないデータを 1 箇所に置きたい時 (<code>FGame</code> が 1 個保持する)。",
+      when: "ハイスコアやプレイヤープロフィールなど、シーン遷移で消えてほしくないデータを 1 箇所に置きたい時 (<code>CGame</code> が 1 個保持する)。",
       sample: "struct FPlayerProfile { int hi_score = 0; };\nslot.Emplace<FPlayerProfile>();            // 構築\nauto* p = slot.Get<FPlayerProfile>();      // 取り出し (型違いは nullptr)\nif (p) p->hi_score = 9999;",
       members: [
         { sig: "T& Emplace<T>(Args&&... args)", ret: "構築した参照", desc: "既存を破棄して T をその場で構築し、参照を返す。", when: "起動時に永続状態を 1 度だけ作る。" },
@@ -190,11 +194,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FAssetBundle",
+      name: "CAssetBundle",
       kind: "クラス", header: "gameframework/AssetBundle.h",
       summary: "シーンが使う<b>複数アセットをまとめて宣言・一括ロード</b>し、集約した進捗を見られる箱。個別の Future を散らかさず 1 つの bundle で扱える。シーン破棄で参照が drop し、決定的に解放される。",
       when: "ローディング画面付きで「このシーンに必要な N 個のアセット」をまとめて読み込みたい時。",
-      sample: "FAssetBundle bundle;\nbundle.Add(\"textures/hero.png\");\nbundle.Add(\"audio/bgm.ogg\");\nbundle.BeginLoad(registry);\n// 毎フレーム:\nif (!bundle.IsLoaded()) ShowLoading(bundle.Progress());\nelse RunGame();\n// OnExit:\nbundle.Unload();",
+      sample: "CAssetBundle bundle;\nbundle.Add(\"textures/hero.png\");\nbundle.Add(\"audio/bgm.ogg\");\nbundle.BeginLoad(registry);\n// 毎フレーム:\nif (!bundle.IsLoaded()) ShowLoading(bundle.Progress());\nelse RunGame();\n// OnExit:\nbundle.Unload();",
       members: [
         { sig: "void Add(const char* asset_path)", desc: "ロード対象のパスを追加する (実ロードはまだ走らない)。BeginLoad 後の Add は無視。" },
         { sig: "void BeginLoad(CAssetRegistry& registry)", desc: "登録済み全パスを registry 経由で実ロードする。多重呼び出しは無視。", when: "シーン入場時にロードを開始する。" },
@@ -202,7 +206,8 @@ ACS_REF.modules.push({
         { sig: "f32 Progress() const", ret: "0〜1", desc: "完了割合。プログレスバー表示用。" },
         { sig: "bool IsLoaded() const / bool HasFailed() const", desc: "全完了したか / 1 個でも失敗があるかを返す。" },
         { sig: "u32 AssetCount() const / u32 LoadedCount() const", desc: "登録総数 / 成功した数を返す。" },
-        { sig: "void Unload()", desc: "全アセットを解放する。シーン破棄前に呼ぶと決定的タイミングで refcount を落とせる。" }
+        { sig: "void Unload()", desc: "全アセットを解放する。シーン破棄前に呼ぶと決定的タイミングで refcount を落とせる。" },
+        { sig: "using FAssetBundle = CAssetBundle", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAssetBundle</code> を使う。" }
       ]
     },
     {
@@ -239,18 +244,22 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FAssetPackReaderStub / FAssetPackWriterStub",
+      name: "CAssetPackReaderStub / CAssetPackWriterStub",
       kind: "クラス", header: "gameframework/AssetPack.h",
       summary: "<t>IAssetPackReader</t> / IAssetPackWriter の no-op スタブ実装。全 API が <code>NotImplemented</code> を返し、依存ゼロでコンパイルを通すための fallback。",
       when: "実 AssetPack backend を未統合のビルドやユニットテストで、ポインタ DI だけ通したい時。",
-      sample: "IAssetPackReader& r = GetReaderStub();\nauto res = r.Mount(\"game.acpak\");   // 常に NotImplemented"
+      sample: "IAssetPackReader& r = GetReaderStub();\nauto res = r.Mount(\"game.acpak\");   // 常に NotImplemented",
+      members: [
+        { sig: "using FAssetPackReaderStub = CAssetPackReaderStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAssetPackReaderStub</code> を使う。" },
+        { sig: "using FAssetPackWriterStub = CAssetPackWriterStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAssetPackWriterStub</code> を使う。" }
+      ]
     },
     {
-      name: "FAudioDirector",
+      name: "CAudioDirector",
       kind: "クラス", header: "gameframework/AudioDirector.h",
       summary: "シーンを跨いで生きる<b>音声の指揮層</b>。Master/Bgm/Sfx の 3 段ボリューム、BGM クロスフェード、SFX 連射、<t>ダッキング</t>、Pause/Resume をまとめて扱う。<code>IAudioBackend</code> を差すと実音が鳴り、無ければ無音の状態管理だけ動く。",
-      when: "シーン切替で途切れない BGM や、ヒット音の連発、ボイス中の BGM 抑制などを 1 箇所で管理したい時 (<code>FGame</code> に持たせる)。",
-      sample: "FAudioDirector audio;\naudio.SetBackend(&xaudio2);\naudio.SetMasterVolume(0.8f);\naudio.PlayBgm(\"battle\", 2.0f, true);  // 2 秒かけて遷移\naudio.PlaySfx(\"hit\", 0.8f);           // 即時 one-shot\naudio.Duck(0.5f, 0.3f);               // 0.5 秒 BGM を 30% に\n// 毎フレーム:\naudio.Tick(dt);",
+      when: "シーン切替で途切れない BGM や、ヒット音の連発、ボイス中の BGM 抑制などを 1 箇所で管理したい時 (<code>CGame</code> に持たせる)。",
+      sample: "CAudioDirector audio;\naudio.SetBackend(&xaudio2);\naudio.SetMasterVolume(0.8f);\naudio.PlayBgm(\"battle\", 2.0f, true);  // 2 秒かけて遷移\naudio.PlaySfx(\"hit\", 0.8f);           // 即時 one-shot\naudio.Duck(0.5f, 0.3f);               // 0.5 秒 BGM を 30% に\n// 毎フレーム:\naudio.Tick(dt);",
       members: [
         { sig: "void SetMasterVolume(f32 v) / void SetBgmVolume(f32 v) / void SetSfxVolume(f32 v)", desc: "3 段のボリュームバスを [0,1] で設定する (範囲外は警告 + clamp)。" },
         { sig: "void PlayBgm(const char* name, f32 fade_in_sec = 1.0f, bool loop = true)", desc: "BGM をクロスフェードで再生する。同名は no-op、fade<=0 で即時切替。" },
@@ -259,10 +268,11 @@ ACS_REF.modules.push({
         { sig: "void Duck(f32 duration_sec, f32 depth)", desc: "短時間だけ BGM 音量を下げる (ボイス再生中など)。前後に短い線形 fade。" },
         { sig: "void Pause() / void Resume() / void StopAll()", desc: "全体の一時停止 / 再開 / 停止+リセット。" },
         { sig: "void Tick(f32 dt)", desc: "クロスフェード/ダッキングの内部タイマーを進める。毎フレーム呼ぶ (Pause 中は凍結)。" },
-        { sig: "void SetBackend(IAudioBackend* backend)", desc: "実音再生 backend (FXAudio2Backend 等) を差し込む。nullptr で無音の状態管理のみ。" },
+        { sig: "void SetBackend(IAudioBackend* backend)", desc: "実音再生 backend (CXAudio2Backend 等) を差し込む。nullptr で無音の状態管理のみ。" },
         { sig: "void SetAssetRegistry(CAssetRegistry* registry)", desc: "name→clip 解決用の registry を差すと、name から実ロードして実音を鳴らせる。" },
         { sig: "FAudioVoiceHandle PlayBgmClip(const FAudioClipDesc&, f32 fade=1, bool loop=true) / FAudioVoiceHandle PlaySfxClip(const FAudioClipDesc&, f32 vol=1, f32 pitch=1)", desc: "raw PCM clip から直接 BGM/SFX を再生する。backend 未設定時は無効ハンドル。" },
-        { sig: "f32 EffectiveBgmVolume() const / f32 EffectiveSfxVolume() const", desc: "master×バス×ダッキングを合成した実際の出力ボリュームを返す (デバッグ/backend 用)。" }
+        { sig: "f32 EffectiveBgmVolume() const / f32 EffectiveSfxVolume() const", desc: "master×バス×ダッキングを合成した実際の出力ボリュームを返す (デバッグ/backend 用)。" },
+        { sig: "using FAudioDirector = CAudioDirector", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAudioDirector</code> を使う。" }
       ]
     },
     {
@@ -312,11 +322,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FBeatGrid",
+      name: "CBeatGrid",
       kind: "クラス", header: "gameframework/BeatGrid.h",
       summary: "リズムゲームの<b>タイミング判定 + 譜面再生</b>。1 譜面分の note 配列を持ち、再生時刻を進めながらプレイヤーの Tap を最近 note と突き合わせ、Perfect / Great / Good / Miss の 4 段階で判定する。コンボや精度も集計する。",
-      when: "音ゲー (DDR/太鼓系) の判定ロジックを組みたい時。音の再生 (FAudioDirector) とは独立に動く軽量 state machine。",
-      sample: "FBeatGrid grid;\ngrid.Init();\ngrid.TrySetTimingWindows(25.0f, 50.0f, 100.0f); // ms\nFBeatNote notes[] = {\n    { 1.0f, EBeatLane::Left, false, 0.0f },\n    { 1.5f, EBeatLane::Down, true, 0.75f },\n};\nif (grid.TryLoadChart(notes, 2, 120.0f) == EBeatChartLoadResult::Success) grid.Start();\ngrid.Tick(dt);\ngrid.PressLane(EBeatLane::Down);   // hold head\ngrid.ReleaseLane(EBeatLane::Down); // hold tail",
+      when: "音ゲー (DDR/太鼓系) の判定ロジックを組みたい時。音の再生 (CAudioDirector) とは独立に動く軽量 state machine。",
+      sample: "CBeatGrid grid;\ngrid.Init();\ngrid.TrySetTimingWindows(25.0f, 50.0f, 100.0f); // ms\nFBeatNote notes[] = {\n    { 1.0f, EBeatLane::Left, false, 0.0f },\n    { 1.5f, EBeatLane::Down, true, 0.75f },\n};\nif (grid.TryLoadChart(notes, 2, 120.0f) == EBeatChartLoadResult::Success) grid.Start();\ngrid.Tick(dt);\ngrid.PressLane(EBeatLane::Down);   // hold head\ngrid.ReleaseLane(EBeatLane::Down); // hold tail",
       members: [
         { sig: "void Init()", desc: "統計/状態を初期化する (何度でも呼べる)。" },
         { sig: "EBeatChartLoadResult TryLoadChart(const FBeatNote* notes, u32 count, f32 bpm)", desc: "譜面・lane・有限 time/hold/BPM・上限を検証して transactional にコピーする。失敗時は既存譜面を保持する。" },
@@ -329,39 +339,45 @@ ACS_REF.modules.push({
         { sig: "void Tick(f32 dt)", desc: "有限・非負で overflow しない時だけ時間を進め、未入力 note と hold timeout を 1 回だけ確定する。" },
         { sig: "f32 Accuracy() const / u32 MaxCombo() const / u32 CurrentCombo() const", desc: "精度 (0〜1)・最大コンボ・現在コンボを取得する。" },
         { sig: "u32 TotalNotes() const / u32 HitNotes() const / u32 MissedNotes() const", desc: "総 note 数・ヒット数・ミス数を取得する。" },
-        { sig: "void SetOnJudgeCallback(FJudgeCallback cb, void* user) / void SetOnEndCallback(FBeatEndCallback cb, void* user)", desc: "判定ごと / 譜面終了時に呼ぶ<t>コールバック</t>を登録する。" }
+        { sig: "void SetOnJudgeCallback(FJudgeCallback cb, void* user) / void SetOnEndCallback(FBeatEndCallback cb, void* user)", desc: "判定ごと / 譜面終了時に呼ぶ<t>コールバック</t>を登録する。" },
+        { sig: "using FBeatGrid = CBeatGrid", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CBeatGrid</code> を使う。" }
       ]
     },
     {
       name: "FBeatNote / EBeatLane / EJudgement / EBeatChartLoadResult",
       kind: "構造体・列挙(enum)", header: "gameframework/BeatGrid.h",
       summary: "<b>FBeatNote</b>=譜面の 1 note (絶対秒 time_sec / lane / is_hold / hold_duration_sec)。<b>EBeatLane</b>=入力レーン (Left/Down/Up/Right + Custom1/2)。<b>EJudgement</b>=判定結果。<b>EBeatChartLoadResult</b>=null、上限超過、非有限値、不正 lane/BPM/hold、OOM を区別する checked load 結果。",
-      when: "<t>FBeatGrid</t> に譜面を渡したり、判定結果を受け取ったりする時。",
+      when: "<t>CBeatGrid</t> に譜面を渡したり、判定結果を受け取ったりする時。",
       sample: "FBeatNote n{ 2.0f, EBeatLane::Up, /*hold*/true, 0.5f };\nif (grid.TryLoadChart(&amp;n, 1, 120.0f) == EBeatChartLoadResult::Success) grid.Start();"
     },
     {
-      name: "FBehaviorTree",
+      name: "CBehaviorTree",
       kind: "クラス", header: "gameframework/BehaviorTree.h",
       summary: "AI / 敵挙動 / 演出分岐のための最小構成の<b><t>ビヘイビアツリー</t></b>。root ノードを 1 つ持ち、毎フレーム <code>Tick(blackboard, dt)</code> で評価する。状態は型を持たない <code>void*</code> の <t>ブラックボード</t>に置く。",
       when: "「敵が見えたら追跡、見えなければパトロール」のような条件分岐 AI を組みたい時。",
-      sample: "auto root  = acs::MakeUnique<FBtSelector>();\nauto chase = acs::MakeUnique<FBtSequence>();\nchase->AddChild(acs::MakeUnique<FBtAction>(&SeesPlayer));\nchase->AddChild(acs::MakeUnique<FBtAction>(&MoveToPlayer));\nroot->AddChild(acs::Move(chase));\nroot->AddChild(acs::MakeUnique<FBtAction>(&Patrol));\nm_Bt.SetRoot(acs::Move(root));\n// 毎フレーム:\nm_Bt.Tick(&m_Bb, dt);",
+      sample: "auto root  = acs::MakeUnique<ABtSelector>();\nauto chase = acs::MakeUnique<ABtSequence>();\nchase->AddChild(acs::MakeUnique<ABtAction>(&SeesPlayer));\nchase->AddChild(acs::MakeUnique<ABtAction>(&MoveToPlayer));\nroot->AddChild(acs::Move(chase));\nroot->AddChild(acs::MakeUnique<ABtAction>(&Patrol));\nm_Bt.SetRoot(acs::Move(root));\n// 毎フレーム:\nm_Bt.Tick(&m_Bb, dt);",
       members: [
-        { sig: "void SetRoot(TUniquePtr<FBtNode> root)", desc: "root ノードを差し替える (古い root は破棄)。nullptr で空にできる。" },
+        { sig: "void SetRoot(TUniquePtr<ABtNode> root)", desc: "root ノードを差し替える (古い root は破棄)。nullptr で空にできる。" },
         { sig: "EBtStatus Tick(void* blackboard, f32 dt)", ret: "Running/Success/Failure", desc: "1 フレーム分ツリーを評価する。root 未設定なら Failure。", when: "毎フレーム呼ぶ AI の駆動点。" },
-        { sig: "bool HasRoot() const", desc: "root が設定済みかを返す。" }
+        { sig: "bool HasRoot() const", desc: "root が設定済みかを返す。" },
+        { sig: "using FBehaviorTree = CBehaviorTree", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CBehaviorTree</code> を使う。" }
       ]
     },
     {
-      name: "FBtNode / FBtSelector / FBtSequence / FBtAction",
+      name: "ABtNode / ABtSelector / ABtSequence / ABtAction",
       kind: "クラス", header: "gameframework/BehaviorTree.h",
-      summary: "ビヘイビアツリーのノード群。<b>FBtNode</b>=抽象基底、<b>FBtSelector</b>=OR 合成 (どれか成功で成功)、<b>FBtSequence</b>=AND 合成 (全部成功で成功)、<b>FBtAction</b>=関数ポインタを呼ぶ末端 leaf。子は <t>TUniquePtr</t> で所有する。",
+      summary: "ビヘイビアツリーのノード群。<b>ABtNode</b>=抽象基底、<b>ABtSelector</b>=OR 合成 (どれか成功で成功)、<b>ABtSequence</b>=AND 合成 (全部成功で成功)、<b>ABtAction</b>=関数ポインタを呼ぶ末端 leaf。子は <t>TUniquePtr</t> で所有する。",
       when: "<code>MakeUnique</code> で作って <code>AddChild</code> でツリーを組み立てる時。",
-      sample: "auto seq = acs::MakeUnique<FBtSequence>();\nseq->AddChild(acs::MakeUnique<FBtAction>(&CheckHp));\nseq->AddChild(acs::MakeUnique<FBtAction>(&Flee));",
+      sample: "auto seq = acs::MakeUnique<ABtSequence>();\nseq->AddChild(acs::MakeUnique<ABtAction>(&CheckHp));\nseq->AddChild(acs::MakeUnique<ABtAction>(&Flee));",
       members: [
-        { sig: "virtual EBtStatus Tick(void* blackboard, f32 dt)", desc: "[FBtNode] 1 フレーム分の評価。派生で実装する。" },
-        { sig: "void AddChild(TUniquePtr<FBtNode> child)", desc: "[Selector/Sequence] 子の所有権を奪って末尾に追加する。nullptr は no-op。" },
-        { sig: "explicit FBtAction(Fn fn)", desc: "[FBtAction] leaf 関数 (EBtStatus(*)(void*, f32)) を受け取る。fn が null なら常に Failure。" },
-        { sig: "usize ChildCount() const", desc: "[Selector/Sequence] 子の数を返す。" }
+        { sig: "virtual EBtStatus Tick(void* blackboard, f32 dt)", desc: "[ABtNode] 1 フレーム分の評価。派生で実装する。" },
+        { sig: "void AddChild(TUniquePtr<ABtNode> child)", desc: "[Selector/Sequence] 子の所有権を奪って末尾に追加する。nullptr は no-op。" },
+        { sig: "explicit ABtAction(Fn fn)", desc: "[ABtAction] leaf 関数 (EBtStatus(*)(void*, f32)) を受け取る。fn が null なら常に Failure。" },
+        { sig: "usize ChildCount() const", desc: "[Selector/Sequence] 子の数を返す。" },
+        { sig: "using FBtAction = ABtAction", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>ABtAction</code> を使う。" },
+        { sig: "using FBtNode = ABtNode", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>ABtNode</code> を使う。" },
+        { sig: "using FBtSelector = ABtSelector", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>ABtSelector</code> を使う。" },
+        { sig: "using FBtSequence = ABtSequence", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>ABtSequence</code> を使う。" }
       ]
     },
     {
@@ -372,11 +388,11 @@ ACS_REF.modules.push({
       sample: "static EBtStatus MoveToPlayer(void* bb, f32 dt) noexcept {\n    return reached ? EBtStatus::Success : EBtStatus::Running;\n}"
     },
     {
-      name: "FBuffSystem",
+      name: "CBuffSystem",
       kind: "クラス", header: "gameframework/BuffSystem.h",
       summary: "<b>状態異常・バフ・デバフの管理</b>マネージャ。複数の owner (キャラ) に時間制限付きの効果を載せ、毎フレーム進行させて tick (毒ダメージ等) / 期限切れを通知する。実際のステータス計算は呼出側が <code>AllBuffsOfOwner()</code> で列挙して行う。",
       when: "RPG/アクション/ローグライクで「攻撃力アップ」「毒」「シールド」などの効果を一元管理したい時。",
-      sample: "FBuffSystem bs;\nbs.RegisterBuff({ \"poison.snake\", EBuffKind::Poison, 8.0f, 1.0f, 5.0f,\n                 EBuffStackPolicy::Stack, 5, true });\nFBuffOwnerId player = bs.CreateOwner();\nbs.SetOnTickCallback(&OnBuffTick, &ctx);\nbs.ApplyBuff(player, \"poison.snake\");\n// 毎フレーム:\nbs.Tick(dt);",
+      sample: "CBuffSystem bs;\nbs.RegisterBuff({ \"poison.snake\", EBuffKind::Poison, 8.0f, 1.0f, 5.0f,\n                 EBuffStackPolicy::Stack, 5, true });\nFBuffOwnerId player = bs.CreateOwner();\nbs.SetOnTickCallback(&OnBuffTick, &ctx);\nbs.ApplyBuff(player, \"poison.snake\");\n// 毎フレーム:\nbs.Tick(dt);",
       members: [
         { sig: "void RegisterBuff(const FBuffDef& def)", desc: "バフ定義を登録する (起動時に一括)。同 id の 2 重登録は無視。" },
         { sig: "FBuffOwnerId CreateOwner()", ret: "owner ハンドル", desc: "効果を載せる対象 (キャラ) を発行する。空き slot を再利用する世代付きハンドル。" },
@@ -387,7 +403,8 @@ ACS_REF.modules.push({
         { sig: "const FBuffInstance* AllBuffsOfOwner(FBuffOwnerId owner, u32& out_count) const", ret: "buff の配列", desc: "owner の全バフを生バッファで返す。毎フレーム列挙して効果倍率を計算する用途。", when: "AttackUp などの倍率を反映したい時、毎フレーム読む。" },
         { sig: "void SetOnTickCallback(TickCallback cb, void* user) / void SetOnExpireCallback(ExpireCallback cb, void* user)", desc: "tick (周期効果) / 期限切れ時に呼ぶ<t>コールバック</t>を登録する。" },
         { sig: "void Tick(f32 dt)", desc: "全 owner の全バフを dt 進める。周期 tick 発火 + 期限切れ除去をまとめて行う。dt<=0 は no-op。" },
-        { sig: "void ClearAll()", desc: "全 owner・全 buff・registry・コールバックを破棄する。" }
+        { sig: "void ClearAll()", desc: "全 owner・全 buff・registry・コールバックを破棄する。" },
+        { sig: "using FBuffSystem = CBuffSystem", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CBuffSystem</code> を使う。" }
       ]
     },
     {
@@ -405,11 +422,11 @@ ACS_REF.modules.push({
       sample: "FBuffDef d; d.kind = EBuffKind::Regen; d.stack_policy = EBuffStackPolicy::Refresh;"
     },
     {
-      name: "FCamera2D",
+      name: "CCamera2D",
       kind: "クラス", header: "gameframework/Camera2D.h",
-      summary: "2D <b>カメラ</b>。position/zoom/rotation、target 追従 (フレームレート非依存の指数 smoothing)、画面振動 (<t>trauma</t> 方式)、world↔screen 座標変換、移動範囲の clamp を持つ。<code>FSceneServices</code> 経由で自動 Tick できる。",
+      summary: "2D <b>カメラ</b>。position/zoom/rotation、target 追従 (フレームレート非依存の指数 smoothing)、画面振動 (<t>trauma</t> 方式)、world↔screen 座標変換、移動範囲の clamp を持つ。<code>CSceneServices</code> 経由で自動 Tick できる。",
       when: "2D ゲームでプレイヤー追従・ヒット時の画面振動・座標変換が欲しい時。",
-      sample: "FCamera2D cam;\ncam.SetTargetPos(player.Position());  // 追従\nif (player.JustHit()) cam.AddShake(0.5f); // 画面振動\n// 毎フレーム自動 Tick (Services 経由) or 手動:\ncam.Tick(dt);\nFVec2 world = cam.ScreenToWorld(mouse, w, h);",
+      sample: "CCamera2D cam;\ncam.SetTargetPos(player.Position());  // 追従\nif (player.JustHit()) cam.AddShake(0.5f); // 画面振動\n// 毎フレーム自動 Tick (Services 経由) or 手動:\ncam.Tick(dt);\nFVec2 world = cam.ScreenToWorld(mouse, w, h);",
       members: [
         { sig: "void SetPosition(FVec2 p) / FVec2 Position() const", desc: "カメラ位置を設定/取得する。" },
         { sig: "void SetZoom(f32 z) / void SetRotation(f32 r)", desc: "ズーム (>1 で拡大) と回転 (radians, + で CCW) を設定する。" },
@@ -422,45 +439,57 @@ ACS_REF.modules.push({
         { sig: "void Tick(f32 dt)", desc: "追従 smoothing・範囲 clamp・trauma 減衰と振動オフセット計算を行う。Services が自動で呼ぶ。" },
         { sig: "f32 TraumaLevel() const", ret: "trauma [0,1]", desc: "現在の <t>trauma</t> 値 (振動の強さ)。0 で無振動。" },
         { sig: "bool HasTarget() const / void ClearTarget()", desc: "追従先が設定済みか / 追従を解除する (位置は固定される)。" },
-        { sig: "bool HasBounds() const", desc: "移動範囲の clamp が設定済みか (<code>SetBounds</code> 済みなら true)。" }
+        { sig: "bool HasBounds() const", desc: "移動範囲の clamp が設定済みか (<code>SetBounds</code> 済みなら true)。" },
+        { sig: "using FCamera2D = CCamera2D", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CCamera2D</code> を使う。" }
       ]
     },
     {
-      name: "FCameraStack",
+      name: "CCameraStack",
       kind: "クラス", header: "gameframework/CameraStack.h",
-      summary: "複数の <t>FCamera2D</t> を<b>仮想カメラのスタック</b>として持ち、最上層を active として扱う Cinemachine 風スイッチャ。Push/Pop で旧 top→新 top を線形補間でブレンドし、描画側は Effective* で「今どこを写しているか」を読む。",
+      summary: "複数の <t>CCamera2D</t> を<b>仮想カメラのスタック</b>として持ち、最上層を active として扱う Cinemachine 風スイッチャ。Push/Pop で旧 top→新 top を線形補間でブレンドし、描画側は Effective* で「今どこを写しているか」を読む。",
       when: "平常カメラと演出カメラを滑らかに切り替えたい時 (ボス登場の寄りなど)。最大 4 層。",
-      sample: "FCameraStack stack;\nstack.PushCamera(followCam);        // 初期 top\n// ボス登場:\nstack.PushCamera(cinematicCam, 1.0f); // 1 秒で blend\n// 戻る:\nstack.PopCamera(0.5f);\n// 毎フレーム:\nstack.Tick(dt);\nrc.SetViewCenter(stack.EffectivePosition());\nrc.SetViewZoom(stack.EffectiveZoom());",
+      sample: "CCameraStack stack;\nstack.PushCamera(followCam);        // 初期 top\n// ボス登場:\nstack.PushCamera(cinematicCam, 1.0f); // 1 秒で blend\n// 戻る:\nstack.PopCamera(0.5f);\n// 毎フレーム:\nstack.Tick(dt);\nrc.SetViewCenter(stack.EffectivePosition());\nrc.SetViewZoom(stack.EffectiveZoom());",
       members: [
-        { sig: "void PushCamera(FCamera2D& cam, f32 blend_duration = 0.5f)", desc: "カメラを top に積み、blend_duration 秒かけて旧 top から補間する (<=0 で即時)。カメラは非所有。" },
+        { sig: "void PushCamera(CCamera2D& cam, f32 blend_duration = 0.5f)", desc: "カメラを top に積み、blend_duration 秒かけて旧 top から補間する (<=0 で即時)。カメラは非所有。" },
         { sig: "void PopCamera(f32 blend_duration = 0.5f)", desc: "top をフェードアウトしてから取り除く。1 枚以下では無視 (空にしない)。" },
-        { sig: "FCamera2D* Active() const", ret: "現在の top", desc: "最上層のカメラを返す (空なら nullptr)。" },
+        { sig: "CCamera2D* Active() const", ret: "現在の top", desc: "最上層のカメラを返す (空なら nullptr)。" },
         { sig: "bool IsBlending() const / f32 BlendProgress() const", desc: "ブレンド中か / その進捗 [0,1] (非ブレンド時は 1) を返す。" },
         { sig: "FVec2 EffectivePosition() const / f32 EffectiveZoom() const / f32 EffectiveRotation() const", ret: "補間済みの値", desc: "ブレンド中は下層と補間した値を返す。zoom は対数補間、rotation は最短角補間。", when: "描画フレームで view 設定に使う。" },
         { sig: "void Tick(f32 dt)", desc: "ブレンドタイマーを進め、active な 2 層だけ Tick し、pop blend 完了で実際に top を外す。" },
-        { sig: "u32 Depth() const / void Clear()", desc: "スタックの深さを返す / 全部クリアする。" }
+        { sig: "u32 Depth() const / void Clear()", desc: "スタックの深さを返す / 全部クリアする。" },
+        { sig: "using FCameraStack = CCameraStack", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CCameraStack</code> を使う。" }
       ]
     },
     {
-      name: "FCameraShakePresets",
+      name: "CCameraShakePresets",
       kind: "クラス", header: "gameframework/CameraShakePresets.h",
       summary: "「爆発 / 地震 / 着弾」などの<b>ジャンル別 shake パラメータを 1 行で流し込む</b> preset ライブラリ。trauma/amplitude/decay を名前付きで提供し、ゲームコードに magic number を書かずに済む。trauma を吸う側は <t>IShakeTarget</t> 抽象で受ける。",
-      when: "<code>FCamera2D</code> 等に「爆発っぽい振動」を即座に与えたい時。カスタム preset も名前付きで登録できる。",
-      sample: "FCameraShakePresets presets;\n// 組み込み preset:\nFCameraShakePresets::ApplyPreset(shakeTarget, EShakePreset::ExplosionLarge);\n// カスタム:\npresets.RegisterCustomPreset(\"BossSlam\", FShakeParams{0.7f,1.0f,0.8f,18.0f,1.2f});\npresets.ApplyCustomByName(shakeTarget, \"BossSlam\");",
+      when: "<code>CCamera2D</code> 等に「爆発っぽい振動」を即座に与えたい時。カスタム preset も名前付きで登録できる。",
+      sample: "CCameraShakePresets presets;\n// 組み込み preset:\nFCameraShakePresets::ApplyPreset(shakeTarget, EShakePreset::ExplosionLarge);\n// カスタム:\npresets.RegisterCustomPreset(\"BossSlam\", FShakeParams{0.7f,1.0f,0.8f,18.0f,1.2f});\npresets.ApplyCustomByName(shakeTarget, \"BossSlam\");",
       members: [
         { sig: "static FShakeParams GetPreset(EShakePreset preset)", ret: "shake パラメータ", desc: "組み込み preset の trauma/amplitude/decay/freq 値を返す (Custom は中立値)。" },
         { sig: "static void ApplyPreset(IShakeTarget& target, EShakePreset preset)", desc: "preset を target に流し込む (SetAmp→SetDecay→AddShake の順、trauma は加算)。" },
         { sig: "void RegisterCustomPreset(const char* name, const FShakeParams& params)", desc: "名前付きカスタム preset を登録する (同名は上書き、null は no-op)。" },
         { sig: "bool ApplyCustomByName(IShakeTarget& target, const char* name)", ret: "見つかったか", desc: "名前で引いたカスタム preset を target に適用する。" },
-        { sig: "u32 CustomCount() const", desc: "登録済みカスタム preset 数を返す。" }
+        { sig: "u32 CustomCount() const", desc: "登録済みカスタム preset 数を返す。" },
+        { sig: "using FCameraShakePresets = CCameraShakePresets", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CCameraShakePresets</code> を使う。" }
       ]
     },
     {
       name: "FShakeParams / EShakePreset / IShakeTarget",
       kind: "構造体・列挙(enum)・インターフェース", header: "gameframework/CameraShakePresets.h",
       summary: "<b>FShakeParams</b>=preset 1 個分のパラメータ (trauma/amplitude/decay_rate/frequency/duration_hint)。<b>EShakePreset</b>=組み込み種別 (ExplosionSmall/Large, EarthquakeShort/Long, HitImpact, RocketLaunch, MeteorImpact, Custom)。<b>IShakeTarget</b>=trauma を受ける側の純粋仮想 I/F (AddShake / SetShakeAmplitude / SetShakeDecayRate)。",
-      when: "preset の値を組み立てたり、自前の振動対象を <t>FCameraShakePresets</t> に渡せるようにする時。",
+      when: "preset の値を組み立てたり、自前の振動対象を <t>CCameraShakePresets</t> に渡せるようにする時。",
       sample: "FShakeParams p{0.9f, 1.2f, 0.6f, 20.0f, 1.5f};\nFCameraShakePresets::ApplyPreset(myTarget, EShakePreset::MeteorImpact);"
+    },
+    {
+      name: "ABtDecorator",
+      kind: "クラス", header: "gameframework/BehaviorTree.h",
+      summary: "子behavior tree nodeの実行条件や結果を包む管理object。",
+      when: "一つのnodeへguardや結果変換を追加する時。",
+      members: [
+        { sig: "using FBtDecorator = ABtDecorator", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>ABtDecorator</code> を使う。" }
+      ]
     }
   ]
 });

@@ -12,7 +12,7 @@ using namespace acs;
 
 namespace acs::app_internal {
 
-/** GPU を起動せず FApplication の基盤寿命ガードだけを検証するテスト用窓口。 */
+/** GPU を起動せず CApplication の基盤寿命ガードだけを検証するテスト用窓口。 */
 class FApplicationTestAccess {
 public:
     /**
@@ -22,7 +22,7 @@ public:
      * @param memory_config MemorySystem の設定。
      * @return 全基盤が利用可能になれば true。
      */
-    static bool InitializeFoundation(FApplication& application, const FMemorySystemConfig& memory_config) noexcept
+    static bool InitializeFoundation(CApplication& application, const FMemorySystemConfig& memory_config) noexcept
     {
         FLogConfig log_config{};
         log_config.console = false;
@@ -59,7 +59,7 @@ public:
     ~FAllocationLifetimeProbe() noexcept
     {
         m_State->allocation_destructor_called = true;
-        m_State->memory_alive_during_allocation_destructor = FMemorySystem::Get(ESegment::Default) != nullptr;
+        m_State->memory_alive_during_allocation_destructor = CMemorySystem::Get(ESegment::Default) != nullptr;
     }
 
 private:
@@ -67,7 +67,7 @@ private:
 };
 
 /** GPU を初期化せず、派生メンバと基底メンバの破棄順だけを観測するアプリ。 */
-class FLifetimeProbeApplication final : public FApplication {
+class FLifetimeProbeApplication final : public CApplication {
 public:
     explicit FLifetimeProbeApplication(FApplicationLifetimeState* state) noexcept : m_State(state)
     {
@@ -80,7 +80,7 @@ public:
     }
 
     /** 現在の既定アロケータから派生所有メンバを生成する。 */
-    bool CreateAllocationProbe(FAllocator* expected_allocator) noexcept
+    bool CreateAllocationProbe(IAllocator* expected_allocator) noexcept
     {
         m_AllocationProbe = MakeUnique<FAllocationLifetimeProbe>(m_State);
         return m_AllocationProbe.Get() != nullptr && m_AllocationProbe.GetAllocator() == expected_allocator;
@@ -93,7 +93,7 @@ private:
 
 FMemorySystemConfig ApplicationMemoryConfig() noexcept
 {
-    FMemorySystemConfig config = FMemorySystem::DefaultConfig();
+    FMemorySystemConfig config = CMemorySystem::DefaultConfig();
     config.install_as_default_allocator = true;
     return config;
 }
@@ -102,10 +102,10 @@ FMemorySystemConfig ApplicationMemoryConfig() noexcept
 
 ACS_TEST(FApplicationLifetime, OwnedFoundationOutlivesDerivedMembers)
 {
-    FThreadPool::Shutdown();
-    FMemorySystem::Shutdown();
+    CThreadPool::Shutdown();
+    CMemorySystem::Shutdown();
     FStackTrace::ShutdownSymbolResolver();
-    EXPECT_TRUE(FLogger::IsInitialized());
+    EXPECT_TRUE(CLogger::IsInitialized());
 
     FApplicationLifetimeState state{};
     {
@@ -113,7 +113,7 @@ ACS_TEST(FApplicationLifetime, OwnedFoundationOutlivesDerivedMembers)
         EXPECT_TRUE(
             acs::app_internal::FApplicationTestAccess::InitializeFoundation(application, ApplicationMemoryConfig()));
 
-        FAllocator* const default_allocator = FMemorySystem::Get(ESegment::Default);
+        IAllocator* const default_allocator = CMemorySystem::Get(ESegment::Default);
         EXPECT_TRUE(default_allocator != nullptr);
         EXPECT_TRUE(application.CreateAllocationProbe(default_allocator));
 
@@ -127,16 +127,16 @@ ACS_TEST(FApplicationLifetime, OwnedFoundationOutlivesDerivedMembers)
     EXPECT_TRUE(state.renderer_alive);
     EXPECT_TRUE(state.allocation_destructor_called);
     EXPECT_TRUE(state.memory_alive_during_allocation_destructor);
-    EXPECT_TRUE(FMemorySystem::Get(ESegment::Default) == nullptr);
-    EXPECT_EQ(FThreadPool::WorkerCount(), 0u);
+    EXPECT_TRUE(CMemorySystem::Get(ESegment::Default) == nullptr);
+    EXPECT_EQ(CThreadPool::WorkerCount(), 0u);
     EXPECT_TRUE(!FStackTrace::IsSymbolResolverInitialized());
-    EXPECT_TRUE(FLogger::IsInitialized());
+    EXPECT_TRUE(CLogger::IsInitialized());
 }
 
 ACS_TEST(FApplicationLifetime, ExternallyOwnedFoundationSurvivesApplication)
 {
-    FThreadPool::Shutdown();
-    FMemorySystem::Shutdown();
+    CThreadPool::Shutdown();
+    CMemorySystem::Shutdown();
     FStackTrace::ShutdownSymbolResolver();
 
     FStackTrace external_trace;
@@ -145,25 +145,25 @@ ACS_TEST(FApplicationLifetime, ExternallyOwnedFoundationSurvivesApplication)
     EXPECT_TRUE(FStackTrace::IsSymbolResolverInitialized());
 
     const FMemorySystemConfig memory_config = ApplicationMemoryConfig();
-    EXPECT_TRUE(FMemorySystem::Init(memory_config).IsOk());
-    EXPECT_TRUE(FThreadPool::Init(1).IsOk());
+    EXPECT_TRUE(CMemorySystem::Init(memory_config).IsOk());
+    EXPECT_TRUE(CThreadPool::Init(1).IsOk());
 
     FApplicationLifetimeState state{};
     {
         FLifetimeProbeApplication application(&state);
         EXPECT_TRUE(acs::app_internal::FApplicationTestAccess::InitializeFoundation(application, memory_config));
-        EXPECT_TRUE(application.CreateAllocationProbe(FMemorySystem::Get(ESegment::Default)));
+        EXPECT_TRUE(application.CreateAllocationProbe(CMemorySystem::Get(ESegment::Default)));
     }
 
     EXPECT_TRUE(state.allocation_destructor_called);
     EXPECT_TRUE(state.memory_alive_during_allocation_destructor);
-    EXPECT_TRUE(FMemorySystem::Get(ESegment::Default) != nullptr);
-    EXPECT_EQ(FThreadPool::WorkerCount(), 1u);
+    EXPECT_TRUE(CMemorySystem::Get(ESegment::Default) != nullptr);
+    EXPECT_EQ(CThreadPool::WorkerCount(), 1u);
     EXPECT_TRUE(FStackTrace::IsSymbolResolverInitialized());
-    EXPECT_TRUE(FLogger::IsInitialized());
+    EXPECT_TRUE(CLogger::IsInitialized());
 
-    FThreadPool::Shutdown();
-    FMemorySystem::Shutdown();
+    CThreadPool::Shutdown();
+    CMemorySystem::Shutdown();
     FStackTrace::ShutdownSymbolResolver();
 }
 

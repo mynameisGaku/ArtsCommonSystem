@@ -18,7 +18,7 @@ using namespace acs::game;
 
 // node に ARigidBody2D を付けると、物理ステップで node 自体が落ちて床上で止まる。
 ACS_TEST(RigidBody2D, ComponentDrivesNodeFall) {
-    FRigidWorld2D world;
+    CRigidWorld2D world;
     world.AddStaticAabb(FVec2{ 0.0f, 10.0f }, FVec2{ 20.0f, 0.5f }, 0.0f);   // 床上端 9.5
 
     auto root = NewObject<ANode>();
@@ -37,7 +37,7 @@ ACS_TEST(RigidBody2D, ComponentDrivesNodeFall) {
 
 // 2 つの剛体ノードが弾性衝突し、速度交換 + node 位置の分離が反映される。
 ACS_TEST(RigidBody2D, TwoBodiesInteractThroughNodes) {
-    FRigidWorld2D world;
+    CRigidWorld2D world;
     auto root = NewObject<ANode>();
 
     ANode& a = root->AddChild(NewObject<ANode>());
@@ -61,7 +61,7 @@ ACS_TEST(RigidBody2D, TwoBodiesInteractThroughNodes) {
 
 // 再登録 (SetCircle→SetBox) は古いボディを置き換え、ghost を残さない。
 ACS_TEST(RigidBody2D, ReregisterReplacesBody) {
-    FRigidWorld2D world;
+    CRigidWorld2D world;
     auto root = NewObject<ANode>();
     ANode& n = root->AddChild(NewObject<ANode>());
     n.SetPosition2D(FVec2{ 0.0f, 0.0f });
@@ -75,7 +75,7 @@ ACS_TEST(RigidBody2D, ReregisterReplacesBody) {
 
 // owner ノード破棄で OnDetach がボディをワールドから除去する (ghost/leak 防止)。
 ACS_TEST(RigidBody2D, DestroyDeregistersBody) {
-    FRigidWorld2D world;
+    CRigidWorld2D world;
     auto root = NewObject<ANode>();
     ANode& n = root->AddChild(NewObject<ANode>());
     ARigidBody2D& rb = n.AddComponent<ARigidBody2D>(world);
@@ -89,7 +89,7 @@ ACS_TEST(RigidBody2D, DestroyDeregistersBody) {
 
 // SetBox/SetCircle 前 (未登録) は同期が no-op で安全。
 ACS_TEST(RigidBody2D, UnregisteredIsSafe) {
-    FRigidWorld2D world;
+    CRigidWorld2D world;
     auto root = NewObject<ANode>();
     ANode& n = root->AddChild(NewObject<ANode>());
     n.SetPosition2D(FVec2{ 5.0f, 5.0f });

@@ -20,7 +20,7 @@ using namespace acs;
 
 namespace hellopbr {
 
-void FHelloPbrApp::OnStart() noexcept {
+void CHelloPbrApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -40,15 +40,15 @@ void FHelloPbrApp::OnStart() noexcept {
     m_CamPos = FVec3{0, 2.0f, -7.5f};
 }
 
-void FHelloPbrApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloPbrApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Time += dt;
 
     const f32 mv = 5.0f * dt, tr = 1.5f * dt;
-    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
-    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += tr;
-    if (FInput::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
-    if (FInput::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
+    if (CInput::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
+    if (CInput::IsKeyDown(EKey::Right)) m_CamYaw += tr;
+    if (CInput::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
+    if (CInput::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
     const f32 limit = 0.45f * kPi;
     if (m_CamPitch >  limit) m_CamPitch =  limit;
     if (m_CamPitch < -limit) m_CamPitch = -limit;
@@ -56,14 +56,14 @@ void FHelloPbrApp::OnUpdate(f32 dt) noexcept {
                  -Sin(m_CamPitch),
                   Cos(m_CamYaw) * Cos(m_CamPitch) };
     FVec3 right{ Cos(m_CamYaw), 0, -Sin(m_CamYaw) };
-    if (FInput::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
-    if (FInput::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
-    if (FInput::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
-    if (FInput::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
+    if (CInput::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
+    if (CInput::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
+    if (CInput::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
+    if (CInput::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
     m_Camera.SetLookAt(m_CamPos, m_CamPos + forward);
 }
 
-void FHelloPbrApp::OnRender() noexcept {
+void CHelloPbrApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
 
@@ -146,7 +146,7 @@ void FHelloPbrApp::OnRender() noexcept {
     }
 }
 
-void FHelloPbrApp::OnShutdown() noexcept {
+void CHelloPbrApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();

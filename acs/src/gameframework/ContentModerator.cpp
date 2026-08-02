@@ -350,7 +350,7 @@ TResult<FModerationResult> CContentModeratorStub::ModerateImage(const char* user
     // RGBA にデコード → 肌色比率 heuristic で露出度を判定する。デコード不能な
     // バイト列は BadArgument。SexualMinor の専用判定だけは肌色比率では不可能な
     // ため範囲外 (要 専用分類器)。詳細は SkinRatioRgba8 / ClassifyImageRgba8。
-    FImageAssetLoader loader;
+    CImageAssetLoader loader;
     TArray<byte> encoded;
     encoded.Resize(static_cast<usize>(size));
     MemCopy(encoded.Data(), image_data, static_cast<usize>(size));
@@ -360,7 +360,7 @@ TResult<FModerationResult> CContentModeratorStub::ModerateImage(const char* user
             ACS_ERR(Generic, kSubContentModeratorBadArgument,
                     "ContentModeratorStub::ModerateImage: undecodable image bytes"));
     }
-    auto* img = static_cast<FImageAsset*>(decoded.Value().Get());
+    auto* img = static_cast<AImageAsset*>(decoded.Value().Get());
     const u64 px = static_cast<u64>(img->Width()) * static_cast<u64>(img->Height());
     f32 ratio = 0.0f;
     if (img->Format() == EPixelFormat::R32G32B32A32_F) {

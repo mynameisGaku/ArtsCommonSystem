@@ -3,6 +3,6 @@
 #include "OnnxDemoApp.h"
 
 int main() {
-    helloonnx::FOnnxDemoApp App;
+    helloonnx::COnnxDemoApp App;
     return App.Run();
 }

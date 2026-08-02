@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloAnimCurveEditor — FGame 派生のアプリケーションクラス。
-// ImGui の lifecycle (Init/NewFrame/Render/Shutdown/OnEvent) を FGame の各 hook に
+// HelloAnimCurveEditor — CGame 派生のアプリケーションクラス。
+// ImGui の lifecycle (Init/NewFrame/Render/Shutdown/OnEvent) を CGame の各 hook に
 // 配線する薄いラッパ。Scene 側は ImGui::* を呼ぶだけでよい。
 #pragma once
 
@@ -9,7 +9,7 @@
 
 namespace helloac {
 
-class FAnimCurveApp : public acs::game::FGame {
+class CAnimCurveApp : public acs::game::CGame {
 public:
     void OnStart() noexcept override;
     void OnRender() noexcept override;
@@ -17,7 +17,7 @@ public:
     void OnEvent(const acs::FEvent& e) noexcept override;
 
 protected:
-    acs::TUniquePtr<acs::game::FScene> InitialScene() noexcept override;
+    acs::TUniquePtr<acs::game::AScene> InitialScene() noexcept override;
 
 private:
     acs::FImGuiCtx m_Imgui;

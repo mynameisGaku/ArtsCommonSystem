@@ -180,15 +180,15 @@ ACS_TEST(LinearLightingContract,
     // back to its normal AlphaBlend pipeline.
     const std::string setBlend = ExtractSection(
         sprite,
-        "void FSpriteBatch::SetBlendMode",
-        "void FSpriteBatch::SetStencilMode");
+        "void CSpriteBatch::SetBlendMode",
+        "void CSpriteBatch::SetStencilMode");
     EXPECT_TRUE(Contains(
-        sprite, "bool FSpriteBatch::EnsureOpaquePipeline()"));
+        sprite, "bool CSpriteBatch::EnsureOpaquePipeline()"));
     EXPECT_TRUE(Contains(
-        sprite, "bool FSpriteBatch::EnsureMultiplyPipeline()"));
+        sprite, "bool CSpriteBatch::EnsureMultiplyPipeline()"));
     EXPECT_TRUE(Contains(
         sprite,
-        "bool FSpriteBatch::EnsureAdditivePreserveAlphaPipeline()"));
+        "bool CSpriteBatch::EnsureAdditivePreserveAlphaPipeline()"));
     EXPECT_TRUE(Contains(
         sprite, "pd.blend_mode = EBlendMode::Opaque;"));
     EXPECT_TRUE(Contains(

@@ -90,7 +90,7 @@ public:
     /**
      * パスからアセットを非同期ロードする。
      *
-     * @details FThreadPool ワーカーで実行し、完了は FAssetFuture で確認する。
+     * @details CThreadPool ワーカーで実行し、完了は FAssetFuture で確認する。
      * キャッシュ済みなら即完了状態の future を返す。
      * @param path ロードするファイルのパス。
      * @return 完了確認用の FAssetFuture。

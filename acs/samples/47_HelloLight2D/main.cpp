@@ -11,4 +11,4 @@
 #include "Light2DApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hellolight2d::FLight2DApp)
+ACS_DEFINE_MAIN(hellolight2d::CLight2DApp)

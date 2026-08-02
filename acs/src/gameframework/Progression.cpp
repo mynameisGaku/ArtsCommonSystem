@@ -179,11 +179,11 @@ void CProgression::RegisterMilestone(const FMilestoneDef& def) noexcept {
     if (FindIndex(def.id) >= 0) return;
 
     if (m_Defs.Size() != m_States.Size()) {
-        ACS_LOG_ERROR("FProgression::RegisterMilestone: definition/state invariant broken");
+        ACS_LOG_ERROR("CProgression::RegisterMilestone: definition/state invariant broken");
         return;
     }
     if (m_Defs.Size() >= static_cast<usize>(kMaxPersistedMilestones)) {
-        ACS_LOG_WARN("FProgression::RegisterMilestone: persistence limit reached (%u)",
+        ACS_LOG_WARN("CProgression::RegisterMilestone: persistence limit reached (%u)",
                      kMaxPersistedMilestones);
         return;
     }
@@ -191,7 +191,7 @@ void CProgression::RegisterMilestone(const FMilestoneDef& def) noexcept {
     const u32 new_hash = HashId(def.id);
     for (usize i = 0; i < m_Defs.Size(); ++i) {
         if (HashId(m_Defs[i].id) == new_hash) {
-            ACS_LOG_ERROR("FProgression::RegisterMilestone: persistence hash collision "
+            ACS_LOG_ERROR("CProgression::RegisterMilestone: persistence hash collision "
                           "(new=%s, existing=%s, hash=0x%08x)",
                           def.id, m_Defs[i].id, new_hash);
             return;
@@ -207,16 +207,16 @@ void CProgression::RegisterMilestone(const FMilestoneDef& def) noexcept {
 
     const usize new_size = m_Defs.Size() + 1u;
     if (!m_Defs.TryReserve(new_size) || !m_States.TryReserve(new_size)) {
-        ACS_LOG_ERROR("FProgression::RegisterMilestone: allocation failed");
+        ACS_LOG_ERROR("CProgression::RegisterMilestone: allocation failed");
         return;
     }
     if (!m_Defs.TryPushBack(def)) {
-        ACS_LOG_ERROR("FProgression::RegisterMilestone: definition append failed");
+        ACS_LOG_ERROR("CProgression::RegisterMilestone: definition append failed");
         return;
     }
     if (!m_States.TryPushBack(st)) {
         m_Defs.PopBack();
-        ACS_LOG_ERROR("FProgression::RegisterMilestone: state append failed");
+        ACS_LOG_ERROR("CProgression::RegisterMilestone: state append failed");
     }
 }
 
@@ -237,7 +237,7 @@ void CProgression::AwardXp(u32 amount) noexcept {
     // 累計 XP が required_xp 以上なら達成扱い。
     // timestamp は Clock::MillisSinceStartup() を 1 回だけ取得して全達成に
     // 同じ値を入れる (同フレームで複数達成しても順序情報は持たない設計)。
-    const u64 now = ::acs::FClock::MillisSinceStartup();
+    const u64 now = ::acs::CClock::MillisSinceStartup();
     const usize n = m_Defs.Size();
     for (usize i = 0; i < n; ++i) {
         FMilestoneState& st  = m_States[i];
@@ -365,20 +365,20 @@ TResult<void> CProgression::Save(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO,
                        static_cast<u16>(ESaveArchiveSubCode::kSubInvalidArgument),
-                       "FProgression::Save: file_path is null");
+                       "CProgression::Save: file_path is null");
     }
 
     const usize n = m_Defs.Size();
     if (n != m_States.Size()) {
         return ACS_ERR(Asset,
                        ProgressionSub(EProgressionPersistenceSubCode::kSubStateInvariant),
-                       "FProgression::Save: definition/state invariant broken");
+                       "CProgression::Save: definition/state invariant broken");
     }
     if (n > static_cast<usize>(kMaxPersistedMilestones)) {
         return ACS_ERR(Asset,
                        ProgressionSub(
                            EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
-                       "FProgression::Save: milestone count exceeds safety limit");
+                       "CProgression::Save: milestone count exceeds safety limit");
     }
     for (usize i = 0; i < n; ++i) {
         if (m_Defs[i].id == nullptr ||
@@ -387,7 +387,7 @@ TResult<void> CProgression::Save(const wchar_t* file_path) noexcept {
             return ACS_ERR(Asset,
                            ProgressionSub(
                                EProgressionPersistenceSubCode::kSubStateInvariant),
-                           "FProgression::Save: milestone state is not canonical");
+                           "CProgression::Save: milestone state is not canonical");
         }
     }
 
@@ -396,7 +396,7 @@ TResult<void> CProgression::Save(const wchar_t* file_path) noexcept {
         return ACS_ERR(Container,
                        ProgressionSub(
                            EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
-                       "FProgression::Save: payload size calculation overflow");
+                       "CProgression::Save: payload size calculation overflow");
     }
     const usize payload_size = kHeaderPart + n * kEntrySize;
     if (payload_size > static_cast<usize>(kMaxLoadPayloadBytes) ||
@@ -404,7 +404,7 @@ TResult<void> CProgression::Save(const wchar_t* file_path) noexcept {
         return ACS_ERR(Asset,
                        ProgressionSub(
                            EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
-                       "FProgression::Save: payload exceeds persistence limit");
+                       "CProgression::Save: payload exceeds persistence limit");
     }
 
     // checked allocation 後に固定offsetへ書き、PushBack途中のOOMを排除する。
@@ -412,7 +412,7 @@ TResult<void> CProgression::Save(const wchar_t* file_path) noexcept {
     if (!payload.TryResize(payload_size)) {
         return ACS_ERR(Memory,
                        ProgressionSub(EProgressionPersistenceSubCode::kSubAllocationFailed),
-                       "FProgression::Save: payload allocation failed");
+                       "CProgression::Save: payload allocation failed");
     }
     u8* const bytes = payload.Data();
     WriteU32LE(bytes + 0, m_Xp);
@@ -448,7 +448,7 @@ TResult<void> CProgression::Load(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO,
                        static_cast<u16>(ESaveArchiveSubCode::kSubInvalidArgument),
-                       "FProgression::Load: file_path is null");
+                       "CProgression::Load: file_path is null");
     }
 
     // payload サイズを先読みしてバッファを確保する。
@@ -459,26 +459,26 @@ TResult<void> CProgression::Load(const wchar_t* file_path) noexcept {
     if (payload_size < static_cast<u64>(kHeaderPart)) {
         return ACS_ERR(Asset,
                        ProgressionSub(EProgressionPersistenceSubCode::kSubMalformedPayload),
-                       "FProgression::Load: payload smaller than header");
+                       "CProgression::Load: payload smaller than header");
     }
     if (payload_size > kMaxLoadPayloadBytes) {
         return ACS_ERR(Asset,
                        ProgressionSub(
                            EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
-                       "FProgression::Load: payload exceeds milestone safety limit");
+                       "CProgression::Load: payload exceeds milestone safety limit");
     }
     if (payload_size > static_cast<u64>(static_cast<usize>(-1))) {
         return ACS_ERR(Container,
                        ProgressionSub(
                            EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
-                       "FProgression::Load: payload does not fit address space");
+                       "CProgression::Load: payload does not fit address space");
     }
 
     TArray<u8> payload;
     if (!payload.TryResize(static_cast<usize>(payload_size))) {
         return ACS_ERR(Memory,
                        ProgressionSub(EProgressionPersistenceSubCode::kSubAllocationFailed),
-                       "FProgression::Load: payload allocation failed");
+                       "CProgression::Load: payload allocation failed");
     }
 
     u64 actual_size = 0;
@@ -491,7 +491,7 @@ TResult<void> CProgression::Load(const wchar_t* file_path) noexcept {
     if (actual_size != payload_size) {
         return ACS_ERR(Asset,
                        ProgressionSub(EProgressionPersistenceSubCode::kSubMalformedPayload),
-                       "FProgression::Load: payload changed between peek and read");
+                       "CProgression::Load: payload changed between peek and read");
     }
 
     const u8* p = payload.Data();
@@ -502,27 +502,27 @@ TResult<void> CProgression::Load(const wchar_t* file_path) noexcept {
         return ACS_ERR(Asset,
                        ProgressionSub(
                            EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
-                       "FProgression::Load: entry count exceeds safety limit");
+                       "CProgression::Load: entry count exceeds safety limit");
     }
     const u64 entries_size = payload_size - static_cast<u64>(kHeaderPart);
     if ((entries_size % static_cast<u64>(kEntrySize)) != 0u ||
         entries_size / static_cast<u64>(kEntrySize) != static_cast<u64>(count)) {
         return ACS_ERR(Asset,
                        ProgressionSub(EProgressionPersistenceSubCode::kSubMalformedPayload),
-                       "FProgression::Load: entry count does not exactly match payload");
+                       "CProgression::Load: entry count does not exactly match payload");
     }
 
     const usize ns = m_States.Size();
     if (m_Defs.Size() != ns) {
         return ACS_ERR(Asset,
                        ProgressionSub(EProgressionPersistenceSubCode::kSubStateInvariant),
-                       "FProgression::Load: definition/state invariant broken");
+                       "CProgression::Load: definition/state invariant broken");
     }
     if (ns > static_cast<usize>(kMaxPersistedMilestones)) {
         return ACS_ERR(Asset,
                        ProgressionSub(
                            EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
-                       "FProgression::Load: registered milestone count exceeds safety limit");
+                       "CProgression::Load: registered milestone count exceeds safety limit");
     }
 
     // 既存状態と分離した staging を用意し、全entry検証後にだけcommitする。
@@ -531,7 +531,7 @@ TResult<void> CProgression::Load(const wchar_t* file_path) noexcept {
     if (!staged.TryResize(ns) || !seen_hashes.TryResize(static_cast<usize>(count))) {
         return ACS_ERR(Memory,
                        ProgressionSub(EProgressionPersistenceSubCode::kSubAllocationFailed),
-                       "FProgression::Load: staging allocation failed");
+                       "CProgression::Load: staging allocation failed");
     }
     for (usize i = 0; i < ns; ++i) {
         staged[i].id = m_Defs[i].id;
@@ -553,14 +553,14 @@ TResult<void> CProgression::Load(const wchar_t* file_path) noexcept {
             return ACS_ERR(Asset,
                            ProgressionSub(
                                EProgressionPersistenceSubCode::kSubMalformedPayload),
-                           "FProgression::Load: non-canonical milestone entry");
+                           "CProgression::Load: non-canonical milestone entry");
         }
         for (u32 prior = 0; prior < e; ++prior) {
             if (seen_hashes[prior] == id_hash) {
                 return ACS_ERR(Asset,
                                ProgressionSub(
                                    EProgressionPersistenceSubCode::kSubMalformedPayload),
-                               "FProgression::Load: duplicate milestone hash");
+                               "CProgression::Load: duplicate milestone hash");
             }
         }
         seen_hashes[e] = id_hash;
@@ -586,7 +586,7 @@ TResult<void> CProgression::Load(const wchar_t* file_path) noexcept {
         m_States[i].achieved_timestamp = staged[i].achieved_timestamp;
     }
     if (unknown_count > 0u) {
-        ACS_LOG_WARN("FProgression::Load: %u unknown milestone entries skipped",
+        ACS_LOG_WARN("CProgression::Load: %u unknown milestone entries skipped",
                      unknown_count);
     }
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloSceneInspector — FSceneInspectorScene 実装。
+// HelloSceneInspector — ASceneInspectorScene 実装。
 #include "SceneInspectorScene.h"
 #include "SceneNodes.h"
 
@@ -13,7 +13,7 @@ using namespace acs::game;
 
 namespace helloscene {
 
-void FSceneInspectorScene::OnEnter() noexcept {
+void ASceneInspectorScene::OnEnter() noexcept {
     // 背景色は editor らしいニュートラルグレー。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
@@ -30,7 +30,7 @@ void FSceneInspectorScene::OnEnter() noexcept {
     ACS_LOG_INFO("[SceneInspector] entered (root + wheel + 2 spokes + player, selection=Player)");
 }
 
-void FSceneInspectorScene::m_BuildNodeTree() noexcept {
+void ASceneInspectorScene::m_BuildNodeTree() noexcept {
     // root → wheel (30 deg/s で自転) → spoke[0/1]
     //      → player (Inspector 編集対象、wheel と兄弟)
     auto wheel_up = NewObject<AWheelNode>(0.5f /*rad/s*/);
@@ -60,7 +60,7 @@ void FSceneInspectorScene::m_BuildNodeTree() noexcept {
     m_RootNode._SetId(FNodeId{ 0u, 1u });
 }
 
-void FSceneInspectorScene::OnExit() noexcept {
+void ASceneInspectorScene::OnExit() noexcept {
     m_Panels.Shutdown();
 
     // ツリーを破棄。
@@ -72,8 +72,8 @@ void FSceneInspectorScene::OnExit() noexcept {
     ACS_LOG_INFO("[SceneInspector] exited");
 }
 
-void FSceneInspectorScene::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) {
+void ASceneInspectorScene::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -85,8 +85,8 @@ void FSceneInspectorScene::OnUpdate(f32 dt) noexcept {
     m_RootNode.ResolveStructuralChanges();
 }
 
-void FSceneInspectorScene::OnRender(FRenderContext& /*rc*/) noexcept {
-    // ImGui の draw コマンドは FGame::OnRender の NewFrame() と Render() の
+void ASceneInspectorScene::OnRender(FRenderContext& /*rc*/) noexcept {
+    // ImGui の draw コマンドは CGame::OnRender の NewFrame() と Render() の
     // 間で発行される。Scene::OnRender はその内側なのでそのまま ImGui::* を
     // 呼んで OK。
     if (ImGui::BeginMainMenuBar()) {

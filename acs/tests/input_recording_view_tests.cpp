@@ -13,7 +13,7 @@ using namespace acs::game;
 ACS_TEST(InputRecordingView, DecodesValidatedRecordingWithoutOwningBytes)
 {
     /** view 用の正常な記録を生成する recorder。 */
-    FInputRecorder recorder;
+    CInputRecorder recorder;
     recorder.StartRecording(120u);
     /** field parity を検査する一件の sample。 */
     FInputSample source;
@@ -52,7 +52,7 @@ ACS_TEST(InputRecordingView, DecodesValidatedRecordingWithoutOwningBytes)
 ACS_TEST(InputRecordingView, SerializesCanonicalLittleEndianBytes)
 {
     /** 正準 byte 列を生成する recorder。 */
-    FInputRecorder recorder;
+    CInputRecorder recorder;
     recorder.StartRecording(120u);
     /** endian 境界を検査する一件の sample。 */
     FInputSample sample;
@@ -79,7 +79,7 @@ ACS_TEST(InputRecordingView, SerializesCanonicalLittleEndianBytes)
 ACS_TEST(InputRecordingView, RejectsTruncationAndCorruptionFailClosed)
 {
     /** 最小の正常記録を生成する recorder。 */
-    FInputRecorder recorder;
+    CInputRecorder recorder;
     recorder.StartRecording(60u);
     /** CRC 対象を持たせる sample。 */
     FInputSample sample;
@@ -95,7 +95,7 @@ ACS_TEST(InputRecordingView, RejectsTruncationAndCorruptionFailClosed)
     /** CRC 不一致の decode 結果。 */
     TResult<FInputRecordingView> corrupt = FInputRecordingView::Decode(TSpan<const u8>(bytes, written));
     EXPECT_TRUE(corrupt.IsErr());
-    if (corrupt.IsErr()) EXPECT_EQ(corrupt.Error().subcode, static_cast<u16>(FInputRecorder::kSub_BadCrc));
+    if (corrupt.IsErr()) EXPECT_EQ(corrupt.Error().subcode, static_cast<u16>(CInputRecorder::kSub_BadCrc));
 }
 
 ACS_TEST(InputRecordingView, SpanTrySubSpanPreservesOutputOnInvalidRange)

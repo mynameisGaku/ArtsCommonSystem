@@ -41,7 +41,7 @@ void CountParallelIndex(u32 Index, u32 /*WorkerIndex*/, void* User) noexcept
  */
 u64 ToNanoseconds(u64 Started, u64 Finished) noexcept
 {
-    return static_cast<u64>(Finished - Started) * 1000000000ull / static_cast<u64>(FClock::TicksPerSecond());
+    return static_cast<u64>(Finished - Started) * 1000000000ull / static_cast<u64>(CClock::TicksPerSecond());
 }
 
 /** 個別確保と batch 確保の cursor 予約数と時間を比較する。 */
@@ -55,9 +55,9 @@ void BenchArenaBatch() noexcept
     void* Outputs[kCount]{};
 
     /** 個別確保を計測する arena。 */
-    FArenaAllocator IndividualArena(64u * 1024u);
+    CArenaAllocator IndividualArena(64u * 1024u);
     /** 個別確保の開始 tick。 */
-    const u64 IndividualStarted = FClock::Ticks();
+    const u64 IndividualStarted = CClock::Ticks();
     /** 個別確保を繰り返す reset 世代 index。 */
     for (usize Repeat = 0u; Repeat < kRepeats; ++Repeat) {
         IndividualArena.Reset(false);
@@ -66,14 +66,14 @@ void BenchArenaBatch() noexcept
         g_WaveISink += reinterpret_cast<uptr>(Outputs[kCount - 1u]) != 0u ? 1u : 0u;
     }
     /** 個別確保の終了 tick。 */
-    const u64 IndividualFinished = FClock::Ticks();
+    const u64 IndividualFinished = CClock::Ticks();
     /** 個別確保で返した利用者領域数。 */
     const u64 IndividualAllocations = IndividualArena.AllocationCount();
 
     /** batch 確保を計測する arena。 */
-    FArenaAllocator BatchArena(64u * 1024u);
+    CArenaAllocator BatchArena(64u * 1024u);
     /** batch 確保の開始 tick。 */
-    const u64 BatchStarted = FClock::Ticks();
+    const u64 BatchStarted = CClock::Ticks();
     /** batch 確保を繰り返す reset 世代 index。 */
     for (usize Repeat = 0u; Repeat < kRepeats; ++Repeat) {
         BatchArena.Reset(false);
@@ -81,11 +81,11 @@ void BenchArenaBatch() noexcept
         g_WaveISink += reinterpret_cast<uptr>(Outputs[kCount - 1u]) != 0u ? 1u : 0u;
     }
     /** batch 確保の終了 tick。 */
-    const u64 BatchFinished = FClock::Ticks();
+    const u64 BatchFinished = CClock::Ticks();
     /** batch 専用の診断値。 */
     const FArenaAllocatorDiagnostics BatchDiagnostics = BatchArena.Diagnostics();
 
-    std::printf("T52 arena_individual_ns=%llu regions=%llu arena_batch_ns=%llu batch_calls=%llu batch_suballocations=%llu arena_size=%llu\n", static_cast<unsigned long long>(ToNanoseconds(IndividualStarted, IndividualFinished)), static_cast<unsigned long long>(IndividualAllocations), static_cast<unsigned long long>(ToNanoseconds(BatchStarted, BatchFinished)), static_cast<unsigned long long>(BatchDiagnostics.batch_allocations), static_cast<unsigned long long>(BatchDiagnostics.batch_suballocations), static_cast<unsigned long long>(sizeof(FArenaAllocator)));
+    std::printf("T52 arena_individual_ns=%llu regions=%llu arena_batch_ns=%llu batch_calls=%llu batch_suballocations=%llu arena_size=%llu\n", static_cast<unsigned long long>(ToNanoseconds(IndividualStarted, IndividualFinished)), static_cast<unsigned long long>(IndividualAllocations), static_cast<unsigned long long>(ToNanoseconds(BatchStarted, BatchFinished)), static_cast<unsigned long long>(BatchDiagnostics.batch_allocations), static_cast<unsigned long long>(BatchDiagnostics.batch_suballocations), static_cast<unsigned long long>(sizeof(CArenaAllocator)));
 }
 
 /** ParallelFor の inline と固定 block 経路を計測する。 */
@@ -93,26 +93,26 @@ void BenchParallelForStorage() noexcept
 {
     /** inline と block 経路を反復する回数。 */
     constexpr u32 kRepeats = 200u;
-    FThreadPool::Shutdown();
-    if (FThreadPool::Init(4u).IsErr()) return;
-    FThreadPool::ResetDiagnostics();
+    CThreadPool::Shutdown();
+    if (CThreadPool::Init(4u).IsErr()) return;
+    CThreadPool::ResetDiagnostics();
     /** body が処理した index の集約先。 */
     FParallelBenchContext Context{};
 
     /** ParallelFor 計測の開始 tick。 */
-    const u64 Started = FClock::Ticks();
+    const u64 Started = CClock::Ticks();
     /** 2 種類の分割数を実行する反復 index。 */
     for (u32 Repeat = 0u; Repeat < kRepeats; ++Repeat) {
-        (void)FThreadPool::ParallelFor(0u, 16u, 1u, &CountParallelIndex, &Context);
-        (void)FThreadPool::ParallelFor(0u, 128u, 1u, &CountParallelIndex, &Context);
+        (void)CThreadPool::ParallelFor(0u, 16u, 1u, &CountParallelIndex, &Context);
+        (void)CThreadPool::ParallelFor(0u, 128u, 1u, &CountParallelIndex, &Context);
     }
     /** ParallelFor 計測の終了 tick。 */
-    const u64 Finished = FClock::Ticks();
+    const u64 Finished = CClock::Ticks();
     /** 一時 context 格納経路の診断値。 */
-    const FParallelForDiagnostics Diagnostics = FThreadPool::CaptureParallelForDiagnostics();
+    const FParallelForDiagnostics Diagnostics = CThreadPool::CaptureParallelForDiagnostics();
     g_WaveISink += Context.count.Load(EMemoryOrder::Acquire);
     std::printf("T41_T43_T44 parallel_for_ns=%llu inline_calls=%llu pool_blocks=%llu pool_high_water=%llu heap_blocks=%llu\n", static_cast<unsigned long long>(ToNanoseconds(Started, Finished)), static_cast<unsigned long long>(Diagnostics.inline_calls), static_cast<unsigned long long>(Diagnostics.pool_blocks), static_cast<unsigned long long>(Diagnostics.pool_blocks_high_water), static_cast<unsigned long long>(Diagnostics.heap_blocks));
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 /** endian primitive の exact round-trip を反復計測する。 */
@@ -123,14 +123,14 @@ void BenchEndianPrimitive() noexcept
     /** 正準 byte 列を保持する最大幅 buffer。 */
     u8 Bytes[8]{};
     /** endian 計測の開始 tick。 */
-    const u64 Started = FClock::Ticks();
+    const u64 Started = CClock::Ticks();
     /** 書き込みと読み戻しを行う値。 */
     for (usize Index = 0u; Index < kRepeats; ++Index) {
         WriteLittleEndian(Bytes, static_cast<u64>(Index));
         g_WaveISink += ReadLittleEndian<u64>(Bytes);
     }
     /** endian 計測の終了 tick。 */
-    const u64 Finished = FClock::Ticks();
+    const u64 Finished = CClock::Ticks();
     std::printf("T51 endian_roundtrip_ns=%llu values=%llu\n", static_cast<unsigned long long>(ToNanoseconds(Started, Finished)), static_cast<unsigned long long>(kRepeats));
 }
 

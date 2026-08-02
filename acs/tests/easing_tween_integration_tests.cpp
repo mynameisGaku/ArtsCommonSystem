@@ -18,7 +18,7 @@ f32 NonFiniteCustomEasing(f32) noexcept {
 }
 
 FSeqHandle StartSequence(
-    FSequenceRunner& runner, FSequence& sequence) noexcept {
+    CSequenceRunner& runner, FSequence& sequence) noexcept {
     return runner.Start(Move(sequence));
 }
 
@@ -30,7 +30,7 @@ bool IsFiniteValue(f32 value) noexcept {
 } // namespace
 
 ACS_TEST(EasingTweenIntegration, TweenEnumOverloadsDriveAllValueTypes) {
-    FTweenManager manager;
+    CTweenManager manager;
     f32 scalar = 0.0f;
     FVec2 vector2{0.0f, 2.0f};
     FVec3 vector3{0.0f, 10.0f, 20.0f};
@@ -79,7 +79,7 @@ ACS_TEST(EasingTweenIntegration, TweenEnumOverloadsDriveAllValueTypes) {
 }
 
 ACS_TEST(EasingTweenIntegration, SequenceEnumOverloadsDriveAllValueTypes) {
-    FSequenceRunner runner;
+    CSequenceRunner runner;
     f32 scalar = 0.0f;
     FVec2 vector2{0.0f, 2.0f};
     FVec3 vector3{0.0f, 10.0f, 20.0f};
@@ -139,7 +139,7 @@ ACS_TEST(EasingTweenIntegration, InvalidEnumFallsBackToLinear) {
     const Easing::EEasingType invalid =
         static_cast<Easing::EEasingType>(0xffu);
 
-    FTweenManager manager;
+    CTweenManager manager;
     f32 tween_value = 2.0f;
     const FTweenHandle tween_handle =
         manager.Tween(&tween_value, 2.0f, 10.0f, 2.0f, invalid);
@@ -153,7 +153,7 @@ ACS_TEST(EasingTweenIntegration, InvalidEnumFallsBackToLinear) {
     sequence.Tween(
         &sequence_value, 2.0f, 10.0f, 2.0f, invalid);
     EXPECT_EQ(sequence.Actions().Size(), 1u);
-    FSequenceRunner runner;
+    CSequenceRunner runner;
     const FSeqHandle sequence_handle =
         StartSequence(runner, sequence);
     EXPECT_TRUE(sequence_handle.IsValid());
@@ -166,7 +166,7 @@ ACS_TEST(EasingTweenIntegration, NonFiniteDurationPreservesState) {
     const f32 nan = std::numeric_limits<f32>::quiet_NaN();
     const f32 infinity = std::numeric_limits<f32>::infinity();
 
-    FTweenManager manager;
+    CTweenManager manager;
     f32 active_value = 0.0f;
     const FTweenHandle active_handle = manager.Tween(
         &active_value, 0.0f, 1.0f, 1.0f,
@@ -212,7 +212,7 @@ ACS_TEST(EasingTweenIntegration, NonFiniteDurationPreservesState) {
 }
 
 ACS_TEST(EasingTweenIntegration, NonFiniteDeltaTimeIsIgnored) {
-    FTweenManager manager;
+    CTweenManager manager;
     f32 tween_value = 0.0f;
     const FTweenHandle tween_handle = manager.Tween(
         &tween_value, 0.0f, 1.0f, 1.0f,
@@ -223,7 +223,7 @@ ACS_TEST(EasingTweenIntegration, NonFiniteDeltaTimeIsIgnored) {
     sequence.Tween(
         &sequence_value, 0.0f, 1.0f, 1.0f,
         Easing::EEasingType::Linear);
-    FSequenceRunner runner;
+    CSequenceRunner runner;
     const FSeqHandle sequence_handle =
         StartSequence(runner, sequence);
 
@@ -251,7 +251,7 @@ ACS_TEST(EasingTweenIntegration, NonFiniteDeltaTimeIsIgnored) {
 }
 
 ACS_TEST(EasingTweenIntegration, NonFiniteCustomEasingFallsBackToLinear) {
-    FTweenManager manager;
+    CTweenManager manager;
     f32 tween_value = 2.0f;
     const FTweenHandle tween_handle = manager.Tween(
         &tween_value, 2.0f, 10.0f, 2.0f, &NonFiniteCustomEasing);
@@ -261,7 +261,7 @@ ACS_TEST(EasingTweenIntegration, NonFiniteCustomEasingFallsBackToLinear) {
     f32 sequence_value = 2.0f;
     sequence.Tween(
         &sequence_value, 2.0f, 10.0f, 2.0f, &NonFiniteCustomEasing);
-    FSequenceRunner runner;
+    CSequenceRunner runner;
     const FSeqHandle sequence_handle =
         StartSequence(runner, sequence);
     EXPECT_TRUE(sequence_handle.IsValid());
@@ -280,7 +280,7 @@ ACS_TEST(EasingTweenIntegration, ElapsedOverflowCompletesExactly) {
     const f32 duration = std::numeric_limits<f32>::max();
     const f32 large_delta = duration * 0.75f;
 
-    FTweenManager manager;
+    CTweenManager manager;
     f32 tween_value = 0.0f;
     const FTweenHandle tween_handle = manager.Tween(
         &tween_value, 0.0f, 1.0f, duration,
@@ -291,7 +291,7 @@ ACS_TEST(EasingTweenIntegration, ElapsedOverflowCompletesExactly) {
     sequence.Tween(
         &sequence_value, 0.0f, 1.0f, duration,
         Easing::EEasingType::Linear);
-    FSequenceRunner runner;
+    CSequenceRunner runner;
     const FSeqHandle sequence_handle =
         StartSequence(runner, sequence);
 

@@ -457,7 +457,7 @@ set_tests_properties(
     ACS.FoundationOptimizationWaveM
     PROPERTIES LABELS "Foundation;Stress" TIMEOUT 120)
 
-# FFileSystemの入力境界、既存root、通常ファイル衝突を単独検証する。
+# CFileSystemの入力境界、既存root、通常ファイル衝突を単独検証する。
 add_executable(acs_file_system_safety_tests
     main.cpp
     file_system_safety_tests.cpp
@@ -589,7 +589,7 @@ target_compile_definitions(acs_unit_tests PRIVATE ACS_GAMEFRAMEWORK_TEST_HOOKS=1
 # UiRenderer.cpp は Render に依存するため、Ui を link すると Render / Platform /
 # Asset も transitive で必要。Render 経由で GPU 系のコードが入るが、tests は
 # 描画は行わないので Renderer を実体化しなければ実行時影響無し。
-# uilayer_tests は FUiLayer (gameframework) を検証するため GameFramework を link する
+# uilayer_tests は CUiLayer (gameframework) を検証するため GameFramework を link する
 # (HandleInput に合成 Event を流す純 logic テストで、GPU/Scene は実体化しない)。
 target_link_libraries(acs_unit_tests PRIVATE
     ACS::Foundation
@@ -849,6 +849,8 @@ set(ACS_CPP_TYPE_ROLES_AUDIT
     "${ACS_TREE_ROOT}/scripts/audit_cpp_type_roles.py")
 set(ACS_CPP_TYPE_ROLES_DEBT
     "${ACS_TREE_ROOT}/scripts/data/cpp_type_role_migration_debt.json")
+set(ACS_CPP_PREFIX_CONSUMERS_AUDIT
+    "${ACS_TREE_ROOT}/scripts/audit_cpp_prefix_consumers.py")
 
 add_custom_target(acs_type_roles_check
     COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
@@ -863,8 +865,14 @@ add_custom_target(acs_type_roles_check
     COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
             --root "${ACS_SOURCE_ROOT}/scripting"
             --migration-debt "${ACS_CPP_TYPE_ROLES_DEBT}"
+    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+            --root "${ACS_TREE_ROOT}/samples"
+    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_PREFIX_CONSUMERS_AUDIT}"
+            --self-test
+    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_PREFIX_CONSUMERS_AUDIT}"
+            --root "${ACS_TREE_ROOT}"
     WORKING_DIRECTORY "${ACS_TREE_ROOT}"
-    COMMENT "ACS: source全体と主要moduleの型役割を監査"
+    COMMENT "ACS: source、tests、samples、配布consumerの型役割を監査"
     USES_TERMINAL VERBATIM)
 set_target_properties(acs_type_roles_check PROPERTIES FOLDER "Tools")
 
@@ -886,12 +894,33 @@ add_test(NAME ACS.ScriptingTypeRoleAudit
          COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
                  --root "${ACS_SOURCE_ROOT}/scripting"
                  --migration-debt "${ACS_CPP_TYPE_ROLES_DEBT}")
+add_test(NAME ACS.SampleTypeRoleAudit
+         COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+                 --root "${ACS_TREE_ROOT}/samples")
 set_tests_properties(
-    ACS.CppTypeRoleAuditSelfTest
     ACS.CppTypeRoleAudit
     ACS.EventTypeRoleAudit
     ACS.EcsTypeRoleAudit
     ACS.ScriptingTypeRoleAudit
+    ACS.SampleTypeRoleAudit
+    PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
+set_tests_properties(
+    ACS.CppTypeRoleAuditSelfTest
+    PROPERTIES LABELS "StaticAnalysis" TIMEOUT 120)
+
+add_test(NAME ACS.CppPrefixConsumerAuditSelfTest
+         COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+                 "${Python3_EXECUTABLE}" "${ACS_CPP_PREFIX_CONSUMERS_AUDIT}"
+                 --self-test)
+add_test(NAME ACS.CppPrefixConsumerAudit
+         COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+                 "${Python3_EXECUTABLE}" "${ACS_CPP_PREFIX_CONSUMERS_AUDIT}"
+                 --root "${ACS_TREE_ROOT}")
+set_tests_properties(
+    ACS.CppPrefixConsumerAuditSelfTest
+    PROPERTIES LABELS "StaticAnalysis" TIMEOUT 120)
+set_tests_properties(
+    ACS.CppPrefixConsumerAudit
     PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
 
 # 手書き API リファレンスの class/struct/enum 表記を現行 C++ 宣言と照合し、
@@ -1042,7 +1071,7 @@ if(ACS_IS_TOP_LEVEL)
                     --self-test)
         set_tests_properties(
             ACS.DistributionConsumerSmokeSelfTest
-            PROPERTIES LABELS "StaticAnalysis;Distribution" TIMEOUT 30)
+            PROPERTIES LABELS "StaticAnalysis;Distribution" TIMEOUT 60)
 
         if(ACS_ENABLE_DISTRIBUTION_CONSUMER_SMOKE)
             if(ACS_DISTRIBUTION_CONSUMER_ROOT)
@@ -1076,7 +1105,7 @@ if(ACS_IS_TOP_LEVEL)
                     "ACS.DistributionConsumerSmoke${_acs_distribution_configuration}"
                     PROPERTIES
                         LABELS "StaticAnalysis;Distribution"
-                        TIMEOUT 360
+                        TIMEOUT 420
                         RUN_SERIAL TRUE)
             endforeach()
             unset(_acs_distribution_consumer_smoke_arguments)

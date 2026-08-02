@@ -103,14 +103,14 @@ ACS_TEST(Render, TransientUploadArenaRetainsStableSlicesAndRejectsSentinel)
     /** 実GPU arenaを検証するRHIデバイス。 */
     auto device = Move(device_result.Value());
 
-    FTransientUploadArena arena;
+    CTransientUploadArena arena;
     /** 四つの論理sliceを持つ初期ページ生成結果。 */
     const auto init_result = arena.Init(*device, 48u, 4u);
     EXPECT_TRUE(init_result.IsOk());
     if (init_result.IsErr()) return;
     EXPECT_EQ(arena.Capacity(), 4u);
     EXPECT_EQ(arena.GpuBufferCount(), 1u);
-    EXPECT_EQ(arena.ReservedBytes(), static_cast<usize>(4u * FTransientUploadArena::AllocationAlignment()));
+    EXPECT_EQ(arena.ReservedBytes(), static_cast<usize>(4u * CTransientUploadArena::AllocationAlignment()));
 
     byte payload[48]{};
     EXPECT_TRUE(arena.BeginFrame(4u));
@@ -126,7 +126,7 @@ ACS_TEST(Render, TransientUploadArenaRetainsStableSlicesAndRejectsSentinel)
     EXPECT_TRUE(first_slice != second_slice);
     EXPECT_TRUE(first_parent == &second_slice->BindingBuffer());
     EXPECT_EQ(first_slice->BindingOffset(), static_cast<usize>(0u));
-    EXPECT_EQ(second_slice->BindingOffset(), FTransientUploadArena::AllocationAlignment());
+    EXPECT_EQ(second_slice->BindingOffset(), CTransientUploadArena::AllocationAlignment());
 
     EXPECT_TRUE(arena.BeginFrame(10u));
     EXPECT_EQ(arena.Capacity(), 10u);
@@ -336,11 +336,11 @@ ACS_TEST(Render, SpriteBatchRejectsMaxSpritesBeyondU16IndexLimit)
 
     // u16 インデックス上限 (16384 sprite = 65536 頂点) を超える max_sprites は拒否される。
     // 許すと idx_count=u32(max_sprites*6) の overflow / index wrap で heap overflow し得る。
-    FSpriteBatch OversizedBatch;
+    CSpriteBatch OversizedBatch;
     EXPECT_TRUE(OversizedBatch.Init(dev, EFormat::B8G8R8A8_UNorm, 16385u, 1u).IsErr());
 
     // 上限ちょうどは許容される。
-    FSpriteBatch BoundaryBatch;
+    CSpriteBatch BoundaryBatch;
     EXPECT_TRUE(BoundaryBatch.Init(dev, EFormat::B8G8R8A8_UNorm, 16384u, 1u).IsOk());
     BoundaryBatch.Shutdown();
 }
@@ -436,7 +436,7 @@ ACS_TEST(Render, TextureArrayCubemapMip)
 #    if !WITH_RENDER_DILIGENT
 ACS_TEST(Render, RawDx12PbrSh9FallbackPreservesBaseColor)
 {
-    FDx12Device device;
+    CDx12Device device;
     FDeviceConfig config{};
     if (device.Init(config).IsErr()) {
         // GPU / DX12 が使えない CI では既存 GPU tests と同様にスキップする。
@@ -466,7 +466,7 @@ ACS_TEST(Render, RawDx12PbrSh9FallbackPreservesBaseColor)
     EXPECT_TRUE(depth_result.IsOk());
     if (depth_result.IsErr()) return;
 
-    FMeshAsset triangle;
+    AMeshAsset triangle;
     triangle.Vertices().PushBack(
         FMeshVertex{FVec3{-0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 0, 1});
     triangle.Vertices().PushBack(
@@ -480,7 +480,7 @@ ACS_TEST(Render, RawDx12PbrSh9FallbackPreservesBaseColor)
     EXPECT_TRUE(UploadMesh(device, triangle, gpu_mesh).IsOk());
     if (!gpu_mesh.vertex_buffer || !gpu_mesh.index_buffer) return;
 
-    FPbrShader shader;
+    CPbrShader shader;
     EXPECT_TRUE(shader.Init(
         device, EFormat::R8G8B8A8_UNorm, EFormat::D32_Float,
         ECullMode::None).IsOk());
@@ -521,7 +521,7 @@ ACS_TEST(Render, RawDx12PbrSh9FallbackPreservesBaseColor)
 
 ACS_TEST(Render, RawDx12MrtDoesNotCorruptPreviouslyBoundTarget)
 {
-    FDx12Device device;
+    CDx12Device device;
     FDeviceConfig config{};
     if (device.Init(config).IsErr()) return;
 
@@ -629,7 +629,7 @@ PSOut PSMain() {
 
 ACS_TEST(Render, RawDx12MixedFormatMrtSupportsCloudHistoryTargets)
 {
-    FDx12Device device;
+    CDx12Device device;
     FDeviceConfig config{};
     if (device.Init(config).IsErr()) return;
 
@@ -731,7 +731,7 @@ PSOut PSMain() {
 
 ACS_TEST(Render, Dx12ComputePipelineRejectsMissingShader)
 {
-    FDx12Device device;
+    CDx12Device device;
     FComputePipelineDesc description{};
     auto result = CreateRhiComputePipeline(device, description);
     EXPECT_TRUE(result.IsErr());
@@ -742,11 +742,11 @@ ACS_TEST(Render, Dx12ComputePipelineRejectsMissingShader)
 
 ACS_TEST(Render, RawDx12DefersOpenListResourceAndDescriptorRetirement)
 {
-    FDx12Device device;
+    CDx12Device device;
     FDeviceConfig config{};
     if (device.Init(config).IsErr()) return;
 
-    FDx12CommandList command;
+    CDx12CommandList command;
     EXPECT_TRUE(command.Init(device).IsOk());
     if (command.NativeHandle() == nullptr) return;
 
@@ -857,7 +857,7 @@ ACS_TEST(Render, RawDx12DefersOpenListResourceAndDescriptorRetirement)
 
 ACS_TEST(Render, RawDx12ReinitializeDrainsRetirementQueue)
 {
-    FDx12Device device;
+    CDx12Device device;
     FDeviceConfig config{};
     if (device.Init(config).IsErr()) return;
 
@@ -881,7 +881,7 @@ ACS_TEST(Render, RawDx12ReinitializeDrainsRetirementQueue)
 
 ACS_TEST(Render, Dx12ReinitializeAndRollback)
 {
-    FDx12Device device;
+    CDx12Device device;
     FDeviceConfig config{};
     config.enable_debug_layer = true;
     if (device.Init(config).IsErr()) {
@@ -890,7 +890,7 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
     }
 
     const auto submit_retirement_fence =
-        [&device](FDx12CommandList& command_list) {
+        [&device](CDx12CommandList& command_list) {
             command_list.Begin();
             command_list.End();
             command_list.Submit();
@@ -899,7 +899,7 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
 
     {
         FDx12Texture texture;
-        FDx12CommandList retirement_command;
+        CDx12CommandList retirement_command;
         EXPECT_TRUE(retirement_command.Init(device).IsOk());
 
         // 公開ファクトリが Diligent を選ぶ構成でも、raw DX12 の契約を直接検証する。
@@ -943,7 +943,7 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
     {
         const u32 initial_data[4] = {1u, 2u, 3u, 4u};
         FDx12Buffer buffer;
-        FDx12CommandList retirement_command;
+        CDx12CommandList retirement_command;
         EXPECT_TRUE(retirement_command.Init(device).IsOk());
         FBufferDesc static_desc{};
         static_desc.size = sizeof(initial_data);
@@ -1020,7 +1020,7 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
     }
 
     {
-        FDx12CommandList command_list;
+        CDx12CommandList command_list;
         for (u32 i = 0; i < 8; ++i) {
             EXPECT_TRUE(command_list.Init(device).IsOk());
             EXPECT_TRUE(command_list.NativeHandle() != nullptr);
@@ -1035,7 +1035,7 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
 #if WITH_RENDER_DILIGENT
 ACS_TEST(Render, DiligentTextureReinitializeAndRollback)
 {
-    FDiligentDevice device;
+    CDiligentDevice device;
     FDeviceConfig config{};
     config.enable_debug_layer = true;
     if (device.Init(config).IsErr()) return;

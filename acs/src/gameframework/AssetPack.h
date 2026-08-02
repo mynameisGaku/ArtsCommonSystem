@@ -312,8 +312,8 @@ IAssetPackReader& GetReaderStub() noexcept;
 IAssetPackWriter& GetWriterStub() noexcept;
 
 // 既定 AssetPack の provider 結線 (実 backend モジュールへの委譲点)。
-// gameframework は実 backend モジュール (ACS::AssetPack / FAcpakGameReader /
-// FAcpakGameWriter) に依存できない (循環依存になる: backend 側が本 interface に
+// gameframework は実 backend モジュール (ACS::AssetPack / CAcpakGameReader /
+// CAcpakGameWriter) に依存できない (循環依存になる: backend 側が本 interface に
 // 依存する)。そこで実 backend 側が SetAssetPackReaderProvider() /
 // SetAssetPackWriterProvider() で「既定 Reader/Writer を返す関数」を登録し、
 // ゲームコードは GetDefaultAssetPackReader() / GetDefaultAssetPackWriter() を

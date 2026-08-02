@@ -9,7 +9,7 @@ public:
     void OnDraw(acs::FRenderContext&) noexcept override {}
 
     /** nodeの公開forward型を正規namespaceだけで受け取る。 */
-    void Accept(acs::FSceneServices&, const acs::FMaterial2D&) noexcept {}
+    void Accept(acs::CSceneServices&, const acs::FMaterial2D&) noexcept {}
 };
 
 static_assert(std::is_same_v<

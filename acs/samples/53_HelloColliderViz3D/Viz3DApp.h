@@ -13,7 +13,7 @@
 
 namespace viz3d {
 
-class FViz3DApp : public acs::FApplication {
+class CViz3DApp : public acs::CApplication {
 public:
     void OnStart() noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -21,8 +21,8 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    acs::FDebugDraw3D m_Dd;
-    acs::FSpriteBatch m_Batch;
+    acs::CDebugDraw3D m_Dd;
+    acs::CSpriteBatch m_Batch;
     acs::FFont         m_Font;
     bool              m_bFontReady = false;
 

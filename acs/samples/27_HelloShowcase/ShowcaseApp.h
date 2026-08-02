@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloShowcase — FApplication 派生のメインクラス。
+// HelloShowcase — CApplication 派生のメインクラス。
 // PBR / IBL / SSR / SSAO / Refraction / Bloom / ACES + TAA を 1 つのフレームで
 // 連携させる cinematic demo。auto-orbit カメラで scene を 1 周。
 //
 // 実装は pass 系 helper (PbrPass / RefractionPass / MotionPass / SsrPass /
 // BloomPass / HudPass) と GPU resource bundle (FAssets) に分割している。
-// FShowcaseApp 自身は state (camera, orbit, toggle) と OnStart / OnUpdate /
+// CShowcaseApp 自身は state (camera, orbit, toggle) と OnStart / OnUpdate /
 // OnCustomFrame の orchestration だけを持つ。
 //
 // キー:
@@ -25,10 +25,10 @@
 
 namespace helloshowcase {
 
-class FShowcaseApp : public acs::FApplication {
+class CShowcaseApp : public acs::CApplication {
 public:
-    FShowcaseApp() noexcept;
-    ~FShowcaseApp() noexcept override;
+    CShowcaseApp() noexcept;
+    ~CShowcaseApp() noexcept override;
 
     void OnStart() noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;

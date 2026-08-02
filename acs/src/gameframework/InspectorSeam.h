@@ -2,7 +2,7 @@
 // GameFramework Pillar K — CInspectorSeam
 //
 // reflection-driven debug inspector の「シーム (seam)」インターフェース。
-// ゲーム内の任意のオブジェクト (FPlayer / FEnemy / FCamera / CSettings 等) が
+// ゲーム内の任意のオブジェクト (FPlayer / FEnemy / CCamera / CSettings 等) が
 // 自身のフィールドを `IInspectableProvider` 経由で公開し、上位レイヤ
 // (ImGui / ACS::Ui / 外部 DevTool) がそれを描画 / 編集する形を取る。
 //
@@ -129,7 +129,7 @@ struct FInspectableField {
 };
 
 /**
- * Provider が公開する 1 オブジェクト (例: 1 体の FPlayer、1 つの FCamera)。
+ * Provider が公開する 1 オブジェクト (例: 1 体の FPlayer、1 つの CCamera)。
  *
  * @details `fields` 配列の寿命は Provider 所有。
  */

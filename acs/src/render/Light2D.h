@@ -7,7 +7,7 @@
 //   ambient を低く (暗い洞窟) しておき、光源の周りだけが照らされる Core Keeper
 //   のような表現を狙う。
 //
-//   描画フロー (FApplication::OnCustomFrame 内):
+//   描画フロー (CApplication::OnCustomFrame 内):
 //     li.BeginScene(cl);                       // 内部 scene RT を bind + clear
 //       sb.Begin(cl,w,h); ...world を描画...; sb.End();
 //     li.EndScene(cl);

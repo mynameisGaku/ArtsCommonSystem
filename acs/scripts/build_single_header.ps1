@@ -207,11 +207,12 @@ public static class AcsDistributionDirectoryPinNative
 
     public static SafeFileHandle OpenDirectory(string path)
     {
-        const uint readAttributes = 0x00000080;
+        // renameをshare delete無しのhandle寿命へ確実に束縛する。
+        const uint listDirectoryAndReadAttributes = 0x00000081;
         const uint shareReadAndWrite = 0x00000003;
         const uint openExisting = 3;
         const uint backupSemanticsAndOpenReparsePoint = 0x02200000;
-        SafeFileHandle handle = CreateFileW(path, readAttributes, shareReadAndWrite, IntPtr.Zero, openExisting, backupSemanticsAndOpenReparsePoint, IntPtr.Zero);
+        SafeFileHandle handle = CreateFileW(path, listDirectoryAndReadAttributes, shareReadAndWrite, IntPtr.Zero, openExisting, backupSemanticsAndOpenReparsePoint, IntPtr.Zero);
         if (handle.IsInvalid)
         {
             throw new Win32Exception(Marshal.GetLastWin32Error(), "配布rootのdirectory handleを取得できません");
@@ -1531,32 +1532,34 @@ function Invoke-PipelineSelfTest {
         $pinProbeMoved = Join-Path $testDirectory 'directory-pin-probe-moved'
         New-Item -ItemType Directory -Path $pinProbeRoot | Out-Null
         $pinProbe = Open-AcsDistributionDirectoryPin $pinProbeRoot
-        $pinProbeMovedDuringTest = $false
+        $pinProbeMoveRejected = $false
         try {
             try {
                 Move-Item -LiteralPath $pinProbeRoot -Destination $pinProbeMoved
-                $pinProbeMovedDuringTest = $true
             } catch {
+                $pinProbeNativeError = $_.Exception.HResult -band 0xFFFF
+                if ($pinProbeNativeError -ne 5 -and $pinProbeNativeError -ne 32) {
+                    throw
+                }
                 if (-not (Test-Path -LiteralPath $pinProbeRoot -PathType Container) -or (Test-Path -LiteralPath $pinProbeMoved)) {
                     throw
                 }
-                # filesystemがrenameを拒否した場合も、固定したidentityが有効なことを確認する。
+                $pinProbeMoveRejected = $true
             }
-            if ($pinProbeMovedDuringTest) {
-                Assert-ExpectedFailure {
-                    Assert-AcsDistributionDirectoryPin $pinProbe
-                } 'changed distribution root identity'
-            } else {
-                Assert-AcsDistributionDirectoryPin $pinProbe
+            if (-not $pinProbeMoveRejected) {
+                throw "directory pinがhandle中のrenameを拒否しませんでした"
             }
+            Assert-AcsDistributionDirectoryPin $pinProbe
         } finally {
             Close-AcsDistributionDirectoryPin $pinProbe
         }
-        if ($pinProbeMovedDuringTest) {
-            Move-Item -LiteralPath $pinProbeMoved -Destination $pinProbeRoot
-        } else {
-            Move-Item -LiteralPath $pinProbeRoot -Destination $pinProbeMoved
-            Move-Item -LiteralPath $pinProbeMoved -Destination $pinProbeRoot
+        Move-Item -LiteralPath $pinProbeRoot -Destination $pinProbeMoved
+        if ((Test-Path -LiteralPath $pinProbeRoot) -or -not (Test-Path -LiteralPath $pinProbeMoved -PathType Container)) {
+            throw "directory pin解放後のrenameに失敗しました"
+        }
+        Move-Item -LiteralPath $pinProbeMoved -Destination $pinProbeRoot
+        if (-not (Test-Path -LiteralPath $pinProbeRoot -PathType Container) -or (Test-Path -LiteralPath $pinProbeMoved)) {
+            throw "directory pin self-testのroot復元に失敗しました"
         }
 
         $mirrorSource = Join-Path $testDirectory 'mirror-source'
@@ -2292,7 +2295,7 @@ foreach ($cfg in $Configs) {
 
     # Diligent backend + xxhash static library を acs.lib の隣へ置き、
     # consumer の #pragma comment(lib,...)（amalgamate.py の banner）が自動 link
-    # できるようにする。FSky/FAtmosphere が呼ぶ CreateRhiComputePipeline と
+    # できるようにする。CSky/CAtmosphere が呼ぶ CreateRhiComputePipeline と
     # device factory GetEngineFactoryD3D12 は Diligent 側だけに実装される。
     $diligentNames = $distributionAdjacentLibraryNames
     $depsRoot = Join-Path $build '_deps'

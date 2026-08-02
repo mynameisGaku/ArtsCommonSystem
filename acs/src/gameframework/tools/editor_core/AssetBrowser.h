@@ -42,9 +42,9 @@
 //     stabilize された pointer をそのまま持つ。再 Refresh で全部使い直す)。
 //   ・**ImGui ヘッダは .cpp 側のみ**: ヘッダから imgui 依存を漏らさない方針
 //     (AParticleEditorPanel / AHierarchyPanel と同じ)。
-//   ・**FFileSystem 経由ではなく FindFirstFileW を .cpp 内で直接使う**: 現状
+//   ・**CFileSystem 経由ではなく FindFirstFileW を .cpp 内で直接使う**: 現状
 //     `platform/FileSystem.h` にはディレクトリ列挙 API が無い (ReadAllBytes /
-//     FileSize / Exists のみ)。将来 FFileSystem に `EnumerateDirectory` が
+//     FileSize / Exists のみ)。将来 CFileSystem に `EnumerateDirectory` が
 //     追加されたらここを差し替える。
 //   ・**Drag payload は wchar_t* 直渡し**: payload identifier は
 //     `"ASSET_PATH"` (ImGui 仕様: 32 文字以内)。payload data は wchar_t*

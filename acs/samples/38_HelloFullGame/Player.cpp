@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — FPlayer 実装。
+// HelloFullGame — CPlayer 実装。
 #include "Player.h"
 #include "GameplayScene.h"
 #include "Bullets.h"
@@ -13,7 +13,7 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void FPlayer::Init(FGameplayScene& scene, ANode& root, FHealthSystem& health) noexcept {
+void CPlayer::Init(AGameplayScene& scene, ANode& root, CHealthSystem& health) noexcept {
     auto player_up = NewObject<ANode>();
     player_up->SetPosition2D(FVec2{0.0f, 0.0f});
     m_Node = &root.AddChild(Move(player_up));
@@ -25,9 +25,9 @@ void FPlayer::Init(FGameplayScene& scene, ANode& root, FHealthSystem& health) no
     m_FireCd   = 0.0f;
 }
 
-void FPlayer::Shutdown() noexcept {
+void CPlayer::Shutdown() noexcept {
     // root subtree から自分の Node を外して解体する。Health / Shape は
-    // FGameplayScene::OnExit が ClearAll / Physics().ClearAll() でまとめて掃除する。
+    // AGameplayScene::OnExit が ClearAll / Physics().ClearAll() でまとめて掃除する。
     if (m_Node) {
         m_Node->Destroy();
         m_Node = nullptr;
@@ -37,16 +37,16 @@ void FPlayer::Shutdown() noexcept {
     m_FireCd   = 0.0f;
 }
 
-FVec2 FPlayer::Position() const noexcept {
+FVec2 CPlayer::Position() const noexcept {
     if (!m_Node) return FVec2{0.0f, 0.0f};
     return m_Node->Position2D();
 }
 
-bool FPlayer::IsInvulnerable(const FHealthSystem& h) const noexcept {
+bool CPlayer::IsInvulnerable(const CHealthSystem& h) const noexcept {
     return h.IsInvulnerable(m_HealthId);
 }
 
-FVec2 FPlayer::UpdateMovement(FGameplayScene& scene, f32 dt) noexcept {
+FVec2 CPlayer::UpdateMovement(AGameplayScene& scene, f32 dt) noexcept {
     if (!m_Node) return FVec2{0.0f, 0.0f};
 
     const FInputMap& im = scene.Services().Input();
@@ -72,7 +72,7 @@ FVec2 FPlayer::UpdateMovement(FGameplayScene& scene, f32 dt) noexcept {
     return m_Node->Position2D();
 }
 
-void FPlayer::UpdateFire(FGameplayScene& scene, f32 dt) noexcept {
+void CPlayer::UpdateFire(AGameplayScene& scene, f32 dt) noexcept {
     m_FireCd -= dt;
     if (!m_Node) return;
     const FInputMap& im = scene.Services().Input();
@@ -86,8 +86,8 @@ void FPlayer::UpdateFire(FGameplayScene& scene, f32 dt) noexcept {
     }
 }
 
-bool FPlayer::TryTakeContactDamage(FGameplayScene& scene,
-                                  FHealthSystem& health,
+bool CPlayer::TryTakeContactDamage(AGameplayScene& scene,
+                                  CHealthSystem& health,
                                   FVec2 /*player_pos*/) noexcept {
     // この関数は Enemy 側で接触判定したあと呼ばれる。無敵中なら何もしない。
     if (health.IsInvulnerable(m_HealthId)) return false;

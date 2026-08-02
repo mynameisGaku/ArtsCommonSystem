@@ -8,7 +8,7 @@ using namespace acs::game;
 
 namespace hellobt {
 
-acs::u32 BuildPanelMirror(btedit::FBehaviorTreeEditorPanel& panel) noexcept {
+acs::u32 BuildPanelMirror(btedit::ABehaviorTreeEditorPanel& panel) noexcept {
     // エディタのグラフ (メタミラー) を構築する。no-code 実行では panel がこの構造を
     // 直接インタプリトして走らせ、各ノードの実行状況をライブ表示する。
     //
@@ -28,7 +28,7 @@ acs::u32 BuildPanelMirror(btedit::FBehaviorTreeEditorPanel& panel) noexcept {
     //   30 未満に poke すると Pickup 枝がライブで点く = 「エディタで変数を編集 → 流れが変わる」。
     using K  = btedit::EBtKind;
     using DM = btedit::EBtDecoMode;
-    const u32 INV = btedit::FBehaviorTreeEditorPanel::kInvalidId;
+    const u32 INV = btedit::ABehaviorTreeEditorPanel::kInvalidId;
 
     const u32 root = panel.AddNode(K::Selector, "Root Selector", INV);
 
@@ -53,24 +53,24 @@ acs::u32 BuildPanelMirror(btedit::FBehaviorTreeEditorPanel& panel) noexcept {
     return root;
 }
 
-void BuildBehaviorTree(FBehaviorTree& bt) noexcept {
+void BuildBehaviorTree(CBehaviorTree& bt) noexcept {
     // コードで BT を組む参考実装 (graph-run に置き換えたため現サンプルでは未使用)。
-    // ランタイム FBtSelector / FBtSequence / FBtAction / FBtDecorator の組み立て例。
-    auto root  = MakeUnique<FBtSelector>();
+    // ランタイム ABtSelector / ABtSequence / ABtAction / ABtDecorator の組み立て例。
+    auto root  = MakeUnique<ABtSelector>();
 
-    auto seq_a = MakeUnique<FBtSequence>();
-    seq_a->AddChild(MakeUnique<FBtAction>(&ActionPickup));
+    auto seq_a = MakeUnique<ABtSequence>();
+    seq_a->AddChild(MakeUnique<ABtAction>(&ActionPickup));
 
     // Decorator(Inverter) で Wait の結果を反転して Sequence を前進させる。
-    auto guard = MakeUnique<FBtDecorator>(EBtDecoratorOp::Inverter);
-    guard->SetChild(MakeUnique<FBtAction>(&ActionWait));
+    auto guard = MakeUnique<ABtDecorator>(EBtDecoratorOp::Inverter);
+    guard->SetChild(MakeUnique<ABtAction>(&ActionWait));
     seq_a->AddChild(Move(guard));
 
-    seq_a->AddChild(MakeUnique<FBtAction>(&ActionMove));
+    seq_a->AddChild(MakeUnique<ABtAction>(&ActionMove));
     root->AddChild(Move(seq_a));
 
-    auto seq_b = MakeUnique<FBtSequence>();
-    seq_b->AddChild(MakeUnique<FBtAction>(&ActionAttack));
+    auto seq_b = MakeUnique<ABtSequence>();
+    seq_b->AddChild(MakeUnique<ABtAction>(&ActionAttack));
     root->AddChild(Move(seq_b));
 
     bt.SetRoot(Move(root));

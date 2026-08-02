@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloGameFramework — FGameplayScene 実装。
+// HelloGameFramework — AGameplayScene 実装。
 #include "GameplayScene.h"
 #include "PlayerProfile.h"
 #include "RotateComponent.h"
@@ -15,7 +15,7 @@ using namespace acs::game;
 
 namespace hellogf {
 
-void FGameplayScene::OnEnter() noexcept {
+void AGameplayScene::OnEnter() noexcept {
     m_Color = kColorDark;
     // FTween を起動 (Services 側で PostUpdate に自動 tick される)。
     m_ColorTween = Services().Tweens().Tween(
@@ -46,7 +46,7 @@ void FGameplayScene::OnEnter() noexcept {
     m_Rotator = &rotator;
 
     // spoke を FCircle として CollisionWorld に登録 (世界位置は OnUpdate で追従)。
-    FCollisionWorld2D& phy = Services().Physics();
+    CCollisionWorld2D& phy = Services().Physics();
     for (u32 i = 0; i < 2; ++i) {
         const FVec2 sp = m_Spoke[i] ? m_Spoke[i]->World2D().position : FVec2{};
         m_SpokeShape[i] = phy.AddCircle(FCircle{sp, /*radius=*/0.5f});
@@ -81,7 +81,7 @@ void FGameplayScene::OnEnter() noexcept {
     }
 }
 
-void FGameplayScene::OnExit() noexcept {
+void AGameplayScene::OnExit() noexcept {
     // Services は scene 破棄時に完全破棄される。FTween に残った dangling pointer
     // 経由でクラッシュしないよう、先に CancelAll しておく。
     if (HasServices()) Services().Tweens().CancelAll();
@@ -92,27 +92,27 @@ void FGameplayScene::OnExit() noexcept {
     ACS_LOG_INFO("[Gameplay] exit");
 }
 
-void FGameplayScene::OnPause() noexcept {
+void AGameplayScene::OnPause() noexcept {
     // Push/Pop の間は services が tick されない (= Clock も自然に止まる) ので
     // 明示的 Pause 呼出は不要。意味付けのためログだけ出しておく。
     ACS_LOG_INFO("[Gameplay] paused (services auto-frozen via stack pause)");
 }
 
-void FGameplayScene::OnResume() noexcept {
+void AGameplayScene::OnResume() noexcept {
     ACS_LOG_INFO("[Gameplay] resumed");
 }
 
-void FGameplayScene::OnUpdate(f32 dt) noexcept {
+void AGameplayScene::OnUpdate(f32 dt) noexcept {
     // dt はフレームワーク側で Clock.Dt() (scaled) が渡される。
     // services の Tweens/Sequences は本関数の後、PostUpdate で自動 tick される。
     const FInputMap& im = Services().Input();
     if (im.IsPressed(FActionId("Quit"))) GetGame().Quit();
     if (im.IsPressed(FActionId("ToTitle"))) {
-        Scenes().ChangeScene(MakeUnique<FTitleScene>());
+        Scenes().ChangeScene(MakeUnique<ATitleScene>());
         return;
     }
     if (im.IsPressed(FActionId("Pause"))) {
-        Scenes().PushScene(MakeUnique<FPauseScene>());
+        Scenes().PushScene(MakeUnique<APauseScene>());
         return;
     }
     if (im.IsPressed(FActionId("Score"))) {
@@ -131,7 +131,7 @@ void FGameplayScene::OnUpdate(f32 dt) noexcept {
 
     // spoke 円の CollisionWorld 上の表現を world 位置で同期する。
     {
-        FCollisionWorld2D& phy = Services().Physics();
+        CCollisionWorld2D& phy = Services().Physics();
         for (u32 i = 0; i < 2; ++i) {
             if (m_Spoke[i] != nullptr && m_SpokeShape[i].IsValid()) {
                 const FVec2 p = m_Spoke[i]->World2D().position;
@@ -155,8 +155,8 @@ void FGameplayScene::OnUpdate(f32 dt) noexcept {
     m_Root.ResolveStructuralChanges();
 }
 
-void FGameplayScene::OnFixedUpdate(f32 dt) noexcept {
-    // dt は固定 (FGame::SetFixedTimestep、既定 1/60)。60 step 毎 = 約 1 秒毎に
+void AGameplayScene::OnFixedUpdate(f32 dt) noexcept {
+    // dt は固定 (CGame::SetFixedTimestep、既定 1/60)。60 step 毎 = 約 1 秒毎に
     // 状態をログ出力して OnFixedUpdate の呼出と transform 伝播を観察する。
     m_FixedSecs += dt;
     if (++m_FixedStepLogCounter >= 60) {

@@ -9,9 +9,9 @@ using namespace acs;
 
 namespace helloanim {
 
-TSharedPtr<FSkinnedMeshAsset> FAnimationScene::BuildSnake() noexcept {
-    auto m = MakeShared<FSkinnedMeshAsset>();
-    if (!m) return TSharedPtr<FSkinnedMeshAsset>();
+TSharedPtr<ASkinnedMeshAsset> CAnimationScene::BuildSnake() noexcept {
+    auto m = MakeShared<ASkinnedMeshAsset>();
+    if (!m) return TSharedPtr<ASkinnedMeshAsset>();
     auto& V = m->Vertices();
     auto& I = m->Indices();
     auto& B = m->Bones();
@@ -110,9 +110,9 @@ TSharedPtr<FSkinnedMeshAsset> FAnimationScene::BuildSnake() noexcept {
     return m;
 }
 
-void FAnimationScene::Render(FSky&                sky,
-                            FStandardShader&     std_shader,
-                            FSkinnedShader&      skin_shader,
+void CAnimationScene::Render(CSky&                sky,
+                            CStandardShader&     std_shader,
+                            CSkinnedShader&      skin_shader,
                             IRhiCommandList&    cl,
                             const CCamera&       camera,
                             const FGpuMesh&      plane,
@@ -125,7 +125,7 @@ void FAnimationScene::Render(FSky&                sky,
     // 1. 空
     sky.Render(cl, camera);
 
-    // 2. 地面 (FStandardShader)
+    // 2. 地面 (CStandardShader)
     FDirLight lights[2];
     lights[0].direction = sky.SunDirection();
     lights[0].color     = sky.SunColor();
@@ -149,7 +149,7 @@ void FAnimationScene::Render(FSky&                sky,
         cl.DrawIndexed(plane.index_count);
     }
 
-    // 3. スキンメッシュ (FSkinnedShader)
+    // 3. スキンメッシュ (CSkinnedShader)
     skin_shader.SetLights(camera.ViewProjection(), camera.Eye(),
                           lights, 2, ambient);
 

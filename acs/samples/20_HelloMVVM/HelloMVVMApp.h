@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloMVVM — FApplication 派生クラス。
-// FPlayerVm を保持し、ImGui で MVVM の主要機能 (TObservable / Binder / TDerived /
+// HelloMVVM — CApplication 派生クラス。
+// CPlayerVm を保持し、ImGui で MVVM の主要機能 (TObservable / Binder / TDerived /
 // TObservableArray / FCommand) を 4 セクションに分けて紹介する。
 #pragma once
 
@@ -19,7 +19,7 @@
 
 namespace hellomvvm {
 
-class FHelloMvvmApp : public acs::FApplication {
+class CHelloMvvmApp : public acs::CApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -29,7 +29,7 @@ public:
 
 private:
     acs::FImGuiCtx                                       m_Imgui;
-    FPlayerVm                                            m_Vm;
+    CPlayerVm                                            m_Vm;
     acs::TObservable<acs::f32>                           m_HpMirror{};
     acs::TObservable<acs::FString>                        m_HpText  { acs::FString{} };
     acs::TUniquePtr<acs::TOneWayBinder<acs::f32>>         m_HpMirrorBinder;

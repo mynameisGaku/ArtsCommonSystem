@@ -150,11 +150,11 @@ void CPrivacyDirector::Reset() noexcept {
 TResult<void> CPrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_BadPath,
-                       "FPrivacyDirector::SaveConsent received null path");
+                       "CPrivacyDirector::SaveConsent received null path");
     }
     if (!m_Initialized) {
         return ACS_ERR(IO, kSub_NotInitialized,
-                       "FPrivacyDirector::SaveConsent called before Init()");
+                       "CPrivacyDirector::SaveConsent called before Init()");
     }
 
     // 保存直前に「現在のポリシー版」を同意状態へ焼き込む。これにより次回起動の
@@ -174,11 +174,11 @@ TResult<void> CPrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
 TResult<void> CPrivacyDirector::LoadConsent(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_BadPath,
-                       "FPrivacyDirector::LoadConsent received null path");
+                       "CPrivacyDirector::LoadConsent received null path");
     }
     if (!m_Initialized) {
         return ACS_ERR(IO, kSub_NotInitialized,
-                       "FPrivacyDirector::LoadConsent called before Init()");
+                       "CPrivacyDirector::LoadConsent called before Init()");
     }
 
     TSaveSlot<FConsentStatus> slot;

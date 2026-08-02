@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloUI — FApplication 派生クラス。
+// HelloUI — CApplication 派生クラス。
 //
 // ACS 純正 UI フレームワーク (src/ui/) を retained mode で使い、
 // PlayerVM の Observable を Slider/Checkbox/TextInput に MakeTwoWayBind で接続する。
@@ -26,7 +26,7 @@
 
 namespace helloui {
 
-class FHelloUiApp : public acs::FApplication {
+class CHelloUiApp : public acs::CApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -37,11 +37,11 @@ private:
     void BuildUI() noexcept;
 
     acs::FFont                                                m_Font;
-    acs::FUiRenderer                                          m_Ui;
-    acs::FUiInput                                             m_Input;
-    FPlayerVm                                                 m_Vm;
-    acs::TUniquePtr<acs::FStackPanel>                          m_Root;
-    acs::FLabel*                                              m_LblHp = nullptr;
+    acs::CUiRenderer                                          m_Ui;
+    acs::CUiInput                                             m_Input;
+    CPlayerVm                                                 m_Vm;
+    acs::TUniquePtr<acs::AStackPanel>                          m_Root;
+    acs::ALabel*                                              m_LblHp = nullptr;
     // Binder 群は m_Root より後に宣言 → dtor で先に死ぬ。OnShutdown コメント参照。
     acs::TUniquePtr<acs::TTwoWayBinder<acs::f32>>              m_HpSliderBinder;
     acs::TUniquePtr<acs::TTwoWayBinder<acs::f32>>              m_MpSliderBinder;

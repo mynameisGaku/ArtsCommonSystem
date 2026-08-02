@@ -13,13 +13,13 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void FEnemyPool::Reset() noexcept {
+void CEnemyPool::Reset() noexcept {
     for (u32 i = 0; i < kMaxEnemies; ++i) {
         m_Enemies[i] = FEnemyInstance{};
     }
 }
 
-void FEnemyPool::Shutdown() noexcept {
+void CEnemyPool::Shutdown() noexcept {
     for (u32 i = 0; i < kMaxEnemies; ++i) {
         if (m_Enemies[i].alive && m_Enemies[i].node) {
             m_Enemies[i].node->Destroy();
@@ -28,7 +28,7 @@ void FEnemyPool::Shutdown() noexcept {
     }
 }
 
-void FEnemyPool::Spawn(FGameplayScene& scene, ANode& root, FHealthSystem& health,
+void CEnemyPool::Spawn(AGameplayScene& scene, ANode& root, CHealthSystem& health,
                      u32 current_wave, FVec2 pos) noexcept {
     u32 slot = kMaxEnemies;
     for (u32 i = 0; i < kMaxEnemies; ++i) {
@@ -53,9 +53,9 @@ void FEnemyPool::Spawn(FGameplayScene& scene, ANode& root, FHealthSystem& health
     e.wave_idx_at_spawn = current_wave;
 }
 
-bool FEnemyPool::TickChaseAndContact(FGameplayScene& scene, FHealthSystem& health,
+bool CEnemyPool::TickChaseAndContact(AGameplayScene& scene, CHealthSystem& health,
                                     FVec2 player_pos, f32 dt) noexcept {
-    FCollisionWorld2D& phy = scene.Services().Physics();
+    CCollisionWorld2D& phy = scene.Services().Physics();
     bool any_contact_lethal = false;
 
     for (u32 i = 0; i < kMaxEnemies; ++i) {
@@ -89,7 +89,7 @@ bool FEnemyPool::TickChaseAndContact(FGameplayScene& scene, FHealthSystem& healt
     return any_contact_lethal;
 }
 
-void FEnemyPool::ApplyHit(FGameplayScene& scene, FHealthSystem& health,
+void CEnemyPool::ApplyHit(AGameplayScene& scene, CHealthSystem& health,
                          u32 target_id, f32 dmg) noexcept {
     if (target_id >= kMaxEnemies) return;
     FEnemyInstance& e = m_Enemies[target_id];
@@ -111,7 +111,7 @@ void FEnemyPool::ApplyHit(FGameplayScene& scene, FHealthSystem& health,
     }
 }
 
-void FEnemyPool::DrawAll(FSpriteBatch& sb) const noexcept {
+void CEnemyPool::DrawAll(CSpriteBatch& sb) const noexcept {
     const f32 sz = kEnemyRadius * 2.0f;
     for (u32 i = 0; i < kMaxEnemies; ++i) {
         const FEnemyInstance& e = m_Enemies[i];

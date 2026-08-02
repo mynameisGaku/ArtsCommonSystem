@@ -101,7 +101,7 @@ public:
      * 凸包を ConvexPoly2 (物理用) に変換する。
      *
      * @details
-     * FCollisionWorld2D::AddPolygon にそのまま渡せる。頂点が ConvexPoly2 の上限を超える
+     * CCollisionWorld2D::AddPolygon にそのまま渡せる。頂点が ConvexPoly2 の上限を超える
      * 場合は均等に間引く。
      * @return 凸包を表す ConvexPoly2。
      */

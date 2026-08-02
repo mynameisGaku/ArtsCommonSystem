@@ -8,7 +8,7 @@ using namespace acs;
 
 namespace helloshadows {
 
-void FShadowsScene::Build() noexcept {
+void CShadowsScene::Build() noexcept {
     m_Casters.Clear();
     // 中央に背の高い柱
     for (u32 i = 0; i < 4; ++i) {
@@ -40,9 +40,9 @@ void FShadowsScene::Build() noexcept {
     }
 }
 
-void FShadowsScene::Render(FSky&             sky,
-                          FStandardShader&  shader,
-                          FShadowMap&       shadow,
+void CShadowsScene::Render(CSky&             sky,
+                          CStandardShader&  shader,
+                          CShadowMap&       shadow,
                           IRhiCommandList& cl,
                           const CCamera&    camera,
                           const FGpuMesh&   plane,

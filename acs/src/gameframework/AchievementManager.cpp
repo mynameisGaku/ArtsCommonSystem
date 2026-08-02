@@ -67,7 +67,7 @@ void CAchievementManager::UnlockInternal(u32 index) noexcept {
     p.current_progress = p.max_progress;
     p.unlocked         = true;
     // 起動からの ms。プラットフォーム時刻が必要になったら拡張する。
-    p.unlock_timestamp = FClock::MillisSinceStartup();
+    p.unlock_timestamp = CClock::MillisSinceStartup();
 
     // Bridge attach 中なら SDK へ送信。失敗時はローカル進捗には影響させない。
     if (m_Bridge != nullptr) {
@@ -75,7 +75,7 @@ void CAchievementManager::UnlockInternal(u32 index) noexcept {
         if (r.IsErr()) {
             // Stub だと未実装で必ず Err になるため、Warn 1 行で抑える。
             // 実 SDK 統合後は Err = 通信失敗 / 未初期化 → 監視対象に格上げ可。
-            ACS_LOG_WARN("FAchievementManager: bridge UnlockAchievement('%s') failed",
+            ACS_LOG_WARN("CAchievementManager: bridge UnlockAchievement('%s') failed",
                          p.id != nullptr ? p.id : "<null>");
         }
     }
@@ -88,7 +88,7 @@ void CAchievementManager::RegisterAchievement(const FAchievementDef& def) noexce
 
     // 同 id の 2 重登録は no-op (アセット二重ロード保護)。
     if (FindIndex(def.id) != kNotFound) {
-        ACS_LOG_WARN("FAchievementManager: duplicate registration ignored ('%s')", def.id);
+        ACS_LOG_WARN("CAchievementManager: duplicate registration ignored ('%s')", def.id);
         return;
     }
 

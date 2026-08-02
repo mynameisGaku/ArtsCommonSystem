@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloTelemetryFile - FTelemetryFileDemoApp implementation.
+// HelloTelemetryFile - CTelemetryFileDemoApp implementation.
 #include "TelemetryFileDemoApp.h"
 
 #include "gameframework/TelemetryDirector.h"
@@ -27,21 +27,21 @@ bool FileContains(const char* Path, const char* Needle) noexcept {
 
 } // namespace
 
-int FTelemetryFileDemoApp::Run() noexcept {
+int CTelemetryFileDemoApp::Run() noexcept {
     constexpr const char* kPath = "hello_telemetry.jsonl";
     std::remove(kPath);
 
     std::puts("=== ACS HelloTelemetryFile ===");
-    std::puts("backend: REAL file JSONL telemetry sink (FFileTelemetryBackendClient)");
+    std::puts("backend: REAL file JSONL telemetry sink (CFileTelemetryBackendClient)");
 
-    acs::telemetryfile::FFileTelemetryBackendClient Backend;
+    acs::telemetryfile::CFileTelemetryBackendClient Backend;
     auto Connect = Backend.Connect(kPath);
     if (Connect.IsErr()) {
         std::printf("Connect: FAILED (%s)\n", Connect.Error().message);
         return 2;
     }
 
-    acs::game::FTelemetryDirector Telemetry;
+    acs::game::CTelemetryDirector Telemetry;
     Telemetry.Init(&Backend);
     Telemetry.TrackEvent("level_started", "{\"level\":1}", acs::game::EEventPriority::Info, "gameplay");
     Telemetry.TrackEvent("player_died", "{\"reason\":\"spike\"}", acs::game::EEventPriority::Important, "gameplay");

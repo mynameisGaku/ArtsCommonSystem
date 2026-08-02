@@ -12,7 +12,7 @@ using namespace acs::game;
 
 namespace helloac {
 
-void FAnimCurveScene::OnEnter() noexcept {
+void AAnimCurveScene::OnEnter() noexcept {
     // editor らしい暗グレー背景 (= ImGui に覆われない viewport 余白のクリア色を
     // 編集向けに揃える)。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
@@ -43,36 +43,36 @@ void FAnimCurveScene::OnEnter() noexcept {
     ACS_LOG_INFO("[AnimCurveEditor] entered (workspace + panel + 3 Hermite keys)");
 }
 
-void FAnimCurveScene::OnExit() noexcept {
+void AAnimCurveScene::OnExit() noexcept {
     // Workspace::Shutdown が登録済み全 panel の OnShutdown を呼ぶので、個別の
     // UnregisterPanel は呼ばない (= 二重 OnShutdown を避ける)。
     m_Workspace.Shutdown();
     m_CurvePanel.Shutdown();
 
     // m_ExampleCurve は Scene のメンバなので自動破棄される。
-    // FEditorTheme::Shutdown は存在しない (Dtor で十分)。
+    // CEditorTheme::Shutdown は存在しない (Dtor で十分)。
     ACS_LOG_INFO("[AnimCurveEditor] exited");
 }
 
-void FAnimCurveScene::OnUpdate(f32 dt) noexcept {
+void AAnimCurveScene::OnUpdate(f32 dt) noexcept {
     (void)dt;
-    if (FInput::IsKeyPressed(EKey::Escape)) {
+    if (CInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
 }
 
-void FAnimCurveScene::OnRender(FRenderContext& /*rc*/) noexcept {
+void AAnimCurveScene::OnRender(FRenderContext& /*rc*/) noexcept {
     m_DrawFileMenu();
 
     // TickAllPanels は OnFrameBegin → DockSpace → MenuBar → 各 panel の DrawUI
     // を順に発火する。ImGui::* を含むので NewFrame() と Render() の間 (=
-    // OnRender) で呼ぶ必要がある。dt は FRenderContext から取れないため FGame の
+    // OnRender) で呼ぶ必要がある。dt は FRenderContext から取れないため CGame の
     // DeltaTime() を使う。
     m_Workspace.TickAllPanels(GetGame().DeltaTime());
 }
 
-void FAnimCurveScene::m_DrawFileMenu() noexcept {
+void AAnimCurveScene::m_DrawFileMenu() noexcept {
     if (!ImGui::BeginMainMenuBar()) {
         return;
     }

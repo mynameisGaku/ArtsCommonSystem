@@ -100,7 +100,7 @@ public:
     /**
      * 描画フック。
      *
-     * @details FRenderContext は AScene 全体で共有される FSpriteBatch / FFont /
+     * @details FRenderContext は AScene 全体で共有される CSpriteBatch / FFont /
      * 現フレームの IRhiCommandList* を持つ。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */

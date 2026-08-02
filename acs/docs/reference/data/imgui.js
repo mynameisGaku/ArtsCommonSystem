@@ -18,7 +18,7 @@ ACS_REF.modules.push({
         { sig: "TResult&lt;void&gt; Init(FWindow&amp; window, CRenderer&amp; renderer)", ret: "成功 or エラー", desc: "<t>ImGui</t> を起動し、与えた<t>ウィンドウ</t>と<t>レンダラ</t>に紐付ける。フォント用の <t>SRV ヒープ</t>もここで確保する。<t>レンダラ</t>が未初期化だとエラー(<t>Result</t>)を返す。", when: "アプリ起動時に 1 回だけ。失敗し得るので戻り値を確認する。", sample: "if (auto r = imgui.Init(window, renderer); r.IsErr()) {\n    // 初期化失敗(レンダラ未準備など)\n}" },
         { sig: "void NewFrame()", desc: "新しいフレームの ImGui 入力を開始する。この後に <code>ImGui::Begin()</code> 等の UI 構築を書く。<t>レンダラ</t>の <code>BeginFrame()</code> の<b>後</b>に呼ぶ。", when: "毎フレーム、UI を組み立てる直前に 1 回。" },
         { sig: "void Render()", desc: "組み立てた UI の描画コマンドを、今のコマンドリストに発行する。<t>レンダラ</t>の <code>EndFrame()</code> の<b>前</b>に呼ぶ。コマンドリストが無い場合は安全に何もしない。", when: "毎フレーム、UI を組み終えた直後に 1 回。" },
-        { sig: "void OnEvent(const Event&amp; e)", desc: "<t>ウィンドウ</t>イベント(マウス移動・クリック・ホイール・文字入力など)を ImGui に転送する。これを呼ばないと UI がマウス操作に反応しない。", when: "<code>FApplication::OnEvent</code> など、イベントを受け取る場所から毎回呼ぶ。", sample: "void OnEvent(const Event&amp; e) override {\n    imgui.OnEvent(e);   // ImGui にも入力を渡す\n    // ...自分のゲーム入力処理...\n}" },
+        { sig: "void OnEvent(const Event&amp; e)", desc: "<t>ウィンドウ</t>イベント(マウス移動・クリック・ホイール・文字入力など)を ImGui に転送する。これを呼ばないと UI がマウス操作に反応しない。", when: "<code>CApplication::OnEvent</code> など、イベントを受け取る場所から毎回呼ぶ。", sample: "void OnEvent(const Event&amp; e) override {\n    imgui.OnEvent(e);   // ImGui にも入力を渡す\n    // ...自分のゲーム入力処理...\n}" },
         { sig: "void Shutdown()", desc: "<t>ImGui</t> と両 backend を破棄し、確保した <t>SRV ヒープ</t>を解放する。何度呼んでも安全(二重解放しない)。<t>デストラクタ</t>からも自動で呼ばれる。", when: "アプリ終了時。明示的に呼ばなくてもオブジェクト破棄時に走る。" }
       ]
     }

@@ -11,19 +11,19 @@ using namespace acs;
 
 namespace helloraycast3d {
 
-void FRayCaster::Init(f32 aspect) noexcept {
+void CRayCaster::Init(f32 aspect) noexcept {
     m_Camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 200.0f);
     m_CamPos = kCamInitialPos;
 }
 
-void FRayCaster::Update(f32 dt, FRaycastTargets& targets) noexcept {
+void CRayCaster::Update(f32 dt, CRaycastTargets& targets) noexcept {
     // ---- カメラ回転 / 移動 ----
     const f32 move_speed = kCamMoveSpeed * dt;
     const f32 turn_speed = kCamTurnSpeed * dt;
-    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw   -= turn_speed;
-    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw   += turn_speed;
-    if (FInput::IsKeyDown(EKey::Up))    m_CamPitch -= turn_speed * 0.8f;
-    if (FInput::IsKeyDown(EKey::Down))  m_CamPitch += turn_speed * 0.8f;
+    if (CInput::IsKeyDown(EKey::Left))  m_CamYaw   -= turn_speed;
+    if (CInput::IsKeyDown(EKey::Right)) m_CamYaw   += turn_speed;
+    if (CInput::IsKeyDown(EKey::Up))    m_CamPitch -= turn_speed * 0.8f;
+    if (CInput::IsKeyDown(EKey::Down))  m_CamPitch += turn_speed * 0.8f;
 
     // pitch を ±81° 程度に clamp してジンバルロックを回避
     const f32 limit = 0.45f * kPi;
@@ -35,10 +35,10 @@ void FRayCaster::Update(f32 dt, FRaycastTargets& targets) noexcept {
                         Cos(m_CamYaw) * Cos(m_CamPitch) };
     const FVec3 right  { Cos(m_CamYaw), 0, -Sin(m_CamYaw) };
 
-    if (FInput::IsKeyDown(EKey::W)) m_CamPos += forward * move_speed;
-    if (FInput::IsKeyDown(EKey::S)) m_CamPos -= forward * move_speed;
-    if (FInput::IsKeyDown(EKey::D)) m_CamPos += right   * move_speed;
-    if (FInput::IsKeyDown(EKey::A)) m_CamPos -= right   * move_speed;
+    if (CInput::IsKeyDown(EKey::W)) m_CamPos += forward * move_speed;
+    if (CInput::IsKeyDown(EKey::S)) m_CamPos -= forward * move_speed;
+    if (CInput::IsKeyDown(EKey::D)) m_CamPos += right   * move_speed;
+    if (CInput::IsKeyDown(EKey::A)) m_CamPos -= right   * move_speed;
 
     m_CamForward = forward;
     m_Camera.SetLookAt(m_CamPos, m_CamPos + forward);
@@ -51,7 +51,7 @@ void FRayCaster::Update(f32 dt, FRaycastTargets& targets) noexcept {
     f32  best_t = 1000.0f;
     const u32 n = targets.Count();
     for (u32 i = 0; i < n; ++i) {
-        const FObject& o = targets.At(i);
+        const FRaycastTarget& o = targets.At(i);
         FRayHit3 h{};
         if (o.kind == EShapeKind::Sphere) {
             const FSphere s{ o.position, o.radius_or_half };

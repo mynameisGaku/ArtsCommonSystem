@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloPhysics2D — FApplication 派生クラス。
-// FSpriteBatch / FFont / ボールテクスチャを所有し、PhysicsScene に毎フレーム
+// HelloPhysics2D — CApplication 派生クラス。
+// CSpriteBatch / FFont / ボールテクスチャを所有し、PhysicsScene に毎フレーム
 // の update / render を委譲する。
 #pragma once
 
@@ -16,7 +16,7 @@
 
 namespace hellophysics2d {
 
-class FHelloPhysics2DApp : public acs::FApplication {
+class CHelloPhysics2DApp : public acs::CApplication {
 public:
     void OnStart()                noexcept override;
     void OnUpdate(acs::f32 dt)    noexcept override;
@@ -24,10 +24,10 @@ public:
     void OnShutdown()             noexcept override;
 
 private:
-    acs::FSpriteBatch                m_Batch;
+    acs::CSpriteBatch                m_Batch;
     acs::FFont                       m_Font;
     acs::TUniquePtr<acs::IRhiTexture> m_Tex;
-    FPhysicsScene                    m_Scene;
+    CPhysicsScene                    m_Scene;
 };
 
 } // namespace hellophysics2d

@@ -39,7 +39,7 @@ static_assert(sizeof(CSubsystemCollection) == 80u);
 static_assert(alignof(CSubsystemCollection) == 8u);
 
 /** collectionが保持する全確保の解放を数えるtest allocator。 */
-class FSubsystemCountingAllocator final : public FAllocator {
+class FSubsystemCountingAllocator final : public IAllocator {
 public:
     void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override
     {
@@ -67,13 +67,13 @@ public:
     u32 fail_on_allocation = 0u;
 
 private:
-    FSystemAllocator m_Backing;
+    CSystemAllocator m_Backing;
 };
 
 /** test中だけ既定allocatorを差し替える。 */
 class FSubsystemDefaultAllocatorScope {
 public:
-    explicit FSubsystemDefaultAllocatorScope(FAllocator& Allocator) noexcept
+    explicit FSubsystemDefaultAllocatorScope(IAllocator& Allocator) noexcept
         : m_Previous(&DefaultAllocator())
     {
         SetDefaultAllocator(&Allocator);
@@ -82,11 +82,11 @@ public:
     ~FSubsystemDefaultAllocatorScope() noexcept { SetDefaultAllocator(m_Previous); }
 
 private:
-    FAllocator* m_Previous = nullptr;
+    IAllocator* m_Previous = nullptr;
 };
 
 /** Free中のcollection再入を一度だけ注入するallocator。 */
-class FSubsystemReentrantFreeAllocator final : public FAllocator {
+class FSubsystemReentrantFreeAllocator final : public IAllocator {
 public:
     void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override
     {
@@ -124,7 +124,7 @@ public:
     u32 outstanding_allocations = 0u;
 
 private:
-    FSystemAllocator m_Backing;
+    CSystemAllocator m_Backing;
 };
 
 // World スコープ: スコア管理 (オブジェクト間のやり取りのハブを想定)。

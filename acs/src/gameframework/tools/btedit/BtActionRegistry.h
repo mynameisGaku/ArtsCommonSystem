@@ -8,7 +8,7 @@
 // という no-code オーサリングが成立する。
 //
 // 設計選択: STL 不使用 / 例外なし / 固定長配列。name は内部の固定バッファへコピーする
-// (= 呼び出し側のリテラル寿命に依存しない)。Fn は FBtAction::Fn と同型。
+// (= 呼び出し側のリテラル寿命に依存しない)。Fn は ABtAction::Fn と同型。
 #pragma once
 
 #include "foundation/Types.h"
@@ -27,8 +27,8 @@ namespace acs::game::btedit {
  */
 class CBtActionRegistry {
 public:
-    /** Action 関数の型 (FBtAction と同型: EBtStatus(*)(void* bb, f32 dt) noexcept)。 */
-    using Fn = FBtAction::Fn;
+    /** Action 関数の型 (ABtAction と同型: EBtStatus(*)(void* bb, f32 dt) noexcept)。 */
+    using Fn = ABtAction::Fn;
 
     /** 登録できるアクションの上限。 */
     static constexpr u32 kMax = 64u;

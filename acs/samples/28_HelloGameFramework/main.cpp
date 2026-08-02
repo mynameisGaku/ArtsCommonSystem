@@ -11,22 +11,22 @@
 //   PlayerProfile.h         - AppState (シーン跨ぎ永続状態) のサンプル struct
 //   ARotateComponent.{h,cpp} - composition 版: プレーン ANode に attach する回転
 //   ARotatingNode.{h,cpp}    - 継承版: ANode サブクラスで毎フレーム回転
-//   FTitleScene.{h,cpp}      - Title 画面 (TStateMachine Idle/Blink で 2s 毎に明滅)
-//   FGameplayScene.{h,cpp}   - 本編 (ANode ツリー + FTween + CCamera + Physics)
-//   FPauseScene.{h,cpp}      - 一時停止 overlay (FSequence Loop でログを定期出力)
-//   FHelloGfApp.{h,cpp}      - FGame 派生クラス (AppState 構築、InitialScene 提供)
+//   TitleScene.{h,cpp}       - Title 画面 (TStateMachine Idle/Blink で 2s 毎に明滅)
+//   GameplayScene.{h,cpp}    - 本編 (ANode ツリー + FTween + CCamera + Physics)
+//   PauseScene.{h,cpp}       - 一時停止 overlay (FSequence Loop でログを定期出力)
+//   HelloGfApp.{h,cpp}       - CGame 派生クラス (AppState 構築、InitialScene 提供)
 //
 // このサンプルが網羅する GameFramework の主要機能:
 //   AppState + 固定 step + ChangeScene/PushScene/PopScene
-//   FSceneClock + FTweenManager + Easing
-//   TStateMachine<Owner> + FSequence + FSequenceRunner
+//   CSceneClock + CTweenManager + Easing
+//   TStateMachine<Owner> + FSequence + CSequenceRunner
 //   FTransform2D + ANode ツリー (root → wheel → spoke)
 //   FInputMap (キー binding + 1D axis)
 //   AComponent (ARotateComponent attach、継承パターンとの対比)
-//   FSceneServices ハブ (Default2D を WantedServices で宣言)
-//   FCamera2D follow + screen shake (trauma)
-//   FCollisionWorld2D + SpatialGrid (AddCircle / OverlapAabb / Raycast)
+//   CSceneServices ハブ (Default2D を WantedServices で宣言)
+//   CCamera2D follow + screen shake (trauma)
+//   CCollisionWorld2D + SpatialGrid (AddCircle / OverlapAabb / Raycast)
 //   APhysicsBody2D (重力で落下する ball + 静的 ground)
 #include "HelloGfApp.h"
 
-ACS_GAME_MAIN(hellogf::FHelloGfApp)
+ACS_GAME_MAIN(hellogf::CHelloGfApp)

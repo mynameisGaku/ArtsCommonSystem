@@ -185,7 +185,7 @@ void CScriptHost::Init(IScriptVm* vm) noexcept {
     // (後勝ち)。本来は二度差しを避けるべきだが、テスト中の差し替え運用を
     // 楽にするため拒否ではなく警告に留める。
     if (m_Vm != nullptr && m_Vm != vm) {
-        ACS_LOG_WARN("FScriptHost::Init: overwriting existing vm (likely a re-init in tests)");
+        ACS_LOG_WARN("CScriptHost::Init: overwriting existing vm (likely a re-init in tests)");
         // 既存の native 登録は新 vm 向けではないのでクリアする。
         m_Natives.Clear();
     }
@@ -213,27 +213,27 @@ TResult<void> CScriptHost::LoadAndRunSource(const char* source,
                                             const char* chunk_name) noexcept {
     if (m_Vm == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
-                       "FScriptHost::LoadAndRunSource: vm not initialized");
+                       "CScriptHost::LoadAndRunSource: vm not initialized");
     }
     if (source == nullptr && source_len > 0u) {
         return ACS_ERR(Generic, script_err::kSub_InvalidArg,
-                       "FScriptHost::LoadAndRunSource: source is null");
+                       "CScriptHost::LoadAndRunSource: source is null");
     }
     if (static_cast<u64>(source_len) > kMaxScriptFileBytes) {
         return ACS_ERR(Generic, script_err::kSub_FileTooLarge,
-                       "FScriptHost::LoadAndRunSource: source exceeds safety limit");
+                       "CScriptHost::LoadAndRunSource: source exceeds safety limit");
     }
     if (chunk_name != nullptr) {
         u32 chunk_length = 0u;
         if (!TryGetBoundedLength(chunk_name, kMaxScriptChunkNameBytes, chunk_length)) {
             return ACS_ERR(Generic, script_err::kSub_InvalidName,
-                           "FScriptHost::LoadAndRunSource: invalid chunk name");
+                           "CScriptHost::LoadAndRunSource: invalid chunk name");
         }
     }
     for (u32 i = 0u; i < source_len; ++i) {
         if (source[i] == '\0') {
             return ACS_ERR(Generic, script_err::kSub_EmbeddedNul,
-                           "FScriptHost::LoadAndRunSource: embedded NUL rejected");
+                           "CScriptHost::LoadAndRunSource: embedded NUL rejected");
         }
     }
 
@@ -255,13 +255,13 @@ TResult<void> CScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     // 事前チェック。
     if (m_Vm == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
-                       "FScriptHost::LoadAndRun: vm not initialized (call Init(vm) first)");
+                       "CScriptHost::LoadAndRun: vm not initialized (call Init(vm) first)");
     }
     u32 path_length = 0u;
     if (!TryGetBoundedLength(file_path, kMaxScriptPathChars, path_length) ||
         path_length == 0u) {
         return ACS_ERR(Generic, script_err::kSub_InvalidPath,
-                       "FScriptHost::LoadAndRun: invalid file path");
+                       "CScriptHost::LoadAndRun: invalid file path");
     }
 
     // Win32 で読み込み。CSaveArchive.cpp と同じ流儀 (CreateFileW + GetFileSizeEx + ReadFile)。
@@ -279,7 +279,7 @@ TResult<void> CScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
                 ? script_err::kSub_FileNotFound
                 : script_err::kSub_Io;
         return ACS_ERR_OS(IO, subcode,
-                          "FScriptHost::LoadAndRun: CreateFileW failed", err);
+                          "CScriptHost::LoadAndRun: CreateFileW failed", err);
     }
 
     LARGE_INTEGER size_li{};
@@ -287,19 +287,19 @@ TResult<void> CScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
         const DWORD err = ::GetLastError();
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, script_err::kSub_Io,
-                          "FScriptHost::LoadAndRun: GetFileSizeEx failed", err);
+                          "CScriptHost::LoadAndRun: GetFileSizeEx failed", err);
     }
 
     if (size_li.QuadPart < 0) {
         ::CloseHandle(h);
         return ACS_ERR(IO, script_err::kSub_Io,
-                       "FScriptHost::LoadAndRun: negative file size");
+                       "CScriptHost::LoadAndRun: negative file size");
     }
     const u64 size_u64 = static_cast<u64>(size_li.QuadPart);
     if (size_u64 == 0) {
         if (!::CloseHandle(h)) {
             return ACS_ERR_OS(IO, script_err::kSub_Io,
-                              "FScriptHost::LoadAndRun: CloseHandle failed",
+                              "CScriptHost::LoadAndRun: CloseHandle failed",
                               ::GetLastError());
         }
         return LoadAndRunSource("", 0u, "<empty>");
@@ -307,19 +307,19 @@ TResult<void> CScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     if (size_u64 > kMaxScriptFileBytes) {
         ::CloseHandle(h);
         return ACS_ERR(Generic, script_err::kSub_FileTooLarge,
-                       "FScriptHost::LoadAndRun: script file exceeds 64 MiB sanity limit");
+                       "CScriptHost::LoadAndRun: script file exceeds 64 MiB sanity limit");
     }
 
     // バッファ確保。スクリプトの読み込みは frame 跨ぎではないので、Default
-    // FAllocator を直接叩く (TArray<u8> + Resize でも良いが余分な fill cost を
+    // IAllocator を直接叩く (TArray<u8> + Resize でも良いが余分な fill cost を
     // 避けるため、生 Alloc → Free でラウンドトリップさせる)。
     const usize buf_size = static_cast<usize>(size_u64);
-    FAllocator&  alloc    = DefaultAllocator();
+    IAllocator&  alloc    = DefaultAllocator();
     void*       raw      = alloc.Alloc(buf_size, alignof(u8), FSourceLoc::Current());
     if (raw == nullptr) {
         ::CloseHandle(h);
         return ACS_ERR(Memory, script_err::kSub_AllocationFailed,
-                       "FScriptHost::LoadAndRun: failed to allocate script buffer");
+                       "CScriptHost::LoadAndRun: failed to allocate script buffer");
     }
     u8* buf = static_cast<u8*>(raw);
 
@@ -339,7 +339,7 @@ TResult<void> CScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
             alloc.Free(raw);
             ::CloseHandle(h);
             return ACS_ERR_OS(IO, script_err::kSub_Io,
-                              "FScriptHost::LoadAndRun: ReadFile failed", io_err);
+                              "CScriptHost::LoadAndRun: ReadFile failed", io_err);
         }
         p         += got;
         remaining -= got;
@@ -351,7 +351,7 @@ TResult<void> CScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
         alloc.Free(raw);
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, script_err::kSub_Io,
-                          "FScriptHost::LoadAndRun: final GetFileSizeEx failed",
+                          "CScriptHost::LoadAndRun: final GetFileSizeEx failed",
                           size_err);
     }
 
@@ -362,7 +362,7 @@ TResult<void> CScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
         alloc.Free(raw);
         ::CloseHandle(h);
         return ACS_ERR(IO, script_err::kSub_FileChanged,
-                       "FScriptHost::LoadAndRun: file changed during read");
+                       "CScriptHost::LoadAndRun: file changed during read");
     }
     if (!extra_ok) {
         const DWORD extra_err = ::GetLastError();
@@ -370,7 +370,7 @@ TResult<void> CScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
             alloc.Free(raw);
             ::CloseHandle(h);
             return ACS_ERR_OS(IO, script_err::kSub_Io,
-                              "FScriptHost::LoadAndRun: EOF verification failed",
+                              "CScriptHost::LoadAndRun: EOF verification failed",
                               extra_err);
         }
     }
@@ -378,7 +378,7 @@ TResult<void> CScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
         const DWORD close_err = ::GetLastError();
         alloc.Free(raw);
         return ACS_ERR_OS(IO, script_err::kSub_Io,
-                          "FScriptHost::LoadAndRun: CloseHandle failed",
+                          "CScriptHost::LoadAndRun: CloseHandle failed",
                           close_err);
     }
 
@@ -407,7 +407,7 @@ TResult<void> CScriptHost::CallGlobalFunction(const char*        function_name,
                                             FScriptValue*       ret_out) noexcept {
     if (m_Vm == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
-                       "FScriptHost::CallGlobalFunction: vm not initialized (call Init(vm) first)");
+                       "CScriptHost::CallGlobalFunction: vm not initialized (call Init(vm) first)");
     }
     u32 function_name_length = 0u;
     if (!TryGetBoundedLength(function_name,
@@ -415,15 +415,15 @@ TResult<void> CScriptHost::CallGlobalFunction(const char*        function_name,
                              function_name_length) ||
         function_name_length == 0u) {
         return ACS_ERR(Generic, script_err::kSub_InvalidName,
-                       "FScriptHost::CallGlobalFunction: invalid function name");
+                       "CScriptHost::CallGlobalFunction: invalid function name");
     }
     if (arg_count > 0 && args == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_InvalidArg,
-                       "FScriptHost::CallGlobalFunction: arg_count > 0 but args is null");
+                       "CScriptHost::CallGlobalFunction: arg_count > 0 but args is null");
     }
     if (arg_count > kMaxScriptCallArguments) {
         return ACS_ERR(Generic, script_err::kSub_ArgumentLimit,
-                       "FScriptHost::CallGlobalFunction: argument limit exceeded");
+                       "CScriptHost::CallGlobalFunction: argument limit exceeded");
     }
 
     u32 total_string_bytes = 0u;
@@ -431,7 +431,7 @@ TResult<void> CScriptHost::CallGlobalFunction(const char*        function_name,
         const u32 kind = static_cast<u32>(args[i].kind);
         if (kind > static_cast<u32>(EScriptValueKind::Handle)) {
             return ACS_ERR(Generic, script_err::kSub_InvalidArg,
-                           "FScriptHost::CallGlobalFunction: invalid argument kind");
+                           "CScriptHost::CallGlobalFunction: invalid argument kind");
         }
         if (args[i].kind == EScriptValueKind::String) {
             u32 string_length = 0u;
@@ -439,7 +439,7 @@ TResult<void> CScriptHost::CallGlobalFunction(const char*        function_name,
                 kMaxScriptStringArgumentBytes - total_string_bytes;
             if (!TryGetBoundedLength(args[i].v.str, remaining, string_length)) {
                 return ACS_ERR(Generic, script_err::kSub_ArgumentLimit,
-                               "FScriptHost::CallGlobalFunction: string argument limit exceeded");
+                               "CScriptHost::CallGlobalFunction: string argument limit exceeded");
             }
             total_string_bytes += string_length;
         }
@@ -467,19 +467,19 @@ TResult<void> CScriptHost::RegisterNative(const char*    function_name,
                                         void*          user) noexcept {
     if (m_Vm == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
-                       "FScriptHost::RegisterNative: vm not initialized (call Init(vm) first)");
+                       "CScriptHost::RegisterNative: vm not initialized (call Init(vm) first)");
     }
     u32 function_name_length = 0u;
     if (fn == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_InvalidArg,
-                       "FScriptHost::RegisterNative: fn is null");
+                       "CScriptHost::RegisterNative: fn is null");
     }
     if (!TryGetBoundedLength(function_name,
                              kMaxScriptFunctionNameBytes,
                              function_name_length) ||
         function_name_length == 0u) {
         return ACS_ERR(Generic, script_err::kSub_InvalidName,
-                       "FScriptHost::RegisterNative: invalid function name");
+                       "CScriptHost::RegisterNative: invalid function name");
     }
 
     usize existing_index = static_cast<usize>(-1);
@@ -499,11 +499,11 @@ TResult<void> CScriptHost::RegisterNative(const char*    function_name,
     } else {
         if (m_Natives.Size() >= static_cast<usize>(kMaxScriptNativeFunctions)) {
             return ACS_ERR(Container, script_err::kSub_RegistryLimit,
-                           "FScriptHost::RegisterNative: registry limit exceeded");
+                           "CScriptHost::RegisterNative: registry limit exceeded");
         }
         if (!m_Natives.TryReserve(m_Natives.Size() + 1u)) {
             return ACS_ERR(Memory, script_err::kSub_AllocationFailed,
-                           "FScriptHost::RegisterNative: registry allocation failed");
+                           "CScriptHost::RegisterNative: registry allocation failed");
         }
         FNativeEntry entry{};
         for (u32 i = 0u; i <= function_name_length; ++i) {
@@ -513,7 +513,7 @@ TResult<void> CScriptHost::RegisterNative(const char*    function_name,
         entry.user = user;
         if (!m_Natives.TryPushBack(entry)) {
             return ACS_ERR(Memory, script_err::kSub_AllocationFailed,
-                           "FScriptHost::RegisterNative: registry append failed");
+                           "CScriptHost::RegisterNative: registry append failed");
         }
     }
 
@@ -527,7 +527,7 @@ TResult<void> CScriptHost::RegisterNative(const char*    function_name,
         } else {
             m_Natives.PopBack();
         }
-        ACS_LOG_WARN("FScriptHost::RegisterNative: backend rejected '%s'; cache rolled back",
+        ACS_LOG_WARN("CScriptHost::RegisterNative: backend rejected '%s'; cache rolled back",
                      function_name);
         FireError("<register>", 0, r.Error().message);
         return r;
@@ -551,7 +551,7 @@ void CScriptHost::RegisterStandardBindings() noexcept {
     // 留める想定 (= 本 module が全 Pillar に依存しないようにする)。
     if (m_Vm == nullptr) {
         // Init 前の呼び出しは事故 (CGame の startup 順序を疑え)。
-        ACS_LOG_WARN("FScriptHost::RegisterStandardBindings: vm not initialized; skipping");
+        ACS_LOG_WARN("CScriptHost::RegisterStandardBindings: vm not initialized; skipping");
         return;
     }
     // 現状は何も登録しない (= bindings 数 0)。binding 実装は

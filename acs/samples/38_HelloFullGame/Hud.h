@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloFullGame — HUD モジュール。HP / スコア / Wave / FPS / flash オーバーレイの描画。
 //
-// 純粋に描画だけのモジュール。状態は呼び出し側 (FGameplayScene) が持ち、
-// 必要な値だけ受け取って FSpriteBatch に積む。
+// 純粋に描画だけのモジュール。状態は呼び出し側 (AGameplayScene) が持ち、
+// 必要な値だけ受け取って CSpriteBatch に積む。
 #pragma once
 
 #include "gameframework/GameFramework.h"
 #include "GameTypes.h"
 
-namespace acs { class FSpriteBatch; }
+namespace acs { class CSpriteBatch; }
 
 namespace hellofg {
 
-class FGameplayScene;
+class AGameplayScene;
 
-class FHud {
+class CHud {
 public:
-    // HUD レイヤを描画する。FSpriteBatch は呼び出し側で Begin/SetView 済み。
+    // HUD レイヤを描画する。CSpriteBatch は呼び出し側で Begin/SetView 済み。
     // last_dt / fps_ema は FPS 表示用。
-    void Draw(FGameplayScene& scene, acs::FSpriteBatch& sb,
+    void Draw(AGameplayScene& scene, acs::CSpriteBatch& sb,
               acs::u32 sw, acs::u32 sh,
               acs::f32 last_dt, acs::f32 fps_ema) const noexcept;
 };

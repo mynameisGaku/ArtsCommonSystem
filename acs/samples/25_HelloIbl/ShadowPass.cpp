@@ -10,13 +10,13 @@ using namespace acs;
 
 namespace helloibl {
 
-FVec3 ResolveSunDirection(const FHelloIblApp& app) noexcept {
-    // Studio HDR preset (3) は前方上向きの固定方向、それ以外は FSky の太陽。
+FVec3 ResolveSunDirection(const CHelloIblApp& app) noexcept {
+    // Studio HDR preset (3) は前方上向きの固定方向、それ以外は CSky の太陽。
     if (app.m_CurrentPreset == 3) return FVec3{0.3f, 0.6f, -0.5f};
     return app.m_Sky.SunDirection();
 }
 
-void RenderShadowPass(FHelloIblApp& app, const FVec3& sun_dir) noexcept {
+void RenderShadowPass(CHelloIblApp& app, const FVec3& sun_dir) noexcept {
     if (!app.m_bUseShadows) return;
 
     IRhiCommandList* cl = app.GetRenderer().CommandList();

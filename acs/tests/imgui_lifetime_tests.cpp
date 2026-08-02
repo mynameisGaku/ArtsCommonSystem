@@ -15,7 +15,7 @@ ACS_TEST(ImGuiLifetime, InvalidInitRollsBackAndPreservesExternalContext)
     EXPECT_TRUE(external_context != nullptr);
 
     FWindow window;
-    FRenderer renderer;
+    CRenderer renderer;
     FImGuiCtx context;
     EXPECT_TRUE(context.Init(window, renderer).IsErr());
     EXPECT_TRUE(ImGui::GetCurrentContext() == external_context);

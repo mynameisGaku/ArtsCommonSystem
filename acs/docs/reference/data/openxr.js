@@ -138,7 +138,7 @@ ACS_REF.modules.push({
       sample: "acs::game::OpenXrBridgeProvider p =\n    []() noexcept -&gt; acs::game::IOpenXrBridge&amp; { return MyBridge(); };"
     },
     {
-      name: "FOpenXrBridgeStub",
+      name: "COpenXrBridgeStub",
       kind: "クラス", header: "gameframework/OpenXrBridge.h",
       summary: "「常に未初期化/原点ポーズ/パススルー非対応」を返す stub 実装。実 backend をリンクしていない状態でも、上位が<t>フォールバック</t>(2D 描画)を書けるようにする placeholder。",
       when: "HMD が無い開発機/CI での既定。直接 new せず <code>GetXrStub()</code> で得る。",
@@ -146,13 +146,14 @@ ACS_REF.modules.push({
       members: [
         { sig: "TResult&lt;void&gt; Init(EXrPlatform = Unknown)", desc: "常に NotImplemented を返す(副作用なし)。" },
         { sig: "FXrPose HeadPose() const", desc: "常にゼロポーズ。" },
-        { sig: "bool IsPassthroughSupported() const", desc: "常に false。<code>SetPassthrough()</code> は no-op。" }
+        { sig: "bool IsPassthroughSupported() const", desc: "常に false。<code>SetPassthrough()</code> は no-op。" },
+        { sig: "using FOpenXrBridgeStub = COpenXrBridgeStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>COpenXrBridgeStub</code> を使う。" }
       ]
     },
     {
       name: "GetXrStub()",
       kind: "関数", header: "gameframework/OpenXrBridge.h",
-      summary: "プロセス内に 1 個だけ存在する静的 <t>FOpenXrBridgeStub</t> への参照を返す。provider 未登録時に <code>GetDefaultOpenXrBridge()</code> が返すのもこれ。",
+      summary: "プロセス内に 1 個だけ存在する静的 <t>COpenXrBridgeStub</t> への参照を返す。provider 未登録時に <code>GetDefaultOpenXrBridge()</code> が返すのもこれ。",
       when: "明示的に stub を使いたい/テストで原点ポーズを期待する時。",
       sample: "acs::game::IOpenXrBridge&amp; xr = acs::game::GetXrStub();"
     },

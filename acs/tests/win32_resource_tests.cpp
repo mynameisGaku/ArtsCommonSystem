@@ -27,7 +27,7 @@ DWORD ProcessHandleCount() noexcept
 }
 
 /** 非同期ローカルビルドが完了するまで短時間 poll する。 */
-bool WaitForBuild(FLocalBuildRunner& runner, u64 build_identifier) noexcept
+bool WaitForBuild(CLocalBuildRunner& runner, u64 build_identifier) noexcept
 {
     for (u32 i = 0; i < 500; ++i) {
         auto result = runner.PollBuild(build_identifier);
@@ -37,7 +37,7 @@ bool WaitForBuild(FLocalBuildRunner& runner, u64 build_identifier) noexcept
     return false;
 }
 
-/** FUdpTransport の WSA 参照計数を競合させるスレッド引数。 */
+/** CUdpTransport の WSA 参照計数を競合させるスレッド引数。 */
 struct FTransportThreadContext {
     HANDLE start_event = nullptr;
     u32 iteration_count = 0;
@@ -52,7 +52,7 @@ DWORD WINAPI TransportThreadMain(void* user) noexcept
     if (::WaitForSingleObject(context->start_event, 10000) != WAIT_OBJECT_0) return 2;
 
     for (u32 i = 0; i < context->iteration_count; ++i) {
-        FUdpTransport transport;
+        CUdpTransport transport;
         auto connected = transport.Connect("127.0.0.1", 9);
         if (connected.IsErr()) return 3;
         transport.Disconnect();
@@ -113,7 +113,7 @@ bool RunConcurrentUdpTransportRound(u32 iteration_count) noexcept
     return succeeded;
 }
 
-/** FUdpTransport の共有所有状態が完全に回収済みかを返す。 */
+/** CUdpTransport の共有所有状態が完全に回収済みかを返す。 */
 bool UdpTransportDiagnosticsAreClean(const FUdpTransportDiagnostics& diagnostics) noexcept
 {
     return diagnostics.active_winsock_reference_count == 0 && diagnostics.pending_cleanup_error == 0 &&
@@ -136,7 +136,7 @@ bool ValidateConcurrentUdpTransportOwnership() noexcept
     constexpr DWORD kMaximumExpectedLazyHandleGrowth = 4;
 
     if (!RunConcurrentUdpTransportRound(100)) return false;
-    const FUdpTransportDiagnostics warmup_diagnostics = FUdpTransport::CaptureDiagnostics();
+    const FUdpTransportDiagnostics warmup_diagnostics = CUdpTransport::CaptureDiagnostics();
     if (!UdpTransportDiagnosticsAreClean(warmup_diagnostics)) return false;
 
     const DWORD initial_handle_count = ProcessHandleCount();
@@ -150,10 +150,10 @@ bool ValidateConcurrentUdpTransportOwnership() noexcept
     for (u32 round = 0; round < kMeasurementRounds; ++round) {
         if (!RunConcurrentUdpTransportRound(100)) return false;
 
-        const FUdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
+        const FUdpTransportDiagnostics diagnostics = CUdpTransport::CaptureDiagnostics();
         if (!UdpTransportDiagnosticsAreClean(diagnostics)) {
             ::acs::test::RecordInfo(::acs::FSourceLoc::Current(),
-                                    "FUdpTransport diagnostics: references=%u cleanup_error=%u "
+                                    "CUdpTransport diagnostics: references=%u cleanup_error=%u "
                                     "cleanup_orphaned=%u orphaned_sockets=%u release_failures=%llu round=%u",
                                     diagnostics.active_winsock_reference_count, diagnostics.pending_cleanup_error,
                                     diagnostics.cleanup_debt_orphaned ? 1u : 0u, diagnostics.orphaned_socket_count,
@@ -180,7 +180,7 @@ bool ValidateConcurrentUdpTransportOwnership() noexcept
     }
 
     ::acs::test::RecordInfo(::acs::FSourceLoc::Current(),
-                            "FUdpTransport process HANDLE trend is informational: initial=%lu minimum=%lu maximum=%lu "
+                            "CUdpTransport process HANDLE trend is informational: initial=%lu minimum=%lu maximum=%lu "
                             "final=%lu delta=%lld maximum_sustained_growth=%lu rounds=%u",
                             static_cast<unsigned long>(initial_handle_count),
                             static_cast<unsigned long>(minimum_handle_count),
@@ -190,7 +190,7 @@ bool ValidateConcurrentUdpTransportOwnership() noexcept
                             static_cast<unsigned long>(maximum_sustained_growth), kMeasurementRounds);
     if (maximum_sustained_growth > kMaximumExpectedLazyHandleGrowth) {
         ::acs::test::RecordInfo(::acs::FSourceLoc::Current(),
-                                "FUdpTransport sustained HANDLE growth exceeded lazy-runtime allowance: "
+                                "CUdpTransport sustained HANDLE growth exceeded lazy-runtime allowance: "
                                 "growth=%lu allowance=%lu",
                                 static_cast<unsigned long>(maximum_sustained_growth),
                                 static_cast<unsigned long>(kMaximumExpectedLazyHandleGrowth));
@@ -202,7 +202,7 @@ bool ValidateConcurrentUdpTransportOwnership() noexcept
 /** 同一 transport の公開操作を競合させるスレッド引数。 */
 struct FSharedTransportThreadContext {
     HANDLE start_event = nullptr;
-    FUdpTransport* transport = nullptr;
+    CUdpTransport* transport = nullptr;
     u32 iteration_count = 0;
     bool success = false;
 };
@@ -230,11 +230,11 @@ DWORD WINAPI SharedTransportThreadMain(void* user) noexcept
     return 0;
 }
 
-/** 同一 FUdpTransport の状態競合を 1 周させ、明示 HANDLE を全て回収する。 */
+/** 同一 CUdpTransport の状態競合を 1 周させ、明示 HANDLE を全て回収する。 */
 bool RunConcurrentSharedUdpTransportRound(u32 iteration_count) noexcept
 {
     constexpr DWORD kThreadCount = 4;
-    FUdpTransport transport;
+    CUdpTransport transport;
     HANDLE start_event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (start_event == nullptr) return false;
 
@@ -323,10 +323,10 @@ DWORD WINAPI NetworkLifecycleThreadMain(void* user) noexcept
         }
 
         if (context->initialize) {
-            auto initialized = FNetwork::Init();
+            auto initialized = CNetwork::Init();
             if (initialized.IsErr()) context->success = false;
         } else {
-            FNetwork::Shutdown();
+            CNetwork::Shutdown();
         }
 
         ::_InterlockedIncrement(&control.completed_count);
@@ -349,7 +349,7 @@ ACS_TEST(Win32Resource, HotReloadUnwatchReturnsDirectoryHandle)
     (void)::RemoveDirectoryA(directory);
     EXPECT_TRUE(::CreateDirectoryA(directory, nullptr) != FALSE);
 
-    FHotReloadWatcher watcher;
+    CHotReloadWatcher watcher;
     watcher.Init();
     const DWORD before = ProcessHandleCount();
     EXPECT_TRUE(before > 0);
@@ -371,7 +371,7 @@ ACS_TEST(Win32Resource, HotReloadUnwatchReturnsDirectoryHandle)
 
 ACS_TEST(Win32Resource, CompletedBuildReleasesProcessHandle)
 {
-    FLocalBuildRunner runner;
+    CLocalBuildRunner runner;
     IBuildFarmBackend::FBuildRequest request{};
     request.preset = "cmd.exe /D /C exit 0";
     request.branch = "local";
@@ -400,18 +400,18 @@ ACS_TEST(Win32Resource, CompletedBuildReleasesProcessHandle)
 ACS_TEST(Win32Resource, NetworkAndUdpSocketReferencesAreBalanced)
 {
     // 初回 Winsock 起動時の OS 内部遅延初期化を測定外へ出す。
-    auto warmup_init = FNetwork::Init();
+    auto warmup_init = CNetwork::Init();
     EXPECT_TRUE(warmup_init.IsOk());
     if (warmup_init.IsErr()) return;
     {
         auto warmup_socket = FUdpSocket::Bind(FIpAddress::Loopback(), 0);
         EXPECT_TRUE(warmup_socket.IsOk());
     }
-    FNetwork::Shutdown();
+    CNetwork::Shutdown();
 
     const DWORD before = ProcessHandleCount();
     for (u32 i = 0; i < 64; ++i) {
-        auto initialized = FNetwork::Init();
+        auto initialized = CNetwork::Init();
         EXPECT_TRUE(initialized.IsOk());
         if (initialized.IsErr()) break;
         {
@@ -422,8 +422,8 @@ ACS_TEST(Win32Resource, NetworkAndUdpSocketReferencesAreBalanced)
                 socket.Value().Close(); // 多重 Close でも二重解放しない。
             }
         }
-        FNetwork::Shutdown();
-        EXPECT_FALSE(FNetwork::IsInitialized());
+        CNetwork::Shutdown();
+        EXPECT_FALSE(CNetwork::IsInitialized());
     }
     const DWORD after = ProcessHandleCount();
     if (after != before) {
@@ -433,7 +433,7 @@ ACS_TEST(Win32Resource, NetworkAndUdpSocketReferencesAreBalanced)
                                 static_cast<long long>(after) - static_cast<long long>(before));
     }
     EXPECT_EQ(after, before);
-    const FNetworkDiagnostics diagnostics = FNetwork::CaptureDiagnostics();
+    const FNetworkDiagnostics diagnostics = CNetwork::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.initialization_reference_count, 0u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_EQ(diagnostics.resource_release_failure_count, 0ull);
@@ -443,7 +443,7 @@ ACS_TEST(Win32Resource, ConcurrentUdpTransportReferencesAreBalanced)
 {
     EXPECT_TRUE(ValidateConcurrentUdpTransportOwnership());
 
-    const FUdpTransportDiagnostics after_diagnostics = FUdpTransport::CaptureDiagnostics();
+    const FUdpTransportDiagnostics after_diagnostics = CUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(after_diagnostics.active_winsock_reference_count, 0u);
     EXPECT_EQ(after_diagnostics.pending_cleanup_error, 0u);
     EXPECT_FALSE(after_diagnostics.cleanup_debt_orphaned);
@@ -481,12 +481,12 @@ ACS_TEST(Win32Resource, ConcurrentSharedUdpTransportStateIsBalanced)
             previous_handle_count = handle_count;
         }
 
-        const FUdpTransportDiagnostics round_diagnostics = FUdpTransport::CaptureDiagnostics();
+        const FUdpTransportDiagnostics round_diagnostics = CUdpTransport::CaptureDiagnostics();
         EXPECT_TRUE(UdpTransportDiagnosticsAreClean(round_diagnostics));
     }
 
     ::acs::test::RecordInfo(::acs::FSourceLoc::Current(),
-                            "shared FUdpTransport HANDLE trend: initial=%lu minimum=%lu maximum=%lu "
+                            "shared CUdpTransport HANDLE trend: initial=%lu minimum=%lu maximum=%lu "
                             "maximum_sustained_growth=%lu rounds=%u",
                             static_cast<unsigned long>(initial_handle_count),
                             static_cast<unsigned long>(minimum_handle_count),
@@ -494,7 +494,7 @@ ACS_TEST(Win32Resource, ConcurrentSharedUdpTransportStateIsBalanced)
                             static_cast<unsigned long>(maximum_sustained_growth), kMeasurementRounds);
     EXPECT_TRUE(maximum_sustained_growth <= kMaximumExpectedLazyHandleGrowth);
 
-    const FUdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
+    const FUdpTransportDiagnostics diagnostics = CUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 0u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_FALSE(diagnostics.cleanup_debt_orphaned);
@@ -515,13 +515,13 @@ ACS_TEST(Win32Resource, LiveUdpCleanupDebtCannotBeStolen)
     injection.cleanup_failure_count = 1;
     EXPECT_TRUE(ConfigureUdpTransportFailureInjectionForTesting(injection));
 
-    FUdpTransport owner;
+    CUdpTransport owner;
     auto connected = owner.Connect("127.0.0.1", 9);
     EXPECT_TRUE(connected.IsOk());
     if (connected.IsErr()) return;
 
     owner.Disconnect();
-    FUdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
+    FUdpTransportDiagnostics diagnostics = CUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 1u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, injection.cleanup_error);
     EXPECT_FALSE(diagnostics.cleanup_debt_orphaned);
@@ -529,14 +529,14 @@ ACS_TEST(Win32Resource, LiveUdpCleanupDebtCannotBeStolen)
     EXPECT_EQ(diagnostics.overflow_orphaned_socket_count, 0u);
     EXPECT_EQ(diagnostics.resource_release_failure_count, 1ull);
 
-    FUdpTransport contender;
+    CUdpTransport contender;
     auto contender_connected = contender.Connect("127.0.0.1", 9);
     EXPECT_TRUE(contender_connected.IsErr());
     if (contender_connected.IsErr()) {
         EXPECT_EQ(contender_connected.Error().subcode, static_cast<u16>(FNetSnapshotError::kSub_CloseFailed));
     }
 
-    diagnostics = FUdpTransport::CaptureDiagnostics();
+    diagnostics = CUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 1u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, injection.cleanup_error);
     EXPECT_FALSE(diagnostics.cleanup_debt_orphaned);
@@ -544,7 +544,7 @@ ACS_TEST(Win32Resource, LiveUdpCleanupDebtCannotBeStolen)
     EXPECT_EQ(diagnostics.resource_release_failure_count, 1ull);
 
     owner.Disconnect();
-    diagnostics = FUdpTransport::CaptureDiagnostics();
+    diagnostics = CUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 0u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_FALSE(diagnostics.cleanup_debt_orphaned);
@@ -568,12 +568,12 @@ ACS_TEST(Win32Resource, DestroyedUdpCleanupDebtIsExplicitlyDrained)
     EXPECT_TRUE(ConfigureUdpTransportFailureInjectionForTesting(injection));
 
     {
-        FUdpTransport owner;
+        CUdpTransport owner;
         auto connected = owner.Connect("127.0.0.1", 9);
         EXPECT_TRUE(connected.IsOk());
     }
 
-    FUdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
+    FUdpTransportDiagnostics diagnostics = CUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 1u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, injection.cleanup_error);
     EXPECT_TRUE(diagnostics.cleanup_debt_orphaned);
@@ -581,10 +581,10 @@ ACS_TEST(Win32Resource, DestroyedUdpCleanupDebtIsExplicitlyDrained)
     EXPECT_EQ(diagnostics.overflow_orphaned_socket_count, 0u);
     EXPECT_EQ(diagnostics.resource_release_failure_count, 2ull);
 
-    auto drained = FUdpTransport::DrainDeferredResources();
+    auto drained = CUdpTransport::DrainDeferredResources();
     EXPECT_TRUE(drained.IsOk());
 
-    diagnostics = FUdpTransport::CaptureDiagnostics();
+    diagnostics = CUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 0u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_FALSE(diagnostics.cleanup_debt_orphaned);
@@ -608,12 +608,12 @@ ACS_TEST(Win32Resource, DestroyedUdpSocketRemainsTrackedUntilExplicitDrain)
     EXPECT_TRUE(ConfigureUdpTransportFailureInjectionForTesting(injection));
 
     {
-        FUdpTransport owner;
+        CUdpTransport owner;
         auto connected = owner.Connect("127.0.0.1", 9);
         EXPECT_TRUE(connected.IsOk());
     }
 
-    FUdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
+    FUdpTransportDiagnostics diagnostics = CUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 1u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_FALSE(diagnostics.cleanup_debt_orphaned);
@@ -621,21 +621,21 @@ ACS_TEST(Win32Resource, DestroyedUdpSocketRemainsTrackedUntilExplicitDrain)
     EXPECT_EQ(diagnostics.overflow_orphaned_socket_count, 0u);
     EXPECT_EQ(diagnostics.resource_release_failure_count, 2ull);
 
-    auto first_drain = FUdpTransport::DrainDeferredResources();
+    auto first_drain = CUdpTransport::DrainDeferredResources();
     EXPECT_TRUE(first_drain.IsErr());
     if (first_drain.IsErr()) {
         EXPECT_EQ(first_drain.Error().subcode, static_cast<u16>(FNetSnapshotError::kSub_CloseFailed));
     }
-    diagnostics = FUdpTransport::CaptureDiagnostics();
+    diagnostics = CUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 1u);
     EXPECT_EQ(diagnostics.orphaned_socket_count, 1u);
     EXPECT_EQ(diagnostics.overflow_orphaned_socket_count, 0u);
     EXPECT_EQ(diagnostics.resource_release_failure_count, 3ull);
 
-    auto second_drain = FUdpTransport::DrainDeferredResources();
+    auto second_drain = CUdpTransport::DrainDeferredResources();
     EXPECT_TRUE(second_drain.IsOk());
 
-    diagnostics = FUdpTransport::CaptureDiagnostics();
+    diagnostics = CUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 0u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_FALSE(diagnostics.cleanup_debt_orphaned);
@@ -659,13 +659,13 @@ ACS_TEST(Win32Resource, UdpOrphanRegistryOverflowRetainsEveryOwnershipToken)
     EXPECT_TRUE(ConfigureUdpTransportFailureInjectionForTesting(injection));
 
     {
-        FUdpTransport first;
-        FUdpTransport second;
+        CUdpTransport first;
+        CUdpTransport second;
         EXPECT_TRUE(first.Connect("127.0.0.1", 9).IsOk());
         EXPECT_TRUE(second.Connect("127.0.0.1", 9).IsOk());
     }
 
-    FUdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
+    FUdpTransportDiagnostics diagnostics = CUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 2u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_FALSE(diagnostics.cleanup_debt_orphaned);
@@ -673,9 +673,9 @@ ACS_TEST(Win32Resource, UdpOrphanRegistryOverflowRetainsEveryOwnershipToken)
     EXPECT_EQ(diagnostics.overflow_orphaned_socket_count, 1u);
     EXPECT_EQ(diagnostics.resource_release_failure_count, 5ull);
 
-    auto drained = FUdpTransport::DrainDeferredResources();
+    auto drained = CUdpTransport::DrainDeferredResources();
     EXPECT_TRUE(drained.IsOk());
-    diagnostics = FUdpTransport::CaptureDiagnostics();
+    diagnostics = CUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 0u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_FALSE(diagnostics.cleanup_debt_orphaned);
@@ -709,8 +709,8 @@ ACS_TEST(Win32Resource, ConcurrentNetworkInitAndShutdownRemainBalanced)
 {
     constexpr u32 kIterationCount = 512;
 
-    EXPECT_FALSE(FNetwork::IsInitialized());
-    auto initialized = FNetwork::Init();
+    EXPECT_FALSE(CNetwork::IsInitialized());
+    auto initialized = CNetwork::Init();
     EXPECT_TRUE(initialized.IsOk());
     if (initialized.IsErr()) return;
 
@@ -741,7 +741,7 @@ ACS_TEST(Win32Resource, ConcurrentNetworkInitAndShutdownRemainBalanced)
         for (u32 iteration = 0; iteration < kIterationCount; ++iteration) {
             ::_InterlockedExchange(&control.completed_count, 0);
             ::_InterlockedExchange(&control.phase, static_cast<LONG>(iteration + 1));
-            if (!WaitForAtomicValueAtLeast(&control.completed_count, 2, 10000) || !FNetwork::IsInitialized()) {
+            if (!WaitForAtomicValueAtLeast(&control.completed_count, 2, 10000) || !CNetwork::IsInitialized()) {
                 lifecycle_balanced = false;
                 break;
             }
@@ -758,15 +758,15 @@ ACS_TEST(Win32Resource, ConcurrentNetworkInitAndShutdownRemainBalanced)
     }
 
     EXPECT_TRUE(lifecycle_balanced);
-    EXPECT_TRUE(FNetwork::IsInitialized());
-    FNetwork::Shutdown();
-    EXPECT_FALSE(FNetwork::IsInitialized());
+    EXPECT_TRUE(CNetwork::IsInitialized());
+    CNetwork::Shutdown();
+    EXPECT_FALSE(CNetwork::IsInitialized());
 
     // 途中失敗時も後続テストへ参照を残さない。
-    for (u32 cleanup = 0; cleanup < 4 && FNetwork::IsInitialized(); ++cleanup) {
-        FNetwork::Shutdown();
+    for (u32 cleanup = 0; cleanup < 4 && CNetwork::IsInitialized(); ++cleanup) {
+        CNetwork::Shutdown();
     }
-    const FNetworkDiagnostics diagnostics = FNetwork::CaptureDiagnostics();
+    const FNetworkDiagnostics diagnostics = CNetwork::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.initialization_reference_count, 0u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_EQ(diagnostics.resource_release_failure_count, 0ull);

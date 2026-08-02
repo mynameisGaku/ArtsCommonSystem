@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloAssetPackBridge - FAssetPackBridgeDemoApp implementation.
+// HelloAssetPackBridge - CAssetPackBridgeDemoApp implementation.
 #include "AssetPackBridgeDemoApp.h"
 
 #include "assetpack/AcpakGameBridge.h"
@@ -21,9 +21,9 @@ bool BytesEqual(const acs::u8* A, const acs::u8* B, acs::u64 Size) noexcept {
 
 } // namespace
 
-int FAssetPackBridgeDemoApp::Run() noexcept {
+int CAssetPackBridgeDemoApp::Run() noexcept {
     std::puts("=== ACS HelloAssetPackBridge ===");
-    std::puts("backend: REAL .acpak bridge (FAcpakGameReader/Writer)");
+    std::puts("backend: REAL .acpak bridge (CAcpakGameReader/Writer)");
 
     static constexpr const char* kPackPath = "hello_asset_pack_bridge.acpak";
     static constexpr const char* kFileName = "data/greeting.txt";
@@ -31,7 +31,7 @@ int FAssetPackBridgeDemoApp::Run() noexcept {
         'A', 'C', 'S', ' ', 'a', 's', 's', 'e', 't', ' ', 'p', 'a', 'c', 'k', '\n'
     };
 
-    acs::assetpack::FAcpakGameWriter Writer;
+    acs::assetpack::CAcpakGameWriter Writer;
     auto Begin = Writer.BeginPack(kPackPath);
     auto Add = Begin.IsOk()
         ? Writer.AddFile(kFileName, kPayload, sizeof(kPayload))
@@ -40,7 +40,7 @@ int FAssetPackBridgeDemoApp::Run() noexcept {
         ? Writer.FinishPack()
         : acs::TResult<void>(Add.Error());
 
-    acs::assetpack::FAcpakGameReader Reader;
+    acs::assetpack::CAcpakGameReader Reader;
     auto Mount = Finish.IsOk()
         ? Reader.Mount(kPackPath)
         : acs::TResult<void>(Finish.Error());

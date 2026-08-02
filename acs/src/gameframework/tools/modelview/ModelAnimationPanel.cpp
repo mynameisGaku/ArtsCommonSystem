@@ -304,7 +304,7 @@ void AModelAnimationPanel::Tick(f32 dt) noexcept {
         }
     }
 
-    // callback 発火 (= 外部 FAnimationPlayer に時刻反映)。
+    // callback 発火 (= 外部 CAnimationPlayer に時刻反映)。
     if (m_OnFrameCb != nullptr) {
         m_OnFrameCb(m_OnFrameUser, c->clip_index, m_CurrentTimeSec);
     }

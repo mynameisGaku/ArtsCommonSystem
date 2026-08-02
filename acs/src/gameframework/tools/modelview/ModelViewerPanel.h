@@ -22,7 +22,7 @@
 //   ・AModelMaterialPanel                   : material slot 編集 (basecolor /
 //                                            metallic / roughness 等)
 //   ・AModelAnimationPanel                  : animation clip 切替 + 再生 / pause
-//   ・ModelViewportRenderer                 : 実際の 3D 描画 (FPbrShader + FShadowMap +
+//   ・ModelViewportRenderer                 : 実際の 3D 描画 (CPbrShader + CShadowMap +
 //                                            IBL + Tonemap) を持つ別クラス。本 panel
 //                                            は描画パラメータの保管だけを担う。
 //
@@ -46,9 +46,9 @@
 //     OnInit / OnAssetSelected を override。OnInit では基底実装 (`Workspace()`
 //     ポインタ保持) を必ず呼ぶ。
 //   ・**3D viewport を「数値パラメータ + ImGui controls」だけにする**:
-//     実際の 3D 描画 (FPbrShader / FShadowMap / IBL) は
+//     実際の 3D 描画 (CPbrShader / CShadowMap / IBL) は
 //     `ModelViewportRenderer` が担当する。本 panel は
-//     「FCamera state + light params + background + toggle 群」の保管 + UI のみ。
+//     「CCamera state + light params + background + toggle 群」の保管 + UI のみ。
 //     こうしておけば panel 単体テストや、別の renderer (= raymarched preview /
 //     OBJ thumbnail) への差し替えが容易。
 //   ・**CEditorCamera を内包 (値メンバ)**: 各 panel が独自 camera を持つ Unity
@@ -69,7 +69,7 @@
 //     を出す。各 widget の戻り値で「ユーザが変更したか」を判定する。本 panel は
 //     値を保持するだけ。
 //   ・**Tonemap mode は u32 enum 風 (0=ACES / 1=Reinhard / 2=Linear)**:
-//     FPbrShader / Tonemap の既存 enum (`render/PostProcess.h` 等) との連携は
+//     CPbrShader / Tonemap の既存 enum (`render/PostProcess.h` 等) との連携は
 //     renderer 側で行う (本 panel は u32 で受け流し)。
 //   ・**Background color は FVec4** (RGBA): renderer の clear color 用。alpha は
 //     通常 1.0 だが、screenshot 用に alpha 0 もあり得る。
@@ -81,7 +81,7 @@
 //     (Workspace 経由で疎結合)。
 //
 // 範囲外 (別 panel):
-//   ・PBR 描画 (FPbrShader / FShadowMap / IBL) の実呼出 = ModelViewportRenderer
+//   ・PBR 描画 (CPbrShader / CShadowMap / IBL) の実呼出 = ModelViewportRenderer
 //   ・material slot 編集 = AModelMaterialPanel
 //   ・bone hierarchy 表示 = AModelInspectorPanel
 //   ・animation timeline = AModelAnimationPanel
@@ -104,8 +104,8 @@ namespace acs::game::modelview {
  * @details
  * 3D model の表示と asset 切替を行うメインビューポート。CEditorCamera (3D orbit) を
  * 内包し、Lighting (sun dir / color / IBL / tonemap)・Background・Grid・bone skeleton
- * 表示の数値パラメータと ImGui controls を保持する。実際の 3D 描画 (FPbrShader /
- * FShadowMap / IBL) は外部の ModelViewportRenderer が CurrentAssetPath() や各パラメータを
+ * 表示の数値パラメータと ImGui controls を保持する。実際の 3D 描画 (CPbrShader /
+ * CShadowMap / IBL) は外部の ModelViewportRenderer が CurrentAssetPath() や各パラメータを
  * 見て担当し、本 panel は値の保管と UI のみを担う。CAssetBrowser からのファイル選択
  * (OnAssetSelected) を受けて mesh / model 拡張子なら自動 LoadModelAsset する。
  */

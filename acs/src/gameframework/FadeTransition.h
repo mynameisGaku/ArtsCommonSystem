@@ -3,7 +3,7 @@
 //
 // シーン切替時のフェード演出を司る **state holder**。描画自体は行わず、
 // 現在の overlay alpha / color と phase だけを提供する。ユーザー側で
-// FSpriteBatch を使い fullscreen quad を「色 = OverlayColor()、alpha =
+// CSpriteBatch を使い fullscreen quad を「色 = OverlayColor()、alpha =
 // OverlayAlpha()」で描くだけで、典型的なフェードイン・アウト・ブラック
 // フラッシュ・クロスフェードが成立する。
 //
@@ -26,7 +26,7 @@
 //           if (m_Fade.IsActive()) {
 //               const acs::FVec3 c = m_Fade.OverlayColor();
 //               const f32       a = m_Fade.OverlayAlpha();
-//               FSpriteBatch().FillFullScreen(c.x, c.y, c.z, a);
+//               CSpriteBatch().FillFullScreen(c.x, c.y, c.z, a);
 //           }
 //       }
 //   };
@@ -52,7 +52,7 @@
 //   ・非コピー・非ムーブ。state holder なので所有権移転を許す意味がない。
 //
 // 範囲外:
-//   ・実描画 (FSpriteBatch 呼び出し)
+//   ・実描画 (CSpriteBatch 呼び出し)
 //   ・easing 曲線指定 (linear 固定。必要なら user 側で OverlayAlpha() を
 //      Easing::InOutSine 等に通す)
 //   ・複数 overlay の重ね合わせ

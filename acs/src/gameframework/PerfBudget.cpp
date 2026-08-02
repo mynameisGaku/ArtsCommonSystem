@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework meta — CPerfBudget 実装
 //
-// state holder のみ。計測 (タイマ / FAllocator hook) は呼出し側責務。詳細は
+// state holder のみ。計測 (タイマ / IAllocator hook) は呼出し側責務。詳細は
 // CPerfBudget.h 参照。
 #include "gameframework/PerfBudget.h"
 

@@ -16,7 +16,7 @@ namespace {
 // material lobe 系のパラメータを 1 mesh 描く前にデフォルト値へ戻す。
 // 前回の sphere の sheen / iridescence / subsurface / emissive が引き継がれて
 // 意図しない見た目になるのを防ぐ。
-void ResetMaterialLobes(FPbrShader& pbr) noexcept {
+void ResetMaterialLobes(CPbrShader& pbr) noexcept {
     pbr.SetExtParams(0.0f, 0.5f, 0.0f, FVec3{1, 0, 0});
     pbr.SetSheen(FVec3{0, 0, 0}, 0.0f, 0.0f);
     pbr.SetIridescence(0.0f, 400.0f, 1.35f);

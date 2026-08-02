@@ -18,7 +18,7 @@ using namespace acs::game;
 
 namespace {
 
-class FLakeScene final : public FScene2D {
+class ALakeScene final : public AScene2D {
 public:
     void OnReady() noexcept override {
         SetPixelsPerUnit(48.0f);
@@ -178,15 +178,15 @@ public:
     }
 
     void OnTick(f32 dt) noexcept override {
-        if (FInput::IsKeyPressed(EKey::Escape)) { GetGame().Quit(); return; }
+        if (CInput::IsKeyPressed(EKey::Escape)) { GetGame().Quit(); return; }
         m_Time += dt;
 
-        const FVec2 mw = ScreenToWorld(FInput::MousePos());
+        const FVec2 mw = ScreenToWorld(CInput::MousePos());
         if (m_Player) m_Player->SetPosition2D(mw);
 
         // カーソル/接触点の world 速度から連続 wake を生成する。
-        const bool click = FInput::IsMouseButtonPressed(EMouseButton::Left);
-        const bool dragging = FInput::IsMouseButtonDown(EMouseButton::Left);
+        const bool click = CInput::IsMouseButtonPressed(EMouseButton::Left);
+        const bool dragging = CInput::IsMouseButtonDown(EMouseButton::Left);
         if (click) {
             for (u32 i = 0; i < m_Count; ++i) {
                 AWater2DComponent* w = m_Waters[i];
@@ -238,7 +238,7 @@ public:
         }
     }
 
-    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override {
         sb.DrawRect(8.0f, 8.0f, 1080.0f, 50.0f, FVec4{0.0f, 0.0f, 0.0f, 0.55f});
         if (rc.HasFont()) {
             sb.DrawString(rc.GetFont(),
@@ -267,13 +267,13 @@ private:
     bool               m_HasLastMouse = false;
 };
 
-class FLakeGame final : public FGame {
+class CLakeGame final : public CGame {
 protected:
-    TUniquePtr<FScene> InitialScene() noexcept override {
-        return MakeUnique<FLakeScene>();
+    TUniquePtr<AScene> InitialScene() noexcept override {
+        return MakeUnique<ALakeScene>();
     }
 };
 
 } // namespace
 
-ACS_GAME_MAIN(FLakeGame)
+ACS_GAME_MAIN(CLakeGame)

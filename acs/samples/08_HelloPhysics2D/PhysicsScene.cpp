@@ -12,15 +12,15 @@ using namespace acs;
 
 namespace hellophysics2d {
 
-void FPhysicsScene::Init(u32 screen_w, u32 screen_h, u32 initial_balls) noexcept {
+void CPhysicsScene::Init(u32 screen_w, u32 screen_h, u32 initial_balls) noexcept {
     SpawnRandomBalls(initial_balls, screen_w, screen_h);
 }
 
-void FPhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
-    if (FInput::IsKeyPressed(EKey::Space)) m_BallCount = 0;
+void CPhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
+    if (CInput::IsKeyPressed(EKey::Space)) m_BallCount = 0;
 
-    if (FInput::IsMouseButtonPressed(EMouseButton::Left)) {
-        FVec2 mp = FInput::MousePos();
+    if (CInput::IsMouseButtonPressed(EMouseButton::Left)) {
+        FVec2 mp = CInput::MousePos();
         SpawnBallAt(mp.x, mp.y);
     }
 
@@ -73,7 +73,7 @@ void FPhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
     }
 }
 
-void FPhysicsScene::Render(FSpriteBatch& batch,
+void CPhysicsScene::Render(CSpriteBatch& batch,
                           FFont& font,
                           IRhiTexture& ball_tex,
                           f32 fps) noexcept {
@@ -96,7 +96,7 @@ void FPhysicsScene::Render(FSpriteBatch& batch,
     }
 }
 
-void FPhysicsScene::SpawnRandomBalls(u32 n, u32 screen_w, u32 screen_h) noexcept {
+void CPhysicsScene::SpawnRandomBalls(u32 n, u32 screen_w, u32 screen_h) noexcept {
     const f32 sw = static_cast<f32>(screen_w);
     const f32 sh = static_cast<f32>(screen_h);
     for (u32 i = 0; i < n; ++i) {
@@ -104,7 +104,7 @@ void FPhysicsScene::SpawnRandomBalls(u32 n, u32 screen_w, u32 screen_h) noexcept
     }
 }
 
-void FPhysicsScene::SpawnBallAt(f32 x, f32 y) noexcept {
+void CPhysicsScene::SpawnBallAt(f32 x, f32 y) noexcept {
     if (m_BallCount >= kMaxBalls) return;
     FBall& b = m_Balls[m_BallCount++];
     b.pos = { x, y };
@@ -115,7 +115,7 @@ void FPhysicsScene::SpawnBallAt(f32 x, f32 y) noexcept {
     b.b = 0.4f + RandF() * 0.6f;
 }
 
-f32 FPhysicsScene::RandF() noexcept {
+f32 CPhysicsScene::RandF() noexcept {
     m_Seed ^= m_Seed << 13; m_Seed ^= m_Seed >> 17; m_Seed ^= m_Seed << 5;
     return static_cast<f32>(m_Seed & 0xFFFFFFu) / 16777216.0f;
 }

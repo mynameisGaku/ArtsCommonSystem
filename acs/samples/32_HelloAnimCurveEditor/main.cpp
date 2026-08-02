@@ -2,13 +2,13 @@
 // HelloAnimCurveEditor — エントリポイント。
 //
 // 構成:
-//   AnimCurveApp.{h,cpp}   - FGame 派生クラス (ImGui lifecycle ラッパ)
-//   AnimCurveScene.{h,cpp} - Workspace + FAnimCurveEditorPanel +
+//   AnimCurveApp.{h,cpp}   - CGame 派生クラス (ImGui lifecycle ラッパ)
+//   AnimCurveScene.{h,cpp} - Workspace + AAnimCurveEditorPanel +
 //                            FAnimationCurve (Hermite 3 key) を持つ Scene
 //
 // 動作:
-//   ・editor_core の FEditorWorkspace + FEditorTheme と animcurve の
-//     FAnimCurveEditorPanel を 1 個の Workspace に集約。
+//   ・editor_core の CEditorWorkspace + CEditorTheme と animcurve の
+//     AAnimCurveEditorPanel を 1 個の Workspace に集約。
 //   ・初期化時に 3 個の Hermite key を持つ FAnimationCurve を生成し panel に
 //     bind。ImGui canvas 上で key の drag / tangent 編集 / 右クリック追加 /
 //     削除を対話的に行える。
@@ -22,4 +22,4 @@
 // のため)。
 #include "AnimCurveApp.h"
 
-ACS_GAME_MAIN(helloac::FAnimCurveApp)
+ACS_GAME_MAIN(helloac::CAnimCurveApp)

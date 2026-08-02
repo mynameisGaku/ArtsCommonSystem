@@ -240,7 +240,7 @@ private:
     friend class CReplayDirector;
 
     /** ReplayDirector staging用にtargetと同じallocatorを注入する。 */
-    explicit CInputRecorder(FAllocator& allocator) noexcept : m_Samples(allocator) {}
+    explicit CInputRecorder(IAllocator& allocator) noexcept : m_Samples(allocator) {}
 
     /** ReplayDirectorが複数sourceを一括commitするためのno-fail state swap。 */
     void SwapLoadedState(CInputRecorder& other) noexcept;

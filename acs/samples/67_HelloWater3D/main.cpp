@@ -10,4 +10,4 @@
 #include "HelloWater3DApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hellowater3d::FHelloWater3DApp)
+ACS_DEFINE_MAIN(hellowater3d::CHelloWater3DApp)

@@ -23,15 +23,15 @@ using namespace acs::game;
 
 namespace {
 
-class FTilemapFailAllocator final : public FAllocator {
+class FTilemapFailAllocator final : public IAllocator {
 public:
     void* Alloc(usize, usize, FSourceLoc) noexcept override { return nullptr; }
     void Free(void*) noexcept override {}
 };
 
-class FTilemapSwitchAllocator final : public FAllocator {
+class FTilemapSwitchAllocator final : public IAllocator {
 public:
-    explicit FTilemapSwitchAllocator(FAllocator& backing) noexcept
+    explicit FTilemapSwitchAllocator(IAllocator& backing) noexcept
         : m_Backing(&backing) {}
 
     void SetFailing(bool failing) noexcept { m_Failing = failing; }
@@ -45,7 +45,7 @@ public:
     void Free(void* pointer) noexcept override { m_Backing->Free(pointer); }
 
 private:
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
     bool m_Failing = false;
 };
 
@@ -166,7 +166,7 @@ ACS_TEST(Tilemap, CheckedInitRejectsOverflowAndReportsAllocationFailure) {
 }
 
 ACS_TEST(Tilemap, AllocationFailurePreservesExistingLayersAndPublishedPointer) {
-    FSystemAllocator backing;
+    CSystemAllocator backing;
     FTilemapSwitchAllocator allocator(backing);
     FTilemap map(allocator);
     EXPECT_TRUE(map.TryInit(2u, 2u, 1u, 16.0f).Succeeded());
@@ -199,7 +199,7 @@ ACS_TEST(TilemapPhysics, GreedyRowMerge) {
     map.Init(8, 4, 1, 1.0f);
     for (u32 x = 0; x < 8; ++x) map.SetTile(x, 3, FTileId(1), 0);   // 全幅の床 → 1 コライダ
 
-    FRigidWorld2D world;
+    CRigidWorld2D world;
     EXPECT_EQ(BuildRigidColliders(map, 0, world, 0.0f, 0.5f), 1u);
 
     // 隙間あり: x=0,1 solid / 2 empty / 3,4 solid → 2 run → 2 コライダ。
@@ -207,7 +207,7 @@ ACS_TEST(TilemapPhysics, GreedyRowMerge) {
     map2.Init(8, 1, 1, 1.0f);
     map2.SetTile(0, 0, FTileId(1)); map2.SetTile(1, 0, FTileId(1));
     map2.SetTile(3, 0, FTileId(1)); map2.SetTile(4, 0, FTileId(1));
-    FRigidWorld2D world2;
+    CRigidWorld2D world2;
     EXPECT_EQ(BuildRigidColliders(map2, 0, world2, 0.0f, 0.5f), 2u);
 }
 
@@ -217,7 +217,7 @@ ACS_TEST(TilemapPhysics, BodyRestsOnTileFloor) {
     map.Init(8, 8, 1, 1.0f);
     for (u32 x = 0; x < 8; ++x) map.SetTile(x, 5, FTileId(1), 0);   // y=5 の行が床
 
-    FRigidWorld2D world;
+    CRigidWorld2D world;
     EXPECT_EQ(BuildRigidColliders(map, 0, world, 0.0f, 0.5f), 1u);
 
     const FVec2 floorC      = map.TileToWorld(3, 5);   // 床タイル中心
@@ -280,7 +280,7 @@ ACS_TEST(TilemapNav, PathfindAroundWall) {
     map.Init(10, 5, 1, 1.0f);
     for (u32 y = 0; y < 4; ++y) map.SetTile(5, y, FTileId(1), 0);   // 壁 x=5, y=0..3 (y=4 が隙間)
 
-    FNavGrid nav;
+    CNavGrid nav;
     BuildNavGridFromTilemap(map, 0, nav);
 
     TArray<FVec2> path;
@@ -305,7 +305,7 @@ ACS_TEST(TilemapNav, NoPathWhenFullyBlocked) {
     map.Init(10, 5, 1, 1.0f);
     for (u32 y = 0; y < 5; ++y) map.SetTile(5, y, FTileId(1), 0);   // 全行を塞ぐ
 
-    FNavGrid nav;
+    CNavGrid nav;
     BuildNavGridFromTilemap(map, 0, nav);
 
     TArray<FVec2> path;

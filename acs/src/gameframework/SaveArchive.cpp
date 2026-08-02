@@ -8,7 +8,7 @@
 // 実装上のポイント:
 //   ・<windows.h> は foundation/Platform.h 経由で 1 箇所に閉じ込める
 //     (Yield / CreateFile / GetMessage 等のマクロ汚染対策はここで吸収済)。
-//   ・CRC32 ルーチンは assetpack/FAcpakReader.cpp / FAcpakWriter.cpp と同じ実装
+//   ・CRC32 ルーチンは assetpack/CAcpakReader.cpp / CAcpakWriter.cpp と同じ実装
 //     (poly 0xEDB88320, init/xorout 0xFFFFFFFF, table 256 entry)。link 単位を
 //     独立させたい (assetpack を依存に持たないテストビルドでも CSaveArchive を
 //     使えるように) ため、ここでも単独に持つ。
@@ -216,7 +216,7 @@ constexpr u16 SubU16(ESaveArchiveSubCode sc) noexcept {
 TResult<void> ValidatePathArgument(const wchar_t* path) noexcept {
     if (path == nullptr || path[0] == L'\0') {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubInvalidArgument),
-                       "FSaveArchive: path is null or empty");
+                       "CSaveArchive: path is null or empty");
     }
 
     usize chars = 0;
@@ -225,7 +225,7 @@ TResult<void> ValidatePathArgument(const wchar_t* path) noexcept {
     }
     if (chars > CSaveArchive::kMaxPathChars) {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubPathTooLong),
-                       "FSaveArchive: path exceeds safety limit");
+                       "CSaveArchive: path exceeds safety limit");
     }
     return Ok();
 }
@@ -459,10 +459,10 @@ TResult<HANDLE> OpenForRead(const wchar_t* file_path) noexcept {
         DWORD err = ::GetLastError();
         if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND) {
             return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubFileNotFound),
-                              "FSaveArchive: file not found", err);
+                              "CSaveArchive: file not found", err);
         }
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive: CreateFileW (read) failed", err);
+                          "CSaveArchive: CreateFileW (read) failed", err);
     }
     return TResult<HANDLE>(OkInit, h);
 }
@@ -484,17 +484,17 @@ TResult<void> CSaveArchive::WriteToFile(const wchar_t* file_path,
     if (path_result.IsErr()) return path_result.Error();
     if (payload == nullptr && payload_size > 0) {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubInvalidArgument),
-                       "FSaveArchive::WriteToFile: payload is null but size > 0");
+                       "CSaveArchive::WriteToFile: payload is null but size > 0");
     }
     if (payload_size > kMaxPayloadSize) {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubPayloadTooLarge),
-                       "FSaveArchive::WriteToFile: payload exceeds safety limit");
+                       "CSaveArchive::WriteToFile: payload exceeds safety limit");
     }
 
     FProcessHeapBuffer temp_path_storage(kMaxWin32PathChars * sizeof(wchar_t));
     if (temp_path_storage.Data() == nullptr) {
         return ACS_ERR(Memory, SubU16(ESaveArchiveSubCode::kSubAllocationFailed),
-                       "FSaveArchive::WriteToFile: atomic temp path allocation failed");
+                       "CSaveArchive::WriteToFile: atomic temp path allocation failed");
     }
     auto* const temp_path = static_cast<wchar_t*>(temp_path_storage.Data());
     // 互換性のため最初の候補名は維持し、中断 process が残した古い file がある場合は
@@ -510,7 +510,7 @@ TResult<void> CSaveArchive::WriteToFile(const wchar_t* file_path,
             : static_cast<u32>(::InterlockedIncrement(&temp_serial));
         if (!MakeAtomicTempPath(file_path, temp_path, kMaxWin32PathChars, nonce)) {
             return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubPathTooLong),
-                           "FSaveArchive::WriteToFile: file path too long for atomic temp suffix");
+                           "CSaveArchive::WriteToFile: file path too long for atomic temp suffix");
         }
 
         h = ::CreateFileW(temp_path,
@@ -526,13 +526,13 @@ TResult<void> CSaveArchive::WriteToFile(const wchar_t* file_path,
         if (create_err != ERROR_FILE_EXISTS &&
             create_err != ERROR_ALREADY_EXISTS) {
             return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                              "FSaveArchive::WriteToFile: CreateFileW (temp) failed",
+                              "CSaveArchive::WriteToFile: CreateFileW (temp) failed",
                               create_err);
         }
     }
     if (h == INVALID_HANDLE_VALUE) {
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::WriteToFile: unique temp path attempts exhausted",
+                          "CSaveArchive::WriteToFile: unique temp path attempts exhausted",
                           create_err);
     }
 
@@ -550,7 +550,7 @@ TResult<void> CSaveArchive::WriteToFile(const wchar_t* file_path,
         ::CloseHandle(h);
         ::DeleteFileW(temp_path);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::WriteToFile: WriteFile (header) failed", err);
+                          "CSaveArchive::WriteToFile: WriteFile (header) failed", err);
     }
 
     // payload (size==0 でも noop で良い)
@@ -559,7 +559,7 @@ TResult<void> CSaveArchive::WriteToFile(const wchar_t* file_path,
             ::CloseHandle(h);
             ::DeleteFileW(temp_path);
             return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                              "FSaveArchive::WriteToFile: WriteFile (payload) failed",
+                              "CSaveArchive::WriteToFile: WriteFile (payload) failed",
                               err);
         }
     }
@@ -569,7 +569,7 @@ TResult<void> CSaveArchive::WriteToFile(const wchar_t* file_path,
         ::CloseHandle(h);
         ::DeleteFileW(temp_path);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::WriteToFile: FlushFileBuffers (temp) failed",
+                          "CSaveArchive::WriteToFile: FlushFileBuffers (temp) failed",
                           flush_err);
     }
 
@@ -577,7 +577,7 @@ TResult<void> CSaveArchive::WriteToFile(const wchar_t* file_path,
         DWORD close_err = ::GetLastError();
         ::DeleteFileW(temp_path);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::WriteToFile: CloseHandle (temp) failed", close_err);
+                          "CSaveArchive::WriteToFile: CloseHandle (temp) failed", close_err);
     }
 
     if (!::MoveFileExW(temp_path, file_path,
@@ -593,7 +593,7 @@ TResult<void> CSaveArchive::WriteToFile(const wchar_t* file_path,
                     ? move_err
                     : posix_err;
             return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                              "FSaveArchive::WriteToFile: atomic replace failed",
+                              "CSaveArchive::WriteToFile: atomic replace failed",
                               reported_err);
         }
     }
@@ -617,7 +617,7 @@ TResult<u32> CSaveArchive::ReadFromFile(const wchar_t* file_path,
 
     if (out_payload == nullptr && out_capacity > 0) {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubInvalidArgument),
-                       "FSaveArchive::ReadFromFile: out_payload is null but capacity > 0");
+                       "CSaveArchive::ReadFromFile: out_payload is null but capacity > 0");
     }
 
     const auto open_r = OpenForRead(file_path);
@@ -630,13 +630,13 @@ TResult<u32> CSaveArchive::ReadFromFile(const wchar_t* file_path,
         DWORD err = ::GetLastError();
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::ReadFromFile: GetFileSizeEx failed", err);
+                          "CSaveArchive::ReadFromFile: GetFileSizeEx failed", err);
     }
     const u64 file_size = static_cast<u64>(fsize.QuadPart);
     if (file_size < kHeaderSize) {
         ::CloseHandle(h);
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubBadMagic),
-                       "FSaveArchive::ReadFromFile: file smaller than header");
+                       "CSaveArchive::ReadFromFile: file smaller than header");
     }
 
     // header (24B) を読む
@@ -645,7 +645,7 @@ TResult<u32> CSaveArchive::ReadFromFile(const wchar_t* file_path,
     if (!ReadAll(h, header_buf, kHeaderSize, err)) {
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::ReadFromFile: ReadFile (header) failed", err);
+                          "CSaveArchive::ReadFromFile: ReadFile (header) failed", err);
     }
 
     u32 version       = 0;
@@ -654,20 +654,20 @@ TResult<u32> CSaveArchive::ReadFromFile(const wchar_t* file_path,
     if (!ParseHeader(header_buf, version, payload_size, expected_crc)) {
         ::CloseHandle(h);
         return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
-                       "FSaveArchive::ReadFromFile: magic mismatch (not an .acssave)");
+                       "CSaveArchive::ReadFromFile: magic mismatch (not an .acssave)");
     }
 
     if (payload_size > kMaxPayloadSize) {
         ::CloseHandle(h);
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubPayloadTooLarge),
-                       "FSaveArchive::ReadFromFile: payload exceeds safety limit");
+                       "CSaveArchive::ReadFromFile: payload exceeds safety limit");
     }
 
     // 短い payload だけでなく末尾の余分なデータも拒否し、1 header = 1 payload を保証する。
     if (payload_size != file_size - kHeaderSize) {
         ::CloseHandle(h);
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubSizeMismatch),
-                       "FSaveArchive::ReadFromFile: declared payload size does not match file");
+                       "CSaveArchive::ReadFromFile: declared payload size does not match file");
     }
 
     out_payload_size = payload_size;
@@ -675,18 +675,18 @@ TResult<u32> CSaveArchive::ReadFromFile(const wchar_t* file_path,
     // version 不一致は kSubMigrationNeeded で先に返す。
     // 「buffer に書き込まない」のが migration ハンドラから見ると最も扱いやすい。
     if (version != expected_version) {
-        ACS_LOG_WARN("FSaveArchive::ReadFromFile: version mismatch (file=%u, expected=%u)",
+        ACS_LOG_WARN("CSaveArchive::ReadFromFile: version mismatch (file=%u, expected=%u)",
                      version, expected_version);
         ::CloseHandle(h);
         return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubMigrationNeeded),
-                       "FSaveArchive::ReadFromFile: version mismatch (migration needed)");
+                       "CSaveArchive::ReadFromFile: version mismatch (migration needed)");
     }
 
     // buffer 容量 check
     if (out_capacity < payload_size) {
         ::CloseHandle(h);
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubBufferTooSmall),
-                       "FSaveArchive::ReadFromFile: out_capacity < payload_size");
+                       "CSaveArchive::ReadFromFile: out_capacity < payload_size");
     }
 
     // CRC 検証前に呼び出し側の object/buffer を壊さないよう、一時領域へ読み込む。
@@ -694,14 +694,14 @@ TResult<u32> CSaveArchive::ReadFromFile(const wchar_t* file_path,
     if (payload_size > 0 && temporary_payload.Data() == nullptr) {
         ::CloseHandle(h);
         return ACS_ERR(Memory, SubU16(ESaveArchiveSubCode::kSubAllocationFailed),
-                       "FSaveArchive::ReadFromFile: temporary payload allocation failed");
+                       "CSaveArchive::ReadFromFile: temporary payload allocation failed");
     }
 
     if (payload_size > 0) {
         if (!ReadAll(h, temporary_payload.Data(), payload_size, err)) {
             ::CloseHandle(h);
             return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                              "FSaveArchive::ReadFromFile: ReadFile (payload) failed", err);
+                              "CSaveArchive::ReadFromFile: ReadFile (payload) failed", err);
         }
     }
 
@@ -709,17 +709,17 @@ TResult<u32> CSaveArchive::ReadFromFile(const wchar_t* file_path,
     const u32 actual_crc = (payload_size > 0) ? ComputeCrc32(temporary_payload.Data(), payload_size)
                                               : (0xFFFFFFFFu ^ 0xFFFFFFFFu);
     if (actual_crc != expected_crc) {
-        ACS_LOG_WARN("FSaveArchive::ReadFromFile: CRC mismatch (expected=0x%08x, actual=0x%08x)",
+        ACS_LOG_WARN("CSaveArchive::ReadFromFile: CRC mismatch (expected=0x%08x, actual=0x%08x)",
                      expected_crc, actual_crc);
         ::CloseHandle(h);
         return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubChecksumFail),
-                       "FSaveArchive::ReadFromFile: CRC32 mismatch (corrupt or tampered)");
+                       "CSaveArchive::ReadFromFile: CRC32 mismatch (corrupt or tampered)");
     }
 
     if (!::CloseHandle(h)) {
         const DWORD close_err = ::GetLastError();
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::ReadFromFile: CloseHandle failed", close_err);
+                          "CSaveArchive::ReadFromFile: CloseHandle failed", close_err);
     }
 
     // すべての検証と handle close が成功した後にだけ呼び出し側へ反映する。
@@ -740,19 +740,19 @@ TResult<u32> CSaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
     if (!ReadAll(h, header_buf, kHeaderSize, err)) {
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::PeekVersion: ReadFile (header) failed", err);
+                          "CSaveArchive::PeekVersion: ReadFile (header) failed", err);
     }
     if (!::CloseHandle(h)) {
         const DWORD close_err = ::GetLastError();
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::PeekVersion: CloseHandle failed", close_err);
+                          "CSaveArchive::PeekVersion: CloseHandle failed", close_err);
     }
 
     u32 version = 0, dummy_crc = 0;
     u64 dummy_size = 0;
     if (!ParseHeader(header_buf, version, dummy_size, dummy_crc)) {
         return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
-                       "FSaveArchive::PeekVersion: magic mismatch (not an .acssave)");
+                       "CSaveArchive::PeekVersion: magic mismatch (not an .acssave)");
     }
     return TResult<u32>(OkInit, version);
 }
@@ -775,13 +775,13 @@ TResult<u64> CSaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
         DWORD size_err = ::GetLastError();
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::PeekPayloadSize: GetFileSizeEx failed", size_err);
+                          "CSaveArchive::PeekPayloadSize: GetFileSizeEx failed", size_err);
     }
     const u64 file_size = static_cast<u64>(fsize.QuadPart);
     if (file_size < kHeaderSize) {
         ::CloseHandle(h);
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubBadMagic),
-                       "FSaveArchive::PeekPayloadSize: file smaller than header");
+                       "CSaveArchive::PeekPayloadSize: file smaller than header");
     }
 
     u8 header_buf[kHeaderSize] = {};
@@ -789,27 +789,27 @@ TResult<u64> CSaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
     if (!ReadAll(h, header_buf, kHeaderSize, err)) {
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::PeekPayloadSize: ReadFile (header) failed", err);
+                          "CSaveArchive::PeekPayloadSize: ReadFile (header) failed", err);
     }
     if (!::CloseHandle(h)) {
         const DWORD close_err = ::GetLastError();
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::PeekPayloadSize: CloseHandle failed", close_err);
+                          "CSaveArchive::PeekPayloadSize: CloseHandle failed", close_err);
     }
 
     u32 dummy_version = 0, dummy_crc = 0;
     u64 payload_size  = 0;
     if (!ParseHeader(header_buf, dummy_version, payload_size, dummy_crc)) {
         return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
-                       "FSaveArchive::PeekPayloadSize: magic mismatch (not an .acssave)");
+                       "CSaveArchive::PeekPayloadSize: magic mismatch (not an .acssave)");
     }
     if (payload_size > kMaxPayloadSize) {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubPayloadTooLarge),
-                       "FSaveArchive::PeekPayloadSize: payload exceeds safety limit");
+                       "CSaveArchive::PeekPayloadSize: payload exceeds safety limit");
     }
     if (payload_size != file_size - kHeaderSize) {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubSizeMismatch),
-                       "FSaveArchive::PeekPayloadSize: declared payload size does not match file");
+                       "CSaveArchive::PeekPayloadSize: declared payload size does not match file");
     }
     return TResult<u64>(OkInit, payload_size);
 }
@@ -826,13 +826,13 @@ TResult<FSaveArchiveMetadata> CSaveArchive::ValidateFile(
         ::CloseHandle(file);
         return ACS_ERR_OS(
             IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-            "FSaveArchive::ValidateFile: GetFileSizeEx failed", error);
+            "CSaveArchive::ValidateFile: GetFileSizeEx failed", error);
     }
     if (file_size_value.QuadPart < static_cast<LONGLONG>(kHeaderSize)) {
         ::CloseHandle(file);
         return ACS_ERR(
             IO, SubU16(ESaveArchiveSubCode::kSubBadMagic),
-            "FSaveArchive::ValidateFile: file smaller than header");
+            "CSaveArchive::ValidateFile: file smaller than header");
     }
     const u64 file_size = static_cast<u64>(file_size_value.QuadPart);
 
@@ -842,7 +842,7 @@ TResult<FSaveArchiveMetadata> CSaveArchive::ValidateFile(
         ::CloseHandle(file);
         return ACS_ERR_OS(
             IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-            "FSaveArchive::ValidateFile: header read failed", error);
+            "CSaveArchive::ValidateFile: header read failed", error);
     }
 
     FSaveArchiveMetadata metadata{};
@@ -852,19 +852,19 @@ TResult<FSaveArchiveMetadata> CSaveArchive::ValidateFile(
         ::CloseHandle(file);
         return ACS_ERR(
             Asset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
-            "FSaveArchive::ValidateFile: magic mismatch");
+            "CSaveArchive::ValidateFile: magic mismatch");
     }
     if (metadata.PayloadSize > kMaxPayloadSize) {
         ::CloseHandle(file);
         return ACS_ERR(
             IO, SubU16(ESaveArchiveSubCode::kSubPayloadTooLarge),
-            "FSaveArchive::ValidateFile: payload exceeds safety limit");
+            "CSaveArchive::ValidateFile: payload exceeds safety limit");
     }
     if (metadata.PayloadSize != file_size - kHeaderSize) {
         ::CloseHandle(file);
         return ACS_ERR(
             IO, SubU16(ESaveArchiveSubCode::kSubSizeMismatch),
-            "FSaveArchive::ValidateFile: declared payload size does not match file");
+            "CSaveArchive::ValidateFile: declared payload size does not match file");
     }
 
     // 固定 stack buffer により、非信頼 payload size と heap 可用性から検証を分離する。
@@ -879,7 +879,7 @@ TResult<FSaveArchiveMetadata> CSaveArchive::ValidateFile(
             ::CloseHandle(file);
             return ACS_ERR_OS(
                 IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                "FSaveArchive::ValidateFile: payload read failed", error);
+                "CSaveArchive::ValidateFile: payload read failed", error);
         }
         crc = UpdateCrc32(crc, chunk, chunk_size);
         remaining -= chunk_size;
@@ -890,13 +890,13 @@ TResult<FSaveArchiveMetadata> CSaveArchive::ValidateFile(
         ::CloseHandle(file);
         return ACS_ERR(
             Asset, SubU16(ESaveArchiveSubCode::kSubChecksumFail),
-            "FSaveArchive::ValidateFile: CRC32 mismatch");
+            "CSaveArchive::ValidateFile: CRC32 mismatch");
     }
     if (!::CloseHandle(file)) {
         const DWORD close_error = ::GetLastError();
         return ACS_ERR_OS(
             IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-            "FSaveArchive::ValidateFile: CloseHandle failed", close_error);
+            "CSaveArchive::ValidateFile: CloseHandle failed", close_error);
     }
 
     return TResult<FSaveArchiveMetadata>(OkInit, metadata);

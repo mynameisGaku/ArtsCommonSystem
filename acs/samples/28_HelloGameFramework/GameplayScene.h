@@ -2,8 +2,8 @@
 // HelloGameFramework — Gameplay scene。本サンプルの中核。
 //
 // ここで ANode ツリー (root → wheel → spoke + rotator) を構築し、
-// FTween / CCamera follow + screen shake / FCollisionWorld2D / APhysicsBody2D を
-// FSceneServices() 経由で扱う。各機能の詳細は実装側 (cpp) の節コメントを参照。
+// FTween / CCamera follow + screen shake / CCollisionWorld2D / APhysicsBody2D を
+// CSceneServices() 経由で扱う。各機能の詳細は実装側 (cpp) の節コメントを参照。
 #pragma once
 
 #include "gameframework/GameFramework.h"
@@ -13,9 +13,9 @@ namespace hellogf {
 
 class ARotatingNode;
 
-class FGameplayScene : public acs::game::FScene {
+class AGameplayScene : public acs::game::AScene {
 public:
-    // FSceneServices に Default2D + FCamera2D + Physics2D を要求する宣言。
+    // CSceneServices に Default2D + CCamera2D + Physics2D を要求する宣言。
     // フレームワークが対応する subsystem を構築 / tick してくれる。
     acs::game::ESvc WantedServices() const noexcept override {
         return acs::game::ESvc::Default2D

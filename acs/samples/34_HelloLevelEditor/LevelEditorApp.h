@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloLevelEditor — FGame 派生のアプリケーションクラス。
-// ImGui lifecycle を FGame に持たせる薄いラッパ。
+// HelloLevelEditor — CGame 派生のアプリケーションクラス。
+// ImGui lifecycle を CGame に持たせる薄いラッパ。
 #pragma once
 
 #include "gameframework/GameFramework.h"
@@ -8,7 +8,7 @@
 
 namespace hellole {
 
-class FLevelEditorApp : public acs::game::FGame {
+class CLevelEditorApp : public acs::game::CGame {
 public:
     void OnStart() noexcept override;
     void OnRender() noexcept override;
@@ -16,7 +16,7 @@ public:
     void OnEvent(const acs::FEvent& e) noexcept override;
 
 protected:
-    acs::TUniquePtr<acs::game::FScene> InitialScene() noexcept override;
+    acs::TUniquePtr<acs::game::AScene> InitialScene() noexcept override;
 
 private:
     acs::FImGuiCtx m_Imgui;

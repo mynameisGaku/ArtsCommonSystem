@@ -107,8 +107,8 @@ Windows SDK, Diligent and xxHash link directives above.
 `acs.h` exposes the full **public** runtime API: `foundation`, `math`, `timing`,
 `container`, `memory`, `threading`, `platform`, `ecs`, `event`, `collision`,
 `mvvm`, `asset` / `assetpack`, `audio`, `render` (the backend-agnostic `IRhi*`
-interfaces + `FRenderer` / `FSpriteBatch` / `FStandardShader` / `FPbrShader` …),
-`ui`, the `gameframework` (`FGame` / `FScene` / `FScene2D` / `ANode` /
+interfaces + `CRenderer` / `CSpriteBatch` / `CStandardShader` / `CPbrShader` …),
+`ui`, the `gameframework` (`CGame` / `AScene` / `AScene2D` / `ANode` /
 `AComponent` / systems), and the **`easy`** beginner layer (`acs::easy::…`).
 ACS module implementations, including the raw DirectX 12 and XAudio2 paths,
 are merged into `acs.lib`; the Diligent implementation remains in the adjacent
@@ -212,12 +212,25 @@ lock取得後に外部processが未作成rootを先に作ってもensure後にro
 差し替えるTOCTOUまでは完全に防ぐ契約ではない。
 配布pathは信頼できるlocal filesystem上で使用すること。
 
-`run_distribution_consumer_smoke.py` creates its CMake source/build tree only
-under the operating-system temporary directory. It reuses
-`examples/check.cpp`, includes only the selected distribution root, links
-through the pragmas in `acs.h`, executes the resulting program, and removes the
-temporary tree. Pass `C:\acs` as `--distribution-root` to validate the deployed
-mirror without creating `.obj` or `.exe` files inside either SDK directory.
+Deployment uses the named manifest as a commit marker. The payload mirror is
+not rolled back when `/MIR`, post-copy validation, or manifest publication
+fails. Such a tree is unpublished because its old manifest no longer matches;
+verified consumers reject it, and the next successful deployment repairs it.
+
+`run_distribution_consumer_smoke.py` creates a verified distribution snapshot,
+its CMake source, and its build tree only under the operating-system temporary
+directory. Before copying, it rejects reparse points and any file outside the
+fixed 33-file mirror. It then pins the root, all directories, and all files
+against rename or write, strictly parses the canonical 29-entry named manifest,
+and verifies every header/library hash. The selected configuration, `acs.h`,
+and the reviewed `examples/check.cpp` are copied into the snapshot. Configure,
+link, and execution use only that snapshot; the live SDK root is not read after
+snapshot creation. The three commands share one overall deadline. Each command
+runs below a Windows Job Object, so a timeout stops CMake/MSBuild and every
+descendant before the temporary tree is removed. The temporary tree is removed
+on success, failure, or timeout. Pass `C:\acs` as `--distribution-root` to
+validate the deployed mirror without creating `.obj` or `.exe` files inside
+either SDK directory.
 
 With `ACS_BUILD_TESTS=ON`, a top-level ACS CMake configure that has this sibling
 `dist` directory also registers drift, convention-audit and `/Zs` consumer

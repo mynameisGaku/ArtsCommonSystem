@@ -152,7 +152,7 @@ ACS_TEST(ReflectSerialize, CreateFromBytesViaFactory) {
     EXPECT_NEAR(p->tint.z, 0.75f, 0.0001f);
     EXPECT_TRUE(p->team == ESaveTeam::Green);
 
-    FTypeRegistry::Get().Destroy(tid, obj);
+    CTypeRegistry::Get().Destroy(tid, obj);
 }
 
 // 型 id が一致しない記述子へ復元しようとすると拒否される (誤った型への書き戻し防止)。
@@ -166,7 +166,7 @@ ACS_TEST(ReflectSerialize, TypeMismatchRejected) {
     const u32 n = SerializeReflected(d, &src, buf, sizeof(buf));
 
     // reflect_tests.cpp の FReflTransform (別型) の記述子へ流し込むと 0 (型不一致)。
-    const FTypeDesc* other = FTypeRegistry::Get().FindByName("FReflTransform");
+    const FTypeDesc* other = CTypeRegistry::Get().FindByName("FReflTransform");
     EXPECT_TRUE(other != nullptr);
     if (other != nullptr) {
         u8 dummy[64] = {};
@@ -334,7 +334,7 @@ ACS_TEST(ReflectSerialize, RespectsBufferCap) {
 // → header だけ (12 bytes) を書き、復元しても適用フィールド 0、クラッシュしない。
 ACS_TEST(ReflectSerialize, SchemaOnlyFieldsSkipped) {
     AcsRegisterEngineTypes();
-    FTypeRegistry& reg = FTypeRegistry::Get();
+    CTypeRegistry& reg = CTypeRegistry::Get();
     const FTypeDesc* sprite = reg.FindByName("ASprite2DComponent");
     EXPECT_TRUE(sprite != nullptr);
     if (sprite == nullptr) return;

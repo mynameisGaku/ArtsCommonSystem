@@ -15,14 +15,14 @@ namespace hellofont {
 // ----------------------------------------------------------------------------
 // OnEnter — workspace 初期化 + 初期 3 face 登録 + editor panel 登録
 // ----------------------------------------------------------------------------
-void FFontEditorScene::OnEnter() noexcept {
+void AFontEditorScene::OnEnter() noexcept {
     // editor らしいニュートラルグレー (背景は ImGui に隠れるが viewport の
     // 外側のクリア色を編集向けに揃える)。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
     m_Workspace.Init();
 
-    // FEditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ。
+    // CEditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ。
     // よって panel.OnInit を別途呼ぶ必要は無い。
     // SetPreviewText / AddFontFace は OnInit より後でも構わない。
     m_EditorPanel.Init();
@@ -74,8 +74,8 @@ void FFontEditorScene::OnEnter() noexcept {
 // ----------------------------------------------------------------------------
 // OnExit — 逆順 shutdown
 // ----------------------------------------------------------------------------
-void FFontEditorScene::OnExit() noexcept {
-    // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
+void AFontEditorScene::OnExit() noexcept {
+    // CEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
     // 呼んでから list を Clear する。よって個別 UnregisterPanel を呼ぶ必要は無い。
     m_Workspace.Shutdown();
     // panel 本体の internal state を解放 (face 配列 / preview バッファクリア)。
@@ -90,8 +90,8 @@ void FFontEditorScene::OnExit() noexcept {
 // ImGui 関連 (Workspace::TickAllPanels が呼ぶ DrawDockSpace / MenuBar / panel
 // DrawUI) はすべて OnRender 側へ。ImGui::Begin 等は NewFrame() と Render() の
 // 間でしか呼べないため、ここで Workspace::TickAllPanels は呼ばない。
-void FFontEditorScene::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) {
+void AFontEditorScene::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -101,7 +101,7 @@ void FFontEditorScene::OnUpdate(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 // OnRender — File menu (Save/Load stub) → Workspace 全描画
 // ----------------------------------------------------------------------------
-void FFontEditorScene::OnRender(FRenderContext& /*rc*/) noexcept {
+void AFontEditorScene::OnRender(FRenderContext& /*rc*/) noexcept {
     // ImGui は同一フレーム内で BeginMainMenuBar を複数回呼んでも 1 個の bar に
     // マージするので、本 sample 専用の File メニューを Workspace の Window/
     // Layout メニューと並べて表示できる。

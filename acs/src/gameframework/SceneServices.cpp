@@ -12,7 +12,7 @@ CSceneServices::CSceneServices(ESvc wanted) noexcept
     /** 成功時だけmemberへ移すclock候補。 */
     TUniquePtr<CSceneClock> Clock;
     /** 成功時だけmemberへ移すtween候補。 */
-    TUniquePtr<FTweenManager> Tweens;
+    TUniquePtr<CTweenManager> Tweens;
     /** 成功時だけmemberへ移すsequence候補。 */
     TUniquePtr<CSequenceRunner> Sequences;
     /** 成功時だけmemberへ移すinput候補。 */
@@ -22,14 +22,14 @@ CSceneServices::CSceneServices(ESvc wanted) noexcept
     /** 成功時だけmemberへ移すphysics候補。 */
     TUniquePtr<CCollisionWorld2D> Physics;
     /** 成功時だけmemberへ移すtrigger候補。 */
-    TUniquePtr<FTriggerWorld2D> Triggers;
+    TUniquePtr<CTriggerWorld2D> Triggers;
 
     if (Has(ESvc::Clock)) {
         Clock = MakeUnique<CSceneClock>();
         if (!Clock) return;
     }
     if (Has(ESvc::Tweens)) {
-        Tweens = MakeUnique<FTweenManager>();
+        Tweens = MakeUnique<CTweenManager>();
         if (!Tweens) return;
     }
     if (Has(ESvc::Sequences)) {
@@ -50,7 +50,7 @@ CSceneServices::CSceneServices(ESvc wanted) noexcept
         Physics->Init();   // 既定 cell_size=64
     }
     if (Has(ESvc::Triggers)) {
-        Triggers = MakeUnique<FTriggerWorld2D>();
+        Triggers = MakeUnique<CTriggerWorld2D>();
         if (!Triggers) return;
         Triggers->Init();
     }
@@ -82,49 +82,49 @@ bool CSceneServices::IsReady() const noexcept
 /** CSceneClock への参照を返す (未要求なら ACS_CHECK で停止)。 */
 CSceneClock& CSceneServices::Clock() noexcept {
     ACS_CHECKF(m_Clock.Get() != nullptr,
-               "FSceneServices::Clock() called but ESvc::Clock not requested in WantedServices()");
+               "CSceneServices::Clock() called but ESvc::Clock not requested in WantedServices()");
     return *m_Clock;
 }
 
-/** FTweenManager への参照を返す (未要求なら ACS_CHECK で停止)。 */
-FTweenManager& CSceneServices::Tweens() noexcept {
+/** CTweenManager への参照を返す (未要求なら ACS_CHECK で停止)。 */
+CTweenManager& CSceneServices::Tweens() noexcept {
     ACS_CHECKF(m_Tweens.Get() != nullptr,
-               "FSceneServices::Tweens() called but ESvc::Tweens not requested in WantedServices()");
+               "CSceneServices::Tweens() called but ESvc::Tweens not requested in WantedServices()");
     return *m_Tweens;
 }
 
 /** CSequenceRunner への参照を返す (未要求なら ACS_CHECK で停止)。 */
 CSequenceRunner& CSceneServices::Sequences() noexcept {
     ACS_CHECKF(m_Sequences.Get() != nullptr,
-               "FSceneServices::Sequences() called but ESvc::Sequences not requested in WantedServices()");
+               "CSceneServices::Sequences() called but ESvc::Sequences not requested in WantedServices()");
     return *m_Sequences;
 }
 
 /** FInputMap への参照を返す (未要求なら ACS_CHECK で停止)。 */
 FInputMap& CSceneServices::Input() noexcept {
     ACS_CHECKF(m_Input.Get() != nullptr,
-               "FSceneServices::Input() called but ESvc::Input not requested in WantedServices()");
+               "CSceneServices::Input() called but ESvc::Input not requested in WantedServices()");
     return *m_Input;
 }
 
 /** CCamera2D への参照を返す (未要求なら ACS_CHECK で停止)。 */
 acs::game::CCamera2D& CSceneServices::Camera() noexcept {
     ACS_CHECKF(m_Camera.Get() != nullptr,
-               "FSceneServices::Camera() called but ESvc::Camera2D not requested in WantedServices()");
+               "CSceneServices::Camera() called but ESvc::Camera2D not requested in WantedServices()");
     return *m_Camera;
 }
 
 /** CCollisionWorld2D への参照を返す (未要求なら ACS_CHECK で停止)。 */
 CCollisionWorld2D& CSceneServices::Physics() noexcept {
     ACS_CHECKF(m_Physics.Get() != nullptr,
-               "FSceneServices::Physics() called but ESvc::Physics2D not requested in WantedServices()");
+               "CSceneServices::Physics() called but ESvc::Physics2D not requested in WantedServices()");
     return *m_Physics;
 }
 
-/** FTriggerWorld2D への参照を返す (未要求なら ACS_CHECK で停止)。 */
-FTriggerWorld2D& CSceneServices::Triggers() noexcept {
+/** CTriggerWorld2D への参照を返す (未要求なら ACS_CHECK で停止)。 */
+CTriggerWorld2D& CSceneServices::Triggers() noexcept {
     ACS_CHECKF(m_Triggers.Get() != nullptr,
-               "FSceneServices::Triggers() called but ESvc::Triggers not requested in WantedServices()");
+               "CSceneServices::Triggers() called but ESvc::Triggers not requested in WantedServices()");
     return *m_Triggers;
 }
 

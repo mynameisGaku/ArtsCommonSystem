@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloBloom — FHelloBloomApp 実装。HDR シーンを Bloom + ACES Tonemap で出す。
+// HelloBloom — CHelloBloomApp 実装。HDR シーンを Bloom + ACES Tonemap で出す。
 #include "HelloBloomApp.h"
 
 #include "app/Sample.h"
@@ -16,7 +16,7 @@ using namespace acs;
 
 namespace hellobloom {
 
-void FHelloBloomApp::OnStart() noexcept {
+void CHelloBloomApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
     IRhiSwapchain* sc = GetRenderer().Swapchain();
@@ -58,27 +58,27 @@ void FHelloBloomApp::OnStart() noexcept {
                  dev->BackendName(), sw, sh);
 }
 
-void FHelloBloomApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
-    if (FInput::IsKeyPressed(EKey::Num1)) m_Params.bloom_intensity = 0.0f;
-    if (FInput::IsKeyPressed(EKey::Num2)) m_Params.bloom_intensity = 0.42f;
-    if (FInput::IsKeyPressed(EKey::Num3)) m_Params.bloom_intensity = 0.80f;
+void CHelloBloomApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (CInput::IsKeyPressed(EKey::Num1)) m_Params.bloom_intensity = 0.0f;
+    if (CInput::IsKeyPressed(EKey::Num2)) m_Params.bloom_intensity = 0.42f;
+    if (CInput::IsKeyPressed(EKey::Num3)) m_Params.bloom_intensity = 0.80f;
 
     m_Angle += dt * 0.5f;
     const f32 cam_dist = 7.0f;
-    m_CamYaw += (FInput::IsKeyDown(EKey::Right) ? 1.0f : 0.0f) * dt;
-    m_CamYaw -= (FInput::IsKeyDown(EKey::Left)  ? 1.0f : 0.0f) * dt;
+    m_CamYaw += (CInput::IsKeyDown(EKey::Right) ? 1.0f : 0.0f) * dt;
+    m_CamYaw -= (CInput::IsKeyDown(EKey::Left)  ? 1.0f : 0.0f) * dt;
     FVec3 cam{ Sin(m_CamYaw) * cam_dist, 2.0f, -Cos(m_CamYaw) * cam_dist };
     m_Camera.SetLookAt(cam, FVec3{0, 1, 0});
 }
 
-// true を返して FApplication の既定フレームフローを置き換える (HDR RT を挟むため)。
-bool FHelloBloomApp::OnCustomFrame() noexcept {
+// true を返して CApplication の既定フレームフローを置き換える (HDR RT を挟むため)。
+bool CHelloBloomApp::OnCustomFrame() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     IRhiTexture*     hdr = m_Post.HdrRenderTarget();
     IRhiTexture*     depth = GetRenderer().DepthBuffer();
-    // false を返すと FApplication が既定フローでフレームを完走してくれる (失敗時の保険)。
+    // false を返すと CApplication が既定フローでフレームを完走してくれる (失敗時の保険)。
     if (!cl || !sc || !hdr) return false;
     if (!m_Shader.BeginFrame(5u)) return false;
 
@@ -142,7 +142,7 @@ bool FHelloBloomApp::OnCustomFrame() noexcept {
     m_Post.Render(*cl, *sc, buf_idx, m_Params);
 
     // 3) HUD は Tonemap 後の LDR backbuffer に書く (HDR 値が HUD 色を吹き飛ばさないため)。
-    //    FPostProcess::Render が既に swapchain を RT としてバインドしてくれている。
+    //    CPostProcess::Render が既に swapchain を RT としてバインドしてくれている。
     if (m_Font.AtlasTexture()) {
         const u32 sw = sc->Width();
         const u32 sh = sc->Height();
@@ -164,7 +164,7 @@ bool FHelloBloomApp::OnCustomFrame() noexcept {
     return true;
 }
 
-void FHelloBloomApp::OnShutdown() noexcept {
+void CHelloBloomApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();

@@ -16,13 +16,13 @@
 
 namespace hellolights {
 
-class FLightsScene {
+class CLightsScene {
 public:
     void Build() noexcept;
 
     // 1 フレームのライト計算 + 描画。リソースはすべて App から借りる。
     // time は光源の周回位相に使うため、外部時計のまま渡してもらう。
-    void Render(acs::FStandardShader&    shader,
+    void Render(acs::CStandardShader&    shader,
                 acs::IRhiCommandList&   cl,
                 const acs::CCamera&      camera,
                 const acs::FGpuMesh&     plane,

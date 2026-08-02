@@ -11,7 +11,7 @@ namespace acs::game {
 /** 全レイヤの非空タイルを atlas UV (未設定時はデバッグ色) で SpriteBatch へ描く。 */
 void ATilemapComponent::OnDraw(FRenderContext& rc) noexcept {
     if (!rc.HasSprites()) return;
-    FSpriteBatch& sb = rc.Sprites();
+    CSpriteBatch& sb = rc.Sprites();
 
     const FVec2 origin = Owner().World2D().position;
     const f32   ts     = m_Map.TileSize();

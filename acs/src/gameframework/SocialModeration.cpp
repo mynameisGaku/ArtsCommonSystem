@@ -138,7 +138,7 @@ bool CSocialModeration::TrySubmitToBackend(const FReportRecord& rep) noexcept {
 TResult<void> CSocialModeration::SubmitReport(const FReportRecord& rep) noexcept {
     if (rep.reported_user_id == nullptr) {
         // 通報対象が空なら審査側で識別不能 (必須項目)。Generic + subcode 1。
-        return ACS_ERR(Generic, 1, "FSocialModeration::SubmitReport: reported_user_id is null");
+        return ACS_ERR(Generic, 1, "CSocialModeration::SubmitReport: reported_user_id is null");
     }
     // 通報者 (reporter_user_id) と note は欠落許容: 匿名通報 / 種別のみ通報の
     // ケースをサポート (プラットフォームによっては reporter 非公開で送信可能)。
@@ -208,7 +208,7 @@ TResult<void> CSocialModeration::FlushReports() noexcept {
         // 1 件でも残れば「全件は送れていない」ことを集約エラーで通知。
         // 呼び出し側はオンライン復帰後に再度 FlushReports を呼ぶ契機にできる。
         return ACS_ERR(Generic, 2,
-                       "FSocialModeration::FlushReports: backend not connected; reports remain queued");
+                       "CSocialModeration::FlushReports: backend not connected; reports remain queued");
     }
     return Ok();
 }

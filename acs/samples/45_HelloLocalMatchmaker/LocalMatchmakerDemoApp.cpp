@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloLocalMatchmaker - FLocalMatchmakerDemoApp implementation.
+// HelloLocalMatchmaker - CLocalMatchmakerDemoApp implementation.
 #include "LocalMatchmakerDemoApp.h"
 
 #include "localmatch/LocalMatchmaker.h"
@@ -22,13 +22,13 @@ const char* StatusName(acs::game::EMatchStatus Status) noexcept {
 
 } // namespace
 
-int FLocalMatchmakerDemoApp::Run() noexcept {
+int CLocalMatchmakerDemoApp::Run() noexcept {
     std::puts("=== ACS HelloLocalMatchmaker ===");
-    std::puts("backend: REAL deterministic local queue (FLocalMatchmaker)");
+    std::puts("backend: REAL deterministic local queue (CLocalMatchmaker)");
 
     acs::localmatch::FLocalMatchmakerConfig Config{};
     Config.MaxRatingDelta = 100;
-    acs::localmatch::FLocalMatchmaker Matchmaker(Config);
+    acs::localmatch::CLocalMatchmaker Matchmaker(Config);
 
     auto TicketA = Matchmaker.StartSearch("ranked_1v1", 1500);
     auto TicketB = Matchmaker.StartSearch("ranked_1v1", 1560);

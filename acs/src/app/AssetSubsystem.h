@@ -5,7 +5,7 @@
 
 namespace acs {
 
-class FAssetRegistry;
+class CAssetRegistry;
 
 class AAssetSubsystem;
 /** 旧公開名を正規アセットサブシステム型へ接続する互換別名。 */
@@ -23,20 +23,20 @@ public:
     void OnDeinitialize() noexcept override;
 
     /** 結び付け済みのアセット登録簿を返し、未初期化なら nullptr を返す。 */
-    FAssetRegistry* GetAssets() noexcept
+    CAssetRegistry* GetAssets() noexcept
     {
         return m_Assets;
     }
 
     /** 結び付け済みのアセット登録簿を返し、未初期化なら nullptr を返す。 */
-    const FAssetRegistry* GetAssets() const noexcept
+    const CAssetRegistry* GetAssets() const noexcept
     {
         return m_Assets;
     }
 
 private:
     /** CApplication が所有するアセット登録簿への非所有参照。 */
-    FAssetRegistry* m_Assets = nullptr;
+    CAssetRegistry* m_Assets = nullptr;
 };
 
 } // namespace acs

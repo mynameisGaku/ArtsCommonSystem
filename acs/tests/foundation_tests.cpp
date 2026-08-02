@@ -78,7 +78,7 @@ void BlockingLoggerSink(ELogSeverity, const char*)
 /** 別スレッドから sink を解除し、戻った時点を記録する。 */
 void ClearLoggerSinkWorker(void*)
 {
-    FLogger::SetSink(nullptr);
+    CLogger::SetSink(nullptr);
     g_set_sink_completed.Store(1);
 }
 
@@ -94,7 +94,7 @@ void OrderingLoggerSink(ELogSeverity, const char*)
 /** 旧 callback の完了を待ってから検証用 sink を登録する。 */
 void InstallOrderingLoggerSinkWorker(void*)
 {
-    FLogger::SetSink(&OrderingLoggerSink);
+    CLogger::SetSink(&OrderingLoggerSink);
     g_set_sink_completed.Store(1);
 }
 
@@ -102,7 +102,7 @@ void InstallOrderingLoggerSinkWorker(void*)
 void FlushLoggerWorker(void*)
 {
     g_flush_started.Store(1);
-    FLogger::Flush();
+    CLogger::Flush();
     g_flush_completed.Store(1);
 }
 
@@ -125,16 +125,16 @@ void LoggerLifecycleWorker(void* user)
         case 0:
             return;
         case 1:
-            FLogger::Init(context.config);
+            CLogger::Init(context.config);
             break;
         case 2:
-            FLogger::SetSink(&CountingLoggerSink);
+            CLogger::SetSink(&CountingLoggerSink);
             break;
         case 3:
-            FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "logger lifecycle race");
+            CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "logger lifecycle race");
             break;
         case 4:
-            FLogger::Shutdown();
+            CLogger::Shutdown();
             break;
         default:
             break;
@@ -156,12 +156,12 @@ void RunLoggerLifecyclePhase(FLoggerLifecycleContext& context, u32 operation, u3
 /** 後続テスト用に main と同じ Logger 設定を復元する。 */
 void RestoreTestLogger()
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     FLogConfig config{};
     config.console = true;
     config.debug_output = false;
     config.min_severity = ELogSeverity::Info;
-    FLogger::Init(config);
+    CLogger::Init(config);
 }
 
 } // 無名名前空間
@@ -200,47 +200,47 @@ ACS_TEST(Foundation, SourceLocCaptures)
 ACS_TEST(Foundation, LoggerEmits)
 {
     ACS_LOG_INFO("foundation log smoke test value=%d", 7);
-    FLogger::Flush();
+    CLogger::Flush();
     EXPECT_TRUE(true);
 }
 
 /** リテラル高速経路が文字列内容と終端を保つことを確認する。 */
 ACS_TEST(Foundation, LoggerLiteralFastPathPreservesMessage)
 {
-    FLogger::Flush();
+    CLogger::Flush();
     g_literal_sink_hits.Store(0);
     g_literal_sink_message[0] = '\0';
-    FLogger::SetSink(&CaptureLiteralLoggerSink);
+    CLogger::SetSink(&CaptureLiteralLoggerSink);
 
     ACS_LOG_INFO("literal fast path");
-    FLogger::Flush();
+    CLogger::Flush();
 
-    FLogger::SetSink(nullptr);
+    CLogger::SetSink(nullptr);
     EXPECT_EQ(g_literal_sink_hits.Load(), 1u);
     EXPECT_TRUE(std::strcmp(g_literal_sink_message, "literal fast path") == 0);
 }
 
 ACS_TEST(Foundation, LoggerOversizedCapacityIsBounded)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     FLogConfig config{};
     config.console = false;
     config.debug_output = false;
     config.ring_capacity = ~u32{0};
 
     // 最大値を渡しても 2 のべき乗化が桁あふれせず、有限の上限で初期化できる。
-    FLogger::Init(config);
-    EXPECT_TRUE(FLogger::IsInitialized());
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "bounded logger capacity");
-    FLogger::Flush();
+    CLogger::Init(config);
+    EXPECT_TRUE(CLogger::IsInitialized());
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "bounded logger capacity");
+    CLogger::Flush();
 
     RestoreTestLogger();
 }
 
 ACS_TEST(Foundation, LoggerConcurrentLifecycleIsSerialized)
 {
-    FLogger::Shutdown();
-    EXPECT_TRUE(!FLogger::IsInitialized());
+    CLogger::Shutdown();
+    EXPECT_TRUE(!CLogger::IsInitialized());
     g_logger_sink_hits.Store(0);
 
     FLoggerLifecycleContext context;
@@ -263,13 +263,13 @@ ACS_TEST(Foundation, LoggerConcurrentLifecycleIsSerialized)
     constexpr u32 kLifecycleCount = 32;
     for (u32 i = 0; i < kLifecycleCount && worker_count != 0; ++i) {
         RunLoggerLifecyclePhase(context, 1, worker_count);
-        EXPECT_TRUE(FLogger::IsInitialized());
-        EXPECT_TRUE(FLogger::Enabled(ELogSeverity::Info));
+        EXPECT_TRUE(CLogger::IsInitialized());
+        EXPECT_TRUE(CLogger::Enabled(ELogSeverity::Info));
         RunLoggerLifecyclePhase(context, 2, worker_count);
         RunLoggerLifecyclePhase(context, 3, worker_count);
         RunLoggerLifecyclePhase(context, 4, worker_count);
-        EXPECT_TRUE(!FLogger::IsInitialized());
-        EXPECT_TRUE(!FLogger::Enabled(ELogSeverity::Info));
+        EXPECT_TRUE(!CLogger::IsInitialized());
+        EXPECT_TRUE(!CLogger::Enabled(ELogSeverity::Info));
     }
 
     context.operation.Store(0);
@@ -280,37 +280,37 @@ ACS_TEST(Foundation, LoggerConcurrentLifecycleIsSerialized)
 
     // 非稼働中の SetSink は次 lifecycle へ持ち越されない。
     const u32 hits_before_inactive_sink = g_logger_sink_hits.Load();
-    FLogger::Shutdown();
-    FLogger::Shutdown();
-    FLogger::SetSink(&CountingLoggerSink);
-    FLogger::Init(context.config);
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "inactive sink ignored");
-    FLogger::Flush();
+    CLogger::Shutdown();
+    CLogger::Shutdown();
+    CLogger::SetSink(&CountingLoggerSink);
+    CLogger::Init(context.config);
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "inactive sink ignored");
+    CLogger::Flush();
     EXPECT_EQ(g_logger_sink_hits.Load(), hits_before_inactive_sink);
 
-    FLogger::SetSink(&CountingLoggerSink);
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "active sink accepted");
-    FLogger::Flush();
+    CLogger::SetSink(&CountingLoggerSink);
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "active sink accepted");
+    CLogger::Flush();
     EXPECT_TRUE(g_logger_sink_hits.Load() > hits_before_inactive_sink);
-    FLogger::SetSink(nullptr);
+    CLogger::SetSink(nullptr);
 
     RestoreTestLogger();
 }
 
 ACS_TEST(Foundation, LoggerSetSinkWaitsForInFlightCallback)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     FLogConfig config{};
     config.console = false;
     config.debug_output = false;
     config.ring_capacity = 16;
-    FLogger::Init(config);
+    CLogger::Init(config);
 
     g_blocking_sink_entered.Store(0);
     g_blocking_sink_release.Store(0);
     g_set_sink_completed.Store(0);
-    FLogger::SetSink(&BlockingLoggerSink);
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "blocking sink");
+    CLogger::SetSink(&BlockingLoggerSink);
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "blocking sink");
     while (g_blocking_sink_entered.Load() == 0)
         Yield();
 
@@ -333,26 +333,26 @@ ACS_TEST(Foundation, LoggerSetSinkWaitsForInFlightCallback)
 
 ACS_TEST(Foundation, LoggerSetSinkDoesNotWaitForReplacementCallback)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     FLogConfig config{};
     config.console = false;
     config.debug_output = false;
     config.ring_capacity = 16;
-    FLogger::Init(config);
+    CLogger::Init(config);
 
     g_blocking_sink_entered.Store(0);
     g_blocking_sink_release.Store(0);
     g_set_sink_completed.Store(0);
     g_ordering_sink_hits.Store(0);
     g_ordering_sink_observed_incomplete.Store(0);
-    FLogger::SetSink(&BlockingLoggerSink);
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "old blocking sink");
+    CLogger::SetSink(&BlockingLoggerSink);
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "old blocking sink");
     while (g_blocking_sink_entered.Load() == 0)
         Yield();
 
     // 旧 callback の後ろにもレコードを積み、交換後の callback が SetSink の
     // 復帰待ちへ誤って含まれる実装を決定的に通す。
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "queued during sink exchange");
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "queued during sink exchange");
     auto result = FThread::Spawn(&InstallOrderingLoggerSinkWorker, nullptr);
     EXPECT_TRUE(result.IsOk());
     if (result.IsErr()) {
@@ -368,8 +368,8 @@ ACS_TEST(Foundation, LoggerSetSinkDoesNotWaitForReplacementCallback)
     EXPECT_EQ(g_set_sink_completed.Load(), 1u);
     EXPECT_EQ(g_ordering_sink_observed_incomplete.Load(), 0u);
 
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "replacement sink active");
-    FLogger::Flush();
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "replacement sink active");
+    CLogger::Flush();
     EXPECT_TRUE(g_ordering_sink_hits.Load() > 0);
 
     RestoreTestLogger();
@@ -377,19 +377,19 @@ ACS_TEST(Foundation, LoggerSetSinkDoesNotWaitForReplacementCallback)
 
 ACS_TEST(Foundation, LoggerFlushWaitsForInFlightCallback)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     FLogConfig config{};
     config.console = false;
     config.debug_output = false;
     config.ring_capacity = 16;
-    FLogger::Init(config);
+    CLogger::Init(config);
 
     g_blocking_sink_entered.Store(0);
     g_blocking_sink_release.Store(0);
     g_flush_started.Store(0);
     g_flush_completed.Store(0);
-    FLogger::SetSink(&BlockingLoggerSink);
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "blocking flush sink");
+    CLogger::SetSink(&BlockingLoggerSink);
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "blocking flush sink");
     while (g_blocking_sink_entered.Load() == 0)
         Yield();
 
@@ -441,9 +441,9 @@ ACS_TEST(Foundation, StackTraceSymbolResolverLifecycle)
 
 ACS_TEST(Foundation, VoiceLoopbackReleasesInjectedAllocator)
 {
-    FSystemAllocator allocator;
+    CSystemAllocator allocator;
     {
-        game::FVoiceChatLoopbackBackend backend(allocator);
+        game::CVoiceChatLoopbackBackend backend(allocator);
         constexpr const char* kChannel = "allocator-lifetime-contract-party-channel";
         constexpr const char* kUser = "allocator-lifetime-contract-local-user";
         constexpr const char* kDisplay = "Allocator Lifetime Contract User";
@@ -467,10 +467,10 @@ ACS_TEST(Foundation, AcpakReaderWriterReleaseInjectedAllocator)
     constexpr const wchar_t* kVirtualPath = L"contracts/process-lifetime.txt";
     constexpr u8 kPayload[] = {'a', 'c', 's'};
 
-    (void)FFileSystem::Delete(kPath);
-    FSystemAllocator allocator;
+    (void)CFileSystem::Delete(kPath);
+    CSystemAllocator allocator;
     {
-        assetpack::FAcpakWriter writer(allocator);
+        assetpack::CAcpakWriter writer(allocator);
         auto opened = writer.Open(kPath, assetpack::AcpakFlagNone);
         EXPECT_TRUE(opened.IsOk());
         if (opened.IsErr()) return;
@@ -481,7 +481,7 @@ ACS_TEST(Foundation, AcpakReaderWriterReleaseInjectedAllocator)
         writer.Close();
         EXPECT_EQ(allocator.BytesAllocated(), 0ull);
 
-        assetpack::FAcpakReader reader(allocator);
+        assetpack::CAcpakReader reader(allocator);
         auto mounted = reader.Open(kPath);
         EXPECT_TRUE(mounted.IsOk());
         if (mounted.IsOk()) {
@@ -491,5 +491,5 @@ ACS_TEST(Foundation, AcpakReaderWriterReleaseInjectedAllocator)
         }
     }
     EXPECT_EQ(allocator.BytesAllocated(), 0ull);
-    (void)FFileSystem::Delete(kPath);
+    (void)CFileSystem::Delete(kPath);
 }

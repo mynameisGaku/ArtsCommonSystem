@@ -64,7 +64,7 @@
 //     version をインクリメントし、後方互換ローダが分岐する。
 //   ・**非コピー・非ムーブ static class**: state を持たないため。
 //   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 規約。
-//   ・**file I/O は acs::FFileSystem に委譲**: `<stdio.h>` 等の C 標準 I/O を
+//   ・**file I/O は acs::CFileSystem に委譲**: `<stdio.h>` 等の C 標準 I/O を
 //     直接呼ばず、Win32 CreateFileW ベースの platform/FileSystem を使うことで
 //     wchar_t パスや GetLastError 由来エラーが一貫して扱える。
 //   ・**name buffer は呼び出し側持ち**: 内部に `TArray<char>` を持つ設計も
@@ -238,7 +238,7 @@ public:
         /** 読み込み対象が存在しない。 */
         kSub_FileNotFound      = 706,
 
-        /** 下位 FFileSystem からのエラー。 */
+        /** 下位 CFileSystem からのエラー。 */
         kSub_IOFailure         = 707,
 
         /** checked parser の schema/value 検証失敗。 */

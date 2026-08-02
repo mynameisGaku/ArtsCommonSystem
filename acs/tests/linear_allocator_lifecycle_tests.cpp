@@ -13,7 +13,7 @@ namespace {
 /** LinearAllocator の Reset 競合ストレスで共有する状態。 */
 struct FLinearAllocatorResetRaceContext
 {
-    FLinearAllocator* Allocator = nullptr;
+    CLinearAllocator* Allocator = nullptr;
     TAtomic<u32> Start{0u};
     TAtomic<u32> Stop{0u};
     TAtomic<u32> FailureCount{0u};
@@ -65,7 +65,7 @@ void ResetLinearAllocatorRepeatedly(void* User) noexcept
 ACS_TEST(Memory, LinearAllocatorResetDrainsConcurrentAllocations)
 {
     constexpr u32 kAllocationWorkerCount = 6u;
-    FLinearAllocator Allocator(8192u);
+    CLinearAllocator Allocator(8192u);
     FLinearAllocatorResetRaceContext Context{};
     Context.Allocator = &Allocator;
 

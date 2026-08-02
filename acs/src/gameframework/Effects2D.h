@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Effects2D — シェーダー無し・アセット無しの drop-in エフェクトコンポーネント集。
 //
-// すべて FSpriteBatch のプリミティブ (三角形/矩形) を時間で手続き生成して描く。
+// すべて CSpriteBatch のプリミティブ (三角形/矩形) を時間で手続き生成して描く。
 // HLSL を書けなくても AddComponent + パラメータ設定だけで動く。インタラクティブな
 // API (Disturb / SetIntensity / owner 追従) を持ち、入力や物理と連動できる。
 //
@@ -19,7 +19,7 @@
 #include "gameframework/AComponent.h"
 #include "math/Vec.h"
 
-namespace acs { class FSpriteBatch; }   // 加算パス描画ヘルパで使う (前方宣言)
+namespace acs { class CSpriteBatch; }   // 加算パス描画ヘルパで使う (前方宣言)
 
 namespace acs::game {
 
@@ -511,7 +511,7 @@ private:
      * @param sb 描画先のスプライトバッチ。
      * @param disp 波で変位済みの頂点 world 位置配列。
      */
-    void DrawCaustics(FSpriteBatch& sb, const FVec2* disp) noexcept;
+    void DrawCaustics(CSpriteBatch& sb, const FVec2* disp) noexcept;
 
     /**
      * 散発的なきらめきを加算ブレンドで描く。
@@ -519,7 +519,7 @@ private:
      * @param sb 描画先のスプライトバッチ。
      * @param disp 波で変位済みの頂点 world 位置配列。
      */
-    void DrawGlints(FSpriteBatch& sb, const FVec2* disp) noexcept;
+    void DrawGlints(CSpriteBatch& sb, const FVec2* disp) noexcept;
 
     /** 放射状リップル 1 つの状態 (中心・振幅・経過時間・伝播速度・有効フラグ)。 */
     struct FRipple {
@@ -873,7 +873,7 @@ private:
  *
  * @details
  * attach したノードの子ツリーを、指定形状の内側 (既定) か外側だけに通して描く。窓越しに
- * 他のエフェクトを覗かせる / 穴あきマスク等に使う。シェーダ不要で FSpriteBatch の stencil
+ * 他のエフェクトを覗かせる / 穴あきマスク等に使う。シェーダ不要で CSpriteBatch の stencil
  * モードを使う。シーンで SetStencilMaskEnabled(true) を呼んでおくのが前提で、stencil バッファ
  * が無いパス (例: 反射の RT パス) では自動的に素通しする。
  */

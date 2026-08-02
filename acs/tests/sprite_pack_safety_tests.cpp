@@ -12,15 +12,15 @@ using namespace acs::game;
 
 namespace {
 
-class FSpritePackFailAllocator final : public FAllocator {
+class FSpritePackFailAllocator final : public IAllocator {
 public:
     void* Alloc(usize, usize, FSourceLoc) noexcept override { return nullptr; }
     void Free(void*) noexcept override {}
 };
 
-class FSpritePackSwitchAllocator final : public FAllocator {
+class FSpritePackSwitchAllocator final : public IAllocator {
 public:
-    explicit FSpritePackSwitchAllocator(FAllocator& backing) noexcept
+    explicit FSpritePackSwitchAllocator(IAllocator& backing) noexcept
         : m_Backing(&backing) {}
 
     void SetFailing(bool failing) noexcept { m_Failing = failing; }
@@ -34,7 +34,7 @@ public:
     void Free(void* pointer) noexcept override { m_Backing->Free(pointer); }
 
 private:
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
     bool m_Failing = false;
 };
 
@@ -199,7 +199,7 @@ ACS_TEST(SpritePackSafety, LimitsAndAllocationFailureAreReportedWithoutCommit)
 
 ACS_TEST(SpritePackSafety, AllocationFailurePreservesExistingStorageAndPointers)
 {
-    FSystemAllocator backing;
+    CSystemAllocator backing;
     FSpritePackSwitchAllocator allocator(backing);
     FSpritePack pack(allocator);
     EXPECT_TRUE(

@@ -45,7 +45,7 @@ TResult<void> IAssetPackReader::ReadFiles(const FAssetPackReadRequest* Requests,
 TResult<void> CAssetPackReaderStub::Mount(const char* pack_path) noexcept {
     (void)pack_path;  // 未使用引数 (Stub なので no-op)
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                   "FAssetPackReaderStub: Mount is not implemented (link real AssetPack module)");
+                   "CAssetPackReaderStub: Mount is not implemented (link real AssetPack module)");
 }
 
 /** 副作用なしの no-op stub 実装。 */
@@ -57,21 +57,21 @@ void CAssetPackReaderStub::Unmount() noexcept {
 /** NotImplemented を返す stub 実装。 */
 TResult<u32> CAssetPackReaderStub::FileCount() noexcept {
     return TResult<u32>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                               "FAssetPackReaderStub: FileCount is not implemented (link real AssetPack module)"));
+                               "CAssetPackReaderStub: FileCount is not implemented (link real AssetPack module)"));
 }
 
 /** NotImplemented を返す stub 実装。 */
 TResult<const char*> CAssetPackReaderStub::FileName(u32 index) noexcept {
     (void)index;
     return TResult<const char*>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                                       "FAssetPackReaderStub: FileName is not implemented (link real AssetPack module)"));
+                                       "CAssetPackReaderStub: FileName is not implemented (link real AssetPack module)"));
 }
 
 /** NotImplemented を返す stub 実装。 */
 TResult<u64> CAssetPackReaderStub::FileSize(const char* name) noexcept {
     (void)name;
     return TResult<u64>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                               "FAssetPackReaderStub: FileSize is not implemented (link real AssetPack module)"));
+                               "CAssetPackReaderStub: FileSize is not implemented (link real AssetPack module)"));
 }
 
 /** NotImplemented を返す stub 実装。 */
@@ -80,14 +80,14 @@ TResult<void> CAssetPackReaderStub::ReadFile(const char* name, u8* out_buffer, u
     (void)out_buffer;
     (void)buffer_size;
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                   "FAssetPackReaderStub: ReadFile is not implemented (link real AssetPack module)");
+                   "CAssetPackReaderStub: ReadFile is not implemented (link real AssetPack module)");
 }
 
 /** NotImplemented を返す stub 実装。 */
 TResult<void> CAssetPackWriterStub::BeginPack(const char* output_path) noexcept {
     (void)output_path;
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                   "FAssetPackWriterStub: BeginPack is not implemented (link real AssetPack module)");
+                   "CAssetPackWriterStub: BeginPack is not implemented (link real AssetPack module)");
 }
 
 /** NotImplemented を返す stub 実装。 */
@@ -96,13 +96,13 @@ TResult<void> CAssetPackWriterStub::AddFile(const char* virtual_name, const u8* 
     (void)data;
     (void)size;
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                   "FAssetPackWriterStub: AddFile is not implemented (link real AssetPack module)");
+                   "CAssetPackWriterStub: AddFile is not implemented (link real AssetPack module)");
 }
 
 /** NotImplemented を返す stub 実装。 */
 TResult<void> CAssetPackWriterStub::FinishPack() noexcept {
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                   "FAssetPackWriterStub: FinishPack is not implemented (link real AssetPack module)");
+                   "CAssetPackWriterStub: FinishPack is not implemented (link real AssetPack module)");
 }
 
 /** 既定 stub の Reader (Meyer's singleton) を返す。 */

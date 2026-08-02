@@ -3,7 +3,7 @@
 //
 // サンプル 17_HelloMesh の cube を最小流用したもの。本 sample の主眼は editor
 // UI 統合 (workspace / theme / asset browser / panel orchestration) のため、
-// 頂点+色 cube で十分 (FStandardShader / FPbrShader への差替は将来の宿題)。
+// 頂点+色 cube で十分 (CStandardShader / CPbrShader への差替は将来の宿題)。
 //
 // 24 頂点 (6 面 × 4 頂点) + 36 indices (6 面 × 2 三角形 × 3 頂点) を constexpr
 // で持つ。HLSL は b0 に MVP を行優先で渡す最小シェーダ (VS+PS 兼用)。

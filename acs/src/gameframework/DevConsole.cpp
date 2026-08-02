@@ -73,14 +73,14 @@ void CDevConsole::RegisterCommand(const char* name,
                                  void*       user,
                                  const char* help_text) noexcept {
     if (name == nullptr || name[0] == '\0' || fn == nullptr) {
-        ACS_LOG_WARN("FDevConsole::RegisterCommand: invalid name or fn (ignored)");
+        ACS_LOG_WARN("CDevConsole::RegisterCommand: invalid name or fn (ignored)");
         return;
     }
 
     // 既存検索 (線形)。あれば後勝ち上書き。
     for (usize i = 0; i < m_Commands.Size(); ++i) {
         if (std::strcmp(m_Commands[i].name, name) == 0) {
-            ACS_LOG_WARN("FDevConsole: command '%s' re-registered (overwriting)", name);
+            ACS_LOG_WARN("CDevConsole: command '%s' re-registered (overwriting)", name);
             m_Commands[i].fn   = fn;
             m_Commands[i].user = user;
             m_Commands[i].help = help_text;
@@ -125,7 +125,7 @@ void CDevConsole::Execute(const char* command_line) noexcept {
         if (i >= n) break;
 
         if (token_count >= kMaxTokens) {
-            ACS_LOG_WARN("FDevConsole::Execute: too many tokens (max %u, extra ignored)", kMaxTokens);
+            ACS_LOG_WARN("CDevConsole::Execute: too many tokens (max %u, extra ignored)", kMaxTokens);
             break;
         }
         tokens[token_count++] = &buf[i];
@@ -150,7 +150,7 @@ void CDevConsole::Execute(const char* command_line) noexcept {
     }
 
     if (found == nullptr) {
-        ACS_LOG_WARN("FDevConsole: unknown command '%s'", cmd_name);
+        ACS_LOG_WARN("CDevConsole: unknown command '%s'", cmd_name);
         // ログにも残してユーザが UI 上で確認できるようにする (cap 内で安全)
         Log("unknown command");
         return;

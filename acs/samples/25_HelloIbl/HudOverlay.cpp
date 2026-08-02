@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloIbl — LDR backbuffer 上の HUD 描画 (FSpriteBatch)。
+// HelloIbl — LDR backbuffer 上の HUD 描画 (CSpriteBatch)。
 //
-// FPostProcess.Render で tonemap → LDR backbuffer に書き出した後の FSpriteBatch pass。
+// CPostProcess.Render で tonemap → LDR backbuffer に書き出した後の CSpriteBatch pass。
 // 右上に BRDF LUT サムネ、左下と右下に SSR / SSAO デバッグ overlay (有効時のみ)、
 // 左上に状態テキスト群 (preset / display mode / toggle 一覧 / 操作ヒント)。
 #include "HelloIblApp.h"
@@ -12,9 +12,9 @@ using namespace acs;
 
 namespace helloibl {
 
-// HUD の各 overlay helper は FHelloIblApp の private を直接触るため friend 宣言済み
-// (FHelloIblApp.h)。匿名名前空間に入れると friend 一致しなくなるので namespace 直下に置く。
-void DrawBrdfLutOverlay(FHelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
+// HUD の各 overlay helper は CHelloIblApp の private を直接触るため friend 宣言済み
+// (HelloIblApp.h)。匿名名前空間に入れると friend 一致しなくなるので namespace 直下に置く。
+void DrawBrdfLutOverlay(CHelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
     if (!lut) return;
     app.m_Batch.DrawRect(static_cast<f32>(sw) - 280, 20,
                         260, 320, FVec4{0, 0, 0, 0.55f});
@@ -23,7 +23,7 @@ void DrawBrdfLutOverlay(FHelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
                     240, 240);
 }
 
-void DrawSsrDebugOverlay(FHelloIblApp& app, u32 sh) noexcept {
+void DrawSsrDebugOverlay(CHelloIblApp& app, u32 sh) noexcept {
     if (!app.m_ShowSsr || !app.m_Ssr.OutputTexture()) return;
     app.m_Batch.DrawRect(20, static_cast<f32>(sh) - 280,
                         420, 260, FVec4{0, 0, 0, 0.6f});
@@ -35,7 +35,7 @@ void DrawSsrDebugOverlay(FHelloIblApp& app, u32 sh) noexcept {
     }
 }
 
-void DrawSsaoDebugOverlay(FHelloIblApp& app, u32 sw, u32 sh) noexcept {
+void DrawSsaoDebugOverlay(CHelloIblApp& app, u32 sw, u32 sh) noexcept {
     if (!app.m_bUseSsao || !app.m_Ssao.OutputTexture()) return;
     const f32 ax = static_cast<f32>(sw) - 440;
     const f32 ay = static_cast<f32>(sh) - 280;
@@ -48,7 +48,7 @@ void DrawSsaoDebugOverlay(FHelloIblApp& app, u32 sw, u32 sh) noexcept {
     }
 }
 
-void DrawStatusText(FHelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
+void DrawStatusText(CHelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
     if (!app.m_Font.AtlasTexture()) return;
 
     char buf[160];
@@ -120,7 +120,7 @@ void DrawStatusText(FHelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
     }
 }
 
-void DrawHud(FHelloIblApp& app, u32 sw, u32 sh) noexcept {
+void DrawHud(CHelloIblApp& app, u32 sw, u32 sh) noexcept {
     IRhiCommandList* cl = app.GetRenderer().CommandList();
     if (!cl) return;
 

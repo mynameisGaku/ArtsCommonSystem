@@ -135,7 +135,7 @@ void AEditorToolbar::ApplyStateToGame(CGame& game) noexcept {
  * ツールバーを 1 つの独立 ImGui window として描画する。
  *
  * @details
- * 横長の button row [ Play ][ Pause ][ Step ] | [ Save ] | [v] FDebugOverlay | state を出す。
+ * 横長の button row [ Play ][ Pause ][ Step ] | [ Save ] | [v] CDebugOverlay | state を出す。
  * BeginMainMenuBar はエディタアプリ側で使われている可能性があるため、専用 window で
  * レイアウト衝突を避ける。ボタン操作の結果は末尾の ApplyStateToGame で CGame に反映し、
  * Stepping は同フレームで Paused へ戻す。CGame 未設定 (nullptr) のときは TimeScale 反映を skip する。

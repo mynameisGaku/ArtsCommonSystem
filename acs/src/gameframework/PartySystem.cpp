@@ -58,11 +58,11 @@ TResult<void> CPartySystem::CreateParty(const char* party_name) noexcept {
     if (_state != EPartyState::Solo) {
         // 既にパーティ所属中 / 状態遷移中での再要求は許可しない。先に LeaveParty を
         // 完了させること。Generic + subcode 1 = "invalid state for CreateParty"。
-        return ACS_ERR(Generic, 1, "FPartySystem::CreateParty: not in Solo state");
+        return ACS_ERR(Generic, 1, "CPartySystem::CreateParty: not in Solo state");
     }
     if (party_name == nullptr) {
         // 空名は将来 SDK によっては許可するが、bridge 統一のため最低限名前必須。
-        return ACS_ERR(Generic, 2, "FPartySystem::CreateParty: party_name is null");
+        return ACS_ERR(Generic, 2, "CPartySystem::CreateParty: party_name is null");
     }
     m_PartyName    = party_name;
     m_PartyId      = nullptr;  // 自分作成時は SDK が後で割り当てる想定
@@ -75,10 +75,10 @@ TResult<void> CPartySystem::CreateParty(const char* party_name) noexcept {
 
 TResult<void> CPartySystem::JoinParty(const char* party_id) noexcept {
     if (_state != EPartyState::Solo) {
-        return ACS_ERR(Generic, 3, "FPartySystem::JoinParty: not in Solo state");
+        return ACS_ERR(Generic, 3, "CPartySystem::JoinParty: not in Solo state");
     }
     if (party_id == nullptr) {
-        return ACS_ERR(Generic, 4, "FPartySystem::JoinParty: party_id is null");
+        return ACS_ERR(Generic, 4, "CPartySystem::JoinParty: party_id is null");
     }
     m_PartyName    = nullptr;
     m_PartyId      = party_id;
@@ -92,7 +92,7 @@ TResult<void> CPartySystem::LeaveParty() noexcept {
     if (_state != EPartyState::InParty) {
         // Joining / Leaving / Solo からの離脱は no-op ではなくエラーで返す
         // (上位レイヤで状態整合を取れていない時に気付けるように)。
-        return ACS_ERR(Generic, 5, "FPartySystem::LeaveParty: not in InParty state");
+        return ACS_ERR(Generic, 5, "CPartySystem::LeaveParty: not in InParty state");
     }
     m_PendingTimer = 0.0f;
     _state         = EPartyState::Leaving;
@@ -102,10 +102,10 @@ TResult<void> CPartySystem::LeaveParty() noexcept {
 
 TResult<void> CPartySystem::InviteFriend(const char* friend_id) noexcept {
     if (_state != EPartyState::InParty) {
-        return ACS_ERR(Generic, 6, "FPartySystem::InviteFriend: not in InParty state");
+        return ACS_ERR(Generic, 6, "CPartySystem::InviteFriend: not in InParty state");
     }
     if (friend_id == nullptr) {
-        return ACS_ERR(Generic, 7, "FPartySystem::InviteFriend: friend_id is null");
+        return ACS_ERR(Generic, 7, "CPartySystem::InviteFriend: friend_id is null");
     }
     // フレンドリスト内に存在するかは「警告のみ」で弾かない。プラットフォーム
     // 上は friend でない相手にも (公開設定次第で) invite を送れるケースがあり、
@@ -151,12 +151,12 @@ const FPartyMember* CPartySystem::GetMember(u32 index) const noexcept {
 TResult<void> CPartySystem::AddMember(const FPartyMember& member) noexcept {
     if (member.player_id == nullptr) {
         // SDK 取得失敗時の nullptr 流入で roster を壊さない。Generic+8。
-        return ACS_ERR(Generic, 8, "FPartySystem::AddMember: player_id is null");
+        return ACS_ERR(Generic, 8, "CPartySystem::AddMember: player_id is null");
     }
     // 同 player_id の二重追加は上書きせずエラーで弾く (呼び出し側が
     // accept イベントを取りこぼして再送した等を検知できるように)。Generic+9。
     if (FindMember(member.player_id) != kInvalidIndex) {
-        return ACS_ERR(Generic, 9, "FPartySystem::AddMember: duplicate player_id");
+        return ACS_ERR(Generic, 9, "CPartySystem::AddMember: duplicate player_id");
     }
     m_Members.PushBack(member);
     return Ok();

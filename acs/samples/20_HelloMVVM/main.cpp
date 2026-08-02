@@ -12,4 +12,4 @@
 #include "app/EntryPoint.h"
 #include "HelloMVVMApp.h"
 
-ACS_DEFINE_MAIN(hellomvvm::FHelloMvvmApp)
+ACS_DEFINE_MAIN(hellomvvm::CHelloMvvmApp)

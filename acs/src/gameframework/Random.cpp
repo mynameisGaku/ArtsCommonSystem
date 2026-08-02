@@ -185,7 +185,7 @@ i32 DrawUnbiasedRangeInt(FRandom& random, i32 min, i32 max) noexcept {
 
 /** 起動時刻をseedにして乱数列を初期化する。 */
 FRandom::FRandom() noexcept {
-    Seed(FClock::Ticks());
+    Seed(CClock::Ticks());
 }
 
 /** 指定seedから再現可能な乱数列を初期化する。 */

@@ -109,7 +109,7 @@ inline void MakeTBN(acs::FVec3 N, acs::FVec3& T, acs::FVec3& B) noexcept {
 
 // cosine-weighted hemisphere sampling。pdf = cosθ/π なので、この方向で
 // 入射放射輝度を平均すると cosine 重みと pdf の π が相殺し、「入射 irradiance の
-// 平均」がそのまま得られる (FPbrShader が描画時に albedo を掛ける)。
+// 平均」がそのまま得られる (CPbrShader が描画時に albedo を掛ける)。
 inline acs::FVec3 CosineSampleHemisphere(acs::FVec3 N, acs::FVec3 T, acs::FVec3 B, FRng& rng) noexcept {
     const acs::f32 u1  = rng.NextF();
     const acs::f32 u2  = rng.NextF();

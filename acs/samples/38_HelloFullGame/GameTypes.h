@@ -20,7 +20,7 @@ static_assert(__is_trivially_copyable(FHighScore),
               "FHighScore must be trivially copyable for TSaveSlot");
 
 // world / camera
-inline constexpr acs::f32 kWorldUnit  = 32.0f;   // 1 world unit = 32 px (FCamera2D zoom)
+inline constexpr acs::f32 kWorldUnit  = 32.0f;   // 1 world unit = 32 px (CCamera2D zoom)
 inline constexpr acs::f32 kWorldHalfW = 16.0f;   // [-16, +16]
 inline constexpr acs::f32 kWorldHalfH = 9.0f;    // [-9,  +9]
 

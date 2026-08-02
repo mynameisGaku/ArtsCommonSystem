@@ -36,7 +36,7 @@ constexpr const char kCanonicalGraph[] =
 
 ACS_TEST(BtPersistenceSafety, CanonicalParseAndRuntimeBake)
 {
-    FBehaviorTreeEditorPanel panel;
+    ABehaviorTreeEditorPanel panel;
     panel.Init();
     FBtBlackboard blackboard;
     blackboard.Add("sentinel", EBtVarType::I32);
@@ -53,10 +53,10 @@ ACS_TEST(BtPersistenceSafety, CanonicalParseAndRuntimeBake)
     EXPECT_TRUE(blackboard.GetBool("alive"));
     EXPECT_FALSE(blackboard.Has("sentinel"));
 
-    FBtActionRegistry registry;
+    CBtActionRegistry registry;
     registry.Register("Win Action", &BtPersistenceSuccess);
     panel.SetActionRegistry(&registry);
-    FBehaviorTree tree;
+    CBehaviorTree tree;
     tree.SetRoot(panel.BuildRuntimeTree());
     EXPECT_TRUE(tree.HasRoot());
     EXPECT_TRUE(tree.Tick(&blackboard, 0.016f) == EBtStatus::Success);
@@ -64,11 +64,11 @@ ACS_TEST(BtPersistenceSafety, CanonicalParseAndRuntimeBake)
 
 ACS_TEST(BtPersistenceSafety, FailureLeavesGraphAndBlackboardUnchanged)
 {
-    FBehaviorTreeEditorPanel panel;
+    ABehaviorTreeEditorPanel panel;
     panel.Init();
     panel.AddNode(
         EBtKind::Selector, "existing",
-        FBehaviorTreeEditorPanel::kInvalidId);
+        ABehaviorTreeEditorPanel::kInvalidId);
     FBtBlackboard blackboard;
     blackboard.Add("sentinel", EBtVarType::I32);
     blackboard.SetI32("sentinel", 91);
@@ -113,7 +113,7 @@ ACS_TEST(BtPersistenceSafety, FailureLeavesGraphAndBlackboardUnchanged)
 
 ACS_TEST(BtPersistenceSafety, RejectsReferencesCyclesAndNonFiniteValues)
 {
-    FBehaviorTreeEditorPanel panel;
+    ABehaviorTreeEditorPanel panel;
     panel.Init();
 
     constexpr char bad_parent[] =
@@ -162,14 +162,14 @@ ACS_TEST(BtPersistenceSafety, RejectsReferencesCyclesAndNonFiniteValues)
 
 ACS_TEST(BtPersistenceSafety, EnforcesDocumentAndLineBounds)
 {
-    FBehaviorTreeEditorPanel panel;
+    ABehaviorTreeEditorPanel panel;
     panel.Init();
     const FBtGraphPersistenceResult oversized = panel.TryParseGraphText(
-        "x", FBehaviorTreeEditorPanel::kMaxGraphTextBytes + 1u);
+        "x", ABehaviorTreeEditorPanel::kMaxGraphTextBytes + 1u);
     EXPECT_TRUE(
         oversized.error == EBtGraphPersistenceError::InputTooLarge);
 
-    char long_line[FBehaviorTreeEditorPanel::kMaxGraphLineBytes + 2u]{};
+    char long_line[ABehaviorTreeEditorPanel::kMaxGraphLineBytes + 2u]{};
     std::memset(long_line, 'x', sizeof(long_line));
     const FBtGraphPersistenceResult line_result =
         panel.TryParseGraphText(long_line, sizeof(long_line));
@@ -179,7 +179,7 @@ ACS_TEST(BtPersistenceSafety, EnforcesDocumentAndLineBounds)
 
 ACS_TEST(BtPersistenceSafety, RejectsExcessiveParentDepth)
 {
-    FBehaviorTreeEditorPanel panel;
+    ABehaviorTreeEditorPanel panel;
     panel.Init();
     char graph[32768]{};
     usize offset = 0u;
@@ -212,7 +212,7 @@ ACS_TEST(BtPersistenceSafety, RejectsExcessiveParentDepth)
 
 ACS_TEST(BtPersistenceSafety, LegacyV1RemainsReadable)
 {
-    FBehaviorTreeEditorPanel panel;
+    ABehaviorTreeEditorPanel panel;
     panel.Init();
     FBtBlackboard blackboard;
     blackboard.Add("keep", EBtVarType::I32);
@@ -236,11 +236,11 @@ ACS_TEST(BtPersistenceSafety, AtomicSaveAndFileRoundTrip)
     constexpr const char* path = "bt_persistence_safety_roundtrip.btg";
     std::remove(path);
 
-    FBehaviorTreeEditorPanel source;
+    ABehaviorTreeEditorPanel source;
     source.Init();
     const u32 root = source.AddNode(
         EBtKind::Sequence, "Root Sequence",
-        FBehaviorTreeEditorPanel::kInvalidId);
+        ABehaviorTreeEditorPanel::kInvalidId);
     source.AddNode(EBtKind::Action, "Win Action", root);
     FBtBlackboard source_blackboard;
     source_blackboard.Add("hp", EBtVarType::F32);
@@ -251,7 +251,7 @@ ACS_TEST(BtPersistenceSafety, AtomicSaveAndFileRoundTrip)
     EXPECT_TRUE(result.Succeeded());
     EXPECT_TRUE(result.bytes > 0u);
 
-    FBehaviorTreeEditorPanel loaded;
+    ABehaviorTreeEditorPanel loaded;
     loaded.Init();
     FBtBlackboard loaded_blackboard;
     loaded.SetDynamicBlackboard(&loaded_blackboard);
@@ -267,7 +267,7 @@ ACS_TEST(BtPersistenceSafety, AtomicSaveAndFileRoundTrip)
     EXPECT_TRUE(
         result.error == EBtGraphPersistenceError::NonFiniteNumber);
 
-    FBehaviorTreeEditorPanel still_valid;
+    ABehaviorTreeEditorPanel still_valid;
     still_valid.Init();
     FBtBlackboard still_valid_blackboard;
     still_valid.SetDynamicBlackboard(&still_valid_blackboard);

@@ -101,11 +101,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FScriptHost",
+      name: "スクリプト窓口の概要",
       kind: "クラス", header: "gameframework/ScriptHost.h",
-      summary: "<b>ゲームコードから見たスクリプトの単一窓口</b>。<t>IScriptVm</t>* を 1 つ保持し、関数呼び出し・ファイル実行・C++ 関数登録・エラー通知をまとめる(<t>DI</t> ポイントを 1 つに絞る)。<b>vm は所有しない</b>(生成/破棄は <code>FGame</code>/<code>Scene</code> 側の責任)。コピー/<t>ムーブ</t>不可。",
+      summary: "<b>ゲームコードから見たスクリプトの単一窓口</b>。<t>IScriptVm</t>* を 1 つ保持し、関数呼び出し・ファイル実行・C++ 関数登録・エラー通知をまとめる(<t>DI</t> ポイントを 1 つに絞る)。<b>vm は所有しない</b>(生成/破棄は <code>CGame</code>/<code>Scene</code> 側の責任)。コピー/<t>ムーブ</t>不可。",
       when: "ゲーム側で「スクリプトを呼ぶ」窓口が欲しい時。<code>CLuaVm</code>(実)や <code>GetVmStub()</code>(未統合時)を <code>Init()</code> で差し込んで使う。",
-      sample: "acs::scripting::CLuaVm vm; vm.Init();\nacs::game::FScriptHost host;\nhost.Init(&amp;vm);                              // 実 VM(未統合なら &amp;GetVmStub())を差す\nhost.RegisterNative(\"spawn\", &amp;Spawn, &amp;world);\nif (host.LoadAndRun(L\"scripts/quest.lua\").IsErr()) { /* 失敗処理 */ }\nacs::game::FScriptValue ret;\nhost.CallGlobalFunction(\"on_start\", nullptr, 0, &amp;ret);\nhost.Shutdown();                            // vm は delete しない",
+      sample: "acs::scripting::CLuaVm vm; vm.Init();\nacs::game::CScriptHost host;\nhost.Init(&amp;vm);                              // 実 VM(未統合なら &amp;GetVmStub())を差す\nhost.RegisterNative(\"spawn\", &amp;Spawn, &amp;world);\nif (host.LoadAndRun(L\"scripts/quest.lua\").IsErr()) { /* 失敗処理 */ }\nacs::game::FScriptValue ret;\nhost.CallGlobalFunction(\"on_start\", nullptr, 0, &amp;ret);\nhost.Shutdown();                            // vm は delete しない",
       members: [
         { sig: "void Init(IScriptVm* vm)", desc: "使う VM を差し込む。<code>nullptr</code> は Shutdown 相当。多重呼び出し可(後勝ち)。<b>vm は所有しない</b>。" },
         { sig: "void Shutdown()", desc: "vm 参照を切り、内部の native 登録リストもクリア(vm の破棄は呼び出し側)。" },
@@ -119,11 +119,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FScriptVmStub / GetVmStub()",
+      name: "スクリプトVM fallbackの概要",
       kind: "クラス / 関数", header: "gameframework/ScriptHost.h",
       summary: "実 backend(Lua 等)が<b>未統合のときの安全側 <t>IScriptVm</t></b>。<code>Init</code>/<code>Shutdown</code> だけ no-op 成功し、<code>LoadScript</code>/<code>CallFunction</code>/<code>RegisterNativeFunction</code> は <code>kSub_NotImplemented</code> を返す。これで上位層の「スクリプトが常に失敗する」fallback を検証できる。",
       when: "<code>ACS_BUILD_SCRIPTING</code> OFF や backend 未リンクの状態でも起動シーケンスを通したい時。",
-      sample: "acs::game::FScriptHost host;\nhost.Init(&amp;acs::game::GetVmStub());   // 未統合でも安全に動く\n// LoadAndRun / CallGlobalFunction は kSub_NotImplemented を返す",
+      sample: "acs::game::CScriptHost host;\nhost.Init(&amp;acs::game::GetVmStub());   // 未統合でも安全に動く\n// LoadAndRun / CallGlobalFunction は kSub_NotImplemented を返す",
       members: [
         { sig: "IScriptVm&amp; GetVmStub()", ret: "stub 参照", desc: "プロセス内に 1 つの静的 stub(Meyers singleton)への参照。" },
         { sig: "Init() / Shutdown()", desc: "no-op 成功(起動シーケンスを通すため)。" },
@@ -155,7 +155,7 @@ ACS_REF.modules.push({
         { sig: "kSub_LoadFailed = 10", desc: "<code>LoadScript</code> 失敗(parse error 等)。" },
         { sig: "kSub_CallFailed = 11", desc: "<code>CallFunction</code> 失敗(runtime error 等)。" },
         { sig: "kSub_FileNotFound = 20 / kSub_FileTooLarge = 21", desc: "<code>LoadAndRun</code> のファイル読み込み失敗 / 上限超過。" },
-        { sig: "kSub_NoVm = 30", desc: "<code>FScriptHost::Init</code> 未呼出。" }
+        { sig: "kSub_NoVm = 30", desc: "<code>CScriptHost::Init</code> 未呼出。" }
       ]
     }
   ]
@@ -170,5 +170,5 @@ Object.assign(ACS_REF.glossary, {
   "GC": "Garbage Collection(ガベージコレクション)。不要になったメモリを自動回収する仕組み。<t>Lua</t> が内部で行う。",
   "Pimpl": "実装の詳細を別構造体へ隠し、ヘッダに公開しない手法。<code>CLuaVm</code> は <code>lua_State*</code> をこれで隠す。",
   "シングルトン": "プロセス内に 1 個だけ存在するインスタンス。<code>GetDefaultLuaVm()</code> はこれを返す。",
-  "DI": "Dependency Injection(依存性注入)。使う実装を外から差し込み、呼び出し側を具体実装に依存させない設計。<code>FScriptHost</code> は VM を差し替え可能にする。"
+  "DI": "Dependency Injection(依存性注入)。使う実装を外から差し込み、呼び出し側を具体実装に依存させない設計。<code>CScriptHost</code> は VM を差し替え可能にする。"
 });

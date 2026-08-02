@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloGameFramework — FPauseScene 実装。
+// HelloGameFramework — APauseScene 実装。
 #include "PauseScene.h"
 
 #include "platform/Input.h"
@@ -10,27 +10,27 @@ using namespace acs::game;
 
 namespace hellogf {
 
-void FPauseScene::OnEnter() noexcept {
+void APauseScene::OnEnter() noexcept {
     GetGame().SetClearColor(0.18f, 0.18f, 0.20f);   // grey
     // Wait → Call → Wait → Call を Loop(0)=無限。Pause を抜けるまで定期出力する。
     FSequence s;
     s.Wait(0.5f)
-     .Call(&FPauseScene::LogStillPaused1, this)
+     .Call(&APauseScene::LogStillPaused1, this)
      .Wait(1.5f)
-     .Call(&FPauseScene::LogStillPaused2, this)
+     .Call(&APauseScene::LogStillPaused2, this)
      .Loop(0);
     m_Seqs.Start(Move(s));
     ACS_LOG_INFO("[Pause] (P: resume, Esc: quit) FSequence loop start");
 }
 
-void FPauseScene::OnExit() noexcept {
+void APauseScene::OnExit() noexcept {
     m_Seqs.CancelAll();
     ACS_LOG_INFO("[Pause] exit");
 }
 
-void FPauseScene::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) GetGame().Quit();
-    if (FInput::IsKeyPressed(EKey::P)) {
+void APauseScene::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) GetGame().Quit();
+    if (CInput::IsKeyPressed(EKey::P)) {
         Scenes().PopScene();
         return;
     }
@@ -38,11 +38,11 @@ void FPauseScene::OnUpdate(f32 dt) noexcept {
     m_Seqs.Tick(m_Clock.Dt());
 }
 
-void FPauseScene::LogStillPaused1(void* /*user*/) noexcept {
+void APauseScene::LogStillPaused1(void* /*user*/) noexcept {
     ACS_LOG_INFO("[Pause] still paused...");
 }
 
-void FPauseScene::LogStillPaused2(void* /*user*/) noexcept {
+void APauseScene::LogStillPaused2(void* /*user*/) noexcept {
     ACS_LOG_INFO("[Pause] still paused longer...");
 }
 

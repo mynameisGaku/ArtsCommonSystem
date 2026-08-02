@@ -47,7 +47,7 @@ bool StrEq(const char* a, const char* b) noexcept
  * @param keep ロードした asset を保持して生存させる出力先。
  * @return 成功なら true。registry 未設定 / 非音声 / load 失敗は false。
  */
-bool ResolveAudioClip(FAssetRegistry* reg, const char* name, FAudioClipDesc& out, TSharedPtr<FAsset>& keep) noexcept
+bool ResolveAudioClip(CAssetRegistry* reg, const char* name, FAudioClipDesc& out, TSharedPtr<AAsset>& keep) noexcept
 {
     if (reg == nullptr || name == nullptr) return false;
     wchar_t wpath[260];
@@ -55,9 +55,9 @@ bool ResolveAudioClip(FAssetRegistry* reg, const char* name, FAudioClipDesc& out
     const auto r = reg->Load(wpath);
     if (r.IsErr()) return false;
     keep = r.Value();
-    FAsset* a = keep.Get();
-    if (a == nullptr || a->Type() != FAudioAsset::StaticType()) return false;
-    const FAudioAsset* audio = static_cast<const FAudioAsset*>(a);
+    AAsset* a = keep.Get();
+    if (a == nullptr || a->Type() != AAudioAsset::StaticType()) return false;
+    const AAudioAsset* audio = static_cast<const AAudioAsset*>(a);
     out.pcm_data = audio->Samples();
     out.pcm_size = audio->SampleByteCount();
     out.sample_rate = audio->SampleRate();
@@ -87,7 +87,7 @@ void CAudioDirector::SetMasterVolume(f32 v) noexcept
 {
     const f32 c = Clamp01(v);
     if (c != v) {
-        ACS_LOG_WARN("FAudioDirector::SetMasterVolume: out-of-range %.3f → clamped to %.3f", v, c);
+        ACS_LOG_WARN("CAudioDirector::SetMasterVolume: out-of-range %.3f → clamped to %.3f", v, c);
     }
     m_MasterVolume = c;
     // backend 直接 master volume (mastering voice の master gain) は本層では
@@ -102,7 +102,7 @@ void CAudioDirector::SetBgmVolume(f32 v) noexcept
 {
     const f32 c = Clamp01(v);
     if (c != v) {
-        ACS_LOG_WARN("FAudioDirector::SetBgmVolume: out-of-range %.3f → clamped to %.3f", v, c);
+        ACS_LOG_WARN("CAudioDirector::SetBgmVolume: out-of-range %.3f → clamped to %.3f", v, c);
     }
     m_BgmVolume = c;
 }
@@ -112,7 +112,7 @@ void CAudioDirector::SetSfxVolume(f32 v) noexcept
 {
     const f32 c = Clamp01(v);
     if (c != v) {
-        ACS_LOG_WARN("FAudioDirector::SetSfxVolume: out-of-range %.3f → clamped to %.3f", v, c);
+        ACS_LOG_WARN("CAudioDirector::SetSfxVolume: out-of-range %.3f → clamped to %.3f", v, c);
     }
     m_SfxVolume = c;
 }
@@ -121,7 +121,7 @@ void CAudioDirector::SetSfxVolume(f32 v) noexcept
 void CAudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexcept
 {
     if (name == nullptr) {
-        ACS_LOG_WARN("FAudioDirector::PlayBgm: name=nullptr → ignored");
+        ACS_LOG_WARN("CAudioDirector::PlayBgm: name=nullptr → ignored");
         return;
     }
     // 同一 BGM 再要求は no-op (current の loop / target を尊重)。内容比較。
@@ -132,7 +132,7 @@ void CAudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexc
     // 実 backend + registry があれば name(=asset path) → clip を解決して実音再生する。
     if (m_Backend != nullptr && m_Registry != nullptr) {
         FAudioClipDesc clip;
-        TSharedPtr<FAsset> keep;
+        TSharedPtr<AAsset> keep;
         if (ResolveAudioClip(m_Registry, name, clip, keep)) {
             const FAudioVoiceHandle h = PlayBgmClip(clip, fade_in_sec, loop);
             if (h.IsValid()) {
@@ -209,7 +209,7 @@ void CAudioDirector::StopBgm(f32 fade_out_sec) noexcept
 void CAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept
 {
     if (name == nullptr) {
-        ACS_LOG_WARN("FAudioDirector::PlaySfx: name=nullptr → ignored");
+        ACS_LOG_WARN("CAudioDirector::PlaySfx: name=nullptr → ignored");
         return;
     }
     if (volume_scale <= 0.0f) {
@@ -221,7 +221,7 @@ void CAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept
     // backend が voice を管理するので、成功時は state ring に積まない。
     if (m_Backend != nullptr && m_Registry != nullptr) {
         FAudioClipDesc clip;
-        TSharedPtr<FAsset> keep;
+        TSharedPtr<AAsset> keep;
         if (ResolveAudioClip(m_Registry, name, clip, keep)) {
             PlaySfxClip(clip, volume_scale, 1.0f);
             return;
@@ -240,7 +240,7 @@ void CAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept
     if (slot == kMaxSfxVoices) {
         slot = m_SfxHead;
         m_SfxHead = (m_SfxHead + 1u) % kMaxSfxVoices;
-        ACS_LOG_WARN("FAudioDirector::PlaySfx: ring full → overwriting slot %u", slot);
+        ACS_LOG_WARN("CAudioDirector::PlaySfx: ring full → overwriting slot %u", slot);
     }
     m_Sfx[slot].name = name;
     m_Sfx[slot].volume_scale = volume_scale;
@@ -251,7 +251,7 @@ void CAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept
 void CAudioDirector::Duck(f32 duration_sec, f32 depth) noexcept
 {
     if (duration_sec <= 0.0f) {
-        ACS_LOG_WARN("FAudioDirector::Duck: duration_sec=%.3f <= 0 → ignored", duration_sec);
+        ACS_LOG_WARN("CAudioDirector::Duck: duration_sec=%.3f <= 0 → ignored", duration_sec);
         return;
     }
     const f32 clamped_depth = Clamp01(depth);

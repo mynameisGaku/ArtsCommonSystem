@@ -160,7 +160,7 @@ void CCombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept
         m_Enemies[idx].awareness_level = 0.0f;
     } else {
         // 未登録 enemy_id で end が来た: 警告のみで no-op。
-        ACS_LOG_WARN("FCombatStateMachine::NotifyCombatEnded: unknown enemy_id=%u", enemy_id);
+        ACS_LOG_WARN("CCombatStateMachine::NotifyCombatEnded: unknown enemy_id=%u", enemy_id);
     }
 
     // BossFight 中は boss 撃破が別 API なので、ここでは state を動かさない。
@@ -202,7 +202,7 @@ void CCombatStateMachine::NotifyBossEncountered(u32 boss_id) noexcept {
 void CCombatStateMachine::NotifyBossDefeated() noexcept {
     // BossFight 以外で呼ばれたら警告 + no-op (誤用検出)。
     if (_state != ECombatState::BossFight) {
-        ACS_LOG_WARN("FCombatStateMachine::NotifyBossDefeated: not in BossFight (state=%u)",
+        ACS_LOG_WARN("CCombatStateMachine::NotifyBossDefeated: not in BossFight (state=%u)",
                      static_cast<u32>(_state));
         return;
     }

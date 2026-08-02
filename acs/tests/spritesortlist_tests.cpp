@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // render/SpriteSortList.h の検証:
-//   FSpriteBatch 用の明示的 depth/layer 順序レイヤ — コマンドを layer/depth 付きで
+//   CSpriteBatch 用の明示的 depth/layer 順序レイヤ — コマンドを layer/depth 付きで
 //   積み、Sort() が (layer 昇順, depth 昇順, 挿入順) で安定ソートすることを確認する。
 //   GPU 不要 (Sort/Ordered/Count は純 logic。Replay のみ GPU 依存なので非対象)。
 // =============================================================================

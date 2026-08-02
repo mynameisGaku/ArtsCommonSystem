@@ -67,7 +67,7 @@ void CountParallelForIndex(u32 /*Index*/, u32 /*WorkerIndex*/, void* User) noexc
 /** arena Reset 競合 stress の共有状態。 */
 struct FArenaResetStressContext {
     /** 確保対象 arena。 */
-    FArenaAllocator* arena = nullptr;
+    CArenaAllocator* arena = nullptr;
 
     /** worker の終了要求。 */
     TAtomic<u32> stop{0u};
@@ -142,7 +142,7 @@ void RunParallelForCaller(void* User) noexcept
 {
     /** 呼び出し結果を書き戻す状態。 */
     auto& Context = *static_cast<FParallelForCallerContext*>(User);
-    (void)FThreadPool::ParallelFor(0u, 128u, 1u, &WaitInParallelForBody, Context.gate);
+    (void)CThreadPool::ParallelFor(0u, 128u, 1u, &WaitInParallelForBody, Context.gate);
     Context.finished.Store(1u, EMemoryOrder::Release);
 }
 
@@ -161,7 +161,7 @@ void RunThreadPoolShutdown(void* User) noexcept
 {
     /** 終了完了を書き戻す状態。 */
     auto& Context = *static_cast<FShutdownCallerContext*>(User);
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
     Context.finished.Store(1u, EMemoryOrder::Release);
 }
 
@@ -225,7 +225,7 @@ ACS_TEST(FoundationOptimizationWaveI, EndianAndEnumTablesAreCanonical)
 ACS_TEST(FoundationOptimizationWaveI, ArenaBatchesAndResetsWithBoundedPageVisits)
 {
     /** batch 統計を検証する arena。 */
-    FArenaAllocator BatchArena(1024u);
+    CArenaAllocator BatchArena(1024u);
     /** batch API が返す 8 領域。 */
     void* Allocations[8]{};
     EXPECT_TRUE(BatchArena.AllocBatch(Allocations, 8u, 12u, 16u));
@@ -253,7 +253,7 @@ ACS_TEST(FoundationOptimizationWaveI, ArenaBatchesAndResetsWithBoundedPageVisits
     EXPECT_EQ(BatchArena.AllocationCount(), u64{8u});
 
     /** 世代 reset と page 再利用を検証する arena。 */
-    FArenaAllocator ResetArena(64u);
+    CArenaAllocator ResetArena(64u);
     /** 複数 page を作り、旧世代判定にも使う領域列。 */
     void* OldAllocations[5]{};
     /** 旧世代に確保する page index。 */
@@ -287,7 +287,7 @@ ACS_TEST(FoundationOptimizationWaveI, ArenaBatchesAndResetsWithBoundedPageVisits
 ACS_TEST(FoundationOptimizationWaveI, ArenaResetGateSurvivesConcurrentAllocations)
 {
     /** Reset と並行確保を行う arena。 */
-    FArenaAllocator Arena(4096u);
+    CArenaAllocator Arena(4096u);
     /** worker 群が共有する stress 状態。 */
     FArenaResetStressContext Context{};
     Context.arena = &Arena;
@@ -320,31 +320,31 @@ ACS_TEST(FoundationOptimizationWaveI, ArenaResetGateSurvivesConcurrentAllocation
 
 ACS_TEST(FoundationOptimizationWaveI, ParallelForUsesInlineAndReusableBlocks)
 {
-    FThreadPool::Shutdown();
-    EXPECT_TRUE(FThreadPool::Init(4u).IsOk());
-    FThreadPool::ResetDiagnostics();
+    CThreadPool::Shutdown();
+    EXPECT_TRUE(CThreadPool::Init(4u).IsOk());
+    CThreadPool::ResetDiagnostics();
 
     /** ParallelFor が処理した index 数。 */
     FParallelForCountContext Context{};
-    EXPECT_TRUE(FThreadPool::ParallelFor(0u, 16u, 1u, &CountParallelForIndex, &Context).IsOk());
-    EXPECT_TRUE(FThreadPool::ParallelFor(0u, 128u, 1u, &CountParallelForIndex, &Context).IsOk());
+    EXPECT_TRUE(CThreadPool::ParallelFor(0u, 16u, 1u, &CountParallelForIndex, &Context).IsOk());
+    EXPECT_TRUE(CThreadPool::ParallelFor(0u, 128u, 1u, &CountParallelForIndex, &Context).IsOk());
     EXPECT_EQ(Context.count.Load(EMemoryOrder::Acquire), u32{144u});
 
     /** inline と block 経路の診断値。 */
-    const FParallelForDiagnostics Diagnostics = FThreadPool::CaptureParallelForDiagnostics();
+    const FParallelForDiagnostics Diagnostics = CThreadPool::CaptureParallelForDiagnostics();
     EXPECT_EQ(Diagnostics.inline_calls, u64{1u});
     EXPECT_EQ(Diagnostics.pool_blocks, u64{2u});
     EXPECT_EQ(Diagnostics.pool_blocks_in_use, u64{0u});
     EXPECT_EQ(Diagnostics.pool_blocks_high_water, u64{2u});
     EXPECT_EQ(Diagnostics.heap_blocks, u64{0u});
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 ACS_TEST(FoundationOptimizationWaveI, ParallelForPoolCoversRepresentativeConcurrency)
 {
-    FThreadPool::Shutdown();
-    EXPECT_TRUE(FThreadPool::Init(4u).IsOk());
-    FThreadPool::ResetDiagnostics();
+    CThreadPool::Shutdown();
+    EXPECT_TRUE(CThreadPool::Init(4u).IsOk());
+    CThreadPool::ResetDiagnostics();
 
     /** 同時実行する外部 ParallelFor 数。 */
     constexpr usize kCallerCount = 8u;
@@ -372,11 +372,11 @@ ACS_TEST(FoundationOptimizationWaveI, ParallelForPoolCoversRepresentativeConcurr
     constexpr u64 kExpectedHighWater = 16u;
     /** 最大同時貸し出しを待つ反復 index。 */
     for (u32 WaitIndex = 0u; WaitIndex < 100000u; ++WaitIndex) {
-        if (FThreadPool::CaptureParallelForDiagnostics().pool_blocks_in_use == kExpectedHighWater) break;
+        if (CThreadPool::CaptureParallelForDiagnostics().pool_blocks_in_use == kExpectedHighWater) break;
         Yield();
     }
     /** body 解放前の同時使用診断値。 */
-    const FParallelForDiagnostics ActiveDiagnostics = FThreadPool::CaptureParallelForDiagnostics();
+    const FParallelForDiagnostics ActiveDiagnostics = CThreadPool::CaptureParallelForDiagnostics();
     EXPECT_EQ(ActiveDiagnostics.pool_blocks_in_use, kExpectedHighWater);
     EXPECT_EQ(ActiveDiagnostics.pool_blocks_high_water, kExpectedHighWater);
     EXPECT_EQ(ActiveDiagnostics.heap_blocks, u64{0u});
@@ -388,18 +388,18 @@ ACS_TEST(FoundationOptimizationWaveI, ParallelForPoolCoversRepresentativeConcurr
         if (Spawned[Index]) EXPECT_EQ(Contexts[Index].finished.Load(EMemoryOrder::Acquire), u32{1u});
     }
     /** 全 caller 完了後の格納診断値。 */
-    const FParallelForDiagnostics CompletedDiagnostics = FThreadPool::CaptureParallelForDiagnostics();
+    const FParallelForDiagnostics CompletedDiagnostics = CThreadPool::CaptureParallelForDiagnostics();
     EXPECT_EQ(CompletedDiagnostics.pool_blocks, kExpectedHighWater);
     EXPECT_EQ(CompletedDiagnostics.pool_blocks_in_use, u64{0u});
     EXPECT_EQ(CompletedDiagnostics.pool_blocks_high_water, kExpectedHighWater);
     EXPECT_EQ(CompletedDiagnostics.heap_blocks, u64{0u});
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 ACS_TEST(FoundationOptimizationWaveI, ParallelForPinsStorageDuringShutdown)
 {
-    FThreadPool::Shutdown();
-    EXPECT_TRUE(FThreadPool::Init(4u).IsOk());
+    CThreadPool::Shutdown();
+    EXPECT_TRUE(CThreadPool::Init(4u).IsOk());
 
     /** body の停止と入場数を管理する gate。 */
     FParallelForShutdownGate Gate{};
@@ -425,5 +425,5 @@ ACS_TEST(FoundationOptimizationWaveI, ParallelForPinsStorageDuringShutdown)
     if (ShutdownResult.IsOk()) ShutdownResult.Value().Join();
     EXPECT_EQ(ParallelContext.finished.Load(EMemoryOrder::Acquire), u32{1u});
     EXPECT_EQ(ShutdownContext.finished.Load(EMemoryOrder::Acquire), u32{1u});
-    EXPECT_EQ(FThreadPool::WorkerCount(), u32{0u});
+    EXPECT_EQ(CThreadPool::WorkerCount(), u32{0u});
 }

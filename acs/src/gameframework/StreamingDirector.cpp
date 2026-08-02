@@ -2,7 +2,7 @@
 // GameFramework Pillar P (Scale-Stream) — CStreamingDirector 実装 (CAssetBundle 実接続)
 //
 // chunk state machine + 範囲内/外判定 + Loading 上限 に加え、実 asset load を
-// チャンクごとの CAssetBundle で行う。SetAssetRegistry() で app 所有の FAssetRegistry を
+// チャンクごとの CAssetBundle で行う。SetAssetRegistry() で app 所有の CAssetRegistry を
 // 差し込むと、Loading 遷移時に bundle.BeginLoad(registry) を発行し、bundle.Progress() /
 // IsLoaded() で完了を判定、Unloading で bundle.Unload() する。registry 未設定 (nullptr)
 // のときは simulated load time = 0.5s/chunk のフォールバックで動作する。
@@ -130,7 +130,7 @@ void CStreamingDirector::BeginChunkLoad(FChunkInfo& c) noexcept {
     c.bundle = MakeUnique<CAssetBundle>();
     if (!c.bundle) {
         // 生成失敗 (確保不能) は simulated 経路へフォールバック。
-        ACS_LOG_WARN("FStreamingDirector::BeginChunkLoad: bundle 生成失敗 (%d,%d)",
+        ACS_LOG_WARN("CStreamingDirector::BeginChunkLoad: bundle 生成失敗 (%d,%d)",
                      c.id.cx, c.id.cy);
         return;
     }
@@ -276,7 +276,7 @@ void CStreamingDirector::ForceUnload(FChunkId id) noexcept {
         }
     }
     // 見つからなければ既に Unloaded 扱い (no-op)。
-    ACS_LOG_TRACE("FStreamingDirector::ForceUnload: chunk (%d,%d) not found", id.cx, id.cy);
+    ACS_LOG_TRACE("CStreamingDirector::ForceUnload: chunk (%d,%d) not found", id.cx, id.cy);
 }
 
 void CStreamingDirector::ClearAll() noexcept {

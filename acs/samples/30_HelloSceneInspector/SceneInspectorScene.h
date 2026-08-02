@@ -2,8 +2,8 @@
 // HelloSceneInspector — ANode ツリー + Inspector 系 panel 群を持つ Scene。
 //
 // 構造: root → wheel (回転) → spoke[0/1]、と root → player (Provider) の
-// 2 系統。FHierarchyPanel でツリーを編集、FInspectorPanel で player の field
-// を編集する。panel/seam/selection の配線は FPanelLayout に委譲。
+// 2 系統。AHierarchyPanel でツリーを編集、AInspectorPanel で player の field
+// を編集する。panel/seam/selection の配線は CPanelLayout に委譲。
 #pragma once
 
 #include "gameframework/GameFramework.h"
@@ -14,7 +14,7 @@ namespace helloscene {
 class APlayerNode;
 class AWheelNode;
 
-class FSceneInspectorScene : public acs::game::FScene {
+class ASceneInspectorScene : public acs::game::AScene {
 public:
     void OnEnter()             noexcept override;
     void OnExit()              noexcept override;
@@ -37,7 +37,7 @@ private:
     acs::game::ANode* m_Spoke[2]  = { nullptr, nullptr };
 
     // 4 panel + Selection + Seam の束ね。
-    FPanelLayout m_Panels;
+    CPanelLayout m_Panels;
 };
 
 } // namespace helloscene

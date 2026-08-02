@@ -9,7 +9,7 @@ using namespace acs;
 
 namespace helloraycast3d {
 
-void FHelloRaycast3DApp::OnStart() noexcept {
+void CHelloRaycast3DApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -27,12 +27,12 @@ void FHelloRaycast3DApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloRaycast3D initialized");
 }
 
-void FHelloRaycast3DApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloRaycast3DApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Scene.Update(dt);
 }
 
-void FHelloRaycast3DApp::OnRender() noexcept {
+void CHelloRaycast3DApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Shader.Pipeline()) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -40,7 +40,7 @@ void FHelloRaycast3DApp::OnRender() noexcept {
     m_Scene.Render(m_Shader, *cl, m_Batch, m_Font, sw, sh);
 }
 
-void FHelloRaycast3DApp::OnShutdown() noexcept {
+void CHelloRaycast3DApp::OnShutdown() noexcept {
     // GPU が描画中にリソースを破棄するとクラッシュするので WaitIdle が先
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();

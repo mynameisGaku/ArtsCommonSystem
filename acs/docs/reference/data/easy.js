@@ -12,7 +12,7 @@ ACS_REF.modules.push({
       kind: "使い方",
       header: "easy/Easy.h",
       summary: "<code>OpenWindow</code> で開き、<code>while (NextFrame())</code> ループの中で入力を読んで図形を描く、が基本形。ゲームの状態は <code>main</code> の中のローカル変数でよく、すべての関数を<b>メインスレッド 1 本</b>から呼びます。座標は<b>左上が原点</b>・ピクセル単位・Y は下向き、角度は<b>度（°）</b>で正が時計回り。",
-      when: "DXLib のような感覚で、設計を気にせずまず動くゲームを書き始めたい時。本格化したくなったら <code>acs::FApplication</code> へ進めます。",
+      when: "DXLib のような感覚で、設計を気にせずまず動くゲームを書き始めたい時。本格化したくなったら <code>acs::CApplication</code> へ進めます。",
       sample: "#include \"easy/Easy.h\"\nusing namespace acs::easy;\nint main() {\n    OpenWindow(1280, 720, \"はじめてのゲーム\");\n    float x = 600;\n    while (NextFrame()) {                 // 閉じると false\n        if (IsKeyDown(EKey::Right)) x += 5;\n        if (IsKeyDown(EKey::Left))  x -= 5;\n        DrawRect(x, 320, 80, 80, FColor::Sky);\n    }\n}"
     },
 

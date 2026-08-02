@@ -108,11 +108,11 @@ ACS_TEST(PostEffectWorkload,
     const std::string tonemap =
         ExtractRawShader(source, "const char* kTonemapPS");
     const std::string tonemap_pass =
-        ExtractFunction(source, "bool FPostProcess::Pass_Tonemap");
+        ExtractFunction(source, "bool CPostProcess::Pass_Tonemap");
     const std::string scene_input =
-        ExtractFunction(source, "IRhiTexture* FPostProcess::SceneInput");
+        ExtractFunction(source, "IRhiTexture* CPostProcess::SceneInput");
     const std::string create_pipelines =
-        ExtractFunction(source, "TResult<void> FPostProcess::CreatePipelines");
+        ExtractFunction(source, "TResult<void> CPostProcess::CreatePipelines");
     EXPECT_TRUE(!extract.empty());
     EXPECT_TRUE(!exposure_apply.empty());
     EXPECT_TRUE(!tonemap.empty());
@@ -404,27 +404,27 @@ ACS_TEST(PostEffectWorkload,
     const std::string draw =
         ExtractFunction(editor, "void DrawScene3D(");
     const std::string taa =
-        ExtractFunction(post, "bool FPostProcess::Pass_TaaResolve");
+        ExtractFunction(post, "bool CPostProcess::Pass_TaaResolve");
     const std::string tonemap =
-        ExtractFunction(post, "bool FPostProcess::Pass_Tonemap");
+        ExtractFunction(post, "bool CPostProcess::Pass_Tonemap");
     const std::string ssr_render =
-        ExtractFunction(ssr, "void FSsr::Render");
+        ExtractFunction(ssr, "void CSsr::Render");
     const std::string ssr_create_targets =
-        ExtractFunction(ssr, "TResult<void> FSsr::CreateOutputRT");
+        ExtractFunction(ssr, "TResult<void> CSsr::CreateOutputRT");
     const std::string ssr_resize =
-        ExtractFunction(ssr, "TResult<void> FSsr::Resize");
+        ExtractFunction(ssr, "TResult<void> CSsr::Resize");
     const std::string ssr_init =
-        ExtractFunction(ssr, "TResult<void> FSsr::Init");
+        ExtractFunction(ssr, "TResult<void> CSsr::Init");
     const std::string ssr_pipeline =
-        ExtractFunction(ssr, "TResult<void> FSsr::CreatePipeline");
+        ExtractFunction(ssr, "TResult<void> CSsr::CreatePipeline");
     const std::string ssgi_render =
-        ExtractFunction(ssgi, "void FSsgi::Render");
+        ExtractFunction(ssgi, "void CSsgi::Render");
     const std::string ssgi_create_targets =
-        ExtractFunction(ssgi, "TResult<void> FSsgi::CreateOutputRT");
+        ExtractFunction(ssgi, "TResult<void> CSsgi::CreateOutputRT");
     const std::string ssgi_resize =
-        ExtractFunction(ssgi, "TResult<void> FSsgi::Resize");
+        ExtractFunction(ssgi, "TResult<void> CSsgi::Resize");
     const std::string ssgi_pipeline =
-        ExtractFunction(ssgi, "TResult<void> FSsgi::CreatePipeline");
+        ExtractFunction(ssgi, "TResult<void> CSsgi::CreatePipeline");
     EXPECT_TRUE(!draw.empty());
     EXPECT_TRUE(!taa.empty());
     EXPECT_TRUE(!tonemap.empty());
@@ -505,7 +505,7 @@ ACS_TEST(PostEffectWorkload,
     EXPECT_TRUE(ssr_resize_targets != std::string::npos);
     EXPECT_TRUE(ssr_resize_width != std::string::npos);
     EXPECT_TRUE(ssr_resize_targets < ssr_resize_width);
-    EXPECT_TRUE(ssr_init.find("FSsr candidate;") !=
+    EXPECT_TRUE(ssr_init.find("CSsr candidate;") !=
                 std::string::npos);
     EXPECT_TRUE(ssr_init.find("Shutdown();") !=
                 std::string::npos);
@@ -610,7 +610,7 @@ ACS_TEST(PostEffectWorkload,
     const std::string editor =
         ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
     const std::string render =
-        ExtractFunction(post, "void FPostProcess::Render");
+        ExtractFunction(post, "void CPostProcess::Render");
     const std::string draw =
         ExtractFunction(editor, "void DrawScene3D(");
     EXPECT_TRUE(!render.empty());

@@ -24,7 +24,7 @@
 //   }
 //
 // 設計選択 (GameFramework meta):
-//   ・**state holder のみ**: 計測 (QueryPerformanceCounter / FAllocator hook 等) は
+//   ・**state holder のみ**: 計測 (QueryPerformanceCounter / IAllocator hook 等) は
 //     呼出し側責務。本クラスは値の保持・集計・予算判定だけを行う。
 //   ・**category は line-key 検索**: `const char*` を pointer 同一 → strcmp の順で
 //     線形走査。CDebugOverlay watches と同じ規約。category 数は通常 10〜50 程度を想定
@@ -48,7 +48,7 @@
 // 範囲外:
 //   ・スレッドセーフ (Record 系は 1 thread 前提。MT 計測は外側で集計してから注入)
 //   ・スコープガード `BudgetScope` (RAII で auto record)
-//   ・自動メモリトラッキング (Pillar A `FAllocator` hook 経由で alloc/free を自動記録)
+//   ・自動メモリトラッキング (Pillar A `IAllocator` hook 経由で alloc/free を自動記録)
 //   ・カテゴリ階層 ("Render/Shadow" "Render/Post" 等)
 #pragma once
 
@@ -84,7 +84,7 @@ struct FBudgetEntry {
  *
  * @details
  * カテゴリごとに予算を定義し、毎フレーム実測値を記録 → 集計して各カテゴリ・フレーム全体の
- * 超過状態を問い合わせ可能にする。計測 (タイマ / FAllocator hook) と UI 描画は呼出し側責務。
+ * 超過状態を問い合わせ可能にする。計測 (タイマ / IAllocator hook) と UI 描画は呼出し側責務。
  * category は line-key (pointer 同一 → strcmp) で線形検索する。frame 履歴は直近 60 frame の
  * 合計 ms を循環バッファで保持する。所有権を曖昧にしないため非コピー・非ムーブ。
  */

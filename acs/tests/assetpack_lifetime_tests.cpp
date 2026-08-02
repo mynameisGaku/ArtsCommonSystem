@@ -17,7 +17,7 @@ using namespace acs;
 namespace {
 
 /** allocation 前の破損入力拒否と OOM 伝播を区別する失敗 allocator。 */
-class FCountingFailAllocator final : public FAllocator
+class FCountingFailAllocator final : public IAllocator
 {
 public:
     void* Alloc(usize /*Size*/, usize /*Alignment*/, FSourceLoc /*Location*/) noexcept override
@@ -82,7 +82,7 @@ void CopyText(char* Destination, usize Capacity, const char* Source) noexcept
 
 struct FConcurrentReadContext
 {
-    assetpack::FAcpakGameReader* Reader = nullptr;
+    assetpack::CAcpakGameReader* Reader = nullptr;
     TAtomic<u32> Ready{0};
     TAtomic<u32> Start{0};
     TAtomic<u32> Stop{0};
@@ -121,7 +121,7 @@ void ConcurrentReadWorker(void* User) noexcept
 ACS_TEST(AcpakLifetime, RejectsHugeFileCountBeforeAllocation)
 {
     constexpr const wchar_t* kPath = L"acs_acpak_huge_count_test.acpak";
-    (void)FFileSystem::Delete(kPath);
+    (void)CFileSystem::Delete(kPath);
 
     u8 Bytes[assetpack::kAcpakHeaderDiskSize] = {};
     MemCopy(Bytes, assetpack::kAcpakMagic, sizeof(assetpack::kAcpakMagic));
@@ -129,10 +129,10 @@ ACS_TEST(AcpakLifetime, RejectsHugeFileCountBeforeAllocation)
     WriteU32(Bytes + 12, assetpack::AcpakFlagNone);
     WriteU32(Bytes + 16, 0xFFFFFFFFu);
     WriteU64(Bytes + 24, assetpack::kAcpakHeaderDiskSize);
-    EXPECT_TRUE(FFileSystem::WriteAllBytes(kPath, Bytes, sizeof(Bytes)).IsOk());
+    EXPECT_TRUE(CFileSystem::WriteAllBytes(kPath, Bytes, sizeof(Bytes)).IsOk());
 
     FCountingFailAllocator Allocator;
-    assetpack::FAcpakReader Reader(Allocator);
+    assetpack::CAcpakReader Reader(Allocator);
     const auto OpenResult = Reader.Open(kPath);
     EXPECT_TRUE(OpenResult.IsErr());
     if (OpenResult.IsErr())
@@ -140,7 +140,7 @@ ACS_TEST(AcpakLifetime, RejectsHugeFileCountBeforeAllocation)
         EXPECT_EQ(OpenResult.Error().subcode, assetpack::kAcpakSubBadSize);
     }
     EXPECT_EQ(Allocator.AllocationAttempts.Load(), 0u);
-    (void)FFileSystem::Delete(kPath);
+    (void)CFileSystem::Delete(kPath);
 }
 
 ACS_TEST(AcpakLifetime, PropagatesReaderAllocationFailure)
@@ -148,16 +148,16 @@ ACS_TEST(AcpakLifetime, PropagatesReaderAllocationFailure)
     constexpr const wchar_t* kPath = L"acs_acpak_reader_oom_test.acpak";
     constexpr const wchar_t* kVirtualPath = L"oom/data.bin";
     constexpr u8 kPayload[] = {4, 2, 1};
-    (void)FFileSystem::Delete(kPath);
+    (void)CFileSystem::Delete(kPath);
 
-    assetpack::FAcpakWriter Writer;
+    assetpack::CAcpakWriter Writer;
     EXPECT_TRUE(Writer.Open(kPath, assetpack::AcpakFlagNone).IsOk());
     EXPECT_TRUE(Writer.AddFile(kVirtualPath, kPayload, sizeof(kPayload)).IsOk());
     EXPECT_TRUE(Writer.Finalize().IsOk());
     Writer.Close();
 
     FCountingFailAllocator Allocator;
-    assetpack::FAcpakReader Reader(Allocator);
+    assetpack::CAcpakReader Reader(Allocator);
     const auto OpenResult = Reader.Open(kPath);
     EXPECT_TRUE(OpenResult.IsErr());
     if (OpenResult.IsErr())
@@ -167,17 +167,17 @@ ACS_TEST(AcpakLifetime, PropagatesReaderAllocationFailure)
         EXPECT_EQ(OpenResult.Error().subcode, assetpack::kAcpakSubOutOfMemory);
     }
     EXPECT_TRUE(Allocator.AllocationAttempts.Load() > 0u);
-    (void)FFileSystem::Delete(kPath);
+    (void)CFileSystem::Delete(kPath);
 }
 
 ACS_TEST(AcpakLifetime, PropagatesWriterInputCopyAllocationFailure)
 {
     constexpr const wchar_t* kPath = L"acs_acpak_writer_oom_test.acpak";
     constexpr u8 kPayload[] = {9, 8, 7};
-    (void)FFileSystem::Delete(kPath);
+    (void)CFileSystem::Delete(kPath);
 
     FCountingFailAllocator Allocator;
-    assetpack::FAcpakWriter Writer(Allocator);
+    assetpack::CAcpakWriter Writer(Allocator);
     EXPECT_TRUE(Writer.Open(kPath, assetpack::AcpakFlagNone).IsOk());
     const auto AddResult = Writer.AddFile(L"oom/data.bin", kPayload, sizeof(kPayload));
     EXPECT_TRUE(AddResult.IsErr());
@@ -189,7 +189,7 @@ ACS_TEST(AcpakLifetime, PropagatesWriterInputCopyAllocationFailure)
     }
     EXPECT_TRUE(Allocator.AllocationAttempts.Load() > 0u);
     Writer.Close();
-    (void)FFileSystem::Delete(kPath);
+    (void)CFileSystem::Delete(kPath);
 }
 
 ACS_TEST(AcpakLifetime, WriterOwnsTemporaryNamesAndPayloads)
@@ -198,9 +198,9 @@ ACS_TEST(AcpakLifetime, WriterOwnsTemporaryNamesAndPayloads)
     constexpr const wchar_t* kWidePath = L"acs_acpak_owned_inputs_test.acpak";
     constexpr u8 kFirstPayload[] = {1, 2, 3, 4};
     constexpr u8 kSecondPayload[] = {8, 7, 6, 5};
-    (void)FFileSystem::Delete(kWidePath);
+    (void)CFileSystem::Delete(kWidePath);
 
-    assetpack::FAcpakGameWriter Writer;
+    assetpack::CAcpakGameWriter Writer;
     EXPECT_TRUE(Writer.BeginPack(kPath).IsOk());
 
     char Name[64] = {};
@@ -217,7 +217,7 @@ ACS_TEST(AcpakLifetime, WriterOwnsTemporaryNamesAndPayloads)
     MemSet(Payload, 0, sizeof(Payload));
     EXPECT_TRUE(Writer.FinishPack().IsOk());
 
-    assetpack::FAcpakGameReader Reader;
+    assetpack::CAcpakGameReader Reader;
     EXPECT_TRUE(Reader.Mount(kPath).IsOk());
     const auto FirstName = Reader.FileName(0);
     const auto SecondName = Reader.FileName(1);
@@ -238,7 +238,7 @@ ACS_TEST(AcpakLifetime, WriterOwnsTemporaryNamesAndPayloads)
     EXPECT_TRUE(EqualBytes(SecondRead, kSecondPayload, sizeof(SecondRead)));
 
     Reader.Unmount();
-    (void)FFileSystem::Delete(kWidePath);
+    (void)CFileSystem::Delete(kWidePath);
 }
 
 ACS_TEST(AcpakLifetime, ConcurrentReadAndUnmountAreSerialized)
@@ -247,14 +247,14 @@ ACS_TEST(AcpakLifetime, ConcurrentReadAndUnmountAreSerialized)
     constexpr const wchar_t* kWidePath = L"acs_acpak_concurrent_unmount_test.acpak";
     constexpr u8 kPayload[] = {11, 22, 33, 44, 55, 66, 77, 88};
     constexpr u32 kWorkerCount = 4;
-    (void)FFileSystem::Delete(kWidePath);
+    (void)CFileSystem::Delete(kWidePath);
 
-    assetpack::FAcpakGameWriter Writer;
+    assetpack::CAcpakGameWriter Writer;
     EXPECT_TRUE(Writer.BeginPack(kPath).IsOk());
     EXPECT_TRUE(Writer.AddFile("concurrent/data.bin", kPayload, sizeof(kPayload)).IsOk());
     EXPECT_TRUE(Writer.FinishPack().IsOk());
 
-    assetpack::FAcpakGameReader Reader;
+    assetpack::CAcpakGameReader Reader;
     EXPECT_TRUE(Reader.Mount(kPath).IsOk());
 
     FConcurrentReadContext Context;
@@ -293,5 +293,5 @@ ACS_TEST(AcpakLifetime, ConcurrentReadAndUnmountAreSerialized)
     EXPECT_TRUE(Context.Successes.Load() > 0u);
     EXPECT_EQ(Context.Failures.Load(), 0u);
     EXPECT_FALSE(Reader.IsMounted());
-    (void)FFileSystem::Delete(kWidePath);
+    (void)CFileSystem::Delete(kWidePath);
 }

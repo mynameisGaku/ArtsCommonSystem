@@ -28,16 +28,16 @@
 //     Maya / Blender 風の orbit。eye 位置は (target + spherical(yaw,pitch)
 //     * distance) で算出。pitch は ±89° にクランプして極点で gimbal flip
 //     しないようにする。
-//   ・**2D = position + zoom_2d**: FCamera2D と同じ pan/zoom モデル。orthographic
+//   ・**2D = position + zoom_2d**: CCamera2D と同じ pan/zoom モデル。orthographic
 //     投影で width = base_ortho_size / zoom_2d とすれば「ズームイン = 拡大」
-//     が直感通り。FCamera2D の rotation までは持たない (editor は通常 axis-aligned)。
+//     が直感通り。CCamera2D の rotation までは持たない (editor は通常 axis-aligned)。
 //   ・**HandleMouseInput で操作系を集約**: panel 側は ImGui の IO から取った
 //     delta / button / wheel をそのまま渡せばよい。マウス操作の規約:
 //       - 3D: LMB drag = orbit, MMB drag = pan, RMB drag = orbit (Maya 風代替),
 //             wheel = dolly
 //       - 2D: LMB drag = pan, MMB drag = pan, wheel = zoom
 //     この規約は editor 全体で統一すべきもの。
-//   ・**Tick で smoothing**: FCamera2D と同じ `1 - exp(-rate*dt)` の framerate
+//   ・**Tick で smoothing**: CCamera2D と同じ `1 - exp(-rate*dt)` の framerate
 //     independent な指数補間で「狙った target / zoom」へ追従させる。マウス
 //     入力は raw target を直接書き換え、Tick が actual state を寄せる構造。
 //     rate = 0 で即時、5.0 で約 0.2s で 63% 詰める典型。
@@ -48,8 +48,8 @@
 //   ・preset (Top/Front/Side/3-quarter 等の標準視点を 1 ボタン)
 //   ・camera lock (Y 軸固定で yaw のみ自由 = ARPG style)
 //   ・focus to selection (現選択 FNodeId にカメラを向ける、CSelectionService 経由)
-//   ・camera shake disable (FPhotoMode 同様、editor では shake 抑止)
-//   ・rotation 2D (FCamera2D と等価の axis 回転)
+//   ・camera shake disable (CPhotoMode 同様、editor では shake 抑止)
+//   ・rotation 2D (CCamera2D と等価の axis 回転)
 //   ・FPS フリールック (orbit ではなく eye 中心の look-around)
 #pragma once
 
@@ -300,7 +300,7 @@ public:
     /**
      * smooth target / zoom 補間を 1 ステップ進める (editor 側で毎フレーム呼ぶ)。
      *
-     * @details FCamera2D と同じ framerate-independent な `1 - exp(-rate*dt)` モデルで raw target へ追従させる。
+     * @details CCamera2D と同じ framerate-independent な `1 - exp(-rate*dt)` モデルで raw target へ追従させる。
      * @param dt 前フレームからの経過秒 (負値は 0 に補正)。
      */
     void Tick(f32 dt) noexcept;
@@ -308,7 +308,7 @@ public:
     /**
      * smoothing rate を設定する。
      *
-     * @details 0 = 即時スナップ、5.0 = 既定 (FCamera2D と同方式)。負値は 0 に補正。
+     * @details 0 = 即時スナップ、5.0 = 既定 (CCamera2D と同方式)。負値は 0 に補正。
      * @param rate smoothing rate。
      */
     void SetSmoothing(f32 rate) noexcept;

@@ -959,7 +959,7 @@ TResult<void> CUdpTransport::DrainDeferredResources() noexcept
                              reported_error, cleanup_pending ? "inconclusive" : "true", cleanup_pending,
                              remaining_socket_count, remaining_overflow_socket_count, cleanup_debt_orphaned);
     return ACS_ERR_OS(IO, FNetSnapshotError::kSub_CloseFailed,
-                      "FUdpTransport::DrainDeferredResources: deferred Winsock cleanup failed", reported_error);
+                      "CUdpTransport::DrainDeferredResources: deferred Winsock cleanup failed", reported_error);
 }
 
 /** bind する local port を次回 Connect 用に設定する。 */
@@ -987,7 +987,7 @@ bool CUdpTransport::IsConnected() const noexcept
 TResult<void> CUdpTransport::Connect(const char* address, u16 port) noexcept
 {
     if (address == nullptr) {
-        return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument, "FUdpTransport::Connect: address is null");
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument, "CUdpTransport::Connect: address is null");
     }
 
     // ---- remote endpoint の IPv4 dotted-quad を先に検証 (副作用前に弾く) ----
@@ -995,7 +995,7 @@ TResult<void> CUdpTransport::Connect(const char* address, u16 port) noexcept
     in_addr remote_in{};
     if (::inet_pton(AF_INET, address, &remote_in) != 1) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadAddress,
-                       "FUdpTransport::Connect: address is not a valid IPv4 dotted-quad");
+                       "CUdpTransport::Connect: address is not a valid IPv4 dotted-quad");
     }
 
     FScopedLock state_lock(m_StateLock);
@@ -1005,7 +1005,7 @@ TResult<void> CUdpTransport::Connect(const char* address, u16 port) noexcept
         const u32 cleanup_error = DisconnectLocked();
         if (cleanup_error != 0) {
             return ACS_ERR_OS(IO, FNetSnapshotError::kSub_CloseFailed,
-                              "FUdpTransport::Connect: previous socket cleanup failed", cleanup_error);
+                              "CUdpTransport::Connect: previous socket cleanup failed", cleanup_error);
         }
     }
     m_State = EState::Configuring;
@@ -1016,9 +1016,9 @@ TResult<void> CUdpTransport::Connect(const char* address, u16 port) noexcept
         m_State = EState::Disconnected;
         if (winsock_result.failure == EWinsockAcquireFailure::DeferredCleanup) {
             return ACS_ERR_OS(IO, FNetSnapshotError::kSub_CloseFailed,
-                              "FUdpTransport::Connect: deferred Winsock cleanup failed", winsock_result.error);
+                              "CUdpTransport::Connect: deferred Winsock cleanup failed", winsock_result.error);
         }
-        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_WsaStartup, "FUdpTransport::Connect: WSAStartup failed",
+        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_WsaStartup, "CUdpTransport::Connect: WSAStartup failed",
                           winsock_result.error);
     }
     m_WsaStarted = true;
@@ -1029,7 +1029,7 @@ TResult<void> CUdpTransport::Connect(const char* address, u16 port) noexcept
         const u32 socket_error = static_cast<u32>(::WSAGetLastError());
         m_State = EState::CleanupPending;
         (void)DisconnectLocked();
-        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_SocketCreate, "FUdpTransport::Connect: socket() failed",
+        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_SocketCreate, "CUdpTransport::Connect: socket() failed",
                           socket_error);
     }
     // 以降の失敗でも ownership を失わないよう、構成完了前から内部状態へ記録する。
@@ -1042,7 +1042,7 @@ TResult<void> CUdpTransport::Connect(const char* address, u16 port) noexcept
         m_State = EState::CleanupPending;
         (void)DisconnectLocked();
         return ACS_ERR_OS(IO, FNetSnapshotError::kSub_SetNonBlocking,
-                          "FUdpTransport::Connect: ioctlsocket(FIONBIO) failed", socket_error);
+                          "CUdpTransport::Connect: ioctlsocket(FIONBIO) failed", socket_error);
     }
 
     // ---- local port に bind (m_LocalPort == 0 なら ephemeral) ------------
@@ -1055,7 +1055,7 @@ TResult<void> CUdpTransport::Connect(const char* address, u16 port) noexcept
         const u32 socket_error = static_cast<u32>(::WSAGetLastError());
         m_State = EState::CleanupPending;
         (void)DisconnectLocked();
-        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_Bind, "FUdpTransport::Connect: bind() failed (local port in use?)",
+        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_Bind, "CUdpTransport::Connect: bind() failed (local port in use?)",
                           socket_error);
     }
 
@@ -1119,14 +1119,14 @@ TResult<void> CUdpTransport::Send(const void* data, u32 size) noexcept
     FScopedLock state_lock(m_StateLock);
     if (m_State != EState::Established || m_Socket == kInvalidSocket) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_NotConnected,
-                       "FUdpTransport::Send: not connected (call Connect first)");
+                       "CUdpTransport::Send: not connected (call Connect first)");
     }
     if (data == nullptr || size == 0) {
-        return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument, "FUdpTransport::Send: data is null or size == 0");
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument, "CUdpTransport::Send: data is null or size == 0");
     }
     if (size > kNetSnapshotMaximumUdpDatagramBytes) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_FrameTooLarge,
-                       "FUdpTransport::Send: datagram exceeds the IPv4 UDP payload limit");
+                       "CUdpTransport::Send: datagram exceeds the IPv4 UDP payload limit");
     }
 
     sockaddr_in remote{};
@@ -1142,14 +1142,14 @@ TResult<void> CUdpTransport::Send(const void* data, u32 size) noexcept
         if (werr == WSAEWOULDBLOCK) {
             // 送信 buffer が一時的に満杯。BufferFull として上位に伝える。
             return ACS_ERR(IO, FNetSnapshotError::kSub_BufferFull,
-                           "FUdpTransport::Send: send buffer full (WSAEWOULDBLOCK)");
+                           "CUdpTransport::Send: send buffer full (WSAEWOULDBLOCK)");
         }
-        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_SendFailed, "FUdpTransport::Send: sendto() failed",
+        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_SendFailed, "CUdpTransport::Send: sendto() failed",
                           static_cast<u32>(werr));
     }
     if (sent < 0 || static_cast<u32>(sent) != size) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_TransportContractViolation,
-                       "FUdpTransport::Send: sendto() reported a partial datagram");
+                       "CUdpTransport::Send: sendto() reported a partial datagram");
     }
     return Ok();
 }
@@ -1160,11 +1160,11 @@ TResult<u32> CUdpTransport::Receive(void* out_buffer, u32 capacity) noexcept
     FScopedLock state_lock(m_StateLock);
     if (m_State != EState::Established || m_Socket == kInvalidSocket) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_NotConnected,
-                       "FUdpTransport::Receive: not connected (call Connect first)");
+                       "CUdpTransport::Receive: not connected (call Connect first)");
     }
     if (out_buffer == nullptr || capacity == 0) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument,
-                       "FUdpTransport::Receive: out_buffer is null or capacity == 0");
+                       "CUdpTransport::Receive: out_buffer is null or capacity == 0");
     }
     // IPv4 UDP datagram は 65,507 byte を超えない。caller がそれより大きい
     // generic snapshot buffer を渡しても OS へ narrow する長さはここで制限する。
@@ -1183,16 +1183,16 @@ TResult<u32> CUdpTransport::Receive(void* out_buffer, u32 capacity) noexcept
         }
         if (werr == WSAEMSGSIZE) {
             return ACS_ERR_OS(IO, FNetSnapshotError::kSub_DatagramTruncated,
-                              "FUdpTransport::Receive: datagram exceeded receive capacity and was discarded",
+                              "CUdpTransport::Receive: datagram exceeded receive capacity and was discarded",
                               static_cast<u32>(werr));
         }
-        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_RecvFailed, "FUdpTransport::Receive: recvfrom() failed",
+        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_RecvFailed, "CUdpTransport::Receive: recvfrom() failed",
                           static_cast<u32>(werr));
     }
     if (got < 0 || static_cast<u32>(got) > receive_capacity ||
         static_cast<u32>(got) > kNetSnapshotMaximumUdpDatagramBytes) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_TransportContractViolation,
-                       "FUdpTransport::Receive: recvfrom() returned a size outside the supplied capacity");
+                       "CUdpTransport::Receive: recvfrom() returned a size outside the supplied capacity");
     }
     return TResult<u32>(OkInit, static_cast<u32>(got));
 }
@@ -1229,35 +1229,35 @@ TResult<void> CNetSnapshot::EncodeSnapshot(const FSnapshotHeader& header, const 
 {
     out_written = 0;
     if (out_buffer == nullptr) {
-        return ACS_ERR(IO, FNetSnapshotError::kSub_NullBuffer, "FNetSnapshot::EncodeSnapshot: out_buffer is null");
+        return ACS_ERR(IO, FNetSnapshotError::kSub_NullBuffer, "CNetSnapshot::EncodeSnapshot: out_buffer is null");
     }
     // payload == nullptr は payload_size == 0 のときのみ許容。
     if (payload == nullptr && payload_size != 0) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument,
-                       "FNetSnapshot::EncodeSnapshot: payload is null but size != 0");
+                       "CNetSnapshot::EncodeSnapshot: payload is null but size != 0");
     }
     // header.payload_size と引数 payload_size の不一致は wire 不整合の元なので拒否。
     if (header.payload_size != payload_size) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument,
-                       "FNetSnapshot::EncodeSnapshot: header.payload_size != payload_size");
+                       "CNetSnapshot::EncodeSnapshot: header.payload_size != payload_size");
     }
     if (payload_size > kNetSnapshotMaximumPayloadBytes) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_FrameTooLarge,
-                       "FNetSnapshot::EncodeSnapshot: payload exceeds the product limit");
+                       "CNetSnapshot::EncodeSnapshot: payload exceeds the product limit");
     }
     if (header.sequence == 0 || header.crc32 != 0) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_NonCanonicalHeader,
-                       "FNetSnapshot::EncodeSnapshot: sequence must be nonzero and header.crc32 must be zero");
+                       "CNetSnapshot::EncodeSnapshot: sequence must be nonzero and header.crc32 must be zero");
     }
 
     const u32 required = EncodedSnapshotSize(payload_size);
     if (out_capacity < required) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BufferTooSmall,
-                       "FNetSnapshot::EncodeSnapshot: out_buffer too small for frame");
+                       "CNetSnapshot::EncodeSnapshot: out_buffer too small for frame");
     }
     if (ByteRangesOverlap(payload, payload_size, out_buffer, required)) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument,
-                       "FNetSnapshot::EncodeSnapshot: payload must not overlap the output frame");
+                       "CNetSnapshot::EncodeSnapshot: payload must not overlap the output frame");
     }
 
     // ---- magic (4) + version (4) ----------------------------------------
@@ -1291,31 +1291,31 @@ TResult<void> CNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size, FSnapshot
                                            TArray<u8>& out_payload) noexcept
 {
     if (buffer == nullptr) {
-        return ACS_ERR(IO, FNetSnapshotError::kSub_NullBuffer, "FNetSnapshot::DecodeSnapshot: buffer is null");
+        return ACS_ERR(IO, FNetSnapshotError::kSub_NullBuffer, "CNetSnapshot::DecodeSnapshot: buffer is null");
     }
     // ---- 最小サイズ (固定オーバーヘッド = payload 0 のケース) ------------
     if (size < kFrameFixedOverhead) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadSize,
-                       "FNetSnapshot::DecodeSnapshot: buffer smaller than frame overhead");
+                       "CNetSnapshot::DecodeSnapshot: buffer smaller than frame overhead");
     }
     if (size > kFrameFixedOverhead + kNetSnapshotMaximumPayloadBytes) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_FrameTooLarge,
-                       "FNetSnapshot::DecodeSnapshot: frame exceeds the product limit");
+                       "CNetSnapshot::DecodeSnapshot: frame exceeds the product limit");
     }
     if (ByteRangesOverlap(buffer, size, out_payload.Data(), out_payload.Capacity())) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument,
-                       "FNetSnapshot::DecodeSnapshot: input frame aliases output payload storage");
+                       "CNetSnapshot::DecodeSnapshot: input frame aliases output payload storage");
     }
     // ---- magic 検証 ------------------------------------------------------
     if (MemCmp(buffer, kFrameMagic, sizeof(kFrameMagic)) != 0) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadMagic,
-                       "FNetSnapshot::DecodeSnapshot: magic mismatch (not an ACSN frame)");
+                       "CNetSnapshot::DecodeSnapshot: magic mismatch (not an ACSN frame)");
     }
     // ---- version 検証 ----------------------------------------------------
     const u32 version = ReadU32LE(buffer + kVersionOffset);
     if (version != kFrameVersion) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadVersion,
-                       "FNetSnapshot::DecodeSnapshot: unsupported frame version");
+                       "CNetSnapshot::DecodeSnapshot: unsupported frame version");
     }
 
     // ---- header 読み出し + payload_size とサイズの整合 -------------------
@@ -1324,11 +1324,11 @@ TResult<void> CNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size, FSnapshot
 
     if (hdr.sequence == 0 || hdr.crc32 != 0) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_NonCanonicalHeader,
-                       "FNetSnapshot::DecodeSnapshot: noncanonical sequence or reserved crc32 field");
+                       "CNetSnapshot::DecodeSnapshot: noncanonical sequence or reserved crc32 field");
     }
     if (hdr.payload_size > kNetSnapshotMaximumPayloadBytes) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_FrameTooLarge,
-                       "FNetSnapshot::DecodeSnapshot: declared payload exceeds the product limit");
+                       "CNetSnapshot::DecodeSnapshot: declared payload exceeds the product limit");
     }
 
     // payload_size + 固定オーバーヘッドが size と完全一致することを要求する。
@@ -1336,7 +1336,7 @@ TResult<void> CNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size, FSnapshot
     const u64 expected64 = static_cast<u64>(kFrameFixedOverhead) + static_cast<u64>(hdr.payload_size);
     if (expected64 != static_cast<u64>(size)) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadSize,
-                       "FNetSnapshot::DecodeSnapshot: payload_size inconsistent with buffer size");
+                       "CNetSnapshot::DecodeSnapshot: payload_size inconsistent with buffer size");
     }
 
     // ---- crc32 検証 ------------------------------------------------------
@@ -1347,13 +1347,13 @@ TResult<void> CNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size, FSnapshot
     const u32 stored_crc = ReadU32LE(buffer + kPayloadOffset + hdr.payload_size);
     if (actual_crc != stored_crc) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadCrc,
-                       "FNetSnapshot::DecodeSnapshot: CRC32 mismatch (corrupt or tampered)");
+                       "CNetSnapshot::DecodeSnapshot: CRC32 mismatch (corrupt or tampered)");
     }
 
     // ---- payload を復元 (置換) ------------------------------------------
     if (!out_payload.TryResize(static_cast<usize>(hdr.payload_size))) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
-                       "FNetSnapshot::DecodeSnapshot: output payload allocation failed");
+                       "CNetSnapshot::DecodeSnapshot: output payload allocation failed");
     }
     if (hdr.payload_size > 0) {
         MemCopy(out_payload.Data(), buffer + kPayloadOffset, static_cast<usize>(hdr.payload_size));
@@ -1396,13 +1396,13 @@ TResult<void> CNetSnapshot::TryInit(const FNetSnapshotConfig& config, ENetRole r
         !(config.interpolation_delay_sec >= 0.0f && config.interpolation_delay_sec <= 60.0f) ||
         config.max_payload_bytes == 0 || config.max_payload_bytes > kNetSnapshotMaximumPayloadBytes) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_InvalidConfig,
-                       "FNetSnapshot::TryInit: config is outside the documented bounds");
+                       "CNetSnapshot::TryInit: config is outside the documented bounds");
     }
 
     TArray<FBufferedSnapshot> staged_ring;
     if (!staged_ring.TryResize(static_cast<usize>(config.buffer_capacity_snapshots))) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
-                       "FNetSnapshot::TryInit: ring buffer allocation failed");
+                       "CNetSnapshot::TryInit: ring buffer allocation failed");
     }
 
     m_Config = config;
@@ -1465,17 +1465,17 @@ TResult<void> CNetSnapshot::TryAddEntitySnapshot(u32 entity_id, u32 component_ma
 {
     if (m_Role != ENetRole::Server && m_Role != ENetRole::ServerListener) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_WrongRole,
-                       "FNetSnapshot::TryAddEntitySnapshot: role is not a sender");
+                       "CNetSnapshot::TryAddEntitySnapshot: role is not a sender");
     }
     if (entity_id == 0 || (data == nullptr && data_size != 0)) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument,
-                       "FNetSnapshot::TryAddEntitySnapshot: invalid entity id or data pointer");
+                       "CNetSnapshot::TryAddEntitySnapshot: invalid entity id or data pointer");
     }
     const u64 next_payload_size = static_cast<u64>(m_PendingPayloadBytes) + kEntityHeaderSize + data_size;
     if (m_PendingEntities.Size() >= kNetSnapshotMaximumPendingEntities ||
         next_payload_size > m_Config.max_payload_bytes) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_PendingLimit,
-                       "FNetSnapshot::TryAddEntitySnapshot: pending snapshot limit exceeded");
+                       "CNetSnapshot::TryAddEntitySnapshot: pending snapshot limit exceeded");
     }
 
     FPendingEntity pe{};
@@ -1483,14 +1483,14 @@ TResult<void> CNetSnapshot::TryAddEntitySnapshot(u32 entity_id, u32 component_ma
     pe.component_mask = component_mask;
     if (data_size > 0 && !pe.data.TryResize(static_cast<usize>(data_size))) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
-                       "FNetSnapshot::TryAddEntitySnapshot: component allocation failed");
+                       "CNetSnapshot::TryAddEntitySnapshot: component allocation failed");
     }
     if (data_size > 0) {
         MemCopy(pe.data.Data(), data, data_size);
     }
     if (!m_PendingEntities.TryPushBack(Move(pe))) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
-                       "FNetSnapshot::TryAddEntitySnapshot: pending list allocation failed");
+                       "CNetSnapshot::TryAddEntitySnapshot: pending list allocation failed");
     }
     m_PendingPayloadBytes = static_cast<u32>(next_payload_size);
     return Ok();
@@ -1511,17 +1511,17 @@ TResult<void> CNetSnapshot::TryCommitSnapshot(u32 tick) noexcept
 {
     if (m_Role != ENetRole::Server && m_Role != ENetRole::ServerListener) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_WrongRole,
-                       "FNetSnapshot::TryCommitSnapshot: role is not a sender");
+                       "CNetSnapshot::TryCommitSnapshot: role is not a sender");
     }
     if (m_Transport == nullptr) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_NotConnected,
-                       "FNetSnapshot::TryCommitSnapshot: transport is null");
+                       "CNetSnapshot::TryCommitSnapshot: transport is null");
     }
     if (m_PendingPayloadBytes > m_Config.max_payload_bytes ||
         m_PendingPayloadBytes > kNetSnapshotMaximumPayloadBytes ||
         m_PendingEntities.Size() > kNetSnapshotMaximumPendingEntities) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_PendingLimit,
-                       "FNetSnapshot::TryCommitSnapshot: pending state exceeds configured bounds");
+                       "CNetSnapshot::TryCommitSnapshot: pending state exceeds configured bounds");
     }
 
     u64 verified_payload_size = 0;
@@ -1530,19 +1530,19 @@ TResult<void> CNetSnapshot::TryCommitSnapshot(u32 tick) noexcept
         const usize data_size = m_PendingEntities[i].data.Size();
         if (data_size > ~u32{0}) {
             return ACS_ERR(IO, FNetSnapshotError::kSub_BadEntityPayload,
-                           "FNetSnapshot::TryCommitSnapshot: entity payload exceeds wire integer range");
+                           "CNetSnapshot::TryCommitSnapshot: entity payload exceeds wire integer range");
         }
         verified_payload_size += static_cast<u64>(kEntityHeaderSize) + data_size;
     }
     if (verified_payload_size != m_PendingPayloadBytes) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadEntityPayload,
-                       "FNetSnapshot::TryCommitSnapshot: pending payload accounting mismatch");
+                       "CNetSnapshot::TryCommitSnapshot: pending payload accounting mismatch");
     }
 
     TArray<u8> payload_buf;
     if (!payload_buf.TryResize(static_cast<usize>(m_PendingPayloadBytes))) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
-                       "FNetSnapshot::TryCommitSnapshot: payload allocation failed");
+                       "CNetSnapshot::TryCommitSnapshot: payload allocation failed");
     }
     u8* payload_ptr = payload_buf.Data();
     usize off = 0;
@@ -1570,7 +1570,7 @@ TResult<void> CNetSnapshot::TryCommitSnapshot(u32 tick) noexcept
     const u32 frame_size = EncodedSnapshotSize(m_PendingPayloadBytes);
     if (!wire_buf.TryResize(static_cast<usize>(frame_size))) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
-                       "FNetSnapshot::TryCommitSnapshot: frame allocation failed");
+                       "CNetSnapshot::TryCommitSnapshot: frame allocation failed");
     }
     u32 written = 0;
     TResult<void> enc =
@@ -1586,7 +1586,7 @@ TResult<void> CNetSnapshot::TryCommitSnapshot(u32 tick) noexcept
         if (dec.IsErr()) return dec;
         if (!IsCanonicalEntityPayload(loopback_payload.Data(), static_cast<u32>(loopback_payload.Size()))) {
             return ACS_ERR(IO, FNetSnapshotError::kSub_BadEntityPayload,
-                           "FNetSnapshot::TryCommitSnapshot: generated entity payload is noncanonical");
+                           "CNetSnapshot::TryCommitSnapshot: generated entity payload is noncanonical");
         }
     }
 

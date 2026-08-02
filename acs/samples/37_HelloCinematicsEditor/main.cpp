@@ -2,14 +2,14 @@
 // HelloCinematicsEditor — エントリポイント。
 //
 // 構成:
-//   CineEditorApp.{h,cpp}   - FGame 派生クラス (ImGui lifecycle ラッパ)
-//   CineEditorScene.{h,cpp} - Workspace + FCinematicsTimelineEditorPanel +
-//                             FCinematicsDirector + 初期 keyframe 3 個
+//   CineEditorApp.{h,cpp}   - CGame 派生クラス (ImGui lifecycle ラッパ)
+//   CineEditorScene.{h,cpp} - Workspace + ACinematicsTimelineEditorPanel +
+//                             CCinematicsDirector + 初期 keyframe 3 個
 //
 // 動作:
-//   ・editor_core の FEditorWorkspace + FEditorTheme と、cinetimeline/
-//     FCinematicsTimelineEditorPanel を 1 個の Workspace に集約。
-//   ・サンプル初期化時に FCinematicsDirector を作成して panel に bind、
+//   ・editor_core の CEditorWorkspace + CEditorTheme と、cinetimeline/
+//     ACinematicsTimelineEditorPanel を 1 個の Workspace に集約。
+//   ・サンプル初期化時に CCinematicsDirector を作成して panel に bind、
 //     初期 keyframe を 3 個追加:
 //       1) CameraCut       @ 0s
 //       2) FadeColor       @ 2s
@@ -21,15 +21,15 @@
 //     ACS_LOG_INFO で発火を可視化)。
 //   ・MainMenuBar:
 //       File > Save / Load / Quit (Save/Load は stub)
-//     Window / Layout は FEditorWorkspace が自前で MenuBar に push する。
+//     Window / Layout は CEditorWorkspace が自前で MenuBar に push する。
 //   ・Esc で終了。
 //
 // 必須バックエンド: ACS_RENDER_DX12_RAW (ImGuiCtx が DX12 raw backend 経由の
 //                  ため)。CMakeLists.txt 側および root acs/CMakeLists.txt の
 //                  `acs_add_sample` 呼出を ACS_RENDER_DX12_RAW で guard する。
 //
-// ACS_GAME_MAIN は CineEditorApp を main エントリに登録 (FApplication 派生 →
+// ACS_GAME_MAIN は CineEditorApp を main エントリに登録 (CApplication 派生 →
 // `int WINAPI WinMain` / `int main` 両方の通常 main を裏で生成)。
 #include "CineEditorApp.h"
 
-ACS_GAME_MAIN(hellocine::FCineEditorApp)
+ACS_GAME_MAIN(hellocine::CCineEditorApp)

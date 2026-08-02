@@ -222,12 +222,12 @@ FLogConfig QuietLogConfig() noexcept
 /** 後続テスト用に標準の Logger 状態を復元する。 */
 void RestoreLogSinkTestLogger() noexcept
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     FLogConfig config{};
     config.console = true;
     config.debug_output = false;
     config.min_severity = ELogSeverity::Info;
-    FLogger::Init(config);
+    CLogger::Init(config);
 }
 
 /**
@@ -322,10 +322,10 @@ void MutatingSink(ELogSeverity, const char*, void* user) noexcept
 {
     auto& context = *static_cast<FLogSinkMutationContext*>(user);
     AppendOrder(context.order, 2u);
-    FLogger::UnsubscribeSink(context.earlier);
-    FLogger::UnsubscribeSink(context.self);
-    FLogger::UnsubscribeSink(context.later);
-    context.added = FLogger::SubscribeSink(AddedSink, &context);
+    CLogger::UnsubscribeSink(context.earlier);
+    CLogger::UnsubscribeSink(context.self);
+    CLogger::UnsubscribeSink(context.later);
+    context.added = CLogger::SubscribeSink(AddedSink, &context);
 }
 
 /** 解除対象になる後続購読の呼び出しを記録する。 */
@@ -347,15 +347,15 @@ void BlockingSubscribedSink(ELogSeverity, const char*, void* user) noexcept
 void RemoveSubscribedSinkWorker(void* user) noexcept
 {
     auto& context = *static_cast<FLogSinkWaitContext*>(user);
-    if (FLogger::UnsubscribeSink(context.handle)) context.removed.Store(1u);
+    if (CLogger::UnsubscribeSink(context.handle)) context.removed.Store(1u);
 }
 
 /** callback 内からの Init、Shutdown、所有権破棄が安全に戻ることを記録する。 */
 void CallbackLifecycleSink(ELogSeverity, const char*, void* user) noexcept
 {
     auto& context = *static_cast<FLogSinkCallbackLifecycleContext*>(user);
-    FLogger::Init(context.config);
-    FLogger::Shutdown();
+    CLogger::Init(context.config);
+    CLogger::Shutdown();
     if (context.owned != nullptr) context.owned->~FLogSinkSubscription();
     context.completed.Store(1u);
 }
@@ -372,7 +372,7 @@ void BlockingShutdownSink(ELogSeverity, const char*, void* user) noexcept
 void ShutdownLoggerWorker(void* user) noexcept
 {
     auto& context = *static_cast<FLogSinkShutdownContext*>(user);
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     context.completed.Store(1u);
 }
 
@@ -402,8 +402,8 @@ void NestedOuterSink(ELogSeverity severity, const char* message, void* user) noe
     AppendNestedSinkEntry(context, 1u, severity, message);
     if (!context.nested_written) {
         context.nested_written = true;
-        context.added = FLogger::SubscribeSink(&NestedAddedSink, &context);
-        FLogger::Write(ELogSeverity::Error, FSourceLoc::Current(), "nested record");
+        context.added = CLogger::SubscribeSink(&NestedAddedSink, &context);
+        CLogger::Write(ELogSeverity::Error, FSourceLoc::Current(), "nested record");
     }
 }
 
@@ -428,7 +428,7 @@ void MessageLifetimeSink(ELogSeverity severity, const char* message, void* user)
 void CopySinkHandlesWorker(void* user) noexcept
 {
     auto& context = *static_cast<FCopySinkHandlesContext*>(user);
-    context.copied = FLogger::TryCopySinkHandles(context.output, 4u, context.output_count);
+    context.copied = CLogger::TryCopySinkHandles(context.output, 4u, context.output_count);
 }
 
 /** 購読一覧コピーと同時に既存購読を解除し、新しい購読を追加する。 */
@@ -436,8 +436,8 @@ void CopyMutationWorker(void* user) noexcept
 {
     auto& context = *static_cast<FCopyMutationContext*>(user);
     ::SetEvent(context.started_event);
-    context.remove_succeeded = FLogger::UnsubscribeSink(context.removed);
-    context.added = FLogger::SubscribeSink(&EmptySink, nullptr);
+    context.remove_succeeded = CLogger::UnsubscribeSink(context.removed);
+    context.added = CLogger::SubscribeSink(&EmptySink, nullptr);
     context.completed.Store(1u);
 }
 
@@ -465,8 +465,8 @@ void SubscribeStressWorker(void* user) noexcept
     constexpr u32 kIterationCount = 256u;
     for (u32 iteration = 0u; iteration < kIterationCount; ++iteration) {
         /** この反復で所有する購読。 */
-        const FLogSinkHandle handle = FLogger::SubscribeSink(&StressSink, &context);
-        if (handle.IsValid()) FLogger::UnsubscribeSink(handle);
+        const FLogSinkHandle handle = CLogger::SubscribeSink(&StressSink, &context);
+        if (handle.IsValid()) CLogger::UnsubscribeSink(handle);
     }
 }
 
@@ -478,7 +478,7 @@ void LogStressWorker(void* user) noexcept
     /** lifecycle 競合を有限時間で反復するレコード数。 */
     constexpr u32 kIterationCount = 1024u;
     for (u32 iteration = 0u; iteration < kIterationCount; ++iteration) {
-        FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "log sink lifecycle stress");
+        CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "log sink lifecycle stress");
     }
 }
 
@@ -490,8 +490,8 @@ void LifecycleStressWorker(void* user) noexcept
     /** 資源解放と再確保を有限時間で反復する回数。 */
     constexpr u32 kIterationCount = 24u;
     for (u32 iteration = 0u; iteration < kIterationCount; ++iteration) {
-        FLogger::Shutdown();
-        FLogger::Init(context.config);
+        CLogger::Shutdown();
+        CLogger::Init(context.config);
     }
 }
 
@@ -516,20 +516,20 @@ static_assert(offsetof(FLogConfig, debug_output) == 17u);
 
 ACS_TEST(LogSinkRegistry, LegacyRunsBeforeRegisteredOrder)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     const FLogConfig config = QuietLogConfig();
-    FLogger::Init(config);
+    CLogger::Init(config);
 
     FLogSinkOrderContext order{};
     u32 second = 2u;
     u32 third = 3u;
     g_legacy_order = &order;
-    FLogger::SetSink(&LegacyOrderSink);
-    const FLogSinkHandle first = FLogger::SubscribeSink(&OrderedSink, &second);
-    const FLogSinkHandle second_handle = FLogger::SubscribeSink(&OrderedSink, &third);
+    CLogger::SetSink(&LegacyOrderSink);
+    const FLogSinkHandle first = CLogger::SubscribeSink(&OrderedSink, &second);
+    const FLogSinkHandle second_handle = CLogger::SubscribeSink(&OrderedSink, &third);
 
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "ordered sinks");
-    FLogger::Flush();
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "ordered sinks");
+    CLogger::Flush();
 
     EXPECT_TRUE(first.IsValid());
     EXPECT_TRUE(second_handle.IsValid());
@@ -543,34 +543,34 @@ ACS_TEST(LogSinkRegistry, LegacyRunsBeforeRegisteredOrder)
 
 ACS_TEST(LogSinkRegistry, CallbackMutationUsesStableRecordBoundary)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     const FLogConfig config = QuietLogConfig();
-    FLogger::Init(config);
+    CLogger::Init(config);
 
     FLogSinkMutationContext context{};
-    context.earlier = FLogger::SubscribeSink(&EarlierSink, &context);
-    context.self = FLogger::SubscribeSink(&MutatingSink, &context);
-    context.later = FLogger::SubscribeSink(&LaterSink, &context);
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "first mutation record");
-    FLogger::Flush();
+    context.earlier = CLogger::SubscribeSink(&EarlierSink, &context);
+    context.self = CLogger::SubscribeSink(&MutatingSink, &context);
+    context.later = CLogger::SubscribeSink(&LaterSink, &context);
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "first mutation record");
+    CLogger::Flush();
 
     EXPECT_EQ(context.order.count, 2u);
     EXPECT_EQ(context.order.values[0], 1u);
     EXPECT_EQ(context.order.values[1], 2u);
-    EXPECT_FALSE(FLogger::IsSinkSubscribed(context.earlier));
-    EXPECT_FALSE(FLogger::IsSinkSubscribed(context.self));
-    EXPECT_FALSE(FLogger::IsSinkSubscribed(context.later));
-    EXPECT_TRUE(FLogger::IsSinkSubscribed(context.added));
+    EXPECT_FALSE(CLogger::IsSinkSubscribed(context.earlier));
+    EXPECT_FALSE(CLogger::IsSinkSubscribed(context.self));
+    EXPECT_FALSE(CLogger::IsSinkSubscribed(context.later));
+    EXPECT_TRUE(CLogger::IsSinkSubscribed(context.added));
     EXPECT_FALSE(context.added.slot == context.earlier.slot);
     EXPECT_FALSE(context.added.slot == context.self.slot);
     EXPECT_FALSE(context.added.slot == context.later.slot);
 
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "second mutation record");
-    FLogger::Flush();
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "second mutation record");
+    CLogger::Flush();
     EXPECT_EQ(context.order.count, 3u);
     EXPECT_EQ(context.order.values[2], 4u);
 
-    context.recycled = FLogger::SubscribeSink(&EmptySink, nullptr);
+    context.recycled = CLogger::SubscribeSink(&EmptySink, nullptr);
     EXPECT_TRUE(context.recycled.IsValid());
     EXPECT_EQ(context.recycled.slot, context.later.slot);
     EXPECT_EQ(context.recycled.generation, context.later.generation + 1u);
@@ -579,15 +579,15 @@ ACS_TEST(LogSinkRegistry, CallbackMutationUsesStableRecordBoundary)
 
 ACS_TEST(LogSinkRegistry, NestedWriteAndCallbackAdditionStartAtNextRecord)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     const FLogConfig config = QuietLogConfig();
-    FLogger::Init(config);
+    CLogger::Init(config);
 
     FNestedSinkContext context{};
-    EXPECT_TRUE(FLogger::SubscribeSink(&NestedOuterSink, &context).IsValid());
-    FLogger::Write(ELogSeverity::Warn, FSourceLoc::Current(), "outer record");
-    FLogger::Flush();
-    FLogger::Flush();
+    EXPECT_TRUE(CLogger::SubscribeSink(&NestedOuterSink, &context).IsValid());
+    CLogger::Write(ELogSeverity::Warn, FSourceLoc::Current(), "outer record");
+    CLogger::Flush();
+    CLogger::Flush();
 
     EXPECT_TRUE(context.added.IsValid());
     EXPECT_EQ(context.count, 3u);
@@ -605,28 +605,28 @@ ACS_TEST(LogSinkRegistry, NestedWriteAndCallbackAdditionStartAtNextRecord)
 
 ACS_TEST(LogSinkRegistry, RecordOwnsMessageAndSeverityAndCallbackCopiesNullTerminatedText)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     const FLogConfig config = QuietLogConfig();
-    FLogger::Init(config);
+    CLogger::Init(config);
 
     FLogSinkMessageContext context{};
     context.entered_event = CreateLogSinkTestEvent();
     context.release_event = CreateLogSinkTestEvent();
     EXPECT_TRUE(context.entered_event != nullptr);
     EXPECT_TRUE(context.release_event != nullptr);
-    EXPECT_TRUE(FLogger::SubscribeSink(&MessageLifetimeSink, &context).IsValid());
+    EXPECT_TRUE(CLogger::SubscribeSink(&MessageLifetimeSink, &context).IsValid());
 
     ELogSeverity caller_severity = ELogSeverity::Warn;
     {
         char caller_message[32] = "caller owned message";
-        FLogger::Write(caller_severity, FSourceLoc::Current(), caller_message);
+        CLogger::Write(caller_severity, FSourceLoc::Current(), caller_message);
         EXPECT_TRUE(WaitForLogSinkTestEvent(context.entered_event));
         caller_severity = ELogSeverity::Fatal;
         ::memset(caller_message, 'x', sizeof(caller_message) - 1u);
         caller_message[sizeof(caller_message) - 1u] = '\0';
     }
     ::SetEvent(context.release_event);
-    FLogger::Flush();
+    CLogger::Flush();
 
     EXPECT_EQ(context.severity, ELogSeverity::Warn);
     EXPECT_TRUE(context.null_terminated);
@@ -638,23 +638,23 @@ ACS_TEST(LogSinkRegistry, RecordOwnsMessageAndSeverityAndCallbackCopiesNullTermi
 
 ACS_TEST(LogSinkRegistry, CopyValidatesNullAlignmentOverflowAndAliasesBeforeWriting)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     const FLogConfig config = QuietLogConfig();
-    FLogger::Init(config);
+    CLogger::Init(config);
 
     FLogSinkHandle empty_output{23u, 29u};
     u32 empty_count = 77u;
-    EXPECT_FALSE(FLogger::TryCopySinkHandles(nullptr, 0u, empty_count));
+    EXPECT_FALSE(CLogger::TryCopySinkHandles(nullptr, 0u, empty_count));
     EXPECT_EQ(empty_count, 77u);
-    EXPECT_TRUE(FLogger::TryCopySinkHandles(&empty_output, 1u, empty_count));
+    EXPECT_TRUE(CLogger::TryCopySinkHandles(&empty_output, 1u, empty_count));
     EXPECT_EQ(empty_count, 0u);
     EXPECT_EQ(empty_output.slot, 23u);
     EXPECT_EQ(empty_output.generation, 29u);
 
-    const FLogSinkHandle active = FLogger::SubscribeSink(&EmptySink, nullptr);
+    const FLogSinkHandle active = CLogger::SubscribeSink(&EmptySink, nullptr);
     EXPECT_TRUE(active.IsValid());
     u32 null_count = 81u;
-    EXPECT_FALSE(FLogger::TryCopySinkHandles(nullptr, 1u, null_count));
+    EXPECT_FALSE(CLogger::TryCopySinkHandles(nullptr, 1u, null_count));
     EXPECT_EQ(null_count, 81u);
 
     alignas(FLogSinkHandle) u8 misaligned_bytes[sizeof(FLogSinkHandle) + 1u]{};
@@ -664,7 +664,7 @@ ACS_TEST(LogSinkRegistry, CopyValidatesNullAlignmentOverflowAndAliasesBeforeWrit
     u32 misaligned_count = 83u;
     /** 整列済み領域から1 byteずらした無効なコピー先。 */
     auto* const misaligned_output = reinterpret_cast<FLogSinkHandle*>(misaligned_bytes + 1u);
-    EXPECT_FALSE(FLogger::TryCopySinkHandles(misaligned_output, 1u, misaligned_count));
+    EXPECT_FALSE(CLogger::TryCopySinkHandles(misaligned_output, 1u, misaligned_count));
     EXPECT_EQ(misaligned_count, 83u);
     EXPECT_TRUE(::memcmp(misaligned_bytes, misaligned_before, sizeof(misaligned_bytes)) == 0);
 
@@ -678,7 +678,7 @@ ACS_TEST(LogSinkRegistry, CopyValidatesNullAlignmentOverflowAndAliasesBeforeWrit
     };
     FHugeCapacityOutput huge{};
     const FHugeCapacityOutput huge_before = huge;
-    EXPECT_FALSE(FLogger::TryCopySinkHandles(huge.output, 0xFFFFFFFFu, huge.count));
+    EXPECT_FALSE(CLogger::TryCopySinkHandles(huge.output, 0xFFFFFFFFu, huge.count));
     EXPECT_TRUE(::memcmp(&huge, &huge_before, sizeof(huge)) == 0);
 
     /** 1要素の終端加算がポインタ幅を越える整列済みの疑似アドレス。 */
@@ -686,19 +686,19 @@ ACS_TEST(LogSinkRegistry, CopyValidatesNullAlignmentOverflowAndAliasesBeforeWrit
     /** 実際には参照せず、事前の終端桁あふれ検証だけへ渡す疑似コピー先。 */
     auto* const near_end_output = reinterpret_cast<FLogSinkHandle*>(near_end_address);
     u32 near_end_count = 97u;
-    EXPECT_FALSE(FLogger::TryCopySinkHandles(near_end_output, 1u, near_end_count));
+    EXPECT_FALSE(CLogger::TryCopySinkHandles(near_end_output, 1u, near_end_count));
     EXPECT_EQ(near_end_count, 97u);
 
     FLogSinkHandle slot_alias[2]{{47u, 53u}, {59u, 61u}};
     FLogSinkHandle slot_alias_before[2]{};
     ::memcpy(slot_alias_before, slot_alias, sizeof(slot_alias));
-    EXPECT_FALSE(FLogger::TryCopySinkHandles(slot_alias, 2u, slot_alias[0].slot));
+    EXPECT_FALSE(CLogger::TryCopySinkHandles(slot_alias, 2u, slot_alias[0].slot));
     EXPECT_TRUE(::memcmp(slot_alias, slot_alias_before, sizeof(slot_alias)) == 0);
 
     FLogSinkHandle generation_alias[2]{{67u, 71u}, {73u, 79u}};
     FLogSinkHandle generation_alias_before[2]{};
     ::memcpy(generation_alias_before, generation_alias, sizeof(generation_alias));
-    EXPECT_FALSE(FLogger::TryCopySinkHandles(generation_alias, 2u, generation_alias[0].generation));
+    EXPECT_FALSE(CLogger::TryCopySinkHandles(generation_alias, 2u, generation_alias[0].generation));
     EXPECT_TRUE(::memcmp(generation_alias, generation_alias_before, sizeof(generation_alias)) == 0);
 
     alignas(FLogSinkHandle) u8 partial_alias[sizeof(FLogSinkHandle) + sizeof(u32)]{};
@@ -707,36 +707,36 @@ ACS_TEST(LogSinkRegistry, CopyValidatesNullAlignmentOverflowAndAliasesBeforeWrit
     ::memcpy(partial_alias_before, partial_alias, sizeof(partial_alias));
     /** ハンドル範囲の末尾1 byteだけに重なる疑似件数出力先。 */
     u32& partial_count = *reinterpret_cast<u32*>(partial_alias + sizeof(FLogSinkHandle) - 1u);
-    EXPECT_FALSE(FLogger::TryCopySinkHandles(reinterpret_cast<FLogSinkHandle*>(partial_alias), 1u, partial_count));
+    EXPECT_FALSE(CLogger::TryCopySinkHandles(reinterpret_cast<FLogSinkHandle*>(partial_alias), 1u, partial_count));
     EXPECT_TRUE(::memcmp(partial_alias, partial_alias_before, sizeof(partial_alias)) == 0);
     RestoreLogSinkTestLogger();
 }
 
 ACS_TEST(LogSinkRegistry, FixedCapacityAndCopyAreAllOrNoneInRegistrationOrder)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     const FLogConfig config = QuietLogConfig();
-    FLogger::Init(config);
+    CLogger::Init(config);
 
     constexpr u32 kCapacity = 4096u;
     FLogSinkHandle registered[kCapacity]{};
     /** 固定表を登録順に埋める要素番号。 */
     for (u32 index = 0; index < kCapacity; ++index)
-        registered[index] = FLogger::SubscribeSink(&EmptySink, nullptr);
-    EXPECT_EQ(FLogger::SinkCount(), kCapacity);
-    EXPECT_FALSE(FLogger::SubscribeSink(&EmptySink, nullptr).IsValid());
+        registered[index] = CLogger::SubscribeSink(&EmptySink, nullptr);
+    EXPECT_EQ(CLogger::SinkCount(), kCapacity);
+    EXPECT_FALSE(CLogger::SubscribeSink(&EmptySink, nullptr).IsValid());
 
     FLogSinkHandle unchanged[2]{{7u, 9u}, {8u, 10u}};
     FLogSinkHandle unchanged_before[2]{};
     ::memcpy(unchanged_before, unchanged, sizeof(unchanged));
     u32 unchanged_count = 77u;
-    EXPECT_FALSE(FLogger::TryCopySinkHandles(unchanged, 2u, unchanged_count));
+    EXPECT_FALSE(CLogger::TryCopySinkHandles(unchanged, 2u, unchanged_count));
     EXPECT_TRUE(::memcmp(unchanged, unchanged_before, sizeof(unchanged)) == 0);
     EXPECT_EQ(unchanged_count, 77u);
 
     FLogSinkHandle copied[kCapacity]{};
     u32 copied_count = 0u;
-    EXPECT_TRUE(FLogger::TryCopySinkHandles(copied, kCapacity, copied_count));
+    EXPECT_TRUE(CLogger::TryCopySinkHandles(copied, kCapacity, copied_count));
     EXPECT_EQ(copied_count, kCapacity);
     /** コピー結果と元の登録順を比較する要素番号。 */
     for (u32 index = 0; index < kCapacity; ++index) EXPECT_TRUE(copied[index] == registered[index]);
@@ -746,12 +746,12 @@ ACS_TEST(LogSinkRegistry, FixedCapacityAndCopyAreAllOrNoneInRegistrationOrder)
 #if defined(ACS_FOUNDATION_LOG_TEST_HOOKS)
 ACS_TEST(LogSinkRegistry, CopySnapshotExcludesConcurrentMutationUntilSharedLockRelease)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     const FLogConfig config = QuietLogConfig();
-    FLogger::Init(config);
+    CLogger::Init(config);
 
-    const FLogSinkHandle first = FLogger::SubscribeSink(&EmptySink, nullptr);
-    const FLogSinkHandle second = FLogger::SubscribeSink(&EmptySink, nullptr);
+    const FLogSinkHandle first = CLogger::SubscribeSink(&EmptySink, nullptr);
+    const FLogSinkHandle second = CLogger::SubscribeSink(&EmptySink, nullptr);
     HANDLE copy_entered_event = CreateLogSinkTestEvent();
     HANDLE copy_release_event = CreateLogSinkTestEvent();
     HANDLE mutation_started_event = CreateLogSinkTestEvent();
@@ -793,9 +793,9 @@ ACS_TEST(LogSinkRegistry, CopySnapshotExcludesConcurrentMutationUntilSharedLockR
     EXPECT_TRUE(mutation.remove_succeeded);
     EXPECT_TRUE(mutation.added.IsValid());
     EXPECT_EQ(mutation.completed.Load(), 1u);
-    EXPECT_FALSE(FLogger::IsSinkSubscribed(first));
-    EXPECT_TRUE(FLogger::IsSinkSubscribed(second));
-    EXPECT_TRUE(FLogger::IsSinkSubscribed(mutation.added));
+    EXPECT_FALSE(CLogger::IsSinkSubscribed(first));
+    EXPECT_TRUE(CLogger::IsSinkSubscribed(second));
+    EXPECT_TRUE(CLogger::IsSinkSubscribed(mutation.added));
 
     if (mutation_started_event != nullptr) ::CloseHandle(mutation_started_event);
     if (copy_release_event != nullptr) ::CloseHandle(copy_release_event);
@@ -806,9 +806,9 @@ ACS_TEST(LogSinkRegistry, CopySnapshotExcludesConcurrentMutationUntilSharedLockR
 
 ACS_TEST(LogSinkRegistry, ExternalRemovalWaitsForInFlightCallback)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     const FLogConfig config = QuietLogConfig();
-    FLogger::Init(config);
+    CLogger::Init(config);
 
     FLogSinkWaitContext context{};
     context.entered_event = CreateLogSinkTestEvent();
@@ -817,8 +817,8 @@ ACS_TEST(LogSinkRegistry, ExternalRemovalWaitsForInFlightCallback)
     EXPECT_TRUE(context.entered_event != nullptr);
     EXPECT_TRUE(context.release_event != nullptr);
     EXPECT_TRUE(wait_entered_event != nullptr);
-    context.handle = FLogger::SubscribeSink(&BlockingSubscribedSink, &context);
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "blocking subscribed sink");
+    context.handle = CLogger::SubscribeSink(&BlockingSubscribedSink, &context);
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "blocking subscribed sink");
     EXPECT_TRUE(WaitForLogSinkTestEvent(context.entered_event));
 
 #if defined(ACS_FOUNDATION_LOG_TEST_HOOKS)
@@ -846,7 +846,7 @@ ACS_TEST(LogSinkRegistry, ExternalRemovalWaitsForInFlightCallback)
     log_sink_test_detail::SetUnsubscribeWaitEvent(nullptr);
 #endif
     EXPECT_EQ(context.removed.Load(), 1u);
-    EXPECT_FALSE(FLogger::IsSinkSubscribed(context.handle));
+    EXPECT_FALSE(CLogger::IsSinkSubscribed(context.handle));
     if (wait_entered_event != nullptr) ::CloseHandle(wait_entered_event);
     if (context.release_event != nullptr) ::CloseHandle(context.release_event);
     if (context.entered_event != nullptr) ::CloseHandle(context.entered_event);
@@ -855,64 +855,64 @@ ACS_TEST(LogSinkRegistry, ExternalRemovalWaitsForInFlightCallback)
 
 ACS_TEST(LogSinkRegistry, OwnedSubscriptionMoveAssignmentAndDestructorsLeaveCountZero)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     const FLogConfig config = QuietLogConfig();
-    FLogger::Init(config);
+    CLogger::Init(config);
 
     FLogSinkHandle moved_handle{};
     FLogSinkHandle replaced_handle{};
     {
-        FLogSinkSubscription first = FLogger::SubscribeSinkOwned(&EmptySink, nullptr);
-        FLogSinkSubscription second = FLogger::SubscribeSinkOwned(&EmptySink, nullptr);
+        FLogSinkSubscription first = CLogger::SubscribeSinkOwned(&EmptySink, nullptr);
+        FLogSinkSubscription second = CLogger::SubscribeSinkOwned(&EmptySink, nullptr);
         moved_handle = first.Handle();
         replaced_handle = second.Handle();
-        EXPECT_EQ(FLogger::SinkCount(), 2u);
+        EXPECT_EQ(CLogger::SinkCount(), 2u);
 
         second = Move(first);
         EXPECT_FALSE(first.IsValid());
         EXPECT_TRUE(second.IsValid());
         EXPECT_TRUE(second.Handle() == moved_handle);
-        EXPECT_FALSE(FLogger::IsSinkSubscribed(replaced_handle));
-        EXPECT_EQ(FLogger::SinkCount(), 1u);
+        EXPECT_FALSE(CLogger::IsSinkSubscribed(replaced_handle));
+        EXPECT_EQ(CLogger::SinkCount(), 1u);
     }
-    EXPECT_FALSE(FLogger::IsSinkSubscribed(moved_handle));
-    EXPECT_EQ(FLogger::SinkCount(), 0u);
+    EXPECT_FALSE(CLogger::IsSinkSubscribed(moved_handle));
+    EXPECT_EQ(CLogger::SinkCount(), 0u);
 
     {
-        FLogSinkSubscription scoped = FLogger::SubscribeSinkOwned(&EmptySink, nullptr);
+        FLogSinkSubscription scoped = CLogger::SubscribeSinkOwned(&EmptySink, nullptr);
         EXPECT_TRUE(scoped.IsValid());
-        EXPECT_EQ(FLogger::SinkCount(), 1u);
+        EXPECT_EQ(CLogger::SinkCount(), 1u);
     }
-    EXPECT_EQ(FLogger::SinkCount(), 0u);
+    EXPECT_EQ(CLogger::SinkCount(), 0u);
     RestoreLogSinkTestLogger();
 }
 
 ACS_TEST(LogSinkRegistry, CallbackLifecycleCallsAndOwnedDestructionAreSafe)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     const FLogConfig config = QuietLogConfig();
-    FLogger::Init(config);
+    CLogger::Init(config);
 
     FLogSinkCallbackLifecycleContext context{};
     context.config = config;
     FLogSinkSubscription owned;
     context.owned = &owned;
-    owned = FLogger::SubscribeSinkOwned(&CallbackLifecycleSink, &context);
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "callback lifecycle");
-    FLogger::Flush();
+    owned = CLogger::SubscribeSinkOwned(&CallbackLifecycleSink, &context);
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "callback lifecycle");
+    CLogger::Flush();
 
     EXPECT_EQ(context.completed.Load(), 1u);
-    EXPECT_TRUE(FLogger::IsInitialized());
-    EXPECT_EQ(FLogger::SinkCount(), 0u);
+    EXPECT_TRUE(CLogger::IsInitialized());
+    EXPECT_EQ(CLogger::SinkCount(), 0u);
     new (&owned) FLogSinkSubscription{};
     RestoreLogSinkTestLogger();
 }
 
 ACS_TEST(LogSinkRegistry, ExternalShutdownWaitsForDispatchCompletion)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     const FLogConfig config = QuietLogConfig();
-    FLogger::Init(config);
+    CLogger::Init(config);
 
     FLogSinkShutdownContext context{};
     context.entered_event = CreateLogSinkTestEvent();
@@ -921,8 +921,8 @@ ACS_TEST(LogSinkRegistry, ExternalShutdownWaitsForDispatchCompletion)
     EXPECT_TRUE(context.entered_event != nullptr);
     EXPECT_TRUE(context.release_event != nullptr);
     EXPECT_TRUE(join_entered_event != nullptr);
-    EXPECT_TRUE(FLogger::SubscribeSink(&BlockingShutdownSink, &context).IsValid());
-    FLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "shutdown waits dispatch");
+    EXPECT_TRUE(CLogger::SubscribeSink(&BlockingShutdownSink, &context).IsValid());
+    CLogger::Write(ELogSeverity::Info, FSourceLoc::Current(), "shutdown waits dispatch");
     EXPECT_TRUE(WaitForLogSinkTestEvent(context.entered_event));
 
 #if defined(ACS_FOUNDATION_LOG_TEST_HOOKS)
@@ -949,7 +949,7 @@ ACS_TEST(LogSinkRegistry, ExternalShutdownWaitsForDispatchCompletion)
     log_sink_test_detail::SetShutdownWaitEvent(nullptr);
 #endif
     EXPECT_EQ(context.completed.Load(), 1u);
-    EXPECT_FALSE(FLogger::IsInitialized());
+    EXPECT_FALSE(CLogger::IsInitialized());
     if (join_entered_event != nullptr) ::CloseHandle(join_entered_event);
     if (context.release_event != nullptr) ::CloseHandle(context.release_event);
     if (context.entered_event != nullptr) ::CloseHandle(context.entered_event);
@@ -958,30 +958,30 @@ ACS_TEST(LogSinkRegistry, ExternalShutdownWaitsForDispatchCompletion)
 
 ACS_TEST(LogSinkRegistry, ShutdownRejectsStaleHandlesAfterReinitialize)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     const FLogConfig config = QuietLogConfig();
-    FLogger::Init(config);
-    const FLogSinkHandle stale = FLogger::SubscribeSink(&EmptySink, nullptr);
-    FLogger::Shutdown();
-    EXPECT_FALSE(FLogger::IsSinkSubscribed(stale));
-    EXPECT_FALSE(FLogger::UnsubscribeSink(stale));
+    CLogger::Init(config);
+    const FLogSinkHandle stale = CLogger::SubscribeSink(&EmptySink, nullptr);
+    CLogger::Shutdown();
+    EXPECT_FALSE(CLogger::IsSinkSubscribed(stale));
+    EXPECT_FALSE(CLogger::UnsubscribeSink(stale));
 
-    FLogger::Init(config);
-    const FLogSinkHandle current = FLogger::SubscribeSink(&EmptySink, nullptr);
+    CLogger::Init(config);
+    const FLogSinkHandle current = CLogger::SubscribeSink(&EmptySink, nullptr);
     EXPECT_TRUE(current.IsValid());
     EXPECT_FALSE(current == stale);
-    EXPECT_FALSE(FLogger::UnsubscribeSink(stale));
-    EXPECT_TRUE(FLogger::IsSinkSubscribed(current));
+    EXPECT_FALSE(CLogger::UnsubscribeSink(stale));
+    EXPECT_TRUE(CLogger::IsSinkSubscribed(current));
     RestoreLogSinkTestLogger();
 }
 
 ACS_TEST(LogSinkRegistry, FiniteBarrierStressKeepsLifecycleAndStaleHandlesSafe)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     FLogSinkStressContext context{};
     context.config = QuietLogConfig();
-    FLogger::Init(context.config);
-    const FLogSinkHandle stale = FLogger::SubscribeSink(&StressSink, &context);
+    CLogger::Init(context.config);
+    const FLogSinkHandle stale = CLogger::SubscribeSink(&StressSink, &context);
     EXPECT_TRUE(stale.IsValid());
 
     auto subscribe_worker = FThread::Spawn(&SubscribeStressWorker, &context);
@@ -995,7 +995,7 @@ ACS_TEST(LogSinkRegistry, FiniteBarrierStressKeepsLifecycleAndStaleHandlesSafe)
         if (subscribe_worker.IsOk()) subscribe_worker.Value().Join();
         if (log_worker.IsOk()) log_worker.Value().Join();
         if (lifecycle_worker.IsOk()) lifecycle_worker.Value().Join();
-        if (!FLogger::IsInitialized()) FLogger::Init(context.config);
+        if (!CLogger::IsInitialized()) CLogger::Init(context.config);
         RestoreLogSinkTestLogger();
         return;
     }
@@ -1007,12 +1007,12 @@ ACS_TEST(LogSinkRegistry, FiniteBarrierStressKeepsLifecycleAndStaleHandlesSafe)
     log_worker.Value().Join();
     lifecycle_worker.Value().Join();
 
-    if (!FLogger::IsInitialized()) FLogger::Init(context.config);
-    FLogger::Flush();
-    EXPECT_FALSE(FLogger::IsSinkSubscribed(stale));
-    EXPECT_FALSE(FLogger::UnsubscribeSink(stale));
-    EXPECT_EQ(FLogger::SinkCount(), 0u);
-    const FLogSinkHandle current = FLogger::SubscribeSink(&StressSink, &context);
+    if (!CLogger::IsInitialized()) CLogger::Init(context.config);
+    CLogger::Flush();
+    EXPECT_FALSE(CLogger::IsSinkSubscribed(stale));
+    EXPECT_FALSE(CLogger::UnsubscribeSink(stale));
+    EXPECT_EQ(CLogger::SinkCount(), 0u);
+    const FLogSinkHandle current = CLogger::SubscribeSink(&StressSink, &context);
     EXPECT_TRUE(current.IsValid());
     EXPECT_FALSE(current == stale);
     RestoreLogSinkTestLogger();
@@ -1021,53 +1021,53 @@ ACS_TEST(LogSinkRegistry, FiniteBarrierStressKeepsLifecycleAndStaleHandlesSafe)
 #if defined(ACS_FOUNDATION_LOG_TEST_HOOKS)
 ACS_TEST(LogSinkRegistry, AllocationFailureKeepsLegacyLoggerAndCanRetry)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     const FLogConfig config = QuietLogConfig();
     log_sink_test_detail::FailNextSinkRegistryAllocation();
-    FLogger::Init(config);
-    EXPECT_TRUE(FLogger::IsInitialized());
-    EXPECT_EQ(FLogger::SinkCount(), 0u);
-    EXPECT_FALSE(FLogger::SubscribeSink(&EmptySink, nullptr).IsValid());
+    CLogger::Init(config);
+    EXPECT_TRUE(CLogger::IsInitialized());
+    EXPECT_EQ(CLogger::SinkCount(), 0u);
+    EXPECT_FALSE(CLogger::SubscribeSink(&EmptySink, nullptr).IsValid());
 
     FLegacyDeliveryContext delivery{};
     g_legacy_delivery = &delivery;
-    FLogger::SetSink(&LegacyDeliverySink);
-    FLogger::Write(ELogSeverity::Fatal, FSourceLoc::Current(), "legacy survives registry allocation failure");
-    FLogger::Flush();
+    CLogger::SetSink(&LegacyDeliverySink);
+    CLogger::Write(ELogSeverity::Fatal, FSourceLoc::Current(), "legacy survives registry allocation failure");
+    CLogger::Flush();
     EXPECT_EQ(delivery.count, 1u);
     EXPECT_EQ(delivery.severity, ELogSeverity::Fatal);
     EXPECT_TRUE(::strcmp(delivery.message, "legacy survives registry allocation failure") == 0);
-    FLogger::SetSink(nullptr);
+    CLogger::SetSink(nullptr);
     g_legacy_delivery = nullptr;
 
-    FLogger::Shutdown();
-    FLogger::Init(config);
-    EXPECT_TRUE(FLogger::IsInitialized());
-    EXPECT_TRUE(FLogger::SubscribeSink(&EmptySink, nullptr).IsValid());
+    CLogger::Shutdown();
+    CLogger::Init(config);
+    EXPECT_TRUE(CLogger::IsInitialized());
+    EXPECT_TRUE(CLogger::SubscribeSink(&EmptySink, nullptr).IsValid());
     RestoreLogSinkTestLogger();
 }
 
 ACS_TEST(LogSinkRegistry, ActiveMaximumGenerationRetiresAcrossShutdownAndReinitialize)
 {
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     EXPECT_TRUE(log_sink_test_detail::SetSinkGeneration(0u, 0xFFFFFFFEu));
     const FLogConfig config = QuietLogConfig();
-    FLogger::Init(config);
+    CLogger::Init(config);
 
-    const FLogSinkHandle maximum = FLogger::SubscribeSink(&EmptySink, nullptr);
+    const FLogSinkHandle maximum = CLogger::SubscribeSink(&EmptySink, nullptr);
     EXPECT_EQ(maximum.slot, 0u);
     EXPECT_EQ(maximum.generation, 0xFFFFFFFFu);
-    FLogger::Shutdown();
-    EXPECT_FALSE(FLogger::IsSinkSubscribed(maximum));
-    EXPECT_FALSE(FLogger::UnsubscribeSink(maximum));
+    CLogger::Shutdown();
+    EXPECT_FALSE(CLogger::IsSinkSubscribed(maximum));
+    EXPECT_FALSE(CLogger::UnsubscribeSink(maximum));
 
-    FLogger::Init(config);
-    const FLogSinkHandle next = FLogger::SubscribeSink(&EmptySink, nullptr);
+    CLogger::Init(config);
+    const FLogSinkHandle next = CLogger::SubscribeSink(&EmptySink, nullptr);
     EXPECT_TRUE(next.IsValid());
     EXPECT_EQ(next.slot, 1u);
-    EXPECT_FALSE(FLogger::UnsubscribeSink(maximum));
+    EXPECT_FALSE(CLogger::UnsubscribeSink(maximum));
 
-    FLogger::Shutdown();
+    CLogger::Shutdown();
     EXPECT_TRUE(log_sink_test_detail::SetSinkGeneration(0u, 0u));
     RestoreLogSinkTestLogger();
 }

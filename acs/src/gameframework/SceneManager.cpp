@@ -13,7 +13,7 @@ namespace acs::game {
 /** Change 遷移を保留にセットする (next==nullptr は警告して無視)。 */
 void CSceneManager::ChangeScene(TUniquePtr<AScene> next) noexcept {
     if (!next) {
-        ACS_LOG_WARN("FSceneManager::ChangeScene(nullptr) ignored");
+        ACS_LOG_WARN("CSceneManager::ChangeScene(nullptr) ignored");
         return;
     }
     m_PendingOp  = EOp::Change;
@@ -23,7 +23,7 @@ void CSceneManager::ChangeScene(TUniquePtr<AScene> next) noexcept {
 /** Push 遷移を保留にセットする (next==nullptr は警告して無視)。 */
 void CSceneManager::PushScene(TUniquePtr<AScene> next) noexcept {
     if (!next) {
-        ACS_LOG_WARN("FSceneManager::PushScene(nullptr) ignored");
+        ACS_LOG_WARN("CSceneManager::PushScene(nullptr) ignored");
         return;
     }
     m_PendingOp  = EOp::Push;
@@ -108,37 +108,37 @@ void CSceneManager::_ApplyPending(CGame& game) noexcept {
     case EOp::Change:
         // 旧topを残したまま、置換後の要素数を先に収容できることを保証する。
         if (!m_Stack.TryReserve(m_Stack.IsEmpty() ? 1u : m_Stack.Size())) {
-            ACS_LOG_ERROR("FSceneManager: change scene stack allocation failed");
+            ACS_LOG_ERROR("CSceneManager: change scene stack allocation failed");
             return;
         }
         // 新 scene の準備に失敗した場合は旧 top とその pause 状態を完全に維持する。
         if (!arg || !PrepareScene(game, *arg)) {
-            ACS_LOG_ERROR("FSceneManager: change scene preparation failed");
+            ACS_LOG_ERROR("CSceneManager: change scene preparation failed");
             return;
         }
         DoPopInternal(/*resume_new=*/false);
         if (!CommitPush(Move(arg), /*PauseCurrent=*/false)) {
-            ACS_LOG_ERROR("FSceneManager: reserved change scene commit failed");
+            ACS_LOG_ERROR("CSceneManager: reserved change scene commit failed");
         }
         break;
     case EOp::Push:
         // pause前に新topを格納する容量を確保し、OOM時は旧topを変更しない。
         if (!m_Stack.TryReserve(m_Stack.Size() + 1u)) {
-            ACS_LOG_ERROR("FSceneManager: push scene stack allocation failed");
+            ACS_LOG_ERROR("CSceneManager: push scene stack allocation failed");
             return;
         }
         // 準備成功後だけ旧 top を pause する。
         if (!arg || !PrepareScene(game, *arg)) {
-            ACS_LOG_ERROR("FSceneManager: push scene preparation failed");
+            ACS_LOG_ERROR("CSceneManager: push scene preparation failed");
             return;
         }
         if (!CommitPush(Move(arg), /*PauseCurrent=*/true)) {
-            ACS_LOG_ERROR("FSceneManager: reserved push scene commit failed");
+            ACS_LOG_ERROR("CSceneManager: reserved push scene commit failed");
         }
         break;
     case EOp::Pop:
         if (m_Stack.Size() <= 1) {
-            ACS_LOG_WARN("FSceneManager::PopScene on a stack of size %u (need >=2) — ignored",
+            ACS_LOG_WARN("CSceneManager::PopScene on a stack of size %u (need >=2) — ignored",
                          static_cast<u32>(m_Stack.Size()));
             return;
         }

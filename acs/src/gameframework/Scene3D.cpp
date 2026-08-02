@@ -2,7 +2,7 @@
 // GameFramework Pillar B — CScene3D 実装
 #include "gameframework/Scene3D.h"
 #include "gameframework/MeshComponent3D.h"   // AMeshComponent3D (Raycast の bounds)
-#include "asset/MeshAsset.h"                 // FMeshAsset (Mesh 種別の頂点 AABB)
+#include "asset/MeshAsset.h"                 // AMeshAsset (Mesh 種別の頂点 AABB)
 #include "math/Mat.h"                        // Inverse / TransformPoint / TransformVector
 #include "memory/UniquePtr.h"
 
@@ -26,7 +26,7 @@ FAabb3 LocalBounds3D(const AMeshComponent3D& m) noexcept {
         return FAabb3{ FVec3{ 0, 0, 0 }, FVec3{ 0.5f, 0.02f, 0.5f } };   // 薄い板
     }
     if (m.Primitive() == EMeshPrimitive3D::Mesh) {
-        const FMeshAsset* a = m.Mesh();
+        const AMeshAsset* a = m.Mesh();
         if (a != nullptr && a->Vertices().Size() > 0) {
             FVec3 mn = a->Vertices()[0].position, mx = mn;
             for (u32 i = 1; i < a->Vertices().Size(); ++i) {

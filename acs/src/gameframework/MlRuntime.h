@@ -43,7 +43,7 @@
 //   ・global stub アクセサ `GetMlRuntimeStub()` / `GetUpscalerStub()`
 //
 // 本 header の範囲外:
-//   ・ONNX Runtime / DirectML 連携の `FOnnxMlRuntime` 実装 (別モジュール)
+//   ・ONNX Runtime / DirectML 連携の `COnnxMlRuntime` 実装 (別モジュール)
 //   ・FSR2 / DLSS / XeSS 連携の各具象 `IUpscaler` 実装 (別モジュール、SDK 同梱)
 //   ・LLM NPC 安全パイプ (rate limit / content filter / 決定論なし宣言)
 //

@@ -18,7 +18,7 @@ static_assert(sizeof(CLuaVm) == 16u && alignof(CLuaVm) == 8u, "Win64のLua実行
 namespace {
 
 /** 確保拒否と回復を切り替え、Lua 登録簿の失敗経路を再現する。 */
-class FRejectableAllocator final : public FAllocator {
+class FRejectableAllocator final : public IAllocator {
 public:
     /**
      * 指定領域を確保し、拒否中は nullptr を返す。
@@ -72,7 +72,7 @@ public:
 
 private:
     /** 実際の領域確保と解放を行う下位アロケータ。 */
-    FSystemAllocator m_Backing;
+    CSystemAllocator m_Backing;
 
     /** 確保要求を失敗させる場合は true。 */
     bool m_RejectAllocations = false;
@@ -101,7 +101,7 @@ void CountNativeCall(IScriptVm& vm, FScriptCallFrame& frame, void* user_data) no
 }
 
 /** allocator callbackから同じLua実行環境への登録再入を一度だけ試す。 */
-class FReentrantAllocator final : public FAllocator {
+class FReentrantAllocator final : public IAllocator {
 public:
     /**
      * 指定領域を確保し、予約済みなら確保中に登録を再入する。
@@ -169,7 +169,7 @@ public:
 
 private:
     /** 実際の領域確保と解放を行う下位アロケータ。 */
-    FSystemAllocator m_Backing;
+    CSystemAllocator m_Backing;
 
     /** allocator callbackから登録を再入するLua実行環境。 */
     IScriptVm* m_Vm = nullptr;

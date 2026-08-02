@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloModelViewer — Scene。Workspace + 4 panel + FAssetBrowser + Theme + 3D cube。
+// HelloModelViewer — Scene。Workspace + 4 panel + CAssetBrowser + Theme + 3D cube。
 //
 // editor_core と modelview の 4 panel を 1 個の Workspace に集約し、ImGui の
 // 外側 (= フレームバッファ直書き) に sample 17 同等の cube を MVP で描画する。
-// MVP は FModelViewerPanel::Camera() の view/proj を使うので、editor 上のマウス
+// MVP は AModelViewerPanel::Camera() の view/proj を使うので、editor 上のマウス
 // ドラッグで orbit / dolly した姿勢がそのまま 3D 像に反映される。
 //
 // 本ファイルは 3 つのサブモジュールを束ねる薄いオーケストレータ:
@@ -20,7 +20,7 @@
 
 namespace hellomv {
 
-class FModelViewerScene : public acs::game::FScene {
+class AModelViewerScene : public acs::game::AScene {
 public:
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
@@ -34,9 +34,9 @@ private:
     static constexpr const wchar_t* kThemePath        = L"data/editor/theme.acstheme";
     static constexpr const wchar_t* kAssetRoot        = L"assets/";
 
-    FViewerPanels         m_Panels;
-    FViewerScenePipeline  m_Pipeline;
-    FViewerMenuBar        m_MenuBar;
+    CViewerPanels         m_Panels;
+    CViewerScenePipeline  m_Pipeline;
+    CViewerMenuBar        m_MenuBar;
     acs::f32             m_Angle = 0.0f;
 };
 

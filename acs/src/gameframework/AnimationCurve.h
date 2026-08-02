@@ -147,7 +147,7 @@ public:
     FAnimationCurve() noexcept = default;
 
     /** allocator を明示して空の曲線を構築する。失敗注入と専用 arena に利用できる。 */
-    explicit FAnimationCurve(FAllocator& allocator) noexcept
+    explicit FAnimationCurve(IAllocator& allocator) noexcept
         : m_Keys(allocator) {}
 
     /** 破棄する (内部 TArray が key を解放)。 */

@@ -281,7 +281,7 @@ public:
     /**
      * この文字列が使うアロケータを返す。
      *
-     * @return ヒープ確保に使っている FAllocator へのポインタ。
+     * @return ヒープ確保に使っている IAllocator へのポインタ。
      */
     IAllocator* GetAllocator() const noexcept { return m_Alloc; }
 

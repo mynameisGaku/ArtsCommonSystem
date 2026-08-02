@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// gameframework: FEventBus (オブジェクト間 pub/sub) の検証 (GPU 非依存)。
+// gameframework: AEventBus (オブジェクト間 pub/sub) の検証 (GPU 非依存)。
 //   ・Subscribe → Publish でハンドラが listener+payload 付きで呼ばれる
 //   ・別イベントは呼ばれない / Unsubscribe で止まる / 複数購読
 //   ・Id() のハッシュが名前で決定的(衝突せず一致)
@@ -26,9 +26,9 @@ void TestHandler(void* listener, const void* payload) noexcept {
 // 購読 → 発火でハンドラが listener / payload 付きで呼ばれる。別イベント/解除も正しい。
 ACS_TEST(EventBus, SubscribePublishUnsubscribe) {
     s_calls = 0; s_sum = 0;
-    FEventBus bus;
+    AEventBus bus;
     int listenerState = 0;
-    const auto HIT = FEventBus::Id("Hit");
+    const auto HIT = AEventBus::Id("Hit");
 
     int h = bus.Subscribe(HIT, &TestHandler, &listenerState);
     EXPECT_TRUE(h >= 0);
@@ -40,7 +40,7 @@ ACS_TEST(EventBus, SubscribePublishUnsubscribe) {
     EXPECT_EQ(listenerState, 1);
 
     // 別イベントは呼ばれない。
-    bus.Publish(FEventBus::Id("Other"), nullptr);
+    bus.Publish(AEventBus::Id("Other"), nullptr);
     EXPECT_EQ(s_calls, 1);
 
     // 解除すると呼ばれない。
@@ -52,8 +52,8 @@ ACS_TEST(EventBus, SubscribePublishUnsubscribe) {
 // 同一イベントの複数購読は全て呼ばれる(空きスロット再利用も含む)。
 ACS_TEST(EventBus, MultipleSubscribers) {
     s_calls = 0; s_sum = 0;
-    FEventBus bus;
-    const auto EV = FEventBus::Id("Tick");
+    AEventBus bus;
+    const auto EV = AEventBus::Id("Tick");
     int a = bus.Subscribe(EV, &TestHandler, nullptr);
     bus.Subscribe(EV, &TestHandler, nullptr);
     bus.Publish(EV, nullptr);
@@ -69,7 +69,7 @@ ACS_TEST(EventBus, MultipleSubscribers) {
 
 // Id() は名前で決定的(同名一致・異名不一致)。
 ACS_TEST(EventBus, EventIdIsDeterministic) {
-    EXPECT_TRUE(FEventBus::Id("PlayerDied") == FEventBus::Id("PlayerDied"));
-    EXPECT_TRUE(FEventBus::Id("PlayerDied") != FEventBus::Id("EnemyDied"));
-    EXPECT_TRUE(FEventBus::Id("") == FEventBus::Id(""));
+    EXPECT_TRUE(AEventBus::Id("PlayerDied") == AEventBus::Id("PlayerDied"));
+    EXPECT_TRUE(AEventBus::Id("PlayerDied") != AEventBus::Id("EnemyDied"));
+    EXPECT_TRUE(AEventBus::Id("") == AEventBus::Id(""));
 }

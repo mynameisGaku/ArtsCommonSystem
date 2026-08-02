@@ -14,12 +14,12 @@ using namespace acs;
 
 namespace helloibl {
 
-void ApplyPresetRebuilds(FHelloIblApp& app) noexcept {
+void ApplyPresetRebuilds(CHelloIblApp& app) noexcept {
     IRhiDevice*      dev = app.GetRenderer().Device();
     IRhiCommandList* cl  = app.GetRenderer().CommandList();
     if (!dev || !cl) return;
 
-    // FSky preset が変わった場合、env / irradiance / prefilter を作り直す
+    // CSky preset が変わった場合、env / irradiance / prefilter を作り直す
     if (app.m_bNeedRecapture) {
         dev->WaitIdle();
         app.m_Ibl.ResetEnvCubemap();
@@ -45,13 +45,13 @@ void ApplyPresetRebuilds(FHelloIblApp& app) noexcept {
         ap.sun_intensity = FVec3{22.0f, 22.0f, 22.0f};
         ap.ray_steps     = 32;
         ap.sun_steps     = 8;
-        auto baked = FAtmosphere::BakeEquirect(kEquirectWidth, kEquirectHeight, ap);
+        auto baked = CAtmosphere::BakeEquirect(kEquirectWidth, kEquirectHeight, ap);
         app.m_EquirectRgba = Move(baked);
         auto r = app.m_Ibl.LoadEquirectHdrFromMemory(
             *dev, *cl,
             app.m_EquirectRgba.Data(),
             kEquirectWidth, kEquirectHeight);
-        if (r.IsErr()) ACS_LOG_ERROR("HelloIbl: FAtmosphere bake failed");
+        if (r.IsErr()) ACS_LOG_ERROR("HelloIbl: CAtmosphere bake failed");
         app.m_bNeedAtmosphere = false;
     }
 

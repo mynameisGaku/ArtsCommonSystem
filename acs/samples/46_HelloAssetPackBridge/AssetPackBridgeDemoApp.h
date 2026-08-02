@@ -4,7 +4,7 @@
 
 namespace helloassetpack {
 
-class FAssetPackBridgeDemoApp {
+class CAssetPackBridgeDemoApp {
 public:
     int Run() noexcept;
 };

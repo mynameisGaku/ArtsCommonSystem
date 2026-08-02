@@ -196,7 +196,7 @@ bool TryPrepareAppend(const TArray<T>& destination, const TArray<T>& source,
 }
 
 template<typename T>
-FAllocator& ArrayAllocatorOrDefault(TArray<T>* array) noexcept {
+IAllocator& ArrayAllocatorOrDefault(TArray<T>* array) noexcept {
     return array != nullptr ? *array->GetAllocator() : DefaultAllocator();
 }
 
@@ -1119,11 +1119,11 @@ void LoadSceneSprites(IRhiDevice& device, const TArray<FSpriteRequest>& reqs,
         std::fclose(f);
         if (rd != static_cast<usize>(sz)) continue;
 
-        FImageAssetLoader loader;
+        CImageAssetLoader loader;
         auto decoded = loader.LoadFromBytes(kInvalidAssetId, bytes);
         if (decoded.IsErr()) continue;
         auto asset = decoded.Value();                 // TSharedPtr を保持
-        const FImageAsset* img = static_cast<const FImageAsset*>(asset.Get());
+        const AImageAsset* img = static_cast<const AImageAsset*>(asset.Get());
         if (img == nullptr) continue;
         auto tex = UploadTexture(device, *img);
         if (tex.IsErr()) continue;
@@ -1148,12 +1148,12 @@ void LoadSceneSpritesFromAssetPack(
             continue;
         }
 
-        FImageAssetLoader loader;
+        CImageAssetLoader loader;
         auto decoded = loader.LoadFromBytes(kInvalidAssetId, bytes);
         if (decoded.IsErr()) continue;
         auto asset = decoded.Value();
-        const FImageAsset* img =
-            static_cast<const FImageAsset*>(asset.Get());
+        const AImageAsset* img =
+            static_cast<const AImageAsset*>(asset.Get());
         if (img == nullptr) continue;
         auto tex = UploadTexture(device, *img);
         if (tex.IsErr()) continue;
@@ -1183,11 +1183,11 @@ void LoadSceneMaterialTextures(IRhiDevice& device, const TArray<FMaterialTexRequ
         std::fclose(f);
         if (rd != static_cast<usize>(sz)) continue;
 
-        FImageAssetLoader loader;
+        CImageAssetLoader loader;
         auto decoded = loader.LoadFromBytes(kInvalidAssetId, bytes);
         if (decoded.IsErr()) continue;
         auto asset = decoded.Value();
-        const FImageAsset* img = static_cast<const FImageAsset*>(asset.Get());
+        const AImageAsset* img = static_cast<const AImageAsset*>(asset.Get());
         if (img == nullptr) continue;
         auto tex = UploadTexture(device, *img);
         if (tex.IsErr()) continue;
@@ -1211,12 +1211,12 @@ void LoadSceneMaterialTexturesFromAssetPack(
             continue;
         }
 
-        FImageAssetLoader loader;
+        CImageAssetLoader loader;
         auto decoded = loader.LoadFromBytes(kInvalidAssetId, bytes);
         if (decoded.IsErr()) continue;
         auto asset = decoded.Value();
-        const FImageAsset* img =
-            static_cast<const FImageAsset*>(asset.Get());
+        const AImageAsset* img =
+            static_cast<const AImageAsset*>(asset.Get());
         if (img == nullptr) continue;
         auto tex = UploadTexture(device, *img);
         if (tex.IsErr()) continue;

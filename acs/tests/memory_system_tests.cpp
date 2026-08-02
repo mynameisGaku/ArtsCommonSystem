@@ -2,7 +2,7 @@
 // =============================================================================
 // ACS Memory — メモリシステム単体テスト
 // -----------------------------------------------------------------------------
-// VirtualMemory / TLSF / FMemorySystem / ScopedMemorySegment / FMemorySnapshot
+// VirtualMemory / TLSF / CMemorySystem / ScopedMemorySegment / FMemorySnapshot
 // を統合的にテストする。
 // =============================================================================
 #include "test/Test.h"
@@ -37,7 +37,7 @@ DWORD QueryVirtualMemoryState(const void* Address) noexcept
 }
 
 /** 16 バイト整列を守りつつ、64 バイト境界から意図的にずらす backing。 */
-class FMisalignedRelocatableBacking final : public FAllocator {
+class FMisalignedRelocatableBacking final : public IAllocator {
 public:
     void* Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept override
     {
@@ -305,7 +305,7 @@ ACS_TEST(MemSystem, TlsfBasic)
     EXPECT_TRUE(pool != nullptr);
     if (!pool) return;
 
-    FTlsfAllocator t;
+    CTlsfAllocator t;
     auto ir = t.Init(pool, kPoolSize);
     EXPECT_TRUE(ir.IsOk());
 
@@ -344,7 +344,7 @@ ACS_TEST(MemSystem, TlsfAlignment)
     EXPECT_TRUE(pool != nullptr);
     if (!pool) return;
 
-    FTlsfAllocator t;
+    CTlsfAllocator t;
     auto ir = t.Init(pool, kPoolSize);
     EXPECT_TRUE(ir.IsOk());
 
@@ -399,7 +399,7 @@ ACS_TEST(MemSystem, TlsfRejectsUnrepresentableSizes)
     EXPECT_TRUE(Pool != nullptr);
     if (!Pool) return;
 
-    FTlsfAllocator Allocator;
+    CTlsfAllocator Allocator;
     EXPECT_TRUE(Allocator.Init(Pool, kPoolSize).IsOk());
 
     const usize TooLargeRequest = tlsf::MAXIMUM_SEARCHABLE_BLOCK_SIZE + 1u;
@@ -443,7 +443,7 @@ ACS_TEST(MemSystem, TlsfRejectsReinitializationAndInvalidPools)
         return;
     }
 
-    FTlsfAllocator Allocator;
+    CTlsfAllocator Allocator;
     EXPECT_TRUE(Allocator.Init(FirstPool, kPoolSize).IsOk());
     void* const LiveAllocation = Allocator.Alloc(256, 16, FSourceLoc::Current());
     EXPECT_TRUE(LiveAllocation != nullptr);
@@ -478,7 +478,7 @@ ACS_TEST(MemSystem, TlsfStressValidate)
     EXPECT_TRUE(pool != nullptr);
     if (!pool) return;
 
-    FTlsfAllocator t;
+    CTlsfAllocator t;
     auto ir = t.Init(pool, kPoolSize);
     EXPECT_TRUE(ir.IsOk());
     EXPECT_TRUE(t.ValidateHeap());
@@ -534,7 +534,7 @@ ACS_TEST(MemSystem, TlsfAutoGrow)
     EXPECT_TRUE(rr.IsOk());
     if (!rr.IsOk()) return;
 
-    FTlsfAllocator t;
+    CTlsfAllocator t;
     auto ir = t.InitWithReservation(Move(rr.Value()), 1ull * 1024 * 1024); // 初期コミット 1MB のみ
     EXPECT_TRUE(ir.IsOk());
     EXPECT_TRUE(t.ValidateHeap());
@@ -575,7 +575,7 @@ ACS_TEST(MemSystem, TlsfReallocInPlace)
     void* pool = ::HeapAlloc(::GetProcessHeap(), 0, kPoolSize);
     EXPECT_TRUE(pool != nullptr);
     if (!pool) return;
-    FTlsfAllocator t;
+    CTlsfAllocator t;
     EXPECT_TRUE(t.Init(pool, kPoolSize).IsOk());
 
     auto fill = [](void* p, usize n, u8 seed) {
@@ -655,7 +655,7 @@ ACS_TEST(MemSystem, TlsfReallocInPlace)
 // シャード化 TLSF: 単体での基本動作 (確保/解放/realloc/アドレスルーティング/整合)。
 ACS_TEST(MemSystem, ShardedTlsfBasic)
 {
-    FShardedTlsfAllocator a;
+    CShardedTlsfAllocator a;
     auto ir = a.Init(64ull * 1024 * 1024, 4ull * 1024 * 1024, 4u); // 明示 4 シャード
     EXPECT_TRUE(ir.IsOk());
     EXPECT_EQ(a.ShardCount(), 4u);
@@ -699,7 +699,7 @@ ACS_TEST(MemSystem, ShardedTlsfBasic)
 
 ACS_TEST(MemSystem, ShardedTlsfRejectsAlignmentOverflowBeforeReservation)
 {
-    FShardedTlsfAllocator allocator;
+    CShardedTlsfAllocator allocator;
 
     EXPECT_TRUE(allocator.Init(~usize(0), 0u, 1u).IsErr());
     EXPECT_EQ(allocator.ShardCount(), 0u);
@@ -717,7 +717,7 @@ ACS_TEST(MemSystem, ShardedTlsfRejectsAlignmentOverflowBeforeReservation)
 
 ACS_TEST(MemSystem, ShardedTlsfReallocationToZeroPreservesInvalidPointer)
 {
-    FShardedTlsfAllocator allocator;
+    CShardedTlsfAllocator allocator;
     EXPECT_TRUE(allocator.Init(16u * 1024u * 1024u, 1u * 1024u * 1024u, 1u).IsOk());
 
     auto* const allocation = static_cast<u8*>(allocator.Alloc(128u, 16u, FSourceLoc::Current()));
@@ -746,16 +746,16 @@ ACS_TEST(MemSystem, ShardedTlsfReallocationToZeroPreservesInvalidPointer)
 // データ整合 (スレッドセーフでなければ領域が重複して壊れる) と最終ヒープ整合を検証する。
 ACS_TEST(MemSystem, ShardedTlsfMultiThread)
 {
-    auto ir_pool = FThreadPool::Init(8);
+    auto ir_pool = CThreadPool::Init(8);
     EXPECT_TRUE(ir_pool.IsOk());
 
-    FShardedTlsfAllocator a;
+    CShardedTlsfAllocator a;
     auto ir = a.Init(128ull * 1024 * 1024, 8ull * 1024 * 1024, 0u); // シャード数は自動
     EXPECT_TRUE(ir.IsOk());
     EXPECT_TRUE(a.ValidateHeap());
 
     struct FCtx {
-        FShardedTlsfAllocator* alloc;
+        CShardedTlsfAllocator* alloc;
         TAtomic<u32> fail{0};
     };
     FCtx ctx;
@@ -763,7 +763,7 @@ ACS_TEST(MemSystem, ShardedTlsfMultiThread)
 
     auto thunk = [](u32 i, u32 /*worker*/, void* user) {
         FCtx* c = static_cast<FCtx*>(user);
-        FShardedTlsfAllocator* al = c->alloc;
+        CShardedTlsfAllocator* al = c->alloc;
         u32 rng = 0x01000193u * (i + 1u) + 0x2545F491u;
         auto next = [&rng]() -> u32 {
             rng = rng * 1664525u + 1013904223u;
@@ -830,21 +830,21 @@ ACS_TEST(MemSystem, ShardedTlsfMultiThread)
         if (!local_ok) c->fail.FetchAdd(1);
     };
 
-    auto pr = FThreadPool::ParallelFor(0, 256, 1, +thunk, &ctx);
+    auto pr = CThreadPool::ParallelFor(0, 256, 1, +thunk, &ctx);
     EXPECT_TRUE(pr.IsOk());
     EXPECT_EQ(ctx.fail.Load(EMemoryOrder::Acquire), 0u); // データ破壊ゼロ = スレッドセーフ
     EXPECT_EQ(a.AllocationCount(), 0ull);
     EXPECT_TRUE(a.ValidateHeap()); // 全シャード健全
 
     a.Shutdown();
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 // thread-local マガジン (lock-free hot path) の正当性。小サイズ中心に alloc/free を大量に回し、
 // refill/pop/push/flush を踏みながらデータ整合 (重複払い出しがあれば破壊検出) と ValidateHeap を検証。
 ACS_TEST(MemSystem, ShardedTlsfThreadCache)
 {
-    FShardedTlsfAllocator a;
+    CShardedTlsfAllocator a;
     EXPECT_TRUE(a.Init(64ull * 1024 * 1024, 4ull * 1024 * 1024, 4u).IsOk());
     a.EnableThreadCache();
     EXPECT_TRUE(a.ThreadCacheEnabled());
@@ -899,7 +899,7 @@ ACS_TEST(MemSystem, ShardedTlsfThreadCache)
 // 解放後 payload は利用者に壊され得るため、キャッシュ管理リンクを payload 内へ置かないこと。
 ACS_TEST(MemSystem, ShardedTlsfThreadCacheDoesNotDereferenceReleasedPayload)
 {
-    FShardedTlsfAllocator allocator;
+    CShardedTlsfAllocator allocator;
     EXPECT_TRUE(allocator.Init(16ull * 1024 * 1024, 1ull * 1024 * 1024, 1u).IsOk());
     allocator.EnableThreadCache();
 
@@ -930,7 +930,7 @@ ACS_TEST(MemSystem, ShardedTlsfThreadCacheDoesNotDereferenceReleasedPayload)
 // thread-local キャッシュへ同じブロックを二度積まず、公開中件数をアンダーフローさせない。
 ACS_TEST(MemSystem, ShardedTlsfThreadCacheRejectsDuplicateFree)
 {
-    FShardedTlsfAllocator allocator;
+    CShardedTlsfAllocator allocator;
     EXPECT_TRUE(allocator.Init(16ull * 1024 * 1024, 1ull * 1024 * 1024, 2u).IsOk());
     allocator.EnableThreadCache();
 
@@ -965,7 +965,7 @@ ACS_TEST(MemSystem, ShardedTlsfThreadCacheRejectsDuplicateFree)
 
 ACS_TEST(MemSystem, ShardedTlsfThreadCacheRejectsInteriorAndUncommittedPointers)
 {
-    FShardedTlsfAllocator allocator;
+    CShardedTlsfAllocator allocator;
     auto result = allocator.Init(32u * 1024u * 1024u, 64u * 1024u, 1u);
     EXPECT_TRUE(result.IsOk());
     if (result.IsErr()) return;
@@ -1007,12 +1007,12 @@ ACS_TEST(MemSystem, ShardedTlsfThreadCacheRejectsInteriorAndUncommittedPointers)
 // スレッド終了時に TLS マガジンの残存ブロックを owner へ返し、実使用量を残さない。
 ACS_TEST(MemSystem, ShardedTlsfThreadCacheReturnsOnThreadExit)
 {
-    FShardedTlsfAllocator allocator;
+    CShardedTlsfAllocator allocator;
     EXPECT_TRUE(allocator.Init(16ull * 1024 * 1024, 1ull * 1024 * 1024, 2u).IsOk());
     allocator.EnableThreadCache();
 
     struct FContext {
-        FShardedTlsfAllocator* allocator = nullptr;
+        CShardedTlsfAllocator* allocator = nullptr;
         TAtomic<u32> failures{0};
     } context;
     context.allocator = &allocator;
@@ -1042,8 +1042,8 @@ ACS_TEST(MemSystem, ShardedTlsfThreadCacheReturnsOnThreadExit)
 // 同一スレッドで owner を切り替えるとき、旧 owner のマガジンを先に返す。
 ACS_TEST(MemSystem, ShardedTlsfThreadCacheReturnsOnAllocatorSwitch)
 {
-    FShardedTlsfAllocator first;
-    FShardedTlsfAllocator second;
+    CShardedTlsfAllocator first;
+    CShardedTlsfAllocator second;
     EXPECT_TRUE(first.Init(16ull * 1024 * 1024, 1ull * 1024 * 1024, 2u).IsOk());
     EXPECT_TRUE(second.Init(16ull * 1024 * 1024, 1ull * 1024 * 1024, 2u).IsOk());
     first.EnableThreadCache();
@@ -1067,12 +1067,12 @@ ACS_TEST(MemSystem, ShardedTlsfThreadCacheReturnsOnAllocatorSwitch)
 // 別スレッドの旧世代マガジンは、Shutdown/再 Init 後の同一アドレスへ返さず安全に破棄する。
 ACS_TEST(MemSystem, ShardedTlsfThreadCacheRejectsRetiredGeneration)
 {
-    FShardedTlsfAllocator allocator;
+    CShardedTlsfAllocator allocator;
     EXPECT_TRUE(allocator.Init(16ull * 1024 * 1024, 1ull * 1024 * 1024, 2u).IsOk());
     allocator.EnableThreadCache();
 
     struct FContext {
-        FShardedTlsfAllocator* allocator = nullptr;
+        CShardedTlsfAllocator* allocator = nullptr;
         TAtomic<u32> ready{0};
         TAtomic<u32> proceed{0};
         TAtomic<u32> failures{0};
@@ -1126,7 +1126,7 @@ ACS_TEST(MemSystem, ShardedTlsfThreadCacheRejectsRetiredGeneration)
 // freed ハンドルの無効化、世代による use-after-free 検出を検証する。
 ACS_TEST(MemSystem, RelocatableBasicCompact)
 {
-    FRelocatableAllocator r;
+    CRelocatableAllocator r;
     EXPECT_TRUE(r.Init(1u * 1024 * 1024, 256u, nullptr).IsOk());
 
     auto fill = [](void* p, usize n, u8 s) {
@@ -1200,7 +1200,7 @@ ACS_TEST(MemSystem, RelocatableBasicCompact)
 ACS_TEST(MemSystem, RelocatableUsesAbsoluteAlignmentAndInvalidatesPreviousLifetime)
 {
     FMisalignedRelocatableBacking Backing;
-    FRelocatableAllocator Allocator;
+    CRelocatableAllocator Allocator;
     EXPECT_TRUE(Allocator.Init(4096u, 16u, &Backing).IsOk());
 
     const FRelocHandle OldHandle = Allocator.Alloc(96u, 64u);
@@ -1231,7 +1231,7 @@ ACS_TEST(MemSystem, RelocatableUsesAbsoluteAlignmentAndInvalidatesPreviousLifeti
 // データが移動後も保持されること (再配置の正当性) を検証する。
 ACS_TEST(MemSystem, RelocatableStress)
 {
-    FRelocatableAllocator r;
+    CRelocatableAllocator r;
     EXPECT_TRUE(r.Init(2u * 1024 * 1024, 512u, nullptr).IsOk());
 
     auto fill = [](void* p, usize n, u8 s) {
@@ -1302,25 +1302,25 @@ ACS_TEST(MemSystem, RelocatableStress)
 // 元へ復元されること。既定経由の確保が Default セグメントに計上されることも確認する。
 ACS_TEST(MemSystem, DefaultAllocatorWiring)
 {
-    FAllocator* before = &DefaultAllocator();
+    IAllocator* before = &DefaultAllocator();
 
-    FMemorySystemConfig cfg = FMemorySystem::DefaultConfig();
+    FMemorySystemConfig cfg = CMemorySystem::DefaultConfig();
     cfg.install_as_default_allocator = true;
-    EXPECT_TRUE(FMemorySystem::Init(cfg).IsOk());
+    EXPECT_TRUE(CMemorySystem::Init(cfg).IsOk());
 
     // 既定が Default セグメントへ切り替わっている
-    EXPECT_TRUE(&DefaultAllocator() == FMemorySystem::Get(ESegment::Default));
+    EXPECT_TRUE(&DefaultAllocator() == CMemorySystem::Get(ESegment::Default));
     EXPECT_TRUE(&DefaultAllocator() != before);
 
     // 既定経由の確保が Default セグメントに計上される
-    FAllocator* def_seg = FMemorySystem::Get(ESegment::Default);
+    IAllocator* def_seg = CMemorySystem::Get(ESegment::Default);
     const u64 used0 = def_seg->BytesAllocated();
     void* p = DefaultAllocator().Alloc(4096, 16, FSourceLoc::Current());
     EXPECT_TRUE(p != nullptr);
     EXPECT_TRUE(def_seg->BytesAllocated() > used0);
     DefaultAllocator().Free(p);
 
-    FMemorySystem::Shutdown();
+    CMemorySystem::Shutdown();
     // Shutdown で元の既定へ復元されている
     EXPECT_TRUE(&DefaultAllocator() == before);
 }
@@ -1330,34 +1330,34 @@ ACS_TEST(MemSystem, DefaultAllocatorWiring)
 // 環境差でブレるため assert は正当性のみ)。
 ACS_TEST(MemSystem, ShardedTlsfBenchmark)
 {
-    auto ir_pool = FThreadPool::Init(8);
+    auto ir_pool = CThreadPool::Init(8);
     EXPECT_TRUE(ir_pool.IsOk());
 
     constexpr usize kPoolSize = 128ull * 1024 * 1024;
     void* pool = ::HeapAlloc(::GetProcessHeap(), 0, kPoolSize);
     EXPECT_TRUE(pool != nullptr);
     if (!pool) {
-        FThreadPool::Shutdown();
+        CThreadPool::Shutdown();
         return;
     }
 
-    FTlsfAllocator single; // 単一ロック比較用 (HeapAlloc プール)
+    CTlsfAllocator single; // 単一ロック比較用 (HeapAlloc プール)
     EXPECT_TRUE(single.Init(pool, kPoolSize).IsOk());
     FMutex single_lock;
 
-    FShardedTlsfAllocator sharded;
+    CShardedTlsfAllocator sharded;
     EXPECT_TRUE(sharded.Init(kPoolSize, 8ull * 1024 * 1024, 0u).IsOk());
 
-    FShardedTlsfAllocator sharded_c; // lock-free マガジン有効版
+    CShardedTlsfAllocator sharded_c; // lock-free マガジン有効版
     EXPECT_TRUE(sharded_c.Init(kPoolSize, 8ull * 1024 * 1024, 0u).IsOk());
     sharded_c.EnableThreadCache();
 
     struct FBCtx {
         int mode;
-        FTlsfAllocator* single;
+        CTlsfAllocator* single;
         FMutex* lk;
-        FShardedTlsfAllocator* sharded;
-        FShardedTlsfAllocator* sharded_c;
+        CShardedTlsfAllocator* sharded;
+        CShardedTlsfAllocator* sharded_c;
     };
     FBCtx bc{0, &single, &single_lock, &sharded, &sharded_c};
 
@@ -1400,7 +1400,7 @@ ACS_TEST(MemSystem, ShardedTlsfBenchmark)
         bc.mode = mode;
         LARGE_INTEGER a0;
         ::QueryPerformanceCounter(&a0);
-        auto r = FThreadPool::ParallelFor(0, 256, 1, +bench, &bc);
+        auto r = CThreadPool::ParallelFor(0, 256, 1, +bench, &bc);
         LARGE_INTEGER a1;
         ::QueryPerformanceCounter(&a1);
         (void)r;
@@ -1421,12 +1421,12 @@ ACS_TEST(MemSystem, ShardedTlsfBenchmark)
     sharded_c.Shutdown();
     sharded.Shutdown();
     ::HeapFree(::GetProcessHeap(), 0, pool);
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 ACS_TEST(MemSystem, MimallocLifetimeAndInvalidZeroReallocationPreserveOwnership)
 {
-    FMimallocAllocator allocator;
+    CMimallocAllocator allocator;
     EXPECT_TRUE(allocator.Init().IsOk());
     const u64 lifetime_generation = allocator.LifetimeGeneration();
     EXPECT_TRUE(lifetime_generation != 0u);
@@ -1446,14 +1446,14 @@ ACS_TEST(MemSystem, MimallocLifetimeAndInvalidZeroReallocationPreserveOwnership)
     EXPECT_EQ(allocator.LifetimeGeneration(), 0ull);
 }
 
-// FMemorySystem: 全セグメント初期化 → 取得 → 解放
+// CMemorySystem: 全セグメント初期化 → 取得 → 解放
 ACS_TEST(MemSystem, SegmentInitGet)
 {
-    FMemorySystemConfig cfg = FMemorySystem::DefaultConfig();
-    auto r = FMemorySystem::Init(cfg);
+    FMemorySystemConfig cfg = CMemorySystem::DefaultConfig();
+    auto r = CMemorySystem::Init(cfg);
     EXPECT_TRUE(r.IsOk());
 
-    FAllocator* a = FMemorySystem::Get(ESegment::Default);
+    IAllocator* a = CMemorySystem::Get(ESegment::Default);
     EXPECT_TRUE(a != nullptr);
     const u64 first_lifetime_generation = a ? a->LifetimeGeneration() : 0u;
     EXPECT_TRUE(first_lifetime_generation != 0u);
@@ -1462,18 +1462,18 @@ ACS_TEST(MemSystem, SegmentInitGet)
     EXPECT_TRUE(p != nullptr);
     a->Free(p);
 
-    FMemorySystem::Shutdown();
+    CMemorySystem::Shutdown();
     EXPECT_EQ(a->LifetimeGeneration(), 0ull);
 
-    EXPECT_TRUE(FMemorySystem::Init(cfg).IsOk());
-    FAllocator* const rebound_allocator = FMemorySystem::Get(ESegment::Default);
+    EXPECT_TRUE(CMemorySystem::Init(cfg).IsOk());
+    IAllocator* const rebound_allocator = CMemorySystem::Get(ESegment::Default);
     EXPECT_TRUE(rebound_allocator == a);
     EXPECT_TRUE(rebound_allocator != nullptr);
     if (rebound_allocator) {
         EXPECT_TRUE(rebound_allocator->LifetimeGeneration() != 0u);
         EXPECT_TRUE(rebound_allocator->LifetimeGeneration() != first_lifetime_generation);
     }
-    FMemorySystem::Shutdown();
+    CMemorySystem::Shutdown();
 }
 
 ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinitialization)
@@ -1482,21 +1482,21 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
     constexpr u64 kRequiredSuccessfulAllocations = 128u;
     constexpr u32 kWaitLimit = 200000u;
 
-    const FMemorySystemConfig Configuration = FMemorySystem::DefaultConfig();
-    EXPECT_TRUE(FMemorySystem::Init(Configuration).IsOk());
+    const FMemorySystemConfig Configuration = CMemorySystem::DefaultConfig();
+    EXPECT_TRUE(CMemorySystem::Init(Configuration).IsOk());
 
-    FAllocator* const CachedAllocator = FMemorySystem::Get(ESegment::Temp);
+    IAllocator* const CachedAllocator = CMemorySystem::Get(ESegment::Temp);
     EXPECT_TRUE(CachedAllocator != nullptr);
     if (!CachedAllocator)
     {
-        FMemorySystem::Shutdown();
+        CMemorySystem::Shutdown();
         return;
     }
     const u64 FirstLifetimeGeneration = CachedAllocator->LifetimeGeneration();
 
     struct FAllocationRaceContext
     {
-        FAllocator* Allocator = nullptr;
+        IAllocator* Allocator = nullptr;
         TAtomic<u32> Ready{0u};
         TAtomic<u32> Start{0u};
         TAtomic<u32> Stop{0u};
@@ -1541,8 +1541,8 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
                     (void)Context->Allocator->AllocationCount();
                     (void)Context->Allocator->PeakBytes();
                     FSegmentStats Statistics[static_cast<usize>(ESegment::_Count)]{};
-                    (void)FMemorySystem::GetStats(Statistics, static_cast<u32>(ESegment::_Count));
-                    if (!FMemorySystem::Get(ESegment::Temp))
+                    (void)CMemorySystem::GetStats(Statistics, static_cast<u32>(ESegment::_Count));
+                    if (!CMemorySystem::Get(ESegment::Temp))
                     {
                         Context->RejectedGets.FetchAdd(1u);
                         Context->ShutdownObservedMask.FetchOr(1u << WorkerIndex);
@@ -1559,7 +1559,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
     EXPECT_TRUE(SpawnedAllocationWorkers > 0u);
     if (SpawnedAllocationWorkers == 0u)
     {
-        FMemorySystem::Shutdown();
+        CMemorySystem::Shutdown();
         return;
     }
     while (AllocationContext.Ready.Load(EMemoryOrder::Acquire) < SpawnedAllocationWorkers)
@@ -1578,7 +1578,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
                 kRequiredSuccessfulAllocations);
 
     // ワーカーを止めずに終了し、新規操作が backing 破棄後へ到達しないことを確認する。
-    FMemorySystem::Shutdown();
+    CMemorySystem::Shutdown();
     const u32 ExpectedShutdownObservedMask = (1u << SpawnedAllocationWorkers) - 1u;
     for (u32 WaitIteration = 0u;
          WaitIteration < kWaitLimit &&
@@ -1598,7 +1598,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
         }
         return;
     }
-    EXPECT_TRUE(FMemorySystem::Get(ESegment::Temp) == nullptr);
+    EXPECT_TRUE(CMemorySystem::Get(ESegment::Temp) == nullptr);
     EXPECT_TRUE(CachedAllocator->Alloc(64u, 16u, FSourceLoc::Current()) == nullptr);
     EXPECT_EQ(CachedAllocator->BytesAllocated(), 0ull);
     EXPECT_EQ(CachedAllocator->AllocationCount(), 0ull);
@@ -1607,7 +1607,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
 
     const u64 SuccessfulBeforeReinitialization =
         AllocationContext.SuccessfulAllocations.Load(EMemoryOrder::Acquire);
-    auto ReinitializationResult = FMemorySystem::Init(Configuration);
+    auto ReinitializationResult = CMemorySystem::Init(Configuration);
     EXPECT_TRUE(ReinitializationResult.IsOk());
     if (ReinitializationResult.IsErr())
     {
@@ -1618,7 +1618,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
         }
         return;
     }
-    EXPECT_TRUE(FMemorySystem::Get(ESegment::Temp) == CachedAllocator);
+    EXPECT_TRUE(CMemorySystem::Get(ESegment::Temp) == CachedAllocator);
     EXPECT_TRUE(CachedAllocator->LifetimeGeneration() != 0u);
     EXPECT_TRUE(CachedAllocator->LifetimeGeneration() != FirstLifetimeGeneration);
     for (u32 WaitIteration = 0u;
@@ -1636,7 +1636,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
     {
         AllocationWorkers[Index].Join();
     }
-    FMemorySystem::ResetTemp();
+    CMemorySystem::ResetTemp();
 
     struct FResetRaceContext
     {
@@ -1663,10 +1663,10 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
 
                 while (Context->Stop.Load(EMemoryOrder::Acquire) == 0u)
                 {
-                    FMemorySystem::ResetTemp();
+                    CMemorySystem::ResetTemp();
                     FSegmentStats Statistics[static_cast<usize>(ESegment::_Count)]{};
-                    (void)FMemorySystem::GetStats(Statistics, static_cast<u32>(ESegment::_Count));
-                    if (!FMemorySystem::Get(ESegment::Temp))
+                    (void)CMemorySystem::GetStats(Statistics, static_cast<u32>(ESegment::_Count));
+                    if (!CMemorySystem::Get(ESegment::Temp))
                     {
                         Context->RejectedGets.FetchAdd(1u);
                     }
@@ -1683,7 +1683,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
     EXPECT_TRUE(SpawnedResetWorkers > 0u);
     if (SpawnedResetWorkers == 0u)
     {
-        FMemorySystem::Shutdown();
+        CMemorySystem::Shutdown();
         return;
     }
     while (ResetContext.Ready.Load(EMemoryOrder::Acquire) < SpawnedResetWorkers)
@@ -1699,7 +1699,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
     }
     EXPECT_TRUE(ResetContext.Iterations.Load(EMemoryOrder::Acquire) >= 128u);
 
-    FMemorySystem::Shutdown();
+    CMemorySystem::Shutdown();
     for (u32 WaitIteration = 0u;
          WaitIteration < kWaitLimit && ResetContext.RejectedGets.Load(EMemoryOrder::Acquire) == 0u;
          ++WaitIteration)
@@ -1713,8 +1713,8 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
         ResetWorkers[Index].Join();
     }
 
-    EXPECT_TRUE(FMemorySystem::Init(Configuration).IsOk());
-    FAllocator* const ReboundAllocator = FMemorySystem::Get(ESegment::Temp);
+    EXPECT_TRUE(CMemorySystem::Init(Configuration).IsOk());
+    IAllocator* const ReboundAllocator = CMemorySystem::Get(ESegment::Temp);
     EXPECT_TRUE(ReboundAllocator == CachedAllocator);
     if (ReboundAllocator)
     {
@@ -1722,20 +1722,20 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
         EXPECT_TRUE(Allocation != nullptr);
         ReboundAllocator->Free(Allocation);
     }
-    FMemorySystem::ResetTemp();
-    FMemorySystem::Shutdown();
+    CMemorySystem::ResetTemp();
+    CMemorySystem::Shutdown();
 }
 
 ACS_TEST(MemSystem, MimallocBackendBudgetAndIndependentInspection)
 {
-    FMemorySystemConfig configuration = FMemorySystem::DefaultConfig();
+    FMemorySystemConfig configuration = CMemorySystem::DefaultConfig();
     configuration.segments[(usize)ESegment::Default].hard_budget_bytes = 2048u;
-    EXPECT_TRUE(FMemorySystem::Init(configuration).IsOk());
+    EXPECT_TRUE(CMemorySystem::Init(configuration).IsOk());
 
-    FAllocator* const allocator = FMemorySystem::Get(ESegment::Default);
+    IAllocator* const allocator = CMemorySystem::Get(ESegment::Default);
     EXPECT_TRUE(allocator != nullptr);
     if (!allocator) {
-        FMemorySystem::Shutdown();
+        CMemorySystem::Shutdown();
         return;
     }
 
@@ -1744,7 +1744,7 @@ ACS_TEST(MemSystem, MimallocBackendBudgetAndIndependentInspection)
     EXPECT_TRUE(first != nullptr);
     EXPECT_TRUE(over_budget == nullptr);
 
-    const FMemorySegmentInspection inspection = FMemorySystem::InspectSegmentMemory(ESegment::Default);
+    const FMemorySegmentInspection inspection = CMemorySystem::InspectSegmentMemory(ESegment::Default);
     EXPECT_TRUE(inspection.backend_inspection_supported);
     EXPECT_TRUE(inspection.visit_succeeded);
     EXPECT_TRUE(inspection.metadata_valid);
@@ -1754,7 +1754,7 @@ ACS_TEST(MemSystem, MimallocBackendBudgetAndIndependentInspection)
     EXPECT_TRUE(inspection.usable_bytes >= inspection.requested_bytes);
 
     allocator->Free(first);
-    FMemorySystem::Shutdown();
+    CMemorySystem::Shutdown();
 }
 
 ACS_TEST(MemSystem, FrameArenaBudgetIsAtomicAndResets)
@@ -1762,19 +1762,19 @@ ACS_TEST(MemSystem, FrameArenaBudgetIsAtomicAndResets)
     constexpr u64 kBudgetBytes = 4096u;
     constexpr u32 kThreadCount = 32u;
 
-    FMemorySystemConfig configuration = FMemorySystem::DefaultConfig();
+    FMemorySystemConfig configuration = CMemorySystem::DefaultConfig();
     configuration.segments[(usize)ESegment::Temp].hard_budget_bytes = kBudgetBytes;
-    EXPECT_TRUE(FMemorySystem::Init(configuration).IsOk());
+    EXPECT_TRUE(CMemorySystem::Init(configuration).IsOk());
 
-    FAllocator* const allocator = FMemorySystem::Get(ESegment::Temp);
+    IAllocator* const allocator = CMemorySystem::Get(ESegment::Temp);
     EXPECT_TRUE(allocator != nullptr);
     if (!allocator) {
-        FMemorySystem::Shutdown();
+        CMemorySystem::Shutdown();
         return;
     }
 
     struct FFrameBudgetContext {
-        FAllocator* allocator = nullptr;
+        IAllocator* allocator = nullptr;
         u64 allocation_bytes = 0;
         TAtomic<u32> ready{0};
         TAtomic<u32> start{0};
@@ -1818,28 +1818,28 @@ ACS_TEST(MemSystem, FrameArenaBudgetIsAtomicAndResets)
     EXPECT_EQ(allocator->BytesAllocated(), kBudgetBytes);
     EXPECT_TRUE(allocator->Alloc(1u, 16u, FSourceLoc::Current()) == nullptr);
 
-    FMemorySystem::ResetTemp();
+    CMemorySystem::ResetTemp();
     EXPECT_EQ(allocator->BytesAllocated(), 0ull);
     EXPECT_TRUE(allocator->Alloc(kBudgetBytes, 16u, FSourceLoc::Current()) != nullptr);
     EXPECT_TRUE(allocator->Alloc(1u, 16u, FSourceLoc::Current()) == nullptr);
-    EXPECT_TRUE(!FMemorySystem::CaptureLeakSummary().HasLeaks());
-    FMemorySystem::Shutdown();
+    EXPECT_TRUE(!CMemorySystem::CaptureLeakSummary().HasLeaks());
+    CMemorySystem::Shutdown();
 }
 
 ACS_TEST(MemSystem, FrameArenaRejectsForeignInteriorReleasedAndStalePointers)
 {
-    EXPECT_TRUE(FMemorySystem::Init(FMemorySystem::DefaultConfig()).IsOk());
-    FAllocator* const FrameAllocator = FMemorySystem::Get(ESegment::Temp);
-    FAllocator* const DefaultSegmentAllocator = FMemorySystem::Get(ESegment::Default);
+    EXPECT_TRUE(CMemorySystem::Init(CMemorySystem::DefaultConfig()).IsOk());
+    IAllocator* const FrameAllocator = CMemorySystem::Get(ESegment::Temp);
+    IAllocator* const DefaultSegmentAllocator = CMemorySystem::Get(ESegment::Default);
     EXPECT_TRUE(FrameAllocator != nullptr);
     EXPECT_TRUE(DefaultSegmentAllocator != nullptr);
     if (!FrameAllocator || !DefaultSegmentAllocator)
     {
-        FMemorySystem::Shutdown();
+        CMemorySystem::Shutdown();
         return;
     }
 
-    const FMemoryTrackingCheckpoint Checkpoint = FMemorySystem::CaptureMemoryTrackingCheckpoint();
+    const FMemoryTrackingCheckpoint Checkpoint = CMemorySystem::CaptureMemoryTrackingCheckpoint();
     void* const ForeignAllocation = DefaultSegmentAllocator->Alloc(96u, 16u, FSourceLoc::Current());
     auto* const FrameAllocation = static_cast<u8*>(FrameAllocator->Alloc(64u, 32u, FSourceLoc::Current()));
     EXPECT_TRUE(ForeignAllocation != nullptr);
@@ -1847,8 +1847,8 @@ ACS_TEST(MemSystem, FrameArenaRejectsForeignInteriorReleasedAndStalePointers)
     if (!ForeignAllocation || !FrameAllocation)
     {
         DefaultSegmentAllocator->Free(ForeignAllocation);
-        FMemorySystem::ResetTemp();
-        FMemorySystem::Shutdown();
+        CMemorySystem::ResetTemp();
+        CMemorySystem::Shutdown();
         return;
     }
 
@@ -1864,7 +1864,7 @@ ACS_TEST(MemSystem, FrameArenaRejectsForeignInteriorReleasedAndStalePointers)
 
     FOutstandingMemoryAllocation TrackedAllocations[8]{};
     const FMemoryTrackingReport TrackingReport =
-        FMemorySystem::CollectOutstandingMemoryAllocations(Checkpoint, TrackedAllocations, 8u);
+        CMemorySystem::CollectOutstandingMemoryAllocations(Checkpoint, TrackedAllocations, 8u);
     if (TrackingReport.tracking_enabled)
     {
         bool bFoundForeignAllocation = false;
@@ -1897,15 +1897,15 @@ ACS_TEST(MemSystem, FrameArenaRejectsForeignInteriorReleasedAndStalePointers)
     void* const StaleAllocation = FrameAllocator->Alloc(80u, 16u, FSourceLoc::Current());
     EXPECT_TRUE(StaleAllocation != nullptr);
     EXPECT_TRUE(FrameAllocator->BytesAllocated() >= 64u + 128u + 80u);
-    FMemorySystem::ResetTemp();
+    CMemorySystem::ResetTemp();
     EXPECT_EQ(FrameAllocator->BytesAllocated(), 0ull);
     FrameAllocator->Free(StaleAllocation);
     EXPECT_TRUE(FrameAllocator->Realloc(StaleAllocation, 80u, 160u, 16u, FSourceLoc::Current()) == nullptr);
     EXPECT_TRUE(FrameAllocator->Realloc(StaleAllocation, 80u, 0u, 16u, FSourceLoc::Current()) == StaleAllocation);
 
     DefaultSegmentAllocator->Free(ForeignAllocation);
-    EXPECT_TRUE(!FMemorySystem::CaptureLeakSummary().HasLeaks());
-    FMemorySystem::Shutdown();
+    EXPECT_TRUE(!CMemorySystem::CaptureLeakSummary().HasLeaks());
+    CMemorySystem::Shutdown();
 }
 
 ACS_TEST(MemSystem, ResetTempSerializesConcurrentOperationsAndBudgetReset)
@@ -1913,19 +1913,19 @@ ACS_TEST(MemSystem, ResetTempSerializesConcurrentOperationsAndBudgetReset)
     constexpr u64 kBudgetBytes = 64u * 1024u;
     constexpr u32 kWorkerCount = 4u;
 
-    FMemorySystemConfig configuration = FMemorySystem::DefaultConfig();
+    FMemorySystemConfig configuration = CMemorySystem::DefaultConfig();
     configuration.segments[(usize)ESegment::Temp].hard_budget_bytes = kBudgetBytes;
-    EXPECT_TRUE(FMemorySystem::Init(configuration).IsOk());
+    EXPECT_TRUE(CMemorySystem::Init(configuration).IsOk());
 
-    FAllocator* const allocator = FMemorySystem::Get(ESegment::Temp);
+    IAllocator* const allocator = CMemorySystem::Get(ESegment::Temp);
     EXPECT_TRUE(allocator != nullptr);
     if (!allocator) {
-        FMemorySystem::Shutdown();
+        CMemorySystem::Shutdown();
         return;
     }
 
     struct FContext {
-        FAllocator* allocator = nullptr;
+        IAllocator* allocator = nullptr;
         TAtomic<u32> start{0};
         TAtomic<u64> successful_allocations{0};
     } context;
@@ -1959,7 +1959,7 @@ ACS_TEST(MemSystem, ResetTempSerializesConcurrentOperationsAndBudgetReset)
                 Yield();
             }
             for (u32 iteration = 0u; iteration < 1000u; ++iteration) {
-                FMemorySystem::ResetTemp();
+                CMemorySystem::ResetTemp();
             }
         },
         &context);
@@ -1975,61 +1975,61 @@ ACS_TEST(MemSystem, ResetTempSerializesConcurrentOperationsAndBudgetReset)
     }
 
     EXPECT_TRUE(context.successful_allocations.Load(EMemoryOrder::Acquire) > 0u);
-    FMemorySystem::ResetTemp();
+    CMemorySystem::ResetTemp();
     EXPECT_EQ(allocator->BytesAllocated(), 0ull);
     EXPECT_EQ(allocator->AllocationCount(), 0ull);
     EXPECT_TRUE(allocator->Alloc(static_cast<usize>(kBudgetBytes), 16u, FSourceLoc::Current()) != nullptr);
     EXPECT_TRUE(allocator->Alloc(1u, 16u, FSourceLoc::Current()) == nullptr);
-    FMemorySystem::ResetTemp();
-    FMemorySystem::Shutdown();
+    CMemorySystem::ResetTemp();
+    CMemorySystem::Shutdown();
 }
 
 ACS_TEST(MemSystem, RejectsMisorderedSegmentConfiguration)
 {
-    FMemorySystemConfig configuration = FMemorySystem::DefaultConfig();
+    FMemorySystemConfig configuration = CMemorySystem::DefaultConfig();
     configuration.segments[(usize)ESegment::Default].segment = ESegment::Resource;
-    EXPECT_TRUE(FMemorySystem::Init(configuration).IsErr());
-    EXPECT_TRUE(FMemorySystem::Get(ESegment::Default) == nullptr);
+    EXPECT_TRUE(CMemorySystem::Init(configuration).IsErr());
+    EXPECT_TRUE(CMemorySystem::Get(ESegment::Default) == nullptr);
 }
 
 ACS_TEST(MemSystem, LeakSummaryTracksOutstandingMemory)
 {
-    auto result = FMemorySystem::Init(FMemorySystem::DefaultConfig());
+    auto result = CMemorySystem::Init(CMemorySystem::DefaultConfig());
     EXPECT_TRUE(result.IsOk());
     if (result.IsErr()) return;
 
-    FAllocator* allocator = FMemorySystem::Get(ESegment::Default);
+    IAllocator* allocator = CMemorySystem::Get(ESegment::Default);
     void* allocation = allocator ? allocator->Alloc(1024, 16, FSourceLoc::Current()) : nullptr;
     EXPECT_TRUE(allocation != nullptr);
 
-    const FMemoryLeakSummary outstanding = FMemorySystem::CaptureLeakSummary();
+    const FMemoryLeakSummary outstanding = CMemorySystem::CaptureLeakSummary();
     EXPECT_TRUE(outstanding.HasLeaks());
     EXPECT_TRUE(outstanding.outstanding_bytes >= 1024);
     EXPECT_TRUE(outstanding.leaking_segment_count >= 1);
 
     if (allocator) allocator->Free(allocation);
-    const FMemoryLeakSummary released = FMemorySystem::CaptureLeakSummary();
+    const FMemoryLeakSummary released = CMemorySystem::CaptureLeakSummary();
     EXPECT_TRUE(!released.HasLeaks());
     EXPECT_EQ(released.outstanding_bytes, 0ull);
     EXPECT_EQ(released.leaking_segment_count, 0u);
-    FMemorySystem::Shutdown();
+    CMemorySystem::Shutdown();
 }
 
 ACS_TEST(MemSystem, AllocationSiteTrackingSupportsCheckpointsAndReallocation)
 {
-    auto result = FMemorySystem::Init(FMemorySystem::DefaultConfig());
+    auto result = CMemorySystem::Init(CMemorySystem::DefaultConfig());
     EXPECT_TRUE(result.IsOk());
     if (result.IsErr()) return;
 
-    const FMemoryTrackingCheckpoint checkpoint = FMemorySystem::CaptureMemoryTrackingCheckpoint();
-    FAllocator* allocator = FMemorySystem::Get(ESegment::Default);
+    const FMemoryTrackingCheckpoint checkpoint = CMemorySystem::CaptureMemoryTrackingCheckpoint();
+    IAllocator* allocator = CMemorySystem::Get(ESegment::Default);
     const u32 allocation_line = __LINE__ + 1u;
     void* allocation = allocator->Alloc(1536, 32, FSourceLoc::Current());
     EXPECT_TRUE(allocation != nullptr);
 
     FOutstandingMemoryAllocation details[2]{};
-    FMemoryTrackingReport report = FMemorySystem::CollectOutstandingMemoryAllocations(checkpoint, details, 2);
-    if (FMemorySystem::IsAllocationSiteTrackingEnabled()) {
+    FMemoryTrackingReport report = CMemorySystem::CollectOutstandingMemoryAllocations(checkpoint, details, 2);
+    if (CMemorySystem::IsAllocationSiteTrackingEnabled()) {
         EXPECT_TRUE(report.tracking_enabled);
         EXPECT_TRUE(report.IsComplete());
         EXPECT_EQ(report.outstanding_allocation_count, 1ull);
@@ -2051,8 +2051,8 @@ ACS_TEST(MemSystem, AllocationSiteTrackingSupportsCheckpointsAndReallocation)
     EXPECT_TRUE(reallocated != nullptr);
     if (reallocated) allocation = reallocated;
 
-    report = FMemorySystem::CollectOutstandingMemoryAllocations(checkpoint, details, 2);
-    if (FMemorySystem::IsAllocationSiteTrackingEnabled()) {
+    report = CMemorySystem::CollectOutstandingMemoryAllocations(checkpoint, details, 2);
+    if (CMemorySystem::IsAllocationSiteTrackingEnabled()) {
         EXPECT_EQ(report.outstanding_allocation_count, 1ull);
         EXPECT_EQ(report.written_allocation_count, 1ull);
         EXPECT_EQ(details[0].address, allocation);
@@ -2061,43 +2061,43 @@ ACS_TEST(MemSystem, AllocationSiteTrackingSupportsCheckpointsAndReallocation)
     }
 
     allocator->Free(allocation);
-    report = FMemorySystem::CollectOutstandingMemoryAllocations(checkpoint, details, 2);
+    report = CMemorySystem::CollectOutstandingMemoryAllocations(checkpoint, details, 2);
     EXPECT_EQ(report.outstanding_allocation_count, 0ull);
-    FMemorySystem::SetBreakOnAllocationSequence(0);
-    FMemorySystem::Shutdown();
+    CMemorySystem::SetBreakOnAllocationSequence(0);
+    CMemorySystem::Shutdown();
 }
 
 // ScopedMemorySegment: スコープで TLS の現在セグメントが切り替わる
 ACS_TEST(MemSystem, ScopedSegmentSwitch)
 {
-    auto r = FMemorySystem::Init(FMemorySystem::DefaultConfig());
+    auto r = CMemorySystem::Init(CMemorySystem::DefaultConfig());
     EXPECT_TRUE(r.IsOk());
 
-    EXPECT_EQ(FMemorySystem::Current(), ESegment::Default);
+    EXPECT_EQ(CMemorySystem::Current(), ESegment::Default);
     {
         FScopedMemorySegment s(ESegment::Temp);
-        EXPECT_EQ(FMemorySystem::Current(), ESegment::Temp);
-        FAllocator* a = FMemorySystem::CurrentAllocator();
+        EXPECT_EQ(CMemorySystem::Current(), ESegment::Temp);
+        IAllocator* a = CMemorySystem::CurrentAllocator();
         EXPECT_TRUE(a != nullptr);
         if (a) {
             void* p = a->Alloc(64, 16, FSourceLoc::Current());
             EXPECT_TRUE(p != nullptr);
         }
     }
-    EXPECT_EQ(FMemorySystem::Current(), ESegment::Default);
+    EXPECT_EQ(CMemorySystem::Current(), ESegment::Default);
 
-    FMemorySystem::ResetTemp();
-    FMemorySystem::Shutdown();
+    CMemorySystem::ResetTemp();
+    CMemorySystem::Shutdown();
 }
 
 // Snapshot: SVG / BMP 出力（ファイルへ書き込みできることだけ確認）
 ACS_TEST(MemSystem, SnapshotWrite)
 {
-    auto r = FMemorySystem::Init(FMemorySystem::DefaultConfig());
+    auto r = CMemorySystem::Init(CMemorySystem::DefaultConfig());
     EXPECT_TRUE(r.IsOk());
 
     // いくつか allocate して使用率を上げる
-    FAllocator* a = FMemorySystem::Get(ESegment::Default);
+    IAllocator* a = CMemorySystem::Get(ESegment::Default);
     void* allocations[10]{};
     if (a) {
         for (int i = 0; i < 10; ++i) {
@@ -2119,7 +2119,7 @@ ACS_TEST(MemSystem, SnapshotWrite)
         for (void* allocation : allocations)
             a->Free(allocation);
     }
-    FMemorySystem::Shutdown();
+    CMemorySystem::Shutdown();
 }
 
 // VmZeroFastNT: 大きい領域を NT-write でゼロクリア

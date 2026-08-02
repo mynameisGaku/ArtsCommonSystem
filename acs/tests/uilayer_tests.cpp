@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework — FUiLayer (Button/Text の state + ヒットテスト + クリック検出)
+// GameFramework — CUiLayer (Button/Text の state + ヒットテスト + クリック検出)
 // (GPU 描画は伴わない純 logic テスト。HandleInput に合成 Event を流して検証する)
 // =============================================================================
 #include "test/Test.h"
@@ -9,7 +9,7 @@
 #include "platform/Event.h"
 
 using namespace acs;
-using acs::game::FUiLayer;
+using acs::game::CUiLayer;
 
 namespace {
 
@@ -39,7 +39,7 @@ FEvent MouseUp() noexcept {
 }
 
 /** (x,y) で move → down → up を流してクリックを合成する。 */
-void ClickAt(FUiLayer& ui, f32 x, f32 y) noexcept {
+void ClickAt(CUiLayer& ui, f32 x, f32 y) noexcept {
     ui.HandleInput(MouseMove(x, y));
     ui.HandleInput(MouseDown());
     ui.HandleInput(MouseUp());
@@ -49,7 +49,7 @@ void ClickAt(FUiLayer& ui, f32 x, f32 y) noexcept {
 
 // ---- 追加と件数・ハンドル発行 --------------------------------------------
 ACS_TEST(UiLayer, AddAndCount) {
-    FUiLayer ui;
+    CUiLayer ui;
     ui.Init();
     const u32 b = ui.AddButton("Play", FVec2{10, 10}, FVec2{100, 40});
     const u32 t = ui.AddText("Title", FVec2{10, 60});
@@ -62,7 +62,7 @@ ACS_TEST(UiLayer, AddAndCount) {
 
 // ---- Init 前の Add は 0 を返して無視 -------------------------------------
 ACS_TEST(UiLayer, AddBeforeInitIgnored) {
-    FUiLayer ui;
+    CUiLayer ui;
     const u32 b = ui.AddButton("x", FVec2{0, 0}, FVec2{10, 10});
     EXPECT_EQ(b, u32(0));
     EXPECT_EQ(ui.WidgetCount(), u32(0));
@@ -70,7 +70,7 @@ ACS_TEST(UiLayer, AddBeforeInitIgnored) {
 
 // ---- クリックで IsButtonPressed が 1 回だけ true (consume-on-read) --------
 ACS_TEST(UiLayer, ClickDetectionConsumeOnce) {
-    FUiLayer ui;
+    CUiLayer ui;
     ui.Init();
     const u32 b = ui.AddButton("OK", FVec2{10, 10}, FVec2{100, 40});
     EXPECT_FALSE(ui.IsButtonPressed(b));
@@ -83,7 +83,7 @@ ACS_TEST(UiLayer, ClickDetectionConsumeOnce) {
 
 // ---- ボタン外で離したらクリック不成立 ------------------------------------
 ACS_TEST(UiLayer, ReleaseOutsideNoClick) {
-    FUiLayer ui;
+    CUiLayer ui;
     ui.Init();
     const u32 b = ui.AddButton("OK", FVec2{10, 10}, FVec2{100, 40});
     ui.HandleInput(MouseMove(50, 30));
@@ -96,7 +96,7 @@ ACS_TEST(UiLayer, ReleaseOutsideNoClick) {
 
 // ---- 重なり: 後から追加した方 (最前面) がヒット ---------------------------
 ACS_TEST(UiLayer, TopmostHit) {
-    FUiLayer ui;
+    CUiLayer ui;
     ui.Init();
     const u32 back  = ui.AddButton("back",  FVec2{0, 0}, FVec2{100, 100});
     const u32 front = ui.AddButton("front", FVec2{0, 0}, FVec2{100, 100});
@@ -108,7 +108,7 @@ ACS_TEST(UiLayer, TopmostHit) {
 
 // ---- 非表示ボタンはヒットしない ------------------------------------------
 ACS_TEST(UiLayer, HiddenNotHit) {
-    FUiLayer ui;
+    CUiLayer ui;
     ui.Init();
     const u32 b = ui.AddButton("OK", FVec2{10, 10}, FVec2{100, 40});
     ui.SetVisible(b, false);
@@ -119,7 +119,7 @@ ACS_TEST(UiLayer, HiddenNotHit) {
 
 // ---- Text widget は押下対象外 --------------------------------------------
 ACS_TEST(UiLayer, TextNotPressable) {
-    FUiLayer ui;
+    CUiLayer ui;
     ui.Init();
     const u32 t = ui.AddText("hello", FVec2{10, 10});
     ClickAt(ui, 12, 12);
@@ -129,7 +129,7 @@ ACS_TEST(UiLayer, TextNotPressable) {
 
 // ---- Remove / Clear -------------------------------------------------------
 ACS_TEST(UiLayer, RemoveAndClear) {
-    FUiLayer ui;
+    CUiLayer ui;
     ui.Init();
     const u32 a = ui.AddButton("a", FVec2{0,  0}, FVec2{10, 10});
     const u32 b = ui.AddButton("b", FVec2{20, 0}, FVec2{10, 10});

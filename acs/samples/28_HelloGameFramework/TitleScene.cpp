@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloGameFramework — FTitleScene 実装。
+// HelloGameFramework — ATitleScene 実装。
 #include "TitleScene.h"
 #include "PlayerProfile.h"
 #include "GameplayScene.h"
@@ -12,9 +12,9 @@ using namespace acs::game;
 
 namespace hellogf {
 
-void FTitleScene::OnEnter() noexcept {
-    m_Fsm.Configure(Idle,  { &FTitleScene::EnterIdle,  &FTitleScene::UpdateIdle,  nullptr });
-    m_Fsm.Configure(Blink, { &FTitleScene::EnterBlink, &FTitleScene::UpdateBlink, nullptr });
+void ATitleScene::OnEnter() noexcept {
+    m_Fsm.Configure(Idle,  { &ATitleScene::EnterIdle,  &ATitleScene::UpdateIdle,  nullptr });
+    m_Fsm.Configure(Blink, { &ATitleScene::EnterBlink, &ATitleScene::UpdateBlink, nullptr });
     m_Fsm.Start(Idle, *this);
     auto* prof = GetGame().AppState<FPlayerProfile>();
     if (prof) {
@@ -25,12 +25,12 @@ void FTitleScene::OnEnter() noexcept {
     }
 }
 
-void FTitleScene::OnExit() noexcept { ACS_LOG_INFO("[Title] exit"); }
+void ATitleScene::OnExit() noexcept { ACS_LOG_INFO("[Title] exit"); }
 
-void FTitleScene::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) GetGame().Quit();
-    if (FInput::IsKeyPressed(EKey::Space)) {
-        Scenes().ChangeScene(MakeUnique<FGameplayScene>());
+void ATitleScene::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) GetGame().Quit();
+    if (CInput::IsKeyPressed(EKey::Space)) {
+        Scenes().ChangeScene(MakeUnique<AGameplayScene>());
         return;
     }
     m_Clock.Tick(dt);
@@ -38,19 +38,19 @@ void FTitleScene::OnUpdate(f32 dt) noexcept {
 }
 
 // 2 秒間 Idle (dark blue) → 0.3 秒 Blink (明るい青) を交互に繰返す FSM デモ。
-void FTitleScene::EnterIdle(FTitleScene& s) noexcept {
+void ATitleScene::EnterIdle(ATitleScene& s) noexcept {
     s.GetGame().SetClearColor(0.10f, 0.12f, 0.25f);
     s._state_secs = 0.0f;
 }
-void FTitleScene::UpdateIdle(FTitleScene& s, f32 dt) noexcept {
+void ATitleScene::UpdateIdle(ATitleScene& s, f32 dt) noexcept {
     s._state_secs += dt;
     if (s._state_secs > 2.0f) s.m_Fsm.ChangeState(Blink, s);
 }
-void FTitleScene::EnterBlink(FTitleScene& s) noexcept {
+void ATitleScene::EnterBlink(ATitleScene& s) noexcept {
     s.GetGame().SetClearColor(0.20f, 0.25f, 0.50f);
     s._state_secs = 0.0f;
 }
-void FTitleScene::UpdateBlink(FTitleScene& s, f32 dt) noexcept {
+void ATitleScene::UpdateBlink(ATitleScene& s, f32 dt) noexcept {
     s._state_secs += dt;
     if (s._state_secs > 0.3f) s.m_Fsm.ChangeState(Idle, s);
 }

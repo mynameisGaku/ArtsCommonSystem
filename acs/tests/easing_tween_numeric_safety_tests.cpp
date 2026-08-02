@@ -14,7 +14,7 @@ using namespace acs::game;
 namespace {
 
 FSeqHandle StartSequence(
-    FSequenceRunner& runner, FSequence& sequence) noexcept {
+    CSequenceRunner& runner, FSequence& sequence) noexcept {
     return runner.Start(Move(sequence));
 }
 
@@ -27,7 +27,7 @@ ACS_TEST(EasingTweenNumericSafety, NonFiniteEndpointsPreserveStateForEveryValueT
         -std::numeric_limits<f32>::infinity(),
     };
 
-    FTweenManager manager;
+    CTweenManager manager;
     f32 active_target = 0.0f;
     const FTweenHandle active_handle = manager.Tween(
         &active_target, 0.0f, 1.0f, 1.0f,
@@ -111,7 +111,7 @@ ACS_TEST(EasingTweenNumericSafety, InvalidEndpointsCannotUseImmediateCompletion)
     const f32 nan = std::numeric_limits<f32>::quiet_NaN();
     const f32 infinity = std::numeric_limits<f32>::infinity();
 
-    FTweenManager manager;
+    CTweenManager manager;
     f32 scalar_target = 10.0f;
     FVec2 vector2_target{20.0f, 21.0f};
     FVec3 vector3_target{30.0f, 31.0f, 32.0f};
@@ -180,7 +180,7 @@ ACS_TEST(EasingTweenNumericSafety, OverflowingIntermediateValuesCommitAtomically
     const FVec3 vector3_from{0.0f, maximum, 4.0f};
     const FVec3 vector3_to{2.0f, -maximum, 8.0f};
 
-    FTweenManager manager;
+    CTweenManager manager;
     f32 scalar_target = 10.0f;
     FVec2 vector2_target{20.0f, 21.0f};
     FVec3 vector3_target{30.0f, 31.0f, 32.0f};
@@ -197,7 +197,7 @@ ACS_TEST(EasingTweenNumericSafety, OverflowingIntermediateValuesCommitAtomically
     EXPECT_TRUE(vector2_handle.IsValid());
     EXPECT_TRUE(vector3_handle.IsValid());
 
-    FSequenceRunner runner;
+    CSequenceRunner runner;
     f32 sequence_scalar_target = 40.0f;
     FVec2 sequence_vector2_target{50.0f, 51.0f};
     FVec3 sequence_vector3_target{60.0f, 61.0f, 62.0f};

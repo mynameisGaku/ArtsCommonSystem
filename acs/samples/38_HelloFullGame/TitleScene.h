@@ -7,7 +7,7 @@
 
 namespace hellofg {
 
-class FTitleScene : public acs::game::FScene {
+class ATitleScene : public acs::game::AScene {
 public:
     acs::game::ESvc WantedServices() const noexcept override {
         return acs::game::ESvc::Default2D;   // Clock | Tweens | Sequences | Input

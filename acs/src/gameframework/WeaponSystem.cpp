@@ -72,7 +72,7 @@ void CWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
 
     // 同 id の 2 重登録は no-op (アセット二重ロード保護)。
     if (FindWeaponSlot(def.id) != kNotFound) {
-        ACS_LOG_WARN("FWeaponSystem: duplicate weapon registration ignored ('%s')", def.id);
+        ACS_LOG_WARN("CWeaponSystem: duplicate weapon registration ignored ('%s')", def.id);
         return;
     }
 

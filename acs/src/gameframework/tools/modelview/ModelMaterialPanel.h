@@ -5,15 +5,15 @@
 // 対して PBR マテリアル (base color / metallic / roughness / normal strength /
 // AO strength / emissive 等) を **live 編集** するための ImGui ベースパネル。
 // 編集された値は `FMaterialOverride` 構造体に保持され、コールバック経由で
-// `FPbrShader` / `FStandardShader` の constant buffer に流し込まれる想定。
+// `CPbrShader` / `CStandardShader` の constant buffer に流し込まれる想定。
 //
 // 役割分担:
 //   ・本パネルは **編集 UI + override 値の保持** のみを担当する。
 //     実 shader への反映 (= constant buffer write) は呼び出し側 (ModelViewer
 //     本体 or render integrator) が `MaterialChangeCallback` 経由で受け取った
 //     `FMaterialOverride` を見て行う。これにより:
-//       (1) shader / pipeline の選択 (FPbrShader / FStandardShader / FSkinnedShader
-//           / FRefractionShader 等) は ModelViewer 本体が責任を持てる
+//       (1) shader / pipeline の選択 (CPbrShader / CStandardShader / CSkinnedShader
+//           / CRefractionShader 等) は ModelViewer 本体が責任を持てる
 //       (2) CUndoStack へ「override 1 件分」を atomic に push できる粒度を提供
 //     できる。
 //   ・slot 数の管理 (= model load 時に呼ばれる `SetMaterialSlotCount`) も
@@ -73,7 +73,7 @@
 //     `const char* base_color_path` 等を追加し、外部 callback で texture 差替を行う。
 //   ・material preset library (= `.acs_matpreset` 1 ファイルに 1 set を保存し、
 //     load / save / apply するボタン群)
-//   ・shader variant 切替 (FPbrShader / FSkinnedShader / FRefractionShader 等を
+//   ・shader variant 切替 (CPbrShader / CSkinnedShader / CRefractionShader 等を
 //     drop-down で選び、対応する constant buffer に切替える)
 //   ・per-slot min/max metadata 受け取り API (= 物理的に意味のある range で
 //     SliderFloat を出す。アセットメタデータが充実したら活かす)

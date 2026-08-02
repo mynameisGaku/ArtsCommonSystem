@@ -13,9 +13,9 @@ using namespace acs::game;
 
 namespace hellomv {
 
-void FViewerMenuBar::Draw(FGame& game,
-                         editor_core::FEditorWorkspace& workspace,
-                         editor_core::FEditorTheme& theme,
+void CViewerMenuBar::Draw(CGame& game,
+                         editor_core::CEditorWorkspace& workspace,
+                         editor_core::CEditorTheme& theme,
                          const char* default_model_path,
                          const wchar_t* layout_path,
                          const wchar_t* theme_path) noexcept {

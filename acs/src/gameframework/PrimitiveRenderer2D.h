@@ -4,7 +4,7 @@
 // プリミティブ形状 (箱 / 円 / 三角) を描画する AComponent。shape で形状を選ぶ。
 // エディタはこの shape を読んで viewport 描画 + コライダー形状を合わせる
 // (= 選んだ形状で見た目もアタリも決まる)。ゲーム実行時はこの OnDraw が
-// FSpriteBatch に積む。色/サイズはコンポーネント側に持つ (owner の scale で拡縮)。
+// CSpriteBatch に積む。色/サイズはコンポーネント側に持つ (owner の scale で拡縮)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -24,7 +24,7 @@ namespace acs::game {
  * プリミティブ形状を描く AComponent。
  *
  * @details shape (Box / Circle / Triangle) を owner の world transform で配置・回転して
- * FSpriteBatch へ積む。円・三角は三角形ファンで塗る。エディタは shape を読んで描画と
+ * CSpriteBatch へ積む。円・三角は三角形ファンで塗る。エディタは shape を読んで描画と
  * コライダー形状を一致させる。
  */
 class APrimitiveRenderer2D : public AComponent {
@@ -76,7 +76,7 @@ public:
     ACS_FUNCTION(BlueprintCallable)
     f32 GetArea() const noexcept { return m_Size.x * m_Size.y; }
 
-    /** owner の world transform で形状を FSpriteBatch へ積む。 */
+    /** owner の world transform で形状を CSpriteBatch へ積む。 */
     void OnDraw(FRenderContext& rc) noexcept override {
         if (!rc.HasSprites()) return;
         const FTransform2D wt = Owner().World2D();
@@ -87,14 +87,14 @@ public:
     }
 
     /**
-     * プリミティブ形状を FSpriteBatch に塗る (エディタ viewport と共用のヘルパ)。
+     * プリミティブ形状を CSpriteBatch に塗る (エディタ viewport と共用のヘルパ)。
      *
-     * @param sb 積み先の FSpriteBatch。
+     * @param sb 積み先の CSpriteBatch。
      * @param shape 0=Box, 1=Circle, 2=Triangle。
      * @param cx 中心 X。 @param cy 中心 Y。 @param w 幅。 @param h 高さ。
      * @param rot 回転 (rad)。 @param col 塗り色。
      */
-    static void DrawShape(FSpriteBatch& sb, int shape, f32 cx, f32 cy,
+    static void DrawShape(CSpriteBatch& sb, int shape, f32 cx, f32 cy,
                           f32 w, f32 h, f32 rot, FVec4 col) noexcept {
         const f32 c = std::cos(rot), s = std::sin(rot);
         if (shape == 1) {                                   // 円/楕円 (三角ファン)

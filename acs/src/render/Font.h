@@ -113,7 +113,7 @@ public:
     /**
      * ファイルから直接ロードしてアトラスを構築する。
      *
-     * @details FFileSystem::ReadAllBytes でバイト列を読み込み LoadFromBytes に委譲する。
+     * @details CFileSystem::ReadAllBytes でバイト列を読み込み LoadFromBytes に委譲する。
      * @param device テクスチャアトラス生成に使う RHI デバイス。
      * @param path 読み込む TTF/OTF/TTC のファイルパス。
      * @param pixel_size 焼き込むグリフのピクセルサイズ。

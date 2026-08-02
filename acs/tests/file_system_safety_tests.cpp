@@ -125,7 +125,7 @@ bool TryCopyWithSuffix(const wchar_t* path, const wchar_t* suffix, wchar_t* outp
 void ExpectOriginalContents(const wchar_t* path)
 {
     /** 読み戻した通常ファイルの結果。 */
-    auto contents_result = FFileSystem::ReadAllBytes(path);
+    auto contents_result = CFileSystem::ReadAllBytes(path);
     EXPECT_TRUE(contents_result.IsOk());
     if (contents_result.IsErr()) return;
     /** 読み戻した通常ファイルのバイト列。 */
@@ -149,19 +149,19 @@ ACS_TEST(FileSystemSafety, RejectsExistingFileAsDirectory)
     if (!path.IsValid()) return;
 
     /** 衝突させる通常ファイルの作成結果。 */
-    const TResult<void> write_result = FFileSystem::WriteAllBytes(path.Get(), kOriginalContents, kOriginalContentSize);
+    const TResult<void> write_result = CFileSystem::WriteAllBytes(path.Get(), kOriginalContents, kOriginalContentSize);
     EXPECT_TRUE(write_result.IsOk());
     if (write_result.IsErr()) return;
 
     /** 通常ファイルと同名のディレクトリ作成結果。 */
-    const TResult<void> directory_result = FFileSystem::CreateDirectory(path.Get());
+    const TResult<void> directory_result = CFileSystem::CreateDirectory(path.Get());
     EXPECT_TRUE(directory_result.IsErr());
-    EXPECT_TRUE(FFileSystem::Exists(path.Get()));
-    EXPECT_FALSE(FFileSystem::DirectoryExists(path.Get()));
+    EXPECT_TRUE(CFileSystem::Exists(path.Get()));
+    EXPECT_FALSE(CFileSystem::DirectoryExists(path.Get()));
     ExpectOriginalContents(path.Get());
 
     /** UNCではない一時ファイルならtrue。 */
-    const bool path_is_unc = FFileSystem::IsPathSeparator(path.Get()[0]) && FFileSystem::IsPathSeparator(path.Get()[1]);
+    const bool path_is_unc = CFileSystem::IsPathSeparator(path.Get()[0]) && CFileSystem::IsPathSeparator(path.Get()[1]);
     if (path_is_unc) return;
 
     /** 同じ通常ファイルを指す拡張絶対パス。 */
@@ -172,10 +172,10 @@ ACS_TEST(FileSystemSafety, RejectsExistingFileAsDirectory)
     if (!extended_file_built) return;
 
     /** 拡張絶対パスでも通常ファイルをrootと誤受理しない作成結果。 */
-    const TResult<void> extended_result = FFileSystem::CreateDirectory(extended_file);
+    const TResult<void> extended_result = CFileSystem::CreateDirectory(extended_file);
     EXPECT_TRUE(extended_result.IsErr());
-    EXPECT_TRUE(FFileSystem::Exists(extended_file));
-    EXPECT_FALSE(FFileSystem::DirectoryExists(extended_file));
+    EXPECT_TRUE(CFileSystem::Exists(extended_file));
+    EXPECT_FALSE(CFileSystem::DirectoryExists(extended_file));
     ExpectOriginalContents(extended_file);
 }
 
@@ -184,7 +184,7 @@ ACS_TEST(FileSystemSafety, RejectsNullAndEmptyPathsBeforeCallingOs)
 {
     ::SetLastError(kLastErrorSentinel);
     /** nullptrの作成結果。 */
-    const TResult<void> null_result = FFileSystem::CreateDirectory(nullptr);
+    const TResult<void> null_result = CFileSystem::CreateDirectory(nullptr);
     /** nullptr拒否直後のWin32最終エラー。 */
     const DWORD null_last_error = ::GetLastError();
     EXPECT_TRUE(null_result.IsErr());
@@ -197,7 +197,7 @@ ACS_TEST(FileSystemSafety, RejectsNullAndEmptyPathsBeforeCallingOs)
 
     ::SetLastError(kLastErrorSentinel);
     /** 空パスの作成結果。 */
-    const TResult<void> empty_result = FFileSystem::CreateDirectory(L"");
+    const TResult<void> empty_result = CFileSystem::CreateDirectory(L"");
     /** 空パス拒否直後のWin32最終エラー。 */
     const DWORD empty_last_error = ::GetLastError();
     EXPECT_TRUE(empty_result.IsErr());
@@ -219,7 +219,7 @@ ACS_TEST(FileSystemSafety, RejectsTooLongPathBeforeCallingOs)
 
     ::SetLastError(kLastErrorSentinel);
     /** 長すぎるパスの作成結果。 */
-    const TResult<void> result = FFileSystem::CreateDirectory(too_long_path);
+    const TResult<void> result = CFileSystem::CreateDirectory(too_long_path);
     /** 入力拒否直後のWin32最終エラー。 */
     const DWORD last_error = ::GetLastError();
 
@@ -251,9 +251,9 @@ ACS_TEST(FileSystemSafety, AcceptsExistingDirectory)
     if (!directory_created) return;
 
     /** 既存ディレクトリに対する作成結果。 */
-    const TResult<void> result = FFileSystem::CreateDirectory(path.Get());
+    const TResult<void> result = CFileSystem::CreateDirectory(path.Get());
     EXPECT_TRUE(result.IsOk());
-    EXPECT_TRUE(FFileSystem::DirectoryExists(path.Get()));
+    EXPECT_TRUE(CFileSystem::DirectoryExists(path.Get()));
 }
 
 /** 既存のドライブrootと拡張絶対rootを作成済みディレクトリとして受理することを確認する。 */
@@ -272,12 +272,12 @@ ACS_TEST(FileSystemSafety, AcceptsExistingVolumeRoots)
     if (!volume_root_resolved) return;
 
     /** 通常のドライブrootに対する作成結果。 */
-    const TResult<void> volume_result = FFileSystem::CreateDirectory(volume_root);
+    const TResult<void> volume_result = CFileSystem::CreateDirectory(volume_root);
     EXPECT_TRUE(volume_result.IsOk());
-    EXPECT_TRUE(FFileSystem::DirectoryExists(volume_root));
+    EXPECT_TRUE(CFileSystem::DirectoryExists(volume_root));
 
     /** UNC上の一時領域では通常root検証がserver/share契約も兼ねる。 */
-    const bool volume_is_unc = FFileSystem::IsPathSeparator(volume_root[0]) && FFileSystem::IsPathSeparator(volume_root[1]);
+    const bool volume_is_unc = CFileSystem::IsPathSeparator(volume_root[0]) && CFileSystem::IsPathSeparator(volume_root[1]);
     if (volume_is_unc) return;
 
     /** UNCと同じprefix走査分岐を通る拡張絶対root。 */
@@ -288,9 +288,9 @@ ACS_TEST(FileSystemSafety, AcceptsExistingVolumeRoots)
     if (!extended_root_built) return;
 
     /** 拡張絶対rootに対する作成結果。 */
-    const TResult<void> extended_result = FFileSystem::CreateDirectory(extended_root);
+    const TResult<void> extended_result = CFileSystem::CreateDirectory(extended_root);
     EXPECT_TRUE(extended_result.IsOk());
-    EXPECT_TRUE(FFileSystem::DirectoryExists(extended_root));
+    EXPECT_TRUE(CFileSystem::DirectoryExists(extended_root));
 
     /** volume rootをWin32 device namespaceへ置いた不正な作成対象。 */
     wchar_t device_root[MAX_PATH + 4u] = {};
@@ -300,9 +300,9 @@ ACS_TEST(FileSystemSafety, AcceptsExistingVolumeRoots)
     if (!device_root_built) return;
 
     /** device namespaceをUNC share rootと誤受理しない作成結果。 */
-    const TResult<void> device_result = FFileSystem::CreateDirectory(device_root);
+    const TResult<void> device_result = CFileSystem::CreateDirectory(device_root);
     EXPECT_TRUE(device_result.IsErr());
-    EXPECT_TRUE(FFileSystem::DirectoryExists(device_root));
+    EXPECT_TRUE(CFileSystem::DirectoryExists(device_root));
 }
 
 /** 末尾separator付きパスでもディレクトリを作成できることを確認する。 */
@@ -326,10 +326,10 @@ ACS_TEST(FileSystemSafety, CreatesDirectoryWithTrailingSeparator)
     if (!path_built) return;
 
     /** 末尾separator付きパスの作成結果。 */
-    const TResult<void> result = FFileSystem::CreateDirectory(path_with_separator);
+    const TResult<void> result = CFileSystem::CreateDirectory(path_with_separator);
     EXPECT_TRUE(result.IsOk());
-    EXPECT_TRUE(FFileSystem::DirectoryExists(path.Get()));
-    EXPECT_TRUE(FFileSystem::DirectoryExists(path_with_separator));
+    EXPECT_TRUE(CFileSystem::DirectoryExists(path.Get()));
+    EXPECT_TRUE(CFileSystem::DirectoryExists(path_with_separator));
 }
 
 /** 中間要素が通常ファイルの場合はエラーにし、その内容も維持することを確認する。 */
@@ -341,7 +341,7 @@ ACS_TEST(FileSystemSafety, RejectsFileUsedAsParentDirectory)
     if (!path.IsValid()) return;
 
     /** 衝突させる通常ファイルの作成結果。 */
-    const TResult<void> write_result = FFileSystem::WriteAllBytes(path.Get(), kOriginalContents, kOriginalContentSize);
+    const TResult<void> write_result = CFileSystem::WriteAllBytes(path.Get(), kOriginalContents, kOriginalContentSize);
     EXPECT_TRUE(write_result.IsOk());
     if (write_result.IsErr()) return;
 
@@ -353,10 +353,10 @@ ACS_TEST(FileSystemSafety, RejectsFileUsedAsParentDirectory)
     if (!path_built) return;
 
     /** 通常ファイルを親にしたディレクトリ作成結果。 */
-    const TResult<void> result = FFileSystem::CreateDirectory(child_path);
+    const TResult<void> result = CFileSystem::CreateDirectory(child_path);
     EXPECT_TRUE(result.IsErr());
-    EXPECT_TRUE(FFileSystem::Exists(path.Get()));
-    EXPECT_FALSE(FFileSystem::DirectoryExists(child_path));
+    EXPECT_TRUE(CFileSystem::Exists(path.Get()));
+    EXPECT_FALSE(CFileSystem::DirectoryExists(child_path));
     if (result.IsErr()) EXPECT_NE(result.Error().os_error, 0u);
     ExpectOriginalContents(path.Get());
 }

@@ -14,7 +14,7 @@
 //
 // 注意:
 //   ・本 .cpp は ParticleEmitterDef の完全型を必要とするので、ヘッダ側の
-//     forward decl だけでなく `FParticleEffectSystem.h` を include する。
+//     forward decl だけでなく `CParticleEffectSystem.h` を include する。
 //   ・実 ParticleEmitterDef の color は FVec3 (alpha 無し)、gravity は FVec2。
 //     テキスト形式は前方互換用に色 4 成分 / 重力 3 成分まで書く / 読むが、
 //     格納できない第 4 成分 (color) / 第 3 成分 (gravity) は破棄する。
@@ -1181,7 +1181,7 @@ TResult<void, FErrorCode> CFxeditSerializer::Save(
     if (result.Succeeded()) return Ok();
     return ACS_ERR_OS(
         IO, LegacySubCode(result.error),
-        "FFxeditSerializer::Save: checked save failed", result.os_error);
+        "CFxeditSerializer::Save: checked save failed", result.os_error);
 }
 
 TResult<u32, FErrorCode> CFxeditSerializer::Load(
@@ -1196,7 +1196,7 @@ TResult<u32, FErrorCode> CFxeditSerializer::Load(
     if (!result.Succeeded()) {
         return ACS_ERR_OS(
             IO, LegacySubCode(result.error),
-            "FFxeditSerializer::Load: checked load failed", result.os_error);
+            "CFxeditSerializer::Load: checked load failed", result.os_error);
     }
     u32 count = result.emitter_count;
     return TResult<u32, FErrorCode>(OkInit, Move(count));

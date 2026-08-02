@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Threading — FJobGraph / MessagePipe テスト
+// ACS Threading — CJobGraph / MessagePipe テスト
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -28,14 +28,14 @@ void RecordJob(void* user, u32 /*worker*/) noexcept {
 } // namespace
 
 ACS_TEST(FJobGraph, LinearChainExecutesInOrder) {
-    auto ir = FThreadPool::Init(4);
+    auto ir = CThreadPool::Init(4);
     EXPECT_TRUE(ir.IsOk());
 
     FJobCtx ctx_a{}; ctx_a.my_index = 0;
     FJobCtx ctx_b{}; ctx_b.my_index = 1;
     FJobCtx ctx_c{}; ctx_c.my_index = 2;
 
-    FJobGraph g;
+    CJobGraph g;
     auto a = g.Add(&RecordJob, &ctx_a);
     auto b = g.Add(&RecordJob, &ctx_b);
     auto c = g.Add(&RecordJob, &ctx_c);
@@ -59,17 +59,17 @@ ACS_TEST(FJobGraph, LinearChainExecutesInOrder) {
     EXPECT_TRUE(ctx_b.counter.Load(EMemoryOrder::Acquire) >= 1);
     EXPECT_TRUE(ctx_c.counter.Load(EMemoryOrder::Acquire) >= 1);
 
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 // 並列実行可能 (依存無し) の job が同時に走ることだけ確認
 ACS_TEST(FJobGraph, ParallelJobsAllRun) {
-    auto ir = FThreadPool::Init(4);
+    auto ir = CThreadPool::Init(4);
     EXPECT_TRUE(ir.IsOk());
 
     constexpr u32 N = 16;
     FJobCtx ctxs[N];
-    FJobGraph g;
+    CJobGraph g;
     for (u32 i = 0; i < N; ++i) {
         ctxs[i].my_index = i;
         g.Add(&RecordJob, &ctxs[i]);
@@ -81,18 +81,18 @@ ACS_TEST(FJobGraph, ParallelJobsAllRun) {
         EXPECT_TRUE(ctxs[i].counter.Load(EMemoryOrder::Acquire) >= 1);
     }
     EXPECT_EQ(g.JobCount(), N);
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 ACS_TEST(FJobGraph, SubmitFailureFallsBackExactlyOnce)
 {
     // ThreadPool が無い状態を確定させ、全 entry の投入失敗を決定的に起こす。
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 
     FJobCtx context_a{};
     FJobCtx context_b{};
     FJobCtx context_c{};
-    FJobGraph graph;
+    CJobGraph graph;
     FJobHandle a = graph.Add(&RecordJob, &context_a);
     FJobHandle b = graph.Add(&RecordJob, &context_b);
     FJobHandle c = graph.Add(&RecordJob, &context_c);

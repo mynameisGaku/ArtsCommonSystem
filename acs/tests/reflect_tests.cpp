@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // gameframework/Reflect.h + Reflect.cpp の検証:
-//   統一リフレクション / 型レジストリ (FTypeRegistry)。
+//   統一リフレクション / 型レジストリ (CTypeRegistry)。
 //
 // マクロ (ACS_COMPONENT / ACS_STRUCT / ACS_INTERFACE / ACS_REFLECT_ENUM) が
 //   ・型を「その種類 (ETypeCategory)」としてマークし
 //   ・名前・サイズ・フィールド (種別 / オフセット)・列挙値・ファクトリ・トレイトを反射し
-//   ・静的初期化時に FTypeRegistry へ自動登録する
+//   ・静的初期化時に CTypeRegistry へ自動登録する
 // ことを、エンジンが「型を知らずに」横断利用する経路 (名前/ID 検索・カテゴリ列挙・
 // 汎用フィールド書込み・factory 生成/破棄) を実際に踏んで検証する。
 // =============================================================================
@@ -74,7 +74,7 @@ ACS_REFLECT_ENUM(EReflWeapon,
 // ===== テスト ================================================================
 
 ACS_TEST(Reflect, RegisteredByNameAndId) {
-    auto& reg = FTypeRegistry::Get();
+    auto& reg = CTypeRegistry::Get();
     const FTypeDesc* d = reg.FindByName("FReflHealth");
     EXPECT_TRUE(d != nullptr);
     if (d == nullptr) return;
@@ -91,13 +91,13 @@ ACS_TEST(Reflect, RegisteredByNameAndId) {
 }
 
 ACS_TEST(Reflect, UnknownNameMisses) {
-    auto& reg = FTypeRegistry::Get();
+    auto& reg = CTypeRegistry::Get();
     EXPECT_TRUE(reg.FindByName("NoSuchType") == nullptr);
     EXPECT_TRUE(reg.FindById(0xDEADBEEFu) == nullptr);
 }
 
 ACS_TEST(Reflect, FieldsReflectKindOffsetSize) {
-    const FTypeDesc* d = FTypeRegistry::Get().FindByName("FReflHealth");
+    const FTypeDesc* d = CTypeRegistry::Get().FindByName("FReflHealth");
     EXPECT_TRUE(d != nullptr);
     if (d == nullptr) return;
 
@@ -124,7 +124,7 @@ ACS_TEST(Reflect, FieldsReflectKindOffsetSize) {
 }
 
 ACS_TEST(Reflect, FactoryCreateGenericFieldWriteDestroy) {
-    auto& reg = FTypeRegistry::Get();
+    auto& reg = CTypeRegistry::Get();
     const FTypeDesc* d = reg.FindByName("FReflHealth");
     EXPECT_TRUE(d != nullptr);
     if (d == nullptr) return;
@@ -157,9 +157,9 @@ ACS_TEST(Reflect, FactoryCreateGenericFieldWriteDestroy) {
 
 ACS_TEST(Reflect, FactoryDestroyUsesAllocatorCapturedAtCreate)
 {
-    FSystemAllocator first_allocator;
-    FSystemAllocator second_allocator;
-    FAllocator* const original_allocator = &DefaultAllocator();
+    CSystemAllocator first_allocator;
+    CSystemAllocator second_allocator;
+    IAllocator* const original_allocator = &DefaultAllocator();
 
     SetDefaultAllocator(&first_allocator);
     void* const object = AcsConstruct<FReflAlignedAllocation>();
@@ -177,7 +177,7 @@ ACS_TEST(Reflect, FactoryDestroyUsesAllocatorCapturedAtCreate)
 }
 
 ACS_TEST(Reflect, EnumReflectsValuesAndNames) {
-    auto& reg = FTypeRegistry::Get();
+    auto& reg = CTypeRegistry::Get();
     const FTypeDesc* d = reg.FindByName("EReflWeapon");
     EXPECT_TRUE(d != nullptr);
     if (d == nullptr) return;
@@ -200,7 +200,7 @@ ACS_TEST(Reflect, EnumReflectsValuesAndNames) {
 }
 
 ACS_TEST(Reflect, CategoryFilteringEnumerates) {
-    auto& reg = FTypeRegistry::Get();
+    auto& reg = CTypeRegistry::Get();
 
     // Component カテゴリに FReflHealth が列挙される。
     u32 comp = reg.CountOfCategory(ETypeCategory::Component);
@@ -227,7 +227,7 @@ ACS_TEST(Reflect, CategoryFilteringEnumerates) {
 }
 
 ACS_TEST(Reflect, AbstractInterfaceHasNoFactory) {
-    auto& reg = FTypeRegistry::Get();
+    auto& reg = CTypeRegistry::Get();
     const FTypeDesc* d = reg.FindByName("IReflBackend");
     EXPECT_TRUE(d != nullptr);
     if (d == nullptr) return;
@@ -243,7 +243,7 @@ ACS_TEST(Reflect, AbstractInterfaceHasNoFactory) {
 }
 
 ACS_TEST(Reflect, TypeDescOfMatchesRegistry) {
-    auto& reg = FTypeRegistry::Get();
+    auto& reg = CTypeRegistry::Get();
     // コンパイル時の AcsTypeDescOf<T>() が実行時レジストリの記述子と一致する。
     EXPECT_TRUE(AcsTypeDescOf<FReflHealth>() == reg.FindByName("FReflHealth"));
     EXPECT_TRUE(AcsTypeDescOf<EReflWeapon>() == reg.FindByName("EReflWeapon"));
@@ -252,7 +252,7 @@ ACS_TEST(Reflect, TypeDescOfMatchesRegistry) {
 
 ACS_TEST(Reflect, DynamicRegistrationSourcesRetireWithoutDangling)
 {
-    FTypeRegistry& registry = FTypeRegistry::Get();
+    CTypeRegistry& registry = CTypeRegistry::Get();
     const u32 count_before = registry.Count();
 
     FTypeDesc first{};
@@ -284,7 +284,7 @@ ACS_TEST(Reflect, DynamicRegistrationSourcesRetireWithoutDangling)
 
 ACS_TEST(Reflect, AutoRegistrationRetiresOnlyItsOwnSource)
 {
-    FTypeRegistry& registry = FTypeRegistry::Get();
+    CTypeRegistry& registry = CTypeRegistry::Get();
     const u32 count_before = registry.Count();
 
     FTypeDesc first{};
@@ -294,7 +294,7 @@ ACS_TEST(Reflect, AutoRegistrationRetiresOnlyItsOwnSource)
 
     FTypeDesc second = first;
     {
-        FTypeAutoRegister first_registration(&first);
+        CTypeAutoRegister first_registration(&first);
         EXPECT_TRUE(registry.Register(&second));
         EXPECT_EQ(registry.Count(), count_before + 1u);
         EXPECT_TRUE(registry.FindById(first.id) == &first);
@@ -316,7 +316,7 @@ ACS_TEST(ReflectCatalog, RegistersConcreteEngineTypes) {
     u32 n = AcsRegisterEngineTypes();
     EXPECT_TRUE(n > 0u);
 
-    auto& reg = FTypeRegistry::Get();
+    auto& reg = CTypeRegistry::Get();
 
     const FTypeDesc* sprite = reg.FindByName("ASprite2DComponent");
     EXPECT_TRUE(sprite != nullptr);
@@ -341,7 +341,7 @@ ACS_TEST(ReflectCatalog, RegistersConcreteEngineTypes) {
 
 ACS_TEST(ReflectCatalog, CategoryCounts) {
     AcsRegisterEngineTypes();
-    auto& reg = FTypeRegistry::Get();
+    auto& reg = CTypeRegistry::Get();
     // カタログが各カテゴリを網羅登録している (テスト型も含むので >= で確認)。
     EXPECT_TRUE(reg.CountOfCategory(ETypeCategory::Component) >= 9u);
     EXPECT_TRUE(reg.CountOfCategory(ETypeCategory::System)    >= 30u);
@@ -352,7 +352,7 @@ ACS_TEST(ReflectCatalog, CategoryCounts) {
 
 ACS_TEST(ReflectCatalog, EngineEnumsReflected) {
     AcsRegisterEngineTypes();
-    auto& reg = FTypeRegistry::Get();
+    auto& reg = CTypeRegistry::Get();
 
     const FTypeDesc* blend = reg.FindByName("EBlendMode");
     EXPECT_TRUE(blend != nullptr);
@@ -381,7 +381,7 @@ ACS_TEST(ReflectCatalog, EngineEnumsReflected) {
 // 1 つでも欠けると serializer / editor が値→名前で破綻するため、件数で厳密に検証。
 ACS_TEST(ReflectCatalog, EnumsAreComplete) {
     AcsRegisterEngineTypes();
-    auto& reg = FTypeRegistry::Get();
+    auto& reg = CTypeRegistry::Get();
 
     struct FExpect { const char* name; u32 count; };
     const FExpect kExpect[] = {
@@ -409,7 +409,7 @@ ACS_TEST(ReflectCatalog, EnumsAreComplete) {
 
 ACS_TEST(ReflectCatalog, FactoryRespectsConstructibility) {
     AcsRegisterEngineTypes();
-    auto& reg = FTypeRegistry::Get();
+    auto& reg = CTypeRegistry::Get();
 
     // ATriggerComponent は ctor が world& 必須 → 既定構築不可 → Abstract、factory なし。
     const FTypeDesc* trig = reg.FindByName("ATriggerComponent");
@@ -419,7 +419,7 @@ ACS_TEST(ReflectCatalog, FactoryRespectsConstructibility) {
         EXPECT_TRUE(reg.Create("ATriggerComponent") == nullptr);
     }
 
-    // INSTANTIABLE な型は factory で生成→破棄できる (FScene2D が既定構築可能なら踏む)。
+    // INSTANTIABLE な型は factory で生成→破棄できる (AScene2D が既定構築可能なら踏む)。
     const FTypeDesc* scene = reg.FindByName("FScene2D");
     if (scene != nullptr && (scene->traits & TRAIT_INSTANTIABLE) != 0u) {
         void* obj = reg.Create("FScene2D");

@@ -21,7 +21,7 @@
 //   }
 //   rdr.Shutdown();
 //
-// HDR ポストプロセス経路を組むときは FApplication::OnCustomFrame() を override
+// HDR ポストプロセス経路を組むときは CApplication::OnCustomFrame() を override
 // して、自分で BeginRenderToTexture(HDR_RT) → 描画 → CPostProcess.Render() →
 // Present までを直接書く (HelloBloom 参照)。
 #pragma once

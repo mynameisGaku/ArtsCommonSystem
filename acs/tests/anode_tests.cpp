@@ -55,7 +55,7 @@ void CountSceneCommand(void* user) noexcept
 
 ACS_TEST(SceneCommandQueue, InlineCapacityAndSpillPreserveExecution)
 {
-    FSceneCommandQueue queue;
+    CSceneCommandQueue queue;
     u32 calls = 0u;
     for (u32 i = 0u; i < 16u; ++i)
         queue.Enqueue("inline", &CountSceneCommand, &calls);

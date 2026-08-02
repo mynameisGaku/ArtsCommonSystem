@@ -65,22 +65,22 @@ void AScene2D::OnFixedUpdate(f32 fixed_dt) noexcept {
     m_Root->ResolveStructuralChanges();
 }
 
-/** 共有 FSpriteBatch を遅延初期化する (成功で true)。 */
+/** 共有 CSpriteBatch を遅延初期化する (成功で true)。 */
 bool AScene2D::EnsureSpriteBatch(FRenderContext& rc) noexcept {
     if (m_SpritesReady) return true;
-    FRenderer& renderer = rc.GetRenderer();
+    CRenderer& renderer = rc.GetRenderer();
     IRhiDevice* device = renderer.Device();
     if (!device) return false;
     const auto r = m_Sprites.Init(*device, renderer.ColorFormat(), 8192);
     if (r.IsErr()) {
-        ACS_LOG_ERROR("FScene2D: FSpriteBatch init failed");
+        ACS_LOG_ERROR("AScene2D: CSpriteBatch init failed");
         return false;
     }
     m_SpritesReady = true;
     return true;
 }
 
-/** 反射オフスクリーン pass 専用の別 FSpriteBatch を遅延初期化する (成功で true)。 */
+/** 反射オフスクリーン pass 専用の別 CSpriteBatch を遅延初期化する (成功で true)。 */
 bool AScene2D::EnsureSceneSprites(FRenderContext& rc) noexcept {
     // 反射のオフスクリーン pass 専用の SpriteBatch。オフスクリーン pass と
     // 合成 pass で同一バッチを使うと、頂点/定数バッファがフレーム内で上書きし
@@ -88,29 +88,29 @@ bool AScene2D::EnsureSceneSprites(FRenderContext& rc) noexcept {
     // (RT = 反射元が壊れる)。別バッチに分離して両パスが GPU バッファを共有
     // しないようにする。
     if (m_SceneSpritesReady) return true;
-    FRenderer& renderer = rc.GetRenderer();
+    CRenderer& renderer = rc.GetRenderer();
     IRhiDevice* device = renderer.Device();
     if (!device) return false;
     const auto r = m_SceneSprites.Init(*device, renderer.ColorFormat(), 8192);
     if (r.IsErr()) {
-        ACS_LOG_ERROR("FScene2D: 反射用 FSpriteBatch init failed");
+        ACS_LOG_ERROR("AScene2D: 反射用 CSpriteBatch init failed");
         return false;
     }
     m_SceneSpritesReady = true;
     return true;
 }
 
-/** 水面深度捕捉 pass 専用の別 FSpriteBatch を遅延初期化する (成功で true)。 */
+/** 水面深度捕捉 pass 専用の別 CSpriteBatch を遅延初期化する (成功で true)。 */
 bool AScene2D::EnsureWaterDepthSprites(FRenderContext& rc) noexcept {
     // scene-color pass と同じバッチを使うと、同一フレーム内の VB/CB 更新が先行 draw の
     // 内容を上書きする。depth pass も独立バッチにして GPU 実行まで各データを保持する。
     if (m_WaterDepthSpritesReady) return true;
-    FRenderer& renderer = rc.GetRenderer();
+    CRenderer& renderer = rc.GetRenderer();
     IRhiDevice* device = renderer.Device();
     if (!device) return false;
     const auto r = m_WaterDepthSprites.Init(*device, renderer.ColorFormat(), 8192);
     if (r.IsErr()) {
-        ACS_LOG_ERROR("FScene2D: 水面深度用 FSpriteBatch init failed");
+        ACS_LOG_ERROR("AScene2D: 水面深度用 CSpriteBatch init failed");
         return false;
     }
     m_WaterDepthSpritesReady = true;
@@ -226,7 +226,7 @@ static void CollectLightsAndOccluders(ANode& node,
 
 /** camera view を設定し、ライトを収集してから root を DrawTree、OnDrawWorld を呼ぶ。 */
 void AScene2D::DrawWorldPass(FRenderContext& rc) noexcept {
-    FSpriteBatch& sb = rc.Sprites();   // 現パスに配線されたバッチ (通常 or 反射 RT 用)
+    CSpriteBatch& sb = rc.Sprites();   // 現パスに配線されたバッチ (通常 or 反射 RT 用)
     CCamera2D& cam = Services().Camera();
     const FVec2 center = cam.EffectiveViewCenter();
     sb.SetView(center.x, center.y, m_PixelsPerUnit * cam.Zoom());
@@ -247,7 +247,7 @@ void AScene2D::DrawWorldPass(FRenderContext& rc) noexcept {
 
 /** 画面中心の view を設定し OnDrawHud を呼ぶ (カメラ非依存の HUD 描画)。 */
 void AScene2D::DrawHudPass(FRenderContext& rc) noexcept {
-    FSpriteBatch& sb = rc.Sprites();
+    CSpriteBatch& sb = rc.Sprites();
     sb.SetView(static_cast<f32>(rc.Width()) * 0.5f,
                static_cast<f32>(rc.Height()) * 0.5f, 1.0f);
     OnDrawHud(rc, sb);
@@ -265,7 +265,7 @@ bool AScene2D::EnsureSceneRt(FRenderContext& rc) noexcept {
     td.format = rc.GetRenderer().ColorFormat();
     td.is_render_target = true;
     auto r = CreateRhiTexture(*dev, td);
-    if (r.IsErr()) { ACS_LOG_WARN("FScene2D: 反射用 scene RT の作成に失敗 (反射無効)"); return false; }
+    if (r.IsErr()) { ACS_LOG_WARN("AScene2D: 反射用 scene RT の作成に失敗 (反射無効)"); return false; }
     m_SceneRt = Move(r.Value());
     m_RtW = w; m_RtH = h;
     return true;
@@ -287,7 +287,7 @@ bool AScene2D::EnsureWaterDepthRt(FRenderContext& rc) noexcept {
     td.is_render_target = true;
     auto r = CreateRhiTexture(*dev, td);
     if (r.IsErr()) {
-        ACS_LOG_WARN("FScene2D: 水面深度 RT の作成に失敗 (頂点深度へ fallback)");
+        ACS_LOG_WARN("AScene2D: 水面深度 RT の作成に失敗 (頂点深度へ fallback)");
         return false;
     }
     m_WaterDepthRt = Move(r.Value());
@@ -308,7 +308,7 @@ bool AScene2D::EnsureStencilBuffer(FRenderContext& rc) noexcept {
     td.format = EFormat::D24_UNorm_S8_UInt;   // 深度 8bit ステンシル付き
     td.is_depth_target = true;
     auto r = CreateRhiTexture(*dev, td);
-    if (r.IsErr()) { ACS_LOG_WARN("FScene2D: マスク用 stencil バッファの作成に失敗 (マスク無効)"); return false; }
+    if (r.IsErr()) { ACS_LOG_WARN("AScene2D: マスク用 stencil バッファの作成に失敗 (マスク無効)"); return false; }
     m_StencilBuf = Move(r.Value());
     m_StencilW = w; m_StencilH = h;
     return true;
@@ -319,7 +319,7 @@ void AScene2D::OnRender(FRenderContext& rc) noexcept {
     if (!EnsureSpriteBatch(rc)) return;
     m_ScreenW = rc.Width();        // picking 用に画面サイズをキャッシュ
     m_ScreenH = rc.Height();
-    FSpriteBatch& sb = m_Sprites;
+    CSpriteBatch& sb = m_Sprites;
     CCamera2D& cam = Services().Camera();
     const FVec2 center = cam.EffectiveViewCenter();
     const f32 scale = m_PixelsPerUnit * cam.Zoom();
@@ -328,7 +328,7 @@ void AScene2D::OnRender(FRenderContext& rc) noexcept {
     // マスク用 stencil バッファ (有効かつ作成成功時のみ)。world パスで DSV として bind。
     IRhiTexture* stencil = (m_StencilMaskEnabled && EnsureStencilBuffer(rc)) ? m_StencilBuf.Get() : nullptr;
 
-    FRenderer& renderer = rc.GetRenderer();
+    CRenderer& renderer = rc.GetRenderer();
     IRhiCommandList& cl = rc.Cmd();
     IRhiSwapchain* sc = renderer.Swapchain();
     const FClearColor cc = GetGame().GetClearColor();
@@ -344,7 +344,7 @@ void AScene2D::OnRender(FRenderContext& rc) noexcept {
         // world 全体を焼く。TopDown の実シーンサンプリング opt-in 時だけ専用フラグを
         // 立て、水自身を除外して「水下/岸/オブジェクト」の実カラーを得る。
         // main pass の描画先とは別 RT なので SRV/RTV の read/write hazard は生じない。
-        FSpriteBatch& sbR = m_SceneSprites;
+        CSpriteBatch& sbR = m_SceneSprites;
         cl.BeginRenderToTexture(*m_SceneRt, cc);
         sbR.Begin(cl, rc.Width(), rc.Height());
         rc._SetSpriteBatch(&sbR);
@@ -364,7 +364,7 @@ void AScene2D::OnRender(FRenderContext& rc) noexcept {
         // 実メッシュの岸距離深度を R へ描く。scene-color と別 RT のため、main water PS は
         // 両方を同時に安全に SRV sample できる。
         if (waterDepthReady) {
-            FSpriteBatch& sbD = m_WaterDepthSprites;
+            CSpriteBatch& sbD = m_WaterDepthSprites;
             cl.BeginRenderToTexture(*m_WaterDepthRt, FClearColor{0, 0, 0, 0});
             sbD.Begin(cl, rc.Width(), rc.Height());
             sbD.SetDrawSuppressed(true);

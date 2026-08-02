@@ -75,7 +75,7 @@ struct FActionId {
  * @details
  * 1 アクションに複数の物理入力を bind でき、いずれか 1 つでも該当すれば
  * Pressed/Held/Released が true になる (OR セマンティクス)。状態は持たず、query
- * 時に acs::FInput::* を poll する。
+ * 時に acs::CInput::* を poll する。
  */
 class FInputMap {
 public:
@@ -146,7 +146,7 @@ public:
     void ClearAll() noexcept;
 
     /**
-     * このフレームで押されたかを返す (FInput::* を内部で poll)。
+     * このフレームで押されたかを返す (CInput::* を内部で poll)。
      *
      * @param action 判定するアクション。
      * @return bind 済み入力のいずれかがこのフレームで押されたら true。
@@ -154,7 +154,7 @@ public:
     bool IsPressed (FActionId action) const noexcept;
 
     /**
-     * 押されているかを返す (FInput::* を内部で poll)。
+     * 押されているかを返す (CInput::* を内部で poll)。
      *
      * @param action 判定するアクション。
      * @return bind 済み入力のいずれかが押下中なら true。
@@ -162,7 +162,7 @@ public:
     bool IsHeld    (FActionId action) const noexcept;
 
     /**
-     * このフレームで離されたかを返す (FInput::* を内部で poll)。
+     * このフレームで離されたかを返す (CInput::* を内部で poll)。
      *
      * @details キーボード、マウス、ゲームパッドのデジタル入力を対象とする。
      * @param action 判定するアクション。
@@ -171,7 +171,7 @@ public:
     bool IsReleased(FActionId action) const noexcept;
 
     /**
-     * 1D axis 値を返す (FInput::* を内部で poll)。
+     * 1D axis 値を返す (CInput::* を内部で poll)。
      *
      * @details 全 axis binding を累積して clamp(-1, +1)。両方押下は相殺で 0。
      * @param action 判定するアクション。

@@ -15,7 +15,7 @@ using namespace acs;
 
 namespace helloibl {
 
-void RenderMotionAndNormalGBuffer(FHelloIblApp& app,
+void RenderMotionAndNormalGBuffer(CHelloIblApp& app,
                                   const FMat4& vp_no_jitter) noexcept {
     app.m_MotionGBufferValid = false;
     IRhiCommandList* cl = app.GetRenderer().CommandList();

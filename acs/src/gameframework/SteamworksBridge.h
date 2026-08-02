@@ -600,7 +600,7 @@ private:
  * 既定 Bridge を返す provider 関数ポインタ型。
  *
  * @details
- * gameframework は実 backend モジュール (ACS::Steamworks / FSteamworksBridgeImpl) に
+ * gameframework は実 backend モジュール (ACS::Steamworks / CSteamworksBridgeImpl) に
  * 依存できない (backend 側が本 interface に依存するため循環になる)。そこで実 backend
  * 側がこの型の関数を SetSteamworksBridgeProvider で登録し、ゲームコードは
  * GetDefaultSteamworksBridge を通じて backend 非依存に既定 Bridge を取得する。

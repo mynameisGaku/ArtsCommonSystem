@@ -30,7 +30,7 @@ static_assert(sizeof(FStorage) == 40u);
 namespace {
 
 /** 指定した確保要求だけを失敗させる試験用 allocator。 */
-class FStorageStringBatchFailAllocator final : public FAllocator {
+class FStorageStringBatchFailAllocator final : public IAllocator {
 public:
     /**
      * 次の一括設定で失敗させる確保要求番号を指定する。
@@ -89,7 +89,7 @@ public:
 
 private:
     /** 実際の確保と追跡を担う allocator。 */
-    FSystemAllocator m_Backing;
+    CSystemAllocator m_Backing;
 
     /** 現在の一括設定で受けた確保要求数。 */
     u64 m_RequestCount = 0u;
@@ -705,7 +705,7 @@ ACS_TEST(StorageTransactionalBatch, PreservesInternalAsciiSpaceKeyThroughSaveAnd
     EXPECT_TRUE(saveResult.IsOk());
 
     /** 保存した key の byte identity を確認する読み取り結果。 */
-    auto savedTextResult = FFileSystem::ReadAllText(savedPath.Get());
+    auto savedTextResult = CFileSystem::ReadAllText(savedPath.Get());
     EXPECT_TRUE(savedTextResult.IsOk());
     if (savedTextResult.IsOk()) {
         EXPECT_TRUE(StorageBatchTextEquals(savedTextResult.Value().Data(), "# acs FStorage\nfoo bar=internal space value\n"));
@@ -762,7 +762,7 @@ ACS_TEST(StorageTransactionalBatch, SaveKeepsExistingOrderAppendsBatchOrderAndRo
     EXPECT_TRUE(saveResult.IsOk());
 
     /** 一括反映直後に保存した実ファイルの読み取り結果。 */
-    auto savedTextResult = FFileSystem::ReadAllText(savedPath.Get());
+    auto savedTextResult = CFileSystem::ReadAllText(savedPath.Get());
     EXPECT_TRUE(savedTextResult.IsOk());
     if (savedTextResult.IsOk()) {
         EXPECT_TRUE(StorageBatchTextEquals(savedTextResult.Value().Data(), kExpectedSavedText));
@@ -786,7 +786,7 @@ ACS_TEST(StorageTransactionalBatch, SaveKeepsExistingOrderAppendsBatchOrderAndRo
     EXPECT_TRUE(roundTripSaveResult.IsOk());
 
     /** Load/Save 後の同値ファイル内容を読み取る結果。 */
-    auto roundTripTextResult = FFileSystem::ReadAllText(roundTripPath.Get());
+    auto roundTripTextResult = CFileSystem::ReadAllText(roundTripPath.Get());
     EXPECT_TRUE(roundTripTextResult.IsOk());
     if (roundTripTextResult.IsOk()) {
         EXPECT_TRUE(StorageBatchTextEquals(roundTripTextResult.Value().Data(), kExpectedSavedText));

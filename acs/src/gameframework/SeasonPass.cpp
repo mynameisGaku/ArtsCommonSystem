@@ -51,7 +51,7 @@ void CSeasonPass::StartSeason(const FSeasonInfo& info) noexcept {
 void CSeasonPass::DefineTier(const FTier& t) noexcept {
     // tier_index 重複は黙って弾く + WARN (アセット二重ロード保護)。
     if (FindTierSlot(t.tier_index) != kNotFound) {
-        ACS_LOG_WARN("FSeasonPass: duplicate tier_index ignored (%u)", t.tier_index);
+        ACS_LOG_WARN("CSeasonPass: duplicate tier_index ignored (%u)", t.tier_index);
         return;
     }
 

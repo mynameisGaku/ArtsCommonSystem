@@ -23,7 +23,7 @@ namespace {
 constexpr wchar_t kSystemAllocatorGenerationProbeEnvironment[] = L"ACS_INTERNAL_SYSTEM_ALLOCATOR_GENERATION_PROBE";
 
 /** Arena のページ確保を任意の 1 回だけ停止し、Reset との順序を決定的に検証する backing。 */
-class FBlockingArenaBacking final : public FAllocator {
+class FBlockingArenaBacking final : public IAllocator {
 public:
     /** 次の Alloc を ResumeBlockedAllocation が呼ばれるまで停止する。 */
     void BlockNextAllocation() noexcept
@@ -72,7 +72,7 @@ public:
     }
 
 private:
-    FSystemAllocator m_Allocator;
+    CSystemAllocator m_Allocator;
     TAtomic<u32> m_BlockNext{0};
     TAtomic<u32> m_Entered{0};
     TAtomic<u32> m_Resume{0};
@@ -94,27 +94,27 @@ bool IsSystemAllocatorGenerationProbeProcess() noexcept
  */
 int RunSystemAllocatorGenerationProbe() noexcept
 {
-    alignas(FSystemAllocator) u8 AllocatorStorage[sizeof(FSystemAllocator)] = {};
-    auto* FirstAllocator = ::new (static_cast<void*>(AllocatorStorage)) FSystemAllocator();
+    alignas(CSystemAllocator) u8 AllocatorStorage[sizeof(CSystemAllocator)] = {};
+    auto* FirstAllocator = ::new (static_cast<void*>(AllocatorStorage)) CSystemAllocator();
     void* const OldGenerationAllocation = FirstAllocator->Alloc(96u, 32u, FSourceLoc::Current());
     if (!OldGenerationAllocation) {
-        FirstAllocator->~FSystemAllocator();
+        FirstAllocator->~CSystemAllocator();
         return 81;
     }
 
-    FirstAllocator->~FSystemAllocator();
-    auto* SecondAllocator = ::new (static_cast<void*>(AllocatorStorage)) FSystemAllocator();
+    FirstAllocator->~CSystemAllocator();
+    auto* SecondAllocator = ::new (static_cast<void*>(AllocatorStorage)) CSystemAllocator();
     SecondAllocator->Free(OldGenerationAllocation);
 
     const bool bStatisticsPreserved = SecondAllocator->BytesAllocated() == 0u &&
                                       SecondAllocator->AllocationCount() == 0u;
-    SecondAllocator->~FSystemAllocator();
+    SecondAllocator->~CSystemAllocator();
     return bStatisticsPreserved ? 0 : 82;
 }
 
 struct FDefaultAllocatorPublicationContext {
-    FAllocator* First = nullptr;
-    FAllocator* Second = nullptr;
+    IAllocator* First = nullptr;
+    IAllocator* Second = nullptr;
     TAtomic<u32> Start{0u};
     TAtomic<u32> FailureCount{0u};
 };
@@ -128,7 +128,7 @@ void ToggleAndReadDefaultAllocator(void* User) noexcept
 
     for (u32 Iteration = 0u; Iteration < 50000u; ++Iteration) {
         SetDefaultAllocator((Iteration & 1u) == 0u ? Context->First : Context->Second);
-        FAllocator* const Observed = &DefaultAllocator();
+        IAllocator* const Observed = &DefaultAllocator();
         if (Observed != Context->First && Observed != Context->Second) {
             Context->FailureCount.FetchAdd(1u);
         }
@@ -139,7 +139,7 @@ void ToggleAndReadDefaultAllocator(void* User) noexcept
 
 ACS_TEST(Memory, SystemAllocatorRoundtrips)
 {
-    FSystemAllocator a;
+    CSystemAllocator a;
     EXPECT_EQ(a.AllocationCount(), 0ull);
     EXPECT_EQ(a.Alloc(64, 0, FSourceLoc::Current()), nullptr);
     EXPECT_EQ(a.Alloc(64, 3, FSourceLoc::Current()), nullptr);
@@ -166,16 +166,16 @@ ACS_TEST(Memory, SystemAllocatorRoundtrips)
     EXPECT_EQ(a.AllocationCount(), 0ull);
 
     // 基底インターフェイスからも件数を取得できること。
-    FAllocator& AllocatorReference = a;
+    IAllocator& AllocatorReference = a;
     EXPECT_EQ(AllocatorReference.AllocationCount(), 0ull);
 }
 
 ACS_TEST(Memory, DefaultAllocatorPublicationIsThreadSafe)
 {
     constexpr u32 kWorkerCount = 8u;
-    FAllocator* const Original = &DefaultAllocator();
-    FSystemAllocator First;
-    FSystemAllocator Second;
+    IAllocator* const Original = &DefaultAllocator();
+    CSystemAllocator First;
+    CSystemAllocator Second;
     FDefaultAllocatorPublicationContext Context{};
     Context.First = &First;
     Context.Second = &Second;
@@ -203,12 +203,12 @@ ACS_TEST(Memory, DefaultAllocatorPublicationIsThreadSafe)
 
 ACS_TEST(Memory, SystemAllocatorProcessStatisticsTrackLiveInstances)
 {
-    const FSystemAllocatorProcessStatistics Baseline = FSystemAllocator::CaptureProcessStatistics();
+    const FSystemAllocatorProcessStatistics Baseline = CSystemAllocator::CaptureProcessStatistics();
 
     {
-        FSystemAllocator FirstAllocator;
-        FSystemAllocator SecondAllocator;
-        FSystemAllocatorProcessStatistics Statistics = FSystemAllocator::CaptureProcessStatistics();
+        CSystemAllocator FirstAllocator;
+        CSystemAllocator SecondAllocator;
+        FSystemAllocatorProcessStatistics Statistics = CSystemAllocator::CaptureProcessStatistics();
         EXPECT_EQ(Statistics.live_allocator_count, Baseline.live_allocator_count + 2u);
         EXPECT_EQ(Statistics.outstanding_bytes, Baseline.outstanding_bytes);
         EXPECT_EQ(Statistics.outstanding_allocation_count, Baseline.outstanding_allocation_count);
@@ -218,27 +218,27 @@ ACS_TEST(Memory, SystemAllocatorProcessStatisticsTrackLiveInstances)
         EXPECT_TRUE(FirstAllocation != nullptr);
         EXPECT_TRUE(SecondAllocation != nullptr);
 
-        Statistics = FSystemAllocator::CaptureProcessStatistics();
+        Statistics = CSystemAllocator::CaptureProcessStatistics();
         EXPECT_EQ(Statistics.outstanding_bytes,
                   Baseline.outstanding_bytes + FirstAllocator.BytesAllocated() + SecondAllocator.BytesAllocated());
         EXPECT_EQ(Statistics.outstanding_allocation_count, Baseline.outstanding_allocation_count + 2u);
 
         FirstAllocator.Free(FirstAllocation);
         SecondAllocator.Free(SecondAllocation);
-        Statistics = FSystemAllocator::CaptureProcessStatistics();
+        Statistics = CSystemAllocator::CaptureProcessStatistics();
         EXPECT_EQ(Statistics.outstanding_bytes, Baseline.outstanding_bytes);
         EXPECT_EQ(Statistics.outstanding_allocation_count, Baseline.outstanding_allocation_count);
     }
 
-    const FSystemAllocatorProcessStatistics After = FSystemAllocator::CaptureProcessStatistics();
+    const FSystemAllocatorProcessStatistics After = CSystemAllocator::CaptureProcessStatistics();
     EXPECT_EQ(After.live_allocator_count, Baseline.live_allocator_count);
     EXPECT_EQ(After.destroyed_with_live_allocations_count, Baseline.destroyed_with_live_allocations_count);
 }
 
 ACS_TEST(Memory, SystemAllocatorRejectsCrossInstanceFree)
 {
-    FSystemAllocator FirstAllocator;
-    FSystemAllocator SecondAllocator;
+    CSystemAllocator FirstAllocator;
+    CSystemAllocator SecondAllocator;
     void* const Allocation = FirstAllocator.Alloc(256u, 64u, FSourceLoc::Current());
     EXPECT_TRUE(Allocation != nullptr);
     if (!Allocation) {
@@ -259,8 +259,8 @@ ACS_TEST(Memory, SystemAllocatorRejectsCrossInstanceFree)
 
 ACS_TEST(Memory, SystemAllocatorRejectsCrossInstanceReallocation)
 {
-    FSystemAllocator FirstAllocator;
-    FSystemAllocator SecondAllocator;
+    CSystemAllocator FirstAllocator;
+    CSystemAllocator SecondAllocator;
     auto* const Allocation = static_cast<u8*>(FirstAllocator.Alloc(64u, 16u, FSourceLoc::Current()));
     EXPECT_TRUE(Allocation != nullptr);
     if (!Allocation) {
@@ -348,7 +348,7 @@ ACS_TEST(Memory, SystemAllocatorRejectsAllocationFromPreviousGenerationAtSameAdd
 
 ACS_TEST(Memory, SystemAllocatorReallocationUsesRecordedRequestSize)
 {
-    FSystemAllocator Allocator;
+    CSystemAllocator Allocator;
     auto* Allocation = static_cast<u8*>(Allocator.Alloc(32u, 16u, FSourceLoc::Current()));
     EXPECT_TRUE(Allocation != nullptr);
     if (!Allocation) {
@@ -393,7 +393,7 @@ ACS_TEST(Memory, SystemAllocatorReallocationUsesRecordedRequestSize)
 
 ACS_TEST(Memory, SystemAllocatorReallocationFailurePreservesOriginalAllocation)
 {
-    FSystemAllocator Allocator;
+    CSystemAllocator Allocator;
     auto* Allocation = static_cast<u8*>(Allocator.Alloc(64u, 16u, FSourceLoc::Current()));
     EXPECT_TRUE(Allocation != nullptr);
     if (!Allocation) {
@@ -423,7 +423,7 @@ ACS_TEST(Memory, SystemAllocatorReallocationFailurePreservesOriginalAllocation)
 
 ACS_TEST(Memory, SystemAllocatorReportsDestructionWithLiveAllocations)
 {
-    const FSystemAllocatorProcessStatistics Baseline = FSystemAllocator::CaptureProcessStatistics();
+    const FSystemAllocatorProcessStatistics Baseline = CSystemAllocator::CaptureProcessStatistics();
 
     SECURITY_ATTRIBUTES PipeAttributes{};
     PipeAttributes.nLength = sizeof(PipeAttributes);
@@ -524,7 +524,7 @@ ACS_TEST(Memory, SystemAllocatorReportsDestructionWithLiveAllocations)
     EXPECT_TRUE(Contains(Diagnostic, "outstanding_allocations=1"));
 
     // 未解放破棄は子プロセスだけで起こしたため、親の履歴は汚染されない。
-    const FSystemAllocatorProcessStatistics After = FSystemAllocator::CaptureProcessStatistics();
+    const FSystemAllocatorProcessStatistics After = CSystemAllocator::CaptureProcessStatistics();
     EXPECT_EQ(After.live_allocator_count, Baseline.live_allocator_count);
     EXPECT_EQ(After.destroyed_with_live_allocations_count, Baseline.destroyed_with_live_allocations_count);
     EXPECT_EQ(After.destroyed_outstanding_bytes, Baseline.destroyed_outstanding_bytes);
@@ -533,7 +533,7 @@ ACS_TEST(Memory, SystemAllocatorReportsDestructionWithLiveAllocations)
 
 ACS_TEST(Memory, LinearAllocatorBumps)
 {
-    FLinearAllocator la(4096);
+    CLinearAllocator la(4096);
     EXPECT_EQ(la.AllocationCount(), 0ull);
     void* a = la.Alloc(64, 8, FSourceLoc::Current());
     void* b = la.Alloc(64, 8, FSourceLoc::Current());
@@ -552,7 +552,7 @@ ACS_TEST(Memory, LinearAllocatorBumps)
 
 ACS_TEST(Memory, LinearAllocatorRejectsOverflowAndInvalidAlignment)
 {
-    FLinearAllocator Allocator(4096u);
+    CLinearAllocator Allocator(4096u);
     void* const First = Allocator.Alloc(1u, 1u, FSourceLoc::Current());
     EXPECT_TRUE(First != nullptr);
     EXPECT_TRUE(Allocator.Alloc(~usize(0), 1u, FSourceLoc::Current()) == nullptr);
@@ -564,7 +564,7 @@ ACS_TEST(Memory, LinearAllocatorRejectsOverflowAndInvalidAlignment)
 
 ACS_TEST(Memory, PoolAllocatorReusesSlots)
 {
-    FPoolAllocator p(64, 16);
+    CPoolAllocator p(64, 16);
     EXPECT_EQ(p.AllocationCount(), 0ull);
     void* a = p.Alloc(64, 8, FSourceLoc::Current());
     void* b = p.Alloc(64, 8, FSourceLoc::Current());
@@ -583,7 +583,7 @@ ACS_TEST(Memory, PoolAllocatorReusesSlots)
 
 ACS_TEST(Memory, PoolAllocatorRejectsInvalidAndDuplicateFree)
 {
-    FPoolAllocator Pool(64u, 4u);
+    CPoolAllocator Pool(64u, 4u);
     void* const First = Pool.Alloc(64u, 8u, FSourceLoc::Current());
     EXPECT_TRUE(First != nullptr);
     EXPECT_EQ(Pool.AllocationCount(), 1ull);
@@ -619,11 +619,11 @@ ACS_TEST(Memory, PoolAllocatorConcurrentAllocAndFreeRemainBalanced)
 {
     constexpr usize kThreadCount = 8u;
     constexpr usize kOperationCount = 20000u;
-    FPoolAllocator Pool(64u, 32u);
+    CPoolAllocator Pool(64u, 32u);
     TAtomic<u32> FailureCount{0u};
 
     struct FContext {
-        FPoolAllocator* Pool = nullptr;
+        CPoolAllocator* Pool = nullptr;
         TAtomic<u32>* FailureCount = nullptr;
     } Contexts[kThreadCount] = {};
     FThread Threads[kThreadCount];
@@ -664,7 +664,7 @@ ACS_TEST(Memory, PoolAllocatorConcurrentAllocAndFreeRemainBalanced)
 ACS_TEST(Memory, PoolAllocatorBatchReducesLockingAndRejectsBadEntries)
 {
     // 64 byte alignment の 8 ブロックプール。
-    FPoolAllocator Pool(48u, 8u, 64u);
+    CPoolAllocator Pool(48u, 8u, 64u);
     // 枯渇後の未取得分も含む出力領域。
     void* Allocations[10] = {};
     // バッチ確保前のロック回数。
@@ -755,14 +755,14 @@ ACS_TEST(Memory, PoolAllocatorBatchConcurrencyRemainsBalanced)
     // 1 回に取得するブロック数。
     constexpr usize kBatchSize = 4u;
     // 全 worker が共有するプール。
-    FPoolAllocator Pool(64u, 64u);
+    CPoolAllocator Pool(64u, 64u);
     // spawn または返却失敗の件数。
     TAtomic<u32> FailureCount{0u};
 
     /** worker が参照する共有状態。 */
     struct FContext {
         /** 共有プール。 */
-        FPoolAllocator* Pool = nullptr;
+        CPoolAllocator* Pool = nullptr;
 
         /** 失敗件数の共有出力先。 */
         TAtomic<u32>* FailureCount = nullptr;
@@ -817,7 +817,7 @@ ACS_TEST(Memory, PoolAllocatorBatchConcurrencyRemainsBalanced)
 
 ACS_TEST(Memory, ArenaGrows)
 {
-    FArenaAllocator ar(1024);
+    CArenaAllocator ar(1024);
     EXPECT_EQ(ar.AllocationCount(), 0ull);
     void* a = ar.Alloc(800, 16, FSourceLoc::Current());
     void* b = ar.Alloc(800, 16, FSourceLoc::Current()); // forces new page
@@ -835,8 +835,8 @@ ACS_TEST(Memory, ArenaGrows)
 
 ACS_TEST(Memory, ArenaResetReusesEveryRetainedPage)
 {
-    FSystemAllocator Backing;
-    FArenaAllocator Arena(256u, &Backing);
+    CSystemAllocator Backing;
+    CArenaAllocator Arena(256u, &Backing);
 
     for (usize Cycle = 0u; Cycle < 64u; ++Cycle) {
         EXPECT_TRUE(Arena.Alloc(200u, 16u, FSourceLoc::Current()) != nullptr);
@@ -852,7 +852,7 @@ ACS_TEST(Memory, ArenaResetReusesEveryRetainedPage)
 
 ACS_TEST(Memory, ArenaLargeAlignmentIsBounded)
 {
-    FArenaAllocator Arena(64);
+    CArenaAllocator Arena(64);
 
     void* const AlignedAllocation = Arena.Alloc(16, 4096, FSourceLoc::Current());
     EXPECT_TRUE(AlignedAllocation != nullptr);
@@ -869,11 +869,11 @@ ACS_TEST(Memory, ArenaResetWaitsForActiveAllocationAndRejectsNewAllocation)
 {
     constexpr usize kPageSize = 1u * 1024u * 1024u;
     FBlockingArenaBacking Backing;
-    FArenaAllocator Arena(kPageSize, &Backing);
+    CArenaAllocator Arena(kPageSize, &Backing);
     EXPECT_TRUE(Arena.Alloc(64u, 16u, FSourceLoc::Current()) != nullptr);
 
     struct FContext {
-        FArenaAllocator* allocator = nullptr;
+        CArenaAllocator* allocator = nullptr;
         void* allocation = nullptr;
         TAtomic<u32> reset_started{0};
         TAtomic<u32> reset_finished{0};

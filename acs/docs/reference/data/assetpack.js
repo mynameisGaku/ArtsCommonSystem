@@ -205,7 +205,7 @@ ACS_REF.modules.push({
     {
       name: ".acpak エラー subcode (format)",
       kind: "定数群", header: "assetpack/AcpakFormat.h",
-      summary: "<code>.acpak</code> の Reader/Writer が <code>ACS_ERR(IO,...)</code> / <code>ACS_ERR(Asset,...)</code> で返す<b>エラー<t>subcode</t></b>(1301〜1318)。TSaveSlot(1-99)・Steamworks/Workshop(1001-1199)・<code>FAssetPackReaderStub</code>/<code>FAssetPackWriterStub</code>(1200 番台)と重ならないよう <b>1300 番台</b>を使う。",
+      summary: "<code>.acpak</code> の Reader/Writer が <code>ACS_ERR(IO,...)</code> / <code>ACS_ERR(Asset,...)</code> で返す<b>エラー<t>subcode</t></b>(1301〜1318)。TSaveSlot(1-99)・Steamworks/Workshop(1001-1199)・<code>CAssetPackReaderStub</code>/<code>CAssetPackWriterStub</code>(1200 番台)と重ならないよう <b>1300 番台</b>を使う。",
       when: "Open / ReadFile / Finalize の戻り <t>Result</t> が失敗した時、<code>error.subcode</code> でどの段階の失敗かを判別する時。",
       sample: "auto r = reader.Open(L\"game.acpak\");\nif (r.IsErr() &amp;&amp; r.Error().subcode == kAcpakSubBadMagic) {\n    // .acpak ではないファイル\n}",
       members: [

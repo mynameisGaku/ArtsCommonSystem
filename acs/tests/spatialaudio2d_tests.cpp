@@ -2,8 +2,8 @@
 // =============================================================================
 // gameframework/SpatialAudio2D.h の検証:
 //   2D 平面向け空間化ヘルパ (純数学) — 距離 / 距離減衰 / 左右パン / 等パワーゲイン、
-//   および FSpatialAudio2D マネージャ (listener 1 + source N) を確認する。
-//   距離減衰式は 3D FSpatialAudio と同一なので代表点で値一致を検証する。
+//   および CSpatialAudio2D マネージャ (listener 1 + source N) を確認する。
+//   距離減衰式は 3D CSpatialAudio と同一なので代表点で値一致を検証する。
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -104,9 +104,9 @@ ACS_TEST(SpatialAudio2D, ConstantPowerStereo) {
     EXPECT_NEAR(r, 1.0f, 1e-4f);
 }
 
-// --- FSpatialAudio2D マネージャ: 登録 → 取得 → 削除 ---
+// --- CSpatialAudio2D マネージャ: 登録 → 取得 → 削除 ---
 ACS_TEST(SpatialAudio2D, ManagerRegisterComputeRemove) {
-    FSpatialAudio2D spatial;
+    CSpatialAudio2D spatial;
     spatial.SetListener({{0, 0}, 0.0f});   // 原点・東向き
 
     const u32 a = spatial.RegisterSource({10, 0}, 20.0f, EAttenuationCurve::Linear);
@@ -139,9 +139,9 @@ ACS_TEST(SpatialAudio2D, ManagerRegisterComputeRemove) {
     EXPECT_EQ(spatial.SourceCount(), 0u);
 }
 
-// --- FSpatialAudio2D: inactive / stale ID は 0 ---
+// --- CSpatialAudio2D: inactive / stale ID は 0 ---
 ACS_TEST(SpatialAudio2D, ManagerStaleAndInactive) {
-    FSpatialAudio2D spatial;
+    CSpatialAudio2D spatial;
     spatial.SetListener({{0, 0}, 0.0f});
     // 未登録 ID は 0。
     EXPECT_NEAR(spatial.ComputeAttenuatedVolume(999u), 0.0f, 1e-4f);

@@ -304,7 +304,7 @@ FAudioVoiceHandle PlayInternal(CXAudio2Backend::FImpl& Implementation,
     if (!FillWaveFormat(Clip, WaveFormat) ||
         (Clip.pcm_size % static_cast<u64>(WaveFormat.nBlockAlign)) != 0u)
     {
-        ACS_LOG_WARN("FXAudio2Backend::Play: invalid clip (channels=%u, rate=%u, format=%u, bytes=%llu)",
+        ACS_LOG_WARN("CXAudio2Backend::Play: invalid clip (channels=%u, rate=%u, format=%u, bytes=%llu)",
                      Clip.channel_count,
                      Clip.sample_rate,
                      static_cast<u32>(Clip.format),
@@ -323,7 +323,7 @@ FAudioVoiceHandle PlayInternal(CXAudio2Backend::FImpl& Implementation,
     }
     if (SlotIndex == Implementation.MaxVoices)
     {
-        ACS_LOG_WARN("FXAudio2Backend::Play: voice pool full (max_voices=%u)",
+        ACS_LOG_WARN("CXAudio2Backend::Play: voice pool full (max_voices=%u)",
                      Implementation.MaxVoices);
         return kInvalidAudioVoice;
     }
@@ -331,7 +331,7 @@ FAudioVoiceHandle PlayInternal(CXAudio2Backend::FImpl& Implementation,
     const FAudioVoiceHandle Handle = AcquireAudioVoiceHandle();
     if (!Handle.IsValid())
     {
-        ACS_LOG_ERROR("FXAudio2Backend::Play: 32-bit voice handle space exhausted");
+        ACS_LOG_ERROR("CXAudio2Backend::Play: 32-bit voice handle space exhausted");
         return kInvalidAudioVoice;
     }
 
@@ -344,7 +344,7 @@ FAudioVoiceHandle PlayInternal(CXAudio2Backend::FImpl& Implementation,
         {
             SourceVoice->DestroyVoice();
         }
-        ACS_LOG_WARN("FXAudio2Backend::Play: CreateSourceVoice failed hr=0x%08x",
+        ACS_LOG_WARN("CXAudio2Backend::Play: CreateSourceVoice failed hr=0x%08x",
                      static_cast<u32>(Result));
         return kInvalidAudioVoice;
     }
@@ -354,7 +354,7 @@ FAudioVoiceHandle PlayInternal(CXAudio2Backend::FImpl& Implementation,
             kXAudio2BackendResidentBufferBudgetBytes - Implementation.ResidentBufferBytes)
     {
         SourceVoice->DestroyVoice();
-        ACS_LOG_WARN("FXAudio2Backend::Play: resident PCM budget exceeded "
+        ACS_LOG_WARN("CXAudio2Backend::Play: resident PCM budget exceeded "
                      "(requested=%llu, resident=%llu, budget=%llu)",
                      static_cast<unsigned long long>(Clip.pcm_size),
                      static_cast<unsigned long long>(Implementation.ResidentBufferBytes),
@@ -367,7 +367,7 @@ FAudioVoiceHandle PlayInternal(CXAudio2Backend::FImpl& Implementation,
     {
         SourceVoice->DestroyVoice();
         Slot.Buffer.ReleaseStorage();
-        ACS_LOG_WARN("FXAudio2Backend::Play: PCM copy allocation failed (bytes=%llu)",
+        ACS_LOG_WARN("CXAudio2Backend::Play: PCM copy allocation failed (bytes=%llu)",
                      static_cast<unsigned long long>(Clip.pcm_size));
         return kInvalidAudioVoice;
     }
@@ -377,7 +377,7 @@ FAudioVoiceHandle PlayInternal(CXAudio2Backend::FImpl& Implementation,
     {
         SourceVoice->DestroyVoice();
         Slot.Buffer.ReleaseStorage();
-        ACS_LOG_WARN("FXAudio2Backend::Play: allocated PCM capacity exceeds resident budget");
+        ACS_LOG_WARN("CXAudio2Backend::Play: allocated PCM capacity exceeds resident budget");
         return kInvalidAudioVoice;
     }
     MemCopy(Slot.Buffer.Data(), Clip.pcm_data, ByteCount);
@@ -393,7 +393,7 @@ FAudioVoiceHandle PlayInternal(CXAudio2Backend::FImpl& Implementation,
     {
         SourceVoice->DestroyVoice();
         Slot.Buffer.ReleaseStorage();
-        ACS_LOG_WARN("FXAudio2Backend::Play: SubmitSourceBuffer failed hr=0x%08x",
+        ACS_LOG_WARN("CXAudio2Backend::Play: SubmitSourceBuffer failed hr=0x%08x",
                      static_cast<u32>(Result));
         return kInvalidAudioVoice;
     }
@@ -405,7 +405,7 @@ FAudioVoiceHandle PlayInternal(CXAudio2Backend::FImpl& Implementation,
     {
         SourceVoice->DestroyVoice();
         Slot.Buffer.ReleaseStorage();
-        ACS_LOG_WARN("FXAudio2Backend::Play: Start failed hr=0x%08x",
+        ACS_LOG_WARN("CXAudio2Backend::Play: Start failed hr=0x%08x",
                      static_cast<u32>(Result));
         return kInvalidAudioVoice;
     }
@@ -439,31 +439,31 @@ TResult<void> CXAudio2Backend::Init(u32 MaxVoices) noexcept
     if (IsShutdownRequested())
     {
         return ACS_ERR(Generic, kSubAudioNotInitialized,
-                       "FXAudio2Backend::Init: shutdown is in progress");
+                       "CXAudio2Backend::Init: shutdown is in progress");
     }
     if (MaxVoices == 0u || MaxVoices > kXAudio2BackendMaximumVoiceCount)
     {
         return ACS_ERR(Generic, kSubAudioInvalidArgs,
-                       "FXAudio2Backend::Init: MaxVoices exceeds the supported range");
+                       "CXAudio2Backend::Init: MaxVoices exceeds the supported range");
     }
 
     FScopedExclusiveLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return ACS_ERR(Generic, kSubAudioNotInitialized,
-                       "FXAudio2Backend::Init: shutdown is in progress");
+                       "CXAudio2Backend::Init: shutdown is in progress");
     }
     if (m_Impl != nullptr)
     {
         return ACS_ERR(Generic, kSubAudioAlreadyInitialized,
-                       "FXAudio2Backend::Init: already initialized");
+                       "CXAudio2Backend::Init: already initialized");
     }
 
     m_Impl = new (std::nothrow) FImpl();
     if (m_Impl == nullptr)
     {
         return ACS_ERR(Memory, kSubAudioOutOfMemory,
-                       "FXAudio2Backend::Init: state allocation failed");
+                       "CXAudio2Backend::Init: state allocation failed");
     }
 
     HRESULT Result = ::CoIncrementMTAUsage(&m_Impl->MtaUsageCookie);
@@ -471,7 +471,7 @@ TResult<void> CXAudio2Backend::Init(u32 MaxVoices) noexcept
     {
         ShutdownUnlocked();
         return ACS_ERR_OS(Generic, kSubAudioComInitFailed,
-                          "FXAudio2Backend::Init: CoIncrementMTAUsage failed",
+                          "CXAudio2Backend::Init: CoIncrementMTAUsage failed",
                           static_cast<u32>(Result));
     }
     m_Impl->bMtaUsageAcquired = true;
@@ -481,7 +481,7 @@ TResult<void> CXAudio2Backend::Init(u32 MaxVoices) noexcept
     {
         ShutdownUnlocked();
         return ACS_ERR_OS(Generic, kSubAudioCreateFailed,
-                          "FXAudio2Backend::Init: XAudio2Create failed",
+                          "CXAudio2Backend::Init: XAudio2Create failed",
                           static_cast<u32>(Result));
     }
 
@@ -490,7 +490,7 @@ TResult<void> CXAudio2Backend::Init(u32 MaxVoices) noexcept
     {
         ShutdownUnlocked();
         return ACS_ERR_OS(Generic, kSubAudioMasterVoiceFailed,
-                          "FXAudio2Backend::Init: CreateMasteringVoice failed",
+                          "CXAudio2Backend::Init: CreateMasteringVoice failed",
                           static_cast<u32>(Result));
     }
 
@@ -498,11 +498,11 @@ TResult<void> CXAudio2Backend::Init(u32 MaxVoices) noexcept
     {
         ShutdownUnlocked();
         return ACS_ERR(Memory, kSubAudioOutOfMemory,
-                       "FXAudio2Backend::Init: voice pool allocation failed");
+                       "CXAudio2Backend::Init: voice pool allocation failed");
     }
     m_Impl->MaxVoices = MaxVoices;
     m_Impl->bInitialized = true;
-    ACS_LOG_INFO("FXAudio2Backend: initialized (max_voices=%u)", MaxVoices);
+    ACS_LOG_INFO("CXAudio2Backend: initialized (max_voices=%u)", MaxVoices);
     return Ok();
 }
 
@@ -550,9 +550,9 @@ void CXAudio2Backend::ShutdownUnlocked() noexcept
 #endif
             if (FAILED(Result))
             {
-                ACS_LOG_ERROR("FXAudio2Backend::Shutdown: CoDecrementMTAUsage failed (hr=0x%08lx)",
+                ACS_LOG_ERROR("CXAudio2Backend::Shutdown: CoDecrementMTAUsage failed (hr=0x%08lx)",
                               static_cast<unsigned long>(Result));
-                ACS_ASSERT(false && "FXAudio2Backend MTA usage release failed");
+                ACS_ASSERT(false && "CXAudio2Backend MTA usage release failed");
             }
             Implementation->MtaUsageCookie = nullptr;
             Implementation->bMtaUsageAcquired = false;
@@ -806,25 +806,25 @@ TResult<void> CXAudio2Backend::InitializeLifecycleTestState() noexcept
     if (IsShutdownRequested())
     {
         return ACS_ERR(Generic, kSubAudioNotInitialized,
-                       "FXAudio2Backend test shutdown is in progress");
+                       "CXAudio2Backend test shutdown is in progress");
     }
     FScopedExclusiveLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return ACS_ERR(Generic, kSubAudioNotInitialized,
-                       "FXAudio2Backend test shutdown is in progress");
+                       "CXAudio2Backend test shutdown is in progress");
     }
     if (m_Impl != nullptr)
     {
         return ACS_ERR(Generic, kSubAudioAlreadyInitialized,
-                       "FXAudio2Backend test state already initialized");
+                       "CXAudio2Backend test state already initialized");
     }
 
     m_Impl = new (std::nothrow) FImpl();
     if (m_Impl == nullptr)
     {
         return ACS_ERR(Memory, kSubAudioOutOfMemory,
-                       "FXAudio2Backend test state allocation failed");
+                       "CXAudio2Backend test state allocation failed");
     }
     m_Impl->bMtaUsageAcquired = true;
     m_Impl->bTestMtaUsage = true;

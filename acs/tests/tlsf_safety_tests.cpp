@@ -9,7 +9,7 @@ using namespace acs;
 ACS_TEST(MemSystem, TlsfValidationRejectsOverflowingBlockSize)
 {
     alignas(tlsf::ALIGN_SIZE) u8 Storage[4096] = {};
-    FTlsfAllocator Allocator;
+    CTlsfAllocator Allocator;
     EXPECT_TRUE(Allocator.Init(Storage, sizeof(Storage)).IsOk());
 
     void* const Allocation = Allocator.Alloc(128u, tlsf::ALIGN_SIZE, FSourceLoc::Current());
@@ -34,7 +34,7 @@ ACS_TEST(MemSystem, TlsfValidationRejectsOverflowingBlockSize)
 ACS_TEST(MemSystem, TlsfReallocationClampsUntrustedOldSizeToPayloadCapacity)
 {
     alignas(tlsf::ALIGN_SIZE) u8 Storage[8192] = {};
-    FTlsfAllocator Allocator;
+    CTlsfAllocator Allocator;
     EXPECT_TRUE(Allocator.Init(Storage, sizeof(Storage)).IsOk());
 
     auto* const Allocation = static_cast<u8*>(Allocator.Alloc(17u, tlsf::ALIGN_SIZE, FSourceLoc::Current()));
@@ -47,7 +47,7 @@ ACS_TEST(MemSystem, TlsfReallocationClampsUntrustedOldSizeToPayloadCapacity)
     EXPECT_TRUE(ReallocationTarget != nullptr);
     if (!Allocation || !BlockingAllocation || !ReallocationTarget) return;
 
-    EXPECT_EQ(FTlsfAllocator::PayloadCapacity(Allocation), 32u);
+    EXPECT_EQ(CTlsfAllocator::PayloadCapacity(Allocation), 32u);
     for (usize Index = 0u; Index < 17u; ++Index) Allocation[Index] = static_cast<u8>(Index ^ 0x5au);
     for (usize Index = 0u; Index < 256u; ++Index) BlockingAllocation[Index] = 0xa5u;
     for (usize Index = 0u; Index < 512u; ++Index) ReallocationTarget[Index] = 0x11u;

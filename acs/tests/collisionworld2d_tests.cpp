@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FCollisionWorld2D (Pillar F) の動作確認テスト — 特に巨大 extent の退避経路
+// CCollisionWorld2D (Pillar F) の動作確認テスト — 特に巨大 extent の退避経路
 //
 // 巨大 (1e30 級) の形状 / クエリはセル範囲が i32 全域にクランプされ、修正前は
 // セル二重ループが事実上終わらなかった (フリーズ)。修正後は形状側が
@@ -26,7 +26,7 @@ bool Contains(const TArray<FShapeId>& out, FShapeId id) noexcept
 } // namespace
 
 ACS_TEST(CollisionWorld2D, BasicOverlapAndRemove) {
-    FCollisionWorld2D w;
+    CCollisionWorld2D w;
     w.Init(64.0f);
     const FShapeId box  = w.AddAabb(FAabb2{ {100, 0}, {16, 16} });
     const FShapeId ball = w.AddCircle(FCircle{ {0, 0}, 16.0f });
@@ -43,7 +43,7 @@ ACS_TEST(CollisionWorld2D, BasicOverlapAndRemove) {
 }
 
 ACS_TEST(CollisionWorld2D, HugeShapeGoesToOverflowListAndIsStillFound) {
-    FCollisionWorld2D w;
+    CCollisionWorld2D w;
     w.Init(64.0f);
     // セル範囲が i32 全域にクランプされる巨大 AABB。修正前はグリッド挿入の
     // 二重ループが終わらずここでフリーズしていた。
@@ -69,7 +69,7 @@ ACS_TEST(CollisionWorld2D, HugeShapeGoesToOverflowListAndIsStillFound) {
 }
 
 ACS_TEST(CollisionWorld2D, HugeQueryFallsBackToLinearScan) {
-    FCollisionWorld2D w;
+    CCollisionWorld2D w;
     w.Init(64.0f);
     const FShapeId a = w.AddAabb(FAabb2{ { 1000,  1000}, {8, 8} });
     const FShapeId b = w.AddAabb(FAabb2{ {-1000, -1000}, {8, 8} });

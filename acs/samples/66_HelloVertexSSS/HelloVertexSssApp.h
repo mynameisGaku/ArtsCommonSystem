@@ -2,7 +2,7 @@
 // HelloVertexSSS — 頂点空間サブサーフェススキャタリング (Vertex-Space SSS) のデモ。
 // 同じ肌色の球を 2 つ並べ、左 = 生 Lambert (無散乱) / 右 = 頂点空間 SSS で照明する。
 // 右側は terminator (明暗境界) を赤い光が回り込んで «にじむ» = 皮膚らしい内部散乱。
-// 散乱は FVertexScatter (メッシュ隣接グラフ上の RGB 別熱拡散) で CPU 計算し、
+// 散乱は CVertexScatter (メッシュ隣接グラフ上の RGB 別熱拡散) で CPU 計算し、
 // per-vertex の散乱後放射照度を動的頂点バッファに毎フレーム書き込んで描画する。
 #pragma once
 
@@ -30,7 +30,7 @@ struct FVtxSss {
     acs::f32 sr, sg, sb;
 };
 
-class FHelloVertexSssApp : public acs::FApplication {
+class CHelloVertexSssApp : public acs::CApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -39,11 +39,11 @@ public:
 
 private:
     // light 方向から per-vertex の散乱後放射照度を計算し dst (動的 VB) を更新する。
-    // scatter=true で FVertexScatter を通し (右球)、false で生 Lambert (左球)。
+    // scatter=true で CVertexScatter を通し (右球)、false で生 Lambert (左球)。
     void UpdateSphere(acs::IRhiBuffer* vb, acs::FVec3 lightDir, bool scatter) noexcept;
 
-    acs::TSharedPtr<acs::FMeshAsset> m_Sphere;   // CPU メッシュ (位置/法線/インデックス)
-    acs::FVertexScatter              m_Scatter;  // 頂点空間拡散演算子
+    acs::TSharedPtr<acs::AMeshAsset> m_Sphere;   // CPU メッシュ (位置/法線/インデックス)
+    acs::CVertexScatter              m_Scatter;  // 頂点空間拡散演算子
     acs::TArray<FVtxSss>              m_CpuVtx;   // 毎フレーム書き換える頂点ステージ
     acs::TArray<acs::FVec3>          m_Irr;      // per-vertex 入力放射照度 (work)
     acs::TArray<acs::FVec3>          m_IrrOut;   // 散乱後 (work)
@@ -58,7 +58,7 @@ private:
     acs::TUniquePtr<acs::IRhiBuffer>   m_ObjCbR;   // b1: model (右)
     acs::u32                          m_IndexCount = 0;
 
-    acs::FSpriteBatch m_Batch;
+    acs::CSpriteBatch m_Batch;
     acs::FFont        m_Font;
     acs::CCamera      m_Camera;
     acs::f32         m_Time = 0.0f;

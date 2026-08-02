@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — FHitEffects モジュール。
-// FParticleEffectSystem + FEffectSystem (shake / flash) + 単一 burst emitter。
+// HelloFullGame — CHitEffects モジュール。
+// CParticleEffectSystem + CEffectSystem (shake / flash) + 単一 burst emitter。
 // プレイヤー被弾 / 敵被弾の 2 経路で異なる演出を出す。
 #pragma once
 
@@ -8,40 +8,40 @@
 #include "GameTypes.h"
 #include "math/Vec.h"
 
-namespace acs { class FSpriteBatch; }
+namespace acs { class CSpriteBatch; }
 
 namespace hellofg {
 
-class FGameplayScene;
+class AGameplayScene;
 
-class FHitEffects {
+class CHitEffects {
 public:
     // OnEnter で呼ぶ。emitter 1 個を非アクティブで作る (Burst でだけ吹く)。
-    void Init(acs::game::FParticleEffectSystem& particles) noexcept;
+    void Init(acs::game::CParticleEffectSystem& particles) noexcept;
 
     // OnExit で呼ぶ。ClearAll。
-    void Shutdown(acs::game::FParticleEffectSystem& particles) noexcept;
+    void Shutdown(acs::game::CParticleEffectSystem& particles) noexcept;
 
-    // tick: 自前の FEffectSystem を進めて、camera にシェイクを流す。
-    void Tick(FGameplayScene& scene, acs::f32 dt) noexcept;
+    // tick: 自前の CEffectSystem を進めて、camera にシェイクを流す。
+    void Tick(AGameplayScene& scene, acs::f32 dt) noexcept;
 
     // プレイヤーが敵に触れたときの強めシェイク + パーティクル。
-    void TriggerPlayerHurt(FGameplayScene& scene, acs::FVec2 pos) noexcept;
+    void TriggerPlayerHurt(AGameplayScene& scene, acs::FVec2 pos) noexcept;
 
     // 敵への弾命中。柔らかいシェイク + 黄色フラッシュ + パーティクル + SFX。
-    void TriggerEnemyHit(FGameplayScene& scene, acs::FVec2 pos) noexcept;
+    void TriggerEnemyHit(AGameplayScene& scene, acs::FVec2 pos) noexcept;
 
     // 描画 (world layer)。パーティクル群をパティクルライフ進行に応じて減衰描画。
-    void DrawParticles(const acs::game::FParticleEffectSystem& particles,
-                       acs::FSpriteBatch& sb) const noexcept;
+    void DrawParticles(const acs::game::CParticleEffectSystem& particles,
+                       acs::CSpriteBatch& sb) const noexcept;
 
     // HUD 描画で使う: 直近 flash の色と強度。
-    acs::game::FEffectSystem&       Fx()       noexcept { return m_Fx; }
-    const acs::game::FEffectSystem& Fx() const noexcept { return m_Fx; }
+    acs::game::CEffectSystem&       Fx()       noexcept { return m_Fx; }
+    const acs::game::CEffectSystem& Fx() const noexcept { return m_Fx; }
 
 private:
     acs::game::FEmitterHandle  m_HitEmitter {};
-    acs::game::FEffectSystem   m_Fx;
+    acs::game::CEffectSystem   m_Fx;
 };
 
 } // namespace hellofg

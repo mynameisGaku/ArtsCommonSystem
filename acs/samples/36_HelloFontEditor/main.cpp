@@ -2,11 +2,11 @@
 // HelloFontEditor — エントリポイント。
 //
 // 構成:
-//   FontEditorApp.{h,cpp}   - FGame 派生クラス (ImGui lifecycle ラッパ)
-//   FontEditorScene.{h,cpp} - Workspace + FFontEditorPanel + 初期 3 face 登録
+//   FontEditorApp.{h,cpp}   - CGame 派生クラス (ImGui lifecycle ラッパ)
+//   FontEditorScene.{h,cpp} - Workspace + AFontEditorPanel + 初期 3 face 登録
 //
 // 動作:
-//   ・editor_core の FEditorWorkspace を 1 個立てて、fontedit::FFontEditorPanel を
+//   ・editor_core の CEditorWorkspace を 1 個立てて、fontedit::AFontEditorPanel を
 //     register する。
 //   ・起動時に 3 face を fallback chain に初期登録:
 //       [00] "Noto Sans JP"   : 日本語/英数共通プライマリ (path は stub)
@@ -19,8 +19,8 @@
 //
 // 必須バックエンド: ACS_RENDER_DX12_RAW (ImGuiCtx が DX12 raw backend 経由のため)。
 //
-// ACS_GAME_MAIN は FontEditorApp を main エントリに登録 (FApplication 派生 →
+// ACS_GAME_MAIN は FontEditorApp を main エントリに登録 (CApplication 派生 →
 // `int WINAPI WinMain` / `int main` 両方の通常 main を裏で生成)。
 #include "FontEditorApp.h"
 
-ACS_GAME_MAIN(hellofont::FFontEditorApp)
+ACS_GAME_MAIN(hellofont::CFontEditorApp)

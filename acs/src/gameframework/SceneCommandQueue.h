@@ -15,7 +15,7 @@
 //
 //       void OnUpdate(f32 dt) noexcept override {
 //           // 走査中に node 削除を要求しても安全 (Flush でまとめて実行)
-//           if (FInput::IsKeyPressed(EKey::Delete)) {
+//           if (CInput::IsKeyPressed(EKey::Delete)) {
 //               m_Cmds.Enqueue("DeleteSelected", &FGameplayScene::DeleteSelected, this);
 //           }
 //           // 同 label が既にキュー上に居れば denounce (連打抑制)

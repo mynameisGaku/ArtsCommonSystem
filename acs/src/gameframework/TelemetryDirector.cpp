@@ -72,7 +72,7 @@ void CTelemetryDirector::DropOldestIfFull() noexcept {
     // 上限に達している = 最古 1 件 (index 0) を捨てて 1 枠空ける。
     // RemoveAtSwap は末尾要素を index 0 にムーブするため FIFO 順序は壊れる
     // が、event 側 timestamp で利用側ソート可能。
-    ACS_LOG_WARN("FTelemetryDirector: pending queue full (%u), dropping oldest event",
+    ACS_LOG_WARN("CTelemetryDirector: pending queue full (%u), dropping oldest event",
                  kMaxPending);
     m_Pending.RemoveAtSwap(0);
 }
@@ -130,7 +130,7 @@ void CTelemetryDirector::TrackEvent(const char*   event_name,
     e.category     = category != nullptr ? category : "general";
     e.json_payload = json_payload;
     e.priority     = priority;
-    e.timestamp    = FClock::MillisSinceStartup();
+    e.timestamp    = CClock::MillisSinceStartup();
 
     m_Pending.PushBack(e);
 }
@@ -163,7 +163,7 @@ void CTelemetryDirector::Flush() noexcept {
             // stub backend では常にこの分岐 (NotImplemented) を踏む。
             ++m_FailedCount;
             // ログは多発するので Warn ではなく Debug に抑える。
-            ACS_LOG_DEBUG("FTelemetryDirector: SendTelemetry('%s') failed (will retry)",
+            ACS_LOG_DEBUG("CTelemetryDirector: SendTelemetry('%s') failed (will retry)",
                           e.event_name != nullptr ? e.event_name : "<null>");
         } else {
             // 送信成功。pending から除去。RemoveAtSwap は末尾を i 位置に

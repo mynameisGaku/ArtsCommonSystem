@@ -9,11 +9,11 @@ ACS_REF.modules.push({
     // 会話 / ノベル系
     // =====================================================================
     {
-      name: "FDialogueSystem",
+      name: "CDialogueSystem",
       kind: "クラス", header: "gameframework/DialogueSystem.h",
       summary: "1 行ずつ会話テキストを送り出す<t>state holder</t>。<t>タイプライタ</t>演出 (1 文字ずつ表示) と分岐<t>選択肢</t>を扱う。描画や入力には触れず、「今どの行か」「何文字まで見えているか」「選択肢を出している最中か」だけを保持する。",
       when: "NPC との会話、シナリオ、イベントシーンを作りたい時。実際の文字描画は UI 層で行い、この型は進行状態だけを管理する。",
-      sample: "FDialogueSystem dlg;\ndlg.AddLine({ \"アリス\", \"こんにちは、勇者よ。\", 30.0f });\ndlg.AddLine({ \"アリス\", \"旅の目的を聞かせて。\", 30.0f });\ndlg.Start();\n// 毎フレーム:\ndlg.Tick(dt);                // タイプライタを進める\nif (input.JustPressed(EKey::Enter)) dlg.AdvanceLine();",
+      sample: "CDialogueSystem dlg;\ndlg.AddLine({ \"アリス\", \"こんにちは、勇者よ。\", 30.0f });\ndlg.AddLine({ \"アリス\", \"旅の目的を聞かせて。\", 30.0f });\ndlg.Start();\n// 毎フレーム:\ndlg.Tick(dt);                // タイプライタを進める\nif (input.JustPressed(EKey::Enter)) dlg.AdvanceLine();",
       members: [
         { sig: "void AddLine(const FDialogueLine& line)", desc: "会話行を末尾に追加。挿入順に再生される。" },
         { sig: "void AddChoices(u32 at_line_index, const FDialogueChoice* choices, u32 count)", desc: "指定行の表示完了後に出す選択肢群を登録。同じ行に 2 回目以降の登録は無視。", when: "「はい / いいえ」のような分岐を入れたい時。" },
@@ -26,14 +26,15 @@ ACS_REF.modules.push({
         { sig: "const FDialogueLine* CurrentLine()", ret: "現在行 or null", desc: "非アクティブ時は nullptr。" },
         { sig: "u32 VisibleCharCount()", ret: "表示文字数", desc: "タイプライタで今見えている文字数 (本文先頭から)。" },
         { sig: "void Tick(f32 dt)", desc: "dt 秒進める。タイプライタ進行と auto-advance を行う。" },
-        { sig: "void SetAutoAdvanceDelay(f32 delay_sec)", desc: "タイプ完了 + 一定秒で自動的に次行へ進む。<=0 で無効 (既定)。選択肢のある行では発火しない。" }
+        { sig: "void SetAutoAdvanceDelay(f32 delay_sec)", desc: "タイプ完了 + 一定秒で自動的に次行へ進む。<=0 で無効 (既定)。選択肢のある行では発火しない。" },
+        { sig: "using FDialogueSystem = CDialogueSystem", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CDialogueSystem</code> を使う。" }
       ]
     },
     {
       name: "FDialogueLine",
       kind: "構造体", header: "gameframework/DialogueSystem.h",
       summary: "会話 1 行のデータ。発話者名・本文・タイプ速度を持つ。文字列は<b>所有しない</b> (リテラルや外部バンドルを参照)。",
-      when: "<code>FDialogueSystem::AddLine</code> に渡す 1 行を組み立てる時。",
+      when: "<code>CDialogueSystem::AddLine</code> に渡す 1 行を組み立てる時。",
       sample: "FDialogueLine l;\nl.speaker        = \"アリス\";   // nullptr 可\nl.text           = \"やあ！\";    // nullptr は空行扱い\nl.type_speed_cps = 30.0f;        // 1 秒あたり 30 文字、<=0 で瞬時表示",
       members: [
         { sig: "const char* speaker", desc: "発話者名 (nullptr 可)。" },
@@ -45,11 +46,11 @@ ACS_REF.modules.push({
       name: "FDialogueChoice",
       kind: "構造体", header: "gameframework/DialogueSystem.h",
       summary: "分岐選択肢 1 つ。表示テキストとジャンプ先行 index を持つ。<code>next_line_index</code> が行数以上なら「会話終了」を表す。",
-      when: "<code>FDialogueSystem::AddChoices</code> に渡す選択肢配列を作る時。",
+      when: "<code>CDialogueSystem::AddChoices</code> に渡す選択肢配列を作る時。",
       sample: "FDialogueChoice ch[2];\nch[0] = { \"はい\", 5 };   // 行 5 へジャンプ\nch[1] = { \"いいえ\", 0xFFFFFFFFu }; // 範囲外 = 会話終了\ndlg.AddChoices(/*at_line=*/4, ch, 2);"
     },
     {
-      name: "FDialogueScript",
+      name: "CDialogueScript",
       kind: "クラス", header: "gameframework/DialogueScript.h",
       summary: "ノベル / アドベンチャー向けのシーンスクリプト再生機。「セリフ → ポートレート表示 → BGM 切替 → 選択肢 → ジャンプ」を命令列 (<code>FScriptOp[]</code>) とラベルで宣言的に組む<t>ステートマシン</t>。各命令は<t>コールバック</t>で外部へ通知し、実際の描画・音・入力は呼び出し側が行う。",
       when: "VN (ビジュアルノベル) やイベントシーンを、台本のように命令列で書きたい時。",
@@ -65,20 +66,21 @@ ACS_REF.modules.push({
         { sig: "const FScriptOp* CurrentOp()", desc: "今実行中の命令を返す。" },
         { sig: "u32 CurrentChoiceCount() / const FScriptChoice* CurrentChoice(u32 index)", desc: "選択待ち中に展開された選択肢の数と各要素。" },
         { sig: "void SetOnSayCallback(SayCallback cb, void* user)", desc: "セリフ命令の通知先を登録。ほかに Show/Hide/Background/PlayBgm/StopBgm/PlaySe/ChoicePresent/End 用の Set*Callback がある。" },
-        { sig: "void Stop() / void ClearAll()", desc: "完全停止 / 命令・ラベル・コールバック・状態を全破棄。" }
+        { sig: "void Stop() / void ClearAll()", desc: "完全停止 / 命令・ラベル・コールバック・状態を全破棄。" },
+        { sig: "using FDialogueScript = CDialogueScript", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CDialogueScript</code> を使う。" }
       ]
     },
     {
       name: "FScriptOp",
       kind: "構造体", header: "gameframework/DialogueScript.h",
-      summary: "<t>FDialogueScript</t> の命令 1 つ。種別 (<code>EScriptOpKind</code>) と引数 (文字列 2 つ + 数値 + u32) を持つ。文字列は所有しない。",
+      summary: "<t>CDialogueScript</t> の命令 1 つ。種別 (<code>EScriptOpKind</code>) と引数 (文字列 2 つ + 数値 + u32) を持つ。文字列は所有しない。",
       when: "スクリプトの台本配列を直接組み立てる時。",
       sample: "FScriptOp say  { EScriptOpKind::Say, \"アリス\", \"やあ\" };\nFScriptOp bgm  { EScriptOpKind::PlayBgm, \"town\", nullptr, 0.8f }; // arg_f=音量\nFScriptOp wait { EScriptOpKind::Wait, nullptr, nullptr, 1.5f };  // 1.5 秒待つ"
     },
     {
       name: "FScriptChoice",
       kind: "構造体", header: "gameframework/DialogueScript.h",
-      summary: "<t>FDialogueScript</t> の選択肢 1 つ。表示ラベルと選択時のジャンプ先ラベル名を持つ。",
+      summary: "<t>CDialogueScript</t> の選択肢 1 つ。表示ラベルと選択時のジャンプ先ラベル名を持つ。",
       when: "選択待ち中に <code>CurrentChoice()</code> で取り出して UI に並べる時。"
     },
     {
@@ -91,40 +93,41 @@ ACS_REF.modules.push({
       name: "EDialogueScriptState",
       kind: "列挙(enum)", header: "gameframework/DialogueScript.h",
       summary: "スクリプト全体の状態。Idle (停止) / Playing (進行中) / AwaitingInput (Say 後の入力待ち) / AwaitingChoice (選択待ち) / Finished (終了)。",
-      when: "<code>FDialogueScript::State()</code> の戻り値を見て UI を切り替える時。"
+      when: "<code>CDialogueScript::State()</code> の戻り値を見て UI を切り替える時。"
     },
     {
-      name: "FDialogueLocalizer",
+      name: "CDialogueLocalizer",
       kind: "クラス", header: "gameframework/DialogueLocalizer.h",
       summary: "会話と<t>ローカライズ</t> (多言語化) を疎結合で繋ぐ橋渡し。本文を持たず「行 → 翻訳キー」だけを保持し、現在の<t>ロケール</t>で翻訳を解決して<t>コールバック</t>に渡す。発話者名も翻訳キー扱い。",
-      when: "同じシナリオ行を言語ごとに別文字列で出したい時。<code>FLocalizationDirector</code> (翻訳辞書) と <code>FDialogueSystem</code> を直結せず繋ぎたい時。",
-      sample: "FDialogueLocalizer dl;\ndl.RegisterLine({ \"char.alice\", \"scene1.line0\", 30.0f });\ndl.SetLocalizer(&loc);   // 翻訳辞書を差し込む\ndl.StartFromLine(0, [](void*, const char* sp, const char* tx, f32 cps) noexcept {\n    // sp=\"アリス\", tx=\"こんにちは\" のように現ロケールで解決される\n}, nullptr);",
+      when: "同じシナリオ行を言語ごとに別文字列で出したい時。<code>CLocalizationDirector</code> (翻訳辞書) と <code>CDialogueSystem</code> を直結せず繋ぎたい時。",
+      sample: "CDialogueLocalizer dl;\ndl.RegisterLine({ \"char.alice\", \"scene1.line0\", 30.0f });\ndl.SetLocalizer(&loc);   // 翻訳辞書を差し込む\ndl.StartFromLine(0, [](void*, const char* sp, const char* tx, f32 cps) noexcept {\n    // sp=\"アリス\", tx=\"こんにちは\" のように現ロケールで解決される\n}, nullptr);",
       members: [
         { sig: "void RegisterLine(const FLocalizedDialogueLine& line)", desc: "行を末尾に追加 (0,1,2... と index が振られる)。本文ではなく翻訳キーを登録する。" },
         { sig: "void RegisterChoice(u32 at_line_index, const FLocalizedDialogueChoice* choices, u32 count)", desc: "指定行に紐づく選択肢群を登録。同じ行に複数回は無視。" },
-        { sig: "void SetLocalizer(FLocalizationDirector* loc)", desc: "翻訳ソースを差し込む。nullptr で切り離し (以降はキー文字列がそのまま返る)。所有しない。" },
+        { sig: "void SetLocalizer(CLocalizationDirector* loc)", desc: "翻訳ソースを差し込む。nullptr で切り離し (以降はキー文字列がそのまま返る)。所有しない。" },
         { sig: "void StartFromLine(u32 line_index, BindCallback cb, void* user)", desc: "指定行の発話者と本文を現ロケールで解決し cb を発火。未翻訳時もキー自身が返るので空欄事故は起きない。" },
         { sig: "u32 LineCount()", ret: "登録行数", desc: "登録済みの行数。" },
-        { sig: "void Clear()", desc: "全行・全選択肢を破棄 (Localizer 参照は保持)。" }
+        { sig: "void Clear()", desc: "全行・全選択肢を破棄 (Localizer 参照は保持)。" },
+        { sig: "using FDialogueLocalizer = CDialogueLocalizer", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CDialogueLocalizer</code> を使う。" }
       ]
     },
     {
       name: "FLocalizedDialogueLine",
       kind: "構造体", header: "gameframework/DialogueLocalizer.h",
-      summary: "<t>FDialogueLocalizer</t> の 1 行ぶんのメタ。本文を持たず、発話者キー・本文キー・タイプ速度を持つ。文字列は所有しない。",
+      summary: "<t>CDialogueLocalizer</t> の 1 行ぶんのメタ。本文を持たず、発話者キー・本文キー・タイプ速度を持つ。文字列は所有しない。",
       when: "<code>RegisterLine</code> に渡す行を組み立てる時。"
     },
     {
       name: "FLocalizedDialogueChoice",
       kind: "構造体", header: "gameframework/DialogueLocalizer.h",
-      summary: "<t>FDialogueLocalizer</t> の選択肢メタ。表示テキストの翻訳キーと、次行 index を持つ。",
+      summary: "<t>CDialogueLocalizer</t> の選択肢メタ。表示テキストの翻訳キーと、次行 index を持つ。",
       when: "<code>RegisterChoice</code> に渡す選択肢配列を作る時。"
     },
     // =====================================================================
     // ダンジョン生成 (ローグライク)
     // =====================================================================
     {
-      name: "FDungeonGenerator",
+      name: "CDungeonGenerator",
       kind: "クラス", header: "gameframework/DungeonGenerator.h",
       summary: "2D グリッド上に部屋と廊下を配置する<b><t>BSP</t></b> (空間二分割) ダンジョン生成器。全体を再帰的に 2 分割し各リーフに 1 部屋を置き、隣り合う部屋を L 字廊下で繋ぐ。<t>シード</t>で結果を再現できる。",
       when: "ローグライクの「毎フロア違うレイアウト」を自動生成したい時。地形のみ生成し、モンスターやアイテム配置は呼び出し側で行う。",
@@ -138,13 +141,14 @@ ACS_REF.modules.push({
         { sig: "void GetRoomCenter(u32 room_index, u32& out_x, u32& out_y)", desc: "部屋の中心座標を取得 (範囲外は (0,0))。", when: "プレイヤーや階段のスポーン位置を決める時。" },
         { sig: "bool IsWalkable(u32 x, u32 y)", ret: "通行可能か", desc: "Floor/Door/Corridor/Stairs を通行可とみなす。範囲外と Wall は false。" },
         { sig: "u32 FindRandomFloor(u32& out_x, u32& out_y)", ret: "試行回数 (0=失敗)", desc: "ランダムな床タイルの座標を探して書き込む。最大 100 試行。", when: "敵やアイテムをランダムな床に置きたい時。" },
-        { sig: "void Clear()", desc: "グリッド・部屋・サイズをすべてリセット。" }
+        { sig: "void Clear()", desc: "グリッド・部屋・サイズをすべてリセット。" },
+        { sig: "using FDungeonGenerator = CDungeonGenerator", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CDungeonGenerator</code> を使う。" }
       ]
     },
     {
       name: "FDungeonGenConfig",
       kind: "構造体", header: "gameframework/DungeonGenerator.h",
-      summary: "<t>FDungeonGenerator</t> の生成パラメータ。幅・高さ・部屋の最小/最大サイズ・分割の最小サイズ・<t>シード</t>・BSP 再帰の最大深さを持つ。0 や不整合な値は内部で安全な既定に補正される。",
+      summary: "<t>CDungeonGenerator</t> の生成パラメータ。幅・高さ・部屋の最小/最大サイズ・分割の最小サイズ・<t>シード</t>・BSP 再帰の最大深さを持つ。0 や不整合な値は内部で安全な既定に補正される。",
       when: "ダンジョンの規模や部屋の大きさ、再現用シードを指定する時。"
     },
     {
@@ -163,11 +167,11 @@ ACS_REF.modules.push({
     // 難易度調整
     // =====================================================================
     {
-      name: "FDynamicDifficulty",
+      name: "CDynamicDifficulty",
       kind: "クラス", header: "gameframework/DynamicDifficulty.h",
       summary: "プレイヤーの実プレイ統計 (死亡 / 撃破 / リトライ / クリア時間 / パワーアップ取得) を追跡し、難易度を調整する<t>DDA</t> (動的難易度調整)。Easy/Normal/Hard/VeryHard の固定 4 段と、腕前から自動で寄せる Adaptive を持つ。敵 HP・ダメージ・速度・プレイヤー HP の乗数を返すので、戦闘ロジックが pull して使う。",
       when: "下手なプレイヤーには優しく、上手いプレイヤーには手応えのある難易度に自動調整したい時。Adaptive 以外は固定値なので<t>リプレイ</t>同期にも使える。",
-      sample: "FDynamicDifficulty dda;\ndda.Init(EDifficultyLevel::Adaptive);\n// イベント発生時:\ndda.RecordDeath(); dda.RecordRetry();\ndda.RecordKill();\ndda.RecordLevelComplete(/*time=*/45.0f);\n// 毎フレーム:\ndda.Tick(dt);\nf32 hp_mul  = dda.EnemyHealthMultiplier();\nf32 dmg_mul = dda.EnemyDamageMultiplier();",
+      sample: "CDynamicDifficulty dda;\ndda.Init(EDifficultyLevel::Adaptive);\n// イベント発生時:\ndda.RecordDeath(); dda.RecordRetry();\ndda.RecordKill();\ndda.RecordLevelComplete(/*time=*/45.0f);\n// 毎フレーム:\ndda.Tick(dt);\nf32 hp_mul  = dda.EnemyHealthMultiplier();\nf32 dmg_mul = dda.EnemyDamageMultiplier();",
       members: [
         { sig: "void Init(EDifficultyLevel base_level = EDifficultyLevel::Normal)", desc: "初期モードで初期化。Adaptive 指定時は Normal 相当からスタートして目標へ寄せていく。" },
         { sig: "void SetMode(EDifficultyLevel mode)", desc: "モード切替。固定モードは即その段の値にスナップ、Adaptive は現在値を保持して追従続行。" },
@@ -181,20 +185,21 @@ ACS_REF.modules.push({
         { sig: "f32 PlayerHealthMultiplier()", ret: "プレイヤー HP 倍率", desc: "難易度と逆相関。Easy 1.5 / Normal 1.0 / Hard 0.85 / VeryHard 0.75。" },
         { sig: "const FPlayerSkillStats& Stats()", desc: "現在の統計を参照する。" },
         { sig: "void ResetStats()", desc: "統計のみ初期化 (モード・難易度値は維持)。新規ゲームやシーン切替向け。" },
-        { sig: "void Tick(f32 dt)", desc: "Adaptive 時のみ腕前推定 → 目標 → なめらかな追従を進める。固定モードでは no-op。" }
+        { sig: "void Tick(f32 dt)", desc: "Adaptive 時のみ腕前推定 → 目標 → なめらかな追従を進める。固定モードでは no-op。" },
+        { sig: "using FDynamicDifficulty = CDynamicDifficulty", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CDynamicDifficulty</code> を使う。" }
       ]
     },
     {
       name: "EDifficultyLevel",
       kind: "列挙(enum)", header: "gameframework/DynamicDifficulty.h",
       summary: "難易度モード。Easy / Normal / Hard / VeryHard の固定 4 段と、自動調整の Adaptive。",
-      when: "<code>FDynamicDifficulty::Init</code> / <code>SetMode</code> で難易度モードを指定する時。"
+      when: "<code>CDynamicDifficulty::Init</code> / <code>SetMode</code> で難易度モードを指定する時。"
     },
     {
       name: "FPlayerSkillStats",
       kind: "構造体", header: "gameframework/DynamicDifficulty.h",
       summary: "腕前判定に使う実プレイ統計。死亡数・撃破数・現レベルのリトライ数・直近クリア時間の指数移動平均・パワーアップ取得数を持つ。",
-      when: "<code>FDynamicDifficulty::Stats()</code> でデバッグ表示や難易度の根拠を見たい時。"
+      when: "<code>CDynamicDifficulty::Stats()</code> でデバッグ表示や難易度の根拠を見たい時。"
     },
     // =====================================================================
     // Easing (補間カーブ)
@@ -203,7 +208,7 @@ ACS_REF.modules.push({
       name: "Easing (名前空間)",
       kind: "関数群 (名前空間)", header: "gameframework/Easing.h",
       summary: "<t>イージング</t>関数群 (acs::game::Easing)。従来の関数ポインタ互換を保ちつつ、標準 31 種 (Linear + 10 family の In/Out/InOut) と SmoothStep/SmootherStep を合わせた全 33 種を <code>EEasingType</code> catalog で扱える。直接関数は入力を [0,1] へ安全に正規化し、checked API は無効 type と非有限入力を診断する。",
-      when: "アニメーションを「等速」ではなく「最初ゆっくり後で加速」「行き過ぎて戻る」のように自然に動かしたい時。<code>FTweenManager::Tween</code> と <code>FSequence::Tween</code> には関数ポインタ版と enum 版の両 overload がある。",
+      when: "アニメーションを「等速」ではなく「最初ゆっくり後で加速」「行き過ぎて戻る」のように自然に動かしたい時。<code>CTweenManager::Tween</code> と <code>FSequence::Tween</code> には関数ポインタ版と enum 版の両 overload がある。",
       sample: "using namespace acs::game;\nconst auto type = Easing::EEasingType::InOutCubic;\nf32 e = Easing::Evaluate(type, 0.5f);  // 型付き評価\ntweens.Tween(&player.x, 0.0f, 100.0f, 0.5f, type);\nsequence.Tween(&alpha, 0.0f, 1.0f, 0.25f, Easing::EEasingType::SmoothStep);\nEasing::EEasingType parsed = Easing::EEasingType::Linear;\nif (Easing::TryParseName(\"OutBounce\", parsed)) { /* 保存名を復元 */ }",
       members: [
         { sig: "f32 Linear(f32 t)", ret: "= t", desc: "等速 (補間なし)。" },
@@ -225,31 +230,32 @@ ACS_REF.modules.push({
         { sig: "FEasingResult TryGetName(EEasingType type, const char*& out)", desc: "canonical 名の checked 取得。無効 type は <code>InvalidType</code> で拒否し、失敗時は out を変更しない。" },
         { sig: "bool TryParseName(const char* name, EEasingType& out)", desc: "canonical 名を enum に変換。null・未知名は false で、失敗時は out を変更しない。" },
         { sig: "FEasingResult TryParseNameChecked(const char* name, EEasingType& out)", desc: "canonical 名を大文字小文字を区別して解析する checked API。null は <code>NullName</code>、空・未知名は <code>UnknownName</code> で拒否し、失敗時は out を変更しない。" },
-        { sig: "FTweenManager::Tween(..., EEasingType) / FSequence::Tween(..., EEasingType)", desc: "f32/FVec2/FVec3 の tween を catalog enum で指定する overload。無効 enum は安全に Linear へ fallback。" },
+        { sig: "CTweenManager::Tween(..., EEasingType) / FSequence::Tween(..., EEasingType)", desc: "f32/FVec2/FVec3 の tween を catalog enum で指定する overload。無効 enum は安全に Linear へ fallback。" },
         { sig: "using EasingFn = f32 (*)(f32) noexcept", desc: "既存コードと互換の関数ポインタ型。直接関数は finite 入力を [0,1] に clamp し、NaN や無限大でも NaN/domain error を生成しない。" }
       ]
     },
     {
-      name: "FLegacyKitEaseIdCodec",
-      kind: "class", header: "gameframework/LegacyKitEaseIdCodec.h",
+      name: "CLegacyKitEaseIdCodec",
+      kind: "クラス", header: "gameframework/LegacyKitEaseIdCodec.h",
       summary: "旧 Kit 形式で固定された33個のイージング数値 ID と、ACS の <code>Easing::EEasingType</code> を相互変換する状態なしの移行境界。曲線の評価実装や正規 enum の数値は変更しない。",
       when: "旧形式の保存データを読み込む時、または互換出力へ旧数値 ID を書き戻す時。新規データはcanonical名を保存する。",
-      sample: "using namespace acs::game;\nEasing::EEasingType type = Easing::EEasingType::Linear;\nif (!FLegacyKitEaseIdCodec::TryDecode(saved_id, type)) {\n    /* type は変更されない */\n}",
+      sample: "using namespace acs::game;\nEasing::EEasingType type = Easing::EEasingType::Linear;\nif (!CLegacyKitEaseIdCodec::TryDecode(saved_id, type)) {\n    /* type は変更されない */\n}",
       members: [
         { sig: "static constexpr i32 kLegacyIdCount = 33", desc: "旧形式で固定された有効 ID 数。将来ACSへ型が増えても自動では対応させない。" },
         { sig: "static bool TryDecode(i32 legacy_id, Easing::EEasingType& out_type) noexcept", desc: "旧 ID 0〜32を正規型へ変換する。範囲外ではfalseを返し、出力を変更しない。" },
-        { sig: "static bool TryEncode(Easing::EEasingType type, i32& out_legacy_id) noexcept", desc: "固定表にある正規型を旧 IDへ戻す。Count、未知値、将来の未登録型ではfalseを返し、出力を変更しない。" }
+        { sig: "static bool TryEncode(Easing::EEasingType type, i32& out_legacy_id) noexcept", desc: "固定表にある正規型を旧 IDへ戻す。Count、未知値、将来の未登録型ではfalseを返し、出力を変更しない。" },
+        { sig: "using FLegacyKitEaseIdCodec = CLegacyKitEaseIdCodec", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CLegacyKitEaseIdCodec</code> を使う。" }
       ]
     },
     // =====================================================================
     // 経済 / 権利 (LiveOps)
     // =====================================================================
     {
-      name: "FEconomyDirector",
+      name: "CEconomyDirector",
       kind: "クラス", header: "gameframework/EconomyDirector.h",
       summary: "ゲーム内通貨の残高 + 固定価格のショップアイテム + 購入<t>コールバック</t>をまとめた小型マネージャ。通貨は soft (ゲーム内獲得) と premium (課金) を区別でき、商品は<t>コスメティック</t>専用フラグを持つ。<b>ガチャ (ランダム報酬) は意図的に非対応</b>、すべて「払えば必ず指定の品が手に入る」固定価格方式。",
       when: "見た目アイテムのショップやゲーム内通貨を実装したい時。実際の課金トランザクションは別 (ストア層) で行い、ここはゲーム内売買のみ扱う。",
-      sample: "FEconomyDirector ed;\ned.RegisterCurrency({ \"gold\", \"Gold\", false });  // soft 通貨\ned.SetBalance(\"gold\", 1000);\ned.RegisterItem({ \"skin.knight_red\", \"Red Knight\", \"gold\", 500, ~0u, true });\nif (ed.PurchaseItem(\"skin.knight_red\")) {\n    // 成功 → 残高 500 減、コスメ解放\n}",
+      sample: "CEconomyDirector ed;\ned.RegisterCurrency({ \"gold\", \"Gold\", false });  // soft 通貨\ned.SetBalance(\"gold\", 1000);\ned.RegisterItem({ \"skin.knight_red\", \"Red Knight\", \"gold\", 500, ~0u, true });\nif (ed.PurchaseItem(\"skin.knight_red\")) {\n    // 成功 → 残高 500 減、コスメ解放\n}",
       members: [
         { sig: "void RegisterCurrency(const FCurrencyDef& def)", desc: "通貨を 1 種定義 (残高 0 で初期化)。同 id 重複は無視。" },
         { sig: "void SetBalance(const char* currency_id, u32 amount)", desc: "残高を絶対値で設定。未登録通貨は no-op。" },
@@ -261,7 +267,8 @@ ACS_REF.modules.push({
         { sig: "const FShopItem* FindItem(const char* item_id)", desc: "商品を 1 件取得 (未登録は nullptr)。" },
         { sig: "u32 ItemCount() / const FShopItem* AllItems(u32& out_count)", desc: "商品件数 / 全商品の生バッファ。" },
         { sig: "void SetOnPurchaseCallback(PurchaseCallback cb, void* user)", desc: "購入結果 (成功 / 失敗) の通知先を登録。失敗トースト UI などに使う。" },
-        { sig: "void ClearAll()", desc: "通貨・残高・商品・在庫・コールバックを全クリア。" }
+        { sig: "void ClearAll()", desc: "通貨・残高・商品・在庫・コールバックを全クリア。" },
+        { sig: "using FEconomyDirector = CEconomyDirector", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CEconomyDirector</code> を使う。" }
       ]
     },
     {
@@ -277,25 +284,26 @@ ACS_REF.modules.push({
       when: "<code>RegisterItem</code> に渡して商品を定義する時。"
     },
     {
-      name: "FEntitlementRegistry",
+      name: "CEntitlementRegistry",
       kind: "クラス", header: "gameframework/Entitlement.h",
       summary: "プレイヤーが DLC・シーズンパス・コスメパック・引換コードなどの<t>権利</t> (entitlement) を「持っているか」をゲーム側から問い合わせる窓口。ストアやプラットフォーム SDK には依存せず、取得結果を <code>Add()</code> で流し込んでもらう設計。",
       when: "「拡張マップを解放するか」「シーズンパス所持バッジを出すか」を権利の有無で判定したい時。",
-      sample: "FEntitlementRegistry reg;\nreg.Add({ \"dlc.expansion_1\",  EEntitlementKind::Dlc,          true });\nreg.Add({ \"cosmetic.hat_red\", EEntitlementKind::CosmeticPack, true });\nif (reg.IsActive(\"dlc.expansion_1\")) UnlockExpansionMap();\nif (reg.HasAny(EEntitlementKind::CosmeticPack)) ShowCosmeticBadge();",
+      sample: "CEntitlementRegistry reg;\nreg.Add({ \"dlc.expansion_1\",  EEntitlementKind::Dlc,          true });\nreg.Add({ \"cosmetic.hat_red\", EEntitlementKind::CosmeticPack, true });\nif (reg.IsActive(\"dlc.expansion_1\")) UnlockExpansionMap();\nif (reg.HasAny(EEntitlementKind::CosmeticPack)) ShowCosmeticBadge();",
       members: [
         { sig: "void Add(FEntitlementInfo info)", desc: "権利を登録。id==nullptr は no-op。重複 dedup はストア側責務。" },
         { sig: "bool Has(const char* id)", ret: "登録済みか", desc: "active 不問で id があるか。" },
         { sig: "bool IsActive(const char* id)", ret: "有効な権利か", desc: "登録済みかつ active なら true。" },
         { sig: "bool HasAny(EEntitlementKind k)", ret: "種別に有効なものがあるか", desc: "指定種別の active な権利が 1 つでもあるか。", when: "「シーズンパス所持者向け UI を出すか」等の判定で。" },
         { sig: "void Clear()", desc: "全削除 (ストア再同期時に呼ぶ想定)。" },
-        { sig: "u32 Count() / const FEntitlementInfo* AllInfos()", desc: "件数 / 生バッファ (デバッグ・列挙用)。" }
+        { sig: "u32 Count() / const FEntitlementInfo* AllInfos()", desc: "件数 / 生バッファ (デバッグ・列挙用)。" },
+        { sig: "using FEntitlementRegistry = CEntitlementRegistry", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CEntitlementRegistry</code> を使う。" }
       ]
     },
     {
       name: "FEntitlementInfo",
       kind: "構造体", header: "gameframework/Entitlement.h",
       summary: "権利情報 1 つ。id・種別 (<code>EEntitlementKind</code>)・active フラグを持つ。id は所有しない。",
-      when: "<code>FEntitlementRegistry::Add</code> に渡す権利を組み立てる時。"
+      when: "<code>CEntitlementRegistry::Add</code> に渡す権利を組み立てる時。"
     },
     {
       name: "EEntitlementKind",
@@ -307,11 +315,11 @@ ACS_REF.modules.push({
     // 演出 / 画面エフェクト
     // =====================================================================
     {
-      name: "FEffectSystem",
+      name: "CEffectSystem",
       kind: "クラス", header: "gameframework/EffectSystem.h",
       summary: "画面演出の中央指揮塔。Flash (全画面色被せ) / HitStop (一瞬の停止) / Camera Shake (画面揺れ) をまとめた純粋な<t>state holder</t>。自身は描画も停止もせず、描画側・ゲームループ・カメラが「pull する」だけのバスとして働く。",
       when: "被弾時の「白フラッシュ + 一瞬停止 + 画面揺れ」のような手応え演出をまとめて出したい時。",
-      sample: "FEffectSystem fx;\n// 被弾時:\nfx.Flash({1,1,1}, 0.8f, 0.15f);  // 白フラッシュ 150ms\nfx.HitStop(0.08f);               // 80ms 停止\nfx.TriggerShake(0.5f);           // 画面揺れ trauma 0.5\n// 毎フレーム:\nconst f32 ts = fx.IsHitStop() ? 0.0f : 1.0f;  // 停止中は time_scale 0\nfx.Tick(dt);                     // fx は実時間で進む\nif (fx.PendingShakeTrauma() > 0) { cam.AddShake(fx.PendingShakeTrauma()); fx.ConsumeShake(); }",
+      sample: "CEffectSystem fx;\n// 被弾時:\nfx.Flash({1,1,1}, 0.8f, 0.15f);  // 白フラッシュ 150ms\nfx.HitStop(0.08f);               // 80ms 停止\nfx.TriggerShake(0.5f);           // 画面揺れ trauma 0.5\n// 毎フレーム:\nconst f32 ts = fx.IsHitStop() ? 0.0f : 1.0f;  // 停止中は time_scale 0\nfx.Tick(dt);                     // fx は実時間で進む\nif (fx.PendingShakeTrauma() > 0) { cam.AddShake(fx.PendingShakeTrauma()); fx.ConsumeShake(); }",
       members: [
         { sig: "void Flash(FVec3 color, f32 intensity, f32 duration)", desc: "画面全体に色を被せて線形に減衰させる。再呼出で常に上書き (累積しない)。" },
         { sig: "void HitStop(f32 duration)", desc: "duration 秒の間 IsHitStop() を true に。重ねがけは長い方を採用。", when: "ヒット時の「タメ」を作る時。" },
@@ -319,15 +327,16 @@ ACS_REF.modules.push({
         { sig: "void Tick(f32 dt)", desc: "実時間 dt で全エフェクトのタイマを進める (hit stop 中も止めない)。" },
         { sig: "f32 FlashIntensity() / FVec3 FlashColor()", desc: "描画側が overlay を被せるための現在の強度と色。" },
         { sig: "bool IsHitStop() / f32 HitStopRemain()", desc: "停止中か / 残り停止時間。ゲームループが time_scale=0 を選ぶのに使う。" },
-        { sig: "f32 PendingShakeTrauma() / void ConsumeShake()", desc: "カメラが読む揺れ値 / 読み終えたら 0 に戻す。" }
+        { sig: "f32 PendingShakeTrauma() / void ConsumeShake()", desc: "カメラが読む揺れ値 / 読み終えたら 0 に戻す。" },
+        { sig: "using FEffectSystem = CEffectSystem", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CEffectSystem</code> を使う。" }
       ]
     },
     {
-      name: "FFadeTransition",
+      name: "CFadeTransition",
       kind: "クラス", header: "gameframework/FadeTransition.h",
       summary: "シーン切替時のフェード演出を司る<t>state holder</t>。描画はせず、現在の overlay の alpha・色・<t>フェーズ</t>だけを返す。フルスクリーン矩形をその色・alpha で塗れば、フェードイン / アウト / 暗転切替 / 軽いクロスフェードが成立する。",
       when: "シーン切替の暗転や、タイトル画面の明け演出を入れたい時。",
-      sample: "FFadeTransition fade;\n// 暗黒から明けるフェードイン\nfade.StartFade(EFadeKind::FadeIn, 0.0f, 0.5f);\n// 毎フレーム:\nfade.Tick(dt);\nif (fade.IsMidPause()) Manager().ChangeScene&lt;FGameplayScene&gt;();  // 暗転中に切替\n// 描画:\nif (fade.IsActive()) {\n    FVec3 c = fade.OverlayColor(); f32 a = fade.OverlayAlpha();\n    batch.FillFullScreen(c.x, c.y, c.z, a);\n}",
+      sample: "CFadeTransition fade;\n// 暗黒から明けるフェードイン\nfade.StartFade(EFadeKind::FadeIn, 0.0f, 0.5f);\n// 毎フレーム:\nfade.Tick(dt);\nif (fade.IsMidPause()) Manager().ChangeScene&lt;FGameplayScene&gt;();  // 暗転中に切替\n// 描画:\nif (fade.IsActive()) {\n    FVec3 c = fade.OverlayColor(); f32 a = fade.OverlayAlpha();\n    batch.FillFullScreen(c.x, c.y, c.z, a);\n}",
       members: [
         { sig: "void StartFade(EFadeKind kind, f32 out_duration = 0.3f, f32 in_duration = 0.3f, f32 mid_pause = 0.0f)", desc: "フェードを開始。種別と各区間の秒数を指定する。" },
         { sig: "bool IsActive() / bool IsMidPause()", desc: "演出中か / 暗転待機中か。MidPause はシーン切替の想定タイミング (mid_pause=0 でも必ず 1 Tick は true)。" },
@@ -335,14 +344,15 @@ ACS_REF.modules.push({
         { sig: "void SetOverlayColor(FVec3 c)", desc: "overlay の色を変える (白フラッシュにするなど)。" },
         { sig: "EFadePhase CurrentPhase() / EFadeKind CurrentKind()", desc: "現在のフェーズと種別。" },
         { sig: "void Tick(f32 dt)", desc: "フェード進行を進める driver。" },
-        { sig: "void Cancel()", desc: "直ちに Idle に戻す (alpha=0)。途中キャンセル用。" }
+        { sig: "void Cancel()", desc: "直ちに Idle に戻す (alpha=0)。途中キャンセル用。" },
+        { sig: "using FFadeTransition = CFadeTransition", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CFadeTransition</code> を使う。" }
       ]
     },
     {
       name: "EFadeKind",
       kind: "列挙(enum)", header: "gameframework/FadeTransition.h",
       summary: "フェード種別。None / FadeIn (暗→明) / FadeOut (明→暗) / FadeInOut (暗転して切替) / CrossFade (軽量クロスフェード)。",
-      when: "<code>FFadeTransition::StartFade</code> でどの演出を出すか選ぶ時。"
+      when: "<code>CFadeTransition::StartFade</code> でどの演出を出すか選ぶ時。"
     },
     {
       name: "EFadePhase",
@@ -421,34 +431,35 @@ ACS_REF.modules.push({
     // ゲーム土台 / フロー
     // =====================================================================
     {
-      name: "FGame",
+      name: "CGame",
       kind: "クラス", header: "gameframework/Game.h",
-      summary: "ゲームアプリの基底クラス。<code>FApplication</code> を継承し、<code>FSceneManager</code> を駆動する。利用者は派生クラスで <code>InitialScene()</code> を override して最初のシーンを返すだけでよい。固定タイムステップ・time scale・シーン跨ぎの永続状態 (<t>AppState</t>)・フェード付きシーン遷移を内蔵する。",
+      summary: "ゲームアプリの基底クラス。<code>CApplication</code> を継承し、<code>CSceneManager</code> を駆動する。利用者は派生クラスで <code>InitialScene()</code> を override して最初のシーンを返すだけでよい。固定タイムステップ・time scale・シーン跨ぎの永続状態 (<t>AppState</t>)・フェード付きシーン遷移を内蔵する。",
       when: "ゲームの土台を作る時。<code>ACS_GAME_MAIN</code> マクロと組み合わせて起動する。",
-      sample: "class FMyGame : public acs::game::FGame {\nprotected:\n    acs::TUniquePtr&lt;acs::game::FScene&gt; InitialScene() noexcept override {\n        return acs::MakeUnique&lt;FTitleScene&gt;();\n    }\n};\nACS_GAME_MAIN(FMyGame)",
+      sample: "class FMyGame : public acs::game::CGame {\nprotected:\n    acs::TUniquePtr&lt;acs::game::AScene&gt; InitialScene() noexcept override {\n        return acs::MakeUnique&lt;FTitleScene&gt;();\n    }\n};\nACS_GAME_MAIN(FMyGame)",
       members: [
-        { sig: "virtual TUniquePtr<FScene> InitialScene()", ret: "最初のシーン", desc: "派生クラスで必ず実装。起動時に最初に push されるシーンを返す。" },
-        { sig: "FSceneManager& Scenes()", desc: "シーンスタック管理を取得 (push/pop/change)。" },
-        { sig: "void SetTimeScale(f32 s) / f32 TimeScale()", desc: "時間スケール。FScene の dt に乗算される (0 でポーズ、2 で倍速)。" },
+        { sig: "virtual TUniquePtr<AScene> InitialScene()", ret: "最初のシーン", desc: "派生クラスで必ず実装。起動時に最初に push されるシーンを返す。" },
+        { sig: "CSceneManager& Scenes()", desc: "シーンスタック管理を取得 (push/pop/change)。" },
+        { sig: "void SetTimeScale(f32 s) / f32 TimeScale()", desc: "時間スケール。AScene の dt に乗算される (0 でポーズ、2 で倍速)。" },
         { sig: "void SetFixedTimestep(f32 fixed_dt, u32 max_steps_per_frame = 8)", desc: "固定タイムステップ設定 (既定 1/60 秒、最大 8 step)。物理を安定させる。" },
         { sig: "T& EmplaceAppState<T>(args...) / T* AppState<T>()", desc: "シーン跨ぎで残る永続状態を構築 / 取り出す (型消去、1 個)。未設定・型不一致は nullptr。", when: "プレイヤー所持金やセーブデータをシーン間で持ち回りたい時。" },
-        { sig: "void TransitionTo(TUniquePtr<FScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f)", desc: "フェードアウト → シーン切替 → フェードインを 1 行で行う。フェードは実時間で進む。" },
-        { sig: "FFadeTransition& Fade()", desc: "進行中のフェード状態を参照する。" }
+        { sig: "void TransitionTo(TUniquePtr<AScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f)", desc: "フェードアウト → シーン切替 → フェードインを 1 行で行う。フェードは実時間で進む。" },
+        { sig: "CFadeTransition& Fade()", desc: "進行中のフェード状態を参照する。" },
+        { sig: "using FGame = CGame", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CGame</code> を使う。" }
       ]
     },
     {
       name: "ACS_GAME_MAIN",
       kind: "マクロ", header: "gameframework/EntryPoint.h",
-      summary: "<t>FGame</t> 派生クラスから main エントリポイントを生成するマクロ。<code>app/EntryPoint.h</code> の <code>ACS_DEFINE_MAIN</code> を FGame 向けに薄くラップしたもの。",
+      summary: "<t>CGame</t> 派生クラスから main エントリポイントを生成するマクロ。<code>app/EntryPoint.h</code> の <code>ACS_DEFINE_MAIN</code> を CGame 向けに薄くラップしたもの。",
       when: "ゲームクラスを定義した後、1 行書いて起動コードを生成する時。",
-      sample: "class FMyGame : public acs::game::FGame { /* ... */ };\nACS_GAME_MAIN(FMyGame)   // これだけで main() が生成される"
+      sample: "class FMyGame : public acs::game::CGame { /* ... */ };\nACS_GAME_MAIN(FMyGame)   // これだけで main() が生成される"
     },
     {
-      name: "FGameFlow",
+      name: "CGameFlow",
       kind: "クラス", header: "gameframework/GameFlow.h",
-      summary: "タイトル / メニュー / ゲームプレイ / ポーズ / ゲームオーバー等、ゲーム全体のフローを管理する高レベル<t>ステートマシン</t>。<code>FSceneManager</code> より 1 段上で「今ゲームのどの段階か」を表す。状態の出入りで<t>コールバック</t>を発火し、fade overlay の進捗も提供する。不正な遷移は遷移許可テーブルで弾く。",
+      summary: "タイトル / メニュー / ゲームプレイ / ポーズ / ゲームオーバー等、ゲーム全体のフローを管理する高レベル<t>ステートマシン</t>。<code>CSceneManager</code> より 1 段上で「今ゲームのどの段階か」を表す。状態の出入りで<t>コールバック</t>を発火し、fade overlay の進捗も提供する。不正な遷移は遷移許可テーブルで弾く。",
       when: "シーン管理とは別に、ゲーム全体の論理状態 (タイトル中か、プレイ中か等) を 1 箇所で扱いたい時。状態切替時に BGM 切替やセーブ等の副作用を発火したい時。",
-      sample: "FGameFlow flow;\nflow.SetOnEnterCallback(EFlowState::Gameplay, &OnGameplayEnter, this);\nflow.Init(EFlowState::Splash);\n// 毎フレーム:\nflow.Tick(dt);\nif (pressed_start && flow.CurrentState() == EFlowState::MainTitle)\n    flow.RequestTransition(EFlowState::MainMenu, 0.5f);\nif (flow.IsTransitioning()) DrawFadeOverlay(flow.FadeProgress());",
+      sample: "CGameFlow flow;\nflow.SetOnEnterCallback(EFlowState::Gameplay, &OnGameplayEnter, this);\nflow.Init(EFlowState::Splash);\n// 毎フレーム:\nflow.Tick(dt);\nif (pressed_start && flow.CurrentState() == EFlowState::MainTitle)\n    flow.RequestTransition(EFlowState::MainMenu, 0.5f);\nif (flow.IsTransitioning()) DrawFadeOverlay(flow.FadeProgress());",
       members: [
         { sig: "void Init(EFlowState initial_state = EFlowState::Splash)", desc: "10 個の状態スロットと遷移許可テーブルを構築し、初期状態に入る (OnEnter 発火)。" },
         { sig: "EFlowState CurrentState() / EFlowState PendingState()", desc: "現在の状態 / 遷移先の状態。" },
@@ -457,25 +468,26 @@ ACS_REF.modules.push({
         { sig: "f32 FadeProgress()", ret: "[0,1] の overlay 不透明度", desc: "fade_out 中は 0→1、切替後の fade_in 中は 1→0。非遷移中は 0。" },
         { sig: "void RequestTransition(EFlowState to, f32 fade_sec = 0.3f)", desc: "状態遷移を要求。不正遷移や遷移中の追加要求は no-op (後勝ちしない)。fade_sec=0 で即時。" },
         { sig: "void SetOnEnterCallback(EFlowState state, StateCallback cb, void* user)", desc: "状態への入場コールバックを登録 (各状態 1 個)。OnExit 用の SetOnExitCallback もある。" },
-        { sig: "void Tick(f32 dt)", desc: "fade タイマを進め、必要なら状態切替と enter/exit コールバックを発火する driver。" }
+        { sig: "void Tick(f32 dt)", desc: "fade タイマを進め、必要なら状態切替と enter/exit コールバックを発火する driver。" },
+        { sig: "using FGameFlow = CGameFlow", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CGameFlow</code> を使う。" }
       ]
     },
     {
       name: "EFlowState",
       kind: "列挙(enum)", header: "gameframework/GameFlow.h",
       summary: "高レベルゲームフロー状態 (10 種固定)。Splash / MainTitle / MainMenu / Settings / Credits / Loading / Gameplay / PauseMenu / GameOver / ExitingGame。",
-      when: "<code>FGameFlow</code> で現在のゲーム段階を識別・遷移指定する時。"
+      when: "<code>CGameFlow</code> で現在のゲーム段階を識別・遷移指定する時。"
     },
     {
       name: "FFlowTransition",
       kind: "構造体", header: "gameframework/GameFlow.h",
-      summary: "遷移メタデータ。遷移元 from・遷移先 to・fade-in / fade-out 秒数を持つ。<code>FGameFlow</code> が内部で保持し Tick で進行させる。",
+      summary: "遷移メタデータ。遷移元 from・遷移先 to・fade-in / fade-out 秒数を持つ。<code>CGameFlow</code> が内部で保持し Tick で進行させる。",
       when: "遷移の進行情報を参照する場面 (主に内部用)。"
     },
     {
       name: "GameFramework.h (まとめ include)",
       kind: "ヘッダ", header: "gameframework/GameFramework.h",
-      summary: "GameFramework の主要ヘッダを 1 行でまとめて取り込むための集約ヘッダ。FGame / FScene / Easing / Tween / 統一済みの ANode・AComponent / 各種コンポーネント・ディレクタ等を一括 include する。",
+      summary: "GameFramework の主要ヘッダを 1 行でまとめて取り込むための集約ヘッダ。CGame / AScene / Easing / Tween / 統一済みの ANode・AComponent / 各種コンポーネント・ディレクタ等を一括 include する。",
       when: "個別 include を書かずに gameframework をまとめて使い始めたい時。",
       sample: "#include \"gameframework/GameFramework.h\"\nusing namespace acs::game;"
     },
@@ -483,11 +495,11 @@ ACS_REF.modules.push({
     // 体力管理
     // =====================================================================
     {
-      name: "FHealthSystem",
+      name: "CHealthSystem",
       kind: "クラス", header: "gameframework/HealthSystem.h",
       summary: "敵・プレイヤー・破壊可能オブジェクトの HP を一元管理する高レベル API。<code>FHealthId</code> (slot+世代の<t>ハンドル</t>) で entity を識別し、ダメージ適用・回復・蘇生・無敵時間付与を提供する。死亡は<t>コールバック</t>で通知。",
       when: "複数の entity の HP・死亡・無敵時間 (i-frame) をまとめて扱いたい時。属性ダメージは値をそのまま callback に伝えるだけで、倍率計算は呼び出し側の責務。",
-      sample: "FHealthSystem hp;\nFHealthId player = hp.Spawn(100.0f);\nFHealthId enemy  = hp.Spawn(50.0f);\nif (hp.ApplyDamage(enemy, 30.0f, EDamageType::Fire)) {\n    // true = この一撃で致死\n}\nhp.SetInvulnerable(player, 0.5f);  // 被弾後の無敵 0.5 秒\nhp.Tick(dt);                        // 無敵タイマを進める",
+      sample: "CHealthSystem hp;\nFHealthId player = hp.Spawn(100.0f);\nFHealthId enemy  = hp.Spawn(50.0f);\nif (hp.ApplyDamage(enemy, 30.0f, EDamageType::Fire)) {\n    // true = この一撃で致死\n}\nhp.SetInvulnerable(player, 0.5f);  // 被弾後の無敵 0.5 秒\nhp.Tick(dt);                        // 無敵タイマを進める",
       members: [
         { sig: "FHealthId Spawn(f32 max_hp)", ret: "新しいハンドル", desc: "full HP で entity を登録。max_hp<=0 は 1.0 にクランプ。" },
         { sig: "void Despawn(FHealthId id)", desc: "entity を破棄 (slot は世代を進めて再利用)。古い id は以後無効。" },
@@ -501,14 +513,15 @@ ACS_REF.modules.push({
         { sig: "u32 EntityCount() / u32 AliveCount()", desc: "全 entity 数 / 生存数。" },
         { sig: "void Tick(f32 dt)", desc: "毎フレーム呼んで無敵タイマを進める driver。" },
         { sig: "void SetOnDeathCallback(DeathCallback cb, void* user)", desc: "死亡時の通知先を登録 (state 確定後に呼ばれる。callback 内で Revive も可)。" },
-        { sig: "void ClearAll()", desc: "全 entity を破棄 (コールバック設定は保持)。" }
+        { sig: "void ClearAll()", desc: "全 entity を破棄 (コールバック設定は保持)。" },
+        { sig: "using FHealthSystem = CHealthSystem", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CHealthSystem</code> を使う。" }
       ]
     },
     {
       name: "FHealthId",
       kind: "構造体", header: "gameframework/HealthSystem.h",
       summary: "HP 管理対象 entity の識別子。32bit に 24bit index + 8bit 世代を詰めた<t>ハンドル</t>。0 は invalid 予約。Despawn → 再利用しても古いハンドルは世代不一致で弾かれる。",
-      when: "<code>FHealthSystem</code> の各操作で entity を指す時。",
+      when: "<code>CHealthSystem</code> の各操作で entity を指す時。",
       sample: "FHealthId id = hp.Spawn(100.0f);\nif (id.IsValid() && hp.IsAlive(id)) { /* ... */ }",
       members: [
         { sig: "u32 Index() / u8 Generation() / bool IsValid()", desc: "詰め込まれた index / 世代 / 有効性 (m_Packed != 0)。" },
@@ -526,6 +539,15 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "gameframework/HealthSystem.h",
       summary: "ダメージ属性。Physical / Fire / Ice / Lightning / Poison / True (耐性無効の確定ダメージ) の 6 種。本クラスは倍率を掛けず、種別を callback に伝えるだけ。",
       when: "<code>ApplyDamage</code> でダメージ種別を渡し、VFX 振り分けや将来の耐性計算に使う時。"
+    },
+    {
+      name: "AEventBus",
+      kind: "クラス", header: "gameframework/EventBus.h",
+      summary: "owner単位でevent購読と配送を保持する管理object。",
+      when: "sceneやgameの寿命へevent配送を結び付ける時。",
+      members: [
+        { sig: "using FEventBus = AEventBus", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>AEventBus</code> を使う。" }
+      ]
     }
   ]
 });

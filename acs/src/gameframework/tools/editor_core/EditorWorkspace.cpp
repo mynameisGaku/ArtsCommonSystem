@@ -267,7 +267,7 @@ void CEditorWorkspace::RegisterPanel(AEditorPanel* panel) noexcept {
     }
     // 上限到達 silent no-op (kMaxPanels はあくまで安全弁)。
     if (m_Panels.Size() >= static_cast<usize>(kMaxPanels)) {
-        ACS_LOG_WARN("FEditorWorkspace::RegisterPanel: panel limit %u reached, ignoring '%s'",
+        ACS_LOG_WARN("CEditorWorkspace::RegisterPanel: panel limit %u reached, ignoring '%s'",
                      static_cast<unsigned>(kMaxPanels),
                      panel->Title());
         return;
@@ -987,7 +987,7 @@ void CEditorWorkspace::SaveLayout(const wchar_t* file_path) noexcept {
     const FEditorWorkspacePersistenceResult result = TrySaveLayout(file_path);
     if (!result.Succeeded()) {
         ACS_LOG_WARN(
-            "FEditorWorkspace::SaveLayout: %s (line=%u os=%u)",
+            "CEditorWorkspace::SaveLayout: %s (line=%u os=%u)",
             FEditorWorkspacePersistenceResult::ErrorName(result.error),
             result.line, result.os_error);
     }
@@ -999,7 +999,7 @@ void CEditorWorkspace::LoadLayout(const wchar_t* file_path) noexcept {
     if (!result.Succeeded() &&
         result.error != EEditorWorkspacePersistenceError::FileNotFound) {
         ACS_LOG_WARN(
-            "FEditorWorkspace::LoadLayout: %s (line=%u os=%u)",
+            "CEditorWorkspace::LoadLayout: %s (line=%u os=%u)",
             FEditorWorkspacePersistenceResult::ErrorName(result.error),
             result.line, result.os_error);
     }

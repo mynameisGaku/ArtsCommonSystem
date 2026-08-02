@@ -408,7 +408,7 @@ void CEditorTheme::SetFontScale(f32 scale) noexcept {
     if (scale <= 0.0f) return;
     // 上限 4.0 で safety clamp (典型用途は 1.0 〜 2.0)。
     if (scale > 4.0f) {
-        ACS_LOG_WARN("FEditorTheme::SetFontScale: clamp %.2f -> 4.0",
+        ACS_LOG_WARN("CEditorTheme::SetFontScale: clamp %.2f -> 4.0",
                      static_cast<double>(scale));
         scale = 4.0f;
     }
@@ -646,7 +646,7 @@ void CEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
         !write_line("font_scale %.3f\n",      static_cast<double>(m_FontScale)) ||
         !write_line("corner_radius %.3f\n",   static_cast<double>(m_CornerRadius)) ||
         !write_line("item_spacing_y %.3f\n",  static_cast<double>(m_ItemSpacingY))) {
-        ACS_LOG_WARN("FEditorTheme::SaveTheme: header buffer overflow");
+        ACS_LOG_WARN("CEditorTheme::SaveTheme: header buffer overflow");
         return;
     }
 
@@ -664,16 +664,16 @@ void CEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
         !write_color("accent",        m_Colors.accent)        ||
         !write_color("warning",       m_Colors.warning)       ||
         !write_color("error",         m_Colors.error)) {
-        ACS_LOG_WARN("FEditorTheme::SaveTheme: color buffer overflow");
+        ACS_LOG_WARN("CEditorTheme::SaveTheme: color buffer overflow");
         return;
     }
 
     // 書き出し。
-    const auto r = FFileSystem::WriteAllBytes(file_path,
+    const auto r = CFileSystem::WriteAllBytes(file_path,
                                        reinterpret_cast<const byte*>(buf),
                                        static_cast<usize>(pos));
     if (r.IsErr()) {
-        ACS_LOG_WARN("FEditorTheme::SaveTheme: WriteAllBytes failed: os=%u",
+        ACS_LOG_WARN("CEditorTheme::SaveTheme: WriteAllBytes failed: os=%u",
                      r.Error().os_error);
     }
 }
@@ -689,20 +689,20 @@ void CEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
  */
 void CEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
-    if (!FFileSystem::Exists(file_path)) {
-        ACS_LOG_WARN("FEditorTheme::LoadTheme: file not found");
+    if (!CFileSystem::Exists(file_path)) {
+        ACS_LOG_WARN("CEditorTheme::LoadTheme: file not found");
         return;
     }
 
-    const auto rr = FFileSystem::ReadAllText(file_path);
+    const auto rr = CFileSystem::ReadAllText(file_path);
     if (rr.IsErr()) {
-        ACS_LOG_WARN("FEditorTheme::LoadTheme: ReadAllText failed: os=%u",
+        ACS_LOG_WARN("CEditorTheme::LoadTheme: ReadAllText failed: os=%u",
                      rr.Error().os_error);
         return;
     }
     const TArray<char>& text = rr.Value();
     if (text.Size() == 0) {
-        ACS_LOG_WARN("FEditorTheme::LoadTheme: empty file");
+        ACS_LOG_WARN("CEditorTheme::LoadTheme: empty file");
         return;
     }
 
@@ -754,7 +754,7 @@ void CEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
             if (std::strcmp(key, kMagic) == 0) {
                 const u32 v = static_cast<u32>(std::strtoul(q, nullptr, 10));
                 if (v != kCurrentVersion) {
-                    ACS_LOG_WARN("FEditorTheme::LoadTheme: unsupported version %u",
+                    ACS_LOG_WARN("CEditorTheme::LoadTheme: unsupported version %u",
                                  v);
                     return;
                 }
@@ -762,7 +762,7 @@ void CEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
                 continue;
             }
             // magic 行が来る前に他の key が来たらフォーマット不正で abort。
-            ACS_LOG_WARN("FEditorTheme::LoadTheme: missing %s header", kMagic);
+            ACS_LOG_WARN("CEditorTheme::LoadTheme: missing %s header", kMagic);
             return;
         }
 
@@ -820,7 +820,7 @@ void CEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
     }
 
     if (!magic_ok) {
-        ACS_LOG_WARN("FEditorTheme::LoadTheme: no %s header found", kMagic);
+        ACS_LOG_WARN("CEditorTheme::LoadTheme: no %s header found", kMagic);
         return;
     }
 
@@ -1310,7 +1310,7 @@ void CEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
     const FEditorThemePersistenceResult result = TrySaveTheme(file_path);
     if (!result.Succeeded()) {
         ACS_LOG_WARN(
-            "FEditorTheme::SaveTheme: %s (line=%u os=%u)",
+            "CEditorTheme::SaveTheme: %s (line=%u os=%u)",
             FEditorThemePersistenceResult::ErrorName(result.error),
             result.line, result.os_error);
     }
@@ -1321,7 +1321,7 @@ void CEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
     const FEditorThemePersistenceResult result = TryLoadTheme(file_path);
     if (!result.Succeeded()) {
         ACS_LOG_WARN(
-            "FEditorTheme::LoadTheme: %s (line=%u os=%u)",
+            "CEditorTheme::LoadTheme: %s (line=%u os=%u)",
             FEditorThemePersistenceResult::ErrorName(result.error),
             result.line, result.os_error);
     }

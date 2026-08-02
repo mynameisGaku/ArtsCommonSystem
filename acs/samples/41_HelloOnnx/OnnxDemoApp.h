@@ -4,7 +4,7 @@
 
 namespace helloonnx {
 
-class FOnnxDemoApp {
+class COnnxDemoApp {
 public:
     int Run() noexcept;
 };

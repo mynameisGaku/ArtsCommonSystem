@@ -14,7 +14,7 @@ class AMeshAsset;
  * 三角形メッシュから median-split AABB BVH を構築する 3D メッシュコライダー。
  *
  * @details
- * レンダリング用の FMeshAsset や生の頂点/インデックス配列から collider を作り、
+ * レンダリング用の AMeshAsset や生の頂点/インデックス配列から collider を作り、
  * レイキャスト (最近接ヒット) と AABB 重なりクエリを BVH で高速化する。中身は
  * 三角形リスト + 最長軸の空間中点で分割する BVH。視覚に依存しない純 CPU ロジックで、
  * ACS 規約に従い non-copy・全 noexcept・TResult を用いる。

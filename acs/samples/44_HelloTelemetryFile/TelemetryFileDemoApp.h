@@ -4,10 +4,9 @@
 
 namespace hellotelemetry {
 
-class FTelemetryFileDemoApp {
+class CTelemetryFileDemoApp {
 public:
     int Run() noexcept;
 };
 
 } // namespace hellotelemetry
-

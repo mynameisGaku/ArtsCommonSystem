@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — CAssetBundle 実装 (FAssetRegistry 実接続)
+// GameFramework Pillar G — CAssetBundle 実装 (CAssetRegistry 実接続)
 //
 // BeginLoad(registry) で各 path を registry 経由で実ロードし、TSharedPtr<Asset> を Entry に
 // 保持する (同期 Load)。bundle が TSharedPtr を持つことで Unload まで生存を保証し、Unload /
@@ -19,7 +19,7 @@ namespace acs::game {
 
 namespace {
 /**
- * UTF-8 の path を wide 文字列に変換する (FAssetRegistry が wide path を取るため)。
+ * UTF-8 の path を wide 文字列に変換する (CAssetRegistry が wide path を取るため)。
  *
  * @param utf8 変換元の UTF-8 path。
  * @param out 変換結果を書き込むバッファ。
@@ -41,12 +41,12 @@ bool WidenPath(const char* utf8, wchar_t* out, int cap) noexcept
 void CAssetBundle::Add(const char* asset_path) noexcept
 {
     if (asset_path == nullptr) {
-        ACS_LOG_WARN("FAssetBundle::Add: null path ignored");
+        ACS_LOG_WARN("CAssetBundle::Add: null path ignored");
         return;
     }
     if (m_bBegun) {
         // BeginLoad 済 bundle への追加はサポートしない (進捗計算の意味が破綻するため)。
-        ACS_LOG_WARN("FAssetBundle::Add: bundle already began loading, ignored '%s'", asset_path);
+        ACS_LOG_WARN("CAssetBundle::Add: bundle already began loading, ignored '%s'", asset_path);
         return;
     }
     FEntry e{};
@@ -55,10 +55,10 @@ void CAssetBundle::Add(const char* asset_path) noexcept
     m_Entries.PushBack(e);
 }
 
-void CAssetBundle::BeginLoad(FAssetRegistry& registry) noexcept
+void CAssetBundle::BeginLoad(CAssetRegistry& registry) noexcept
 {
     if (m_bBegun) {
-        ACS_LOG_WARN("FAssetBundle::BeginLoad: already begun, ignored");
+        ACS_LOG_WARN("CAssetBundle::BeginLoad: already begun, ignored");
         return;
     }
     m_bBegun = true;
@@ -69,13 +69,13 @@ void CAssetBundle::BeginLoad(FAssetRegistry& registry) noexcept
         FEntry& e = m_Entries[i];
         wchar_t wpath[260];
         if (!WidenPath(e.path, wpath, 260)) {
-            ACS_LOG_WARN("FAssetBundle::BeginLoad: path 変換失敗 '%s'", e.path ? e.path : "(null)");
+            ACS_LOG_WARN("CAssetBundle::BeginLoad: path 変換失敗 '%s'", e.path ? e.path : "(null)");
             e.status = ELoadStatus::Failed;
             continue;
         }
         auto r = registry.Load(wpath);
         if (r.IsErr()) {
-            ACS_LOG_WARN("FAssetBundle::BeginLoad: load 失敗 '%s'", e.path);
+            ACS_LOG_WARN("CAssetBundle::BeginLoad: load 失敗 '%s'", e.path);
             e.status = ELoadStatus::Failed;
             continue;
         }
@@ -84,15 +84,15 @@ void CAssetBundle::BeginLoad(FAssetRegistry& registry) noexcept
     }
 }
 
-TSharedPtr<FAsset> CAssetBundle::GetAsset(u32 index) const noexcept
+TSharedPtr<AAsset> CAssetBundle::GetAsset(u32 index) const noexcept
 {
-    if (index >= m_Entries.Size()) return TSharedPtr<FAsset>();
+    if (index >= m_Entries.Size()) return TSharedPtr<AAsset>();
     return m_Entries[index].asset;
 }
 
-TSharedPtr<FAsset> CAssetBundle::FindAsset(const char* asset_path) const noexcept
+TSharedPtr<AAsset> CAssetBundle::FindAsset(const char* asset_path) const noexcept
 {
-    if (!asset_path) return TSharedPtr<FAsset>();
+    if (!asset_path) return TSharedPtr<AAsset>();
     for (usize i = 0; i < m_Entries.Size(); ++i) {
         const char* p = m_Entries[i].path;
         if (p) {
@@ -105,7 +105,7 @@ TSharedPtr<FAsset> CAssetBundle::FindAsset(const char* asset_path) const noexcep
             if (*a == 0 && *b == 0) return m_Entries[i].asset;
         }
     }
-    return TSharedPtr<FAsset>();
+    return TSharedPtr<AAsset>();
 }
 
 f32 CAssetBundle::Progress() const noexcept

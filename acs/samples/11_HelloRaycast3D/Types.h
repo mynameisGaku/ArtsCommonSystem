@@ -13,7 +13,7 @@ namespace helloraycast3d {
 
 enum class EShapeKind : acs::u8 { Sphere, Cube };
 
-struct FObject {
+struct FRaycastTarget {
     EShapeKind kind;
     acs::FVec3 position;
     acs::f32  radius_or_half;     // 球: 半径、立方体: 半サイズ

@@ -19,7 +19,7 @@ namespace hellovertexsss {
 namespace {
 
 // 自前シェーダ: 位置+法線+散乱後放射照度 (sss) を受け、albedo*sss + ambient を出す。
-// «散乱後放射照度» は CPU (FVertexScatter) が頂点ごとに計算して頂点バッファへ書く。
+// «散乱後放射照度» は CPU (CVertexScatter) が頂点ごとに計算して頂点バッファへ書く。
 const char* kHLSL = R"(
 #pragma pack_matrix(row_major)
 cbuffer Frame : register(b0) {
@@ -59,7 +59,7 @@ const FScatterProfile kSkinProfile{ 34, 13, 6 };
 
 } // namespace
 
-void FHelloVertexSssApp::OnStart() noexcept {
+void CHelloVertexSssApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -136,7 +136,7 @@ void FHelloVertexSssApp::OnStart() noexcept {
     m_Camera.SetLookAt(FVec3{ 0, 0, -4.8f }, FVec3{ 0, 0, 0 });
 }
 
-void FHelloVertexSssApp::UpdateSphere(IRhiBuffer* vb, FVec3 lightDir, bool scatter) noexcept {
+void CHelloVertexSssApp::UpdateSphere(IRhiBuffer* vb, FVec3 lightDir, bool scatter) noexcept {
     if (vb == nullptr) return;
     const auto& v = m_Sphere->Vertices();
     const u32 vc = static_cast<u32>(v.Size());
@@ -159,12 +159,12 @@ void FHelloVertexSssApp::UpdateSphere(IRhiBuffer* vb, FVec3 lightDir, bool scatt
     vb->Update(m_CpuVtx.Data(), sizeof(FVtxSss) * vc);
 }
 
-void FHelloVertexSssApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloVertexSssApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Time += dt;
 }
 
-void FHelloVertexSssApp::OnRender() noexcept {
+void CHelloVertexSssApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Pipe) return;
 
@@ -207,7 +207,7 @@ void FHelloVertexSssApp::OnRender() noexcept {
     }
 }
 
-void FHelloVertexSssApp::OnShutdown() noexcept {
+void CHelloVertexSssApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();

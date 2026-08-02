@@ -30,7 +30,7 @@
 //   ・**static のみ・非インスタンス**: 状態を持たない無名関数の集合体として
 //     振る舞う。コピー / ムーブともに明示的に削除する。
 //   ・**Win32 直叩き**: `CreateFileW / ReadFile / WriteFile / SetFilePointerEx /
-//     GetFileSizeEx / CloseHandle` を .cpp 内で直接呼ぶ (FFileSystem を経由
+//     GetFileSizeEx / CloseHandle` を .cpp 内で直接呼ぶ (CFileSystem を経由
 //     しない — このレイヤは整合性検証 + I/O を 1 つの atomic 単位に閉じたい
 //     ため、薄い直接呼び出しが目的に合う)。
 //

@@ -211,6 +211,17 @@ AEventBus* component_events = component.GetSubsystem<AEventBus>();
 未登録、またはownerへ未配線の場合は`nullptr`を返します。Subsystemの登録・scope・frame phaseは
 専用のcatalogとcollectionで管理し、単なる局所値や決定論的な計算機能はSubsystemにしません。
 
+## 今後のVoxel破壊
+
+破壊可能なVoxel worldは、現在のprefix・module・Subsystem契約を維持した独立waveで追加します。
+CPU側の密度・material・chunk snapshotなどのデータは`F`、編集・mesh生成などの機能classは`C`とし、
+複数ownerが共有する寿命と終了処理が必要になるまではSubsystem化しません。core処理と描画連携を
+`Voxel` / `VoxelRender`へ分離し、非同期mesh生成はchunk instance IDとgenerationで古い結果を破棄、
+動的GPU meshは静的asset registryから分離する方針です。破壊eventのmaterialとpenetrationの意味は、
+実装前の契約reviewで確定します。着想元は
+[4Gamerの講演記事](https://www.4gamer.net/games/897/G089771/20260729064/)と
+[DevelopersIOのセッションレポート](https://dev.classmethod.jp/articles/cedec-2026-voxel/)です。
+
 ## モジュール
 
 有効化設定は [`acs/engine/modules.cmake`](acs/engine/modules.cmake)、トップレベルCMakeは

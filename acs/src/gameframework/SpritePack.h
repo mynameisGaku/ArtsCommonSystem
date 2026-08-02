@@ -162,7 +162,7 @@ public:
     FSpritePack() noexcept = default;
 
     /** 永続 string と frame array に呼び出し側所有の allocator を使う。 */
-    explicit FSpritePack(FAllocator& allocator) noexcept
+    explicit FSpritePack(IAllocator& allocator) noexcept
         : m_Frames(allocator),
           m_OwnedNames(allocator),
           m_OwnedImagePath(allocator) {}

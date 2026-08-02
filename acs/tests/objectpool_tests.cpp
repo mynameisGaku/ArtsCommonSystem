@@ -21,7 +21,7 @@ struct FThing {
 };
 
 /** 指定した次回確保だけを失敗させ、rollback を検証する backing。 */
-class FControllableFailAllocator final : public FAllocator {
+class FControllableFailAllocator final : public IAllocator {
 public:
     void FailNextAllocation() noexcept
     {
@@ -48,7 +48,7 @@ public:
     }
 
 private:
-    FSystemAllocator m_Backing;
+    CSystemAllocator m_Backing;
     bool m_bFailNext = false;
 };
 
@@ -190,28 +190,28 @@ ACS_TEST(ObjectPool, AllocationFailuresPreserveOwnershipAndState)
 ACS_TEST(ObjectPool, Benchmark_ChurnSpeed) {
     struct FCell { int a, b, c, d; };
     const int kIters = 1000000;
-    const u64 freq = FClock::TicksPerSecond();
+    const u64 freq = CClock::TicksPerSecond();
 
     // プール: create+destroy の churn (スロット再利用 → アロケータ呼び出し無し)。
     TObjectPool<FCell> pool;
-    u64 t0 = FClock::Ticks();
+    u64 t0 = CClock::Ticks();
     for (int i = 0; i < kIters; ++i) {
         FObjectHandle h = pool.Create();
         pool.Get(h)->a = i;
         pool.Destroy(h);
     }
-    u64 t1 = FClock::Ticks();
+    u64 t1 = CClock::Ticks();
 
     // ヒープ: New/Delete の churn (アロケータ往復)。
-    FAllocator& a = DefaultAllocator();
+    IAllocator& a = DefaultAllocator();
     volatile int sink = 0;
-    u64 t2 = FClock::Ticks();
+    u64 t2 = CClock::Ticks();
     for (int i = 0; i < kIters; ++i) {
         FCell* c = New<FCell>(a);
         c->a = i; sink = static_cast<int>(sink + c->a);
         Delete(a, c);
     }
-    u64 t3 = FClock::Ticks();
+    u64 t3 = CClock::Ticks();
     (void)sink;
 
     const int poolNs = (freq > 0) ? static_cast<int>((t1 - t0) * 1000000000ull / freq / (u64)kIters) : 0;

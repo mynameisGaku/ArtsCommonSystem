@@ -14,7 +14,7 @@ using namespace acs;
 
 namespace hellosky {
 
-void FHelloSkyApp::OnStart() noexcept {
+void CHelloSkyApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -39,24 +39,24 @@ void FHelloSkyApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloSky initialized");
 }
 
-void FHelloSkyApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
-    if (FInput::IsKeyPressed(EKey::Num1)) m_Scene.SetPreset(m_Sky, ESkyPreset::Day);
-    if (FInput::IsKeyPressed(EKey::Num2)) m_Scene.SetPreset(m_Sky, ESkyPreset::Sunset);
-    if (FInput::IsKeyPressed(EKey::Num3)) m_Scene.SetPreset(m_Sky, ESkyPreset::Night);
+void CHelloSkyApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (CInput::IsKeyPressed(EKey::Num1)) m_Scene.SetPreset(m_Sky, ESkyPreset::Day);
+    if (CInput::IsKeyPressed(EKey::Num2)) m_Scene.SetPreset(m_Sky, ESkyPreset::Sunset);
+    if (CInput::IsKeyPressed(EKey::Num3)) m_Scene.SetPreset(m_Sky, ESkyPreset::Night);
 
     m_Angle += dt * 0.5f;
 
     // ターゲット (原点上 1m) を中心にカメラを yaw 周回させる。
     // Sin/Cos で円軌道を作るのが一番素直で、初学者が読みやすい形。
-    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.0f;
-    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.0f;
+    if (CInput::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.0f;
+    if (CInput::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.0f;
     const f32 cam_dist = 6.0f;
     m_CamPos = FVec3{ Sin(m_CamYaw) * cam_dist, 2.5f, -Cos(m_CamYaw) * cam_dist };
     m_Camera.SetLookAt(m_CamPos, FVec3{0, 1, 0});
 }
 
-void FHelloSkyApp::OnRender() noexcept {
+void CHelloSkyApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
 
@@ -78,7 +78,7 @@ void FHelloSkyApp::OnRender() noexcept {
     }
 }
 
-void FHelloSkyApp::OnShutdown() noexcept {
+void CHelloSkyApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();

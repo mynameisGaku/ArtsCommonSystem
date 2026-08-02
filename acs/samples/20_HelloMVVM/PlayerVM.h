@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloMVVM — FViewModel 定義。
-// TObservable<T> / TObservableArray<T> / FCommand を組み合わせた最小 FPlayerVm。
+// HelloMVVM — CViewModel 定義。
+// TObservable<T> / TObservableArray<T> / FCommand を組み合わせた最小 CPlayerVm。
 // 全フィールドを public にして View 側から直接 bind できるようにしてある
-// (FViewModel は通常 public フィールドのままで View に晒すのが MVVM の流儀)。
+// (CViewModel は通常 public フィールドのままで View に晒すのが MVVM の流儀)。
 #pragma once
 
 #include "mvvm/ViewModel.h"
@@ -13,7 +13,7 @@
 
 namespace hellomvvm {
 
-class FPlayerVm : public acs::FViewModel {
+class CPlayerVm : public acs::CViewModel {
 public:
     acs::TObservable<acs::f32>     hp        { 100.0f };
     acs::TObservable<acs::f32>     max_hp    { 100.0f };
@@ -31,7 +31,7 @@ public:
     // gate しているため null を渡す。
     acs::FCommand attack {
         [](void* user) {
-            auto* self = static_cast<FPlayerVm*>(user);
+            auto* self = static_cast<CPlayerVm*>(user);
             self->hp.Set(self->hp.Get() - 10.0f);
         },
         this,

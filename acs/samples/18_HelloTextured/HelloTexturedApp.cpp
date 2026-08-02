@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloTextured — FApplication 実装。
+// HelloTextured — CApplication 実装。
 #include "HelloTexturedApp.h"
 #include "Shaders.h"
 #include "TextureGen.h"
@@ -13,7 +13,7 @@ using namespace acs;
 
 namespace hellotextured {
 
-void FHelloTexturedApp::OnStart() noexcept {
+void CHelloTexturedApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -110,12 +110,12 @@ void FHelloTexturedApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloTextured initialized");
 }
 
-void FHelloTexturedApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloTexturedApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
 
     m_Angle += dt * 0.6f;
-    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.5f;
-    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.5f;
+    if (CInput::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.5f;
+    if (CInput::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.5f;
 
     FVec3 eye{ Sin(m_CamYaw) * 5.0f, 1.5f, -Cos(m_CamYaw) * 5.0f };
     m_Camera.SetLookAt(eye, {0, 0, 0});
@@ -125,7 +125,7 @@ void FHelloTexturedApp::OnUpdate(f32 dt) noexcept {
     m_Cb->Update(&mvp, sizeof(FMat4));
 }
 
-void FHelloTexturedApp::OnRender() noexcept {
+void CHelloTexturedApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Pipeline) return;
     cl->SetPipeline(*m_Pipeline);
@@ -136,7 +136,7 @@ void FHelloTexturedApp::OnRender() noexcept {
     cl->DrawIndexed(36);
 }
 
-void FHelloTexturedApp::OnShutdown() noexcept {
+void CHelloTexturedApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Pipeline.Reset();
     m_Tex.Reset();

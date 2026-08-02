@@ -25,9 +25,9 @@ constexpr FLegacyEaseIdCase kLegacyEaseIdCases[] = {{0, Easing::EEasingType::Lin
 /** 独立した期待表の要素数。 */
 constexpr usize kLegacyEaseIdCaseCount = sizeof(kLegacyEaseIdCases) / sizeof(kLegacyEaseIdCases[0]);
 
-static_assert(kLegacyEaseIdCaseCount == static_cast<usize>(FLegacyKitEaseIdCodec::kLegacyIdCount));
-static_assert(noexcept(FLegacyKitEaseIdCodec::TryDecode(0, *static_cast<Easing::EEasingType*>(nullptr))));
-static_assert(noexcept(FLegacyKitEaseIdCodec::TryEncode(Easing::EEasingType::Linear, *static_cast<i32*>(nullptr))));
+static_assert(kLegacyEaseIdCaseCount == static_cast<usize>(CLegacyKitEaseIdCodec::kLegacyIdCount));
+static_assert(noexcept(CLegacyKitEaseIdCodec::TryDecode(0, *static_cast<Easing::EEasingType*>(nullptr))));
+static_assert(noexcept(CLegacyKitEaseIdCodec::TryEncode(Easing::EEasingType::Linear, *static_cast<i32*>(nullptr))));
 
 } // namespace
 
@@ -36,7 +36,7 @@ ACS_TEST(LegacyKitEaseIdCodec, DecodesEveryFixedLegacyId) {
     for (usize index = 0u; index < kLegacyEaseIdCaseCount; ++index) {
         /** 旧形式 ID から復元する正規型。 */
         Easing::EEasingType decoded = Easing::EEasingType::Count;
-        EXPECT_TRUE(FLegacyKitEaseIdCodec::TryDecode(kLegacyEaseIdCases[index].legacy_id, decoded));
+        EXPECT_TRUE(CLegacyKitEaseIdCodec::TryDecode(kLegacyEaseIdCases[index].legacy_id, decoded));
         EXPECT_EQ(decoded, kLegacyEaseIdCases[index].type);
     }
 }
@@ -46,29 +46,29 @@ ACS_TEST(LegacyKitEaseIdCodec, RoundTripsEveryLegacyAndMappedAcsValue) {
     for (usize index = 0u; index < kLegacyEaseIdCaseCount; ++index) {
         /** 旧形式 ID から復元する正規型。 */
         Easing::EEasingType decoded = Easing::EEasingType::Count;
-        EXPECT_TRUE(FLegacyKitEaseIdCodec::TryDecode(kLegacyEaseIdCases[index].legacy_id, decoded));
+        EXPECT_TRUE(CLegacyKitEaseIdCodec::TryDecode(kLegacyEaseIdCases[index].legacy_id, decoded));
 
         /** 復元した正規型から得る旧形式 ID。 */
         i32 encoded = -1;
-        EXPECT_TRUE(FLegacyKitEaseIdCodec::TryEncode(decoded, encoded));
+        EXPECT_TRUE(CLegacyKitEaseIdCodec::TryEncode(decoded, encoded));
         EXPECT_EQ(encoded, kLegacyEaseIdCases[index].legacy_id);
 
         /** 再び旧形式 ID から復元する正規型。 */
         Easing::EEasingType round_tripped = Easing::EEasingType::Count;
-        EXPECT_TRUE(FLegacyKitEaseIdCodec::TryDecode(encoded, round_tripped));
+        EXPECT_TRUE(CLegacyKitEaseIdCodec::TryDecode(encoded, round_tripped));
         EXPECT_EQ(round_tripped, kLegacyEaseIdCases[index].type);
     }
 }
 
 ACS_TEST(LegacyKitEaseIdCodec, RejectsInvalidValuesWithoutChangingOutputs) {
     /** 旧形式の範囲外を網羅する入力。 */
-    const i32 invalid_legacy_ids[] = {-1, FLegacyKitEaseIdCodec::kLegacyIdCount, std::numeric_limits<i32>::min(), std::numeric_limits<i32>::max()};
+    const i32 invalid_legacy_ids[] = {-1, CLegacyKitEaseIdCodec::kLegacyIdCount, std::numeric_limits<i32>::min(), std::numeric_limits<i32>::max()};
 
     // 範囲外 ID を先頭から検証する値。
     for (i32 legacy_id : invalid_legacy_ids) {
         /** 失敗時に保持される正規型。 */
         Easing::EEasingType decoded = Easing::EEasingType::OutBack;
-        EXPECT_FALSE(FLegacyKitEaseIdCodec::TryDecode(legacy_id, decoded));
+        EXPECT_FALSE(CLegacyKitEaseIdCodec::TryDecode(legacy_id, decoded));
         EXPECT_EQ(decoded, Easing::EEasingType::OutBack);
     }
 
@@ -79,7 +79,7 @@ ACS_TEST(LegacyKitEaseIdCodec, RejectsInvalidValuesWithoutChangingOutputs) {
     for (Easing::EEasingType type : invalid_types) {
         /** 失敗時に保持される旧形式 ID。 */
         i32 encoded = 12345;
-        EXPECT_FALSE(FLegacyKitEaseIdCodec::TryEncode(type, encoded));
+        EXPECT_FALSE(CLegacyKitEaseIdCodec::TryEncode(type, encoded));
         EXPECT_EQ(encoded, 12345);
     }
 }
@@ -91,7 +91,7 @@ ACS_TEST(LegacyKitEaseIdCodec, DirectCastDoesNotMigrateLegacyIds) {
 
     /** 明示 codec で旧 ID 1 から復元した型。 */
     Easing::EEasingType decoded = Easing::EEasingType::Linear;
-    EXPECT_TRUE(FLegacyKitEaseIdCodec::TryDecode(1, decoded));
+    EXPECT_TRUE(CLegacyKitEaseIdCodec::TryDecode(1, decoded));
     EXPECT_EQ(decoded, Easing::EEasingType::SmoothStep);
     EXPECT_NE(decoded, directly_cast);
 }

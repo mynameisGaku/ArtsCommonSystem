@@ -32,7 +32,7 @@ u64 NowNs() noexcept
 }
 
 /** Alloc、Realloc、Free の呼び出し回数を観測する allocator。 */
-struct FCountingAllocator final : FAllocator {
+struct FCountingAllocator final : IAllocator {
     /** Alloc を計数して backing へ転送する。 */
     void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override
     {
@@ -55,7 +55,7 @@ struct FCountingAllocator final : FAllocator {
     }
 
     /** 実際の確保を担当する allocator。 */
-    FSystemAllocator Backing;
+    CSystemAllocator Backing;
 
     /** Alloc 呼び出し回数。 */
     u64 AllocCalls = 0u;
@@ -256,7 +256,7 @@ void BenchPool() noexcept
     // 現在反復で取得したブロック群。
     void* Pointers[kCount]{};
     // 個別 API を計測するプール。
-    FPoolAllocator Pool(64u, kCount, 64u);
+    CPoolAllocator Pool(64u, kCount, 64u);
 
     // 個別 API 計測の開始時刻。
     const u64 Started = NowNs();
@@ -273,7 +273,7 @@ void BenchPool() noexcept
     g_Sink += Pool.AllocationCount();
 
     // batch API を計測するプール。
-    FPoolAllocator BatchPool(64u, kCount, 64u);
+    CPoolAllocator BatchPool(64u, kCount, 64u);
     // batch API 計測の開始時刻。
     const u64 BatchStarted = NowNs();
     for (usize Repeat = 0u; Repeat < kRepeats; ++Repeat) {

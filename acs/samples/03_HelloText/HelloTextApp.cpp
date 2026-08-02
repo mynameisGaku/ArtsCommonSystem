@@ -20,7 +20,7 @@ namespace hellotext {
 
 using namespace acs;
 
-void FHelloTextApp::OnStart() noexcept {
+void CHelloTextApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -35,12 +35,12 @@ void FHelloTextApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloText initialized");
 }
 
-void FHelloTextApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloTextApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Time += dt;
 }
 
-void FHelloTextApp::OnRender() noexcept {
+void CHelloTextApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -77,7 +77,7 @@ void FHelloTextApp::OnRender() noexcept {
         "漢字対応のテキスト描画\n"
         "・stb_truetype で 漢字 (CJK 統合 U+4E00..U+9FAF) を焼き込み\n"
         "・2048×2048 のアトラスに 約 2 万字を収録\n"
-        "・FSpriteBatch::DrawString でそのまま描画\n"
+        "・CSpriteBatch::DrawString でそのまま描画\n"
         "・吾輩は猫である。名前はまだ無い。\n"
         "・春はあけぼの。やうやう白くなりゆく山際、すこし明かりて";
     m_Batch.DrawString(m_BodyFont, body, 100, 240,
@@ -102,7 +102,7 @@ void FHelloTextApp::OnRender() noexcept {
     m_Batch.End();
 }
 
-void FHelloTextApp::OnShutdown() noexcept {
+void CHelloTextApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_SmallFont.Shutdown();
     m_BodyFont.Shutdown();

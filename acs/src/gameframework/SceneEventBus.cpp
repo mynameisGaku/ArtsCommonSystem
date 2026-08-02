@@ -7,7 +7,7 @@ namespace acs::game {
 /** event id に handler を登録し、Unsubscribe 用の handle を返す (inactive entry を再利用)。 */
 u32 CSceneEventBus::Subscribe(FEventId id, HandlerFn fn, void* user) noexcept {
     if (fn == nullptr) {
-        ACS_LOG_WARN("FSceneEventBus::Subscribe: null handler for event id=%u ignored", id.value);
+        ACS_LOG_WARN("CSceneEventBus::Subscribe: null handler for event id=%u ignored", id.value);
         return 0u;
     }
 

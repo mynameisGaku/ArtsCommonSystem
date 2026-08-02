@@ -5,7 +5,7 @@
 // 共通) であり、UE5 の UMG CViewModel 専用の概念ではない。
 // ACS の MVVM は次の 3 層で構成される:
 //   Model     = ゲームロジック / アセット / ECS 内のデータ
-//   View      = src/ui/ の FWidget tree (FLabel / FButton / FSlider 等)、または
+//   View      = src/ui/ の AWidget tree (ALabel / AButton / ASlider 等)、または
 //               src/imgui/ の ImGui (ad-hoc デバッグ用、本番 UI は src/ui/ 推奨)
 //   CViewModel = この基底を継承して TObservable<T> プロパティを公開するクラス
 //

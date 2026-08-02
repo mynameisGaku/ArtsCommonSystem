@@ -31,11 +31,11 @@ static_assert(kIsValidMessagePipeCapacity<1024>);
 static_assert(!kIsValidMessagePipeCapacity<0>);
 static_assert(!kIsValidMessagePipeCapacity<7>);
 
-static_assert(FFileSystem::ClassifyExtension("content/material.INI") == EFileExtensionKind::Ini);
-static_assert(FFileSystem::ClassifyExtension(L"C:\\雲\\設定.AcPaK") == EFileExtensionKind::AssetPack);
-static_assert(FFileSystem::ClassifyExtension("content/.ini") == EFileExtensionKind::Unknown);
-static_assert(FFileSystem::ClassifyExtension("content/name.") == EFileExtensionKind::Unknown);
-static_assert(FFileSystem::ClassifyExtension(L"content/設定.データ") == EFileExtensionKind::Unknown);
+static_assert(CFileSystem::ClassifyExtension("content/material.INI") == EFileExtensionKind::Ini);
+static_assert(CFileSystem::ClassifyExtension(L"C:\\雲\\設定.AcPaK") == EFileExtensionKind::AssetPack);
+static_assert(CFileSystem::ClassifyExtension("content/.ini") == EFileExtensionKind::Unknown);
+static_assert(CFileSystem::ClassifyExtension("content/name.") == EFileExtensionKind::Unknown);
+static_assert(CFileSystem::ClassifyExtension(L"content/設定.データ") == EFileExtensionKind::Unknown);
 
 namespace {
 
@@ -241,7 +241,7 @@ struct FShutdownDuringMoveCallable {
         : executed(other.executed)
     {
         other.executed = nullptr;
-        FThreadPool::Shutdown();
+        CThreadPool::Shutdown();
     }
 
     /** 複製を禁止する。 */
@@ -401,19 +401,19 @@ bool TextEquals(const char* left, const char* right) noexcept
 /** ThreadPool の一括投入、通知抑制、callable 寿命を検証する。 */
 ACS_TEST(FoundationOptimizationWaveB, ThreadPoolBatchesAndAvoidsRedundantWakeups)
 {
-    FThreadPool::Shutdown();
-    EXPECT_TRUE(FThreadPool::Init(4).IsOk());
+    CThreadPool::Shutdown();
+    EXPECT_TRUE(CThreadPool::Init(4).IsOk());
     /** park 完了を待つワーカー数。 */
-    const u32 worker_count = FThreadPool::WorkerCount();
+    const u32 worker_count = CThreadPool::WorkerCount();
     /** 初期ワーカーが park へ入るまでの待機位置。 */
-    for (u32 wait = 0; wait < 10000 && FThreadPool::Diagnostics().worker_parks < worker_count; ++wait) {
+    for (u32 wait = 0; wait < 10000 && CThreadPool::Diagnostics().worker_parks < worker_count; ++wait) {
         SleepMs(1);
     }
     /** burst 前に観測した park 回数。 */
-    const u64 initial_worker_parks = FThreadPool::Diagnostics().worker_parks;
+    const u64 initial_worker_parks = CThreadPool::Diagnostics().worker_parks;
     EXPECT_EQ(worker_count, 4u);
     EXPECT_TRUE(initial_worker_parks >= worker_count);
-    FThreadPool::ResetDiagnostics();
+    CThreadPool::ResetDiagnostics();
 
     /** 投入する待機タスク数。 */
     constexpr u32 kTaskCount = 512;
@@ -423,7 +423,7 @@ ACS_TEST(FoundationOptimizationWaveB, ThreadPoolBatchesAndAvoidsRedundantWakeups
     FCompletionCounter completed;
     /** 投入するタスク位置。 */
     for (u32 i = 0; i < kTaskCount; ++i) {
-        EXPECT_TRUE(FThreadPool::Submit(FTask{&RunGatedTask, &context, &completed}).IsOk());
+        EXPECT_TRUE(CThreadPool::Submit(FTask{&RunGatedTask, &context, &completed}).IsOk());
     }
     context.release.Store(1, EMemoryOrder::Release);
 
@@ -431,10 +431,10 @@ ACS_TEST(FoundationOptimizationWaveB, ThreadPoolBatchesAndAvoidsRedundantWakeups
     for (u32 wait = 0; wait < 10000 && context.executed.Load(EMemoryOrder::Acquire) != kTaskCount; ++wait) {
         SleepMs(1);
     }
-    FThreadPool::Wait(completed);
+    CThreadPool::Wait(completed);
 
     /** 一括投入後の ThreadPool 診断値。 */
-    const FThreadPoolDiagnostics diagnostics = FThreadPool::Diagnostics();
+    const FThreadPoolDiagnostics diagnostics = CThreadPool::Diagnostics();
     EXPECT_EQ(context.executed.Load(EMemoryOrder::Acquire), kTaskCount);
     EXPECT_EQ(diagnostics.external_tasks_drained, u64{kTaskCount});
     EXPECT_TRUE(diagnostics.submission_drain_lock_acquisitions < kTaskCount);
@@ -449,12 +449,12 @@ ACS_TEST(FoundationOptimizationWaveB, ThreadPoolBatchesAndAvoidsRedundantWakeups
     u32 large_callable_destructions = 0;
     /** callable 群の完了カウンタ。 */
     FCompletionCounter callable_completed;
-    FThreadPool::ResetDiagnostics();
-    EXPECT_TRUE(FThreadPool::SubmitCallable([&callable_executed](u32) noexcept { callable_executed.FetchAdd(1); }, &callable_completed).IsOk());
-    EXPECT_TRUE(FThreadPool::SubmitCallable(FLargeGraphCallable{&callable_executed, &large_callable_destructions}, &callable_completed).IsOk());
-    FThreadPool::Wait(callable_completed);
+    CThreadPool::ResetDiagnostics();
+    EXPECT_TRUE(CThreadPool::SubmitCallable([&callable_executed](u32) noexcept { callable_executed.FetchAdd(1); }, &callable_completed).IsOk());
+    EXPECT_TRUE(CThreadPool::SubmitCallable(FLargeGraphCallable{&callable_executed, &large_callable_destructions}, &callable_completed).IsOk());
+    CThreadPool::Wait(callable_completed);
     /** callable 実行後の ThreadPool 診断値。 */
-    const FThreadPoolDiagnostics callable_diagnostics = FThreadPool::Diagnostics();
+    const FThreadPoolDiagnostics callable_diagnostics = CThreadPool::Diagnostics();
     EXPECT_EQ(callable_executed.Load(EMemoryOrder::Acquire), 2u);
     EXPECT_EQ(large_callable_destructions, 1u);
     EXPECT_EQ(callable_diagnostics.callable_inline_submissions, 1ull);
@@ -465,20 +465,20 @@ ACS_TEST(FoundationOptimizationWaveB, ThreadPoolBatchesAndAvoidsRedundantWakeups
     TAtomic<u32> shutdown_during_move_executed{0};
     /** move 構築中終了要求の完了カウンタ。 */
     FCompletionCounter shutdown_during_move_completed;
-    EXPECT_TRUE(FThreadPool::SubmitCallable(FShutdownDuringMoveCallable{&shutdown_during_move_executed}, &shutdown_during_move_completed).IsOk());
-    FThreadPool::Wait(shutdown_during_move_completed);
+    EXPECT_TRUE(CThreadPool::SubmitCallable(FShutdownDuringMoveCallable{&shutdown_during_move_executed}, &shutdown_during_move_completed).IsOk());
+    CThreadPool::Wait(shutdown_during_move_completed);
     EXPECT_EQ(shutdown_during_move_executed.Load(EMemoryOrder::Acquire), 1u);
-    EXPECT_EQ(FThreadPool::WorkerCount(), 4u);
+    EXPECT_EQ(CThreadPool::WorkerCount(), 4u);
 
     std::printf("wave_b_threadpool tasks=%u drain_locks=%llu wakes=%llu contentions=%llu heap_fallbacks=%llu inline_callables=%llu heap_callables=%llu\n", kTaskCount, static_cast<unsigned long long>(diagnostics.submission_drain_lock_acquisitions), static_cast<unsigned long long>(diagnostics.wake_one_calls), static_cast<unsigned long long>(diagnostics.submission_lock_contentions), static_cast<unsigned long long>(diagnostics.submission_heap_fallbacks), static_cast<unsigned long long>(callable_diagnostics.callable_inline_submissions), static_cast<unsigned long long>(callable_diagnostics.callable_heap_submissions));
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 /** JobGraph の topology 再利用と callable 寿命を検証する。 */
 ACS_TEST(FoundationOptimizationWaveB, JobGraphReusesTopologyAndOwnsCallables)
 {
-    FThreadPool::Shutdown();
-    EXPECT_TRUE(FThreadPool::Init(4).IsOk());
+    CThreadPool::Shutdown();
+    EXPECT_TRUE(CThreadPool::Init(4).IsOk());
 
     /** graph へ登録する job 数。 */
     constexpr u32 kJobCount = 40;
@@ -490,7 +490,7 @@ ACS_TEST(FoundationOptimizationWaveB, JobGraphReusesTopologyAndOwnsCallables)
     u32 large_callable_destructions = 0;
     {
         /** 再利用する JobGraph。 */
-        FJobGraph graph;
+        CJobGraph graph;
         /** 登録した job の handle。 */
         FJobHandle handles[kJobCount]{};
         /** job を登録する位置。 */
@@ -527,7 +527,7 @@ ACS_TEST(FoundationOptimizationWaveB, JobGraphReusesTopologyAndOwnsCallables)
         std::printf("wave_b_jobgraph runs=%u jobs=%u topology_builds=%llu submit_scans=%llu inline_jobs=%u heap_jobs=%u\n", kRunCount, kJobCount, static_cast<unsigned long long>(diagnostics.topology_compilations), static_cast<unsigned long long>(diagnostics.submit_full_graph_scans), diagnostics.inline_job_count, diagnostics.heap_job_count);
     }
     EXPECT_EQ(large_callable_destructions, 1u);
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 /** MPMC パイプの上限、バッチ処理、FIFO 順序を検証する。 */
@@ -724,12 +724,12 @@ ACS_TEST(FoundationOptimizationWaveB, TimerUsesDirectCancelAndActiveBitset)
 
     timers.ResetDiagnostics();
     /** cancel 計測の開始 tick。 */
-    const u64 cancel_start = FClock::Ticks();
+    const u64 cancel_start = CClock::Ticks();
     /** cancel する timer 位置。 */
     for (u32 i = 0; i + 1 < kTimerCount; ++i)
         EXPECT_TRUE(timers.Cancel(handles[i]));
     /** cancel 計測の終了 tick。 */
-    const u64 cancel_end = FClock::Ticks();
+    const u64 cancel_end = CClock::Ticks();
     /** cancel 後の timer 診断値。 */
     const FTimerDiagnostics cancel_diagnostics = timers.Diagnostics();
     EXPECT_EQ(cancel_diagnostics.cancel_slot_probes, u64{kTimerCount - 1});
@@ -751,7 +751,7 @@ ACS_TEST(FoundationOptimizationWaveB, TimerUsesDirectCancelAndActiveBitset)
     EXPECT_EQ(counter.hits, 1u);
 
     /** cancel 群に要したミリ秒。 */
-    const f64 cancel_ms = static_cast<f64>(cancel_end - cancel_start) * 1000.0 / static_cast<f64>(FClock::TicksPerSecond());
+    const f64 cancel_ms = static_cast<f64>(cancel_end - cancel_start) * 1000.0 / static_cast<f64>(CClock::TicksPerSecond());
     std::printf("wave_b_timer timers=%u cancel_probes=%llu tick_active_visits=%llu tick_words=%llu cancel_ms=%.3f\n", kTimerCount, static_cast<unsigned long long>(cancel_diagnostics.cancel_slot_probes), static_cast<unsigned long long>(tick_diagnostics.active_slots_visited), static_cast<unsigned long long>(tick_diagnostics.active_words_loaded), cancel_ms);
 }
 
@@ -768,26 +768,26 @@ ACS_TEST(FoundationOptimizationWaveB, FileIoReadsTextWithoutIntermediateCopy)
     constexpr const wchar_t* kBlockedChildPath = L"acs_foundation_optimization_wave_b_parent\\child";
     /** 読み書きするテキスト。 */
     constexpr const char* kText = "ACS Foundation Optimization Wave B\n";
-    (void)FFileSystem::Delete(kPath);
-    (void)FFileSystem::Delete(kStoragePath);
-    (void)FFileSystem::Delete(kParentFilePath);
-    EXPECT_TRUE(FFileSystem::WriteAllText(kPath, kText).IsOk());
+    (void)CFileSystem::Delete(kPath);
+    (void)CFileSystem::Delete(kStoragePath);
+    (void)CFileSystem::Delete(kParentFilePath);
+    EXPECT_TRUE(CFileSystem::WriteAllText(kPath, kText).IsOk());
 
-    FFileSystem::ResetDiagnostics();
+    CFileSystem::ResetDiagnostics();
     /** テキスト全体の読み取り結果。 */
-    auto text_result = FFileSystem::ReadAllText(kPath);
+    auto text_result = CFileSystem::ReadAllText(kPath);
     EXPECT_TRUE(text_result.IsOk());
     if (text_result.IsOk()) {
         EXPECT_TRUE(TextEquals(text_result.Value().Data(), kText));
     }
     /** テキスト読み取り後の I/O 診断値。 */
-    const FFileSystemDiagnostics diagnostics = FFileSystem::Diagnostics();
+    const FFileSystemDiagnostics diagnostics = CFileSystem::Diagnostics();
     EXPECT_EQ(diagnostics.read_syscalls, 1ull);
     EXPECT_EQ(diagnostics.text_intermediate_copy_bytes, 0ull);
-    EXPECT_TRUE(FFileSystem::WriteAllBytes(kPath, nullptr, 1).IsErr());
+    EXPECT_TRUE(CFileSystem::WriteAllBytes(kPath, nullptr, 1).IsErr());
     /** サイズ上限検証へ渡す一 byte。 */
     constexpr byte kOneByte[]{0};
-    EXPECT_TRUE(FFileSystem::WriteAllBytes(kPath, kOneByte, static_cast<usize>(0xffffffffull) + 1u).IsErr());
+    EXPECT_TRUE(CFileSystem::WriteAllBytes(kPath, kOneByte, static_cast<usize>(0xffffffffull) + 1u).IsErr());
 
     /** 拡張子互換と原子的保存を検証する Storage。 */
     FStorage storage;
@@ -796,26 +796,26 @@ ACS_TEST(FoundationOptimizationWaveB, FileIoReadsTextWithoutIntermediateCopy)
     constexpr const wchar_t* kCompatibleStoragePaths[]{L"acs_foundation_optimization_wave_b.json", L"acs_foundation_optimization_wave_b.bin", L"acs_foundation_optimization_wave_b.acpak"};
     /** 内容互換を確認する保存先パス。 */
     for (const wchar_t* compatible_path : kCompatibleStoragePaths) {
-        (void)FFileSystem::Delete(compatible_path);
+        (void)CFileSystem::Delete(compatible_path);
         EXPECT_TRUE(storage.Save(compatible_path).IsOk());
         /** 拡張子に依存せず保存内容を復元する確認先。 */
         FStorage compatible_loaded;
         EXPECT_TRUE(compatible_loaded.Load(compatible_path).IsOk());
         EXPECT_EQ(compatible_loaded.GetInt("extension-compatibility"), 7ll);
-        EXPECT_TRUE(FFileSystem::Delete(compatible_path).IsOk());
+        EXPECT_TRUE(CFileSystem::Delete(compatible_path).IsOk());
     }
 
     // 公開先を共有禁止で保持し、置換失敗時にも旧内容が残ることを確認する。
-    EXPECT_TRUE(FFileSystem::WriteAllText(kStoragePath, "stable-before-failed-replace").IsOk());
+    EXPECT_TRUE(CFileSystem::WriteAllText(kStoragePath, "stable-before-failed-replace").IsOk());
     /** 置換を意図的に失敗させる共有禁止 handle。 */
     const HANDLE locked_file = ::CreateFileW(kStoragePath, GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     EXPECT_TRUE(locked_file != INVALID_HANDLE_VALUE);
     /** 原子的置換で書こうとする新内容。 */
     constexpr byte kReplacement[]{'n', 'e', 'w'};
-    EXPECT_TRUE(FFileSystem::WriteAllBytesAtomic(kStoragePath, kReplacement, sizeof(kReplacement)).IsErr());
+    EXPECT_TRUE(CFileSystem::WriteAllBytesAtomic(kStoragePath, kReplacement, sizeof(kReplacement)).IsErr());
     if (locked_file != INVALID_HANDLE_VALUE) ::CloseHandle(locked_file);
     /** 置換失敗後に残った内容の読み取り結果。 */
-    auto preserved_text = FFileSystem::ReadAllText(kStoragePath);
+    auto preserved_text = CFileSystem::ReadAllText(kStoragePath);
     EXPECT_TRUE(preserved_text.IsOk());
     if (preserved_text.IsOk()) {
         EXPECT_TRUE(TextEquals(preserved_text.Value().Data(), "stable-before-failed-replace"));
@@ -833,16 +833,16 @@ ACS_TEST(FoundationOptimizationWaveB, FileIoReadsTextWithoutIntermediateCopy)
     EXPECT_TRUE(loaded.Load(kStoragePath).IsOk());
     EXPECT_EQ(loaded.GetInt("generation"), 42ll);
 
-    EXPECT_TRUE(FFileSystem::ReadAllBytes(nullptr).IsErr());
-    EXPECT_TRUE(FFileSystem::CreateDirectory(nullptr).IsErr());
-    EXPECT_TRUE(FFileSystem::WriteAllBytesAtomic(L"", nullptr, 0).IsErr());
+    EXPECT_TRUE(CFileSystem::ReadAllBytes(nullptr).IsErr());
+    EXPECT_TRUE(CFileSystem::CreateDirectory(nullptr).IsErr());
+    EXPECT_TRUE(CFileSystem::WriteAllBytesAtomic(L"", nullptr, 0).IsErr());
     EXPECT_TRUE(storage.Load(L"").IsErr());
     EXPECT_TRUE(storage.Save(L"").IsErr());
-    EXPECT_TRUE(FFileSystem::WriteAllText(kParentFilePath, "parent-is-a-file").IsOk());
-    EXPECT_TRUE(FFileSystem::CreateDirectory(kBlockedChildPath).IsErr());
-    EXPECT_TRUE(FFileSystem::Delete(kPath).IsOk());
-    EXPECT_TRUE(FFileSystem::Delete(kStoragePath).IsOk());
-    EXPECT_TRUE(FFileSystem::Delete(kParentFilePath).IsOk());
+    EXPECT_TRUE(CFileSystem::WriteAllText(kParentFilePath, "parent-is-a-file").IsOk());
+    EXPECT_TRUE(CFileSystem::CreateDirectory(kBlockedChildPath).IsErr());
+    EXPECT_TRUE(CFileSystem::Delete(kPath).IsOk());
+    EXPECT_TRUE(CFileSystem::Delete(kStoragePath).IsOk());
+    EXPECT_TRUE(CFileSystem::Delete(kParentFilePath).IsOk());
 
     std::printf("wave_b_file_io read_syscalls=%llu text_intermediate_copy_bytes=%llu\n", static_cast<unsigned long long>(diagnostics.read_syscalls), static_cast<unsigned long long>(diagnostics.text_intermediate_copy_bytes));
 }

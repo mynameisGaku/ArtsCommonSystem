@@ -19,10 +19,10 @@
 
 namespace hellowater3d {
 
-class FHelloWater3DApp final : public acs::FApplication {
+class CHelloWater3DApp final : public acs::CApplication {
 public:
-    FHelloWater3DApp() noexcept = default;
-    ~FHelloWater3DApp() noexcept override = default;
+    CHelloWater3DApp() noexcept = default;
+    ~CHelloWater3DApp() noexcept override = default;
 
     void OnStart() noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -36,12 +36,12 @@ private:
     bool MouseToWater(acs::FVec3& world_point) noexcept;
     void UpdateCamera() noexcept;
 
-    acs::FPostProcess m_Post;
-    acs::FSky m_Sky;
-    acs::FStandardShader m_OpaqueShader;
-    acs::FWaterSurface3D m_Water;
-    acs::FBlit m_Blit;
-    acs::FSpriteBatch m_Batch;
+    acs::CPostProcess m_Post;
+    acs::CSky m_Sky;
+    acs::CStandardShader m_OpaqueShader;
+    acs::CWaterSurface3D m_Water;
+    acs::CBlit m_Blit;
+    acs::CSpriteBatch m_Batch;
     acs::FFont m_Font;
     acs::FGpuMesh m_WaterMesh;
     acs::FGpuMesh m_FloorMesh;

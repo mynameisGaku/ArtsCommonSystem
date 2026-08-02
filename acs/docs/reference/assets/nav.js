@@ -24,6 +24,7 @@ window.ACS_NAV = {
       { id: "threading",  label: "threading",  page: "threading.html" }
     ]},
     { label: "ランタイム", items: [
+      { id: "subsystem", label: "subsystem", page: "subsystem.html" },
       { id: "ecs",      label: "ecs",      page: "ecs.html" },
       { id: "event",    label: "event",    page: "event.html" },
       { id: "mvvm",     label: "mvvm",     page: "mvvm.html" },
@@ -41,6 +42,7 @@ window.ACS_NAV = {
       { id: "collision", label: "collision", page: "collision.html" }
     ]},
     { label: "ゲーム", items: [
+      { id: "app",           label: "app",           page: "app.html" },
       { id: "gameframework", label: "gameframework", page: "gameframework.html" },
       { id: "editor",        label: "editor / 制作支援", page: "editor.html" }
     ]},

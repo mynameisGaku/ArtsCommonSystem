@@ -2,7 +2,7 @@
 // HelloSave — エントリポイント。
 //
 // 構成:
-//   HelloSaveApp.{h,cpp} - FApplication 派生クラス (FStorage で設定 / セーブの永続化)
+//   HelloSaveApp.{h,cpp} - CApplication 派生クラス (FStorage で設定 / セーブの永続化)
 //
 // 操作:
 //   Space : クリック数 +1
@@ -12,4 +12,4 @@
 #include "HelloSaveApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hellosave::FHelloSaveApp)
+ACS_DEFINE_MAIN(hellosave::CHelloSaveApp)

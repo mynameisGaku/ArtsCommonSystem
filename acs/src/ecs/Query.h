@@ -8,7 +8,7 @@
 // 内部最適化: 一番要素数の少ない TSparseSet を「主軸」にし、その dense 走査の
 //             各エンティティが他の TSparseSet にも含まれているか確認する。
 //
-// 並列バージョン: EachParallel(fn, grain) は FThreadPool::ParallelFor で
+// 並列バージョン: EachParallel(fn, grain) は CThreadPool::ParallelFor で
 //                 chunk 分割して投入。ラムダはエンティティごとに独立に
 //                 呼ばれることを前提にする (= 共有資源を触るならユーザー側で同期)。
 
@@ -138,7 +138,7 @@ public:
      * 全 Comps を持つ各エンティティに fn を並列で呼ぶ。
      *
      * @details
-     * primary の dense をスナップショットし、FThreadPool::ParallelFor で chunk 分割して
+     * primary の dense をスナップショットし、CThreadPool::ParallelFor で chunk 分割して
      * fn を呼ぶ (完了まで block)。同じエンティティが複数スレッドから同時に呼ばれること
      * はないが、グローバル資源を触る場合はユーザー側で同期が必要。
      *
@@ -171,7 +171,7 @@ public:
                 snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
         }
 
-        // FThreadPool::ParallelFor は stateless 関数ポインタしか受け取れないので
+        // CThreadPool::ParallelFor は stateless 関数ポインタしか受け取れないので
         // ctx を user data に乗せ、thunk で TQueryView の処理に戻す。
         struct FCtx {
             TQueryView* self;

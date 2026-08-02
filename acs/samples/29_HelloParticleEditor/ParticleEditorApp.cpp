@@ -10,40 +10,40 @@ using namespace acs::game;
 
 namespace helloparticleed {
 
-void FParticleEditorApp::OnStart() noexcept {
-    // ImGui を FWindow + FRenderer に紐付け。
+void CParticleEditorApp::OnStart() noexcept {
+    // ImGui を FWindow + CRenderer に紐付け。
     if (auto r = m_Imgui.Init(GetWindow(), GetRenderer()); r.IsErr()) {
         ACS_LOG_ERROR("[ParticleEditorApp] ImGuiCtx.Init failed -> Quit");
         Quit();
         return;
     }
     // 基底の OnStart は InitialScene() を push する。
-    FGame::OnStart();
+    CGame::OnStart();
 }
 
-void FParticleEditorApp::OnRender() noexcept {
+void CParticleEditorApp::OnRender() noexcept {
     // ImGui フレーム開始 -> Scene::OnRender で ImGui::* が呼ばれる ->
     // ImGui の描画コマンドをコマンドリストに発行、の順。Scene の Render
-    // ロジックは FGame::OnRender が FSceneManager 経由で実行する。
+    // ロジックは CGame::OnRender が CSceneManager 経由で実行する。
     m_Imgui.NewFrame();
-    FGame::OnRender();
+    CGame::OnRender();
     m_Imgui.Render();
 }
 
-void FParticleEditorApp::OnShutdown() noexcept {
+void CParticleEditorApp::OnShutdown() noexcept {
     // Scene 側を先に止めてから ImGui を落とす (Scene が ImGui::* を握って
     // ないことを保証)。
-    FGame::OnShutdown();
+    CGame::OnShutdown();
     m_Imgui.Shutdown();
 }
 
-void FParticleEditorApp::OnEvent(const FEvent& e) noexcept {
+void CParticleEditorApp::OnEvent(const FEvent& e) noexcept {
     m_Imgui.OnEvent(e);
-    FGame::OnEvent(e);
+    CGame::OnEvent(e);
 }
 
-TUniquePtr<FScene> FParticleEditorApp::InitialScene() noexcept {
-    return MakeUnique<FParticleEditorScene>();
+TUniquePtr<AScene> CParticleEditorApp::InitialScene() noexcept {
+    return MakeUnique<AParticleEditorScene>();
 }
 
 } // namespace helloparticleed

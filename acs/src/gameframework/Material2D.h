@@ -20,7 +20,7 @@
 
 #include "foundation/Types.h"
 #include "math/Vec.h"
-#include "render/SpriteBatch.h"   // ESpriteEffect / FEffectParams / FSpriteBatch
+#include "render/SpriteBatch.h"   // ESpriteEffect / FEffectParams / CSpriteBatch
 #include "render/SubstrateMaterial.h"
 
 namespace acs::game {
@@ -42,7 +42,7 @@ enum class EMaterialKind : u8 {
  * @details
  * ベースカラー (アルベド) はテクスチャ + tint、法線マップ、メタリック/ラフネス、エミッシブ、
  * AO を持つ。テクスチャはパス参照 (sprite_path と同様にランタイムが遅延ロード)。2D の
- * 動的ライト (FLighting2D) で陰影付けされる lit スプライト用。
+ * 動的ライト (CLighting2D) で陰影付けされる lit スプライト用。
  */
 struct FPbrParams2D {
     FVec4 baseColor       = FVec4{ 1, 1, 1, 1 };  ///< アルベド tint (rgb) + 不透明度 (a)。
@@ -267,7 +267,7 @@ void SetMaterialClock(f32 seconds) noexcept;
 f32 MaterialClock() noexcept;
 
 /**
- * マテリアルの効果を FSpriteBatch へ適用する。
+ * マテリアルの効果を CSpriteBatch へ適用する。
  *
  * @details effect == None なら何もしない。animated が true なら time_sec を params.time
  *          に差し込んで適用する。適用したら戻り値 true → 描画後に sb.ClearEffect() を呼ぶこと。
@@ -276,6 +276,6 @@ f32 MaterialClock() noexcept;
  * @param time_sec animated 効果のアニメ時間 (秒)。
  * @return 効果を適用したら true (要 ClearEffect)、None で未適用なら false。
  */
-bool ApplyMaterial(FSpriteBatch& sb, const FMaterial2D& mat, f32 time_sec) noexcept;
+bool ApplyMaterial(CSpriteBatch& sb, const FMaterial2D& mat, f32 time_sec) noexcept;
 
 } // namespace acs::game

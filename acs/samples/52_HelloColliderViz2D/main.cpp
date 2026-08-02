@@ -4,4 +4,4 @@
 #include "ColliderVizApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(colliderviz::FColliderVizApp)
+ACS_DEFINE_MAIN(colliderviz::CColliderVizApp)

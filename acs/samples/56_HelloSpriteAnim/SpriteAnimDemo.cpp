@@ -4,7 +4,7 @@
 // 新しい基盤機能を 1 画面で示す:
 //   - ASprite2DComponent の UV サブ矩形
 //   - ASpriteAnimComponent.InitGrid(...) でグリッドシートを再生
-//   - FGame が配線する共有フォントで OnDrawHud から DrawString
+//   - CGame が配線する共有フォントで OnDrawHud から DrawString
 //
 // 手続き生成した 4 フレームのシート (各セルでドットが 90° ずつ回る) を 8fps で
 // ループ再生し、ノード自体も左右に揺らしてアニメ + transform を同時に見せる。
@@ -66,7 +66,7 @@ TUniquePtr<IRhiTexture> MakeAnimSheet(IRhiDevice& device) noexcept {
     return Move(r.Value());
 }
 
-class FAnimScene final : public FScene2D {
+class AAnimScene final : public AScene2D {
 public:
     void OnReady() noexcept override {
         SetPixelsPerUnit(96.0f);
@@ -102,7 +102,7 @@ public:
         }
     }
 
-    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override {
         sb.DrawRect(8.0f, 8.0f, 470.0f, 32.0f, FVec4{0.0f, 0.0f, 0.0f, 0.45f});
         if (!rc.HasFont()) return;
         char line[160];
@@ -119,13 +119,13 @@ private:
     f32                     m_Elapsed = 0.0f;
 };
 
-class FAnimGame final : public FGame {
+class CAnimGame final : public CGame {
 protected:
-    TUniquePtr<FScene> InitialScene() noexcept override {
-        return MakeUnique<FAnimScene>();
+    TUniquePtr<AScene> InitialScene() noexcept override {
+        return MakeUnique<AAnimScene>();
     }
 };
 
 } // namespace
 
-ACS_GAME_MAIN(FAnimGame)
+ACS_GAME_MAIN(CAnimGame)

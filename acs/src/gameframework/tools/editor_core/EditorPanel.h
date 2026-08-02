@@ -48,7 +48,7 @@
 //     知らなくても OnInit で参照を保存できればよい。Workspace ポインタは
 //     non-owning (workspace の生存期間 ≧ panel の生存期間)。
 //   ・**OnSelectionChanged / OnAssetSelected の二系統**:
-//       - OnSelectionChanged: FScene 内の ANode 選択 (CSelectionService 経由)
+//       - OnSelectionChanged: AScene 内の ANode 選択 (CSelectionService 経由)
 //       - OnAssetSelected   : CAssetBrowser からのファイル選択 (asset path string)
 //     2 つを独立 hook にしておくことで、ModelViewer のように "asset 系のみ反応"
 //     する panel と、Inspector のように "node 系のみ反応" する panel が綺麗に
@@ -175,7 +175,7 @@ public:
     virtual void OnFrameBegin(f32 /*dt*/) noexcept {}
 
     /**
-     * FScene 内 ANode の選択が変わったときに呼ばれるフック。
+     * AScene 内 ANode の選択が変わったときに呼ばれるフック。
      *
      * @details
      * selection から CurrentSelection() 等を取り出して反映する。CSelectionService の

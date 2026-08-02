@@ -12,16 +12,22 @@ ACS_REF.modules.push({
       when: "gameplay 側から asset pack の batch 読み取りを組み立てる時。"
     },
     {
-      name: "FHierarchyVisibilityBatch",
+      name: "CHierarchyVisibilityBatch",
       kind: "クラス", header: "gameframework/HierarchyVisibilityBatch.h",
       summary: "親子階層の可視状態を親から子へ一括伝播し、変更対象だけを返す作業バッファ。",
-      when: "多数 node の表示状態を再帰呼び出しと一件ごとの再確保なしで更新する時。"
+      when: "多数 node の表示状態を再帰呼び出しと一件ごとの再確保なしで更新する時。",
+      members: [
+        { sig: "using FHierarchyVisibilityBatch = CHierarchyVisibilityBatch", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CHierarchyVisibilityBatch</code> を使う。" }
+      ]
     },
     {
-      name: "FHierarchyWorldTransformBatch",
+      name: "CHierarchyWorldTransformBatch",
       kind: "クラス", header: "gameframework/HierarchyWorldTransformBatch.h",
       summary: "親子順に world transform を一括更新し、変更された node 範囲を追跡する作業バッファ。",
-      when: "scene 階層の transform 更新を cache-friendly な反復処理へまとめる時。"
+      when: "scene 階層の transform 更新を cache-friendly な反復処理へまとめる時。",
+      members: [
+        { sig: "using FHierarchyWorldTransformBatch = CHierarchyWorldTransformBatch", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CHierarchyWorldTransformBatch</code> を使う。" }
+      ]
     },
     {
       name: "FTransformSoAInput",
@@ -36,7 +42,7 @@ ACS_REF.modules.push({
       when: "アイテム取得・ダメージ床・ゴール判定など「重なったら何か起きる」をノード単位で書きたい時。物理の押し戻しは要らず、検知だけしたい場面。",
       sample: "class APickup : public ATriggerComponent {\npublic:\n    ACS_GAME_COMPONENT_KIND(APickup)\n    using ATriggerComponent::ATriggerComponent;\n    void OnTriggerEnter(ATriggerComponent* other) noexcept override {\n        // 取得処理\n    }\n};\nauto&amp; pk = node-&gt;AddComponent&lt;APickup&gt;(world, kPickupLayer, 0);\npk.SetCircle(0.4f);",
       members: [
-        { sig: "explicit ATriggerComponent(FTriggerWorld2D& world, u32 layer = kAllLayers, u32 mask = kAllLayers)", desc: "所属する<t>トリガワールド</t>と、自分の<t>レイヤ</t>・反応したい相手の<t>マスク</t>を指定して作る。", when: "node->AddComponent の引数として渡す時。" },
+        { sig: "explicit ATriggerComponent(CTriggerWorld2D& world, u32 layer = kAllLayers, u32 mask = kAllLayers)", desc: "所属する<t>トリガワールド</t>と、自分の<t>レイヤ</t>・反応したい相手の<t>マスク</t>を指定して作る。", when: "node->AddComponent の引数として渡す時。" },
         { sig: "void SetCircle(f32 radius)", desc: "当たり形状を半径 radius の円にする。" },
         { sig: "void SetAabb(FVec2 half_size)", desc: "当たり形状を半サイズ half_size の<t>AABB</t>(軸並行な四角)にする。" },
         { sig: "void SetLayer(u32 layer) / void SetMask(u32 mask)", desc: "自分のレイヤ / 反応する相手レイヤを後から変更する。次の更新で反映。" },
@@ -47,11 +53,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FTriggerWorld2D",
+      name: "CTriggerWorld2D",
       kind: "クラス", header: "gameframework/TriggerWorld2D.h",
       summary: "重なりだけを監視する<b>トリガ専用のワールド</b>。物理の押し戻しはせず、毎フレーム全<t>トリガ</t>の重なりを調べ、前フレームと比べて enter(触れた) / stay(触れ続け) / exit(離れた) の<t>イベント</t>を発火します。",
       when: "ダメージ判定・センサー・ゾーン入退場など、押し戻し不要で「重なったか」だけ知りたい仕組みの土台。",
-      sample: "FTriggerWorld2D world;\nworld.Init();\nFTriggerId player = world.AddCircle({ {0,0}, 16.0f }, 0);\nworld.SetOnEnter(+[](void* u, FTriggerId a, FTriggerId b) noexcept {\n    // a と b が今フレ初めて重なった\n}, nullptr);\n// 毎フレーム:\nworld.UpdateCircle(player, { pos, 16.0f });\nworld.Tick(dt);",
+      sample: "CTriggerWorld2D world;\nworld.Init();\nFTriggerId player = world.AddCircle({ {0,0}, 16.0f }, 0);\nworld.SetOnEnter(+[](void* u, FTriggerId a, FTriggerId b) noexcept {\n    // a と b が今フレ初めて重なった\n}, nullptr);\n// 毎フレーム:\nworld.UpdateCircle(player, { pos, 16.0f });\nworld.Tick(dt);",
       members: [
         { sig: "void Init()", desc: "初期化する。" },
         { sig: "FTriggerId AddCircle(const FCircle& c, u32 layer = 0)", ret: "トリガ ID", desc: "円トリガを登録し、識別用の<t>ハンドル</t>を返す。", when: "丸いセンサーを置きたい時。" },
@@ -63,14 +69,15 @@ ACS_REF.modules.push({
         { sig: "void SetOnStay(TriggerEventCallback cb, void* user) / void SetOnExit(TriggerEventCallback cb, void* user)", desc: "重なり継続中 / 離れた時のコールバックを登録する。" },
         { sig: "void Tick(f32 dt)", desc: "毎フレーム呼ぶ。全ペアの重なりを更新し、前フレと比べて enter / stay / exit を発火する。" },
         { sig: "u32 TriggerCount() const", ret: "登録数", desc: "有効なトリガの総数。" },
-        { sig: "void ClearAll()", desc: "全トリガと重なり状態を破棄する。" }
+        { sig: "void ClearAll()", desc: "全トリガと重なり状態を破棄する。" },
+        { sig: "using FTriggerWorld2D = CTriggerWorld2D", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CTriggerWorld2D</code> を使う。" }
       ]
     },
     {
       name: "FTriggerId",
       kind: "構造体", header: "gameframework/TriggerWorld2D.h",
       summary: "<t>トリガ</t>を識別する 32bit の<t>ハンドル</t>(下位 24bit が index、上位 8bit が<t>世代</t>)。削除→再登録でスロットが再利用されても、古いハンドルは無効と判定できます。",
-      when: "FTriggerWorld2D の登録・更新・削除でトリガを指し示す時。",
+      when: "CTriggerWorld2D の登録・更新・削除でトリガを指し示す時。",
       sample: "FTriggerId id = world.AddCircle(c);\nif (id.IsValid()) { /* 登録成功 */ }",
       members: [
         { sig: "bool IsValid() const", desc: "0(無効)でなければ true。" },
@@ -79,11 +86,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FTurnManager",
+      name: "CTurnManager",
       kind: "クラス", header: "gameframework/TurnManager.h",
       summary: "<b>ターン制</b>の進行を管理する部品。複数の陣営(side)を行動順(<t>イニシアチブ</t>)で並べ、各陣営が<t>AP</t>(行動ポイント)予算で行動する、SRPG / ローグライク / 戦略系の定番マネージャです。",
       when: "プレイヤー→敵→環境の順に手番を回し、ラウンドごとに AP を回復する、ターン制ゲームを作る時。",
-      sample: "FTurnManager tm;\ntm.Init();\nauto p = tm.AddSide(\"Player\", 3, 100, true);\nauto e = tm.AddSide(\"Enemy\",  2, 50,  false);\ntm.StartRound();          // 全 side の AP 回復 + 行動順並べ替え\nif (tm.TryConsumeAP(1)) { /* 行動した */ }\ntm.EndCurrentTurn();      // 次 side へ (最後なら次ラウンド開始)",
+      sample: "CTurnManager tm;\ntm.Init();\nauto p = tm.AddSide(\"Player\", 3, 100, true);\nauto e = tm.AddSide(\"Enemy\",  2, 50,  false);\ntm.StartRound();          // 全 side の AP 回復 + 行動順並べ替え\nif (tm.TryConsumeAP(1)) { /* 行動した */ }\ntm.EndCurrentTurn();      // 次 side へ (最後なら次ラウンド開始)",
       members: [
         { sig: "void Init()", desc: "全 side / 行動順を捨て、phase=Setup・round=0 に戻す(コールバックは保持)。" },
         { sig: "FTurnSideId AddSide(const char* display_name, u32 max_ap, u32 initiative, bool is_player_controlled)", ret: "side ハンドル", desc: "陣営を登録する。名前・最大 AP・行動順・プレイヤー操作かを指定。", when: "戦闘開始時に参加陣営を並べる時。" },
@@ -96,14 +103,15 @@ ACS_REF.modules.push({
         { sig: "const FTurnSideState* GetSideState(FTurnSideId id) const", ret: "表示用 snapshot", desc: "UI / AI 向けの読み取り専用状態を返す。次の Add/Remove までしか有効でない点に注意。" },
         { sig: "u32 SideCount() const / u32 TurnsRemainingThisRound() const", desc: "登録 side 数 / 今ラウンドで未行動の side 数を返す。" },
         { sig: "void SetOnTurnStartCallback(TurnStartCallback cb, void* user)", desc: "ターン開始時のコールバックを登録する(nullptr で解除)。" },
-        { sig: "void SetOnRoundEndCallback(RoundEndCallback cb, void* user)", desc: "ラウンド終了時のコールバックを登録する。報酬計算 / 状態異常処理などに。" }
+        { sig: "void SetOnRoundEndCallback(RoundEndCallback cb, void* user)", desc: "ラウンド終了時のコールバックを登録する。報酬計算 / 状態異常処理などに。" },
+        { sig: "using FTurnManager = CTurnManager", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CTurnManager</code> を使う。" }
       ]
     },
     {
       name: "FTurnSideId",
       kind: "構造体", header: "gameframework/TurnManager.h",
       summary: "ターンの陣営(side)を識別する 32bit の<t>ハンドル</t>(24bit index + 8bit<t>世代</t>)。除外→再追加でスロットが再利用されても、古い ID を無効と検出できます。",
-      when: "FTurnManager の各 API で陣営を指す時。",
+      when: "CTurnManager の各 API で陣営を指す時。",
       sample: "FTurnSideId id = tm.AddSide(\"Enemy\", 2, 50, false);\nif (id.IsValid()) tm.RemoveSide(id);",
       members: [
         { sig: "bool IsValid() const", desc: "有効な ID なら true(packed != 0)。" },
@@ -139,11 +147,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FTutorialFlow",
+      name: "CTutorialFlow",
       kind: "クラス", header: "gameframework/TutorialFlow.h",
       summary: "連続する<b>チュートリアルステップ</b>を順番に表示・進行させる小さな<t>状態機械</t>。描画はせず、現在ステップへのポインタを公開するだけなので、見た目は UI 側が自由に描けます。",
       when: "「WASD で移動」「SPACE でジャンプ」のように、ユーザーが操作を達成したら次へ進むガイドを作る時。",
-      sample: "FTutorialFlow tut;\ntut.AddStep({\"move\", \"WASD で移動してみよう\", \"player\", true});\ntut.AddStep({\"jump\", \"SPACE でジャンプ\",     \"player\", true});\ntut.Start();\n// 毎フレーム:\ntut.Tick(dt);\nif (input.JustPressed(EKey::W)) tut.NotifyAction(\"move\");",
+      sample: "CTutorialFlow tut;\ntut.AddStep({\"move\", \"WASD で移動してみよう\", \"player\", true});\ntut.AddStep({\"jump\", \"SPACE でジャンプ\",     \"player\", true});\ntut.Start();\n// 毎フレーム:\ntut.Tick(dt);\nif (input.JustPressed(EKey::W)) tut.NotifyAction(\"move\");",
       members: [
         { sig: "void AddStep(const FTutorialStep& step)", desc: "ステップを末尾に追加する。Start 前に並べる想定。" },
         { sig: "void Start()", desc: "ステップ 0 から表示開始する。ステップが無ければ即完了。" },
@@ -154,7 +162,8 @@ ACS_REF.modules.push({
         { sig: "bool IsActive() const / bool IsCompleted() const", desc: "進行中か / 完了済みかを返す。" },
         { sig: "const FTutorialStep* CurrentStep() const", ret: "現ステップ or null", desc: "表示用の現在ステップ。開始前 / 完了後は nullptr。", when: "UI 側で今出すべきメッセージを引く時。" },
         { sig: "u32 CurrentStepIndex() const / u32 StepCount() const", desc: "現在のステップ番号 / 登録ステップ数。" },
-        { sig: "void Tick(f32 dt)", desc: "毎フレーム呼ぶ(将来の自動進行用フック)。" }
+        { sig: "void Tick(f32 dt)", desc: "毎フレーム呼ぶ(将来の自動進行用フック)。" },
+        { sig: "using FTutorialFlow = CTutorialFlow", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CTutorialFlow</code> を使う。" }
       ]
     },
     {
@@ -171,11 +180,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FTweenManager",
+      name: "CTweenManager",
       kind: "クラス", header: "gameframework/Tween.h",
       summary: "変数を<b>なめらかに変化</b>させる<t>トゥイーン</t>管理。値(<code>f32</code> / <code>FVec2</code> / <code>FVec3</code>)の<t>ポインタ</t>を渡すと、毎 Tick で from→to を<t>イージング</t>補間して書き込んでくれます。コールバック不要なのが特徴。",
       when: "色・位置・透明度などを一定時間でフワッと変えたい時(フェード、ポップアップ、カメラ寄せなど)。",
-      sample: "FTweenManager tweens;\nFVec3 color{0,0,0};\ntweens.Tween(&amp;color, FVec3{0,0,0}, FVec3{1,1,1}, 2.0f, Easing::InOutSine);\n// 毎フレーム:\ntweens.Tick(dt);\n// color が 2 秒かけて白へ補間される",
+      sample: "CTweenManager tweens;\nFVec3 color{0,0,0};\ntweens.Tween(&amp;color, FVec3{0,0,0}, FVec3{1,1,1}, 2.0f, Easing::InOutSine);\n// 毎フレーム:\ntweens.Tick(dt);\n// color が 2 秒かけて白へ補間される",
       members: [
         { sig: "FTweenHandle Tween(f32* target, f32 from, f32 to, f32 duration, Easing::EasingFn ease = Easing::Linear)", ret: "トゥイーン ハンドル", desc: "f32 変数を from→to へ duration 秒で補間する。duration<=0 は即時設定、target が null は no-op。", when: "1 つのスカラー値を時間補間したい時。" },
         { sig: "FTweenHandle Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration, Easing::EasingFn ease = Easing::Linear)", desc: "2D ベクトル(位置など)を補間する。" },
@@ -184,7 +193,8 @@ ACS_REF.modules.push({
         { sig: "void CompleteAll()", desc: "全トゥイーンを即終了させ、target に完了値 to を書く。", when: "シーン終了時に確実に最終状態へ揃えたい時。" },
         { sig: "void CancelAll()", desc: "全トゥイーンを破棄する(最終書き込みなし)。" },
         { sig: "bool IsActive(FTweenHandle h) const / u32 ActiveCount() const", desc: "指定トゥイーンが進行中か / 進行中の総数。" },
-        { sig: "void Tick(f32 dt)", desc: "毎フレーム呼ぶ。全トゥイーンを dt ぶん進めて target に書き込む。" }
+        { sig: "void Tick(f32 dt)", desc: "毎フレーム呼ぶ。全トゥイーンを dt ぶん進めて target に書き込む。" },
+        { sig: "using FTweenManager = CTweenManager", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CTweenManager</code> を使う。" }
       ]
     },
     {
@@ -254,30 +264,31 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FUiLayer",
+      name: "CUiLayer",
       kind: "クラス", header: "gameframework/UiLayer.h",
       summary: "<t>シーン</t>に数個の UI 部品(ボタン / テキスト)を貼り付けるための<b>薄い層</b>。Init / Tick / HandleInput / Draw / Shutdown という<t>シーン</t>のライフサイクルに合わせて呼ぶだけで、タイトル画面や HUD の最小 UI が作れます。",
       when: "本格的な UI ツリーを組むほどではないが、Play ボタンや簡単な HUD を手早く出したい時。",
-      sample: "FUiLayer ui;\nui.Init();\nu32 playBtn = ui.AddButton(\"Play\", {100,200}, {200,48});\nui.AddText(\"ACS Demo\", {100,100});\n// 毎フレーム:\nui.Tick(dt);\nif (ui.IsButtonPressed(playBtn)) { /* 開始 */ }",
+      sample: "CUiLayer ui;\nui.Init();\nu32 playBtn = ui.AddButton(\"Play\", {100,200}, {200,48});\nui.AddText(\"ACS Demo\", {100,100});\n// 毎フレーム:\nui.Tick(dt);\nif (ui.IsButtonPressed(playBtn)) { /* 開始 */ }",
       members: [
         { sig: "void Init() / void Shutdown()", desc: "UI 層を初期化 / 後始末する。どちらも冪等で再呼び出し安全。" },
-        { sig: "void Tick(f32 dt)", desc: "FScene::OnUpdate から呼ぶ。押下フラグの伝搬などを処理する。" },
-        { sig: "void HandleInput(const acs::FEvent& event)", desc: "FScene::OnEvent から呼ぶ。マウス移動 / 押下 / 離しを処理し、クリック成立で押下フラグを立てる。" },
-        { sig: "void Draw(FRenderContext& rc) const", desc: "FScene2D::OnDrawHud から呼ぶ。登録 widget を描画する(ボタンは hover / 押下で色変化)。" },
+        { sig: "void Tick(f32 dt)", desc: "AScene::OnUpdate から呼ぶ。押下フラグの伝搬などを処理する。" },
+        { sig: "void HandleInput(const acs::FEvent& event)", desc: "AScene::OnEvent から呼ぶ。マウス移動 / 押下 / 離しを処理し、クリック成立で押下フラグを立てる。" },
+        { sig: "void Draw(FRenderContext& rc) const", desc: "AScene2D::OnDrawHud から呼ぶ。登録 widget を描画する(ボタンは hover / 押下で色変化)。" },
         { sig: "u32 AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size)", ret: "ハンドル(非 0)", desc: "ボタンを追加する。label は非所有。", when: "クリックで反応する短形ボタンを置く時。" },
         { sig: "u32 AddText(const char* text, acs::FVec2 pos)", ret: "ハンドル", desc: "静的テキストを追加する。text は非所有。" },
         { sig: "bool IsButtonPressed(u32 handle) const", ret: "押されたか", desc: "そのボタンが直前フレームで押されたかを返す。", when: "ボタンクリックを毎フレーム拾う時。" },
         { sig: "void SetVisible(u32 handle, bool visible)", desc: "widget の可視性を切り替える(無効ハンドルは無視)。" },
         { sig: "void Remove(u32 handle) / void Clear()", desc: "1 つ削除 / 全削除する。Clear は root を残すので続けて追加可能。" },
-        { sig: "u32 WidgetCount() const", desc: "登録 widget 数を返す。" }
+        { sig: "u32 WidgetCount() const", desc: "登録 widget 数を返す。" },
+        { sig: "using FUiLayer = CUiLayer", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CUiLayer</code> を使う。" }
       ]
     },
     {
       name: "FWidgetEntry",
       kind: "構造体", header: "gameframework/UiLayer.h",
-      summary: "<t>FUiLayer</t> が持つ widget 1 件分の状態(ハンドル・種別・位置 / サイズ・テキスト・可視 / hover / 押下フラグ)。通常は直接触らず、FUiLayer 経由で扱います。",
-      when: "FUiLayer の内部状態を理解したい / 拡張する時。",
-      sample: "// FUiLayer が内部で TArray<FWidgetEntry> として保持する",
+      summary: "<t>CUiLayer</t> が持つ widget 1 件分の状態(ハンドル・種別・位置 / サイズ・テキスト・可視 / hover / 押下フラグ)。通常は直接触らず、CUiLayer 経由で扱います。",
+      when: "CUiLayer の内部状態を理解したい / 拡張する時。",
+      sample: "// CUiLayer が内部で TArray<FWidgetEntry> として保持する",
       members: [
         { sig: "u32 handle / EWidgetKind kind", desc: "不透明 ID(0 は無効) / 種別(Button / Text)。" },
         { sig: "acs::FVec2 pos / acs::FVec2 size", desc: "画面ピクセルの絶対座標 / サイズ。" },
@@ -288,7 +299,7 @@ ACS_REF.modules.push({
     {
       name: "EWidgetKind",
       kind: "列挙(enum)", header: "gameframework/UiLayer.h",
-      summary: "<t>FUiLayer</t> が扱う widget の種類。現状はボタンとテキストのみ。",
+      summary: "<t>CUiLayer</t> が扱う widget の種類。現状はボタンとテキストのみ。",
       when: "FWidgetEntry の種別を判定する時。",
       sample: "if (entry.kind == EWidgetKind::Button) { /* ボタン描画 */ }",
       members: [
@@ -321,22 +332,23 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FVoiceChatBackendStub",
+      name: "CVoiceChatBackendStub",
       kind: "クラス", header: "gameframework/VoiceChat.h",
       summary: "SDK 未統合ビルド / テスト用の<b>何もしない</b>ボイスチャット実装。すべての API が「未実装」エラーを返し、<code>IsAvailable()</code> は常に false です。",
       when: "実 SDK をまだ繋いでいないが、コードはコンパイル / 動作させたい時の既定実装。",
       sample: "IVoiceChatBackend& voice = GetVoiceStub();\nif (!voice.IsAvailable()) { /* UI でボイス無効表示 */ }",
       members: [
         { sig: "bool IsAvailable() const override", desc: "常に false。" },
-        { sig: "EVoiceProvider ActiveProvider() const override", desc: "Init で受けた provider を返す。" }
+        { sig: "EVoiceProvider ActiveProvider() const override", desc: "Init で受けた provider を返す。" },
+        { sig: "using FVoiceChatBackendStub = CVoiceChatBackendStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CVoiceChatBackendStub</code> を使う。" }
       ]
     },
     {
-      name: "FVoiceChatLoopbackBackend",
+      name: "CVoiceChatLoopbackBackend",
       kind: "クラス", header: "gameframework/VoiceChat.h",
       summary: "外部 SDK なしで<b>実際に音声フレームを往復</b>させるボイスチャット実装。同一プロセス内で push→<t>エンコード</t>→他参加者キュー→<t>デコード</t>→音量 / ミュート→N-way ミックス→pump を成立させます。ネットを使わず<t>決定的</t>なのでユニットテスト可能。",
       when: "ボイスのミュート / 音量 / ミックスのロジックを SDK なしで検証したい / ローカルセッションを組みたい時。",
-      sample: "FVoiceChatLoopbackBackend& vb = GetVoiceLoopback();\n(void)vb.Init(EVoiceProvider::OpusSelf);\n(void)vb.AddParticipant(EVoiceChannel::Party, \"me\",   \"Me\");\n(void)vb.AddParticipant(EVoiceChannel::Party, \"ally\", \"Ally\");\nvb.PushLocalFrame(EVoiceChannel::Party, pcm, n);\nvb.PumpMixedOutput(EVoiceChannel::Party, out, cap);",
+      sample: "CVoiceChatLoopbackBackend& vb = GetVoiceLoopback();\n(void)vb.Init(EVoiceProvider::OpusSelf);\n(void)vb.AddParticipant(EVoiceChannel::Party, \"me\",   \"Me\");\n(void)vb.AddParticipant(EVoiceChannel::Party, \"ally\", \"Ally\");\nvb.PushLocalFrame(EVoiceChannel::Party, pcm, n);\nvb.PumpMixedOutput(EVoiceChannel::Party, out, cap);",
       members: [
         { sig: "TResult<void> AddParticipant(EVoiceChannel ch, const char* user_id, const char* display_name)", desc: "参加者を追加する。最初の 1 人がローカルユーザ(送信元 / 自分の声は聞かない)。同一 user_id の二重追加は成功扱い。" },
         { sig: "TResult<void> RemoveParticipant(EVoiceChannel ch, const char* user_id)", desc: "参加者を取り除く(受信キューも破棄)。未知 user はエラー。" },
@@ -346,7 +358,8 @@ ACS_REF.modules.push({
         { sig: "u32 PumpMixedOutput(EVoiceChannel ch, i16* out, u32 out_capacity) override", ret: "書き込みサンプル数", desc: "対象参加者のキューを音量 / ミュート適用して合成し out に書く。" },
         { sig: "f32 LocalAudioPeak() const / u32 PendingFrameCount(EVoiceChannel ch, const char* user_id)", desc: "直近フレームのピーク値 / 指定参加者の未消費フレーム数(テスト検証用)。" },
         { sig: "static u32 EncodeFrame(const i16* pcm, u32 sample_count, u32 sequence, u8* out, u32 out_capacity)", desc: "int16 PCM を 16 byte ヘッダ付きフレームにエンコードする。ユニットテストから直接呼べる。" },
-        { sig: "static TResult<u32> DecodeFrame(const u8* in, u32 in_size, i16* out, u32 out_capacity)", ret: "復元サンプル数", desc: "フレームのヘッダを検証して PCM を復元する。magic 破損などはエラー。" }
+        { sig: "static TResult<u32> DecodeFrame(const u8* in, u32 in_size, i16* out, u32 out_capacity)", ret: "復元サンプル数", desc: "フレームのヘッダを検証して PCM を復元する。magic 破損などはエラー。" },
+        { sig: "using FVoiceChatLoopbackBackend = CVoiceChatLoopbackBackend", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CVoiceChatLoopbackBackend</code> を使う。" }
       ]
     },
     {
@@ -384,11 +397,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FWaterVolume",
+      name: "CWaterVolume",
       kind: "クラス", header: "gameframework/WaterVolume.h",
       summary: "<t>AABB</t> で定義した 2D の<b>水域</b>を複数登録し、点が水中かの判定と、物体に掛かる<t>浮力</t> + <t>抗力</t>を力ベクトルで返す部品。「浮く」「沈む」「水中で減速」をゲームに組み込めます。",
       when: "池・川・海などの水場を作り、入った物体を浮かせたり沈ませたりしたい時。",
-      sample: "FWaterVolume water;\nFWaterVolumeInfo pond{ {0,50}, {200,50}, 9.8f, 2.0f, 0.0f, {0.1f,0.3f,0.6f} };\nauto id = water.AddVolume(pond);\nif (water.IsUnderwater(body.position)) {\n    FVec2 f = water.ComputeBuoyancyForce(body.position, body.velocity, body.mass);\n    body.ApplyForce(f);\n}",
+      sample: "CWaterVolume water;\nFWaterVolumeInfo pond{ {0,50}, {200,50}, 9.8f, 2.0f, 0.0f, {0.1f,0.3f,0.6f} };\nauto id = water.AddVolume(pond);\nif (water.IsUnderwater(body.position)) {\n    FVec2 f = water.ComputeBuoyancyForce(body.position, body.velocity, body.mass);\n    body.ApplyForce(f);\n}",
       members: [
         { sig: "FWaterVolumeId AddVolume(const FWaterVolumeInfo& info)", ret: "水域 ハンドル", desc: "水域を登録し、以降の参照 / 更新に使うハンドルを返す。" },
         { sig: "void RemoveVolume(FWaterVolumeId id)", desc: "水域を削除する(スロット再利用、古いハンドルは無効)。" },
@@ -398,7 +411,8 @@ ACS_REF.modules.push({
         { sig: "FVec2 ComputeBuoyancyForce(FVec2 pos, FVec2 velocity, f32 mass) const", ret: "合力(world)", desc: "浮力(上向き = -Y) + 抗力(-velocity*drag)の合計を返す。重なる水域は加算。水中でなければ (0,0)。", when: "物理ボディに ApplyForce する力を得る時。" },
         { sig: "u32 VolumeCount() const", desc: "有効な水域数を返す。" },
         { sig: "const FWaterVolumeInfo* AllVolumes(u32& out_count) const", ret: "先頭ポインタ", desc: "有効な全水域を詰めた配列を返す(Add/Remove/Update で無効化)。レンダラが水面描画に使う。" },
-        { sig: "void ClearAll()", desc: "全水域を破棄する。" }
+        { sig: "void ClearAll()", desc: "全水域を破棄する。" },
+        { sig: "using FWaterVolume = CWaterVolume", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CWaterVolume</code> を使う。" }
       ]
     },
     {
@@ -418,7 +432,7 @@ ACS_REF.modules.push({
       name: "FWaterVolumeId",
       kind: "構造体", header: "gameframework/WaterVolume.h",
       summary: "水域を識別する 32bit の<t>ハンドル</t>(24bit index + 8bit<t>世代</t>)。削除→再登録でスロット再利用されても古いハンドルは無効化されます。",
-      when: "FWaterVolume の参照 / 更新 / 削除で水域を指す時。",
+      when: "CWaterVolume の参照 / 更新 / 削除で水域を指す時。",
       sample: "FWaterVolumeId id = water.AddVolume(info);\nif (id.IsValid()) water.RemoveVolume(id);",
       members: [
         { sig: "bool IsValid() const", desc: "0(無効)でなければ true。" },
@@ -426,11 +440,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FWaveSpawner",
+      name: "CWaveSpawner",
       kind: "クラス", header: "gameframework/WaveSpawner.h",
       summary: "敵の<b><t>ウェーブ</t></b>(波状の出現)を管理する部品。複数 wave をキューに並べ、各 wave の<t>スポーンルール</t>を時間軸で順次発火させ、残数→クリア→小休止→次 wave→全完了の<t>状態機械</t>を内蔵します。",
       when: "タワーディフェンス / アリーナ / 防衛系で、敵を波ごとに湧かせ、全滅したら次の波へ進めたい時。",
-      sample: "FWaveSpawner waves;\nwaves.Init();\nwaves.SetOnSpawnCallback(&amp;OnSpawn, this);\nwaves.AddWave(wave0);\nwaves.AddWave(wave1);\nwaves.StartWaves();\n// 毎フレーム:\nwaves.Tick(dt);\n// 敵撃破時:\nwaves.NotifyEnemyKilled(\"goblin\");",
+      sample: "CWaveSpawner waves;\nwaves.Init();\nwaves.SetOnSpawnCallback(&amp;OnSpawn, this);\nwaves.AddWave(wave0);\nwaves.AddWave(wave1);\nwaves.StartWaves();\n// 毎フレーム:\nwaves.Tick(dt);\n// 敵撃破時:\nwaves.NotifyEnemyKilled(\"goblin\");",
       members: [
         { sig: "void Init() / void Reset() / void ClearAll()", desc: "進行をリセット(queue 保持) / 進行のみリセット / queue も含め全消去する。" },
         { sig: "void AddWave(const FWaveDef& def)", desc: "wave をキュー末尾に追加する。進行中の追記もできる(連続 wave モード)。" },
@@ -442,7 +456,8 @@ ACS_REF.modules.push({
         { sig: "f32 WaveTimerSec() const", desc: "現 wave 開始からの経過秒。Pause 中は停止。" },
         { sig: "void SetOnSpawnCallback(SpawnCallback cb, void* user)", desc: "敵 1 体出現時の<t>コールバック</t>を登録する。実 entity 生成は呼び出し側で。" },
         { sig: "void SetOnWaveStateChangeCallback(WaveStateChangeCallback cb, void* user)", desc: "wave 状態遷移時のコールバックを登録する(BGM / UI 演出連動に)。" },
-        { sig: "void Tick(f32 dt)", desc: "毎フレーム呼ぶ。タイマーを進め、満たした rule の発火 / 状態遷移を行う。" }
+        { sig: "void Tick(f32 dt)", desc: "毎フレーム呼ぶ。タイマーを進め、満たした rule の発火 / 状態遷移を行う。" },
+        { sig: "using FWaveSpawner = CWaveSpawner", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CWaveSpawner</code> を使う。" }
       ]
     },
     {
@@ -485,11 +500,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FWeaponSystem",
+      name: "CWeaponSystem",
       kind: "クラス", header: "gameframework/WeaponSystem.h",
       summary: "1 体ぶんの<b>武器ロードアウト + 弾薬 + 連射制御</b>をまとめた小型マネージャ。<t>fire rate</t>・リロード時間・マガジン / 予備弾薬・拡散 / ペレット数を一体管理し、発射可否を判定します。実際の弾生成は<t>コールバック</t>で呼び出し側に任せます。",
       when: "FPS / TPS / シューティングで、複数武器の切替・残弾・連射クールダウンを扱いたい時(1 体につき 1 インスタンス)。",
-      sample: "FWeaponSystem ws;\nws.RegisterWeapon({ \"pistol\", \"9mm\", EWeaponKind::Pistol,\n                   6.0f, 1.4f, 12, 48, 18.0f, 1.5f, 1, \"proj.9mm\" });\nws.EquipWeapon(\"pistol\");\nws.SetOnFireCallback(&amp;OnFire, this);\n// 毎フレーム:\nws.Tick(dt);\nif (input.JustPressed(EKey::Mouse0)) ws.TryFire();\nif (input.JustPressed(EKey::R))      ws.StartReload();",
+      sample: "CWeaponSystem ws;\nws.RegisterWeapon({ \"pistol\", \"9mm\", EWeaponKind::Pistol,\n                   6.0f, 1.4f, 12, 48, 18.0f, 1.5f, 1, \"proj.9mm\" });\nws.EquipWeapon(\"pistol\");\nws.SetOnFireCallback(&amp;OnFire, this);\n// 毎フレーム:\nws.Tick(dt);\nif (input.JustPressed(EKey::Mouse0)) ws.TryFire();\nif (input.JustPressed(EKey::R))      ws.StartReload();",
       members: [
         { sig: "void RegisterWeapon(const FWeaponDef& def)", desc: "武器を登録する。同 id の二重登録は警告して no-op。reserve スロットも 0 で初期化。" },
         { sig: "bool EquipWeapon(const char* weapon_id)", ret: "成功したか", desc: "武器を装備する。未登録 / nullptr は false。reload 中でも切替可能(元武器の reload は破棄)。", when: "武器スロット切替時。" },
@@ -502,7 +517,8 @@ ACS_REF.modules.push({
         { sig: "void SetOnFireCallback(FireCallback cb, void* user)", desc: "発射時の<t>コールバック</t>を登録する(弾種 / ダメージ / 拡散 / ペレット数を通知)。" },
         { sig: "void SetOnReloadCompleteCallback(ReloadCallback cb, void* user)", desc: "リロード完了時のコールバックを登録する。" },
         { sig: "void Tick(f32 dt)", desc: "毎フレーム呼ぶ。内部時計を進め、reload 中なら残り時間を減らし完了処理する。" },
-        { sig: "void ClearAll()", desc: "武器定義 / reserve / 状態 / コールバックを全消去する。" }
+        { sig: "void ClearAll()", desc: "武器定義 / reserve / 状態 / コールバックを全消去する。" },
+        { sig: "using FWeaponSystem = CWeaponSystem", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CWeaponSystem</code> を使う。" }
       ]
     },
     {
@@ -545,11 +561,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FWeatherSystem",
+      name: "CWeatherSystem",
       kind: "クラス", header: "gameframework/WeatherSystem.h",
       summary: "<b>天候</b>の状態を保持し、現在天候→目標天候へ線形遷移しながら、描画 / ライティング用の修飾係数(環境光倍率 / 粒子密度 / 空の色補正 / 風 / 霧密度)を提供する部品。レンダラや粒子は毎フレームこれらを pull するだけで天候表現が反映されます。",
       when: "晴れ / 雨 / 雪 / 嵐などをなめらかに切り替え、見た目と粒子・風を連動させたい時。",
-      sample: "FWeatherSystem weather;\nweather.SetWeather(EWeatherKind::Rain, 8.0f);  // 8 秒で雨へ\n// 毎フレーム:\nweather.Tick(dt);\nrenderer.SetAmbientMultiplier(weather.AmbientLightMultiplier());\nrenderer.SetFogDensityScale (weather.FogDensityMultiplier());",
+      sample: "CWeatherSystem weather;\nweather.SetWeather(EWeatherKind::Rain, 8.0f);  // 8 秒で雨へ\n// 毎フレーム:\nweather.Tick(dt);\nrenderer.SetAmbientMultiplier(weather.AmbientLightMultiplier());\nrenderer.SetFogDensityScale (weather.FogDensityMultiplier());",
       members: [
         { sig: "void SetWeather(EWeatherKind kind, f32 transition_duration = 5.0f)", desc: "目標天候を設定する。同一天候は即完了、duration<=0 は即時切替。", when: "天候を変えたい時。" },
         { sig: "EWeatherKind CurrentWeather() const / EWeatherKind TargetWeather() const", desc: "現在 / 目標の天候を返す。" },
@@ -560,11 +576,12 @@ ACS_REF.modules.push({
         { sig: "FVec3 SkyTintMultiplier() const", ret: "空色補正", desc: "空の色に乗算する補正((1,1,1)=無補正、Sandstorm は黄褐色など)。" },
         { sig: "f32 WindStrength() const", ret: "風の強さ [0,1]", desc: "Storm=1.0、Clear=0.0、Rain / Snow は中間。" },
         { sig: "void SetWindDirection(FVec2 dir) / FVec2 WindDirection() const", desc: "風向きを設定 / 取得する(天候とは独立、既定は (1,0))。" },
-        { sig: "void Reset()", desc: "初期状態(Clear)へ戻す。" }
+        { sig: "void Reset()", desc: "初期状態(Clear)へ戻す。" },
+        { sig: "using FWeatherSystem = CWeatherSystem", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CWeatherSystem</code> を使う。" }
       ]
     },
     {
-      name: "FWeatherSystem::FKindParams",
+      name: "CWeatherSystem::FKindParams",
       kind: "構造体", header: "gameframework/WeatherSystem.h",
       summary: "天候ごとの修飾パラメータ(環境光倍率 / 粒子密度 / 空色 / 風強さ / 霧密度)を 1 つにまとめた表。各 getter が内部でこの表を参照します。",
       when: "天候パラメータの内部構造を理解する時(通常は getter 経由で十分)。",
@@ -605,7 +622,7 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FWorkshopBridgeStub",
+      name: "CWorkshopBridgeStub",
       kind: "クラス", header: "gameframework/WorkshopBridge.h",
       summary: "Workshop SDK 未統合ビルド / テスト用の<b>何もしない</b>実装。<code>Init()</code> だけ成功し、公開 / 購読 / DL 系は「未実装」エラー、<code>IsAvailable()</code> は常に false です。",
       when: "実 SDK を繋ぐ前の既定実装として、コンパイルと UI 判定だけ通したい時。",
@@ -613,7 +630,8 @@ ACS_REF.modules.push({
       members: [
         { sig: "TResult<void> Init() noexcept override", desc: "常に成功(m_Initialized = true)。" },
         { sig: "bool IsAvailable() const noexcept override", desc: "常に false。" },
-        { sig: "f32 GetDownloadProgress(u64) noexcept override", desc: "常に -1 を返す。" }
+        { sig: "f32 GetDownloadProgress(u64) noexcept override", desc: "常に -1 を返す。" },
+        { sig: "using FWorkshopBridgeStub = CWorkshopBridgeStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CWorkshopBridgeStub</code> を使う。" }
       ]
     },
     {
@@ -636,7 +654,7 @@ ACS_REF.modules.push({
       sample: "IVoiceChatBackend&amp;        v  = GetVoiceStub();       // 何もしない既定\nFVoiceChatLoopbackBackend&amp; vb = GetVoiceLoopback();   // 実際に音声往復\nIWorkshopBridge&amp;           ws = GetWorkshopStub();    // 何もしない既定",
       members: [
         { sig: "IVoiceChatBackend& GetVoiceStub()", desc: "no-op なボイス実装の singleton を返す。" },
-        { sig: "FVoiceChatLoopbackBackend& GetVoiceLoopback()", desc: "実際に音声を往復させるループバック実装の singleton を返す。" },
+        { sig: "CVoiceChatLoopbackBackend& GetVoiceLoopback()", desc: "実際に音声を往復させるループバック実装の singleton を返す。" },
         { sig: "IWorkshopBridge& GetWorkshopStub()", desc: "no-op な Workshop 実装の singleton を返す。" }
       ]
     },
@@ -655,9 +673,9 @@ ACS_REF.modules.push({
     {
       name: "IAudioBackend",
       kind: "インターフェース", header: "gameframework/audio_backend/IAudioBackend.h",
-      summary: "<code>FAudioDirector</code> から見た「実際に音を出す層」の純粋仮想<t>シーム</t>。BGM / SFX を統一的に <code>FAudioVoiceHandle</code> で扱い、一発再生 / ループ / 停止 / 音量変更を提供する。Windows では <code>FXAudio2Backend</code>、他プラットフォームは別実装で差し替える。STL 不使用・全 <code>noexcept</code>。",
+      summary: "<code>CAudioDirector</code> から見た「実際に音を出す層」の純粋仮想<t>シーム</t>。BGM / SFX を統一的に <code>FAudioVoiceHandle</code> で扱い、一発再生 / ループ / 停止 / 音量変更を提供する。Windows では <code>CXAudio2Backend</code>、他プラットフォームは別実装で差し替える。STL 不使用・全 <code>noexcept</code>。",
       when: "director の下に実音声バックエンドを差し込みたい時。backend を nullptr にすると無音 (no-op) で動く。",
-      sample: "FXAudio2Backend backend;\nACS_TRY(backend.Init(64));\ndirector.SetBackend(&amp;backend);\n// 一発再生:\nFAudioVoiceHandle v = backend.PlayOneShot(clip, 1.0f, 1.0f);\nbackend.Tick(dt);   // 毎フレーム: 完了 voice を回収",
+      sample: "CXAudio2Backend backend;\nACS_TRY(backend.Init(64));\ndirector.SetBackend(&amp;backend);\n// 一発再生:\nFAudioVoiceHandle v = backend.PlayOneShot(clip, 1.0f, 1.0f);\nbackend.Tick(dt);   // 毎フレーム: 完了 voice を回収",
       members: [
         { sig: "virtual TResult<void> Init(u32 max_voices = 64)", ret: "成否", desc: "backend を初期化。<code>max_voices</code> は同時発音数の上限 (0 は不正)。多重 Init は <code>kSubAudioAlreadyInitialized</code>。" },
         { sig: "virtual void Shutdown()", desc: "全 voice を停止して資源解放。Init 前に呼んでも安全 (no-op)。" },
@@ -672,16 +690,17 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FXAudio2Backend",
+      name: "CXAudio2Backend",
       kind: "クラス", header: "gameframework/audio_backend/XAudio2Backend.h",
       summary: "<t>IAudioBackend</t> の Windows 用 concrete 実装 = Win32 <b>XAudio2</b> を叩いて実音声を出す。重い <code>&lt;xaudio2.h&gt;</code> は <t>pimpl</t> で <code>.cpp</code> に隠蔽。固定容量 voice pool + generation 付き handle で <t>use-after-free</t> を防ぐ。COM 初期化も本クラスが責任を持つ。非コピー・非ムーブ。",
-      when: "Windows で <code>FAudioDirector</code> に実音声を鳴らさせたい時。<code>director.SetBackend(&amp;xaudio2)</code> で差し込む。",
-      sample: "FXAudio2Backend m_Audio;\nFAudioDirector  m_Director;\nACS_TRY(m_Audio.Init(64));        // 同時発音 64 voice\nm_Director.SetBackend(&amp;m_Audio);\n// 終了時:\nm_Director.SetBackend(nullptr);  // 先に director を切る\nm_Audio.Shutdown();",
+      when: "Windows で <code>CAudioDirector</code> に実音声を鳴らさせたい時。<code>director.SetBackend(&amp;xaudio2)</code> で差し込む。",
+      sample: "CXAudio2Backend m_Audio;\nFAudioDirector  m_Director;\nACS_TRY(m_Audio.Init(64));        // 同時発音 64 voice\nm_Director.SetBackend(&amp;m_Audio);\n// 終了時:\nm_Director.SetBackend(nullptr);  // 先に director を切る\nm_Audio.Shutdown();",
       members: [
-        { sig: "FXAudio2Backend()", desc: "backend を構築 (まだ未初期化)。Init を呼ぶまで音は出ない。" },
+        { sig: "CXAudio2Backend()", desc: "backend を構築 (まだ未初期化)。Init を呼ぶまで音は出ない。" },
         { sig: "TResult<void> Init(u32 max_voices = 64) override", ret: "成否", desc: "XAudio2 / COM を起動し voice pool を確保する。再 init 不可。" },
         { sig: "void SetMasterVolume(f32 volume)", desc: "マスタリングボイス音量 (最終出力の master volume)。0.0〜1.0 推奨 (>1.0 は歪む)。", when: "全体音量をまとめて下げたい時。" },
-        { sig: "struct FImpl", desc: "XAudio2 / COM の重ヘッダを <code>.cpp</code> に閉じ込める <t>pimpl</t> の前方宣言 (実体は <code>.cpp</code>)。" }
+        { sig: "struct FImpl", desc: "XAudio2 / COM の重ヘッダを <code>.cpp</code> に閉じ込める <t>pimpl</t> の前方宣言 (実体は <code>.cpp</code>)。" },
+        { sig: "using FXAudio2Backend = CXAudio2Backend", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CXAudio2Backend</code> を使う。" }
       ]
     },
     {
@@ -724,6 +743,33 @@ ACS_REF.modules.push({
         { sig: "const char* locker_user = nullptr", desc: "ロック保持ユーザー (例 <code>designer_a</code>)。" },
         { sig: "u64 lock_time = 0", desc: "ロック取得時刻 (実装依存; UNIX epoch 推奨)。" }
       ]
+    },
+    {
+      name: "CTypeAutoRegister",
+      kind: "構造体", header: "gameframework/Reflect.h",
+      summary: "静的初期化時にtypeをregistryへ登録する補助。",
+      when: "型登録macroの生成コードから使う時。",
+      members: [
+        { sig: "using FTypeAutoRegister = CTypeAutoRegister", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CTypeAutoRegister</code> を使う。" }
+      ]
+    },
+    {
+      name: "CTypeRegistry",
+      kind: "クラス", header: "gameframework/Reflect.h",
+      summary: "reflection対象typeの登録と検索を提供する。",
+      when: "型情報を名前または識別子から取得する時。",
+      members: [
+        { sig: "using FTypeRegistry = CTypeRegistry", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CTypeRegistry</code> を使う。" }
+      ]
+    },
+    {
+      name: "AWorldClockSubsystem",
+      kind: "クラス", header: "gameframework/WorldClockSubsystem.h",
+      summary: "worldが所有し、simulation時刻とscaleを更新するsubsystem。",
+      when: "world単位の時刻を取得または進める時。",
+      members: [
+        { sig: "using FWorldClockSubsystem = AWorldClockSubsystem", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>AWorldClockSubsystem</code> を使う。" }
+      ]
     }
   ]
 });
@@ -732,7 +778,7 @@ Object.assign(ACS_REF.glossary, {
   "トリガ": "重なりだけを検出する当たり判定。物理の押し戻しはせず「触れたか」だけを通知する。関連語は <t>トリガワールド</t>。",
   "トリガワールド": "<t>トリガ</t>をまとめて管理し、毎フレーム重なりを調べて enter / stay / exit <t>イベント</t>を発火する場。",
   "AABB": "Axis-Aligned Bounding Box。軸に平行な四角形の当たり判定。回転しない箱として軽量に重なりを調べられる。",
-  "AP": "アクションポイント。ターン制で各陣営が 1 ターンに使える行動予算。<t>FTurnManager</t> が管理する。",
+  "AP": "アクションポイント。ターン制で各陣営が 1 ターンに使える行動予算。<t>CTurnManager</t> が管理する。",
   "イニシアチブ": "ターン制での行動順を決める値。大きいほど先に行動できる。",
   "ラウンド": "ターン制で全陣営が 1 巡する単位。1 ラウンドの中に各陣営のターンが並ぶ。",
   "フェーズ": "ターン進行の局面(プレイヤーの番 / 敵の番など)。<t>ETurnPhase</t> で表す。",
@@ -740,7 +786,7 @@ Object.assign(ACS_REF.glossary, {
   "イージング": "トゥイーンの加減速カーブ。Linear(等速)や InOutSine(ゆっくり始まりゆっくり終わる)など。",
   "RTTI": "Run-Time Type Information。C++ 標準の実行時型情報。ACS では使わず、軽量な型 ID / <t>リフレクション</t>で代替する。",
   "リフレクション": "型が自身の構造(フィールド名 / 型 / オフセット)を自己記述する仕組み。シリアライザやインスペクタの土台になる。",
-  "ウェーブ": "敵が波状にまとまって出現する単位。倒しきると次の波へ進む。<t>FWaveSpawner</t> が管理する。",
+  "ウェーブ": "敵が波状にまとまって出現する単位。倒しきると次の波へ進む。<t>CWaveSpawner</t> が管理する。",
   "スポーンルール": "ウェーブ内で「どの敵を・何体・どの間隔で・どこに」湧かせるかの 1 設定。<t>FSpawnRule</t>。",
   "状態機械": "限られた状態と、その間の遷移ルールで動きを表す仕組み。ステートマシンとも。",
   "状態": "オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。<t>状態機械</t>の各点。",

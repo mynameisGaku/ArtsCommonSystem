@@ -2,7 +2,7 @@
 // GameFramework Tools — editor_core / FPropertyDrawer 実装
 //
 // 仕様の意図は FPropertyDrawer.h を参照。本ファイルでは:
-//   ・per-byte StrEq による const char* 比較ループ (FSettings / FEntitlement と同形)
+//   ・per-byte StrEq による const char* 比較ループ (CSettings / FEntitlement と同形)
 //   ・Init で bundled drawer 9 種 ("F32Slider" / "Vec2Drag" / "Vec3Drag" /
 //     "Vec4Drag" / "ColorRGB" / "ColorRGBA" / "AssetPath" / "EnumCombo" /
 //     "TextInput") を自動登録
@@ -23,7 +23,7 @@ namespace {
 /**
  * const char* の per-byte 比較で 2 文字列が一致するかを返す。
  *
- * @details nullptr 安全 (一方でも nullptr なら不一致)。FSettings / FEntitlement と同形。
+ * @details nullptr 安全 (一方でも nullptr なら不一致)。CSettings / FEntitlement と同形。
  * @param a 比較する文字列その 1。
  * @param b 比較する文字列その 2。
  * @return 両者が非 null で内容一致なら true。

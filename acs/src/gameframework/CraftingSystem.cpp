@@ -75,7 +75,7 @@ void CCraftingSystem::RegisterRecipe(const FCraftRecipe& recipe) noexcept {
 
     // 同 recipe_id の 2 重登録は no-op (アセット二重ロード保護)。
     if (FindRecipeSlot(recipe.recipe_id) != kNotFound) {
-        ACS_LOG_WARN("FCraftingSystem: duplicate recipe registration ignored ('%s')",
+        ACS_LOG_WARN("CCraftingSystem: duplicate recipe registration ignored ('%s')",
                      recipe.recipe_id);
         return;
     }
@@ -87,7 +87,7 @@ void CCraftingSystem::RegisterRecipe(const FCraftRecipe& recipe) noexcept {
     // (起動順序エラーで配列指定漏れを救済 — 素材不要 recipe として登録する)。
     if (copy.ingredient_count > 0 && copy.ingredients == nullptr) {
         ACS_LOG_WARN(
-            "FCraftingSystem: recipe '%s' has ingredient_count=%u but ingredients=nullptr; "
+            "CCraftingSystem: recipe '%s' has ingredient_count=%u but ingredients=nullptr; "
             "treating as 0 ingredients",
             copy.recipe_id, copy.ingredient_count);
         copy.ingredient_count = 0;
@@ -206,7 +206,7 @@ bool CCraftingSystem::StartCraft(const char* recipe_id,
                 }
             }
             ACS_LOG_WARN(
-                "FCraftingSystem: StartCraft('%s') aborted — consume failed at ingredient %u",
+                "CCraftingSystem: StartCraft('%s') aborted — consume failed at ingredient %u",
                 r.recipe_id, consumed_upto);
             return false;
         }
@@ -298,7 +298,7 @@ void CCraftingSystem::Tick(f32 dt) noexcept {
             const bool grant_ok = m_Grant(m_InvUser, r.result_item_id, r.result_count);
             if (!grant_ok) {
                 ACS_LOG_WARN(
-                    "FCraftingSystem: grant failed for recipe '%s' result '%s' x%u "
+                    "CCraftingSystem: grant failed for recipe '%s' result '%s' x%u "
                     "(inventory full?) — completing anyway",
                     r.recipe_id, r.result_item_id, r.result_count);
             }

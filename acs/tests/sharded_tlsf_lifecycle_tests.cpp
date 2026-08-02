@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory - FShardedTlsfAllocator ライフサイクル競合テスト
+// ACS Memory - CShardedTlsfAllocator ライフサイクル競合テスト
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -17,14 +17,14 @@ ACS_TEST(ShardedTlsfAllocator, LifecycleGateRejectsShutdownRacesAndSupportsReini
     constexpr u64 kRequiredSuccessfulAllocations = 256u;
     constexpr u32 kWaitLimit = 500000u;
 
-    FShardedTlsfAllocator Allocator;
+    CShardedTlsfAllocator Allocator;
     EXPECT_TRUE(Allocator.Init(64ull * 1024ull * 1024ull, 4ull * 1024ull * 1024ull, 4u).IsOk());
     Allocator.EnableThreadCache();
     EXPECT_TRUE(Allocator.ThreadCacheEnabled());
 
     struct FRaceContext
     {
-        FShardedTlsfAllocator* Allocator = nullptr;
+        CShardedTlsfAllocator* Allocator = nullptr;
         TAtomic<u32> Ready{0u};
         TAtomic<u32> Start{0u};
         TAtomic<u32> Stop{0u};
@@ -200,10 +200,10 @@ ACS_TEST(ShardedTlsfAllocator, ConcurrentInitializationAndShutdownAreSerialized)
     constexpr u32 kThreadCount = 4u;
     constexpr u32 kLifecycleCycles = 16u;
 
-    FShardedTlsfAllocator Allocator;
+    CShardedTlsfAllocator Allocator;
     struct FControlContext
     {
-        FShardedTlsfAllocator* Allocator = nullptr;
+        CShardedTlsfAllocator* Allocator = nullptr;
         TAtomic<u32> Ready{0u};
         TAtomic<u32> Start{0u};
         TAtomic<u32> SuccessfulInitializations{0u};

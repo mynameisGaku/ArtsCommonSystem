@@ -343,7 +343,7 @@ void CUiInput::Dispatch(AWidget& root) noexcept {
 
     // テキスト入力 / キー (focus 中の widget に流す)
     // 問題: 以前はここで何も配信しておらず、ATextInput ウィジェットが文字も
-    //       Backspace も受け取れず実質死んでいた。FInput::TextInput() の確定文字列と
+    //       Backspace も受け取れず実質死んでいた。CInput::TextInput() の確定文字列と
     //       編集系キーを読み取り、focus 中 widget の OnTextInput/OnKey へ実配信する。
     if (m_FocusedIdentity.IsSet() || m_ControlAOwnerIdentity.IsSet()) {
         // 1) このフレームに確定した文字列 (UTF-8, IME 確定後) を codepoint 単位で配信。

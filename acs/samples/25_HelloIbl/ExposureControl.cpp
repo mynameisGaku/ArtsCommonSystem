@@ -13,14 +13,14 @@ using namespace acs;
 
 namespace helloibl {
 
-void UpdateExposureControls(FHelloIblApp& app, f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::U)) app.m_bUseAutoExposure = !app.m_bUseAutoExposure;
+void UpdateExposureControls(CHelloIblApp& app, f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::U)) app.m_bUseAutoExposure = !app.m_bUseAutoExposure;
 
     if (app.m_bUseAutoExposure) {
         // 露出は GPU が実測輝度から算出。Q/E は目標平均輝度 (key) を動かして
         // 全体の明暗を補正する (EV compensation 相当)。
-        if (FInput::IsKeyDown(EKey::E)) app.m_AutoKey += dt * 0.3f;
-        if (FInput::IsKeyDown(EKey::Q)) app.m_AutoKey -= dt * 0.3f;
+        if (CInput::IsKeyDown(EKey::E)) app.m_AutoKey += dt * 0.3f;
+        if (CInput::IsKeyDown(EKey::Q)) app.m_AutoKey -= dt * 0.3f;
         if (app.m_AutoKey < 0.1f) app.m_AutoKey = 0.1f;
         if (app.m_AutoKey > 2.0f) app.m_AutoKey = 2.0f;
         app.m_PostParams.auto_exposure_enabled = true;
@@ -29,8 +29,8 @@ void UpdateExposureControls(FHelloIblApp& app, f32 dt) noexcept {
     } else {
         // 手動の露出目標 + CPU eye adaptation。Q/E で目標を動かし、
         // m_AdaptedExposure が dt 補間で追従する。
-        if (FInput::IsKeyDown(EKey::E)) app.m_ExposureTarget += dt * 0.5f;
-        if (FInput::IsKeyDown(EKey::Q)) app.m_ExposureTarget -= dt * 0.5f;
+        if (CInput::IsKeyDown(EKey::E)) app.m_ExposureTarget += dt * 0.5f;
+        if (CInput::IsKeyDown(EKey::Q)) app.m_ExposureTarget -= dt * 0.5f;
         if (app.m_ExposureTarget < 0.1f) app.m_ExposureTarget = 0.1f;
         if (app.m_ExposureTarget > 4.0f) app.m_ExposureTarget = 4.0f;
         f32 k = dt * 2.5f;

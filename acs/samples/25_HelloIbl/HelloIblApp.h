@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloIbl — FApplication 派生クラス。
+// HelloIbl — CApplication 派生クラス。
 //
 // IBL + HDR / ACES tonemap のメインデモ。BRDF LUT / env cube / irradiance /
 // prefilter を初フレームで一括生成し、以降は preset 切替 / displaymode /
@@ -15,11 +15,11 @@
 //   RefractionPass.{h,cpp}        - screen-space 屈折ガラス
 //   DynamicOrbs.{h,cpp}           - 公転する発光オーブ
 //   SceneDraw.{h,cpp}             - 5x5 sphere grid + floor の PBR draw
-//   PbrLightingBindings.{h,cpp}   - FPbrShader の各種テクスチャ/パラメータ bind
+//   PbrLightingBindings.{h,cpp}   - CPbrShader の各種テクスチャ/パラメータ bind
 //   IblPresetBuilder.{h,cpp}      - preset 切替時の env / irradiance / prefilter 再生成
 //   TaaJitter.{h,cpp}             - Halton(2,3) sub-pixel jitter
 //   ExposureControl.{h,cpp}       - auto / manual 露出補間
-//   HudOverlay.{h,cpp}            - FSpriteBatch HUD + デバッグオーバーレイ
+//   HudOverlay.{h,cpp}            - CSpriteBatch HUD + デバッグオーバーレイ
 //
 // 操作 (主要なもの):
 //   1/2/3 空プリセット / 4 スタジオ HDR / 5 大気
@@ -56,36 +56,36 @@
 namespace helloibl {
 
 // 機能別 helper の前方宣言 (friend にして private メンバへアクセスさせる)。
-class FHelloIblApp;
-void ApplyPresetRebuilds(FHelloIblApp& app) noexcept;
-acs::FMat4 BuildJitteredViewProjection(FHelloIblApp& app, const acs::FMat4& vp_no_jitter,
+class CHelloIblApp;
+void ApplyPresetRebuilds(CHelloIblApp& app) noexcept;
+acs::FMat4 BuildJitteredViewProjection(CHelloIblApp& app, const acs::FMat4& vp_no_jitter,
                                       acs::u32 hdr_width, acs::u32 hdr_height) noexcept;
-void RenderShadowPass(FHelloIblApp& app, const acs::FVec3& sun_dir) noexcept;
-acs::FVec3 ResolveSunDirection(const FHelloIblApp& app) noexcept;
-void BindPbrLighting(FHelloIblApp& app, const acs::FMat4& vp_for_render,
+void RenderShadowPass(CHelloIblApp& app, const acs::FVec3& sun_dir) noexcept;
+acs::FVec3 ResolveSunDirection(const CHelloIblApp& app) noexcept;
+void BindPbrLighting(CHelloIblApp& app, const acs::FMat4& vp_for_render,
                      const acs::FDirLight& sun) noexcept;
-void DrawFloor(FHelloIblApp& app) noexcept;
-void DrawSphereGrid(FHelloIblApp& app) noexcept;
-void UpdateDynamicOrbs(FHelloIblApp& app) noexcept;
-void DrawDynamicOrbs(FHelloIblApp& app) noexcept;
-void RenderRefractionPass(FHelloIblApp& app, const acs::FMat4& vp_for_render,
+void DrawFloor(CHelloIblApp& app) noexcept;
+void DrawSphereGrid(CHelloIblApp& app) noexcept;
+void UpdateDynamicOrbs(CHelloIblApp& app) noexcept;
+void DrawDynamicOrbs(CHelloIblApp& app) noexcept;
+void RenderRefractionPass(CHelloIblApp& app, const acs::FMat4& vp_for_render,
                           const acs::FViewport& vp, const acs::FScissorRect& svr) noexcept;
-void RenderMotionAndNormalGBuffer(FHelloIblApp& app,
+void RenderMotionAndNormalGBuffer(CHelloIblApp& app,
                                   const acs::FMat4& vp_no_jitter) noexcept;
-void RenderSsrPass(FHelloIblApp& app, const acs::FMat4& vp_for_render,
+void RenderSsrPass(CHelloIblApp& app, const acs::FMat4& vp_for_render,
                    const acs::FMat4& inv_vp, const acs::FMat4& vp_no_jitter) noexcept;
-void RenderSsaoPass(FHelloIblApp& app, const acs::FMat4& vp_for_render,
+void RenderSsaoPass(CHelloIblApp& app, const acs::FMat4& vp_for_render,
                     const acs::FMat4& inv_vp, const acs::FVec3& sun_dir) noexcept;
-void RenderSsgiPass(FHelloIblApp& app, const acs::FMat4& vp_for_render,
+void RenderSsgiPass(CHelloIblApp& app, const acs::FMat4& vp_for_render,
                     const acs::FMat4& inv_vp, const acs::FMat4& vp_no_jitter) noexcept;
-void UpdateExposureControls(FHelloIblApp& app, acs::f32 dt) noexcept;
-void DrawBrdfLutOverlay(FHelloIblApp& app, acs::IRhiTexture* lut, acs::u32 sw) noexcept;
-void DrawSsrDebugOverlay(FHelloIblApp& app, acs::u32 sh) noexcept;
-void DrawSsaoDebugOverlay(FHelloIblApp& app, acs::u32 sw, acs::u32 sh) noexcept;
-void DrawStatusText(FHelloIblApp& app, acs::IRhiTexture* lut, acs::u32 sw) noexcept;
-void DrawHud(FHelloIblApp& app, acs::u32 sw, acs::u32 sh) noexcept;
+void UpdateExposureControls(CHelloIblApp& app, acs::f32 dt) noexcept;
+void DrawBrdfLutOverlay(CHelloIblApp& app, acs::IRhiTexture* lut, acs::u32 sw) noexcept;
+void DrawSsrDebugOverlay(CHelloIblApp& app, acs::u32 sh) noexcept;
+void DrawSsaoDebugOverlay(CHelloIblApp& app, acs::u32 sw, acs::u32 sh) noexcept;
+void DrawStatusText(CHelloIblApp& app, acs::IRhiTexture* lut, acs::u32 sw) noexcept;
+void DrawHud(CHelloIblApp& app, acs::u32 sw, acs::u32 sh) noexcept;
 
-class FHelloIblApp : public acs::FApplication {
+class CHelloIblApp : public acs::CApplication {
 public:
     void OnStart() noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -98,49 +98,49 @@ private:
     acs::FMat4 ComputeDynTransform(acs::u32 i, acs::f32 t) const noexcept;
 
     // helper モジュール群は private メンバを直接触る (friend)。
-    friend void ApplyPresetRebuilds(FHelloIblApp&) noexcept;
-    friend acs::FMat4 BuildJitteredViewProjection(FHelloIblApp&, const acs::FMat4&,
+    friend void ApplyPresetRebuilds(CHelloIblApp&) noexcept;
+    friend acs::FMat4 BuildJitteredViewProjection(CHelloIblApp&, const acs::FMat4&,
                                                  acs::u32, acs::u32) noexcept;
-    friend void RenderShadowPass(FHelloIblApp&, const acs::FVec3&) noexcept;
-    friend acs::FVec3 ResolveSunDirection(const FHelloIblApp&) noexcept;
-    friend void BindPbrLighting(FHelloIblApp&, const acs::FMat4&, const acs::FDirLight&) noexcept;
+    friend void RenderShadowPass(CHelloIblApp&, const acs::FVec3&) noexcept;
+    friend acs::FVec3 ResolveSunDirection(const CHelloIblApp&) noexcept;
+    friend void BindPbrLighting(CHelloIblApp&, const acs::FMat4&, const acs::FDirLight&) noexcept;
     // BindPbrLighting の各サブ bind helper (PbrLightingBindings.cpp、private へ直接 bind)。
-    friend void BindIbl(FHelloIblApp&) noexcept;
-    friend void BindSun(FHelloIblApp&, const acs::FMat4&, const acs::FDirLight&) noexcept;
-    friend void BindSsao(FHelloIblApp&) noexcept;
-    friend void BindSsgi(FHelloIblApp&) noexcept;
-    friend void BindSsr(FHelloIblApp&) noexcept;
-    friend void BindShadow(FHelloIblApp&) noexcept;
-    friend void BindFog(FHelloIblApp&) noexcept;
-    friend void BindProbeGrid(FHelloIblApp&) noexcept;
-    friend void BindAreaLight(FHelloIblApp&) noexcept;
-    friend void DrawFloor(FHelloIblApp&) noexcept;
-    friend void DrawSphereGrid(FHelloIblApp&) noexcept;
-    friend void UpdateDynamicOrbs(FHelloIblApp&) noexcept;
-    friend void DrawDynamicOrbs(FHelloIblApp&) noexcept;
-    friend void RenderRefractionPass(FHelloIblApp&, const acs::FMat4&,
+    friend void BindIbl(CHelloIblApp&) noexcept;
+    friend void BindSun(CHelloIblApp&, const acs::FMat4&, const acs::FDirLight&) noexcept;
+    friend void BindSsao(CHelloIblApp&) noexcept;
+    friend void BindSsgi(CHelloIblApp&) noexcept;
+    friend void BindSsr(CHelloIblApp&) noexcept;
+    friend void BindShadow(CHelloIblApp&) noexcept;
+    friend void BindFog(CHelloIblApp&) noexcept;
+    friend void BindProbeGrid(CHelloIblApp&) noexcept;
+    friend void BindAreaLight(CHelloIblApp&) noexcept;
+    friend void DrawFloor(CHelloIblApp&) noexcept;
+    friend void DrawSphereGrid(CHelloIblApp&) noexcept;
+    friend void UpdateDynamicOrbs(CHelloIblApp&) noexcept;
+    friend void DrawDynamicOrbs(CHelloIblApp&) noexcept;
+    friend void RenderRefractionPass(CHelloIblApp&, const acs::FMat4&,
                                      const acs::FViewport&, const acs::FScissorRect&) noexcept;
-    friend void RenderMotionAndNormalGBuffer(FHelloIblApp&, const acs::FMat4&) noexcept;
-    friend void RenderSsrPass(FHelloIblApp&, const acs::FMat4&, const acs::FMat4&,
+    friend void RenderMotionAndNormalGBuffer(CHelloIblApp&, const acs::FMat4&) noexcept;
+    friend void RenderSsrPass(CHelloIblApp&, const acs::FMat4&, const acs::FMat4&,
                               const acs::FMat4&) noexcept;
-    friend void RenderSsaoPass(FHelloIblApp&, const acs::FMat4&, const acs::FMat4&,
+    friend void RenderSsaoPass(CHelloIblApp&, const acs::FMat4&, const acs::FMat4&,
                                const acs::FVec3&) noexcept;
-    friend void RenderSsgiPass(FHelloIblApp&, const acs::FMat4&, const acs::FMat4&,
+    friend void RenderSsgiPass(CHelloIblApp&, const acs::FMat4&, const acs::FMat4&,
                                const acs::FMat4&) noexcept;
-    friend void UpdateExposureControls(FHelloIblApp&, acs::f32) noexcept;
-    friend void DrawBrdfLutOverlay(FHelloIblApp&, acs::IRhiTexture*, acs::u32) noexcept;
-    friend void DrawSsrDebugOverlay(FHelloIblApp&, acs::u32) noexcept;
-    friend void DrawSsaoDebugOverlay(FHelloIblApp&, acs::u32, acs::u32) noexcept;
-    friend void DrawStatusText(FHelloIblApp&, acs::IRhiTexture*, acs::u32) noexcept;
-    friend void DrawHud(FHelloIblApp&, acs::u32, acs::u32) noexcept;
+    friend void UpdateExposureControls(CHelloIblApp&, acs::f32) noexcept;
+    friend void DrawBrdfLutOverlay(CHelloIblApp&, acs::IRhiTexture*, acs::u32) noexcept;
+    friend void DrawSsrDebugOverlay(CHelloIblApp&, acs::u32) noexcept;
+    friend void DrawSsaoDebugOverlay(CHelloIblApp&, acs::u32, acs::u32) noexcept;
+    friend void DrawStatusText(CHelloIblApp&, acs::IRhiTexture*, acs::u32) noexcept;
+    friend void DrawHud(CHelloIblApp&, acs::u32, acs::u32) noexcept;
 
-    acs::FPostProcess        m_Post;
-    acs::FImageBasedLighting m_Ibl;
-    acs::FSky                m_Sky;
-    acs::FPbrShader          m_Pbr;
+    acs::CPostProcess        m_Post;
+    acs::CImageBasedLighting m_Ibl;
+    acs::CSky                m_Sky;
+    acs::CPbrShader          m_Pbr;
     acs::FGpuMesh            m_GmSphere;
     acs::FGpuMesh            m_GmPlane;
-    acs::FSpriteBatch        m_Batch;
+    acs::CSpriteBatch        m_Batch;
     acs::FFont               m_Font;
     acs::CCamera             m_Camera;
     acs::FPostProcessParams  m_PostParams;
@@ -163,7 +163,7 @@ private:
     bool                    m_bUseShadows      = false;
     bool                    m_ShowSsr         = false;
     bool                    m_SsrWarm         = false; // m_Ssr.Render が 1 度以上走った？
-    bool                    m_bUseSsao         = true;  // FPbrShader 側で composite (1-frame latency)
+    bool                    m_bUseSsao         = true;  // CPbrShader 側で composite (1-frame latency)
     bool                    m_bSsaoWarm        = false; // m_Ssao.Render が 1 度以上走った？ (frame 0 garbage 回避)
     bool                    m_bUseTaa          = true;
     acs::u32                m_TaaFrameIndex  = 0;     // Halton(2,3) 用カウンタ
@@ -177,15 +177,15 @@ private:
     bool                    m_bSsgiWarm        = false; // m_Ssgi.Render が 1 度以上走った？
     bool                    m_bUseLightmap     = true;
     acs::TUniquePtr<acs::IRhiTexture> m_Lightmap;        // 床用 baked lightmap (256x256 RGBA8)
-    acs::FShadowMap          m_Shadow;
-    acs::FSsr                m_Ssr;
-    acs::FSsao               m_Ssao;
-    acs::FSsgi               m_Ssgi;
-    acs::FMotionVector       m_Motion;
+    acs::CShadowMap          m_Shadow;
+    acs::CSsr                m_Ssr;
+    acs::CSsao               m_Ssao;
+    acs::CSsgi               m_Ssgi;
+    acs::CMotionVector       m_Motion;
     bool                    m_MotionGBufferValid = false;
     bool                    m_bUseMotionVec   = true;
-    acs::FRefractionShader   m_Refr;                     // screen-space 屈折
-    acs::FBlit               m_Blit;                     // HDR -> m_BgRt コピー
+    acs::CRefractionShader   m_Refr;                     // screen-space 屈折
+    acs::CBlit               m_Blit;                     // HDR -> m_BgRt コピー
     acs::TUniquePtr<acs::IRhiTexture> m_BgRt;           // 屈折用 background キャプチャ
     bool                    m_ShowRefraction  = true;
     acs::FMat4               m_DynCurr[kDynCount] = {}; // 動的球の現フレーム transform

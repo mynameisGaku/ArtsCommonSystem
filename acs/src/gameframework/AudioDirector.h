@@ -40,7 +40,7 @@
 //     を毎フレ算出して backend へ流す)。
 //
 // 範囲外:
-//   ・name → FAudioClipDesc resolver (FAssetRegistry 統合)
+//   ・name → FAudioClipDesc resolver (CAssetRegistry 統合)
 //   ・3D positional / spatial / submix bus / DSP chain
 //   ・スナップショット (mixer state を hot-swap)
 //   ・wav/ogg/mp3 decode (本層は raw PCM 前提)
@@ -51,7 +51,7 @@
 #include "gameframework/Forward.h"
 #include "gameframework/audio_backend/IAudioBackend.h"
 
-namespace acs { class FAssetRegistry; }
+namespace acs { class CAssetRegistry; }
 
 namespace acs::game {
 
@@ -237,19 +237,19 @@ public:
      * name → FAudioClipDesc 解決に使う asset registry を差し込む。
      *
      * @details
-     * app 所有の registry (FApplication::GetAssets()) を差すと PlayBgm/PlaySfx の name
+     * app 所有の registry (CApplication::GetAssets()) を差すと PlayBgm/PlaySfx の name
      * (= asset path) を実ロードして実音再生する。registry または backend 未設定のときは
      * 従来の state-only (無音) で動作する。
      * @param registry 差し込む asset レジストリ (非所有)。
      */
-    void            SetAssetRegistry(FAssetRegistry* registry) noexcept { m_Registry = registry; }
+    void            SetAssetRegistry(CAssetRegistry* registry) noexcept { m_Registry = registry; }
 
     /**
      * 現在の asset registry を返す。
      *
      * @return 設定済み registry (未設定なら nullptr)。
      */
-    FAssetRegistry* GetAssetRegistry() const noexcept { return m_Registry; }
+    CAssetRegistry* GetAssetRegistry() const noexcept { return m_Registry; }
 
     /**
      * raw PCM の FAudioClipDesc を BGM として直接再生する。
@@ -375,7 +375,7 @@ private:
     IAudioBackend* m_Backend = nullptr;
 
     /** name → FAudioClipDesc 解決用の asset registry (非所有 raw ptr)。 */
-    FAssetRegistry* m_Registry = nullptr;
+    CAssetRegistry* m_Registry = nullptr;
 };
 
 } // namespace acs::game

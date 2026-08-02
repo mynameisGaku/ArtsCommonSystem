@@ -42,7 +42,7 @@
 
 #include "foundation/Types.h"
 #include "gameframework/InspectorSeam.h"   // EFieldKind (フィールド種別を共通化)
-#include "memory/Allocator.h"              // FAllocator / DefaultAllocator
+#include "memory/Allocator.h"              // IAllocator / DefaultAllocator
 #include "memory/New.h"                    // New<T> / Delete (engine allocator factory)
 
 #include <cstddef>   // offsetof
@@ -141,7 +141,7 @@ namespace reflect_internal {
 /** 反射 factory が生成時の確保元をオブジェクト末尾に保持する内部ヘッダ。 */
 struct FFactoryAllocationHeader {
     /** 生成時に使ったアロケータ。 */
-    FAllocator* allocator = nullptr;
+    IAllocator* allocator = nullptr;
 
     /** allocator::Alloc が返した、解放時に渡す元ポインタ。 */
     void* allocation = nullptr;
@@ -166,7 +166,7 @@ template<class T> inline void* AcsConstruct() noexcept {
         constexpr usize header_offset = (sizeof(T) + alignof(Header) - 1u) & ~(alignof(Header) - 1u);
         constexpr usize allocation_size = header_offset + sizeof(Header);
 
-        FAllocator& allocator = DefaultAllocator();
+        IAllocator& allocator = DefaultAllocator();
         void* const allocation = allocator.Alloc(allocation_size, allocation_alignment, FSourceLoc::Current());
         if (allocation == nullptr) return nullptr;
 
@@ -186,7 +186,7 @@ inline void AcsDestruct(void* p) noexcept
     auto* const object = static_cast<T*>(p);
     constexpr usize header_offset = (sizeof(T) + alignof(Header) - 1u) & ~(alignof(Header) - 1u);
     auto* const header = reinterpret_cast<Header*>(reinterpret_cast<byte*>(object) + header_offset);
-    FAllocator* const allocator = header->allocator;
+    IAllocator* const allocator = header->allocator;
     void* const allocation = header->allocation;
     if constexpr (!IsTriviallyDestructibleV<T>) object->~T();
     allocator->Free(allocation);

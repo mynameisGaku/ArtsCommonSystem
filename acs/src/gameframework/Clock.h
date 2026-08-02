@@ -5,7 +5,7 @@
 // per-clock time_scale を持つ軽量値型 (40 byte 程度)。CTweenManager/FSequence/カスタム
 // タイマー等が共通の時間軸として参照する。
 //
-// 命名: `acs::FClock` (platform/Time.h、ハイレベル時間 API) との衝突を避けるため
+// 命名: `acs::CClock` (platform/Time.h、ハイレベル時間 API) との衝突を避けるため
 // `CSceneClock`。役割は「シーンの感じる時間 = pause/slow-mo を反映する論理時間」。
 //
 // 使い方:
@@ -21,7 +21,7 @@
 //       acs::game::CSceneClock m_Clock;
 //   };
 //
-// CGame の FApplication::DeltaTime() は常にリアル時間。シーンの感じる「時間」
+// CGame の CApplication::DeltaTime() は常にリアル時間。シーンの感じる「時間」
 // (slow-mo・pause・スピードランナーの倍速モード等) は CSceneClock を経由する。
 #pragma once
 
@@ -35,7 +35,7 @@ namespace acs::game {
  * @details
  * scaled 時間は time_scale と pause を反映する「シーンが感じる論理時間」、unscaled
  * 時間は常に進む実時間。pause / resume / per-clock time_scale を持ち、CTweenManager や
- * FSequence、カスタムタイマーが共通の時間軸として参照する。FApplication::DeltaTime()
+ * FSequence、カスタムタイマーが共通の時間軸として参照する。CApplication::DeltaTime()
  * の実時間とは別に、slow-mo・pause・倍速モードを反映した時間を提供する。
  */
 class CSceneClock {

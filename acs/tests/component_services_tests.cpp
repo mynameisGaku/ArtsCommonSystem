@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // gameframework: コンポーネント → シーンサービス アクセス経路の検証 (GPU 非依存)。
-//   ANode が root に配線した FSceneServices を子/コンポーネントが walk-to-root で参照でき、
+//   ANode が root に配線した CSceneServices を子/コンポーネントが walk-to-root で参照でき、
 //   OnAttachServices が «高々 1 回» 発火し、OnUpdate で Physics/Camera を読めることを確認する。
-//   通常 FScene2D Play と editor インプロセス Play が **同一経路** で動く土台。
+//   通常 AScene2D Play と editor インプロセス Play が **同一経路** で動く土台。
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -29,14 +29,14 @@ struct AServiceProbeComponent : public AComponent {
     const void* Kind() const noexcept override { return ComponentKindOf<AServiceProbeComponent>(); }
 
     int                attach_count = 0;
-    FSceneServices*    seen         = nullptr;
-    FCollisionWorld2D* phys         = nullptr;
-    FCamera2D*         cam          = nullptr;
+    CSceneServices*    seen         = nullptr;
+    CCollisionWorld2D* phys         = nullptr;
+    CCamera2D*         cam          = nullptr;
     int                updates      = 0;
     u32                shapes_seen  = 0;
     FVec2              cam_pos_seen{ 0.0f, 0.0f };
 
-    void OnAttachServices(FSceneServices& svc) noexcept override {
+    void OnAttachServices(CSceneServices& svc) noexcept override {
         ++attach_count;
         seen = &svc;
         if (svc.Has(ESvc::Physics2D)) phys = &svc.Physics();
@@ -305,7 +305,7 @@ ACS_TEST(ComponentServices, FlatBuildThenReparentFollowsParent) {
 // root 配線 → 子/孫が walk-to-root で services を解決する。
 ACS_TEST(ComponentServices, RootWiringAndChildWalk) {
     ANode root;
-    FSceneServices svc(ESvc::Input);
+    CSceneServices svc(ESvc::Input);
     root._SetSceneServices(&svc);
     EXPECT_TRUE(root.SceneServices() == &svc);
 
@@ -338,7 +338,7 @@ ACS_TEST(ComponentServices, ActivateFiresOncePreExisting) {
     AServiceProbeComponent& p = child.AddComponent<AServiceProbeComponent>();   // 配線前 attach → まだ発火しない
     EXPECT_EQ(p.attach_count, 0);
 
-    FSceneServices svc(ESvc::Camera2D | ESvc::Physics2D);
+    CSceneServices svc(ESvc::Camera2D | ESvc::Physics2D);
     root._ActivateServices(svc);
     EXPECT_EQ(p.attach_count, 1);
     EXPECT_TRUE(p.seen == &svc);
@@ -350,7 +350,7 @@ ACS_TEST(ComponentServices, ActivateFiresOncePreExisting) {
 // «配線 → 後で spawn» 経路 (editor Play と同じ): attach 時に即発火する。
 ACS_TEST(ComponentServices, SpawnAfterWiringFiresImmediately) {
     ANode root;
-    FSceneServices svc(ESvc::Physics2D);
+    CSceneServices svc(ESvc::Physics2D);
     root._SetSceneServices(&svc);                     // create 時に配線 (editor シムと同じ)
 
     ANode& child = root.AddChild(NewObject<ANode>());
@@ -362,7 +362,7 @@ ACS_TEST(ComponentServices, SpawnAfterWiringFiresImmediately) {
 // editor Play と同一の流れ (create 時配線 → attach → tick) で Physics/Camera を読める。
 ACS_TEST(ComponentServices, ReadsPhysicsAndCameraDuringTick) {
     ANode root;
-    FSceneServices svc(ESvc::Physics2D | ESvc::Camera2D);
+    CSceneServices svc(ESvc::Physics2D | ESvc::Camera2D);
     svc.Physics().AddAabb(FAabb2{ FVec2{ 0.0f, 0.0f }, FVec2{ 1.0f, 1.0f } });
     svc.Physics().AddAabb(FAabb2{ FVec2{ 5.0f, 0.0f }, FVec2{ 1.0f, 1.0f } });
     svc.Camera().SetPosition(FVec2{ 3.0f, 7.0f });

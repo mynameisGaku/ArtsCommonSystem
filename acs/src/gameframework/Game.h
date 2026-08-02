@@ -219,7 +219,7 @@ private:
     /** 初回 OnRender で default UI フォントを遅延ロードする。 */
     void EnsureUiFont() noexcept;
 
-    /** フェード overlay 用 FSpriteBatch を遅延 init する。 */
+    /** フェード overlay 用 CSpriteBatch を遅延 init する。 */
     void EnsureOverlay() noexcept;
 
     /** 進行中フェードの fullscreen quad を描く。 */
@@ -255,13 +255,13 @@ private:
     /** 暗転中に差し替える次 AScene。 */
     TUniquePtr<AScene> m_PendingScene;
 
-    /** フェード overlay 描画用の FSpriteBatch。 */
-    FSpriteBatch      m_Overlay;
+    /** フェード overlay 描画用の CSpriteBatch。 */
+    CSpriteBatch      m_Overlay;
 
-    /** overlay FSpriteBatch の init に成功したか。 */
+    /** overlay CSpriteBatch の init に成功したか。 */
     bool              m_OverlayReady = false;
 
-    /** overlay FSpriteBatch の init を試行済みか (再試行抑止)。 */
+    /** overlay CSpriteBatch の init を試行済みか (再試行抑止)。 */
     bool              m_OverlayTried = false;
 
     /** 時間スケール (AScene の dt に乗算)。 */

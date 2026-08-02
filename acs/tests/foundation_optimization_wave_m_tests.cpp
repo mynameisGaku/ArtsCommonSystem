@@ -121,13 +121,13 @@ ACS_TEST(FoundationOptimizationWaveM, JobGraphReservesCompletionCountOncePerSubm
     /** job 数と反復数。 */
     constexpr u32 kJobCount = 127u;
     constexpr u32 kRunCount = 16u;
-    FThreadPool::Shutdown();
-    EXPECT_TRUE(FThreadPool::Init(4u).IsOk());
+    CThreadPool::Shutdown();
+    EXPECT_TRUE(CThreadPool::Init(4u).IsOk());
 
     /** 全 job の実行回数を記録する状態。 */
     FWaveMJobState State{};
     /** 一括完了予約を検証する job graph。 */
-    FJobGraph Graph;
+    CJobGraph Graph;
     /** 依存関係の構築に使う job handle 群。 */
     FJobHandle Handles[kJobCount]{};
     for (u32 Index = 0u; Index < kJobCount; ++Index) {
@@ -169,7 +169,7 @@ ACS_TEST(FoundationOptimizationWaveM, JobGraphReservesCompletionCountOncePerSubm
     EXPECT_EQ(ExpandedDiagnostics.reservation_batch_count, 1u);
     EXPECT_EQ(ExpandedDiagnostics.reserved_job_count, kJobCount + 1u);
 
-    FThreadPool::Shutdown();
+    CThreadPool::Shutdown();
 }
 
 ACS_TEST(FoundationOptimizationWaveM, BrokerSnapshotSurvivesMutationAndNestedPublish)
@@ -220,9 +220,9 @@ ACS_TEST(FoundationOptimizationWaveM, CanonicalPackagePathsKeepExactMatchCompati
     /** case-sensitive lookup を確認する各 payload。 */
     constexpr u8 kUpperPayload[] = {1u, 2u, 3u};
     constexpr u8 kLowerPayload[] = {7u, 8u, 9u};
-    (void)FFileSystem::Delete(kWaveMPackagePath);
+    (void)CFileSystem::Delete(kWaveMPackagePath);
     /** 正規形 path を格納する package writer。 */
-    assetpack::FAcpakWriter Writer;
+    assetpack::CAcpakWriter Writer;
     EXPECT_TRUE(Writer.Open(kWaveMPackagePath, assetpack::AcpakFlagNone).IsOk());
     EXPECT_TRUE(Writer.AddFile(kUpperPath, kUpperPayload, sizeof(kUpperPayload)).IsOk());
     EXPECT_TRUE(Writer.AddFile(kLowerPath, kLowerPayload, sizeof(kLowerPayload)).IsOk());
@@ -232,7 +232,7 @@ ACS_TEST(FoundationOptimizationWaveM, CanonicalPackagePathsKeepExactMatchCompati
     Writer.Close();
 
     /** 正規形 path の完全一致検索を検証する reader。 */
-    assetpack::FAcpakReader Reader;
+    assetpack::CAcpakReader Reader;
     EXPECT_TRUE(Reader.Open(kWaveMPackagePath).IsOk());
     EXPECT_NE(Reader.FindEntry(kUpperPath), nullptr);
     EXPECT_NE(Reader.FindEntry(kLowerPath), nullptr);
@@ -250,13 +250,13 @@ ACS_TEST(FoundationOptimizationWaveM, CanonicalPackagePathsKeepExactMatchCompati
         EXPECT_EQ(LowerOutput[Index], kLowerPayload[Index]);
     }
     Reader.Close();
-    EXPECT_TRUE(FFileSystem::Delete(kWaveMPackagePath).IsOk());
+    EXPECT_TRUE(CFileSystem::Delete(kWaveMPackagePath).IsOk());
 }
 
 ACS_TEST(FoundationOptimizationWaveM, PublicDiagnosticAndOwnerLayoutsStayBounded)
 {
     EXPECT_EQ(sizeof(FJobGraphDiagnostics), 40u);
     EXPECT_EQ(sizeof(FJobGraphCompletionDiagnostics), 16u);
-    EXPECT_TRUE(sizeof(FJobGraph) <= 4032u);
-    EXPECT_TRUE(sizeof(assetpack::FAcpakReader) <= 336u);
+    EXPECT_TRUE(sizeof(CJobGraph) <= 4032u);
+    EXPECT_TRUE(sizeof(assetpack::CAcpakReader) <= 336u);
 }

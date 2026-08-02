@@ -40,9 +40,9 @@ void RecordEnd(
     events.end_misses = misses;
 }
 
-class FSwitchableBeatAllocator final : public FAllocator {
+class FSwitchableBeatAllocator final : public IAllocator {
 public:
-    explicit FSwitchableBeatAllocator(FAllocator& backing) noexcept
+    explicit FSwitchableBeatAllocator(IAllocator& backing) noexcept
         : m_Backing(&backing) {
     }
 
@@ -60,12 +60,12 @@ public:
     }
 
 private:
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
     bool m_Failing = false;
 };
 
 struct FReentrantClearContext {
-    FBeatGrid* grid = nullptr;
+    CBeatGrid* grid = nullptr;
     u32 calls = 0u;
 };
 
@@ -79,7 +79,7 @@ void ClearFromJudge(
 } // namespace
 
 ACS_TEST(BeatGridHold, NormalTapRetainsImmediateExactOnceSemantics) {
-    FBeatGrid grid;
+    CBeatGrid grid;
     FBeatEvents events;
     grid.SetOnJudgeCallback(&RecordJudge, &events);
     grid.SetOnEndCallback(&RecordEnd, &events);
@@ -103,7 +103,7 @@ ACS_TEST(BeatGridHold, NormalTapRetainsImmediateExactOnceSemantics) {
 }
 
 ACS_TEST(BeatGridHold, HoldScoresOnlyAfterSuccessfulTailRelease) {
-    FBeatGrid grid;
+    CBeatGrid grid;
     FBeatEvents events;
     grid.SetOnJudgeCallback(&RecordJudge, &events);
     grid.SetOnEndCallback(&RecordEnd, &events);
@@ -136,7 +136,7 @@ ACS_TEST(BeatGridHold, HoldScoresOnlyAfterSuccessfulTailRelease) {
 }
 
 ACS_TEST(BeatGridHold, WorseOfHeadAndTailDeterminesFinalJudgement) {
-    FBeatGrid grid;
+    CBeatGrid grid;
     const FBeatNote note{0.1f, EBeatLane::Down, true, 0.5f};
     EXPECT_EQ(
         grid.TryLoadChart(&note, 1u, 100.0f),
@@ -152,7 +152,7 @@ ACS_TEST(BeatGridHold, WorseOfHeadAndTailDeterminesFinalJudgement) {
 }
 
 ACS_TEST(BeatGridHold, EarlyReleaseIsImmediateSingleMiss) {
-    FBeatGrid grid;
+    CBeatGrid grid;
     FBeatEvents events;
     grid.SetOnJudgeCallback(&RecordJudge, &events);
     const FBeatNote note{0.0f, EBeatLane::Right, true, 1.0f};
@@ -174,7 +174,7 @@ ACS_TEST(BeatGridHold, EarlyReleaseIsImmediateSingleMiss) {
 }
 
 ACS_TEST(BeatGridHold, UnreleasedHoldTimesOutOncePastTailWindow) {
-    FBeatGrid grid;
+    CBeatGrid grid;
     FBeatEvents events;
     grid.SetOnJudgeCallback(&RecordJudge, &events);
     const FBeatNote note{0.0f, EBeatLane::Custom1, true, 1.0f};
@@ -195,7 +195,7 @@ ACS_TEST(BeatGridHold, UnreleasedHoldTimesOutOncePastTailWindow) {
 }
 
 ACS_TEST(BeatGridHold, EqualDistancePressUsesLowestChartIndex) {
-    FBeatGrid grid;
+    CBeatGrid grid;
     const FBeatNote notes[] = {
         {0.0f, EBeatLane::Left, true, 0.5f},
         {0.0f, EBeatLane::Left, false, 0.0f},
@@ -213,7 +213,7 @@ ACS_TEST(BeatGridHold, EqualDistancePressUsesLowestChartIndex) {
 }
 
 ACS_TEST(BeatGridSafety, CheckedLoadRejectsInvalidValuesTransactionally) {
-    FBeatGrid grid;
+    CBeatGrid grid;
     const FBeatNote original{1.0f, EBeatLane::Down, false, 0.0f};
     EXPECT_EQ(
         grid.TryLoadChart(&original, 1u, 90.0f),
@@ -261,9 +261,9 @@ ACS_TEST(BeatGridSafety, CheckedLoadRejectsInvalidValuesTransactionally) {
 }
 
 ACS_TEST(BeatGridSafety, AllocationFailurePreservesExistingChart) {
-    FSystemAllocator backing;
+    CSystemAllocator backing;
     FSwitchableBeatAllocator allocator(backing);
-    FBeatGrid grid(allocator);
+    CBeatGrid grid(allocator);
     const FBeatNote original{0.0f, EBeatLane::Up, false, 0.0f};
     const FBeatNote replacement[] = {
         {0.0f, EBeatLane::Left, false, 0.0f},
@@ -287,7 +287,7 @@ ACS_TEST(BeatGridSafety, AllocationFailurePreservesExistingChart) {
 }
 
 ACS_TEST(BeatGridSafety, InvalidAndOverflowingDeltaTimeIsNonMutating) {
-    FBeatGrid grid;
+    CBeatGrid grid;
     const FBeatNote note{1.0f, EBeatLane::Left, false, 0.0f};
     EXPECT_EQ(
         grid.TryLoadChart(&note, 1u, 120.0f),
@@ -310,7 +310,7 @@ ACS_TEST(BeatGridSafety, InvalidAndOverflowingDeltaTimeIsNonMutating) {
 }
 
 ACS_TEST(BeatGridSafety, CheckedTimingWindowsAreTransactional) {
-    FBeatGrid grid;
+    CBeatGrid grid;
     EXPECT_TRUE(grid.TrySetTimingWindows(10.0f, 20.0f, 30.0f));
     EXPECT_FALSE(grid.TrySetTimingWindows(20.0f, 10.0f, 30.0f));
     EXPECT_FALSE(grid.TrySetTimingWindows(
@@ -325,7 +325,7 @@ ACS_TEST(BeatGridSafety, CheckedTimingWindowsAreTransactional) {
 }
 
 ACS_TEST(BeatGridSafety, JudgeCallbackMayClearGridWithoutStaleLoopAccess) {
-    FBeatGrid grid;
+    CBeatGrid grid;
     FReentrantClearContext context{&grid, 0u};
     grid.SetOnJudgeCallback(&ClearFromJudge, &context);
     const FBeatNote notes[] = {

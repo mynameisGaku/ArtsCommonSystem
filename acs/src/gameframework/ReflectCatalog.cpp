@@ -48,7 +48,7 @@
 #include "gameframework/CooldownTimer.h"
 #include "gameframework/WaveSpawner.h"
 #include "gameframework/CombatStateMachine.h"   // CCombatStateMachine + ECombatState
-#include "gameframework/AssetBundle.h"           // FStreamingDirector が前方宣言で参照 (完全型化)
+#include "gameframework/AssetBundle.h"           // CStreamingDirector が前方宣言で参照 (完全型化)
 #include "gameframework/AchievementManager.h"
 #include "gameframework/EffectSystem.h"
 #include "gameframework/ParticleEffectSystem.h"
@@ -72,16 +72,16 @@
 #include "gameframework/TelemetryDirector.h"
 #include "gameframework/TurnManager.h"
 #include "gameframework/WeatherSystem.h"
-#include "gameframework/Tween.h"   // FTweenManager
+#include "gameframework/Tween.h"   // CTweenManager
 
 // ----- Asset 型 -----
 #include "asset/Asset.h"           // EAssetState
-#include "asset/ImageAsset.h"      // FImageAsset + EPixelFormat
-#include "asset/AudioAsset.h"      // FAudioAsset + ESampleFormat
-#include "asset/MeshAsset.h"       // FMeshAsset
-#include "asset/TextAsset.h"       // FTextAsset
-#include "asset/BinaryAsset.h"     // FBinaryAsset
-#include "asset/SkinnedMesh.h"     // FSkinnedMeshAsset
+#include "asset/ImageAsset.h"      // AImageAsset + EPixelFormat
+#include "asset/AudioAsset.h"      // AAudioAsset + ESampleFormat
+#include "asset/MeshAsset.h"       // AMeshAsset
+#include "asset/TextAsset.h"       // ATextAsset
+#include "asset/BinaryAsset.h"     // ABinaryAsset
+#include "asset/SkinnedMesh.h"     // ASkinnedMeshAsset
 
 // ----- enum 提供ヘッダ -----
 #include "gameframework/BehaviorTree.h"   // EBtStatus / EBtDecoratorOp / EBtVarType / EBtCompareOp

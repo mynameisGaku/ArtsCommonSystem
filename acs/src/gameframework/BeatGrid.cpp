@@ -41,7 +41,7 @@ const char* BeatChartLoadResultName(EBeatChartLoadResult result) noexcept {
     return "Unknown";
 }
 
-CBeatGrid::CBeatGrid(FAllocator& allocator) noexcept
+CBeatGrid::CBeatGrid(IAllocator& allocator) noexcept
     : m_Notes(allocator), m_Judged(allocator), m_Holds(allocator) {
 }
 
@@ -107,7 +107,7 @@ EBeatChartLoadResult CBeatGrid::TryLoadChart(
         }
     }
 
-    FAllocator& allocator = *m_Notes.GetAllocator();
+    IAllocator& allocator = *m_Notes.GetAllocator();
     TArray<FBeatNote> staged_notes(allocator);
     TArray<bool> staged_judged(allocator);
     TArray<FHoldState> staged_holds(allocator);

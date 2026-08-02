@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — FBullets 実装。
+// HelloFullGame — CBullets 実装。
 #include "Bullets.h"
 #include "GameplayScene.h"
 #include "FullGameApp.h"
@@ -11,7 +11,7 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void FBullets::Init(FProjectileSystem& sys) noexcept {
+void CBullets::Init(CProjectileSystem& sys) noexcept {
     sys.Init(kMaxBullets);
 
     FProjectileDef bdef{};
@@ -28,19 +28,19 @@ void FBullets::Init(FProjectileSystem& sys) noexcept {
     sys.RegisterDef(bdef);
 }
 
-void FBullets::Shutdown(FProjectileSystem& sys) noexcept {
+void CBullets::Shutdown(CProjectileSystem& sys) noexcept {
     sys.ClearAll();
 }
 
-void FBullets::Fire(FGameplayScene& scene, FVec2 from, FVec2 dir_unit) noexcept {
+void CBullets::Fire(AGameplayScene& scene, FVec2 from, FVec2 dir_unit) noexcept {
     const FVec2 vel = dir_unit * kBulletSpeed;
     const FProjectileId pid = scene.GetProjectiles().Spawn(
         kBulletDefId, from, vel, /*owner_id=*/1u, kBulletDamage);
     if (!pid.IsValid()) return;
-    static_cast<FFullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_fire", 0.6f);
+    static_cast<CFullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_fire", 0.6f);
 }
 
-void FBullets::DrawAll(const FProjectileSystem& sys, FSpriteBatch& sb,
+void CBullets::DrawAll(const CProjectileSystem& sys, CSpriteBatch& sb,
                       f32 last_dt) const noexcept {
     u32 n = 0;
     const FProjectileInstance* bs = sys.AllAlive(n);

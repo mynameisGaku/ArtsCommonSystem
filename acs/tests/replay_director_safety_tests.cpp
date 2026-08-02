@@ -14,9 +14,9 @@ using namespace acs::game;
 
 namespace {
 
-class FSwitchableAllocator final : public FAllocator {
+class FSwitchableAllocator final : public IAllocator {
 public:
-    explicit FSwitchableAllocator(FAllocator& backing) noexcept : m_Backing(&backing) {}
+    explicit FSwitchableAllocator(IAllocator& backing) noexcept : m_Backing(&backing) {}
 
     void* Alloc(usize size, usize alignment, FSourceLoc location) noexcept override
     {
@@ -26,13 +26,13 @@ public:
     void SetFailing(bool failing) noexcept { m_Failing = failing; }
 
 private:
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
     bool m_Failing = false;
 };
 
-class FSelectiveFailAllocator final : public FAllocator {
+class FSelectiveFailAllocator final : public IAllocator {
 public:
-    explicit FSelectiveFailAllocator(FAllocator& backing) noexcept : m_Backing(&backing) {}
+    explicit FSelectiveFailAllocator(IAllocator& backing) noexcept : m_Backing(&backing) {}
 
     void* Alloc(usize size, usize alignment, FSourceLoc location) noexcept override
     {
@@ -57,7 +57,7 @@ public:
     u32 InjectedFailures() const noexcept { return m_InjectedFailures; }
 
 private:
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
     usize m_ObservedSize = 0;
     usize m_FailSize = 0;
     u32 m_ObservedSuccesses = 0;
@@ -67,14 +67,14 @@ private:
 
 class FDefaultAllocatorScope {
 public:
-    explicit FDefaultAllocatorScope(FAllocator& replacement) noexcept : m_Previous(&DefaultAllocator())
+    explicit FDefaultAllocatorScope(IAllocator& replacement) noexcept : m_Previous(&DefaultAllocator())
     {
         SetDefaultAllocator(&replacement);
     }
     ~FDefaultAllocatorScope() noexcept { SetDefaultAllocator(m_Previous); }
 
 private:
-    FAllocator* m_Previous = nullptr;
+    IAllocator* m_Previous = nullptr;
 };
 
 struct FTempReplayPath {
@@ -181,7 +181,7 @@ FReplayMetadata Metadata(u64 seed, const char* version = "v1") noexcept
     return metadata;
 }
 
-void PopulateSources(FInputRecorder& recorder, FLockstep& lockstep, u32 count) noexcept
+void PopulateSources(CInputRecorder& recorder, CLockstep& lockstep, u32 count) noexcept
 {
     recorder.StartRecording(60u);
     lockstep.Init(ENetMode::Local, 60u);
@@ -199,10 +199,10 @@ void PopulateSources(FInputRecorder& recorder, FLockstep& lockstep, u32 count) n
     recorder.StopRecording();
 }
 
-bool SaveReplayFile(const wchar_t* path, u64 seed, FInputRecorder* recorder = nullptr,
-                    FLockstep* lockstep = nullptr, const char* version = "v1") noexcept
+bool SaveReplayFile(const wchar_t* path, u64 seed, CInputRecorder* recorder = nullptr,
+                    CLockstep* lockstep = nullptr, const char* version = "v1") noexcept
 {
-    FReplayDirector director;
+    CReplayDirector director;
     director.Init();
     director.SetSources(recorder, lockstep);
     if (director.TryStartRecording(Metadata(seed, version)).IsErr()) return false;
@@ -214,7 +214,7 @@ bool SaveReplayFile(const wchar_t* path, u64 seed, FInputRecorder* recorder = nu
 
 ACS_TEST(ReplayDirectorSafety, RecordingOwnsBoundedMetadataTransactionally)
 {
-    FReplayDirector director;
+    CReplayDirector director;
     director.Init();
     char version[] = "local";
     FReplayMetadata metadata = Metadata(7u, version);
@@ -235,7 +235,7 @@ ACS_TEST(ReplayDirectorSafety, SaveLoadRoundTripUsesOwnedMetadata)
     FTempReplayPath path(L"roundtrip");
     EXPECT_TRUE(SaveReplayFile(path.path, 0x11223344u));
 
-    FReplayDirector loaded;
+    CReplayDirector loaded;
     loaded.Init();
     EXPECT_TRUE(loaded.TryLoadReplay(path.path).IsOk());
     EXPECT_EQ(loaded.Metadata().seed, 0x11223344u);
@@ -253,7 +253,7 @@ ACS_TEST(ReplayDirectorSafety, StrictLoadRejectsCrcTruncationTrailingAndOversize
     EXPECT_TRUE(ReadFileBytes(valid_path.path, valid));
     EXPECT_TRUE(valid.Size() >= 56u);
 
-    FReplayDirector target;
+    CReplayDirector target;
     target.Init();
     EXPECT_TRUE(target.TryStartRecording(Metadata(99u)).IsOk());
     EXPECT_TRUE(target.StopRecording().IsOk());
@@ -283,7 +283,7 @@ ACS_TEST(ReplayDirectorSafety, StrictLoadRejectsCrcTruncationTrailingAndOversize
     const TResult<void> oversized = target.TryLoadReplay(corrupt_path.path);
     EXPECT_TRUE(oversized.IsErr());
     if (oversized.IsErr()) EXPECT_EQ(oversized.Error().subcode,
-                                     static_cast<u16>(FReplayDirector::kSub_BadMetadata));
+                                     static_cast<u16>(CReplayDirector::kSub_BadMetadata));
     EXPECT_EQ(target.Metadata().seed, 99u);
 }
 
@@ -300,18 +300,18 @@ ACS_TEST(ReplayDirectorSafety, OversizedSparseFileIsRejectedBeforeAllocation)
         EXPECT_TRUE(::SetEndOfFile(file) != 0);
         EXPECT_TRUE(::CloseHandle(file) != 0);
     }
-    FReplayDirector director;
+    CReplayDirector director;
     director.Init();
     const TResult<void> result = director.TryLoadReplay(path.path);
     EXPECT_TRUE(result.IsErr());
     if (result.IsErr()) EXPECT_EQ(result.Error().subcode,
-                                  static_cast<u16>(FReplayDirector::kSub_LimitExceeded));
+                                  static_cast<u16>(CReplayDirector::kSub_LimitExceeded));
 }
 
 ACS_TEST(ReplayDirectorSafety, SourceCheckedLoadsPreserveStateOnOomAndSaveDoesNotPartiallyWrite)
 {
-    FInputRecorder source_recorder;
-    FLockstep source_lockstep;
+    CInputRecorder source_recorder;
+    CLockstep source_lockstep;
     PopulateSources(source_recorder, source_lockstep, 2u);
     u8 recorder_blob[256] = {};
     u8 lockstep_blob[256] = {};
@@ -323,8 +323,8 @@ ACS_TEST(ReplayDirectorSafety, SourceCheckedLoadsPreserveStateOnOomAndSaveDoesNo
     FSwitchableAllocator allocator(DefaultAllocator());
     {
         FDefaultAllocatorScope scope(allocator);
-        FInputRecorder target_recorder;
-        FLockstep target_lockstep;
+        CInputRecorder target_recorder;
+        CLockstep target_lockstep;
         PopulateSources(target_recorder, target_lockstep, 1u);
         allocator.SetFailing(true);
         EXPECT_TRUE(target_recorder.TryLoadFromBuffer(recorder_blob, recorder_size).IsErr());
@@ -348,14 +348,14 @@ ACS_TEST(ReplayDirectorSafety, SourceCheckedLoadsPreserveStateOnOomAndSaveDoesNo
 
 ACS_TEST(ReplayDirectorSafety, SourceSavesRejectNonFiniteValuesBeforeWriting)
 {
-    FInputRecorder recorder;
+    CInputRecorder recorder;
     recorder.StartRecording(60u);
     FInputSample sample{};
     sample.mouse_pos.x = FloatFromBits(0x7FC00000u);
     recorder.Capture(sample);
     recorder.StopRecording();
 
-    FLockstep lockstep;
+    CLockstep lockstep;
     lockstep.Init(ENetMode::Local, 60u);
     FInputFrame frame{};
     frame.axis.y = FloatFromBits(0x7F800000u);
@@ -371,7 +371,7 @@ ACS_TEST(ReplayDirectorSafety, SourceSavesRejectNonFiniteValuesBeforeWriting)
     EXPECT_TRUE(recorder_result.IsErr());
     if (recorder_result.IsErr()) {
         EXPECT_EQ(recorder_result.Error().subcode,
-                  static_cast<u16>(FInputRecorder::kSub_BadValue));
+                  static_cast<u16>(CInputRecorder::kSub_BadValue));
     }
     EXPECT_EQ(written, 0u);
     EXPECT_EQ(recorder_output[0], static_cast<u8>(0x5Au));
@@ -383,7 +383,7 @@ ACS_TEST(ReplayDirectorSafety, SourceSavesRejectNonFiniteValuesBeforeWriting)
     EXPECT_TRUE(lockstep_result.IsErr());
     if (lockstep_result.IsErr()) {
         EXPECT_EQ(lockstep_result.Error().subcode,
-                  static_cast<u16>(FLockstep::kSub_BadValue));
+                  static_cast<u16>(CLockstep::kSub_BadValue));
     }
     EXPECT_EQ(written, 0u);
     EXPECT_EQ(lockstep_output[0], static_cast<u8>(0xA5u));
@@ -393,18 +393,18 @@ ACS_TEST(ReplayDirectorSafety, SourceSavesRejectNonFiniteValuesBeforeWriting)
 ACS_TEST(ReplayDirectorSafety, ReplayStagesBothSourcesBeforeNoFailCommit)
 {
     FTempReplayPath path(L"source_transaction");
-    FInputRecorder file_recorder;
-    FLockstep file_lockstep;
+    CInputRecorder file_recorder;
+    CLockstep file_lockstep;
     PopulateSources(file_recorder, file_lockstep, 2u);
     EXPECT_TRUE(SaveReplayFile(path.path, 55u, &file_recorder, &file_lockstep));
 
     FSelectiveFailAllocator allocator(DefaultAllocator());
     {
         FDefaultAllocatorScope scope(allocator);
-        FInputRecorder target_recorder;
-        FLockstep target_lockstep;
+        CInputRecorder target_recorder;
+        CLockstep target_lockstep;
         PopulateSources(target_recorder, target_lockstep, 1u);
-        FReplayDirector target;
+        CReplayDirector target;
         target.Init();
         target.SetSources(&target_recorder, &target_lockstep);
         EXPECT_TRUE(target.TryStartRecording(Metadata(99u)).IsOk());
@@ -414,7 +414,7 @@ ACS_TEST(ReplayDirectorSafety, ReplayStagesBothSourcesBeforeNoFailCommit)
         allocator.Arm(sizeof(FInputSample) * 2u, sizeof(FInputFrame) * 2u);
         const TResult<void> result = target.TryLoadReplay(path.path);
         EXPECT_TRUE(result.IsErr());
-        if (result.IsErr()) EXPECT_EQ(result.Error().subcode, static_cast<u16>(FReplayDirector::kSub_Oom));
+        if (result.IsErr()) EXPECT_EQ(result.Error().subcode, static_cast<u16>(CReplayDirector::kSub_Oom));
         EXPECT_EQ(allocator.ObservedSuccesses(), 1u);
         EXPECT_EQ(allocator.InjectedFailures(), 1u);
         EXPECT_EQ(target_recorder.SampleCount(), 1u);
@@ -437,7 +437,7 @@ ACS_TEST(ReplayDirectorSafety, AtomicReplaceFailurePreservesExistingReplay)
                                   FILE_ATTRIBUTE_NORMAL, nullptr);
     EXPECT_TRUE(reader != INVALID_HANDLE_VALUE);
 
-    FReplayDirector replacement;
+    CReplayDirector replacement;
     replacement.Init();
     EXPECT_TRUE(replacement.TryStartRecording(Metadata(22u)).IsOk());
     EXPECT_TRUE(replacement.StopRecording().IsOk());
@@ -445,7 +445,7 @@ ACS_TEST(ReplayDirectorSafety, AtomicReplaceFailurePreservesExistingReplay)
     EXPECT_TRUE(save.IsErr());
     if (reader != INVALID_HANDLE_VALUE) EXPECT_TRUE(::CloseHandle(reader) != 0);
 
-    FReplayDirector verifier;
+    CReplayDirector verifier;
     verifier.Init();
     EXPECT_TRUE(verifier.TryLoadReplay(path.path).IsOk());
     EXPECT_EQ(verifier.Metadata().seed, 11u);
@@ -460,7 +460,7 @@ ACS_TEST(ReplayDirectorSafety, ShareDeleteReaderKeepsOldSnapshotAcrossAtomicRepl
                                   nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     EXPECT_TRUE(reader != INVALID_HANDLE_VALUE);
 
-    FReplayDirector replacement;
+    CReplayDirector replacement;
     replacement.Init();
     EXPECT_TRUE(replacement.TryStartRecording(Metadata(202u)).IsOk());
     EXPECT_TRUE(replacement.StopRecording().IsOk());
@@ -477,7 +477,7 @@ ACS_TEST(ReplayDirectorSafety, ShareDeleteReaderKeepsOldSnapshotAcrossAtomicRepl
         EXPECT_TRUE(::CloseHandle(reader) != 0);
     }
 
-    FReplayDirector current;
+    CReplayDirector current;
     current.Init();
     EXPECT_TRUE(current.TryLoadReplay(path.path).IsOk());
     EXPECT_EQ(current.Metadata().seed, 202u);

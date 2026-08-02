@@ -134,19 +134,19 @@ TResult<void> CInputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_writte
     out_written = 0;
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
-                       "FInputRecorder::SaveToBuffer: buffer is null");
+                       "CInputRecorder::SaveToBuffer: buffer is null");
     }
 
     if (m_Samples.Size() > kInputRecorderMaximumSamples ||
         m_TickRateHz == 0 || m_TickRateHz > kInputRecorderMaximumTickRateHz) {
         return ACS_ERR(IO, kSub_LimitExceeded,
-                       "FInputRecorder::SaveToBuffer: tick rate or sample count exceeds the limit");
+                       "CInputRecorder::SaveToBuffer: tick rate or sample count exceeds the limit");
     }
     const u32 sample_count = static_cast<u32>(m_Samples.Size());
     for (u32 i = 0; i < sample_count; ++i) {
         if (!input_recording_detail::HasFiniteMousePosition(m_Samples[i])) {
             return ACS_ERR(IO, kSub_BadValue,
-                           "FInputRecorder::SaveToBuffer: non-finite mouse position");
+                           "CInputRecorder::SaveToBuffer: non-finite mouse position");
         }
     }
     // 必要バイト数 = header + samples + footer。u64 で計算して overflow を避ける。
@@ -156,7 +156,7 @@ TResult<void> CInputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_writte
         static_cast<u64>(input_recording_detail::kFooterBytes);
     if (required64 > static_cast<u64>(size)) {
         return ACS_ERR(IO, kSub_BufferTooSmall,
-                       "FInputRecorder::SaveToBuffer: buffer too small for samples");
+                       "CInputRecorder::SaveToBuffer: buffer too small for samples");
     }
     const u32 required = static_cast<u32>(required64);
 
@@ -209,14 +209,14 @@ TResult<void> CInputRecorder::TryLoadFromBuffer(const u8* buffer, u32 size) noex
     TArray<FInputSample> staged(*m_Samples.GetAllocator());
     if (!staged.TryReserve(static_cast<usize>(view.SampleCount()))) {
         return ACS_ERR(Memory, kSub_Oom,
-                       "FInputRecorder::TryLoadFromBuffer: sample staging allocation failed");
+                       "CInputRecorder::TryLoadFromBuffer: sample staging allocation failed");
     }
     for (u32 index = 0u; index < view.SampleCount(); ++index) {
         /** view から復元する一件分の sample。 */
         FInputSample sample;
         if (!view.DecodeSample(index, sample) || !staged.TryPushBack(sample)) {
             return ACS_ERR(Memory, kSub_Oom,
-                           "FInputRecorder::TryLoadFromBuffer: sample staging append failed");
+                           "CInputRecorder::TryLoadFromBuffer: sample staging append failed");
         }
     }
 

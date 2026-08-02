@@ -16,7 +16,7 @@ namespace acs {
  * 可変長配列 (std::vector 代替、アロケータ注入可能なムーブ専用コンテナ)。
  *
  * @details
- * 連続バッファを FAllocator から確保し、容量不足時に約 1.5 倍ずつ Grow する。
+ * 連続バッファを IAllocator から確保し、容量不足時に約 1.5 倍ずつ Grow する。
  * コピーは禁止 (高コストな複製を明示させるため、複製は Clone() を使う)。要素型が
  * trivial なら memcpy/memset でバルク処理し、そうでなければ placement new と明示的
  * デストラクタ呼び出しで構築・破棄する。
@@ -565,7 +565,7 @@ public:
     /**
      * この配列が使うアロケータを返す。
      *
-     * @return 確保に使っている FAllocator へのポインタ。
+     * @return 確保に使っている IAllocator へのポインタ。
      */
     IAllocator* GetAllocator() const noexcept { return m_Alloc; }
 

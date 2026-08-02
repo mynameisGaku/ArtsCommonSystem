@@ -1146,7 +1146,7 @@ ACS_TEST(PostEffects, EditorCompositeOrderKeepsCloudsInRefractionBackground)
     if (draw.empty()) return;
 
     const std::size_t opaque_done =
-        draw.find("// Phase2: HDR RT → FPostProcess");
+        draw.find("// Phase2: HDR RT → CPostProcess");
     const std::size_t motion_blur =
         draw.find("// --- モーションブラー", opaque_done);
     const std::size_t aerial_perspective =
@@ -1471,7 +1471,7 @@ ACS_TEST(PostEffects, SingularScaleNormalMatrixStaysFinite)
 
 ACS_TEST(PostEffects, RefractionFrameTracksViewportWithoutBackDepth)
 {
-    FRefractionShader refraction;
+    CRefractionShader refraction;
     refraction.SetFrame(FMat4::Identity(), FVec3{0.0f, 0.0f, 0.0f}, 1920, 1080);
     EXPECT_EQ(refraction.ScreenWidth(), 1920u);
     EXPECT_EQ(refraction.ScreenHeight(), 1080u);
@@ -1534,9 +1534,9 @@ ACS_TEST(PostEffects, RuntimeStartupPacesGpuCommitsAndResizeKeepsStrongGuarantee
         std::string::npos);
 
     const std::size_t claim_begin =
-        legacy.find("bool FLegacyScene3DAdapter::TryClaimGpuCommit(");
+        legacy.find("bool ALegacyScene3DAdapter::TryClaimGpuCommit(");
     const std::size_t claim_end =
-        legacy.find("void FLegacyScene3DAdapter::AdvanceHdrPbrInitialization(",
+        legacy.find("void ALegacyScene3DAdapter::AdvanceHdrPbrInitialization(",
                     claim_begin);
     EXPECT_TRUE(claim_begin != std::string::npos);
     EXPECT_TRUE(claim_end != std::string::npos);
@@ -1565,38 +1565,38 @@ ACS_TEST(PostEffects, RuntimeStartupPacesGpuCommitsAndResizeKeepsStrongGuarantee
                claim < commit;
     };
     EXPECT_TRUE(commit_is_claimed(
-        "void FLegacyScene3DAdapter::AdvanceHdrPbrInitialization(",
-        "void FLegacyScene3DAdapter::AdvanceHdrSsssInitialization(",
+        "void ALegacyScene3DAdapter::AdvanceHdrPbrInitialization(",
+        "void ALegacyScene3DAdapter::AdvanceHdrSsssInitialization(",
         "candidate.InitWithCompiledShaders("));
     EXPECT_TRUE(commit_is_claimed(
-        "void FLegacyScene3DAdapter::AdvanceHdrSsssInitialization(",
-        "void FLegacyScene3DAdapter::AdvanceSubsurfaceInitialization(",
+        "void ALegacyScene3DAdapter::AdvanceHdrSsssInitialization(",
+        "void ALegacyScene3DAdapter::AdvanceSubsurfaceInitialization(",
         "candidate.InitWithCompiledShaders("));
     EXPECT_TRUE(commit_is_claimed(
-        "void FLegacyScene3DAdapter::AdvanceSubsurfaceInitialization(",
-        "void FLegacyScene3DAdapter::EnsureSubsurfaceAuxTargets(",
+        "void ALegacyScene3DAdapter::AdvanceSubsurfaceInitialization(",
+        "void ALegacyScene3DAdapter::EnsureSubsurfaceAuxTargets(",
         "m_Ssss.InitPipelineResourcesWithCompiledShaders("));
     EXPECT_TRUE(commit_is_claimed(
-        "void FLegacyScene3DAdapter::AdvancePostInitialization(",
-        "void FLegacyScene3DAdapter::AdvanceBlitInitialization(",
+        "void ALegacyScene3DAdapter::AdvancePostInitialization(",
+        "void ALegacyScene3DAdapter::AdvanceBlitInitialization(",
         "m_Post.InitWithCompiledShaders("));
     EXPECT_TRUE(commit_is_claimed(
-        "void FLegacyScene3DAdapter::AdvanceBlitInitialization(",
-        "void FLegacyScene3DAdapter::AdvanceSkyInitialization(",
+        "void ALegacyScene3DAdapter::AdvanceBlitInitialization(",
+        "void ALegacyScene3DAdapter::AdvanceSkyInitialization(",
         "m_Blit.InitWithCompiledShaders("));
     EXPECT_TRUE(commit_is_claimed(
-        "void FLegacyScene3DAdapter::AdvanceSkyInitialization(",
-        "void FLegacyScene3DAdapter::AdvanceWaterInitialization(",
+        "void ALegacyScene3DAdapter::AdvanceSkyInitialization(",
+        "void ALegacyScene3DAdapter::AdvanceWaterInitialization(",
         "m_Sky.InitWithCompiledShaders("));
     EXPECT_TRUE(commit_is_claimed(
-        "void FLegacyScene3DAdapter::AdvanceWaterInitialization(",
-        "u32 FLegacyScene3DAdapter::CollectWaterDraws(",
+        "void ALegacyScene3DAdapter::AdvanceWaterInitialization(",
+        "u32 ALegacyScene3DAdapter::CollectWaterDraws(",
         "m_Water.BeginInitWithCompiledShaders("));
 
     const std::size_t ssss_targets_begin = legacy.find(
-        "void FLegacyScene3DAdapter::EnsureSubsurfaceAuxTargets(");
+        "void ALegacyScene3DAdapter::EnsureSubsurfaceAuxTargets(");
     const std::size_t ssss_targets_end = legacy.find(
-        "void FLegacyScene3DAdapter::AdvancePostInitialization(",
+        "void ALegacyScene3DAdapter::AdvancePostInitialization(",
         ssss_targets_begin);
     EXPECT_TRUE(ssss_targets_begin != std::string::npos);
     EXPECT_TRUE(ssss_targets_end != std::string::npos);
@@ -1633,9 +1633,9 @@ ACS_TEST(PostEffects, RuntimeStartupPacesGpuCommitsAndResizeKeepsStrongGuarantee
         EXPECT_TRUE(material < normal);
     }
     const std::size_t water_begin = legacy.find(
-        "void FLegacyScene3DAdapter::AdvanceWaterInitialization(");
+        "void ALegacyScene3DAdapter::AdvanceWaterInitialization(");
     const std::size_t water_end = legacy.find(
-        "u32 FLegacyScene3DAdapter::CollectWaterDraws(", water_begin);
+        "u32 ALegacyScene3DAdapter::CollectWaterDraws(", water_begin);
     if (water_begin != std::string::npos &&
         water_end != std::string::npos) {
         const std::string water =
@@ -1663,9 +1663,9 @@ ACS_TEST(PostEffects, RuntimeStartupPacesGpuCommitsAndResizeKeepsStrongGuarantee
     }
 
     const std::size_t resize_begin =
-        post.find("TResult<void> FPostProcess::Resize(");
+        post.find("TResult<void> CPostProcess::Resize(");
     const std::size_t resize_end =
-        post.find("TResult<void> FPostProcess::CreateRenderTargets(",
+        post.find("TResult<void> CPostProcess::CreateRenderTargets(",
                   resize_begin);
     EXPECT_TRUE(resize_begin != std::string::npos);
     EXPECT_TRUE(resize_end != std::string::npos);
@@ -1674,7 +1674,7 @@ ACS_TEST(PostEffects, RuntimeStartupPacesGpuCommitsAndResizeKeepsStrongGuarantee
         const std::string resize =
             post.substr(resize_begin, resize_end - resize_begin);
         const std::size_t candidate =
-            resize.find("FPostProcess candidate;");
+            resize.find("CPostProcess candidate;");
         const std::size_t create =
             resize.find("candidate.CreateRenderTargets(");
         const std::size_t publish =
@@ -1731,7 +1731,7 @@ ACS_TEST(PostEffects, PbrBaseStartupCandidateIsThreadedAndInstrumented)
     EXPECT_TRUE(pbr_header.find(
         "BuildInitializedCandidateForRawDx12(") != std::string::npos);
     EXPECT_TRUE(pbr.find(
-        "FPbrShader::CompileShadersCpu(bool include_subsurface_mrt)") !=
+        "CPbrShader::CompileShadersCpu(bool include_subsurface_mrt)") !=
         std::string::npos);
     EXPECT_TRUE(pbr.find(
         "if (include_subsurface_mrt)") != std::string::npos);
@@ -1744,7 +1744,7 @@ ACS_TEST(PostEffects, PbrBaseStartupCandidateIsThreadedAndInstrumented)
     EXPECT_TRUE(pbr.find("base_pso=%.3f ms") != std::string::npos);
     EXPECT_TRUE(pbr.find("mrt_pso=%.3f ms") != std::string::npos);
     EXPECT_TRUE(pbr.find(
-        "FPbrShader::BuildInitializedCandidateForRawDx12(") !=
+        "CPbrShader::BuildInitializedCandidateForRawDx12(") !=
         std::string::npos);
     EXPECT_TRUE(pbr.find(
         "return InitWithCompiledShadersInternal(") != std::string::npos);
@@ -1753,7 +1753,7 @@ ACS_TEST(PostEffects, PbrBaseStartupCandidateIsThreadedAndInstrumented)
     // are detected by the unified per-frame feature scan and then upgrade the
     // inactive PBR slot without making the base renderer non-ready.
     EXPECT_TRUE(legacy.find(
-        "FPbrShader::CompileShadersCpu(false)") != std::string::npos);
+        "CPbrShader::CompileShadersCpu(false)") != std::string::npos);
     EXPECT_TRUE(legacy.find(
         "device, false);") != std::string::npos);
     EXPECT_TRUE(legacy.find(
@@ -1761,16 +1761,16 @@ ACS_TEST(PostEffects, PbrBaseStartupCandidateIsThreadedAndInstrumented)
     EXPECT_TRUE(legacy.find(
         "scene_features.needs_subsurface_mrt") != std::string::npos);
     EXPECT_TRUE(legacy.find(
-        "FPbrShader::CompileShadersCpu(true)") != std::string::npos);
+        "CPbrShader::CompileShadersCpu(true)") != std::string::npos);
     EXPECT_TRUE(legacy.find(
         "m_HdrSsssGpuState") != std::string::npos);
     EXPECT_TRUE(legacy_header.find(
-        "FPbrShader m_HdrShaders[2]") != std::string::npos);
+        "CPbrShader m_HdrShaders[2]") != std::string::npos);
 
     const std::size_t worker_begin = legacy.find(
-        "void FLegacyScene3DAdapter::HdrPbrCpuCompileWorkerEntry(");
+        "void ALegacyScene3DAdapter::HdrPbrCpuCompileWorkerEntry(");
     const std::size_t worker_end = legacy.find(
-        "void FLegacyScene3DAdapter::PostCpuCompileWorkerEntry(",
+        "void ALegacyScene3DAdapter::PostCpuCompileWorkerEntry(",
         worker_begin);
     EXPECT_TRUE(worker_begin != std::string::npos);
     EXPECT_TRUE(worker_end != std::string::npos);
@@ -1779,7 +1779,7 @@ ACS_TEST(PostEffects, PbrBaseStartupCandidateIsThreadedAndInstrumented)
         const std::string worker =
             legacy.substr(worker_begin, worker_end - worker_begin);
         const std::size_t compile =
-            worker.find("FPbrShader::CompileShadersCpu(false)");
+            worker.find("CPbrShader::CompileShadersCpu(false)");
         const std::size_t build =
             worker.find(".BuildInitializedCandidateForRawDx12(");
         const std::size_t payload_publish =
@@ -1796,9 +1796,9 @@ ACS_TEST(PostEffects, PbrBaseStartupCandidateIsThreadedAndInstrumented)
     }
 
     const std::size_t advance_begin = legacy.find(
-        "void FLegacyScene3DAdapter::AdvanceHdrPbrInitialization(");
+        "void ALegacyScene3DAdapter::AdvanceHdrPbrInitialization(");
     const std::size_t advance_end = legacy.find(
-        "void FLegacyScene3DAdapter::AdvancePostInitialization(",
+        "void ALegacyScene3DAdapter::AdvancePostInitialization(",
         advance_begin);
     EXPECT_TRUE(advance_begin != std::string::npos);
     EXPECT_TRUE(advance_end != std::string::npos);
@@ -1815,7 +1815,7 @@ ACS_TEST(PostEffects, PbrBaseStartupCandidateIsThreadedAndInstrumented)
         const std::size_t raw_flip =
             advance.find("m_HdrActiveSlot = m_HdrPendingSlot;", claim);
         const std::size_t diligent_candidate =
-            advance.find("FPbrShader& candidate", raw_flip);
+            advance.find("CPbrShader& candidate", raw_flip);
         const std::size_t diligent_init =
             advance.find("candidate.InitWithCompiledShaders(",
                          diligent_candidate);
@@ -1838,9 +1838,9 @@ ACS_TEST(PostEffects, PbrBaseStartupCandidateIsThreadedAndInstrumented)
     }
 
     const std::size_t release_begin = legacy.find(
-        "void FLegacyScene3DAdapter::ReleaseGpu()");
+        "void ALegacyScene3DAdapter::ReleaseGpu()");
     const std::size_t release_end = legacy.find(
-        "void FLegacyScene3DAdapter::JoinCpuCompileWorkers()",
+        "void ALegacyScene3DAdapter::JoinCpuCompileWorkers()",
         release_begin);
     EXPECT_TRUE(release_begin != std::string::npos);
     EXPECT_TRUE(release_end != std::string::npos);
@@ -1855,9 +1855,9 @@ ACS_TEST(PostEffects, PbrBaseStartupCandidateIsThreadedAndInstrumented)
     }
 
     const std::size_t exit_begin = legacy.find(
-        "void FLegacyScene3DAdapter::OnExit()");
+        "void ALegacyScene3DAdapter::OnExit()");
     const std::size_t exit_end = legacy.find(
-        "void FLegacyScene3DAdapter::OnUpdate(", exit_begin);
+        "void ALegacyScene3DAdapter::OnUpdate(", exit_begin);
     EXPECT_TRUE(exit_begin != std::string::npos);
     EXPECT_TRUE(exit_end != std::string::npos);
     if (exit_begin != std::string::npos &&
@@ -1869,9 +1869,9 @@ ACS_TEST(PostEffects, PbrBaseStartupCandidateIsThreadedAndInstrumented)
     }
 
     const std::size_t drain_begin = legacy.find(
-        "void FLegacyScene3DAdapter::DrainAndReleaseGpu()");
+        "void ALegacyScene3DAdapter::DrainAndReleaseGpu()");
     const std::size_t drain_end = legacy.find(
-        "void FLegacyScene3DAdapter::ReleaseGpu()", drain_begin);
+        "void ALegacyScene3DAdapter::ReleaseGpu()", drain_begin);
     EXPECT_TRUE(drain_begin != std::string::npos);
     EXPECT_TRUE(drain_end != std::string::npos);
     if (drain_begin != std::string::npos &&
@@ -1906,12 +1906,12 @@ ACS_TEST(PostEffects, PbrBaseStartupCandidateIsThreadedAndInstrumented)
                drain < parse;
     };
     EXPECT_TRUE(reload_drains_before_parse(
-        "FScene3DLoadResult FLegacyScene3DAdapter::LoadFile(",
-        "FScene3DLoadResult FLegacyScene3DAdapter::LoadAssetPack(",
+        "FScene3DLoadResult ALegacyScene3DAdapter::LoadFile(",
+        "FScene3DLoadResult ALegacyScene3DAdapter::LoadAssetPack(",
         "TryLoadScene3DFile("));
     EXPECT_TRUE(reload_drains_before_parse(
-        "FScene3DLoadResult FLegacyScene3DAdapter::LoadAssetPack(",
-        "void FLegacyScene3DAdapter::FrameScene(",
+        "FScene3DLoadResult ALegacyScene3DAdapter::LoadAssetPack(",
+        "void ALegacyScene3DAdapter::FrameScene(",
         "TryLoadScene3DAssetPack("));
 
     const std::size_t feature_scan_begin =
@@ -1957,17 +1957,17 @@ ACS_TEST(PostEffects, PbrBaseStartupCandidateIsThreadedAndInstrumented)
     EXPECT_TRUE(legacy.find(
         ".BuildInitializedCandidateForRawDx12(") != std::string::npos);
     EXPECT_TRUE(handle_uses_capacity(
-        "FDx12Device::SrvCpuHandle(",
-        "FDx12Device::SrvGpuHandle(", "kSrvCapacity"));
+        "CDx12Device::SrvCpuHandle(",
+        "CDx12Device::SrvGpuHandle(", "kSrvCapacity"));
     EXPECT_TRUE(handle_uses_capacity(
-        "FDx12Device::SrvGpuHandle(",
-        "FDx12Device::AllocateDsvSlot(", "kSrvCapacity"));
+        "CDx12Device::SrvGpuHandle(",
+        "CDx12Device::AllocateDsvSlot(", "kSrvCapacity"));
     EXPECT_TRUE(handle_uses_capacity(
-        "FDx12Device::DsvCpuHandle(",
-        "FDx12Device::AllocateRtvSlot(", "kDsvCapacity"));
+        "CDx12Device::DsvCpuHandle(",
+        "CDx12Device::AllocateRtvSlot(", "kDsvCapacity"));
     EXPECT_TRUE(handle_uses_capacity(
-        "FDx12Device::RtvCpuHandle(",
-        "FDx12Device::Init(", "kRtvCapacity"));
+        "CDx12Device::RtvCpuHandle(",
+        "CDx12Device::Init(", "kRtvCapacity"));
 }
 
 ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
@@ -1979,11 +1979,11 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     struct FMemorySystemScope {
         bool owned = false;
         ~FMemorySystemScope() noexcept {
-            if (owned) FMemorySystem::Shutdown();
+            if (owned) CMemorySystem::Shutdown();
         }
     } memory_scope;
-    if (FMemorySystem::Get(ESegment::Resource) == nullptr) {
-        const auto memory_result = FMemorySystem::Init(FMemorySystem::DefaultConfig());
+    if (CMemorySystem::Get(ESegment::Resource) == nullptr) {
+        const auto memory_result = CMemorySystem::Init(CMemorySystem::DefaultConfig());
         EXPECT_TRUE(memory_result.IsOk());
         if (memory_result.IsErr()) return;
         memory_scope.owned = true;
@@ -1994,10 +1994,10 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     if (device_result.IsErr()) return; // Headless CI may not expose a graphics adapter.
     IRhiDevice& device = *device_result.Value();
 
-    FPostProcess post;
+    CPostProcess post;
     if (device.SupportsAsyncShaderCompilation()) {
         auto compiled =
-            FPostProcess::BeginCompileShadersAsync(device);
+            CPostProcess::BeginCompileShadersAsync(device);
         EXPECT_TRUE(compiled.IsOk());
         if (compiled.IsOk()) {
             const auto deadline =
@@ -2021,7 +2021,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         }
     } else {
 #if !WITH_RENDER_DILIGENT
-        auto compiled = FPostProcess::CompileShadersCpu();
+        auto compiled = CPostProcess::CompileShadersCpu();
         EXPECT_TRUE(compiled.IsOk());
         if (compiled.IsOk()) {
             EXPECT_EQ(compiled.Value().Status(), EShaderStatus::Ready);
@@ -2038,7 +2038,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     }
     EXPECT_TRUE(post.HdrRenderTarget() != nullptr);
     IRhiTexture* const first_hdr = post.HdrRenderTarget();
-    FPostProcess::FCompiledShaders incomplete_post{};
+    CPostProcess::FCompiledShaders incomplete_post{};
     EXPECT_EQ(incomplete_post.Status(), EShaderStatus::Failed);
     EXPECT_TRUE(
         post.InitWithCompiledShaders(
@@ -2076,9 +2076,9 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         EXPECT_EQ(post.HdrRenderTarget()->Height(), 48u);
     }
 
-    FBlit blit;
+    CBlit blit;
     if (device.SupportsAsyncShaderCompilation()) {
-        auto compiled = FBlit::BeginCompileShadersAsync(device);
+        auto compiled = CBlit::BeginCompileShadersAsync(device);
         EXPECT_TRUE(compiled.IsOk());
         if (compiled.IsOk()) {
             const auto deadline =
@@ -2102,7 +2102,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         }
     } else {
 #if !WITH_RENDER_DILIGENT
-        auto compiled = FBlit::CompileShadersCpu();
+        auto compiled = CBlit::CompileShadersCpu();
         EXPECT_TRUE(compiled.IsOk());
         if (compiled.IsOk()) {
             EXPECT_EQ(compiled.Value().Status(), EShaderStatus::Ready);
@@ -2119,7 +2119,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     }
     EXPECT_TRUE(blit.Pipeline() != nullptr);
     IRhiPipeline* const valid_blit = blit.Pipeline();
-    FBlit::FCompiledShaders incomplete_blit{};
+    CBlit::FCompiledShaders incomplete_blit{};
     EXPECT_EQ(incomplete_blit.Status(), EShaderStatus::Failed);
     EXPECT_TRUE(
         blit.InitWithCompiledShaders(
@@ -2128,10 +2128,10 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
             .IsErr());
     EXPECT_TRUE(blit.Pipeline() == valid_blit);
 
-    FSsao ssao;
+    CSsao ssao;
     if (device.SupportsAsyncShaderCompilation()) {
         auto compiled_result =
-            FSsao::BeginCompileShadersAsync(device);
+            CSsao::BeginCompileShadersAsync(device);
         EXPECT_TRUE(compiled_result.IsOk());
         if (compiled_result.IsOk()) {
             const auto deadline =
@@ -2168,7 +2168,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         EXPECT_EQ(ssao.OutputTexture()->Height(), 48u);
 
         IRhiTexture* const valid_output = ssao.OutputTexture();
-        FSsao::FCompiledShaders incomplete{};
+        CSsao::FCompiledShaders incomplete{};
         EXPECT_EQ(incomplete.Status(), EShaderStatus::Failed);
         EXPECT_TRUE(
             ssao.InitWithCompiledShaders(
@@ -2183,7 +2183,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     // exercise it even when this device also supported the startup fast path.
     EXPECT_TRUE(ssao.Init(device, 64, 64).IsOk());
 
-    FSsgi ssgi;
+    CSsgi ssgi;
     EXPECT_TRUE(ssgi.Init(device, 64, 64).IsOk());
     EXPECT_TRUE(ssgi.OutputTexture() != nullptr);
     EXPECT_FALSE(ssgi.HasValidOutput());
@@ -2195,7 +2195,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     }
     EXPECT_FALSE(ssgi.HasValidOutput());
 
-    FSsr ssr;
+    CSsr ssr;
     EXPECT_TRUE(ssr.Init(device, EFormat::R16G16B16A16_Float, 64, 64).IsOk());
     EXPECT_TRUE(ssr.OutputTexture() != nullptr);
     EXPECT_FALSE(ssr.HasValidOutput());
@@ -2207,7 +2207,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     }
     EXPECT_FALSE(ssr.HasValidOutput());
 
-    FHiZ hiz;
+    CHiZ hiz;
     EXPECT_TRUE(hiz.Init(device, 65, 33).IsOk());
     EXPECT_EQ(hiz.Width(), 9u);
     EXPECT_EQ(hiz.Height(), 5u);
@@ -2225,10 +2225,10 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     EXPECT_EQ(hiz.EvenTexture()->MipLevels(), hiz.MipCount());
     EXPECT_EQ(hiz.OddTexture()->MipLevels(), hiz.MipCount());
 
-    FMotionVector motion;
+    CMotionVector motion;
     EXPECT_TRUE(motion.Init(device, 64, 64).IsOk());
 
-    FRefractionShader refraction;
+    CRefractionShader refraction;
     EXPECT_TRUE(refraction.Init(device, EFormat::R16G16B16A16_Float,
                                 EFormat::D32_Float).IsOk());
     refraction.SetFrame(FMat4::Identity(), FVec3{0.0f, 0.0f, 0.0f}, 64, 64);
@@ -2241,20 +2241,20 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     EXPECT_TRUE(refraction.PerObjectCB() != nullptr);
     EXPECT_TRUE(refraction.PerObjectCB() != refr_first);
 
-    FVolumetricClouds clouds;
+    CVolumetricClouds clouds;
     EXPECT_TRUE(clouds.Init(device, EFormat::R16G16B16A16_Float).IsOk());
 
     // Keep the dedicated 3D-water VS displacement / normal-map / refraction
     // pipeline compiled on every active RHI backend. CPU ripple lifetime tests
     // alone cannot catch regressions in the embedded HLSL.
-    FWaterSurface3D water;
+    CWaterSurface3D water;
     EXPECT_TRUE(water.Init(device, EFormat::R16G16B16A16_Float,
                            EFormat::D32_Float).IsOk());
 
     // Compile and execute the real two-pass SSSS path on the active backend.
     // This prevents the module from degrading into an unreferenced API whose
     // embedded HLSL is never validated.
-    FSubsurfaceScattering subsurface;
+    CSubsurfaceScattering subsurface;
     const auto subsurface_result = subsurface.Init(device, 64, 64);
     EXPECT_TRUE(subsurface_result.IsOk());
     if (subsurface_result.IsOk()) {
@@ -2346,7 +2346,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         }
     }
 
-    FStandardShader standard;
+    CStandardShader standard;
     EXPECT_FALSE(standard.BeginFrame(0u));
     const auto standard_result =
         standard.Init(device, EFormat::R16G16B16A16_Float, EFormat::D32_Float);
@@ -2397,7 +2397,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         EXPECT_FALSE(standard.BeginFrame(0u));
     }
 
-    FSkinnedShader skinned;
+    CSkinnedShader skinned;
     EXPECT_FALSE(skinned.BeginFrame(0u));
     const auto skinned_result =
         skinned.Init(device, EFormat::R16G16B16A16_Float, EFormat::D32_Float);
@@ -2454,12 +2454,12 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     // upgrade an SSS material scene. Raw DX12 constructs the complete
     // unpublished base candidate on a worker; joining before inspection
     // mirrors the runtime publication edge without opening a window.
-    FPbrShader base_only_pbr;
+    CPbrShader base_only_pbr;
     bool base_only_ready = false;
 #if !WITH_RENDER_DILIGENT
     std::atomic<bool> background_ready{false};
     std::thread pbr_candidate_worker([&]() noexcept {
-        auto shaders = FPbrShader::CompileShadersCpu(false);
+        auto shaders = CPbrShader::CompileShadersCpu(false);
         if (shaders.IsErr()) return;
         const auto initialized =
             base_only_pbr.BuildInitializedCandidateForRawDx12(
@@ -2482,7 +2482,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         EXPECT_TRUE(!base_only_pbr.HasSubsurfaceMrtPipeline());
     base_only_pbr.Shutdown();
 
-    FPbrShader pbr;
+    CPbrShader pbr;
     const auto pbr_result = pbr.Init(device, EFormat::R16G16B16A16_Float,
                                      EFormat::D32_Float,
                                      ECullMode::None);
@@ -2493,7 +2493,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         // merely its single-target sibling. RT2 proves the material profile;
         // RT3 proves the final normal after PBR normal mapping is exported.
         EXPECT_TRUE(pbr.HasSubsurfaceMrtPipeline());
-        FMeshAsset triangle;
+        AMeshAsset triangle;
         triangle.Vertices().PushBack(FMeshVertex{
             FVec3{-0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 0, 1});
         triangle.Vertices().PushBack(FMeshVertex{
@@ -2842,11 +2842,11 @@ ACS_TEST(PostEffects,
     }
 
     const std::string set_lights =
-        ExtractFunction(pbr, "void FPbrShader::SetLights(");
+        ExtractFunction(pbr, "void CPbrShader::SetLights(");
     EXPECT_TRUE(set_lights.find("m_ObjectCbCursor") ==
                 std::string::npos);
     EXPECT_TRUE(pbr.find(
-        "bool FPbrShader::BeginFrame(u32 required_object_draws)") !=
+        "bool CPbrShader::BeginFrame(u32 required_object_draws)") !=
         std::string::npos);
     EXPECT_TRUE(editor.find("h.pbr3d.BeginFrame(") !=
                 std::string::npos);
@@ -2910,26 +2910,26 @@ ACS_TEST(PostEffects,
 
     const std::string standard_set_lights =
         ExtractFunction(
-            standard, "void FStandardShader::SetLights(");
+            standard, "void CStandardShader::SetLights(");
     const std::string skinned_set_lights =
         ExtractFunction(
-            skinned, "void FSkinnedShader::SetLights(");
+            skinned, "void CSkinnedShader::SetLights(");
     EXPECT_TRUE(standard_set_lights.find("m_ObjectCbCursor") ==
                 std::string::npos);
     EXPECT_TRUE(skinned_set_lights.find("m_ObjectCbCursor") ==
                 std::string::npos);
     EXPECT_TRUE(standard.find(
-        "bool FStandardShader::BeginFrame(u32 required_object_draws)") !=
+        "bool CStandardShader::BeginFrame(u32 required_object_draws)") !=
         std::string::npos);
     EXPECT_TRUE(skinned.find(
-        "bool FSkinnedShader::BeginFrame(u32 required_object_draws)") !=
+        "bool CSkinnedShader::BeginFrame(u32 required_object_draws)") !=
         std::string::npos);
     EXPECT_TRUE(shadow.find(
-        "bool FShadowMap::BeginFrame(") != std::string::npos);
+        "bool CShadowMap::BeginFrame(") != std::string::npos);
     const std::string shadow_begin_frame =
-        ExtractFunction(shadow, "bool FShadowMap::BeginFrame(");
+        ExtractFunction(shadow, "bool CShadowMap::BeginFrame(");
     const std::string shadow_ensure_capacity =
-        ExtractFunction(shadow, "bool FShadowMap::EnsureCasterCapacity(");
+        ExtractFunction(shadow, "bool CShadowMap::EnsureCasterCapacity(");
     EXPECT_TRUE(shadow_begin_frame.find("cascade < m_CascadeCapacity") !=
                 std::string::npos);
     EXPECT_TRUE(shadow_begin_frame.find("cascade < m_CascadeCount") ==
@@ -3068,13 +3068,13 @@ ACS_TEST(PostEffects, TemporalHistoryRemainsSceneLinearAcrossEyeAdaptation)
     if (post.empty()) return;
 
     const std::string render =
-        ExtractFunction(post, "void FPostProcess::Render");
+        ExtractFunction(post, "void CPostProcess::Render");
     const std::string taa =
-        ExtractFunction(post, "bool FPostProcess::Pass_TaaResolve");
+        ExtractFunction(post, "bool CPostProcess::Pass_TaaResolve");
     const std::string exposure =
-        ExtractFunction(post, "bool FPostProcess::Pass_ExposureApply");
+        ExtractFunction(post, "bool CPostProcess::Pass_ExposureApply");
     const std::string luma =
-        ExtractFunction(post, "bool FPostProcess::Pass_LumaReduce");
+        ExtractFunction(post, "bool CPostProcess::Pass_LumaReduce");
     EXPECT_TRUE(!render.empty());
     EXPECT_TRUE(!taa.empty());
     EXPECT_TRUE(!exposure.empty());
@@ -3116,7 +3116,7 @@ ACS_TEST(PostEffects, TemporalHistoryRemainsSceneLinearAcrossEyeAdaptation)
     const std::string scene_input =
         ExtractFunction(
             post,
-            "IRhiTexture* FPostProcess::SceneInput");
+            "IRhiTexture* CPostProcess::SceneInput");
     EXPECT_TRUE(!scene_input.empty());
     EXPECT_TRUE(scene_input.find(
         "p.auto_exposure_enabled && m_ExposureOutputValid") !=
@@ -3175,11 +3175,11 @@ ACS_TEST(PostEffects, TemporalPassesShareColdStartPolicy)
     if (post.empty() || ssr.empty() || ssgi.empty()) return;
 
     const std::string taa_resolve =
-        ExtractFunction(post, "bool FPostProcess::Pass_TaaResolve");
+        ExtractFunction(post, "bool CPostProcess::Pass_TaaResolve");
     const std::string ssr_render =
-        ExtractFunction(ssr, "void FSsr::Render");
+        ExtractFunction(ssr, "void CSsr::Render");
     const std::string ssgi_render =
-        ExtractFunction(ssgi, "void FSsgi::Render");
+        ExtractFunction(ssgi, "void CSsgi::Render");
     const std::string ssgi_temporal =
         ExtractRawShader(ssgi, "const char* kSsgiTemporalHLSL");
     EXPECT_TRUE(!taa_resolve.empty());
@@ -3242,13 +3242,13 @@ ACS_TEST(PostEffects, IncompletePassesCannotPublishStaleTemporalOrBloomTargets)
     if (post.empty()) return;
 
     const std::string render =
-        ExtractFunction(post, "void FPostProcess::Render");
+        ExtractFunction(post, "void CPostProcess::Render");
     const std::string scene_input =
-        ExtractFunction(post, "IRhiTexture* FPostProcess::SceneInput");
+        ExtractFunction(post, "IRhiTexture* CPostProcess::SceneInput");
     const std::string tonemap =
-        ExtractFunction(post, "bool FPostProcess::Pass_Tonemap");
+        ExtractFunction(post, "bool CPostProcess::Pass_Tonemap");
     const std::string luma =
-        ExtractFunction(post, "bool FPostProcess::Pass_LumaReduce");
+        ExtractFunction(post, "bool CPostProcess::Pass_LumaReduce");
     EXPECT_TRUE(!render.empty());
     EXPECT_TRUE(!scene_input.empty());
     EXPECT_TRUE(!tonemap.empty());
@@ -3489,7 +3489,7 @@ ACS_TEST(PostEffects, SubsurfaceDiffusionIsBilateralEnergyStableAndDiffuseOnly)
         std::string::npos);
 
     EXPECT_TRUE(header.find(
-        "opaque lighting + SSS buffers -> FSubsurfaceScattering") !=
+        "opaque lighting + SSS buffers -> CSubsurfaceScattering") !=
         std::string::npos);
     EXPECT_TRUE(header.find(
         "scene-linear TAA -> exposure -> bloom -> tone map") !=
@@ -3565,13 +3565,13 @@ ACS_TEST(PostEffects, PbrSubsurfaceMrtIsOptionalAsyncAndOrderedBeforeAtmosphere)
         std::string::npos);
 
     EXPECT_TRUE(ssss.find(
-        "FSubsurfaceScattering::CompileShadersCpu") !=
+        "CSubsurfaceScattering::CompileShadersCpu") !=
         std::string::npos);
     EXPECT_TRUE(ssss.find(
-        "FSubsurfaceScattering::BeginCompileShadersAsync") !=
+        "CSubsurfaceScattering::BeginCompileShadersAsync") !=
         std::string::npos);
     EXPECT_TRUE(ssss.find(
-        "FSubsurfaceScattering::InitWithCompiledShaders") !=
+        "CSubsurfaceScattering::InitWithCompiledShaders") !=
         std::string::npos);
     EXPECT_TRUE(editor.find("AdvanceRuntimeSsss(") !=
                 std::string::npos);
@@ -3620,10 +3620,10 @@ ACS_TEST(PostEffects, PbrSubsurfaceMrtIsOptionalAsyncAndOrderedBeforeAtmosphere)
     EXPECT_TRUE(legacy.find("ScanSceneRenderFeatures(") !=
                 std::string::npos);
     EXPECT_TRUE(legacy.find(
-        "FPbrShader::CompileShadersCpu(false)") !=
+        "CPbrShader::CompileShadersCpu(false)") !=
                 std::string::npos);
     EXPECT_TRUE(legacy.find(
-        "FPbrShader::CompileShadersCpu(true)") !=
+        "CPbrShader::CompileShadersCpu(true)") !=
                 std::string::npos);
     EXPECT_TRUE(legacy.find(
         "BuildPipelineCandidateForRawDx12(") !=
@@ -3642,9 +3642,9 @@ ACS_TEST(PostEffects, PbrSubsurfaceMrtIsOptionalAsyncAndOrderedBeforeAtmosphere)
         "scene_has_water\n        || (scene_needs_subsurface") !=
                 std::string::npos);
     const std::size_t legacy_render = legacy.find(
-        "void FLegacyScene3DAdapter::OnRender(");
+        "void ALegacyScene3DAdapter::OnRender(");
     const std::size_t legacy_ensure = legacy.find(
-        "bool FLegacyScene3DAdapter::EnsureGpu(", legacy_render);
+        "bool ALegacyScene3DAdapter::EnsureGpu(", legacy_render);
     EXPECT_TRUE(legacy_render != std::string::npos);
     EXPECT_TRUE(legacy_ensure != std::string::npos);
     if (legacy_render != std::string::npos &&
@@ -3796,9 +3796,9 @@ ACS_TEST(PostEffects, EditorPostStartupCompilesOffOwnerThreadAndFailsOpen)
     if (editor.empty()) return;
 
     EXPECT_TRUE(editor.find(
-        "FPostProcess::CompileShadersCpu()") != std::string::npos);
+        "CPostProcess::CompileShadersCpu()") != std::string::npos);
     EXPECT_TRUE(editor.find(
-        "FPostProcess::BeginCompileShadersAsync(*dev)") !=
+        "CPostProcess::BeginCompileShadersAsync(*dev)") !=
                 std::string::npos);
     EXPECT_TRUE(editor.find(
         "h.startup_worker_kind = 7u;") != std::string::npos);
@@ -3821,7 +3821,7 @@ ACS_TEST(PostEffects, EditorPostStartupCompilesOffOwnerThreadAndFailsOpen)
     const std::string phase =
         editor.substr(phase_begin, phase_end - phase_begin);
     const std::size_t async_submit =
-        phase.find("FPostProcess::BeginCompileShadersAsync(*dev)");
+        phase.find("CPostProcess::BeginCompileShadersAsync(*dev)");
     const std::size_t async_pending =
         phase.find("shader_status == EShaderStatus::Compiling");
     const std::size_t owner_commit =
@@ -3889,8 +3889,8 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
 
     const std::string queue = section(
         device,
-        "void FDx12Device::QueueRetiredResource(",
-        "void FDx12Device::RetireResource(");
+        "void CDx12Device::QueueRetiredResource(",
+        "void CDx12Device::RetireResource(");
     EXPECT_TRUE(!queue.empty());
     EXPECT_TRUE(queue.find("m_RetiredResources.TryPushBack") !=
                 std::string::npos);
@@ -3908,8 +3908,8 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
 
     const std::string submission = section(
         device,
-        "u64 FDx12Device::ExecuteGraphicsCommandListsAndSignal(",
-        "u64 FDx12Device::SubmitGraphicsCommandLists(");
+        "u64 CDx12Device::ExecuteGraphicsCommandListsAndSignal(",
+        "u64 CDx12Device::SubmitGraphicsCommandLists(");
     EXPECT_TRUE(!submission.empty());
     const std::size_t retirement_lock =
         submission.find("retirement_guard(m_RetirementLock)");
@@ -3942,11 +3942,11 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
 
     const std::string main_submit = section(
         device,
-        "u64 FDx12Device::SubmitGraphicsCommandLists(",
-        "u64 FDx12Device::ExecuteOneOffGraphicsCommandList(");
+        "u64 CDx12Device::SubmitGraphicsCommandLists(",
+        "u64 CDx12Device::ExecuteOneOffGraphicsCommandList(");
     const std::string one_off_submit = section(
         device,
-        "u64 FDx12Device::ExecuteOneOffGraphicsCommandList(",
+        "u64 CDx12Device::ExecuteOneOffGraphicsCommandList(",
         "// Generic queue waits never seal retirement records.");
     EXPECT_TRUE(main_submit.find(
         "command_lists, command_list_count, true") != std::string::npos);
@@ -3955,8 +3955,8 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
 
     const std::string generic_signal = section(
         device,
-        "u64 FDx12Device::SignalGraphicsQueue()",
-        "void FDx12Device::WaitForFenceValue(");
+        "u64 CDx12Device::SignalGraphicsQueue()",
+        "void CDx12Device::WaitForFenceValue(");
     EXPECT_TRUE(!generic_signal.empty());
     EXPECT_TRUE(generic_signal.find(
         "submission_guard(m_QueueSubmissionLock)") != std::string::npos);
@@ -3965,8 +3965,8 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
 
     const std::string reset = section(
         device,
-        "void FDx12Device::Reset()",
-        "FHrResult FDx12Device::InitDescriptorHeaps()");
+        "void CDx12Device::Reset()",
+        "FHrResult CDx12Device::InitDescriptorHeaps()");
     EXPECT_TRUE(!reset.empty());
     const std::size_t final_signal =
         reset.find("const u64 final_fence = SignalGraphicsQueue()");
@@ -3998,7 +3998,7 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
     EXPECT_TRUE(abandon < pipeline_cache_reset);
     EXPECT_TRUE(reset.find("PSO と root signature を解放せず use-after-free を防ぐ", abandon) != std::string::npos);
 
-    const std::string reset_pipeline_cache = section(device, "void FDx12Device::ResetPipelineCache(", "void FDx12Device::Reset()");
+    const std::string reset_pipeline_cache = section(device, "void CDx12Device::ResetPipelineCache(", "void CDx12Device::Reset()");
     EXPECT_TRUE(!reset_pipeline_cache.empty());
     // outer lock は owner の読取・切離し・Delete の全寿命を覆う。
     const std::size_t cache_outer_lock = reset_pipeline_cache.find("FExclusiveLockGuard cache_guard(m_PipelineCacheLock)");
@@ -4020,8 +4020,8 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
     EXPECT_TRUE(abandoned_root < key_table_reset);
     EXPECT_TRUE(key_table_reset < owner_delete);
 
-    const std::string find_pipeline_cache = section(device, "bool FDx12Device::FindCachedPipeline(", "void FDx12Device::StoreCachedPipeline(");
-    const std::string store_pipeline_cache = section(device, "void FDx12Device::StoreCachedPipeline(", "void FDx12Device::ResetPipelineCache(");
+    const std::string find_pipeline_cache = section(device, "bool CDx12Device::FindCachedPipeline(", "void CDx12Device::StoreCachedPipeline(");
+    const std::string store_pipeline_cache = section(device, "void CDx12Device::StoreCachedPipeline(", "void CDx12Device::ResetPipelineCache(");
     EXPECT_TRUE(find_pipeline_cache.find("FExclusiveLockGuard cache_guard(m_PipelineCacheLock)") < find_pipeline_cache.find("FPipelineCacheOwner* owner = m_PipelineCacheOwner"));
     EXPECT_TRUE(store_pipeline_cache.find("FExclusiveLockGuard cache_guard(m_PipelineCacheLock)") < store_pipeline_cache.find("FPipelineCacheOwner* owner = m_PipelineCacheOwner"));
 
@@ -4077,7 +4077,7 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
     EXPECT_TRUE(texture.find("upload = nullptr;") != std::string::npos);
     const std::string readback = section(
         device,
-        "bool FDx12Device::ReadTexture(",
+        "bool CDx12Device::ReadTexture(",
         "// ファクトリ関数:");
     EXPECT_TRUE(readback.find(
         "ExecuteOneOffGraphicsCommandList(cl)") != std::string::npos);
@@ -4087,8 +4087,8 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
 
     const std::string submit = section(
         command,
-        "bool FDx12CommandList::SubmitInternal(",
-        "bool FDx12CommandList::Submit()");
+        "bool CDx12CommandList::SubmitInternal(",
+        "bool CDx12CommandList::Submit()");
     const std::size_t main_submit_call =
         submit.find("SubmitGraphicsCommandLists(lists, 1u)");
     const std::size_t wait_gate =
@@ -4109,7 +4109,7 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
     EXPECT_TRUE(submit.find("SignalGraphicsQueue()") ==
                 std::string::npos);
     EXPECT_TRUE(command.find(
-        "bool FDx12CommandList::SubmitWithoutGpuWait()") !=
+        "bool CDx12CommandList::SubmitWithoutGpuWait()") !=
                 std::string::npos);
     EXPECT_TRUE(command.find("SubmitInternal(false);") !=
                 std::string::npos);
@@ -4128,7 +4128,7 @@ ACS_TEST(RenderLifecycle,
         ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
 
     const std::string end_frame =
-        ExtractFunction(renderer, "bool FRenderer::EndFrameInternal(");
+        ExtractFunction(renderer, "bool CRenderer::EndFrameInternal(");
     const std::string raw_present =
         ExtractFunction(dx12_swapchain, "bool FDx12Swapchain::Present()");
     const std::string diligent_present =
@@ -4179,7 +4179,7 @@ ACS_TEST(RenderLifecycle,
         ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
 
     const std::string resize =
-        ExtractFunction(renderer, "bool FRenderer::OnResize(");
+        ExtractFunction(renderer, "bool CRenderer::OnResize(");
     const std::string backend_resize =
         ExtractFunction(dx12_swapchain, "bool FDx12Swapchain::Resize(");
 
@@ -4200,9 +4200,9 @@ ACS_TEST(RenderLifecycle,
         ReadWorkspaceSource("src/easy/Easy.cpp");
 
     const std::string app_bridge =
-        ExtractFunction(application, "void FApplication::EventBridge(");
+        ExtractFunction(application, "void CApplication::EventBridge(");
     const std::string app_run =
-        ExtractFunction(application, "int FApplication::Run(");
+        ExtractFunction(application, "int CApplication::Run(");
     const std::string easy_bridge =
         ExtractFunction(easy, "void EasyEventBridge(");
     const std::string easy_frame =

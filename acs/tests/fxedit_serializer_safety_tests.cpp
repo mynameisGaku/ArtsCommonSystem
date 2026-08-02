@@ -76,7 +76,7 @@ ACS_TEST(FxeditSerializerSafety, ExplicitLengthRoundTripAndUnknownKey) {
         "E0 spread_radians 3.14\n";
     FParticleEmitterDef definitions[2]{};
     char names[64]{};
-    const FFxeditSerializeResult result = FFxeditSerializer::TryParseText(
+    const FFxeditSerializeResult result = CFxeditSerializer::TryParseText(
         text, sizeof(text) - 1u, definitions, names, sizeof(names), 2u);
     EXPECT_TRUE(result.Succeeded());
     EXPECT_EQ(result.emitter_count, 1u);
@@ -93,7 +93,7 @@ ACS_TEST(FxeditSerializerSafety, MalformedAndEmbeddedNulLeaveOutputsUnchanged) {
     std::memcpy(names, "keep", 5u);
     constexpr char truncated[] =
         "ACS_FXEDIT 1\nEMITTER count 1\nE0 name \"unterminated\n";
-    FFxeditSerializeResult result = FFxeditSerializer::TryParseText(
+    FFxeditSerializeResult result = CFxeditSerializer::TryParseText(
         truncated, sizeof(truncated) - 1u, definitions, names, sizeof(names), 2u);
     EXPECT_EQ(static_cast<i32>(result.error),
               static_cast<i32>(EFxeditSerializeError::InvalidName));
@@ -105,7 +105,7 @@ ACS_TEST(FxeditSerializerSafety, MalformedAndEmbeddedNulLeaveOutputsUnchanged) {
         'E','M','I','T','T','E','R',' ','c','o','u','n','t',' ','1','\n',
         'E','0',' ','n','a','m','e',' ','"','x','"','\0','\n'
     };
-    result = FFxeditSerializer::TryParseText(
+    result = CFxeditSerializer::TryParseText(
         embedded, sizeof(embedded), definitions, names, sizeof(names), 2u);
     EXPECT_EQ(static_cast<i32>(result.error),
               static_cast<i32>(EFxeditSerializeError::EmbeddedNul));
@@ -121,7 +121,7 @@ ACS_TEST(FxeditSerializerSafety, RejectsDuplicateNonFiniteAndCapacityOverflow) {
     constexpr char duplicate[] =
         "ACS_FXEDIT 1\nEMITTER count 1\n"
         "E0 lifetime_sec 2\nE0 lifetime_sec 3\n";
-    FFxeditSerializeResult result = FFxeditSerializer::TryParseText(
+    FFxeditSerializeResult result = CFxeditSerializer::TryParseText(
         duplicate, sizeof(duplicate) - 1u,
         definitions, names, sizeof(names), 2u);
     EXPECT_EQ(static_cast<i32>(result.error),
@@ -130,7 +130,7 @@ ACS_TEST(FxeditSerializerSafety, RejectsDuplicateNonFiniteAndCapacityOverflow) {
 
     constexpr char non_finite[] =
         "ACS_FXEDIT 1\nEMITTER count 1\nE0 emit_rate nan\n";
-    result = FFxeditSerializer::TryParseText(
+    result = CFxeditSerializer::TryParseText(
         non_finite, sizeof(non_finite) - 1u,
         definitions, names, sizeof(names), 2u);
     EXPECT_EQ(static_cast<i32>(result.error),
@@ -138,7 +138,7 @@ ACS_TEST(FxeditSerializerSafety, RejectsDuplicateNonFiniteAndCapacityOverflow) {
     EXPECT_NEAR(definitions[0].lifetime_sec, 9.0f, 1e-4f);
 
     constexpr char too_many[] = "ACS_FXEDIT 1\nEMITTER count 2\n";
-    result = FFxeditSerializer::TryParseText(
+    result = CFxeditSerializer::TryParseText(
         too_many, sizeof(too_many) - 1u,
         definitions, names, 32u, 2u);
     EXPECT_EQ(static_cast<i32>(result.error),
@@ -152,28 +152,28 @@ ACS_TEST(FxeditSerializerSafety, RejectsVersionEmitterAndLineLimits) {
     char name[32]{};
     std::memcpy(name, "stable", 7u);
     constexpr char version[] = "ACS_FXEDIT 2\nEMITTER count 0\n";
-    FFxeditSerializeResult result = FFxeditSerializer::TryParseText(
+    FFxeditSerializeResult result = CFxeditSerializer::TryParseText(
         version, sizeof(version) - 1u, &definition, name, sizeof(name), 1u);
     EXPECT_EQ(static_cast<i32>(result.error),
               static_cast<i32>(EFxeditSerializeError::UnsupportedVersion));
 
     constexpr char emitter_overflow[] =
         "ACS_FXEDIT 1\nEMITTER count 1025\n";
-    result = FFxeditSerializer::TryParseText(
+    result = CFxeditSerializer::TryParseText(
         emitter_overflow, sizeof(emitter_overflow) - 1u,
         &definition, name, sizeof(name), 1u);
     EXPECT_EQ(static_cast<i32>(result.error),
               static_cast<i32>(EFxeditSerializeError::TooManyEmitters));
 
-    char long_line[32u + FFxeditSerializer::kMaxLineLength + 2u]{};
+    char long_line[32u + CFxeditSerializer::kMaxLineLength + 2u]{};
     const int prefix = std::snprintf(
         long_line, sizeof(long_line), "ACS_FXEDIT 1\nEMITTER count 1\n");
     EXPECT_TRUE(prefix > 0);
     std::memset(
-        long_line + prefix, 'x', FFxeditSerializer::kMaxLineLength + 1u);
-    result = FFxeditSerializer::TryParseText(
+        long_line + prefix, 'x', CFxeditSerializer::kMaxLineLength + 1u);
+    result = CFxeditSerializer::TryParseText(
         long_line,
-        static_cast<usize>(prefix) + FFxeditSerializer::kMaxLineLength + 1u,
+        static_cast<usize>(prefix) + CFxeditSerializer::kMaxLineLength + 1u,
         &definition, name, sizeof(name), 1u);
     EXPECT_EQ(static_cast<i32>(result.error),
               static_cast<i32>(EFxeditSerializeError::LineTooLong));
@@ -186,7 +186,7 @@ ACS_TEST(FxeditSerializerSafety, EnforcesCurveAndKeyframeLimits) {
     char name[32]{};
     constexpr char curve_overflow[] =
         "ACS_FXEDIT 1\nEMITTER count 1\nE0 curve 16\n";
-    FFxeditSerializeResult result = FFxeditSerializer::TryParseText(
+    FFxeditSerializeResult result = CFxeditSerializer::TryParseText(
         curve_overflow, sizeof(curve_overflow) - 1u,
         &definition, name, sizeof(name), 1u);
     EXPECT_EQ(static_cast<i32>(result.error),
@@ -196,14 +196,14 @@ ACS_TEST(FxeditSerializerSafety, EnforcesCurveAndKeyframeLimits) {
     int used = std::snprintf(
         text, sizeof(text), "ACS_FXEDIT 1\nEMITTER count 1\nE0 curve 0\n");
     EXPECT_TRUE(used > 0);
-    for (u32 i = 0u; i <= FFxeditSerializer::kMaxKeyframesPerCurve; ++i) {
+    for (u32 i = 0u; i <= CFxeditSerializer::kMaxKeyframesPerCurve; ++i) {
         const int added = std::snprintf(
             text + used, sizeof(text) - static_cast<usize>(used),
             "E0 keyframe 0 0.5 %u\n", i);
         EXPECT_TRUE(added > 0);
         used += added;
     }
-    result = FFxeditSerializer::TryParseText(
+    result = CFxeditSerializer::TryParseText(
         text, static_cast<usize>(used), &definition, name, sizeof(name), 1u);
     EXPECT_EQ(static_cast<i32>(result.error),
               static_cast<i32>(EFxeditSerializeError::TooManyKeyframes));
@@ -219,7 +219,7 @@ ACS_TEST(FxeditSerializerSafety, SavePrevalidationPreservesExistingFile) {
     definition.emit_rate_per_sec = std::numeric_limits<f32>::quiet_NaN();
     const char* names[] = {"bad"};
     const FFxeditSerializeResult result =
-        FFxeditSerializer::TrySave(path, &definition, names, 1u);
+        CFxeditSerializer::TrySave(path, &definition, names, 1u);
     EXPECT_EQ(static_cast<i32>(result.error),
               static_cast<i32>(EFxeditSerializeError::ValueOutOfRange));
     EXPECT_TRUE(FileEquals(path, original, sizeof(original) - 1u));
@@ -241,7 +241,7 @@ ACS_TEST(FxeditSerializerSafety, AtomicReplaceKeepsOpenReaderSnapshot) {
     definition.lifetime_sec = 3.0f;
     const char* names[] = {"new"};
     const FFxeditSerializeResult save =
-        FFxeditSerializer::TrySave(path, &definition, names, 1u);
+        CFxeditSerializer::TrySave(path, &definition, names, 1u);
     EXPECT_TRUE(save.Succeeded());
 
     char snapshot[32]{};
@@ -254,7 +254,7 @@ ACS_TEST(FxeditSerializerSafety, AtomicReplaceKeepsOpenReaderSnapshot) {
     FParticleEmitterDef loaded[1]{};
     char loaded_name[32]{};
     const FFxeditSerializeResult load =
-        FFxeditSerializer::TryLoad(path, loaded, loaded_name, sizeof(loaded_name), 1u);
+        CFxeditSerializer::TryLoad(path, loaded, loaded_name, sizeof(loaded_name), 1u);
     EXPECT_TRUE(load.Succeeded());
     EXPECT_TRUE(std::strcmp(loaded_name, "new") == 0);
     EXPECT_NEAR(loaded[0].emit_rate_per_sec, 12.0f, 1e-4f);
@@ -274,7 +274,7 @@ ACS_TEST(FxeditSerializerSafety, AtomicFailurePreservesDestination) {
     FParticleEmitterDef definition{};
     const char* names[] = {"replacement"};
     const FFxeditSerializeResult save =
-        FFxeditSerializer::TrySave(path, &definition, names, 1u);
+        CFxeditSerializer::TrySave(path, &definition, names, 1u);
     EXPECT_EQ(static_cast<i32>(save.error),
               static_cast<i32>(EFxeditSerializeError::AtomicReplaceFailed));
     EXPECT_TRUE(::CloseHandle(blocker) != 0);

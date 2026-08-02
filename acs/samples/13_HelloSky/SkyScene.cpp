@@ -8,7 +8,7 @@ using namespace acs;
 
 namespace hellosky {
 
-void FSkyScene::SetPreset(FSky& sky, ESkyPreset p) noexcept {
+void CSkyScene::SetPreset(CSky& sky, ESkyPreset p) noexcept {
     m_Preset = p;
     switch (p) {
         case ESkyPreset::Day:    sky.PresetDay();    break;
@@ -17,8 +17,8 @@ void FSkyScene::SetPreset(FSky& sky, ESkyPreset p) noexcept {
     }
 }
 
-void FSkyScene::Render(FSky&             sky,
-                      FStandardShader&  shader,
+void CSkyScene::Render(CSky&             sky,
+                      CStandardShader&  shader,
                       IRhiCommandList& cl,
                       const CCamera&    camera,
                       const FGpuMesh&   plane,
@@ -26,17 +26,17 @@ void FSkyScene::Render(FSky&             sky,
                       f32              angle) noexcept {
     if (!shader.BeginFrame(2u)) return;
 
-    // FSky を先に描く。深度書込みも深度テストも無効なので、後続のメッシュは
+    // CSky を先に描く。深度書込みも深度テストも無効なので、後続のメッシュは
     // 自動で空を覆い隠す形になる (背景塗り)。
     sky.Render(cl, camera);
 
-    // メイン光源は FSky の太陽方向 / 色と合わせる。ここがずれると
+    // メイン光源は CSky の太陽方向 / 色と合わせる。ここがずれると
     // 「空は朝なのに地面は昼」のような不整合な絵になる。
     FDirLight lights[2];
     lights[0].direction = sky.SunDirection();
     lights[0].color     = sky.SunColor();
     // 2 灯目は環境光フィル。太陽の真逆から弱い青を当てて影側のクラッシュ
-    // (真っ黒つぶれ) を防ぐ。FSky の zenith に近い寒色を採用。
+    // (真っ黒つぶれ) を防ぐ。CSky の zenith に近い寒色を採用。
     lights[1].direction = FVec3{-sky.SunDirection().x,
                                 sky.SunDirection().y * 0.5f,
                                -sky.SunDirection().z};

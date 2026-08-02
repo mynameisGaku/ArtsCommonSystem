@@ -3,8 +3,8 @@
 //
 // 構成:
 //   main.cpp                - ACS_DEFINE_MAIN(HelloTextApp) のみ
-//   HelloTextApp.{h,cpp}    - FApplication 派生クラス本体
+//   HelloTextApp.{h,cpp}    - CApplication 派生クラス本体
 #include "HelloTextApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hellotext::FHelloTextApp)
+ACS_DEFINE_MAIN(hellotext::CHelloTextApp)

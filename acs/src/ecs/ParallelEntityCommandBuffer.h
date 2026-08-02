@@ -8,7 +8,7 @@
 // ワーカーから同じバッファへ記録すると TArray が競合して壊れる。
 //
 // 本クラスは «ワーカー数 + 1» 本の FEntityCommandBuffer を持ち、記録時に
-// FThreadPool::CurrentWorkerIndex() で自スレッド専用のバッファへ振り分けることで、
+// CThreadPool::CurrentWorkerIndex() で自スレッド専用のバッファへ振り分けることで、
 // EachParallel の fn 内からロックなしで安全に構造変更を記録できるようにする。
 // +1 本は非ワーカースレッド用 (ParallelFor の呼び出し元は Wait 中に仕事を
 // 盗んで body を実行するため、worker index を持たないスレッドでも記録が起きる)。
@@ -26,7 +26,7 @@
 //     記録は同じ予備スロットを共有するため不可。
 //   ・Flush/Clear/Size/HasOverflowed: 記録が全て完了した後 (= EachParallel が
 //     return した後) に単一スレッドから呼ぶこと。
-//   ・FThreadPool::Init より後に構築すること (スロット数を構築時の WorkerCount()
+//   ・CThreadPool::Init より後に構築すること (スロット数を構築時の WorkerCount()
 //     で確定するため。後から Init してワーカーが増えた場合、範囲外 index の記録は
 //     落として HasOverflowed()=true で検知できる)。
 //
@@ -54,7 +54,7 @@ public:
      * 適用先 CWorld とアロケータを束ね、ワーカー数 + 1 本のバッファを確保して構築する。
      *
      * @details 確保に失敗したら以降の記録は落ち、HasOverflowed() が true になる
-     * (IsValid() で構築成否を確認できる)。FThreadPool::Init より後に構築すること。
+     * (IsValid() で構築成否を確認できる)。CThreadPool::Init より後に構築すること。
      * @param world 適用先の CWorld (参照を保持)。
      * @param alloc 各バッファの記録・退避に使うアロケータ。
      */
@@ -217,7 +217,7 @@ private:
      * 自スレッド専用スロットを返す (無ければ記録落ちとして数えて nullptr)。
      *
      * @details ワーカーは自 index、非ワーカーは末尾の予備スロット。構築失敗時や、
-     * 構築後の FThreadPool::Init でワーカーが増えて index が範囲外になった場合は
+     * 構築後の CThreadPool::Init でワーカーが増えて index が範囲外になった場合は
      * nullptr を返し、m_DroppedRecords を進める (HasOverflowed で検知)。
      * @return 自スレッドが専有するバッファ。使用不能なら nullptr。
      */

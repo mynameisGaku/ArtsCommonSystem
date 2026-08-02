@@ -28,12 +28,12 @@ void CUndoStack::Init(u32 max_history) noexcept {
 
 /** command を 1 件積む (所有権を奪い、Execute → merge 判定 → redo 破棄を行う)。 */
 void CUndoStack::Push(AEditorCommand* cmd) noexcept {
-    FAllocator& allocator = DefaultAllocator();
+    IAllocator& allocator = DefaultAllocator();
     Push(TUniquePtr<AEditorCommand>(cmd, &allocator));
 }
 
 /** 生ポインタと確保元を受け取り、解放元を保持した所有権へ変換して積む。 */
-void CUndoStack::Push(AEditorCommand* command, FAllocator& allocator) noexcept
+void CUndoStack::Push(AEditorCommand* command, IAllocator& allocator) noexcept
 {
     Push(TUniquePtr<AEditorCommand>(command, &allocator));
 }

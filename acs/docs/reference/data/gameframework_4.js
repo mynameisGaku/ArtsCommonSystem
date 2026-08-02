@@ -10,11 +10,11 @@ ACS_REF.modules.push({
     // HotReload.h
     // =====================================================================
     {
-      name: "FHotReloadWatcher",
+      name: "CHotReloadWatcher",
       kind: "クラス", header: "gameframework/HotReload.h",
       summary: "Windows 開発ビルドで <code>ReadDirectoryChangesW</code> を非同期駆動し、変更を bounded FIFO と安定 snapshot の<t>コールバック</t>へ配る single-thread-affine watcher/queue seam。path は UTF-8 の所有コピーで、同一 path の burst を debounce できる。アセット再 import や <code>CMessageBroker</code> publish は上位利用側の責務。",
       when: "ゲームを動かしたまま asset directory の変更を検出する時。出荷ビルド (<code>ACS_GAME_SHIPPING</code>) では互換 API を残した no-op shell となる。<code>TryWatchFile</code> は path 登録だけで native handle を作らないため、単一 file の実監視には親 directory も登録する。",
-      sample: "FHotReloadWatcher w;\nw.Init();\nif (w.TryWatchDirectory(\"Assets/Textures\", true) != EHotReloadResult::Success) return;\nw.TrySetDebounceSeconds(0.05f);\nw.TryRegisterCallback(&amp;OnReload, this);\n// 毎フレーム:\nw.TryTick(dt);\nconst FHotReloadDiagnostics d = w.CaptureDiagnostics();\nif (d.authoritative_rescan_required) {\n    RescanAssets();\n    w.ClearDiagnostics();\n}",
+      sample: "CHotReloadWatcher w;\nw.Init();\nif (w.TryWatchDirectory(\"Assets/Textures\", true) != EHotReloadResult::Success) return;\nw.TrySetDebounceSeconds(0.05f);\nw.TryRegisterCallback(&amp;OnReload, this);\n// 毎フレーム:\nw.TryTick(dt);\nconst FHotReloadDiagnostics d = w.CaptureDiagnostics();\nif (d.authoritative_rescan_required) {\n    RescanAssets();\n    w.ClearDiagnostics();\n}",
       members: [
         { sig: "void Init() / void Shutdown()", desc: "初期化 / 後始末。Shutdown は監視パス・コールバック・未処理イベントを全クリア。どちらも多重呼び出し可。" },
         { sig: "EHotReloadResult TryWatchDirectory(const char* dir, bool recursive = true)", desc: "UTF-8 path 検証・所有コピー・OS handle・初回 async read が全て成功した時だけ監視を登録する。" },
@@ -28,7 +28,8 @@ ACS_REF.modules.push({
         { sig: "u32 WatchedCount() / u32 PendingEventCount()", desc: "監視中の path 数 / 未処理イベント数。" },
         { sig: "FHotReloadDiagnostics CaptureDiagnostics() const", ret: "診断値の snapshot", desc: "enqueue・coalesce・dispatch・拒否・loss の飽和 counter、直近失敗、全量 rescan 要求を allocation-free で値コピーする。成功操作では sticky な失敗状態を消さない。" },
         { sig: "void ClearDiagnostics()", desc: "診断 counter・直近失敗・rescan 要求だけを明示 clear する。監視登録、callback、pending event は維持する。" },
-        { sig: "void ClearEvents()", desc: "未処理イベントを全クリア。callback 中は現在 event の残り callback を完走してから外側 drain を止め、後から enqueue した event を同じ tick に配信しない。" }
+        { sig: "void ClearEvents()", desc: "未処理イベントを全クリア。callback 中は現在 event の残り callback を完走してから外側 drain を止め、後から enqueue した event を同じ tick に配信しない。" },
+        { sig: "using FHotReloadWatcher = CHotReloadWatcher", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CHotReloadWatcher</code> を使う。" }
       ]
     },
     {
@@ -75,11 +76,11 @@ ACS_REF.modules.push({
     // HungerSystem.h
     // =====================================================================
     {
-      name: "FHungerSystem",
+      name: "CHungerSystem",
       kind: "クラス", header: "gameframework/HungerSystem.h",
       summary: "サバイバル系ゲーム向けに、複数の survivor (プレイヤー/NPC) の空腹・喉の渇き・疲労・正気度・体温などの「生存統計値」を秒単位で減らし、危険域に入ったら警告、0 で HP ダメージ通知まで行うマネージャ。",
-      when: "DayZ / The Long Dark / Don't Starve のような「食べないと死ぬ」ゲームを作る時。HP 自体は持たず、危険/ダメージは<t>コールバック</t>で外部 (FHealthSystem) に橋渡しする。",
-      sample: "FHungerSystem hs;\nhs.Init();\nhs.ConfigureStat(ESurvivalStat::Hunger,\n    FStatConfig{ 100.0f, 0.5f, 20.0f, 2.0f });\nFSurvivorId p = hs.AddSurvivor();\nhs.SetOnDamageCallback(&OnDamage, &game);\nhs.RestoreStat(p, ESurvivalStat::Hunger, 30.0f); // 肉を食べた\nhs.Tick(dt);",
+      when: "DayZ / The Long Dark / Don't Starve のような「食べないと死ぬ」ゲームを作る時。HP 自体は持たず、危険/ダメージは<t>コールバック</t>で外部 (CHealthSystem) に橋渡しする。",
+      sample: "CHungerSystem hs;\nhs.Init();\nhs.ConfigureStat(ESurvivalStat::Hunger,\n    FStatConfig{ 100.0f, 0.5f, 20.0f, 2.0f });\nFSurvivorId p = hs.AddSurvivor();\nhs.SetOnDamageCallback(&OnDamage, &game);\nhs.RestoreStat(p, ESurvivalStat::Hunger, 30.0f); // 肉を食べた\nhs.Tick(dt);",
       members: [
         { sig: "void Init()", desc: "7 stat 分の設定を既定値で初期化。再呼び出しで全 survivor を破棄しリセット。" },
         { sig: "void ConfigureStat(ESurvivalStat stat, const FStatConfig& config)", desc: "stat ごとの減少速度 / 危険閾値 / 0 時ダメージを上書き。ゲーム起動時に一括設定する想定。" },
@@ -92,14 +93,15 @@ ACS_REF.modules.push({
         { sig: "f32 OverallSurvivalHealth(FSurvivorId id) const", ret: "[0,1]", desc: "全 stat の (current/max) の平均。UI の生存度メータ用。" },
         { sig: "void Tick(f32 dt)", desc: "全 survivor × 全 stat を dt 秒減らし、閾値跨ぎで CriticalCallback、0 滞在で DamageCallback を発火。", when: "毎フレーム 1 回呼ぶ。" },
         { sig: "void SetOnCriticalCallback / SetOnDamageCallback(cb, user)", desc: "危険遷移 / ダメージ通知の<t>コールバック</t>登録。nullptr で外す。" },
-        { sig: "u32 SurvivorCount() const / void ClearAll()", desc: "現在の survivor 数 / 全 survivor 破棄 (callback は保持)。" }
+        { sig: "u32 SurvivorCount() const / void ClearAll()", desc: "現在の survivor 数 / 全 survivor 破棄 (callback は保持)。" },
+        { sig: "using FHungerSystem = CHungerSystem", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CHungerSystem</code> を使う。" }
       ]
     },
     {
       name: "ESurvivalStat",
       kind: "列挙(enum)", header: "gameframework/HungerSystem.h",
       summary: "生存統計値の種別。Hunger(空腹) / Thirst(渇き) / Energy(疲労) / Sanity(正気度) / Warmth(体温) / Custom1 / Custom2 の 7 種。",
-      when: "FHungerSystem の各 API で「どの stat か」を指定する時。Custom1/2 はゲーム固有 (放射線・酸素など) の拡張枠。",
+      when: "CHungerSystem の各 API で「どの stat か」を指定する時。Custom1/2 はゲーム固有 (放射線・酸素など) の拡張枠。",
       sample: "hs.RestoreStat(p, ESurvivalStat::Thirst, 50.0f);\nif (hs.IsCritical(p, ESurvivalStat::Warmth)) ShowFreezingUi();"
     },
     {
@@ -119,7 +121,7 @@ ACS_REF.modules.push({
       name: "FStatState",
       kind: "構造体", header: "gameframework/HungerSystem.h",
       summary: "ある survivor の 1 stat の実状態。現在値・上限・危険フラグ。",
-      when: "内部状態の表現 (主に FHungerSystem 内部で使われる)。"
+      when: "内部状態の表現 (主に CHungerSystem 内部で使われる)。"
     },
     {
       name: "FSurvivorId",
@@ -190,11 +192,11 @@ ACS_REF.modules.push({
     // InputRecorder.h
     // =====================================================================
     {
-      name: "FInputRecorder",
+      name: "CInputRecorder",
       kind: "クラス", header: "gameframework/InputRecorder.h",
       summary: "OS 寄りの<b>生 (raw) 入力</b> (キー変化 + マウス座標 + ボタン) を 1 tick = 1 サンプルとして録画し、後でそのまま再生できるレコーダ。<code>.acsr</code> 形式でファイル保存も可能。",
-      when: "TAS / 自動テスト / バグ再現で「同じ入力列をピクセル単位で再現」したい時。ゲーム解釈済み入力を扱う FLockstep とは別レイヤ (こちらは OS 信号寄り)。",
-      sample: "FInputRecorder rec;\nrec.StartRecording(/*tick_rate_hz=*/60);\nFInputSample s; s.tick = tick; /* ...詰める... */\nrec.Capture(s);\n// 後で:\nrec.StartReplay();\nFInputSample out;\nif (rec.ConsumeSample(tick, out)) { /* out を入力の代わりに使う */ }",
+      when: "TAS / 自動テスト / バグ再現で「同じ入力列をピクセル単位で再現」したい時。ゲーム解釈済み入力を扱う CLockstep とは別レイヤ (こちらは OS 信号寄り)。",
+      sample: "CInputRecorder rec;\nrec.StartRecording(/*tick_rate_hz=*/60);\nFInputSample s; s.tick = tick; /* ...詰める... */\nrec.Capture(s);\n// 後で:\nrec.StartReplay();\nFInputSample out;\nif (rec.ConsumeSample(tick, out)) { /* out を入力の代わりに使う */ }",
       members: [
         { sig: "void StartRecording(u32 tick_rate_hz = 60) / StopRecording()", desc: "録画開始 / 停止。tick_rate は再生時の整合検証用 (ファイルに保存)。" },
         { sig: "void StartReplay() / StopReplay()", desc: "再生開始 (cursor を先頭へ) / 停止。録画済み sample は保持。" },
@@ -204,14 +206,15 @@ ACS_REF.modules.push({
         { sig: "u32 SampleCount() / CurrentTick() / TickRateHz() const", desc: "記録件数 / 現在 tick / tick レート。" },
         { sig: "void Clear()", desc: "全サンプル破棄 + cursor リセット。モードは保持。" },
         { sig: "TResult<void> SaveToBuffer(u8* buf, u32 size, u32& out_written)", desc: "現在のサンプルを <code>.acsr</code> レイアウトでバッファに書き出す (CRC32 付き、round-trip 検証済み)。" },
-        { sig: "TResult<void> LoadFromBuffer(const u8* buf, u32 size)", desc: "<code>.acsr</code> バッファを検証してサンプルを置換復元する。" }
+        { sig: "TResult<void> LoadFromBuffer(const u8* buf, u32 size)", desc: "<code>.acsr</code> バッファを検証してサンプルを置換復元する。" },
+        { sig: "using FInputRecorder = CInputRecorder", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CInputRecorder</code> を使う。" }
       ]
     },
     {
       name: "FInputRecordingView",
       kind: "クラス", header: "gameframework/InputRecordingView.h",
       summary: "caller-owned の <code>.acsr</code> バイト列を全検証し、sample 領域を<b>コピーせず借用</b>する immutable decoder。header、製品上限、厳密サイズ、CRC32、mouse の有限値を allocation 前に検査する。",
-      when: "mapped file や受信バッファを所有配列へ展開せず、安全に順次参照したい時。記録を長期保持・編集する場合は <code>FInputRecorder::TryLoadFromBuffer</code> を使う。",
+      when: "mapped file や受信バッファを所有配列へ展開せず、安全に順次参照したい時。記録を長期保持・編集する場合は <code>CInputRecorder::TryLoadFromBuffer</code> を使う。",
       sample: "TSpan&lt;const u8&gt; bytes(fileData, fileSize); // view より長く生存し、不変に保つ\nTResult&lt;FInputRecordingView&gt; result = FInputRecordingView::Decode(bytes);\nif (result.IsOk()) {\n    FInputSample sample;\n    result.Value().DecodeSample(0u, sample);\n}",
       members: [
         { sig: "static TResult&lt;FInputRecordingView&gt; Decode(TSpan&lt;const u8&gt; bytes)", ret: "検証済み view または FErrorCode", desc: "magic/version、tick rate・件数上限、厳密サイズ、CRC32、全 sample の有限 mouse 値を検査する。null、truncation、破損、上限超過は失敗し、入力を所有しない。" },
@@ -235,18 +238,18 @@ ACS_REF.modules.push({
     {
       name: "ERecorderMode",
       kind: "列挙(enum)", header: "gameframework/InputRecorder.h",
-      summary: "FInputRecorder の動作モード。Idle (何もしない) / Recording (録画) / Replaying (再生) の 3 値。",
+      summary: "CInputRecorder の動作モード。Idle (何もしない) / Recording (録画) / Replaying (再生) の 3 値。",
       when: "<code>CurrentMode()</code> で現在の状態を判定する時。"
     },
     // =====================================================================
     // InspectorSeam.h
     // =====================================================================
     {
-      name: "FInspectorSeam",
+      name: "CInspectorSeam",
       kind: "クラス", header: "gameframework/InspectorSeam.h",
       summary: "ゲーム内オブジェクトが自分のフィールドを公開する<t>プロバイダ</t>を集める「デバッグインスペクタの<t>シーム(seam)</t>」。UI レイヤ (ImGui 等) はここを回してフィールドを描画/編集する。",
       when: "実行中に Player の HP や速度を画面で覗いて書き換えたい時。本体はレジストリだけで、実際の描画は別レイヤ。出荷ビルドでは登録ごと消す前提。",
-      sample: "FInspectorSeam ins;\nins.Init();\nins.RegisterProvider(&player);\nfor (u32 p = 0; p < ins.ProviderCount(); ++p) {\n    auto* prov = ins.GetProvider(p);\n    // prov->GetObject(o) を回して描画\n}",
+      sample: "CInspectorSeam ins;\nins.Init();\nins.RegisterProvider(&player);\nfor (u32 p = 0; p < ins.ProviderCount(); ++p) {\n    auto* prov = ins.GetProvider(p);\n    // prov->GetObject(o) を回して描画\n}",
       members: [
         { sig: "void Init()", desc: "初期化 (将来 ImGui コンテキスト等の予約点)。多重呼び出し可。" },
         { sig: "void RegisterProvider(IInspectableProvider* p)", desc: "<t>プロバイダ</t>を登録 (非所有)。同一ポインタの二重登録・nullptr は無視。" },
@@ -256,7 +259,8 @@ ACS_REF.modules.push({
         { sig: "IInspectableProvider* GetProvider(u32 index) const", ret: "provider or null", desc: "登録順 index で provider を取得。範囲外は nullptr。FNodeId の Index() とは別物なので注意。" },
         { sig: "IInspectableProvider* GetProviderForNode(FNodeId node) const", desc: "FNodeId に完全一致する provider を逆引き。node-keyed lookup の正しい入口。" },
         { sig: "void NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 field_index)", desc: "UI が値を書き換えた後に呼び、該当 provider の OnFieldChanged へ転送する。" },
-        { sig: "void ClearAll()", desc: "全登録を破棄 (provider 自体は残る)。" }
+        { sig: "void ClearAll()", desc: "全登録を破棄 (provider 自体は残る)。" },
+        { sig: "using FInspectorSeam = CInspectorSeam", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CInspectorSeam</code> を使う。" }
       ]
     },
     {
@@ -304,11 +308,11 @@ ACS_REF.modules.push({
     // InventorySystem.h
     // =====================================================================
     {
-      name: "FInventorySystem",
+      name: "CInventorySystem",
       kind: "クラス", header: "gameframework/InventorySystem.h",
       summary: "「N 個の固定スロット × スタック可能アイテム」モデルのインベントリ管理。RPG / サバイバル / クラフト系で定番の持ち物画面のロジックを直接提供する。",
-      when: "拾った/報酬で得たアイテムをプレイヤーが持ち歩く状態を管理したい時。即時購入は FEconomyDirector、装着 cosmetic は FCharacterCustomizer と役割分担。",
-      sample: "FInventorySystem inv;\ninv.Init(/*slot_count=*/30);\ninv.RegisterItem({ \"potion.heal\", \"Heal Potion\",\n    EItemCategory::Consumable, 99, \"ui/potion.png\", true });\ninv.AddItem(\"potion.heal\", 5);  // 積み増し優先\ninv.MoveSlot(3, 7);             // ドラッグ&ドロップ\ninv.DropSlot(7);",
+      when: "拾った/報酬で得たアイテムをプレイヤーが持ち歩く状態を管理したい時。即時購入は CEconomyDirector、装着 cosmetic は CCharacterCustomizer と役割分担。",
+      sample: "CInventorySystem inv;\ninv.Init(/*slot_count=*/30);\ninv.RegisterItem({ \"potion.heal\", \"Heal Potion\",\n    EItemCategory::Consumable, 99, \"ui/potion.png\", true });\ninv.AddItem(\"potion.heal\", 5);  // 積み増し優先\ninv.MoveSlot(3, 7);             // ドラッグ&ドロップ\ninv.DropSlot(7);",
       members: [
         { sig: "void Init(u32 slot_count = 30)", desc: "スロット数を設定 (固定長)。数が変わると内容クリアして resize、同数なら no-op。" },
         { sig: "void RegisterItem(const FItemDef& def)", desc: "アイテム定義を登録 (起動時に 1 度ずつ)。同 id の二重登録は WARN で無視。" },
@@ -322,7 +326,8 @@ ACS_REF.modules.push({
         { sig: "const FInventorySlot* GetSlot(u32 index) const", desc: "スロット内容を取得。範囲外は nullptr。" },
         { sig: "u32 SlotCount() / u32 EmptySlotCount() const", desc: "総スロット数 / 空きスロット数 (\"X/Y 使用\" 表示用)。" },
         { sig: "void SetOnChangeCallback(ChangeCallback cb, void* user)", desc: "スロット内容が変わるたびに呼ぶ<t>コールバック</t> (UI 反映 / SFX)。" },
-        { sig: "void ClearAll()", desc: "定義 + スロット内容を全クリア (再 Init 必須)。" }
+        { sig: "void ClearAll()", desc: "定義 + スロット内容を全クリア (再 Init 必須)。" },
+        { sig: "using FInventorySystem = CInventorySystem", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CInventorySystem</code> を使う。" }
       ]
     },
     {
@@ -358,11 +363,11 @@ ACS_REF.modules.push({
     // LapTimer.h
     // =====================================================================
     {
-      name: "FLapTimer",
+      name: "CLapTimer",
       kind: "クラス", header: "gameframework/LapTimer.h",
       summary: "レースゲームの<b>ラップ計測 + 順位算出</b>を一元管理するマネージャ。チェックポイント順序検証・ベストラップ更新・フィニッシュ判定・リアルタイム順位ソートをまとめる。",
       when: "レーシング系を作る時。トラックの collider から通過通知を投げ、UI は順位/統計を読むだけで成立する。ショートカットや逆走は順序検証で弾く。",
-      sample: "FLapTimer lt;\nlt.Init(/*total_laps=*/3, /*checkpoints_per_lap=*/4);\nFRacerId p = lt.AddRacer(\"Player\");\nlt.Start();\n// collider event:\nlt.NotifyCheckpointPassed(p, cp_index);\nlt.NotifyLapCompleted(p);\n// UI:\nu32 pos = lt.PositionOf(p); // 1 = leader",
+      sample: "CLapTimer lt;\nlt.Init(/*total_laps=*/3, /*checkpoints_per_lap=*/4);\nFRacerId p = lt.AddRacer(\"Player\");\nlt.Start();\n// collider event:\nlt.NotifyCheckpointPassed(p, cp_index);\nlt.NotifyLapCompleted(p);\n// UI:\nu32 pos = lt.PositionOf(p); // 1 = leader",
       members: [
         { sig: "void Init(u32 total_laps, u32 checkpoints_per_lap)", desc: "周回数 / 1 周の checkpoint 数を設定。racer は維持して state を Stopped に。" },
         { sig: "FRacerId AddRacer(const char* display_name) / void RemoveRacer(FRacerId)", desc: "racer 追加 (名前は非所有) / 削除 (スロットは世代付きで再利用)。" },
@@ -376,7 +381,8 @@ ACS_REF.modules.push({
         { sig: "FRacerId GetLeader() const / u32 PositionOf(FRacerId) const", desc: "現在の 1 位 / 1-origin の現在順位。" },
         { sig: "u32 LapRecordCount(FRacerId) const / const FLapRecord* GetLapRecord(FRacerId, u32)", desc: "完了ラップ数 / n 番目のラップ記録。" },
         { sig: "void SetOnLapCallback / SetOnFinishCallback(cb, user)", desc: "ラップ完了 / レース完了の<t>コールバック</t>登録。" },
-        { sig: "u32 RacerCount() const / void ClearAll()", desc: "登録 racer 数 / 全 racer 破棄 (Init 設定と callback は保持)。" }
+        { sig: "u32 RacerCount() const / void ClearAll()", desc: "登録 racer 数 / 全 racer 破棄 (Init 設定と callback は保持)。" },
+        { sig: "using FLapTimer = CLapTimer", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CLapTimer</code> を使う。" }
       ]
     },
     {
@@ -423,11 +429,11 @@ ACS_REF.modules.push({
     // LlmSafetyPipeline.h
     // =====================================================================
     {
-      name: "FLlmSafetyPipeline",
+      name: "CLlmSafetyPipeline",
       kind: "クラス", header: "gameframework/LlmSafetyPipeline.h",
       summary: "<t>LLM</t> で喋る NPC のセリフ生成経路に対し、入力検証・jailbreak 検出・<t>PII</t>除去・コンテンツレーティング・トークン予算・refusal 強制を bit flag で束ねた安全パイプライン。",
       when: "プレイヤー入力を LLM に渡す前 (<code>ValidateInput</code>) と、LLM 応答を画面に出す前 (<code>FilterOutput</code>) に通す時。ルールベースで常に同じ判定を返すので「NPC が黙る/別セリフ」分岐を確実に書ける。",
-      sample: "FLlmSafetyPipeline pipe;\npipe.Init();\npipe.SetTokenBudget(1024, 512);\npipe.SetCharacterAnchor(\"You are a friendly shopkeeper.\");\nauto in = pipe.ValidateInput(player_text);\nif (in.verdict != ESafetyVerdict::Pass) { ShowRefusal(in.refusal_reason); return; }\nauto out = pipe.FilterOutput(llm_text);\nif (out.verdict == ESafetyVerdict::Refused) { NpcSilent(); return; }\nDisplay(out.filtered_text);",
+      sample: "CLlmSafetyPipeline pipe;\npipe.Init();\npipe.SetTokenBudget(1024, 512);\npipe.SetCharacterAnchor(\"You are a friendly shopkeeper.\");\nauto in = pipe.ValidateInput(player_text);\nif (in.verdict != ESafetyVerdict::Pass) { ShowRefusal(in.refusal_reason); return; }\nauto out = pipe.FilterOutput(llm_text);\nif (out.verdict == ESafetyVerdict::Refused) { NpcSilent(); return; }\nDisplay(out.filtered_text);",
       members: [
         { sig: "void Init(ESafetyRule rules = ESafetyRule::Default)", desc: "bit flag で有効機能を選んで初期化。既定は全機能 on。" },
         { sig: "void SetTokenBudget(u32 max_in, u32 max_out)", desc: "入出力のトークン上限 (簡易: 1 token ≒ 4 byte)。0 で当該方向のチェック無効。" },
@@ -436,7 +442,8 @@ ACS_REF.modules.push({
         { sig: "FSafetyResult FilterOutput(const char* llm_response)", ret: "判定結果", desc: "LLM 応答を表示前に検証/フィルタ。判定順は Refusal → Rating → PII。PII は <code>[REDACTED]</code> 置換で Filtered。" },
         { sig: "bool IsRuleEnabled(ESafetyRule) const / void EnableRule(ESafetyRule, bool)", desc: "個別ルールの on/off 照会・切替。" },
         { sig: "u32 RefusedCount() / FilteredCount() const", desc: "拒否 / フィルタ回数の統計 (テレメトリ用)。" },
-        { sig: "void Reset()", desc: "統計とキャラ anchor を初期化 (rules / budget は保持)。" }
+        { sig: "void Reset()", desc: "統計とキャラ anchor を初期化 (rules / budget は保持)。" },
+        { sig: "using FLlmSafetyPipeline = CLlmSafetyPipeline", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CLlmSafetyPipeline</code> を使う。" }
       ]
     },
     {
@@ -468,11 +475,11 @@ ACS_REF.modules.push({
     // LocalizationDirector.h
     // =====================================================================
     {
-      name: "FLocalizationDirector",
+      name: "CLocalizationDirector",
       kind: "クラス", header: "gameframework/LocalizationDirector.h",
       summary: "「ロケール + 文字列 ID」を「翻訳済みの文字列」に解決する<t>i18n</t> (多言語化) ストア。UI ラベル / セリフ / メニュー文言を言語非依存に引ける。",
       when: "ゲームを多言語対応させたい時。現 locale → Default(En) → key 自身、の 3 段フォールバックで、未翻訳箇所が画面で key として見えるので発見しやすい。",
-      sample: "FLocalizationDirector loc;\nloc.RegisterString(ELocale::En, \"ui.title\", \"Adventure\");\nloc.RegisterString(ELocale::Ja, \"ui.title\", \"クロードの冒険\");\nloc.SetLocale(ELocale::Ja);\nconst char* t = loc.Get(\"ui.title\"); // -> \"クロードの冒険\"",
+      sample: "CLocalizationDirector loc;\nloc.RegisterString(ELocale::En, \"ui.title\", \"Adventure\");\nloc.RegisterString(ELocale::Ja, \"ui.title\", \"クロードの冒険\");\nloc.SetLocale(ELocale::Ja);\nconst char* t = loc.Get(\"ui.title\"); // -> \"クロードの冒険\"",
       members: [
         { sig: "void SetLocale(ELocale loc) / ELocale CurrentLocale() const", desc: "取得対象ロケールの切替 / 現在値。UI 言語切替で呼ぶ。" },
         { sig: "void RegisterString(ELocale loc, const char* key, const char* value)", desc: "指定ロケールに key→value を 1 件登録。key/value とも非所有 (リテラル想定)。" },
@@ -480,7 +487,8 @@ ACS_REF.modules.push({
         { sig: "const char* GetForLocale(ELocale loc, const char* key) const", desc: "指定 locale で引く (Default フォールバックなし、欠落は key 自身)。" },
         { sig: "bool Has(const char* key) const", desc: "現 locale に key が登録されているか (Default は見ない)。" },
         { sig: "u32 KeyCount(ELocale loc) const", desc: "指定 locale の登録件数。" },
-        { sig: "void Clear() / void ClearLocale(ELocale loc)", desc: "全削除 / 指定 locale のみ削除。" }
+        { sig: "void Clear() / void ClearLocale(ELocale loc)", desc: "全削除 / 指定 locale のみ削除。" },
+        { sig: "using FLocalizationDirector = CLocalizationDirector", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CLocalizationDirector</code> を使う。" }
       ]
     },
     {
@@ -493,11 +501,11 @@ ACS_REF.modules.push({
     // Lockstep.h
     // =====================================================================
     {
-      name: "FLockstep",
+      name: "CLockstep",
       kind: "クラス", header: "gameframework/Lockstep.h",
       summary: "<t>lockstep</t> ネットコードの入力レイヤ。1 tick = 1 フレーム分の入力 (FInputFrame) を記録/配信し、全クライアントが同じ順序で消費することで<t>決定論</t>シミュレーションを実現する土台。入力リプレイ・同期ずれ検証も担う。",
       when: "格闘 / RTS / GGPO 系のように「結果」ではなく「入力」を配信して全員が同じ計算を回すネット対戦や、replay / TAS を作る時。",
-      sample: "FLockstep ls;\nls.Init(ENetMode::Local, /*tick_rate_hz=*/60);\nFInputFrame f{ tick, 0, buttons, stick };\nls.RecordInput(f);\n// 後で:\nls.StartReplay();\nFInputFrame out;\nif (ls.ConsumeInput(tick, 0, out)) { /* シミュに反映 */ }",
+      sample: "CLockstep ls;\nls.Init(ENetMode::Local, /*tick_rate_hz=*/60);\nFInputFrame f{ tick, 0, buttons, stick };\nls.RecordInput(f);\n// 後で:\nls.StartReplay();\nFInputFrame out;\nif (ls.ConsumeInput(tick, 0, out)) { /* シミュに反映 */ }",
       members: [
         { sig: "void Init(ENetMode mode, u32 tick_rate_hz = 60)", desc: "モード設定 + tick/cursor リセット。既存 frames は破棄しない。" },
         { sig: "void RecordInput(const FInputFrame& frame)", desc: "入力 1 件を記録。Replay モード中は no-op。内部 tick を frame.tick+1 へ進める。" },
@@ -507,7 +515,8 @@ ACS_REF.modules.push({
         { sig: "u64 ComputeChecksum() const", ret: "ハッシュ", desc: "全 frame の FNV-1a-like u64 ハッシュ。<t>決定論</t>検証 / replay 同期ずれ検知に使う。" },
         { sig: "void Clear()", desc: "全 frames 破棄 + cursor/tick リセット。Mode は保持。" },
         { sig: "TResult<void> SaveToBuffer(u8* buf, u32 size, u32& out_written)", desc: "frames を <code>.acsl</code> レイアウトで書き出す (magic 'ACSL' + CRC32、round-trip 検証済み)。" },
-        { sig: "TResult<void> LoadFromBuffer(const u8* buf, u32 size)", desc: "<code>.acsl</code> バッファを検証して frames を置換復元する。" }
+        { sig: "TResult<void> LoadFromBuffer(const u8* buf, u32 size)", desc: "<code>.acsl</code> バッファを検証して frames を置換復元する。" },
+        { sig: "using FLockstep = CLockstep", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CLockstep</code> を使う。" }
       ]
     },
     {
@@ -524,18 +533,18 @@ ACS_REF.modules.push({
     {
       name: "ENetMode",
       kind: "列挙(enum)", header: "gameframework/Lockstep.h",
-      summary: "FLockstep の動作モード。Local (単独/記録のみ) / Lockstep (ネット対戦) / Replay (再生、記録は受け付けない)。",
+      summary: "CLockstep の動作モード。Local (単独/記録のみ) / Lockstep (ネット対戦) / Replay (再生、記録は受け付けない)。",
       when: "<code>Init</code> や <code>Mode()</code> でモードを扱う時。"
     },
     // =====================================================================
     // MatchGrid.h
     // =====================================================================
     {
-      name: "FMatchGrid",
+      name: "CMatchGrid",
       kind: "クラス", header: "gameframework/MatchGrid.h",
       summary: "Bejeweled / Candy Crush 系 <t>match-3</t> パズルのコアロジックを担う 2D グリッド。隣接 swap → 3 個以上の連続検出 → 消去 (special 効果) → 重力落下 → 補充 → 連鎖、までを内包する。",
       when: "マッチ 3 パズルを作る時。盤面の状態とロジックだけを持ち、VFX/SFX/スコアは消去コールバックで外に出す。",
-      sample: "FMatchGrid g;\ng.Init(8, 8, /*color_count=*/5);\ng.FillRandom(0xC0FFEEull); // 初期マッチが残らない決定論埋め\ng.SetOnClearCallback(&MyClearFx, &fx);\nif (g.TrySwap(3, 4, 4, 4)) {        // 成立すれば自動 resolve\n    u32 chains  = g.ChainLevel();\n    u32 cleared = g.TotalClearedThisChain();\n    g.ResetChain();\n}",
+      sample: "CMatchGrid g;\ng.Init(8, 8, /*color_count=*/5);\ng.FillRandom(0xC0FFEEull); // 初期マッチが残らない決定論埋め\ng.SetOnClearCallback(&MyClearFx, &fx);\nif (g.TrySwap(3, 4, 4, 4)) {        // 成立すれば自動 resolve\n    u32 chains  = g.ChainLevel();\n    u32 cleared = g.TotalClearedThisChain();\n    g.ResetChain();\n}",
       members: [
         { sig: "void Init(u32 width, u32 height, u32 color_count)", desc: "グリッドを初期化。color_count は使う色数 (色 ID は 1..color_count)。不正値は安全な既定に。" },
         { sig: "u32 Width() / u32 Height() const", desc: "盤面サイズ。" },
@@ -548,7 +557,8 @@ ACS_REF.modules.push({
         { sig: "u32 ApplyGravity() / u32 RefillFromTop()", desc: "空セルを上向きに吸い上げる 1 step / 上端の空をランダム色で埋める 1 step。" },
         { sig: "void SetOnClearCallback(ClearCallback cb, void* user)", desc: "消去 1 個ごとの<t>コールバック</t> (VFX/SFX/score hook)。" },
         { sig: "u32 TotalClearedThisChain() / u32 ChainLevel() const", desc: "現 chain の累計除去数 / cascade 段数。" },
-        { sig: "void ResetChain() / void ClearAll()", desc: "新ターン用に chain カウンタを 0 に / 全セルを空に (サイズは保持)。" }
+        { sig: "void ResetChain() / void ClearAll()", desc: "新ターン用に chain カウンタを 0 に / 全セルを空に (サイズは保持)。" },
+        { sig: "using FMatchGrid = CMatchGrid", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CMatchGrid</code> を使う。" }
       ]
     },
     {
@@ -579,7 +589,7 @@ ACS_REF.modules.push({
       when: "<code>Set</code> で特殊宝石を仕込む時、消去コールバックで効果を識別する時。"
     },
     {
-      name: "FMatchGrid::ClearCallback",
+      name: "CMatchGrid::ClearCallback",
       kind: "関数ポインタ型", header: "gameframework/MatchGrid.h",
       summary: "セル消去 1 個ごとの<t>コールバック</t>型。<code>void(*)(void* user, u32 x, u32 y, u8 color, ESpecialKind) noexcept</code>。",
       when: "<code>SetOnClearCallback</code> に渡し、VFX/SFX/スコア加算を行う時。"
@@ -601,10 +611,13 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FMlRuntimeStub",
+      name: "CMlRuntimeStub",
       kind: "クラス", header: "gameframework/MlRuntime.h",
       summary: "全メソッドが NotImplemented を返す <code>IMlRuntime</code> の<t>スタブ</t>実装。「ML 経路が常に失敗する」前提でフォールバックを正しく書けているか検証するためのもの。",
-      when: "backend 未統合の状態 (ACS_BUILD_ML_ONNX=OFF) や、ML SDK を持たない CI でロジック試験を回す時。"
+      when: "backend 未統合の状態 (ACS_BUILD_ML_ONNX=OFF) や、ML SDK を持たない CI でロジック試験を回す時。",
+      members: [
+        { sig: "using FMlRuntimeStub = CMlRuntimeStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CMlRuntimeStub</code> を使う。" }
+      ]
     },
     {
       name: "FMlModelHandle",
@@ -629,10 +642,13 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FUpscalerStub",
+      name: "CUpscalerStub",
       kind: "クラス", header: "gameframework/MlRuntime.h",
       summary: "Off 状態だけを返す <code>IUpscaler</code> の<t>スタブ</t>。<code>Init(Off)</code> は成功、それ以外は NotImplemented、入出力サイズは常に 0。",
-      when: "SDK 同梱前でも「FSR/DLSS/XeSS が常に使えない」前提でネイティブ描画フォールバックを書く時。"
+      when: "SDK 同梱前でも「FSR/DLSS/XeSS が常に使えない」前提でネイティブ描画フォールバックを書く時。",
+      members: [
+        { sig: "using FUpscalerStub = CUpscalerStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CUpscalerStub</code> を使う。" }
+      ]
     },
     {
       name: "EUpscalerKind",
@@ -656,11 +672,11 @@ ACS_REF.modules.push({
     // ModRegistry.h
     // =====================================================================
     {
-      name: "FModRegistry",
+      name: "CModRegistry",
       kind: "クラス", header: "gameframework/ModRegistry.h",
       summary: "ユーザー Mod (追加コンテンツパック) の登録・有効化・並び順を管理する薄いレジストリ。各 Mod は <code>.acpak</code> を伴い、load_order 順に重ねていく (後勝ちで同名アセットを上書き) 想定。",
       when: "Mod 対応ゲームで、Editor UI から Mod 一覧を出し、有効/無効や読み込み順を管理したい時。実際の mount は別レイヤ (本体は path を保持するだけ)。",
-      sample: "FModRegistry mr;\nFModInfo a{}; a.id=\"core\"; a.load_order=0; a.enabled=true;\na.pack_path=\"mods/core.acpak\";\nmr.Register(a);\nmr.Enable(\"weapons-ex\");\nmr.SortByLoadOrder();\nfor (u32 i=0; i<mr.Count(); ++i)\n    if (mr.All()[i].enabled) MountPack(mr.All()[i].pack_path);",
+      sample: "CModRegistry mr;\nFModInfo a{}; a.id=\"core\"; a.load_order=0; a.enabled=true;\na.pack_path=\"mods/core.acpak\";\nmr.Register(a);\nmr.Enable(\"weapons-ex\");\nmr.SortByLoadOrder();\nfor (u32 i=0; i<mr.Count(); ++i)\n    if (mr.All()[i].enabled) MountPack(mr.All()[i].pack_path);",
       members: [
         { sig: "void Register(const FModInfo& info)", desc: "Mod を末尾に追加 (浅いコピー、文字列の寿命は呼び出し側保証)。id==nullptr は無視。" },
         { sig: "bool Enable(const char* id) / bool Disable(const char* id)", desc: "enabled フラグを書き換え。見つかれば true。" },
@@ -669,7 +685,8 @@ ACS_REF.modules.push({
         { sig: "const FModInfo* Find(const char* id) const", desc: "id から Mod を引く。未検出は nullptr。" },
         { sig: "const FModInfo* All() const", desc: "生バッファ先頭 (長さは Count())。", when: "全 Mod を順に列挙する時。" },
         { sig: "void SortByLoadOrder()", desc: "load_order 昇順に安定ソート (同値は登録順を保つ)。" },
-        { sig: "void Clear()", desc: "全 Mod を削除。" }
+        { sig: "void Clear()", desc: "全 Mod を削除。" },
+        { sig: "using FModRegistry = CModRegistry", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CModRegistry</code> を使う。" }
       ]
     },
     {
@@ -688,11 +705,11 @@ ACS_REF.modules.push({
     // MusicDirector.h
     // =====================================================================
     {
-      name: "FMusicDirector",
+      name: "CMusicDirector",
       kind: "クラス", header: "gameframework/MusicDirector.h",
-      summary: "ゲームプレイ状態 (戦闘/平穏/勝利...) を BGM にマッピングする上位レイヤ。state ごとに track を登録し、激しさ (intensity) で曲を選び、クロスフェードや一発もの (stinger) を扱う。実再生は FAudioDirector に委ねる。",
-      when: "状況に応じて BGM を自動で切り替える「適応 BGM」を作る時。FAudioDirector が低レイヤの mixer/クロスフェードを担うのに対し、こちらは「どの track をどのゲインで鳴らすか」の state machine。",
-      sample: "FMusicDirector md;\nmd.SetAudioDirector(&audio);\nmd.RegisterTrack(EMusicState::Combat,\n    FMusicTrack{ \"bgm/combat.ogg\", 0.0f, 1.0f, true });\nmd.SetState(EMusicState::Combat, 2.0f); // 2 秒クロスフェード\nmd.SetIntensity(0.9f);                  // 高激戦\nmd.Tick(dt);",
+      summary: "ゲームプレイ状態 (戦闘/平穏/勝利...) を BGM にマッピングする上位レイヤ。state ごとに track を登録し、激しさ (intensity) で曲を選び、クロスフェードや一発もの (stinger) を扱う。実再生は CAudioDirector に委ねる。",
+      when: "状況に応じて BGM を自動で切り替える「適応 BGM」を作る時。CAudioDirector が低レイヤの mixer/クロスフェードを担うのに対し、こちらは「どの track をどのゲインで鳴らすか」の state machine。",
+      sample: "CMusicDirector md;\nmd.SetAudioDirector(&audio);\nmd.RegisterTrack(EMusicState::Combat,\n    FMusicTrack{ \"bgm/combat.ogg\", 0.0f, 1.0f, true });\nmd.SetState(EMusicState::Combat, 2.0f); // 2 秒クロスフェード\nmd.SetIntensity(0.9f);                  // 高激戦\nmd.Tick(dt);",
       members: [
         { sig: "void RegisterTrack(EMusicState state, const FMusicTrack& track)", desc: "state に track を登録 (複数可、intensity range で選別)。asset_path==nullptr は無視。" },
         { sig: "void SetState(EMusicState state, f32 transition_sec = 2.0f)", desc: "現 state → 指定 state へクロスフェード開始。<=0 は即時、同 state 再要求は no-op。" },
@@ -701,10 +718,11 @@ ACS_REF.modules.push({
         { sig: "void SetIntensity(f32 v) / f32 Intensity() const", desc: "同 state 内の激しさ [0,1] を設定/取得 (範囲外は clamp)。" },
         { sig: "void PlayStinger(const char* asset_path, f32 volume = 1.0f)", desc: "BGM を停めずに重ねる一発もの SFX (ボス出現/達成)。pending があれば最新で上書き。" },
         { sig: "bool HasPendingStinger() const / const char* ConsumeStinger(f32& out_volume)", desc: "未消費 stinger があるか / 取り出して pending を消す (ゲインを out で返す)。" },
-        { sig: "void SetAudioDirector(FAudioDirector* audio) / FAudioDirector* GetAudioDirector() const", desc: "実再生を委ねる低レイヤ director を結線 (非所有)。nullptr で state-only 動作 (無音)。" },
+        { sig: "void SetAudioDirector(CAudioDirector* audio) / CAudioDirector* GetAudioDirector() const", desc: "実再生を委ねる低レイヤ director を結線 (非所有)。nullptr で state-only 動作 (無音)。" },
         { sig: "void Tick(f32 dt)", desc: "毎フレーム呼び、transition / stinger タイマを進める。" },
         { sig: "void Stop()", desc: "Silent に即時切替 + stinger 破棄 (intensity は保持)。" },
-        { sig: "const FMusicTrack* CurrentTrack() / TargetTrack() const", desc: "現在/遷移先 state で intensity に合う track。該当なしは nullptr。" }
+        { sig: "const FMusicTrack* CurrentTrack() / TargetTrack() const", desc: "現在/遷移先 state で intensity に合う track。該当なしは nullptr。" },
+        { sig: "using FMusicDirector = CMusicDirector", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CMusicDirector</code> を使う。" }
       ]
     },
     {
@@ -728,11 +746,11 @@ ACS_REF.modules.push({
     // NetSnapshot.h
     // =====================================================================
     {
-      name: "FNetSnapshot",
+      name: "CNetSnapshot",
       kind: "クラス", header: "gameframework/NetSnapshot.h",
       summary: "<b>server-authoritative</b> な<t>snapshot</t>ベースのネットコード<t>シーム(seam)</t>。server は毎 tick の世界状態を 1 つの snapshot に固めて送信し、client は受信した snapshot を貯めて少し過去の時刻で<t>補間</t>表示する。",
-      when: "FPS / TPS / MMORPG のように「結果」だけを配信したい時。「入力」を配信する FLockstep と対になる、もう一つのネットコード流儀。実 socket は INetTransport で差し替える。",
-      sample: "FNetSnapshot snap;\nsnap.Init(cfg, ENetRole::Server, &transport);\n// server tick:\nfor (auto& e : world) snap.AddEntitySnapshot(e.id, e.mask, &e.data, sizeof(e.data));\nsnap.CommitSnapshot(world.tick);\n// client frame:\nsnap.Tick(dt);\nFEntitySnapshot view[256]; u32 n=0;\nif (snap.TryGetInterpolatedSnapshot(t, view, 256, n)) Draw(view, n);",
+      when: "FPS / TPS / MMORPG のように「結果」だけを配信したい時。「入力」を配信する CLockstep と対になる、もう一つのネットコード流儀。実 socket は INetTransport で差し替える。",
+      sample: "CNetSnapshot snap;\nsnap.Init(cfg, ENetRole::Server, &transport);\n// server tick:\nfor (auto& e : world) snap.AddEntitySnapshot(e.id, e.mask, &e.data, sizeof(e.data));\nsnap.CommitSnapshot(world.tick);\n// client frame:\nsnap.Tick(dt);\nFEntitySnapshot view[256]; u32 n=0;\nif (snap.TryGetInterpolatedSnapshot(t, view, 256, n)) Draw(view, n);",
       members: [
         { sig: "void Init(const FNetSnapshotConfig& cfg, ENetRole role, INetTransport* transport)", desc: "設定・役割・transport を結線。Standalone は transport=nullptr 可、他は内部で stub に差し替え。" },
         { sig: "void Shutdown()", desc: "ring buffer / pending / 統計をリセット (transport は触らない)。" },
@@ -743,14 +761,15 @@ ACS_REF.modules.push({
         { sig: "void Tick(f32 dt)", desc: "[client/listener] transport.Receive を pump し、受信 snapshot を ring buffer に積む。" },
         { sig: "u32 PacketsSent/PacketsReceived/BytesSent/BytesReceived() const", desc: "送受信統計。" },
         { sig: "static u32 EncodedSnapshotSize(u32 payload_size)", desc: "1 frame の総バイト数 = magic+version+header(24)+payload+crc32(4)。" },
-        { sig: "static TResult<void> EncodeSnapshot(...) / DecodeSnapshot(...)", desc: "transport 非依存の wire codec。header+payload を byte 列に直列化 / 検証復元 (magic 'ACSN' + CRC32、round-trip 可)。", when: "テスト / loopback / record-replay で再利用する時。" }
+        { sig: "static TResult<void> EncodeSnapshot(...) / DecodeSnapshot(...)", desc: "transport 非依存の wire codec。header+payload を byte 列に直列化 / 検証復元 (magic 'ACSN' + CRC32、round-trip 可)。", when: "テスト / loopback / record-replay で再利用する時。" },
+        { sig: "using FNetSnapshot = CNetSnapshot", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CNetSnapshot</code> を使う。" }
       ]
     },
     {
       name: "INetTransport",
       kind: "インターフェース", header: "gameframework/NetSnapshot.h",
       summary: "ネットワークの実体を抽象化する<t>シーム(seam)</t>。Connect / Disconnect / Send / Receive 等の最小 API だけを切り、TCP/UDP/Steam Datagram/loopback fake を派生で差し込む。",
-      when: "FNetSnapshot に socket を差し替えたい時。Send/Receive は非ブロッキングでメッセージ境界を保持する契約。",
+      when: "CNetSnapshot に socket を差し替えたい時。Send/Receive は非ブロッキングでメッセージ境界を保持する契約。",
       members: [
         { sig: "virtual TResult<void> Connect(const char* address, u16 port) noexcept = 0", desc: "接続。address は静的/長寿命文字列。" },
         { sig: "virtual void Disconnect() noexcept = 0 / virtual bool IsConnected() const noexcept = 0", desc: "切断 (べき等) / 接続中か。" },
@@ -760,27 +779,31 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FUdpTransport",
+      name: "CUdpTransport",
       kind: "クラス", header: "gameframework/NetSnapshot.h",
       summary: "<code>INetTransport</code> の<b>実 Winsock2 UDP 実装</b>。1 Send = 1 sendto = 1 datagram、1 Receive = 1 recvfrom = 1 datagram でメッセージ境界保持の契約を満たす。",
       when: "実際に UDP で snapshot を送受信したい時。loopback round-trip 検証済みの本実装 (stub ではない)。",
-      sample: "FUdpTransport server, client;\nserver.SetLocalPort(50000);\nserver.Connect(\"127.0.0.1\", 50001); // 送り先=client\nclient.SetLocalPort(50001);\nclient.Connect(\"127.0.0.1\", 50000);\nserver.Send(frame, n);\nu8 buf[2048]; auto r = client.Receive(buf, sizeof(buf));",
+      sample: "CUdpTransport server, client;\nserver.SetLocalPort(50000);\nserver.Connect(\"127.0.0.1\", 50001); // 送り先=client\nclient.SetLocalPort(50001);\nclient.Connect(\"127.0.0.1\", 50000);\nserver.Send(frame, n);\nu8 buf[2048]; auto r = client.Receive(buf, sizeof(buf));",
       members: [
         { sig: "void SetLocalPort(u16 port) / u16 LocalPort() const", desc: "bind する local port を指定 (0=OS が ephemeral)。Connect 前に呼ぶ。" },
         { sig: "TResult<void> Connect(const char* address, u16 port) noexcept override", desc: "WSAStartup → UDP socket 生成 → 非ブロッキング化 → bind → remote endpoint 保持。" },
-        { sig: "TResult<void> Send / TResult<u32> Receive(...) noexcept override", desc: "sendto / recvfrom。WSAEWOULDBLOCK は buffer 満杯 / 受信なしとして扱う。" }
+        { sig: "TResult<void> Send / TResult<u32> Receive(...) noexcept override", desc: "sendto / recvfrom。WSAEWOULDBLOCK は buffer 満杯 / 受信なしとして扱う。" },
+        { sig: "using FUdpTransport = CUdpTransport", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CUdpTransport</code> を使う。" }
       ]
     },
     {
-      name: "FNetTransportStub",
+      name: "CNetTransportStub",
       kind: "クラス", header: "gameframework/NetSnapshot.h",
       summary: "<code>INetTransport</code> の null-object <t>スタブ</t>。Connect/Send/Receive は必ず Err を返す。サンプル/テスト/リンク互換用。",
-      when: "本番ビルドに混入したケースを QA で必ず検出させたい時。<code>GetTransportStub()</code> でプロセス共有インスタンスを取得できる。"
+      when: "本番ビルドに混入したケースを QA で必ず検出させたい時。<code>GetTransportStub()</code> でプロセス共有インスタンスを取得できる。",
+      members: [
+        { sig: "using FNetTransportStub = CNetTransportStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CNetTransportStub</code> を使う。" }
+      ]
     },
     {
       name: "ENetRole",
       kind: "列挙(enum)", header: "gameframework/NetSnapshot.h",
-      summary: "FNetSnapshot の役割。Client (受信のみ) / Server (送信のみ) / ServerListener (listen-server で両方) / Standalone (通信なし、全 API no-op)。",
+      summary: "CNetSnapshot の役割。Client (受信のみ) / Server (送信のみ) / ServerListener (listen-server で両方) / Standalone (通信なし、全 API no-op)。",
       when: "<code>Init</code> で自機の役割を指定する時。"
     },
     {
@@ -807,7 +830,7 @@ ACS_REF.modules.push({
     {
       name: "FNetSnapshotConfig",
       kind: "構造体", header: "gameframework/NetSnapshot.h",
-      summary: "FNetSnapshot のランタイム設定。commit 目標 Hz・ring buffer 件数・補間遅延秒・payload 上限。",
+      summary: "CNetSnapshot のランタイム設定。commit 目標 Hz・ring buffer 件数・補間遅延秒・payload 上限。",
       when: "<code>Init</code> に渡す。",
       members: [
         { sig: "u32 snapshot_rate_hz", desc: "server の目標 commit Hz (自動 throttle はしない)。" },
@@ -819,7 +842,7 @@ ACS_REF.modules.push({
     {
       name: "FNetSnapshotError",
       kind: "構造体", header: "gameframework/NetSnapshot.h",
-      summary: "FNetSnapshot / transport 共通のエラー subcode 集。NotConnected / BadArgument / BufferFull / PayloadTooBig / BadMagic / BadCrc や、UDP 固有の WSA エラー等を固定値で持つ。",
+      summary: "CNetSnapshot / transport 共通のエラー subcode 集。NotConnected / BadArgument / BufferFull / PayloadTooBig / BadMagic / BadCrc や、UDP 固有の WSA エラー等を固定値で持つ。",
       when: "<code>TResult</code> の失敗時に subcode で switch 分岐したい時。"
     },
     {
@@ -854,6 +877,33 @@ ACS_REF.modules.push({
         { sig: "void UpdateTree(f32) / FixedUpdateTree(f32) / DrawTree(FRenderContext&amp;) / DrawTreeSorted(FRenderContext&amp;)", desc: "root から呼ぶ subtree 走査。sorted 版は可視ノードを安定収集して layer/priority/Y で描く。全 key が既定値なら従来ツリー順の fast path。", when: "毎フレーム root に対して呼ぶ。" },
         { sig: "void ResolveStructuralChanges()", desc: "フレーム境界で 1 回。pending な破棄/Reparent をまとめて適用する (子から先に reap)。" },
         { sig: "u32 ComponentCount() const", desc: "このノードに attach 済みの<t>コンポーネント</t>数。" }
+      ]
+    },
+    {
+      name: "ALegacyScene3DAdapter",
+      kind: "クラス", header: "gameframework/LegacyScene3DAdapter.h",
+      summary: "旧scene 3D入口を現行scene lifecycleへ接続する互換object。",
+      when: "旧scene実装を段階的に移行する時。",
+      members: [
+        { sig: "using FLegacyScene3DAdapter = ALegacyScene3DAdapter", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>ALegacyScene3DAdapter</code> を使う。" }
+      ]
+    },
+    {
+      name: "CMethodAutoRegister",
+      kind: "構造体", header: "gameframework/ReflectMethod.h",
+      summary: "静的初期化時にmethodをregistryへ登録する補助。",
+      when: "method登録macroの生成コードから使う時。",
+      members: [
+        { sig: "using FMethodAutoRegister = CMethodAutoRegister", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CMethodAutoRegister</code> を使う。" }
+      ]
+    },
+    {
+      name: "CMethodRegistry",
+      kind: "クラス", header: "gameframework/ReflectMethod.h",
+      summary: "reflection methodの登録と検索を提供する。",
+      when: "登録済みmethodを名前から呼び出す時。",
+      members: [
+        { sig: "using FMethodRegistry = CMethodRegistry", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CMethodRegistry</code> を使う。" }
       ]
     }
   ]

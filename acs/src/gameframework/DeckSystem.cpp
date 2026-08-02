@@ -60,7 +60,7 @@ void CDeckSystem::RegisterCard(const FCardDef& def) noexcept {
 
     // 同 id の 2 重登録は no-op (アセット二重ロード保護)。
     if (FindCardSlot(def.id) != kNotFound) {
-        ACS_LOG_WARN("FDeckSystem: duplicate card registration ignored ('%s')", def.id);
+        ACS_LOG_WARN("CDeckSystem: duplicate card registration ignored ('%s')", def.id);
         return;
     }
 
@@ -81,7 +81,7 @@ void CDeckSystem::AddToDeck(const char* card_id, u32 count) noexcept {
     const u32 def_idx = FindCardSlot(card_id);
     if (def_idx == kNotFound) {
         // 未登録カードはデッキに入れない (アセットエラーを早期に拾う)。
-        ACS_LOG_WARN("FDeckSystem: AddToDeck for unregistered card ('%s') ignored", card_id);
+        ACS_LOG_WARN("CDeckSystem: AddToDeck for unregistered card ('%s') ignored", card_id);
         return;
     }
 

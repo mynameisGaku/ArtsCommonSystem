@@ -13,12 +13,12 @@ using namespace acs;
 
 namespace helloraycast3d {
 
-void FHudRenderer::Draw(FSpriteBatch& batch,
+void CHudRenderer::Draw(CSpriteBatch& batch,
                        FFont& font,
                        IRhiCommandList& cl,
                        u32 screen_w,
                        u32 screen_h,
-                       const FRaycastTargets& targets) noexcept {
+                       const CRaycastTargets& targets) noexcept {
     // FFont 未ロードならスキップ (FSample::TryLoadDefaultUIFont が失敗する環境を許容)
     if (!font.AtlasTexture()) return;
 

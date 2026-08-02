@@ -28,7 +28,7 @@
 //
 // 設計選択:
 //   ・**non-copy / non-move**: 内部 TArray<FCollapsedEntry> + raw pointer の所有を
-//     曖昧にしない。FInspectorSeam / AParticleEditorPanel と同じ規約。
+//     曖昧にしない。CInspectorSeam / AParticleEditorPanel と同じ規約。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range / nullptr 等を
 //     no-op で表現。
 //   ・**STL 不使用**: 折りたたみ状態は `TArray<FCollapsedEntry>` の linear search

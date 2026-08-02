@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloLevelEditor — Scene。Workspace + FLevelEditorPanel + FTilemap (32x32, 2 layer)。
+// HelloLevelEditor — Scene。Workspace + ALevelEditorPanel + FTilemap (32x32, 2 layer)。
 //
 // 初期 tilemap パターン:
 //   - layer 0 (床) : 全面 tile id=1 で埋める (= 緑系の床色)
@@ -21,7 +21,7 @@
 
 namespace hellole {
 
-class FLevelEditorScene : public acs::game::FScene {
+class ALevelEditorScene : public acs::game::AScene {
 public:
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
@@ -42,13 +42,13 @@ private:
     static constexpr const char* kSavePath = "tilemap.acstilemap";
 
     // ImGui ベースのエディタ基盤 (Workspace + Theme)。
-    acs::game::editor_core::FEditorWorkspace m_Workspace;
-    acs::game::editor_core::FEditorTheme     m_Theme;
+    acs::game::editor_core::CEditorWorkspace m_Workspace;
+    acs::game::editor_core::CEditorTheme     m_Theme;
 
     // FTilemap を編集するための ImGui Panel。
-    acs::game::leveledit::FLevelEditorPanel  m_LevelPanel;
+    acs::game::leveledit::ALevelEditorPanel  m_LevelPanel;
 
-    // 編集対象 FTilemap。FLevelEditorPanel に raw 参照で渡す (所有は本 Scene 側)。
+    // 編集対象 FTilemap。ALevelEditorPanel に raw 参照で渡す (所有は本 Scene 側)。
     acs::game::FTilemap                      m_Tilemap;
 };
 

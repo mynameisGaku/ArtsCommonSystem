@@ -49,7 +49,7 @@ const FSettingDesc kSchema[] = {
     { "Rendering", "FogDensity",    ESettingType::Float, "0",              nullptr,
       "3D ボリュメトリック指数ハイトフォグの密度。0=オフ / 0.02〜0.05 で自然な大気感。色は空の地平色に追従" },
     { "Rendering", "SkyMode",       ESettingType::Int,   "0",              nullptr,
-      "3D 空モデル。0=FSky (グラデ+手続き雲) / 1=FAtmosphere (物理大気散乱 Rayleigh+Mie、背景と IBL が物理ベースに。要 Diligent)" },
+      "3D 空モデル。0=CSky (グラデ+手続き雲) / 1=CAtmosphere (物理大気散乱 Rayleigh+Mie、背景と IBL が物理ベースに。要 Diligent)" },
     { "Rendering", "AerialPerspective", ESettingType::Int, "0",            nullptr,
       "3D 物理大気の空気遠近法。0=オフ / 1=オン。距離に応じた散乱と透過率をカメラボリュームで合成" },
     { "Rendering", "CloudCoverage", ESettingType::Float, "0.5",            nullptr,
@@ -659,7 +659,7 @@ bool CProjectSettings::Save(const char* ini_path) const noexcept {
     if (ini_path == nullptr || !path_terminated || path_length == 0u) return false;
     FILE* f = std::fopen(ini_path, "wb");
     if (f == nullptr) {
-        ACS_LOG_WARN("FProjectSettings: 保存先を開けません: %s", ini_path);
+        ACS_LOG_WARN("CProjectSettings: 保存先を開けません: %s", ini_path);
         return false;
     }
     bool write_ok =

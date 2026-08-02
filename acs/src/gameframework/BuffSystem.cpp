@@ -85,7 +85,7 @@ void CBuffSystem::RegisterBuff(const FBuffDef& def) noexcept {
 
     // 同 id の 2 重登録は no-op (アセット二重ロード保護)。
     if (FindBuffDefSlot(def.id) != kNotFound) {
-        ACS_LOG_WARN("FBuffSystem: duplicate buff registration ignored ('%s')", def.id);
+        ACS_LOG_WARN("CBuffSystem: duplicate buff registration ignored ('%s')", def.id);
         return;
     }
 
@@ -117,7 +117,7 @@ FBuffOwnerId CBuffSystem::CreateOwner() noexcept {
 
     // 末尾追加。24bit index 上限に達したら invalid。
     if (n >= static_cast<usize>(FBuffOwnerId::kMaxIndex)) {
-        ACS_LOG_WARN("FBuffSystem: owner index space exhausted (>= 16M)");
+        ACS_LOG_WARN("CBuffSystem: owner index space exhausted (>= 16M)");
         return FBuffOwnerId{};
     }
     m_Owners.PushBack({});

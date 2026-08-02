@@ -4,10 +4,9 @@
 
 namespace hellocrash {
 
-class FCrashReporterDemoApp {
+class CCrashReporterDemoApp {
 public:
     int Run() noexcept;
 };
 
 } // namespace hellocrash
-

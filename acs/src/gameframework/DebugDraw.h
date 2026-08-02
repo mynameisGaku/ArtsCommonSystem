@@ -5,8 +5,8 @@
 //
 // 設計選択:
 //   ・**描画と分離**: CDebugDraw 自体はジオメトリ蓄積のみ。レンダラ非依存。
-//     描画システムが Lines() / LineCount() を読み取って FSpriteBatch 等で
-//     1 フレーム末にまとめて描画する想定。Pillar H の他の描画系（FSpriteBatch /
+//     描画システムが Lines() / LineCount() を読み取って CSpriteBatch 等で
+//     1 フレーム末にまとめて描画する想定。Pillar H の他の描画系（CSpriteBatch /
 //     particle system / 自前 DX12）どれでも消費できる。
 //   ・**immediate-mode API**: DrawLine / DrawAabb / DrawCircle / DrawCross を
 //     ゲームロジックの任意の場所から呼べる。フレーム頭で Clear() を呼ぶだけ。
@@ -50,7 +50,7 @@ namespace acs::game {
  * 実描画は行わず、ジオメトリの蓄積のみを担うレンダラ非依存の state holder。
  * DrawLine/DrawAabb/DrawCircle/DrawCross をゲームロジックの任意の場所から呼び、
  * フレーム頭で Clear() する運用を想定する。描画システムは Lines() / LineCount()
- * を読み取って FSpriteBatch 等でまとめて描画する。円は内部で線分列に分解して保持する。
+ * を読み取って CSpriteBatch 等でまとめて描画する。円は内部で線分列に分解して保持する。
  * 内部 TArray の誤コピー事故を防ぐため非コピー・非ムーブ。
  */
 class CDebugDraw {

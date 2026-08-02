@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloSceneInspector — FSceneInspectorApp 実装。
+// HelloSceneInspector — CSceneInspectorApp 実装。
 #include "SceneInspectorApp.h"
 #include "SceneInspectorScene.h"
 
@@ -10,39 +10,39 @@ using namespace acs::game;
 
 namespace helloscene {
 
-void FSceneInspectorApp::OnStart() noexcept {
+void CSceneInspectorApp::OnStart() noexcept {
     if (auto r = m_Imgui.Init(GetWindow(), GetRenderer()); r.IsErr()) {
-        ACS_LOG_ERROR("[FSceneInspectorApp] ImGuiCtx.Init failed -> Quit");
+        ACS_LOG_ERROR("[CSceneInspectorApp] ImGuiCtx.Init failed -> Quit");
         Quit();
         return;
     }
     // 基底の OnStart は InitialScene() を push する。
-    FGame::OnStart();
+    CGame::OnStart();
 }
 
-void FSceneInspectorApp::OnRender() noexcept {
+void CSceneInspectorApp::OnRender() noexcept {
     // ImGui フレーム開始 → Scene::OnRender 内で ImGui::* が呼ばれる →
     // ImGui の描画コマンドをコマンドリストに発行、の順。この順番でないと
     // Scene 側が ImGui::* を呼べない。
     m_Imgui.NewFrame();
-    FGame::OnRender();
+    CGame::OnRender();
     m_Imgui.Render();
 }
 
-void FSceneInspectorApp::OnShutdown() noexcept {
+void CSceneInspectorApp::OnShutdown() noexcept {
     // Scene 側を先に止めてから ImGui を落とす (Scene が ImGui::* を握って
     // ないことを保証)。
-    FGame::OnShutdown();
+    CGame::OnShutdown();
     m_Imgui.Shutdown();
 }
 
-void FSceneInspectorApp::OnEvent(const FEvent& e) noexcept {
+void CSceneInspectorApp::OnEvent(const FEvent& e) noexcept {
     m_Imgui.OnEvent(e);
-    FGame::OnEvent(e);
+    CGame::OnEvent(e);
 }
 
-TUniquePtr<FScene> FSceneInspectorApp::InitialScene() noexcept {
-    return MakeUnique<FSceneInspectorScene>();
+TUniquePtr<AScene> CSceneInspectorApp::InitialScene() noexcept {
+    return MakeUnique<ASceneInspectorScene>();
 }
 
 } // namespace helloscene

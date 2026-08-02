@@ -14,7 +14,7 @@
 // 役割の境界:
 //   ・本クラスは「どの clip を / いつから / どの blend alpha で再生するか」
 //     という meta 制御のみ。bone palette 計算 / GPU upload / final pose 算出は
-//     呼出側 renderer + FAnimationPlayer (gameframework_anim 等の別レイヤ) に
+//     呼出側 renderer + CAnimationPlayer (gameframework_anim 等の別レイヤ) に
 //     委譲する。本クラスは clip_index と blend_alpha を提供するだけ。
 //   ・clip データ (key 列 / bone curve) は外部 (model loader) が所有。本クラスは
 //     `FAnimationClipBinding` (name / duration / looping / default speed) という
@@ -73,7 +73,7 @@
 //   ・**非コピー・非ムーブ**, 全 noexcept, STL 不使用, `<string>` 禁止。
 //
 // 参考: CSpriteAnimator (frame anim), FAnimationCurve (curve), TStateMachine<T> (FSM 基盤),
-//      FModelAnimationPanel (UI 連動可能)
+//      AModelAnimationPanel (UI 連動可能)
 #pragma once
 
 #include "foundation/Types.h"
@@ -126,7 +126,7 @@ enum class EAnimationGraphState : u8 {
  * 名前空間で別物。本構造は acs::game 直下に置く。
  */
 struct FAnimationClipBinding {
-    /** デバッグ表示 / 外部 FAnimationPlayer 解決用名 (literal 寿命は caller 管理)。 */
+    /** デバッグ表示 / 外部 CAnimationPlayer 解決用名 (literal 寿命は caller 管理)。 */
     const char* clip_name     = nullptr;
 
     /** clip の長さ (秒)。0 以下は内部で 0 にクランプして進行させない。 */

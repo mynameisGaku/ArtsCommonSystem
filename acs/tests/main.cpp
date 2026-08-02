@@ -17,23 +17,23 @@ bool TextEquals(const char* left, const char* right) noexcept
 }
 
 /**
- * FSystemAllocator の未解放破棄を隔離プロセス内で発生させる。
+ * CSystemAllocator の未解放破棄を隔離プロセス内で発生させる。
  *
  * @details 累積診断値を通常の単体テストプロセスへ残さず、親が標準エラーを検証できるようにする。
  */
 int RunSystemAllocatorDestructionProbe() noexcept
 {
-    const acs::FSystemAllocatorProcessStatistics baseline = acs::FSystemAllocator::CaptureProcessStatistics();
+    const acs::FSystemAllocatorProcessStatistics baseline = acs::CSystemAllocator::CaptureProcessStatistics();
     acs::u64 abandoned_bytes = 0;
     {
-        acs::FSystemAllocator allocator;
+        acs::CSystemAllocator allocator;
         void* const allocation = allocator.Alloc(96u, 32u, acs::FSourceLoc::Current());
         if (!allocation) return 71;
 
         abandoned_bytes = allocator.BytesAllocated();
     }
 
-    const acs::FSystemAllocatorProcessStatistics after = acs::FSystemAllocator::CaptureProcessStatistics();
+    const acs::FSystemAllocatorProcessStatistics after = acs::CSystemAllocator::CaptureProcessStatistics();
     const bool valid = after.live_allocator_count == baseline.live_allocator_count &&
                        after.destroyed_with_live_allocations_count ==
                            baseline.destroyed_with_live_allocations_count + 1u &&
@@ -82,11 +82,11 @@ int main(int argument_count, char** arguments)
     cfg.console = true;
     cfg.debug_output = false;
     cfg.min_severity = acs::ELogSeverity::Info;
-    acs::FLogger::Init(cfg);
+    acs::CLogger::Init(cfg);
 
     int rc = acs::test::RunAll();
 
-    acs::FLogger::Flush();
-    acs::FLogger::Shutdown();
+    acs::CLogger::Flush();
+    acs::CLogger::Shutdown();
     return rc;
 }

@@ -8,15 +8,15 @@
 // composite に子追加 / 配置入替) は範囲外。
 //
 // 役割分担:
-//   ・本パネルは「**実行中の BT を観察する**」のが第一責務。FBehaviorTree 本体は
-//     panel が直接 walk しない (= FBtSelector / FBtSequence の `m_Children` は private、
-//     ACS は RTTI 無効で `dynamic_cast` も使えない、FBtAction の `m_Fn` も private、
+//   ・本パネルは「**実行中の BT を観察する**」のが第一責務。CBehaviorTree 本体は
+//     panel が直接 walk しない (= ABtSelector / ABtSequence の `m_Children` は private、
+//     ACS は RTTI 無効で `dynamic_cast` も使えない、ABtAction の `m_Fn` も private、
 //     という三重の事情で実体ツリーを panel から覗けない)。
 //     代わりに「**メタデータミラー**」: ユーザ (sample / ゲーム側) が AddNode で
 //     「親 id・kind・表示名」を panel に push し、panel はそのミラーを描画する。
 //     実体 BT とメタミラーの構造が乖離しない責務はユーザ側にあるが、最も
 //     一般的な「BT 構築直後にミラーも組み立てる」運用なら手書きでも整合は楽。
-//   ・ノードごとの `last_status` は SetNodeStatus で push してもらう。`FBtAction`
+//   ・ノードごとの `last_status` は SetNodeStatus で push してもらう。`ABtAction`
 //     の関数ポインタが Tick されるたびに `panel.SetNodeStatus(my_id, ret)` を
 //     呼ぶ規約。composite (Selector / Sequence) の status は root から伝搬する
 //     必要があるが、panel 側は気にしない (= ユーザ自由)。
@@ -95,11 +95,11 @@
 namespace acs::game::btedit {
 
 /**
- * メタミラー上の BT node 種別 (実体 BT の FBtNode 派生に対応)。
+ * メタミラー上の BT node 種別 (実体 BT の ABtNode 派生に対応)。
  *
  * @details
  * 実体 BT 側で RTTI 抜きに種別を判定できないため、メタミラー側で明示的に保持する。
- * FBtSelector → Selector、FBtSequence → Sequence、FBtAction → Action に 1:1 対応する想定。
+ * ABtSelector → Selector、ABtSequence → Sequence、ABtAction → Action に 1:1 対応する想定。
  */
 enum class EBtKind : u8 {
     /** Selector composite (子を順に試し、最初に成功した子で成功)。 */
@@ -213,7 +213,7 @@ struct FBtGraphPersistenceResult {
 };
 
 /**
- * FBehaviorTree を可視化 + step debug する ImGui パネル。
+ * CBehaviorTree を可視化 + step debug する ImGui パネル。
  *
  * @details
  * 実行中の BT を観察するのが第一責務。実体ツリーは private メンバ + RTTI 無効で
@@ -233,10 +233,10 @@ public:
      * だけを呼ぶ (= ユーザに blackboard を渡す自由を与える)。callback 側で
      * tree->Tick(my_bb, dt) を呼ぶ規約。
      * @param user SetOnStepCallback の第二引数で渡したポインタがそのまま戻る。
-     * @param tree 観察中の FBehaviorTree。
+     * @param tree 観察中の CBehaviorTree。
      * @param dt この tick で進める秒数。
      */
-    using StepCallback = void(*)(void* user, FBehaviorTree* tree, f32 dt) noexcept;
+    using StepCallback = void(*)(void* user, CBehaviorTree* tree, f32 dt) noexcept;
 
     /** 履歴 ring buffer の長さ (frame 数)。仕様で 60 frame 固定。 */
     static constexpr u32 kHistorySize = 60u;
@@ -286,16 +286,16 @@ public:
      * panel は tree を所有しない (caller 所有)。差し替え時に Reset() を呼んで step counter /
      * history / 全 node status を初期化するが、メタミラーは触らない (= 同じ構造で別
      * インスタンスを観察する用途に対応)。
-     * @param tree 観察する FBehaviorTree (nullptr で解除)。
+     * @param tree 観察する CBehaviorTree (nullptr で解除)。
      */
-    void SetTree(FBehaviorTree* tree) noexcept;
+    void SetTree(CBehaviorTree* tree) noexcept;
 
     /**
      * 現在観察中の BT を返す。
      *
-     * @return 観察中の FBehaviorTree (未設定なら nullptr)。
+     * @return 観察中の CBehaviorTree (未設定なら nullptr)。
      */
-    FBehaviorTree* CurrentTree() const noexcept { return m_Tree; }
+    CBehaviorTree* CurrentTree() const noexcept { return m_Tree; }
 
     /**
      * autorun (= 毎フレーム自動 Tick) が有効かを返す。
@@ -366,7 +366,7 @@ public:
     /**
      * 既存 node の last_status を更新する。
      *
-     * @details FBtAction の Fn から呼ぶことを想定。範囲外は no-op。Reset で全 node が Failure に戻る。
+     * @details ABtAction の Fn から呼ぶことを想定。範囲外は no-op。Reset で全 node が Failure に戻る。
      * @param node_id 更新対象の node id。
      * @param status 新しい last_status。
      */
@@ -439,7 +439,7 @@ public:
     /**
      * Action 名を関数へ解決するレジストリを設定する (no-code 実行を有効化)。
      *
-     * @details 非 null をセットすると Step / Continuous はハンドビルドの FBehaviorTree では
+     * @details 非 null をセットすると Step / Continuous はハンドビルドの CBehaviorTree では
      *          なく「メタミラーのグラフを直接インタプリト」して実行する。Action ノードの
      *          表示名をキーに registry から関数を引いて呼ぶ。null で従来動作に戻る。
      * @param reg アクションレジストリ (非所有、null で解除)。
@@ -541,18 +541,18 @@ public:
         const char* text, usize text_size) noexcept;
 
     /**
-     * 現在のグラフを実行可能な FBehaviorTree ノードツリーへ bake する。
+     * 現在のグラフを実行可能な CBehaviorTree ノードツリーへ bake する。
      *
      * @details
      * メタミラーを walk し、Selector/Sequence/Action(Task)/Decorator(Transform) は core
      * ランタイムノードへ、Condition/Compare デコレーターは btedit の ABtConditionNode /
      * ABtCompareNode へ変換した 1 本のツリーを構築して返す。Action/Condition 名は
      * 設定済みレジストリ (SetActionRegistry / SetConditionRegistry) で解決し、Compare の
-     * 変数は実行時に FBtBlackboard 名前アクセスで解決する。返り値を FBehaviorTree::SetRoot
+     * 変数は実行時に FBtBlackboard 名前アクセスで解決する。返り値を CBehaviorTree::SetRoot
      * に渡せば、エディタ外 (通常のゲームループ) で `bt.Tick(&blackboard, dt)` として走らせられる。
      * @return root ノード (root 不在なら空の TUniquePtr)。
      */
-    TUniquePtr<FBtNode> BuildRuntimeTree() const noexcept;
+    TUniquePtr<ABtNode> BuildRuntimeTree() const noexcept;
 
     // ===== undo / redo (ユーザ操作。ホストがメニュー/ツールバーに束縛してもよい) =====
 
@@ -766,13 +766,13 @@ private:
     u32 CollectChildrenSorted(u32 id, u32* out, u32 cap) const noexcept;
 
     /**
-     * メタミラー 1 ノードを実行可能な FBtNode へ再帰変換する (BuildRuntimeTree の本体)。
+     * メタミラー 1 ノードを実行可能な ABtNode へ再帰変換する (BuildRuntimeTree の本体)。
      *
      * @param id 変換するノード id。
      * @param guard 再帰深度ガード。
-     * @return 構築した FBtNode (不正/未解決は空の TUniquePtr)。
+     * @return 構築した ABtNode (不正/未解決は空の TUniquePtr)。
      */
-    TUniquePtr<FBtNode> BuildRuntimeNode(u32 id, u32 guard) const noexcept;
+    TUniquePtr<ABtNode> BuildRuntimeNode(u32 id, u32 guard) const noexcept;
 
     /** 現在のグラフ状態 (ノード + 動的 BB) を out へコピーする (undo 用)。 */
     void CaptureSnapshot(FGraphSnapshot& out) const noexcept;
@@ -800,8 +800,8 @@ private:
      */
     static void StatusColor(EBtStatus s, f32 out_rgba[4]) noexcept;
 
-    /** 観察中の FBehaviorTree (非所有)。 */
-    FBehaviorTree* m_Tree         = nullptr;
+    /** 観察中の CBehaviorTree (非所有)。 */
+    CBehaviorTree* m_Tree         = nullptr;
 
     /** autorun フラグ (毎フレーム OnFrameBegin で TickInternal を呼ぶ)。 */
     bool          m_Autorun      = false;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory - FMimallocAllocator 契約テスト
+// ACS Memory - CMimallocAllocator 契約テスト
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -13,14 +13,14 @@ using namespace acs;
 
 ACS_TEST(MimallocAllocator, BasicStatisticsBudgetAndInspection)
 {
-    FMimallocAllocator Allocator;
+    CMimallocAllocator Allocator;
     EXPECT_TRUE(Allocator.Init(2ull * 1024ull * 1024ull).IsOk());
     if (!Allocator.IsInitialized()) {
         return;
     }
 
     EXPECT_FALSE(Allocator.Init().IsOk());
-    EXPECT_TRUE(FMimallocAllocator::RuntimeVersion() >= 300);
+    EXPECT_TRUE(CMimallocAllocator::RuntimeVersion() >= 300);
     EXPECT_EQ(Allocator.HardBudgetBytes(), 2ull * 1024ull * 1024ull);
     EXPECT_TRUE(Allocator.Alloc(0u, 16u, FSourceLoc::Current()) == nullptr);
     EXPECT_TRUE(Allocator.Alloc(16u, 0u, FSourceLoc::Current()) == nullptr);
@@ -68,7 +68,7 @@ ACS_TEST(MimallocAllocator, BasicStatisticsBudgetAndInspection)
 
 ACS_TEST(MimallocAllocator, AlignmentAndReallocationPreserveData)
 {
-    FMimallocAllocator Allocator;
+    CMimallocAllocator Allocator;
     EXPECT_TRUE(Allocator.Init(4096u).IsOk());
     if (!Allocator.IsInitialized()) {
         return;
@@ -135,7 +135,7 @@ ACS_TEST(MimallocAllocator, AlignmentAndReallocationPreserveData)
 
 ACS_TEST(MimallocAllocator, ReallocationReservesOldAndNewRequestsDuringMove)
 {
-    FMimallocAllocator Allocator;
+    CMimallocAllocator Allocator;
     EXPECT_TRUE(Allocator.Init(767u).IsOk());
     if (!Allocator.IsInitialized()) {
         return;
@@ -161,14 +161,14 @@ ACS_TEST(MimallocAllocator, ReallocationReservesOldAndNewRequestsDuringMove)
 
 ACS_TEST(MimallocAllocator, CrossThreadAllocationAndFree)
 {
-    FMimallocAllocator Allocator;
+    CMimallocAllocator Allocator;
     EXPECT_TRUE(Allocator.Init().IsOk());
     if (!Allocator.IsInitialized()) {
         return;
     }
 
     struct FContext {
-        FMimallocAllocator* allocator = nullptr;
+        CMimallocAllocator* allocator = nullptr;
         void* block_to_free = nullptr;
         void* allocated_block = nullptr;
     } TestContext;
@@ -202,14 +202,14 @@ ACS_TEST(MimallocAllocator, CrossThreadAllocationAndFree)
 
 ACS_TEST(MimallocAllocator, ConcurrentBudgetReservationNeverExceedsLimit)
 {
-    FMimallocAllocator Allocator;
+    CMimallocAllocator Allocator;
     EXPECT_TRUE(Allocator.Init(1024u).IsOk());
     if (!Allocator.IsInitialized()) {
         return;
     }
 
     struct FContext {
-        FMimallocAllocator* allocator = nullptr;
+        CMimallocAllocator* allocator = nullptr;
         TAtomic<u32> start{0};
         TAtomic<u32> success_count{0};
         void* blocks[4] = {};
@@ -270,8 +270,8 @@ ACS_TEST(MimallocAllocator, ConcurrentBudgetReservationNeverExceedsLimit)
 
 ACS_TEST(MimallocAllocator, MultipleHeapsKeepOwnershipSeparate)
 {
-    FMimallocAllocator FirstAllocator;
-    FMimallocAllocator SecondAllocator;
+    CMimallocAllocator FirstAllocator;
+    CMimallocAllocator SecondAllocator;
     EXPECT_TRUE(FirstAllocator.Init().IsOk());
     EXPECT_TRUE(SecondAllocator.Init().IsOk());
     if (!FirstAllocator.IsInitialized() || !SecondAllocator.IsInitialized()) {
@@ -299,7 +299,7 @@ ACS_TEST(MimallocAllocator, MultipleHeapsKeepOwnershipSeparate)
 
 ACS_TEST(MimallocAllocator, CollectAndReinitialize)
 {
-    FMimallocAllocator Allocator;
+    CMimallocAllocator Allocator;
     for (u32 Cycle = 0; Cycle < 3u; ++Cycle) {
         EXPECT_TRUE(Allocator.Init(1024u).IsOk());
         if (!Allocator.IsInitialized()) {
@@ -326,7 +326,7 @@ ACS_TEST(MimallocAllocator, ConcurrentFreeAndReallocationClaimOwnershipOnce)
     constexpr u32 kThreadCount = 4u;
     constexpr u32 kCycleCount = 128u;
 
-    FMimallocAllocator Allocator;
+    CMimallocAllocator Allocator;
     EXPECT_TRUE(Allocator.Init().IsOk());
     if (!Allocator.IsInitialized())
     {
@@ -344,7 +344,7 @@ ACS_TEST(MimallocAllocator, ConcurrentFreeAndReallocationClaimOwnershipOnce)
 
         struct FMutationContext
         {
-            FMimallocAllocator* Allocator = nullptr;
+            CMimallocAllocator* Allocator = nullptr;
             void* OriginalAllocation = nullptr;
             TAtomic<u32> Start{0u};
             bool bFreeSucceeded[kThreadCount] = {};
@@ -458,7 +458,7 @@ ACS_TEST(MimallocAllocator, LifecycleMaintenanceAndShutdownDrainConcurrentOperat
     constexpr u64 kRequiredSuccessfulAllocations = 256u;
     constexpr u32 kWaitLimit = 500000u;
 
-    FMimallocAllocator Allocator;
+    CMimallocAllocator Allocator;
     EXPECT_TRUE(Allocator.Init(8ull * 1024ull * 1024ull).IsOk());
     if (!Allocator.IsInitialized())
     {
@@ -467,7 +467,7 @@ ACS_TEST(MimallocAllocator, LifecycleMaintenanceAndShutdownDrainConcurrentOperat
 
     struct FRaceContext
     {
-        FMimallocAllocator* Allocator = nullptr;
+        CMimallocAllocator* Allocator = nullptr;
         TAtomic<u32> Ready{0u};
         TAtomic<u32> Start{0u};
         TAtomic<u32> Stop{0u};
@@ -645,7 +645,7 @@ ACS_TEST(MimallocAllocator, LifecycleMaintenanceAndShutdownDrainConcurrentOperat
     Allocator.Shutdown();
 }
 
-// FMimallocAllocator の並行 Alloc/Free 契約を、スレッド churn を強めて検査する。
+// CMimallocAllocator の並行 Alloc/Free 契約を、スレッド churn を強めて検査する。
 // alloc-heavy な worker を生成 → 大量 Alloc/Free → 全 join を複数サイクル繰り返し、
 // スレッド終了 (_mi_thread_done) を多数回起こす。churn 後も件数が 0 に戻り、
 // ゲート閉塞下の走査 (InspectHeap) と統計が整合することを確認する。
@@ -660,7 +660,7 @@ ACS_TEST(MimallocAllocator, ConcurrentAllocationAcrossThreadChurnKeepsHeapConsis
     constexpr u32 kWorkerCount = 8u;
     constexpr u32 kCycleCount = 5u;
 
-    FMimallocAllocator Allocator;
+    CMimallocAllocator Allocator;
     EXPECT_TRUE(Allocator.Init(64ull * 1024ull * 1024ull).IsOk());
     if (!Allocator.IsInitialized())
     {
@@ -669,7 +669,7 @@ ACS_TEST(MimallocAllocator, ConcurrentAllocationAcrossThreadChurnKeepsHeapConsis
 
     struct FWorkerInput
     {
-        FMimallocAllocator* Allocator = nullptr;
+        CMimallocAllocator* Allocator = nullptr;
         TAtomic<u32>* Ready = nullptr;
         TAtomic<u32>* Start = nullptr;
         TAtomic<u64>* FailureCount = nullptr;

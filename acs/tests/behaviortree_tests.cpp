@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // gameframework/BehaviorTree.h の検証:
 //   ・ランタイム合成意味論 (Selector=OR / Sequence=AND / Running 伝播)
-//   ・FBtDecorator + ApplyDecorator (Inverter / ForceSuccess / ForceFailure / Repeat)
+//   ・ABtDecorator + ApplyDecorator (Inverter / ForceSuccess / ForceFailure / Repeat)
 //   ・BtCompareVar / BtCompareF32 (no-code 比較条件)
-//   ・Cast<T> / IsA / CastChecked による FBtNode 階層の RTTI 不使用ダウンキャスト
+//   ・Cast<T> / IsA / CastChecked による ABtNode 階層の RTTI 不使用ダウンキャスト
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "gameframework/BehaviorTree.h"
@@ -36,47 +36,47 @@ EBtStatus RetRunning(void*, f32) noexcept
 ACS_TEST(BehaviorTree, SelectorOrSemantics)
 {
     // 最初に non-Failure を返した子で停止 (= OR)。
-    FBtSelector sel;
-    sel.AddChild(MakeUnique<FBtAction>(&RetFailure));
-    sel.AddChild(MakeUnique<FBtAction>(&RetSuccess));
-    sel.AddChild(MakeUnique<FBtAction>(&RetRunning)); // 到達しない
+    ABtSelector sel;
+    sel.AddChild(MakeUnique<ABtAction>(&RetFailure));
+    sel.AddChild(MakeUnique<ABtAction>(&RetSuccess));
+    sel.AddChild(MakeUnique<ABtAction>(&RetRunning)); // 到達しない
     EXPECT_TRUE(sel.Tick(nullptr, 0.0f) == EBtStatus::Success);
 
-    FBtSelector all_fail;
-    all_fail.AddChild(MakeUnique<FBtAction>(&RetFailure));
-    all_fail.AddChild(MakeUnique<FBtAction>(&RetFailure));
+    ABtSelector all_fail;
+    all_fail.AddChild(MakeUnique<ABtAction>(&RetFailure));
+    all_fail.AddChild(MakeUnique<ABtAction>(&RetFailure));
     EXPECT_TRUE(all_fail.Tick(nullptr, 0.0f) == EBtStatus::Failure);
 }
 
 ACS_TEST(BehaviorTree, SequenceAndSemantics)
 {
     // 最初に non-Success を返した子で停止 (= AND)。
-    FBtSequence seq;
-    seq.AddChild(MakeUnique<FBtAction>(&RetSuccess));
-    seq.AddChild(MakeUnique<FBtAction>(&RetFailure)); // ここで停止
-    seq.AddChild(MakeUnique<FBtAction>(&RetSuccess)); // 到達しない
+    ABtSequence seq;
+    seq.AddChild(MakeUnique<ABtAction>(&RetSuccess));
+    seq.AddChild(MakeUnique<ABtAction>(&RetFailure)); // ここで停止
+    seq.AddChild(MakeUnique<ABtAction>(&RetSuccess)); // 到達しない
     EXPECT_TRUE(seq.Tick(nullptr, 0.0f) == EBtStatus::Failure);
 
-    FBtSequence all_ok;
-    all_ok.AddChild(MakeUnique<FBtAction>(&RetSuccess));
-    all_ok.AddChild(MakeUnique<FBtAction>(&RetSuccess));
+    ABtSequence all_ok;
+    all_ok.AddChild(MakeUnique<ABtAction>(&RetSuccess));
+    all_ok.AddChild(MakeUnique<ABtAction>(&RetSuccess));
     EXPECT_TRUE(all_ok.Tick(nullptr, 0.0f) == EBtStatus::Success);
 }
 
 ACS_TEST(BehaviorTree, RunningPropagates)
 {
-    FBtSequence seq;
-    seq.AddChild(MakeUnique<FBtAction>(&RetSuccess));
-    seq.AddChild(MakeUnique<FBtAction>(&RetRunning)); // Running を伝播
+    ABtSequence seq;
+    seq.AddChild(MakeUnique<ABtAction>(&RetSuccess));
+    seq.AddChild(MakeUnique<ABtAction>(&RetRunning)); // Running を伝播
     EXPECT_TRUE(seq.Tick(nullptr, 0.0f) == EBtStatus::Running);
 
-    FBtSelector sel;
-    sel.AddChild(MakeUnique<FBtAction>(&RetRunning)); // Selector も Running を伝播
+    ABtSelector sel;
+    sel.AddChild(MakeUnique<ABtAction>(&RetRunning)); // Selector も Running を伝播
     EXPECT_TRUE(sel.Tick(nullptr, 0.0f) == EBtStatus::Running);
 
     // nullptr fn = ソフトフェイル。空 Selector=Failure / 空 Sequence=Success。
-    FBtSelector empty_sel;
-    FBtSequence empty_seq;
+    ABtSelector empty_sel;
+    ABtSequence empty_seq;
     EXPECT_TRUE(empty_sel.Tick(nullptr, 0.0f) == EBtStatus::Failure);
     EXPECT_TRUE(empty_seq.Tick(nullptr, 0.0f) == EBtStatus::Success);
 }
@@ -96,12 +96,12 @@ ACS_TEST(BehaviorTree, ApplyDecoratorPureFn)
 
 ACS_TEST(BehaviorTree, DecoratorNode)
 {
-    FBtDecorator inv(EBtDecoratorOp::Inverter);
-    inv.SetChild(MakeUnique<FBtAction>(&RetFailure));
+    ABtDecorator inv(EBtDecoratorOp::Inverter);
+    inv.SetChild(MakeUnique<ABtAction>(&RetFailure));
     EXPECT_TRUE(inv.HasChild());
     EXPECT_TRUE(inv.Tick(nullptr, 0.0f) == EBtStatus::Success); // Failure を反転
 
-    FBtDecorator no_child(EBtDecoratorOp::Inverter);
+    ABtDecorator no_child(EBtDecoratorOp::Inverter);
     EXPECT_FALSE(no_child.HasChild());
     EXPECT_TRUE(no_child.Tick(nullptr, 0.0f) == EBtStatus::Failure); // 子なしはソフトフェイル
 }
@@ -126,35 +126,35 @@ ACS_TEST(BehaviorTree, CompareVar)
 
 ACS_TEST(BehaviorTree, CastNodeHierarchy)
 {
-    auto sel = MakeUnique<FBtSelector>();
-    FBtNode* node = sel.Get();
-    EXPECT_TRUE(Cast<FBtSelector>(node) != nullptr);
-    EXPECT_TRUE(Cast<FBtSelector>(node) == node);    // 同一ポインタ
-    EXPECT_TRUE(Cast<FBtSequence>(node) == nullptr); // 兄弟型ではない
-    EXPECT_TRUE(IsA<FBtNode>(node));
-    EXPECT_TRUE(IsA<FBtSelector>(node));
-    EXPECT_FALSE(IsA<FBtAction>(node));
+    auto sel = MakeUnique<ABtSelector>();
+    ABtNode* node = sel.Get();
+    EXPECT_TRUE(Cast<ABtSelector>(node) != nullptr);
+    EXPECT_TRUE(Cast<ABtSelector>(node) == node);    // 同一ポインタ
+    EXPECT_TRUE(Cast<ABtSequence>(node) == nullptr); // 兄弟型ではない
+    EXPECT_TRUE(IsA<ABtNode>(node));
+    EXPECT_TRUE(IsA<ABtSelector>(node));
+    EXPECT_FALSE(IsA<ABtAction>(node));
 
-    auto act = MakeUnique<FBtAction>(&RetSuccess);
-    FBtNode* an = act.Get();
-    EXPECT_TRUE(Cast<FBtAction>(an) != nullptr);
-    EXPECT_TRUE(Cast<FBtSelector>(an) == nullptr);
+    auto act = MakeUnique<ABtAction>(&RetSuccess);
+    ABtNode* an = act.Get();
+    EXPECT_TRUE(Cast<ABtAction>(an) != nullptr);
+    EXPECT_TRUE(Cast<ABtSelector>(an) == nullptr);
 
-    auto deco = MakeUnique<FBtDecorator>(EBtDecoratorOp::Inverter);
-    FBtNode* dn = deco.Get();
-    EXPECT_TRUE(Cast<FBtDecorator>(dn) != nullptr);
-    EXPECT_TRUE(CastChecked<FBtDecorator>(dn) == dn); // 成功パス
-    EXPECT_TRUE(dn->GetClassId() == FBtDecorator::StaticClassId());
+    auto deco = MakeUnique<ABtDecorator>(EBtDecoratorOp::Inverter);
+    ABtNode* dn = deco.Get();
+    EXPECT_TRUE(Cast<ABtDecorator>(dn) != nullptr);
+    EXPECT_TRUE(CastChecked<ABtDecorator>(dn) == dn); // 成功パス
+    EXPECT_TRUE(dn->GetClassId() == ABtDecorator::StaticClassId());
 }
 
 #if WITH_RENDER_DX12_RAW
 ACS_TEST(BtBake, GraphToRuntimeTree)
 {
     using namespace acs::game::btedit;
-    // エディタのグラフを bake → 実行可能 FBehaviorTree として走らせ、意味論一致を確認。
-    FBehaviorTreeEditorPanel panel;
+    // エディタのグラフを bake → 実行可能 CBehaviorTree として走らせ、意味論一致を確認。
+    ABehaviorTreeEditorPanel panel;
     panel.Init();
-    FBtActionRegistry reg;
+    CBtActionRegistry reg;
     reg.Register("Win", &RetSuccess);
     FBtBlackboard bb;
     bb.Add("hp", EBtVarType::F32);
@@ -163,15 +163,15 @@ ACS_TEST(BtBake, GraphToRuntimeTree)
     panel.SetDynamicBlackboard(&bb);
 
     // Sequence{ Compare[hp < 30] -> Action "Win" }
-    const u32 root = panel.AddNode(EBtKind::Sequence, "root", FBehaviorTreeEditorPanel::kInvalidId);
+    const u32 root = panel.AddNode(EBtKind::Sequence, "root", ABehaviorTreeEditorPanel::kInvalidId);
     const u32 cmp = panel.AddNode(EBtKind::Decorator, "guard", root);
     panel.SetNodeCompare(cmp, "hp", EBtCompareOp::Less, 30.0f);
     panel.AddNode(EBtKind::Action, "Win", cmp);
 
-    TUniquePtr<FBtNode> tree = panel.BuildRuntimeTree();
+    TUniquePtr<ABtNode> tree = panel.BuildRuntimeTree();
     EXPECT_TRUE(static_cast<bool>(tree));
 
-    FBehaviorTree bt;
+    CBehaviorTree bt;
     bt.SetRoot(Move(tree));
     EXPECT_TRUE(bt.Tick(&bb, 0.016f) == EBtStatus::Success); // hp=10<30 → guard 通過 → Win
     bb.SetF32("hp", 50.0f);
@@ -186,9 +186,9 @@ ACS_TEST(BtBake, CompareSchemaMode)
         f32 hp;
     };
     FGameBb game{10.0f};
-    FBehaviorTreeEditorPanel panel;
+    ABehaviorTreeEditorPanel panel;
     panel.Init();
-    FBtActionRegistry reg;
+    CBtActionRegistry reg;
     reg.Register("Win", &RetSuccess);
     FBtBlackboardSchema sch;
     sch.Add("hp", EBtVarType::F32, static_cast<u32>(offsetof(FGameBb, hp)));
@@ -196,12 +196,12 @@ ACS_TEST(BtBake, CompareSchemaMode)
     panel.SetBlackboardSchema(&sch); // 動的 BB は設定しない (schema のみ)
     panel.SetGraphBlackboard(&game); // raw 構造体を blackboard に
 
-    const u32 root = panel.AddNode(EBtKind::Sequence, "root", FBehaviorTreeEditorPanel::kInvalidId);
+    const u32 root = panel.AddNode(EBtKind::Sequence, "root", ABehaviorTreeEditorPanel::kInvalidId);
     const u32 cmp = panel.AddNode(EBtKind::Decorator, "guard", root);
     panel.SetNodeCompare(cmp, "hp", EBtCompareOp::Less, 30.0f);
     panel.AddNode(EBtKind::Action, "Win", cmp);
 
-    FBehaviorTree bt;
+    CBehaviorTree bt;
     bt.SetRoot(panel.BuildRuntimeTree());
     EXPECT_TRUE(bt.Tick(&game, 0.016f) == EBtStatus::Success); // schema offset で hp=10<30
     game.hp = 50.0f;
@@ -215,7 +215,7 @@ ACS_TEST(BtSerialize, DynamicBlackboardRoundTrip)
 
     // save: 3 種の変数 + Compare ノードを書き出す。
     {
-        FBehaviorTreeEditorPanel panel;
+        ABehaviorTreeEditorPanel panel;
         panel.Init();
         FBtBlackboard bb;
         bb.Add("hp", EBtVarType::F32);
@@ -225,14 +225,14 @@ ACS_TEST(BtSerialize, DynamicBlackboardRoundTrip)
         bb.Add("alive", EBtVarType::Bool);
         bb.SetBool("alive", true);
         panel.SetDynamicBlackboard(&bb);
-        const u32 g = panel.AddNode(EBtKind::Decorator, "g", FBehaviorTreeEditorPanel::kInvalidId);
+        const u32 g = panel.AddNode(EBtKind::Decorator, "g", ABehaviorTreeEditorPanel::kInvalidId);
         panel.SetNodeCompare(g, "hp", EBtCompareOp::Less, 30.0f);
         EXPECT_TRUE(panel.SaveGraph(path));
     }
 
     // load: 別パネル + 空の bb に復元する。
     {
-        FBehaviorTreeEditorPanel panel;
+        ABehaviorTreeEditorPanel panel;
         panel.Init();
         FBtBlackboard bb;
         panel.SetDynamicBlackboard(&bb);
@@ -248,14 +248,14 @@ ACS_TEST(BtSerialize, DynamicBlackboardRoundTrip)
 ACS_TEST(BtUndo, UndoRedoNodeCount)
 {
     using namespace acs::game::btedit;
-    FBehaviorTreeEditorPanel panel;
+    ABehaviorTreeEditorPanel panel;
     panel.Init();
     EXPECT_FALSE(panel.CanUndo());
 
     panel.PushUndoCheckpoint(); // baseline = 空 (0 nodes)
-    panel.AddNode(EBtKind::Selector, "a", FBehaviorTreeEditorPanel::kInvalidId);
+    panel.AddNode(EBtKind::Selector, "a", ABehaviorTreeEditorPanel::kInvalidId);
     panel.PushUndoCheckpoint(); // undo=[0], baseline=[1]
-    panel.AddNode(EBtKind::Sequence, "b", FBehaviorTreeEditorPanel::kInvalidId);
+    panel.AddNode(EBtKind::Sequence, "b", ABehaviorTreeEditorPanel::kInvalidId);
     panel.PushUndoCheckpoint(); // undo=[0],[1], baseline=[2]
     EXPECT_EQ(panel.NodeCount(), 2u);
 

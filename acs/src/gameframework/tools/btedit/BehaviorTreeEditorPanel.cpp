@@ -577,7 +577,7 @@ void ABehaviorTreeEditorPanel::Shutdown() noexcept {
 }
 
 /** 観察対象の BT を差し替え、Reset() で実行状態を初期化する (メタミラーは維持)。 */
-void ABehaviorTreeEditorPanel::SetTree(FBehaviorTree* tree) noexcept {
+void ABehaviorTreeEditorPanel::SetTree(CBehaviorTree* tree) noexcept {
     m_Tree = tree;
     // 観察対象が変わったので step counter / 履歴 / 全 status を初期化する。
     // メタミラー (m_Nodes) は触らない (= 同構造で別インスタンスを観察する用途に
@@ -1253,31 +1253,31 @@ FBtGraphPersistenceResult ABehaviorTreeEditorPanel::TrySaveGraph(
         path, builder.Text.Data(), builder.Text.Size());
 }
 
-/** メタミラー 1 ノードを実行可能な FBtNode へ再帰変換する。 */
-TUniquePtr<FBtNode> ABehaviorTreeEditorPanel::BuildRuntimeNode(u32 id, u32 guard) const noexcept {
-    if (guard >= kTreeRecursionLimit || !IsValidId(id, m_Nodes.Size())) return TUniquePtr<FBtNode>();
+/** メタミラー 1 ノードを実行可能な ABtNode へ再帰変換する。 */
+TUniquePtr<ABtNode> ABehaviorTreeEditorPanel::BuildRuntimeNode(u32 id, u32 guard) const noexcept {
+    if (guard >= kTreeRecursionLimit || !IsValidId(id, m_Nodes.Size())) return TUniquePtr<ABtNode>();
     const FNodeMeta& n = m_Nodes[static_cast<usize>(id)];
-    if (!n.alive) return TUniquePtr<FBtNode>();
+    if (!n.alive) return TUniquePtr<ABtNode>();
 
     u32 kids[kMaxNodes];
     const u32 ck = CollectChildrenSorted(id, kids, kMaxNodes);
 
     switch (n.kind) {
         case EBtKind::Selector: {
-            auto s = MakeUnique<FBtSelector>();
+            auto s = MakeUnique<ABtSelector>();
             for (u32 k = 0; k < ck; ++k) s->AddChild(BuildRuntimeNode(kids[k], guard + 1u));
-            return s;   // TUniquePtr<FBtSelector> → TUniquePtr<FBtNode> (upcast)
+            return s;   // TUniquePtr<ABtSelector> → TUniquePtr<ABtNode> (upcast)
         }
         case EBtKind::Sequence: {
-            auto s = MakeUnique<FBtSequence>();
+            auto s = MakeUnique<ABtSequence>();
             for (u32 k = 0; k < ck; ++k) s->AddChild(BuildRuntimeNode(kids[k], guard + 1u));
             return s;
         }
         case EBtKind::Decorator: {
-            TUniquePtr<FBtNode> child = (ck > 0) ? BuildRuntimeNode(kids[0], guard + 1u)
-                                                 : TUniquePtr<FBtNode>();
+            TUniquePtr<ABtNode> child = (ck > 0) ? BuildRuntimeNode(kids[0], guard + 1u)
+                                                 : TUniquePtr<ABtNode>();
             if (n.decoMode == EBtDecoMode::Transform) {
-                auto d = MakeUnique<FBtDecorator>(n.deco);
+                auto d = MakeUnique<ABtDecorator>(n.deco);
                 d->SetChild(Move(child));
                 return d;
             } else if (n.decoMode == EBtDecoMode::Condition) {
@@ -1305,20 +1305,20 @@ TUniquePtr<FBtNode> ABehaviorTreeEditorPanel::BuildRuntimeNode(u32 id, u32 guard
         case EBtKind::Action:
         case EBtKind::Task: {
             CBtActionRegistry::Fn fn = (m_Registry != nullptr) ? m_Registry->Find(DisplayName(n)) : nullptr;
-            return MakeUnique<FBtAction>(fn);   // fn 未解決でも FBtAction が Failure を返す
+            return MakeUnique<ABtAction>(fn);   // fn 未解決でも ABtAction が Failure を返す
         }
     }
-    return TUniquePtr<FBtNode>(); // 到達不能
+    return TUniquePtr<ABtNode>(); // 到達不能
 }
 
-/** 現在のグラフを実行可能な FBehaviorTree ノードツリーへ bake する。 */
-TUniquePtr<FBtNode> ABehaviorTreeEditorPanel::BuildRuntimeTree() const noexcept {
+/** 現在のグラフを実行可能な CBehaviorTree ノードツリーへ bake する。 */
+TUniquePtr<ABtNode> ABehaviorTreeEditorPanel::BuildRuntimeTree() const noexcept {
     for (usize i = 0; i < m_Nodes.Size(); ++i) {
         if (m_Nodes[i].alive && m_Nodes[i].parent_id == kInvalidId) {
             return BuildRuntimeNode(static_cast<u32>(i), 0u);   // root は先頭の親なしノード
         }
     }
-    return TUniquePtr<FBtNode>();
+    return TUniquePtr<ABtNode>();
 }
 
 /** テキストファイルからグラフを読み込む (既存はクリア)。 */

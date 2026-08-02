@@ -14,7 +14,7 @@ using namespace acs::game;
 
 namespace helloparticleed {
 
-void FParticleEditorScene::OnEnter() noexcept {
+void AParticleEditorScene::OnEnter() noexcept {
     // 連続放出 + Burst のピークを吸収するため pool 容量を多めに取る。
     m_ParticleSystem.Init(4096);
 
@@ -42,18 +42,18 @@ void FParticleEditorScene::OnEnter() noexcept {
     ACS_LOG_INFO("[ParticleEditor] entered (default emitter created, capacity=4096)");
 }
 
-void FParticleEditorScene::OnExit() noexcept {
+void AParticleEditorScene::OnExit() noexcept {
     m_ParticleSystem.ClearAll();
     ACS_LOG_INFO("[ParticleEditor] exited");
 }
 
-void FParticleEditorScene::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) {
+void AParticleEditorScene::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
 
-    // FApplication 側の大 dt スパイクで particle が飛び散らないよう clamp。
+    // CApplication 側の大 dt スパイクで particle が飛び散らないよう clamp。
     if (dt > 0.1f) dt = 0.1f;
 
     m_ParticleSystem.Tick(dt);
@@ -62,8 +62,8 @@ void FParticleEditorScene::OnUpdate(f32 dt) noexcept {
     m_EditorPreview.Tick(dt, m_ParticleSystem);
 }
 
-void FParticleEditorScene::OnRender(FRenderContext& /*rc*/) noexcept {
-    // ImGui の draw コマンドは FGame::OnRender の NewFrame() と Render() の間で
+void AParticleEditorScene::OnRender(FRenderContext& /*rc*/) noexcept {
+    // ImGui の draw コマンドは CGame::OnRender の NewFrame() と Render() の間で
     // 発行される。Scene::OnRender はその内側なのでそのまま ImGui::* を呼べる。
     m_DrawFileMenu();
 
@@ -81,7 +81,7 @@ void FParticleEditorScene::OnRender(FRenderContext& /*rc*/) noexcept {
 // File メニュー: Save / Load / Quit のディスパッチのみ。実処理は m_SavePreset /
 // m_LoadPreset に逃がして、OnRender 側の見通しを保つ。
 // ----------------------------------------------------------------------------
-void FParticleEditorScene::m_DrawFileMenu() noexcept {
+void AParticleEditorScene::m_DrawFileMenu() noexcept {
     if (!ImGui::BeginMainMenuBar()) return;
 
     if (ImGui::BeginMenu("File")) {
@@ -101,10 +101,10 @@ void FParticleEditorScene::m_DrawFileMenu() noexcept {
     ImGui::EndMainMenuBar();
 }
 
-void FParticleEditorScene::m_SavePreset() noexcept {
-    // FFxeditSerializer は emitter 群 (def 配列 + 名前 + 個数) を保存する契約。
+void AParticleEditorScene::m_SavePreset() noexcept {
+    // CFxeditSerializer は emitter 群 (def 配列 + 名前 + 個数) を保存する契約。
     // panel の全 emitter def を集めて配列で渡す。
-    constexpr u32 kMax = fxedit::FParticleEditorPanel::kMaxEmitters;
+    constexpr u32 kMax = fxedit::AParticleEditorPanel::kMaxEmitters;
     const u32 count = m_EditorPanel.EmitterCount();
     if (count == 0) {
         ACS_LOG_WARN("[ParticleEditor] 保存対象の emitter がありません");
@@ -118,18 +118,18 @@ void FParticleEditorScene::m_SavePreset() noexcept {
         defs[i]  = (d != nullptr) ? *d : FParticleEmitterDef{};
         names[i] = nullptr;   // panel は emitter 名を保持しないため "" 扱い
     }
-    if (auto r = fxedit::FFxeditSerializer::Save(kPresetPathW, defs, names, n); r.IsErr()) {
+    if (auto r = fxedit::CFxeditSerializer::Save(kPresetPathW, defs, names, n); r.IsErr()) {
         ACS_LOG_ERROR("[ParticleEditor] Save '%s' failed", kPresetPath);
     } else {
         ACS_LOG_INFO("[ParticleEditor] saved %u emitter(s) -> %s", n, kPresetPath);
     }
 }
 
-void FParticleEditorScene::m_LoadPreset() noexcept {
-    constexpr u32 kMax = fxedit::FParticleEditorPanel::kMaxEmitters;
+void AParticleEditorScene::m_LoadPreset() noexcept {
+    constexpr u32 kMax = fxedit::AParticleEditorPanel::kMaxEmitters;
     FParticleEmitterDef defs[kMax];
     char               name_buf[2048];
-    auto r = fxedit::FFxeditSerializer::Load(kPresetPathW, defs, name_buf,
+    auto r = fxedit::CFxeditSerializer::Load(kPresetPathW, defs, name_buf,
                                              static_cast<u32>(sizeof(name_buf)), kMax);
     if (r.IsErr()) {
         ACS_LOG_ERROR("[ParticleEditor] Load '%s' failed", kPresetPath);

@@ -20,7 +20,7 @@ namespace acs {
  * @details
  * 各アセット型 (AImageAsset, AMeshAsset, AAudioAsset など) ごとに実装し、CAssetRegistry に登録する。
  * レジストリは Extension() でパスの拡張子からローダを選び、LoadFromBytes() を呼ぶ。
- * 非同期ロードはレジストリ側が FThreadPool で LoadFromBytes() を呼ぶ形で実現するため、
+ * 非同期ロードはレジストリ側が CThreadPool で LoadFromBytes() を呼ぶ形で実現するため、
  * 実装は同期ロードだけを考えればよい。
  */
 class IAssetLoader {

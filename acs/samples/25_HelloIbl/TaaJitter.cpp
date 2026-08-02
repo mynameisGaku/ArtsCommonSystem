@@ -2,7 +2,7 @@
 // HelloIbl — TAA sub-pixel jitter helper の実装。
 //
 // Halton(2,3) low-discrepancy sequence で 8 フレーム周期の sub-pixel ぶん xy を
-// ずらした projection を作る。rendering 全体 (skybox, FPbrShader, SSR, SSAO) に
+// ずらした projection を作る。rendering 全体 (skybox, CPbrShader, SSR, SSAO) に
 // 同じ jitter を適用し、複数フレームの累積でエッジが滑らかになる。
 //
 // 注意: shadow pass はライト視点なので jitter しない (caster と影 map が同じ
@@ -15,7 +15,7 @@ using namespace acs;
 
 namespace helloibl {
 
-FMat4 BuildJitteredViewProjection(FHelloIblApp& app, const FMat4& vp_no_jitter,
+FMat4 BuildJitteredViewProjection(CHelloIblApp& app, const FMat4& vp_no_jitter,
                                  u32 hdr_width, u32 hdr_height) noexcept {
     if (!app.m_bUseTaa) return vp_no_jitter;
 

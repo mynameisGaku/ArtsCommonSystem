@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FParticleEffectSystem (Pillar I) の動作確認テスト — 特に Burst の巨大値クランプ
+// CParticleEffectSystem (Pillar I) の動作確認テスト — 特に Burst の巨大値クランプ
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "gameframework/ParticleEffectSystem.h"
@@ -8,7 +8,7 @@ using namespace acs;
 using namespace acs::game;
 
 ACS_TEST(ParticleEffect, BurstEmitsAndPoolClamps) {
-    FParticleEffectSystem ps;
+    CParticleEffectSystem ps;
     ps.Init(64);
 
     FParticleEmitterDef def;
@@ -26,7 +26,7 @@ ACS_TEST(ParticleEffect, BurstEmitsAndPoolClamps) {
 }
 
 ACS_TEST(ParticleEffect, HugeBurstCountIsClampedToCapacity) {
-    FParticleEffectSystem ps;
+    CParticleEffectSystem ps;
     ps.Init(64);
 
     FParticleEmitterDef def;

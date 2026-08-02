@@ -16,7 +16,7 @@ namespace hellole {
 // ----------------------------------------------------------------------------
 // OnEnter — theme / workspace / tilemap / panel を順に初期化
 // ----------------------------------------------------------------------------
-void FLevelEditorScene::OnEnter() noexcept {
+void ALevelEditorScene::OnEnter() noexcept {
     // editor 風の暗グレー背景 (ImGui に隠れるが viewport の外側余白に出る)。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
@@ -32,7 +32,7 @@ void FLevelEditorScene::OnEnter() noexcept {
                   /*layer_count=*/2u, /*tile_size=*/16.0f);
     m_SeedInitialTilemapPattern();
 
-    // ---- FLevelEditorPanel に tilemap を渡して Workspace に登録 ----
+    // ---- ALevelEditorPanel に tilemap を渡して Workspace に登録 ----
     m_LevelPanel.Init();
     m_LevelPanel.SetTilemap(&m_Tilemap);
     // editor 開始時は壁 (tile id=10) をスポイトしやすいよう Paint + active layer=1
@@ -40,7 +40,7 @@ void FLevelEditorScene::OnEnter() noexcept {
     m_LevelPanel.SetActiveLayer(1u);
     m_LevelPanel.SetCurrentBrush(leveledit::EBrushKind::Paint);
     m_LevelPanel.SetCurrentTileId(10u);
-    // FEditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ。
+    // CEditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ。
     // よって panel.OnInit を別途呼ぶ必要は無い。
     m_Workspace.RegisterPanel(&m_LevelPanel);
 
@@ -56,7 +56,7 @@ void FLevelEditorScene::OnEnter() noexcept {
 // ----------------------------------------------------------------------------
 // 初期 tilemap パターンを焼く (床 + 外周壁 + 中央部屋の枠)
 // ----------------------------------------------------------------------------
-void FLevelEditorScene::m_SeedInitialTilemapPattern() noexcept {
+void ALevelEditorScene::m_SeedInitialTilemapPattern() noexcept {
     // layer 0 = 床 (全面 tile id=1)
     m_Tilemap.Fill(FTileId{1u}, /*layer=*/0u);
 
@@ -79,12 +79,12 @@ void FLevelEditorScene::m_SeedInitialTilemapPattern() noexcept {
 // ----------------------------------------------------------------------------
 // OnExit — 逆順 shutdown
 // ----------------------------------------------------------------------------
-void FLevelEditorScene::OnExit() noexcept {
-    // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
+void ALevelEditorScene::OnExit() noexcept {
+    // CEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
     // 呼んでから list を Clear する。よって個別 UnregisterPanel を呼ぶ必要は無い。
     m_Workspace.Shutdown();
     m_LevelPanel.Shutdown();
-    // FEditorTheme::Shutdown は存在しない API なので明示解放は不要 (Dtor で十分)。
+    // CEditorTheme::Shutdown は存在しない API なので明示解放は不要 (Dtor で十分)。
     ACS_LOG_INFO("[LevelEditor] exited");
 }
 
@@ -94,9 +94,9 @@ void FLevelEditorScene::OnExit() noexcept {
 // ImGui 関連 (Workspace::TickAllPanels が呼ぶ DrawDockSpace / MenuBar / panel
 // DrawUI) はすべて OnRender 側へ。`ImGui::Begin` 等は NewFrame() と Render()
 // の間でしか呼べないため、ここでは Workspace::TickAllPanels は呼ばない。
-void FLevelEditorScene::OnUpdate(f32 dt) noexcept {
+void ALevelEditorScene::OnUpdate(f32 dt) noexcept {
     (void)dt;
-    if (FInput::IsKeyPressed(EKey::Escape)) {
+    if (CInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -105,7 +105,7 @@ void FLevelEditorScene::OnUpdate(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 // OnRender — File/Brush メニュー → Workspace 全描画
 // ----------------------------------------------------------------------------
-void FLevelEditorScene::OnRender(FRenderContext& rc) noexcept {
+void ALevelEditorScene::OnRender(FRenderContext& rc) noexcept {
     (void)rc;
 
     // ---- (1) MainMenuBar に本 sample 専用メニューを push ----
@@ -126,7 +126,7 @@ void FLevelEditorScene::OnRender(FRenderContext& rc) noexcept {
 // ----------------------------------------------------------------------------
 // File メニュー (Save / Load / Quit)。Save/Load は stub。
 // ----------------------------------------------------------------------------
-void FLevelEditorScene::m_DrawFileMenu() noexcept {
+void ALevelEditorScene::m_DrawFileMenu() noexcept {
     if (!ImGui::BeginMenu("File")) {
         return;
     }
@@ -149,7 +149,7 @@ void FLevelEditorScene::m_DrawFileMenu() noexcept {
 // ----------------------------------------------------------------------------
 // Brush メニュー (Paint / Erase / Fill / Pick の選択 UI)。
 // ----------------------------------------------------------------------------
-void FLevelEditorScene::m_DrawBrushMenu() noexcept {
+void ALevelEditorScene::m_DrawBrushMenu() noexcept {
     if (!ImGui::BeginMenu("Brush")) {
         return;
     }

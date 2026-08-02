@@ -13,9 +13,9 @@ using namespace acs::game;
 namespace {
 
 /** 通常確保後に OOM を決定論的に注入できる allocator。 */
-class FSwitchableFailAllocator final : public FAllocator {
+class FSwitchableFailAllocator final : public IAllocator {
 public:
-    explicit FSwitchableFailAllocator(FAllocator& backing) noexcept : m_Backing(&backing)
+    explicit FSwitchableFailAllocator(IAllocator& backing) noexcept : m_Backing(&backing)
     {
     }
 
@@ -35,7 +35,7 @@ public:
     }
 
 private:
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
     bool m_Failing = false;
 };
 
@@ -143,7 +143,7 @@ u32 MakeEntityFrame(u8* frame, u32 frame_capacity, u32 sequence = 7u) noexcept
     header.payload_size = sizeof(payload);
     u32 written = 0;
     const TResult<void> encoded =
-        FNetSnapshot::EncodeSnapshot(header, payload, sizeof(payload), frame, frame_capacity, written);
+        CNetSnapshot::EncodeSnapshot(header, payload, sizeof(payload), frame, frame_capacity, written);
     return encoded.IsOk() ? written : 0u;
 }
 
@@ -162,22 +162,22 @@ ACS_TEST(NetSnapshotSafety, CodecRejectsTruncationTrailingCrcAndNoncanonicalHead
     payload[0] = 0x55u;
     payload[1] = 0xAAu;
 
-    EXPECT_TRUE(FNetSnapshot::DecodeSnapshot(frame, written - 1u, output, payload).IsErr());
+    EXPECT_TRUE(CNetSnapshot::DecodeSnapshot(frame, written - 1u, output, payload).IsErr());
     EXPECT_EQ(output.tick, 0xAABBCCDDu);
     EXPECT_EQ(payload.Size(), static_cast<usize>(2u));
 
     frame[written] = 0xCCu;
-    EXPECT_TRUE(FNetSnapshot::DecodeSnapshot(frame, written + 1u, output, payload).IsErr());
+    EXPECT_TRUE(CNetSnapshot::DecodeSnapshot(frame, written + 1u, output, payload).IsErr());
     EXPECT_EQ(output.tick, 0xAABBCCDDu);
     EXPECT_EQ(payload[0], static_cast<u8>(0x55u));
 
     frame[written - 1u] ^= 0x80u;
-    EXPECT_TRUE(FNetSnapshot::DecodeSnapshot(frame, written, output, payload).IsErr());
+    EXPECT_TRUE(CNetSnapshot::DecodeSnapshot(frame, written, output, payload).IsErr());
     EXPECT_EQ(output.tick, 0xAABBCCDDu);
     frame[written - 1u] ^= 0x80u;
 
     frame[28] = 1u; // header.crc32 は wire 上の予約0。
-    const TResult<void> noncanonical = FNetSnapshot::DecodeSnapshot(frame, written, output, payload);
+    const TResult<void> noncanonical = CNetSnapshot::DecodeSnapshot(frame, written, output, payload);
     EXPECT_TRUE(noncanonical.IsErr());
     if (noncanonical.IsErr()) {
         EXPECT_EQ(noncanonical.Error().subcode,
@@ -197,7 +197,7 @@ ACS_TEST(NetSnapshotSafety, EncodeRejectsProductLimitWithoutPartialFrame)
     u32 written = 99u;
 
     const TResult<void> result =
-        FNetSnapshot::EncodeSnapshot(header, &payload_byte, header.payload_size, output, sizeof(output), written);
+        CNetSnapshot::EncodeSnapshot(header, &payload_byte, header.payload_size, output, sizeof(output), written);
     EXPECT_TRUE(result.IsErr());
     if (result.IsErr()) {
         EXPECT_EQ(result.Error().subcode, static_cast<u16>(FNetSnapshotError::kSub_FrameTooLarge));
@@ -223,7 +223,7 @@ ACS_TEST(NetSnapshotSafety, DecodeAllocationFailurePreservesBothOutputs)
 
     FSnapshotHeader output{};
     output.tick = 0x12345678u;
-    const TResult<void> result = FNetSnapshot::DecodeSnapshot(frame, written, output, payload);
+    const TResult<void> result = CNetSnapshot::DecodeSnapshot(frame, written, output, payload);
     EXPECT_TRUE(result.IsErr());
     if (result.IsErr()) {
         EXPECT_EQ(result.Error().subcode, static_cast<u16>(FNetSnapshotError::kSub_AllocationFailed));
@@ -250,7 +250,7 @@ ACS_TEST(NetSnapshotSafety, CodecRejectsAliasedInputAndOutputStorage)
     FSnapshotHeader decoded{};
     decoded.tick = 0xDEADBEEFu;
     const TResult<void> decode =
-        FNetSnapshot::DecodeSnapshot(aliased.Data(), written, decoded, aliased);
+        CNetSnapshot::DecodeSnapshot(aliased.Data(), written, decoded, aliased);
     EXPECT_TRUE(decode.IsErr());
     if (decode.IsErr()) {
         EXPECT_EQ(decode.Error().subcode, static_cast<u16>(FNetSnapshotError::kSub_BadArgument));
@@ -267,7 +267,7 @@ ACS_TEST(NetSnapshotSafety, CodecRejectsAliasedInputAndOutputStorage)
     header.payload_size = 16u;
     u32 encoded_size = 88u;
     const TResult<void> encode =
-        FNetSnapshot::EncodeSnapshot(header, overlapping + 40u, 16u, overlapping, sizeof(overlapping), encoded_size);
+        CNetSnapshot::EncodeSnapshot(header, overlapping + 40u, 16u, overlapping, sizeof(overlapping), encoded_size);
     EXPECT_TRUE(encode.IsErr());
     if (encode.IsErr()) {
         EXPECT_EQ(encode.Error().subcode, static_cast<u16>(FNetSnapshotError::kSub_BadArgument));
@@ -280,7 +280,7 @@ ACS_TEST(NetSnapshotSafety, CodecRejectsAliasedInputAndOutputStorage)
 ACS_TEST(NetSnapshotSafety, CheckedInitRejectsInvalidConfigWithoutReplacingSession)
 {
     FScriptedTransport transport;
-    FNetSnapshot snapshot;
+    CNetSnapshot snapshot;
     FNetSnapshotConfig valid{};
     valid.buffer_capacity_snapshots = 2u;
     EXPECT_TRUE(snapshot.TryInit(valid, ENetRole::Client, &transport).IsOk());
@@ -296,7 +296,7 @@ ACS_TEST(NetSnapshotSafety, CheckedInitRejectsInvalidConfigWithoutReplacingSessi
 ACS_TEST(NetSnapshotSafety, CheckedCommitRetainsPendingStateAcrossTransportFailure)
 {
     FScriptedTransport transport;
-    FNetSnapshot snapshot;
+    CNetSnapshot snapshot;
     FNetSnapshotConfig config{};
     config.buffer_capacity_snapshots = 2u;
     EXPECT_TRUE(snapshot.TryInit(config, ENetRole::Server, &transport).IsOk());
@@ -315,7 +315,7 @@ ACS_TEST(NetSnapshotSafety, CheckedCommitRetainsPendingStateAcrossTransportFailu
 
     FSnapshotHeader header{};
     TArray<u8> payload;
-    EXPECT_TRUE(FNetSnapshot::DecodeSnapshot(transport.m_LastSent, transport.m_LastSentSize, header, payload).IsOk());
+    EXPECT_TRUE(CNetSnapshot::DecodeSnapshot(transport.m_LastSent, transport.m_LastSentSize, header, payload).IsOk());
     EXPECT_EQ(header.sequence, 1u);
     EXPECT_EQ(header.tick, 99u);
     EXPECT_EQ(payload.Size(), static_cast<usize>(16u));
@@ -335,7 +335,7 @@ ACS_TEST(NetSnapshotSafety, TickCommitsOnlyCompleteMessagesAndStopsOnContractVio
     EXPECT_TRUE(transport.Queue(corrupt, valid_size));
     transport.QueueContractViolation();
 
-    FNetSnapshot snapshot;
+    CNetSnapshot snapshot;
     FNetSnapshotConfig config{};
     config.buffer_capacity_snapshots = 2u;
     EXPECT_TRUE(snapshot.TryInit(config, ENetRole::Client, &transport).IsOk());

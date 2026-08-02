@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloColliderViz2D — スプライトコライダーを目視確認するデモ。
 // 不定形スプライトを描き、その上に凸包 (緑) と簡略化輪郭 (シアン) を線で重ねる。
-// マウスのプローブ円が凸包コライダーに重なると赤く表示 (FCollisionWorld2D 経由)。
+// マウスのプローブ円が凸包コライダーに重なると赤く表示 (CCollisionWorld2D 経由)。
 #pragma once
 
 #include "app/Application.h"
@@ -13,7 +13,7 @@
 
 namespace colliderviz {
 
-class FColliderVizApp : public acs::FApplication {
+class CColliderVizApp : public acs::CApplication {
 public:
     void OnStart() noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -21,13 +21,13 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    acs::FSpriteBatch m_Batch;
+    acs::CSpriteBatch m_Batch;
     acs::FFont         m_Font;
     bool              m_bFontReady = false;
 
     acs::TUniquePtr<acs::IRhiTexture> m_SpriteTex;
     acs::CSpriteCollider              m_Collider;
-    acs::game::FCollisionWorld2D      m_World;
+    acs::game::CCollisionWorld2D      m_World;
     acs::game::FShapeId               m_PolyId;
 
     acs::u32  m_TexW = 0, m_TexH = 0;

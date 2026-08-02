@@ -11,7 +11,7 @@ using namespace acs;
 
 namespace helloraycast3d {
 
-bool FRaycastScene::Init(IRhiDevice& dev, f32 aspect) noexcept {
+bool CRaycastScene::Init(IRhiDevice& dev, f32 aspect) noexcept {
     // 球は半径 1 で作っておき、描画時に radius_or_half で Scale する。
     // 立方体も同様に full-size 1.0 (= 半サイズ 0.5) で生成 → Scale で実寸を出す。
     auto sphere = Primitive::MakeSphere(1.0f, 32, 16);
@@ -27,19 +27,19 @@ bool FRaycastScene::Init(IRhiDevice& dev, f32 aspect) noexcept {
     return true;
 }
 
-void FRaycastScene::Shutdown() noexcept {
+void CRaycastScene::Shutdown() noexcept {
     m_GmPlane  = FGpuMesh{};
     m_GmCube   = FGpuMesh{};
     m_GmSphere = FGpuMesh{};
 }
 
-void FRaycastScene::Update(f32 dt) noexcept {
+void CRaycastScene::Update(f32 dt) noexcept {
     m_Caster.Update(dt, m_Targets);
 }
 
-void FRaycastScene::Render(FStandardShader& shader,
+void CRaycastScene::Render(CStandardShader& shader,
                           IRhiCommandList& cl,
-                          FSpriteBatch& batch,
+                          CSpriteBatch& batch,
                           FFont& font,
                           u32 screen_w,
                           u32 screen_h) noexcept {
@@ -64,10 +64,10 @@ void FRaycastScene::Render(FStandardShader& shader,
 
     m_RenderTargets(shader, cl);
 
-    FHudRenderer::Draw(batch, font, cl, screen_w, screen_h, m_Targets);
+    CHudRenderer::Draw(batch, font, cl, screen_w, screen_h, m_Targets);
 }
 
-void FRaycastScene::m_RenderTargets(FStandardShader& shader,
+void CRaycastScene::m_RenderTargets(CStandardShader& shader,
                                    IRhiCommandList& cl) noexcept {
     // 地面 (世界原点に置く)
     if (!shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
@@ -80,7 +80,7 @@ void FRaycastScene::m_RenderTargets(FStandardShader& shader,
     // 各オブジェクト: ヒット中は色を白 + spec/shine を強めてハイライト
     const u32 n = m_Targets.Count();
     for (u32 i = 0; i < n; ++i) {
-        const FObject& o = m_Targets.At(i);
+        const FRaycastTarget& o = m_Targets.At(i);
         const bool    selected = (static_cast<i32>(i) == m_Targets.HitIndex());
         const FVec3    col   = selected ? kSelectedColor : o.base_color;
         const f32     spec  = selected ? 0.9f  : 0.3f;

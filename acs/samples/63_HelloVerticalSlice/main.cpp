@@ -7,11 +7,11 @@
 //     └──────────[Title]──────┴──────────[Retry → Play]──────────────┘
 //
 // 1 本で 2D 基盤の P0 を全部見せる:
-//   ・FScene2D による画面遷移 (ChangeScene)
-//   ・クリック可能 UI メニュー (FUiLayer、スクリーン空間)
+//   ・AScene2D による画面遷移 (ChangeScene)
+//   ・クリック可能 UI メニュー (CUiLayer、スクリーン空間)
 //   ・自前 atlas テクスチャ + FSpritePack フレーム → プレイヤースプライト
 //   ・ATilemapComponent によるタイルマップ描画
-//   ・FSettings によるハイスコア永続化 (INI、次回起動でロード)
+//   ・CSettings によるハイスコア永続化 (INI、次回起動でロード)
 //
 // 座標は ACS 2D 正規規約 = **Y-down** (左上原点・+X 右・+Y 下)。
 //   - tile row 0 / 小さい Y = 画面上。床/下側 = 大きい Y。
@@ -176,14 +176,14 @@ constexpr FActionId kStart("vs.Start");
 constexpr FActionId kPause("vs.Pause");
 constexpr FActionId kQuit ("vs.Quit");
 
-class FTitleScene;
-class FPlayScene;
-class FGameOverScene;
+class ATitleScene;
+class APlayScene;
+class AGameOverScene;
 
 // ===========================================================================
-// アプリ: ハイスコア永続化 (FSettings) + タイトル用大フォントを保持。
+// アプリ: ハイスコア永続化 (CSettings) + タイトル用大フォントを保持。
 // ===========================================================================
-class FVerticalSliceGame final : public FGame {
+class CVerticalSliceGame final : public CGame {
 public:
     i32 HighScore() const noexcept { return m_HighScore; }
 
@@ -225,28 +225,28 @@ protected:
         EnsureSfx();
         if (m_Backend.Init(64).IsOk()) { m_Audio.SetBackend(&m_Backend); m_AudioOn = true; }
         else ACS_LOG_WARN("vslice: XAudio2 backend init failed (silent)");
-        FGame::OnStart();   // InitialScene() を push
+        CGame::OnStart();   // InitialScene() を push
     }
 
     void OnUpdate(f32 dt) noexcept override {
-        // FGame は audio を tick しないので app が手動で。実 voice 数のピークを記録
+        // CGame は audio を tick しないので app が手動で。実 voice 数のピークを記録
         // (発音できたことの検証用 = 0 でなければ実 voice が XAudio2 に提出された)。
         if (m_AudioOn) {
             m_Audio.Tick(dt);
             const u32 v = m_Backend.ActiveVoiceCount();
             if (v > m_PeakVoices) m_PeakVoices = v;
         }
-        FGame::OnUpdate(dt);
+        CGame::OnUpdate(dt);
     }
 
     void OnShutdown() noexcept override {
         if (m_TitleReady) m_TitleFont.Shutdown();
         m_Audio.SetBackend(nullptr);          // 先に director を切ってから
         if (m_AudioOn) m_Backend.Shutdown();  // backend を解放
-        FGame::OnShutdown();
+        CGame::OnShutdown();
     }
 
-    TUniquePtr<FScene> InitialScene() noexcept override;   // 下で定義 (FTitleScene 完全後)
+    TUniquePtr<AScene> InitialScene() noexcept override;   // 下で定義 (ATitleScene 完全後)
 
 private:
     void PlaySfx(const i16* pcm, u32 bytes) noexcept {
@@ -260,32 +260,32 @@ private:
         (void)m_Audio.PlaySfxClip(clip, 1.0f, 1.0f);   // → XAudio2 SourceVoice で発音
     }
 
-    FSettings m_Cfg;
+    CSettings m_Cfg;
     i32       m_HighScore  = 0;
     FFont      m_TitleFont;
     bool      m_TitleTried = false;
     bool      m_TitleReady = false;
-    FXAudio2Backend m_Backend;
-    FAudioDirector  m_Audio;
+    CXAudio2Backend m_Backend;
+    CAudioDirector  m_Audio;
     bool      m_AudioOn    = false;
     u32       m_PeakVoices = 0;
 };
 
 // 共有: スクリーン中央寄せでテキストを描く。
-void DrawCentered(FSpriteBatch& sb, FFont* font, const char* s, f32 cx, f32 y, FVec4 col) noexcept {
+void DrawCentered(CSpriteBatch& sb, FFont* font, const char* s, f32 cx, f32 y, FVec4 col) noexcept {
     if (!font) return;
     const f32 w = font->MeasureWidth(s);
     sb.DrawString(*font, s, cx - w * 0.5f, y, col);
 }
 
-FVerticalSliceGame& App(FScene& s) noexcept {
-    return static_cast<FVerticalSliceGame&>(s.GetGame());
+CVerticalSliceGame& App(AScene& s) noexcept {
+    return static_cast<CVerticalSliceGame&>(s.GetGame());
 }
 
 // ===========================================================================
 // Title
 // ===========================================================================
-class FTitleScene final : public FScene2D {
+class ATitleScene final : public AScene2D {
 public:
     void OnReady() noexcept override {
         GetGame().SetClearColor(0.06f, 0.07f, 0.11f);
@@ -301,7 +301,7 @@ public:
 
     void OnTick(f32 dt) noexcept override;   // 遷移を含むので out-of-line
 
-    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override {
         BuildUi(rc.Width(), rc.Height());
         FFont* big   = App(*this).TitleFont();
         FFont* small = rc.HasFont() ? &rc.GetFont() : nullptr;
@@ -317,7 +317,7 @@ public:
                      cx, rc.Height() - 40.0f, FVec4{0.7f, 0.75f, 0.85f, 1.0f});
     }
 
-    void OnExit() noexcept override { m_Ui.Shutdown(); FScene2D::OnExit(); }
+    void OnExit() noexcept override { m_Ui.Shutdown(); AScene2D::OnExit(); }
 
 private:
     void BuildUi(u32 w, u32 h) noexcept {
@@ -330,7 +330,7 @@ private:
         m_QuitBtn = m_Ui.AddButton("QUIT", FVec2{x, y0 + bh + 16.0f}, FVec2{bw, bh});
     }
 
-    FUiLayer m_Ui;
+    CUiLayer m_Ui;
     u32      m_PlayBtn = 0, m_QuitBtn = 0;
     bool     m_UiBuilt = false;
 };
@@ -338,7 +338,7 @@ private:
 // ===========================================================================
 // Play (タイルマップ + atlas プレイヤー + コイン + ポーズ state)
 // ===========================================================================
-class FPlayScene final : public FScene2D {
+class APlayScene final : public AScene2D {
 public:
     void OnReady() noexcept override {
         SetPixelsPerUnit(44.0f);
@@ -369,7 +369,7 @@ public:
         Root().AddChild(Move(mapNode));
 
         // --- 壁/水を実コライダー化 (collide-and-slide 用)。Y-down で AABB を配置 ---
-        FCollisionWorld2D& phy = Services().Physics();
+        CCollisionWorld2D& phy = Services().Physics();
         phy.Init(2.0f);
         const f32 hw = static_cast<f32>(kMapW) * 0.5f;            // マップ半幅/半高
         const f32 hh = static_cast<f32>(kMapH) * 0.5f;
@@ -418,7 +418,7 @@ public:
 
     void OnTick(f32 dt) noexcept override;       // 遷移/ロジックを含むので out-of-line
 
-    void OnDrawWorld(FRenderContext& /*rc*/, FSpriteBatch& sb) noexcept override {
+    void OnDrawWorld(FRenderContext& /*rc*/, CSpriteBatch& sb) noexcept override {
         // 斜めの OBB バー (回転矩形コライダー) を可視化。collider と同じ中心/回転。
         sb.DrawRectRotated(m_ObbBar.center.x, m_ObbBar.center.y,
                            m_ObbBar.half_size.x * 2.0f, m_ObbBar.half_size.y * 2.0f,
@@ -433,7 +433,7 @@ public:
         }
     }
 
-    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override {
         BuildUi(rc.Width(), rc.Height());
         FFont* small = rc.HasFont() ? &rc.GetFont() : nullptr;
         const f32 cx = static_cast<f32>(rc.Width()) * 0.5f;
@@ -460,7 +460,7 @@ public:
         }
     }
 
-    void OnExit() noexcept override { m_Ui.Shutdown(); FScene2D::OnExit(); }
+    void OnExit() noexcept override { m_Ui.Shutdown(); AScene2D::OnExit(); }
 
 private:
     enum class EState { Playing, Paused };
@@ -487,7 +487,7 @@ private:
         }
     }
 
-    void EndGame(bool win) noexcept;   // FGameOverScene へ (out-of-line)
+    void EndGame(bool win) noexcept;   // AGameOverScene へ (out-of-line)
 
     TUniquePtr<IRhiTexture> m_TileAtlas;
     TUniquePtr<IRhiTexture> m_HeroAtlas;
@@ -503,7 +503,7 @@ private:
     f32    m_Time = 0.0f;
     EState m_State = EState::Playing;
 
-    FUiLayer m_Ui;
+    CUiLayer m_Ui;
     u32      m_ResumeBtn = 0, m_TitleBtn = 0;
     bool     m_UiBuilt = false;
 };
@@ -511,9 +511,9 @@ private:
 // ===========================================================================
 // GameOver (スコア表示 + ハイスコア保存 + Retry / Title)
 // ===========================================================================
-class FGameOverScene final : public FScene2D {
+class AGameOverScene final : public AScene2D {
 public:
-    FGameOverScene(i32 score, bool win) noexcept : m_Score(score), m_Win(win) {}
+    AGameOverScene(i32 score, bool win) noexcept : m_Score(score), m_Win(win) {}
 
     void OnReady() noexcept override {
         GetGame().SetClearColor(m_Win ? 0.05f : 0.10f, 0.07f, m_Win ? 0.10f : 0.06f);
@@ -532,7 +532,7 @@ public:
 
     void OnTick(f32 dt) noexcept override;   // 遷移を含むので out-of-line
 
-    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override {
         BuildUi(rc.Width(), rc.Height());
         FFont* big   = App(*this).TitleFont();
         FFont* small = rc.HasFont() ? &rc.GetFont() : nullptr;
@@ -560,7 +560,7 @@ public:
         DrawCentered(sb, small, astat, cx, rc.Height() - 18.0f, FVec4{0.55f, 0.6f, 0.7f, 1.0f});
     }
 
-    void OnExit() noexcept override { m_Ui.Shutdown(); FScene2D::OnExit(); }
+    void OnExit() noexcept override { m_Ui.Shutdown(); AScene2D::OnExit(); }
 
 private:
     void BuildUi(u32 w, u32 h) noexcept {
@@ -576,28 +576,28 @@ private:
     i32  m_Score = 0;
     bool m_Win = false;
     bool m_NewHigh = false;
-    FUiLayer m_Ui;
+    CUiLayer m_Ui;
     u32  m_RetryBtn = 0, m_TitleBtn = 0;
     bool m_UiBuilt = false;
 };
 
 // ---- 相互参照する遷移メソッドを各クラス定義後に out-of-line で実装 ----------
 
-TUniquePtr<FScene> FVerticalSliceGame::InitialScene() noexcept {
-    return MakeUnique<FTitleScene>();
+TUniquePtr<AScene> CVerticalSliceGame::InitialScene() noexcept {
+    return MakeUnique<ATitleScene>();
 }
 
-void FTitleScene::OnTick(f32 dt) noexcept {
+void ATitleScene::OnTick(f32 dt) noexcept {
     m_Ui.Tick(dt);
     FInputMap& in = Services().Input();
     if (m_Ui.IsButtonPressed(m_PlayBtn) || in.IsPressed(kStart)) {
-        Scenes().ChangeScene(MakeUnique<FPlayScene>());
+        Scenes().ChangeScene(MakeUnique<APlayScene>());
     } else if (m_Ui.IsButtonPressed(m_QuitBtn) || in.IsPressed(kQuit)) {
         GetGame().Quit();
     }
 }
 
-void FPlayScene::OnTick(f32 dt) noexcept {
+void APlayScene::OnTick(f32 dt) noexcept {
     m_Time += dt;
     m_Ui.Tick(dt);
     FInputMap& in = Services().Input();
@@ -606,7 +606,7 @@ void FPlayScene::OnTick(f32 dt) noexcept {
         if (m_Ui.IsButtonPressed(m_ResumeBtn) || in.IsPressed(kPause)) {
             SetPaused(false);
         } else if (m_Ui.IsButtonPressed(m_TitleBtn)) {
-            Scenes().ChangeScene(MakeUnique<FTitleScene>());
+            Scenes().ChangeScene(MakeUnique<ATitleScene>());
         }
         return;   // ポーズ中はゲーム更新を凍結
     }
@@ -638,20 +638,20 @@ void FPlayScene::OnTick(f32 dt) noexcept {
     if (m_TimeLeft <= 0.0f)       { m_TimeLeft = 0.0f; EndGame(false); return; }
 }
 
-void FPlayScene::EndGame(bool win) noexcept {
-    Scenes().ChangeScene(MakeUnique<FGameOverScene>(m_Score, win));
+void APlayScene::EndGame(bool win) noexcept {
+    Scenes().ChangeScene(MakeUnique<AGameOverScene>(m_Score, win));
 }
 
-void FGameOverScene::OnTick(f32 dt) noexcept {
+void AGameOverScene::OnTick(f32 dt) noexcept {
     m_Ui.Tick(dt);
     FInputMap& in = Services().Input();
     if (m_Ui.IsButtonPressed(m_RetryBtn) || in.IsPressed(kStart)) {
-        Scenes().ChangeScene(MakeUnique<FPlayScene>());
+        Scenes().ChangeScene(MakeUnique<APlayScene>());
     } else if (m_Ui.IsButtonPressed(m_TitleBtn) || in.IsPressed(kQuit)) {
-        Scenes().ChangeScene(MakeUnique<FTitleScene>());
+        Scenes().ChangeScene(MakeUnique<ATitleScene>());
     }
 }
 
 } // namespace
 
-ACS_GAME_MAIN(FVerticalSliceGame)
+ACS_GAME_MAIN(CVerticalSliceGame)

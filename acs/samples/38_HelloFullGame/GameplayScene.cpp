@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — FGameplayScene 実装。シーン skeleton + モジュール orchestration。
+// HelloFullGame — AGameplayScene 実装。シーン skeleton + モジュール orchestration。
 #include "GameplayScene.h"
 #include "FullGameApp.h"
 #include "GameOverScene.h"
@@ -17,7 +17,7 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void FGameplayScene::OnEnter() noexcept {
+void AGameplayScene::OnEnter() noexcept {
     // ----- input -----
     FInputMap& im = Services().Input();
     im.ClearAll();
@@ -42,11 +42,11 @@ void FGameplayScene::OnEnter() noexcept {
     m_Waves.SetOnWaveStateChangeCallback(&WaveOnState, this);
 
     // ----- collision world -----
-    FCollisionWorld2D& phy = Services().Physics();
+    CCollisionWorld2D& phy = Services().Physics();
     phy.Init(2.0f);
 
     // ----- camera -----
-    FCamera2D& cam = Services().Camera();
+    CCamera2D& cam = Services().Camera();
     cam.SetPosition(FVec2{0.0f, 0.0f});
     cam.SetZoom(kWorldUnit);
     cam.SetShakeAmplitude(0.4f);
@@ -95,7 +95,7 @@ void FGameplayScene::OnEnter() noexcept {
     m_Waves.StartWaves();
 
     // ----- BGM -----
-    auto& app = static_cast<FFullGameApp&>(GetGame());
+    auto& app = static_cast<CFullGameApp&>(GetGame());
     app.Music().SetState(EMusicState::Combat, 1.5f);
     app.Audio().PlayBgm("bgm_gameplay", 1.5f, true);
 
@@ -103,7 +103,7 @@ void FGameplayScene::OnEnter() noexcept {
     ACS_LOG_INFO("[Gameplay] enter - WASD move, Mouse aim, LMB fire");
 }
 
-void FGameplayScene::OnExit() noexcept {
+void AGameplayScene::OnExit() noexcept {
     // 敵 → player の順で root の Node を Destroy。ResolveStructuralChanges でまとめ反映。
     m_Enemies.Shutdown();
     m_Player.Shutdown();
@@ -119,7 +119,7 @@ void FGameplayScene::OnExit() noexcept {
     ACS_LOG_INFO("[Gameplay] exit");
 }
 
-void FGameplayScene::OnUpdate(f32 dt) noexcept {
+void AGameplayScene::OnUpdate(f32 dt) noexcept {
     // ----- FPS 計測 (EMA 0.1 で平滑化、HUD に出す) -----
     m_LastDt = dt;
     if (dt > 0.0f) {
@@ -157,18 +157,18 @@ void FGameplayScene::OnUpdate(f32 dt) noexcept {
     m_Waves.Tick(dt);
 }
 
-void FGameplayScene::OnFixedUpdate(f32 /*dt*/) noexcept {
-    // 固定 step は APhysicsBody2D の決定性のため FGame 側で 1/60 に固定済み。
+void AGameplayScene::OnFixedUpdate(f32 /*dt*/) noexcept {
+    // 固定 step は APhysicsBody2D の決定性のため CGame 側で 1/60 に固定済み。
     m_Root.FixedUpdateTree(1.0f / 60.0f);
     m_Root.ResolveStructuralChanges();
 }
 
-void FGameplayScene::OnRender(FRenderContext& rc) noexcept {
-    auto& app = static_cast<FFullGameApp&>(GetGame());
+void AGameplayScene::OnRender(FRenderContext& rc) noexcept {
+    auto& app = static_cast<CFullGameApp&>(GetGame());
     app.EnsureSpritesInitialized();
     if (!app.SpritesReady()) return;
 
-    FSpriteBatch& sb = app.Sprites();
+    CSpriteBatch& sb = app.Sprites();
     const u32 sw = rc.Width();
     const u32 sh = rc.Height();
     sb.Begin(rc.Cmd(), sw, sh);
@@ -218,32 +218,32 @@ void FGameplayScene::OnRender(FRenderContext& rc) noexcept {
 
 // ----- モジュール連携 -----
 
-void FGameplayScene::OnPlayerHurt() noexcept {
+void AGameplayScene::OnPlayerHurt() noexcept {
     m_HitEffects.TriggerPlayerHurt(*this, m_Player.Position());
 }
 
-void FGameplayScene::OnEnemyKilled() noexcept {
+void AGameplayScene::OnEnemyKilled() noexcept {
     m_Score.NotifyHit();
     m_Score.AddScore("enemy.basic", 10);
     m_Waves.NotifyEnemyKilled("enemy_basic");
 }
 
-void FGameplayScene::RequestGameOver(bool victory) noexcept {
+void AGameplayScene::RequestGameOver(bool victory) noexcept {
     if (m_bGameOverReq) return;       // 多重遷移ガード
     m_bGameOverReq = true;
     m_Victory = victory;
 
-    auto& app = static_cast<FFullGameApp&>(GetGame());
+    auto& app = static_cast<CFullGameApp&>(GetGame());
     app.SaveHighScoreIfBetter(m_Score.CurrentScore());
     app.Music().SetState(victory ? EMusicState::Victory : EMusicState::GameOver, 1.0f);
     app.Audio().PlayBgm(victory ? "bgm_victory" : "bgm_gameover",
                         1.0f, victory ? false : true);
-    Scenes().ChangeScene(MakeUnique<FGameOverScene>(m_Score.CurrentScore(), victory));
+    Scenes().ChangeScene(MakeUnique<AGameOverScene>(m_Score.CurrentScore(), victory));
 }
 
-FVec2 FGameplayScene::MouseWorld() const noexcept {
-    const FVec2 m = FInput::MousePos();
-    auto& app = static_cast<FFullGameApp&>(GetGame());
+FVec2 AGameplayScene::MouseWorld() const noexcept {
+    const FVec2 m = CInput::MousePos();
+    auto& app = static_cast<CFullGameApp&>(GetGame());
     IRhiSwapchain* sc = app.GetRenderer().Swapchain();
     if (!sc) {
         // swapchain が出てくる前のごく初期フレームでは player 座標を返してフリーズ防止。

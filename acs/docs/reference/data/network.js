@@ -11,7 +11,7 @@ ACS_REF.modules.push({
       name: "CNetwork",
       kind: "クラス", header: "network/Network.h",
       summary: "ネットワーク機能全体の<b>初期化／終了</b>をまとめる入口(<t>WinSock</t> の <code>WSAStartup</code> ラッパ)。<t>ソケット</t>を使う前に一度 <code>Init()</code> を呼ぶ必要がある。",
-      when: "アプリ起動時に一度 <code>CNetwork::Init()</code>。<t>FApplication</t> はネットワークを自動初期化しないので、自分で明示的に呼ぶこと。終了時に <code>Shutdown()</code>。",
+      when: "アプリ起動時に一度 <code>CNetwork::Init()</code>。<t>CApplication</t> はネットワークを自動初期化しないので、自分で明示的に呼ぶこと。終了時に <code>Shutdown()</code>。",
       sample: "if (acs::CNetwork::Init().IsErr()) {\n    // 初期化失敗。以降の通信はできない\n    return;\n}\n// ...ソケットを使った通信...\nacs::CNetwork::Shutdown();",
       members: [
         { sig: "static TResult<void> Init()", ret: "成功 or エラー", desc: "<t>WinSock</t> を初期化する。多重に呼んでも安全(内部で<t>参照カウント</t>)。", when: "ソケット系の型を作る前に必ず。" },

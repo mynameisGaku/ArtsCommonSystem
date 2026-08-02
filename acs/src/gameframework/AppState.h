@@ -17,7 +17,7 @@
 // 設計:
 //   ・RTTI 不使用。型 ID は `template static const int` のアドレスを使う
 //     (各 T インスタンス化で別アドレス = 一意 ID)。
-//   ・FAllocator はデフォルト固定。ACS の New/Delete を使う。
+//   ・IAllocator はデフォルト固定。ACS の New/Delete を使う。
 //   ・1 CGame あたり 1 個。複数の独立した状態が欲しい場合は struct にまとめる。
 //   ・wrong-type Get は nullptr を返す (例外なし、ACS 流)。
 #pragma once
@@ -35,7 +35,7 @@ namespace acs::game {
  * @details
  * CGame が 1 つ保持し、任意のシーンから GetGame().AppState<T>() で取り出せる。
  * RTTI 不使用で型 ID は template static const int のアドレスを使い (T ごとに別アドレス)、
- * FAllocator は DefaultAllocator 固定。wrong-type Get は例外なしで nullptr を返す。
+ * IAllocator は DefaultAllocator 固定。wrong-type Get は例外なしで nullptr を返す。
  */
 class FAppStateSlot {
 public:
@@ -62,12 +62,12 @@ public:
     template<typename T, typename... Args>
     T& Emplace(Args&&... args) noexcept {
         Reset();
-        FAllocator& a = DefaultAllocator();
+        IAllocator& a = DefaultAllocator();
         T* p = New<T>(a, Forward<Args>(args)...);
         m_Data    = p;
         m_Alloc   = &a;
         m_TypeId = TypeId<T>();
-        m_Destroy = +[](void* ptr, FAllocator& al) noexcept {
+        m_Destroy = +[](void* ptr, IAllocator& al) noexcept {
             T* tp = static_cast<T*>(ptr);
             Delete(al, tp);
         };
@@ -122,13 +122,13 @@ private:
     void*       m_Data    = nullptr;
 
     /** 値を確保したアロケータ (Reset で解放に使う)。 */
-    FAllocator*  m_Alloc   = nullptr;
+    IAllocator*  m_Alloc   = nullptr;
 
     /** 保持中の値の型 ID (TypeId<T>() の戻り値)。 */
     const void* m_TypeId = nullptr;
 
     /** 値を破棄する型消去デストラクタ関数。 */
-    void(*m_Destroy)(void*, FAllocator&) noexcept = nullptr;
+    void(*m_Destroy)(void*, IAllocator&) noexcept = nullptr;
 };
 
 } // namespace acs::game

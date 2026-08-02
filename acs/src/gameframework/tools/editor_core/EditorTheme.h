@@ -70,7 +70,7 @@
 //   ・FAccessibilityProfile 連動: Colorblind モード時に HighContrast を強制、
 //     ColorMode::Protanopia 時に accent を青系に切り替える等の自動マッピング。
 //   ・syntax highlighting palette: BehaviorTree editor の AST node 種別、
-//     FDialogueScript の語彙ハイライト、FCombatStateMachine の遷移条件等を
+//     CDialogueScript の語彙ハイライト、CCombatStateMachine の遷移条件等を
 //     色分けするための拡張カラーパレット (FEditorThemeColors を継承する派生
 //     SyntaxColors 構造体)。
 //   ・color picker のリアルタイムプレビュー: 現状は SetCustomColors 経由で

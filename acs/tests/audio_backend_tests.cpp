@@ -34,7 +34,7 @@ ACS_TEST(AudioBackend, VoiceHandleAcceptsFullWidthOpaqueTickets)
 
 ACS_TEST(AudioBackend, XAudio2RejectsUnboundedVoicePoolsBeforeOsInitialization)
 {
-    FXAudio2Backend Backend;
+    CXAudio2Backend Backend;
 
     EXPECT_TRUE(Backend.Init(0u).IsErr());
     EXPECT_TRUE(Backend.Init(kXAudio2BackendMaximumVoiceCount + 1u).IsErr());

@@ -6,6 +6,6 @@ class FAComponentHeaderFirstConsumer final : public acs::AComponent {
 public:
     void OnAttach(acs::ANode&) noexcept override {}
     void OnDraw(acs::FRenderContext&) noexcept override {}
-    void OnAttachServices(acs::FSceneServices&) noexcept override {}
+    void OnAttachServices(acs::CSceneServices&) noexcept override {}
     bool QueryLight(acs::FLightDesc2D&) const noexcept override { return false; }
 };

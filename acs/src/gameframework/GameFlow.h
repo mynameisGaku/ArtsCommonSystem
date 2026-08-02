@@ -27,7 +27,7 @@
 //     不使用。Pillar Q CCinematicsDirector / CHotReloadWatcher と同形。1 state につき
 //     最大 enter / exit 1 個ずつ。
 //   ・**fade 量は state holder のみ**: FadeProgress() を [0, 1] で返す。描画は
-//     呼び出し側が FSpriteBatch で fullscreen overlay を被せる責任。
+//     呼び出し側が CSpriteBatch で fullscreen overlay を被せる責任。
 //     CFadeTransition と独立 (シーン内 fade と画面間 fade を別レイヤで扱える)。
 //   ・**非コピー・非ムーブ**: CGame に 1 個持つ長寿命オブジェクト。state 分裂
 //     を避けるため最初から禁止。

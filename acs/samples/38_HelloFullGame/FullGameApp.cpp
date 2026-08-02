@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — FFullGameApp 実装。
+// HelloFullGame — CFullGameApp 実装。
 #include "FullGameApp.h"
 #include "TitleScene.h"
 
@@ -13,7 +13,7 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void FFullGameApp::OnStart() noexcept {
+void CFullGameApp::OnStart() noexcept {
     // 1) BGM トラック登録 (state-only、backend 未接続なのでログのみ)
     m_Music.RegisterTrack(EMusicState::Calm,
         FMusicTrack{ /*asset=*/"bgm_title.ogg",    0.0f, 1.0f, true });
@@ -24,7 +24,7 @@ void FFullGameApp::OnStart() noexcept {
     m_Music.RegisterTrack(EMusicState::Victory,
         FMusicTrack{ /*asset=*/"bgm_victory.ogg",  0.0f, 1.0f, false });
 
-    // 2) FAudioDirector volume バス初期化 (backend 未接続でも state はもつ)
+    // 2) CAudioDirector volume バス初期化 (backend 未接続でも state はもつ)
     m_Audio.SetMasterVolume(0.8f);
     m_Audio.SetBgmVolume(0.7f);
     m_Audio.SetSfxVolume(0.9f);
@@ -44,7 +44,7 @@ void FFullGameApp::OnStart() noexcept {
         ACS_LOG_INFO("[FullGame] No FHighScore file yet (first run)");
     }
 
-    // 4) FGameFlow を Splash → MainTitle (1 step) で起動
+    // 4) CGameFlow を Splash → MainTitle (1 step) で起動
     m_Flow.Init(EFlowState::Splash);
     m_Flow.RequestTransition(EFlowState::MainTitle, 0.0f);
 
@@ -52,18 +52,18 @@ void FFullGameApp::OnStart() noexcept {
     SetFixedTimestep(1.0f / 60.0f, /*max_steps_per_frame=*/8);
 
     // 6) 基底に初期 Scene を push してもらう
-    FGame::OnStart();
+    CGame::OnStart();
 }
 
-void FFullGameApp::OnUpdate(f32 dt) noexcept {
-    // FGame ループに乗せる前に FAudioDirector / FMusicDirector / FGameFlow を tick。
+void CFullGameApp::OnUpdate(f32 dt) noexcept {
+    // CGame ループに乗せる前に CAudioDirector / CMusicDirector / CGameFlow を tick。
     m_Audio.Tick(dt);
     m_Music.Tick(dt);
     m_Flow.Tick(dt);
-    FGame::OnUpdate(dt);
+    CGame::OnUpdate(dt);
 }
 
-void FFullGameApp::OnShutdown() noexcept {
+void CFullGameApp::OnShutdown() noexcept {
     if (m_SpriteInitialized) {
         if (auto* dev = GetRenderer().Device()) dev->WaitIdle();
         m_Sprites.Shutdown();
@@ -72,21 +72,21 @@ void FFullGameApp::OnShutdown() noexcept {
         m_FontTitle.Shutdown();
         m_FontBody.Shutdown();
     }
-    FGame::OnShutdown();
+    CGame::OnShutdown();
 }
 
-void FFullGameApp::EnsureSpritesInitialized() noexcept
+void CFullGameApp::EnsureSpritesInitialized() noexcept
 {
     if (m_SpriteInitialized) return;
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) return;
     auto r = m_Sprites.Init(*dev, GetRenderer().ColorFormat(), /*max_sprites=*/4096);
     if (r.IsErr()) {
-        ACS_LOG_ERROR("[FullGame] FSpriteBatch::Init failed: %s", r.Error().message);
+        ACS_LOG_ERROR("[FullGame] CSpriteBatch::Init failed: %s", r.Error().message);
         return;
     }
     m_SpriteInitialized = true;
-    ACS_LOG_INFO("[FullGame] FSpriteBatch initialized");
+    ACS_LOG_INFO("[FullGame] CSpriteBatch initialized");
 
     // FFont も同じタイミングで遅延 init (Device 必須)。
     const auto title_font_result = FSample::TryLoadDefaultUIFont(m_FontTitle, *dev, 36.0f, 1024, false);
@@ -100,7 +100,7 @@ void FFullGameApp::EnsureSpritesInitialized() noexcept
     m_FontInitialized = true;
 }
 
-void FFullGameApp::SaveHighScoreIfBetter(u64 final_score) noexcept
+void CFullGameApp::SaveHighScoreIfBetter(u64 final_score) noexcept
 {
     if (final_score <= m_Highscore.best_score) return;
     m_Highscore.best_score = final_score;
@@ -113,8 +113,8 @@ void FFullGameApp::SaveHighScoreIfBetter(u64 final_score) noexcept
     }
 }
 
-TUniquePtr<FScene> FFullGameApp::InitialScene() noexcept {
-    return MakeUnique<FTitleScene>();
+TUniquePtr<AScene> CFullGameApp::InitialScene() noexcept {
+    return MakeUnique<ATitleScene>();
 }
 
 } // namespace hellofg

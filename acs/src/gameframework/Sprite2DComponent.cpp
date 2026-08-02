@@ -18,7 +18,7 @@ void ASprite2DComponent::OnDraw(FRenderContext& rc) noexcept {
     const f32 cx = wt.position.x + (0.5f - m_Pivot.x) * w;
     const f32 cy = wt.position.y + (0.5f - m_Pivot.y) * h;
 
-    FSpriteBatch& sb = rc.Sprites();
+    CSpriteBatch& sb = rc.Sprites();
     if (m_Texture) {
         sb.DrawRotated(*m_Texture, cx, cy, w, h, wt.rotation,
                        m_UvMin.x, m_UvMin.y, m_UvMax.x, m_UvMax.y, m_Tint);

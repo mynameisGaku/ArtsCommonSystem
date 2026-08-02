@@ -57,7 +57,7 @@ ACS_TEST(Steering2D, FleeMovesAway) {
 ACS_TEST(Steering2D, PathFollowerReachesEnd) {
     const FSteerParams sp{ 4.0f, 8.0f };
     const FVec2 wp[] = { FVec2{ 5.0f, 0.0f }, FVec2{ 5.0f, 5.0f }, FVec2{ 0.0f, 5.0f } };
-    FPathFollower pf;
+    CPathFollower pf;
     pf.SetPath(wp, 3u, 0.5f);
 
     FVec2 pos{ 0.0f, 0.0f }, vel{ 0.0f, 0.0f };

@@ -37,7 +37,7 @@
 //   con.RegisterCommand("quit", &FMyApp::QuitCmd, this, "exit the application");
 //   con.RegisterCommand("help", &FMyApp::HelpCmd, this, "list commands");
 //   ...
-//   if (FInput::IsKeyPressed(EKey::Tilde)) con.Toggle();
+//   if (CInput::IsKeyPressed(EKey::Tilde)) con.Toggle();
 //   if (con.IsOpen() && enter_pressed) {
 //       con.PushHistory(input_buf);
 //       con.Execute(input_buf);
@@ -85,7 +85,7 @@ public:
     }
 
     /** 履歴・ログ・内部配列の確保元を明示して構築する。 */
-    explicit CDevConsole(FAllocator& allocator) noexcept
+    explicit CDevConsole(IAllocator& allocator) noexcept
         : m_Allocator(&allocator), m_Commands(allocator), m_History(allocator), m_Log(allocator)
     {
     }
@@ -262,7 +262,7 @@ private:
     void ClearLines(TArray<const char*>& buf) noexcept;
 
     /** 文字列と内部配列を確保するアロケータ。 */
-    FAllocator* m_Allocator = nullptr;
+    IAllocator* m_Allocator = nullptr;
 
     /** 登録済みコマンド列。 */
     TArray<FCommand>     m_Commands;

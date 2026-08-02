@@ -10,4 +10,4 @@
 #include "SteamworksDemoApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hellosteam::FSteamworksDemoApp)
+ACS_DEFINE_MAIN(hellosteam::CSteamworksDemoApp)

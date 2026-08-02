@@ -6,8 +6,8 @@
 //     変数 (see_phase / health …) を名前+型で持ち、Action/Condition 関数は
 //     `static_cast<FBtBlackboard*>(blackboard)` から名前アクセスする。エディタの
 //     Blackboard パネルで変数を追加 / リネーム / 値編集できる。
-//   - FBehaviorTreeEditorPanel を所有 + メタミラー node 構造を AddNode で組む。
-//   - FBtActionRegistry / FBtConditionRegistry にタスク関数 / 条件関数を名前登録し、
+//   - ABehaviorTreeEditorPanel を所有 + メタミラー node 構造を AddNode で組む。
+//   - CBtActionRegistry / CBtConditionRegistry にタスク関数 / 条件関数を名前登録し、
 //     registry 実行 (graph-run) でエディタのグラフを直接インタプリトして走らせる。
 //   Action/Condition Fn と構築 helper は TreeActions.{h,cpp} / TreeBuilder.{h,cpp} に分離。
 #pragma once
@@ -24,7 +24,7 @@ using Blackboard = acs::game::btedit::FBtBlackboard;
 // ============================================================================
 // BtEditorScene — no-code BT エディタの構成 + render
 // ============================================================================
-class FBtEditorScene : public acs::game::FScene {
+class ABtEditorScene : public acs::game::AScene {
 public:
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
@@ -32,8 +32,8 @@ public:
     void OnRender(acs::game::FRenderContext& rc) noexcept override;
 
 private:
-    acs::game::FBehaviorTree                            m_Bt;   // 参考用 (graph-run 時は未使用)
-    acs::game::btedit::FBehaviorTreeEditorPanel         m_Panel;
+    acs::game::CBehaviorTree                            m_Bt;   // 参考用 (graph-run 時は未使用)
+    acs::game::btedit::ABehaviorTreeEditorPanel         m_Panel;
 
     // エディタ所有の動的ブラックボード。状態 (see_phase / health …) を名前+型で保持し、
     // graph blackboard としても渡す。エディタから変数を追加/リネーム/値編集できる。
@@ -41,10 +41,10 @@ private:
 
     // no-code 実行: Task/Action 名 → 関数ポインタ。registry 実行でエディタのグラフを
     // 直接インタプリトして走らせ、実行フローがライブで光る。
-    acs::game::btedit::FBtActionRegistry                m_Reg;
+    acs::game::btedit::CBtActionRegistry                m_Reg;
 
     // Condition デコレーター用: 条件名 → bool 関数 (CanSeePlayer)。
-    acs::game::btedit::FBtConditionRegistry             m_Cond;
+    acs::game::btedit::CBtConditionRegistry             m_Cond;
 };
 
 } // namespace hellobt

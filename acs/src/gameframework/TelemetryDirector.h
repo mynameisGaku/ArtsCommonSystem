@@ -121,7 +121,7 @@ struct FTelemetryEvent {
     /** イベントの重要度ヒント。 */
     EEventPriority priority     = EEventPriority::Info;
 
-    /** TrackEvent 時の FClock::MillisSinceStartup() (起動からの ms、0 = 未取得)。 */
+    /** TrackEvent 時の CClock::MillisSinceStartup() (起動からの ms、0 = 未取得)。 */
     u64           timestamp    = 0;
 };
 

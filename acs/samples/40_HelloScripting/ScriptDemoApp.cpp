@@ -56,7 +56,7 @@ void ReportLoad(const char* demo, const TResult<void>& r) noexcept {
 
 } // namespace
 
-bool FScriptDemoApp::DemoCallFunction(IScriptVm& vm) noexcept {
+bool CScriptDemoApp::DemoCallFunction(IScriptVm& vm) noexcept {
     const char* src =
         "function add(a, b) return a + b end\n"
         "function fib(n) if n < 2 then return n end return fib(n-1) + fib(n-2) end\n";
@@ -80,7 +80,7 @@ bool FScriptDemoApp::DemoCallFunction(IScriptVm& vm) noexcept {
         && ok_fib && NearlyEqual(fib_ret.v.num, 55.0);
 }
 
-bool FScriptDemoApp::DemoNativeCallback(IScriptVm& vm) noexcept {
+bool CScriptDemoApp::DemoNativeCallback(IScriptVm& vm) noexcept {
     const bool reg_ok = vm.RegisterNativeFunction("host_add", &HostAdd, nullptr).IsOk();
 
     // スクリプト側から host_add を呼び、結果をグローバル result に保存。
@@ -94,7 +94,7 @@ bool FScriptDemoApp::DemoNativeCallback(IScriptVm& vm) noexcept {
     return reg_ok && NearlyEqual(result, 42.0);
 }
 
-bool FScriptDemoApp::DemoGlobals(IScriptVm& vm) noexcept {
+bool CScriptDemoApp::DemoGlobals(IScriptVm& vm) noexcept {
     vm.SetGlobalNumber("hp", 100.0);
     ReportLoad("Globals", vm.LoadScript("hp = hp - 30", 0, "demo_globals"));
     const f64 hp = vm.GetGlobalNumber("hp", -1.0);
@@ -105,7 +105,7 @@ bool FScriptDemoApp::DemoGlobals(IScriptVm& vm) noexcept {
     return NearlyEqual(hp, 70.0);
 }
 
-bool FScriptDemoApp::DemoGarbageCollection(IScriptVm& vm) noexcept {
+bool CScriptDemoApp::DemoGarbageCollection(IScriptVm& vm) noexcept {
     ReportLoad("GC", vm.LoadScript(
         "big = {} for i = 1, 20000 do big[i] = i * i end", 0, "demo_gc_alloc"));
     const u64 mem_before = vm.MemoryUsageBytes();
@@ -123,7 +123,7 @@ bool FScriptDemoApp::DemoGarbageCollection(IScriptVm& vm) noexcept {
     return mem_after < mem_before;
 }
 
-int FScriptDemoApp::Run() noexcept {
+int CScriptDemoApp::Run() noexcept {
 #if WITH_ACS_SCRIPTING
     acs::scripting::CLuaVm lua;
     IScriptVm& vm = lua;

@@ -778,7 +778,7 @@ FSettingsPersistenceResult CSettings::TryLoad(
         return Failure(ESettingsPersistenceError::FileTooLarge);
     }
 
-    FAllocator& allocator = DefaultAllocator();
+    IAllocator& allocator = DefaultAllocator();
     void* raw = nullptr;
     if (size != 0u) {
         raw = allocator.Alloc(

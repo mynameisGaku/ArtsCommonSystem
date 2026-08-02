@@ -205,9 +205,9 @@ public:
     bool shader_visible = false;
 };
 
-class FSwitchableMotionPoolAllocator final : public FAllocator {
+class FSwitchableMotionPoolAllocator final : public IAllocator {
 public:
-    explicit FSwitchableMotionPoolAllocator(FAllocator& backing) noexcept
+    explicit FSwitchableMotionPoolAllocator(IAllocator& backing) noexcept
         : m_Backing(&backing) {}
 
     void SetFailing(bool failing) noexcept { m_Failing = failing; }
@@ -225,7 +225,7 @@ public:
     }
 
 private:
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
     bool m_Failing = false;
 };
 
@@ -571,7 +571,7 @@ ACS_TEST(Render, MotionVectorMrtFailureSkipsPipelineDrawAndEnd)
     auto device_result = CreateRhiDevice(config);
     if (device_result.IsErr()) return;
 
-    FMotionVector motion;
+    CMotionVector motion;
     const auto init_result = motion.Init(*device_result.Value(), 16u, 16u);
     EXPECT_TRUE(init_result.IsOk());
     if (init_result.IsErr()) return;
@@ -643,9 +643,9 @@ ACS_TEST(Render, MotionVectorPoolGrowsPastLegacyLimitAndRecoversAllocation)
     auto device_result = CreateRhiDevice(config);
     if (device_result.IsErr()) return;
 
-    FSystemAllocator backing;
+    CSystemAllocator backing;
     FSwitchableMotionPoolAllocator pool_allocator{backing};
-    FMotionVector motion{pool_allocator};
+    CMotionVector motion{pool_allocator};
     const auto init_result = motion.Init(*device_result.Value(), 16u, 16u);
     EXPECT_TRUE(init_result.IsOk());
     if (init_result.IsErr()) return;

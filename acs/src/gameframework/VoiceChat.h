@@ -534,7 +534,7 @@ public:
      *
      * @param allocator 可変長状態の確保に使う allocator。
      */
-    explicit CVoiceChatLoopbackBackend(FAllocator& allocator) noexcept;
+    explicit CVoiceChatLoopbackBackend(IAllocator& allocator) noexcept;
 
     /** 破棄する。 */
     ~CVoiceChatLoopbackBackend() noexcept override = default;
@@ -754,7 +754,7 @@ private:
         FLoopParticipant() noexcept = default;
 
         /** 指定 allocator を文字列と受信キューへ固定する。 */
-        explicit FLoopParticipant(FAllocator& allocator) noexcept
+        explicit FLoopParticipant(IAllocator& allocator) noexcept
             : user_id(allocator), display_name(allocator), rx_frames(allocator)
         {
         }
@@ -784,7 +784,7 @@ private:
         FChannel() noexcept = default;
 
         /** 指定 allocator を ID と参加者配列へ固定する。 */
-        explicit FChannel(FAllocator& allocator) noexcept : channel_id(allocator), participants(allocator)
+        explicit FChannel(IAllocator& allocator) noexcept : channel_id(allocator), participants(allocator)
         {
         }
 
@@ -851,7 +851,7 @@ private:
     f32           m_LastLocalPeak= 0.0f;
 
     /** チャンネル内の可変長状態が使う allocator。 */
-    FAllocator* m_Allocator = nullptr;
+    IAllocator* m_Allocator = nullptr;
 
     /** チャンネル状態 (Party/Team/Global/Custom の 4 種固定)。 */
     FChannel m_Channels[4];

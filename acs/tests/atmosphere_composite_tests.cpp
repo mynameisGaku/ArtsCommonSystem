@@ -246,9 +246,9 @@ ACS_TEST(Atmosphere,
         "pd.blend_mode = EBlendMode::AdditivePreserveAlpha;"));
 
     const std::size_t compositeBegin = source.find(
-        "void FSkyAtmosphere::CompositeAerialPerspective");
+        "void CSkyAtmosphere::CompositeAerialPerspective");
     const std::size_t compositeEnd = source.find(
-        "void FSkyAtmosphere::CompositeLocalFog", compositeBegin);
+        "void CSkyAtmosphere::CompositeLocalFog", compositeBegin);
     EXPECT_TRUE(compositeBegin != std::string::npos);
     EXPECT_TRUE(compositeEnd != std::string::npos);
     if (compositeBegin == std::string::npos ||
@@ -303,11 +303,11 @@ ACS_TEST(Atmosphere,
     EXPECT_TRUE(!source.empty());
 
     const std::size_t physicalBegin = source.find(
-        "void FSkyAtmosphere::CompositeAerialPerspective");
+        "void CSkyAtmosphere::CompositeAerialPerspective");
     const std::size_t localFogBegin = source.find(
-        "void FSkyAtmosphere::CompositeLocalFog", physicalBegin);
+        "void CSkyAtmosphere::CompositeLocalFog", physicalBegin);
     const std::size_t localFogEnd = source.find(
-        "bool FSkyAtmosphere::BakeEquirect", localFogBegin);
+        "bool CSkyAtmosphere::BakeEquirect", localFogBegin);
     EXPECT_TRUE(physicalBegin != std::string::npos);
     EXPECT_TRUE(localFogBegin != std::string::npos);
     EXPECT_TRUE(localFogEnd != std::string::npos);
@@ -383,7 +383,7 @@ ACS_TEST(Atmosphere, EnvironmentBakeExcludesAnalyticSunDisc) {
     EXPECT_TRUE(!source.empty());
 
     const std::size_t cpuBegin =
-        source.find("TArray<f32> FAtmosphere::BakeEquirect");
+        source.find("TArray<f32> CAtmosphere::BakeEquirect");
     const std::size_t cpuEnd =
         source.find("// ===================== GPU", cpuBegin);
     const std::size_t gpuBegin =
@@ -418,7 +418,7 @@ ACS_TEST(Atmosphere,
     constexpr u32 kWidth = 32u;
     constexpr u32 kHeight = 128u;
     const TArray<f32> pixels =
-        FAtmosphere::BakeEquirect(kWidth, kHeight, params);
+        CAtmosphere::BakeEquirect(kWidth, kHeight, params);
     EXPECT_EQ(pixels.Size(),
               static_cast<usize>(kWidth) * kHeight * 4u);
 
@@ -487,7 +487,7 @@ ACS_TEST(Atmosphere,
     TUniquePtr<IRhiCommandList> command =
         Move(commandResult.Value());
 
-    FSkyAtmosphere atmosphere;
+    CSkyAtmosphere atmosphere;
     const auto initResult = atmosphere.Init(
         *deviceResult.Value(), EFormat::R16G16B16A16_Float);
     EXPECT_TRUE(initResult.IsOk());
@@ -796,7 +796,7 @@ ACS_TEST(Atmosphere, AerialPerspectiveShadersInitializeOnAvailableGpu) {
     auto deviceResult = CreateRhiDevice(config);
     if (deviceResult.IsErr()) return;
 
-    FSkyAtmosphere atmosphere;
+    CSkyAtmosphere atmosphere;
     const auto initResult =
         atmosphere.Init(*deviceResult.Value(),
                         EFormat::R16G16B16A16_Float);
@@ -1000,7 +1000,7 @@ ACS_TEST(Atmosphere,
 
     EXPECT_TRUE(!mesh_policy.empty());
     EXPECT_TRUE(Contains(
-        source, "FWaterSurface3D::IsLocalXzSurfaceMesh(*mesh)"));
+        source, "CWaterSurface3D::IsLocalXzSurfaceMesh(*mesh)"));
     EXPECT_TRUE(Contains(
         mesh_policy,
         "!IsValidCustomWaterSurfaceMesh(*record, source)"));
@@ -1100,7 +1100,7 @@ ACS_TEST(EditorPerformance,
             : std::string{};
 
     EXPECT_TRUE(Contains(
-        worker_body, "FPbrShader::CompileShadersCpu(true)"));
+        worker_body, "CPbrShader::CompileShadersCpu(true)"));
     EXPECT_TRUE(Contains(
         worker_body, "BuildInitializedCandidateForRawDx12("));
 

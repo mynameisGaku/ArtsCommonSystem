@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloOpenXR - FOpenXrDemoApp implementation.
+// HelloOpenXR - COpenXrDemoApp implementation.
 #include "OpenXrDemoApp.h"
 
 #include "openxr/KhronosOpenXrBridge.h"
@@ -8,11 +8,11 @@
 
 namespace helloopenxr {
 
-int FOpenXrDemoApp::Run() noexcept {
+int COpenXrDemoApp::Run() noexcept {
     std::puts("=== ACS HelloOpenXR ===");
-    std::puts("backend: REAL Khronos OpenXR Loader (FKhronosOpenXrBridge)");
+    std::puts("backend: REAL Khronos OpenXR Loader (CKhronosOpenXrBridge)");
 
-    acs::openxr::FKhronosOpenXrBridge Xr;
+    acs::openxr::CKhronosOpenXrBridge Xr;
     auto Init = Xr.Init();
     if (Init.IsOk()) {
         std::printf("Init: OK  initialized=%s  tracking=%s  passthrough=%s\n",

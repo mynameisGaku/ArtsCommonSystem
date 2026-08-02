@@ -119,15 +119,15 @@ ACS_TEST(InputAxisOptions, AppliesScaleClampAndDirectionXor)
 
 ACS_TEST(InputAxisOptions, InputMapAxisValueOnlyPostProcessesExistingAxis)
 {
-    FInput::OnEvent(MakeKeyEvent(EKey::D, false));
-    FInput::Update();
+    CInput::OnEvent(MakeKeyEvent(EKey::D, false));
+    CInput::Update();
 
     /** 既存axis経路と新しい補正経路を比較する入力map。 */
     FInputMap input_map;
     /** 試験用の移動action。 */
     const FActionId move("MoveX");
     input_map.BindAxisKeys(move, EKey::A, EKey::D);
-    FInput::OnEvent(MakeKeyEvent(EKey::D, true));
+    CInput::OnEvent(MakeKeyEvent(EKey::D, true));
 
     /** 既存値へ四分の一倍率と反転を適用する設定。 */
     const FInputAxisOptions options{0.0f, 0.25f, true};
@@ -136,7 +136,7 @@ ACS_TEST(InputAxisOptions, InputMapAxisValueOnlyPostProcessesExistingAxis)
     EXPECT_NEAR(input_map.AxisValue(move, options), options.Apply(input_map.Axis(move)), 1.0e-6f);
     EXPECT_NEAR(input_map.AxisValue(move, options), -0.25f, 1.0e-6f);
 
-    FInput::OnEvent(MakeKeyEvent(EKey::D, false));
+    CInput::OnEvent(MakeKeyEvent(EKey::D, false));
     EXPECT_NEAR(input_map.Axis(move), 0.0f, 1.0e-6f);
     EXPECT_FALSE(input_map.IsHeld(move));
 }

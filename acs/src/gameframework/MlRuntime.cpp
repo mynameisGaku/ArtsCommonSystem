@@ -61,7 +61,7 @@ TResult<void> CUpscalerStub::Init(EUpscalerKind k) noexcept {
     }
     // SDK 同梱前提の kind が要求された → 上位は fallback パスを取るべき。
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
-                   "FUpscalerStub::Init: requested upscaler backend not integrated (Phase U-1 stub)");
+                   "CUpscalerStub::Init: requested upscaler backend not integrated (Phase U-1 stub)");
 }
 
 /**

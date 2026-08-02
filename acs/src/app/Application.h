@@ -10,7 +10,7 @@
 //           ACS_LOG_INFO("ゲーム開始");
 //       }
 //       void OnUpdate(f32 delta_time) noexcept override {
-//           if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+//           if (CInput::IsKeyPressed(EKey::Escape)) Quit();
 //       }
 //       void OnRender() noexcept override {
 //           // 描画コマンド (BeginFrame / EndFrame は基底が呼ぶ)
@@ -43,7 +43,7 @@ class FApplicationTestAccess;
  * ゲーム/サンプルが継承するアプリケーション基底クラス。
  *
  * @details
- * ウィンドウ・レンダラ・ECS FWorld・アセット・タイマー・イベントブローカーといった
+ * ウィンドウ・レンダラ・ECS CWorld・アセット・タイマー・イベントブローカーといった
  * エンジンサブシステムを所有し、Run() で初期化からメインループ・後始末までを駆動する。
  * 派生クラスは OnStart/OnUpdate/OnRender/OnShutdown/OnEvent を override してロジックと
  * 描画を書く。non-copy 型で、通常は ACS_DEFINE_MAIN マクロ経由でインスタンス化する。
@@ -121,19 +121,19 @@ public:
     /**
      * レンダラへの参照を返す。
      *
-     * @return アプリが所有する FRenderer への参照。
+     * @return アプリが所有する CRenderer への参照。
      */
-    FRenderer& GetRenderer() noexcept
+    CRenderer& GetRenderer() noexcept
     {
         return m_Renderer;
     }
 
     /**
-     * ECS FWorld への参照を返す。
+     * ECS CWorld への参照を返す。
      *
-     * @return アプリが所有する FWorld への参照。
+     * @return アプリが所有する CWorld への参照。
      */
-    FWorld& GetWorld() noexcept
+    CWorld& GetWorld() noexcept
     {
         return m_World;
     }
@@ -141,9 +141,9 @@ public:
     /**
      * アセットレジストリへの参照を返す。
      *
-     * @return アプリが所有する FAssetRegistry への参照。
+     * @return アプリが所有する CAssetRegistry への参照。
      */
-    FAssetRegistry& GetAssets() noexcept
+    CAssetRegistry& GetAssets() noexcept
     {
         return m_Assets;
     }
@@ -266,34 +266,34 @@ private:
      * Run が起動したプロセス基盤だけを保持し、CApplication の全メンバより後に停止する。
      *
      * @details この型のインスタンスを最初のデータメンバに置くことで、派生メンバ、レンダラ、
-     * ウィンドウ、基底コンテナの破棄後に FThreadPool、FMemorySystem、FLogger を停止できる。
+     * ウィンドウ、基底コンテナの破棄後に CThreadPool、CMemorySystem、CLogger を停止できる。
      */
     struct FRuntimeFoundationLifetime {
         /** 所有中の基盤を逆順で停止する。 */
         ~FRuntimeFoundationLifetime() noexcept;
 
-        /** 未起動なら FLogger を起動し、成功時だけ所有権を記録する。 */
+        /** 未起動なら CLogger を起動し、成功時だけ所有権を記録する。 */
         void InitializeLogger(const FLogConfig& config) noexcept;
 
         /** Debug CRT のプロセス設定と基盤寿命スコープ診断を開始する。 */
         void InitializeMemoryDiagnostics() noexcept;
 
-        /** 未起動なら FMemorySystem を起動し、成功時だけ所有権を記録する。 */
+        /** 未起動なら CMemorySystem を起動し、成功時だけ所有権を記録する。 */
         TResult<void> InitializeMemorySystem(const FMemorySystemConfig& config) noexcept;
 
-        /** 未起動なら FThreadPool を起動し、成功時だけ所有権を記録する。 */
+        /** 未起動なら CThreadPool を起動し、成功時だけ所有権を記録する。 */
         TResult<void> InitializeThreadPool(u32 worker_count) noexcept;
 
         /** 起動途中の失敗時にも使える冪等な明示解放。 */
         void Release() noexcept;
 
-        /** このガードが FLogger の終了責任を持つ。 */
+        /** このガードが CLogger の終了責任を持つ。 */
         bool logger_owned = false;
 
-        /** このガードが FMemorySystem の終了責任を持つ。 */
+        /** このガードが CMemorySystem の終了責任を持つ。 */
         bool memory_system_owned = false;
 
-        /** このガードが FThreadPool の終了責任を持つ。 */
+        /** このガードが CThreadPool の終了責任を持つ。 */
         bool thread_pool_owned = false;
 
         /** Run の基盤所有権を追跡中である。 */
@@ -312,7 +312,7 @@ private:
     friend class app_internal::FApplicationTestAccess;
 
     /**
-     * FWindow のイベントを FInput に流しつつ OnEvent も呼ぶ静的ブリッジ。
+     * FWindow のイベントを CInput に流しつつ OnEvent も呼ぶ静的ブリッジ。
      *
      * @param user_data this を指すユーザポインタ (SetEventCallback で登録)。
      * @param event 受信したイベント。
@@ -326,13 +326,13 @@ private:
     FWindow m_Window;
 
     /** レンダラ。 */
-    FRenderer m_Renderer;
+    CRenderer m_Renderer;
 
-    /** ECS FWorld。 */
-    FWorld m_World;
+    /** ECS CWorld。 */
+    CWorld m_World;
 
     /** アセットレジストリ。 */
-    FAssetRegistry m_Assets;
+    CAssetRegistry m_Assets;
 
     /** タイマーマネージャ。 */
     CTimerManager m_Timers;

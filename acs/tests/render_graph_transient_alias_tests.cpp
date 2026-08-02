@@ -16,7 +16,7 @@ bool ScalarCanAlias(const FRenderGraphResourceLifetime& first, const FRenderGrap
 }
 
 /** リソース識別子に対応する slot を探す。 */
-u32 FindAliasSlot(const FRenderGraphTransientAliasPlanner& planner, u32 resource_id) noexcept {
+u32 FindAliasSlot(const CRenderGraphTransientAliasPlanner& planner, u32 resource_id) noexcept {
     for (usize assignment_index = 0; assignment_index < planner.AssignmentCount(); ++assignment_index) {
         if (planner.Assignments()[assignment_index].resource_id == resource_id) {
             return planner.Assignments()[assignment_index].slot_index;
@@ -36,12 +36,12 @@ ACS_TEST(RenderGraphTransientAlias, MatchesInclusiveScalarParity)
 
     for (usize first_index = 0; first_index < lifetime_count; ++first_index) {
         for (usize second_index = 0; second_index < lifetime_count; ++second_index) {
-            EXPECT_EQ(FRenderGraphTransientAliasPlanner::CanAlias(lifetimes[first_index], lifetimes[second_index]), ScalarCanAlias(lifetimes[first_index], lifetimes[second_index]));
+            EXPECT_EQ(CRenderGraphTransientAliasPlanner::CanAlias(lifetimes[first_index], lifetimes[second_index]), ScalarCanAlias(lifetimes[first_index], lifetimes[second_index]));
         }
     }
 
     // 寿命群を解析する候補プランナー。
-    FRenderGraphTransientAliasPlanner planner;
+    CRenderGraphTransientAliasPlanner planner;
     EXPECT_TRUE(planner.Build(lifetimes, lifetime_count));
     EXPECT_EQ(planner.Summary().resource_count, 6u);
     EXPECT_EQ(planner.Summary().slot_count, 4u);
@@ -80,9 +80,9 @@ ACS_TEST(RenderGraphTransientAlias, StressIsDeterministicAndFailClosed)
     }
 
     // 逆順入力の候補計画。
-    FRenderGraphTransientAliasPlanner first;
+    CRenderGraphTransientAliasPlanner first;
     // 正順入力の候補計画。
-    FRenderGraphTransientAliasPlanner second;
+    CRenderGraphTransientAliasPlanner second;
     EXPECT_TRUE(first.Build(lifetimes.Data(), lifetimes.Size()));
     EXPECT_TRUE(second.Build(ordered.Data(), ordered.Size()));
     EXPECT_EQ(first.Summary().resource_count, 4096u);

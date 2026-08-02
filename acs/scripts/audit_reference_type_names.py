@@ -12,10 +12,14 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from dataclasses import dataclass
 import html
+import json
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 from typing import Iterable, Sequence
@@ -49,6 +53,7 @@ KNOWN_PREFIXES = "CFAEIT"
 NAME_PATTERN = re.compile(r'\bname\s*:\s*"((?:\\.|[^"\\])*)"')
 KIND_PATTERN = re.compile(r'\bkind\s*:\s*"((?:\\.|[^"\\])*)"')
 HEADER_PATTERN = re.compile(r'\bheader\s*:\s*"((?:\\.|[^"\\])*)"')
+MEMBER_SIG_PATTERN = re.compile(r'\bsig\s*:\s*"((?:\\.|[^"\\])*)"')
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*")
 EXCLUDED_DIRECTORIES = frozenset(
     {
@@ -63,23 +68,92 @@ EXCLUDED_DIRECTORIES = frozenset(
     }
 )
 REFERENCE_DATA_FILE_OVERRIDES = {
+    "app": "app.js",
     "editor_abi": "editor.js",
     "render": "render_core.js",
+    "subsystem": "subsystem.js",
+}
+GAMEFRAMEWORK_HEADER_FILE_OVERRIDES = {
+    "HierarchyVisibilityBatch.h": "gameframework_8.js",
+    "HierarchyWorldTransformBatch.h": "gameframework_8.js",
+    "LegacyKitEaseIdCodec.h": "gameframework_3.js",
+    "OpenXrBridge.h": "openxr.js",
+    "Reflect.h": "gameframework_8.js",
+    "ReflectMethod.h": "gameframework_4.js",
+    "ScriptHost.h": "gameframework_6.js",
+    "Steering2D.h": "gameframework_5.js",
+    "StudioWorkflow.h": "gameframework_7.js",
 }
 
 # 手書きreferenceで既に使っているclass分類だけを明示的に受理する。
 REFERENCE_CLASS_KINDS = frozenset(
     {
         "クラス",
+        "クラス / 関数",
+        "クラス (static のみ)",
+        "クラス(AEditorCommand 派生サンプル)",
+        "クラス(AEditorPanel 派生)",
         "クラス / 構造体",
         "クラス(AAsset 派生)",
         "クラス(IAssetLoader 派生)",
+        "クラス(panel)",
+        "クラス(static ユーティリティ)",
+        "クラス(サービス hub)",
+        "クラス(サービス)",
+        "クラス(抽象基底)",
         "クラス(static 関数群)",
         "クラス(静的)",
         "クラス（静的）",
         "基底クラス",
     }
 )
+REFERENCE_STRUCT_KINDS = frozenset({"構造体", "構造体(POD)"})
+MODULE_ID_PATTERN = re.compile(
+    r'ACS_REF\.modules\.push\(\{\s*id\s*:\s*"((?:\\.|[^"\\])*)"'
+)
+
+# Node vm内で各data fileを独立実行し、表示上activeなmodule/type/memberを返す。
+NODE_REFERENCE_EVALUATOR = r"""
+const fs = require("fs");
+const path = require("path");
+const vm = require("vm");
+const root = process.argv[1];
+const names = fs.readdirSync(root)
+  .filter((name) => name.endsWith(".js") && name !== "_meta.js")
+  .sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+const records = [];
+for (const name of names) {
+  const context = { ACS_REF: { modules: [], glossary: {}, guide: [], troubleshooting: [] } };
+  context.window = context;
+  vm.createContext(context, { codeGeneration: { strings: false, wasm: false } });
+  const source = fs.readFileSync(path.join(root, name), "utf8");
+  new vm.Script(source, { filename: name }).runInContext(context, { timeout: 1000 });
+  for (const module of context.ACS_REF.modules) {
+    const entries = [
+      ...(Array.isArray(module.types) ? module.types : []),
+      ...(Array.isArray(module.items) ? module.items : []),
+    ];
+    records.push({
+      file: name,
+      module: typeof module.id === "string" ? module.id : "",
+      entries: entries
+        .filter((entry) => entry !== null && typeof entry === "object")
+        .map((entry) => ({
+          name: typeof entry.name === "string" ? entry.name : "",
+          kind: typeof entry.kind === "string" ? entry.kind : "",
+          header: typeof entry.header === "string" ? entry.header : "",
+          members: Array.isArray(entry.members)
+            ? entry.members
+                .filter((member) => member !== null && typeof member === "object")
+                .map((member) => typeof member.sig === "string" ? member.sig : "")
+                .filter((signature) => signature.length !== 0)
+            : [],
+        })),
+    });
+  }
+}
+process.stdout.write(JSON.stringify(records));
+"""
 
 
 def reference_data_file_for_header(header: str) -> str:
@@ -87,6 +161,28 @@ def reference_data_file_for_header(header: str) -> str:
 
     module = header.split("/", 1)[0]
     header_name = header.rsplit("/", 1)[-1]
+    if module == "gameframework":
+        if "/tools/" in header:
+            return "editor.js"
+        override = GAMEFRAMEWORK_HEADER_FILE_OVERRIDES.get(header_name)
+        if override is not None:
+            return override
+        stem = header_name.rsplit(".", 1)[0]
+        if stem <= "CameraStack":
+            return "gameframework_1.js"
+        if stem <= "DevConsole":
+            return "gameframework_2.js"
+        if stem <= "HealthSystem":
+            return "gameframework_3.js"
+        if stem <= "NetSnapshot":
+            return "gameframework_4.js"
+        if stem <= "Progression":
+            return "gameframework_5.js"
+        if stem <= "SeasonPass":
+            return "gameframework_6.js"
+        if stem <= "TelemetryDirector":
+            return "gameframework_7.js"
+        return "gameframework_8.js"
     if module == "render" and header_name.startswith(("Diligent", "Dx12")):
         return "render_backend.js"
     return REFERENCE_DATA_FILE_OVERRIDES.get(module, f"{module}.js")
@@ -101,23 +197,118 @@ CANONICAL_SCALAR_REFERENCE_ENTRIES = {
     for qualified_name, (header, _) in CANONICAL_SCALAR_ALIASES.items()
 }
 
-# 管理objectと機能classの正規契約からreference掲載先を導出する。
-CANONICAL_OBJECT_AND_CLASS_REFERENCE_ENTRIES = {
+# 移行registryのclass/struct契約からreference掲載先を導出する。
+CANONICAL_MIGRATED_REFERENCE_ENTRIES = {
     qualified_name.rsplit("::", 1)[-1]: (
         reference_data_file_for_header(header),
         header,
-        "インターフェース" if prefix == "I" else "クラス",
+        (
+            "構造体"
+            if kind == "struct"
+            else "インターフェース" if prefix == "I" else "クラス"
+        ),
     )
     for qualified_name, (header, kind, prefix) in (
         MIGRATED_CANONICAL_OBJECT_AND_CLASS_TYPES.items()
     )
-    if kind == "class"
+    if kind in {"class", "struct"}
 }
+
+# 新設subsystem moduleで欠落を許さない公開value/enum/alias契約。
+REQUIRED_SUBSYSTEM_PUBLIC_REFERENCE_ENTRIES = {
+    "ESubsystemOwnerKind": (
+        "subsystem.js",
+        "subsystem/SubsystemOwner.h",
+        "列挙",
+    ),
+    "ESubsystemScope": (
+        "subsystem.js",
+        "subsystem/SubsystemScope.h",
+        "列挙",
+    ),
+    "ESubsystemTickPhase": (
+        "subsystem.js",
+        "subsystem/SubsystemTickPhase.h",
+        "列挙",
+    ),
+    "FSubsystemCreateFn": (
+        "subsystem.js",
+        "subsystem/SubsystemFactory.h",
+        ALIAS_KIND_MARKER,
+    ),
+    "FSubsystemFactory": (
+        "subsystem.js",
+        "subsystem/SubsystemFactory.h",
+        "構造体",
+    ),
+    "FSubsystemFrameContext": (
+        "subsystem.js",
+        "subsystem/SubsystemFrameContext.h",
+        "構造体",
+    ),
+    "FSubsystemOwner": (
+        "subsystem.js",
+        "subsystem/SubsystemOwner.h",
+        "構造体",
+    ),
+}
+
+# 新設7型でreferenceから欠落を許さないowner、scope、tick、factory契約。
+REQUIRED_SUBSYSTEM_PUBLIC_MEMBER_SIGNATURES = {
+    "ESubsystemOwnerKind": ("Unknown", "Application", "Game", "Scene"),
+    "ESubsystemScope": ("Engine", "GameInstance", "World"),
+    "ESubsystemTickPhase": ("None", "PreUpdate", "PostUpdate"),
+    "FSubsystemCreateFn": (
+        "using FSubsystemCreateFn = TUniquePtr<ASubsystem> (*)()",
+    ),
+    "FSubsystemFactory": (
+        "const void* kind",
+        "ESubsystemScope scope",
+        "const char* name",
+        "FSubsystemCreateFn create",
+        "ESubsystemTickPhase phase",
+        "i32 order",
+        "bool IsValidSubsystemScope(ESubsystemScope)",
+        "bool IsValidSubsystemTickPhase(ESubsystemTickPhase)",
+        "bool IsValidSubsystemFactory(const FSubsystemFactory&)",
+    ),
+    "FSubsystemFrameContext": (
+        "f32 scaled_delta_seconds",
+        "f32 unscaled_delta_seconds",
+        "u64 frame_number",
+        "ESubsystemTickPhase phase",
+    ),
+    "FSubsystemOwner": ("void* pointer", "ESubsystemOwnerKind kind"),
+}
+if set(REQUIRED_SUBSYSTEM_PUBLIC_MEMBER_SIGNATURES) != set(
+    REQUIRED_SUBSYSTEM_PUBLIC_REFERENCE_ENTRIES
+):
+    raise RuntimeError("subsystem public member contract must cover exactly 7 types")
+
+# subsystem APIとして一体で欠落を許さない既存6型と新設7型。
+_EXISTING_SUBSYSTEM_REFERENCE_NAMES = (
+    "AAssetSubsystem",
+    "ASubsystem",
+    "ATimerSubsystem",
+    "CSubsystemAutoRegister",
+    "CSubsystemCollection",
+    "CSubsystemRegistry",
+)
+REQUIRED_SUBSYSTEM_REFERENCE_ENTRIES = {
+    **{
+        name: CANONICAL_MIGRATED_REFERENCE_ENTRIES[name]
+        for name in _EXISTING_SUBSYSTEM_REFERENCE_NAMES
+    },
+    **REQUIRED_SUBSYSTEM_PUBLIC_REFERENCE_ENTRIES,
+}
+if len(REQUIRED_SUBSYSTEM_REFERENCE_ENTRIES) != 13:
+    raise RuntimeError("subsystem reference contract must contain exactly 13 types")
 
 # 全hard canonicalをkindとともに一意に検査する。
 CANONICAL_REFERENCE_ENTRIES = {
-    **CANONICAL_OBJECT_AND_CLASS_REFERENCE_ENTRIES,
+    **CANONICAL_MIGRATED_REFERENCE_ENTRIES,
     **CANONICAL_SCALAR_REFERENCE_ENTRIES,
+    **REQUIRED_SUBSYSTEM_PUBLIC_REFERENCE_ENTRIES,
 }
 
 # 旧名は対応する正規entry内の互換別名としてだけ掲載する。
@@ -452,6 +643,176 @@ def collect_reference_entries(data_root: Path) -> list[FReferenceEntry]:
     return entries
 
 
+def collect_static_reference_execution_contract(
+    data_root: Path,
+    entries: Sequence[FReferenceEntry],
+) -> tuple[Counter[tuple[str, str]], Counter[tuple[object, ...]]]:
+    """collectorが見たmodule/type/member集合を実行結果と比較できる形へする。"""
+
+    module_ids_by_file: dict[str, tuple[str, ...]] = {}
+    modules: Counter[tuple[str, str]] = Counter()
+    for path in sorted(data_root.glob("*.js"), key=lambda item: item.name.casefold()):
+        if path.name == "_meta.js":
+            continue
+        source = path.read_text(encoding="utf-8")
+        module_ids = tuple(
+            decode_js_string(match.group(1))
+            for match in MODULE_ID_PATTERN.finditer(source)
+        )
+        module_ids_by_file[path.name] = module_ids
+        modules.update((path.name, module_id) for module_id in module_ids)
+
+    records: Counter[tuple[object, ...]] = Counter()
+    for entry in entries:
+        module_ids = module_ids_by_file.get(entry.path.name, ())
+        module_id = module_ids[0] if len(module_ids) == 1 else "<ambiguous>"
+        member_signatures = tuple(
+            decode_js_string(match.group(1))
+            for match in MEMBER_SIG_PATTERN.finditer(entry.body)
+        )
+        records[
+            (
+                entry.path.name,
+                module_id,
+                entry.display_name,
+                entry.kind,
+                entry.header,
+                member_signatures,
+            )
+        ] += 1
+    return modules, records
+
+
+def collect_executed_reference_contract(
+    data_root: Path,
+    *,
+    evaluator: str = NODE_REFERENCE_EVALUATOR,
+    timeout_seconds: float = 30.0,
+    node_executable: str | None = None,
+    discover_node: bool = True,
+) -> tuple[Counter[tuple[str, str]], Counter[tuple[object, ...]]]:
+    """Node sandboxでactiveなmodule/type/member集合だけを収集する。"""
+
+    # 通常実行ではPATHからNodeを解決し、self-testでは欠落分岐を直接固定する。
+    node_path = shutil.which("node") if discover_node else node_executable
+    if node_path is None:
+        raise RuntimeError("Node.js executable is required for reference data audit")
+    completed = subprocess.run(
+        [node_path, "-e", evaluator, str(data_root)],
+        capture_output=True,
+        check=False,
+        encoding="utf-8",
+        errors="strict",
+        timeout=timeout_seconds,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "reference data Node evaluation failed: "
+            f"exit={completed.returncode}, stderr={completed.stderr.strip()}"
+        )
+    document = json.loads(completed.stdout)
+    if not isinstance(document, list):
+        raise ValueError("reference data Node evaluation returned a non-array document")
+
+    modules: Counter[tuple[str, str]] = Counter()
+    records: Counter[tuple[object, ...]] = Counter()
+    for module_record in document:
+        if not isinstance(module_record, dict) or set(module_record) != {
+            "file",
+            "module",
+            "entries",
+        }:
+            raise ValueError("reference data Node module record has an invalid schema")
+        file_name = module_record["file"]
+        module_id = module_record["module"]
+        executed_entries = module_record["entries"]
+        if (
+            not isinstance(file_name, str)
+            or not isinstance(module_id, str)
+            or not isinstance(executed_entries, list)
+        ):
+            raise ValueError("reference data Node module record has invalid values")
+        modules[(file_name, module_id)] += 1
+        for executed_entry in executed_entries:
+            if not isinstance(executed_entry, dict) or set(executed_entry) != {
+                "name",
+                "kind",
+                "header",
+                "members",
+            }:
+                raise ValueError("reference data Node entry record has an invalid schema")
+            name = executed_entry["name"]
+            kind = executed_entry["kind"]
+            header = executed_entry["header"]
+            members = executed_entry["members"]
+            if (
+                not isinstance(name, str)
+                or not isinstance(kind, str)
+                or not isinstance(header, str)
+                or not isinstance(members, list)
+                or any(not isinstance(member, str) for member in members)
+            ):
+                raise ValueError("reference data Node entry record has invalid values")
+            records[
+                (
+                    file_name,
+                    module_id,
+                    html.unescape(name),
+                    html.unescape(kind),
+                    html.unescape(header),
+                    tuple(html.unescape(member) for member in members),
+                )
+            ] += 1
+    return modules, records
+
+
+def audit_active_reference_entries(
+    data_root: Path,
+    entries: Sequence[FReferenceEntry],
+) -> list[FReferenceContractViolation]:
+    """静的collectorとNode実行後のactiveなmodule/type/member集合を照合する。"""
+
+    static_modules, static_records = collect_static_reference_execution_contract(
+        data_root,
+        entries,
+    )
+    executed_modules, executed_records = collect_executed_reference_contract(data_root)
+    violations: list[FReferenceContractViolation] = []
+    for file_name, module_id in sorted(set(static_modules) | set(executed_modules)):
+        static_count = static_modules[(file_name, module_id)]
+        executed_count = executed_modules[(file_name, module_id)]
+        if static_count == executed_count:
+            continue
+        violations.append(
+            FReferenceContractViolation(
+                "reference-js-active-module",
+                module_id or "<missing>",
+                (
+                    f"file={file_name}, collected_count={static_count}, "
+                    f"executed_count={executed_count}"
+                ),
+            )
+        )
+    for record in sorted(set(static_records) | set(executed_records)):
+        static_count = static_records[record]
+        executed_count = executed_records[record]
+        if static_count == executed_count:
+            continue
+        file_name, module_id, name, kind, header, members = record
+        violations.append(
+            FReferenceContractViolation(
+                "reference-js-active-entry",
+                str(name) or "<missing>",
+                (
+                    f"file={file_name}, module={module_id}, kind={kind}, "
+                    f"header={header}, members={members!r}, "
+                    f"collected_count={static_count}, executed_count={executed_count}"
+                ),
+            )
+        )
+    return sorted(violations, key=lambda item: (item.tag, item.name, item.detail))
+
+
 def entry_identifiers(entry: FReferenceEntry) -> Iterable[str]:
     """``Type / Other<T> / Function()`` から型候補だけを取り出す。"""
 
@@ -508,6 +869,8 @@ def reference_kind_matches(actual: str, expected: str) -> bool:
 
     if expected == "クラス":
         return actual in REFERENCE_CLASS_KINDS
+    if expected == "構造体":
+        return actual in REFERENCE_STRUCT_KINDS
     return actual == expected
 
 
@@ -573,12 +936,13 @@ def audit_canonical_type_references(
     for name, (expected_file, expected_header, expected_kind) in sorted(
         CANONICAL_REFERENCE_ENTRIES.items()
     ):
-        # 診断を既存scalar契約とobject/class契約で区別する。
-        tag_prefix = (
-            "reference-scalar-alias"
-            if expected_kind == ALIAS_KIND_MARKER
-            else "reference-object-class"
-        )
+        # 診断をscalar、subsystem公開型、移行型の契約ごとに区別する。
+        if name in CANONICAL_SCALAR_REFERENCE_ENTRIES:
+            tag_prefix = "reference-scalar-alias"
+        elif name in REQUIRED_SUBSYSTEM_PUBLIC_REFERENCE_ENTRIES:
+            tag_prefix = "reference-subsystem-public"
+        else:
+            tag_prefix = "reference-migrated-type"
         matches = [
             entry
             for entry in entries
@@ -627,6 +991,20 @@ def audit_canonical_type_references(
                     f"expected={expected_kind}, actual={entry.kind or '<missing>'}",
                 )
             )
+        expected_members = REQUIRED_SUBSYSTEM_PUBLIC_MEMBER_SIGNATURES.get(name)
+        if expected_members is not None:
+            actual_members = tuple(
+                decode_js_string(match.group(1))
+                for match in MEMBER_SIG_PATTERN.finditer(entry.body)
+            )
+            if actual_members != expected_members:
+                violations.append(
+                    FReferenceContractViolation(
+                        "reference-subsystem-public-members",
+                        name,
+                        f"expected={expected_members!r}, actual={actual_members!r}",
+                    )
+                )
 
     for entry in entries:
         for name in entry_direct_display_identifiers(entry):
@@ -657,8 +1035,18 @@ def audit_legacy_alias_reference_tokens(
     for legacy_name, canonical_name in sorted(LEGACY_REFERENCE_ALIASES.items()):
         exact_alias = f"using {legacy_name} = {canonical_name}"
         token_pattern = re.compile(rf"\b{re.escape(legacy_name)}\b")
+        canonical_contract = CANONICAL_REFERENCE_ENTRIES.get(canonical_name)
+        if canonical_contract is None:
+            violations.append(
+                FReferenceContractViolation(
+                    "reference-legacy-alias-contract",
+                    legacy_name,
+                    f"canonical={canonical_name} のhard type契約がありません。",
+                )
+            )
+            continue
         # 保持するheader名の旧tokenはAPI構成上の正当な例外として除外する。
-        expected_header = CANONICAL_REFERENCE_ENTRIES[canonical_name][1]
+        expected_header = canonical_contract[1]
         normalized_sources = {
             path: source.replace(expected_header, "")
             for path, source in sources.items()
@@ -714,6 +1102,12 @@ def run_self_test() -> int:
         return 1
     if reference_kind_matches("偽クラス", "クラス"):
         print("unregistered reference class kind was accepted", file=sys.stderr)
+        return 1
+    if not reference_kind_matches("構造体(POD)", "構造体"):
+        print("registered reference struct kind was rejected", file=sys.stderr)
+        return 1
+    if reference_kind_matches("偽構造体", "構造体"):
+        print("unregistered reference struct kind was accepted", file=sys.stderr)
         return 1
 
     with tempfile.TemporaryDirectory(prefix="acs-reference-audit-") as directory:
@@ -777,6 +1171,170 @@ def run_self_test() -> int:
                     file=sys.stderr,
                 )
                 return 1
+        routing_cases = (
+            ("app/Application.h", "app.js"),
+            ("subsystem/Subsystem.h", "subsystem.js"),
+            ("gameframework/ScriptHost.h", "gameframework_6.js"),
+            ("gameframework/Reflect.h", "gameframework_8.js"),
+            ("gameframework/OpenXrBridge.h", "openxr.js"),
+            ("gameframework/tools/EditorCommand.h", "editor.js"),
+        )
+        for header, expected_file in routing_cases:
+            actual_file = reference_data_file_for_header(header)
+            if actual_file != expected_file:
+                print(
+                    "reference routing self-test failed: "
+                    f"header={header}, expected={expected_file}, actual={actual_file}",
+                    file=sys.stderr,
+                )
+                return 1
+
+        # 静的collectorと実行時moduleの一致、およびNode失敗時のfail-closedを固定する。
+        active_data_root = root / "active-reference-data"
+        active_data_root.mkdir()
+        active_path = active_data_root / "active.js"
+        active_source = (
+            "ACS_REF.modules.push({\n"
+            '  id: "active",\n'
+            "  types: [{\n"
+            '    name: "CApplication", kind: "クラス", '
+            'header: "app/Application.h",\n'
+            '    members: [{ sig: "void Run()" }]\n'
+            "  }]\n"
+            "});\n"
+        )
+        active_path.write_text(active_source, encoding="utf-8")
+        active_entries = collect_reference_entries(active_data_root)
+        active_baseline = tuple(
+            (violation.tag, violation.name, violation.detail)
+            for violation in audit_active_reference_entries(
+                active_data_root,
+                active_entries,
+            )
+        )
+        if active_baseline:
+            print(
+                "reference active-entry baseline did not pass: "
+                f"{active_baseline!r}",
+                file=sys.stderr,
+            )
+            return 1
+
+        inactive_source = active_source.replace(
+            "types: [{",
+            "types: (false ? [{",
+            1,
+        ).replace("  }]\n});", "  }] : [])\n});", 1)
+        active_path.write_text(inactive_source, encoding="utf-8")
+        inactive_violations = tuple(
+            (violation.tag, violation.name, violation.detail)
+            for violation in audit_active_reference_entries(
+                active_data_root,
+                collect_reference_entries(active_data_root),
+            )
+        )
+        expected_inactive_violations = (
+            (
+                "reference-js-active-entry",
+                "CApplication",
+                (
+                    "file=active.js, module=active, kind=クラス, "
+                    "header=app/Application.h, members=('void Run()',), "
+                    "collected_count=1, executed_count=0"
+                ),
+            ),
+        )
+        if inactive_violations != expected_inactive_violations:
+            print(
+                "reference inactive-entry mutation failed: "
+                f"expected={expected_inactive_violations!r}, "
+                f"actual={inactive_violations!r}",
+                file=sys.stderr,
+            )
+            return 1
+        active_path.write_text(active_source, encoding="utf-8")
+
+        try:
+            collect_executed_reference_contract(
+                active_data_root,
+                node_executable=None,
+                discover_node=False,
+            )
+        except RuntimeError as error:
+            if str(error) != "Node.js executable is required for reference data audit":
+                print(
+                    f"reference missing-Node diagnostic changed: {error}",
+                    file=sys.stderr,
+                )
+                return 1
+        else:
+            print("reference missing-Node mutation was accepted", file=sys.stderr)
+            return 1
+
+        # 実行中のNodeを使ってtimeout、schema、構文失敗を個別に固定する。
+        self_test_node = shutil.which("node")
+        if self_test_node is None:
+            print("reference self-test requires Node.js", file=sys.stderr)
+            return 1
+        try:
+            collect_executed_reference_contract(
+                active_data_root,
+                evaluator="while (true) {}",
+                timeout_seconds=0.05,
+                node_executable=self_test_node,
+                discover_node=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            if error.timeout != 0.05:
+                print(
+                    f"reference Node timeout diagnostic changed: {error.timeout}",
+                    file=sys.stderr,
+                )
+                return 1
+        else:
+            print("reference Node timeout mutation was accepted", file=sys.stderr)
+            return 1
+
+        try:
+            collect_executed_reference_contract(
+                active_data_root,
+                evaluator='process.stdout.write("{}");',
+                node_executable=self_test_node,
+                discover_node=False,
+            )
+        except ValueError as error:
+            if str(error) != "reference data Node evaluation returned a non-array document":
+                print(
+                    f"reference Node schema diagnostic changed: {error}",
+                    file=sys.stderr,
+                )
+                return 1
+        else:
+            print("reference Node schema mutation was accepted", file=sys.stderr)
+            return 1
+
+        active_path.write_text("ACS_REF.modules.push({\n", encoding="utf-8")
+        try:
+            collect_executed_reference_contract(
+                active_data_root,
+                node_executable=self_test_node,
+                discover_node=False,
+            )
+        except RuntimeError as error:
+            error_text = str(error)
+            if not error_text.startswith(
+                "reference data Node evaluation failed: exit=1, stderr="
+            ) or "SyntaxError" not in error_text:
+                print(
+                    f"reference Node syntax diagnostic changed: {error}",
+                    file=sys.stderr,
+                )
+                return 1
+        else:
+            print("reference Node syntax mutation was accepted", file=sys.stderr)
+            return 1
+        active_path.write_text(active_source, encoding="utf-8")
+
         entries = collect_reference_entries(data_root)
         violations = audit(declared, entries)
         actual = {(item.old_name, item.suggested_name) for item in violations}
@@ -860,13 +1418,24 @@ def run_self_test() -> int:
             canonical_name: legacy_name
             for legacy_name, canonical_name in LEGACY_REFERENCE_ALIASES.items()
         }
+        # 全旧名がclass/structを含むhard canonicalへ解決できることを先に固定する。
+        missing_legacy_targets = sorted(
+            set(canonical_to_legacy) - set(CANONICAL_REFERENCE_ENTRIES)
+        )
+        if missing_legacy_targets:
+            print(
+                "reference legacy target contract is incomplete: "
+                f"{missing_legacy_targets!r}",
+                file=sys.stderr,
+            )
+            return 1
 
-        def canonical_object_entry(
+        def canonical_migrated_entry(
             canonical_name: str,
             expected_header: str,
             expected_kind: str,
         ) -> str:
-            """registry由来のcanonical class/interface fixtureを返す。"""
+            """registry由来のcanonical class/struct fixtureを返す。"""
 
             legacy_name = canonical_to_legacy[canonical_name]
             return reference_entry(
@@ -879,30 +1448,61 @@ def run_self_test() -> int:
                 ),
             )
 
-        object_baseline_by_file: dict[str, str] = {}
+        def subsystem_public_entry(
+            canonical_name: str,
+            expected_header: str,
+            expected_kind: str,
+        ) -> str:
+            """新設subsystem公開型と必須memberのfixtureを返す。"""
+
+            member_source = ", ".join(
+                f'{{ sig: "{signature}" }}'
+                for signature in REQUIRED_SUBSYSTEM_PUBLIC_MEMBER_SIGNATURES[
+                    canonical_name
+                ]
+            )
+            return reference_entry(
+                canonical_name,
+                expected_kind,
+                expected_header,
+                f"  members: [{member_source}]",
+            )
+
+        hard_baseline_by_file: dict[str, str] = {}
         for canonical_name, (
             expected_file,
             expected_header,
             expected_kind,
-        ) in sorted(CANONICAL_OBJECT_AND_CLASS_REFERENCE_ENTRIES.items()):
-            object_baseline_by_file[expected_file] = (
-                object_baseline_by_file.get(expected_file, "")
-                + canonical_object_entry(
+        ) in sorted(CANONICAL_MIGRATED_REFERENCE_ENTRIES.items()):
+            hard_baseline_by_file[expected_file] = (
+                hard_baseline_by_file.get(expected_file, "")
+                + canonical_migrated_entry(
+                    canonical_name,
+                    expected_header,
+                    expected_kind,
+                )
+            )
+        for canonical_name, (
+            expected_file,
+            expected_header,
+            expected_kind,
+        ) in sorted(REQUIRED_SUBSYSTEM_PUBLIC_REFERENCE_ENTRIES.items()):
+            hard_baseline_by_file[expected_file] = (
+                hard_baseline_by_file.get(expected_file, "")
+                + subsystem_public_entry(
                     canonical_name,
                     expected_header,
                     expected_kind,
                 )
             )
 
-        def check_contract(
-            event_source: str, ecs_source: str
-        ) -> tuple[tuple[str, str, str], ...]:
-            """指定したreference fixtureのhard canonical契約違反を返す。"""
+        def write_contract_sources(event_source: str, ecs_source: str) -> None:
+            """指定したreference fixtureを一意なbaseline配置へ戻す。"""
 
             wrong_path = data_root / "wrong.js"
             if wrong_path.exists():
                 wrong_path.unlink()
-            baseline_by_file = dict(object_baseline_by_file)
+            baseline_by_file = dict(hard_baseline_by_file)
             baseline_by_file["event.js"] = (
                 baseline_by_file.get("event.js", "") + event_source
             )
@@ -911,6 +1511,13 @@ def run_self_test() -> int:
             )
             for file_name, source in sorted(baseline_by_file.items()):
                 (data_root / file_name).write_text(source, encoding="utf-8")
+
+        def check_contract(
+            event_source: str, ecs_source: str
+        ) -> tuple[tuple[str, str, str], ...]:
+            """指定したreference fixtureのhard canonical契約違反を返す。"""
+
+            write_contract_sources(event_source, ecs_source)
             return tuple(
                 (violation.tag, violation.name, violation.detail)
                 for violation in audit_canonical_type_references(
@@ -1134,23 +1741,69 @@ def run_self_test() -> int:
                     )
                     return 1
 
+        # 全entry baselineとは別に、既存移行型はkindと配置の代表だけへ限定する。
+        migrated_mutation_names = frozenset(
+            {
+                "ABtNode",
+                "AObject",
+                "ASubsystem",
+                "CAudioEngine",
+                "CApplication",
+                "CMethodAutoRegister",
+                "COpenXrBridgeStub",
+                "CSubsystemAutoRegister",
+                "CTypeAutoRegister",
+                "IAllocator",
+            }
+        )
+        # app/subsystemに分かれた既存6型と新設7型を一体で変異検査する。
+        subsystem_public_mutation_names = frozenset(
+            REQUIRED_SUBSYSTEM_REFERENCE_ENTRIES
+        )
+        hard_type_mutation_names = (
+            migrated_mutation_names | subsystem_public_mutation_names
+        )
+        missing_hard_type_mutations = sorted(
+            hard_type_mutation_names - set(CANONICAL_REFERENCE_ENTRIES)
+        )
+        if missing_hard_type_mutations:
+            print(
+                "reference hard-type mutation fixture is incomplete: "
+                f"{missing_hard_type_mutations!r}",
+                file=sys.stderr,
+            )
+            return 1
         hard_fixtures = tuple(
             (
                 canonical_name,
                 data_root / expected_file,
-                canonical_object_entry(
-                    canonical_name,
-                    expected_header,
-                    expected_kind,
+                (
+                    canonical_migrated_entry(
+                        canonical_name,
+                        expected_header,
+                        expected_kind,
+                    )
+                    if canonical_name in CANONICAL_MIGRATED_REFERENCE_ENTRIES
+                    else subsystem_public_entry(
+                        canonical_name,
+                        expected_header,
+                        expected_kind,
+                    )
                 ),
                 expected_header,
                 expected_kind,
+                (
+                    "reference-subsystem-public"
+                    if canonical_name in REQUIRED_SUBSYSTEM_PUBLIC_REFERENCE_ENTRIES
+                    else "reference-migrated-type"
+                ),
             )
             for canonical_name, (
                 expected_file,
                 expected_header,
                 expected_kind,
-            ) in sorted(CANONICAL_OBJECT_AND_CLASS_REFERENCE_ENTRIES.items())
+            ) in sorted(CANONICAL_REFERENCE_ENTRIES.items())
+            if canonical_name in hard_type_mutation_names
         )
         for (
             canonical_name,
@@ -1158,20 +1811,25 @@ def run_self_test() -> int:
             canonical_entry,
             expected_header,
             expected_kind,
+            diagnostic_prefix,
         ) in hard_fixtures:
             # 各mutationの前に正規fixtureへ戻す。
-            if check_contract(baseline_event, baseline_ecs):
-                print("reference object/class fixture restore failed", file=sys.stderr)
-                return 1
+            write_contract_sources(baseline_event, baseline_ecs)
             canonical_source = canonical_path.read_text(encoding="utf-8")
             wrong_header = expected_header.replace(".h", "Wrong.h")
+            # 正規kindと一致しない構文分類を選ぶ。
+            wrong_kind = {
+                "クラス": "構造体",
+                "構造体": "クラス",
+                "インターフェース": "構造体",
+            }.get(expected_kind, "関数")
             mutations_for_type = (
                 (
                     "missing",
                     canonical_source.replace(canonical_entry, "", 1),
                     canonical_path,
                     (
-                        "reference-object-class-missing",
+                        f"{diagnostic_prefix}-missing",
                         canonical_name,
                         "正規名の独立entryがありません。",
                     ),
@@ -1181,7 +1839,7 @@ def run_self_test() -> int:
                     canonical_source + canonical_entry,
                     canonical_path,
                     (
-                        "reference-object-class-duplicate",
+                        f"{diagnostic_prefix}-duplicate",
                         canonical_name,
                         "正規名の独立entryが重複しています: count=2",
                     ),
@@ -1195,7 +1853,7 @@ def run_self_test() -> int:
                     ),
                     canonical_path,
                     (
-                        "reference-object-class-header",
+                        f"{diagnostic_prefix}-header",
                         canonical_name,
                         f"expected={expected_header}, actual={wrong_header}",
                     ),
@@ -1205,18 +1863,48 @@ def run_self_test() -> int:
                     canonical_source.replace(
                         canonical_entry,
                         canonical_entry.replace(
-                            f'kind: "{expected_kind}"', 'kind: "構造体"', 1
+                            f'kind: "{expected_kind}"',
+                            f'kind: "{wrong_kind}"',
+                            1,
                         ),
                         1,
                     ),
                     canonical_path,
                     (
-                        "reference-object-class-kind",
+                        f"{diagnostic_prefix}-kind",
                         canonical_name,
-                        f"expected={expected_kind}, actual=構造体",
+                        f"expected={expected_kind}, actual={wrong_kind}",
                     ),
                 ),
             )
+            if canonical_name in REQUIRED_SUBSYSTEM_PUBLIC_MEMBER_SIGNATURES:
+                expected_members = REQUIRED_SUBSYSTEM_PUBLIC_MEMBER_SIGNATURES[
+                    canonical_name
+                ]
+                mutated_members = ("WrongMember", *expected_members[1:])
+                mutations_for_type += (
+                    (
+                        "wrong members",
+                        canonical_source.replace(
+                            canonical_entry,
+                            canonical_entry.replace(
+                                f'sig: "{expected_members[0]}"',
+                                'sig: "WrongMember"',
+                                1,
+                            ),
+                            1,
+                        ),
+                        canonical_path,
+                        (
+                            "reference-subsystem-public-members",
+                            canonical_name,
+                            (
+                                f"expected={expected_members!r}, "
+                                f"actual={mutated_members!r}"
+                            ),
+                        ),
+                    ),
+                )
             for label, mutated_source, mutated_path, expected_violation in mutations_for_type:
                 mutated_path.write_text(mutated_source, encoding="utf-8")
                 actual_violations = tuple(
@@ -1227,16 +1915,14 @@ def run_self_test() -> int:
                 )
                 if actual_violations != (expected_violation,):
                     print(
-                        "reference object/class mutation failed: "
+                        "reference hard-type mutation failed: "
                         f"name={canonical_name}, mutation={label}, "
                         f"expected={(expected_violation,)!r}, "
                         f"actual={actual_violations!r}",
                         file=sys.stderr,
                     )
                     return 1
-                if check_contract(baseline_event, baseline_ecs):
-                    print("reference object/class fixture restore failed", file=sys.stderr)
-                    return 1
+                write_contract_sources(baseline_event, baseline_ecs)
 
             # 正規entryを別fileへ移してfile契約を検査する。
             canonical_source = canonical_path.read_text(encoding="utf-8")
@@ -1254,28 +1940,52 @@ def run_self_test() -> int:
             )
             expected_file_violation = (
                 (
-                    "reference-object-class-file",
+                    f"{diagnostic_prefix}-file",
                     canonical_name,
                     (
                         "expected="
-                        f"{CANONICAL_OBJECT_AND_CLASS_REFERENCE_ENTRIES[canonical_name][0]}, "
+                        f"{CANONICAL_REFERENCE_ENTRIES[canonical_name][0]}, "
                         "actual=wrong.js"
                     ),
                 ),
             )
             if actual_file_violations != expected_file_violation:
                 print(
-                    "reference object/class file mutation failed: "
+                    "reference hard-type file mutation failed: "
                     f"name={canonical_name}, expected={expected_file_violation!r}, "
                     f"actual={actual_file_violations!r}",
                     file=sys.stderr,
                 )
                 return 1
-            if check_contract(baseline_event, baseline_ecs):
-                print("reference object/class fixture restore failed", file=sys.stderr)
-                return 1
+            write_contract_sources(baseline_event, baseline_ecs)
 
-        for legacy_name in sorted(LEGACY_ALIAS_REFERENCE_NAMES):
+        # 全旧名baselineとは別に、代表aliasだけで独立entry拒否を変異検査する。
+        legacy_mutation_names = frozenset(
+            {
+                "EventTypeId",
+                "FAllocator",
+                "FApplication",
+                "FAudioEngine",
+                "FBtNode",
+                "FMethodAutoRegister",
+                "FObject",
+                "FOpenXrBridgeStub",
+                "FSubsystem",
+                "FSubsystemAutoRegister",
+                "FTypeAutoRegister",
+            }
+        )
+        missing_legacy_mutations = sorted(
+            legacy_mutation_names - LEGACY_ALIAS_REFERENCE_NAMES
+        )
+        if missing_legacy_mutations:
+            print(
+                "reference legacy mutation fixture is incomplete: "
+                f"{missing_legacy_mutations!r}",
+                file=sys.stderr,
+            )
+            return 1
+        for legacy_name in sorted(legacy_mutation_names):
             legacy_source = (
                 baseline_event
                 + reference_entry(legacy_name, "関数", "compat/Legacy.h")
@@ -1297,9 +2007,7 @@ def run_self_test() -> int:
                 )
                 return 1
 
-        if check_contract(baseline_event, baseline_ecs):
-            print("reference alias token fixture restore failed", file=sys.stderr)
-            return 1
+        write_contract_sources(baseline_event, baseline_ecs)
         token_baseline = tuple(
             (violation.tag, violation.name, violation.detail)
             for violation in audit_legacy_alias_reference_tokens(
@@ -1314,7 +2022,8 @@ def run_self_test() -> int:
             )
             return 1
 
-        for legacy_name, canonical_name in sorted(LEGACY_REFERENCE_ALIASES.items()):
+        for legacy_name in sorted(legacy_mutation_names):
+            canonical_name = LEGACY_REFERENCE_ALIASES[legacy_name]
             # sampleやglossary相当の本文へ旧名が再流入するmutationを固定する。
             sample_path = data_root / "sample.js"
             original_sample = sample_path.read_text(encoding="utf-8")
@@ -1400,9 +2109,7 @@ def run_self_test() -> int:
                 return 1
             alias_path.write_text(alias_source, encoding="utf-8")
 
-        if check_contract(baseline_event, baseline_ecs):
-            print("reference canonical type fixture restore failed", file=sys.stderr)
-            return 1
+        write_contract_sources(baseline_event, baseline_ecs)
 
     print("ACS reference type-name audit self-test passed")
     return 0
@@ -1452,6 +2159,36 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (OSError, UnicodeError) as error:
         print(f"error: reference audit input を読めません: {error}", file=sys.stderr)
         return 2
+
+    try:
+        active_reference_violations = audit_active_reference_entries(
+            data_root,
+            entries,
+        )
+    except (
+        OSError,
+        UnicodeError,
+        RuntimeError,
+        ValueError,
+        subprocess.TimeoutExpired,
+    ) as error:
+        print(
+            f"error: reference dataを安全に実行できません: {error}",
+            file=sys.stderr,
+        )
+        return 2
+    for violation in active_reference_violations:
+        print(
+            f"docs/reference/data: error: {violation.format()}",
+            file=sys.stderr,
+        )
+    if active_reference_violations:
+        print(
+            "ACS reference active-entry audit failed: "
+            f"{len(active_reference_violations)} violation(s)",
+            file=sys.stderr,
+        )
+        return 1
 
     violations = audit(declared, entries)
     for violation in violations:
@@ -1526,6 +2263,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{len(entries)} entry(s), {len(declared)} declaration(s), "
         f"{len(REQUIRED_FOUNDATION_REFERENCE_TYPES)} required foundation type(s), "
         f"{len(CANONICAL_REFERENCE_ENTRIES)} canonical hard type(s), "
+        f"{len(REQUIRED_SUBSYSTEM_REFERENCE_ENTRIES)} subsystem API type(s), "
         f"{len(LEGACY_REFERENCE_ALIASES)} legacy source alias(es)"
     )
     return 0

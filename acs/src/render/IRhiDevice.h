@@ -135,7 +135,7 @@ TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const FDeviceConfig& configurati
  * @details
      * Diligent の IEngineFactoryD3D12 のような「初回使用時に CRT ヒープへ遅延構築され、
  * プロセス終了の static デストラクタまで生きる」シングルトンを、CRT デバッグヒープの
- * リーク計測スコープ (FApplication スコープ) を開く前に確定させるためのフック。
+ * リーク計測スコープ (CApplication スコープ) を開く前に確定させるためのフック。
  * これを呼ばないと、計測スコープ内で構築されたシングルトンがスコープ終了時の
  * ダンプに残留ブロックとして現れ、実リークが無いのに leak_detected=true になる。
  * デバイス生成は行わない。何度呼んでも安全 (2 回目以降は no-op)。

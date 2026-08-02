@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloModel — シーン本体。
 // プリミティブ (球 / プレーン / キューブ) を保持し、カメラ入力 +
-// FStandardShader を使った描画を担当する。
+// CStandardShader を使った描画を担当する。
 //
-// FApplication 派生はリソース所有 (FStandardShader / 非同期ロード) を担当し、
+// CApplication 派生はリソース所有 (CStandardShader / 非同期ロード) を担当し、
 // 毎フレームの update / render を ModelScene に委譲する。
 #pragma once
 
@@ -19,7 +19,7 @@
 
 namespace hellomodel {
 
-class FModelScene {
+class CModelScene {
 public:
     // プリミティブを GPU にアップロードしてカメラを構成する。
     // dev は OnStart の `GetRenderer().Device()` を渡す。失敗時 false。
@@ -30,8 +30,8 @@ public:
     // カメラ入力 + 自転 + 非同期ロードのポーリング。
     void Update(acs::f32 dt, acs::FAssetFuture& async_mesh, bool& async_loaded) noexcept;
 
-    // FStandardShader で全オブジェクトを描画。
-    void Render(acs::FStandardShader& shader, acs::IRhiCommandList& cl) noexcept;
+    // CStandardShader で全オブジェクトを描画。
+    void Render(acs::CStandardShader& shader, acs::IRhiCommandList& cl) noexcept;
 
 private:
     acs::FGpuMesh m_GmSphere, m_GmPlane, m_GmCube;

@@ -3,7 +3,6 @@
 #include "TelemetryFileDemoApp.h"
 
 int main() {
-    hellotelemetry::FTelemetryFileDemoApp App;
+    hellotelemetry::CTelemetryFileDemoApp App;
     return App.Run();
 }
-

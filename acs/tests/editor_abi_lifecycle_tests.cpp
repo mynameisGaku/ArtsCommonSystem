@@ -1862,7 +1862,7 @@ bool RunCameraViewRequestContract() noexcept
     static_assert(sizeof(FSnapshot) == 60u);
     static_assert(kMaximumRequests == 8u);
 
-    FRegistry registry;
+    CRegistry registry;
     std::uint64_t logical_a = 0u;
     std::uint64_t logical_b = 0u;
     const bool registry_created =
@@ -1907,7 +1907,7 @@ bool RunCameraViewRequestContract() noexcept
         registry.Create(30, "camera.logical-c", 320, 180, logical_a) &&
         logical_a != stale_logical_a &&
         !registry.Destroy(stale_logical_a);
-    FRegistry bounded_registry;
+    CRegistry bounded_registry;
     std::uint64_t bounded_ids[kMaximumRequests]{};
     bool bounded_capacity = true;
     for (std::uint32_t index = 0u;

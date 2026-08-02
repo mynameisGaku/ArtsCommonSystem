@@ -59,14 +59,14 @@ static_assert(IsSameV<decltype(&GetComponentSignatureId<FPrefixLayoutProbe>), FC
 static_assert(IsSameV<decltype(TComponentTypeTraits<FPrefixLayoutProbe>::Signature), const FComponentSignatureId>, "コンポーネント型特性の署名型が変わりました");
 static_assert(IsSameV<decltype(&TComponentTypeTraits<FPrefixLayoutProbe>::RuntimeId), FComponentTypeId(*)() noexcept>, "コンポーネント型特性の実行時番号関数が変わりました");
 static_assert(IsSameV<decltype(&CMessageBroker::SubscriberCount), u32(CMessageBroker::*)(FEventTypeId) const noexcept>, "購読数取得関数の型が変わりました");
-static_assert(IsSameV<decltype(&FComponentRegistry::Get), const FComponentOps&(*)(FComponentTypeId) noexcept>, "コンポーネント情報取得関数の型が変わりました");
+static_assert(IsSameV<decltype(&CComponentRegistry::Get), const FComponentOps&(*)(FComponentTypeId) noexcept>, "コンポーネント情報取得関数の型が変わりました");
 static_assert(sizeof(TArray<u32>) <= 32u, "TArray 公開レイアウト予算を超えました");
 static_assert(sizeof(FString) <= 32u, "FString 公開レイアウト予算を超えました");
 static_assert(sizeof(THashMap<u32, u32>) <= 64u, "THashMap 公開レイアウト予算を超えました");
 static_assert(sizeof(FCompletionCounter) <= 4u, "完了カウンタの hot state 予算を超えました");
 static_assert(sizeof(FTask) <= 24u, "タスク記述子の3ポインタ予算を超えました");
 static_assert(sizeof(FJobHandle) <= 16u, "ジョブハンドルの2ワード予算を超えました");
-static_assert(sizeof(FJobGraph) <= 4032u, "ジョブグラフのinline storage予算を超えました");
+static_assert(sizeof(CJobGraph) <= 4032u, "ジョブグラフのinline storage予算を超えました");
 static_assert(sizeof(FSubscriptionHandle) == 12u, "購読ハンドルの3整数配置が変わりました");
 static_assert(alignof(FSubscriptionHandle) == 4u, "購読ハンドルのalignmentが変わりました");
 static_assert(offsetof(FSubscriptionHandle, channel) == 0u, "購読ハンドルの通路位置が変わりました");
@@ -79,11 +79,11 @@ static_assert(sizeof(FTimerHandle) <= 8u, "タイマハンドルの2整数予算
 static_assert(sizeof(FThreadPoolDiagnostics) <= 96u, "thread pool診断型の予算を超えました");
 static_assert(sizeof(FJobGraphDiagnostics) <= 40u, "job graph診断型の予算を超えました");
 static_assert(sizeof(FJobGraphCompletionDiagnostics) == 16u, "job graph完了診断型の2整数契約が崩れました");
-static_assert(sizeof(assetpack::FAcpakReader) <= 336u, "package readerのpath hash所有予算を超えました");
+static_assert(sizeof(assetpack::CAcpakReader) <= 336u, "package readerのpath hash所有予算を超えました");
 static_assert(sizeof(FTimerDiagnostics) <= 24u, "timer診断型の予算を超えました");
 static_assert(sizeof(FFileSystemDiagnostics) <= 24u, "file診断型の予算を超えました");
 static_assert(alignof(FTask) <= alignof(void*), "タスク記述子のalignment予算を超えました");
-static_assert(alignof(FJobGraph) <= alignof(std::max_align_t), "ジョブグラフのalignment予算を超えました");
+static_assert(alignof(CJobGraph) <= alignof(std::max_align_t), "ジョブグラフのalignment予算を超えました");
 static_assert(TGenerationHandleLayoutTraits<FObjectHandle>::kAvailable, "object handle layout trait が未登録です");
 static_assert(TGenerationHandleLayoutTraits<FObjectHandle>::kIdentityOffset == offsetof(FObjectHandle, index), "object identity offset が一致しません");
 static_assert(TGenerationHandleLayoutTraits<FObjectHandle>::kGenerationOffset == offsetof(FObjectHandle, gen), "object generation offset が一致しません");
@@ -93,20 +93,20 @@ static_assert(TGenerationHandleLayoutTraits<FTimerHandle>::kIdentityOffset == 0u
 static_assert(TGenerationHandleLayoutTraits<FTimerHandle>::kGenerationOffset == sizeof(u32), "timer generation offset が一致しません");
 static_assert(TGenerationHandleLayoutTraits<FSubscriptionHandle>::kDomainPrefixBytes == sizeof(FEventTypeId), "subscription channel prefix が一致しません");
 static_assert(TGenerationHandleLayoutTraits<FSubscriptionHandle>::kGenerationOffset == sizeof(FEventTypeId) + sizeof(u32), "subscription generation offset が一致しません");
-static_assert(sizeof(FDx12Device) <= 22528u, "DX12 device の公開 layout 予算を超えました");
+static_assert(sizeof(CDx12Device) <= 22528u, "DX12 device の公開 layout 予算を超えました");
 
 /** inline cache 時代の同一 field 構成から算出する比較用 byte 数。 */
-constexpr usize kFormerDx12DeviceBytes = sizeof(FDx12Device) - sizeof(void*) + sizeof(TPipelineStateKeyCache<512u>) + sizeof(ID3D12PipelineState*) * 512u + sizeof(ID3D12RootSignature*) * 512u;
-static_assert(kFormerDx12DeviceBytes > sizeof(FDx12Device) + 20000u, "PSO cache owner 分離の layout 削減量が不足しています");
+constexpr usize kFormerDx12DeviceBytes = sizeof(CDx12Device) - sizeof(void*) + sizeof(TPipelineStateKeyCache<512u>) + sizeof(ID3D12PipelineState*) * 512u + sizeof(ID3D12RootSignature*) * 512u;
+static_assert(kFormerDx12DeviceBytes > sizeof(CDx12Device) + 20000u, "PSO cache owner 分離の layout 削減量が不足しています");
 
 ACS_TEST(FoundationOptimizationWaveO, PublicLayoutBudgetsRemainBounded)
 {
     EXPECT_TRUE(sizeof(FThreadPoolDiagnostics) <= 96u);
     EXPECT_TRUE(sizeof(FJobGraphDiagnostics) <= 40u);
     EXPECT_EQ(sizeof(FJobGraphCompletionDiagnostics), 16u);
-    EXPECT_TRUE(sizeof(assetpack::FAcpakReader) <= 336u);
+    EXPECT_TRUE(sizeof(assetpack::CAcpakReader) <= 336u);
     EXPECT_TRUE(sizeof(FTimerDiagnostics) <= 24u);
     EXPECT_TRUE(sizeof(FFileSystemDiagnostics) <= 24u);
 
-    std::printf("foundation_layout array=%zu string=%zu hashmap=%zu counter=%zu task=%zu job_handle=%zu job_graph=%zu subscription=%zu timer=%zu thread_diag=%zu job_diag=%zu job_completion_diag=%zu acpak_reader=%zu timer_diag=%zu file_diag=%zu dx12_device_before=%zu dx12_device_after=%zu\n", sizeof(TArray<u32>), sizeof(FString), sizeof(THashMap<u32, u32>), sizeof(FCompletionCounter), sizeof(FTask), sizeof(FJobHandle), sizeof(FJobGraph), sizeof(FSubscriptionHandle), sizeof(FTimerHandle), sizeof(FThreadPoolDiagnostics), sizeof(FJobGraphDiagnostics), sizeof(FJobGraphCompletionDiagnostics), sizeof(assetpack::FAcpakReader), sizeof(FTimerDiagnostics), sizeof(FFileSystemDiagnostics), kFormerDx12DeviceBytes, sizeof(FDx12Device));
+    std::printf("foundation_layout array=%zu string=%zu hashmap=%zu counter=%zu task=%zu job_handle=%zu job_graph=%zu subscription=%zu timer=%zu thread_diag=%zu job_diag=%zu job_completion_diag=%zu acpak_reader=%zu timer_diag=%zu file_diag=%zu dx12_device_before=%zu dx12_device_after=%zu\n", sizeof(TArray<u32>), sizeof(FString), sizeof(THashMap<u32, u32>), sizeof(FCompletionCounter), sizeof(FTask), sizeof(FJobHandle), sizeof(CJobGraph), sizeof(FSubscriptionHandle), sizeof(FTimerHandle), sizeof(FThreadPoolDiagnostics), sizeof(FJobGraphDiagnostics), sizeof(FJobGraphCompletionDiagnostics), sizeof(assetpack::CAcpakReader), sizeof(FTimerDiagnostics), sizeof(FFileSystemDiagnostics), kFormerDx12DeviceBytes, sizeof(CDx12Device));
 }

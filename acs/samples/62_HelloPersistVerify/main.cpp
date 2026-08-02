@@ -2,10 +2,10 @@
 // HelloPersistVerify - stub 撲滅 Batch 1 の本実装を検証するヘッドレスコンソール。
 //
 // 旧 stub だった以下の永続化/シリアライズを「保存→読込→一致」で round-trip 検証する:
-//   1) FSettings::Save/Load          (INI、型 round-trip)
-//   2) FLockstep::SaveToBuffer/Load  (.acsl バイナリ + CRC32 + checksum)
-//   3) FInputRecorder::SaveToBuffer  (.acsr バイナリ + CRC32)
-//   4) FProgression::Save/Load       (FSaveArchive バイナリ、XP + milestone 達成)
+//   1) CSettings::Save/Load          (INI、型 round-trip)
+//   2) CLockstep::SaveToBuffer/Load  (.acsl バイナリ + CRC32 + checksum)
+//   3) CInputRecorder::SaveToBuffer  (.acsr バイナリ + CRC32)
+//   4) CProgression::Save/Load       (CSaveArchive バイナリ、XP + milestone 達成)
 // GPU 不要・ヘッドレス。全項目 OK なら exit 0、1 つでも FAIL なら exit 1。
 #include "gameframework/GameFramework.h"
 #include "asset/AssetRegistry.h"
@@ -118,8 +118,8 @@ void TestDrawOrder() noexcept {
 }
 
 void TestBuoyancy() noexcept {
-    std::printf("[FWaterVolume] 浮力方向 (Y-down: 上向き = -Y、沈むほど y 大)\n");
-    FWaterVolume water;
+    std::printf("[CWaterVolume] 浮力方向 (Y-down: 上向き = -Y、沈むほど y 大)\n");
+    CWaterVolume water;
     FWaterVolumeInfo info{};
     info.center            = FVec2{0.0f, 50.0f};    // 水域 y∈[0,100] = 画面下
     info.half_size         = FVec2{200.0f, 50.0f};
@@ -176,7 +176,7 @@ void TestObb() noexcept {
 
     // --- world ディスパッチ: 全クエリ経路で OBB を検出 (漏れ検出の安全網) ---
     {
-        FCollisionWorld2D w; w.Init(4.0f);
+        CCollisionWorld2D w; w.Init(4.0f);
         const FShapeId oid = w.AddObb(FObb2{ FVec2{0, 0}, FVec2{2, 0.5f}, 0.7853982f });   // 45° バー
         TArray<FShapeId> hits;
 
@@ -318,8 +318,8 @@ void TestSpriteAtlasLoad() noexcept {
 }
 
 void TestUiLayer() noexcept {
-    std::printf("[FUiLayer] hit-test + click 検出 (ゲーム内UI)\n");
-    FUiLayer ui;
+    std::printf("[CUiLayer] hit-test + click 検出 (ゲーム内UI)\n");
+    CUiLayer ui;
     ui.Init();
     const u32 play = ui.AddButton("Play", FVec2{100, 200}, FVec2{200, 48});
     const u32 quit = ui.AddButton("Quit", FVec2{100, 260}, FVec2{200, 48});
@@ -388,9 +388,9 @@ void TestTilemapLoad() noexcept {
 }
 
 void TestTlsfExactFit() noexcept {
-    std::printf("[FTlsfAllocator] exact-fit split underflow 修正\n");
+    std::printf("[CTlsfAllocator] exact-fit split underflow 修正\n");
     alignas(16) static u8 pool[65536];
-    FTlsfAllocator tlsf;
+    CTlsfAllocator tlsf;
     Check(tlsf.Init(pool, sizeof(pool)).IsOk(), "TLSF Init (64KB pool)");
     const FSourceLoc loc = FSourceLoc::Current();
 
@@ -419,17 +419,17 @@ void TestTlsfExactFit() noexcept {
 }
 
 void TestSettings() noexcept {
-    std::printf("[FSettings] INI 保存/読込 round-trip\n");
+    std::printf("[CSettings] INI 保存/読込 round-trip\n");
     const wchar_t* path = L"persist_settings.ini";
     {
-        FSettings s;
+        CSettings s;
         s.SetF32("audio.master", 0.8f);
         s.SetI32("display.width", 1920);
         s.SetBool("display.vsync", true);
         s.SetString("locale", "ja");
         Check(s.Save(path).IsOk(), "Save() 成功");
     }
-    FSettings s2;
+    CSettings s2;
     Check(s2.Load(path).IsOk(), "Load() 成功");
     Check(s2.Count() == 4, "件数 4");
     Check(NearF(s2.GetF32("audio.master", -1.0f), 0.8f), "f32 audio.master=0.8");
@@ -440,8 +440,8 @@ void TestSettings() noexcept {
 }
 
 void TestLockstep() noexcept {
-    std::printf("[FLockstep] .acsl バイナリ round-trip\n");
-    FLockstep ls;
+    std::printf("[CLockstep] .acsl バイナリ round-trip\n");
+    CLockstep ls;
     ls.Init(ENetMode::Local, 60);
     for (u32 i = 0; i < 5; ++i) {
         FInputFrame f;
@@ -455,7 +455,7 @@ void TestLockstep() noexcept {
     Check(ls.SaveToBuffer(buf, sizeof(buf), written).IsOk(), "SaveToBuffer 成功");
     Check(written > 0 && written < sizeof(buf), "written サイズ妥当");
 
-    FLockstep ls2;
+    CLockstep ls2;
     ls2.Init(ENetMode::Local, 60);
     Check(ls2.LoadFromBuffer(buf, written).IsOk(), "LoadFromBuffer 成功");
     Check(ls2.InputCount() == 5, "frame 数 5");
@@ -471,13 +471,13 @@ void TestLockstep() noexcept {
 
     // 改竄検知: CRC を壊すと load 失敗。
     buf[written - 1] ^= 0xFF;
-    FLockstep ls3;
+    CLockstep ls3;
     Check(ls3.LoadFromBuffer(buf, written).IsErr(), "CRC 改竄を検知 (load 失敗)");
 }
 
 void TestInputRecorder() noexcept {
-    std::printf("[FInputRecorder] .acsr バイナリ round-trip\n");
-    FInputRecorder rec;
+    std::printf("[CInputRecorder] .acsr バイナリ round-trip\n");
+    CInputRecorder rec;
     rec.StartRecording(120);
     for (u32 i = 0; i < 4; ++i) {
         FInputSample s;
@@ -493,7 +493,7 @@ void TestInputRecorder() noexcept {
     u8 buf[1024]; u32 written = 0;
     Check(rec.SaveToBuffer(buf, sizeof(buf), written).IsOk(), "SaveToBuffer 成功");
 
-    FInputRecorder rec2;
+    CInputRecorder rec2;
     Check(rec2.LoadFromBuffer(buf, written).IsOk(), "LoadFromBuffer 成功");
     Check(rec2.SampleCount() == 4, "sample 数 4");
     Check(rec2.TickRateHz() == 120, "tick_rate 120");
@@ -506,7 +506,7 @@ void TestInputRecorder() noexcept {
 }
 
 void TestProgression() noexcept {
-    std::printf("[FProgression] FSaveArchive バイナリ round-trip\n");
+    std::printf("[CProgression] CSaveArchive バイナリ round-trip\n");
     const wchar_t* path = L"persist_progress.sav";
     const FMilestoneDef defs[3] = {
         { "ms.lv5",  "Lv.5",   31,    "content.weapon_b" },
@@ -514,7 +514,7 @@ void TestProgression() noexcept {
         { "ms.vet",  "Veteran",16383, "content.title_x"  },
     };
     {
-        FProgression p;
+        CProgression p;
         for (auto& d : defs) p.RegisterMilestone(d);
         p.AwardXp(50);   // ms.lv5 達成 (>=31)
         Check(p.CurrentXp() == 50, "XP=50");
@@ -522,7 +522,7 @@ void TestProgression() noexcept {
         Check(!p.IsMilestoneAchieved("ms.lv10"), "ms.lv10 未達成");
         Check(p.Save(path).IsOk(), "Save() 成功");
     }
-    FProgression p2;
+    CProgression p2;
     for (auto& d : defs) p2.RegisterMilestone(d);   // 同 def を登録してから Load
     Check(p2.Load(path).IsOk(), "Load() 成功");
     Check(p2.CurrentXp() == 50, "XP=50 復元");
@@ -532,8 +532,8 @@ void TestProgression() noexcept {
 }
 
 void TestAssetBundle() noexcept {
-    std::printf("[FAssetBundle] FAssetRegistry 実ロード\n");
-    FAssetRegistry reg;
+    std::printf("[CAssetBundle] CAssetRegistry 実ロード\n");
+    CAssetRegistry reg;
     reg.RegisterDefaultLoaders();
     const char* fname = "bundle_test.dat";
     {
@@ -541,7 +541,7 @@ void TestAssetBundle() noexcept {
         Check(f != nullptr, "テストファイル作成");
         if (f) { std::fwrite("ACS-BUNDLE-OK", 1, 13, f); std::fclose(f); }
     }
-    FAssetBundle bundle;
+    CAssetBundle bundle;
     bundle.Add(fname);
     bundle.Add("does_not_exist_xyz.dat");          // 失敗パス
     bundle.BeginLoad(reg);
@@ -579,7 +579,7 @@ void WriteTestWav(const char* path) noexcept {
 
 // mock backend: AudioDirector の name→clip 解決 + dispatch を XAudio2 ランタイム
 // (COM/スレッド) 抜きで検証する。実音は実 XAudio2 backend が出す (VS 実機で確認)。
-struct FMockAudioBackend final : IAudioBackend {
+struct CMockAudioBackend final : IAudioBackend {
     u32         active   = 0;
     const void* last_pcm = nullptr;
     u32         last_rate = 0, last_ch = 0;
@@ -603,12 +603,12 @@ struct FMockAudioBackend final : IAudioBackend {
 };
 
 void TestAudioDirector() noexcept {
-    std::printf("[FAudioDirector] name->clip 解決 + backend dispatch (mock)\n");
+    std::printf("[CAudioDirector] name->clip 解決 + backend dispatch (mock)\n");
     const char* wav = "tone62.wav";
     WriteTestWav(wav);
-    FAssetRegistry reg; reg.RegisterDefaultLoaders();
-    FMockAudioBackend backend;
-    FAudioDirector dir;
+    CAssetRegistry reg; reg.RegisterDefaultLoaders();
+    CMockAudioBackend backend;
+    CAudioDirector dir;
     dir.SetBackend(&backend);
     dir.SetAssetRegistry(&reg);
 
@@ -642,8 +642,8 @@ void TestContentModerator() noexcept {
 }
 
 void TestSpatialAudio() noexcept {
-    std::printf("[FSpatialAudio] constant-power パン + 距離減衰\n");
-    FSpatialAudio sp;
+    std::printf("[CSpatialAudio] constant-power パン + 距離減衰\n");
+    CSpatialAudio sp;
     FAudioListener l;
     l.position = FVec3::Zero(); l.forward = FVec3::Forward(); l.up = FVec3::Up();
     sp.SetListener(l);
@@ -660,8 +660,8 @@ void TestSpatialAudio() noexcept {
 }
 
 void TestLlmSafety() noexcept {
-    std::printf("[FLlmSafetyPipeline] PII redaction + refusal\n");
-    FLlmSafetyPipeline pipe;
+    std::printf("[CLlmSafetyPipeline] PII redaction + refusal\n");
+    CLlmSafetyPipeline pipe;
     pipe.Init();   // Default = 全ルール on
     auto pii = pipe.FilterOutput("contact me at bob@test.com anytime");
     Check(pii.verdict == ESafetyVerdict::Filtered, "email → Filtered");
@@ -675,17 +675,17 @@ void TestLlmSafety() noexcept {
 }
 
 void TestNetSnapshot() noexcept {
-    std::printf("[FNetSnapshot] wire codec round-trip\n");
+    std::printf("[CNetSnapshot] wire codec round-trip\n");
     FSnapshotHeader h;
     h.tick = 42; h.sequence = 7; h.server_timestamp_us = 123456;
     const u8 payload[12] = { 1,0,0,0, 0x0F,0,0,0, 4,0,0,0 };
     h.payload_size = sizeof(payload);
-    const u32 need = FNetSnapshot::EncodedSnapshotSize(h.payload_size);
+    const u32 need = CNetSnapshot::EncodedSnapshotSize(h.payload_size);
     u8 buf[256]; u32 written = 0;
-    auto enc = FNetSnapshot::EncodeSnapshot(h, payload, sizeof(payload), buf, sizeof(buf), written);
+    auto enc = CNetSnapshot::EncodeSnapshot(h, payload, sizeof(payload), buf, sizeof(buf), written);
     Check(enc.IsOk() && written == need, "EncodeSnapshot 成功 + サイズ一致");
     FSnapshotHeader oh; TArray<u8> opl;
-    auto dec = FNetSnapshot::DecodeSnapshot(buf, written, oh, opl);
+    auto dec = CNetSnapshot::DecodeSnapshot(buf, written, oh, opl);
     Check(dec.IsOk(), "DecodeSnapshot 成功");
     Check(oh.tick == 42 && oh.sequence == 7 && oh.payload_size == sizeof(payload), "header 復元");
     bool same = (opl.Size() == sizeof(payload));
@@ -693,12 +693,12 @@ void TestNetSnapshot() noexcept {
     Check(same, "payload 内容一致");
     buf[written - 1] ^= 0xFFu;   // CRC footer 改竄
     FSnapshotHeader oh2; TArray<u8> opl2;
-    Check(FNetSnapshot::DecodeSnapshot(buf, written, oh2, opl2).IsErr(), "CRC 改竄を検知");
+    Check(CNetSnapshot::DecodeSnapshot(buf, written, oh2, opl2).IsErr(), "CRC 改竄を検知");
 }
 
 void TestNetTransport() noexcept {
-    std::printf("[FUdpTransport] Winsock UDP localhost ループバック\n");
-    FUdpTransport server, client;
+    std::printf("[CUdpTransport] Winsock UDP localhost ループバック\n");
+    CUdpTransport server, client;
     server.SetLocalPort(53701);
     Check(server.Connect("127.0.0.1", 53702).IsOk(), "server Connect (bind 53701 → 53702)");
     client.SetLocalPort(53702);
@@ -725,7 +725,7 @@ void TestNetTransport() noexcept {
 
 void TestVoiceChat() noexcept
 {
-    std::printf("[FVoiceChatLoopbackBackend] loopback PCM mix\n");
+    std::printf("[CVoiceChatLoopbackBackend] loopback PCM mix\n");
     auto& v = GetVoiceLoopback();
     Check(v.Init(EVoiceProvider::OpusSelf).IsOk(), "Init(OpusSelf)");
     Check(v.JoinChannel(EVoiceChannel::Party, "p1").IsOk(), "JoinChannel(Party)");
@@ -774,8 +774,8 @@ void TestStudioWorkflow() noexcept
 
 void TestReplayDirector() noexcept
 {
-    std::printf("[FReplayDirector] replay container round-trip\n");
-    FInputRecorder rec;
+    std::printf("[CReplayDirector] replay container round-trip\n");
+    CInputRecorder rec;
     rec.StartRecording(60);
     const u32 N = 5;
     for (u32 t = 0; t < N; ++t) {
@@ -789,7 +789,7 @@ void TestReplayDirector() noexcept
     }
     rec.StopRecording();
 
-    FLockstep ls;
+    CLockstep ls;
     ls.Init(ENetMode::Local, 60);
     const u32 M = 7;
     for (u32 t = 0; t < M; ++t) {
@@ -811,17 +811,17 @@ void TestReplayDirector() noexcept
     meta.player_name = "Tester";
     meta.checksum_hex = "0011223344556677";
 
-    FReplayDirector dir;
+    CReplayDirector dir;
     dir.Init();
     dir.SetSources(&rec, &ls);
     Check(dir.StartRecording(meta).IsOk(), "StartRecording(meta)");
     Check(dir.StopRecording().IsOk(), "StopRecording");
     Check(dir.SaveReplay(L"replay_test.acrp").IsOk(), "SaveReplay 成功 (input+lockstep+meta)");
 
-    FInputRecorder rec2;
-    FLockstep ls2;
+    CInputRecorder rec2;
+    CLockstep ls2;
     ls2.Init(ENetMode::Local, 60);
-    FReplayDirector dir2;
+    CReplayDirector dir2;
     dir2.Init();
     dir2.SetSources(&rec2, &ls2);
     Check(dir2.LoadReplay(L"replay_test.acrp").IsOk(), "LoadReplay 成功");
@@ -840,7 +840,7 @@ void TestReplayDirector() noexcept
 void TestImageModeration() noexcept
 {
     std::printf("[FContentModerator] 画像 NSFW skin-ratio heuristic\n");
-    auto& cm = static_cast<FContentModeratorStub&>(GetModeratorStub());
+    auto& cm = static_cast<CContentModeratorStub&>(GetModeratorStub());
 
     // 肌色 (R=200,G=120,B=90) で埋めた 8x8 → ratio 1.0 → Block(Explicit)
     u8 skin[8 * 8 * 4];

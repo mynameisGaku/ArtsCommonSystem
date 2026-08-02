@@ -12,9 +12,9 @@
 
 using namespace acs;
 
-/** 旧 FTimerManager が正規のタイマー管理器と同じ型を参照することを保証する。 */
+/** 旧 CTimerManager が正規のタイマー管理器と同じ型を参照することを保証する。 */
 static_assert(IsSameV<FTimerManager, CTimerManager>);
-/** 旧 FMessageBroker が正規のメッセージ仲介器と同じ型を参照することを保証する。 */
+/** 旧 CMessageBroker が正規のメッセージ仲介器と同じ型を参照することを保証する。 */
 static_assert(IsSameV<FMessageBroker, CMessageBroker>);
 /** 旧 EventTypeId が正規の通路番号型と同じ型を参照することを保証する。 */
 static_assert(IsSameV<EventTypeId, FEventTypeId>);

@@ -470,12 +470,12 @@ TResult<void> CReplayDirector::TryStartRecording(const FReplayMetadata& meta) no
     // 切り替えは意図しない上書きが起こりやすいため、明示的な Stop を強制する。
     if (m_Mode != EReplayMode::Idle) {
         return ACS_ERR(Generic, kSub_BadMode,
-                       "FReplayDirector::TryStartRecording: must be Idle");
+                       "CReplayDirector::TryStartRecording: must be Idle");
     }
     FMetadataLengths lengths{};
     if (!MeasureMetadata(meta, lengths)) {
         return ACS_ERR(IO, kSub_BadMetadata,
-                       "FReplayDirector::TryStartRecording: metadata string is oversized or noncanonical");
+                       "CReplayDirector::TryStartRecording: metadata string is oversized or noncanonical");
     }
 
     FString game_version;
@@ -491,7 +491,7 @@ TResult<void> CReplayDirector::TryStartRecording(const FReplayMetadata& meta) no
         (lengths.checksum > 0 &&
          !checksum.TryAppend(FStringView(meta.checksum_hex, lengths.checksum)))) {
         return ACS_ERR(Memory, kSub_Oom,
-                       "FReplayDirector::TryStartRecording: metadata allocation failed");
+                       "CReplayDirector::TryStartRecording: metadata allocation failed");
     }
 
     m_GameVersionOwned = Move(game_version);
@@ -517,7 +517,7 @@ TResult<void> CReplayDirector::StopRecording() noexcept {
     // 呼んでしまった場合に黙って Idle にすると metadata が壊れるため明示エラー。
     if (m_Mode != EReplayMode::Recording) {
         return ACS_ERR(Generic, kSub_BadMode,
-                       "FReplayDirector::StopRecording: must be Recording");
+                       "CReplayDirector::StopRecording: must be Recording");
     }
     // 録画した tick 数を確定。LoadReplay 後の再生で ProgressNormalized が
     // 正しく計算できるよう metadata に焼き込む。
@@ -531,7 +531,7 @@ TResult<void> CReplayDirector::StopRecording() noexcept {
 TResult<void> CReplayDirector::StartPlayback() noexcept {
     if (m_Mode != EReplayMode::Idle) {
         return ACS_ERR(Generic, kSub_BadMode,
-                       "FReplayDirector::StartPlayback: must be Idle");
+                       "CReplayDirector::StartPlayback: must be Idle");
     }
     m_Mode             = EReplayMode::Playback;
     m_CurrentTick     = 0;
@@ -660,16 +660,16 @@ TResult<void> CReplayDirector::SaveReplay(const wchar_t* file_path) noexcept {
 TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_NullPath,
-                       "FReplayDirector::TrySaveReplay: file_path is null");
+                       "CReplayDirector::TrySaveReplay: file_path is null");
     }
     if (!IsValidReplayPath(file_path)) {
         return ACS_ERR(IO, kSub_PathTooLong,
-                       "FReplayDirector::TrySaveReplay: path is empty, unterminated, or too long");
+                       "CReplayDirector::TrySaveReplay: path is empty, unterminated, or too long");
     }
     FMetadataLengths metadata_lengths{};
     if (!MeasureMetadata(m_Metadata, metadata_lengths)) {
         return ACS_ERR(IO, kSub_BadMetadata,
-                       "FReplayDirector::TrySaveReplay: metadata is oversized or noncanonical");
+                       "CReplayDirector::TrySaveReplay: metadata is oversized or noncanonical");
     }
 
     TArray<u8> input_blob;
@@ -677,18 +677,18 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
         const u32 record_count = m_Recorder->SampleCount();
         if (record_count > kReplayMaximumSourceRecords) {
             return ACS_ERR(IO, kSub_LimitExceeded,
-                           "FReplayDirector::TrySaveReplay: recorder sample count exceeds the limit");
+                           "CReplayDirector::TrySaveReplay: recorder sample count exceeds the limit");
         }
         const u64 required = kInputHeaderBytes +
                              static_cast<u64>(record_count) * kInputRecordBytes +
                              kSourceFooterBytes;
         if (required > kReplayMaximumSourceBlobBytes) {
             return ACS_ERR(IO, kSub_LimitExceeded,
-                           "FReplayDirector::TrySaveReplay: recorder blob exceeds the limit");
+                           "CReplayDirector::TrySaveReplay: recorder blob exceeds the limit");
         }
         if (!input_blob.TryResize(static_cast<usize>(required))) {
             return ACS_ERR(Memory, kSub_Oom,
-                           "FReplayDirector::TrySaveReplay: recorder blob allocation failed");
+                           "CReplayDirector::TrySaveReplay: recorder blob allocation failed");
         }
         u32 written = 0;
         TResult<void> source_result =
@@ -696,7 +696,7 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
         if (source_result.IsErr() || written != required ||
             !ValidateSourceBlob(input_blob.Data(), written, true)) {
             return ACS_ERR(IO, kSub_BadSourceBlob,
-                           "FReplayDirector::TrySaveReplay: recorder produced an invalid blob");
+                           "CReplayDirector::TrySaveReplay: recorder produced an invalid blob");
         }
     }
 
@@ -705,18 +705,18 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
         const u32 record_count = m_Lockstep->InputCount();
         if (record_count > kReplayMaximumSourceRecords) {
             return ACS_ERR(IO, kSub_LimitExceeded,
-                           "FReplayDirector::TrySaveReplay: lockstep frame count exceeds the limit");
+                           "CReplayDirector::TrySaveReplay: lockstep frame count exceeds the limit");
         }
         const u64 required = kLockstepHeaderBytes +
                              static_cast<u64>(record_count) * kLockstepRecordBytes +
                              kSourceFooterBytes;
         if (required > kReplayMaximumSourceBlobBytes) {
             return ACS_ERR(IO, kSub_LimitExceeded,
-                           "FReplayDirector::TrySaveReplay: lockstep blob exceeds the limit");
+                           "CReplayDirector::TrySaveReplay: lockstep blob exceeds the limit");
         }
         if (!lockstep_blob.TryResize(static_cast<usize>(required))) {
             return ACS_ERR(Memory, kSub_Oom,
-                           "FReplayDirector::TrySaveReplay: lockstep blob allocation failed");
+                           "CReplayDirector::TrySaveReplay: lockstep blob allocation failed");
         }
         u32 written = 0;
         TResult<void> source_result =
@@ -724,7 +724,7 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
         if (source_result.IsErr() || written != required ||
             !ValidateSourceBlob(lockstep_blob.Data(), written, false)) {
             return ACS_ERR(IO, kSub_BadSourceBlob,
-                           "FReplayDirector::TrySaveReplay: lockstep produced an invalid blob");
+                           "CReplayDirector::TrySaveReplay: lockstep produced an invalid blob");
         }
     }
 
@@ -737,13 +737,13 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
                            lockstep_blob.Size();
     if (total_size > kReplayMaximumContainerBytes || total_size > ~u32{0}) {
         return ACS_ERR(IO, kSub_LimitExceeded,
-                       "FReplayDirector::TrySaveReplay: container exceeds the product limit");
+                       "CReplayDirector::TrySaveReplay: container exceeds the product limit");
     }
 
     TArray<u8> body;
     if (!body.TryResize(static_cast<usize>(total_size))) {
         return ACS_ERR(Memory, kSub_Oom,
-                       "FReplayDirector::TrySaveReplay: container allocation failed");
+                       "CReplayDirector::TrySaveReplay: container allocation failed");
     }
     u64 offset = 0;
     MemCopy(body.Data() + offset, kReplayMagic, sizeof(kReplayMagic)); offset += sizeof(kReplayMagic);
@@ -779,7 +779,7 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
     offset += sizeof(u32);
     if (offset != total_size) {
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::TrySaveReplay: internal container size mismatch");
+                       "CReplayDirector::TrySaveReplay: internal container size mismatch");
     }
 
     wchar_t tmp_path[kReplayTempPathCapacity] = {};
@@ -788,7 +788,7 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
     for (u32 attempt = 0; attempt < 16u; ++attempt) {
         if (!MakeAtomicTempPath(file_path, tmp_path, kReplayTempPathCapacity)) {
             return ACS_ERR(IO, kSub_PathTooLong,
-                           "FReplayDirector::TrySaveReplay: file path too long for atomic suffix");
+                           "CReplayDirector::TrySaveReplay: file path too long for atomic suffix");
         }
         h = ::CreateFileW(tmp_path, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
                           FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_TEMPORARY, nullptr);
@@ -798,7 +798,7 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
     }
     if (h == INVALID_HANDLE_VALUE) {
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::TrySaveReplay: CreateFileW (unique temp) failed", create_error);
+                          "CReplayDirector::TrySaveReplay: CreateFileW (unique temp) failed", create_error);
     }
 
     DWORD err = 0;
@@ -806,20 +806,20 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
         ::CloseHandle(h);
         ::DeleteFileW(tmp_path);
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::TrySaveReplay: WriteFile (temp) failed", err);
+                          "CReplayDirector::TrySaveReplay: WriteFile (temp) failed", err);
     }
     if (!::FlushFileBuffers(h)) {
         const DWORD flush_error = ::GetLastError();
         ::CloseHandle(h);
         ::DeleteFileW(tmp_path);
         return ACS_ERR_OS(IO, kSub_FlushFailed,
-                          "FReplayDirector::TrySaveReplay: FlushFileBuffers (temp) failed", flush_error);
+                          "CReplayDirector::TrySaveReplay: FlushFileBuffers (temp) failed", flush_error);
     }
     if (!::CloseHandle(h)) {
         const DWORD close_err = ::GetLastError();
         ::DeleteFileW(tmp_path);
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::TrySaveReplay: CloseHandle (temp) failed", close_err);
+                          "CReplayDirector::TrySaveReplay: CloseHandle (temp) failed", close_err);
     }
 
     if (!::MoveFileExW(tmp_path, file_path,
@@ -828,7 +828,7 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
         if (!TryPosixAtomicReplace(tmp_path, file_path, move_error)) {
             ::DeleteFileW(tmp_path);
             return ACS_ERR_OS(IO, kSub_AtomicReplaceFailed,
-                              "FReplayDirector::TrySaveReplay: atomic replace failed", move_error);
+                              "CReplayDirector::TrySaveReplay: atomic replace failed", move_error);
         }
     }
     return Ok();
@@ -843,11 +843,11 @@ TResult<void> CReplayDirector::LoadReplay(const wchar_t* file_path) noexcept {
 TResult<void> CReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_NullPath,
-                       "FReplayDirector::TryLoadReplay: file_path is null");
+                       "CReplayDirector::TryLoadReplay: file_path is null");
     }
     if (!IsValidReplayPath(file_path)) {
         return ACS_ERR(IO, kSub_PathTooLong,
-                       "FReplayDirector::TryLoadReplay: path is empty, unterminated, or too long");
+                       "CReplayDirector::TryLoadReplay: path is empty, unterminated, or too long");
     }
 
     HANDLE h = ::CreateFileW(file_path,
@@ -860,7 +860,7 @@ TResult<void> CReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept 
     if (h == INVALID_HANDLE_VALUE) {
         const DWORD err = ::GetLastError();
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::TryLoadReplay: CreateFileW failed", err);
+                          "CReplayDirector::TryLoadReplay: CreateFileW failed", err);
     }
 
     LARGE_INTEGER size_li{};
@@ -868,30 +868,30 @@ TResult<void> CReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept 
         const DWORD err = ::GetLastError();
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::TryLoadReplay: GetFileSizeEx failed", err);
+                          "CReplayDirector::TryLoadReplay: GetFileSizeEx failed", err);
     }
     if (size_li.QuadPart < 0) {
         ::CloseHandle(h);
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::TryLoadReplay: negative file size");
+                       "CReplayDirector::TryLoadReplay: negative file size");
     }
     const u64 size_u64 = static_cast<u64>(size_li.QuadPart);
     if (size_u64 < kMinimumContainerBytes) {
         ::CloseHandle(h);
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::TryLoadReplay: file smaller than minimal container");
+                       "CReplayDirector::TryLoadReplay: file smaller than minimal container");
     }
     if (size_u64 > kReplayMaximumContainerBytes) {
         ::CloseHandle(h);
         return ACS_ERR(IO, kSub_LimitExceeded,
-                       "FReplayDirector::TryLoadReplay: container exceeds the product limit");
+                       "CReplayDirector::TryLoadReplay: container exceeds the product limit");
     }
 
     FProcessHeapBuffer file_storage(size_u64);
     if (file_storage.Data() == nullptr) {
         ::CloseHandle(h);
         return ACS_ERR(Memory, kSub_Oom,
-                       "FReplayDirector::TryLoadReplay: failed to allocate file snapshot");
+                       "CReplayDirector::TryLoadReplay: failed to allocate file snapshot");
     }
     u8* buf = static_cast<u8*>(file_storage.Data());
 
@@ -899,14 +899,14 @@ TResult<void> CReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept 
     if (!ReadAll(h, buf, size_u64, err)) {
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::TryLoadReplay: ReadFile failed", err);
+                          "CReplayDirector::TryLoadReplay: ReadFile failed", err);
     }
     LARGE_INTEGER final_size{};
     if (!::GetFileSizeEx(h, &final_size)) {
         const DWORD final_size_error = ::GetLastError();
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::TryLoadReplay: final GetFileSizeEx failed", final_size_error);
+                          "CReplayDirector::TryLoadReplay: final GetFileSizeEx failed", final_size_error);
     }
     u8 extra_byte = 0;
     DWORD extra_count = 0;
@@ -915,26 +915,26 @@ TResult<void> CReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept 
         const DWORD probe_error = ::GetLastError();
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::TryLoadReplay: EOF probe failed", probe_error);
+                          "CReplayDirector::TryLoadReplay: EOF probe failed", probe_error);
     }
     if (final_size.QuadPart != size_li.QuadPart || extra_count != 0) {
         ::CloseHandle(h);
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::TryLoadReplay: file size changed during snapshot read");
+                       "CReplayDirector::TryLoadReplay: file size changed during snapshot read");
     }
     if (!::CloseHandle(h)) {
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::TryLoadReplay: CloseHandle failed", ::GetLastError());
+                          "CReplayDirector::TryLoadReplay: CloseHandle failed", ::GetLastError());
     }
 
     if (MemCmp(buf, kReplayMagic, sizeof(kReplayMagic)) != 0) {
         return ACS_ERR(IO, kSub_BadMagic,
-                       "FReplayDirector::TryLoadReplay: magic mismatch");
+                       "CReplayDirector::TryLoadReplay: magic mismatch");
     }
     const u32 version = ReadU32LE(buf + 4);
     if (version != kReplayVersion) {
         return ACS_ERR(IO, kSub_BadVersion,
-                       "FReplayDirector::TryLoadReplay: unsupported container version");
+                       "CReplayDirector::TryLoadReplay: unsupported container version");
     }
 
     const u64 body_size = size_u64 - kCrcFooterSize;
@@ -942,7 +942,7 @@ TResult<void> CReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept 
     const u32 stored_crc = ReadU32LE(buf + body_size);
     if (actual_crc != stored_crc) {
         return ACS_ERR(IO, kSub_BadCrc,
-                       "FReplayDirector::TryLoadReplay: CRC32 mismatch");
+                       "CReplayDirector::TryLoadReplay: CRC32 mismatch");
     }
 
     u64 off = sizeof(kReplayMagic) + sizeof(u32);
@@ -952,7 +952,7 @@ TResult<void> CReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept 
     };
     if (!need(8 + 8 + 4)) {
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::TryLoadReplay: truncated numeric metadata");
+                       "CReplayDirector::TryLoadReplay: truncated numeric metadata");
     }
     const u64 seed           = ReadU64LE(buf + off); off += 8;
     const u64 timestamp      = ReadU64LE(buf + off); off += 8;
@@ -989,60 +989,60 @@ TResult<void> CReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept 
     if (string_error != 0) {
         if (string_error == kSub_Oom) {
             return ACS_ERR(Memory, kSub_Oom,
-                           "FReplayDirector::TryLoadReplay: metadata string allocation failed");
+                           "CReplayDirector::TryLoadReplay: metadata string allocation failed");
         }
         return ACS_ERR(IO, string_error,
-                       "FReplayDirector::TryLoadReplay: invalid metadata string");
+                       "CReplayDirector::TryLoadReplay: invalid metadata string");
     }
 
     if (!need(sizeof(u32))) {
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::TryLoadReplay: truncated recorder blob size");
+                       "CReplayDirector::TryLoadReplay: truncated recorder blob size");
     }
     const u32 input_blob_size = ReadU32LE(buf + off);
     off += sizeof(u32);
     if (input_blob_size > kReplayMaximumSourceBlobBytes) {
         return ACS_ERR(IO, kSub_LimitExceeded,
-                       "FReplayDirector::TryLoadReplay: recorder blob exceeds the limit");
+                       "CReplayDirector::TryLoadReplay: recorder blob exceeds the limit");
     }
     if (!need(input_blob_size)) {
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::TryLoadReplay: recorder blob exceeds container");
+                       "CReplayDirector::TryLoadReplay: recorder blob exceeds container");
     }
     const u8* input_blob_ptr = buf + off;
     off += input_blob_size;
 
     if (!need(sizeof(u32))) {
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::TryLoadReplay: truncated lockstep blob size");
+                       "CReplayDirector::TryLoadReplay: truncated lockstep blob size");
     }
     const u32 lockstep_blob_size = ReadU32LE(buf + off);
     off += sizeof(u32);
     if (lockstep_blob_size > kReplayMaximumSourceBlobBytes) {
         return ACS_ERR(IO, kSub_LimitExceeded,
-                       "FReplayDirector::TryLoadReplay: lockstep blob exceeds the limit");
+                       "CReplayDirector::TryLoadReplay: lockstep blob exceeds the limit");
     }
     if (!need(lockstep_blob_size)) {
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::TryLoadReplay: lockstep blob exceeds container");
+                       "CReplayDirector::TryLoadReplay: lockstep blob exceeds container");
     }
     const u8* lockstep_blob_ptr = buf + off;
     off += lockstep_blob_size;
     if (off != limit) {
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::TryLoadReplay: trailing bytes before CRC footer");
+                       "CReplayDirector::TryLoadReplay: trailing bytes before CRC footer");
     }
     if (!ValidateSourceBlob(input_blob_ptr, input_blob_size, true) ||
         !ValidateSourceBlob(lockstep_blob_ptr, lockstep_blob_size, false)) {
         return ACS_ERR(IO, kSub_BadSourceBlob,
-                       "FReplayDirector::TryLoadReplay: inner source blob is invalid");
+                       "CReplayDirector::TryLoadReplay: inner source blob is invalid");
     }
 
     const bool commit_recorder = m_Recorder != nullptr && input_blob_size > 0;
     const bool commit_lockstep = m_Lockstep != nullptr && lockstep_blob_size > 0;
-    FAllocator& recorder_allocator =
+    IAllocator& recorder_allocator =
         m_Recorder != nullptr ? *m_Recorder->m_Samples.GetAllocator() : DefaultAllocator();
-    FAllocator& lockstep_allocator =
+    IAllocator& lockstep_allocator =
         m_Lockstep != nullptr ? *m_Lockstep->m_Frames.GetAllocator() : DefaultAllocator();
     CInputRecorder staged_recorder(recorder_allocator);
     CLockstep staged_lockstep(lockstep_allocator);
@@ -1051,10 +1051,10 @@ TResult<void> CReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept 
         if (source_result.IsErr()) {
             if (source_result.Error().subcode == CInputRecorder::kSub_Oom) {
                 return ACS_ERR(Memory, kSub_Oom,
-                               "FReplayDirector::TryLoadReplay: recorder staging allocation failed");
+                               "CReplayDirector::TryLoadReplay: recorder staging allocation failed");
             }
             return ACS_ERR(IO, kSub_BadSourceBlob,
-                           "FReplayDirector::TryLoadReplay: recorder rejected a prevalidated blob");
+                           "CReplayDirector::TryLoadReplay: recorder rejected a prevalidated blob");
         }
     }
     if (commit_lockstep) {
@@ -1062,10 +1062,10 @@ TResult<void> CReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept 
         if (source_result.IsErr()) {
             if (source_result.Error().subcode == CLockstep::kSub_Oom) {
                 return ACS_ERR(Memory, kSub_Oom,
-                               "FReplayDirector::TryLoadReplay: lockstep staging allocation failed");
+                               "CReplayDirector::TryLoadReplay: lockstep staging allocation failed");
             }
             return ACS_ERR(IO, kSub_BadSourceBlob,
-                           "FReplayDirector::TryLoadReplay: lockstep rejected a prevalidated blob");
+                           "CReplayDirector::TryLoadReplay: lockstep rejected a prevalidated blob");
         }
     }
 

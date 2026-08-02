@@ -41,7 +41,7 @@ f32 SumX(const TArray<FVec3>& v) noexcept { f32 s = 0; for (u32 i = 0; i < v.Siz
 ACS_TEST(VertexScatter, BuildGridSucceeds) {
     TArray<FVec3> pos; TArray<u32> idx;
     MakeGrid(5, pos, idx);
-    FVertexScatter vs;
+    CVertexScatter vs;
     EXPECT_TRUE(vs.Build(pos.Data(), static_cast<u32>(pos.Size()), idx.Data(), static_cast<u32>(idx.Size())));
     EXPECT_TRUE(vs.IsBuilt());
     EXPECT_EQ(vs.VertexCount(), 25u);
@@ -51,7 +51,7 @@ ACS_TEST(VertexScatter, BuildGridSucceeds) {
 ACS_TEST(VertexScatter, UniformIsPreserved) {
     TArray<FVec3> pos; TArray<u32> idx;
     MakeGrid(6, pos, idx);
-    FVertexScatter vs;
+    CVertexScatter vs;
     EXPECT_TRUE(vs.Build(pos.Data(), static_cast<u32>(pos.Size()), idx.Data(), static_cast<u32>(idx.Size())));
 
     const u32 n = vs.VertexCount();
@@ -71,7 +71,7 @@ ACS_TEST(VertexScatter, PointSpreadsToNeighbors) {
     const u32 N = 9;
     TArray<FVec3> pos; TArray<u32> idx;
     MakeGrid(N, pos, idx);
-    FVertexScatter vs;
+    CVertexScatter vs;
     EXPECT_TRUE(vs.Build(pos.Data(), static_cast<u32>(pos.Size()), idx.Data(), static_cast<u32>(idx.Size())));
 
     const u32 n = vs.VertexCount();
@@ -103,7 +103,7 @@ ACS_TEST(VertexScatter, RedScattersFartherThanBlue) {
     const u32 N = 11;
     TArray<FVec3> pos; TArray<u32> idx;
     MakeGrid(N, pos, idx);
-    FVertexScatter vs;
+    CVertexScatter vs;
     EXPECT_TRUE(vs.Build(pos.Data(), static_cast<u32>(pos.Size()), idx.Data(), static_cast<u32>(idx.Size())));
 
     const u32 n = vs.VertexCount();
@@ -129,7 +129,7 @@ ACS_TEST(VertexScatter, RedScattersFartherThanBlue) {
 ACS_TEST(VertexScatter, SphereBuildAndScatter) {
     auto sphere = Primitive::MakeSphere(1.0f, 24, 12);
     EXPECT_TRUE(sphere.Get() != nullptr);
-    FVertexScatter vs;
+    CVertexScatter vs;
     EXPECT_TRUE(vs.Build(*sphere));
     EXPECT_TRUE(vs.IsBuilt());
 

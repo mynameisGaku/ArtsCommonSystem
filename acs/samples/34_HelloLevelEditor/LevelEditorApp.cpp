@@ -10,39 +10,39 @@ using namespace acs::game;
 
 namespace hellole {
 
-void FLevelEditorApp::OnStart() noexcept {
-    // ImGui を FWindow + FRenderer に紐付け。失敗時は早期 Quit。
+void CLevelEditorApp::OnStart() noexcept {
+    // ImGui を FWindow + CRenderer に紐付け。失敗時は早期 Quit。
     if (auto r = m_Imgui.Init(GetWindow(), GetRenderer()); r.IsErr()) {
         ACS_LOG_ERROR("[LevelEditorApp] ImGuiCtx.Init failed -> Quit");
         Quit();
         return;
     }
     // 基底の OnStart は InitialScene() を push する。
-    FGame::OnStart();
+    CGame::OnStart();
 }
 
-void FLevelEditorApp::OnRender() noexcept {
+void CLevelEditorApp::OnRender() noexcept {
     // ImGui フレーム開始 → Scene::OnRender で ImGui::* が呼ばれる →
     // ImGui の描画コマンドをコマンドリストに発行、の順。
     m_Imgui.NewFrame();
-    FGame::OnRender();
+    CGame::OnRender();
     m_Imgui.Render();
 }
 
-void FLevelEditorApp::OnShutdown() noexcept {
+void CLevelEditorApp::OnShutdown() noexcept {
     // Scene 側を先に止めてから ImGui を落とす (Scene が ImGui::* を握って
     // ないことを保証)。
-    FGame::OnShutdown();
+    CGame::OnShutdown();
     m_Imgui.Shutdown();
 }
 
-void FLevelEditorApp::OnEvent(const FEvent& e) noexcept {
+void CLevelEditorApp::OnEvent(const FEvent& e) noexcept {
     m_Imgui.OnEvent(e);
-    FGame::OnEvent(e);
+    CGame::OnEvent(e);
 }
 
-TUniquePtr<FScene> FLevelEditorApp::InitialScene() noexcept {
-    return MakeUnique<FLevelEditorScene>();
+TUniquePtr<AScene> CLevelEditorApp::InitialScene() noexcept {
+    return MakeUnique<ALevelEditorScene>();
 }
 
 } // namespace hellole

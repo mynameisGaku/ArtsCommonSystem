@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloLightmap — FHelloLightmapApp の実装。
+// HelloLightmap — CHelloLightmapApp の実装。
 //
 // シーン: Cornell box (床 / 天井 / 奥壁 / 左壁(赤) / 右壁(緑))。
 // 焼き: OnStart で BakeLightmaps を呼んで各面の lightmap texture を生成。
@@ -19,23 +19,23 @@ using namespace acs;
 
 namespace hellolightmap {
 
-void FHelloLightmapApp::OnStart() noexcept {
+void CHelloLightmapApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
     IRhiSwapchain* sc = GetRenderer().Swapchain();
     if (!sc) { Quit(); return; }
 
-    // HDR FPostProcess (Bloom + ACES tonemap)。シーンは HDR RT に描く。
+    // HDR CPostProcess (Bloom + ACES tonemap)。シーンは HDR RT に描く。
     ACS_SAMPLE_INIT(m_Post.Init(*dev, sc->Width(), sc->Height(),
                                GetRenderer().ColorFormat()));
-    // FPbrShader は HDR RT フォーマットに合わせて init する。
+    // CPbrShader は HDR RT フォーマットに合わせて init する。
     ACS_SAMPLE_INIT(m_Pbr.Init(*dev, m_Post.HdrFormat(),
                               GetRenderer().DepthFormat()));
 
     BuildCornellBox(*dev, m_Quads);
     BakeLightmaps(*dev, m_Quads);
 
-    // FSpriteBatch は tonemap 後の LDR backbuffer に描く。
+    // CSpriteBatch は tonemap 後の LDR backbuffer に描く。
     ACS_SAMPLE_INIT(m_Batch.Init(*dev, GetRenderer().ColorFormat()));
     (void)FSample::TryLoadDefaultUIFont(m_Font, *dev, 18.0f, 1024, true);
 
@@ -44,7 +44,7 @@ void FHelloLightmapApp::OnStart() noexcept {
     m_Camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.05f, 100.0f);
     m_CamPos = FVec3{0.0f, 1.0f, -0.9f};
 
-    // FPostProcess パラメータ (絵作りで調整可)。
+    // CPostProcess パラメータ (絵作りで調整可)。
     m_PostParams.bloom_threshold    = 2.5f;   // 天井 (光源) だけが bloom する閾値
     m_PostParams.bloom_intensity    = 0.5f;
     m_PostParams.grain_intensity    = 0.0f;   // GI デモなので film grain は切る
@@ -52,15 +52,15 @@ void FHelloLightmapApp::OnStart() noexcept {
     m_PostParams.ssr_intensity      = 0.0f;   // SSR 未使用 (fallback mip の誤加算防止)
 }
 
-void FHelloLightmapApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
-    if (FInput::IsKeyPressed(EKey::L)) m_bShowLightmap = !m_bShowLightmap;
+void CHelloLightmapApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (CInput::IsKeyPressed(EKey::L)) m_bShowLightmap = !m_bShowLightmap;
 
     const f32 mv = 2.0f * dt, tr = 1.4f * dt;
-    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
-    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += tr;
-    if (FInput::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
-    if (FInput::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
+    if (CInput::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
+    if (CInput::IsKeyDown(EKey::Right)) m_CamYaw += tr;
+    if (CInput::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
+    if (CInput::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
     const f32 limit = 0.45f * kPi;
     if (m_CamPitch >  limit) m_CamPitch =  limit;
     if (m_CamPitch < -limit) m_CamPitch = -limit;
@@ -68,16 +68,16 @@ void FHelloLightmapApp::OnUpdate(f32 dt) noexcept {
                  -Sin(m_CamPitch),
                   Cos(m_CamYaw) * Cos(m_CamPitch) };
     FVec3 right{ Cos(m_CamYaw), 0, -Sin(m_CamYaw) };
-    if (FInput::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
-    if (FInput::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
-    if (FInput::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
-    if (FInput::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
+    if (CInput::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
+    if (CInput::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
+    if (CInput::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
+    if (CInput::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
     m_Camera.SetLookAt(m_CamPos, m_CamPos + forward);
 }
 
-// OnCustomFrame: HDR RT にシーンを描き、FPostProcess (Bloom + ACES tonemap)
+// OnCustomFrame: HDR RT にシーンを描き、CPostProcess (Bloom + ACES tonemap)
 // で LDR backbuffer へ。HDR lightmap の高輝度が tonemap で自然にロールオフする。
-bool FHelloLightmapApp::OnCustomFrame() noexcept {
+bool CHelloLightmapApp::OnCustomFrame() noexcept {
     IRhiDevice*      dev   = GetRenderer().Device();
     IRhiCommandList* cl    = GetRenderer().CommandList();
     IRhiSwapchain*   sc    = GetRenderer().Swapchain();
@@ -159,7 +159,7 @@ bool FHelloLightmapApp::OnCustomFrame() noexcept {
     return true;
 }
 
-void FHelloLightmapApp::OnShutdown() noexcept {
+void CHelloLightmapApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();

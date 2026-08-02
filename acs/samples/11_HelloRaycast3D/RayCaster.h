@@ -17,17 +17,17 @@
 
 namespace helloraycast3d {
 
-class FRaycastTargets;
+class CRaycastTargets;
 
-class FRayCaster {
+class CRayCaster {
 public:
     // aspect は描画開始時の swapchain 比率。Perspective 行列を構築する。
     void Init(acs::f32 aspect) noexcept;
 
     // 入力でカメラを動かしてから、targets に対するレイテストを行い結果を書き戻す。
-    void Update(acs::f32 dt, FRaycastTargets& targets) noexcept;
+    void Update(acs::f32 dt, CRaycastTargets& targets) noexcept;
 
-    // 描画側 (FStandardShader::SetLights) が ViewProjection と Eye を要求する。
+    // 描画側 (CStandardShader::SetLights) が ViewProjection と Eye を要求する。
     const acs::CCamera& Camera()  const noexcept { return m_Camera; }
     acs::FVec3          Eye()     const noexcept { return m_CamPos; }
     acs::FVec3          Forward() const noexcept { return m_CamForward; }

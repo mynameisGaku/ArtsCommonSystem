@@ -40,9 +40,9 @@ constexpr const char* kSharedContextGreenPixelSource = "float4 main() : SV_TARGE
 
 ACS_TEST(FDiligentDevice, RequiresInitializedMemorySystem)
 {
-    EXPECT_TRUE(FMemorySystem::Get(ESegment::Resource) == nullptr);
+    EXPECT_TRUE(CMemorySystem::Get(ESegment::Resource) == nullptr);
 
-    FDiligentDevice device;
+    CDiligentDevice device;
     FDeviceConfig configuration{};
     configuration.backend = ERhiBackendKind::D3D12;
     const auto result = device.Init(configuration);
@@ -54,46 +54,46 @@ ACS_TEST(FDiligentDevice, RequiresInitializedMemorySystem)
 
 ACS_TEST(FDiligentMemoryAdapter, RejectsSameAddressRebindWhileAllocationIsOutstanding)
 {
-    FSystemAllocator allocator;
-    void* const raw_adapter = FDiligentMemoryAdapter::Create(&allocator);
+    CSystemAllocator allocator;
+    void* const raw_adapter = CDiligentMemoryAdapter::Create(&allocator);
     EXPECT_TRUE(raw_adapter != nullptr);
     if (!raw_adapter) return;
 
     auto* const adapter = static_cast<Diligent::IMemoryAllocator*>(raw_adapter);
-    const u64 first_generation = FDiligentMemoryAdapter::BindingGeneration();
+    const u64 first_generation = CDiligentMemoryAdapter::BindingGeneration();
     EXPECT_TRUE(first_generation != 0);
-    EXPECT_EQ(FDiligentMemoryAdapter::BackingLifetimeGeneration(), allocator.LifetimeGeneration());
+    EXPECT_EQ(CDiligentMemoryAdapter::BackingLifetimeGeneration(), allocator.LifetimeGeneration());
 
     void* const allocation = adapter->Allocate(128u, "lifetime-test", __FILE__, __LINE__);
     EXPECT_TRUE(allocation != nullptr);
-    EXPECT_EQ(FDiligentMemoryAdapter::OutstandingAllocationCount(), 1ull);
-    EXPECT_EQ(FDiligentMemoryAdapter::OutstandingRequestedBytes(), 128ull);
+    EXPECT_EQ(CDiligentMemoryAdapter::OutstandingAllocationCount(), 1ull);
+    EXPECT_EQ(CDiligentMemoryAdapter::OutstandingRequestedBytes(), 128ull);
 
     // MemorySystem の再初期化で同じアドレスが再利用される場合も、この分岐で旧寿命を隔離する。
-    EXPECT_TRUE(FDiligentMemoryAdapter::Create(&allocator) == nullptr);
-    EXPECT_EQ(FDiligentMemoryAdapter::BindingGeneration(), first_generation);
+    EXPECT_TRUE(CDiligentMemoryAdapter::Create(&allocator) == nullptr);
+    EXPECT_EQ(CDiligentMemoryAdapter::BindingGeneration(), first_generation);
 
     adapter->Free(allocation);
-    EXPECT_EQ(FDiligentMemoryAdapter::OutstandingAllocationCount(), 0ull);
-    EXPECT_EQ(FDiligentMemoryAdapter::OutstandingRequestedBytes(), 0ull);
+    EXPECT_EQ(CDiligentMemoryAdapter::OutstandingAllocationCount(), 0ull);
+    EXPECT_EQ(CDiligentMemoryAdapter::OutstandingRequestedBytes(), 0ull);
 
-    EXPECT_TRUE(FDiligentMemoryAdapter::Create(&allocator) == raw_adapter);
-    EXPECT_TRUE(FDiligentMemoryAdapter::BindingGeneration() > first_generation);
+    EXPECT_TRUE(CDiligentMemoryAdapter::Create(&allocator) == raw_adapter);
+    EXPECT_TRUE(CDiligentMemoryAdapter::BindingGeneration() > first_generation);
 
     // 静的アダプタへテストローカル allocator の参照を残さない。
-    EXPECT_TRUE(FDiligentMemoryAdapter::Create(&DefaultAllocator()) == raw_adapter);
-    EXPECT_EQ(FDiligentMemoryAdapter::BackingLifetimeGeneration(), DefaultAllocator().LifetimeGeneration());
+    EXPECT_TRUE(CDiligentMemoryAdapter::Create(&DefaultAllocator()) == raw_adapter);
+    EXPECT_EQ(CDiligentMemoryAdapter::BackingLifetimeGeneration(), DefaultAllocator().LifetimeGeneration());
 }
 
 ACS_TEST(FDiligentDevice, InitializedMemorySystemOwnsAndReleasesDiligentAllocations)
 {
-    const auto memory_result = FMemorySystem::Init(FMemorySystem::DefaultConfig());
+    const auto memory_result = CMemorySystem::Init(CMemorySystem::DefaultConfig());
     EXPECT_TRUE(memory_result.IsOk());
     if (memory_result.IsErr()) return;
 
     bool device_initialized = false;
     {
-        FDiligentDevice device;
+        CDiligentDevice device;
         FDeviceConfig configuration{};
         configuration.backend = ERhiBackendKind::D3D12;
         configuration.enable_debug_layer = true;
@@ -117,9 +117,9 @@ ACS_TEST(FDiligentDevice, InitializedMemorySystemOwnsAndReleasesDiligentAllocati
         }
     }
 
-    EXPECT_EQ(FDiligentMemoryAdapter::OutstandingAllocationCount(), 0ull);
-    EXPECT_EQ(FDiligentMemoryAdapter::OutstandingRequestedBytes(), 0ull);
-    FMemorySystem::Shutdown();
+    EXPECT_EQ(CDiligentMemoryAdapter::OutstandingAllocationCount(), 0ull);
+    EXPECT_EQ(CDiligentMemoryAdapter::OutstandingRequestedBytes(), 0ull);
+    CMemorySystem::Shutdown();
 
     if (device_initialized) {
         ACS_LOG_INFO("[acs][memory] tracker=diligent_device_integration_test record=verdict "
@@ -129,12 +129,12 @@ ACS_TEST(FDiligentDevice, InitializedMemorySystemOwnsAndReleasesDiligentAllocati
 
 ACS_TEST(FDiligentDevice, OffscreenSubmissionsRecycleDynamicDescriptors)
 {
-    const auto memory_result = FMemorySystem::Init(FMemorySystem::DefaultConfig());
+    const auto memory_result = CMemorySystem::Init(CMemorySystem::DefaultConfig());
     EXPECT_TRUE(memory_result.IsOk());
     if (memory_result.IsErr()) return;
 
     {
-        FDiligentDevice device;
+        CDiligentDevice device;
         FDeviceConfig configuration{};
         configuration.backend = ERhiBackendKind::D3D12;
         const auto device_result = device.Init(configuration);
@@ -241,21 +241,21 @@ float4 main() : SV_TARGET
         }
     }
 
-    EXPECT_EQ(FDiligentMemoryAdapter::OutstandingAllocationCount(), 0ull);
-    EXPECT_EQ(FDiligentMemoryAdapter::OutstandingRequestedBytes(), 0ull);
-    FMemorySystem::Shutdown();
+    EXPECT_EQ(CDiligentMemoryAdapter::OutstandingAllocationCount(), 0ull);
+    EXPECT_EQ(CDiligentMemoryAdapter::OutstandingRequestedBytes(), 0ull);
+    CMemorySystem::Shutdown();
 }
 
 ACS_TEST(FDiligentDevice, SharedContextPipelineStateRemainsCoherent)
 {
     // Diligent実GPU試験用のメモリ初期化結果。
-    const auto memory_result = FMemorySystem::Init(FMemorySystem::DefaultConfig());
+    const auto memory_result = CMemorySystem::Init(CMemorySystem::DefaultConfig());
     EXPECT_TRUE(memory_result.IsOk());
     if (memory_result.IsErr()) return;
 
     {
         // 共有immediate contextを所有する試験デバイス。
-        FDiligentDevice device;
+        CDiligentDevice device;
         // D3D12試験デバイスの生成条件。
         FDeviceConfig configuration{};
         configuration.backend = ERhiBackendKind::D3D12;
@@ -414,9 +414,9 @@ ACS_TEST(FDiligentDevice, SharedContextPipelineStateRemainsCoherent)
         }
     }
 
-    EXPECT_EQ(FDiligentMemoryAdapter::OutstandingAllocationCount(), 0ull);
-    EXPECT_EQ(FDiligentMemoryAdapter::OutstandingRequestedBytes(), 0ull);
-    FMemorySystem::Shutdown();
+    EXPECT_EQ(CDiligentMemoryAdapter::OutstandingAllocationCount(), 0ull);
+    EXPECT_EQ(CDiligentMemoryAdapter::OutstandingRequestedBytes(), 0ull);
+    CMemorySystem::Shutdown();
 }
 
 #endif // WITH_RENDER_DILIGENT

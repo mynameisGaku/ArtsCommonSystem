@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloOnnx - FOnnxDemoApp implementation.
+// HelloOnnx - COnnxDemoApp implementation.
 #include "OnnxDemoApp.h"
 
 #include "mlonnx/OnnxMlRuntime.h"
@@ -39,17 +39,17 @@ bool NearlyEqual(float A, float B) noexcept {
 
 } // namespace
 
-int FOnnxDemoApp::Run() noexcept {
+int COnnxDemoApp::Run() noexcept {
     constexpr const char* kModelPath = "acs_identity.onnx";
     std::puts("=== ACS HelloOnnx ===");
-    std::puts("backend: REAL ONNX Runtime CPU (FOnnxMlRuntime)");
+    std::puts("backend: REAL ONNX Runtime CPU (COnnxMlRuntime)");
 
     if (!WriteIdentityModel(kModelPath)) {
         std::puts("write model: FAILED");
         return 2;
     }
 
-    acs::mlonnx::FOnnxMlRuntime Ml;
+    acs::mlonnx::COnnxMlRuntime Ml;
     auto Init = Ml.Init();
     if (Init.IsErr()) {
         std::printf("Init: FAILED (%s)\n", Init.Error().message);

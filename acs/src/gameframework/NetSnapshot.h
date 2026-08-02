@@ -549,7 +549,7 @@ public:
      *
      * @details 生存中 transport が所有する cleanup debt には触れない。回収完了時も
      * `deferred_cleanup_resolved` の機械可読ログを出し、以前の cleanup_pending が
- * 解決済みであることを明示する。FApplication 終了前の明示 drain にも使用できる。
+ * 解決済みであることを明示する。CApplication 終了前の明示 drain にも使用できる。
      * @return 全共有 debt を回収できれば成功。残存時は kSub_CloseFailed。
      */
     static TResult<void> DrainDeferredResources() noexcept;

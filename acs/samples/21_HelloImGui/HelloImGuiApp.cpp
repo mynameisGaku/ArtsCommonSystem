@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloImGui — FApplication 派生クラス実装。
+// HelloImGui — CApplication 派生クラス実装。
 #include "HelloImGuiApp.h"
 
 #include "platform/Input.h"
@@ -10,7 +10,7 @@ using namespace acs;
 
 namespace helloimgui {
 
-void FHelloImGuiApp::OnStart() noexcept {
+void CHelloImGuiApp::OnStart() noexcept {
     auto r = m_Imgui.Init(GetWindow(), GetRenderer());
     if (r.IsErr()) {
         Quit();
@@ -18,11 +18,11 @@ void FHelloImGuiApp::OnStart() noexcept {
     }
 }
 
-void FHelloImGuiApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloImGuiApp::OnUpdate(f32 /*dt*/) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
 }
 
-void FHelloImGuiApp::OnRender() noexcept {
+void CHelloImGuiApp::OnRender() noexcept {
     // NewFrame は OnRender 内 (BeginFrame の後) で呼ぶのが ACS の作法。
     m_Imgui.NewFrame();
 
@@ -43,11 +43,11 @@ void FHelloImGuiApp::OnRender() noexcept {
     m_Imgui.Render();
 }
 
-void FHelloImGuiApp::OnShutdown() noexcept {
+void CHelloImGuiApp::OnShutdown() noexcept {
     m_Imgui.Shutdown();
 }
 
-void FHelloImGuiApp::OnEvent(const FEvent& e) noexcept {
+void CHelloImGuiApp::OnEvent(const FEvent& e) noexcept {
     m_Imgui.OnEvent(e);
 }
 

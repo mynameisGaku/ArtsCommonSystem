@@ -268,20 +268,20 @@ TResult<void> CLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) no
     out_written = 0;
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
-                       "FLockstep::SaveToBuffer: buffer is null");
+                       "CLockstep::SaveToBuffer: buffer is null");
     }
 
     if (m_Frames.Size() > kLockstepMaximumFrames ||
         m_TickRateHz == 0 || m_TickRateHz > kLockstepMaximumTickRateHz) {
         return ACS_ERR(IO, kSub_LimitExceeded,
-                       "FLockstep::SaveToBuffer: tick rate or frame count exceeds the limit");
+                       "CLockstep::SaveToBuffer: tick rate or frame count exceeds the limit");
     }
     const u32 frame_count = static_cast<u32>(m_Frames.Size());
     for (u32 i = 0; i < frame_count; ++i) {
         if (!IsFiniteF32Bits(BitsOf(m_Frames[i].axis.x)) ||
             !IsFiniteF32Bits(BitsOf(m_Frames[i].axis.y))) {
             return ACS_ERR(IO, kSub_BadValue,
-                           "FLockstep::SaveToBuffer: non-finite axis value");
+                           "CLockstep::SaveToBuffer: non-finite axis value");
         }
     }
     // 必要バイト数。frame_count を u64 に広げて 32bit 乗算オーバーフローを避ける。
@@ -291,7 +291,7 @@ TResult<void> CLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) no
         static_cast<u64>(kFooterSize);
     if (static_cast<u64>(size) < required64) {
         return ACS_ERR(IO, kSub_BufferTooSmall,
-                       "FLockstep::SaveToBuffer: buffer too small for frames");
+                       "CLockstep::SaveToBuffer: buffer too small for frames");
     }
     const u32 required = static_cast<u32>(required64);
 
@@ -332,26 +332,26 @@ TResult<void> CLockstep::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
 TResult<void> CLockstep::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept {
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
-                       "FLockstep::LoadFromBuffer: buffer is null");
+                       "CLockstep::LoadFromBuffer: buffer is null");
     }
 
     // ---- 最小サイズ (header + footer) -----------------------------------
     if (size < kHeaderSize + kFooterSize) {
         return ACS_ERR(IO, kSub_BadSize,
-                       "FLockstep::LoadFromBuffer: buffer smaller than header+footer");
+                       "CLockstep::LoadFromBuffer: buffer smaller than header+footer");
     }
 
     // ---- magic 検証 ------------------------------------------------------
     if (MemCmp(buffer, kMagic, sizeof(kMagic)) != 0) {
         return ACS_ERR(IO, kSub_BadMagic,
-                       "FLockstep::LoadFromBuffer: magic mismatch (not an ACSL buffer)");
+                       "CLockstep::LoadFromBuffer: magic mismatch (not an ACSL buffer)");
     }
 
     // ---- version 検証 ----------------------------------------------------
     const u32 version = ReadU32LE(buffer + 4);
     if (version != kFormatVersion) {
         return ACS_ERR(IO, kSub_BadVersion,
-                       "FLockstep::LoadFromBuffer: unsupported format version");
+                       "CLockstep::LoadFromBuffer: unsupported format version");
     }
 
     const u32 tick_rate_hz = ReadU32LE(buffer + 8);
@@ -359,7 +359,7 @@ TResult<void> CLockstep::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept 
     if (tick_rate_hz == 0 || tick_rate_hz > kLockstepMaximumTickRateHz ||
         frame_count > kLockstepMaximumFrames) {
         return ACS_ERR(IO, kSub_LimitExceeded,
-                       "FLockstep::TryLoadFromBuffer: tick rate or frame count exceeds the limit");
+                       "CLockstep::TryLoadFromBuffer: tick rate or frame count exceeds the limit");
     }
 
     // ---- frame_count とサイズの整合 -------------------------------------
@@ -371,7 +371,7 @@ TResult<void> CLockstep::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept 
         static_cast<u64>(kFooterSize);
     if (expected64 != static_cast<u64>(size)) {
         return ACS_ERR(IO, kSub_BadSize,
-                       "FLockstep::LoadFromBuffer: frame_count inconsistent with buffer size");
+                       "CLockstep::LoadFromBuffer: frame_count inconsistent with buffer size");
     }
 
     // ---- crc32 検証 (frames 部のみ) -------------------------------------
@@ -381,14 +381,14 @@ TResult<void> CLockstep::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept 
     const u32 stored_crc   = ReadU32LE(frames_begin + frames_bytes);  // footer
     if (actual_crc != stored_crc) {
         return ACS_ERR(IO, kSub_BadCrc,
-                       "FLockstep::LoadFromBuffer: CRC32 mismatch (corrupt or tampered)");
+                       "CLockstep::LoadFromBuffer: CRC32 mismatch (corrupt or tampered)");
     }
     const u8* value_cursor = frames_begin;
     for (u32 i = 0; i < frame_count; ++i) {
         if (!IsFiniteF32Bits(ReadU32LE(value_cursor + 9u)) ||
             !IsFiniteF32Bits(ReadU32LE(value_cursor + 13u))) {
             return ACS_ERR(IO, kSub_BadValue,
-                           "FLockstep::TryLoadFromBuffer: non-finite axis value");
+                           "CLockstep::TryLoadFromBuffer: non-finite axis value");
         }
         value_cursor += kFrameWireSize;
     }
@@ -396,7 +396,7 @@ TResult<void> CLockstep::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept 
     TArray<FInputFrame> staged(*m_Frames.GetAllocator());
     if (!staged.TryReserve(frame_count)) {
         return ACS_ERR(Memory, kSub_Oom,
-                       "FLockstep::TryLoadFromBuffer: frame staging allocation failed");
+                       "CLockstep::TryLoadFromBuffer: frame staging allocation failed");
     }
     const u8* p = frames_begin;
     for (u32 i = 0; i < frame_count; ++i) {
@@ -408,7 +408,7 @@ TResult<void> CLockstep::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept 
         f.axis.y    = F32FromBits(ReadU32LE(p + 13));  // +13: axis.y
         if (!staged.TryPushBack(f)) {
             return ACS_ERR(Memory, kSub_Oom,
-                           "FLockstep::TryLoadFromBuffer: frame staging append failed");
+                           "CLockstep::TryLoadFromBuffer: frame staging append failed");
         }
         p += kFrameWireSize;
     }

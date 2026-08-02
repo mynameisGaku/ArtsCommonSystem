@@ -2,7 +2,7 @@
 // GameFramework Pillar Q — CAmbientDirector (Time-of-Day)
 //
 // 1 日の時刻 (0..24h) に応じて sky color / ambient color / sun direction を
-// キーフレーム間で線形補間する time-of-day ドライバ。レンダラ側 (FPbrShader /
+// キーフレーム間で線形補間する time-of-day ドライバ。レンダラ側 (CPbrShader /
 // SkyShader / 環境光ステージ) は本クラスの 3 つの色 / 方向ベクトルを毎フレーム
 // pull するだけで一日の表情が出る。
 //
@@ -17,9 +17,9 @@
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           m_Ambient.Tick(dt);
-//           FRenderer().SetSkyColor    (m_Ambient.SkyColor());
-//           FRenderer().SetAmbientColor(m_Ambient.AmbientColor());
-//           FRenderer().SetSunDir      (m_Ambient.SunDirection());
+//           CRenderer().SetSkyColor    (m_Ambient.SkyColor());
+//           CRenderer().SetAmbientColor(m_Ambient.AmbientColor());
+//           CRenderer().SetSunDir      (m_Ambient.SunDirection());
 //       }
 //   };
 //

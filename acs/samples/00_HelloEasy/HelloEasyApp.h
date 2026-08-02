@@ -7,7 +7,7 @@
 namespace hello00 {
 
 // 戻り値はプロセス終了コード (0 = 正常終了)。
-struct FHelloEasyApp {
+struct CHelloEasyApp {
     static int Run() noexcept;
 };
 

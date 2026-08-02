@@ -188,7 +188,7 @@ u32 CSpatialAudio::RegisterSource(FVec3 pos, f32 max_distance,
 void CSpatialAudio::UpdateSource(u32 id, FVec3 pos, FVec3 vel) noexcept {
     const usize idx = FindIndex(id);
     if (idx >= m_Sources.Size()) {
-        ACS_LOG_WARN("FSpatialAudio::UpdateSource: stale id=%u → ignored", id);
+        ACS_LOG_WARN("CSpatialAudio::UpdateSource: stale id=%u → ignored", id);
         return;
     }
     m_Sources[idx].position = pos;
@@ -199,12 +199,12 @@ void CSpatialAudio::UpdateSource(u32 id, FVec3 pos, FVec3 vel) noexcept {
 void CSpatialAudio::SetSourceVolume(u32 id, f32 v) noexcept {
     const usize idx = FindIndex(id);
     if (idx >= m_Sources.Size()) {
-        ACS_LOG_WARN("FSpatialAudio::SetSourceVolume: stale id=%u → ignored", id);
+        ACS_LOG_WARN("CSpatialAudio::SetSourceVolume: stale id=%u → ignored", id);
         return;
     }
     const f32 c = Saturate(v);
     if (c != v) {
-        ACS_LOG_WARN("FSpatialAudio::SetSourceVolume: out-of-range %.3f → clamped to %.3f", v, c);
+        ACS_LOG_WARN("CSpatialAudio::SetSourceVolume: out-of-range %.3f → clamped to %.3f", v, c);
     }
     m_Sources[idx].volume = c;
 }

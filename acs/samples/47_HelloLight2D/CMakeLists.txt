@@ -1,10 +1,10 @@
 # HelloLight2D - 2D 動的ライト + ソフト影 (Core Keeper 風) + ブロブ影デモ。
 #
 # 構成:
-#   main.cpp            - ACS_DEFINE_MAIN(FLight2DApp)
-#   Light2DApp.{h,cpp}  - FApplication 派生 (OnCustomFrame で scene/occluder/composite)
+#   main.cpp            - ACS_DEFINE_MAIN(CLight2DApp)
+#   Light2DApp.{h,cpp}  - CApplication 派生 (OnCustomFrame で scene/occluder/composite)
 #
-# DX12 raw で動く 2D サンプル。FLighting2D / FBlobShadow は ACS::Render にある。
+# DX12 raw で動く 2D サンプル。CLighting2D / CBlobShadow は ACS::Render にある。
 add_executable(hello_light2d WIN32
     main.cpp
     Light2DApp.cpp

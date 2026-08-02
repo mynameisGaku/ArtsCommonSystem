@@ -11,7 +11,7 @@
 //   L.LoadActive(L"lang/ja.lang");
 //   L.LoadFallback(L"lang/en.lang");
 //
-//   FRenderer 内:
+//   CRenderer 内:
 //     sb.DrawText(font, L.Tr("greeting"), 100, 100, color);
 //
 //   ja.lang 内容例:

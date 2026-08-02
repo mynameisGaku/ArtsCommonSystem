@@ -3882,7 +3882,7 @@ bool CVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
         !make_texture(fw, fh, EFormat::R16G16B16A16_Float, true, false, historyColor[1]) ||
         !make_texture(fw, fh, EFormat::R32G32_Float, true, false, historyDepth[0]) ||
         !make_texture(fw, fh, EFormat::R32G32_Float, true, false, historyDepth[1])) {
-        return false; // 旧サイズを保持。呼び側はこのframeをFSky fallbackにする。
+        return false; // 旧サイズを保持。呼び側はこのframeをCSky fallbackにする。
     }
 
     // Resource creation above is transactional: only after every replacement

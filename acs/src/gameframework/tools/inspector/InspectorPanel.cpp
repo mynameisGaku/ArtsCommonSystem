@@ -248,7 +248,7 @@ void AInspectorPanel::DrawUI() noexcept {
         return;
     }
     if (m_InspectorSeam == nullptr) {
-        ImGui::TextUnformatted("(no FInspectorSeam attached; call SetInspectorSeam)");
+        ImGui::TextUnformatted("(no CInspectorSeam attached; call SetInspectorSeam)");
         ImGui::End();
         return;
     }

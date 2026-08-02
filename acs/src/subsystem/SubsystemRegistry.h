@@ -86,7 +86,7 @@ private:
     bool UnregisterSource(const FSubsystemFactory& factory, const void* token) noexcept;
 
     /** 一時 DefaultAllocator から独立した process lifetime allocator。 */
-    FSystemAllocator m_Allocator;
+    CSystemAllocator m_Allocator;
 
     /** kind ごとの登録元一覧。 */
     TArray<FFactoryEntry> m_Entries;

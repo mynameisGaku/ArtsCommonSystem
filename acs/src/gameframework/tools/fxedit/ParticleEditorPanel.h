@@ -19,7 +19,7 @@
 //
 // 設計選択:
 //   ・**非コピー / 非ムーブ**: 内部 `TArray<FParticleEmitterDef>` の所有を
-//     曖昧にしない。ACS の他 system (FInspectorSeam, CParticleEffectSystem 等)
+//     曖昧にしない。ACS の他 system (CInspectorSeam, CParticleEffectSystem 等)
 //     と同じ規約。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range 等を no-op /
 //     null で表現。
@@ -28,7 +28,7 @@
 //     漏らさず、ヘッダだけ見ても include order を意識せずに済むようにする。
 //   ・**SaveCallback / LoadCallback は raw function pointer + void* user**:
 //     STL の std::function を使えないため、C スタイルのコールバック規約に
-//     揃える。InputManager / FAllocator など ACS 既存の callback パターン
+//     揃える。InputManager / IAllocator など ACS 既存の callback パターン
 //     (`acs/src/platform/Input.h` のキャプチャ関数等) と同形。
 //   ・**SelectedIndex は i32**: -1 を「未選択」シグネルとして使うため、
 //     u32 ではなく i32 を採用。`u32 EmitterCount()` とは型が違うが、

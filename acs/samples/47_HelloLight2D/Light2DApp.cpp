@@ -54,7 +54,7 @@ void FillCircle(u8* buf, u32 res, u8 cr, u8 cg, u8 cb) noexcept {
 
 } // namespace
 
-void FLight2DApp::OnStart() noexcept {
+void CLight2DApp::OnStart() noexcept {
     IRhiDevice*    dev = GetRenderer().Device();
     IRhiSwapchain* sc  = GetRenderer().Swapchain();
     if (!dev || !sc) { Quit(); return; }
@@ -80,7 +80,7 @@ void FLight2DApp::OnStart() noexcept {
     m_Lighting.SetShadowQuality(28, 7);
 }
 
-TResult<void> FLight2DApp::BuildTextures(IRhiDevice& device) noexcept {
+TResult<void> CLight2DApp::BuildTextures(IRhiDevice& device) noexcept {
     u8 buf[64 * 64 * 4] = {};
 
     // 床: 64x64 石ノイズ (不透明)。
@@ -128,7 +128,7 @@ TResult<void> FLight2DApp::BuildTextures(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void FLight2DApp::DrawWorld(u32 w, u32 h) noexcept {
+void CLight2DApp::DrawWorld(u32 w, u32 h) noexcept {
     // 床タイル
     for (u32 ty = 0; ty < h; ty += 64) {
         for (u32 tx = 0; tx < w; tx += 64) {
@@ -148,7 +148,7 @@ void FLight2DApp::DrawWorld(u32 w, u32 h) noexcept {
     m_SceneBatch.Draw(*m_CharTex, m_CharPos.x - 16.0f, m_CharPos.y - 16.0f, 32.0f, 32.0f);
 }
 
-void FLight2DApp::DrawOccluders() noexcept {
+void CLight2DApp::DrawOccluders() noexcept {
     const FVec4 white{1, 1, 1, 1};
     const u32 w = m_Width, h = m_Height;
     for (u32 i = 0; i < kPillarCount; ++i) {
@@ -161,7 +161,7 @@ void FLight2DApp::DrawOccluders() noexcept {
     m_OccBatch.Draw(*m_CharTex, m_CharPos.x - 16.0f, m_CharPos.y - 16.0f, 32.0f, 32.0f, white);
 }
 
-void FLight2DApp::UpdateLights(u32 w, u32 h) noexcept {
+void CLight2DApp::UpdateLights(u32 w, u32 h) noexcept {
     const f32 fw = static_cast<f32>(w);
     const f32 fh = static_cast<f32>(h);
 
@@ -202,7 +202,7 @@ void FLight2DApp::UpdateLights(u32 w, u32 h) noexcept {
     m_Lighting.AddLight(orbit);
 }
 
-bool FLight2DApp::OnCustomFrame() noexcept {
+bool CLight2DApp::OnCustomFrame() noexcept {
     IRhiDevice*    dev = GetRenderer().Device();
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain* sc  = GetRenderer().Swapchain();
@@ -219,9 +219,9 @@ bool FLight2DApp::OnCustomFrame() noexcept {
     m_Time += 1.0f / 60.0f;
 
     // 入力: [B] でブロブ専用モード切替、Esc で終了、マウスが松明。
-    if (FInput::IsKeyPressed(EKey::Escape)) { Quit(); return true; }
-    if (FInput::IsKeyPressed(EKey::B))      { m_bBlobOnly = !m_bBlobOnly; }
-    FVec2 m = FInput::MousePos();
+    if (CInput::IsKeyPressed(EKey::Escape)) { Quit(); return true; }
+    if (CInput::IsKeyPressed(EKey::B))      { m_bBlobOnly = !m_bBlobOnly; }
+    FVec2 m = CInput::MousePos();
     m.x = m.x < 0 ? 0 : (m.x > static_cast<f32>(w) ? static_cast<f32>(w) : m.x);
     m.y = m.y < 0 ? 0 : (m.y > static_cast<f32>(h) ? static_cast<f32>(h) : m.y);
     m_TorchPos = m;
@@ -271,7 +271,7 @@ bool FLight2DApp::OnCustomFrame() noexcept {
     return true;
 }
 
-void FLight2DApp::OnShutdown() noexcept {
+void CLight2DApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     if (m_bFontReady) m_Font.Shutdown();
     m_CharTex.Reset();

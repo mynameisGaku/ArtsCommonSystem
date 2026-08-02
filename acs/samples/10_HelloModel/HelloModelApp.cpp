@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloModel — FApplication 実装。
+// HelloModel — CApplication 実装。
 #include "HelloModelApp.h"
 
 #include "app/Sample.h"
@@ -10,7 +10,7 @@ using namespace acs;
 
 namespace hellomodel {
 
-void FHelloModelApp::OnStart() noexcept {
+void CHelloModelApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -24,24 +24,24 @@ void FHelloModelApp::OnStart() noexcept {
     if (!m_Scene.Init(*dev, aspect)) { Quit(); return; }
 
     // === オプションで非同期ロードを試みる（ファイルが無くても OK）===
-    // 標準ローダ群は FApplication が自動で登録済み。
+    // 標準ローダ群は CApplication が自動で登録済み。
     m_AsyncMesh = GetAssets().LoadAsync(L"data/optional_mesh.glb");
 
     ACS_LOG_INFO("HelloModel initialized");
 }
 
-void FHelloModelApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloModelApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Scene.Update(dt, m_AsyncMesh, m_bAsyncLoaded);
 }
 
-void FHelloModelApp::OnRender() noexcept {
+void CHelloModelApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Shader.Pipeline()) return;
     m_Scene.Render(m_Shader, *cl);
 }
 
-void FHelloModelApp::OnShutdown() noexcept {
+void CHelloModelApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     // 非同期ロード進行中なら待ってから解放
     if (m_AsyncMesh.Valid() && !m_bAsyncLoaded) (void)m_AsyncMesh.Wait();

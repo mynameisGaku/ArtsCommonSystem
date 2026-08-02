@@ -3,7 +3,7 @@
 //
 // 構成:
 //   main.cpp              - ACS_GAME_MAIN(BtEditorApp) のみ
-//   BtEditorApp.{h,cpp}   - FGame 派生クラス (ImGui lifecycle ラッパ)
+//   BtEditorApp.{h,cpp}   - CGame 派生クラス (ImGui lifecycle ラッパ)
 //   BtEditorScene.{h,cpp} - Scene lifecycle (OnEnter/OnExit/OnUpdate/OnRender)
 //   TreeActions.{h,cpp}   - Action Fn 群 + step callback
 //   TreeBuilder.{h,cpp}   - panel メタミラー組立 + 実 BT 構築 helper
@@ -17,8 +17,8 @@
 //        └── FSequence "Combat Branch"
 //             ├── Action "Wait"
 //             └── Action "Attack"
-//   ・BT そのものは `acs::game::FBehaviorTree` で実行。各 FBtAction の Fn は
-//     blackboard 経由で `FBehaviorTreeEditorPanel` の SetNodeStatus を呼び、
+//   ・BT そのものは `acs::game::CBehaviorTree` で実行。各 ABtAction の Fn は
+//     blackboard 経由で `ABehaviorTreeEditorPanel` の SetNodeStatus を呼び、
 //     panel に「この frame でこの node が何を返したか」を push する。
 //     これで panel 側のメタミラーがリアルタイムに着色される。
 //   ・MainMenuBar: File > Reset Tree / Quit。
@@ -33,4 +33,4 @@
 // ACS_RENDER_DX12_RAW はコンパイル定義として渡らないため、ソース側の #if ガードは
 // 機能せず WIN32 entry (WinMain) が欠落する不具合があった → sample 30 と同じく
 // ACS_GAME_MAIN を無条件で使う。
-ACS_GAME_MAIN(hellobt::FBtEditorApp)
+ACS_GAME_MAIN(hellobt::CBtEditorApp)

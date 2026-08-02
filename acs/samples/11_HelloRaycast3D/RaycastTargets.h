@@ -13,7 +13,7 @@
 
 namespace helloraycast3d {
 
-class FRaycastTargets {
+class CRaycastTargets {
 public:
     // 円周上に kNumObjects 個を配置し、ShapeKind と虹色を割り当てる。
     void Init() noexcept;
@@ -24,7 +24,7 @@ public:
 
     // 読み取り専用アクセス
     acs::u32        Count()           const noexcept { return kNumObjects; }
-    const FObject&   At(acs::u32 i)    const noexcept { return m_Objects[i]; }
+    const FRaycastTarget& At(acs::u32 i) const noexcept { return m_Objects[i]; }
     acs::i32        HitIndex()        const noexcept { return m_HitIndex; }
     acs::FVec3       HitPoint()        const noexcept { return m_HitPoint; }
     bool            HasHit()          const noexcept { return m_HitIndex >= 0; }
@@ -33,7 +33,7 @@ private:
     // HSV→RGB (0..1)。色相を順に振って虹色配置するため。
     static acs::FVec3 m_HsvToRgb(acs::f32 h, acs::f32 s, acs::f32 v) noexcept;
 
-    FObject    m_Objects[kNumObjects]{};
+    FRaycastTarget m_Objects[kNumObjects]{};
     acs::i32  m_HitIndex = -1;
     acs::FVec3 m_HitPoint{};
 };

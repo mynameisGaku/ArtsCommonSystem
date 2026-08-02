@@ -258,7 +258,7 @@ struct FAsyncLoadJob {
 };
 
 /**
- * 非同期ロードを実行するワーカー関数 (FThreadPool から呼ばれる)。
+ * 非同期ロードを実行するワーカー関数 (CThreadPool から呼ばれる)。
  *
  * @details
  * ファイル読み込み → ローダ呼び出し → キャッシュ挿入を行い、結果かエラーを
@@ -416,7 +416,7 @@ FAssetFuture CAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     /** 非同期 job が完了まで所有する共有 path。 */
     TSharedPtr<FInternedAssetPath> InternedPath = Move(InternResult.Value());
 
-    // ジョブを heap 確保し FThreadPool に投入
+    // ジョブを heap 確保し CThreadPool に投入
     auto job = MakeUnique<FAsyncLoadJob>();
     if (!job) {
         AsyncLoadFinished(id);

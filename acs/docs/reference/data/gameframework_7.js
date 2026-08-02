@@ -8,7 +8,7 @@ ACS_REF.modules.push({
     {
       name: "FSequence",
       kind: "クラス", header: "gameframework/Sequence.h",
-      summary: "「待つ → 関数を呼ぶ → 値をなめらかに変える」を <b>1 行で連鎖記述</b>するビルダー。作った <code>FSequence</code> は <t>FSequenceRunner</t> に <t>ムーブ</t>で渡して再生する。",
+      summary: "「待つ → 関数を呼ぶ → 値をなめらかに変える」を <b>1 行で連鎖記述</b>するビルダー。作った <code>FSequence</code> は <t>CSequenceRunner</t> に <t>ムーブ</t>で渡して再生する。",
       when: "カットシーン・出現ウェーブ・タイトルのロゴ演出など、時間に沿った一連の動きを台本のように書きたい時。",
       sample: "FSequence s;\ns.Wait(0.3f)\n .Tween(&logoColor, FVec3{0,0,0}, FVec3{1,1,1}, 0.5f, Easing::OutCubic)\n .Wait(1.0f)\n .Call(&FTitleScene::FadeOutBegin, this);\nrunner.Start(static_cast&lt;FSequence&amp;&amp;&gt;(s));",
       members: [
@@ -34,7 +34,7 @@ ACS_REF.modules.push({
     {
       name: "FSeqHandle",
       kind: "構造体", header: "gameframework/Sequence.h",
-      summary: "<t>FSequenceRunner</t> で再生中の 1 本のシーケンスを指す<t>ハンドル</t>。<code>index</code> と <code>generation</code> を持ち、使い回しスロットの取り違えを防ぐ。",
+      summary: "<t>CSequenceRunner</t> で再生中の 1 本のシーケンスを指す<t>ハンドル</t>。<code>index</code> と <code>generation</code> を持ち、使い回しスロットの取り違えを防ぐ。",
       when: "後から特定のシーケンスを止めたい (<code>Cancel</code>) / 生きているか確認したい (<code>IsActive</code>) 時に保持しておく。",
       sample: "FSeqHandle h = runner.Start(static_cast&lt;FSequence&amp;&amp;&gt;(s));\nif (h.IsValid()) { /* ... */ }\nrunner.Cancel(h);",
       members: [
@@ -42,26 +42,27 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FSequenceRunner",
+      name: "CSequenceRunner",
       kind: "クラス", header: "gameframework/Sequence.h",
       summary: "複数の <t>FSequence</t> を同時に再生・管理する実行係。<code>Start</code> でシーケンスを所有して走らせ、毎フレーム <code>Tick(dt)</code> で進める。",
       when: "シーンが演出シーケンスを 1 本以上動かす時。シーンに 1 つ持たせて使うのが典型。",
-      sample: "FSequenceRunner runner;\nFSeqHandle h = runner.Start(static_cast&lt;FSequence&amp;&amp;&gt;(s));\n// 毎フレーム\nrunner.Tick(dt);\n// シーン終了時\nrunner.CancelAll();",
+      sample: "CSequenceRunner runner;\nFSeqHandle h = runner.Start(static_cast&lt;FSequence&amp;&amp;&gt;(s));\n// 毎フレーム\nrunner.Tick(dt);\n// シーン終了時\nrunner.CancelAll();",
       members: [
         { sig: "FSeqHandle Start(FSequence seq)", ret: "ハンドル", desc: "シーケンスの所有権を奪って再生開始。空シーケンスは無効ハンドルを返す。" },
         { sig: "void Cancel(FSeqHandle h)", desc: "進行中の 1 本を中止する (補間は最後に書いた値で停止)。" },
-        { sig: "void CancelAll()", desc: "全シーケンスを破棄する。<code>FScene::OnExit</code> 等で呼ぶ。" },
+        { sig: "void CancelAll()", desc: "全シーケンスを破棄する。<code>AScene::OnExit</code> 等で呼ぶ。" },
         { sig: "bool IsActive(FSeqHandle h) const", desc: "そのハンドルのシーケンスがまだ動いているか。" },
         { sig: "u32 ActiveCount() const", ret: "稼働本数", desc: "今動いているシーケンスの数。" },
-        { sig: "void Tick(f32 dt)", desc: "経過時間を流して全シーケンスを進める。毎フレーム呼ぶ。" }
+        { sig: "void Tick(f32 dt)", desc: "経過時間を流して全シーケンスを進める。毎フレーム呼ぶ。" },
+        { sig: "using FSequenceRunner = CSequenceRunner", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSequenceRunner</code> を使う。" }
       ]
     },
     {
-      name: "FSettings",
+      name: "CSettings",
       kind: "クラス", header: "gameframework/Settings.h",
       summary: "音量・解像度・キー設定など「ゲームをまたいで残したい設定値」を<b>型付き key-value</b>で持つ小さなストア。INI 風テキストで <code>Save</code>/<code>Load</code> できる。",
       when: "オプション画面の値を保存/復元したい時。<code>audio.master</code> のようなドット区切りのキーで管理する。",
-      sample: "FSettings s;\ns.SetF32(\"audio.master\", 0.8f);\ns.SetBool(\"display.vsync\", true);\nf32 v = s.GetF32(\"audio.master\", 1.0f);\n(void)s.Save(L\"settings.ini\");",
+      sample: "CSettings s;\ns.SetF32(\"audio.master\", 0.8f);\ns.SetBool(\"display.vsync\", true);\nf32 v = s.GetF32(\"audio.master\", 1.0f);\n(void)s.Save(L\"settings.ini\");",
       members: [
         { sig: "void SetF32/SetI32/SetBool(const char* key, v)", desc: "数値 / 真偽を書き込む。同名キーは上書き。<code>key == nullptr</code> は無視。" },
         { sig: "void SetString(const char* key, const char* v)", desc: "文字列を書き込む。値の寿命は呼び出し側が保証 (リテラル想定)。" },
@@ -71,22 +72,23 @@ ACS_REF.modules.push({
         { sig: "void Remove(const char* key) / void Clear()", desc: "1 件削除 / 全削除。" },
         { sig: "u32 Count() const", ret: "件数", desc: "登録されている設定数。" },
         { sig: "TResult<void> Save(const wchar_t* file_path)", ret: "成否", desc: "INI 風テキストへ安全に書き出す (一時ファイル → rename で破損防止)。", when: "オプション確定時 / 終了時。" },
-        { sig: "TResult<void> Load(const wchar_t* file_path)", ret: "成否", desc: "保存したファイルから型ごと復元する。" }
+        { sig: "TResult<void> Load(const wchar_t* file_path)", ret: "成否", desc: "保存したファイルから型ごと復元する。" },
+        { sig: "using FSettings = CSettings", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSettings</code> を使う。" }
       ]
     },
     {
       name: "ESettingKind",
       kind: "列挙(enum)", header: "gameframework/Settings.h",
-      summary: "<t>FSettings</t> の 1 件が保持する値の型タグ。<code>F32 / I32 / Bool / String</code> (と内部用 <code>None</code>)。",
+      summary: "<t>CSettings</t> の 1 件が保持する値の型タグ。<code>F32 / I32 / Bool / String</code> (と内部用 <code>None</code>)。",
       when: "通常は内部で使われる。Get 系が型一致を確認する際の基準。",
       sample: "// SetF32 した key を GetI32 すると kind 不一致で既定値が返る。"
     },
     {
-      name: "FSocialModeration",
+      name: "CSocialModeration",
       kind: "クラス", header: "gameframework/SocialModeration.h",
       summary: "ローカルの<b>ブロックリスト</b>と<b>通報キュー</b>を管理する窓口。ブロックは即時ローカル反映、通報は失敗時にキューへ残して再送できる。実プラットフォーム SDK 送信は<t>シーム</t>として後付けする設計。",
       when: "オンライン要素のあるゲームで「このプレイヤーをブロック / 通報」を扱う時。",
-      sample: "FSocialModeration mod;\nmod.Init();\nmod.BlockUser(\"steam:7656119800000099\");\nFReportRecord r{};\nr.reported_user_id = \"steam:7656119800000099\";\nr.category = EReportCategory::Harassment;\n(void)mod.SubmitReport(r);",
+      sample: "CSocialModeration mod;\nmod.Init();\nmod.BlockUser(\"steam:7656119800000099\");\nFReportRecord r{};\nr.reported_user_id = \"steam:7656119800000099\";\nr.category = EReportCategory::Harassment;\n(void)mod.SubmitReport(r);",
       members: [
         { sig: "void Init()", desc: "内部状態を初期化する (多重呼び出し可)。" },
         { sig: "void BlockUser(const char* user_id)", desc: "ユーザーをローカルブロックリストへ追加。重複 / <code>nullptr</code> は no-op。" },
@@ -98,7 +100,8 @@ ACS_REF.modules.push({
         { sig: "u32 PendingReportCount() / u32 DeliveredReportCount() const", desc: "未送信件数 / 受理累計件数。" },
         { sig: "void SetBackendConnected(bool) / bool IsBackendConnected() const", desc: "送信先 backend の接続状態を切り替える / 確認する<t>シーム</t>。" },
         { sig: "TResult<void> FlushReports()", ret: "成否", desc: "未送信通報をまとめて再送。1 件でも残れば集約エラーを返す。", when: "オンライン復帰時など。" },
-        { sig: "void ClearLocalState()", desc: "ブロックリストと通報キューを両方クリアする。" }
+        { sig: "void ClearLocalState()", desc: "ブロックリストと通報キューを両方クリアする。" },
+        { sig: "using FSocialModeration = CSocialModeration", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSocialModeration</code> を使う。" }
       ]
     },
     {
@@ -112,7 +115,7 @@ ACS_REF.modules.push({
       name: "FReportRecord",
       kind: "構造体", header: "gameframework/SocialModeration.h",
       summary: "通報 1 件分の情報。通報対象 / 通報者 / 種別 / 自由記述 / 時刻を持つ。文字列はすべて<b>非所有</b> (寿命は呼び出し側保証)。",
-      when: "<code>FSocialModeration::SubmitReport</code> に渡す前に組み立てる。",
+      when: "<code>CSocialModeration::SubmitReport</code> に渡す前に組み立てる。",
       sample: "FReportRecord r{};\nr.reported_user_id = targetId;\nr.reporter_user_id = myId;\nr.category = EReportCategory::Spam;\nr.note = \"広告連投\";\nr.timestamp = NowUnixSec();",
       members: [
         { sig: "const char* reported_user_id / reporter_user_id / note", desc: "通報対象 / 通報者 / 自由記述 (非所有)。" },
@@ -128,11 +131,11 @@ ACS_REF.modules.push({
       sample: "u32 n; const FBlockEntry* list = mod.AllBlocked(n);\nfor (u32 i = 0; i &lt; n; ++i) { /* list[i].blocked_user_id */ }"
     },
     {
-      name: "FSpatialAudio",
+      name: "CSpatialAudio",
       kind: "クラス", header: "gameframework/SpatialAudio.h",
       summary: "3D 音源 (<t>FAudioSource3D</t>) と聞き手 1 つ (<t>FAudioListener</t>) から、<b>距離減衰</b>と<b>左右パン</b>を計算する音の空間化レイヤ。<t>HRTF</t> 本格化は <t>IHrtfRenderer</t> として差し替え可能。",
       when: "敵や環境音を「位置によって遠近・左右に聞こえる」ようにしたい時。各フレームに音量とパンを取り出してミキサに渡す。",
-      sample: "FSpatialAudio sp;\nsp.SetListener({{0,0,0}, {0,0,1}, {0,1,0}});\nu32 src = sp.RegisterSource({5,0,3}, 20.0f, EAttenuationCurve::Linear);\nsp.UpdateSource(src, enemy.WorldPos());\nf32 vol = sp.ComputeAttenuatedVolume(src);\nf32 pan = sp.ComputePan(src);",
+      sample: "CSpatialAudio sp;\nsp.SetListener({{0,0,0}, {0,0,1}, {0,1,0}});\nu32 src = sp.RegisterSource({5,0,3}, 20.0f, EAttenuationCurve::Linear);\nsp.UpdateSource(src, enemy.WorldPos());\nf32 vol = sp.ComputeAttenuatedVolume(src);\nf32 pan = sp.ComputePan(src);",
       members: [
         { sig: "void SetListener(const FAudioListener& l)", desc: "聞き手 (プレイヤーの耳) の位置と向きを設定する。" },
         { sig: "const FAudioListener& GetListener() const", desc: "現在の聞き手情報を返す。" },
@@ -143,20 +146,21 @@ ACS_REF.modules.push({
         { sig: "f32 ComputeAttenuatedVolume(u32 id) const", ret: "最終音量 [0,1]", desc: "距離とカーブから音量を算出。範囲外 / 無効は 0。", when: "毎フレーム取り出してミキサ音量に掛ける。" },
         { sig: "f32 ComputePan(u32 id) const", ret: "パン [-1,+1]", desc: "-1=完全左 / 0=正面・真後ろ / +1=完全右。" },
         { sig: "u32 SourceCount() const", ret: "稼働音源数", desc: "有効な音源の数。" },
-        { sig: "void Tick(f32 dt) / void Clear()", desc: "毎フレームの更新 / 全音源を空にする (聞き手は保持)。" }
+        { sig: "void Tick(f32 dt) / void Clear()", desc: "毎フレームの更新 / 全音源を空にする (聞き手は保持)。" },
+        { sig: "using FSpatialAudio = CSpatialAudio", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSpatialAudio</code> を使う。" }
       ]
     },
     {
       name: "FAudioListener",
       kind: "構造体", header: "gameframework/SpatialAudio.h",
       summary: "聞き手 (プレイヤーの耳) の位置と向き。<code>position</code> / <code>forward</code> / <code>up</code> を持ち、<t>パン</t>の左右基準を決める。",
-      when: "カメラやキャラの耳位置に同期させて <code>FSpatialAudio::SetListener</code> に渡す。",
+      when: "カメラやキャラの耳位置に同期させて <code>CSpatialAudio::SetListener</code> に渡す。",
       sample: "FAudioListener l;\nl.position = cam.pos;\nl.forward  = cam.forward;\nl.up       = cam.up;\nsp.SetListener(l);"
     },
     {
       name: "FAudioSource3D",
       kind: "構造体", header: "gameframework/SpatialAudio.h",
-      summary: "3D 音源 1 個分。位置 / 速度 / 基準音量 / 最大距離 / 減衰カーブを持つ。<code>source_id</code> は <code>FSpatialAudio</code> が払い出す (0 = 無効)。",
+      summary: "3D 音源 1 個分。位置 / 速度 / 基準音量 / 最大距離 / 減衰カーブを持つ。<code>source_id</code> は <code>CSpatialAudio</code> が払い出す (0 = 無効)。",
       when: "通常は <code>RegisterSource</code> 経由で生成される。<t>IHrtfRenderer</t> に直接渡して処理する時に触る。",
       sample: "// RegisterSource が内部で 1 個生成する。\n// src.max_distance を超えると音量 0 (culling)。"
     },
@@ -172,7 +176,7 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/SpatialAudio.h",
       summary: "モノラル入力をステレオに空間化する処理の抽象<t>インターフェース</t> (<t>シーム</t>)。本格的な <t>HRTF</t> 畳み込みを後から差し替えられる。",
       when: "音の空間化処理を自前 / 別モジュールの実装に切り替えたい時にこの型で受け渡す。",
-      sample: "FHrtfRendererStub stub;\n(void)stub.Init();\nstub.SetListener(listener);\nstub.ProcessSource(src, monoIn, stereoOut, n);",
+      sample: "CHrtfRendererStub stub;\n(void)stub.Init();\nstub.SetListener(listener);\nstub.ProcessSource(src, monoIn, stereoOut, n);",
       members: [
         { sig: "TResult<void> Init() / void Shutdown()", desc: "初期化 / 終了。" },
         { sig: "bool IsHrtfEnabled() const", ret: "本格HRTFか", desc: "真の HRTF 効果が走るか。stub は false (パン + 距離減衰のみ)。" },
@@ -181,13 +185,14 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FHrtfRendererStub",
+      name: "CHrtfRendererStub",
       kind: "クラス", header: "gameframework/SpatialAudio.h",
       summary: "<t>IHrtfRenderer</t> の唯一の既定実装。真の <t>HRTF</t> 畳み込みは無いが、<b>等パワーパン + 距離減衰は実数学</b>で行う (= ステレオ空間化は本物)。",
       when: "HRTF 専用データを用意せず、左右パンと遠近だけで十分な時の標準実装。",
-      sample: "FHrtfRendererStub r;\n(void)r.Init();\n// IsHrtfEnabled() == false だが pan/減衰は本物",
+      sample: "CHrtfRendererStub r;\n(void)r.Init();\n// IsHrtfEnabled() == false だが pan/減衰は本物",
       members: [
-        { sig: "bool IsHrtfEnabled() const override", desc: "常に false を返す。" }
+        { sig: "bool IsHrtfEnabled() const override", desc: "常に false を返す。" },
+        { sig: "using FHrtfRendererStub = CHrtfRendererStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CHrtfRendererStub</code> を使う。" }
       ]
     },
     {
@@ -203,13 +208,13 @@ ACS_REF.modules.push({
         { sig: "void SetPivot(FVec2 p) / FVec2 Pivot() const", desc: "回転・配置の基準点 (0..1、既定は中心 {0.5,0.5})。" },
         { sig: "void SetUvRect(f32 u0, f32 v0, f32 u1, f32 v1)", desc: "テクスチャ内の表示矩形を指定。スプライトシートの 1 コマを切り出す。", when: "アニメ用に <t>ASpriteAnimComponent</t> が毎フレーム書き換える。" },
         { sig: "FVec2 UvMin() const / FVec2 UvMax() const", desc: "現在の UV 矩形の左上 / 右下。" },
-        { sig: "void OnDraw(FRenderContext& rc) override", desc: "描画処理。<code>FScene2D</code> の <t>CSpriteBatch</t> 経由で描く (利用者は通常呼ばない)。" }
+        { sig: "void OnDraw(FRenderContext& rc) override", desc: "描画処理。<code>AScene2D</code> の <t>CSpriteBatch</t> 経由で描く (利用者は通常呼ばない)。" }
       ]
     },
     {
       name: "ASpriteAnimComponent",
       kind: "クラス", header: "gameframework/SpriteAnimComponent.h",
-      summary: "<t>FSpriteAnimator</t>(時間→フレーム) と <t>ASprite2DComponent</t>(UV 矩形) を橋渡しするコンポーネント。同じノードのスプライトの UV を毎フレーム書き換えて<b>スプライトシートアニメ</b>を再生する。",
+      summary: "<t>CSpriteAnimator</t>(時間→フレーム) と <t>ASprite2DComponent</t>(UV 矩形) を橋渡しするコンポーネント。同じノードのスプライトの UV を毎フレーム書き換えて<b>スプライトシートアニメ</b>を再生する。",
       when: "歩行・攻撃などのコマ送りアニメをスプライトに付けたい時。グリッドシートか名前付きフレーム列から作れる。",
       sample: "auto& anim = node->AddComponent<ASpriteAnimComponent>();\nanim.InitGrid(/*cols=*/4, /*rows=*/1, /*frame_count=*/4, /*fps=*/8.0f);\nanim.Play();",
       members: [
@@ -219,15 +224,15 @@ ACS_REF.modules.push({
         { sig: "void SetFps(f32 fps)", desc: "再生速度を変える。" },
         { sig: "bool IsPlaying() / IsFinished() const", desc: "再生中か / Once モードで終わったか。" },
         { sig: "u32 CurrentFrame() const", ret: "現フレーム", desc: "今表示中のフレーム番号。" },
-        { sig: "FSpriteAnimator& Animator()", ret: "下位アニメータ", desc: "フレームイベント登録など細かい制御をしたい時に直接触る。" }
+        { sig: "CSpriteAnimator& Animator()", ret: "下位アニメータ", desc: "フレームイベント登録など細かい制御をしたい時に直接触る。" }
       ]
     },
     {
-      name: "FSpriteAnimator",
+      name: "CSpriteAnimator",
       kind: "クラス", header: "gameframework/SpriteAnimator.h",
       summary: "「経過時間から<b>現在フレーム番号</b>を計算する」ロジックだけを担う部品。画像 / 描画 API には触れず、利用者が <code>CurrentFrame()</code> を取り出して自分の絵に適用する。",
       when: "コマ送りの時間管理だけ欲しい時。描画と切り離してテストしやすい。指定フレームでイベント (足音など) を鳴らせる。",
-      sample: "FSpriteAnimator anim;\nanim.Init(/*frame_count=*/8, /*fps=*/12.0f, EPlayMode::Loop);\nanim.AddFrameEvent(4, [](void* ud) noexcept {\n    static_cast<MyActor*>(ud)->OnFootstep();\n}, this);\nanim.Play();\nanim.Tick(dt);\nu32 idx = anim.CurrentFrame();",
+      sample: "CSpriteAnimator anim;\nanim.Init(/*frame_count=*/8, /*fps=*/12.0f, EPlayMode::Loop);\nanim.AddFrameEvent(4, [](void* ud) noexcept {\n    static_cast<MyActor*>(ud)->OnFootstep();\n}, this);\nanim.Play();\nanim.Tick(dt);\nu32 idx = anim.CurrentFrame();",
       members: [
         { sig: "void Init(u32 frame_count, f32 fps, EPlayMode mode = EPlayMode::Loop)", desc: "フレーム数・速度・再生モードを設定。不正値は安全な既定 (frame=1, fps=1) に。" },
         { sig: "void Play() / Pause() / Stop()", desc: "現在位置から再開 / 位置維持で停止 / 先頭に戻して停止。" },
@@ -237,7 +242,8 @@ ACS_REF.modules.push({
         { sig: "f32 NormalizedTime() const", ret: "進行率 [0,1]", desc: "周期内 (Loop/PingPong) または 0→1 (Once) の進み具合。" },
         { sig: "void SetCurrentFrame(u32 i) / void SetFps(f32 fps)", desc: "強制シーク / 速度変更。" },
         { sig: "void AddFrameEvent(u32 frame, FrameEventFn cb, void* user)", desc: "指定フレームに入った瞬間 1 度だけ関数を呼ぶ (Loop の周回毎に再発火)。", when: "足音・エフェクト発生など特定コマに同期させたい時。" },
-        { sig: "u32 FrameCount() const / f32 Fps() const / EPlayMode Mode() const", desc: "設定済みの総フレーム数 / 再生速度 (fps) / 再生モードを取得する。" }
+        { sig: "u32 FrameCount() const / f32 Fps() const / EPlayMode Mode() const", desc: "設定済みの総フレーム数 / 再生速度 (fps) / 再生モードを取得する。" },
+        { sig: "using FSpriteAnimator = CSpriteAnimator", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSpriteAnimator</code> を使う。" }
       ]
     },
     {
@@ -251,7 +257,7 @@ ACS_REF.modules.push({
       name: "FSpritePack",
       kind: "クラス", header: "gameframework/SpritePack.h",
       summary: "「1 枚の <t>アトラス</t>テクスチャ + その中に並ぶ複数フレームの矩形」を持つ<b>データ層</b>。名前でフレームを引き、[0,1] の UV を計算する。Aseprite / TexturePacker の JSON も読める。",
-      when: "スプライトシートを名前付きフレームで管理したい時。<t>FSpriteAnimator</t> と組んでアニメ再生する。",
+      when: "スプライトシートを名前付きフレームで管理したい時。<t>CSpriteAnimator</t> と組んでアニメ再生する。",
       sample: "FSpritePack pack;\nFSpritePackInfo info; info.atlas_texture_path = \"hero.png\";\ninfo.atlas_width = 1024; info.atlas_height = 1024;\npack.Init(info);\nif (const FSpriteFrame* f = pack.FindFrame(\"Idle_00\")) {\n    FVec4 uv = pack.ComputeUv(*f);\n}",
       members: [
         { sig: "void Init(const FSpritePackInfo& info)", desc: "アトラスのメタ情報 (パス / サイズ) を設定する。既存フレームは保持。" },
@@ -298,7 +304,7 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/SteamworksBridge.h",
       summary: "Steam / EOS / PS / Xbox / Switch などのプラットフォーム SDK へ橋渡しする抽象<t>シーム</t>。実績解除・リーダーボード・プレイヤー情報・クラウドセーブ・フレンド・ボイスなどを共通 API で扱い、実 SDK 結合はビルド時に差し替える。",
       when: "実績やランキングなどプラットフォーム機能を、SDK 非依存のゲームコードから呼びたい時。",
-      sample: "ISteamworksBridge* social = &FSteamworksBridgeStub::GetStub();\n(void)social->Init();\n// ボス撃破時\n(void)social->UnlockAchievement(\"ACH_BOSS_01\");\n// 毎フレーム\nsocial->Tick(dt);",
+      sample: "ISteamworksBridge* social = &CSteamworksBridgeStub::GetStub();\n(void)social->Init();\n// ボス撃破時\n(void)social->UnlockAchievement(\"ACH_BOSS_01\");\n// 毎フレーム\nsocial->Tick(dt);",
       members: [
         { sig: "TResult<void> Init() / void Shutdown() / bool IsInitialized() const", desc: "SDK の初期化 / 終了 / 状態確認。" },
         { sig: "FPlayerIdentity GetLocalPlayer() const", ret: "ローカルプレイヤー", desc: "自分のプレイヤー情報。文字列の寿命は「次の Tick まで」。" },
@@ -316,13 +322,14 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FSteamworksBridgeStub",
+      name: "CSteamworksBridgeStub",
       kind: "クラス", header: "gameframework/SteamworksBridge.h",
       summary: "<t>ISteamworksBridge</t> の依存ゼロ既定実装。<code>Init()</code> のみ成功し、実績 / ランキング系は <t>Result</t> でエラーを返す。<code>GetStub()</code> で <t>シングルトン</t>を取得できる。",
       when: "実 SDK を未統合のままビルド / テストしたい時。実装が差し込まれる前のデフォルト。",
-      sample: "auto& social = FSteamworksBridgeStub::GetStub();\n(void)social.Init();",
+      sample: "auto& social = CSteamworksBridgeStub::GetStub();\n(void)social.Init();",
       members: [
-        { sig: "static FSteamworksBridgeStub& GetStub()", ret: "共有 stub", desc: "プロセス共有の static シングルトン。" }
+        { sig: "static CSteamworksBridgeStub& GetStub()", ret: "共有 stub", desc: "プロセス共有の static シングルトン。" },
+        { sig: "using FSteamworksBridgeStub = CSteamworksBridgeStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSteamworksBridgeStub</code> を使う。" }
       ]
     },
     {
@@ -344,11 +351,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FStreamingDirector",
+      name: "CStreamingDirector",
       kind: "クラス", header: "gameframework/StreamingDirector.h",
-      summary: "オープンワールド等でカメラ周辺の<b>チャンク</b>だけをロードし、範囲外をアンロードする<t>ストリーミング</t>管理係。各チャンク = 1 <t>FAssetBundle</t> を実ロードする (registry 未設定時は擬似ロードで動く)。",
+      summary: "オープンワールド等でカメラ周辺の<b>チャンク</b>だけをロードし、範囲外をアンロードする<t>ストリーミング</t>管理係。各チャンク = 1 <t>CAssetBundle</t> を実ロードする (registry 未設定時は擬似ロードで動く)。",
       when: "全アセットを常駐できない広いマップで、視点に応じて読み込み / 解放を自動化したい時。",
-      sample: "FStreamingDirector dir;\ndir.Init(/*chunk_size=*/100.0f, /*view_radius=*/2);\ndir.SetMaxConcurrentLoads(4);\n// 毎フレーム\ndir.SetViewerPos({ cam.x, cam.y });\ndir.Tick(dt);",
+      sample: "CStreamingDirector dir;\ndir.Init(/*chunk_size=*/100.0f, /*view_radius=*/2);\ndir.SetMaxConcurrentLoads(4);\n// 毎フレーム\ndir.SetViewerPos({ cam.x, cam.y });\ndir.Tick(dt);",
       members: [
         { sig: "void Init(f32 chunk_size = 100.0f, i32 view_radius_chunks = 2)", desc: "1 チャンクの大きさと保持半径を設定。半径 2 なら 5x5 = 25 チャンクを保つ。" },
         { sig: "void SetAssetRegistry(CAssetRegistry* registry) / CAssetRegistry* GetAssetRegistry() const", desc: "実アセットロード用 registry を差し込む / 取得する。<code>nullptr</code> なら擬似ロード。" },
@@ -358,14 +365,15 @@ ACS_REF.modules.push({
         { sig: "void Tick(f32 dt)", desc: "範囲評価とロード / アンロードの状態遷移を 1 フレーム進める。", when: "毎フレーム <code>SetViewerPos</code> の後に呼ぶ。" },
         { sig: "EChunkState GetState(FChunkId id) const", ret: "状態", desc: "指定チャンクの現状態。未登録は <code>Unloaded</code>。" },
         { sig: "u32 LoadedCount() / u32 LoadingCount() const", desc: "ロード済み / ロード中のチャンク数。UI 表示などに。" },
-        { sig: "void ForceUnload(FChunkId id) / void ClearAll()", desc: "1 チャンクを強制解放 / 全チャンク破棄 (シーン遷移時)。" }
+        { sig: "void ForceUnload(FChunkId id) / void ClearAll()", desc: "1 チャンクを強制解放 / 全チャンク破棄 (シーン遷移時)。" },
+        { sig: "using FStreamingDirector = CStreamingDirector", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CStreamingDirector</code> を使う。" }
       ]
     },
     {
       name: "FChunkId",
       kind: "構造体", header: "gameframework/StreamingDirector.h",
       summary: "ストリーミングチャンクの 2D 整数座標 <code>(cx, cy)</code>。同じ座標は常に同じチャンクを指す (generation なし)。比較は値ベース。",
-      when: "<code>FStreamingDirector::GetState</code> / <code>ForceUnload</code> で特定チャンクを指す時。",
+      when: "<code>CStreamingDirector::GetState</code> / <code>ForceUnload</code> で特定チャンクを指す時。",
       sample: "FChunkId id{3, -1};\nif (dir.GetState(id) == EChunkState::Loaded) { /* ... */ }"
     },
     {
@@ -384,8 +392,8 @@ ACS_REF.modules.push({
       members: [
         { sig: "IAssetLockingBackend& GetAssetLockingStub()", ret: "stub", desc: "常に NotImplemented を返す依存ゼロのロック stub。" },
         { sig: "IBuildFarmBackend& GetBuildFarmStub()", ret: "stub", desc: "常に NotImplemented を返すビルドファーム stub。" },
-        { sig: "FLocalFileAssetLocking& GetLocalFileAssetLocking()", ret: "実ロック", desc: "オンディスクの lock ファイルで本当に排他ロックする本実装。" },
-        { sig: "FLocalBuildRunner& GetLocalBuildRunner()", ret: "実ランナー", desc: "<code>CreateProcessW</code> でローカルビルドを実行する本実装。" }
+        { sig: "CLocalFileAssetLocking& GetLocalFileAssetLocking()", ret: "実ロック", desc: "オンディスクの lock ファイルで本当に排他ロックする本実装。" },
+        { sig: "CLocalBuildRunner& GetLocalBuildRunner()", ret: "実ランナー", desc: "<code>CreateProcessW</code> でローカルビルドを実行する本実装。" }
       ]
     },
     {
@@ -415,35 +423,37 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FLocalFileAssetLocking",
+      name: "CLocalFileAssetLocking",
       kind: "クラス", header: "gameframework/StudioWorkflow.h",
       summary: "<t>IAssetLockingBackend</t> の<b>ローカル本実装</b>。外部 SCM を使わず、<code>&lt;asset&gt;.lock</code> サイドカーファイルを <code>CreateFileW(CREATE_NEW)</code> の原子性で作って協調ロックする (stub ではなく実動作)。",
       when: "Perforce 等のサーバを立てずに、ローカル / 共有フォルダで簡易な排他ロックを使いたい時。",
-      sample: "FLocalFileAssetLocking& locks = GetLocalFileAssetLocking();\n(void)locks.LockAsset(\"assets/hero.fbx\", \"alice\");\n// 自分のロックだけ厳格に外す\n(void)locks.UnlockAssetAs(\"assets/hero.fbx\", \"alice\");",
+      sample: "CLocalFileAssetLocking& locks = GetLocalFileAssetLocking();\n(void)locks.LockAsset(\"assets/hero.fbx\", \"alice\");\n// 自分のロックだけ厳格に外す\n(void)locks.UnlockAssetAs(\"assets/hero.fbx\", \"alice\");",
       members: [
         { sig: "TResult<void> UnlockAssetAs(const char* asset_path, const char* user)", ret: "成否", desc: "lock の owner が <code>user</code> と一致する時だけ解除する厳格版。不一致は <code>kSub_PermissionDenied</code>。" },
-        { sig: "bool IsConnected() const override", desc: "ローカル FS は常に使えるので true。" }
+        { sig: "bool IsConnected() const override", desc: "ローカル FS は常に使えるので true。" },
+        { sig: "using FLocalFileAssetLocking = CLocalFileAssetLocking", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CLocalFileAssetLocking</code> を使う。" }
       ]
     },
     {
-      name: "FLocalBuildRunner",
+      name: "CLocalBuildRunner",
       kind: "クラス", header: "gameframework/StudioWorkflow.h",
       summary: "<t>IBuildFarmBackend</t> の<b>ローカル本実装</b>。<code>CreateProcessW</code> で実際にビルドコマンドを起動して終了コードを回収する「サイズ 1 のビルドファーム」。同期実行ヘルパも持つ (stub ではなく実動作)。",
       when: "外部ファーム無しで、ローカルマシン上でビルドコマンドを実行・追跡したい時。",
-      sample: "FLocalBuildRunner& runner = GetLocalBuildRunner();\nu32 ec = 0;\n(void)runner.RunBuild(L\"cmd /c exit 3\", ec); // ec == 3",
+      sample: "CLocalBuildRunner& runner = GetLocalBuildRunner();\nu32 ec = 0;\n(void)runner.RunBuild(L\"cmd /c exit 3\", ec); // ec == 3",
       members: [
         { sig: "TResult<void> RunBuild(const wchar_t* command_line, u32& out_exit_code, u32 timeout_ms = 0)", ret: "成否", desc: "コマンドを起動し完了まで待って終了コードを返す<b>同期</b>ヘルパ。<code>timeout_ms = 0</code> で無限待ち。" },
-        { sig: "TResult<void> RunBuildUtf8(const char* command_line, u32& out_exit_code, u32 timeout_ms = 0)", ret: "成否", desc: "コマンドラインを UTF-8 で受ける版 (内部で UTF-16 変換)。" }
+        { sig: "TResult<void> RunBuildUtf8(const char* command_line, u32& out_exit_code, u32 timeout_ms = 0)", ret: "成否", desc: "コマンドラインを UTF-8 で受ける版 (内部で UTF-16 変換)。" },
+        { sig: "using FLocalBuildRunner = CLocalBuildRunner", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CLocalBuildRunner</code> を使う。" }
       ]
     },
     {
-      name: "FTelemetryDirector",
+      name: "CTelemetryDirector",
       kind: "クラス", header: "gameframework/TelemetryDirector.h",
       summary: "「level_completed」「player_died」などの<b>解析イベント</b>を集めてサーバへまとめ送りする director。一定間隔または明示 <code>Flush()</code> で <t>IBackendClient</t> 経由送信。<t>GDPR</t> 同意が無ければ全 no-op。",
       when: "ゲームのプレイ状況を解析したい時。backend 未接続でもオフラインで貯めておける。",
-      sample: "FTelemetryDirector td;\ntd.Init(&backend, &privacy);\ntd.TrackEvent(\"level_started\",\n              R\"({\\\"level\\\":3})\",\n              EEventPriority::Important, \"gameplay\");\ntd.Tick(dt); // 毎フレーム\ntd.Flush();",
+      sample: "CTelemetryDirector td;\ntd.Init(&backend, &privacy);\ntd.TrackEvent(\"level_started\",\n              R\"({\\\"level\\\":3})\",\n              EEventPriority::Important, \"gameplay\");\ntd.Tick(dt); // 毎フレーム\ntd.Flush();",
       members: [
-        { sig: "void Init(IBackendClient* backend, FPrivacyDirector* privacy = nullptr)", desc: "送信先 backend (必須) と同意管理 (任意) を注入する。" },
+        { sig: "void Init(IBackendClient* backend, CPrivacyDirector* privacy = nullptr)", desc: "送信先 backend (必須) と同意管理 (任意) を注入する。" },
         { sig: "void Shutdown()", desc: "キューを空にし backend / privacy 参照を切る (送信はしない)。" },
         { sig: "void TrackEvent(const char* event_name, const char* json_payload = \"{}\", EEventPriority priority = EEventPriority::Info, const char* category = \"general\")", desc: "イベントを投入する。<code>nullptr</code> / 同意なし / 無効カテゴリは no-op。上限超過時は最古を捨てる。", when: "ゲーム進行の節目で呼ぶ。" },
         { sig: "void Flush()", desc: "貯まったイベントを backend へ送る。失敗分はキューに残し次回再送。" },
@@ -451,7 +461,8 @@ ACS_REF.modules.push({
         { sig: "void Tick(f32 dt)", desc: "時間を蓄積し間隔超過で自動 Flush する。毎フレーム呼ぶ。" },
         { sig: "void SetFlushInterval(f32 sec)", desc: "自動 Flush の間隔 (秒)。0 以下は 5 秒既定に補正。" },
         { sig: "void EnableCategory(const char* category, bool enabled)", desc: "カテゴリ単位で送信可否を切り替える (既定は未登録 = 有効)。" },
-        { sig: "void Clear()", desc: "キュー / フィルタ / カウンタを初期化 (backend 参照は保持)。" }
+        { sig: "void Clear()", desc: "キュー / フィルタ / カウンタを初期化 (backend 参照は保持)。" },
+        { sig: "using FTelemetryDirector = CTelemetryDirector", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CTelemetryDirector</code> を使う。" }
       ]
     },
     {
@@ -500,7 +511,7 @@ ACS_REF.modules.push({
     {
       name: "ATilemapComponent",
       kind: "クラス", header: "gameframework/TilemapComponent.h",
-      summary: "<t>FTilemap</t> のデータを <t>FScene2D</t> 上に<b>描画</b>するコンポーネント。格子アトラステクスチャを持ち、非空タイルを対応セルの UV で <t>CSpriteBatch</t> に描く。当たり判定の生成もできる。",
+      summary: "<t>FTilemap</t> のデータを <t>AScene2D</t> 上に<b>描画</b>するコンポーネント。格子アトラステクスチャを持ち、非空タイルを対応セルの UV で <t>CSpriteBatch</t> に描く。当たり判定の生成もできる。",
       when: "タイルマップを実際に画面表示し、必要なら壁として物理ワールドに登録したい時。",
       sample: "auto& tm = node->AddComponent<ATilemapComponent>();\ntm.Map().Init(16, 12, 1, 1.0f);\ntm.Map().FillRect(0, 0, 15, 0, FTileId{1});\ntm.SetTexture(atlas_tex);\ntm.SetAtlasGrid(4, 4);\ntm.BuildCollision(world, 0, kWall);",
       members: [
@@ -508,7 +519,7 @@ ACS_REF.modules.push({
         { sig: "void SetTexture(IRhiTexture* tex)", desc: "格子アトラステクスチャ (非所有) を設定する。" },
         { sig: "void SetAtlasGrid(u32 cols, u32 rows)", desc: "アトラス内のタイル格子の列数 / 行数。タイル ID v は cell index (v-1) に対応。" },
         { sig: "void SetTint(FVec4 tint)", desc: "全タイルに乗算する色。" },
-        { sig: "void BuildCollision(FCollisionWorld2D& world, u32 layer, u32 collision_layer_bit)", desc: "指定レイヤーの非空タイルを 1 タイル = 1 AABB として物理ワールドに登録する (ソリッド化)。", when: "床や壁を当たり判定にしたい時。" },
+        { sig: "void BuildCollision(CCollisionWorld2D& world, u32 layer, u32 collision_layer_bit)", desc: "指定レイヤーの非空タイルを 1 タイル = 1 AABB として物理ワールドに登録する (ソリッド化)。", when: "床や壁を当たり判定にしたい時。" },
         { sig: "void OnDraw(FRenderContext& rc) override", desc: "描画処理 (利用者は通常呼ばない)。" }
       ]
     },
@@ -524,6 +535,42 @@ ACS_REF.modules.push({
         { sig: "FMat4 ToMat4() const", ret: "4x4 行列", desc: "<t>CSpriteBatch</t> 等で 4x4 行列が要るときの変換 (合成内では使わない)。" },
         { sig: "static FTransform2D Identity()", ret: "単位 transform", desc: "原点 / 無回転 / 等倍の単位 transform。" }
       ]
+    },
+    {
+      name: "CSpatialAudio2D",
+      kind: "クラス", header: "gameframework/SpatialAudio2D.h",
+      summary: "2D位置から音量とpanを計算してaudioへ反映する。",
+      when: "2D sceneへ位置付き音声を追加する時。",
+      members: [
+        { sig: "using FSpatialAudio2D = CSpatialAudio2D", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSpatialAudio2D</code> を使う。" }
+      ]
+    },
+    {
+      name: "ASpawn2DSubsystem",
+      kind: "クラス", header: "gameframework/Spawn2DSubsystem.h",
+      summary: "sceneが所有し、2D object生成を安全に受け付けるsubsystem。",
+      when: "scene lifecycle内で2D objectを生成する時。",
+      members: [
+        { sig: "using FSpawn2DSubsystem = ASpawn2DSubsystem", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>ASpawn2DSubsystem</code> を使う。" }
+      ]
+    },
+    {
+      name: "CAssetLockingStub",
+      kind: "クラス", header: "gameframework/StudioWorkflow.h",
+      summary: "studio workflow用asset lockの未接続時fallbackを提供する。",
+      when: "外部asset lock backendなしで経路を検証する時。",
+      members: [
+        { sig: "using FAssetLockingStub = CAssetLockingStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAssetLockingStub</code> を使う。" }
+      ]
+    },
+    {
+      name: "CBuildFarmStub",
+      kind: "クラス", header: "gameframework/StudioWorkflow.h",
+      summary: "studio workflow用build farmの未接続時fallbackを提供する。",
+      when: "外部build farmなしで経路を検証する時。",
+      members: [
+        { sig: "using FBuildFarmStub = CBuildFarmStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CBuildFarmStub</code> を使う。" }
+      ]
     }
   ]
 });
@@ -538,14 +585,14 @@ Object.assign(ACS_REF.glossary, {
   "ストリーミング": "必要な範囲のアセットだけを動的にロード/アンロードして、メモリに収まらない大規模世界を扱う仕組み。",
   "GDPR": "EU の一般データ保護規則。解析データ収集前にユーザー同意 (consent) を要する。同意が無ければ送信しない。",
   "IBackendClient": "解析イベント等をサーバへ送る通信層の<t>インターフェース</t>。HTTP/gRPC 等の具体実装を差し替える。",
-  "FAssetBundle": "1 まとまりのアセット集合をロード/アンロードする単位。チャンクごとのアセットを束ねる。",
+  "CAssetBundle": "1 まとまりのアセット集合をロード/アンロードする単位。チャンクごとのアセットを束ねる。",
   "ANode": "2D/3D 共通シーングラフの唯一のノード。<code>AddComponent</code> で <t>ASprite2DComponent</t> 等の部品を付ける。",
   "ASprite2DComponent": "ノードにスプライト (1 枚絵) を描画する部品。",
-  "FSpriteAnimator": "経過時間から現在のアニメフレーム番号を計算する部品。",
+  "CSpriteAnimator": "経過時間から現在のアニメフレーム番号を計算する部品。",
   "FSpritePack": "1 枚のアトラスと名前付きフレーム矩形を持つデータ層。",
   "FTilemap": "2D グリッドにタイル ID を並べるデータ専用のマップ。",
   "ATilemapComponent": "タイルマップを画面に描画するコンポーネント。",
-  "FScene2D": "2D シーンの管理係。CSpriteBatch を FRenderContext に用意し、ノードを描画する。",
+  "AScene2D": "2D シーンの管理係。CSpriteBatch を FRenderContext に用意し、ノードを描画する。",
   "CSpriteBatch": "多数のスプライトをまとめて効率よく描画する仕組み。",
   "FAudioSource3D": "3D 空間内の音源 1 個 (位置 / 音量 / 減衰)。",
   "FAudioListener": "音を聞く側 (プレイヤーの耳) の位置と向き。",

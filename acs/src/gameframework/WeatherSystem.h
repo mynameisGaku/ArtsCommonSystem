@@ -5,7 +5,7 @@
 //   CAmbientDirector (時刻補間) と直交する「天候」状態を保持し、現在天候 →
 //   ターゲット天候への線形遷移と、各天候に対応する描画 / lighting 修飾係数
 //   (ambient 倍率 / 粒子密度 / sky tint / 風 / 霧密度) を提供する。
-//   レンダラ / CEffectSystem / FParticleSystem 側は毎フレーム本クラスから係数を
+//   レンダラ / CEffectSystem / CParticleSystem 側は毎フレーム本クラスから係数を
 //   pull するだけで天候表情を反映できる。
 //
 // 使い方:
@@ -22,9 +22,9 @@
 //           if (player.EnteredRainZone()) m_Weather.SetWeather(
 //               acs::game::EWeatherKind::Rain, 8.0f);
 //
-//           FRenderer().SetAmbientMultiplier(m_Weather.AmbientLightMultiplier());
-//           FRenderer().SetSkyTint          (m_Weather.SkyTintMultiplier());
-//           FRenderer().SetFogDensityScale  (m_Weather.FogDensityMultiplier());
+//           CRenderer().SetAmbientMultiplier(m_Weather.AmbientLightMultiplier());
+//           CRenderer().SetSkyTint          (m_Weather.SkyTintMultiplier());
+//           CRenderer().SetFogDensityScale  (m_Weather.FogDensityMultiplier());
 //           Particles().SetGlobalDensity    (m_Weather.ParticleDensity());
 //           Wind().SetVector(m_Weather.WindDirection() * m_Weather.WindStrength());
 //       }

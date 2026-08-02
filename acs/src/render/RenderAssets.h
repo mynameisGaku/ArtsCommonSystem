@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// FAsset → GPU リソース変換ヘルパ
+// AAsset → GPU リソース変換ヘルパ
 //
-// FImageAsset を GPU テクスチャに、FMeshAsset を頂点+インデックスバッファに変換する
+// AImageAsset を GPU テクスチャに、AMeshAsset を頂点+インデックスバッファに変換する
 // 高レベル関数群。ゲーム側コードはこの関数を呼ぶだけで描画できる。
 //
 // 使い方:

@@ -22,7 +22,7 @@ u32 APlayerNode::ObjectCount() noexcept {
 }
 
 FInspectableObject APlayerNode::GetObject(u32 /*index*/) noexcept {
-    // fields 配列は Provider (= 本インスタンス) が所有する。FInspectorSeam は
+    // fields 配列は Provider (= 本インスタンス) が所有する。CInspectorSeam は
     // ポインタだけ握る (= コピーしない) ので、書き戻し時に Inspector の値が
     // そのまま m_Speed/m_Hp/... に反映される。
     m_Fields[0] = { "speed",      EFieldKind::F32,  &m_Speed,      0, nullptr };

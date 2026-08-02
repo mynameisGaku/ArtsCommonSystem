@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — FHitEffects 実装。
+// HelloFullGame — CHitEffects 実装。
 #include "HitEffects.h"
 #include "GameplayScene.h"
 #include "FullGameApp.h"
@@ -11,7 +11,7 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void FHitEffects::Init(FParticleEffectSystem& particles) noexcept {
+void CHitEffects::Init(CParticleEffectSystem& particles) noexcept {
     FParticleEmitterDef pdef{};
     pdef.color_start       = kParticleStart;
     pdef.color_end         = kParticleEnd;
@@ -28,36 +28,36 @@ void FHitEffects::Init(FParticleEffectSystem& particles) noexcept {
     particles.SetEmitterActive(m_HitEmitter, false);
 }
 
-void FHitEffects::Shutdown(FParticleEffectSystem& particles) noexcept {
+void CHitEffects::Shutdown(CParticleEffectSystem& particles) noexcept {
     particles.ClearAll();
 }
 
-void FHitEffects::Tick(FGameplayScene& scene, f32 dt) noexcept {
+void CHitEffects::Tick(AGameplayScene& scene, f32 dt) noexcept {
     m_Fx.Tick(dt);
-    // FEffectSystem 内に溜まったトラウマを camera に流して消費する。
+    // CEffectSystem 内に溜まったトラウマを camera に流して消費する。
     if (m_Fx.PendingShakeTrauma() > 0.0f) {
         scene.Services().Camera().AddShake(m_Fx.PendingShakeTrauma());
         m_Fx.ConsumeShake();
     }
 }
 
-void FHitEffects::TriggerPlayerHurt(FGameplayScene& scene, FVec2 pos) noexcept {
+void CHitEffects::TriggerPlayerHurt(AGameplayScene& scene, FVec2 pos) noexcept {
     m_Fx.TriggerShake(0.9f);
     scene.GetParticles().SetEmitterPosition(m_HitEmitter, pos);
     scene.GetParticles().Burst(m_HitEmitter);
-    static_cast<FFullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_player_hurt", 1.0f);
+    static_cast<CFullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_player_hurt", 1.0f);
 }
 
-void FHitEffects::TriggerEnemyHit(FGameplayScene& scene, FVec2 pos) noexcept {
+void CHitEffects::TriggerEnemyHit(AGameplayScene& scene, FVec2 pos) noexcept {
     scene.GetParticles().SetEmitterPosition(m_HitEmitter, pos);
     scene.GetParticles().Burst(m_HitEmitter);
     m_Fx.TriggerShake(0.35f);
     m_Fx.Flash(FVec3{1.0f, 0.95f, 0.7f}, 0.25f, 0.08f);
-    static_cast<FFullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_enemy_hit", 0.8f);
+    static_cast<CFullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_enemy_hit", 0.8f);
 }
 
-void FHitEffects::DrawParticles(const FParticleEffectSystem& particles,
-                                FSpriteBatch& sb) const noexcept {
+void CHitEffects::DrawParticles(const CParticleEffectSystem& particles,
+                                CSpriteBatch& sb) const noexcept {
     u32 n = 0;
     const FParticle* ps = particles.AllParticles(n);
     for (u32 i = 0; i < n; ++i) {

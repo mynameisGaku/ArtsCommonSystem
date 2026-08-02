@@ -377,7 +377,7 @@ inline constexpr FLogSinkHandle kInvalidLogSink{};
 
 namespace acs {
 
-/** 破棄時に FLogger のログ購読を解除する移動専用所有権。 */
+/** 破棄時に CLogger のログ購読を解除する移動専用所有権。 */
 class FLogSinkSubscription {
 public:
     /** 購読を持たない空の所有権を作る。 */
@@ -425,7 +425,7 @@ private:
     FLogSinkHandle m_Handle{};
 
     /** 所有権付き購読を生成する Logger。 */
-    friend class FLogger;
+    friend class CLogger;
 };
 
 } // namespace acs
@@ -1146,7 +1146,7 @@ constexpr const char* ToString(ELogSeverity s) noexcept
 }
 
 /**
- * FLogger の初期化設定。
+ * CLogger の初期化設定。
  */
 struct FLogConfig {
     /** ログファイルのパス (nullptr ならファイル出力を無効化)。 */
@@ -1172,7 +1172,7 @@ struct FLogConfig {
  * Vyukov 風 MPMC リングにレコードを積み、専用ライタースレッドが取り出して
  * コンソール / ファイル / デバッガに書き出す。全メンバが static のシングルトン。
  */
-class FLogger {
+class CLogger {
 public:
     /**
      * ロガーを初期化する (多重呼び出しは無視)。
@@ -1379,19 +1379,22 @@ public:
     }
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FLogger = CLogger;
+
 } // acs 名前空間
 
 // 内部マクロ: 指定レベルが有効ならログを出力
 #define ACS_LOG(sev, fmt, ...)                                                                                          \
     do {                                                                                                                \
-        if (::acs::FLogger::Enabled(sev))                                                                               \
-            ::acs::FLogger::WriteDispatch(sev, ::acs::FSourceLoc::Current(), fmt __VA_OPT__(,) __VA_ARGS__);           \
+        if (::acs::CLogger::Enabled(sev))                                                                               \
+            ::acs::CLogger::WriteDispatch(sev, ::acs::FSourceLoc::Current(), fmt __VA_OPT__(,) __VA_ARGS__);           \
     } while (0)
 
 // 固定レベルは if constexpr で無効レベルの引数評価とコード生成を完全に除去する。
 #define ACS_LOG_STATIC(sev, fmt, ...)                                                \
     do {                                                                            \
-        if constexpr (::acs::FLogger::CompiledEnabled<sev>()) {                     \
+        if constexpr (::acs::CLogger::CompiledEnabled<sev>()) {                     \
             ACS_LOG(sev, fmt __VA_OPT__(,) __VA_ARGS__);                            \
         }                                                                           \
     } while (0)
@@ -1426,7 +1429,7 @@ public:
 // 典型的な使用例:
 //   TResult<FFile, FErrorCode> r = OpenFile("foo");
 //   if (!r) {
-//       FLogger::Error("open failed: %s", r.Error().message);
+//       CLogger::Error("open failed: %s", r.Error().message);
 //       return;
 //   }
 //   FFile& f = r.Value();
@@ -2238,7 +2241,7 @@ TResult<T> Err(FErrorCode e) noexcept { return TResult<T>(e); }
 // SPDX-License-Identifier: Apache-2.0
 // ACS Memory — アロケータ抽象インターフェイス
 //
-// すべてのコンテナ・スマートポインタ・サブシステムは FAllocator* を介して
+// すべてのコンテナ・スマートポインタ・サブシステムは IAllocator* を介して
 // メモリ確保を行う。これによりプール / アリーナ / サンドボックスアロケータ
 // を呼び出し側を再テンプレート化することなく差し替えられる。
 //
@@ -2250,7 +2253,7 @@ TResult<T> Err(FErrorCode e) noexcept { return TResult<T>(e); }
 // 性能注意:
 //   virtual 呼び出しのコスト（vtable 1 段間接 + 仮想関数 prediction miss）が
 //   ホットパス（毎フレーム数千回）で問題になる場合は、テンプレート化された
-//   薄いアダプタ越しに呼ぶか、ヒューリスティック inline 候補（FPoolAllocator
+//   薄いアダプタ越しに呼ぶか、ヒューリスティック inline 候補（CPoolAllocator
 //   の固定サイズ確保等）を別 API で公開すること。
 
 
@@ -2272,10 +2275,10 @@ inline constexpr usize kDefaultAlignment = alignof(void*) > 8 ? alignof(void*) :
  * 確保/解放を行うため、具象アロケータ (プール/アリーナ等) を呼び出し側を変えずに
  * 差し替えられる。具象実装はスレッドセーフで、確保失敗時は nullptr を返し例外は投げない。
  */
-class FAllocator {
+class IAllocator {
 public:
     /** 派生アロケータを正しく破棄するための仮想デストラクタ。 */
-    virtual ~FAllocator() noexcept = default;
+    virtual ~IAllocator() noexcept = default;
 
     /**
      * size バイトを alignment 整列で確保する。
@@ -2355,11 +2358,11 @@ public:
     /**
      * アロケータの識別名を返す。
      *
-     * @return アロケータ名 (既定は "FAllocator"。実装側で上書き)。
+     * @return アロケータ名 (既定は "IAllocator"。実装側で上書き)。
      */
     virtual const char* Name() const noexcept
     {
-        return "FAllocator";
+        return "IAllocator";
     }
 
     /**
@@ -2374,6 +2377,9 @@ public:
         return Alloc(Size, kDefaultAlignment, Location);
     }
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FAllocator = IAllocator;
 
 /**
  * Value が 2 のべき乗かを判定する。
@@ -2525,7 +2531,7 @@ struct FSegmentConfig {
     bool use_frame_allocator = false;
 };
 
-/** FMemorySystem 全体の初期化設定。 */
+/** CMemorySystem 全体の初期化設定。 */
 struct FMemorySystemConfig {
     /** セグメント種別ごとの設定 (ESegment::_Count 個)。 */
     FSegmentConfig segments[(usize)ESegment::_Count];
@@ -2602,7 +2608,7 @@ struct FMemorySegmentInspection {
     bool matches_authoritative_statistics = false;
 };
 
-/** FMemorySystem の終了診断に使う未解放メモリ集計。 */
+/** CMemorySystem の終了診断に使う未解放メモリ集計。 */
 struct FMemoryLeakSummary {
     /** Temp を除く全セグメントの未解放バイト数。 */
     u64 outstanding_bytes = 0;
@@ -2684,7 +2690,7 @@ struct FMemoryTrackingReport {
 };
 
 /** セグメント別メモリ管理のファサード (mimalloc / frame arena + 予算 + 診断、全 static)。 */
-class FMemorySystem {
+class CMemorySystem {
 public:
     /**
      * 全セグメントを設定で初期化する。
@@ -2721,7 +2727,7 @@ public:
      * @return セグメントのアロケータ (Init 前と Shutdown 開始後は nullptr)。
      * 返したアダプタのアドレスは再初期化後も安定しているが、非稼働中の操作は失敗する。
      */
-    static FAllocator* Get(ESegment Segment) noexcept;
+    static IAllocator* Get(ESegment Segment) noexcept;
 
     /**
      * 現在のセグメント (FScopedMemorySegment が設定した TLS の値) を返す。
@@ -2735,7 +2741,7 @@ public:
      *
      * @return 現在セグメントのアロケータ (Init 前は nullptr)。
      */
-    static FAllocator* CurrentAllocator() noexcept;
+    static IAllocator* CurrentAllocator() noexcept;
 
     /**
      * Temp セグメントを巻き戻す (フレーム先頭で 1 回呼ぶ)。
@@ -2786,7 +2792,7 @@ public:
     /**
      * チェックポイントより後に残る割り当て元情報を、呼び出し側の固定長配列へ収集する。
      *
-     * @details 追跡表自身は Win32 プロセスヒープを使うため、FMemorySystem へ再帰確保しない。
+     * @details 追跡表自身は Win32 プロセスヒープを使うため、CMemorySystem へ再帰確保しない。
      * @param Checkpoint 差分開始位置。ゼロなら現在の全未解放割り当てを対象にする。
      * @param Output 書き込み先配列。件数だけ調べる場合は nullptr。
      * @param OutputCapacity Output の要素容量。
@@ -2822,6 +2828,9 @@ public:
     static bool IsAllocationSiteTrackingEnabled() noexcept;
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FMemorySystem = CMemorySystem;
+
 /** RAII でカレントセグメントを切り替える (スコープ脱出で元に戻す)。 */
 class FScopedMemorySegment {
 public:
@@ -2851,7 +2860,7 @@ private:
 namespace acs {
 
 /**
- * FApplication::Run に渡す起動オプション一式。
+ * CApplication::Run に渡す起動オプション一式。
  *
  * @details
  * ウィンドウ・ロガー・メモリシステム・スレッドプール・レンダラ・背景色の初期値を
@@ -2886,7 +2895,7 @@ struct FAppConfig {
     /** メモリシステム設定 (nullptr で既定設定を使う)。 */
     const FMemorySystemConfig* memory = nullptr;
 
-    /** FThreadPool のワーカースレッド数 (0 でハードウェア並列数から自動決定)。 */
+    /** CThreadPool のワーカースレッド数 (0 でハードウェア並列数から自動決定)。 */
     u32            worker_count = 0;
 
     /** レンダラの GPU デバッグレイヤを有効にするか (Debug ビルド時に有効推奨)。 */
@@ -2917,10 +2926,10 @@ struct FAppConfig {
 
 // ===================== app/Application.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FApplication 基底（継承して OnStart / OnUpdate / OnRender / OnShutdown を実装）
+// CApplication 基底（継承して OnStart / OnUpdate / OnRender / OnShutdown を実装）
 //
 // 使い方:
-//   class FMyGame : public FApplication {
+//   class FMyGame : public CApplication {
 //   public:
 //       // フックは必ず noexcept override で宣言する
 //       // （基底のフックが noexcept のため。noexcept を省くとコンパイルエラー）
@@ -2928,7 +2937,7 @@ struct FAppConfig {
 //           ACS_LOG_INFO("ゲーム開始");
 //       }
 //       void OnUpdate(f32 delta_time) noexcept override {
-//           if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+//           if (CInput::IsKeyPressed(EKey::Escape)) Quit();
 //       }
 //       void OnRender() noexcept override {
 //           // 描画コマンド (BeginFrame / EndFrame は基底が呼ぶ)
@@ -3599,7 +3608,7 @@ namespace acs {
  * 実装は std::chrono::steady_clock ベースで、初回参照時を起点とする単調増加時刻を返す。
  * Windows では内部的に QPC、Linux/macOS では CLOCK_MONOTONIC 相当。
  */
-class FClock {
+class CClock {
 public:
     /**
      * 起動 (初回参照) からの経過秒を返す。
@@ -3631,6 +3640,9 @@ public:
      */
     static u64 TicksPerSecond() noexcept;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FClock = CClock;
 
 /**
  * フレーム時間を計測するタイマ (毎フレーム Tick を呼ぶ)。
@@ -3698,10 +3710,10 @@ private:
 
 // ===================== ecs/World.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ECS の FWorld（エンティティとコンポーネントを管理する中心）
+// ECS の CWorld（エンティティとコンポーネントを管理する中心）
 //
 // 使い方:
-//   FWorld w;
+//   CWorld w;
 //   FEntityId e = w.Create();
 //   w.Add<FPosition>(e, {0, 0, 0});
 //   w.Add<FVelocity>(e, {1, 0, 0});
@@ -3718,10 +3730,10 @@ private:
 
 // ===================== memory/New.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ACS Memory — FAllocator 経由の new/delete ヘルパ
+// ACS Memory — IAllocator 経由の new/delete ヘルパ
 //
-// グローバル new/delete を使わず、FAllocator から確保 → 配置 new でコンストラクタ
-// 呼び出し → デストラクタ呼び出し → FAllocator に返す、という流れを 1 関数化。
+// グローバル new/delete を使わず、IAllocator から確保 → 配置 new でコンストラクタ
+// 呼び出し → デストラクタ呼び出し → IAllocator に返す、という流れを 1 関数化。
 //
 // 例:
 //   FMyObj* p = New<FMyObj>(allocator, args...);
@@ -3732,7 +3744,7 @@ private:
 namespace acs {
 
 /**
- * FAllocator から確保した領域に単一オブジェクトを構築する。
+ * IAllocator から確保した領域に単一オブジェクトを構築する。
  *
  * @details a.Alloc で sizeof(T)/alignof(T) を確保し、配置 new で T を構築する。
  * コンストラクタ引数は完全転送する。
@@ -3743,7 +3755,7 @@ namespace acs {
  * @return 構築した T へのポインタ。確保失敗時は nullptr。
  */
 template<typename T, typename... Args>
-ACS_FORCEINLINE T* New(FAllocator& a, Args&&... args) noexcept {
+ACS_FORCEINLINE T* New(IAllocator& a, Args&&... args) noexcept {
     void* const p = a.Alloc(sizeof(T), alignof(T), FSourceLoc::Current());
     if (!p) return nullptr;
     return ::new (p) T(Forward<Args>(args)...);  // 配置 new
@@ -3758,7 +3770,7 @@ ACS_FORCEINLINE T* New(FAllocator& a, Args&&... args) noexcept {
  * @param p 破棄する対象 (nullptr は no-op)。
  */
 template<typename T>
-ACS_FORCEINLINE void Delete(FAllocator& a, T* p) noexcept {
+ACS_FORCEINLINE void Delete(IAllocator& a, T* p) noexcept {
     if (!p) return;
     if constexpr (!IsTriviallyDestructibleV<T>) p->~T();
     a.Free(static_cast<void*>(p));
@@ -3774,7 +3786,7 @@ ACS_FORCEINLINE void Delete(FAllocator& a, T* p) noexcept {
  * @return 配列先頭へのポインタ。n==0・オーバーフロー・確保失敗時は nullptr。
  */
 template<typename T>
-ACS_FORCEINLINE T* NewArray(FAllocator& a, usize n) noexcept {
+ACS_FORCEINLINE T* NewArray(IAllocator& a, usize n) noexcept {
     if (n == 0) return nullptr;
     if (n > (~usize(0)) / sizeof(T)) return nullptr;  // sizeof(T)*n のラップ → 失敗
     void* const p = a.Alloc(sizeof(T) * n, alignof(T), FSourceLoc::Current());
@@ -3795,7 +3807,7 @@ ACS_FORCEINLINE T* NewArray(FAllocator& a, usize n) noexcept {
  * @param n 配列の要素数。
  */
 template<typename T>
-ACS_FORCEINLINE void DeleteArray(FAllocator& a, T* arr, usize n) noexcept {
+ACS_FORCEINLINE void DeleteArray(IAllocator& a, T* arr, usize n) noexcept {
     if (!arr) return;
     if constexpr (!IsTriviallyDestructibleV<T>) {
         for (usize i = n; i-- > 0;) arr[i].~T();
@@ -3819,21 +3831,21 @@ namespace acs {
 /**
  * 現在のデフォルトアロケータを返す。
  *
- * @details 起動時は内部のプロセス全体 FSystemAllocator を指す。
+ * @details 起動時は内部のプロセス全体 CSystemAllocator を指す。
  * @return デフォルトアロケータへの参照。
  */
-FAllocator& DefaultAllocator() noexcept;
+IAllocator& DefaultAllocator() noexcept;
 
 /**
  * デフォルトアロケータを差し替える。
  *
  * @details
- * nullptr を渡すと内部の FSystemAllocator に戻る。DefaultAllocator との並行呼出でも
+ * nullptr を渡すと内部の CSystemAllocator に戻る。DefaultAllocator との並行呼出でも
  * ポインタの公開はスレッドセーフ。差し替え前のアロケータを参照中の処理は継続し得るため、
  * 呼出側は全利用者が停止するまで差し替え先と差し替え前のアロケータを生存させること。
- * @param Allocator 新しいデフォルトアロケータ (nullptr で FSystemAllocator に戻す)。
+ * @param Allocator 新しいデフォルトアロケータ (nullptr で CSystemAllocator に戻す)。
  */
-void SetDefaultAllocator(FAllocator* Allocator) noexcept;
+void SetDefaultAllocator(IAllocator* Allocator) noexcept;
 
 /**
  * 領域非重複コピー (::memcpy への薄いラッパ)。
@@ -4033,7 +4045,7 @@ namespace acs {
  * 可変長配列 (std::vector 代替、アロケータ注入可能なムーブ専用コンテナ)。
  *
  * @details
- * 連続バッファを FAllocator から確保し、容量不足時に約 1.5 倍ずつ Grow する。
+ * 連続バッファを IAllocator から確保し、容量不足時に約 1.5 倍ずつ Grow する。
  * コピーは禁止 (高コストな複製を明示させるため、複製は Clone() を使う)。要素型が
  * trivial なら memcpy/memset でバルク処理し、そうでなければ placement new と明示的
  * デストラクタ呼び出しで構築・破棄する。
@@ -4050,7 +4062,7 @@ public:
      *
      * @param a 確保に使うアロケータ。
      */
-    explicit TArray(FAllocator& a) noexcept : m_Alloc(&a) {}
+    explicit TArray(IAllocator& a) noexcept : m_Alloc(&a) {}
 
     /**
      * 初期容量を予約して空の配列を構築する。
@@ -4058,7 +4070,7 @@ public:
      * @param initial_capacity 事前に予約する容量。
      * @param a 確保に使うアロケータ (既定は DefaultAllocator)。
      */
-    TArray(usize initial_capacity, FAllocator& a = DefaultAllocator()) noexcept : m_Alloc(&a) {
+    TArray(usize initial_capacity, IAllocator& a = DefaultAllocator()) noexcept : m_Alloc(&a) {
         Reserve(initial_capacity);
     }
 
@@ -4582,9 +4594,9 @@ public:
     /**
      * この配列が使うアロケータを返す。
      *
-     * @return 確保に使っている FAllocator へのポインタ。
+     * @return 確保に使っている IAllocator へのポインタ。
      */
-    FAllocator* GetAllocator() const noexcept { return m_Alloc; }
+    IAllocator* GetAllocator() const noexcept { return m_Alloc; }
 
 private:
     /**
@@ -4750,7 +4762,7 @@ private:
     usize      m_Capacity = 0;
 
     /** 確保に使うアロケータ。 */
-    FAllocator* m_Alloc    = nullptr;
+    IAllocator* m_Alloc    = nullptr;
 };
 
 } // namespace acs
@@ -5134,7 +5146,7 @@ public:
      *
      * @param a 値配列・バケット確保に使うアロケータ。
      */
-    explicit THashMap(FAllocator& a) noexcept : m_Values(a), m_Alloc(&a) {}
+    explicit THashMap(IAllocator& a) noexcept : m_Values(a), m_Alloc(&a) {}
 
     /** コピー禁止 (ムーブ専用)。 */
     THashMap(const THashMap&) = delete;
@@ -5692,7 +5704,7 @@ private:
     u32              m_BucketMask  = 0;
 
     /** 確保に使うアロケータ。 */
-    FAllocator*       m_Alloc        = nullptr;
+    IAllocator*       m_Alloc        = nullptr;
 };
 
 } // namespace acs
@@ -5707,19 +5719,19 @@ namespace acs {
  * エンティティ識別子 (世代付きハンドル、POD でコピー・比較可)。
  *
  * @details
- * index は FWorld 内のスロット番号、generation は世代番号。スロットが Destroy →
+ * index は CWorld 内のスロット番号、generation は世代番号。スロットが Destroy →
  * 再利用されるたびに generation が +1 されるため、解放済みスロットを指す古い
  * FEntityId は世代不一致として検出でき、dangling 参照を防げる。
  */
 struct FEntityId {
-    /** FWorld 内のスロット番号 (0xFFFFFFFF は無効を表す)。 */
+    /** CWorld 内のスロット番号 (0xFFFFFFFF は無効を表す)。 */
     u32 index      = 0xFFFFFFFFu;
 
     /** 世代番号 (Destroy → 再利用のたびに +1)。 */
     u32 generation = 0;
 
     /**
-     * index が有効値かを返す (世代の生存判定は FWorld::IsAlive で行う)。
+     * index が有効値かを返す (世代の生存判定は CWorld::IsAlive で行う)。
      *
      * @return index が番兵 0xFFFFFFFF でなければ true。
      */
@@ -6559,15 +6571,15 @@ namespace acs {
  * @details
  * sparse (entity_index → dense_index) と dense (dense_index → entity_index) の対応を
  * 保持し、走査・存在判定・型消去削除を提供する。実際のコンポーネント値配列 m_Data は
- * 派生 TSparseSet<T> が持つ。FWorld が型を知らずにポリモーフィックに扱えるようにする層。
+ * 派生 TSparseSet<T> が持つ。CWorld が型を知らずにポリモーフィックに扱えるようにする層。
  */
-class FSparseSetBase {
+class ASparseSetBase {
 public:
     /** dense インデックスが未登録であることを表す番兵値。 */
     static constexpr u32 kInvalid = 0xFFFFFFFFu;
 
     /** 派生 TSparseSet<T> を型を知らず正しく破棄するための仮想デストラクタ。 */
-    virtual ~FSparseSetBase() noexcept = default;
+    virtual ~ASparseSetBase() noexcept = default;
 
     /**
      * 指定エンティティに対応する dense インデックスを返す。
@@ -6604,21 +6616,21 @@ public:
     const u32* DenseEntities() const noexcept { return m_Dense.Data(); }
 
     /**
-     * 型を知らずに指定エンティティの値を削除する (FWorld::Destroy から呼ぶ)。
+     * 型を知らずに指定エンティティの値を削除する (CWorld::Destroy から呼ぶ)。
      *
      * @param entity_index 削除するエンティティのスロット番号。
      */
     virtual void RemoveErased(u32 entity_index) noexcept = 0;
 
     /**
-     * 型を知らずにこの集合の完全な複製を確保して返す (FWorld::CopyFrom から呼ぶ)。
+     * 型を知らずにこの集合の完全な複製を確保して返す (CWorld::CopyFrom から呼ぶ)。
      *
      * @details sparse/dense と値配列をすべてコピーした新しい集合を alloc で確保する。
      * T が非コピー構築型の場合と OOM 時は nullptr を返す (部分複製は返さない)。
      * @param alloc 複製の確保に使うアロケータ。
      * @return 複製した集合 (失敗なら nullptr)。所有権は呼び出し側へ移る。
      */
-    virtual FSparseSetBase* CloneErased(FAllocator& alloc) const noexcept = 0;
+    virtual ASparseSetBase* CloneErased(IAllocator& alloc) const noexcept = 0;
 
 protected:
     /**
@@ -6627,7 +6639,7 @@ protected:
      * @param other コピー元。
      * @return 両配列をコピーできたら true (OOM なら false)。
      */
-    bool CopyBaseFrom(const FSparseSetBase& other) noexcept {
+    bool CopyBaseFrom(const ASparseSetBase& other) noexcept {
         if (!m_Sparse.TryResize(other.m_Sparse.Size())) return false;
         if (!m_Dense.TryResize(other.m_Dense.Size())) return false;
         if (other.m_Sparse.Size() > 0) {
@@ -6660,6 +6672,9 @@ protected:
     TArray<u32> m_Dense;
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FSparseSetBase = ASparseSetBase;
+
 /**
  * コンポーネント T 専用の型付き TSparseSet。
  *
@@ -6670,7 +6685,7 @@ protected:
  * @tparam T 格納するコンポーネント型。
  */
 template<typename T>
-class TSparseSet : public FSparseSetBase {
+class TSparseSet : public ASparseSetBase {
 public:
     /** 空の集合を構築する。 */
     TSparseSet() noexcept = default;
@@ -6775,9 +6790,9 @@ public:
      * @param alloc 複製の確保に使うアロケータ。
      * @return 複製した集合 (失敗なら nullptr)。所有権は呼び出し側へ移る。
      */
-    FSparseSetBase* CloneErased(FAllocator& alloc) const noexcept override {
+    ASparseSetBase* CloneErased(IAllocator& alloc) const noexcept override {
         if constexpr (!IsCopyConstructibleV<T>) {
-            return nullptr;   // 非コピー型の snapshot は不可 (FWorld::CopyFrom が false を返す)
+            return nullptr;   // 非コピー型の snapshot は不可 (CWorld::CopyFrom が false を返す)
         } else {
             TSparseSet<T>* const clone = New<TSparseSet<T>>(alloc);
             if (clone == nullptr) return nullptr;
@@ -6811,19 +6826,19 @@ namespace acs {
  * 型ごとに TSparseSet を 1 つ持ち、FComponentTypeId を添字に引く。Query で複数
  * コンポーネントを横断走査する。non-copy 型。
  */
-class FWorld {
+class CWorld {
 public:
-    /** 空の FWorld を構築する。 */
-    FWorld() noexcept;
+    /** 空の CWorld を構築する。 */
+    CWorld() noexcept;
 
-    /** FWorld を破棄する (全 TSparseSet を解放)。 */
-    ~FWorld() noexcept;
+    /** CWorld を破棄する (全 TSparseSet を解放)。 */
+    ~CWorld() noexcept;
 
     /** コピー禁止 (TSparseSet を所有するため)。 */
-    FWorld(const FWorld&) = delete;
+    CWorld(const CWorld&) = delete;
 
     /** コピー代入も禁止。 */
-    FWorld& operator=(const FWorld&) = delete;
+    CWorld& operator=(const CWorld&) = delete;
 
     /**
      * エンティティを生成する。
@@ -6844,7 +6859,7 @@ public:
     void Destroy(FEntityId e) noexcept;
 
     /**
-     * 全エンティティとコンポーネントストレージを解放し、空の FWorld に戻す。
+     * 全エンティティとコンポーネントストレージを解放し、空の CWorld に戻す。
      *
      * @details MemorySystem の終了前に、実行中に選ばれた既定アロケータを使う
      * TSparseSet を確実に破棄するためにも使用する。繰り返し呼んでも安全。
@@ -6852,14 +6867,14 @@ public:
     void Clear() noexcept;
 
     /**
-     * src の完全な複製をこの FWorld に作る (snapshot / rollback 用)。
+     * src の完全な複製をこの CWorld に作る (snapshot / rollback 用)。
      *
      * @details
      * エンティティスロット (世代含む)・フリーリスト・全 TSparseSet の値をコピーする。
      * 世代までコピーするため、snapshot 時に取った FEntityId は復元後もそのまま有効で、
      * snapshot 後に生成した FEntityId は復元で無効になる (rollback netcode の要件)。
      *
-     *   FWorld backup;
+     *   CWorld backup;
      *   backup.CopyFrom(world);    // フレーム N の状態を退避
      *   ...                        // 予測実行でフレーム N+k まで進める
      *   world.CopyFrom(backup);    // 権威入力が届いたらフレーム N へ巻き戻す
@@ -6867,10 +6882,10 @@ public:
      * 全コンポーネント型がコピー構築可能である必要がある。非コピー型の TSparseSet が
      * あるか OOM の場合は false を返し、this は空 (Clear 済み) の状態になる
      * (部分複製は残さない)。this == &src は何もせず true。
-     * @param src 複製元の FWorld。
+     * @param src 複製元の CWorld。
      * @return 完全に複製できたら true。
      */
-    bool CopyFrom(const FWorld& src) noexcept;
+    bool CopyFrom(const CWorld& src) noexcept;
 
     /**
      * エンティティが現在も生存しているかを返す (世代チェック)。
@@ -6921,7 +6936,7 @@ public:
     template<typename T>
     const T* Get(FEntityId e) const noexcept {
         if (!IsAlive(e)) return nullptr;
-        const TSparseSet<T>* set = const_cast<FWorld*>(this)->TryGetSet<T>();
+        const TSparseSet<T>* set = const_cast<CWorld*>(this)->TryGetSet<T>();
         return set ? set->Get(e.index) : nullptr;
     }
 
@@ -6969,11 +6984,11 @@ public:
         const FComponentTypeId id = GetComponentTypeId<T>();
         if (id >= m_Sets.Size()) m_Sets.Resize(id + 1);
         if (!m_Sets[id]) {
-            // 生 new を避け、MemorySystem 追跡下で確保する (R018 / リーク検出)。FSparseSetBase の
-            // 仮想デストラクタで型ごとの破棄が走るため、解放は FWorld::Clear の Delete で型消去できる。
+            // 生 new を避け、MemorySystem 追跡下で確保する (R018 / リーク検出)。ASparseSetBase の
+            // 仮想デストラクタで型ごとの破棄が走るため、解放は CWorld::Clear の Delete で型消去できる。
             TSparseSet<T>* const set = New<TSparseSet<T>>(*m_Sets.GetAllocator());
             ACS_CHECKF(set != nullptr, "World::GetOrCreateSet: SparseSet 確保失敗 (id=%u)", id);
-            m_Sets[id] = static_cast<FSparseSetBase*>(set);
+            m_Sets[id] = static_cast<ASparseSetBase*>(set);
         }
         return *static_cast<TSparseSet<T>*>(m_Sets[id]);
     }
@@ -7027,8 +7042,8 @@ private:
     /** 解放済みで再利用待ちのスロット番号。 */
     TArray<u32>            m_FreeIndices;
 
-    /** コンポーネント型ごとの TSparseSet (FComponentTypeId → FSparseSetBase*、所有権を持つ)。 */
-    TArray<FSparseSetBase*> m_Sets;
+    /** コンポーネント型ごとの TSparseSet (FComponentTypeId → ASparseSetBase*、所有権を持つ)。 */
+    TArray<ASparseSetBase*> m_Sets;
 
     /** 生存中のエンティティ数。 */
     u32                   m_AliveCount = 0;
@@ -7036,6 +7051,9 @@ private:
     /** Clear 前の FEntityId が再生成後に一致しないよう、新規スロットへ与える世代。 */
     u32 m_GenerationSeed = 0;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FWorld = CWorld;
 
 } // namespace acs
 
@@ -7093,7 +7111,7 @@ struct FControlBlock {
     TAtomic<u32> weak   {1};
 
     /** 解放に使うアロケータ。 */
-    FAllocator*  alloc  = nullptr;
+    IAllocator*  alloc  = nullptr;
 
     /** T のデストラクタを実行する関数 (型消去された破棄フック)。 */
     void (*destroy_obj)(FControlBlock*) noexcept = nullptr;
@@ -7194,7 +7212,7 @@ struct TInlineBlock : FControlBlock {
      */
     static void FreeSelf(FControlBlock* cb) noexcept {
         auto* self = static_cast<TInlineBlock*>(cb);
-        FAllocator* const a = self->alloc;
+        IAllocator* const a = self->alloc;
         a->Free(self);
     }
 };
@@ -7385,7 +7403,7 @@ private:
     template<typename U> friend class TWeakPtr;
 
     /** MakeSharedIn が採用コンストラクタを使うための friend 宣言。 */
-    template<typename U, typename... A> friend TSharedPtr<U> MakeSharedIn(FAllocator&, A&&...) noexcept;
+    template<typename U, typename... A> friend TSharedPtr<U> MakeSharedIn(IAllocator&, A&&...) noexcept;
 };
 
 /**
@@ -7624,7 +7642,7 @@ void HookSharedFromThis(const TSharedPtr<T>& sp) noexcept {
  * @return 構築した対象を共有所有する TSharedPtr (確保失敗時は空)。
  */
 template<typename T, typename... Args>
-ACS_FORCEINLINE TSharedPtr<T> MakeSharedIn(FAllocator& a, Args&&... args) noexcept {
+ACS_FORCEINLINE TSharedPtr<T> MakeSharedIn(IAllocator& a, Args&&... args) noexcept {
     using Block = sp_detail::TInlineBlock<T>;
     void* const mem = a.Alloc(sizeof(Block), alignof(Block), FSourceLoc::Current());
     if (!mem) return TSharedPtr<T>();
@@ -7711,7 +7729,7 @@ private:
 // SPDX-License-Identifier: Apache-2.0
 // アセット基底クラス
 //
-// 全アセット型は FAsset を継承する。Type() で実行時の型 ID を取得できる。
+// 全アセット型は AAsset を継承する。Type() で実行時の型 ID を取得できる。
 // テクスチャ・メッシュ・音声・スクリプトなどがすべてこの基底を共有する。
 
 
@@ -7823,10 +7841,10 @@ enum class EAssetState : u8 {
  * Type() で実行時の型 ID を取得でき、Id()/State() でレジストリ管理用の
  * 識別子とロード状態を参照する。
  */
-class FAsset {
+class AAsset {
 public:
     /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
-    virtual ~FAsset() noexcept = default;
+    virtual ~AAsset() noexcept = default;
 
     /**
      * 派生クラスごとの実行時型 ID を返す。
@@ -7871,9 +7889,12 @@ private:
     EAssetState _state = EAssetState::Unloaded;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAsset = AAsset;
+
 // 派生クラスで型 ID を簡単に宣言するためのヘルパマクロ
 // 例:
-//   class FTexture : public FAsset {
+//   class FTexture : public AAsset {
 //   public:
 //       ACS_ASSET_TYPE("FTexture")
 //       ...
@@ -7893,8 +7914,8 @@ private:
 // SPDX-License-Identifier: Apache-2.0
 // アセットローダのインターフェイス
 //
-// 各アセット型 (FImageAsset, FMeshAsset, FAudioAsset など) ごとにローダを実装し、
-// FAssetRegistry に登録する。レジストリは拡張子から適切なローダを呼び出す。
+// 各アセット型 (AImageAsset, AMeshAsset, AAudioAsset など) ごとにローダを実装し、
+// CAssetRegistry に登録する。レジストリは拡張子から適切なローダを呼び出す。
 
 
 namespace acs {
@@ -7903,9 +7924,9 @@ namespace acs {
  * アセットローダのインターフェイス。
  *
  * @details
- * 各アセット型 (FImageAsset, FMeshAsset, FAudioAsset など) ごとに実装し、FAssetRegistry に登録する。
+ * 各アセット型 (AImageAsset, AMeshAsset, AAudioAsset など) ごとに実装し、CAssetRegistry に登録する。
  * レジストリは Extension() でパスの拡張子からローダを選び、LoadFromBytes() を呼ぶ。
- * 非同期ロードはレジストリ側が FThreadPool で LoadFromBytes() を呼ぶ形で実現するため、
+ * 非同期ロードはレジストリ側が CThreadPool で LoadFromBytes() を呼ぶ形で実現するため、
  * 実装は同期ロードだけを考えればよい。
  */
 class IAssetLoader {
@@ -7935,7 +7956,7 @@ public:
      * @param bytes ファイル全体のバイト列。
      * @return 成功なら生成したアセット、失敗ならエラー。
      */
-    virtual TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept = 0;
+    virtual TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept = 0;
 };
 
 } // namespace acs
@@ -7949,7 +7970,7 @@ public:
 //   ...
 //   if (fut.IsReady()) {
 //       auto r = fut.Get();
-//       if (r.IsOk()) TSharedPtr<FAsset> a = r.Value();
+//       if (r.IsOk()) TSharedPtr<AAsset> a = r.Value();
 //   }
 //   // または同期待ち（ワーカースチール参加付き）
 //   auto r = fut.Wait();
@@ -8127,7 +8148,7 @@ struct FTask {
  * 外部投入キューの drain → 他ワーカーからの steal → 短時間 park の順に動く。Wait は
  * 待機中もスティーリングに参加するため、ワーカースレッドからの呼び出しでもデッドロックしない。
  */
-class FThreadPool {
+class CThreadPool {
 public:
     /**
      * プールを初期化し、ワーカースレッドを起動する。
@@ -8213,7 +8234,7 @@ public:
         /** callable の所有情報を保持するノード。 */
         FCallableTaskStorage* const storage = AcquireCallableTaskStorage();
         if (!storage) {
-            return ACS_ERR(Threading, 9, "FThreadPool callable storage is unavailable");
+            return ACS_ERR(Threading, 9, "CThreadPool callable storage is unavailable");
         }
 
         if constexpr (sizeof(StoredCallable) <= kInlineCallableBytes && alignof(StoredCallable) <= alignof(std::max_align_t)) {
@@ -8227,7 +8248,7 @@ public:
             auto* const object = new (std::nothrow) StoredCallable(Forward<Callable>(callable));
             if (!object) {
                 AbandonCallableTaskStorage(storage);
-                return ACS_ERR(Memory, 10, "FThreadPool callable allocation failed");
+                return ACS_ERR(Memory, 10, "CThreadPool callable allocation failed");
             }
             storage->object = object;
             storage->destroy = &DestroyHeapCallable<StoredCallable>;
@@ -8322,6 +8343,9 @@ private:
     }
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FThreadPool = CThreadPool;
+
 } // namespace acs
 
 namespace acs {
@@ -8338,7 +8362,7 @@ struct FAsyncLoadState {
     FCompletionCounter counter{1};
 
     /** ロード成功時のアセット (共有所有)。 */
-    TSharedPtr<FAsset>         result;
+    TSharedPtr<AAsset>         result;
 
     /** ロード失敗時のエラーコード (has_error が true のとき有効)。 */
     FErrorCode         error{};
@@ -8351,7 +8375,7 @@ struct FAsyncLoadState {
  * 非同期アセットロードの結果ハンドル。
  *
  * @details
- * FAssetRegistry::LoadAsync が返す。IsReady() でノンブロッキングに完了確認し、
+ * CAssetRegistry::LoadAsync が返す。IsReady() でノンブロッキングに完了確認し、
  * Get()/Wait() で完了を待って結果を取り出す。内部共有状態 (FAsyncLoadState) を
  * TSharedPtr で保持し、ワーカーと結果領域を共有する。
  */
@@ -8361,7 +8385,7 @@ public:
     FAssetFuture() noexcept = default;
 
     /**
-     * 共有状態から future を構築する (FAssetRegistry::LoadAsync 用、内部用)。
+     * 共有状態から future を構築する (CAssetRegistry::LoadAsync 用、内部用)。
      *
      * @param s ワーカーと共有する非同期ロード状態。
      */
@@ -8389,11 +8413,11 @@ public:
      * @details 呼び出しスレッドがワーカーの場合はワーカースチールに参加して手伝う。
      * @return 成功ならロード済みアセット、失敗ならエラー。空 future ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> Get() noexcept {
+    TResult<TSharedPtr<AAsset>> Get() noexcept {
         if (!_state.Get()) return ACS_ERR(Asset, 10, "FAssetFuture: empty");
-        FThreadPool::Wait(_state->counter);
-        if (_state->has_error) return TResult<TSharedPtr<FAsset>>(_state->error);
-        return TResult<TSharedPtr<FAsset>>(OkInit, _state->result);
+        CThreadPool::Wait(_state->counter);
+        if (_state->has_error) return TResult<TSharedPtr<AAsset>>(_state->error);
+        return TResult<TSharedPtr<AAsset>>(OkInit, _state->result);
     }
 
     /**
@@ -8401,7 +8425,7 @@ public:
      *
      * @return Get() と同じ結果。
      */
-    TResult<TSharedPtr<FAsset>> Wait() noexcept { return Get(); }
+    TResult<TSharedPtr<AAsset>> Wait() noexcept { return Get(); }
 
 private:
     /** ワーカーと共有する非同期ロード状態 (null なら無効 future)。 */
@@ -8460,7 +8484,7 @@ namespace acs {
 class FInternedAssetPath {
 public:
     /** 指定アロケータで空のパスを構築する。 */
-    FInternedAssetPath(FAllocator& Allocator, FAssetId Id) noexcept;
+    FInternedAssetPath(IAllocator& Allocator, FAssetId Id) noexcept;
 
     /** パス文字列を一度だけ設定する。 */
     bool TryInitialize(const wchar_t* Path, usize Length) noexcept;
@@ -8509,19 +8533,19 @@ inline constexpr u16 kAssetPathInternerSubOutOfMemory = 16u;
  *
  * @details 未使用要素だけを追い出し、使用中パスのアドレスと寿命を維持する。
  */
-class FAssetPathInterner {
+class CAssetPathInterner {
 public:
     /** デフォルトアロケータで空のプールを構築する。 */
-    FAssetPathInterner() noexcept;
+    CAssetPathInterner() noexcept;
 
     /** 指定アロケータで空のプールを構築する。 */
-    explicit FAssetPathInterner(FAllocator& Allocator) noexcept;
+    explicit CAssetPathInterner(IAllocator& Allocator) noexcept;
 
     /** コピーを禁止する。 */
-    FAssetPathInterner(const FAssetPathInterner&) = delete;
+    CAssetPathInterner(const CAssetPathInterner&) = delete;
 
     /** コピー代入を禁止する。 */
-    FAssetPathInterner& operator=(const FAssetPathInterner&) = delete;
+    CAssetPathInterner& operator=(const CAssetPathInterner&) = delete;
 
     /**
      * 検証済みパスを共有する。
@@ -8543,7 +8567,7 @@ private:
     void EvictUnusedUntilFit(usize RequiredCodeUnits) noexcept;
 
     /** 共有オブジェクトの確保元。 */
-    FAllocator* m_Allocator = nullptr;
+    IAllocator* m_Allocator = nullptr;
 
     /** パス ID ごとの共有文字列。 */
     THashMap<FAssetId, TSharedPtr<FInternedAssetPath>> m_Paths;
@@ -8554,6 +8578,9 @@ private:
     /** 累積診断値。 */
     FAssetPathInternerDiagnostics m_Diagnostics{};
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAssetPathInterner = CAssetPathInterner;
 
 } // namespace acs
 
@@ -8610,29 +8637,29 @@ inline constexpr u16 kAssetRegistrySubShuttingDown      = 13u;
  * FAssetId をキーに TSharedPtr でキャッシュされ、同じパスの再ロードは同一インスタンスを返す。
  * FMutex でガードされ、非同期ワーカーからのキャッシュ挿入も安全。non-copy 型。
  */
-class FAssetRegistry {
+class CAssetRegistry {
 public:
     /** 空のレジストリを構築する (ローダ未登録)。 */
-    FAssetRegistry() noexcept = default;
+    CAssetRegistry() noexcept = default;
 
     /**
      * 指定アロケータを使う空のレジストリを構築する。
      *
      * @param allocator キャッシュ・ローダ配列のストレージ確保元。
      */
-    explicit FAssetRegistry(FAllocator& allocator) noexcept
+    explicit CAssetRegistry(IAllocator& allocator) noexcept
         : m_Cache(allocator), m_InFlight(allocator), m_Loaders(allocator), m_PathInterner(allocator)
     {
     }
 
     /** 実行中の同期・非同期ロードを待ってからキャッシュを解放する。 */
-    ~FAssetRegistry() noexcept;
+    ~CAssetRegistry() noexcept;
 
     /** コピー禁止 (FMutex とキャッシュを単独保持するため)。 */
-    FAssetRegistry(const FAssetRegistry&) = delete;
+    CAssetRegistry(const CAssetRegistry&) = delete;
 
     /** コピー代入も禁止。 */
-    FAssetRegistry& operator=(const FAssetRegistry&) = delete;
+    CAssetRegistry& operator=(const CAssetRegistry&) = delete;
 
     /**
      * ローダを登録する。
@@ -8659,12 +8686,12 @@ public:
      * @param path ロードするファイルのパス。
      * @return 成功ならアセット、失敗 (null path / ローダ無し / 読み込み失敗) ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> Load(const wchar_t* path) noexcept;
+    TResult<TSharedPtr<AAsset>> Load(const wchar_t* path) noexcept;
 
     /**
      * パスからアセットを非同期ロードする。
      *
-     * @details FThreadPool ワーカーで実行し、完了は FAssetFuture で確認する。
+     * @details CThreadPool ワーカーで実行し、完了は FAssetFuture で確認する。
      * キャッシュ済みなら即完了状態の future を返す。
      * @param path ロードするファイルのパス。
      * @return 完了確認用の FAssetFuture。
@@ -8696,7 +8723,7 @@ public:
      * @param id 探すアセット ID。
      * @return キャッシュにあればアセット、無ければ空の TSharedPtr。
      */
-    TSharedPtr<FAsset> Find(FAssetId id) noexcept;
+    TSharedPtr<AAsset> Find(FAssetId id) noexcept;
 
     /**
      * 指定アセットをキャッシュから外す (ファイル変更時の再読み込み用)。
@@ -8714,7 +8741,7 @@ public:
      * @param id 挿入するアセット ID。
      * @param a 挿入するアセット。
      */
-    TResult<void> AsyncCacheInsert(FAssetId id, TSharedPtr<FAsset> a) noexcept;
+    TResult<void> AsyncCacheInsert(FAssetId id, TSharedPtr<AAsset> a) noexcept;
 
     /** 完了した非同期要求を処理中テーブルから外す。 */
     void AsyncLoadFinished(FAssetId id) noexcept;
@@ -8732,7 +8759,7 @@ private:
     mutable FMutex                  m_Lock;
 
     /** ID をキーにしたアセットキャッシュ。 */
-    THashMap<FAssetId, TSharedPtr<FAsset>>    m_Cache;
+    THashMap<FAssetId, TSharedPtr<AAsset>>    m_Cache;
 
     /**
      * 同一 ID の未完了ロードが共有する状態。
@@ -8746,7 +8773,7 @@ private:
     TArray<IAssetLoader*>           m_Loaders;
 
     /** 非同期ジョブと再要求で共有する有界パス所有プール。 */
-    FAssetPathInterner m_PathInterner;
+    CAssetPathInterner m_PathInterner;
 
     /** 有効な非同期要求数。 */
     u64 m_AsyncRequestCount = 0u;
@@ -8773,34 +8800,37 @@ private:
     FCompletionCounter m_ActiveOperations;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAssetRegistry = CAssetRegistry;
+
 } // namespace acs
 
 // ===================== render/Renderer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 高レベル FRenderer（ウィンドウへの描画ループを統括する司令塔）
+// 高レベル CRenderer（ウィンドウへの描画ループを統括する司令塔）
 //
 // 使い方 (典型的):
-//   FRenderer rdr;
+//   CRenderer rdr;
 //   rdr.Init(window);
 //   while (!window.ShouldClose()) {
 //       window.PollEvents();
 //       rdr.BeginFrame({0.1f, 0.2f, 0.3f, 1.0f});
 //       // BeginFrame 後は GetCommandList() でコマンドを積める。
 //       // 高レベルヘルパ:
-//       //   FStandardShader  — Lambert+Blinn-Phong + シャドウマップ
-//       //   FSkinnedShader   — GPU スキニング (BoneCB + BLENDINDICES/WEIGHT)
-//       //   FSky             — 手続き生成スカイ (Day/Sunset/Night プリセット)
-//       //   FSpriteBatch     — 2D スプライト + フォント
-//       //   FFont            — TTrueType -> アトラス -> FSpriteBatch
-//       //   FParticleSystem  — 簡易 GPU パーティクル
-//       //   FShadowMap       — depth-only パス
-//       //   FPostProcess     — HDR + Bloom + ACES Tonemap (Diligent backend 専用)
+//       //   CStandardShader  — Lambert+Blinn-Phong + シャドウマップ
+//       //   CSkinnedShader   — GPU スキニング (BoneCB + BLENDINDICES/WEIGHT)
+//       //   CSky             — 手続き生成スカイ (Day/Sunset/Night プリセット)
+//       //   CSpriteBatch     — 2D スプライト + フォント
+//       //   FFont            — TTrueType -> アトラス -> CSpriteBatch
+//       //   CParticleSystem  — 簡易 GPU パーティクル
+//       //   CShadowMap       — depth-only パス
+//       //   CPostProcess     — HDR + Bloom + ACES Tonemap (Diligent backend 専用)
 //       if (!rdr.EndFrame()) break;
 //   }
 //   rdr.Shutdown();
 //
-// HDR ポストプロセス経路を組むときは FApplication::OnCustomFrame() を override
-// して、自分で BeginRenderToTexture(HDR_RT) → 描画 → FPostProcess.Render() →
+// HDR ポストプロセス経路を組むときは CApplication::OnCustomFrame() を override
+// して、自分で BeginRenderToTexture(HDR_RT) → 描画 → CPostProcess.Render() →
 // Present までを直接書く (HelloBloom 参照)。
 
 
@@ -8809,7 +8839,7 @@ private:
 // ACS Memory — TUniquePtr<T>（std::unique_ptr 代替）
 //
 // 単独所有のスマートポインタ。ムーブのみ可、コピー不可。
-// 破棄時に FAllocator::Free を呼んで自動解放する。
+// 破棄時に IAllocator::Free を呼んで自動解放する。
 //
 // 例:
 //   auto p = MakeUnique<FMesh>(args...);
@@ -8839,7 +8869,7 @@ public:
      * @param Pointer 所有する対象 (この後の解放責任を引き受ける)。
      * @param Allocator 解放に使うアロケータ (nullptr なら DefaultAllocator)。
      */
-    explicit TUniquePtr(T* Pointer, FAllocator* Allocator = nullptr) noexcept
+    explicit TUniquePtr(T* Pointer, IAllocator* Allocator = nullptr) noexcept
         : m_Ptr(Pointer), m_Alloc(Allocator ? Allocator : &DefaultAllocator())
     {
     }
@@ -8954,7 +8984,7 @@ public:
      * @param Pointer 新たに保持する対象 (既定 nullptr で空にする)。
      * @param Allocator Pointer の解放に使うアロケータ。省略時は現在の保持先、空なら DefaultAllocator。
      */
-    void Reset(T* Pointer = nullptr, FAllocator* Allocator = nullptr) noexcept
+    void Reset(T* Pointer = nullptr, IAllocator* Allocator = nullptr) noexcept
     {
         // 同じポインタを渡した場合に、解放済みポインタを再保持しない。
         if (Pointer == m_Ptr) {
@@ -8982,7 +9012,7 @@ public:
      *
      * @return 保持中のアロケータ。
      */
-    FAllocator* GetAllocator() const noexcept
+    IAllocator* GetAllocator() const noexcept
     {
         return m_Alloc;
     }
@@ -8992,7 +9022,7 @@ private:
     T* m_Ptr = nullptr;
 
     /** 対象の解放に使うアロケータ。 */
-    FAllocator* m_Alloc = nullptr;
+    IAllocator* m_Alloc = nullptr;
 };
 
 /**
@@ -9006,7 +9036,7 @@ private:
 template<typename T, typename... Args>
 ACS_FORCEINLINE TUniquePtr<T> MakeUnique(Args&&... Arguments) noexcept
 {
-    FAllocator& Allocator = DefaultAllocator();
+    IAllocator& Allocator = DefaultAllocator();
     T* const Pointer = New<T>(Allocator, Forward<Args>(Arguments)...);
     return TUniquePtr<T>(Pointer, &Allocator);
 }
@@ -9021,7 +9051,7 @@ ACS_FORCEINLINE TUniquePtr<T> MakeUnique(Args&&... Arguments) noexcept
  * @return 構築した対象を所有する TUniquePtr (確保失敗時は空)。
  */
 template<typename T, typename... Args>
-ACS_FORCEINLINE TUniquePtr<T> MakeUniqueIn(FAllocator& Allocator, Args&&... Arguments) noexcept
+ACS_FORCEINLINE TUniquePtr<T> MakeUniqueIn(IAllocator& Allocator, Args&&... Arguments) noexcept
 {
     T* const Pointer = New<T>(Allocator, Forward<Args>(Arguments)...);
     return TUniquePtr<T>(Pointer, &Allocator);
@@ -10180,7 +10210,7 @@ TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const FDeviceConfig& configurati
  * @details
      * Diligent の IEngineFactoryD3D12 のような「初回使用時に CRT ヒープへ遅延構築され、
  * プロセス終了の static デストラクタまで生きる」シングルトンを、CRT デバッグヒープの
- * リーク計測スコープ (FApplication スコープ) を開く前に確定させるためのフック。
+ * リーク計測スコープ (CApplication スコープ) を開く前に確定させるためのフック。
  * これを呼ばないと、計測スコープ内で構築されたシングルトンがスコープ終了時の
  * ダンプに残留ブロックとして現れ、実リークが無いのに leak_detected=true になる。
  * デバイス生成は行わない。何度呼んでも安全 (2 回目以降は no-op)。
@@ -11028,22 +11058,22 @@ class FWindow;
  * @details
  * Device + Swapchain + CommandList (+ 任意で深度バッファ) を所有し、BeginFrame /
  * EndFrame でフレーム境界を管理する。BeginFrame 後に GetCommandList() でコマンドを
- * 積み、FStandardShader / FSky / FSpriteBatch などの高レベルヘルパで描画する。GPU
+ * 積み、CStandardShader / CSky / CSpriteBatch などの高レベルヘルパで描画する。GPU
  * リソースを単独所有する non-copy 型。
  */
-class FRenderer {
+class CRenderer {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FRenderer() noexcept = default;
+    CRenderer() noexcept = default;
 
     /** 破棄する (確保した GPU リソースを解放)。 */
-    ~FRenderer() noexcept;
+    ~CRenderer() noexcept;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FRenderer(const FRenderer&) = delete;
+    CRenderer(const CRenderer&) = delete;
 
     /** コピー代入も禁止。 */
-    FRenderer& operator=(const FRenderer&) = delete;
+    CRenderer& operator=(const CRenderer&) = delete;
 
     /**
      * ウィンドウに紐付けて初期化する (Device + Swapchain + CommandList を作成)。
@@ -11206,6 +11236,10 @@ private:
     /** フレームが BeginFrame 済み (EndFrame 未呼出) か。 */
     bool                        m_bFrameOpen     = false;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FRenderer = CRenderer;
+
 
 } // namespace acs
 
@@ -12010,6 +12044,18 @@ using FMessageBroker = CMessageBroker;
 
 } // namespace acs
 
+// ===================== app/Forward.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+namespace acs {
+
+/** アプリケーションの実行期間を所有する正規型。 */
+class CApplication;
+/** 旧公開名から正規アプリケーション型へ接続する互換別名。 */
+using FApplication = CApplication;
+
+} // namespace acs
+
 // ===================== memory/CrtDebugHeapDiagnostics.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
@@ -12215,9 +12261,9 @@ private:
 };
 
 /** MSVC CRT デバッグヒープの単発診断 API。 */
-class FCrtDebugHeapDiagnostics final {
+class CCrtDebugHeapDiagnostics final {
 public:
-    FCrtDebugHeapDiagnostics() = delete;
+    CCrtDebugHeapDiagnostics() = delete;
 
     /** MSVC の Debug CRT 診断が利用可能か。 */
     static bool IsSupported() noexcept;
@@ -12252,6 +12298,404 @@ public:
     static bool SetProcessExitLeakCheckEnabled(bool bEnabled) noexcept;
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FCrtDebugHeapDiagnostics = CCrtDebugHeapDiagnostics;
+
+} // namespace acs
+
+// ===================== subsystem/SubsystemCollection.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== subsystem/Subsystem.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== subsystem/SubsystemFrameContext.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== subsystem/SubsystemTickPhase.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** サブシステムを呼び出すフレーム更新段階。 */
+enum class ESubsystemTickPhase : u8 {
+    /** 自動更新を行わない。 */
+    None = 0,
+    /** 利用側の通常更新より前に呼び出す。 */
+    PreUpdate = 1,
+    /** 利用側の通常更新より後に呼び出す。 */
+    PostUpdate = 2,
+};
+
+} // namespace acs
+
+namespace acs {
+
+/** 1 回のサブシステム更新へ渡す時刻と更新段階。 */
+struct FSubsystemFrameContext {
+    /** 時間倍率を反映した経過秒。 */
+    f32 scaled_delta_seconds = 0.0f;
+    /** 時間倍率を反映しない経過秒。 */
+    f32 unscaled_delta_seconds = 0.0f;
+    /** 呼び出し元が管理するフレーム番号。 */
+    u64 frame_number = 0u;
+    /** 今回呼び出す更新段階。 */
+    ESubsystemTickPhase phase = ESubsystemTickPhase::None;
+};
+
+} // namespace acs
+
+// ===================== subsystem/SubsystemOwner.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** サブシステム owner の責務種別。 */
+enum class ESubsystemOwnerKind : u8 {
+    /** 旧 API または種別を保証できない owner。 */
+    Unknown = 0,
+    /** アプリケーション寿命を所有する CApplication。 */
+    Application = 1,
+    /** ゲームセッション寿命を所有する CGame。 */
+    Game = 2,
+    /** ワールド寿命を所有する AScene。 */
+    Scene = 3,
+};
+
+/** サブシステムへ渡す非所有 owner とその責務種別。 */
+struct FSubsystemOwner {
+    /** owner の生ポインタ。サブシステムは所有しない。 */
+    void* pointer = nullptr;
+    /** pointer が満たす責務種別。 */
+    ESubsystemOwnerKind kind = ESubsystemOwnerKind::Unknown;
+};
+
+} // namespace acs
+
+// ===================== subsystem/SubsystemScope.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** サブシステムを所有する寿命スコープ。 */
+enum class ESubsystemScope : u8 {
+    /** アプリケーション全体の寿命。 */
+    Engine = 0,
+    /** 1 回のゲーム実行セッションの寿命。 */
+    GameInstance = 1,
+    /** 1 つのシーンまたはワールドの寿命。 */
+    World = 2,
+};
+
+} // namespace acs
+
+namespace acs {
+
+/** owner の寿命に従って生成・更新・破棄される共有サービスの基底。 */
+class ASubsystem {
+public:
+    /** 派生を基底ポインタから破棄する。 */
+    virtual ~ASubsystem() noexcept;
+
+    /**
+     * owner 割り当て後、初期化 callback より前に責務を検証する。
+     * 永続的な変更を行わず、owner を利用できない場合は false を返す。
+     */
+    virtual bool OnOwnerAssigned() noexcept { return true; }
+
+    /** owner 検証が全件成功した後、決定済み順序で初期化する。 */
+    virtual void OnInitialize() noexcept {}
+
+    /** 初期化済み要素を逆順に終了する。 */
+    virtual void OnDeinitialize() noexcept {}
+
+    /** 旧 API のスケール済み経過秒を受け取る更新 callback。 */
+    virtual void OnTick(f32 /*delta_seconds*/) noexcept {}
+
+    /**
+     * 時刻と段階を含む更新 callback。
+     * 既定実装は旧 OnTick(f32) へスケール済み経過秒を転送する。
+     */
+    virtual void OnTickFrame(const FSubsystemFrameContext& context) noexcept;
+
+    /** 派生型固有の同一 link image 内種別 ID を返す。 */
+    virtual const void* Kind() const noexcept = 0;
+
+    /** 診断と決定順序に使う型名を返す。 */
+    virtual const char* Name() const noexcept { return "FSubsystem"; }
+
+    /** 割り当て済み owner を返す。 */
+    void* Owner() const noexcept { return m_Owner.pointer; }
+
+    /** 割り当て済み owner の責務種別を返す。 */
+    ESubsystemOwnerKind OwnerKind() const noexcept { return m_Owner.kind; }
+
+    /** 呼び出し側が責務種別を保証した owner を型付きで返す。 */
+    template<typename T>
+    T* OwnerAs() const noexcept
+    {
+        return static_cast<T*>(m_Owner.pointer);
+    }
+
+    /** owner descriptor を設定するコレクション内部 API。 */
+    void _SetOwnerDescriptor(FSubsystemOwner owner) noexcept { m_Owner = owner; }
+
+    /** 種別を持たない旧 owner ポインタを設定する互換 API。 */
+    void _SetOwner(void* owner) noexcept
+    {
+        m_Owner = FSubsystemOwner{owner, ESubsystemOwnerKind::Unknown};
+    }
+
+private:
+    /** owner の非所有ポインタと責務種別。 */
+    FSubsystemOwner m_Owner{};
+};
+
+/** 旧公開名を正規サブシステム基底型へ接続する互換別名。 */
+using FSubsystem = ASubsystem;
+
+/** RTTI を使わず、同じ link image 内で型ごとに一意な ID を返す。 */
+template<typename T>
+const void* SubsystemKindOf() noexcept
+{
+    /** 型 T 専用の process lifetime タグ。 */
+    static const int Tag = 0;
+    return static_cast<const void*>(&Tag);
+}
+
+} // namespace acs
+
+/** ASubsystem 派生へ型 ID と診断名を実装する。 */
+#define ACS_SUBSYSTEM_KIND(T)                              \
+    const void* Kind() const noexcept override             \
+    {                                                       \
+        return ::acs::SubsystemKindOf<T>();                 \
+    }                                                       \
+    const char* Name() const noexcept override { return #T; }
+
+/** GameFramework 旧派生宣言を正規マクロへ転送する。 */
+#define ACS_GAME_SUBSYSTEM_KIND(T) ACS_SUBSYSTEM_KIND(T)
+
+// ===================== subsystem/SubsystemFactory.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 1 つのサブシステムを生成する非捕捉関数。 */
+using FSubsystemCreateFn = TUniquePtr<ASubsystem> (*)();
+
+/** サブシステム型の生成条件と決定順序を表す登録値。 */
+struct FSubsystemFactory {
+    /** SubsystemKindOf<T>() が返す同一 link image 内種別 ID。 */
+    const void* kind = nullptr;
+    /** 生成する owner 寿命スコープ。 */
+    ESubsystemScope scope = ESubsystemScope::World;
+    /**
+     * 同一order内の決定順序と診断に使うimmutableなNUL終端borrowed文字列。
+     * 登録成功から対応Unregisterまで有効に保ち、自動登録値はprocess終了まで保持する。
+     */
+    const char* name = "";
+    /** 1 体を生成し、失敗時は空を返す関数。 */
+    FSubsystemCreateFn create = nullptr;
+    /** 自動更新する段階。 */
+    ESubsystemTickPhase phase = ESubsystemTickPhase::PreUpdate;
+    /** 小さい値から初期化・更新する決定順序。 */
+    i32 order = 0;
+};
+
+/** scopeが公開列挙値かを判定する。 */
+inline bool IsValidSubsystemScope(ESubsystemScope Scope) noexcept
+{
+    return Scope == ESubsystemScope::Engine || Scope == ESubsystemScope::GameInstance ||
+           Scope == ESubsystemScope::World;
+}
+
+/** 更新段階が公開列挙値かを判定する。 */
+inline bool IsValidSubsystemTickPhase(ESubsystemTickPhase Phase) noexcept
+{
+    return Phase == ESubsystemTickPhase::None || Phase == ESubsystemTickPhase::PreUpdate ||
+           Phase == ESubsystemTickPhase::PostUpdate;
+}
+
+/** 登録可能なfactory metadataが全項目揃っているかを判定する。 */
+inline bool IsValidSubsystemFactory(const FSubsystemFactory& Factory) noexcept
+{
+    return Factory.kind != nullptr && Factory.name != nullptr && Factory.name[0] != '\0' &&
+           Factory.create != nullptr && IsValidSubsystemScope(Factory.scope) &&
+           IsValidSubsystemTickPhase(Factory.phase);
+}
+
+} // namespace acs
+
+namespace acs {
+
+/** 1 owner スコープのサブシステムを決定順序で所有・更新する。 */
+class CSubsystemCollection {
+public:
+    /** 未初期化の空コレクションを構築する。 */
+    CSubsystemCollection() noexcept = default;
+
+    /** 初期化済み要素を逆順に終了して破棄する。 */
+    ~CSubsystemCollection() noexcept;
+
+    CSubsystemCollection(const CSubsystemCollection&) = delete;
+    CSubsystemCollection& operator=(const CSubsystemCollection&) = delete;
+
+    /**
+     * 登録 snapshot から対象スコープを全生成し、owner 検証後に初期化する。
+     * factory、確保、生成、owner 検証の失敗時は callback を開始せず元の状態を保つ。
+     * parent は callback 外で Active な直上スコープだけを受け入れ、null は standalone とする。
+     * parent object はこのcollectionより長く生存する。parent lifecycle世代が変わると即座に
+     * childを不可視とし、次のTickFrameで初期化済み要素を逆順に終了する。
+     */
+    bool TryInitialize(
+        ESubsystemScope scope,
+        CSubsystemCollection* parent = nullptr,
+        FSubsystemOwner owner = {}) noexcept;
+
+    /** 種別を持たない旧 owner ポインタで初期化を試みる互換 API。 */
+    bool TryInitialize(
+        ESubsystemScope scope, CSubsystemCollection* parent, void* owner) noexcept;
+
+    /** 失敗結果を破棄する旧初期化 API。 */
+    void Initialize(
+        ESubsystemScope scope,
+        CSubsystemCollection* parent = nullptr,
+        void* owner = nullptr) noexcept;
+
+    /** 初期化済み要素を逆順に終了する。callback 中の要求は callback 後へ延期する。 */
+    void Deinitialize() noexcept;
+
+    /** 指定段階と一致する要素だけを決定順序で 1 回更新する。 */
+    void TickFrame(const FSubsystemFrameContext& context) noexcept;
+
+    /**
+     * 旧更新 API。
+     * None 以外を PreUpdate、PostUpdate の順でそれぞれ 1 回だけ更新する。
+     */
+    void Tick(f32 delta_seconds) noexcept;
+
+    /** 自スコープの可視要素、続いて parent から種別 ID を検索する。 */
+    ASubsystem* GetByKind(const void* kind) const noexcept;
+
+    /** 自スコープから parent の順に派生型を検索する。 */
+    template<typename T>
+    T* Get() const noexcept
+    {
+        return static_cast<T*>(GetByKind(SubsystemKindOf<T>()));
+    }
+
+    /** 現在 callback から安全に参照できる自スコープ要素数を返す。 */
+    u32 Count() const noexcept
+    {
+        if ((m_State == EState::Active || m_State == EState::Ticking) &&
+            (!IsLogicallyActive() || !CommittedParentMatches())) return 0u;
+        return m_VisibleCount;
+    }
+
+    /** 最後に指定されたスコープを返す。 */
+    ESubsystemScope Scope() const noexcept { return m_Scope; }
+
+    /** 成功した初期化と終了ごとに変わる非循環lifecycle世代を返す。 */
+    u64 LifecycleGeneration() const noexcept { return m_LifecycleGeneration; }
+
+    /** 通常利用または更新 callback 中なら true を返す。 */
+    bool IsInitialized() const noexcept;
+
+private:
+    /** lifecycle callback の再入を制御する状態。 */
+    enum class EState : u8 {
+        /** callback と所有要素がない。 */
+        Uninitialized = 0,
+        /** owner 検証または初期化 callback を実行中。 */
+        Initializing = 1,
+        /** 通常利用できる。 */
+        Active = 2,
+        /** 更新 callback を実行中。 */
+        Ticking = 3,
+        /** 終了 callback を実行中。 */
+        Deinitializing = 4,
+    };
+
+    /** 通常利用中または終了要求前の更新 callback 中か判定する。 */
+    bool IsLogicallyActive() const noexcept;
+
+    /** 所有実体と更新順序をまとめる内部要素。 */
+    struct FEntry {
+        /** サブシステム実体。 */
+        TUniquePtr<ASubsystem> instance{};
+        /** factory生成時に一度だけ照合した種別。 */
+        const void* kind = nullptr;
+        /** 自動更新する段階。 */
+        ESubsystemTickPhase phase = ESubsystemTickPhase::None;
+        /** 初期化と更新の第 1 決定キー。 */
+        i32 order = 0;
+        /** 初期化と更新の第 2 決定キー。 */
+        const char* name = "";
+    };
+
+    /** typed ownerの責務種別とscopeが一致するか判定する。 */
+    static bool IsValidOwner(
+        ESubsystemScope scope, const FSubsystemOwner& owner) noexcept;
+
+    /** parent が自分または循環済み chain を含むか判定する。 */
+    bool HasInvalidParent(
+        ESubsystemScope scope, const CSubsystemCollection* parent) const noexcept;
+
+    /** commit済みchainがcallback中を含め論理的に有効か判定する。 */
+    bool HasInvalidCommittedParent(
+        ESubsystemScope scope, const CSubsystemCollection* parent) const noexcept;
+
+    /** parentのscope、Active状態、lifecycle世代が開始時点と一致するか判定する。 */
+    bool ParentMatches(
+        ESubsystemScope scope, const CSubsystemCollection* parent,
+        u64 lifecycle_generation) const noexcept;
+
+    /** commit済みparentが同じActive lifecycleを保つか判定する。 */
+    bool CommittedParentMatches() const noexcept;
+
+    /** left を right より先に置くか order、name の順で判定する。 */
+    static bool EntryLess(const FEntry& left, const FEntry& right) noexcept;
+
+    /** 初期化済みの可視 prefix だけを逆順 callback で終了する。 */
+    void TeardownVisibleEntries() noexcept;
+
+    /** 全要素の owner descriptor を空へ戻す。 */
+    void ClearOwners() noexcept;
+
+    /** 所有するサブシステムと決定順序。 */
+    TArray<FEntry> m_Subsystems;
+    /** 上位スコープの非所有コレクション。 */
+    CSubsystemCollection* m_Parent = nullptr;
+    /** callback から安全に参照できる先頭要素数。 */
+    u32 m_VisibleCount = 0u;
+    /** このコレクションの owner 寿命スコープ。 */
+    ESubsystemScope m_Scope = ESubsystemScope::World;
+    /** 現在の lifecycle 状態。 */
+    EState m_State = EState::Uninitialized;
+    /** callback 終了後に Deinitialize する要求。 */
+    bool m_DeinitializeRequested = false;
+    /** commit済み初期化を識別するowner descriptor。 */
+    FSubsystemOwner m_Owner{};
+    /** parent再初期化を識別する非循環lifecycle世代。 */
+    u64 m_LifecycleGeneration = 0u;
+    /** commit時に捕捉したparent lifecycle世代。 */
+    u64 m_ParentGeneration = 0u;
+};
+
+/** 旧公開名を正規サブシステム集合型へ接続する互換別名。 */
+using FSubsystemCollection = CSubsystemCollection;
+
+static_assert(sizeof(CSubsystemCollection) == 80u);
+static_assert(alignof(CSubsystemCollection) == 8u);
+
 } // namespace acs
 
 namespace acs {
@@ -12264,24 +12708,24 @@ class FApplicationTestAccess;
  * ゲーム/サンプルが継承するアプリケーション基底クラス。
  *
  * @details
- * ウィンドウ・レンダラ・ECS FWorld・アセット・タイマー・イベントブローカーといった
+ * ウィンドウ・レンダラ・ECS CWorld・アセット・タイマー・イベントブローカーといった
  * エンジンサブシステムを所有し、Run() で初期化からメインループ・後始末までを駆動する。
  * 派生クラスは OnStart/OnUpdate/OnRender/OnShutdown/OnEvent を override してロジックと
  * 描画を書く。non-copy 型で、通常は ACS_DEFINE_MAIN マクロ経由でインスタンス化する。
  */
-class FApplication {
+class CApplication {
 public:
     /** 既定状態で構築する (サブシステムは Run で初期化)。 */
-    FApplication() noexcept = default;
+    CApplication() noexcept = default;
 
     /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
-    virtual ~FApplication() noexcept = default;
+    virtual ~CApplication() noexcept = default;
 
     /** コピー禁止 (エンジンサブシステムを単独所有するため)。 */
-    FApplication(const FApplication&) = delete;
+    CApplication(const CApplication&) = delete;
 
     /** コピー代入も禁止。 */
-    FApplication& operator=(const FApplication&) = delete;
+    CApplication& operator=(const CApplication&) = delete;
 
     /**
      * サブシステムを初期化し、メインループを最後まで回す。
@@ -12294,7 +12738,7 @@ public:
      * OnShutdown で解放しておくこと。
      * @param configuration ウィンドウ・ロガー・レンダラ等の起動オプション。
      * @return 正常終了で 0、初期化失敗で 1〜4、同一オブジェクトへの再入で 5、
-     *         実行中の resize/submit/present 失敗で 6。
+     *         実行中の resize/submit/present 失敗で 6、Engine サブシステム初期化失敗で 7。
      */
     int Run(const FAppConfig& configuration) noexcept;
 
@@ -12342,19 +12786,19 @@ public:
     /**
      * レンダラへの参照を返す。
      *
-     * @return アプリが所有する FRenderer への参照。
+     * @return アプリが所有する CRenderer への参照。
      */
-    FRenderer& GetRenderer() noexcept
+    CRenderer& GetRenderer() noexcept
     {
         return m_Renderer;
     }
 
     /**
-     * ECS FWorld への参照を返す。
+     * ECS CWorld への参照を返す。
      *
-     * @return アプリが所有する FWorld への参照。
+     * @return アプリが所有する CWorld への参照。
      */
-    FWorld& GetWorld() noexcept
+    CWorld& GetWorld() noexcept
     {
         return m_World;
     }
@@ -12362,9 +12806,9 @@ public:
     /**
      * アセットレジストリへの参照を返す。
      *
-     * @return アプリが所有する FAssetRegistry への参照。
+     * @return アプリが所有する CAssetRegistry への参照。
      */
-    FAssetRegistry& GetAssets() noexcept
+    CAssetRegistry& GetAssets() noexcept
     {
         return m_Assets;
     }
@@ -12387,6 +12831,19 @@ public:
     CMessageBroker& GetEvents() noexcept
     {
         return m_Events;
+    }
+
+    /** Application 寿命の Engine サブシステム群を返す。 */
+    CSubsystemCollection& EngineSubsystems() noexcept
+    {
+        return m_EngineSubsystems;
+    }
+
+    /** Application 寿命の Engine サブシステムを型で取得する。 */
+    template<typename T>
+    T* GetSubsystem() noexcept
+    {
+        return m_EngineSubsystems.Get<T>();
     }
 
     /**
@@ -12471,37 +12928,37 @@ protected:
 
 private:
     /**
-     * Run が起動したプロセス基盤だけを保持し、FApplication の全メンバより後に停止する。
+     * Run が起動したプロセス基盤だけを保持し、CApplication の全メンバより後に停止する。
      *
      * @details この型のインスタンスを最初のデータメンバに置くことで、派生メンバ、レンダラ、
-     * ウィンドウ、基底コンテナの破棄後に FThreadPool、FMemorySystem、FLogger を停止できる。
+     * ウィンドウ、基底コンテナの破棄後に CThreadPool、CMemorySystem、CLogger を停止できる。
      */
     struct FRuntimeFoundationLifetime {
         /** 所有中の基盤を逆順で停止する。 */
         ~FRuntimeFoundationLifetime() noexcept;
 
-        /** 未起動なら FLogger を起動し、成功時だけ所有権を記録する。 */
+        /** 未起動なら CLogger を起動し、成功時だけ所有権を記録する。 */
         void InitializeLogger(const FLogConfig& config) noexcept;
 
         /** Debug CRT のプロセス設定と基盤寿命スコープ診断を開始する。 */
         void InitializeMemoryDiagnostics() noexcept;
 
-        /** 未起動なら FMemorySystem を起動し、成功時だけ所有権を記録する。 */
+        /** 未起動なら CMemorySystem を起動し、成功時だけ所有権を記録する。 */
         TResult<void> InitializeMemorySystem(const FMemorySystemConfig& config) noexcept;
 
-        /** 未起動なら FThreadPool を起動し、成功時だけ所有権を記録する。 */
+        /** 未起動なら CThreadPool を起動し、成功時だけ所有権を記録する。 */
         TResult<void> InitializeThreadPool(u32 worker_count) noexcept;
 
         /** 起動途中の失敗時にも使える冪等な明示解放。 */
         void Release() noexcept;
 
-        /** このガードが FLogger の終了責任を持つ。 */
+        /** このガードが CLogger の終了責任を持つ。 */
         bool logger_owned = false;
 
-        /** このガードが FMemorySystem の終了責任を持つ。 */
+        /** このガードが CMemorySystem の終了責任を持つ。 */
         bool memory_system_owned = false;
 
-        /** このガードが FThreadPool の終了責任を持つ。 */
+        /** このガードが CThreadPool の終了責任を持つ。 */
         bool thread_pool_owned = false;
 
         /** Run の基盤所有権を追跡中である。 */
@@ -12520,7 +12977,7 @@ private:
     friend class app_internal::FApplicationTestAccess;
 
     /**
-     * FWindow のイベントを FInput に流しつつ OnEvent も呼ぶ静的ブリッジ。
+     * FWindow のイベントを CInput に流しつつ OnEvent も呼ぶ静的ブリッジ。
      *
      * @param user_data this を指すユーザポインタ (SetEventCallback で登録)。
      * @param event 受信したイベント。
@@ -12534,19 +12991,22 @@ private:
     FWindow m_Window;
 
     /** レンダラ。 */
-    FRenderer m_Renderer;
+    CRenderer m_Renderer;
 
-    /** ECS FWorld。 */
-    FWorld m_World;
+    /** ECS CWorld。 */
+    CWorld m_World;
 
     /** アセットレジストリ。 */
-    FAssetRegistry m_Assets;
+    CAssetRegistry m_Assets;
 
     /** タイマーマネージャ。 */
     CTimerManager m_Timers;
 
     /** イベントブローカー。 */
     CMessageBroker m_Events;
+
+    /** Application が所有する Engine スコープのサブシステム群。 */
+    CSubsystemCollection m_EngineSubsystems;
 
     /** フレーム計時 (dt・FPS・フレーム数を提供)。 */
     FFrameTimer m_FrameTimer;
@@ -12580,12 +13040,67 @@ private:
 
 } // namespace acs
 
+// ===================== app/ApplicationSubsystemCatalog.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+namespace acs {
+
+/**
+ * App 組み込みサブシステムを明示的かつ冪等に登録する。
+ * 容量不足では false を返す。成功済み登録は保持され、後続呼び出しで不足分を再試行できる。
+ */
+bool AcsRegisterApplicationSubsystems() noexcept;
+
+} // namespace acs
+
+// ===================== app/AssetSubsystem.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+class CAssetRegistry;
+
+class AAssetSubsystem;
+/** 旧公開名を正規アセットサブシステム型へ接続する互換別名。 */
+using FAssetSubsystem = AAssetSubsystem;
+
+/** CApplication が所有するアセット登録簿を Engine スコープへ公開するアダプター。 */
+class AAssetSubsystem final : public ASubsystem {
+public:
+    ACS_SUBSYSTEM_KIND(FAssetSubsystem)
+
+    /** Application owner を検証し、既存アセット登録簿を非所有で結び付ける。 */
+    bool OnOwnerAssigned() noexcept override;
+
+    /** 終了する Engine スコープから非所有参照を外す。 */
+    void OnDeinitialize() noexcept override;
+
+    /** 結び付け済みのアセット登録簿を返し、未初期化なら nullptr を返す。 */
+    CAssetRegistry* GetAssets() noexcept
+    {
+        return m_Assets;
+    }
+
+    /** 結び付け済みのアセット登録簿を返し、未初期化なら nullptr を返す。 */
+    const CAssetRegistry* GetAssets() const noexcept
+    {
+        return m_Assets;
+    }
+
+private:
+    /** CApplication が所有するアセット登録簿への非所有参照。 */
+    CAssetRegistry* m_Assets = nullptr;
+};
+
+} // namespace acs
+
 // ===================== app/EntryPoint.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // 共通エントリポイントマクロ
 //
 // 使い方:
-//   class FMyGame : public acs::FApplication { ... };
+//   class FMyGame : public acs::CApplication { ... };
 //   ACS_DEFINE_MAIN(FMyGame)
 //
 // 効果: int main() を自動生成する。FAppConfig はデフォルト値を使用。
@@ -12633,7 +13148,7 @@ private:
         #undef GetMessage
     #endif
     #ifdef DrawText
-        #undef DrawText                 // FSpriteBatch::DrawText と衝突
+        #undef DrawText                 // CSpriteBatch::DrawText と衝突
     #endif
     #ifdef GetObject
         #undef GetObject
@@ -12669,7 +13184,7 @@ private:
      * AppClass をスタックに構築し、`FAppConfig{}` を渡して Run() を呼ぶ実装関数を作り、
      * main と、UNICODE 契約に対応する WinMain または wWinMain を出して
      * そこへ委譲する (コンソール・Win32 両サブシステム対応)。
-     * @param AppClass FApplication を継承したアプリ型。
+     * @param AppClass CApplication を継承したアプリ型。
      */
     #define ACS_DEFINE_MAIN(AppClass)                                          \
         static int acs_run_main_impl() {                                       \
@@ -12685,7 +13200,7 @@ private:
      *
      * @details
      * ACS_DEFINE_MAIN と同じだが、既定設定の代わりに cfg_factory() の戻り値を Run() に渡す。
-     * @param AppClass FApplication を継承したアプリ型。
+     * @param AppClass CApplication を継承したアプリ型。
      * @param cfg_factory FAppConfig を返す呼び出し可能オブジェクト (関数等)。
      */
     #define ACS_DEFINE_MAIN_WITH_CONFIG(AppClass, cfg_factory)                 \
@@ -12700,7 +13215,7 @@ private:
     /**
      * AppClass を既定 FAppConfig で起動する main() を生成する (非 Windows)。
      *
-     * @param AppClass FApplication を継承したアプリ型。
+     * @param AppClass CApplication を継承したアプリ型。
      */
     #define ACS_DEFINE_MAIN(AppClass)                                          \
         int main() {                                                           \
@@ -12712,7 +13227,7 @@ private:
     /**
      * cfg_factory が返す FAppConfig で AppClass を起動する main() を生成する (非 Windows)。
      *
-     * @param AppClass FApplication を継承したアプリ型。
+     * @param AppClass CApplication を継承したアプリ型。
      * @param cfg_factory FAppConfig を返す呼び出し可能オブジェクト (関数等)。
      */
     #define ACS_DEFINE_MAIN_WITH_CONFIG(AppClass, cfg_factory)                 \
@@ -12732,7 +13247,7 @@ private:
 //     一掃して、サンプルが「何を見せたいか」だけに集中できるようにする。
 //
 // 使用例 (HelloHelloMVVM 等):
-//   class FMyApp : public FApplication {
+//   class FMyApp : public CApplication {
 //       void OnStart() noexcept override {
 //           ACS_SAMPLE_INIT(m_Imgui.Init(GetWindow(), GetRenderer()));
 //           ACS_SAMPLE_INIT(m_Shader.Init(*GetRenderer().Device(),
@@ -12755,7 +13270,6 @@ private:
 
 namespace acs {
 
-class FApplication;
 class FFont;
 class IRhiDevice;
 
@@ -12792,7 +13306,7 @@ TResult<void> TryLoadDefaultUIFont(FFont& font, IRhiDevice& device,
  *
  * @details
  * 「Init を呼んで失敗したら Quit して return」を 1 行で書くためのヘルパ。Quit() を
- * 参照するため FApplication のメンバ関数 (戻り値 void) の中からのみ使える。
+ * 参照するため CApplication のメンバ関数 (戻り値 void) の中からのみ使える。
  * @param expr TResult を返す初期化式。
  */
 #define ACS_SAMPLE_INIT(expr)                                                      \
@@ -12811,7 +13325,7 @@ TResult<void> TryLoadDefaultUIFont(FFont& font, IRhiDevice& device,
  *
  * @details
  * 行内の一意な一時名 (__LINE__ 連結) に受けてから Move して name に束縛する。
- * ACS_SAMPLE_INIT 同様 FApplication のメンバ関数からのみ使える。
+ * ACS_SAMPLE_INIT 同様 CApplication のメンバ関数からのみ使える。
  * @param name 取り出した値を束縛するローカル変数名。
  * @param expr TResult を返す式。
  */
@@ -12824,6 +13338,51 @@ TResult<void> TryLoadDefaultUIFont(FFont& font, IRhiDevice& device,
         return;                                                                    \
     }                                                                              \
     auto name = ::acs::Move(ACS_CONCAT(m_AcsTakeR, __LINE__).Value())
+
+// ===================== app/TimerSubsystem.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+class CTimerManager;
+
+class ATimerSubsystem;
+/** 旧公開名を正規タイマーサブシステム型へ接続する互換別名。 */
+using FTimerSubsystem = ATimerSubsystem;
+
+/** CApplication が所有するタイマー管理器を Engine スコープへ公開するアダプター。 */
+class ATimerSubsystem final : public ASubsystem {
+public:
+    ACS_SUBSYSTEM_KIND(FTimerSubsystem)
+
+    /** Application owner を検証し、既存タイマー管理器を非所有で結び付ける。 */
+    bool OnOwnerAssigned() noexcept override;
+
+    /** 終了する Engine スコープから非所有参照を外す。 */
+    void OnDeinitialize() noexcept override;
+
+    /** PreUpdate で非スケール時間を既存タイマー管理器へ渡す。 */
+    void OnTickFrame(const FSubsystemFrameContext& context) noexcept override;
+
+    /** 結び付け済みのタイマー管理器を返し、未初期化なら nullptr を返す。 */
+    CTimerManager* GetTimers() noexcept
+    {
+        return m_Timers;
+    }
+
+    /** 結び付け済みのタイマー管理器を返し、未初期化なら nullptr を返す。 */
+    const CTimerManager* GetTimers() const noexcept
+    {
+        return m_Timers;
+    }
+
+private:
+    /** CApplication が所有するタイマー管理器への非所有参照。 */
+    CTimerManager* m_Timers = nullptr;
+};
+
+} // namespace acs
 
 // ===================== asset/AudioAsset.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -12856,12 +13415,12 @@ enum class ESampleFormat : u8 {
  * 全フォーマットを 16-bit もしくは float PCM に統一してインターリーブ保持する。
  * 再生は CAudioEngine (XAudio2Backend) が本アセットの PCM を直接扱う。
  */
-class FAudioAsset : public FAsset {
+class AAudioAsset : public AAsset {
 public:
     ACS_ASSET_TYPE("FAudioAsset")
 
     /** 空の音声アセットを構築する。 */
-    FAudioAsset() noexcept = default;
+    AAudioAsset() noexcept = default;
 
     /**
      * PCM データから音声アセットを構築する。
@@ -12872,7 +13431,7 @@ public:
      * @param frame_count フレーム数 (1 フレーム = 全チャンネル 1 サンプル)。
      * @param samples インターリーブ済み生 PCM バイト列 (ムーブで所有を奪う)。
      */
-    FAudioAsset(u32 sample_rate, u8 channels, ESampleFormat fmt,
+    AAudioAsset(u32 sample_rate, u8 channels, ESampleFormat fmt,
                u64 frame_count, TArray<byte>&& samples) noexcept
         : m_SampleRate(sample_rate), m_Channels(channels), m_Format(fmt),
           m_FrameCount(frame_count), m_Samples(Move(samples)) {}
@@ -12945,17 +13504,20 @@ private:
     TArray<byte>  m_Samples;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAudioAsset = AAudioAsset;
+
 /**
- * WAV ファイルを FAudioAsset にデコードするローダ (dr_wav)。
+ * WAV ファイルを AAudioAsset にデコードするローダ (dr_wav)。
  */
-class FWavAssetLoader  final : public IAssetLoader {
+class CWavAssetLoader  final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FAudioAsset の型 ID。
+     * @return AAudioAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AAudioAsset::StaticType(); }
 
     /**
      * 担当拡張子を返す。
@@ -12965,26 +13527,29 @@ public:
     const char* Extension() const noexcept override { return "wav"; }
 
     /**
-     * WAV バイト列を 16-bit PCM の FAudioAsset にデコードする。
+     * WAV バイト列を 16-bit PCM の AAudioAsset にデコードする。
      *
      * @param id 生成アセットに割り当てる ID。
      * @param bytes WAV ファイル全体のバイト列。
-     * @return 成功なら FAudioAsset、失敗ならエラー。
+     * @return 成功なら AAudioAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FWavAssetLoader = CWavAssetLoader;
+
 /**
- * MP3 ファイルを FAudioAsset にデコードするローダ (dr_mp3)。
+ * MP3 ファイルを AAudioAsset にデコードするローダ (dr_mp3)。
  */
-class FMp3AssetLoader  final : public IAssetLoader {
+class CMp3AssetLoader  final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FAudioAsset の型 ID。
+     * @return AAudioAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AAudioAsset::StaticType(); }
 
     /**
      * 担当拡張子を返す。
@@ -12994,26 +13559,29 @@ public:
     const char* Extension() const noexcept override { return "mp3"; }
 
     /**
-     * MP3 バイト列を 16-bit PCM の FAudioAsset にデコードする。
+     * MP3 バイト列を 16-bit PCM の AAudioAsset にデコードする。
      *
      * @param id 生成アセットに割り当てる ID。
      * @param bytes MP3 ファイル全体のバイト列。
-     * @return 成功なら FAudioAsset、失敗ならエラー。
+     * @return 成功なら AAudioAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMp3AssetLoader = CMp3AssetLoader;
+
 /**
- * FLAC ファイルを FAudioAsset にデコードするローダ (dr_flac)。
+ * FLAC ファイルを AAudioAsset にデコードするローダ (dr_flac)。
  */
-class FFlacAssetLoader final : public IAssetLoader {
+class CFlacAssetLoader final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FAudioAsset の型 ID。
+     * @return AAudioAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AAudioAsset::StaticType(); }
 
     /**
      * 担当拡張子を返す。
@@ -13023,26 +13591,29 @@ public:
     const char* Extension() const noexcept override { return "flac"; }
 
     /**
-     * FLAC バイト列を 16-bit PCM の FAudioAsset にデコードする。
+     * FLAC バイト列を 16-bit PCM の AAudioAsset にデコードする。
      *
      * @param id 生成アセットに割り当てる ID。
      * @param bytes FLAC ファイル全体のバイト列。
-     * @return 成功なら FAudioAsset、失敗ならエラー。
+     * @return 成功なら AAudioAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FFlacAssetLoader = CFlacAssetLoader;
+
 /**
- * OGG Vorbis ファイルを FAudioAsset にデコードするローダ (stb_vorbis)。
+ * OGG Vorbis ファイルを AAudioAsset にデコードするローダ (stb_vorbis)。
  */
-class FOggAssetLoader  final : public IAssetLoader {
+class COggAssetLoader  final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FAudioAsset の型 ID。
+     * @return AAudioAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AAudioAsset::StaticType(); }
 
     /**
      * 担当拡張子を返す。
@@ -13052,14 +13623,17 @@ public:
     const char* Extension() const noexcept override { return "ogg"; }
 
     /**
-     * OGG Vorbis バイト列を 16-bit PCM の FAudioAsset にデコードする。
+     * OGG Vorbis バイト列を 16-bit PCM の AAudioAsset にデコードする。
      *
      * @param id 生成アセットに割り当てる ID。
      * @param bytes OGG ファイル全体のバイト列。
-     * @return 成功なら FAudioAsset、失敗ならエラー。
+     * @return 成功なら AAudioAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FOggAssetLoader = COggAssetLoader;
 
 } // namespace acs
 
@@ -13077,19 +13651,19 @@ namespace acs {
  *
  * @details 専用ローダがない拡張子のフォールバック用、またはテストデータ用に使う最小実装。
  */
-class FBinaryAsset : public FAsset {
+class ABinaryAsset : public AAsset {
 public:
     ACS_ASSET_TYPE("FBinaryAsset")
 
     /** 空のバイナリアセットを構築する。 */
-    FBinaryAsset() noexcept = default;
+    ABinaryAsset() noexcept = default;
 
     /**
      * バイト列を所有してバイナリアセットを構築する。
      *
      * @param bytes 保持するバイト列 (ムーブで所有を奪う)。
      */
-    explicit FBinaryAsset(TArray<byte>&& bytes) noexcept : m_Bytes(Move(bytes)) {}
+    explicit ABinaryAsset(TArray<byte>&& bytes) noexcept : m_Bytes(Move(bytes)) {}
 
     /**
      * 保持しているバイト列への const 参照を返す。
@@ -13110,19 +13684,22 @@ private:
     TArray<byte> m_Bytes;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBinaryAsset = ABinaryAsset;
+
 /**
  * 任意の拡張子を担当する拡張子フォールバックローダ。
  *
- * @details Extension() が "*" を返し、専用ローダが見つからないアセットを FBinaryAsset として読み込む。
+ * @details Extension() が "*" を返し、専用ローダが見つからないアセットを ABinaryAsset として読み込む。
  */
-class FBinaryAssetLoader final : public IAssetLoader {
+class CBinaryAssetLoader final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FBinaryAsset の型 ID。
+     * @return ABinaryAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FBinaryAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return ABinaryAsset::StaticType(); }
 
     /**
      * 担当拡張子を返す。
@@ -13132,14 +13709,17 @@ public:
     const char* Extension() const noexcept override { return "*"; }
 
     /**
-     * バイト列をそのまま保持する FBinaryAsset を生成する。
+     * バイト列をそのまま保持する ABinaryAsset を生成する。
      *
      * @param id 生成アセットに割り当てる ID。
      * @param bytes ファイル全体のバイト列。
-     * @return 成功なら FBinaryAsset、失敗ならエラー。
+     * @return 成功なら ABinaryAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBinaryAssetLoader = CBinaryAssetLoader;
 
 } // namespace acs
 
@@ -13179,12 +13759,12 @@ enum class EPixelFormat : u8 {
 /**
  * 画像 1 枚分の CPU 側ピクセルデータを保持するアセット。
  */
-class FImageAsset : public FAsset {
+class AImageAsset : public AAsset {
 public:
     ACS_ASSET_TYPE("FImageAsset")
 
     /** 空の画像アセットを構築する。 */
-    FImageAsset() noexcept = default;
+    AImageAsset() noexcept = default;
 
     /**
      * ピクセルデータから画像アセットを構築する。
@@ -13194,7 +13774,7 @@ public:
      * @param fmt ピクセルフォーマット。
      * @param pixels 生ピクセルバイト列 (ムーブで所有を奪う)。
      */
-    FImageAsset(u32 w, u32 h, EPixelFormat fmt, TArray<byte>&& pixels) noexcept
+    AImageAsset(u32 w, u32 h, EPixelFormat fmt, TArray<byte>&& pixels) noexcept
         : m_Width(w), m_Height(h), m_Format(fmt), m_Pixels(Move(pixels)) {}
 
     /**
@@ -13246,17 +13826,20 @@ private:
     TArray<byte> m_Pixels;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FImageAsset = AImageAsset;
+
 /**
- * 各種画像ファイルを FImageAsset にデコードするローダ (stb_image)。
+ * 各種画像ファイルを AImageAsset にデコードするローダ (stb_image)。
  */
-class FImageAssetLoader final : public IAssetLoader {
+class CImageAssetLoader final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FImageAsset の型 ID。
+     * @return AImageAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FImageAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AImageAsset::StaticType(); }
 
     /**
      * 担当する主要拡張子を返す。
@@ -13266,15 +13849,18 @@ public:
     const char* Extension() const noexcept override { return "png"; }
 
     /**
-     * 画像バイト列をデコードし FImageAsset を生成する。
+     * 画像バイト列をデコードし AImageAsset を生成する。
      *
      * @details HDR (.hdr 等) は 32-bit float RGBA、それ以外は 8-bit RGBA に統一する。
      * @param id 生成アセットに割り当てる ID。
      * @param bytes 画像ファイル全体のバイト列。
-     * @return 成功なら FImageAsset、失敗ならエラー。
+     * @return 成功なら AImageAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FImageAssetLoader = CImageAssetLoader;
 
 } // namespace acs
 
@@ -13324,12 +13910,12 @@ struct FSubMesh {
  * @details 頂点は FMeshVertex (位置 + 法線 + UV) 固定。各ローダ (glTF/GLB/OBJ/FBX) が
  * 全プリミティブを 1 つの本アセットへ flatten して構築する。
  */
-class FMeshAsset : public FAsset {
+class AMeshAsset : public AAsset {
 public:
     ACS_ASSET_TYPE("FMeshAsset")
 
     /** 空のメッシュアセットを構築する。 */
-    FMeshAsset() noexcept = default;
+    AMeshAsset() noexcept = default;
 
     /**
      * 頂点配列への const 参照を返す。
@@ -13411,19 +13997,22 @@ private:
     u64 m_GeometryRevision = 1u;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMeshAsset = AMeshAsset;
+
 /**
- * glTF (.gltf) を FMeshAsset へロードするローダ (cgltf 使用)。
+ * glTF (.gltf) を AMeshAsset へロードするローダ (cgltf 使用)。
  *
  * @details v1 では外部バイナリ参照は非対応で、埋め込みバッファのみサポートする。
  */
-class FGltfAssetLoader final : public IAssetLoader {
+class CGltfAssetLoader final : public IAssetLoader {
 public:
     /**
      * このローダが生成するアセット型を返す。
      *
-     * @return FMeshAsset の静的型 ID。
+     * @return AMeshAsset の静的型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AMeshAsset::StaticType(); }
 
     /**
      * 対応する拡張子を返す。
@@ -13433,24 +14022,27 @@ public:
     const char* Extension() const noexcept override { return "gltf"; }
 
     /**
-     * バイト列を glTF としてパースし FMeshAsset を構築する。
+     * バイト列を glTF としてパースし AMeshAsset を構築する。
      *
      * @param id 生成するアセットに割り当てる ID。
      * @param bytes .gltf のバイト列。
-     * @return 成功なら Ready 状態の FMeshAsset、パース/バッファロード失敗ならエラー。
+     * @return 成功なら Ready 状態の AMeshAsset、パース/バッファロード失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
-/** GLB (.glb) を FMeshAsset へロードするローダ (cgltf 使用)。 */
-class FGlbAssetLoader final : public IAssetLoader {
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FGltfAssetLoader = CGltfAssetLoader;
+
+/** GLB (.glb) を AMeshAsset へロードするローダ (cgltf 使用)。 */
+class CGlbAssetLoader final : public IAssetLoader {
 public:
     /**
      * このローダが生成するアセット型を返す。
      *
-     * @return FMeshAsset の静的型 ID。
+     * @return AMeshAsset の静的型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AMeshAsset::StaticType(); }
 
     /**
      * 対応する拡張子を返す。
@@ -13460,28 +14052,31 @@ public:
     const char* Extension() const noexcept override { return "glb"; }
 
     /**
-     * バイト列を GLB としてパースし FMeshAsset を構築する。
+     * バイト列を GLB としてパースし AMeshAsset を構築する。
      *
      * @param id 生成するアセットに割り当てる ID。
      * @param bytes .glb のバイト列。
-     * @return 成功なら Ready 状態の FMeshAsset、パース/バッファロード失敗ならエラー。
+     * @return 成功なら Ready 状態の AMeshAsset、パース/バッファロード失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FGlbAssetLoader = CGlbAssetLoader;
+
 /**
- * Wavefront OBJ (.obj) を FMeshAsset へロードするローダ (自前パーサ)。
+ * Wavefront OBJ (.obj) を AMeshAsset へロードするローダ (自前パーサ)。
  *
  * @details v / vn / vt / f のみ対応し、マテリアルは無視する。
  */
-class FObjAssetLoader final : public IAssetLoader {
+class CObjAssetLoader final : public IAssetLoader {
 public:
     /**
      * このローダが生成するアセット型を返す。
      *
-     * @return FMeshAsset の静的型 ID。
+     * @return AMeshAsset の静的型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AMeshAsset::StaticType(); }
 
     /**
      * 対応する拡張子を返す。
@@ -13491,28 +14086,31 @@ public:
     const char* Extension() const noexcept override { return "obj"; }
 
     /**
-     * バイト列を OBJ としてパースし FMeshAsset を構築する。
+     * バイト列を OBJ としてパースし AMeshAsset を構築する。
      *
      * @param id 生成するアセットに割り当てる ID。
      * @param bytes .obj のバイト列。
-     * @return 構築した Ready 状態の FMeshAsset。
+     * @return 構築した Ready 状態の AMeshAsset。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FObjAssetLoader = CObjAssetLoader;
+
 /**
- * FBX (.fbx) を FMeshAsset へロードするローダ (ufbx 使用)。
+ * FBX (.fbx) を AMeshAsset へロードするローダ (ufbx 使用)。
  *
  * @details ufbx の三角形化ヘルパで全メッシュを三角形へ分割して取り込む。
  */
-class FFbxAssetLoader final : public IAssetLoader {
+class CFbxAssetLoader final : public IAssetLoader {
 public:
     /**
      * このローダが生成するアセット型を返す。
      *
-     * @return FMeshAsset の静的型 ID。
+     * @return AMeshAsset の静的型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AMeshAsset::StaticType(); }
 
     /**
      * 対応する拡張子を返す。
@@ -13522,14 +14120,17 @@ public:
     const char* Extension() const noexcept override { return "fbx"; }
 
     /**
-     * バイト列を FBX としてパースし FMeshAsset を構築する。
+     * バイト列を FBX としてパースし AMeshAsset を構築する。
      *
      * @param id 生成するアセットに割り当てる ID。
      * @param bytes .fbx のバイト列。
-     * @return 成功なら Ready 状態の FMeshAsset、ロード失敗ならエラー。
+     * @return 成功なら Ready 状態の AMeshAsset、ロード失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FFbxAssetLoader = CFbxAssetLoader;
 
 } // namespace acs
 
@@ -13538,21 +14139,19 @@ public:
 // 手続き生成のメッシュプリミティブ
 //
 // アセットファイルを用意しなくても、簡単に立方体・球・平面を
-// FMeshAsset として作れる便利関数。HelloModel 系のサンプルや
+// AMeshAsset として作れる便利関数。HelloModel 系のサンプルや
 // プロトタイピングに便利。
 //
 // 使い方:
-//   TSharedPtr<FMeshAsset> cube  = Primitive::MakeCube();
-//   TSharedPtr<FMeshAsset> sphere = Primitive::MakeSphere(1.0f, 32, 16);
-//   TSharedPtr<FMeshAsset> plane  = Primitive::MakePlane(10.0f, 10.0f);
+//   TSharedPtr<AMeshAsset> cube  = Primitive::MakeCube();
+//   TSharedPtr<AMeshAsset> sphere = Primitive::MakeSphere(1.0f, 32, 16);
+//   TSharedPtr<AMeshAsset> plane  = Primitive::MakePlane(10.0f, 10.0f);
 //
 //   FGpuMesh gm;
 //   UploadMesh(*device, *cube, gm);
 
 
 namespace acs {
-
-class FMeshAsset;
 
 namespace Primitive {
 
@@ -13561,9 +14160,9 @@ namespace Primitive {
  *
  * @details 6 面それぞれ独立した 4 頂点 (計 24 頂点) で面ごとの法線を持ち、各面に UV 0..1 を割り当てる。
  * @param size 立方体の一辺の長さ (既定 1.0)。
- * @return 生成した立方体の FMeshAsset。
+ * @return 生成した立方体の AMeshAsset。
  */
-TSharedPtr<FMeshAsset> MakeCube(f32 size = 1.0f) noexcept;
+TSharedPtr<AMeshAsset> MakeCube(f32 size = 1.0f) noexcept;
 
 /**
  * UV 球メッシュを生成する。
@@ -13573,18 +14172,18 @@ TSharedPtr<FMeshAsset> MakeCube(f32 size = 1.0f) noexcept;
  * @param radius 球の半径 (既定 0.5)。
  * @param segments 経度方向の分割数 (既定 32)。
  * @param rings 緯度方向の分割数 (既定 16)。
- * @return 生成した球の FMeshAsset。
+ * @return 生成した球の AMeshAsset。
  */
-TSharedPtr<FMeshAsset> MakeSphere(f32 radius = 0.5f, u32 segments = 32, u32 rings = 16) noexcept;
+TSharedPtr<AMeshAsset> MakeSphere(f32 radius = 0.5f, u32 segments = 32, u32 rings = 16) noexcept;
 
 /**
  * XZ 平面メッシュを生成する (Y=0、法線 +Y)。
  *
  * @param width X 方向の幅 (既定 1.0)。
  * @param depth Z 方向の奥行き (既定 1.0)。
- * @return 生成した平面の FMeshAsset。
+ * @return 生成した平面の AMeshAsset。
  */
-TSharedPtr<FMeshAsset> MakePlane(f32 width = 1.0f, f32 depth = 1.0f) noexcept;
+TSharedPtr<AMeshAsset> MakePlane(f32 width = 1.0f, f32 depth = 1.0f) noexcept;
 
 } // namespace Primitive
 
@@ -13595,13 +14194,13 @@ TSharedPtr<FMeshAsset> MakePlane(f32 width = 1.0f, f32 depth = 1.0f) noexcept;
 // スキンメッシュ（ボーン + アニメーション）
 //
 // 構成:
-//   FSkinnedMeshAsset = 頂点（位置+法線+UV+ボーン indices/weights）
+//   ASkinnedMeshAsset = 頂点（位置+法線+UV+ボーン indices/weights）
 //                    + インデックス
 //                    + ボーン階層
 //                    + アニメーション群
 //
 // ランタイム:
-//   FAnimationPlayer がアニメーションをスキャンして
+//   CAnimationPlayer がアニメーションをスキャンして
 //   GPU 用ボーンパレット (FMat4×N) を毎フレーム計算する。
 //
 // MVP では glTF パースは省略し、ランタイムでプログラム的に
@@ -14212,7 +14811,7 @@ public:
      *
      * @param a ヒープ確保に使うアロケータ。
      */
-    explicit FString(FAllocator& a) noexcept;
+    explicit FString(IAllocator& a) noexcept;
 
     /**
      * C 文字列から構築する。
@@ -14220,7 +14819,7 @@ public:
      * @param cstr NUL 終端文字列 (nullptr なら空文字列)。
      * @param a ヒープ確保に使うアロケータ (既定は DefaultAllocator)。
      */
-    FString(const char* cstr, FAllocator& a = DefaultAllocator()) noexcept;
+    FString(const char* cstr, IAllocator& a = DefaultAllocator()) noexcept;
 
     /**
      * FStringView から構築する。
@@ -14228,7 +14827,7 @@ public:
      * @param v コピー元のビュー。
      * @param a ヒープ確保に使うアロケータ (既定は DefaultAllocator)。
      */
-    FString(FStringView v,    FAllocator& a = DefaultAllocator()) noexcept;
+    FString(FStringView v,    IAllocator& a = DefaultAllocator()) noexcept;
 
     /**
      * コピー構築する (内容を複製する)。
@@ -14462,9 +15061,9 @@ public:
     /**
      * この文字列が使うアロケータを返す。
      *
-     * @return ヒープ確保に使っている FAllocator へのポインタ。
+     * @return ヒープ確保に使っている IAllocator へのポインタ。
      */
-    FAllocator* GetAllocator() const noexcept { return m_Alloc; }
+    IAllocator* GetAllocator() const noexcept { return m_Alloc; }
 
 private:
     /** ヒープフラグ bit (m_Sso.remaining の MSB = LE x64 で m_Heap.capacity の bit 63)。 */
@@ -14532,7 +15131,7 @@ private:
     };
 
     /** ヒープ確保に使うアロケータ。 */
-    FAllocator* m_Alloc = nullptr;
+    IAllocator* m_Alloc = nullptr;
 };
 
 /**
@@ -14659,12 +15258,12 @@ struct FAnimation {
  *
  * @details MVP ではファイルからのパースは行わず、ランタイムでプログラム的にデータを構築して使う。
  */
-class FSkinnedMeshAsset : public FAsset {
+class ASkinnedMeshAsset : public AAsset {
 public:
     ACS_ASSET_TYPE("FSkinnedMeshAsset")
 
     /** 空のスキンメッシュアセットを構築する。 */
-    FSkinnedMeshAsset() noexcept = default;
+    ASkinnedMeshAsset() noexcept = default;
 
     /**
      * 頂点配列への可変参照を返す。
@@ -14744,6 +15343,9 @@ private:
     TArray<FAnimation>     m_Animations;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSkinnedMeshAsset = ASkinnedMeshAsset;
+
 /**
  * アニメーションを再生し、GPU 用ボーンパレットを計算するプレイヤ。
  *
@@ -14751,17 +15353,17 @@ private:
  * SetMesh でスキンメッシュを設定し Play でクリップを選択、Update で時刻を進め、
  * WritePalette で現在時刻の (world * inverse_bind) パレットを書き出す。
  */
-class FAnimationPlayer {
+class CAnimationPlayer {
 public:
     /** 空のアニメーションプレイヤを構築する。 */
-    FAnimationPlayer() noexcept = default;
+    CAnimationPlayer() noexcept = default;
 
     /**
      * 対象スキンメッシュを設定し再生状態をリセットする。
      *
      * @param mesh 参照するスキンメッシュ (所有はしない)。
      */
-    void SetMesh(const FSkinnedMeshAsset* mesh) noexcept { m_Mesh = mesh; m_Anim = -1; m_Time = 0; }
+    void SetMesh(const ASkinnedMeshAsset* mesh) noexcept { m_Mesh = mesh; m_Anim = -1; m_Time = 0; }
 
     /**
      * 指定インデックスのアニメーションを先頭から再生する。
@@ -14824,7 +15426,7 @@ public:
 
 private:
     /** 参照中のスキンメッシュ (所有しない)。 */
-    const FSkinnedMeshAsset* m_Mesh    = nullptr;
+    const ASkinnedMeshAsset* m_Mesh    = nullptr;
 
     /** 再生中アニメーションの index (-1 なら T ポーズ)。 */
     i32                     m_Anim    = -1;
@@ -14838,6 +15440,9 @@ private:
     /** 再生中フラグ。 */
     bool                    m_Playing = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAnimationPlayer = CAnimationPlayer;
 
 } // namespace acs
 
@@ -14856,19 +15461,19 @@ namespace acs {
  *
  * @details 内部バッファは末尾に NUL を含み、CStr() で NUL 終端文字列として参照できる。
  */
-class FTextAsset : public FAsset {
+class ATextAsset : public AAsset {
 public:
     ACS_ASSET_TYPE("FTextAsset")
 
     /** 空のテキストアセットを構築する。 */
-    FTextAsset() noexcept = default;
+    ATextAsset() noexcept = default;
 
     /**
      * 文字列バッファを所有してテキストアセットを構築する。
      *
      * @param text 末尾に NUL を含む文字列バッファ (ムーブで所有を奪う)。
      */
-    explicit FTextAsset(TArray<char>&& text) noexcept : m_Text(Move(text)) {}
+    explicit ATextAsset(TArray<char>&& text) noexcept : m_Text(Move(text)) {}
 
     /**
      * NUL 終端された文字列ポインタを返す。
@@ -14896,15 +15501,18 @@ private:
     TArray<char> m_Text;
 };
 
-/** 任意のテキストファイルを FTextAsset に読み込むローダ。 */
-class FTextAssetLoader final : public IAssetLoader {
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTextAsset = ATextAsset;
+
+/** 任意のテキストファイルを ATextAsset に読み込むローダ。 */
+class CTextAssetLoader final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FTextAsset の型 ID。
+     * @return ATextAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FTextAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return ATextAsset::StaticType(); }
 
     /**
      * 担当する主要拡張子を返す。
@@ -14914,14 +15522,17 @@ public:
     const char* Extension() const noexcept override { return "txt"; }
 
     /**
-     * バイト列を NUL 終端文字列としてコピーし FTextAsset を生成する。
+     * バイト列を NUL 終端文字列としてコピーし ATextAsset を生成する。
      *
      * @param id 生成アセットに割り当てる ID。
      * @param bytes テキストファイル全体のバイト列。
-     * @return 成功なら FTextAsset、失敗ならエラー。
+     * @return 成功なら ATextAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTextAssetLoader = CTextAssetLoader;
 
 } // namespace acs
 
@@ -14930,8 +15541,8 @@ public:
 // =============================================================================
 // ACS AssetPack — AES-256-GCM 暗号化 + PBKDF2 鍵導出 (Windows CNG / BCrypt)
 // -----------------------------------------------------------------------------
-// `.acpak` v2 で各ファイルエントリを暗号化するための薄いラッパ。FAcpakReader /
-// FAcpakWriter から呼ばれる。実装は Windows CNG (BCrypt) を使い、サードパーティ
+// `.acpak` v2 で各ファイルエントリを暗号化するための薄いラッパ。CAcpakReader /
+// CAcpakWriter から呼ばれる。実装は Windows CNG (BCrypt) を使い、サードパーティ
 // 依存は OS 同梱 `Bcrypt.lib` 1 つのみ。
 //
 // 仕様 (AssetPack.md §4 に準拠):
@@ -14960,8 +15571,8 @@ namespace acs::assetpack {
  * AES-256 鍵 (256bit) を保持する POD。
  *
  * @details
- * `AssetPack.md` の `ArchiveKey` と同じレイアウト。FAcpakWriter /
- * FAcpakReader は事前に DeriveKey() で作成した本鍵を受け取り、内部で
+ * `AssetPack.md` の `ArchiveKey` と同じレイアウト。CAcpakWriter /
+ * CAcpakReader は事前に DeriveKey() で作成した本鍵を受け取り、内部で
  * BCryptGenerateSymmetricKey に渡す。
  */
 struct FAcpakKey {
@@ -15004,10 +15615,10 @@ inline constexpr u16 kAcpakSubCryptoKdf    = 1319;
  * .acpak のロードは典型的に起動時 1 度 + ストリーミング読み出しなので、
  * ハンドルキャッシュは行わない。インスタンス化はできない (ctor delete)。
  */
-class FAcpakCrypto {
+class CAcpakCrypto {
 public:
     /** インスタンス化禁止 (全 API は static)。 */
-    FAcpakCrypto() = delete;
+    CAcpakCrypto() = delete;
 
     /**
      * パスワード + salt から 32 バイトの AES-256 鍵を導出する。
@@ -15092,6 +15703,9 @@ public:
      */
     static TResult<void> GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) noexcept;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAcpakCrypto = CAcpakCrypto;
 
 } // namespace acs::assetpack
 
@@ -15431,32 +16045,32 @@ namespace acs::assetpack {
  * 所有するため non-copy / non-move で、固定アドレスでライフタイムを管理する。
  * GameFramework の IAssetPackReader とは独立に動作する。
  */
-class FAcpakReader {
+class CAcpakReader {
 public:
     /** 空状態で構築する (ファイルは Open で開く)。 */
-    FAcpakReader() noexcept;
+    CAcpakReader() noexcept;
 
     /**
      * 指定 allocator で file table と文字列 pool を持つ空状態を構築する。
      *
      * @param Allocator 内部配列の確保に使う allocator。
      */
-    explicit FAcpakReader(FAllocator& Allocator) noexcept;
+    explicit CAcpakReader(IAllocator& Allocator) noexcept;
 
     /** 破棄する (Open 済なら Close 相当の後始末を行う)。 */
-    ~FAcpakReader() noexcept;
+    ~CAcpakReader() noexcept;
 
     /** コピー禁止 (ハンドル + pool を単独所有するため)。 */
-    FAcpakReader(const FAcpakReader&) = delete;
+    CAcpakReader(const CAcpakReader&) = delete;
 
     /** コピー代入も禁止。 */
-    FAcpakReader& operator=(const FAcpakReader&) = delete;
+    CAcpakReader& operator=(const CAcpakReader&) = delete;
 
     /** ムーブ禁止 (entry.path が内部 pool を指すため)。 */
-    FAcpakReader(FAcpakReader&&) = delete;
+    CAcpakReader(CAcpakReader&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FAcpakReader& operator=(FAcpakReader&&) = delete;
+    CAcpakReader& operator=(CAcpakReader&&) = delete;
 
     /**
      * `.acpak` ファイルを開き、header と file table を読み出す。
@@ -15678,6 +16292,9 @@ private:
     FReadDiagnosticCounters m_ReadDiagnosticCounters;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAcpakReader = CAcpakReader;
+
 } // namespace acs::assetpack
 
 // ===================== assetpack/AcpakWriter.h =====================
@@ -15694,35 +16311,35 @@ namespace acs::assetpack {
  * AddFile は実書き込みせず内部の pending list に仮想パスとデータをコピーし、
  * 実書き込みは Finalize 内で一気に行う。呼び出し側は AddFile 成功後に入力を
  * 直ちに再利用または解放できる。ツールビルド
- * (パッキングコマンド) から使う想定で、ランタイムは FAcpakReader だけで足りる。
+ * (パッキングコマンド) から使う想定で、ランタイムは CAcpakReader だけで足りる。
  * ハンドル + pending list を所有するため non-copy / non-move。
  */
-class FAcpakWriter {
+class CAcpakWriter {
 public:
     /** 空状態で構築する (出力は Open で開く)。 */
-    FAcpakWriter() noexcept;
+    CAcpakWriter() noexcept;
 
     /**
      * 指定 allocator で pending list を持つ空状態を構築する。
      *
      * @param Allocator pending list の確保に使う allocator。
      */
-    explicit FAcpakWriter(FAllocator& Allocator) noexcept;
+    explicit CAcpakWriter(IAllocator& Allocator) noexcept;
 
     /** 破棄する (Open 済なら Close 相当の後始末を行う)。 */
-    ~FAcpakWriter() noexcept;
+    ~CAcpakWriter() noexcept;
 
     /** コピー禁止 (ハンドル + pending list を単独所有するため)。 */
-    FAcpakWriter(const FAcpakWriter&) = delete;
+    CAcpakWriter(const CAcpakWriter&) = delete;
 
     /** コピー代入も禁止。 */
-    FAcpakWriter& operator=(const FAcpakWriter&) = delete;
+    CAcpakWriter& operator=(const CAcpakWriter&) = delete;
 
     /** ムーブ禁止 (固定アドレスでライフタイムを管理するため)。 */
-    FAcpakWriter(FAcpakWriter&&) = delete;
+    CAcpakWriter(CAcpakWriter&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FAcpakWriter& operator=(FAcpakWriter&&) = delete;
+    CAcpakWriter& operator=(CAcpakWriter&&) = delete;
 
     /**
      * 出力ファイルを開き、ヘッダのプレースホルダを書く (既存は上書き)。
@@ -15791,7 +16408,7 @@ public:
 private:
     /** AddFile が積み Finalize が消費する所有 entry。 */
     struct FPendingEntry {
-        explicit FPendingEntry(FAllocator& Allocator) noexcept : Path(Allocator), Data(Allocator)
+        explicit FPendingEntry(IAllocator& Allocator) noexcept : Path(Allocator), Data(Allocator)
         {
         }
 
@@ -15817,7 +16434,7 @@ private:
     mutable FMutex m_LifecycleLock;
 
     /** pending entry と一時バッファに使う allocator。 */
-    FAllocator* m_Allocator = nullptr;
+    IAllocator* m_Allocator = nullptr;
 
     /** Win32 HANDLE 相当 (<windows.h> を header から外すため void* で保持)。 */
     void* m_FileHandle = nullptr;
@@ -15843,6 +16460,9 @@ private:
     /** 出力先と同じ directory に CREATE_NEW した一意な一時ファイル名。 */
     wchar_t m_TemporaryPath[kAcpakMaxOutputPathLength + 96u] = {};
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAcpakWriter = CAcpakWriter;
 
 } // namespace acs::assetpack
 
@@ -16063,13 +16683,13 @@ public:
  * ACS_ERR(Generic, kSubAssetPackNotImplemented) を返す。Unmount() は副作用なし、
  * IsMounted() は常に false。
  */
-class FAssetPackReaderStub final : public IAssetPackReader {
+class CAssetPackReaderStub final : public IAssetPackReader {
 public:
     /** 既定構築する。 */
-    FAssetPackReaderStub() noexcept = default;
+    CAssetPackReaderStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FAssetPackReaderStub() noexcept override = default;
+    ~CAssetPackReaderStub() noexcept override = default;
 
     /**
      * NotImplemented を返す (stub)。
@@ -16128,13 +16748,13 @@ public:
  *
  * @details 全 API が NotImplemented (kSubAssetPackNotImplemented) を返す。
  */
-class FAssetPackWriterStub final : public IAssetPackWriter {
+class CAssetPackWriterStub final : public IAssetPackWriter {
 public:
     /** 既定構築する。 */
-    FAssetPackWriterStub() noexcept = default;
+    CAssetPackWriterStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FAssetPackWriterStub() noexcept override = default;
+    ~CAssetPackWriterStub() noexcept override = default;
 
     /**
      * NotImplemented を返す (stub)。
@@ -16165,20 +16785,20 @@ public:
 /**
  * 既定 stub の Reader (Meyer's singleton) を返す。
  *
- * @return プロセス共有の FAssetPackReaderStub 参照。
+ * @return プロセス共有の CAssetPackReaderStub 参照。
  */
 IAssetPackReader& GetReaderStub() noexcept;
 
 /**
  * 既定 stub の Writer (Meyer's singleton) を返す。
  *
- * @return プロセス共有の FAssetPackWriterStub 参照。
+ * @return プロセス共有の CAssetPackWriterStub 参照。
  */
 IAssetPackWriter& GetWriterStub() noexcept;
 
 // 既定 AssetPack の provider 結線 (実 backend モジュールへの委譲点)。
-// gameframework は実 backend モジュール (ACS::AssetPack / FAcpakGameReader /
-// FAcpakGameWriter) に依存できない (循環依存になる: backend 側が本 interface に
+// gameframework は実 backend モジュール (ACS::AssetPack / CAcpakGameReader /
+// CAcpakGameWriter) に依存できない (循環依存になる: backend 側が本 interface に
 // 依存する)。そこで実 backend 側が SetAssetPackReaderProvider() /
 // SetAssetPackWriterProvider() で「既定 Reader/Writer を返す関数」を登録し、
 // ゲームコードは GetDefaultAssetPackReader() / GetDefaultAssetPackWriter() を
@@ -16218,6 +16838,12 @@ void SetAssetPackWriterProvider(AssetPackWriterProvider provider) noexcept;
  */
 IAssetPackWriter& GetDefaultAssetPackWriter() noexcept;
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAssetPackReaderStub = CAssetPackReaderStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAssetPackWriterStub = CAssetPackWriterStub;
+
 } // namespace acs::game
 
 namespace acs::assetpack {
@@ -16227,31 +16853,31 @@ namespace acs::assetpack {
  *
  * @details
  * gameframework が UTF-8 const char* でやり取りする API を受け、内部の
- * FAcpakReader (UTF-16 wchar_t* ベース) へ橋渡しする。ファイル名は Mount ごとの
+ * CAcpakReader (UTF-16 wchar_t* ベース) へ橋渡しする。ファイル名は Mount ごとの
  * UTF-8 pool に保持し、戻り値を次の Mount / Unmount まで安定させる。non-copy / non-move。
  */
-class FAcpakGameReader final : public acs::game::IAssetPackReader {
+class CAcpakGameReader final : public acs::game::IAssetPackReader {
 public:
     /** 空状態で構築する (pak は Mount で開く)。 */
-    FAcpakGameReader() noexcept;
+    CAcpakGameReader() noexcept;
 
     /** 指定 allocator を内部 Reader の配列に使う空状態で構築する。 */
-    explicit FAcpakGameReader(acs::FAllocator& Allocator) noexcept;
+    explicit CAcpakGameReader(acs::IAllocator& Allocator) noexcept;
 
-    /** 破棄する (FAcpakReader が開いていれば自動 Close)。 */
-    ~FAcpakGameReader() noexcept override;
+    /** 破棄する (CAcpakReader が開いていれば自動 Close)。 */
+    ~CAcpakGameReader() noexcept override;
 
-    /** コピー禁止 (FAcpakReader を単独所有するため)。 */
-    FAcpakGameReader(const FAcpakGameReader&) = delete;
+    /** コピー禁止 (CAcpakReader を単独所有するため)。 */
+    CAcpakGameReader(const CAcpakGameReader&) = delete;
 
     /** コピー代入も禁止。 */
-    FAcpakGameReader& operator=(const FAcpakGameReader&) = delete;
+    CAcpakGameReader& operator=(const CAcpakGameReader&) = delete;
 
     /** ムーブ禁止。 */
-    FAcpakGameReader(FAcpakGameReader&&) = delete;
+    CAcpakGameReader(CAcpakGameReader&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FAcpakGameReader& operator=(FAcpakGameReader&&) = delete;
+    CAcpakGameReader& operator=(CAcpakGameReader&&) = delete;
 
     /**
      * UTF-8 パスを UTF-16 に変換して `.acpak` を開く。
@@ -16261,7 +16887,7 @@ public:
      */
     acs::TResult<void> Mount(const char* PackPath) noexcept override;
 
-    /** 現在の pak をアンマウントする (FAcpakReader::Close、未 Mount でも安全)。 */
+    /** 現在の pak をアンマウントする (CAcpakReader::Close、未 Mount でも安全)。 */
     void Unmount() noexcept override;
 
     /**
@@ -16330,7 +16956,7 @@ private:
     mutable FRwLock m_LifecycleLock;
 
     /** 実 `.acpak` 読み出しを担う Reader。 */
-    FAcpakReader m_Reader;
+    CAcpakReader m_Reader;
 
     /** FileName が返す UTF-8 文字列の連結 pool。 */
     TArray<char> m_Utf8NamePool;
@@ -16339,38 +16965,41 @@ private:
     TArray<usize> m_Utf8NameOffsets;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAcpakGameReader = CAcpakGameReader;
+
 /**
  * gameframework の IAssetPackWriter を実 `.acpak` Writer で実装する具象 backend。
  *
  * @details
- * gameframework の UTF-8 const char* API を受け、内部の FAcpakWriter
+ * gameframework の UTF-8 const char* API を受け、内部の CAcpakWriter
  * (UTF-16 wchar_t* ベース) へ橋渡しする。BeginPack は AcpakFlagNone (無圧縮 / 無暗号)
  * で開く。変換先は各呼び出しのローカル領域に置く。non-copy / non-move。
  */
-class FAcpakGameWriter final : public acs::game::IAssetPackWriter {
+class CAcpakGameWriter final : public acs::game::IAssetPackWriter {
 public:
     /** 空状態で構築する (pak は BeginPack で開く)。 */
-    FAcpakGameWriter() noexcept = default;
+    CAcpakGameWriter() noexcept = default;
 
     /** 指定 allocator を内部 Writer の pending list に使う空状態で構築する。 */
-    explicit FAcpakGameWriter(acs::FAllocator& allocator) noexcept : m_Writer(allocator)
+    explicit CAcpakGameWriter(acs::IAllocator& allocator) noexcept : m_Writer(allocator)
     {
     }
 
-    /** 破棄する (FAcpakWriter が開いていれば自動 Close)。 */
-    ~FAcpakGameWriter() noexcept override = default;
+    /** 破棄する (CAcpakWriter が開いていれば自動 Close)。 */
+    ~CAcpakGameWriter() noexcept override = default;
 
-    /** コピー禁止 (FAcpakWriter を単独所有するため)。 */
-    FAcpakGameWriter(const FAcpakGameWriter&) = delete;
+    /** コピー禁止 (CAcpakWriter を単独所有するため)。 */
+    CAcpakGameWriter(const CAcpakGameWriter&) = delete;
 
     /** コピー代入も禁止。 */
-    FAcpakGameWriter& operator=(const FAcpakGameWriter&) = delete;
+    CAcpakGameWriter& operator=(const CAcpakGameWriter&) = delete;
 
     /** ムーブ禁止。 */
-    FAcpakGameWriter(FAcpakGameWriter&&) = delete;
+    CAcpakGameWriter(CAcpakGameWriter&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FAcpakGameWriter& operator=(FAcpakGameWriter&&) = delete;
+    CAcpakGameWriter& operator=(CAcpakGameWriter&&) = delete;
 
     /**
      * 出力 pak を AcpakFlagNone で開いて書き込みを開始する。
@@ -16402,8 +17031,11 @@ private:
     static constexpr acs::u32 kPathCapacity = kAcpakMaxPathLength + 1u;
 
     /** 実 `.acpak` 書き込みを担う Writer。 */
-    FAcpakWriter m_Writer;
+    CAcpakWriter m_Writer;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAcpakGameWriter = CAcpakGameWriter;
 
 /**
  * プロセス共有の既定 Acpak Reader を返す (Meyers singleton)。
@@ -16413,7 +17045,7 @@ private:
  * acs::game::SetAssetPackReaderProvider() に本関数を登録して行う
  * (InstallAcpakReaderAsDefault が登録する)。以降は backend 非依存に
  * acs::game::GetDefaultAssetPackReader() でこの実装が得られる。
- * @return プロセス共有の FAcpakGameReader への参照。
+ * @return プロセス共有の CAcpakGameReader への参照。
  */
 acs::game::IAssetPackReader& GetDefaultAcpakReader() noexcept;
 
@@ -16423,7 +17055,7 @@ void InstallAcpakReaderAsDefault() noexcept;
 /**
  * プロセス共有の既定 Acpak Writer を返す (Meyers singleton)。
  *
- * @return プロセス共有の FAcpakGameWriter への参照。
+ * @return プロセス共有の CAcpakGameWriter への参照。
  */
 acs::game::IAssetPackWriter& GetDefaultAcpakWriter() noexcept;
 
@@ -16500,10 +17132,10 @@ inline constexpr u16 kAcpakSubLz4BadInput    = 1323;
  *
  * @details third_party 依存ゼロ。インスタンス化はできない (ctor delete)。
  */
-class FAcpakLz4 {
+class CAcpakLz4 {
 public:
     /** インスタンス化禁止 (全 API は static)。 */
-    FAcpakLz4() = delete;
+    CAcpakLz4() = delete;
 
     /**
      * 入力サイズから最悪ケースの圧縮出力サイズを算出する (LZ4 公式式)。
@@ -16557,6 +17189,9 @@ public:
                                   u8*       dst,
                                   u32       dst_capacity) noexcept;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAcpakLz4 = CAcpakLz4;
 
 } // namespace acs::assetpack
 
@@ -16654,7 +17289,7 @@ public:
      * @param bLoop 繰り返し再生する場合はtrue。
      * @return 再生の識別値。開始できない場合はkInvalidSound。
      */
-    FSoundHandle Play(const FAudioAsset& Asset, f32 Volume = 1.0f, bool bLoop = false) noexcept;
+    FSoundHandle Play(const AAudioAsset& Asset, f32 Volume = 1.0f, bool bLoop = false) noexcept;
 
     /**
      * 指定した音声の再生を停止する。
@@ -16781,16 +17416,6 @@ using FAudioEngine = CAudioEngine;
 
 // ===================== collision/ConvexHull3.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 3D 凸包 — 点群 (メッシュ頂点等) から凸包の三角形メッシュを生成する。
-// 凹メッシュの「凸コライダー」近似や、軽量な当たり判定形状に使う。
-//
-//   acs::TArray<acs::FVec3> hv; acs::TArray<acs::u32> hi;
-//   acs::BuildConvexHull3(points, count, hv, hi);
-//   // hv = 凸包頂点、hi = 三角形インデックス (3 個 1 組)。
-//   // そのまま FMeshCollider::BuildFromTriangles(hv.Data(), hv.Size(), hi.Data(), hi.Size())。
-//
-// アルゴリズムは incremental hull (初期四面体 + 各点を可視面を剥がして追加)。
-// 視覚非依存の純 CPU なのでヘッドレスで完全検証できる。
 
 
 namespace acs {
@@ -16802,7 +17427,7 @@ namespace acs {
  * 初期四面体を affinely independent な 4 点で張り、残りの点を可視面を剥がしながら
  * 1 点ずつ追加していく。out_verts には凸包の頂点、out_indices には三角形を構成する
  * 頂点インデックスを 3 個 1 組で埋める (out_verts は使用頂点だけに remap される)。
- * そのまま FMeshCollider::BuildFromTriangles に渡せる。点が 4 個未満、全点一致、共線、
+ * そのまま CMeshCollider::BuildFromTriangles に渡せる。点が 4 個未満、全点一致、共線、
  * 同一平面 (coplanar) など退化した入力ではエラーを返す。
  * @param points 入力点群の先頭ポインタ。
  * @param count 入力点の個数 (4 以上が必要)。
@@ -16818,20 +17443,6 @@ TResult<void> BuildConvexHull3(const FVec3* points, u32 count,
 
 // ===================== collision/MeshCollider.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 3D メッシュコライダー — 三角形メッシュから BVH を構築し、レイキャスト等の
-// 衝突クエリを高速化する。
-//
-// レンダリング用の FMeshAsset (位置 + 法線 + UV、インデックス三角形列) や生の
-// 頂点/インデックス配列からそのまま collider を作れる。中身は三角形リスト +
-// median-split AABB BVH。
-//
-//   acs::FMeshCollider col;
-//   col.BuildFromMesh(*Primitive::MakeCube(2.0f));
-//   acs::Ray3 ray{ {0, 5, 0}, {0, -1, 0} };
-//   acs::RayHit3 h = col.Raycast(ray);   // h.hit / h.t / h.point / h.normal
-//
-// ACS 規約: STL/<string> 不使用、全 noexcept、TResult、非コピー。視覚に依存
-// しない純 CPU ロジックなのでヘッドレスで完全に検証できる。
 
 
 // ===================== math/Collision3D.h =====================
@@ -17234,30 +17845,30 @@ ACS_FORCEINLINE FRayHit3 RaycastPlane(const FRay3& ray, const FPlane& p,
 
 namespace acs {
 
-class FMeshAsset;
+class AMeshAsset;
 
 /**
  * 三角形メッシュから median-split AABB BVH を構築する 3D メッシュコライダー。
  *
  * @details
- * レンダリング用の FMeshAsset や生の頂点/インデックス配列から collider を作り、
+ * レンダリング用の AMeshAsset や生の頂点/インデックス配列から collider を作り、
  * レイキャスト (最近接ヒット) と AABB 重なりクエリを BVH で高速化する。中身は
  * 三角形リスト + 最長軸の空間中点で分割する BVH。視覚に依存しない純 CPU ロジックで、
  * ACS 規約に従い non-copy・全 noexcept・TResult を用いる。
  */
-class FMeshCollider {
+class CMeshCollider {
 public:
     /** 空のコライダーを構築する (三角形・BVH は Build* で作る)。 */
-    FMeshCollider() noexcept = default;
+    CMeshCollider() noexcept = default;
 
     /** 破棄する (配列は TArray が解放)。 */
-    ~FMeshCollider() noexcept = default;
+    ~CMeshCollider() noexcept = default;
 
     /** コピー禁止 (BVH を単独所有するため)。 */
-    FMeshCollider(const FMeshCollider&)            = delete;
+    CMeshCollider(const CMeshCollider&)            = delete;
 
     /** コピー代入も禁止。 */
-    FMeshCollider& operator=(const FMeshCollider&) = delete;
+    CMeshCollider& operator=(const CMeshCollider&) = delete;
 
     /**
      * レンダリング用メッシュから collider を構築する (頂点位置のみ使用)。
@@ -17266,7 +17877,7 @@ public:
      * @param mesh 三角形列を持つ入力メッシュアセット。
      * @return 成功なら空の TResult、頂点が無ければエラー。
      */
-    TResult<void> BuildFromMesh(const FMeshAsset& mesh) noexcept;
+    TResult<void> BuildFromMesh(const AMeshAsset& mesh) noexcept;
 
     /**
      * 生の頂点位置 + 三角形インデックス列から collider を構築する。
@@ -17393,25 +18004,13 @@ private:
     FAabb3           m_Bounds{};
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FMeshCollider = CMeshCollider;
+
 } // namespace acs
 
 // ===================== collision/SpriteCollider.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 2D スプライトコライダー — スプライトのアルファチャンネルから形状に沿った
-// コライダー (凸包 + 簡略化済み輪郭ポリゴン) を生成する。
-//
-//   acs::FSpriteCollider col;
-//   col.BuildFromAlpha(rgba, w, h, /*alpha_threshold=*/128, /*simplify=*/1.5f);
-//   col.ContainsPoint({px, py});      // 輪郭ポリゴンの内外判定
-//   col.Hull(); col.HullCount();      // 凸包 (物理で扱いやすい・常に有効)
-//   col.Outline(); col.OutlineCount();// 簡略化された輪郭 (凹形状にも追従)
-//   col.Bounds();                     // AABB
-//
-// 凸包は Jarvis march (順序非依存で堅牢)、輪郭は Moore 近傍トレース + Douglas-Peucker
-// 簡略化。座標はピクセル空間 (左上原点)。単一連結成分・穴なしを前提とする。
-//
-// ACS 規約: STL/<string> 不使用、全 noexcept、TResult。視覚非依存の純 CPU ロジック
-// なのでヘッドレスで完全検証できる。
 
 
 // ===================== math/Collision2D.h =====================
@@ -18294,22 +18893,22 @@ namespace acs {
  * 輪郭は凹形状にも追従する。座標はピクセル空間 (左上原点) で、単一連結成分・穴なしを前提。
  * ACS 規約に従い non-copy・全 noexcept・TResult を用いる純 CPU ロジック。
  */
-class FSpriteCollider {
+class CSpriteCollider {
 public:
     /** 凸包・輪郭それぞれに保持する頂点数の上限。 */
     static constexpr u32 kMaxVertices = 256;
 
     /** 空のコライダーを構築する (形状は BuildFromAlpha で作る)。 */
-    FSpriteCollider() noexcept = default;
+    CSpriteCollider() noexcept = default;
 
     /** 破棄する (頂点は固定長配列のため特別な解放は不要)。 */
-    ~FSpriteCollider() noexcept = default;
+    ~CSpriteCollider() noexcept = default;
 
     /** コピー禁止。 */
-    FSpriteCollider(const FSpriteCollider&)            = delete;
+    CSpriteCollider(const CSpriteCollider&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSpriteCollider& operator=(const FSpriteCollider&) = delete;
+    CSpriteCollider& operator=(const CSpriteCollider&) = delete;
 
     /**
      * RGBA8 画像のアルファから凸包・輪郭・AABB を構築する。
@@ -18379,7 +18978,7 @@ public:
      * 凸包を ConvexPoly2 (物理用) に変換する。
      *
      * @details
-     * FCollisionWorld2D::AddPolygon にそのまま渡せる。頂点が ConvexPoly2 の上限を超える
+     * CCollisionWorld2D::AddPolygon にそのまま渡せる。頂点が ConvexPoly2 の上限を超える
      * 場合は均等に間引く。
      * @return 凸包を表す ConvexPoly2。
      */
@@ -18401,6 +19000,9 @@ private:
     /** 不透明領域を包む AABB。 */
     FAabb2     m_Bounds{};
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSpriteCollider = CSpriteCollider;
 
 } // namespace acs
 
@@ -18585,7 +19187,7 @@ class TInlineArray {
 public:
     TInlineArray() noexcept = default;
 
-    explicit TInlineArray(FAllocator& allocator) noexcept : m_Overflow(allocator) {
+    explicit TInlineArray(IAllocator& allocator) noexcept : m_Overflow(allocator) {
     }
 
     TInlineArray(const TInlineArray&) = delete;
@@ -18801,7 +19403,7 @@ public:
      *
      * @param allocator 文字列と子配列の確保に使う allocator。
      */
-    explicit FJsonValue(FAllocator& allocator) noexcept;
+    explicit FJsonValue(IAllocator& allocator) noexcept;
 
     /** 子要素ごと破棄する。 */
     ~FJsonValue() noexcept;
@@ -19089,7 +19691,7 @@ TResult<FJsonValue> ParseJson(const char* text, usize len) noexcept;
  * @param allocator DOM、key、文字列の全確保に使う allocator。
  * @return 成功時は root、失敗時は構文・深さ・サイズ error。
  */
-TResult<FJsonValue> ParseJson(const char* text, usize len, FAllocator& allocator) noexcept;
+TResult<FJsonValue> ParseJson(const char* text, usize len, IAllocator& allocator) noexcept;
 
 /**
  * JSON テキスト (ビュー) をパースして DOM を返す。
@@ -19106,7 +19708,7 @@ inline TResult<FJsonValue> ParseJson(FStringView s) noexcept { return ParseJson(
  * @param allocator DOM、key、文字列の全確保に使う allocator。
  * @return 成功時は root、失敗時は構文・深さ・サイズ error。
  */
-inline TResult<FJsonValue> ParseJson(FStringView s, FAllocator& allocator) noexcept
+inline TResult<FJsonValue> ParseJson(FStringView s, IAllocator& allocator) noexcept
 {
     return ParseJson(s.Data(), s.Size(), allocator);
 }
@@ -19236,9 +19838,9 @@ struct FStringHasher {
 //   Crashpad / Backtrace.io / BugSnag 等) へ最低限の context を吐き出すための
 //   **抽象 seam**。ACS 本体は具象な HTTP/IPC スタックを抱え込まず、
 //   `ICrashReporterBackend` インターフェイスと NotImplemented を返すだけの
-//   `FCrashReporterStub` のみを提供する。
+//   `CCrashReporterStub` のみを提供する。
 //
-//   ・タイトル側 (acs::FApplication) は ICrashReporterBackend* を持ち、
+//   ・タイトル側 (acs::CApplication) は ICrashReporterBackend* を持ち、
 //   ・実装 (CrashReporterSentry, CrashReporterCrashpad 等) はプロジェクト個別に
 //     差し込む。
 //   これにより、(a) ACS Foundation/GameFramework の依存最小化、(b) ネットワーク
@@ -19260,7 +19862,7 @@ struct FStringHasher {
 // 設計選択:
 //   ・**stub interface のみ**: 本ヘッダ + .cpp は ICrashReporterBackend を
 //     **抽象 interface として宣言** し、合わせて **常に NotImplemented を返す
-//     FCrashReporterStub** を提供するだけ。ACS 本体がリンク時に「最低 1 実装が
+//     CCrashReporterStub** を提供するだけ。ACS 本体がリンク時に「最低 1 実装が
 //     居る」を保証するための fallback。
 //   ・**TResult<T, FErrorCode>**: 例外不使用方針。送信失敗・未初期化・引数不正は
 //     すべて FErrorCode で伝搬。上位層は `if (r.IsErr()) { /* swallow */ }` で
@@ -19346,7 +19948,7 @@ struct FCrashContext {
  * @details
  * Sentry / Crashpad / Backtrace.io / BugSnag 等の具象実装を差し込むためのインターフェイス。
  * 1 タイトルにつき通常 1 インスタンス (Singleton 的運用) で、寿命はタイトル側
- * (acs::FApplication 等) が握る。全 API は二次クラッシュ防止のため noexcept。
+ * (acs::CApplication 等) が握る。全 API は二次クラッシュ防止のため noexcept。
  */
 class ICrashReporterBackend {
 public:
@@ -19449,13 +20051,13 @@ public:
  * 全 API が NotImplemented を返す defensive stub。Init() ですら成功扱いにしないことで、
  * 本番ビルドに stub が紛れ込んだ場合に QA 工程で検出可能にする。
  */
-class FCrashReporterStub final : public ICrashReporterBackend {
+class CCrashReporterStub final : public ICrashReporterBackend {
 public:
     /** stub を構築する。 */
-    FCrashReporterStub() noexcept = default;
+    CCrashReporterStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FCrashReporterStub() noexcept override = default;
+    ~CCrashReporterStub() noexcept override = default;
 
     /**
      * 常に NotImplemented エラーを返す (初期化しない)。
@@ -19560,25 +20162,25 @@ ICrashReporterBackend& GetDefaultCrashReporter() noexcept;
  * backend == nullptr の状態 (Install 前 / Uninstall 後) では全 API が no-op になる
  * (二次クラッシュ防止)。
  */
-class FCrashHandler {
+class CCrashHandler {
 public:
     /** backend 未設定状態で構築する。 */
-    FCrashHandler() noexcept = default;
+    CCrashHandler() noexcept = default;
 
     /** 破棄する (backend の所有権は持たないため解放しない)。 */
-    ~FCrashHandler() noexcept = default;
+    ~CCrashHandler() noexcept = default;
 
     /** コピー禁止。 */
-    FCrashHandler(const FCrashHandler&)            = delete;
+    CCrashHandler(const CCrashHandler&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCrashHandler& operator=(const FCrashHandler&) = delete;
+    CCrashHandler& operator=(const CCrashHandler&) = delete;
 
     /** ムーブ禁止。 */
-    FCrashHandler(FCrashHandler&&)                 = delete;
+    CCrashHandler(CCrashHandler&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCrashHandler& operator=(FCrashHandler&&)      = delete;
+    CCrashHandler& operator=(CCrashHandler&&)      = delete;
 
     /**
      * 使用する backend を設定する (寿命を借りるだけ)。
@@ -19614,12 +20216,18 @@ private:
     ICrashReporterBackend* m_Backend = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCrashHandler = CCrashHandler;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCrashReporterStub = CCrashReporterStub;
+
 } // namespace acs::game
 
 namespace acs::crashwin {
 
 /**
- * FWindowsCrashReporter の生成時設定。
+ * CWindowsCrashReporter の生成時設定。
  *
  * @details コンストラクタ経由で minidump / テキストレポートの出力先ディレクトリを指定する。
  */
@@ -19637,32 +20245,32 @@ struct FWindowsCrashReporterConfig {
  * breadcrumb は固定長リングバッファで保持し、レポート出力時にまとめて添付する。文字列は
  * 全て固定長メンババッファへコピーして保持する (非所有ポインタに依存しない)。
  */
-class FWindowsCrashReporter final : public acs::game::ICrashReporterBackend {
+class CWindowsCrashReporter final : public acs::game::ICrashReporterBackend {
 public:
     /** 既定ダンプディレクトリ "crash_dumps" で構築する。 */
-    FWindowsCrashReporter() noexcept = default;
+    CWindowsCrashReporter() noexcept = default;
 
     /**
      * 設定からダンプディレクトリを取り込んで構築する。
      *
      * @param config 出力先ディレクトリ等の生成時設定。
      */
-    explicit FWindowsCrashReporter(const FWindowsCrashReporterConfig& config) noexcept;
+    explicit CWindowsCrashReporter(const FWindowsCrashReporterConfig& config) noexcept;
 
     /** 破棄する (保持リソースは固定長バッファのみのため特別な解放は不要)。 */
-    ~FWindowsCrashReporter() noexcept override = default;
+    ~CWindowsCrashReporter() noexcept override = default;
 
     /** コピー禁止 (プロセス共有 singleton として単独運用するため)。 */
-    FWindowsCrashReporter(const FWindowsCrashReporter&)            = delete;
+    CWindowsCrashReporter(const CWindowsCrashReporter&)            = delete;
 
     /** コピー代入も禁止。 */
-    FWindowsCrashReporter& operator=(const FWindowsCrashReporter&) = delete;
+    CWindowsCrashReporter& operator=(const CWindowsCrashReporter&) = delete;
 
     /** ムーブ禁止。 */
-    FWindowsCrashReporter(FWindowsCrashReporter&&)                 = delete;
+    CWindowsCrashReporter(CWindowsCrashReporter&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FWindowsCrashReporter& operator=(FWindowsCrashReporter&&)      = delete;
+    CWindowsCrashReporter& operator=(CWindowsCrashReporter&&)      = delete;
 
     /**
      * backend を初期化し、ダンプディレクトリを作成する。
@@ -19849,8 +20457,11 @@ private:
     bool        m_bInitialized = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FWindowsCrashReporter = CWindowsCrashReporter;
+
 /**
- * プロセス共有の既定 FWindowsCrashReporter singleton を返す (provider の実体)。
+ * プロセス共有の既定 CWindowsCrashReporter singleton を返す (provider の実体)。
  *
  * @details
  * 初回アクセス時に ACS 既定のプレースホルダ product id / version で Init() を 1 回走らせ、
@@ -19913,7 +20524,7 @@ void InstallWindowsCrashReporterAsDefault() noexcept;
 //   ・実行するとゲーム画面とは別に黒いコンソール窓が出る。これはログ表示用で
 //     正常。ゲーム画面を閉じれば一緒に終了する。
 //
-// もっと本格的に作りたくなったら、acs::FApplication を直接使う方法へ進める
+// もっと本格的に作りたくなったら、acs::CApplication を直接使う方法へ進める
 // （docs/QUICKSTART.md 参照）。easy はその入口に過ぎない。
 // ============================================================================
 
@@ -19922,7 +20533,7 @@ void InstallWindowsCrashReporterAsDefault() noexcept;
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework のイージング関数と型付きイージングカタログ。
 //
-// 従来の直接関数は、FTweenManager と互換性のある `f32 (*)(f32) noexcept`
+// 従来の直接関数は、CTweenManager と互換性のある `f32 (*)(f32) noexcept`
 // シグネチャを維持する。直接呼び出しは全域関数であり、有限入力を [0,1] に
 // clamp、NaN を 0、無限大を符号に対応する端点へ写像する。
 // 無効入力を診断する必要がある場合は TryEvaluate を使用する。
@@ -19932,7 +20543,7 @@ void InstallWindowsCrashReporterAsDefault() noexcept;
 
 namespace acs::game::Easing {
 
-/** FTweenManager と互換性のあるイージング関数ポインタ。 */
+/** CTweenManager と互換性のあるイージング関数ポインタ。 */
 using EasingFn = f32 (*)(f32) noexcept;
 
 /**
@@ -20637,16 +21248,16 @@ struct FJobGraphDiagnostics {
 
 namespace acs {
 
-class FJobGraph;
+class CJobGraph;
 
 /**
- * グラフ内の 1 ジョブを指すハンドル (FJobGraph::Add の戻り値 / DependOn のキー)。
+ * グラフ内の 1 ジョブを指すハンドル (CJobGraph::Add の戻り値 / DependOn のキー)。
  *
  * @details graph ポインタとジョブ index の組。index が 0xFFFFFFFF または graph が null なら無効。
  */
 struct FJobHandle {
     /** このハンドルが属するグラフ (null = 無効)。 */
-    FJobGraph* graph = nullptr;
+    CJobGraph* graph = nullptr;
 
     /** グラフ内のジョブインデックス (0xFFFFFFFF = 無効)。 */
     u32       index = 0xFFFFFFFFu;
@@ -20667,31 +21278,31 @@ struct FJobHandle {
     void DependOn(FJobHandle upstream) noexcept;
 };
 
-/** ジョブ本体の関数型 (FThreadPool::TaskFn と同形式)。 */
+/** ジョブ本体の関数型 (CThreadPool::TaskFn と同形式)。 */
 using JobFn = void (*)(void* user, u32 worker_index);
 
 /**
  * 依存関係付きの並列タスクスケジューラ。
  *
  * @details
- * FThreadPool 上で動く DAG スケジューラ。各ジョブは完了時に dependents の
- * deps_remaining をアトミックにデクリメントし、0 になったものを FThreadPool へ
+ * CThreadPool 上で動く DAG スケジューラ。各ジョブは完了時に dependents の
+ * deps_remaining をアトミックにデクリメントし、0 になったものを CThreadPool へ
  * 投入する fan-out 方式。グラフは Submit 後は変更不可 (Add/AddDependency は Submit 前のみ)。
  * Reset で依存構造を保ったまま再実行できる。コピー不可。
  */
-class FJobGraph {
+class CJobGraph {
 public:
     /** 空のジョブグラフを構築する。 */
-    FJobGraph() noexcept = default;
+    CJobGraph() noexcept = default;
 
     /** 実行中なら Wait してから、Add で確保したすべての FJob を解放する。 */
-    ~FJobGraph() noexcept;
+    ~CJobGraph() noexcept;
 
     /** コピー禁止。 */
-    FJobGraph(const FJobGraph&) = delete;
+    CJobGraph(const CJobGraph&) = delete;
 
     /** コピー代入も禁止。 */
-    FJobGraph& operator=(const FJobGraph&) = delete;
+    CJobGraph& operator=(const CJobGraph&) = delete;
 
     /**
      * ジョブを追加する (Submit 前のみ呼べる)。
@@ -20759,9 +21370,9 @@ public:
     void AddDependency(FJobHandle upstream, FJobHandle downstream) noexcept;
 
     /**
-     * 全ジョブを FThreadPool に投入する。依存 0 のジョブが即座に走り始める。
+     * 全ジョブを CThreadPool に投入する。依存 0 のジョブが即座に走り始める。
      *
-     * @details Kahn 法でサイクル検知し、循環があれば一件も投入しない。FThreadPool への
+     * @details Kahn 法でサイクル検知し、循環があれば一件も投入しない。CThreadPool への
      * 個別投入が失敗した場合はそのジョブだけを同期実行し、部分投入による二重実行を防ぐ。
      * @return 成功なら空の TResult。二重 Submit・サイクル検出時はエラー。
      */
@@ -20794,7 +21405,7 @@ private:
     friend struct FJobHandle;
 
     /**
-     * 1 ジョブを実行し、依存先を起動する FThreadPool 向けの TaskFn thunk。
+     * 1 ジョブを実行し、依存先を起動する CThreadPool 向けの TaskFn thunk。
      *
      * @param user 実行する FJob へのポインタ。
      * @param worker_index 実行中のワーカーインデックス。
@@ -20819,7 +21430,7 @@ private:
         TArray<u32>     dependents;
 
         /** 所属するグラフ (JobThunk から参照する)。 */
-        FJobGraph*      owner            = nullptr;
+        CJobGraph*      owner            = nullptr;
 
         /** inline callable の固定領域。 */
         alignas(std::max_align_t) u8 callable_storage[48]{};
@@ -20912,6 +21523,9 @@ private:
     /** 構築・再実行経路の診断値。 */
     FJobGraphDiagnostics m_Diagnostics;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FJobGraph = CJobGraph;
 
 } // namespace acs
 
@@ -22607,7 +23221,7 @@ bool Slider(f32 x, f32 y, f32 width, f32* value, f32 min, f32 max) noexcept;
  */
 void SetUiColors(FColor base, FColor hover, FColor active, FColor text) noexcept;
 
-// 内部は本格的なワークスチール FThreadPool / 依存グラフ FJobGraph。
+// 内部は本格的なワークスチール CThreadPool / 依存グラフ CJobGraph。
 // ★重要: ジョブの中身(関数/ラムダ)は「別のスレッド」で走る。その中で描画系や他の easy 関数を
 //   呼んではいけない(画面状態はメインスレッド専用)。中では計算だけして、結果は捕捉した変数に書く。
 // ★初期化は不要: OpenWindow 済みならそのまま、未起動でも初回使用時に自動でワーカを起動する。
@@ -22639,7 +23253,7 @@ namespace jobdetail {
      */
     struct FClosure {
         /** このクロージャを確保したアロケータ。 */
-        FAllocator* allocation_allocator;
+        IAllocator* allocation_allocator;
 
         /** allocation_allocator へ返す確保領域の先頭。 */
         void* allocation_base;
@@ -22678,7 +23292,7 @@ namespace jobdetail {
         const usize off = PayloadOffset<Fn>();
         if (off > (~usize(0)) - sizeof(Fn)) return nullptr;
 
-        FAllocator& allocator = acs::DefaultAllocator();
+        IAllocator& allocator = acs::DefaultAllocator();
         void* mem = allocator.Alloc(off + sizeof(Fn), a, acs::FSourceLoc::Current());
         if (!mem) return nullptr;
         FClosure* c = static_cast<FClosure*>(mem);
@@ -22698,7 +23312,7 @@ namespace jobdetail {
     inline void DestroyClosure(FClosure* closure) noexcept
     {
         if (closure == nullptr) return;
-        FAllocator* const allocator = closure->allocation_allocator;
+        IAllocator* const allocator = closure->allocation_allocator;
         void* const allocation_base = closure->allocation_base;
         closure->destroy(closure);
         if (allocator != nullptr && allocation_base != nullptr) {
@@ -22709,7 +23323,7 @@ namespace jobdetail {
     /**
      * スレッドプールのワーカ起動を保証する。
      *
-     * @details 未起動なら初回使用で FThreadPool を自動 Init する (Easy.cpp に実体)。
+     * @details 未起動なら初回使用で CThreadPool を自動 Init する (Easy.cpp に実体)。
      * @return ワーカが 1 つ以上利用可能なら true。
      */
     bool     Ready() noexcept;
@@ -22762,7 +23376,7 @@ inline void ParallelFor(i32 begin, i32 end, i32 grain, Fn fn) noexcept {
     void (*thunk)(u32, u32, void*) =
         [](u32 i, u32, void* u) { (*static_cast<FCtx*>(u)->fn)(static_cast<i32>(i)); };
     const i32 g = grain > 0 ? grain : jobdetail::AutoGrain(begin, end);
-    (void)acs::FThreadPool::ParallelFor(static_cast<u32>(begin), static_cast<u32>(end),
+    (void)acs::CThreadPool::ParallelFor(static_cast<u32>(begin), static_cast<u32>(end),
                                         static_cast<u32>(g), thunk, &ctx);
 }
 
@@ -22905,7 +23519,7 @@ struct FComponentOps {
  * FComponentTypeId をキーに、サイズ・整列・破棄・ムーブを実行時に問い合わせ可能な
  * 形で保存する。Slots() の固定配列を共有する純粋な静的ユーティリティ。
  */
-class FComponentRegistry {
+class CComponentRegistry {
 public:
     /**
      * 型 T を登録し、その FComponentOps を返す (初回のみ実体登録、以降は既存を返す)。
@@ -22955,6 +23569,9 @@ private:
     static FComponentOps* Slots() noexcept;
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FComponentRegistry = CComponentRegistry;
+
 } // namespace acs
 
 // ===================== ecs/EntityCommandBuffer.h =====================
@@ -22964,7 +23581,7 @@ private:
 namespace acs {
 
 /**
- * ECS の構造変更 (Destroy / Add<T> / Remove<T>) を記録し、Flush() で FWorld へ一括適用する。
+ * ECS の構造変更 (Destroy / Add<T> / Remove<T>) を記録し、Flush() で CWorld へ一括適用する。
  *
  * @details Query 反復中に安全へ構造変更するための遅延バッファ。記録順に適用する。
  * 非コピー (退避値とコマンド列を所有するため)。
@@ -22972,12 +23589,12 @@ namespace acs {
 class FEntityCommandBuffer {
 public:
     /**
-     * 適用先 FWorld と退避用アロケータを束ねて構築する。
+     * 適用先 CWorld と退避用アロケータを束ねて構築する。
      *
-     * @param world 適用先の FWorld (参照を保持)。
+     * @param world 適用先の CWorld (参照を保持)。
      * @param alloc Add 値の退避とコマンド列に使うアロケータ。
      */
-    explicit FEntityCommandBuffer(FWorld& world, FAllocator& alloc = DefaultAllocator()) noexcept
+    explicit FEntityCommandBuffer(CWorld& world, IAllocator& alloc = DefaultAllocator()) noexcept
         : m_World(&world), m_Alloc(&alloc), m_Commands(alloc)
     {
     }
@@ -23049,10 +23666,10 @@ public:
     }
 
     /**
-     * 空エンティティの生成を記録する (Flush 時に FWorld::Create が走る)。
+     * 空エンティティの生成を記録する (Flush 時に CWorld::Create が走る)。
      *
      * @details 逐次 Each 中の Create は即時でも安全 (World.h 参照) だが、EachParallel 中は
-     * FWorld::Create がスレッドセーフでないため本記録を使う。生成される FEntityId は
+     * CWorld::Create がスレッドセーフでないため本記録を使う。生成される FEntityId は
      * Flush 時に確定するので、事前に参照したい用途には使えない。
      */
     void Create() noexcept
@@ -23069,7 +23686,7 @@ public:
      * 「生成 + T を付与」を記録する (小型の単純な値は内部保持、Flush 時に生成)。
      *
      * @details 弾やパーティクル等の並列スポーンに使う。複数コンポーネントを同一エンティティへ
-     * 付けたい場合は Flush 後に FWorld 側で組み立てるか、T を集約構造体にすること。
+     * 付けたい場合は Flush 後に CWorld 側で組み立てるか、T を集約構造体にすること。
      * @tparam T 生成と同時に付与するコンポーネント型。
      * @param value 格納する値 (ムーブで退避する)。
      */
@@ -23088,9 +23705,9 @@ public:
     }
 
     /**
-     * 記録した全操作を記録順に FWorld へ適用し、バッファを空にする。
+     * 記録した全操作を記録順に CWorld へ適用し、バッファを空にする。
      *
-     * @details Add は退避値を FWorld へムーブしてから退避値を破棄する。適用後は Size()==0。
+     * @details Add は退避値を CWorld へムーブしてから退避値を破棄する。適用後は Size()==0。
      */
     void Flush() noexcept
     {
@@ -23197,9 +23814,9 @@ private:
         /** 大型または非単純な値の退避先。 */
         void* value = nullptr;
         /** 追加または除去を型消去して適用する関数。 */
-        void (*apply)(FWorld&, FEntityId, void*) noexcept = nullptr;
+        void (*apply)(CWorld&, FEntityId, void*) noexcept = nullptr;
         /** ヒープへ退避した値を型消去して破棄する関数。 */
-        void (*destroy)(FAllocator&, void*) noexcept = nullptr;
+        void (*destroy)(IAllocator&, void*) noexcept = nullptr;
         /** 小規模値を確保せず保持する領域。 */
         alignas(16) byte inline_value[kInlineValueBytes]{};
         /** 小規模値領域を使用中なら true。 */
@@ -23244,32 +23861,32 @@ private:
         command.inline_value_used = false;
     }
 
-    /** 退避した T を FWorld へムーブ追加する型消去 thunk。 */
+    /** 退避した T を CWorld へムーブ追加する型消去 thunk。 */
     template<typename T>
-    static void ApplyAdd(FWorld& world, FEntityId e, void* value) noexcept
+    static void ApplyAdd(CWorld& world, FEntityId e, void* value) noexcept
     {
         world.Add<T>(e, Move(*static_cast<T*>(value)));
     }
 
-    /** FWorld から T を除去する型消去 thunk。 */
+    /** CWorld から T を除去する型消去 thunk。 */
     template<typename T>
-    static void ApplyRemove(FWorld& world, FEntityId e, void* /*value*/) noexcept
+    static void ApplyRemove(CWorld& world, FEntityId e, void* /*value*/) noexcept
     {
         world.Remove<T>(e);
     }
 
     /** 退避した T を破棄して領域を返す型消去 thunk。 */
     template<typename T>
-    static void DestroyValue(FAllocator& alloc, void* value) noexcept
+    static void DestroyValue(IAllocator& alloc, void* value) noexcept
     {
         Delete(alloc, static_cast<T*>(value));
     }
 
-    /** 適用先 FWorld。バッファより長く生存する。 */
-    FWorld* m_World = nullptr;
+    /** 適用先 CWorld。バッファより長く生存する。 */
+    CWorld* m_World = nullptr;
 
     /** 退避とコマンド列に使うアロケータ。 */
-    FAllocator* m_Alloc = nullptr;
+    IAllocator* m_Alloc = nullptr;
 
     /** 記録順のコマンド列。 */
     TArray<FCommand> m_Commands;
@@ -23285,12 +23902,12 @@ private:
 // =============================================================================
 // ACS ECS — FParallelEntityCommandBuffer (EachParallel 用の per-worker 遅延記録)
 // -----------------------------------------------------------------------------
-// Query::EachParallel の fn は FWorld を構造変更 (Add/Remove/Destroy) してはならない
+// Query::EachParallel の fn は CWorld を構造変更 (Add/Remove/Destroy) してはならない
 // (Query.h の契約参照)。また FEntityCommandBuffer は単一スレッド前提なので、複数
 // ワーカーから同じバッファへ記録すると TArray が競合して壊れる。
 //
 // 本クラスは «ワーカー数 + 1» 本の FEntityCommandBuffer を持ち、記録時に
-// FThreadPool::CurrentWorkerIndex() で自スレッド専用のバッファへ振り分けることで、
+// CThreadPool::CurrentWorkerIndex() で自スレッド専用のバッファへ振り分けることで、
 // EachParallel の fn 内からロックなしで安全に構造変更を記録できるようにする。
 // +1 本は非ワーカースレッド用 (ParallelFor の呼び出し元は Wait 中に仕事を
 // 盗んで body を実行するため、worker index を持たないスレッドでも記録が起きる)。
@@ -23308,7 +23925,7 @@ private:
 //     記録は同じ予備スロットを共有するため不可。
 //   ・Flush/Clear/Size/HasOverflowed: 記録が全て完了した後 (= EachParallel が
 //     return した後) に単一スレッドから呼ぶこと。
-//   ・FThreadPool::Init より後に構築すること (スロット数を構築時の WorkerCount()
+//   ・CThreadPool::Init より後に構築すること (スロット数を構築時の WorkerCount()
 //     で確定するため。後から Init してワーカーが増えた場合、範囲外 index の記録は
 //     落として HasOverflowed()=true で検知できる)。
 //
@@ -23330,17 +23947,17 @@ namespace acs {
 class FParallelEntityCommandBuffer {
 public:
     /**
-     * 適用先 FWorld とアロケータを束ね、ワーカー数 + 1 本のバッファを確保して構築する。
+     * 適用先 CWorld とアロケータを束ね、ワーカー数 + 1 本のバッファを確保して構築する。
      *
      * @details 確保に失敗したら以降の記録は落ち、HasOverflowed() が true になる
-     * (IsValid() で構築成否を確認できる)。FThreadPool::Init より後に構築すること。
-     * @param world 適用先の FWorld (参照を保持)。
+     * (IsValid() で構築成否を確認できる)。CThreadPool::Init より後に構築すること。
+     * @param world 適用先の CWorld (参照を保持)。
      * @param alloc 各バッファの記録・退避に使うアロケータ。
      */
-    explicit FParallelEntityCommandBuffer(FWorld& world, FAllocator& alloc = DefaultAllocator()) noexcept
+    explicit FParallelEntityCommandBuffer(CWorld& world, IAllocator& alloc = DefaultAllocator()) noexcept
         : m_Alloc(&alloc), m_Buffers(alloc)
     {
-        const u32 slots = FThreadPool::WorkerCount() + 1u;   // +1 = 非ワーカー用予備
+        const u32 slots = CThreadPool::WorkerCount() + 1u;   // +1 = 非ワーカー用予備
         if (!m_Buffers.TryReserve(slots)) {
             return;                                          // IsValid()=false (記録は全て落ちる)
         }
@@ -23401,7 +24018,7 @@ public:
     /**
      * 空エンティティの生成を自スレッド専用スロットへ記録する (Flush 時に生成)。
      *
-     * @details FWorld::Create はスレッドセーフでないため、EachParallel 中の生成は本記録を使う。
+     * @details CWorld::Create はスレッドセーフでないため、EachParallel 中の生成は本記録を使う。
      */
     void Create() noexcept
     {
@@ -23421,7 +24038,7 @@ public:
     }
 
     /**
-     * 全スロットの記録を FWorld へ適用し、空にする (単一スレッドから呼ぶこと)。
+     * 全スロットの記録を CWorld へ適用し、空にする (単一スレッドから呼ぶこと)。
      *
      * @details スロット順 (worker 0..N-1, 非ワーカー) に、各スロット内は記録順で適用する。
      */
@@ -23496,7 +24113,7 @@ private:
      * 自スレッド専用スロットを返す (無ければ記録落ちとして数えて nullptr)。
      *
      * @details ワーカーは自 index、非ワーカーは末尾の予備スロット。構築失敗時や、
-     * 構築後の FThreadPool::Init でワーカーが増えて index が範囲外になった場合は
+     * 構築後の CThreadPool::Init でワーカーが増えて index が範囲外になった場合は
      * nullptr を返し、m_DroppedRecords を進める (HasOverflowed で検知)。
      * @return 自スレッドが専有するバッファ。使用不能なら nullptr。
      */
@@ -23507,8 +24124,8 @@ private:
             m_DroppedRecords.FetchAdd(1u);
             return nullptr;
         }
-        const u32 worker = FThreadPool::CurrentWorkerIndex();
-        const usize slot = (worker == FThreadPool::kNotAWorker)
+        const u32 worker = CThreadPool::CurrentWorkerIndex();
+        const usize slot = (worker == CThreadPool::kNotAWorker)
                                ? count - 1                        // 非ワーカー用の予備 (末尾)
                                : static_cast<usize>(worker);
         if (slot >= count) {
@@ -23528,7 +24145,7 @@ private:
     }
 
     /** バッファの確保・解放に使うアロケータ。 */
-    FAllocator* m_Alloc = nullptr;
+    IAllocator* m_Alloc = nullptr;
 
     /** スロット別バッファ (index = worker index、末尾 = 非ワーカー用)。 */
     TArray<FEntityCommandBuffer*> m_Buffers;
@@ -23541,7 +24158,7 @@ private:
 
 // ===================== ecs/Query.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FWorld::Query<FPos, FVel>().Each(...) を提供するクエリヘルパ
+// CWorld::Query<FPos, FVel>().Each(...) を提供するクエリヘルパ
 //
 // 仕組み: 指定された全コンポーネントを持つエンティティを選び出して、
 //         それぞれにラムダを適用する。
@@ -23549,7 +24166,7 @@ private:
 // 内部最適化: 一番要素数の少ない TSparseSet を「主軸」にし、その dense 走査の
 //             各エンティティが他の TSparseSet にも含まれているか確認する。
 //
-// 並列バージョン: EachParallel(fn, grain) は FThreadPool::ParallelFor で
+// 並列バージョン: EachParallel(fn, grain) は CThreadPool::ParallelFor で
 //                 chunk 分割して投入。ラムダはエンティティごとに独立に
 //                 呼ばれることを前提にする (= 共有資源を触るならユーザー側で同期)。
 
@@ -23563,18 +24180,18 @@ namespace acs {
  * 一番要素数の少ない TSparseSet を主軸 (primary) に選び、その dense を走査しつつ
  * 各エンティティが他のコンポーネントも持つかを確認してラムダを適用する。dense は
  * 走査前にローカルへスナップショットするため、ラムダ内での Add/Remove (構造変更) で
- * 反復が無効化されない。FWorld::Query<...>() から生成する。
+ * 反復が無効化されない。CWorld::Query<...>() から生成する。
  * @tparam Comps 同時に要求するコンポーネント型 (1 つ以上)。
  */
 template<typename... Comps>
 class TQueryView {
 public:
     /**
-     * 走査対象の FWorld を束ねてビューを構築する。
+     * 走査対象の CWorld を束ねてビューを構築する。
      *
-     * @param w 走査対象の FWorld (参照を保持)。
+     * @param w 走査対象の CWorld (参照を保持)。
      */
-    explicit TQueryView(FWorld& w) noexcept : m_World(w)
+    explicit TQueryView(CWorld& w) noexcept : m_World(w)
     {
     }
 
@@ -23599,7 +24216,7 @@ public:
     template<typename Fn>
     void Each(Fn fn) noexcept
     {
-        FSparseSetBase* primary = nullptr;
+        ASparseSetBase* primary = nullptr;
         if (!ResolvePrimary(primary)) return;
         const usize count = primary->Size();
         if (count == 0) return;
@@ -23631,7 +24248,7 @@ public:
     template<typename... Excludes, typename Fn>
     void EachExcluding(Fn fn) noexcept
     {
-        FSparseSetBase* primary = nullptr;
+        ASparseSetBase* primary = nullptr;
         if (!ResolvePrimary(primary)) return;
         const usize count = primary->Size();
         if (count == 0) return;
@@ -23656,7 +24273,7 @@ public:
     template<typename... Optional, typename Fn>
     void EachOptional(Fn fn) noexcept
     {
-        FSparseSetBase* primary = nullptr;
+        ASparseSetBase* primary = nullptr;
         if (!ResolvePrimary(primary)) return;
         const usize count = primary->Size();
         if (count == 0u) return;
@@ -23676,11 +24293,11 @@ public:
      * 全 Comps を持つ各エンティティに fn を並列で呼ぶ。
      *
      * @details
-     * primary の dense をスナップショットし、FThreadPool::ParallelFor で chunk 分割して
+     * primary の dense をスナップショットし、CThreadPool::ParallelFor で chunk 分割して
      * fn を呼ぶ (完了まで block)。同じエンティティが複数スレッドから同時に呼ばれること
      * はないが、グローバル資源を触る場合はユーザー側で同期が必要。
      *
-     * **重要**: fn は FWorld を構造変更 (Add/Remove/Destroy) してはならない。FWorld/TSparseSet は
+     * **重要**: fn は CWorld を構造変更 (Add/Remove/Destroy) してはならない。CWorld/TSparseSet は
      * 並行変更に対してスレッドセーフでなく、他スレッドが使用中の Comps& 参照も dangling する。
      * 構造変更が必要なら `FParallelEntityCommandBuffer` (ecs/ParallelEntityCommandBuffer.h)
      * へロックなしで記録し、EachParallel の完了後に Flush() するのが安全で推奨
@@ -23694,7 +24311,7 @@ public:
     template<typename Fn>
     void EachParallel(Fn fn, u32 grain = 1024) noexcept
     {
-        FSparseSetBase* primary = nullptr;
+        ASparseSetBase* primary = nullptr;
         if (!ResolvePrimary(primary)) return;
         const u32 count = static_cast<u32>(primary->Size());
         if (count == 0) return;
@@ -23709,7 +24326,7 @@ public:
                 snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
         }
 
-        // FThreadPool::ParallelFor は stateless 関数ポインタしか受け取れないので
+        // CThreadPool::ParallelFor は stateless 関数ポインタしか受け取れないので
         // ctx を user data に乗せ、thunk で TQueryView の処理に戻す。
         struct FCtx {
             TQueryView* self;
@@ -23724,7 +24341,7 @@ public:
         };
 
         // ParallelFor は完了まで block する (内部で Wait)。
-        (void)FThreadPool::ParallelFor(0, count, grain, +thunk, &ctx);
+        (void)CThreadPool::ParallelFor(0, count, grain, +thunk, &ctx);
     }
 
 private:
@@ -23733,16 +24350,16 @@ private:
      *
      * @details どれか 1 つでも未登録 (= 該当コンポーネントを持つエンティティが皆無) の
      * 場合は走査不要なので false を返す。
-     * @param out_primary 選んだ主軸 FSparseSetBase を書き戻す出力先。
+     * @param out_primary 選んだ主軸 ASparseSetBase を書き戻す出力先。
      * @return 全コンポーネントが揃って主軸を選べたら true。
      */
-    bool ResolvePrimary(FSparseSetBase*& out_primary) noexcept
+    bool ResolvePrimary(ASparseSetBase*& out_primary) noexcept
     {
-        FSparseSetBase* sets[sizeof...(Comps)] = {static_cast<FSparseSetBase*>(m_World.template TryGetSet<Comps>())...};
+        ASparseSetBase* sets[sizeof...(Comps)] = {static_cast<ASparseSetBase*>(m_World.template TryGetSet<Comps>())...};
         for (usize i = 0; i < sizeof...(Comps); ++i) {
             if (!sets[i]) return false;
         }
-        FSparseSetBase* primary = sets[0];
+        ASparseSetBase* primary = sets[0];
         for (usize i = 1; i < sizeof...(Comps); ++i) {
             if (sets[i]->Size() < primary->Size()) primary = sets[i];
         }
@@ -23812,18 +24429,18 @@ private:
         }
     }
 
-    /** 走査対象の FWorld。 */
-    FWorld& m_World;
+    /** 走査対象の CWorld。 */
+    CWorld& m_World;
 };
 
 /**
- * FWorld::Query<...>() の実装本体 (World.h で宣言、TQueryView を生成して返す)。
+ * CWorld::Query<...>() の実装本体 (World.h で宣言、TQueryView を生成して返す)。
  *
  * @tparam Comps 同時に要求するコンポーネント型。
- * @return この FWorld を束ねた TQueryView<Comps...>。
+ * @return この CWorld を束ねた TQueryView<Comps...>。
  */
 template<typename... Comps>
-auto FWorld::Query() noexcept
+auto CWorld::Query() noexcept
 {
     return TQueryView<Comps...>(*this);
 }
@@ -23832,14 +24449,14 @@ auto FWorld::Query() noexcept
 
 // ===================== ecs/RollbackBuffer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ECS の FRollbackBuffer（FWorld スナップショットのリングバッファ / rollback netcode の状態履歴）
+// ECS の FRollbackBuffer（CWorld スナップショットのリングバッファ / rollback netcode の状態履歴）
 //
 // 役割:
-//   FWorld::CopyFrom (snapshot/rollback 基盤) の上に「直近 N tick 分の状態履歴」を
+//   CWorld::CopyFrom (snapshot/rollback 基盤) の上に「直近 N tick 分の状態履歴」を
 //   提供する。GGPO 風 rollback netcode の状態レイヤで、入力レイヤの
-//   acs::game::FLockstep と対になる:
-//     ・FLockstep      … どの tick に誰が何を入力したか (入力履歴)
-//     ・FRollbackBuffer … 各 tick 開始時点の FWorld 状態 (状態履歴)
+//   acs::game::CLockstep と対になる:
+//     ・CLockstep      … どの tick に誰が何を入力したか (入力履歴)
+//     ・FRollbackBuffer … 各 tick 開始時点の CWorld 状態 (状態履歴)
 //
 // 使い方 (rollback netcode の典型ループ):
 //   FRollbackBuffer history;
@@ -23862,19 +24479,19 @@ auto FWorld::Query() noexcept
 //   ・**tick % capacity の直接添字リング**: 検索無しで O(1) に slot が決まる。
 //     slot には保存時の tick を記録し、Restore 時に一致検証する (容量を超えて
 //     進んだ後の古い tick は自然に上書き済み = 復元不可と判定される)。
-//   ・**FWorld は slot ごとに 1 個を Init で確保して使い回す**: SaveFrame のたびに
-//     FWorld を作り直さず CopyFrom で中身だけ入れ替えるため、TSparseSet の器の
+//   ・**CWorld は slot ごとに 1 個を Init で確保して使い回す**: SaveFrame のたびに
+//     CWorld を作り直さず CopyFrom で中身だけ入れ替えるため、TSparseSet の器の
 //     再確保が抑えられ、定常状態の確保回数が安定する。
 //   ・**部分状態を残さない**: Init の途中 OOM は確保済み分を解放して false。
 //     SaveFrame で CopyFrom が失敗した slot は invalid 化し、後の Restore が
 //     壊れた状態を返さない。
-//   ・**コピー / ムーブ禁止**: FWorld の履歴という重い状態の誤複製を防ぐ
-//     (FLockstep と同じ規約)。
-//   ・**全 noexcept / 失敗は bool**: ACS 全体方針。FWorld::CopyFrom の契約
-//     (非コピー型コンポーネントを含む FWorld は複製不可) をそのまま伝搬する。
+//   ・**コピー / ムーブ禁止**: CWorld の履歴という重い状態の誤複製を防ぐ
+//     (CLockstep と同じ規約)。
+//   ・**全 noexcept / 失敗は bool**: ACS 全体方針。CWorld::CopyFrom の契約
+//     (非コピー型コンポーネントを含む CWorld は複製不可) をそのまま伝搬する。
 //
 // 範囲外:
-//   ・入力履歴 / desync 検出 (FLockstep::ComputeChecksum を使う)
+//   ・入力履歴 / desync 検出 (CLockstep::ComputeChecksum を使う)
 //   ・差分 snapshot / 圧縮 (全量コピー。まず正しさを取る)
 //   ・スレッド安全性 (シミュレーションスレッド専有を想定)
 
@@ -23882,23 +24499,23 @@ auto FWorld::Query() noexcept
 namespace acs {
 
 /**
- * FWorld スナップショットの固定容量リングバッファ (rollback netcode の状態履歴)。
+ * CWorld スナップショットの固定容量リングバッファ (rollback netcode の状態履歴)。
  *
  * @details
- * 直近 capacity tick 分の FWorld 状態を tick % capacity の slot に保持する。
+ * 直近 capacity tick 分の CWorld 状態を tick % capacity の slot に保持する。
  * SaveFrame で現在状態を退避し、RestoreFrame で保存済み tick へ巻き戻す。
- * 保存する FWorld の全コンポーネント型はコピー構築可能である必要がある
- * (FWorld::CopyFrom の契約)。non-copy / non-move 型。
+ * 保存する CWorld の全コンポーネント型はコピー構築可能である必要がある
+ * (CWorld::CopyFrom の契約)。non-copy / non-move 型。
  */
 class FRollbackBuffer {
 public:
     /** 未初期化 (容量 0) で構築する。使用前に Init を呼ぶ。 */
     FRollbackBuffer() noexcept = default;
 
-    /** 破棄する (保持中の全スナップショット FWorld を解放)。 */
+    /** 破棄する (保持中の全スナップショット CWorld を解放)。 */
     ~FRollbackBuffer() noexcept { Shutdown(); }
 
-    /** コピー禁止 (FWorld 履歴の誤複製を防ぐ)。 */
+    /** コピー禁止 (CWorld 履歴の誤複製を防ぐ)。 */
     FRollbackBuffer(const FRollbackBuffer&)            = delete;
 
     /** コピー代入も禁止。 */
@@ -23926,7 +24543,7 @@ public:
         if (capacity == 0) return false;
         if (!m_Slots.TryResize(capacity)) return false;
         for (u32 i = 0; i < capacity; ++i) {
-            m_Slots[i].world = New<FWorld>(*m_Slots.GetAllocator());
+            m_Slots[i].world = New<CWorld>(*m_Slots.GetAllocator());
             if (m_Slots[i].world == nullptr) {
                 Shutdown();
                 return false;
@@ -23952,7 +24569,7 @@ public:
     }
 
     /**
-     * 保存済みフレームだけを全て無効化する (slot の FWorld 器は保持)。
+     * 保存済みフレームだけを全て無効化する (slot の CWorld 器は保持)。
      *
      * @details セッション跨ぎで tick が 0 に戻るときなど、古い tick の履歴が
      * 偶然一致して復元されるのを防ぐ。容量は変わらない。
@@ -23970,10 +24587,10 @@ public:
      * 上書きされる (リングの自然な追い出し)。複製に失敗した場合はその slot を
      * 無効化して false を返す (壊れた状態を後で復元させない)。
      * @param tick この状態が属するフレーム番号。
-     * @param world 保存する FWorld。
+     * @param world 保存する CWorld。
      * @return 保存できたら true。未初期化・複製失敗 (非コピー型 / OOM) は false。
      */
-    bool SaveFrame(u32 tick, const FWorld& world) noexcept
+    bool SaveFrame(u32 tick, const CWorld& world) noexcept
     {
         if (m_Slots.IsEmpty()) return false;
         FSlot& slot = m_Slots[tick % m_Slots.Size()];
@@ -23991,10 +24608,10 @@ public:
      * 容量を超えて上書き済みの古い tick は false になる。復元後も履歴 slot は
      * 有効なまま残る (同じ tick へ複数回巻き戻せる)。
      * @param tick 巻き戻したいフレーム番号。
-     * @param world 復元先の FWorld。
+     * @param world 復元先の CWorld。
      * @return 復元できたら true。履歴なし・tick 不一致・複製失敗は false。
      */
-    bool RestoreFrame(u32 tick, FWorld& world) const noexcept
+    bool RestoreFrame(u32 tick, CWorld& world) const noexcept
     {
         if (m_Slots.IsEmpty()) return false;
         const FSlot& slot = m_Slots[tick % m_Slots.Size()];
@@ -24037,10 +24654,10 @@ public:
     }
 
 private:
-    /** 1 スナップショット slot (FWorld の器 + どの tick の状態か)。 */
+    /** 1 スナップショット slot (CWorld の器 + どの tick の状態か)。 */
     struct FSlot {
         /** スナップショットの器 (Init で確保し Shutdown まで使い回す)。 */
-        FWorld* world = nullptr;
+        CWorld* world = nullptr;
 
         /** 保存時の tick (valid のときのみ意味を持つ)。 */
         u32    tick  = 0;
@@ -24060,35 +24677,35 @@ private:
 // システム関数の登録と実行（World に対して毎フレーム呼ばれる関数の登録機構）
 //
 // 使い方:
-//   void MovementSystem(FWorld& w, f32 dt) {
+//   void MovementSystem(CWorld& w, f32 dt) {
 //       w.Query<FPosition, FVelocity>().Each([dt](FEntityId, FPosition& p, FVelocity& v) {
 //           p.x += v.x * dt;
 //       });
 //   }
 //
-//   FSystemScheduler s;
+//   CSystemScheduler s;
 //   s.Add(&MovementSystem);
 //   while (running) { s.Tick(world, dt); }
 
 
 namespace acs {
 
-class FWorld;
+class CWorld;
 
-/** システム関数のシグネチャ (FWorld と経過秒を受け取る関数ポインタ)。 */
-using SystemFn = void (*)(FWorld& world, f32 dt);
+/** システム関数のシグネチャ (CWorld と経過秒を受け取る関数ポインタ)。 */
+using SystemFn = void (*)(CWorld& world, f32 dt);
 
 /**
  * 登録したシステム関数を毎フレーム登録順に実行するスケジューラ。
  *
  * @details
- * システムは (FWorld&, f32 dt) の自由関数ポインタとして保持する。Tick で登録順に
+ * システムは (CWorld&, f32 dt) の自由関数ポインタとして保持する。Tick で登録順に
  * 1 回ずつ呼ぶだけの単純な逐次スケジューラで、依存解決や並列化は行わない。
  */
-class FSystemScheduler {
+class CSystemScheduler {
 public:
     /** 空のスケジューラを構築する。 */
-    FSystemScheduler() noexcept = default;
+    CSystemScheduler() noexcept = default;
 
     /**
      * システム関数を登録する (実行順は登録順)。
@@ -24100,10 +24717,10 @@ public:
     /**
      * 登録した全システムを登録順に 1 回ずつ呼ぶ。
      *
-     * @param world 各システムへ渡す FWorld。
+     * @param world 各システムへ渡す CWorld。
      * @param dt 前フレームからの経過秒。
      */
-    void Tick(FWorld& world, f32 dt) noexcept {
+    void Tick(CWorld& world, f32 dt) noexcept {
         for (usize i = 0; i < m_Systems.Size(); ++i) {
             m_Systems[i](world, dt);
         }
@@ -24123,6 +24740,9 @@ private:
     /** 登録順に保持したシステム関数の配列。 */
     TArray<SystemFn> m_Systems;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FSystemScheduler = CSystemScheduler;
 
 } // namespace acs
 
@@ -24278,7 +24898,7 @@ static_assert(sizeof(FSnapshot) == 60u);
  * target-generation and history-generation metadata for a later bounded
  * offscreen scheduler.
  */
-class FRegistry {
+class CRegistry {
 public:
     [[nodiscard]] bool Create(
         std::int32_t camera_node_id,
@@ -24678,6 +25298,9 @@ private:
     FRecord m_Records[kMaximumRequests]{};
     std::uint64_t m_PresenterRequestId = 0u;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FRegistry = CRegistry;
 
 } // namespace acs::editor_camera_view
 
@@ -25539,19 +26162,19 @@ private:
     bool m_HasLastFrame = false;
 };
 
-using FClock = std::chrono::steady_clock;
-using FTimePoint = FClock::time_point;
+using CClock = std::chrono::steady_clock;
+using FTimePoint = CClock::time_point;
 
 inline f32 ElapsedMilliseconds(FTimePoint begin) noexcept {
     return static_cast<f32>(
         std::chrono::duration<double, std::milli>(
-            FClock::now() - begin).count());
+            CClock::now() - begin).count());
 }
 
 class FCpuScope {
 public:
     explicit FCpuScope(f32& destination) noexcept
-        : m_Destination(destination), m_Begin(FClock::now()) {}
+        : m_Destination(destination), m_Begin(CClock::now()) {}
 
     ~FCpuScope() noexcept {
         m_Destination += ElapsedMilliseconds(m_Begin);
@@ -27681,6 +28304,196 @@ private:
 // ===================== gameframework/AComponent.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
+
+// ===================== gameframework/Forward.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+namespace acs::game {
+
+/** アセット束を管理する正規型。 */
+class CAssetBundle;
+/** 旧公開名から正規アセット束型へ接続する互換別名。 */
+using FAssetBundle = CAssetBundle;
+
+/** 音声演出を管理する正規型。 */
+class CAudioDirector;
+/** 旧公開名から正規音声演出型へ接続する互換別名。 */
+using FAudioDirector = CAudioDirector;
+
+/** 映像演出を管理する正規型。 */
+class CCinematicsDirector;
+/** 旧公開名から正規映像演出型へ接続する互換別名。 */
+using FCinematicsDirector = CCinematicsDirector;
+
+/** 二次元衝突世界を管理する正規型。 */
+class CCollisionWorld2D;
+/** 旧公開名から正規二次元衝突世界型へ接続する互換別名。 */
+using FCollisionWorld2D = CCollisionWorld2D;
+
+/** デバッグ線を管理する正規型。 */
+class CDebugDraw;
+/** 旧公開名から正規デバッグ線型へ接続する互換別名。 */
+using FDebugDraw = CDebugDraw;
+
+/** 名前付きイベントを中継する正規所有型。 */
+class AEventBus;
+/** 旧公開名から正規イベント中継型へ接続する互換別名。 */
+using FEventBus = AEventBus;
+
+/** ゲーム進行を管理する正規型。 */
+class CGame;
+/** 旧公開名から正規ゲーム型へ接続する互換別名。 */
+using FGame = CGame;
+
+/** 入力記録を管理する正規型。 */
+class CInputRecorder;
+/** 旧公開名から正規入力記録型へ接続する互換別名。 */
+using FInputRecorder = CInputRecorder;
+
+/** inspectorとの接続を管理する正規型。 */
+class CInspectorSeam;
+/** 旧公開名から正規inspector接続型へ接続する互換別名。 */
+using FInspectorSeam = CInspectorSeam;
+
+/** 表示言語を管理する正規型。 */
+class CLocalizationDirector;
+/** 旧公開名から正規表示言語型へ接続する互換別名。 */
+using FLocalizationDirector = CLocalizationDirector;
+
+/** 同期進行を管理する正規型。 */
+class CLockstep;
+/** 旧公開名から正規同期進行型へ接続する互換別名。 */
+using FLockstep = CLockstep;
+
+/** 経路探索格子を管理する正規型。 */
+class CNavGrid;
+/** 旧公開名から正規経路探索格子型へ接続する互換別名。 */
+using FNavGrid = CNavGrid;
+
+/** 個人情報保護設定を管理する正規型。 */
+class CPrivacyDirector;
+/** 旧公開名から正規個人情報保護型へ接続する互換別名。 */
+using FPrivacyDirector = CPrivacyDirector;
+
+/** 再生処理を管理する正規型。 */
+class CReplayDirector;
+/** 旧公開名から正規再生管理型へ接続する互換別名。 */
+using FReplayDirector = CReplayDirector;
+
+/** 二次元剛体世界を管理する正規型。 */
+class CRigidWorld2D;
+/** 旧公開名から正規二次元剛体世界型へ接続する互換別名。 */
+using FRigidWorld2D = CRigidWorld2D;
+
+/** 一つの画面状態を所有する正規型。 */
+class AScene;
+/** 旧公開名から正規scene型へ接続する互換別名。 */
+using FScene = AScene;
+
+/** 二次元画面状態を所有する正規型。 */
+class AScene2D;
+/** 旧公開名から正規二次元scene型へ接続する互換別名。 */
+using FScene2D = AScene2D;
+
+/** 三次元sceneを管理する正規型。 */
+class CScene3D;
+/** 旧公開名から正規三次元scene型へ接続する互換別名。 */
+using FScene3D = CScene3D;
+
+/** scene遷移を管理する正規型。 */
+class CSceneManager;
+/** 旧公開名から正規scene管理型へ接続する互換別名。 */
+using FSceneManager = CSceneManager;
+
+/** sceneへ共有機能を渡す正規型。 */
+class CSceneServices;
+/** 旧公開名から正規scene共有機能型へ接続する互換別名。 */
+using FSceneServices = CSceneServices;
+
+namespace editor_core {
+
+/** editor操作を表す正規所有型。 */
+class AEditorCommand;
+/** 旧公開名から正規editor操作型へ接続する互換別名。 */
+using FEditorCommand = AEditorCommand;
+
+/** editor panelを表す正規所有型。 */
+class AEditorPanel;
+/** 旧公開名から正規editor panel型へ接続する互換別名。 */
+using FEditorPanel = AEditorPanel;
+
+/** editor作業領域を管理する正規型。 */
+class CEditorWorkspace;
+/** 旧公開名から正規editor作業領域型へ接続する互換別名。 */
+using FEditorWorkspace = CEditorWorkspace;
+
+} // namespace editor_core
+
+namespace inspector {
+
+/** editor選択状態を管理する正規型。 */
+class CSelectionService;
+/** 旧公開名から正規editor選択型へ接続する互換別名。 */
+using FSelectionService = CSelectionService;
+
+} // namespace inspector
+} // namespace acs::game
+
+namespace acs {
+
+/** GameFrameworkの正規型を短い名前で参照する公開入口。 */
+using game::CAssetBundle;
+using game::CAudioDirector;
+using game::CCinematicsDirector;
+using game::CCollisionWorld2D;
+using game::CDebugDraw;
+using game::AEventBus;
+using game::CGame;
+using game::CInputRecorder;
+using game::CInspectorSeam;
+using game::CLocalizationDirector;
+using game::CLockstep;
+using game::CNavGrid;
+using game::CPrivacyDirector;
+using game::CReplayDirector;
+using game::CRigidWorld2D;
+using game::AScene;
+using game::AScene2D;
+using game::CScene3D;
+using game::CSceneManager;
+using game::CSceneServices;
+using game::editor_core::AEditorCommand;
+using game::editor_core::AEditorPanel;
+using game::editor_core::CEditorWorkspace;
+using game::inspector::CSelectionService;
+
+/** GameFrameworkの旧公開名を正規型へ接続する互換入口。 */
+using game::FAssetBundle;
+using game::FAudioDirector;
+using game::FCinematicsDirector;
+using game::FCollisionWorld2D;
+using game::FDebugDraw;
+using game::FEventBus;
+using game::FGame;
+using game::FInputRecorder;
+using game::FInspectorSeam;
+using game::FLocalizationDirector;
+using game::FLockstep;
+using game::FNavGrid;
+using game::FPrivacyDirector;
+using game::FReplayDirector;
+using game::FRigidWorld2D;
+using game::FScene;
+using game::FScene2D;
+using game::FScene3D;
+using game::FSceneManager;
+using game::FSceneServices;
+using game::editor_core::FEditorCommand;
+using game::editor_core::FEditorPanel;
+using game::editor_core::FEditorWorkspace;
+using game::inspector::FSelectionService;
+
+} // namespace acs
 // QueryLightなどでFVec2/FVec3を使う。
 // ACS object基底のAObjectを使う。
 
@@ -27694,7 +28507,7 @@ private:
 namespace acs {
 
 /** オブジェクトの確保元として使うアロケータの前方宣言。 */
-class FAllocator;
+class IAllocator;
 
 /** オブジェクトへの強参照ポインタの前方宣言。 */
 template<typename T> class TObjectPtr;
@@ -27711,7 +28524,7 @@ struct FControlBlock;
 
 /** 指定アロケータでAObject派生型を生成する関数の前方宣言。 */
 template<typename T, typename... Args>
-TObjectPtr<T> NewObjectIn(FAllocator& Allocator, Args&&... Arguments) noexcept;
+TObjectPtr<T> NewObjectIn(IAllocator& Allocator, Args&&... Arguments) noexcept;
 
 /**
  * 参照カウント管理されるACSオブジェクトの基底。
@@ -27756,7 +28569,7 @@ private:
 
     /** NewObjectInが逆ポインタを設定するためのfriend宣言。 */
     template<typename U, typename... Args>
-    friend TObjectPtr<U> NewObjectIn(FAllocator& Allocator, Args&&... Arguments) noexcept;
+    friend TObjectPtr<U> NewObjectIn(IAllocator& Allocator, Args&&... Arguments) noexcept;
 };
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */
@@ -27957,7 +28770,7 @@ private:
     template<typename U> friend class TWeakObjectPtr;
 
     /** NewObjectIn が採用コンストラクタを使うための friend 宣言。 */
-    template<typename U, typename... A> friend TObjectPtr<U> NewObjectIn(FAllocator&, A&&...) noexcept;
+    template<typename U, typename... A> friend TObjectPtr<U> NewObjectIn(IAllocator&, A&&...) noexcept;
 };
 
 /**
@@ -28133,7 +28946,7 @@ private:
  * @return 生成したオブジェクトを所有する TObjectPtr (確保失敗時は空)。
  */
 template<typename T, typename... Args>
-ACS_FORCEINLINE TObjectPtr<T> NewObjectIn(FAllocator& a, Args&&... args) noexcept {
+ACS_FORCEINLINE TObjectPtr<T> NewObjectIn(IAllocator& a, Args&&... args) noexcept {
     static_assert(IsBaseOfV<AObject, T>, "NewObject<T>: T は AObject を継承していること");
     using Block = sp_detail::TInlineBlock<T>;
     void* const mem = a.Alloc(sizeof(Block), alignof(Block), FSourceLoc::Current());
@@ -28167,145 +28980,39 @@ ACS_FORCEINLINE TObjectPtr<T> NewObject(Args&&... args) noexcept {
 
 // ===================== gameframework/SubsystemCollection.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — FSubsystemCollection (1 スコープぶんのサブシステム束)
-//
-// 1 つのスコープ(Engine / GameInstance / World)に属するサブシステム群を所有する。
-// Initialize() で登録簿から該当スコープのサブシステムを «全て» 生成し OnInitialize。
-// Get<T>() は自スコープに無ければ parent(上位スコープ)へフォールバック検索する
-// (World → GameInstance → Engine)。Deinitialize() は生成の逆順で OnDeinitialize。
 
 
 // ===================== gameframework/Subsystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — FSubsystem (UE 風サブシステム基底)
-//
-// 「特定スコープ(寿命)に 1 つだけ存在し、そのスコープ内のオブジェクトから
-// 取得して使える管理オブジェクト」の基底。シングルトン/サービスの置き場であり、
-// ワールドに居るオブジェクト同士のやり取り(スコア・イベントバス・スポーン管理 等)
-// のハブになる。スコープは Engine / GameInstance / World の 3 種(将来拡張可)。
-//
-// 使い方(利用者):
-//   ACS_CLASS()
-//   class FScoreSubsystem : public acs::game::FSubsystem {
-//   public:
-//       ACS_GAME_SUBSYSTEM_KIND(FScoreSubsystem)
-//       void OnInitialize() noexcept override { m_Score = 0; }
-//       void Add(int n) noexcept { m_Score += n; }
-//       int  Score() const noexcept { return m_Score; }
-//   private:
-//       int m_Score = 0;
-//   };
-//   ACS_REGISTER_SUBSYSTEM(FScoreSubsystem, acs::game::ESubsystemScope::World)
-//
-//   // 取得 (FScene / FGame / ANode / AComponent の GetSubsystem<T>() から):
-//   GetSubsystem<FScoreSubsystem>()->Add(10);
 
 
 namespace acs::game {
 
-/**
- * サブシステムの «スコープ»(生存期間)。下位スコープから上位スコープを参照できる
- * (World → GameInstance → Engine の順にフォールバック検索される)。
- */
-enum class ESubsystemScope : u8 {
-    /** アプリ全体(プロセス寿命)。最も長寿命の共有サービス。 */
-    Engine       = 0,
-    /** ゲームセッション(FGame 寿命)。シーンを跨いで保持したいシングルトン。 */
-    GameInstance = 1,
-    /** ロード中の World/FScene 寿命。シーン固有の管理オブジェクト。 */
-    World        = 2,
-};
-
-/**
- * スコープ管理オブジェクトの基底。スコープ開始時に 1 つ生成され、終了時に破棄される。
- *
- * @details
- * 種別 ID は RTTI 不使用の `SubsystemKindOf<T>()` 型タグ(コンポーネントと同方式)で識別する。
- * 派生は `ACS_GAME_SUBSYSTEM_KIND(T)` を 1 行入れること。
- */
-class FSubsystem {
-public:
-    /** 仮想デストラクタ(派生を base ポインタで破棄するため)。 */
-    virtual ~FSubsystem() noexcept = default;
-
-    /** スコープ開始時(生成直後)に 1 度呼ばれる初期化フック。 */
-    virtual void OnInitialize() noexcept {}
-
-    /** スコープ終了時(破棄直前)に 1 度呼ばれる後始末フック。 */
-    virtual void OnDeinitialize() noexcept {}
-
-    /**
-     * 毎フレーム呼ばれる更新フック(任意)。
-     *
-     * @param dt 経過秒(World サブシステムはシーンと同じスケール済み dt、
-     *           GameInstance/Engine は生 dt)。
-     */
-    virtual void OnTick(f32 /*dt*/) noexcept {}
-
-    /**
-     * この型固有の種別 ID を返す(派生は ACS_GAME_SUBSYSTEM_KIND で実装)。
-     *
-     * @return SubsystemKindOf<派生型>() の安定ポインタ。
-     */
-    virtual const void* Kind() const noexcept = 0;
-
-    /** 型名(デバッグ/ログ用)。 */
-    virtual const char* Name() const noexcept { return "FSubsystem"; }
-
-    /**
-     * 所有コンテキスト(UE の Outer 相当)を返す。World サブシステムは所属 FScene、
-     * GameInstance/Engine サブシステムは FGame が設定される(非所有・生ポインタ)。
-     *
-     * @return 所有コンテキスト(未設定なら nullptr)。OnInitialize 時点で有効。
-     */
-    void* Owner() const noexcept { return m_Owner; }
-
-    /**
-     * 所有コンテキストを型付きで取り出す(例: World サブシステムから OwnerAs<FScene2D>())。
-     *
-     * @tparam T キャスト先の型(呼び出し側が正しいスコープ型を保証する)。
-     * @return T*(未設定なら nullptr)。
-     */
-    template<typename T>
-    T* OwnerAs() const noexcept { return static_cast<T*>(m_Owner); }
-
-    /** 所有コンテキストを設定する(内部用。コレクションが OnInitialize 前に呼ぶ)。 */
-    void _SetOwner(void* owner) noexcept { m_Owner = owner; }
-
-private:
-    void* m_Owner = nullptr;   ///< 所有コンテキスト(FScene / FGame、非所有)。
-};
-
-/**
- * 型 T 固有の安定したポインタ ID を返す(RTTI 不使用の種別タグ)。
- *
- * @tparam T 種別 ID を取りたい FSubsystem 派生型。
- * @return T に固有の安定したポインタ。
- */
-template<typename T>
-const void* SubsystemKindOf() noexcept {
-    static const int s_tag = 0;
-    return static_cast<const void*>(&s_tag);
-}
+/** 旧 GameFramework スコープ名を正規型へ転送する。 */
+using ::acs::ESubsystemScope;
+/** 旧 GameFramework owner 種別名を正規型へ転送する。 */
+using ::acs::ESubsystemOwnerKind;
+/** 旧 GameFramework owner descriptor 名を正規型へ転送する。 */
+using ::acs::FSubsystemOwner;
+/** 旧 GameFramework 更新段階名を正規型へ転送する。 */
+using ::acs::ESubsystemTickPhase;
+/** 旧 GameFramework 更新 context 名を正規型へ転送する。 */
+using ::acs::FSubsystemFrameContext;
+/** 旧 GameFramework 基底名を正規型へ転送する。 */
+using ::acs::ASubsystem;
+/** 旧基底名を GameFramework 名前空間でも利用できるようにする。 */
+using ::acs::FSubsystem;
+/** 旧 GameFramework 種別 ID 関数を正規関数へ転送する。 */
+using ::acs::SubsystemKindOf;
 
 } // namespace acs::game
 
-/** FSubsystem 派生に種別 ID と型名を実装するマクロ(クラス本体に 1 行)。 */
-#define ACS_GAME_SUBSYSTEM_KIND(T)                                                   \
-    const void* Kind() const noexcept override                                       \
-    { return ::acs::game::SubsystemKindOf<T>(); }                                     \
-    const char* Name() const noexcept override { return #T; }
-
 // ===================== gameframework/SubsystemRegistry.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — FSubsystemRegistry (サブシステム型のファクトリ登録簿)
-//
-// ACS_REGISTER_SUBSYSTEM(T, scope) で「この型をこのスコープで自動生成する」ことを
-// 静的初期化時に登録する。スコープ開始時に FSubsystemCollection がこの登録簿を走査して
-// 該当スコープのサブシステムを «全て» 生成する(UE の自動インスタンス化と同じ思想)。
-//
-// ヘッダオンリー: 登録簿は inline 関数内 static で 1 インスタンス。マクロは無名名前空間に
-// 静的オブジェクトを置き、その ctor で登録する(TU ごとに 1 回)。
+
+
+// ===================== subsystem/SubsystemRegistry.h =====================
+// SPDX-License-Identifier: Apache-2.0
 
 
 // ===================== memory/SystemAllocator.h =====================
@@ -28330,7 +29037,7 @@ const void* SubsystemKindOf() noexcept {
 
 namespace acs {
 
-/** プロセス内に存在する FSystemAllocator 全体の統計スナップショット。 */
+/** プロセス内に存在する CSystemAllocator 全体の統計スナップショット。 */
 struct FSystemAllocatorProcessStatistics {
     /** 現在生存し、侵入レジストリへ登録されているアロケータ数。 */
     u64 live_allocator_count = 0;
@@ -28375,33 +29082,33 @@ struct FSystemAllocatorProcessStatistics {
  * アロケータは自身が払い出した全確保より長く生存しなければならない。異なる確保に対する操作は
  * 並行実行できるが、同じ確保に対する Free/Realloc は呼び出し側で同期すること。
  */
-class FSystemAllocator final : public FAllocator {
+class CSystemAllocator final : public IAllocator {
 public:
     /** 既定構築し、プロセス内の侵入レジストリへ登録する。 */
-    FSystemAllocator() noexcept;
+    CSystemAllocator() noexcept;
 
     /**
      * 侵入レジストリから登録解除して破棄する。
      *
-     * @details 未解放確保があれば FLogger に依存しない機械可読ログをデバッグ出力と標準エラーへ出す。
+     * @details 未解放確保があれば CLogger に依存しない機械可読ログをデバッグ出力と標準エラーへ出す。
      * 未解放領域は自動回収しないため、破棄後にそのポインタを別のアロケータへ渡してはならない。
      */
-    ~FSystemAllocator() noexcept override;
+    ~CSystemAllocator() noexcept override;
 
     /** コピー禁止 (侵入レジストリの単一ノードとして管理するため)。 */
-    FSystemAllocator(const FSystemAllocator&) = delete;
+    CSystemAllocator(const CSystemAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FSystemAllocator& operator=(const FSystemAllocator&) = delete;
+    CSystemAllocator& operator=(const CSystemAllocator&) = delete;
 
     /** ムーブ禁止 (登録済みノードのアドレスを固定するため)。 */
-    FSystemAllocator(FSystemAllocator&&) = delete;
+    CSystemAllocator(CSystemAllocator&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FSystemAllocator& operator=(FSystemAllocator&&) = delete;
+    CSystemAllocator& operator=(CSystemAllocator&&) = delete;
 
     /**
-     * プロセス内に存在する全 FSystemAllocator の統計を取得する。
+     * プロセス内に存在する全 CSystemAllocator の統計を取得する。
      *
      * @details 動的確保を行わず、侵入レジストリを共有ロックして各アトミック統計を集計する。
      * 並行して確保・解放している間のバイト数と件数は弱整合スナップショットとなるため、
@@ -28508,305 +29215,167 @@ private:
     mutable TAtomic<u64> m_AllocationCount{0};
 
     /** プロセス内侵入レジストリの次ノード。動的確保を避けるため本体に保持する。 */
-    FSystemAllocator* m_RegistryNext = nullptr;
+    CSystemAllocator* m_RegistryNext = nullptr;
 
     /** 侵入レジストリへ登録済みなら true。 */
     bool m_RegistryRegistered = false;
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FSystemAllocator = CSystemAllocator;
+
 } // namespace acs
 
-namespace acs::game {
+namespace acs {
 
-/** サブシステム 1 体を生成するファクトリ関数(非捕捉ラムダ → 関数ポインタ)。 */
-using FSubsystemCreateFn = TUniquePtr<FSubsystem> (*)();
+struct CSubsystemAutoRegister;
 
-/** 1 つのサブシステム型の登録情報(種別 ID・スコープ・名前・生成関数)。 */
-struct FSubsystemFactory {
-    const void*        kind   = nullptr;                    ///< SubsystemKindOf<T>()。
-    ESubsystemScope    scope  = ESubsystemScope::World;     ///< 生成スコープ。
-    const char*        name   = "";                         ///< 型名(デバッグ用)。
-    FSubsystemCreateFn create = nullptr;                    ///< 1 体生成する関数。
-};
-
-struct FSubsystemAutoRegister;
-
-/**
- * サブシステム型のファクトリ登録簿(グローバル単一)。ACS_REGISTER_SUBSYSTEM が登録する。
- */
-class FSubsystemRegistry {
+/** owner thread から利用する、同一 link image 内のサブシステム登録簿。 */
+class CSubsystemRegistry {
 public:
-    /** 単一インスタンスを返す(初回呼び出しで遅延構築 = 静的初期化順に非依存)。 */
-    static FSubsystemRegistry& Get() noexcept {
-        static FSubsystemRegistry s_instance;
-        return s_instance;
-    }
-
-    /** ファクトリを登録する。同じ kind の異なる登録元は併存させる。 */
-    void Register(const FSubsystemFactory& f) noexcept {
-        RegisterSource(f, nullptr);
-    }
+    /** 同一 link image 内の process lifetime 登録簿を返す。 */
+    static CSubsystemRegistry& Get() noexcept;
 
     /**
-     * 手動登録したファクトリを解除する。
-     *
-     * @return 一致する手動登録を 1 件解除できたら true。
+     * 手動 factory の登録を試みる。
+     * 同じ実装の再登録は成功として扱い、容量不足または確保失敗で false を返す。
+     * factory.nameは成功から対応Unregister完了までimmutableなNUL終端storageを借用する。
      */
-    bool Unregister(const FSubsystemFactory& factory) noexcept
-    {
-        return UnregisterSource(factory, nullptr);
-    }
+    bool TryRegister(const FSubsystemFactory& factory) noexcept;
 
-    /** 登録数。 */
-    u32 Count() const noexcept
-    {
-        return static_cast<u32>(m_Entries.Size());
-    }
+    /** TryRegisterと同じborrowed name寿命で登録し、kindの現在有効な実装ならtrueを返す。 */
+    bool TryRegisterActive(const FSubsystemFactory& factory) noexcept;
 
-    /** i 番目の登録情報。 */
-    const FSubsystemFactory& At(u32 i) const noexcept
-    {
-        return m_Entries[i].sources[0].factory;
-    }
+    /** TryRegisterと同じborrowed name寿命で登録する旧API。失敗はTryRegisterで検査できる。 */
+    void Register(const FSubsystemFactory& factory) noexcept;
+
+    /** 一致する手動factoryを1件解除し、成功後にborrowed name寿命を呼出側へ戻す。 */
+    bool Unregister(const FSubsystemFactory& factory) noexcept;
+
+    /** 現在選択されている factory 数を返す。 */
+    u32 Count() const noexcept;
+
+    /** 指定位置の現在選択されている factory を返す。 */
+    const FSubsystemFactory& At(u32 index) const noexcept;
+
+    /**
+     * 現在選択されている factory を all-or-none で複製する。
+     * 登録・解除・snapshot は同じ owner thread で直列に呼ぶ。
+     */
+    bool TrySnapshot(TArray<FSubsystemFactory>& output) const noexcept;
 
 private:
-    friend struct FSubsystemAutoRegister;
+    friend struct CSubsystemAutoRegister;
 
     /** 同じ kind へ同時登録できる module/source 数。 */
-    static constexpr u32 kMaxSourcesPerFactory = 8;
+    static constexpr u32 kMaxSourcesPerFactory = 8u;
 
+    /** 1 つの登録元と解除用 token。 */
     struct FFactorySource {
+        /** 登録された factory 値。 */
         FSubsystemFactory factory{};
+        /** 自動登録元の識別子。手動登録は nullptr。 */
         const void* token = nullptr;
     };
 
+    /** 同じ kind に対する優先順付き登録元。 */
     struct FFactoryEntry {
+        /** 最初の要素を現在の factory とする登録元一覧。 */
         FFactorySource sources[kMaxSourcesPerFactory]{};
-        u8 source_count = 0;
+        /** 使用中の登録元数。 */
+        u8 source_count = 0u;
     };
 
-    /** process lifetime の登録簿が一時的な DefaultAllocator を捕捉しないようにする。 */
-    FSubsystemRegistry() noexcept : m_Entries(m_Allocator)
-    {
-    }
+    /** process lifetime allocator へ登録簿を接続する。 */
+    CSubsystemRegistry() noexcept;
 
-    static bool StrEq(const char* a, const char* b) noexcept
-    {
-        if (a == nullptr || b == nullptr) return a == b;
-        while (*a != '\0' && *a == *b) {
-            ++a;
-            ++b;
-        }
-        return *a == *b;
-    }
+    CSubsystemRegistry(const CSubsystemRegistry&) = delete;
+    CSubsystemRegistry& operator=(const CSubsystemRegistry&) = delete;
 
-    static bool SameImplementation(const FSubsystemFactory& a, const FSubsystemFactory& b) noexcept
-    {
-        return a.kind == b.kind && a.scope == b.scope && a.create == b.create && StrEq(a.name, b.name);
-    }
+    /** null を含む C 文字列を比較する。 */
+    static bool StrEq(const char* left, const char* right) noexcept;
 
-    void RegisterSource(const FSubsystemFactory& factory, const void* token) noexcept
-    {
-        for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
-            FFactoryEntry& entry = m_Entries[entry_index];
-            if (entry.sources[0].factory.kind != factory.kind) continue;
+    /** 同じ登録実装を表すか判定する。 */
+    static bool SameImplementation(
+        const FSubsystemFactory& left, const FSubsystemFactory& right) noexcept;
 
-            for (u32 source = 0; source < entry.source_count; ++source) {
-                if (token != nullptr && entry.sources[source].token == token) return;
-                if (token == nullptr && entry.sources[source].token == nullptr &&
-                    SameImplementation(entry.sources[source].factory, factory))
-                    return;
-            }
-            if (entry.source_count >= kMaxSourcesPerFactory) return;
-            entry.sources[entry.source_count++] = FFactorySource{factory, token};
-            return;
-        }
+    /** token 付き factory の登録を試みる。 */
+    bool RegisterSource(const FSubsystemFactory& factory, const void* token) noexcept;
 
-        FFactoryEntry entry{};
-        entry.sources[0] = FFactorySource{factory, token};
-        entry.source_count = 1;
-        m_Entries.PushBack(entry);
-    }
+    /** token 付き factory を 1 件解除する。 */
+    bool UnregisterSource(const FSubsystemFactory& factory, const void* token) noexcept;
 
-    bool UnregisterSource(const FSubsystemFactory& factory, const void* token) noexcept
-    {
-        for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
-            FFactoryEntry& entry = m_Entries[entry_index];
-            if (entry.sources[0].factory.kind != factory.kind) continue;
+    /** 一時 DefaultAllocator から独立した process lifetime allocator。 */
+    CSystemAllocator m_Allocator;
 
-            u32 source_index = entry.source_count;
-            for (u32 source = 0; source < entry.source_count; ++source) {
-                const bool token_matches = token != nullptr
-                                               ? entry.sources[source].token == token
-                                               : entry.sources[source].token == nullptr &&
-                                                     SameImplementation(entry.sources[source].factory, factory);
-                if (token_matches) {
-                    source_index = source;
-                    break;
-                }
-            }
-            if (source_index == entry.source_count) return false;
-
-            for (u32 source = source_index; source + 1u < entry.source_count; ++source) {
-                entry.sources[source] = entry.sources[source + 1u];
-            }
-            entry.sources[entry.source_count - 1u] = FFactorySource{};
-            --entry.source_count;
-            if (entry.source_count != 0) return true;
-
-            for (u32 remaining = entry_index; remaining + 1u < m_Entries.Size(); ++remaining) {
-                m_Entries[remaining] = m_Entries[remaining + 1u];
-            }
-            m_Entries.PopBack();
-            return true;
-        }
-        return false;
-    }
-
-    /** 登録簿より後に破棄される、登録簿専用の process-lifetime allocator。 */
-    FSystemAllocator m_Allocator;
-
-    /** kind ごとに登録元を束ねた factory 一覧。 */
+    /** kind ごとの登録元一覧。 */
     TArray<FFactoryEntry> m_Entries;
 };
 
-/** ACS_REGISTER_SUBSYSTEM が生成する登録元追跡付き RAII helper。 */
-struct FSubsystemAutoRegister {
-    explicit FSubsystemAutoRegister(const FSubsystemFactory& factory) noexcept : m_Factory(factory)
-    {
-        FSubsystemRegistry::Get().RegisterSource(m_Factory, this);
-    }
+/** 旧公開名を正規サブシステム登録簿型へ接続する互換別名。 */
+using FSubsystemRegistry = CSubsystemRegistry;
 
-    ~FSubsystemAutoRegister() noexcept
-    {
-        (void)FSubsystemRegistry::Get().UnregisterSource(m_Factory, this);
-    }
+/** マクロによる登録元を寿命終了時に解除する補助値。 */
+struct CSubsystemAutoRegister {
+    /** factory を token 付きで登録する。 */
+    explicit CSubsystemAutoRegister(const FSubsystemFactory& factory) noexcept;
 
-    FSubsystemAutoRegister(const FSubsystemAutoRegister&) = delete;
-    FSubsystemAutoRegister& operator=(const FSubsystemAutoRegister&) = delete;
+    /** 登録に成功した factory を解除する。 */
+    ~CSubsystemAutoRegister() noexcept;
+
+    CSubsystemAutoRegister(const CSubsystemAutoRegister&) = delete;
+    CSubsystemAutoRegister& operator=(const CSubsystemAutoRegister&) = delete;
 
 private:
+    /** 解除時に照合する factory 値。 */
     FSubsystemFactory m_Factory{};
+    /** 登録が完了した場合だけ true。 */
+    bool m_Registered = false;
 };
 
-} // namespace acs::game
+/** 旧公開名を正規サブシステム自動登録型へ接続する互換別名。 */
+using FSubsystemAutoRegister = CSubsystemAutoRegister;
 
-/**
- * サブシステム型 T を スコープ SCOPE で自動生成するよう登録する(静的初期化時)。
- * 翻訳単位の末尾(クラス定義後)に 1 回書く。namespace acs::game を開くので、T は
- * 外側ルックアップで acs::game 内型もグローバルなユーザー型も解決される。
- */
-#define ACS_REGISTER_SUBSYSTEM(T, SCOPE)                                                                  \
-    namespace acs::game {                                                                                 \
-    namespace {                                                                                           \
-    const ::acs::game::FSubsystemAutoRegister g_AcsSubsysReg_##T{::acs::game::FSubsystemFactory{          \
-        ::acs::game::SubsystemKindOf<T>(), (SCOPE), #T,                                                   \
-        []() noexcept -> ::acs::TUniquePtr<::acs::game::FSubsystem> { return ::acs::MakeUnique<T>(); }}}; \
-    }                                                                                                     \
+} // namespace acs
+
+/** phase と order を明示してサブシステム factory を自動登録する。 */
+#define ACS_REGISTER_SUBSYSTEM_EX(T, SCOPE, PHASE, ORDER)                                      \
+    namespace acs::game {                                                                        \
+    namespace {                                                                                  \
+    const ::acs::CSubsystemAutoRegister g_AcsSubsysReg_##T{::acs::FSubsystemFactory{             \
+        ::acs::SubsystemKindOf<T>(), (SCOPE), #T,                                                \
+        []() noexcept -> ::acs::TUniquePtr<::acs::ASubsystem> { return ::acs::MakeUnique<T>(); }, \
+        (PHASE), (ORDER)}};                                                                       \
+    }                                                                                            \
     }
+
+/** 旧登録を PreUpdate、order 0 の factory として自動登録する。 */
+#define ACS_REGISTER_SUBSYSTEM(T, SCOPE)                                                        \
+    ACS_REGISTER_SUBSYSTEM_EX(T, SCOPE, ::acs::ESubsystemTickPhase::PreUpdate, 0)
 
 namespace acs::game {
 
-/**
- * 1 スコープぶんのサブシステムを所有・駆動するコレクション。
- *
- * @details
- * FGame が Engine / GameInstance を、各 FScene が World を 1 つずつ持つ。parent を辿る
- * フォールバック検索で、下位スコープから上位スコープのサブシステムも透過的に取得できる。
- */
-class FSubsystemCollection {
-public:
-    /** 空(未初期化)で構築する。 */
-    FSubsystemCollection() noexcept = default;
+/** 旧 GameFramework 生成関数名を正規 alias へ転送する。 */
+using ::acs::FSubsystemCreateFn;
+/** 旧 GameFramework factory 名を正規型へ転送する。 */
+using ::acs::FSubsystemFactory;
+/** 旧 GameFramework 登録簿名を正規型へ転送する。 */
+using ::acs::CSubsystemRegistry;
+/** 旧登録簿名を GameFramework 名前空間でも利用できるようにする。 */
+using ::acs::FSubsystemRegistry;
+/** 旧 GameFramework 自動登録補助名を正規型へ転送する。 */
+using ::acs::CSubsystemAutoRegister;
+/** 旧自動登録名を GameFramework 名前空間でも利用できるようにする。 */
+using ::acs::FSubsystemAutoRegister;
 
-    /** 破棄時に Deinitialize する。 */
-    ~FSubsystemCollection() noexcept { Deinitialize(); }
+} // namespace acs::game
 
-    FSubsystemCollection(const FSubsystemCollection&)            = delete;
-    FSubsystemCollection& operator=(const FSubsystemCollection&) = delete;
+namespace acs::game {
 
-    /**
-     * 指定スコープのサブシステムを登録簿から全て生成し、順に OnInitialize する。
-     *
-     * @param scope  このコレクションのスコープ。
-     * @param parent 上位スコープのコレクション(Get<T> のフォールバック先。null 可)。
-     * @param owner  所有コンテキスト(World=FScene, GameInstance/Engine=FGame。各 subsystem の Owner())。
-     */
-    void Initialize(ESubsystemScope scope, FSubsystemCollection* parent = nullptr, void* owner = nullptr) noexcept {
-        if (m_Initialized) return;
-        m_Scope  = scope;
-        m_Parent = parent;
-        FSubsystemRegistry& reg = FSubsystemRegistry::Get();
-        for (u32 i = 0; i < reg.Count(); ++i) {
-            const FSubsystemFactory& f = reg.At(i);
-            if (f.scope != scope || f.create == nullptr) continue;
-            TUniquePtr<FSubsystem> s = f.create();
-            if (!s) continue;
-            FSubsystem* raw = s.Get();
-            m_Subsystems.PushBack(Move(s));
-            raw->_SetOwner(owner);           // OnInitialize で Owner() が使えるよう先に配線
-            raw->OnInitialize();             // 生成順に初期化(リスト末尾に積んでから fire)
-        }
-        m_Initialized = true;
-    }
-
-    /** 生成の逆順で OnDeinitialize して破棄する(依存の逆解体)。冪等。 */
-    void Deinitialize() noexcept {
-        if (!m_Initialized) return;
-        for (u32 i = m_Subsystems.Size(); i > 0; --i) {
-            if (m_Subsystems[i - 1]) m_Subsystems[i - 1]->OnDeinitialize();
-        }
-        m_Subsystems.Clear();
-        m_Initialized = false;
-        m_Parent = nullptr;
-    }
-
-    /** 所有する全サブシステムを 1 フレーム進める。 */
-    void Tick(f32 dt) noexcept {
-        for (u32 i = 0; i < m_Subsystems.Size(); ++i) {
-            if (m_Subsystems[i]) m_Subsystems[i]->OnTick(dt);
-        }
-    }
-
-    /**
-     * 種別 ID でサブシステムを引く。自スコープに無ければ parent を辿る。
-     *
-     * @param kind SubsystemKindOf<T>()。
-     * @return 見つかったサブシステム(無ければ nullptr)。
-     */
-    FSubsystem* GetByKind(const void* kind) const noexcept {
-        for (u32 i = 0; i < m_Subsystems.Size(); ++i) {
-            if (m_Subsystems[i] && m_Subsystems[i]->Kind() == kind) return m_Subsystems[i].Get();
-        }
-        return (m_Parent != nullptr) ? m_Parent->GetByKind(kind) : nullptr;
-    }
-
-    /**
-     * 型でサブシステムを引く(自 → 上位スコープへフォールバック)。
-     *
-     * @tparam T FSubsystem 派生型。
-     * @return T*(未登録/未初期化なら nullptr)。
-     */
-    template<typename T>
-    T* Get() const noexcept {
-        return static_cast<T*>(GetByKind(SubsystemKindOf<T>()));
-    }
-
-    /** このスコープで生成済みのサブシステム数(parent は含まない)。 */
-    u32 Count() const noexcept { return static_cast<u32>(m_Subsystems.Size()); }
-
-    /** このコレクションのスコープ。 */
-    ESubsystemScope Scope() const noexcept { return m_Scope; }
-
-    /** 初期化済みか。 */
-    bool IsInitialized() const noexcept { return m_Initialized; }
-
-private:
-    TArray<TUniquePtr<FSubsystem>> m_Subsystems;                  ///< 所有するサブシステム群。
-    FSubsystemCollection*          m_Parent      = nullptr;       ///< 上位スコープ(フォールバック先)。
-    ESubsystemScope                m_Scope       = ESubsystemScope::World;
-    bool                           m_Initialized = false;
-};
+/** 旧 GameFramework コレクション名を正規型へ転送する。 */
+using ::acs::CSubsystemCollection;
+/** 旧集合名を GameFramework 名前空間でも利用できるようにする。 */
+using ::acs::FSubsystemCollection;
 
 } // namespace acs::game
 
@@ -28814,7 +29383,6 @@ namespace acs::game {
 
 class ANode;
 class FRenderContext;
-class FSceneServices;
 
 /**
  * 型 T ごとに一意なコンポーネント種別 ID を返す (RTTI 不使用)。
@@ -28881,7 +29449,7 @@ public:
     virtual const void* Kind() const noexcept = 0;
 
     /**
-     * リフレクション登録名 (= クラス名) を返す。インスタンス→FTypeRegistry の橋渡し。
+     * リフレクション登録名 (= クラス名) を返す。インスタンス→CTypeRegistry の橋渡し。
      *
      * @details
      * Kind() は per-process の void* タグで実行をまたいで安定せず、FTypeId (名前ハッシュ)
@@ -28924,7 +29492,7 @@ public:
      * 固定刻み update フック (物理・決定論ロジック)。
      *
      * @details
-     * FGame の fixed-step accumulator から FScene 経由で呼ばれ、同フレームで複数回
+     * CGame の fixed-step accumulator から AScene 経由で呼ばれ、同フレームで複数回
      * (catch-up) または 0 回 (slow-down clamp) 呼ばれ得る。既定 no-op。
      * @param fixed_dt 固定刻みの秒。
      */
@@ -28955,9 +29523,9 @@ public:
      * OnAttach の後・services が存在するときだけ発火する。ここで
      * `services.Input()/Physics()/Camera()` の参照をキャッシュしておけば、OnUpdate は
      * 分岐なしで使える。既定 no-op。1 コンポーネントにつき高々 1 回 (二重発火しない)。
-     * @param services 配線済みの FSceneServices。
+     * @param services 配線済みの CSceneServices。
      */
-    virtual void OnAttachServices(FSceneServices& /*services*/) noexcept {}
+    virtual void OnAttachServices(CSceneServices& /*services*/) noexcept {}
 
     /**
      * detach (owner 破棄) 直前に 1 回呼ばれる後始末フック。
@@ -29012,11 +29580,11 @@ public:
     virtual bool WantsAtomicSubtree() const noexcept { return false; }
 
     /**
-     * owner ツリーに配線された FSceneServices を返す (未配線なら nullptr)。
+     * owner ツリーに配線された CSceneServices を返す (未配線なら nullptr)。
      *
      * @return 配線済み services ポインタ (owner 未設定/未配線は nullptr)。
      */
-    FSceneServices* SceneServices() const noexcept;
+    CSceneServices* SceneServices() const noexcept;
 
     /**
      * services が配線済みかを返す。
@@ -29030,18 +29598,18 @@ public:
      *
      * @return World スコープのコレクション (GameInstance → Engine へフォールバック)。
      */
-    FSubsystemCollection* Subsystems() const noexcept;
+    CSubsystemCollection* Subsystems() const noexcept;
 
     /**
      * 型でサブシステムを取得する (World → GameInstance → Engine の順に検索)。
      *
      * @details オブジェクト同士のやり取り(スコア加算・イベント送出 等)はこれ経由で行う。
-     * @tparam T FSubsystem 派生型。
+     * @tparam T ASubsystem 派生型。
      * @return T*(未配線/未登録なら nullptr)。
      */
     template<typename T>
     T* GetSubsystem() const noexcept {
-        FSubsystemCollection* s = Subsystems();
+        CSubsystemCollection* s = Subsystems();
         return (s != nullptr) ? s->Get<T>() : nullptr;
     }
 
@@ -29050,7 +29618,7 @@ public:
      *
      * @param svc 配線された services (nullptr なら何もしない)。
      */
-    void _MaybeAttachServices(FSceneServices* svc) noexcept {
+    void _MaybeAttachServices(CSceneServices* svc) noexcept {
         if (svc != nullptr && !m_ServicesAttached) {
             m_ServicesAttached = true;
             OnAttachServices(*svc);
@@ -29101,6 +29669,19 @@ private:
 
 } // namespace acs::game
 
+namespace acs {
+
+/** componentが返す2D light情報をトップレベルから参照する正規入口。 */
+using game::FLightDesc2D;
+/** component所有ノードをトップレベルから参照する正規入口。 */
+using game::ANode;
+/** component描画コンテキストをトップレベルから参照する正規入口。 */
+using game::FRenderContext;
+/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
+using game::AComponent;
+
+} // namespace acs
+
 // ===================== gameframework/ANode.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -29119,7 +29700,7 @@ private:
 //   ・world.rotation = parent.rotation + local.rotation
 //   ・world.position = parent.position + Rotate(parent.scale * local.position, parent.rotation)
 //
-// ToMat4() は FSpriteBatch::SetView や 4x4 行列が必要な場面でだけ使う (合成内では
+// ToMat4() は CSpriteBatch::SetView や 4x4 行列が必要な場面でだけ使う (合成内では
 // 使わない、誤差/コストを避けるため)。
 
 
@@ -29183,7 +29764,7 @@ struct FTransform2D {
     }
 
     /**
-     * 4x4 行列に変換する (FSpriteBatch::SetView 等で 4x4 が必要なとき用)。
+     * 4x4 行列に変換する (CSpriteBatch::SetView 等で 4x4 が必要なとき用)。
      *
      * @details Z=0 平面で T * R * S を row-major (acs/Math 規約) で展開する。合成内では誤差/コストを避けるため使わない。
      * @return この transform を表す 4x4 行列。
@@ -29381,7 +29962,7 @@ struct FTransform3D {
 //
 // 設計選択 (なぜこの形か):
 //   ・**RTTI / dynamic_cast 不使用**: ACS は STL / 例外 / RTTI 禁止。型情報は
-//     呼び出し側 (FScene 等) が別 array で持つ責務。FNodeId は純粋に「どの slot
+//     呼び出し側 (AScene 等) が別 array で持つ責務。FNodeId は純粋に「どの slot
 //     のどの世代か」だけを表現する POD handle。
 //   ・**24bit index = 約 16M slot で十分**: 2D ゲームのシーングラフで同時存在
 //     する ANode 数は実用上 10K 〜 100K オーダー。16M (= 16,777,216) なら数桁
@@ -29399,7 +29980,7 @@ struct FTransform3D {
 //
 // 注意:
 //   ・index が 24bit を超える値で構築された場合、上位 bit は黙って捨てられる
-//     (`& 0x00FFFFFFu`)。これは FShapeId と完全に同じ挙動。生成側 (FNodePool 等)
+//     (`& 0x00FFFFFFu`)。これは FShapeId と完全に同じ挙動。生成側 (CNodePool 等)
 //     で assert / TResult<E> を入れて 16M 越えを検出する責務。
 
 
@@ -29477,8 +30058,6 @@ struct FNodeId {
 namespace acs::game {
 
 class FRenderContext;
-// ノードheaderを軽く保つため、非所有ポインタで参照する。
-class FSceneServices;
 // 使用する効果プリセット。値は描画materialへ反映する。
 struct FMaterial2D;
 
@@ -29555,7 +30134,7 @@ public:
      * 固定刻み update フック (物理・決定論ロジック)。
      *
      * @details
-     * 同フレームで 0..max_fixed_steps 回呼ばれる。FGame::SetFixedTimeStep が 0 のとき
+     * 同フレームで 0..max_fixed_steps 回呼ばれる。CGame::SetFixedTimeStep が 0 のとき
      * (= 固定 update 無効) は呼ばれない。
      * @param fixed_dt 固定刻みの秒 (SetFixedTimeStep で指定した値)。
      */
@@ -29789,7 +30368,7 @@ public:
     // ---------------------------------------------------------- マテリアル
 
     /**
-     * この node に焼き込んだマテリアル効果の状態 (FSpriteBatch 型に依存しない軽量 POD)。
+     * この node に焼き込んだマテリアル効果の状態 (CSpriteBatch 型に依存しない軽量 POD)。
      *
      * @details ANode.h を軽く保つため、効果プリセットの値だけをここに持つ
      *          (ESpriteEffect の整数値 + パラメータ)。DrawTree が rc.Sprites().SetEffect へ渡す。
@@ -30132,39 +30711,39 @@ public:
     // --------------------------------------------- services / subsystems
 
     /**
-     * ツリーに配線された FSceneServices を返す (root まで遡る。未配線なら nullptr)。
+     * ツリーに配線された CSceneServices を返す (root まで遡る。未配線なら nullptr)。
      *
-     * @return 配線済み FSceneServices ポインタ (未配線は nullptr)。
+     * @return 配線済み CSceneServices ポインタ (未配線は nullptr)。
      */
-    FSceneServices* SceneServices() const noexcept;
+    CSceneServices* SceneServices() const noexcept;
 
     /** services ポインタを設定する (内部用。root ノードでのみ意味を持つ)。 */
-    void _SetSceneServices(FSceneServices* svc) noexcept { m_Services = svc; }
+    void _SetSceneServices(CSceneServices* svc) noexcept { m_Services = svc; }
 
     /**
      * ツリーに配線された World サブシステム束を返す (root まで遡る。未配線なら nullptr)。
      *
-     * @return 配線済み FSubsystemCollection (未配線は nullptr)。
+     * @return 配線済み CSubsystemCollection (未配線は nullptr)。
      */
-    FSubsystemCollection* Subsystems() const noexcept;
+    CSubsystemCollection* Subsystems() const noexcept;
 
     /** サブシステム束を設定する (内部用。root ノードでのみ意味を持つ)。 */
-    void _SetSubsystems(FSubsystemCollection* subs) noexcept { m_Subsystems = subs; }
+    void _SetSubsystems(CSubsystemCollection* subs) noexcept { m_Subsystems = subs; }
 
     /**
      * 型でサブシステムを取得する (root のコレクションから解決)。
      *
-     * @tparam T FSubsystem 派生型。
+     * @tparam T ASubsystem 派生型。
      * @return T* (未配線/未登録なら nullptr)。
      */
     template<typename T>
     T* GetSubsystem() const noexcept {
-        FSubsystemCollection* s = Subsystems();
+        CSubsystemCollection* s = Subsystems();
         return (s != nullptr) ? s->Get<T>() : nullptr;
     }
 
     /** root に services を設定し、subtree 全コンポーネントの OnAttachServices を一度発火する。 */
-    void _ActivateServices(FSceneServices& svc) noexcept;
+    void _ActivateServices(CSceneServices& svc) noexcept;
 
     // ------------------------------------------------------------ ツリー実行
 
@@ -30250,7 +30829,7 @@ private:
      * 遅延 Reparent 先の寿命を監視する、割り当て不要の侵入型 observer。
      *
      * @details
-     * ANode は NewObject 所有だけでなく FScene root の値所有も正式に許すため、
+     * ANode は NewObject 所有だけでなく AScene root の値所有も正式に許すため、
      * TWeakObjectPtr だけでは全対象を監視できない。observer を対象側のリストへ
      * 接続し、対象のデストラクタから無効化することで両方を stale-safe に扱う。
      */
@@ -30296,7 +30875,7 @@ private:
     u32 SubtreeHeight() const noexcept;
 
     /** subtree を DFS し各コンポーネントの OnAttachServices をガード付きで発火する。 */
-    void _ActivateSubtreeServices(FSceneServices* svc) noexcept;
+    void _ActivateSubtreeServices(CSceneServices* svc) noexcept;
 
     /** ローカル transform (真値。world は親から合成)。 */
     FTransform3D m_Local{};
@@ -30356,13 +30935,28 @@ private:
     i32 m_SelfOccluder = -1;
 
     /** ツリー root に配線される services (root のみ設定、子は walk-to-root)。 */
-    FSceneServices* m_Services = nullptr;
+    CSceneServices* m_Services = nullptr;
 
     /** ツリー root に配線されるサブシステム束 (root のみ設定)。 */
-    FSubsystemCollection* m_Subsystems = nullptr;
+    CSubsystemCollection* m_Subsystems = nullptr;
 };
 
 } // namespace acs::game
+
+namespace acs {
+
+/** node追加結果をトップレベルから参照する正規入口。 */
+using game::EAddChildResult;
+/** node階層の最大深度をトップレベルから参照する正規入口。 */
+using game::kNodeMaxTreeDepth;
+/** node描画コンテキストをトップレベルから参照する正規入口。 */
+using game::FRenderContext;
+/** nodeへ設定する2D materialをトップレベルから参照する正規入口。 */
+using game::FMaterial2D;
+/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
+using game::ANode;
+
+} // namespace acs
 
 // ===================== gameframework/AccessibilityProfile.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -30383,25 +30977,25 @@ private:
 // 設計選択:
 //   ・**caller が機能を適用する**: 本クラスは設定値を保持するだけ。実際に
 //     「色覚 LUT を差し替える」「字幕を表示する」「スクリーンリーダに発話させる」
-//     のは FRenderer / UI / TTS バックエンドの責務。GameFramework モジュールから
+//     のは CRenderer / UI / TTS バックエンドの責務。GameFramework モジュールから
 //     具体的サブシステムへの依存を切る (Pillar 規約)。
 //   ・**プリセットは「上書き」**: ApplyPreset() は現設定を破棄して preset の
 //     値で全フィールドを再設定する。「Dyslexia の上に colorblind=Protanopia」
 //     のような追加変更はプリセット適用後に個別 setter で行う想定。
 //   ・**POD struct + class wrapper**: FAccessibilitySettings は値オブジェクト
 //     としてコピー可能 (UI から渡されたスナップショットを Set() で受け取れる)。
-//     FAccessibilityProfile は非コピー・非ムーブ (FGame / FScene のメンバとして
+//     FAccessibilityProfile は非コピー・非ムーブ (CGame / AScene のメンバとして
 //     1 インスタンスのみ存在する設計)。
 //   ・**screen_shake_scale / flash_intensity_scale は [0, 1] 推奨だが clamp しない**:
 //     1.0 = フル、0.0 = 完全カット。1.0 を超える値も技術的には許可するが、
 //     UI 側で 0..1 に制限する想定。
 //
 // 非コピー・非ムーブ:
-//   FAccessibilityProfile は FGame のメンバとして 1 インスタンスのみ存在する
+//   FAccessibilityProfile は CGame のメンバとして 1 インスタンスのみ存在する
 //   想定。複製可能にすると「どの Profile が真か」の同期ずれが発生する。
 //
 // 範囲外:
-//   ・永続化 (FSettings 経由で Save / Load する想定、本クラスは値保持のみ)
+//   ・永続化 (CSettings 経由で Save / Load する想定、本クラスは値保持のみ)
 //   ・change notification (オブザーバ pattern)
 //   ・地域別法令準拠 (EAA / Section 508 / 韓国 KWCAG) の自動検証
 //   ・カスタムプリセット (ユーザー定義 preset の名前付き保存)
@@ -30552,7 +31146,7 @@ enum class EPreset : u8 {
  * @details
  * 色覚補正・モーション低減・字幕・スクリーンリーダ・片手操作などの設定値を 1 つ保持する。
  * 本クラスは値を持つだけで、実際の機能適用 (色覚 LUT 差し替え・字幕表示・TTS 発話) は
- * caller (FRenderer / UI / TTS バックエンド) の責務。FGame のメンバとして 1 インスタンスのみ
+ * caller (CRenderer / UI / TTS バックエンド) の責務。CGame のメンバとして 1 インスタンスのみ
  * 存在する設計のため非コピー・非ムーブ。
  */
 class FAccessibilityProfile {
@@ -30777,7 +31371,7 @@ private:
 
 // ===================== gameframework/AchievementManager.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — FAchievementManager (実績の定義 + 進捗 + Storefront 統合)
+// GameFramework Pillar S — CAchievementManager (実績の定義 + 進捗 + Storefront 統合)
 //
 // ゲームロジック側から「ボス撃破、隠しエンディング到達、累計 100km 歩いた」等の
 // 進捗を Achievement に流し込み、max_progress に達したら自動 unlock + プラット
@@ -30787,7 +31381,7 @@ private:
 // オフラインモードで動作する (テスト / Demo build 用)。
 //
 // 使い方:
-//   FAchievementManager am;
+//   CAchievementManager am;
 //
 //   // ゲーム起動時に全実績を 1 度だけ登録 (= 定義)。
 //   am.RegisterAchievement({ "ACH_BOSS_01",       "First Boss",   "...", 1,    false });
@@ -30795,7 +31389,7 @@ private:
 //   am.RegisterAchievement({ "ACH_SECRET_ENDING", "True Ending",  "...", 1,    true  });
 //
 //   // (任意) Storefront SDK を attach。null で detach 可。
-//   am.AttachSteamworks(&acs::game::FSteamworksBridgeStub::GetStub());
+//   am.AttachSteamworks(&acs::game::CSteamworksBridgeStub::GetStub());
 //
 //   // ゲームロジック内で進捗更新。
 //   am.IncrementProgress("ACH_WALK_100KM", 1);     // 1km 歩いた
@@ -30824,12 +31418,12 @@ private:
 //     ローカル進捗は影響を受けない。
 //   ・**max_progress に達したら自動 unlock**: SetProgress / IncrementProgress 経由
 //     で current_progress が max に達した瞬間に unlocked = true、Bridge へ送信、
-//     unlock_timestamp を FClock::MillisSinceStartup() で記録。Unlock() を直接
+//     unlock_timestamp を CClock::MillisSinceStartup() で記録。Unlock() を直接
 //     呼んだ場合は current_progress を max_progress に固定する。
 //   ・**unlock_timestamp は起動からの ms**: 永続化 (Pillar J Serialize) と合わせ
 //     て使う想定だが、「起動以降のみ意味を持つ」相対時間で十分。
 //   ・**重複登録は黙って弾く**: 同 id を 2 度 RegisterAchievement しても 2 回目は
-//     no-op。アセット二重ロード時の安全側挙動 (FModRegistry と揃える)。
+//     no-op。アセット二重ロード時の安全側挙動 (CModRegistry と揃える)。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //
 // 範囲外:
@@ -30875,8 +31469,8 @@ struct FAchievementDef {
  *
  * @details
  * FAchievementDef と同 index 位置で 1:1 対応する。id は Def 側のリテラルを参照コピー
- * して検索 / 表示で扱いやすくする。unlock_timestamp は FClock::MillisSinceStartup() の値
- * (起動からの ms) で、0 は「未 unlock」または「unlock 時に FClock 未取得」を表す。
+ * して検索 / 表示で扱いやすくする。unlock_timestamp は CClock::MillisSinceStartup() の値
+ * (起動からの ms) で、0 は「未 unlock」または「unlock 時に CClock 未取得」を表す。
  */
 struct FAchievementProgress {
     /** 対応する Def の id を指す参照コピー (所有しない)。 */
@@ -30891,7 +31485,7 @@ struct FAchievementProgress {
     /** unlock 済みか。 */
     bool        unlocked         = false;
 
-    /** unlock 時刻 (FClock::MillisSinceStartup()、起動からの ms。0 = 未 unlock)。 */
+    /** unlock 時刻 (CClock::MillisSinceStartup()、起動からの ms。0 = 未 unlock)。 */
     u64         unlock_timestamp = 0;
 };
 
@@ -30904,25 +31498,25 @@ struct FAchievementProgress {
  * を別 TArray に 1:1 で持ち、id の線形検索で参照する。Bridge 未 attach 時はローカル進捗のみ
  * 追跡するオフラインモードで動作する。全 noexcept・非コピー・非ムーブ。
  */
-class FAchievementManager {
+class CAchievementManager {
 public:
     /** 空のマネージャを構築する (実績は RegisterAchievement で登録)。 */
-    FAchievementManager()  noexcept = default;
+    CAchievementManager()  noexcept = default;
 
     /** 破棄する (実績配列は TArray が解放、Bridge は所有しないため触らない)。 */
-    ~FAchievementManager() noexcept = default;
+    ~CAchievementManager() noexcept = default;
 
     /** コピー禁止 (Manager は唯一の状態 holder として扱うため)。 */
-    FAchievementManager(const FAchievementManager&)            = delete;
+    CAchievementManager(const CAchievementManager&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAchievementManager& operator=(const FAchievementManager&) = delete;
+    CAchievementManager& operator=(const CAchievementManager&) = delete;
 
     /** ムーブ禁止。 */
-    FAchievementManager(FAchievementManager&&)                 = delete;
+    CAchievementManager(CAchievementManager&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FAchievementManager& operator=(FAchievementManager&&)      = delete;
+    CAchievementManager& operator=(CAchievementManager&&)      = delete;
 
     /**
      * 実績定義を登録する (起動時に 1 度ずつ呼ぶ)。
@@ -31064,6 +31658,9 @@ private:
     ISteamworksBridge* m_Bridge = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAchievementManager = CAchievementManager;
+
 } // namespace acs::game
 
 // ===================== gameframework/AcsClass.h =====================
@@ -31092,16 +31689,16 @@ private:
 
 // ===================== gameframework/AmbientDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — FAmbientDirector (Time-of-Day)
+// GameFramework Pillar Q — CAmbientDirector (Time-of-Day)
 //
 // 1 日の時刻 (0..24h) に応じて sky color / ambient color / sun direction を
-// キーフレーム間で線形補間する time-of-day ドライバ。レンダラ側 (FPbrShader /
+// キーフレーム間で線形補間する time-of-day ドライバ。レンダラ側 (CPbrShader /
 // SkyShader / 環境光ステージ) は本クラスの 3 つの色 / 方向ベクトルを毎フレーム
 // pull するだけで一日の表情が出る。
 //
 // 使い方:
-//   class FWorldScene : public FScene {
-//       acs::game::FAmbientDirector m_Ambient;
+//   class FWorldScene : public AScene {
+//       acs::game::CAmbientDirector m_Ambient;
 //
 //       void OnEnter() noexcept override {
 //           m_Ambient.SetTimeOfDay(6.5f);     // 朝焼け開始
@@ -31110,9 +31707,9 @@ private:
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           m_Ambient.Tick(dt);
-//           FRenderer().SetSkyColor    (m_Ambient.SkyColor());
-//           FRenderer().SetAmbientColor(m_Ambient.AmbientColor());
-//           FRenderer().SetSunDir      (m_Ambient.SunDirection());
+//           CRenderer().SetSkyColor    (m_Ambient.SkyColor());
+//           CRenderer().SetAmbientColor(m_Ambient.AmbientColor());
+//           CRenderer().SetSunDir      (m_Ambient.SunDirection());
 //       }
 //   };
 //
@@ -31151,25 +31748,25 @@ namespace acs::game {
  * するだけで一日の表情が出る。Tick(dt) でリアル秒を、AdvanceTime(dh) でゲーム時間を進め、
  * 換算は SetTimeScale() で行う。非コピー・非ムーブ。
  */
-class FAmbientDirector {
+class CAmbientDirector {
 public:
     /** 既定値で構築する (時刻 12:00、タイムスケール 1/60)。 */
-    FAmbientDirector() noexcept = default;
+    CAmbientDirector() noexcept = default;
 
     /** 破棄する (保持するのは値のみで後始末は不要)。 */
-    ~FAmbientDirector() noexcept = default;
+    ~CAmbientDirector() noexcept = default;
 
     /** コピー禁止。 */
-    FAmbientDirector(const FAmbientDirector&)            = delete;
+    CAmbientDirector(const CAmbientDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAmbientDirector& operator=(const FAmbientDirector&) = delete;
+    CAmbientDirector& operator=(const CAmbientDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FAmbientDirector(FAmbientDirector&&)                 = delete;
+    CAmbientDirector(CAmbientDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FAmbientDirector& operator=(FAmbientDirector&&)      = delete;
+    CAmbientDirector& operator=(CAmbientDirector&&)      = delete;
 
     /**
      * 現在時刻を設定する。
@@ -31287,6 +31884,9 @@ private:
     f32 m_TimeScale = 1.0f / 60.0f;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAmbientDirector = CAmbientDirector;
+
 } // namespace acs::game
 
 // ===================== gameframework/AnimationCurve.h =====================
@@ -31294,7 +31894,7 @@ private:
 // GameFramework Pillar C — FAnimationCurve
 //
 // 編集可能な「時間→値」補間曲線。Unity AnimationCurve / Unreal FRichCurve に相当。
-// FSpriteAnimator が「frame index 計算」だけを担うのと違い、FAnimationCurve は
+// CSpriteAnimator が「frame index 計算」だけを担うのと違い、FAnimationCurve は
 // 任意の f32 を時間で滑らかに変化させる汎用パスを提供する。
 //
 // 用途:
@@ -31324,9 +31924,9 @@ private:
 //     時に segment 長 dt で乗算してスケールするので、key 間隔を変えても曲線形が
 //     直感的に保てる (Unity の Tangent と同セマンティクス)。
 //   ・EWrapMode = {Clamp, Loop, PingPong} の前後別指定。Loop / PingPong は
-//     FSpriteAnimator と同じ折り返し方式で実装し、長時間呼び出しでも f32 精度を
+//     CSpriteAnimator と同じ折り返し方式で実装し、長時間呼び出しでも f32 精度を
 //     失わないよう time → 内部正規化 time の段階で fold する。
-//   ・FSpriteAnimator と同様に「ランタイム状態を不意に複製しないため非コピー・
+//   ・CSpriteAnimator と同様に「ランタイム状態を不意に複製しないため非コピー・
 //     非ムーブ」。曲線を共有したい場合は FAnimationCurve を 1 つ作って参照渡しする。
 
 
@@ -31436,7 +32036,7 @@ public:
     FAnimationCurve() noexcept = default;
 
     /** allocator を明示して空の曲線を構築する。失敗注入と専用 arena に利用できる。 */
-    explicit FAnimationCurve(FAllocator& allocator) noexcept
+    explicit FAnimationCurve(IAllocator& allocator) noexcept
         : m_Keys(allocator) {}
 
     /** 破棄する (内部 TArray が key を解放)。 */
@@ -31448,7 +32048,7 @@ public:
     /** コピー代入も禁止。 */
     FAnimationCurve& operator=(const FAnimationCurve&) = delete;
 
-    /** ムーブ禁止 (FSpriteAnimator と同方針)。 */
+    /** ムーブ禁止 (CSpriteAnimator と同方針)。 */
     FAnimationCurve(FAnimationCurve&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
@@ -31709,13 +32309,13 @@ struct FAnimationCurveArchiveResult {
  *
  * memory 上の wire format は固定幅 little endian で、native struct の padding は
  * serialize しない。CRC field を 0 として計算する正準な全 wire CRC が header と
- * key record を保護し、file helper はさらに FSaveArchive の検証済み atomic envelope
+ * key record を保護し、file helper はさらに CSaveArchive の検証済み atomic envelope
  * を利用する。
  *
  * decode / load は常に transactional である。完全な header、厳密な size、CRC、
  * 全 key の検証と必要な全確保に成功した後だけ、出力先 curve を commit する。
  */
-class FAnimationCurveArchive {
+class CAnimationCurveArchive {
 public:
     static constexpr u16 kWireVersion = 1u;
     static constexpr u32 kHeaderSize = 32u;
@@ -31726,7 +32326,7 @@ public:
         static_cast<u64>(kKeyRecordSize) *
             static_cast<u64>(FAnimationCurve::kMaxKeys);
 
-    FAnimationCurveArchive() = delete;
+    CAnimationCurveArchive() = delete;
 
     /** Encode に必要な正確な byte 数を返す。 */
     static u64 EncodedSize(const FAnimationCurve& curve) noexcept;
@@ -31753,7 +32353,7 @@ public:
         u64 size,
         FAnimationCurve& out_curve) noexcept;
 
-    /** FSaveArchive の atomic replace を介して正準 wire record を保存する。 */
+    /** CSaveArchive の atomic replace を介して正準 wire record を保存する。 */
     static FAnimationCurveArchiveResult SaveToFile(
         const wchar_t* file_path,
         const FAnimationCurve& curve) noexcept;
@@ -31764,33 +32364,36 @@ public:
         FAnimationCurve& out_curve) noexcept;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAnimationCurveArchive = CAnimationCurveArchive;
+
 } // namespace acs::game
 
 // ===================== gameframework/AnimationGraph.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — FAnimationGraph
+// GameFramework Pillar L — CAnimationGraph
 //
 // 3D skeleton-anim 向けの state machine ベース blend graph。
-// FSpriteAnimator (= sprite frame index 計算) と FAnimationCurve (= 任意 f32 補間)
+// CSpriteAnimator (= sprite frame index 計算) と FAnimationCurve (= 任意 f32 補間)
 // を補完する、「現在再生中の clip + 遷移ブレンド」を担う高次抽象。
 //
 // 役割分担:
-//   ・FSpriteAnimator  : sprite シートの frame index (2D 用)
+//   ・CSpriteAnimator  : sprite シートの frame index (2D 用)
 //   ・FAnimationCurve  : 任意 f32 を時間で滑らかに動かす汎用パス
 //   ・TStateMachine<T> : 汎用 FSM (関数ポインタ駆動)
-//   ・FAnimationGraph  : 本ファイル — 3D skeleton clip の選択 + 状態間 blend
+//   ・CAnimationGraph  : 本ファイル — 3D skeleton clip の選択 + 状態間 blend
 //
 // 役割の境界:
 //   ・本クラスは「どの clip を / いつから / どの blend alpha で再生するか」
 //     という meta 制御のみ。bone palette 計算 / GPU upload / final pose 算出は
-//     呼出側 renderer + FAnimationPlayer (gameframework_anim 等の別レイヤ) に
+//     呼出側 renderer + CAnimationPlayer (gameframework_anim 等の別レイヤ) に
 //     委譲する。本クラスは clip_index と blend_alpha を提供するだけ。
 //   ・clip データ (key 列 / bone curve) は外部 (model loader) が所有。本クラスは
 //     `FAnimationClipBinding` (name / duration / looping / default speed) という
 //     メタ情報配列を値コピーで保持する。
 //
 // 使い方 (典型):
-//   FAnimationGraph g;
+//   CAnimationGraph g;
 //   g.Init();
 //   const u32 idle_clip = g.AddClip({ "Idle", 2.0f, true,  1.0f });
 //   const u32 walk_clip = g.AddClip({ "Walk", 1.2f, true,  1.0f });
@@ -31841,8 +32444,8 @@ public:
 //     共有の場合はポインタ一致 fast path, 異なるバッファでも strcmp で機能)。
 //   ・**非コピー・非ムーブ**, 全 noexcept, STL 不使用, `<string>` 禁止。
 //
-// 参考: FSpriteAnimator (frame anim), FAnimationCurve (curve), TStateMachine<T> (FSM 基盤),
-//      FModelAnimationPanel (UI 連動可能)
+// 参考: CSpriteAnimator (frame anim), FAnimationCurve (curve), TStateMachine<T> (FSM 基盤),
+//      AModelAnimationPanel (UI 連動可能)
 
 
 namespace acs::game {
@@ -31892,7 +32495,7 @@ enum class EAnimationGraphState : u8 {
  * 名前空間で別物。本構造は acs::game 直下に置く。
  */
 struct FAnimationClipBinding {
-    /** デバッグ表示 / 外部 FAnimationPlayer 解決用名 (literal 寿命は caller 管理)。 */
+    /** デバッグ表示 / 外部 CAnimationPlayer 解決用名 (literal 寿命は caller 管理)。 */
     const char* clip_name     = nullptr;
 
     /** clip の長さ (秒)。0 以下は内部で 0 にクランプして進行させない。 */
@@ -31949,8 +32552,8 @@ struct FAnimationTransition {
  * multi-graph 管理用 handle (現状未使用)。
  *
  * @details
- * 24bit index + 8bit gen を packed (Cooldown/FSceneTimer と同方針)。
- * FAnimationGraph 単体使用想定だが、複数グラフ (= 上半身 / 下半身別レイヤ) を
+ * 24bit index + 8bit gen を packed (Cooldown/CSceneTimer と同方針)。
+ * CAnimationGraph 単体使用想定だが、複数グラフ (= 上半身 / 下半身別レイヤ) を
  * 導入する際に再利用するため API として公開しておく。
  */
 struct FGraphHandle {
@@ -32028,7 +32631,7 @@ struct FGraphHandle {
  * state 側に持たせ、blend 中は previous_state と blend_alpha (0→1) を出力する。
  * 非コピー・非ムーブ、全 noexcept、STL 不使用。
  */
-class FAnimationGraph {
+class CAnimationGraph {
 public:
     /**
      * state 遷移直後 (新 state の OnEnter 相当) に発火する callback 型。
@@ -32053,22 +32656,22 @@ public:
                                     u32 clip_index) noexcept;
 
     /** 空のグラフを構築する (clip / state / transition なし)。 */
-    FAnimationGraph() noexcept = default;
+    CAnimationGraph() noexcept = default;
 
     /** 破棄する (内部 TArray が解放)。 */
-    ~FAnimationGraph() noexcept = default;
+    ~CAnimationGraph() noexcept = default;
 
     /** コピー禁止 (callback の self ポインタとの競合を防ぐ)。 */
-    FAnimationGraph(const FAnimationGraph&)            = delete;
+    CAnimationGraph(const CAnimationGraph&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAnimationGraph& operator=(const FAnimationGraph&) = delete;
+    CAnimationGraph& operator=(const CAnimationGraph&) = delete;
 
     /** ムーブ禁止 (ACS 規約)。 */
-    FAnimationGraph(FAnimationGraph&&)                 = delete;
+    CAnimationGraph(CAnimationGraph&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FAnimationGraph& operator=(FAnimationGraph&&)      = delete;
+    CAnimationGraph& operator=(CAnimationGraph&&)      = delete;
 
     /**
      * 内部 state / clip / transition / param を全てクリアし callback を nullptr にする。
@@ -32351,13 +32954,16 @@ private:
     void*              m_ClipEndUser    = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAnimationGraph = CAnimationGraph;
+
 } // namespace acs::game
 
 // ===================== gameframework/AppState.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar A — AppState
 //
-// シーン跨ぎで生存する型消去の永続状態スロット。FGame が 1 つ保持し、
+// シーン跨ぎで生存する型消去の永続状態スロット。CGame が 1 つ保持し、
 // 任意のシーンから `GetGame().AppState<T>()` で取り出せる。
 //
 // 使い方:
@@ -32373,8 +32979,8 @@ private:
 // 設計:
 //   ・RTTI 不使用。型 ID は `template static const int` のアドレスを使う
 //     (各 T インスタンス化で別アドレス = 一意 ID)。
-//   ・FAllocator はデフォルト固定。ACS の New/Delete を使う。
-//   ・1 FGame あたり 1 個。複数の独立した状態が欲しい場合は struct にまとめる。
+//   ・IAllocator はデフォルト固定。ACS の New/Delete を使う。
+//   ・1 CGame あたり 1 個。複数の独立した状態が欲しい場合は struct にまとめる。
 //   ・wrong-type Get は nullptr を返す (例外なし、ACS 流)。
 
 
@@ -32384,9 +32990,9 @@ namespace acs::game {
  * シーン跨ぎで生存する型消去の永続状態スロット。
  *
  * @details
- * FGame が 1 つ保持し、任意のシーンから GetGame().AppState<T>() で取り出せる。
+ * CGame が 1 つ保持し、任意のシーンから GetGame().AppState<T>() で取り出せる。
  * RTTI 不使用で型 ID は template static const int のアドレスを使い (T ごとに別アドレス)、
- * FAllocator は DefaultAllocator 固定。wrong-type Get は例外なしで nullptr を返す。
+ * IAllocator は DefaultAllocator 固定。wrong-type Get は例外なしで nullptr を返す。
  */
 class FAppStateSlot {
 public:
@@ -32413,12 +33019,12 @@ public:
     template<typename T, typename... Args>
     T& Emplace(Args&&... args) noexcept {
         Reset();
-        FAllocator& a = DefaultAllocator();
+        IAllocator& a = DefaultAllocator();
         T* p = New<T>(a, Forward<Args>(args)...);
         m_Data    = p;
         m_Alloc   = &a;
         m_TypeId = TypeId<T>();
-        m_Destroy = +[](void* ptr, FAllocator& al) noexcept {
+        m_Destroy = +[](void* ptr, IAllocator& al) noexcept {
             T* tp = static_cast<T*>(ptr);
             Delete(al, tp);
         };
@@ -32473,20 +33079,20 @@ private:
     void*       m_Data    = nullptr;
 
     /** 値を確保したアロケータ (Reset で解放に使う)。 */
-    FAllocator*  m_Alloc   = nullptr;
+    IAllocator*  m_Alloc   = nullptr;
 
     /** 保持中の値の型 ID (TypeId<T>() の戻り値)。 */
     const void* m_TypeId = nullptr;
 
     /** 値を破棄する型消去デストラクタ関数。 */
-    void(*m_Destroy)(void*, FAllocator&) noexcept = nullptr;
+    void(*m_Destroy)(void*, IAllocator&) noexcept = nullptr;
 };
 
 } // namespace acs::game
 
 // ===================== gameframework/AssetBundle.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — FAssetBundle (シーンスコープのアセット集合非同期ロード)
+// GameFramework Pillar G — CAssetBundle (シーンスコープのアセット集合非同期ロード)
 //
 // 役割:
 //   シーンが「このシーンで使う N 個のアセット」をまとめて宣言し、BeginLoad() で
@@ -32494,8 +33100,8 @@ private:
 //   個別 path の FAssetFuture を散在管理する代わりに 1 つの bundle で扱える。
 //
 // 使い方 (典型例):
-//   class FGameplayScene : public FScene {
-//       acs::game::FAssetBundle m_Bundle;
+//   class FGameplayScene : public AScene {
+//       acs::game::CAssetBundle m_Bundle;
 //       void OnEnter() noexcept override {
 //           m_Bundle.Add("textures/hero.png");
 //           m_Bundle.Add("audio/bgm.ogg");
@@ -32513,16 +33119,16 @@ private:
 //   };
 //
 // 設計方針:
-//   ・シーン死亡で bundle 廃棄 → 内部 TSharedPtr<FAsset> が drop → FAssetRegistry の refcount
+//   ・シーン死亡で bundle 廃棄 → 内部 TSharedPtr<AAsset> が drop → CAssetRegistry の refcount
 //     が下がり、他参照がなければ実体メモリも解放される (GC 不要 / 決定的解放)。
 //   ・path 文字列は呼び出し側が寿命を保証する (string literal / 永続バッファ前提)。
 //     ACS 規約により <string> は使わない (const char* を TArray に保持)。
-//   ・BeginLoad(registry) は FAssetRegistry::Load を使った同期ロード。戻った時点で
+//   ・BeginLoad(registry) は CAssetRegistry::Load を使った同期ロード。戻った時点で
 //     各 entry は Loaded / Failed 確定 (非同期分割は本 bundle の対象外)。
 //   ・全 API noexcept (例外は使わない / TResult も bundle 表層では露出しない)。
 
 
-namespace acs { class FAssetRegistry; }
+namespace acs { class CAssetRegistry; }
 
 namespace acs::game {
 
@@ -32531,11 +33137,11 @@ namespace acs::game {
  *
  * @details
  * ライフサイクルは Add* → BeginLoad → (poll Progress/IsLoaded) → ... → Unload。
- * FScene にメンバとして埋め込み、内部 TSharedPtr<FAsset> の保持で Unload まで実体の
+ * AScene にメンバとして埋め込み、内部 TSharedPtr<AAsset> の保持で Unload まで実体の
  * 生存を保証する。BeginLoad 後の Add はロード開始後の集合変更が未定義になるのを
  * 避けるため無視する。
  */
-class FAssetBundle {
+class CAssetBundle {
 public:
     /** bundle 内の各 asset の進捗状態。 */
     enum class ELoadStatus : u8 {
@@ -32553,22 +33159,22 @@ public:
     };
 
     /** 空の bundle を構築する (asset 未登録、未ロード)。 */
-    FAssetBundle() noexcept = default;
+    CAssetBundle() noexcept = default;
 
     /** bundle を破棄する (内部 TSharedPtr が drop し refcount を落とす)。 */
-    ~FAssetBundle() noexcept = default;
+    ~CAssetBundle() noexcept = default;
 
-    /** コピー禁止 (内部 TArray 規約。bundle は FScene に単独所有させる)。 */
-    FAssetBundle(const FAssetBundle&)            = delete;
+    /** コピー禁止 (内部 TArray 規約。bundle は AScene に単独所有させる)。 */
+    CAssetBundle(const CAssetBundle&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAssetBundle& operator=(const FAssetBundle&) = delete;
+    CAssetBundle& operator=(const CAssetBundle&) = delete;
 
     /**
      * bundle に asset パスを追加する (実体ロードはまだ走らず BeginLoad で開始)。
      *
      * @details
-     * path 文字列は呼び出し側が FAssetBundle 寿命中ずっと有効に保つ必要がある
+     * path 文字列は呼び出し側が CAssetBundle 寿命中ずっと有効に保つ必要がある
      * (string literal を想定。動的文字列は渡す側で保持する)。BeginLoad 後の Add は
      * no-op (警告ログのみ)。
      * @param asset_path 追加する asset の仮想パス (借用、コピーしない)。
@@ -32579,12 +33185,12 @@ public:
      * 登録済み全 path を registry 経由で同期ロードし、結果を各 entry に保持する。
      *
      * @details
-     * registry は app が所有するもの (FApplication::GetAssets() / FGame 経由) を渡し、
-     * RegisterDefaultLoaders() 済みであること。FAssetRegistry::Load は同期なので戻った
+     * registry は app が所有するもの (CApplication::GetAssets() / CGame 経由) を渡し、
+     * RegisterDefaultLoaders() 済みであること。CAssetRegistry::Load は同期なので戻った
      * 時点で各 entry は Loaded / Failed 確定。多重呼び出しは no-op (警告のみ)。
      * @param registry ロードに使う app 所有の asset レジストリ。
      */
-    void BeginLoad(FAssetRegistry& registry) noexcept;
+    void BeginLoad(CAssetRegistry& registry) noexcept;
 
     /**
      * Add 順の index でロード済み asset を取得する。
@@ -32592,7 +33198,7 @@ public:
      * @param index Add した順序のインデックス。
      * @return ロード済み asset (未ロード / 範囲外 / 失敗は空 TSharedPtr)。
      */
-    TSharedPtr<FAsset> GetAsset(u32 index) const noexcept;
+    TSharedPtr<AAsset> GetAsset(u32 index) const noexcept;
 
     /**
      * path 一致の asset を取得する。
@@ -32600,7 +33206,7 @@ public:
      * @param asset_path 探す asset の仮想パス。
      * @return path 一致の asset (見つからない / 失敗は空 TSharedPtr)。
      */
-    TSharedPtr<FAsset> FindAsset(const char* asset_path) const noexcept;
+    TSharedPtr<AAsset> FindAsset(const char* asset_path) const noexcept;
 
     /**
      * ロード完了割合を返す (ローディング画面のプログレスバー用途)。
@@ -32642,7 +33248,7 @@ public:
      *
      * @details
      * 内部 TSharedPtr を drop して refcount を落とす。シーン破棄前に呼ぶと決定的な
-     * タイミングで解放できる (デストラクタ任せでも良いが FScene::OnExit で明示するのが推奨)。
+     * タイミングで解放できる (デストラクタ任せでも良いが AScene::OnExit で明示するのが推奨)。
      */
     void Unload() noexcept;
 
@@ -32656,7 +33262,7 @@ private:
         ELoadStatus  status = ELoadStatus::Pending;
 
         /** BeginLoad で registry からロードした実体 (失敗時は空)。Unload まで生存を保証する。 */
-        TSharedPtr<FAsset>  asset;
+        TSharedPtr<AAsset>  asset;
     };
 
     /** BeginLoad を 1 度でも実行したか (Add の閉鎖判定用)。 */
@@ -32670,9 +33276,9 @@ private:
 
 // ===================== gameframework/AudioDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FAudioDirector
+// GameFramework Pillar H — CAudioDirector
 //
-// シーン跨ぎで生存する「音声指揮層」。FSceneServices ではなく FGame (or app)
+// シーン跨ぎで生存する「音声指揮層」。CSceneServices ではなく CGame (or app)
 // に持たせる前提 (BGM はシーン切替で途切れないため、シーン局所では困る)。
 //
 // 機能:
@@ -32683,7 +33289,7 @@ private:
 //   ・Pause / Resume / StopAll
 //   ・Tick(dt) で内部 timer (クロスフェード / ダッキング) を進行
 //   ・**IAudioBackend 接続**: `SetBackend(IAudioBackend*)` で
-//     `FXAudio2Backend` 等の concrete backend を差し込むと、実音再生 + master /
+//     `CXAudio2Backend` 等の concrete backend を差し込むと、実音再生 + master /
 //     pause / stop / Tick を backend に delegate する。backend == nullptr のとき
 //     は state-only 動作 (= 無音、ログ警告も出さない)。
 //   ・**clip 直接再生 API**: `PlayBgmClip(const FAudioClipDesc&,
@@ -32703,7 +33309,7 @@ private:
 //   ・**name は所有しない**: `const char*` を保持 = ROM の文字列リテラル前提。
 //     将来 FStringView / Asset Handle に置き換える。
 //   ・**backend は所有しない**: `IAudioBackend*` は raw ptr。呼び出し側が
-//     `FXAudio2Backend` 等を所有し、SetBackend(nullptr) で先に切ってから
+//     `CXAudio2Backend` 等を所有し、SetBackend(nullptr) で先に切ってから
 //     backend の Shutdown を呼ぶ責任を負う (二重解放回避)。
 //   ・**Pause/Resume/StopAll/SetMasterVolume は backend に forward**: backend
 //     が存在すれば実音にも反映される。volume バス変更 (SetBgmVolume 等) は
@@ -32711,7 +33317,7 @@ private:
 //     を毎フレ算出して backend へ流す)。
 //
 // 範囲外:
-//   ・name → FAudioClipDesc resolver (FAssetRegistry 統合)
+//   ・name → FAudioClipDesc resolver (CAssetRegistry 統合)
 //   ・3D positional / spatial / submix bus / DSP chain
 //   ・スナップショット (mixer state を hot-swap)
 //   ・wav/ogg/mp3 decode (本層は raw PCM 前提)
@@ -32722,8 +33328,8 @@ private:
 // GameFramework Pillar H — IAudioBackend (実音声再生 seam)
 //
 // 役割:
-//   `FAudioDirector` から見た「実際に音を出す層」の純粋仮想インターフェース。
-//   Windows では `FXAudio2Backend`、それ以外プラットフォーム (将来) では別実装
+//   `CAudioDirector` から見た「実際に音を出す層」の純粋仮想インターフェース。
+//   Windows では `CXAudio2Backend`、それ以外プラットフォーム (将来) では別実装
 //   (CoreAudio / ALSA / OpenAL / WebAudio …) で差し替える。
 //
 // 設計選択:
@@ -32735,7 +33341,7 @@ private:
 //     を回避)。
 //   ・**Tick(dt)**: 再生完了済 voice の slot 解放を backend 側に畳み込む。
 //     ゲーム側は dt を渡すだけで一発再生の自然回収を任せられる。
-//   ・**所有しない pcm_data**: clip データは FAudioDirector / asset layer 側で
+//   ・**所有しない pcm_data**: clip データは CAudioDirector / asset layer 側で
 //     管理。backend は PlayOneShot 中に内部コピー (XAudio2 はバッファを保持
 //     しないと一発再生中に消えると爆ぜる)。
 //   ・**コピー / ムーブ禁止**: backend は 1 個の長寿命オブジェクト。誤コピー
@@ -32743,7 +33349,7 @@ private:
 //   ・**STL 不使用 / 全 noexcept**: ACS 全体方針。
 //
 // 範囲外:
-//   ・3D positional / spatial / HRTF (Pillar FSpatialAudio 担当)
+//   ・3D positional / spatial / HRTF (Pillar CSpatialAudio 担当)
 //   ・submix bus / DSP chain / reverb
 //   ・wav/ogg/mp3 デコード (今回は Pcm16 raw bytes 入力前提、Wav 形式は
 //     別 loader と組合せる)
@@ -32821,7 +33427,7 @@ struct FAudioClipDesc {
  * @details
  * 全 0 (= m_Packed == 0) は無効ハンドル (kInvalidAudioVoice) を意味する。
  * index + generation 形式を使う独自 backend 向けの互換コンストラクタを残しつつ、
- * FXAudio2Backend は 8bit generation の早期衝突を避けるため 32bit 全体を
+ * CXAudio2Backend は 8bit generation の早期衝突を避けるため 32bit 全体を
  * プロセス通算の不透明チケットとして扱う。呼び出し側は値を分解せず保持して返す。
  */
 struct FAudioVoiceHandle {
@@ -32896,11 +33502,11 @@ static_assert(sizeof(FAudioVoiceHandle) == sizeof(u32), "AudioVoiceHandle must r
 inline constexpr FAudioVoiceHandle kInvalidAudioVoice {};
 
 /**
- * FAudioDirector から見た「実際に音を出す層」の純粋仮想インターフェース。
+ * CAudioDirector から見た「実際に音を出す層」の純粋仮想インターフェース。
  *
  * @details
- * FXAudio2Backend / 将来の CoreAudioBackend / NullAudioBackend (テスト用) 等の差を
- * 吸収する。`FAudioDirector::SetBackend(IAudioBackend*)` で差し込み、FAudioDirector は
+ * CXAudio2Backend / 将来の CoreAudioBackend / NullAudioBackend (テスト用) 等の差を
+ * 吸収する。`CAudioDirector::SetBackend(IAudioBackend*)` で差し込み、CAudioDirector は
  * backend が nullptr のとき無音 (no-op) で動作する。
  */
 class IAudioBackend {
@@ -33005,7 +33611,7 @@ public:
 
 } // namespace acs::game
 
-namespace acs { class FAssetRegistry; }
+namespace acs { class CAssetRegistry; }
 
 namespace acs::game {
 
@@ -33016,10 +33622,10 @@ namespace acs::game {
  * 3 段ボリュームバス (Master / Bgm / Sfx)、BGM クロスフェード、SFX one-shot ring、
  * ダッキングを state machine で持つ。SetBackend で IAudioBackend を差すと実音再生に
  * delegate し、backend == nullptr のときは state-only (無音) で動く。name → clip 解決は
- * SetAssetRegistry した registry を通じて行う。FGame (or app) に持たせ、Tick(dt) で
+ * SetAssetRegistry した registry を通じて行う。CGame (or app) に持たせ、Tick(dt) で
  * 内部タイマを進行させる。
  */
-class FAudioDirector {
+class CAudioDirector {
 public:
     /** SFX one-shot の最大同時発音数 (超過時は最古を上書き)。 */
     static constexpr u32 kMaxSfxVoices = 32;
@@ -33028,16 +33634,16 @@ public:
     static constexpr f32 kDuckFadeWindow = 0.1f;
 
     /** SFX ring を固定容量で予約して構築する。 */
-    FAudioDirector() noexcept;
+    CAudioDirector() noexcept;
 
     /** 破棄する (backend / registry は非所有なので解放しない)。 */
-    ~FAudioDirector() noexcept = default;
+    ~CAudioDirector() noexcept = default;
 
     /** コピー禁止 (内部 state を単独所有するため)。 */
-    FAudioDirector(const FAudioDirector&)            = delete;
+    CAudioDirector(const CAudioDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAudioDirector& operator=(const FAudioDirector&) = delete;
+    CAudioDirector& operator=(const CAudioDirector&) = delete;
 
     /**
      * Master ボリュームを設定する。
@@ -33151,7 +33757,7 @@ public:
     /**
      * 毎フレーム呼んで内部タイマ (クロスフェード / ダッキング) を進行させる。
      *
-     * @details Pause 中は dt を消費しない (state 凍結)。FGame / FSceneManager から呼ぶ。
+     * @details Pause 中は dt を消費しない (state 凍結)。CGame / CSceneManager から呼ぶ。
      * @param dt 前フレームからの経過秒。
      */
     void Tick(f32 dt) noexcept;
@@ -33171,7 +33777,7 @@ public:
     f32 EffectiveSfxVolume() const noexcept;
 
     /**
-     * concrete backend (FXAudio2Backend 等) を差し込む。
+     * concrete backend (CXAudio2Backend 等) を差し込む。
      *
      * @details
      * nullptr で切断。切断時に既存 BGM/SFX voice を backend->StopAllVoices で停止する責任は
@@ -33191,19 +33797,19 @@ public:
      * name → FAudioClipDesc 解決に使う asset registry を差し込む。
      *
      * @details
-     * app 所有の registry (FApplication::GetAssets()) を差すと PlayBgm/PlaySfx の name
+     * app 所有の registry (CApplication::GetAssets()) を差すと PlayBgm/PlaySfx の name
      * (= asset path) を実ロードして実音再生する。registry または backend 未設定のときは
      * 従来の state-only (無音) で動作する。
      * @param registry 差し込む asset レジストリ (非所有)。
      */
-    void            SetAssetRegistry(FAssetRegistry* registry) noexcept { m_Registry = registry; }
+    void            SetAssetRegistry(CAssetRegistry* registry) noexcept { m_Registry = registry; }
 
     /**
      * 現在の asset registry を返す。
      *
      * @return 設定済み registry (未設定なら nullptr)。
      */
-    FAssetRegistry* GetAssetRegistry() const noexcept { return m_Registry; }
+    CAssetRegistry* GetAssetRegistry() const noexcept { return m_Registry; }
 
     /**
      * raw PCM の FAudioClipDesc を BGM として直接再生する。
@@ -33323,13 +33929,13 @@ private:
      * 実音再生先の backend (非所有 raw ptr)。
      *
      * @details
-     * nullptr 時は state-only 動作 (無音)。FXAudio2Backend 等を呼び出し側で所有し
+     * nullptr 時は state-only 動作 (無音)。CXAudio2Backend 等を呼び出し側で所有し
      * SetBackend で差し込む。Pause/Resume/StopAll/Tick/SetMasterVolume を本層から forward する。
      */
     IAudioBackend* m_Backend = nullptr;
 
     /** name → FAudioClipDesc 解決用の asset registry (非所有 raw ptr)。 */
-    FAssetRegistry* m_Registry = nullptr;
+    CAssetRegistry* m_Registry = nullptr;
 };
 
 } // namespace acs::game
@@ -33343,7 +33949,7 @@ private:
 //   問い合わせるための **抽象 seam**。
 //   ACS 本体は具象な net stack (gRPC / HTTPS / WebSocket / Steam ISteamNetworking
 //   等) を抱え込まず、interface だけを提供する。
-//   ・タイトル側 (acs::FApplication) は IBackendClient* / IMatchmaker* を持ち、
+//   ・タイトル側 (acs::CApplication) は IBackendClient* / IMatchmaker* を持ち、
 //   ・実装 (BackendClientHttp, BackendClientSteam, MatchmakerGlicko2 等) は
 //     プロジェクト個別に差し込む。
 //   これにより、(a) ACS Foundation/GameFramework の依存最小化、(b) サーバ無し
@@ -33424,7 +34030,7 @@ struct FBackendError {
  *
  * @details
  * 1 タイトルにつき通常 1 インスタンス (Singleton 的運用)。
- * 寿命はタイトル側 (acs::FApplication 等) が握る。
+ * 寿命はタイトル側 (acs::CApplication 等) が握る。
  */
 class IBackendClient {
 public:
@@ -33670,7 +34276,7 @@ IMatchmaker& GetDefaultMatchmaker() noexcept;
 
 
 namespace acs {
-class FAllocator;
+class IAllocator;
 }
 
 namespace acs::game {
@@ -33740,19 +34346,19 @@ using BeatEndCallback = FBeatEndCallback;
  * ReleaseLane または Tick のタイムアウトで一度だけ確定する。先頭と末尾の判定は
  * 悪い方を採用し、末尾の Good 範囲より前の解放は即座に Miss とする。
  */
-class FBeatGrid {
+class CBeatGrid {
 public:
-    FBeatGrid() noexcept = default;
+    CBeatGrid() noexcept = default;
 
     /** 決定論的な確保失敗テストやサブシステム固有 allocator を利用可能にする。 */
-    explicit FBeatGrid(FAllocator& allocator) noexcept;
+    explicit CBeatGrid(IAllocator& allocator) noexcept;
 
-    ~FBeatGrid() noexcept = default;
+    ~CBeatGrid() noexcept = default;
 
-    FBeatGrid(const FBeatGrid&) = delete;
-    FBeatGrid& operator=(const FBeatGrid&) = delete;
-    FBeatGrid(FBeatGrid&&) = delete;
-    FBeatGrid& operator=(FBeatGrid&&) = delete;
+    CBeatGrid(const CBeatGrid&) = delete;
+    CBeatGrid& operator=(const CBeatGrid&) = delete;
+    CBeatGrid(CBeatGrid&&) = delete;
+    CBeatGrid& operator=(CBeatGrid&&) = delete;
 
     /** 譜面とコールバックを保持したまま再生状態とスコアをリセットする。 */
     void Init() noexcept;
@@ -33892,28 +34498,31 @@ private:
     u64 m_StateRevision = 1u;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBeatGrid = CBeatGrid;
+
 } // namespace acs::game
 
 // ===================== gameframework/BehaviorTree.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — FBehaviorTree (selector / sequence / action)
+// GameFramework Pillar L — CBehaviorTree (selector / sequence / action)
 //
 // AI / 敵挙動 / cutscene 分岐 などのために最小構成の Behavior Tree を提供する。
-// root が 1 つの FBtNode を持ち、毎フレーム Tick(blackboard, dt) で評価する。
+// root が 1 つの ABtNode を持ち、毎フレーム Tick(blackboard, dt) で評価する。
 //
 // 戻り値セマンティクス:
 //
 //   ┌─────────────┬──────────────────────────┬──────────────────────────┐
 //   │ Composite   │ 子の結果                 │ 自分の結果               │
 //   ├─────────────┼──────────────────────────┼──────────────────────────┤
-//   │ FBtSelector │ Success が出るまで進む   │ いずれかが Success       │
+//   │ ABtSelector │ Success が出るまで進む   │ いずれかが Success       │
 //   │  (OR)       │   どれか Running         │   → Success              │
 //   │             │   全て Failure           │   Running が出た時点で   │
 //   │             │                          │   → Running              │
 //   │             │                          │   全て Failure           │
 //   │             │                          │   → Failure              │
 //   ├─────────────┼──────────────────────────┼──────────────────────────┤
-//   │ FBtSequence │ Failure が出るまで進む   │ いずれかが Failure       │
+//   │ ABtSequence │ Failure が出るまで進む   │ いずれかが Failure       │
 //   │  (AND)      │   どれか Running         │   → Failure              │
 //   │             │   全て Success           │   Running が出た時点で   │
 //   │             │                          │   → Running              │
@@ -33921,7 +34530,7 @@ private:
 //   │             │                          │   → Success              │
 //   └─────────────┴──────────────────────────┴──────────────────────────┘
 //
-//   ※ FBtSelector / FBtSequence は **stateless tick** (毎呼び出しで先頭から再評価)。
+//   ※ ABtSelector / ABtSequence は **stateless tick** (毎呼び出しで先頭から再評価)。
 //     "1 フレームに 1 ステップだけ進める" 等の中断保持が必要になった段階で
 //     PartialTick 派生を追加する想定だが、本最小実装ではスコープ外。
 //
@@ -33931,11 +34540,11 @@ private:
 //     必要なキャプチャは blackboard 経由か `bb` を `Self*` にキャストして取り回す。
 //   ・blackboard は `void*` (user 定義の任意構造体)。BT 側で型を持たないことで
 //     どのモジュール (Pillar L AI / cutscene / UI 等) からも汎用に使える。
-//   ・子ノードは `acs::TUniquePtr<FBtNode>` で所有 (= move-only)。
+//   ・子ノードは `acs::TUniquePtr<ABtNode>` で所有 (= move-only)。
 //     子の所有権は composite が握り、tree の寿命と一体化する。
-//   ・FBehaviorTree / 各 FBtNode は **非コピー・非ムーブ**。tree は普通フィールドとして
+//   ・CBehaviorTree / 各 ABtNode は **非コピー・非ムーブ**。tree は普通フィールドとして
 //     抱えられて Tick されるだけなので、所有権を動かす運用は想定しない。
-//     構築は `FBtSelector` を `MakeUnique` で作って `AddChild` で組み立てる。
+//     構築は `ABtSelector` を `MakeUnique` で作って `AddChild` で組み立てる。
 //
 // 使い方:
 //   struct FEnemyBb { FVec3 pos; bool sees_player; };
@@ -33948,17 +34557,17 @@ private:
 //   static EBtStatus Patrol(void* bb, f32 dt) noexcept { ... }
 //
 //   class FEnemy {
-//       acs::game::FBehaviorTree m_Bt;
+//       acs::game::CBehaviorTree m_Bt;
 //       FEnemyBb                m_Bb;
 //
 //       FEnemy() noexcept {
 //           // Selector: 「敵が見えたら追跡、見えなければパトロール」
-//           auto root  = acs::MakeUnique<acs::game::FBtSelector>();
-//           auto chase = acs::MakeUnique<acs::game::FBtSequence>();
-//           chase->AddChild(acs::MakeUnique<acs::game::FBtAction>(&SeesPlayer));
-//           chase->AddChild(acs::MakeUnique<acs::game::FBtAction>(&MoveToPlayer));
+//           auto root  = acs::MakeUnique<acs::game::ABtSelector>();
+//           auto chase = acs::MakeUnique<acs::game::ABtSequence>();
+//           chase->AddChild(acs::MakeUnique<acs::game::ABtAction>(&SeesPlayer));
+//           chase->AddChild(acs::MakeUnique<acs::game::ABtAction>(&MoveToPlayer));
 //           root->AddChild(acs::Move(chase));
-//           root->AddChild(acs::MakeUnique<acs::game::FBtAction>(&Patrol));
+//           root->AddChild(acs::MakeUnique<acs::game::ABtAction>(&Patrol));
 //           m_Bt.SetRoot(acs::Move(root));
 //       }
 //       void Tick(f32 dt) noexcept { m_Bt.Tick(&m_Bb, dt); }
@@ -33982,7 +34591,7 @@ enum class EBtStatus : u8 {
 };
 
 /**
- * FBtDecorator が子の結果をどう変換するか。
+ * ABtDecorator が子の結果をどう変換するか。
  *
  * @details
  * decorator は子を 1 つだけ持ち、その Tick 結果に下記の変換を施す。Running は
@@ -34007,7 +34616,7 @@ enum class EBtDecoratorOp : u8 {
  * 子の status に decorator op を適用する純関数 (Running は全 op 素通し)。
  *
  * @details
- * FBtDecorator::Tick と editor (btedit) のグラフインタプリタが同じ意味論を共有する
+ * ABtDecorator::Tick と editor (btedit) のグラフインタプリタが同じ意味論を共有する
  * ための単一実装。runtime とエディタの decorator 挙動が乖離しないことを保証する。
  * @param op 適用する変換種別。
  * @param child 子ノードの Tick 結果。
@@ -34071,32 +34680,37 @@ bool BtCompareVar(const void* bb, u32 offset, EBtVarType type, EBtCompareOp op, 
  */
 bool BtCompareF32(f32 lhs, EBtCompareOp op, f32 rhs) noexcept;
 
+class ABtNode;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBtNode = ABtNode;
+
 /**
  * 全 BT ノードの抽象基底。
  *
  * @details tick は noexcept、blackboard は void* で型を持たない。
  */
-class FBtNode {
+class ABtNode {
 public:
     /** 空のノードを構築する。 */
-    FBtNode() noexcept = default;
+    ABtNode() noexcept = default;
 
     /** 派生ノードを正しく破棄するための仮想デストラクタ。 */
-    virtual ~FBtNode() noexcept = default;
+    virtual ~ABtNode() noexcept = default;
 
     /** コピー禁止 (ノードは TUniquePtr で単独所有するため)。 */
-    FBtNode(const FBtNode&)            = delete;
+    ABtNode(const ABtNode&)            = delete;
 
     /** コピー代入も禁止。 */
-    FBtNode& operator=(const FBtNode&) = delete;
+    ABtNode& operator=(const ABtNode&) = delete;
 
     /** ムーブ禁止。 */
-    FBtNode(FBtNode&&)                 = delete;
+    ABtNode(ABtNode&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FBtNode& operator=(FBtNode&&)      = delete;
+    ABtNode& operator=(ABtNode&&)      = delete;
 
-    // RTTI 不使用の型判定 (Cast<FBtSelector>(node) 等を可能にする)。階層のルート。
+    // RTTI 不使用の型判定 (Cast<ABtSelector>(node) 等を可能にする)。階層のルート。
     ACS_RTTI_ROOT(FBtNode)
 
     /**
@@ -34109,6 +34723,11 @@ public:
     virtual EBtStatus Tick(void* blackboard, f32 dt) noexcept = 0;
 };
 
+class ABtSelector;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBtSelector = ABtSelector;
+
 /**
  * 子を順に Tick する "OR" 合成ノード。
  *
@@ -34116,22 +34735,22 @@ public:
  * 子を順に Tick し、最初に Running か Success を返した子で停止する。
  * どれかが Success/Running ならそのまま返し、全て Failure なら Failure を返す。
  */
-class FBtSelector : public FBtNode {
+class ABtSelector : public ABtNode {
 public:
     ACS_RTTI(FBtSelector, FBtNode)
 
     /** 空の selector を構築する。 */
-    FBtSelector() noexcept = default;
+    ABtSelector() noexcept = default;
 
     /** 破棄する (子は TUniquePtr が解放)。 */
-    ~FBtSelector() noexcept override = default;
+    ~ABtSelector() noexcept override = default;
 
     /**
      * 子の所有権を奪って末尾に追加する。
      *
      * @param child 追加する子ノード (nullptr 渡しは no-op、ソフトフェイル)。
      */
-    void AddChild(TUniquePtr<FBtNode> child) noexcept;
+    void AddChild(TUniquePtr<ABtNode> child) noexcept;
 
     /**
      * 子を順に評価して OR 合成の結果を返す。
@@ -34151,8 +34770,13 @@ public:
 
 private:
     /** 子ノード (所有権を持つ)。 */
-    TArray<TUniquePtr<FBtNode>> m_Children;
+    TArray<TUniquePtr<ABtNode>> m_Children;
 };
+
+class ABtSequence;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBtSequence = ABtSequence;
 
 /**
  * 子を順に Tick する "AND" 合成ノード。
@@ -34161,22 +34785,22 @@ private:
  * 子を順に Tick し、最初に Running か Failure を返した子で停止する。
  * どれかが Failure/Running ならそのまま返し、全て Success なら Success を返す。
  */
-class FBtSequence : public FBtNode {
+class ABtSequence : public ABtNode {
 public:
     ACS_RTTI(FBtSequence, FBtNode)
 
     /** 空の sequence を構築する。 */
-    FBtSequence() noexcept = default;
+    ABtSequence() noexcept = default;
 
     /** 破棄する (子は TUniquePtr が解放)。 */
-    ~FBtSequence() noexcept override = default;
+    ~ABtSequence() noexcept override = default;
 
     /**
      * 子の所有権を奪って末尾に追加する。
      *
      * @param child 追加する子ノード (nullptr 渡しは no-op、ソフトフェイル)。
      */
-    void AddChild(TUniquePtr<FBtNode> child) noexcept;
+    void AddChild(TUniquePtr<ABtNode> child) noexcept;
 
     /**
      * 子を順に評価して AND 合成の結果を返す。
@@ -34196,8 +34820,13 @@ public:
 
 private:
     /** 子ノード (所有権を持つ)。 */
-    TArray<TUniquePtr<FBtNode>> m_Children;
+    TArray<TUniquePtr<ABtNode>> m_Children;
 };
+
+class ABtAction;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBtAction = ABtAction;
 
 /**
  * 関数ポインタを呼ぶだけの末端 leaf ノード。
@@ -34206,7 +34835,7 @@ private:
  * std::function 不使用 (ACS 規約)。状態を持ちたい場合は blackboard に置く。
  * fn が nullptr の場合は常に Failure を返す (ソフトフェイル)。
  */
-class FBtAction : public FBtNode {
+class ABtAction : public ABtNode {
 public:
     ACS_RTTI(FBtAction, FBtNode)
 
@@ -34218,10 +34847,10 @@ public:
      *
      * @param fn 毎 Tick で呼ぶ評価関数 (nullptr なら常に Failure)。
      */
-    explicit FBtAction(Fn fn) noexcept : m_Fn(fn) {}
+    explicit ABtAction(Fn fn) noexcept : m_Fn(fn) {}
 
     /** 破棄する。 */
-    ~FBtAction() noexcept override = default;
+    ~ABtAction() noexcept override = default;
 
     /**
      * 保持する関数ポインタを呼ぶ。
@@ -34237,6 +34866,11 @@ private:
     Fn m_Fn = nullptr;
 };
 
+class ABtDecorator;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBtDecorator = ABtDecorator;
+
 /**
  * 子を 1 つだけ持ち、その結果を EBtDecoratorOp で変換する装飾ノード。
  *
@@ -34246,7 +34880,7 @@ private:
  * 場合は Failure を返す (= 装飾対象が無いのでソフトフェイル)。子の所有権は
  * decorator が握る (SetChild で move-in、既存の子は破棄して差し替え)。
  */
-class FBtDecorator : public FBtNode {
+class ABtDecorator : public ABtNode {
 public:
     ACS_RTTI(FBtDecorator, FBtNode)
 
@@ -34255,17 +34889,17 @@ public:
      *
      * @param op 子の結果に施す変換種別。
      */
-    explicit FBtDecorator(EBtDecoratorOp op) noexcept : m_Op(op) {}
+    explicit ABtDecorator(EBtDecoratorOp op) noexcept : m_Op(op) {}
 
     /** 破棄する (子は TUniquePtr が解放)。 */
-    ~FBtDecorator() noexcept override = default;
+    ~ABtDecorator() noexcept override = default;
 
     /**
      * 装飾する子を設定する (既存の子は破棄して差し替え)。
      *
      * @param child 装飾対象の子ノード (nullptr で子を外す)。
      */
-    void SetChild(TUniquePtr<FBtNode> child) noexcept;
+    void SetChild(TUniquePtr<ABtNode> child) noexcept;
 
     /**
      * 現在の変換 op を差し替える。
@@ -34291,34 +34925,34 @@ private:
     EBtDecoratorOp      m_Op;
 
     /** 装飾する子ノード (所有権を持つ)。 */
-    TUniquePtr<FBtNode> m_Child;
+    TUniquePtr<ABtNode> m_Child;
 };
 
 /**
  * root を抱えて Tick を駆動するだけのハーネス。
  *
  * @details
- * 非コピー・非ムーブ。FScene / Actor のメンバとして固定の場所に置く想定。
+ * 非コピー・非ムーブ。AScene / Actor のメンバとして固定の場所に置く想定。
  */
-class FBehaviorTree {
+class CBehaviorTree {
 public:
     /** 空の tree を構築する (root は SetRoot で設定)。 */
-    FBehaviorTree() noexcept = default;
+    CBehaviorTree() noexcept = default;
 
     /** 破棄する (root は TUniquePtr が解放)。 */
-    ~FBehaviorTree() noexcept = default;
+    ~CBehaviorTree() noexcept = default;
 
     /** コピー禁止。 */
-    FBehaviorTree(const FBehaviorTree&)            = delete;
+    CBehaviorTree(const CBehaviorTree&)            = delete;
 
     /** コピー代入も禁止。 */
-    FBehaviorTree& operator=(const FBehaviorTree&) = delete;
+    CBehaviorTree& operator=(const CBehaviorTree&) = delete;
 
     /** ムーブ禁止。 */
-    FBehaviorTree(FBehaviorTree&&)                 = delete;
+    CBehaviorTree(CBehaviorTree&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FBehaviorTree& operator=(FBehaviorTree&&)      = delete;
+    CBehaviorTree& operator=(CBehaviorTree&&)      = delete;
 
     /**
      * root を差し替える。
@@ -34326,7 +34960,7 @@ public:
      * @details 古い root はここで破棄される (TUniquePtr デストラクタ)。
      * @param root 新しい root ノード (nullptr 渡しで tree を空にできる)。
      */
-    void SetRoot(TUniquePtr<FBtNode> root) noexcept;
+    void SetRoot(TUniquePtr<ABtNode> root) noexcept;
 
     /**
      * root を 1 フレーム分評価する。
@@ -34346,8 +34980,11 @@ public:
 
 private:
     /** tree の root ノード (所有権を持つ)。 */
-    TUniquePtr<FBtNode> m_Root;
+    TUniquePtr<ABtNode> m_Root;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBehaviorTree = CBehaviorTree;
 
 } // namespace acs::game
 
@@ -34530,7 +35167,7 @@ struct FBuffOwnerId {
  * AllBuffsOfOwner で列挙して行う。owner は generational handle で管理し、buff は owner
  * ごとの AoS 配列に持つ。非コピー・非ムーブ (AllBuffsOfOwner が生バッファを返すため)。
  */
-class FBuffSystem {
+class CBuffSystem {
 public:
     /**
      * tick 発火時に呼ぶコールバック型 (Regen / Poison / Burn 用)。
@@ -34557,22 +35194,22 @@ public:
     using ExpireCallback = void(*)(void* user, FBuffOwnerId owner, const char* buff_id) noexcept;
 
     /** 空のシステムを構築する。 */
-    FBuffSystem()  noexcept = default;
+    CBuffSystem()  noexcept = default;
 
     /** 破棄する。 */
-    ~FBuffSystem() noexcept = default;
+    ~CBuffSystem() noexcept = default;
 
     /** コピー禁止 (AllBuffsOfOwner が生バッファを返すため実体アドレスを固定する)。 */
-    FBuffSystem(const FBuffSystem&)            = delete;
+    CBuffSystem(const CBuffSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FBuffSystem& operator=(const FBuffSystem&) = delete;
+    CBuffSystem& operator=(const CBuffSystem&) = delete;
 
     /** ムーブ禁止 (内部実体アドレスを固定する)。 */
-    FBuffSystem(FBuffSystem&&)                 = delete;
+    CBuffSystem(CBuffSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FBuffSystem& operator=(FBuffSystem&&)      = delete;
+    CBuffSystem& operator=(CBuffSystem&&)      = delete;
 
     /**
      * バフ定義を registry に登録する。
@@ -34779,18 +35416,21 @@ private:
     void*            m_OnExpireUser = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBuffSystem = CBuffSystem;
+
 } // namespace acs::game
 
 // ===================== gameframework/Camera2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — FCamera2D
+// GameFramework Pillar E — CCamera2D
 //
 // 2D カメラ: position / zoom / rotation、target 追従 (指数 smoothing)、
 // screen shake (trauma 方式)、world↔screen 座標変換、world boundary clamping。
-// FSceneServices 経由で自動 tick (`ESvc::Camera2D` を WantedServices に含める)。
+// CSceneServices 経由で自動 tick (`ESvc::Camera2D` を WantedServices に含める)。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
+//   class FGameplayScene : public AScene {
 //   public:
 //       ESvc WantedServices() const noexcept override {
 //           return ESvc::Default2D | ESvc::Camera2D;
@@ -34827,21 +35467,21 @@ namespace acs::game {
  * target 追従は framerate independent な指数 smoothing (1 - exp(-smoothing * dt))、
  * screen shake は Eiserloh trauma 方式 (trauma² * amplitude * noise)、bounds clamp は
  * SetBounds の rect 内に position を抑える。EffectiveViewCenter() = position + shake_offset を
- * レンダラーが view 設定に使う。FSceneServices 経由で PostUpdate に自動 tick される。
+ * レンダラーが view 設定に使う。CSceneServices 経由で PostUpdate に自動 tick される。
  */
-class FCamera2D {
+class CCamera2D {
 public:
     /** 既定値 (原点・zoom 1・無回転・追従/bounds 無し) で構築する。 */
-    FCamera2D() noexcept = default;
+    CCamera2D() noexcept = default;
 
     /** 破棄する。 */
-    ~FCamera2D() noexcept = default;
+    ~CCamera2D() noexcept = default;
 
     /** コピー禁止 (Services が単一インスタンスとして tick するため)。 */
-    FCamera2D(const FCamera2D&)            = delete;
+    CCamera2D(const CCamera2D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCamera2D& operator=(const FCamera2D&) = delete;
+    CCamera2D& operator=(const CCamera2D&) = delete;
 
     /**
      * カメラ位置 (= shake 前の view center) を返す。
@@ -35132,6 +35772,9 @@ private:
     bool m_HasDeadzone     = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCamera2D = CCamera2D;
+
 } // namespace acs::game
 
 // ===================== gameframework/CameraComponent3D.h =====================
@@ -35143,7 +35786,7 @@ private:
 // =============================================================================
 // GameFramework — 3D シーン (ANode ツリー) のテキストシリアライズ
 // -----------------------------------------------------------------------------
-// FScene3D の階層 + 各ノードの FTransform3D (pos/euler/scale) + AMeshComponent3D
+// CScene3D の階層 + 各ノードの FTransform3D (pos/euler/scale) + AMeshComponent3D
 // (prim/color/mesh path) を行ベースのテキストへ往復させる。editor_abi の 3D ビュー
 // ポートの scene3d_serialize/load_text が委譲する «正準フォーマット» (移行後)。
 //
@@ -35163,7 +35806,6 @@ private:
 
 namespace acs::game {
 
-class FScene3D;
 class IAssetPackReader;
 
 inline constexpr u32 kScene3DSerializeMaxInputBytes = 4u * 1024u * 1024u;
@@ -35303,17 +35945,17 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept;
  * RequiredBytes は終端 NUL を含み、BytesWritten は含まない。
  */
 FScene3DSaveResult TrySaveScene3DText(
-    const FScene3D& scene, char* out, u32 cap) noexcept;
+    const CScene3D& scene, char* out, u32 cap) noexcept;
 
 /**
- * FScene3D をテキストへ直列化する (root + 全子孫、構造 + transform + メッシュ記述)。
+ * CScene3D をテキストへ直列化する (root + 全子孫、構造 + transform + メッシュ記述)。
  *
  * @param scene 直列化するシーン。
  * @param out 出力バッファ (null 終端される)。
  * @param cap out の容量。
  * @return 書き込んだ文字数 (null 終端を除く)。失敗時は 0。
  */
-u32 SaveScene3DText(const FScene3D& scene, char* out, u32 cap) noexcept;
+u32 SaveScene3DText(const CScene3D& scene, char* out, u32 cap) noexcept;
 
 /**
  * size bytes のテキストを完全検証してから既存シーンを置き換える。
@@ -35322,7 +35964,7 @@ u32 SaveScene3DText(const FScene3D& scene, char* out, u32 cap) noexcept;
  * 不正 parent、深度超過、孤立 MSH3D は置換前に拒否する。
  */
 FScene3DLoadResult TryLoadScene3DText(
-    FScene3D& scene, const char* text, u32 size) noexcept;
+    CScene3D& scene, const char* text, u32 size) noexcept;
 
 /**
  * 旧 `.acs3d` 文書または canonical bootstrap を loose file から読み、
@@ -35332,7 +35974,7 @@ FScene3DLoadResult TryLoadScene3DText(
  * file の親ディレクトリを基準に解決し、失敗時に別の探索 root へ fallback しない。
  */
 FScene3DLoadResult TryLoadScene3DFile(
-    FScene3D& scene, const char* path) noexcept;
+    CScene3D& scene, const char* path) noexcept;
 
 /**
  * `.acpak` 内の canonical bootstrap と参照メッシュ/マテリアルを transactional に復元する。
@@ -35341,11 +35983,11 @@ FScene3DLoadResult TryLoadScene3DFile(
  * CRC/解凍失敗、unsupported mesh、壊れた material では loose file に fallback しない。
  */
 FScene3DLoadResult TryLoadScene3DAssetPack(
-    FScene3D& scene, IAssetPackReader& pack,
+    CScene3D& scene, IAssetPackReader& pack,
     const char* virtual_path = "main.acscene") noexcept;
 
 /**
- * SaveScene3DText のテキストから FScene3D を復元する (既存内容を置き換える)。
+ * SaveScene3DText のテキストから CScene3D を復元する (既存内容を置き換える)。
  *
  * @details
  * 互換用の NUL 終端 C 文字列 API。詳細結果と入力サイズ上限が必要なら
@@ -35354,7 +35996,7 @@ FScene3DLoadResult TryLoadScene3DAssetPack(
  * @param text 直列化テキスト。
  * @return 解析が成立したら true (text==null は false)。
  */
-bool LoadScene3DText(FScene3D& scene, const char* text) noexcept;
+bool LoadScene3DText(CScene3D& scene, const char* text) noexcept;
 
 } // namespace acs::game
 
@@ -35455,32 +36097,32 @@ private:
 
 // ===================== gameframework/CameraShakePresets.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FCameraShakePresets
+// CCameraShakePresets
 //
-// FCamera2D (= IShakeTarget) に対して「爆発 / 地震 / 着弾」等のジャンル別
+// CCamera2D (= IShakeTarget) に対して「爆発 / 地震 / 着弾」等のジャンル別
 // shake パラメータを 1 行で流し込む薄い preset ライブラリ。Eiserloh trauma
 // 方式 (Camera2D.h を参照) の amplitude / decay_rate / frequency / 適正
 // duration を、ゲームコードに magic number を書かずに済むよう名前付きで
 // 提供する。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
+//   class FGameplayScene : public AScene {
 //       void OnEnter() noexcept override {
-//           // FCamera2D が IShakeTarget を派生していれば直接渡せる:
-//           // FCameraShakePresets::ApplyPreset(Services().Camera(),
+//           // CCamera2D が IShakeTarget を派生していれば直接渡せる:
+//           // CCameraShakePresets::ApplyPreset(Services().Camera(),
 //           //                                 EShakePreset::ExplosionLarge);
 //       }
 //   };
 //
 //   // カスタム preset 登録:
-//   FCameraShakePresets presets;
+//   CCameraShakePresets presets;
 //   presets.RegisterCustomPreset("BossSlam",
 //       FShakeParams{0.7f, 1.0f, 0.8f, 18.0f, 1.2f});
 //   presets.ApplyCustomByName(target, "BossSlam");
 //
 // 設計選択:
-//   ・**IShakeTarget seam**: FCameraShakePresets は FCamera2D に直接依存しない。
-//     trauma を吸う側を `IShakeTarget` 抽象で受けることで、FCamera2D が
+//   ・**IShakeTarget seam**: CCameraShakePresets は CCamera2D に直接依存しない。
+//     trauma を吸う側を `IShakeTarget` 抽象で受けることで、CCamera2D が
 //     IShakeTarget を派生していなくても spec として正しい形を維持できる。
 //     テスト用の MockShakeTarget でユニットテストも書ける。
 //   ・**preset 値は static const 関数で配る**: 単純な定数なので constexpr
@@ -35488,13 +36130,13 @@ private:
 //     を見越して関数経由に統一。コンパイラは余裕で fold する。
 //   ・**Custom preset は名前 + FShakeParams を TArray に保持**: 件数は典型 0〜
 //     20 程度なので線形検索。const char* は呼び出し側が保証する static
-//     lifetime 想定 (FAchievementManager / FEntitlementRegistry と同設計、STL <string>
+//     lifetime 想定 (CAchievementManager / CEntitlementRegistry と同設計、STL <string>
 //     不使用)。
 //   ・**ApplyPreset は trauma を AddShake で「加算」する**: SetShake* で
 //     amplitude / decay を上書きしたあと、trauma を AddShake で累積する。
 //     これによりトリガーが重なった時 (= 連続ヒット) trauma 蓄積で派手になる
 //     Eiserloh 流の挙動を維持する。
-//   ・**duration_hint は FCameraShakePresets 自身は使わない**: 単なる "この
+//   ・**duration_hint は CCameraShakePresets 自身は使わない**: 単なる "この
 //     trauma + decay だと約何秒で減衰しきる" の参考値。caller が UI 演出や
 //     SFX と尺合わせするためのヒント。decay の逆算式は trauma / decay_rate
 //     (秒)。
@@ -35502,7 +36144,7 @@ private:
 //
 // 範囲外:
 //   ・preset 間 blending (爆発中に地震が来た時、別軸で合成する等)
-//   ・directional shake (現状は等方ノイズ、方向ベクトルは FCamera2D 拡張で)
+//   ・directional shake (現状は等方ノイズ、方向ベクトルは CCamera2D 拡張で)
 //   ・perlin/curl-noise ベース shake (現状は sin/cos 直流回避 noise)
 //   ・preset の JSON 等からの読み込み (現状は C++ 即値ベース)
 
@@ -35547,7 +36189,7 @@ enum class EShakePreset : u8 {
  *
  * @details
  * trauma を AddShake、amplitude を SetShakeAmplitude、decay_rate を SetShakeDecayRate に流す。
- * frequency と duration_hint は FCamera2D 側 API には現状反映されない (frequency は将来の
+ * frequency と duration_hint は CCamera2D 側 API には現状反映されない (frequency は将来の
  * SetShakeFrequency 化のための予約、duration_hint は caller のヒント)。
  */
 struct FShakeParams {
@@ -35560,7 +36202,7 @@ struct FShakeParams {
     /** SetShakeDecayRate に渡す減衰量 (trauma を 1 秒で 1.0 → 0.0 にする値)。 */
     f32 decay_rate     = 1.0f;
 
-    /** 主要振動周波数 (FCamera2D 拡張予約。現状 API には反映されない)。 */
+    /** 主要振動周波数 (CCamera2D 拡張予約。現状 API には反映されない)。 */
     f32 frequency      = 25.0f;
 
     /** 約何秒で減衰しきるかの目安 (= trauma / decay_rate)。caller のヒント。 */
@@ -35571,8 +36213,8 @@ struct FShakeParams {
  * shake パラメータの流し込み先となる純粋仮想インターフェース。
  *
  * @details
- * FCamera2D がこれを派生する (AddShake / SetShakeAmplitude / SetShakeDecayRate と同シグネチャ)。
- * テスト用 mock も同じ I/F を実装することで FCameraShakePresets を FCamera2D に直接依存させない。
+ * CCamera2D がこれを派生する (AddShake / SetShakeAmplitude / SetShakeDecayRate と同シグネチャ)。
+ * テスト用 mock も同じ I/F を実装することで CCameraShakePresets を CCamera2D に直接依存させない。
  */
 class IShakeTarget {
 public:
@@ -35624,25 +36266,25 @@ public:
  * 提供する。組み込み preset は static 関数で配り、カスタム preset は名前 + FShakeParams を
  * TArray に保持して線形検索する (名前は caller の static lifetime 想定)。非コピー・非ムーブ。
  */
-class FCameraShakePresets {
+class CCameraShakePresets {
 public:
     /** 空のプリセットライブラリを構築する。 */
-    FCameraShakePresets()  noexcept = default;
+    CCameraShakePresets()  noexcept = default;
 
     /** 破棄する。 */
-    ~FCameraShakePresets() noexcept = default;
+    ~CCameraShakePresets() noexcept = default;
 
     /** コピー禁止 (他 preset/manager 系と統一)。 */
-    FCameraShakePresets(const FCameraShakePresets&)            = delete;
+    CCameraShakePresets(const CCameraShakePresets&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCameraShakePresets& operator=(const FCameraShakePresets&) = delete;
+    CCameraShakePresets& operator=(const CCameraShakePresets&) = delete;
 
     /** ムーブ禁止。 */
-    FCameraShakePresets(FCameraShakePresets&&)                 = delete;
+    CCameraShakePresets(CCameraShakePresets&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCameraShakePresets& operator=(FCameraShakePresets&&)      = delete;
+    CCameraShakePresets& operator=(CCameraShakePresets&&)      = delete;
 
     /**
      * 組み込み preset の FShakeParams を返す。
@@ -35711,22 +36353,25 @@ private:
     TArray<FCustomEntry> m_Customs;
 };
 
+/** 旧名を使う既存ソースとの互換alias。 */
+using FCameraShakePresets = CCameraShakePresets;
+
 } // namespace acs::game
 
 // ===================== gameframework/CameraStack.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — FCameraStack
+// GameFramework Pillar E — CCameraStack
 //
-// 複数 `FCamera2D` を **virtual camera スタック**として保持し、最上層 (= top) を
+// 複数 `CCamera2D` を **virtual camera スタック**として保持し、最上層 (= top) を
 // active として扱う Cinemachine 風スイッチャ。Push/Pop の遷移は **線形補間**で
 // 古 top → 新 top の position/zoom/rotation をブレンドし、描画側は Effective*
 // アクセサで「いまフレームでカメラがどこを写しているか」を取得する。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       acs::game::FCamera2D  m_FollowCam;     // プレイヤー追従カメラ
-//       acs::game::FCamera2D  m_CinematicCam;  // 演出用カメラ (固定 or 別追従)
-//       acs::game::FCameraStack m_Stack;
+//   class FGameplayScene : public AScene {
+//       acs::game::CCamera2D  m_FollowCam;     // プレイヤー追従カメラ
+//       acs::game::CCamera2D  m_CinematicCam;  // 演出用カメラ (固定 or 別追従)
+//       acs::game::CCameraStack m_Stack;
 //       void OnEnter() noexcept override {
 //           m_Stack.PushCamera(m_FollowCam);                // 初期 top
 //       }
@@ -35748,8 +36393,8 @@ private:
 //   };
 //
 // 設計選択 (Pillar E):
-//   ・**virtual camera スタック**: FCamera2D は user が own。FCameraStack は
-//     **non-owning pointer** だけを持つ。寿命管理は呼び出し側責任 (= FScene 内
+//   ・**virtual camera スタック**: CCamera2D は user が own。CCameraStack は
+//     **non-owning pointer** だけを持つ。寿命管理は呼び出し側責任 (= AScene 内
 //     のメンバ変数として持つのが典型)。
 //   ・**最大 4 layer**: 想定用途は「平常 / 演出 / カットイン / メニュー」程度。
 //     深く積む必要はないので static 上限 4。超えたら警告して無視。
@@ -35765,44 +36410,44 @@ private:
 //     人間が「ちょうど中間」と感じる補間にする。zoom <= 0 は 0.001 にクランプ。
 //   ・**rotation は最短角補間**: ±π を跨ぐ場合に最短経路で回るよう、差分を
 //     [-π, π] に正規化してから lerp。
-//   ・**Tick**: 上から順に **active な 2 層**だけ FCamera2D::Tick を呼ぶ
+//   ・**Tick**: 上から順に **active な 2 層**だけ CCamera2D::Tick を呼ぶ
 //     (= スタックに積まれているが blend に絡まない下層は止めておく)。これに
 //     より「下層カメラがプレイヤーを追ってずれていく」事故を防ぐ。下層を
 //     生かしておきたいケースは呼び出し側で個別 Tick すれば良い。
 //   ・**非コピー・非ムーブ**: 内部 TArray が non-owning ptr を持つだけだが、
-//     FSceneManager と同じく「state holder は move されない」方針で統一。
+//     CSceneManager と同じく「state holder は move されない」方針で統一。
 
 
 namespace acs::game {
 
 /**
- * 複数の FCamera2D を virtual camera スタックとして保持し、最上層を active とする切替器。
+ * 複数の CCamera2D を virtual camera スタックとして保持し、最上層を active とする切替器。
  *
  * @details
  * Cinemachine 風スイッチャ。Push/Pop の遷移は直近 2 層を補間 (position/zoom/rotation) し、
  * 描画側は Effective* アクセサで現在のカメラ値を取得する。zoom は対数補間、rotation は
- * 最短角補間。FCamera2D は user が own し、本クラスは non-owning ポインタのみを最大 4 層持つ
- * (非コピー・非ムーブ)。Tick は active な 2 層だけ FCamera2D::Tick を呼ぶ。
+ * 最短角補間。CCamera2D は user が own し、本クラスは non-owning ポインタのみを最大 4 層持つ
+ * (非コピー・非ムーブ)。Tick は active な 2 層だけ CCamera2D::Tick を呼ぶ。
  */
-class FCameraStack {
+class CCameraStack {
 public:
     /** 空のスタックを構築する。 */
-    FCameraStack() noexcept = default;
+    CCameraStack() noexcept = default;
 
     /** 破棄する (カメラ実体は所有しないので解放しない)。 */
-    ~FCameraStack() noexcept = default;
+    ~CCameraStack() noexcept = default;
 
     /** コピー禁止 (state holder は move/copy されない方針)。 */
-    FCameraStack(const FCameraStack&)            = delete;
+    CCameraStack(const CCameraStack&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCameraStack& operator=(const FCameraStack&) = delete;
+    CCameraStack& operator=(const CCameraStack&) = delete;
 
     /** ムーブ禁止。 */
-    FCameraStack(FCameraStack&&)                 = delete;
+    CCameraStack(CCameraStack&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCameraStack& operator=(FCameraStack&&)      = delete;
+    CCameraStack& operator=(CCameraStack&&)      = delete;
 
     /**
      * カメラを top に push し、旧 top から補間しながら切り替える。
@@ -35812,7 +36457,7 @@ public:
      * @param cam push する非所有カメラ。
      * @param blend_duration 旧 top からの補間にかける秒数。
      */
-    void PushCamera(FCamera2D& cam, f32 blend_duration = 0.5f) noexcept;
+    void PushCamera(CCamera2D& cam, f32 blend_duration = 0.5f) noexcept;
 
     /**
      * top を pop する。
@@ -35828,7 +36473,7 @@ public:
      *
      * @return top のカメラ (空なら nullptr)。
      */
-    FCamera2D* Active() const noexcept;
+    CCamera2D* Active() const noexcept;
 
     /**
      * blend 中かどうかを返す。
@@ -35881,7 +36526,7 @@ public:
     /**
      * スタックを 1 フレーム進める。
      *
-     * @details blend timer を進め、active な 2 層 (top と blend 中なら下層) の FCamera2D::Tick を
+     * @details blend timer を進め、active な 2 層 (top と blend 中なら下層) の CCamera2D::Tick を
      * 呼ぶ。pop の blend が完了したフレームで実際に top を取り除く。
      * @param dt 経過秒 (負値は 0 にクランプ)。
      */
@@ -35896,7 +36541,7 @@ private:
      */
     struct FCameraEntry {
         /** このエントリが指す非所有カメラ。 */
-        FCamera2D* cam            = nullptr;
+        CCamera2D* cam            = nullptr;
 
         /** blend の経過進捗 [0,1]。1 = blend 完了。 */
         f32       blend_t        = 1.0f;
@@ -35942,11 +36587,14 @@ private:
     TArray<FCameraEntry> m_Entries;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCameraStack = CCameraStack;
+
 } // namespace acs::game
 
 // ===================== gameframework/CharacterCustomizer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — FCharacterCustomizer (cosmetic 装備管理)
+// GameFramework Pillar O — CCharacterCustomizer (cosmetic 装備管理)
 //
 // プレイヤーキャラの「見た目」を装備する高レベルマネージャ。帽子・服・靴・武器の
 // 見た目 (=  cosmetic) 等を slot 単位で 1 つずつ装着する。実装的には id ベースの
@@ -35960,7 +36608,7 @@ private:
 //     マネージャ) を用意し、本クラスとは独立に動かす。
 //
 // 使い方:
-//   FCharacterCustomizer cc;
+//   CCharacterCustomizer cc;
 //
 //   // 起動時にゲーム or アセットバンドル側で全 cosmetic を登録。
 //   cc.RegisterCosmetic({ "hat.red_cap",   "Red Cap",   ECosmeticSlot::Head,
@@ -35970,7 +36618,7 @@ private:
 //   // ...
 //
 //   // ストア / クエスト報酬経由で unlock。実 entitlement 検証は呼出側 (Pillar O
-//   // FEntitlementRegistry / Pillar S Storefront) で済ませてから本 API に通知。
+//   // CEntitlementRegistry / Pillar S Storefront) で済ませてから本 API に通知。
 //   cc.UnlockCosmetic("hat.red_cap");
 //
 //   // 装着 callback を購読 (レンダラ側で見た目差し替えを反映する用)。
@@ -35982,12 +36630,12 @@ private:
 //   }
 //
 // 設計選択 (Pillar O):
-//   ・**id は const char* 非所有**: ACS の STL 禁止方針 + FEntitlementRegistry / Achievement
+//   ・**id は const char* 非所有**: ACS の STL 禁止方針 + CEntitlementRegistry / Achievement
 //     と一貫。文字列リテラル or 長寿命バッファ前提 (呼出側保証)。
 //   ・**slot は固定 enum**: ECosmeticSlot は 11 種類で固定。slot ごとに最大 1 つの
 //     cosmetic が装着可能 (装着すると同 slot の既存装着は自動で外れる)。
 //     ColorPalette は色変更用の特殊 slot (UI のカラー選択を保持)。
-//   ・**Def + Unlocked 状態を並行 TArray で持つ**: FAchievementManager と同じ Def/State
+//   ・**Def + Unlocked 状態を並行 TArray で持つ**: CAchievementManager と同じ Def/State
 //     分離。FCosmeticItem は immutable な定義、unlocked は実行時 bool。1:1 対応で
 //     同 index を共有 (TArray<FCosmeticItem> + TArray<bool>)。
 //   ・**装着状態は slot indexed const char* 配列**: 線形検索を避けるため、slot を
@@ -36002,7 +36650,7 @@ private:
 //   ・**Equip は unlock 必須**: IsUnlocked(id) == false の cosmetic は装着拒否。
 //     UI 側で「グレーアウト + locked 表示」を実装する前提。
 //   ・**線形検索**: cosmetic 件数は AAA タイトルでも通常 200〜1000 のオーダー。
-//     per-byte 文字列比較で十分 (FEntitlementRegistry / FAchievementManager と同じ判断)。
+//     per-byte 文字列比較で十分 (CEntitlementRegistry / CAchievementManager と同じ判断)。
 //   ・**ClearAll は登録も装着も両方リセット**: Save/Load 復元前のクリーンスタート用。
 //     callback は呼ばない (loop / ノイズ防止)。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
@@ -36112,25 +36760,25 @@ using EquipCallback = void(*)(void* user, ECosmeticSlot slot, const char* item_i
  * 見た目のみで、装備性能 / 戦闘パラメータは一切変更しない (pay-to-win 回避)。
  * 装着には事前の UnlockCosmetic が必須。文字列は全て const char* 非所有。
  */
-class FCharacterCustomizer {
+class CCharacterCustomizer {
 public:
     /** 全 slot を未装着で構築する (TArray は空)。 */
-    FCharacterCustomizer()  noexcept;
+    CCharacterCustomizer()  noexcept;
 
     /** 破棄する (非所有データのみ保持のため特別な後始末なし)。 */
-    ~FCharacterCustomizer() noexcept = default;
+    ~CCharacterCustomizer() noexcept = default;
 
     /** コピー禁止 (他 Manager 系と統一)。 */
-    FCharacterCustomizer(const FCharacterCustomizer&)            = delete;
+    CCharacterCustomizer(const CCharacterCustomizer&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCharacterCustomizer& operator=(const FCharacterCustomizer&) = delete;
+    CCharacterCustomizer& operator=(const CCharacterCustomizer&) = delete;
 
     /** ムーブ禁止。 */
-    FCharacterCustomizer(FCharacterCustomizer&&)                 = delete;
+    CCharacterCustomizer(CCharacterCustomizer&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCharacterCustomizer& operator=(FCharacterCustomizer&&)      = delete;
+    CCharacterCustomizer& operator=(CCharacterCustomizer&&)      = delete;
 
     /**
      * cosmetic 定義を 1 件登録する (起動時に 1 度ずつ)。
@@ -36274,11 +36922,14 @@ private:
     void*         m_OnEquipUser = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCharacterCustomizer = CCharacterCustomizer;
+
 } // namespace acs::game
 
 // ===================== gameframework/CheckpointSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Genre Kit (Platformer) — FCheckpointSystem
+// GameFramework Genre Kit (Platformer) — CCheckpointSystem
 //
 // プラットフォーマー (and 派生ジャンル) の心臓部である「チェックポイント =
 // 死亡時に戻る復活ポイント」を 1 クラスにまとめた小型マネージャ。
@@ -36286,19 +36937,19 @@ private:
 // 1 つ保持して TriggerRespawn() で復活先座標 + level index を引き出す。
 //
 // 想定する位置付け:
-//   ・Pillar R/I (FHealthSystem) との連携:
-//     - FHealthSystem の DeathCallback で「死亡 → FCheckpointSystem.TriggerRespawn」
-//       を叩くのが定型パターン。FCheckpointSystem 自体は HP の状態は持たず、
+//   ・Pillar R/I (CHealthSystem) との連携:
+//     - CHealthSystem の DeathCallback で「死亡 → CCheckpointSystem.TriggerRespawn」
+//       を叩くのが定型パターン。CCheckpointSystem 自体は HP の状態は持たず、
 //       「どこに復活させるか」だけを管理する責務に絞っている。
 //   ・Pillar S (TSaveSlot) との連携:
 //     - 「現在 active な checkpoint id + unlocked id 群」をセーブする想定。
 //       本クラス自体は I/O を持たず、外部から照会される。
-//   ・FProgression / FEconomyDirector との違い:
+//   ・CProgression / CEconomyDirector との違い:
 //     - 進行系の累計値 (XP / 通貨) ではなく、ステージ内の「リスポーン拠点」を
 //       1 つだけ active に保つ単純な座標マネージャ。
 //
 // 使い方:
-//   FCheckpointSystem cps;
+//   CCheckpointSystem cps;
 //
 //   // レベルロード時に 1 度ずつ配置を登録。
 //   FCheckpointInfo cp1{};
@@ -36336,7 +36987,7 @@ private:
 //   cps.UnlockCheckpoint("cp.stage1.secret");
 //   cps.ActivateCheckpoint("cp.stage1.secret");
 //
-//   // 死亡時 (FHealthSystem の DeathCallback 内)
+//   // 死亡時 (CHealthSystem の DeathCallback 内)
 //   acs::FVec2 pos; u32 lv;
 //   if (cps.TriggerRespawn(pos, lv)) {
 //       // pos に player を移動、lv のレベルをロードし直す
@@ -36362,22 +37013,22 @@ private:
 //     ClearAll で初期化される (Save/Load 連携は外部から照会可能)。
 //   ・**active checkpoint は 1 つだけ**: 「複数同時 active」は本クラスの責務外
 //     (= ジャンルキットを超える概念)。最新の Activate が常に勝つ。
-//   ・**callback は関数ポインタ + user**: FProgression / FHealthSystem と同パターン。
+//   ・**callback は関数ポインタ + user**: CProgression / CHealthSystem と同パターン。
 //     Activate / Respawn の 2 系統を用意し、UI トースト演出と sound trigger を
 //     ゲーム側で素直に分離できるようにする。
 //   ・**LastSpawnLevelIndex**: TriggerRespawn の後でも level_index を取れる
 //     ように getter を分離。レベルロード中に out_param が消えるエッジで使う。
-//   ・**全 noexcept、非コピー・非ムーブ**: FGame / FScene 単位で 1 個保持される
+//   ・**全 noexcept、非コピー・非ムーブ**: CGame / AScene 単位で 1 個保持される
 //     想定。Save/Load も id ベースで再現するので所有権移動は要らない。
 //   ・**STL 不使用、<string> 禁止**: ACS 全体方針。文字列は const char* 非所有のみ。
 //
 // 範囲外 (将来 Phase で):
-//   ・ボス挑戦専用 checkpoint (HP 回復 + 敵リセット) は FGameFlow と組み合わせて
+//   ・ボス挑戦専用 checkpoint (HP 回復 + 敵リセット) は CGameFlow と組み合わせて
 //     ゲーム側で表現する。本クラスは座標 + level index のみ。
 //   ・TSaveSlot 経由の永続化は外部 (TSaveSlot<PlatformerSaveData>) で実装。
 //     本クラスからは CurrentCheckpoint() / IsUnlocked() で id を引き出すだけ。
 //   ・自動 checkpoint (移動量で勝手に発火) は Trigger 側の設計問題なので
-//     FCinematicsDirector / FTriggerWorld2D 側で組む。
+//     CCinematicsDirector / CTriggerWorld2D 側で組む。
 
 
 namespace acs::game {
@@ -36493,29 +37144,29 @@ using RespawnCallback  = void(*)(void* user, const char* checkpoint_id, FVec2 sp
  * @details
  * 配置済み checkpoint を string id で識別し、現在 active な 1 つだけを保持して
  * TriggerRespawn() で復活先座標 + level index を引き出す。HP 状態は持たず
- * 「どこに復活させるか」のみを管理する責務に絞る (FHealthSystem の DeathCallback
+ * 「どこに復活させるか」のみを管理する責務に絞る (CHealthSystem の DeathCallback
  * から叩く想定)。one_way / requires_unlock のフラグを Activate 時に評価し、不正な
  * 遷移は false 返却で弾く。文字列は const char* 非所有、I/O は持たない。
  */
-class FCheckpointSystem {
+class CCheckpointSystem {
 public:
     /** 空の状態で構築する (checkpoint なし、active なし)。 */
-    FCheckpointSystem()  noexcept = default;
+    CCheckpointSystem()  noexcept = default;
 
     /** 破棄する (非所有データのみ保持のため特別な後始末なし)。 */
-    ~FCheckpointSystem() noexcept = default;
+    ~CCheckpointSystem() noexcept = default;
 
-    /** コピー禁止 (FGame / FScene 単位で 1 個保持する想定)。 */
-    FCheckpointSystem(const FCheckpointSystem&)            = delete;
+    /** コピー禁止 (CGame / AScene 単位で 1 個保持する想定)。 */
+    CCheckpointSystem(const CCheckpointSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCheckpointSystem& operator=(const FCheckpointSystem&) = delete;
+    CCheckpointSystem& operator=(const CCheckpointSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FCheckpointSystem(FCheckpointSystem&&)                 = delete;
+    CCheckpointSystem(CCheckpointSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCheckpointSystem& operator=(FCheckpointSystem&&)      = delete;
+    CCheckpointSystem& operator=(CCheckpointSystem&&)      = delete;
 
     /**
      * checkpoint を 1 件登録する。
@@ -36762,11 +37413,14 @@ private:
     void*                m_OnRespawnUser  = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCheckpointSystem = CCheckpointSystem;
+
 } // namespace acs::game
 
 // ===================== gameframework/CinematicsDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FCinematicsDirector (timeline-based cutscene)
+// GameFramework Pillar R — CCinematicsDirector (timeline-based cutscene)
 //
 // タイムライン上に並べた keyframe を時間順に発火していく cutscene driver。
 // ストーリーシーン / オープニング / ボス導入演出 / イベントムービー等で
@@ -36774,11 +37428,11 @@ private:
 // 1 つのタイムラインとして宣言的に組み立てるための薄い state holder。
 //
 // 設計選択 (Pillar R):
-//   ・**FCinematicsDirector 自身は描画 / カメラ / 音 を直接いじらない**:
-//      FDamageFeedback と同じ「副作用ゼロ / pull or callback」方針。発火は
+//   ・**CCinematicsDirector 自身は描画 / カメラ / 音 を直接いじらない**:
+//      CDamageFeedback と同じ「副作用ゼロ / pull or callback」方針。発火は
 //      関数ポインタ + void* user で type-erase した callback 経由で行い、
-//      実際のカメラ移動 / ダイアログ起動 / BGM 切替は caller (FScene / UI 層 /
-//      FAudioDirector) の責任。これで GameFramework から FRenderer / FCamera /
+//      実際のカメラ移動 / ダイアログ起動 / BGM 切替は caller (AScene / UI 層 /
+//      CAudioDirector) の責任。これで GameFramework から CRenderer / CCamera /
 //      Audio / Dialogue への直接依存を切る。
 //   ・**FTimelineKeyframe は POD union**: STL の variant は使えないので、
 //      payload を C 風 union で持つ。各 track kind が必要なフィールドだけを
@@ -36805,11 +37459,11 @@ private:
 //   ・**Skip 中の callback 発火**: Skip は「残り全 keyframe を即座に発火」を
 //      意味するので、Skip 内で callback を呼ぶ。発火順は time 昇順を維持。
 //   ・**非コピー・非ムーブ**: state の唯一性 (現在 m_Time / m_LastFiredIndex)
-//      を担保するため機械的に禁止。FScene にメンバとして 1 個埋め込む想定。
+//      を担保するため機械的に禁止。AScene にメンバとして 1 個埋め込む想定。
 //
 // 使い方:
-//   class FOpeningScene : public FScene {
-//       FCinematicsDirector m_Cine;
+//   class FOpeningScene : public AScene {
+//       CCinematicsDirector m_Cine;
 //       void OnEnter() noexcept override {
 //           FTimelineKeyframe kf;
 //           kf.time_sec = 0.0f;
@@ -36837,9 +37491,9 @@ private:
 //
 // 範囲外:
 //   ・並列タイムライン (現状は単一タイムラインのみ、複数を別 Director で運用)
-//   ・keyframe の補間 / カーブ (現状は単発発火、補間は callback 側で FTweenManager に任せる)
+//   ・keyframe の補間 / カーブ (現状は単発発火、補間は callback 側で CTweenManager に任せる)
 //   ・タイムラインの巻き戻し / scrub (オーサリング用、ランタイムには不要)
-//   ・条件分岐タイムライン (FDialogueSystem の choices で代用)
+//   ・条件分岐タイムライン (CDialogueSystem の choices で代用)
 
 
 namespace acs::game {
@@ -36888,7 +37542,7 @@ struct FTimelineKeyframe {
             /** 目標 zoom 倍率 (1.0 = 等倍)。 */
             f32  zoom;
 
-            /** カメラ移動にかける秒数 (caller が FTweenManager 等で消化)。 */
+            /** カメラ移動にかける秒数 (caller が CTweenManager 等で消化)。 */
             f32  duration;
         } camera;
 
@@ -36903,7 +37557,7 @@ struct FTimelineKeyframe {
             /** BGM トラック ID (literal / バンドル参照、所有しない)。 */
             const char* music_id;
 
-            /** フェード秒数 (caller が FAudioDirector に渡す)。 */
+            /** フェード秒数 (caller が CAudioDirector に渡す)。 */
             f32         fade;
         } music;
 
@@ -36967,25 +37621,25 @@ using EventCallbackFn    = void(*)(void* user, u32 event_id) noexcept;
  * Tick で経過時刻に達した keyframe を 1 度だけ発火する。Skip は残り全部を一気に
  * 発火する。state の唯一性のため非コピー・非ムーブ。
  */
-class FCinematicsDirector {
+class CCinematicsDirector {
 public:
     /** 空のタイムラインで構築する (停止状態、keyframe なし)。 */
-    FCinematicsDirector() noexcept = default;
+    CCinematicsDirector() noexcept = default;
 
     /** 破棄する (非所有データのみ保持のため特別な後始末なし)。 */
-    ~FCinematicsDirector() noexcept = default;
+    ~CCinematicsDirector() noexcept = default;
 
     /** コピー禁止 (state の唯一性を機械的に担保)。 */
-    FCinematicsDirector(const FCinematicsDirector&)            = delete;
+    CCinematicsDirector(const CCinematicsDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCinematicsDirector& operator=(const FCinematicsDirector&) = delete;
+    CCinematicsDirector& operator=(const CCinematicsDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FCinematicsDirector(FCinematicsDirector&&)                 = delete;
+    CCinematicsDirector(CCinematicsDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCinematicsDirector& operator=(FCinematicsDirector&&)      = delete;
+    CCinematicsDirector& operator=(CCinematicsDirector&&)      = delete;
 
     /**
      * keyframe を追加する。
@@ -37000,7 +37654,7 @@ public:
     /**
      * 全 keyframe と再生状態を破棄する。
      *
-     * @details FScene::OnExit 等で使う。
+     * @details AScene::OnExit 等で使う。
      */
     void Clear() noexcept;
 
@@ -37165,47 +37819,47 @@ private:
 
 // ===================== gameframework/Clock.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FSceneClock
+// GameFramework Pillar C — CSceneClock
 //
-// FScene 単位の時間トラッカ。scaled / unscaled 時間、frame count、pause/resume、
-// per-clock time_scale を持つ軽量値型 (40 byte 程度)。FTweenManager/FSequence/カスタム
+// AScene 単位の時間トラッカ。scaled / unscaled 時間、frame count、pause/resume、
+// per-clock time_scale を持つ軽量値型 (40 byte 程度)。CTweenManager/FSequence/カスタム
 // タイマー等が共通の時間軸として参照する。
 //
-// 命名: `acs::FClock` (platform/Time.h、ハイレベル時間 API) との衝突を避けるため
-// `FSceneClock`。役割は「シーンの感じる時間 = pause/slow-mo を反映する論理時間」。
+// 命名: `acs::CClock` (platform/Time.h、ハイレベル時間 API) との衝突を避けるため
+// `CSceneClock`。役割は「シーンの感じる時間 = pause/slow-mo を反映する論理時間」。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
+//   class FGameplayScene : public AScene {
 //   public:
 //       void OnUpdate(f32 dt) noexcept override {
 //           m_Clock.Tick(dt);
-//           // m_Clock.Dt() を FTweenManager 等の更新に渡す
+//           // m_Clock.Dt() を CTweenManager 等の更新に渡す
 //       }
 //       void OnPause()  noexcept override { m_Clock.Pause();  }
 //       void OnResume() noexcept override { m_Clock.Resume(); }
 //   private:
-//       acs::game::FSceneClock m_Clock;
+//       acs::game::CSceneClock m_Clock;
 //   };
 //
-// FGame の FApplication::DeltaTime() は常にリアル時間。シーンの感じる「時間」
-// (slow-mo・pause・スピードランナーの倍速モード等) は FSceneClock を経由する。
+// CGame の CApplication::DeltaTime() は常にリアル時間。シーンの感じる「時間」
+// (slow-mo・pause・スピードランナーの倍速モード等) は CSceneClock を経由する。
 
 
 namespace acs::game {
 
 /**
- * FScene 単位の時間トラッカ (scaled / unscaled 時間と frame count を持つ軽量値型)。
+ * AScene 単位の時間トラッカ (scaled / unscaled 時間と frame count を持つ軽量値型)。
  *
  * @details
  * scaled 時間は time_scale と pause を反映する「シーンが感じる論理時間」、unscaled
- * 時間は常に進む実時間。pause / resume / per-clock time_scale を持ち、FTweenManager や
- * FSequence、カスタムタイマーが共通の時間軸として参照する。FApplication::DeltaTime()
+ * 時間は常に進む実時間。pause / resume / per-clock time_scale を持ち、CTweenManager や
+ * FSequence、カスタムタイマーが共通の時間軸として参照する。CApplication::DeltaTime()
  * の実時間とは別に、slow-mo・pause・倍速モードを反映した時間を提供する。
  */
-class FSceneClock {
+class CSceneClock {
 public:
     /** 既定状態 (time_scale=1, 非 pause, 時刻 0) で構築する。 */
-    FSceneClock() noexcept = default;
+    CSceneClock() noexcept = default;
 
     /**
      * 1 フレーム分の dt を流して時刻を進める。
@@ -37323,11 +37977,14 @@ private:
     bool m_Paused          = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSceneClock = CSceneClock;
+
 } // namespace acs::game
 
 // ===================== gameframework/CollisionWorld2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — FCollisionWorld2D + SpatialGrid
+// GameFramework Pillar F — CCollisionWorld2D + SpatialGrid
 //
 // 2D 衝突判定の高レベル API。形状 (FAabb2 / FCircle) を `FShapeId` で管理し、
 // 内部の SpatialGrid (一様グリッド broad-phase) で O(N + K) クエリ
@@ -37335,7 +37992,7 @@ private:
 // 既存関数 (Intersect / Resolve / RaycastAabb / RaycastCircle) を再利用。
 //
 // 使い方:
-//   FCollisionWorld2D world;
+//   CCollisionWorld2D world;
 //   world.Init(/*cell_size=*/64.0f);
 //
 //   FShapeId player = world.AddCircle({ {0,0}, 16.0f });
@@ -37438,19 +38095,19 @@ struct FShapeId {
  * (K = 結果数)。narrow phase は math/Collision2D.h の既存関数を再利用する。
  * Add/Update/Remove で dirty フラグを立て、クエリ直前にグリッドを遅延再構築する。
  */
-class FCollisionWorld2D {
+class CCollisionWorld2D {
 public:
     /** 空状態で構築する (cell_size は Init まで既定 64)。 */
-    FCollisionWorld2D() noexcept = default;
+    CCollisionWorld2D() noexcept = default;
 
     /** 破棄する (slot / grid は TArray が解放)。 */
-    ~FCollisionWorld2D() noexcept = default;
+    ~CCollisionWorld2D() noexcept = default;
 
     /** コピー禁止。 */
-    FCollisionWorld2D(const FCollisionWorld2D&)            = delete;
+    CCollisionWorld2D(const CCollisionWorld2D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCollisionWorld2D& operator=(const FCollisionWorld2D&) = delete;
+    CCollisionWorld2D& operator=(const CCollisionWorld2D&) = delete;
 
     /**
      * グリッドのセルサイズを設定する。
@@ -37816,20 +38473,20 @@ private:
 
 // ===================== gameframework/CombatStateMachine.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FCombatStateMachine (戦闘フェーズ + 脅威レベル)
+// GameFramework Pillar R — CCombatStateMachine (戦闘フェーズ + 脅威レベル)
 //
 // シーン全体の "combat phase" を 6 状態の有限オートマトンで追跡し、敵検出 /
 // 戦闘開始 / 終了 / ボス出現 / ボス撃破 / リトリート / 勝利の主要遷移を一元化
-// する。FMusicDirector / FAmbientDirector / FDamageFeedback と同列の上位ディレクタ
-// で、FGame または FSceneServices が 1 個保持して毎フレーム Tick する想定。
+// する。CMusicDirector / CAmbientDirector / CDamageFeedback と同列の上位ディレクタ
+// で、CGame または CSceneServices が 1 個保持して毎フレーム Tick する想定。
 //
-// FMusicDirector との関係:
-//   ・FMusicDirector は「BGM 状態 (Silent/Calm/Tension/Combat/Victory/GameOver)」
-//     を保持する。FCombatStateMachine の状態は厳密に 1:1 ではなく、ゲームロジック
+// CMusicDirector との関係:
+//   ・CMusicDirector は「BGM 状態 (Silent/Calm/Tension/Combat/Victory/GameOver)」
+//     を保持する。CCombatStateMachine の状態は厳密に 1:1 ではなく、ゲームロジック
 //     視点 (Peaceful / Alert / Engaged / BossFight / Victory / Retreat) で
 //     抽象化されている。
-//   ・上位 (FGame / FScene) が「ECombatState → EMusicState」マッピングを定義し、
-//     OnStateChange callback の中で FMusicDirector::SetState を呼ぶ運用を想定。
+//   ・上位 (CGame / AScene) が「ECombatState → EMusicState」マッピングを定義し、
+//     OnStateChange callback の中で CMusicDirector::SetState を呼ぶ運用を想定。
 //     本クラスは CAudioEngine 等の下位リソースを直接知らない。
 //
 // 機能:
@@ -37862,7 +38519,7 @@ private:
 //     is_engaged の上書きで idempotent。
 //   ・**Retreat への自動遷移は持たない**: Engaged → Retreat は明示的に
 //     NotifyCombatEnded(victory=false) でのみ起きる。タイマーや距離ベースの
-//     自動撤退判定は AI や FScene 側のロジックに委譲。
+//     自動撤退判定は AI や AScene 側のロジックに委譲。
 //   ・**callback は呼び出し中の Notify は受け付ける**: 再入安全 (state 更新を
 //     先に行ってから callback を呼ぶ実装)。callback 内で別 Notify* を呼ぶと
 //     state が連鎖更新される — これは仕様上許容 (デバウンスは caller 側で)。
@@ -37904,7 +38561,7 @@ enum class ECombatState : u8 {
 };
 
 /**
- * 1 敵分の認識情報 (FCombatStateMachine が内部 TArray で保持)。
+ * 1 敵分の認識情報 (CCombatStateMachine が内部 TArray で保持)。
  */
 struct FEnemyAwareness {
     /** ゲーム側で割り振る一意 ID (FNodeId などをそのまま渡せる)。 */
@@ -37939,7 +38596,7 @@ using StateChangeCallback = void(*)(void* user, ECombatState from, ECombatState 
  * を FEnemyAwareness の TArray で並列追跡し、OnStateChange callback で外部ディレクタ
  * (Music / Ambient / UI) と疎結合に連動する (本クラスは下位リソースを直接知らない)。
  */
-class FCombatStateMachine {
+class CCombatStateMachine {
 public:
     /** ECombatState の総数 (debug / table sizing 用に公開)。 */
     static constexpr u32 kStateCount = 6;
@@ -37948,27 +38605,27 @@ public:
     static constexpr u32 kEnemyReserveHint = 16;
 
     /** Peaceful 状態で構築し、敵配列を reserve する。 */
-    FCombatStateMachine() noexcept;
+    CCombatStateMachine() noexcept;
 
     /** 破棄する。 */
-    ~FCombatStateMachine() noexcept = default;
+    ~CCombatStateMachine() noexcept = default;
 
     /** コピー禁止。 */
-    FCombatStateMachine(const FCombatStateMachine&)            = delete;
+    CCombatStateMachine(const CCombatStateMachine&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCombatStateMachine& operator=(const FCombatStateMachine&) = delete;
+    CCombatStateMachine& operator=(const CCombatStateMachine&) = delete;
 
     /** ムーブ禁止。 */
-    FCombatStateMachine(FCombatStateMachine&&)                 = delete;
+    CCombatStateMachine(CCombatStateMachine&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCombatStateMachine& operator=(FCombatStateMachine&&)      = delete;
+    CCombatStateMachine& operator=(CCombatStateMachine&&)      = delete;
 
     /**
      * state を Peaceful に、awareness を全クリアして再初期化する (callback は保持)。
      *
-     * @details コンストラクタ後の再初期化用 (FScene 再 enter 時など)。
+     * @details コンストラクタ後の再初期化用 (AScene 再 enter 時など)。
      */
     void Init() noexcept;
 
@@ -38064,7 +38721,7 @@ public:
      *
      * @details
      * ThreatLevel を m_ThreatTarget へ指数減衰で追従させる。Engaged 中は時間ドリフト
-     * (最大 +0.3) を target に加算する。FSceneServices / FGame から毎フレーム呼ぶ。
+     * (最大 +0.3) を target に加算する。CSceneServices / CGame から毎フレーム呼ぶ。
      * @param dt このフレームの実経過秒 (負値は 0 にクランプ)。
      */
     void Tick(f32 dt) noexcept;
@@ -38138,6 +38795,9 @@ private:
     void*               m_CallbackUser = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCombatStateMachine = CCombatStateMachine;
+
 } // namespace acs::game
 
 // ===================== gameframework/ComponentFactory.h =====================
@@ -38146,7 +38806,7 @@ private:
 // GameFramework — リフレクション名による Component 実体化 (ComponentFactory)
 // -----------------------------------------------------------------------------
 // 「反射名 → 生きた AComponent」を埋める enabling layer の要。reflection factory
-// (FTypeRegistry::Create) はエンジンアロケータ確保になったので、その生成物を
+// (CTypeRegistry::Create) はエンジンアロケータ確保になったので、その生成物を
 // ANode が所有できる TUniquePtr<AComponent> に安全に包んで返す。これにより
 // データ駆動のシーン復元 / Play モードが「型を知らずに」コンポーネントを取り付けられる。
 //
@@ -38212,7 +38872,7 @@ TUniquePtr<AComponent> CreateComponentByName(const char* name) noexcept;
 //   ・非コピー・非ムーブ (state を 1 箇所にとどめる)
 //
 // 参考:
-//   ・FLlmSafetyPipeline (text validation pattern)
+//   ・CLlmSafetyPipeline (text validation pattern)
 //   ・ISteamworksBridge   (seam + Stub singleton pattern)
 
 
@@ -38366,13 +39026,13 @@ public:
  * SDK 無しで肌色比率 heuristic (Kovac et al.) を使い、露出度から verdict/rating を判定する
  * (size==0 / nullptr は BadArgument)。Tick / IsAvailable は no-op (常に true)。
  */
-class FContentModeratorStub final : public IContentModerator {
+class CContentModeratorStub final : public IContentModerator {
 public:
     /** 既定構築する。 */
-    FContentModeratorStub() noexcept = default;
+    CContentModeratorStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FContentModeratorStub() noexcept override = default;
+    ~CContentModeratorStub() noexcept override = default;
 
     /**
      * テキストを NG ワード辞書で判定する。
@@ -38441,15 +39101,18 @@ private:
  * 全コードで共有できる Stub の static singleton を返す。
  *
  * @details 実 SDK 実装が DI される前のデフォルト。ISteamworksBridge::GetStub() と同じ規約。
- * @return 共有 FContentModeratorStub への参照。
+ * @return 共有 CContentModeratorStub への参照。
  */
 IContentModerator& GetModeratorStub() noexcept;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FContentModeratorStub = CContentModeratorStub;
 
 } // namespace acs::game
 
 // ===================== gameframework/CooldownTimer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FCooldownTimer (スキル/アビリティ cooldown 管理)
+// GameFramework Pillar R — CCooldownTimer (スキル/アビリティ cooldown 管理)
 //
 // 複数の cooldown (スキル / アビリティ / 弾薬リロード等) を同時追跡する軽量
 // マネージャ。各 cooldown は `label` (デバッグ / UI 表示用) と `duration_sec`
@@ -38458,7 +39121,7 @@ IContentModerator& GetModeratorStub() noexcept;
 //
 // 使い方:
 //   class APlayer : public ANode {
-//       acs::game::FCooldownTimer m_Cd;
+//       acs::game::CCooldownTimer m_Cd;
 //       acs::game::FCooldownId   m_Fireball;
 //       acs::game::FCooldownId   m_Dash;
 //
@@ -38481,7 +39144,7 @@ IContentModerator& GetModeratorStub() noexcept;
 //   };
 //
 // 設計:
-//   ・**FCooldownId**: 24bit index + 8bit generation (FSceneTimer / FCollisionWorld2D
+//   ・**FCooldownId**: 24bit index + 8bit generation (CSceneTimer / CCollisionWorld2D
 //     と同じパターン)。Unregister 後の slot 再利用で stale 検出可能。
 //   ・**charged 状態**: `remaining <= 0` かつ `charged == true`。Tick 内で
 //     `remaining` が 0 を跨いだ瞬間に `charged` が false→true に遷移し、
@@ -38600,25 +39263,25 @@ using ReadyCallback = void(*)(void* user, FCooldownId id, const char* label) noe
  * 遷移して ReadyCallback を発火する。TryUse は charged のときだけ true を返し、即時 reload
  * を開始する。handle は 24bit index + 8bit generation で stale 検出する。
  */
-class FCooldownTimer {
+class CCooldownTimer {
 public:
     /** 空のマネージャを構築する。 */
-    FCooldownTimer() noexcept = default;
+    CCooldownTimer() noexcept = default;
 
     /** 破棄する。 */
-    ~FCooldownTimer() noexcept = default;
+    ~CCooldownTimer() noexcept = default;
 
     /** コピー禁止 (callback の self ポインタとの競合を防ぐため)。 */
-    FCooldownTimer(const FCooldownTimer&)            = delete;
+    CCooldownTimer(const CCooldownTimer&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCooldownTimer& operator=(const FCooldownTimer&) = delete;
+    CCooldownTimer& operator=(const CCooldownTimer&) = delete;
 
     /** ムーブ禁止。 */
-    FCooldownTimer(FCooldownTimer&&)                 = delete;
+    CCooldownTimer(CCooldownTimer&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCooldownTimer& operator=(FCooldownTimer&&)      = delete;
+    CCooldownTimer& operator=(CCooldownTimer&&)      = delete;
 
     /**
      * 新しい cooldown を登録し、handle を返す。
@@ -38796,32 +39459,35 @@ private:
     void*         _ready_user   = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCooldownTimer = CCooldownTimer;
+
 } // namespace acs::game
 
 // ===================== gameframework/CraftingSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット — FCraftingSystem (レシピ + 素材消費 + 成果物生成)
+// GameFramework ジャンルキット — CCraftingSystem (レシピ + 素材消費 + 成果物生成)
 //
 // サバイバル / クラフト系ジャンル (Minecraft, Valheim, Subnautica, Terraria 等) の中核を
 // なす「素材を消費して時間経過後に成果物を得る」クラフト挙動を、レシピ登録 + 進行タイマ +
 // インベントリ adapter callback だけで扱う小型マネージャ。
 //
 // 想定する位置付け:
-//   ・Pillar O FInventorySystem との違い:
-//     - FInventorySystem は「持っているアイテムの slot 在庫」を保持する。
-//     - FCraftingSystem は「レシピ定義 + 現在クラフト中の進行状態」を保持し、
-//       素材の消費 / 成果物の付与は FInventorySystem 等への callback 経由で行う
+//   ・Pillar O CInventorySystem との違い:
+//     - CInventorySystem は「持っているアイテムの slot 在庫」を保持する。
+//     - CCraftingSystem は「レシピ定義 + 現在クラフト中の進行状態」を保持し、
+//       素材の消費 / 成果物の付与は CInventorySystem 等への callback 経由で行う
 //       (= 在庫表現に非依存。テストでは fake adapter を差し込める)。
-//   ・Pillar O FEconomyDirector との違い:
-//     - FEconomyDirector は「通貨で即座に商品を購入」する取引マネージャ。
-//     - FCraftingSystem は「素材で時間をかけて成果物を生成」する production マネージャ。
+//   ・Pillar O CEconomyDirector との違い:
+//     - CEconomyDirector は「通貨で即座に商品を購入」する取引マネージャ。
+//     - CCraftingSystem は「素材で時間をかけて成果物を生成」する production マネージャ。
 //       時間 (craft_duration_sec) と前提条件 (workbench / level) を持つ点が決定的に違う。
-//   ・Pillar G FHealthSystem / FBuffSystem との関係:
-//     - 直接の依存はないが、料理レシピが FBuffSystem の食事バフを与える等の連携は、
+//   ・Pillar G CHealthSystem / CBuffSystem との関係:
+//     - 直接の依存はないが、料理レシピが CBuffSystem の食事バフを与える等の連携は、
 //       CompleteCallback 経由で呼出側が組む想定 (本クラスは何も知らない)。
 //
 // 使い方:
-//   FCraftingSystem cs;
+//   CCraftingSystem cs;
 //
 //   // レシピ定義 (素材配列は呼出側が長寿命を保証する static / global 想定)。
 //   static const FIngredient kIronAxeIngredients[] = {
@@ -38855,15 +39521,15 @@ private:
 //
 // 設計選択 (ジャンルキット survival / crafting):
 //   ・**レシピは単一 TArray<FCraftRecipe>**: ジャンルキット規模 (200〜500 recipe) で
-//     線形検索で十分。FEconomyDirector / FInventorySystem と同じ判断。
+//     線形検索で十分。CEconomyDirector / CInventorySystem と同じ判断。
 //   ・**FIngredient 配列は非所有**: FCraftRecipe::ingredients は呼出側が長寿命を保証する
 //     生バッファ (static / global 配列、リソースバンドル) を指す。文字列 id も同様
 //     (Manager は何もコピーしない。STL <string> 禁止 / <vector> 禁止)。
 //   ・**Inventory adapter は C 関数ポインタ + user**: STL <functional> 禁止のため。
-//     在庫表現に依存しない設計 (FInventorySystem を直接保持しないので、テストで
+//     在庫表現に依存しない設計 (CInventorySystem を直接保持しないので、テストで
 //     fake adapter を差し込める / 別 inventory システムにも繋げる)。
 //   ・**同時クラフトは 1 件のみ**: 「ワークベンチに 1 つ載せて待つ」スタイルに統一。
-//     並列クラフトキューが必要なゲームは、FCraftingSystem を複数インスタンス保持する
+//     並列クラフトキューが必要なゲームは、CCraftingSystem を複数インスタンス保持する
 //     (= ベンチ毎 / プレイヤー毎)。Manager が queue を内蔵すると複雑化するため意図的に省く。
 //   ・**ingredient 消費はクラフト「開始」時**: 中断時の返却を容易にするため、StartCraft
 //     時点で全 ingredient を一括消費し、CancelCraft で同じ量を grant し戻す
@@ -38879,7 +39545,7 @@ private:
 //     スキップする (= 同 Manager をプロトタイピング段階で使いやすくする)。
 //     StartCraft の consume は adapter があるときだけ呼ぶ。
 //   ・**required_workbench は nullptr / "" で「不要」**: 素手で作れる recipe を表現可能。
-//   ・**重複登録は黙って弾く + WARN**: FEconomyDirector / FInventorySystem と同パターン。
+//   ・**重複登録は黙って弾く + WARN**: CEconomyDirector / CInventorySystem と同パターン。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有 + acs::TArray のみ。
 
@@ -38890,7 +39556,7 @@ namespace acs::game {
  * レシピ 1 件分の素材エントリ。
  */
 struct FIngredient {
-    /** 素材アイテム id (FInventorySystem の item_id と一致する想定。文字列リテラル、非所有)。 */
+    /** 素材アイテム id (CInventorySystem の item_id と一致する想定。文字列リテラル、非所有)。 */
     const char* item_id = nullptr;
 
     /** 必要個数。0 は「実質常に満たす」素材として扱う。 */
@@ -38907,7 +39573,7 @@ struct FCraftRecipe {
     /** UI 表示名 (非所有)。 */
     const char*       display_name       = nullptr;
 
-    /** 成果物の item_id (FInventorySystem の item_id 想定)。 */
+    /** 成果物の item_id (CInventorySystem の item_id 想定)。 */
     const char*       result_item_id     = nullptr;
 
     /** 1 回のクラフトで得られる成果物の個数 (1 以上)。 */
@@ -38956,7 +39622,7 @@ enum class ECraftStatus : u8 {
  * 一括消費し、CancelCraft で grant し戻す。完了は Tick 内で判定し grant + CompleteCallback を
  * 発火、Status() は次の StartCraft / ClearAll まで Completed を保持する。
  */
-class FCraftingSystem {
+class CCraftingSystem {
 public:
     /**
      * 在庫の現個数を取得する adapter の型。
@@ -38999,22 +39665,22 @@ public:
                                       const char* result_item_id, u32 result_count) noexcept;
 
     /** 空のマネージャを構築する。 */
-    FCraftingSystem()  noexcept = default;
+    CCraftingSystem()  noexcept = default;
 
     /** 破棄する。 */
-    ~FCraftingSystem() noexcept = default;
+    ~CCraftingSystem() noexcept = default;
 
     /** コピー禁止 (他 Manager 系と統一)。 */
-    FCraftingSystem(const FCraftingSystem&)            = delete;
+    CCraftingSystem(const CCraftingSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCraftingSystem& operator=(const FCraftingSystem&) = delete;
+    CCraftingSystem& operator=(const CCraftingSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FCraftingSystem(FCraftingSystem&&)                 = delete;
+    CCraftingSystem(CCraftingSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCraftingSystem& operator=(FCraftingSystem&&)      = delete;
+    CCraftingSystem& operator=(CCraftingSystem&&)      = delete;
 
     /**
      * レシピを登録する (起動時に 1 度ずつ)。
@@ -39207,11 +39873,14 @@ private:
     f32 m_CurrentRemainingSec         = 0.0f;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCraftingSystem = CCraftingSystem;
+
 } // namespace acs::game
 
 // ===================== gameframework/DamageFeedback.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FDamageFeedback (Polish & GameFeel)
+// GameFramework Pillar R — CDamageFeedback (Polish & GameFeel)
 //
 // プレイヤーがダメージを受けたときの視覚フィードバックを集中管理する
 // state holder。FPS / アクション系で必須の 3 要素を一箇所で扱う:
@@ -39220,15 +39889,15 @@ private:
 //   3) death cam (致命傷 → killer をズームアウトで映す演出)
 //
 // 設計選択:
-//   ・**FDamageFeedback 自身は描画しない / カメラを動かさない**:
-//      FEffectSystem と同じ「副作用ゼロ / 純粋 state machine」方針。
+//   ・**CDamageFeedback 自身は描画しない / カメラを動かさない**:
+//      CEffectSystem と同じ「副作用ゼロ / 純粋 state machine」方針。
 //      ・赤エッジ → 描画パイプ末尾の overlay が ScreenEdgeRedIntensity() を
 //                  vignette mask に掛けて加算 blend。
 //      ・方向矢印 → UI 層が HasDirectionalIndicator() / DirectionalIndicator()
 //                   / DirectionalIndicatorAlpha() を pull して描く。
 //      ・death cam → カメラ制御コードが IsDeathCamActive() / DeathCamTarget()
 //                    / DeathCamProgress() を見て自前で zoom + LookAt する。
-//      これにより GameFramework から FRenderer / FCamera への依存を切る。
+//      これにより GameFramework から CRenderer / CCamera への依存を切る。
 //   ・**赤エッジは累積 → 指数 decay**: TakeDamage で `intensity += amount * 0.1`
 //      を加算 [0,1] clamp、Tick で `-= 2.0 * dt` の線形 decay (~0.5 秒で消える)。
 //      累積式にすることで「連続被弾で画面が真っ赤に染まる」自然な挙動が出る。
@@ -39247,12 +39916,12 @@ private:
 //      赤フェード残骸 / 矢印 / death cam を一括クリア。
 //
 // 非コピー・非ムーブ:
-//   FGame / FScene のメンバとして 1 インスタンスだけ存在する想定。state が
+//   CGame / AScene のメンバとして 1 インスタンスだけ存在する想定。state が
 //   重複すると death cam の trigger 整合性が壊れるので機械的に禁止。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       FDamageFeedback m_Dmg;
+//   class FGameplayScene : public AScene {
+//       CDamageFeedback m_Dmg;
 //       void OnPlayerHit(f32 amount, FVec2 attacker_pos) noexcept {
 //           const FVec2 to_player = player.Position() - attacker_pos;
 //           m_Dmg.TakeDamage(amount, to_player);
@@ -39267,7 +39936,7 @@ private:
 //
 // 範囲外:
 //   ・血しぶき・画面割れ等の SFX 連携
-//   ・low HP 時の心拍音 / 視野狭窄 (FAudioDirector / 別 overlay と連携)
+//   ・low HP 時の心拍音 / 視野狭窄 (CAudioDirector / 別 overlay と連携)
 //   ・death cam の cinematic curve (今は線形)
 
 
@@ -39283,25 +39952,25 @@ namespace acs::game {
  * 上書き、death cam は明示的な trigger/exit で制御する。state 重複を避けるため
  * 非コピー・非ムーブ。
  */
-class FDamageFeedback {
+class CDamageFeedback {
 public:
     /** 全 state を初期値 (フィードバックなし) で構築する。 */
-    FDamageFeedback() noexcept = default;
+    CDamageFeedback() noexcept = default;
 
     /** 破棄する。 */
-    ~FDamageFeedback() noexcept = default;
+    ~CDamageFeedback() noexcept = default;
 
     /** コピー禁止 (state 重複で death cam の整合性が壊れるため)。 */
-    FDamageFeedback(const FDamageFeedback&)            = delete;
+    CDamageFeedback(const CDamageFeedback&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDamageFeedback& operator=(const FDamageFeedback&) = delete;
+    CDamageFeedback& operator=(const CDamageFeedback&) = delete;
 
     /** ムーブ禁止。 */
-    FDamageFeedback(FDamageFeedback&&)                 = delete;
+    CDamageFeedback(CDamageFeedback&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDamageFeedback& operator=(FDamageFeedback&&)      = delete;
+    CDamageFeedback& operator=(CDamageFeedback&&)      = delete;
 
     /**
      * ダメージを 1 件受け取り、赤エッジ強度を加算し方向矢印を更新する。
@@ -39411,18 +40080,21 @@ private:
     f32 m_RecentDamageTotal = 0.0f;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDamageFeedback = CDamageFeedback;
+
 } // namespace acs::game
 
 // ===================== gameframework/DebugDraw.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FDebugDraw (immediate-mode デバッグ図形バッファ)
+// GameFramework Pillar H — CDebugDraw (immediate-mode デバッグ図形バッファ)
 //
 // 1 フレーム分の線分プリミティブを蓄積するだけのバッファ。実描画は行わない。
 //
 // 設計選択:
-//   ・**描画と分離**: FDebugDraw 自体はジオメトリ蓄積のみ。レンダラ非依存。
-//     描画システムが Lines() / LineCount() を読み取って FSpriteBatch 等で
-//     1 フレーム末にまとめて描画する想定。Pillar H の他の描画系（FSpriteBatch /
+//   ・**描画と分離**: CDebugDraw 自体はジオメトリ蓄積のみ。レンダラ非依存。
+//     描画システムが Lines() / LineCount() を読み取って CSpriteBatch 等で
+//     1 フレーム末にまとめて描画する想定。Pillar H の他の描画系（CSpriteBatch /
 //     particle system / 自前 DX12）どれでも消費できる。
 //   ・**immediate-mode API**: DrawLine / DrawAabb / DrawCircle / DrawCross を
 //     ゲームロジックの任意の場所から呼べる。フレーム頭で Clear() を呼ぶだけ。
@@ -39438,7 +40110,7 @@ private:
 //     ゲーム全体で 1 インスタンス（Services 経由か static）を想定。
 //
 // 使い方:
-//   acs::game::FDebugDraw dd;
+//   acs::game::CDebugDraw dd;
 //   void Frame() {
 //       dd.Clear();
 //       dd.DrawAabb(player_aabb, FVec4{1,0,0,1});
@@ -39460,10 +40132,10 @@ namespace acs::game {
  * 実描画は行わず、ジオメトリの蓄積のみを担うレンダラ非依存の state holder。
  * DrawLine/DrawAabb/DrawCircle/DrawCross をゲームロジックの任意の場所から呼び、
  * フレーム頭で Clear() する運用を想定する。描画システムは Lines() / LineCount()
- * を読み取って FSpriteBatch 等でまとめて描画する。円は内部で線分列に分解して保持する。
+ * を読み取って CSpriteBatch 等でまとめて描画する。円は内部で線分列に分解して保持する。
  * 内部 TArray の誤コピー事故を防ぐため非コピー・非ムーブ。
  */
-class FDebugDraw {
+class CDebugDraw {
 public:
     /**
      * 描画システムが読み取る生バッファ要素 (ライン 1 本)。
@@ -39482,22 +40154,22 @@ public:
     };
 
     /** 空のバッファを構築する。 */
-    FDebugDraw() noexcept = default;
+    CDebugDraw() noexcept = default;
 
     /** 破棄する (内部 TArray が解放)。 */
-    ~FDebugDraw() noexcept = default;
+    ~CDebugDraw() noexcept = default;
 
     /** コピー禁止 (内部 TArray の誤コピーを防ぐため)。 */
-    FDebugDraw(const FDebugDraw&)            = delete;
+    CDebugDraw(const CDebugDraw&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDebugDraw& operator=(const FDebugDraw&) = delete;
+    CDebugDraw& operator=(const CDebugDraw&) = delete;
 
     /** ムーブ禁止 (所有移譲事故を防ぐため)。 */
-    FDebugDraw(FDebugDraw&&)                 = delete;
+    CDebugDraw(CDebugDraw&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDebugDraw& operator=(FDebugDraw&&)      = delete;
+    CDebugDraw& operator=(CDebugDraw&&)      = delete;
 
     /**
      * 任意 2 点間の線分を 1 本蓄積する。
@@ -39573,16 +40245,16 @@ private:
 
 // ===================== gameframework/DebugOverlay.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FDebugOverlay (state holder)
+// GameFramework Pillar H — CDebugOverlay (state holder)
 //
 // FPS / メモリ / シーン名 / カスタム watch をテキストで表示するための **状態保持
-// クラス**。実描画 (FSpriteBatch / ImGui / `acs::easy::DrawString` 等) は呼出し側の
+// クラス**。実描画 (CSpriteBatch / ImGui / `acs::easy::DrawString` 等) は呼出し側の
 // 責務。本クラスは「何を出すべきか」を保持・更新するだけで、グラフィック層に依存
 // しない (テスト / Headless 環境でも動作)。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       acs::game::FDebugOverlay m_Overlay;
+//   class FGameplayScene : public AScene {
+//       acs::game::CDebugOverlay m_Overlay;
 //       void OnEnter() noexcept override {
 //           m_Overlay.Init();
 //           m_Overlay.SetSceneName("Gameplay");
@@ -39591,7 +40263,7 @@ private:
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           m_Overlay.Tick(dt);
-//           if (FInput::IsKeyPressed(EKey::F3)) m_Overlay.Toggle();
+//           if (CInput::IsKeyPressed(EKey::F3)) m_Overlay.Toggle();
 //       }
 //       void OnDraw() noexcept override {
 //           if (!m_Overlay.IsVisible()) return;
@@ -39634,13 +40306,13 @@ namespace acs::game {
  * FPS / シーン名 / カスタム watch を保持・更新する状態保持クラス。
  *
  * @details
- * 実描画 (FSpriteBatch / ImGui / DrawString 等) は呼出し側の責務で、本クラスは
+ * 実描画 (CSpriteBatch / ImGui / DrawString 等) は呼出し側の責務で、本クラスは
  * 「何を出すべきか」を保持・更新するだけでグラフィック層に依存しない (テスト /
  * Headless でも動作)。dt から瞬間 fps を算出し 60 frame の循環バッファで平均 /
  * 最小 / 最大を計測する。watch は label / value とも caller 所有のポインタを保持
  * するだけで複製しない。非コピー・非ムーブ。
  */
-class FDebugOverlay {
+class CDebugOverlay {
 public:
     /**
      * 1 行の watch エントリ。
@@ -39657,22 +40329,22 @@ public:
     };
 
     /** 空状態で構築する (内部バッファは Init で確保)。 */
-    FDebugOverlay() noexcept = default;
+    CDebugOverlay() noexcept = default;
 
     /** 破棄する (TArray が内部バッファを解放)。 */
-    ~FDebugOverlay() noexcept = default;
+    ~CDebugOverlay() noexcept = default;
 
     /** コピー禁止 (履歴 / watches の所有権を曖昧にしないため)。 */
-    FDebugOverlay(const FDebugOverlay&)            = delete;
+    CDebugOverlay(const CDebugOverlay&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDebugOverlay& operator=(const FDebugOverlay&) = delete;
+    CDebugOverlay& operator=(const CDebugOverlay&) = delete;
 
     /** ムーブ禁止 (履歴 / watches の所有権を曖昧にしないため)。 */
-    FDebugOverlay(FDebugOverlay&&)                 = delete;
+    CDebugOverlay(CDebugOverlay&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDebugOverlay& operator=(FDebugOverlay&&)      = delete;
+    CDebugOverlay& operator=(CDebugOverlay&&)      = delete;
 
     /**
      * 内部バッファを事前確保する。
@@ -39821,11 +40493,14 @@ private:
     bool          m_Visible      = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDebugOverlay = CDebugOverlay;
+
 } // namespace acs::game
 
 // ===================== gameframework/DeckSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (Card FGame) — FDeckSystem (デッキ / 手札 / 捨札 / 除外 / シャッフル)
+// GameFramework ジャンルキット (Card CGame) — CDeckSystem (デッキ / 手札 / 捨札 / 除外 / シャッフル)
 //
 // 1 プレイヤーぶんのカードゲーム状態を「デッキ + 手札 + 捨札 + 除外 (exile)」の 4 ゾーン
 // モデルで保持する小型マネージャ。Magic: the Gathering / Hearthstone / Slay the Spire 等
@@ -39833,7 +40508,7 @@ private:
 //
 // 想定する位置付け:
 //   ・**1 プレイヤー = 1 instance**: 対戦相手や複数 AI プレイヤーが居る場合は
-//     `FDeckSystem` を人数分作って並べる (本クラス自体は 1 人分のローカル状態のみ)。
+//     `CDeckSystem` を人数分作って並べる (本クラス自体は 1 人分のローカル状態のみ)。
 //   ・**カード定義 (FCardDef) と場の identity (FCardId) を分離**:
 //     - `FCardDef` = 「Lightning Bolt とはどんなカードか」(コスト / レアリティ / 説明文)。
 //        起動時に RegisterCard() で 1 回だけ登録、以後 immutable。
@@ -39848,7 +40523,7 @@ private:
 //     リプレイ / テストを再現可能にする。seed=0 のときは FRandom::Global() で時刻ベース seed。
 //
 // 使い方:
-//   FDeckSystem deck;
+//   CDeckSystem deck;
 //
 //   // 起動時にカード定義を登録。
 //   deck.RegisterCard({ "card.bolt",  "Lightning Bolt", /*cost*/1, /*rarity*/2,
@@ -39875,7 +40550,7 @@ private:
 //
 // 設計選択 (card game kit ベース):
 //   ・**FCardDef 登録は単一 TArray<FCardDef>**: カード種別は AAA でも 500〜2000 枚オーダー、
-//     線形走査で十分 (Inventory / FEconomyDirector と同じ判断)。重複登録は WARN で no-op。
+//     線形走査で十分 (Inventory / CEconomyDirector と同じ判断)。重複登録は WARN で no-op。
 //   ・**所有しない const char***: id / display_name / description / art_path / card_type すべて
 //     呼出側 (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
 //     deck / hand / discard / exile の `const char*` 要素は `m_Cards[].id` を直接指す (= リテラル参照、非所有)。
@@ -39906,7 +40581,7 @@ private:
 // 範囲外:
 //   ・「同じカードが場で個別効果を持つ」(MtG カウンタ等) — FCardId の gen を使う拡張で対応予定。
 //   ・サーチ / scry / look-at-top-N 等の peek 系操作 — 別 API として追加可能。
-//   ・複数プレイヤーをまたぐ効果 — FGameFlow / 対戦 Manager の責務。
+//   ・複数プレイヤーをまたぐ効果 — CGameFlow / 対戦 Manager の責務。
 //   ・MtG 形式の「ライブラリ枚数を見せる UI」以外の高度 API — 必要に応じて拡張。
 //   ・永続化 (Save/Load) — Pillar J Serialize と統合。
 
@@ -40015,7 +40690,7 @@ struct FCardId {
  * は RegisterCard で登録、各ゾーンは m_Cards[].id を指す非所有 const char* を保持する。
  * Shuffle は Fisher-Yates (FRandom) で seed 指定により決定論再現可能。非コピー・非ムーブ。
  */
-class FDeckSystem {
+class CDeckSystem {
 public:
     /**
      * カードがプレイされたときに呼ばれる callback の型。
@@ -40027,22 +40702,22 @@ public:
     using PlayCallback = void(*)(void* user, const char* card_id, u32 hand_index) noexcept;
 
     /** 空状態で構築する。 */
-    FDeckSystem()  noexcept = default;
+    CDeckSystem()  noexcept = default;
 
     /** 破棄する (TArray が内部バッファを解放、const char* は非所有なので Free 不要)。 */
-    ~FDeckSystem() noexcept = default;
+    ~CDeckSystem() noexcept = default;
 
     /** コピー禁止。 */
-    FDeckSystem(const FDeckSystem&)            = delete;
+    CDeckSystem(const CDeckSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDeckSystem& operator=(const FDeckSystem&) = delete;
+    CDeckSystem& operator=(const CDeckSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FDeckSystem(FDeckSystem&&)                 = delete;
+    CDeckSystem(CDeckSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDeckSystem& operator=(FDeckSystem&&)      = delete;
+    CDeckSystem& operator=(CDeckSystem&&)      = delete;
 
     /**
      * カード定義を登録する (起動時に 1 度ずつ)。
@@ -40213,11 +40888,14 @@ private:
     void*        m_OnPlayUser = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDeckSystem = CDeckSystem;
+
 } // namespace acs::game
 
 // ===================== gameframework/DevConsole.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FDevConsole
+// GameFramework Pillar K — CDevConsole
 //
 // `~` (チルダ) で開く開発用テキストコマンドコンソールの **state コンテナ**。
 // 描画 / 入力ハンドリング (ImGui ウィンドウ、IME、オートコンプリート UI 等) は
@@ -40251,11 +40929,11 @@ private:
 //   ・cvar (別クラス)
 //
 // 使い方:
-//   FDevConsole con;
+//   CDevConsole con;
 //   con.RegisterCommand("quit", &FMyApp::QuitCmd, this, "exit the application");
 //   con.RegisterCommand("help", &FMyApp::HelpCmd, this, "list commands");
 //   ...
-//   if (FInput::IsKeyPressed(EKey::Tilde)) con.Toggle();
+//   if (CInput::IsKeyPressed(EKey::Tilde)) con.Toggle();
 //   if (con.IsOpen() && enter_pressed) {
 //       con.PushHistory(input_buf);
 //       con.Execute(input_buf);
@@ -40291,33 +40969,33 @@ using CommandFn = void(*)(void* user, u32 argc, const FConsoleArg* args) noexcep
  * 開閉トグル状態だけを提供する。履歴 / ログは内部所有のヒープバッファに copy し、固定
  * キャップ 100 行で最古を drop する。非コピー・非ムーブ。
  */
-class FDevConsole {
+class CDevConsole {
 public:
     /** 空状態で構築する。 */
-    FDevConsole() noexcept : FDevConsole(DefaultAllocator())
+    CDevConsole() noexcept : CDevConsole(DefaultAllocator())
     {
     }
 
     /** 履歴・ログ・内部配列の確保元を明示して構築する。 */
-    explicit FDevConsole(FAllocator& allocator) noexcept
+    explicit CDevConsole(IAllocator& allocator) noexcept
         : m_Allocator(&allocator), m_Commands(allocator), m_History(allocator), m_Log(allocator)
     {
     }
 
     /** 履歴 / ログのヒープバッファを Free して破棄する。 */
-    ~FDevConsole() noexcept;
+    ~CDevConsole() noexcept;
 
     /** コピー禁止 (履歴 / ログが所有するヒープバッファの所有権を曖昧にしないため)。 */
-    FDevConsole(const FDevConsole&)            = delete;
+    CDevConsole(const CDevConsole&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDevConsole& operator=(const FDevConsole&) = delete;
+    CDevConsole& operator=(const CDevConsole&) = delete;
 
     /** ムーブ禁止 (履歴 / ログが所有するヒープバッファの所有権を曖昧にしないため)。 */
-    FDevConsole(FDevConsole&&)                 = delete;
+    CDevConsole(CDevConsole&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDevConsole& operator=(FDevConsole&&)      = delete;
+    CDevConsole& operator=(CDevConsole&&)      = delete;
 
     /**
      * コマンドを登録する。
@@ -40476,7 +41154,7 @@ private:
     void ClearLines(TArray<const char*>& buf) noexcept;
 
     /** 文字列と内部配列を確保するアロケータ。 */
-    FAllocator* m_Allocator = nullptr;
+    IAllocator* m_Allocator = nullptr;
 
     /** 登録済みコマンド列。 */
     TArray<FCommand>     m_Commands;
@@ -40491,47 +41169,50 @@ private:
     bool               _open = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDevConsole = CDevConsole;
+
 } // namespace acs::game
 
 // ===================== gameframework/DialogueLocalizer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム — FDialogueLocalizer (Dialogue × Localization 橋渡し)
+// GameFramework 完成度システム — CDialogueLocalizer (Dialogue × Localization 橋渡し)
 //
-// FDialogueSystem は本文 (`FDialogueLine::text`) を const char* で参照のみ持つ。
+// CDialogueSystem は本文 (`FDialogueLine::text`) を const char* で参照のみ持つ。
 // 多言語タイトルでは「同じシナリオ行を locale ごとに別文字列で出したい」
 // = ロケール切替で本文 / 選択肢の表示を差し替えたい、という要件が必ず出る。
 //
-// FLocalizationDirector は (locale, key) → 翻訳済み const char* の単純な辞書で、
-// 一方 FDialogueSystem は (line_index, speaker, text, cps) の state holder。
-// この二者を直接結合すると FDialogueSystem に locale の概念が漏れて
-// 設計が崩れる (= FDialogueSystem の単一責務原則違反)。
+// CLocalizationDirector は (locale, key) → 翻訳済み const char* の単純な辞書で、
+// 一方 CDialogueSystem は (line_index, speaker, text, cps) の state holder。
+// この二者を直接結合すると CDialogueSystem に locale の概念が漏れて
+// 設計が崩れる (= CDialogueSystem の単一責務原則違反)。
 //
-// FDialogueLocalizer は両者を**疎結合**で繋ぐ橋渡し helper:
+// CDialogueLocalizer は両者を**疎結合**で繋ぐ橋渡し helper:
 //   ・「行 index → speaker_id + line_key + cps」を保持 (本文は持たない)
 //   ・「行 index → 選択肢 (text_key + 次行 index) 群」を保持
 //   ・StartFromLine(i, cb) で現 locale の翻訳テキストを解決し callback 発火
-//   ・callback の受け手 (= UI 層 or FDialogueSystem の AddLine ラッパ) で
+//   ・callback の受け手 (= UI 層 or CDialogueSystem の AddLine ラッパ) で
 //     実際の本文反映を行う
 //
 // 設計選択:
 //   ・**Director を所有しない**: SetLocalizer で外部参照を差し込み、null で detach。
-//     FLocalizationDirector は通常 1 セッション 1 インスタンスで他システムと共有
+//     CLocalizationDirector は通常 1 セッション 1 インスタンスで他システムと共有
 //     される (Pillar S i18n の中心)。ここで所有すると共有が壊れる。
-//   ・**選択肢は line_index に紐づくフラット配列**: FDialogueSystem の choices
+//   ・**選択肢は line_index に紐づくフラット配列**: CDialogueSystem の choices
 //     データ構造と同じ形 (FChoicesAt の (start, count) スライス) を踏襲。
 //     線形検索だが典型シナリオで N < 数百のため十分。
 //   ・**callback 方式 (関数ポインタ + void* user)**: std::function 禁止方針に
-//     従う既存 GameFramework 規約 (FCinematicsDirector / FPauseDirector 等で
+//     従う既存 GameFramework 規約 (CCinematicsDirector / CPauseDirector 等で
 //     既に同形 callback を採用)。
 //   ・**speaker_id も localization key 扱い**: 発話者名も翻訳対象 (例: "char.alice"
-//     → "アリス" / "Alice")。FLocalizationDirector::Get の 3 段フォールバックで
+//     → "アリス" / "Alice")。CLocalizationDirector::Get の 3 段フォールバックで
 //     未翻訳時は key 自身が返るので空欄事故は起きない。
 //   ・**StartFromLine は state を持たない**: 「指定行を 1 回解決して cb を呼ぶ」
-//     だけ。進行状態は FDialogueSystem 側が持つ責務分離 (= 二重 state を作らない)。
+//     だけ。進行状態は CDialogueSystem 側が持つ責務分離 (= 二重 state を作らない)。
 //   ・**非コピー・非ムーブ + 全 noexcept**: GameFramework 規約に整合。
 //
 // 想定使い方:
-//   FDialogueLocalizer dl;
+//   CDialogueLocalizer dl;
 //   FLocalizedDialogueLine l0{"char.alice", "scene1.line0", 30.0f};
 //   dl.RegisterLine(l0);
 //   FLocalizedDialogueChoice ch[2] = { {"scene1.choice0", 1}, {"scene1.choice1", 2} };
@@ -40540,11 +41221,11 @@ private:
 //   dl.SetLocalizer(&loc);
 //   dl.StartFromLine(0, [](void*, const char* sp, const char* tx, f32 cps) noexcept {
 //       // sp = "アリス", tx = "こんにちは、勇者よ。", cps = 30.0f
-//       // → caller 側で FDialogueSystem::AddLine 等に流す
+//       // → caller 側で CDialogueSystem::AddLine 等に流す
 //   }, nullptr);
 //
 // 範囲外:
-//   ・format 引数展開 ("{0} HP" の {0} 置換) → FLocalizationDirector 側の範疇
+//   ・format 引数展開 ("{0} HP" の {0} 置換) → CLocalizationDirector 側の範疇
 //   ・スクリプト / JSON からの自動取り込み → ツール側で Register* 列に変換する想定
 //   ・フォントフォールバック / RTL → Pillar Q Polish 側の UI 描画責務
 //
@@ -40554,13 +41235,11 @@ private:
 namespace acs::game {
 
 // 前方宣言: ヘッダ依存を最小化 (LocalizationDirector.h を巻き込まない)
-class FLocalizationDirector;
-
 /**
  * 1 行ぶんのローカライズ可能ダイアログメタ。
  *
  * @details
- * 本文そのものは持たず、key 経由で FLocalizationDirector から取得する。
+ * 本文そのものは持たず、key 経由で CLocalizationDirector から取得する。
  * speaker_id も翻訳キー扱いで、const char* メンバは非所有 (literal / 長寿命
  * バッファ前提)。
  */
@@ -40595,11 +41274,11 @@ struct FLocalizedDialogueChoice {
  *
  * @details
  * 行 / 選択肢メタ (翻訳 key のみ) を蓄積し、StartFromLine で現 locale の翻訳
- * テキストを解決して callback に流す。本文は持たず、FLocalizationDirector を
+ * テキストを解決して callback に流す。本文は持たず、CLocalizationDirector を
  * 所有もしない (SetLocalizer で外部参照を差し込み、null で detach)。進行状態は
  * 持たず、非コピー・非ムーブ。
  */
-class FDialogueLocalizer {
+class CDialogueLocalizer {
 public:
     /**
      * 現 locale で解決した speaker / text を受け取る callback の型。
@@ -40612,22 +41291,22 @@ public:
     using BindCallback = void(*)(void* user, const char* speaker, const char* text, f32 cps) noexcept;
 
     /** 空状態で構築する。 */
-    FDialogueLocalizer()  noexcept = default;
+    CDialogueLocalizer()  noexcept = default;
 
     /** 破棄する (Localizer は非所有なので解放しない)。 */
-    ~FDialogueLocalizer() noexcept = default;
+    ~CDialogueLocalizer() noexcept = default;
 
     /** コピー禁止 (state holder の唯一性のため)。 */
-    FDialogueLocalizer(const FDialogueLocalizer&)            = delete;
+    CDialogueLocalizer(const CDialogueLocalizer&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDialogueLocalizer& operator=(const FDialogueLocalizer&) = delete;
+    CDialogueLocalizer& operator=(const CDialogueLocalizer&) = delete;
 
     /** ムーブ禁止 (state holder の唯一性のため)。 */
-    FDialogueLocalizer(FDialogueLocalizer&&)                 = delete;
+    CDialogueLocalizer(CDialogueLocalizer&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDialogueLocalizer& operator=(FDialogueLocalizer&&)      = delete;
+    CDialogueLocalizer& operator=(CDialogueLocalizer&&)      = delete;
 
     /**
      * 行を末尾に追加する。
@@ -40643,7 +41322,7 @@ public:
      * @details
      * 同じ line に複数回登録すると 2 回目以降は無視 (= 上書き禁止)。
      * count == 0 / choices == nullptr / at_line_index 範囲外 は no-op
-     * (FDialogueSystem::AddChoices と同契約)。
+     * (CDialogueSystem::AddChoices と同契約)。
      * @param at_line_index 選択肢を紐づける行の index。
      * @param choices 登録する選択肢配列。
      * @param count choices の要素数。
@@ -40657,7 +41336,7 @@ public:
      * @details nullptr で detach (以降は key 自身が返る挙動)。所有しないので寿命は呼び出し側保証。
      * @param loc 翻訳辞書 (nullptr で detach)。
      */
-    void SetLocalizer(FLocalizationDirector* loc) noexcept;
+    void SetLocalizer(CLocalizationDirector* loc) noexcept;
 
     /**
      * 指定 line index の speaker / 本文を現 locale で解決し cb を発火する。
@@ -40687,7 +41366,7 @@ public:
 
 private:
     /**
-     * line_index 直後に提示する選択肢群の範囲記録 (FDialogueSystem::FChoicesAt と同じ形)。
+     * line_index 直後に提示する選択肢群の範囲記録 (CDialogueSystem::FChoicesAt と同じ形)。
      */
     struct FChoicesAt {
         /** 選択肢を紐づける行の index。 */
@@ -40710,14 +41389,17 @@ private:
     TArray<FLocalizedDialogueChoice> m_AllChoices;
 
     /** 翻訳辞書 (非所有、null で detach)。 */
-    FLocalizationDirector* m_Localizer = nullptr;
+    CLocalizationDirector* m_Localizer = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDialogueLocalizer = CDialogueLocalizer;
 
 } // namespace acs::game
 
 // ===================== gameframework/DialogueScript.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (visual novel) — FDialogueScript
+// GameFramework ジャンルキット (visual novel) — CDialogueScript
 //
 // VN 風のシーンスクリプトを再生するための state holder。
 // 「セリフ → ポートレート表示 → BGM 切替 → 選択肢 → ジャンプ」といった
@@ -40730,8 +41412,8 @@ private:
 //   ・Say で「次へ」入力待ち (AwaitingInput) / Choice で選択待ち (AwaitingChoice) /
 //     Wait で時間経過待ち (Playing 継続 + 内部タイマ)
 //   ・実描画 / 音 / 入力には触らない: 各 op 種別は callback で外部に通知し、
-//     ポートレート切替 / BGM 再生 / 選択肢 UI 表示は caller (FScene / UI 層 /
-//     FAudioDirector) の責任とする (FDialogueSystem / FCinematicsDirector と
+//     ポートレート切替 / BGM 再生 / 選択肢 UI 表示は caller (AScene / UI 層 /
+//     CAudioDirector) の責任とする (CDialogueSystem / CCinematicsDirector と
 //     同じ「副作用ゼロ + callback 駆動」方針)。
 //
 // 設計選択:
@@ -40755,12 +41437,12 @@ private:
 //        SelectChoice(idx) で jump_label に飛ぶ。
 //   ・**callback は kind 別に分ける**: Say / Show・Hide / Background /
 //     PlayBgm・StopBgm / PlaySe / ChoicePresent / End の 6 種に分割。
-//     FCinematicsDirector と同じく汎用 1 個に集約しない方針。
+//     CCinematicsDirector と同じく汎用 1 個に集約しない方針。
 //   ・**Wait op は AwaitingInput には遷移しない**: arg_f 秒経過で自動進行。
 //     Say op の末尾で AwaitingInput になり、Advance() で次へ進む契約。
 //   ・**非コピー・非ムーブ**: 現在 op_index / state の唯一性を担保するため。
 //
-// 参考: FDialogueSystem (タイプライタ + 選択肢)、FCinematicsDirector (timeline)
+// 参考: CDialogueSystem (タイプライタ + 選択肢)、CCinematicsDirector (timeline)
 
 
 namespace acs::game {
@@ -40893,25 +41575,25 @@ using EndCallback           = void(*)(void* user, const char* script_id) noexcep
  * なり、EndScene / 末尾到達で Finished に遷移する。文字列は所有せず、非コピー・
  * 非ムーブ。
  */
-class FDialogueScript {
+class CDialogueScript {
 public:
     /** 空状態で構築する。 */
-    FDialogueScript() noexcept = default;
+    CDialogueScript() noexcept = default;
 
     /** 破棄する。 */
-    ~FDialogueScript() noexcept = default;
+    ~CDialogueScript() noexcept = default;
 
     /** コピー禁止 (進行状態の唯一性を担保するため)。 */
-    FDialogueScript(const FDialogueScript&)            = delete;
+    CDialogueScript(const CDialogueScript&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDialogueScript& operator=(const FDialogueScript&) = delete;
+    CDialogueScript& operator=(const CDialogueScript&) = delete;
 
     /** ムーブ禁止 (進行状態の唯一性を担保するため)。 */
-    FDialogueScript(FDialogueScript&&)                 = delete;
+    CDialogueScript(CDialogueScript&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDialogueScript& operator=(FDialogueScript&&)      = delete;
+    CDialogueScript& operator=(CDialogueScript&&)      = delete;
 
     /**
      * 進行状態を既定値に戻す。
@@ -41234,11 +41916,14 @@ private:
     void* m_EndUser          = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDialogueScript = CDialogueScript;
+
 } // namespace acs::game
 
 // ===================== gameframework/DialogueSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FDialogueSystem
+// GameFramework 完成度システム v7 — CDialogueSystem
 //
 // シナリオ / NPC 会話 / イベントシーンで使うダイアログ駆動 state holder。
 // 1 行ずつテキストを送り出し、タイプライタ演出と分岐選択肢を扱う。
@@ -41265,7 +41950,7 @@ private:
 //   ・**非コピー・非ムーブ**: state holder の唯一性 (現在行 / タイプ進行) を
 //     担保するため。
 //
-// 参考: FSpriteAnimator (frame-based progression), FSequence (action 連鎖)
+// 参考: CSpriteAnimator (frame-based progression), FSequence (action 連鎖)
 
 
 namespace acs::game {
@@ -41308,25 +41993,25 @@ struct FDialogueChoice {
  * 「選択肢を提示中か」だけを保持する。auto-advance は system 共通の delay で、
  * 選択肢が登録されている line では抑止される。非コピー・非ムーブ。
  */
-class FDialogueSystem {
+class CDialogueSystem {
 public:
     /** 空状態で構築する。 */
-    FDialogueSystem() noexcept = default;
+    CDialogueSystem() noexcept = default;
 
     /** 破棄する。 */
-    ~FDialogueSystem() noexcept = default;
+    ~CDialogueSystem() noexcept = default;
 
     /** コピー禁止 (進行状態の唯一性を担保するため)。 */
-    FDialogueSystem(const FDialogueSystem&)            = delete;
+    CDialogueSystem(const CDialogueSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDialogueSystem& operator=(const FDialogueSystem&) = delete;
+    CDialogueSystem& operator=(const CDialogueSystem&) = delete;
 
     /** ムーブ禁止 (進行状態の唯一性を担保するため)。 */
-    FDialogueSystem(FDialogueSystem&&)                 = delete;
+    CDialogueSystem(CDialogueSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDialogueSystem& operator=(FDialogueSystem&&)      = delete;
+    CDialogueSystem& operator=(CDialogueSystem&&)      = delete;
 
     /**
      * 行を末尾に追加する。
@@ -41540,6 +42225,9 @@ private:
     bool m_bChoicesConsumed   = true;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDialogueSystem = CDialogueSystem;
+
 } // namespace acs::game
 
 // ===================== gameframework/DungeonGenerator.h =====================
@@ -41561,7 +42249,7 @@ private:
 //   cfg.seed              = 0xDEADBEEFu;
 //   cfg.max_depth         = 5;
 //
-//   FDungeonGenerator gen;
+//   CDungeonGenerator gen;
 //   gen.Generate(cfg);
 //
 //   // 描画ループ
@@ -41677,28 +42365,28 @@ struct FDungeonGenConfig {
  *
  * @details
  * 全体領域を再帰的に 2 分割してリーフごとに 1 部屋を置き、兄弟リーフ間を L 字廊下で
- * 接続する。生成結果は row-major のタイルグリッドと部屋配列として保持する。FScene が
+ * 接続する。生成結果は row-major のタイルグリッドと部屋配列として保持する。AScene が
  * 所有する想定の非コピー・非ムーブ型。
  */
-class FDungeonGenerator {
+class CDungeonGenerator {
 public:
     /** 空状態で構築する (グリッド・部屋は Generate で生成)。 */
-    FDungeonGenerator() noexcept  = default;
+    CDungeonGenerator() noexcept  = default;
 
     /** 破棄する (グリッド・部屋配列は TArray が解放)。 */
-    ~FDungeonGenerator() noexcept = default;
+    ~CDungeonGenerator() noexcept = default;
 
     /** コピー禁止 (大きな配列の暗黙複製を防ぐ)。 */
-    FDungeonGenerator(const FDungeonGenerator&)            = delete;
+    CDungeonGenerator(const CDungeonGenerator&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDungeonGenerator& operator=(const FDungeonGenerator&) = delete;
+    CDungeonGenerator& operator=(const CDungeonGenerator&) = delete;
 
-    /** ムーブ禁止 (FScene が単独所有する想定)。 */
-    FDungeonGenerator(FDungeonGenerator&&)                 = delete;
+    /** ムーブ禁止 (AScene が単独所有する想定)。 */
+    CDungeonGenerator(CDungeonGenerator&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDungeonGenerator& operator=(FDungeonGenerator&&)      = delete;
+    CDungeonGenerator& operator=(CDungeonGenerator&&)      = delete;
 
     /**
      * config に従ってダンジョン全体を再生成する (既存状態は完全破棄)。
@@ -41815,11 +42503,14 @@ private:
     u32              m_Seed   = 0;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDungeonGenerator = CDungeonGenerator;
+
 } // namespace acs::game
 
 // ===================== gameframework/DynamicDifficulty.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U — FDynamicDifficulty (DDA: Dynamic Difficulty Adjustment)
+// GameFramework Pillar U — CDynamicDifficulty (DDA: Dynamic Difficulty Adjustment)
 //
 // プレイヤーの実プレイスタッツ (死亡 / 撃破 / リトライ / クリア時間 / パワー
 // アップ取得) を追跡し、それを元に「Easy / Normal / Hard / VeryHard / Adaptive」
@@ -41833,12 +42524,12 @@ private:
 //     非可換性を含むため、固定タイムステップでの再現性は保証しない。replay /
 //     netcode 同期に乗せるなら `Adaptive` 以外 (Easy/Normal/Hard/VeryHard) を
 //     使うか、難易度値そのものを replay に記録する運用を取ること。
-//   ・FDamageFeedback / FProgression と独立: DDA は「乗数を提供する純粋 state
+//   ・CDamageFeedback / CProgression と独立: DDA は「乗数を提供する純粋 state
 //     holder」で、ゲーム側の戦闘ロジックが乗数を pull して使う構造。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       acs::game::FDynamicDifficulty m_Dda;
+//   class FGameplayScene : public AScene {
+//       acs::game::CDynamicDifficulty m_Dda;
 //       void OnEnter() noexcept override {
 //           m_Dda.Init(acs::game::EDifficultyLevel::Adaptive);
 //       }
@@ -41867,7 +42558,7 @@ private:
 //      target_difficulty = 1.0 - skill
 //      → skill が高いほど高難易度に寄せる。
 //      重み (w_k / w_c / w_r / w_d) は内部で固定。
-//   ・**smooth lerp は FCamera2D と同じ framerate-independent**:
+//   ・**smooth lerp は CCamera2D と同じ framerate-independent**:
 //      `t = 1 - exp(-rate * dt)` で dt 不変。rate = 0.5 で約 1.4 秒で 50% 詰める
 //      ゆっくり追従。プレイヤーが「急にゲームが楽になった/難しくなった」と
 //      感じない速度に意図的に抑える。
@@ -41885,7 +42576,7 @@ private:
 //     は exponential moving average (EMA) で「直近のクリア時間」を反映。
 //     全レベル全平均ではなく直近に重み付け、で skill 変動に追従しやすく。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。インスタンス
-//     1 個前提 (FScene のメンバ持ち回り)。
+//     1 個前提 (AScene のメンバ持ち回り)。
 //   ・**STL 不使用 / `<string>` 不使用**: ACS 規約。
 //
 // 範囲外:
@@ -41950,25 +42641,25 @@ struct FPlayerSkillStats {
  * から連続難易度 [0,1] を framerate-independent な smooth lerp で目標へ寄せ、敵 HP /
  * 敵ダメージ / 敵速度 / player HP の各乗数を返す。インスタンス 1 個前提の非コピー・非ムーブ型。
  */
-class FDynamicDifficulty {
+class CDynamicDifficulty {
 public:
     /** Normal 相当の初期状態で構築する (本格的な初期化は Init)。 */
-    FDynamicDifficulty()  noexcept = default;
+    CDynamicDifficulty()  noexcept = default;
 
     /** 破棄する。 */
-    ~FDynamicDifficulty() noexcept = default;
+    ~CDynamicDifficulty() noexcept = default;
 
-    /** コピー禁止 (FScene が単独所有する想定)。 */
-    FDynamicDifficulty(const FDynamicDifficulty&)            = delete;
+    /** コピー禁止 (AScene が単独所有する想定)。 */
+    CDynamicDifficulty(const CDynamicDifficulty&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDynamicDifficulty& operator=(const FDynamicDifficulty&) = delete;
+    CDynamicDifficulty& operator=(const CDynamicDifficulty&) = delete;
 
     /** ムーブ禁止。 */
-    FDynamicDifficulty(FDynamicDifficulty&&)                 = delete;
+    CDynamicDifficulty(CDynamicDifficulty&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDynamicDifficulty& operator=(FDynamicDifficulty&&)      = delete;
+    CDynamicDifficulty& operator=(CDynamicDifficulty&&)      = delete;
 
     /**
      * 統計を初期化して base_level に切り替える。
@@ -42124,23 +42815,26 @@ private:
     static constexpr f32 kCompletionTimeEmaAlpha = 0.3f;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDynamicDifficulty = CDynamicDifficulty;
+
 } // namespace acs::game
 
 // ===================== gameframework/EconomyDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — FEconomyDirector (in-game 通貨 + shop 管理)
+// GameFramework Pillar O — CEconomyDirector (in-game 通貨 + shop 管理)
 //
 // 通貨残高 (soft / premium) + 固定価格 shop アイテム + 取引履歴 (callback) を
-// まとめた小型マネージャ。FEntitlementRegistry / FSeasonPass と一緒に Pillar O の
-// 「ストア / LiveOps 系」三兄弟を構成する。FEntitlementRegistry は「持っているか」、
-// FSeasonPass は「期間内に xp で進行」、FEconomyDirector は「通貨でアイテムを
+// まとめた小型マネージャ。CEntitlementRegistry / CSeasonPass と一緒に Pillar O の
+// 「ストア / LiveOps 系」三兄弟を構成する。CEntitlementRegistry は「持っているか」、
+// CSeasonPass は「期間内に xp で進行」、CEconomyDirector は「通貨でアイテムを
 // 直接購入する」を担当する。
 //
 // 倫理方針 (重要):
 //   ・本クラスは **cosmetic only** を強く推奨する。装備性能 / ダメージ倍率 /
 //     獲得経験値ブースター等、コア体験に影響するアイテムを通貨で売る設計は
 //     pay-to-win に直結するため、ACS としては明示的に反対する立場
-//     (FEntitlementRegistry / FSeasonPass の方針を継承)。FShopItem::cosmetic_only は
+//     (CEntitlementRegistry / CSeasonPass の方針を継承)。FShopItem::cosmetic_only は
 //     「この商品が cosmetic に閉じている」ことを開発者が宣言するフラグであり、
 //     強制機構ではない (Manager は値を保存して照会できるようにするだけ)。
 //   ・**loot box (中身がランダムで対価が確率に依存する仕組み) は明示的に拒絶**:
@@ -42153,23 +42847,23 @@ private:
 //     閉じることを推奨する。
 //
 // 想定する位置付け:
-//   ・Pillar O (FEntitlementRegistry) との違い:
-//     - FEntitlementRegistry は「DLC / FSeasonPass / 引換コード」等の永続権利フラグ。
-//     - FEconomyDirector は「ゲーム内通貨で売買される消費財 / cosmetic」を扱う。
+//   ・Pillar O (CEntitlementRegistry) との違い:
+//     - CEntitlementRegistry は「DLC / CSeasonPass / 引換コード」等の永続権利フラグ。
+//     - CEconomyDirector は「ゲーム内通貨で売買される消費財 / cosmetic」を扱う。
 //       購入結果として cosmetic を解放する場合は、PurchaseCallback で
-//       FEntitlementRegistry::Add() を呼ぶ橋渡しを呼出側で実装する想定。
-//   ・Pillar O (FSeasonPass) との違い:
-//     - FSeasonPass は xp ベースの tier 進行 (時間と遊びで貯まる)。
-//     - FEconomyDirector は通貨ベースの即時購入 (払えば即時取得)。
+//       CEntitlementRegistry::Add() を呼ぶ橋渡しを呼出側で実装する想定。
+//   ・Pillar O (CSeasonPass) との違い:
+//     - CSeasonPass は xp ベースの tier 進行 (時間と遊びで貯まる)。
+//     - CEconomyDirector は通貨ベースの即時購入 (払えば即時取得)。
 //   ・Pillar S (Storefront) との違い:
 //     - Storefront はリアル課金プラットフォーム (Steam / EOS / 家庭機 SDK) の
 //       購入トランザクション。
-//     - FEconomyDirector はゲーム内通貨での売買のみを扱う。premium 通貨を
+//     - CEconomyDirector はゲーム内通貨での売買のみを扱う。premium 通貨を
 //       リアル課金で得るフローは Pillar S 側で実装し、AddToBalance() で
 //       残高を増やしてもらう想定 (本クラスはストア非依存)。
 //
 // 使い方:
-//   FEconomyDirector ed;
+//   CEconomyDirector ed;
 //
 //   // 通貨定義。
 //   ed.RegisterCurrency({ "gold",    "Gold",    false });  // soft (ゲーム内獲得)
@@ -42182,7 +42876,7 @@ private:
 //
 //   // 購入。
 //   if (ed.PurchaseItem("skin.knight_red")) {
-//       // 成功 → cosmetic 解放 (FEntitlementRegistry 側へ橋渡し)
+//       // 成功 → cosmetic 解放 (CEntitlementRegistry 側へ橋渡し)
 //   }
 //
 //   // (任意) 購入結果コールバック。
@@ -42190,14 +42884,14 @@ private:
 //
 // 設計選択 (Pillar O):
 //   ・**通貨と残高は並行 TArray**: FCurrencyDef を TArray<FCurrencyDef> に、残高を
-//     TArray<u32> に同 index で 1:1 で持つ。FEntitlementRegistry の id 比較と同じく
+//     TArray<u32> に同 index で 1:1 で持つ。CEntitlementRegistry の id 比較と同じく
 //     const char* per-byte 線形検索。通貨種別はゲーム 1 セッションで通常 2〜5、
 //     多くても 10 を超えない想定なので線形で十分。
 //   ・**FShopItem は単一 TArray**: 商品数は AAA でも 100〜500 程度のオーダー、
 //     線形走査で十分。検索はすべて item_id 文字列。
 //   ・**所有しない const char***: id / display_name / currency_id すべて呼出側
 //     (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
-//     FEconomyDirector はコピーしない (STL <string> 禁止)。
+//     CEconomyDirector はコピーしない (STL <string> 禁止)。
 //   ・**price は u32**: 通貨残高も u32。AAA 級でも通常範囲を超えない。
 //     不足チェックは u32 同士の単純比較。
 //   ・**stock_remaining は u32**: ~0u (= 0xFFFFFFFF) を「無制限」の哨兵値として
@@ -42211,8 +42905,8 @@ private:
 //     成功・失敗両方 (bool success) で通知し、UI の「購入失敗トースト」も
 //     コールバック側で出せるようにする。
 //   ・**重複登録は黙って弾く + WARN**: 同 id の 2 重 RegisterCurrency /
-//     RegisterItem は no-op (アセット二重ロード保護)。FEntitlementRegistry / FSeasonPass /
-//     FAchievementManager と同じパターン。
+//     RegisterItem は no-op (アセット二重ロード保護)。CEntitlementRegistry / CSeasonPass /
+//     CAchievementManager と同じパターン。
 //   ・**取引履歴は callback 経由のみ**: 履歴 TArray を内蔵してメモリを増やすより、
 //     呼出側 (= Analytics / Pillar T Community) でログ収集する設計。
 //     コア API は「現在の残高と在庫」だけを真実とし、過去ログは外部責務。
@@ -42272,7 +42966,7 @@ struct FShopItem {
  * 乱数要素を一切持たず、購入は「払えば必ず指定 cosmetic が得られる固定価格方式」に
  * 限定する (loot box / ガチャは扱わない)。全 noexcept、非コピー・非ムーブ。
  */
-class FEconomyDirector {
+class CEconomyDirector {
 public:
     /**
      * 購入結果コールバックの型 (STL <functional> 禁止のため C 関数ポインタ + user)。
@@ -42285,22 +42979,22 @@ public:
     using PurchaseCallback = void(*)(void* user, const char* item_id, bool success) noexcept;
 
     /** 空の director を構築する (通貨・商品なし)。 */
-    FEconomyDirector()  noexcept = default;
+    CEconomyDirector()  noexcept = default;
 
     /** デストラクタ (非所有 const char* のみ保持するため後始末不要)。 */
-    ~FEconomyDirector() noexcept = default;
+    ~CEconomyDirector() noexcept = default;
 
     /** コピー禁止 (他 Manager 系と統一)。 */
-    FEconomyDirector(const FEconomyDirector&)            = delete;
+    CEconomyDirector(const CEconomyDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEconomyDirector& operator=(const FEconomyDirector&) = delete;
+    CEconomyDirector& operator=(const CEconomyDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FEconomyDirector(FEconomyDirector&&)                 = delete;
+    CEconomyDirector(CEconomyDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEconomyDirector& operator=(FEconomyDirector&&)      = delete;
+    CEconomyDirector& operator=(CEconomyDirector&&)      = delete;
 
     /**
      * 通貨を 1 種類登録する (残高 0 で初期化)。
@@ -42438,48 +43132,51 @@ private:
     void*            m_OnPurchaseUser = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FEconomyDirector = CEconomyDirector;
+
 } // namespace acs::game
 
 // ===================== gameframework/EffectSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I — FEffectSystem (画面演出指揮)
+// GameFramework Pillar I — CEffectSystem (画面演出指揮)
 //
 // 画面エフェクトの中央指揮塔: Flash (全画面色被せ) / HitStop (一時停止) /
-// FCamera Shake (FCamera2D 連携) をひとまとめにし、描画側 / FGame ループ /
-// FCamera2D が「pull する側」になる単純なバスとして振る舞う。
+// CCamera Shake (CCamera2D 連携) をひとまとめにし、描画側 / CGame ループ /
+// CCamera2D が「pull する側」になる単純なバスとして振る舞う。
 //
 // 設計選択 (Pillar I):
-//   ・**FEffectSystem 自身は何も描画しない / 何も時間を止めない**:
+//   ・**CEffectSystem 自身は何も描画しない / 何も時間を止めない**:
 //      Flash → 描画パイプ末尾の overlay が `FlashColor() * FlashIntensity()`
 //             を加算 (alpha blend) して画面に被せる。
-//      HitStop → FGame ループが `IsHitStop()` を見て `time_scale = 0` を選ぶ。
-//                FEffectSystem 自体は real-time dt で Tick され続ける
+//      HitStop → CGame ループが `IsHitStop()` を見て `time_scale = 0` を選ぶ。
+//                CEffectSystem 自体は real-time dt で Tick され続ける
 //                (= hit stop が真の場合でも残時間が減る)。
-//      Shake → FCamera2D が `PendingShakeTrauma()` を pull → `AddShake` →
+//      Shake → CCamera2D が `PendingShakeTrauma()` を pull → `AddShake` →
 //              `ConsumeShake()` で 0 リセット。
-//      これにより FEffectSystem は **副作用ゼロ / 純粋 state machine**。
-//      テスト容易 + FCamera2D / FGame との結合が最小限。
+//      これにより CEffectSystem は **副作用ゼロ / 純粋 state machine**。
+//      テスト容易 + CCamera2D / CGame との結合が最小限。
 //   ・**Flash は線形減衰**: `intensity(t) = m_FlashMax * (m_FlashT / m_FlashTotal)`
 //      で 1 → 0 へ落ちる。fade out 寄りで「閃光が引いていく」感が出る。
 //      Flash() を再呼出すれば常に新しい flash で上書き (累積しない)。
 //   ・**HitStop は単純な timer**: 重ねがけしたとき、残時間と新時間の max を採用
 //      (= 強い hit stop が来たら短い hit stop で打ち消されない)。
 //   ・**Shake pending は overwrite**: 1 フレームで複数 hit が起きたら最大値を保つ
-//      (max-of-frame)。FCamera2D が次フレーム頭で consume するので、
+//      (max-of-frame)。CCamera2D が次フレーム頭で consume するので、
 //      ゲームコード側が consume 順序を意識する必要は無い。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       FEffectSystem m_Fx;
+//   class FGameplayScene : public AScene {
+//       CEffectSystem m_Fx;
 //       void OnHit() noexcept {
 //           m_Fx.Flash({1,1,1}, 0.8f, 0.15f);   // 白フラッシュ 150ms
 //           m_Fx.HitStop(0.08f);                 // 80ms 停止
-//           m_Fx.TriggerShake(0.5f);             // trauma 0.5 を FCamera2D に流す
+//           m_Fx.TriggerShake(0.5f);             // trauma 0.5 を CCamera2D に流す
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           const f32 ts = m_Fx.IsHitStop() ? 0.0f : 1.0f;
 //           // ... game update with (dt * ts) ...
-//           m_Fx.Tick(dt);                       // FEffectSystem は real dt で進む
+//           m_Fx.Tick(dt);                       // CEffectSystem は real dt で進む
 //           if (m_Fx.PendingShakeTrauma() > 0.0f) {
 //               Services().Camera().AddShake(m_Fx.PendingShakeTrauma());
 //               m_Fx.ConsumeShake();
@@ -42499,31 +43196,31 @@ namespace acs::game {
  * Flash / HitStop / カメラシェイクをまとめる画面演出の中央指揮塔。
  *
  * @details
- * 自身は何も描画せず時間も止めない純粋 state machine で、描画側 / FGame ループ /
- * FCamera2D が pull する単純なバスとして振る舞う。Flash は描画パイプ末尾が
- * FlashColor() * FlashIntensity() を加算 overlay し、HitStop は FGame が
- * IsHitStop() を見て time_scale=0 を選び、Shake は FCamera2D が PendingShakeTrauma()
+ * 自身は何も描画せず時間も止めない純粋 state machine で、描画側 / CGame ループ /
+ * CCamera2D が pull する単純なバスとして振る舞う。Flash は描画パイプ末尾が
+ * FlashColor() * FlashIntensity() を加算 overlay し、HitStop は CGame が
+ * IsHitStop() を見て time_scale=0 を選び、Shake は CCamera2D が PendingShakeTrauma()
  * を pull → AddShake → ConsumeShake() で消費する。Tick は常に real-time dt で進める。
  */
-class FEffectSystem {
+class CEffectSystem {
 public:
     /** 全エフェクトを停止状態で構築する。 */
-    FEffectSystem() noexcept = default;
+    CEffectSystem() noexcept = default;
 
     /** デストラクタ (所有リソースなし)。 */
-    ~FEffectSystem() noexcept = default;
+    ~CEffectSystem() noexcept = default;
 
     /** コピー禁止 (演出状態を単独所有するため)。 */
-    FEffectSystem(const FEffectSystem&)            = delete;
+    CEffectSystem(const CEffectSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEffectSystem& operator=(const FEffectSystem&) = delete;
+    CEffectSystem& operator=(const CEffectSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FEffectSystem(FEffectSystem&&)                 = delete;
+    CEffectSystem(CEffectSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEffectSystem& operator=(FEffectSystem&&)      = delete;
+    CEffectSystem& operator=(CEffectSystem&&)      = delete;
 
     /**
      * 画面全体に被せるフラッシュを開始する (最新の呼出で上書き、累積しない)。
@@ -42539,7 +43236,7 @@ public:
      * ヒットストップ (一時停止) を要求する。
      *
      * @details
-     * duration 秒の間 IsHitStop() が true を返す。FGame ループがこれを見て time_scale=0
+     * duration 秒の間 IsHitStop() が true を返す。CGame ループがこれを見て time_scale=0
      * にする責務を持つ。重ねがけは max を採用 (短い hit stop が長い hit stop を打ち消さない)。
      * @param duration 停止させたい秒。
      */
@@ -42549,9 +43246,9 @@ public:
      * カメラシェイクの pending trauma を積む。
      *
      * @details
-     * 同一フレーム中の複数呼出は max を保つ (max-of-frame)。FCamera2D が次フレーム頭で
+     * 同一フレーム中の複数呼出は max を保つ (max-of-frame)。CCamera2D が次フレーム頭で
      * ConsumeShake する想定。
-     * @param trauma 0..1 のシェイク強度 (FCamera2D::AddShake にそのまま渡せる値)。
+     * @param trauma 0..1 のシェイク強度 (CCamera2D::AddShake にそのまま渡せる値)。
      * @param duration_hint 将来用 (現状未使用、API 安定のため shape を確保)。
      */
     void TriggerShake(f32 trauma, f32 duration_hint = 0.0f) noexcept;
@@ -42579,7 +43276,7 @@ public:
     FVec3 FlashColor()     const noexcept { return m_FlashColor; }
 
     /**
-     * ヒットストップ中かを返す (FGame ループが time_scale 判定に使う)。
+     * ヒットストップ中かを返す (CGame ループが time_scale 判定に使う)。
      *
      * @return 残時間が残っていれば true。
      */
@@ -42593,13 +43290,13 @@ public:
     f32  HitStopRemain()  const noexcept { return m_HitStopRemain; }
 
     /**
-     * pending のシェイク trauma を返す (FCamera2D が読んで AddShake に流す)。
+     * pending のシェイク trauma を返す (CCamera2D が読んで AddShake に流す)。
      *
      * @return 未消費の trauma (0 ならシェイク要求なし)。
      */
     f32  PendingShakeTrauma() const noexcept { return m_PendingShake; }
 
-    /** pending のシェイク trauma を 0 にリセットする (FCamera2D が AddShake 後に呼ぶ)。 */
+    /** pending のシェイク trauma を 0 にリセットする (CCamera2D が AddShake 後に呼ぶ)。 */
     void ConsumeShake() noexcept { m_PendingShake = 0.0f; }
 
 private:
@@ -42618,9 +43315,12 @@ private:
     /** ヒットストップの残時間。 */
     f32  m_HitStopRemain = 0.0f;
 
-    /** 未消費のシェイク trauma (FCamera2D が次フレーム consume するまで保持)。 */
+    /** 未消費のシェイク trauma (CCamera2D が次フレーム consume するまで保持)。 */
     f32  m_PendingShake   = 0.0f;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FEffectSystem = CEffectSystem;
 
 } // namespace acs::game
 
@@ -42628,7 +43328,7 @@ private:
 // SPDX-License-Identifier: Apache-2.0
 // Effects2D — シェーダー無し・アセット無しの drop-in エフェクトコンポーネント集。
 //
-// すべて FSpriteBatch のプリミティブ (三角形/矩形) を時間で手続き生成して描く。
+// すべて CSpriteBatch のプリミティブ (三角形/矩形) を時間で手続き生成して描く。
 // HLSL を書けなくても AddComponent + パラメータ設定だけで動く。インタラクティブな
 // API (Disturb / SetIntensity / owner 追従) を持ち、入力や物理と連動できる。
 //
@@ -42643,7 +43343,7 @@ private:
 //   t.SetColor({0.3f,0.8f,1.0f}); t.SetWidth(0.3f);
 
 
-namespace acs { class FSpriteBatch; }   // 加算パス描画ヘルパで使う (前方宣言)
+namespace acs { class CSpriteBatch; }   // 加算パス描画ヘルパで使う (前方宣言)
 
 namespace acs::game {
 
@@ -42838,7 +43538,7 @@ public:
     /**
      * 水面より上のシーンを映す平面反射を設定する。
      *
-     * @details FScene2D::SetReflectionEnabled(true) が前提で、RT が rc に配線されていなければ無視される。
+     * @details AScene2D::SetReflectionEnabled(true) が前提で、RT が rc に配線されていなければ無視される。
      * @param enable true で反射を有効化。
      * @param tint 反射の色味。
      * @param alpha 反射の強さ。
@@ -43135,7 +43835,7 @@ private:
      * @param sb 描画先のスプライトバッチ。
      * @param disp 波で変位済みの頂点 world 位置配列。
      */
-    void DrawCaustics(FSpriteBatch& sb, const FVec2* disp) noexcept;
+    void DrawCaustics(CSpriteBatch& sb, const FVec2* disp) noexcept;
 
     /**
      * 散発的なきらめきを加算ブレンドで描く。
@@ -43143,7 +43843,7 @@ private:
      * @param sb 描画先のスプライトバッチ。
      * @param disp 波で変位済みの頂点 world 位置配列。
      */
-    void DrawGlints(FSpriteBatch& sb, const FVec2* disp) noexcept;
+    void DrawGlints(CSpriteBatch& sb, const FVec2* disp) noexcept;
 
     /** 放射状リップル 1 つの状態 (中心・振幅・経過時間・伝播速度・有効フラグ)。 */
     struct FRipple {
@@ -43497,7 +44197,7 @@ private:
  *
  * @details
  * attach したノードの子ツリーを、指定形状の内側 (既定) か外側だけに通して描く。窓越しに
- * 他のエフェクトを覗かせる / 穴あきマスク等に使う。シェーダ不要で FSpriteBatch の stencil
+ * 他のエフェクトを覗かせる / 穴あきマスク等に使う。シェーダ不要で CSpriteBatch の stencil
  * モードを使う。シーンで SetStencilMaskEnabled(true) を呼んでおくのが前提で、stencil バッファ
  * が無いパス (例: 反射の RT パス) では自動的に素通しする。
  */
@@ -43617,13 +44317,13 @@ private:
 
 // ===================== gameframework/Entitlement.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FEntitlementRegistry — DLC / シーズンパス / コスメティック等の権利チェック
+// CEntitlementRegistry — DLC / シーズンパス / コスメティック等の権利チェック
 //
 // プレイヤーが「持っているかどうか」をゲームロジック側から問い合わせる窓口。
 // DLC、シーズンパス、バトルパス、コスメティックパック、グッズ同梱の引換コード等の
 // **権利情報** (entitlement) をローカルに保持し、ストアからの取得結果や
 // プラットフォーム SDK (Pillar S = Steamworks / EOS / 各家庭機 SDK) の問い合わせ結果を
-// Add() で流し込んでもらう想定。FEntitlementRegistry 自体は **ストア非依存** であり、
+// Add() で流し込んでもらう想定。CEntitlementRegistry 自体は **ストア非依存** であり、
 // 配信プラットフォームに紐付かない (Pillar S 側がアダプタ層になる)。
 //
 // 設計上の倫理方針 (LiveOps と pay-to-win の境界):
@@ -43635,7 +44335,7 @@ private:
 //     redeem フローは Pillar S 側で実装し、ここには結果だけが流れてくる。
 //
 // 使い方:
-//   FEntitlementRegistry reg;
+//   CEntitlementRegistry reg;
 //   reg.Add({ "dlc.expansion_1",  EEntitlementKind::Dlc,           true  });
 //   reg.Add({ "cosmetic.hat_red", EEntitlementKind::CosmeticPack,  true  });
 //
@@ -43709,25 +44409,25 @@ struct FEntitlementInfo {
  * IsActive()/HasAny() でゲームロジックから所持判定を行う。Pillar S (ストア SDK)
  * 側のアダプタが取得結果を Add() で流し込む想定。非コピー・非ムーブ。
  */
-class FEntitlementRegistry {
+class CEntitlementRegistry {
 public:
     /** 空のレジストリを構築する。 */
-    FEntitlementRegistry()  noexcept = default;
+    CEntitlementRegistry()  noexcept = default;
 
     /** 破棄する (保持していた権利情報を解放)。 */
-    ~FEntitlementRegistry() noexcept = default;
+    ~CEntitlementRegistry() noexcept = default;
 
     /** コピー禁止 (通常 1 つの長寿命オブジェクトで運用するため)。 */
-    FEntitlementRegistry(const FEntitlementRegistry&)            = delete;
+    CEntitlementRegistry(const CEntitlementRegistry&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEntitlementRegistry& operator=(const FEntitlementRegistry&) = delete;
+    CEntitlementRegistry& operator=(const CEntitlementRegistry&) = delete;
 
     /** ムーブ禁止 (entitlement の分裂を防ぐため)。 */
-    FEntitlementRegistry(FEntitlementRegistry&&)                 = delete;
+    CEntitlementRegistry(CEntitlementRegistry&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEntitlementRegistry& operator=(FEntitlementRegistry&&)      = delete;
+    CEntitlementRegistry& operator=(CEntitlementRegistry&&)      = delete;
 
     /**
      * 新規 entitlement を登録する。
@@ -43788,6 +44488,9 @@ private:
     TArray<FEntitlementInfo> m_Infos;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FEntitlementRegistry = CEntitlementRegistry;
+
 } // namespace acs::game
 
 // ===================== gameframework/EntryPoint.h =====================
@@ -43795,27 +44498,27 @@ private:
 // エントリポイント生成マクロ (ACS_GAME_MAIN)
 //
 // 使い方:
-//   class FMyGame : public acs::game::FGame { ... };
+//   class FMyGame : public acs::game::CGame { ... };
 //   ACS_GAME_MAIN(FMyGame)
 //
-// 中身は acs/app/EntryPoint.h の ACS_DEFINE_MAIN を FGame 派生向けに薄く
+// 中身は acs/app/EntryPoint.h の ACS_DEFINE_MAIN を CGame 派生向けに薄く
 // ラップしたもの。将来 AppState の自動初期化や
 // shipping/dev フラグの分岐を入れる余地に備えてこの層を作っておく。
 
 
 /**
- * FGame 派生クラスからエントリポイント (main) を生成するマクロ。
+ * CGame 派生クラスからエントリポイント (main) を生成するマクロ。
  *
  * @details
- * acs/app/EntryPoint.h の ACS_DEFINE_MAIN を FGame 派生向けに薄くラップしたもの。
+ * acs/app/EntryPoint.h の ACS_DEFINE_MAIN を CGame 派生向けに薄くラップしたもの。
  * 将来 AppState の自動初期化や shipping/dev フラグ分岐を入れる余地に備えてこの層を挟む。
- * @param GameClass エントリポイントを生成する FGame 派生クラス。
+ * @param GameClass エントリポイントを生成する CGame 派生クラス。
  */
 #define ACS_GAME_MAIN(GameClass) ACS_DEFINE_MAIN(GameClass)
 
 // ===================== gameframework/EventBus.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — FEventBus (ワールド内オブジェクト間の疎結合な通信)
+// GameFramework — AEventBus (ワールド内オブジェクト間の疎結合な通信)
 //
 // 「名前付きイベントの pub/sub」を提供する World サブシステム。発火側と購読側が
 // «互いを知らずに» やり取りできる(プレイヤー死亡・スコア加算・ドア開放 等)。
@@ -43826,13 +44529,13 @@ private:
 //
 // 使い方:
 //   // 購読 (例: コンポーネントの OnAttach で)
-//   auto* bus = GetSubsystem<acs::game::FEventBus>();
-//   m_Sub = bus->Subscribe(acs::game::FEventBus::Id("PlayerDied"),
+//   auto* bus = GetSubsystem<acs::game::AEventBus>();
+//   m_Sub = bus->Subscribe(acs::game::AEventBus::Id("PlayerDied"),
 //       [](void* self, const void* payload) noexcept {
 //           static_cast<MyComp*>(self)->OnPlayerDied();
 //       }, this);
 //   // 発火 (どこからでも)
-//   bus->Publish(acs::game::FEventBus::Id("PlayerDied"));
+//   bus->Publish(acs::game::AEventBus::Id("PlayerDied"));
 //   // 解除 (OnDetach 等で)
 //   bus->Unsubscribe(m_Sub);
 
@@ -43855,7 +44558,7 @@ private:
 //     EditorVisible/Scriptable/Abstract/Instantiable のビット OR。
 //   ・**Enum 反射** … 列挙体は value↔name を持つ (editor コンボ/シリアライズ/スクリプト)。
 //   ・既存の TypeInfo.h (TU ローカル・コンパイル時のみ) を補完し、グローバル自動登録の
-//     FTypeRegistry を提供。フィールド種別は InspectorSeam.h の EFieldKind を共通利用。
+//     CTypeRegistry を提供。フィールド種別は InspectorSeam.h の EFieldKind を共通利用。
 //
 // 使い方:
 //   struct FHealth { acs::f32 hp; acs::f32 max_hp; bool alive; };
@@ -43868,7 +44571,7 @@ private:
 //   ACS_REFLECT_ENUM(EWeapon,
 //       ACS_EVAL(EWeapon, Sword), ACS_EVAL(EWeapon, Bow), ACS_EVAL(EWeapon, Staff))
 //
-//   auto& reg = acs::game::FTypeRegistry::Get();
+//   auto& reg = acs::game::CTypeRegistry::Get();
 //   const auto* d = reg.FindByName("FHealth");      // 名前で型
 //   void* obj     = reg.Create("FHealth");          // factory 生成
 //   reg.Destroy(d->id, obj);
@@ -43882,10 +44585,10 @@ private:
 
 // ===================== gameframework/InspectorSeam.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FInspectorSeam
+// GameFramework Pillar K — CInspectorSeam
 //
 // reflection-driven debug inspector の「シーム (seam)」インターフェース。
-// ゲーム内の任意のオブジェクト (FPlayer / FEnemy / FCamera / FSettings 等) が
+// ゲーム内の任意のオブジェクト (FPlayer / FEnemy / CCamera / CSettings 等) が
 // 自身のフィールドを `IInspectableProvider` 経由で公開し、上位レイヤ
 // (ImGui / ACS::Ui / 外部 DevTool) がそれを描画 / 編集する形を取る。
 //
@@ -43908,7 +44611,7 @@ private:
 //   };
 //
 //   // 起動時:
-//   FInspectorSeam inspector;
+//   CInspectorSeam inspector;
 //   inspector.Init();
 //   inspector.RegisterProvider(&player);
 //
@@ -43923,16 +44626,16 @@ private:
 //   }
 //
 // 設計選択:
-//   ・**シーム化 (= I/F + 集中点) で UI と切り離す**: `FInspectorSeam` 本体は
+//   ・**シーム化 (= I/F + 集中点) で UI と切り離す**: `CInspectorSeam` 本体は
 //     Provider レジストリだけを持ち、ImGui / Ui 描画は別レイヤから
 //     呼ぶ。Ship build では Provider 登録自体を #ifdef で消す前提。
 //   ・**Provider は non-owning**: ゲーム側の生存期間に従う。RegisterProvider 後に
 //     Provider を destruct する場合は呼び出し側で必ず Unregister すること。
-//     `FInspectorSeam::ClearAll()` でも Provider は破棄しない。
+//     `CInspectorSeam::ClearAll()` でも Provider は破棄しない。
 //   ・**field は POD 4-tuple**: name + kind + data ポインタ + (enum 専用) ラベル配列。
 //     描画側は kind で switch し、data を該当型にキャストして表示 / 編集する。
 //   ・**fields 配列は Provider 所有**: `GetObject()` の戻り値が指す `fields` は
-//     Provider が永続所有する (static 配列 / メンバ配列 を想定)。FInspectorSeam は
+//     Provider が永続所有する (static 配列 / メンバ配列 を想定)。CInspectorSeam は
 //     コピーしない。
 //   ・**OnFieldChanged は通知のみ**: UI 側で値を書き換えた後に呼ばれる。Provider は
 //     再バリデーション (clamp / 派生値の再計算 / dirty flag) をここで行う。
@@ -43987,7 +44690,7 @@ enum class EFieldKind : u8 {
  *
  * @details
  * Provider が `FInspectableObject` 経由で配列を返す 1 件。配列の寿命は
- * Provider が保持する (static / メンバ)。FInspectorSeam はコピーしない。
+ * Provider が保持する (static / メンバ)。CInspectorSeam はコピーしない。
  */
 struct FInspectableField {
     /** フィールド表示名 (caller 所有、リテラル想定)。 */
@@ -44007,7 +44710,7 @@ struct FInspectableField {
 };
 
 /**
- * Provider が公開する 1 オブジェクト (例: 1 体の FPlayer、1 つの FCamera)。
+ * Provider が公開する 1 オブジェクト (例: 1 体の FPlayer、1 つの CCamera)。
  *
  * @details `fields` 配列の寿命は Provider 所有。
  */
@@ -44087,25 +44790,25 @@ public:
  * 描画レイヤ (ImGui or ACS::Ui) はこのインスタンスから ProviderCount() /
  * GetProvider() を回して描画する。
  */
-class FInspectorSeam {
+class CInspectorSeam {
 public:
     /** 空のレジストリで構築する。 */
-    FInspectorSeam() noexcept = default;
+    CInspectorSeam() noexcept = default;
 
     /** 破棄する (Provider は non-owning なので破棄しない)。 */
-    ~FInspectorSeam() noexcept = default;
+    ~CInspectorSeam() noexcept = default;
 
     /** コピー禁止 (内部 TArray<Provider*> の所有を曖昧にしないため)。 */
-    FInspectorSeam(const FInspectorSeam&)            = delete;
+    CInspectorSeam(const CInspectorSeam&)            = delete;
 
     /** コピー代入も禁止。 */
-    FInspectorSeam& operator=(const FInspectorSeam&) = delete;
+    CInspectorSeam& operator=(const CInspectorSeam&) = delete;
 
     /** ムーブ禁止。 */
-    FInspectorSeam(FInspectorSeam&&)                 = delete;
+    CInspectorSeam(CInspectorSeam&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FInspectorSeam& operator=(FInspectorSeam&&)      = delete;
+    CInspectorSeam& operator=(CInspectorSeam&&)      = delete;
 
     /**
      * 初期化する (多重呼び出し可)。
@@ -44308,7 +45011,7 @@ namespace reflect_internal {
 /** 反射 factory が生成時の確保元をオブジェクト末尾に保持する内部ヘッダ。 */
 struct FFactoryAllocationHeader {
     /** 生成時に使ったアロケータ。 */
-    FAllocator* allocator = nullptr;
+    IAllocator* allocator = nullptr;
 
     /** allocator::Alloc が返した、解放時に渡す元ポインタ。 */
     void* allocation = nullptr;
@@ -44333,7 +45036,7 @@ template<class T> inline void* AcsConstruct() noexcept {
         constexpr usize header_offset = (sizeof(T) + alignof(Header) - 1u) & ~(alignof(Header) - 1u);
         constexpr usize allocation_size = header_offset + sizeof(Header);
 
-        FAllocator& allocator = DefaultAllocator();
+        IAllocator& allocator = DefaultAllocator();
         void* const allocation = allocator.Alloc(allocation_size, allocation_alignment, FSourceLoc::Current());
         if (allocation == nullptr) return nullptr;
 
@@ -44353,7 +45056,7 @@ inline void AcsDestruct(void* p) noexcept
     auto* const object = static_cast<T*>(p);
     constexpr usize header_offset = (sizeof(T) + alignof(Header) - 1u) & ~(alignof(Header) - 1u);
     auto* const header = reinterpret_cast<Header*>(reinterpret_cast<byte*>(object) + header_offset);
-    FAllocator* const allocator = header->allocator;
+    IAllocator* const allocator = header->allocator;
     void* const allocation = header->allocation;
     if constexpr (!IsTriviallyDestructibleV<T>) object->~T();
     allocator->Free(allocation);
@@ -44375,13 +45078,13 @@ template<class T> constexpr u32 AcsAutoTraits() noexcept {
  * (kMax) で STL 不使用。エディタ・シリアライザ・スクリプト束縛・ネットワークなどが
  * 「型を知らずに」横断的に使うための単一の真実点。
  */
-class FTypeRegistry {
+class CTypeRegistry {
 public:
     /** 登録できる型数の上限。 */
     static constexpr u32 kMax = 2048u;
 
     /** プロセス唯一のレジストリを返す (Meyers singleton)。 */
-    static FTypeRegistry& Get() noexcept;
+    static CTypeRegistry& Get() noexcept;
 
     /**
      * 型を登録する (ACS_REFLECT* の自動登録から呼ばれる)。
@@ -44436,7 +45139,7 @@ private:
     /** 同じ型 ID に保持できる独立した記述子の上限。 */
     static constexpr u32 kMaxSourcesPerType = 8u;
 
-    FTypeRegistry() noexcept = default;
+    CTypeRegistry() noexcept = default;
     const FTypeDesc* m_Types[kMax] = {};
     const FTypeDesc* m_Sources[kMax][kMaxSourcesPerType] = {};
     u8 m_SourceCounts[kMax] = {};
@@ -44444,21 +45147,21 @@ private:
 };
 
 /** ACS_REFLECT* が生成する自動登録ヘルパ。登録元の寿命終了時に同じ記述子だけを解除する。 */
-struct FTypeAutoRegister {
-    explicit FTypeAutoRegister(const FTypeDesc* descriptor) noexcept : m_Descriptor(descriptor)
+struct CTypeAutoRegister {
+    explicit CTypeAutoRegister(const FTypeDesc* descriptor) noexcept : m_Descriptor(descriptor)
     {
-        FTypeRegistry::Get().Register(m_Descriptor);
+        CTypeRegistry::Get().Register(m_Descriptor);
     }
 
-    ~FTypeAutoRegister() noexcept
+    ~CTypeAutoRegister() noexcept
     {
         if (m_Descriptor != nullptr) {
-            (void)FTypeRegistry::Get().Unregister(m_Descriptor);
+            (void)CTypeRegistry::Get().Unregister(m_Descriptor);
         }
     }
 
-    FTypeAutoRegister(const FTypeAutoRegister&) = delete;
-    FTypeAutoRegister& operator=(const FTypeAutoRegister&) = delete;
+    CTypeAutoRegister(const CTypeAutoRegister&) = delete;
+    CTypeAutoRegister& operator=(const CTypeAutoRegister&) = delete;
 
 private:
     const FTypeDesc* m_Descriptor = nullptr;
@@ -44466,6 +45169,12 @@ private:
 
 /** 型 T の FTypeDesc を返す (ACS_REFLECT* が特殊化する。未反射型は nullptr)。 */
 template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return nullptr; }
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTypeAutoRegister = CTypeAutoRegister;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTypeRegistry = CTypeRegistry;
 
 } // namespace acs::game
 
@@ -44593,7 +45302,7 @@ template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return null
                                     sizeof(::acs::game::FReflectField) - 1u),                       \
             nullptr, 0u,                                                                             \
             &::acs::game::AcsConstruct<Type>, &::acs::game::AcsDestruct<Type>, nullptr };           \
-        inline const ::acs::game::FTypeAutoRegister ACS_RCAT(s_acs_rr_, Type){                  \
+        inline const ::acs::game::CTypeAutoRegister ACS_RCAT(s_acs_rr_, Type){                  \
             &ACS_RCAT(s_acs_rd_, Type) };                                                       \
         template<> inline const ::acs::game::FTypeDesc* AcsTypeDescOf<Type>() noexcept {            \
             return &ACS_RCAT(s_acs_rd_, Type); }                                                \
@@ -44621,7 +45330,7 @@ template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return null
             static_cast<::acs::u32>(sizeof(ACS_RCAT(s_acs_ev_, Type)) /                          \
                                     sizeof(::acs::game::FEnumValue) - 1u),                          \
             nullptr, nullptr, nullptr };                                                            \
-        inline const ::acs::game::FTypeAutoRegister ACS_RCAT(s_acs_er_, Type){                  \
+        inline const ::acs::game::CTypeAutoRegister ACS_RCAT(s_acs_er_, Type){                  \
             &ACS_RCAT(s_acs_ed_, Type) };                                                       \
         template<> inline const ::acs::game::FTypeDesc* AcsTypeDescOf<Type>() noexcept {            \
             return &ACS_RCAT(s_acs_ed_, Type); }                                                \
@@ -44671,7 +45380,7 @@ template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return null
                                     sizeof(::acs::game::FReflectField) - 1u),                       \
             nullptr, 0u,                                                                             \
             &::acs::game::AcsConstruct<Type>, &::acs::game::AcsDestruct<Type>, nullptr };           \
-        inline const ::acs::game::FTypeAutoRegister ACS_RCAT(s_acs_gr_, Type){                  \
+        inline const ::acs::game::CTypeAutoRegister ACS_RCAT(s_acs_gr_, Type){                  \
             &ACS_RCAT(s_acs_gd_, Type) };                                                       \
     } // namespace acs::game
 
@@ -44691,7 +45400,7 @@ template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return null
             static_cast<::acs::u32>(sizeof(ACS_RCAT(s_acs_gv_, Type)) /                          \
                                     sizeof(::acs::game::FEnumValue) - 1u),                          \
             nullptr, nullptr, nullptr };                                                            \
-        inline const ::acs::game::FTypeAutoRegister ACS_RCAT(s_acs_gvr_, Type){                 \
+        inline const ::acs::game::CTypeAutoRegister ACS_RCAT(s_acs_gvr_, Type){                 \
             &ACS_RCAT(s_acs_gve_, Type) };                                                      \
     } // namespace acs::game
 
@@ -44714,7 +45423,7 @@ namespace acs::game {
 /**
  * 名前付きイベントの pub/sub を行う World サブシステム(オブジェクト間の疎結合通信)。
  */
-class FEventBus : public FSubsystem {
+class AEventBus : public ASubsystem {
 public:
     ACS_GAME_SUBSYSTEM_KIND(FEventBus)
 
@@ -44730,7 +45439,7 @@ public:
     /**
      * イベント ev を購読する。発火時に fn(listener, payload) が呼ばれる。
      *
-     * @param ev       購読するイベント ID(FEventBus::Id("...") )。
+     * @param ev       購読するイベント ID(AEventBus::Id("...") )。
      * @param fn       ハンドラ(captureless。null は無視)。
      * @param listener ハンドラへ渡すコンテキスト(通常は this)。
      * @return 解除用ハンドル(>=0)。失敗で -1。
@@ -44778,17 +45487,17 @@ private:
 
 // ===================== gameframework/FadeTransition.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FFadeTransition — シーン切替フェード演出の state holder
+// CFadeTransition — シーン切替フェード演出の state holder
 //
 // シーン切替時のフェード演出を司る **state holder**。描画自体は行わず、
 // 現在の overlay alpha / color と phase だけを提供する。ユーザー側で
-// FSpriteBatch を使い fullscreen quad を「色 = OverlayColor()、alpha =
+// CSpriteBatch を使い fullscreen quad を「色 = OverlayColor()、alpha =
 // OverlayAlpha()」で描くだけで、典型的なフェードイン・アウト・ブラック
 // フラッシュ・クロスフェードが成立する。
 //
 // 使い方:
-//   class FTitleScene : public FScene {
-//       acs::game::FFadeTransition m_Fade;
+//   class FTitleScene : public AScene {
+//       acs::game::CFadeTransition m_Fade;
 //       void OnEnter() noexcept override {
 //           // 画面が黒から徐々に明けるフェードイン
 //           m_Fade.StartFade(EFadeKind::FadeIn, /*out=*/0.0f, /*in=*/0.5f);
@@ -44805,7 +45514,7 @@ private:
 //           if (m_Fade.IsActive()) {
 //               const acs::FVec3 c = m_Fade.OverlayColor();
 //               const f32       a = m_Fade.OverlayAlpha();
-//               FSpriteBatch().FillFullScreen(c.x, c.y, c.z, a);
+//               CSpriteBatch().FillFullScreen(c.x, c.y, c.z, a);
 //           }
 //       }
 //   };
@@ -44831,7 +45540,7 @@ private:
 //   ・非コピー・非ムーブ。state holder なので所有権移転を許す意味がない。
 //
 // 範囲外:
-//   ・実描画 (FSpriteBatch 呼び出し)
+//   ・実描画 (CSpriteBatch 呼び出し)
 //   ・easing 曲線指定 (linear 固定。必要なら user 側で OverlayAlpha() を
 //      Easing::InOutSine 等に通す)
 //   ・複数 overlay の重ね合わせ
@@ -44886,25 +45595,25 @@ enum class EFadePhase : u32 {
  * ユーザー側で fullscreen quad を「色 = OverlayColor()、alpha = OverlayAlpha()」で
  * 描くことでフェードイン・アウト・クロスフェードが成立する。非コピー・非ムーブ。
  */
-class FFadeTransition {
+class CFadeTransition {
 public:
     /** Idle 状態で構築する。 */
-    FFadeTransition() noexcept = default;
+    CFadeTransition() noexcept = default;
 
     /** 破棄する。 */
-    ~FFadeTransition() noexcept = default;
+    ~CFadeTransition() noexcept = default;
 
     /** コピー禁止 (state holder なので所有権移転に意味がないため)。 */
-    FFadeTransition(const FFadeTransition&)            = delete;
+    CFadeTransition(const CFadeTransition&)            = delete;
 
     /** コピー代入も禁止。 */
-    FFadeTransition& operator=(const FFadeTransition&) = delete;
+    CFadeTransition& operator=(const CFadeTransition&) = delete;
 
     /** ムーブ禁止。 */
-    FFadeTransition(FFadeTransition&&)                 = delete;
+    CFadeTransition(CFadeTransition&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FFadeTransition& operator=(FFadeTransition&&)      = delete;
+    CFadeTransition& operator=(CFadeTransition&&)      = delete;
 
     /**
      * フェードを開始する。
@@ -45017,6 +45726,9 @@ private:
     bool m_MidPauseConsumed = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FFadeTransition = CFadeTransition;
+
 } // namespace acs::game
 
 // ===================== gameframework/Follow2DComponent.h =====================
@@ -45098,23 +45810,23 @@ private:
 
 // ===================== gameframework/Game.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FGame — FSceneManager を駆動するゲーム基底クラス
+// CGame — CSceneManager を駆動するゲーム基底クラス
 //
-// FApplication を継承し、FSceneManager を駆動する基底。利用者は派生クラスで
-// InitialScene() を override して最初の FScene を返すだけでよい。
+// CApplication を継承し、CSceneManager を駆動する基底。利用者は派生クラスで
+// InitialScene() を override して最初の AScene を返すだけでよい。
 //
 // 使い方:
-//   class FMyGame : public acs::game::FGame {
+//   class FMyGame : public acs::CGame {
 //   protected:
-//       acs::TUniquePtr<acs::game::FScene> InitialScene() noexcept override {
+//       acs::TUniquePtr<acs::AScene> InitialScene() noexcept override {
 //           return acs::MakeUnique<FTitleScene>();
 //       }
 //   };
 //   ACS_GAME_MAIN(FMyGame)
 //
-// FSceneManager 駆動 + FRenderContext 配線。固定タイムステップ accumulator +
-// AppState 型消去永続状態 + FScene への dt は time_scale 乗算済を渡す。
-// OnPause/OnResume は FSceneManager 側で配線済 (Push/Pop 時)。
+// CSceneManager 駆動 + FRenderContext 配線。固定タイムステップ accumulator +
+// AppState 型消去永続状態 + AScene への dt は time_scale 乗算済を渡す。
+// OnPause/OnResume は CSceneManager 側で配線済 (Push/Pop 時)。
 
 
 // ===================== render/Font.h =====================
@@ -45227,7 +45939,7 @@ public:
     /**
      * ファイルから直接ロードしてアトラスを構築する。
      *
-     * @details FFileSystem::ReadAllBytes でバイト列を読み込み LoadFromBytes に委譲する。
+     * @details CFileSystem::ReadAllBytes でバイト列を読み込み LoadFromBytes に委譲する。
      * @param device テクスチャアトラス生成に使う RHI デバイス。
      * @param path 読み込む TTF/OTF/TTC のファイルパス。
      * @param pixel_size 焼き込むグリフのピクセルサイズ。
@@ -45369,7 +46081,7 @@ u32 DecodeUtf8(const char** p) noexcept;
 //       2D ゲームの絵描き用。同じテクスチャの連続スプライトは自動でバッチされる。
 //
 // 使い方:
-//   FSpriteBatch sb;
+//   CSpriteBatch sb;
 //   sb.Init(*renderer.Device(), renderer.ColorFormat(), max_sprites=4096);
 //
 //   // 描画フレーム中
@@ -46030,7 +46742,7 @@ namespace acs {
  *
  * @details
  * SetStencilMode で切り替える。stencil 付き深度バッファが bind されたパス
- * (FScene2D::SetStencilMaskEnabled(true)) でのみ意味を持つ。
+ * (AScene2D::SetStencilMaskEnabled(true)) でのみ意味を持つ。
  */
 enum class EStencilMode : u8 {
     /** ステンシルテスト無し (ただし DSV bind パスでは DSV 整合 PSO を使う)。 */
@@ -46197,19 +46909,19 @@ struct FEffectParams {
  * テクスチャが切り替わるかバッチが満杯になると Flush して GPU に送る。座標系は
  * 左上原点・ピクセル単位で Y は下方向。Begin/Draw.../End の順に呼ぶ。
  */
-class FSpriteBatch {
+class CSpriteBatch {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FSpriteBatch() noexcept = default;
+    CSpriteBatch() noexcept = default;
 
     /** 破棄する (GPU リソースと CPU ステージング領域を解放)。 */
-    ~FSpriteBatch() noexcept;
+    ~CSpriteBatch() noexcept;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FSpriteBatch(const FSpriteBatch&)            = delete;
+    CSpriteBatch(const CSpriteBatch&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSpriteBatch& operator=(const FSpriteBatch&) = delete;
+    CSpriteBatch& operator=(const CSpriteBatch&) = delete;
 
     /**
      * VS+PS・パイプライン・頂点/インデックスバッファ・白テクスチャを生成する。
@@ -46435,8 +47147,8 @@ public:
      * バッチを flush してから PSO + 参照値を切り替える。任意形状のマスクで描画範囲を
      * 制限する用途で、WriteMask でマスク形状を焼き、KeepInside/KeepOutside でその内/外
      * だけに後続描画を通す。Off で解除。前提として stencil 付き深度バッファが bind された
-     * パス (FScene2D::SetStencilMaskEnabled(true) が用意する) でのみ呼ぶこと。それ以外で
-     * 呼ぶと DSV 不整合になるため、呼び出し側 (FScene2D / clip component) がガードする。
+     * パス (AScene2D::SetStencilMaskEnabled(true) が用意する) でのみ呼ぶこと。それ以外で
+     * 呼ぶと DSV 不整合になるため、呼び出し側 (AScene2D / clip component) がガードする。
      * @param mode 適用するステンシルモード。
      * @param ref ステンシル参照値 (既定 1)。
      */
@@ -46515,7 +47227,7 @@ public:
     /**
      * 描画コマンドの蓄積を一時的に抑止する。
      *
-     * @details FScene2D の水深捕捉 pass で通常ノードを描かず、TopDown 水だけを一時的に
+     * @details AScene2D の水深捕捉 pass で通常ノードを描かず、TopDown 水だけを一時的に
      * 有効化するための内部向け機能。状態変更時は保留バッチを先に flush する。
      * @param suppress true なら Draw 系を無視、false なら通常描画。
      */
@@ -46796,7 +47508,7 @@ private:
     FVertex*          m_VertexCpu    = nullptr;
 
     /** CPU 側の頂点バッファステージを確保したアロケータ。 */
-    FAllocator* m_VertexAllocator = nullptr;
+    IAllocator* m_VertexAllocator = nullptr;
 
     /** 1 フレームで描けるスプライト総数の上限。 */
     u32              m_MaxSprites   = 0;
@@ -46832,57 +47544,61 @@ private:
     f32              m_ViewZoom     = 1.0f;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSpriteBatch = CSpriteBatch;
+
+
 } // namespace acs
 
 // ===================== gameframework/SceneManager.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FSceneManager
+// GameFramework Pillar A — CSceneManager
 //
-// TUniquePtr<FScene> のスタック。top のシーンを毎フレーム update/render する。
+// TUniquePtr<AScene> のスタック。top のシーンを毎フレーム update/render する。
 // 遷移要求 (Change/Push/Pop) はフレーム境界まで遅延 → 走査中 (Update/Render
 // 内) からの構造変更が安全。1 フレーム 1 遷移、複数要求が来た場合は後勝ち。
 //
 // 機能:
 //   ・3 種の遷移 (Change/Push/Pop) と pending state machine
 //   ・OnEvent は top のみへ配送
-//   ・退場 FScene を **3 フレーム保持** (= フレームインフライト 2 + 1) する ring
+//   ・退場 AScene を **3 フレーム保持** (= フレームインフライト 2 + 1) する ring
 //     buffer。GPU が直前フレームで参照中のリソースの use-after-free を防ぐ
 //   ・Push 時に旧 top の OnPause、Pop 時に新 top の OnResume を呼ぶ
-//   ・OnFixedUpdate を FGame の accumulator から呼び込めるよう _FixedUpdate
+//   ・OnFixedUpdate を CGame の accumulator から呼び込めるよう _FixedUpdate
 
 
 // ===================== gameframework/Scene.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FScene 基底
+// GameFramework Pillar A — AScene 基底
 //
-// 1 つの画面/状態を 1 つの FScene サブクラスで書く。FGame がスタック上で
-// 切り替え・更新・描画する。FScene の override は全て `noexcept`。
+// 1 つの画面/状態を 1 つの AScene サブクラスで書く。CGame がスタック上で
+// 切り替え・更新・描画する。AScene の override は全て `noexcept`。
 //
 // 使い方:
-//   class FTitleScene : public acs::game::FScene {
+//   class FTitleScene : public acs::AScene {
 //   public:
 //       void OnEnter()      noexcept override { /* 起動時の初期化 */ }
 //       void OnUpdate(f32)  noexcept override { /* ロジック */ }
-//       void OnRender(acs::game::FRenderContext&) noexcept override { /* 描画 */ }
+//       void OnRender(acs::FRenderContext&) noexcept override { /* 描画 */ }
 //       void OnExit()       noexcept override { /* 後片付け */ }
 //   };
 //
 // 遷移: OnUpdate 内で `Scenes().ChangeScene(MakeUnique<FNextScene>())` を呼ぶと
 // **次フレーム頭**で適用される (走査中の構造変更を避ける、1 フレーム 1 遷移)。
 //
-// 本ヘッダは lifecycle hook + FGame/FSceneManager 参照を提供する。
+// 本ヘッダは lifecycle hook + CGame/CSceneManager 参照を提供する。
 
 
 // ===================== gameframework/SceneServices.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FSceneServices
+// GameFramework Pillar A — CSceneServices
 //
-// シーンが必要なサービス (FSceneClock / FTweenManager / FSequenceRunner / FInputMap)
-// を bit flag (`ESvc`) で宣言、FSceneServices が遅延 alloc して保持する取り付けハブ。
-// FGame/FSceneManager が自動で tick + scene 切替に追従。
+// シーンが必要なサービス (CSceneClock / CTweenManager / CSequenceRunner / FInputMap)
+// を bit flag (`ESvc`) で宣言、CSceneServices が遅延 alloc して保持する取り付けハブ。
+// CGame/CSceneManager が自動で tick + scene 切替に追従。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
+//   class FGameplayScene : public AScene {
 //   public:
 //       ESvc WantedServices() const noexcept override {
 //           return ESvc::Default2D;  // Clock | Tweens | Sequences | Input
@@ -46911,20 +47627,20 @@ private:
 //
 // 範囲外 (本クラスでは持たない):
 //   ・Audio / Events / Debug / Timers / Ui の各サービス
-//     (該当 Pillar 実装時に ESvc enum と FSceneServices に追加)。
+//     (該当 Pillar 実装時に ESvc enum と CSceneServices に追加)。
 
 
 // ===================== gameframework/Tween.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FTweenManager
+// GameFramework Pillar C — CTweenManager
 //
 // 値書き戻し型 tween manager: 利用者の f32/FVec2/FVec3 変数のポインタを渡し、
-// FTweenManager が毎 Tick で補間して書き込む。コールバック不要 (= ACS の
+// CTweenManager が毎 Tick で補間して書き込む。コールバック不要 (= ACS の
 // std::function 非使用方針と整合)。Easing は関数ポインタで指定。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       acs::game::FTweenManager m_Tweens;
+//   class FGameplayScene : public AScene {
+//       acs::game::CTweenManager m_Tweens;
 //       acs::FVec3 m_Color{0, 0, 0};
 //
 //       void OnEnter() noexcept override {
@@ -46979,19 +47695,19 @@ struct FTweenHandle {
  * Handle は (index, generation) で stale 参照を検出する。完了時は浮動小数誤差を残さず
  * target に正確に to を書く。
  */
-class FTweenManager {
+class CTweenManager {
 public:
     /** 空の tween マネージャを構築する。 */
-    FTweenManager() noexcept = default;
+    CTweenManager() noexcept = default;
 
     /** 破棄する。 */
-    ~FTweenManager() noexcept = default;
+    ~CTweenManager() noexcept = default;
 
     /** コピー禁止 (進行中 tween の状態を単独所有するため)。 */
-    FTweenManager(const FTweenManager&)            = delete;
+    CTweenManager(const CTweenManager&)            = delete;
 
     /** コピー代入も禁止。 */
-    FTweenManager& operator=(const FTweenManager&) = delete;
+    CTweenManager& operator=(const CTweenManager&) = delete;
 
     /**
      * f32 変数の tween を開始する。
@@ -47084,7 +47800,7 @@ public:
     /**
      * 全 tween を即座に完了させる (target に完了値 to を書く)。
      *
-     * @details FScene::OnExit 等で確実に状態を確定させたいときに使う。
+     * @details AScene::OnExit 等で確実に状態を確定させたいときに使う。
      */
     void CompleteAll() noexcept;
 
@@ -47109,7 +47825,7 @@ public:
     /**
      * 毎フレーム呼んで全 tween を進める。
      *
-     * @param dt ゲーム時間の経過秒 (FSceneClock::Dt() か FScene::OnUpdate の dt)。
+     * @param dt ゲーム時間の経過秒 (CSceneClock::Dt() か AScene::OnUpdate の dt)。
      * @note 非有限の dt は無視し、easing の非有限な戻り値は Linear にフォールバックする。
      * 補間演算が非有限になったフレームは target を変更しない。
      */
@@ -47190,26 +47906,29 @@ private:
     u32         m_ActiveCount = 0;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTweenManager = CTweenManager;
+
 } // namespace acs::game
 
 // ===================== gameframework/Sequence.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FSequence / FSequenceRunner
+// GameFramework Pillar C — FSequence / CSequenceRunner
 //
 // 時間付きアクションの連鎖 (cutscene / 出現ウェーブ / scripted UI 等)。
 //   `seq.Wait(0.5f).Call(my_fn, user).Tween(&x, 0, 100, 1.0f).Loop(0)`
-// のようなビルダーで定義し、FSequenceRunner::Start(Move(seq)) で実行開始。
+// のようなビルダーで定義し、CSequenceRunner::Start(Move(seq)) で実行開始。
 //
 // 設計選択:
 //   ・パラレル合成 (`Parallel(sub)`) は未実装。複数 FSequence を Runner に
 //     並列で Start すれば事実上のパラレルになる。
 //   ・コールバックは `void(*)(void*)` 関数ポインタ。ACS 規約 (std::function 不使用)。
-//   ・tween 処理は FSequence 内蔵 (FTweenManager に委譲しない) — sequence の進行
+//   ・tween 処理は FSequence 内蔵 (CTweenManager に委譲しない) — sequence の進行
 //     時間と一体化させたいため。完了時は最終値を正確に書く。
 //
 // 使い方:
-//   class FTitleScene : public FScene {
-//       FSequenceRunner m_Seqs;
+//   class FTitleScene : public AScene {
+//       CSequenceRunner m_Seqs;
 //       FVec3 m_LogoColor;
 //       void OnEnter() noexcept override {
 //           FSequence s;
@@ -47301,7 +48020,7 @@ struct FSeqAction {
  * 時間付きアクションの連鎖を builder パターンで構築するシーケンス。
  *
  * @details
- * Wait / Call / FTween を連鎖して定義し、FSequenceRunner::Start に Move して実行する。
+ * Wait / Call / FTween を連鎖して定義し、CSequenceRunner::Start に Move して実行する。
  * non-copy だが move 可能 (Runner が所有権を奪うため)。
  */
 class FSequence {
@@ -47481,19 +48200,19 @@ struct FSeqHandle {
  * Start で FSequence の所有権を奪ってスロットに格納し、毎フレーム Tick で全スロットを
  * 進める。スロットは世代付きで再利用される。非コピー。
  */
-class FSequenceRunner {
+class CSequenceRunner {
 public:
     /** 空のランナーを構築する。 */
-    FSequenceRunner() noexcept = default;
+    CSequenceRunner() noexcept = default;
 
     /** 破棄する。 */
-    ~FSequenceRunner() noexcept = default;
+    ~CSequenceRunner() noexcept = default;
 
     /** コピー禁止。 */
-    FSequenceRunner(const FSequenceRunner&)            = delete;
+    CSequenceRunner(const CSequenceRunner&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSequenceRunner& operator=(const FSequenceRunner&) = delete;
+    CSequenceRunner& operator=(const CSequenceRunner&) = delete;
 
     /**
      * FSequence の所有権を奪って実行を開始する。
@@ -47511,7 +48230,7 @@ public:
      */
     void Cancel(FSeqHandle h) noexcept;
 
-    /** 全シーケンスを破棄する (FScene::OnExit などで使う)。 */
+    /** 全シーケンスを破棄する (AScene::OnExit などで使う)。 */
     void CancelAll() noexcept;
 
     /**
@@ -47532,7 +48251,7 @@ public:
     /**
      * 全シーケンスを 1 フレーム進める。
      *
-     * @details FScene::OnUpdate から FSceneClock::Dt() を渡して毎フレーム呼ぶ想定。
+     * @details AScene::OnUpdate から CSceneClock::Dt() を渡して毎フレーム呼ぶ想定。
      * @param dt 前フレームからの経過秒。
      * @note 非有限の dt は無視し、easing の非有限な戻り値は Linear にフォールバックする。
      * 補間演算が非有限になったフレームは target を変更しない。
@@ -47594,6 +48313,9 @@ private:
     /** 実行中スロット数。 */
     u32         m_ActiveCount = 0;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSequenceRunner = CSequenceRunner;
 
 } // namespace acs::game
 
@@ -47697,7 +48419,7 @@ struct FActionId {
  * @details
  * 1 アクションに複数の物理入力を bind でき、いずれか 1 つでも該当すれば
  * Pressed/Held/Released が true になる (OR セマンティクス)。状態は持たず、query
- * 時に acs::FInput::* を poll する。
+ * 時に acs::CInput::* を poll する。
  */
 class FInputMap {
 public:
@@ -47768,7 +48490,7 @@ public:
     void ClearAll() noexcept;
 
     /**
-     * このフレームで押されたかを返す (FInput::* を内部で poll)。
+     * このフレームで押されたかを返す (CInput::* を内部で poll)。
      *
      * @param action 判定するアクション。
      * @return bind 済み入力のいずれかがこのフレームで押されたら true。
@@ -47776,7 +48498,7 @@ public:
     bool IsPressed (FActionId action) const noexcept;
 
     /**
-     * 押されているかを返す (FInput::* を内部で poll)。
+     * 押されているかを返す (CInput::* を内部で poll)。
      *
      * @param action 判定するアクション。
      * @return bind 済み入力のいずれかが押下中なら true。
@@ -47784,7 +48506,7 @@ public:
     bool IsHeld    (FActionId action) const noexcept;
 
     /**
-     * このフレームで離されたかを返す (FInput::* を内部で poll)。
+     * このフレームで離されたかを返す (CInput::* を内部で poll)。
      *
      * @details キーボード、マウス、ゲームパッドのデジタル入力を対象とする。
      * @param action 判定するアクション。
@@ -47793,7 +48515,7 @@ public:
     bool IsReleased(FActionId action) const noexcept;
 
     /**
-     * 1D axis 値を返す (FInput::* を内部で poll)。
+     * 1D axis 値を返す (CInput::* を内部で poll)。
      *
      * @details 全 axis binding を累積して clamp(-1, +1)。両方押下は相殺で 0。
      * @param action 判定するアクション。
@@ -47858,9 +48580,9 @@ private:
 
 // ===================== gameframework/TriggerWorld2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — FTriggerWorld2D (overlap tracking + events)
+// GameFramework Pillar F — CTriggerWorld2D (overlap tracking + events)
 //
-// FCollisionWorld2D とは独立に「重なりだけを監視するトリガ専用ワールド」。
+// CCollisionWorld2D とは独立に「重なりだけを監視するトリガ専用ワールド」。
 // 物理応答や押し戻し (Resolve) は行わず、毎フレーム全 trigger pair の重なり
 // 状態を更新し、前フレと比較して以下の 3 種類のイベントを発火する:
 //
@@ -47869,7 +48591,7 @@ private:
 //   ・OnExit  : 前フレ重なり   → 今フレ非重なり (離れた overlap pair)
 //
 // 使い方:
-//   FTriggerWorld2D world;
+//   CTriggerWorld2D world;
 //   world.Init();
 //
 //   FTriggerId player = world.AddCircle({ {0,0}, 16.0f }, /*layer=*/0);
@@ -47885,7 +48607,7 @@ private:
 //
 // 設計:
 //   ・**broad phase は O(N^2)**: 全 pair を直接比較。将来
-//     FCollisionWorld2D と同じ SpatialGrid に置換し O(N + K) に下げる予定。
+//     CCollisionWorld2D と同じ SpatialGrid に置換し O(N + K) に下げる予定。
 //   ・**FTriggerId は FShapeId と同じ generational handle** (24bit index + 8bit gen)。
 //     remove → re-add で slot 再利用しても旧 handle は無効化される。
 //   ・**overlap pair は array で保持**: 前フレの状態は `TArray<FOverlapPair>` に
@@ -47980,31 +48702,31 @@ using TriggerEventCallback = void(*)(void* user, FTriggerId self, FTriggerId oth
  * 重なりだけを監視するトリガ専用ワールド (overlap tracking + events)。
  *
  * @details
- * FCollisionWorld2D とは独立に、物理応答や押し戻しは行わず、毎フレーム全 trigger
+ * CCollisionWorld2D とは独立に、物理応答や押し戻しは行わず、毎フレーム全 trigger
  * pair の重なり状態を更新して前フレと比較し OnEnter / OnStay / OnExit を発火する。
  * broad phase は O(N^2) 全 pair 直接比較。overlap pair は前フレ状態付きで配列保持し、
  * (was, now) の組合せでイベントを決める。コールバックは関数ポインタ + void* user で、
  * handle 安定性のため non-copy / non-move、全関数 noexcept。
  */
-class FTriggerWorld2D {
+class CTriggerWorld2D {
 public:
     /** 空のトリガワールドを構築する。 */
-    FTriggerWorld2D() noexcept = default;
+    CTriggerWorld2D() noexcept = default;
 
     /** 破棄する。 */
-    ~FTriggerWorld2D() noexcept = default;
+    ~CTriggerWorld2D() noexcept = default;
 
     /** コピー禁止 (handle 安定性のため)。 */
-    FTriggerWorld2D(const FTriggerWorld2D&)            = delete;
+    CTriggerWorld2D(const CTriggerWorld2D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FTriggerWorld2D& operator=(const FTriggerWorld2D&) = delete;
+    CTriggerWorld2D& operator=(const CTriggerWorld2D&) = delete;
 
     /** ムーブ禁止。 */
-    FTriggerWorld2D(FTriggerWorld2D&&)                 = delete;
+    CTriggerWorld2D(CTriggerWorld2D&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FTriggerWorld2D& operator=(FTriggerWorld2D&&)      = delete;
+    CTriggerWorld2D& operator=(CTriggerWorld2D&&)      = delete;
 
     /** 初期化する (現状は状態を持たないが、将来の SpatialGrid 等のため API を予約)。 */
     void Init() noexcept;
@@ -48217,6 +48939,9 @@ private:
     void*                m_OnExitUser  = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTriggerWorld2D = CTriggerWorld2D;
+
 } // namespace acs::game
 
 namespace acs::game {
@@ -48224,31 +48949,31 @@ namespace acs::game {
 /**
  * シーンが要求するサービスを宣言する bit flag。
  *
- * @details WantedServices() でこのマスクを返すと、FSceneServices が該当サービスだけを遅延 alloc する。
+ * @details WantedServices() でこのマスクを返すと、CSceneServices が該当サービスだけを遅延 alloc する。
  */
 enum class ESvc : u32 {
     /** サービスを一切要求しない。 */
     None       = 0,
 
-    /** FSceneClock (時間スケール付き dt)。 */
+    /** CSceneClock (時間スケール付き dt)。 */
     Clock      = 1u << 0,
 
-    /** FTweenManager (補間アニメーション)。 */
+    /** CTweenManager (補間アニメーション)。 */
     Tweens     = 1u << 1,
 
-    /** FSequenceRunner (時系列スクリプト)。 */
+    /** CSequenceRunner (時系列スクリプト)。 */
     Sequences  = 1u << 2,
 
     /** FInputMap (アクションへの入力束ね)。 */
     Input      = 1u << 3,
 
-    /** FCamera2D (2D カメラ)。 */
+    /** CCamera2D (2D カメラ)。 */
     Camera2D    = 1u << 4,
 
-    /** FCollisionWorld2D (2D 衝突)。 */
+    /** CCollisionWorld2D (2D 衝突)。 */
     Physics2D  = 1u << 5,
 
-    /** FTriggerWorld2D (overlap enter/stay/exit イベント)。 */
+    /** CTriggerWorld2D (overlap enter/stay/exit イベント)。 */
     Triggers   = 1u << 6,
 
     /** 2D ゲームの既定セット (Clock | Tweens | Sequences | Input)。 */
@@ -48295,9 +49020,9 @@ constexpr bool SvcHas(ESvc mask, ESvc flag) noexcept {
  * constructor で wanted bit を見て該当サービスだけ TUniquePtr<T> を作る。未要求のサービスは null
  * のままで、accessor 呼出は ACS_CHECK で検出する (Release でも停止)。tick は 2 phase 構成で、PreUpdate (Clock 進行)
  * → scene.OnUpdate → PostUpdate (Tweens/Sequences/Camera/Triggers tick) の順に駆動される。
- * FGame/FSceneManager がフレームごとに自動で tick + scene 切替に追従する。
+ * CGame/CSceneManager がフレームごとに自動で tick + scene 切替に追従する。
  */
-class FSceneServices {
+class CSceneServices {
 public:
     /**
      * wanted bit を見て該当サービスを alloc する。
@@ -48305,16 +49030,16 @@ public:
      * @details 未要求のサービスは null のまま。Physics2D / Triggers は alloc 後に Init も呼ぶ。
      * @param wanted 要求するサービスの bit mask。
      */
-    explicit FSceneServices(ESvc wanted) noexcept;
+    explicit CSceneServices(ESvc wanted) noexcept;
 
     /** サービスを破棄する (各サービスは TUniquePtr が解放)。 */
-    ~FSceneServices() noexcept = default;
+    ~CSceneServices() noexcept = default;
 
     /** コピー禁止 (サービスを単独所有するため)。 */
-    FSceneServices(const FSceneServices&)            = delete;
+    CSceneServices(const CSceneServices&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSceneServices& operator=(const FSceneServices&) = delete;
+    CSceneServices& operator=(const CSceneServices&) = delete;
 
     /**
      * 構築時に要求されたサービスマスクを返す。
@@ -48332,28 +49057,28 @@ public:
     bool Has(ESvc s) const noexcept { return SvcHas(m_Wanted, s); }
 
     /**
-     * FSceneClock への参照を返す。
+     * CSceneClock への参照を返す。
      *
      * @details ESvc::Clock が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return クロックサービスへの参照。
      */
-    FSceneClock&          Clock()     noexcept;
+    CSceneClock&          Clock()     noexcept;
 
     /**
-     * FTweenManager への参照を返す。
+     * CTweenManager への参照を返す。
      *
      * @details ESvc::Tweens が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return tween サービスへの参照。
      */
-    FTweenManager&        Tweens()    noexcept;
+    CTweenManager&        Tweens()    noexcept;
 
     /**
-     * FSequenceRunner への参照を返す。
+     * CSequenceRunner への参照を返す。
      *
      * @details ESvc::Sequences が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return sequence サービスへの参照。
      */
-    FSequenceRunner&      Sequences() noexcept;
+    CSequenceRunner&      Sequences() noexcept;
 
     /**
      * FInputMap への参照を返す。
@@ -48364,28 +49089,28 @@ public:
     FInputMap&            Input()     noexcept;
 
     /**
-     * FCamera2D への参照を返す。
+     * CCamera2D への参照を返す。
      *
      * @details ESvc::Camera2D が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return カメラサービスへの参照。
      */
-    acs::game::FCamera2D& Camera()    noexcept;
+    acs::game::CCamera2D& Camera()    noexcept;
 
     /**
-     * FCollisionWorld2D への参照を返す。
+     * CCollisionWorld2D への参照を返す。
      *
      * @details ESvc::Physics2D が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return 物理サービスへの参照。
      */
-    FCollisionWorld2D&    Physics()   noexcept;
+    CCollisionWorld2D&    Physics()   noexcept;
 
     /**
-     * FTriggerWorld2D への参照を返す。
+     * CTriggerWorld2D への参照を返す。
      *
      * @details ESvc::Triggers が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return トリガサービスへの参照。
      */
-    FTriggerWorld2D&      Triggers()  noexcept;
+    CTriggerWorld2D&      Triggers()  noexcept;
 
     /**
      * scene.OnUpdate の前に呼ぶ前段 tick (利用者は触らない)。
@@ -48413,32 +49138,44 @@ public:
     f32  _ScaledDt(f32 raw_dt) const noexcept;
 
 private:
+    friend class CSceneManager;
+
+    /** 要求された全サービスが生成済みかを返す。 */
+    bool IsReady() const noexcept;
+
     /** 構築時に要求されたサービスマスク。 */
     ESvc                       m_Wanted = ESvc::None;
 
     /** クロックサービス (未要求なら null)。 */
-    TUniquePtr<FSceneClock>     m_Clock;
+    TUniquePtr<CSceneClock>     m_Clock;
 
     /** tween サービス (未要求なら null)。 */
-    TUniquePtr<FTweenManager>   m_Tweens;
+    TUniquePtr<CTweenManager>   m_Tweens;
 
     /** sequence サービス (未要求なら null)。 */
-    TUniquePtr<FSequenceRunner> m_Sequences;
+    TUniquePtr<CSequenceRunner> m_Sequences;
 
     /** 入力サービス (未要求なら null)。 */
     TUniquePtr<FInputMap>       m_Input;
 
     /** カメラサービス (未要求なら null)。 */
-    TUniquePtr<acs::game::FCamera2D> m_Camera;
+    TUniquePtr<acs::game::CCamera2D> m_Camera;
 
     /** 物理サービス (未要求なら null)。 */
-    TUniquePtr<FCollisionWorld2D>    m_Physics;
+    TUniquePtr<CCollisionWorld2D>    m_Physics;
 
     /** トリガサービス (未要求なら null)。 */
-    TUniquePtr<FTriggerWorld2D>      m_Triggers;
+    TUniquePtr<CTriggerWorld2D>      m_Triggers;
 };
 
 } // namespace acs::game
+
+namespace acs {
+
+/** Scene が要求する service 集合のビット列挙をトップレベルへ公開する。 */
+using game::ESvc;
+
+} // namespace acs
 
 namespace acs {
 
@@ -48446,8 +49183,6 @@ struct FEvent;
 
 namespace game {
 
-class FGame;
-class FSceneManager;
 class FRenderContext;
 
 /**
@@ -48455,28 +49190,28 @@ class FRenderContext;
  *
  * @details
  * 派生クラスが OnEnter/OnUpdate/OnRender/OnExit 等の lifecycle hook を override して
- * ロジックと描画を書く。FGame がスタック上で切り替え・更新・描画する。コピー禁止で、
- * FGame/FSceneManager が _SetContext / _AttachServices で実行コンテキストを配線する。
+ * ロジックと描画を書く。CGame がスタック上で切り替え・更新・描画する。コピー禁止で、
+ * CGame/CSceneManager が _SetContext / _AttachServices で実行コンテキストを配線する。
  * シーン遷移は OnUpdate 内で Scenes().ChangeScene() を呼ぶと次フレーム頭で適用される。
  */
-class FScene {
+class AScene {
 public:
     /** 空のシーンを構築する (コンテキスト・サービスは未配線)。 */
-    FScene() noexcept = default;
+    AScene() noexcept = default;
 
     /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
-    virtual ~FScene() noexcept = default;
+    virtual ~AScene() noexcept = default;
 
     /** コピー禁止 (シーンは単独所有・参照が前提のため)。 */
-    FScene(const FScene&)            = delete;
+    AScene(const AScene&)            = delete;
 
     /** コピー代入も禁止。 */
-    FScene& operator=(const FScene&) = delete;
+    AScene& operator=(const AScene&) = delete;
 
     /**
      * シーンがスタックの top に来た直後に 1 度だけ呼ばれる初期化フック。
      *
-     * @details FGame が新規 push したときと、上のシーンが pop されて復帰したときの
+     * @details CGame が新規 push したときと、上のシーンが pop されて復帰したときの
      * 両方で呼ばれる。アセット読み込みなどはここで行う。
      */
     virtual void OnEnter() noexcept {}
@@ -48501,7 +49236,7 @@ public:
     /**
      * 毎フレーム 1 回呼ばれる update フック。
      *
-     * @param dt スケール後の経過秒 (FGame::SetTimeScale 反映済)。
+     * @param dt スケール後の経過秒 (CGame::SetTimeScale 反映済)。
      */
     virtual void OnUpdate(f32 /*dt*/) noexcept {}
 
@@ -48515,7 +49250,7 @@ public:
     /**
      * 描画フック。
      *
-     * @details FRenderContext は FScene 全体で共有される FSpriteBatch / FFont /
+     * @details FRenderContext は AScene 全体で共有される CSpriteBatch / FFont /
      * 現フレームの IRhiCommandList* を持つ。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
@@ -48538,65 +49273,65 @@ public:
     virtual ESvc WantedServices() const noexcept { return ESvc::None; }
 
     /**
-     * FSceneManager が attach 済みの FSceneServices を返す。
+     * CSceneManager が attach 済みの CSceneServices を返す。
      *
      * @details WantedServices が None で attach されていない場合は ACS_ASSERT で停止する
      * (= 使う気がないなら呼ばない)。
-     * @return attach 済みの FSceneServices への参照。
+     * @return attach 済みの CSceneServices への参照。
      */
-    FSceneServices& Services() const noexcept {
+    CSceneServices& Services() const noexcept {
         ACS_ASSERTF(m_Services.Get() != nullptr,
                     "Scene::Services() called but WantedServices() returned None (or attach failed)");
         return *m_Services;
     }
 
     /**
-     * FSceneServices が attach されているかを返す。
+     * CSceneServices が attach されているかを返す。
      *
      * @return attach 済みなら true。
      */
     bool HasServices() const noexcept { return m_Services.Get() != nullptr; }
 
     /**
-     * 所属する FGame を返す。
+     * 所属する CGame を返す。
      *
-     * @return FGame への参照。
+     * @return CGame への参照。
      */
-    FGame&         GetGame() const noexcept { return *m_Game; }
+    CGame&         GetGame() const noexcept { return *m_Game; }
 
     /**
-     * シーンスタックを管理する FSceneManager を返す。
+     * シーンスタックを管理する CSceneManager を返す。
      *
-     * @return FSceneManager への参照 (ChangeScene 等の遷移要求に使う)。
+     * @return CSceneManager への参照 (ChangeScene 等の遷移要求に使う)。
      */
-    FSceneManager& Scenes()  const noexcept { return *m_Scenes; }
+    CSceneManager& Scenes()  const noexcept { return *m_Scenes; }
 
     /**
-     * FGame/FSceneManager の参照を配線する (内部用。利用者は触らない)。
+     * CGame/CSceneManager の参照を配線する (内部用。利用者は触らない)。
      *
-     * @param g 所属する FGame。
-     * @param sm シーンスタックを管理する FSceneManager。
+     * @param g 所属する CGame。
+     * @param sm シーンスタックを管理する CSceneManager。
      */
-    void _SetContext(FGame* g, FSceneManager* sm) noexcept {
+    void _SetContext(CGame* g, CSceneManager* sm) noexcept {
         m_Game   = g;
         m_Scenes = sm;
     }
 
     /**
-     * 生成済みの FSceneServices を attach する (内部用)。
+     * 生成済みの CSceneServices を attach する (内部用)。
      *
-     * @param svc attach する FSceneServices (所有権が移る)。
+     * @param svc attach する CSceneServices (所有権が移る)。
      */
-    void _AttachServices(TUniquePtr<FSceneServices> svc) noexcept {
+    void _AttachServices(TUniquePtr<CSceneServices> svc) noexcept {
         m_Services = Move(svc);
     }
 
     /**
-     * attach 済みの FSceneServices をポインタで返す (内部用)。
+     * attach 済みの CSceneServices をポインタで返す (内部用)。
      *
-     * @return FSceneServices へのポインタ (未 attach なら nullptr)。
+     * @return CSceneServices へのポインタ (未 attach なら nullptr)。
      */
-    FSceneServices* _ServicesOrNull() const noexcept { return m_Services.Get(); }
+    CSceneServices* _ServicesOrNull() const noexcept { return m_Services.Get(); }
 
     // ===== サブシステム (World スコープ) =====
 
@@ -48604,93 +49339,120 @@ public:
      * このシーン(World スコープ)のサブシステム束を返す。
      *
      * @details World に無いサブシステムは GameInstance → Engine へフォールバックする
-     * (FSceneManager が parent を配線する)。
+     * (CSceneManager が parent を配線する)。
      * @return World スコープのコレクション。
      */
-    FSubsystemCollection& Subsystems() noexcept { return m_WorldSubsystems; }
+    CSubsystemCollection& Subsystems() noexcept { return m_WorldSubsystems; }
 
     /**
      * 型でサブシステムを取得する (World → GameInstance → Engine の順に検索)。
      *
-     * @tparam T FSubsystem 派生型。
+     * @tparam T ASubsystem 派生型。
      * @return T*(未登録なら nullptr)。
      */
     template<typename T>
     T* GetSubsystem() noexcept { return m_WorldSubsystems.Get<T>(); }
 
     /**
-     * World サブシステムを初期化する (内部用。FSceneManager が push 時に呼ぶ)。
+     * World サブシステムを初期化する (内部用。CSceneManager が push 時に呼ぶ)。
      *
      * @param parent GameInstance スコープのコレクション(フォールバック先)。
      */
-    void _InitWorldSubsystems(FSubsystemCollection* parent) noexcept {
-        m_WorldSubsystems.Initialize(ESubsystemScope::World, parent, this);   // owner = この FScene
+    bool _InitWorldSubsystems(CSubsystemCollection* parent) noexcept {
+        if (!m_WorldSubsystems.TryInitialize(
+                ESubsystemScope::World, parent,
+                FSubsystemOwner{this, ESubsystemOwnerKind::Scene})) {
+            return false;
+        }
+        /** hook前のWorld lifecycle世代。 */
+        const u64 Generation = m_WorldSubsystems.LifecycleGeneration();
         _OnWorldSubsystemsReady();
+        if (!m_WorldSubsystems.IsInitialized() ||
+            m_WorldSubsystems.LifecycleGeneration() != Generation) {
+            m_WorldSubsystems.Deinitialize();
+            return false;
+        }
+        return true;
     }
 
-    /** World サブシステムを 1 フレーム進める (内部用)。 */
-    void _TickWorldSubsystems(f32 dt) noexcept { m_WorldSubsystems.Tick(dt); }
+    /** 指定 phase の World サブシステムを 1 フレーム進める (内部用)。 */
+    void _TickWorldSubsystems(const FSubsystemFrameContext& Context) noexcept
+    {
+        m_WorldSubsystems.TickFrame(Context);
+    }
 
-    /** World サブシステムを解体する (内部用。FSceneManager が pop 時に呼ぶ)。 */
+    /** World サブシステムを解体する (内部用。CSceneManager が pop 時に呼ぶ)。 */
     void _DeinitWorldSubsystems() noexcept { m_WorldSubsystems.Deinitialize(); }
 
     /** World サブシステムへのポインタ (内部用。派生がノードへ配線するのに使う)。 */
-    FSubsystemCollection* _WorldSubsystemsPtr() noexcept { return &m_WorldSubsystems; }
+    CSubsystemCollection* _WorldSubsystemsPtr() noexcept { return &m_WorldSubsystems; }
+
+    /** constructor後のscene固有状態が遷移準備可能かを返す。 */
+    bool _CanPrepare() const noexcept { return _IsPreparationReady(); }
 
 protected:
+    /** scene固有の必須所有物が生成済みならtrueを返す。 */
+    virtual bool _IsPreparationReady() const noexcept { return true; }
+
     /**
      * World サブシステムの初期化直後に呼ばれる内部フック(OnEnter より前)。
      *
-     * @details FScene2D が override してルートノードへサブシステム束を配線し、
+     * @details AScene2D が override してルートノードへサブシステム束を配線し、
      * 配下のノード/コンポーネントから GetSubsystem<T>() を使えるようにする。
      */
     virtual void _OnWorldSubsystemsReady() noexcept {}
 
 private:
-    /** 所属する FGame (default = nullptr、_SetContext で配線)。 */
-    FGame*                    m_Game     = nullptr;
+    /** 所属する CGame (default = nullptr、_SetContext で配線)。 */
+    CGame*                    m_Game     = nullptr;
 
-    /** シーンスタックを管理する FSceneManager (default = nullptr、_SetContext で配線)。 */
-    FSceneManager*            m_Scenes   = nullptr;
+    /** シーンスタックを管理する CSceneManager (default = nullptr、_SetContext で配線)。 */
+    CSceneManager*            m_Scenes   = nullptr;
 
-    /** attach されたサービス束 (WantedServices に応じて FSceneManager が確保、所有権を持つ)。 */
-    TUniquePtr<FSceneServices> m_Services;
+    /** attach されたサービス束 (WantedServices に応じて CSceneManager が確保、所有権を持つ)。 */
+    TUniquePtr<CSceneServices> m_Services;
 
-    /** World スコープのサブシステム束 (push 時に FSceneManager が Initialize)。 */
-    FSubsystemCollection m_WorldSubsystems;
+    /** World スコープのサブシステム束 (push 時に CSceneManager が Initialize)。 */
+    CSubsystemCollection m_WorldSubsystems;
 };
 
 } // namespace game
 } // namespace acs
 
+namespace acs {
+
+/** scene描画コンテキストをトップレベルから参照する正規入口。 */
+using game::FRenderContext;
+
+} // namespace acs
+
 namespace acs::game {
 
-class FGame;
 class FRenderContext;
 
 /**
- * TUniquePtr<FScene> のスタックを管理し、top のシーンを毎フレーム駆動するマネージャ。
+ * TUniquePtr<AScene> のスタックを管理し、top のシーンを毎フレーム駆動するマネージャ。
  *
  * @details
  * 遷移要求 (Change/Push/Pop) はフレーム境界まで遅延し、_ApplyPending で適用するため、
  * 走査中 (Update/Render 内) からの構造変更が安全。1 フレーム 1 遷移で、複数要求が来た場合は
- * 後勝ち。退場した FScene は GPU が直前フレームで参照中のリソースを use-after-free しないよう、
+ * 後勝ち。退場した AScene は GPU が直前フレームで参照中のリソースを use-after-free しないよう、
  * ring buffer で 3 フレーム (フレームインフライト 2 + 1) 保持してから破棄する。Push 時には
  * 旧 top の OnPause、Pop 時には新 top の OnResume を呼ぶ。
  */
-class FSceneManager {
+class CSceneManager {
 public:
     /** 空のシーンスタックを構築する。 */
-    FSceneManager() noexcept = default;
+    CSceneManager() noexcept = default;
 
     /** マネージャを破棄する (残ったシーンは TUniquePtr が解放)。 */
-    ~FSceneManager() noexcept = default;
+    ~CSceneManager() noexcept = default;
 
     /** コピー禁止 (シーンを単独所有するため)。 */
-    FSceneManager(const FSceneManager&)            = delete;
+    CSceneManager(const CSceneManager&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSceneManager& operator=(const FSceneManager&) = delete;
+    CSceneManager& operator=(const CSceneManager&) = delete;
 
     /**
      * 現 top を pop して next を push する遷移を要求する (= 単純な画面切替)。
@@ -48699,7 +49461,7 @@ public:
      * 上書きする (後勝ち)。next が nullptr の場合は警告ログを出して無視する。
      * @param next 切り替え先のシーン (所有権が移る)。
      */
-    void ChangeScene(TUniquePtr<FScene> next) noexcept;
+    void ChangeScene(TUniquePtr<AScene> next) noexcept;
 
     /**
      * 現 top をスタック上に残したまま next を push する遷移を要求する (= モーダル/ダイアログ)。
@@ -48707,7 +49469,7 @@ public:
      * @details 適用時に旧 top の OnPause が呼ばれる。next が nullptr の場合は警告ログを出して無視する。
      * @param next 上に重ねるシーン (所有権が移る)。
      */
-    void PushScene(TUniquePtr<FScene> next) noexcept;
+    void PushScene(TUniquePtr<AScene> next) noexcept;
 
     /** top を pop する遷移を要求する (スタックが 1 枚以下なら適用時に何もせず警告)。 */
     void PopScene() noexcept;
@@ -48717,7 +49479,7 @@ public:
      *
      * @return top のシーン (スタックが空なら nullptr)。
      */
-    FScene* Top()   const noexcept;
+    AScene* Top()   const noexcept;
 
     /**
      * スタックに積まれたシーン数を返す。
@@ -48736,26 +49498,26 @@ public:
     /**
      * フレーム頭で保留中の遷移を適用する。
      *
-     * @details ring buffer を 1 つ前進させて 3 フレーム前に退場した FScene を破棄したのち、
-     * pending op (Change/Push/Pop) を実行する。退場 FScene は GPU が直前フレームで参照中の
+     * @details ring buffer を 1 つ前進させて 3 フレーム前に退場した AScene を破棄したのち、
+     * pending op (Change/Push/Pop) を実行する。退場 AScene は GPU が直前フレームで参照中の
      * リソースを破棄しないよう ring buffer で 3 フレーム (フレームインフライト 2 + 1) 保持される。
-     * @param game シーンに紐付ける FGame コンテキスト。
+     * @param game シーンに紐付ける CGame コンテキスト。
      */
-    void _ApplyPending(FGame& game) noexcept;
+    void _ApplyPending(CGame& game) noexcept;
 
     /**
      * top のシーンに可変刻み dt を流す。
      *
-     * @details services が有効なら PreUpdate (Clock 進行) → OnUpdate → PostUpdate
-     * (Tweens/Sequences tick) の 2 phase で駆動する。Clock 未要求なら raw dt をそのまま渡す。
+     * @details services PreUpdate → World PreUpdate → OnUpdate → services PostUpdate
+     * → World PostUpdate の順で駆動する。Clock 未要求なら raw dt をそのまま渡す。
      * @param dt 前フレームからの経過秒。
      */
-    void _Update(f32 dt) noexcept;
+    void _Update(f32 ScaledDeltaSeconds, f32 UnscaledDeltaSeconds, u64 FrameNumber) noexcept;
 
     /**
      * top のシーンに固定刻み fixed_dt を流す。
      *
-     * @details FGame の accumulator から 1 フレームに複数回呼ばれる可能性がある。
+     * @details CGame の accumulator から 1 フレームに複数回呼ばれる可能性がある。
      * @param fixed_dt 固定刻みの秒。
      */
     void _FixedUpdate(f32 fixed_dt) noexcept;
@@ -48777,7 +49539,7 @@ public:
     /** 終了処理。残った全シーンに top から OnExit を呼んでから破棄する。 */
     void _ShutdownAll() noexcept;
 
-    /** 退場 FScene を保持するフレーム数 (= フレームインフライト 2 + 1)。 */
+    /** 退場 AScene を保持するフレーム数 (= フレームインフライト 2 + 1)。 */
     static constexpr u32 kRetireRingSize = 3;
 
 private:
@@ -48787,11 +49549,14 @@ private:
     /**
      * 内部 push 処理。next に context/services を attach し、OnEnter を呼ぶ。
      *
-     * @param game シーンに紐付ける FGame コンテキスト。
+     * @param game シーンに紐付ける CGame コンテキスト。
      * @param next push するシーン (所有権が移る)。
      * @param pause_current true なら push 前に旧 top の OnPause を呼ぶ (Change は false、Push は true)。
      */
-    void DoPushInternal(FGame& game, TUniquePtr<FScene> next, bool pause_current) noexcept;
+    bool PrepareScene(CGame& Game, AScene& Scene) noexcept;
+
+    /** 準備済み scene を stack へ移し、必要なら旧 top を一時停止する。 */
+    bool CommitPush(TUniquePtr<AScene> Scene, bool PauseCurrent) noexcept;
 
     /**
      * 内部 pop 処理。top の OnExit を呼び、ring buffer へ退避してからスタックから外す。
@@ -48801,16 +49566,16 @@ private:
     void DoPopInternal(bool resume_new) noexcept;
 
     /** シーンスタック (top = Back())。 */
-    TArray<TUniquePtr<FScene>> m_Stack;
+    TArray<TUniquePtr<AScene>> m_Stack;
 
     /** 保留中の遷移種別。 */
     EOp                      m_PendingOp   = EOp::None;
 
     /** Change/Push で push する next シーン (Pop では未使用)。 */
-    TUniquePtr<FScene>       m_PendingArg;
+    TUniquePtr<AScene>       m_PendingArg;
 
-    /** GPU 遅延削除のための退場 FScene ring buffer。 */
-    TUniquePtr<FScene>       m_Retired[kRetireRingSize];
+    /** GPU 遅延削除のための退場 AScene ring buffer。 */
+    TUniquePtr<AScene>       m_Retired[kRetireRingSize];
 
     /** ring buffer の現在ヘッド (次に release するスロット)。 */
     u32                     m_RetireHead  = 0;
@@ -48818,23 +49583,30 @@ private:
 
 } // namespace acs::game
 
+namespace acs {
+
+/** scene描画コンテキストをトップレベルから参照する正規入口。 */
+using game::FRenderContext;
+
+} // namespace acs
+
 // ===================== gameframework/RenderContext.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar A — FRenderContext
 //
 // 全シーン共有の描画コンテキスト。「現フレームの IRhiCommandList と画面サイズ」
-// を保持する軽量参照ホルダに、FSpriteBatch / FFont / 共通シェーダを足して
+// を保持する軽量参照ホルダに、CSpriteBatch / FFont / 共通シェーダを足して
 // 「シーン切替でパイプライン再構築しない」を実現する。
 //
-// FScene 側はこれを OnRender(rc) で受け取り、必要なら rc.Cmd()/Width()/Height()
+// AScene 側はこれを OnRender(rc) で受け取り、必要なら rc.Cmd()/Width()/Height()
 // から描画コマンドを発行する。素の RHI を直接叩いてもよいし、ユーザーが自分の
-// FSpriteBatch を持ってもよい。
+// CSpriteBatch を持ってもよい。
 
 
 namespace acs {
 class IRhiCommandList;
-class FRenderer;
-class FSpriteBatch;
+class CRenderer;
+class CSpriteBatch;
 class FFont;
 class IRhiTexture;
 }
@@ -48845,9 +49617,9 @@ namespace acs::game {
  * 全シーン共有の描画コンテキスト。
  *
  * @details
- * 現フレームの IRhiCommandList と画面サイズを保持する軽量参照ホルダ。FSpriteBatch /
+ * 現フレームの IRhiCommandList と画面サイズを保持する軽量参照ホルダ。CSpriteBatch /
  * FFont / 反射テクスチャ / world→screen 変換などをまとめ、シーン切替でパイプラインを
- * 再構築せずに描画できるようにする。FScene 側は OnRender(rc) でこれを受け取り、
+ * 再構築せずに描画できるようにする。AScene 側は OnRender(rc) でこれを受け取り、
  * rc.Cmd()/Width()/Height() から描画コマンドを発行する。
  */
 class FRenderContext {
@@ -48865,15 +49637,15 @@ public:
     FRenderContext& operator=(const FRenderContext&) = delete;
 
     /**
-     * フレーム冒頭で FGame が呼び、描画リソースを配線する。
+     * フレーム冒頭で CGame が呼び、描画リソースを配線する。
      *
-     * @details m_Font はこの後 FGame が _SetFont で配線する (game 寿命で共有)。
-     * @param r 描画に使う FRenderer。
+     * @details m_Font はこの後 CGame が _SetFont で配線する (game 寿命で共有)。
+     * @param r 描画に使う CRenderer。
      * @param cl 現フレームのコマンドリスト。
      * @param w 画面の幅 (px)。
      * @param h 画面の高さ (px)。
      */
-    void _BeginFrame(FRenderer& r, IRhiCommandList& cl, u32 w, u32 h) noexcept {
+    void _BeginFrame(CRenderer& r, IRhiCommandList& cl, u32 w, u32 h) noexcept {
         m_Renderer = &r;
         m_Cmd      = &cl;
         m_Width    = w;
@@ -48885,7 +49657,7 @@ public:
         m_SceneColorCapturePass = false;
         m_WaterDepthCapturePass = false;
         m_StencilMaskActive = false;
-        // m_Font は FGame が _BeginFrame 後に _SetFont で配線する (game 寿命で共有)。
+        // m_Font は CGame が _BeginFrame 後に _SetFont で配線する (game 寿命で共有)。
     }
 
     /** フレーム終端で per-frame 参照をクリアする (コマンドリスト等を無効化)。 */
@@ -48910,11 +49682,11 @@ public:
     IRhiCommandList& Cmd() const noexcept { return *m_Cmd; }
 
     /**
-     * 描画に使う FRenderer を返す。
+     * 描画に使う CRenderer を返す。
      *
-     * @return 配線済みの FRenderer 参照。
+     * @return 配線済みの CRenderer 参照。
      */
-    FRenderer&        GetRenderer() const noexcept { return *m_Renderer; }
+    CRenderer&        GetRenderer() const noexcept { return *m_Renderer; }
 
     /**
      * 画面の幅を返す。
@@ -48940,11 +49712,11 @@ public:
     /**
      * 現パス用の 2D 描画バッチを配線する。
      *
-     * @details FScene2D または独自ホストが設定する。コンポーネントは FSpriteBatch を
+     * @details AScene2D または独自ホストが設定する。コンポーネントは CSpriteBatch を
      * 自前で持たずに HasSprites()/Sprites() で利用できる。
-     * @param sb 配線する FSpriteBatch (nullptr で解除)。
+     * @param sb 配線する CSpriteBatch (nullptr で解除)。
      */
-    void _SetSpriteBatch(FSpriteBatch* sb) noexcept { m_Sprites = sb; }
+    void _SetSpriteBatch(CSpriteBatch* sb) noexcept { m_Sprites = sb; }
 
     /**
      * 2D 描画バッチが配線済みかを返す。
@@ -48956,14 +49728,14 @@ public:
     /**
      * 配線済みの 2D 描画バッチを返す。
      *
-     * @return FSpriteBatch 参照。
+     * @return CSpriteBatch 参照。
      */
-    FSpriteBatch& Sprites() const noexcept { return *m_Sprites; }
+    CSpriteBatch& Sprites() const noexcept { return *m_Sprites; }
 
     /**
      * 全シーン共有の UI フォントを配線する。
      *
-     * @details FGame がロードして毎フレーム配線する。OnDrawHud から
+     * @details CGame がロードして毎フレーム配線する。OnDrawHud から
      * sb.DrawString(rc.GetFont(), ...) でテキストを描ける。
      * @param f 配線するフォント (読込失敗時は nullptr で配線され HasFont()==false)。
      */
@@ -48986,7 +49758,7 @@ public:
     /**
      * 反射用シーンテクスチャを配線する。
      *
-     * @details FScene2D が world をオフスクリーン RT に焼いて配線する。水が per-vertex
+     * @details AScene2D が world をオフスクリーン RT に焼いて配線する。水が per-vertex
      * 鏡像 UV でこれをサンプルし planar reflection を出す。
      * @param tex 配線する反射テクスチャ (nullptr で解除)。
      */
@@ -49094,14 +49866,14 @@ public:
     bool StencilMaskActive() const noexcept { return m_StencilMaskActive; }
 
 private:
-    /** 描画に使う FRenderer (フレーム冒頭に配線)。 */
-    FRenderer*        m_Renderer = nullptr;
+    /** 描画に使う CRenderer (フレーム冒頭に配線)。 */
+    CRenderer*        m_Renderer = nullptr;
 
     /** 現フレームのコマンドリスト (フレーム外では nullptr)。 */
     IRhiCommandList* m_Cmd      = nullptr;
 
     /** 現パスの 2D 描画バッチ (未配線なら nullptr)。 */
-    FSpriteBatch*    m_Sprites  = nullptr;
+    CSpriteBatch*    m_Sprites  = nullptr;
 
     /** 全シーン共有の UI フォント (未配線なら nullptr)。 */
     FFont*            m_Font     = nullptr;
@@ -49139,38 +49911,43 @@ private:
 
 } // namespace acs::game
 
+namespace acs {
+
+/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
+using game::FRenderContext;
+
+} // namespace acs
+
 namespace acs::game {
 
-class FScene;
-
 /**
- * FApplication を継承し FSceneManager を駆動するゲーム基底クラス。
+ * CApplication を継承し CSceneManager を駆動するゲーム基底クラス。
  *
  * @details
- * 利用者は派生クラスで InitialScene() を override し最初の FScene を返すだけでよい。
+ * 利用者は派生クラスで InitialScene() を override し最初の AScene を返すだけでよい。
  * 固定タイムステップ accumulator、AppState による型消去の永続状態、フェード付き
- * シーン遷移を提供する。FScene に渡す dt は time_scale 乗算済み。
+ * シーン遷移を提供する。AScene に渡す dt は time_scale 乗算済み。
  */
-class FGame : public FApplication {
+class CGame : public CApplication {
 public:
     /** 既定状態で構築する。 */
-    FGame() noexcept = default;
+    CGame() noexcept;
 
     /** 破棄する。 */
-    ~FGame() noexcept override = default;
+    ~CGame() noexcept override = default;
 
     /** コピー禁止。 */
-    FGame(const FGame&)            = delete;
+    CGame(const CGame&)            = delete;
 
     /** コピー代入も禁止。 */
-    FGame& operator=(const FGame&) = delete;
+    CGame& operator=(const CGame&) = delete;
 
     /**
      * シーンマネージャへの参照を返す。
      *
-     * @return FSceneManager への参照。
+     * @return CSceneManager への参照。
      */
-    FSceneManager&  Scenes()        noexcept { return m_Scenes; }
+    CSceneManager&  Scenes()        noexcept { return m_Scenes; }
 
     /**
      * レンダーコンテキストへの参照を返す。
@@ -49182,7 +49959,7 @@ public:
     /**
      * 時間スケールを設定する。
      *
-     * @details FScene::OnUpdate / OnFixedUpdate に渡る dt に乗算される。負値は 0 にクランプ。
+     * @details AScene::OnUpdate / OnFixedUpdate に渡る dt に乗算される。負値は 0 にクランプ。
      * @param s 新しい時間スケール。
      */
     void SetTimeScale(f32 s) noexcept { m_TimeScale = s < 0.0f ? 0.0f : s; }
@@ -49241,41 +50018,41 @@ public:
      * フェード付きシーン遷移を行う。
      *
      * @details
-     * fade-out → (暗転中に) FScene 切替 → fade-in を 1 行で行う。フェードは
+     * fade-out → (暗転中に) AScene 切替 → fade-in を 1 行で行う。フェードは
      * time_scale の影響を受けない実時間で進む (ポーズ中でも遷移は進む)。遷移演出は
-     * FGame が描画するので、切替先 FScene 側で重ねてフェードしないこと。
-     * @param next 遷移先の FScene (所有権が移る)。
+     * CGame が描画するので、切替先 AScene 側で重ねてフェードしないこと。
+     * @param next 遷移先の AScene (所有権が移る)。
      * @param out_sec fade-out の秒数。
      * @param in_sec fade-in の秒数。
      */
-    void TransitionTo(TUniquePtr<FScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f) noexcept;
+    void TransitionTo(TUniquePtr<AScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f) noexcept;
 
     /**
      * 進行中のフェード状態への参照を返す。
      *
-     * @return overlay alpha/color・phase を参照できる FFadeTransition への参照。
+     * @return overlay alpha/color・phase を参照できる CFadeTransition への参照。
      */
-    FFadeTransition& Fade() noexcept { return m_Fade; }
+    CFadeTransition& Fade() noexcept { return m_Fade; }
 
     /**
      * GameInstance スコープのサブシステム束を返す(Engine スコープへフォールバックする)。
      *
-     * @details FScene の World サブシステム束はこれを parent にする。
+     * @details AScene の World サブシステム束はこれを parent にする。
      * @return GameInstance スコープのコレクション。
      */
-    FSubsystemCollection& GameInstanceSubsystems() noexcept { return m_GameInstanceSubsystems; }
+    CSubsystemCollection& GameInstanceSubsystems() noexcept { return m_GameInstanceSubsystems; }
 
     /**
      * Engine スコープ(アプリ全体寿命)のサブシステム束を返す。
      *
      * @return Engine スコープのコレクション。
      */
-    FSubsystemCollection& EngineSubsystems() noexcept { return m_EngineSubsystems; }
+    CSubsystemCollection& EngineSubsystems() noexcept { return CApplication::EngineSubsystems(); }
 
     /**
      * 型でサブシステムを取得する(GameInstance → Engine の順に検索)。
      *
-     * @tparam T FSubsystem 派生型。
+     * @tparam T ASubsystem 派生型。
      * @return T*(未登録なら nullptr)。
      */
     template<typename T>
@@ -49283,11 +50060,11 @@ public:
 
 protected:
     /**
-     * 最初に push される FScene を返す (派生クラスで実装必須)。
+     * 最初に push される AScene を返す (派生クラスで実装必須)。
      *
-     * @return 起動時に push する初期 FScene。
+     * @return 起動時に push する初期 AScene。
      */
-    virtual TUniquePtr<FScene> InitialScene() noexcept = 0;
+    virtual TUniquePtr<AScene> InitialScene() noexcept = 0;
 
     /**
      * 起動時フック。InitialScene() を push して即時適用する。
@@ -49319,7 +50096,7 @@ protected:
     void OnShutdown() noexcept override;
 
     /**
-     * イベントフック。受け取ったイベントを FSceneManager に流す。
+     * イベントフック。受け取ったイベントを CSceneManager に流す。
      *
      * @details 派生がさらに override する場合は基底を呼ぶこと。
      * @param e ディスパッチするイベント。
@@ -49330,26 +50107,26 @@ private:
     /** 初回 OnRender で default UI フォントを遅延ロードする。 */
     void EnsureUiFont() noexcept;
 
-    /** フェード overlay 用 FSpriteBatch を遅延 init する。 */
+    /** フェード overlay 用 CSpriteBatch を遅延 init する。 */
     void EnsureOverlay() noexcept;
 
     /** 進行中フェードの fullscreen quad を描く。 */
     void DrawFadeOverlay() noexcept;
 
-    /** シーンマネージャ (FScene の push/pop/切替を管理)。 */
-    FSceneManager  m_Scenes;
+    /** GameInstance スコープ(ゲームセッション寿命、シーン跨ぎ)のサブシステム束。 */
+    CSubsystemCollection m_GameInstanceSubsystems;
 
-    /** FScene 描画に渡すレンダーコンテキスト。 */
+    /** シーンマネージャ (AScene の push/pop/切替を管理)。 */
+    CSceneManager  m_Scenes;
+
+    /** AScene 描画に渡すレンダーコンテキスト。 */
     FRenderContext m_RenderCtx;
 
     /** シーン跨ぎの型消去永続状態 (1 個固定)。 */
     FAppStateSlot  m_AppState;
 
-    /** Engine スコープ(アプリ全体寿命)のサブシステム束。 */
-    FSubsystemCollection m_EngineSubsystems;
-
-    /** GameInstance スコープ(ゲームセッション寿命、シーン跨ぎ)のサブシステム束。 */
-    FSubsystemCollection m_GameInstanceSubsystems;
+    /** GameFramework同梱factoryの登録が全件成功した。 */
+    bool m_BuiltinCatalogReady = false;
 
     /** 全シーン共有の HUD フォント (game 寿命)。 */
     FFont          m_UiFont;
@@ -49361,21 +50138,21 @@ private:
     bool          m_UiFontTried = false;
 
     /** シーン遷移フェードの状態。 */
-    FFadeTransition   m_Fade;
+    CFadeTransition   m_Fade;
 
-    /** 暗転中に差し替える次 FScene。 */
-    TUniquePtr<FScene> m_PendingScene;
+    /** 暗転中に差し替える次 AScene。 */
+    TUniquePtr<AScene> m_PendingScene;
 
-    /** フェード overlay 描画用の FSpriteBatch。 */
-    FSpriteBatch      m_Overlay;
+    /** フェード overlay 描画用の CSpriteBatch。 */
+    CSpriteBatch      m_Overlay;
 
-    /** overlay FSpriteBatch の init に成功したか。 */
+    /** overlay CSpriteBatch の init に成功したか。 */
     bool              m_OverlayReady = false;
 
-    /** overlay FSpriteBatch の init を試行済みか (再試行抑止)。 */
+    /** overlay CSpriteBatch の init を試行済みか (再試行抑止)。 */
     bool              m_OverlayTried = false;
 
-    /** 時間スケール (FScene の dt に乗算)。 */
+    /** 時間スケール (AScene の dt に乗算)。 */
     f32           m_TimeScale       = 1.0f;
 
     /** 固定 step の長さ (秒、0 以下で無効)。 */
@@ -49392,20 +50169,20 @@ private:
 
 // ===================== gameframework/GameFlow.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FGameFlow (高レベルゲームフロー state machine)
+// GameFramework 完成度システム v7 — CGameFlow (高レベルゲームフロー state machine)
 //
 // 役割:
 //   タイトル / メインメニュー / ゲームプレイ / ポーズ / 設定 / GameOver 等、ゲーム
-//   全体のフロー状態を保持する 1 シングルトン的 state machine。FSceneManager より
+//   全体のフロー状態を保持する 1 シングルトン的 state machine。CSceneManager より
 //   1 段上のレイヤで、「いまユーザーがゲームのどの段階に居るか」を識別する。
 //
-// FSceneManager との棲み分け:
-//   ・FSceneManager は描画用 FScene のスタックを管理する低レベル機構
+// CSceneManager との棲み分け:
+//   ・CSceneManager は描画用 AScene のスタックを管理する低レベル機構
 //     (push / pop / change + 退場 ring buffer + fixed_dt)。
-//   ・FGameFlow は「ゲームとしての論理状態」を管理する高レベル state machine。
+//   ・CGameFlow は「ゲームとしての論理状態」を管理する高レベル state machine。
 //     状態ごとの enter / exit コールバックでサウンド切替や Save 書き出し等の
-//     副作用を発火し、実描画はコールバックの中で FSceneManager を呼び分ける。
-//   ・両者は独立。FGameFlow は FSceneManager に依存しない (テスト容易性のため)。
+//     副作用を発火し、実描画はコールバックの中で CSceneManager を呼び分ける。
+//   ・両者は独立。CGameFlow は CSceneManager に依存しない (テスト容易性のため)。
 //
 // 設計選択:
 //   ・**enum EFlowState (10 状態固定)**: ゲームの抽象状態を列挙。動的追加なし。
@@ -49417,22 +50194,22 @@ private:
 //   ・**遷移テーブル**: 不正遷移 (例: Gameplay → Splash) を防ぐため、from →
 //     to の可否を 10x10 の bool テーブルで持つ。Init() 時に組み立てる。
 //   ・**コールバックは関数ポインタ + void* user**: ACS 規約に従い std::function
-//     不使用。Pillar Q FCinematicsDirector / FHotReloadWatcher と同形。1 state につき
+//     不使用。Pillar Q CCinematicsDirector / CHotReloadWatcher と同形。1 state につき
 //     最大 enter / exit 1 個ずつ。
 //   ・**fade 量は state holder のみ**: FadeProgress() を [0, 1] で返す。描画は
-//     呼び出し側が FSpriteBatch で fullscreen overlay を被せる責任。
-//     FFadeTransition と独立 (シーン内 fade と画面間 fade を別レイヤで扱える)。
-//   ・**非コピー・非ムーブ**: FGame に 1 個持つ長寿命オブジェクト。state 分裂
+//     呼び出し側が CSpriteBatch で fullscreen overlay を被せる責任。
+//     CFadeTransition と独立 (シーン内 fade と画面間 fade を別レイヤで扱える)。
+//   ・**非コピー・非ムーブ**: CGame に 1 個持つ長寿命オブジェクト。state 分裂
 //     を避けるため最初から禁止。
 //
 // 範囲外 (将来拡張):
 //   ・state ごとの transient state (例: Loading の進捗値) — 必要なら呼び出し側
 //     が AppState で別途持つ
 //   ・遷移履歴の back stack — Pop 系 API は持たず、要求は常に「to 指定」
-//   ・並列 fade (画面内 fade) — FScene 単位の FFadeTransition が独立して動く
+//   ・並列 fade (画面内 fade) — AScene 単位の CFadeTransition が独立して動く
 //
 // 使い方:
-//   acs::game::FGameFlow flow;
+//   acs::game::CGameFlow flow;
 //   flow.SetOnEnterCallback(EFlowState::Gameplay, &FMyApp::OnGameplayEnter, this);
 //   flow.Init(EFlowState::Splash);
 //   // ... 毎フレーム:
@@ -49518,9 +50295,9 @@ struct FFlowTransition {
  * 遷移は RequestTransition で要求し Tick で適用する 2 段階方式で、fade_out → 旧 state
  * の OnExit → state 切替 → 新 state の OnEnter → fade_in と進む。状態ごとの enter/exit
  * コールバックは関数ポインタ + void* user で登録する (std::function 不使用)。不正遷移は
- * 10x10 の許可テーブルで弾く。FSceneManager とは独立した非コピー・非ムーブ型。
+ * 10x10 の許可テーブルで弾く。CSceneManager とは独立した非コピー・非ムーブ型。
  */
-class FGameFlow {
+class CGameFlow {
 public:
     /**
      * 状態遷移コールバックの関数ポインタ型。
@@ -49532,22 +50309,22 @@ public:
     using StateCallback = void(*)(void* user, EFlowState entered_state) noexcept;
 
     /** 未初期化状態で構築する (Init を呼ぶまで遷移系 API は no-op)。 */
-    FGameFlow()  noexcept = default;
+    CGameFlow()  noexcept = default;
 
     /** 破棄する。 */
-    ~FGameFlow() noexcept = default;
+    ~CGameFlow() noexcept = default;
 
-    /** コピー禁止 (FGame に 1 個持つ長寿命オブジェクトで state 分裂を避けるため)。 */
-    FGameFlow(const FGameFlow&)            = delete;
+    /** コピー禁止 (CGame に 1 個持つ長寿命オブジェクトで state 分裂を避けるため)。 */
+    CGameFlow(const CGameFlow&)            = delete;
 
     /** コピー代入も禁止。 */
-    FGameFlow& operator=(const FGameFlow&) = delete;
+    CGameFlow& operator=(const CGameFlow&) = delete;
 
     /** ムーブ禁止。 */
-    FGameFlow(FGameFlow&&)                 = delete;
+    CGameFlow(CGameFlow&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FGameFlow& operator=(FGameFlow&&)      = delete;
+    CGameFlow& operator=(CGameFlow&&)      = delete;
 
     /**
      * state スロットと遷移許可テーブルを構築し、初期状態へ入る。
@@ -49713,6 +50490,9 @@ private:
     f32 m_FadeProgress = 0.0f;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FGameFlow = CGameFlow;
+
 } // namespace acs::game
 
 // ===================== gameframework/GameFramework.h =====================
@@ -49721,12 +50501,12 @@ private:
 
 // ===================== gameframework/Scene2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FScene2D - 2D ゲーム向けの実用的な基底 scene。
+// AScene2D - 2D ゲーム向けの実用的な基底 scene。
 //
 // 次の共通 2D stack を接続する:
-//   FSceneServices(Default2D | Camera2D | Physics2D)
+//   CSceneServices(Default2D | Camera2D | Physics2D)
 //   ルート ANode ツリー
-//   world と HUD の描画で共有する 1 つの FSpriteBatch
+//   world と HUD の描画で共有する 1 つの CSpriteBatch
 //
 // 利用側は scene ごとに同じ root/update/render 接続を再実装せず、
 // OnReady/OnTick/OnFixedTick/OnDrawWorld/OnDrawHud を override する。
@@ -49738,24 +50518,24 @@ namespace acs::game {
  * 2D ゲーム向けの実用的なシーン基底クラス。
  *
  * @details
- * 共通の 2D スタック (FSceneServices(Default2D | Camera2D | Physics2D)、root ANode ツリー、
- * world/HUD 描画用の共有 FSpriteBatch) を配線する。利用者は root/update/render の定型
+ * 共通の 2D スタック (CSceneServices(Default2D | Camera2D | Physics2D)、root ANode ツリー、
+ * world/HUD 描画用の共有 CSpriteBatch) を配線する。利用者は root/update/render の定型
  * 処理を毎シーン書き直す代わりに OnReady/OnTick/OnFixedTick/OnDrawWorld/OnDrawHud を
  * override する。平面反射とステンシルマスクをオプションで有効化できる。
  */
-class FScene2D : public FScene {
+class AScene2D : public AScene {
 public:
     /** 空の 2D シーンを構築する (リソースは OnEnter/OnRender で遅延確保)。 */
-    FScene2D() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {}
+    AScene2D() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {}
 
     /** シーンを破棄する (GPU リソースは各メンバが解放)。 */
-    ~FScene2D() noexcept override = default;
+    ~AScene2D() noexcept override = default;
 
     /** コピー禁止 (ANode ツリーと GPU リソースを単独所有するため)。 */
-    FScene2D(const FScene2D&)            = delete;
+    AScene2D(const AScene2D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FScene2D& operator=(const FScene2D&) = delete;
+    AScene2D& operator=(const AScene2D&) = delete;
 
     /**
      * このシーンが要求するサービスを返す。
@@ -49781,11 +50561,11 @@ public:
     const ANode& Root() const noexcept { return *m_Root; }
 
     /**
-     * world/HUD 描画に使う共有 FSpriteBatch を返す。
+     * world/HUD 描画に使う共有 CSpriteBatch を返す。
      *
-     * @return 共有 FSpriteBatch への参照。
+     * @return 共有 CSpriteBatch への参照。
      */
-    FSpriteBatch& SpriteBatch() noexcept { return m_Sprites; }
+    CSpriteBatch& SpriteBatch() noexcept { return m_Sprites; }
 
     /**
      * 1 ワールド単位あたりのピクセル数を設定する。
@@ -49805,8 +50585,8 @@ public:
      * 画面ピクセル座標をワールド座標へ変換する (マウスピッキング用)。
      *
      * @details
-     * 入力は左上原点の画面ピクセル (FInput::MousePos() の値)。FScene2D のレンダリング
-     * (ppu * camera zoom、camera 中心) と厳密に逆対応するので、FCamera2D::ScreenToWorld
+     * 入力は左上原点の画面ピクセル (CInput::MousePos() の値)。AScene2D のレンダリング
+     * (ppu * camera zoom、camera 中心) と厳密に逆対応するので、CCamera2D::ScreenToWorld
      * (ppu 非考慮) ではなくこちらを使う。画面サイズは直近の OnRender でキャッシュした値を用いる。
      * @param screen_px 変換する画面ピクセル座標 (左上原点)。
      * @return 対応するワールド座標。
@@ -49907,11 +50687,14 @@ public:
     void OnRender(FRenderContext& rc) noexcept override;
 
 protected:
+    /** root node生成に成功した場合だけ遷移準備を許可する。 */
+    bool _IsPreparationReady() const noexcept override { return m_Root.Get() != nullptr; }
+
     /** シーンが top に来たとき 1 度だけ呼ばれる初期化フック (派生で override)。 */
     virtual void OnReady() noexcept {}
 
     /** World サブシステム初期化直後、root ノードへ束を配線する (配下から GetSubsystem<T>() 可に)。 */
-    void _OnWorldSubsystemsReady() noexcept override { m_Root->_SetSubsystems(_WorldSubsystemsPtr()); }
+    void _OnWorldSubsystemsReady() noexcept override;
 
     /**
      * 毎フレームのゲームロジックフック (root の更新前に呼ばれる)。
@@ -49931,21 +50714,21 @@ protected:
      * world view でのカスタム描画フック (root ツリー描画の後に呼ばれる)。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
-     * @param sb 現パスに配線された FSpriteBatch。
+     * @param sb 現パスに配線された CSpriteBatch。
      */
-    virtual void OnDrawWorld(FRenderContext& /*rc*/, FSpriteBatch& /*sb*/) noexcept {}
+    virtual void OnDrawWorld(FRenderContext& /*rc*/, CSpriteBatch& /*sb*/) noexcept {}
 
     /**
      * HUD view でのカスタム描画フック (画面座標、カメラ非依存)。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
-     * @param sb 現パスに配線された FSpriteBatch。
+     * @param sb 現パスに配線された CSpriteBatch。
      */
-    virtual void OnDrawHud(FRenderContext& /*rc*/, FSpriteBatch& /*sb*/) noexcept {}
+    virtual void OnDrawHud(FRenderContext& /*rc*/, CSpriteBatch& /*sb*/) noexcept {}
 
 private:
     /**
-     * 共有 FSpriteBatch を遅延初期化する。
+     * 共有 CSpriteBatch を遅延初期化する。
      *
      * @param rc デバイス・カラーフォーマット取得用のレンダーコンテキスト。
      * @return 利用可能なら true、初期化失敗なら false。
@@ -49953,7 +50736,7 @@ private:
     bool EnsureSpriteBatch(FRenderContext& rc) noexcept;
 
     /**
-     * 反射オフスクリーン pass 専用の別 FSpriteBatch を遅延初期化する。
+     * 反射オフスクリーン pass 専用の別 CSpriteBatch を遅延初期化する。
      *
      * @details 合成 pass と GPU バッファを共有しないよう分離している。
      * @param rc デバイス・カラーフォーマット取得用のレンダーコンテキスト。
@@ -49970,7 +50753,7 @@ private:
     bool EnsureSceneRt(FRenderContext& rc) noexcept;
 
     /**
-     * 水面深度捕捉 pass 専用の別 FSpriteBatch を遅延初期化する。
+     * 水面深度捕捉 pass 専用の別 CSpriteBatch を遅延初期化する。
      *
      * @return 利用可能なら true、初期化失敗なら false。
      */
@@ -50009,19 +50792,19 @@ private:
     TObjectPtr<ANode> m_Root;
 
     /** world/HUD 描画用の共有スプライトバッチ。 */
-    FSpriteBatch m_Sprites;
+    CSpriteBatch m_Sprites;
 
     /** m_Sprites が初期化済みかのフラグ。 */
     bool         m_SpritesReady = false;
 
     /** 反射オフスクリーン pass 専用のスプライトバッチ。 */
-    FSpriteBatch m_SceneSprites;
+    CSpriteBatch m_SceneSprites;
 
     /** m_SceneSprites が初期化済みかのフラグ。 */
     bool         m_SceneSpritesReady = false;
 
     /** 水面深度捕捉 pass 専用のスプライトバッチ。 */
-    FSpriteBatch m_WaterDepthSprites;
+    CSpriteBatch m_WaterDepthSprites;
 
     /** m_WaterDepthSprites が初期化済みかのフラグ。 */
     bool         m_WaterDepthSpritesReady = false;
@@ -50076,25 +50859,25 @@ private:
 
 // ===================== gameframework/LegacyScene3DAdapter.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// Reversible FScene host for legacy ACS3D editor documents.
+// Reversible AScene host for legacy ACS3D editor documents.
 
 
 // ===================== gameframework/Scene3D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — FScene3D
+// GameFramework Pillar B — CScene3D
 //
-// 3D シーングラフの実用コンテナ (FScene2D の軽量 3D 版)。root ANode ツリーを所有し、
+// 3D シーングラフの実用コンテナ (AScene2D の軽量 3D 版)。root ANode ツリーを所有し、
 // update/fixed-update の伝播 + 構造変更の解決をまとめて行う。描画は «3D レンダラ» が
 // 別途このツリーを走査して AMeshComponent3D 等を読む (本クラスは GPU 非依存)。
 //
-// 注: 本クラスは FScene 基底 (2D の描画/サービス前提) を継承せず、純粋なシーングラフ
+// 注: 本クラスは AScene 基底 (2D の描画/サービス前提) を継承せず、純粋なシーングラフ
 //     コンテナとして独立させている。3D レンダーパイプラインがエンジンに入った段階で
 //     描画フックを «末尾に追加» する。
 
 
 // ===================== gameframework/NodePool.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — FNodePool (ANode の generational pool)
+// GameFramework Pillar B — CNodePool (ANode の generational pool)
 //
 // シーン全体で唯一の `ANode*` レジストリ。`ANode` インスタンス自体は親の
 // `m_Children` (TObjectPtr<ANode>) が所有し続け、本 pool は **参照のみ** を
@@ -50102,7 +50885,7 @@ private:
 // (= 既に Unregister されたハンドル) を提供する。
 //
 // 使い方:
-//   FNodePool pool;
+//   CNodePool pool;
 //   pool.Init(/*initial_capacity=*/512);
 //
 //   // ANode を新規生成して scene tree に attach した直後に登録:
@@ -50122,13 +50905,13 @@ private:
 // 設計選択 (Pillar B):
 //   ・**non-owning**: 所有権は ANode の親 (=TObjectPtr<ANode>) 側にあり、本 pool
 //     は raw ポインタだけ持つ。TPool の破棄や ClearAll は ANode を delete しない。
-//   ・**FSlot = {ptr, gen, active}**: FCollisionWorld2D::FSlot と同じパターン。
+//   ・**FSlot = {ptr, gen, active}**: CCollisionWorld2D::FSlot と同じパターン。
 //     index 0 は予約 (= invalid handle と一致させる)、有効 slot は 1..N。
 //   ・**free_indices stack**: 空き slot を O(1) で再利用。Unregister 時 push、
 //     TryRegisterExistingNode 時 pop。stack が空なら slot を新規 TryPushBack。
 //   ・**generation 0 はスキップ**: gen++ がラップアラウンドで 0 に戻った場合、
 //     FNodeId(idx, 0) は IsValid() == false になってしまうため、ラップ時は 1 に
-//     強制する (FCollisionWorld2D と完全に同じ挙動)。
+//     強制する (CCollisionWorld2D と完全に同じ挙動)。
 //   ・**24bit index = 16,777,216 slot 上限**: FNodeId の pack 仕様に従い、これを
 //     超える RegisterExistingNode は invalid FNodeId を返す (拒否)。実用上 1 シーン
 //     で 16M ANode を生成することはまずあり得ないが安全策として明示拒否。
@@ -50143,7 +50926,7 @@ namespace acs::game {
 
 class ANode;   // forward decl — full include は .cpp 側 (ANode::_SetId 呼出のため)
 
-/** FNodePool への checked 登録が返す状態。 */
+/** CNodePool への checked 登録が返す状態。 */
 enum class ENodePoolRegisterError : u8 {
     None = 0,
     NullNode,
@@ -50173,28 +50956,28 @@ struct FNodePoolRegisterResult {
  * FSlot = {ptr, gen, active} 構成で、index 0 は invalid 用に予約、有効 slot は 1..N。
  * 空き slot は free stack で O(1) 再利用する。
  */
-class FNodePool {
+class CNodePool {
 public:
     /** 空の pool を構築する (slot 配列は Init / 初回 Register で確保)。 */
-    FNodePool()  noexcept = default;
+    CNodePool()  noexcept = default;
 
     /** 破棄する (ANode は非所有なので何も delete しない)。 */
-    ~FNodePool() noexcept = default;
+    ~CNodePool() noexcept = default;
 
     /** コピー禁止 (pool は scene が固定オブジェクトとして単独所有するため)。 */
-    FNodePool(const FNodePool&)            = delete;
+    CNodePool(const CNodePool&)            = delete;
 
     /** コピー代入も禁止。 */
-    FNodePool& operator=(const FNodePool&) = delete;
+    CNodePool& operator=(const CNodePool&) = delete;
 
     /** ムーブ禁止。 */
-    FNodePool(FNodePool&&)                 = delete;
+    CNodePool(CNodePool&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FNodePool& operator=(FNodePool&&)      = delete;
+    CNodePool& operator=(CNodePool&&)      = delete;
 
     /** Exchange complete registry state without allocation. */
-    void Swap(FNodePool& other) noexcept {
+    void Swap(CNodePool& other) noexcept {
         acs::Swap(m_Slots, other.m_Slots);
         acs::Swap(m_FreeIndices, other.m_FreeIndices);
         acs::Swap(m_ActiveCount, other.m_ActiveCount);
@@ -50336,11 +51119,14 @@ private:
     u32         m_ActiveCount = 0;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FNodePool = CNodePool;
+
 } // namespace acs::game
 
 namespace acs::game {
 
-/** FScene3D::TrySpawn の大分類。詳細は PoolError / AddChildResult を参照する。 */
+/** CScene3D::TrySpawn の大分類。詳細は PoolError / AddChildResult を参照する。 */
 enum class EScene3DSpawnError : u8 {
     None = 0,
     InvalidParent,
@@ -50364,35 +51150,35 @@ struct FScene3DSpawnResult {
 };
 
 /**
- * 3D シーングラフを所有・駆動する実用コンテナ (FScene2D の軽量 3D 版)。
+ * 3D シーングラフを所有・駆動する実用コンテナ (AScene2D の軽量 3D 版)。
  *
  * @details
  * root ANode ツリーを所有し、Update/FixedUpdate で subtree 全体に伝播 + フレーム境界の
  * 構造変更 (destroy/reparent) を解決する。名前によるノード検索とノード数集計を提供する。
  * 描画は外部の 3D レンダラがツリーを走査して行う (本クラスは GPU 非依存)。
  */
-class FScene3D {
+class CScene3D {
 public:
     /** 空のシーンを構築する (root のみ。pool を初期化し root も登録する)。 */
-    FScene3D() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {
+    CScene3D() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {
         m_Pool.Init(256);
         m_Pool.RegisterExistingNode(m_Root.Get());   // root にも有効な FNodeId を振る
     }
 
     /** シーンを破棄する (root ツリーごと解放。pool は非所有なので何も delete しない)。 */
-    ~FScene3D() noexcept = default;
+    ~CScene3D() noexcept = default;
 
     /** コピー禁止 (ANode ツリーを単独所有するため)。 */
-    FScene3D(const FScene3D&)            = delete;
+    CScene3D(const CScene3D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FScene3D& operator=(const FScene3D&) = delete;
+    CScene3D& operator=(const CScene3D&) = delete;
 
     /** ムーブ禁止。 */
-    FScene3D(FScene3D&&)                 = delete;
+    CScene3D(CScene3D&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FScene3D& operator=(FScene3D&&)      = delete;
+    CScene3D& operator=(CScene3D&&)      = delete;
 
     /**
      * Atomically exchange complete scene ownership.
@@ -50400,7 +51186,7 @@ public:
      * Used by checked loaders to build a replacement graph off to the side
      * and publish it only after every allocation and component commit succeeds.
      */
-    void SwapContents(FScene3D& other) noexcept {
+    void SwapContents(CScene3D& other) noexcept {
         m_Root.Swap(other.m_Root);
         m_Pool.Swap(other.m_Pool);
     }
@@ -50547,20 +51333,13 @@ private:
     TObjectPtr<ANode> m_Root;
 
     /** generational id レジストリ (非所有。Spawn で登録、Update で破棄予定を purge)。 */
-    FNodePool m_Pool;
+    CNodePool m_Pool;
 };
 
 } // namespace acs::game
 
 // ===================== math/Camera.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// カメラ（ビュー行列 + プロジェクション行列のヘルパ）
-//
-// 使い方:
-//   FCamera cam;
-//   cam.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f, 0.1f, 1000.0f);
-//   cam.SetLookAt({0,2,-5}, {0,0,0}, FVec3::Up());
-//   FMat4 view_proj = cam.ViewProjection();   // GPU に送る用
 
 
 namespace acs {
@@ -50572,10 +51351,10 @@ namespace acs {
  * 左手系 (Z+ が画面奥) で透視/正射影を設定し、注視点指定でビュー行列を作る。
  * ViewProjection() で GPU 送信用の合成行列を取得する。
  */
-class FCamera {
+class CCamera {
 public:
     /** 単位ビュー・単位プロジェクションで構築する。 */
-    FCamera() noexcept = default;
+    CCamera() noexcept = default;
 
     /**
      * 透視投影行列を設定する (左手系: Z+ が画面奥)。
@@ -50664,6 +51443,9 @@ private:
     FVec3 m_Eye{0, 0, 0};
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FCamera = CCamera;
+
 } // namespace acs
 
 // ===================== render/Blit.h =====================
@@ -50679,7 +51461,7 @@ private:
 // (HDR scene color → 屈折オブジェクトが sample する複製テクスチャ)。
 //
 // 使い方:
-//   FBlit blit;
+//   CBlit blit;
 //   blit.Init(*device, hdr_format);                    // 1 度だけ
 //   // フレーム中、コピーしたい時点で:
 //   blit.Copy(*cl, *src_hdr, *dst_bg);                 // dst の format == hdr_format
@@ -50695,7 +51477,7 @@ namespace acs {
  * pixel-perfect コピーを行う標準テクニック。出力 RT のフォーマットは Init 時に
  * PSO へ焼き込むため、別フォーマットへコピーしたい場合は別インスタンスを使う。
  */
-class FBlit {
+class CBlit {
 public:
     /** Compiled shader handles awaiting owner-thread PSO creation. */
     struct FCompiledShaders {
@@ -50706,23 +51488,23 @@ public:
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FBlit() noexcept = default;
+    CBlit() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FBlit() noexcept = default;
+    ~CBlit() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FBlit(const FBlit&)            = delete;
+    CBlit(const CBlit&)            = delete;
 
     /** コピー代入も禁止。 */
-    FBlit& operator=(const FBlit&) = delete;
+    CBlit& operator=(const CBlit&) = delete;
 
     /**
      * シェーダとパイプラインを生成して初期化する。
      *
      * @details
      * rt_format は Copy の出力 RT のフォーマットで、PSO に焼き込まれる。出力 RT を
-     * 別フォーマットに切り替えたい場合は別の FBlit インスタンスを使うこと。
+     * 別フォーマットに切り替えたい場合は別の CBlit インスタンスを使うこと。
      * @param device シェーダ・パイプライン生成に使う RHI デバイス。
      * @param rt_format 出力 RT のフォーマット (PSO に焼き込む)。
      * @return 成功なら空の TResult、生成失敗ならエラー。
@@ -50777,6 +51559,10 @@ private:
     TUniquePtr<IRhiPipeline> m_Pipeline;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FBlit = CBlit;
+
+
 } // namespace acs
 
 // ===================== render/PbrShader.h =====================
@@ -50785,9 +51571,9 @@ private:
 
 // ===================== render/RenderAssets.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FAsset → GPU リソース変換ヘルパ
+// AAsset → GPU リソース変換ヘルパ
 //
-// FImageAsset を GPU テクスチャに、FMeshAsset を頂点+インデックスバッファに変換する
+// AImageAsset を GPU テクスチャに、AMeshAsset を頂点+インデックスバッファに変換する
 // 高レベル関数群。ゲーム側コードはこの関数を呼ぶだけで描画できる。
 //
 // 使い方:
@@ -50801,9 +51587,9 @@ private:
 
 namespace acs {
 
-class FImageAsset;
-class FMeshAsset;
-class FSkinnedMeshAsset;
+class AImageAsset;
+class AMeshAsset;
+class ASkinnedMeshAsset;
 
 /**
  * 画像アセットを GPU テクスチャにアップロードする (同期、戻った時点で即座に使用可能)。
@@ -50812,7 +51598,7 @@ class FSkinnedMeshAsset;
  * @param img アップロード元の画像アセット。
  * @return 生成したテクスチャを所有する TUniquePtr、失敗ならエラー。
  */
-TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const FImageAsset& img) noexcept;
+TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const AImageAsset& img) noexcept;
 
 /**
  * メッシュ 1 つ分の GPU バッファセット (頂点バッファ + インデックスバッファ)。
@@ -50842,10 +51628,10 @@ struct FGpuMesh {
  * @param out 生成した VB/IB と各カウントを書き込む出力先。
  * @return 成功なら空の TResult、失敗ならエラー。
  */
-TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, FGpuMesh& out) noexcept;
+TResult<void> UploadMesh(IRhiDevice& device, const AMeshAsset& mesh, FGpuMesh& out) noexcept;
 
 /**
- * スキンメッシュ 1 つ分の GPU バッファセット (FSkinnedShader が消費する形式)。
+ * スキンメッシュ 1 つ分の GPU バッファセット (CSkinnedShader が消費する形式)。
  */
 struct FSkinnedGpuMesh {
     /** 頂点バッファ (所有権を持つ)。 */
@@ -50873,7 +51659,7 @@ struct FSkinnedGpuMesh {
  * @return 成功なら空の TResult、失敗ならエラー。
  */
 TResult<void> UploadSkinnedMesh(IRhiDevice& device,
-                                const FSkinnedMeshAsset& mesh,
+                                const ASkinnedMeshAsset& mesh,
                                 FSkinnedGpuMesh& out) noexcept;
 
 } // namespace acs
@@ -50892,25 +51678,25 @@ namespace acs {
 class IRhiDevice;
 
 /** 同一サイズの一時定数を少数のGPUバッファへまとめるフレームarena。 */
-class FTransientUploadArena final {
+class CTransientUploadArena final {
 public:
     /** GPU資源を持たない空状態を作る。 */
-    FTransientUploadArena() noexcept = default;
+    CTransientUploadArena() noexcept = default;
 
     /** 所有ページを解放する。 */
-    ~FTransientUploadArena() noexcept = default;
+    ~CTransientUploadArena() noexcept = default;
 
     /** 単独所有を保つためコピーを禁止する。 */
-    FTransientUploadArena(const FTransientUploadArena&) = delete;
+    CTransientUploadArena(const CTransientUploadArena&) = delete;
 
     /** 単独所有を保つためコピー代入を禁止する。 */
-    FTransientUploadArena& operator=(const FTransientUploadArena&) = delete;
+    CTransientUploadArena& operator=(const CTransientUploadArena&) = delete;
 
     /** arenaの所有権を移す。 */
-    FTransientUploadArena(FTransientUploadArena&&) noexcept = default;
+    CTransientUploadArena(CTransientUploadArena&&) noexcept = default;
 
     /** arenaの所有権を移して代入する。 */
-    FTransientUploadArena& operator=(FTransientUploadArena&&) noexcept = default;
+    CTransientUploadArena& operator=(CTransientUploadArena&&) noexcept = default;
 
     /**
      * 一時定数の大きさと初期個数を設定して最初の共有ページを作る。
@@ -51053,6 +51839,10 @@ private:
     usize m_ReservedBytes = 0u;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FTransientUploadArena = CTransientUploadArena;
+
+
 } // namespace acs
 
 namespace acs {
@@ -51096,7 +51886,7 @@ struct FPointLight {
  * シャドウ) はメンバにキャッシュされ、SetLights / SetPointLights / SetShadowMap を
  * 独立に呼んでも整合する Frame CB へ反映される。
  */
-class FStandardShader {
+class CStandardShader {
 public:
     /**
      * Source-compatibility estimate from the former fixed ring.
@@ -51106,16 +51896,16 @@ public:
     static constexpr u32 kMaxObjectDrawsPerFrame = 256u;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FStandardShader() noexcept = default;
+    CStandardShader() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FStandardShader() noexcept = default;
+    ~CStandardShader() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FStandardShader(const FStandardShader&)            = delete;
+    CStandardShader(const CStandardShader&)            = delete;
 
     /** コピー代入も禁止。 */
-    FStandardShader& operator=(const FStandardShader&) = delete;
+    CStandardShader& operator=(const CStandardShader&) = delete;
 
     /**
      * GPU リソースを確保する。
@@ -51198,10 +51988,10 @@ public:
      * シャドウマップを設定する (PCSS ソフトシャドウ、最初の有向光源にのみ適用)。
      *
      * @details
-     * tex には FShadowMap::DepthTexture()、light_vp には同 LightViewProjection() を渡す。
+     * tex には CShadowMap::DepthTexture()、light_vp には同 LightViewProjection() を渡す。
      * tex に nullptr を渡すとシャドウ無効 (描画は影なしで進む)。filter_radius は影の
      * 柔らかさスケールで、0=実質ハード影 (1 texel の min penumbra)、1.0=標準 PCSS
-     * (Fernando 2005 の light_size=0.01 相当、FPbrShader と一致)、>1 でより柔らかい半影。
+     * (Fernando 2005 の light_size=0.01 相当、CPbrShader と一致)、>1 でより柔らかい半影。
      * @param tex シャドウマップの深度テクスチャ (nullptr で無効化)。
      * @param light_vp ライト視点の view-projection 行列。
      * @param bias シャドウアクネ回避用バイアス (一般に 0.0005..0.005)。
@@ -51319,7 +52109,7 @@ private:
     static constexpr u32     kInvalidObjectBuffer = ~u32{0};
 
     /** per-object定数を少数のGPUページへまとめるupload arena。 */
-    FTransientUploadArena    m_ObjectArena;
+    CTransientUploadArena    m_ObjectArena;
 
     /** 現フレームで消費したobject slot数。 */
     u32                      m_ObjectCbCursor = 0u;
@@ -51369,6 +52159,10 @@ private:
     /** シャドウマップの深度テクスチャ (弱参照、所有しない)。 */
     IRhiTexture* m_ShadowTex = nullptr;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FStandardShader = CStandardShader;
+
 
 } // namespace acs
 
@@ -52066,7 +52860,7 @@ namespace acs {
  * volumetric fog、emissive、clearcoat/anisotropy/sheen/iridescence/subsurface の
  * 拡張マテリアルを束ね、per-frame / per-object の 2 定数バッファで駆動する。
  */
-class FPbrShader {
+class CPbrShader {
 public:
     /** CPU-compiled shader bytecode handed to the render-owner thread. */
     struct FCompiledShaders {
@@ -52083,16 +52877,16 @@ public:
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FPbrShader() noexcept = default;
+    CPbrShader() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FPbrShader() noexcept = default;
+    ~CPbrShader() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FPbrShader(const FPbrShader&)            = delete;
+    CPbrShader(const CPbrShader&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPbrShader& operator=(const FPbrShader&) = delete;
+    CPbrShader& operator=(const CPbrShader&) = delete;
 
     /**
      * シェーダ・パイプライン・定数バッファ・fallback テクスチャ群を生成する。
@@ -52235,7 +53029,7 @@ public:
      *
      * @details
      * 3 つとも非 null かつ prefilter_mips > 0 のときに IBL ambient が有効化される。
-     * それ以外は flat ambient (= 既存挙動)。通常は FImageBasedLighting の
+     * それ以外は flat ambient (= 既存挙動)。通常は CImageBasedLighting の
      * IrradianceMap()/PrefilterMap()/BrdfLut()/PrefilterMips() をそのまま渡す。
      * @param irradiance 拡散 irradiance cubemap。
      * @param prefilter pre-filtered 環境 specular cubemap。
@@ -52270,7 +53064,7 @@ public:
     /**
      * SSAO の visibility テクスチャを設定する (ambient/indirect 項に乗算)。
      *
-     * @param ssao_tex FSsao::OutputTexture() (R8G8B8A8_UNorm、.r=visibility)。null で OFF。
+     * @param ssao_tex CSsao::OutputTexture() (R8G8B8A8_UNorm、.r=visibility)。null で OFF。
      * @param intensity 0=neutral (AO 無視)、1=通常、>1=AO 強調。
      * @param viewport_w tonemap 前の HDR RT 幅 (pixel)。0 で SSAO 強制 OFF。
      * @param viewport_h tonemap 前の HDR RT 高さ (pixel)。0 で SSAO 強制 OFF。
@@ -52282,7 +53076,7 @@ public:
      * SSGI color (1 bounce indirect light の screen-space 推定) を設定する。
      *
      * @details viewport inv size は SSAO の値を再利用するので別途渡さない。
-     * @param ssgi_tex FSsgi::OutputTexture() (R11G11B10F)。null で OFF。
+     * @param ssgi_tex CSsgi::OutputTexture() (R11G11B10F)。null で OFF。
      * @param intensity 0=indirect 無視、1=通常、>1=強調 (経験的に 0.5..2.0)。
      */
     void SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept;
@@ -52293,8 +53087,8 @@ public:
      * @details
      * roughness が高い面ほど自動で寄与が下がる (rough 面は環境 prefilter、smooth 面は
      * SSR を反射元に使う)。物理的に正しい roughness 依存反射のため tonemap 合成ではなく
-     * FPbrShader 側で合成する。viewport は SSAO の値を再利用する。
-     * @param ssr_tex FSsr::OutputTexture() (HDR、.rgb=反射放射輝度、.a=hit mask)。null で OFF。
+     * CPbrShader 側で合成する。viewport は SSAO の値を再利用する。
+     * @param ssr_tex CSsr::OutputTexture() (HDR、.rgb=反射放射輝度、.a=hit mask)。null で OFF。
      * @param intensity 0=OFF、1=通常。
      */
     void SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept;
@@ -52304,7 +53098,7 @@ public:
      *
      * @details screen UV は現在の view-projection と world position から復元するため、
      * SSAO の有無や viewport 設定には依存しない。
-     * @param ap_vol AP froxel volume (FSkyAtmosphere::BuildAerialPerspective の出力)。nullptr で無効。
+     * @param ap_vol AP froxel volume (CSkyAtmosphere::BuildAerialPerspective の出力)。nullptr で無効。
      * @param max_dist volume がカバーする最大距離 (scene 単位、深度→スライス逆変換に使う)。
      */
     void SetAerialPerspective(IRhiTexture* ap_vol, f32 max_dist) noexcept;
@@ -52332,7 +53126,7 @@ public:
     /**
      * 静的光プローブ (位置 + SH9 9 係数) の記述。
      *
-     * @details FPbrShader は count > 0 のとき SH9 single mode より優先して probe grid を
+     * @details CPbrShader は count > 0 のとき SH9 single mode より優先して probe grid を
      * 使い、world position から IDW で blend する。
      */
     struct FLightProbe {
@@ -52382,8 +53176,8 @@ public:
      * shadow を disable したいときは必ず本 API に null depth を渡すこと。m_ShadowParams.y を
      * 直接 0 にして再有効化する経路は texel_size=0 の場合 PCSS blocker search で search_r=0 に
      * なり結果が壊れる。常にこの API 経由で更新する。
-     * @param depth FShadowMap::DepthTexture()。null で OFF。
-     * @param light_vp FShadowMap::LightViewProjection()。
+     * @param depth CShadowMap::DepthTexture()。null で OFF。
+     * @param light_vp CShadowMap::LightViewProjection()。
      * @param bias depth bias (acne 回避、0.001..0.01 程度)。
      * @param texel_size shadow map 1 texel の UV サイズ。
      * @param filter_radius PCSS 強度 (0=hard PCF、1=標準、>1 で柔らか)。
@@ -52396,7 +53190,7 @@ public:
      * CSM 用に複数 cascade の VP と split を一括設定する。
      *
      * @details
-     * FShadowMap が atlas で確保した深度テクスチャを渡し、HLSL 側で view_z から cascade を
+     * CShadowMap が atlas で確保した深度テクスチャを渡し、HLSL 側で view_z から cascade を
      * 選択 + atlas UV 変換でサンプルする。
      * @param depth cascade atlas の深度テクスチャ。null で disable。
      * @param light_vp 各 cascade の light VP (c=0..cascade_count-1)。
@@ -52490,7 +53284,7 @@ public:
      * 通常の 1-RT 描画では、肌/ロウ/大理石のような質感を wrapped diffuse +
      * 裏面 translucency の薄物向け解析近似で表現する。SSSS MRT 描画では
      * sss_color * weight を RGB ごとの平均自由行程として RGBA16F に抽出し、
-     * FSubsurfaceScattering が物理距離に基づいて diffuse 成分だけを拡散する。
+     * CSubsurfaceScattering が物理距離に基づいて diffuse 成分だけを拡散する。
      * member に格納され次の SetObject / DrawMesh が反映する (既定 weight=0 で無効)。
      * @param sss_color RGB ごとの相対散乱距離 (肌なら赤が長い)。
      * @param weight SSS coverage と legacy 最大散乱距離 (0=OFF、1=1cm)。
@@ -52656,7 +53450,7 @@ private:
     static constexpr u32     kInvalidObjectBuffer = ~u32{0};
 
     /** per-object定数を少数のGPUページへまとめるupload arena。 */
-    FTransientUploadArena    m_ObjectArena;
+    CTransientUploadArena    m_ObjectArena;
 
     /** 現フレームで消費したobject slot数。 */
     u32                      m_ObjectCbCursor = 0u;
@@ -52807,7 +53601,7 @@ private:
     /** lightmap 無効時に bind する fallback (1x1 RGBA8 黒)。 */
     TUniquePtr<IRhiTexture> m_LightmapFb;
 
-    /** shadow cascade の最大数 (FShadowMap::kMaxCascades と一致、frame CB の shadow_view_proj[4] と対応)。 */
+    /** shadow cascade の最大数 (CShadowMap::kMaxCascades と一致、frame CB の shadow_view_proj[4] と対応)。 */
     static constexpr u32 kMaxShadowCascades = 4;
 
     /** shadow map / cascade atlas の深度テクスチャ (非所有)。 */
@@ -52875,6 +53669,10 @@ private:
     f32 m_SubstrateExpressionTime = 0.0f;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FPbrShader = CPbrShader;
+
+
 } // namespace acs
 
 // ===================== render/PostProcess.h =====================
@@ -52918,7 +53716,7 @@ class IRhiTexture;
  *
  * @details
  * Bloom / Tonemap / Cinematic FX / Color grading / CAS / TAA / Auto-exposure の
- * 全パラメータを保持し、FPostProcess::Render に 1 つ渡す。各メンバは既定値で
+ * 全パラメータを保持し、CPostProcess::Render に 1 つ渡す。各メンバは既定値で
  * 「無効 or 中性」になるよう設計してある。
  */
 struct FPostProcessParams {
@@ -52970,11 +53768,11 @@ struct FPostProcessParams {
     /** フィルムグレイン強度 0..0.1。 */
     f32   grain_intensity    = 0.015f;
 
-    /** procedural noise のシード (FApplication から dt 累積)。 */
+    /** procedural noise のシード (CApplication から dt 累積)。 */
     f32   grain_time         = 0.0f;
 
     /**
-     * tonemap 直前に additive 合成する SSR 出力テクスチャ (FSsr::OutputTexture())。
+     * tonemap 直前に additive 合成する SSR 出力テクスチャ (CSsr::OutputTexture())。
      *
      * @details null で SSR 無し。入力は scene-linear HDR とする。
      * auto exposure の完了値と manual exposure / EV compensation は
@@ -53017,7 +53815,7 @@ struct FPostProcessParams {
      * TAA (Temporal Anti-Aliasing) を有効にするか。
      *
      * @details
-     * Halton jitter を FCamera で適用した上で、history と neighborhood-clamp blend して
+     * Halton jitter を CCamera で適用した上で、history と neighborhood-clamp blend して
      * resolve する。false なら tonemap は直接 HDR RT を読み、true なら Pass_TaaResolve を
      * 実行して tonemap は resolved RT を読む。
      */
@@ -53049,7 +53847,7 @@ struct FPostProcessParams {
     FVec3         taa_camera_position{};
 
     /**
-     * 動的 mesh 対応の motion vector テクスチャ (FMotionVector モジュール)。
+     * 動的 mesh 対応の motion vector テクスチャ (CMotionVector モジュール)。
      *
      * @details
      * 非 null なら TAA は depth reprojection の代わりにこのテクスチャで history を引く。
@@ -53116,7 +53914,7 @@ struct FPostProcessParams {
  * 処理する。auto-exposure 有効時は luma 測定と露出順応 pass を追加で挟む。Diligent
  * backend を前提とし、GPU リソースを単独所有する non-copy 型。
  */
-class FPostProcess {
+class CPostProcess {
 public:
     /** Compiled shader handles awaiting owner-thread resource creation. */
     struct FCompiledShaders {
@@ -53137,16 +53935,16 @@ public:
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FPostProcess() noexcept = default;
+    CPostProcess() noexcept = default;
 
     /** 破棄する (確保した GPU リソースを解放)。 */
-    ~FPostProcess() noexcept;
+    ~CPostProcess() noexcept;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FPostProcess(const FPostProcess&) = delete;
+    CPostProcess(const CPostProcess&) = delete;
 
     /** コピー代入も禁止。 */
-    FPostProcess& operator=(const FPostProcess&) = delete;
+    CPostProcess& operator=(const CPostProcess&) = delete;
 
     /**
      * HDR RT + Bloom mip chain + Tonemap パイプラインを作成する。
@@ -53222,7 +54020,7 @@ public:
     TResult<void> Resize(u32 width, u32 height) noexcept;
 
     /**
-     * シーンを描画する HDR RT を返す (FRenderer がここに描画する)。
+     * シーンを描画する HDR RT を返す (CRenderer がここに描画する)。
      *
      * @return HDR R16G16B16A16_Float のレンダーターゲット。
      */
@@ -53257,7 +54055,7 @@ public:
                 const FPostProcessParams& params) noexcept;
 
 private:
-    FPostProcess& operator=(FPostProcess&&) noexcept = default;
+    CPostProcess& operator=(CPostProcess&&) noexcept = default;
 
     /**
      * Bloom mip chain の段数 (1/2 から 1/64 までの 6 段)。
@@ -53554,6 +54352,10 @@ private:
     FRenderGraphAliasPlanSummary m_TransientAliasPlan{};
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FPostProcess = CPostProcess;
+
+
 } // namespace acs
 
 // ===================== render/Sky.h =====================
@@ -53565,18 +54367,18 @@ private:
 //       地面の色を補間して描画する。
 //
 // 使い方:
-//   FSky sky;
+//   CSky sky;
 //   sky.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
 //   sky.PresetDay();
 //
 //   // 描画フレーム中、シーンの最初に
 //   sky.Render(*cl, camera);
-//   // ... FStandardShader でメッシュを描く ...
+//   // ... CStandardShader でメッシュを描く ...
 
 
 namespace acs {
 
-class FCamera;
+class CCamera;
 
 /**
  * 手続き生成スカイ (グラデーション + 太陽)。
@@ -53587,7 +54389,7 @@ class FCamera;
  * 深度の書き込み・テストは行わない (背景塗りなので既存深度を維持)。太陽は視線と太陽
  * 方向の角度で半径・ハローを付ける。VS/PS/PSO/定数バッファを単独所有する。
  */
-class FSky {
+class CSky {
 public:
     /** CPU-compiled shader bytecode handed to the render-owner thread. */
     struct FCompiledShaders {
@@ -53599,16 +54401,16 @@ public:
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FSky() noexcept = default;
+    CSky() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FSky() noexcept = default;
+    ~CSky() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FSky(const FSky&)            = delete;
+    CSky(const CSky&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSky& operator=(const FSky&) = delete;
+    CSky& operator=(const CSky&) = delete;
 
     /**
      * GPU リソース (VS/PS/PSO/定数バッファ) を確保する。
@@ -53749,7 +54551,7 @@ public:
     void PresetNight()  noexcept;
 
     /**
-     * 現在の太陽方向を返す (FStandardShader / IBL と整合させたいときに)。
+     * 現在の太陽方向を返す (CStandardShader / IBL と整合させたいときに)。
      *
      * @return 正規化済みの太陽方向ベクトル。
      */
@@ -53804,7 +54606,7 @@ public:
      * @param cl 描画コマンドを積むコマンドリスト。
      * @param camera 逆 view-projection と視点を取り出すカメラ。
      */
-    void Render(IRhiCommandList& cl, const FCamera& camera) noexcept;
+    void Render(IRhiCommandList& cl, const CCamera& camera) noexcept;
 
 private:
     /** フルスクリーン三角形の頂点シェーダ。 */
@@ -53859,6 +54661,10 @@ private:
     FVec3 m_CloudColor   = FVec3{1.0f, 1.0f, 1.0f};
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSky = CSky;
+
+
 /**
  * GPU レイマーチ volumetric clouds (WickedEngine / Nubis 流)。
  *
@@ -53868,12 +54674,12 @@ private:
  * dual-lobe Henyey-Greenstein 位相 + powder 項でエネルギー保存散乱を積分する。出力 (straight 散乱色
  * + alpha) を hdrRt の «空» の上に合成する。ray march は half-res、雲自身の代表深度を使う
  * bilateral spatial reconstruction と camera/wind reprojection temporal accumulation で full-res に
- * 復元する。FSky の 2D-FBM 雲より遥かにディテール/立体感が高い。
+ * 復元する。CSky の 2D-FBM 雲より遥かにディテール/立体感が高い。
  * 要 Phase 0 compute コア (RWTexture2D UAV)。full-res color/depth も一つの
  * 8x8 compute pass で別 format UAV へ同時に再構成し、重複 read と MRT overhead を避ける。
  */
 /**
- * World-space altitude band used by FVolumetricClouds.
+ * World-space altitude band used by CVolumetricClouds.
  *
  * The cloud density field must never be translated with the camera.  Keeping
  * these heights in world space makes translation, orbit and temporal
@@ -54206,7 +55012,7 @@ bool VolumetricCloudViewCutDetected(
     const FMat4& current_inv_view_proj,
     FVec3 current_camera_position) noexcept;
 
-class FVolumetricClouds {
+class CVolumetricClouds {
 public:
     /** CPU-compiled shader bytecode handed to the render-owner thread. */
     struct FCompiledShaders {
@@ -54398,6 +55204,10 @@ private:
     FVolumetricCloudFrameWorkload m_LastFrameWorkload{};
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FVolumetricClouds = CVolumetricClouds;
+
+
 } // namespace acs
 
 // ===================== render/SubsurfaceScattering.h =====================
@@ -54463,10 +55273,10 @@ struct FSubsurfaceScatteringParams {
  * empty RGB profile.
  *
  * Integration order:
- *   opaque lighting + SSS buffers -> FSubsurfaceScattering -> transparent /
+ *   opaque lighting + SSS buffers -> CSubsurfaceScattering -> transparent /
  *   atmosphere -> scene-linear TAA -> exposure -> bloom -> tone map.
  */
-class FSubsurfaceScattering {
+class CSubsurfaceScattering {
 public:
     /** Shader handles compiled away from owner-thread PSO/resource creation. */
     struct FCompiledShaders {
@@ -54478,11 +55288,11 @@ public:
         EShaderStatus Status() const noexcept;
     };
 
-    FSubsurfaceScattering() noexcept = default;
-    ~FSubsurfaceScattering() noexcept = default;
+    CSubsurfaceScattering() noexcept = default;
+    ~CSubsurfaceScattering() noexcept = default;
 
-    FSubsurfaceScattering(const FSubsurfaceScattering&) = delete;
-    FSubsurfaceScattering& operator=(const FSubsurfaceScattering&) = delete;
+    CSubsurfaceScattering(const CSubsurfaceScattering&) = delete;
+    CSubsurfaceScattering& operator=(const CSubsurfaceScattering&) = delete;
 
     /** Create shaders, PSOs, constant buffers and full-resolution HDR targets. */
     TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
@@ -54600,6 +55410,10 @@ private:
     TUniquePtr<IRhiBuffer> m_VerticalCb;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSubsurfaceScattering = CSubsurfaceScattering;
+
+
 } // namespace acs
 
 // ===================== render/WaterSurface3D.h =====================
@@ -54615,10 +55429,10 @@ class IRhiCommandList;
 class IRhiDevice;
 class IRhiPipeline;
 class IRhiTexture;
-class FMeshAsset;
+class AMeshAsset;
 
 /**
- * Authoring parameters for FWaterSurface3D.
+ * Authoring parameters for CWaterSurface3D.
  *
  * @details
  * The surface is physically based around water IOR 1.333. Colors and absorption
@@ -54696,7 +55510,7 @@ struct FWaterSurface3DParams {
  * High-quality interactive 3D water renderer.
  *
  * @details
- * FWaterSurface3D is renderer-facing and accepts any sufficiently tessellated
+ * CWaterSurface3D is renderer-facing and accepts any sufficiently tessellated
  * mesh authored on its local XZ plane. The model may freely translate, rotate,
  * or scale that surface in a 3D scene. Dynamic disturbances are stored as full
  * world-space points and are never overwritten while active.
@@ -54710,7 +55524,7 @@ struct FWaterSurface3DParams {
  *     available, the shader-visible opaque depth and SSR/planar reflection.
  *  4. Run bloom/tonemapping if using HDR.
  */
-class FWaterSurface3D {
+class CWaterSurface3D {
 public:
     /** Backend-compiled shader handles awaiting owner-thread PSO creation. */
     struct FCompiledShaders {
@@ -54741,11 +55555,11 @@ public:
 
     static_assert(kImpactRippleSlots + kWakeRippleSlots == kMaxRipples);
 
-    FWaterSurface3D() noexcept;
-    ~FWaterSurface3D() noexcept;
+    CWaterSurface3D() noexcept;
+    ~CWaterSurface3D() noexcept;
 
-    FWaterSurface3D(const FWaterSurface3D&) = delete;
-    FWaterSurface3D& operator=(const FWaterSurface3D&) = delete;
+    CWaterSurface3D(const CWaterSurface3D&) = delete;
+    CWaterSurface3D& operator=(const CWaterSurface3D&) = delete;
 
     /**
      * Creates shaders, pipeline, constant-buffer ring, and a generated normal map.
@@ -54948,7 +55762,7 @@ public:
      * fallback when it returns false.
      */
     static bool IsLocalXzSurfaceMesh(
-        const FMeshAsset& mesh) noexcept;
+        const AMeshAsset& mesh) noexcept;
 
     /**
      * Selects an optional directional-light shadow map.
@@ -55088,6 +55902,10 @@ private:
     f32 m_Time = 0.0f;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FWaterSurface3D = CWaterSurface3D;
+
+
 } // namespace acs
 
 // ===================== threading/Thread.h =====================
@@ -55102,7 +55920,7 @@ private:
 //   FThread::Join      — スレッド終了を待機
 //   FThread::Detach    — スレッドハンドルを切り離す
 //   SleepMs / Yield   — 現在スレッドの停止・譲渡
-//   HardwareConcurrency — 論理 CPU 数（FThreadPool のデフォルト worker 数等で使用）
+//   HardwareConcurrency — 論理 CPU 数（CThreadPool のデフォルト worker 数等で使用）
 
 
 // ===================== threading/ThreadId.h =====================
@@ -55274,7 +56092,7 @@ class AMeshComponent3D;
 class AWaterSurface3DComponent;
 
 /**
- * Exact gameplay hit returned by FLegacyScene3DAdapter::RaycastWater.
+ * Exact gameplay hit returned by ALegacyScene3DAdapter::RaycastWater.
  *
  * @details Point and normal are expressed in world space. Distance is the
  * parameter on the caller's ray (`origin + direction * distance`), so callers
@@ -55303,20 +56121,20 @@ enum class ESceneProjectionMode : u8 {
 };
 
 /**
- * Standalone FScene bridge for the legacy `ACS3D v2` document adapter.
+ * Standalone AScene bridge for the legacy `ACS3D v2` document adapter.
  *
  * @details The owned graph is the same ANode/FTransform3D graph used by the editor. This class is
  * intentionally an adapter rather than a second permanent scene asset type: packages expose one
  * `main.acscene` bootstrap entry and choose the legacy .acscene/.acs3d reader from its validated
  * header. Sprite batching, Canvas/UI, and 2D physics stay on their dedicated runtime path.
  */
-class FLegacyScene3DAdapter : public FScene {
+class ALegacyScene3DAdapter : public AScene {
 public:
-    FLegacyScene3DAdapter() noexcept = default;
-    ~FLegacyScene3DAdapter() noexcept override;
+    ALegacyScene3DAdapter() noexcept = default;
+    ~ALegacyScene3DAdapter() noexcept override;
 
-    FLegacyScene3DAdapter(const FLegacyScene3DAdapter&) = delete;
-    FLegacyScene3DAdapter& operator=(const FLegacyScene3DAdapter&) = delete;
+    ALegacyScene3DAdapter(const ALegacyScene3DAdapter&) = delete;
+    ALegacyScene3DAdapter& operator=(const ALegacyScene3DAdapter&) = delete;
 
     /** Load a loose legacy ACS3D document and all of its mesh/material dependencies. */
     FScene3DLoadResult LoadFile(const char* path = "main.acscene") noexcept;
@@ -55330,10 +56148,10 @@ public:
         const char* virtual_path = "main.acscene") noexcept;
 
     /** Mutable canonical ANode graph used by gameplay components. */
-    FScene3D& Graph() noexcept { return m_Graph; }
+    CScene3D& Graph() noexcept { return m_Graph; }
 
     /** Read-only canonical ANode graph. */
-    const FScene3D& Graph() const noexcept { return m_Graph; }
+    const CScene3D& Graph() const noexcept { return m_Graph; }
 
     /** Last checked document/dependency result. */
     const FScene3DLoadResult& LoadResult() const noexcept { return m_LoadResult; }
@@ -55345,10 +56163,10 @@ public:
     ESceneProjectionMode ProjectionMode() const noexcept { return m_Projection; }
 
     /** Camera used for standalone preview/gameplay. */
-    FCamera& Camera() noexcept { return m_Camera; }
+    CCamera& Camera() noexcept { return m_Camera; }
 
     /** Read-only standalone camera. */
-    const FCamera& Camera() const noexcept { return m_Camera; }
+    const CCamera& Camera() const noexcept { return m_Camera; }
 
     /** Deterministically selected authored camera, or null for frame-scene fallback. */
     const FScene3DCameraState* AuthoredCamera() const noexcept {
@@ -55547,11 +56365,11 @@ private:
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
     u32 CollectWaterDraws(
-        FWaterDraw (&draws)[FWaterSurface3D::kMaxTrackedSurfaces],
+        FWaterDraw (&draws)[CWaterSurface3D::kMaxTrackedSurfaces],
         IRhiTexture* depth, u32 width, u32 height) const noexcept;
     bool DrawPbrScene(
         FRenderContext& context,
-        FPbrShader& shader,
+        CPbrShader& shader,
         const FWaterDraw* excluded_water,
         u32 excluded_count,
         bool subsurface_mrt = false) noexcept;
@@ -55565,17 +56383,17 @@ private:
         FRenderContext& context,
         const FWaterDraw* water_draws,
         u32 water_count) noexcept;
-    FPbrShader& ActiveHdrShader() noexcept {
+    CPbrShader& ActiveHdrShader() noexcept {
         return m_HdrShaders[m_HdrActiveSlot];
     }
-    const FPbrShader& ActiveHdrShader() const noexcept {
+    const CPbrShader& ActiveHdrShader() const noexcept {
         return m_HdrShaders[m_HdrActiveSlot];
     }
 
-    FScene3D m_Graph;
+    CScene3D m_Graph;
     FScene3DLoadResult m_LoadResult{};
-    FPbrShader m_HdrShaders[2];
-    FPbrShader::FCompiledShaders m_HdrPendingShaders{};
+    CPbrShader m_HdrShaders[2];
+    CPbrShader::FCompiledShaders m_HdrPendingShaders{};
     FThread m_HdrCompileWorker;
     std::atomic<i32> m_HdrCompileWorkerState{0};
     IRhiDevice* m_HdrCompileDevice = nullptr;
@@ -55584,7 +56402,7 @@ private:
     u8 m_HdrActiveSlot = 0u;
     u8 m_HdrPendingSlot = 1u;
     bool m_HdrPendingIsInitialized = false;
-    FPbrShader::FCompiledShaders m_HdrSsssPendingShaders{};
+    CPbrShader::FCompiledShaders m_HdrSsssPendingShaders{};
     FThread m_HdrSsssCompileWorker;
     std::atomic<i32> m_HdrSsssCompileWorkerState{0};
     IRhiDevice* m_HdrSsssCompileDevice = nullptr;
@@ -55592,8 +56410,8 @@ private:
     EFormat m_HdrSsssCompileDepthFormat = EFormat::D32_Float;
     u8 m_HdrSsssPendingSlot = 0u;
     bool m_HdrSsssPendingIsInitialized = false;
-    FSubsurfaceScattering m_Ssss;
-    FSubsurfaceScattering::FCompiledShaders m_SsssPendingShaders{};
+    CSubsurfaceScattering m_Ssss;
+    CSubsurfaceScattering::FCompiledShaders m_SsssPendingShaders{};
     FThread m_SsssCompileWorker;
     std::atomic<i32> m_SsssCompileWorkerState{0};
     IRhiDevice* m_SsssCompileDevice = nullptr;
@@ -55604,20 +56422,20 @@ private:
     TUniquePtr<IRhiTexture> m_SsssPendingDiffuse;
     TUniquePtr<IRhiTexture> m_SsssPendingMaterial;
     TUniquePtr<IRhiTexture> m_SsssPendingNormal;
-    FPostProcess m_Post;
-    FPostProcess::FCompiledShaders m_PostPendingShaders{};
+    CPostProcess m_Post;
+    CPostProcess::FCompiledShaders m_PostPendingShaders{};
     FThread m_PostCompileWorker;
     std::atomic<i32> m_PostCompileWorkerState{0};
-    FBlit m_Blit;
-    FBlit::FCompiledShaders m_BlitPendingShaders{};
+    CBlit m_Blit;
+    CBlit::FCompiledShaders m_BlitPendingShaders{};
     FThread m_BlitCompileWorker;
     std::atomic<i32> m_BlitCompileWorkerState{0};
-    FSky m_Sky;
-    FSky::FCompiledShaders m_SkyPendingShaders{};
+    CSky m_Sky;
+    CSky::FCompiledShaders m_SkyPendingShaders{};
     FThread m_SkyCompileWorker;
     std::atomic<i32> m_SkyCompileWorkerState{0};
-    FWaterSurface3D m_Water;
-    FWaterSurface3D::FCompiledShaders m_WaterPendingShaders{};
+    CWaterSurface3D m_Water;
+    CWaterSurface3D::FCompiledShaders m_WaterPendingShaders{};
     FThread m_WaterCompileWorker;
     std::atomic<i32> m_WaterCompileWorkerState{0};
     TUniquePtr<IRhiTexture> m_WaterBackground;
@@ -55626,7 +56444,7 @@ private:
     FGpuMesh m_Sphere;
     FGpuMesh m_Plane;
     TArray<FCustomGpuMesh> m_CustomMeshes;
-    FCamera m_Camera;
+    CCamera m_Camera;
     FScene3DCameraState m_AuthoredCamera{};
     bool m_UseAuthoredCamera = false;
     bool m_HasExplicitCameraOverride = false;
@@ -55664,6 +56482,9 @@ private:
     bool m_GpuAttempted = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLegacyScene3DAdapter = ALegacyScene3DAdapter;
+
 } // namespace acs::game
 
 // ===================== gameframework/LegacyKitEaseIdCodec.h =====================
@@ -55676,13 +56497,13 @@ namespace acs::game {
  * 旧形式のイージング数値 ID と ACS の正規型を相互変換する。
  * 数式は保持せず、失敗時は出力引数を変更しない。
  */
-class FLegacyKitEaseIdCodec final {
+class CLegacyKitEaseIdCodec final {
 public:
     /** 旧形式で固定された有効 ID 数。 */
     static constexpr i32 kLegacyIdCount = 33;
 
     /** 状態を持たない変換型の生成を禁止する。 */
-    FLegacyKitEaseIdCodec() = delete;
+    CLegacyKitEaseIdCodec() = delete;
 
     /**
      * 旧形式の数値 ID を ACS の正規型へ変換する。
@@ -55702,6 +56523,9 @@ public:
      */
     static bool TryEncode(Easing::EEasingType type, i32& out_legacy_id) noexcept;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLegacyKitEaseIdCodec = CLegacyKitEaseIdCodec;
 
 } // namespace acs::game
 
@@ -55882,7 +56706,7 @@ private:
 // GameFramework Pillar F — APhysicsBody2D
 //
 // kinematic 物理 body の AComponent。velocity + acceleration + gravity を
-// 統合し、FCollisionWorld2D に登録された他の shape と衝突したら **軸独立で**
+// 統合し、CCollisionWorld2D に登録された他の shape と衝突したら **軸独立で**
 // blocking する (X 軸試行 → overlap なら velocity.x=0 / x 移動キャンセル、
 // 同様に Y 軸)。剛体ソルバではなく「2D プラットフォーマー / トップダウン用の
 // swept kinematic」。
@@ -55913,7 +56737,7 @@ namespace acs::game {
  * kinematic 物理 body を表す AComponent。
  *
  * @details
- * velocity + acceleration + gravity を毎フレーム統合し、FCollisionWorld2D に登録された
+ * velocity + acceleration + gravity を毎フレーム統合し、CCollisionWorld2D に登録された
  * 他 shape と衝突したら停止する。既定の collide-and-slide では望む変位だけ動かしてから
  * 貫通を MTV で押し出し、押し出し法線方向の速度成分を消して面に沿って滑る。slide=false の
  * ときは X / Y を独立に試して overlap なら軸ごとに止める旧来の軸独立 block。剛体ソルバでは
@@ -55928,7 +56752,7 @@ public:
      *
      * @param world shape 登録・overlap クエリに使う衝突ワールド (参照を保持)。
      */
-    explicit APhysicsBody2D(FCollisionWorld2D& world) noexcept : m_World(&world) {}
+    explicit APhysicsBody2D(CCollisionWorld2D& world) noexcept : m_World(&world) {}
 
     /**
      * 形状を円に設定する (再設定で上書き)。
@@ -56050,7 +56874,7 @@ private:
     FConvexPoly2 WorldPoly(FVec2 pos) const noexcept;
 
     /** shape 登録・overlap クエリに使う衝突ワールド (非所有)。 */
-    FCollisionWorld2D* m_World  = nullptr;
+    CCollisionWorld2D* m_World  = nullptr;
 
     /** 現在の形状種別。 */
     EShapeKind         m_Kind   = EShapeKind::None;
@@ -56077,7 +56901,7 @@ private:
 // SPDX-License-Identifier: Apache-2.0
 // ASprite2DComponent - ANode 向けの最小 render component。
 //
-// FScene2D が FRenderContext に設定した FSpriteBatch を通じて、色付き矩形または
+// AScene2D が FRenderContext に設定した CSpriteBatch を通じて、色付き矩形または
 // texture を描画する。Size は world 単位で、owner transform から
 // position/rotation/scale を取得する。
 
@@ -56092,7 +56916,7 @@ namespace acs::game {
  * ANode に色付き矩形 / テクスチャを描く最小の描画コンポーネント。
  *
  * @details
- * FScene2D が FRenderContext に差し込んだ FSpriteBatch を通じて、owner の world
+ * AScene2D が FRenderContext に差し込んだ CSpriteBatch を通じて、owner の world
  * transform を pivot に矩形 1 枚を積む。サイズは world 単位で、位置・回転・スケールは
  * owner の transform から供給される。テクスチャ未設定なら tint 色の塗り潰し矩形を、
  * 設定済みなら UV サブ矩形 + tint でテクスチャを描く。
@@ -56203,7 +57027,7 @@ public:
     FVec2 UvMax() const noexcept { return m_UvMax; }
 
     /**
-     * 描画フック。owner の world transform を pivot に矩形 1 枚を FSpriteBatch へ積む。
+     * 描画フック。owner の world transform を pivot に矩形 1 枚を CSpriteBatch へ積む。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
@@ -56243,7 +57067,7 @@ private:
 
 // ===================== gameframework/SpriteAnimComponent.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ASpriteAnimComponent — FSpriteAnimator (時間→frame index) を ASprite2DComponent
+// ASpriteAnimComponent — CSpriteAnimator (時間→frame index) を ASprite2DComponent
 // (UV サブ矩形) に橋渡しする AComponent。同じ ANode に付いた ASprite2DComponent
 // の UV を毎フレーム書き換えてスプライトシートアニメを再生する。
 //
@@ -56267,12 +57091,12 @@ private:
 //     (add 順依存) ため、最初の OnUpdate で遅延 lookup する (add 順非依存)。
 //   ・frame index → UV は m_FrameUvs に事前計算して持つ。InitGrid はグリッドを
 //     計算、BeginFrames/AddFrameUv/EndFrames は任意 UV 列を積む。
-//   ・FSpriteAnimator が時間管理 (Loop/PingPong/Once、frame event) を担う。
+//   ・CSpriteAnimator が時間管理 (Loop/PingPong/Once、frame event) を担う。
 
 
 // ===================== gameframework/SpriteAnimator.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FSpriteAnimator
+// GameFramework Pillar C — CSpriteAnimator
 //
 // 「現在フレーム index を時間から算出する」ロジックだけを担うコンポーネント。
 // 画像 asset / 描画 API には一切触れず、利用者が CurrentFrame() を取り出して
@@ -56287,7 +57111,7 @@ private:
 //     (Loop の周回毎に再発火、std::function は使わない)
 //
 // 使い方:
-//   FSpriteAnimator anim;
+//   CSpriteAnimator anim;
 //   anim.Init(/*frame_count=*/8, /*fps=*/12.0f, EPlayMode::Loop);
 //   anim.AddFrameEvent(4, [](void* ud) noexcept {
 //       static_cast<MyActor*>(ud)->OnFootstep();
@@ -56299,7 +57123,7 @@ private:
 //
 // 設計判断:
 //   ・asset 非依存にすることで Pillar C (フレーム時間管理) と Pillar Q (視覚世界,
-//     スプライトシート) の関心を分離。FSpriteAnimator は時間→index 関数として
+//     スプライトシート) の関心を分離。CSpriteAnimator は時間→index 関数として
 //     ユニットテスト可能。
 //   ・std::function を避けるため frame event のコールバックは関数ポインタ + user 引数。
 //     Lambda は capture 無しに限る (= ACS の関数ポインタ規約と整合)。
@@ -56336,28 +57160,28 @@ enum class EPlayMode : u8 {
  * または末尾でクランプ (Once) し、長時間プレイでの f32 精度ロスを防ぐ。frame event は
  * std::function を使わず関数ポインタ + user 引数で実装する。
  */
-class FSpriteAnimator {
+class CSpriteAnimator {
 public:
     /** frame に進入した瞬間に呼ぶコールバックの型 (capture 無し関数ポインタ + user)。 */
     using FrameEventFn = void(*)(void* user) noexcept;
 
     /** 空状態で構築する (frame=1, fps=1, 停止)。 */
-    FSpriteAnimator() noexcept = default;
+    CSpriteAnimator() noexcept = default;
 
     /** デストラクタ (特別な後始末なし)。 */
-    ~FSpriteAnimator() noexcept = default;
+    ~CSpriteAnimator() noexcept = default;
 
     /** コピー禁止 (アニメ状態を不意に複製しないため)。 */
-    FSpriteAnimator(const FSpriteAnimator&)            = delete;
+    CSpriteAnimator(const CSpriteAnimator&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSpriteAnimator& operator=(const FSpriteAnimator&) = delete;
+    CSpriteAnimator& operator=(const CSpriteAnimator&) = delete;
 
     /** ムーブ禁止。 */
-    FSpriteAnimator(FSpriteAnimator&&)                 = delete;
+    CSpriteAnimator(CSpriteAnimator&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSpriteAnimator& operator=(FSpriteAnimator&&)      = delete;
+    CSpriteAnimator& operator=(CSpriteAnimator&&)      = delete;
 
     /**
      * 再生パラメータを初期化する。
@@ -56536,6 +57360,9 @@ private:
     TArray<FFrameEvent> m_Events;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSpriteAnimator = CSpriteAnimator;
+
 } // namespace acs::game
 
 namespace acs::game {
@@ -56543,7 +57370,7 @@ namespace acs::game {
 class ASprite2DComponent;
 
 /**
- * 時間→frame index の FSpriteAnimator を sibling の ASprite2DComponent に橋渡しする AComponent。
+ * 時間→frame index の CSpriteAnimator を sibling の ASprite2DComponent に橋渡しする AComponent。
  *
  * @details
  * 同じ ANode に付いた ASprite2DComponent の UV サブ矩形を毎フレーム書き換えて
@@ -56632,9 +57459,9 @@ public:
     /**
      * 下位 animator への参照を返す (frame event 登録など直接操作用)。
      *
-     * @return 内部 FSpriteAnimator への参照。
+     * @return 内部 CSpriteAnimator への参照。
      */
-    FSpriteAnimator& Animator() noexcept { return m_Anim; }
+    CSpriteAnimator& Animator() noexcept { return m_Anim; }
 
     /**
      * 描画先の ASprite2DComponent を要求する (RequireComponent、無ければ自動追加)。
@@ -56655,7 +57482,7 @@ private:
     void ApplyCurrentFrame() noexcept;
 
     /** 時間→frame index を管理する下位 animator。 */
-    FSpriteAnimator     m_Anim;
+    CSpriteAnimator     m_Anim;
 
     /** frame index → UV サブ矩形 {u0,v0,u1,v1} の事前計算テーブル。 */
     TArray<FVec4>       m_FrameUvs;
@@ -56677,10 +57504,10 @@ private:
 
 // ===================== gameframework/TriggerComponent.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ATriggerComponent — ANode を FTriggerWorld2D に橋渡しし、overlap の
+// ATriggerComponent — ANode を CTriggerWorld2D に橋渡しし、overlap の
 // enter / exit を「コンポーネント単位」で受け取れるようにする AComponent。
 //
-// FTriggerWorld2D 自体は world 全体で 1 組のコールバックしか持たないため、本
+// CTriggerWorld2D 自体は world 全体で 1 組のコールバックしか持たないため、本
 // コンポーネントは各 trigger に自分自身 (this) を user data として紐付け、world の
 // global コールバックを静的ディスパッチャに差し替えて id→component を逆引きする。
 // これにより player / pickup / hazard などを各ノードのハンドラで個別に処理できる。
@@ -56703,20 +57530,20 @@ private:
 //       // self が mask に合致する other に触れた
 //   }, this);
 //
-// layer / mask 規約 (FCollisionWorld2D と同じ bitmask):
+// layer / mask 規約 (CCollisionWorld2D と同じ bitmask):
 //   ・layer = 自分が属するレイヤ。mask = 自分が反応したいレイヤ。
 //   ・this は「other.layer & this.mask != 0」のときだけ自分のハンドラが発火する。
-//     (幾何 overlap 判定自体は FTriggerWorld2D が全 pair で行い、フィルタは本層で適用)
+//     (幾何 overlap 判定自体は CTriggerWorld2D が全 pair で行い、フィルタは本層で適用)
 
 
 namespace acs::game {
 
 /**
- * ANode を FTriggerWorld2D に橋渡しし、overlap の enter / exit をコンポーネント
+ * ANode を CTriggerWorld2D に橋渡しし、overlap の enter / exit をコンポーネント
  * 単位で受け取れるようにする AComponent。
  *
  * @details
- * FTriggerWorld2D 自体は world 全体で 1 組のコールバックしか持たないため、本
+ * CTriggerWorld2D 自体は world 全体で 1 組のコールバックしか持たないため、本
  * コンポーネントは各 trigger に自分自身を user data として紐付け、world の global
  * コールバックを静的ディスパッチャに差し替えて id→component を逆引きする。これに
  * より player / pickup / hazard などを各ノードのハンドラで個別に処理できる。layer
@@ -56737,7 +57564,7 @@ public:
      * @param layer 自分が属するレイヤ bit (既定 kAllLayers)。
      * @param mask 反応したい相手のレイヤ bitmask (既定 kAllLayers)。
      */
-    explicit ATriggerComponent(FTriggerWorld2D& world,
+    explicit ATriggerComponent(CTriggerWorld2D& world,
                                u32 layer = kAllLayers,
                                u32 mask  = kAllLayers) noexcept
         : m_World(&world), m_Layer(layer), m_Mask(mask) {}
@@ -56892,7 +57719,7 @@ private:
     static void SDispatchExit (void* user, FTriggerId self, FTriggerId other) noexcept;
 
     /** 所属するトリガワールド。 */
-    FTriggerWorld2D* m_World = nullptr;
+    CTriggerWorld2D* m_World = nullptr;
 
     /** world に登録した自身の trigger id (未登録なら invalid)。 */
     FTriggerId       m_Id;
@@ -56935,7 +57762,7 @@ private:
 // ATilemapComponent — FTilemap (data) を ANode 上で描画する AComponent。
 //
 // グリッドアトラス (cols×rows のタイル) テクスチャを持ち、各レイヤの非空タイルを
-// その atlas セルの UV で FSpriteBatch に描く。タイル ID v (1-based、0=空) は
+// その atlas セルの UV で CSpriteBatch に描く。タイル ID v (1-based、0=空) は
 // セル index (v-1) に対応する。owner ノードの world 位置がマップ原点になるので、
 // タイルマップを丸ごと移動/配置できる。
 //
@@ -57119,7 +57946,7 @@ public:
     FTilemap() noexcept = default;
 
     /** 外側の layer array に呼び出し側所有の allocator を使う。 */
-    explicit FTilemap(FAllocator& allocator) noexcept : m_Layers(allocator) {}
+    explicit FTilemap(IAllocator& allocator) noexcept : m_Layers(allocator) {}
 
     /** 破棄する (レイヤーバッファは TArray が解放)。 */
     ~FTilemap() noexcept = default;
@@ -57308,14 +58135,12 @@ class IRhiTexture;
 
 namespace acs::game {
 
-class FCollisionWorld2D;
-
 /**
  * FTilemap のデータを ANode 上で描画する AComponent。
  *
  * @details
  * グリッドアトラス (cols×rows のタイル) テクスチャを持ち、各レイヤの非空タイルを
- * その atlas セルの UV で FSpriteBatch に描く。タイル ID v (1-based、0=空) はセル
+ * その atlas セルの UV で CSpriteBatch に描く。タイル ID v (1-based、0=空) はセル
  * index (v-1) に対応する。owner ノードの world 位置がマップ原点になるので、タイル
  * マップを丸ごと移動/配置できる。BuildCollision で指定レイヤを物理ワールドへ AABB
  * 登録してソリッド化できる。
@@ -57377,17 +58202,17 @@ public:
      * owner が無い、または layer が範囲外で LayerData が nullptr の場合は何もしない。
      * @param world 登録先の 2D 衝突ワールド。
      * @param layer ソリッド化するレイヤ index。
- * @param collision_layer_bit FCollisionWorld2D のレイヤ bitmask。
+ * @param collision_layer_bit CCollisionWorld2D のレイヤ bitmask。
      */
-    void BuildCollision(FCollisionWorld2D& world, u32 layer, u32 collision_layer_bit) noexcept;
+    void BuildCollision(CCollisionWorld2D& world, u32 layer, u32 collision_layer_bit) noexcept;
 
     /**
-     * 全レイヤの非空タイルを FSpriteBatch へ描画する。
+     * 全レイヤの非空タイルを CSpriteBatch へ描画する。
      *
      * @details
      * レイヤ 0 を最背面として前面へ順に描く。アトラス設定時はタイル ID から算出した
      * セルの UV 矩形で描画し、未設定時は tile id 由来の色でデバッグ矩形を描く。rc に
-     * FSpriteBatch が無い場合は何もしない。
+     * CSpriteBatch が無い場合は何もしない。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
     void OnDraw(FRenderContext& rc) noexcept override;
@@ -57969,7 +58794,7 @@ void FRandom::Shuffle(TArray<T>& values) noexcept {
 
 // ===================== gameframework/PhotoMode.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FPhotoMode (Polish & GameFeel)
+// GameFramework Pillar R — CPhotoMode (Polish & GameFeel)
 //
 // プレイヤーが任意の瞬間で「ゲーム時間を停止して景色を撮影する」モード。
 // 近年の AAA タイトル (Horizon / God of War / Spider-Man など) で
@@ -57984,22 +58809,22 @@ void FRandom::Shuffle(TArray<T>& values) noexcept {
 //
 // 設計選択:
 //   ・**caller が時間操作を行う**: Enter() / Exit() は本クラスの状態を
-//     変えるだけ。実際の `FGame::SetTimeScale(0)` 呼び出しは外側の
+//     変えるだけ。実際の `CGame::SetTimeScale(0)` 呼び出しは外側の
 //     ゲームコードが SavedTimeScale() を見て行う。これにより
-//     GameFramework モジュールから FGame への依存を切る (Pillar 規約)。
+//     GameFramework モジュールから CGame への依存を切る (Pillar 規約)。
 //   ・**capture flag は poll-and-consume**: 描画側が 1 フレームの末尾で
 //     `ConsumeCaptureRequest()` を呼んで rear (= 落とす)。連打しても
 //     1 フレームに 1 枚しか保存しない自然な仕様。
 //   ・**zoom clamp [0.1, 10.0]**: 1/10 〜 10 倍。これより外は被写界深度や
 //     LOD が破綻するので機械的に clamp。
 //   ・**rotation は累積 radians**: 元のゲームカメラ rotation に **加算** する
-//     用途。FCamera2D::Rotation() と直接競合しない設計。
+//     用途。CCamera2D::Rotation() と直接競合しない設計。
 //   ・**filter は enum のみ持つ**: 実 LUT / シェーダパラメータの解決は
 //     ポストプロセスパスの責務。本クラスは「どのフィルタが選ばれているか」
 //     だけを保持する。
 //
 // 非コピー・非ムーブ:
-//   FPhotoMode は FGame / FScene のメンバとして 1 インスタンスだけ存在する
+//   CPhotoMode は CGame / AScene のメンバとして 1 インスタンスだけ存在する
 //   想定。複製可能にすると saved_time_scale 等の整合性管理が破綻する。
 //
 // 範囲外:
@@ -58017,11 +58842,11 @@ namespace acs::game {
  * @details
  * active フラグ・カメラ自由操作オフセット (pan / zoom / rotation)・色フィルタ種別・
  * 撮影リクエスト flag・Enter 時の time scale 保存値だけを保持する。実際の時間停止や
- * カメラ移動・フィルタ適用は caller (FGame / FScene / ポストプロセスパス) が状態を見て
- * 行うため、GameFramework から FGame への依存を持たない。state holder の唯一性を保つ
+ * カメラ移動・フィルタ適用は caller (CGame / AScene / ポストプロセスパス) が状態を見て
+ * 行うため、GameFramework から CGame への依存を持たない。state holder の唯一性を保つ
  * ため非コピー・非ムーブ。
  */
-class FPhotoMode {
+class CPhotoMode {
 public:
     /**
      * 色フィルタの種別。
@@ -58047,22 +58872,22 @@ public:
     };
 
     /** 非アクティブ状態で構築する (フィルタ None、オフセット 0)。 */
-    FPhotoMode() noexcept = default;
+    CPhotoMode() noexcept = default;
 
     /** デストラクタ。 */
-    ~FPhotoMode() noexcept = default;
+    ~CPhotoMode() noexcept = default;
 
     /** コピー禁止 (state holder の唯一性を担保するため)。 */
-    FPhotoMode(const FPhotoMode&)            = delete;
+    CPhotoMode(const CPhotoMode&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPhotoMode& operator=(const FPhotoMode&) = delete;
+    CPhotoMode& operator=(const CPhotoMode&) = delete;
 
     /** ムーブ禁止 (state holder の唯一性を担保するため)。 */
-    FPhotoMode(FPhotoMode&&)                 = delete;
+    CPhotoMode(CPhotoMode&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPhotoMode& operator=(FPhotoMode&&)      = delete;
+    CPhotoMode& operator=(CPhotoMode&&)      = delete;
 
     /**
      * 撮影モードに入る。
@@ -58070,7 +58895,7 @@ public:
      * @details
      * 二重 Enter は no-op (保存値を上書きしない)。現在の time_scale を保存し、カメラ
      * オフセット・ズーム・回転・撮影 flag をリセットする。フィルタは前回値を保持する。
-     * 実際に `FGame::SetTimeScale(0)` を呼ぶのは caller の責任。
+     * 実際に `CGame::SetTimeScale(0)` を呼ぶのは caller の責任。
      * @param current_time_scale Enter 時点の time scale (Exit 後の復元用に保存される)。
      */
     void Enter(f32 current_time_scale = 1.0f) noexcept;
@@ -58162,7 +58987,7 @@ public:
     /**
      * Enter 時に保存した time scale を返す。
      *
-     * @details caller が Exit 後に `FGame::SetTimeScale(photo.SavedTimeScale())` で
+     * @details caller が Exit 後に `CGame::SetTimeScale(photo.SavedTimeScale())` で
      * 復元する用。
      * @return Enter 時点の time scale。
      */
@@ -58190,6 +59015,9 @@ private:
     /** Enter 時に保存した time scale (Exit 後の復元用)。 */
     f32        m_SavedTimeScale  = 1.0f;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPhotoMode = CPhotoMode;
 
 } // namespace acs::game
 
@@ -58219,14 +59047,14 @@ private:
 //   slot.Save(profile);
 //
 // 設計方針:
-//   ・**バイナリ format**: FSaveArchive (`.acssave`、24B header + payload + crc) に
+//   ・**バイナリ format**: CSaveArchive (`.acssave`、24B header + payload + crc) に
 //     委譲する。詳細は gameframework/SaveArchive.h を参照。
 //   ・**スキーマ進化耐性**: T を直接 memcpy で書く current design は schema 固定
-//     な T 専用。FSaveArchive の version パラメータを使って schema 変更を検知できる
+//     な T 専用。CSaveArchive の version パラメータを使って schema 変更を検知できる
 //     (デフォルト version=1)。version 不一致時は FErrorCode.subcode に
 //     ESaveArchiveSubCode::kSubMigrationNeeded が入る。
 //   ・**例外なし**: 全 noexcept、エラーは TResult<T, FErrorCode> で伝搬する。
-//   ・**STL 不使用**: container 依存も無し。ファイル I/O は FSaveArchive 経由
+//   ・**STL 不使用**: container 依存も無し。ファイル I/O は CSaveArchive 経由
 //     (Win32 直叩き) に委譲。
 
 
@@ -58234,7 +59062,7 @@ private:
 // ===================== gameframework/SaveArchive.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework Pillar J — FSaveArchive (低レベル `.acssave` バイナリ I/O)
+// GameFramework Pillar J — CSaveArchive (低レベル `.acssave` バイナリ I/O)
 // -----------------------------------------------------------------------------
 // 役割:
 //   ユーザー定義 POD を 1 つのファイル (`.acssave`) に「タグ付きバイナリ」で
@@ -58264,20 +59092,20 @@ private:
 //   ・**static のみ・非インスタンス**: 状態を持たない無名関数の集合体として
 //     振る舞う。コピー / ムーブともに明示的に削除する。
 //   ・**Win32 直叩き**: `CreateFileW / ReadFile / WriteFile / SetFilePointerEx /
-//     GetFileSizeEx / CloseHandle` を .cpp 内で直接呼ぶ (FFileSystem を経由
+//     GetFileSizeEx / CloseHandle` を .cpp 内で直接呼ぶ (CFileSystem を経由
 //     しない — このレイヤは整合性検証 + I/O を 1 つの atomic 単位に閉じたい
 //     ため、薄い直接呼び出しが目的に合う)。
 //
 // 使い方:
 //   // 書き込み
 //   FPlayerProfile p = MakeProfile();
-//   auto wr = FSaveArchive::WriteToFile(L"profile.acssave", 1u, &p, sizeof(p));
+//   auto wr = CSaveArchive::WriteToFile(L"profile.acssave", 1u, &p, sizeof(p));
 //   if (wr.IsErr()) { /* 報告 */ }
 //
 //   // 読み込み
 //   FPlayerProfile p{};
 //   u64 actual_size = 0;
-//   auto rd = FSaveArchive::ReadFromFile(L"profile.acssave", &p, sizeof(p), 1u,
+//   auto rd = CSaveArchive::ReadFromFile(L"profile.acssave", &p, sizeof(p), 1u,
 //                                       actual_size);
 //   if (rd.IsErr()) {
 //       if (rd.Error().subcode ==
@@ -58295,7 +59123,7 @@ private:
 namespace acs::game {
 
 /**
- * FSaveArchive の各 API が返すエラー subcode (FErrorCode.subcode に格納)。
+ * CSaveArchive の各 API が返すエラー subcode (FErrorCode.subcode に格納)。
  *
  * @details
  * 上位層が switch 分岐できるよう固定 u32 値を割り当てる。既存値の再利用は禁止。
@@ -58359,7 +59187,7 @@ struct FSaveArchiveMetadata {
  * の後に payload バイト列が続く little-endian フォーマット。状態を持たない static 関数の
  * 集合体で、Win32 ファイル API を直接叩く。全 API noexcept でエラーは TResult で伝搬する。
  */
-class FSaveArchive {
+class CSaveArchive {
 public:
     /** magic バイト列のサイズ (ASCII "ACSSAVE\0" の 8 バイト)。 */
     static constexpr usize kMagicSize  = 8;
@@ -58383,22 +59211,22 @@ public:
     static const u8 kMagicBytes[kMagicSize];
 
     /** インスタンス化禁止 (state を持たない static 関数の集合)。 */
-    FSaveArchive()                              = delete;
+    CSaveArchive()                              = delete;
 
     /** デストラクタも禁止 (非インスタンス)。 */
-    ~FSaveArchive()                             = delete;
+    ~CSaveArchive()                             = delete;
 
     /** コピー禁止。 */
-    FSaveArchive(const FSaveArchive&)            = delete;
+    CSaveArchive(const CSaveArchive&)            = delete;
 
     /** ムーブ禁止。 */
-    FSaveArchive(FSaveArchive&&)                 = delete;
+    CSaveArchive(CSaveArchive&&)                 = delete;
 
     /** コピー代入も禁止。 */
-    FSaveArchive& operator=(const FSaveArchive&) = delete;
+    CSaveArchive& operator=(const CSaveArchive&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FSaveArchive& operator=(FSaveArchive&&)      = delete;
+    CSaveArchive& operator=(CSaveArchive&&)      = delete;
 
     /**
      * payload を `.acssave` 1 ファイル (header + payload + CRC32) に保存する。
@@ -58475,6 +59303,9 @@ public:
         const wchar_t* file_path) noexcept;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSaveArchive = CSaveArchive;
+
 } // namespace acs::game
 
 namespace acs::game {
@@ -58483,9 +59314,9 @@ namespace acs::game {
  * 単一の trivially-copyable な POD/struct T を 1 ファイルに永続化するセーブスロット。
  *
  * @details
- * `.acssave` バイナリ形式 (FSaveArchive、24B header + payload + crc) に保存・復元を
+ * `.acssave` バイナリ形式 (CSaveArchive、24B header + payload + crc) に保存・復元を
  * 委譲する。タイトル画面の continue/new game 判定、オプション設定、進捗データ等の
- * 土台となる。T は trivially_copyable かつ FSaveArchive の payload 安全上限以下で
+ * 土台となる。T は trivially_copyable かつ CSaveArchive の payload 安全上限以下で
  * あることをコンパイル時に検証する。例外なし (全 noexcept)、STL 不使用、
  * ファイルパスは非所有ポインタで保持する。
  * @tparam T 永続化する trivially-copyable な POD/struct 型。
@@ -58495,14 +59326,14 @@ class TSaveSlot {
 public:
     static_assert(IsTriviallyCopyableV<T>,
                   "TSaveSlot<T> requires a trivially-copyable payload type");
-    static_assert(sizeof(T) <= FSaveArchive::kMaxPayloadSize,
-                  "TSaveSlot<T> payload exceeds FSaveArchive safety limit");
+    static_assert(sizeof(T) <= CSaveArchive::kMaxPayloadSize,
+                  "TSaveSlot<T> payload exceeds CSaveArchive safety limit");
 
     /** 空状態で構築する (ファイルパス未設定)。 */
     TSaveSlot() noexcept = default;
 
     /** checked owned path の確保に指定 allocator を使う。 */
-    explicit TSaveSlot(FAllocator& allocator) noexcept
+    explicit TSaveSlot(IAllocator& allocator) noexcept
         : m_OwnedPath(allocator) {}
 
     /** 破棄する。TryInit で所有したパスも自動解放する。 */
@@ -58548,11 +59379,11 @@ public:
         }
 
         usize path_chars = 0;
-        while (path_chars <= FSaveArchive::kMaxPathChars &&
+        while (path_chars <= CSaveArchive::kMaxPathChars &&
                file_path[path_chars] != L'\0') {
             ++path_chars;
         }
-        if (path_chars > FSaveArchive::kMaxPathChars) {
+        if (path_chars > CSaveArchive::kMaxPathChars) {
             return ACS_ERR(
                 IO,
                 static_cast<u16>(ESaveArchiveSubCode::kSubPathTooLong),
@@ -58576,12 +59407,12 @@ public:
     }
 
     /**
-     * data を `.acssave` 形式で保存する (FSaveArchive::WriteToFile 経由)。
+     * data を `.acssave` 形式で保存する (CSaveArchive::WriteToFile 経由)。
      *
      * @details
      * version は呼び出し側が schema 進化を判定するためのタグ。schema を変えたら version
      * を増やすと、旧データ読み込み時に ESaveArchiveSubCode::kSubMigrationNeeded が返って
-     * migrate しやすい。書き込みは FSaveArchive の同一ディレクトリ一時ファイルと
+     * migrate しやすい。書き込みは CSaveArchive の同一ディレクトリ一時ファイルと
      * atomic replace を継承し、途中失敗でも既存slotを保持する。
      * @param data 保存する T の値。
      * @param version スキーマバージョンタグ (既定 1)。
@@ -58590,13 +59421,13 @@ public:
     TResult<void> Save(const T& data, u32 version = 1u) noexcept;
 
     /**
-     * ファイルから読み出して T を返す (FSaveArchive::ReadFromFile 経由)。
+     * ファイルから読み出して T を返す (CSaveArchive::ReadFromFile 経由)。
      *
      * @details
      * expected_version != header.version の場合は
      * Err(Asset, ESaveArchiveSubCode::kSubMigrationNeeded) を返す。型サイズ不一致、
      * CRC不一致、I/O失敗を含む全失敗で値は返さない。呼び出し側は
-     * FSaveArchive::PeekVersion で旧 version を取り直して migrate するパスに分岐できる。
+     * CSaveArchive::PeekVersion で旧 version を取り直して migrate するパスに分岐できる。
      * @param expected_version 期待するスキーマバージョン (既定 1)。
      * @return 成功なら読み出した T、未初期化 / 検証失敗 / version 不一致ならエラー。
      */
@@ -58644,7 +59475,7 @@ namespace detail {
  *
  * @details
  * テンプレート化された TSaveSlot<T> がここを呼ぶ形にして、T ごとにオブジェクトコードが
- * 膨らまないようにする。中身は FSaveArchive::WriteToFile への薄いラッパ。
+ * 膨らまないようにする。中身は CSaveArchive::WriteToFile への薄いラッパ。
  * @param file_path 書き込み先の wide パス (nullptr なら未初期化エラー)。
  * @param version スキーマバージョンタグ。
  * @param payload 書き込むペイロード先頭ポインタ。
@@ -58660,7 +59491,7 @@ TResult<void> SaveSlot_SaveBytes(const wchar_t* file_path,
  * SaveSlot.cpp 側に置く非テンプレート読み込みヘルパ (`.acssave` から payload を読む)。
  *
  * @details
- * FSaveArchive::ReadFromFile への薄いラッパで、header.payload_size が payload_size と
+ * CSaveArchive::ReadFromFile への薄いラッパで、header.payload_size が payload_size と
  * 完全一致することも追加検証する。一時bufferへ読み込んで検証後にだけpayload_outへ
  * 反映するため、全失敗で出力は不変。version 不一致は kSubMigrationNeeded で伝搬する。
  * @param file_path 読み込み元の wide パス (nullptr なら未初期化エラー)。
@@ -58675,7 +59506,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
                                 usize          payload_size) noexcept;
 
 /**
- * ファイルが存在するかを判定する (FFileSystem::Exists 委譲)。
+ * ファイルが存在するかを判定する (CFileSystem::Exists 委譲)。
  *
  * @param file_path 判定する wide パス。
  * @return ファイルがあれば true、未初期化 (nullptr) なら false。
@@ -58683,7 +59514,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
 bool         SaveSlot_Exists(const wchar_t* file_path) noexcept;
 
 /**
- * ファイルを削除する (べき等、FFileSystem::Delete 委譲)。
+ * ファイルを削除する (べき等、CFileSystem::Delete 委譲)。
  *
  * @param file_path 削除する wide パス (nullptr なら未初期化エラー)。
  * @return 成功なら空の TResult、未初期化 / 削除失敗ならエラー。
@@ -58729,7 +59560,7 @@ TResult<void> TSaveSlot<T>::Delete() noexcept {
 
 // ===================== gameframework/ModRegistry.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — FModRegistry (Mod 読み込み順管理)
+// GameFramework Pillar N — CModRegistry (Mod 読み込み順管理)
 //
 // ユーザー Mod (= 追加コンテンツパック) の登録・有効化・並び順管理を行う薄い
 // レジストリ。各 Mod は `.acpak` (Pillar G AssetPack 形式) を 1 つ伴うことが
@@ -58737,7 +59568,7 @@ TResult<void> TSaveSlot<T>::Delete() noexcept {
 // (後勝ち = load_order 大きい方が前段の同名アセットを上書き) 想定。
 //
 // 使い方:
-//   FModRegistry mr;
+//   CModRegistry mr;
 //   FModInfo a{};
 //   a.id         = "core";
 //   a.name       = "Core Pack";
@@ -58833,25 +59664,25 @@ struct FModInfo {
  * 所有せず呼び出し側の寿命に依存する。1 ゲーム寿命に 1 インスタンスのみを想定し
  * non-copy / non-move とする。
  */
-class FModRegistry {
+class CModRegistry {
 public:
     /** 空のレジストリを構築する。 */
-    FModRegistry() noexcept = default;
+    CModRegistry() noexcept = default;
 
     /** 破棄する (内部 TArray が解放される)。 */
-    ~FModRegistry() noexcept = default;
+    ~CModRegistry() noexcept = default;
 
     /** コピー禁止 (active な Registry を一意にするため)。 */
-    FModRegistry(const FModRegistry&)            = delete;
+    CModRegistry(const CModRegistry&)            = delete;
 
     /** コピー代入も禁止。 */
-    FModRegistry& operator=(const FModRegistry&) = delete;
+    CModRegistry& operator=(const CModRegistry&) = delete;
 
     /** ムーブ禁止。 */
-    FModRegistry(FModRegistry&&)                 = delete;
+    CModRegistry(CModRegistry&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FModRegistry& operator=(FModRegistry&&)      = delete;
+    CModRegistry& operator=(CModRegistry&&)      = delete;
 
     /**
      * Mod を内部リストの末尾に登録する。
@@ -58934,6 +59765,9 @@ private:
     TArray<FModInfo> m_Mods;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FModRegistry = CModRegistry;
+
 } // namespace acs::game
 
 // ===================== gameframework/SteamworksBridge.h =====================
@@ -58946,12 +59780,12 @@ private:
 // SDK 等) との結合はビルド時の選択で差し替える。
 //
 // 使い方:
-//   class FGame {
+//   class CGame {
 //       acs::game::ISteamworksBridge* m_Social = nullptr;
 //
 //       void OnStart() noexcept override {
 //           // 出荷ビルドでは GoldenSteamworksBridge を DI、開発ビルドでは Stub。
-//           m_Social = &acs::game::FSteamworksBridgeStub::GetStub();
+//           m_Social = &acs::game::CSteamworksBridgeStub::GetStub();
 //           (void)m_Social->Init();
 //       }
 //       void OnTick(f32 dt) noexcept override {
@@ -58980,8 +59814,8 @@ private:
 //     畳み込む。ゲーム側は dt を毎フレーム渡すだけで、コールバックポンプの存在を
 //     意識しなくて良い。
 //   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
-//     `FSteamworksBridgeStub::GetStub()` を提供。実 SDK 未統合のビルドでも
-//     `m_Social = &FSteamworksBridgeStub::GetStub();` だけでコンパイル可能。
+//     `CSteamworksBridgeStub::GetStub()` を提供。実 SDK 未統合のビルドでも
+//     `m_Social = &CSteamworksBridgeStub::GetStub();` だけでコンパイル可能。
 //   ・**実 SDK 実装はここでは作らない**: GoldenSteamworksBridge 等は Steamworks SDK
 //     ヘッダ / ライブラリへの依存を伴うため、本ファイルでは I/F + Stub のみ。
 //
@@ -59291,13 +60125,13 @@ public:
  * 返す。Achievement / Leaderboard 等の機能系は ACS_ERR(Generic,
  * kSubSteamworksNotImplemented) を返し、Shutdown() / Tick() は副作用を持たない。
  */
-class FSteamworksBridgeStub final : public ISteamworksBridge {
+class CSteamworksBridgeStub final : public ISteamworksBridge {
 public:
     /** 未初期化状態の Stub を構築する。 */
-    FSteamworksBridgeStub() noexcept = default;
+    CSteamworksBridgeStub() noexcept = default;
 
     /** Stub を破棄する (副作用なし)。 */
-    ~FSteamworksBridgeStub() noexcept override = default;
+    ~CSteamworksBridgeStub() noexcept override = default;
 
     /**
      * 初期化済みフラグを立てて常に成功を返す。
@@ -59525,7 +60359,7 @@ public:
      * @details 実 SDK 実装が DI される前のデフォルト Bridge として使う。
      * @return プロセス唯一の Stub インスタンスへの参照。
      */
-    static FSteamworksBridgeStub& GetStub() noexcept;
+    static CSteamworksBridgeStub& GetStub() noexcept;
 
 private:
     /** 初期化済みフラグ (Init で true、Shutdown で false)。 */
@@ -59536,7 +60370,7 @@ private:
  * 既定 Bridge を返す provider 関数ポインタ型。
  *
  * @details
- * gameframework は実 backend モジュール (ACS::Steamworks / FSteamworksBridgeImpl) に
+ * gameframework は実 backend モジュール (ACS::Steamworks / CSteamworksBridgeImpl) に
  * 依存できない (backend 側が本 interface に依存するため循環になる)。そこで実 backend
  * 側がこの型の関数を SetSteamworksBridgeProvider で登録し、ゲームコードは
  * GetDefaultSteamworksBridge を通じて backend 非依存に既定 Bridge を取得する。
@@ -59554,9 +60388,12 @@ void SetSteamworksBridgeProvider(SteamworksBridgeProvider provider) noexcept;
 /**
  * 既定 ISteamworksBridge を返す。
  *
- * @return provider 登録済みならその実 Bridge、未登録なら FSteamworksBridgeStub::GetStub()。
+ * @return provider 登録済みならその実 Bridge、未登録なら CSteamworksBridgeStub::GetStub()。
  */
 ISteamworksBridge& GetDefaultSteamworksBridge() noexcept;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSteamworksBridgeStub = CSteamworksBridgeStub;
 
 } // namespace acs::game
 
@@ -59602,11 +60439,11 @@ ISteamworksBridge& GetDefaultSteamworksBridge() noexcept;
 //
 // 本 header で提供するもの:
 //   ・`IMlRuntime` / `IUpscaler` の純粋仮想 interface 確定
-//   ・`FMlRuntimeStub` / `FUpscalerStub` の **失敗側を返すだけの stub 実装**
+//   ・`CMlRuntimeStub` / `CUpscalerStub` の **失敗側を返すだけの stub 実装**
 //   ・global stub アクセサ `GetMlRuntimeStub()` / `GetUpscalerStub()`
 //
 // 本 header の範囲外:
-//   ・ONNX Runtime / DirectML 連携の `FOnnxMlRuntime` 実装 (別モジュール)
+//   ・ONNX Runtime / DirectML 連携の `COnnxMlRuntime` 実装 (別モジュール)
 //   ・FSR2 / DLSS / XeSS 連携の各具象 `IUpscaler` 実装 (別モジュール、SDK 同梱)
 //   ・LLM NPC 安全パイプ (rate limit / content filter / 決定論なし宣言)
 //
@@ -59727,13 +60564,13 @@ protected:
  * 失敗する」前提で正しくフォールバックを書けているかを検証するための実装。具象
  * backend が追加されると起動時に差し替わる。
  */
-class FMlRuntimeStub final : public IMlRuntime {
+class CMlRuntimeStub final : public IMlRuntime {
 public:
     /** stub を構築する。 */
-    FMlRuntimeStub() noexcept = default;
+    CMlRuntimeStub() noexcept = default;
 
     /** stub を破棄する (保持リソースなし)。 */
-    ~FMlRuntimeStub() noexcept override = default;
+    ~CMlRuntimeStub() noexcept override = default;
 
     /**
      * 常に NotImplemented を返す。
@@ -59884,13 +60721,13 @@ protected:
  * (= ネイティブ描画) を書けるようにする placeholder。Init(Off) は成功、Init(非 Off) は
  * NotImplemented を返し、入出力サイズは常に 0。
  */
-class FUpscalerStub final : public IUpscaler {
+class CUpscalerStub final : public IUpscaler {
 public:
     /** Off 状態で stub を構築する。 */
-    FUpscalerStub() noexcept = default;
+    CUpscalerStub() noexcept = default;
 
     /** stub を破棄する (保持リソースなし)。 */
-    ~FUpscalerStub() noexcept override = default;
+    ~CUpscalerStub() noexcept override = default;
 
     /**
      * Off なら成功、それ以外は NotImplemented を返す。
@@ -59947,7 +60784,7 @@ private:
  * process 内で 1 個だけ存在する ML ランタイム stub への参照を返す。
  *
  * @details static 単一インスタンス (process lifetime)。スレッド安全性は呼び出し側責務。
- * @return 共有 FMlRuntimeStub への参照。
+ * @return 共有 CMlRuntimeStub への参照。
  */
 IMlRuntime& GetMlRuntimeStub() noexcept;
 
@@ -59955,7 +60792,7 @@ IMlRuntime& GetMlRuntimeStub() noexcept;
  * process 内で 1 個だけ存在する IUpscaler stub への参照を返す。
  *
  * @details static 単一インスタンス (process lifetime)。スレッド安全性は呼び出し側責務。
- * @return 共有 FUpscalerStub への参照。
+ * @return 共有 CUpscalerStub への参照。
  */
 IUpscaler&  GetUpscalerStub()  noexcept;
 
@@ -59992,18 +60829,24 @@ namespace ml_err {
     inline constexpr u16 kSub_InvalidArg     = 1;
 } // namespace ml_err
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMlRuntimeStub = CMlRuntimeStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FUpscalerStub = CUpscalerStub;
+
 } // namespace acs::game
 
 // ===================== gameframework/Settings.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — FSettings (型付きゲーム設定)
+// GameFramework Pillar G — CSettings (型付きゲーム設定)
 //
 // 音量・解像度・キーバインド等の「ゲームを跨いで永続化したい設定値」を
 // 型付き key-value で保持する小型ストア。FInputMap (Pillar D) のキーコンフィグや
 // AudioMixer の音量、Display の解像度・ウィンドウモード等の永続化先として使う。
 //
 // 使い方:
-//   FSettings s;
+//   CSettings s;
 //   s.SetF32 ("audio.master",   0.8f);
 //   s.SetI32 ("display.width",  1920);
 //   s.SetBool("display.vsync",  true);
@@ -60134,7 +60977,7 @@ const char* SettingsPersistenceErrorName(ESettingsPersistenceError error) noexce
  * string 値は非所有 const char* (寿命は呼び出し側が保証) で、コピー・ムーブ禁止。
  * Save/Load は INI 風 `<tag>:<key>=<value>` テキスト (UTF-8 / LF) で読み書きする。
  */
-class FSettings {
+class CSettings {
 public:
     /** 受け入れ・出力可能な settings document の最大サイズ (4 MiB)。 */
     static constexpr usize kMaxPersistenceBytes = 4u * 1024u * 1024u;
@@ -60152,22 +60995,22 @@ public:
     static constexpr usize kMaxPersistenceStringBytes = 4096u;
 
     /** 空のストアを構築する (エントリなし)。 */
-    FSettings()  noexcept = default;
+    CSettings()  noexcept = default;
 
     /** デストラクタ (エントリ・文字列プールは TArray/FString が解放)。 */
-    ~FSettings() noexcept = default;
+    ~CSettings() noexcept = default;
 
     /** コピー禁止 (1 セッション 1 オブジェクトでの同期ずれを防ぐため)。 */
-    FSettings(const FSettings&)            = delete;
+    CSettings(const CSettings&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSettings& operator=(const FSettings&) = delete;
+    CSettings& operator=(const CSettings&) = delete;
 
     /** ムーブ禁止。 */
-    FSettings(FSettings&&)                 = delete;
+    CSettings(CSettings&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSettings& operator=(FSettings&&)      = delete;
+    CSettings& operator=(CSettings&&)      = delete;
 
     /**
      * f32 値を書き込む (同名 key は上書き、key == nullptr は no-op)。
@@ -60377,18 +61220,21 @@ private:
     TArray<FString> m_StringPool;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSettings = CSettings;
+
 } // namespace acs::game
 
 // ===================== gameframework/PartySystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — FPartySystem (パーティ state machine + フレンドリスト seam)
+// GameFramework Pillar T — CPartySystem (パーティ state machine + フレンドリスト seam)
 //
 // 役割:
 //   1〜N 人のローカルプレイヤーをまとめた「パーティ」状態と、簡易フレンドリストを
 //   ゲームロジック側から扱う窓口。マッチング前のロビー、Co-op 入室前の集合場所、
 //   ストアでのフレンド表示などを単一の API で扱う。実プラットフォーム接続は
 //   Pillar S = Storefront 側 (`ISteamworksBridge` / EOS / PSN / Xbox / NSO) が
-//   アダプタとなり、結果を本 system に流し込む。FPartySystem 自体は **プラット
+//   アダプタとなり、結果を本 system に流し込む。CPartySystem 自体は **プラット
 //   フォーム非依存**。
 //
 // 設計上の倫理方針 (cross-platform party + 児童保護):
@@ -60404,7 +61250,7 @@ private:
 //     ごとに年齢推定 API が異なるため一律ルール化が危険)。
 //
 // 使い方 (典型例):
-//   FPartySystem ps;
+//   CPartySystem ps;
 //   ps.AddFriend({ "steam:76561198000000001", "alice",  true,  true  });
 //   ps.AddFriend({ "epic:abc123",              "bob",    false, false });
 //
@@ -60443,7 +61289,7 @@ namespace acs::game {
  *
  * @details
  * platform_id / display_name は両方 const char* 非所有で、寿命は呼び出し側が保証する
- * (文字列リテラル or 永続バッファ、Pillar O FEntitlementRegistry と同じポリシー)。
+ * (文字列リテラル or 永続バッファ、Pillar O CEntitlementRegistry と同じポリシー)。
  */
 struct FFriend {
     /** SDK 固有のユーザー識別子 (例 "steam:..." / "epic:..." / PSN account_id)。 */
@@ -60511,25 +61357,25 @@ enum class EPartyState : u8 {
  * 別レイヤが担当し、Joining / Leaving は Tick で仮想完了する。文字列はすべて const char*
  * 非所有で寿命は呼び出し側が保証する。
  */
-class FPartySystem {
+class CPartySystem {
 public:
     /** 空状態 (Solo) で構築する。 */
-    FPartySystem()  noexcept = default;
+    CPartySystem()  noexcept = default;
 
     /** 破棄する。 */
-    ~FPartySystem() noexcept = default;
+    ~CPartySystem() noexcept = default;
 
     /** コピー禁止 (長寿命 1 個運用で state 分裂を避けるため)。 */
-    FPartySystem(const FPartySystem&)            = delete;
+    CPartySystem(const CPartySystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPartySystem& operator=(const FPartySystem&) = delete;
+    CPartySystem& operator=(const CPartySystem&) = delete;
 
     /** ムーブ禁止。 */
-    FPartySystem(FPartySystem&&)                 = delete;
+    CPartySystem(CPartySystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPartySystem& operator=(FPartySystem&&)      = delete;
+    CPartySystem& operator=(CPartySystem&&)      = delete;
 
     /**
      * 新規パーティを作成する (Solo 状態のみ受理)。
@@ -60700,14 +61546,17 @@ private:
     TArray<FFriend>      m_Friends;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPartySystem = CPartySystem;
+
 } // namespace acs::game
 
 
 // ===================== gameframework/SceneEventBus.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FSceneEventBus
+// GameFramework Pillar A — CSceneEventBus
 //
-// シーン内 component / system 間の type-erased pub/sub。同一 FScene に居る
+// シーン内 component / system 間の type-erased pub/sub。同一 AScene に居る
 // オブジェクト同士が「相手の存在」を知らずに通知をやり取りするための薄い
 // メッセージング層。FActionId と同じ compile-time FNV-1a hash で event 名を
 // u32 に畳み、ハンドラは関数ポインタ + void* user で type-erase する
@@ -60716,7 +61565,7 @@ private:
 // 使い方:
 //   class AEnemySpawner : public AComponent {
 //   public:
-//       void BindEvents(FSceneEventBus& events) noexcept {
+//       void BindEvents(CSceneEventBus& events) noexcept {
 //           m_Events = &events;
 //           m_Sub = events.Subscribe(
 //               FEventId("PlayerDied"), &OnPlayerDied, this);
@@ -60731,11 +61580,11 @@ private:
 //                                const void* /*payload*/, u32 /*size*/) noexcept {
 //           static_cast<AEnemySpawner*>(user)->FreezeSpawning();
 //       }
-//       FSceneEventBus* m_Events = nullptr;
+//       CSceneEventBus* m_Events = nullptr;
 //       u32 m_Sub = 0;
 //   };
 //
-//   // FScene 等が所有する bus を BindEvents で明示注入し、別 component から publish:
+//   // AScene 等が所有する bus を BindEvents で明示注入し、別 component から publish:
 //   FPlayerDiedPayload p{ pos, cause };
 //   events.Publish(FEventId("PlayerDied"), &p, sizeof(p));
 //
@@ -60754,7 +61603,7 @@ private:
 //     走査中の参照が無効化されるため、Publish の走査は size を最初に
 //     キャプチャしてその範囲のみ呼ぶ。Publish 中に追加された subscriber は
 //     次回以降の Publish で初めて呼ばれる (一般的な pub/sub セマンティクス)。
-//   ・**非コピー / 非ムーブ**: FScene にメンバとして埋め込む前提、所有権の
+//   ・**非コピー / 非ムーブ**: AScene にメンバとして埋め込む前提、所有権の
 //     ambiguity を持ち込まない。
 
 
@@ -60835,31 +61684,31 @@ using HandlerFn = void(*)(void* user, const void* payload, u32 payload_size) noe
  * シーン内 component / system 間の type-erased pub/sub バス。
  *
  * @details
- * 同一 FScene のオブジェクト同士が「相手の存在」を知らずに通知をやり取りするための薄い
+ * 同一 AScene のオブジェクト同士が「相手の存在」を知らずに通知をやり取りするための薄い
  * メッセージング層。FEventId (compile-time FNV-1a ハッシュ) で event を識別し、ハンドラは
  * 関数ポインタ + void* user で type-erase する。Subscribe ごとにユニークな u32 handle を
  * 払い出し、Unsubscribe は FEntry を mark-inactive するのみで物理削除しないため、Publish 中の
- * Subscribe / Unsubscribe を安全に行える。FScene に埋め込む前提の非コピー・非ムーブ型。
+ * Subscribe / Unsubscribe を安全に行える。AScene に埋め込む前提の非コピー・非ムーブ型。
  */
-class FSceneEventBus {
+class CSceneEventBus {
 public:
     /** 空のイベントバスを構築する。 */
-    FSceneEventBus() noexcept = default;
+    CSceneEventBus() noexcept = default;
 
     /** イベントバスを破棄する。 */
-    ~FSceneEventBus() noexcept = default;
+    ~CSceneEventBus() noexcept = default;
 
-    /** コピー禁止 (FScene にメンバとして埋め込む前提)。 */
-    FSceneEventBus(const FSceneEventBus&)            = delete;
+    /** コピー禁止 (AScene にメンバとして埋め込む前提)。 */
+    CSceneEventBus(const CSceneEventBus&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSceneEventBus& operator=(const FSceneEventBus&) = delete;
+    CSceneEventBus& operator=(const CSceneEventBus&) = delete;
 
     /** ムーブ禁止 (所有権の ambiguity を持ち込まないため)。 */
-    FSceneEventBus(FSceneEventBus&&)                 = delete;
+    CSceneEventBus(CSceneEventBus&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSceneEventBus& operator=(FSceneEventBus&&)      = delete;
+    CSceneEventBus& operator=(CSceneEventBus&&)      = delete;
 
     /**
      * 指定 event にハンドラを登録する。
@@ -60901,7 +61750,7 @@ public:
      */
     u32 SubscriberCount(FEventId id) const noexcept;
 
-    /** 全 subscription を破棄する (FScene::OnExit 等で使う)。 */
+    /** 全 subscription を破棄する (AScene::OnExit 等で使う)。 */
     void ClearAll() noexcept;
 
 private:
@@ -60934,20 +61783,23 @@ private:
     u32          m_NextHandle = 1u;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSceneEventBus = CSceneEventBus;
+
 } // namespace acs::game
 
 // ===================== gameframework/StreamingDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar P (Scale-Stream) — FStreamingDirector (大規模シーン chunk streaming)
+// GameFramework Pillar P (Scale-Stream) — CStreamingDirector (大規模シーン chunk streaming)
 //
 // 役割:
 //   オープンワールド / 広大なステージで全アセットを常駐させられない場合に、
 //   ビューア (カメラ) 位置を中心とした矩形範囲のチャンク (cx, cy) だけを
-//   load 状態に保ち、範囲外を unload する。FCollisionWorld2D の SpatialGrid と
+//   load 状態に保ち、範囲外を unload する。CCollisionWorld2D の SpatialGrid と
 //   思想は似ているが、こちらは「アセットの load/unload」を扱う上位レイヤ。
 //
 // 使い方 (典型例):
-//   acs::game::FStreamingDirector dir;
+//   acs::game::CStreamingDirector dir;
 //   dir.Init(/*chunk_size=*/100.0f, /*view_radius=*/2);
 //   dir.SetMaxConcurrentLoads(4);
 //   // 毎フレーム:
@@ -60962,22 +61814,20 @@ private:
 //   ・view_radius_chunks=2 は ビューアチャンクを中心に 5x5 (= (2*2+1)^2 = 25 個)。
 //   ・状態遷移: Unloaded → Queued → Loading → Loaded → Unloading → Unloaded。
 //     Tick() で「同時 Loading 数 ≤ max_concurrent_loads」を保ちつつキューを進める。
-//   ・実アセットロード: 1 chunk = 1 FAssetBundle。SetAssetRegistry() で app 所有の
-//     FAssetRegistry を差し込むと、Loading 遷移時に bundle.BeginLoad(registry) を発行し、
+//   ・実アセットロード: 1 chunk = 1 CAssetBundle。SetAssetRegistry() で app 所有の
+//     CAssetRegistry を差し込むと、Loading 遷移時に bundle.BeginLoad(registry) を発行し、
 //     bundle.Progress()/IsLoaded() で実完了を判定、Unloading で bundle.Unload() する。
 //     registry が未設定 (nullptr) のときは simulated load time = 0.5s/chunk の
 //     フォールバックで進行する (ヘッドレステスト / registry を持たない用途向け)。
-//   ・Pillar G の FAssetBundle と二段構え: FStreamingDirector が各チャンクの FAssetBundle
+//   ・Pillar G の CAssetBundle と二段構え: CStreamingDirector が各チャンクの CAssetBundle
 //     を保有し、チャンクごとのアセット集合 (パス) を SetChunkPathFormat() で決める。
 //   ・非コピー・非ムーブ (内部 TArray 規約 / 単一所有を強制)。
 //   ・全 API noexcept、STL 不使用 (acs::TArray<FChunkInfo> で管理)。
 
 
-namespace acs { class FAssetRegistry; }
+namespace acs { class CAssetRegistry; }
 
 namespace acs::game {
-
-class FAssetBundle;
 
 /**
  * チャンクの 2D 整数座標 (cx, cy)。
@@ -61055,34 +61905,34 @@ enum class EChunkState : u8 {
  * ライフサイクルは Init() → 毎フレーム SetViewerPos + Tick → ClearAll() (シーン終了時)。
  * Tick() は (1) 範囲内チャンクを Queued に挿入、(2) Loading 上限内で
  * Queued→Loading→Loaded を進行、(3) 範囲外の Loaded を Unloading→Unloaded に遷移、を
- * 行う。SetAssetRegistry() で実 FAssetRegistry を差すと各チャンクが 1 FAssetBundle を
+ * 行う。SetAssetRegistry() で実 CAssetRegistry を差すと各チャンクが 1 CAssetBundle を
  * 実ロードし、未設定時は simulated load time でフォールバックする。non-copy / non-move。
  */
-class FStreamingDirector {
+class CStreamingDirector {
 public:
     /** 空状態で構築する (設定は Init で行う)。 */
-    FStreamingDirector() noexcept = default;
+    CStreamingDirector() noexcept = default;
 
     /**
      * 全チャンクを破棄する。
      *
      * @details
-     * TUniquePtr<FAssetBundle> の破棄に FAssetBundle の完全型が必要なため、本体は
+     * TUniquePtr<CAssetBundle> の破棄に CAssetBundle の完全型が必要なため、本体は
      * .cpp 側で定義する (ヘッダのみ include する TU で不完全型 delete を避ける)。
      */
-    ~FStreamingDirector() noexcept;
+    ~CStreamingDirector() noexcept;
 
     /** コピー禁止 (内部 TArray と単一所有を強制するため)。 */
-    FStreamingDirector(const FStreamingDirector&)            = delete;
+    CStreamingDirector(const CStreamingDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FStreamingDirector& operator=(const FStreamingDirector&) = delete;
+    CStreamingDirector& operator=(const CStreamingDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FStreamingDirector(FStreamingDirector&&)                 = delete;
+    CStreamingDirector(CStreamingDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FStreamingDirector& operator=(FStreamingDirector&&)      = delete;
+    CStreamingDirector& operator=(CStreamingDirector&&)      = delete;
 
     /**
      * チャンクサイズと保持半径を設定する。
@@ -61099,21 +61949,21 @@ public:
      * 実アセットロード用の registry を差し込む。
      *
      * @details
-     * app 所有 (FApplication::GetAssets() / FGame 経由、非所有 raw ptr)。設定すると各
-     * チャンクが Loading に入るとき FAssetBundle::BeginLoad(*registry) を発行し、進捗/
+     * app 所有 (CApplication::GetAssets() / CGame 経由、非所有 raw ptr)。設定すると各
+     * チャンクが Loading に入るとき CAssetBundle::BeginLoad(*registry) を発行し、進捗/
      * 完了を bundle から取得する。nullptr を渡す (= 未設定) と simulated load time
      * フォールバックで動作する。既に Loading 中のチャンクには影響しない (次に Loading へ
      * 昇格するものから適用)。
-     * @param registry 接続する FAssetRegistry (nullptr で simulated フォールバック)。
+     * @param registry 接続する CAssetRegistry (nullptr で simulated フォールバック)。
      */
-    void            SetAssetRegistry(FAssetRegistry* registry) noexcept { m_Registry = registry; }
+    void            SetAssetRegistry(CAssetRegistry* registry) noexcept { m_Registry = registry; }
 
     /**
      * 現在接続中の registry を返す。
      *
-     * @return 設定済みの FAssetRegistry (未設定なら nullptr)。
+     * @return 設定済みの CAssetRegistry (未設定なら nullptr)。
      */
-    FAssetRegistry* GetAssetRegistry() const noexcept { return m_Registry; }
+    CAssetRegistry* GetAssetRegistry() const noexcept { return m_Registry; }
 
     /**
      * チャンク (cx, cy) → アセットパスを組み立てる printf 風フォーマットを設定する。
@@ -61183,7 +62033,7 @@ public:
      * 指定チャンクを強制的に Unloaded にする (デバッグ / メモリ圧追従用)。
      *
      * @details
-     * Loading 中でも即座に破棄する (bundle.Unload で TSharedPtr を drop。FAssetBundle は
+     * Loading 中でも即座に破棄する (bundle.Unload で TSharedPtr を drop。CAssetBundle は
      * 同期ロードなので「進行中の async load」は無く、cancel 不要で即時解放できる)。範囲
      * 内にあれば次 Tick() で再び Queued に戻る点に注意。
      * @param id 強制 unload するチャンク ID。
@@ -61201,7 +62051,7 @@ private:
      * elapsed は simulated フォールバック時の Loading 中のみ意味を持つ (registry 接続時は
      * bundle 進捗を見るので未使用、Loaded 到達後はリセットされる)。bundle は registry
      * 接続時のみ生成される (MakeUnique で遅延生成し、Unloading で破棄)。path は bundle が
-     * const char* を借用するため FChunkInfo が所有する必要がある (FAssetBundle::Add は
+     * const char* を借用するため FChunkInfo が所有する必要がある (CAssetBundle::Add は
      * 文字列を借用するだけ = bundle より長寿命であること)。FString / TUniquePtr メンバを
      * 持つため FChunkInfo はムーブのみ可 (コピー不可) で、TArray の swap-erase / Grow は
      * Move 経路を使うこと。
@@ -61220,7 +62070,7 @@ private:
         FString                path;
 
         /** チャンクの実アセットロード単位 (registry 接続時のみ生成、非接続時は null)。 */
-        TUniquePtr<FAssetBundle> bundle;
+        TUniquePtr<CAssetBundle> bundle;
     };
 
     /**
@@ -61288,7 +62138,7 @@ private:
     u32 m_MaxConcurrentLoads = 4;
 
     /** 実アセットロード接続先 (非所有)。null なら simulated フォールバック。 */
-    FAssetRegistry* m_Registry = nullptr;
+    CAssetRegistry* m_Registry = nullptr;
 
     /** チャンクパス組み立てフォーマット (空なら kDefaultChunkPathFormat を使用)。 */
     FString m_ChunkPathFormat;
@@ -61303,6 +62153,9 @@ private:
      */
     TArray<FChunkInfo> m_Chunks;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FStreamingDirector = CStreamingDirector;
 
 } // namespace acs::game
 
@@ -61579,13 +62432,13 @@ protected:
  * を返し (m_Initialized は false のまま)、pose / state は zero-initialized、
  * ActivePlatform() は Unknown、passthrough は非対応、Tick()/Shutdown() は副作用なし。
  */
-class FOpenXrBridgeStub final : public IOpenXrBridge {
+class COpenXrBridgeStub final : public IOpenXrBridge {
 public:
     /** stub を構築する (副作用なし)。 */
-    FOpenXrBridgeStub() noexcept = default;
+    COpenXrBridgeStub() noexcept = default;
 
     /** stub を破棄する (解放対象なし)。 */
-    ~FOpenXrBridgeStub() noexcept override = default;
+    ~COpenXrBridgeStub() noexcept override = default;
 
     /**
      * 常に NotImplemented を返す (XR backend 未統合)。
@@ -61704,6 +62557,9 @@ namespace xr_err {
     inline constexpr u16 kSub_NotImplemented = 99;
 } // namespace xr_err
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FOpenXrBridgeStub = COpenXrBridgeStub;
+
 } // namespace acs::game
 
 // ===================== gameframework/StudioWorkflow.h =====================
@@ -61765,9 +62621,9 @@ namespace xr_err {
 //     `GetAssetLockingStub()` / `GetBuildFarmStub()` を提供。実 SDK 未統合の
 //     ビルドでも `m_Locks = &GetAssetLockingStub();` だけでコンパイル可能。
 //   ・**実 (ローカル) 実装を同梱**: 外部 SDK (P4 / Jenkins) を必要としない
-//     ローカル本実装を 2 つ提供する。`FLocalFileAssetLocking` = オンディスクの
+//     ローカル本実装を 2 つ提供する。`CLocalFileAssetLocking` = オンディスクの
 //     サイドカー lock ファイル (CreateFileW CREATE_NEW の原子性で協調ロック) を
-//     使う実ロック、`FLocalBuildRunner` = CreateProcessW で実際にローカルの
+//     使う実ロック、`CLocalBuildRunner` = CreateProcessW で実際にローカルの
 //     ビルドコマンドを起動し終了コードを回収する「サイズ 1 の実ビルドファーム」。
 //     `GetLocalFileAssetLocking()` / `GetLocalBuildRunner()` で取得する。
 //     これらは stub ではなく、実際に動作する本実装である。
@@ -62018,13 +62874,13 @@ public:
  * IsConnected() は常に false、各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を
  * 返す。コピー/ムーブは基底 I/F で delete 済みのため本クラスも自然に non-copy。
  */
-class FAssetLockingStub final : public IAssetLockingBackend {
+class CAssetLockingStub final : public IAssetLockingBackend {
 public:
     /** 既定構築。 */
-    FAssetLockingStub() noexcept = default;
+    CAssetLockingStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FAssetLockingStub() noexcept override = default;
+    ~CAssetLockingStub() noexcept override = default;
 
     /**
      * 常に NotImplemented を返す (no-op stub)。
@@ -62067,13 +62923,13 @@ public:
  * IsConnected() は常に false、各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を
  * 返す。
  */
-class FBuildFarmStub final : public IBuildFarmBackend {
+class CBuildFarmStub final : public IBuildFarmBackend {
 public:
     /** 既定構築。 */
-    FBuildFarmStub() noexcept = default;
+    CBuildFarmStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FBuildFarmStub() noexcept override = default;
+    ~CBuildFarmStub() noexcept override = default;
 
     /**
      * 常に NotImplemented を返す (no-op stub)。
@@ -62123,7 +62979,7 @@ public:
  * trailing data・期限切れらしき lock は安全側に倒して自動削除しない。
  */
 
-/** FLocalFileAssetLocking の機械判定可能な安定エラー。値は永続ログ/API 用に固定する。 */
+/** CLocalFileAssetLocking の機械判定可能な安定エラー。値は永続ログ/API 用に固定する。 */
 enum class ELocalAssetLockError : u16 {
     None              = 0,
     BadArgument       = 1500,
@@ -62170,7 +63026,7 @@ struct FLocalAssetLockResult {
 /** ログ/telemetry 用の安定した ASCII error 名を返す。 */
 const char* LocalAssetLockErrorName(ELocalAssetLockError error) noexcept;
 
-class FLocalFileAssetLocking final : public IAssetLockingBackend {
+class CLocalFileAssetLocking final : public IAssetLockingBackend {
 public:
     /** path バッファの最大長 (NUL 含む)。MAX_PATH 級 + 余裕。 */
     static constexpr int kMaxPathChars = 1024;
@@ -62185,10 +63041,10 @@ public:
     static constexpr int kMaxHeldLocks = 64;
 
     /** 既定構築。 */
-    FLocalFileAssetLocking() noexcept = default;
+    CLocalFileAssetLocking() noexcept = default;
 
     /** 破棄する。 */
-    ~FLocalFileAssetLocking() noexcept override = default;
+    ~CLocalFileAssetLocking() noexcept override = default;
 
     /**
      * checked API を使って `<asset_path>.lock` を原子的・永続的に取得する互換 API。
@@ -62305,7 +63161,7 @@ private:
  * 固定長バッファへコピーしてから渡す。branch / commit_sha は情報のみ。ジョブは固定長
  * テーブル (kMaxJobs 件) で管理し、build_id は 1 始まりの連番 (0 は無効予約)。STL 非依存。
  */
-class FLocalBuildRunner final : public IBuildFarmBackend {
+class CLocalBuildRunner final : public IBuildFarmBackend {
 public:
     /** 同時追跡できるビルドジョブ数。 */
     static constexpr int kMaxJobs        = 32;
@@ -62317,10 +63173,10 @@ public:
     static constexpr int kMaxArtifactLen = 1024;
 
     /** 既定構築。 */
-    FLocalBuildRunner() noexcept = default;
+    CLocalBuildRunner() noexcept = default;
 
     /** 追跡中のプロセス HANDLE をすべて閉じて破棄する (プロセス自体は kill しない)。 */
-    ~FLocalBuildRunner() noexcept override;
+    ~CLocalBuildRunner() noexcept override;
 
     /**
      * command_line (UTF-16, 書き換え可能) を起動し、終了まで待って終了コードを得る (同期、seam 非経由)。
@@ -62434,7 +63290,7 @@ private:
  * 依存ゼロのデフォルト実装で、常に NotImplemented を返す。本体側 (タイトル / エディタ)
  * はまずこれを使ってリンクを通し、具象実装に切り替える際は IAssetLockingBackend* を持つ
  * メンバ変数に PerforceAssetLocking 等を差し替える。
- * @return プロセス共有の FAssetLockingStub への参照。
+ * @return プロセス共有の CAssetLockingStub への参照。
  */
 IAssetLockingBackend& GetAssetLockingStub() noexcept;
 
@@ -62442,7 +63298,7 @@ IAssetLockingBackend& GetAssetLockingStub() noexcept;
  * プロセス共有の stub IBuildFarmBackend を返す。
  *
  * @details 依存ゼロのデフォルト実装で、常に NotImplemented を返す。
- * @return プロセス共有の FBuildFarmStub への参照。
+ * @return プロセス共有の CBuildFarmStub への参照。
  */
 IBuildFarmBackend& GetBuildFarmStub() noexcept;
 
@@ -62452,26 +63308,38 @@ IBuildFarmBackend& GetBuildFarmStub() noexcept;
  * @details
  * 外部 SDK に依存しないオンディスク本実装。stub と差し替えて `m_Locks =
  * &GetLocalFileAssetLocking();` のように使う process-wide singleton。
- * @return プロセス共有の FLocalFileAssetLocking への参照。
+ * @return プロセス共有の CLocalFileAssetLocking への参照。
  */
-FLocalFileAssetLocking& GetLocalFileAssetLocking() noexcept;
+CLocalFileAssetLocking& GetLocalFileAssetLocking() noexcept;
 
 /**
  * プロセス共有の実 IBuildFarmBackend (ローカル CreateProcessW) を返す。
  *
  * @details 外部 SDK に依存しないローカルプロセス本実装の process-wide singleton。
- * @return プロセス共有の FLocalBuildRunner への参照。
+ * @return プロセス共有の CLocalBuildRunner への参照。
  */
-FLocalBuildRunner& GetLocalBuildRunner() noexcept;
+CLocalBuildRunner& GetLocalBuildRunner() noexcept;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAssetLockingStub = CAssetLockingStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBuildFarmStub = CBuildFarmStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLocalBuildRunner = CLocalBuildRunner;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLocalFileAssetLocking = CLocalFileAssetLocking;
 
 } // namespace acs::game
 
 // ===================== gameframework/Lockstep.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M — FLockstep (deterministic input replay)
+// GameFramework Pillar M — CLockstep (deterministic input replay)
 //
 // 役割:
-//   1) **FLockstep ネットコード** の入力レイヤ: 1 tick = 1 フレーム分の入力を
+//   1) **CLockstep ネットコード** の入力レイヤ: 1 tick = 1 フレーム分の入力を
 //      `FInputFrame` として記録 / 配信し、全クライアントが同一順序で入力を消費
 //      することで決定論的なシミュレーションを実現する土台。
 //   2) **入力リプレイ**: Local 中に記録した入力列をそのまま Replay モードで
@@ -62481,7 +63349,7 @@ FLocalBuildRunner& GetLocalBuildRunner() noexcept;
 //      bit 単位で検出する。
 //
 // 使い方 (想定):
-//   FLockstep ls;
+//   CLockstep ls;
 //   ls.Init(ENetMode::Local, /*tick_rate_hz=*/60);
 //
 //   // ゲームループ (Local 中):
@@ -62515,9 +63383,9 @@ FLocalBuildRunner& GetLocalBuildRunner() noexcept;
 //     buttons, axis.x bits, axis.y bits) を u64 に畳み込む。決定論検証 + replay
 //     hash として使う。FNV-1a は STL 不使用で実装が 5 行、衝突は同期ずれ検知用途
 //     としては十分。
-//   ・**コピー / ムーブ禁止**: FLockstep は通常 1 セッションに 1 個 (グローバル所有)
+//   ・**コピー / ムーブ禁止**: CLockstep は通常 1 セッションに 1 個 (グローバル所有)
 //     の長寿命オブジェクト。誤って値渡しされて state が分裂すると replay の
-//     同期ずれが起きるため、FSettings / FPartySystem と同じく最初から非コピー・
+//     同期ずれが起きるため、CSettings / CPartySystem と同じく最初から非コピー・
 //     非ムーブで固定する。
 //   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
 //
@@ -62540,8 +63408,6 @@ FLocalBuildRunner& GetLocalBuildRunner() noexcept;
 
 
 namespace acs::game {
-
-class FReplayDirector;
 
 /** 1 lockstepへ読み込めるframe件数上限。 */
 inline constexpr u32 kLockstepMaximumFrames = 1'000'000u;
@@ -62575,7 +63441,7 @@ struct FInputFrame {
  * 入力レイヤの動作モード。
  *
  * @details
- * FLockstep は同一クラスで「単独プレイ」「ネット対戦」「リプレイ再生」の 3 モードを
+ * CLockstep は同一クラスで「単独プレイ」「ネット対戦」「リプレイ再生」の 3 モードを
  * 扱う。モード切替時は state を Clear せず cursor だけリセットする (Local 中に記録した
  * frames を StartReplay で再生する用途を想定)。
  */
@@ -62598,25 +63464,25 @@ enum class ENetMode : u8 {
  * 同一順序で入力を消費することで決定論的シミュレーションの土台を作る。1 セッション
  * 1 オブジェクトの想定で、誤分裂を防ぐためコピー / ムーブを禁止する。
  */
-class FLockstep {
+class CLockstep {
 public:
     /** 空の Local モード状態で構築する。 */
-    FLockstep()  noexcept = default;
+    CLockstep()  noexcept = default;
 
     /** 破棄する (記録した frames は TArray が解放)。 */
-    ~FLockstep() noexcept = default;
+    ~CLockstep() noexcept = default;
 
     /** コピー禁止 (state 分裂による replay 同期ずれを防ぐため)。 */
-    FLockstep(const FLockstep&)            = delete;
+    CLockstep(const CLockstep&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLockstep& operator=(const FLockstep&) = delete;
+    CLockstep& operator=(const CLockstep&) = delete;
 
     /** ムーブ禁止 (長寿命の単独所有オブジェクトのため)。 */
-    FLockstep(FLockstep&&)                 = delete;
+    CLockstep(CLockstep&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FLockstep& operator=(FLockstep&&)      = delete;
+    CLockstep& operator=(CLockstep&&)      = delete;
 
     /**
      * 永続化 API が返すエラー subcode。
@@ -62762,13 +63628,13 @@ public:
     TResult<void> TryLoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
-    friend class FReplayDirector;
+    friend class CReplayDirector;
 
     /** ReplayDirector staging用にtargetと同じallocatorを注入する。 */
-    explicit FLockstep(FAllocator& allocator) noexcept : m_Frames(allocator) {}
+    explicit CLockstep(IAllocator& allocator) noexcept : m_Frames(allocator) {}
 
     /** ReplayDirectorが複数sourceを一括commitするためのno-fail state swap。 */
-    void SwapLoadedState(FLockstep& other) noexcept;
+    void SwapLoadedState(CLockstep& other) noexcept;
 
     /** 現在の動作モード。 */
     ENetMode           m_Mode          = ENetMode::Local;
@@ -62790,23 +63656,23 @@ private:
 
 // ===================== gameframework/UiLayer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FUiLayer (acs::ui::FWidget tree を FScene に繋ぐ glue)
+// GameFramework Pillar H — CUiLayer (acs::AWidget tree を AScene に繋ぐ glue)
 //
 // 役割:
-//   既存の `acs::ui` FWidget システム (Widget.h / Widgets.h / UiRenderer.h) は
-//   retained-mode UI として強力だが、ゲームコード側 (FScene) から直接触るには
-//   ボイラープレートが多い。FUiLayer は **FScene のライフサイクル (Init / Tick /
-//   HandleInput / Shutdown) と FWidget tree を結ぶ薄い層** で、典型的なゲーム UI
+//   既存の `acs::ui` AWidget システム (Widget.h / Widgets.h / UiRenderer.h) は
+//   retained-mode UI として強力だが、ゲームコード側 (AScene) から直接触るには
+//   ボイラープレートが多い。CUiLayer は **AScene のライフサイクル (Init / Tick /
+//   HandleInput / Shutdown) と AWidget tree を結ぶ薄い層** で、典型的なゲーム UI
 //   (ボタン / テキスト表示) を最小 API で扱えるようにする。
 //
-//   Pillar H 上のリッチな UI 構築 (FStackPanel / FSlider / FTextInput etc.) は
+//   Pillar H 上のリッチな UI 構築 (AStackPanel / ASlider / ATextInput etc.) は
 //   引き続き `acs::ui` を直接使う想定で、本 layer は **「シーンに数個の UI
 //   要素を貼り付けるだけのゲーム」** の DX (タイトル画面、HUD、ポーズメニュー
 //   など) を改善する位置付け。
 //
 // 使い方 (典型例):
-//   class FTitleScene : public FScene {
-//       FUiLayer m_Ui;
+//   class FTitleScene : public AScene {
+//       CUiLayer m_Ui;
 //       u32     m_PlayBtn = 0;
 //       void OnEnter() noexcept override {
 //           m_Ui.Init();
@@ -62824,24 +63690,24 @@ private:
 //   };
 //
 // 設計選択:
-//   ・**自前の軽量実装**: acs::ui の FWidget tree は使わず、ハンドル付きの
+//   ・**自前の軽量実装**: acs::ui の AWidget tree は使わず、ハンドル付きの
 //     FWidgetEntry を TArray で保持して button/text の追加・削除・可視性・
-//     ヒットテスト・押下クエリ・即時描画 (Draw) まで完全動作させる。FSlider /
-//     FCheckbox / FTextInput 等のリッチ widget が要るときは `acs::ui` を直接使う。
+//     ヒットテスト・押下クエリ・即時描画 (Draw) まで完全動作させる。ASlider /
+//     ACheckbox / ATextInput 等のリッチ widget が要るときは `acs::ui` を直接使う。
 //   ・**ハンドルは u32 単調増加**: 削除後の再利用は行わない (世代カウンタ不要、
 //     現実的に 1 シーンで数千 widget を超えることはまずないため uint32 で十分)。
 //     0 は invalid handle 予約。
 //   ・**const char* 非所有**: 規約通り <string> 不使用。label / text の寿命は
 //     呼び出し側 (文字列リテラル or 長寿命バッファ) が保証する。Pillar T
-//     FPartySystem / Pillar O FEntitlementRegistry と同方針。
+//     CPartySystem / Pillar O CEntitlementRegistry と同方針。
 //   ・**コピー / ムーブ禁止**: UI 状態を持つ長寿命オブジェクト。誤コピーで state
 //     が分裂すると詰むため非コピー・非ムーブ。
 //   ・**全 noexcept**: ACS 全体方針。Init / Shutdown は冪等で再呼び出し安全。
 //
 // 範囲外:
-//   ・実 `acs::ui::FWidget` ツリー構築 (FStackPanel / FButton / FLabel の生成)
-//   ・`FUiRenderer` による描画 (FRenderContext から FSpriteBatch / FFont を受ける)
-//   ・`FEvent` → hit-test → FWidget::OnPointerDown 等の配送
+//   ・実 `acs::AWidget` ツリー構築 (AStackPanel / AButton / ALabel の生成)
+//   ・`CUiRenderer` による描画 (FRenderContext から CSpriteBatch / FFont を受ける)
+//   ・`FEvent` → hit-test → AWidget::OnPointerDown 等の配送
 //   ・focus / keyboard navigation (Tab 移動 / Enter 確定)
 //   ・MVVM TObservable<T> との bind (現状はポーリング型 IsButtonPressed)
 //   ・slider / checkbox / text input / radio などの追加 widget kind
@@ -62859,9 +63725,9 @@ namespace game {
 class FRenderContext;
 
 /**
- * FUiLayer が扱う widget の種類。
+ * CUiLayer が扱う widget の種類。
  *
- * @details 現状はボタンとテキストのみ (FSlider / FCheckbox / FTextInput は範囲外)。
+ * @details 現状はボタンとテキストのみ (ASlider / ACheckbox / ATextInput は範囲外)。
  */
 enum class EWidgetKind : u8 {
     /** 未設定 / 無効。 */
@@ -62907,60 +63773,60 @@ struct FWidgetEntry {
 };
 
 /**
- * acs::ui の FWidget tree を FScene のライフサイクルに繋ぐ薄い glue 層。
+ * acs::ui の AWidget tree を AScene のライフサイクルに繋ぐ薄い glue 層。
  *
  * @details
- * FScene の Init / Tick / HandleInput / Shutdown と FWidget tree を結び、典型的なゲーム UI
- * (ボタン / テキスト表示) を最小 API で扱えるようにする。現状は実 FWidget 生成 / 描画 /
+ * AScene の Init / Tick / HandleInput / Shutdown と AWidget tree を結び、典型的なゲーム UI
+ * (ボタン / テキスト表示) を最小 API で扱えるようにする。現状は実 AWidget 生成 / 描画 /
  * ヒットテストは未接続の state holder で、ハンドル付きの FWidgetEntry を TArray で保持し、
  * 追加・削除・可視性・押下クエリは完全動作する。ハンドルは u32 単調増加で再利用しない
  * (0 は invalid 予約)。const char* は非所有 (寿命は呼び出し側保証)。非コピー・非ムーブ、
  * 全 noexcept、Init / Shutdown は冪等。
  */
-class FUiLayer {
+class CUiLayer {
 public:
     /** 空の UI レイヤを構築する (widget 未登録、未初期化)。 */
-    FUiLayer()  noexcept = default;
+    CUiLayer()  noexcept = default;
 
     /** 破棄する。 */
-    ~FUiLayer() noexcept = default;
+    ~CUiLayer() noexcept = default;
 
     /** コピー禁止 (state holder。誤コピーで widget 状態が分裂しないため)。 */
-    FUiLayer(const FUiLayer&)            = delete;
+    CUiLayer(const CUiLayer&)            = delete;
 
     /** コピー代入も禁止。 */
-    FUiLayer& operator=(const FUiLayer&) = delete;
+    CUiLayer& operator=(const CUiLayer&) = delete;
 
     /** ムーブ禁止 (state holder。誤コピーで widget 状態が分裂しないため)。 */
-    FUiLayer(FUiLayer&&)                 = delete;
+    CUiLayer(CUiLayer&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FUiLayer& operator=(FUiLayer&&)      = delete;
+    CUiLayer& operator=(CUiLayer&&)      = delete;
 
     /**
-     * UI レイヤを初期化する (FScene::OnEnter から呼ぶ)。
+     * UI レイヤを初期化する (AScene::OnEnter から呼ぶ)。
      *
      * @details
-     * FWidget tree の root を確保する (現状は stub、実装時は acs::ui::FContainer を root として
+     * AWidget tree の root を確保する (現状は stub、実装時は acs::AContainer を root として
      * new する)。冪等で再呼び出し安全 (二度 Init してもメモリリークしない)。
      */
     void Init() noexcept;
 
-    /** 全 widget をクリアし root を解放する (FScene::OnExit から呼ぶ。冪等)。 */
+    /** 全 widget をクリアし root を解放する (AScene::OnExit から呼ぶ。冪等)。 */
     void Shutdown() noexcept;
 
     /**
-     * UI 状態を更新する (FScene::OnUpdate から呼ぶ)。
+     * UI 状態を更新する (AScene::OnUpdate から呼ぶ)。
      *
      * @details
-     * 現状は just_pressed フラグの伝搬ハンドリングのみ。実装時に acs::ui::FWidget::Layout
+     * 現状は just_pressed フラグの伝搬ハンドリングのみ。実装時に acs::AWidget::Layout
      * 再計算と tween / animation の更新を入れる。
      * @param dt 前フレームからの経過秒。
      */
     void Tick(f32 dt) noexcept;
 
     /**
-     * マウスイベントを処理する (FScene::OnEvent から呼ぶ)。
+     * マウスイベントを処理する (AScene::OnEvent から呼ぶ)。
      *
      * @details
      * MouseMoved はカーソル位置を記録して hover 状態を更新、MouseButtonPressed は
@@ -62971,11 +63837,11 @@ public:
     void HandleInput(const acs::FEvent& event) noexcept;
 
     /**
-     * 登録 widget を描画する (FScene::OnDrawHud から呼ぶ)。
+     * 登録 widget を描画する (AScene::OnDrawHud から呼ぶ)。
      *
      * @details
-     * rc の FSpriteBatch + FFont で描画する (ボタンは hover/押下で色変化、Text はラベル)。
-     * FSpriteBatch セッションが開いている前提で、FFont が無い環境では矩形のみ描画する。
+     * rc の CSpriteBatch + FFont で描画する (ボタンは hover/押下で色変化、Text はラベル)。
+     * CSpriteBatch セッションが開いている前提で、FFont が無い環境では矩形のみ描画する。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
     void Draw(FRenderContext& rc) const noexcept;
@@ -63077,6 +63943,9 @@ private:
     bool               m_Initialized = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FUiLayer = CUiLayer;
+
 } // namespace game
 } // namespace acs
 
@@ -63088,12 +63957,12 @@ private:
 // クリック移動 RPG など、グリッドベースの AI 動作に汎用に使える。
 //
 // 使い方:
-//   FNavGrid nav;
+//   CNavGrid nav;
 //   nav.Init(32, 24);
 //   nav.SetWalkable(5, 10, false);                // 壁を 1 マス置く
 //   nav.SetAllowDiagonal(true);                   // 8 方向許可 (既定は 4 方向)
 //
-//   TArray<FNavGrid::FPathPoint> path;
+//   TArray<CNavGrid::FPathPoint> path;
 //   if (nav.FindPath(/*start=*/0, 0, /*goal=*/20, 15, path)) {
 //       // path[0] = start, path[Size()-1] = goal の連続セル列
 //   }
@@ -63123,7 +63992,7 @@ namespace acs::game {
  * (対角 cost sqrt(2)) で A* を解く。open set は線形最小値走査、closed / g / f /
  * came_from も 1D 配列で持つ。一時バッファはメンバに保持し FindPath 毎に reset する。
  */
-class FNavGrid {
+class CNavGrid {
 public:
     /**
      * 経路の 1 セルを表すグリッド座標。
@@ -63137,22 +64006,22 @@ public:
     };
 
     /** 空状態で構築する (グリッドは Init で確保)。 */
-    FNavGrid() noexcept = default;
+    CNavGrid() noexcept = default;
 
     /** 破棄する。 */
-    ~FNavGrid() noexcept = default;
+    ~CNavGrid() noexcept = default;
 
-    /** コピー禁止 (FScene / AI モジュールのメンバとして固定の場所に置く想定)。 */
-    FNavGrid(const FNavGrid&)            = delete;
+    /** コピー禁止 (AScene / AI モジュールのメンバとして固定の場所に置く想定)。 */
+    CNavGrid(const CNavGrid&)            = delete;
 
     /** コピー代入も禁止。 */
-    FNavGrid& operator=(const FNavGrid&) = delete;
+    CNavGrid& operator=(const CNavGrid&) = delete;
 
     /** ムーブ禁止。 */
-    FNavGrid(FNavGrid&&)                 = delete;
+    CNavGrid(CNavGrid&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FNavGrid& operator=(FNavGrid&&)      = delete;
+    CNavGrid& operator=(CNavGrid&&)      = delete;
 
     /**
      * width * height のグリッドを全 cell walkable で初期化する。
@@ -63306,18 +64175,18 @@ private:
 
 // ===================== gameframework/WeatherSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — FWeatherSystem (天候モード)
+// GameFramework Pillar Q — CWeatherSystem (天候モード)
 //
 // 役割:
-//   FAmbientDirector (時刻補間) と直交する「天候」状態を保持し、現在天候 →
+//   CAmbientDirector (時刻補間) と直交する「天候」状態を保持し、現在天候 →
 //   ターゲット天候への線形遷移と、各天候に対応する描画 / lighting 修飾係数
 //   (ambient 倍率 / 粒子密度 / sky tint / 風 / 霧密度) を提供する。
-//   レンダラ / FEffectSystem / FParticleSystem 側は毎フレーム本クラスから係数を
+//   レンダラ / CEffectSystem / CParticleSystem 側は毎フレーム本クラスから係数を
 //   pull するだけで天候表情を反映できる。
 //
 // 使い方:
-//   class FWorldScene : public FScene {
-//       acs::game::FWeatherSystem m_Weather;
+//   class FWorldScene : public AScene {
+//       acs::game::CWeatherSystem m_Weather;
 //
 //       void OnEnter() noexcept override {
 //           m_Weather.SetWeather(acs::game::EWeatherKind::Clear);
@@ -63329,9 +64198,9 @@ private:
 //           if (player.EnteredRainZone()) m_Weather.SetWeather(
 //               acs::game::EWeatherKind::Rain, 8.0f);
 //
-//           FRenderer().SetAmbientMultiplier(m_Weather.AmbientLightMultiplier());
-//           FRenderer().SetSkyTint          (m_Weather.SkyTintMultiplier());
-//           FRenderer().SetFogDensityScale  (m_Weather.FogDensityMultiplier());
+//           CRenderer().SetAmbientMultiplier(m_Weather.AmbientLightMultiplier());
+//           CRenderer().SetSkyTint          (m_Weather.SkyTintMultiplier());
+//           CRenderer().SetFogDensityScale  (m_Weather.FogDensityMultiplier());
 //           Particles().SetGlobalDensity    (m_Weather.ParticleDensity());
 //           Wind().SetVector(m_Weather.WindDirection() * m_Weather.WindStrength());
 //       }
@@ -63350,7 +64219,7 @@ private:
 //   ・WindDirection は天候とは独立: 「南風が雨を運ぶ」「無風の雪」など表現が
 //     衝突するため、wind 方向はユーザーが任意に設定可能 (天候は強さのみ決める)。
 //     デフォルトは (1, 0) = 東向き。
-//   ・ambient/sky 修飾は乗算: FAmbientDirector の出力に「天候による調整」を
+//   ・ambient/sky 修飾は乗算: CAmbientDirector の出力に「天候による調整」を
 //     掛けるだけで時刻 × 天候の合成が完了する設計。Storm/Sandstorm 時は
 //     ambient を 0.5 倍に暗くするなど。
 
@@ -63394,29 +64263,29 @@ enum class EWeatherKind : u8 {
  * 天候モードを保持し、現在 → 目標天候の線形遷移と描画修飾係数を提供するシステム。
  *
  * @details
- * FAmbientDirector (時刻補間) と直交し、天候ごとの ambient 倍率 / 粒子密度 /
+ * CAmbientDirector (時刻補間) と直交し、天候ごとの ambient 倍率 / 粒子密度 /
  * sky tint / 風強さ / 霧密度を 1 つの LUT から引いて current/target 間で Lerp する。
- * non-copy / non-move で FScene 等に値メンバとして持たせ、Tick(dt) で遷移を進める。
+ * non-copy / non-move で AScene 等に値メンバとして持たせ、Tick(dt) で遷移を進める。
  */
-class FWeatherSystem {
+class CWeatherSystem {
 public:
     /** 既定状態 (Clear、遷移完了済み、風向き東) で構築する。 */
-    FWeatherSystem() noexcept = default;
+    CWeatherSystem() noexcept = default;
 
     /** 破棄する (リソースなし)。 */
-    ~FWeatherSystem() noexcept = default;
+    ~CWeatherSystem() noexcept = default;
 
     /** コピー禁止 (Manager 系と統一)。 */
-    FWeatherSystem(const FWeatherSystem&)            = delete;
+    CWeatherSystem(const CWeatherSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FWeatherSystem& operator=(const FWeatherSystem&) = delete;
+    CWeatherSystem& operator=(const CWeatherSystem&) = delete;
 
     /** ムーブ禁止 (Manager 系と統一)。 */
-    FWeatherSystem(FWeatherSystem&&)                 = delete;
+    CWeatherSystem(CWeatherSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FWeatherSystem& operator=(FWeatherSystem&&)      = delete;
+    CWeatherSystem& operator=(CWeatherSystem&&)      = delete;
 
     /**
      * 目標天候を設定し、遷移を開始する。
@@ -63563,6 +64432,9 @@ private:
     FVec2 m_WindDir{1.0f, 0.0f};
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FWeatherSystem = CWeatherSystem;
+
 } // namespace acs::game
 
 // ===================== gameframework/WorkshopBridge.h =====================
@@ -63605,7 +64477,7 @@ private:
 //   ・**ダウンロード進捗は同期 poll**: GetDownloadProgress(item_id) を毎フレーム
 //     呼んで [0, 1] を取得。-1 は「現在ダウンロード中ではない / 不明」を表す。
 //   ・**Stub は static singleton で取得**: ISteamworksBridge と同じく
-//     `GetWorkshopStub()` を提供。`FWorkshopBridgeStub::IsAvailable()` は
+//     `GetWorkshopStub()` を提供。`CWorkshopBridgeStub::IsAvailable()` は
 //     常に false を返し、UI 側で「Workshop 機能無効」表示の判定に使える。
 //   ・**実 SDK 実装はここでは作らない**: GoldenWorkshopBridge 等は Steamworks UGC
 //     API への依存を伴うため、本ファイルでは I/F + Stub のみ。
@@ -63794,13 +64666,13 @@ public:
  * download / query 系は ACS_ERR(Generic, kSubWorkshopNotImplemented) を返す。
  * GetDownloadProgress() は常に -1、Shutdown() / Tick() は副作用なし。
  */
-class FWorkshopBridgeStub final : public IWorkshopBridge {
+class CWorkshopBridgeStub final : public IWorkshopBridge {
 public:
     /** 未初期化状態の Stub を構築する。 */
-    FWorkshopBridgeStub() noexcept = default;
+    CWorkshopBridgeStub() noexcept = default;
 
     /** 何もせず破棄する。 */
-    ~FWorkshopBridgeStub() noexcept override = default;
+    ~CWorkshopBridgeStub() noexcept override = default;
 
     /**
      * 初期化済みフラグを立てる (常に成功)。
@@ -63904,15 +64776,18 @@ private:
  * 実 SDK 実装が DI される前のデフォルト。Meyer's singleton で構築するため
  * thread-safe。ISteamworksBridge は静的メンバ関数を使うが、Workshop 側は仕様に
  * 合わせて自由関数で公開する。
- * @return プロセス内で唯一の FWorkshopBridgeStub への参照。
+ * @return プロセス内で唯一の CWorkshopBridgeStub への参照。
  */
 IWorkshopBridge& GetWorkshopStub() noexcept;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FWorkshopBridgeStub = CWorkshopBridgeStub;
 
 } // namespace acs::game
 
 // ===================== gameframework/LlmSafetyPipeline.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U — FLlmSafetyPipeline (LLM 入出力安全パイプ)
+// GameFramework Pillar U — CLlmSafetyPipeline (LLM 入出力安全パイプ)
 //
 // 役割:
 //   LLM NPC のセリフ生成経路 (= 決定論ゾーンの外側) に対して、入力検証 /
@@ -63927,7 +64802,7 @@ IWorkshopBridge& GetWorkshopStub() noexcept;
 //
 // 設計判断:
 //   ・**bit flag で個別 on/off**: シーン (チュートリアル / 児童向け / 大人向け) ごとに
-//     PII redaction だけ無効化したい等の要望に応えるため、ESvc/FSceneServices と
+//     PII redaction だけ無効化したい等の要望に応えるため、ESvc/CSceneServices と
 //     同じ「mask で機能宣言」スタイルに揃える。
 //   ・**決定論的ルールベース実装**: jailbreak / refusal は keyword 一致、PII は
 //     手書き char スキャナ (`<regex>` 不使用) で実装。常に同じ入力に同じ判定を
@@ -63938,7 +64813,7 @@ IWorkshopBridge& GetWorkshopStub() noexcept;
 //     は呼び出しごとに内部の static thread_local バッファを指す。次回呼び出しで
 //     上書きされるため、呼び出し側は **使い終わるまでに必ずコピー or 消費** すること。
 //   ・**決定論ゾーン外宣言**: LLM 推論自体が非決定論なので、本パイプラインも
-//     `FGame::Tick()` 固定ステップ内で呼ばないこと (= UI スレッド / セリフ表示
+//     `CGame::Tick()` 固定ステップ内で呼ばないこと (= UI スレッド / セリフ表示
 //     コールバックから呼ぶ前提)。IMlRuntime と同じ契約。
 //
 // 範囲外 (ML 分類器の差し込み口として残す seam):
@@ -64075,25 +64950,25 @@ struct FSafetyResult {
  * 典型使用は Init → SetTokenBudget → SetCharacterAnchor のあと、ValidateInput で
  * ユーザー入力を検証し、LLM 生成結果を FilterOutput で検証 / フィルタする。
  */
-class FLlmSafetyPipeline {
+class CLlmSafetyPipeline {
 public:
     /** 既定値で構築する (rules=Default、未初期化状態)。 */
-    FLlmSafetyPipeline() noexcept = default;
+    CLlmSafetyPipeline() noexcept = default;
 
     /** 破棄する。 */
-    ~FLlmSafetyPipeline() noexcept = default;
+    ~CLlmSafetyPipeline() noexcept = default;
 
     /** コピー禁止 (state を 1 箇所にとどめるため)。 */
-    FLlmSafetyPipeline(const FLlmSafetyPipeline&)            = delete;
+    CLlmSafetyPipeline(const CLlmSafetyPipeline&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLlmSafetyPipeline& operator=(const FLlmSafetyPipeline&) = delete;
+    CLlmSafetyPipeline& operator=(const CLlmSafetyPipeline&) = delete;
 
     /** ムーブ禁止。 */
-    FLlmSafetyPipeline(FLlmSafetyPipeline&&)                 = delete;
+    CLlmSafetyPipeline(CLlmSafetyPipeline&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FLlmSafetyPipeline& operator=(FLlmSafetyPipeline&&)      = delete;
+    CLlmSafetyPipeline& operator=(CLlmSafetyPipeline&&)      = delete;
 
     /**
      * パイプラインを初期化する。
@@ -64206,36 +65081,39 @@ private:
     bool        m_Initialized         = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLlmSafetyPipeline = CLlmSafetyPipeline;
+
 } // namespace acs::game
 
 // ===================== gameframework/TutorialFlow.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FTutorialFlow
+// GameFramework Pillar R — CTutorialFlow
 //
 // 役割:
 //   連続する「チュートリアルステップ」を順序付きで表示・完了判定し、ユーザー操作
 //   または明示的な前進指示に応じて次ステップへ進めるシンプルな state machine。
 //   描画は行わず、現在ステップへの const ポインタを公開するだけ。表示は呼び出し側
-//   (UI レイヤ / FScene) が CurrentStep() を見て自前で描く。
+//   (UI レイヤ / AScene) が CurrentStep() を見て自前で描く。
 //
 // 設計上の方針:
 //   ・**FSequence との棲み分け**: FSequence は時間ベースの自動進行 (cutscene 等)。
-//     FTutorialFlow は「ユーザーが action を達成したら進む」という能動的進行で、
+//     CTutorialFlow は「ユーザーが action を達成したら進む」という能動的進行で、
 //     timer ベースではない (require_user_action=true の間は dt をいくら積んでも
 //     自動 advance しない)。require_user_action=false なら表示後に AdvanceStep
 //     を呼ぶだけで素直に次へ進む (ガイダンス表示 → OK ボタンなど)。
 //   ・**所有しない const char***: ACS 規約通り <string> 禁止。id / message /
 //     highlight_target は文字列リテラル or 長寿命バッファを想定し、寿命は呼び
 //     出し側が保証する。
-//   ・**非コピー・非ムーブ**: チュートリアルは通常 FScene につき 1 個の長寿命
+//   ・**非コピー・非ムーブ**: チュートリアルは通常 AScene につき 1 個の長寿命
 //     オブジェクトで、誤コピーで state 分裂すると詰むため最初から禁止。
 //   ・**Skip は不可逆**: Skip() を呼ぶと m_Completed=true / m_Active=false に
 //     遷移し、Reset() しない限りどの query も終了扱い。誤って 2 度目を呼ばれ
 //     ても no-op になるよう冪等。
 //
 // 使い方:
-//   class FTutorialScene : public FScene {
-//       FTutorialFlow m_Tut;
+//   class FTutorialScene : public AScene {
+//       CTutorialFlow m_Tut;
 //       void OnEnter() noexcept override {
 //           m_Tut.AddStep({"move",  "WASD で移動してみよう", "player", true});
 //           m_Tut.AddStep({"jump",  "SPACE でジャンプ",       "player", true});
@@ -64283,31 +65161,31 @@ struct FTutorialStep {
  *
  * @details
  * 描画は行わず、現在ステップへの const ポインタを公開するだけ。表示は呼び出し側
- * (UI レイヤ / FScene) が CurrentStep() を見て自前で描く。時間ベースで自動進行する
+ * (UI レイヤ / AScene) が CurrentStep() を見て自前で描く。時間ベースで自動進行する
  * FSequence と異なり「ユーザーが action を達成したら進む」能動的進行で、
  * require_user_action=true の間は dt をいくら積んでも自動 advance しない。
  * 全フィールドは非所有 const char* (寿命は呼び出し側保証)。非コピー・非ムーブ。
  * Skip は不可逆で冪等。
  */
-class FTutorialFlow {
+class CTutorialFlow {
 public:
     /** 空のチュートリアルフローを構築する (ステップ未登録)。 */
-    FTutorialFlow()  noexcept = default;
+    CTutorialFlow()  noexcept = default;
 
     /** 破棄する。 */
-    ~FTutorialFlow() noexcept = default;
+    ~CTutorialFlow() noexcept = default;
 
-    /** コピー禁止 (state 分裂を避けるため。通常は FScene につき 1 個の長寿命オブジェクト)。 */
-    FTutorialFlow(const FTutorialFlow&)            = delete;
+    /** コピー禁止 (state 分裂を避けるため。通常は AScene につき 1 個の長寿命オブジェクト)。 */
+    CTutorialFlow(const CTutorialFlow&)            = delete;
 
     /** コピー代入も禁止。 */
-    FTutorialFlow& operator=(const FTutorialFlow&) = delete;
+    CTutorialFlow& operator=(const CTutorialFlow&) = delete;
 
     /** ムーブ禁止 (state 分裂を避けるため)。 */
-    FTutorialFlow(FTutorialFlow&&)                 = delete;
+    CTutorialFlow(CTutorialFlow&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FTutorialFlow& operator=(FTutorialFlow&&)      = delete;
+    CTutorialFlow& operator=(CTutorialFlow&&)      = delete;
 
     /**
      * ステップを末尾に追加する。
@@ -64412,6 +65290,9 @@ private:
     bool                m_Completed    = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTutorialFlow = CTutorialFlow;
+
 } // namespace acs::game
 
 
@@ -64422,7 +65303,7 @@ private:
 namespace acs::game {
 
 /**
- * FSceneTimer が管理するタイマーを識別する 32bit の世代付きハンドル。
+ * CSceneTimer が管理するタイマーを識別する 32bit の世代付きハンドル。
  *
  * @details 下位 24bit にスロット番号、上位 8bit に世代番号を保持する。
  * m_Packed == 0 を無効値とし、スロット再利用後の古い参照は世代番号で拒否する。
@@ -64491,7 +65372,7 @@ struct FSceneTimerHandle {
  *
  * @details ACS 0.x の移行期間だけ残し、ACS 1.0 で削除する。削除条件は、リポジトリ内の
  * 実利用と配布用 consumer の旧名利用が 0 件になり、移行案内を 1 release 継続したこと。
- * 型名変更で FSceneTimer の修飾シンボルが変わるため binary ABI は維持しない。既存 consumer は
+ * 型名変更で CSceneTimer の修飾シンボルが変わるため binary ABI は維持しない。既存 consumer は
  * ACS ライブラリと同時に再ビルドする必要がある。新規コードでは FSceneTimerHandle を使う。
  */
 using FTimerHandle [[deprecated("ACS 1.0 で削除予定です。FSceneTimerHandle を使用してください。")]] = FSceneTimerHandle;
@@ -64512,25 +65393,25 @@ using TimerCallback = void(*)(void* user) noexcept;
  *
  * @details 所有するシーンが Tick を呼び、破棄時は登録済みタイマーも破棄する。
  */
-class FSceneTimer {
+class CSceneTimer {
 public:
     /** 空のタイマー管理を構築する。 */
-    FSceneTimer() noexcept = default;
+    CSceneTimer() noexcept = default;
 
     /** 破棄する (active timer は呼ばずに捨てる)。 */
-    ~FSceneTimer() noexcept = default;
+    ~CSceneTimer() noexcept = default;
 
     /** コピー禁止 (発火中の self 参照との競合を防ぐため)。 */
-    FSceneTimer(const FSceneTimer&)            = delete;
+    CSceneTimer(const CSceneTimer&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSceneTimer& operator=(const FSceneTimer&) = delete;
+    CSceneTimer& operator=(const CSceneTimer&) = delete;
 
     /** ムーブ禁止。 */
-    FSceneTimer(FSceneTimer&&)                 = delete;
+    CSceneTimer(CSceneTimer&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSceneTimer& operator=(FSceneTimer&&)      = delete;
+    CSceneTimer& operator=(CSceneTimer&&)      = delete;
 
     /**
      * delay_sec 後に cb(user) を 1 回だけ実行するタイマーを登録する。
@@ -64637,11 +65518,14 @@ private:
     u32               m_ActiveCount = 0u;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSceneTimer = CSceneTimer;
+
 } // namespace acs::game
 
 // ===================== gameframework/PrefabSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J — FPrefabSystem
+// GameFramework Pillar J — CPrefabSystem
 //
 // 名前付きの ANode ツリーテンプレート (= 「Prefab」) を関数ポインタファクトリ
 // として登録し、ID または名前から `acs::TObjectPtr<ANode>` を spawn する軽量
@@ -64657,10 +65541,10 @@ private:
 //   }
 //
 //   // 2) 登録
-//   FPrefabSystem prefabs;
+//   CPrefabSystem prefabs;
 //   FPrefabId enemy_id = prefabs.Register("Enemy", &SpawnEnemy);
 //
-//   // 3) spawn (FScene 側からは ID 経由 / Mod 側からは名前経由 が想定)
+//   // 3) spawn (AScene 側からは ID 経由 / Mod 側からは名前経由 が想定)
 //   auto a = prefabs.Spawn(enemy_id);
 //   auto b = prefabs.SpawnByName("Enemy");
 //
@@ -64669,7 +65553,7 @@ private:
 //     (STL 不使用、heap 割り当てなしの callback)。closure を渡したい場合は
 //     呼び出し側が context 構造体を `user_data` 経由で寄越す。
 //   ・**`<string>` 禁止 / `const char*` で受ける**: 文字列の所有権はクライアント
-//     側 (string literal か、別途寿命管理された永続バッファ)。FPrefabSystem は
+//     側 (string literal か、別途寿命管理された永続バッファ)。CPrefabSystem は
 //     ポインタを保管するだけで複製しない。これを忘れた使用は文字列が dangling
 //     になり得るので、コメントで強く注意する。
 //   ・**24bit idx + 8bit gen の packed handle**: `FNodeId` / `FShapeId` と完全に
@@ -64684,7 +65568,7 @@ private:
 //     type は不要 (TObjectPtr の宣言上の forward 互換、`.cpp` 側は触らない)。
 //     factory 関数の中身は呼び出し側 cpp が `ANode.h` を include する責務。
 //   ・**非コピー / 非ムーブ**: 登録された factory ポインタを別所有者に渡す事故
-//     を排除。プロジェクト中 FPrefabSystem は通常 FScene/FGame に 1 個。
+//     を排除。プロジェクト中 CPrefabSystem は通常 AScene/CGame に 1 個。
 
 
 namespace acs::game {
@@ -64735,7 +65619,7 @@ struct FPrefabId {
     /**
      * handle が invalid でないかを返す。
      *
-     * @details m_Packed == 0 のみ invalid。登録済 slot に存在するかは FPrefabSystem 側で別途検証する。
+     * @details m_Packed == 0 のみ invalid。登録済 slot に存在するかは CPrefabSystem 側で別途検証する。
      * @return invalid でなければ true。
      */
     bool IsValid() const noexcept { return m_Packed != 0; }
@@ -64774,31 +65658,31 @@ using PrefabFactoryFn = TObjectPtr<ANode>(*)(void* user_data) noexcept;
  * 1 セッション内で通常数十〜数百件の登録を想定し、線形走査ベース。登録された factory
  * ポインタの所有移譲を抑止するため non-copy / non-move。
  */
-class FPrefabSystem {
+class CPrefabSystem {
 public:
     /** 空のレジストリを構築する。 */
-    FPrefabSystem() noexcept = default;
+    CPrefabSystem() noexcept = default;
 
     /** レジストリを破棄する (factory ポインタは保管するだけなので解放処理はない)。 */
-    ~FPrefabSystem() noexcept = default;
+    ~CPrefabSystem() noexcept = default;
 
     /** コピー禁止 (登録された factory ポインタの所有移譲を抑止)。 */
-    FPrefabSystem(const FPrefabSystem&)            = delete;
+    CPrefabSystem(const CPrefabSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPrefabSystem& operator=(const FPrefabSystem&) = delete;
+    CPrefabSystem& operator=(const CPrefabSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FPrefabSystem(FPrefabSystem&&)                 = delete;
+    CPrefabSystem(CPrefabSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPrefabSystem& operator=(FPrefabSystem&&)      = delete;
+    CPrefabSystem& operator=(CPrefabSystem&&)      = delete;
 
     /**
      * 新規 Prefab を登録して FPrefabId を返す。
      *
      * @details
-     * name は永続文字列を渡すこと (string literal か別バッファ管理)。FPrefabSystem は複製せず
+     * name は永続文字列を渡すこと (string literal か別バッファ管理)。CPrefabSystem は複製せず
      * ポインタを保管する。nullptr / 空文字 / factory == nullptr は弾いて invalid を返す。
      * 同名既存があっても新規 entry を作って別 ID を返す (上書きしない。FindByName は登録順で
      * 最初に見つけたものを返す)。
@@ -64905,11 +65789,14 @@ private:
     u32                m_ActiveCount = 0;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPrefabSystem = CPrefabSystem;
+
 } // namespace acs::game
 
 // ===================== gameframework/LocalizationDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FLocalizationDirector (i18n 文字列辞書)
+// GameFramework 完成度システム v7 — CLocalizationDirector (i18n 文字列辞書)
 //
 // 「ロケール + 文字列 ID」を「翻訳済みの const char*」に解決する小型ストア。
 // UI ラベル / セリフ / メニュー文言 / エラーメッセージ等を、ゲームロジックから
@@ -64917,7 +65804,7 @@ private:
 // パーツの 1 つ。
 //
 // 使い方:
-//   FLocalizationDirector loc;
+//   CLocalizationDirector loc;
 //   loc.RegisterString(ELocale::En, "ui.title",      "Adventure of Claude");
 //   loc.RegisterString(ELocale::Ja, "ui.title",      "クロードの冒険");
 //   loc.RegisterString(ELocale::En, "ui.start",      "Start");
@@ -64961,7 +65848,7 @@ namespace acs::game {
 /**
  * ロケール識別子 (市場想定の主要 11 言語 + Default(=En))。
  *
- * @details 値は将来の永続化 (FSettings) との互換性のため u32 で連番固定。新規追加は末尾 append。
+ * @details 値は将来の永続化 (CSettings) との互換性のため u32 で連番固定。新規追加は末尾 append。
  */
 enum class ELocale : u32 {
     /** English。 */
@@ -65009,25 +65896,25 @@ enum class ELocale : u32 {
  * key / value とも非所有 const char* で寿命は呼び出し側保証。Get は現 locale → Default(En) →
  * key 自身の 3 段フォールバックで解決する。エントリは線形探索で引く。非コピー・非ムーブ、全 noexcept。
  */
-class FLocalizationDirector {
+class CLocalizationDirector {
 public:
     /** 空のストアを構築する (current locale = Default)。 */
-    FLocalizationDirector()  noexcept = default;
+    CLocalizationDirector()  noexcept = default;
 
     /** 破棄する。 */
-    ~FLocalizationDirector() noexcept = default;
+    ~CLocalizationDirector() noexcept = default;
 
     /** コピー禁止 (1 セッション 1 オブジェクト運用で翻訳ずれを避けるため)。 */
-    FLocalizationDirector(const FLocalizationDirector&)            = delete;
+    CLocalizationDirector(const CLocalizationDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLocalizationDirector& operator=(const FLocalizationDirector&) = delete;
+    CLocalizationDirector& operator=(const CLocalizationDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FLocalizationDirector(FLocalizationDirector&&)                 = delete;
+    CLocalizationDirector(CLocalizationDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FLocalizationDirector& operator=(FLocalizationDirector&&)      = delete;
+    CLocalizationDirector& operator=(CLocalizationDirector&&)      = delete;
 
     /**
      * 現在の取得対象ロケールを切り替える (UI 言語切替で呼ばれる)。
@@ -65240,7 +66127,7 @@ struct FParticle {
  * emitter を指す 24bit index + 8bit gen を packed した opaque handle。
  *
  * @details
- * m_Packed == 0 を invalid と定義 (gen は常に 1 以上で配る)。FSceneTimer 等と同一規約。
+ * m_Packed == 0 を invalid と定義 (gen は常に 1 以上で配る)。CSceneTimer 等と同一規約。
  * slot 再利用後の stale 参照は IsValid + 内部の gen 一致で検出する。
  */
 struct FEmitterHandle {
@@ -65299,25 +66186,25 @@ struct FEmitterHandle {
  * 描画 API は一切呼ばず AllParticles() で生バッファを渡すのみ (描画戦略は user 側)。
  * 乱数は内部 LCG、寿命切れは active flag を落として pool へ返却する。
  */
-class FParticleEffectSystem {
+class CParticleEffectSystem {
 public:
     /** 空状態で構築する (pool は Init で確保)。 */
-    FParticleEffectSystem() noexcept = default;
+    CParticleEffectSystem() noexcept = default;
 
     /** 破棄する (pool は TArray が解放)。 */
-    ~FParticleEffectSystem() noexcept = default;
+    ~CParticleEffectSystem() noexcept = default;
 
     /** コピー禁止 (AllParticles() が内部 buffer の生ポインタを返すため)。 */
-    FParticleEffectSystem(const FParticleEffectSystem&)            = delete;
+    CParticleEffectSystem(const CParticleEffectSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FParticleEffectSystem& operator=(const FParticleEffectSystem&) = delete;
+    CParticleEffectSystem& operator=(const CParticleEffectSystem&) = delete;
 
     /** ムーブ禁止 (実体アドレスが変わると外部参照が破綻するため)。 */
-    FParticleEffectSystem(FParticleEffectSystem&&)                 = delete;
+    CParticleEffectSystem(CParticleEffectSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FParticleEffectSystem& operator=(FParticleEffectSystem&&)      = delete;
+    CParticleEffectSystem& operator=(CParticleEffectSystem&&)      = delete;
 
     /**
      * pool 上限を確定して初期化する。
@@ -65497,15 +66384,18 @@ private:
     u32             m_RngState        = 0x9E3779B9u;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FParticleEffectSystem = CParticleEffectSystem;
+
 } // namespace acs::game
 
 // ===================== gameframework/MusicDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FMusicDirector (適応 BGM + Stinger)
+// GameFramework Pillar H — CMusicDirector (適応 BGM + Stinger)
 //
-// FAudioDirector が「低レイヤの mixer / クロスフェード」を担うのに対し、
-// 本 FMusicDirector は「ゲームプレイ状態 (戦闘 / 平穏 / 勝利 ...) を BGM へ
-// マッピングする上位レイヤ」である。両者はシーン跨ぎ生存で、FGame (or app)
+// CAudioDirector が「低レイヤの mixer / クロスフェード」を担うのに対し、
+// 本 CMusicDirector は「ゲームプレイ状態 (戦闘 / 平穏 / 勝利 ...) を BGM へ
+// マッピングする上位レイヤ」である。両者はシーン跨ぎ生存で、CGame (or app)
 // 側が同列に保持する想定 (BGM 状態はシーン切替で途切れない方が自然)。
 //
 // 機能:
@@ -65515,13 +66405,13 @@ private:
 //   ・SetIntensity(0..1) で「同じ状態内での激しさ」を表現
 //     (Combat 内で 0.2 = 探索的、0.9 = 高激戦、など intensity range で track 分岐)
 //   ・PlayStinger() で「BGM を停めずに重ねる一発もの SFX」(ボス出現 / 達成等)
-//     実演奏は FAudioDirector::PlaySfx に流す (本クラスは pending 情報も保持)
+//     実演奏は CAudioDirector::PlaySfx に流す (本クラスは pending 情報も保持)
 //   ・Tick(dt) で transition / stinger timer を進行
 //
 // 設計選択:
-//   ・**CAudioEngine 直叩きしない**: 実際の再生は FAudioDirector に委ね、本クラスは
+//   ・**CAudioEngine 直叩きしない**: 実際の再生は CAudioDirector に委ね、本クラスは
 //     「どの track を、どのゲインで鳴らすべきか」を決める state machine に徹する。
-//     SetAudioDirector(FAudioDirector*) で結線すると、SetState → PlayBgm、
+//     SetAudioDirector(CAudioDirector*) で結線すると、SetState → PlayBgm、
 //     PlayStinger → PlaySfx、Stop → StopBgm を実 director へ delegate する。
 //     未結線 (nullptr) のときは従来通り state-only で動作する (無音、crash しない)。
 //   ・**state -> track 配列は SoA で分離**: `m_Tracks` は全 track をフラットに
@@ -65539,12 +66429,10 @@ private:
 //   ・**Stinger は単一バッファ**: 1 個分だけ「次に演奏すべき stinger」を保持し、
 //     ConsumeStinger() で取り出すまでは pending=true。複数同時投入は警告 +
 //     最新を採用 (BGM 上に重ねる前提なので、多重スタックは認知的にノイズ)。
-//   ・**name / asset_path は所有しない**: FAudioDirector と同様に文字列リテラル前提。
+//   ・**name / asset_path は所有しない**: CAudioDirector と同様に文字列リテラル前提。
 
 
 namespace acs::game {
-
-class FAudioDirector;
 
 /**
  * 適応 BGM の状態。
@@ -65603,11 +66491,11 @@ struct FMusicTrack {
  * EMusicState (Silent / Calm / Tension / Combat / Victory / GameOver) を track 配列に
  * マッピングし、SetState で状態クロスフェード、SetIntensity で同状態内の激しさを
  * 表現する。PlayStinger は BGM を停めずに一発 SFX を重ねる。実再生は
- * SetAudioDirector で結線した FAudioDirector へ delegate し、未結線時は state-only
+ * SetAudioDirector で結線した CAudioDirector へ delegate し、未結線時は state-only
  * で動作する (無音、crash しない)。1 インスタンスをシーン跨ぎで保持する想定の
  * non-copy / non-move 型。
  */
-class FMusicDirector {
+class CMusicDirector {
 public:
     /** EMusicState の総数 (enum 末尾追加時はここを増やす)。 */
     static constexpr u32 kStateCount = 6;
@@ -65616,22 +66504,22 @@ public:
     static constexpr u32 kTrackReserveHint = 16;
 
     /** track 配列を事前確保し state インデックスを初期化して構築する。 */
-    FMusicDirector() noexcept;
+    CMusicDirector() noexcept;
 
     /** 破棄する (内部 TArray が解放される。m_Audio は非所有なので触らない)。 */
-    ~FMusicDirector() noexcept = default;
+    ~CMusicDirector() noexcept = default;
 
     /** コピー禁止 (シーン跨ぎの単一インスタンスを保つため)。 */
-    FMusicDirector(const FMusicDirector&)            = delete;
+    CMusicDirector(const CMusicDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FMusicDirector& operator=(const FMusicDirector&) = delete;
+    CMusicDirector& operator=(const CMusicDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FMusicDirector(FMusicDirector&&)                 = delete;
+    CMusicDirector(CMusicDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FMusicDirector& operator=(FMusicDirector&&)      = delete;
+    CMusicDirector& operator=(CMusicDirector&&)      = delete;
 
     /**
      * 指定 state に track を登録する。
@@ -65651,7 +66539,7 @@ public:
      * @details
      * transition_sec <= 0 は即時切替 (progress=1 にスナップ)。同一 state の再要求は
      * 遷移中でなければ no-op (現行 BGM 継続)。結線済みなら新 state の track を
-     * FAudioDirector へ流す。
+     * CAudioDirector へ流す。
      * @param state 遷移先の state。
      * @param transition_sec クロスフェード秒数 (既定 2.0、0 以下で即時)。
      */
@@ -65706,7 +66594,7 @@ public:
      * @details
      * asset_path == nullptr / volume <= 0 は警告 + 無視。既に pending stinger がある
      * 場合は上書き (最新を採用)。pending 情報は ConsumeStinger 用に常に保持し、
-     * 結線済みなら即時に FAudioDirector::PlaySfx へ流す。
+     * 結線済みなら即時に CAudioDirector::PlaySfx へ流す。
      * @param asset_path 鳴らす SFX アセットのパス (所有しない)。
      * @param volume 再生ゲイン (既定 1.0、0 以下で無視)。
      */
@@ -65728,27 +66616,27 @@ public:
     const char* ConsumeStinger(f32& out_volume) noexcept;
 
     /**
-     * 実再生を委ねる低レイヤ FAudioDirector を結線する。
+     * 実再生を委ねる低レイヤ CAudioDirector を結線する。
      *
      * @details
      * 結線後は SetState → PlayBgm、PlayStinger → PlaySfx、Stop → StopBgm を実
      * director へ delegate する。nullptr で切断すると state-only 動作に戻る。
      * 呼び出し側が director を所有する (本クラスは非所有 raw ptr で保持)。
-     * @param audio 結線する FAudioDirector (nullptr で切断)。
+     * @param audio 結線する CAudioDirector (nullptr で切断)。
      */
-    void           SetAudioDirector(FAudioDirector* audio) noexcept { m_Audio = audio; }
+    void           SetAudioDirector(CAudioDirector* audio) noexcept { m_Audio = audio; }
 
     /**
-     * 結線済みの FAudioDirector を返す。
+     * 結線済みの CAudioDirector を返す。
      *
-     * @return 結線中の FAudioDirector (未結線なら nullptr)。
+     * @return 結線中の CAudioDirector (未結線なら nullptr)。
      */
-    FAudioDirector* GetAudioDirector() const noexcept { return m_Audio; }
+    CAudioDirector* GetAudioDirector() const noexcept { return m_Audio; }
 
     /**
      * 毎フレーム呼んで transition / stinger timer を進める。
      *
-     * @details FSceneServices / FGame から呼ぶ。state machine の遷移進捗のみを進める。
+     * @details CSceneServices / CGame から呼ぶ。state machine の遷移進捗のみを進める。
      * @param dt 前フレームからの経過実秒。
      */
     void Tick(f32 dt) noexcept;
@@ -65810,7 +66698,7 @@ private:
      * @details
      * track 未登録なら StopBgm を呼ぶ。未結線 (m_Audio == nullptr) なら no-op
      * (state-only)。
-     * @param fade_in_sec FAudioDirector へ渡すクロスフェード秒 (即時切替なら 0)。
+     * @param fade_in_sec CAudioDirector へ渡すクロスフェード秒 (即時切替なら 0)。
      */
     void RouteCurrentTrackToAudio(f32 fade_in_sec) noexcept;
 
@@ -65851,14 +66739,17 @@ private:
     bool        m_StingerPending = false;
 
     /** 実再生を委ねる低レイヤ director (非所有 raw ptr。nullptr で state-only)。 */
-    FAudioDirector* m_Audio = nullptr;
+    CAudioDirector* m_Audio = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMusicDirector = CMusicDirector;
 
 } // namespace acs::game
 
 // ===================== gameframework/PrivacyDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework メタ層 — FPrivacyDirector (GDPR / CCPA consent ハブ)
+// GameFramework メタ層 — CPrivacyDirector (GDPR / CCPA consent ハブ)
 //
 // 役割:
 //   ゲーム内で扱う個人情報・解析・広告・テレメトリといった
@@ -65868,7 +66759,7 @@ private:
 //   on/off」「ポリシー版の追跡」「永続化」を共通基盤として提供する。
 //
 // 想定する典型フロー:
-//   FPrivacyDirector privacy;
+//   CPrivacyDirector privacy;
 //   privacy.Init(/*current_policy_version=*/2);
 //   privacy.LoadConsent(L"user/consent.bin");                 // 既存設定があれば復元
 //
@@ -65885,7 +66776,7 @@ private:
 //   }
 //
 // 設計選択:
-//   ・**bit flag 中心**: FSceneServices と同じく EConsentCategory を bit OR で
+//   ・**bit flag 中心**: CSceneServices と同じく EConsentCategory を bit OR で
 //     合成する設計。「Analytics は ON だが Marketing は OFF」のような
 //     カテゴリ別 on/off が必須要件 (GDPR の granular consent) なので、
 //     enum class : u32 + operator|/& を提供する。
@@ -66002,25 +66893,25 @@ struct FConsentStatus {
  * 共通基盤として提供する。アプリ全体で 1 個運用される想定で、consent 状態が分裂しない
  * よう non-copy / non-move。
  */
-class FPrivacyDirector {
+class CPrivacyDirector {
 public:
     /** 未初期化状態で構築する (Init を呼ぶまで mask は Required のみ)。 */
-    FPrivacyDirector()  noexcept = default;
+    CPrivacyDirector()  noexcept = default;
 
     /** 破棄する (保持するのは POD のみで特別な解放処理はない)。 */
-    ~FPrivacyDirector() noexcept = default;
+    ~CPrivacyDirector() noexcept = default;
 
     /** コピー禁止 (consent 状態の分裂を防ぐため)。 */
-    FPrivacyDirector(const FPrivacyDirector&)            = delete;
+    CPrivacyDirector(const CPrivacyDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPrivacyDirector& operator=(const FPrivacyDirector&) = delete;
+    CPrivacyDirector& operator=(const CPrivacyDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FPrivacyDirector(FPrivacyDirector&&)                 = delete;
+    CPrivacyDirector(CPrivacyDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPrivacyDirector& operator=(FPrivacyDirector&&)      = delete;
+    CPrivacyDirector& operator=(CPrivacyDirector&&)      = delete;
 
     /**
      * 現在のポリシー版を設定して director を初期化する。
@@ -66154,26 +67045,26 @@ private:
 
 // ===================== gameframework/Progression.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FProgression (XP / Level / Milestones / Unlocks)
+// GameFramework 完成度システム v7 — CProgression (XP / Level / Milestones / Unlocks)
 //
 // 「累計 XP を加算するとレベルが上がり、所定の XP 閾値を越えると Milestone を
 // 達成 → コンテンツが Unlock される」というジャンルを問わず広く使われる進行
 // システムを 1 クラスにまとめた小型マネージャ。
 //
 // 想定する位置付け:
-//   ・Pillar S (FAchievementManager) との違い:
+//   ・Pillar S (CAchievementManager) との違い:
 //     - Achievement は「最終的に解除/未解除の 2 値フラグ」を管理する SDK 連動装置。
 //       Storefront 配信プラットフォームへ片方向送信する責務まで含む。
-//     - FProgression は「累積 XP に対してレベルとマイルストーンが線形に増える」
+//     - CProgression は「累積 XP に対してレベルとマイルストーンが線形に増える」
 //       純粋にゲーム内で完結する進行カウンタ。プラットフォーム SDK には依存しない。
 //   ・Unlock 連携:
-//     - 各 FMilestoneDef に `unlock_content_id` を持たせる。FProgression 自身は
+//     - 各 FMilestoneDef に `unlock_content_id` を持たせる。CProgression 自身は
 //       コンテンツ解放の実体を持たず、達成時に MilestoneCallback でゲーム側へ通知する。
-//       受け取った側が FEntitlementRegistry / ContentManager / FAchievementManager
+//       受け取った側が CEntitlementRegistry / ContentManager / CAchievementManager
 //       に橋渡しする責務。
 //
 // 使い方:
-//   FProgression p;
+//   CProgression p;
 //
 //   // 起動時にゲーム側でマイルストーンを 1 度ずつ登録。
 //   p.RegisterMilestone({ "ms.level_5",  "Lv.5 到達",   31,   "content.weapon_b" });
@@ -66206,21 +67097,21 @@ private:
 //     - XP <= 0 → Level 0、XP=1 → Level 1、XP=3 → 2、XP=7 → 3、XP=15 → 4、…
 //     - 必要なら将来 `SetLevelCurve(callback)` で差し替え可能だが、今は YAGNI。
 //   ・**FMilestoneDef / FMilestoneState を別配列で持つ**:
-//     - FAchievementManager と同じ pattern。Def は immutable な定義 (id /
+//     - CAchievementManager と同じ pattern。Def は immutable な定義 (id /
 //       display_name / required_xp / unlock_content_id)、FMilestoneState は実行時の
 //       達成状態 (id / achieved / achieved_timestamp)。1:1 対応で同 index を共有。
 //   ・**所有しない const char***:
 //     - id / display_name / unlock_content_id は呼出側 (ゲームコード or リソース
 //       バンドル) が保証する static lifetime の文字列リテラルを想定。
-//       FProgression 側ではコピーしない (STL <string> 禁止方針)。
+//       CProgression 側ではコピーしない (STL <string> 禁止方針)。
 //   ・**重複登録は黙って弾く**:
 //     - 同 id を 2 度 RegisterMilestone しても 2 回目は no-op。
-//       他 Manager 系 (FEntitlementRegistry / Achievement) と同じ防御方針。
+//       他 Manager 系 (CEntitlementRegistry / Achievement) と同じ防御方針。
 //   ・**線形検索**:
 //     - Milestone 件数は 1 タイトルで通常 10〜100 程度。TArray<T> の per-byte
 //       文字列比較 + 線形走査で十分。
 //   ・**MilestoneCallback は関数ポインタ + user data**:
-//     - FTriggerWorld2D / FSceneTimer と同じ pattern。`std::function` は STL 禁止
+//     - CTriggerWorld2D / CSceneTimer と同じ pattern。`std::function` は STL 禁止
 //       方針で使えないので、`void(*)(void*,...)` で固定。1 種類のみ (達成時)
 //       なので命名は `MilestoneCallback`。
 //   ・**全 noexcept、非コピー・非ムーブ**:
@@ -66230,17 +67121,17 @@ private:
 //
 // 範囲外:
 //   ・XP 倍率・経験値テーブル差し替え (今はハードコード log2 ベース)
-//   ・SDK 統合 (Steamworks 等は FAchievementManager 側で扱う)
+//   ・SDK 統合 (Steamworks 等は CAchievementManager 側で扱う)
 //   ・seasonal reset / prestige system (別 API として追加検討)
 
 
 namespace acs::game {
 
 /**
- * FProgression の永続化固有エラー subcode。
+ * CProgression の永続化固有エラー subcode。
  *
  * @details
- * FSaveArchive の subcode はそのまま伝搬し、FProgression payload 内部 schema の検証失敗だけを
+ * CSaveArchive の subcode はそのまま伝搬し、CProgression payload 内部 schema の検証失敗だけを
  * 200番台で表す。
  */
 enum class EProgressionPersistenceSubCode : u32 {
@@ -66289,7 +67180,7 @@ struct FMilestoneState {
     /** 達成済みフラグ。 */
     bool        achieved           = false;
 
-    /** 達成時の FClock::MillisSinceStartup() (起動からの ms、0 は未達成/未取得)。 */
+    /** 達成時の CClock::MillisSinceStartup() (起動からの ms、0 は未達成/未取得)。 */
     u64         achieved_timestamp = 0;
 };
 
@@ -66306,33 +67197,33 @@ using MilestoneCallback = void(*)(void* user, const char* milestone_id) noexcept
  *
  * @details
  * AwardXp で累計 XP を加算するとレベルが floor(log2(xp+1)) で上がり、所定の閾値を
- * 越えると milestone が達成され、登録済み callback でゲーム側へ通知する。FProgression
+ * 越えると milestone が達成され、登録済み callback でゲーム側へ通知する。CProgression
  * 自身はコンテンツ解放の実体を持たず、プラットフォーム SDK にも依存しない。
  * FMilestoneDef (immutable 定義) と FMilestoneState (実行時状態) を同 index で
  * 1:1 に持つ。全 noexcept、非コピー・非ムーブ、STL 不使用 (文字列は const char* 非所有)。
  */
-class FProgression {
+class CProgression {
 public:
     /** 保存・復元できる milestone 件数の安全上限。 */
     static constexpr u32 kMaxPersistedMilestones = 4096u;
 
     /** 空状態で構築する (XP=0、milestone なし)。 */
-    FProgression()  noexcept = default;
+    CProgression()  noexcept = default;
 
     /** 破棄する (非所有文字列のみ保持するため何もしない)。 */
-    ~FProgression() noexcept = default;
+    ~CProgression() noexcept = default;
 
     /** コピー禁止 (進捗が分裂するのを防ぐため)。 */
-    FProgression(const FProgression&)            = delete;
+    CProgression(const CProgression&)            = delete;
 
     /** コピー代入も禁止。 */
-    FProgression& operator=(const FProgression&) = delete;
+    CProgression& operator=(const CProgression&) = delete;
 
     /** ムーブ禁止 (進捗が分裂するのを防ぐため)。 */
-    FProgression(FProgression&&)                 = delete;
+    CProgression(CProgression&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FProgression& operator=(FProgression&&)      = delete;
+    CProgression& operator=(CProgression&&)      = delete;
 
     /**
      * マイルストーン定義を登録する (起動時に 1 度ずつ)。
@@ -66430,7 +67321,7 @@ public:
      * 累計 XP と達成済み milestone を保存する。
      *
      * @details
-     * FSaveArchive バイナリ (CRC32、256 MiB上限、atomic replace) で書き出す。
+     * CSaveArchive バイナリ (CRC32、256 MiB上限、atomic replace) で書き出す。
      * milestone は id の FNV-1a hash をキーにするので登録順に非依存。件数・サイズの
      * overflow と一時buffer確保をchecked処理し、失敗時は既存保存ファイルを保持する。
      * @param file_path 書き出し先のファイルパス。
@@ -66475,6 +67366,9 @@ private:
     void*             m_OnAchievedUser = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FProgression = CProgression;
+
 } // namespace acs::game
 
 
@@ -66483,8 +67377,6 @@ private:
 
 
 namespace acs::game {
-
-class FReplayDirector;
 
 /** 1 recorderへ読み込めるsample件数上限。 */
 inline constexpr u32 kInputRecorderMaximumSamples = 1'000'000u;
@@ -66522,10 +67414,10 @@ struct FInputSample {
 };
 
 /**
- * FInputRecorder の動作モード。
+ * CInputRecorder の動作モード。
  *
  * @details
- * FLockstep の ENetMode と異なり、ネットコードは扱わず「録画もしない・録画する・
+ * CLockstep の ENetMode と異なり、ネットコードは扱わず「録画もしない・録画する・
  * 再生する」の 3 状態のみで完結する。モード切替時は state を Clear せず、
  * cursor だけリセットする (録画した内容をそのまま StartReplay で再生する想定)。
  */
@@ -66546,31 +67438,31 @@ enum class ERecorderMode : u8 {
  * @details
  * 1 セッション 1 オブジェクトの想定。コピー / ムーブ禁止で誤分裂を防ぐ。
  */
-class FInputRecorder {
+class CInputRecorder {
 public:
     /** 空状態 (Idle、samples なし) で構築する。 */
-    FInputRecorder()  noexcept = default;
+    CInputRecorder()  noexcept = default;
 
     /** 破棄する (samples は TArray が解放)。 */
-    ~FInputRecorder() noexcept = default;
+    ~CInputRecorder() noexcept = default;
 
     /** コピー禁止 (録画 state の分裂を防ぐため)。 */
-    FInputRecorder(const FInputRecorder&)            = delete;
+    CInputRecorder(const CInputRecorder&)            = delete;
 
     /** コピー代入も禁止。 */
-    FInputRecorder& operator=(const FInputRecorder&) = delete;
+    CInputRecorder& operator=(const CInputRecorder&) = delete;
 
     /** ムーブ禁止。 */
-    FInputRecorder(FInputRecorder&&)                 = delete;
+    CInputRecorder(CInputRecorder&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FInputRecorder& operator=(FInputRecorder&&)      = delete;
+    CInputRecorder& operator=(CInputRecorder&&)      = delete;
 
     /**
      * SaveToBuffer / LoadFromBuffer が返す共通エラー subcode。
      *
      * @details
-     * TSaveSlot / FLockstep / IBackendClient と同じ pattern。上位層が switch で
+     * TSaveSlot / CLockstep / IBackendClient と同じ pattern。上位層が switch で
      * 分岐できるよう enum 風に固定値を割り当てる。
      */
     enum ESubCode : u16 {
@@ -66714,13 +67606,13 @@ public:
     TResult<void> TryLoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
-    friend class FReplayDirector;
+    friend class CReplayDirector;
 
     /** ReplayDirector staging用にtargetと同じallocatorを注入する。 */
-    explicit FInputRecorder(FAllocator& allocator) noexcept : m_Samples(allocator) {}
+    explicit CInputRecorder(IAllocator& allocator) noexcept : m_Samples(allocator) {}
 
     /** ReplayDirectorが複数sourceを一括commitするためのno-fail state swap。 */
-    void SwapLoadedState(FInputRecorder& other) noexcept;
+    void SwapLoadedState(CInputRecorder& other) noexcept;
 
     /** 現在の動作モード。 */
     ERecorderMode       m_Mode          = ERecorderMode::Idle;
@@ -66742,10 +67634,10 @@ private:
 
 // ===================== gameframework/Perception.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — FPerception (NPC sight / hearing sense)
+// GameFramework Pillar L — CPerception (NPC sight / hearing sense)
 //
 // NPC が複数 target (player / 他の NPC / 音源等) を「視覚」「聴覚」で
-// 検知できるかを判定するための最小モジュール。FBehaviorTree の leaf や
+// 検知できるかを判定するための最小モジュール。CBehaviorTree の leaf や
 // blackboard の値ソースとして使う想定で、本体は単純な幾何判定の集約。
 //
 // 視覚判定 (sight):
@@ -66771,11 +67663,11 @@ private:
 //     Tick の hot path に Cos を入れない。
 //   ・visible / audible は Tick 内でまとめて更新し、結果を FPerceptionTarget に
 //     書き戻す。これにより IsTargetVisible / IsTargetAudible は O(N) lookup。
-//   ・非コピー・非ムーブ — FScene / Actor のメンバとして固定の場所に置く想定。
+//   ・非コピー・非ムーブ — AScene / Actor のメンバとして固定の場所に置く想定。
 //   ・全 noexcept、STL 不使用。
 //
 // 使い方:
-//   acs::game::FPerception perc;
+//   acs::game::CPerception perc;
 //   acs::game::FSenseConfig cfg;
 //   cfg.sight_range   = 10.0f;
 //   cfg.sight_fov_rad = acs::kPi * 0.5f;   // 90 度
@@ -66832,29 +67724,29 @@ struct FPerceptionTarget {
  *
  * @details
  * eye 位置 / forward / config と複数 target を保持し、Tick で全 target の visible/audible
- * フラグを再計算する。FBehaviorTree の leaf や blackboard の値ソースとして使う想定。
- * target は線形管理 (N が小さい想定)、cos(fov/2) は SetConfig でキャッシュする。FScene/Actor
+ * フラグを再計算する。CBehaviorTree の leaf や blackboard の値ソースとして使う想定。
+ * target は線形管理 (N が小さい想定)、cos(fov/2) は SetConfig でキャッシュする。AScene/Actor
  * のメンバとして固定位置に置く想定で非コピー・非ムーブ。
  */
-class FPerception {
+class CPerception {
 public:
     /** 空状態 (config なし、target なし、forward = +X) で構築する。 */
-    FPerception() noexcept = default;
+    CPerception() noexcept = default;
 
     /** 破棄する。 */
-    ~FPerception() noexcept = default;
+    ~CPerception() noexcept = default;
 
     /** コピー禁止 (固定位置に置く state holder のため)。 */
-    FPerception(const FPerception&)            = delete;
+    CPerception(const CPerception&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPerception& operator=(const FPerception&) = delete;
+    CPerception& operator=(const CPerception&) = delete;
 
     /** ムーブ禁止。 */
-    FPerception(FPerception&&)                 = delete;
+    CPerception(CPerception&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPerception& operator=(FPerception&&)      = delete;
+    CPerception& operator=(CPerception&&)      = delete;
 
     /**
      * 感覚パラメータを差し替える。
@@ -66975,11 +67867,14 @@ private:
     TArray<FPerceptionTarget> m_Targets;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPerception = CPerception;
+
 } // namespace acs::game
 
 // ===================== gameframework/SeasonPass.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — FSeasonPass (Battle Pass / Season tracker)
+// GameFramework Pillar O — CSeasonPass (Battle Pass / Season tracker)
 //
 // 期間限定シーズン (Battle Pass) の定義 + 累積 XP に対する tier 進行 + tier 報酬の
 // 請求状態を 1 クラスにまとめた小型マネージャ。シーズン開始 / 終了は wall-clock
@@ -66992,23 +67887,23 @@ private:
 //     方針を継承)。loot box (中身がランダムで対価が確率に依存する仕組み) も
 //     倫理的に拒絶しており、本 API には乱数要素を一切持たせない (= 払うと
 //     必ず指定の cosmetic が得られる、固定 tier 方式に限定)。
-//   ・FSeasonPass 自体には強制機構を置かないが、`reward_id_*` は cosmetic 系
+//   ・CSeasonPass 自体には強制機構を置かないが、`reward_id_*` は cosmetic 系
 //     entitlement / unlock を指すよう設計時に揃えること。
 //
 // 想定する位置付け:
-//   ・Pillar O (FEntitlementRegistry) との違い:
-//     - FEntitlementRegistry は「持っているかどうか」の権利フラグを保持する受動レジストリ。
-//     - FSeasonPass は「期間内に xp を稼ぐと tier が上がり、各 tier の報酬を請求
+//   ・Pillar O (CEntitlementRegistry) との違い:
+//     - CEntitlementRegistry は「持っているかどうか」の権利フラグを保持する受動レジストリ。
+//     - CSeasonPass は「期間内に xp を稼ぐと tier が上がり、各 tier の報酬を請求
 //       できる」進行 + claim 状態の能動マネージャ。報酬 ID は entitlement 側に
 //       橋渡しする想定 (本クラスは ID を吐き出すだけ)。
-//   ・Pillar O (FProgression / FAchievementManager) との違い:
-//     - FProgression は「永続レベル / 累積 milestone」を扱う、シーズンを跨いだ進行。
-//     - FAchievementManager は「永続実績」を扱い、SDK と双方向。
-//     - FSeasonPass は「シーズン (start/end timestamp) で区切られたリセット可能な
+//   ・Pillar O (CProgression / CAchievementManager) との違い:
+//     - CProgression は「永続レベル / 累積 milestone」を扱う、シーズンを跨いだ進行。
+//     - CAchievementManager は「永続実績」を扱い、SDK と双方向。
+//     - CSeasonPass は「シーズン (start/end timestamp) で区切られたリセット可能な
 //       進行」を扱う。シーズン切替で完全リセットされる想定。
 //
 // 使い方:
-//   FSeasonPass sp;
+//   CSeasonPass sp;
 //
 //   FSeasonInfo info;
 //   info.season_id        = "season.spring_2026";
@@ -67023,7 +67918,7 @@ private:
 //   sp.DefineTier({ 1, 250,  "cosmetic.frame_basic_t01", "cosmetic.skin_premium_t01" });
 //   // ...
 //
-//   // (任意) プレミアムパス購入が確定したら通知。FEntitlementRegistry 側で課金検証する。
+//   // (任意) プレミアムパス購入が確定したら通知。CEntitlementRegistry 側で課金検証する。
 //   sp.SetPremiumPass(true);
 //
 //   // ゲームプレイ中の xp 加算 + 毎フレームの時刻更新。
@@ -67047,7 +67942,7 @@ private:
 //     インデックスとして扱う。重複 index は黙って弾く (no-op + WARN)。
 //     xp_threshold は単調増加であることが期待されるが、本クラスは強制しない
 //     (呼出側の責務)。
-//   ・**xp は u32 累積**: FProgression と同じ pattern。オーバーフロー時は max クランプ。
+//   ・**xp は u32 累積**: CProgression と同じ pattern。オーバーフロー時は max クランプ。
 //   ・**CurrentTier() は xp_threshold ベースの線形走査**: tier 件数は通常 50〜100
 //     のオーダーなので二分探索化は不要。`xp >= threshold` を満たす最大 tier_index
 //     を返す (どれも満たさなければ ~0u = 「未到達」)。
@@ -67070,7 +67965,7 @@ private:
 //     「赤バッジ何個」表示に使う。
 //   ・**EndSeason は手動終了用**: timestamp 経過を待たずにシーズン完了させたい
 //     管理者操作 / デバッグ用。`m_CurrentTime = end_timestamp` を強制する。
-//   ・**永続化は範囲外**: FProgression と同じく、Save/Load は現状
+//   ・**永続化は範囲外**: CProgression と同じく、Save/Load は現状
 //     未実装。Pillar J Serialize 統合後に追加する。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
@@ -67157,25 +68052,25 @@ enum class ESeasonStatus : u8 {
  * 自動遷移を行う。報酬は乱数要素を持たない固定 tier 方式で、扱う報酬は cosmetic のみを
  * 強く推奨する (pay-to-win / loot box を倫理的に拒絶する設計)。非コピー・非ムーブ。
  */
-class FSeasonPass {
+class CSeasonPass {
 public:
     /** 空のシーズンパスを構築する (シーズンは StartSeason で開始)。 */
-    FSeasonPass()  noexcept = default;
+    CSeasonPass()  noexcept = default;
 
     /** 破棄する。 */
-    ~FSeasonPass() noexcept = default;
+    ~CSeasonPass() noexcept = default;
 
     /** コピー禁止 (他 Manager 系と統一)。 */
-    FSeasonPass(const FSeasonPass&)            = delete;
+    CSeasonPass(const CSeasonPass&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSeasonPass& operator=(const FSeasonPass&) = delete;
+    CSeasonPass& operator=(const CSeasonPass&) = delete;
 
     /** ムーブ禁止。 */
-    FSeasonPass(FSeasonPass&&)                 = delete;
+    CSeasonPass(CSeasonPass&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSeasonPass& operator=(FSeasonPass&&)      = delete;
+    CSeasonPass& operator=(CSeasonPass&&)      = delete;
 
     /**
      * シーズンを開始する (xp = 0、premium = false、既存 tier 定義は破棄)。
@@ -67351,6 +68246,9 @@ private:
     TArray<FClaimState> m_Claims;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSeasonPass = CSeasonPass;
+
 } // namespace acs::game
 
 // ===================== gameframework/VoiceChat.h =====================
@@ -67360,12 +68258,12 @@ private:
 // 役割:
 //   パーティ / チーム / 全体チャンネルに対するボイスチャットの「シーム」インター
 //   フェース。実プロバイダは Steam Voice / EOS Voice / Unity Vivox / Discord
-//   FGame SDK / Opus self-host のいずれでも良く、ゲーム側コードは `IVoiceChatBackend`
+//   CGame SDK / Opus self-host のいずれでも良く、ゲーム側コードは `IVoiceChatBackend`
 //   経由でのみ参加者管理 / ミュート / 音量を扱う。SDK 統合はビルド時の選択で
 //   差し替える。
 //
 // 使い方 (典型例):
-//   class FGame {
+//   class CGame {
 //       acs::game::IVoiceChatBackend* m_Voice = nullptr;
 //
 //       void OnStart() noexcept override {
@@ -67407,7 +68305,7 @@ private:
 //
 // 倫理 / 安全方針:
 //   ・**moderation は別モジュール**: 文字起こしによる NG ワード判定 / 通報導線は
-//     `FSocialModeration` (別 Pillar) が担当。本 system は技術的な mute/volume 管理のみ。
+//     `CSocialModeration` (別 Pillar) が担当。本 system は技術的な mute/volume 管理のみ。
 //   ・**under-18 のデフォルト**: 未成年アカウントが既知の場合、呼び出し側で
 //     `SetLocalMute(true)` をかぶせる想定。本 system はフラグを持たず強制機構なし
 //     (プラットフォームごとに年齢推定 API が異なるため一律ルール化が危険)。
@@ -67470,7 +68368,7 @@ enum class EVoiceProvider : u8 {
     /** Unity Vivox (cross-platform 汎用)。 */
     Vivox       = 3,
 
-    /** Discord FGame SDK (Lobby Voice)。 */
+    /** Discord CGame SDK (Lobby Voice)。 */
     Discord     = 4,
 
     /** 自前 Opus codec + 専用サーバ。 */
@@ -67485,7 +68383,7 @@ enum class EVoiceProvider : u8 {
  * 意味論を区別する。同時に複数チャンネルへ join 可能 (Party + Global 同居 等)。
  */
 enum class EVoiceChannel : u8 {
-    /** パーティ内チャット (FPartySystem と紐づく)。 */
+    /** パーティ内チャット (CPartySystem と紐づく)。 */
     Party    = 0,
 
     /** チーム / 隊伍内チャット (試合中の同チーム)。 */
@@ -67506,7 +68404,7 @@ enum class EVoiceChannel : u8 {
  * 呼び出し側でコピーしない)。寿命は「次の Tick() を呼ぶまで」を保証する。
  */
 struct FVoiceParticipant {
-    /** SDK 固有 ID 文字列 (FPartySystem の player_id と同形式想定、非所有)。 */
+    /** SDK 固有 ID 文字列 (CPartySystem の player_id と同形式想定、非所有)。 */
     const char* user_id        = nullptr;
 
     /** 表示名 (UTF-8、寿命は SDK 側保証、非所有)。 */
@@ -67688,7 +68586,7 @@ public:
      *
      * @details
      * 実 SDK backend はマイク捕捉/再生を SDK 内部で行うため override せず、既定実装は
-     * NotImplemented を返す。`FVoiceChatLoopbackBackend` のみが本実装する。ローカル
+     * NotImplemented を返す。`CVoiceChatLoopbackBackend` のみが本実装する。ローカル
      * ミュート中は送信されない (capture は続くが route しない)。
      * @param ch 送信先チャンネル種別。
      * @param pcm sample_count 個の int16 サンプル (非所有、本呼び出し中のみ参照)。
@@ -67747,13 +68645,13 @@ public:
  * ACS_ERR(Generic, kSubVoiceNotImplemented, ...) を返し、IsAvailable() は常に false。
  * Shutdown() / Tick() は副作用なし。ISteamworksBridge と違い「未実装」を強調する。
  */
-class FVoiceChatBackendStub final : public IVoiceChatBackend {
+class CVoiceChatBackendStub final : public IVoiceChatBackend {
 public:
     /** デフォルト構築する。 */
-    FVoiceChatBackendStub() noexcept = default;
+    CVoiceChatBackendStub() noexcept = default;
 
     /** 破棄する (副作用なし)。 */
-    ~FVoiceChatBackendStub() noexcept override = default;
+    ~CVoiceChatBackendStub() noexcept override = default;
 
     /**
      * provider を記録するだけの初期化を行う。
@@ -67875,20 +68773,20 @@ IVoiceChatBackend& GetVoiceStub() noexcept;
  * 各チャンネル (Party/Team/Global/Custom) は独立した参加者テーブル + per-user 受信
  * キューを持ち、index 0 の participant をローカルユーザ (= 自分) として扱う。
  */
-class FVoiceChatLoopbackBackend final : public IVoiceChatBackend {
+class CVoiceChatLoopbackBackend final : public IVoiceChatBackend {
 public:
     /** DefaultAllocator を使って構築する。 */
-    FVoiceChatLoopbackBackend() noexcept;
+    CVoiceChatLoopbackBackend() noexcept;
 
     /**
      * 指定 allocator をチャンネル・参加者・受信キューに使って構築する。
      *
      * @param allocator 可変長状態の確保に使う allocator。
      */
-    explicit FVoiceChatLoopbackBackend(FAllocator& allocator) noexcept;
+    explicit CVoiceChatLoopbackBackend(IAllocator& allocator) noexcept;
 
     /** 破棄する。 */
-    ~FVoiceChatLoopbackBackend() noexcept override = default;
+    ~CVoiceChatLoopbackBackend() noexcept override = default;
 
     /**
      * backend を初期化し、全チャンネルの状態をリセットする。
@@ -68105,7 +69003,7 @@ private:
         FLoopParticipant() noexcept = default;
 
         /** 指定 allocator を文字列と受信キューへ固定する。 */
-        explicit FLoopParticipant(FAllocator& allocator) noexcept
+        explicit FLoopParticipant(IAllocator& allocator) noexcept
             : user_id(allocator), display_name(allocator), rx_frames(allocator)
         {
         }
@@ -68135,7 +69033,7 @@ private:
         FChannel() noexcept = default;
 
         /** 指定 allocator を ID と参加者配列へ固定する。 */
-        explicit FChannel(FAllocator& allocator) noexcept : channel_id(allocator), participants(allocator)
+        explicit FChannel(IAllocator& allocator) noexcept : channel_id(allocator), participants(allocator)
         {
         }
 
@@ -68202,7 +69100,7 @@ private:
     f32           m_LastLocalPeak= 0.0f;
 
     /** チャンネル内の可変長状態が使う allocator。 */
-    FAllocator* m_Allocator = nullptr;
+    IAllocator* m_Allocator = nullptr;
 
     /** チャンネル状態 (Party/Team/Global/Custom の 4 種固定)。 */
     FChannel m_Channels[4];
@@ -68214,7 +69112,13 @@ private:
  * @details DI 不要で `m_Voice = &GetVoiceLoopback();` だけで本物の音声往復が動く。
  * @return 共有ループバック backend への参照。
  */
-FVoiceChatLoopbackBackend& GetVoiceLoopback() noexcept;
+CVoiceChatLoopbackBackend& GetVoiceLoopback() noexcept;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FVoiceChatBackendStub = CVoiceChatBackendStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FVoiceChatLoopbackBackend = CVoiceChatLoopbackBackend;
 
 } // namespace acs::game
 
@@ -68436,7 +69340,7 @@ inline const FTypeInfoBase& Reflect() noexcept {
 
 // ===================== gameframework/PauseDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FPauseDirector (統合 pause 管理)
+// GameFramework Pillar A — CPauseDirector (統合 pause 管理)
 //
 // 役割:
 //   ゲーム全体の "pause" 状態を一元管理する director。
@@ -68445,16 +69349,16 @@ inline const FTypeInfoBase& Reflect() noexcept {
 //     ・OS / システムメニュー表示 (SystemMenu)
 //     ・ウィンドウフォーカス喪失   (FocusLost)
 //     ・カットシーン再生中         (Cinematic)
-//     ・FPhotoMode 中               (PhotoMode)
+//     ・CPhotoMode 中               (PhotoMode)
 //     ・ネットワーク同期待ち       (NetworkSync)
 //   これらを単純な on/off bool で管理すると、片方が解除されたら resume
 //   してしまい「メニュー閉じたらフォーカス喪失中なのに動き出した」等の
-//   バグを生む。FPauseDirector は **bit OR された EPauseReason mask** を
+//   バグを生む。CPauseDirector は **bit OR された EPauseReason mask** を
 //   持ち、「mask が完全に 0 になるまでは pause」という stack 的挙動で
 //   この問題を回避する。
 //
 // 想定する典型フロー:
-//   FPauseDirector pause;
+//   CPauseDirector pause;
 //   pause.SetNormalTimeScale(1.0f);
 //
 //   // ユーザがメニューを開いた
@@ -68474,7 +69378,7 @@ inline const FTypeInfoBase& Reflect() noexcept {
 //   game.SetTimeScale(pause.EffectiveTimeScale());  // 1.0f に復帰
 //
 // 設計選択:
-//   ・**bit flag 中心**: FPrivacyDirector / FSceneServices と同じく
+//   ・**bit flag 中心**: CPrivacyDirector / CSceneServices と同じく
 //     enum class : u32 + operator|/& で複合 reason を表現する。
 //     None (= 0) は「pause 中ではない」を表す特異値で、Pause(None) /
 //     Resume(None) は no-op (OR/AND-NOT で数学的に変化なし)。
@@ -68482,9 +69386,9 @@ inline const FTypeInfoBase& Reflect() noexcept {
 //     "落ちた瞬間" にだけ発火する。同じ reason の重複 Pause/Resume では
 //     呼ばれない。caller はパッシブ UI 更新やオーディオ ducking 等に
 //     使える。
-//   ・**caller が時間操作を行う**: FPhotoMode と同じく EffectiveTimeScale()
-//     は値を返すだけ。実際の `FGame::SetTimeScale(...)` は外側のゲーム
-//     コードが呼ぶ。GameFramework モジュールから FGame への依存を切る
+//   ・**caller が時間操作を行う**: CPhotoMode と同じく EffectiveTimeScale()
+//     は値を返すだけ。実際の `CGame::SetTimeScale(...)` は外側のゲーム
+//     コードが呼ぶ。GameFramework モジュールから CGame への依存を切る
 //     (Pillar 規約)。
 //   ・**NormalTimeScale 分離**: slow-motion 演出 (= 通常時 0.5x など) と
 //     pause を直交管理するため、「pause 解除時に戻る scale」を別保持。
@@ -68492,7 +69396,7 @@ inline const FTypeInfoBase& Reflect() noexcept {
 //   ・**非コピー・非ムーブ**: アプリ全体で 1 個運用される director なので、
 //     値渡しでスタック状態が分裂しないよう移動コンストラクタも禁止。
 //   ・**全 noexcept**: ACS 規約 (TResult<T,E> + 例外なし) に従う。
-//     ただし FPauseDirector は失敗し得る I/O を持たないので TResult は使わず
+//     ただし CPauseDirector は失敗し得る I/O を持たないので TResult は使わず
 //     全 API を noexcept void / 値返しで構成する。
 //
 // 範囲外:
@@ -68510,7 +69414,7 @@ namespace acs::game {
  *
  * @details
  * 各 reason は独立に on/off でき、同時に複数立ち得る (e.g. UserMenu と FocusLost が
- * 同時)。FPauseDirector は OR された mask を持ち、mask が 0 になるまで pause を維持する。
+ * 同時)。CPauseDirector は OR された mask を持ち、mask が 0 になるまで pause を維持する。
  * operator| / operator& で複合 reason を表現する。
  */
 enum class EPauseReason : u32 {
@@ -68529,7 +69433,7 @@ enum class EPauseReason : u32 {
     /** カットシーン再生中。 */
     Cinematic   = 1u << 3,
 
-    /** FPhotoMode 中。 */
+    /** CPhotoMode 中。 */
     PhotoMode    = 1u << 4,
 
     /** ネットワーク同期待ち。 */
@@ -68584,25 +69488,25 @@ using PauseEventCallback = void(*)(void* user, EPauseReason reason, bool paused)
  * stack 的挙動を提供する。アプリ全体で 1 個運用される想定で、状態の唯一性を担保するため
  * 非コピー・非ムーブ。time scale は値を返すだけで、実際の時間操作は caller が行う。
  */
-class FPauseDirector {
+class CPauseDirector {
 public:
     /** 空状態 (pause 理由なし、NormalTimeScale = 1.0) で構築する。 */
-    FPauseDirector()  noexcept = default;
+    CPauseDirector()  noexcept = default;
 
     /** 破棄する。 */
-    ~FPauseDirector() noexcept = default;
+    ~CPauseDirector() noexcept = default;
 
     /** コピー禁止 (state holder の唯一性を担保するため)。 */
-    FPauseDirector(const FPauseDirector&)            = delete;
+    CPauseDirector(const CPauseDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPauseDirector& operator=(const FPauseDirector&) = delete;
+    CPauseDirector& operator=(const CPauseDirector&) = delete;
 
     /** ムーブ禁止 (状態の分裂を防ぐため)。 */
-    FPauseDirector(FPauseDirector&&)                 = delete;
+    CPauseDirector(CPauseDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPauseDirector& operator=(FPauseDirector&&)      = delete;
+    CPauseDirector& operator=(CPauseDirector&&)      = delete;
 
     /**
      * 指定 reason の bit を立てて pause する (OR)。
@@ -68657,7 +69561,7 @@ public:
     void Clear() noexcept;
 
     /**
-     * caller が `FGame::SetTimeScale(...)` に渡すべき実効 time scale を返す。
+     * caller が `CGame::SetTimeScale(...)` に渡すべき実効 time scale を返す。
      *
      * @return pause 中 (= IsPaused()) なら 0.0f、非 pause なら NormalTimeScale。
      */
@@ -68714,6 +69618,9 @@ private:
     /** callback 呼び出し時に渡すコンテキストポインタ。 */
     void*              m_CallbackUser     = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPauseDirector = CPauseDirector;
 
 } // namespace acs::game
 
@@ -68773,7 +69680,7 @@ enum class EHotReloadResult : u8 {
 // 結果値に対応する安定した診断名を返す。未知値は "Unknown"。
 const char* HotReloadResultName(EHotReloadResult result) noexcept;
 
-// FHotReloadWatcher の通知パイプライン診断スナップショット。
+// CHotReloadWatcher の通知パイプライン診断スナップショット。
 //
 // 全カウンタは最大値で飽和し、折り返さない。last_failure と
 // authoritative_rescan_required は sticky であり、成功した後続操作では解除されない。
@@ -68808,7 +69715,7 @@ struct FHotReloadDiagnostics {
 
 // hot reload コールバックの型。
 //
-// ACS 規約により全 noexcept、関数ポインタのみ採用 (FDevConsole 等と同規約)。
+// ACS 規約により全 noexcept、関数ポインタのみ採用 (CDevConsole 等と同規約)。
 // user は Register 時に渡したコンテキストポインタ (this 想定)。
 // ev はイベントの詳細を表し、呼び出しスコープ中のみ有効。
 using FHotReloadCallback =
@@ -68832,7 +69739,7 @@ struct FWatchEntry;
 // Ship build (ACS_GAME_SHIPPING 定義時) では全 public メソッドが no-op になり、
 // event は 1 つも届かない (dev tool を Ship build で完全に消す方針)。所有する
 // watch・callback・event コンテナの一意性を保つため非コピー・非ムーブ。
-class FHotReloadWatcher {
+class CHotReloadWatcher {
 public:
     // 信頼できない editor 入力による queue の無制限増加を防ぐ上限。
     static constexpr u32 kMaxWatchedPaths   = 256u;
@@ -68846,25 +69753,25 @@ public:
     //
     // FWatchEntry の完全型が見える `.cpp` で定義し、コンストラクタの
     // 失敗後始末が不完全型の TUniquePtr 破棄を外部 TU で実体化しないようにする。
-    FHotReloadWatcher() noexcept;
+    CHotReloadWatcher() noexcept;
 
     // 破棄する (out-of-line)。
     //
     // TUniquePtr<FWatchEntry> の解放には完全型が要るが FWatchEntry は `.cpp` でのみ
     // 完全になるため、デストラクタは out-of-line で定義する (ship build では空)。
-    ~FHotReloadWatcher() noexcept;
+    ~CHotReloadWatcher() noexcept;
 
     // コピー禁止 (所有する watch・callback・event 状態を一意に保つため)。
-    FHotReloadWatcher(const FHotReloadWatcher&)            = delete;
+    CHotReloadWatcher(const CHotReloadWatcher&)            = delete;
 
     // コピー代入も禁止。
-    FHotReloadWatcher& operator=(const FHotReloadWatcher&) = delete;
+    CHotReloadWatcher& operator=(const CHotReloadWatcher&) = delete;
 
     // ムーブ禁止。
-    FHotReloadWatcher(FHotReloadWatcher&&)                 = delete;
+    CHotReloadWatcher(CHotReloadWatcher&&)                 = delete;
 
     // ムーブ代入も禁止。
-    FHotReloadWatcher& operator=(FHotReloadWatcher&&)      = delete;
+    CHotReloadWatcher& operator=(CHotReloadWatcher&&)      = delete;
 
     // 内部バッファを予約する。OS watcher は開かない。多重呼び出し可。
     void Init() noexcept;
@@ -69059,19 +69966,22 @@ private:
 #endif
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FHotReloadWatcher = CHotReloadWatcher;
+
 } // namespace acs::game
 
 // ===================== gameframework/PerfBudget.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework meta — FPerfBudget (CPU/メモリ予算追跡)
+// GameFramework meta — CPerfBudget (CPU/メモリ予算追跡)
 //
 // フレーム時間 (ms) とメモリ確保量 (bytes) の **予算超過追跡**を行う state holder。
 // カテゴリ単位で予算を定義し、毎フレーム実測値を記録 → 集計し、各カテゴリ・フレーム
-// 全体の超過状態を問い合わせ可能にする。実 UI 描画 (FDebugOverlay / ImGui /
+// 全体の超過状態を問い合わせ可能にする。実 UI 描画 (CDebugOverlay / ImGui /
 // `acs::easy::DrawString` 等) は呼出し側責務。
 //
 // 使い方:
-//   acs::game::FPerfBudget m_Budget;
+//   acs::game::CPerfBudget m_Budget;
 //   void OnInit() noexcept {
 //       m_Budget.SetFrameBudget(16.67f);                // 60fps
 //       m_Budget.DefineCategory("Render", 8.0f, 64u*1024u*1024u);
@@ -69088,13 +69998,13 @@ private:
 //   }
 //
 // 設計選択 (GameFramework meta):
-//   ・**state holder のみ**: 計測 (QueryPerformanceCounter / FAllocator hook 等) は
+//   ・**state holder のみ**: 計測 (QueryPerformanceCounter / IAllocator hook 等) は
 //     呼出し側責務。本クラスは値の保持・集計・予算判定だけを行う。
 //   ・**category は line-key 検索**: `const char*` を pointer 同一 → strcmp の順で
-//     線形走査。FDebugOverlay watches と同じ規約。category 数は通常 10〜50 程度を想定
+//     線形走査。CDebugOverlay watches と同じ規約。category 数は通常 10〜50 程度を想定
 //     し、O(N) 走査で十分高速。
 //   ・**frame 履歴**: 直近 60 frame の合計 ms 値を循環バッファで保持。AverageFrameMs
-//     は履歴の算術平均、LastFrameMs は最新値。FDebugOverlay と同じパターン。
+//     は履歴の算術平均、LastFrameMs は最新値。CDebugOverlay と同じパターン。
 //   ・**spent_ms は BeginFrame でリセット、spent_bytes は累積**:
 //     - spent_ms は per-frame 時間なので 1 frame 単位で 0 リセット。
 //     - spent_bytes は (alloc / free) の差分累積 (現在保持中の合計)。EndFrame でも
@@ -69112,7 +70022,7 @@ private:
 // 範囲外:
 //   ・スレッドセーフ (Record 系は 1 thread 前提。MT 計測は外側で集計してから注入)
 //   ・スコープガード `BudgetScope` (RAII で auto record)
-//   ・自動メモリトラッキング (Pillar A `FAllocator` hook 経由で alloc/free を自動記録)
+//   ・自動メモリトラッキング (Pillar A `IAllocator` hook 経由で alloc/free を自動記録)
 //   ・カテゴリ階層 ("Render/Shadow" "Render/Post" 等)
 
 
@@ -69145,29 +70055,29 @@ struct FBudgetEntry {
  *
  * @details
  * カテゴリごとに予算を定義し、毎フレーム実測値を記録 → 集計して各カテゴリ・フレーム全体の
- * 超過状態を問い合わせ可能にする。計測 (タイマ / FAllocator hook) と UI 描画は呼出し側責務。
+ * 超過状態を問い合わせ可能にする。計測 (タイマ / IAllocator hook) と UI 描画は呼出し側責務。
  * category は line-key (pointer 同一 → strcmp) で線形検索する。frame 履歴は直近 60 frame の
  * 合計 ms を循環バッファで保持する。所有権を曖昧にしないため非コピー・非ムーブ。
  */
-class FPerfBudget {
+class CPerfBudget {
 public:
     /** 空状態 (category なし、frame 予算なし) で構築する。 */
-    FPerfBudget() noexcept = default;
+    CPerfBudget() noexcept = default;
 
     /** 破棄する。 */
-    ~FPerfBudget() noexcept = default;
+    ~CPerfBudget() noexcept = default;
 
     /** コピー禁止 (履歴 / category の所有権を曖昧にしないため)。 */
-    FPerfBudget(const FPerfBudget&)            = delete;
+    CPerfBudget(const CPerfBudget&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPerfBudget& operator=(const FPerfBudget&) = delete;
+    CPerfBudget& operator=(const CPerfBudget&) = delete;
 
     /** ムーブ禁止。 */
-    FPerfBudget(FPerfBudget&&)                 = delete;
+    CPerfBudget(CPerfBudget&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPerfBudget& operator=(FPerfBudget&&)      = delete;
+    CPerfBudget& operator=(CPerfBudget&&)      = delete;
 
     /**
      * 目標フレーム時間 (ms) を設定する。
@@ -69285,7 +70195,7 @@ public:
     void Reset() noexcept;
 
 private:
-    /** frame 履歴循環バッファのサンプル数 (FDebugOverlay と整合)。 */
+    /** frame 履歴循環バッファのサンプル数 (CDebugOverlay と整合)。 */
     static constexpr u32 kFrameHistoryCap = 60u;
 
     /**
@@ -69319,26 +70229,29 @@ private:
     bool m_FrameOverBudget   = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPerfBudget = CPerfBudget;
+
 } // namespace acs::game
 
 // ===================== gameframework/SceneCommandQueue.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FSceneCommandQueue (deferred command queue / editor 連携)
+// GameFramework Pillar A — CSceneCommandQueue (deferred command queue / editor 連携)
 //
 // 走査中 (OnUpdate / OnDraw) に発火された「シーン構造変更」等の要求をフレーム末
-// で順次実行するための遅延実行キュー。`FSceneManager` の `_ApplyPending` と同じ
+// で順次実行するための遅延実行キュー。`CSceneManager` の `_ApplyPending` と同じ
 // 哲学 (= 走査中の構造変更を避け、安全なフレーム境界で適用する) を、より粒度の
 // 細かいコマンド単位に拡張したもの。editor から「ノード追加」「コンポーネント
 // 差し替え」等を OnUpdate のループ走査中に呼んでも、Flush 時に integrity を
 // 保ったまま適用される。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       FSceneCommandQueue m_Cmds;
+//   class FGameplayScene : public AScene {
+//       CSceneCommandQueue m_Cmds;
 //
 //       void OnUpdate(f32 dt) noexcept override {
 //           // 走査中に node 削除を要求しても安全 (Flush でまとめて実行)
-//           if (FInput::IsKeyPressed(EKey::Delete)) {
+//           if (CInput::IsKeyPressed(EKey::Delete)) {
 //               m_Cmds.Enqueue("DeleteSelected", &FGameplayScene::DeleteSelected, this);
 //           }
 //           // 同 label が既にキュー上に居れば denounce (連打抑制)
@@ -69350,18 +70263,18 @@ private:
 //           // ImGui ボタン処理中などからも安全に enqueue できる
 //       }
 //
-//       // フレーム末に FGame / FScene 側で 1 回 Flush する。
+//       // フレーム末に CGame / AScene 側で 1 回 Flush する。
 //       static void DeleteSelected(void* self) noexcept { /* ... */ }
 //       static void RefreshUi    (void* self) noexcept { /* ... */ }
 //   };
 //
 // 設計選択 (Pillar A polish):
 //   ・**deferred 実行**: 走査中の構造変更を避けるため、Flush までは実行しない。
-//     `FSceneManager` の pending op (1 個) と違い、複数 command を保持・優先度
+//     `CSceneManager` の pending op (1 個) と違い、複数 command を保持・優先度
 //     付きで順序付け実行する。
 //   ・**function pointer + void* user**: ACS 規約 (std::function 不使用、heap
 //     allocation / RTTI / 例外を持ち込まない)。
-//   ・**const char* label**: 文字列リテラル前提、本クラスは複製しない (FDebugOverlay
+//   ・**const char* label**: 文字列リテラル前提、本クラスは複製しない (CDebugOverlay
 //     の watch 列と同じ方針)。同一性比較は pointer 一致 → fallback で strcmp。
 //     `<string>` 禁止 (STL 不使用)。
 //   ・**priority 昇順実行**: 同 priority 内では Enqueue 順 (= 安定ソート)。
@@ -69371,11 +70284,11 @@ private:
 //   ・**EnqueueIfAbsent (denounce)**: 同 label の既存 command があれば no-op。
 //     入力連打 / リサイズイベント連発で同じ作業が積み上がるのを防ぐ。
 //   ・**Cancel**: label 一致の全 command を削除 (one_shot/repeating 両方)。
-//   ・**Flush 中の Enqueue 安全性**: FSceneEventBus と同じく、走査 size を最初に
+//   ・**Flush 中の Enqueue 安全性**: CSceneEventBus と同じく、走査 size を最初に
 //     スナップショットして固定範囲のみ実行する。Flush 中に追加された command は
 //     次回 Flush で初めて実行される。Flush 中に同 slot が PushBack で再 alloc を
 //     起こしても、fn / user / one_shot を local にコピーしてから呼ぶことで安全。
-//   ・**非コピー・非ムーブ**: FScene にメンバとして埋め込む前提、所有権の
+//   ・**非コピー・非ムーブ**: AScene にメンバとして埋め込む前提、所有権の
 //     ambiguity を持ち込まない。
 //   ・**STL 不使用 / 全 noexcept**: ACS 規約。`acs::TArray<FCommandRecord>` で持つ。
 //
@@ -69383,7 +70296,7 @@ private:
 //   ・スレッドセーフ (現状は同一スレッド前提、editor が別スレッドから enqueue する
 //     なら mutex を内蔵するか SPSC ring に置き換える必要あり)
 //   ・command 履歴 / undo (editor の undo stack は別レイヤで持つべき)
-//   ・cross-scene broadcast (FSceneEventBus と同じく FScene を越えるのは将来課題)
+//   ・cross-scene broadcast (CSceneEventBus と同じく AScene を越えるのは将来課題)
 
 
 namespace acs::game {
@@ -69424,29 +70337,29 @@ struct FCommandRecord {
  *
  * @details
  * OnUpdate / OnDraw の走査中に editor 等が「ノード追加」「コンポーネント差し替え」を
- * 要求しても、Flush 時に integrity を保ったまま priority 昇順で適用する。FSceneManager の
+ * 要求しても、Flush 時に integrity を保ったまま priority 昇順で適用する。CSceneManager の
  * 単一 pending op と違い複数 command を保持し、one_shot/repeating・denounce・cancel を持つ。
  * 非コピー・非ムーブで、関数ポインタ + void* user により STL を使わず全 noexcept で実装する。
  */
-class FSceneCommandQueue {
+class CSceneCommandQueue {
 public:
     /** 空のキューを構築する。 */
-    FSceneCommandQueue() noexcept = default;
+    CSceneCommandQueue() noexcept = default;
 
     /** キューを破棄する (保留 command の callback は呼ばない)。 */
-    ~FSceneCommandQueue() noexcept = default;
+    ~CSceneCommandQueue() noexcept = default;
 
     /** コピー禁止 (発火中の参照との競合を防ぐため)。 */
-    FSceneCommandQueue(const FSceneCommandQueue&)            = delete;
+    CSceneCommandQueue(const CSceneCommandQueue&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSceneCommandQueue& operator=(const FSceneCommandQueue&) = delete;
+    CSceneCommandQueue& operator=(const CSceneCommandQueue&) = delete;
 
-    /** ムーブ禁止 (FScene 埋め込み前提、所有権の曖昧さを持ち込まない)。 */
-    FSceneCommandQueue(FSceneCommandQueue&&)                 = delete;
+    /** ムーブ禁止 (AScene 埋め込み前提、所有権の曖昧さを持ち込まない)。 */
+    CSceneCommandQueue(CSceneCommandQueue&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSceneCommandQueue& operator=(FSceneCommandQueue&&)      = delete;
+    CSceneCommandQueue& operator=(CSceneCommandQueue&&)      = delete;
 
     /**
      * 末尾に command を追加する。
@@ -69512,7 +70425,7 @@ public:
     /**
      * 全 command を破棄する (callback は呼ばない)。
      *
-     * @details FScene::OnExit 等で使う。
+     * @details AScene::OnExit 等で使う。
      */
     void ClearAll() noexcept;
 
@@ -69529,11 +70442,14 @@ private:
     TInlineArray<FCommandRecord, kInlineCommandCapacity> m_Records;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSceneCommandQueue = CSceneCommandQueue;
+
 } // namespace acs::game
 
 // ===================== gameframework/SocialModeration.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — FSocialModeration (blocking / reporting / 通報管理)
+// GameFramework Pillar T — CSocialModeration (blocking / reporting / 通報管理)
 //
 // 役割:
 //   ローカルブロックリストと通報 (報告) キューを管理する。実プラットフォームの
@@ -69544,7 +70460,7 @@ private:
 //   PartySystem.h で「moderation / blocking は別モジュール」と明記した通り、
 //   本 system が「上位レイヤから呼ばれる単一窓口」を担う。InviteFriend で
 //   ブロック相手かどうかを判定したい場合は、呼び出し側で IsBlocked() を
-//   先に問い合わせる責任分離 (FPartySystem 自身は moderation を意識しない)。
+//   先に問い合わせる責任分離 (CPartySystem 自身は moderation を意識しない)。
 //
 // 設計上の倫理方針 (通報 / ブロック + 児童保護):
 //   ・**ブロックはローカル即時反映**: BlockUser はネットワーク往復を伴わず、
@@ -69564,10 +70480,10 @@ private:
 //     判断する責任分離)。
 //   ・**自分自身のブロックは防御的に弾かない**: 文字列比較で「自分の
 //     user_id」を知らないため、上位レイヤで弾く責任。本 system は受け取った
-//     文字列をそのままリストに入れる (FPartySystem と同じ哲学)。
+//     文字列をそのままリストに入れる (CPartySystem と同じ哲学)。
 //
 // 使い方 (典型例):
-//   FSocialModeration mod;
+//   CSocialModeration mod;
 //   mod.Init();
 //
 //   // toxic プレイヤーを即時ブロック
@@ -69645,7 +70561,7 @@ enum class EReportCategory : u8 {
  *
  * @details
  * `reported_user_id` / `reporter_user_id` / `note` はすべて const char* 非所有
- * (FPartySystem と同じポリシー)。timestamp は Unix 秒など呼び出し側が決めた
+ * (CPartySystem と同じポリシー)。timestamp は Unix 秒など呼び出し側が決めた
  * 単調増加値で、本 system は比較せず保存のみ行う。
  */
 struct FReportRecord {
@@ -69689,25 +70605,25 @@ struct FBlockEntry {
  * 送信は seam として未接続。通常は長寿命 1 個で運用し、誤コピーで block list が
  * 分裂して安全性が損なわれるのを避けるため非コピー・非ムーブとする。
  */
-class FSocialModeration {
+class CSocialModeration {
 public:
     /** 空状態で構築する。 */
-    FSocialModeration()  noexcept = default;
+    CSocialModeration()  noexcept = default;
 
     /** 破棄する。 */
-    ~FSocialModeration() noexcept = default;
+    ~CSocialModeration() noexcept = default;
 
     /** コピー禁止 (block list の分裂を防ぐため)。 */
-    FSocialModeration(const FSocialModeration&)            = delete;
+    CSocialModeration(const CSocialModeration&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSocialModeration& operator=(const FSocialModeration&) = delete;
+    CSocialModeration& operator=(const CSocialModeration&) = delete;
 
     /** ムーブ禁止 (block list の分裂を防ぐため)。 */
-    FSocialModeration(FSocialModeration&&)                 = delete;
+    CSocialModeration(CSocialModeration&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSocialModeration& operator=(FSocialModeration&&)      = delete;
+    CSocialModeration& operator=(CSocialModeration&&)      = delete;
 
     /**
      * 内部 state を初期化する。
@@ -69719,7 +70635,7 @@ public:
     /**
      * user_id をローカルブロックリストに追加する。
      *
-     * @details 既に登録済み、または user_id == nullptr なら no-op (FPartySystem.AddFriend と同じ防御)。
+     * @details 既に登録済み、または user_id == nullptr なら no-op (CPartySystem.AddFriend と同じ防御)。
      * @param user_id ブロックする相手の user_id (非所有)。
      */
     void BlockUser(const char* user_id) noexcept;
@@ -69735,7 +70651,7 @@ public:
     /**
      * user_id がブロック済みかを返す。
      *
-     * @details FPartySystem.InviteFriend() の前段ガードとしての呼び出しを想定。
+     * @details CPartySystem.InviteFriend() の前段ガードとしての呼び出しを想定。
      * @param user_id 判定する相手の user_id (nullptr は常に false)。
      * @return ブロック済みなら true。
      */
@@ -69855,30 +70771,33 @@ private:
     u32                  m_Delivered        = 0;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSocialModeration = CSocialModeration;
+
 } // namespace acs::game
 
 // ===================== gameframework/SpatialAudio.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FSpatialAudio (3D positional + HRTF binaural seam)
+// GameFramework Pillar H — CSpatialAudio (3D positional + HRTF binaural seam)
 //
 // 3D 位置情報を持つ FAudioSource3D と単一の FAudioListener (= プレイヤ耳位置) から
 // 距離減衰 (attenuation) / 左右パン (stereo pan) を算出する音声空間化レイヤ。
 // HRTF (Head-Related Transfer Function) によるバイノーラル化は `IHrtfRenderer`
-// interface seam として隔離する。`FHrtfRendererStub` は constant-power stereo
+// interface seam として隔離する。`CHrtfRendererStub` は constant-power stereo
 // panning + 距離減衰を**実数学** (in-repo 完結) で行い、真のバイノーラル化
 // (KEMAR 256-tap convolution、~140KB の埋め込み impulse response) のみが seam
 // として残る (外部 IR データ必須のため別モジュールとして差し込む)。
 //
-// FAudioDirector との関係:
-//   FAudioDirector = master / bgm / sfx の音量バスと BGM クロスフェードのみを扱う
-//   「2D 混音層」。本 FSpatialAudio は FAudioDirector の上に乗る「3D 空間化前段」で、
+// CAudioDirector との関係:
+//   CAudioDirector = master / bgm / sfx の音量バスと BGM クロスフェードのみを扱う
+//   「2D 混音層」。本 CSpatialAudio は CAudioDirector の上に乗る「3D 空間化前段」で、
 //   listener / source を保持し、毎フレーム attenuation と pan を算出する。
 //   CAudioEngine と接続したとき、各 source を CAudioEngine voice に
-//   バインドして、FSpatialAudio が計算した volume * pan を per-voice に書き込む。
+//   バインドして、CSpatialAudio が計算した volume * pan を per-voice に書き込む。
 //
 // 使い方:
-//   class FWorldScene : public FScene {
-//       acs::game::FSpatialAudio m_Spatial;
+//   class FWorldScene : public AScene {
+//       acs::game::CSpatialAudio m_Spatial;
 //
 //       void OnEnter() noexcept override {
 //           // プレイヤ耳位置を listener として登録
@@ -69929,7 +70848,7 @@ private:
 //   ・Occlusion / obstruction (壁越し減衰、レイキャスト)
 //   ・複数 listener (split-screen)
 //   ・3D reverb (リバーブゾーン)
-//   ・CAudioEngine voice バインド (FAudioDirector と統合)
+//   ・CAudioEngine voice バインド (CAudioDirector と統合)
 
 
 namespace acs::game {
@@ -69954,7 +70873,7 @@ struct FAudioListener {
  * 1 個の 3D 音源。
  */
 struct FAudioSource3D {
-    /** FSpatialAudio が払い出す一意 ID (0 = 無効、1.. = 有効)。 */
+    /** CSpatialAudio が払い出す一意 ID (0 = 無効、1.. = 有効)。 */
     u32                source_id    = 0;
 
     /** 世界座標での位置。 */
@@ -70073,13 +70992,13 @@ protected:
  * source.curve に応じた距離減衰 (ComputeAttenuatedVolume と同式)。現状これが唯一の
  * IHrtfRenderer 実装で、IsHrtfEnabled() は false を返す (真の HRTF 効果のみ無い)。
  */
-class FHrtfRendererStub final : public IHrtfRenderer {
+class CHrtfRendererStub final : public IHrtfRenderer {
 public:
     /** 空状態で構築する。 */
-    FHrtfRendererStub() noexcept = default;
+    CHrtfRendererStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FHrtfRendererStub() noexcept override = default;
+    ~CHrtfRendererStub() noexcept override = default;
 
     /**
      * stub を初期化する (初回のみ HRTF off のログを出す)。
@@ -70130,31 +71049,31 @@ private:
  * 3D listener + source を集中管理する空間化レイヤ。
  *
  * @details
- * FScene 局所 instance としての所有を想定。1 listener + N source を保持し、
+ * AScene 局所 instance としての所有を想定。1 listener + N source を保持し、
  * 毎フレーム attenuation と pan を pull で取得できる API を提供する。
  */
-class FSpatialAudio {
+class CSpatialAudio {
 public:
     /** source 配列の初期容量 (Reserve のヒント)。 */
     static constexpr u32 kInitialSourceCapacity = 16;
 
     /** source 配列を初期容量で Reserve して構築する。 */
-    FSpatialAudio() noexcept;
+    CSpatialAudio() noexcept;
 
     /** 破棄する。 */
-    ~FSpatialAudio() noexcept = default;
+    ~CSpatialAudio() noexcept = default;
 
     /** コピー禁止 (シーン局所 instance として単独所有するため)。 */
-    FSpatialAudio(const FSpatialAudio&)            = delete;
+    CSpatialAudio(const CSpatialAudio&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSpatialAudio& operator=(const FSpatialAudio&) = delete;
+    CSpatialAudio& operator=(const CSpatialAudio&) = delete;
 
     /** ムーブ禁止。 */
-    FSpatialAudio(FSpatialAudio&&)                 = delete;
+    CSpatialAudio(CSpatialAudio&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSpatialAudio& operator=(FSpatialAudio&&)      = delete;
+    CSpatialAudio& operator=(CSpatialAudio&&)      = delete;
 
     /**
      * listener (耳位置と向き) を設定する。
@@ -70261,21 +71180,27 @@ private:
     u32               m_NextSourceId = 1;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FHrtfRendererStub = CHrtfRendererStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSpatialAudio = CSpatialAudio;
+
 } // namespace acs::game
 
 
 // ===================== gameframework/WaterVolume.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — FWaterVolume (浮力 + 水域判定)
+// GameFramework Pillar Q — CWaterVolume (浮力 + 水域判定)
 //
 // AABB で定義された 2D 水域を複数登録し、点が水中に居るかの query と、
 // 物体に掛かる浮力 + drag を世界座標 force ベクトルとして返す。
-// APhysicsBody2D / FEffectSystem 側は本クラスを参照することで「浮く」「沈む」「水流
+// APhysicsBody2D / CEffectSystem 側は本クラスを参照することで「浮く」「沈む」「水流
 // 抵抗」といった水中挙動を組み立てられる。水面演出 (波 / splash 粒子) はレンダラ
 // 側で `FWaterVolumeInfo::surface_y` と `water_color` を pull して描画する想定。
 //
 // 使い方:
-//   acs::game::FWaterVolume water;
+//   acs::game::CWaterVolume water;
 //
 //   // 池を 1 つ登録
 //   acs::game::FWaterVolumeInfo pond{
@@ -70318,7 +71243,7 @@ namespace acs::game {
 /**
  * 1 つの水域の幾何 + パラメータ。
  *
- * @details FWaterVolume::AddVolume / UpdateVolume で値渡しされる。
+ * @details CWaterVolume::AddVolume / UpdateVolume で値渡しされる。
  */
 struct FWaterVolumeInfo {
     /** AABB 中心 (world)。 */
@@ -70341,7 +71266,7 @@ struct FWaterVolumeInfo {
 };
 
 /**
- * FWaterVolume を識別する packed 32bit handle (generational)。
+ * CWaterVolume を識別する packed 32bit handle (generational)。
  *
  * @details レイアウトは FShapeId と同一 (low24=index, high8=generation)。
  */
@@ -70410,25 +71335,25 @@ struct FWaterVolumeId {
  * 簡易モデルで、複数 volume が重なる場合は全 volume の寄与を加算する。handle 安定性
  * のため非コピー・非ムーブ。
  */
-class FWaterVolume {
+class CWaterVolume {
 public:
     /** 空状態で構築する。 */
-    FWaterVolume() noexcept = default;
+    CWaterVolume() noexcept = default;
 
     /** 破棄する。 */
-    ~FWaterVolume() noexcept = default;
+    ~CWaterVolume() noexcept = default;
 
     /** コピー禁止 (handle 安定性のため)。 */
-    FWaterVolume(const FWaterVolume&)            = delete;
+    CWaterVolume(const CWaterVolume&)            = delete;
 
     /** コピー代入も禁止。 */
-    FWaterVolume& operator=(const FWaterVolume&) = delete;
+    CWaterVolume& operator=(const CWaterVolume&) = delete;
 
     /** ムーブ禁止 (handle 安定性のため)。 */
-    FWaterVolume(FWaterVolume&&)                 = delete;
+    CWaterVolume(CWaterVolume&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FWaterVolume& operator=(FWaterVolume&&)      = delete;
+    CWaterVolume& operator=(CWaterVolume&&)      = delete;
 
     /**
      * info の値を内部 slot に複製して volume を登録する。
@@ -70546,11 +71471,14 @@ private:
     mutable bool                   m_CacheDirty = true;
 };
 
+/** 旧名を使う既存ソースとの互換alias。 */
+using FWaterVolume = CWaterVolume;
+
 } // namespace acs::game
 
 // ===================== gameframework/TelemetryDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar V — FTelemetryDirector (game analytics event 集約)
+// GameFramework Pillar V — CTelemetryDirector (game analytics event 集約)
 //
 // 役割:
 //   ゲームロジック側から「level_completed」「player_died」「item_purchased」等の
@@ -70558,18 +71486,18 @@ private:
 //   一定間隔 (既定 5 秒) または明示 Flush() のタイミングで IBackendClient::
 //   SendTelemetry() を経由してサーバへまとめて送出する高レベル director。
 //
-//   FAchievementManager と同様に、低レイヤの IBackendClient は seam 注入で
+//   CAchievementManager と同様に、低レイヤの IBackendClient は seam 注入で
 //   差し替え可能 (実装は HTTP/gRPC/Steam 等プロジェクト個別)。Backend 未 attach
 //   なら local pending queue に積むだけのオフラインモードで動作する
 //   (デバッグ / Demo build / 単体テスト用)。
 //
-//   GDPR / CCPA 要件: FPrivacyDirector の EConsentCategory::Telemetry が無ければ
+//   GDPR / CCPA 要件: CPrivacyDirector の EConsentCategory::Telemetry が無ければ
 //   TrackEvent() / Flush() はすべて no-op。consent 未取得状態で TrackEvent 経由
 //   の暗黙 opt-in を発生させない (consent dialogue 表示前の起動シーケンスでも
 //   安全に呼べる)。
 //
 // 使い方:
-//   FTelemetryDirector td;
+//   CTelemetryDirector td;
 //   td.Init(&my_backend, &my_privacy);
 //   td.EnableCategory("ui", false);                  // UI 系イベントは送らない
 //
@@ -70606,7 +71534,7 @@ private:
 //     せず可変 TArray<FCategoryFilter> で持つ。件数は通常 10〜30 程度なので
 //     線形検索で十分。default は「未登録 = enabled」とし、明示的に false を
 //     設定したカテゴリだけ落とす (= explicit deny list)。
-//   ・**FPrivacyDirector attach optional**: nullptr 注入時は consent ガードを
+//   ・**CPrivacyDirector attach optional**: nullptr 注入時は consent ガードを
 //     スキップ (= 全イベント許可)。テスト / オフラインビルド用の逃げ道。
 //     production では必ず privacy を渡すこと。
 //   ・**非コピー・非ムーブ、全 noexcept**: 他 Director 系と統一。
@@ -70626,8 +71554,6 @@ namespace acs::game {
 // 芋づるで広がる。本ヘッダは公開 API のみ薄く保つ方針なので、interface /
 // class は forward declare に留めて、実体 include は .cpp 側で行う。
 class IBackendClient;
-class FPrivacyDirector;
-
 /**
  * analytics event の重要度ヒント。
  *
@@ -70669,7 +71595,7 @@ struct FTelemetryEvent {
     /** イベントの重要度ヒント。 */
     EEventPriority priority     = EEventPriority::Info;
 
-    /** TrackEvent 時の FClock::MillisSinceStartup() (起動からの ms、0 = 未取得)。 */
+    /** TrackEvent 時の CClock::MillisSinceStartup() (起動からの ms、0 = 未取得)。 */
     u64           timestamp    = 0;
 };
 
@@ -70679,29 +71605,29 @@ struct FTelemetryEvent {
  * @details
  * TrackEvent() で投入したイベントを内部 pending queue に積み、一定間隔または明示
  * Flush() のタイミングで IBackendClient::SendTelemetry() を経由して送出する。Backend
- * 未 attach ならオフラインモードで pending に積むだけ、FPrivacyDirector の Telemetry
+ * 未 attach ならオフラインモードで pending に積むだけ、CPrivacyDirector の Telemetry
  * consent が無ければ TrackEvent/Flush は no-op。アプリ全体で 1 個運用される想定のため
  * 非コピー・非ムーブ。
  */
-class FTelemetryDirector {
+class CTelemetryDirector {
 public:
     /** 空状態で構築する (Init で backend / privacy を注入)。 */
-    FTelemetryDirector()  noexcept = default;
+    CTelemetryDirector()  noexcept = default;
 
     /** 破棄する (pending queue は TArray が解放)。 */
-    ~FTelemetryDirector() noexcept = default;
+    ~CTelemetryDirector() noexcept = default;
 
     /** コピー禁止 (アプリ全体で単独運用するため)。 */
-    FTelemetryDirector(const FTelemetryDirector&)            = delete;
+    CTelemetryDirector(const CTelemetryDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FTelemetryDirector& operator=(const FTelemetryDirector&) = delete;
+    CTelemetryDirector& operator=(const CTelemetryDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FTelemetryDirector(FTelemetryDirector&&)                 = delete;
+    CTelemetryDirector(CTelemetryDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FTelemetryDirector& operator=(FTelemetryDirector&&)      = delete;
+    CTelemetryDirector& operator=(CTelemetryDirector&&)      = delete;
 
     /**
      * backend / privacy を注入して初期化する。
@@ -70710,9 +71636,9 @@ public:
      * 2 重 Init は backend / privacy 参照を上書きする。pending queue と統計カウンタは
      * 初期化せず、既存イベントを保持したまま backend を差し替える運用を許す。
      * @param backend 送信先の IBackendClient (寿命は呼出側が保証)。
-     * @param privacy consent ガードに使う FPrivacyDirector (nullptr 可 = ガードスキップ)。
+     * @param privacy consent ガードに使う CPrivacyDirector (nullptr 可 = ガードスキップ)。
      */
-    void Init(IBackendClient* backend, FPrivacyDirector* privacy = nullptr) noexcept;
+    void Init(IBackendClient* backend, CPrivacyDirector* privacy = nullptr) noexcept;
 
     /**
      * pending queue を空にし、backend / privacy 参照を切る。
@@ -70847,7 +71773,7 @@ private:
     IBackendClient*        m_Backend  = nullptr;
 
     /** consent ガード用の privacy director (optional 注入)。 */
-    FPrivacyDirector*       m_Privacy  = nullptr;
+    CPrivacyDirector*       m_Privacy  = nullptr;
 
     /** 送信成功した累計 event 件数。 */
     u32  m_SentCount     = 0;
@@ -70865,16 +71791,19 @@ private:
     bool m_Initialized    = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTelemetryDirector = CTelemetryDirector;
+
 } // namespace acs::game
 
 // ===================== gameframework/ReplayDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FReplayDirector (高レベル replay 再生システム)
+// GameFramework Pillar R — CReplayDirector (高レベル replay 再生システム)
 //
 // 役割:
-//   1) **ハイレベル replay コントローラ**: 低レベルの `FInputRecorder` (raw 入力)
-//      と `FLockstep` (deterministic input frame) を統合し、「録画開始 / 停止 /
-//      再生 / 一時停止 / 早送り / 巻き戻し」という FGame UI レベルの粒度で
+//   1) **ハイレベル replay コントローラ**: 低レベルの `CInputRecorder` (raw 入力)
+//      と `CLockstep` (deterministic input frame) を統合し、「録画開始 / 停止 /
+//      再生 / 一時停止 / 早送り / 巻き戻し」という CGame UI レベルの粒度で
 //      replay を扱う。アプリ側は本 director だけを通じて record/playback の
 //      ライフサイクルを管理し、低レベル詳細 (sample / frame の bit-precise
 //      layout や cursor 管理) に立ち入らない。
@@ -70891,7 +71820,7 @@ private:
 //      cursor は実統合時に同期させる。
 //
 // 使い方 (想定):
-//   FReplayDirector dir;
+//   CReplayDirector dir;
 //   dir.Init();
 //
 //   // 録画開始
@@ -70908,7 +71837,7 @@ private:
 //
 //   // ゲームループ (録画中):
 //   dir.Tick(dt);  // 内部で m_CurrentTick を進めるだけ。
-//                  // 入力 capture は FInputRecorder/FLockstep 側で別途行う想定。
+//                  // 入力 capture は CInputRecorder/CLockstep 側で別途行う想定。
 //
 //   // 録画停止
 //   dir.StopRecording();
@@ -70921,22 +71850,22 @@ private:
 //   while (running) {
 //       dir.Tick(dt);
 //       float progress = dir.ProgressNormalized();  // [0, 1]
-//       // ... シミュレーションは FLockstep::ConsumeInput 経由で進める ...
+//       // ... シミュレーションは CLockstep::ConsumeInput 経由で進める ...
 //   }
 //
 // 設計選択:
-//   ・**FInputRecorder / FLockstep は forward decl**: 「ハイレベル
+//   ・**CInputRecorder / CLockstep は forward decl**: 「ハイレベル
 //      API シェイプ + state machine + tick 進行」を確定する。実際の
-//      sample/frame 連動 (Capture/ConsumeSample の自動呼び出し) は「FReplayDirector
+//      sample/frame 連動 (Capture/ConsumeSample の自動呼び出し) は「CReplayDirector
 //      が両者を所有」or「seam 経由で参照する」かを決めた上で接続する。本 header
 //      では .cpp 内で完結する forward decl のみ。
 //   ・**EReplayMode の 4 状態**: Idle / Recording / Playback / Paused。
-//      FInputRecorder の ERecorderMode と FLockstep の ENetMode と異なり、UI が
+//      CInputRecorder の ERecorderMode と CLockstep の ENetMode と異なり、UI が
 //      Pause/Resume を必要とするので Paused を専用状態として持つ。Paused
 //      からの遷移は Resume (→ Playback) と Stop (→ Idle) のみ。
 //   ・**FReplayMetadata は trivially-copyable POD**: `const char*` 文字列は
 //      呼び出し側が寿命を保証する static / 長寿命 buffer を渡す規約
-//      (FSettings / FAccessibilityProfile と同じ STL 不使用方針)。
+//      (CSettings / FAccessibilityProfile と同じ STL 不使用方針)。
 //      acs::FString への置換は検討するが、現状は raw pointer。
 //   ・**SetPlaybackSpeed は範囲 clamp**: 0 < speed <= 16 の範囲外は最寄りの
 //      有効値に丸める。負値や 0 は Paused を別 API で扱うため認めない。
@@ -70945,29 +71874,26 @@ private:
 //   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
 //   ・**コピー / ムーブ禁止**: 1 セッション 1 director の長寿命オブジェクト。
 //      録画中の state が分裂すると replay のメタデータ整合が崩れるため、
-//      FLockstep / FInputRecorder / FSettings と同じ方針で最初から非コピー・
+//      CLockstep / CInputRecorder / CSettings と同じ方針で最初から非コピー・
 //      非ムーブで固定する。
 //
 // 範囲外:
-//   ・実 FInputRecorder / FLockstep の自動連動 (現状は state machine のみ)
+//   ・実 CInputRecorder / CLockstep の自動連動 (現状は state machine のみ)
 //   ・SaveReplay / LoadReplay の実 I/O (現状は stub。.acsr + sidecar
 //      metadata .json or .meta file の bit-precise layout は別途確定)
 //   ・複数 replay の同時ロード / 並列再生
 //   ・スクラブバー UI コンポーネント (本クラスは progress 値を返すのみ)
-//   ・録画中のサムネイル自動撮影 (FPhotoMode 経由で別途)
+//   ・録画中のサムネイル自動撮影 (CPhotoMode 経由で別途)
 //   ・ネットワーク replay 共有 (StorefrontBridge 経由で別途)
 
 
 namespace acs::game {
 
-class FInputRecorder;
-class FLockstep;
-
 /**
- * FReplayDirector の動作モード。
+ * CReplayDirector の動作モード。
  *
  * @details
- * FInputRecorder の ERecorderMode と FLockstep の ENetMode を統合し、UI が要求する
+ * CInputRecorder の ERecorderMode と CLockstep の ENetMode を統合し、UI が要求する
  * Pause/Resume を加えた 4 状態。遷移は Idle→Recording→Idle / Idle→Playback→Idle /
  * Playback↔Paused / Paused→Idle で、Recording から Playback への直接遷移は禁止
  * (一旦 Stop を挟む)。
@@ -71012,7 +71938,7 @@ struct FReplayMetadata {
     /** プレイヤー名 (任意。null 可)。 */
     const char* player_name    = nullptr;
 
-    /** FLockstep checksum の hex 文字列 (16 文字)。 */
+    /** CLockstep checksum の hex 文字列 (16 文字)。 */
     const char* checksum_hex   = nullptr;
 };
 
@@ -71038,34 +71964,34 @@ inline constexpr u32 kReplayChecksumHexBytes = 16u;
  * 低レベルの入力録画と lockstep を統合するハイレベル replay コントローラ。
  *
  * @details
- * FInputRecorder (raw 入力) と FLockstep (deterministic input frame) を非所有
+ * CInputRecorder (raw 入力) と CLockstep (deterministic input frame) を非所有
  * ポインタで束ね、録画 / 再生 / 一時停止 / 倍速 / Seek を UI 粒度で扱う。1 セッション
  * 1 オブジェクトの想定で、録画 state の分裂を防ぐためコピー / ムーブ禁止。
  */
-class FReplayDirector {
+class CReplayDirector {
 public:
     /** 空状態 (Idle / tick 0 / speed 1.0) で構築する。 */
-    FReplayDirector()  noexcept = default;
+    CReplayDirector()  noexcept = default;
 
     /** デストラクタ (非所有 source は解放しない)。 */
-    ~FReplayDirector() noexcept = default;
+    ~CReplayDirector() noexcept = default;
 
     /** コピー禁止 (1 セッション 1 director の長寿命オブジェクト)。 */
-    FReplayDirector(const FReplayDirector&)            = delete;
+    CReplayDirector(const CReplayDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FReplayDirector& operator=(const FReplayDirector&) = delete;
+    CReplayDirector& operator=(const CReplayDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FReplayDirector(FReplayDirector&&)                 = delete;
+    CReplayDirector(CReplayDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FReplayDirector& operator=(FReplayDirector&&)      = delete;
+    CReplayDirector& operator=(CReplayDirector&&)      = delete;
 
     /**
      * SaveReplay / LoadReplay / 状態遷移が返すエラー subcode。
      *
-     * @details FErrorCode.subcode に格納される (TSaveSlot / FLockstep / FInputRecorder と同 pattern)。
+     * @details FErrorCode.subcode に格納される (TSaveSlot / CLockstep / CInputRecorder と同 pattern)。
      */
     enum ESubCode : u16 {
         /** SaveReplay / LoadReplay の file_path == nullptr。 */
@@ -71133,7 +72059,7 @@ public:
      * @param recorder raw 入力の供給元 / 復元先 (null 可)。
      * @param lockstep deterministic input frame の供給元 / 復元先 (null 可)。
      */
-    void SetSources(FInputRecorder* recorder, FLockstep* lockstep) noexcept;
+    void SetSources(CInputRecorder* recorder, CLockstep* lockstep) noexcept;
 
     /**
      * 録画を開始する (checked APIへ委譲し、metadata文字列をowned copyする)。
@@ -71301,10 +72227,10 @@ private:
     u32            m_TickRateHz     = 60;
 
     /** raw 入力 (.acsr blob) の供給元 / 復元先 (非所有)。 */
-    FInputRecorder* m_Recorder = nullptr;
+    CInputRecorder* m_Recorder = nullptr;
 
     /** deterministic input frame (.acsl blob) の供給元 / 復元先 (非所有)。 */
-    FLockstep*      m_Lockstep = nullptr;
+    CLockstep*      m_Lockstep = nullptr;
 
     /** LoadReplay で復元した game_version の所有バッファ。 */
     FString m_GameVersionOwned;
@@ -71328,7 +72254,7 @@ private:
 // 「1 枚の atlas テクスチャ + その中に並ぶ複数 frame の矩形」を持つだけのデータ層。
 // 描画 API・asset loader には触れない。利用者は AtlasTexturePath() で texture を
 // 自前ロードし、FindFrame("Idle_03") で矩形と pivot を取り出し、ComputeUv で
-// [0, 1] UV を得る。FSpriteAnimator (時間→index) と組み合わせて animation を再生する。
+// [0, 1] UV を得る。CSpriteAnimator (時間→index) と組み合わせて animation を再生する。
 //
 // 使い方:
 //   FSpritePack pack;
@@ -71352,7 +72278,7 @@ private:
 //
 // 設計判断:
 //   ・Pillar G (asset/IO の data layout) と Pillar Q (視覚世界, atlas) の交差点に
-//     位置するモジュール。テクスチャの所有 / ロードは責務外 (Pillar G の FAssetBundle
+//     位置するモジュール。テクスチャの所有 / ロードは責務外 (Pillar G の CAssetBundle
 //     / AssetPack 側) で、FSpritePack は「矩形と名前の辞書」に徹する。
 //   ・name は `const char*` 借用 (caller 所有 = 文字列リテラルまたは別所有の
 //     永続バッファ前提)。`<string>` 禁止に従い ACS 規約と整合。比較は pointer
@@ -71360,7 +72286,7 @@ private:
 //   ・非コピー・非ムーブ: frame 配列を不意に複製しないため。所有権を明示したい
 //     場合は Init/AddFrame を再呼出しすることで上書き or 別 instance を作る。
 //   ・ComputeUv は atlas_width/atlas_height が 0 の場合に 0 除算を避け {0,0,0,0}
-//     を返す。FSpriteAnimator と同様、不正状態でも crash しないことを優先。
+//     を返す。CSpriteAnimator と同様、不正状態でも crash しないことを優先。
 //   ・RemoveFrame は順序非保持の swap remove (= 内部 TArray::RemoveAtSwap 相当)。
 //     animation はインデックスではなく名前で参照する前提なので順序破壊は許容。
 
@@ -71400,7 +72326,7 @@ struct FSpriteFrame {
 /**
  * atlas 全体のメタ情報。
  *
- * @details texture そのものは別モジュール (FAssetBundle 等) が所有する。
+ * @details texture そのものは別モジュール (CAssetBundle 等) が所有する。
  */
 struct FSpritePackInfo {
     /** atlas テクスチャのパス (caller 所有)。 */
@@ -71461,7 +72387,7 @@ const char* SpritePackLoadErrorName(ESpritePackLoadError error) noexcept;
  * @details
  * 描画 API・asset loader には触れず「矩形と名前の辞書」に徹する。利用者は
  * AtlasTexturePath() で texture を自前ロードし、FindFrame() で矩形と pivot を取り出し、
- * ComputeUv() で [0,1] UV を得て FSpriteAnimator と組み合わせて再生する。frame 名は
+ * ComputeUv() で [0,1] UV を得て CSpriteAnimator と組み合わせて再生する。frame 名は
  * const char* 借用 (caller 所有) で、比較は pointer 同一 → strcmp の順に評価する。
  */
 class FSpritePack {
@@ -71480,7 +72406,7 @@ public:
     FSpritePack() noexcept = default;
 
     /** 永続 string と frame array に呼び出し側所有の allocator を使う。 */
-    explicit FSpritePack(FAllocator& allocator) noexcept
+    explicit FSpritePack(IAllocator& allocator) noexcept
         : m_Frames(allocator),
           m_OwnedNames(allocator),
           m_OwnedImagePath(allocator) {}
@@ -71623,14 +72549,14 @@ private:
 
 // ===================== gameframework/HealthSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — FHealthSystem (HP / damage / death / respawn 管理)
+// GameFramework Pillar R/I — CHealthSystem (HP / damage / death / respawn 管理)
 //
 // 複数 entity (敵 / プレイヤー / 破壊可能オブジェクト) の HP を一元管理する
 // 高レベル API。slot+generation パターンの `FHealthId` で entity を識別し、
 // ApplyDamage / Heal / Revive / SetInvulnerable などの操作を提供する。
 //
 // 使い方:
-//   FHealthSystem hp;
+//   CHealthSystem hp;
 //   FHealthId player = hp.Spawn(/*max_hp=*/100.0f);
 //   FHealthId enemy  = hp.Spawn(50.0f);
 //
@@ -71649,7 +72575,7 @@ private:
 //   hp.Revive(player, 0.5f);
 //
 // 設計選択 (Pillar R/I):
-//   ・**FHealthId は 24bit idx + 8bit gen の packed u32**: FCollisionWorld2D の
+//   ・**FHealthId は 24bit idx + 8bit gen の packed u32**: CCollisionWorld2D の
 //     FShapeId / ANode の FNodeId と同パターン。removed slot を再利用しても古い
 //     handle は無効化される。0 は invalid 予約 (index 0 dummy)。
 //   ・**slot 配列 + active フラグ**: AcquireSlot で空きを線形検索、無ければ末尾
@@ -71667,7 +72593,7 @@ private:
 //   ・**EDamageType は enum**: 属性 (Fire / Ice 等) は将来の耐性計算 / VFX 振り分け
 //     用。本クラスでは値をそのまま受け取り callback に伝えるだけで、ダメージ倍率は
 //     掛けない (caller が Resistance を考慮した最終量を渡す方針)。
-//   ・**非コピー・非ムーブ**: FGame / FScene 単位で 1 個保持される想定で、所有権
+//   ・**非コピー・非ムーブ**: CGame / AScene 単位で 1 個保持される想定で、所有権
 //     移動は不要。
 //
 // 範囲外 (将来 Phase で):
@@ -71809,28 +72735,28 @@ using DeathCallback = void(*)(void* user, FHealthId id, EDamageType lethal_type)
  *
  * @details
  * slot+generation パターンの FHealthId で entity を識別し、ApplyDamage / Heal / Revive /
- * SetInvulnerable 等を提供する。死亡通知は DeathCallback で行う。FGame / FScene 単位で 1 個
+ * SetInvulnerable 等を提供する。死亡通知は DeathCallback で行う。CGame / AScene 単位で 1 個
  * 保持される想定の非コピー・非ムーブ型。
  */
-class FHealthSystem {
+class CHealthSystem {
 public:
     /** 空の状態で構築する (entity なし、callback 未登録)。 */
-    FHealthSystem() noexcept = default;
+    CHealthSystem() noexcept = default;
 
     /** 破棄する。 */
-    ~FHealthSystem() noexcept = default;
+    ~CHealthSystem() noexcept = default;
 
     /** コピー禁止 (1 個保持を前提とし所有権移動を不要とするため)。 */
-    FHealthSystem(const FHealthSystem&)            = delete;
+    CHealthSystem(const CHealthSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FHealthSystem& operator=(const FHealthSystem&) = delete;
+    CHealthSystem& operator=(const CHealthSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FHealthSystem(FHealthSystem&&)                 = delete;
+    CHealthSystem(CHealthSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FHealthSystem& operator=(FHealthSystem&&)      = delete;
+    CHealthSystem& operator=(CHealthSystem&&)      = delete;
 
     /**
      * 新規 entity を full HP で登録する。
@@ -72039,33 +72965,36 @@ private:
     void*          m_OnDeathUser  = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FHealthSystem = CHealthSystem;
+
 } // namespace acs::game
 
 // ===================== gameframework/InventorySystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O/G — FInventorySystem (アイテムスロット + stack 管理)
+// GameFramework Pillar O/G — CInventorySystem (アイテムスロット + stack 管理)
 //
 // プレイヤーのアイテムインベントリを「固定 slot 数 × stack 可能アイテム」モデルで
 // 表現する小型マネージャ。RPG / サバイバル / クラフト系で広く使われる「N 個の
 // スロットがあって、消費アイテムは max_stack まで重ねられる」スタイルを直接
-// サポートする。FEconomyDirector が「通貨で買って消える」即時取引を担うのに対し、
-// FInventorySystem は「拾った / 報酬で得たアイテムを、プレイヤーが持ち歩く」状態を
+// サポートする。CEconomyDirector が「通貨で買って消える」即時取引を担うのに対し、
+// CInventorySystem は「拾った / 報酬で得たアイテムを、プレイヤーが持ち歩く」状態を
 // 保持する責務を持つ。
 //
 // 想定する位置付け:
-//   ・Pillar O FEconomyDirector との違い:
-//     - FEconomyDirector は「ゲーム内通貨 ↔ shop 商品」の即時購入トランザクション。
-//     - FInventorySystem は「プレイヤーが保持するアイテム」の slot ベース在庫。
+//   ・Pillar O CEconomyDirector との違い:
+//     - CEconomyDirector は「ゲーム内通貨 ↔ shop 商品」の即時購入トランザクション。
+//     - CInventorySystem は「プレイヤーが保持するアイテム」の slot ベース在庫。
 //       購入完了後に AddItem() を呼んでもらう橋渡し設計 (本クラスはストア非依存)。
-//   ・Pillar O FCharacterCustomizer との違い:
-//     - FCharacterCustomizer は cosmetic (見た目装着) — slot 単位で最大 1 つ、stack なし。
-//     - FInventorySystem は使用アイテム / 素材 / クエスト系 — stack あり、slot 数固定。
-//   ・Pillar O FEntitlementRegistry との違い:
-//     - FEntitlementRegistry は「DLC / FSeasonPass 等の永続権利フラグ」(持っているかの真偽)。
-//     - FInventorySystem は「個数を持つ消費可能アイテム」(stack 数を持つ)。
+//   ・Pillar O CCharacterCustomizer との違い:
+//     - CCharacterCustomizer は cosmetic (見た目装着) — slot 単位で最大 1 つ、stack なし。
+//     - CInventorySystem は使用アイテム / 素材 / クエスト系 — stack あり、slot 数固定。
+//   ・Pillar O CEntitlementRegistry との違い:
+//     - CEntitlementRegistry は「DLC / CSeasonPass 等の永続権利フラグ」(持っているかの真偽)。
+//     - CInventorySystem は「個数を持つ消費可能アイテム」(stack 数を持つ)。
 //
 // 使い方:
-//   FInventorySystem inv;
+//   CInventorySystem inv;
 //   inv.Init(/*slot_count=*/ 30);
 //
 //   // 起動時にアイテム定義を一度ずつ登録。
@@ -72087,7 +73016,7 @@ private:
 //
 // 設計選択 (Pillar O/G):
 //   ・**Item 定義は単一 TArray<FItemDef>**: アイテム数は AAA でも 500〜2000 のオーダー、
-//     線形走査で十分 (FEntitlementRegistry / FEconomyDirector と同じ判断)。
+//     線形走査で十分 (CEntitlementRegistry / CEconomyDirector と同じ判断)。
 //   ・**FInventorySlot data は固定長 TArray<FInventorySlot>**: Init(slot_count) で Resize し、
 //     以降は伸縮しない (= UI が想定する slot grid と一致)。slot 内 item_id == nullptr
 //     を「空 slot」として表す。
@@ -72107,7 +73036,7 @@ private:
 //     user. 複数 listener が必要なら呼出側で fan-out。slot 内容が変わるたびに呼ぶ
 //     (Add / Remove / Move / Drop / ClearAll すべて。ClearAll は loop 防止のため呼ばない)。
 //   ・**重複登録は黙って弾く + WARN**: 同 id の 2 重 RegisterItem は no-op
-//     (アセット二重ロード保護)。FEconomyDirector / FEntitlementRegistry と同じパターン。
+//     (アセット二重ロード保護)。CEconomyDirector / CEntitlementRegistry と同じパターン。
 //   ・**Init は冪等に再構築**: 既に Init 済みでも slot_count を変更して呼べる
 //     (slot 数が違う場合は内容クリアして resize)。同じ slot_count なら no-op。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
@@ -72117,7 +73046,7 @@ private:
 //   ・永続化 (Save/Load) — Pillar J Serialize と統合。slot 内容は起動毎にリセット。
 //   ・装備品の性能 / バフ — 本クラスは「持ってる個数」だけを真実とし、性能は別 Manager。
 //   ・アイテムカテゴリでのフィルタリング — UI 側で実装 (本クラスは AllSlots を提供)。
-//   ・craft / 合成 / 消費レシピ — 別 Manager (FCraftingSystem 等)。
+//   ・craft / 合成 / 消費レシピ — 別 Manager (CCraftingSystem 等)。
 //   ・サーバ側の在庫検証 — Pillar V Backend Services に委譲。
 //   ・重量制限 / encumbrance — 本クラスは slot 数固定のみ。重量制は別 Manager。
 //   ・並べ替え / 自動ソート — UI 側で MoveSlot を連打して実装可能。
@@ -72136,7 +73065,7 @@ enum class EItemCategory : u8 {
     /** ポーション / 食料 / 弾薬等の消費アイテム。 */
     Consumable = 0,
 
-    /** 装備品 (見た目 cosmetic は FCharacterCustomizer 側)。 */
+    /** 装備品 (見た目 cosmetic は CCharacterCustomizer 側)。 */
     Equipment  = 1,
 
     /** クラフト素材 / 鉱石 / ハーブ等。 */
@@ -72193,7 +73122,7 @@ struct FInventorySlot {
  * 固定 slot 数 × stack 可能アイテムモデルで、プレイヤーが持ち歩くアイテムを保持する。
  * 全 noexcept、非コピー・非ムーブ。const char* は非所有 (呼出側が長寿命を保証)。
  */
-class FInventorySystem {
+class CInventorySystem {
 public:
     /**
      * slot 変更通知コールバック (C 関数ポインタ + user)。
@@ -72207,22 +73136,22 @@ public:
     using ChangeCallback = void(*)(void* user, u32 slot_index, const char* item_id, u32 count) noexcept;
 
     /** 空状態 (slot 数 0) で構築する。 */
-    FInventorySystem()  noexcept = default;
+    CInventorySystem()  noexcept = default;
 
     /** 破棄する (内部 TArray が解放)。 */
-    ~FInventorySystem() noexcept = default;
+    ~CInventorySystem() noexcept = default;
 
     /** コピー禁止 (他 Manager 系と統一)。 */
-    FInventorySystem(const FInventorySystem&)            = delete;
+    CInventorySystem(const CInventorySystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FInventorySystem& operator=(const FInventorySystem&) = delete;
+    CInventorySystem& operator=(const CInventorySystem&) = delete;
 
     /** ムーブ禁止。 */
-    FInventorySystem(FInventorySystem&&)                 = delete;
+    CInventorySystem(CInventorySystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FInventorySystem& operator=(FInventorySystem&&)      = delete;
+    CInventorySystem& operator=(CInventorySystem&&)      = delete;
 
     /**
      * slot 数を設定する (冪等に再構築)。
@@ -72382,11 +73311,14 @@ private:
     void*          m_OnChangeUser = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FInventorySystem = CInventorySystem;
+
 } // namespace acs::game
 
 // ===================== gameframework/ScoreSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/O — FScoreSystem (スコア累積 + コンボ + マルチプライヤ)
+// GameFramework Pillar R/O — CScoreSystem (スコア累積 + コンボ + マルチプライヤ)
 //
 // アーケード / 高速アクション系で必要になる「スコア + コンボ計算 + マイル
 // ストン通知」を 1 か所にまとめた高レベルマネージャ。ヒット連鎖 (NotifyHit)
@@ -72395,8 +73327,8 @@ private:
 // 次のヒットが無ければコンボはリセットされる。
 //
 // 設計位置付け:
-//   ・Pillar R/O のスコア / 進行系。FAchievementManager (実績) や
-//     FEconomyDirector (通貨) と並列のレイヤで、これら 3 つは
+//   ・Pillar R/O のスコア / 進行系。CAchievementManager (実績) や
+//     CEconomyDirector (通貨) と並列のレイヤで、これら 3 つは
 //     「ゲームプレイの数値報酬」を担当する。
 //   ・スコア値 (u64) は AAA でも 4e18 を超えない想定で十分。
 //     score * multiplier_x100 の中間計算で wrap しないよう、加算時に
@@ -72406,7 +73338,7 @@ private:
 //     にクランプした関数を採用 (アーケード系で広く使われる線形上昇)。
 //
 // 使い方:
-//   FScoreSystem ss;
+//   CScoreSystem ss;
 //   ss.Init();
 //   ss.SetComboDuration(2.5f);                        // 任意
 //   ss.RegisterMilestone(10000);                      // スコア 10k 通過で通知
@@ -72433,13 +73365,13 @@ private:
 //   ・**multiplier は ×100 整数で entry に記録**: FScoreEntry.multiplier_x100 は
 //     例えば 250 = 2.5x。倍率を f32 で持つと bit 完全一致が取れず、Replay /
 //     Telemetry での比較で偽差分が出るため整数化する。
-//   ・**所有しない const char* category**: FAchievementManager と同設計で
+//   ・**所有しない const char* category**: CAchievementManager と同設計で
 //     呼出側 (= ゲームコード or リソースバンドル) が long lifetime を保証する
 //     文字列リテラルを想定。Manager 側はコピーしない (STL <string> 禁止)。
-//   ・**entry log は capped append (max 100)**: FScoreSystem は履歴を内蔵保持
+//   ・**entry log は capped append (max 100)**: CScoreSystem は履歴を内蔵保持
 //     するが、メモリを線形に増やさないため上限 100。100 件超は最古を捨てる
 //     (= 末尾ベースの簡易リング)。詳細な分析が必要なら呼出側で Analytics に
-//     流す責務 (= FEconomyDirector の callback 設計と思想を合わせる)。
+//     流す責務 (= CEconomyDirector の callback 設計と思想を合わせる)。
 //   ・**HighScore は Reset() で保持 / ClearAll() で破棄**: ゲームセッション
 //     終了時に Reset で「累積スコアと combo は消すが best record は残す」と
 //     いう典型挙動を表現。ClearAll はテスト / セーブデータリセット用。
@@ -72449,7 +73381,7 @@ private:
 //     件数は通常 5〜20 なので線形で十分。
 //   ・**MultiplierFn は C 関数ポインタ + noexcept**: STL <functional> 禁止。
 //     nullptr 指定で内部デフォルトに戻す。combo を入力に f32 倍率を返す。
-//   ・**MilestoneCallback は単一登録 + user pointer**: FEconomyDirector の
+//   ・**MilestoneCallback は単一登録 + user pointer**: CEconomyDirector の
 //     PurchaseCallback と同じ規約。複数 listener は呼出側で fan-out。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
@@ -72457,7 +73389,7 @@ private:
 // 範囲外:
 //   ・永続化 (HighScore Save/Load) — Pillar J Serialize と統合予定。
 //     現状は SetHighScore() で外部から注入する手動 wiring。
-//   ・難易度補正 / グレード判定 — FDynamicDifficulty / FGameFlow と連携想定。
+//   ・難易度補正 / グレード判定 — CDynamicDifficulty / CGameFlow と連携想定。
 //   ・コンボ chain 種別 (perfect / good 等の品質スケール) — 必要になったら
 //     NotifyHit(quality) 引数を追加して倍率ファンクションに渡す形に拡張。
 
@@ -72496,7 +73428,7 @@ struct FScoreEntry {
  * const char*、entry log は max 100 件の capped append。全 noexcept で非コピー・
  * 非ムーブ。
  */
-class FScoreSystem {
+class CScoreSystem {
 public:
     /**
      * コンボ数から倍率を算出する差し替え可能な関数型。
@@ -72517,22 +73449,22 @@ public:
     using MilestoneCallback = void(*)(void* user, u64 milestone, u64 current_score) noexcept;
 
     /** 空状態で構築する。 */
-    FScoreSystem()  noexcept = default;
+    CScoreSystem()  noexcept = default;
 
     /** 破棄する。 */
-    ~FScoreSystem() noexcept = default;
+    ~CScoreSystem() noexcept = default;
 
     /** コピー禁止 (他 Manager 系と統一)。 */
-    FScoreSystem(const FScoreSystem&)            = delete;
+    CScoreSystem(const CScoreSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FScoreSystem& operator=(const FScoreSystem&) = delete;
+    CScoreSystem& operator=(const CScoreSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FScoreSystem(FScoreSystem&&)                 = delete;
+    CScoreSystem(CScoreSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FScoreSystem& operator=(FScoreSystem&&)      = delete;
+    CScoreSystem& operator=(CScoreSystem&&)      = delete;
 
     /**
      * 最初の状態に初期化する。
@@ -72750,19 +73682,22 @@ private:
     void*             m_OnMilestoneUser = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FScoreSystem = CScoreSystem;
+
 } // namespace acs::game
 
 // ===================== gameframework/WaveSpawner.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L/R — FWaveSpawner (敵 wave スポーン管理)
+// GameFramework Pillar L/R — CWaveSpawner (敵 wave スポーン管理)
 //
 // 連続する複数の wave をキュー管理し、各 wave に紐づく複数の FSpawnRule を
 // 時間軸上で順次発火させる。残数管理 → wave clear → intermission → 次 wave →
 // 全 wave 完了の state machine を内包する。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       acs::game::FWaveSpawner m_Waves;
+//   class FGameplayScene : public AScene {
+//       acs::game::CWaveSpawner m_Waves;
 //
 //       static void OnSpawn(void* self, const char* enemy_id, acs::FVec2 pos) noexcept {
 //           auto* s = static_cast<FGameplayScene*>(self);
@@ -72878,7 +73813,7 @@ struct FWaveDef {
  * 敵 1 体出現時の callback 型。
  *
  * @details
- * caller (= FScene 側) が実 entity を生成して NodeGraph に放り込む想定。
+ * caller (= AScene 側) が実 entity を生成して NodeGraph に放り込む想定。
  * enemy_id は FSpawnRule の literal そのものをそのまま渡す。
  * @param user SetOnSpawnCallback で登録した user ポインタ。
  * @param enemy_id 出現させる敵の識別子。
@@ -72903,31 +73838,31 @@ using WaveStateChangeCallback = void(*)(void* user, u32 wave_index, EWaveState f
  * @details
  * 各 wave に紐づく複数の FSpawnRule を並列評価し、残数管理 → wave clear →
  * intermission → 次 wave → 全 wave 完了を線形に進める。non-copy / non-move で
- * FScene 等に値メンバとして持たせる想定。Tick(dt) で駆動し、敵撃破は
+ * AScene 等に値メンバとして持たせる想定。Tick(dt) で駆動し、敵撃破は
  * NotifyEnemyKilled で通知する。
  */
-class FWaveSpawner {
+class CWaveSpawner {
 public:
     /** 想定 wave 数 (= reserve hint)。多めに見ても 16 で十分、それ超えは自動拡張。 */
     static constexpr u32 kWaveReserveHint = 16u;
 
     /** 空状態で構築する (wave queue は kWaveReserveHint で予約)。 */
-    FWaveSpawner() noexcept;
+    CWaveSpawner() noexcept;
 
     /** 破棄する (TArray が内部リソースを解放)。 */
-    ~FWaveSpawner() noexcept = default;
+    ~CWaveSpawner() noexcept = default;
 
     /** コピー禁止 (進行状態を単独所有するため)。 */
-    FWaveSpawner(const FWaveSpawner&)            = delete;
+    CWaveSpawner(const CWaveSpawner&)            = delete;
 
     /** コピー代入も禁止。 */
-    FWaveSpawner& operator=(const FWaveSpawner&) = delete;
+    CWaveSpawner& operator=(const CWaveSpawner&) = delete;
 
     /** ムーブ禁止 (callback の user ポインタ等の参照安定性を保つため)。 */
-    FWaveSpawner(FWaveSpawner&&)                 = delete;
+    CWaveSpawner(CWaveSpawner&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FWaveSpawner& operator=(FWaveSpawner&&)      = delete;
+    CWaveSpawner& operator=(CWaveSpawner&&)      = delete;
 
     /**
      * state を Idle に戻し、現 wave index / timer / 各 wave の発火カウンタをリセットする。
@@ -73126,7 +74061,7 @@ private:
      *
      * @details spawn callback はユーザーコードで、再入 (AddWave の realloc /
      * Init / Clear) で m_Waves への参照を無効化し得る。走査中は本リストに積み、
- * 参照を手放してからまとめて発火する (FBuffSystem と同じ規約)。
+ * 参照を手放してからまとめて発火する (CBuffSystem と同じ規約)。
      */
     struct FPendingSpawn {
         /** 発火する敵 id (rule 由来、caller 所有文字列)。 */
@@ -73152,11 +74087,14 @@ private:
     void*                   _state_cb_user      = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FWaveSpawner = CWaveSpawner;
+
 } // namespace acs::game
 
 // ===================== gameframework/PickupSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — FPickupSystem (ドロップアイテム = Health/Coin/Powerup 等)
+// GameFramework Pillar R/I — CPickupSystem (ドロップアイテム = Health/Coin/Powerup 等)
 //
 // 世界に配置された「拾える物」を管理する小型マネージャ。HP オーブ / 通貨 / ジェム /
 // 弾薬箱 / パワーアップ / 鍵などを統一的に扱い、プレイヤー位置との距離による
@@ -73168,14 +74106,14 @@ private:
 //     - 「持ち物」(Inventory) は別 Manager。本クラスは「世界に転がっている拾取」を
 //       Pickup として表現し、拾うと PickupCallback で呼出側へ通知する。
 //     - 呼出側はコールバックを受けて Inventory に AddItem する / HP を回復する /
-//       通貨残高 (FEconomyDirector::AddToBalance) を増やす等を行う。
+//       通貨残高 (CEconomyDirector::AddToBalance) を増やす等を行う。
 //   ・Pillar F (Collision) との違い:
-//     - FCollisionWorld2D は汎用 broad-phase shape クエリ。
-//     - FPickupSystem は「Circle 形状の pickup を専用に高速処理する」軽量サブセット。
+//     - CCollisionWorld2D は汎用 broad-phase shape クエリ。
+//     - CPickupSystem は「Circle 形状の pickup を専用に高速処理する」軽量サブセット。
 //       broad-phase は持たず O(N) で player との距離判定 (典型 N=10〜100)。
 //
 // 使い方:
-//   FPickupSystem ps;
+//   CPickupSystem ps;
 //   ps.Init();
 //
 //   FPickupInfo info{};
@@ -73195,7 +74133,7 @@ private:
 //   ps.Tick(dt, player_pos, /*magnet_strength=*/200.0f);
 //
 // 設計選択:
-//   ・**FPickupId**: 32bit packed = 24bit index + 8bit generation。FCollisionWorld2D の
+//   ・**FPickupId**: 32bit packed = 24bit index + 8bit generation。CCollisionWorld2D の
 //     FShapeId / FNodeId と同じパターン。slot 再利用しても古い handle は無効化される。
 //   ・**FSlot TArray**: 内部 `TArray<FSlot>` に固定。index 0 は予約 (= invalid)。
 //     Spawn 時に inactive slot を線形検索 (典型 N が小さいので十分)、無ければ
@@ -73222,7 +74160,7 @@ private:
 //
 // 範囲外:
 //   ・broad-phase / 空間分割: pickup 数は小規模想定 (10〜100)。万を超える場合は
-//     FCollisionWorld2D 側に shape を登録して overlap クエリする設計を検討。
+//     CCollisionWorld2D 側に shape を登録して overlap クエリする設計を検討。
 //   ・物理ベース吸引 (加速度 / 速度減衰): 必要なら呼出側で magnet_strength を
 //     pickup 毎に変えるラッパを作る。
 //   ・kind の拡張: enum に新しい値を追加する場合、SpawnRandomAt の既定値テーブルも
@@ -73267,7 +74205,7 @@ enum class EPickupKind : u8 {
  * 拾取アイテムの generational handle。
  *
  * @details 32bit packed = 下位 24bit index + 上位 8bit generation。0 = invalid。
- * FCollisionWorld2D の FShapeId / ANode の FNodeId と同じパターンで、slot を再利用しても
+ * CCollisionWorld2D の FShapeId / ANode の FNodeId と同じパターンで、slot を再利用しても
  * 古い handle は generation 不一致で無効化される。
  */
 struct FPickupId {
@@ -73358,7 +74296,7 @@ struct FPickupInfo {
  * handle (FPickupId) を管理し、拾取/失効時に C 関数ポインタ + user のコールバックで通知する。
  * 非コピー・非ムーブ、全 noexcept、STL 不使用。
  */
-class FPickupSystem {
+class CPickupSystem {
 public:
     /**
      * 拾取コールバックの型 (STL <functional> 禁止のため C 関数ポインタ + user)。
@@ -73381,22 +74319,22 @@ public:
     using ExpireCallback = void(*)(void* user, FPickupId id) noexcept;
 
     /** 空の状態で構築する (slot なし、コールバック未設定)。 */
-    FPickupSystem()  noexcept = default;
+    CPickupSystem()  noexcept = default;
 
     /** デストラクタ。 */
-    ~FPickupSystem() noexcept = default;
+    ~CPickupSystem() noexcept = default;
 
     /** コピー禁止。 */
-    FPickupSystem(const FPickupSystem&)            = delete;
+    CPickupSystem(const CPickupSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPickupSystem& operator=(const FPickupSystem&) = delete;
+    CPickupSystem& operator=(const CPickupSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FPickupSystem(FPickupSystem&&)                 = delete;
+    CPickupSystem(CPickupSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPickupSystem& operator=(FPickupSystem&&)      = delete;
+    CPickupSystem& operator=(CPickupSystem&&)      = delete;
 
     /** 初期化する (複数回呼び出し可。再 Init は ClearAll と等価)。 */
     void Init() noexcept;
@@ -73533,11 +74471,14 @@ private:
     void*           m_OnExpireUser  = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPickupSystem = CPickupSystem;
+
 } // namespace acs::game
 
 // ===================== gameframework/WeaponSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I/R — FWeaponSystem (武器切替 + 弾薬 + 連射制御)
+// GameFramework Pillar I/R — CWeaponSystem (武器切替 + 弾薬 + 連射制御)
 //
 // 1 entity (= 1 player or 1 NPC) ぶんの武器ロードアウト / 弾薬 / 発射制御を
 // まとめた小型マネージャ。`Tick(dt)` で内部時計を進め、`fire_rate_per_sec` /
@@ -73546,16 +74487,16 @@ private:
 //
 // 想定する位置付け:
 //   ・Pillar I (Combat) と Pillar R (Skills/Cooldowns) の橋渡し。武器毎の
-//     fire rate は FCooldownTimer と同等の役目だが、武器切替 / マガジン /
-//     reserve ammo / スプレッド / ペレット数 を一体で持つため、FCooldownTimer
+//     fire rate は CCooldownTimer と同等の役目だが、武器切替 / マガジン /
+//     reserve ammo / スプレッド / ペレット数 を一体で持つため、CCooldownTimer
 //     とは別 API として独立させる。
 //   ・FireCallback で「弾を出せ」のイベントだけを通知し、実際の projectile
-//     spawn / damage 適用は呼出側 (= Pillar I FCombatStateMachine や独自
-//     Projectile manager) で行う設計。FWeaponSystem は時系列と弾薬数の管理に
+//     spawn / damage 適用は呼出側 (= Pillar I CCombatStateMachine や独自
+//     Projectile manager) で行う設計。CWeaponSystem は時系列と弾薬数の管理に
 //     責務を限定する。
 //
 // 使い方:
-//   acs::game::FWeaponSystem ws;
+//   acs::game::CWeaponSystem ws;
 //
 //   // 武器定義 (文字列リテラルは caller 側で長寿命を保証)。
 //   ws.RegisterWeapon({ "pistol", "9mm Pistol",
@@ -73685,7 +74626,7 @@ struct FWeaponDef {
 /**
  * 現在装備中武器のランタイム状態。
  *
- * @details 主に UI 表示 / デバッグ用の snapshot。内部更新は FWeaponSystem が行う。
+ * @details 主に UI 表示 / デバッグ用の snapshot。内部更新は CWeaponSystem が行う。
  */
 struct FWeaponState {
     /** 装備中武器の id (= 内部 m_CurrentDef->id と同値)。 */
@@ -73739,25 +74680,25 @@ using ReloadCallback = void(*)(void* user, const char* weapon_id) noexcept;
  * 完了は callback で通知し、実際の projectile spawn / damage 適用は呼出側に委ねる。
  * non-copy / non-move で、callback の user ポインタとの参照競合を防ぐ。
  */
-class FWeaponSystem {
+class CWeaponSystem {
 public:
     /** 空状態で構築する (武器未登録、装備なし)。 */
-    FWeaponSystem()  noexcept = default;
+    CWeaponSystem()  noexcept = default;
 
     /** 破棄する (TArray が内部リソースを解放)。 */
-    ~FWeaponSystem() noexcept = default;
+    ~CWeaponSystem() noexcept = default;
 
     /** コピー禁止 (callback の self ポインタとの競合を防ぐため)。 */
-    FWeaponSystem(const FWeaponSystem&)            = delete;
+    CWeaponSystem(const CWeaponSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FWeaponSystem& operator=(const FWeaponSystem&) = delete;
+    CWeaponSystem& operator=(const CWeaponSystem&) = delete;
 
     /** ムーブ禁止 (内部配列を指す m_CurrentDef ポインタの安定性を保つため)。 */
-    FWeaponSystem(FWeaponSystem&&)                 = delete;
+    CWeaponSystem(CWeaponSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FWeaponSystem& operator=(FWeaponSystem&&)      = delete;
+    CWeaponSystem& operator=(CWeaponSystem&&)      = delete;
 
     /**
      * 武器定義を登録し、対応する reserve スロットを 0 で初期化する。
@@ -73957,14 +74898,17 @@ private:
     void*          m_OnReloadUser = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FWeaponSystem = CWeaponSystem;
+
 } // namespace acs::game
 
 // ===================== gameframework/ProjectileSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I — FProjectileSystem (弾丸 / 投射物 プール + 衝突判定)
+// GameFramework Pillar I — CProjectileSystem (弾丸 / 投射物 プール + 衝突判定)
 //
 // 弾丸 / ロケット / 矢 / 魔法弾 / 手榴弾 などの「飛んでいって何かに当たる」系
-// オブジェクトを固定容量プールで管理する。FWeaponSystem.FireCallback と組み合わせ
+// オブジェクトを固定容量プールで管理する。CWeaponSystem.FireCallback と組み合わせ
 // て発射 → 飛翔 → 命中 / 寿命切れ までを一元的に扱えるよう設計してある。
 //
 // 設計選択:
@@ -73980,11 +74924,11 @@ private:
 //     Spawn 時に def_id (const char*) で名前引きする。これにより
 //       - 多数の弾を発射しても per-instance memory が小さい (def はポインタで参照)
 //       - 同種の弾の挙動を一括変更できる (テスト / バランス調整時に有利)
-//       - FWeaponSystem / EnemyAI / Player を疎結合に保てる (def_id 文字列のみで連携)
+//       - CWeaponSystem / EnemyAI / Player を疎結合に保てる (def_id 文字列のみで連携)
 //     名前比較は ConstStringPointerEquals (アドレス一致優先) を使うが、同一文字
 //     リテラルなら基本同アドレスにマージされるためコストは O(1) 期待。
-//   ・**HitTest は callback で外部委譲**: FProjectileSystem 自身は FCollisionWorld2D /
-//     FTriggerWorld2D / 独自空間検索のどれを使うかを知らない。HitTestFn を登録し、
+//   ・**HitTest は callback で外部委譲**: CProjectileSystem 自身は CCollisionWorld2D /
+//     CTriggerWorld2D / 独自空間検索のどれを使うかを知らない。HitTestFn を登録し、
 //     Tick 内で各 alive projectile に対して呼び出す。true 返却で「命中した」と判
 //     定し、hit_count を進める。これにより:
 //       - テスト時は dummy fn で常に false を返せる (= headless 動作可)
@@ -73998,7 +74942,7 @@ private:
 //     は別レイヤに分離する。
 //   ・**owner_id / damage は instance に持つ**: def には共通パラメータのみを置き、
 //     誰が撃ったか / どれだけのダメージか は spawn 毎に変化する値として instance
-//     側に保持する。HitCallback でこれらを取り出し FHealthSystem.ApplyDamage に
+//     側に保持する。HitCallback でこれらを取り出し CHealthSystem.ApplyDamage に
 //     繋ぐ想定。
 //   ・**非コピー・非ムーブ**: 固定 pool の生ポインタを AllAlive で外部に返すため、
 //     ムーブで実体アドレスが変わると外部参照が破綻する。明示的に削除。
@@ -74006,7 +74950,7 @@ private:
 //     no-op で表現。文字列は const char* + アドレス一致比較で扱う。
 //
 // 使い方:
-//   FProjectileSystem ps;
+//   CProjectileSystem ps;
 //   ps.Init(256);
 //
 //   FProjectileDef bullet{};
@@ -74028,10 +74972,10 @@ private:
 //                                /*owner=*/player_node_id,
 //                                /*damage=*/15.0f);
 //
-//   // hit test を登録 (FCollisionWorld2D 経由など):
+//   // hit test を登録 (CCollisionWorld2D 経由など):
 //   ps.SetHitTestFn([](void* user, const FProjectileInstance& p,
 //                      u32& out_target, f32& out_dmg) noexcept -> bool {
-//       auto* cw = static_cast<FCollisionWorld2D*>(user);
+//       auto* cw = static_cast<CCollisionWorld2D*>(user);
 //       // ... overlap check ... out_target = enemy_node_id; out_dmg = p.damage;
 //       return hit_found;
 //   }, &collision_world);
@@ -74046,7 +74990,7 @@ private:
 //   ps.Tick(dt);
 //
 // 範囲外:
-//   ・チャージ shot / spread (n-way) - FWeaponSystem 側が複数 Spawn する形で対応
+//   ・チャージ shot / spread (n-way) - CWeaponSystem 側が複数 Spawn する形で対応
 //   ・3D 弾道 (現状 FVec2 のみ)
 //   ・反射 / 跳弾 (壁衝突で velocity 反転) - HitCallback 内で manual に再 Spawn
 //   ・複雑な誘導 (proportional navigation など)
@@ -74219,7 +75163,7 @@ using HitTestFn = bool(*)(void* user, const FProjectileInstance& proj,
 /**
  * 命中コールバック型。
  *
- * @details HitTestFn が true を返した直後に発火する。この中で FHealthSystem.ApplyDamage /
+ * @details HitTestFn が true を返した直後に発火する。この中で CHealthSystem.ApplyDamage /
  * VFX 生成 / SE 再生 を行う想定。引数は user、proj_id、def_id (弾種識別子)、
  * target_id (HitTestFn の out_hit_target_id)、damage (out_damage_dealt)。
  */
@@ -74244,25 +75188,25 @@ using ExpireCallback = void(*)(void* user, FProjectileId proj_id, const char* de
  * hit_count が貫通上限に達するか lifetime を超えると despawn する。AllAlive() が内部
  * buffer の生ポインタを返すため非コピー・非ムーブ。全 noexcept、STL 不使用。
  */
-class FProjectileSystem {
+class CProjectileSystem {
 public:
     /** 空状態で構築する (pool は Init で確保)。 */
-    FProjectileSystem() noexcept = default;
+    CProjectileSystem() noexcept = default;
 
     /** 破棄する (pool は TArray が解放)。 */
-    ~FProjectileSystem() noexcept = default;
+    ~CProjectileSystem() noexcept = default;
 
     /** コピー禁止 (内部 buffer の生ポインタを外部に返すため)。 */
-    FProjectileSystem(const FProjectileSystem&)            = delete;
+    CProjectileSystem(const CProjectileSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FProjectileSystem& operator=(const FProjectileSystem&) = delete;
+    CProjectileSystem& operator=(const CProjectileSystem&) = delete;
 
     /** ムーブ禁止 (実体アドレスが変わると外部参照が破綻するため)。 */
-    FProjectileSystem(FProjectileSystem&&)                 = delete;
+    CProjectileSystem(CProjectileSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FProjectileSystem& operator=(FProjectileSystem&&)      = delete;
+    CProjectileSystem& operator=(CProjectileSystem&&)      = delete;
 
     /**
      * pool を確保して初期化する。
@@ -74484,12 +75428,15 @@ private:
     static constexpr u32 kInvalidIdx = 0xFFFFFFFFu;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FProjectileSystem = CProjectileSystem;
+
 } // namespace acs::game
 
 
 // ===================== gameframework/LapTimer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar (ジャンルキット: Racing) — FLapTimer
+// GameFramework Pillar (ジャンルキット: Racing) — CLapTimer
 //
 // 複数 racer のラップ時間計測 + 順位算出を一元管理する高レベル API。
 // チェックポイント順序検証、ベストラップ更新、フィニッシュ判定 (= total_laps
@@ -74498,7 +75445,7 @@ private:
 // `GetStats` / `PositionOf` / `GetLeader` を読むだけで成立する。
 //
 // 使い方:
-//   FLapTimer lt;
+//   CLapTimer lt;
 //   lt.Init(/*total_laps=*/3, /*checkpoints_per_lap=*/4);
 //   FRacerId player = lt.AddRacer("Player");
 //   FRacerId rival  = lt.AddRacer("Rival");
@@ -74524,7 +75471,7 @@ private:
 //   const auto* s = lt.GetStats(player);
 //
 // 設計選択:
-//   ・**FRacerId は 24bit idx + 8bit gen の packed u32**: FHealthSystem / ANode
+//   ・**FRacerId は 24bit idx + 8bit gen の packed u32**: CHealthSystem / ANode
 //     と同パターン。AddRacer → RemoveRacer → AddRacer で slot 再利用しても
 //     古い handle は generation 不一致で弾かれる。0 は invalid 予約 (index 0
 //     dummy slot)。
@@ -74554,7 +75501,7 @@ private:
 //   ・周回別 split (各 checkpoint 通過時刻の累積差分) — 現状は 1 lap 単位の time
 //     だけ記録する。UI 上で詳細 split を出したくなったら `FLapRecord` に
 //     TArray<f32> sector_times を追加する。
-//   ・rubberband AI / handicap — FDynamicDifficulty 側で別途。
+//   ・rubberband AI / handicap — CDynamicDifficulty 側で別途。
 //   ・順位変動の onPositionChanged callback — UI 側で前フレームを保持して
 //     差分検出する方が柔軟と判断 (Manager 内蔵しない)。
 
@@ -74702,25 +75649,25 @@ using FinishCallback = void(*)(void* user, FRacerId id, f32 final_time, u32 fina
  * PositionOf / GetLeader を読むだけで成立する。順位は要求時に全 active racer を
  * 線形比較して算出する。全 noexcept、非コピー・非ムーブ。
  */
-class FLapTimer {
+class CLapTimer {
 public:
     /** 空の状態で構築する (total_laps=1, checkpoints_per_lap=1, Stopped)。 */
-    FLapTimer()  noexcept = default;
+    CLapTimer()  noexcept = default;
 
     /** 破棄する。 */
-    ~FLapTimer() noexcept = default;
+    ~CLapTimer() noexcept = default;
 
     /** コピー禁止 (race state を 1 箇所にとどめるため)。 */
-    FLapTimer(const FLapTimer&)            = delete;
+    CLapTimer(const CLapTimer&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLapTimer& operator=(const FLapTimer&) = delete;
+    CLapTimer& operator=(const CLapTimer&) = delete;
 
     /** ムーブ禁止。 */
-    FLapTimer(FLapTimer&&)                 = delete;
+    CLapTimer(CLapTimer&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FLapTimer& operator=(FLapTimer&&)      = delete;
+    CLapTimer& operator=(CLapTimer&&)      = delete;
 
     /**
      * レース定義を設定し、racer 一覧は維持したまま race state を Stopped に戻す。
@@ -74982,11 +75929,14 @@ private:
     void*          m_OnFinishUser = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLapTimer = CLapTimer;
+
 } // namespace acs::game
 
 // ===================== gameframework/MatchGrid.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (puzzle / match-3) — FMatchGrid
+// GameFramework ジャンルキット (puzzle / match-3) — CMatchGrid
 //
 // `Bejeweled` / `Candy Crush` 系 match-3 パズルのコアロジックを担う 2D グリッド。
 // セルは「色 (1..color_count)」「special 種別 (Normal / Bomb / Lightning /
@@ -75000,7 +75950,7 @@ private:
 //      返却値は除去総数。chain level も内部カウンタで保持し連鎖判定に使える。
 //
 // 使い方:
-//   FMatchGrid g;
+//   CMatchGrid g;
 //   g.Init(8, 8, /*color_count=*/5);
 //   g.FillRandom(0xC0FFEEULL);            // 初期マッチが残らない決定論埋め
 //   g.SetOnClearCallback(&MyClearFx, &fx); // VFX / SFX hook
@@ -75109,7 +76059,7 @@ enum class ESpecialKind : u8 {
  * stable まで反復する。セルは row-major の 1D 配列 1 本で保持し、全 noexcept /
  * 非コピー・非ムーブ。
  */
-class FMatchGrid {
+class CMatchGrid {
 public:
     /**
      * 消去 1 個ごとに呼ばれる callback の型 (VFX / SFX / score hook 用)。
@@ -75123,22 +76073,22 @@ public:
     using ClearCallback = void(*)(void* user, u32 x, u32 y, u8 color, ESpecialKind special) noexcept;
 
     /** 空 (サイズ 0) のグリッドを構築する。 */
-    FMatchGrid() noexcept = default;
+    CMatchGrid() noexcept = default;
 
     /** 破棄する (セル配列は TArray が解放)。 */
-    ~FMatchGrid() noexcept = default;
+    ~CMatchGrid() noexcept = default;
 
     /** コピー禁止。 */
-    FMatchGrid(const FMatchGrid&)            = delete;
+    CMatchGrid(const CMatchGrid&)            = delete;
 
     /** コピー代入も禁止。 */
-    FMatchGrid& operator=(const FMatchGrid&) = delete;
+    CMatchGrid& operator=(const CMatchGrid&) = delete;
 
     /** ムーブ禁止。 */
-    FMatchGrid(FMatchGrid&&)                 = delete;
+    CMatchGrid(CMatchGrid&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FMatchGrid& operator=(FMatchGrid&&)      = delete;
+    CMatchGrid& operator=(CMatchGrid&&)      = delete;
 
     /**
      * グリッドを (width x height) で初期化する。
@@ -75343,11 +76293,14 @@ private:
     void*           m_OnClearUser = nullptr;
 };
 
+/** 旧名を使う既存ソースとの互換alias。 */
+using FMatchGrid = CMatchGrid;
+
 } // namespace acs::game
 
 // ===================== gameframework/TurnManager.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット — FTurnManager (ターン進行 + アクションポイント)
+// GameFramework ジャンルキット — CTurnManager (ターン進行 + アクションポイント)
 //
 // SRPG / ローグライク / 戦略系に必須の「ターン制」基盤。複数 side (player /
 // enemy / 環境) を initiative 順に並べ、各 side が固有の AP (action point)
@@ -75364,7 +76317,7 @@ private:
 //
 // 設計選択:
 //   ・**FTurnSideId** は 24bit index + 8bit gen の packed handle (FCooldownId /
-//     FSceneTimer / FCollisionWorld2D と同じパターン)。RemoveSide → 再 AddSide
+//     CSceneTimer / CCollisionWorld2D と同じパターン)。RemoveSide → 再 AddSide
 //     で slot が再利用されても、古い ID が stale として検出できる。
 //   ・**Side ストレージは AoS TArray**: side 数は通常 2〜8 程度、多くて十数
 //     なので AoS で十分。AP 更新が支配的なので cache 局所性も悪くない。
@@ -75542,25 +76495,25 @@ using RoundEndCallback = void(*)(void* user, u32 round) noexcept;
  * し、次ラウンドを即開始する。side は AoS の TArray に格納し、turn order は別の
  * TArray<u32> で保持して stable ID を保つ。非コピー・非ムーブ。
  */
-class FTurnManager {
+class CTurnManager {
 public:
     /** 空のターンマネージャを構築する (side 未登録、phase=Setup)。 */
-    FTurnManager() noexcept = default;
+    CTurnManager() noexcept = default;
 
     /** 破棄する。 */
-    ~FTurnManager() noexcept = default;
+    ~CTurnManager() noexcept = default;
 
     /** コピー禁止 (callback の self ポインタとの競合を防ぐため)。 */
-    FTurnManager(const FTurnManager&)            = delete;
+    CTurnManager(const CTurnManager&)            = delete;
 
     /** コピー代入も禁止。 */
-    FTurnManager& operator=(const FTurnManager&) = delete;
+    CTurnManager& operator=(const CTurnManager&) = delete;
 
     /** ムーブ禁止 (callback の self ポインタとの競合を防ぐため)。 */
-    FTurnManager(FTurnManager&&)                 = delete;
+    CTurnManager(CTurnManager&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FTurnManager& operator=(FTurnManager&&)      = delete;
+    CTurnManager& operator=(CTurnManager&&)      = delete;
 
     /**
      * 全 side / turn order を捨て、phase=Setup, round=0 に初期化する。
@@ -75801,26 +76754,29 @@ private:
     void*             m_OnRoundEndUser  = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTurnManager = CTurnManager;
+
 } // namespace acs::game
 
 // ===================== gameframework/HungerSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — FHungerSystem (Survival ジャンルキット: 空腹/喉/疲労/睡眠)
+// GameFramework Pillar R/I — CHungerSystem (Survival ジャンルキット: 空腹/喉/疲労/睡眠)
 //
 // サバイバル系ゲーム (DayZ / The Long Dark / Don't Starve 等) で頻出する
 // 「複数 survivor (= プレイヤー / NPC) に対して、空腹・喉の渇き・疲労・正気度・
 // 体温などの生存統計値を秒単位で decay させ、critical 閾値を切ったら警告し、
-// 0 に達したら HP ダメージを FHealthSystem 経由で与える」マネージャ。
+// 0 に達したら HP ダメージを CHealthSystem 経由で与える」マネージャ。
 //
-// FHealthSystem との関係:
+// CHealthSystem との関係:
 //   ・本クラスは HP を直接管理しない。0 到達時の zero_damage_per_sec を
 //     DamageCallback で外部へ通知し、上位 (= GameDirector / SurvivalDirector)
-//     が FHealthSystem::ApplyDamage を呼ぶ「弱結合 bridge」を取る。
+//     が CHealthSystem::ApplyDamage を呼ぶ「弱結合 bridge」を取る。
 //   ・IsAlive(FSurvivorId) は本クラスの世界での生死判定 = 全 stat の何れかが
 //     0 ではない & HealthBridge が「HP > 0」を返すか否か。HealthBridge を
 //     セットしない場合は stat 部分だけで判定する。
 //
-// 設計選択 (Pillar R/I — FHungerSystem):
+// 設計選択 (Pillar R/I — CHungerSystem):
 //   ・**FSurvivorId は 24bit index + 8bit gen の packed handle**: FHealthId /
 //     FBuffOwnerId / FNodeId と同規約。`m_Packed == 0` を invalid とし gen は
 //     常に 1 以上で配る。AddSurvivor 後に RemoveSurvivor された slot を再利用
@@ -75850,11 +76806,11 @@ private:
 //     で返す。UI のキャラ状態バー (= 「生存度メータ」) 表示用。
 //   ・**非コピー・非ムーブ**: 内部 TArray<FSurvivorSlot> がさらに TArray<FStatState>
 //     を持つ二段ネスト構造で、callback の発火タイミングで外部参照が破綻する
-//     可能性があるため。FGame / FScene 単位で 1 個保持の想定。
+//     可能性があるため。CGame / AScene 単位で 1 個保持の想定。
 //   ・**全 noexcept、STL 不使用、`<string>` 禁止**: ACS 規約。失敗は bool / 哨兵で表現。
 //
 // 使い方:
-//   FHungerSystem hs;
+//   CHungerSystem hs;
 //   hs.Init();
 //
 //   // 1) stat ごとに decay/critical/damage を config
@@ -75866,7 +76822,7 @@ private:
 //   // 2) survivor を追加 (= 全 stat が max でスタート)
 //   FSurvivorId player = hs.AddSurvivor();
 //
-//   // 3) コールバックを attach (FHealthSystem への bridge)
+//   // 3) コールバックを attach (CHealthSystem への bridge)
 //   hs.SetOnCriticalCallback(&MyOnCritical, &game_ctx);
 //   hs.SetOnDamageCallback(&MyOnDamage, &game_ctx);
 //
@@ -75944,7 +76900,7 @@ struct FStatConfig {
     f32 critical_threshold = 20.0f;
 
     /**
-     * stat == 0 滞在中に 1 秒あたり FHealthSystem へ通知するダメージ量。
+     * stat == 0 滞在中に 1 秒あたり CHealthSystem へ通知するダメージ量。
      *
      * @details 0 以下なら通知しない (= 「不快なだけで死なない」stat 用)。
      */
@@ -76043,7 +76999,7 @@ struct FSurvivorId {
  * HP 自体は管理せず弱結合 bridge を取る。非コピー・非ムーブ (TArray<FSurvivorSlot> が
  * さらに TArray<FStatState> を持つ二段ネスト構造のため)。
  */
-class FHungerSystem {
+class CHungerSystem {
 public:
     /**
      * critical 状態の遷移を通知するコールバックの型。
@@ -76062,7 +77018,7 @@ public:
      *
      * @details
      * Tick 内で dt × zero_damage_per_sec を計算して呼ぶ。bridge 実装側はここで
-     * FHealthSystem::ApplyDamage を呼ぶ想定。1 フレで複数 stat 同時発火しうる。
+     * CHealthSystem::ApplyDamage を呼ぶ想定。1 フレで複数 stat 同時発火しうる。
      * @param user SetOnDamageCallback で渡したコンテキストポインタ。
      * @param id 対象 survivor の handle。
      * @param stat 0 に達した stat 種別。
@@ -76072,22 +77028,22 @@ public:
                                     f32 damage) noexcept;
 
     /** 空状態で構築する (stat config は Init で確保)。 */
-    FHungerSystem()  noexcept = default;
+    CHungerSystem()  noexcept = default;
 
     /** 破棄する。 */
-    ~FHungerSystem() noexcept = default;
+    ~CHungerSystem() noexcept = default;
 
     /** コピー禁止 (内部の二段ネスト TArray の所有を曖昧にしないため)。 */
-    FHungerSystem(const FHungerSystem&)            = delete;
+    CHungerSystem(const CHungerSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FHungerSystem& operator=(const FHungerSystem&) = delete;
+    CHungerSystem& operator=(const CHungerSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FHungerSystem(FHungerSystem&&)                 = delete;
+    CHungerSystem(CHungerSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FHungerSystem& operator=(FHungerSystem&&)      = delete;
+    CHungerSystem& operator=(CHungerSystem&&)      = delete;
 
     /**
      * 7 stat 分の FStatConfig をデフォルト値で初期化する。
@@ -76314,6 +77270,9 @@ private:
     void*                m_OnDamageUser    = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FHungerSystem = CHungerSystem;
+
 } // namespace acs::game
 
 
@@ -76329,7 +77288,7 @@ namespace acs::game {
  * @details 親が入力内で先行する通常経路は stack を使って線形時間で評価する。
  * 順序が不正な要素だけ scalar 判定へ戻り、結果の互換性を維持する。
  */
-class FHierarchyVisibilityBatch {
+class CHierarchyVisibilityBatch {
 public:
     /**
      * 単一 node の継承可視性を評価する。
@@ -76381,6 +77340,9 @@ private:
     u32 m_ScalarFallbackCount = 0u;
 };
 
+/** 旧名を使う既存ソースとの互換alias。 */
+using FHierarchyVisibilityBatch = CHierarchyVisibilityBatch;
+
 } // namespace acs::game
 
 // ===================== gameframework/HierarchyWorldTransformBatch.h =====================
@@ -76396,7 +77358,7 @@ namespace acs::game {
  * sibling は SoA batch で合成し、失敗時は部分結果を公開しない。成功後の再評価は
  * 確保済み容量を再利用する。
  */
-class FHierarchyWorldTransformBatch {
+class CHierarchyWorldTransformBatch {
 public:
     /**
      * root 自身を除く subtree を DFS pre-order で評価する。
@@ -76438,6 +77400,9 @@ private:
     /** DFS pre-order の計算結果。 */
     TArray<FTransform3D> m_Transforms;
 };
+
+/** 旧名を使う既存ソースとの互換alias。 */
+using FHierarchyWorldTransformBatch = CHierarchyWorldTransformBatch;
 
 } // namespace acs::game
 
@@ -76500,7 +77465,7 @@ public:
      * 外部バイト列を全検証して zero-copy view を作る。
      *
      * @param bytes 所有権を借用する `.acsr` 全体。
-     * @return 成功時は検証済み view、失敗時は FInputRecorder と同じ subcode。
+     * @return 成功時は検証済み view、失敗時は CInputRecorder と同じ subcode。
      */
     static TResult<FInputRecordingView> Decode(TSpan<const u8> bytes) noexcept;
 
@@ -76543,7 +77508,7 @@ private:
 // ノードに付けると、その world 位置を光源として lit スプライト (PBR マテリアル) を
 // 照らす。半径・色・強度を持つ。エディタでは Add Component で付けて gizmo で動かせる。
 // 値はリフレクション (ACS_RPROP) でエディタが保持し、DrawScene がライトを集めて
-// FSpriteBatch::SetLights に渡す。
+// CSpriteBatch::SetLights に渡す。
 
 
 #include <cmath>
@@ -76685,7 +77650,7 @@ enum class EMaterialKind : u8 {
  * @details
  * ベースカラー (アルベド) はテクスチャ + tint、法線マップ、メタリック/ラフネス、エミッシブ、
  * AO を持つ。テクスチャはパス参照 (sprite_path と同様にランタイムが遅延ロード)。2D の
- * 動的ライト (FLighting2D) で陰影付けされる lit スプライト用。
+ * 動的ライト (CLighting2D) で陰影付けされる lit スプライト用。
  */
 struct FPbrParams2D {
     FVec4 baseColor       = FVec4{ 1, 1, 1, 1 };  ///< アルベド tint (rgb) + 不透明度 (a)。
@@ -76910,7 +77875,7 @@ void SetMaterialClock(f32 seconds) noexcept;
 f32 MaterialClock() noexcept;
 
 /**
- * マテリアルの効果を FSpriteBatch へ適用する。
+ * マテリアルの効果を CSpriteBatch へ適用する。
  *
  * @details effect == None なら何もしない。animated が true なら time_sec を params.time
  *          に差し込んで適用する。適用したら戻り値 true → 描画後に sb.ClearEffect() を呼ぶこと。
@@ -76919,7 +77884,7 @@ f32 MaterialClock() noexcept;
  * @param time_sec animated 効果のアニメ時間 (秒)。
  * @return 効果を適用したら true (要 ClearEffect)、None で未適用なら false。
  */
-bool ApplyMaterial(FSpriteBatch& sb, const FMaterial2D& mat, f32 time_sec) noexcept;
+bool ApplyMaterial(CSpriteBatch& sb, const FMaterial2D& mat, f32 time_sec) noexcept;
 
 } // namespace acs::game
 
@@ -77049,22 +78014,22 @@ public:
      * CPU メッシュアセット (頂点/インデックス) を «所有» して設定する。
      *
      * @details
-     * editor の 3D ノード mesh (TSharedPtr<FAsset>) と同じ所有モデル。non-null を渡すと種別も
+     * editor の 3D ノード mesh (TSharedPtr<AAsset>) と同じ所有モデル。non-null を渡すと種別も
      * Mesh に切り替える。コンポーネントが強参照を持つので、ノードが生きている間メッシュは
      * 解放されない (= 描画/ピックの side-table 不要)。
-     * @param a 所有するメッシュアセット (FMeshAsset を指す FAsset。null で外す)。
+     * @param a 所有するメッシュアセット (AMeshAsset を指す AAsset。null で外す)。
      */
-    void SetMeshAsset(TSharedPtr<FAsset> a) noexcept {
-        m_MeshAsset = static_cast<TSharedPtr<FAsset>&&>(a);
+    void SetMeshAsset(TSharedPtr<AAsset> a) noexcept {
+        m_MeshAsset = static_cast<TSharedPtr<AAsset>&&>(a);
         if (m_MeshAsset) m_Prim = EMeshPrimitive3D::Mesh;
     }
 
     /**
-     * 所有しているメッシュアセット (FAsset 基底) への共有ポインタを返す。
+     * 所有しているメッシュアセット (AAsset 基底) への共有ポインタを返す。
      *
      * @return 所有メッシュアセット (未設定なら空)。
      */
-    const TSharedPtr<FAsset>& MeshAsset() const noexcept { return m_MeshAsset; }
+    const TSharedPtr<AAsset>& MeshAsset() const noexcept { return m_MeshAsset; }
 
     /**
      * メッシュアセットを所有しているかを返す。
@@ -77074,12 +78039,12 @@ public:
     bool HasMeshAsset() const noexcept { return static_cast<bool>(m_MeshAsset); }
 
     /**
-     * 所有メッシュを FMeshAsset 型として返す (頂点/インデックスへの直接アクセス)。
+     * 所有メッシュを AMeshAsset 型として返す (頂点/インデックスへの直接アクセス)。
      *
-     * @details 本コンポーネントが保持する FAsset は常に FMeshAsset 前提 (ローダ出力)。
-     * @return FMeshAsset へのポインタ (未設定なら nullptr)。
+     * @details 本コンポーネントが保持する AAsset は常に AMeshAsset 前提 (ローダ出力)。
+     * @return AMeshAsset へのポインタ (未設定なら nullptr)。
      */
-    FMeshAsset* Mesh() const noexcept { return static_cast<FMeshAsset*>(m_MeshAsset.Get()); }
+    AMeshAsset* Mesh() const noexcept { return static_cast<AMeshAsset*>(m_MeshAsset.Get()); }
 
     // --- マテリアルアセット (.acsmat) 参照 ---------------------------------------------
     // 2D の ANode::m_Mat (ランタイム POD の材質状態) に相当するものをコンポーネントへ持たせる。
@@ -77129,8 +78094,8 @@ private:
     /** アルベド色 (RGBA、既定 白)。 */
     FVec4            m_Color{ 1, 1, 1, 1 };
 
-    /** 所有する CPU メッシュアセット (FMeshAsset。prim==Mesh で描画/ピックに使う)。 */
-    TSharedPtr<FAsset> m_MeshAsset;
+    /** 所有する CPU メッシュアセット (AMeshAsset。prim==Mesh で描画/ピックに使う)。 */
+    TSharedPtr<AAsset> m_MeshAsset;
 
     /** 外部レンダラが紐付ける非所有ポインタ (GPU メッシュ等、エンジンは非解釈)。 */
     void*            m_RenderHandle = nullptr;
@@ -77149,7 +78114,7 @@ private:
 
 // ===================== gameframework/NetSnapshot.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M — FNetSnapshot
+// GameFramework Pillar M — CNetSnapshot
 //   server-authoritative snapshot ベースのネットコード seam
 //
 // 役割:
@@ -77163,14 +78128,14 @@ private:
 //      Source / Halo / Valorant 等で採用されている定石)。
 //   3) **transport の差し替え**: 実 socket / Steam Datagram Relay / loopback
 //      テスト fake のいずれを使うかは INetTransport seam で抽象化し、本クラスは
-//      send/recv バイト列だけを扱う。FLockstep (deterministic input replay) と
+//      send/recv バイト列だけを扱う。CLockstep (deterministic input replay) と
 //      並ぶもう一つの netcode 流儀を提供する。
 //
-// FLockstep との対比:
-//   ・**FLockstep**: 全プレイヤーが同じ入力を受信し、同じ deterministic
+// CLockstep との対比:
+//   ・**CLockstep**: 全プレイヤーが同じ入力を受信し、同じ deterministic
 //     simulation を回す (=「結果」ではなく「入力」を配信する)。
 //     格闘ゲーム / RTS / GGPO 系で標準。
-//   ・**FNetSnapshot**: server が 1 体の authoritative simulation を回し、
+//   ・**CNetSnapshot**: server が 1 体の authoritative simulation を回し、
 //     client は受け取った snapshot を補間表示するだけ (=「結果」だけを配信)。
 //     FPS / TPS / MMORPG 系で標準。
 //   どちらを採用するかはジャンル次第。両方を seam として提供し、タイトル
@@ -77180,7 +78145,7 @@ private:
 //   FNetSnapshotConfig cfg{ /*snapshot_rate_hz=*/30, /*buffer_capacity=*/64,
 //                          /*interpolation_delay_sec=*/0.1f,
 //                          /*max_payload_bytes=*/8192 };
-//   FNetSnapshot snap;
+//   CNetSnapshot snap;
 //   snap.Init(cfg, ENetRole::Server, &transport);
 //
 //   // 毎 simulation tick:
@@ -77190,7 +78155,7 @@ private:
 //   snap.CommitSnapshot(world.CurrentTick());  // ← Send まで実行
 //
 // 使い方 (client 側):
-//   FNetSnapshot snap;
+//   CNetSnapshot snap;
 //   snap.Init(cfg, ENetRole::Client, &transport);
 //
 //   // 毎フレーム:
@@ -77233,13 +78198,13 @@ private:
 //     buffer_capacity (= 数十) なので O(N) で十分。
 //   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 全体方針。
 //   ・**コピー / ムーブ禁止**: 1 セッション 1 オブジェクトの長寿命 (transport
-//     との結合関係を分裂させないため FLockstep / IBackendClient と同じ方針)。
+//     との結合関係を分裂させないため CLockstep / IBackendClient と同じ方針)。
 
 
 namespace acs::game {
 
 /**
- * FNetSnapshot の動作役割。
+ * CNetSnapshot の動作役割。
  *
  * @details
  * role によって有効な API が変わる。送信側 (Server / ServerListener) は
@@ -77309,7 +78274,7 @@ struct FEntitySnapshot {
 };
 
 /**
- * FNetSnapshot のランタイム設定。
+ * CNetSnapshot のランタイム設定。
  *
  * @details
  * snapshot_rate_hz は server 側の Commit 頻度の目安で、本クラスは自動 throttle
@@ -77431,10 +78396,10 @@ public:
 };
 
 /**
- * FNetSnapshot + FNetTransportStub + FUdpTransport 共通のエラー subcode。
+ * CNetSnapshot + CNetTransportStub + CUdpTransport 共通のエラー subcode。
  *
  * @details
- * FErrorCode の subcode として使う。kSub_Wsa* 以降の FUdpTransport 固有コードでは
+ * FErrorCode の subcode として使う。kSub_Wsa* 以降の CUdpTransport 固有コードでは
  * os_error に WSAGetLastError() の値をそのまま載せる。
  */
 struct FNetSnapshotError {
@@ -77499,28 +78464,28 @@ struct FNetSnapshotError {
         /** UDP datagram が受信 buffer に収まらず切り詰められた。 */
         kSub_DatagramTruncated = 19,
 
-        /** FUdpTransport: WSAStartup 失敗。 */
+        /** CUdpTransport: WSAStartup 失敗。 */
         kSub_WsaStartup = 20,
 
-        /** FUdpTransport: socket() 失敗。 */
+        /** CUdpTransport: socket() 失敗。 */
         kSub_SocketCreate = 21,
 
-        /** FUdpTransport: ioctlsocket(FIONBIO) 失敗。 */
+        /** CUdpTransport: ioctlsocket(FIONBIO) 失敗。 */
         kSub_SetNonBlocking = 22,
 
-        /** FUdpTransport: bind() 失敗 (local port 衝突等)。 */
+        /** CUdpTransport: bind() 失敗 (local port 衝突等)。 */
         kSub_Bind = 23,
 
-        /** FUdpTransport: address 文字列が IPv4 dotted-quad として不正。 */
+        /** CUdpTransport: address 文字列が IPv4 dotted-quad として不正。 */
         kSub_BadAddress = 24,
 
-        /** FUdpTransport: sendto() 失敗 (WSAEWOULDBLOCK 以外)。 */
+        /** CUdpTransport: sendto() 失敗 (WSAEWOULDBLOCK 以外)。 */
         kSub_SendFailed = 25,
 
-        /** FUdpTransport: recvfrom() 失敗 (WSAEWOULDBLOCK 以外)。 */
+        /** CUdpTransport: recvfrom() 失敗 (WSAEWOULDBLOCK 以外)。 */
         kSub_RecvFailed = 26,
 
-        /** FUdpTransport: 既存 socket または WSA 参照の回収に失敗。 */
+        /** CUdpTransport: 既存 socket または WSA 参照の回収に失敗。 */
         kSub_CloseFailed = 27,
 
         /** stub: 未実装。 */
@@ -77568,13 +78533,13 @@ struct FNetSnapshotTickResult {
  * ビルドに混入したケースを QA で必ず検出できるよう、Connect / Send / Receive は
  * 必ず Err を返す (GetBackendStub() と同じ pattern)。
  */
-class FNetTransportStub final : public INetTransport {
+class CNetTransportStub final : public INetTransport {
 public:
     /** 既定構築。 */
-    FNetTransportStub() noexcept = default;
+    CNetTransportStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FNetTransportStub() noexcept override = default;
+    ~CNetTransportStub() noexcept override = default;
 
     /**
      * 常に kSub_NotImplemented を返す。
@@ -77640,13 +78605,13 @@ public:
 /**
  * プロセス共有の stub INetTransport を返す。
  *
- * @return 常に NotImplemented を返す FNetTransportStub への参照。
+ * @return 常に NotImplemented を返す CNetTransportStub への参照。
  */
 INetTransport& GetTransportStub() noexcept;
 
-/** FUdpTransport が共有する Winsock 資源の診断スナップショット。 */
+/** CUdpTransport が共有する Winsock 資源の診断スナップショット。 */
 struct FUdpTransportDiagnostics {
-    /** 現在 FUdpTransport 群が所有する WSAStartup 参照数。 */
+    /** 現在 CUdpTransport 群が所有する WSAStartup 参照数。 */
     u32 active_winsock_reference_count = 0;
 
     /** 再試行を待っている WSACleanup エラー。0 は保留なし。 */
@@ -77678,15 +78643,15 @@ struct FUdpTransportDiagnostics {
  * non-move (INetTransport 由来)。全公開操作はインスタンス単位の排他で直列化され、
  * Connect / Disconnect / Send / Receive を異なるスレッドから呼んでも所有状態を失わない。
  */
-class FUdpTransport final : public INetTransport {
+class CUdpTransport final : public INetTransport {
 public:
     /** 既定構築 (socket は未接続)。 */
-    FUdpTransport() noexcept = default;
+    CUdpTransport() noexcept = default;
 
     /** Disconnect を試み、未回収資源は共有回収処理へ移して再試行可能な状態で破棄する。 */
-    ~FUdpTransport() noexcept override;
+    ~CUdpTransport() noexcept override;
 
-    /** 全 FUdpTransport が共有する Winsock 参照・解放失敗の現在値を返す。 */
+    /** 全 CUdpTransport が共有する Winsock 参照・解放失敗の現在値を返す。 */
     static FUdpTransportDiagnostics CaptureDiagnostics() noexcept;
 
     /**
@@ -77694,7 +78659,7 @@ public:
      *
      * @details 生存中 transport が所有する cleanup debt には触れない。回収完了時も
      * `deferred_cleanup_resolved` の機械可読ログを出し、以前の cleanup_pending が
- * 解決済みであることを明示する。FApplication 終了前の明示 drain にも使用できる。
+ * 解決済みであることを明示する。CApplication 終了前の明示 drain にも使用できる。
      * @return 全共有 debt を回収できれば成功。残存時は kSub_CloseFailed。
      */
     static TResult<void> DrainDeferredResources() noexcept;
@@ -77822,25 +78787,25 @@ private:
  * EncodeSnapshot / DecodeSnapshot (transport 非依存の static 純粋関数) が担う。1
  * セッション 1 オブジェクトで non-copy / non-move。
  */
-class FNetSnapshot {
+class CNetSnapshot {
 public:
     /** 既定構築 (Init まで未初期化)。 */
-    FNetSnapshot() noexcept = default;
+    CNetSnapshot() noexcept = default;
 
     /** 破棄する (transport は外部所有なので触らない)。 */
-    ~FNetSnapshot() noexcept = default;
+    ~CNetSnapshot() noexcept = default;
 
     /** コピー禁止 (1 セッション 1 オブジェクト)。 */
-    FNetSnapshot(const FNetSnapshot&) = delete;
+    CNetSnapshot(const CNetSnapshot&) = delete;
 
     /** コピー代入も禁止。 */
-    FNetSnapshot& operator=(const FNetSnapshot&) = delete;
+    CNetSnapshot& operator=(const CNetSnapshot&) = delete;
 
     /** ムーブ禁止。 */
-    FNetSnapshot(FNetSnapshot&&) = delete;
+    CNetSnapshot(CNetSnapshot&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FNetSnapshot& operator=(FNetSnapshot&&) = delete;
+    CNetSnapshot& operator=(CNetSnapshot&&) = delete;
 
     /**
      * 設定をコピーし ring buffer を確保して初期化する。
@@ -78153,6 +79118,15 @@ private:
     u32 m_TransportContractViolations = 0;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FNetSnapshot = CNetSnapshot;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FNetTransportStub = CNetTransportStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FUdpTransport = CUdpTransport;
+
 } // namespace acs::game
 
 // ===================== gameframework/PolygonRenderer2D.h =====================
@@ -78208,7 +79182,7 @@ public:
             const f32 ly = m_Verts[i].y * wt.scale.y;
             w[i] = FVec2{ wt.position.x + lx * c - ly * s, wt.position.y + lx * s + ly * c };
         }
-        FSpriteBatch& sb = rc.Sprites();
+        CSpriteBatch& sb = rc.Sprites();
         for (u32 i = 1u; i + 1u < m_Count; ++i)   // vert 0 を扇の中心に三角形ファン
             sb.DrawTriangle(w[0].x, w[0].y, w[i].x, w[i].y, w[i + 1u].x, w[i + 1u].y, m_Color);
     }
@@ -78233,7 +79207,7 @@ private:
 // プリミティブ形状 (箱 / 円 / 三角) を描画する AComponent。shape で形状を選ぶ。
 // エディタはこの shape を読んで viewport 描画 + コライダー形状を合わせる
 // (= 選んだ形状で見た目もアタリも決まる)。ゲーム実行時はこの OnDraw が
-// FSpriteBatch に積む。色/サイズはコンポーネント側に持つ (owner の scale で拡縮)。
+// CSpriteBatch に積む。色/サイズはコンポーネント側に持つ (owner の scale で拡縮)。
 
 
 #include <cmath>   // std::cos / std::sin
@@ -78244,7 +79218,7 @@ namespace acs::game {
  * プリミティブ形状を描く AComponent。
  *
  * @details shape (Box / Circle / Triangle) を owner の world transform で配置・回転して
- * FSpriteBatch へ積む。円・三角は三角形ファンで塗る。エディタは shape を読んで描画と
+ * CSpriteBatch へ積む。円・三角は三角形ファンで塗る。エディタは shape を読んで描画と
  * コライダー形状を一致させる。
  */
 class APrimitiveRenderer2D : public AComponent {
@@ -78296,7 +79270,7 @@ public:
     ACS_FUNCTION(BlueprintCallable)
     f32 GetArea() const noexcept { return m_Size.x * m_Size.y; }
 
-    /** owner の world transform で形状を FSpriteBatch へ積む。 */
+    /** owner の world transform で形状を CSpriteBatch へ積む。 */
     void OnDraw(FRenderContext& rc) noexcept override {
         if (!rc.HasSprites()) return;
         const FTransform2D wt = Owner().World2D();
@@ -78307,14 +79281,14 @@ public:
     }
 
     /**
-     * プリミティブ形状を FSpriteBatch に塗る (エディタ viewport と共用のヘルパ)。
+     * プリミティブ形状を CSpriteBatch に塗る (エディタ viewport と共用のヘルパ)。
      *
-     * @param sb 積み先の FSpriteBatch。
+     * @param sb 積み先の CSpriteBatch。
      * @param shape 0=Box, 1=Circle, 2=Triangle。
      * @param cx 中心 X。 @param cy 中心 Y。 @param w 幅。 @param h 高さ。
      * @param rot 回転 (rad)。 @param col 塗り色。
      */
-    static void DrawShape(FSpriteBatch& sb, int shape, f32 cx, f32 cy,
+    static void DrawShape(CSpriteBatch& sb, int shape, f32 cx, f32 cy,
                           f32 w, f32 h, f32 rot, FVec4 col) noexcept {
         const f32 c = std::cos(rot), s = std::sin(rot);
         if (shape == 1) {                                   // 円/楕円 (三角ファン)
@@ -78398,7 +79372,7 @@ struct FSettingEntry {
     bool         builtin      = false;     ///< false=ユーザー定義 (削除可)。
 };
 
-/** FProjectSettings INI の解析・ファイル読み込みで返す安定したエラー種別。 */
+/** CProjectSettings INI の解析・ファイル読み込みで返す安定したエラー種別。 */
 enum class EProjectSettingsLoadError : u8 {
     None = 0,
     NullArgument,
@@ -78424,7 +79398,7 @@ enum class EProjectSettingsLoadError : u8 {
     AllocationFailure,
 };
 
-/** FProjectSettings の checked load 結果。失敗時は設定ストアを変更しない。 */
+/** CProjectSettings の checked load 結果。失敗時は設定ストアを変更しない。 */
 struct FProjectSettingsLoadResult {
     EProjectSettingsLoadError error = EProjectSettingsLoadError::None;
     u32 line = 0;
@@ -78450,7 +79424,7 @@ inline constexpr usize kProjectSettingsMaxPathBytes = 1023u;
  * 未知のキーをユーザー定義として取り込む。値は全て文字列で保持し、型付き Get*
  * でパースして返す (パース失敗は既定値)。
  */
-class FProjectSettings {
+class CProjectSettings {
 public:
     /** ビルトインスキーマの全項目を既定値で再構築する (ユーザー定義は消える)。 */
     void ResetToDefaults() noexcept;
@@ -78560,6 +79534,9 @@ private:
  * @return スキーマ配列の先頭 (静的寿命)。
  */
 const FSettingDesc* BuiltinSettingSchema(u32& out_count) noexcept;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FProjectSettings = CProjectSettings;
 
 } // namespace acs::game
 
@@ -78795,7 +79772,7 @@ inline bool ApplyValueByName(void* obj, const FTypeDesc& desc, const char* name,
 // GameFramework — エンジン同梱型のリフレクションカタログ (エントリ)
 // -----------------------------------------------------------------------------
 // ReflectCatalog.cpp が、エンジンが標準で持つ型 (Component / System / Scene /
-// Asset / 主要 enum) を「型ヘッダを書き換えずに」FTypeRegistry へ一括登録する。
+// Asset / 主要 enum) を「型ヘッダを書き換えずに」CTypeRegistry へ一括登録する。
 //
 // 静的初期化の確実化:
 //   登録は ACS_REGISTER* マクロの静的初期化子で行うが、静的ライブラリ
@@ -78813,8 +79790,8 @@ namespace acs::game {
  * @details
  * この関数を ODR-use することでカタログ TU がリンクへ引き込まれ、同 TU 内の
  * ACS_REGISTER* 自動登録子が静的初期化時に走る。複数回呼んでも二重登録は起きない
- * (FTypeRegistry::Register が ID で重複排除する)。
- * @return 呼び出し後の FTypeRegistry の総登録型数。
+ * (CTypeRegistry::Register が ID で重複排除する)。
+ * @return 呼び出し後の CTypeRegistry の総登録型数。
  */
 u32 AcsRegisterEngineTypes() noexcept;
 
@@ -78872,14 +79849,14 @@ struct FReflectMethod {
     u32          flags;                              ///< EMethodFlags の OR。
 };
 
-struct FMethodAutoRegister;
+struct CMethodAutoRegister;
 
 /** 反射メソッドのグローバル登録簿(ACS_REGISTER_METHOD が登録)。 */
-class FMethodRegistry {
+class CMethodRegistry {
 public:
     /** 単一インスタンス(初回呼び出しで遅延構築)。 */
-    static FMethodRegistry& Get() noexcept {
-        static FMethodRegistry s_instance;
+    static CMethodRegistry& Get() noexcept {
+        static CMethodRegistry s_instance;
         return s_instance;
     }
 
@@ -78941,7 +79918,7 @@ public:
     }
 
 private:
-    friend struct FMethodAutoRegister;
+    friend struct CMethodAutoRegister;
 
     /** 同じ owner+name へ同時登録できる module/source 数。 */
     static constexpr u32 kMaxSourcesPerMethod = 8;
@@ -78957,7 +79934,7 @@ private:
     };
 
     /** process lifetime の登録簿が一時的な DefaultAllocator を捕捉しないようにする。 */
-    FMethodRegistry() noexcept : m_Entries(m_Allocator)
+    CMethodRegistry() noexcept : m_Entries(m_Allocator)
     {
     }
 
@@ -79034,26 +80011,26 @@ private:
     }
 
     /** 登録簿より後に破棄される、登録簿専用の process-lifetime allocator。 */
-    FSystemAllocator m_Allocator;
+    CSystemAllocator m_Allocator;
 
     /** owner+name ごとに登録元を束ねた method 一覧。 */
     TArray<FMethodEntry> m_Entries;
 };
 
 /** ACS_REGISTER_METHOD が生成する自動登録ヘルパ。 */
-struct FMethodAutoRegister {
-    explicit FMethodAutoRegister(const FReflectMethod& method) noexcept : m_Method(method)
+struct CMethodAutoRegister {
+    explicit CMethodAutoRegister(const FReflectMethod& method) noexcept : m_Method(method)
     {
-        FMethodRegistry::Get().RegisterSource(m_Method, this);
+        CMethodRegistry::Get().RegisterSource(m_Method, this);
     }
 
-    ~FMethodAutoRegister() noexcept
+    ~CMethodAutoRegister() noexcept
     {
-        (void)FMethodRegistry::Get().UnregisterSource(m_Method, this);
+        (void)CMethodRegistry::Get().UnregisterSource(m_Method, this);
     }
 
-    FMethodAutoRegister(const FMethodAutoRegister&) = delete;
-    FMethodAutoRegister& operator=(const FMethodAutoRegister&) = delete;
+    CMethodAutoRegister(const CMethodAutoRegister&) = delete;
+    CMethodAutoRegister& operator=(const CMethodAutoRegister&) = delete;
 
 private:
     FReflectMethod m_Method{};
@@ -79068,7 +80045,7 @@ private:
  * @return 見つかって呼べたら true。
  */
 inline bool InvokeMethodByName(FTypeId owner, void* obj, const char* name) noexcept {
-    const FReflectMethod* m = FMethodRegistry::Get().Find(owner, name);
+    const FReflectMethod* m = CMethodRegistry::Get().Find(owner, name);
     if (m == nullptr || m->invoke == nullptr || obj == nullptr) return false;
     m->invoke(obj);
     return true;
@@ -79085,7 +80062,7 @@ inline bool InvokeMethodByName(FTypeId owner, void* obj, const char* name) noexc
  * @return 見つかって呼べたら true。
  */
 inline bool InvokeMethodByNameArg(FTypeId owner, void* obj, const char* name, const char* arg) noexcept {
-    const FReflectMethod* m = FMethodRegistry::Get().Find(owner, name);
+    const FReflectMethod* m = CMethodRegistry::Get().Find(owner, name);
     if (m == nullptr || obj == nullptr) return false;
     if (m->argKind != METHOD_ARG_NONE && m->invokeArg != nullptr) { m->invokeArg(obj, arg != nullptr ? arg : ""); return true; }
     if (m->invoke != nullptr) { m->invoke(obj); return true; }
@@ -79108,13 +80085,19 @@ inline bool InvokeMethodByNameArg(FTypeId owner, void* obj, const char* name, co
 inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
                                   const char* arg, char* out, int outcap) noexcept {
     if (out != nullptr && outcap > 0) out[0] = '\0';
-    const FReflectMethod* m = FMethodRegistry::Get().Find(owner, name);
+    const FReflectMethod* m = CMethodRegistry::Get().Find(owner, name);
     if (m == nullptr || obj == nullptr) return false;
     if (m->retKind != METHOD_ARG_NONE && m->invokeRet != nullptr) { m->invokeRet(obj, arg != nullptr ? arg : "", out, outcap); return true; }
     if (m->argKind != METHOD_ARG_NONE && m->invokeArg != nullptr) { m->invokeArg(obj, arg != nullptr ? arg : ""); return true; }
     if (m->invoke != nullptr) { m->invoke(obj); return true; }
     return false;
 }
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMethodAutoRegister = CMethodAutoRegister;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMethodRegistry = CMethodRegistry;
 
 } // namespace acs::game
 
@@ -79150,7 +80133,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
  *  acs::game 内型もグローバルなユーザー型も解決される)。 */
 #define ACS_REGISTER_METHOD(Type, method, flags)                                     \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rm_, __LINE__) {        \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rm_, __LINE__) {        \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 ACS_RMETHOD_THUNK(Type, method), nullptr, nullptr,                   \
                 ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_NONE,           \
@@ -79160,7 +80143,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
 /** 単一引数(f32 / i32 / const char*)メソッドを登録する。argKind に応じてサンクを選ぶ。 */
 #define ACS_REGISTER_METHOD_F32(Type, method, flags)                                 \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 nullptr, ACS_RMETHOD_THUNK_F32(Type, method), nullptr,               \
                 ::acs::game::METHOD_ARG_F32, ::acs::game::METHOD_ARG_NONE,            \
@@ -79168,7 +80151,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
     } }
 #define ACS_REGISTER_METHOD_I32(Type, method, flags)                                 \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 nullptr, ACS_RMETHOD_THUNK_I32(Type, method), nullptr,               \
                 ::acs::game::METHOD_ARG_I32, ::acs::game::METHOD_ARG_NONE,            \
@@ -79176,7 +80159,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
     } }
 #define ACS_REGISTER_METHOD_STR(Type, method, flags)                                 \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 nullptr, ACS_RMETHOD_THUNK_STR(Type, method), nullptr,               \
                 ::acs::game::METHOD_ARG_STR, ::acs::game::METHOD_ARG_NONE,            \
@@ -79186,7 +80169,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
 /** 戻り値あり(引数なし)メソッドを登録する。retKind に結果型を入れ invokeRet を持つ。 */
 #define ACS_REGISTER_METHOD_RET_F32(Type, method, flags)                             \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 nullptr, nullptr, ACS_RMETHOD_THUNK_RET_F32(Type, method),           \
                 ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_F32,            \
@@ -79194,7 +80177,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
     } }
 #define ACS_REGISTER_METHOD_RET_I32(Type, method, flags)                             \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 nullptr, nullptr, ACS_RMETHOD_THUNK_RET_I32(Type, method),           \
                 ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_I32,            \
@@ -79202,7 +80185,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
     } }
 #define ACS_REGISTER_METHOD_RET_STR(Type, method, flags)                             \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 nullptr, nullptr, ACS_RMETHOD_THUNK_RET_STR(Type, method),           \
                 ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_STR,            \
@@ -79300,7 +80283,7 @@ FReflectSerializeResult TrySerializeReflected(
 /**
  * 反射メタデータに従って obj を buf[0..cap) へ直列化する。
  *
- * @param d   反射記述子 (FTypeRegistry から得る)。
+ * @param d   反射記述子 (CTypeRegistry から得る)。
  * @param obj 直列化するインスタンスの先頭ポインタ。
  * @param buf 出力バッファ。
  * @param cap buf の容量 (バイト)。
@@ -79336,7 +80319,7 @@ u32 DeserializeReflected(const FTypeDesc* d, void* obj, const u8* data, u32 size
  * @param size        data のバイト数。
  * @param out_type_id 生成した型の id を返す (破棄に使う、非 null 推奨)。
  * @return 生成・完全復元したインスタンス (失敗 nullptr)。破損時は生成物を内部で破棄する。
- *         破棄は FTypeRegistry::Get().Destroy(*out_type_id, p)。
+ *         破棄は CTypeRegistry::Get().Destroy(*out_type_id, p)。
  */
 void* CreateFromBytes(const u8* data, u32 size, FTypeId* out_type_id) noexcept;
 
@@ -79347,12 +80330,12 @@ void* CreateFromBytes(const u8* data, u32 size, FTypeId* out_type_id) noexcept;
 // =============================================================================
 // GameFramework Pillar F — ARigidBody2D (剛体ボディ・コンポーネント)
 // -----------------------------------------------------------------------------
-// FRigidWorld2D の剛体を ANode に結びつける AComponent。owner ノードに attach
+// CRigidWorld2D の剛体を ANode に結びつける AComponent。owner ノードに attach
 // すると共有ワールドへ円/箱ボディを登録し、物理ステップ後にボディ位置を owner の
 // Local 位置へ書き戻す。これで「ノードに付けたら落ちて衝突する」がゲームから書ける。
 //
 // 使い方:
-//   FRigidWorld2D world;
+//   CRigidWorld2D world;
 //   world.AddStaticAabb({0, 12}, {20, 0.5f});             // 床
 //   auto crate = NewObject<ANode>();
 //   crate->SetPosition2D(FVec2{0, 0});
@@ -79375,7 +80358,7 @@ void* CreateFromBytes(const u8* data, u32 size, FTypeId* out_type_id) noexcept;
 // ===================== gameframework/RigidWorld2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework Pillar F — FRigidWorld2D (2D 剛体ダイナミクス、線形インパルス)
+// GameFramework Pillar F — CRigidWorld2D (2D 剛体ダイナミクス、線形インパルス)
 // -----------------------------------------------------------------------------
 // APhysicsBody2D (swept kinematic) とは別の「本物の剛体」。質量を持つ動的ボディが
 // 衝突時に**運動量を交換**する (跳ね返り / 積み重ね / 押し合い)。インパルスベースの
@@ -79390,7 +80373,7 @@ void* CreateFromBytes(const u8* data, u32 size, FTypeId* out_type_id) noexcept;
 //     すり抜けるトンネリングを、位置積分前のスウィープ (TOI クランプ) で防ぐ。既定 off。
 //
 // 使い方:
-//   FRigidWorld2D w;
+//   CRigidWorld2D w;
 //   u32 floor = w.AddStaticAabb({0, 10}, {10, 0.5f});      // 上端 y=9.5 の床
 //   u32 ball  = w.AddCircle({0, 0}, 0.5f, /*mass=*/1.0f, /*restitution=*/0.2f);
 //   for (...) w.Step(1.0f/60.0f, FVec2{0, 10});            // +Y=下: 重力は +Y
@@ -79446,9 +80429,9 @@ struct FRayHit2D {
  * 2D 剛体ワールド。動的円ボディと静的 AABB を保持し、毎ステップで重力積分 →
  * 接触検出 → インパルス解決 → 位置補正を行う。空間クエリ (point / ray / overlap) も提供する。
  */
-class FRigidWorld2D {
+class CRigidWorld2D {
 public:
-    FRigidWorld2D() noexcept = default;
+    CRigidWorld2D() noexcept = default;
 
     /**
      * 動的な円ボディを追加する。
@@ -79640,7 +80623,7 @@ namespace acs::game {
 class ANode;
 
 /**
- * FRigidWorld2D の剛体を owner ノードに結びつける AComponent。
+ * CRigidWorld2D の剛体を owner ノードに結びつける AComponent。
  *
  * @details
  * ctor で共有ワールドを受け取り、SetCircle/SetBox で owner の現在位置にボディを登録する。
@@ -79654,7 +80637,7 @@ public:
      * 共有ワールドを指定して構築する (AddComponent<ARigidBody2D>(world))。
      * @param world このボディが属する剛体ワールド。
      */
-    explicit ARigidBody2D(FRigidWorld2D& world) noexcept : m_World(&world) {}
+    explicit ARigidBody2D(CRigidWorld2D& world) noexcept : m_World(&world) {}
 
     /**
      * 円ボディとしてワールドへ登録する (owner の現在 Local 位置で)。
@@ -79707,7 +80690,7 @@ public:
     }
 
 private:
-    FRigidWorld2D* m_World      = nullptr;
+    CRigidWorld2D* m_World      = nullptr;
     u32            m_BodyIndex  = 0u;
     bool           m_Registered = false;
 };
@@ -79721,24 +80704,21 @@ private:
  * @param dt 時間刻み (秒)。
  * @param gravity 重力加速度。
  */
-void StepRigidBodies(FRigidWorld2D& world, ANode& root, f32 dt, FVec2 gravity) noexcept;
+void StepRigidBodies(CRigidWorld2D& world, ANode& root, f32 dt, FVec2 gravity) noexcept;
 
 } // namespace acs::game
 
 // ===================== gameframework/RigidWorldDebug.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework — FRigidWorld2D のデバッグ可視化 (RigidWorldDebug)
+// GameFramework — CRigidWorld2D のデバッグ可視化 (RigidWorldDebug)
 // -----------------------------------------------------------------------------
 // 剛体ワールドの全アクティブボディ (円/箱) の輪郭と、動的ボディの速度ベクトルを
-// FDebugDraw へ積む。物理の挙動を目で確認するための薄いブリッジ (描画は呼び出し側)。
+// CDebugDraw へ積む。物理の挙動を目で確認するための薄いブリッジ (描画は呼び出し側)。
 // =============================================================================
 
 
 namespace acs::game {
-
-class FRigidWorld2D;
-class FDebugDraw;
 
 /**
  * ワールドの全アクティブボディ輪郭 + 速度矢印を dd へ積む。
@@ -79749,27 +80729,27 @@ class FDebugDraw;
  * @param vel_color 速度ベクトル矢印の色。
  * @param vel_scale 速度ベクトルの長さ倍率 (world 単位/(単位速度))。
  */
-void DebugDrawRigidWorld(const FRigidWorld2D& world, FDebugDraw& dd,
+void DebugDrawRigidWorld(const CRigidWorld2D& world, CDebugDraw& dd,
                          FVec4 color, FVec4 vel_color, f32 vel_scale = 0.1f) noexcept;
 
 } // namespace acs::game
 
 // ===================== gameframework/RollbackSession.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — FRollbackSession (rollback netcode の統合層)
+// GameFramework — CRollbackSession (rollback netcode の統合層)
 //
 // 役割:
 //   ecs::FRollbackBuffer (状態履歴) と自前の入力台帳を束ね、GGPO 風の
 //   「予測実行 → 遅延して届いた確定入力 → 自動巻き戻し + 再シミュレーション」
 //   ループを 1 クラスで回せるようにする。レイヤ関係:
-//     ・FWorld::CopyFrom     … 状態の複製プリミティブ (ecs)
+//     ・CWorld::CopyFrom     … 状態の複製プリミティブ (ecs)
 //     ・FRollbackBuffer      … 直近 N tick の状態履歴リング (ecs)
-//     ・FRollbackSession     … 入力台帳 + 予測 + 再シミュレーション制御 (本クラス)
-//   FLockstep は「全入力確定済み」前提の入力リプレイ層で、本クラスとは別物
+//     ・CRollbackSession     … 入力台帳 + 予測 + 再シミュレーション制御 (本クラス)
+//   CLockstep は「全入力確定済み」前提の入力リプレイ層で、本クラスとは別物
 //   (決定論検証の ComputeChecksum は併用できる)。
 //
 // 使い方 (2P 対戦の典型):
-//   FRollbackSession session;
+//   CRollbackSession session;
 //   FRollbackSessionConfig cfg;
 //   cfg.player_count   = 2;
 //   cfg.history_length = 8;      // 8 tick まで巻き戻せる
@@ -79795,20 +80775,20 @@ void DebugDrawRigidWorld(const FRigidWorld2D& world, FDebugDraw& dd,
 //     AdvanceTick が false を返して停止する (入力が届くまで待つ = 実質 lockstep
 //     に退化する GGPO の標準挙動)。0 = 無制限。
 //   ・**sim コールバックは C 関数ポインタ + user データ**: STL 不使用方針のため
-//     TFunction は使わない (FJobGraph 等と同じ規約)。コールバックは決定論であること
+//     TFunction は使わない (CJobGraph 等と同じ規約)。コールバックは決定論であること
 //     (同じ world 状態 + 同じ入力列 → 同じ結果) が正しさの前提。
-//   ・**コピー / ムーブ禁止**: FWorld* と履歴を抱える長寿命オブジェクト。
+//   ・**コピー / ムーブ禁止**: CWorld* と履歴を抱える長寿命オブジェクト。
 //
 // 範囲外:
-//   ・ネットワーク送受信 / シリアライズ (FInputFrame の I/O は FLockstep 参照)
-//   ・desync 検出 (FLockstep::ComputeChecksum や FWorld 側 checksum を併用)
+//   ・ネットワーク送受信 / シリアライズ (FInputFrame の I/O は CLockstep 参照)
+//   ・desync 検出 (CLockstep::ComputeChecksum や CWorld 側 checksum を併用)
 //   ・可変 tick rate / フレームスキップ制御
 
 
 namespace acs::game {
 
 /**
- * FRollbackSession の初期化パラメータ。
+ * CRollbackSession の初期化パラメータ。
  */
 struct FRollbackSessionConfig {
     /** プレイヤー数 (1..kMaxRollbackPlayers)。 */
@@ -79826,7 +80806,7 @@ struct FRollbackSessionConfig {
     u32 max_prediction = 0;
 };
 
-/** FRollbackSession が扱えるプレイヤー数の上限。 */
+/** CRollbackSession が扱えるプレイヤー数の上限。 */
 inline constexpr u32 kMaxRollbackPlayers = 8;
 
 /**
@@ -79838,49 +80818,49 @@ inline constexpr u32 kMaxRollbackPlayers = 8;
  * いつでも (past tick でも) 投入でき、予測と食い違っていた場合のみ次の AdvanceTick
  * 冒頭で自動的に巻き戻して再実行する。non-copy / non-move 型。
  */
-class FRollbackSession {
+class CRollbackSession {
 public:
     /**
      * 1 tick 分のシミュレーションを進める決定論コールバック。
      *
-     * @param world 進める FWorld。
+     * @param world 進める CWorld。
      * @param tick 現在の tick。
      * @param inputs player_id 昇順に並んだ全プレイヤーの入力 (確定 or 予測)。
      * @param input_count inputs の要素数 (= player_count)。
      * @param user SetSimCallback で渡した user データ。
      */
-    using SimTickFn = void (*)(FWorld& world, u32 tick, const FInputFrame* inputs,
+    using SimTickFn = void (*)(CWorld& world, u32 tick, const FInputFrame* inputs,
                                u32 input_count, void* user);
 
     /** 未初期化状態で構築する。使用前に Init を呼ぶ。 */
-    FRollbackSession() noexcept = default;
+    CRollbackSession() noexcept = default;
 
-    /** 破棄する (FWorld は非所有なので触らない)。 */
-    ~FRollbackSession() noexcept = default;
+    /** 破棄する (CWorld は非所有なので触らない)。 */
+    ~CRollbackSession() noexcept = default;
 
-    /** コピー禁止 (FWorld* と履歴を抱える長寿命オブジェクト)。 */
-    FRollbackSession(const FRollbackSession&)            = delete;
+    /** コピー禁止 (CWorld* と履歴を抱える長寿命オブジェクト)。 */
+    CRollbackSession(const CRollbackSession&)            = delete;
 
     /** コピー代入も禁止。 */
-    FRollbackSession& operator=(const FRollbackSession&) = delete;
+    CRollbackSession& operator=(const CRollbackSession&) = delete;
 
     /** ムーブ禁止。 */
-    FRollbackSession(FRollbackSession&&)                 = delete;
+    CRollbackSession(CRollbackSession&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FRollbackSession& operator=(FRollbackSession&&)      = delete;
+    CRollbackSession& operator=(CRollbackSession&&)      = delete;
 
     /**
      * セッションを初期化する (再 Init 可、既存の履歴は破棄)。
      *
      * @details world の全コンポーネント型はコピー構築可能であること
-     * (FWorld::CopyFrom の契約)。確保失敗時は未初期化状態に戻して false。
-     * @param world 対象の FWorld (非所有、セッションより長生きすること)。
+     * (CWorld::CopyFrom の契約)。確保失敗時は未初期化状態に戻して false。
+     * @param world 対象の CWorld (非所有、セッションより長生きすること)。
      * @param config プレイヤー数 / 履歴長 / 予測上限。
      * @return 初期化できたら true。引数不正 (world=nullptr / player_count 範囲外 /
      *         history_length=0 / max_prediction >= history_length) や OOM は false。
      */
-    bool Init(FWorld* world, const FRollbackSessionConfig& config) noexcept;
+    bool Init(CWorld* world, const FRollbackSessionConfig& config) noexcept;
 
     /**
      * sim コールバックを設定する (AdvanceTick の前に必須)。
@@ -79914,7 +80894,7 @@ public:
      *
      * @details
      * 失敗時 (未初期化 / コールバック未設定 / 予測上限到達 / snapshot 失敗) は
-     * FWorld を進めずに false を返す。予測上限到達は入力が届けば解消する正常系。
+     * CWorld を進めずに false を返す。予測上限到達は入力が届けば解消する正常系。
      * @return 進めたら true。
      */
     bool AdvanceTick() noexcept;
@@ -79948,7 +80928,7 @@ public:
     bool NeedsResimulation() const noexcept { return m_DirtyTick != kNoDirtyTick; }
 
     /**
-     * tick カウンタと履歴を start_tick から仕切り直す (FWorld の現在状態は保持)。
+     * tick カウンタと履歴を start_tick から仕切り直す (CWorld の現在状態は保持)。
      *
      * @param start_tick 新しい開始 tick。
      */
@@ -79980,10 +80960,10 @@ private:
     /** 未使用 slot を表す番兵 (tick は 0xFFFFFFFF 近辺まで使わない想定)。 */
     static constexpr u32 kInvalidSlotTick = 0xFFFFFFFFu;
 
-    /** 対象 FWorld (非所有)。IsInitialized の判定にも使う。 */
-    FWorld*             m_World          = nullptr;
+    /** 対象 CWorld (非所有)。IsInitialized の判定にも使う。 */
+    CWorld*             m_World          = nullptr;
 
-    /** 状態履歴 (tick 開始時点の FWorld スナップショット)。 */
+    /** 状態履歴 (tick 開始時点の CWorld スナップショット)。 */
     FRollbackBuffer     m_History;
 
     /** sim コールバック。 */
@@ -80025,6 +81005,9 @@ private:
     /** GatherInputs が組み立てる 1 tick 分の入力 (player_id 昇順)。 */
     TArray<FInputFrame> m_TickInputs;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FRollbackSession = CRollbackSession;
 
 } // namespace acs::game
 
@@ -80198,7 +81181,7 @@ TObjectPtr<ANode> LoadNodeTree(const u8* data, u32 size) noexcept;
 //         NFLG <id> <visible> <enabled> <sortLayer> /
 //         SPRT <id> <path> / MAT <id> <path>。
 //
-// 使い方 (FScene2D 派生の OnReady から):
+// 使い方 (AScene2D 派生の OnReady から):
 //   SetPixelsPerUnit(1.0f);
 //   FSceneBounds b = LoadAcsceneFile("main.acscene", Root());
 //   if (b.valid) { Services().Camera().SetPosition(b.Center()); /* zoom はフレーム後合わせる */ }
@@ -80211,7 +81194,7 @@ namespace acs::game {
 class ANode;
 class IAssetPackReader;
 
-/** ARigidBody2D を持つノードの剛体パラメータ (シーン側で FRigidWorld2D に積む)。 */
+/** ARigidBody2D を持つノードの剛体パラメータ (シーン側で CRigidWorld2D に積む)。 */
 struct FRigidBodyRequest {
     ANode* node        = nullptr;
     int      bodyType    = 1;       // 0=Static, 1=Dynamic
@@ -80437,7 +81420,7 @@ void LoadSceneMaterialTexturesFromAssetPack(
     TArray<TUniquePtr<IRhiTexture>>& out_textures) noexcept;
 
 /**
- * 剛体要求から FRigidWorld2D にボディを積む (editor の物理 Play と同じ形状/サイズ規約)。
+ * 剛体要求から CRigidWorld2D にボディを積む (editor の物理 Play と同じ形状/サイズ規約)。
  *
  * @details circle: radius=base*0.5*max(scale)。box: half=base*0.5*scale。polygon: ローカル頂点に
  * scale を焼き込む。Static は質量 0。動的ボディだけ out_nodes/out_bodies に記録 (毎フレーム書き戻し用)。
@@ -80446,7 +81429,7 @@ void LoadSceneMaterialTexturesFromAssetPack(
  * @param out_nodes 動的ボディの対応ノード (書き戻し先)。
  * @param out_bodies 動的ボディの index。
  */
-void BuildSceneRigidBodies(FRigidWorld2D& world, const TArray<FRigidBodyRequest>& reqs,
+void BuildSceneRigidBodies(CRigidWorld2D& world, const TArray<FRigidBodyRequest>& reqs,
                            TArray<ANode*>& out_nodes, TArray<u32>& out_bodies) noexcept;
 
 /**
@@ -80458,7 +81441,7 @@ void BuildSceneRigidBodies(FRigidWorld2D& world, const TArray<FRigidBodyRequest>
  * @param dt 時間刻み。
  * @param gravity 重力 (+Y=下、ピクセルスケールなら ~900)。
  */
-void StepSceneRigidBodies(FRigidWorld2D& world, const TArray<ANode*>& nodes,
+void StepSceneRigidBodies(CRigidWorld2D& world, const TArray<ANode*>& nodes,
                           const TArray<u32>& bodies, f32 dt, FVec2 gravity) noexcept;
 
 /**
@@ -80487,13 +81470,13 @@ void LoadSceneSpritesFromAssetPack(
 
 // ===================== gameframework/ScriptHost.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — FScriptHost (Lua / Wren / Python scripting seam)
+// GameFramework Pillar N — CScriptHost (Lua / Wren / Python scripting seam)
 //
 // 役割:
 //   Pillar N (Modding / Scripting) のうち、ゲームロジックを動的に拡張するための
 //   スクリプトランタイム (Lua 5.4 / Wren / Python3 / 自前 VM 等) を **interface
-//   seam** として隔離する。`FModRegistry` が「Mod の有効化と並び順」を管理する
-//   メタデータレイヤであるのに対し、`FScriptHost` は「実際にスクリプトを load /
+//   seam** として隔離する。`CModRegistry` が「Mod の有効化と並び順」を管理する
+//   メタデータレイヤであるのに対し、`CScriptHost` は「実際にスクリプトを load /
 //   call し、native 関数を bind する」実行レイヤを担当する。
 //
 //   GameFramework 設計書 v13 では Lua 5.4 が推奨 backend だが、本 module
@@ -80509,15 +81492,15 @@ void LoadSceneSpritesFromAssetPack(
 //   2. **テスト容易性**:
 //      `IScriptVm` の純粋仮想ポインタを差し替えるだけで mock backend に置換
 //      でき、CI で Lua ライブラリを持たないマシンでも上位層 (native 関数登録 /
-//      FScriptHost ワークフロー) の試験を回せる。
+//      CScriptHost ワークフロー) の試験を回せる。
 //   3. **決定論ゾーンの隔離**:
 //      Pillar B/C/F (sim / collision / physics) は固定タイムステップで
 //      決定論を保証する。スクリプト実行 (= GC / JIT / native callback) は
-//      決定論を保証できないので、`FScriptHost` を呼ぶのは「決定論を捨ててよい所」
+//      決定論を保証できないので、`CScriptHost` を呼ぶのは「決定論を捨ててよい所」
 //      (UI / イベントトリガー / カットシーン / Mod hook) に限定する規約を
 //      API レベルで強制する (= 本 header の呼び出し位置で発見できる)。
 //   4. **defensive な未統合フォールバック**:
-//      実 Lua backend が同梱されないビルドでも、`FScriptVmStub` が
+//      実 Lua backend が同梱されないビルドでも、`CScriptVmStub` が
 //      `kSub_NotImplemented` を返すことで、Mod / scripting に依存する path が
 //      「常にスクリプト無し」状態でも安全に動く前提を強制できる。
 //
@@ -80526,16 +81509,16 @@ void LoadSceneSpritesFromAssetPack(
 //     CallFunction / RegisterNativeFunction / GetGlobal / SetGlobal / GC)
 //   ・タグ付き union 風 POD `FScriptValue` + `FScriptCallFrame` + `NativeFunction`
 //     による backend 中立な値受け渡し
-//   ・`FScriptVmStub` (全 method NotImplemented を返す defensive 実装)
+//   ・`CScriptVmStub` (全 method NotImplemented を返す defensive 実装)
 //   ・global stub アクセサ `GetVmStub()`
-//   ・`FScriptHost` 高レベルラッパ (vm を保持 + native 関数 registry + file load
+//   ・`CScriptHost` 高レベルラッパ (vm を保持 + native 関数 registry + file load
 //     + 標準 binding 一括登録)
 //
 // ACS 規約遵守:
 //   ・STL 不使用 / `<string>` 不使用 (文字列は `const char*` のみ)
 //   ・例外不使用、エラーは `TResult<T, FErrorCode>` で伝搬
 //   ・全 noexcept
-//   ・`FScriptHost` / `FScriptVmStub` は シングルトン / 単一所有運用前提で
+//   ・`CScriptHost` / `CScriptVmStub` は シングルトン / 単一所有運用前提で
 //     コピー / ムーブ禁止
 
 
@@ -80546,7 +81529,7 @@ namespace acs::game {
  *
  * @details
  * IScriptVm::Language() が返す。複数 backend を同時運用する場合 (例: UI ロジックは
- * Lua、ML 推論 hook だけ Python) に、FScriptHost 側で 1 個の vm を選択するための
+ * Lua、ML 推論 hook だけ Python) に、CScriptHost 側で 1 個の vm を選択するための
  * 判定に使う。Lua54 推奨。
  */
 enum class EScriptLanguage : u8 {
@@ -80690,7 +81673,7 @@ namespace script_err {
     /** ファイルパスがnull、空、長すぎる、またはNUL終端されていない。 */
     inline constexpr u16 kSub_InvalidPath    = 26;
 
-    /** FScriptHost::Init 未呼出 (vm 未設定)。 */
+    /** CScriptHost::Init 未呼出 (vm 未設定)。 */
     inline constexpr u16 kSub_NoVm           = 30;
 
     /** 関数名が空、長すぎる、またはNUL終端されていない。 */
@@ -80853,13 +81836,13 @@ protected:
  * LoadScript / CallFunction / RegisterNativeFunction は kSub_NotImplemented を返す。
  * SetGlobalNumber / GetGlobalNumber / CollectGarbage は no-op、MemoryUsageBytes は常に 0。
  */
-class FScriptVmStub final : public IScriptVm {
+class CScriptVmStub final : public IScriptVm {
 public:
     /** 空状態で構築する。 */
-    FScriptVmStub() noexcept = default;
+    CScriptVmStub() noexcept = default;
 
     /** 破棄する (no-op)。 */
-    ~FScriptVmStub() noexcept override = default;
+    ~CScriptVmStub() noexcept override = default;
 
     /**
      * Init を no-op 成功させる (起動シーケンスを通すため)。
@@ -80948,8 +81931,8 @@ private:
 /**
  * process 内で 1 個だけ存在する静的 stub への参照を返す (Meyers singleton)。
  *
- * @details FGame / FScene 側からのスクリプト問い合わせはこれを通る。
- * @return 共有 FScriptVmStub インスタンスへの参照。
+ * @details CGame / AScene 側からのスクリプト問い合わせはこれを通る。
+ * @return 共有 CScriptVmStub インスタンスへの参照。
  */
 IScriptVm& GetVmStub() noexcept;
 
@@ -80992,11 +81975,11 @@ IScriptVm& GetDefaultScriptVm() noexcept;
  * LoadAndRun(file_path) で Win32 ファイル読み込み → LoadScript の一括ヘルパを、
  * RegisterStandardBindings で標準 binding (Log / Math / Time / Input / Audio 等) の一括登録 API を
  * 提供し、script 実行中エラーを上位 UI / ログに通知する ScriptErrorCallback を保持する。
- * vm の生成 / 破棄は呼び出し側 (= FGame / FScene) が責任を持ち、FScriptHost は raw ポインタを保持する
+ * vm の生成 / 破棄は呼び出し側 (= CGame / AScene) が責任を持ち、CScriptHost は raw ポインタを保持する
  * だけで Shutdown でも delete しない (stub singleton をそのまま差し込んでも安全)。「現在 active な
  * スクリプト窓口は 1 つ」という規約を担保するため non-copy / non-move。
  */
-class FScriptHost {
+class CScriptHost {
 public:
     /**
      * script 実行中の error / load error を上位に通知する callback の signature。
@@ -81013,22 +81996,22 @@ public:
                                         const char* message) noexcept;
 
     /** 空状態で構築する (vm 未設定)。 */
-    FScriptHost() noexcept = default;
+    CScriptHost() noexcept = default;
 
     /** 破棄する (vm を所有しないので参照を持つだけ)。 */
-    ~FScriptHost() noexcept = default;
+    ~CScriptHost() noexcept = default;
 
     /** コピー禁止 (active なスクリプト窓口は 1 つの規約のため)。 */
-    FScriptHost(const FScriptHost&)            = delete;
+    CScriptHost(const CScriptHost&)            = delete;
 
     /** コピー代入も禁止。 */
-    FScriptHost& operator=(const FScriptHost&) = delete;
+    CScriptHost& operator=(const CScriptHost&) = delete;
 
     /** ムーブ禁止。 */
-    FScriptHost(FScriptHost&&)                 = delete;
+    CScriptHost(CScriptHost&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FScriptHost& operator=(FScriptHost&&)      = delete;
+    CScriptHost& operator=(CScriptHost&&)      = delete;
 
     /**
      * 使用する VM を差し込む。
@@ -81191,13 +82174,19 @@ private:
     void*                m_OnErrorUser = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FScriptHost = CScriptHost;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FScriptVmStub = CScriptVmStub;
+
 } // namespace acs::game
 
 // ===================== gameframework/SpatialAudio2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FSpatialAudio2D (2D 平面向け位置情報オーディオ)
+// GameFramework Pillar H — CSpatialAudio2D (2D 平面向け位置情報オーディオ)
 //
-// FSpatialAudio (3D) の 2D ゲーム特化版。3D の up/forward 三次元姿勢の代わりに
+// CSpatialAudio (3D) の 2D ゲーム特化版。3D の up/forward 三次元姿勢の代わりに
 // 「位置 (FVec2) + 向き角 (ラジアン)」だけで距離減衰 / 左右パンを算出する。
 // 計算は **純数学** で in-repo 完結し、外部依存 (HRTF IR 等) は持たない。
 //
@@ -81214,14 +82203,14 @@ private:
 //   → 東 (+X) を向くと北 (+Y) は左 (pan<0)、南 (-Y) は右 (pan>0)。
 //   Y+ が下のスクリーン座標系を使う場合は angle の符号を反転して渡す。
 //
-// 使い方 (free function 直叩き — FScene が独自に source を持つ場合):
+// 使い方 (free function 直叩き — AScene が独自に source を持つ場合):
 //   const f32 d   = ComputeDistance2D(ear_pos, enemy_pos);
 //   const f32 vol = ComputeVolume2D(d, 20.0f, EAttenuationCurve::Linear);
 //   const f32 pan = ComputePan2D(ear_pos, ear_angle, enemy_pos);
 //   f32 l, r; ComputeConstantPowerStereo2D(pan, l, r);
 //
-// 使い方 (FSpatialAudio2D マネージャ — listener 1 + source N を集中管理):
-//   acs::game::FSpatialAudio2D spatial;
+// 使い方 (CSpatialAudio2D マネージャ — listener 1 + source N を集中管理):
+//   acs::game::CSpatialAudio2D spatial;
 //   spatial.SetListener({{0,0}, 0.0f});
 //   u32 s = spatial.RegisterSource({5, 3}, 20.0f, EAttenuationCurve::Linear);
 //   spatial.UpdateSource(s, enemy.Pos());
@@ -81250,7 +82239,7 @@ struct FAudioListener2D {
  * 2D 平面上の 1 音源。FAudioSource3D の 2D 版。
  */
 struct FAudioSource2D {
-    /** FSpatialAudio2D が払い出す一意 ID (0 = 無効、1.. = 有効)。 */
+    /** CSpatialAudio2D が払い出す一意 ID (0 = 無効、1.. = 有効)。 */
     u32   source_id    = 0;
 
     /** 世界座標。 */
@@ -81273,7 +82262,7 @@ struct FAudioSource2D {
 };
 
 // =============================================================================
-// 純数学 free function 群 (state を持たない。FScene が独自に source 配列を持つ場合に直叩き)
+// 純数学 free function 群 (state を持たない。AScene が独自に source 配列を持つ場合に直叩き)
 // =============================================================================
 
 /**
@@ -81373,33 +82362,33 @@ ACS_FORCEINLINE void ComputeConstantPowerStereo2D(f32 pan, f32& left, f32& right
 }
 
 // =============================================================================
-// FSpatialAudio2D — listener 1 + source N の集中管理 (FSpatialAudio の 2D 版、header-only)
+// CSpatialAudio2D — listener 1 + source N の集中管理 (CSpatialAudio の 2D 版、header-only)
 // =============================================================================
 
 /**
- * 2D listener + source を集中管理する空間化レイヤ (FSpatialAudio の 2D 版)。
+ * 2D listener + source を集中管理する空間化レイヤ (CSpatialAudio の 2D 版)。
  *
  * @details
- * FScene 局所 instance としての所有を想定。1 listener + N source を AoS で保持し、
+ * AScene 局所 instance としての所有を想定。1 listener + N source を AoS で保持し、
  * 毎フレーム distance / volume / pan を pull で取得する。source_id は単調増加で
  * 再利用しない (stale ID 検出が単純)。全メソッド inline (header-only)。
  */
-class FSpatialAudio2D {
+class CSpatialAudio2D {
 public:
     /** source 配列の初期容量。 */
     static constexpr u32 kInitialSourceCapacity = 16;
 
     /** source 配列を初期容量で Reserve して構築する。 */
-    FSpatialAudio2D() noexcept { m_Sources.Reserve(kInitialSourceCapacity); }
+    CSpatialAudio2D() noexcept { m_Sources.Reserve(kInitialSourceCapacity); }
 
     /** 破棄する。 */
-    ~FSpatialAudio2D() noexcept = default;
+    ~CSpatialAudio2D() noexcept = default;
 
     /** コピー禁止 (シーン局所 instance として単独所有)。 */
-    FSpatialAudio2D(const FSpatialAudio2D&)            = delete;
-    FSpatialAudio2D& operator=(const FSpatialAudio2D&) = delete;
-    FSpatialAudio2D(FSpatialAudio2D&&)                 = delete;
-    FSpatialAudio2D& operator=(FSpatialAudio2D&&)      = delete;
+    CSpatialAudio2D(const CSpatialAudio2D&)            = delete;
+    CSpatialAudio2D& operator=(const CSpatialAudio2D&) = delete;
+    CSpatialAudio2D(CSpatialAudio2D&&)                 = delete;
+    CSpatialAudio2D& operator=(CSpatialAudio2D&&)      = delete;
 
     /**
      * listener (耳位置 + 向き) を設定する。
@@ -81545,64 +82534,61 @@ private:
     u32                    m_NextSourceId = 1;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSpatialAudio2D = CSpatialAudio2D;
+
 } // namespace acs::game
 
 // ===================== gameframework/Spawn2DSubsystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — FSpawn2DSubsystem (どこからでもプレハブをワールドへ生成する)
-//
-// World サブシステム。Owner()(= 所属 FScene2D)経由でシーンの root に手が届くので、
-// «ノードを持たない側»(他のサブシステム・ゲームロジック・スクリプト)からでも
-// プレハブをスポーンできる。敵・弾・拾い物の動的生成のハブ。
-//
-//   auto* spawner = GetSubsystem<acs::game::FSpawn2DSubsystem>();
-//   spawner->SpawnPrefabFile("Assets/Enemy.acsprefab", FVec2{ 100, 0 });
 
 
 namespace acs::game {
 
-/**
- * プレハブをワールド(所属 FScene2D の root)へ生成する World サブシステム。
- *
- * @details Owner() が FScene2D を指す(FScene が World サブシステムへ this を渡す)。
- * 2D 以外のシーンに対しては Owner が FScene2D でないため Spawn* は nullptr を返す。
- */
-class FSpawn2DSubsystem : public FSubsystem {
+class ANode;
+class ASpawn2DSubsystem;
+/** 旧公開名を正規2D生成サブシステム型へ接続する互換別名。 */
+using FSpawn2DSubsystem = ASpawn2DSubsystem;
+
+/** 2D シーンのルートへプレハブを生成する World サブシステム。 */
+class ASpawn2DSubsystem : public ASubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(FSpawn2DSubsystem)
+    ACS_SUBSYSTEM_KIND(FSpawn2DSubsystem)
 
-    /**
-     * プレハブテキスト(.acsprefab 直列化)をシーンへ生成し pos に配置する。
-     *
-     * @param text プレハブテキスト。
-     * @param pos  生成位置(生成ルートの local position)。
-     * @return 生成サブツリーのルート(失敗で nullptr)。
-     */
-    ANode* SpawnPrefabText(const char* text, FVec2 pos) noexcept {
-        FScene2D* scene = OwnerAs<FScene2D>();
-        if (scene == nullptr || text == nullptr) return nullptr;
-        ANode* n = ::acs::game::SpawnPrefabText(text, scene->Root());
-        if (n != nullptr) n->SetPosition2D(pos);
-        return n;
-    }
+    /** 割り当てられた owner が Scene 契約なら利用を許可する。 */
+    bool OnOwnerAssigned() noexcept override;
 
-    /**
-     * プレハブファイル(.acsprefab)をシーンへ生成し pos に配置する。
-     *
-     * @param path .acsprefab パス。
-     * @param pos  生成位置。
-     * @return 生成サブツリーのルート(失敗で nullptr)。
-     */
-    ANode* SpawnPrefabFile(const char* path, FVec2 pos) noexcept {
-        FScene2D* scene = OwnerAs<FScene2D>();
-        if (scene == nullptr || path == nullptr) return nullptr;
-        ANode* n = ::acs::game::SpawnPrefabFile(path, scene->Root());
-        if (n != nullptr) n->SetPosition2D(pos);
-        return n;
-    }
+    /** 2D シーンとの非所有接続を解除する。 */
+    void OnDeinitialize() noexcept override;
+
+    /** プレハブ文字列を接続済み 2D シーンへ生成し、失敗時は nullptr を返す。 */
+    ANode* SpawnPrefabText(const char* Text, FVec2 Position) noexcept;
+
+    /** プレハブファイルを接続済み 2D シーンへ生成し、失敗時は nullptr を返す。 */
+    ANode* SpawnPrefabFile(const char* Path, FVec2 Position) noexcept;
+
+private:
+    friend class AScene2D;
+
+    /** AScene2D の初期化成功後にだけ生成先ルートを接続する。 */
+    void BindTargetRoot(ANode* Root) noexcept { m_TargetRoot = Root; }
+
+    /** 生成先の 2D シーンルート。所有しない。 */
+    ANode* m_TargetRoot = nullptr;
 };
 
 } // namespace acs::game
+
+namespace acs {
+
+/** 生成したnodeをトップレベルから参照する正規入口。 */
+using game::ANode;
+/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
+using game::ASpawn2DSubsystem;
+/** 旧公開名を正規2D生成サブシステム型へ接続する互換別名。 */
+using game::FSpawn2DSubsystem;
+
+} // namespace acs
 
 // ===================== gameframework/Steering2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -81611,7 +82597,7 @@ public:
 // -----------------------------------------------------------------------------
 // エージェントの「目標へ向かう/止まる/逃げる/経路を辿る」操舵力を計算する純関数群。
 // 利用側が pos/vel を保持し、戻りの操舵力で速度を更新する (本モジュールは状態を持たない)。
-// FNavGrid/TilemapNav の waypoint 列と組み合わせて敵 AI の移動を駆動する。
+// CNavGrid/TilemapNav の waypoint 列と組み合わせて敵 AI の移動を駆動する。
 //
 // 使い方:
 //   FSteerParams sp{ .max_speed = 4.0f, .max_force = 8.0f };
@@ -81643,9 +82629,9 @@ FVec2 SteerArrive(FVec2 pos, FVec2 vel, FVec2 target, FSteerParams p, f32 slow_r
  *
  * @details 状態 (現在 index) は m_Index で保持する non-pure。points は外部所有 (寿命に注意)。
  */
-class FPathFollower {
+class CPathFollower {
 public:
-    FPathFollower() noexcept = default;
+    CPathFollower() noexcept = default;
 
     /**
      * 追従する waypoint 列を設定する (index リセット)。
@@ -81676,32 +82662,44 @@ private:
     f32          m_ArriveRadius = 0.5f;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPathFollower = CPathFollower;
+
 } // namespace acs::game
+
+// ===================== gameframework/SubsystemCatalog.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+namespace acs {
+
+/** GameFramework 同梱サブシステムを正規登録簿へ冪等に登録する。 */
+[[nodiscard]] bool AcsRegisterGameFrameworkSubsystems() noexcept;
+
+} // namespace acs
 
 // ===================== gameframework/TilemapNav.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework — FTilemap → FNavGrid 経路探索ブリッジ (TilemapNav)
+// GameFramework — FTilemap → CNavGrid 経路探索ブリッジ (TilemapNav)
 // -----------------------------------------------------------------------------
-// タイルマップの指定レイヤから FNavGrid (A*) を構築し (非空タイル = 非歩行可能)、
+// タイルマップの指定レイヤから CNavGrid (A*) を構築し (非空タイル = 非歩行可能)、
 // world 座標の start→goal を探索して world 中心の waypoint 列を返す。
-// タイル地形上の敵 AI ナビゲーションに使う (FTilemap + FNavGrid の合成)。
+// タイル地形上の敵 AI ナビゲーションに使う (FTilemap + CNavGrid の合成)。
 // =============================================================================
 
 
 namespace acs::game {
 
 class FTilemap;
-class FNavGrid;
 
 /**
- * タイルマップの layer から FNavGrid を構築する (非空タイル = 非歩行可能)。
+ * タイルマップの layer から CNavGrid を構築する (非空タイル = 非歩行可能)。
  *
  * @param map 元タイルマップ。
  * @param layer 障害物判定に使うレイヤ。
- * @param nav 構築先 FNavGrid (Init + SetWalkable される)。
+ * @param nav 構築先 CNavGrid (Init + SetWalkable される)。
  */
-void BuildNavGridFromTilemap(const FTilemap& map, u32 layer, FNavGrid& nav) noexcept;
+void BuildNavGridFromTilemap(const FTilemap& map, u32 layer, CNavGrid& nav) noexcept;
 
 /**
  * world 座標の start→goal を nav で探索し、world 中心の waypoint 列を返す。
@@ -81709,13 +82707,13 @@ void BuildNavGridFromTilemap(const FTilemap& map, u32 layer, FNavGrid& nav) noex
  * @details nav は事前に BuildNavGridFromTilemap 済みであること。start/goal の tile 変換は
  * map で行う。範囲外 / 経路なしは false。
  * @param map 座標変換用タイルマップ。
- * @param nav 探索に使う FNavGrid (構築済み)。
+ * @param nav 探索に使う CNavGrid (構築済み)。
  * @param start_world 始点 (world)。
  * @param goal_world 終点 (world)。
  * @param out_path 結果の world waypoint 列 (tile 中心、start→goal 順)。
  * @return 経路が見つかれば true。
  */
-bool FindTilemapPath(const FTilemap& map, FNavGrid& nav,
+bool FindTilemapPath(const FTilemap& map, CNavGrid& nav,
                      FVec2 start_world, FVec2 goal_world, TArray<FVec2>& out_path) noexcept;
 
 } // namespace acs::game
@@ -81723,10 +82721,10 @@ bool FindTilemapPath(const FTilemap& map, FNavGrid& nav,
 // ===================== gameframework/TilemapPhysics.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework — FTilemap → FRigidWorld2D 静的コライダ生成 (TilemapPhysics)
+// GameFramework — FTilemap → CRigidWorld2D 静的コライダ生成 (TilemapPhysics)
 // -----------------------------------------------------------------------------
 // タイルマップの指定レイヤの「埋まっている (非空) タイル」を、剛体ワールドへ静的
-// AABB として登録する。これで I 作った FRigidWorld2D の動的ボディ (箱/ボール) が
+// AABB として登録する。これで I 作った CRigidWorld2D の動的ボディ (箱/ボール) が
 // タイル地形と衝突できる (プラットフォーマ / 物理パズルの地形当たり)。
 //
 // 効率のため横方向の連続タイルを 1 つの幅広 AABB にまとめる (greedy 行マージ)。
@@ -81736,7 +82734,6 @@ bool FindTilemapPath(const FTilemap& map, FNavGrid& nav,
 namespace acs::game {
 
 class FTilemap;
-class FRigidWorld2D;
 
 /**
  * タイルマップの layer の非空タイルを world へ静的 AABB として登録する (行ごと greedy マージ)。
@@ -81748,7 +82745,7 @@ class FRigidWorld2D;
  * @param friction 生成コライダの摩擦係数。
  * @return 生成した静的 AABB コライダ数 (連続タイルはマージ済み)。
  */
-u32 BuildRigidColliders(const FTilemap& map, u32 layer, FRigidWorld2D& world,
+u32 BuildRigidColliders(const FTilemap& map, u32 layer, CRigidWorld2D& world,
                         f32 restitution = 0.0f, f32 friction = 0.5f) noexcept;
 
 } // namespace acs::game
@@ -81843,14 +82840,14 @@ inline bool ComposeTransformBatchSoA(const FTransform3D& parent, FTransformSoAIn
 
 // ===================== gameframework/WorldClockSubsystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — FWorldClockSubsystem (World スコープの経過時間・フレーム時計)
+// GameFramework — AWorldClockSubsystem (World スコープの経過時間・フレーム時計)
 //
 // World サブシステム。シーン開始からの経過秒・フレーム数・直近 dt を OnTick で自動集計し、
-// ワールド内のどこからでも GetSubsystem<FWorldClockSubsystem>() で参照できる共有サービス。
+// ワールド内のどこからでも GetSubsystem<AWorldClockSubsystem>() で参照できる共有サービス。
 // «時間» に依存するゲームロジック (クールダウン、アニメ位相、経過時間 UI 等) が、個別に
 // dt を積むのではなく単一の権威ある時計を引けるようにする。
 //
-//   auto* clock = GetSubsystem<acs::game::FWorldClockSubsystem>();
+//   auto* clock = GetSubsystem<acs::game::AWorldClockSubsystem>();
 //   const f64 t = clock->ElapsedSeconds();
 //
 // dt は «そのスコープのスケール済み» 値 (World はシーンと同じスケール済み dt)。ポーズ/スロー
@@ -81859,6 +82856,10 @@ inline bool ComposeTransformBatchSoA(const FTransform3D& parent, FTransformSoAIn
 
 namespace acs::game {
 
+class AWorldClockSubsystem;
+/** 旧公開名を正規ワールド時計サブシステム型へ接続する互換別名。 */
+using FWorldClockSubsystem = AWorldClockSubsystem;
+
 /**
  * シーン開始からの経過時間・フレーム数・直近 dt を集計する World サブシステム。
  *
@@ -81866,7 +82867,7 @@ namespace acs::game {
  * f64 で累積する。dt はスコープのスケール済み値なので、ポーズ (dt=0) やスローモーションにも
  * 自然に追従する。
  */
-class FWorldClockSubsystem : public FSubsystem {
+class AWorldClockSubsystem : public ASubsystem {
 public:
     ACS_GAME_SUBSYSTEM_KIND(FWorldClockSubsystem)
 
@@ -81929,19 +82930,28 @@ private:
 
 } // namespace acs::game
 
+namespace acs {
+
+/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
+using game::AWorldClockSubsystem;
+/** 旧公開名を正規ワールド時計サブシステム型へ接続する互換別名。 */
+using game::FWorldClockSubsystem;
+
+} // namespace acs
+
 // ===================== gameframework/audio_backend/XAudio2Backend.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FXAudio2Backend (Windows 用 IAudioBackend 実装)
+// GameFramework Pillar H — CXAudio2Backend (Windows 用 IAudioBackend 実装)
 //
 // 役割:
 //   `IAudioBackend` の concrete 実装 = Win32 XAudio2 (Windows SDK 同梱) を
-//   叩いて実音声を出す。`FAudioDirector::SetBackend(&xaudio2)` で差し込んで
+//   叩いて実音声を出す。`CAudioDirector::SetBackend(&xaudio2)` で差し込んで
 //   使う。
 //
 // 使い方 (典型例):
-//   class FGame {
-//       acs::game::FXAudio2Backend m_Audio;
-//       acs::game::FAudioDirector  m_Director;
+//   class CGame {
+//       acs::game::CXAudio2Backend m_Audio;
+//       acs::game::CAudioDirector  m_Director;
 //
 //       TResult<void> OnStart() noexcept override {
 //           ACS_TRY(m_Audio.Init(64));      // 同時発音 64 voice
@@ -81973,7 +82983,7 @@ private:
 //     自然回収する。回収しないと kMaxVoices 回再生でスロット枯渇する。
 //
 // 範囲外:
-//   ・3D positional / spatial (Pillar FSpatialAudio 担当、別 backend)
+//   ・3D positional / spatial (Pillar CSpatialAudio 担当、別 backend)
 //   ・stream 再生 / 動的バッファ供給
 //   ・wav/ogg/mp3 デコード (raw PCM を渡す前提)
 
@@ -81990,32 +83000,32 @@ inline constexpr u64 kXAudio2BackendResidentBufferBudgetBytes = 512ull * 1024ull
  * Win32 XAudio2 を叩いて実音声を出す IAudioBackend の Windows 実装。
  *
  * @details
- * `FAudioDirector::SetBackend(&xaudio2)` で差し込んで使う。pimpl で `<xaudio2.h>`
+ * `CAudioDirector::SetBackend(&xaudio2)` で差し込んで使う。pimpl で `<xaudio2.h>`
  * (+ COM) の重ヘッダを .cpp に閉じ込め、固定容量 voice pool を `Init(max_voices)`
  * で確保する。voice handle は ABI を 32bit に保ったプロセス通算チケットで一意化し、
  * slot 再利用時の use-after-free をハンドル不一致で no-op 化して防ぐ。一発再生は Tick で
  * `BuffersQueued == 0` を見て自然回収される。COM MTA の寿命は cookie で保持するため、
  * Init と異なるスレッドから Shutdown またはデストラクタを実行できる。
  */
-class FXAudio2Backend final : public IAudioBackend {
+class CXAudio2Backend final : public IAudioBackend {
 public:
     /** 空状態で構築する (実リソースは Init で確保)。 */
-    FXAudio2Backend() noexcept;
+    CXAudio2Backend() noexcept;
 
     /** Shutdown を呼んで全 voice・COM・pimpl を解放する。 */
-    ~FXAudio2Backend() noexcept override;
+    ~CXAudio2Backend() noexcept override;
 
     /** コピー禁止 (COM ハンドルの二重解放を避けるため)。 */
-    FXAudio2Backend(const FXAudio2Backend&)            = delete;
+    CXAudio2Backend(const CXAudio2Backend&)            = delete;
 
     /** コピー代入も禁止。 */
-    FXAudio2Backend& operator=(const FXAudio2Backend&) = delete;
+    CXAudio2Backend& operator=(const CXAudio2Backend&) = delete;
 
     /** ムーブ禁止 (長寿命オブジェクトとして単独所有するため)。 */
-    FXAudio2Backend(FXAudio2Backend&&)                 = delete;
+    CXAudio2Backend(CXAudio2Backend&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FXAudio2Backend& operator=(FXAudio2Backend&&)      = delete;
+    CXAudio2Backend& operator=(CXAudio2Backend&&)      = delete;
 
     /**
      * COM・XAudio2 エンジン・マスタリングボイス・voice pool を確保する。
@@ -82152,17 +83162,20 @@ private:
     FImpl* m_Impl = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FXAudio2Backend = CXAudio2Backend;
+
 } // namespace acs::game
 
 // ===================== gameframework/tools/animcurve/AnimCurveEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — animcurve / FAnimCurveEditorPanel
+// GameFramework Pillar — animcurve / AAnimCurveEditorPanel
 //
 // `acs::game::FAnimationCurve` (Hermite/Linear/Step + EWrapMode) を ImGui で
 // **対話的に編集する curve editor panel**。Unity AnimationCurve エディタ /
 // Unreal CurveEditor / Godot Curve のキー打ち + タンジェントドラッグの
-// 簡易版に相当。`editor_core::FEditorPanel` 基底に
-// 載せ、`FEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
+// 簡易版に相当。`editor_core::AEditorPanel` 基底に
+// 載せ、`CEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
 // 統合できる形にしている。
 //
 // 役割:
@@ -82190,9 +83203,9 @@ private:
 //     等の API を呼ぶだけで、curve の利用文脈には関与しない。
 //
 // 使い方 (典型):
-//   FAnimCurveEditorPanel panel;
+//   AAnimCurveEditorPanel panel;
 //   panel.Init();
-//   workspace.RegisterPanel(&panel);   // FEditorPanel として登録
+//   workspace.RegisterPanel(&panel);   // AEditorPanel として登録
 //
 //   FAnimationCurve my_curve;
 //   my_curve.AddKeyHermite(0.0f, 0.0f, 0.0f, 1.0f);
@@ -82212,9 +83225,9 @@ private:
 //   panel.Shutdown();
 //
 // 設計選択:
-//   ・**FEditorPanel 継承**: 共通基盤を利用する。Title = "Animation Curve Editor"、DrawUI override。
+//   ・**AEditorPanel 継承**: 共通基盤を利用する。Title = "Animation Curve Editor"、DrawUI override。
 //   ・**curve は raw pointer の非所有保持**: caller が own する設計
-//     (FParticleEditorPanel が FParticleEffectSystem を参照渡しで受けるのと
+//     (AParticleEditorPanel が CParticleEffectSystem を参照渡しで受けるのと
 //     同じ方針)。本 panel は curve の寿命に関与せず、`m_Curve == nullptr` 時は
 //     「(No curve bound)」を表示。
 //   ・**canvas は ImGui::InvisibleButton + GetWindowDrawList()**: ImGui の
@@ -82224,7 +83237,7 @@ private:
 //     (典型の curve editor 横幅 ~1000px 想定)。それ以上は SIMD でも誤差
 //     範囲なので overkill。
 //   ・**選択中 key index は i32 (-1 = 未選択)**: `kNoKeySelected` を sentinel に
-//     する (FModelAnimationPanel の `kNoClipSelected` と同形)。
+//     する (AModelAnimationPanel の `kNoClipSelected` と同形)。
 //   ・**Tangent handle の長さは固定 px (= 約 30px)**: curve 形状で接線が
 //     画面外に飛ぶ事故を避けるため。実際の tangent 値 (= dy/dx) は curve に
 //     書き込むが、handle 描画位置だけは固定スケールで「短い棒」として出す。
@@ -82232,8 +83245,8 @@ private:
 //     "Add Key Here" は click 位置の (time, value) を decode してそこに key
 //     追加。"Delete Selected" は `m_SelectedKeyIdx` が有効なら RemoveKey。
 //   ・**CurveChangeCallback は raw 関数ポインタ + void* user**: ACS は
-//     std::function 禁止。FParticleEditorPanel / FAssetBrowser と同形の C-style
-//     callback 規約 (FModelAnimationPanel の AnimationFrameCallback と同形)。
+//     std::function 禁止。AParticleEditorPanel / CAssetBrowser と同形の C-style
+//     callback 規約 (AModelAnimationPanel の AnimationFrameCallback と同形)。
 //     キー操作の都度発火する設計だが、drag 中は連続発火を避けるため
 //     「drag end (= マウス release)」のタイミングで 1 度だけ呼ぶ。
 //   ・**Toolbar の EWrapMode Combo は Pre / Post 個別**: FAnimationCurve API も
@@ -82242,8 +83255,8 @@ private:
 //     curve.Duration() == 0 の場合は slider を disable して 0 表示。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。
-//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (FParticleEditorPanel /
-//     FModelViewerPanel / FModelInspectorPanel) と同形。
+//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (AParticleEditorPanel /
+//     AModelViewerPanel / AModelInspectorPanel) と同形。
 //
 // 範囲外:
 //   ・複数 curve の同時編集 / レイヤ重ね (= timeline editor の役割)
@@ -82257,16 +83270,16 @@ private:
 
 // ===================== gameframework/tools/editor_core/EditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — editor_core / FEditorPanel
+// GameFramework Pillar — editor_core / AEditorPanel
 //
 // 全エディタパネルの共通基底クラス。各 panel
-// (FHierarchyPanel / FInspectorPanel / FEditorToolbar 等) と複数の editor 群
+// (AHierarchyPanel / AInspectorPanel / AEditorToolbar 等) と複数の editor 群
 // (ModelViewer / AnimCurveEditor / BehaviorTreeEditor / LevelEditor /
 //  SpriteAtlasEditor / FontEditor / CinematicsTimelineEditor) を統一的に
 // 配線するため、ライフサイクル + 選択通知 + レイアウト永続化を共通化する。
 //
 // 使い方 (派生側の典型):
-//   class FModelViewerPanel : public acs::game::editor_core::FEditorPanel {
+//   class AModelViewerPanel : public acs::game::editor_core::AEditorPanel {
 //   public:
 //       const char* Title() const noexcept override { return "Model Viewer"; }
 //       void DrawUI() noexcept override {
@@ -82281,8 +83294,8 @@ private:
 //       }
 //   };
 //
-//   // ホスト側 (FEditorWorkspace) からの呼び出し:
-//   FModelViewerPanel viewer;
+//   // ホスト側 (CEditorWorkspace) からの呼び出し:
+//   AModelViewerPanel viewer;
 //   viewer.OnInit(workspace);
 //   // 毎フレーム:
 //   viewer.OnFrameBegin(dt);
@@ -82300,14 +83313,14 @@ private:
 //     強制 wrap せず派生側で完全制御させる方針 (Unity Editor の `EditorWindow`
 //     と同じ責任分担)。`m_Visible` は派生側で `ImGui::Begin(Title(), &m_Visible)`
 //     の close ボタンに直接渡せる public-ish state。
-//   ・**FEditorWorkspace は forward-decl のみ**: ヘッダ依存を最小化。具体的な
-//     workspace 型 (FSelectionService / FAssetBrowser / DockSpace 等の集約 hub) は
+//   ・**CEditorWorkspace は forward-decl のみ**: ヘッダ依存を最小化。具体的な
+//     workspace 型 (CSelectionService / CAssetBrowser / DockSpace 等の集約 hub) は
 //     同 editor_core 配下に実装され、本基底は型を
 //     知らなくても OnInit で参照を保存できればよい。Workspace ポインタは
 //     non-owning (workspace の生存期間 ≧ panel の生存期間)。
 //   ・**OnSelectionChanged / OnAssetSelected の二系統**:
-//       - OnSelectionChanged: FScene 内の ANode 選択 (FSelectionService 経由)
-//       - OnAssetSelected   : FAssetBrowser からのファイル選択 (asset path string)
+//       - OnSelectionChanged: AScene 内の ANode 選択 (CSelectionService 経由)
+//       - OnAssetSelected   : CAssetBrowser からのファイル選択 (asset path string)
 //     2 つを独立 hook にしておくことで、ModelViewer のように "asset 系のみ反応"
 //     する panel と、Inspector のように "node 系のみ反応" する panel が綺麗に
 //     書き分けられる。
@@ -82320,10 +83333,10 @@ private:
 //   ・**非コピー / 非ムーブ**: panel は workspace と紐づく lifecycle を持つため
 //     所有を曖昧にしない (ACS 規約)。
 //   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。文字列は
-//     `const char*` リテラル想定 (Title は静的文字列、asset_path は FAssetBrowser
+//     `const char*` リテラル想定 (Title は静的文字列、asset_path は CAssetBrowser
 //     所有バッファ)。
 //   ・**ImGui ヘッダは含めない**: 派生クラスの .cpp で <imgui.h> を include する
-//     パターン (FParticleEditorPanel / FInspectorPanel と同形)。
+//     パターン (AParticleEditorPanel / AInspectorPanel と同形)。
 //
 // 将来拡張余地:
 //   ・`OnKeyShortcut(KeyCombo combo) noexcept` — panel ごとのキーバインド
@@ -82332,7 +83345,7 @@ private:
 //     (Inspector の field 編集、CurveEditor のキー操作、LevelEditor の配置等を
 //      Workspace 共通 undo stack に流す)。
 //   ・`virtual u32 GetDependencyMask() const noexcept` — panel 間の依存を bit flag
-//     で宣言 (例: ModelViewer は FAssetBrowser に依存)。Workspace が dependency 順に
+//     で宣言 (例: ModelViewer は CAssetBrowser に依存)。Workspace が dependency 順に
 //     OnFrameBegin / DrawUI を呼ぶ schedule を組むため。
 //   ・`OnDockStateChanged()` — ImGui dock の attach/detach 通知。
 //
@@ -82345,14 +83358,9 @@ private:
 
 namespace acs::game::editor_core {
 
-class FEditorWorkspace;
 class FEditorLayoutSerializer;
 
 } // namespace acs::game::editor_core
-
-namespace acs::game::inspector {
-class FSelectionService;
-} // namespace acs::game::inspector
 
 namespace acs::game::editor_core {
 
@@ -82360,38 +83368,38 @@ namespace acs::game::editor_core {
  * 全エディタパネルの抽象基底クラス。
  *
  * @details
- * 各 panel (FHierarchyPanel / FInspectorPanel / FEditorToolbar 等) や複数の editor
+ * 各 panel (AHierarchyPanel / AInspectorPanel / AEditorToolbar 等) や複数の editor
  * 群を統一的に配線するため、ライフサイクル + 選択通知 + レイアウト永続化を共通化する。
  * Title() と DrawUI() は純粋仮想で各 panel 必須、それ以外の hook は no-op default を
  * 持ち必要な panel だけ override する。ImGui::Begin/End の wrap は行わず派生側責務とし、
  * Workspace ポインタは OnInit で受けて non-owning で保持する。
  */
-class FEditorPanel {
+class AEditorPanel {
 public:
     /** 空状態で構築する (表示 ON、dock target OFF、Workspace 未設定)。 */
-    FEditorPanel() noexcept = default;
+    AEditorPanel() noexcept = default;
 
     /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
-    virtual ~FEditorPanel() noexcept = default;
+    virtual ~AEditorPanel() noexcept = default;
 
     /** コピー禁止 (panel は Workspace と固有の lifecycle を持つ unique 存在)。 */
-    FEditorPanel(const FEditorPanel&)            = delete;
+    AEditorPanel(const AEditorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEditorPanel& operator=(const FEditorPanel&) = delete;
+    AEditorPanel& operator=(const AEditorPanel&) = delete;
 
     /** ムーブ禁止 (panel は Workspace と固有の lifecycle を持つ unique 存在)。 */
-    FEditorPanel(FEditorPanel&&)                 = delete;
+    AEditorPanel(AEditorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEditorPanel& operator=(FEditorPanel&&)      = delete;
+    AEditorPanel& operator=(AEditorPanel&&)      = delete;
 
     /**
      * ImGui::Begin に渡す window タイトルを返す (純粋仮想)。
      *
      * @details
      * リテラル / 静的領域文字列を返すこと (本基底はコピー所有しない)。同じ
-     * FEditorWorkspace 内で重複しない一意な名前が望ましい (ImGui の window id 衝突回避)。
+     * CEditorWorkspace 内で重複しない一意な名前が望ましい (ImGui の window id 衝突回避)。
      * @return window タイトル文字列。
      */
     virtual const char* Title() const noexcept = 0;
@@ -82412,10 +83420,10 @@ public:
      * @details
      * workspace への参照を内部に保存し、以降の hook 内から Workspace() で取り出せる
      * ようにする (基底実装)。派生クラスで追加初期化が必要なら override + 冒頭で
-     * FEditorPanel::OnInit(ws) を呼ぶ。
+     * AEditorPanel::OnInit(ws) を呼ぶ。
      * @param workspace 登録先の editor workspace (参照を non-owning で保持)。
      */
-    virtual void OnInit(FEditorWorkspace& workspace) noexcept;
+    virtual void OnInit(CEditorWorkspace& workspace) noexcept;
 
     /**
      * Workspace からの登録解除時 / editor shutdown 時に呼ばれる後始末フック。
@@ -82435,20 +83443,20 @@ public:
     virtual void OnFrameBegin(f32 /*dt*/) noexcept {}
 
     /**
-     * FScene 内 ANode の選択が変わったときに呼ばれるフック。
+     * AScene 内 ANode の選択が変わったときに呼ばれるフック。
      *
      * @details
-     * selection から CurrentSelection() 等を取り出して反映する。FSelectionService の
+     * selection から CurrentSelection() 等を取り出して反映する。CSelectionService の
      * lifecycle 管理は Workspace 側責務。
      * @param selection 現在の選択状態を保持する選択サービス。
      */
-    virtual void OnSelectionChanged(inspector::FSelectionService& /*selection*/) noexcept {}
+    virtual void OnSelectionChanged(inspector::CSelectionService& /*selection*/) noexcept {}
 
     /**
-     * FAssetBrowser からファイルが選択された時に呼ばれるフック。
+     * CAssetBrowser からファイルが選択された時に呼ばれるフック。
      *
      * @details
-     * asset_path は FAssetBrowser が所有する文字列で、保持したい場合は固定長 char
+     * asset_path は CAssetBrowser が所有する文字列で、保持したい場合は固定長 char
      * バッファ等を派生クラスで持つこと (STL / <string> 不使用)。nullptr は「選択解除」と解釈する。
      * @param asset_path 選択された asset のパス (nullptr で選択解除)。
      */
@@ -82514,7 +83522,7 @@ public:
      *
      * @return Workspace へのポインタ (OnInit 前 / OnShutdown 後は nullptr、non-owning)。
      */
-    FEditorWorkspace* Workspace() const noexcept { return m_Workspace; }
+    CEditorWorkspace* Workspace() const noexcept { return m_Workspace; }
 
 protected:
     /** panel 表示 toggle (派生から ImGui::Begin の close ボタンに直接バインド可能)。 */
@@ -82525,7 +83533,7 @@ protected:
 
 private:
     /** OnInit で保存される Workspace 参照 (non-owning)。 */
-    FEditorWorkspace* m_Workspace = nullptr;
+    CEditorWorkspace* m_Workspace = nullptr;
 };
 
 } // namespace acs::game::editor_core
@@ -82545,22 +83553,22 @@ namespace acs::game::animcurve {
  *
  * @details
  * Unity AnimationCurve エディタ / Unreal CurveEditor 相当のキー打ち +
- * タンジェントドラッグの簡易版。editor_core::FEditorPanel を継承し、
- * FEditorWorkspace::RegisterPanel(&panel) で workspace に統合できる。
+ * タンジェントドラッグの簡易版。editor_core::AEditorPanel を継承し、
+ * CEditorWorkspace::RegisterPanel(&panel) で workspace に統合できる。
  * canvas 上に curve を kCurveSampleCount sample で線描画し、各 key を丸 marker、
  * Hermite key の in/out tangent を handle として描画して drag 編集できる。
  * 編集対象の FAnimationCurve は caller 所有 (SetCurve で raw 参照を渡す、寿命は
  * caller 責任) で、本 panel は curve を生成・破棄しない。全 noexcept・非コピー・
  * 非ムーブ・STL 不使用で、ImGui 依存は .cpp に閉じる。
  */
-class FAnimCurveEditorPanel : public acs::game::editor_core::FEditorPanel {
+class AAnimCurveEditorPanel : public acs::game::editor_core::AEditorPanel {
 public:
     /**
      * curve に変更があった時に呼ばれる callback 型 (raw 関数ポインタ + void* user)。
      *
      * @details
-     * ACS は std::function 禁止のため C-style callback 規約 (FParticleEditorPanel /
-     * FAssetBrowser と同形)。第 1 引数 user は SetOnChangeCallback に渡した不透明
+     * ACS は std::function 禁止のため C-style callback 規約 (AParticleEditorPanel /
+     * CAssetBrowser と同形)。第 1 引数 user は SetOnChangeCallback に渡した不透明
      * ポインタ、第 2 引数 curve は編集中の FAnimationCurve。キー追加 / 削除 /
      * interp 変更 / wrap mode 変更は即時 1 回発火し、drag は連続発火を避けて
      * drag end (= マウス release) で 1 度だけ発火する。
@@ -82569,22 +83577,22 @@ public:
         void (*)(void* user, acs::game::FAnimationCurve* curve) noexcept;
 
     /** curve 未バインドの空状態で構築する。 */
-    FAnimCurveEditorPanel() noexcept = default;
+    AAnimCurveEditorPanel() noexcept = default;
 
     /** 破棄する (curve は caller 所有なので何も解放しない)。 */
-    ~FAnimCurveEditorPanel() noexcept override = default;
+    ~AAnimCurveEditorPanel() noexcept override = default;
 
-    /** コピー禁止 (基底 FEditorPanel と同規約)。 */
-    FAnimCurveEditorPanel(const FAnimCurveEditorPanel&)            = delete;
+    /** コピー禁止 (基底 AEditorPanel と同規約)。 */
+    AAnimCurveEditorPanel(const AAnimCurveEditorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAnimCurveEditorPanel& operator=(const FAnimCurveEditorPanel&) = delete;
+    AAnimCurveEditorPanel& operator=(const AAnimCurveEditorPanel&) = delete;
 
     /** ムーブ禁止。 */
-    FAnimCurveEditorPanel(FAnimCurveEditorPanel&&)                 = delete;
+    AAnimCurveEditorPanel(AAnimCurveEditorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FAnimCurveEditorPanel& operator=(FAnimCurveEditorPanel&&)      = delete;
+    AAnimCurveEditorPanel& operator=(AAnimCurveEditorPanel&&)      = delete;
 
     /**
      * 内部 state を初期値に戻す (curve 参照 / selection / dirty / callback を全クリア)。
@@ -82703,11 +83711,13 @@ private:
     void NotifyChanged(bool immediate) noexcept;
 };
 
+using FAnimCurveEditorPanel = AAnimCurveEditorPanel;
+
 } // namespace acs::game::animcurve
 
 // ===================== gameframework/tools/btedit/BehaviorTreeEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — btedit / FBehaviorTreeEditorPanel
+// GameFramework Pillar — btedit / ABehaviorTreeEditorPanel
 //
 // `gameframework/BehaviorTree.h` (Pillar L) の BT を **可視化 + ライブデバッグ**
 // するための ImGui パネル。Unity の Behavior Designer / Unreal の Behavior Tree
@@ -82716,15 +83726,15 @@ private:
 // composite に子追加 / 配置入替) は範囲外。
 //
 // 役割分担:
-//   ・本パネルは「**実行中の BT を観察する**」のが第一責務。FBehaviorTree 本体は
-//     panel が直接 walk しない (= FBtSelector / FBtSequence の `m_Children` は private、
-//     ACS は RTTI 無効で `dynamic_cast` も使えない、FBtAction の `m_Fn` も private、
+//   ・本パネルは「**実行中の BT を観察する**」のが第一責務。CBehaviorTree 本体は
+//     panel が直接 walk しない (= ABtSelector / ABtSequence の `m_Children` は private、
+//     ACS は RTTI 無効で `dynamic_cast` も使えない、ABtAction の `m_Fn` も private、
 //     という三重の事情で実体ツリーを panel から覗けない)。
 //     代わりに「**メタデータミラー**」: ユーザ (sample / ゲーム側) が AddNode で
 //     「親 id・kind・表示名」を panel に push し、panel はそのミラーを描画する。
 //     実体 BT とメタミラーの構造が乖離しない責務はユーザ側にあるが、最も
 //     一般的な「BT 構築直後にミラーも組み立てる」運用なら手書きでも整合は楽。
-//   ・ノードごとの `last_status` は SetNodeStatus で push してもらう。`FBtAction`
+//   ・ノードごとの `last_status` は SetNodeStatus で push してもらう。`ABtAction`
 //     の関数ポインタが Tick されるたびに `panel.SetNodeStatus(my_id, ret)` を
 //     呼ぶ規約。composite (Selector / Sequence) の status は root から伝搬する
 //     必要があるが、panel 側は気にしない (= ユーザ自由)。
@@ -82735,8 +83745,8 @@ private:
 //     panel は `tree->Tick` を直接呼ばず、callback だけを呼ぶ (= 排他)。
 //
 // 設計選択:
-//   ・**FEditorPanel 継承**: editor_core 基底に乗せる。
-//     FEditorWorkspace に登録するだけで自動 dispatch される。Title は
+//   ・**AEditorPanel 継承**: editor_core 基底に乗せる。
+//     CEditorWorkspace に登録するだけで自動 dispatch される。Title は
 //     "Behavior Tree Editor"。
 //   ・**メタミラー方式 (前述)**: BehaviorTree.h の API を改造しないために採用。
 //     panel 内に `TArray<FNodeMeta>` を持ち、AddNode で順次積む。FNodeId は 0 から
@@ -82752,7 +83762,7 @@ private:
 //     `TArray<u8>` で各要素は EBtStatus の生値 (0/1/2)。`m_HistoryHead` が次に
 //     書き込む位置 (circular)。Reset でクリア。ImGui::PlotLines に float buffer を
 //     一度展開して渡す。
-//   ・**SelectedNodeId は u32 (-1 = none)**: FParticleEditorPanel の `m_Selected:i32`
+//   ・**SelectedNodeId は u32 (-1 = none)**: AParticleEditorPanel の `m_Selected:i32`
 //     と違って u32 を採用する理由は FNodeId 自体が u32 ベース (= AddNode 払い出し
 //     も u32)。none signal は `static_cast<u32>(-1) = 0xFFFFFFFF` で表現。
 //   ・**Autorun**: 毎フレーム OnFrameBegin で 1 tick 進める toggle。ImGui 上では
@@ -82764,8 +83774,8 @@ private:
 //     で直接 Tick する fallback。
 //   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。
 //     name は `const char*` リテラル / 永続文字列を想定 (panel は所有しない)。
-//   ・**ImGui ヘッダは .cpp に閉じる**: FParticleEditorPanel / FInspectorPanel /
-//     FModelInspectorPanel と同形。
+//   ・**ImGui ヘッダは .cpp に閉じる**: AParticleEditorPanel / AInspectorPanel /
+//     AModelInspectorPanel と同形。
 //
 // ImGui レイアウト (DrawUI):
 //   ┌────────────── "Behavior Tree Editor" window ─────────────────┐
@@ -82795,7 +83805,7 @@ private:
 
 // ===================== gameframework/tools/btedit/BtActionRegistry.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — btedit / FBtActionRegistry
+// GameFramework Pillar — btedit / CBtActionRegistry
 //
 // ノードグラフの Action ノード (= 名前) を、実行時の関数ポインタへ解決するための
 // 名前→Fn テーブル。ゲーム側が起動時に Register("MoveToPlayer", &MoveToPlayer) のように
@@ -82804,7 +83814,7 @@ private:
 // という no-code オーサリングが成立する。
 //
 // 設計選択: STL 不使用 / 例外なし / 固定長配列。name は内部の固定バッファへコピーする
-// (= 呼び出し側のリテラル寿命に依存しない)。Fn は FBtAction::Fn と同型。
+// (= 呼び出し側のリテラル寿命に依存しない)。Fn は ABtAction::Fn と同型。
 
 
 #include <cstdio>    // std::snprintf
@@ -82818,10 +83828,10 @@ namespace acs::game::btedit {
  * @details ゲーム側がアクション関数を名前付きで登録し、グラフインタプリタが Action
  *          ノードの名前をキーに引いて呼ぶ。固定長 (kMax) で STL 不使用。
  */
-class FBtActionRegistry {
+class CBtActionRegistry {
 public:
-    /** Action 関数の型 (FBtAction と同型: EBtStatus(*)(void* bb, f32 dt) noexcept)。 */
-    using Fn = FBtAction::Fn;
+    /** Action 関数の型 (ABtAction と同型: EBtStatus(*)(void* bb, f32 dt) noexcept)。 */
+    using Fn = ABtAction::Fn;
 
     /** 登録できるアクションの上限。 */
     static constexpr u32 kMax = 64u;
@@ -82830,7 +83840,7 @@ public:
     static constexpr u32 kNameLen = 48u;
 
     /** 空のレジストリを構築する。 */
-    FBtActionRegistry() noexcept = default;
+    CBtActionRegistry() noexcept = default;
 
     /** 全登録を消す。 */
     void Clear() noexcept { m_Count = 0u; }
@@ -82890,6 +83900,8 @@ private:
     u32  m_Count = 0u;
 };
 
+using FBtActionRegistry = CBtActionRegistry;
+
 } // namespace acs::game::btedit
 
 // ===================== gameframework/tools/btedit/BtCatalog.h =====================
@@ -82899,10 +83911,10 @@ private:
 // ノードグラフを「コードを書かずに組む → ロード時にソースコードの関数/変数へ結ぶ」
 // no-code オーサリングを成立させるための 2 つの軽量カタログを提供する。
 //
-//   ・FBtConditionRegistry … Condition デコレーター用。名前 → bool(*)(void* bb)。
+//   ・CBtConditionRegistry … Condition デコレーター用。名前 → bool(*)(void* bb)。
 //     ゲーム側が `Register("CanSeePlayer", &CanSeePlayer)` で登録し、エディタ/
 //     インタプリタが Condition ノードの名前をキーに引いて評価する (true なら子を
-//     実行、false なら子をスキップして Failure)。FBtActionRegistry の bool 版。
+//     実行、false なら子をスキップして Failure)。CBtActionRegistry の bool 版。
 //
 //   ・FBtBlackboardSchema … 比較条件 (variable <op> constant) 用。ブラックボードの
 //     フィールドを「名前 + 型 + バイトオフセット」で宣言するスキーマ。ゲーム側が
@@ -82910,7 +83922,7 @@ private:
 //     エディタは変数候補をドロップダウン表示でき、インタプリタはロード時に解決した
 //     オフセットで BtCompareVar により値を読んで定数と比較する。
 //
-// 設計選択: FBtActionRegistry と同形 (STL 不使用 / 例外なし / 固定長配列 / name は
+// 設計選択: CBtActionRegistry と同形 (STL 不使用 / 例外なし / 固定長配列 / name は
 // 内部バッファへコピー / 全 noexcept)。
 
 
@@ -82925,7 +83937,7 @@ namespace acs::game::btedit {
  * @details ゲーム側が条件関数 (bool(*)(void* bb)) を名前付きで登録し、グラフ
  *          インタプリタが Condition ノードの名前をキーに引いて評価する。
  */
-class FBtConditionRegistry {
+class CBtConditionRegistry {
 public:
     /** 条件関数の型 (blackboard を受け取り bool を返す)。 */
     using Fn = bool(*)(void* blackboard) noexcept;
@@ -82937,7 +83949,7 @@ public:
     static constexpr u32 kNameLen = 48u;
 
     /** 空のレジストリを構築する。 */
-    FBtConditionRegistry() noexcept = default;
+    CBtConditionRegistry() noexcept = default;
 
     /** 全登録を消す。 */
     void Clear() noexcept { m_Count = 0u; }
@@ -83268,16 +84280,18 @@ private:
     u32 m_Count = 0u;
 };
 
+using FBtConditionRegistry = CBtConditionRegistry;
+
 } // namespace acs::game::btedit
 
 namespace acs::game::btedit {
 
 /**
- * メタミラー上の BT node 種別 (実体 BT の FBtNode 派生に対応)。
+ * メタミラー上の BT node 種別 (実体 BT の ABtNode 派生に対応)。
  *
  * @details
  * 実体 BT 側で RTTI 抜きに種別を判定できないため、メタミラー側で明示的に保持する。
- * FBtSelector → Selector、FBtSequence → Sequence、FBtAction → Action に 1:1 対応する想定。
+ * ABtSelector → Selector、ABtSequence → Sequence、ABtAction → Action に 1:1 対応する想定。
  */
 enum class EBtKind : u8 {
     /** Selector composite (子を順に試し、最初に成功した子で成功)。 */
@@ -83391,17 +84405,17 @@ struct FBtGraphPersistenceResult {
 };
 
 /**
- * FBehaviorTree を可視化 + step debug する ImGui パネル。
+ * CBehaviorTree を可視化 + step debug する ImGui パネル。
  *
  * @details
  * 実行中の BT を観察するのが第一責務。実体ツリーは private メンバ + RTTI 無効で
  * panel から覗けないため、ユーザが AddNode で「親 id・kind・表示名」を push する
  * メタデータミラー方式を採る。各 node の last_status は SetNodeStatus で push してもらい、
  * StepOnce / autorun で BT を 1 tick 進めて root status を history ring に積む。
- * FEditorPanel 継承で FEditorWorkspace に登録すれば自動 dispatch される。
+ * AEditorPanel 継承で CEditorWorkspace に登録すれば自動 dispatch される。
  * 非コピー / 非ムーブ / 全 noexcept / STL 不使用で、name は非所有の永続文字列を想定する。
  */
-class FBehaviorTreeEditorPanel : public editor_core::FEditorPanel {
+class ABehaviorTreeEditorPanel : public editor_core::AEditorPanel {
 public:
     /**
      * panel が 1 tick 進めたい時に呼ばれる関数ポインタ型。
@@ -83411,10 +84425,10 @@ public:
      * だけを呼ぶ (= ユーザに blackboard を渡す自由を与える)。callback 側で
      * tree->Tick(my_bb, dt) を呼ぶ規約。
      * @param user SetOnStepCallback の第二引数で渡したポインタがそのまま戻る。
-     * @param tree 観察中の FBehaviorTree。
+     * @param tree 観察中の CBehaviorTree。
      * @param dt この tick で進める秒数。
      */
-    using StepCallback = void(*)(void* user, FBehaviorTree* tree, f32 dt) noexcept;
+    using StepCallback = void(*)(void* user, CBehaviorTree* tree, f32 dt) noexcept;
 
     /** 履歴 ring buffer の長さ (frame 数)。仕様で 60 frame 固定。 */
     static constexpr u32 kHistorySize = 60u;
@@ -83423,22 +84437,22 @@ public:
     static constexpr u32 kInvalidId   = 0xFFFFFFFFu;
 
     /** 空状態で構築する (メタミラー・履歴は Init で確保)。 */
-    FBehaviorTreeEditorPanel() noexcept = default;
+    ABehaviorTreeEditorPanel() noexcept = default;
 
     /** 破棄する (TArray が内部リソースを解放)。 */
-    ~FBehaviorTreeEditorPanel() noexcept override = default;
+    ~ABehaviorTreeEditorPanel() noexcept override = default;
 
     /** コピー禁止 (内部 TArray の所有を曖昧にしないため)。 */
-    FBehaviorTreeEditorPanel(const FBehaviorTreeEditorPanel&)            = delete;
+    ABehaviorTreeEditorPanel(const ABehaviorTreeEditorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FBehaviorTreeEditorPanel& operator=(const FBehaviorTreeEditorPanel&) = delete;
+    ABehaviorTreeEditorPanel& operator=(const ABehaviorTreeEditorPanel&) = delete;
 
     /** ムーブ禁止 (内部 TArray の所有を曖昧にしないため)。 */
-    FBehaviorTreeEditorPanel(FBehaviorTreeEditorPanel&&)                 = delete;
+    ABehaviorTreeEditorPanel(ABehaviorTreeEditorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FBehaviorTreeEditorPanel& operator=(FBehaviorTreeEditorPanel&&)      = delete;
+    ABehaviorTreeEditorPanel& operator=(ABehaviorTreeEditorPanel&&)      = delete;
 
     /**
      * 初期化する。
@@ -83464,16 +84478,16 @@ public:
      * panel は tree を所有しない (caller 所有)。差し替え時に Reset() を呼んで step counter /
      * history / 全 node status を初期化するが、メタミラーは触らない (= 同じ構造で別
      * インスタンスを観察する用途に対応)。
-     * @param tree 観察する FBehaviorTree (nullptr で解除)。
+     * @param tree 観察する CBehaviorTree (nullptr で解除)。
      */
-    void SetTree(FBehaviorTree* tree) noexcept;
+    void SetTree(CBehaviorTree* tree) noexcept;
 
     /**
      * 現在観察中の BT を返す。
      *
-     * @return 観察中の FBehaviorTree (未設定なら nullptr)。
+     * @return 観察中の CBehaviorTree (未設定なら nullptr)。
      */
-    FBehaviorTree* CurrentTree() const noexcept { return m_Tree; }
+    CBehaviorTree* CurrentTree() const noexcept { return m_Tree; }
 
     /**
      * autorun (= 毎フレーム自動 Tick) が有効かを返す。
@@ -83544,7 +84558,7 @@ public:
     /**
      * 既存 node の last_status を更新する。
      *
-     * @details FBtAction の Fn から呼ぶことを想定。範囲外は no-op。Reset で全 node が Failure に戻る。
+     * @details ABtAction の Fn から呼ぶことを想定。範囲外は no-op。Reset で全 node が Failure に戻る。
      * @param node_id 更新対象の node id。
      * @param status 新しい last_status。
      */
@@ -83617,12 +84631,12 @@ public:
     /**
      * Action 名を関数へ解決するレジストリを設定する (no-code 実行を有効化)。
      *
-     * @details 非 null をセットすると Step / Continuous はハンドビルドの FBehaviorTree では
+     * @details 非 null をセットすると Step / Continuous はハンドビルドの CBehaviorTree では
      *          なく「メタミラーのグラフを直接インタプリト」して実行する。Action ノードの
      *          表示名をキーに registry から関数を引いて呼ぶ。null で従来動作に戻る。
      * @param reg アクションレジストリ (非所有、null で解除)。
      */
-    void SetActionRegistry(const FBtActionRegistry* reg) noexcept { m_Registry = reg; }
+    void SetActionRegistry(const CBtActionRegistry* reg) noexcept { m_Registry = reg; }
 
     /**
      * Condition デコレーター用の bool 関数レジストリを設定する (no-code 条件を有効化)。
@@ -83630,7 +84644,7 @@ public:
      * @details Condition モードの Decorator が、ノード名をキーに bool 関数を引いて子をガードする。
      * @param reg 条件レジストリ (非所有、null で解除)。
      */
-    void SetConditionRegistry(const FBtConditionRegistry* reg) noexcept { m_CondReg = reg; }
+    void SetConditionRegistry(const CBtConditionRegistry* reg) noexcept { m_CondReg = reg; }
 
     /**
      * 比較条件用の blackboard スキーマを設定する (変数リンクを有効化)。
@@ -83654,7 +84668,7 @@ public:
     void SetDynamicBlackboard(FBtBlackboard* bb) noexcept { m_DynBb = bb; }
 
     /** 設定済みの Condition レジストリを返す (UI 用、未設定は nullptr)。 */
-    const FBtConditionRegistry* ConditionRegistry() const noexcept { return m_CondReg; }
+    const CBtConditionRegistry* ConditionRegistry() const noexcept { return m_CondReg; }
 
     /** 設定済みの blackboard スキーマを返す (UI 用、未設定は nullptr)。 */
     const FBtBlackboardSchema* BlackboardSchema() const noexcept { return m_Schema; }
@@ -83719,18 +84733,18 @@ public:
         const char* text, usize text_size) noexcept;
 
     /**
-     * 現在のグラフを実行可能な FBehaviorTree ノードツリーへ bake する。
+     * 現在のグラフを実行可能な CBehaviorTree ノードツリーへ bake する。
      *
      * @details
      * メタミラーを walk し、Selector/Sequence/Action(Task)/Decorator(Transform) は core
-     * ランタイムノードへ、Condition/Compare デコレーターは btedit の FBtConditionNode /
-     * FBtCompareNode へ変換した 1 本のツリーを構築して返す。Action/Condition 名は
+     * ランタイムノードへ、Condition/Compare デコレーターは btedit の ABtConditionNode /
+     * ABtCompareNode へ変換した 1 本のツリーを構築して返す。Action/Condition 名は
      * 設定済みレジストリ (SetActionRegistry / SetConditionRegistry) で解決し、Compare の
-     * 変数は実行時に FBtBlackboard 名前アクセスで解決する。返り値を FBehaviorTree::SetRoot
+     * 変数は実行時に FBtBlackboard 名前アクセスで解決する。返り値を CBehaviorTree::SetRoot
      * に渡せば、エディタ外 (通常のゲームループ) で `bt.Tick(&blackboard, dt)` として走らせられる。
      * @return root ノード (root 不在なら空の TUniquePtr)。
      */
-    TUniquePtr<FBtNode> BuildRuntimeTree() const noexcept;
+    TUniquePtr<ABtNode> BuildRuntimeTree() const noexcept;
 
     // ===== undo / redo (ユーザ操作。ホストがメニュー/ツールバーに束縛してもよい) =====
 
@@ -83944,13 +84958,13 @@ private:
     u32 CollectChildrenSorted(u32 id, u32* out, u32 cap) const noexcept;
 
     /**
-     * メタミラー 1 ノードを実行可能な FBtNode へ再帰変換する (BuildRuntimeTree の本体)。
+     * メタミラー 1 ノードを実行可能な ABtNode へ再帰変換する (BuildRuntimeTree の本体)。
      *
      * @param id 変換するノード id。
      * @param guard 再帰深度ガード。
-     * @return 構築した FBtNode (不正/未解決は空の TUniquePtr)。
+     * @return 構築した ABtNode (不正/未解決は空の TUniquePtr)。
      */
-    TUniquePtr<FBtNode> BuildRuntimeNode(u32 id, u32 guard) const noexcept;
+    TUniquePtr<ABtNode> BuildRuntimeNode(u32 id, u32 guard) const noexcept;
 
     /** 現在のグラフ状態 (ノード + 動的 BB) を out へコピーする (undo 用)。 */
     void CaptureSnapshot(FGraphSnapshot& out) const noexcept;
@@ -83978,8 +84992,8 @@ private:
      */
     static void StatusColor(EBtStatus s, f32 out_rgba[4]) noexcept;
 
-    /** 観察中の FBehaviorTree (非所有)。 */
-    FBehaviorTree* m_Tree         = nullptr;
+    /** 観察中の CBehaviorTree (非所有)。 */
+    CBehaviorTree* m_Tree         = nullptr;
 
     /** autorun フラグ (毎フレーム OnFrameBegin で TickInternal を呼ぶ)。 */
     bool          m_Autorun      = false;
@@ -84039,10 +85053,10 @@ private:
 
     // ===== no-code 実行 / 実行フロー可視化 =====
     /** Action 名→関数のレジストリ (非所有、非 null でグラフ直接実行モード)。 */
-    const FBtActionRegistry* m_Registry = nullptr;
+    const CBtActionRegistry* m_Registry = nullptr;
 
     /** Condition 名→bool 関数のレジストリ (非所有、Condition デコレーター用)。 */
-    const FBtConditionRegistry* m_CondReg = nullptr;
+    const CBtConditionRegistry* m_CondReg = nullptr;
 
     /** blackboard 変数スキーマ (非所有、offset 参照型。Compare / 変数候補提示用)。 */
     const FBtBlackboardSchema* m_Schema = nullptr;
@@ -84073,21 +85087,23 @@ private:
     bool m_UndoInit    = false;
 };
 
+using FBehaviorTreeEditorPanel = ABehaviorTreeEditorPanel;
+
 } // namespace acs::game::btedit
 
 // ===================== gameframework/tools/btedit/BtGuardNodes.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar — btedit / bake 用ガードノード
 //
-// エディタのグラフ (メタミラー) を「実行可能な FBehaviorTree」に焼く (bake) とき、
+// エディタのグラフ (メタミラー) を「実行可能な CBehaviorTree」に焼く (bake) とき、
 // composite / transform-decorator / action は core ランタイムノード
-// (FBtSelector / FBtSequence / FBtDecorator / FBtAction) にそのまま対応するが、
+// (ABtSelector / ABtSequence / ABtDecorator / ABtAction) にそのまま対応するが、
 // Condition / Compare デコレーターには core 側に対応物が無い。そこで btedit 側に
-// FBtNode のサブクラスとして「条件ガードノード」を定義する。これらは core FBtNode を
+// ABtNode のサブクラスとして「条件ガードノード」を定義する。これらは core ABtNode を
 // 継承するので、core の composite と混在した 1 本のツリーを構成できる。
 //
-//   FBtConditionNode : 条件 bool 関数が true のときだけ子を実行 (= Condition デコレーター)
-//   FBtCompareNode   : 動的ブラックボード変数の比較が true のときだけ子を実行 (= Compare デコレーター)
+//   ABtConditionNode : 条件 bool 関数が true のときだけ子を実行 (= Condition デコレーター)
+//   ABtCompareNode   : 動的ブラックボード変数の比較が true のときだけ子を実行 (= Compare デコレーター)
 //
 // blackboard は FBtBlackboard* 前提 (bake は動的ブラックボードモデル)。core 層に
 // FBtBlackboard 依存を持ち込まないため、これらは btedit 層に置く。
@@ -84097,31 +85113,34 @@ private:
 
 namespace acs::game::btedit {
 
+class ABtConditionNode;
+using FBtConditionNode = ABtConditionNode;
+
 /**
- * 条件 bool 関数で子をガードする FBtNode (bake された Condition デコレーター)。
+ * 条件 bool 関数で子をガードする ABtNode (bake された Condition デコレーター)。
  *
  * @details fn(bb) が true のときだけ子を Tick し、その結果を返す。false (または fn 未設定)
  *          なら子を実行せず Failure。
  */
-class FBtConditionNode : public FBtNode {
+class ABtConditionNode : public ABtNode {
 public:
     ACS_RTTI(FBtConditionNode, FBtNode)
 
-    /** 条件関数の型 (FBtConditionRegistry と同型: bool(*)(void*) noexcept)。 */
-    using Fn = FBtConditionRegistry::Fn;
+    /** 条件関数の型 (CBtConditionRegistry と同型: bool(*)(void*) noexcept)。 */
+    using Fn = CBtConditionRegistry::Fn;
 
     /**
      * 条件関数を指定して構築する。
      *
      * @param fn 評価する条件関数 (nullptr なら常に Failure)。
      */
-    explicit FBtConditionNode(Fn fn) noexcept : m_Fn(fn) {}
+    explicit ABtConditionNode(Fn fn) noexcept : m_Fn(fn) {}
 
     /** 破棄する (子は TUniquePtr が解放)。 */
-    ~FBtConditionNode() noexcept override = default;
+    ~ABtConditionNode() noexcept override = default;
 
     /** ガードする子を設定する。 */
-    void SetChild(TUniquePtr<FBtNode> child) noexcept { m_Child = Move(child); }
+    void SetChild(TUniquePtr<ABtNode> child) noexcept { m_Child = Move(child); }
 
     /** 条件 true のときだけ子を Tick して返す (false / 子なし / fn 未設定は Failure)。 */
     EBtStatus Tick(void* blackboard, f32 dt) noexcept override {
@@ -84134,11 +85153,14 @@ private:
     Fn                  m_Fn;
 
     /** ガードされる子ノード。 */
-    TUniquePtr<FBtNode> m_Child;
+    TUniquePtr<ABtNode> m_Child;
 };
 
+class ABtCompareNode;
+using FBtCompareNode = ABtCompareNode;
+
 /**
- * 変数と定数の比較で子をガードする FBtNode (bake された Compare デコレーター)。
+ * 変数と定数の比較で子をガードする ABtNode (bake された Compare デコレーター)。
  *
  * @details
  * editor インタプリタと同じ 2 つの変数解決モデルを bake 時に固定する:
@@ -84151,7 +85173,7 @@ private:
  * 注意: 1 本の baked ツリーは単一の blackboard モデルで tick すること
  * (dynamic なら FBtBlackboard、schema なら対応する raw 構造体)。
  */
-class FBtCompareNode : public FBtNode {
+class ABtCompareNode : public ABtNode {
 public:
     ACS_RTTI(FBtCompareNode, FBtNode)
 
@@ -84162,7 +85184,7 @@ public:
      * @param op 比較演算子。
      * @param rhs 比較定数 (右辺)。
      */
-    FBtCompareNode(const char* var, EBtCompareOp op, f32 rhs) noexcept
+    ABtCompareNode(const char* var, EBtCompareOp op, f32 rhs) noexcept
         : m_Op(op), m_Rhs(rhs), m_UseSchema(false), m_Offset(0u), m_Type(EBtVarType::F32) {
         std::snprintf(m_Var, sizeof(m_Var), "%s", (var != nullptr) ? var : "");
     }
@@ -84175,16 +85197,16 @@ public:
      * @param op 比較演算子。
      * @param rhs 比較定数 (右辺)。
      */
-    FBtCompareNode(u32 offset, EBtVarType type, EBtCompareOp op, f32 rhs) noexcept
+    ABtCompareNode(u32 offset, EBtVarType type, EBtCompareOp op, f32 rhs) noexcept
         : m_Op(op), m_Rhs(rhs), m_UseSchema(true), m_Offset(offset), m_Type(type) {
         m_Var[0] = '\0';
     }
 
     /** 破棄する (子は TUniquePtr が解放)。 */
-    ~FBtCompareNode() noexcept override = default;
+    ~ABtCompareNode() noexcept override = default;
 
     /** ガードする子を設定する。 */
-    void SetChild(TUniquePtr<FBtNode> child) noexcept { m_Child = Move(child); }
+    void SetChild(TUniquePtr<ABtNode> child) noexcept { m_Child = Move(child); }
 
     /** 比較 true のときだけ子を Tick して返す (false / 子なしは Failure)。 */
     EBtStatus Tick(void* blackboard, f32 dt) noexcept override {
@@ -84221,20 +85243,20 @@ private:
     EBtVarType          m_Type;
 
     /** ガードされる子ノード。 */
-    TUniquePtr<FBtNode> m_Child;
+    TUniquePtr<ABtNode> m_Child;
 };
 
 } // namespace acs::game::btedit
 
 // ===================== gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — cinetimeline / FCinematicsTimelineEditorPanel
+// GameFramework Pillar — cinetimeline / ACinematicsTimelineEditorPanel
 //
-// `acs::game::FCinematicsDirector` (= タイムライン上の cutscene 駆動器) を
+// `acs::game::CCinematicsDirector` (= タイムライン上の cutscene 駆動器) を
 // **対話的に編集する timeline editor panel**。Unity Timeline / Unreal Sequencer /
 // Godot AnimationPlayer の「水平タイムライン + 複数トラック + キーフレーム
 // マーカー + 再生制御」の最小版に相当。
-// `editor_core::FEditorPanel` 基底に載せ、`FEditorWorkspace::RegisterPanel(&panel)`
+// `editor_core::AEditorPanel` 基底に載せ、`CEditorWorkspace::RegisterPanel(&panel)`
 // の 1 行で workspace に統合できる形にしている。
 //
 // 役割:
@@ -84250,12 +85272,12 @@ private:
 //   ・下部 ruler: 0s / 1s / 2s ... の時間メモリ + 現在カーソル位置の縦線
 //
 // 役割分担:
-//   ・本 panel は「**timeline の編集 UI** だけ」を担当。FCinematicsDirector
+//   ・本 panel は「**timeline の編集 UI** だけ」を担当。CCinematicsDirector
 //     データは caller 所有 (= `SetCinematicsDirector(&dir)` で raw 参照を渡す、
 //     寿命は caller 責任)。本 panel が director を生成 / 破棄しない
-//     (FAnimCurveEditorPanel が FAnimationCurve を non-owning で受けるのと同形)。
+//     (AAnimCurveEditorPanel が FAnimationCurve を non-owning で受けるのと同形)。
 //   ・panel は **editor 専用の keyframe storage** (= `FEditorKeyframe` の TArray)
-//     を内部に持つ。FCinematicsDirector::FTimelineKeyframe は payload が
+//     を内部に持つ。CCinematicsDirector::FTimelineKeyframe は payload が
 //     {camera/dialogue/music/event} の 4 種固定 union だが、editor 上では
 //     UE Sequencer / Unity Timeline のように "5 種類のオーサリング概念"
 //     (CameraCut / FadeColor / TimeScale / SpawnEffect / TriggerCallback) を
@@ -84267,11 +85289,11 @@ private:
 //     .acscinetimeline serializer を追加した時点で配線)。
 //
 // 使い方 (典型):
-//   FCinematicsTimelineEditorPanel panel;
+//   ACinematicsTimelineEditorPanel panel;
 //   panel.Init();
 //   workspace.RegisterPanel(&panel);
 //
-//   FCinematicsDirector director;
+//   CCinematicsDirector director;
 //   panel.SetCinematicsDirector(&director);
 //
 //   // 初期キーを 3 個追加
@@ -84287,10 +85309,10 @@ private:
 //   panel.Shutdown();
 //
 // 設計選択:
-//   ・**FEditorPanel 継承**: editor_core 共通基盤の上に載せる。
+//   ・**AEditorPanel 継承**: editor_core 共通基盤の上に載せる。
 //     Title = "Cinematics Timeline"、DrawUI override。
 //   ・**5 種類の ETimelineKeyKind**: CameraCut / FadeColor / TimeScale /
-//     SpawnEffect / TriggerCallback。FCinematicsDirector::ETimelineTrackKind
+//     SpawnEffect / TriggerCallback。CCinematicsDirector::ETimelineTrackKind
 //     (= Wait / MoveCamera / ShowDialogue / PlayMusic / FireEvent) とは
 //     **意図的に概念を分離**: editor 側はオーサリング向けの "演出意図" を表現する
 //     5 種 (cinematic 制作で典型的に並べたい要素) で、director は runtime 向けの
@@ -84298,7 +85320,7 @@ private:
 //     関数で繋ぐ。例: CameraCut → MoveCamera、FadeColor/TimeScale/SpawnEffect/
 //     TriggerCallback → FireEvent (event_id を kind ごとに別 reserve)。
 //   ・**TArray<FEditorKeyframe> は panel 所有**: director の internal m_Keyframes
-//     を直接編集するには FCinematicsDirector の private を覗く必要があり、また
+//     を直接編集するには CCinematicsDirector の private を覗く必要があり、また
 //     payload に色や FVec3 を持たせるには既存 union を拡張する必要がある。
 //     editor は「リッチな payload を持つ自前 storage」を持ち、Play 時に
 //     director に baked FTimelineKeyframe を渡す方が依存が浅い。
@@ -84311,23 +85333,23 @@ private:
 //     keyframe のために予め長めに取りたい」需要がある。editor 側で
 //     `SetDurationSec()` で明示できる方が UX が良い。
 //   ・**ImGui canvas は ImGui::InvisibleButton + GetWindowDrawList()**: AnimCurve
-//     FEditorPanel と同パターン。トラック行ごとに marker を描く layout は
+//     AEditorPanel と同パターン。トラック行ごとに marker を描く layout は
 //     row_height (~24px) × 5 rows で固定 (= スクロールなしで全 kind 見える)。
 //   ・**marker のドラッグ判定 = AABB hit-test**: 縦長矩形 (10px 幅) の AABB に
 //     マウス位置が入っているか + LMB クリック。drag 中はマウス x → time へ
 //     逆変換して keyframe.time_sec を上書き。
 //   ・**選択 keyframe index は i32 (-1 = 未選択)**: `kNoKeySelected` を sentinel。
-//     FAnimCurveEditorPanel と同形。
+//     AAnimCurveEditorPanel と同形。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。
-//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (FAnimCurveEditorPanel /
-//     FParticleEditorPanel) と同形。
+//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (AAnimCurveEditorPanel /
+//     AParticleEditorPanel) と同形。
 //
 // 範囲外:
 //   ・実 file save/load (= sample 37 menu で stub、
 //     .acscinetimeline serializer を作って配線)
 //   ・複数 director の同時編集
-//   ・undo / redo 統合 (= FUndoStack 経由、OnUndo / OnRedo hook)
+//   ・undo / redo 統合 (= CUndoStack 経由、OnUndo / OnRedo hook)
 //   ・keyframe の補間 / curve 編集 (= AnimCurveEditor と統合した時点で検討)
 //   ・track の add/remove (= 現状 5 種固定)
 //   ・marker 複数選択 + 一括 drag
@@ -84339,13 +85361,10 @@ private:
 //      gameframework/tools/animcurve/AnimCurveEditorPanel.h
 
 
-namespace acs::game {
-// 編集対象の FCinematicsDirector は本ヘッダから forward-decl のみで受ける。
+// 編集対象の CCinematicsDirector は Forward.h から forward-decl のみで受ける。
 // `<gameframework/CinematicsDirector.h>` を include しないことで、本 panel を
-// 利用する側がヘッダ依存を最小化できる (= FCinematicsDirector 自体の変更で
+// 利用する側がヘッダ依存を最小化できる (= CCinematicsDirector 自体の変更で
 // 不要な再ビルドを避ける)。
-class FCinematicsDirector;
-} // namespace acs::game
 
 namespace acs::game::cinetimeline {
 
@@ -84353,7 +85372,7 @@ namespace acs::game::cinetimeline {
  * 編集 UI 上で扱う 5 種の演出概念。
  *
  * @details
- * FCinematicsDirector::ETimelineTrackKind (runtime 側 5 種) とは概念を意図的に
+ * CCinematicsDirector::ETimelineTrackKind (runtime 側 5 種) とは概念を意図的に
  * 分離し、オーサリング側で典型的に並べたい要素を素直に表現する。Play 時に
  * ToTrackKind() で runtime kind へマッピングしたうえで director に bake する。
  */
@@ -84378,7 +85397,7 @@ enum class ETimelineKeyKind : u8 {
  * panel 内部で保持する keyframe (リッチ payload 付き)。
  *
  * @details
- * FCinematicsDirector::FTimelineKeyframe より広い payload を持つ。Play 時に
+ * CCinematicsDirector::FTimelineKeyframe より広い payload を持つ。Play 時に
  * director へ AddKeyframe する際は kind に応じた FTimelineKeyframe へ変換する。
  * payload フィールドは active な kind に対応するものだけが意味を持つ
  * (CameraCut=camera_target、FadeColor=fade_start_color/fade_end_color、
@@ -84412,34 +85431,34 @@ struct FEditorKeyframe {
 };
 
 /**
- * FCinematicsDirector を対話的に編集する timeline editor panel。
+ * CCinematicsDirector を対話的に編集する timeline editor panel。
  *
  * @details
  * 水平タイムライン + 5 種のトラック + キーフレームマーカー + 再生制御を持つ
- * 最小の cutscene エディタ。FEditorPanel を継承し、editor 専用のリッチな
+ * 最小の cutscene エディタ。AEditorPanel を継承し、editor 専用のリッチな
  * keyframe storage (FEditorKeyframe の TArray) を panel 側で所有する。Play 時に
  * 各 keyframe を runtime 用 FTimelineKeyframe へ bake して director に流し込む。
- * 編集対象の FCinematicsDirector は raw 参照で受け取り、寿命は caller 責任。
+ * 編集対象の CCinematicsDirector は raw 参照で受け取り、寿命は caller 責任。
  */
-class FCinematicsTimelineEditorPanel : public acs::game::editor_core::FEditorPanel {
+class ACinematicsTimelineEditorPanel : public acs::game::editor_core::AEditorPanel {
 public:
     /** 空状態で構築する (内部 state は Init で初期化)。 */
-    FCinematicsTimelineEditorPanel() noexcept = default;
+    ACinematicsTimelineEditorPanel() noexcept = default;
 
     /** 派生破棄に備えた仮想デストラクタ (リソースは非所有)。 */
-    ~FCinematicsTimelineEditorPanel() noexcept override = default;
+    ~ACinematicsTimelineEditorPanel() noexcept override = default;
 
     /** コピー禁止 (keyframe 配列・selection・director 参照を単独所有するため)。 */
-    FCinematicsTimelineEditorPanel(const FCinematicsTimelineEditorPanel&)            = delete;
+    ACinematicsTimelineEditorPanel(const ACinematicsTimelineEditorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCinematicsTimelineEditorPanel& operator=(const FCinematicsTimelineEditorPanel&) = delete;
+    ACinematicsTimelineEditorPanel& operator=(const ACinematicsTimelineEditorPanel&) = delete;
 
-    /** ムーブ禁止 (基底 FEditorPanel と同規約)。 */
-    FCinematicsTimelineEditorPanel(FCinematicsTimelineEditorPanel&&)                 = delete;
+    /** ムーブ禁止 (基底 AEditorPanel と同規約)。 */
+    ACinematicsTimelineEditorPanel(ACinematicsTimelineEditorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCinematicsTimelineEditorPanel& operator=(FCinematicsTimelineEditorPanel&&)      = delete;
+    ACinematicsTimelineEditorPanel& operator=(ACinematicsTimelineEditorPanel&&)      = delete;
 
     /**
      * 内部 state を既定にリセットする (多重呼び出し可 = 完全リセット)。
@@ -84460,21 +85479,21 @@ public:
     void Shutdown() noexcept;
 
     /**
-     * 編集対象の FCinematicsDirector を raw 参照でセットする。
+     * 編集対象の CCinematicsDirector を raw 参照でセットする。
      *
      * @details
      * 寿命は caller 責任 (本 panel は director を所有しない)。セット直後に
      * selection をリセット、m_CurrentTime を 0 に戻し、editor の現状を即時 bake する。
      * @param dir 編集対象の director (nullptr で解除)。
      */
-    void SetCinematicsDirector(acs::game::FCinematicsDirector* dir) noexcept;
+    void SetCinematicsDirector(acs::game::CCinematicsDirector* dir) noexcept;
 
     /**
-     * 現在編集対象の FCinematicsDirector を返す。
+     * 現在編集対象の CCinematicsDirector を返す。
      *
      * @return バインド中の director (未バインド時は nullptr)。
      */
-    acs::game::FCinematicsDirector* CurrentDirector() const noexcept;
+    acs::game::CCinematicsDirector* CurrentDirector() const noexcept;
 
     /**
      * 頭から再生を開始する。
@@ -84604,8 +85623,8 @@ public:
     static constexpr f32 kDefaultDurationSec = 10.0f;
 
 private:
-    /** 編集対象 FCinematicsDirector (caller 所有、本 panel は非所有)。 */
-    acs::game::FCinematicsDirector* m_Director = nullptr;
+    /** 編集対象 CCinematicsDirector (caller 所有、本 panel は非所有)。 */
+    acs::game::CCinematicsDirector* m_Director = nullptr;
 
     /** panel 所有の keyframe 配列 (time 昇順、stable insertion で維持)。 */
     TArray<FEditorKeyframe> m_Keyframes;
@@ -84647,11 +85666,13 @@ private:
     void BakeToDirector() noexcept;
 };
 
+using FCinematicsTimelineEditorPanel = ACinematicsTimelineEditorPanel;
+
 } // namespace acs::game::cinetimeline
 
 // ===================== gameframework/tools/editor_core/AssetBrowser.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K (editor_core) — FAssetBrowser (editor 共通基盤)
+// GameFramework Pillar K (editor_core) — CAssetBrowser (editor 共通基盤)
 //
 // プロジェクト `assets/` 配下のファイルツリーを ImGui で参照 + 各種 panel
 // (ModelViewer / TilemapEditor / ParticleEditor 等) に Drag & Drop 経由で
@@ -84668,7 +85689,7 @@ private:
 //     表示の足がかりにする。
 //
 // 使い方:
-//   FAssetBrowser browser;
+//   CAssetBrowser browser;
 //   browser.Init(L"assets");
 //   // 毎フレーム
 //   browser.DrawUI();
@@ -84685,7 +85706,7 @@ private:
 //
 // 設計選択:
 //   ・**非コピー / 非ムーブ**: 内部 TArray<FAssetEntry> + 文字列バッファ pool の
-//     所有を曖昧にしない (FHierarchyPanel / FInspectorPanel と同じ規約)。
+//     所有を曖昧にしない (AHierarchyPanel / AInspectorPanel と同じ規約)。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range / 列挙失敗を
 //     no-op (= 空ツリー) で表現する。
 //   ・**STL 不使用**: ファイル列挙結果は `acs::TArray<FAssetEntry>`、文字列は
@@ -84693,10 +85714,10 @@ private:
 //     の生存期間を TPool の clear/再生成で揃え、FAssetEntry はオフセットではなく
 //     stabilize された pointer をそのまま持つ。再 Refresh で全部使い直す)。
 //   ・**ImGui ヘッダは .cpp 側のみ**: ヘッダから imgui 依存を漏らさない方針
-//     (FParticleEditorPanel / FHierarchyPanel と同じ)。
-//   ・**FFileSystem 経由ではなく FindFirstFileW を .cpp 内で直接使う**: 現状
+//     (AParticleEditorPanel / AHierarchyPanel と同じ)。
+//   ・**CFileSystem 経由ではなく FindFirstFileW を .cpp 内で直接使う**: 現状
 //     `platform/FileSystem.h` にはディレクトリ列挙 API が無い (ReadAllBytes /
-//     FileSize / Exists のみ)。将来 FFileSystem に `EnumerateDirectory` が
+//     FileSize / Exists のみ)。将来 CFileSystem に `EnumerateDirectory` が
 //     追加されたらここを差し替える。
 //   ・**Drag payload は wchar_t* 直渡し**: payload identifier は
 //     `"ASSET_PATH"` (ImGui 仕様: 32 文字以内)。payload data は wchar_t*
@@ -84704,7 +85725,7 @@ private:
 //     推奨 (Hierarchy の ANode* 受け渡しと同じパターン)。pointer 寿命は
 //     「次の Refresh まで」(= 文字列 pool が再生成されない間) を保証する。
 //   ・**callback は raw 関数ポインタ + void* user**: ACS は std::function を
-//     使えないため、FParticleEditorPanel / FInspectorPanel と同形の C スタイル
+//     使えないため、AParticleEditorPanel / AInspectorPanel と同形の C スタイル
 //     callback を提供。
 //   ・**EAssetKind は拡張子 lookup の 1 階層**: `.png/.jpg/.tga` → Texture、
 //     `.mdl/.fbx/.gltf/.glb` → Mesh、`.ttf/.otf` → Font、`.wav/.ogg/.mp3` →
@@ -84779,7 +85800,7 @@ enum class EAssetKind : u8 {
  * 列挙された 1 件のディレクトリ / ファイルを表すエントリ。
  *
  * @details
- * path / short_name は FAssetBrowser の内部 pool 内のメモリを参照する。寿命は
+ * path / short_name は CAssetBrowser の内部 pool 内のメモリを参照する。寿命は
  * 「次の Refresh() を呼ぶまで」のみ有効 (= 次回再列挙時に pool がクリアされ pointer は
  * 無効化される)。コピーして保存する必要があれば利用側でバッファに退避すること。
  */
@@ -84813,7 +85834,7 @@ struct FAssetEntry {
  * 全 noexcept、STL 不使用で、文字列は内部 pool に積み FAssetEntry はそこへの pointer を持つ
  * (寿命は次の Refresh まで)。ImGui / Win32 列挙依存は .cpp 側に閉じる。
  */
-class FAssetBrowser {
+class CAssetBrowser {
 public:
     /**
      * アセット選択変更を通知する callback の型。
@@ -84840,22 +85861,22 @@ public:
                                                  EAssetKind kind) noexcept;
 
     /** 空状態で構築する (列挙は Init で行う)。 */
-    FAssetBrowser() noexcept = default;
+    CAssetBrowser() noexcept = default;
 
     /** デストラクタ (pool / TArray は各自のデストラクタが解放)。 */
-    ~FAssetBrowser() noexcept = default;
+    ~CAssetBrowser() noexcept = default;
 
     /** コピー禁止 (内部 TArray / pool / callback 状態の所有を曖昧にしないため)。 */
-    FAssetBrowser(const FAssetBrowser&)            = delete;
+    CAssetBrowser(const CAssetBrowser&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAssetBrowser& operator=(const FAssetBrowser&) = delete;
+    CAssetBrowser& operator=(const CAssetBrowser&) = delete;
 
     /** ムーブ禁止。 */
-    FAssetBrowser(FAssetBrowser&&)                 = delete;
+    CAssetBrowser(CAssetBrowser&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FAssetBrowser& operator=(FAssetBrowser&&)      = delete;
+    CAssetBrowser& operator=(CAssetBrowser&&)      = delete;
 
     /**
      * root_directory を assets/ ルートとして記録し初回 Refresh を実行する。
@@ -85074,11 +86095,13 @@ private:
     void DrawList() noexcept;
 };
 
+using FAssetBrowser = CAssetBrowser;
+
 } // namespace acs::game::editor_core
 
 // ===================== gameframework/tools/editor_core/EditorCamera.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — FEditorCamera (editor_core 共通基盤)
+// GameFramework Pillar — CEditorCamera (editor_core 共通基盤)
 //
 // ModelViewer (3D) / LevelEditor (2D top-down) / TilemapEditor (2D) / 各種
 // viewport editor が共有する **camera コントローラ**。1 個のクラスで 2D と 3D
@@ -85086,7 +86109,7 @@ private:
 // 3D orbit / 2D pan-zoom が成立するようにする。
 //
 // 使い方:
-//   acs::game::editor_core::FEditorCamera cam;
+//   acs::game::editor_core::CEditorCamera cam;
 //   cam.Init(EEditorCameraMode::Mode3D);
 //
 //   // 毎フレームの editor tick:
@@ -85095,7 +86118,7 @@ private:
 //   FMat4 view = cam.ViewMatrix();
 //   FMat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 1000.0f);
 //
-//   // 選択へ寄せる (将来 FSelectionService + bounds 計算経由):
+//   // 選択へ寄せる (将来 CSelectionService + bounds 計算経由):
 //   cam.FrameToBoundingSphere(node_center, node_radius);
 //
 // 設計選択 (editor_core):
@@ -85107,16 +86130,16 @@ private:
 //     Maya / Blender 風の orbit。eye 位置は (target + spherical(yaw,pitch)
 //     * distance) で算出。pitch は ±89° にクランプして極点で gimbal flip
 //     しないようにする。
-//   ・**2D = position + zoom_2d**: FCamera2D と同じ pan/zoom モデル。orthographic
+//   ・**2D = position + zoom_2d**: CCamera2D と同じ pan/zoom モデル。orthographic
 //     投影で width = base_ortho_size / zoom_2d とすれば「ズームイン = 拡大」
-//     が直感通り。FCamera2D の rotation までは持たない (editor は通常 axis-aligned)。
+//     が直感通り。CCamera2D の rotation までは持たない (editor は通常 axis-aligned)。
 //   ・**HandleMouseInput で操作系を集約**: panel 側は ImGui の IO から取った
 //     delta / button / wheel をそのまま渡せばよい。マウス操作の規約:
 //       - 3D: LMB drag = orbit, MMB drag = pan, RMB drag = orbit (Maya 風代替),
 //             wheel = dolly
 //       - 2D: LMB drag = pan, MMB drag = pan, wheel = zoom
 //     この規約は editor 全体で統一すべきもの。
-//   ・**Tick で smoothing**: FCamera2D と同じ `1 - exp(-rate*dt)` の framerate
+//   ・**Tick で smoothing**: CCamera2D と同じ `1 - exp(-rate*dt)` の framerate
 //     independent な指数補間で「狙った target / zoom」へ追従させる。マウス
 //     入力は raw target を直接書き換え、Tick が actual state を寄せる構造。
 //     rate = 0 で即時、5.0 で約 0.2s で 63% 詰める典型。
@@ -85126,9 +86149,9 @@ private:
 // 将来拡張余地:
 //   ・preset (Top/Front/Side/3-quarter 等の標準視点を 1 ボタン)
 //   ・camera lock (Y 軸固定で yaw のみ自由 = ARPG style)
-//   ・focus to selection (現選択 FNodeId にカメラを向ける、FSelectionService 経由)
-//   ・camera shake disable (FPhotoMode 同様、editor では shake 抑止)
-//   ・rotation 2D (FCamera2D と等価の axis 回転)
+//   ・focus to selection (現選択 FNodeId にカメラを向ける、CSelectionService 経由)
+//   ・camera shake disable (CPhotoMode 同様、editor では shake 抑止)
+//   ・rotation 2D (CCamera2D と等価の axis 回転)
 //   ・FPS フリールック (orbit ではなく eye 中心の look-around)
 
 
@@ -85146,7 +86169,7 @@ enum class EEditorCameraMode : u8 {
 };
 
 /**
- * FEditorCamera の内部 state (公開のため struct で外出し)。
+ * CEditorCamera の内部 state (公開のため struct で外出し)。
  *
  * @details
  * editor 側で「現在の position / target」等を直接覗きたいユースケース (debug overlay /
@@ -85189,25 +86212,25 @@ struct FEditorCameraState {
  * independent な指数補間で raw target / zoom へ追従させる。全 noexcept / 非コピー / 非ムーブ /
  * STL 不使用で、内部 state は POD のみ。
  */
-class FEditorCamera {
+class CEditorCamera {
 public:
     /** mode 未確定のまま構築する (Init で初期化する)。 */
-    FEditorCamera() noexcept = default;
+    CEditorCamera() noexcept = default;
 
     /** デストラクタ (state は POD のみで解放処理なし)。 */
-    ~FEditorCamera() noexcept = default;
+    ~CEditorCamera() noexcept = default;
 
     /** コピー禁止 (内部 state の所有を曖昧にしないため)。 */
-    FEditorCamera(const FEditorCamera&)            = delete;
+    CEditorCamera(const CEditorCamera&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEditorCamera& operator=(const FEditorCamera&) = delete;
+    CEditorCamera& operator=(const CEditorCamera&) = delete;
 
     /** ムーブ禁止。 */
-    FEditorCamera(FEditorCamera&&)                 = delete;
+    CEditorCamera(CEditorCamera&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEditorCamera& operator=(FEditorCamera&&)      = delete;
+    CEditorCamera& operator=(CEditorCamera&&)      = delete;
 
     /**
      * 指定モードで完全初期化する (Reset 相当 + mode 設定)。
@@ -85375,7 +86398,7 @@ public:
     /**
      * smooth target / zoom 補間を 1 ステップ進める (editor 側で毎フレーム呼ぶ)。
      *
-     * @details FCamera2D と同じ framerate-independent な `1 - exp(-rate*dt)` モデルで raw target へ追従させる。
+     * @details CCamera2D と同じ framerate-independent な `1 - exp(-rate*dt)` モデルで raw target へ追従させる。
      * @param dt 前フレームからの経過秒 (負値は 0 に補正)。
      */
     void Tick(f32 dt) noexcept;
@@ -85383,7 +86406,7 @@ public:
     /**
      * smoothing rate を設定する。
      *
-     * @details 0 = 即時スナップ、5.0 = 既定 (FCamera2D と同方式)。負値は 0 に補正。
+     * @details 0 = 即時スナップ、5.0 = 既定 (CCamera2D と同方式)。負値は 0 に補正。
      * @param rate smoothing rate。
      */
     void SetSmoothing(f32 rate) noexcept;
@@ -85446,29 +86469,31 @@ private:
     f32               m_BaseOrthoSize  = 20.0f;
 };
 
+using FEditorCamera = CEditorCamera;
+
 } // namespace acs::game::editor_core
 
 // ===================== gameframework/tools/editor_core/EditorCommand.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FEditorCommand
+// GameFramework Tools — editor_core / AEditorCommand
 //
 // 役割:
-//   ACS の全エディタ (FHierarchyPanel / FInspectorPanel / ParticleEditor /
+//   ACS の全エディタ (AHierarchyPanel / AInspectorPanel / ParticleEditor /
 //   SceneInspector ほか将来追加される LevelEditor / TimelineEditor 等) が共有
 //   する **undo/redo の原子単位**。Command パターンの GoF 古典に沿い、
-//   1 操作 = 1 FEditorCommand 派生インスタンスとして表現する。
+//   1 操作 = 1 AEditorCommand 派生インスタンスとして表現する。
 //
 // 使い方:
-//   class FMoveNodeCommand : public FEditorCommand { ... };  // header 下に inline 例
+//   class AMoveNodeCommand : public AEditorCommand { ... };  // header 下に inline 例
 //
 //   // editor 側:
-//   acs::TUniquePtr<FMoveNodeCommand> cmd = acs::MakeUnique<FMoveNodeCommand>(
+//   acs::TUniquePtr<AMoveNodeCommand> cmd = acs::MakeUnique<AMoveNodeCommand>(
 //       &node, old_pos, new_pos);
 //   undo_stack.Push(acs::Move(cmd));   // 確保元ごと所有権を渡す + Execute 実行
 //
 // 設計選択:
-//   ・**純粋抽象 + virtual dtor**: ベース型を `TUniquePtr<FEditorCommand>` で
-//     FUndoStack に持たせるため、polymorphic delete が必要。全 noexcept は
+//   ・**純粋抽象 + virtual dtor**: ベース型を `TUniquePtr<AEditorCommand>` で
+//     CUndoStack に持たせるため、polymorphic delete が必要。全 noexcept は
 //     ACS 規約。
 //   ・**非コピー / 非ムーブ**: 「実行済み command を後から複製」は意味的に怪しい
 //     (二重 Undo 等の事故源)。意図的な複製は派生クラス側で factory を用意する。
@@ -85482,10 +86507,10 @@ private:
 //     ものを保つ)。これで Undo 1 回で連続 drag 全体を巻き戻せる。
 //
 // 将来拡張余地:
-//   ・transaction (BeginGroup / EndGroup): FUndoStack 側で複数 FEditorCommand
-//     を 1 件として束ねる `CommandGroup : FEditorCommand` を派生で実装する。
+//   ・transaction (BeginGroup / EndGroup): CUndoStack 側で複数 AEditorCommand
+//     を 1 件として束ねる `CommandGroup : AEditorCommand` を派生で実装する。
 //   ・branched history: undo 後に new edit が来た時に redo stack を破棄するの
-//     ではなく分岐として保存する。FEditorCommand 側に変更は不要。
+//     ではなく分岐として保存する。AEditorCommand 側に変更は不要。
 //   ・serialization: `virtual void Serialize(Writer&) const` を後付け可能。
 //     既存派生は default = no-op で問題ない。
 
@@ -85496,31 +86521,31 @@ namespace acs::game::editor_core {
  * 全エディタが共有する undo/redo の原子単位 (純粋抽象)。
  *
  * @details
- * Command パターンの GoF 古典に沿い、1 操作 = 1 FEditorCommand 派生インスタンス
+ * Command パターンの GoF 古典に沿い、1 操作 = 1 AEditorCommand 派生インスタンス
  * として表現する。派生クラスは Execute / Undo / Description を必ず override する。
  * CanMerge / MergeWith は default で merge 拒否であり、連続 drag をまとめたい派生
- * のみ override する。ベース型を `TUniquePtr<FEditorCommand>` で FUndoStack に
+ * のみ override する。ベース型を `TUniquePtr<AEditorCommand>` で CUndoStack に
  * 持たせるため virtual dtor を持ち、複製事故を防ぐため非コピー / 非ムーブとする。
  */
-class FEditorCommand {
+class AEditorCommand {
 public:
     /** 空の command を構築する。 */
-    FEditorCommand() noexcept          = default;
+    AEditorCommand() noexcept          = default;
 
     /** 派生クラスを polymorphic delete するための仮想デストラクタ。 */
-    virtual ~FEditorCommand() noexcept = default;
+    virtual ~AEditorCommand() noexcept = default;
 
     /** コピー禁止 (実行済み command の複製は二重 Undo 等の事故源になるため)。 */
-    FEditorCommand(const FEditorCommand&)            = delete;
+    AEditorCommand(const AEditorCommand&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEditorCommand& operator=(const FEditorCommand&) = delete;
+    AEditorCommand& operator=(const AEditorCommand&) = delete;
 
-    /** ムーブ禁止 (FUndoStack が TUniquePtr で単独所有するため)。 */
-    FEditorCommand(FEditorCommand&&)                 = delete;
+    /** ムーブ禁止 (CUndoStack が TUniquePtr で単独所有するため)。 */
+    AEditorCommand(AEditorCommand&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEditorCommand& operator=(FEditorCommand&&)      = delete;
+    AEditorCommand& operator=(AEditorCommand&&)      = delete;
 
     /**
      * RTTI を使わずに command の種類を識別するための tag を返す。
@@ -85537,8 +86562,8 @@ public:
      * 「Do」操作を実行する。
      *
      * @details
-     * FUndoStack::Push 直後と Redo 経路の両方から呼ばれる。Undo を挟まずに同じ
-     * command を 2 回 Execute することは FUndoStack が排除する。
+     * CUndoStack::Push 直後と Redo 経路の両方から呼ばれる。Undo を挟まずに同じ
+     * command を 2 回 Execute することは CUndoStack が排除する。
      */
     virtual void Execute() noexcept = 0;
 
@@ -85569,12 +86594,12 @@ public:
      * @param next 直後に Push されようとしている command。
      * @return マージ可能なら true。
      */
-    virtual bool CanMerge(const FEditorCommand& /*next*/) const noexcept {
+    virtual bool CanMerge(const AEditorCommand& /*next*/) const noexcept {
         return false;
     }
 
     /**
-     * CanMerge が true を返した直後に FUndoStack から呼ばれ、next を取り込む。
+     * CanMerge が true を返した直後に CUndoStack から呼ばれ、next を取り込む。
      *
      * @details
      * next の「new 値」を自分に取り込み (= 自分の new 値を next の new 値で上書きし)、
@@ -85582,11 +86607,11 @@ public:
      * default は no-op (CanMerge が false なので呼ばれない想定)。
      * @param next マージ元となる直後の command。
      */
-    virtual void MergeWith(const FEditorCommand& /*next*/) noexcept {}
+    virtual void MergeWith(const AEditorCommand& /*next*/) noexcept {}
 };
 
 /**
- * ANode の position を変更する FEditorCommand 派生サンプル。
+ * ANode の position を変更する AEditorCommand 派生サンプル。
  *
  * @details
  * 教科書的な使用例で、連続 drag を 1 件にまとめる CanMerge 実装も持つ。マージ規約は、
@@ -85596,7 +86621,7 @@ public:
  * 対象が dangling だと UB になるため、editor 側で Destroy 時に undo stack を Clear する等の
  * ハイレベルポリシーで防ぐ。
  */
-class FMoveNodeCommand : public FEditorCommand {
+class AMoveNodeCommand : public AEditorCommand {
 public:
     /**
      * 移動対象と前後の position を保持して構築する。
@@ -85605,7 +86630,7 @@ public:
      * @param old_pos 変更前の位置 (Undo で復元する値)。
      * @param new_pos 変更後の位置 (Execute で適用する値)。
      */
-    FMoveNodeCommand(ANode* target, FVec2 old_pos, FVec2 new_pos) noexcept
+    AMoveNodeCommand(ANode* target, FVec2 old_pos, FVec2 new_pos) noexcept
         : m_Target(target), m_OldPos(old_pos), m_NewPos(new_pos) {}
 
     /** 対象ノードの local position を new_pos に設定する。 */
@@ -85635,25 +86660,25 @@ public:
      * この派生型を一意に識別する kind tag を返す。
      *
      * @details next 側も同じアドレスを返せば同一派生型と確定できる (= RTTI 不要のポインタ比較)。
-     * @return FMoveNodeCommand 固有の静的アドレス。
+     * @return AMoveNodeCommand 固有の静的アドレス。
      */
     const void* Kind() const noexcept override { return KindTag(); }
 
     /**
-     * 同一 target に対する連続 FMoveNodeCommand のみマージを許可する。
+     * 同一 target に対する連続 AMoveNodeCommand のみマージを許可する。
      *
      * @details Kind tag と target ポインタが両方一致するときだけ merge を認める。
      * @param next 直後に Push されようとしている command。
      * @return next が同型かつ同一 target なら true。
      */
-    bool CanMerge(const FEditorCommand& next) const noexcept override {
+    bool CanMerge(const AEditorCommand& next) const noexcept override {
         // 型 (Kind tag) と対象 (target ポインタ) が両方一致するときだけ merge。
         if (next.Kind() != KindTag()) {
             return false;
         }
-        // ここまでくれば next は FMoveNodeCommand と確定 (Kind tag は static アドレス
+        // ここまでくれば next は AMoveNodeCommand と確定 (Kind tag は static アドレス
         // で派生クラスを一意に識別している)。安全に static_cast 可能。
-        const FMoveNodeCommand& nxt = static_cast<const FMoveNodeCommand&>(next);
+        const AMoveNodeCommand& nxt = static_cast<const AMoveNodeCommand&>(next);
         return nxt.m_Target == m_Target;
     }
 
@@ -85663,12 +86688,12 @@ public:
      * @details new 値だけ更新し、old 値 (= 連続 drag の始点) は保持する。防御的に Kind を再確認する。
      * @param next マージ元の command (CanMerge を通過済みの前提)。
      */
-    void MergeWith(const FEditorCommand& next) noexcept override {
-        // CanMerge を経ているのが FUndoStack 側の前提だが、防御的に再確認する。
+    void MergeWith(const AEditorCommand& next) noexcept override {
+        // CanMerge を経ているのが CUndoStack 側の前提だが、防御的に再確認する。
         if (next.Kind() != KindTag()) {
             return;
         }
-        const FMoveNodeCommand& nxt = static_cast<const FMoveNodeCommand&>(next);
+        const AMoveNodeCommand& nxt = static_cast<const AMoveNodeCommand&>(next);
         // new 値だけ更新し、old 値 (= 連続 drag の始点) は保持する。
         m_NewPos = nxt.m_NewPos;
     }
@@ -85701,7 +86726,7 @@ private:
      * @details
      * 内容は使わず、アドレスだけが ID。function-local static にすることで、ヘッダ多重
      * include + 複数 TU 跨ぎで「同一アドレス」を保証する (C++11 以降の保証)。
-     * @return FMoveNodeCommand を識別する静的アドレス。
+     * @return AMoveNodeCommand を識別する静的アドレス。
      */
     static const void* KindTag() noexcept {
         static const char kTag = 0;
@@ -85718,11 +86743,13 @@ private:
     FVec2    m_NewPos {};
 };
 
+using FMoveNodeCommand = AMoveNodeCommand;
+
 } // namespace acs::game::editor_core
 
 // ===================== gameframework/tools/editor_core/EditorGizmo.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — editor_core / FEditorGizmo
+// GameFramework Pillar — editor_core / CEditorGizmo
 //
 // 役割:
 //   選択中の ANode の FTransform3D を viewport 上で直接ドラッグ操作する
@@ -85732,7 +86759,7 @@ private:
 //   操作系を最小集合で再実装したもの。
 //
 // 使い方 (典型):
-//   acs::game::editor_core::FEditorGizmo gizmo;
+//   acs::game::editor_core::CEditorGizmo gizmo;
 //   gizmo.Init();
 //   gizmo.SetMode(EGizmoMode::Translate);
 //   gizmo.SetSpace(EGizmoSpace::World);
@@ -85756,11 +86783,11 @@ private:
 //       node.SetWorldScale(scl);
 //   }
 //
-//   // 3) DrawGizmo: FDebugDraw 経由で軸 / 平面 / ハンドルを描く (描画は外部の
-//   //    FDebugDraw 消費側が ImGui / 自前 LineRenderer 等に転写する)。
+//   // 3) DrawGizmo: CDebugDraw 経由で軸 / 平面 / ハンドルを描く (描画は外部の
+//   //    CDebugDraw 消費側が ImGui / 自前 LineRenderer 等に転写する)。
 //   gizmo.DrawGizmo(debug_draw, pos, rot, scl);
 //
-//   // 4) drag 終了時に FUndoStack へ push したい場合:
+//   // 4) drag 終了時に CUndoStack へ push したい場合:
 //   gizmo.SetOnManipulateCallback(&MyEditor::OnGizmoDelta, &editor);
 //
 // 設計選択:
@@ -85770,7 +86797,7 @@ private:
 //     既に確立した方針)。
 //   ・**FGizmoState を struct として公開**: テストや editor 上の inspector で
 //     「今 drag 中か」「どの軸が hot か」を読み取れるよう公開する。書き換えは
-//     FEditorGizmo 内部からのみ行うが、struct 全体を public にしておけば
+//     CEditorGizmo 内部からのみ行うが、struct 全体を public にしておけば
 //     外部から ImGui::Text で覗くのが楽 (= debug / replay 性が高い)。
 //   ・**ProcessInput → Manipulate → DrawGizmo の 3 段**: input 取得 / 値更新 /
 //     描画を完全に分離する。これにより:
@@ -85779,7 +86806,7 @@ private:
 //         動画キャプチャ) が可能
 //   ・**raw 関数ポインタ callback**: ACS は std::function を使えないため、
 //     ManipulateCallback は C スタイル `void(*)(void*, ...) noexcept` で揃える
-//     (Input.h / FInspectorPanel と同形)。
+//     (Input.h / AInspectorPanel と同形)。
 //   ・**snap は Shift モディファイア前提**: SetSnap*(step) で step > 0 を渡すと
 //     drag 中の Shift で snap が有効になる。step == 0 で snap 無効 (default)。
 //     Shift キー検出は ProcessInput の呼び出し側で行い、本クラスは「snap step が
@@ -85802,7 +86829,7 @@ private:
 //   ・**scale モードは axis-aligned**: 軸ハンドルで「その軸方向の uniform scale
 //     倍率」を計算。XY/XZ/YZ 平面 + ScreenAlign は scale モードでは hit を取らない
 //     (= 各軸ごとの非一様 scale を意図的に強制、Unity と同じ)。
-//   ・**DrawGizmo は FDebugDraw (FVec2 ベース) に出力**: FDebugDraw は 2D
+//   ・**DrawGizmo は CDebugDraw (FVec2 ベース) に出力**: CDebugDraw は 2D
 //     ラインバッファ。本ヘッダでは「Z 軸を捨てて XY 平面に
 //     射影する」simple projection を採用する (= 2D top-down view を想定)。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
@@ -85814,10 +86841,6 @@ private:
 //   ・collider shape edit
 //   ・camera viewport 操作 (= Pan / Orbit / Zoom は別 input handler)
 
-
-namespace acs::game {
-class FDebugDraw;        // 前方宣言 — .cpp で gameframework/DebugDraw.h を include
-}
 
 namespace acs::game::editor_core {
 
@@ -85898,7 +86921,7 @@ enum class EGizmoAxis : u8 {
  * gizmo の現フレームの操作状態 (POD、テストで覗ける)。
  *
  * @details
- * 公開フィールドだが、書き換えは FEditorGizmo 内部からのみ行うこと。
+ * 公開フィールドだが、書き換えは CEditorGizmo 内部からのみ行うこと。
  * drag_start_world は drag 開始時のワールド空間ヒット点 (delta 計算の基点)。
  */
 struct FGizmoState {
@@ -85922,7 +86945,7 @@ struct FGizmoState {
  * drag 終了時に外部へ delta を通知する callback 型。
  *
  * @details
- * drag 完了時に 1 度だけ呼ばれる (= FUndoStack に FMoveNodeCommand 等を push する
+ * drag 完了時に 1 度だけ呼ばれる (= CUndoStack に AMoveNodeCommand 等を push する
  * 適切なタイミング)。delta の意味はモード依存で、Translate は world space の
  * 移動量、Rotate は euler 角度の差分 (radians)、Scale は scale 倍率の差分
  * (1.0 を基準) を表す。user は SetOnManipulateCallback の第二引数で渡した
@@ -85938,30 +86961,30 @@ using ManipulateCallback = void (*)(void* user, EGizmoMode mode, acs::FVec3 delt
  *
  * @details
  * 1 個のインスタンスを editor が所有し、選択中 ANode の transform を毎フレーム
- * 流し込む。ハンドル本体は POD 状態のみで、レンダリングは FDebugDraw 経由
+ * 流し込む。ハンドル本体は POD 状態のみで、レンダリングは CDebugDraw 経由
  * (= レンダラ非依存)。ProcessInput → Manipulate → DrawGizmo の 3 段で入力取得 /
  * 値更新 / 描画を完全に分離し、translate / rotate / scale の各モードで X/Y/Z 軸
  * ハンドルと平面ハンドルを提供する。
  */
-class FEditorGizmo {
+class CEditorGizmo {
 public:
     /** 空状態で構築する (state は default、ハンドル形状は既定値)。 */
-    FEditorGizmo() noexcept  = default;
+    CEditorGizmo() noexcept  = default;
 
     /** 破棄する (所有リソースなし)。 */
-    ~FEditorGizmo() noexcept = default;
+    ~CEditorGizmo() noexcept = default;
 
     /** コピー禁止 (editor 内で 1 個だけ生存させる前提)。 */
-    FEditorGizmo(const FEditorGizmo&)            = delete;
+    CEditorGizmo(const CEditorGizmo&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEditorGizmo& operator=(const FEditorGizmo&) = delete;
+    CEditorGizmo& operator=(const CEditorGizmo&) = delete;
 
     /** ムーブ禁止 (editor 内で 1 個だけ生存させる前提)。 */
-    FEditorGizmo(FEditorGizmo&&)                 = delete;
+    CEditorGizmo(CEditorGizmo&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEditorGizmo& operator=(FEditorGizmo&&)      = delete;
+    CEditorGizmo& operator=(CEditorGizmo&&)      = delete;
 
     /**
      * 初期化する。
@@ -86093,10 +87116,10 @@ public:
                     acs::FVec3& inout_scale) noexcept;
 
     /**
-     * FDebugDraw 経由で軸 line + ハンドルを描く。
+     * CDebugDraw 経由で軸 line + ハンドルを描く。
      *
      * @details
-     * 実描画は dd の消費側責務。FDebugDraw が 2D (FVec2) なので Z 軸は XY 平面へ
+     * 実描画は dd の消費側責務。CDebugDraw が 2D (FVec2) なので Z 軸は XY 平面へ
      * 射影される (top-down view)。描画色は X=赤 / Y=緑 / Z=青 / 平面=半透明黄色 /
      * 選択中 hot=白ハイライト。
      * @param dd 軸・ハンドルの line を積む先のデバッグ描画バッファ。
@@ -86104,7 +87127,7 @@ public:
      * @param rotation_euler 軸ベースを構築するための euler 回転 (Local space で使用)。
      * @param scale 対象のスケール (描画には未使用、引数のみ)。
      */
-    void DrawGizmo(FDebugDraw& dd,
+    void DrawGizmo(CDebugDraw& dd,
                    acs::FVec3 position,
                    acs::FVec3 rotation_euler,
                    acs::FVec3 scale) noexcept;
@@ -86283,21 +87306,23 @@ private:
     void*              m_CbUser = nullptr;
 };
 
+using FEditorGizmo = CEditorGizmo;
+
 } // namespace acs::game::editor_core
 
 // ===================== gameframework/tools/editor_core/EditorTheme.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FEditorTheme  (ImGui スタイル統一テーマ)
+// GameFramework Tools — editor_core / CEditorTheme  (ImGui スタイル統一テーマ)
 //
 // 役割:
-//   ACS の全エディタ panel (FHierarchyPanel / FInspectorPanel / FEditorToolbar /
-//   FParticleEditorPanel / ModelViewer / LevelEditor / AnimCurveEditor /
+//   ACS の全エディタ panel (AHierarchyPanel / AInspectorPanel / AEditorToolbar /
+//   AParticleEditorPanel / ModelViewer / LevelEditor / AnimCurveEditor /
 //   BehaviorTreeEditor 等) が共通で参照する **ImGui スタイル統一テーマ**。
 //   色パレット / spacing / font scale / corner radius を 1 ヶ所で管理し、
 //   起動時に `Init()` を呼ぶだけで全エディタが統一見た目になる。
 //
 // 使い方 (editor 起動コード):
-//   FEditorTheme theme;
+//   CEditorTheme theme;
 //   theme.Init();                              // default = Dark を ImGui に流す
 //   theme.ApplyPreset(EEditorThemePreset::DarkBlue);
 //   theme.SetFontScale(1.25f);                 // 高 DPI 対応
@@ -86310,7 +87335,7 @@ private:
 // 設計選択:
 //   ・**ACS::FVec4 ベース、ImVec4 は .cpp 内変換のみ**: ヘッダから <imgui.h> を
 //     漏らさないことで、本ヘッダを include しても include order が壊れない
-//     (FInspectorPanel / FParticleEditorPanel と同パターン)。
+//     (AInspectorPanel / AParticleEditorPanel と同パターン)。
 //   ・**preset = 「色パレット定数 + spacing + corner」のスナップショット**:
 //     ApplyPreset は内部 `m_Colors` を上書きしたあと、`ApplyToImGui()` で
 //     ImGui::GetStyle() に流す。Custom はユーザが SetCustomColors した状態を
@@ -86324,13 +87349,13 @@ private:
 //   ・**SetSpacing は ItemSpacing.y のみを操作する**: 縦詰めは「情報密度」を
 //     決める主軸。横 spacing は ItemSpacing.y * 0.5 比例で連動 (見た目バランス
 //     のための経験則、後述の ApplyToImGui で計算)。
-//   ・**SaveTheme/LoadTheme は人間可読テキスト (`.acstheme`)**: `FFxeditSerializer`
+//   ・**SaveTheme/LoadTheme は人間可読テキスト (`.acstheme`)**: `CFxeditSerializer`
 //     と同設計 (1 行 1 key=value、git diff 可能、magic + version)。バイナリで
 //     ない理由は「アーティストが直接編集してチームに共有」できることを優先。
 //     エラーは ACS_LOG_WARN で握る (戻り値 void = 「ベストエフォート」)。
 //   ・**DrawThemeSettingsUI は ImGui::Begin/End を自前で包む**: editor 設定 UI
-//     なので独立 window として出す。FEditorPanel 継承はせず、調整 UI 限定の
-//     シンプル window として動く (= FEditorPanel として workspace 登録するなら
+//     なので独立 window として出す。AEditorPanel 継承はせず、調整 UI 限定の
+//     シンプル window として動く (= AEditorPanel として workspace 登録するなら
 //     派生ラッパを別途用意する)。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用**: ACS 規約 + 他
 //     editor_core 系コンポーネントと統一。`<string>` 禁止のためファイルパスは
@@ -86358,7 +87383,7 @@ private:
 //   ・FAccessibilityProfile 連動: Colorblind モード時に HighContrast を強制、
 //     ColorMode::Protanopia 時に accent を青系に切り替える等の自動マッピング。
 //   ・syntax highlighting palette: BehaviorTree editor の AST node 種別、
-//     FDialogueScript の語彙ハイライト、FCombatStateMachine の遷移条件等を
+//     CDialogueScript の語彙ハイライト、CCombatStateMachine の遷移条件等を
 //     色分けするための拡張カラーパレット (FEditorThemeColors を継承する派生
 //     SyntaxColors 構造体)。
 //   ・color picker のリアルタイムプレビュー: 現状は SetCustomColors 経由で
@@ -86505,25 +87530,25 @@ struct FEditorThemePersistenceResult {
  * colors / font_scale / corner / spacing は人間可読の `.acstheme` テキストへ
  * 永続化できる。ImGui::GetStyle() への適用は global 副作用なので非コピー・非ムーブ。
  */
-class FEditorTheme {
+class CEditorTheme {
 public:
     /** 空状態で構築する (ImGui への適用は Init / ApplyPreset で行う)。 */
-    FEditorTheme() noexcept = default;
+    CEditorTheme() noexcept = default;
 
     /** 破棄する (特別な後始末なし)。 */
-    ~FEditorTheme() noexcept = default;
+    ~CEditorTheme() noexcept = default;
 
     /** コピー禁止 (ImGui スタイルへの適用は global 副作用で唯一性が崩れるため)。 */
-    FEditorTheme(const FEditorTheme&)            = delete;
+    CEditorTheme(const CEditorTheme&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEditorTheme& operator=(const FEditorTheme&) = delete;
+    CEditorTheme& operator=(const CEditorTheme&) = delete;
 
     /** ムーブ禁止 (workspace に 1 インスタンスのみ存在する設計)。 */
-    FEditorTheme(FEditorTheme&&)                 = delete;
+    CEditorTheme(CEditorTheme&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEditorTheme& operator=(FEditorTheme&&)      = delete;
+    CEditorTheme& operator=(CEditorTheme&&)      = delete;
 
     /**
      * default = Dark preset を ImGui::GetStyle() に流して初期化する。
@@ -86706,13 +87731,15 @@ private:
     f32                m_ItemSpacingY  = 4.0f;
 };
 
+using FEditorTheme = CEditorTheme;
+
 } // namespace acs::game::editor_core
 
 // ===================== gameframework/tools/editor_core/EditorWorkspace.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FEditorWorkspace
+// GameFramework Tools — editor_core / CEditorWorkspace
 //
-// 複数の `FEditorPanel` (ModelViewer / AnimCurveEditor / BehaviorTreeEditor /
+// 複数の `AEditorPanel` (ModelViewer / AnimCurveEditor / BehaviorTreeEditor /
 // LevelEditor / SpriteAtlasEditor / FontEditor / CinematicsTimelineEditor 等) を
 // 統括する **ワークスペース**。panel 群を 1 つの editor アプリケーションとして
 // まとめて配線するための中央 hub。
@@ -86724,13 +87751,13 @@ private:
 //   ・ImGui DockSpace の作成 + Window メニュー (panel toggle list)
 //   ・レイアウト永続化 (ImGui ini + per-panel state を `.acslayout` 1 ファイル)
 //   ・選択 / asset 選択イベントの全 panel への broadcast
-//   ・FSelectionService の保管点 (非所有)
+//   ・CSelectionService の保管点 (非所有)
 //
 // 使い方 (典型):
-//   acs::game::editor_core::FEditorWorkspace ws;
+//   acs::game::editor_core::CEditorWorkspace ws;
 //   ws.Init();
 //
-//   ws.SetSelectionService(&selection);   // FSelectionService を注入
+//   ws.SetSelectionService(&selection);   // CSelectionService を注入
 //   ws.RegisterPanel(&hierarchy_panel);    // 各 panel は caller 所有
 //   ws.RegisterPanel(&inspector_panel);
 //   ws.RegisterPanel(&model_viewer);
@@ -86748,13 +87775,13 @@ private:
 // 設計選択:
 //   ・**panel は raw pointer の非所有保持**: caller が own する (= caller が
 //     panel の lifetime を制御する) ことで、panel の動的生成 / scope-stack 配置
-//     の両方を許容する。FParticleEditorPanel / FEditorToolbar と同形。
-//   ・**`acs::TArray<FEditorPanel*>` で順序保持**: dispatch 順 / Window メニュー
+//     の両方を許容する。AParticleEditorPanel / AEditorToolbar と同形。
+//   ・**`acs::TArray<AEditorPanel*>` で順序保持**: dispatch 順 / Window メニュー
 //     の表示順 = 登録順。登録順以外のソートはしない。
 //   ・**`UnregisterPanel` は順序保存削除**: Window メニューの並びがフレーム間で
-//     ぶれないよう、swap-remove ではなく shift 削除。FSelectionService の
+//     ぶれないよう、swap-remove ではなく shift 削除。CSelectionService の
 //     RemoveAtSwap とは方針を変える (UI 表示順の体験を優先)。
-//   ・**Title はリテラル文字列を期待**: `FEditorPanel::Title()` の規約 (リテラル /
+//   ・**Title はリテラル文字列を期待**: `AEditorPanel::Title()` の規約 (リテラル /
 //     静的領域) に依存する。`FindPanelByTitle` は strcmp 比較。
 //   ・**ImGui::DockSpaceOverViewport**: 「メインビューポート全体に central dock
 //     node を持つ」最小構成。central node 内で float window 動作させたい panel は
@@ -86777,30 +87804,12 @@ private:
 //     fan-out: 戻り値は無く、panel 側で必要に応じて自身に反映する。null safe。
 //   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用**: ACS 規約。
 //   ・**ImGui ヘッダは .cpp 側のみ include**: header からは imgui 依存を漏らさず、
-//     FParticleEditorPanel / FInspectorPanel と同方針。
+//     AParticleEditorPanel / AInspectorPanel と同方針。
 //
 // 範囲外 (本クラスでは持たない):
 //   ・panel の生成 / 破棄 (= caller 責務)
 //   ・ImGui Context / GPU resource 管理 (= 外側の ImGuiBackend が持つ)
 
-
-namespace acs::game::editor_core {
-
-// 同 namespace の FEditorPanel は forward-decl のみで受ける。
-// 本ヘッダから EditorPanel.h を include しないことで、利用側 (sample / 上位
-// editor アプリ) が「workspace と panel 群」を疎結合にビルド単位として
-// 扱えるようにする (panel 派生クラスのヘッダ変更が workspace 自身の再ビルド
-// 要否に影響しない)。
-class FEditorPanel;
-
-} // namespace acs::game::editor_core
-
-namespace acs::game::inspector {
-// FSelectionService。SetSelectionService / Get... API の引数型として forward-decl
-// のみで受ける。本 workspace は FSelectionService の API を直接呼ばない
-// (= broadcast 時に panel 側へ参照を渡すだけ)。
-class FSelectionService;
-} // namespace acs::game::inspector
 
 namespace acs::game::editor_core {
 
@@ -86854,38 +87863,38 @@ struct FEditorWorkspacePersistenceResult {
 };
 
 /**
- * 複数の FEditorPanel を統括するワークスペース hub。
+ * 複数の AEditorPanel を統括するワークスペース hub。
  *
  * @details
  * 登録 panel のリスト管理 (RegisterPanel / FindPanelByTitle / UnregisterPanel)、
  * 毎フレームの main loop coordination (OnFrameBegin → DockSpace → MenuBar →
  * DrawUI)、ImGui DockSpace と Window / Layout メニューの描画、レイアウトの
  * `.acslayout` 永続化、選択 / asset 選択イベントの全 panel への broadcast を担う。
- * panel は raw pointer の非所有保持で順序 = 登録順 = dispatch 順。FSelectionService
+ * panel は raw pointer の非所有保持で順序 = 登録順 = dispatch 順。CSelectionService
  * も非所有参照で保持する。所有 / 参照関係を曖昧にしないため非コピー・非ムーブ。
  */
-class FEditorWorkspace {
+class CEditorWorkspace {
 public:
     /** 空状態で構築する (初期化は Init で行う)。 */
-    FEditorWorkspace() noexcept = default;
+    CEditorWorkspace() noexcept = default;
 
     /** 破棄する (登録 panel は非所有なので解放しない)。 */
-    ~FEditorWorkspace() noexcept = default;
+    ~CEditorWorkspace() noexcept = default;
 
-    /** コピー禁止 (panel リストと FSelectionService 参照の所有関係を曖昧にしないため)。 */
-    FEditorWorkspace(const FEditorWorkspace&)            = delete;
+    /** コピー禁止 (panel リストと CSelectionService 参照の所有関係を曖昧にしないため)。 */
+    CEditorWorkspace(const CEditorWorkspace&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEditorWorkspace& operator=(const FEditorWorkspace&) = delete;
+    CEditorWorkspace& operator=(const CEditorWorkspace&) = delete;
 
     /** ムーブ禁止。 */
-    FEditorWorkspace(FEditorWorkspace&&)                 = delete;
+    CEditorWorkspace(CEditorWorkspace&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEditorWorkspace& operator=(FEditorWorkspace&&)      = delete;
+    CEditorWorkspace& operator=(CEditorWorkspace&&)      = delete;
 
     /**
-     * panel list を空、FSelectionService を nullptr、設定値を default にして初期化する。
+     * panel list を空、CSelectionService を nullptr、設定値を default にして初期化する。
      *
      * @details
      * 多重 Init 可 (完全リセットとして使える)。登録 panel に OnShutdown を呼ばずに
@@ -86897,7 +87906,7 @@ public:
      * 登録済み全 panel に OnShutdown を呼んでから list を解放する。
      *
      * @details
-     * FSelectionService 参照も解除する。動作フラグ類は再 Init で同じ host 設定を
+     * CSelectionService 参照も解除する。動作フラグ類は再 Init で同じ host 設定を
      * 引き継げるよう意図的にリセットしない。多重 Shutdown 可。
      */
     void Shutdown() noexcept;
@@ -86910,7 +87919,7 @@ public:
      * kMaxPanels 到達後も silent no-op。
      * @param panel 登録する panel (非所有)。
      */
-    void RegisterPanel(FEditorPanel* panel) noexcept;
+    void RegisterPanel(AEditorPanel* panel) noexcept;
 
     /**
      * panel を登録解除して OnShutdown を呼ぶ。
@@ -86918,7 +87927,7 @@ public:
      * @details 順序保存削除 (shift)。未登録 / nullptr は no-op。
      * @param panel 登録解除する panel。
      */
-    void UnregisterPanel(FEditorPanel* panel) noexcept;
+    void UnregisterPanel(AEditorPanel* panel) noexcept;
 
     /**
      * 現在の登録 panel 数を返す。
@@ -86933,7 +87942,7 @@ public:
      * @param i panel のインデックス。
      * @return i 番目の panel (範囲外なら nullptr)。
      */
-    FEditorPanel* GetPanelByIndex(u32 i) const noexcept;
+    AEditorPanel* GetPanelByIndex(u32 i) const noexcept;
 
     /**
      * Title が完全一致する panel を返す。
@@ -86942,7 +87951,7 @@ public:
      * @param title 探す panel の Title (nullptr なら nullptr)。
      * @return 一致した panel (なければ nullptr)。
      */
-    FEditorPanel* FindPanelByTitle(const char* title) const noexcept;
+    AEditorPanel* FindPanelByTitle(const char* title) const noexcept;
 
     /**
      * Title が完全一致する panel の可視状態を反転する。
@@ -87021,27 +88030,27 @@ public:
         const char* text, usize text_size) noexcept;
 
     /**
-     * FSelectionService 参照を登録 / 解除する。
+     * CSelectionService 参照を登録 / 解除する。
      *
      * @details
      * caller 所有 (non-owning)。注入されると BroadcastSelectionChanged 経由で各 panel の
-     * OnSelectionChanged の引数として渡される。FSelectionService 側の callback 購読は
+     * OnSelectionChanged の引数として渡される。CSelectionService 側の callback 購読は
      * panel が独自に行う (本 workspace は購読しない)。
-     * @param svc 登録する FSelectionService (nullptr で解除)。
+     * @param svc 登録する CSelectionService (nullptr で解除)。
      */
-    void SetSelectionService(inspector::FSelectionService* svc) noexcept;
+    void SetSelectionService(inspector::CSelectionService* svc) noexcept;
 
     /**
-     * 現在登録されている FSelectionService を返す。
+     * 現在登録されている CSelectionService を返す。
      *
-     * @return 登録済み FSelectionService (未注入時は nullptr)。
+     * @return 登録済み CSelectionService (未注入時は nullptr)。
      */
-    inspector::FSelectionService* GetSelectionService() const noexcept;
+    inspector::CSelectionService* GetSelectionService() const noexcept;
 
     /**
      * 全 panel に OnSelectionChanged を呼ぶ。
      *
-     * @details FSelectionService 未注入時は no-op (callback シグネチャ上、参照が必要なため)。
+     * @details CSelectionService 未注入時は no-op (callback シグネチャ上、参照が必要なため)。
      */
     void BroadcastSelectionChanged() noexcept;
 
@@ -87050,7 +88059,7 @@ public:
      *
      * @details
      * asset_path は本 workspace では保持せず呼び出しごとに pass-through する
-     * (FAssetBrowser 所有想定)。nullptr 渡しは "選択解除" として全 panel に伝播する。
+     * (CAssetBrowser 所有想定)。nullptr 渡しは "選択解除" として全 panel に伝播する。
      * @param asset_path 選択された asset のパス (nullptr で選択解除)。
      */
     void BroadcastAssetSelected(const char* asset_path) noexcept;
@@ -87120,16 +88129,16 @@ private:
      * @param panel 探す panel (nullptr なら kInvalidIndex)。
      * @return 見つかったインデックス、ヒットしなければ kInvalidIndex。
      */
-    i32 FindPanelIndex(const FEditorPanel* panel) const noexcept;
+    i32 FindPanelIndex(const AEditorPanel* panel) const noexcept;
 
     /** FindPanelIndex が未ヒット時に返す番兵値。 */
     static constexpr i32 kInvalidIndex = -1;
 
     /** 登録 panel 群 (raw pointer / 非所有、順序 = 登録順 = dispatch 順)。 */
-    TArray<FEditorPanel*>          m_Panels;
+    TArray<AEditorPanel*>          m_Panels;
 
-    /** FSelectionService (non-owning、未注入時 nullptr)。 */
-    inspector::FSelectionService* m_SelectionService          = nullptr;
+    /** CSelectionService (non-owning、未注入時 nullptr)。 */
+    inspector::CSelectionService* m_SelectionService          = nullptr;
 
     /** central node 内 docking 無効化フラグ。 */
     bool                         m_NoDockingInCentralNode = false;
@@ -87147,7 +88156,7 @@ private:
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Tools — editor_core / PropertyDrawer
 //
-// **カスタム field drawer の登録レジストリ**。FInspectorPanel は EFieldKind
+// **カスタム field drawer の登録レジストリ**。AInspectorPanel は EFieldKind
 // 9 種を hardcode の `switch` で扱っているが、それを超える「ゲーム固有 /
 // エディタ拡張型」の field 表示 (`Curve`, `Gradient`, `AssetPath`,
 // `NodeIdSelector`, `KeyCombo`, ...) を後付けで追加できるようにするための拡張点。
@@ -87159,11 +88168,11 @@ private:
 //       ImGui::ProgressBar(hp->Ratio(), ImVec2(-1, 0));
 //       if (ctx.out_changed) *ctx.out_changed = false;
 //   }
-//   FPropertyDrawerRegistry reg;
+//   CPropertyDrawerRegistry reg;
 //   reg.Init();                                   // bundled drawer も含めて初期化
 //   reg.RegisterDrawer("Health", &DrawHealth);
 //
-//   // FInspectorPanel や任意の editor panel から:
+//   // AInspectorPanel や任意の editor panel から:
 //   FPropertyContext ctx { /* data_ptr / label / tooltip / min/max / ... */ };
 //   if (!reg.DrawProperty(field_type_name, ctx)) {
 //       // 未登録 type → 既存 EFieldKind switch のフォールバックへ
@@ -87172,17 +88181,17 @@ private:
 // 設計選択:
 //   ・**type_name は const char* literal 前提**: drawer name は登録元が永続所有する
 //     リテラル文字列を想定。本 registry はコピー所有しない (= STL `std::string` 不使用)。
-//     比較は per-byte ループ (FSettings / FEntitlementRegistry と同じ StrEq pattern)。
+//     比較は per-byte ループ (CSettings / CEntitlementRegistry と同じ StrEq pattern)。
 //   ・**`DrawerFn` は raw 関数ポインタ + `FPropertyContext`**: ACS は std::function 禁止。
 //     `FPropertyContext` は POD 構造体で、必要な情報 (data ポインタ / 表示名 / tooltip /
 //     min/max / enum labels / out_changed) を 1 つにまとめて渡す。引数増減で
 //     `DrawerFn` シグネチャが変わらないように構造体束ねを採用。
 //   ・**bundled drawer 群を `Init()` で自動登録**: "F32Slider" / "Vec2Drag" /
 //     "Vec3Drag" / "Vec4Drag" / "ColorRGB" / "ColorRGBA" / "AssetPath" /
-//     "EnumCombo" / "TextInput" の 9 種。FInspectorPanel の hardcode switch と
+//     "EnumCombo" / "TextInput" の 9 種。AInspectorPanel の hardcode switch と
 //     重複するが、こちらは registry 経由で書き換え / 拡張可能。
 //   ・**`AssetPath` の drag-drop payload id は "ASSET_PATH"** (リテラル定数)。
-//     FAssetBrowser panel が drag-source 側で同 id の payload を SetDragDrop
+//     CAssetBrowser panel が drag-source 側で同 id の payload を SetDragDrop
 //     することで、textbox に drop すると path が書き戻される。
 //   ・**非コピー / 非ムーブ**: 内部 `TArray<FEntry>` の所有を曖昧にしない (ACS 規約)。
 //   ・**全 noexcept / STL 不使用 / ImGui include 可**: ACS 規約に準拠。
@@ -87197,13 +88206,13 @@ private:
 //   ・**per-game カスタム drawer**: ゲーム固有型 (`class FHealth`, `class FWeaponSlot`,
 //     `class FStatBlock`) を inspector 上で美麗表示する目的。ゲーム側コードが
 //     `RegisterDrawer("Health", ...)` を起動時に呼ぶだけで反映される。
-//   ・**`NodeIdSelector`**: FHierarchyPanel と連動して "現在の選択を取得" or
-//     "Selectable な node 一覧から Combo で選択" する drawer。FSelectionService
+//   ・**`NodeIdSelector`**: AHierarchyPanel と連動して "現在の選択を取得" or
+//     "Selectable な node 一覧から Combo で選択" する drawer。CSelectionService
 //     を参照するため drawer 側 closure (= `FPropertyContext` に user_data を
 //     拡張) が必要になる予定。
 //
 // 範囲外:
-//   ・FInspectorPanel との実統合 (= EFieldKind hardcode switch の置き換え)。
+//   ・AInspectorPanel との実統合 (= EFieldKind hardcode switch の置き換え)。
 //   ・drawer の優先度 / 上書きルール (現状は **後勝ち**: 同 name を Register
 //     したら旧 fn を置き換える)。
 //   ・drawer 描画失敗時の例外伝播 (ACS は no-exception、drawer 内で完結)。
@@ -87259,32 +88268,32 @@ using DrawerFn = void (*)(const FPropertyContext& ctx) noexcept;
  * type_name (const char* literal) → DrawerFn のカスタム field drawer 登録レジストリ。
  *
  * @details
- * FInspectorPanel の hardcode switch を超える「ゲーム固有 / エディタ拡張型」の field
+ * AInspectorPanel の hardcode switch を超える「ゲーム固有 / エディタ拡張型」の field
  * 表示を後付けで追加できる拡張点。type_name は登録元が永続所有するリテラル文字列を
  * 想定し本 registry はコピー所有しない (比較は per-byte ループ)。Init() で bundled
  * drawer 9 種 ("F32Slider" / "Vec2Drag" / "Vec3Drag" / "Vec4Drag" / "ColorRGB" /
  * "ColorRGBA" / "AssetPath" / "EnumCombo" / "TextInput") を自動登録する。内部
  * TArray<FEntry> の所有を曖昧にしないため非コピー・非ムーブ。
  */
-class FPropertyDrawerRegistry {
+class CPropertyDrawerRegistry {
 public:
     /** 空状態で構築する (bundled drawer の登録は Init で行う)。 */
-    FPropertyDrawerRegistry() noexcept = default;
+    CPropertyDrawerRegistry() noexcept = default;
 
     /** 破棄する (drawer は関数ポインタ参照のみで所有しない)。 */
-    ~FPropertyDrawerRegistry() noexcept = default;
+    ~CPropertyDrawerRegistry() noexcept = default;
 
     /** コピー禁止 (内部 TArray<FEntry> の所有を曖昧にしないため)。 */
-    FPropertyDrawerRegistry(const FPropertyDrawerRegistry&)            = delete;
+    CPropertyDrawerRegistry(const CPropertyDrawerRegistry&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPropertyDrawerRegistry& operator=(const FPropertyDrawerRegistry&) = delete;
+    CPropertyDrawerRegistry& operator=(const CPropertyDrawerRegistry&) = delete;
 
     /** ムーブ禁止。 */
-    FPropertyDrawerRegistry(FPropertyDrawerRegistry&&)                 = delete;
+    CPropertyDrawerRegistry(CPropertyDrawerRegistry&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPropertyDrawerRegistry& operator=(FPropertyDrawerRegistry&&)      = delete;
+    CPropertyDrawerRegistry& operator=(CPropertyDrawerRegistry&&)      = delete;
 
     /**
      * 既存登録を全て破棄したうえで bundled drawer 9 種を自動登録する。
@@ -87389,24 +88398,26 @@ private:
     TArray<FEntry> m_Entries;
 };
 
+using FPropertyDrawerRegistry = CPropertyDrawerRegistry;
+
 } // namespace acs::game::editor_core
 
 // ===================== gameframework/tools/editor_core/UndoStack.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FUndoStack
+// GameFramework Tools — editor_core / CUndoStack
 //
 // 役割:
-//   全エディタが共有する undo / redo の中央ハブ。FEditorCommand 派生インスタンス
+//   全エディタが共有する undo / redo の中央ハブ。AEditorCommand 派生インスタンス
 //   を所有して、Push で 1 操作分を実行・登録し、Undo / Redo でユーザ操作を巻き
 //   戻し / やり直しする。連続 drag 等の merge も Push 時にこちらで判定する。
 //
 // 使い方:
-//   acs::game::editor_core::FUndoStack stack;
+//   acs::game::editor_core::CUndoStack stack;
 //   stack.Init(64);
 //
 //   // 1 操作: Push に所有権を渡す
 //   auto command =
-//       acs::MakeUnique<acs::game::editor_core::FMoveNodeCommand>(
+//       acs::MakeUnique<acs::game::editor_core::AMoveNodeCommand>(
 //           &node, old_pos, new_pos);
 //   stack.Push(acs::Move(command));
 //
@@ -87415,17 +88426,17 @@ private:
 //   }
 //
 // 設計選択:
-//   ・**TUniquePtr<FEditorCommand> を 2 本の TArray に積む**: undo / redo の
+//   ・**TUniquePtr<AEditorCommand> を 2 本の TArray に積む**: undo / redo の
 //     LIFO スタック。基底ポインタなので polymorphic dispatch (virtual Execute /
 //     Undo / Description) で派生型を意識せず巻き戻せる。
 //   ・**Push で所有権を奪う**: TUniquePtr の確保元を保ったまま Move する経路を
 //     標準とし、既定アロケータ由来の既存コード向けに raw pointer 経路も残す。
 //     m_UndoStack に TUniquePtr のまま積むため、代入 / pop でも生成時の確保元へ
 //     自動的に返される。
-//   ・**Push 内で Execute も実行**: GUI コードが「new FEditorCommand → Push」
+//   ・**Push 内で Execute も実行**: GUI コードが「new AEditorCommand → Push」
 //     しか書かなくて済む (= Execute 忘れを構造的に防ぐ)。Redo 経路でも
-//     FEditorCommand::Execute() を呼ぶので、Execute は何度呼ばれても idempotent
-//     な実装にしておく必要がある (Undo を挟まずに連続 Execute は FUndoStack 側
+//     AEditorCommand::Execute() を呼ぶので、Execute は何度呼ばれても idempotent
+//     な実装にしておく必要がある (Undo を挟まずに連続 Execute は CUndoStack 側
 //     で排除済み)。
 //   ・**Push は redo stack をクリア**: Undo 後に new edit が来た時点で
 //     "redo の未来" は破棄される (Git の reset --hard 相当)。branched history
@@ -87453,15 +88464,13 @@ private:
 //   ・branched history (git のような分岐 undo): Push で redo stack を破棄せず
 //     branch ツリーに移し替える。
 //   ・serialization (.acsundo): undo stack 内容をテキスト or バイナリで save。
-//     FEditorCommand 派生に virtual Serialize / Deserialize を追加することで
+//     AEditorCommand 派生に virtual Serialize / Deserialize を追加することで
 //     対応する。
 //   ・"Undo to here" (history list で n 個まとめて undo): n 個 pop を 1 個ずつ
 //     回せば実現できるので公開 API 不要。
 
 
 namespace acs::game::editor_core {
-
-class FEditorCommand;
 
 /**
  * Push / Undo / Redo 後の副反応を editor 側へ通知するコールバック型。
@@ -87478,36 +88487,36 @@ class FEditorCommand;
  * @param is_redo Redo 経路なら true、Push / Undo 経路は false。
  */
 using CommandExecutedCallback =
-    void (*)(void* user, const class FEditorCommand* cmd, bool is_redo) noexcept;
+    void (*)(void* user, const AEditorCommand* cmd, bool is_redo) noexcept;
 
 /**
  * 全エディタが共有する undo / redo の中央ハブ。
  *
  * @details
- * FEditorCommand 派生インスタンスを 2 本の LIFO スタック (undo / redo) に
+ * AEditorCommand 派生インスタンスを 2 本の LIFO スタック (undo / redo) に
  * TUniquePtr で所有し、Push で 1 操作分を実行・登録、Undo / Redo で巻き戻し /
  * やり直しする。連続 drag 等の merge も Push 時にここで判定する。非コピー /
  * 非ムーブ、全 noexcept、STL 不使用 (acs::TArray + acs::TUniquePtr)。
  */
-class FUndoStack {
+class CUndoStack {
 public:
     /** 空のスタックを構築する (上限は default 64、Init で再設定可)。 */
-    FUndoStack() noexcept  = default;
+    CUndoStack() noexcept  = default;
 
     /** 破棄する (全 cmd は TUniquePtr の dtor で自動 delete される)。 */
-    ~FUndoStack() noexcept = default;
+    ~CUndoStack() noexcept = default;
 
     /** コピー禁止 (command の所有権を単独で持つため)。 */
-    FUndoStack(const FUndoStack&)            = delete;
+    CUndoStack(const CUndoStack&)            = delete;
 
     /** コピー代入も禁止。 */
-    FUndoStack& operator=(const FUndoStack&) = delete;
+    CUndoStack& operator=(const CUndoStack&) = delete;
 
     /** ムーブ禁止。 */
-    FUndoStack(FUndoStack&&)                 = delete;
+    CUndoStack(CUndoStack&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FUndoStack& operator=(FUndoStack&&)      = delete;
+    CUndoStack& operator=(CUndoStack&&)      = delete;
 
     /**
      * 履歴を空にして上限を設定する (多重 Init 安全)。
@@ -87532,7 +88541,7 @@ public:
      * 最後に callback を (cb_user, スタック top, is_redo=false) で発火する。
      * @param cmd 積む command (所有権が移る。nullptr は no-op)。
      */
-    void Push(class FEditorCommand* cmd) noexcept;
+    void Push(AEditorCommand* cmd) noexcept;
 
     /**
      * 解放元を保持した command を 1 件積む。
@@ -87541,7 +88550,7 @@ public:
      * このオーバーロードへ Move することで生成時の解放元を維持できる。
      * @param command 積む command。所有権が移る。空なら no-op。
      */
-    void Push(TUniquePtr<FEditorCommand> command) noexcept;
+    void Push(TUniquePtr<AEditorCommand> command) noexcept;
 
     /**
      * 生ポインタとその確保元を明示して command を 1 件積む。
@@ -87549,7 +88558,7 @@ public:
      * @param command 積む command。所有権が移る。nullptr は no-op。
      * @param allocator command を解放するアロケータ。
      */
-    void Push(class FEditorCommand* command, FAllocator& allocator) noexcept;
+    void Push(AEditorCommand* command, IAllocator& allocator) noexcept;
 
     /**
      * undo を 1 件巻き戻す。
@@ -87639,10 +88648,10 @@ private:
     void DropOldestIfOverflow() noexcept;
 
     /** undo の LIFO スタック (command の所有権を持つ)。 */
-    TArray<TUniquePtr<FEditorCommand>> m_UndoStack {};
+    TArray<TUniquePtr<AEditorCommand>> m_UndoStack {};
 
     /** redo の LIFO スタック (Push のたびに Clear される)。 */
-    TArray<TUniquePtr<FEditorCommand>> m_RedoStack {};
+    TArray<TUniquePtr<AEditorCommand>> m_RedoStack {};
 
     /** undo stack に積める件数の上限。 */
     u32                             m_MaxHistory = 64;
@@ -87654,16 +88663,18 @@ private:
     void*                           m_CbUser     = nullptr;
 };
 
+using FUndoStack = CUndoStack;
+
 } // namespace acs::game::editor_core
 
 // ===================== gameframework/tools/fontedit/FontEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — fontedit / FFontEditorPanel
+// GameFramework Pillar — fontedit / AFontEditorPanel
 //
 // 複数 font face の **fallback chain** (= プライマリ + ラテン補助 + CJK 補助 +
 // emoji/symbol 補助 …) を ImGui ベースで対話的に編集 + プレビューする
-// **エディタパネル**。`editor_core::FEditorPanel` 基底に載せ、
-// `FEditorWorkspace::RegisterPanel(&panel)` 1 行で workspace に統合できる形にする。
+// **エディタパネル**。`editor_core::AEditorPanel` 基底に載せ、
+// `CEditorWorkspace::RegisterPanel(&panel)` 1 行で workspace に統合できる形にする。
 //
 // 役割:
 //   ・font face リスト (= fallback 優先順位付き) の add / remove / reorder
@@ -87687,9 +88698,9 @@ private:
 //      だけ確認できる" 簡易プレビューに留める。
 //
 // 使い方 (典型):
-//   FFontEditorPanel panel;
+//   AFontEditorPanel panel;
 //   panel.Init();
-//   workspace.RegisterPanel(&panel);   // FEditorPanel として登録
+//   workspace.RegisterPanel(&panel);   // AEditorPanel として登録
 //
 //   FFontFaceInfo primary{};
 //   primary.file_path      = L"assets/fonts/NotoSansJP-Regular.otf";
@@ -87711,7 +88722,7 @@ private:
 //   panel.Shutdown();
 //
 // 設計選択 (FontEditor):
-//   ・**FEditorPanel 継承**: 共通基盤を dogfood (FSpriteAtlasEditorPanel と
+//   ・**AEditorPanel 継承**: 共通基盤を dogfood (ASpriteAtlasEditorPanel と
 //     同形)。Title = "Font Editor"、
 //     DrawUI / OnInit を override。OnInit では基底実装を必ず呼ぶ。
 //   ・**FFontFaceInfo は POD**: `wchar_t* file_path` (Windows API 由来 path、
@@ -87728,7 +88739,7 @@ private:
 //     いう意図情報を別途持ちたいケース (= 永続化、UI 表示) があるので、struct
 //     に索引フィールドを残す。Add/Move のたびに本 panel が `fallback_index = i`
 //     を再書き込みする (= TArray index と同期)。
-//   ・**選択 face は単一 (i32)**、-1 = 未選択。FSpriteAtlasEditorPanel と同形。
+//   ・**選択 face は単一 (i32)**、-1 = 未選択。ASpriteAtlasEditorPanel と同形。
 //   ・**Preview text は `char[256]`**: ImGui::InputText に渡す固定バッファ。
 //     256 byte ≒ 85 utf-8 漢字相当 (3 byte/char) で、preview 用途には十分。
 //     ヘッダ末尾の kPreviewTextCapacity で定義。
@@ -87743,7 +88754,7 @@ private:
 //     十分)。kMaxFontFaces で定義。
 //   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。
-//   ・**ImGui ヘッダは .cpp 限定**: FParticleEditorPanel / FSpriteAtlasEditorPanel
+//   ・**ImGui ヘッダは .cpp 限定**: AParticleEditorPanel / ASpriteAtlasEditorPanel
 //     と同形 (header から imgui.h を出さない)。
 //
 // 範囲外:
@@ -87754,11 +88765,6 @@ private:
 //   ・undo / redo
 //   ・font 設定の .acsfont serializer
 
-
-namespace acs::game::editor_core {
-// FEditorWorkspace は EditorPanel.h から forward-decl 経由で受ける。
-class FEditorWorkspace;
-} // namespace acs::game::editor_core
 
 namespace acs::game::fontedit {
 
@@ -87796,30 +88802,30 @@ struct FFontFaceInfo {
  * 複数 font face の fallback chain を ImGui で編集 + プレビューするエディタパネル。
  *
  * @details
- * editor_core::FEditorPanel 基底に載せ、FEditorWorkspace::RegisterPanel 1 行で
+ * editor_core::AEditorPanel 基底に載せ、CEditorWorkspace::RegisterPanel 1 行で
  * workspace に統合できる。font face リスト (= fallback 優先順位付き) の add /
  * remove / reorder と各 face のメタ情報編集、任意 utf-8 テキストの擬似プレビュー、
  * 0x20-0xFF の char range グリッド描画を担う。非コピー / 非ムーブ / 全 noexcept。
  */
-class FFontEditorPanel : public acs::game::editor_core::FEditorPanel {
+class AFontEditorPanel : public acs::game::editor_core::AEditorPanel {
 public:
     /** 空のパネルを構築する (state は Init で初期化)。 */
-    FFontEditorPanel() noexcept = default;
+    AFontEditorPanel() noexcept = default;
 
-    /** 派生関係なし。基底 FEditorPanel を正しく破棄するデストラクタ。 */
-    ~FFontEditorPanel() noexcept override = default;
+    /** 派生関係なし。基底 AEditorPanel を正しく破棄するデストラクタ。 */
+    ~AFontEditorPanel() noexcept override = default;
 
     /** コピー禁止 (内部 TArray + 静的 preview バッファの所有を曖昧にしないため)。 */
-    FFontEditorPanel(const FFontEditorPanel&)            = delete;
+    AFontEditorPanel(const AFontEditorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FFontEditorPanel& operator=(const FFontEditorPanel&) = delete;
+    AFontEditorPanel& operator=(const AFontEditorPanel&) = delete;
 
     /** ムーブ禁止 (他 panel 群と同形、ACS 規約)。 */
-    FFontEditorPanel(FFontEditorPanel&&)                 = delete;
+    AFontEditorPanel(AFontEditorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FFontEditorPanel& operator=(FFontEditorPanel&&)      = delete;
+    AFontEditorPanel& operator=(AFontEditorPanel&&)      = delete;
 
     /**
      * 内部 state を初期状態にリセットする (多重呼び出し = 完全リセット)。
@@ -87944,9 +88950,9 @@ public:
      * Workspace 登録時に呼ばれる初期化フック。
      *
      * @details 基底実装で Workspace ポインタを保存し、本クラスでは preview バッファの終端 0 を確定する。
-     * @param workspace 登録先の FEditorWorkspace。
+     * @param workspace 登録先の CEditorWorkspace。
      */
-    void OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept override;
+    void OnInit(acs::game::editor_core::CEditorWorkspace& workspace) noexcept override;
 
     /**
      * 毎フレームの UI 描画フック。
@@ -87989,6 +88995,8 @@ private:
     f32 m_PreviewSize = 24.0f;
 };
 
+using FFontEditorPanel = AFontEditorPanel;
+
 } // namespace acs::game::fontedit
 
 // ===================== gameframework/tools/fxedit/FxeditSerializer.h =====================
@@ -88010,13 +89018,13 @@ private:
 //   defs[0].color_end         = {1.0f, 0.2f, 0.0f};
 //   const char* names[]       = {"fire", "smoke"};
 //
-//   acs::game::fxedit::FFxeditSerializer::Save(L"data/effects/fireball.fxedit",
+//   acs::game::fxedit::CFxeditSerializer::Save(L"data/effects/fireball.fxedit",
 //                                              defs, names, 2);
 //
 //   // ロード側:
 //   acs::game::FParticleEmitterDef loaded[16] = {};
 //   char                          name_buf[16 * 32] = {};
-//   auto r = acs::game::fxedit::FFxeditSerializer::Load(
+//   auto r = acs::game::fxedit::CFxeditSerializer::Load(
 //       L"data/effects/fireball.fxedit", loaded, name_buf, sizeof(name_buf), 16);
 //   if (r.IsOk()) { u32 n = r.Value(); /* n 個ロード成功 */ }
 //
@@ -88058,7 +89066,7 @@ private:
 //     version をインクリメントし、後方互換ローダが分岐する。
 //   ・**非コピー・非ムーブ static class**: state を持たないため。
 //   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 規約。
-//   ・**file I/O は acs::FFileSystem に委譲**: `<stdio.h>` 等の C 標準 I/O を
+//   ・**file I/O は acs::CFileSystem に委譲**: `<stdio.h>` 等の C 標準 I/O を
 //     直接呼ばず、Win32 CreateFileW ベースの platform/FileSystem を使うことで
 //     wchar_t パスや GetLastError 由来エラーが一貫して扱える。
 //   ・**name buffer は呼び出し側持ち**: 内部に `TArray<char>` を持つ設計も
@@ -88136,25 +89144,25 @@ struct FFxeditSerializeResult {
  * コピー・ムーブを禁止しておく (誤って実体化されるのを防ぐ)。emitter 群を人間可読 /
  * git diff 可能なテキスト (`ACS_FXEDIT` v1) で書き出し・復元する。
  */
-class FFxeditSerializer {
+class CFxeditSerializer {
 public:
     /** 構築禁止 (state を持たない static ユーティリティのため)。 */
-    FFxeditSerializer()                                   = delete;
+    CFxeditSerializer()                                   = delete;
 
     /** 破棄禁止 (実体化しないため)。 */
-    ~FFxeditSerializer()                                  = delete;
+    ~CFxeditSerializer()                                  = delete;
 
     /** コピー禁止。 */
-    FFxeditSerializer(const FFxeditSerializer&)            = delete;
+    CFxeditSerializer(const CFxeditSerializer&)            = delete;
 
     /** コピー代入も禁止。 */
-    FFxeditSerializer& operator=(const FFxeditSerializer&) = delete;
+    CFxeditSerializer& operator=(const CFxeditSerializer&) = delete;
 
     /** ムーブ禁止。 */
-    FFxeditSerializer(FFxeditSerializer&&)                 = delete;
+    CFxeditSerializer(CFxeditSerializer&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FFxeditSerializer& operator=(FFxeditSerializer&&)      = delete;
+    CFxeditSerializer& operator=(CFxeditSerializer&&)      = delete;
 
     /** 先頭行に必ず付ける magic 文字列。 */
     static constexpr const char* kMagic            = "ACS_FXEDIT";
@@ -88229,7 +89237,7 @@ public:
         /** 読み込み対象が存在しない。 */
         kSub_FileNotFound      = 706,
 
-        /** 下位 FFileSystem からのエラー。 */
+        /** 下位 CFileSystem からのエラー。 */
         kSub_IOFailure         = 707,
 
         /** checked parser の schema/value 検証失敗。 */
@@ -88354,6 +89362,8 @@ public:
     static const char* SkipWhitespace(const char* p) noexcept;
 };
 
+using FFxeditSerializer = CFxeditSerializer;
+
 } // namespace fxedit
 } // namespace acs::game
 
@@ -88361,7 +89371,7 @@ public:
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar — in-game ParticleEditor
 //
-// `FParticleEffectSystem` (gameframework/ParticleEffectSystem.h) の emitter
+// `CParticleEffectSystem` (gameframework/ParticleEffectSystem.h) の emitter
 // パラメータを ImGui で実機編集するためのツール用パネル。Editor / DevTool
 // ビルドからのみ使われる前提で、retail ビルドからは #ifdef で消す想定。
 //
@@ -88379,7 +89389,7 @@ public:
 //
 // 設計選択:
 //   ・**非コピー / 非ムーブ**: 内部 `TArray<FParticleEmitterDef>` の所有を
-//     曖昧にしない。ACS の他 system (FInspectorSeam, FParticleEffectSystem 等)
+//     曖昧にしない。ACS の他 system (CInspectorSeam, CParticleEffectSystem 等)
 //     と同じ規約。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range 等を no-op /
 //     null で表現。
@@ -88388,7 +89398,7 @@ public:
 //     漏らさず、ヘッダだけ見ても include order を意識せずに済むようにする。
 //   ・**SaveCallback / LoadCallback は raw function pointer + void* user**:
 //     STL の std::function を使えないため、C スタイルのコールバック規約に
-//     揃える。InputManager / FAllocator など ACS 既存の callback パターン
+//     揃える。InputManager / IAllocator など ACS 既存の callback パターン
 //     (`acs/src/platform/Input.h` のキャプチャ関数等) と同形。
 //   ・**SelectedIndex は i32**: -1 を「未選択」シグネルとして使うため、
 //     u32 ではなく i32 を採用。`u32 EmitterCount()` とは型が違うが、
@@ -88413,7 +89423,7 @@ public:
 //   └─────────────────────────────────────────────────────────────┘
 //
 // 注意:
-//   ・`FParticleEffectSystem::CreateEmitter()` 等の真の `FEmitterHandle` 管理
+//   ・`CParticleEffectSystem::CreateEmitter()` 等の真の `FEmitterHandle` 管理
 //     とは独立 (editor 内では index 管理)。これは
 //       「編集中に handle を持ち続けると、emitter 削除のたびに gen が変わって
 //        editor 側の参照が壊れる」
@@ -88434,12 +89444,12 @@ namespace acs::game::fxedit {
  * ImGui ベースの emitter property editor パネル。
  *
  * @details
- * `FParticleEffectSystem` の emitter パラメータ (FParticleEmitterDef) を実機編集する
- * editor_core::FEditorPanel 派生のツールパネル。emitter list の編集 (Add/Remove/
+ * `CParticleEffectSystem` の emitter パラメータ (FParticleEmitterDef) を実機編集する
+ * editor_core::AEditorPanel 派生のツールパネル。emitter list の編集 (Add/Remove/
  * Duplicate) のみを担い、emitter handle や particle pool への反映と Save/Load の実体は
  * 呼び出し側 / callback に委譲する。非コピー・非ムーブ・全 noexcept・STL 不使用。
  */
-class FParticleEditorPanel : public ::acs::game::editor_core::FEditorPanel {
+class AParticleEditorPanel : public ::acs::game::editor_core::AEditorPanel {
 public:
     /**
      * Save callback 型。
@@ -88458,22 +89468,22 @@ public:
     using LoadCallback = void (*)(void* user, FParticleEmitterDef* defs, u32& inout_count) noexcept;
 
     /** 空のパネルを構築する (emitter list は空、未選択)。 */
-    FParticleEditorPanel() noexcept = default;
+    AParticleEditorPanel() noexcept = default;
 
     /** 破棄する (内部 TArray が emitter list を解放)。 */
-    ~FParticleEditorPanel() noexcept = default;
+    ~AParticleEditorPanel() noexcept = default;
 
     /** コピー禁止 (内部 TArray の所有を曖昧にしないため)。 */
-    FParticleEditorPanel(const FParticleEditorPanel&)            = delete;
+    AParticleEditorPanel(const AParticleEditorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FParticleEditorPanel& operator=(const FParticleEditorPanel&) = delete;
+    AParticleEditorPanel& operator=(const AParticleEditorPanel&) = delete;
 
     /** ムーブ禁止。 */
-    FParticleEditorPanel(FParticleEditorPanel&&)                 = delete;
+    AParticleEditorPanel(AParticleEditorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FParticleEditorPanel& operator=(FParticleEditorPanel&&)      = delete;
+    AParticleEditorPanel& operator=(AParticleEditorPanel&&)      = delete;
 
     /**
      * emitter list を空に戻し selection を解除する (完全リセット)。
@@ -88492,26 +89502,26 @@ public:
     /**
      * read-only の target system を設定する (active particle 数表示用)。
      *
-     * @param system 紐付ける FParticleEffectSystem (nullptr で解除)。
+     * @param system 紐付ける CParticleEffectSystem (nullptr で解除)。
      */
-    void SetTargetSystem(class FParticleEffectSystem* system) noexcept { m_TargetSystem = system; }
+    void SetTargetSystem(CParticleEffectSystem* system) noexcept { m_TargetSystem = system; }
 
     /**
      * 現在の target system を返す。
      *
-     * @return 設定済みの FParticleEffectSystem (未設定なら nullptr)。
+     * @return 設定済みの CParticleEffectSystem (未設定なら nullptr)。
      */
-    class FParticleEffectSystem* TargetSystem() const noexcept { return m_TargetSystem; }
+    CParticleEffectSystem* TargetSystem() const noexcept { return m_TargetSystem; }
 
     /**
-     * パネルのタイトルを返す (FEditorPanel override)。
+     * パネルのタイトルを返す (AEditorPanel override)。
      *
      * @return "Particle Editor"。
      */
     const char* Title() const noexcept override { return "Particle Editor"; }
 
     /**
-     * メイン ImGui window を描画する (FEditorPanel override)。
+     * メイン ImGui window を描画する (AEditorPanel override)。
      *
      * @details
      * `Begin("Particle Editor")` から始まる単一 window で、左に emitter list、右に
@@ -88644,8 +89654,10 @@ private:
     void*         m_LoadUser    = nullptr;
 
     /** read-only target (active particle count 表示用、nullptr で "(no system attached)")。 */
-    class FParticleEffectSystem* m_TargetSystem = nullptr;
+    CParticleEffectSystem* m_TargetSystem = nullptr;
 };
+
+using FParticleEditorPanel = AParticleEditorPanel;
 
 } // namespace acs::game::fxedit
 
@@ -88672,14 +89684,14 @@ private:
 //     (= 古い emitter を Destroy → 新 def で Create) ので、UI 上の値変更が
 //     即座に preview に反映される。
 //
-// 設計選択 (FDebugOverlay と同 Pillar の延長線上):
-//   ・**FParticleEffectSystem を所有しない**: preview はあくまで「外部の
-//     FParticleEffectSystem 上に 1 個 emitter を立てる」スタイル。テスト時には
+// 設計選択 (CDebugOverlay と同 Pillar の延長線上):
+//   ・**CParticleEffectSystem を所有しない**: preview はあくまで「外部の
+//     CParticleEffectSystem 上に 1 個 emitter を立てる」スタイル。テスト時には
 //     fake system を渡せるし、in-game ツール時には本番 system を共有できる。
 //   ・**def の copy を内部保持**: 編集中 def を caller のポインタ経由でも、
 //     内部 snapshot 経由でも参照できる。`RecreatePreviewEmitter(system, def)`
 //     に渡された `def` を copy し、`CreateEmitter(copy, spawn_pos)` で新規 instance 化。
-//   ・**frame budget 60-frame ring**: FDebugOverlay と同じ循環バッファ方式
+//   ・**frame budget 60-frame ring**: CDebugOverlay と同じ循環バッファ方式
 //     (容量固定 / push 不可時は上書き)。`GraphFps()` は履歴の算術平均を返す。
 //   ・**非コピー・非ムーブ**: 内部に `FEmitterHandle` (= system 内 slot を指す
 //     handle) を保持するため、ムーブで複製されると DestroyEmitter のタイミングが
@@ -88691,7 +89703,7 @@ private:
 // 範囲外:
 //   ・curve editor (color/size の時間カーブ編集)
 //   ・preset library (json/tdat 保存・読み込み)
-//   ・GPU sprite preview (実際の FSpriteBatch 統合)
+//   ・GPU sprite preview (実際の CSpriteBatch 統合)
 //   ・複数 emitter の同時 preview (現状 1 個固定)
 
 
@@ -88701,32 +89713,32 @@ namespace acs::game::fxedit {
  * 編集中 emitter の preview canvas + stats を提供する in-game ツール。
  *
  * @details
- * 外部の FParticleEffectSystem 上に preview emitter を 1 個立て、ImGui sub-window で
+ * 外部の CParticleEffectSystem 上に preview emitter を 1 個立て、ImGui sub-window で
  * Burst ボタン・active particle 数・pool 使用率・spawn 座標・auto-emit toggle・
  * frame budget (平均 fps) を表示する。編集中の FParticleEmitterDef が変わったら
  * RecreatePreviewEmitter で即時再生成し、UI 上の値変更を preview に反映する。
- * FParticleEffectSystem は所有せず、内部に FEmitterHandle と def snapshot、
+ * CParticleEffectSystem は所有せず、内部に FEmitterHandle と def snapshot、
  * 60-frame の fps 履歴 ring を保持する non-copy / non-move 型。
  */
-class FParticleEditorPreview {
+class CParticleEditorPreview {
 public:
     /** 空状態で構築する (リソースは Init で確保)。 */
-    FParticleEditorPreview() noexcept = default;
+    CParticleEditorPreview() noexcept = default;
 
     /** 破棄する (preview emitter の Destroy は行わない。Shutdown 参照)。 */
-    ~FParticleEditorPreview() noexcept = default;
+    ~CParticleEditorPreview() noexcept = default;
 
     /** コピー禁止 (FEmitterHandle / 履歴バッファの所有権を曖昧にしないため)。 */
-    FParticleEditorPreview(const FParticleEditorPreview&)            = delete;
+    CParticleEditorPreview(const CParticleEditorPreview&)            = delete;
 
     /** コピー代入も禁止。 */
-    FParticleEditorPreview& operator=(const FParticleEditorPreview&) = delete;
+    CParticleEditorPreview& operator=(const CParticleEditorPreview&) = delete;
 
     /** ムーブ禁止 (DestroyEmitter のタイミングを明確に保つため)。 */
-    FParticleEditorPreview(FParticleEditorPreview&&)                 = delete;
+    CParticleEditorPreview(CParticleEditorPreview&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FParticleEditorPreview& operator=(FParticleEditorPreview&&)      = delete;
+    CParticleEditorPreview& operator=(CParticleEditorPreview&&)      = delete;
 
     /**
      * frame budget ring (60 frame) を事前確保し、内部状態を初期化する。
@@ -88758,7 +89770,7 @@ public:
      * @param dt 前フレームからの経過秒。
      * @param system stats 取得元のパーティクルシステム。
      */
-    void Tick(f32 dt, class FParticleEffectSystem& system) noexcept;
+    void Tick(f32 dt, CParticleEffectSystem& system) noexcept;
 
     /**
      * preview window を ImGui で描画する。
@@ -88770,7 +89782,7 @@ public:
      * @param system 操作対象のパーティクルシステム。
      * @param def 表示・再生成に使う編集中の emitter 定義 (nullptr 可)。
      */
-    void DrawUI(class FParticleEffectSystem& system, const struct FParticleEmitterDef* def) noexcept;
+    void DrawUI(CParticleEffectSystem& system, const struct FParticleEmitterDef* def) noexcept;
 
     /**
      * 編集中 def で preview emitter を即時再生成する。
@@ -88782,7 +89794,7 @@ public:
      * @param system emitter を生成するパーティクルシステム。
      * @param def 再生成元の emitter 定義 (nullptr なら no-op)。
      */
-    void RecreatePreviewEmitter(class FParticleEffectSystem& system,
+    void RecreatePreviewEmitter(CParticleEffectSystem& system,
                                 const struct FParticleEmitterDef* def) noexcept;
 
     /**
@@ -88791,7 +89803,7 @@ public:
      * @details handle が invalid のときは no-op (まだ Recreate していないケース)。
      * @param system Burst を発行するパーティクルシステム。
      */
-    void TriggerBurst(class FParticleEffectSystem& system) noexcept;
+    void TriggerBurst(CParticleEffectSystem& system) noexcept;
 
     /**
      * preview emitter を破棄し、system の particle pool を全消去する。
@@ -88801,7 +89813,7 @@ public:
      * invalid 化される (次回 Recreate で再生成が必要)。
      * @param system 破棄・全消去の対象パーティクルシステム。
      */
-    void StopAll(class FParticleEffectSystem& system) noexcept;
+    void StopAll(CParticleEffectSystem& system) noexcept;
 
     /**
      * 現在の spawn 座標 (preview canvas 上の出生座標) を返す。
@@ -88830,7 +89842,7 @@ public:
     /**
      * pool 容量を返す。
      *
-     * @return pool 容量 (= FParticleEffectSystem::AllParticles の out_count)。
+     * @return pool 容量 (= CParticleEffectSystem::AllParticles の out_count)。
      */
     u32  MaxParticleCount()    const noexcept { return m_LastCapacity; }
 
@@ -88859,7 +89871,7 @@ public:
     f32  GraphFps() const noexcept;
 
 private:
-    /** frame budget ring buffer の容量 (FDebugOverlay と揃える 60 frame)。 */
+    /** frame budget ring buffer の容量 (CDebugOverlay と揃える 60 frame)。 */
     static constexpr u32 kFpsHistoryCap = 60u;
 
     /** 編集中 emitter (system 上の 1 instance) を指す handle。 */
@@ -88883,7 +89895,7 @@ private:
     /** 直近 Tick で記録した pool 容量。 */
     u32   m_LastCapacity     = 0u;
 
-    /** 直近 60 frame の fps 履歴 ring (FDebugOverlay と同パターン)。 */
+    /** 直近 60 frame の fps 履歴 ring (CDebugOverlay と同パターン)。 */
     TArray<f32> m_FpsHistory;
 
     /** fps 履歴 ring の書き込み位置。 */
@@ -88893,50 +89905,52 @@ private:
     bool       m_bFpsFilled = false;
 };
 
+using FParticleEditorPreview = CParticleEditorPreview;
+
 } // namespace acs::game::fxedit
 
 // ===================== gameframework/tools/inspector/EditorToolbar.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — SceneInspector / FEditorToolbar
+// GameFramework Pillar — SceneInspector / AEditorToolbar
 //
 // editor ウィンドウ上端に表示するツールバー。再生制御 (Play / Pause / Step)、
-// Scene 保存、FDebugOverlay 表示切替を 1 行に並べる。FSelectionService と並ぶ
-// 「editor の中央 UI 部品」で、FHierarchyPanel / FInspectorPanel と同じ親
+// Scene 保存、CDebugOverlay 表示切替を 1 行に並べる。CSelectionService と並ぶ
+// 「editor の中央 UI 部品」で、AHierarchyPanel / AInspectorPanel と同じ親
 // ウィンドウから DrawUI を呼ばれる想定。
 //
 // 使い方:
-//   FEditorToolbar toolbar;
+//   AEditorToolbar toolbar;
 //   toolbar.Init();
 //   toolbar.SetOnSaveSceneCallback(&SaveSceneToDisk, &my_editor);
 //
 //   // 毎フレーム:
 //   toolbar.DrawUI(game);
-//   // toolbar が内部で FGame::SetTimeScale(0/1) を切り替えている。
+//   // toolbar が内部で CGame::SetTimeScale(0/1) を切り替えている。
 //
 // 設計選択 (Pillar SceneInspector):
-//   ・**Play / Pause / Step / Save / FDebugOverlay の 5 アクション**: 最低限の
+//   ・**Play / Pause / Step / Save / CDebugOverlay の 5 アクション**: 最低限の
 //     editor インタラクション集合。Unity / Godot エディタの中央バーから
 //     "再生制御 + 保存 + デバッグ表示" だけ抜き出した形。
 //   ・**状態は EEditorState で 1 個保持**: Playing / Paused / Stepping の 3 値。
 //     Stepping は「1 fixed step 進めたら自動で Paused に戻る」一時状態として
-//     扱い、外側の FGame ループは TimeScale=1 で 1 フレーム走らせた後に
+//     扱い、外側の CGame ループは TimeScale=1 で 1 フレーム走らせた後に
 //     再度 SetTimeScale(0) する責任を持つ (本クラスは状態保持と遷移のみ)。
-//   ・**FGame への time_scale 反映は本クラスが行う**: FPauseDirector のように
+//   ・**CGame への time_scale 反映は本クラスが行う**: CPauseDirector のように
 //     「caller に値だけ返す」設計も検討したが、editor はゲームコードを
-//     触らずに使われる前提なので、本クラスが直接 `FGame::SetTimeScale(...)` を
+//     触らずに使われる前提なので、本クラスが直接 `CGame::SetTimeScale(...)` を
 //     呼ぶ。Play 時に戻す scale は `m_NormalTimeScale` (= Pause 直前の値) を
 //     記憶しておく。
 //   ・**Save callback は外部委譲**: scene の serialize 形式 (JSON / binary /
 //     ACS Pak) は editor 統合層が決める。本クラスは「Save ボタンが押された」
 //     という通知だけを発火する。
-//   ・**FDebugOverlay の所有は外側**: ここでは bool flag (`m_ShowDebugOverlay`)
+//   ・**CDebugOverlay の所有は外側**: ここでは bool flag (`m_ShowDebugOverlay`)
 //     だけを保持する。実描画は外側コードが flag を見て OverlayDirector を
-//     呼ぶ責務。これで FDebugOverlay 本体への依存を回避し、ship build で
+//     呼ぶ責務。これで CDebugOverlay 本体への依存を回避し、ship build で
 //     editor だけ消したいケースをサポートする。
 //   ・**E prefix enum (E + 形容詞)**: ACS 規約。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用**: ACS 規約。
 //   ・**ImGui include 可 (.cpp 側)**: ヘッダには imgui.h を出さない方針は
-//     FParticleEditorPanel と同じ。
+//     AParticleEditorPanel と同じ。
 //
 // 範囲外:
 //   ・Undo / Redo (Ctrl+Z 等のキーバインドも本クラス外)
@@ -88944,14 +89958,6 @@ private:
 //   ・複数 Step (N frame まとめて) — 現状は 1 step のみ
 //   ・カメラ操作モード切替 (Pan / Orbit) — SceneView 側の責務
 //   ・time scale slider (倍速プレイ) — 現状は 0/1 切替のみ
-
-
-namespace acs::game {
-// FGame への前方宣言 (DrawUI / TogglePlayPause で SetTimeScale を呼ぶため
-// 本ヘッダから可視である必要があるが、ヘッダ依存最小化のため Game.h は
-// 直接 include せず、利用側 / .cpp 側で include する)。
-class FGame;
-} // namespace acs::game
 
 
 namespace acs::game::inspector {
@@ -88983,34 +89989,34 @@ enum class EEditorState : u8 {
 using SaveSceneCallback = void (*)(void* user) noexcept;
 
 /**
- * 再生制御 + Save + FDebugOverlay 切替を 1 行に並べる editor ツールバー。
+ * 再生制御 + Save + CDebugOverlay 切替を 1 行に並べる editor ツールバー。
  *
  * @details
- * Play / Pause / Step / Save / FDebugOverlay の 5 アクションを持ち、再生状態を
+ * Play / Pause / Step / Save / CDebugOverlay の 5 アクションを持ち、再生状態を
  * EEditorState で 1 個保持する。TimeScale への反映 (Play 復帰時の m_NormalTimeScale
- * 書き戻し、Pause 時の 0 設定) は本クラスが直接 FGame に対して行う。Save は外部
- * callback へ委譲し、FDebugOverlay は表示要望 flag のみを保持する。
- * editor_core::FEditorPanel を継承する。
+ * 書き戻し、Pause 時の 0 設定) は本クラスが直接 CGame に対して行う。Save は外部
+ * callback へ委譲し、CDebugOverlay は表示要望 flag のみを保持する。
+ * editor_core::AEditorPanel を継承する。
  */
-class FEditorToolbar : public ::acs::game::editor_core::FEditorPanel {
+class AEditorToolbar : public ::acs::game::editor_core::AEditorPanel {
 public:
     /** 空のツールバーを構築する (state は Playing)。 */
-    FEditorToolbar() noexcept = default;
+    AEditorToolbar() noexcept = default;
 
     /** ツールバーを破棄する。 */
-    ~FEditorToolbar() noexcept = default;
+    ~AEditorToolbar() noexcept = default;
 
     /** コピー禁止 (state holder の唯一性を担保するため)。 */
-    FEditorToolbar(const FEditorToolbar&)            = delete;
+    AEditorToolbar(const AEditorToolbar&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEditorToolbar& operator=(const FEditorToolbar&) = delete;
+    AEditorToolbar& operator=(const AEditorToolbar&) = delete;
 
     /** ムーブ禁止 (state holder の唯一性を担保するため)。 */
-    FEditorToolbar(FEditorToolbar&&)                 = delete;
+    AEditorToolbar(AEditorToolbar&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEditorToolbar& operator=(FEditorToolbar&&)      = delete;
+    AEditorToolbar& operator=(AEditorToolbar&&)      = delete;
 
     /**
      * 状態を Playing に戻して初期化する。
@@ -89025,18 +90031,18 @@ public:
     void Shutdown() noexcept;
 
     /**
-     * DrawUI / TogglePlayPause が TimeScale 反映に使う FGame を事前に設定する。
+     * DrawUI / TogglePlayPause が TimeScale 反映に使う CGame を事前に設定する。
      *
-     * @param game 対象の FGame (nullptr で TimeScale 反映を無効化)。
+     * @param game 対象の CGame (nullptr で TimeScale 反映を無効化)。
      */
-    void SetGame(FGame* game) noexcept { m_Game = game; }
+    void SetGame(CGame* game) noexcept { m_Game = game; }
 
     /**
-     * 設定済みの FGame ポインタを返す。
+     * 設定済みの CGame ポインタを返す。
      *
-     * @return 設定済みの FGame (未設定なら nullptr)。
+     * @return 設定済みの CGame (未設定なら nullptr)。
      */
-    FGame* GameRef() const noexcept { return m_Game; }
+    CGame* GameRef() const noexcept { return m_Game; }
 
     /**
      * パネルのタイトル文字列を返す。
@@ -89049,8 +90055,8 @@ public:
      * 毎フレーム呼ぶツールバー描画。
      *
      * @details
-     * 独立 ImGui window に Play / Pause / Step / Save / FDebugOverlay のボタン行を描画する。
-     * ボタン操作の結果は末尾で 1 度だけ FGame に反映し、Stepping は同フレームで Paused へ戻す。
+     * 独立 ImGui window に Play / Pause / Step / Save / CDebugOverlay のボタン行を描画する。
+     * ボタン操作の結果は末尾で 1 度だけ CGame に反映し、Stepping は同フレームで Paused へ戻す。
      * m_Game が nullptr のときは UI のみ描画して TimeScale 反映を skip する。
      */
     void DrawUI() noexcept override;
@@ -89089,7 +90095,7 @@ public:
     void SetOnSaveSceneCallback(SaveSceneCallback cb, void* user) noexcept;
 
     /**
-     * FDebugOverlay の表示要望 flag を設定する。
+     * CDebugOverlay の表示要望 flag を設定する。
      *
      * @details 実描画は外側のコードが本 flag を見て切り替える。
      * @param b 表示したいなら true。
@@ -89097,7 +90103,7 @@ public:
     void SetShowDebugOverlay(bool b) noexcept { m_ShowDebugOverlay = b; }
 
     /**
-     * FDebugOverlay の表示要望 flag を返す。
+     * CDebugOverlay の表示要望 flag を返す。
      *
      * @return 表示要望が立っていれば true。
      */
@@ -89105,14 +90111,14 @@ public:
 
 private:
     /**
-     * 現在の state を FGame の TimeScale に反映する (DrawUI から呼ぶ)。
+     * 現在の state を CGame の TimeScale に反映する (DrawUI から呼ぶ)。
      *
      * @details
      * Playing → m_NormalTimeScale 書き戻し、Paused → 0 設定 (直前の正の TimeScale を復帰値として記録)、
      * Stepping → m_NormalTimeScale を本フレームだけ設定する。
-     * @param game TimeScale を書き換える対象の FGame。
+     * @param game TimeScale を書き換える対象の CGame。
      */
-    void ApplyStateToGame(FGame& game) noexcept;
+    void ApplyStateToGame(CGame& game) noexcept;
 
     /** 現在の editor 状態 (既定 Playing)。 */
     EEditorState      _state              = EEditorState::Playing;
@@ -89120,7 +90126,7 @@ private:
     /** Pause 直前の time scale (Play 復帰時にこの値を書き戻す。既定 1.0f)。 */
     f32               m_NormalTimeScale  = 1.0f;
 
-    /** FDebugOverlay の表示要望 flag (caller が flag を見て描画する)。 */
+    /** CDebugOverlay の表示要望 flag (caller が flag を見て描画する)。 */
     bool              m_ShowDebugOverlay = false;
 
     /** Save ボタンクリック時に呼ぶ callback (未登録なら nullptr)。 */
@@ -89129,15 +90135,17 @@ private:
     /** Save callback に渡すユーザポインタ。 */
     void*             m_SaveUser          = nullptr;
 
-    /** 事前 set される FGame ポインタ (nullptr のとき TimeScale 反映を skip)。 */
-    FGame*             m_Game               = nullptr;
+    /** 事前 set される CGame ポインタ (nullptr のとき TimeScale 反映を skip)。 */
+    CGame*             m_Game               = nullptr;
 };
+
+using FEditorToolbar = AEditorToolbar;
 
 } // namespace acs::game::inspector
 
 // ===================== gameframework/tools/inspector/HierarchyPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — SceneInspector / FHierarchyPanel
+// GameFramework Tools — SceneInspector / AHierarchyPanel
 //
 // シーン (ANode ツリー) を ImGui ベースの hierarchy パネルで可視化 + 編集する
 // エディタ用パネル。Unity の Hierarchy / Godot の SceneTree / UE の World Outliner
@@ -89145,7 +90153,7 @@ private:
 //
 // 機能:
 //   ・root_node 配下を再帰 TreeNode で描画 ("Scene Hierarchy" タイトルの ImGui window)
-//   ・各ノードクリックで選択 (FSelectionService 経由で共有、未注入時は内部で保持)
+//   ・各ノードクリックで選択 (CSelectionService 経由で共有、未注入時は内部で保持)
 //   ・選択ノードは ImGuiTreeNodeFlags_Selected でハイライト
 //   ・右クリックで context menu (Delete / Duplicate / Reparent target 設定)
 //   ・Drag & Drop で reparent (drag source = drop target、両方とも ANode*)
@@ -89153,11 +90161,11 @@ private:
 //   ・DeleteSelected で `ANode::Destroy()` 呼出 (フレーム境界 reap 任せ)
 //
 // 連携:
-//   ・**FSelectionService** (別エージェントが実装中) — selection 状態を他パネル
-//     (FInspectorPanel 等) と共有する集中点。forward decl で受け、Set されていれば
+//   ・**CSelectionService** (別エージェントが実装中) — selection 状態を他パネル
+//     (AInspectorPanel 等) と共有する集中点。forward decl で受け、Set されていれば
 //     そちら経由で selection を読み書きする。未注入時は本パネル内の `m_SelectedId`
 //     を使う (= スタンドアロン動作可能)。
-//   ・**FInspectorPanel** (別エージェントが実装中) — 選択中 ANode の property を
+//   ・**AInspectorPanel** (別エージェントが実装中) — 選択中 ANode の property を
 //     編集するパネル。本パネルとは selection 経由でしか連携しない (Hierarchy は
 //     Inspector を知らない)。
 //   ・**Right-click callback** — Delete / Duplicate / Reparent 以外のメニュー
@@ -89166,7 +90174,7 @@ private:
 //
 // 設計選択:
 //   ・**non-copy / non-move**: 内部 TArray<FCollapsedEntry> + raw pointer の所有を
-//     曖昧にしない。FInspectorSeam / FParticleEditorPanel と同じ規約。
+//     曖昧にしない。CInspectorSeam / AParticleEditorPanel と同じ規約。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range / nullptr 等を
 //     no-op で表現。
 //   ・**STL 不使用**: 折りたたみ状態は `TArray<FCollapsedEntry>` の linear search
@@ -89174,9 +90182,9 @@ private:
 //     search / hash table は必要なら導入。
 //   ・**ImGui ヘッダは .cpp 側のみ**: header からは imgui 依存を漏らさない
 //     (`ParticleEditorPanel.h` と同じ方針)。
-//   ・**FSelectionService は forward decl**: header からは依存を切り、.cpp 側で
+//   ・**CSelectionService は forward decl**: header からは依存を切り、.cpp 側で
 //     のみ include する (循環や同時編集事故の回避)。実 API は
-//     `FSelectionService::SelectNode(FNodeId) / CurrentSelection() const`。
+//     `CSelectionService::SelectNode(FNodeId) / CurrentSelection() const`。
 //   ・**Reparent は `ANode::Reparent` の deferred 呼出**: cycle 検出 + フレーム
 //     境界での実適用は ANode 側が責任を持つ (cycle ガード `IsAncestorOf` 済)。
 //   ・**Drag & Drop payload は `ANode*` 直渡し**: ImGui 慣例的に `SetDragDropPayload`
@@ -89184,7 +90192,7 @@ private:
 //     超えることは無いので、ポインタ直渡しで安全。識別子は `"HIER_NODE_PTR"`。
 //
 // 範囲外:
-//   ・AComponent の子要素表示 (= property は FInspectorPanel 担当)
+//   ・AComponent の子要素表示 (= property は AInspectorPanel 担当)
 //   ・Undo / Redo
 //   ・複数選択 (現状は単一選択のみ)
 //   ・Search / filter
@@ -89198,9 +90206,6 @@ class ANode;
 
 namespace acs::game::inspector {
 
-/** selection 集中点 (別レイヤで実装、forward decl のみ受ける)。 */
-class FSelectionService;
-
 /**
  * ImGui ベースで ANode 階層ツリーを可視化・編集するエディタパネル。
  *
@@ -89209,11 +90214,11 @@ class FSelectionService;
  * `Begin("Scene Hierarchy")` の 1 window で root_node 配下を再帰 TreeNode 描画し、
  * クリック選択・右クリック context menu (Delete / Duplicate / Reparent)・Drag & Drop
  * による reparent・ExpandAll/CollapseAll をサポートする。selection は注入された
- * FSelectionService 経由で他パネルと共有し、未注入時は内部 m_SelectedId を使う。
- * editor_core::FEditorPanel を継承し、全 API は noexcept・STL 不使用・ImGui 依存は
+ * CSelectionService 経由で他パネルと共有し、未注入時は内部 m_SelectedId を使う。
+ * editor_core::AEditorPanel を継承し、全 API は noexcept・STL 不使用・ImGui 依存は
  * .cpp に閉じる。
  */
-class FHierarchyPanel : public ::acs::game::editor_core::FEditorPanel {
+class AHierarchyPanel : public ::acs::game::editor_core::AEditorPanel {
 public:
     /**
      * 右クリック context menu の追加項目を外部へ委譲する関数ポインタ型。
@@ -89227,22 +90232,22 @@ public:
     using NodeRightClickCallback = void (*)(void* user, class ANode* node) noexcept;
 
     /** 空状態で構築する (root / selection なし)。 */
-    FHierarchyPanel() noexcept = default;
+    AHierarchyPanel() noexcept = default;
 
-    /** 破棄する (外部所有の root / FSelectionService / callback は解放しない)。 */
-    ~FHierarchyPanel() noexcept = default;
+    /** 破棄する (外部所有の root / CSelectionService / callback は解放しない)。 */
+    ~AHierarchyPanel() noexcept = default;
 
     /** コピー禁止 (内部 TArray + raw pointer の所有を曖昧にしないため)。 */
-    FHierarchyPanel(const FHierarchyPanel&)            = delete;
+    AHierarchyPanel(const AHierarchyPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FHierarchyPanel& operator=(const FHierarchyPanel&) = delete;
+    AHierarchyPanel& operator=(const AHierarchyPanel&) = delete;
 
     /** ムーブ禁止 (同上の所有規約)。 */
-    FHierarchyPanel(FHierarchyPanel&&)                 = delete;
+    AHierarchyPanel(AHierarchyPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FHierarchyPanel& operator=(FHierarchyPanel&&)      = delete;
+    AHierarchyPanel& operator=(AHierarchyPanel&&)      = delete;
 
     /** 折りたたみマップを空にし selection を解除して初期化する (多重 Init 可)。 */
     void Init() noexcept;
@@ -89283,17 +90288,17 @@ public:
     void DrawUI() noexcept override;
 
     /**
-     * FSelectionService を注入する。
+     * CSelectionService を注入する。
      *
      * @details nullptr を渡すと内部 selection モード (m_SelectedId) に戻る。
      * @param svc 共有する selection サービス (non-owning)。
      */
-    void SetSelectionService(class FSelectionService* svc) noexcept;
+    void SetSelectionService(CSelectionService* svc) noexcept;
 
     /**
      * 現在の選択ノードの FNodeId を返す。
      *
-     * @details FSelectionService 注入時はそちら経由、未注入なら内部 m_SelectedId。
+     * @details CSelectionService 注入時はそちら経由、未注入なら内部 m_SelectedId。
      * @return 選択中ノードの FNodeId (未選択は packed==0 の無効値)。
      */
     FNodeId SelectedNodeId() const noexcept;
@@ -89301,7 +90306,7 @@ public:
     /**
      * 選択を `node` に切り替える。
      *
-     * @details FSelectionService 注入時はそちらにも反映する。
+     * @details CSelectionService 注入時はそちらにも反映する。
      * @param node 選択するノード (nullptr で選択解除)。
      */
     void SelectNode(class ANode* node) noexcept;
@@ -89395,9 +90400,9 @@ private:
     TArray<FCollapsedEntry>     m_CollapsedMap      {};
 
     /** 共有 selection サービス (non-owning、未注入なら nullptr)。 */
-    FSelectionService*         m_SelectionService  = nullptr;
+    CSelectionService*         m_SelectionService  = nullptr;
 
-    /** FSelectionService 未注入時のフォールバック selection。 */
+    /** CSelectionService 未注入時のフォールバック selection。 */
     FNodeId                    m_SelectedId        {};
 
     /** 選択中ノードの生ポインタ (Delete / Duplicate 用、DrawUI 走査で更新)。 */
@@ -89420,25 +90425,27 @@ private:
     void*                     m_RightClickUser   = nullptr;
 };
 
+using FHierarchyPanel = AHierarchyPanel;
+
 } // namespace acs::game::inspector
 
 // ===================== gameframework/tools/inspector/InspectorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FInspectorPanel
+// GameFramework Pillar K — AInspectorPanel
 //
-// `FInspectorSeam` 経由で公開された `IInspectableProvider` の `FInspectableObject`
+// `CInspectorSeam` 経由で公開された `IInspectableProvider` の `FInspectableObject`
 // を ImGui ベースの field widget として描画 / 編集する UI パネル。シーンビュー
-// (FHierarchyPanel) で選択された ANode に対して、紐づく provider
+// (AHierarchyPanel) で選択された ANode に対して、紐づく provider
 // の field 配列を表示する。
 //
 // 役割分担:
 //   ・本パネルは **描画と編集 widget の構築** のみを担当。Provider 自体の登録 /
-//     破棄 / 値の永続化は呼び出し側 (FInspectorSeam owner) の責務。値の変更
+//     破棄 / 値の永続化は呼び出し側 (CInspectorSeam owner) の責務。値の変更
 //     通知は `FieldChangeCallback` で外部 (undo / dirty tracker / 永続化) に
 //     委譲する。
-//   ・`FSelectionService` (別エージェントで実装中) に依存する。本パネルは
+//   ・`CSelectionService` (別エージェントで実装中) に依存する。本パネルは
 //     forward-decl のみで受け、ポインタ経由で「現在の選択 FNodeId」を取得する。
-//     FSelectionService 未設定時は `DrawUI` の引数 `selected_id` を採用する。
+//     CSelectionService 未設定時は `DrawUI` の引数 `selected_id` を採用する。
 //
 // 設計選択:
 //   ・**非コピー / 非ムーブ**: 内部 dirty / selected_id / callback 状態を持つ
@@ -89449,11 +90456,11 @@ private:
 //     コンテナは持たない (Provider 自身が `FInspectableField[]` を所有)。
 //   ・**ImGui ヘッダは .cpp に閉じ込め**: header からは imgui 依存を漏らさず、
 //     gameframework 上位レイヤから include しても include order が壊れない
-//     ようにする (FParticleEditorPanel と同じパターン)。
+//     ようにする (AParticleEditorPanel と同じパターン)。
 //   ・**FieldChangeCallback は raw 関数ポインタ + void***: ACS は STL の
 //     std::function を使えないため、C スタイルの callback 規約に揃える
-//     (FParticleEditorPanel / Input.h と同形)。
-//   ・**`FInspectorSeam::GetProvider(FNodeId)` を仮定**: FNodeId → Provider の
+//     (AParticleEditorPanel / Input.h と同形)。
+//   ・**`CInspectorSeam::GetProvider(FNodeId)` を仮定**: FNodeId → Provider の
 //     resolve は seam 側 API を前提に呼び出す。実 seam の `GetProvider(u32)`
 //     との overload 共存を想定。
 //
@@ -89477,11 +90484,6 @@ private:
 //   ・multi-select (現状は単一 FNodeId のみ)
 
 
-namespace acs::game {
-/** field provider を公開する seam (本ヘッダは include 済みだが仕様一貫性のため宣言を残す)。 */
-class FInspectorSeam;
-}
-
 
 namespace acs::game::inspector {
 
@@ -89490,20 +90492,18 @@ namespace acs::game::inspector {
  *
  * @details 本パネルが使う最小 API は `FNodeId CurrentSelection() const noexcept` のみで、.cpp 側で実装ヘッダを include する。
  */
-class FSelectionService;
-
 /**
  * 選択ノードの FInspectableObject を ImGui field widget として描画・編集するパネル。
  *
  * @details
- * `FInspectorSeam` 経由で公開された `IInspectableProvider` を解決し、その field 配列を
+ * `CInspectorSeam` 経由で公開された `IInspectableProvider` を解決し、その field 配列を
  * EFieldKind に応じた ImGui widget (Checkbox / InputInt / SliderFloat / DragFloatN /
  * ColorEdit / InputText / Combo 等) で描画する。描画と編集 widget 構築のみを担当し、
  * 値の永続化や undo は FieldChangeCallback 経由で外部へ委譲する。選択 FNodeId は注入
- * された FSelectionService から取得する。editor_core::FEditorPanel を継承し、全 API は
+ * された CSelectionService から取得する。editor_core::AEditorPanel を継承し、全 API は
  * noexcept・STL 不使用・ImGui 依存は .cpp に閉じる。
  */
-class FInspectorPanel : public ::acs::game::editor_core::FEditorPanel {
+class AInspectorPanel : public ::acs::game::editor_core::AEditorPanel {
 public:
     /**
      * field 変更通知の関数ポインタ型。
@@ -89519,22 +90519,22 @@ public:
                                          EFieldKind kind) noexcept;
 
     /** 空状態で構築する (seam / selection なし)。 */
-    FInspectorPanel() noexcept = default;
+    AInspectorPanel() noexcept = default;
 
-    /** 破棄する (外部所有の seam / FSelectionService / callback は解放しない)。 */
-    ~FInspectorPanel() noexcept = default;
+    /** 破棄する (外部所有の seam / CSelectionService / callback は解放しない)。 */
+    ~AInspectorPanel() noexcept = default;
 
     /** コピー禁止 (内部 dirty / selection / callback 状態の所有を曖昧にしないため)。 */
-    FInspectorPanel(const FInspectorPanel&)            = delete;
+    AInspectorPanel(const AInspectorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FInspectorPanel& operator=(const FInspectorPanel&) = delete;
+    AInspectorPanel& operator=(const AInspectorPanel&) = delete;
 
     /** ムーブ禁止 (同上の所有規約)。 */
-    FInspectorPanel(FInspectorPanel&&)                 = delete;
+    AInspectorPanel(AInspectorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FInspectorPanel& operator=(FInspectorPanel&&)      = delete;
+    AInspectorPanel& operator=(AInspectorPanel&&)      = delete;
 
     /** 内部状態 (selection / dirty) を初期値に戻して初期化する (多重 Init 可)。 */
     void Init() noexcept;
@@ -89543,18 +90543,18 @@ public:
     void Shutdown() noexcept;
 
     /**
-     * provider lookup に使う FInspectorSeam を設定する。
+     * provider lookup に使う CInspectorSeam を設定する。
      *
      * @param seam field provider を引く seam (nullptr で未設定)。
      */
-    void SetInspectorSeam(class FInspectorSeam* seam) noexcept { m_InspectorSeam = seam; }
+    void SetInspectorSeam(CInspectorSeam* seam) noexcept { m_InspectorSeam = seam; }
 
     /**
-     * 設定済みの FInspectorSeam を返す。
+     * 設定済みの CInspectorSeam を返す。
      *
      * @return seam ポインタ (未設定なら nullptr)。
      */
-    class FInspectorSeam* InspectorSeamPtr() const noexcept { return m_InspectorSeam; }
+    CInspectorSeam* InspectorSeamPtr() const noexcept { return m_InspectorSeam; }
 
     /**
      * このパネルのウィンドウタイトルを返す。
@@ -89567,7 +90567,7 @@ public:
      * メイン ImGui window を描画する。
      *
      * @details
-     * `Begin("Inspector")` で 1 window を出す。選択 FNodeId は FSelectionService の
+     * `Begin("Inspector")` で 1 window を出す。選択 FNodeId は CSelectionService の
      * CurrentSelection() を採用し、無効なら "(Nothing selected)" を表示して return する。
      * Provider は `seam.GetProviderForNode(node_id)` で解決し、nullptr なら案内を表示する。
      * 各 Provider オブジェクトを type/instance ヘッダ + field 配列で描画し、編集が起きたら
@@ -89576,12 +90576,12 @@ public:
     void DrawUI() noexcept override;
 
     /**
-     * FSelectionService を登録する。
+     * CSelectionService を登録する。
      *
      * @details 保持期間は呼び出し側責務 (non-owning)。
      * @param svc 選択を取得する selection サービス (nullptr で解除)。
      */
-    void SetSelectionService(FSelectionService* svc) noexcept;
+    void SetSelectionService(CSelectionService* svc) noexcept;
 
     /**
      * 直近の DrawUI で何らかの field が編集されたかを返す。
@@ -89614,11 +90614,11 @@ private:
     /** 現在の選択 FNodeId キャッシュ (DrawUI で更新、デバッグ表示用)。 */
     FNodeId               m_CurrentSelection {};
 
-    /** 選択取得用の FSelectionService (non-owning、未注入なら nullptr)。 */
-    FSelectionService*    m_SelectionService = nullptr;
+    /** 選択取得用の CSelectionService (non-owning、未注入なら nullptr)。 */
+    CSelectionService*    m_SelectionService = nullptr;
 
-    /** provider lookup に使う FInspectorSeam (SetInspectorSeam で設定)。 */
-    class FInspectorSeam* m_InspectorSeam    = nullptr;
+    /** provider lookup に使う CInspectorSeam (SetInspectorSeam で設定)。 */
+    CInspectorSeam*       m_InspectorSeam    = nullptr;
 
     /** 直近フレームで field 変更が起きたかのフラグ (IsAnyFieldDirty / ClearDirtyFlag で読み書き)。 */
     bool                 m_Dirty             = false;
@@ -89630,24 +90630,26 @@ private:
     void*                m_OnChangeUser    = nullptr;
 };
 
+using FInspectorPanel = AInspectorPanel;
+
 } // namespace acs::game::inspector
 
 // ===================== gameframework/tools/inspector/SelectionService.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — SceneInspector / FSelectionService
+// GameFramework Pillar — SceneInspector / CSelectionService
 //
-// 現在「選択されている FNodeId」を全 editor panel (FHierarchyPanel /
-// FInspectorPanel / FEditorToolbar / SceneView 等) で共有するための **ハブ**。
+// 現在「選択されている FNodeId」を全 editor panel (AHierarchyPanel /
+// AInspectorPanel / AEditorToolbar / SceneView 等) で共有するための **ハブ**。
 // 1 個のシングルなインスタンスを editor 起動コードが所有し、各 panel が
 // `RegisterCallback` で選択変更を購読する形を取る。
 //
 // 使い方:
-//   acs::game::inspector::FSelectionService sel;
+//   acs::game::inspector::CSelectionService sel;
 //   sel.Init();
 //
 //   // panel A: コールバックで自分の描画状態を更新
 //   static void OnSelChanged(void* user, FNodeId from, FNodeId to) noexcept {
-//       auto* self = static_cast<FHierarchyPanel*>(user);
+//       auto* self = static_cast<AHierarchyPanel*>(user);
 //       self->ScrollTo(to);
 //   }
 //   sel.RegisterCallback(&OnSelChanged, &hierarchy);
@@ -89661,7 +90663,7 @@ private:
 //   ・**1 個の "選択" だけを持つ最小ハブ**: Unity Inspector のように
 //     multi-select も将来は欲しいが、現状は「currently selected single
 //     node」のみ。Multi-select は別 API (`SelectionSet`) で分離する。
-//   ・**callback は複数登録 (FHotReloadWatcher と同形)**: (cb, user) ペアで
+//   ・**callback は複数登録 (CHotReloadWatcher と同形)**: (cb, user) ペアで
 //     重複弾き、Unregister で 1 件除去。dispatch 順は登録順。
 //   ・**from / to を渡す**: 単純な「to」だけだと、購読側で前回値を覚えて
 //     diff を取る必要が出る。差分通知の典型形は (from, to) なのでハブ側で
@@ -89669,8 +90671,8 @@ private:
 //   ・**STL 不使用**: 登録 list は `acs::TArray<FCallbackEntry>`。
 //   ・**全 noexcept**: ACS 規約。エラーは null/重複弾きで安全 no-op。
 //   ・**非コピー / 非ムーブ**: 内部 TArray<FCallbackEntry> の所有を曖昧にしない。
-//   ・**FGame / FSceneManager への依存なし**: FNodeId だけを扱うため、選択対象が
-//     生きているか / どの FScene に属するかの検証は購読側責務。これで
+//   ・**CGame / CSceneManager への依存なし**: FNodeId だけを扱うため、選択対象が
+//     生きているか / どの AScene に属するかの検証は購読側責務。これで
 //     editor の "選択は残るが対象は破棄済み" のケースも素直に表現できる。
 //
 // 範囲外:
@@ -89699,28 +90701,28 @@ using SelectionChangeCallback = void (*)(void* user, FNodeId from, FNodeId to) n
  * @details
  * 1 個のシングルなインスタンスを editor 起動コードが所有し、各 panel が
  * RegisterCallback で選択変更を購読する。currently selected single node のみを保持し、
- * multi-select は範囲外。FNodeId のみを扱い、選択対象が生きているか / どの FScene に
+ * multi-select は範囲外。FNodeId のみを扱い、選択対象が生きているか / どの AScene に
  * 属するかの検証は購読側の責務。non-copy / non-move、全 noexcept、STL 不使用。
  */
-class FSelectionService {
+class CSelectionService {
 public:
     /** 空状態で構築する (現選択は invalid、callback list は空)。 */
-    FSelectionService() noexcept = default;
+    CSelectionService() noexcept = default;
 
     /** 破棄する (内部 TArray が callback list を解放)。 */
-    ~FSelectionService() noexcept = default;
+    ~CSelectionService() noexcept = default;
 
     /** コピー禁止 (内部 callback 配列の所有を曖昧にしないため)。 */
-    FSelectionService(const FSelectionService&)            = delete;
+    CSelectionService(const CSelectionService&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSelectionService& operator=(const FSelectionService&) = delete;
+    CSelectionService& operator=(const CSelectionService&) = delete;
 
     /** ムーブ禁止。 */
-    FSelectionService(FSelectionService&&)                 = delete;
+    CSelectionService(CSelectionService&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSelectionService& operator=(FSelectionService&&)      = delete;
+    CSelectionService& operator=(CSelectionService&&)      = delete;
 
     /**
      * 現選択を invalid に、callback list を空に戻して初期化する。
@@ -89832,13 +90834,13 @@ private:
 
 // ===================== gameframework/tools/leveledit/LevelEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — leveledit / FLevelEditorPanel
+// GameFramework Pillar — leveledit / ALevelEditorPanel
 //
 // `acs::game::FTilemap` (multi-layer u16 FTileId grid) を **対話的に編集する
 // tilemap painter panel**。Unity Tile Palette / Tiled / LDtk の「ペイント /
 // 消し / 塗りつぶし / スポイト」 4 ブラシ + アクティブレイヤ切替 + tile id
-// picker + grid show/hide + snap-to-grid を提供する。`editor_core::FEditorPanel`
-// 基底に載せ、`FEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
+// picker + grid show/hide + snap-to-grid を提供する。`editor_core::AEditorPanel`
+// 基底に載せ、`CEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
 // 統合できる形にしている。
 //
 // 役割:
@@ -89851,7 +90853,7 @@ private:
 //       - Show grid toggle
 //       - Snap-to-grid toggle (= マウスホバー / クリック位置を tile 単位に
 //         スナップ表示するか。ペイント自体は常に tile 単位)
-//   ・中央 viewport: 2D camera (`FEditorCamera` Mode2D 内包) で pan / zoom
+//   ・中央 viewport: 2D camera (`CEditorCamera` Mode2D 内包) で pan / zoom
 //   ・マウス操作:
 //       - LMB drag (Paint)  : `FTilemap::SetTile(x, y, current_tile_id, layer)`
 //       - LMB click (Erase) : `FTilemap::SetTile(x, y, FTileId{0}, layer)`
@@ -89863,7 +90865,7 @@ private:
 // 役割分担:
 //   ・本 panel は「**tilemap の編集 UI** だけ」を担当。実際の FTilemap データは
 //     caller 所有 (= `SetTilemap(&tm)` で raw 参照を渡す、寿命は caller 責任)。
-//     本 panel が tilemap を生成 / 破棄しない (FAnimCurveEditorPanel が
+//     本 panel が tilemap を生成 / 破棄しない (AAnimCurveEditorPanel が
 //     FAnimationCurve を non-owning で受けるのと同形)。
 //   ・FTilemap の描画は「ImDrawList で色付き矩形を描く placeholder」のみ
 //     (本物テクスチャ atlas は未対応)。tile id を疑似乱数ハッシュで色に変換する
@@ -89872,9 +90874,9 @@ private:
 //     永続化 API を持たない (= JSON / binary / pak 等の選択を panel が知らない)。
 //
 // 使い方 (典型):
-//   FLevelEditorPanel panel;
+//   ALevelEditorPanel panel;
 //   panel.Init();
-//   workspace.RegisterPanel(&panel);   // FEditorPanel として登録
+//   workspace.RegisterPanel(&panel);   // AEditorPanel として登録
 //
 //   FTilemap map;
 //   map.Init(32, 32, /*layer_count=*/2, /*tile_size=*/16.0f);
@@ -89888,13 +90890,13 @@ private:
 //   panel.Shutdown();
 //
 // 設計選択 (LevelEditor):
-//   ・**FEditorPanel 継承**: 共通基盤に載せる。Title = "Level Editor"、
+//   ・**AEditorPanel 継承**: 共通基盤に載せる。Title = "Level Editor"、
 //     DrawUI override。
-//   ・**tilemap は raw pointer の非所有保持**: caller 所有 (FAnimCurveEditorPanel
+//   ・**tilemap は raw pointer の非所有保持**: caller 所有 (AAnimCurveEditorPanel
 //     が FAnimationCurve を non-owning で受けるのと同方針)。本 panel は tilemap
 //     の寿命に関与せず、`m_Tilemap == nullptr` 時は "(No tilemap bound)" を表示。
-//   ・**FEditorCamera Mode2D を内包**: 各 panel が独自 camera を持つ Unity
-//     SceneView 風モデル (FModelViewerPanel と同形)。Camera() アクセサで参照を
+//   ・**CEditorCamera Mode2D を内包**: 各 panel が独自 camera を持つ Unity
+//     SceneView 風モデル (AModelViewerPanel と同形)。Camera() アクセサで参照を
 //     返し、外部は HandleMouseInput / Tick を呼ぶ。本 panel 内部の
 //     viewport drawing でも `m_Camera.State().zoom_2d` と `m_Camera.State().position`
 //     を使って world → screen 変換する。
@@ -89905,7 +90907,7 @@ private:
 //     snap される。snap_to_grid=true の時は「マウスホバー位置の tile を強調表示」
 //     (= grid line を太く描くなど) する見た目フラグとして使う。
 //   ・**ImGui canvas は ImGui::InvisibleButton + GetWindowDrawList()**: AnimCurve
-//     FEditorPanel と同パターン (ImGui Demo の Canvas example と同形)。
+//     AEditorPanel と同パターン (ImGui Demo の Canvas example と同形)。
 //   ・**flood-fill の上限 sentinel**: FTilemap 全 cell 数 (= 32*32=1024 程度)
 //     を超える stack 深さは想定しないが、巨大マップでも暴走しないよう
 //     `kFloodFillMaxCells` で打ち切り (= 64*64=4096)。
@@ -89914,8 +90916,8 @@ private:
 //     `kTileIdMax = 1023` を公開定数として出す。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。
-//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (FParticleEditorPanel /
-//     FModelViewerPanel / FInspectorPanel) と同形。
+//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (AParticleEditorPanel /
+//     AModelViewerPanel / AInspectorPanel) と同形。
 //
 // 範囲外 (本 panel では持たない):
 //   ・本物テクスチャ atlas でのタイル描画 (= 現状は色付き矩形 placeholder)
@@ -89965,36 +90967,36 @@ enum class EBrushKind : u8 {
  *
  * @details
  * Paint / Erase / Fill / Pick の 4 ブラシ + アクティブレイヤ切替 + tile id picker +
- * grid show/hide + snap-to-grid を提供する。FEditorPanel 基底に載せ、Workspace へ 1 行
+ * grid show/hide + snap-to-grid を提供する。AEditorPanel 基底に載せ、Workspace へ 1 行
  * で統合できる。FTilemap データは caller 所有で raw 参照として受け取り、本 panel は
  * tilemap を生成・破棄しない。描画は ImDrawList で色付き矩形を積む placeholder
- * (本物テクスチャ atlas は未対応)。内部に 2D mode の FEditorCamera を内包し pan/zoom する。
+ * (本物テクスチャ atlas は未対応)。内部に 2D mode の CEditorCamera を内包し pan/zoom する。
  */
-class FLevelEditorPanel : public acs::game::editor_core::FEditorPanel {
+class ALevelEditorPanel : public acs::game::editor_core::AEditorPanel {
 public:
     /** 空状態で構築する (内部 state は Init で初期化)。 */
-    FLevelEditorPanel() noexcept = default;
+    ALevelEditorPanel() noexcept = default;
 
     /** 破棄する (tilemap は caller 所有なので解放しない)。 */
-    ~FLevelEditorPanel() noexcept override = default;
+    ~ALevelEditorPanel() noexcept override = default;
 
-    /** コピー禁止 (基底 FEditorPanel と同規約、内部 FEditorCamera も非コピー)。 */
-    FLevelEditorPanel(const FLevelEditorPanel&)            = delete;
+    /** コピー禁止 (基底 AEditorPanel と同規約、内部 CEditorCamera も非コピー)。 */
+    ALevelEditorPanel(const ALevelEditorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLevelEditorPanel& operator=(const FLevelEditorPanel&) = delete;
+    ALevelEditorPanel& operator=(const ALevelEditorPanel&) = delete;
 
     /** ムーブ禁止 (tilemap 参照・brush state の所有を曖昧にしないため)。 */
-    FLevelEditorPanel(FLevelEditorPanel&&)                 = delete;
+    ALevelEditorPanel(ALevelEditorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FLevelEditorPanel& operator=(FLevelEditorPanel&&)      = delete;
+    ALevelEditorPanel& operator=(ALevelEditorPanel&&)      = delete;
 
     /**
      * 内部 state をデフォルトに初期化する。
      *
      * @details
-     * FEditorCamera を 2D mode で Init し base ortho size を 512 に、tilemap 参照を
+     * CEditorCamera を 2D mode で Init し base ortho size を 512 に、tilemap 参照を
      * nullptr、brush=Paint、tile_id=1、active_layer=0、show_grid=true、snap_to_grid=true、
      * selected coord を unset にする。多重呼び出し可 (= 完全リセット)。
      */
@@ -90004,7 +91006,7 @@ public:
      * 内部 state を全解放する。
      *
      * @details
-     * tilemap 参照を解除し FEditorCamera を Reset、selected coord をリセットする。
+     * tilemap 参照を解除し CEditorCamera を Reset、selected coord をリセットする。
      * tilemap 自体は caller 所有なので本 panel は破棄しない。多重呼び出し可。
      */
     void Shutdown() noexcept;
@@ -90028,12 +91030,12 @@ public:
     class FTilemap* CurrentTilemap() const noexcept;
 
     /**
-     * 内部 FEditorCamera (Mode2D) への参照を返す。
+     * 内部 CEditorCamera (Mode2D) への参照を返す。
      *
      * @details 呼出側が HandleMouseInput / Tick を呼ぶ。寿命は本 panel と同一。
-     * @return 内部 FEditorCamera への参照。
+     * @return 内部 CEditorCamera への参照。
      */
-    acs::game::editor_core::FEditorCamera& Camera() noexcept;
+    acs::game::editor_core::CEditorCamera& Camera() noexcept;
 
     /**
      * 現在のブラシ種別を返す。
@@ -90122,11 +91124,11 @@ public:
      * Workspace への登録時に呼ばれる初期化フック。
      *
      * @details
-     * 基底実装で Workspace ポインタを保存したあと、FEditorCamera を 2D mode で
+     * 基底実装で Workspace ポインタを保存したあと、CEditorCamera を 2D mode で
      * 初期化し直す (Init() 未呼出でも登録だけで動くようにする保険)。
      * @param workspace 登録先のエディタワークスペース。
      */
-    void OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept override;
+    void OnInit(acs::game::editor_core::CEditorWorkspace& workspace) noexcept override;
 
     /**
      * Toolbar + viewport canvas + inspector を ImGui で描画する。
@@ -90149,7 +91151,7 @@ public:
 
 private:
     /** 2D viewport camera (pan / zoom)。Init() で Mode2D に初期化する。 */
-    acs::game::editor_core::FEditorCamera m_Camera {};
+    acs::game::editor_core::CEditorCamera m_Camera {};
 
     /** 編集対象 FTilemap (caller 所有、本 panel は非所有)。 */
     class FTilemap* m_Tilemap = nullptr;
@@ -90176,22 +91178,24 @@ private:
     u32        m_SelectedY      = kNoCoord;
 };
 
+using FLevelEditorPanel = ALevelEditorPanel;
+
 } // namespace acs::game::leveledit
 
 // ===================== gameframework/tools/modelview/ModelAnimationPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — ModelViewer / FModelAnimationPanel
+// GameFramework Pillar — ModelViewer / AModelAnimationPanel
 //
 // ModelViewer 内で、ロード済みモデルに含まれる **animation clip の再生制御 +
-// timeline 表示** を行う panel。共通基盤の `editor_core::FEditorPanel`
+// timeline 表示** を行う panel。共通基盤の `editor_core::AEditorPanel`
 // を継承し、ImGui ベースの control 群 (clip dropdown / Play / Pause / Stop /
 // time slider / Loop checkbox / Speed slider / BlendWeight slider) を提供する。
 //
 // 役割分担 (ModelViewer 全体):
-//   ・FModelViewerPanel    : 3D viewport + Lighting / Background / Grid / FBone toggle
-//   ・FModelInspectorPanel : mesh 統計 (vertex/index/material/bone count)
-//   ・FModelMaterialPanel  : material slot 編集 (basecolor / metallic / roughness)
-//   ・FModelAnimationPanel : 本 panel — animation clip の再生制御 + timeline
+//   ・AModelViewerPanel    : 3D viewport + Lighting / Background / Grid / FBone toggle
+//   ・AModelInspectorPanel : mesh 統計 (vertex/index/material/bone count)
+//   ・AModelMaterialPanel  : material slot 編集 (basecolor / metallic / roughness)
+//   ・AModelAnimationPanel : 本 panel — animation clip の再生制御 + timeline
 //
 // 役割:
 //   ・ロード済みモデルが持つ animation clip 一覧を保持 (`SetClips`)
@@ -90200,18 +91204,18 @@ private:
 //   ・`Tick(dt)` で Playing 状態の場合 `m_CurrentTime += dt * m_Speed` を進める
 //   ・duration 到達時、looping ならラップ、そうでなければ Stopped に遷移
 //   ・毎 Tick 終端で `m_OnFrameCb(user, clip_index, time_sec)` を発火し、
-//     呼出側 (ModelViewportRenderer 等) が FAnimationPlayer に時刻を反映する
+//     呼出側 (ModelViewportRenderer 等) が CAnimationPlayer に時刻を反映する
 //
 // 役割分担 (本 panel と外部):
 //   ・本 panel は **時刻の進行 + clip 選択 + UI control** だけを持つ。
 //     実際の bone palette 計算 / GPU 反映 / mesh 描画は呼出側 (renderer +
-//     FAnimationPlayer) に委譲する。`OnFrameCallback` がその橋渡し点。
+//     CAnimationPlayer) に委譲する。`OnFrameCallback` がその橋渡し点。
 //   ・clip メタ情報 (name / duration / looping / clip_index) は外部 (model
 //     loader) が確定済みの値を `SetClips` で push する。本 panel は中身を
 //     コピー所有 (= FAnimationClipBinding 配列を TArray<>); pointer は持たない。
 //
 // 使い方 (典型):
-//   FModelAnimationPanel anim;
+//   AModelAnimationPanel anim;
 //   anim.Init();
 //   workspace.RegisterPanel(&anim);
 //
@@ -90227,10 +91231,10 @@ private:
 //
 //   // 毎フレーム:
 //   anim.Tick(dt);          // m_CurrentTime += dt * speed (Playing 中のみ)
-//   // → callback 内で FAnimationPlayer::SetTime(clip_index, time_sec) を呼ぶ
+//   // → callback 内で CAnimationPlayer::SetTime(clip_index, time_sec) を呼ぶ
 //
-// 設計選択 (FModelAnimationPanel):
-//   ・**FEditorPanel 継承**: Title / DrawUI を override。
+// 設計選択 (AModelAnimationPanel):
+//   ・**AEditorPanel 継承**: Title / DrawUI を override。
 //     OnInit は基底実装 (`Workspace()` ポインタ保持) のみで十分 (= 本 panel は
 //     workspace に直接問い合わせる対象が無いため override 不要)。
 //   ・**clip リストは値コピーで保持**: `SetClips` 渡しの `FAnimationClipBinding`
@@ -90239,10 +91243,10 @@ private:
 //     `std::string` を使えないため、ポインタ寿命は呼出側責任。
 //   ・**Playing 状態は enum** (`EAnimationPlayState`): Stopped / Playing /
 //     Paused の三状態。E-prefix 規約 (`enum class E*` + 基底 u8)。
-//   ・**Tick (dt) を panel 内に持つ**: FSpriteAnimator と同設計 — DrawUI は
+//   ・**Tick (dt) を panel 内に持つ**: CSpriteAnimator と同設計 — DrawUI は
 //     ImGui 描画専任、時刻進行は別 hook (= Workspace の OnFrameBegin 経由 or
 //     FSample 側が明示的に Tick) に分離してテスト容易性を確保。本 panel の
-//     FEditorPanel::OnFrameBegin は override せず、呼出側が Tick(dt) を直接
+//     AEditorPanel::OnFrameBegin は override せず、呼出側が Tick(dt) を直接
 //     呼ぶ規約 (= Workspace の dt と animation の dt は分離したい場面用)。
 //   ・**duration 到達時の挙動**: clip の `is_looping` または `m_LoopOverride`
 //     が true なら wrap (= `m_CurrentTime = fmodf(t, dur)`)、そうでなければ
@@ -90254,24 +91258,24 @@ private:
 //     未対応。0 は実質
 //     一時停止と同義だが、UX を明確にするため 0 ではなく 0.1 を下限にする。
 //   ・**BlendWeight slider [0, 1]**: 現状は **単一 clip 再生** のため
-//     表示のみで再生にはほぼ影響しない (= renderer 側が FAnimationPlayer に
+//     表示のみで再生にはほぼ影響しない (= renderer 側が CAnimationPlayer に
 //     渡して final pose に blend する想定)。複数 clip blending を
 //     入れる際に「複数 layer の weight」を扱う primary slot として再利用する。
 //   ・**AnimationFrameCallback は raw 関数ポインタ + void* user**: ACS は
-//     std::function 禁止。FParticleEditorPanel / FAssetBrowser と同形の C-style
+//     std::function 禁止。AParticleEditorPanel / CAssetBrowser と同形の C-style
 //     callback 規約。Tick 終端で 1 度発火、引数は (user, clip_index, time_sec)。
 //     未設定 (nullptr) なら no-op。
-//   ・**非コピー / 非ムーブ**: 基底 FEditorPanel と同じ規約 + 内部
+//   ・**非コピー / 非ムーブ**: 基底 AEditorPanel と同じ規約 + 内部
 //     `TArray<FAnimationClipBinding>` の所有を曖昧にしない。
 //   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。
-//   ・**ImGui ヘッダは .cpp 限定**: FParticleEditorPanel / FModelViewerPanel と
+//   ・**ImGui ヘッダは .cpp 限定**: AParticleEditorPanel / AModelViewerPanel と
 //     同形 (= ヘッダから ImGui 依存を漏らさない)。
 //
 // 範囲外 (別 panel):
 //   ・複数 clip の同時 blending (= 全身 vs 上半身レイヤ等)。
 //     本 panel は primary slot のみ。
 //   ・タイムライン上のキー打ち / イベントマーカー (= AnimCurveEditor の役割)。
-//   ・root motion 抽出 / カメラ追従 (= FCinematicsDirector との連携範疇)。
+//   ・root motion 抽出 / カメラ追従 (= CCinematicsDirector との連携範疇)。
 //   ・clip 圧縮設定 / curve 編集 (= model importer の役割)。
 //   ・retargeting (= bone mapping エディタの役割)。
 
@@ -90313,7 +91317,7 @@ struct FAnimationClipBinding {
     /** clip 既定のループ可否 (UI の Loop checkbox で override 可能)。 */
     bool        is_looping   = false;
 
-    /** 外部 FAnimationPlayer 内のクリップ ID (callback にそのまま渡す。中身は解釈しない)。 */
+    /** 外部 CAnimationPlayer 内のクリップ ID (callback にそのまま渡す。中身は解釈しない)。 */
     u32         clip_index   = 0u;
 };
 
@@ -90321,41 +91325,41 @@ struct FAnimationClipBinding {
  * animation clip の再生制御 + timeline UI を提供する ModelViewer 用 panel。
  *
  * @details
- * editor_core::FEditorPanel を継承し、clip 選択 dropdown / Play / Pause / Stop /
+ * editor_core::AEditorPanel を継承し、clip 選択 dropdown / Play / Pause / Stop /
  * Time slider / Loop checkbox / Speed slider / BlendWeight slider を ImGui で描画する。
  * clip メタ情報は SetClips で値コピー所有し、Tick(dt) で Playing 中の時刻を進めて
  * 終端で OnFrameCallback を発火する。実際の bone palette 計算や GPU 反映は呼出側
- * (renderer + FAnimationPlayer) に委譲し、本 panel は時刻進行と UI control のみを持つ。
+ * (renderer + CAnimationPlayer) に委譲し、本 panel は時刻進行と UI control のみを持つ。
  */
-class FModelAnimationPanel : public acs::game::editor_core::FEditorPanel {
+class AModelAnimationPanel : public acs::game::editor_core::AEditorPanel {
 public:
     /**
      * Tick 終端で 1 度呼ばれる callback 型 (user, clip_index, time_sec)。
      *
      * @details
      * ACS は std::function 禁止のため raw 関数ポインタ + void* user 規約
-     * (FParticleEditorPanel / FAssetBrowser と同形)。noexcept 必須。
+     * (AParticleEditorPanel / CAssetBrowser と同形)。noexcept 必須。
      */
     using AnimationFrameCallback =
         void (*)(void* user, u32 clip_index, f32 time_sec) noexcept;
 
     /** 空状態で構築する (clip なし / Stopped / time 0)。 */
-    FModelAnimationPanel() noexcept = default;
+    AModelAnimationPanel() noexcept = default;
 
     /** 破棄する (内部 TArray は ~TArray が解放)。 */
-    ~FModelAnimationPanel() noexcept override = default;
+    ~AModelAnimationPanel() noexcept override = default;
 
-    /** コピー禁止 (基底 FEditorPanel と同規約)。 */
-    FModelAnimationPanel(const FModelAnimationPanel&)            = delete;
+    /** コピー禁止 (基底 AEditorPanel と同規約)。 */
+    AModelAnimationPanel(const AModelAnimationPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FModelAnimationPanel& operator=(const FModelAnimationPanel&) = delete;
+    AModelAnimationPanel& operator=(const AModelAnimationPanel&) = delete;
 
     /** ムーブ禁止 (内部 TArray の所有を曖昧にしないため)。 */
-    FModelAnimationPanel(FModelAnimationPanel&&)                 = delete;
+    AModelAnimationPanel(AModelAnimationPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FModelAnimationPanel& operator=(FModelAnimationPanel&&)      = delete;
+    AModelAnimationPanel& operator=(AModelAnimationPanel&&)      = delete;
 
     /**
      * 内部 state を完全にデフォルトへ戻す (多重 Init 可)。
@@ -90513,7 +91517,7 @@ public:
      * Playing 中は m_CurrentTime += dt * m_Speed を進める。duration 到達時、loop 有効
      * (clip.is_looping || m_LoopOverride) なら余りを wrap、loop 無効なら time = duration +
      * state = Stopped に遷移する。終端で m_OnFrameCb を 1 度発火する (設定時)。clip 未選択 /
-     * Stopped / Paused / dt <= 0 はすべて no-op (FSpriteAnimator と同方針、巻き戻し非対応)。
+     * Stopped / Paused / dt <= 0 はすべて no-op (CSpriteAnimator と同方針、巻き戻し非対応)。
      * @param dt 前フレームからの経過秒 (0 以下は no-op)。
      */
     void Tick(f32 dt) noexcept;
@@ -90521,7 +91525,7 @@ public:
     /**
      * Tick 終端で呼ばれる callback を設定する。
      *
-     * @details cb の引数 clip_index は FAnimationClipBinding::clip_index (外部 FAnimationPlayer ID)。
+     * @details cb の引数 clip_index は FAnimationClipBinding::clip_index (外部 CAnimationPlayer ID)。
      * @param cb 設定する callback (nullptr で解除)。
      * @param user cb の第 1 引数に渡す任意ポインタ。
      */
@@ -90575,22 +91579,24 @@ private:
     /** blend weight (現状は表示 + callback 出力のみ、再生には影響しない)。 */
     f32 m_BlendWeight = 1.0f;
 
-    /** Tick 終端で呼ばれる callback (外部 FAnimationPlayer への時刻反映点)。 */
+    /** Tick 終端で呼ばれる callback (外部 CAnimationPlayer への時刻反映点)。 */
     AnimationFrameCallback m_OnFrameCb = nullptr;
 
     /** m_OnFrameCb の第 1 引数に渡す任意ポインタ。 */
     void*                  m_OnFrameUser = nullptr;
 };
 
+using FModelAnimationPanel = AModelAnimationPanel;
+
 } // namespace acs::game::modelview
 
 // ===================== gameframework/tools/modelview/ModelInspectorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — modelview / FModelInspectorPanel
+// GameFramework Pillar — modelview / AModelInspectorPanel
 //
 // ModelViewer ワークスペース内に配置される **読み取り専用の mesh 情報 panel**。
-// FAssetBrowser から選択 / DragDrop された model (.mdl / .fbx / .gltf 等) を
-// FModelViewerPanel (別エージェント) が load した結果を、本 panel に
+// CAssetBrowser から選択 / DragDrop された model (.mdl / .fbx / .gltf 等) を
+// AModelViewerPanel (別エージェント) が load した結果を、本 panel に
 // `UpdateFromModel(...)` でプッシュしてもらい、内部にスナップショットとして
 // 保持して ImGui で表示する。Unity の Mesh Inspector / Godot の "Import"
 // 出力タブ / UE の Static Mesh Editor の "Mesh Details" 相当。
@@ -90606,15 +91612,15 @@ private:
 //
 // 役割分担:
 //   ・本パネルは「描画 + 配列のスナップショット保持」だけを担当。実 model load /
-//     parse は FModelViewerPanel (別エージェント) と Mesh / Skeleton / AnimationClip
-//     モジュールの責任。caller (= FModelViewerPanel もしくは sample 31) が
+//     parse は AModelViewerPanel (別エージェント) と Mesh / Skeleton / AnimationClip
+//     モジュールの責任。caller (= AModelViewerPanel もしくは sample 31) が
 //     load 完了時に本 panel の `UpdateFromModel` を呼んで情報を流し込む。
 //   ・本 panel は callback / 編集 / GPU リソース確保を一切持たない (= 純粋な
 //     read-only viewer)。
 //
 // 設計選択 (modelview):
-//   ・**FEditorPanel 継承**: editor_core 基底に乗せる。
-//     FModelViewerPanel / sample 31 が FEditorWorkspace 経由で本 panel を
+//   ・**AEditorPanel 継承**: editor_core 基底に乗せる。
+//     AModelViewerPanel / sample 31 が CEditorWorkspace 経由で本 panel を
 //     register する。Title は "Model Info" (Unity / Godot の Inspector 表記寄り)。
 //   ・**スナップショット方式**: 元の Mesh / Skeleton / AnimationClip オブジェクト
 //     を ref で保持しない (= モデル再 load / 解放と本 panel の表示が race しない
@@ -90624,7 +91630,7 @@ private:
 //     安全 (= ImGui draw までに開放されない)。
 //   ・**3 つの可変長配列 + 1 つの fixed struct**: submeshes / bones / clips は
 //     model ごとに件数が変わるため `acs::TArray<T>`。summary は単一 struct で
-//     値保持。FAssetBrowser / FHierarchyPanel と同形の "TArray<T> を内部に持つ
+//     値保持。CAssetBrowser / AHierarchyPanel と同形の "TArray<T> を内部に持つ
 //     panel" パターン。
 //   ・**has_model flag**: load 前 (= UpdateFromModel が一度も呼ばれていない) /
 //     Clear 直後の状態を識別するためのフラグ。DrawUI 冒頭で "(No model loaded)"
@@ -90635,7 +91641,7 @@ private:
 //   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。name は
 //     `const char*` リテラル / caller 所有領域を想定。
 //   ・**ImGui ヘッダは含めない**: 派生 .cpp で <imgui.h> を include する形
-//     (FParticleEditorPanel / FInspectorPanel / FHierarchyPanel と同形)。
+//     (AParticleEditorPanel / AInspectorPanel / AHierarchyPanel と同形)。
 //   ・**bone hierarchy は描画時にオンザフライ走査**: 子リストを事前構築せず、
 //     各 node 描画時に全 bone を線形走査して `parent_index == this_index` の
 //     子を見つけて再帰する。bone 数 100k 級でなければ十分速く、メモリ追加なし。
@@ -90662,7 +91668,7 @@ namespace acs::game::modelview {
  * model 全体の集計情報 (単一インスタンス、値コピー保持)。
  *
  * @details
- * caller (FModelViewerPanel 等) が model load 後に集計して本 panel に渡す。全フィールド
+ * caller (AModelViewerPanel 等) が model load 後に集計して本 panel に渡す。全フィールド
  * 値型のため、Mesh / Skeleton / AnimationClip 側のリソース解放と本 panel の表示は完全に
  * decouple される。
  */
@@ -90745,31 +91751,31 @@ struct FAnimationClipInfo {
  * read-only な mesh / skeleton / animation 情報ビューア panel。
  *
  * @details
- * editor_core::FEditorPanel を継承し、caller (FModelViewerPanel 等) が UpdateFromModel で
+ * editor_core::AEditorPanel を継承し、caller (AModelViewerPanel 等) が UpdateFromModel で
  * push した model 情報をスナップショットとして値コピー保持し、ImGui で Summary / Submeshes /
  * Bones / Animation Clips の 4 セクションを描画する。callback / 編集 / GPU リソース確保は
  * 一切持たない純粋な viewer。元の Mesh / Skeleton / AnimationClip オブジェクトは ref 保持
  * しないため、モデル再 load / 解放と本 panel の表示は race しない。
  */
-class FModelInspectorPanel : public editor_core::FEditorPanel {
+class AModelInspectorPanel : public editor_core::AEditorPanel {
 public:
     /** 空状態で構築する (model なし)。 */
-    FModelInspectorPanel() noexcept = default;
+    AModelInspectorPanel() noexcept = default;
 
     /** 破棄する (内部 TArray は ~TArray が解放)。 */
-    ~FModelInspectorPanel() noexcept override = default;
+    ~AModelInspectorPanel() noexcept override = default;
 
     /** コピー禁止 (内部 TArray + has_model 状態の所有を曖昧にしないため)。 */
-    FModelInspectorPanel(const FModelInspectorPanel&)            = delete;
+    AModelInspectorPanel(const AModelInspectorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FModelInspectorPanel& operator=(const FModelInspectorPanel&) = delete;
+    AModelInspectorPanel& operator=(const AModelInspectorPanel&) = delete;
 
     /** ムーブ禁止。 */
-    FModelInspectorPanel(FModelInspectorPanel&&)                 = delete;
+    AModelInspectorPanel(AModelInspectorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FModelInspectorPanel& operator=(FModelInspectorPanel&&)      = delete;
+    AModelInspectorPanel& operator=(AModelInspectorPanel&&)      = delete;
 
     /** 内部状態を空にする (多重 Init 可)。 */
     void Init() noexcept;
@@ -90920,47 +91926,49 @@ private:
     void DrawBoneRecursive(i32 bone_index, u32 depth) noexcept;
 };
 
+using FModelInspectorPanel = AModelInspectorPanel;
+
 } // namespace acs::game::modelview
 
 // ===================== gameframework/tools/modelview/ModelMaterialPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — modelview / FModelMaterialPanel
+// GameFramework Pillar — modelview / AModelMaterialPanel
 //
 // ModelViewer の中で、現在 load された model の各 submesh / material slot に
 // 対して PBR マテリアル (base color / metallic / roughness / normal strength /
 // AO strength / emissive 等) を **live 編集** するための ImGui ベースパネル。
 // 編集された値は `FMaterialOverride` 構造体に保持され、コールバック経由で
-// `FPbrShader` / `FStandardShader` の constant buffer に流し込まれる想定。
+// `CPbrShader` / `CStandardShader` の constant buffer に流し込まれる想定。
 //
 // 役割分担:
 //   ・本パネルは **編集 UI + override 値の保持** のみを担当する。
 //     実 shader への反映 (= constant buffer write) は呼び出し側 (ModelViewer
 //     本体 or render integrator) が `MaterialChangeCallback` 経由で受け取った
 //     `FMaterialOverride` を見て行う。これにより:
-//       (1) shader / pipeline の選択 (FPbrShader / FStandardShader / FSkinnedShader
-//           / FRefractionShader 等) は ModelViewer 本体が責任を持てる
-//       (2) FUndoStack へ「override 1 件分」を atomic に push できる粒度を提供
+//       (1) shader / pipeline の選択 (CPbrShader / CStandardShader / CSkinnedShader
+//           / CRefractionShader 等) は ModelViewer 本体が責任を持てる
+//       (2) CUndoStack へ「override 1 件分」を atomic に push できる粒度を提供
 //     できる。
 //   ・slot 数の管理 (= model load 時に呼ばれる `SetMaterialSlotCount`) も
 //     ModelViewer 本体が責任を持つ。本パネルは「slot N 個」という事実だけを
 //     知って override TArray を resize する。
 //
 // 設計選択 (ModelViewer):
-//   ・**FEditorPanel 基底を継承**: `editor_core::FEditorPanel`
+//   ・**AEditorPanel 基底を継承**: `editor_core::AEditorPanel`
 //     のライフサイクル (OnInit / OnShutdown / OnFrameBegin / DrawUI / WantsFocus
 //     等) を全て継承する。Workspace への登録 → 自動 dispatch が可能。
 //   ・**非コピー / 非ムーブ**: 内部 `TArray<FMaterialOverride>` + callback 状態の
-//     所有を曖昧にしない (= FEditorPanel の規約と同形、ACS 規約)。
+//     所有を曖昧にしない (= AEditorPanel の規約と同形、ACS 規約)。
 //   ・**全 noexcept**: ACS 規約。範囲外 index は no-op、nullptr 取得は nullptr
 //     return。例外は投げない。
 //   ・**STL 不使用 / `<string>` 禁止**: override list は `acs::TArray<FMaterialOverride>`。
 //     文字列は ImGui に渡すリテラル / スタック char[] のみ。
 //   ・**ImGui ヘッダは .cpp に閉じ込め**: header からは imgui 依存を漏らさず、
-//     FInspectorPanel / FParticleEditorPanel と同パターン。
+//     AInspectorPanel / AParticleEditorPanel と同パターン。
 //   ・**MaterialChangeCallback は raw 関数ポインタ + void***: ACS は STL の
 //     std::function を使えないため、C スタイル callback 規約に揃える
-//     (FInspectorPanel / FParticleEditorPanel と同形)。`override` 全体を 1 つの
-//     コピーとして渡すことで、外部 (FUndoStack / 永続化) が
+//     (AInspectorPanel / AParticleEditorPanel と同形)。`override` 全体を 1 つの
+//     コピーとして渡すことで、外部 (CUndoStack / 永続化) が
 //     「変更前 → 変更後」の 1 件分を atomic に扱える。
 //   ・**`is_overridden` フラグ**: 「ユーザーが触ったかどうか」を slot 単位で
 //     保持する。false の slot は ModelViewer 側で「元の material そのまま」と
@@ -90994,11 +92002,11 @@ private:
 //
 // 将来拡張余地:
 //   ・texture override (BaseColorMap / NormalMap / ORM / Emissive 等の path swap、
-//     FAssetBrowser からの drag-drop 連動)。`FMaterialOverride` に
+//     CAssetBrowser からの drag-drop 連動)。`FMaterialOverride` に
 //     `const char* base_color_path` 等を追加し、外部 callback で texture 差替を行う。
 //   ・material preset library (= `.acs_matpreset` 1 ファイルに 1 set を保存し、
 //     load / save / apply するボタン群)
-//   ・shader variant 切替 (FPbrShader / FSkinnedShader / FRefractionShader 等を
+//   ・shader variant 切替 (CPbrShader / CSkinnedShader / CRefractionShader 等を
 //     drop-down で選び、対応する constant buffer に切替える)
 //   ・per-slot min/max metadata 受け取り API (= 物理的に意味のある range で
 //     SliderFloat を出す。アセットメタデータが充実したら活かす)
@@ -91008,7 +92016,7 @@ private:
 // 範囲外 (本パネルでは持たない):
 //   ・実 shader への constant buffer write (= 外部 callback 受け側)
 //   ・texture リソースの load / 解放 (= AssetManager 責務)
-//   ・FUndoStack 統合 (= 外部 callback 経由で push してもらう)
+//   ・CUndoStack 統合 (= 外部 callback 経由で push してもらう)
 //   ・material asset の永続化フォーマット (= MaterialPreset 等)
 
 
@@ -91090,7 +92098,7 @@ struct FMaterialOverride {
 };
 
 /**
- * PBR material を slot 単位で live 編集する ImGui パネル (FEditorPanel 派生)。
+ * PBR material を slot 単位で live 編集する ImGui パネル (AEditorPanel 派生)。
  *
  * @details
  * 現在 load された model の各 submesh / material slot に対して base color / metallic /
@@ -91098,7 +92106,7 @@ struct FMaterialOverride {
  * FMaterialOverride として保持する。実 shader への反映 (constant buffer write) は
  * 行わず、MaterialChangeCallback 経由で呼び出し側に override 1 件分を通知する。
  */
-class FModelMaterialPanel : public editor_core::FEditorPanel {
+class AModelMaterialPanel : public editor_core::AEditorPanel {
 public:
     /**
      * override 1 件分の変更通知 callback の型。
@@ -91106,7 +92114,7 @@ public:
      * @details
      * user は SetOnMaterialChangeCallback の第二引数で渡したポインタがそのまま戻る
      * (closure 代替)。渡される override は本パネルが保持している最新コピーで、callback
-     * 受け側で const& として参照後すぐ消費するか、値コピーして FUndoStack に積む。
+     * 受け側で const& として参照後すぐ消費するか、値コピーして CUndoStack に積む。
      * @param user SetOnMaterialChangeCallback で登録した任意ポインタ。
      * @param slot_index 変更があった slot 番号。
      * @param override 変更後の override (最新コピー)。
@@ -91116,22 +92124,22 @@ public:
                                             const FMaterialOverride& override) noexcept;
 
     /** 空のパネルを構築する (slot list は空、callback 未登録)。 */
-    FModelMaterialPanel() noexcept = default;
+    AModelMaterialPanel() noexcept = default;
 
     /** パネルを破棄する (override list は TArray が解放)。 */
-    ~FModelMaterialPanel() noexcept override = default;
+    ~AModelMaterialPanel() noexcept override = default;
 
     /** コピー禁止 (内部 TArray + callback 状態の所有を曖昧にしないため)。 */
-    FModelMaterialPanel(const FModelMaterialPanel&)            = delete;
+    AModelMaterialPanel(const AModelMaterialPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FModelMaterialPanel& operator=(const FModelMaterialPanel&) = delete;
+    AModelMaterialPanel& operator=(const AModelMaterialPanel&) = delete;
 
-    /** ムーブ禁止 (FEditorPanel 基底と同規約)。 */
-    FModelMaterialPanel(FModelMaterialPanel&&)                 = delete;
+    /** ムーブ禁止 (AEditorPanel 基底と同規約)。 */
+    AModelMaterialPanel(AModelMaterialPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FModelMaterialPanel& operator=(FModelMaterialPanel&&)      = delete;
+    AModelMaterialPanel& operator=(AModelMaterialPanel&&)      = delete;
 
     /**
      * パネルを初期化する (Workspace 登録前 / 単独利用時)。
@@ -91281,71 +92289,73 @@ private:
     void*                   m_OnChangeUser = nullptr;
 };
 
+using FModelMaterialPanel = AModelMaterialPanel;
+
 } // namespace acs::game::modelview
 
 // ===================== gameframework/tools/modelview/ModelViewerPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — ModelViewer / FModelViewerPanel
+// GameFramework Pillar — ModelViewer / AModelViewerPanel
 //
 // 3D model の表示と asset 切替を行う **メインビューポート**。editor 共通基盤
-// (`editor_core::FEditorPanel` / `FEditorCamera` / `FEditorWorkspace` /
-// `FAssetBrowser`) を継承する panel。
+// (`editor_core::AEditorPanel` / `CEditorCamera` / `CEditorWorkspace` /
+// `CAssetBrowser`) を継承する panel。
 //
 // 役割:
 //   ・3D model viewport の host (ImGui::Begin "Model Viewport" 1 window)
 //   ・カレント asset path の保持 + 切替 (`LoadModelAsset` / `ClearModel`)
-//   ・FEditorCamera (3D orbit) を内包し、panel 内で操作 / Reset / Frame
+//   ・CEditorCamera (3D orbit) を内包し、panel 内で操作 / Reset / Frame
 //   ・Lighting (sun dir + sun color + IBL toggle + tonemap mode) パラメータの
 //     設定 ImGui controls
 //   ・Background color / Grid / FBone skeleton 表示の切替
-//   ・FAssetBrowser からのファイル選択通知 (`OnAssetSelected`) を受けて
+//   ・CAssetBrowser からのファイル選択通知 (`OnAssetSelected`) を受けて
 //     mesh / model 拡張子なら自動 LoadModelAsset
 //
 // 役割分担 (ModelViewer 全体):
-//   ・本 panel (FModelViewerPanel)         : 3D viewport + 表示パラメータ UI
-//   ・FModelInspectorPanel                  : モデルのメタ情報 (vertex/index 数,
+//   ・本 panel (AModelViewerPanel)         : 3D viewport + 表示パラメータ UI
+//   ・AModelInspectorPanel                  : モデルのメタ情報 (vertex/index 数,
 //                                            material list, bone count 等)
-//   ・FModelMaterialPanel                   : material slot 編集 (basecolor /
+//   ・AModelMaterialPanel                   : material slot 編集 (basecolor /
 //                                            metallic / roughness 等)
-//   ・FModelAnimationPanel                  : animation clip 切替 + 再生 / pause
-//   ・ModelViewportRenderer                 : 実際の 3D 描画 (FPbrShader + FShadowMap +
+//   ・AModelAnimationPanel                  : animation clip 切替 + 再生 / pause
+//   ・ModelViewportRenderer                 : 実際の 3D 描画 (CPbrShader + CShadowMap +
 //                                            IBL + Tonemap) を持つ別クラス。本 panel
 //                                            は描画パラメータの保管だけを担う。
 //
 // 使い方 (典型):
-//   FModelViewerPanel viewer;
+//   AModelViewerPanel viewer;
 //   viewer.Init();
-//   workspace.RegisterPanel(&viewer);  // FEditorPanel として登録
+//   workspace.RegisterPanel(&viewer);  // AEditorPanel として登録
 //
 //   // 毎フレーム TickAllPanels(dt) の中で OnFrameBegin + DrawUI が呼ばれる。
 //
-//   // FAssetBrowser からファイル選択時:
+//   // CAssetBrowser からファイル選択時:
 //   workspace.BroadcastAssetSelected("models/hero.mdl");
-//   // → FModelViewerPanel::OnAssetSelected が呼ばれ、自動 LoadModelAsset。
+//   // → AModelViewerPanel::OnAssetSelected が呼ばれ、自動 LoadModelAsset。
 //
 //   // 終了時:
 //   workspace.UnregisterPanel(&viewer);
 //   viewer.Shutdown();
 //
 // 設計選択 (ModelViewer):
-//   ・**FEditorPanel 継承**: Title / DrawUI /
+//   ・**AEditorPanel 継承**: Title / DrawUI /
 //     OnInit / OnAssetSelected を override。OnInit では基底実装 (`Workspace()`
 //     ポインタ保持) を必ず呼ぶ。
 //   ・**3D viewport を「数値パラメータ + ImGui controls」だけにする**:
-//     実際の 3D 描画 (FPbrShader / FShadowMap / IBL) は
+//     実際の 3D 描画 (CPbrShader / CShadowMap / IBL) は
 //     `ModelViewportRenderer` が担当する。本 panel は
-//     「FCamera state + light params + background + toggle 群」の保管 + UI のみ。
+//     「CCamera state + light params + background + toggle 群」の保管 + UI のみ。
 //     こうしておけば panel 単体テストや、別の renderer (= raymarched preview /
 //     OBJ thumbnail) への差し替えが容易。
-//   ・**FEditorCamera を内包 (値メンバ)**: 各 panel が独自 camera を持つ Unity
+//   ・**CEditorCamera を内包 (値メンバ)**: 各 panel が独自 camera を持つ Unity
 //     SceneView 風モデル。Camera() アクセサで参照を返し、renderer が
 //     ViewMatrix / ProjectionMatrix を取り出して使う。
-//   ・**asset path は wchar_t バッファ (kMaxPathChars = 512)**: FAssetBrowser
+//   ・**asset path は wchar_t バッファ (kMaxPathChars = 512)**: CAssetBrowser
 //     と同じ規約。STL の std::wstring は使えないため、固定長で保持。
-//     寿命管理を panel 側で完結させるため、コピー保存する (= FAssetBrowser の
+//     寿命管理を panel 側で完結させるため、コピー保存する (= CAssetBrowser の
 //     pointer 寿命 = 次の Refresh まで、には依存しない)。
 //   ・**OnAssetSelected で拡張子フィルタ**: `.mdl` / `.fbx` / `.gltf` / `.glb` /
-//     `.obj` が Mesh asset とみなされる (FAssetBrowser::ClassifyByExtension の
+//     `.obj` が Mesh asset とみなされる (CAssetBrowser::ClassifyByExtension の
 //     Mesh 分類と一致)。それ以外の拡張子は無視 (= asset path は ASCII UTF-8 だが
 //     panel 内では wchar_t に正規化して持つ)。
 //   ・**ImGui controls の DrawUI 配置**: 単一 "Model Viewport" window 内に
@@ -91355,74 +92365,66 @@ private:
 //     を出す。各 widget の戻り値で「ユーザが変更したか」を判定する。本 panel は
 //     値を保持するだけ。
 //   ・**Tonemap mode は u32 enum 風 (0=ACES / 1=Reinhard / 2=Linear)**:
-//     FPbrShader / Tonemap の既存 enum (`render/PostProcess.h` 等) との連携は
+//     CPbrShader / Tonemap の既存 enum (`render/PostProcess.h` 等) との連携は
 //     renderer 側で行う (本 panel は u32 で受け流し)。
 //   ・**Background color は FVec4** (RGBA): renderer の clear color 用。alpha は
 //     通常 1.0 だが、screenshot 用に alpha 0 もあり得る。
 //   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。文字列は wchar_t 固定長バッファのみ。
-//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (FHierarchyPanel / FInspectorPanel /
-//     FParticleEditorPanel) と同形。
+//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (AHierarchyPanel / AInspectorPanel /
+//     AParticleEditorPanel) と同形。
 //   ・本 panel から forward decl で他 panel を受ける必要はない
 //     (Workspace 経由で疎結合)。
 //
 // 範囲外 (別 panel):
-//   ・PBR 描画 (FPbrShader / FShadowMap / IBL) の実呼出 = ModelViewportRenderer
-//   ・material slot 編集 = FModelMaterialPanel
-//   ・bone hierarchy 表示 = FModelInspectorPanel
-//   ・animation timeline = FModelAnimationPanel
-//   ・grid / gizmo の実描画 = FEditorGizmo
-//   ・camera preset (Front / Top / Side) = FEditorCamera
-//   ・undo / redo = FUndoStack 統合 (OnUndo / OnRedo hook)
+//   ・PBR 描画 (CPbrShader / CShadowMap / IBL) の実呼出 = ModelViewportRenderer
+//   ・material slot 編集 = AModelMaterialPanel
+//   ・bone hierarchy 表示 = AModelInspectorPanel
+//   ・animation timeline = AModelAnimationPanel
+//   ・grid / gizmo の実描画 = CEditorGizmo
+//   ・camera preset (Front / Top / Side) = CEditorCamera
+//   ・undo / redo = CUndoStack 統合 (OnUndo / OnRedo hook)
 
-
-namespace acs::game::editor_core {
-// FEditorWorkspace / FAssetBrowser は EditorPanel.h から forward-decl で受ける。
-// 本ヘッダで AssetBrowser.h を include しないことで、編集中ファイルの依存を
-// 最小化する (= FAssetBrowser のヘッダ変更で FModelViewerPanel 利用側が再ビルドを
-// 強いられないようにする)。
-class FEditorWorkspace;
-} // namespace acs::game::editor_core
 
 namespace acs::game::modelview {
 
 /**
- * 3D model viewport + 表示パラメータ UI を提供する panel (FEditorPanel 派生)。
+ * 3D model viewport + 表示パラメータ UI を提供する panel (AEditorPanel 派生)。
  *
  * @details
- * 3D model の表示と asset 切替を行うメインビューポート。FEditorCamera (3D orbit) を
+ * 3D model の表示と asset 切替を行うメインビューポート。CEditorCamera (3D orbit) を
  * 内包し、Lighting (sun dir / color / IBL / tonemap)・Background・Grid・bone skeleton
- * 表示の数値パラメータと ImGui controls を保持する。実際の 3D 描画 (FPbrShader /
- * FShadowMap / IBL) は外部の ModelViewportRenderer が CurrentAssetPath() や各パラメータを
- * 見て担当し、本 panel は値の保管と UI のみを担う。FAssetBrowser からのファイル選択
+ * 表示の数値パラメータと ImGui controls を保持する。実際の 3D 描画 (CPbrShader /
+ * CShadowMap / IBL) は外部の ModelViewportRenderer が CurrentAssetPath() や各パラメータを
+ * 見て担当し、本 panel は値の保管と UI のみを担う。CAssetBrowser からのファイル選択
  * (OnAssetSelected) を受けて mesh / model 拡張子なら自動 LoadModelAsset する。
  */
-class FModelViewerPanel : public acs::game::editor_core::FEditorPanel {
+class AModelViewerPanel : public acs::game::editor_core::AEditorPanel {
 public:
     /** 空のパネルを構築する (state は Init で確定)。 */
-    FModelViewerPanel() noexcept = default;
+    AModelViewerPanel() noexcept = default;
 
     /** パネルを破棄する。 */
-    ~FModelViewerPanel() noexcept override = default;
+    ~AModelViewerPanel() noexcept override = default;
 
-    /** コピー禁止 (内部 FEditorCamera + asset path バッファの所有を曖昧にしないため)。 */
-    FModelViewerPanel(const FModelViewerPanel&)            = delete;
+    /** コピー禁止 (内部 CEditorCamera + asset path バッファの所有を曖昧にしないため)。 */
+    AModelViewerPanel(const AModelViewerPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FModelViewerPanel& operator=(const FModelViewerPanel&) = delete;
+    AModelViewerPanel& operator=(const AModelViewerPanel&) = delete;
 
-    /** ムーブ禁止 (ACS 規約 + 基底 FEditorPanel 規約)。 */
-    FModelViewerPanel(FModelViewerPanel&&)                 = delete;
+    /** ムーブ禁止 (ACS 規約 + 基底 AEditorPanel 規約)。 */
+    AModelViewerPanel(AModelViewerPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FModelViewerPanel& operator=(FModelViewerPanel&&)      = delete;
+    AModelViewerPanel& operator=(AModelViewerPanel&&)      = delete;
 
     /**
      * パネルを初期化する。
      *
      * @details
-     * 内部 state をデフォルトに戻し、FEditorCamera を 3D mode で Init、asset path を
-     * 空にする。Workspace への登録は別途 FEditorWorkspace::RegisterPanel(&this) で行い
+     * 内部 state をデフォルトに戻し、CEditorCamera を 3D mode で Init、asset path を
+     * 空にする。Workspace への登録は別途 CEditorWorkspace::RegisterPanel(&this) で行い
      * (= OnInit 経由で Workspace ポインタが保存される)、多重 Init 可 (= 完全リセット)。
      */
     void Init() noexcept;
@@ -91431,7 +92433,7 @@ public:
      * 内部 state を全解放する。
      *
      * @details
-     * FEditorCamera は POD だが念のため Reset でデフォルト state にする。OnShutdown とは
+     * CEditorCamera は POD だが念のため Reset でデフォルト state にする。OnShutdown とは
      * 別物で、Workspace から外す前に panel 単体で reset したい場合の API。多重 Shutdown 可。
      */
     void Shutdown() noexcept;
@@ -91450,7 +92452,7 @@ public:
      * 内部 asset path を空文字に戻し HasModel() を false にする。
      *
      * @details
-     * FEditorCamera 状態 / Lighting / Background は保持する (= モデルを切替えても視点と
+     * CEditorCamera 状態 / Lighting / Background は保持する (= モデルを切替えても視点と
      * 照明が維持される、Unity SceneView と同じ挙動)。
      */
     void ClearModel() noexcept;
@@ -91470,14 +92472,14 @@ public:
     const wchar_t* CurrentAssetPath() const noexcept;
 
     /**
-     * 内部 FEditorCamera への参照を返す。
+     * 内部 CEditorCamera への参照を返す。
      *
      * @details
      * 呼出側 (renderer / panel 内 UI) が HandleMouseInput / Tick / ViewMatrix 等を呼ぶ。
      * 寿命は本 panel と同一。
-     * @return 内部 FEditorCamera への参照。
+     * @return 内部 CEditorCamera への参照。
      */
-    acs::game::editor_core::FEditorCamera& Camera() noexcept;
+    acs::game::editor_core::CEditorCamera& Camera() noexcept;
 
     /**
      * sun light direction を設定する。
@@ -91601,10 +92603,10 @@ public:
     /**
      * Workspace への登録時に呼ばれる初期化フック。
      *
-     * @details 基底実装で Workspace ポインタを保存し、本クラスでは FEditorCamera を 3D mode で Init し直す保険を行う。
-     * @param workspace 登録先の FEditorWorkspace。
+     * @details 基底実装で Workspace ポインタを保存し、本クラスでは CEditorCamera を 3D mode で Init し直す保険を行う。
+     * @param workspace 登録先の CEditorWorkspace。
      */
-    void OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept override;
+    void OnInit(acs::game::editor_core::CEditorWorkspace& workspace) noexcept override;
 
     /**
      * ImGui window を描画する (viewport プレースホルダ + control bar)。
@@ -91616,7 +92618,7 @@ public:
     void DrawUI() noexcept override;
 
     /**
-     * FAssetBrowser からのファイル選択通知フック。
+     * CAssetBrowser からのファイル選択通知フック。
      *
      * @details
      * 拡張子が Mesh 相当 (.mdl/.fbx/.gltf/.glb/.obj) なら自動 LoadModelAsset し、それ以外
@@ -91628,7 +92630,7 @@ public:
     /**
      * asset path 用バッファ長 (wchar_t 単位、終端含む)。
      *
-     * @details FAssetBrowser::kMaxPathChars と同値にして相互運用しやすくする (= 同じ規約)。
+     * @details CAssetBrowser::kMaxPathChars と同値にして相互運用しやすくする (= 同じ規約)。
      */
     static constexpr u32 kMaxAssetPathChars = 512u;
 
@@ -91637,7 +92639,7 @@ public:
 
 private:
     /** 3D viewport camera (orbit / pan / dolly)。Init() で Mode3D に初期化。 */
-    acs::game::editor_core::FEditorCamera m_Camera {};
+    acs::game::editor_core::CEditorCamera m_Camera {};
 
     /** 現在のモデル asset path (UTF-16)。未設定時は先頭が L'\0'、コピー所有。 */
     wchar_t m_AssetPath[kMaxAssetPathChars] = {};
@@ -91664,16 +92666,18 @@ private:
     bool      m_ShowBoneSkeleton  = false;
 };
 
+using FModelViewerPanel = AModelViewerPanel;
+
 } // namespace acs::game::modelview
 
 // ===================== gameframework/tools/spriteatlas/SpriteAtlasEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — spriteatlas / FSpriteAtlasEditorPanel
+// GameFramework Pillar — spriteatlas / ASpriteAtlasEditorPanel
 //
 // `acs::game::FSpritePack` (gameframework/SpritePack.h) が保持する atlas メタ情報
 // と名前付き frame 矩形のリストを、ImGui ベースで対話的に編集する **エディタ
 // パネル**。editor 共通基盤
-// (`editor_core::FEditorPanel` / `FEditorWorkspace`) を継承し、ModelViewer
+// (`editor_core::AEditorPanel` / `CEditorWorkspace`) を継承し、ModelViewer
 // と同形の組立方を持つ。
 //
 // 役割:
@@ -91689,7 +92693,7 @@ private:
 //     できない設計とも整合)。
 //
 // 役割分担 (SpriteAtlasEditor 全体):
-//   ・本 panel (FSpriteAtlasEditorPanel) : ImGui UI + frame rect 編集
+//   ・本 panel (ASpriteAtlasEditorPanel) : ImGui UI + frame rect 編集
 //   ・FSample 35 (HelloSpriteAtlasEditor) : Workspace + 256x256 dummy atlas を
 //                                          初期登録 + Save/Load .acsatlas stub menu
 //
@@ -91702,10 +92706,10 @@ private:
 //   pack.Init(info);
 //   // ... 既存 frame を AddFrame ...
 //
-//   spriteatlas::FSpriteAtlasEditorPanel panel;
+//   spriteatlas::ASpriteAtlasEditorPanel panel;
 //   panel.Init();
 //   panel.SetSpritePack(&pack);
-//   workspace.RegisterPanel(&panel);   // FEditorPanel として登録
+//   workspace.RegisterPanel(&panel);   // AEditorPanel として登録
 //
 //   // 毎フレーム TickAllPanels(dt) の中で DrawUI が呼ばれる。
 //
@@ -91714,8 +92718,8 @@ private:
 //   panel.Shutdown();
 //
 // 設計選択:
-//   ・**FEditorPanel 継承**: editor 共通基盤を dogfood。Title / DrawUI /
-//     OnInit を override。OnInit では基底実装を必ず呼ぶ。FModelViewerPanel と
+//   ・**AEditorPanel 継承**: editor 共通基盤を dogfood。Title / DrawUI /
+//     OnInit を override。OnInit では基底実装を必ず呼ぶ。AModelViewerPanel と
 //     同形。
 //   ・**FSpritePack は raw pointer 非所有保持**: FSpritePack は非コピー / 非ムーブ
 //     なので参照保持しか選択肢が無く、それを noexcept ABI に乗せるため
@@ -91723,7 +92727,7 @@ private:
 //     `panel.SetSpritePack(&pack)` で注入し、`panel.CurrentPack()` で取り出す。
 //     `nullptr` を渡されたら "no pack attached" として UI を gracefully 退化
 //     (ボタンを disabled 化 + 説明文表示)。
-//   ・**選択は単一 frame index (i32)**: -1 = 未選択。FParticleEditorPanel と
+//   ・**選択は単一 frame index (i32)**: -1 = 未選択。AParticleEditorPanel と
 //     同形の規約 (`SelectedFrameIndex()` / `SelectFrame(i32)`)。
 //   ・**Pivot toggle = EPivotPreset enum** (Center / TopLeft / Custom):
 //     Custom は inspector で pivot_x/pivot_y を slider で直接編集する。
@@ -91747,16 +92751,16 @@ private:
 //     panel 内で新規 frame を AddFrame するときの name は静的バッファ
 //     (`m_DefaultFrameNamePool[]`) に書き込み、FSpritePack に const char*
 //     ポインタを渡す。TPool は kMaxOwnedFrames * 32 byte 固定。
-//   ・**ImGui ヘッダは .cpp 限定**: FParticleEditorPanel / FModelViewerPanel と
+//   ・**ImGui ヘッダは .cpp 限定**: AParticleEditorPanel / AModelViewerPanel と
 //     同形 (header から imgui.h を出さない)。
 //
 // 範囲外:
 //   ・atlas texture の実 GPU 描画 (= ImGui::Image + descriptor heap 統合)
-//   ・undo / redo (= FUndoStack 統合は OnUndo / OnRedo hook で)
+//   ・undo / redo (= CUndoStack 統合は OnUndo / OnRedo hook で)
 //   ・自動矩形検出 (Aseprite 風 trimming / connected component 解析)
 //   ・複数 frame の box-select / 一括操作
 //   ・カスタム pivot guide 線描画 (現状は数値表示のみ)
-//   ・animation timeline 連携 (FSpriteAnimator との結合は別 panel)
+//   ・animation timeline 連携 (CSpriteAnimator との結合は別 panel)
 //   ・.acsatlas serializer 実装 (= FSample 35 側で stub callback のみ)
 
 
@@ -91765,11 +92769,6 @@ namespace acs::game {
 // (= ヘッダ依存最小化、利用側が FSpritePack の API 変更で再ビルドさせられない)。
 class FSpritePack;
 } // namespace acs::game
-
-namespace acs::game::editor_core {
-// FEditorWorkspace は EditorPanel.h から forward-decl 経由で受ける。
-class FEditorWorkspace;
-} // namespace acs::game::editor_core
 
 namespace acs::game::spriteatlas {
 
@@ -91795,31 +92794,31 @@ enum class EPivotPreset : u8 {
  * atlas texture path と名前付き frame 矩形列を ImGui で対話編集するエディタパネル。
  *
  * @details
- * editor 共通基盤 `FEditorPanel` を継承し、toolbar / 左 frame list / 中央 atlas
+ * editor 共通基盤 `AEditorPanel` を継承し、toolbar / 左 frame list / 中央 atlas
  * viewport (placeholder + 矩形 overlay + 8 個の drag handle) / 右 inspector の
  * 4 領域を 1 window に描く。編集対象の `FSpritePack` は raw pointer で非所有保持し
  * (非コピー / 非ムーブ型のため参照保持しか取れない)、新規 frame の名前は内部の
  * 静的バッファ `m_DefaultFrameNamePool[]` に書いて const char* で FSpritePack に渡す。
  */
-class FSpriteAtlasEditorPanel : public acs::game::editor_core::FEditorPanel {
+class ASpriteAtlasEditorPanel : public acs::game::editor_core::AEditorPanel {
 public:
     /** 空状態で構築する (state は Init / SetSpritePack で確定)。 */
-    FSpriteAtlasEditorPanel() noexcept = default;
+    ASpriteAtlasEditorPanel() noexcept = default;
 
     /** 派生破棄に対応する仮想デストラクタ (FSpritePack は非所有なので解放しない)。 */
-    ~FSpriteAtlasEditorPanel() noexcept override = default;
+    ~ASpriteAtlasEditorPanel() noexcept override = default;
 
     /** コピー禁止 (frame name pool と FSpritePack* の参照関係を曖昧にしないため)。 */
-    FSpriteAtlasEditorPanel(const FSpriteAtlasEditorPanel&)            = delete;
+    ASpriteAtlasEditorPanel(const ASpriteAtlasEditorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSpriteAtlasEditorPanel& operator=(const FSpriteAtlasEditorPanel&) = delete;
+    ASpriteAtlasEditorPanel& operator=(const ASpriteAtlasEditorPanel&) = delete;
 
     /** ムーブ禁止 (内部静的バッファのアドレス安定性を保つため)。 */
-    FSpriteAtlasEditorPanel(FSpriteAtlasEditorPanel&&)                 = delete;
+    ASpriteAtlasEditorPanel(ASpriteAtlasEditorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSpriteAtlasEditorPanel& operator=(FSpriteAtlasEditorPanel&&)      = delete;
+    ASpriteAtlasEditorPanel& operator=(ASpriteAtlasEditorPanel&&)      = delete;
 
     /**
      * 内部 state を初期値へ完全リセットする (多重呼び出し可)。
@@ -91827,7 +92826,7 @@ public:
      * @details
      * FSpritePack 参照を nullptr、selection を未選択、zoom を 1.0、pivot preset を
      * Center に戻し、frame name pool を全クリアして命名済個数を 0 にする。可視 +
-     * dock 中央配置にもする。Workspace 登録は別途 `FEditorWorkspace::RegisterPanel`
+     * dock 中央配置にもする。Workspace 登録は別途 `CEditorWorkspace::RegisterPanel`
      * で行う (= OnInit が呼ばれる)。
      */
     void Init() noexcept;
@@ -91936,7 +92935,7 @@ public:
      * @details 基底実装で Workspace ポインタを保存したあと、frame name pool 各行の終端 0 を確認する。
      * @param workspace この panel を登録した Workspace。
      */
-    void OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept override;
+    void OnInit(acs::game::editor_core::CEditorWorkspace& workspace) noexcept override;
 
     /**
      * 1 window "Sprite Atlas Editor" を描画する (toolbar / list / viewport / inspector の 4 領域)。
@@ -91991,11 +92990,13 @@ private:
     u32 m_OwnedNameCount = 0;
 };
 
+using FSpriteAtlasEditorPanel = ASpriteAtlasEditorPanel;
+
 } // namespace acs::game::spriteatlas
 
 // ===================== imgui/ImGuiContext.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ImGui を ACS FWindow + FRenderer に統合する薄いラッパ
+// ImGui を ACS FWindow + CRenderer に統合する薄いラッパ
 //
 // 使い方:
 //   ImGuiCtx imgui;
@@ -92017,10 +93018,10 @@ private:
 namespace acs {
 
 class FWindow;
-class FRenderer;
+class CRenderer;
 
 /**
- * ImGui を ACS の FWindow + FRenderer に統合する薄いラッパ。
+ * ImGui を ACS の FWindow + CRenderer に統合する薄いラッパ。
  *
  * @details
  * Win32 backend (imgui_impl_win32) と DX12 backend (imgui_impl_dx12) を組み合わせ、
@@ -92047,12 +93048,12 @@ public:
      * @details
      * ImGui コンテキストを作ってキーボードナビゲーションを有効化し、Win32 backend に
      * HWND を渡し、DX12 backend 用の SHADER_VISIBLE な SRV ヒープ (64 ディスクリプタ) を
-     * 確保して紐付ける。FRenderer が未初期化 (Device/Swapchain が null) の場合は失敗する。
+     * 確保して紐付ける。CRenderer が未初期化 (Device/Swapchain が null) の場合は失敗する。
      * @param window 紐付ける対象ウィンドウ (HWND を取得する)。
      * @param renderer DX12 デバイス・スワップチェインの取得元レンダラ。
      * @return 成功なら空の TResult、初期化失敗ならエラー。
      */
-    TResult<void> Init(FWindow& window, FRenderer& renderer) noexcept;
+    TResult<void> Init(FWindow& window, CRenderer& renderer) noexcept;
 
     /** DX12/Win32 backend と ImGui コンテキスト・SRV ヒープを解放する (多重呼び出し安全)。 */
     void Shutdown() noexcept;
@@ -92064,7 +93065,7 @@ public:
     void Render() noexcept;
 
     /**
-     * ウィンドウイベントを ImGui の IO に転送する (FApplication::OnEvent から呼ぶ)。
+     * ウィンドウイベントを ImGui の IO に転送する (CApplication::OnEvent から呼ぶ)。
      *
      * @details マウスのボタン・移動・スクロールと文字入力を ImGuiIO へ反映する (キー入力は未対応)。
      * @param e 転送する入力・ウィンドウイベント。
@@ -92076,7 +93077,7 @@ private:
     FWindow*    m_Window    = nullptr;
 
     /** DX12 デバイス・スワップチェインの取得元レンダラ (Init で受け取る)。 */
-    FRenderer*  m_Renderer  = nullptr;
+    CRenderer*  m_Renderer  = nullptr;
 
     /** DX12 backend 用の SHADER_VISIBLE な SRV ヒープ (ID3D12DescriptorHeap*)。 */
     void*      m_SrvHeap  = nullptr;
@@ -92121,32 +93122,32 @@ struct FLocalMatchmakerConfig {
  * (Cancelled / 双方 Accept 済み) に入ったスロットは退役させ、満杯時に最古の退役
  * スロットを再利用することで ticket リークを防ぐ。ネットワークは一切使わない。
  */
-class FLocalMatchmaker final : public acs::game::IMatchmaker {
+class CLocalMatchmaker final : public acs::game::IMatchmaker {
 public:
     /** 既定設定 (MaxRatingDelta=150) で構築する。 */
-    FLocalMatchmaker() noexcept = default;
+    CLocalMatchmaker() noexcept = default;
 
     /**
      * 設定を指定して構築する。
      *
      * @param config 適用する matchmaker 設定。
      */
-    explicit FLocalMatchmaker(const FLocalMatchmakerConfig& config) noexcept;
+    explicit CLocalMatchmaker(const FLocalMatchmakerConfig& config) noexcept;
 
     /** 破棄する (保持リソースは固定長配列のみ)。 */
-    ~FLocalMatchmaker() noexcept override = default;
+    ~CLocalMatchmaker() noexcept override = default;
 
     /** コピー禁止 (ticket プールを単独所有するため)。 */
-    FLocalMatchmaker(const FLocalMatchmaker&)            = delete;
+    CLocalMatchmaker(const CLocalMatchmaker&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLocalMatchmaker& operator=(const FLocalMatchmaker&) = delete;
+    CLocalMatchmaker& operator=(const CLocalMatchmaker&) = delete;
 
     /** ムーブ禁止。 */
-    FLocalMatchmaker(FLocalMatchmaker&&)                 = delete;
+    CLocalMatchmaker(CLocalMatchmaker&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FLocalMatchmaker& operator=(FLocalMatchmaker&&)      = delete;
+    CLocalMatchmaker& operator=(CLocalMatchmaker&&)      = delete;
 
     /**
      * マッチ検索を開始し、新しい ticket を発行する。
@@ -92345,8 +93346,11 @@ private:
     acs::u32 m_MaxRatingDelta = 150;
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FLocalMatchmaker = CLocalMatchmaker;
+
 /**
- * プロセス共有の既定 FLocalMatchmaker singleton を返す。
+ * プロセス共有の既定 CLocalMatchmaker singleton を返す。
  *
  * @details matchmaker provider に登録する provider 実体として使う。
  * @return ローカル matchmaker singleton への参照。
@@ -92423,20 +93427,6 @@ ACS_FORCEINLINE void TransformBatchStatic(const FVec3 (&Input)[Count], FVec3 (&O
 
 // ===================== math/CameraRig.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Math — CameraRig (軌道カメラ + 射影/逆射影ヘルパ)
-// -----------------------------------------------------------------------------
-// FCamera (view/projection 行列) の «周辺» でよく要る計算をエンジンの正準実装として
-// 集約する。これらは符号・ハンドネス・スクリーンY向きを取り違えやすい «逆になりがち»
-// な部分なので、行列ベースで実装し world→screen と screen→ray が数学的に厳密一致する
-// (= 往復テストで自己検証できる) ようにした。
-//
-// 規約 (editor_abi の 3D ビューポートと一致、左手系 DirectX):
-//   ・orbit: target→eye 方向 dir = (cosP*sinY, sinP, cosP*cosY)、eye = target + dir*dist
-//            (pitch+ で見下ろし、yaw は +Y まわり)。
-//   ・screen: 左上原点・Y 下向き。NDC z は [0,1] (near=0, far=1)。
-//   ・projection は左手系 (FMat4::PerspectiveFovLH / FCamera)。
-// =============================================================================
 
 
 namespace acs {
@@ -92473,11 +93463,11 @@ inline FVec3 OrbitEye(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dist) noexce
  * @param aspect アスペクト比 (幅/高さ)。
  * @param near_z 近クリップ面距離。
  * @param far_z 遠クリップ面距離。
- * @return view/projection を設定済みの FCamera。
+ * @return view/projection を設定済みの CCamera。
  */
-inline FCamera MakeOrbitCamera(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dist,
+inline CCamera MakeOrbitCamera(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dist,
                                f32 fov_y_rad, f32 aspect, f32 near_z, f32 far_z) noexcept {
-    FCamera cam;
+    CCamera cam;
     cam.SetPerspective(fov_y_rad, aspect, near_z, far_z);
     cam.SetLookAt(OrbitEye(target, yaw_rad, pitch_rad, dist), target);
     return cam;
@@ -92488,7 +93478,7 @@ inline FCamera MakeOrbitCamera(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dis
  *
  * @details
  * clip.w <= 0 (カメラ後方) のときは false を返し out_px は書き換えない。
- * @param view_proj view × projection 行列 (FCamera::ViewProjection())。
+ * @param view_proj view × projection 行列 (CCamera::ViewProjection())。
  * @param world 射影するワールド点。
  * @param screen_w スクリーン幅 (px)。
  * @param screen_h スクリーン高さ (px)。
@@ -92507,7 +93497,7 @@ inline bool WorldToScreen(const FMat4& view_proj, FVec3 world,
 }
 
 /**
- * ワールド点をスクリーンピクセル座標へ射影する (FCamera 版)。
+ * ワールド点をスクリーンピクセル座標へ射影する (CCamera 版)。
  *
  * @param cam ビュー/プロジェクションを持つカメラ。
  * @param world 射影するワールド点。
@@ -92516,7 +93506,7 @@ inline bool WorldToScreen(const FMat4& view_proj, FVec3 world,
  * @param out_px 射影結果のスクリーン座標 (左上原点)。
  * @return カメラ前方で射影できたら true。
  */
-inline bool WorldToScreen(const FCamera& cam, FVec3 world,
+inline bool WorldToScreen(const CCamera& cam, FVec3 world,
                           f32 screen_w, f32 screen_h, FVec2& out_px) noexcept {
     return WorldToScreen(cam.ViewProjection(), world, screen_w, screen_h, out_px);
 }
@@ -92552,7 +93542,7 @@ inline FRay3 ScreenPointToRay(const FMat4& view_proj, f32 px, f32 py,
 }
 
 /**
- * スクリーンピクセル座標を通すワールドレイを返す (FCamera 版)。
+ * スクリーンピクセル座標を通すワールドレイを返す (CCamera 版)。
  *
  * @param cam ビュー/プロジェクションを持つカメラ。
  * @param px スクリーン X (左上原点)。
@@ -92561,7 +93551,7 @@ inline FRay3 ScreenPointToRay(const FMat4& view_proj, f32 px, f32 py,
  * @param screen_h スクリーン高さ (px)。
  * @return ワールド空間のピックレイ。
  */
-inline FRay3 ScreenPointToRay(const FCamera& cam, f32 px, f32 py,
+inline FRay3 ScreenPointToRay(const CCamera& cam, f32 px, f32 py,
                              f32 screen_w, f32 screen_h) noexcept {
     return ScreenPointToRay(cam.ViewProjection(), px, py, screen_w, screen_h);
 }
@@ -92742,7 +93732,7 @@ namespace acs {
  * 遅延再利用するか、全ページを backing に返す。Reset は開始済みの Alloc が完了するまで待ち、
  * Reset 開始後の Alloc は nullptr で拒否する。
  */
-class FArenaAllocator final : public FAllocator {
+class CArenaAllocator final : public IAllocator {
 public:
     /**
      * 1 ページあたりのサイズと backing を指定して構築する (ページは遅延確保)。
@@ -92750,16 +93740,16 @@ public:
      * @param PageSize 1 ページのデータ領域サイズ (既定 64KiB)。
      * @param BackingAllocator ページの確保元 (nullptr なら DefaultAllocator)。
      */
-    FArenaAllocator(usize PageSize = 64 * 1024, FAllocator* BackingAllocator = nullptr) noexcept;
+    CArenaAllocator(usize PageSize = 64 * 1024, IAllocator* BackingAllocator = nullptr) noexcept;
 
     /** 全ページを backing に返して破棄する。 */
-    ~FArenaAllocator() noexcept override;
+    ~CArenaAllocator() noexcept override;
 
     /** コピー禁止 (ページ群を単独所有するため)。 */
-    FArenaAllocator(const FArenaAllocator&) = delete;
+    CArenaAllocator(const CArenaAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FArenaAllocator& operator=(const FArenaAllocator&) = delete;
+    CArenaAllocator& operator=(const CArenaAllocator&) = delete;
 
     /**
      * 現在ページから alignment 整列で size バイトを切り出す (満杯なら新ページを確保)。
@@ -92913,7 +93903,7 @@ private:
     void EndAllocation() noexcept;
 
     /** ページの確保元アロケータ。 */
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
 
     /** 1 ページのデータ領域サイズ。 */
     usize m_PageSize = 0;
@@ -92958,6 +93948,9 @@ private:
     TAtomic<u64> m_LazyPageResetCount{0};
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FArenaAllocator = CArenaAllocator;
+
 } // namespace acs
 
 // ===================== memory/LinearAllocator.h =====================
@@ -92976,7 +93969,7 @@ namespace acs {
  * 巻き戻す。容量を超える確保は nullptr を返す。Reset は新規 Alloc を一時停止し、
  * 入場済みの Alloc が完了してからカーソルを巻き戻す。
  */
-class FLinearAllocator final : public FAllocator {
+class CLinearAllocator final : public IAllocator {
 public:
     /**
      * capacity バイトのバッファを backing から 1 回確保して構築する。
@@ -92984,16 +93977,16 @@ public:
      * @param BufferCapacity 確保するバッファの総バイト数。
      * @param BackingAllocator バッキングアロケータ (nullptr なら DefaultAllocator)。
      */
-    FLinearAllocator(usize BufferCapacity, FAllocator* BackingAllocator = nullptr) noexcept;
+    CLinearAllocator(usize BufferCapacity, IAllocator* BackingAllocator = nullptr) noexcept;
 
     /** バッキングバッファを backing に返して破棄する。 */
-    ~FLinearAllocator() noexcept override;
+    ~CLinearAllocator() noexcept override;
 
     /** コピー禁止 (バッファを単独所有するため)。 */
-    FLinearAllocator(const FLinearAllocator&) = delete;
+    CLinearAllocator(const CLinearAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FLinearAllocator& operator=(const FLinearAllocator&) = delete;
+    CLinearAllocator& operator=(const CLinearAllocator&) = delete;
 
     /**
      * カーソルを alignment 整列して size バイトを切り出す。
@@ -93112,7 +94105,7 @@ private:
     u64 m_Capacity = 0;
 
     /** バッファの確保元アロケータ。 */
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
 
     /** backing を所有しているか (現状常に false)。 */
     bool m_bOwnsBacking = false;
@@ -93134,6 +94127,9 @@ private:
     TAtomic<u32> m_LifecycleControl{0u};
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FLinearAllocator = CLinearAllocator;
+
 } // namespace acs
 
 // ===================== memory/MemorySnapshot.h =====================
@@ -93141,7 +94137,7 @@ private:
 // =============================================================================
 // ACS Memory — FMemorySnapshot（メモリ使用率の可視化出力）
 // -----------------------------------------------------------------------------
-// FMemorySystem の現状を SVG / BMP として出力する。SVG はテキストベースで
+// CMemorySystem の現状を SVG / BMP として出力する。SVG はテキストベースで
 // 軽量・ブラウザで開ける、ラベル付きで人間に読みやすい。BMP は外部ツールで
 // パイプライン化しやすい。両方ゼロ依存（自前ライタ）。
 //
@@ -93153,7 +94149,7 @@ private:
 
 namespace acs {
 
-/** FMemorySystem の使用状況を SVG/BMP/stdout として可視化出力するユーティリティ (全 static、ゼロ依存)。 */
+/** CMemorySystem の使用状況を SVG/BMP/stdout として可視化出力するユーティリティ (全 static、ゼロ依存)。 */
 class FMemorySnapshot {
 public:
     /**
@@ -93191,7 +94187,7 @@ public:
 // =============================================================================
 // ACS Memory - mimalloc first-class heap アロケータ
 // -----------------------------------------------------------------------------
-// mimalloc の first-class heap を ACS の FAllocator 契約へ接続する。
+// mimalloc の first-class heap を ACS の IAllocator 契約へ接続する。
 // 要求サイズ、件数、ハード予算、サイズ分布は ACS 側で追跡し、mimalloc の
 // usable size やプロセス全体統計には依存しない。
 // =============================================================================
@@ -93275,7 +94271,7 @@ struct FMimallocReallocationResult
  * ハード予算は atomic な予約カウンタで守る。生存中の要求量に確保処理中の要求量も
  * 加えた値が上限を超える操作は、mimalloc を呼ぶ前に失敗する。
  */
-class FMimallocAllocator final : public FAllocator {
+class CMimallocAllocator final : public IAllocator {
 public:
     /** 小サイズ帯の上限 (4 KiB、境界を含む)。 */
     static constexpr u64 kSmallAllocationMaximumBytes = 4ull * 1024ull;
@@ -93284,22 +94280,22 @@ public:
     static constexpr u64 kMediumAllocationMaximumBytes = 1024ull * 1024ull;
 
     /** 未初期化状態で構築する。使用前に Init を呼ぶこと。 */
-    FMimallocAllocator() noexcept = default;
+    CMimallocAllocator() noexcept = default;
 
-    /** ヒープを破棄する。未解放確保があれば FLogger 非依存の診断を出す。 */
-    ~FMimallocAllocator() noexcept override;
+    /** ヒープを破棄する。未解放確保があれば CLogger 非依存の診断を出す。 */
+    ~CMimallocAllocator() noexcept override;
 
     /** ヒープを単独所有するためコピーしない。 */
-    FMimallocAllocator(const FMimallocAllocator&) = delete;
+    CMimallocAllocator(const CMimallocAllocator&) = delete;
 
     /** ヒープを単独所有するためコピー代入しない。 */
-    FMimallocAllocator& operator=(const FMimallocAllocator&) = delete;
+    CMimallocAllocator& operator=(const CMimallocAllocator&) = delete;
 
     /** ライフサイクルと atomic カウンタの所有者を固定するためムーブしない。 */
-    FMimallocAllocator(FMimallocAllocator&&) = delete;
+    CMimallocAllocator(CMimallocAllocator&&) = delete;
 
     /** ライフサイクルと atomic カウンタの所有者を固定するためムーブ代入しない。 */
-    FMimallocAllocator& operator=(FMimallocAllocator&&) = delete;
+    CMimallocAllocator& operator=(CMimallocAllocator&&) = delete;
 
     /**
      * first-class heap を作成し、利用可能状態にする。
@@ -93379,7 +94375,7 @@ public:
      * Pointer が現在の世代のこのアロケータから払い出された利用者ポインタかを検証する。
      *
      * @details
-     * Pointer は nullptr、または生存中の FMimallocAllocator が返した正規の先頭ポインタに
+     * Pointer は nullptr、または生存中の CMimallocAllocator が返した正規の先頭ポインタに
      * 限る。任意アドレス、領域内部、Free 完了後の古いポインタを調べる一般的なアドレス範囲
      * API ではない。raw pointer だけでは、解放後に同じアドレスへ別確保が再配置された ABA を
      * 識別できない。
@@ -93550,6 +94546,9 @@ private:
     TAtomic<u64> m_LargeRequestedBytes{0};
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FMimallocAllocator = CMimallocAllocator;
+
 } // namespace acs
 
 // ===================== memory/ObjectPool.h =====================
@@ -93621,7 +94620,7 @@ public:
     static constexpr u32 kChunkSize = 256u;
 
     /** 確保元アロケータを指定して空のプールを作る。 */
-    explicit TObjectPool(FAllocator& Allocator = DefaultAllocator()) noexcept
+    explicit TObjectPool(IAllocator& Allocator = DefaultAllocator()) noexcept
         : m_Alloc(&Allocator), m_Chunks(Allocator), m_Free(Allocator), m_Live(Allocator)
     {
     }
@@ -93856,7 +94855,7 @@ private:
         m_Chunks.Clear();
     }
 
-    FAllocator* m_Alloc;
+    IAllocator* m_Alloc;
     TArray<FChunk*> m_Chunks;  /**< チャンク (各 kChunkSize スロット)。ポインタは固定。 */
     TArray<u32> m_Free;       /**< 再利用可能なスロット番号。 */
     TArray<u32> m_Live;       /**< 生存スロット番号の密な配列 (反復用)。 */
@@ -93924,7 +94923,7 @@ class TTypedPoolAllocator;
  * 利用者領域へ公開済みのノードを並行して読まない。パーティクル・ノード・コンポーネント等の
  * 大量確保/解放に向く。
  */
-class FPoolAllocator final : public FAllocator {
+class CPoolAllocator final : public IAllocator {
 public:
     /**
      * 固定サイズブロックのプールを構築し、ストレージを 1 回確保する。
@@ -93938,16 +94937,16 @@ public:
      * @param Alignment 各ブロックのアライメント (既定 kDefaultAlignment)。
      * @param BackingAllocator ストレージの確保元 (nullptr なら DefaultAllocator)。
      */
-    FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCount, usize Alignment = kDefaultAlignment, FAllocator* BackingAllocator = nullptr) noexcept;
+    CPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCount, usize Alignment = kDefaultAlignment, IAllocator* BackingAllocator = nullptr) noexcept;
 
     /** ストレージを backing に返して破棄する。 */
-    ~FPoolAllocator() noexcept override;
+    ~CPoolAllocator() noexcept override;
 
     /** コピー禁止 (ストレージを単独所有するため)。 */
-    FPoolAllocator(const FPoolAllocator&) = delete;
+    CPoolAllocator(const CPoolAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FPoolAllocator& operator=(const FPoolAllocator&) = delete;
+    CPoolAllocator& operator=(const CPoolAllocator&) = delete;
 
     /**
      * フリーリストから 1 ブロックを取り出して返す。
@@ -94106,7 +95105,7 @@ private:
     u64 m_Alignment = 0;
 
     /** ストレージの確保元アロケータ。 */
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
 
     /** 現在使用中のブロック数 (統計用)。 */
     TAtomic<u64> m_Live{0};
@@ -94120,6 +95119,9 @@ private:
     /** フリーリストと所有状態を一体で保護する。 */
     mutable FMutex m_Lock;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FPoolAllocator = CPoolAllocator;
 
 } // namespace acs
 
@@ -94167,7 +95169,7 @@ ACS_FORCEINLINE TRc<T> MakeRc(Args&&... args) noexcept {
  * @return 構築した対象を共有所有する TRc (確保失敗時は空)。
  */
 template<typename T, typename... Args>
-ACS_FORCEINLINE TRc<T> MakeRcIn(FAllocator& a, Args&&... args) noexcept {
+ACS_FORCEINLINE TRc<T> MakeRcIn(IAllocator& a, Args&&... args) noexcept {
     return MakeSharedIn<T>(a, Forward<Args>(args)...);
 }
 
@@ -94176,7 +95178,7 @@ ACS_FORCEINLINE TRc<T> MakeRcIn(FAllocator& a, Args&&... args) noexcept {
 // ===================== memory/RelocatableAllocator.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — FRelocatableAllocator (ハンドルベース再配置/デフラグ可能アロケータ)
+// ACS Memory — CRelocatableAllocator (ハンドルベース再配置/デフラグ可能アロケータ)
 // -----------------------------------------------------------------------------
 // 生ポインタは「動かせない」ため、デフラグ (compaction) には間接参照が必須。
 // 利用側は確保時に **ハンドル** を受け取り、Resolve(handle) で現在のポインタを得る。
@@ -94194,7 +95196,7 @@ ACS_FORCEINLINE TRc<T> MakeRcIn(FAllocator& a, Args&&... args) noexcept {
 
 namespace acs {
 
-class FAllocator;
+class IAllocator;
 
 /** 再配置可能確保を指すハンドル (index = エントリ番号、generation = 世代で use-after-free を検出)。 */
 struct FRelocHandle {
@@ -94242,19 +95244,19 @@ inline bool operator!=(FRelocHandle a, FRelocHandle b) noexcept { return !(a == 
  * 変わるので Resolve を取り直す)。内部同期はしない — 単一スレッドで使うか、Resolve したポインタを
  * 握っている間は Compact しないことを利用側が保証すること。
  */
-class FRelocatableAllocator {
+class CRelocatableAllocator {
 public:
     /** 未初期化状態で構築する (使用前に Init を呼ぶこと)。 */
-    FRelocatableAllocator() noexcept = default;
+    CRelocatableAllocator() noexcept = default;
 
     /** Shutdown を呼んでアリーナとテーブルを backing に返して破棄する。 */
-    ~FRelocatableAllocator() noexcept;
+    ~CRelocatableAllocator() noexcept;
 
     /** コピー禁止 (アリーナとハンドルテーブルを単独所有するため)。 */
-    FRelocatableAllocator(const FRelocatableAllocator&) = delete;
+    CRelocatableAllocator(const CRelocatableAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FRelocatableAllocator& operator=(const FRelocatableAllocator&) = delete;
+    CRelocatableAllocator& operator=(const CRelocatableAllocator&) = delete;
 
     /**
      * アリーナとハンドルテーブルを backing から確保して初期化する。
@@ -94265,7 +95267,7 @@ public:
      * @param backing 各種確保元 (nullptr なら DefaultAllocator)。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
-    TResult<void> Init(usize capacity_bytes, u32 max_handles, FAllocator* backing = nullptr) noexcept;
+    TResult<void> Init(usize capacity_bytes, u32 max_handles, IAllocator* backing = nullptr) noexcept;
 
     /** 確保済みのアリーナ・テーブルを backing に返し、未初期化状態へ戻す。 */
     void Shutdown() noexcept;
@@ -94410,27 +95412,30 @@ private:
     u32*        m_Order      = nullptr;
 
     /** 各種確保元アロケータ。 */
-    FAllocator* m_Backing    = nullptr;
+    IAllocator* m_Backing    = nullptr;
 
     /** Shutdown/Init をまたいでも単調に進めるハンドル世代。 */
     u64         m_NextGeneration = 1u;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FRelocatableAllocator = CRelocatableAllocator;
 
 } // namespace acs
 
 // ===================== memory/ShardedTlsf.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — FShardedTlsfAllocator
+// ACS Memory — CShardedTlsfAllocator
 // -----------------------------------------------------------------------------
 // マルチスレッド確保のロック競合を排除するシャード化 TLSF。
 //
 // 設計:
-//   ・N 個の独立した FTlsfAllocator シャード (各々 VM 予約 + 専用ロック) に分散。
+//   ・N 個の独立した CTlsfAllocator シャード (各々 VM 予約 + 専用ロック) に分散。
 //   ・確保: スレッドごとに割り当てたシャードへ (満杯なら隣のシャードへフォールバック)。
 //           スレッド数 <= シャード数なら実質ロック競合ゼロ。
 //   ・解放: ポインタのアドレスから所有シャードを O(N) で特定し、そのシャードのみロック。
-//   ・既存の検証済み FTlsfAllocator をそのまま部品にする (安全性ガード / auto-grow /
+//   ・既存の検証済み CTlsfAllocator をそのまま部品にする (安全性ガード / auto-grow /
 //     in-place realloc を全シャードで継承)。
 //
 // これは mimalloc の per-thread ヒープに相当する利点 (中央ロックの排除) を、ACS の
@@ -94809,7 +95814,7 @@ void VmZeroFastNT(void* Destination, usize Size) noexcept;
 
 namespace acs {
 
-class FShardedTlsfAllocator;
+class CShardedTlsfAllocator;
 
 namespace tlsf {
 
@@ -94869,21 +95874,21 @@ struct FBlockHeader {
  * O(1) で見つける。隣接フリーブロックは O(1) で統合して外部断片化を抑える。VM 予約から
  * 構築した場合は OOM 時に予約から段階的に commit して自動拡張する (auto-grow)。常時有効の
  * 安全ガード (非整列/範囲外/二重 free 検知) を持ち、in-place realloc に対応する。本クラス自体は
- * 同期しない — マルチスレッドでは呼び出し側でロックすること (FShardedTlsfAllocator が部品として使う)。
+ * 同期しない — マルチスレッドでは呼び出し側でロックすること (CShardedTlsfAllocator が部品として使う)。
  */
-class FTlsfAllocator final : public FAllocator {
+class CTlsfAllocator final : public IAllocator {
 public:
     /** 未初期化状態で構築する (使用前に Init/InitWithReservation を呼ぶこと)。 */
-    FTlsfAllocator() noexcept = default;
+    CTlsfAllocator() noexcept = default;
 
     /** 破棄する。所有する VM 予約は Reset とメンバ破棄の二段階で解放を試みる。 */
-    ~FTlsfAllocator() noexcept override;
+    ~CTlsfAllocator() noexcept override;
 
     /** コピー禁止 (ヒープ状態を単独所有するため)。 */
-    FTlsfAllocator(const FTlsfAllocator&) = delete;
+    CTlsfAllocator(const CTlsfAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FTlsfAllocator& operator=(const FTlsfAllocator&) = delete;
+    CTlsfAllocator& operator=(const CTlsfAllocator&) = delete;
 
     /**
      * 既存メモリ領域を単一プールとして初期化する。
@@ -95049,7 +96054,7 @@ public:
      *
      * @details
      * 予約を所有していれば解放する。解放失敗時は所有状態を保持する。再 Init を可能にする
-     * (FShardedTlsfAllocator の Shutdown→再 Init や FMemorySystem の再初期化で使う)。
+     * (CShardedTlsfAllocator の Shutdown→再 Init や CMemorySystem の再初期化で使う)。
      * @return 成功なら空の TResult、VM 予約の解放失敗なら状態を保持したエラー。
      */
     TResult<void> Reset() noexcept;
@@ -95089,7 +96094,7 @@ public:
 
 private:
     /** シャード化ラッパーだけに thread-local キャッシュ状態の遷移を許可する。 */
-    friend class FShardedTlsfAllocator;
+    friend class CShardedTlsfAllocator;
 
     /** 使用中ブロックを thread-local キャッシュ保管中へ原子的に遷移させる。 */
     bool TryMarkThreadCacheBlock(void* Pointer) noexcept;
@@ -95250,6 +96255,9 @@ private:
     tlsf::FBlockHeader* MergeNext(tlsf::FBlockHeader* Block) noexcept;
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FTlsfAllocator = CTlsfAllocator;
+
 } // namespace acs
 
 namespace acs {
@@ -95262,28 +96270,28 @@ struct FShardedTlsfThreadCache;
  * ロック競合を抑えた N-way シャード化 TLSF アロケータ (mimalloc の per-thread ヒープ相当)。
  *
  * @details
- * 独立した FTlsfAllocator シャード (各々 VM 予約 + 専用ロック) に分散する。確保はスレッドごとに
+ * 独立した CTlsfAllocator シャード (各々 VM 予約 + 専用ロック) に分散する。確保はスレッドごとに
  * 割り当てたシャードへ向かい (満杯なら隣へフォールバック)、解放はポインタアドレスから所有シャードを
  * O(N) で特定してそのシャードのみロックする。スレッド数 <= シャード数なら実質ロック競合ゼロ。
  * EnableThreadCache で小サイズ用の thread-local マガジン (lock-free hot path) を有効化できる。
- * 各シャードは検証済み FTlsfAllocator なので安全ガード・auto-grow・in-place realloc を継承する。
+ * 各シャードは検証済み CTlsfAllocator なので安全ガード・auto-grow・in-place realloc を継承する。
  */
-class FShardedTlsfAllocator final : public FAllocator {
+class CShardedTlsfAllocator final : public IAllocator {
 public:
     /** シャード数の上限 (典型的なゲーム CPU を 8-way で分散)。 */
     static constexpr u32 kMaxShards = 8;
 
     /** 未初期化状態で構築する (使用前に Init を呼ぶこと)。 */
-    FShardedTlsfAllocator() noexcept = default;
+    CShardedTlsfAllocator() noexcept = default;
 
     /** 破棄する (Shutdown を呼んで全シャードの VM 予約を解放する)。 */
-    ~FShardedTlsfAllocator() noexcept override;
+    ~CShardedTlsfAllocator() noexcept override;
 
     /** コピー禁止 (シャード群と VM 予約を単独所有するため)。 */
-    FShardedTlsfAllocator(const FShardedTlsfAllocator&) = delete;
+    CShardedTlsfAllocator(const CShardedTlsfAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FShardedTlsfAllocator& operator=(const FShardedTlsfAllocator&) = delete;
+    CShardedTlsfAllocator& operator=(const CShardedTlsfAllocator&) = delete;
 
     /**
      * シャードを構築し、各シャードに VM 予約と初期コミットを割り当てて初期化する。
@@ -95396,7 +96404,7 @@ public:
      * @details
      * 小サイズ Alloc のキャッシュヒットは lock-free。Free は 1 shard をロックして正規の確保開始位置と
      * 状態を検証してから、payload 外の固定長ポインタ配列へ格納する。同一スレッドが別の
-     * FShardedTlsfAllocator を使う場合は、切替時に旧マガジンを旧 owner へ返してから新 owner へ
+     * CShardedTlsfAllocator を使う場合は、切替時に旧マガジンを旧 owner へ返してから新 owner へ
      * 貼り直す。スレッド終了時も、生存中かつ同一世代の owner へ残存ブロックを返す。
      */
     void EnableThreadCache() noexcept;
@@ -95452,7 +96460,7 @@ private:
     /** 1 シャード分の TLSF アロケータと専用ロック。 */
     struct FShard {
         /** このシャードの TLSF アロケータ (専用 VM 予約を所有)。 */
-        FTlsfAllocator alloc;
+        CTlsfAllocator alloc;
 
         /** このシャードへの確保/解放を直列化するロック。 */
         mutable FMutex lock;
@@ -95492,7 +96500,7 @@ private:
     mutable FConditionVar m_LifecycleDrainedCondition;
 
     /** 生存中アロケータの侵入リストにおける次要素。動的確保を避けるため本体に保持する。 */
-    FShardedTlsfAllocator* m_ThreadCacheRegistryNext = nullptr;
+    CShardedTlsfAllocator* m_ThreadCacheRegistryNext = nullptr;
 
     /** thread-local マガジンの寿命レジストリへ登録済みなら true。 */
     bool m_ThreadCacheLifetimeRegistered = false;
@@ -95579,6 +96587,9 @@ private:
     bool FreeSharded(void* Pointer) noexcept;
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FShardedTlsfAllocator = CShardedTlsfAllocator;
+
 } // namespace acs
 
 // ===================== memory/TypedPoolAllocator.h =====================
@@ -95612,7 +96623,7 @@ public:
      *
      * @param BackingAllocator ストレージの確保元。nullptr は既定アロケータを使う。
      */
-    explicit TTypedPoolAllocator(FAllocator* BackingAllocator = nullptr) noexcept
+    explicit TTypedPoolAllocator(IAllocator* BackingAllocator = nullptr) noexcept
         : m_Pool(kBlockSize, Capacity, kAlignment, BackingAllocator)
     {
     }
@@ -95691,14 +96702,14 @@ public:
     u64 LockAcquisitionCount() const noexcept { return m_Pool.LockAcquisitionCount(); }
 
     /** 型なしプールへ可変参照でアクセスする。 */
-    FPoolAllocator& Untyped() noexcept { return m_Pool; }
+    CPoolAllocator& Untyped() noexcept { return m_Pool; }
 
     /** 型なしプールへ読み取り専用参照でアクセスする。 */
-    const FPoolAllocator& Untyped() const noexcept { return m_Pool; }
+    const CPoolAllocator& Untyped() const noexcept { return m_Pool; }
 
 private:
     /** 実ストレージと所有状態を管理する型なしプール。 */
-    FPoolAllocator m_Pool;
+    CPoolAllocator m_Pool;
 };
 
 } // namespace acs
@@ -95720,13 +96731,13 @@ namespace acs::mlonnx {
  * (LoadModel / RunInference / UnloadModel)* → Shutdown() のライフタイムで、
  * シングルスレッドでのみ使う前提。
  */
-class FOnnxMlRuntime final : public acs::game::IMlRuntime {
+class COnnxMlRuntime final : public acs::game::IMlRuntime {
 public:
     /** pimpl (FImpl) を確保して構築する (Init は別途呼ぶ必要がある)。 */
-    FOnnxMlRuntime() noexcept;
+    COnnxMlRuntime() noexcept;
 
     /** Shutdown 後に pimpl を解放して破棄する。 */
-    ~FOnnxMlRuntime() noexcept override;
+    ~COnnxMlRuntime() noexcept override;
 
     /**
      * ONNX Runtime を初期化する (API 取得 / Env・SessionOptions・Allocator 作成)。
@@ -95787,13 +96798,16 @@ private:
     FImpl* m_Impl = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FOnnxMlRuntime = COnnxMlRuntime;
+
 /**
- * プロセス共有の既定 FOnnxMlRuntime singleton への参照を返す。
+ * プロセス共有の既定 COnnxMlRuntime singleton への参照を返す。
  *
  * @details
  * SetMlRuntimeProvider に登録される provider の実体。static 単一インスタンス
  * (process lifetime) として本物の ONNX Runtime backend を返す。
- * @return 共有 FOnnxMlRuntime への参照 (IMlRuntime として)。
+ * @return 共有 COnnxMlRuntime への参照 (IMlRuntime として)。
  */
 acs::game::IMlRuntime& GetDefaultOnnxMlRuntime() noexcept;
 
@@ -96716,7 +97730,7 @@ public:
      */
     TTwoWayBinder(TObservable<T>& a, TObservable<T>& b) noexcept
         : m_A(&a), m_B(&b) {
-        // 初期同期: a の値を b に反映 (FViewModel → View 想定)
+        // 初期同期: a の値を b に反映 (CViewModel → View 想定)
         b.Set(a.Get());
         m_HA = a.Subscribe(&OnAChanged, this);
         m_HB = b.Subscribe(&OnBChanged, this);
@@ -97045,10 +98059,10 @@ MakeBindConvert(TObservable<Src>& src, TObservable<Dst>& dst,
 
 // ===================== mvvm/Command.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FCommand — VM のアクション (ボタン等) を FViewModel 側に置くためのヘルパ
+// FCommand — VM のアクション (ボタン等) を CViewModel 側に置くためのヘルパ
 //
 // 使い方:
-//   class FPlayerVm : public FViewModel {
+//   class FPlayerVm : public CViewModel {
 //   public:
 //       TObservable<f32> hp { 100.0f };
 //
@@ -98079,18 +99093,18 @@ private:
 
 // ===================== mvvm/ViewModel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FViewModel — MVVM の M-V-VM のうち中央の VM 基底クラス
+// CViewModel — MVVM の M-V-VM のうち中央の VM 基底クラス
 //
 // MVVM は **一般的な UI architecture pattern** (WPF / Xamarin / Vue / React 等で
-// 共通) であり、UE5 の UMG FViewModel 専用の概念ではない。
+// 共通) であり、UE5 の UMG CViewModel 専用の概念ではない。
 // ACS の MVVM は次の 3 層で構成される:
 //   Model     = ゲームロジック / アセット / ECS 内のデータ
-//   View      = src/ui/ の FWidget tree (FLabel / FButton / FSlider 等)、または
+//   View      = src/ui/ の AWidget tree (ALabel / AButton / ASlider 等)、または
 //               src/imgui/ の ImGui (ad-hoc デバッグ用、本番 UI は src/ui/ 推奨)
-//   FViewModel = この基底を継承して TObservable<T> プロパティを公開するクラス
+//   CViewModel = この基底を継承して TObservable<T> プロパティを公開するクラス
 //
 // 使い方:
-//   class FPlayerViewModel : public FViewModel {
+//   class FPlayerViewModel : public CViewModel {
 //   public:
 //       TObservable<f32>     hp     { 100.0f };
 //       TObservable<f32>     mana   { 50.0f };
@@ -98112,27 +99126,30 @@ private:
 namespace acs {
 
 /**
- * MVVM の FViewModel 基底クラス。
+ * MVVM の CViewModel 基底クラス。
  *
  * @details
  * 本体はあえて空で (RTTI 不要・識別子なし)、命名と意図のみを提供する。派生クラスが
  * TObservable<T> をメンバとして公開し、View 側は Subscribe / Bind でそれを監視する。
  * Model のデータ更新を TObservable.Set で反映すると View へ自動伝播する。
  */
-class FViewModel {
+class CViewModel {
 public:
-    /** 空の FViewModel を構築する。 */
-    FViewModel() noexcept = default;
+    /** 空の CViewModel を構築する。 */
+    CViewModel() noexcept = default;
 
     /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
-    virtual ~FViewModel() noexcept = default;
+    virtual ~CViewModel() noexcept = default;
 
     /** コピー禁止 (TObservable メンバの購読を単独所有するため)。 */
-    FViewModel(const FViewModel&) = delete;
+    CViewModel(const CViewModel&) = delete;
 
     /** コピー代入も禁止。 */
-    FViewModel& operator=(const FViewModel&) = delete;
+    CViewModel& operator=(const CViewModel&) = delete;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FViewModel = CViewModel;
 
 } // namespace acs
 
@@ -98200,13 +99217,13 @@ struct FIpAddress {
 // SPDX-License-Identifier: Apache-2.0
 // ネットワークサブシステム初期化（WSAStartup ラッパ）
 //
-// 使い方: アプリ起動時に一度 FNetwork::Init() を呼ぶ。FApplication が
+// 使い方: アプリ起動時に一度 CNetwork::Init() を呼ぶ。CApplication が
 //         Audio/Network 系を自動初期化することは無いので、明示的に呼ぶこと。
 
 
 namespace acs {
 
-/** FNetwork が所有する Winsock 資源の診断スナップショット。 */
+/** CNetwork が所有する Winsock 資源の診断スナップショット。 */
 struct FNetworkDiagnostics {
     /** 現在の Init 参照数。 */
     u32 initialization_reference_count = 0;
@@ -98223,9 +99240,9 @@ struct FNetworkDiagnostics {
  *
  * @details
  * 全メンバが static。多重 Init は内部の参照カウントで安全に扱い、最後の Shutdown で
- * 実際に WSACleanup を呼ぶ。FApplication は自動初期化しないので明示的に呼ぶこと。
+ * 実際に WSACleanup を呼ぶ。CApplication は自動初期化しないので明示的に呼ぶこと。
  */
-class FNetwork {
+class CNetwork {
 public:
     /**
      * WinSock を初期化する (多重呼び出し可)。
@@ -98255,6 +99272,9 @@ public:
     static FNetworkDiagnostics CaptureDiagnostics() noexcept;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FNetwork = CNetwork;
+
 } // namespace acs
 
 // ===================== network/TcpConnection.h =====================
@@ -98271,7 +99291,7 @@ namespace acs {
  * FromAccepted 経由で構築される。Send/Recv でバイト列を送受信し、Close または
  * デストラクタで切断する。OS の SOCKET を単独所有する non-copy / move-only 型で、
  * 無効値は ~uptr{0} (=INVALID_SOCKET 相当) を用いる。同じ接続への呼び出しは
- * 利用側で直列化し、接続を破棄するまで FNetwork の初期化を保つ。
+ * 利用側で直列化し、接続を破棄するまで CNetwork の初期化を保つ。
  */
 class FTcpConnection {
 public:
@@ -98309,7 +99329,7 @@ public:
      * 指定アドレス・ポートへ TCP 接続する。
      *
      * @details
-     * FNetwork::Init() が未呼出ならエラーを返す。socket → connect を行い、成功すれば
+     * CNetwork::Init() が未呼出ならエラーを返す。socket → connect を行い、成功すれば
      * remote に port をセットした接続を返す。失敗時はソケットを閉じて OS エラーを返す。
      * @param addr 接続先 IP アドレス。
      * @param port 接続先ポート番号。
@@ -98436,7 +99456,7 @@ public:
      * 指定アドレス/ポートで Listen を開始する。
      *
      * @details
-     * socket→SO_REUSEADDR→bind→listen を実行する。FNetwork::Init() 未呼び出し、
+     * socket→SO_REUSEADDR→bind→listen を実行する。CNetwork::Init() 未呼び出し、
      * または各 WinSock 呼び出しの失敗時はエラーを返す。
      * @param addr バインドするアドレス (FIpAddress::Any() で全インターフェイス)。
      * @param port 待ち受けるポート番号。
@@ -98498,7 +99518,7 @@ namespace acs {
  * Bind() で生成し、SendTo()/RecvFrom() でデータグラムを送受信する。OS の
  * ソケットハンドルを単独所有する non-copy / move-only 型で、デストラクタや
  * Close() で確実にハンドルを閉じる。内部ハンドルは ~uptr{0} を無効値として持つ。
- * 同じソケットへの呼び出しは利用側で直列化し、破棄まで FNetwork の初期化を保つ。
+ * 同じソケットへの呼び出しは利用側で直列化し、破棄まで CNetwork の初期化を保つ。
  */
 class FUdpSocket {
 public:
@@ -98534,7 +99554,7 @@ public:
      *
      * @details
      * 受信専用なら受信ポートを指定し、送信専用なら port=0 を渡して OS にポートを
-     * 任せる。事前に FNetwork::Init() が呼ばれている必要がある。
+     * 任せる。事前に CNetwork::Init() が呼ばれている必要がある。
      * @param addr バインドするローカルアドレス (Any() で全インターフェイス)。
      * @param port バインドするローカルポート (0 で OS 任せ)。
      * @return 成功なら生成した FUdpSocket、失敗ならエラー。
@@ -98620,13 +99640,13 @@ inline constexpr acs::u16 kSubOpenXrInitFailed         = 302;
  * (未トラッキングのゼロポーズ) を返し IsTracking() は常に false を返す。passthrough
  * 拡張 (XR_FB_passthrough / XR_HTC_passthrough) の有無のみ検出する。
  */
-class FKhronosOpenXrBridge final : public acs::game::IOpenXrBridge {
+class CKhronosOpenXrBridge final : public acs::game::IOpenXrBridge {
 public:
     /** 空状態で構築する (instance は Init で生成)。 */
-    FKhronosOpenXrBridge() noexcept = default;
+    CKhronosOpenXrBridge() noexcept = default;
 
     /** 破棄する (Shutdown を呼んで instance を解放)。 */
-    ~FKhronosOpenXrBridge() noexcept override;
+    ~CKhronosOpenXrBridge() noexcept override;
 
     /**
      * OpenXR instance を生成して backend を初期化する。
@@ -98751,6 +99771,9 @@ private:
     bool m_bTickWarned = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FKhronosOpenXrBridge = CKhronosOpenXrBridge;
+
 /**
  * プロセス共有 singleton の実 Khronos bridge を返す。
  *
@@ -98835,7 +99858,7 @@ struct FFileSystemDiagnostics {
 namespace acs {
 
 /** ファイル I/O とパス操作のユーティリティ (全メソッド static、Win32 実装)。 */
-class FFileSystem {
+class CFileSystem {
 public:
     /**
      * ASCII 大文字を小文字へ変換し、それ以外は変更しない。
@@ -99036,6 +100059,9 @@ public:
     static void ResetDiagnostics() noexcept;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FFileSystem = CFileSystem;
+
 } // namespace acs
 
 // ===================== platform/GamepadPollScheduler.h =====================
@@ -99099,12 +100125,12 @@ private:
 //
 // 使い方:
 //   while (!w.ShouldClose()) {
-//       FInput::Update();           // フレーム先頭で呼ぶ
+//       CInput::Update();           // フレーム先頭で呼ぶ
 //       w.PollEvents();
 //
-//       if (FInput::IsKeyDown(EKey::Space)) Jump();
-//       if (FInput::IsMouseButtonPressed(EMouseButton::Left)) Shoot();
-//       FVec2 m = FInput::MousePos();
+//       if (CInput::IsKeyDown(EKey::Space)) Jump();
+//       if (CInput::IsMouseButtonPressed(EMouseButton::Left)) Shoot();
+//       FVec2 m = CInput::MousePos();
 //   }
 //
 // ・「Down」 = 現在押されている
@@ -99122,7 +100148,7 @@ namespace acs {
  * 前フレームを進め、FWindow からのイベントを OnEvent でこの状態へ反映する。「Down」=現在
  * 押下中、「Pressed」=このフレームで押下開始、「Released」=このフレームで離した、を表す。
  */
-class FInput {
+class CInput {
 public:
     /**
      * フレーム先頭で 1 回呼び、入力状態をフレーム間で進める。
@@ -99264,6 +100290,9 @@ public:
     static f32  GamepadAxisValue(u32 player_index, EGamepadAxis axis) noexcept;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FInput = CInput;
+
 } // namespace acs
 
 // ===================== platform/Localization.h =====================
@@ -99280,7 +100309,7 @@ public:
 //   L.LoadActive(L"lang/ja.lang");
 //   L.LoadFallback(L"lang/en.lang");
 //
-//   FRenderer 内:
+//   CRenderer 内:
 //     sb.DrawText(font, L.Tr("greeting"), 100, 100, color);
 //
 //   ja.lang 内容例:
@@ -99358,7 +100387,7 @@ public:
     }
 
     /** 指定した allocator を全エントリの確保元として空のストアを構築する。 */
-    explicit FStorage(FAllocator& allocator) noexcept : m_Entries(allocator), m_Allocator(&allocator)
+    explicit FStorage(IAllocator& allocator) noexcept : m_Entries(allocator), m_Allocator(&allocator)
     {
     }
 
@@ -99652,7 +100681,7 @@ private:
     TArray<FEntry> m_Entries;
 
     /** エントリ配列と key/value 文字列を確保した allocator。 */
-    FAllocator* m_Allocator = nullptr;
+    IAllocator* m_Allocator = nullptr;
 };
 
 } // namespace acs
@@ -99778,7 +100807,7 @@ private:
 // Physical atmospheric scattering (Hillaire 2020 / Bruneton 風)
 //
 // Rayleigh + Mie 単散乱を per-direction で CPU 評価し equirect 画像に焼く。
-// `FImageBasedLighting::LoadEquirectHdrFromMemory` に通せば env cubemap →
+// `CImageBasedLighting::LoadEquirectHdrFromMemory` に通せば env cubemap →
 // irradiance → prefilter の IBL chain が一気に物理ベースの sky で構築される。
 //
 // 物理パラメータ (Earth、Bruneton 2008):
@@ -99844,10 +100873,10 @@ struct FVolumetricFogParams {
  *
  * @details
  * Hillaire 2020 / Bruneton 風の Rayleigh + Mie 単散乱を per-direction で評価し、
- * 焼いた equirect 画像を FImageBasedLighting に渡すと env cubemap → irradiance →
+ * 焼いた equirect 画像を CImageBasedLighting に渡すと env cubemap → irradiance →
  * prefilter の IBL chain が物理ベースの sky で構築できる。
  */
-class FAtmosphere {
+class CAtmosphere {
 public:
     /**
      * CPU で equirect 画像を焼いて RGBA float 配列を返す。
@@ -99865,6 +100894,10 @@ public:
                                     const FAtmosphereParams& params) noexcept;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FAtmosphere = CAtmosphere;
+
+
 /**
  * GPU 物理大気 (WickedEngine / Hillaire 2020 流の GPU compute パイプライン)。
  *
@@ -99872,12 +100905,12 @@ public:
      * Transmittance LUT (256x64) を compute で焼き、equirect bake compute がそれを使って
      * Rayleigh+Mie+ozone の単散乱 + 等方多重散乱を per-direction で評価して equirect texture
      * (RGBA32F、解析的な太陽ディスクを含まない) に書く。ReadTexture で CPU へ読み戻し、
-     * FImageBasedLighting::LoadEquirectHdrFromMemory
+     * CImageBasedLighting::LoadEquirectHdrFromMemory
  * に通せば既存の env cubemap → irradiance → prefilter の IBL chain と背景描画がそのまま動く。
- * CPU 版 FAtmosphere::BakeEquirect の置き換え (GPU で高速 + ozone/multiscatter で物理的に正しい空)。
- * 要 Phase 0 compute コア + FDiligentDevice::ReadTexture。Diligent backend 専用。
+ * CPU 版 CAtmosphere::BakeEquirect の置き換え (GPU で高速 + ozone/multiscatter で物理的に正しい空)。
+ * 要 Phase 0 compute コア + CDiligentDevice::ReadTexture。Diligent backend 専用。
  */
-class FSkyAtmosphere {
+class CSkyAtmosphere {
 public:
     /** compute パイプライン (transmittance / equirect bake) と Transmittance LUT・CB を生成。 */
     TResult<void> Init(IRhiDevice& device,
@@ -100063,6 +101096,10 @@ private:
     u32                      m_EqW = 0, m_EqH = 0;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSkyAtmosphere = CSkyAtmosphere;
+
+
 } // namespace acs
 
 // ===================== render/BurnEffect.h =====================
@@ -100071,7 +101108,7 @@ private:
 //
 // 用途: 2D の矩形領域に「燃える紙」を 1 枚かぶせ、progress 0→1 で燃え際 (白熱→橙→
 //       黒コゲ) が進みながら下の描画内容を出現させる。ピクセル単位の手続きノイズで
-//       描くのでセル/ドットにならず高解像度。FSky と同じく自前の VS/PS/PSO/CB を持ち、
+//       描くのでセル/ドットにならず高解像度。CSky と同じく自前の VS/PS/PSO/CB を持ち、
 //       コマンドリストに 6 頂点のクアッドを 1 回 Draw するだけ (VB 不要)。
 
 
@@ -100104,22 +101141,22 @@ struct FBurnParams {
 /**
  * 紙が燃えるディゾルブをピクセル単位で描く 2D オーバーレイ効果。
  *
- * @details DX12 raw / Diligent どちらでも動く (FSky と同じ生パイプライン)。アルファ
+ * @details DX12 raw / Diligent どちらでも動く (CSky と同じ生パイプライン)。アルファ
  *          ブレンドで重ね、燃え尽きた画素は discard して下の内容を見せる。
  */
-class FBurnEffect {
+class CBurnEffect {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FBurnEffect() noexcept = default;
+    CBurnEffect() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FBurnEffect() noexcept = default;
+    ~CBurnEffect() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FBurnEffect(const FBurnEffect&) = delete;
+    CBurnEffect(const CBurnEffect&) = delete;
 
     /** コピー代入も禁止。 */
-    FBurnEffect& operator=(const FBurnEffect&) = delete;
+    CBurnEffect& operator=(const CBurnEffect&) = delete;
 
     /**
      * VS/PS/PSO/定数バッファを生成する。
@@ -100168,14 +101205,18 @@ private:
     u32                      m_CbIdx = 0;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FBurnEffect = CBurnEffect;
+
+
 } // namespace acs
 
 // ===================== render/DebugDraw.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FDebugDraw3D — 3D ライン (LineList) のデバッグ描画。コライダーの wireframe、
+// CDebugDraw3D — 3D ライン (LineList) のデバッグ描画。コライダーの wireframe、
 // AABB、レイ等を色付きで重ねるのに使う。
 //
-//   FDebugDraw3D dd;
+//   CDebugDraw3D dd;
 //   dd.Init(*dev, renderer.ColorFormat());
 //   ...
 //   dd.Begin();
@@ -100198,19 +101239,19 @@ namespace acs {
  * 中のターゲットへ描画する。depth テスト無しで常に手前に重なる。ACS 規約準拠
  * (noexcept / TResult / 非コピー)。
  */
-class FDebugDraw3D {
+class CDebugDraw3D {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FDebugDraw3D() noexcept = default;
+    CDebugDraw3D() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FDebugDraw3D() noexcept = default;
+    ~CDebugDraw3D() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FDebugDraw3D(const FDebugDraw3D&)            = delete;
+    CDebugDraw3D(const CDebugDraw3D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDebugDraw3D& operator=(const FDebugDraw3D&) = delete;
+    CDebugDraw3D& operator=(const CDebugDraw3D&) = delete;
 
     /**
      * GPU リソース (シェーダ・パイプライン・頂点/定数バッファ) を確保する。
@@ -100297,6 +101338,10 @@ private:
     /** 頂点バッファに収まる頂点数の上限 (max_lines * 2)。 */
     u32                      m_MaxVerts = 0;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FDebugDraw3D = CDebugDraw3D;
+
 
 } // namespace acs
 
@@ -100548,7 +101593,7 @@ constexpr bool IsFormatUsageLegal(EFormat format, bool depth_target) noexcept {
 //       ジャギー低減が主目的。
 //
 // 使い方:
-//   FFxaa fxaa;
+//   CFxaa fxaa;
 //   fxaa.Init(*device, backbuffer_format);             // 1 度だけ
 //   // フレーム中: シーンをオフスクリーン RT に描いた後、出力先 (backbuffer 等) を
 //   // bind した状態で:
@@ -100566,19 +101611,19 @@ namespace acs {
  * 素通しするため、ベタ塗り領域やテキストのにじみは最小限。入力サイズは
  * GetDimensions で取得するので cbuffer 不要。
  */
-class FFxaa {
+class CFxaa {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FFxaa() noexcept = default;
+    CFxaa() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FFxaa() noexcept = default;
+    ~CFxaa() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FFxaa(const FFxaa&)            = delete;
+    CFxaa(const CFxaa&)            = delete;
 
     /** コピー代入も禁止。 */
-    FFxaa& operator=(const FFxaa&) = delete;
+    CFxaa& operator=(const CFxaa&) = delete;
 
     /**
      * シェーダとパイプラインを生成して初期化する。
@@ -100596,7 +101641,7 @@ public:
      * 現在 bind 中のターゲットへ src を FXAA 解決しつつ全画面描画する。
      *
      * @details
-     * FBlit::Copy と違い出力 RT の bind は行わない。呼ぶ前に BeginRenderToSwapchain
+     * CBlit::Copy と違い出力 RT の bind は行わない。呼ぶ前に BeginRenderToSwapchain
      * 等で出力先を bind し、viewport を設定しておくこと (全 pixel を上書きする)。
      * @param cmd コマンドを積むコマンドリスト。
      * @param src FXAA を掛けるシーンテクスチャ (SRV 状態であること)。
@@ -100613,6 +101658,10 @@ private:
     /** FXAA 描画のパイプライン。 */
     TUniquePtr<IRhiPipeline> m_Pipeline;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FFxaa = CFxaa;
+
 
 } // namespace acs
 
@@ -100637,7 +101686,7 @@ private:
 //     skip が大きく走るのは安全 (空には反射先が無い)
 //
 // 使い方 (SSR 統合):
-//   FHiZ hiz;
+//   CHiZ hiz;
 //   hiz.Init(*dev, w, h);
 //   // 毎フレーム main pass の depth が完成したあと、SSR 前に:
 //   hiz.Build(*dev, *cl, scene_depth);
@@ -100645,8 +101694,8 @@ private:
 //   // hierarchical path は EvenTexture/OddTexture を両方 bind し、
 //   // even level を EvenTexture、odd level を OddTexture の同じ mip から読む。
 //
-// 上位の SSR shader 側で skip-ahead する具体実装 (FSsr.cpp) と一体で機能する。
-// Hi-Z を渡さない場合も FSsr で OK (nullptr fallback)。
+// 上位の SSR shader 側で skip-ahead する具体実装 (CSsr.cpp) と一体で機能する。
+// Hi-Z を渡さない場合も CSsr で OK (nullptr fallback)。
 
 
 namespace acs {
@@ -100659,19 +101708,19 @@ namespace acs {
  * 直前 level の厳密な 2x2 min 縮約になる。2 本の R32G32_Float texture に level を
  * 偶奇で分けることで、同一 resource の SRV/RTV 同時利用を避ける。
  */
-class FHiZ {
+class CHiZ {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FHiZ() noexcept = default;
+    CHiZ() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FHiZ() noexcept = default;
+    ~CHiZ() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FHiZ(const FHiZ&) = delete;
+    CHiZ(const CHiZ&) = delete;
 
     /** コピー代入も禁止。 */
-    FHiZ& operator=(const FHiZ&) = delete;
+    CHiZ& operator=(const CHiZ&) = delete;
 
     /**
      * GPU リソースを確保する。
@@ -100862,6 +101911,10 @@ private:
     TUniquePtr<IRhiBuffer> m_LevelCb[kMaxMipLevels];
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FHiZ = CHiZ;
+
+
 } // namespace acs
 
 // ===================== render/Ibl.h =====================
@@ -100871,12 +101924,12 @@ private:
 // PBR の ambient 項を「環境マップから事前積分した光」で置き換える。
 // 構成要素:
 //   ・BRDF LUT       — 2D 256x256 RG16F。GGX split-sum approximation の scale+bias
-//   ・環境 cubemap   — シーンの背景 (FSky 等から captured)。1024x1024x6、R11G11B10_Float
+//   ・環境 cubemap   — シーンの背景 (CSky 等から captured)。1024x1024x6、R11G11B10_Float
 //   ・拡散 irradiance cubemap — 64x64x6、半球積分された diffuse 反射
 //   ・specular prefilter cubemap — 512x512x6 (7 mip)、roughness 段階別 GGX 反射
 //
 // 使い方 (HelloIbl):
-//   FImageBasedLighting ibl;
+//   CImageBasedLighting ibl;
 //   ibl.EnsureBrdfLut(*dev, *cl);              // 初回のみ LUT 生成 (256x256)
 //   ibl.EnsureEnvCubemap(*dev, *cl, sky);       // 初回のみ env cubemap キャプチャ
 //   // (irradiance / prefilter を生成してから:)
@@ -100892,7 +101945,7 @@ private:
 
 namespace acs {
 
-class FSky;
+class CSky;
 
 /**
  * Image-Based Lighting。PBR の ambient 項を環境マップから事前積分した光で置き換える。
@@ -100903,19 +101956,19 @@ class FSky;
  * cubemap (512x512x6, 7 mip)。Diligent backend 専用の本実装で、raw-DX12 backend では
  * 各 Build/Ensure が ACS_ERR(Render, 88) を返す (fake-success しない)。
  */
-class FImageBasedLighting {
+class CImageBasedLighting {
 public:
     /** 空状態で構築する (各 GPU リソースは Ensure 系で遅延生成)。 */
-    FImageBasedLighting() noexcept = default;
+    CImageBasedLighting() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FImageBasedLighting() noexcept = default;
+    ~CImageBasedLighting() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FImageBasedLighting(const FImageBasedLighting&)            = delete;
+    CImageBasedLighting(const CImageBasedLighting&)            = delete;
 
     /** コピー代入も禁止。 */
-    FImageBasedLighting& operator=(const FImageBasedLighting&) = delete;
+    CImageBasedLighting& operator=(const CImageBasedLighting&) = delete;
 
     /**
      * 初回呼び出しで BRDF LUT を 1 回だけ生成する (以降は no-op)。
@@ -100928,7 +101981,7 @@ public:
     TResult<void> EnsureBrdfLut(IRhiDevice& device, IRhiCommandList& cl) noexcept;
 
     /**
-     * 初回呼び出しで env cubemap を FSky 手続き式からキャプチャする。
+     * 初回呼び出しで env cubemap を CSky 手続き式からキャプチャする。
      *
      * @details
      * 1024x1024x6 / R11G11B10_Float を各 face 6 回の per-slice draw で塗る。sky の現在の
@@ -100940,7 +101993,7 @@ public:
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
     TResult<void> EnsureEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
-                                  const FSky& sky) noexcept;
+                                  const CSky& sky) noexcept;
 
     /**
      * 既存 env cubemap を破棄し equirectangular HDR 画像から新しい env cubemap を作る。
@@ -100963,7 +102016,7 @@ public:
      * convolution while keeping that disc visible in the environment skybox.
      *
      * Finite convolution sequences sample a sub-pixel HDR sun disc as
-     * structured fireflies, and FPbrShader already evaluates the same sun via
+     * structured fireflies, and CPbrShader already evaluates the same sun via
      * its directional-light BRDF.  Set cosine_half_angle > 1 to disable.
      * Call this before EnsureIrradiance/EnsurePrefilter during an environment
      * rebuild.  It does not destroy already-built GPU products; changing it
@@ -100979,7 +102032,7 @@ public:
      * @details
      * Ramamoorthi-Hanrahan の L_l,m 球面調和係数 9 個を求めて out_sh_rgb に書き出す。
      * 各 out_sh_rgb[i].xyz が RGB 係数で .w は不使用 (CB layout の便宜上 FVec4)。後段
-     * FPbrShader で SH 9 ambient mode に切替でき、irradiance cubemap の圧縮版 (144B のみ)
+     * CPbrShader で SH 9 ambient mode に切替でき、irradiance cubemap の圧縮版 (144B のみ)
      * として diffuse irradiance を近似する。規約: v=0 が +Y、v=1 が -Y、u=0 が phi=-π。
      * @param rgba_float equirect 画像の RGBA float ピクセル列。
      * @param width 画像の幅 (px)。
@@ -101070,7 +102123,7 @@ public:
      * 環境 cubemap (とそれに依存する irradiance / prefilter) だけを reset する。
      *
      * @details
-     * FSky preset 切替などで env を作り直したいときに使い、BRDF LUT (sky 非依存) は残せる。
+     * CSky preset 切替などで env を作り直したいときに使い、BRDF LUT (sky 非依存) は残せる。
      * 呼び出し前にデバイスの WaitIdle() を呼ぶこと: 前フレームの GPU 描画がまだこのテクスチャ
      * を参照中だと UB になる。
      */
@@ -101161,7 +102214,7 @@ private:
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
     TResult<void> BuildEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
-                                 const FSky& sky) noexcept;
+                                 const CSky& sky) noexcept;
 
     /**
      * irradiance cubemap を実際に生成する。
@@ -101245,19 +102298,23 @@ private:
     bool m_bPrefilterBuilt  = false;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FImageBasedLighting = CImageBasedLighting;
+
+
 } // namespace acs
 
 // ===================== render/Light2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // 2D 動的ライティング + ソフト影 (Core Keeper 風) と簡易ブロブ影。
 //
-// FLighting2D:
+// CLighting2D:
 //   トップダウン/横スクロール 2D 向けの動的ライト。複数のカラー点光源を
 //   持ち、occluder (影を落とすもの) のシルエットからソフト影を落とす。
 //   ambient を低く (暗い洞窟) しておき、光源の周りだけが照らされる Core Keeper
 //   のような表現を狙う。
 //
-//   描画フロー (FApplication::OnCustomFrame 内):
+//   描画フロー (CApplication::OnCustomFrame 内):
 //     li.BeginScene(cl);                       // 内部 scene RT を bind + clear
 //       sb.Begin(cl,w,h); ...world を描画...; sb.End();
 //     li.EndScene(cl);
@@ -101277,16 +102334,17 @@ private:
 //   沿った影が落ちる。影は occluder mask を linear sample + 複数レイ (面光源近似)
 //   で柔らかくする。
 //
-// FBlobShadow:
+// CBlobShadow:
 //   光源計算を伴わない激軽の「足元の影」。柔らかい楕円テクスチャを 1 枚持ち、
-//   FSpriteBatch で暗く落とすだけ。動的ライトを使わない/負荷を抑えたい時の fallback。
+//   CSpriteBatch で暗く落とすだけ。動的ライトを使わない/負荷を抑えたい時の fallback。
 //
 // ACS 規約: STL/<string> 不使用、全 noexcept、TResult、非コピー。
 
 
 namespace acs {
 
-class FSpriteBatch;
+class CSpriteBatch;
+
 
 /**
  * 1 個の 2D 点光源。座標はスプライトと同じピクセル空間 (左上原点)。
@@ -101318,22 +102376,22 @@ struct FLight2D {
  * に焼き、Composite で scene × (ambient + Σ light·影) を現在の RT へ合成する。影は
  * occluder mask の linear sample と複数レイ (面光源近似) で柔らかくする。
  */
-class FLighting2D {
+class CLighting2D {
 public:
     /** 同時に扱える点光源の上限。 */
     static constexpr u32 kMaxLights = 16;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FLighting2D() noexcept = default;
+    CLighting2D() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FLighting2D() noexcept = default;
+    ~CLighting2D() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FLighting2D(const FLighting2D&)            = delete;
+    CLighting2D(const CLighting2D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLighting2D& operator=(const FLighting2D&) = delete;
+    CLighting2D& operator=(const CLighting2D&) = delete;
 
     /**
      * GPU リソース (scene/occluder RT・パイプライン・定数バッファ) を確保する。
@@ -101514,26 +102572,29 @@ private:
     u32       m_RayCount    = 6;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FLighting2D = CLighting2D;
+
 /**
  * 光源計算なしの簡易ブロブ影 (足元の楕円)。
  *
  * @details
- * 柔らかい楕円テクスチャを 1 枚持ち、FSpriteBatch で暗く落とすだけの激軽な「足元の影」。
+ * 柔らかい楕円テクスチャを 1 枚持ち、CSpriteBatch で暗く落とすだけの激軽な「足元の影」。
  * 動的ライトを使わない/負荷を抑えたいときの fallback / 補助に使う。
  */
-class FBlobShadow {
+class CBlobShadow {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FBlobShadow() noexcept = default;
+    CBlobShadow() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FBlobShadow() noexcept = default;
+    ~CBlobShadow() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FBlobShadow(const FBlobShadow&)            = delete;
+    CBlobShadow(const CBlobShadow&)            = delete;
 
     /** コピー代入も禁止。 */
-    FBlobShadow& operator=(const FBlobShadow&) = delete;
+    CBlobShadow& operator=(const CBlobShadow&) = delete;
 
     /**
      * 柔らかい放射状グラデーションのテクスチャを 1 枚生成する。
@@ -101551,7 +102612,7 @@ public:
     /**
      * (cx,cy) 中心に w×h の柔らかい影を sb 経由で描く (要 sb.Begin 済み)。
      *
-     * @param sb 描画に使う FSpriteBatch。
+     * @param sb 描画に使う CSpriteBatch。
      * @param cx 影の中心 X (px)。
      * @param cy 影の中心 Y (px)。
      * @param w 影の幅 (px)。
@@ -101559,7 +102620,7 @@ public:
      * @param alpha 影の濃さ。
      * @param color 影の色 (既定は黒)。
      */
-    void Draw(FSpriteBatch& sb, f32 cx, f32 cy, f32 w, f32 h,
+    void Draw(CSpriteBatch& sb, f32 cx, f32 cy, f32 w, f32 h,
               f32 alpha = 0.5f, FVec3 color = FVec3{0, 0, 0}) noexcept;
 
     /**
@@ -101573,6 +102634,10 @@ private:
     /** 放射状グラデーションの影テクスチャ。 */
     TUniquePtr<IRhiTexture> m_Tex;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FBlobShadow = CBlobShadow;
+
 
 } // namespace acs
 
@@ -101593,14 +102658,14 @@ private:
 // 本モジュールがその穴を埋める。
 //
 // 設計:
-//   - FShadowMap と同じ Begin/DrawMesh/End パターン (caller がシーンを描く)
+//   - CShadowMap と同じ Begin/DrawMesh/End パターン (caller がシーンを描く)
 //   - 全 mesh を描く前提 (静的 mesh は prev_model == model)。motion texture は
 //     画面全体で authoritative になり、TAA は depth を併用せず済む
 //     (→ TAA resolve PSO の texture slot を増やさず slot binding 問題を回避)
 //   - occlusion 用に専用 depth buffer を内部に持つ (scene depth は共有しない)
 //
 // 使い方:
-//   FMotionVector mv;
+//   CMotionVector mv;
 //   mv.Init(*dev, w, h);
 //   ...毎フレーム (シーン color pass のあと):
 //   if (mv.BeginFrame(visible_mesh_count) &&
@@ -101623,9 +102688,9 @@ namespace acs {
  * 書き出す。motion は screen-space motion vector (prev_uv - curr_uv) で camera 動きと
  * object 動きの両方を含み、TAA が history を正確に reproject して ghost/trail を消す。
  * normal は頂点法線をピクセル補間した world-space 法線で、SSR/SSGI/SSAO が sample する。
- * FShadowMap と同じ Begin/DrawMesh/End パターンで、occlusion 用 depth を内部に持つ。
+ * CShadowMap と同じ Begin/DrawMesh/End パターンで、occlusion 用 depth を内部に持つ。
  */
-class FMotionVector {
+class CMotionVector {
 public:
     /**
      * 空状態で構築する (GPU リソースは Init で確保)。
@@ -101633,18 +102698,18 @@ public:
      * @param object_pool_allocator 可変長 object-CB 所有配列の allocator。
      *        通常は既定値を使い、failure-injection tests だけ差し替える。
      */
-    explicit FMotionVector(
-        FAllocator& object_pool_allocator = DefaultAllocator()) noexcept
+    explicit CMotionVector(
+        IAllocator& object_pool_allocator = DefaultAllocator()) noexcept
         : m_Cbs(object_pool_allocator) {}
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FMotionVector() noexcept = default;
+    ~CMotionVector() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FMotionVector(const FMotionVector&)            = delete;
+    CMotionVector(const CMotionVector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FMotionVector& operator=(const FMotionVector&) = delete;
+    CMotionVector& operator=(const CMotionVector&) = delete;
 
     /**
      * GPU リソース (RT 2 枚 + depth + パイプライン) を確保する。
@@ -101822,6 +102887,10 @@ private:
     bool                     m_PassActive = false;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FMotionVector = CMotionVector;
+
+
 } // namespace acs
 
 // ===================== render/NormalMatrix.h =====================
@@ -101876,12 +102945,12 @@ inline FMat4 MakeSafeNormalMatrix(const FMat4& model) noexcept {
 
 // ===================== render/Particles.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 2D パーティクルシステム（CPU プール + FSpriteBatch 描画）
+// 2D パーティクルシステム（CPU プール + CSpriteBatch 描画）
 //
 // 用途: 火花・煙・爆発・魔法効果など、ゲームの視覚エフェクト全般。
 //
 // 使い方:
-//   FParticleSystem ps;
+//   CParticleSystem ps;
 //   ps.Init(2048);                           // 最大パーティクル数
 //   ps.SetTexture(my_circle_tex);            // null なら 1×1 白
 //
@@ -101912,8 +102981,8 @@ inline FMat4 MakeSafeNormalMatrix(const FMat4& model) noexcept {
 namespace acs {
 
 class IRhiTexture;
-class FSpriteBatch;
-class FAllocator;
+class CSpriteBatch;
+class IAllocator;
 
 /**
  * エミッタのパラメータ (粒子の初期分布を決める)。
@@ -102003,26 +103072,26 @@ struct FEmitterDesc {
 };
 
 /**
- * 2D パーティクルシステム (CPU プール + FSpriteBatch 描画)。
+ * 2D パーティクルシステム (CPU プール + CSpriteBatch 描画)。
  *
  * @details
  * 火花・煙・爆発・魔法効果などの視覚エフェクト全般に使う。最大 max_particles の
  * 固定プールを確保し、FEmitterDesc に従って連続生成・物理積分・寿命管理を行う
- * (死亡粒子は swap-pop で除去)。描画は事前に Begin 済みの FSpriteBatch にバッチ追加する。
+ * (死亡粒子は swap-pop で除去)。描画は事前に Begin 済みの CSpriteBatch にバッチ追加する。
  */
-class FParticleSystem {
+class CParticleSystem {
 public:
     /** 空状態で構築する (プールは Init で確保)。 */
-    FParticleSystem() noexcept = default;
+    CParticleSystem() noexcept = default;
 
     /** 破棄する (Shutdown でプールを解放)。 */
-    ~FParticleSystem() noexcept;
+    ~CParticleSystem() noexcept;
 
     /** コピー禁止 (粒子プールを単独所有するため)。 */
-    FParticleSystem(const FParticleSystem&)            = delete;
+    CParticleSystem(const CParticleSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FParticleSystem& operator=(const FParticleSystem&) = delete;
+    CParticleSystem& operator=(const CParticleSystem&) = delete;
 
     /**
      * max_particles ぶんの粒子プールを確保する。
@@ -102039,7 +103108,7 @@ public:
     /**
      * 描画に使うテクスチャを設定する。
      *
-     * @param tex 粒子に貼るテクスチャ。null なら DrawRect 相当の白矩形 (FSpriteBatch の内部白テクスチャ)。
+     * @param tex 粒子に貼るテクスチャ。null なら DrawRect 相当の白矩形 (CSpriteBatch の内部白テクスチャ)。
      */
     void SetTexture(IRhiTexture* tex) noexcept { m_Tex = tex; }
 
@@ -102082,11 +103151,11 @@ public:
     void Reset() noexcept { m_Active = 0; m_SpawnAccum = 0; }
 
     /**
-     * アクティブな粒子を FSpriteBatch に積む (事前に Begin 済みであること)。
+     * アクティブな粒子を CSpriteBatch に積む (事前に Begin 済みであること)。
      *
-     * @param sb 粒子を描画する先の FSpriteBatch。
+     * @param sb 粒子を描画する先の CSpriteBatch。
      */
-    void Render(FSpriteBatch& sb) noexcept;
+    void Render(CSpriteBatch& sb) noexcept;
 
     /**
      * 現在生存中の粒子数を返す。
@@ -102157,7 +103226,7 @@ private:
     FParticle*    m_Pool         = nullptr;
 
     /** 粒子プールを確保したアロケータ。既定アロケータ切替後も同じ元へ返す。 */
-    FAllocator* m_Allocator = nullptr;
+    IAllocator* m_Allocator = nullptr;
 
     /** プールの最大容量。 */
     u32          m_Capacity     = 0;
@@ -102177,6 +103246,10 @@ private:
     /** xorshift 乱数の状態シード。 */
     u32          m_Seed         = 0xC0FFEEu;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FParticleSystem = CParticleSystem;
+
 
 } // namespace acs
 
@@ -102475,10 +103548,10 @@ private:
 //   1. opaque ジオメトリを HDR RT へ描画する
 //   2. HDR RT を background テクスチャへ複製する (屈折オブジェクトが読むため。
 //      同一 RT の read+write は不可なので複製が要る)
-//   3. FRefractionShader で屈折オブジェクトを HDR RT へ描画する (background を sample)
+//   3. CRefractionShader で屈折オブジェクトを HDR RT へ描画する (background を sample)
 //
 // 使い方:
-//   FRefractionShader refr;
+//   CRefractionShader refr;
 //   refr.Init(*device, hdr_format, depth_format);
 //   refr.SetFrame(camera.ViewProjection(), camera.Eye(),
 //                 background_tex.Width(), background_tex.Height());
@@ -102500,19 +103573,19 @@ namespace acs {
  * オブジェクトを表現する。blend は Opaque で深度も書き、後続の描画を正しく遮蔽する。
  * GPU リソースを単独所有する non-copy 型。
  */
-class FRefractionShader {
+class CRefractionShader {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FRefractionShader() noexcept = default;
+    CRefractionShader() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FRefractionShader() noexcept = default;
+    ~CRefractionShader() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FRefractionShader(const FRefractionShader&)            = delete;
+    CRefractionShader(const CRefractionShader&)            = delete;
 
     /** コピー代入も禁止。 */
-    FRefractionShader& operator=(const FRefractionShader&) = delete;
+    CRefractionShader& operator=(const CRefractionShader&) = delete;
 
     /**
      * VS+PS のコンパイル・パイプライン・定数バッファを生成する。
@@ -102680,6 +103753,10 @@ private:
     FVec3                   m_Eye          = FVec3{0, 0, 0};
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FRefractionShader = CRefractionShader;
+
+
 } // namespace acs
 
 // ===================== render/Render.h =====================
@@ -102694,11 +103771,11 @@ private:
 //
 // 含まれるもの:
 //   - 低レベル RHI インターフェイス (IRhiDevice / IRhiBuffer / IRhiShader / ...)
-//   - 高レベルヘルパ (FRenderer / FStandardShader / FSpriteBatch / FFont /
+//   - 高レベルヘルパ (CRenderer / CStandardShader / CSpriteBatch / FFont /
 //     メッシュ・テクスチャのアップロード)
 //
 // PBR・スカイ・シャドウ・IBL・スキンメッシュなど特定機能のヘッダ
-// (FPbrShader.h / FSky.h / FShadowMap.h / FIbl.h / FSkinnedShader.h ...) は、
+// (CPbrShader.h / CSky.h / CShadowMap.h / FIbl.h / CSkinnedShader.h ...) は、
 // 使うサンプル側で必要なときに個別に include してください。
 // =============================================================================
 
@@ -102773,7 +103850,7 @@ namespace acs {
  * inclusive な寿命区間が重ならない場合だけ同一 slot を選ぶ。入力順に依存しない
  * pass 順の決定的な greedy 計画を作り、GPU alias barrier の実体化は行わない。
  */
-class FRenderGraphTransientAliasPlanner {
+class CRenderGraphTransientAliasPlanner {
 public:
     /**
      * 寿命配列から alias 候補計画を構築する。
@@ -102833,6 +103910,10 @@ private:
     /** 現在の計画集計。 */
     FRenderGraphAliasPlanSummary m_Summary{};
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FRenderGraphTransientAliasPlanner = CRenderGraphTransientAliasPlanner;
+
 
 } // namespace acs
 
@@ -102924,7 +104005,7 @@ constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FComputePipe
 //
 // 2 つのモード:
 //   1. Single cascade (既定、cascade_count=1): 1 つの 2D 深度テクスチャに
-//      シーン全体を 1 つの ortho 投影で描く。HelloShadows (FStandardShader) や
+//      シーン全体を 1 つの ortho 投影で描く。HelloShadows (CStandardShader) や
 //      昔の HelloIbl が使う伝統的な方式。
 //   2. Cascaded Shadow Map (CSM、cascade_count >= 2): カメラ frustum を
 //      距離で 2-4 個に分割し、近景は高解像度・遠景は広範囲を 1 枚の atlas
@@ -102933,7 +104014,7 @@ constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FComputePipe
 //      保てる (UE5 等 large outdoor scene の標準解)。
 //
 // 使い方 (single cascade、後方互換):
-//   FShadowMap sm;
+//   CShadowMap sm;
 //   sm.Init(*dev, /*size=*/2048);                    // cascade_count=1 既定
 //   sm.SetDirectionalLight(light_dir, scene_center, 15.0f);
 //   if (!sm.BeginFrame(/* casters */ 1)) return;
@@ -102948,7 +104029,7 @@ constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FComputePipe
 //   cl->EndShadowPass(*sm.DepthTexture());
 //
 // 使い方 (CSM、3 cascade):
-//   FShadowMap sm;
+//   CShadowMap sm;
 //   sm.Init(*dev, 2048, /*cascade_count=*/3);
 //   sm.SetDirectionalLightCascades(light_dir, view, proj, 0.1f, 100.0f);
 //   if (!sm.BeginFrame(/* casters per cascade */ 1)) return;
@@ -102967,7 +104048,7 @@ constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FComputePipe
 //   }
 //   cl->EndShadowPass(*sm.DepthTexture());
 //
-// 主パスでの使用 (FPbrShader 統合):
+// 主パスでの使用 (CPbrShader 統合):
 //   single mode: pbr.SetShadowMap(*sm.DepthTexture(), sm.LightViewProjection(), ...);
 //   CSM mode   : FMat4 vps[3] = { sm.LightViewProjection(0), sm.LightViewProjection(1), sm.LightViewProjection(2) };
 //                f32  spl[3] = { sm.CascadeSplit(0), sm.CascadeSplit(1), sm.CascadeSplit(2) };
@@ -102985,7 +104066,7 @@ namespace acs {
  * 近景は高解像度・遠景は広範囲を 1 枚の atlas (width = cascade_count * size、height = size)
  * に並べる (CSM)。GPU リソースを単独所有する non-copy 型。
  */
-class FShadowMap {
+class CShadowMap {
 public:
     /** サポートする cascade の最大数。 */
     static constexpr u32 kMaxCascades = 4;
@@ -103001,16 +104082,16 @@ public:
         kMaxCascades * 256u;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FShadowMap() noexcept = default;
+    CShadowMap() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FShadowMap() noexcept = default;
+    ~CShadowMap() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FShadowMap(const FShadowMap&)            = delete;
+    CShadowMap(const CShadowMap&)            = delete;
 
     /** コピー代入も禁止。 */
-    FShadowMap& operator=(const FShadowMap&) = delete;
+    CShadowMap& operator=(const CShadowMap&) = delete;
 
     /**
      * 深度テクスチャとキャスター用パイプラインを生成する。
@@ -103256,21 +104337,25 @@ private:
     bool                    m_CasterWarningIssued[kMaxCascades] = {};
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FShadowMap = CShadowMap;
+
+
 } // namespace acs
 
 // ===================== render/SkinnedShader.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // スキンメッシュ用ライティングシェーダ（GPU スキニング）
 //
-// FStandardShader の上位互換: PerFrame (b0) / PerObject (b1) は同じレイアウト。
+// CStandardShader の上位互換: PerFrame (b0) / PerObject (b1) は同じレイアウト。
 // 加えて Bones (b2) を持ち、最大 64 ボーンのパレット行列をシェーダに送る。
 //
 // 使い方:
-//   FSkinnedShader shd;
+//   CSkinnedShader shd;
 //   shd.Init(*dev, color_fmt, depth_fmt);
 //   if (!shd.BeginFrame(/* expected draws */ 1)) return;
 //
-//   // フレーム共通（FStandardShader と同じ呼び方）
+//   // フレーム共通（CStandardShader と同じ呼び方）
 //   shd.SetLights(camera.ViewProjection(), camera.Eye(),
 //                 lights, count, ambient);
 //
@@ -103298,12 +104383,12 @@ namespace acs {
  * GPU スキニング対応のライティングシェーダ。
  *
  * @details
- * FStandardShader の上位互換で、PerFrame (b0) / PerObject (b1) は同レイアウト。
+ * CStandardShader の上位互換で、PerFrame (b0) / PerObject (b1) は同レイアウト。
  * 加えて Bones (b2) を持ち、最大 kMaxBones 個のボーンパレット行列をシェーダへ送る。
  * 頂点シェーダで BLENDINDICES / BLENDWEIGHT を使い 4 ボーンを加重平均してスキニングし、
  * ピクセルシェーダで方向光 + 点光源の Blinn-Phong ライティングを計算する。
  */
-class FSkinnedShader {
+class CSkinnedShader {
 public:
     /** ボーンパレットの最大数 (シェーダ側 ACS_MAX_BONES と一致)。 */
     static constexpr u32 kMaxBones = 64;
@@ -103316,16 +104401,16 @@ public:
     static constexpr u32 kMaxObjectDrawsPerFrame = 256u;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FSkinnedShader() noexcept = default;
+    CSkinnedShader() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FSkinnedShader() noexcept = default;
+    ~CSkinnedShader() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FSkinnedShader(const FSkinnedShader&)            = delete;
+    CSkinnedShader(const CSkinnedShader&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSkinnedShader& operator=(const FSkinnedShader&) = delete;
+    CSkinnedShader& operator=(const CSkinnedShader&) = delete;
 
     /**
      * シェーダ・パイプライン・定数バッファ・既定白テクスチャを生成する。
@@ -103525,6 +104610,10 @@ private:
     u32        m_PointCount = 0;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSkinnedShader = CSkinnedShader;
+
+
 } // namespace acs
 
 // ===================== render/SpriteSortList.h =====================
@@ -103534,7 +104623,7 @@ private:
 namespace acs {
 
 class IRhiTexture;   // 前方宣言 (コマンドはポインタのみ保持)
-class FSpriteBatch;  // Replay の対象 (定義は .cpp 側)
+class CSpriteBatch;  // Replay の対象 (定義は .cpp 側)
 
 /**
  * ソートリストに積む 1 コマンドの種別。
@@ -103597,11 +104686,11 @@ struct FSpriteCmd {
 };
 
 /**
- * FSpriteBatch 用の明示的 depth/layer 順序レイヤ (opt-in)。
+ * CSpriteBatch 用の明示的 depth/layer 順序レイヤ (opt-in)。
  *
  * @details
- * 描画コマンドを layer/depth 付きで貯め、安定ソートして FSpriteBatch に sorted 順で流す。
- * FSpriteBatch は無改変のまま「提出順」を保つので、本クラスを使わない経路は一切変わらない。
+ * 描画コマンドを layer/depth 付きで貯め、安定ソートして CSpriteBatch に sorted 順で流す。
+ * CSpriteBatch は無改変のまま「提出順」を保つので、本クラスを使わない経路は一切変わらない。
  * 非コピー (コマンド配列を単独所有)。
  */
 class FSpriteSortList {
@@ -103747,14 +104836,14 @@ public:
     }
 
     /**
-     * ソート済み順に全コマンドを FSpriteBatch へ流す。
+     * ソート済み順に全コマンドを CSpriteBatch へ流す。
      *
      * @details
      * Sort() 済みであることが前提 (未ソートなら提出順で流す)。Begin/End は呼び出し側で行う。
      * Textured は DrawSub、Rect は DrawRect を呼ぶ。
      * @param sb 描画先の (Begin 済み) スプライトバッチ。
      */
-    void Replay(FSpriteBatch& sb) const noexcept;
+    void Replay(CSpriteBatch& sb) const noexcept;
 
 private:
     /** 積まれたコマンド (提出順、ソートで動かさない)。 */
@@ -103789,10 +104878,10 @@ private:
 // march して horizon angle を求め、ambient occlusion を出す。
 //
 // 出力は R8G8B8A8_UNorm の RT。.r = AO visibility、.g = contact shadow
-// (ともに 1=照明 / 0=遮蔽)。FPbrShader が .r を ambient、.g を direct light に乗算する。
+// (ともに 1=照明 / 0=遮蔽)。CPbrShader が .r を ambient、.g を direct light に乗算する。
 //
 // 制限:
-//   - 法線は FMotionVector の normal G-buffer (world normal) を view 空間へ変換して
+//   - 法線は CMotionVector の normal G-buffer (world normal) を view 空間へ変換して
 //     使う (depth 微分 cross(ddx,ddy) は faceted で AO がブロック状になる)
 //   - 単純な uniform random direction、Halton 等の low-discrepancy 未使用
 //   - 6 direction × 6 step = 36 sample / pixel
@@ -103812,7 +104901,7 @@ namespace acs {
  * を求める。出力は R8G8B8A8_UNorm で .r=AO visibility、.g=contact shadow (ともに 1=照明 /
  * 0=遮蔽)。raw → depth-aware bilateral blur の 2 pass で生成し、OutputTexture() は blur 後を返す。
  */
-class FSsao {
+class CSsao {
 public:
     /** Backend-compiled shader handles awaiting owner-thread PSO creation. */
     struct FCompiledShaders {
@@ -103825,16 +104914,16 @@ public:
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FSsao() noexcept = default;
+    CSsao() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FSsao() noexcept = default;
+    ~CSsao() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FSsao(const FSsao&) = delete;
+    CSsao(const CSsao&) = delete;
 
     /** コピー代入も禁止。 */
-    FSsao& operator=(const FSsao&) = delete;
+    CSsao& operator=(const CSsao&) = delete;
 
     /**
      * 出力 RT・パイプライン・定数バッファを生成する。
@@ -103888,7 +104977,7 @@ public:
      * @param device 描画に使う RHI デバイス (現状未使用)。
      * @param cl コマンドを積むコマンドリスト。
      * @param scene_depth shader_visible_depth=true な depth buffer。
-     * @param normal_gbuffer FMotionVector の world-space normal G-buffer (RGBA16F)。
+     * @param normal_gbuffer CMotionVector の world-space normal G-buffer (RGBA16F)。
      * @param view_proj 現フレームの view * projection (contact shadow の投影に使う)。
      * @param inv_view_proj 現フレーム VP の逆 (depth+uv → world)。
      * @param view world → view 変換 (GTAO の slice 計算は view 空間で行う)。
@@ -103908,7 +104997,7 @@ public:
                 f32 radius    = 0.5f) noexcept;
 
     /**
-     * blur 後の RT を返す (FPbrShader / overlay はこちらを読む)。
+     * blur 後の RT を返す (CPbrShader / overlay はこちらを読む)。
      *
      * @return depth-aware bilateral blur 後の AO/contact RT。
      */
@@ -103976,6 +105065,10 @@ private:
     TUniquePtr<IRhiBuffer>   m_Cb;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSsao = CSsao;
+
+
 } // namespace acs
 
 // ===================== render/Ssgi.h =====================
@@ -103987,15 +105080,15 @@ private:
 // サンプリングを追加した発展版 (Aaltonen 2014 系の単純化版)。
 //
 // 入力: scene_color (HDR R16G16B16A16_Float)、scene_depth (shader-visible depth)
-// 出力: ssgi_color (RGB)、FPbrShader が ambient/indirect 項に加算
+// 出力: ssgi_color (RGB)、CPbrShader が ambient/indirect 項に加算
 //
 // 制限:
-//   - 法線は FMotionVector の normal G-buffer (world normal) から sample
+//   - 法線は CMotionVector の normal G-buffer (world normal) から sample
 //     (depth 微分 cross(ddx,ddy) は faceted で hemisphere ray がブロック状になるため避ける)
 //   - 8 step / 4 ray = 32 sample/pixel (画質と速度のバランス)
 //   - 反射的なシャープなパスは捨て、diffuse-ish な広い hemisphere に絞る
 //   - 1 bounce のみ (Lumen の voxel cone tracing 等は未対応)
-//   - blur 無し (FPbrShader 側で linear sampling で smooth に補間する想定)
+//   - blur 無し (CPbrShader 側で linear sampling で smooth に補間する想定)
 
 
 namespace acs {
@@ -104007,10 +105100,10 @@ namespace acs {
  * 各ピクセルから法線半球内に N 本のレイを screen-space で march し、ヒットした pixel の
  * HDR 色を 1 バウンスの indirect light として集める。SSAO の構造に色サンプリングを
  * 追加した発展版で、raw → depth-aware blur → temporal accumulation の 3 pass で構成する。
- * FPbrShader が結果を ambient/indirect 項に加算する。8 step / 4 ray = 32 sample/pixel、
+ * CPbrShader が結果を ambient/indirect 項に加算する。8 step / 4 ray = 32 sample/pixel、
  * diffuse-ish な広い hemisphere に絞り、反射的なシャープなパスは捨てる。
  */
-class FSsgi {
+class CSsgi {
 public:
     /** CPU-compiled shader bytecode handed to the render-owner thread. */
     struct FCompiledShaders {
@@ -104021,16 +105114,16 @@ public:
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FSsgi() noexcept = default;
+    CSsgi() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FSsgi() noexcept = default;
+    ~CSsgi() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FSsgi(const FSsgi&) = delete;
+    CSsgi(const CSsgi&) = delete;
 
     /** コピー代入も禁止。 */
-    FSsgi& operator=(const FSsgi&) = delete;
+    CSsgi& operator=(const CSsgi&) = delete;
 
     /**
      * 出力 RT・history・パイプライン・定数バッファを生成する。
@@ -104087,14 +105180,14 @@ public:
      * @param cl コマンドを積むコマンドリスト。
      * @param scene_color 現在フレームの HDR scene RT。
      * @param scene_depth shader-visible depth (SSR/SSAO と同じ)。
-     * @param normal_gbuffer FMotionVector の world-space normal G-buffer (RGBA16F)。
+     * @param normal_gbuffer CMotionVector の world-space normal G-buffer (RGBA16F)。
      * @param view_proj 現フレームの view * projection。
      * @param inv_view_proj 現フレーム VP の逆 (depth+uv → world)。
      * @param prev_view_proj 前フレームの view_proj (temporal reproject 用)。identity を渡すと reprojection 無効 (= 静的 accumulate)。
      * @param eye カメラの world pos。
      * @param intensity indirect light の倍率 (0=無効、1=neutral、>1=強調)。
      * @param max_distance ray march の世界距離上限 (世界座標、典型 5.0)。
-     * @param motion_texture 非 null なら temporal pass が depth reprojection ではなくこの motion vector で history を引く (動く mesh も ghost せず追従)。FMotionVector::OutputTexture() を渡す。null なら従来の camera-only depth reprojection。
+     * @param motion_texture 非 null なら temporal pass が depth reprojection ではなくこの motion vector で history を引く (動く mesh も ghost せず追従)。CMotionVector::OutputTexture() を渡す。null なら従来の camera-only depth reprojection。
      */
     void Render(IRhiDevice& device, IRhiCommandList& cl,
                 IRhiTexture& scene_color,
@@ -104111,7 +105204,7 @@ public:
     /**
      * temporal accumulation 後の history RT を返す。
      *
-     * @details 直近の Render が書き込んだ index を返す。FPbrShader はこれを読む (blur + 時間積分でノイズ除去済)。
+     * @details 直近の Render が書き込んだ index を返す。CPbrShader はこれを読む (blur + 時間積分でノイズ除去済)。
      * @return 直近の積分結果を持つ history RT。
      */
     IRhiTexture* OutputTexture() const noexcept {
@@ -104197,6 +105290,10 @@ private:
     bool                    m_OutputValid = false;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSsgi = CSsgi;
+
+
 } // namespace acs
 
 // ===================== render/Ssr.h =====================
@@ -104208,7 +105305,7 @@ private:
 //     reflection ray を screen space で march
 //   - 衝突したら scene_color を sample、ray 起点に reflection を加算
 //   - 結果は別 HDR RT (= ssr_rt) に書き出し → caller が composite で本 HDR へ加算
-//   - normal は FMotionVector パスが出力する normal G-buffer (RGBA16F world normal)
+//   - normal は CMotionVector パスが出力する normal G-buffer (RGBA16F world normal)
 //     から sample する。depth-derivative cross(ddx,ddy) は 2x2 quad
 //     単位で faceted になり、曲面の反射ベクトルが段差状になってガビガビになる
 //
@@ -104222,7 +105319,7 @@ private:
 // silhouette ジャギーを均す。OutputTexture() は temporal 累積後を返す。
 //
 // glossy reflection (roughness 別 mip サンプル) は未対応 — roughness 依存の blend は
-// FPbrShader 側が担当。
+// CPbrShader 側が担当。
 
 
 namespace acs {
@@ -104237,19 +105334,19 @@ namespace acs {
  * 構成で、履歴を reproject + neighborhood clamp して silhouette ジャギーを均す。
  * GPU リソースは TUniquePtr で単独所有する non-copy 型。
  */
-class FSsr {
+class CSsr {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FSsr() noexcept = default;
+    CSsr() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FSsr() noexcept = default;
+    ~CSsr() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FSsr(const FSsr&) = delete;
+    CSsr(const CSsr&) = delete;
 
     /** コピー代入も禁止。 */
-    FSsr& operator=(const FSsr&) = delete;
+    CSsr& operator=(const CSsr&) = delete;
 
     /**
      * GPU リソース (出力 RT・history ping-pong・パイプライン・CB) を確保する。
@@ -104295,14 +105392,14 @@ public:
      * @param cl 描画コマンドを積むコマンドリスト。
      * @param scene_color 現フレームの HDR scene color。
      * @param scene_depth 現フレームの depth buffer (shader_visible_depth=true 必須)。
-     * @param normal_gbuffer FMotionVector パスの world-space normal G-buffer (RGBA16F)。
+     * @param normal_gbuffer CMotionVector パスの world-space normal G-buffer (RGBA16F)。
      * @param view_proj 現フレームの view-projection 行列 (row-major)。
      * @param inv_view_proj view_proj の逆行列 (world pos 復元用)。
      * @param prev_view_proj 前フレームの view_proj (temporal reproject 用、identity で reprojection 無効)。
      * @param eye カメラのワールド位置。
      * @param intensity SSR 強度 (0..2)。
-     * @param motion_texture 非 null なら temporal pass が動く mesh の反射を motion vector で reproject する (null なら camera-only depth reproject)。FMotionVector::OutputTexture() を渡す。
-     * @param hiz_even Hi-Z の偶数 level texture。旧 FHiZ::Texture() だけなら level 0 の coarse path。
+     * @param motion_texture 非 null なら temporal pass が動く mesh の反射を motion vector で reproject する (null なら camera-only depth reproject)。CMotionVector::OutputTexture() を渡す。
+     * @param hiz_even Hi-Z の偶数 level texture。旧 CHiZ::Texture() だけなら level 0 の coarse path。
      * @param hiz_odd Hi-Z の奇数 level texture。hiz_mip_count > 1 のとき使用する。
      * @param hiz_mip_count 有効 pyramid level 数。0 は hiz_even があれば互換 level 0、無ければ Hi-Z 無効。
      */
@@ -104318,7 +105415,7 @@ public:
                 u32 hiz_mip_count           = 0) noexcept;
 
     /**
-     * temporal accumulation 後の history テクスチャを返す (FPbrShader / overlay 用)。
+     * temporal accumulation 後の history テクスチャを返す (CPbrShader / overlay 用)。
      *
      * @return 直近に書き込んだ history RT (frame 0 では history[0])。
      */
@@ -104404,6 +105501,10 @@ private:
     /** Prevents callers from publishing an unwritten or invalidated history. */
     bool                    m_OutputValid = false;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSsr = CSsr;
+
 
 } // namespace acs
 
@@ -104495,10 +105596,10 @@ struct FScatterProfile {
  * RGB 放射照度をグラフ上で拡散する。拡散ステップは行確率的 (各頂点の隣接重みの総和=1) な
  * 凸結合なので無条件安定かつ大域平均を保存する (= エネルギー保存)。
  */
-class FVertexScatter {
+class CVertexScatter {
 public:
     /** 空状態で構築する (Build で確保)。 */
-    FVertexScatter() noexcept = default;
+    CVertexScatter() noexcept = default;
 
     /**
      * メッシュから拡散演算子を構築する。
@@ -104509,7 +105610,7 @@ public:
      * @param weld_epsilon 位置溶接のしきい値 (これ以下の距離の頂点を同一ノードに束ねる)。
      * @return 頂点数 >= 1 かつ三角形が 1 つ以上あれば true。
      */
-    bool Build(const FMeshAsset& mesh, f32 weld_epsilon = 1e-4f) noexcept;
+    bool Build(const AMeshAsset& mesh, f32 weld_epsilon = 1e-4f) noexcept;
 
     /** 頂点配列・インデックス配列から直接構築する (アセット非依存の検証/汎用用)。 */
     bool Build(const FVec3* positions, u32 vcount, const u32* indices, u32 icount,
@@ -104546,6 +105647,10 @@ private:
     f32          m_Lambda = 0.0f;     ///< 拡散係数 0.5/max(D_n) (λ·D ≤ 0.5 で安定)。
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FVertexScatter = CVertexScatter;
+
+
 } // namespace acs
 
 // ===================== scripting/LuaVm.h =====================
@@ -104554,7 +105659,7 @@ private:
 
 namespace acs {
 /** 動的な保存領域を確保する型。 */
-class FAllocator;
+class IAllocator;
 }
 
 namespace acs::scripting {
@@ -104572,7 +105677,7 @@ public:
      * CLuaVmより後まで生存しなければならない。
      * @param allocator native function 登録簿の確保に使い、CLuaVmより長く生存するallocator。
      */
-    explicit CLuaVm(acs::FAllocator& allocator) noexcept;
+    explicit CLuaVm(acs::IAllocator& allocator) noexcept;
 
     /** Lua状態を終了して内部データを解放する。 */
     ~CLuaVm() noexcept override;
@@ -104726,7 +105831,7 @@ void InstallLuaAsDefault() noexcept;
 //
 // 利用方法:
 //   #include "steamworks/SteamworksBridgeImpl.h"
-//   acs::steamworks::FSteamworksBridgeImpl impl;
+//   acs::steamworks::CSteamworksBridgeImpl impl;
 //   if (impl.Init().IsErr()) {
 //       // Steam クライアントが起動していない / AppID 不一致 等
 //       fallback_to_stub();
@@ -104774,25 +105879,25 @@ inline constexpr u16 kSubSteamworksTimeout          = 1007;
  * leaderboard 系は async (Find -> Upload/Download) の 2 段で進めて Tick() の
  * コールバックポンプで完了を回収する。CMake の ACS_BUILD_STEAMWORKS=ON でビルドされる。
  */
-class FSteamworksBridgeImpl final : public acs::game::ISteamworksBridge {
+class CSteamworksBridgeImpl final : public acs::game::ISteamworksBridge {
 public:
     /** Pimpl 状態を確保して構築する (Steam 連携は Init で確立)。 */
-    FSteamworksBridgeImpl() noexcept;
+    CSteamworksBridgeImpl() noexcept;
 
     /** 必要なら Shutdown を呼び、Pimpl 状態を解放する。 */
-    ~FSteamworksBridgeImpl() noexcept override;
+    ~CSteamworksBridgeImpl() noexcept override;
 
     /** コピー禁止 (Pimpl 状態を単独所有するため)。 */
-    FSteamworksBridgeImpl(const FSteamworksBridgeImpl&)            = delete;
+    CSteamworksBridgeImpl(const CSteamworksBridgeImpl&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSteamworksBridgeImpl& operator=(const FSteamworksBridgeImpl&) = delete;
+    CSteamworksBridgeImpl& operator=(const CSteamworksBridgeImpl&) = delete;
 
     /** ムーブ禁止。 */
-    FSteamworksBridgeImpl(FSteamworksBridgeImpl&&)                 = delete;
+    CSteamworksBridgeImpl(CSteamworksBridgeImpl&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSteamworksBridgeImpl& operator=(FSteamworksBridgeImpl&&)      = delete;
+    CSteamworksBridgeImpl& operator=(CSteamworksBridgeImpl&&)      = delete;
 
     /**
      * SteamAPI_Init() を呼んで Steam クライアント連携を確立する。
@@ -105043,6 +106148,9 @@ private:
     bool  m_bInitialized = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSteamworksBridgeImpl = CSteamworksBridgeImpl;
+
 /**
  * プロセス共有 singleton の実 Bridge を返す。
  *
@@ -105081,25 +106189,25 @@ namespace acs::telemetryfile {
  * server_url は呼出側が寿命を保証する非所有文字列で、本実装は内部固定長バッファに
  * コピーして保持する。non-copy / non-move 型。
  */
-class FFileTelemetryBackendClient final : public acs::game::IBackendClient {
+class CFileTelemetryBackendClient final : public acs::game::IBackendClient {
 public:
     /** 空のクライアントを構築する (ファイルは未オープン)。 */
-    FFileTelemetryBackendClient() noexcept = default;
+    CFileTelemetryBackendClient() noexcept = default;
 
     /** 破棄する (オープン中ならファイルを flush・close する)。 */
-    ~FFileTelemetryBackendClient() noexcept override;
+    ~CFileTelemetryBackendClient() noexcept override;
 
     /** コピー禁止 (ファイルハンドルを単独所有するため)。 */
-    FFileTelemetryBackendClient(const FFileTelemetryBackendClient&)            = delete;
+    CFileTelemetryBackendClient(const CFileTelemetryBackendClient&)            = delete;
 
     /** コピー代入も禁止。 */
-    FFileTelemetryBackendClient& operator=(const FFileTelemetryBackendClient&) = delete;
+    CFileTelemetryBackendClient& operator=(const CFileTelemetryBackendClient&) = delete;
 
     /** ムーブ禁止。 */
-    FFileTelemetryBackendClient(FFileTelemetryBackendClient&&)                 = delete;
+    CFileTelemetryBackendClient(CFileTelemetryBackendClient&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FFileTelemetryBackendClient& operator=(FFileTelemetryBackendClient&&)      = delete;
+    CFileTelemetryBackendClient& operator=(CFileTelemetryBackendClient&&)      = delete;
 
     /**
      * 出力先ファイルを開く (追記モード)。
@@ -105203,8 +106311,11 @@ private:
     acs::u32 m_WrittenCount = 0;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FFileTelemetryBackendClient = CFileTelemetryBackendClient;
+
 /**
- * プロセス共有の既定 FFileTelemetryBackendClient singleton を返す。
+ * プロセス共有の既定 CFileTelemetryBackendClient singleton を返す。
  *
  * @details InstallFileTelemetryAsDefault が gameframework の backend provider に登録する provider 実体。
  * @return ファイルバック実装の singleton への参照。
@@ -105318,7 +106429,7 @@ inline constexpr u32 kMaximumFixedStepBatchCount = 4096u;
  *
  * 呼び出し側が値として所有し、OS時刻、ゲームループ、共有サービスの寿命を持たない。
  */
-class FFixedStepClock final {
+class CFixedStepClock final {
 public:
     /**
      * 設定を検証して適用し、補間位置と累積統計を初期化する。
@@ -105400,6 +106511,9 @@ private:
     u64 m_TotalStepCount = 0u;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FFixedStepClock = CFixedStepClock;
+
 } // namespace acs::timing
 
 // ===================== timing/FixedStepClockBatch.h =====================
@@ -105413,67 +106527,67 @@ namespace acs::timing {
  *
  * 入力、容量、整列、領域重複を先に検証し、失敗時は保存先と件数を変更しない。
  */
-bool TryCaptureFixedStepClockSnapshots(const FFixedStepClock* clocks, u32 count, FFixedStepClockSnapshot* snapshots, u32 snapshot_capacity, u32& snapshot_count) noexcept;
+bool TryCaptureFixedStepClockSnapshots(const CFixedStepClock* clocks, u32 count, FFixedStepClockSnapshot* snapshots, u32 snapshot_capacity, u32& snapshot_count) noexcept;
 
 /**
  * 複数の保存値を対応する時計へまとめて復元する。
  *
  * 全時計と全保存値を先に検証し、失敗時はどの時計も変更しない。
  */
-bool TryRestoreFixedStepClockSnapshots(FFixedStepClock* clocks, const FFixedStepClockSnapshot* snapshots, u32 count) noexcept;
+bool TryRestoreFixedStepClockSnapshots(CFixedStepClock* clocks, const FFixedStepClockSnapshot* snapshots, u32 count) noexcept;
 
 } // namespace acs::timing
 
 // ===================== ui/UiRenderer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FUiRenderer — FWidget tree を FSpriteBatch + FFont で描画する
+// CUiRenderer — AWidget tree を CSpriteBatch + FFont で描画する
 //
 // 使い方:
-//   FUiRenderer ur;
+//   CUiRenderer ur;
 //   ur.Init(*dev, GetRenderer().ColorFormat(), default_font);
 //
 //   // 毎フレーム:
-//   FStackPanel root;
+//   AStackPanel root;
 //   /* root.Add<...>() で子を構築 */
 //   ur.Render(root, *cmd, screen_w, screen_h);
 //
 // 仕組み:
-//   ・FSpriteBatch で矩形 + テクスチャ + 文字を発行
+//   ・CSpriteBatch で矩形 + テクスチャ + 文字を発行
 //   ・FFont は ACS FFont (TTrueType + atlas)
-//   ・FWidget::Render(*this) を再帰的に呼ぶ
-//   ・各 widget は描画ヘルパ (DrawRect / DrawText 等) で FUiRenderer に依頼
+//   ・AWidget::Render(*this) を再帰的に呼ぶ
+//   ・各 widget は描画ヘルパ (DrawRect / DrawText 等) で CUiRenderer に依頼
 //   ・root.visible=false のフレームは Layout と描画をともに省略
 
 
 // ===================== ui/Widgets.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 標準ウィジェット — FLabel / FButton / FSlider / FCheckbox / FTextInput
+// 標準ウィジェット — ALabel / AButton / ASlider / ACheckbox / ATextInput
 //
 // すべての widget は TObservable<T> プロパティで状態を公開しているので、
-// MVVM の Bind* で FViewModel と直結できる:
+// MVVM の Bind* で CViewModel と直結できる:
 //
-//   class FPlayerViewModel : public FViewModel { TObservable<f32> hp{100}; };
+//   class FPlayerViewModel : public CViewModel { TObservable<f32> hp{100}; };
 //   FPlayerViewModel vm;
-//   FStackPanel root;
-//   auto* sl = root.Add<FSlider>(0.0f, 100.0f);
+//   AStackPanel root;
+//   auto* sl = root.Add<ASlider>(0.0f, 100.0f);
 //   auto bind = MakeTwoWayBind(vm.hp, sl->value);   // 双方向同期
 
 
 // ===================== ui/Widget.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FWidget — ACS UI フレームワークの基底クラス
+// AWidget — ACS UI フレームワークの基底クラス
 //
 // 設計:
 //   ・retained-mode UI (ImGui のような毎フレーム再構築でなく、ツリーを保持)
-//   ・MVVM 駆動: 各 FWidget は TObservable<T> プロパティを公開し、FViewModel と Bind 可能
-//   ・FSpriteBatch + FFont で描画 (Diligent / Dx12 を意識しない)
-//   ・親 → 子の所有を TUniquePtr<FWidget> で表現、Add で子を取り込む
+//   ・MVVM 駆動: 各 AWidget は TObservable<T> プロパティを公開し、CViewModel と Bind 可能
+//   ・CSpriteBatch + FFont で描画 (Diligent / Dx12 を意識しない)
+//   ・親 → 子の所有を TUniquePtr<AWidget> で表現、Add で子を取り込む
 //   ・Layout は親の Layout モードに応じて子に再帰的に配置
 //
 // 使い方:
-//   FStackPanel root;
+//   AStackPanel root;
 //   root.SetPadding(8);
-//   auto* btn = root.Add<FButton>("OK");
+//   auto* btn = root.Add<AButton>("OK");
 //   btn->on_clicked.Subscribe(...);
 //
 //   // 毎フレーム:
@@ -105483,27 +106597,30 @@ bool TryRestoreFixedStepClockSnapshots(FFixedStepClock* clocks, const FFixedStep
 
 namespace acs {
 
-class FUiInput;
-class FWidget;
+class CUiInput;
+class AWidget;
+
 
 namespace ui_detail {
 
 class FWidgetCallbackLifetimeGuard;
 
+
+
 /**
- * FUiInput が widget 実体を追跡する内部専用の複合 identity。
+ * CUiInput が widget 実体を追跡する内部専用の複合 identity。
  *
  * @details address_token は生存 widget のアドレスを整数化した比較専用値であり、
- * ポインタへ戻したり参照したりしない。module_token は FWidget を構築した binary module
+ * ポインタへ戻したり参照したりしない。module_token は AWidget を構築した binary module
  * が使用した generation counter のアドレスを整数化し、widget member に保存した値。
  * generation はその module 内の採番値。別 DLL が同じ widget address と generation を
  * 同時または逐次利用しても module_token が実体を区別する。InputIdentity を呼ぶ側の
  * module で token を再計算してはならない。
  *
  * 全フィールドの 0 は「追跡対象なし」に予約する。この型は非公開の実行時 handle で、
- * ファイル保存・通信・plugin ABI に永続化してはならない。FUiInput/FWidget のレイアウト
+ * ファイル保存・通信・plugin ABI に永続化してはならない。CUiInput/AWidget のレイアウト
  * 自体もこの開発版では安定 ABI として公開しない。DLL unload/reload で module address が
- * 再利用される境界は host 側 FUiInput::Reset が必須。
+ * 再利用される境界は host 側 CUiInput::Reset が必須。
  */
 struct FWidgetInputIdentity {
     usize address_token = 0;
@@ -105584,7 +106701,7 @@ struct FUiRect {
 };
 
 /**
- * FStackPanel の子整列方向。
+ * AStackPanel の子整列方向。
  */
 enum class EStackDir : u8 {
     /** 縦方向 (上から下) に並べる。 */
@@ -105614,7 +106731,7 @@ struct FUiPadding {
 /**
  * UI キーイベントに同時押し状態を付与する修飾キーのスナップショット。
  *
- * @details FUiInput は編集キーを配信する時点で左右キーをまとめて設定する。
+ * @details CUiInput は編集キーを配信する時点で左右キーをまとめて設定する。
  * 既存の修飾キーなし OnKey 経路では全フィールドが false になる。
  */
 struct FUiKeyModifiers {
@@ -105739,14 +106856,14 @@ inline FUiRect ComputeAnchoredRect(const FUiRect& parent, const FUiAnchor& a) no
  * retained-mode UI ツリーの基底ウィジェット。
  *
  * @details
- * 親が TUniquePtr<FWidget> で子を所有し、Layout (親が呼ぶ) / Render (FUiRenderer が呼ぶ) /
+ * 親が TUniquePtr<AWidget> で子を所有し、Layout (親が呼ぶ) / Render (CUiRenderer が呼ぶ) /
  * 入力イベント (On*) を仮想メソッドで提供する。各派生は TObservable<T> プロパティを公開して
- * MVVM の FViewModel と Bind できる。非コピー。
+ * MVVM の CViewModel と Bind できる。非コピー。
  */
-class FWidget {
+class AWidget {
 public:
     /** 空のウィジェットを構築する (親なし・子なし)。 */
-    FWidget() noexcept
+    AWidget() noexcept
         : m_InputModuleToken(
               ui_detail::WidgetInputModuleToken(
                   ui_detail::g_NextWidgetInputGeneration)),
@@ -105759,18 +106876,18 @@ public:
      *
      * @details guard は UI callback の stack 上にだけ存在し、allocation は行わない。
      */
-    virtual ~FWidget() noexcept;
+    virtual ~AWidget() noexcept;
 
     /** コピー禁止 (子を TUniquePtr で単独所有するため)。 */
-    FWidget(const FWidget&) = delete;
+    AWidget(const AWidget&) = delete;
 
     /** コピー代入も禁止。 */
-    FWidget& operator=(const FWidget&) = delete;
+    AWidget& operator=(const AWidget&) = delete;
 
     /**
      * W 型の子ウィジェットを構築・追加して所有し、生ポインタを返す。
      *
-     * @tparam W 追加する FWidget 派生型。
+     * @tparam W 追加する AWidget 派生型。
      * @tparam Args W のコンストラクタ引数型。
      * @param args W のコンストラクタへ転送する引数。
      * @return 追加した子 W への生ポインタ (所有はツリー側)。
@@ -105789,7 +106906,7 @@ public:
      *
      * @return 親 (root なら nullptr)。
      */
-    FWidget* Parent() const noexcept { return m_Parent; }
+    AWidget* Parent() const noexcept { return m_Parent; }
 
     /**
      * 直接の子の数を返す。
@@ -105804,7 +106921,7 @@ public:
      * @param i 子のインデックス。
      * @return i 番目の子 (範囲外なら nullptr)。
      */
-    FWidget* Child(usize i) const noexcept { return i < m_Children.Size() ? m_Children[i].Get() : nullptr; }
+    AWidget* Child(usize i) const noexcept { return i < m_Children.Size() ? m_Children[i].Get() : nullptr; }
 
     /** 表示フラグ (false で自身と子の描画・hit-test をスキップ)。 */
     bool   visible = true;
@@ -105815,16 +106932,16 @@ public:
     /** 要望サイズ (0 の成分はレイアウトに任せる)。 */
     FUiRect requested;
 
-    /** アンカー設定 (FAnchorPanel の子のときのみ使われる。既定は親全体を埋める)。 */
+    /** アンカー設定 (AAnchorPanel の子のときのみ使われる。既定は親全体を埋める)。 */
     FUiAnchor anchor;
 
-    /** ポインタが上にあるか (FUiInput が更新)。 */
+    /** ポインタが上にあるか (CUiInput が更新)。 */
     bool hovered = false;
 
-    /** 入力フォーカス中か (FTextInput 等で使う)。 */
+    /** 入力フォーカス中か (ATextInput 等で使う)。 */
     bool focused = false;
 
-    /** 直近フレームで押下中か (FButton 等で使う)。 */
+    /** 直近フレームで押下中か (AButton 等で使う)。 */
     bool pressed = false;
 
     /**
@@ -105841,12 +106958,12 @@ public:
     }
 
     /**
-     * 自身を描画する (FUiRenderer が呼ぶ)。
+     * 自身を描画する (CUiRenderer が呼ぶ)。
      *
      * @details 既定は visible な子を再帰的に描画するだけ。見た目を持つ派生で override する。
      * @param r 描画ヘルパとテーマ色を提供する UI レンダラ。
      */
-    virtual void Render(class FUiRenderer& r) noexcept {
+    virtual void Render(class CUiRenderer& r) noexcept {
         // 既定は子だけ描画する (visible なものに絞り)
         for (usize i = 0; i < m_Children.Size(); ++i) {
             if (m_Children[i] && m_Children[i]->visible) m_Children[i]->Render(r);
@@ -105868,7 +106985,7 @@ public:
     /**
      * ポインタ押下イベント。
      *
-     * @details 既定は何もしない。FButton/FSlider 等が override する。
+     * @details 既定は何もしない。AButton/ASlider 等が override する。
      * @param px 押下点の X 座標。
      * @param py 押下点の Y 座標。
      */
@@ -105895,7 +107012,7 @@ public:
     /**
      * 文字入力イベント (確定後の codepoint)。
      *
-     * @details 既定は何もしない。FTextInput が override する。
+     * @details 既定は何もしない。ATextInput が override する。
      * @param codepoint 入力された Unicode コードポイント。
      */
     virtual void OnTextInput  (u32 /*codepoint*/) noexcept {}
@@ -105913,7 +107030,7 @@ public:
      * 修飾キーを含むキーイベント。
      *
      * @details 既定実装は従来の 2 引数 OnKey へ転送する。このため、既存の派生 widget が
-     * 2 引数版だけを override していても FUiInput からの新しい配信を受け続けられる。
+     * 2 引数版だけを override していても CUiInput からの新しい配信を受け続けられる。
      * 修飾キーを扱う派生型だけがこの overload を override する。
      * @param key 制御コードに対応付けられたキーコード。
      * @param pressed_ 押下なら true、解放なら false。
@@ -105934,13 +107051,13 @@ public:
      * @param py 判定する点の Y 座標。
      * @return ヒットした最前面の widget (なければ nullptr)。
      */
-    FWidget* HitTestRecursive(f32 px, f32 py) noexcept {
+    AWidget* HitTestRecursive(f32 px, f32 py) noexcept {
         if (!visible) return nullptr;
         // 後ろの子 (上に描画されてる) から優先的にヒット
         for (usize i = m_Children.Size(); i > 0; --i) {
-            FWidget* const c = m_Children[i - 1].Get();
+            AWidget* const c = m_Children[i - 1].Get();
             if (c) {
-                if (FWidget* h = c->HitTestRecursive(px, py)) return h;
+                if (AWidget* h = c->HitTestRecursive(px, py)) return h;
             }
         }
         return HitTest(px, py) ? this : nullptr;
@@ -105948,13 +107065,13 @@ public:
 
 protected:
     /** 親ウィジェット (root なら nullptr、所有はしない)。 */
-    FWidget*                       m_Parent   = nullptr;
+    AWidget*                       m_Parent   = nullptr;
 
     /** 直接の子 (所有権を持つ、描画/走査順は配列順)。 */
-    TArray<TUniquePtr<FWidget>>      m_Children;
+    TArray<TUniquePtr<AWidget>>      m_Children;
 
 private:
-    friend class FUiInput;
+    friend class CUiInput;
     friend class ui_detail::FWidgetCallbackLifetimeGuard;
 
     /**
@@ -105963,14 +107080,14 @@ private:
      * @details 保存済みの生ポインタは参照せず、現在の所有ツリーだけを走査するため、
      * child が除去済みでも解放済み領域へ触れない。
      */
-    FWidget* FindByInputIdentity_Internal(
+    AWidget* FindByInputIdentity_Internal(
             const ui_detail::FWidgetInputIdentity& identity) noexcept {
         if (!identity.IsSet()) return nullptr;
         if (InputIdentity_Internal() == identity) return this;
         for (usize i = 0; i < m_Children.Size(); ++i) {
-            FWidget* const child = m_Children[i].Get();
+            AWidget* const child = m_Children[i].Get();
             if (!child) continue;
-            if (FWidget* const found =
+            if (AWidget* const found =
                     child->FindByInputIdentity_Internal(identity)) {
                 return found;
             }
@@ -105992,8 +107109,8 @@ private:
      *
      * @param root 現在 Dispatch 中で、生存が保証されている root。
      */
-    bool IsInputVisibleFrom_Internal(const FWidget& root) const noexcept {
-        const FWidget* current = this;
+    bool IsInputVisibleFrom_Internal(const AWidget& root) const noexcept {
+        const AWidget* current = this;
         while (current) {
             if (!current->visible) return false;
             if (current == &root) return true;
@@ -106008,7 +107125,7 @@ private:
         focused = false;
         pressed = false;
         for (usize i = 0; i < m_Children.Size(); ++i) {
-            if (FWidget* const child = m_Children[i].Get()) {
+            if (AWidget* const child = m_Children[i].Get()) {
                 child->ClearInputStateRecursive_Internal();
             }
         }
@@ -106024,18 +107141,21 @@ private:
     ui_detail::FWidgetCallbackLifetimeGuard* m_CallbackLifetimeGuards = nullptr;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FWidget = AWidget;
+
 namespace ui_detail {
 
 /**
  * widget callback が自身の破棄後に member へ再接触することを防ぐ stack guard。
  *
- * @details UI thread 専用。構築時に widget の intrusive stack へ連結し、FWidget の
+ * @details UI thread 専用。構築時に widget の intrusive stack へ連結し、AWidget の
  * destructor が active guard を dead にする。dead guard は dangling widget pointer を
  * 一切参照しない。heap allocation や shared ownership は行わない。
  */
 class FWidgetCallbackLifetimeGuard {
 public:
-    explicit FWidgetCallbackLifetimeGuard(FWidget& widget) noexcept
+    explicit FWidgetCallbackLifetimeGuard(AWidget& widget) noexcept
         : m_Widget(&widget),
           m_Previous(widget.m_CallbackLifetimeGuards) {
         widget.m_CallbackLifetimeGuards = this;
@@ -106057,16 +107177,16 @@ public:
     bool IsAlive() const noexcept { return m_Alive; }
 
 private:
-    friend class ::acs::FWidget;
+    friend class ::acs::AWidget;
 
-    FWidget* m_Widget = nullptr;
+    AWidget* m_Widget = nullptr;
     FWidgetCallbackLifetimeGuard* m_Previous = nullptr;
     bool m_Alive = true;
 };
 
 } // namespace ui_detail
 
-inline FWidget::~FWidget() noexcept {
+inline AWidget::~AWidget() noexcept {
     ui_detail::FWidgetCallbackLifetimeGuard* guard =
         m_CallbackLifetimeGuards;
     while (guard) {
@@ -106082,10 +107202,10 @@ inline FWidget::~FWidget() noexcept {
  *
  * @details dir に応じて子を順に配置し、各子の要望サイズ (なければ既定値) を使う。
  */
-class FStackPanel : public FWidget {
+class AStackPanel : public AWidget {
 public:
     /** 既定設定 (縦並び・spacing=4・padding=8) で構築する。 */
-    FStackPanel() noexcept = default;
+    AStackPanel() noexcept = default;
 
     /** 子を並べる方向。 */
     EStackDir   dir      = EStackDir::Vertical;
@@ -106115,7 +107235,7 @@ public:
         const f32 ch = h - padding.t - padding.b;
 
         for (usize i = 0; i < m_Children.Size(); ++i) {
-            FWidget* const c = m_Children[i].Get();
+            AWidget* const c = m_Children[i].Get();
             if (!c || !c->visible) continue;
 
             if (dir == EStackDir::Vertical) {
@@ -106131,12 +107251,15 @@ public:
     }
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FStackPanel = AStackPanel;
+
 /**
  * 自身は描画せず、子に自分と同じ範囲を渡すだけの透過パネル。
  *
  * @details 同じ領域を複数の子に重ねて配置したいとき (オーバーレイ等) に使う。
  */
-class FContainer : public FWidget {
+class AContainer : public AWidget {
 public:
     /**
      * 自身の rect を確定し、全 visible な子に同じ範囲を渡す。
@@ -106149,29 +107272,32 @@ public:
     void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
         rect = { x, y, w, h };
         for (usize i = 0; i < m_Children.Size(); ++i) {
-            FWidget* const c = m_Children[i].Get();
+            AWidget* const c = m_Children[i].Get();
             if (c && c->visible) c->Layout(x, y, w, h);
         }
     }
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FContainer = AContainer;
+
 /**
  * 各子を自身の anchor (RectTransform 風) に従って配置するレスポンシブパネル。
  *
  * @details
- * FContainer が全子に同じ矩形を渡すのに対し、FAnchorPanel は子ごとの `anchor` を
+ * AContainer が全子に同じ矩形を渡すのに対し、AAnchorPanel は子ごとの `anchor` を
  * ComputeAnchoredRect で解決して個別配置する。パネルの rect が変わる (画面リサイズ等)
  * と全子が追従するため、HUD やオーバーレイの解像度非依存レイアウトに使う。
  *
  * 使い方:
- *   FAnchorPanel hud;
- *   auto* score = hud.Add<FLabel>("0");
+ *   AAnchorPanel hud;
+ *   auto* score = hud.Add<ALabel>("0");
  *   score->anchor = FUiAnchor::Point({1,0}, 120, 32, -128, 8);  // 右上に固定サイズ
- *   auto* bar = hud.Add<FContainer>();
+ *   auto* bar = hud.Add<AContainer>();
  *   bar->anchor = FUiAnchor::Stretch(16, 0, 16, 8);             // 下端を左右いっぱい
  *   hud.Layout(0, 0, screen_w, screen_h);
  */
-class FAnchorPanel : public FWidget {
+class AAnchorPanel : public AWidget {
 public:
     /**
      * 自身の rect を確定し、各 visible な子を anchor に従って配置する。
@@ -106184,7 +107310,7 @@ public:
     void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
         rect = { x, y, w, h };
         for (usize i = 0; i < m_Children.Size(); ++i) {
-            FWidget* const c = m_Children[i].Get();
+            AWidget* const c = m_Children[i].Get();
             if (!c || !c->visible) continue;
             const FUiRect cr = ComputeAnchoredRect(rect, c->anchor);
             c->Layout(cr.x, cr.y, cr.w, cr.h);
@@ -106192,16 +107318,23 @@ public:
     }
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FAnchorPanel = AAnchorPanel;
+
+
 } // namespace acs
 
 namespace acs {
 
 class FFont;
 
+
+
+
 /**
  * UI ウィジェット共通の配色テーマ (簡易カラーセット)。
  *
- * @details FUiRenderer が保持し、各 widget の Render が色名で参照する。
+ * @details CUiRenderer が保持し、各 widget の Render が色名で参照する。
  */
 struct FUiColors {
     /** パネル背景色。 */
@@ -106253,6 +107386,7 @@ struct FUiColors {
     FVec4 input_selection = { 0.25f, 0.52f, 0.88f, 0.72f };
 };
 
+
 /**
  * プロセス共有の既定 FUiColors への参照を返す。
  *
@@ -106266,14 +107400,14 @@ inline FUiColors& DefaultUiColors() noexcept {
 /**
  * 静的テキストを表示するラベル widget。
  */
-class FLabel : public FWidget {
+class ALabel : public AWidget {
 public:
     /**
      * 初期テキストを指定して構築する。
      *
      * @param initial 初期表示文字列 (既定は空文字列)。
      */
-    explicit FLabel(const char* initial = "") noexcept : text(FString{initial}) {
+    explicit ALabel(const char* initial = "") noexcept : text(FString{initial}) {
         requested.h = 22.0f;
     }
 
@@ -106285,20 +107419,23 @@ public:
      *
      * @param r 描画ヘルパとテーマ色を提供する UI レンダラ。
      */
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(CUiRenderer& r) noexcept override;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FLabel = ALabel;
 
 /**
  * クリックできるボタン widget。
  */
-class FButton : public FWidget {
+class AButton : public AWidget {
 public:
     /**
      * ラベル文字列を指定して構築する。
      *
      * @param label ボタンに表示する文字列 (既定 "Button")。
      */
-    explicit FButton(const char* label = "Button") noexcept : text(FString{label}) {
+    explicit AButton(const char* label = "Button") noexcept : text(FString{label}) {
         requested.h = 32.0f;
     }
 
@@ -106319,7 +107456,7 @@ public:
      *
      * @param r 描画ヘルパとテーマ色を提供する UI レンダラ。
      */
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(CUiRenderer& r) noexcept override;
 
     /**
      * 押下状態に入る。
@@ -106348,10 +107485,13 @@ public:
     }
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FButton = AButton;
+
 /**
  * 範囲付きの値をドラッグで編集するスライダー widget。
  */
-class FSlider : public FWidget {
+class ASlider : public AWidget {
 public:
     /**
      * 値域を指定して構築する。
@@ -106359,7 +107499,7 @@ public:
      * @param min_v 取りうる最小値 (既定 0)。
      * @param max_v 取りうる最大値 (既定 1)。
      */
-    FSlider(f32 min_v = 0, f32 max_v = 1) noexcept : min_value(min_v), max_value(max_v) {
+    ASlider(f32 min_v = 0, f32 max_v = 1) noexcept : min_value(min_v), max_value(max_v) {
         requested.h = 24.0f;
     }
 
@@ -106377,7 +107517,7 @@ public:
      *
      * @param r 描画ヘルパとテーマ色を提供する UI レンダラ。
      */
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(CUiRenderer& r) noexcept override;
 
     /**
      * 押下して、その X 位置から値を更新する。
@@ -106418,17 +107558,20 @@ private:
     }
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSlider = ASlider;
+
 /**
  * bool 値をトグルするチェックボックス widget。
  */
-class FCheckbox : public FWidget {
+class ACheckbox : public AWidget {
 public:
     /**
      * ラベル文字列を指定して構築する。
      *
      * @param label チェックボックス横に表示する文字列 (既定は空文字列)。
      */
-    explicit FCheckbox(const char* label = "") noexcept : text(FString{label}) {
+    explicit ACheckbox(const char* label = "") noexcept : text(FString{label}) {
         requested.h = 24.0f;
     }
 
@@ -106443,7 +107586,7 @@ public:
      *
      * @param r 描画ヘルパとテーマ色を提供する UI レンダラ。
      */
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(CUiRenderer& r) noexcept override;
 
     /**
      * 矩形内で解放されたら checked を反転する。
@@ -106456,6 +107599,9 @@ public:
     }
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FCheckbox = ACheckbox;
+
 /**
  * UTF-8 の 1 行テキストをコードポイント境界で編集する入力 widget。
  *
@@ -106464,7 +107610,7 @@ public:
  * 境界へ正規化する。編集は一時 FString 上で完了してから observable へ move するため、
  * 容量確保に失敗しても文字列と cursor は変更されない。
  */
-class FTextInput : public FWidget {
+class ATextInput : public AWidget {
 public:
     /** 既定の入力上限 (NUL を含まない UTF-8 バイト数)。 */
     static constexpr usize kDefaultMaxTextBytes = 4096u;
@@ -106473,7 +107619,7 @@ public:
     static constexpr usize kHardMaxTextBytes = 1024u * 1024u;
 
     /** 空文字列で構築する。 */
-    FTextInput() noexcept {
+    ATextInput() noexcept {
         requested.h = 28.0f;
     }
 
@@ -106485,7 +107631,7 @@ public:
      *
      * @param r 描画ヘルパとテーマ色を提供する UI レンダラ。
      */
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(CUiRenderer& r) noexcept override;
 
     /**
      * クリックでフォーカスを得て cursor を末尾へ移動する。
@@ -106563,8 +107709,8 @@ public:
      * @details 直接呼ばれた場合は修飾キーなしで処理する。3 引数版から転送中なら、その
      * callback の間だけ保持した修飾キースナップショットを使う。この関数をさらに派生型が
      * override していても、3 引数 Dispatch から仮想呼び出しで到達する。組み込みの
-     * FTextInput 編集も残す派生 override は FTextInput::OnKey を呼ぶこと。
-     * @param key FUiInput が編集キーへ割り当てる互換制御コード。
+     * ATextInput 編集も残す派生 override は ATextInput::OnKey を呼ぶこと。
+     * @param key CUiInput が編集キーへ割り当てる互換制御コード。
      * @param pressed_ 押下なら true、解放なら false。
      */
     void OnKey(i32 key, bool pressed_) noexcept override {
@@ -106605,11 +107751,11 @@ public:
     /**
      * 修飾キーを保持して従来の仮想 2 引数 OnKey へ転送する。
      *
-     * @details FTextInput 自身では2引数版が Backspace/Delete/Left/Right/Home/End、
+     * @details ATextInput 自身では2引数版が Backspace/Delete/Left/Right/Home/End、
      * Shift 選択、Ctrl+A を処理する。ここから2引数版を仮想呼び出しするため、既存の
-     * FTextInput 派生型が2引数版だけを override していても新しい3引数 Dispatch を受ける。
+     * ATextInput 派生型が2引数版だけを override していても新しい3引数 Dispatch を受ける。
      * 入れ子の OnKey 呼び出しでは以前の snapshot を保存・復元する。
-     * @param key FUiInput が編集キーへ割り当てる互換制御コード。
+     * @param key CUiInput が編集キーへ割り当てる互換制御コード。
      * @param pressed_ 押下なら true、解放なら false。
      * @param modifiers 配信時点の修飾キー状態。
      */
@@ -107026,6 +108172,10 @@ private:
     const FUiKeyModifiers* m_ForwardedKeyModifiers = nullptr;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FTextInput = ATextInput;
+
+
 } // namespace acs
 
 namespace acs {
@@ -107039,14 +108189,15 @@ FUiRect ComputeTextSelectionHighlightRect(const FUiRect& input_rect,
                                            f32 prefix_start,
                                            f32 prefix_end) noexcept;
 
+
 /**
  * visible な root だけを Layout し、その後の描画処理を呼ぶ共通 gate。
  *
- * @details FUiRenderer::Render と GPU-free test が同じ可視性分岐を共有する。
+ * @details CUiRenderer::Render と GPU-free test が同じ可視性分岐を共有する。
  * root が hidden なら Layout も callback も呼ばない。
  */
 template<typename TRenderCallback>
-bool VisitVisibleUiRoot(FWidget& root, f32 width, f32 height,
+bool VisitVisibleUiRoot(AWidget& root, f32 width, f32 height,
                         TRenderCallback&& render_callback) noexcept {
     if (!root.visible) return false;
     root.Layout(0.0f, 0.0f, width, height);
@@ -107057,34 +108208,34 @@ bool VisitVisibleUiRoot(FWidget& root, f32 width, f32 height,
 } // namespace ui_detail
 
 /**
- * FWidget ツリーを FSpriteBatch + FFont で描画する UI レンダラ。
+ * AWidget ツリーを CSpriteBatch + FFont で描画する UI レンダラ。
  *
  * @details
- * Render で visible な root の Layout → FSpriteBatch::Begin → root.Render(*this) → End を行い、
+ * Render で visible な root の Layout → CSpriteBatch::Begin → root.Render(*this) → End を行い、
  * 各 widget は DrawRect / DrawRectOutline / DrawText で描画を依頼する。テーマ色 FUiColors を
  * 保持する。FFont は所有せず参照のみ。非コピー。
  */
-class FUiRenderer {
+class CUiRenderer {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FUiRenderer() noexcept = default;
+    CUiRenderer() noexcept = default;
 
-    /** 破棄する (FSpriteBatch のリソースは Shutdown / デストラクタで解放)。 */
-    ~FUiRenderer() noexcept = default;
+    /** 破棄する (CSpriteBatch のリソースは Shutdown / デストラクタで解放)。 */
+    ~CUiRenderer() noexcept = default;
 
-    /** コピー禁止 (FSpriteBatch を単独所有するため)。 */
-    FUiRenderer(const FUiRenderer&) = delete;
+    /** コピー禁止 (CSpriteBatch を単独所有するため)。 */
+    CUiRenderer(const CUiRenderer&) = delete;
 
     /** コピー代入も禁止。 */
-    FUiRenderer& operator=(const FUiRenderer&) = delete;
+    CUiRenderer& operator=(const CUiRenderer&) = delete;
 
     /**
-     * FSpriteBatch を初期化し、既定フォントを設定する。
+     * CSpriteBatch を初期化し、既定フォントを設定する。
      *
      * @param device パイプライン生成に使う RHI デバイス。
      * @param rt_format 描画先レンダーターゲットのフォーマット。
      * @param default_font 文字描画に使う既定フォント (所有しない、null 可)。
-     * @return 成功なら空の TResult、FSpriteBatch 初期化失敗ならエラー。
+     * @return 成功なら空の TResult、CSpriteBatch 初期化失敗ならエラー。
      */
     TResult<void> Init(IRhiDevice& device, EFormat rt_format, FFont* default_font) noexcept;
 
@@ -107092,16 +108243,16 @@ public:
     void Shutdown() noexcept;
 
     /**
-     * FWidget ツリーを 1 フレーム分レイアウトして描画する。
+     * AWidget ツリーを 1 フレーム分レイアウトして描画する。
      *
-     * @details visible な root を画面全体に Layout し、FSpriteBatch を Begin/End で囲んで
+     * @details visible な root を画面全体に Layout し、CSpriteBatch を Begin/End で囲んで
      * 再帰描画する。root.visible が false なら Layout と全描画を省略する。
      * @param root 描画するツリーの root widget。
      * @param cmd コマンドを積むコマンドリスト。
      * @param screen_w 画面幅 (px)。
      * @param screen_h 画面高さ (px)。
      */
-    void Render(FWidget& root, IRhiCommandList& cmd, u32 screen_w, u32 screen_h) noexcept;
+    void Render(AWidget& root, IRhiCommandList& cmd, u32 screen_w, u32 screen_h) noexcept;
 
     /**
      * 塗りつぶし矩形を発行する (widget の Render から呼ぶ)。
@@ -107157,7 +108308,7 @@ public:
     f32 MeasureTextBytes(const char* utf8, usize byte_count) const noexcept;
 
     /**
-     * テーマ色への const 参照を返す (FWidget の Render が色を参照)。
+     * テーマ色への const 参照を返す (AWidget の Render が色を参照)。
      *
      * @return 現在の FUiColors への const 参照。
      */
@@ -107179,7 +108330,7 @@ public:
 
 private:
     /** 矩形・文字を発行するスプライトバッチ。 */
-    FSpriteBatch m_Batch;
+    CSpriteBatch m_Batch;
 
     /** 文字描画に使う既定フォント (所有しない)。 */
     FFont*       m_Font = nullptr;
@@ -107191,8 +108342,11 @@ private:
     bool        m_bFrameOpen = false;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FUiRenderer = CUiRenderer;
+
 /**
- * マウス/キー入力を FWidget ツリーに配信する入力ディスパッチャ。
+ * マウス/キー入力を AWidget ツリーに配信する入力ディスパッチャ。
  *
  * @details
  * 毎フレーム Dispatch を呼び、Input モジュールのマウス位置・クリック・キー押下/解放を読み取って
@@ -107208,23 +108362,23 @@ private:
  * DLL unload/reload では module address 自体が再利用され得るため、host は root destruction /
  * module unload 境界で必ず Reset(live_root) または Reset() を呼び、古い追跡を破棄すること。
  */
-class FUiInput {
+class CUiInput {
 public:
-    FUiInput() noexcept = default;
-    ~FUiInput() noexcept = default;
+    CUiInput() noexcept = default;
+    ~CUiInput() noexcept = default;
 
     /** 入力追跡 identity を複製して別 dispatcher から再利用しない。 */
-    FUiInput(const FUiInput&) = delete;
-    FUiInput& operator=(const FUiInput&) = delete;
-    FUiInput(FUiInput&&) = delete;
-    FUiInput& operator=(FUiInput&&) = delete;
+    CUiInput(const CUiInput&) = delete;
+    CUiInput& operator=(const CUiInput&) = delete;
+    CUiInput(CUiInput&&) = delete;
+    CUiInput& operator=(CUiInput&&) = delete;
 
     /**
      * 入力を読み取り、ツリーをヒットテストして該当 widget にイベントを配信する。
      *
      * @param root イベント配信対象のツリーの root widget。
      */
-    void Dispatch(FWidget& root) noexcept;
+    void Dispatch(AWidget& root) noexcept;
 
     /**
      * 保存中の root / hover / pressed / focus / Ctrl+A 状態を破棄する。
@@ -107243,20 +108397,20 @@ public:
      * @details scene 切り替え等で古い root を保持・再利用する場合に使う。
      * @param live_root 現在生存している root。Dispatch 中の root と異なっていても安全。
      */
-    void Reset(FWidget& live_root) noexcept;
+    void Reset(AWidget& live_root) noexcept;
 
 private:
     using FTrackedIdentity = ui_detail::FWidgetInputIdentity;
 
     /** root が変わった場合に追跡を破棄し、新しい subtree を安全な初期状態へする。 */
-    void PrepareRoot(FWidget& root) noexcept;
+    void PrepareRoot(AWidget& root) noexcept;
 
     /** 現在の生存 subtree から可視な追跡対象を解決する。 */
-    FWidget* ResolveVisible(FWidget& root,
+    AWidget* ResolveVisible(AWidget& root,
                             const FTrackedIdentity& identity) noexcept;
 
     /** 除去・非表示になった追跡対象と対応フラグを破棄する。 */
-    void ValidateTrackedState(FWidget& root) noexcept;
+    void ValidateTrackedState(AWidget& root) noexcept;
 
     /** 現在 Dispatch 対象の root 複合 identity (全フィールド 0 は未設定)。 */
     FTrackedIdentity m_RootIdentity;
@@ -107273,5 +108427,9 @@ private:
     /** Ctrl+A 押下を受け、対応する A 解放を待つ widget 複合 identity。 */
     FTrackedIdentity m_ControlAOwnerIdentity;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FUiInput = CUiInput;
+
 
 } // namespace acs

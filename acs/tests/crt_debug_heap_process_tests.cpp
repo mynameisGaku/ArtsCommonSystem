@@ -26,7 +26,7 @@ int RunProbe(bool create_intentional_leak) noexcept
     }
 
     const acs::FCrtDebugHeapProcessLeakReport report =
-        acs::FCrtDebugHeapDiagnostics::DumpProcessMemoryLeaks(!create_intentional_leak);
+        acs::CCrtDebugHeapDiagnostics::DumpProcessMemoryLeaks(!create_intentional_leak);
     if (intentional_leak) ::free(intentional_leak);
 
     if (!report.bSupported || !report.bInspectionSucceeded) return 77;

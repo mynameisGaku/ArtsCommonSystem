@@ -727,7 +727,7 @@ TResult<void> CLocalFileAssetLocking::LockAsset(const char* asset_path,
     const FLocalAssetLockResult result = TryLockAsset(asset_path, user);
     if (result.Succeeded()) return Ok();
     return ACS_ERR_OS(IO, LegacyLockSubCode(result.error),
-                      "FLocalFileAssetLocking::LockAsset failed",
+                      "CLocalFileAssetLocking::LockAsset failed",
                       result.os_error);
 }
 
@@ -737,7 +737,7 @@ TResult<void> CLocalFileAssetLocking::UnlockAsset(const char* asset_path) noexce
         MakeStrictLockPath(asset_path, validated_path, kMaxPathChars);
     if (validation != ELocalAssetLockError::None) {
         return ACS_ERR_OS(IO, LegacyLockSubCode(validation),
-                          "FLocalFileAssetLocking::UnlockAsset: invalid path", 0);
+                          "CLocalFileAssetLocking::UnlockAsset: invalid path", 0);
     }
     char owner[kMaxUserChars] = {};
     FLocalAssetLockToken token{};
@@ -754,12 +754,12 @@ TResult<void> CLocalFileAssetLocking::UnlockAsset(const char* asset_path) noexce
     }
     if (!token.IsValid()) {
         return ACS_ERR(IO, FStudioWorkflowError::kSub_PermissionDenied,
-                       "FLocalFileAssetLocking::UnlockAsset: this instance does not own lock");
+                       "CLocalFileAssetLocking::UnlockAsset: this instance does not own lock");
     }
     const FLocalAssetLockResult result = TryUnlockAsset(asset_path, owner, token);
     if (result.Succeeded()) return Ok();
     return ACS_ERR_OS(IO, LegacyLockSubCode(result.error),
-                      "FLocalFileAssetLocking::UnlockAsset failed",
+                      "CLocalFileAssetLocking::UnlockAsset failed",
                       result.os_error);
 }
 
@@ -777,7 +777,7 @@ TResult<void> CLocalFileAssetLocking::UnlockAssetAs(const char* asset_path,
             path_validation != ELocalAssetLockError::None
                 ? path_validation : owner_validation;
         return ACS_ERR_OS(IO, LegacyLockSubCode(validation),
-                          "FLocalFileAssetLocking::UnlockAssetAs: invalid argument", 0);
+                          "CLocalFileAssetLocking::UnlockAssetAs: invalid argument", 0);
     }
     FLocalAssetLockToken token{};
     {
@@ -793,12 +793,12 @@ TResult<void> CLocalFileAssetLocking::UnlockAssetAs(const char* asset_path,
     }
     if (!token.IsValid()) {
         return ACS_ERR(IO, FStudioWorkflowError::kSub_PermissionDenied,
-                       "FLocalFileAssetLocking::UnlockAssetAs: owner/token not held");
+                       "CLocalFileAssetLocking::UnlockAssetAs: owner/token not held");
     }
     const FLocalAssetLockResult result = TryUnlockAsset(asset_path, user, token);
     if (result.Succeeded()) return Ok();
     return ACS_ERR_OS(IO, LegacyLockSubCode(result.error),
-                      "FLocalFileAssetLocking::UnlockAssetAs failed",
+                      "CLocalFileAssetLocking::UnlockAssetAs failed",
                       result.os_error);
 }
 
@@ -809,7 +809,7 @@ CLocalFileAssetLocking::QueryLock(const char* asset_path) noexcept {
     if (result.Succeeded()) return TResult<FAssetLockInfo>(OkInit, info);
     return TResult<FAssetLockInfo>(
         ACS_ERR_OS(IO, LegacyLockSubCode(result.error),
-                   "FLocalFileAssetLocking::QueryLock failed",
+                   "CLocalFileAssetLocking::QueryLock failed",
                    result.os_error));
 }
 
@@ -852,7 +852,7 @@ TResult<void> CLocalBuildRunner::RunBuild(const wchar_t* command_line,
     out_exit_code = 0;
     if (command_line == nullptr || command_line[0] == L'\0') {
         return ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
-                       "FLocalBuildRunner::RunBuild: command_line is null/empty");
+                       "CLocalBuildRunner::RunBuild: command_line is null/empty");
     }
 
     // CreateProcessW は lpCommandLine を書き換える可能性があるため可変バッファへ複写。
@@ -864,7 +864,7 @@ TResult<void> CLocalBuildRunner::RunBuild(const wchar_t* command_line,
         }
         if (command_line[n] != L'\0') {
             return ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
-                           "FLocalBuildRunner::RunBuild: command_line too long");
+                           "CLocalBuildRunner::RunBuild: command_line too long");
         }
         cmd[n] = L'\0';
     }
@@ -877,7 +877,7 @@ TResult<void> CLocalBuildRunner::RunBuild(const wchar_t* command_line,
     if (!ok) {
         const DWORD err = ::GetLastError();
         return ACS_ERR_OS(IO, FStudioWorkflowError::kSub_NotFound,
-                          "FLocalBuildRunner::RunBuild: CreateProcessW failed", err);
+                          "CLocalBuildRunner::RunBuild: CreateProcessW failed", err);
     }
 
     const DWORD wait_ms = (timeout_ms == 0) ? INFINITE : static_cast<DWORD>(timeout_ms);
@@ -888,14 +888,14 @@ TResult<void> CLocalBuildRunner::RunBuild(const wchar_t* command_line,
         ::CloseHandle(pi.hThread);
         ::CloseHandle(pi.hProcess);
         return ACS_ERR(IO, FStudioWorkflowError::kSub_PermissionDenied,
-                       "FLocalBuildRunner::RunBuild: build timed out");
+                       "CLocalBuildRunner::RunBuild: build timed out");
     }
     if (wr != WAIT_OBJECT_0) {
         const DWORD err = ::GetLastError();
         ::CloseHandle(pi.hThread);
         ::CloseHandle(pi.hProcess);
         return ACS_ERR_OS(IO, FStudioWorkflowError::kSub_PermissionDenied,
-                          "FLocalBuildRunner::RunBuild: WaitForSingleObject failed", err);
+                          "CLocalBuildRunner::RunBuild: WaitForSingleObject failed", err);
     }
 
     DWORD code = 0;
@@ -905,7 +905,7 @@ TResult<void> CLocalBuildRunner::RunBuild(const wchar_t* command_line,
     ::CloseHandle(pi.hProcess);
     if (!gok) {
         return ACS_ERR_OS(IO, FStudioWorkflowError::kSub_PermissionDenied,
-                          "FLocalBuildRunner::RunBuild: GetExitCodeProcess failed", gerr);
+                          "CLocalBuildRunner::RunBuild: GetExitCodeProcess failed", gerr);
     }
 
     out_exit_code = static_cast<u32>(code);
@@ -920,7 +920,7 @@ TResult<void> CLocalBuildRunner::RunBuildUtf8(const char* command_line,
     wchar_t cmd_w[kMaxCmdChars];
     if (!Utf8ToUtf16(command_line, cmd_w, kMaxCmdChars)) {
         return ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
-                       "FLocalBuildRunner::RunBuildUtf8: command_line null / too long / bad UTF-8");
+                       "CLocalBuildRunner::RunBuildUtf8: command_line null / too long / bad UTF-8");
     }
     return RunBuild(cmd_w, out_exit_code, timeout_ms);
 }
@@ -931,7 +931,7 @@ TResult<u64> CLocalBuildRunner::SubmitBuild(const FBuildRequest& req) noexcept {
     if (req.preset == nullptr || req.preset[0] == '\0') {
         return TResult<u64>(
             ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
-                    "FLocalBuildRunner::SubmitBuild: req.preset (command line) is null/empty"));
+                    "CLocalBuildRunner::SubmitBuild: req.preset (command line) is null/empty"));
     }
 
     // 空きスロットを探す。
@@ -942,14 +942,14 @@ TResult<u64> CLocalBuildRunner::SubmitBuild(const FBuildRequest& req) noexcept {
     if (slot == nullptr) {
         return TResult<u64>(
             ACS_ERR(IO, FStudioWorkflowError::kSub_PermissionDenied,
-                    "FLocalBuildRunner::SubmitBuild: job table full"));
+                    "CLocalBuildRunner::SubmitBuild: job table full"));
     }
 
     wchar_t cmd[kMaxCmdChars];
     if (!Utf8ToUtf16(req.preset, cmd, kMaxCmdChars)) {
         return TResult<u64>(
             ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
-                    "FLocalBuildRunner::SubmitBuild: preset too long / bad UTF-8"));
+                    "CLocalBuildRunner::SubmitBuild: preset too long / bad UTF-8"));
     }
 
     STARTUPINFOW si{};
@@ -961,7 +961,7 @@ TResult<u64> CLocalBuildRunner::SubmitBuild(const FBuildRequest& req) noexcept {
         const DWORD err = ::GetLastError();
         return TResult<u64>(
             ACS_ERR_OS(IO, FStudioWorkflowError::kSub_NotFound,
-                       "FLocalBuildRunner::SubmitBuild: CreateProcessW failed", err));
+                       "CLocalBuildRunner::SubmitBuild: CreateProcessW failed", err));
     }
     ::CloseHandle(pi.hThread);  // メインスレッド HANDLE は不要。
 
@@ -990,13 +990,13 @@ CLocalBuildRunner::PollBuild(u64 build_id) noexcept {
     if (build_id == 0) {
         return TResult<FBuildResult>(
             ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
-                    "FLocalBuildRunner::PollBuild: build_id == 0 is reserved/invalid"));
+                    "CLocalBuildRunner::PollBuild: build_id == 0 is reserved/invalid"));
     }
     FJob* job = FindJob(build_id);
     if (job == nullptr) {
         return TResult<FBuildResult>(
             ACS_ERR(IO, FStudioWorkflowError::kSub_NotFound,
-                    "FLocalBuildRunner::PollBuild: unknown build_id"));
+                    "CLocalBuildRunner::PollBuild: unknown build_id"));
     }
 
     // 未だラッチしていなければプロセス状態を非ブロッキングに確認する。
@@ -1020,7 +1020,7 @@ CLocalBuildRunner::PollBuild(u64 build_id) noexcept {
             job->m_Finished = true;
             if (!got_code) {
                 return TResult<FBuildResult>(ACS_ERR_OS(IO, FStudioWorkflowError::kSub_PermissionDenied,
-                                                       "FLocalBuildRunner::PollBuild: GetExitCodeProcess failed",
+                                                       "CLocalBuildRunner::PollBuild: GetExitCodeProcess failed",
                                                        code_error));
             }
         } else if (wr == WAIT_FAILED) {
@@ -1032,7 +1032,7 @@ CLocalBuildRunner::PollBuild(u64 build_id) noexcept {
             job->m_Finished = true;
             job->m_Success = false;
             return TResult<FBuildResult>(ACS_ERR_OS(IO, FStudioWorkflowError::kSub_PermissionDenied,
-                                                   "FLocalBuildRunner::PollBuild: WaitForSingleObject failed",
+                                                   "CLocalBuildRunner::PollBuild: WaitForSingleObject failed",
                                                    wait_error));
         }
         // WAIT_TIMEOUT = まだ実行中。
@@ -1047,7 +1047,7 @@ CLocalBuildRunner::PollBuild(u64 build_id) noexcept {
         // 進行中は IsErr で返す (ヘッダが許容するポリシー)。Generic + NotFound 以外。
         return TResult<FBuildResult>(
             ACS_ERR(Generic, FStudioWorkflowError::kSub_PermissionDenied,
-                    "FLocalBuildRunner::PollBuild: build still running"));
+                    "CLocalBuildRunner::PollBuild: build still running"));
     }
     return TResult<FBuildResult>(OkInit, r);
 }
@@ -1056,17 +1056,17 @@ CLocalBuildRunner::PollBuild(u64 build_id) noexcept {
 TResult<void> CLocalBuildRunner::CancelBuild(u64 build_id) noexcept {
     if (build_id == 0) {
         return ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
-                       "FLocalBuildRunner::CancelBuild: build_id == 0 is reserved/invalid");
+                       "CLocalBuildRunner::CancelBuild: build_id == 0 is reserved/invalid");
     }
     FJob* job = FindJob(build_id);
     if (job == nullptr) {
         return ACS_ERR(IO, FStudioWorkflowError::kSub_NotFound,
-                       "FLocalBuildRunner::CancelBuild: unknown build_id");
+                       "CLocalBuildRunner::CancelBuild: unknown build_id");
     }
     if (job->m_Finished) {
         // 既に完了済みのジョブはキャンセル不可 (NotFound 扱い)。
         return ACS_ERR(IO, FStudioWorkflowError::kSub_NotFound,
-                       "FLocalBuildRunner::CancelBuild: build already finished");
+                       "CLocalBuildRunner::CancelBuild: build already finished");
     }
 
     HANDLE h = static_cast<HANDLE>(job->m_Process);

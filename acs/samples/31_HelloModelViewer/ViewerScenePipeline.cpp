@@ -10,7 +10,7 @@ using namespace acs;
 
 namespace hellomv {
 
-bool FViewerScenePipeline::Init(FRenderer& renderer) noexcept {
+bool CViewerScenePipeline::Init(CRenderer& renderer) noexcept {
     IRhiDevice* dev = renderer.Device();
     if (!dev) {
         ACS_LOG_ERROR("[ModelViewer] Device() == null");
@@ -93,7 +93,7 @@ bool FViewerScenePipeline::Init(FRenderer& renderer) noexcept {
     return true;
 }
 
-void FViewerScenePipeline::Shutdown() noexcept {
+void CViewerScenePipeline::Shutdown() noexcept {
     // GPU 側参照が消えていることは caller (Scene の WaitIdle) 側で保証する。
     // ここでは順序だけ揃えて Release: pipeline → buffer → shader。
     m_Pipeline.Reset();
@@ -104,14 +104,14 @@ void FViewerScenePipeline::Shutdown() noexcept {
     m_Vs.Reset();
 }
 
-void FViewerScenePipeline::UpdateMvp(const FMat4& view, const FMat4& proj, f32 angle) noexcept {
+void CViewerScenePipeline::UpdateMvp(const FMat4& view, const FMat4& proj, f32 angle) noexcept {
     if (!m_Cb) return;
     const FMat4 model = FMat4::RotationY(angle);
     const FMat4 mvp = model * view * proj;
     m_Cb->Update(&mvp, sizeof(FMat4));
 }
 
-void FViewerScenePipeline::Render(IRhiCommandList& cl) noexcept {
+void CViewerScenePipeline::Render(IRhiCommandList& cl) noexcept {
     if (!m_Pipeline) return;
     cl.SetPipeline(*m_Pipeline);
     cl.SetConstantBuffer(0, *m_Cb);

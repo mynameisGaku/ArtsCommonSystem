@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloMesh — FApplication 実装。
+// HelloMesh — CApplication 実装。
 #include "HelloMeshApp.h"
 #include "Shaders.h"
 #include "Types.h"
@@ -12,7 +12,7 @@ using namespace acs;
 
 namespace hellomesh {
 
-void FHelloMeshApp::OnStart() noexcept {
+void CHelloMeshApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -91,14 +91,14 @@ void FHelloMeshApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloMesh initialized");
 }
 
-void FHelloMeshApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+void CHelloMeshApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
 
     m_Angle += dt * 0.8f;
 
     // 矢印キーでカメラを左右回転 (キューブを公転する視点)
-    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.5f;
-    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.5f;
+    if (CInput::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.5f;
+    if (CInput::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.5f;
 
     const f32 cam_dist = 5.0f;
     FVec3 eye{ Sin(m_CamYaw) * cam_dist, 2.0f, -Cos(m_CamYaw) * cam_dist };
@@ -109,7 +109,7 @@ void FHelloMeshApp::OnUpdate(f32 dt) noexcept {
     m_Cb->Update(&mvp, sizeof(FMat4));
 }
 
-void FHelloMeshApp::OnRender() noexcept {
+void CHelloMeshApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Pipeline) return;
 
@@ -120,7 +120,7 @@ void FHelloMeshApp::OnRender() noexcept {
     cl->DrawIndexed(36);
 }
 
-void FHelloMeshApp::OnShutdown() noexcept {
+void CHelloMeshApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Pipeline.Reset();
     m_Cb.Reset();

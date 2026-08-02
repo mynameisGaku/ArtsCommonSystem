@@ -2,6 +2,30 @@
   "schema_version": 2,
   "entries": [
     {
+      "path": "app/Application.h",
+      "legacy": "acs::FApplication",
+      "legacy_path": "app/Forward.h",
+      "canonical": "acs::CApplication",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "app/AssetSubsystem.h",
+      "legacy": "acs::FAssetSubsystem",
+      "legacy_path": "app/AssetSubsystem.h",
+      "canonical": "acs::AAssetSubsystem",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "app/TimerSubsystem.h",
+      "legacy": "acs::FTimerSubsystem",
+      "legacy_path": "app/TimerSubsystem.h",
+      "canonical": "acs::ATimerSubsystem",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
       "path": "asset/Asset.h",
       "legacy": "acs::FAsset",
       "legacy_path": "asset/Asset.h",
@@ -384,6 +408,1406 @@
       "canonical": "acs::FStackTrace",
       "kind": "class",
       "prefix": "F"
+    },
+    {
+      "path": "gameframework/AccessibilityProfile.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::game::FAccessibilityProfile",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "gameframework/AchievementManager.h",
+      "legacy": "acs::game::FAchievementManager",
+      "legacy_path": "gameframework/AchievementManager.h",
+      "canonical": "acs::game::CAchievementManager",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/AmbientDirector.h",
+      "legacy": "acs::game::FAmbientDirector",
+      "legacy_path": "gameframework/AmbientDirector.h",
+      "canonical": "acs::game::CAmbientDirector",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/AnimationCurve.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::game::FAnimationCurve",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "gameframework/AnimationCurveArchive.h",
+      "legacy": "acs::game::FAnimationCurveArchive",
+      "legacy_path": "gameframework/AnimationCurveArchive.h",
+      "canonical": "acs::game::CAnimationCurveArchive",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/AnimationGraph.h",
+      "legacy": "acs::game::FAnimationGraph",
+      "legacy_path": "gameframework/AnimationGraph.h",
+      "canonical": "acs::game::CAnimationGraph",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/AppState.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::game::FAppStateSlot",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "gameframework/AssetBundle.h",
+      "legacy": "acs::game::FAssetBundle",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CAssetBundle",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/AssetPack.h",
+      "legacy": "acs::game::FAssetPackReaderStub",
+      "legacy_path": "gameframework/AssetPack.h",
+      "canonical": "acs::game::CAssetPackReaderStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/AssetPack.h",
+      "legacy": "acs::game::FAssetPackWriterStub",
+      "legacy_path": "gameframework/AssetPack.h",
+      "canonical": "acs::game::CAssetPackWriterStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/AudioDirector.h",
+      "legacy": "acs::game::FAudioDirector",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CAudioDirector",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/BeatGrid.h",
+      "legacy": "acs::game::FBeatGrid",
+      "legacy_path": "gameframework/BeatGrid.h",
+      "canonical": "acs::game::CBeatGrid",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/BehaviorTree.h",
+      "legacy": "acs::game::FBehaviorTree",
+      "legacy_path": "gameframework/BehaviorTree.h",
+      "canonical": "acs::game::CBehaviorTree",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/BehaviorTree.h",
+      "legacy": "acs::game::FBtAction",
+      "legacy_path": "gameframework/BehaviorTree.h",
+      "canonical": "acs::game::ABtAction",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/BehaviorTree.h",
+      "legacy": "acs::game::FBtDecorator",
+      "legacy_path": "gameframework/BehaviorTree.h",
+      "canonical": "acs::game::ABtDecorator",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/BehaviorTree.h",
+      "legacy": "acs::game::FBtNode",
+      "legacy_path": "gameframework/BehaviorTree.h",
+      "canonical": "acs::game::ABtNode",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/BehaviorTree.h",
+      "legacy": "acs::game::FBtSelector",
+      "legacy_path": "gameframework/BehaviorTree.h",
+      "canonical": "acs::game::ABtSelector",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/BehaviorTree.h",
+      "legacy": "acs::game::FBtSequence",
+      "legacy_path": "gameframework/BehaviorTree.h",
+      "canonical": "acs::game::ABtSequence",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/BuffSystem.h",
+      "legacy": "acs::game::FBuffSystem",
+      "legacy_path": "gameframework/BuffSystem.h",
+      "canonical": "acs::game::CBuffSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Camera2D.h",
+      "legacy": "acs::game::FCamera2D",
+      "legacy_path": "gameframework/Camera2D.h",
+      "canonical": "acs::game::CCamera2D",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/CameraShakePresets.h",
+      "legacy": "acs::game::FCameraShakePresets",
+      "legacy_path": "gameframework/CameraShakePresets.h",
+      "canonical": "acs::game::CCameraShakePresets",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/CameraStack.h",
+      "legacy": "acs::game::FCameraStack",
+      "legacy_path": "gameframework/CameraStack.h",
+      "canonical": "acs::game::CCameraStack",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/CharacterCustomizer.h",
+      "legacy": "acs::game::FCharacterCustomizer",
+      "legacy_path": "gameframework/CharacterCustomizer.h",
+      "canonical": "acs::game::CCharacterCustomizer",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/CheckpointSystem.h",
+      "legacy": "acs::game::FCheckpointSystem",
+      "legacy_path": "gameframework/CheckpointSystem.h",
+      "canonical": "acs::game::CCheckpointSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/CinematicsDirector.h",
+      "legacy": "acs::game::FCinematicsDirector",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CCinematicsDirector",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Clock.h",
+      "legacy": "acs::game::FSceneClock",
+      "legacy_path": "gameframework/Clock.h",
+      "canonical": "acs::game::CSceneClock",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/CollisionWorld2D.h",
+      "legacy": "acs::game::FCollisionWorld2D",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CCollisionWorld2D",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/CombatStateMachine.h",
+      "legacy": "acs::game::FCombatStateMachine",
+      "legacy_path": "gameframework/CombatStateMachine.h",
+      "canonical": "acs::game::CCombatStateMachine",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/ContentModerator.h",
+      "legacy": "acs::game::FContentModeratorStub",
+      "legacy_path": "gameframework/ContentModerator.h",
+      "canonical": "acs::game::CContentModeratorStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/CooldownTimer.h",
+      "legacy": "acs::game::FCooldownTimer",
+      "legacy_path": "gameframework/CooldownTimer.h",
+      "canonical": "acs::game::CCooldownTimer",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/CraftingSystem.h",
+      "legacy": "acs::game::FCraftingSystem",
+      "legacy_path": "gameframework/CraftingSystem.h",
+      "canonical": "acs::game::CCraftingSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/CrashReporter.h",
+      "legacy": "acs::game::FCrashHandler",
+      "legacy_path": "gameframework/CrashReporter.h",
+      "canonical": "acs::game::CCrashHandler",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/CrashReporter.h",
+      "legacy": "acs::game::FCrashReporterStub",
+      "legacy_path": "gameframework/CrashReporter.h",
+      "canonical": "acs::game::CCrashReporterStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/DamageFeedback.h",
+      "legacy": "acs::game::FDamageFeedback",
+      "legacy_path": "gameframework/DamageFeedback.h",
+      "canonical": "acs::game::CDamageFeedback",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/DebugDraw.h",
+      "legacy": "acs::game::FDebugDraw",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CDebugDraw",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/DebugOverlay.h",
+      "legacy": "acs::game::FDebugOverlay",
+      "legacy_path": "gameframework/DebugOverlay.h",
+      "canonical": "acs::game::CDebugOverlay",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/DeckSystem.h",
+      "legacy": "acs::game::FDeckSystem",
+      "legacy_path": "gameframework/DeckSystem.h",
+      "canonical": "acs::game::CDeckSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/DevConsole.h",
+      "legacy": "acs::game::FDevConsole",
+      "legacy_path": "gameframework/DevConsole.h",
+      "canonical": "acs::game::CDevConsole",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/DialogueLocalizer.h",
+      "legacy": "acs::game::FDialogueLocalizer",
+      "legacy_path": "gameframework/DialogueLocalizer.h",
+      "canonical": "acs::game::CDialogueLocalizer",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/DialogueScript.h",
+      "legacy": "acs::game::FDialogueScript",
+      "legacy_path": "gameframework/DialogueScript.h",
+      "canonical": "acs::game::CDialogueScript",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/DialogueSystem.h",
+      "legacy": "acs::game::FDialogueSystem",
+      "legacy_path": "gameframework/DialogueSystem.h",
+      "canonical": "acs::game::CDialogueSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/DungeonGenerator.h",
+      "legacy": "acs::game::FDungeonGenerator",
+      "legacy_path": "gameframework/DungeonGenerator.h",
+      "canonical": "acs::game::CDungeonGenerator",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/DynamicDifficulty.h",
+      "legacy": "acs::game::FDynamicDifficulty",
+      "legacy_path": "gameframework/DynamicDifficulty.h",
+      "canonical": "acs::game::CDynamicDifficulty",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/EconomyDirector.h",
+      "legacy": "acs::game::FEconomyDirector",
+      "legacy_path": "gameframework/EconomyDirector.h",
+      "canonical": "acs::game::CEconomyDirector",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/EffectSystem.h",
+      "legacy": "acs::game::FEffectSystem",
+      "legacy_path": "gameframework/EffectSystem.h",
+      "canonical": "acs::game::CEffectSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Entitlement.h",
+      "legacy": "acs::game::FEntitlementRegistry",
+      "legacy_path": "gameframework/Entitlement.h",
+      "canonical": "acs::game::CEntitlementRegistry",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/EventBus.h",
+      "legacy": "acs::game::FEventBus",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::AEventBus",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/FadeTransition.h",
+      "legacy": "acs::game::FFadeTransition",
+      "legacy_path": "gameframework/FadeTransition.h",
+      "canonical": "acs::game::CFadeTransition",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Game.h",
+      "legacy": "acs::game::FGame",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CGame",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/GameFlow.h",
+      "legacy": "acs::game::FGameFlow",
+      "legacy_path": "gameframework/GameFlow.h",
+      "canonical": "acs::game::CGameFlow",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/HealthSystem.h",
+      "legacy": "acs::game::FHealthSystem",
+      "legacy_path": "gameframework/HealthSystem.h",
+      "canonical": "acs::game::CHealthSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/HierarchyVisibilityBatch.h",
+      "legacy": "acs::game::FHierarchyVisibilityBatch",
+      "legacy_path": "gameframework/HierarchyVisibilityBatch.h",
+      "canonical": "acs::game::CHierarchyVisibilityBatch",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/HierarchyWorldTransformBatch.h",
+      "legacy": "acs::game::FHierarchyWorldTransformBatch",
+      "legacy_path": "gameframework/HierarchyWorldTransformBatch.h",
+      "canonical": "acs::game::CHierarchyWorldTransformBatch",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/HotReload.h",
+      "legacy": "acs::game::FHotReloadWatcher",
+      "legacy_path": "gameframework/HotReload.h",
+      "canonical": "acs::game::CHotReloadWatcher",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/HungerSystem.h",
+      "legacy": "acs::game::FHungerSystem",
+      "legacy_path": "gameframework/HungerSystem.h",
+      "canonical": "acs::game::CHungerSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/InputRecorder.h",
+      "legacy": "acs::game::FInputRecorder",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CInputRecorder",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/InspectorSeam.h",
+      "legacy": "acs::game::FInspectorSeam",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CInspectorSeam",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/InventorySystem.h",
+      "legacy": "acs::game::FInventorySystem",
+      "legacy_path": "gameframework/InventorySystem.h",
+      "canonical": "acs::game::CInventorySystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/LapTimer.h",
+      "legacy": "acs::game::FLapTimer",
+      "legacy_path": "gameframework/LapTimer.h",
+      "canonical": "acs::game::CLapTimer",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/LegacyKitEaseIdCodec.h",
+      "legacy": "acs::game::FLegacyKitEaseIdCodec",
+      "legacy_path": "gameframework/LegacyKitEaseIdCodec.h",
+      "canonical": "acs::game::CLegacyKitEaseIdCodec",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/LegacyScene3DAdapter.h",
+      "legacy": "acs::game::FLegacyScene3DAdapter",
+      "legacy_path": "gameframework/LegacyScene3DAdapter.h",
+      "canonical": "acs::game::ALegacyScene3DAdapter",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/LlmSafetyPipeline.h",
+      "legacy": "acs::game::FLlmSafetyPipeline",
+      "legacy_path": "gameframework/LlmSafetyPipeline.h",
+      "canonical": "acs::game::CLlmSafetyPipeline",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/LocalizationDirector.h",
+      "legacy": "acs::game::FLocalizationDirector",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CLocalizationDirector",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Lockstep.h",
+      "legacy": "acs::game::FLockstep",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CLockstep",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/MatchGrid.h",
+      "legacy": "acs::game::FMatchGrid",
+      "legacy_path": "gameframework/MatchGrid.h",
+      "canonical": "acs::game::CMatchGrid",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/MlRuntime.h",
+      "legacy": "acs::game::FMlRuntimeStub",
+      "legacy_path": "gameframework/MlRuntime.h",
+      "canonical": "acs::game::CMlRuntimeStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/MlRuntime.h",
+      "legacy": "acs::game::FUpscalerStub",
+      "legacy_path": "gameframework/MlRuntime.h",
+      "canonical": "acs::game::CUpscalerStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/ModRegistry.h",
+      "legacy": "acs::game::FModRegistry",
+      "legacy_path": "gameframework/ModRegistry.h",
+      "canonical": "acs::game::CModRegistry",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/MusicDirector.h",
+      "legacy": "acs::game::FMusicDirector",
+      "legacy_path": "gameframework/MusicDirector.h",
+      "canonical": "acs::game::CMusicDirector",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/NetSnapshot.h",
+      "legacy": "acs::game::FNetSnapshot",
+      "legacy_path": "gameframework/NetSnapshot.h",
+      "canonical": "acs::game::CNetSnapshot",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/NetSnapshot.h",
+      "legacy": "acs::game::FNetTransportStub",
+      "legacy_path": "gameframework/NetSnapshot.h",
+      "canonical": "acs::game::CNetTransportStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/NetSnapshot.h",
+      "legacy": "acs::game::FUdpTransport",
+      "legacy_path": "gameframework/NetSnapshot.h",
+      "canonical": "acs::game::CUdpTransport",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/NodePool.h",
+      "legacy": "acs::game::FNodePool",
+      "legacy_path": "gameframework/NodePool.h",
+      "canonical": "acs::game::CNodePool",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/OpenXrBridge.h",
+      "legacy": "acs::game::FOpenXrBridgeStub",
+      "legacy_path": "gameframework/OpenXrBridge.h",
+      "canonical": "acs::game::COpenXrBridgeStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/ParticleEffectSystem.h",
+      "legacy": "acs::game::FParticleEffectSystem",
+      "legacy_path": "gameframework/ParticleEffectSystem.h",
+      "canonical": "acs::game::CParticleEffectSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/PartySystem.h",
+      "legacy": "acs::game::FPartySystem",
+      "legacy_path": "gameframework/PartySystem.h",
+      "canonical": "acs::game::CPartySystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Pathfinding.h",
+      "legacy": "acs::game::FNavGrid",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CNavGrid",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/PauseDirector.h",
+      "legacy": "acs::game::FPauseDirector",
+      "legacy_path": "gameframework/PauseDirector.h",
+      "canonical": "acs::game::CPauseDirector",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Perception.h",
+      "legacy": "acs::game::FPerception",
+      "legacy_path": "gameframework/Perception.h",
+      "canonical": "acs::game::CPerception",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/PerfBudget.h",
+      "legacy": "acs::game::FPerfBudget",
+      "legacy_path": "gameframework/PerfBudget.h",
+      "canonical": "acs::game::CPerfBudget",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/PhotoMode.h",
+      "legacy": "acs::game::FPhotoMode",
+      "legacy_path": "gameframework/PhotoMode.h",
+      "canonical": "acs::game::CPhotoMode",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/PickupSystem.h",
+      "legacy": "acs::game::FPickupSystem",
+      "legacy_path": "gameframework/PickupSystem.h",
+      "canonical": "acs::game::CPickupSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/PrefabSystem.h",
+      "legacy": "acs::game::FPrefabSystem",
+      "legacy_path": "gameframework/PrefabSystem.h",
+      "canonical": "acs::game::CPrefabSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/PrivacyDirector.h",
+      "legacy": "acs::game::FPrivacyDirector",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CPrivacyDirector",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Progression.h",
+      "legacy": "acs::game::FProgression",
+      "legacy_path": "gameframework/Progression.h",
+      "canonical": "acs::game::CProgression",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/ProjectSettings.h",
+      "legacy": "acs::game::FProjectSettings",
+      "legacy_path": "gameframework/ProjectSettings.h",
+      "canonical": "acs::game::CProjectSettings",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/ProjectileSystem.h",
+      "legacy": "acs::game::FProjectileSystem",
+      "legacy_path": "gameframework/ProjectileSystem.h",
+      "canonical": "acs::game::CProjectileSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Random.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::game::FRandom",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "gameframework/Reflect.h",
+      "legacy": "acs::game::FTypeAutoRegister",
+      "legacy_path": "gameframework/Reflect.h",
+      "canonical": "acs::game::CTypeAutoRegister",
+      "kind": "struct",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Reflect.h",
+      "legacy": "acs::game::FTypeRegistry",
+      "legacy_path": "gameframework/Reflect.h",
+      "canonical": "acs::game::CTypeRegistry",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/ReflectMethod.h",
+      "legacy": "acs::game::FMethodAutoRegister",
+      "legacy_path": "gameframework/ReflectMethod.h",
+      "canonical": "acs::game::CMethodAutoRegister",
+      "kind": "struct",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/ReflectMethod.h",
+      "legacy": "acs::game::FMethodRegistry",
+      "legacy_path": "gameframework/ReflectMethod.h",
+      "canonical": "acs::game::CMethodRegistry",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/RenderContext.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::game::FRenderContext",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "gameframework/ReplayDirector.h",
+      "legacy": "acs::game::FReplayDirector",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CReplayDirector",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/RigidWorld2D.h",
+      "legacy": "acs::game::FRigidWorld2D",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CRigidWorld2D",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/RollbackSession.h",
+      "legacy": "acs::game::FRollbackSession",
+      "legacy_path": "gameframework/RollbackSession.h",
+      "canonical": "acs::game::CRollbackSession",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/SaveArchive.h",
+      "legacy": "acs::game::FSaveArchive",
+      "legacy_path": "gameframework/SaveArchive.h",
+      "canonical": "acs::game::CSaveArchive",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Scene.h",
+      "legacy": "acs::game::FScene",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::AScene",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/Scene2D.h",
+      "legacy": "acs::game::FScene2D",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::AScene2D",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/Scene3D.h",
+      "legacy": "acs::game::FScene3D",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CScene3D",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/SceneCommandQueue.h",
+      "legacy": "acs::game::FSceneCommandQueue",
+      "legacy_path": "gameframework/SceneCommandQueue.h",
+      "canonical": "acs::game::CSceneCommandQueue",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/SceneEventBus.h",
+      "legacy": "acs::game::FSceneEventBus",
+      "legacy_path": "gameframework/SceneEventBus.h",
+      "canonical": "acs::game::CSceneEventBus",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/SceneManager.h",
+      "legacy": "acs::game::FSceneManager",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CSceneManager",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/SceneServices.h",
+      "legacy": "acs::game::FSceneServices",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::CSceneServices",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/SceneTimer.h",
+      "legacy": "acs::game::FSceneTimer",
+      "legacy_path": "gameframework/SceneTimer.h",
+      "canonical": "acs::game::CSceneTimer",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/ScoreSystem.h",
+      "legacy": "acs::game::FScoreSystem",
+      "legacy_path": "gameframework/ScoreSystem.h",
+      "canonical": "acs::game::CScoreSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/ScriptHost.h",
+      "legacy": "acs::game::FScriptHost",
+      "legacy_path": "gameframework/ScriptHost.h",
+      "canonical": "acs::game::CScriptHost",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/ScriptHost.h",
+      "legacy": "acs::game::FScriptVmStub",
+      "legacy_path": "gameframework/ScriptHost.h",
+      "canonical": "acs::game::CScriptVmStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/SeasonPass.h",
+      "legacy": "acs::game::FSeasonPass",
+      "legacy_path": "gameframework/SeasonPass.h",
+      "canonical": "acs::game::CSeasonPass",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Sequence.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::game::FSequence",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "gameframework/Sequence.h",
+      "legacy": "acs::game::FSequenceRunner",
+      "legacy_path": "gameframework/Sequence.h",
+      "canonical": "acs::game::CSequenceRunner",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Settings.h",
+      "legacy": "acs::game::FSettings",
+      "legacy_path": "gameframework/Settings.h",
+      "canonical": "acs::game::CSettings",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/SocialModeration.h",
+      "legacy": "acs::game::FSocialModeration",
+      "legacy_path": "gameframework/SocialModeration.h",
+      "canonical": "acs::game::CSocialModeration",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/SpatialAudio.h",
+      "legacy": "acs::game::FHrtfRendererStub",
+      "legacy_path": "gameframework/SpatialAudio.h",
+      "canonical": "acs::game::CHrtfRendererStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/SpatialAudio.h",
+      "legacy": "acs::game::FSpatialAudio",
+      "legacy_path": "gameframework/SpatialAudio.h",
+      "canonical": "acs::game::CSpatialAudio",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/SpatialAudio2D.h",
+      "legacy": "acs::game::FSpatialAudio2D",
+      "legacy_path": "gameframework/SpatialAudio2D.h",
+      "canonical": "acs::game::CSpatialAudio2D",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Spawn2DSubsystem.h",
+      "legacy": "acs::game::FSpawn2DSubsystem",
+      "legacy_path": "gameframework/Spawn2DSubsystem.h",
+      "canonical": "acs::game::ASpawn2DSubsystem",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/SpriteAnimator.h",
+      "legacy": "acs::game::FSpriteAnimator",
+      "legacy_path": "gameframework/SpriteAnimator.h",
+      "canonical": "acs::game::CSpriteAnimator",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/SpritePack.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::game::FSpritePack",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "gameframework/SteamworksBridge.h",
+      "legacy": "acs::game::FSteamworksBridgeStub",
+      "legacy_path": "gameframework/SteamworksBridge.h",
+      "canonical": "acs::game::CSteamworksBridgeStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Steering2D.h",
+      "legacy": "acs::game::FPathFollower",
+      "legacy_path": "gameframework/Steering2D.h",
+      "canonical": "acs::game::CPathFollower",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/StreamingDirector.h",
+      "legacy": "acs::game::FStreamingDirector",
+      "legacy_path": "gameframework/StreamingDirector.h",
+      "canonical": "acs::game::CStreamingDirector",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/StudioWorkflow.h",
+      "legacy": "acs::game::FAssetLockingStub",
+      "legacy_path": "gameframework/StudioWorkflow.h",
+      "canonical": "acs::game::CAssetLockingStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/StudioWorkflow.h",
+      "legacy": "acs::game::FBuildFarmStub",
+      "legacy_path": "gameframework/StudioWorkflow.h",
+      "canonical": "acs::game::CBuildFarmStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/StudioWorkflow.h",
+      "legacy": "acs::game::FLocalBuildRunner",
+      "legacy_path": "gameframework/StudioWorkflow.h",
+      "canonical": "acs::game::CLocalBuildRunner",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/StudioWorkflow.h",
+      "legacy": "acs::game::FLocalFileAssetLocking",
+      "legacy_path": "gameframework/StudioWorkflow.h",
+      "canonical": "acs::game::CLocalFileAssetLocking",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/TelemetryDirector.h",
+      "legacy": "acs::game::FTelemetryDirector",
+      "legacy_path": "gameframework/TelemetryDirector.h",
+      "canonical": "acs::game::CTelemetryDirector",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Tilemap.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::game::FTilemap",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "gameframework/TriggerWorld2D.h",
+      "legacy": "acs::game::FTriggerWorld2D",
+      "legacy_path": "gameframework/TriggerWorld2D.h",
+      "canonical": "acs::game::CTriggerWorld2D",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/TurnManager.h",
+      "legacy": "acs::game::FTurnManager",
+      "legacy_path": "gameframework/TurnManager.h",
+      "canonical": "acs::game::CTurnManager",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/TutorialFlow.h",
+      "legacy": "acs::game::FTutorialFlow",
+      "legacy_path": "gameframework/TutorialFlow.h",
+      "canonical": "acs::game::CTutorialFlow",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/Tween.h",
+      "legacy": "acs::game::FTweenManager",
+      "legacy_path": "gameframework/Tween.h",
+      "canonical": "acs::game::CTweenManager",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/UiLayer.h",
+      "legacy": "acs::game::FUiLayer",
+      "legacy_path": "gameframework/UiLayer.h",
+      "canonical": "acs::game::CUiLayer",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/VoiceChat.h",
+      "legacy": "acs::game::FVoiceChatBackendStub",
+      "legacy_path": "gameframework/VoiceChat.h",
+      "canonical": "acs::game::CVoiceChatBackendStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/VoiceChat.h",
+      "legacy": "acs::game::FVoiceChatLoopbackBackend",
+      "legacy_path": "gameframework/VoiceChat.h",
+      "canonical": "acs::game::CVoiceChatLoopbackBackend",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/WaterVolume.h",
+      "legacy": "acs::game::FWaterVolume",
+      "legacy_path": "gameframework/WaterVolume.h",
+      "canonical": "acs::game::CWaterVolume",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/WaveSpawner.h",
+      "legacy": "acs::game::FWaveSpawner",
+      "legacy_path": "gameframework/WaveSpawner.h",
+      "canonical": "acs::game::CWaveSpawner",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/WeaponSystem.h",
+      "legacy": "acs::game::FWeaponSystem",
+      "legacy_path": "gameframework/WeaponSystem.h",
+      "canonical": "acs::game::CWeaponSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/WeatherSystem.h",
+      "legacy": "acs::game::FWeatherSystem",
+      "legacy_path": "gameframework/WeatherSystem.h",
+      "canonical": "acs::game::CWeatherSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/WorkshopBridge.h",
+      "legacy": "acs::game::FWorkshopBridgeStub",
+      "legacy_path": "gameframework/WorkshopBridge.h",
+      "canonical": "acs::game::CWorkshopBridgeStub",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/WorldClockSubsystem.h",
+      "legacy": "acs::game::FWorldClockSubsystem",
+      "legacy_path": "gameframework/WorldClockSubsystem.h",
+      "canonical": "acs::game::AWorldClockSubsystem",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/audio_backend/XAudio2Backend.h",
+      "legacy": "acs::game::FXAudio2Backend",
+      "legacy_path": "gameframework/audio_backend/XAudio2Backend.h",
+      "canonical": "acs::game::CXAudio2Backend",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/tools/animcurve/AnimCurveEditorPanel.h",
+      "legacy": "acs::game::animcurve::FAnimCurveEditorPanel",
+      "legacy_path": "gameframework/tools/animcurve/AnimCurveEditorPanel.h",
+      "canonical": "acs::game::animcurve::AAnimCurveEditorPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/btedit/BehaviorTreeEditorPanel.h",
+      "legacy": "acs::game::btedit::FBehaviorTreeEditorPanel",
+      "legacy_path": "gameframework/tools/btedit/BehaviorTreeEditorPanel.h",
+      "canonical": "acs::game::btedit::ABehaviorTreeEditorPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/btedit/BtActionRegistry.h",
+      "legacy": "acs::game::btedit::FBtActionRegistry",
+      "legacy_path": "gameframework/tools/btedit/BtActionRegistry.h",
+      "canonical": "acs::game::btedit::CBtActionRegistry",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/tools/btedit/BtCatalog.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::game::btedit::FBtBlackboard",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "gameframework/tools/btedit/BtCatalog.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::game::btedit::FBtBlackboardSchema",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "gameframework/tools/btedit/BtCatalog.h",
+      "legacy": "acs::game::btedit::FBtConditionRegistry",
+      "legacy_path": "gameframework/tools/btedit/BtCatalog.h",
+      "canonical": "acs::game::btedit::CBtConditionRegistry",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/tools/btedit/BtGuardNodes.h",
+      "legacy": "acs::game::btedit::FBtCompareNode",
+      "legacy_path": "gameframework/tools/btedit/BtGuardNodes.h",
+      "canonical": "acs::game::btedit::ABtCompareNode",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/btedit/BtGuardNodes.h",
+      "legacy": "acs::game::btedit::FBtConditionNode",
+      "legacy_path": "gameframework/tools/btedit/BtGuardNodes.h",
+      "canonical": "acs::game::btedit::ABtConditionNode",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.h",
+      "legacy": "acs::game::cinetimeline::FCinematicsTimelineEditorPanel",
+      "legacy_path": "gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.h",
+      "canonical": "acs::game::cinetimeline::ACinematicsTimelineEditorPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/editor_core/AssetBrowser.h",
+      "legacy": "acs::game::editor_core::FAssetBrowser",
+      "legacy_path": "gameframework/tools/editor_core/AssetBrowser.h",
+      "canonical": "acs::game::editor_core::CAssetBrowser",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/tools/editor_core/EditorCamera.h",
+      "legacy": "acs::game::editor_core::FEditorCamera",
+      "legacy_path": "gameframework/tools/editor_core/EditorCamera.h",
+      "canonical": "acs::game::editor_core::CEditorCamera",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/tools/editor_core/EditorCommand.h",
+      "legacy": "acs::game::editor_core::FEditorCommand",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::editor_core::AEditorCommand",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/editor_core/EditorCommand.h",
+      "legacy": "acs::game::editor_core::FMoveNodeCommand",
+      "legacy_path": "gameframework/tools/editor_core/EditorCommand.h",
+      "canonical": "acs::game::editor_core::AMoveNodeCommand",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/editor_core/EditorGizmo.h",
+      "legacy": "acs::game::editor_core::FEditorGizmo",
+      "legacy_path": "gameframework/tools/editor_core/EditorGizmo.h",
+      "canonical": "acs::game::editor_core::CEditorGizmo",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/tools/editor_core/EditorPanel.h",
+      "legacy": "acs::game::editor_core::FEditorPanel",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::editor_core::AEditorPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/editor_core/EditorTheme.h",
+      "legacy": "acs::game::editor_core::FEditorTheme",
+      "legacy_path": "gameframework/tools/editor_core/EditorTheme.h",
+      "canonical": "acs::game::editor_core::CEditorTheme",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/tools/editor_core/EditorWorkspace.h",
+      "legacy": "acs::game::editor_core::FEditorWorkspace",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::editor_core::CEditorWorkspace",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/tools/editor_core/PropertyDrawer.h",
+      "legacy": "acs::game::editor_core::FPropertyDrawerRegistry",
+      "legacy_path": "gameframework/tools/editor_core/PropertyDrawer.h",
+      "canonical": "acs::game::editor_core::CPropertyDrawerRegistry",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/tools/editor_core/UndoStack.h",
+      "legacy": "acs::game::editor_core::FUndoStack",
+      "legacy_path": "gameframework/tools/editor_core/UndoStack.h",
+      "canonical": "acs::game::editor_core::CUndoStack",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/tools/fontedit/FontEditorPanel.h",
+      "legacy": "acs::game::fontedit::FFontEditorPanel",
+      "legacy_path": "gameframework/tools/fontedit/FontEditorPanel.h",
+      "canonical": "acs::game::fontedit::AFontEditorPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/fxedit/FxeditSerializer.h",
+      "legacy": "acs::game::fxedit::FFxeditSerializer",
+      "legacy_path": "gameframework/tools/fxedit/FxeditSerializer.h",
+      "canonical": "acs::game::fxedit::CFxeditSerializer",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/tools/fxedit/ParticleEditorPanel.h",
+      "legacy": "acs::game::fxedit::FParticleEditorPanel",
+      "legacy_path": "gameframework/tools/fxedit/ParticleEditorPanel.h",
+      "canonical": "acs::game::fxedit::AParticleEditorPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/fxedit/ParticleEditorPreview.h",
+      "legacy": "acs::game::fxedit::FParticleEditorPreview",
+      "legacy_path": "gameframework/tools/fxedit/ParticleEditorPreview.h",
+      "canonical": "acs::game::fxedit::CParticleEditorPreview",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/tools/inspector/EditorToolbar.h",
+      "legacy": "acs::game::inspector::FEditorToolbar",
+      "legacy_path": "gameframework/tools/inspector/EditorToolbar.h",
+      "canonical": "acs::game::inspector::AEditorToolbar",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/inspector/HierarchyPanel.h",
+      "legacy": "acs::game::inspector::FHierarchyPanel",
+      "legacy_path": "gameframework/tools/inspector/HierarchyPanel.h",
+      "canonical": "acs::game::inspector::AHierarchyPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/inspector/InspectorPanel.h",
+      "legacy": "acs::game::inspector::FInspectorPanel",
+      "legacy_path": "gameframework/tools/inspector/InspectorPanel.h",
+      "canonical": "acs::game::inspector::AInspectorPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/inspector/SelectionService.h",
+      "legacy": "acs::game::inspector::FSelectionService",
+      "legacy_path": "gameframework/Forward.h",
+      "canonical": "acs::game::inspector::CSelectionService",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "gameframework/tools/leveledit/LevelEditorPanel.h",
+      "legacy": "acs::game::leveledit::FLevelEditorPanel",
+      "legacy_path": "gameframework/tools/leveledit/LevelEditorPanel.h",
+      "canonical": "acs::game::leveledit::ALevelEditorPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/modelview/ModelAnimationPanel.h",
+      "legacy": "acs::game::modelview::FModelAnimationPanel",
+      "legacy_path": "gameframework/tools/modelview/ModelAnimationPanel.h",
+      "canonical": "acs::game::modelview::AModelAnimationPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/modelview/ModelInspectorPanel.h",
+      "legacy": "acs::game::modelview::FModelInspectorPanel",
+      "legacy_path": "gameframework/tools/modelview/ModelInspectorPanel.h",
+      "canonical": "acs::game::modelview::AModelInspectorPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/modelview/ModelMaterialPanel.h",
+      "legacy": "acs::game::modelview::FModelMaterialPanel",
+      "legacy_path": "gameframework/tools/modelview/ModelMaterialPanel.h",
+      "canonical": "acs::game::modelview::AModelMaterialPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/modelview/ModelViewerPanel.h",
+      "legacy": "acs::game::modelview::FModelViewerPanel",
+      "legacy_path": "gameframework/tools/modelview/ModelViewerPanel.h",
+      "canonical": "acs::game::modelview::AModelViewerPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "gameframework/tools/spriteatlas/SpriteAtlasEditorPanel.h",
+      "legacy": "acs::game::spriteatlas::FSpriteAtlasEditorPanel",
+      "legacy_path": "gameframework/tools/spriteatlas/SpriteAtlasEditorPanel.h",
+      "canonical": "acs::game::spriteatlas::ASpriteAtlasEditorPanel",
+      "kind": "class",
+      "prefix": "A"
     },
     {
       "path": "imgui/ImGuiContext.h",
@@ -1038,6 +2462,62 @@
       "legacy": "acs::steamworks::FSteamworksBridgeImpl",
       "legacy_path": "steamworks/SteamworksBridgeImpl.h",
       "canonical": "acs::steamworks::CSteamworksBridgeImpl",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "subsystem/Subsystem.h",
+      "legacy": "acs::FSubsystem",
+      "legacy_path": "subsystem/Subsystem.h",
+      "canonical": "acs::ASubsystem",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "subsystem/SubsystemCollection.h",
+      "legacy": "acs::FSubsystemCollection",
+      "legacy_path": "subsystem/SubsystemCollection.h",
+      "canonical": "acs::CSubsystemCollection",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "subsystem/SubsystemFactory.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::FSubsystemFactory",
+      "kind": "struct",
+      "prefix": "F"
+    },
+    {
+      "path": "subsystem/SubsystemFrameContext.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::FSubsystemFrameContext",
+      "kind": "struct",
+      "prefix": "F"
+    },
+    {
+      "path": "subsystem/SubsystemOwner.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::FSubsystemOwner",
+      "kind": "struct",
+      "prefix": "F"
+    },
+    {
+      "path": "subsystem/SubsystemRegistry.h",
+      "legacy": "acs::FSubsystemAutoRegister",
+      "legacy_path": "subsystem/SubsystemRegistry.h",
+      "canonical": "acs::CSubsystemAutoRegister",
+      "kind": "struct",
+      "prefix": "C"
+    },
+    {
+      "path": "subsystem/SubsystemRegistry.h",
+      "legacy": "acs::FSubsystemRegistry",
+      "legacy_path": "subsystem/SubsystemRegistry.h",
+      "canonical": "acs::CSubsystemRegistry",
       "kind": "class",
       "prefix": "C"
     },

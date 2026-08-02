@@ -79,13 +79,13 @@ bool FInputMap::IsPressed(FActionId action) const noexcept {
         if (b.action != action) continue;
         switch (b.kind) {
         case EBindKind::Key:
-            if (FInput::IsKeyPressed(static_cast<EKey>(b.code))) return true;
+            if (CInput::IsKeyPressed(static_cast<EKey>(b.code))) return true;
             break;
         case EBindKind::MouseButton:
-            if (FInput::IsMouseButtonPressed(static_cast<EMouseButton>(b.code))) return true;
+            if (CInput::IsMouseButtonPressed(static_cast<EMouseButton>(b.code))) return true;
             break;
         case EBindKind::GamepadButton:
-            if (FInput::IsGamepadButtonPressed(b.player, static_cast<EGamepadButton>(b.code))) return true;
+            if (CInput::IsGamepadButtonPressed(b.player, static_cast<EGamepadButton>(b.code))) return true;
             break;
         case EBindKind::GamepadAxis:
             break;
@@ -104,23 +104,23 @@ bool FInputMap::IsHeld(FActionId action) const noexcept {
         if (b.action != action) continue;
         switch (b.kind) {
         case EBindKind::Key:
-            if (FInput::IsKeyDown(static_cast<EKey>(b.code))) return true;
+            if (CInput::IsKeyDown(static_cast<EKey>(b.code))) return true;
             break;
         case EBindKind::MouseButton:
-            if (FInput::IsMouseButtonDown(static_cast<EMouseButton>(b.code))) return true;
+            if (CInput::IsMouseButtonDown(static_cast<EMouseButton>(b.code))) return true;
             break;
         case EBindKind::GamepadButton:
-            if (FInput::IsGamepadButtonDown(b.player, static_cast<EGamepadButton>(b.code))) return true;
+            if (CInput::IsGamepadButtonDown(b.player, static_cast<EGamepadButton>(b.code))) return true;
             break;
         case EBindKind::GamepadAxis: {
-            const f32 value = FInput::GamepadAxisValue(b.player, static_cast<EGamepadAxis>(b.code)) * b.scale;
+            const f32 value = CInput::GamepadAxisValue(b.player, static_cast<EGamepadAxis>(b.code)) * b.scale;
             if (value < -0.0001f || value > 0.0001f) return true;
             break;
         }
         case EBindKind::Axis1D:
             // axis は |Axis| > 0 で Held とみなす
-            if (FInput::IsKeyDown(static_cast<EKey>(b.code)) ||
-                FInput::IsKeyDown(static_cast<EKey>(b.code_pos))) return true;
+            if (CInput::IsKeyDown(static_cast<EKey>(b.code)) ||
+                CInput::IsKeyDown(static_cast<EKey>(b.code_pos))) return true;
             break;
         }
     }
@@ -134,13 +134,13 @@ bool FInputMap::IsReleased(FActionId action) const noexcept {
         if (b.action != action) continue;
         switch (b.kind) {
         case EBindKind::Key:
-            if (FInput::IsKeyReleased(static_cast<EKey>(b.code))) return true;
+            if (CInput::IsKeyReleased(static_cast<EKey>(b.code))) return true;
             break;
         case EBindKind::MouseButton:
-            if (FInput::IsMouseButtonReleased(static_cast<EMouseButton>(b.code))) return true;
+            if (CInput::IsMouseButtonReleased(static_cast<EMouseButton>(b.code))) return true;
             break;
         case EBindKind::GamepadButton:
-            if (FInput::IsGamepadButtonReleased(b.player, static_cast<EGamepadButton>(b.code))) return true;
+            if (CInput::IsGamepadButtonReleased(b.player, static_cast<EGamepadButton>(b.code))) return true;
             break;
         case EBindKind::GamepadAxis:
             break;
@@ -158,15 +158,15 @@ f32 FInputMap::Axis(FActionId action) const noexcept {
         const FBinding& b = m_Bindings[i];
         if (b.action != action) continue;
         if (b.kind == EBindKind::Axis1D) {
-            const bool n = FInput::IsKeyDown(static_cast<EKey>(b.code));
-            const bool p = FInput::IsKeyDown(static_cast<EKey>(b.code_pos));
+            const bool n = CInput::IsKeyDown(static_cast<EKey>(b.code));
+            const bool p = CInput::IsKeyDown(static_cast<EKey>(b.code_pos));
             // 両方押下は 0 (相殺)、片方なら ±1
             if (n && !p)
                 acc -= 1.0f;
             else if (p && !n)
                 acc += 1.0f;
         } else if (b.kind == EBindKind::GamepadAxis) {
-            acc += FInput::GamepadAxisValue(b.player, static_cast<EGamepadAxis>(b.code)) * b.scale;
+            acc += CInput::GamepadAxisValue(b.player, static_cast<EGamepadAxis>(b.code)) * b.scale;
         }
     }
     if (acc >  1.0f) acc =  1.0f;

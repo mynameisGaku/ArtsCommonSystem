@@ -216,7 +216,7 @@ private:
     }
 
     /** 登録簿より後に破棄される、登録簿専用の process-lifetime allocator。 */
-    FSystemAllocator m_Allocator;
+    CSystemAllocator m_Allocator;
 
     /** owner+name ごとに登録元を束ねた method 一覧。 */
     TArray<FMethodEntry> m_Entries;

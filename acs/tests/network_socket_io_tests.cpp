@@ -109,7 +109,7 @@ void ExpectAddress(FIpAddress address, u8 first, u8 second, u8 third, u8 fourth)
 /** TCP が OS 割当ポートを使い、不正入力を WinSock 前で拒否することを確認する。 */
 ACS_TEST(NetworkSocketIo, TcpRejectsInvalidBuffersBeforeCallingOs) {
     /** この動作確認が所有するネットワーク初期化結果。 */
-    auto initialized = FNetwork::Init();
+    auto initialized = CNetwork::Init();
     EXPECT_TRUE(initialized.IsOk());
     if (initialized.IsErr()) return;
 
@@ -174,13 +174,13 @@ ACS_TEST(NetworkSocketIo, TcpRejectsInvalidBuffersBeforeCallingOs) {
         }
     }
 
-    FNetwork::Shutdown();
+    CNetwork::Shutdown();
 }
 
 /** UDP の空データグラムを維持し、不正入力を WinSock 前で拒否することを確認する。 */
 ACS_TEST(NetworkSocketIo, UdpPreservesEmptyDatagramsAndRejectsInvalidBuffers) {
     /** この動作確認が所有するネットワーク初期化結果。 */
-    auto initialized = FNetwork::Init();
+    auto initialized = CNetwork::Init();
     EXPECT_TRUE(initialized.IsOk());
     if (initialized.IsErr()) return;
 
@@ -257,5 +257,5 @@ ACS_TEST(NetworkSocketIo, UdpPreservesEmptyDatagramsAndRejectsInvalidBuffers) {
         }
     }
 
-    FNetwork::Shutdown();
+    CNetwork::Shutdown();
 }

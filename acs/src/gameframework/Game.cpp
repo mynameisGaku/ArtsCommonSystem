@@ -22,7 +22,7 @@ CGame::CGame() noexcept
 void CGame::OnStart() noexcept {
     m_BuiltinCatalogReady = AcsRegisterGameFrameworkSubsystems();
     if (!m_BuiltinCatalogReady) {
-        ACS_LOG_ERROR("FGame: builtin subsystem registration failed");
+        ACS_LOG_ERROR("CGame: builtin subsystem registration failed");
         Quit();
         return;
     }
@@ -30,21 +30,21 @@ void CGame::OnStart() noexcept {
     if (!m_GameInstanceSubsystems.TryInitialize(
             ESubsystemScope::GameInstance, &CApplication::EngineSubsystems(),
             FSubsystemOwner{this, ESubsystemOwnerKind::Game})) {
-        ACS_LOG_ERROR("FGame: GameInstance subsystem initialization failed");
+        ACS_LOG_ERROR("CGame: GameInstance subsystem initialization failed");
         Quit();
         return;
     }
 
     TUniquePtr<AScene> first = InitialScene();
     if (!first) {
-        ACS_LOG_ERROR("FGame::InitialScene() returned null — Quit");
+        ACS_LOG_ERROR("CGame::InitialScene() returned null — Quit");
         Quit();
         return;
     }
     m_Scenes.PushScene(Move(first));
     m_Scenes._ApplyPending(*this);     // 起動時の最初の遷移は即時適用
     if (m_Scenes.IsEmpty()) {
-        ACS_LOG_ERROR("FGame: initial scene subsystem initialization failed");
+        ACS_LOG_ERROR("CGame: initial scene subsystem initialization failed");
         Quit();
     }
 }
@@ -105,7 +105,7 @@ void CGame::EnsureUiFont() noexcept {
     const auto r = FSample::TryLoadDefaultUIFont(m_UiFont, *dev, 18.0f);
     m_UiFontReady = r.IsOk();
     if (!m_UiFontReady) {
-        ACS_LOG_WARN("FGame: default UI font のロードに失敗 (HUD テキストは無効)");
+        ACS_LOG_WARN("CGame: default UI font のロードに失敗 (HUD テキストは無効)");
     }
 }
 
@@ -132,7 +132,7 @@ void CGame::EnsureOverlay() noexcept {
     const auto r = m_Overlay.Init(*dev, GetRenderer().ColorFormat(), 16);
     m_OverlayReady = r.IsOk();
     if (!m_OverlayReady) {
-        ACS_LOG_WARN("FGame: fade overlay SpriteBatch の init に失敗 (遷移は無描画)");
+        ACS_LOG_WARN("CGame: fade overlay SpriteBatch の init に失敗 (遷移は無描画)");
     }
 }
 

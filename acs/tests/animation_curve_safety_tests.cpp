@@ -12,9 +12,9 @@ using namespace acs::game;
 
 namespace {
 
-class FSwitchableCurveAllocator final : public FAllocator {
+class FSwitchableCurveAllocator final : public IAllocator {
 public:
-    explicit FSwitchableCurveAllocator(FAllocator& backing) noexcept
+    explicit FSwitchableCurveAllocator(IAllocator& backing) noexcept
         : m_Backing(&backing) {}
 
     void SetFailing(bool failing) noexcept { m_Failing = failing; }
@@ -32,7 +32,7 @@ public:
     }
 
 private:
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
     bool m_Failing = false;
 };
 
@@ -102,7 +102,7 @@ ACS_TEST(AnimationCurveSafety, BulkImportIsTransactional) {
 }
 
 ACS_TEST(AnimationCurveSafety, AllocationFailurePreservesExistingCurve) {
-    FSystemAllocator backing;
+    CSystemAllocator backing;
     FSwitchableCurveAllocator allocator(backing);
     FAnimationCurve curve(allocator);
     EXPECT_TRUE(curve.TryAddKey(0.0f, 7.0f).Succeeded());
@@ -255,7 +255,7 @@ ACS_TEST(AnimationCurveSafety, InvalidEasingPresetPreservesCurveAndWrap) {
 }
 
 ACS_TEST(AnimationCurveSafety, EasingPresetAllocationFailureIsTransactional) {
-    FSystemAllocator backing;
+    CSystemAllocator backing;
     FSwitchableCurveAllocator allocator(backing);
     FAnimationCurve curve(allocator);
     EXPECT_TRUE(curve.TryAddKey(0.0f, 9.0f).Succeeded());

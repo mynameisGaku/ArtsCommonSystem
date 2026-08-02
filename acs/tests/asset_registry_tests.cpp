@@ -19,23 +19,23 @@ class FBlockingAssetLoader final : public IAssetLoader {
 public:
     AssetType TypeId() const noexcept override
     {
-        return FBinaryAsset::StaticType();
+        return ABinaryAsset::StaticType();
     }
     const char* Extension() const noexcept override
     {
         return "tmp";
     }
 
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId, const TArray<byte>&) noexcept override
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId, const TArray<byte>&) noexcept override
     {
         entered.FetchAdd(1);
         while (release.Load(EMemoryOrder::Acquire) == 0)
             SleepMs(1);
 
-        auto binary = MakeShared<FBinaryAsset>();
+        auto binary = MakeShared<ABinaryAsset>();
         if (!binary.Get()) return ACS_ERR(Memory, 220, "BlockingAssetLoader allocation failed");
-        TSharedPtr<FAsset> asset(Move(binary));
-        return TResult<TSharedPtr<FAsset>>(OkInit, Move(asset));
+        TSharedPtr<AAsset> asset(Move(binary));
+        return TResult<TSharedPtr<AAsset>>(OkInit, Move(asset));
     }
 
     TAtomic<u32> entered{0};
@@ -43,7 +43,7 @@ public:
 };
 
 struct FRegistryDeleteContext {
-    FAssetRegistry* registry = nullptr;
+    CAssetRegistry* registry = nullptr;
     TAtomic<u32> finished{0};
 };
 
@@ -58,18 +58,18 @@ void DeleteRegistry(void* user) noexcept
 
 ACS_TEST(FAssetRegistry, DestructorWaitsForAsyncLoad)
 {
-    FThreadPool::Shutdown();
-    EXPECT_TRUE(FThreadPool::Init(1).IsOk());
+    CThreadPool::Shutdown();
+    EXPECT_TRUE(CThreadPool::Init(1).IsOk());
 
     const byte file_data[] = {1, 2, 3, 4};
-    EXPECT_TRUE(FFileSystem::WriteAllBytes(kAsyncAssetPath, file_data, sizeof(file_data)).IsOk());
+    EXPECT_TRUE(CFileSystem::WriteAllBytes(kAsyncAssetPath, file_data, sizeof(file_data)).IsOk());
 
     FBlockingAssetLoader loader;
-    auto* registry = new FAssetRegistry();
+    auto* registry = new CAssetRegistry();
     EXPECT_TRUE(registry != nullptr);
     if (!registry) {
-        FThreadPool::Shutdown();
-        (void)FFileSystem::Delete(kAsyncAssetPath);
+        CThreadPool::Shutdown();
+        (void)CFileSystem::Delete(kAsyncAssetPath);
         return;
     }
     registry->RegisterLoader(&loader);
@@ -95,20 +95,20 @@ ACS_TEST(FAssetRegistry, DestructorWaitsForAsyncLoad)
     EXPECT_EQ(delete_context.finished.Load(EMemoryOrder::Acquire), 1u);
     EXPECT_TRUE(future.Get().IsOk());
 
-    FThreadPool::Shutdown();
-    (void)FFileSystem::Delete(kAsyncAssetPath);
+    CThreadPool::Shutdown();
+    (void)CFileSystem::Delete(kAsyncAssetPath);
 }
 
 ACS_TEST(FAssetRegistry, ConcurrentSamePathAsyncLoadsShareOneJobAndIdentity)
 {
-    FThreadPool::Shutdown();
-    EXPECT_TRUE(FThreadPool::Init(2).IsOk());
+    CThreadPool::Shutdown();
+    EXPECT_TRUE(CThreadPool::Init(2).IsOk());
 
     const byte file_data[] = {9, 8, 7, 6};
-    EXPECT_TRUE(FFileSystem::WriteAllBytes(kAsyncAssetPath, file_data, sizeof(file_data)).IsOk());
+    EXPECT_TRUE(CFileSystem::WriteAllBytes(kAsyncAssetPath, file_data, sizeof(file_data)).IsOk());
 
     FBlockingAssetLoader loader;
-    FAssetRegistry registry;
+    CAssetRegistry registry;
     registry.RegisterLoader(&loader);
 
     FAssetFuture first = registry.LoadAsync(kAsyncAssetPath);
@@ -131,14 +131,14 @@ ACS_TEST(FAssetRegistry, ConcurrentSamePathAsyncLoadsShareOneJobAndIdentity)
     EXPECT_EQ(loader.entered.Load(EMemoryOrder::Acquire), 1u);
 
     registry.Shutdown();
-    FThreadPool::Shutdown();
-    (void)FFileSystem::Delete(kAsyncAssetPath);
+    CThreadPool::Shutdown();
+    (void)CFileSystem::Delete(kAsyncAssetPath);
 }
 
 ACS_TEST(FAssetRegistry, ShutdownClosesLoadGate)
 {
     FBlockingAssetLoader loader;
-    FAssetRegistry registry;
+    CAssetRegistry registry;
     registry.RegisterLoader(&loader);
     registry.Shutdown();
 
@@ -151,9 +151,9 @@ ACS_TEST(FAssetRegistry, ShutdownClosesLoadGate)
 
 ACS_TEST(FAssetRegistry, RestartPreservesInjectedAllocatorAndReopensGate)
 {
-    FSystemAllocator allocator;
+    CSystemAllocator allocator;
     FBlockingAssetLoader loader;
-    FAssetRegistry registry(allocator);
+    CAssetRegistry registry(allocator);
 
     registry.RegisterLoader(&loader);
     EXPECT_TRUE(allocator.BytesAllocated() > 0u);

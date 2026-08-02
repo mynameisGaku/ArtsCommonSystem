@@ -4,8 +4,8 @@
 // 役割:
 //   CWorld::CopyFrom (snapshot/rollback 基盤) の上に「直近 N tick 分の状態履歴」を
 //   提供する。GGPO 風 rollback netcode の状態レイヤで、入力レイヤの
-//   acs::game::FLockstep と対になる:
-//     ・FLockstep      … どの tick に誰が何を入力したか (入力履歴)
+//   acs::game::CLockstep と対になる:
+//     ・CLockstep      … どの tick に誰が何を入力したか (入力履歴)
 //     ・FRollbackBuffer … 各 tick 開始時点の CWorld 状態 (状態履歴)
 //
 // 使い方 (rollback netcode の典型ループ):
@@ -36,12 +36,12 @@
 //     SaveFrame で CopyFrom が失敗した slot は invalid 化し、後の Restore が
 //     壊れた状態を返さない。
 //   ・**コピー / ムーブ禁止**: CWorld の履歴という重い状態の誤複製を防ぐ
-//     (FLockstep と同じ規約)。
+//     (CLockstep と同じ規約)。
 //   ・**全 noexcept / 失敗は bool**: ACS 全体方針。CWorld::CopyFrom の契約
 //     (非コピー型コンポーネントを含む CWorld は複製不可) をそのまま伝搬する。
 //
 // 範囲外:
-//   ・入力履歴 / desync 検出 (FLockstep::ComputeChecksum を使う)
+//   ・入力履歴 / desync 検出 (CLockstep::ComputeChecksum を使う)
 //   ・差分 snapshot / 圧縮 (全量コピー。まず正しさを取る)
 //   ・スレッド安全性 (シミュレーションスレッド専有を想定)
 #pragma once

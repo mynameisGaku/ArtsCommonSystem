@@ -169,7 +169,7 @@ ACS_TEST(PbrExpressionContract, ShaderSourceMatchesExpressionVmContract) {
     EXPECT_TRUE(Contains(
         source, "m_SubstrateExpressionTextures[slot] = nullptr;"));
     EXPECT_TRUE(Contains(
-        source, "void FPbrShader::SetSubstrateExpressionTime("));
+        source, "void CPbrShader::SetSubstrateExpressionTime("));
     EXPECT_TRUE(Contains(
         source, "if (!all(isfinite(value))) value = 0.0.xxxx;"));
     EXPECT_TRUE(Contains(
@@ -273,7 +273,7 @@ ACS_TEST(PbrExpressionContract, RuntimeAcceptsCompiledDirectSlabProgram) {
     graph.nodes[0].value = FShaderExpressionValue{0.35f};
     material.nodes[0].expressions.roots[9] = 0;
 
-    FPbrShader shader{};
+    CPbrShader shader{};
     EXPECT_TRUE(shader.SetSubstrateMaterial(material, 1.25f));
 
     FShaderExpressionParameter parameter{};
@@ -303,7 +303,7 @@ ACS_TEST(PbrExpressionContract, StaticSurfaceClearsPreviousExpressionState) {
         FShaderExpressionValue{0.25f};
     material.nodes[0].expressions.roots[9] = 0;
 
-    FPbrShader shader{};
+    CPbrShader shader{};
     EXPECT_TRUE(shader.SetSubstrateMaterial(material, 2.0f));
     EXPECT_EQ(shader.SubstrateExpressionInstructionCount(), 1u);
     EXPECT_EQ(shader.SubstrateExpressionBindingCount(), 1u);

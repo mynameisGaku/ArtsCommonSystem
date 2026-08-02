@@ -23,7 +23,7 @@ static const char* kPrefab =
     "2 1 5 3 0 1 1 48 0.2 0.3 0.4 1 PrefChild\n"
     "SEL -1 0\n";
 
-/** FPrefabSystem の世代 ID 検証に使う最小 factory。 */
+/** CPrefabSystem の世代 ID 検証に使う最小 factory。 */
 static TObjectPtr<ANode> SpawnEmptyNode(void*) noexcept {
     return NewObject<ANode>();
 }
@@ -72,7 +72,7 @@ ACS_TEST(PrefabSpawn, MultipleSpawnsAreIndependent) {
 }
 
 ACS_TEST(PrefabSystem, ClearAllKeepsOldIdsStaleAfterReregister) {
-    FPrefabSystem prefabs;
+    CPrefabSystem prefabs;
     const FPrefabId old_id =
         prefabs.Register("BeforeClear", &SpawnEmptyNode);
     EXPECT_TRUE(old_id.IsValid());

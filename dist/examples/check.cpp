@@ -117,14 +117,14 @@ int main()
     /** 配布headerから割り当てたコンポーネント番号。 */
     const FComponentTypeId component_id = GetComponentTypeId<FDistributionComponentProbe>();
     /** 型登録で得たコンポーネント操作情報。 */
-    const FComponentOps& registered_component = FComponentRegistry::Register<FDistributionComponentProbe>();
+    const FComponentOps& registered_component = CComponentRegistry::Register<FDistributionComponentProbe>();
     /** 同じ番号から取得したコンポーネント操作情報。 */
-    const FComponentOps& fetched_component = FComponentRegistry::Get(component_id);
+    const FComponentOps& fetched_component = CComponentRegistry::Get(component_id);
     /** コンポーネント番号、操作情報、署名の整合結果。 */
     const bool component_identifier_ok = component_id == TComponentTypeTraits<FDistributionComponentProbe>::RuntimeId() && &registered_component == &fetched_component && GetComponentSignatureId<FDistributionComponentProbe>() == TComponentTypeTraits<FDistributionComponentProbe>::Signature;
 
     // 呼び出し側が所有するシーンタイマー。
-    game::FSceneTimer scene_timer;
+    game::CSceneTimer scene_timer;
     // シーンタイマーの発火回数。
     u32 scene_timer_fire_count = 0u;
     // 配布ライブラリの新しい修飾シンボルを参照する正規ハンドル。
@@ -137,15 +137,15 @@ int main()
     FLogConfig log_config{};
     log_config.console = false;
     log_config.debug_output = false;
-    FLogger::Init(log_config);
+    CLogger::Init(log_config);
     // ログ購読から受け取った通知回数。
     u32 log_notification_count = 0u;
-    FLogSinkSubscription log_subscription = FLogger::SubscribeSinkOwned(&CountLogSink, &log_notification_count);
+    FLogSinkSubscription log_subscription = CLogger::SubscribeSinkOwned(&CountLogSink, &log_notification_count);
     ACS_LOG_INFO("distribution log sink");
-    FLogger::Flush();
+    CLogger::Flush();
     // 購読の有効性と通知到達をまとめて確認する結果。
     const bool log_sink_ok = log_subscription.IsValid() && log_notification_count == 1u;
-    FLogger::Shutdown();
+    CLogger::Shutdown();
 
     std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u scene_timer=%u log_sink=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, scene_timer_fire_count, log_notification_count);
     return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && scene_timer_ok && log_sink_ok) ? 0 : 1;

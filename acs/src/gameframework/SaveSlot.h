@@ -61,13 +61,13 @@ public:
     static_assert(IsTriviallyCopyableV<T>,
                   "TSaveSlot<T> requires a trivially-copyable payload type");
     static_assert(sizeof(T) <= CSaveArchive::kMaxPayloadSize,
-                  "TSaveSlot<T> payload exceeds FSaveArchive safety limit");
+                  "TSaveSlot<T> payload exceeds CSaveArchive safety limit");
 
     /** 空状態で構築する (ファイルパス未設定)。 */
     TSaveSlot() noexcept = default;
 
     /** checked owned path の確保に指定 allocator を使う。 */
-    explicit TSaveSlot(FAllocator& allocator) noexcept
+    explicit TSaveSlot(IAllocator& allocator) noexcept
         : m_OwnedPath(allocator) {}
 
     /** 破棄する。TryInit で所有したパスも自動解放する。 */
@@ -240,7 +240,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
                                 usize          payload_size) noexcept;
 
 /**
- * ファイルが存在するかを判定する (FFileSystem::Exists 委譲)。
+ * ファイルが存在するかを判定する (CFileSystem::Exists 委譲)。
  *
  * @param file_path 判定する wide パス。
  * @return ファイルがあれば true、未初期化 (nullptr) なら false。
@@ -248,7 +248,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
 bool         SaveSlot_Exists(const wchar_t* file_path) noexcept;
 
 /**
- * ファイルを削除する (べき等、FFileSystem::Delete 委譲)。
+ * ファイルを削除する (べき等、CFileSystem::Delete 委譲)。
  *
  * @param file_path 削除する wide パス (nullptr なら未初期化エラー)。
  * @return 成功なら空の TResult、未初期化 / 削除失敗ならエラー。

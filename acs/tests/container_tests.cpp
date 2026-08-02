@@ -18,7 +18,7 @@ using namespace acs;
 
 ACS_TEST(Container, InlineArrayAvoidsHeapUntilCapacityAndPreservesOrder)
 {
-    FSystemAllocator allocator;
+    CSystemAllocator allocator;
     TInlineArray<u32, 4u> values(allocator);
     const u64 initial_allocations = allocator.AllocationCount();
     for (u32 i = 0u; i < 4u; ++i) values.PushBack(i + 10u);
@@ -71,7 +71,7 @@ ACS_TEST(Container, InlineArrayRemovePreservesOrderInBothStorageModes)
 namespace {
 
 /** 確保失敗時のコンテナ契約を検証する backing。 */
-class FAlwaysFailAllocator final : public FAllocator {
+class FAlwaysFailAllocator final : public IAllocator {
 public:
     void* Alloc(usize /*Size*/, usize /*Alignment*/, FSourceLoc /*Location*/) noexcept override
     {
@@ -84,9 +84,9 @@ public:
 };
 
 /** 実 backing へ委譲しつつ、フラグを立てた後の確保だけ失敗させる backing。 */
-class FSwitchableFailAllocator final : public FAllocator {
+class FSwitchableFailAllocator final : public IAllocator {
 public:
-    explicit FSwitchableFailAllocator(FAllocator& Backing) noexcept : m_Backing(&Backing)
+    explicit FSwitchableFailAllocator(IAllocator& Backing) noexcept : m_Backing(&Backing)
     {
     }
 
@@ -106,12 +106,12 @@ public:
     }
 
 private:
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
     bool m_bFailing = false;
 };
 
 /** 指定した確保要求だけを失敗させ、各commit段階を個別に検証するbacking。 */
-class FFailOnRequestAllocator final : public FAllocator {
+class FFailOnRequestAllocator final : public IAllocator {
 public:
     void FailOnRequest(u64 Request) noexcept
     {
@@ -145,7 +145,7 @@ public:
     }
 
 private:
-    FSystemAllocator m_Backing;
+    CSystemAllocator m_Backing;
     u64 m_RequestCount = 0;
     u64 m_FailingRequest = 0;
 };
@@ -157,7 +157,7 @@ private:
  * 依存せず検出する。コンテナからの Free は記録するが、実 backing への返却は
  * この allocator の破棄時まで遅延する。
  */
-class FQuarantiningAllocator final : public FAllocator {
+class FQuarantiningAllocator final : public IAllocator {
 public:
     ~FQuarantiningAllocator() noexcept override
     {
@@ -208,7 +208,7 @@ private:
     };
 
     static constexpr usize kMaximumAllocations = 8u;
-    FSystemAllocator m_Backing;
+    CSystemAllocator m_Backing;
     FAllocation m_Allocations[kMaximumAllocations]{};
     usize m_AllocationCount = 0u;
     usize m_LiveContainerAllocations = 0u;
@@ -280,7 +280,7 @@ struct FArrayTrackedValue {
 };
 
 /** Alloc/Realloc/Free の経路と失敗時 rollback を観測する backing。 */
-class FCountingAllocator final : public FAllocator {
+class FCountingAllocator final : public IAllocator {
 public:
     /** Realloc を意図的に失敗させるかを切り替える。 */
     void SetFailRealloc(bool bFail) noexcept { m_bFailRealloc = bFail; }
@@ -322,7 +322,7 @@ public:
 
 private:
     /** 実際の確保を担当する allocator。 */
-    FSystemAllocator Backing;
+    CSystemAllocator Backing;
 
     /** Realloc を失敗させる場合は true。 */
     bool m_bFailRealloc = false;
@@ -409,7 +409,7 @@ ACS_TEST(Container, ArrayResize) {
 ACS_TEST(Container, ArrayReleaseStoragePreservesAllocator)
 {
     TArray<int> a;
-    FAllocator* const allocator = a.GetAllocator();
+    IAllocator* const allocator = a.GetAllocator();
     a.Resize(256);
     EXPECT_TRUE(a.Capacity() >= 256);
 
@@ -463,7 +463,7 @@ ACS_TEST(Container, ArrayRemoveMaintainsNonTrivialLifetimeWithoutAllocation)
         /** 削除前の確保容量。 */
         const usize capacity_before = values.Capacity();
         /** 削除前の allocator identity。 */
-        FAllocator* const allocator_before = values.GetAllocator();
+        IAllocator* const allocator_before = values.GetAllocator();
         /** 削除前の確保回数。 */
         const u64 alloc_calls_before = allocator.AllocCalls;
         /** 削除前の再確保回数。 */
@@ -595,7 +595,7 @@ ACS_TEST(Container, ArraySelfReferentialGrowthKeepsArgumentsAliveUntilConstructi
 
 ACS_TEST(Container, ArraySelfReferentialGrowthRollsBackOnAllocationFailure)
 {
-    FSystemAllocator Backing;
+    CSystemAllocator Backing;
     FSwitchableFailAllocator Allocator(Backing);
     FArrayValueCounters Counters;
 
@@ -658,7 +658,7 @@ ACS_TEST(Container, HashMapTryInsertPreservesStateOnOutOfMemory)
 
     // Part B: 実 backing で構築後に確保失敗へ切替え、rehash / 値配列拡張の失敗時も既存
     // エントリを保つ (OOM で map を破壊しない)。
-    FSystemAllocator Backing;
+    CSystemAllocator Backing;
     FSwitchableFailAllocator Switchable(Backing);
     THashMap<u32, u32> Map(Switchable);
     for (u32 Key = 0; Key < 10u; ++Key) {
@@ -689,7 +689,7 @@ ACS_TEST(Container, HashMapTryInsertPreservesStateOnOutOfMemory)
 ACS_TEST(Container, StringTryAppendPreservesStateOnOutOfMemory)
 {
     // SSO 内 (<=22 バイト) の間はヒープ確保が起きないので Try 系は成功する。
-    FSystemAllocator Backing;
+    CSystemAllocator Backing;
     FSwitchableFailAllocator Switchable(Backing);
     FString Str(Switchable);
     Str.Append("short");  // SSO
@@ -761,7 +761,7 @@ ACS_TEST(Container, StringFormat) {
 
 ACS_TEST(Container, StringReleaseStoragePreservesAllocator)
 {
-    FSystemAllocator allocator;
+    CSystemAllocator allocator;
     FString s("a value long enough to require heap backed FString storage", allocator);
     EXPECT_TRUE(allocator.BytesAllocated() > 0);
 
@@ -777,8 +777,8 @@ ACS_TEST(Container, StringReleaseStoragePreservesAllocator)
 
 ACS_TEST(Container, StoragePreservesExplicitAllocatorAndReleasesCapacity)
 {
-    FSystemAllocator storage_allocator;
-    FSystemAllocator unrelated_allocator;
+    CSystemAllocator storage_allocator;
+    CSystemAllocator unrelated_allocator;
 
     FStorage storage(storage_allocator);
     storage.SetString("long.key.for.allocator.contract", "a value long enough to require heap backed FString storage");
@@ -990,7 +990,7 @@ ACS_TEST(Container, HashMapInsertFindRemove) {
 
 ACS_TEST(Container, HashMapReleaseStoragePreservesAllocator)
 {
-    FSystemAllocator allocator;
+    CSystemAllocator allocator;
     THashMap<u32, u32> map(allocator);
     for (u32 i = 0; i < 64; ++i)
         map.Insert(i, i + 1u);
@@ -1319,7 +1319,7 @@ ACS_TEST(Container, StringByteSearchAppendAndCompareContracts)
     EXPECT_TRUE(Self.EndsWith(FStringView("89abcdefghij", 12u)));
 
     // 失敗注入 allocator の backing。
-    FSystemAllocator Backing;
+    CSystemAllocator Backing;
     // 次回確保を失敗させられる allocator。
     FSwitchableFailAllocator Failing(Backing);
     // 失敗時 rollback を確認する文字列。

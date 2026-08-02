@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloShowcase — FShowcaseApp 実装。OnStart / OnUpdate / OnCustomFrame /
+// HelloShowcase — CShowcaseApp 実装。OnStart / OnUpdate / OnCustomFrame /
 // OnShutdown でフレームをまわす orchestration 層。実際の draw は pass 系
 // helper (PbrPass / RefractionPass / MotionPass / SsrPass / BloomPass /
 // HudPass) と GPU resource は FAssets (ShowcaseAssets.{h,cpp}) に分割している。
@@ -26,10 +26,10 @@ namespace helloshowcase {
 
 // ctor/dtor は明示的に cpp 側に定義する。FAssets が TUniquePtr<IRhiTexture> を
 // 抱えるため、ヘッダ側に dtor を書くと include 側が完全型を要求してしまう。
-FShowcaseApp::FShowcaseApp() noexcept = default;
-FShowcaseApp::~FShowcaseApp() noexcept = default;
+CShowcaseApp::CShowcaseApp() noexcept = default;
+CShowcaseApp::~CShowcaseApp() noexcept = default;
 
-void FShowcaseApp::OnStart() noexcept {
+void CShowcaseApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
     IRhiSwapchain* sc = GetRenderer().Swapchain();
@@ -59,11 +59,11 @@ void FShowcaseApp::OnStart() noexcept {
     m_AdaptedExposure = 0.7f;
 }
 
-void FShowcaseApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) { Quit(); return; }
-    if (FInput::IsKeyPressed(EKey::P)) m_Paused = !m_Paused;
-    if (FInput::IsKeyPressed(EKey::R)) m_ShowSsr = !m_ShowSsr;
-    if (FInput::IsKeyPressed(EKey::X)) m_ShowRefraction = !m_ShowRefraction;
+void CShowcaseApp::OnUpdate(f32 dt) noexcept {
+    if (CInput::IsKeyPressed(EKey::Escape)) { Quit(); return; }
+    if (CInput::IsKeyPressed(EKey::P)) m_Paused = !m_Paused;
+    if (CInput::IsKeyPressed(EKey::R)) m_ShowSsr = !m_ShowSsr;
+    if (CInput::IsKeyPressed(EKey::X)) m_ShowRefraction = !m_ShowRefraction;
 
     if (!m_Paused) {
         m_OrbitAngle += dt * 0.20f;     // 約 31 秒で 1 周
@@ -84,7 +84,7 @@ void FShowcaseApp::OnUpdate(f32 dt) noexcept {
     m_Camera.SetLookAt(m_CamPos, cam_target, FVec3::Up());
 }
 
-bool FShowcaseApp::OnCustomFrame() noexcept {
+bool CShowcaseApp::OnCustomFrame() noexcept {
     IRhiDevice*      dev   = GetRenderer().Device();
     IRhiCommandList* cl    = GetRenderer().CommandList();
     IRhiSwapchain*   sc    = GetRenderer().Swapchain();
@@ -126,7 +126,7 @@ bool FShowcaseApp::OnCustomFrame() noexcept {
     if (!m_Assets.ibl.HasIrradianceMap()) (void)m_Assets.ibl.EnsureIrradiance(*dev, *cl);
     if (!m_Assets.ibl.HasPrefilterMap())  (void)m_Assets.ibl.EnsurePrefilter(*dev, *cl);
 
-    // ===== Opaque HDR pass (FSky + PBR + emissive orb) =====
+    // ===== Opaque HDR pass (CSky + PBR + emissive orb) =====
     FMat4 orb_curr[kOrbCount]{};
     ExecutePbrPass(m_Assets, *cl, *hdr, *depth, m_Camera,
                    view_proj_jittered, m_CamPos, m_OrbPhase,
@@ -181,7 +181,7 @@ bool FShowcaseApp::OnCustomFrame() noexcept {
     return true;
 }
 
-void FShowcaseApp::OnShutdown() noexcept {
+void CShowcaseApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     ShutdownAssets(m_Assets);
 }

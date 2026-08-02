@@ -14,16 +14,16 @@
 
 namespace hellosky {
 
-class FSkyScene {
+class CSkyScene {
 public:
-    void SetPreset(acs::FSky& sky, ESkyPreset p) noexcept;
+    void SetPreset(acs::CSky& sky, ESkyPreset p) noexcept;
     ESkyPreset CurrentPreset() const noexcept { return m_Preset; }
 
-    // 1 フレームの描画 (FSky → 地面 → 球)。
+    // 1 フレームの描画 (CSky → 地面 → 球)。
     // sky / shader / camera / mesh は App が所有、引数で借りる形にして
     // SkyScene 側を状態の少ない関数オブジェクトに保つ。
-    void Render(acs::FSky&             sky,
-                acs::FStandardShader&  shader,
+    void Render(acs::CSky&             sky,
+                acs::CStandardShader&  shader,
                 acs::IRhiCommandList& cl,
                 const acs::CCamera&    camera,
                 const acs::FGpuMesh&   plane,

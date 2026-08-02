@@ -7,5 +7,5 @@
 #include "HelloEasyApp.h"
 
 int main() {
-    return hello00::FHelloEasyApp::Run();
+    return hello00::CHelloEasyApp::Run();
 }
