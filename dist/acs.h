@@ -28405,6 +28405,9 @@ class CSceneManager;
 /** 旧公開名から正規scene管理型へ接続する互換別名。 */
 using FSceneManager = CSceneManager;
 
+/** scene描画資源をgame寿命で共有する正規型。 */
+class CSceneRenderResources;
+
 /** sceneへ共有機能を渡す正規型。 */
 class CSceneServices;
 /** 旧公開名から正規scene共有機能型へ接続する互換別名。 */
@@ -28461,6 +28464,7 @@ using game::AScene;
 using game::AScene2D;
 using game::CScene3D;
 using game::CSceneManager;
+using game::CSceneRenderResources;
 using game::CSceneServices;
 using game::editor_core::AEditorCommand;
 using game::editor_core::AEditorPanel;
@@ -31697,7 +31701,7 @@ using FAchievementManager = CAchievementManager;
 // pull するだけで一日の表情が出る。
 //
 // 使い方:
-//   class FWorldScene : public AScene {
+//   class AWorldScene : public AScene {
 //       acs::game::CAmbientDirector m_Ambient;
 //
 //       void OnEnter() noexcept override {
@@ -33100,7 +33104,7 @@ private:
 //   個別 path の FAssetFuture を散在管理する代わりに 1 つの bundle で扱える。
 //
 // 使い方 (典型例):
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       acs::game::CAssetBundle m_Bundle;
 //       void OnEnter() noexcept override {
 //           m_Bundle.Add("textures/hero.png");
@@ -35430,7 +35434,7 @@ using FBuffSystem = CBuffSystem;
 // CSceneServices 経由で自動 tick (`ESvc::Camera2D` を WantedServices に含める)。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //   public:
 //       ESvc WantedServices() const noexcept override {
 //           return ESvc::Default2D | ESvc::Camera2D;
@@ -36106,7 +36110,7 @@ private:
 // 提供する。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       void OnEnter() noexcept override {
 //           // CCamera2D が IShakeTarget を派生していれば直接渡せる:
 //           // CCameraShakePresets::ApplyPreset(Services().Camera(),
@@ -36368,7 +36372,7 @@ using FCameraShakePresets = CCameraShakePresets;
 // アクセサで「いまフレームでカメラがどこを写しているか」を取得する。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       acs::game::CCamera2D  m_FollowCam;     // プレイヤー追従カメラ
 //       acs::game::CCamera2D  m_CinematicCam;  // 演出用カメラ (固定 or 別追従)
 //       acs::game::CCameraStack m_Stack;
@@ -37462,7 +37466,7 @@ using FCheckpointSystem = CCheckpointSystem;
 //      を担保するため機械的に禁止。AScene にメンバとして 1 個埋め込む想定。
 //
 // 使い方:
-//   class FOpeningScene : public AScene {
+//   class AOpeningScene : public AScene {
 //       CCinematicsDirector m_Cine;
 //       void OnEnter() noexcept override {
 //           FTimelineKeyframe kf;
@@ -37481,9 +37485,9 @@ using FCheckpointSystem = CCheckpointSystem;
 //           kf.payload.dialogue = {"line_intro_001"};
 //           m_Cine.AddKeyframe(kf);
 //
-//           m_Cine.SetCameraCallback(&FOpeningScene::DoMoveCamera, this);
-//           m_Cine.SetDialogueCallback(&FOpeningScene::DoShowDialogue, this);
-//           m_Cine.SetMusicCallback(&FOpeningScene::DoPlayMusic, this);
+//           m_Cine.SetCameraCallback(&AOpeningScene::DoMoveCamera, this);
+//           m_Cine.SetDialogueCallback(&AOpeningScene::DoShowDialogue, this);
+//           m_Cine.SetMusicCallback(&AOpeningScene::DoPlayMusic, this);
 //           m_Cine.Play();
 //       }
 //       void OnUpdate(f32 dt) noexcept override { m_Cine.Tick(dt); }
@@ -37829,7 +37833,7 @@ private:
 // `CSceneClock`。役割は「シーンの感じる時間 = pause/slow-mo を反映する論理時間」。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //   public:
 //       void OnUpdate(f32 dt) noexcept override {
 //           m_Clock.Tick(dt);
@@ -39920,7 +39924,7 @@ using FCraftingSystem = CCraftingSystem;
 //   重複すると death cam の trigger 整合性が壊れるので機械的に禁止。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       CDamageFeedback m_Dmg;
 //       void OnPlayerHit(f32 amount, FVec2 attacker_pos) noexcept {
 //           const FVec2 to_player = player.Position() - attacker_pos;
@@ -40253,7 +40257,7 @@ private:
 // しない (テスト / Headless 環境でも動作)。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       acs::game::CDebugOverlay m_Overlay;
 //       void OnEnter() noexcept override {
 //           m_Overlay.Init();
@@ -42528,7 +42532,7 @@ using FDungeonGenerator = CDungeonGenerator;
 //     holder」で、ゲーム側の戦闘ロジックが乗数を pull して使う構造。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       acs::game::CDynamicDifficulty m_Dda;
 //       void OnEnter() noexcept override {
 //           m_Dda.Init(acs::game::EDifficultyLevel::Adaptive);
@@ -43166,7 +43170,7 @@ using FEconomyDirector = CEconomyDirector;
 //      ゲームコード側が consume 順序を意識する必要は無い。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       CEffectSystem m_Fx;
 //       void OnHit() noexcept {
 //           m_Fx.Flash({1,1,1}, 0.8f, 0.15f);   // 白フラッシュ 150ms
@@ -43538,7 +43542,7 @@ public:
     /**
      * 水面より上のシーンを映す平面反射を設定する。
      *
-     * @details AScene2D::SetReflectionEnabled(true) が前提で、RT が rc に配線されていなければ無視される。
+     * @details AScene::SetReflectionEnabled(true) が前提で、RT が rc に配線されていなければ無視される。
      * @param enable true で反射を有効化。
      * @param tint 反射の色味。
      * @param alpha 反射の強さ。
@@ -44498,8 +44502,8 @@ using FEntitlementRegistry = CEntitlementRegistry;
 // エントリポイント生成マクロ (ACS_GAME_MAIN)
 //
 // 使い方:
-//   class FMyGame : public acs::game::CGame { ... };
-//   ACS_GAME_MAIN(FMyGame)
+//   class CMyGame : public acs::game::CGame { ... };
+//   ACS_GAME_MAIN(CMyGame)
 //
 // 中身は acs/app/EntryPoint.h の ACS_DEFINE_MAIN を CGame 派生向けに薄く
 // ラップしたもの。将来 AppState の自動初期化や
@@ -45496,7 +45500,7 @@ private:
 // フラッシュ・クロスフェードが成立する。
 //
 // 使い方:
-//   class FTitleScene : public AScene {
+//   class ATitleScene : public AScene {
 //       acs::game::CFadeTransition m_Fade;
 //       void OnEnter() noexcept override {
 //           // 画面が黒から徐々に明けるフェードイン
@@ -45506,7 +45510,7 @@ private:
 //           m_Fade.Tick(dt);
 //           if (m_Fade.IsMidPause()) {
 //               // FadeInOut の暗転中: ここでシーン切替
-//               Manager().ChangeScene<FGameplayScene>();
+//               Manager().ChangeScene<AGameplayScene>();
 //           }
 //       }
 //       void OnRender() noexcept override {
@@ -45816,13 +45820,13 @@ private:
 // InitialScene() を override して最初の AScene を返すだけでよい。
 //
 // 使い方:
-//   class FMyGame : public acs::CGame {
+//   class CMyGame : public acs::CGame {
 //   protected:
 //       acs::TUniquePtr<acs::AScene> InitialScene() noexcept override {
-//           return acs::MakeUnique<FTitleScene>();
+//           return acs::MakeUnique<ATitleScene>();
 //       }
 //   };
-//   ACS_GAME_MAIN(FMyGame)
+//   ACS_GAME_MAIN(CMyGame)
 //
 // CSceneManager 駆動 + FRenderContext 配線。固定タイムステップ accumulator +
 // AppState 型消去永続状態 + AScene への dt は time_scale 乗算済を渡す。
@@ -47569,24 +47573,6 @@ using FSpriteBatch = CSpriteBatch;
 
 // ===================== gameframework/Scene.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — AScene 基底
-//
-// 1 つの画面/状態を 1 つの AScene サブクラスで書く。CGame がスタック上で
-// 切り替え・更新・描画する。AScene の override は全て `noexcept`。
-//
-// 使い方:
-//   class FTitleScene : public acs::AScene {
-//   public:
-//       void OnEnter()      noexcept override { /* 起動時の初期化 */ }
-//       void OnUpdate(f32)  noexcept override { /* ロジック */ }
-//       void OnRender(acs::FRenderContext&) noexcept override { /* 描画 */ }
-//       void OnExit()       noexcept override { /* 後片付け */ }
-//   };
-//
-// 遷移: OnUpdate 内で `Scenes().ChangeScene(MakeUnique<FNextScene>())` を呼ぶと
-// **次フレーム頭**で適用される (走査中の構造変更を避ける、1 フレーム 1 遷移)。
-//
-// 本ヘッダは lifecycle hook + CGame/CSceneManager 参照を提供する。
 
 
 // ===================== gameframework/SceneServices.h =====================
@@ -47598,7 +47584,7 @@ using FSpriteBatch = CSpriteBatch;
 // CGame/CSceneManager が自動で tick + scene 切替に追従。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //   public:
 //       ESvc WantedServices() const noexcept override {
 //           return ESvc::Default2D;  // Clock | Tweens | Sequences | Input
@@ -47639,7 +47625,7 @@ using FSpriteBatch = CSpriteBatch;
 // std::function 非使用方針と整合)。Easing は関数ポインタで指定。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       acs::game::CTweenManager m_Tweens;
 //       acs::FVec3 m_Color{0, 0, 0};
 //
@@ -47927,7 +47913,7 @@ using FTweenManager = CTweenManager;
 //     時間と一体化させたいため。完了時は最終値を正確に書く。
 //
 // 使い方:
-//   class FTitleScene : public AScene {
+//   class ATitleScene : public AScene {
 //       CSequenceRunner m_Seqs;
 //       FVec3 m_LogoColor;
 //       void OnEnter() noexcept override {
@@ -47935,12 +47921,12 @@ using FTweenManager = CTweenManager;
 //           s.Wait(0.3f)
 //            .Tween(&m_LogoColor, FVec3{0,0,0}, FVec3{1,1,1}, 0.5f, Easing::OutCubic)
 //            .Wait(1.0f)
-//            .Call(&FTitleScene::FadeOutBegin, this);
+//            .Call(&ATitleScene::FadeOutBegin, this);
 //           m_Seqs.Start(Move(s));
 //       }
 //       void OnUpdate(f32 dt) noexcept override { m_Seqs.Tick(dt); }
 //       static void FadeOutBegin(void* self) noexcept {
-//           static_cast<FTitleScene*>(self)->_ready_to_quit = true;
+//           static_cast<ATitleScene*>(self)->_ready_to_quit = true;
 //       }
 //   };
 
@@ -49397,7 +49383,7 @@ public:
      * 画面ピクセル座標をワールド座標へ変換する (マウスピッキング用)。
      *
      * @details
-     * 入力は左上原点の画面ピクセル (CInput::MousePos() の値)。AScene2D のレンダリング
+     * 入力は左上原点の画面ピクセル (CInput::MousePos() の値)。AScene のレンダリング
      * (ppu * camera zoom、camera 中心) と厳密に逆対応するので、CCamera2D::ScreenToWorld
      * (ppu 非考慮) ではなくこちらを使う。画面サイズは直近の OnRender でキャッシュした値を用いる。
      * @param screen_px 変換する画面ピクセル座標 (左上原点)。
@@ -49486,16 +49472,27 @@ public:
      */
     bool StencilMaskEnabled() const noexcept { return m_StencilMaskEnabled; }
 
-    /** シーン入場時に OnReady を呼ぶ。 */
+    /**
+     * シーン入場時の利用者フック。
+     *
+     * @details CSceneManager は root へ services を配線してから呼び、戻った後に既存componentへ
+     * servicesを通知する。既定実装はOnReadyを呼ぶ。override側からbaseを呼ぶ必要はない。
+     */
     virtual void OnEnter() noexcept;
 
-    /** シーン退場時に構造変更を解決し、物理・トゥイーン・スプライトバッチを後始末する。 */
+    /**
+     * シーン退場時の利用者フック。
+     *
+     * @details CSceneManager はこの呼出後に構造変更と要求済みserviceを必ず後始末する。
+     * override側からbaseを呼ぶ必要はない。
+     */
     virtual void OnExit() noexcept;
 
     /**
      * 毎フレームの update。
      *
-     * @details OnTick → root の UpdateTree → 構造変更解決の順で実行する。
+     * @details 既定実装はOnTickを呼ぶ。CSceneManagerはこの呼出後にrootのUpdateTreeと
+     * 構造変更解決を必ず実行する。
      * @param dt 経過秒。
      */
     virtual void OnUpdate(f32 dt) noexcept;
@@ -49503,7 +49500,8 @@ public:
     /**
      * 固定刻みの update。
      *
-     * @details OnFixedTick → root の FixedUpdateTree → 構造変更解決の順で実行する。
+     * @details 既定実装はOnFixedTickを呼ぶ。CSceneManagerはこの呼出後にrootの
+     * FixedUpdateTreeと構造変更解決を必ず実行する。
      * @param fixed_dt 固定刻みの秒。
      */
     virtual void OnFixedUpdate(f32 fixed_dt) noexcept;
@@ -49513,6 +49511,8 @@ public:
      *
      * @details FRenderContext は CGame が game 寿命で共有する CSpriteBatch / FFont /
      * 現フレームの IRhiCommandList を持つ (docs/SceneUnification.md)。
+     * 標準のroot描画へ追加する場合はOnDrawWorld/OnDrawHudをoverrideする。OnRender自体のoverrideは
+     * 標準pipelineを置き換える互換経路なので、必要ならAScene::OnRenderを明示して呼ぶ。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
     virtual void OnRender(FRenderContext& rc) noexcept;
@@ -49524,8 +49524,8 @@ protected:
     /**
      * World サブシステムの初期化直後に呼ばれる内部フック(OnEnter より前)。
      *
-     * @details AScene2D が override してルートノードへサブシステム束を配線し、
-     * 配下のノード/コンポーネントから GetSubsystem<T>() を使えるようにする。
+     * @details AScene がルートノードへサブシステム束を配線し、配下のノード/コンポーネントから
+     * GetSubsystem<T>() を使えるようにする。
      */
     virtual void _OnWorldSubsystemsReady() noexcept;
 
@@ -49564,6 +49564,20 @@ protected:
     virtual void OnDrawHud(FRenderContext& /*rc*/, CSpriteBatch& /*sb*/) noexcept {}
 
 private:
+    friend class CSceneManager;
+
+    /** rootへのservice配線を保証してから利用者のOnEnterを呼ぶ。 */
+    void _Enter() noexcept;
+
+    /** 利用者のOnExit後にrootと要求済みserviceを後始末する。 */
+    void _Exit() noexcept;
+
+    /** 利用者のOnUpdate後にrootの更新と構造変更解決を行う。 */
+    void _Update(f32 DeltaSeconds) noexcept;
+
+    /** 利用者のOnFixedUpdate後にrootの固定更新と構造変更解決を行う。 */
+    void _FixedUpdate(f32 FixedDeltaSeconds) noexcept;
+
     /**
      * world パスを描画する (camera view を設定し root を DrawTree → OnDrawWorld)。
      *
@@ -49787,31 +49801,6 @@ using game::FRenderContext;
 
 // ===================== gameframework/SceneRenderResources.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS GameFramework — CSceneRenderResources (シーン描画リソースの game 寿命共有)
-// -----------------------------------------------------------------------------
-// シーンが描画に使う CSpriteBatch と オフスクリーン RT をまとめて保持する。
-//
-// 所有権の分離:
-//   シーン (AScene 系) が持つのは ANode ツリー、つまりオブジェクトだけとする。
-//   描画リソースはレンダラ側の責務であり、CGame が game 寿命で 1 組だけ持つ。
-//   Unity の Scene / Unreal の UWorld / Godot の SceneTree も同じ分担であり、
-//   詳細は docs/SceneUnification.md に記録する。
-//
-//   シーンごとに持つと、メニューや headless テストのシーンまで CSpriteBatch を
-//   3 本抱え、PushScene でモーダルを重ねるたびに倍加していた。共有にすることで
-//   シーン数に依存しない一定コストになる。
-//
-// 遅延生成:
-//   すべて「初回に使うまで確保しない」。反射も水深度も stencil も使わないゲームが
-//   GPU リソースを 1 つも作らない不変条件を維持する。RT は画面サイズが変わった
-//   ときだけ作り直す。
-//
-// 3 本の CSpriteBatch を分けている理由:
-//   オフスクリーン pass と合成 pass で同一バッチを使うと、頂点/定数バッファが
-//   フレーム内で上書きし合い、先行 pass の遅延 draw が後続 pass のデータを読む。
-//   pass ごとに独立したバッチを与えて GPU 実行まで各データを保持する。
-// =============================================================================
 
 
 namespace acs {
@@ -49829,6 +49818,8 @@ class FRenderContext;
  * CGame が 1 つだけ所有し、現在の top シーンが借りて使う。各 Ensure* は初回呼び出しで
  * 生成し、以後は生成済みを返す。生成に失敗した場合は false を返し、呼び出し側が
  * その機能を無効化したまま描画を続けられるようにする (致命的にしない)。
+ * world/HUD・反射・水深度の3本のCSpriteBatchは、同じframe内でGPU bufferを
+ * 上書きし合わないようpassごとに分ける。詳細な所有方針はdocs/SceneUnification.mdに記録する。
  */
 class CSceneRenderResources {
 public:
@@ -50108,7 +50099,7 @@ public:
     /**
      * 現パス用の 2D 描画バッチを配線する。
      *
-     * @details AScene2D または独自ホストが設定する。コンポーネントは CSpriteBatch を
+     * @details AScene または独自ホストが設定する。コンポーネントは CSpriteBatch を
      * 自前で持たずに HasSprites()/Sprites() で利用できる。
      * @param sb 配線する CSpriteBatch (nullptr で解除)。
      */
@@ -50154,7 +50145,7 @@ public:
     /**
      * 反射用シーンテクスチャを配線する。
      *
-     * @details AScene2D が world をオフスクリーン RT に焼いて配線する。水が per-vertex
+     * @details AScene が world をオフスクリーン RT に焼いて配線する。水が per-vertex
      * 鏡像 UV でこれをサンプルし planar reflection を出す。
      * @param tex 配線する反射テクスチャ (nullptr で解除)。
      */
@@ -50978,7 +50969,7 @@ public:
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar B — CScene3D
 //
-// 3D シーングラフの実用コンテナ (AScene2D の軽量 3D 版)。root ANode ツリーを所有し、
+// AScene と独立した 3D シーングラフの実用コンテナ。root ANode ツリーを所有し、
 // update/fixed-update の伝播 + 構造変更の解決をまとめて行う。描画は «3D レンダラ» が
 // 別途このツリーを走査して AMeshComponent3D 等を読む (本クラスは GPU 非依存)。
 //
@@ -57013,7 +57004,7 @@ private:
 // SPDX-License-Identifier: Apache-2.0
 // ASprite2DComponent - ANode 向けの最小 render component。
 //
-// AScene2D が FRenderContext に設定した CSpriteBatch を通じて、色付き矩形または
+// AScene が FRenderContext に設定した CSpriteBatch を通じて、色付き矩形または
 // texture を描画する。Size は world 単位で、owner transform から
 // position/rotation/scale を取得する。
 
@@ -57028,7 +57019,7 @@ namespace acs::game {
  * ANode に色付き矩形 / テクスチャを描く最小の描画コンポーネント。
  *
  * @details
- * AScene2D が FRenderContext に差し込んだ CSpriteBatch を通じて、owner の world
+ * AScene が FRenderContext に差し込んだ CSpriteBatch を通じて、owner の world
  * transform を pivot に矩形 1 枚を積む。サイズは world 単位で、位置・回転・スケールは
  * owner の transform から供給される。テクスチャ未設定なら tint 色の塗り潰し矩形を、
  * 設定済みなら UV サブ矩形 + tint でテクスチャを描く。
@@ -63783,7 +63774,7 @@ private:
 //   など) を改善する位置付け。
 //
 // 使い方 (典型例):
-//   class FTitleScene : public AScene {
+//   class ATitleScene : public AScene {
 //       CUiLayer m_Ui;
 //       u32     m_PlayBtn = 0;
 //       void OnEnter() noexcept override {
@@ -64297,7 +64288,7 @@ private:
 //   pull するだけで天候表情を反映できる。
 //
 // 使い方:
-//   class FWorldScene : public AScene {
+//   class AWorldScene : public AScene {
 //       acs::game::CWeatherSystem m_Weather;
 //
 //       void OnEnter() noexcept override {
@@ -65224,7 +65215,7 @@ using FLlmSafetyPipeline = CLlmSafetyPipeline;
 //     ても no-op になるよう冪等。
 //
 // 使い方:
-//   class FTutorialScene : public AScene {
+//   class ATutorialScene : public AScene {
 //       CTutorialFlow m_Tut;
 //       void OnEnter() noexcept override {
 //           m_Tut.AddStep({"move",  "WASD で移動してみよう", "player", true});
@@ -70358,17 +70349,17 @@ using FPerfBudget = CPerfBudget;
 // 保ったまま適用される。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       CSceneCommandQueue m_Cmds;
 //
 //       void OnUpdate(f32 dt) noexcept override {
 //           // 走査中に node 削除を要求しても安全 (Flush でまとめて実行)
 //           if (CInput::IsKeyPressed(EKey::Delete)) {
-//               m_Cmds.Enqueue("DeleteSelected", &FGameplayScene::DeleteSelected, this);
+//               m_Cmds.Enqueue("DeleteSelected", &AGameplayScene::DeleteSelected, this);
 //           }
 //           // 同 label が既にキュー上に居れば denounce (連打抑制)
 //           if (held) {
-//               m_Cmds.EnqueueIfAbsent("Refresh", &FGameplayScene::RefreshUi, this, /*priority=*/50);
+//               m_Cmds.EnqueueIfAbsent("Refresh", &AGameplayScene::RefreshUi, this, /*priority=*/50);
 //           }
 //       }
 //       void OnDraw() noexcept override {
@@ -70908,7 +70899,7 @@ using FSocialModeration = CSocialModeration;
 //   バインドして、CSpatialAudio が計算した volume * pan を per-voice に書き込む。
 //
 // 使い方:
-//   class FWorldScene : public AScene {
+//   class AWorldScene : public AScene {
 //       acs::game::CSpatialAudio m_Spatial;
 //
 //       void OnEnter() noexcept override {
@@ -73808,11 +73799,11 @@ using FScoreSystem = CScoreSystem;
 // 全 wave 完了の state machine を内包する。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       acs::game::CWaveSpawner m_Waves;
 //
 //       static void OnSpawn(void* self, const char* enemy_id, acs::FVec2 pos) noexcept {
-//           auto* s = static_cast<FGameplayScene*>(self);
+//           auto* s = static_cast<AGameplayScene*>(self);
 //           s->SpawnEnemyAt(enemy_id, pos);
 //       }
 //       static void OnWaveState(void* self, u32 idx,
@@ -80866,7 +80857,7 @@ void DebugDrawRigidWorld(const CRigidWorld2D& world, CDebugDraw& dd,
 //   cfg.player_count   = 2;
 //   cfg.history_length = 8;      // 8 tick まで巻き戻せる
 //   session.Init(&world, cfg);
-//   session.SetSimCallback(&FMyGame::SimTick, this);
+//   session.SetSimCallback(&CMyGame::SimTick, this);
 //
 //   // 毎 tick:
 //   session.SubmitInput(local_input);            // 自分の入力 (確定)
