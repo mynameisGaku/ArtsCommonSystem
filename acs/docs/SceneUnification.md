@@ -17,6 +17,35 @@
    `using` alias を一時的に残す。symbol shim は設けない。
 4. 命名規約は [`StyleGuide.md`](StyleGuide.md) §2.1 と [`TypeRoleAudit.md`](TypeRoleAudit.md)
    の役割表に従う。統一シーンは owner に所有され多態的に扱われる object なので `A`。
+5. **既存エンジンの構造を参照して設計する**。Unity の `Scene`、Unreal の `UWorld` /
+   `ULevel`、Godot の `SceneTree` はいずれもシーン型を 1 本しか持たず、2D/3D の差は
+   カメラの投影とコンポーネントで表現する。シーン型を分けない方針はこれに一致する。
+
+## 所有権の分離 (設計判断)
+
+`AScene2D` の中身を丸ごと `AScene` へ移してはならない。`AScene2D` は
+**オブジェクト所有と描画リソース所有を 1 クラスに同居させている**ため、そのまま移すと
+`Scene.h` が `render/SpriteBatch.h` と RHI へ依存し (現状は foundation / memory /
+gameframework のみ)、かつ全シーンが `CSpriteBatch` 3 本と RT 群を抱える。メニューシーンや
+headless なテストシーンも同じコストを払い、モーダルを `PushScene` すれば倍加する。
+
+上記 3 エンジンはいずれも、シーンが持つのはオブジェクトツリーだけで、描画リソースは
+レンダラ側 (RenderPipeline / FSceneRenderer / RenderingServer) が保持する。これに合わせる。
+
+| 対象 | 移す先 | 根拠 |
+|---|---|---|
+| root `ANode` ツリー | `AScene` が常に所有 | 全エンジンでシーンの本務。2D/3D で分けない |
+| `CNodePool` (`CScene3D` 由来) | `AScene` が常に所有 | 同上。「2D シーンでは確保しない」最適化はしない |
+| `CSpriteBatch` × 3 | `CGame` が game 寿命で共有 | 描画リソースはレンダラ側の責務 |
+| 反射 RT / 水深度 RT / stencil | レンダラ側で遅延生成 | 使わないシーンがコストを払わない不変条件を維持 |
+
+`CSpriteBatch` の移設先を `CGame` とするのは、ACS 内に同じ前例があるためである。
+`FRenderContext::_SetFont` は「`m_Font` は `CGame` が `_BeginFrame` 後に `_SetFont` で
+配線する (game 寿命で共有)」と定めており、`_SetSpriteBatch` という seam も既に存在する。
+新しい配線経路を追加せず既存の形へ合わせられる。
+
+副次効果として、現行の「`AScene2D` を 1 つ積むごとに `CSpriteBatch` が 3 本増える」構造が
+解消される。
 
 ## 現状の責務境界 (実測)
 
@@ -111,12 +140,23 @@ non-force main push を 1 単位とする。
 
 ### Phase 1 — 描画配線を `AScene` へ引き上げ
 
-`AScene` に root `ANode`、`CSpriteBatch`、`OnDrawWorld` / `OnDrawHud`、world/HUD 2 パスを
-移す。`AScene2D` は移動後の機能を継承するだけの空派生にする。この時点で
+「所有権の分離」に従い、2 段に分ける。
+
+**1a. `CSpriteBatch` を `CGame` へ移す。** `AScene2D` の `m_Sprites` /
+`m_SceneSprites` / `m_WaterDepthSprites` と `Ensure*Sprites` を `CGame` へ移し、
+`FRenderContext::_SetSpriteBatch` で配線する (`_SetFont` と同じ経路)。RT と stencil も
+同時に移す。`Scene.h` へ `render/SpriteBatch.h` を持ち込まないこと。この段だけで
+`AScene2D` の描画リソース所有が消え、シーン側は借り物を使う形になる。
+
+**1b. root `ANode` と描画フックを `AScene` へ引き上げる。** `m_Root`、`Root()`、
+`OnDrawWorld` / `OnDrawHud`、`OnReady` / `OnTick` / `OnFixedTick`、world/HUD 2 パス、
+camera / PPU / `ScreenToWorld` を `AScene` へ移す。`AScene2D` は
+`WantedServices()` の既定値だけを変える空派生になる。この時点で
 **素の `AScene` 派生から 2D 描画ができる**ようになり、実害が消える。
 
 検証: 既存 samples (`55` / `58` / `59` / `60` / `63`) が無改変で動くこと。
 `ACS.UnitTests`、`component_services_tests`、`spawn_subsystem_tests` が緑。
+`Scene.h` の include が foundation / memory / gameframework のみであること。
 
 ### Phase 2 — ノードグラフを `AScene` へ吸収
 
