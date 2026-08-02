@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-#include "gameframework/Scene2D.h"
+#include "gameframework/Scene.h"
 
 #include "gameframework/RenderContext.h"
 #include "gameframework/SceneServices.h"
@@ -20,7 +20,7 @@
 namespace acs::game {
 
 /** World サブシステムを root へ公開し、2D 専用生成先を型付きで接続する。 */
-void AScene2D::_OnWorldSubsystemsReady() noexcept
+void AScene::_OnWorldSubsystemsReady() noexcept
 {
     m_Root->_SetSubsystems(_WorldSubsystemsPtr());
     ASpawn2DSubsystem* const Spawner = GetSubsystem<ASpawn2DSubsystem>();
@@ -28,7 +28,7 @@ void AScene2D::_OnWorldSubsystemsReady() noexcept
 }
 
 /** シーン入場時に root へ services を配線し、派生の初期化フック OnReady を呼ぶ。 */
-void AScene2D::OnEnter() noexcept {
+void AScene::OnEnter() noexcept {
     // OnReady より «前» に配線 → OnReady 中に AddComponent された分は SceneServices() が解決でき
     // 即時 OnAttachServices 発火する。OnReady 後の _ActivateServices は配線前に在ったものへの catch-up。
     if (HasServices()) m_Root->_SetSceneServices(_ServicesOrNull());
@@ -37,44 +37,53 @@ void AScene2D::OnEnter() noexcept {
 }
 
 /** シーン退場時に構造変更を解決し、物理・トゥイーン・スプライトバッチを後始末する。 */
-void AScene2D::OnExit() noexcept {
+void AScene::OnExit() noexcept {
     m_Root->ResolveStructuralChanges();
+    // AScene2D は必ず Physics2D/Tweens を要求したが、AScene の既定は ESvc::None なので
+    // service ごとに要求済みかを確認する (docs/SceneUnification.md)。
     if (HasServices()) {
-        Services().Physics().ClearAll();
-        Services().Tweens().CancelAll();
+        if (Services().Has(ESvc::Physics2D)) Services().Physics().ClearAll();
+        if (Services().Has(ESvc::Tweens))    Services().Tweens().CancelAll();
     }
     // CSpriteBatch と RT は CGame が game 寿命で共有するため、シーン退場では解放しない
     // (docs/SceneUnification.md)。シーンを跨いで再 Init しない分、遷移コストも下がる。
 }
 
 /** CGame が共有する world/HUD 用 CSpriteBatch を返す (シーンは所有しない)。 */
-CSpriteBatch& AScene2D::SpriteBatch() noexcept {
+CSpriteBatch& AScene::SpriteBatch() noexcept {
     return GetGame().SceneRenderResources().SpriteBatch();
 }
 
 /** 毎フレーム OnTick → root の UpdateTree → 構造変更解決を実行する。 */
-void AScene2D::OnUpdate(f32 dt) noexcept {
+void AScene::OnUpdate(f32 dt) noexcept {
     OnTick(dt);
     m_Root->UpdateTree(dt);
     m_Root->ResolveStructuralChanges();
 }
 
 /** 固定刻みで OnFixedTick → root の FixedUpdateTree → 構造変更解決を実行する。 */
-void AScene2D::OnFixedUpdate(f32 fixed_dt) noexcept {
+void AScene::OnFixedUpdate(f32 fixed_dt) noexcept {
     OnFixedTick(fixed_dt);
     m_Root->FixedUpdateTree(fixed_dt);
     m_Root->ResolveStructuralChanges();
 }
 
+/** camera service が無いシーンでも使える view 中心を返す (無ければ原点)。 */
+FVec2 AScene::ViewCenter() noexcept {
+    if (!HasServices()) return FVec2{0.0f, 0.0f};
+    return Services().Camera().EffectiveViewCenter();
+}
+
+/** camera service が無いシーンでも使える zoom を返す (無ければ等倍)。 */
+f32 AScene::ViewZoom() noexcept {
+    if (!HasServices()) return 1.0f;
+    return Services().Camera().Zoom();
+}
+
 /** 画面ピクセル座標をワールド座標へ変換する (camera 中心・zoom・ppu を逆適用)。 */
-FVec2 AScene2D::ScreenToWorld(FVec2 screen_px) noexcept {
-    FVec2 vc{0.0f, 0.0f};
-    f32   zoom = 1.0f;
-    if (HasServices()) {
-        CCamera2D& cam = Services().Camera();
-        vc   = cam.EffectiveViewCenter();
-        zoom = cam.Zoom();
-    }
+FVec2 AScene::ScreenToWorld(FVec2 screen_px) noexcept {
+    const FVec2 vc   = ViewCenter();
+    const f32   zoom = ViewZoom();
     const f32 scale = m_PixelsPerUnit * zoom;
     const f32 inv   = scale > 1e-6f ? 1.0f / scale : 0.0f;
     return FVec2{ vc.x + (screen_px.x - static_cast<f32>(m_ScreenW) * 0.5f) * inv,
@@ -174,11 +183,12 @@ static void CollectLightsAndOccluders(ANode& node,
 }
 
 /** camera view を設定し、ライトを収集してから root を DrawTree、OnDrawWorld を呼ぶ。 */
-void AScene2D::DrawWorldPass(FRenderContext& rc) noexcept {
+void AScene::DrawWorldPass(FRenderContext& rc) noexcept {
     CSpriteBatch& sb = rc.Sprites();   // 現パスに配線されたバッチ (通常 or 反射 RT 用)
-    CCamera2D& cam = Services().Camera();
-    const FVec2 center = cam.EffectiveViewCenter();
-    sb.SetView(center.x, center.y, m_PixelsPerUnit * cam.Zoom());
+    // Camera2D を要求しないシーン (AScene の既定 ESvc::None) でも描けるよう、
+    // ScreenToWorld と同じフォールバック (原点中心・等倍) を使う。
+    const FVec2 center = ViewCenter();
+    sb.SetView(center.x, center.y, m_PixelsPerUnit * ViewZoom());
     // lit スプライト (PBR マテリアル) 用に 2D ライト + 影オクルーダーを収集する。
     // lit ノードもライトも無いシーンでは SetLights を呼ばない (lit パイプラインを作らない)。
     FSpriteLight   lights[16];
@@ -195,7 +205,7 @@ void AScene2D::DrawWorldPass(FRenderContext& rc) noexcept {
 }
 
 /** 画面中心の view を設定し OnDrawHud を呼ぶ (カメラ非依存の HUD 描画)。 */
-void AScene2D::DrawHudPass(FRenderContext& rc) noexcept {
+void AScene::DrawHudPass(FRenderContext& rc) noexcept {
     CSpriteBatch& sb = rc.Sprites();
     sb.SetView(static_cast<f32>(rc.Width()) * 0.5f,
                static_cast<f32>(rc.Height()) * 0.5f, 1.0f);
@@ -203,16 +213,15 @@ void AScene2D::DrawHudPass(FRenderContext& rc) noexcept {
 }
 
 /** 反射/ステンシル設定に応じて単一〜複数パスでシーンを描画する。 */
-void AScene2D::OnRender(FRenderContext& rc) noexcept {
+void AScene::OnRender(FRenderContext& rc) noexcept {
     // 描画リソースは CGame が game 寿命で共有する (docs/SceneUnification.md)。
     CSceneRenderResources& res = GetGame().SceneRenderResources();
     if (!res.EnsureSpriteBatch(rc)) return;
     m_ScreenW = rc.Width();        // picking 用に画面サイズをキャッシュ
     m_ScreenH = rc.Height();
     CSpriteBatch& sb = res.SpriteBatch();
-    CCamera2D& cam = Services().Camera();
-    const FVec2 center = cam.EffectiveViewCenter();
-    const f32 scale = m_PixelsPerUnit * cam.Zoom();
+    const FVec2 center = ViewCenter();
+    const f32 scale = m_PixelsPerUnit * ViewZoom();
     rc._SetView2D(center, scale);   // 反射等の world→screen 投影用に配線
 
     // マスク用 stencil バッファ (有効かつ作成成功時のみ)。world パスで DSV として bind。

@@ -61,8 +61,8 @@ ACS_TEST(SpawnSubsystem, NoOwnerIsSafe) {
     EXPECT_TRUE(orphan.SpawnPrefabText(kBullet, FVec2{ 0.0f, 0.0f }) == nullptr);
 }
 
-/** 2D 以外の Scene は同じ World 登録を持っても生成先へ接続されない。 */
-ACS_TEST(SpawnSubsystem, PlainSceneOwnerIsSafe)
+/** シーン統一後は素の AScene も root を持つので、生成先へ接続され spawn できる。 */
+ACS_TEST(SpawnSubsystem, PlainSceneOwnerSpawnsIntoRoot)
 {
     EXPECT_TRUE(AcsRegisterGameFrameworkSubsystems());
     AScene scene;
@@ -70,6 +70,9 @@ ACS_TEST(SpawnSubsystem, PlainSceneOwnerIsSafe)
     ASpawn2DSubsystem* const spawner = scene.GetSubsystem<ASpawn2DSubsystem>();
     EXPECT_TRUE(spawner != nullptr);
     if (spawner != nullptr) {
-        EXPECT_TRUE(spawner->SpawnPrefabText(kBullet, FVec2{0.0f, 0.0f}) == nullptr);
+        // 未 bind / 誤 owner の null 安全は OrphanOwnerIsSafe 側が独立に固定している。
+        ANode* const spawned = spawner->SpawnPrefabText(kBullet, FVec2{0.0f, 0.0f});
+        EXPECT_TRUE(spawned != nullptr);
+        EXPECT_TRUE(scene.Root().ChildCount() > 0u);
     }
 }

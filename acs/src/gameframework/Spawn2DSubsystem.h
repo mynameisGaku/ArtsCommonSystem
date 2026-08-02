@@ -30,9 +30,9 @@ public:
     ANode* SpawnPrefabFile(const char* Path, FVec2 Position) noexcept;
 
 private:
-    friend class AScene2D;
+    friend class AScene;
 
-    /** AScene2D の初期化成功後にだけ生成先ルートを接続する。 */
+    /** AScene の初期化成功後にだけ生成先ルートを接続する。 */
     void BindTargetRoot(ANode* Root) noexcept { m_TargetRoot = Root; }
 
     /** 生成先の 2D シーンルート。所有しない。 */

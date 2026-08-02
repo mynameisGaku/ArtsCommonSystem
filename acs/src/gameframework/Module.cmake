@@ -98,7 +98,7 @@ set(_acsgen_gameframework_sources
     RollbackSession.cpp
     SaveArchive.cpp
     SaveSlot.cpp
-    Scene2D.cpp
+    Scene.cpp
     Scene3D.cpp
     Scene3DSerialize.cpp
     SceneCommandQueue.cpp
@@ -273,6 +273,7 @@ set(_acsgen_gameframework_headers
     SceneCommandQueue.h
     SceneEventBus.h
     SceneManager.h
+    SceneRenderResources.h
     SceneSerialize.h
     SceneServices.h
     SceneTextLoader.h
