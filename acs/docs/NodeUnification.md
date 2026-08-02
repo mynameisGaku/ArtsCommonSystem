@@ -101,6 +101,8 @@
   読み込み時は既知コンポーネントの反射 payload 全体を検証してから attach し、破損や
   未消費の余剰 bytes があれば部分シーンを返さない。
 - `AScene2D` / `CScene3D`は`TObjectPtr<ANode>`でrootを所有する（シーン自体の統合は次期フェーズ）。
+  この次期フェーズの設計、責務境界の実測、影響範囲、不変条件、移行手順は
+  [`SceneUnification.md`](SceneUnification.md) に切り出した（未実装）。
 - `acs_editor_node_*` / `acs_editor_node3d_*` は C# editor と native DLL 間で互換維持する
   C ABI の export 名であり、C++ 型名ではない。内部実装は `ANode` に統一済みだが、
   P/Invoke の entry point は既存 editor/project との ABI を壊さないため改名しない。
