@@ -11,7 +11,7 @@
 
 ## 最小例
 
-フレーム先頭で `FInput::Update()` を 1 回呼んでから読む、が大原則です（`FApplication` / `FGame` を使う場合はフレームワークが代行するので不要 — 下の「注意点」参照）。
+フレーム先頭で `CInput::Update()` を 1 回呼んでから読む、が大原則です（`CApplication` / `CGame` を使う場合はフレームワークが代行するので不要 — 下の「注意点」参照）。
 
 ```cpp
 #include "platform/Input.h"
@@ -131,7 +131,7 @@ enum class EGamepadAxis : u8 {
 
 ### 1. マウスでワールド座標を拾う（ピッキング）
 
-`MousePos()` はクライアント px なので、必ず `ScreenToWorld` を通します。`FScene2D` 派生シーン内では基底クラスの `ScreenToWorld(...)` ヘルパが使えます（ppu = pixels-per-unit を考慮）。
+`MousePos()` はクライアント px なので、必ず `ScreenToWorld` を通します。`AScene` 派生シーン内では基底クラスの `ScreenToWorld(...)` ヘルパが使えます（ppu = pixels-per-unit を考慮）。
 
 ```cpp
 // 実サンプル 61_HelloWaterTopDown を弱参照で安全にした形
@@ -152,11 +152,11 @@ void OnTick(f32 dt) noexcept override {
 `Root().AddChild(Move(node))` へ渡す前に代入します。ツリーから破棄された後は `Get()` が
 `nullptr` になるため、長期間保持する生ポインタより安全です。
 
-> シーンの外（生ウィンドウ）では `FCamera2D::ScreenToWorld(screen, screen_w, screen_h)` を使います。こちらは画面サイズを明示する必要があります。
+> シーンの外（生ウィンドウ）では `CCamera2D::ScreenToWorld(screen, screen_w, screen_h)` を使います。こちらは画面サイズを明示する必要があります。
 
 ### 2. アクションマッピングで移動 + 射撃（FInputMap）
 
-セットアップ（シーン開始時に 1 回）と消費を分けて書きます。`Services().Input()` は `FScene2D` が持つ共有 `FInputMap`。
+セットアップ（シーン開始時に 1 回）と消費を分けて書きます。`Services().Input()` は `AScene2D` が要求する共有 `FInputMap`。
 
 ```cpp
 // 実サンプル 38_HelloFullGame: OnEnter でバインド
@@ -209,7 +209,7 @@ LookHorizontal(look_x);
 
 - **`Pressed` はそのフレームだけ**。`IsKeyPressed` / `IsMouseButtonPressed` は立ち上がりエッジ。「押されている間」が欲しいなら `IsKeyDown` / `IsHeld`。逆にトグルでエッジが欲しいのに `Down` を使うと毎フレーム反転して暴れる。
 - **`MousePos()` はクライアント座標 (px)**。ワールド座標と混同しない。スプライトに当てる前に必ず `ScreenToWorld(...)` を通す。`MouseDelta()` も px 単位。
-- **`FInput::Update()` の呼び出し場所**。生ウィンドウループでは毎フレーム先頭で自分で呼ぶ。`FApplication`/`FGame`（サンプル 28/38/55〜61 系）ではフレームワークが代行するので、`OnUpdate`/`OnTick` 内で **重ねて呼ばない**。
+- **`CInput::Update()` の呼び出し場所**。生ウィンドウループでは毎フレーム先頭で自分で呼ぶ。`CApplication`/`CGame`（サンプル 28/38/55〜61 系）ではフレームワークが代行するので、`OnUpdate`/`OnTick` 内で **重ねて呼ばない**。
 - **複数バインドは OR**。1 アクションに `BindKey`+`BindGamepad` を重ねると、どれか 1 つでも該当で `IsPressed/IsHeld/IsReleased` が true。「全部押す」AND セマンティクスは無い。
 - **軸キーの相殺**。`BindAxisKeys(neg, pos)` で *両方同時押し* は `0`（相殺）。複数の軸バインドは合算後 `clamp(-1, +1)`。
 - **軸補正は合算後**。`FInputAxisOptions`は各物理バインドではなく`Axis(action)`の最終値へ一度だけ適用される。不正な`dead_zone`、負または非有限の`scale`、非有限入力は安全に0を返す。

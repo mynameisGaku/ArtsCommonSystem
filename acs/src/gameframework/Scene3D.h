@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar B — CScene3D
 //
-// 3D シーングラフの実用コンテナ (AScene2D の軽量 3D 版)。root ANode ツリーを所有し、
+// AScene と独立した 3D シーングラフの実用コンテナ。root ANode ツリーを所有し、
 // update/fixed-update の伝播 + 構造変更の解決をまとめて行う。描画は «3D レンダラ» が
 // 別途このツリーを走査して AMeshComponent3D 等を読む (本クラスは GPU 非依存)。
 //

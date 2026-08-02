@@ -6,11 +6,11 @@
 // 全 wave 完了の state machine を内包する。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       acs::game::CWaveSpawner m_Waves;
 //
 //       static void OnSpawn(void* self, const char* enemy_id, acs::FVec2 pos) noexcept {
-//           auto* s = static_cast<FGameplayScene*>(self);
+//           auto* s = static_cast<AGameplayScene*>(self);
 //           s->SpawnEnemyAt(enemy_id, pos);
 //       }
 //       static void OnWaveState(void* self, u32 idx,

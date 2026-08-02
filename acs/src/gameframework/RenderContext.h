@@ -122,7 +122,7 @@ public:
     /**
      * 現パス用の 2D 描画バッチを配線する。
      *
-     * @details AScene2D または独自ホストが設定する。コンポーネントは CSpriteBatch を
+     * @details AScene または独自ホストが設定する。コンポーネントは CSpriteBatch を
      * 自前で持たずに HasSprites()/Sprites() で利用できる。
      * @param sb 配線する CSpriteBatch (nullptr で解除)。
      */
@@ -168,7 +168,7 @@ public:
     /**
      * 反射用シーンテクスチャを配線する。
      *
-     * @details AScene2D が world をオフスクリーン RT に焼いて配線する。水が per-vertex
+     * @details AScene が world をオフスクリーン RT に焼いて配線する。水が per-vertex
      * 鏡像 UV でこれをサンプルし planar reflection を出す。
      * @param tex 配線する反射テクスチャ (nullptr で解除)。
      */

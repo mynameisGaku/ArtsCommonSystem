@@ -41,7 +41,7 @@
 //      を担保するため機械的に禁止。AScene にメンバとして 1 個埋め込む想定。
 //
 // 使い方:
-//   class FOpeningScene : public AScene {
+//   class AOpeningScene : public AScene {
 //       CCinematicsDirector m_Cine;
 //       void OnEnter() noexcept override {
 //           FTimelineKeyframe kf;
@@ -60,9 +60,9 @@
 //           kf.payload.dialogue = {"line_intro_001"};
 //           m_Cine.AddKeyframe(kf);
 //
-//           m_Cine.SetCameraCallback(&FOpeningScene::DoMoveCamera, this);
-//           m_Cine.SetDialogueCallback(&FOpeningScene::DoShowDialogue, this);
-//           m_Cine.SetMusicCallback(&FOpeningScene::DoPlayMusic, this);
+//           m_Cine.SetCameraCallback(&AOpeningScene::DoMoveCamera, this);
+//           m_Cine.SetDialogueCallback(&AOpeningScene::DoShowDialogue, this);
+//           m_Cine.SetMusicCallback(&AOpeningScene::DoPlayMusic, this);
 //           m_Cine.Play();
 //       }
 //       void OnUpdate(f32 dt) noexcept override { m_Cine.Tick(dt); }

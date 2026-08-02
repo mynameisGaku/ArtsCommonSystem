@@ -27,17 +27,23 @@ void AScene::_OnWorldSubsystemsReady() noexcept
     if (Spawner != nullptr) Spawner->BindTargetRoot(m_Root.Get());
 }
 
-/** シーン入場時に root へ services を配線し、派生の初期化フック OnReady を呼ぶ。 */
-void AScene::OnEnter() noexcept {
-    // OnReady より «前» に配線 → OnReady 中に AddComponent された分は SceneServices() が解決でき
-    // 即時 OnAttachServices 発火する。OnReady 後の _ActivateServices は配線前に在ったものへの catch-up。
+/** rootへservicesを配線し、利用者hook後に既存componentへ通知する。 */
+void AScene::_Enter() noexcept {
+    // 利用者hookより前に配線し、hook内で追加したcomponentは即時通知する。
+    // hook後の_ActivateServicesは配線前から存在したcomponentを補う。
     if (HasServices()) m_Root->_SetSceneServices(_ServicesOrNull());
-    OnReady();
+    OnEnter();
     if (HasServices()) m_Root->_ActivateServices(Services());
 }
 
-/** シーン退場時に構造変更を解決し、物理・トゥイーン・スプライトバッチを後始末する。 */
-void AScene::OnExit() noexcept {
+/** 既定の入場hookとしてOnReadyを呼ぶ。 */
+void AScene::OnEnter() noexcept {
+    OnReady();
+}
+
+/** 利用者hook後に構造変更と要求済みserviceを後始末する。 */
+void AScene::_Exit() noexcept {
+    OnExit();
     m_Root->ResolveStructuralChanges();
     // AScene2D は必ず Physics2D/Tweens を要求したが、AScene の既定は ESvc::None なので
     // service ごとに要求済みかを確認する (docs/SceneUnification.md)。
@@ -49,34 +55,47 @@ void AScene::OnExit() noexcept {
     // (docs/SceneUnification.md)。シーンを跨いで再 Init しない分、遷移コストも下がる。
 }
 
+/** 既定の退場hook。共通後始末は_Exitが必ず実行する。 */
+void AScene::OnExit() noexcept {}
+
 /** CGame が共有する world/HUD 用 CSpriteBatch を返す (シーンは所有しない)。 */
 CSpriteBatch& AScene::SpriteBatch() noexcept {
     return GetGame().SceneRenderResources().SpriteBatch();
 }
 
-/** 毎フレーム OnTick → root の UpdateTree → 構造変更解決を実行する。 */
-void AScene::OnUpdate(f32 dt) noexcept {
-    OnTick(dt);
-    m_Root->UpdateTree(dt);
+/** 利用者hook後にrootのUpdateTreeと構造変更解決を実行する。 */
+void AScene::_Update(f32 DeltaSeconds) noexcept {
+    OnUpdate(DeltaSeconds);
+    m_Root->UpdateTree(DeltaSeconds);
     m_Root->ResolveStructuralChanges();
 }
 
-/** 固定刻みで OnFixedTick → root の FixedUpdateTree → 構造変更解決を実行する。 */
-void AScene::OnFixedUpdate(f32 fixed_dt) noexcept {
-    OnFixedTick(fixed_dt);
-    m_Root->FixedUpdateTree(fixed_dt);
+/** 既定の毎frame hookとしてOnTickを呼ぶ。 */
+void AScene::OnUpdate(f32 DeltaSeconds) noexcept {
+    OnTick(DeltaSeconds);
+}
+
+/** 利用者hook後にrootの固定更新と構造変更解決を実行する。 */
+void AScene::_FixedUpdate(f32 FixedDeltaSeconds) noexcept {
+    OnFixedUpdate(FixedDeltaSeconds);
+    m_Root->FixedUpdateTree(FixedDeltaSeconds);
     m_Root->ResolveStructuralChanges();
+}
+
+/** 既定の固定更新hookとしてOnFixedTickを呼ぶ。 */
+void AScene::OnFixedUpdate(f32 FixedDeltaSeconds) noexcept {
+    OnFixedTick(FixedDeltaSeconds);
 }
 
 /** camera service が無いシーンでも使える view 中心を返す (無ければ原点)。 */
 FVec2 AScene::ViewCenter() noexcept {
-    if (!HasServices()) return FVec2{0.0f, 0.0f};
+    if (!HasServices() || !Services().Has(ESvc::Camera2D)) return FVec2{0.0f, 0.0f};
     return Services().Camera().EffectiveViewCenter();
 }
 
 /** camera service が無いシーンでも使える zoom を返す (無ければ等倍)。 */
 f32 AScene::ViewZoom() noexcept {
-    if (!HasServices()) return 1.0f;
+    if (!HasServices() || !Services().Has(ESvc::Camera2D)) return 1.0f;
     return Services().Camera().Zoom();
 }
 

@@ -10,17 +10,17 @@
 // 保ったまま適用される。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       CSceneCommandQueue m_Cmds;
 //
 //       void OnUpdate(f32 dt) noexcept override {
 //           // 走査中に node 削除を要求しても安全 (Flush でまとめて実行)
 //           if (CInput::IsKeyPressed(EKey::Delete)) {
-//               m_Cmds.Enqueue("DeleteSelected", &FGameplayScene::DeleteSelected, this);
+//               m_Cmds.Enqueue("DeleteSelected", &AGameplayScene::DeleteSelected, this);
 //           }
 //           // 同 label が既にキュー上に居れば denounce (連打抑制)
 //           if (held) {
-//               m_Cmds.EnqueueIfAbsent("Refresh", &FGameplayScene::RefreshUi, this, /*priority=*/50);
+//               m_Cmds.EnqueueIfAbsent("Refresh", &AGameplayScene::RefreshUi, this, /*priority=*/50);
 //           }
 //       }
 //       void OnDraw() noexcept override {

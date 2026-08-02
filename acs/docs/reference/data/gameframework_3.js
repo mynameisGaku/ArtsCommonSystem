@@ -336,7 +336,7 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/FadeTransition.h",
       summary: "シーン切替時のフェード演出を司る<t>state holder</t>。描画はせず、現在の overlay の alpha・色・<t>フェーズ</t>だけを返す。フルスクリーン矩形をその色・alpha で塗れば、フェードイン / アウト / 暗転切替 / 軽いクロスフェードが成立する。",
       when: "シーン切替の暗転や、タイトル画面の明け演出を入れたい時。",
-      sample: "CFadeTransition fade;\n// 暗黒から明けるフェードイン\nfade.StartFade(EFadeKind::FadeIn, 0.0f, 0.5f);\n// 毎フレーム:\nfade.Tick(dt);\nif (fade.IsMidPause()) Manager().ChangeScene&lt;FGameplayScene&gt;();  // 暗転中に切替\n// 描画:\nif (fade.IsActive()) {\n    FVec3 c = fade.OverlayColor(); f32 a = fade.OverlayAlpha();\n    batch.FillFullScreen(c.x, c.y, c.z, a);\n}",
+      sample: "CFadeTransition fade;\n// 暗黒から明けるフェードイン\nfade.StartFade(EFadeKind::FadeIn, 0.0f, 0.5f);\n// 毎フレーム:\nfade.Tick(dt);\nif (fade.IsMidPause()) Manager().ChangeScene&lt;AGameplayScene&gt;();  // 暗転中に切替\n// 描画:\nif (fade.IsActive()) {\n    FVec3 c = fade.OverlayColor(); f32 a = fade.OverlayAlpha();\n    batch.FillFullScreen(c.x, c.y, c.z, a);\n}",
       members: [
         { sig: "void StartFade(EFadeKind kind, f32 out_duration = 0.3f, f32 in_duration = 0.3f, f32 mid_pause = 0.0f)", desc: "フェードを開始。種別と各区間の秒数を指定する。" },
         { sig: "bool IsActive() / bool IsMidPause()", desc: "演出中か / 暗転待機中か。MidPause はシーン切替の想定タイミング (mid_pause=0 でも必ず 1 Tick は true)。" },
@@ -435,7 +435,7 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/Game.h",
       summary: "ゲームアプリの基底クラス。<code>CApplication</code> を継承し、<code>CSceneManager</code> を駆動する。利用者は派生クラスで <code>InitialScene()</code> を override して最初のシーンを返すだけでよい。固定タイムステップ・time scale・シーン跨ぎの永続状態 (<t>AppState</t>)・フェード付きシーン遷移を内蔵する。",
       when: "ゲームの土台を作る時。<code>ACS_GAME_MAIN</code> マクロと組み合わせて起動する。",
-      sample: "class FMyGame : public acs::game::CGame {\nprotected:\n    acs::TUniquePtr&lt;acs::game::AScene&gt; InitialScene() noexcept override {\n        return acs::MakeUnique&lt;FTitleScene&gt;();\n    }\n};\nACS_GAME_MAIN(FMyGame)",
+      sample: "class CMyGame : public acs::game::CGame {\nprotected:\n    acs::TUniquePtr&lt;acs::game::AScene&gt; InitialScene() noexcept override {\n        return acs::MakeUnique&lt;ATitleScene&gt;();\n    }\n};\nACS_GAME_MAIN(CMyGame)",
       members: [
         { sig: "virtual TUniquePtr<AScene> InitialScene()", ret: "最初のシーン", desc: "派生クラスで必ず実装。起動時に最初に push されるシーンを返す。" },
         { sig: "CSceneManager& Scenes()", desc: "シーンスタック管理を取得 (push/pop/change)。" },
@@ -444,6 +444,7 @@ ACS_REF.modules.push({
         { sig: "T& EmplaceAppState<T>(args...) / T* AppState<T>()", desc: "シーン跨ぎで残る永続状態を構築 / 取り出す (型消去、1 個)。未設定・型不一致は nullptr。", when: "プレイヤー所持金やセーブデータをシーン間で持ち回りたい時。" },
         { sig: "void TransitionTo(TUniquePtr<AScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f)", desc: "フェードアウト → シーン切替 → フェードインを 1 行で行う。フェードは実時間で進む。" },
         { sig: "CFadeTransition& Fade()", desc: "進行中のフェード状態を参照する。" },
+        { sig: "CSceneRenderResources& SceneRenderResources()", desc: "全シーンが game 寿命で共有するスプライトバッチ・反射/水深度 RT・stencil の遅延生成束を取得する。" },
         { sig: "using FGame = CGame", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CGame</code> を使う。" }
       ]
     },
@@ -452,7 +453,7 @@ ACS_REF.modules.push({
       kind: "マクロ", header: "gameframework/EntryPoint.h",
       summary: "<t>CGame</t> 派生クラスから main エントリポイントを生成するマクロ。<code>app/EntryPoint.h</code> の <code>ACS_DEFINE_MAIN</code> を CGame 向けに薄くラップしたもの。",
       when: "ゲームクラスを定義した後、1 行書いて起動コードを生成する時。",
-      sample: "class FMyGame : public acs::game::CGame { /* ... */ };\nACS_GAME_MAIN(FMyGame)   // これだけで main() が生成される"
+      sample: "class CMyGame : public acs::game::CGame { /* ... */ };\nACS_GAME_MAIN(CMyGame)   // これだけで main() が生成される"
     },
     {
       name: "CGameFlow",

@@ -17,7 +17,7 @@
 //   バインドして、CSpatialAudio が計算した volume * pan を per-voice に書き込む。
 //
 // 使い方:
-//   class FWorldScene : public AScene {
+//   class AWorldScene : public AScene {
 //       acs::game::CSpatialAudio m_Spatial;
 //
 //       void OnEnter() noexcept override {

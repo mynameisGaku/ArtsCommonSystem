@@ -71,14 +71,14 @@ bool CSceneManager::CommitPush(TUniquePtr<AScene> Scene, bool PauseCurrent) noex
     if (PauseCurrent && !m_Stack.IsEmpty()) m_Stack.Back()->OnPause();
     // _ApplyPending が必要容量を事前確保済みなので、ここでは割り当てが発生しない。
     if (!m_Stack.TryPushBack(Move(Scene))) return false;
-    m_Stack.Back()->OnEnter();
+    m_Stack.Back()->_Enter();
     return true;
 }
 
 /** 内部 pop: top を OnExit して ring buffer へ退避し、任意で新 top を OnResume する。 */
 void CSceneManager::DoPopInternal(bool resume_new) noexcept {
     if (m_Stack.IsEmpty()) return;
-    m_Stack.Back()->OnExit();
+    m_Stack.Back()->_Exit();
     m_Stack.Back()->_DeinitWorldSubsystems();   // OnExit 後に World サブシステムを解体
     // 退場 Scene を ring buffer の現在ヘッドに格納 (3 フレーム保持)。
     // ヘッドは _ApplyPending の冒頭で前進 + 古いスロット解放済。
@@ -165,7 +165,7 @@ void CSceneManager::_Update(f32 ScaledDeltaSeconds, f32 UnscaledDeltaSeconds,
     const FSubsystemFrameContext PreContext{
         WorldDeltaSeconds, UnscaledDeltaSeconds, FrameNumber, ESubsystemTickPhase::PreUpdate};
     top->_TickWorldSubsystems(PreContext);
-    top->OnUpdate(WorldDeltaSeconds);
+    top->_Update(WorldDeltaSeconds);
     if (svc != nullptr) svc->_PostUpdate(WorldDeltaSeconds);
     /** World の更新後コンテキスト。 */
     const FSubsystemFrameContext PostContext{
@@ -177,7 +177,7 @@ void CSceneManager::_Update(f32 ScaledDeltaSeconds, f32 UnscaledDeltaSeconds,
 void CSceneManager::_FixedUpdate(f32 fixed_dt) noexcept {
     AScene* top = Top();
     if (!top) return;
-    top->OnFixedUpdate(fixed_dt);
+    top->_FixedUpdate(fixed_dt);
 }
 
 /** top のシーンを描画する。 */
@@ -198,7 +198,7 @@ void CSceneManager::_DispatchEvent(const FEvent& e) noexcept {
 void CSceneManager::_ShutdownAll() noexcept {
     // top から順に OnExit を呼んでから破棄。
     while (!m_Stack.IsEmpty()) {
-        m_Stack.Back()->OnExit();
+        m_Stack.Back()->_Exit();
         m_Stack.Back()->_DeinitWorldSubsystems();   // World サブシステムも解体
         m_Stack.PopBack();
     }

@@ -6,7 +6,7 @@
 // std::function 非使用方針と整合)。Easing は関数ポインタで指定。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       acs::game::CTweenManager m_Tweens;
 //       acs::FVec3 m_Color{0, 0, 0};
 //

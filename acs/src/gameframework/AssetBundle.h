@@ -7,7 +7,7 @@
 //   個別 path の FAssetFuture を散在管理する代わりに 1 つの bundle で扱える。
 //
 // 使い方 (典型例):
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       acs::game::CAssetBundle m_Bundle;
 //       void OnEnter() noexcept override {
 //           m_Bundle.Add("textures/hero.png");

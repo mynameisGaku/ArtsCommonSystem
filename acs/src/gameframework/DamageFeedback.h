@@ -39,7 +39,7 @@
 //   重複すると death cam の trigger 整合性が壊れるので機械的に禁止。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       CDamageFeedback m_Dmg;
 //       void OnPlayerHit(f32 amount, FVec2 attacker_pos) noexcept {
 //           const FVec2 to_player = player.Position() - attacker_pos;

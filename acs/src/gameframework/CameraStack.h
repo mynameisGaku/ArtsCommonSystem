@@ -7,7 +7,7 @@
 // アクセサで「いまフレームでカメラがどこを写しているか」を取得する。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       acs::game::CCamera2D  m_FollowCam;     // プレイヤー追従カメラ
 //       acs::game::CCamera2D  m_CinematicCam;  // 演出用カメラ (固定 or 別追従)
 //       acs::game::CCameraStack m_Stack;

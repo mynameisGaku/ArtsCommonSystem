@@ -30,7 +30,7 @@ private:
     f32 m_Speed;
 };
 
-// --- ツリーを組む（FScene2D::OnReady などで）---
+// --- ツリーを組む（AScene::OnReady などで）---
 void AddRotator(ANode& root) noexcept {
     auto node = NewObject<ANode>();
     node->SetPosition2D(FVec2{-10.0f, 0.0f});
@@ -38,7 +38,7 @@ void AddRotator(ANode& root) noexcept {
     child.AddComponent<ARotateComponent>(2.0f);    // 即 OnAttach が呼ばれる
 }
 
-// FScene2D は次の走査を自動実行する。独自 root を使う場合だけ自分で呼ぶ。
+// AScene は次の走査を自動実行する。独自 root を使う場合だけ自分で呼ぶ。
 void TickRoot(ANode& root, f32 dt) noexcept {
     root.UpdateTree(dt);
     root.ResolveStructuralChanges();
@@ -93,7 +93,7 @@ void TickRoot(ANode& root, f32 dt) noexcept {
 | API | 説明 |
 | --- | --- |
 | `void UpdateTree(f32 dt)` | subtree の `OnUpdate` とコンポーネント `OnUpdate` を伝播 |
-| `void FixedUpdateTree(f32 fixed_dt)` | 固定刻み `OnFixedUpdate` を伝播（`FGame` の fixed-step から呼ぶ） |
+| `void FixedUpdateTree(f32 fixed_dt)` | 固定刻み `OnFixedUpdate` を伝播（`CGame` の fixed-step から呼ぶ） |
 | `void DrawTree(FRenderContext& rc)` | subtree の描画（`OnDraw` → 子 → `OnDrawPostChildren`） |
 | `void ResolveStructuralChanges()` | `Destroy`/`Reparent` をまとめて適用。**毎フレーム 1 回**必須 |
 
@@ -128,7 +128,7 @@ void TickRoot(ANode& root, f32 dt) noexcept {
 | API | 説明 |
 | --- | --- |
 | `FTransform2D Compose(const FTransform2D& local) const` | `world = parent.Compose(local)`。親座標系に local を載せる |
-| `FMat4 ToMat4() const` | 4x4 が要る場面だけ（`FSpriteBatch::SetView` 等）。合成内では使わない |
+| `FMat4 ToMat4() const` | 4x4 が要る場面だけ（`CSpriteBatch::SetView` 等）。合成内では使わない |
 | `static FTransform2D Identity()` | 単位 transform |
 
 合成規約: `scale=親*子`、`rotation=親+子`、`position=親pos + Rotate(親scale*子pos, 親rot)`。
@@ -229,7 +229,7 @@ Root().AddChild(Move(player));        // 強参照はツリーへ移す
 | 見たいもの | パス |
 | --- | --- |
 | 継承ノード + 自作コンポーネント + 親子 transform 伝播 | `acs/samples/28_HelloGameFramework/`（特に `GameplayScene.cpp`, `RotateComponent.{h,cpp}`, `RotatingNode.{h,cpp}`） |
-| `FScene2D` 上で sprite + physics body を組む実用スターター | `acs/samples/55_HelloScene2D/Scene2DStarter.cpp` |
+| `AScene2D` 上で sprite + physics body を組む実用スターター | `acs/samples/55_HelloScene2D/Scene2DStarter.cpp` |
 | エフェクト系コンポーネント（`AWater2DComponent`/`AFire2DComponent`/`ATrail2DComponent`）を `AddComponent` する例 | `acs/samples/59_HelloEffects2D/EffectsDemo.cpp` |
 
 上記 3 サンプルはいずれも実機ビルド + スクリーンショット確認済みです。

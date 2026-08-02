@@ -23,7 +23,7 @@
 //     ても no-op になるよう冪等。
 //
 // 使い方:
-//   class FTutorialScene : public AScene {
+//   class ATutorialScene : public AScene {
 //       CTutorialFlow m_Tut;
 //       void OnEnter() noexcept override {
 //           m_Tut.AddStep({"move",  "WASD で移動してみよう", "player", true});

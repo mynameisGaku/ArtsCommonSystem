@@ -7,7 +7,7 @@
 // pull するだけで一日の表情が出る。
 //
 // 使い方:
-//   class FWorldScene : public AScene {
+//   class AWorldScene : public AScene {
 //       acs::game::CAmbientDirector m_Ambient;
 //
 //       void OnEnter() noexcept override {

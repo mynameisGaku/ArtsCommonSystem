@@ -1,6 +1,6 @@
 # タイルマップ (FTilemap / ATilemapComponent)
 
-格子状にタイル ID を並べてマップを作る仕組み。`FTilemap` が **データ本体**（タイル ID の 2D 配列＋レイヤー＋座標変換）、`ATilemapComponent` がそれを `FScene2D` 上で **アトラステクスチャを使って描画**する `AComponent` です。床/壁/水たまりのようなステージ地形を組むとき、当たり判定付きの地面を作るときに使います。
+格子状にタイル ID を並べてマップを作る仕組み。`FTilemap` が **データ本体**（タイル ID の 2D 配列＋レイヤー＋座標変換）、`ATilemapComponent` がそれを `AScene` 上で **アトラステクスチャを使って描画**する `AComponent` です。床/壁/水たまりのようなステージ地形を組むとき、当たり判定付きの地面を作るときに使います。
 
 > 名前空間は `acs::game`。タイル ID は `FTileId{u16}` で、**0 = 空（描画されない）**、1 以上が実タイルです。
 
@@ -15,7 +15,7 @@
 using namespace acs;
 using namespace acs::game;
 
-class FLevelScene final : public FScene2D {
+class ALevelScene final : public AScene2D {
 public:
     void OnReady() noexcept override {
         SetPixelsPerUnit(48.0f);                 // world 1.0 = 48px で見る

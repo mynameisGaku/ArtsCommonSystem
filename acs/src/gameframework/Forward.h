@@ -98,6 +98,9 @@ class CSceneManager;
 /** 旧公開名から正規scene管理型へ接続する互換別名。 */
 using FSceneManager = CSceneManager;
 
+/** scene描画資源をgame寿命で共有する正規型。 */
+class CSceneRenderResources;
+
 /** sceneへ共有機能を渡す正規型。 */
 class CSceneServices;
 /** 旧公開名から正規scene共有機能型へ接続する互換別名。 */
@@ -154,6 +157,7 @@ using game::AScene;
 using game::AScene2D;
 using game::CScene3D;
 using game::CSceneManager;
+using game::CSceneRenderResources;
 using game::CSceneServices;
 using game::editor_core::AEditorCommand;
 using game::editor_core::AEditorPanel;

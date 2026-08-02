@@ -1,9 +1,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # シーン統一 (AScene) 設計書
 
-Phase 1a / 1b 実装済み、Phase 2 以降は未着手。`AScene2D` / `CScene3D` を単一の `AScene` へ
-統一する移行の設計、現状の責務境界、
-安全境界、検証手順を記録する。ノード統一の設計と不変条件は
+Phase 1a / 1b 実装済み、Phase 2 以降は未着手。長期目標は 2D/3D のシーン文脈を単一の
+`AScene` へ統一することだが、現在の安全な中間形は、Phase 2 で `CScene3D` を
+文脈非依存のノードグラフへ委譲する wrapper として残し、Phase 3 でも `AScene2D` を
+空派生のまま残す設計である。本書はその移行設計、現状の責務境界、安全境界、検証手順を
+記録する。ノード統一の設計と不変条件は
 [`NodeUnification.md`](NodeUnification.md) を参照する。本書はその
 「シーン自体の統合は次期フェーズ」(NodeUnification.md) を引き取るものである。
 
@@ -14,8 +16,9 @@ Phase 1a / 1b 実装済み、Phase 2 以降は未着手。`AScene2D` / `CScene3D
 1. **2D/3D シーンを分けない**。単一クラス `AScene` に統一する。ノード統一と同じ方針を
    シーンへ適用する。
 2. **2D と 3D の差は投影とサービス構成だけにする**。クラス階層で分けない。
-3. 旧 `AScene2D` / `CScene3D` は、再コンパイルする source の互換のために登録済み
-   `using` alias を一時的に残す。symbol shim は設けない。
+3. 登録済み旧名 `FScene` / `FScene2D` / `FScene3D` は、再コンパイルする source の互換の
+   ために `using` alias を一時的に残す。symbol shim は設けない。現行の正規型
+   `AScene2D` / `CScene3D` は、Phase 2 / 3 の阻害要因を解消するまで別型のまま残す。
 4. 命名規約は [`StyleGuide.md`](StyleGuide.md) §2.1 と [`TypeRoleAudit.md`](TypeRoleAudit.md)
    の役割表に従う。統一シーンは owner に所有され多態的に扱われる object なので `A`。
 5. **既存エンジンの構造を参照して設計する**。Unity の `Scene`、Unreal の `UWorld` /
@@ -24,8 +27,9 @@ Phase 1a / 1b 実装済み、Phase 2 以降は未着手。`AScene2D` / `CScene3D
 
 ## 所有権の分離 (設計判断)
 
-`AScene2D` の中身を丸ごと `AScene` へ移してはならない。`AScene2D` は
-**オブジェクト所有と描画リソース所有を 1 クラスに同居させている**ため、そのまま移すと
+Phase 1a 着手前の `AScene2D` の中身を丸ごと `AScene` へ移してはならなかった。当時の
+`AScene2D` は **オブジェクト所有と描画リソース所有を 1 クラスに同居させていた**ため、
+そのまま移すと
 `Scene.h` が `render/SpriteBatch.h` と RHI へ依存し (現状は foundation / memory /
 gameframework のみ)、かつ全シーンが `CSpriteBatch` 3 本と RT 群を抱える。メニューシーンや
 headless なテストシーンも同じコストを払い、モーダルを `PushScene` すれば倍加する。
@@ -36,7 +40,7 @@ headless なテストシーンも同じコストを払い、モーダルを `Pus
 | 対象 | 移す先 | 根拠 |
 |---|---|---|
 | root `ANode` ツリー | `AScene` が常に所有 | 全エンジンでシーンの本務。2D/3D で分けない |
-| `CNodePool` (`CScene3D` 由来) | `AScene` が常に所有 | 同上。「2D シーンでは確保しない」最適化はしない |
+| `CNodePool` (`CScene3D` 由来) | 文脈非依存の `CSceneNodeGraph` が所有し、`AScene` と `CScene3D` がそれぞれ graph を持つ | 一時 3D graph のスタック所有を保ちつつ、シーン文脈から分離する |
 | `CSpriteBatch` × 3 | `CGame` が game 寿命で共有 | 描画リソースはレンダラ側の責務 |
 | 反射 RT / 水深度 RT / stencil | レンダラ側で遅延生成 | 使わないシーンがコストを払わない不変条件を維持 |
 
@@ -45,12 +49,13 @@ headless なテストシーンも同じコストを払い、モーダルを `Pus
 配線する (game 寿命で共有)」と定めており、`_SetSpriteBatch` という seam も既に存在する。
 新しい配線経路を追加せず既存の形へ合わせられる。
 
-副次効果として、現行の「`AScene2D` を 1 つ積むごとに `CSpriteBatch` が 3 本増える」構造が
-解消される。
+副次効果として、Phase 1a 前の「`AScene2D` を 1 つ積むごとに `CSpriteBatch` が 3 本増える」
+構造は解消された。
 
-## 現状の責務境界 (実測)
+## Phase 1 着手前の責務境界 (実測履歴)
 
-統一前の実体は 3 つに割れており、しかも階層が揃っていない。
+Phase 1 着手前の実体は 3 つに割れており、しかも階層が揃っていなかった。以下の表と
+非対称性は Phase 1a / 1b の判断根拠を残す履歴であり、現在の class layout を示す表ではない。
 
 | 型 | 宣言 | 行数 | 基底 | 役割 |
 |---|---|---|---|---|
@@ -58,7 +63,7 @@ headless なテストシーンも同じコストを払い、モーダルを `Pus
 | `AScene2D` | `gameframework/Scene2D.h` / `.cpp` | 361 / 424 | `AScene` | root `ANode`、`CSpriteBatch`、camera/PPU、反射 RT、水深度 RT、stencil、world/HUD 2 パス描画 |
 | `CScene3D` | `gameframework/Scene3D.h` / `.cpp` | 233 / 201 | **なし** | root `ANode`、`CNodePool`、Spawn/Get/Destroy、名前検索、Raycast、Update 伝播。**GPU 非依存** |
 
-### 統合を要する非対称性
+### 統合を要した非対称性 (Phase 1 前の履歴)
 
 - **描画配線が `AScene2D` 専有**。`FRenderContext` へ `CSpriteBatch` を配線するのは
   `AScene2D::OnRender` だけである (`RenderContext.h` の `_SetSpriteBatch` コメントが
@@ -75,7 +80,7 @@ headless なテストシーンも同じコストを払い、モーダルを `Pus
   `ALegacyScene3DAdapter::m_Graph.m_Root`。ノードは既に `ANode` へ統一済みなので、
   ここで分かれている理由は歴史的経緯だけである。
 
-## 目標形
+## 長期目標と現在採用する中間形
 
 `AScene` が root `ANode` ツリーと描画配線を持ち、2D/3D の違いをカメラ・投影・
 `WantedServices()` の差だけにする。
@@ -83,8 +88,9 @@ headless なテストシーンも同じコストを払い、モーダルを `Pus
 - `AScene2D` の root / `SpriteBatch` / world・HUD パス / `OnDrawWorld` / `OnDrawHud` /
   `OnReady` / `OnTick` / `OnFixedTick` を `AScene` へ引き上げる。
 - `CScene3D` の `CNodePool` 管理 (`Spawn` / `Get` / `IsValid` / `IdOf` / `Destroy` /
-  `RegisteredCount` / `FindByName` / `Raycast` / `Clear` / `SwapContents`) を `AScene` が
-  持つノードグラフとして吸収する。3D レンダラはそのツリーを走査する側に回る。
+  `RegisteredCount` / `FindByName` / `Raycast` / `Clear` / `SwapContents`) を、シーン文脈を持たず
+  スタック所有できる `CSceneNodeGraph` へ切り出す。`AScene` と `CScene3D` はそれぞれ graph を
+  保持し、3D レンダラはそのツリーを走査する側に回る。
 - 反射 RT / 水深度 RT / stencil の `Ensure*` 群は 2D 専有の重い状態なので、`AScene` 本体
   ではなく遅延生成のままとし、未使用シーンがコストを払わないことを維持する。
 - `CScene3D` はノードグラフ型への委譲だけに縮退させる。`AScene2D` の `using` alias 化は
@@ -184,11 +190,13 @@ root `ANode` と描画フックを `AScene` へ引き上げ済み。`AScene2D` �
 該当は `node3d_tests.cpp` 42 箇所、`legacy_scene3d_water_runtime_tests.cpp` 3 箇所、
 `foundation_optimization_wave_k_tests.cpp` にも及ぶ。
 
-代わりに **ノードグラフを独立した値型として切り出し、`AScene` がそれを保持する**。
+代わりに **ノードグラフを文脈非依存でスタック所有できる graph class として切り出し、
+`AScene` と `CScene3D` の双方がそれを保持する**。
 
 1. `CNodePool` 管理 (`Spawn` / `Get` / `IsValid` / `IdOf` / `Destroy` /
    `RegisteredCount` / `FindByName` / `Raycast` / `Clear` / `SwapContents`) と root 所有を
-   `CSceneNodeGraph` (仮称) として切り出す。シーン文脈を一切持たない値型にする。
+   `CSceneNodeGraph` (仮称) として切り出す。シーン文脈を一切持たず、スタック所有できる
+   graph class にする。
 2. `AScene` は `m_Root` を `CSceneNodeGraph` へ置き換え、既存の `Root()` は graph の root を
    返す薄い委譲にする。
 3. `CScene3D` は `CSceneNodeGraph` へ委譲するだけの型に縮退させる。スタック上に置けるという
@@ -301,22 +309,24 @@ conventions 1282 file、amalgamation drift なし。新規公開ヘッダを足�
   (= `EnsureSceneRt` 成功) 配下、258 / 270 / 281 は `waterDepthReady` 配下、219 は
   `if (stencil)` で保護されている。
 - **破棄順**: `m_SceneRenderResources` は `m_Scenes` より後に宣言されるので先に破棄されるが、
-  `~AScene2D()` は `= default` で member は `m_Root` と POD のみ。シーンの破棄が共有リソースへ
-  触れる経路は無い。**この順序に依存しているので、`CGame` の member 宣言順を入れ替えないこと。**
+  `AScene2D` は空派生で、`AScene` の破棄経路は root と service だけを解放し、共有 GPU resourceへ
+  触れない。将来シーンの destructor から共有描画資源へ触れる場合は、member順とshutdown契約を
+  同時に見直すこと。
 
-## Phase 1b 以降の計画修正 (調査で判明した阻害要因)
+## Phase 1 着手前の阻害要因 (調査履歴)
 
-以下は engine / samples / tests / gate を全走査して確認した事実であり、上の Phase 1b〜3 の
-記述はこれらを反映して読み替えること。**未反映のまま着手すると確実に詰まる。**
+以下は engine / samples / tests / gate を全走査して確認した事実である。項目 1〜3 と 6 は
+Phase 1b で解消済み、項目 4 と 5 は現在の Phase 2 / 3 設計へ反映済みである。履歴として残すが、
+現在の実装状態は上の各フェーズ節を正とする。
 
-### 1. `Scene.cpp` が存在しない
+### 1. `Scene.cpp` が存在しなかった (Phase 1b で解消済み)
 
 `src/gameframework/Module.cmake` は `Scene.h` だけを列挙する。`OnRender` / `OnEnter` /
 `SpriteBatch()` / `ScreenToWorld` / `_OnWorldSubsystemsReady` は `RenderContext.h` /
 `Renderer.h` / `Game.h` / `Spawn2DSubsystem.h` を要するため `Scene.h` に書けない。
 **新規 `Scene.cpp` の作成と `Module.cmake` への追加が Phase 1b の前提条件。**
 
-### 2. Phase 1b は `spawn_subsystem_tests` を確定的に赤にする
+### 2. 旧テスト契約では Phase 1b が `spawn_subsystem_tests` を赤にした (解消済み)
 
 `tests/spawn_subsystem_tests.cpp:65-75` の `ACS_TEST(SpawnSubsystem, PlainSceneOwnerIsSafe)`
 は「素の `AScene` を owner にしたら `SpawnPrefabText` が nullptr を返す」を固定している。
@@ -325,7 +335,7 @@ conventions 1282 file、amalgamation drift なし。新規公開ヘッダを足�
 「素の `AScene` でも spawn できる」へ更新するか、bind 条件を `WantedServices()` に紐付けるかを
 先に決めること。
 
-### 3. `Services()` が無ガードで、Phase 1b の目的と衝突する
+### 3. `Services()` が無ガードで Phase 1b の目的と衝突した (解消済み)
 
 `Scene2D.cpp` の `DrawWorldPass` と `OnRender` は `Services().Camera()` をノーガードで呼ぶ。
 `AScene::WantedServices()` の既定は `ESvc::None` (`Scene.h:123`) のままにする方針なので、
@@ -352,7 +362,7 @@ conventions 1282 file、amalgamation drift なし。新規公開ヘッダを足�
 **3 つの gate が同時に無効化される**。Phase 3 の alias 方針は registry の設計変更込みで
 再検討すること。
 
-### 6. `friend class AScene2D;` が alias 化で ill-formed になる
+### 6. `friend class AScene2D;` は alias 化で ill-formed になる (Phase 1b で配線解消済み)
 
 `Spawn2DSubsystem.h:33`。`AScene2D` が `using` alias になると elaborated-type-specifier が
 typedef-name を指すことになる。`friend class AScene;` へ変更が必要。

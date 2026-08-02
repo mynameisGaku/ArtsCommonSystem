@@ -122,11 +122,23 @@ ACS_REF.modules.push({
         { sig: "CRenderer& GetRenderer() const", ret: "レンダラ", desc: "描画システム本体への参照。" },
         { sig: "u32 Width() const / u32 Height() const", desc: "描画対象の画面サイズ (ピクセル)。" },
         { sig: "bool IsFrameActive() const", desc: "今フレームの描画中かどうか。" },
-        { sig: "bool HasSprites() const / CSpriteBatch& Sprites() const", desc: "シーンが用意した共有<t>スプライトバッチ</t>があれば取得する。" },
+        { sig: "bool HasSprites() const / CSpriteBatch& Sprites() const", desc: "<code>CGame</code> が共有し <code>AScene</code> が現在の描画パスへ配線した<t>スプライトバッチ</t>を取得する。" },
         { sig: "bool HasFont() const / FFont& GetFont() const", desc: "共有 UI フォントを取得する。読めなかった環境では <code>HasFont()==false</code>。" },
         { sig: "bool HasReflection() const / IRhiTexture& Reflection() const", desc: "水面などの平面反射に使うシーンテクスチャを取得する。" },
         { sig: "FVec2 ViewCenter() const / f32 ViewScale() const", desc: "2D の world→screen 変換パラメータ。画面投影に使う。" },
         { sig: "bool StencilMaskActive() const", desc: "<t>ステンシルマスク</t>が有効なパスかどうか。クリップ系コンポーネントが判定に使う。" }
+      ]
+    },
+    {
+      name: "CSceneRenderResources",
+      kind: "クラス", header: "gameframework/SceneRenderResources.h",
+      summary: "全シーンが <t>CGame</t> の寿命で共有する描画リソース束。world/HUD・反射・水深度の 3 本の <t>CSpriteBatch</t> と、反射 RT・水深度 RT・stencil を必要になるまで確保しない。",
+      when: "独自のシーン描画パスで共有バッチや遅延生成 RT を準備・参照する時。通常の <t>AScene</t> 描画では <code>CGame</code> が管理するため直接触らない。",
+      members: [
+        { sig: "bool EnsureSpriteBatch(FRenderContext& rc) / EnsureSceneSprites(rc) / EnsureWaterDepthSprites(rc)", desc: "対応する <t>CSpriteBatch</t> を必要になった時だけ初期化する。失敗時は false。" },
+        { sig: "bool EnsureSceneRt(FRenderContext& rc) / EnsureWaterDepthRt(rc) / EnsureStencilBuffer(rc)", desc: "対応する GPU texture を遅延生成する。失敗時は false で既存状態を保つ。" },
+        { sig: "CSpriteBatch& SpriteBatch() / SceneSprites() / WaterDepthSprites()", desc: "初期化済みの world/HUD・反射・水深度用バッチを取得する。" },
+        { sig: "IRhiTexture* SceneRt() / WaterDepthRt() / StencilBuffer()", desc: "生成済み texture を返す。未生成なら nullptr。" }
       ]
     },
     {
@@ -212,15 +224,21 @@ ACS_REF.modules.push({
     {
       name: "AScene",
       kind: "基底クラス", header: "gameframework/Scene.h",
-      summary: "<b>1 画面 / 1 状態を表す基底クラス</b>。タイトル・ゲーム本編・ポーズなどを各 <code>AScene</code> サブクラスで書き、<code>CGame</code> がスタックで切り替え・更新・描画する。<t>ライフサイクル</t>フックを override して使う。",
+      summary: "<b>1 画面 / 1 状態を表す基底クラス</b>。root <code>ANode</code> と world/HUD 描画フックを持ち、<code>CGame</code> が共有する描画資源を借りて描く。タイトル・ゲーム本編・ポーズなどを派生クラスで書き、<code>CGame</code> がスタックで切り替え・更新・描画する。",
       when: "ゲームの画面 (状態) を 1 つ作る時の基本。すべての画面はこれを継承する。",
-      sample: "class FTitleScene : public acs::game::AScene {\npublic:\n    void OnEnter() noexcept override { /* 初期化 */ }\n    void OnUpdate(f32 dt) noexcept override {\n        if (start) Scenes().ChangeScene(MakeUnique<FGameScene>());\n    }\n    void OnRender(FRenderContext& rc) noexcept override { /* 描画 */ }\n};",
+      sample: "class ATitleScene : public acs::game::AScene {\nprotected:\n    void OnReady() noexcept override { /* ノード生成 */ }\n    void OnTick(f32 dt) noexcept override {\n        if (start) Scenes().ChangeScene(MakeUnique<AGameScene>());\n    }\n    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override { /* HUD */ }\n};",
       members: [
         { sig: "virtual void OnEnter() / OnExit()", desc: "シーンが top に来た直後 / 退場する直前に呼ばれる。アセット読み込みや後片付けに。" },
         { sig: "virtual void OnPause() / OnResume()", desc: "上に別シーンが Push された時 / Pop で戻った時に呼ばれる。" },
         { sig: "virtual void OnUpdate(f32 dt)", desc: "毎フレームのロジック更新。dt はスケール後の秒。", when: "ゲームの毎フレーム処理を書く中心。" },
         { sig: "virtual void OnFixedUpdate(f32 fixed_dt)", desc: "固定タイムステップ更新。物理など一定刻みの処理に。" },
         { sig: "virtual void OnRender(FRenderContext& rc)", desc: "描画。<code>rc</code> から共有<t>スプライトバッチ</t>やフォントを使える。" },
+        { sig: "ANode& Root() / const ANode& Root() const", ret: "ルートノード", desc: "シーンが所有する<t>ノードツリー</t>の根。ここに子ノードをぶら下げる。" },
+        { sig: "CSpriteBatch& SpriteBatch()", desc: "<code>CGame</code> が game 寿命で共有する world/HUD 用<t>スプライトバッチ</t>を取得する。" },
+        { sig: "void SetPixelsPerUnit(f32 ppu) / f32 PixelsPerUnit() const", desc: "1 ワールド単位を何ピクセルにするかの倍率 (既定 64)。" },
+        { sig: "FVec2 ScreenToWorld(FVec2 screen_px)", ret: "ワールド座標", desc: "画面ピクセル座標を、直近の画面サイズ・カメラ・PPUに対応するワールド座標へ変換する。" },
+        { sig: "virtual void OnReady() / OnTick(f32) / OnFixedTick(f32)", desc: "override 用フック。準備・毎フレーム・固定刻みのロジック。" },
+        { sig: "virtual void OnDrawWorld(FRenderContext&, CSpriteBatch&) / OnDrawHud(...)", desc: "world (カメラ追従) と HUD (画面固定) の描画を分けて書く。" },
         { sig: "virtual void OnEvent(const FEvent& e)", desc: "ウィンドウ/入力イベントの受け取り。最上段シーンにのみ届く。" },
         { sig: "virtual ESvc WantedServices() const", ret: "使うサービス", desc: "このシーンが使う<t>サービス</t>を bit flag で宣言する。", sample: "ESvc WantedServices() const noexcept override { return ESvc::Default2D; }" },
         { sig: "CSceneServices& Services() const", ret: "サービスハブ", desc: "宣言済みの <code>CSceneServices</code> を取得する (未宣言で呼ぶと停止)。" },
@@ -232,18 +250,11 @@ ACS_REF.modules.push({
     {
       name: "AScene2D",
       kind: "クラス", header: "gameframework/Scene2D.h",
-      summary: "<b>2D ゲーム用の実用シーン基底</b>。<code>AScene</code> を継承し、ルートの <code>ANode</code> ツリー・共有<t>スプライトバッチ</t>・カメラ/物理サービスを最初から配線済み。<code>OnReady</code>/<code>OnTick</code>/<code>OnDrawWorld</code>/<code>OnDrawHud</code> を override するだけで 2D ゲームが書ける。",
-      when: "2D ゲームの画面を作る時。毎回同じ root/更新/描画の配線を書かずに済む。",
-      sample: "class FStageScene : public acs::game::AScene2D {\nprotected:\n    void OnReady() noexcept override { /* ノード生成 */ }\n    void OnTick(f32 dt) noexcept override { /* ロジック */ }\n    void OnDrawWorld(FRenderContext& rc, CSpriteBatch& sb) noexcept override { /* world */ }\n    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override { /* HUD */ }\n};",
+      summary: "<b>2D ゲーム向けの既定サービスを選ぶ空派生</b>。root・描画配線・描画フックは基底 <code>AScene</code> が持ち、この型は <code>Default2D | Camera2D | Physics2D</code> を既定要求する。",
+      when: "カメラと 2D 物理を常に使う画面を作る時。サービスを個別選択する画面は <code>AScene</code> を直接継承する。",
+      sample: "class AStageScene : public acs::game::AScene2D {\nprotected:\n    void OnReady() noexcept override { /* ノード生成 */ }\n    void OnTick(f32 dt) noexcept override { /* ロジック */ }\n    void OnDrawWorld(FRenderContext& rc, CSpriteBatch& sb) noexcept override { /* world */ }\n    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override { /* HUD */ }\n};",
       members: [
-        { sig: "ANode& Root()", ret: "ルートノード", desc: "シーンの<t>ノードツリー</t>の根。ここに子ノードをぶら下げる。" },
-        { sig: "CSpriteBatch& SpriteBatch()", desc: "world と HUD で共有する<t>スプライトバッチ</t>。" },
-        { sig: "void SetPixelsPerUnit(f32 ppu) / f32 PixelsPerUnit() const", desc: "1 ワールド単位を何ピクセルにするかの倍率 (既定 64)。" },
-        { sig: "FVec2 ScreenToWorld(FVec2 screen_px)", ret: "ワールド座標", desc: "画面ピクセル座標をワールド座標へ変換する。マウスピッキングに。", when: "クリック位置のノードを当てたい時。" },
-        { sig: "void SetReflectionEnabled(bool on)", desc: "水面などの平面反射を有効化する (world を 2 度描くコストあり)。" },
-        { sig: "void SetStencilMaskEnabled(bool on)", desc: "<t>ステンシルマスク</t>を有効化し、任意形状で描画範囲を切り抜けるようにする。" },
-        { sig: "virtual void OnReady() / OnTick(f32) / OnFixedTick(f32)", desc: "override 用フック。準備・毎フレーム・固定刻みのロジック。" },
-        { sig: "virtual void OnDrawWorld(FRenderContext&, CSpriteBatch&) / OnDrawHud(...)", desc: "world (カメラ追従) と HUD (画面固定) の描画を分けて書く。" },
+        { sig: "ESvc WantedServices() const override", ret: "Default2D | Camera2D | Physics2D", desc: "2D の既定入力・カメラ・物理サービスを要求する。root と描画 API はすべて <code>AScene</code> から継承する。" },
         { sig: "using FScene2D = AScene2D", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>AScene2D</code> を使う。" }
       ]
     },
@@ -252,7 +263,7 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/SceneManager.h",
       summary: "<b><code>AScene</code> のスタック管理</b>。top のシーンを毎フレーム更新/描画し、画面切替 (Change/Push/Pop) を<b>フレーム境界まで遅延</b>して安全に適用する。",
       when: "シーンを切り替える時。普通は <code>AScene::Scenes()</code> 経由でこれを触る。",
-      sample: "// シーン内から:\nScenes().ChangeScene(MakeUnique<FGameScene>());  // 切替\nScenes().PushScene(MakeUnique<FPauseScene>());   // 上に重ねる (モーダル)\nScenes().PopScene();                            // 戻る",
+      sample: "// シーン内から:\nScenes().ChangeScene(MakeUnique<AGameScene>());  // 切替\nScenes().PushScene(MakeUnique<APauseScene>());   // 上に重ねる (モーダル)\nScenes().PopScene();                            // 戻る",
       members: [
         { sig: "void ChangeScene(TUniquePtr<AScene> next)", desc: "今の top を pop して <code>next</code> を push (= 画面切替)。次フレーム頭で適用。" },
         { sig: "void PushScene(TUniquePtr<AScene> next)", desc: "今の top を残したまま <code>next</code> を重ねる (= ダイアログ/ポーズ)。" },

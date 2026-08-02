@@ -37,7 +37,7 @@ anim.Play();
 Root().AddChild(Move(node));
 ```
 
-`InitGrid` はテクスチャ全体 `{0,0}〜{1,1}` を `cols×rows` に等分し、先頭から `frame_count` セルを左→右、上→下の順に並べる。あとはシーンの更新ループ (`FScene2D` が `OnUpdate` を回す) で自動的に UV が切り替わる。**手動で `Tick` を呼ぶ必要はない**。
+`InitGrid` はテクスチャ全体 `{0,0}〜{1,1}` を `cols×rows` に等分し、先頭から `frame_count` セルを左→右、上→下の順に並べる。あとはシーンの更新ループ (`AScene` が `OnUpdate` を回す) で自動的に UV が切り替わる。**手動で `Tick` を呼ぶ必要はない**。
 
 ---
 

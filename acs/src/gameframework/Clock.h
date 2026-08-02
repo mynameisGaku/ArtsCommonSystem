@@ -9,7 +9,7 @@
 // `CSceneClock`。役割は「シーンの感じる時間 = pause/slow-mo を反映する論理時間」。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //   public:
 //       void OnUpdate(f32 dt) noexcept override {
 //           m_Clock.Tick(dt);

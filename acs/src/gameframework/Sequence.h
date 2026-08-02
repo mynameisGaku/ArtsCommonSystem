@@ -13,7 +13,7 @@
 //     時間と一体化させたいため。完了時は最終値を正確に書く。
 //
 // 使い方:
-//   class FTitleScene : public AScene {
+//   class ATitleScene : public AScene {
 //       CSequenceRunner m_Seqs;
 //       FVec3 m_LogoColor;
 //       void OnEnter() noexcept override {
@@ -21,12 +21,12 @@
 //           s.Wait(0.3f)
 //            .Tween(&m_LogoColor, FVec3{0,0,0}, FVec3{1,1,1}, 0.5f, Easing::OutCubic)
 //            .Wait(1.0f)
-//            .Call(&FTitleScene::FadeOutBegin, this);
+//            .Call(&ATitleScene::FadeOutBegin, this);
 //           m_Seqs.Start(Move(s));
 //       }
 //       void OnUpdate(f32 dt) noexcept override { m_Seqs.Tick(dt); }
 //       static void FadeOutBegin(void* self) noexcept {
-//           static_cast<FTitleScene*>(self)->_ready_to_quit = true;
+//           static_cast<ATitleScene*>(self)->_ready_to_quit = true;
 //       }
 //   };
 #pragma once

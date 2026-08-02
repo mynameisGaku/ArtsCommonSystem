@@ -10,7 +10,7 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/Sequence.h",
       summary: "「待つ → 関数を呼ぶ → 値をなめらかに変える」を <b>1 行で連鎖記述</b>するビルダー。作った <code>FSequence</code> は <t>CSequenceRunner</t> に <t>ムーブ</t>で渡して再生する。",
       when: "カットシーン・出現ウェーブ・タイトルのロゴ演出など、時間に沿った一連の動きを台本のように書きたい時。",
-      sample: "FSequence s;\ns.Wait(0.3f)\n .Tween(&logoColor, FVec3{0,0,0}, FVec3{1,1,1}, 0.5f, Easing::OutCubic)\n .Wait(1.0f)\n .Call(&FTitleScene::FadeOutBegin, this);\nrunner.Start(static_cast&lt;FSequence&amp;&amp;&gt;(s));",
+      sample: "FSequence s;\ns.Wait(0.3f)\n .Tween(&logoColor, FVec3{0,0,0}, FVec3{1,1,1}, 0.5f, Easing::OutCubic)\n .Wait(1.0f)\n .Call(&ATitleScene::FadeOutBegin, this);\nrunner.Start(static_cast&lt;FSequence&amp;&amp;&gt;(s));",
       members: [
         { sig: "FSequence& Wait(f32 seconds)", desc: "指定秒だけ何もせず待つ動作を 1 つ足す。", when: "次の動きまで間を空けたい時。" },
         { sig: "FSequence& Call(void(*fn)(void* user) noexcept, void* user = nullptr)", desc: "その時点で関数を 1 度だけ呼ぶ。<code>std::function</code> でなく関数ポインタ + ユーザーデータ。", sample: "s.Call(&MyScene::OnDone, this);" },
@@ -208,7 +208,7 @@ ACS_REF.modules.push({
         { sig: "void SetPivot(FVec2 p) / FVec2 Pivot() const", desc: "回転・配置の基準点 (0..1、既定は中心 {0.5,0.5})。" },
         { sig: "void SetUvRect(f32 u0, f32 v0, f32 u1, f32 v1)", desc: "テクスチャ内の表示矩形を指定。スプライトシートの 1 コマを切り出す。", when: "アニメ用に <t>ASpriteAnimComponent</t> が毎フレーム書き換える。" },
         { sig: "FVec2 UvMin() const / FVec2 UvMax() const", desc: "現在の UV 矩形の左上 / 右下。" },
-        { sig: "void OnDraw(FRenderContext& rc) override", desc: "描画処理。<code>AScene2D</code> の <t>CSpriteBatch</t> 経由で描く (利用者は通常呼ばない)。" }
+        { sig: "void OnDraw(FRenderContext& rc) override", desc: "描画処理。<code>CGame</code> が共有し <code>AScene</code> が <t>FRenderContext</t> へ配線する <t>CSpriteBatch</t> 経由で描く (利用者は通常呼ばない)。" }
       ]
     },
     {
@@ -511,7 +511,7 @@ ACS_REF.modules.push({
     {
       name: "ATilemapComponent",
       kind: "クラス", header: "gameframework/TilemapComponent.h",
-      summary: "<t>FTilemap</t> のデータを <t>AScene2D</t> 上に<b>描画</b>するコンポーネント。格子アトラステクスチャを持ち、非空タイルを対応セルの UV で <t>CSpriteBatch</t> に描く。当たり判定の生成もできる。",
+      summary: "<t>FTilemap</t> のデータを <t>AScene</t> 上に<b>描画</b>するコンポーネント。格子アトラステクスチャを持ち、非空タイルを対応セルの UV で <t>CSpriteBatch</t> に描く。当たり判定の生成もできる。",
       when: "タイルマップを実際に画面表示し、必要なら壁として物理ワールドに登録したい時。",
       sample: "auto& tm = node->AddComponent<ATilemapComponent>();\ntm.Map().Init(16, 12, 1, 1.0f);\ntm.Map().FillRect(0, 0, 15, 0, FTileId{1});\ntm.SetTexture(atlas_tex);\ntm.SetAtlasGrid(4, 4);\ntm.BuildCollision(world, 0, kWall);",
       members: [
@@ -592,7 +592,7 @@ Object.assign(ACS_REF.glossary, {
   "FSpritePack": "1 枚のアトラスと名前付きフレーム矩形を持つデータ層。",
   "FTilemap": "2D グリッドにタイル ID を並べるデータ専用のマップ。",
   "ATilemapComponent": "タイルマップを画面に描画するコンポーネント。",
-  "AScene2D": "2D シーンの管理係。CSpriteBatch を FRenderContext に用意し、ノードを描画する。",
+  "AScene2D": "Camera2D と Physics2D を既定要求する AScene の空派生。描画資源は CGame が共有し、AScene が FRenderContext へ配線する。",
   "CSpriteBatch": "多数のスプライトをまとめて効率よく描画する仕組み。",
   "FAudioSource3D": "3D 空間内の音源 1 個 (位置 / 音量 / 減衰)。",
   "FAudioListener": "音を聞く側 (プレイヤーの耳) の位置と向き。",

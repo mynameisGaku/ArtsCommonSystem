@@ -214,6 +214,15 @@ CANONICAL_MIGRATED_REFERENCE_ENTRIES = {
     if kind in {"class", "struct"}
 }
 
+# Phase 1aで新設したgame寿命のscene描画資源は掲載欠落を許さない。
+REQUIRED_SCENE_REFERENCE_ENTRIES = {
+    "CSceneRenderResources": (
+        "gameframework_6.js",
+        "gameframework/SceneRenderResources.h",
+        "クラス",
+    ),
+}
+
 # 新設subsystem moduleで欠落を許さない公開value/enum/alias契約。
 REQUIRED_SUBSYSTEM_PUBLIC_REFERENCE_ENTRIES = {
     "ESubsystemOwnerKind": (
@@ -309,6 +318,7 @@ CANONICAL_REFERENCE_ENTRIES = {
     **CANONICAL_MIGRATED_REFERENCE_ENTRIES,
     **CANONICAL_SCALAR_REFERENCE_ENTRIES,
     **REQUIRED_SUBSYSTEM_PUBLIC_REFERENCE_ENTRIES,
+    **REQUIRED_SCENE_REFERENCE_ENTRIES,
 }
 
 # 旧名は対応する正規entry内の互換別名としてだけ掲載する。
@@ -941,6 +951,8 @@ def audit_canonical_type_references(
             tag_prefix = "reference-scalar-alias"
         elif name in REQUIRED_SUBSYSTEM_PUBLIC_REFERENCE_ENTRIES:
             tag_prefix = "reference-subsystem-public"
+        elif name in REQUIRED_SCENE_REFERENCE_ENTRIES:
+            tag_prefix = "reference-scene-resource"
         else:
             tag_prefix = "reference-migrated-type"
         matches = [
@@ -1468,6 +1480,15 @@ def run_self_test() -> int:
                 f"  members: [{member_source}]",
             )
 
+        def required_scene_entry(
+            canonical_name: str,
+            expected_header: str,
+            expected_kind: str,
+        ) -> str:
+            """scene描画資源の必須掲載fixtureを返す。"""
+
+            return reference_entry(canonical_name, expected_kind, expected_header)
+
         hard_baseline_by_file: dict[str, str] = {}
         for canonical_name, (
             expected_file,
@@ -1490,6 +1511,19 @@ def run_self_test() -> int:
             hard_baseline_by_file[expected_file] = (
                 hard_baseline_by_file.get(expected_file, "")
                 + subsystem_public_entry(
+                    canonical_name,
+                    expected_header,
+                    expected_kind,
+                )
+            )
+        for canonical_name, (
+            expected_file,
+            expected_header,
+            expected_kind,
+        ) in sorted(REQUIRED_SCENE_REFERENCE_ENTRIES.items()):
+            hard_baseline_by_file[expected_file] = (
+                hard_baseline_by_file.get(expected_file, "")
+                + required_scene_entry(
                     canonical_name,
                     expected_header,
                     expected_kind,
@@ -1761,7 +1795,9 @@ def run_self_test() -> int:
             REQUIRED_SUBSYSTEM_REFERENCE_ENTRIES
         )
         hard_type_mutation_names = (
-            migrated_mutation_names | subsystem_public_mutation_names
+            migrated_mutation_names
+            | subsystem_public_mutation_names
+            | frozenset(REQUIRED_SCENE_REFERENCE_ENTRIES)
         )
         missing_hard_type_mutations = sorted(
             hard_type_mutation_names - set(CANONICAL_REFERENCE_ENTRIES)
@@ -1784,10 +1820,18 @@ def run_self_test() -> int:
                         expected_kind,
                     )
                     if canonical_name in CANONICAL_MIGRATED_REFERENCE_ENTRIES
-                    else subsystem_public_entry(
-                        canonical_name,
-                        expected_header,
-                        expected_kind,
+                    else (
+                        subsystem_public_entry(
+                            canonical_name,
+                            expected_header,
+                            expected_kind,
+                        )
+                        if canonical_name in REQUIRED_SUBSYSTEM_PUBLIC_REFERENCE_ENTRIES
+                        else required_scene_entry(
+                            canonical_name,
+                            expected_header,
+                            expected_kind,
+                        )
                     )
                 ),
                 expected_header,
@@ -1795,7 +1839,11 @@ def run_self_test() -> int:
                 (
                     "reference-subsystem-public"
                     if canonical_name in REQUIRED_SUBSYSTEM_PUBLIC_REFERENCE_ENTRIES
-                    else "reference-migrated-type"
+                    else (
+                        "reference-scene-resource"
+                        if canonical_name in REQUIRED_SCENE_REFERENCE_ENTRIES
+                        else "reference-migrated-type"
+                    )
                 ),
             )
             for canonical_name, (

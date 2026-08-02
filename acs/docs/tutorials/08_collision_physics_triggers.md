@@ -167,12 +167,12 @@ tw.Tick(1.0f / 60.0f);           // ★ ここで overlap 比較 → OnEnter/OnE
 
 ### ESvc — サービス有効化
 
-シーン (`FScene`) 内で `FCollisionWorld2D` / `FTriggerWorld2D` を使うときは `WantedServices()` で宣言すると、`Services().Physics()` / `Services().Triggers()` で取り出せます。両ワールドはサービス構築時に初期化済みで、Triggers はシーンから自動で `Tick` されます。
+シーン (`AScene`) 内で `FCollisionWorld2D` / `FTriggerWorld2D` を使うときは `WantedServices()` で宣言すると、`Services().Physics()` / `Services().Triggers()` で取り出せます。両ワールドはサービス構築時に初期化済みで、Triggers はシーンから自動で `Tick` されます。
 
 ```cpp
 using namespace acs::game;
 
-class FGameplayScene : public acs::game::FScene {
+class AGameplayScene : public acs::game::AScene {
 public:
     ESvc WantedServices() const noexcept override {
         return ESvc::Default2D | ESvc::Physics2D | ESvc::Triggers;

@@ -6,7 +6,7 @@
 // CSceneServices 経由で自動 tick (`ESvc::Camera2D` を WantedServices に含める)。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //   public:
 //       ESvc WantedServices() const noexcept override {
 //           return ESvc::Default2D | ESvc::Camera2D;

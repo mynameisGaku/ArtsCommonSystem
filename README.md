@@ -317,7 +317,7 @@ CPU側の密度・material・chunk snapshotなどのデータは`F`、編集・m
 - [`StyleGuide.md`](acs/docs/StyleGuide.md) — A / C / F / I / T / E命名とcoding rule
 - [`TypeRoleAudit.md`](acs/docs/TypeRoleAudit.md) — 公開型registry、互換alias、移行債務をexact照合する型役割監査
 - [`NodeUnification.md`](acs/docs/NodeUnification.md) — `ANode`統一と移行指針
-- [`SceneUnification.md`](acs/docs/SceneUnification.md) — `AScene`統一の設計と移行手順（未実装）
+- [`SceneUnification.md`](acs/docs/SceneUnification.md) — `AScene`統一の実測設計（Phase 1a / 1b 完了、Phase 2 / 3 保留）
 - [`SerializationSafety.md`](acs/docs/SerializationSafety.md) — 外部入力・永続化・checked API
 - [`TROUBLESHOOTING.md`](acs/docs/TROUBLESHOOTING.md) — よくある問題と対処
 

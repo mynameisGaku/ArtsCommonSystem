@@ -14,7 +14,7 @@
 //   など) を改善する位置付け。
 //
 // 使い方 (典型例):
-//   class FTitleScene : public AScene {
+//   class ATitleScene : public AScene {
 //       CUiLayer m_Ui;
 //       u32     m_PlayBtn = 0;
 //       void OnEnter() noexcept override {

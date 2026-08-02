@@ -6,7 +6,7 @@
 // CGame/CSceneManager が自動で tick + scene 切替に追従。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //   public:
 //       ESvc WantedServices() const noexcept override {
 //           return ESvc::Default2D;  // Clock | Tweens | Sequences | Input

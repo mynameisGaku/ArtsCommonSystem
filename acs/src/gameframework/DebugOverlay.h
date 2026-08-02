@@ -7,7 +7,7 @@
 // しない (テスト / Headless 環境でも動作)。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       acs::game::CDebugOverlay m_Overlay;
 //       void OnEnter() noexcept override {
 //           m_Overlay.Init();

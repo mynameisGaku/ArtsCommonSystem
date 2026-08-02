@@ -457,6 +457,88 @@ struct FSceneTransitionTrace {
     u32 exited = 0u;
 };
 
+/** cameraを要求しないsceneの共通lifecycle配線を記録する。 */
+struct FSceneRootLifecycleTrace {
+    /** 利用者OnEnterを呼んだ。 */
+    bool entered = false;
+    /** OnEnterより前にrootへserviceを配線した。 */
+    bool root_services_wired = false;
+    /** 既存componentへserviceを通知した。 */
+    bool component_services_attached = false;
+    /** 利用者OnExitを呼んだ。 */
+    bool exited = false;
+    /** 利用者OnUpdateの呼出回数。 */
+    u32 scene_updates = 0u;
+    /** 利用者OnFixedUpdateの呼出回数。 */
+    u32 scene_fixed_updates = 0u;
+    /** root componentのOnUpdate呼出回数。 */
+    u32 component_updates = 0u;
+    /** root componentのOnFixedUpdate呼出回数。 */
+    u32 component_fixed_updates = 0u;
+};
+
+/** root treeの自動更新とservice通知を観測するcomponent。 */
+class ARootLifecycleProbeComponent final : public AComponent {
+public:
+    ACS_GAME_COMPONENT_KIND(ARootLifecycleProbeComponent)
+
+    explicit ARootLifecycleProbeComponent(FSceneRootLifecycleTrace* Trace) noexcept : m_Trace(Trace) {}
+
+    void OnAttachServices(CSceneServices&) noexcept override
+    {
+        m_Trace->component_services_attached = true;
+    }
+
+    void OnUpdate(f32) noexcept override { ++m_Trace->component_updates; }
+    void OnFixedUpdate(f32) noexcept override { ++m_Trace->component_fixed_updates; }
+
+private:
+    /** 呼出側が所有する観測先。 */
+    FSceneRootLifecycleTrace* m_Trace = nullptr;
+};
+
+/** Cameraを要求せず、Clock・Physics2D・Tweensを使うlifecycle検査scene。 */
+class ANonCameraLifecycleScene final : public AScene {
+public:
+    explicit ANonCameraLifecycleScene(FSceneRootLifecycleTrace* Trace) noexcept : m_Trace(Trace)
+    {
+        Root().AddComponent<ARootLifecycleProbeComponent>(Trace);
+        /** 退場時の構造変更解決を検査する子node。 */
+        ANode& Child = Root().AddChild(NewObject<ANode>());
+        m_Child = &Child;
+    }
+
+    ESvc WantedServices() const noexcept override
+    {
+        return ESvc::Clock | ESvc::Physics2D | ESvc::Tweens;
+    }
+
+    void OnEnter() noexcept override
+    {
+        m_Trace->entered = true;
+        m_Trace->root_services_wired = Root().SceneServices() == &Services();
+        Services().Physics().AddAabb(
+            FAabb2{FVec2{0.0f, 0.0f}, FVec2{1.0f, 1.0f}});
+        Services().Tweens().Tween(&m_TweenValue, 0.0f, 1.0f, 10.0f);
+    }
+
+    void OnUpdate(f32) noexcept override { ++m_Trace->scene_updates; }
+    void OnFixedUpdate(f32) noexcept override { ++m_Trace->scene_fixed_updates; }
+    void OnExit() noexcept override
+    {
+        m_Trace->exited = true;
+        m_Child->Destroy();
+    }
+
+private:
+    /** 呼出側が所有する観測先。 */
+    FSceneRootLifecycleTrace* m_Trace = nullptr;
+    /** 退場時に破棄予約する子node。 */
+    ANode* m_Child = nullptr;
+    /** 退場時のtween一括解除を検査する値。 */
+    f32 m_TweenValue = 0.0f;
+};
+
 class ATransitionProbeScene final : public AScene {
 public:
     explicit ATransitionProbeScene(FSceneTransitionTrace* Trace) noexcept : m_Trace(Trace) {}
@@ -1966,6 +2048,55 @@ ACS_TEST(Subsystem, DeepCommittedChainRejectsAncestorReinitializeBeforeParentTic
     GameInstance.Deinitialize();
     Engine.Deinitialize();
     EXPECT_TRUE(Registry.Unregister(WorldFactory));
+}
+
+ACS_TEST(Subsystem, SceneLifecycleWrapperWiresRootAndHandlesMissingCamera)
+{
+    CTransitionProbeGame Game;
+    EXPECT_TRUE(Game.EngineSubsystems().TryInitialize(
+        ESubsystemScope::Engine, nullptr,
+        FSubsystemOwner{&Game, ESubsystemOwnerKind::Application}));
+    EXPECT_TRUE(Game.GameInstanceSubsystems().TryInitialize(
+        ESubsystemScope::GameInstance, &Game.EngineSubsystems(),
+        FSubsystemOwner{&Game, ESubsystemOwnerKind::Game}));
+
+    FSceneRootLifecycleTrace Trace{};
+    Game.Scenes().PushScene(MakeUnique<ANonCameraLifecycleScene>(&Trace));
+    Game.Scenes()._ApplyPending(Game);
+    ANonCameraLifecycleScene* const Scene =
+        static_cast<ANonCameraLifecycleScene*>(Game.Scenes().Top());
+    EXPECT_TRUE(Scene != nullptr);
+    if (Scene == nullptr) return;
+
+    EXPECT_TRUE(Trace.entered);
+    EXPECT_TRUE(Trace.root_services_wired);
+    EXPECT_TRUE(Trace.component_services_attached);
+    EXPECT_TRUE(Scene->HasServices());
+    EXPECT_TRUE(Scene->Services().Has(ESvc::Clock));
+    EXPECT_TRUE(!Scene->Services().Has(ESvc::Camera2D));
+    EXPECT_EQ(Scene->Root().ChildCount(), 1u);
+    EXPECT_EQ(Scene->Services().Physics().ShapeCount(), 1u);
+    EXPECT_EQ(Scene->Services().Tweens().ActiveCount(), 1u);
+    EXPECT_EQ(Scene->ViewCenter().x, 0.0f);
+    EXPECT_EQ(Scene->ViewCenter().y, 0.0f);
+    EXPECT_EQ(Scene->ViewZoom(), 1.0f);
+
+    Game.Scenes()._Update(0.25f, 0.25f, 1u);
+    Game.Scenes()._FixedUpdate(0.5f);
+    EXPECT_EQ(Trace.scene_updates, 1u);
+    EXPECT_EQ(Trace.scene_fixed_updates, 1u);
+    EXPECT_EQ(Trace.component_updates, 1u);
+    EXPECT_EQ(Trace.component_fixed_updates, 1u);
+
+    Game.Scenes().ChangeScene(MakeUnique<AScene>());
+    Game.Scenes()._ApplyPending(Game);
+    EXPECT_TRUE(Trace.exited);
+    EXPECT_EQ(Scene->Root().ChildCount(), 0u);
+    EXPECT_EQ(Scene->Services().Physics().ShapeCount(), 0u);
+    EXPECT_EQ(Scene->Services().Tweens().ActiveCount(), 0u);
+    Game.Scenes()._ShutdownAll();
+    Game.GameInstanceSubsystems().Deinitialize();
+    Game.EngineSubsystems().Deinitialize();
 }
 
 ACS_TEST(Subsystem, SceneServiceAllocationFailureNeverCommitsPartialCandidate)

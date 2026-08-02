@@ -9,7 +9,7 @@
 //   pull するだけで天候表情を反映できる。
 //
 // 使い方:
-//   class FWorldScene : public AScene {
+//   class AWorldScene : public AScene {
 //       acs::game::CWeatherSystem m_Weather;
 //
 //       void OnEnter() noexcept override {

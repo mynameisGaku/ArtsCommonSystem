@@ -126,7 +126,7 @@ real backend を使う場合、`steam_api64.dll` (= SDK の `redistributable_bin
 #  include "steamworks/SteamworksBridgeImpl.h"
 #endif
 
-class FMyGame : public acs::game::FGame {
+class CMyGame : public acs::game::CGame {
     acs::game::ISteamworksBridge* m_Social = nullptr;
 #ifdef WITH_ACS_STEAMWORKS
     acs::steamworks::FSteamworksBridgeImpl m_RealSocial;

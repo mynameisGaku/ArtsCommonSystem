@@ -317,7 +317,7 @@ public:
                      cx, rc.Height() - 40.0f, FVec4{0.7f, 0.75f, 0.85f, 1.0f});
     }
 
-    void OnExit() noexcept override { m_Ui.Shutdown(); AScene2D::OnExit(); }
+    void OnExit() noexcept override { m_Ui.Shutdown(); }
 
 private:
     void BuildUi(u32 w, u32 h) noexcept {
@@ -460,7 +460,7 @@ public:
         }
     }
 
-    void OnExit() noexcept override { m_Ui.Shutdown(); AScene2D::OnExit(); }
+    void OnExit() noexcept override { m_Ui.Shutdown(); }
 
 private:
     enum class EState { Playing, Paused };
@@ -560,7 +560,7 @@ public:
         DrawCentered(sb, small, astat, cx, rc.Height() - 18.0f, FVec4{0.55f, 0.6f, 0.7f, 1.0f});
     }
 
-    void OnExit() noexcept override { m_Ui.Shutdown(); AScene2D::OnExit(); }
+    void OnExit() noexcept override { m_Ui.Shutdown(); }
 
 private:
     void BuildUi(u32 w, u32 h) noexcept {

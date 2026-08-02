@@ -135,7 +135,7 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     }),
     ("gameframework", {
         "title": "GameFramework",
-        "summary": "FScene、FGame、統一ノード ANode、AComponent、2D/3D 物理、FInputMap、FTweenManager、セーブ、制作支援機能。",
+        "summary": "AScene、CGame、統一ノード ANode、AComponent、2D/3D 物理、FInputMap、CTweenManager、セーブ、制作支援機能。",
         "use": "Application の上に実ゲーム制作向けの便利な部品を載せる。",
     }),
     ("localmatch", {
@@ -205,7 +205,7 @@ SAMPLE_DESCRIPTIONS: dict[str, str] = {
     "25_HelloIbl": "Image-Based Lighting の統合デモ。",
     "26_HelloLightmap": "Cornell box と CPU path tracing による lightmap bake。",
     "27_HelloShowcase": "PBR、IBL、屈折、post-process をまとめた cinematic demo。",
-    "28_HelloGameFramework": "FGame、FScene、FSceneManager による画面遷移。",
+    "28_HelloGameFramework": "CGame、AScene、CSceneManager による画面遷移。",
     "29_HelloParticleEditor": "GameFramework tools の Particle Editor。",
     "30_HelloSceneInspector": "FHierarchyPanel、FInspectorPanel、FEditorToolbar を持つ Scene Inspector。",
     "31_HelloModelViewer": "モデルビューア、マテリアル/アニメーション/インスペクタ panels。",
@@ -232,7 +232,7 @@ SAMPLE_DESCRIPTIONS: dict[str, str] = {
     "52_HelloColliderViz2D": "2D collider の可視化。",
     "53_HelloColliderViz3D": "3D mesh/convex hull collider の wireframe 可視化。",
     "54_HelloCollideSlide": "APhysicsBody2D の collide-and-slide 検証。",
-    "55_HelloScene2D": "FScene2D starter foundation。",
+    "55_HelloScene2D": "AScene2D starter foundation。",
     "56_HelloSpriteAnim": "sprite-sheet animation と HUD text。",
     "57_HelloTriggers": "collision layers/masks と trigger enter/stay/exit。",
     "58_HelloTilemap": "Tilemap render と fade scene transition。",
@@ -247,14 +247,14 @@ SAMPLE_DESCRIPTIONS: dict[str, str] = {
 GLOSSARY: "OrderedDict[str, str]" = OrderedDict([
     ("TResult", "例外の代わりに成功/失敗を返す ACS の標準結果型。IsErr() を確認してから Value() を読む。"),
     ("noexcept", "ACS の公開 callback/engine API で原則付ける例外禁止の契約。例外を投げず TResult や bool で失敗を返す。"),
-    ("FApplication", "最小のゲームループ基底。OnStart/OnUpdate/OnRender/OnShutdown を override する。"),
-    ("FGame", "GameFramework の FApplication 派生。FScene stack、固定 timestep、FRenderContext などをまとめる。"),
-    ("FScene", "1 つの画面・状態。OnEnter/OnUpdate/OnRender/OnExit を持ち FSceneManager で遷移する。"),
-    ("FSceneServices", "FScene が使う FTweenManager/FInput/CCamera などを必要分だけ attach する hub。"),
+    ("CApplication", "最小のゲームループ基底。OnStart/OnUpdate/OnRender/OnShutdown を override する。"),
+    ("CGame", "GameFramework の CApplication 派生。AScene stack、固定 timestep、FRenderContext などをまとめる。"),
+    ("AScene", "1 つの画面・状態。OnEnter/OnUpdate/OnRender/OnExit を持ち CSceneManager で遷移する。"),
+    ("CSceneServices", "AScene が使う CSceneClock/CTweenManager/FInputMap/CCamera2D などを必要分だけ attach する hub。"),
     ("FWorld", "ECS の中心。FEntityId と component sparse-set を管理する。"),
     ("FEntityId", "index + generation の値型 handle。Destroy 後の stale 参照を検出する。"),
     ("TQueryView", "FWorld 内の複数 component を持つ entity を反復する API。"),
-    ("FSpriteBatch", "2D スプライト・矩形・文字をまとめて GPU へ投げる描画 helper。"),
+    ("CSpriteBatch", "2D スプライト・矩形・文字をまとめて GPU へ投げる描画 helper。"),
     ("RHI", "Rendering Hardware Interface。DX12/Diligent の違いを IRhiDevice などの抽象に閉じ込める。"),
     ("IRhiDevice", "GPU device 抽象。buffer/texture/shader/pipeline を作成する入口。"),
     ("FAssetRegistry", "FAssetId と loader を管理し、画像・mesh・音声・text を同期/非同期ロードする。"),
@@ -267,7 +267,7 @@ GLOSSARY: "OrderedDict[str, str]" = OrderedDict([
     ("DX12 raw", "ACS 独自の DirectX 12 backend。既定の dx12-* preset。"),
     ("generate.ps1", "ACS の推奨生成スクリプト。Visual Studio solution、Binaries、Intermediate を現行レイアウトで作る。"),
     ("acs_assetpack", ".acpak archive を pack/unpack/list/verify/info する CLI。tools/acs_assetpack に実装がある。"),
-    ("FScene2D", "GameFramework の 2D starter scene。ANode root、FSpriteBatch、FCamera2D、stencil/reflection などをまとめる。"),
+    ("AScene2D", "AScene の 2D 向け既定サービス構成だけを選ぶ空派生。root と描画配線は AScene、CSpriteBatch は CGame が共有する。"),
 ])
 
 
@@ -295,12 +295,12 @@ int main() {
     {
         "title": "Application の基本形",
         "module": "app",
-        "summary": "本格的なサンプルはこの形。FApplication を継承して 4 つの hook を実装する。",
+        "summary": "本格的なサンプルはこの形。CApplication を継承して 4 つの hook を実装する。",
         "code": r'''#include "app/Application.h"
 #include "app/EntryPoint.h"
 #include "platform/Input.h"
 
-class FMyGame : public acs::FApplication {
+class CMyGame : public acs::CApplication {
 public:
     void OnStart() noexcept override {
         SetClearColor(0.05f, 0.07f, 0.11f, 1.0f);
@@ -308,18 +308,18 @@ public:
 
     void OnUpdate(acs::f32 dt) noexcept override {
         (void)dt;
-        if (acs::FInput::IsKeyPressed(acs::EKey::Escape)) Quit();
+        if (acs::CInput::IsKeyPressed(acs::EKey::Escape)) Quit();
     }
 
     void OnRender() noexcept override {
-        // BeginFrame / EndFrame は FApplication 側が呼ぶ。
+        // BeginFrame / EndFrame は CApplication 側が呼ぶ。
     }
 
     void OnShutdown() noexcept override {}
 };
 
-ACS_DEFINE_MAIN(FMyGame)''',
-        "apis": ["FApplication", "ACS_DEFINE_MAIN", "FInput"],
+ACS_DEFINE_MAIN(CMyGame)''',
+        "apis": ["CApplication", "ACS_DEFINE_MAIN", "CInput"],
     },
     {
         "title": "ECS で位置と速度を更新する",
@@ -341,18 +341,18 @@ world.Query<FPosition, FVelocity>().Each(
         "apis": ["FWorld", "FEntityId", "TQueryView"],
     },
     {
-        "title": "FScene 遷移を書く",
+        "title": "AScene 遷移を書く",
         "module": "gameframework",
-        "summary": "画面単位で状態を分け、FSceneManager に遷移を依頼する。",
-        "code": r'''class FTitleScene final : public acs::game::FScene {
+        "summary": "画面単位で状態を分け、CSceneManager に遷移を依頼する。",
+        "code": r'''class ATitleScene final : public acs::game::AScene {
 public:
     void OnEnter() noexcept override {
         // title assets を読む。
     }
 
     void OnUpdate(acs::f32) noexcept override {
-        if (acs::FInput::IsKeyPressed(acs::EKey::Enter)) {
-            Scenes().ChangeScene(acs::MakeUnique<FGameplayScene>());
+        if (acs::CInput::IsKeyPressed(acs::EKey::Enter)) {
+            Scenes().ChangeScene(acs::MakeUnique<AGameplayScene>());
         }
     }
 
@@ -360,7 +360,7 @@ public:
         rc.Sprites().DrawString(rc.GetFont(), "PRESS ENTER", 320, 240);
     }
 };''',
-        "apis": ["FScene", "FSceneManager", "FRenderContext"],
+        "apis": ["AScene", "CSceneManager", "FRenderContext"],
     },
     {
         "title": "FSpriteBatch で 2D を描く",
@@ -1064,9 +1064,9 @@ def render_guide(anchor_map: dict[str, str]) -> str:
       <h3>最短ルート</h3>
       <ol>
         <li>{term('easy', anchor_map) if 'easy' in GLOSSARY else '<code>acs::easy</code>'} で座標・入力・描画に慣れる。</li>
-        <li>{term('FApplication', anchor_map)} へ移り、<code>OnStart</code>/<code>OnUpdate</code>/<code>OnRender</code> の流れを覚える。</li>
-        <li>大量オブジェクトは {term('FWorld', anchor_map)} と {term('TQueryView', anchor_map)}、画面遷移は {term('FScene', anchor_map)} を使う。</li>
-        <li>描画が 2D なら {term('FSpriteBatch', anchor_map)}、3D なら <code>FStandardShader</code>/<code>FPbrShader</code> へ進む。</li>
+        <li>{term('CApplication', anchor_map)} へ移り、<code>OnStart</code>/<code>OnUpdate</code>/<code>OnRender</code> の流れを覚える。</li>
+        <li>大量オブジェクトは {term('FWorld', anchor_map)} と {term('TQueryView', anchor_map)}、画面遷移は {term('AScene', anchor_map)} を使う。</li>
+        <li>描画が 2D なら {term('CSpriteBatch', anchor_map)}、3D なら <code>FStandardShader</code>/<code>FPbrShader</code> へ進む。</li>
       </ol>
     </article>
     <article class="guide-card">

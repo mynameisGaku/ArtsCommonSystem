@@ -17,7 +17,7 @@
 //     holder」で、ゲーム側の戦闘ロジックが乗数を pull して使う構造。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       acs::game::CDynamicDifficulty m_Dda;
 //       void OnEnter() noexcept override {
 //           m_Dda.Init(acs::game::EDifficultyLevel::Adaptive);

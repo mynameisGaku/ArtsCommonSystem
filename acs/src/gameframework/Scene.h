@@ -1,22 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — AScene 基底
-//
-// 1 つの画面/状態を 1 つの AScene サブクラスで書く。CGame がスタック上で
-// 切り替え・更新・描画する。AScene の override は全て `noexcept`。
-//
-// 使い方:
-//   class FTitleScene : public acs::AScene {
-//   public:
-//       void OnEnter()      noexcept override { /* 起動時の初期化 */ }
-//       void OnUpdate(f32)  noexcept override { /* ロジック */ }
-//       void OnRender(acs::FRenderContext&) noexcept override { /* 描画 */ }
-//       void OnExit()       noexcept override { /* 後片付け */ }
-//   };
-//
-// 遷移: OnUpdate 内で `Scenes().ChangeScene(MakeUnique<FNextScene>())` を呼ぶと
-// **次フレーム頭**で適用される (走査中の構造変更を避ける、1 フレーム 1 遷移)。
-//
-// 本ヘッダは lifecycle hook + CGame/CSceneManager 参照を提供する。
 #pragma once
 
 #include "foundation/Types.h"
@@ -248,7 +230,7 @@ public:
      * 画面ピクセル座標をワールド座標へ変換する (マウスピッキング用)。
      *
      * @details
-     * 入力は左上原点の画面ピクセル (CInput::MousePos() の値)。AScene2D のレンダリング
+     * 入力は左上原点の画面ピクセル (CInput::MousePos() の値)。AScene のレンダリング
      * (ppu * camera zoom、camera 中心) と厳密に逆対応するので、CCamera2D::ScreenToWorld
      * (ppu 非考慮) ではなくこちらを使う。画面サイズは直近の OnRender でキャッシュした値を用いる。
      * @param screen_px 変換する画面ピクセル座標 (左上原点)。
@@ -337,16 +319,27 @@ public:
      */
     bool StencilMaskEnabled() const noexcept { return m_StencilMaskEnabled; }
 
-    /** シーン入場時に OnReady を呼ぶ。 */
+    /**
+     * シーン入場時の利用者フック。
+     *
+     * @details CSceneManager は root へ services を配線してから呼び、戻った後に既存componentへ
+     * servicesを通知する。既定実装はOnReadyを呼ぶ。override側からbaseを呼ぶ必要はない。
+     */
     virtual void OnEnter() noexcept;
 
-    /** シーン退場時に構造変更を解決し、物理・トゥイーン・スプライトバッチを後始末する。 */
+    /**
+     * シーン退場時の利用者フック。
+     *
+     * @details CSceneManager はこの呼出後に構造変更と要求済みserviceを必ず後始末する。
+     * override側からbaseを呼ぶ必要はない。
+     */
     virtual void OnExit() noexcept;
 
     /**
      * 毎フレームの update。
      *
-     * @details OnTick → root の UpdateTree → 構造変更解決の順で実行する。
+     * @details 既定実装はOnTickを呼ぶ。CSceneManagerはこの呼出後にrootのUpdateTreeと
+     * 構造変更解決を必ず実行する。
      * @param dt 経過秒。
      */
     virtual void OnUpdate(f32 dt) noexcept;
@@ -354,7 +347,8 @@ public:
     /**
      * 固定刻みの update。
      *
-     * @details OnFixedTick → root の FixedUpdateTree → 構造変更解決の順で実行する。
+     * @details 既定実装はOnFixedTickを呼ぶ。CSceneManagerはこの呼出後にrootの
+     * FixedUpdateTreeと構造変更解決を必ず実行する。
      * @param fixed_dt 固定刻みの秒。
      */
     virtual void OnFixedUpdate(f32 fixed_dt) noexcept;
@@ -364,6 +358,8 @@ public:
      *
      * @details FRenderContext は CGame が game 寿命で共有する CSpriteBatch / FFont /
      * 現フレームの IRhiCommandList を持つ (docs/SceneUnification.md)。
+     * 標準のroot描画へ追加する場合はOnDrawWorld/OnDrawHudをoverrideする。OnRender自体のoverrideは
+     * 標準pipelineを置き換える互換経路なので、必要ならAScene::OnRenderを明示して呼ぶ。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
     virtual void OnRender(FRenderContext& rc) noexcept;
@@ -375,8 +371,8 @@ protected:
     /**
      * World サブシステムの初期化直後に呼ばれる内部フック(OnEnter より前)。
      *
-     * @details AScene2D が override してルートノードへサブシステム束を配線し、
-     * 配下のノード/コンポーネントから GetSubsystem<T>() を使えるようにする。
+     * @details AScene がルートノードへサブシステム束を配線し、配下のノード/コンポーネントから
+     * GetSubsystem<T>() を使えるようにする。
      */
     virtual void _OnWorldSubsystemsReady() noexcept;
 
@@ -415,6 +411,20 @@ protected:
     virtual void OnDrawHud(FRenderContext& /*rc*/, CSpriteBatch& /*sb*/) noexcept {}
 
 private:
+    friend class CSceneManager;
+
+    /** rootへのservice配線を保証してから利用者のOnEnterを呼ぶ。 */
+    void _Enter() noexcept;
+
+    /** 利用者のOnExit後にrootと要求済みserviceを後始末する。 */
+    void _Exit() noexcept;
+
+    /** 利用者のOnUpdate後にrootの更新と構造変更解決を行う。 */
+    void _Update(f32 DeltaSeconds) noexcept;
+
+    /** 利用者のOnFixedUpdate後にrootの固定更新と構造変更解決を行う。 */
+    void _FixedUpdate(f32 FixedDeltaSeconds) noexcept;
+
     /**
      * world パスを描画する (camera view を設定し root を DrawTree → OnDrawWorld)。
      *

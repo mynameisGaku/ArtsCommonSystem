@@ -8,7 +8,7 @@
 // 提供する。
 //
 // 使い方:
-//   class FGameplayScene : public AScene {
+//   class AGameplayScene : public AScene {
 //       void OnEnter() noexcept override {
 //           // CCamera2D が IShakeTarget を派生していれば直接渡せる:
 //           // CCameraShakePresets::ApplyPreset(Services().Camera(),

@@ -17,7 +17,7 @@
 //   cfg.player_count   = 2;
 //   cfg.history_length = 8;      // 8 tick まで巻き戻せる
 //   session.Init(&world, cfg);
-//   session.SetSimCallback(&FMyGame::SimTick, this);
+//   session.SetSimCallback(&CMyGame::SimTick, this);
 //
 //   // 毎 tick:
 //   session.SubmitInput(local_input);            // 自分の入力 (確定)

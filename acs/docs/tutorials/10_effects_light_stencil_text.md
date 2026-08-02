@@ -2,13 +2,13 @@
 
 シェーダーもアセットも書かずに「波打つ水・揺れる炎・残像トレイル・点光源+ソフト影・窓型くりぬき・HUD文字」を出すための drop-in コンポーネント集です。`AddComponent` してパラメータを設定するだけで動きます。`acs::game` の `AWater2DComponent` / `AFire2DComponent` / `ATrail2DComponent` / `AStencilClip2DComponent`、`acs` の `FLighting2D` / `FFont` を扱います。「水辺・たき火のある2Dシーンを作りたい」「暗い洞窟に松明を灯したい」「窓越しに別シーンを覗かせたい」ときに使います。
 
-> すべて `FSpriteBatch` のプリミティブ(三角形/矩形)を毎フレーム手続き生成して描くので HLSL は不要です。
+> すべて `CSpriteBatch` のプリミティブ(三角形/矩形)を毎フレーム手続き生成して描くので HLSL は不要です。
 
 ---
 
 ## 最小例
 
-`FScene2D` を継承し、`OnReady()` でノードにエフェクトコンポーネントを付けるだけです。
+`AScene2D` を継承し、`OnReady()` でノードにエフェクトコンポーネントを付けるだけです。
 
 ```cpp
 #include "gameframework/GameFramework.h"
@@ -16,7 +16,7 @@
 using namespace acs;
 using namespace acs::game;
 
-class FMyScene final : public FScene2D {
+class AMyScene final : public AScene2D {
 public:
     void OnReady() noexcept override {
         SetPixelsPerUnit(48.0f);
@@ -40,11 +40,11 @@ public:
     }
 };
 
-class FMyGame final : public FGame {
+class CMyGame final : public CGame {
 protected:
-    TUniquePtr<FScene> InitialScene() noexcept override { return MakeUnique<FMyScene>(); }
+    TUniquePtr<AScene> InitialScene() noexcept override { return MakeUnique<AMyScene>(); }
 };
-ACS_GAME_MAIN(FMyGame)
+ACS_GAME_MAIN(CMyGame)
 ```
 
 `SetReflectionEnabled` / `SetStencilMaskEnabled` を呼ばない限り、従来どおりの単一パス描画でコスト増はありません。
@@ -109,7 +109,7 @@ w.Disturb(FVec2{0.5f, 0.0f}, 0.6f);                        // クリック位置
 
 ### FLighting2D — 点光源 + ソフト影 (render層、生の `acs`)
 
-`FScene2D` には組み込まれていません。`FApplication::OnCustomFrame` 等で自前のレンダーループを組む低レベルAPIです。
+`AScene` には組み込まれていません。`CApplication::OnCustomFrame` 等で自前のレンダーループを組む低レベルAPIです。
 
 - `Init(device, color_format, w, h)` / `Resize(w, h)` — どちらも `TResult<void>`。成功確認後に使用する
 - `Shutdown()` — GPU リソースを明示解放する
@@ -123,8 +123,8 @@ w.Disturb(FVec2{0.5f, 0.0f}, 0.6f);                        // クリック位置
 ### FFont / DrawString — HUDテキスト
 
 - `FFont font; auto r = font.LoadFromFile(device, L"C:/Windows/Fonts/meiryo.ttc", 32.0f, 1024, false)` — TTF/TTC をアトラスに焼き、`TResult<void>` を返す。`IsOk()` を確認してから使う。漢字は第5引数を `true` にする（アトラスは必要に応じて2048等へ拡大）。
-- `FSpriteBatch::DrawString(font, utf8_text, x, y, color=白)` — `(x,y)` は行の左上、`\n` で改行。
-- `FRenderContext::HasFont()` / `GetFont()` — `FScene2D::OnDrawHud` ではこの2つで安全に描けます。
+- `CSpriteBatch::DrawString(font, utf8_text, x, y, color=白)` — `(x,y)` は行の左上、`\n` で改行。
+- `FRenderContext::HasFont()` / `GetFont()` — `AScene::OnDrawHud` ではこの2つで安全に描けます。
 
 ---
 
@@ -132,7 +132,7 @@ w.Disturb(FVec2{0.5f, 0.0f}, 0.6f);                        // クリック位置
 
 ### 1. マウスで水をなぞる/クリックして波紋を立てる
 
-`FScene2D::ScreenToWorld`(ppu対応のピッキング)で画面座標→ワールド座標に変換し、`ContainsPoint` で当たった水域に `Disturb` します(sample 59)。
+`AScene::ScreenToWorld`(ppu対応のピッキング)で画面座標→ワールド座標に変換し、`ContainsPoint` で当たった水域に `Disturb` します(sample 59)。
 
 ```cpp
 void OnTick(f32 /*dt*/) noexcept override {
@@ -216,10 +216,10 @@ cl->EndRenderToSwapchain(*sc, idx);
 
 ### 5. HUD にテキストを描く
 
-`FScene2D::OnDrawHud` で `rc.HasFont()` をガードしてから描きます(sample 59/60/61 共通)。
+`AScene::OnDrawHud` で `rc.HasFont()` をガードしてから描きます(sample 59/60/61 共通)。
 
 ```cpp
-void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
+void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override {
     sb.DrawRect(8.0f, 8.0f, 640.0f, 30.0f, FVec4{0,0,0,0.45f});  // 背景帯
     if (rc.HasFont()) {
         sb.DrawString(rc.GetFont(), "Effects2D  [Esc]", 16.0f, 15.0f,
@@ -237,7 +237,7 @@ void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
 - **ステンシルも2段階**: `SetStencilMaskEnabled(true)` を呼び忘れると DSV が無く、`AStencilClip2DComponent` は素通し(クリップしない)になります。また反射のRTパスなど stencil バッファの無いパスでは自動的に素通しです。入れ子マスクは `SetRef` を別値にしてください。
 - **クリップ対象は「子ツリー」**: マスクは attach したノード自身ではなく、その子に追加したノード群に効きます。`win->AddChild(...)` で中身を足す構造にします。
 - **座標系の混在に注意**: `AWater2DComponent`/`AStencilClip2DComponent` の `SetRect` 等はすべて **owner ノード相対**で、world +Y が画面下(sample のコメント参照)。一方 `FLighting2D` と `FFont`/`DrawString` は **スクリーンのピクセル空間(左上原点)** です。混同しないこと。
-- **ピッキングは `ScreenToWorld` を使う**: マウス→ワールド変換は `FScene2D::ScreenToWorld`(ppu と camera zoom を考慮)を使います。`FCamera2D::ScreenToWorld`(ppu非考慮)では水域とズレます。
+- **ピッキングは `ScreenToWorld` を使う**: マウス→ワールド変換は `AScene::ScreenToWorld`(ppu と camera zoom を考慮)を使います。`CCamera2D::ScreenToWorld`(ppu非考慮)では水域とズレます。
 - **`FLighting2D` の呼び順**: `BeginScene/EndScene` → `BeginOccluders/EndOccluders` → ターゲットbind → `Composite` の順序が必須。occluder は**白tint**で黒地に焼くとシルエットが遮蔽物になります。光源は最大16個(`AddLight` が `false` を返したら上限)。
 - **メッシュ上限**: 水は頂点320/三角形560が上限。強い凹形状の `SetPolygon` は centroid 扇塗りで破綻しやすいので、複数の水域に分けるのが安全です。
 - **トレイルは owner を追う**: `ATrail2DComponent` はノードを動かして初めて軌跡が出ます。静止ノードでは何も描かれません。

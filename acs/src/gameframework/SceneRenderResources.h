@@ -1,29 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS GameFramework — CSceneRenderResources (シーン描画リソースの game 寿命共有)
-// -----------------------------------------------------------------------------
-// シーンが描画に使う CSpriteBatch と オフスクリーン RT をまとめて保持する。
-//
-// 所有権の分離:
-//   シーン (AScene 系) が持つのは ANode ツリー、つまりオブジェクトだけとする。
-//   描画リソースはレンダラ側の責務であり、CGame が game 寿命で 1 組だけ持つ。
-//   Unity の Scene / Unreal の UWorld / Godot の SceneTree も同じ分担であり、
-//   詳細は docs/SceneUnification.md に記録する。
-//
-//   シーンごとに持つと、メニューや headless テストのシーンまで CSpriteBatch を
-//   3 本抱え、PushScene でモーダルを重ねるたびに倍加していた。共有にすることで
-//   シーン数に依存しない一定コストになる。
-//
-// 遅延生成:
-//   すべて「初回に使うまで確保しない」。反射も水深度も stencil も使わないゲームが
-//   GPU リソースを 1 つも作らない不変条件を維持する。RT は画面サイズが変わった
-//   ときだけ作り直す。
-//
-// 3 本の CSpriteBatch を分けている理由:
-//   オフスクリーン pass と合成 pass で同一バッチを使うと、頂点/定数バッファが
-//   フレーム内で上書きし合い、先行 pass の遅延 draw が後続 pass のデータを読む。
-//   pass ごとに独立したバッチを与えて GPU 実行まで各データを保持する。
-// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"
@@ -46,6 +21,8 @@ class FRenderContext;
  * CGame が 1 つだけ所有し、現在の top シーンが借りて使う。各 Ensure* は初回呼び出しで
  * 生成し、以後は生成済みを返す。生成に失敗した場合は false を返し、呼び出し側が
  * その機能を無効化したまま描画を続けられるようにする (致命的にしない)。
+ * world/HUD・反射・水深度の3本のCSpriteBatchは、同じframe内でGPU bufferを
+ * 上書きし合わないようpassごとに分ける。詳細な所有方針はdocs/SceneUnification.mdに記録する。
  */
 class CSceneRenderResources {
 public:
