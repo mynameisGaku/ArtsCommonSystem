@@ -14,7 +14,7 @@
 #include "foundation/Error.h"
 #include "foundation/Move.h"
 #include "gameframework/AssetPack.h"
-#include "gameframework/Scene3D.h"
+#include "gameframework/SceneNodeGraph.h"
 #include "gameframework/Scene3DSerialize.h"
 #include "platform/FileSystem.h"
 #include "threading/Atomic.h"
@@ -796,7 +796,7 @@ ACS_TEST(FoundationOptimizationWaveK, SceneDependenciesDeduplicateAndKeepErrorOr
     /** 同一 material の共有を返す reader。 */
     CScenePackReader SharedReader(EScenePackMode::SharedDependency);
     /** shared dependency の load 先 scene。 */
-    CScene3D SharedScene;
+    CSceneNodeGraph SharedScene;
     /** shared dependency scene の load 結果。 */
     const FScene3DLoadResult SharedResult = TryLoadScene3DAssetPack(SharedScene, SharedReader, "main.acscene");
     EXPECT_TRUE(SharedResult.Succeeded());
@@ -808,7 +808,7 @@ ACS_TEST(FoundationOptimizationWaveK, SceneDependenciesDeduplicateAndKeepErrorOr
     /** 先行 decode と後続 read を失敗させる reader。 */
     CScenePackReader FailureReader(EScenePackMode::EarlierDecodeFailure);
     /** transaction 不変性を確認する既存 node 付き scene。 */
-    CScene3D FailureScene;
+    CSceneNodeGraph FailureScene;
     FailureScene.Spawn(FStringView("Keep"));
     /** 複合失敗 scene の load 結果。 */
     const FScene3DLoadResult FailureResult = TryLoadScene3DAssetPack(FailureScene, FailureReader, "main.acscene");

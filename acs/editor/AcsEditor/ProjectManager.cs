@@ -537,13 +537,13 @@ public static partial class ProjectManager
 
     // ===== クラス/ソース生成 (基底選択。Empty=空クラス、それ以外は <IDENT>_API エクスポート) =====
 
-    public static readonly string[] BaseClassOptions = { "Empty", "AObject", "AComponent", "ANode", "FScene2D" };
+    public static readonly string[] BaseClassOptions = { "Empty", "AObject", "AComponent", "ANode", "AScene" };
 
     /// <summary>選択可能なエンジン基底 (これ以外の基底はユーザー型として扱う)。</summary>
-    private static readonly HashSet<string> EngineBaseClasses = new() { "AObject", "AComponent", "ANode", "FScene2D" };
+    private static readonly HashSet<string> EngineBaseClasses = new() { "AObject", "AComponent", "ANode", "AScene" };
 
-    /// <summary>既存の登録処理を保つobject基底。FScene2Dはscene専用登録へ分けるまで含める。</summary>
-    private static readonly HashSet<string> RegisteredObjectBaseClasses = new() { "AObject", "AComponent", "ANode", "FScene2D" };
+    /// <summary>既存の登録処理を保つobject基底。AScene は scene 専用登録へ分けるまで含める。</summary>
+    private static readonly HashSet<string> RegisteredObjectBaseClasses = new() { "AObject", "AComponent", "ANode", "AScene" };
 
     /// <summary>baseClassからユーザー継承鎖を辿り、登録方針を決める既知rootを返す。</summary>
     /// <exception cref="InvalidOperationException">基底が不明または継承が循環している。</exception>
@@ -1298,8 +1298,9 @@ public static partial class ProjectManager
             h.Append("    ACS_PROPERTY() float value = 0.0f;\n\n");
             h.Append("    void OnUpdate(acs::f32 dt) noexcept override { (void)dt; }\n");
         }
-        else if (rootEngine == "FScene2D")
+        else if (rootEngine == "AScene")
         {
+            h.Append("    acs::game::ESvc WantedServices() const noexcept override { return acs::game::kScene2DServices; }\n\n");
             h.Append("    void OnReady() noexcept override\n    {\n        SetPixelsPerUnit(64.0f);\n        // TODO: ここでシーンを構築する。\n    }\n");
         }
         else
@@ -1440,9 +1441,10 @@ public static partial class ProjectManager
         "    std::fclose(file);\n" +
         "    return DetectBootstrapScene(bytes, read);\n" +
         "}\n\n" +
-        "class FMainScene2D final : public FScene2D\n" +
+        "class FMainScene2D final : public AScene\n" +
         "{\n" +
         "public:\n" +
+        "    ESvc WantedServices() const noexcept override { return kScene2DServices; }\n\n" +
         "    void OnReady() noexcept override\n" +
         "    {\n" +
         "        SetPixelsPerUnit(1.0f);\n" +

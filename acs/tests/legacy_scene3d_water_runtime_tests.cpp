@@ -358,7 +358,7 @@ ACS_TEST(LegacyScene3DCameraRuntime,
         "N3D 30 -1 -1 4 5 6 0 20 0 1 1 1 1 1 1 1 Cinematic\n"
         "CAM3D 30 cinematic.main 1 3 0 45 21 0.2 12000\n";
 
-    CScene3D source;
+    CSceneNodeGraph source;
     FScene3DLoadResult loaded =
         TryLoadScene3DText(source, kScene, sizeof(kScene) - 1u);
     EXPECT_TRUE(loaded.Succeeded());
@@ -383,7 +383,7 @@ ACS_TEST(LegacyScene3DCameraRuntime,
         saved_text,
         "CAM3D 3 cinematic.main 1 3 0") != nullptr);
 
-    CScene3D destination;
+    CSceneNodeGraph destination;
     destination.Spawn(FStringView("MustBeReplaced"));
     const FScene3DLoadResult roundtrip = TryLoadScene3DText(
         destination, saved_text, saved.BytesWritten);
@@ -434,7 +434,7 @@ ACS_TEST(LegacyScene3DCameraRuntime,
     EXPECT_EQ(component.Priority(), 7);
     EXPECT_NEAR(component.FovYDegrees(), 75.0f, 1.0e-6f);
 
-    CScene3D duplicate_component_scene;
+    CSceneNodeGraph duplicate_component_scene;
     ANode& camera_node =
         duplicate_component_scene.Spawn(FStringView("Camera"));
     ACameraComponent3D& first =

@@ -3,7 +3,7 @@
 // gameframework: コンポーネント → シーンサービス アクセス経路の検証 (GPU 非依存)。
 //   ANode が root に配線した CSceneServices を子/コンポーネントが walk-to-root で参照でき、
 //   OnAttachServices が «高々 1 回» 発火し、OnUpdate で Physics/Camera を読めることを確認する。
-//   通常 AScene2D Play と editor インプロセス Play が **同一経路** で動く土台。
+//   通常 AScene Play と editor インプロセス Play が **同一経路** で動く土台。
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"

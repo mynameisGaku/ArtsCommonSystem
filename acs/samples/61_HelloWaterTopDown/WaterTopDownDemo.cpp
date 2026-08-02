@@ -18,8 +18,11 @@ using namespace acs::game;
 
 namespace {
 
-class ALakeScene final : public AScene2D {
+class ALakeScene final : public AScene {
 public:
+    /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
+    ESvc WantedServices() const noexcept override { return kScene2DServices; }
+
     void OnReady() noexcept override {
         SetPixelsPerUnit(48.0f);
         SetReflectionEnabled(true);

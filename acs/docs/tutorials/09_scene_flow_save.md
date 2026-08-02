@@ -75,7 +75,7 @@ ACS_GAME_MAIN(CMyGame)
 | `OnRender(rc)` | 描画。`rc` は `CSpriteBatch` / `FFont` / `IRhiCommandList` を配線する |
 | `OnEvent(e)` | 入力/ウィンドウイベント。top のみに届く |
 
-> 注: 上の表は `AScene` のライフサイクル API です。サンプル 58 が使う `AScene2D` は既定サービスだけを変える空派生で、`OnReady()` / `OnTick(dt)` / `OnDrawHud(rc, sb)` も `AScene` 自身が提供します。
+> 注: 上の表は `AScene` のライフサイクル API です。サンプル 58 も同じ `AScene` を使い、2D の共通サービスは `WantedServices()` が `kScene2DServices` を返して要求します。`OnReady()` / `OnTick(dt)` / `OnDrawHud(rc, sb)` も `AScene` 自身が提供します。
 
 ### CSceneManager (SceneManager.h)
 
@@ -160,7 +160,7 @@ ACS_GAME_MAIN(CMyGame)
 `TransitionTo` がフェードアウト→暗転中に切替→フェードインを全部やってくれます。**遷移中は入力を無視**するのが定番です。
 
 ```cpp
-// AScene2D の OnTick から (サンプル 58)
+// AScene の OnTick から (サンプル 58)
 void ATitleScene::OnTick(f32 /*dt*/) noexcept {
     if (GetGame().Fade().IsActive()) return;           // 遷移中はガード
     if (Services().Input().IsPressed(kStart)) {
@@ -269,7 +269,7 @@ if (m_Flow.IsTransitioning()) {
 - **遷移は次フレーム頭で適用**。`Change/Push/Pop` を呼んでも即座には切り替わらない。同フレームに複数要求すると後勝ち。`OnUpdate` 内で安全にスタックを書き換えられるのはこのため。
 - **`TransitionTo` の描画は CGame 持ち**。切替先シーンで二重にフェードを描かない。フェードは time_scale の影響を受けず**実時間で進む**(ポーズ中でも遷移は進む)。
 - **遷移中は入力をガード**。`if (GetGame().Fade().IsActive()) return;` を入れないと暗転中に二重遷移しがち(サンプル 58 の定番パターン)。
-- **`AScene` と `AScene2D` で利用するフックを選べる**。`AScene` はライフサイクル hook と `OnReady/OnTick/OnDrawHud` の両方を提供し、`AScene2D` は既定サービス構成だけを追加する。
+- **`AScene` と `AScene` で利用するフックを選べる**。`AScene` はライフサイクル hook と `OnReady/OnTick/OnDrawHud` の両方を提供し、`AScene` は既定サービス構成だけを追加する。
 - **`AScene::OnPause/OnResume` は Push/Pop でのみ呼ばれる**。`ChangeScene` は pause/resume を呼ばない(退場側は `OnExit`、新 top は `OnEnter`)。
 - **新規コードは `TSaveSlot::TryInit` を優先**。パスを検証して所有コピーし、空・長すぎるパスや OOM を `TResult<void>` で返します。失敗時は以前のパスを変えません。互換 API の `Init` はコピーしないため、`static` / メンバの `constexpr wchar_t[]` など**寿命がスロット以上の文字列**だけを渡してください。
 - **`Save` は atomic replace**。同一ディレクトリの一時ファイルへ完全書込・flush 後に置換するため、途中失敗では既存ファイルを保持する。`Load` 側はサイズ完全一致と CRC32 を検証し、失敗時に呼び出し側の値を変更しない。
@@ -283,9 +283,9 @@ if (m_Flow.IsTransitioning()) {
 
 ## 動くサンプル
 
-- **`acs/samples/58_HelloTilemap/TilemapDemo.cpp`** — `CGame::TransitionTo` による FadeInOut 遷移(Title ⇄ Level)。`GetGame().Fade().IsActive()` での入力ガード。`AScene2D` 派生・`OnReady/OnTick/OnDrawHud`。
+- **`acs/samples/58_HelloTilemap/TilemapDemo.cpp`** — `CGame::TransitionTo` による FadeInOut 遷移(Title ⇄ Level)。`GetGame().Fade().IsActive()` での入力ガード。`AScene` 派生・`OnReady/OnTick/OnDrawHud`。
 - **`acs/samples/38_HelloFullGame/`** — フルゲーム構成。`TSaveSlot<FHighScore>` の実ファイル・ラウンドトリップ(`FullGameApp.cpp` の `OnStart` でロード / `SaveHighScoreIfBetter` で保存)、`CGameFlow` の進行管理、`AScene` 派生の `ChangeScene`(`GameplayScene.cpp` → `GameOverScene.cpp` → `TitleScene.cpp`)。POD 定義は `GameTypes.h`。
-- **`acs/samples/63_HelloVerticalSlice/main.cpp`** — **縦スライスの完結例**。`AScene2D` 派生の Title/Play/GameOver を `ChangeScene` で遷移、Pause は Play 内 state でゲームを背後に凍結。`FSettings` でハイスコアを INI 保存→次回起動でロード(`OnStart` で `Load`、`AGameOverScene::OnReady` で `SubmitScore`)。UI(`FUiLayer`)・atlas(`FSpritePack`)・tilemap・collide-and-slide(OBB 含む)を 1 本に統合。全 Y-down。
+- **`acs/samples/63_HelloVerticalSlice/main.cpp`** — **縦スライスの完結例**。`AScene` 派生の Title/Play/GameOver を `ChangeScene` で遷移、Pause は Play 内 state でゲームを背後に凍結。`FSettings` でハイスコアを INI 保存→次回起動でロード(`OnStart` で `Load`、`AGameOverScene::OnReady` で `SubmitScore`)。UI(`FUiLayer`)・atlas(`FSpritePack`)・tilemap・collide-and-slide(OBB 含む)を 1 本に統合。全 Y-down。
 - ヘッダ実物: `acs/src/gameframework/Game.h` / `SceneManager.h` / `Scene.h` /
   `FadeTransition.h` / `GameFlow.h` / `PauseDirector.h` / `AppState.h` /
   `SaveSlot.h` / `SaveArchive.h`

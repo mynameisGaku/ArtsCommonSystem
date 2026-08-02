@@ -8,5 +8,5 @@ acs::ANode* SpawnFromHeader(
     return Spawner.SpawnPrefabText(Text, Position);
 }
 
-/** Spawn2DSubsystem.h 単独で旧2Dシーン前方宣言を利用できることを固定する。 */
-void AcceptLegacyScene2DForward(acs::game::FScene2D*) noexcept;
+/** Spawn2DSubsystem.h 単独でscene前方宣言を利用できることを固定する。 */
+void AcceptSceneForward(acs::game::AScene*) noexcept;

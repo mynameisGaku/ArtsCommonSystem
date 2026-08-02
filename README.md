@@ -249,7 +249,7 @@ CPU側の密度・material・chunk snapshotなどのデータは`F`、編集・m
 | `Easy` | 初学者向け手続きAPI | `FColor`, `FSprite`, `FSound`, `FJobBatch` |
 | `AssetPack` | `.acpak`読書き・圧縮・暗号化 | `CAcpakReader`, `CAcpakWriter`, `CAcpakCrypto` |
 | `Collision` | sprite / meshからcollider生成 | `CSpriteCollider`, `CMeshCollider` |
-| `GameFramework` | game・scene・統一node / component | `CGame`, `AScene2D`, `CScene3D`, `ANode`, `AComponent` |
+| `GameFramework` | game・scene・統一node / component | `CGame`, `AScene`, `CSceneNodeGraph`, `ANode`, `AComponent` |
 | `Test` | 単体テストframework | `ACS_TEST`, `EXPECT_*` |
 
 任意module / backendは生成スイッチで追加されます。
@@ -280,7 +280,7 @@ CPU側の密度・material・chunk snapshotなどのデータは`F`、編集・m
 | `41_HelloOnnx` | `hello_onnx` | ONNX Runtime smoke test | `--onnx` |
 | `42_HelloOpenXR` | `hello_openxr` | OpenXR loader smoke test | `--openxr` |
 | `46_HelloAssetPackBridge` | `hello_asset_pack_bridge` | `.acpak` write / mount / read | 常時 |
-| `55_HelloScene2D` | `hello_scene2d` | `AScene2D`と統一`ANode`の実用starter | raw DX12・既定 |
+| `55_HelloScene2D` | `hello_scene2d` | `AScene`と統一`ANode`の実用starter | raw DX12・既定 |
 | `63_HelloVerticalSlice` | `hello_vertical_slice` | titleからsaveまでの2D vertical slice | raw DX12 |
 | `64_HelloJobs` | `hello_jobs` | Easy job / parallel API | 常時 |
 | `66_HelloVertexSSS` | `hello_vertex_sss` | `CVertexScatter`による頂点空間SSS | 常時 |

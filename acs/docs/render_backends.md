@@ -29,7 +29,7 @@ ACS は 2 つの RHI バックエンドを持つ。**どちらをビルドする
 
 | 機能 | raw-DX12 | Diligent | 備考 |
 |---|---|---|---|
-| 2D スプライト / FSpriteBatch / FScene2D | ✅ | ✅ | 2D ゲームは raw-DX12 だけで完結する |
+| 2D スプライト / FSpriteBatch / AScene | ✅ | ✅ | 2D ゲームは raw-DX12 だけで完結する |
 | 2D ライト・影・コライダー・水/炎エフェクト | ✅ | ✅ | |
 | 基本 3D メッシュ / PBR / シャドウマップ | ✅ | ✅ | |
 | Bloom / ACES トーンマップ / FXAA 等の単純 postfx | ✅ | ✅ | |

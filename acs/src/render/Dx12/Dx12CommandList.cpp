@@ -473,7 +473,7 @@ void CDx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_inde
 
     // Present → RenderTarget へバリア。ただし既に RT 状態なら skip する。
     // (同一フレーム内でオフスクリーン RT を挟んでから再バインドする —
-    //  AScene2D の反射パス等 — を安全にするためのガード)。
+    //  AScene の反射パス等 — を安全にするためのガード)。
     if (!m_BackbufferIsRt) {
         D3D12_RESOURCE_BARRIER b{};
         b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;

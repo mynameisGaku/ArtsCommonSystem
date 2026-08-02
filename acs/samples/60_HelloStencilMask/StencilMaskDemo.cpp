@@ -6,7 +6,7 @@
 //   ・[Space] 内外反転 (窓の中だけ隠す = 視界の穴)。 [Tab] 円⇔矩形。 [Esc] 終了。
 //
 // 仕組み: AStencilClip2DComponent を持つノードの子ツリーを stencil でクリップする。
-//         シェーダは書かない — AScene2D::SetStencilMaskEnabled(true) と
+//         シェーダは書かない — AScene::SetStencilMaskEnabled(true) と
 //         clip.SetCircle/SetRect だけ。
 #include "gameframework/GameFramework.h"
 #include "platform/Input.h"
@@ -18,8 +18,11 @@ using namespace acs::game;
 
 namespace {
 
-class AStencilScene final : public AScene2D {
+class AStencilScene final : public AScene {
 public:
+    /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
+    ESvc WantedServices() const noexcept override { return kScene2DServices; }
+
     void OnReady() noexcept override {
         SetPixelsPerUnit(48.0f);
         SetStencilMaskEnabled(true);   // world パスを stencil 付き DSV で描く

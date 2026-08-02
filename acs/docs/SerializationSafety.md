@@ -44,7 +44,7 @@
 | 反射値 | `TrySerializeReflected` / `TryDeserializeReflected` | 1,024 fields、名前255 bytes、値16 bytes、範囲外メタデータ拒否、`FIELD_TRANSIENT`除外 |
 | ノードバイナリ | `TrySaveNodeTree` / `TryLoadNodeTree` | 65,536 nodes、深度512、1,024 components/node、payload 4,096 bytes |
 | `.acscene` テキスト | `TryLoadAcsceneText` / `TryLoadAcsceneFile` | 入力8 MiB、行2,047 bytes、4,096 nodes、親参照・循環・有限値検証 |
-| `FScene3D` テキスト | `TrySaveScene3DText` / `TryLoadScene3DText` | 入力4 MiB、65,536 nodes、深度512、連続ID・単一root・有限値検証 |
+| `CSceneNodeGraph` テキスト | `TrySaveScene3DText` / `TryLoadScene3DText` | 入力4 MiB、65,536 nodes、深度512、連続ID・単一root・有限値検証 |
 | セーブ包絡 | `FSaveArchive` | payload 256 MiB、実サイズ完全一致、CRC後commit、flush済みatomic replace |
 | 設定 | `FSettings::TrySave` / `TryLoad` | 入力4 MiB、4,096 entries、厳密scalar、全件staging、一意tempのatomic replace |
 | テキストアセット | `TryParseAcsmatText` / `FProjectSettings::TryLoadText` | 入力1 MiB、行・件数・schema上限、close成功後commit |

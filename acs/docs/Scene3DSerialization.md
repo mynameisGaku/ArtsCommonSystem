@@ -1,6 +1,6 @@
-# FScene3D テキストシリアライズ
+# CSceneNodeGraph テキストシリアライズ
 
-`Scene3DSerialize` は `FScene3D` の `ANode` 階層、`FTransform3D`、
+`Scene3DSerialize` は `CSceneNodeGraph` の `ANode` 階層、`FTransform3D`、
 `AMeshComponent3D`、マテリアル、反射コンポーネント、および明示的なゲームカメラを
 行ベースのテキストから復元する。保存APIが出力する従来の `N3D` / `MSH3D` 形式に加え、
 エディタの `ACS3D v2` を互換アダプタとして直接読み込める。
@@ -85,7 +85,7 @@ batch bufferやparsed nodeが更新されても、全依存が成功するまで
 
 ## 生成とノード登録
 
-`FScene3D::TrySpawn` は parent が同じシーンのpoolとrootツリーの両方に属することを確認する。
+`CSceneNodeGraph::TrySpawn` は parent が同じシーンのpoolとrootツリーの両方に属することを確認する。
 新規ノードを `FNodePool` へ仮登録してから `ANode::TryAddChild` を呼び、破棄予定parentや
 深度上限でattachが拒否された場合は登録をrollbackする。失敗時はツリー、active slot数、
 既存ノードのIDを変更しない。互換用 `Spawn` は成功時に従来どおりノード参照を返し、失敗時は

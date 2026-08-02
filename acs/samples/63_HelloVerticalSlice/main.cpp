@@ -7,7 +7,7 @@
 //     └──────────[Title]──────┴──────────[Retry → Play]──────────────┘
 //
 // 1 本で 2D 基盤の P0 を全部見せる:
-//   ・AScene2D による画面遷移 (ChangeScene)
+//   ・AScene による画面遷移 (ChangeScene)
 //   ・クリック可能 UI メニュー (CUiLayer、スクリーン空間)
 //   ・自前 atlas テクスチャ + FSpritePack フレーム → プレイヤースプライト
 //   ・ATilemapComponent によるタイルマップ描画
@@ -285,8 +285,11 @@ CVerticalSliceGame& App(AScene& s) noexcept {
 // ===========================================================================
 // Title
 // ===========================================================================
-class ATitleScene final : public AScene2D {
+class ATitleScene final : public AScene {
 public:
+    /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
+    ESvc WantedServices() const noexcept override { return kScene2DServices; }
+
     void OnReady() noexcept override {
         GetGame().SetClearColor(0.06f, 0.07f, 0.11f);
         FInputMap& in = Services().Input();
@@ -338,8 +341,11 @@ private:
 // ===========================================================================
 // Play (タイルマップ + atlas プレイヤー + コイン + ポーズ state)
 // ===========================================================================
-class APlayScene final : public AScene2D {
+class APlayScene final : public AScene {
 public:
+    /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
+    ESvc WantedServices() const noexcept override { return kScene2DServices; }
+
     void OnReady() noexcept override {
         SetPixelsPerUnit(44.0f);
         GetGame().SetClearColor(0.05f, 0.06f, 0.08f);
@@ -511,8 +517,11 @@ private:
 // ===========================================================================
 // GameOver (スコア表示 + ハイスコア保存 + Retry / Title)
 // ===========================================================================
-class AGameOverScene final : public AScene2D {
+class AGameOverScene final : public AScene {
 public:
+    /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
+    ESvc WantedServices() const noexcept override { return kScene2DServices; }
+
     AGameOverScene(i32 score, bool win) noexcept : m_Score(score), m_Win(win) {}
 
     void OnReady() noexcept override {

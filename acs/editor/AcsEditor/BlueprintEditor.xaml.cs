@@ -3493,7 +3493,7 @@ public partial class BlueprintEditor : UserControl
                 var sceneFiles = ProjectManager.GenerateClass(
                     fixtureProject,
                     "FWorldScene",
-                    "FScene2D");
+                    "AScene");
                 var sceneChildFiles = ProjectManager.GenerateClass(
                     fixtureProject,
                     "FWorldSceneChild",
@@ -3695,7 +3695,7 @@ public partial class BlueprintEditor : UserControl
                     && System.IO.Path.GetFileName(sceneFiles.Single()) == "AWorldScene.h"
                     && sceneHeader.Contains("ACS_CLASS()", StringComparison.Ordinal)
                     && sceneHeader.Contains(
-                        "class PREFIXFIXTURE_API AWorldScene : public acs::game::FScene2D",
+                        "class PREFIXFIXTURE_API AWorldScene : public acs::game::AScene",
                         StringComparison.Ordinal)
                     && System.IO.Path.GetFileName(sceneChildFiles.Single()) == "AWorldSceneChild.h"
                     && sceneChildHeader.Contains("ACS_CLASS()", StringComparison.Ordinal)
@@ -3726,7 +3726,7 @@ public partial class BlueprintEditor : UserControl
                     && scannedClasses.Contains(("AChild", "AActor"))
                     && scannedClasses.Contains(("ANodeRoot", "ANode"))
                     && scannedClasses.Contains(("ANodeChild", "ANodeRoot"))
-                    && scannedClasses.Contains(("AWorldScene", "FScene2D"))
+                    && scannedClasses.Contains(("AWorldScene", "AScene"))
                     && scannedClasses.Contains(("AWorldSceneChild", "AWorldScene"))
                     && scannedClasses.Contains(("AManaged", "AObject"))
                     && scannedClasses.Contains(("AManagedChild", "AManaged"))

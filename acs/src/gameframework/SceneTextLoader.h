@@ -12,7 +12,7 @@
 //         NFLG <id> <visible> <enabled> <sortLayer> /
 //         SPRT <id> <path> / MAT <id> <path>。
 //
-// 使い方 (AScene2D 派生の OnReady から):
+// 使い方 (AScene 派生の OnReady から):
 //   SetPixelsPerUnit(1.0f);
 //   FSceneBounds b = LoadAcsceneFile("main.acscene", Root());
 //   if (b.valid) { Services().Camera().SetPosition(b.Center()); /* zoom はフレーム後合わせる */ }

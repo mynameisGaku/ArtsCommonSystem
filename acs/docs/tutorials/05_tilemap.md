@@ -15,7 +15,10 @@
 using namespace acs;
 using namespace acs::game;
 
-class ALevelScene final : public AScene2D {
+class ALevelScene final : public AScene {
+    /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
+    ESvc WantedServices() const noexcept override { return kScene2DServices; }
+
 public:
     void OnReady() noexcept override {
         SetPixelsPerUnit(48.0f);                 // world 1.0 = 48px で見る

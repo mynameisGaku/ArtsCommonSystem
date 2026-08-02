@@ -3,7 +3,6 @@
 
 #include "gameframework/Game.h"
 #include "gameframework/Scene.h"
-#include "gameframework/Scene2D.h"
 #include "gameframework/LegacyScene3DAdapter.h"
 #include "gameframework/SceneManager.h"
 #include "gameframework/RenderContext.h"

@@ -229,7 +229,7 @@ Root().AddChild(Move(player));        // 強参照はツリーへ移す
 | 見たいもの | パス |
 | --- | --- |
 | 継承ノード + 自作コンポーネント + 親子 transform 伝播 | `acs/samples/28_HelloGameFramework/`（特に `GameplayScene.cpp`, `RotateComponent.{h,cpp}`, `RotatingNode.{h,cpp}`） |
-| `AScene2D` 上で sprite + physics body を組む実用スターター | `acs/samples/55_HelloScene2D/Scene2DStarter.cpp` |
+| `AScene` 上で sprite + physics body を組む実用スターター | `acs/samples/55_HelloScene2D/Scene2DStarter.cpp` |
 | エフェクト系コンポーネント（`AWater2DComponent`/`AFire2DComponent`/`ATrail2DComponent`）を `AddComponent` する例 | `acs/samples/59_HelloEffects2D/EffectsDemo.cpp` |
 
 上記 3 サンプルはいずれも実機ビルド + スクリーンショット確認済みです。

@@ -108,7 +108,7 @@ Windows SDK, Diligent and xxHash link directives above.
 `container`, `memory`, `threading`, `platform`, `ecs`, `event`, `collision`,
 `mvvm`, `asset` / `assetpack`, `audio`, `render` (the backend-agnostic `IRhi*`
 interfaces + `CRenderer` / `CSpriteBatch` / `CStandardShader` / `CPbrShader` …),
-`ui`, the `gameframework` (`CGame` / `AScene` / `AScene2D` / `ANode` /
+`ui`, the `gameframework` (`CGame` / `AScene` / `AScene` / `ANode` /
 `AComponent` / systems), and the **`easy`** beginner layer (`acs::easy::…`).
 ACS module implementations, including the raw DirectX 12 and XAudio2 paths,
 are merged into `acs.lib`; the Diligent implementation remains in the adjacent

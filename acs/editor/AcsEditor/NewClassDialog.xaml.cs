@@ -28,7 +28,7 @@ public partial class NewClassDialog : Window
         UpdateHint();
     }
 
-    // 階層を構築: Empty + エンジン基底 (AObject/AComponent/ANode/FScene2D) を根に、
+    // 階層を構築: Empty + エンジン基底 (AObject/AComponent/ANode/AScene) を根に、
     // プロジェクトのユーザークラスを基底配下へ (連鎖は複数パスで解決)。
     private void BuildTree(Project? project)
     {

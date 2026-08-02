@@ -36,7 +36,7 @@ namespace acs {
  *
  * @details
  * SetStencilMode で切り替える。stencil 付き深度バッファが bind されたパス
- * (AScene2D::SetStencilMaskEnabled(true)) でのみ意味を持つ。
+ * (AScene::SetStencilMaskEnabled(true)) でのみ意味を持つ。
  */
 enum class EStencilMode : u8 {
     /** ステンシルテスト無し (ただし DSV bind パスでは DSV 整合 PSO を使う)。 */
@@ -441,8 +441,8 @@ public:
      * バッチを flush してから PSO + 参照値を切り替える。任意形状のマスクで描画範囲を
      * 制限する用途で、WriteMask でマスク形状を焼き、KeepInside/KeepOutside でその内/外
      * だけに後続描画を通す。Off で解除。前提として stencil 付き深度バッファが bind された
-     * パス (AScene2D::SetStencilMaskEnabled(true) が用意する) でのみ呼ぶこと。それ以外で
-     * 呼ぶと DSV 不整合になるため、呼び出し側 (AScene2D / clip component) がガードする。
+     * パス (AScene::SetStencilMaskEnabled(true) が用意する) でのみ呼ぶこと。それ以外で
+     * 呼ぶと DSV 不整合になるため、呼び出し側 (AScene / clip component) がガードする。
      * @param mode 適用するステンシルモード。
      * @param ref ステンシル参照値 (既定 1)。
      */
@@ -521,7 +521,7 @@ public:
     /**
      * 描画コマンドの蓄積を一時的に抑止する。
      *
-     * @details AScene2D の水深捕捉 pass で通常ノードを描かず、TopDown 水だけを一時的に
+     * @details AScene の水深捕捉 pass で通常ノードを描かず、TopDown 水だけを一時的に
      * 有効化するための内部向け機能。状態変更時は保留バッチを先に flush する。
      * @param suppress true なら Draw 系を無視、false なら通常描画。
      */

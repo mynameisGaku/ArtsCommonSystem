@@ -66,8 +66,11 @@ TUniquePtr<IRhiTexture> MakeAnimSheet(IRhiDevice& device) noexcept {
     return Move(r.Value());
 }
 
-class AAnimScene final : public AScene2D {
+class AAnimScene final : public AScene {
 public:
+    /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
+    ESvc WantedServices() const noexcept override { return kScene2DServices; }
+
     void OnReady() noexcept override {
         SetPixelsPerUnit(96.0f);
         Services().Input().ClearAll();

@@ -1,14 +1,14 @@
 # カメラ (CCamera2D)
 
-2D シーンの「見ている位置・拡大率・回転」を持ち、プレイヤー追従・画面振動 (shake)・ワールド境界クランプ・座標変換をまとめて面倒見るのがこのカメラです。`AScene2D` を継承していれば既に有効化されており、`Services().Camera()` でいつでも触れます。「プレイヤーを真ん中に映したい」「攻撃ヒットで画面を揺らしたい」「クリックした場所のワールド座標が欲しい」ときに使います。
+2D シーンの「見ている位置・拡大率・回転」を持ち、プレイヤー追従・画面振動 (shake)・ワールド境界クランプ・座標変換をまとめて面倒見るのがこのカメラです。`AScene` を継承していれば既に有効化されており、`Services().Camera()` でいつでも触れます。「プレイヤーを真ん中に映したい」「攻撃ヒットで画面を揺らしたい」「クリックした場所のワールド座標が欲しい」ときに使います。
 
-> カメラは `CSceneServices` のサービスとして `ESvc::Camera2D` ビットで有効化されます。`AScene2D` の `WantedServices()` は `Default2D | Camera2D | Physics2D` を返すので、`AScene2D` を継承する限り自分で何も足さなくて OK です。
+> カメラは `CSceneServices` のサービスとして `ESvc::Camera2D` ビットで有効化されます。`AScene` の `WantedServices()` は `Default2D | Camera2D | Physics2D` を返すので、`AScene` を継承する限り自分で何も足さなくて OK です。
 
 ---
 
 ## 最小例
 
-`AScene2D` 派生シーンで、毎フレームプレイヤー位置にカメラを追従させる最小コードです (sample 55 と同じ構造)。
+`AScene` 派生シーンで、毎フレームプレイヤー位置にカメラを追従させる最小コードです (sample 55 と同じ構造)。
 
 ```cpp
 #include "gameframework/GameFramework.h"
@@ -16,8 +16,11 @@
 using namespace acs;
 using namespace acs::game;
 
-class AMyScene final : public AScene2D
+class AMyScene final : public AScene
 {
+    /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
+    ESvc WantedServices() const noexcept override { return kScene2DServices; }
+
 public:
     void OnReady() noexcept override
     {
@@ -153,6 +156,6 @@ void OnTick(f32 /*dt*/) noexcept override
 
 ## 動くサンプル
 
-- **`acs/samples/55_HelloScene2D/Scene2DStarter.cpp`** — `AScene2D` 派生 + `SetTargetPos(player, 8.0f)` でのプレイヤー追従、`SetPosition` / `SetZoom` の初期化、`SetPixelsPerUnit(64)` を実際に動かして screenshot 検証済みのスターター。カメラ追従の挙動はまずここを動かすのが早いです。
+- **`acs/samples/55_HelloScene2D/Scene2DStarter.cpp`** — `AScene` 派生 + `SetTargetPos(player, 8.0f)` でのプレイヤー追従、`SetPosition` / `SetZoom` の初期化、`SetPixelsPerUnit(64)` を実際に動かして screenshot 検証済みのスターター。カメラ追従の挙動はまずここを動かすのが早いです。
 
 実装本体は `acs/src/gameframework/Camera2D.h` (全ロジックがヘッダに inline)、シーン側の座標変換は `acs/src/gameframework/Scene.cpp` の `AScene::ScreenToWorld` を参照してください。

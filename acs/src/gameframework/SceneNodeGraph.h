@@ -3,7 +3,7 @@
 //
 // root ANode ツリーと CNodePool をまとめて所有する、シーン文脈非依存のノードグラフ。
 // AScene が正規のシーングラフとして保持するほか、checked loader や editor の staging の
-// ようにスタック上へ一時グラフを構築する用途 (CScene3D 経由) でも使う。
+// ようにスタック上へ一時グラフを構築する用途でも使う。
 // CSubsystemCollection / CSceneServices を一切持たないため、一時グラフがシーン文脈を
 // 抱え込むことはない (docs/SceneUnification.md Phase 2)。
 #pragma once

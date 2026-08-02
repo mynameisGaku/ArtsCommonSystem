@@ -156,7 +156,7 @@ void OnTick(f32 dt) noexcept override {
 
 ### 2. アクションマッピングで移動 + 射撃（FInputMap）
 
-セットアップ（シーン開始時に 1 回）と消費を分けて書きます。`Services().Input()` は `AScene2D` が要求する共有 `FInputMap`。
+セットアップ（シーン開始時に 1 回）と消費を分けて書きます。`Services().Input()` は `AScene` が要求する共有 `FInputMap`。
 
 ```cpp
 // 実サンプル 38_HelloFullGame: OnEnter でバインド

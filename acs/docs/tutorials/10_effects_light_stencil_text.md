@@ -8,7 +8,7 @@
 
 ## 最小例
 
-`AScene2D` を継承し、`OnReady()` でノードにエフェクトコンポーネントを付けるだけです。
+`AScene` を継承し、`OnReady()` でノードにエフェクトコンポーネントを付けるだけです。
 
 ```cpp
 #include "gameframework/GameFramework.h"
@@ -16,7 +16,10 @@
 using namespace acs;
 using namespace acs::game;
 
-class AMyScene final : public AScene2D {
+class AMyScene final : public AScene {
+    /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
+    ESvc WantedServices() const noexcept override { return kScene2DServices; }
+
 public:
     void OnReady() noexcept override {
         SetPixelsPerUnit(48.0f);

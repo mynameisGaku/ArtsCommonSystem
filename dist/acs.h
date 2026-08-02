@@ -28390,20 +28390,13 @@ class AScene;
 /** 旧公開名から正規scene型へ接続する互換別名。 */
 using FScene = AScene;
 
-/** 二次元画面状態を所有する正規型。 */
-class AScene2D;
-/** 旧公開名から正規二次元scene型へ接続する互換別名。 */
-using FScene2D = AScene2D;
-
-/** 三次元sceneを管理する正規型。 */
-class CScene3D;
-/** 旧公開名から正規三次元scene型へ接続する互換別名。 */
-using FScene3D = CScene3D;
-
 /** scene遷移を管理する正規型。 */
 class CSceneManager;
 /** 旧公開名から正規scene管理型へ接続する互換別名。 */
 using FSceneManager = CSceneManager;
+
+/** sceneのnode treeとnode poolを所有する正規型。 */
+class CSceneNodeGraph;
 
 /** scene描画資源をgame寿命で共有する正規型。 */
 class CSceneRenderResources;
@@ -28461,9 +28454,8 @@ using game::CPrivacyDirector;
 using game::CReplayDirector;
 using game::CRigidWorld2D;
 using game::AScene;
-using game::AScene2D;
-using game::CScene3D;
 using game::CSceneManager;
+using game::CSceneNodeGraph;
 using game::CSceneRenderResources;
 using game::CSceneServices;
 using game::editor_core::AEditorCommand;
@@ -28488,8 +28480,6 @@ using game::FPrivacyDirector;
 using game::FReplayDirector;
 using game::FRigidWorld2D;
 using game::FScene;
-using game::FScene2D;
-using game::FScene3D;
 using game::FSceneManager;
 using game::FSceneServices;
 using game::editor_core::FEditorCommand;
@@ -35790,7 +35780,7 @@ using FCamera2D = CCamera2D;
 // =============================================================================
 // GameFramework — 3D シーン (ANode ツリー) のテキストシリアライズ
 // -----------------------------------------------------------------------------
-// CScene3D の階層 + 各ノードの FTransform3D (pos/euler/scale) + AMeshComponent3D
+// CSceneNodeGraph の階層 + 各ノードの FTransform3D (pos/euler/scale) + AMeshComponent3D
 // (prim/color/mesh path) を行ベースのテキストへ往復させる。editor_abi の 3D ビュー
 // ポートの scene3d_serialize/load_text が委譲する «正準フォーマット» (移行後)。
 //
@@ -35952,35 +35942,24 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept;
 FScene3DSaveResult TrySaveScene3DText(
     const CSceneNodeGraph& graph, char* out, u32 cap) noexcept;
 
-/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
-FScene3DSaveResult TrySaveScene3DText(
-    const CScene3D& scene, char* out, u32 cap) noexcept;
-
 /**
- * CScene3D をテキストへ直列化する (root + 全子孫、構造 + transform + メッシュ記述)。
+ * ノードグラフをテキストへ直列化する (root + 全子孫、構造 + transform + メッシュ記述)。
  *
- * @param scene 直列化するシーン。
+ * @param graph 直列化するノードグラフ。
  * @param out 出力バッファ (null 終端される)。
  * @param cap out の容量。
  * @return 書き込んだ文字数 (null 終端を除く)。失敗時は 0。
  */
 u32 SaveScene3DText(const CSceneNodeGraph& graph, char* out, u32 cap) noexcept;
 
-/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
-u32 SaveScene3DText(const CScene3D& scene, char* out, u32 cap) noexcept;
-
 /**
- * size bytes のテキストを完全検証してから既存シーンを置き換える。
+ * size bytes のテキストを完全検証してから既存グラフを置き換える。
  *
  * @details size は終端 NUL を含めない。切詰め、長過ぎる行、非有限値、巨大/重複 id、
  * 不正 parent、深度超過、孤立 MSH3D は置換前に拒否する。
  */
 FScene3DLoadResult TryLoadScene3DText(
     CSceneNodeGraph& graph, const char* text, u32 size) noexcept;
-
-/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
-FScene3DLoadResult TryLoadScene3DText(
-    CScene3D& scene, const char* text, u32 size) noexcept;
 
 /**
  * 旧 `.acs3d` 文書または canonical bootstrap を loose file から読み、
@@ -35992,10 +35971,6 @@ FScene3DLoadResult TryLoadScene3DText(
 FScene3DLoadResult TryLoadScene3DFile(
     CSceneNodeGraph& graph, const char* path) noexcept;
 
-/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
-FScene3DLoadResult TryLoadScene3DFile(
-    CScene3D& scene, const char* path) noexcept;
-
 /**
  * `.acpak` 内の canonical bootstrap と参照メッシュ/マテリアルを transactional に復元する。
  *
@@ -36006,25 +35981,17 @@ FScene3DLoadResult TryLoadScene3DAssetPack(
     CSceneNodeGraph& graph, IAssetPackReader& pack,
     const char* virtual_path = "main.acscene") noexcept;
 
-/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
-FScene3DLoadResult TryLoadScene3DAssetPack(
-    CScene3D& scene, IAssetPackReader& pack,
-    const char* virtual_path = "main.acscene") noexcept;
-
 /**
- * SaveScene3DText のテキストから CScene3D を復元する (既存内容を置き換える)。
+ * SaveScene3DText のテキストからノードグラフを復元する (既存内容を置き換える)。
  *
  * @details
  * 互換用の NUL 終端 C 文字列 API。詳細結果と入力サイズ上限が必要なら
  * TryLoadScene3DText を使う。
- * @param scene 復元先のシーン (内容は置き換わる)。
+ * @param graph 復元先のノードグラフ (内容は置き換わる)。
  * @param text 直列化テキスト。
  * @return 解析が成立したら true (text==null は false)。
  */
 bool LoadScene3DText(CSceneNodeGraph& graph, const char* text) noexcept;
-
-/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
-bool LoadScene3DText(CScene3D& scene, const char* text) noexcept;
 
 } // namespace acs::game
 
@@ -46770,7 +46737,7 @@ namespace acs {
  *
  * @details
  * SetStencilMode で切り替える。stencil 付き深度バッファが bind されたパス
- * (AScene2D::SetStencilMaskEnabled(true)) でのみ意味を持つ。
+ * (AScene::SetStencilMaskEnabled(true)) でのみ意味を持つ。
  */
 enum class EStencilMode : u8 {
     /** ステンシルテスト無し (ただし DSV bind パスでは DSV 整合 PSO を使う)。 */
@@ -47175,8 +47142,8 @@ public:
      * バッチを flush してから PSO + 参照値を切り替える。任意形状のマスクで描画範囲を
      * 制限する用途で、WriteMask でマスク形状を焼き、KeepInside/KeepOutside でその内/外
      * だけに後続描画を通す。Off で解除。前提として stencil 付き深度バッファが bind された
-     * パス (AScene2D::SetStencilMaskEnabled(true) が用意する) でのみ呼ぶこと。それ以外で
-     * 呼ぶと DSV 不整合になるため、呼び出し側 (AScene2D / clip component) がガードする。
+     * パス (AScene::SetStencilMaskEnabled(true) が用意する) でのみ呼ぶこと。それ以外で
+     * 呼ぶと DSV 不整合になるため、呼び出し側 (AScene / clip component) がガードする。
      * @param mode 適用するステンシルモード。
      * @param ref ステンシル参照値 (既定 1)。
      */
@@ -47255,7 +47222,7 @@ public:
     /**
      * 描画コマンドの蓄積を一時的に抑止する。
      *
-     * @details AScene2D の水深捕捉 pass で通常ノードを描かず、TopDown 水だけを一時的に
+     * @details AScene の水深捕捉 pass で通常ノードを描かず、TopDown 水だけを一時的に
      * 有効化するための内部向け機能。状態変更時は保留バッチを先に flush する。
      * @param suppress true なら Draw 系を無視、false なら通常描画。
      */
@@ -49193,7 +49160,7 @@ using game::ESvc;
 //
 // root ANode ツリーと CNodePool をまとめて所有する、シーン文脈非依存のノードグラフ。
 // AScene が正規のシーングラフとして保持するほか、checked loader や editor の staging の
-// ようにスタック上へ一時グラフを構築する用途 (CScene3D 経由) でも使う。
+// ようにスタック上へ一時グラフを構築する用途でも使う。
 // CSubsystemCollection / CSceneServices を一切持たないため、一時グラフがシーン文脈を
 // 抱え込むことはない (docs/SceneUnification.md Phase 2)。
 
@@ -49721,6 +49688,19 @@ namespace game {
 class FRenderContext;
 
 /**
+ * 2D ゲームの標準サービス構成 (WantedServices() の戻り値に使う)。
+ *
+ * @details
+ * シーン型は AScene 一つで、2D と 3D の違いは投影とサービス構成だけにする
+ * (docs/SceneUnification.md)。2D の共通 stack を使うシーンは
+ * `ESvc WantedServices() const noexcept override { return kScene2DServices; }`
+ * と書く。既定の ESvc::None のままなら、メニューや headless のシーンは
+ * Camera2D / Physics2D を確保しない。
+ */
+inline constexpr ESvc kScene2DServices =
+    ESvc::Default2D | ESvc::Camera2D | ESvc::Physics2D;
+
+/**
  * 1 つの画面/状態を表すシーンの基底クラス。
  *
  * @details
@@ -50204,6 +50184,9 @@ namespace acs {
 
 /** scene描画コンテキストをトップレベルから参照する正規入口。 */
 using game::FRenderContext;
+
+/** 2D標準サービス構成をトップレベルから参照する正規入口。 */
+using game::kScene2DServices;
 
 } // namespace acs
 
@@ -51472,285 +51455,10 @@ using FGameFlow = CGameFlow;
 // SPDX-License-Identifier: Apache-2.0
 
 
-// ===================== gameframework/Scene2D.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// AScene2D - 2D ゲーム向けの実用的な基底 scene。
-//
-// 次の共通 2D stack を接続する:
-//   CSceneServices(Default2D | Camera2D | Physics2D)
-//   ルート ANode ツリー
-//   world と HUD の描画で共有する 1 つの CSpriteBatch
-//
-// 利用側は scene ごとに同じ root/update/render 接続を再実装せず、
-// OnReady/OnTick/OnFixedTick/OnDrawWorld/OnDrawHud を override する。
-
-
-namespace acs {
-
-// 描画リソースは CGame が game 寿命で所有するため、シーンヘッダは実体を必要としない
-// (docs/SceneUnification.md)。参照と引数にしか使わないので前方宣言で足りる。
-class CSpriteBatch;
-
-} // namespace acs
-
-namespace acs::game {
-
-/**
- * 2D ゲーム向けの実用的なシーン基底クラス。
- *
- * @details
- * 共通の 2D スタック (CSceneServices(Default2D | Camera2D | Physics2D)、root ANode ツリー、
- * world/HUD 描画用の共有 CSpriteBatch) を配線する。利用者は root/update/render の定型
- * 処理を毎シーン書き直す代わりに OnReady/OnTick/OnFixedTick/OnDrawWorld/OnDrawHud を
- * override する。平面反射とステンシルマスクをオプションで有効化できる。
- */
-class AScene2D : public AScene {
-public:
-    /** 空の 2D シーンを構築する (root は AScene が確保する)。 */
-    AScene2D() noexcept = default;
-
-    /** シーンを破棄する。 */
-    ~AScene2D() noexcept override = default;
-
-    /** コピー禁止 (ANode ツリーを単独所有するため)。 */
-    AScene2D(const AScene2D&)            = delete;
-
-    /** コピー代入も禁止。 */
-    AScene2D& operator=(const AScene2D&) = delete;
-
-    /**
-     * このシーンが要求するサービスを返す。
-     *
-     * @details AScene の既定は ESvc::None なので、2D スタックを使うシーンはこの派生を使うか
-     * 同じ値を自分で返す。root と描画は AScene が持つ (docs/SceneUnification.md)。
-     * @return Default2D | Camera2D | Physics2D の合成フラグ。
-     */
-    ESvc WantedServices() const noexcept override {
-        return ESvc::Default2D | ESvc::Camera2D | ESvc::Physics2D;
-    }
-};
-
-} // namespace acs::game
-
 // ===================== gameframework/LegacyScene3DAdapter.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // Reversible AScene host for legacy ACS3D editor documents.
 
-
-// ===================== gameframework/Scene3D.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — CScene3D
-//
-// スタック上に置ける 3D シーングラフの実用コンテナ。実体は CSceneNodeGraph への
-// 委譲だけに縮退しており、checked loader (Scene3DSerialize) や editor の staging の
-// «一時グラフをスタックに構築して SwapContents で公開する» 用途のために残している
-// (docs/SceneUnification.md Phase 2)。シーンに載る正規のグラフは AScene が保持する。
-//
-// 注: 本クラスは AScene 基底 (シーン lifecycle/サービス前提) を継承せず、純粋な
-//     シーングラフコンテナとして独立している。AScene 派生または alias にすると
-//     スタック上の一時グラフが CSubsystemCollection と TUniquePtr<CSceneServices> を
-//     丸ごと抱えるため、この分離は意図的である。
-
-
-namespace acs::game {
-
-/**
- * 3D シーングラフを所有・駆動する実用コンテナ (CSceneNodeGraph の薄い wrapper)。
- *
- * @details
- * root ANode ツリーと generational pool の実体は member の CSceneNodeGraph が持ち、
- * 本クラスは全操作をそこへ委譲する。シーン文脈を持たずスタック上に置けるため、
- * checked loader が一時グラフを構築して SwapContents で公開する用途に使う。
- * 描画は外部の 3D レンダラがツリーを走査して行う (本クラスは GPU 非依存)。
- */
-class CScene3D {
-public:
-    /** 空のシーンを構築する (root のみ。pool を初期化し root も登録する)。 */
-    CScene3D() noexcept = default;
-
-    /** シーンを破棄する (root ツリーごと解放。pool は非所有なので何も delete しない)。 */
-    ~CScene3D() noexcept = default;
-
-    /** コピー禁止 (ANode ツリーを単独所有するため)。 */
-    CScene3D(const CScene3D&)            = delete;
-
-    /** コピー代入も禁止。 */
-    CScene3D& operator=(const CScene3D&) = delete;
-
-    /** ムーブ禁止。 */
-    CScene3D(CScene3D&&)                 = delete;
-
-    /** ムーブ代入も禁止。 */
-    CScene3D& operator=(CScene3D&&)      = delete;
-
-    /**
-     * Atomically exchange complete scene ownership.
-     *
-     * Used by checked loaders to build a replacement graph off to the side
-     * and publish it only after every allocation and component commit succeeds.
-     */
-    void SwapContents(CScene3D& other) noexcept { m_Graph.SwapContents(other.m_Graph); }
-
-    /**
-     * 内部のノードグラフへの可変参照を返す。
-     *
-     * @details graph 単位の API (AScene::Graph() と同じ型) を直接使う呼び出し側や、
-     * CSceneNodeGraph を取る loader へ渡すための正規入口。
-     * @return 所有する CSceneNodeGraph への参照。
-     */
-    CSceneNodeGraph&       Graph()       noexcept { return m_Graph; }
-
-    /**
-     * 内部のノードグラフへの const 参照を返す。
-     *
-     * @return 所有する CSceneNodeGraph への const 参照。
-     */
-    const CSceneNodeGraph& Graph() const noexcept { return m_Graph; }
-
-    /**
-     * シーンの root ノードへの可変参照を返す (ここに子を AddChild してツリーを組む)。
-     *
-     * @return root ANode への参照。
-     */
-    ANode&       Root()       noexcept { return m_Graph.Root(); }
-
-    /**
-     * シーンの root ノードへの const 参照を返す。
-     *
-     * @return root ANode への const 参照。
-     */
-    const ANode& Root() const noexcept { return m_Graph.Root(); }
-
-    /**
-     * ノードを生成し、pool登録と親へのattachを原子的に試みる。
-     *
-     * @details
-     * parent==nullptr は root を表す。外部シーンのparent、破棄予定parent、深度上限超過を
-     * 拒否する。新規ノードは先にpoolへ仮登録し、TryAddChild失敗時はUnregisterして破棄する
-     * ため、失敗時にツリー、active slot数、既存ノードのIdを変更しない。
-     */
-    FScene3DSpawnResult TrySpawn(
-        FStringView name, ANode* parent = nullptr) noexcept {
-        return m_Graph.TrySpawn(name, parent);
-    }
-
-    /**
-     * 名前を付けて子ノードを生成し、generational id を振って参照を返す簡易ヘルパ。
-     *
-     * @details
-     * parent==nullptr のときは root の子にする。成功時の挙動は従来互換。
-     * 失敗時は安全な sentinel として、有効なparentならparent、無効parentならrootを返す。
-     * 失敗を区別する新規コードは TrySpawn を使う。
-     * @param name 新規ノードの名前。
-     * @param parent 親ノード (nullptr なら root)。
-     * @return 生成した子ノードへの参照。
-     */
-    ANode& Spawn(FStringView name, ANode* parent = nullptr) noexcept {
-        return m_Graph.Spawn(name, parent);
-    }
-
-    /**
-     * generational id から ANode を取り出す (stale / invalid なら nullptr)。
-     *
-     * @param id 取り出す FNodeId。
-     * @return 対応するノード (stale なら nullptr)。
-     */
-    ANode* Get(FNodeId id) noexcept { return m_Graph.Get(id); }
-
-    /**
-     * id が現在も生きているか (stale 検出)。
-     *
-     * @param id 検証する FNodeId。
-     * @return 生きていれば true。
-     */
-    bool IsValid(FNodeId id) const noexcept { return m_Graph.IsValid(id); }
-
-    /**
-     * ノードポインタから FNodeId を逆引きする。
-     *
-     * @param node 逆引きするノード。
-     * @return 対応する FNodeId (未登録なら invalid)。
-     */
-    FNodeId IdOf(ANode* node) noexcept { return m_Graph.IdOf(node); }
-
-    /**
-     * id 指定でノードを破棄予定にする (実際の reap は次の Update)。
-     *
-     * @details root は破棄できない (false を返す)。pool からの登録解除は次の Update の
-     * PurgePendingDestroy が行う (= 破棄予定の間も id は valid のまま、reap 前に外れる)。
-     * @param id 破棄するノードの FNodeId。
-     * @return 破棄予定にしたら true、未登録 / root なら false。
-     */
-    bool Destroy(FNodeId id) noexcept { return m_Graph.Destroy(id); }
-
-    /**
-     * pool に登録されている (生きている) ノード数を返す (root を含む)。
-     *
-     * @return active なノード数。
-     */
-    u32 RegisteredCount() const noexcept { return m_Graph.RegisteredCount(); }
-
-    /**
-     * 毎フレームの update。
-     *
-     * @details root の UpdateTree → pool の purge → 構造変更の解決 の順で実行する。
-     * @param dt 経過秒。
-     */
-    void Update(f32 dt) noexcept { m_Graph.Update(dt); }
-
-    /**
-     * 固定刻みの update。
-     *
-     * @details root の FixedUpdateTree → pool の purge → 構造変更の解決 の順で実行する。
-     * @param fixed_dt 固定刻みの秒。
-     */
-    void FixedUpdate(f32 fixed_dt) noexcept { m_Graph.FixedUpdate(fixed_dt); }
-
-    /**
-     * 名前でノードを検索する (root を含む subtree の深さ優先探索、最初の一致)。
-     *
-     * @param name 検索するノード名。
-     * @return 最初に一致したノード (無ければ nullptr)。
-     */
-    ANode* FindByName(FStringView name) noexcept { return m_Graph.FindByName(name); }
-
-    /**
-     * ワールド空間レイで最も手前のノードをピックする (AMeshComponent3D を持つノードのみ対象)。
-     *
-     * @details
-     * 各ノードの World() 変形を逆適用してレイをローカル空間へ移し、プリミティブ種別ごとの
-     * ローカル AABB と交差判定する (= 回転/スケール/階層を正しく扱う OBB ピック)。t は元の
-     * world レイ上のパラメータ。Mesh 種別は頂点 AABB を使う。
-     * @param ray ワールド空間のピックレイ (direction は非正規化でも可)。
-     * @param out_t 非 null なら命中 t (world レイ上、`ray.origin + t*ray.direction` が命中点) を書く。
-     * @return 最も手前で命中したノードの FNodeId (外れは invalid)。
-     */
-    FNodeId Raycast(const FRay3& ray, f32* out_t = nullptr) const noexcept {
-        return m_Graph.Raycast(ray, out_t);
-    }
-
-    /**
-     * subtree のノード総数を返す (root を含む)。
-     *
-     * @return ノード総数。
-     */
-    u32 NodeCount() const noexcept { return m_Graph.NodeCount(); }
-
-    /**
-     * root の全子孫を破棄してシーンを空にする (root 自身は残し、transform/名前を既定へ戻す)。
-     *
-     * @details
-     * 各 top-level 子を Destroy → pool を purge → 即時 reap する (Update を待たない)。
-     * シーン読み込み (LoadScene3DText) の «置き換え» 前処理に使う。
-     */
-    void Clear() noexcept { m_Graph.Clear(); }
-
-private:
-    /** root ツリーと pool の実体を所有するノードグラフ (全 API の委譲先)。 */
-    CSceneNodeGraph m_Graph;
-};
-
-} // namespace acs::game
 
 // ===================== math/Camera.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -81588,7 +81296,7 @@ TObjectPtr<ANode> LoadNodeTree(const u8* data, u32 size) noexcept;
 //         NFLG <id> <visible> <enabled> <sortLayer> /
 //         SPRT <id> <path> / MAT <id> <path>。
 //
-// 使い方 (AScene2D 派生の OnReady から):
+// 使い方 (AScene 派生の OnReady から):
 //   SetPixelsPerUnit(1.0f);
 //   FSceneBounds b = LoadAcsceneFile("main.acscene", Root());
 //   if (b.valid) { Services().Camera().SetPosition(b.Center()); /* zoom はフレーム後合わせる */ }

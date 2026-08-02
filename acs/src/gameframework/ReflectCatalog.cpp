@@ -35,7 +35,7 @@
 #include "gameframework/ReflectMethod.h"      // ACS_REGISTER_METHOD (関数リフレクション)
 
 // ----- Scene -----
-#include "gameframework/Scene2D.h"
+#include "gameframework/Scene.h"
 
 // ----- System / Director / Manager -----
 #include "gameframework/HealthSystem.h"
@@ -214,7 +214,7 @@ ACS_REGISTER_METHOD_F32(APrimitiveRenderer2D, LogValue, METHOD_BP_CALLABLE | MET
 ACS_REGISTER_METHOD_RET_F32(APrimitiveRenderer2D, GetArea, METHOD_BP_CALLABLE)
 
 // ----- Scene -----
-ACS_REGISTER_SCENE(FScene2D)
+ACS_REGISTER_SCENE(AScene)
 
 // ----- Asset -----
 ACS_REGISTER_ASSET(FImageAsset)

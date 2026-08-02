@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework — 3D シーンのテキストシリアライズ 実装
 #include "gameframework/Scene3DSerialize.h"
-#include "gameframework/Scene3D.h"
+#include "gameframework/SceneNodeGraph.h"
 #include "gameframework/ANode.h"
 #include "gameframework/AssetPack.h"
 #include "gameframework/CameraComponent3D.h"
@@ -820,11 +820,11 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept {
 }
 
 FScene3DSaveResult TrySaveScene3DText(
-    const CSceneNodeGraph& scene, char* out, u32 cap) noexcept {
+    const CSceneNodeGraph& graph, char* out, u32 cap) noexcept {
     FScene3DSaveResult result{};
     TArray<const ANode*> nodes;
     TArray<i32> parents;
-    result.Error = Flatten(scene.Root(), nodes, parents);
+    result.Error = Flatten(graph.Root(), nodes, parents);
     if (result.Error != EScene3DSerializeError::None) return result;
     result.NodeCount = static_cast<u32>(nodes.Size());
 
@@ -965,14 +965,7 @@ u32 SaveScene3DText(const CSceneNodeGraph& graph, char* out, u32 cap) noexcept {
     return result.Succeeded() ? result.BytesWritten : 0u;
 }
 
-FScene3DSaveResult TrySaveScene3DText(
-    const CScene3D& scene, char* out, u32 cap) noexcept {
-    return TrySaveScene3DText(scene.Graph(), out, cap);
-}
 
-u32 SaveScene3DText(const CScene3D& scene, char* out, u32 cap) noexcept {
-    return SaveScene3DText(scene.Graph(), out, cap);
-}
 
 namespace {
 
@@ -1268,7 +1261,7 @@ FScene3DLoadResult ParseScene3DDocument(
 }
 
 FScene3DLoadResult CommitScene3DDocument(
-    CSceneNodeGraph& scene, FParsedScene3DDocument& document,
+    CSceneNodeGraph& graph, FParsedScene3DDocument& document,
     u32 dependencies_loaded) noexcept {
     FScene3DCameraState active_camera;
     u32 active_preferred_camera_count = 0u;
@@ -1426,7 +1419,7 @@ FScene3DLoadResult CommitScene3DDocument(
     result.CameraCount = document.Cameras.Size();
     result.ActivePreferredCameraCount = active_preferred_camera_count;
     result.ActiveCamera = active_camera;
-    scene.SwapContents(staged_scene);
+    graph.SwapContents(staged_scene);
     return result;
 }
 
@@ -1860,10 +1853,6 @@ FScene3DLoadResult TryLoadScene3DText(
     return CommitScene3DDocument(graph, document, 0u);
 }
 
-FScene3DLoadResult TryLoadScene3DText(
-    CScene3D& scene, const char* text, u32 size) noexcept {
-    return TryLoadScene3DText(scene.Graph(), text, size);
-}
 
 FScene3DLoadResult TryLoadScene3DFile(
     CSceneNodeGraph& graph, const char* path) noexcept {
@@ -1893,10 +1882,6 @@ FScene3DLoadResult TryLoadScene3DFile(
         graph, document, dependencies_loaded);
 }
 
-FScene3DLoadResult TryLoadScene3DFile(
-    CScene3D& scene, const char* path) noexcept {
-    return TryLoadScene3DFile(scene.Graph(), path);
-}
 
 FScene3DLoadResult TryLoadScene3DAssetPack(
     CSceneNodeGraph& graph, IAssetPackReader& pack,
@@ -1940,11 +1925,6 @@ FScene3DLoadResult TryLoadScene3DAssetPack(
         graph, document, dependencies_loaded);
 }
 
-FScene3DLoadResult TryLoadScene3DAssetPack(
-    CScene3D& scene, IAssetPackReader& pack,
-    const char* virtual_path) noexcept {
-    return TryLoadScene3DAssetPack(scene.Graph(), pack, virtual_path);
-}
 
 bool LoadScene3DText(CSceneNodeGraph& graph, const char* text) noexcept {
     if (text == nullptr) return false;
@@ -1954,8 +1934,5 @@ bool LoadScene3DText(CSceneNodeGraph& graph, const char* text) noexcept {
     return TryLoadScene3DText(graph, text, size).Succeeded();
 }
 
-bool LoadScene3DText(CScene3D& scene, const char* text) noexcept {
-    return LoadScene3DText(scene.Graph(), text);
-}
 
 } // namespace acs::game

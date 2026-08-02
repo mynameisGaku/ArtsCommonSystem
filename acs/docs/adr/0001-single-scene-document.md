@@ -30,7 +30,7 @@ The established-engine comparison is deliberately nuanced:
 
 ACS follows the Unity/Unreal authoring shape for new content because its
 canonical editor graph is already spatial and camera-driven. It retains
-`.acscene`, `FScene2D`, 2D physics, and the dedicated 2D renderer as explicit
+`.acscene`, `AScene`, 2D physics, and the dedicated 2D renderer as explicit
 compatibility/runtime domains instead of claiming that those APIs are merely
 aliases for 3D.
 
@@ -105,7 +105,7 @@ distinguished:
 
 - The Editor currently has one managed document identity, one dirty/history
   transaction, and one project/package bootstrap authority.
-- Native `FScene2D`/`FScene3D` graphs, serializers, physics domains, and
+- Native `AScene`/`CSceneNodeGraph` graphs, serializers, physics domains, and
   renderers remain separate compatibility subsystems. The managed
   `SceneWorldDocumentEnvelope` can restore both atomically, but it is not a
   canonical mixed-world scene schema.

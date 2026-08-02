@@ -242,7 +242,7 @@ gameframework は 8 分割で統合後 **計 346 型**で突出。主要: `rende
 - **collision** — `ACS::Collision`。`FSpriteCollider`(α から凸包+輪郭)、`ConvexHull3`。
 - **audio** — `FAudioEngine`(XAudio2、最大 64 voice)、`FSoundHandle`。**asset** — `FAsset`/`FAssetId`/`FSkinnedMeshAsset`。**assetpack** — `.acpak`(magic ACPAK、CRC32+任意 AES-256-GCM/LZ4)。
 - **easy** — 初学者向け簡単モード(`acs::easy`)。**scripting** — `FLuaVm`(Lua 5.4)。**network** — `FNetwork`/`FTcpConnection`/`FUdpSocket`。**crashwin** — `FWindowsCrashReporter`。**telemetryfile** — `FFileTelemetryBackendClient`。**steamworks**/**mlonnx**/**openxr**/**localmatch** — 各 SDK ブリッジ(Default フォールバック付)。
-- **app** — `FApplication`/`FAppConfig`/`EntryPoint`/`Sample`。**gameframework** — `acs::game`(115+ ファイル)。`FScene`/`FScene2D`/`FGame`/`ANode`/`AComponent`、AI/アニメ/カメラ/ジャンルキット/ランタイム。**test** — `Test`/`Expect`。
+- **app** — `FApplication`/`FAppConfig`/`EntryPoint`/`Sample`。**gameframework** — `acs::game`(115+ ファイル)。`FScene`/`AScene`/`FGame`/`ANode`/`AComponent`、AI/アニメ/カメラ/ジャンルキット/ランタイム。**test** — `Test`/`Expect`。
 
 ### ACS 規約(裏取り済み)
 - **エラー処理**: 例外不使用。`TResult<T, E=FErrorCode>`、`IsOk()/IsErr()/Value()/Error()/ValueOr()`、`Ok()/Err()`、`ACS_TRY(expr)`/`ACS_TRY_ASSIGN(name, expr)`。関数は基本 `noexcept`。`Value()`/`Error()` の誤用は `ACS_ASSERT` 停止。

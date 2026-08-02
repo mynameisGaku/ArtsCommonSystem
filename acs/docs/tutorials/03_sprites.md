@@ -11,14 +11,17 @@
 
 ## 最小例
 
-`AScene2D` 上でノードに 1 枚スプライトを付ける（sample 55 を抜粋）。テクスチャ無しコンストラクタは **単色矩形** になります。
+`AScene` 上でノードに 1 枚スプライトを付ける（sample 55 を抜粋）。テクスチャ無しコンストラクタは **単色矩形** になります。
 
 ```cpp
 #include "gameframework/GameFramework.h"
 using namespace acs;
 using namespace acs::game;
 
-class AMyScene final : public AScene2D {
+class AMyScene final : public AScene {
+    /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
+    ESvc WantedServices() const noexcept override { return kScene2DServices; }
+
 public:
     void OnReady() noexcept override {
         SetPixelsPerUnit(64.0f);                 // 1 ワールド単位 = 64px
@@ -230,5 +233,5 @@ void OnDrawWorld(FRenderContext& /*rc*/, CSpriteBatch& sb) noexcept override {
 
 - `acs/samples/55_HelloScene2D/Scene2DStarter.cpp` — `ASprite2DComponent`（単色矩形）+ `OnDrawWorld` のグリッド + `OnDrawHud` のバー + カメラ追従。基本形はこれ。
 - `acs/samples/56_HelloSpriteAnim/SpriteAnimDemo.cpp` — 手続き生成スプライトシート（`CreateRhiTexture`）+ `SetTexture` + UV アニメ + `DrawString` HUD。
-- `acs/samples/02_HelloSprite/HelloSpriteApp.cpp` — 素の `CSpriteBatch` を自前 `Init`/`Begin`/`Draw`/`DrawRect`/`End` する低レベル例（`AScene2D` を使わない）。
+- `acs/samples/02_HelloSprite/HelloSpriteApp.cpp` — 素の `CSpriteBatch` を自前 `Init`/`Begin`/`Draw`/`DrawRect`/`End` する低レベル例（`AScene` を使わない）。
 - PNG→texture の実経路（`Load`→`UploadTexture`→`static_cast<FImageAsset*>`）は `acs/src/easy/Easy.cpp` の `LoadSprite` 実装が参考になる。

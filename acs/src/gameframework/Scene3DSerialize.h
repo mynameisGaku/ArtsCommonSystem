@@ -2,7 +2,7 @@
 // =============================================================================
 // GameFramework — 3D シーン (ANode ツリー) のテキストシリアライズ
 // -----------------------------------------------------------------------------
-// CScene3D の階層 + 各ノードの FTransform3D (pos/euler/scale) + AMeshComponent3D
+// CSceneNodeGraph の階層 + 各ノードの FTransform3D (pos/euler/scale) + AMeshComponent3D
 // (prim/color/mesh path) を行ベースのテキストへ往復させる。editor_abi の 3D ビュー
 // ポートの scene3d_serialize/load_text が委譲する «正準フォーマット» (移行後)。
 //
@@ -168,35 +168,24 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept;
 FScene3DSaveResult TrySaveScene3DText(
     const CSceneNodeGraph& graph, char* out, u32 cap) noexcept;
 
-/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
-FScene3DSaveResult TrySaveScene3DText(
-    const CScene3D& scene, char* out, u32 cap) noexcept;
-
 /**
- * CScene3D をテキストへ直列化する (root + 全子孫、構造 + transform + メッシュ記述)。
+ * ノードグラフをテキストへ直列化する (root + 全子孫、構造 + transform + メッシュ記述)。
  *
- * @param scene 直列化するシーン。
+ * @param graph 直列化するノードグラフ。
  * @param out 出力バッファ (null 終端される)。
  * @param cap out の容量。
  * @return 書き込んだ文字数 (null 終端を除く)。失敗時は 0。
  */
 u32 SaveScene3DText(const CSceneNodeGraph& graph, char* out, u32 cap) noexcept;
 
-/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
-u32 SaveScene3DText(const CScene3D& scene, char* out, u32 cap) noexcept;
-
 /**
- * size bytes のテキストを完全検証してから既存シーンを置き換える。
+ * size bytes のテキストを完全検証してから既存グラフを置き換える。
  *
  * @details size は終端 NUL を含めない。切詰め、長過ぎる行、非有限値、巨大/重複 id、
  * 不正 parent、深度超過、孤立 MSH3D は置換前に拒否する。
  */
 FScene3DLoadResult TryLoadScene3DText(
     CSceneNodeGraph& graph, const char* text, u32 size) noexcept;
-
-/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
-FScene3DLoadResult TryLoadScene3DText(
-    CScene3D& scene, const char* text, u32 size) noexcept;
 
 /**
  * 旧 `.acs3d` 文書または canonical bootstrap を loose file から読み、
@@ -208,10 +197,6 @@ FScene3DLoadResult TryLoadScene3DText(
 FScene3DLoadResult TryLoadScene3DFile(
     CSceneNodeGraph& graph, const char* path) noexcept;
 
-/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
-FScene3DLoadResult TryLoadScene3DFile(
-    CScene3D& scene, const char* path) noexcept;
-
 /**
  * `.acpak` 内の canonical bootstrap と参照メッシュ/マテリアルを transactional に復元する。
  *
@@ -222,24 +207,16 @@ FScene3DLoadResult TryLoadScene3DAssetPack(
     CSceneNodeGraph& graph, IAssetPackReader& pack,
     const char* virtual_path = "main.acscene") noexcept;
 
-/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
-FScene3DLoadResult TryLoadScene3DAssetPack(
-    CScene3D& scene, IAssetPackReader& pack,
-    const char* virtual_path = "main.acscene") noexcept;
-
 /**
- * SaveScene3DText のテキストから CScene3D を復元する (既存内容を置き換える)。
+ * SaveScene3DText のテキストからノードグラフを復元する (既存内容を置き換える)。
  *
  * @details
  * 互換用の NUL 終端 C 文字列 API。詳細結果と入力サイズ上限が必要なら
  * TryLoadScene3DText を使う。
- * @param scene 復元先のシーン (内容は置き換わる)。
+ * @param graph 復元先のノードグラフ (内容は置き換わる)。
  * @param text 直列化テキスト。
  * @return 解析が成立したら true (text==null は false)。
  */
 bool LoadScene3DText(CSceneNodeGraph& graph, const char* text) noexcept;
-
-/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
-bool LoadScene3DText(CScene3D& scene, const char* text) noexcept;
 
 } // namespace acs::game

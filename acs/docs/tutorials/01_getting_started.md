@@ -1,11 +1,11 @@
-# はじめに — CGame + AScene2D で最小の 2D アプリ
+# はじめに — CGame + AScene で最小の 2D アプリ
 
-`CGame`（アプリ本体）と `AScene2D`（実用的な 2D シーン基底）の組み合わせは、ACS で 2D ゲームを始めるときの一番素直な入口です。
+`CGame`（アプリ本体）と `AScene`（唯一のシーン型）の組み合わせは、ACS で 2D ゲームを始めるときの一番素直な入口です。
 ウィンドウを開き、毎フレーム更新・描画し、入力・カメラ・物理（コリジョン）の配線まで面倒を見てくれます。
 「まず動くウィンドウを出して 1 フレーム描く」ところから、ライフサイクルと座標系の感覚を掴むのがこのチュートリアルの目的です。
 
 - `CGame` = `acs::CApplication` を継承し、`CSceneManager` を駆動する**アプリの器**。やることは「最初の `AScene` を返す」だけ。
-- `AScene2D` = root ノードツリー / `CGame` 共有の `CSpriteBatch` / `Default2D | Camera2D | Physics2D` サービスを使う**シーン基底**。
+- `AScene` = root ノードツリーと描画配線を持つ**唯一のシーン型**。`CSpriteBatch` は `CGame` が共有し、2D の共通サービス束は `WantedServices()` が `kScene2DServices` (`Default2D | Camera2D | Physics2D`) を返すことで要求する。
 - 入口マクロは `ACS_GAME_MAIN(YourGame)`。これだけで `main` / `WinMain` が生成されます。
 
 ---
@@ -16,15 +16,18 @@
 
 ```cpp
 // MyFirst.cpp
-#include "gameframework/GameFramework.h"   // CGame / AScene2D / ANode など一式
+#include "gameframework/GameFramework.h"   // CGame / AScene / ANode など一式
 
 using namespace acs;
 using namespace acs::game;
 
 namespace {
 
-class AHelloScene final : public AScene2D
+class AHelloScene final : public AScene
 {
+    /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
+    ESvc WantedServices() const noexcept override { return kScene2DServices; }
+
 public:
     // シーンが top に来てサービス attach 済みの最初の 1 回。初期化はここで。
     void OnReady() noexcept override
@@ -90,7 +93,7 @@ target_link_libraries(my_first PRIVATE ACS::GameFramework)
 
 `SetClearColor` / `Quit` は基底 `acs::CApplication` のメソッドです（`app/Application.h`）。
 
-### AScene2D（`gameframework/Scene2D.h`）— override するフック
+### AScene（`gameframework/Scene.h`）— override するフック（2D シーンの場合）
 
 | フック | いつ呼ばれる | 用途 |
 | --- | --- | --- |
@@ -100,9 +103,9 @@ target_link_libraries(my_first PRIVATE ACS::GameFramework)
 | `OnDrawWorld(FRenderContext&, CSpriteBatch&) noexcept` | 毎フレーム描画（カメラ適用後） | ワールド座標での追加描画 |
 | `OnDrawHud(FRenderContext&, CSpriteBatch&) noexcept` | 毎フレーム描画（スクリーン座標） | UI / HUD。左上原点・ピクセル単位 |
 
-> `AScene2D` は `AScene` の `WantedServices()` だけを変える空派生です。`OnEnter/OnUpdate/OnFixedUpdate/OnRender` と上記 `OnReady/OnTick/...` の呼び出しは `AScene` が実装済みなので、普通は 5 つのフックだけ override すれば十分です。
+> シーン型は `AScene` 一つです。2D/3D の違いはカメラの投影と `WantedServices()` の中身だけで、クラス階層では分けません。`OnEnter/OnUpdate/OnFixedUpdate/OnRender` と上記 `OnReady/OnTick/...` の呼び出しは `AScene` が実装済みなので、普通は `WantedServices()` と 5 つのフックだけ override すれば十分です。
 
-### AScene2D のアクセサ
+### AScene のアクセサ
 
 - `ANode& Root()` — シーンの root ノード。`Root().AddChild(Move(node))` でツリーに足す。
 - `CSpriteBatch& SpriteBatch()` — `CGame` が game 寿命で共有する world/HUD 用スプライトバッチ。
@@ -114,15 +117,15 @@ target_link_libraries(my_first PRIVATE ACS::GameFramework)
 
 - `CGame& GetGame()` — アプリ本体へ。`GetGame().Quit()` / `SetClearColor()` / `SetTimeScale()` など。
 - `CSceneManager& Scenes()` — 遷移用。
-- `CSceneServices& Services()` — `WantedServices()` で要求したサービス群。`AScene2D` は `Default2D | Camera2D | Physics2D` を要求済み。
+- `CSceneServices& Services()` — `WantedServices()` で要求したサービス群。`kScene2DServices` を返すシーンは `Default2D | Camera2D | Physics2D` を持つ。
 
-### Services()（`gameframework/SceneServices.h`）`AScene2D` で使えるもの
+### Services()（`gameframework/SceneServices.h`）`AScene` で使えるもの
 
 - `Services().Input()` → `FInputMap`（キー/軸バインド）
 - `Services().Camera()` → `CCamera2D`（`SetPosition` / `SetZoom` / `SetTargetPos`）
 - `Services().Physics()` → `FCollisionWorld2D`（AABB 等のコリジョン）
 - `Services().Clock()` / `Tweens()` / `Sequences()` — `Default2D` に含まれる（補間・演出）
-- `Services().Triggers()` は `AScene2D` 既定では**要求していない**（`Triggers` ビットを足したシーンでのみ可）
+- `Services().Triggers()` は `kScene2DServices` には**含まれない**（`Triggers` ビットを足したシーンでのみ可）
 
 ---
 
@@ -212,7 +215,7 @@ void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override
 - **HUD は別座標系**: `OnDrawHud` のスプライトバッチは**左上原点・ピクセル単位**。world と混同しない。
 - **ピッキングは `AScene::ScreenToWorld` を使う**: `CCamera2D::ScreenToWorld` は ppu を考慮しないため、`AScene` のレンダリングと逆対応しません。マウス→ワールド変換はシーン側の `ScreenToWorld(FInput::MousePos())` を使うこと。
 - **フックは全部 `noexcept`**: `override` の付け忘れ・`noexcept` の付け忘れはコンパイルエラー。
-- **`Services()` は要求したものだけ**: `WantedServices()` が `None` のサービスを `Services().Xxx()` で触ると `ACS_CHECKF` で停止します。`AScene2D` 既定は `Default2D | Camera2D | Physics2D`。`Triggers` は含まれないので必要なら派生で `WantedServices()` を拡張してください。
+- **`Services()` は要求したものだけ**: `WantedServices()` が `None` のサービスを `Services().Xxx()` で触ると `ACS_CHECKF` で停止します。`AScene` の既定は `ESvc::None` で、2D シーンは `kScene2DServices` を返します。`Triggers` は含まれないので必要なら `WantedServices()` を拡張してください。
 - **初期化は `OnReady` で**: `OnReady` は `OnEnter` の中でサービス attach 後に 1 回呼ばれる `AScene` の初期化フック。コンストラクタでは `Services()` はまだ使えません。
 - **固定タイムステップ**: `OnFixedTick(fixed_dt)` は 1 フレームで**0 回〜複数回**呼ばれ得ます（既定 `fixed_dt=1/60`、最大 8 step/フレームでキャッチアップ後はクランプ）。`dt` 依存の通常処理は `OnTick`、決定的な物理は `OnFixedTick` に分けるのが定石。
 - **ウィンドウサイズ等の細かい設定**: `ACS_GAME_MAIN` は既定 `FAppConfig`（1280x720, vsync, リサイズ可）を使います。タイトルや解像度を変えたい場合は `ACS_GAME_MAIN` を使わず、`ACS_DEFINE_MAIN_WITH_CONFIG(YourGame, factory)`（`app/EntryPoint.h`）か自前 `main` で `FAppConfig` を作って `app.Run(cfg)` を呼びます。
@@ -223,7 +226,7 @@ void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override
 ## 動くサンプル
 
 - `acs/samples/55_HelloScene2D/Scene2DStarter.cpp`
-  本チュートリアルの全要素（`AScene2D` 派生 / `OnReady`-`OnTick`-`OnDrawWorld`-`OnDrawHud` / 入力バインド / `ASprite2DComponent` / `APhysicsBody2D` の collide-and-slide / カメラ追従 / `SetPixelsPerUnit` / `SetClearColor`）を 1 ファイルで実演。ビルドターゲットは `hello_scene2d`。スクリーンショット確認済みの実動サンプルです。
+  本チュートリアルの全要素（`AScene` 派生 / `OnReady`-`OnTick`-`OnDrawWorld`-`OnDrawHud` / 入力バインド / `ASprite2DComponent` / `APhysicsBody2D` の collide-and-slide / カメラ追従 / `SetPixelsPerUnit` / `SetClearColor`）を 1 ファイルで実演。ビルドターゲットは `hello_scene2d`。スクリーンショット確認済みの実動サンプルです。
 - ビルド: `acs/samples/55_HelloScene2D/CMakeLists.txt`（`ACS::GameFramework` にリンクするだけ）。
 
 参照したヘッダ: `acs/src/gameframework/Game.h` / `Scene2D.h` / `Scene.h` / `EntryPoint.h` / `RenderContext.h` / `SceneServices.h`、および `acs/src/app/Application.h` / `AppConfig.h` / `EntryPoint.h`。

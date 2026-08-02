@@ -11,7 +11,7 @@
 //   node_count / node_id_at / node_parent / node_name / node_get_transform /
 //   node_set_transform / select / selected
 //
-// シーンモデルは当面 ABI 内の軽量表現 (将来 ANode/AScene2D に差し替え可能)。
+// シーンモデルは当面 ABI 内の軽量表現 (将来 ANode/AScene に差し替え可能)。
 // =============================================================================
 #include "render/Renderer.h"
 #include "render/RhiTypes.h"
@@ -37,7 +37,7 @@
 #include "gameframework/ComponentFactory.h" // CreateComponentByName (反射名→実コンポーネント)
 #include "gameframework/ReflectApply.h"     // ApplyFieldValue (authored 値を実体へ適用)
 #include "gameframework/ReflectMethod.h"    // CMethodRegistry / InvokeMethodByName (関数リフレクション)
-#include "gameframework/Scene3D.h"          // CScene3D (3D シーングラフ = 3D ノードの実コンテナ)
+#include "gameframework/SceneNodeGraph.h"   // CSceneNodeGraph (3D シーングラフ = 3D ノードの実コンテナ)
 #include "gameframework/ANode.h"           // ANode / AComponent
 #include "gameframework/MeshComponent3D.h"  // AMeshComponent3D (prim/color/mesh の native 保持)
 #include "gameframework/WaterSurface3DComponent.h"
@@ -773,7 +773,7 @@ struct FEditorHost {
     int          next_id3d     = 1;
     int          clip3d        = -1;      // 3D コピー&ペースト用クリップボード (コピー元ノード id)
     bool         scene3d_seeded = false;  // 初回 3D 切替でデフォルトシーンを置いたか
-    game::CScene3D scene3d;               // 3D シーングラフ (各ノード = root の子 ANode + AEditor3DRecordComponent)
+    game::CSceneNodeGraph scene3d;        // 3D シーングラフ (各ノード = root の子 ANode + AEditor3DRecordComponent)
     TArray<FVec2> poly3d_pts;             // Ortho ポリゴン描画中の頂点 (XY, z=0 平面へ逆射影済み)
     // 3D ギズモのドラッグ状態。
     //   ハンドル: 0=非活性, 1=X, 2=Y, 3=Z 軸, 4=XY, 5=YZ, 6=XZ 平面。
@@ -17354,7 +17354,7 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
         if (!structural.TryPushBack(auxiliary[index])) return false;
     }
 
-    game::CScene3D staging;
+    game::CSceneNodeGraph staging;
     const game::FScene3DLoadResult parsed = game::TryLoadScene3DText(
         staging, structural.Data(), structural.Size());
     if (!parsed.Succeeded()) return false;
@@ -17932,7 +17932,7 @@ ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {
     const f32 aspect = W / H;
     const FRay3 ray = acs::ScreenPointToRay(EditorCam3D(*host, aspect).ViewProjection(), sx, sy, W, H);
 
-    // ノード交差は engine の CScene3D::Raycast に委譲 (回転/スケール/階層を扱う OBB ピック)。
+    // ノード交差は engine の CSceneNodeGraph::Raycast に委譲 (回転/スケール/階層を扱う OBB ピック)。
     int best = -1;
     const game::FNodeId hitId = host->scene3d.Raycast(ray);
     if (hitId.IsValid()) {

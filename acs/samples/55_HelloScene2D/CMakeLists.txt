@@ -1,4 +1,4 @@
-# HelloScene2D - AScene2D starter foundation sample.
+# HelloScene2D - AScene starter foundation sample.
 add_executable(hello_scene2d WIN32
     Scene2DStarter.cpp
 )

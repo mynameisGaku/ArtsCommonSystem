@@ -12,7 +12,7 @@ ACS で 2D ゲームを作るための、**実際に動く（検証済み）API*
 
 | # | 章 | 内容 | 対応サンプル |
 |---|---|---|---|
-| 01 | [はじめに（CGame + AScene2D）](01_getting_started.md) | 最小アプリ・ライフサイクル・座標系 | 55 |
+| 01 | [はじめに（CGame + AScene）](01_getting_started.md) | 最小アプリ・ライフサイクル・座標系 | 55 |
 | 02 | [ノード & コンポーネント](02_nodes_components.md) | ANode ツリー / 自作コンポーネント / Transform | 28, 55, 59 |
 | 03 | [スプライト描画](03_sprites.md) | ASprite2DComponent / CSpriteBatch / テクスチャ読込 | 02, 55, 56 |
 | 04 | [スプライトアニメ](04_sprite_anim.md) | ASpriteAnimComponent / シートアニメ | 56 |
@@ -50,7 +50,7 @@ ACS で 2D ゲームを作るための、**実際に動く（検証済み）API*
   WAV も供給していないため **実際の発音は未確認**。鳴らすには自分で backend を attach
   して clip を登録する必要がある。
 
-> ⚠️ 中核 2D パス（CGame/AScene2D・ノード/コンポーネント・スプライト/アニメ・
+> ⚠️ 中核 2D パス（CGame/AScene・ノード/コンポーネント・スプライト/アニメ・
 > タイルマップ・当たり判定/物理/トリガー・**UI・描画順・セーブ**・エフェクト）は
 > `samples/55〜63` でスクショ／ヘッドレス検証済みです。一方 `src/gameframework/` の
 > ジャンルキットや多くの上位システムは「コンパイルは通る」だけで未検証のものが
@@ -67,7 +67,7 @@ ACS で 2D ゲームを作るための、**実際に動く（検証済み）API*
 | `28_HelloGameFramework` | CGame / AScene / ANode ツリー / AComponent |
 | `38_HelloFullGame` | 完結ゲーム（体力・所持品・武器・スコア・セーブ往復・game-feel） |
 | `47_HelloLight2D` | 2D 点光源 + ソフトシャドウ |
-| `55_HelloScene2D` | AScene2D スターター（スプライト/カメラ追従/入力） |
+| `55_HelloScene2D` | AScene スターター（スプライト/カメラ追従/入力） |
 | `56_HelloSpriteAnim` | シートアニメ + HUD テキスト |
 | `57_HelloTriggers` | コリジョン layer/mask + トリガー |
 | `58_HelloTilemap` | タイルマップ + フェードシーン遷移 |

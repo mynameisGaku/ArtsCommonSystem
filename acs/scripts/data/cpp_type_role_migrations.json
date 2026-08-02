@@ -1194,22 +1194,6 @@
       "prefix": "A"
     },
     {
-      "path": "gameframework/Scene2D.h",
-      "legacy": "acs::game::FScene2D",
-      "legacy_path": "gameframework/Forward.h",
-      "canonical": "acs::game::AScene2D",
-      "kind": "class",
-      "prefix": "A"
-    },
-    {
-      "path": "gameframework/Scene3D.h",
-      "legacy": "acs::game::FScene3D",
-      "legacy_path": "gameframework/Forward.h",
-      "canonical": "acs::game::CScene3D",
-      "kind": "class",
-      "prefix": "C"
-    },
-    {
       "path": "gameframework/SceneCommandQueue.h",
       "legacy": "acs::game::FSceneCommandQueue",
       "legacy_path": "gameframework/SceneCommandQueue.h",

@@ -6,7 +6,7 @@
   Orthographic, and the 2D authoring workspace are presentation/tool presets,
   not alternate project scene identities.
 - Current implementation: new 2D/3D projects share `Assets/main.acs3d`, while
-  native `FScene2D`/`FScene3D`, their serializers, physics, and renderers remain
+  native `AScene`/`CSceneNodeGraph`, their serializers, physics, and renderers remain
   separate compatibility subsystems. `SceneWorldDocumentEnvelope` supplies an
   atomic Editor transaction; it is not yet a canonical mixed-world serializer.
 - Existing `.acscene` content remains an explicit Orthographic-only legacy

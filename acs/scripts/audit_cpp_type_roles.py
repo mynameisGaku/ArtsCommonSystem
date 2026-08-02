@@ -40,7 +40,6 @@ CANONICAL_EXTERNAL_MANAGED_BASES = frozenset(
         "acs::game::AComponent",
         "acs::game::ANode",
         "acs::game::AScene",
-        "acs::game::AScene2D",
     }
 )
 LEGACY_IDENTITY_MACRO_ARGUMENTS = {
@@ -249,8 +248,8 @@ SCALAR_TYPE_NAMES = frozenset(
 DETAIL_NAMESPACE_NAMES = frozenset({"detail", "internal", "private"})
 PUBLIC_HEADER_SUFFIXES = frozenset({".h", ".hh", ".hpp", ".hxx", ".inl"})
 TYPE_ROLE_MIGRATION_SCHEMA_VERSION = 2
-DEFAULT_TYPE_ROLE_MIGRATION_ENTRY_COUNT = 335
-DEFAULT_TYPE_ROLE_MIGRATION_SEMANTIC_SHA256 = "44C90E6BF0F40A8BC460DAFD0C87F991F88BE0C4C57291FE4B23B6B5DEAC16D5"
+DEFAULT_TYPE_ROLE_MIGRATION_ENTRY_COUNT = 333
+DEFAULT_TYPE_ROLE_MIGRATION_SEMANTIC_SHA256 = "1D772D999C83BFD059E52DA4CE9C510EB2D11F9FD71471D357CFF7393C407A30"
 DEFAULT_TYPE_ROLE_MIGRATIONS = (
     Path(os.path.abspath(__file__)).parent / "data" / "cpp_type_role_migrations.json"
 )
@@ -3865,14 +3864,14 @@ EventTypeId LegacyEventType = 0;
             "namespace acs::fake { using ANode = ::vendor::FNode; } "
             "namespace sample { "
             "class ASceneProbe : public acs::game::AScene {}; "
-            "class AScene2DProbe : public acs::game::AScene2D {}; "
+            "class ASceneDerivedProbe : public acs::game::AScene {}; "
             "class ANodeProbe : public acs::game::ANode {}; "
             "class AComponentProbe : public acs::game::AComponent {}; "
             "class AFalseProbe : public acs::fake::ANode { public: void Run(); }; "
             "} "
             "namespace using_namespace { using namespace acs::game; "
             "class AVisibleNodeProbe : public ANode {}; "
-            "namespace child { class AVisibleSceneProbe : public AScene2D {}; } } "
+            "namespace child { class AVisibleSceneProbe : public AScene {}; } } "
             "namespace using_declaration { using acs::game::AComponent; "
             "class AVisibleComponentProbe : public AComponent {}; } "
             "namespace using_parent_namespace { using namespace acs; "
@@ -4112,7 +4111,6 @@ EventTypeId LegacyEventType = 0;
             "class ALegacyObjectProbe : public acs::FObject {};\n"
             "class FLegacyObjectProbe : public acs::FObject {};\n"
             "class FLegacySceneProbe : public acs::game::FScene {};\n"
-            "class FLegacyScene2DProbe : public acs::game::FScene2D {};\n"
             "class AUnregisteredLegacyProbe : public vendor::FScene { public: void Run(); };\n"
             "}",
             encoding="utf-8",
@@ -4124,7 +4122,6 @@ EventTypeId LegacyEventType = 0;
         ] != [
             ("ACS-R020c", "legacy_managed::FLegacyObjectProbe", "A"),
             ("ACS-R020c", "legacy_managed::FLegacySceneProbe", "A"),
-            ("ACS-R020c", "legacy_managed::FLegacyScene2DProbe", "A"),
             ("ACS-R020c", "legacy_managed::AUnregisteredLegacyProbe", "C"),
         ]:
             print(

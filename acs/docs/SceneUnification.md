@@ -1,24 +1,25 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # シーン統一 (AScene) 設計書
 
-Phase 1a / 1b 実装済み、Phase 2 以降は未着手。長期目標は 2D/3D のシーン文脈を単一の
-`AScene` へ統一することだが、現在の安全な中間形は、Phase 2 で `CScene3D` を
-文脈非依存のノードグラフへ委譲する wrapper として残し、Phase 3 でも `AScene2D` を
-空派生のまま残す設計である。本書はその移行設計、現状の責務境界、安全境界、検証手順を
+Phase 1〜3 実装済み。**シーン型は `AScene` 一つになった**。2D 専用の `AScene2D` と
+3D 専用の `CScene3D` は型ごと削除され、root ANode ツリーと node pool の実体は
+シーン文脈を持たない `CSceneNodeGraph` が持つ。2D と 3D の差は投影とサービス構成
+(`WantedServices()`) だけである。本書はその移行設計、責務境界、安全境界、検証手順を
 記録する。ノード統一の設計と不変条件は
 [`NodeUnification.md`](NodeUnification.md) を参照する。本書はその
 「シーン自体の統合は次期フェーズ」(NodeUnification.md) を引き取るものである。
 
-**起点 commit**: `d36c7d2` / **Phase 1a**: `1233085` / **Phase 1b**: `bf7ab35`
+**起点 commit**: `d36c7d2` / **Phase 1a**: `1233085` / **Phase 1b**: `bf7ab35` /
+**Phase 2**: `ae9468b` / **Phase 3 (型削除)**: 本 commit
 
 ## 決定事項 (ユーザー確定)
 
 1. **2D/3D シーンを分けない**。単一クラス `AScene` に統一する。ノード統一と同じ方針を
    シーンへ適用する。
 2. **2D と 3D の差は投影とサービス構成だけにする**。クラス階層で分けない。
-3. 登録済み旧名 `FScene` / `FScene2D` / `FScene3D` は、再コンパイルする source の互換の
-   ために `using` alias を一時的に残す。symbol shim は設けない。現行の正規型
-   `AScene2D` / `CScene3D` は、Phase 2 / 3 の阻害要因を解消するまで別型のまま残す。
+3. **`AScene2D` / `CScene3D` は残さない (ユーザー指示)**。旧名 `FScene2D` / `FScene3D` の
+   互換 alias も含めて削除し、registry からも entry を落とす。`FScene` → `AScene` の
+   alias だけは残す。symbol shim は設けない。
 4. 命名規約は [`StyleGuide.md`](StyleGuide.md) §2.1 と [`TypeRoleAudit.md`](TypeRoleAudit.md)
    の役割表に従う。統一シーンは owner に所有され多態的に扱われる object なので `A`。
 5. **既存エンジンの構造を参照して設計する**。Unity の `Scene`、Unreal の `UWorld` /
@@ -80,7 +81,7 @@ Phase 1 着手前の実体は 3 つに割れており、しかも階層が揃っ
   `ALegacyScene3DAdapter::m_Graph.m_Root`。ノードは既に `ANode` へ統一済みなので、
   ここで分かれている理由は歴史的経緯だけである。
 
-## 長期目標と現在採用する中間形
+## 到達形 (実装済み)
 
 `AScene` が root `ANode` ツリーと描画配線を持ち、2D/3D の違いをカメラ・投影・
 `WantedServices()` の差だけにする。
@@ -96,42 +97,33 @@ Phase 1 着手前の実体は 3 つに割れており、しかも階層が揃っ
 - `CScene3D` はノードグラフ型への委譲だけに縮退させる。`AScene2D` の `using` alias 化は
   migration registry の canonical 一意制約に阻まれるため、空派生のまま残す (Phase 3 参照)。
 
-## 影響範囲 (実測)
+## 削除した型と置き換え先
 
-### `AScene2D` を参照するファイル (25)
+| 削除した型 | 置き換え | 備考 |
+|---|---|---|
+| `AScene2D` (`Scene2D.h`) | `AScene` + `WantedServices()` が `kScene2DServices` を返す | 空派生だったので、差はサービス宣言 1 行だけになった |
+| `CScene3D` (`Scene3D.h`) | `CSceneNodeGraph` (`SceneNodeGraph.h`) | 委譲 wrapper を畳んだ。スタック所有できる性質は graph が引き継ぐ |
+| `FScene2D` / `FScene3D` (互換 alias) | 無し | registry entry ごと削除。旧名が再流入すれば未定義名で compile error になる |
 
-engine 内は `Scene2D.cpp` (21件) / `Scene2D.h` (7) / `Forward.h` (4) /
-`render/SpriteBatch.h` (4) / `RenderContext.h` (2) / `Sprite2DComponent.h` (2) /
-`Spawn2DSubsystem.h` (2、`friend class AScene2D` を含む) / `Scene3D.h` (2) /
-`SceneTextLoader.h` (1) / `Scene.h` (1) / `Effects2D.h` (1) /
-`ReflectCatalog.cpp` (1) / `render/Dx12/Dx12CommandList.cpp` (1)。
-
-samples は `55_HelloScene2D` / `58_HelloTilemap` / `59_HelloEffects2D` /
-`60_HelloStencilMask` / `63_HelloVerticalSlice` (7件)。
-tests は `spawn_subsystem_tests` (5) / `reflect_tests` (4) /
-`gameframework_forward_header_compile_tests` (3) / `subsystem_tests` (2) /
-`subsystem_spawn_header_compile_tests` / `subsystem_canonical_header_tests` /
-`component_services_tests`。
-
-### `CScene3D` を参照するファイル (14)
-
-`editor_abi/EditorAbi.cpp`、`CameraComponent3D.h`、`Forward.h`、
-`LegacyScene3DAdapter.{h,cpp}`、`Scene3D.{h,cpp}`、`Scene3DSerialize.{h,cpp}`、
-`foundation_optimization_wave_k_tests`、`gameframework_forward_header_compile_tests`、
-`legacy_scene3d_water_runtime_tests`、`node3d_tests`、`post_effect_quality_tests`。
+`kScene2DServices` は `Scene.h` の `inline constexpr ESvc`
+(`Default2D | Camera2D | Physics2D`)。`AScene::WantedServices()` の既定は `ESvc::None`
+のままなので、メニューや headless のシーンは 2D サービスを確保しない。
 
 ## 不変条件 (破ってはならない契約)
 
 1. **editor C ABI の export 名を改名しない**。`acs_editor_node3d_*` (30 種以上)、
    `acs_editor_scene_*` は C# editor と native DLL 間の ABI であり、C++ 型名ではない。
    NodeUnification.md が `acs_editor_node_*` について定めた原則をそのまま適用する。
-2. **migration registry の契約を維持する**。`scripts/data/cpp_type_role_migrations.json` の
-   既存 entry (`acs::game::FScene` → `AScene`、`FScene2D` → `AScene2D`、
-   `FScene3D` → `CScene3D`) を書き換える場合は、件数と semantic SHA-256 baseline、
-   および `audit_cpp_type_roles.py` の定数を**同じ commit で**更新する。
-3. **consumer legacy allowlist を同期する**。`AScene2D` / `CScene3D` を含む行を編集したら
+2. **migration registry の契約を維持する**。`scripts/data/cpp_type_role_migrations.json` を
+   編集したら、entry 件数 (`DEFAULT_TYPE_ROLE_MIGRATION_ENTRY_COUNT`) と semantic SHA-256
+   baseline (`DEFAULT_TYPE_ROLE_MIGRATION_SEMANTIC_SHA256`) を `audit_cpp_type_roles.py` で
+   **同じ commit で**更新する。JSON は BOM 無し LF で書く (CRLF だと loader が拒否する)。
+3. **consumer legacy allowlist を同期する**。旧名を含む行を編集したら
    `scripts/data/cpp_prefix_consumer_legacy_allowlist.json` の file/line identity と
    `audit_cpp_prefix_consumers.py` の `EXPECTED_ALLOWLIST_SHA256` を更新する。
+   allowlist は observation そのものなので、`audit_cpp_prefix_consumers` を import して
+   `_capture_repository_snapshot` → `_scan_snapshot` から再生成するのが確実 (`--write` は無い)。
+   reason は `(path, legacy, construct)` をキーに旧 entry から引き継げる。
 4. **`dist/acs.h` を再生成する**。`scripts/amalgamate.py --write` の後
    `--check` が drift 無しであること。`C:\acs` への配布は
    `scripts/build_single_header.ps1 -Deploy` を使い、手コピーしない。
@@ -181,90 +173,74 @@ root `ANode` と描画フックを `AScene` へ引き上げ済み。`AScene2D` �
 `PlainSceneOwnerIsSafe` は分割の帰結を固定していたので `PlainSceneOwnerSpawnsIntoRoot` へ
 更新した。未 bind と誤 owner の null 安全は `OrphanOwnerIsSafe` が独立に保つ。
 
-### Phase 2 — ノードグラフを独立型へ切り出す (設計変更あり)
+### Phase 2 — ノードグラフを独立型へ切り出す — 完了 (`ae9468b`)
 
-**当初案の「`CScene3D` を `AScene` へ吸収」は不可能であることが実測で判明した。**
-`Scene3DSerialize.cpp:1285` (`staged_scene`) と `EditorAbi.cpp:17357` (`staging`) が
+**当初案の「`CScene3D` を `AScene` へ吸収」は実測で不可能と判明した。**
+`Scene3DSerialize.cpp` (`staged_scene`) と `EditorAbi.cpp` (`staging`) が
 **スタック上に一時グラフを構築する**。`CScene3D` を `AScene` 派生または alias にすると、
 これらが `CSubsystemCollection` と `TUniquePtr<CSceneServices>` を丸ごと抱えることになる。
-該当は `node3d_tests.cpp` 42 箇所、`legacy_scene3d_water_runtime_tests.cpp` 3 箇所、
-`foundation_optimization_wave_k_tests.cpp` にも及ぶ。
 
-代わりに **ノードグラフを文脈非依存でスタック所有できる graph class として切り出し、
-`AScene` と `CScene3D` の双方がそれを保持する**。
+代わりに、root ANode ツリーと `CNodePool` を **シーン文脈を持たない `CSceneNodeGraph`**
+(`gameframework/SceneNodeGraph.h`) へ切り出し、`AScene` がそれを保持する形にした。
+`CScene3D` はこの段では graph への委譲 wrapper に縮退し、Phase 3 で削除した。
 
-1. `CNodePool` 管理 (`Spawn` / `Get` / `IsValid` / `IdOf` / `Destroy` /
-   `RegisteredCount` / `FindByName` / `Raycast` / `Clear` / `SwapContents`) と root 所有を
-   `CSceneNodeGraph` (仮称) として切り出す。シーン文脈を一切持たず、スタック所有できる
-   graph class にする。
-2. `AScene` は `m_Root` を `CSceneNodeGraph` へ置き換え、既存の `Root()` は graph の root を
-   返す薄い委譲にする。
-3. `CScene3D` は `CSceneNodeGraph` へ委譲するだけの型に縮退させる。スタック上に置けるという
-   性質はここで保たれる。
-4. `ALegacyScene3DAdapter` は `m_Graph` を捨て、`AScene` 自身の graph を使う。
+実装で確定した設計判断。
 
-注意点。
+- **`SwapContents` は root を差し替える**ので、`_SetSceneServices` / `_SetSubsystems` と
+  `ASpawn2DSubsystem::BindTargetRoot` の配線が落ちる。graph に root-swap hook
+  (`_SetRootSwapHook`) を持たせ、`AScene::_RewireGraphRoot` が差し替え後の root へ
+  配線し直す。graph 自体はシーン文脈を持たないので、hook の中身は owner 側にある。
+- **purge の位置を graph 側へ揃えた**。`AScene::_Update` は
+  `OnUpdate` → `UpdateTree` → `PurgePendingDestroy` → `ResolveStructuralChanges`。
+  旧 `CScene3D::Update` と同じ順序で、reap される前に破棄予定ノードが pool から外れる。
+  `_Exit` も `CSceneNodeGraph::ResolveStructuralChanges` を使い同じ順序で後始末する。
+- **`ALegacyScene3DAdapter` の `m_Graph` を撤去**し、基底 `AScene` の graph を使う。
+  adapter の `OnUpdate` / `OnFixedUpdate` からは手動 tick を外した。基底の
+  `_Update` / `_FixedUpdate` が graph を必ず回すので、残すと二重更新になる。
+- **root の pool 登録が全シーンへ広がった**。`CSceneNodeGraph` の ctor が root を
+  `RegisterExistingNode` するため、2D シーンの root も有効な `FNodeId` を持つ。
+  `ANode::Id()` の有効性を「pool 登録済みか」の判定に使う箇所は無く、回帰は出なかった。
+- **`Scene.h` の include 制約は維持**。graph の `Raycast` が取る `FRay3` は
+  `SceneNodeGraph.h` では前方宣言にとどめ、`math/Collision3D.h` は `.cpp` で include する。
+  `Scene3D.h` 経由で `Collision3D.h` が伝播していた consumer
+  (`LegacyScene3DAdapter.h` / `node3d_tests`) には明示 include を足した。
 
-- **`SwapContents` は root を差し替える**ため、`ANode::_SetSceneServices` /
-  `_SetSubsystems` で root に張った配線が落ちる。graph 側に swap 後の再配線 hook を
-  持たせるか、`AScene` 側で swap を包む必要がある。
-- **tick の意味論が非対称**。`CScene3D::Update` は `UpdateTree` →
-  `m_Pool.PurgePendingDestroy()` → `ResolveStructuralChanges` だが、`AScene::OnUpdate` は
-  `OnTick` → `UpdateTree` → `ResolveStructuralChanges` で purge が無い。統一するなら
-  purge の位置を決めること。
-- **root の pool 登録が 2D へ波及する**。`CScene3D` の ctor は root を
-  `RegisterExistingNode` するが `AScene` はしない。統一後は全シーンの root が有効な
-  `FNodeId` を持つ。`ANode::Id()` の有効性を「pool 登録済みか」の判定に使っている箇所が
-  あれば挙動が変わる。
-- **`Scene.h` の include 制約**。`Scene3D.h` は `container/StringView.h` と
-  `math/Collision3D.h` を直接 include する。`Raycast` の `FRay3` は前方宣言へ落とすこと。
-- **C ABI は安全**。`EditorAbi.cpp` の export は全て `void*` handle + プリミティブ引数で、
-  `FEditorHost` は当該翻訳単位に閉じている。editor が `scene3d` に対して呼ぶのは
-  `Root()` / `Update(f32)` / `Clear()` / `Spawn(FStringView)` / `Raycast(FRay3)` /
-  `Get(FNodeId)` の 6 種だけ。内部実装の差し替えは可能。
-- editor は独自シリアライザ (`Dfs3DCollect` + `EmitNode3DBlock`) を持つので、
-  `Scene3DSerialize` を触っても editor の保存経路は変わらない。
+### Phase 3 — `AScene2D` / `CScene3D` の削除 — 完了
 
-検証: `node3d_tests`、`legacy_scene3d_water_runtime_tests`、`Scene3DSerialize` 系、
-`post_effect_quality_tests` が緑。`EditorAbi` の export 一覧を before/after で diff して不変を確認。
+ユーザー指示 (「Scene2D と Scene3D は無いようにして。消していい」) により、
+互換 alias を残さず型ごと削除した。
 
-### Phase 3 — 旧型の縮退 (alias 化は registry の設計変更が前提)
+- **`AScene2D` → `AScene`**。空派生だったので、失われるのは `WantedServices()` の
+  既定値だけである。`Scene.h` に `kScene2DServices`
+  (`Default2D | Camera2D | Physics2D`) を置き、2D シーンは
+  `ESvc WantedServices() const noexcept override { return kScene2DServices; }` を書く。
+  **`AScene` の既定は `ESvc::None` のまま変えない**。既定を 2D 側へ寄せると、メニューや
+  headless のシーン、3D の adapter シーンまで Camera2D / Physics2D を確保することになる。
+- **`CScene3D` → `CSceneNodeGraph`**。Phase 2 の wrapper を畳んだだけで、
+  スタック所有・`SwapContents`・`Raycast` などの性質は graph が引き継ぐ。
+- **registry から `FScene2D` / `FScene3D` の entry を削除**した。
+  当初 Phase 3 の阻害要因だった canonical 一意制約 (`FScene2D` の canonical を
+  `AScene` に張り替えると `FScene → AScene` と衝突する) は、**alias を残さない**ことで
+  そもそも発生しない。旧名が製品 source へ再流入すれば、alias が無いので未定義名の
+  compile error になる。監査の再流入検査より強い保証になっている。
+- 併せて `audit_cpp_type_roles.py` の `CANONICAL_EXTERNAL_MANAGED_BASES` から
+  `acs::game::AScene2D` を外し、`AScene2D` / `FScene2D` を使っていた self-test fixture を
+  `AScene` ベースへ書き換えた。consumer allowlist は observation から再生成し、
+  `EXPECTED_ALLOWLIST_SHA256` を更新した。
+- reflection 登録は `ACS_REGISTER_SCENE(FScene2D)` → `ACS_REGISTER_SCENE(AScene)`。
+  `reflect_tests` の `FindByName` / `Create` も `"AScene"` に合わせた。
+- editor の C# テンプレート (`ProjectManager.cs` / `NewClassDialog.xaml.cs` /
+  `BlueprintEditor.xaml.cs`) が生成する C++ も `AScene` + `kScene2DServices` にした。
+  基底クラス選択肢の `FScene2D` も `AScene` へ置き換えている。
 
-**`AScene2D` を単純に `using AScene2D = AScene;` にはできない。**
-migration registry は canonical 名の一意性を要求する
-(`audit_cpp_type_roles.py:385-386`)。`FScene2D` の canonical を `acs::game::AScene` へ
-張り替えると、既存の `FScene → acs::game::AScene` と衝突して
-`canonical names must be unique` で落ちる。entry を削除して回避すると、
-
-- 互換 alias が `Forward.h` に存在することの要求 (`audit_cpp_type_roles.py:2088-2131`)
-- 旧名が製品 source へ再流入していないかの検査 (`_audit_legacy_alias_uses`)
-- `EXTERNAL_MANAGED_BASES` の registry からの導出 (同 393-397)
-
-の **3 つが同時に無効化される**。よって Phase 3 は registry schema 側で
-「複数 legacy が同一 canonical を指せる」ことを許す変更を先に入れるか、
-`AScene2D` を空派生のまま残すかの二択になる。**現状は空派生のまま残す方が安全**であり、
-Phase 1b 完了時点で実害 (素の `AScene` で描けない) は既に解消している。
-
-その他の阻害要因。
-
-- `Spawn2DSubsystem.h` の `friend class AScene2D;` は alias 化すると ill-formed
-  (elaborated-type-specifier が typedef-name を指す)。Phase 1b で `AScene` へ変更済み。
-- allowlist entry は対象 file の**全体 SHA-256** を持つため、
-  `gameframework_forward_header_compile_tests.cpp` を 1 byte でも変えるとその file の
-  全 entry が無効化される (Scene 関連 11 行ではなく計 96 行)。`--write` モードは無く、
-  `_capture_repository_snapshot` から再生成する使い捨てスクリプトが要る。
-- `subsystem_canonical_header_tests.cpp` の
-  `static_assert(std::is_same_v<acs::FScene2D, acs::AScene2D>)` は恒等 assertion なので
-  alias 化しても compile は通るが、canonical が変わると監査の分類器が落とす。
-- `acs/docs/**/*.md` と `dist/README.md` はどの監査の走査対象にも入っていない
-  (consumer snapshot は `acs/src` / `acs/tests` / `acs/samples` / `acs/scripts` /
-  `dist/examples` のみ)。`AScene2D` / `CScene3D` への言及が 65 箇所あり手動更新が要る。
-
-### Phase 4 — 配布と consumer 追随
+### Phase 4 — 配布と consumer 追随 — 完了
 
 `dist/acs.h` 再生成、`build_single_header.ps1 -Deploy C:\acs`、
 `dist/examples/check.cpp` の smoke。外部 consumer
-(`C:\Users\g0190\OneDrive\Desktop\acs_project\cardgame`) の `AScene2D` 参照を `AScene` へ更新。
+(`C:\Users\g0190\OneDrive\Desktop\acs_project\cardgame`) の `AOutgameScene` は
+`AScene2D` 派生だったので、`AScene` 派生 + `WantedServices()` が `kScene2DServices` を
+返す形へ更新した。`kScene2DServices` は `Scene.h` で `acs` 名前空間へも再輸出しているので、
+`using namespace acs;` だけの consumer でも修飾なしで書ける。
 
 ## 検証コマンド
 
@@ -292,6 +268,12 @@ ctest --test-dir Intermediate\vs -C Release --output-on-failure
   launcher は native command の stderr を失敗と誤判定して `operation failed` を出すことがある。
 - **`--scripting` を付けないと `acs_lua_vm_allocation_safety_tests` が生成されない**。
   Lua を含む全量検証では `generate.ps1 -Tests -Diligent -Scripting` を使う。
+- **改行コードを壊さない**。working tree は file ごとに LF / CRLF が混在しており、Python の
+  `Path.write_text` は Windows で `\n` を CRLF に変換する。LF の file を round-trip すると
+  全行が CRLF になり、**source 文字列を実 file から読んで照合する test**
+  (`post_effect_quality_tests` / `water3d_ripple_lifetime_tests` の `ReadWorkspaceSource` 系) が
+  「marker が見つからない」で落ちる。git の diff は正規化で小さく見えるため気付きにくい。
+  script で書き換えるときは `write_bytes` を使うか、HEAD の blob と CR の有無を突き合わせて戻す。
 
 ## Phase 1a 実装後の実測 (2026-08-02)
 

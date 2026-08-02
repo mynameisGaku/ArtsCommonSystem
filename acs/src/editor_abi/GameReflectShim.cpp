@@ -180,7 +180,7 @@ GR_API void acs_game_scene_tick(void* scene, float dt) noexcept {
     auto* s = static_cast<FGamePlayScene*>(scene);
     if (s == nullptr || !s->root) return;
     if (s->services) {
-        // AScene2D と同じ 2 段モデル: PreUpdate(Clock) → OnUpdate → PostUpdate(Tweens/Seq/Camera)。
+        // AScene と同じ 2 段モデル: PreUpdate(Clock) → OnUpdate → PostUpdate(Tweens/Seq/Camera)。
         s->services->_PreUpdate(dt);
         const float sdt = s->services->_ScaledDt(dt);
         s->root->UpdateTree(sdt);

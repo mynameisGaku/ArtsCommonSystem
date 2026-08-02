@@ -85,7 +85,6 @@ ACS_REGISTER_SUBSYSTEM(CCanonicalNamespaceMacroSubsystem, ::acs::ESubsystemScope
 #include "gameframework/ANode.h"
 #include "gameframework/AComponent.h"
 #include "gameframework/Spawn2DSubsystem.h"
-#include "gameframework/Scene2D.h"
 #include "gameframework/EventBus.h"
 #include "gameframework/WorldClockSubsystem.h"
 #include "app/AssetSubsystem.h"
@@ -117,7 +116,6 @@ static_assert(std::is_same_v<acs::FSceneServices, acs::CSceneServices>);
 static_assert(std::is_same_v<acs::ESvc, acs::game::ESvc>);
 static_assert(std::is_same_v<acs::ANode, acs::game::ANode>);
 static_assert(std::is_same_v<acs::AComponent, acs::game::AComponent>);
-static_assert(std::is_same_v<acs::FScene2D, acs::AScene2D>);
 static_assert(std::is_same_v<acs::ASpawn2DSubsystem, acs::game::ASpawn2DSubsystem>);
 static_assert(std::is_same_v<acs::FSpawn2DSubsystem, acs::ASpawn2DSubsystem>);
 static_assert(std::is_same_v<acs::FEventBus, acs::AEventBus>);

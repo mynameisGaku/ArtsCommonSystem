@@ -326,7 +326,7 @@ ACS_TEST(ReflectCatalog, RegistersConcreteEngineTypes) {
     EXPECT_TRUE(health != nullptr);
     if (health != nullptr) EXPECT_TRUE(health->category == ETypeCategory::System);
 
-    const FTypeDesc* scene = reg.FindByName("FScene2D");
+    const FTypeDesc* scene = reg.FindByName("AScene");
     EXPECT_TRUE(scene != nullptr);
     if (scene != nullptr) EXPECT_TRUE(scene->category == ETypeCategory::Scene);
 
@@ -419,10 +419,10 @@ ACS_TEST(ReflectCatalog, FactoryRespectsConstructibility) {
         EXPECT_TRUE(reg.Create("ATriggerComponent") == nullptr);
     }
 
-    // INSTANTIABLE な型は factory で生成→破棄できる (AScene2D が既定構築可能なら踏む)。
-    const FTypeDesc* scene = reg.FindByName("FScene2D");
+    // INSTANTIABLE な型は factory で生成→破棄できる (AScene が既定構築可能なら踏む)。
+    const FTypeDesc* scene = reg.FindByName("AScene");
     if (scene != nullptr && (scene->traits & TRAIT_INSTANTIABLE) != 0u) {
-        void* obj = reg.Create("FScene2D");
+        void* obj = reg.Create("AScene");
         EXPECT_TRUE(obj != nullptr);
         if (obj != nullptr) reg.Destroy(scene->id, obj);
     }

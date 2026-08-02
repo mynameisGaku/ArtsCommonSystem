@@ -232,7 +232,7 @@ SAMPLE_DESCRIPTIONS: dict[str, str] = {
     "52_HelloColliderViz2D": "2D collider の可視化。",
     "53_HelloColliderViz3D": "3D mesh/convex hull collider の wireframe 可視化。",
     "54_HelloCollideSlide": "APhysicsBody2D の collide-and-slide 検証。",
-    "55_HelloScene2D": "AScene2D starter foundation。",
+    "55_HelloScene2D": "AScene starter foundation。",
     "56_HelloSpriteAnim": "sprite-sheet animation と HUD text。",
     "57_HelloTriggers": "collision layers/masks と trigger enter/stay/exit。",
     "58_HelloTilemap": "Tilemap render と fade scene transition。",
@@ -267,7 +267,7 @@ GLOSSARY: "OrderedDict[str, str]" = OrderedDict([
     ("DX12 raw", "ACS 独自の DirectX 12 backend。既定の dx12-* preset。"),
     ("generate.ps1", "ACS の推奨生成スクリプト。Visual Studio solution、Binaries、Intermediate を現行レイアウトで作る。"),
     ("acs_assetpack", ".acpak archive を pack/unpack/list/verify/info する CLI。tools/acs_assetpack に実装がある。"),
-    ("AScene2D", "AScene の 2D 向け既定サービス構成だけを選ぶ空派生。root と描画配線は AScene、CSpriteBatch は CGame が共有する。"),
+    ("CSceneNodeGraph", "AScene が持つ root ANode ツリーと node pool の実体。シーン文脈を持たず、loader や editor が一時グラフをスタックへ構築するのにも使う。"),
 ])
 
 

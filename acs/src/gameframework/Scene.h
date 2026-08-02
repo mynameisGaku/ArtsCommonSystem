@@ -24,6 +24,19 @@ namespace game {
 class FRenderContext;
 
 /**
+ * 2D ゲームの標準サービス構成 (WantedServices() の戻り値に使う)。
+ *
+ * @details
+ * シーン型は AScene 一つで、2D と 3D の違いは投影とサービス構成だけにする
+ * (docs/SceneUnification.md)。2D の共通 stack を使うシーンは
+ * `ESvc WantedServices() const noexcept override { return kScene2DServices; }`
+ * と書く。既定の ESvc::None のままなら、メニューや headless のシーンは
+ * Camera2D / Physics2D を確保しない。
+ */
+inline constexpr ESvc kScene2DServices =
+    ESvc::Default2D | ESvc::Camera2D | ESvc::Physics2D;
+
+/**
  * 1 つの画面/状態を表すシーンの基底クラス。
  *
  * @details
@@ -507,5 +520,8 @@ namespace acs {
 
 /** scene描画コンテキストをトップレベルから参照する正規入口。 */
 using game::FRenderContext;
+
+/** 2D標準サービス構成をトップレベルから参照する正規入口。 */
+using game::kScene2DServices;
 
 } // namespace acs

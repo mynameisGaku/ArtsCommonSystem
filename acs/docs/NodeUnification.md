@@ -64,7 +64,7 @@
   マテリアル効果 (FMaterialState) はノード単位なのでフラット化と両立する。
 - `EChildDrawOrder` (Tree/Layer/LayerThenY の兄弟ソート) は廃止 — グローバルソートが上位互換。
 - 3D メッシュは深度バッファがあるため不透明は従来通り。半透明・エフェクト・オーバーレイの
-  提出順に (DrawLayer, DrawPriority) を適用する（`CScene3D`側の収集順）。
+  提出順に (DrawLayer, DrawPriority) を適用する（`CSceneNodeGraph`側の収集順）。
 
 ### AComponent
 
@@ -100,7 +100,7 @@
   255 bytes の NUL 終端を境界内で検証し、異常名や payload 超過も書き込み前に拒否する。
   読み込み時は既知コンポーネントの反射 payload 全体を検証してから attach し、破損や
   未消費の余剰 bytes があれば部分シーンを返さない。
-- `AScene2D` / `CScene3D`は`TObjectPtr<ANode>`でrootを所有する（シーン自体の統合は次期フェーズ）。
+- `AScene` / `CSceneNodeGraph`は`TObjectPtr<ANode>`でrootを所有する（シーン自体の統合は次期フェーズ）。
   この次期フェーズの設計、責務境界の実測、影響範囲、不変条件、移行手順は
   [`SceneUnification.md`](SceneUnification.md) に切り出した（未実装）。
 - `acs_editor_node_*` / `acs_editor_node3d_*` は C# editor と native DLL 間で互換維持する
@@ -110,7 +110,7 @@
 ## 実施済み移行手順 (タスク #2〜#5)
 
 1. ANode / AComponent / CNodePool 実装 + 旧 4 クラス削除 (task #2)
-2. `AScene2D` / `CScene3D` 描画パス置換 + グローバルソート実装 (task #3)
+2. `AScene` / `CSceneNodeGraph` 描画パス置換 + グローバルソート実装 (task #3)
 3. gameframework 内部 (~40 ファイル) + tests (~10) 一括置換、全テスト緑 (task #4)
 4. samples ~15 本 + docs/tutorials 10 章 + reference data + editor C# (task #5)
 

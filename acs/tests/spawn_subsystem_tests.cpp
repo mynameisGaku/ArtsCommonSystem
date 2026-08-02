@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // gameframework: ASpawn2DSubsystem の検証 (GPU 非依存)。
-//   ・Owner()(= AScene2D)経由でシーン root へプレハブを生成し、指定位置へ配置する
+//   ・Owner()(= AScene)経由でシーン root へプレハブを生成し、指定位置へ配置する
 //   ・= サブシステムが «世界に手が届く»(Owner コンテキスト)の実証
-//   ・owner 未設定(AScene2D でない)なら nullptr
+//   ・owner 未設定(AScene でない)なら nullptr
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "gameframework/Spawn2DSubsystem.h"
-#include "gameframework/Scene2D.h"
 #include "gameframework/Scene.h"
 #include "gameframework/SubsystemCatalog.h"
 #include "gameframework/ANode.h"
@@ -26,10 +25,10 @@ const char* kBullet =
     "SEL -1 0\n";
 } // namespace
 
-// Owner(AScene2D)の root へプレハブを生成し、指定位置に配置する。
+// Owner(AScene)の root へプレハブを生成し、指定位置に配置する。
 ACS_TEST(SpawnSubsystem, SpawnsIntoSceneRootAtPosition) {
     EXPECT_TRUE(AcsRegisterGameFrameworkSubsystems());
-    AScene2D scene;
+    AScene scene;
     EXPECT_TRUE(scene._InitWorldSubsystems(nullptr));
     ASpawn2DSubsystem* spawner = scene.GetSubsystem<ASpawn2DSubsystem>();
     EXPECT_TRUE(spawner != nullptr);
@@ -50,7 +49,7 @@ ACS_TEST(SpawnSubsystem, SpawnsIntoSceneRootAtPosition) {
     EXPECT_EQ(scene.Root().ChildCount(), before + 2u);
 }
 
-// owner が AScene2D でない(未設定)なら nullptr で安全。
+// owner が scene owner でない(未設定)なら nullptr で安全。
 ACS_TEST(SpawnSubsystem, NoOwnerIsSafe) {
     ASpawn2DSubsystem orphan;                          // owner 未設定
     EXPECT_TRUE(orphan.SpawnPrefabText(kBullet, FVec2{ 0.0f, 0.0f }) == nullptr);

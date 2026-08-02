@@ -66,7 +66,7 @@ void AScene::_Exit() noexcept {
     OnExit();
     // 破棄予定ノードを pool から外してから reap する (順序は graph の Update と同じ)。
     m_Graph.ResolveStructuralChanges();
-    // AScene2D は必ず Physics2D/Tweens を要求したが、AScene の既定は ESvc::None なので
+    // kScene2DServices を要求するシーンだけが Physics2D/Tweens を持つ。既定は ESvc::None なので
     // service ごとに要求済みかを確認する (docs/SceneUnification.md)。
     if (HasServices()) {
         if (Services().Has(ESvc::Physics2D)) Services().Physics().ClearAll();
@@ -87,8 +87,8 @@ CSpriteBatch& AScene::SpriteBatch() noexcept {
 /** 利用者hook後にrootのUpdateTreeと構造変更解決を実行する。 */
 void AScene::_Update(f32 DeltaSeconds) noexcept {
     OnUpdate(DeltaSeconds);
-    // UpdateTree → pool purge → 構造変更解決。purge の位置は CScene3D 時代の
-    // Update と同じで、reap される前に破棄予定ノードを pool から外す。
+    // UpdateTree → pool purge → 構造変更解決。reap される前に破棄予定ノードを
+    // pool から外す (docs/SceneUnification.md)。
     m_Graph.Update(DeltaSeconds);
 }
 

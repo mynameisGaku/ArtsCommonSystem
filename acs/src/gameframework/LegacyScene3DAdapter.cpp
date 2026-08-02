@@ -1155,7 +1155,7 @@ bool ALegacyScene3DAdapter::EnsureHdrFrameResources(
     const FSceneRenderFeatures scene_features =
         ScanSceneRenderFeatures(Graph().Root());
     const bool scene_has_water = scene_features.has_water;
-    // CScene3D has no mutation revision yet. Scan alongside the existing
+    // CSceneNodeGraph has no mutation revision yet. Scan alongside the existing
     // water feature query so retained Graph references, visibility changes
     // and runtime material edits take effect on the very next frame.
     m_SsssRequested = scene_features.needs_subsurface_mrt;

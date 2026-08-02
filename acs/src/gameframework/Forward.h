@@ -83,20 +83,13 @@ class AScene;
 /** 旧公開名から正規scene型へ接続する互換別名。 */
 using FScene = AScene;
 
-/** 二次元画面状態を所有する正規型。 */
-class AScene2D;
-/** 旧公開名から正規二次元scene型へ接続する互換別名。 */
-using FScene2D = AScene2D;
-
-/** 三次元sceneを管理する正規型。 */
-class CScene3D;
-/** 旧公開名から正規三次元scene型へ接続する互換別名。 */
-using FScene3D = CScene3D;
-
 /** scene遷移を管理する正規型。 */
 class CSceneManager;
 /** 旧公開名から正規scene管理型へ接続する互換別名。 */
 using FSceneManager = CSceneManager;
+
+/** sceneのnode treeとnode poolを所有する正規型。 */
+class CSceneNodeGraph;
 
 /** scene描画資源をgame寿命で共有する正規型。 */
 class CSceneRenderResources;
@@ -154,9 +147,8 @@ using game::CPrivacyDirector;
 using game::CReplayDirector;
 using game::CRigidWorld2D;
 using game::AScene;
-using game::AScene2D;
-using game::CScene3D;
 using game::CSceneManager;
+using game::CSceneNodeGraph;
 using game::CSceneRenderResources;
 using game::CSceneServices;
 using game::editor_core::AEditorCommand;
@@ -181,8 +173,6 @@ using game::FPrivacyDirector;
 using game::FReplayDirector;
 using game::FRigidWorld2D;
 using game::FScene;
-using game::FScene2D;
-using game::FScene3D;
 using game::FSceneManager;
 using game::FSceneServices;
 using game::editor_core::FEditorCommand;

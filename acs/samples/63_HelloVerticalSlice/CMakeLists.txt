@@ -1,5 +1,5 @@
 # HelloVerticalSlice — title→play→pause→game over→save の縦スライス。
-# AScene2D + CUiLayer (クリック可能メニュー) + 自前 atlas + tilemap + 設定保存を
+# AScene + CUiLayer (クリック可能メニュー) + 自前 atlas + tilemap + 設定保存を
 # 1 本に統合。座標は ACS 2D 正規規約 = Y-down (左上原点・+Y 下)。
 add_executable(hello_vertical_slice WIN32
     main.cpp

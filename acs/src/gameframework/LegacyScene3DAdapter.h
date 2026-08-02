@@ -5,9 +5,10 @@
 #include "foundation/Types.h"
 #include "container/Array.h"
 #include "gameframework/Scene.h"
-#include "gameframework/Scene3D.h"
+#include "gameframework/SceneNodeGraph.h"
 #include "gameframework/Scene3DSerialize.h"
 #include "math/Camera.h"
+#include "math/Collision3D.h"   // FRay3 / FRayHit3 (RaycastWater と mesh 交差)
 #include "render/Blit.h"
 #include "render/PbrShader.h"
 #include "render/PostProcess.h"

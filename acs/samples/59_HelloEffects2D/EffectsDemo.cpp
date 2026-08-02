@@ -6,7 +6,7 @@
 //   ・焚き火 (AFire2DComponent) にマウスが近づくと炎の勢いが増す。
 //
 // すべて SpriteBatch のプリミティブを手続き生成して描くので HLSL 不要。
-// マウス→ワールド変換は AScene2D::ScreenToWorld (ppu 対応) を使う。
+// マウス→ワールド変換は AScene::ScreenToWorld (ppu 対応) を使う。
 #include "gameframework/GameFramework.h"
 #include "platform/Input.h"
 #include "platform/InputCodes.h"
@@ -17,8 +17,11 @@ using namespace acs::game;
 
 namespace {
 
-class AEffectsScene final : public AScene2D {
+class AEffectsScene final : public AScene {
 public:
+    /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
+    ESvc WantedServices() const noexcept override { return kScene2DServices; }
+
     void OnReady() noexcept override {
         SetPixelsPerUnit(48.0f);
 

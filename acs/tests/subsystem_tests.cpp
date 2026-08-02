@@ -18,7 +18,6 @@
 #include "gameframework/AComponent.h"
 #include "gameframework/Game.h"
 #include "gameframework/Scene.h"
-#include "gameframework/Scene2D.h"
 #include "gameframework/SubsystemCatalog.h"
 #include "gameframework/EventBus.h"
 #include "gameframework/Spawn2DSubsystem.h"
@@ -588,8 +587,8 @@ struct FRootAllocationTrace {
     u32 entered = 0u;
 };
 
-/** AScene2D root生成失敗がcommitされないことを記録する。 */
-class ARootAllocationProbeScene final : public AScene2D {
+/** scene root生成失敗がcommitされないことを記録する。 */
+class ARootAllocationProbeScene final : public AScene {
 public:
     explicit ARootAllocationProbeScene(FRootAllocationTrace* Trace) noexcept : m_Trace(Trace) {}
     ~ARootAllocationProbeScene() noexcept override { m_Trace->destroyed = true; }

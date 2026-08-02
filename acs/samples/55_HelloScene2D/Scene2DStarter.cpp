@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloScene2D - ACS 2D ゲームの実用的な開始例。
 //
-// AScene2D 基盤の次の機能を示す:
+// AScene 基盤の次の機能を示す:
 //   - ルートノードツリー
 //   - FRenderContext 経由で共有する SpriteBatch
 //   - ASprite2DComponent による描画
@@ -19,9 +19,12 @@ constexpr FActionId kMoveX("MoveX");
 constexpr FActionId kMoveY("MoveY");
 constexpr FActionId kQuit("Quit");
 
-class AStarterScene final : public AScene2D
+class AStarterScene final : public AScene
 {
 public:
+    /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
+    ESvc WantedServices() const noexcept override { return kScene2DServices; }
+
     void OnReady() noexcept override
     {
         SetPixelsPerUnit(64.0f);
