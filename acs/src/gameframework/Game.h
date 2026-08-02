@@ -25,6 +25,7 @@
 #include "render/SpriteBatch.h"
 #include "gameframework/Forward.h"
 #include "gameframework/SceneManager.h"
+#include "gameframework/SceneRenderResources.h"
 #include "gameframework/RenderContext.h"
 #include "gameframework/AppState.h"
 #include "gameframework/FadeTransition.h"
@@ -147,6 +148,17 @@ public:
     CFadeTransition& Fade() noexcept { return m_Fade; }
 
     /**
+     * シーン描画に使う CSpriteBatch と オフスクリーン RT の共有束を返す。
+     *
+     * @details
+     * シーンが所有するのは ANode ツリーだけで、描画リソースは game 寿命で 1 組を共有する
+     * (docs/SceneUnification.md)。中の CSpriteBatch と RT は各 Ensure* を呼ぶまで
+     * 確保しないため、2D 描画を使わない game は GPU リソースを 1 つも作らない。
+     * @return 共有する CSceneRenderResources への参照。
+     */
+    CSceneRenderResources& SceneRenderResources() noexcept { return m_SceneRenderResources; }
+
+    /**
      * GameInstance スコープのサブシステム束を返す(Engine スコープへフォールバックする)。
      *
      * @details AScene の World サブシステム束はこれを parent にする。
@@ -263,6 +275,9 @@ private:
 
     /** overlay CSpriteBatch の init を試行済みか (再試行抑止)。 */
     bool              m_OverlayTried = false;
+
+    /** シーンが借りて使う描画リソース束 (中の GPU リソースは Ensure* まで確保しない)。 */
+    CSceneRenderResources m_SceneRenderResources;
 
     /** 時間スケール (AScene の dt に乗算)。 */
     f32           m_TimeScale       = 1.0f;

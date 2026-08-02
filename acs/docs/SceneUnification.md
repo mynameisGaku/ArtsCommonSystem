@@ -208,3 +208,94 @@ ctest --test-dir Intermediate\vs -C Release --output-on-failure
   launcher は native command の stderr を失敗と誤判定して `operation failed` を出すことがある。
 - **`--scripting` を付けないと `acs_lua_vm_allocation_safety_tests` が生成されない**。
   Lua を含む全量検証では `generate.ps1 -Tests -Diligent -Scripting` を使う。
+
+## Phase 1a 実装後の実測 (2026-08-02)
+
+Phase 1a は実装・検証済み。Debug 65/65、Release 63/63、型役割監査 4 root すべて 0 件、
+conventions 1282 file、amalgamation drift なし。新規公開ヘッダを足したので `dist/acs.h` の
+再生成が必要だった (469 headers / 108,040 行)。
+
+寿命変更の自己検証結果 (いずれも問題なし)。
+
+- **退場シーンの retire ring と共有バッチ**: バッチがシーンより長生きになったため、ring が
+  守っていた「GPU 参照中リソースの破棄」の危険は減る。退場シーンの破棄は共有リソースに触れない。
+- **`PushScene` での二重 `Begin`**: `SceneManager.cpp:184-188` の `_Render` は `Top()` の
+  1 シーンだけを `OnRender` する。共有バッチへの `Begin` が入れ子になる経路は構造上存在しない。
+- **RT の nullptr 参照外し**: `Scene2D.cpp` の 238 / 251 / 279 / 280 は `reflectionReady`
+  (= `EnsureSceneRt` 成功) 配下、258 / 270 / 281 は `waterDepthReady` 配下、219 は
+  `if (stencil)` で保護されている。
+- **破棄順**: `m_SceneRenderResources` は `m_Scenes` より後に宣言されるので先に破棄されるが、
+  `~AScene2D()` は `= default` で member は `m_Root` と POD のみ。シーンの破棄が共有リソースへ
+  触れる経路は無い。**この順序に依存しているので、`CGame` の member 宣言順を入れ替えないこと。**
+
+## Phase 1b 以降の計画修正 (調査で判明した阻害要因)
+
+以下は engine / samples / tests / gate を全走査して確認した事実であり、上の Phase 1b〜3 の
+記述はこれらを反映して読み替えること。**未反映のまま着手すると確実に詰まる。**
+
+### 1. `Scene.cpp` が存在しない
+
+`src/gameframework/Module.cmake` は `Scene.h` だけを列挙する。`OnRender` / `OnEnter` /
+`SpriteBatch()` / `ScreenToWorld` / `_OnWorldSubsystemsReady` は `RenderContext.h` /
+`Renderer.h` / `Game.h` / `Spawn2DSubsystem.h` を要するため `Scene.h` に書けない。
+**新規 `Scene.cpp` の作成と `Module.cmake` への追加が Phase 1b の前提条件。**
+
+### 2. Phase 1b は `spawn_subsystem_tests` を確定的に赤にする
+
+`tests/spawn_subsystem_tests.cpp:65-75` の `ACS_TEST(SpawnSubsystem, PlainSceneOwnerIsSafe)`
+は「素の `AScene` を owner にしたら `SpawnPrefabText` が nullptr を返す」を固定している。
+`_OnWorldSubsystemsReady` (`Spawner->BindTargetRoot`) を `AScene` へ上げるとこの契約が壊れる。
+**Phase 1b の検証項目「`spawn_subsystem_tests` が緑」は成立しない。** テストの意図を
+「素の `AScene` でも spawn できる」へ更新するか、bind 条件を `WantedServices()` に紐付けるかを
+先に決めること。
+
+### 3. `Services()` が無ガードで、Phase 1b の目的と衝突する
+
+`Scene2D.cpp` の `DrawWorldPass` と `OnRender` は `Services().Camera()` をノーガードで呼ぶ。
+`AScene::WantedServices()` の既定は `ESvc::None` (`Scene.h:123`) のままにする方針なので、
+そのまま上げると素の `AScene` 派生が `Scene.h:133` の `ACS_ASSERTF` で止まる。
+**「素の `AScene` 派生から 2D 描画ができる」という Phase 1b のゴールは、この 2 箇所に
+`HasServices()` ガードと camera 既定値を入れない限り達成できない。**
+
+### 4. `CScene3D` を `AScene` の派生にも alias にもできない
+
+`Scene3DSerialize.cpp:1285` と `EditorAbi.cpp:17357` がスタック上に一時グラフを構築する。
+`AScene` 化すると `CSubsystemCollection` と `TUniquePtr<CSceneServices>` を丸ごと抱えることに
+なり、`node3d_tests.cpp` (42 箇所)、`legacy_scene3d_water_runtime_tests.cpp`、
+`foundation_optimization_wave_k_tests.cpp` が該当する。**Phase 2 は「吸収」ではなく、
+ノードグラフ部分を独立した型として切り出し `AScene` が保持する形にすること。**
+`SwapContents` (`Scene3D.h:83`) は root を差し替えるので、`AScene` 化すると
+`_SetSceneServices` / `_SetSubsystems` の root 配線が落ちる点にも注意。
+
+### 5. registry の canonical 一意制約で alias 化が塞がれている
+
+`FScene2D` の canonical を `acs::game::AScene` へ張り替えると、既存の
+`FScene → acs::game::AScene` と衝突し `canonical names must be unique`
+(`audit_cpp_type_roles.py:385-386`) で落ちる。entry 削除で回避すると、
+互換 alias の存在要求 / 旧名再流入の検査 / `EXTERNAL_MANAGED_BASES` の導出という
+**3 つの gate が同時に無効化される**。Phase 3 の alias 方針は registry の設計変更込みで
+再検討すること。
+
+### 6. `friend class AScene2D;` が alias 化で ill-formed になる
+
+`Spawn2DSubsystem.h:33`。`AScene2D` が `using` alias になると elaborated-type-specifier が
+typedef-name を指すことになる。`friend class AScene;` へ変更が必要。
+
+### 7. 影響範囲の追加
+
+上の「影響範囲 (実測)」に **`samples/61_HelloWaterTopDown`** と
+**`samples/56_HelloSpriteAnim`** が抜けていた。特に 61 は反射 RT と水深度 RT を実地で踏む
+唯一の sample であり、Phase 1a/1b の回帰確認対象に必ず含めること。
+
+### 8. allowlist は file 全体の SHA-256 で固定されている
+
+`audit_cpp_prefix_consumers.py` の allowlist entry は対象 file の**全体ハッシュ**を持つため、
+`gameframework_forward_header_compile_tests.cpp` を 1 byte でも変えると、その file の
+全 entry が無効化される (Scene 関連 11 行だけでなく計 96 行が該当)。`--write` モードは無いので、
+モジュールを import して `_capture_repository_snapshot` から再生成する使い捨てスクリプトが要る。
+
+### 9. docs は完全に無 gate
+
+`acs/docs/**/*.md` と `dist/README.md` はどの監査の走査対象にも入っていない
+(consumer snapshot は `acs/src` / `acs/tests` / `acs/samples` / `acs/scripts` / `dist/examples` のみ)。
+`AScene2D` / `CScene3D` への言及が 65 箇所あり、放置すると無言で腐る。Phase 3 で手動更新すること。

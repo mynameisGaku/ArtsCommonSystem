@@ -104,6 +104,7 @@ set(_acsgen_gameframework_sources
     SceneCommandQueue.cpp
     SceneEventBus.cpp
     SceneManager.cpp
+    SceneRenderResources.cpp
     SceneSerialize.cpp
     SceneServices.cpp
     SceneTextLoader.cpp

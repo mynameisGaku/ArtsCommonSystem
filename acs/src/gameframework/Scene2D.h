@@ -13,7 +13,14 @@
 #include "gameframework/Forward.h"
 #include "gameframework/Scene.h"
 #include "gameframework/ANode.h"
-#include "render/SpriteBatch.h"
+
+namespace acs {
+
+// 描画リソースは CGame が game 寿命で所有するため、シーンヘッダは実体を必要としない
+// (docs/SceneUnification.md)。参照と引数にしか使わないので前方宣言で足りる。
+class CSpriteBatch;
+
+} // namespace acs
 
 namespace acs::game {
 
@@ -66,9 +73,11 @@ public:
     /**
      * world/HUD 描画に使う共有 CSpriteBatch を返す。
      *
+     * @details 実体は CGame が game 寿命で持つ共有束 (docs/SceneUnification.md)。
+     * シーンは所有せず借りて使うため、初回描画より前に呼ぶと未初期化のバッチを返す。
      * @return 共有 CSpriteBatch への参照。
      */
-    CSpriteBatch& SpriteBatch() noexcept { return m_Sprites; }
+    CSpriteBatch& SpriteBatch() noexcept;
 
     /**
      * 1 ワールド単位あたりのピクセル数を設定する。
@@ -231,53 +240,6 @@ protected:
 
 private:
     /**
-     * 共有 CSpriteBatch を遅延初期化する。
-     *
-     * @param rc デバイス・カラーフォーマット取得用のレンダーコンテキスト。
-     * @return 利用可能なら true、初期化失敗なら false。
-     */
-    bool EnsureSpriteBatch(FRenderContext& rc) noexcept;
-
-    /**
-     * 反射オフスクリーン pass 専用の別 CSpriteBatch を遅延初期化する。
-     *
-     * @details 合成 pass と GPU バッファを共有しないよう分離している。
-     * @param rc デバイス・カラーフォーマット取得用のレンダーコンテキスト。
-     * @return 利用可能なら true、初期化失敗なら false。
-     */
-    bool EnsureSceneSprites(FRenderContext& rc) noexcept;
-
-    /**
-     * 反射用に world を焼くオフスクリーン RT を遅延作成する (サイズ変化時は再作成)。
-     *
-     * @param rc サイズ・デバイス取得用のレンダーコンテキスト。
-     * @return 利用可能なら true、作成失敗なら false。
-     */
-    bool EnsureSceneRt(FRenderContext& rc) noexcept;
-
-    /**
-     * 水面深度捕捉 pass 専用の別 CSpriteBatch を遅延初期化する。
-     *
-     * @return 利用可能なら true、初期化失敗なら false。
-     */
-    bool EnsureWaterDepthSprites(FRenderContext& rc) noexcept;
-
-    /**
-     * TopDown 水メッシュの正規化岸距離を保持するカラー RT を遅延作成する。
-     *
-     * @return 利用可能なら true、作成失敗なら false。
-     */
-    bool EnsureWaterDepthRt(FRenderContext& rc) noexcept;
-
-    /**
-     * マスク用の stencil 付き深度バッファ (D24S8) を遅延作成する (サイズ変化時は再作成)。
-     *
-     * @param rc サイズ・デバイス取得用のレンダーコンテキスト。
-     * @return 利用可能なら true、作成失敗なら false。
-     */
-    bool EnsureStencilBuffer(FRenderContext& rc) noexcept;
-
-    /**
      * world パスを描画する (camera view を設定し root を DrawTree → OnDrawWorld)。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
@@ -294,24 +256,6 @@ private:
     /** シーンの root ノード (ツリーの起点)。 */
     TObjectPtr<ANode> m_Root;
 
-    /** world/HUD 描画用の共有スプライトバッチ。 */
-    CSpriteBatch m_Sprites;
-
-    /** m_Sprites が初期化済みかのフラグ。 */
-    bool         m_SpritesReady = false;
-
-    /** 反射オフスクリーン pass 専用のスプライトバッチ。 */
-    CSpriteBatch m_SceneSprites;
-
-    /** m_SceneSprites が初期化済みかのフラグ。 */
-    bool         m_SceneSpritesReady = false;
-
-    /** 水面深度捕捉 pass 専用のスプライトバッチ。 */
-    CSpriteBatch m_WaterDepthSprites;
-
-    /** m_WaterDepthSprites が初期化済みかのフラグ。 */
-    bool         m_WaterDepthSpritesReady = false;
-
     /** 1 ワールド単位あたりのピクセル数 (既定 64)。 */
     f32          m_PixelsPerUnit = 64.0f;
 
@@ -321,38 +265,11 @@ private:
     /** 直近 OnRender でキャッシュした画面高さ (picking 用)。 */
     u32          m_ScreenH = 720;
 
-    /** 反射用に world を焼くオフスクリーン RT (所有権を持つ)。 */
-    TUniquePtr<IRhiTexture> m_SceneRt;
-
-    /** m_SceneRt の現在の幅。 */
-    u32          m_RtW = 0;
-
-    /** m_SceneRt の現在の高さ。 */
-    u32          m_RtH = 0;
-
-    /** TopDown 水メッシュの正規化水深を保持するカラー RT。 */
-    TUniquePtr<IRhiTexture> m_WaterDepthRt;
-
-    /** m_WaterDepthRt の現在の幅。 */
-    u32          m_WaterDepthW = 0;
-
-    /** m_WaterDepthRt の現在の高さ。 */
-    u32          m_WaterDepthH = 0;
-
     /** 平面反射が有効かのフラグ。 */
     bool         m_ReflectionEnabled = false;
 
     /** TopDown 水の実シーンカラー/水深サンプリングを生成するか。 */
     bool         m_WaterSceneSamplingEnabled = false;
-
-    /** マスク用の stencil 付き深度バッファ (D24S8、所有権を持つ)。 */
-    TUniquePtr<IRhiTexture> m_StencilBuf;
-
-    /** m_StencilBuf の現在の幅。 */
-    u32          m_StencilW = 0;
-
-    /** m_StencilBuf の現在の高さ。 */
-    u32          m_StencilH = 0;
 
     /** ステンシルマスクが有効かのフラグ。 */
     bool         m_StencilMaskEnabled = false;
