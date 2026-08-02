@@ -34,6 +34,7 @@ add_executable(acs_unit_tests
     rigidbody_component_tests.cpp
     debugdraw_tests.cpp
     draw_immediate_tests.cpp
+    scene_travel_context_tests.cpp
     tilemap_tests.cpp
     steering_tests.cpp
     camera_tests.cpp

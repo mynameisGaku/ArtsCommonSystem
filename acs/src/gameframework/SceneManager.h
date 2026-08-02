@@ -57,6 +57,18 @@ public:
     void ChangeScene(TUniquePtr<AScene> next) noexcept;
 
     /**
+     * travel context を添えて Change 遷移を要求する。
+     *
+     * @details context は遷移が適用される瞬間に next へ引き渡され、以降は next が所有する
+     * (`AScene::TravelContext<T>()` で読む)。遷移が失敗した場合や、適用前に別の要求で
+     * 上書きされた場合、この context は破棄される。
+     * @param next 切り替え先のシーン (所有権が移る)。
+     * @param context 次のシーンへ持っていく任意データ (所有権が移る。nullptr 可)。
+     */
+    void ChangeScene(TUniquePtr<AScene> next,
+                     TUniquePtr<CSceneTravelContext> context) noexcept;
+
+    /**
      * 現 top をスタック上に残したまま next を push する遷移を要求する (= モーダル/ダイアログ)。
      *
      * @details 適用時に旧 top の OnPause が呼ばれる。next が nullptr の場合は警告ログを出して無視する。
@@ -64,8 +76,26 @@ public:
      */
     void PushScene(TUniquePtr<AScene> next) noexcept;
 
+    /**
+     * travel context を添えて Push 遷移を要求する。
+     *
+     * @param next 上に重ねるシーン (所有権が移る)。
+     * @param context 次のシーンへ持っていく任意データ (所有権が移る。nullptr 可)。
+     */
+    void PushScene(TUniquePtr<AScene> next,
+                   TUniquePtr<CSceneTravelContext> context) noexcept;
+
     /** top を pop する遷移を要求する (スタックが 1 枚以下なら適用時に何もせず警告)。 */
     void PopScene() noexcept;
+
+    /**
+     * travel context を添えて Pop 遷移を要求する (モーダルの «結果» を戻す用途)。
+     *
+     * @details context は pop 後に top へ戻るシーンが受け取る。pop が実行されなかった場合
+     * (スタックが 1 枚以下) は破棄される。
+     * @param context 戻り先のシーンへ渡す任意データ (所有権が移る。nullptr 可)。
+     */
+    void PopScene(TUniquePtr<CSceneTravelContext> context) noexcept;
 
     /**
      * 現在の top シーンを返す。
@@ -155,8 +185,10 @@ private:
      * 内部 pop 処理。top の OnExit を呼び、ring buffer へ退避してからスタックから外す。
      *
      * @param resume_new true なら pop 後に新 top の OnResume を呼ぶ (Change は false、Pop は true)。
+     * @param context 戻り先の top へ渡す travel context (無ければ空。OnResume より前に差し込む)。
      */
-    void DoPopInternal(bool resume_new) noexcept;
+    void DoPopInternal(bool resume_new,
+                       TUniquePtr<CSceneTravelContext> context) noexcept;
 
     /** シーンスタック (top = Back())。 */
     TArray<TUniquePtr<AScene>> m_Stack;
@@ -166,6 +198,9 @@ private:
 
     /** Change/Push で push する next シーン (Pop では未使用)。 */
     TUniquePtr<AScene>       m_PendingArg;
+
+    /** 保留中の遷移に添えられた travel context (適用時に遷移先のシーンへ渡す)。 */
+    TUniquePtr<CSceneTravelContext> m_PendingContext;
 
     /** GPU 遅延削除のための退場 AScene ring buffer。 */
     TUniquePtr<AScene>       m_Retired[kRetireRingSize];

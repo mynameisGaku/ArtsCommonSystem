@@ -49930,6 +49930,78 @@ private:
 } // namespace game
 } // namespace acs
 
+// ===================== gameframework/SceneTravelContext.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// ============================================================================
+// GameFramework — シーン遷移で «次のシーンへ持っていく» 任意データ
+// ----------------------------------------------------------------------------
+// ChangeScene / PushScene / PopScene / TransitionTo に travel context を添えると、
+// 遷移先のシーンがそれを受け取る。所有権は遷移先のシーンへ移り、シーンが生きて
+// いる間は何度でも読める。
+//
+//   // 送る側
+//   class CResultContext final : public CSceneTravelContext {
+//   public:
+//       ACS_RTTI(CResultContext, CSceneTravelContext)
+//       i32 Score = 0;
+//   };
+//
+//   TUniquePtr<CResultContext> ctx = MakeUnique<CResultContext>();
+//   ctx->Score = m_Score;
+//   Scenes().ChangeScene(MakeUnique<AResultScene>(), Move(ctx));
+//
+//   // 受け取る側
+//   void OnReady() noexcept override {
+//       if (const CResultContext* c = TravelContext<CResultContext>()) {
+//           m_Score = c->Score;
+//       }
+//   }
+//
+// 遷移要求はフレーム境界まで遅延するため、context は要求時から遷移先の OnEnter
+// まで CSceneManager が保持し、そこでシーンへ引き渡す。遷移が失敗したり、後から
+// 別の要求で上書きされた場合、その context は破棄される。
+//
+// 型の取り違えは `Cast<T>` (侵入型 RTTI) が防ぐ。派生には必ず
+// `ACS_RTTI(自分の型, 親の型)` を書くこと。書かないと TravelContext<T>() は
+// 親の型としてしか一致しない。
+// ============================================================================
+
+
+namespace acs::game {
+
+/**
+ * シーン遷移で引き渡す任意データの基底。
+ *
+ * @details
+ * 利用者はこれを継承し、`ACS_RTTI(Derived, CSceneTravelContext)` を書いて必要な
+ * フィールドを足す。エンジンは中身を解釈せず、遷移先のシーンへ所有権ごと渡すだけ。
+ */
+class CSceneTravelContext {
+public:
+    ACS_RTTI_ROOT(CSceneTravelContext)
+
+    /** 空の context を構築する。 */
+    CSceneTravelContext() noexcept = default;
+
+    /** 派生を正しく破棄するための仮想デストラクタ。 */
+    virtual ~CSceneTravelContext() noexcept = default;
+
+    /** コピー禁止 (遷移先へ所有権ごと渡す前提のため)。 */
+    CSceneTravelContext(const CSceneTravelContext&)            = delete;
+
+    /** コピー代入も禁止。 */
+    CSceneTravelContext& operator=(const CSceneTravelContext&) = delete;
+};
+
+} // namespace acs::game
+
+namespace acs {
+
+/** シーン遷移で引き渡す任意データの基底をトップレベルから参照する正規入口。 */
+using game::CSceneTravelContext;
+
+} // namespace acs
+
 namespace acs {
 
 // 描画リソースは CGame が game 寿命で所有するため、シーンヘッダは実体を必要としない
@@ -50139,6 +50211,51 @@ public:
      * @return root ANode への const 参照。
      */
     const ANode& Root() const noexcept { return m_Graph.Root(); }
+
+    /**
+     * 遷移元から引き渡された travel context を型付きで取り出す。
+     *
+     * @details
+     * 型が違う / context 無しなら nullptr を返す (`Cast<T>` による安全な判定)。
+     * 所有権はシーン側にあるので、`OnEnter` / `OnReady` 以降いつ読んでもよい。
+     * @tparam T 期待する CSceneTravelContext 派生型。
+     * @return 一致すれば T*、違えば nullptr。
+     */
+    template<typename T>
+    const T* TravelContext() const noexcept { return Cast<const T>(m_TravelContext.Get()); }
+
+    /**
+     * 遷移元から引き渡された travel context を型付きで取り出す (可変版)。
+     *
+     * @tparam T 期待する CSceneTravelContext 派生型。
+     * @return 一致すれば T*、違えば nullptr。
+     */
+    template<typename T>
+    T* TravelContext() noexcept { return Cast<T>(m_TravelContext.Get()); }
+
+    /**
+     * travel context を受け取っているかを返す。
+     *
+     * @return 受け取っていれば true。
+     */
+    bool HasTravelContext() const noexcept { return m_TravelContext.Get() != nullptr; }
+
+    /**
+     * travel context を基底型のまま返す (型を問わず存在だけ見たいとき)。
+     *
+     * @return 受け取った context (無ければ nullptr)。
+     */
+    CSceneTravelContext* TravelContextBase() const noexcept { return m_TravelContext.Get(); }
+
+    /**
+     * travel context を差し込む (内部用。CSceneManager が遷移適用時に呼ぶ)。
+     *
+     * @details 既存の context は破棄される。nullptr を渡すと context 無しに戻る。
+     * @param context 引き渡す context (所有権が移る)。
+     */
+    void _SetTravelContext(TUniquePtr<CSceneTravelContext> context) noexcept {
+        m_TravelContext = Move(context);
+    }
 
     /**
      * シーンが所有するノードグラフへの可変参照を返す。
@@ -50443,6 +50560,9 @@ private:
     /** attach されたサービス束 (WantedServices に応じて CSceneManager が確保、所有権を持つ)。 */
     TUniquePtr<CSceneServices> m_Services;
 
+    /** 遷移元から引き渡された任意データ (無ければ null。CSceneManager が差し込む)。 */
+    TUniquePtr<CSceneTravelContext> m_TravelContext;
+
     /** World スコープのサブシステム束 (push 時に CSceneManager が Initialize)。 */
     CSubsystemCollection m_WorldSubsystems;
 };
@@ -50498,6 +50618,18 @@ public:
     void ChangeScene(TUniquePtr<AScene> next) noexcept;
 
     /**
+     * travel context を添えて Change 遷移を要求する。
+     *
+     * @details context は遷移が適用される瞬間に next へ引き渡され、以降は next が所有する
+     * (`AScene::TravelContext<T>()` で読む)。遷移が失敗した場合や、適用前に別の要求で
+     * 上書きされた場合、この context は破棄される。
+     * @param next 切り替え先のシーン (所有権が移る)。
+     * @param context 次のシーンへ持っていく任意データ (所有権が移る。nullptr 可)。
+     */
+    void ChangeScene(TUniquePtr<AScene> next,
+                     TUniquePtr<CSceneTravelContext> context) noexcept;
+
+    /**
      * 現 top をスタック上に残したまま next を push する遷移を要求する (= モーダル/ダイアログ)。
      *
      * @details 適用時に旧 top の OnPause が呼ばれる。next が nullptr の場合は警告ログを出して無視する。
@@ -50505,8 +50637,26 @@ public:
      */
     void PushScene(TUniquePtr<AScene> next) noexcept;
 
+    /**
+     * travel context を添えて Push 遷移を要求する。
+     *
+     * @param next 上に重ねるシーン (所有権が移る)。
+     * @param context 次のシーンへ持っていく任意データ (所有権が移る。nullptr 可)。
+     */
+    void PushScene(TUniquePtr<AScene> next,
+                   TUniquePtr<CSceneTravelContext> context) noexcept;
+
     /** top を pop する遷移を要求する (スタックが 1 枚以下なら適用時に何もせず警告)。 */
     void PopScene() noexcept;
+
+    /**
+     * travel context を添えて Pop 遷移を要求する (モーダルの «結果» を戻す用途)。
+     *
+     * @details context は pop 後に top へ戻るシーンが受け取る。pop が実行されなかった場合
+     * (スタックが 1 枚以下) は破棄される。
+     * @param context 戻り先のシーンへ渡す任意データ (所有権が移る。nullptr 可)。
+     */
+    void PopScene(TUniquePtr<CSceneTravelContext> context) noexcept;
 
     /**
      * 現在の top シーンを返す。
@@ -50596,8 +50746,10 @@ private:
      * 内部 pop 処理。top の OnExit を呼び、ring buffer へ退避してからスタックから外す。
      *
      * @param resume_new true なら pop 後に新 top の OnResume を呼ぶ (Change は false、Pop は true)。
+     * @param context 戻り先の top へ渡す travel context (無ければ空。OnResume より前に差し込む)。
      */
-    void DoPopInternal(bool resume_new) noexcept;
+    void DoPopInternal(bool resume_new,
+                       TUniquePtr<CSceneTravelContext> context) noexcept;
 
     /** シーンスタック (top = Back())。 */
     TArray<TUniquePtr<AScene>> m_Stack;
@@ -50607,6 +50759,9 @@ private:
 
     /** Change/Push で push する next シーン (Pop では未使用)。 */
     TUniquePtr<AScene>       m_PendingArg;
+
+    /** 保留中の遷移に添えられた travel context (適用時に遷移先のシーンへ渡す)。 */
+    TUniquePtr<CSceneTravelContext> m_PendingContext;
 
     /** GPU 遅延削除のための退場 AScene ring buffer。 */
     TUniquePtr<AScene>       m_Retired[kRetireRingSize];
@@ -51240,6 +51395,20 @@ public:
     void TransitionTo(TUniquePtr<AScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f) noexcept;
 
     /**
+     * travel context を添えてフェード付きのシーン遷移を開始する。
+     *
+     * @details context は暗転中の実際の切替時に next へ引き渡される
+     * (`AScene::TravelContext<T>()` で読む)。
+     * @param next 遷移先の AScene (所有権が移る)。
+     * @param context 次のシーンへ持っていく任意データ (所有権が移る。nullptr 可)。
+     * @param out_sec fade-out の秒数。
+     * @param in_sec fade-in の秒数。
+     */
+    void TransitionTo(TUniquePtr<AScene> next,
+                      TUniquePtr<CSceneTravelContext> context,
+                      f32 out_sec = 0.3f, f32 in_sec = 0.3f) noexcept;
+
+    /**
      * 進行中のフェード状態への参照を返す。
      *
      * @return overlay alpha/color・phase を参照できる CFadeTransition への参照。
@@ -51365,6 +51534,9 @@ private:
 
     /** 暗転中に差し替える次 AScene。 */
     TUniquePtr<AScene> m_PendingScene;
+
+    /** 暗転中の切替で m_PendingScene へ引き渡す travel context。 */
+    TUniquePtr<CSceneTravelContext> m_PendingSceneContext;
 
     /** フェード overlay 描画用の CSpriteBatch。 */
     CSpriteBatch      m_Overlay;

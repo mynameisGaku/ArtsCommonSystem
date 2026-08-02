@@ -141,6 +141,20 @@ public:
     void TransitionTo(TUniquePtr<AScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f) noexcept;
 
     /**
+     * travel context を添えてフェード付きのシーン遷移を開始する。
+     *
+     * @details context は暗転中の実際の切替時に next へ引き渡される
+     * (`AScene::TravelContext<T>()` で読む)。
+     * @param next 遷移先の AScene (所有権が移る)。
+     * @param context 次のシーンへ持っていく任意データ (所有権が移る。nullptr 可)。
+     * @param out_sec fade-out の秒数。
+     * @param in_sec fade-in の秒数。
+     */
+    void TransitionTo(TUniquePtr<AScene> next,
+                      TUniquePtr<CSceneTravelContext> context,
+                      f32 out_sec = 0.3f, f32 in_sec = 0.3f) noexcept;
+
+    /**
      * 進行中のフェード状態への参照を返す。
      *
      * @return overlay alpha/color・phase を参照できる CFadeTransition への参照。
@@ -266,6 +280,9 @@ private:
 
     /** 暗転中に差し替える次 AScene。 */
     TUniquePtr<AScene> m_PendingScene;
+
+    /** 暗転中の切替で m_PendingScene へ引き渡す travel context。 */
+    TUniquePtr<CSceneTravelContext> m_PendingSceneContext;
 
     /** フェード overlay 描画用の CSpriteBatch。 */
     CSpriteBatch      m_Overlay;

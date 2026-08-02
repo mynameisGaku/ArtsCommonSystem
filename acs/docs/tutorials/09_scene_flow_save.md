@@ -82,8 +82,11 @@ ACS_GAME_MAIN(CMyGame)
 | メソッド | 説明 |
 |----------|------|
 | `ChangeScene(next)` | 現 top を pop して `next` を push(= 単純な画面切替) |
+| `ChangeScene(next, context)` | 上に加えて、任意データを `next` へ持っていく |
 | `PushScene(next)` | 現 top を残して `next` を重ねる(= モーダル/ダイアログ)。旧 top に `OnPause` |
+| `PushScene(next, context)` | 上に加えて、任意データを `next` へ持っていく |
 | `PopScene()` | top を pop(残り 1 枚以下なら何もせず警告)。新 top に `OnResume` |
+| `PopScene(context)` | 上に加えて、戻り先へ任意データ(= モーダルの結果)を渡す |
 | `Top()` / `Depth()` / `IsEmpty()` | 状態取得 |
 
 **遷移は即時ではなく「次フレーム頭」で適用**されます。`OnUpdate` の途中でスタックを書き換えても安全。1 フレームに複数要求すると**後勝ち**。退場した `AScene` は GPU が参照中の可能性があるため **3 フレーム保持**してから破棄します。
@@ -192,7 +195,48 @@ void APauseMenuScene::OnUpdate(f32 dt) noexcept {
 }
 ```
 
-### 3. シーンを跨いで残る状態 (AppState)
+### 3. 次のシーンへ任意データを持っていく (travel context)
+
+「リザルト画面へスコアを渡す」「ステージ選択で選んだ番号を渡す」のように、**その遷移でだけ
+渡したいデータ**は travel context を使います。`CSceneTravelContext` を継承して
+`ACS_RTTI(自分の型, CSceneTravelContext)` を書くだけです。
+
+```cpp
+#include "gameframework/SceneTravelContext.h"
+
+class CResultContext final : public acs::CSceneTravelContext {
+public:
+    ACS_RTTI(CResultContext, acs::CSceneTravelContext)
+    acs::i32 score = 0;
+    bool cleared = false;
+};
+
+// 送る側 (ゲームプレイシーン)
+auto ctx = MakeUnique<CResultContext>();
+ctx->score   = m_Score;
+ctx->cleared = true;
+Scenes().ChangeScene(MakeUnique<AResultScene>(), Move(ctx));
+
+// 受け取る側 (リザルトシーン)
+void OnReady() noexcept override {
+    if (const CResultContext* c = TravelContext<CResultContext>()) {
+        m_Score   = c->score;
+        m_Cleared = c->cleared;
+    }
+}
+```
+
+- 所有権は遷移先のシーンへ移り、そのシーンが生きている間は何度でも読めます。
+- `OnEnter` / `OnReady` の時点で既に読めます(遷移の適用より前に差し込まれます)。
+- 型が違えば `TravelContext<T>()` は `nullptr` を返します(`Cast<T>` による安全判定)。
+- モーダルの**結果を戻す**場合は `PopScene(context)` を使うと、戻り先が `OnResume` で読めます。
+- 遷移が失敗した場合や、適用前に別の遷移要求で上書きされた場合、その context は破棄されます。
+- フェード付きの `GetGame().TransitionTo(next, context)` も同じように使えます。
+
+**AppState との使い分け**: ハイスコアやプロファイルのように「アプリが動いている間ずっと
+持ち続ける」ものは次の AppState、「この遷移で 1 回だけ渡す」ものは travel context です。
+
+### 4. シーンを跨いで残る状態 (AppState)
 
 ハイスコアやプレイヤープロファイルなど「シーンを切り替えても消えてほしくない」1 個の状態。
 
@@ -210,7 +254,7 @@ if (auto* prof = GetGame().AppState<FPlayerProfile>()) {
 
 RTTI 不使用で型 ID を管理するため、`AppState<別の型>()` は安全に `nullptr` を返します。
 
-### 4. ハイスコアを実ファイルに保存・復元(サンプル 38 のラウンドトリップ)
+### 5. ハイスコアを実ファイルに保存・復元(サンプル 38 のラウンドトリップ)
 
 保存対象は POD。`static_assert(__is_trivially_copyable(...))` で型を守ります。
 
@@ -246,7 +290,7 @@ void FFullGameApp::SaveHighScoreIfBetter(u64 final_score) noexcept {
 
 スキーマ(`T` の中身)を変えたら `Save(data, version)` の version を増やすと、旧データ読込時に `Load` が `ESaveArchiveSubCode::kSubMigrationNeeded` を返すので migrate へ分岐できます。
 
-### 5. 高レベル進行を CGameFlow で(サンプル 38)
+### 6. 高レベル進行を CGameFlow で(サンプル 38)
 
 ```cpp
 m_Flow.Init(EFlowState::Splash);

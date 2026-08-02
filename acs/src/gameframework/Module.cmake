@@ -280,6 +280,7 @@ set(_acsgen_gameframework_headers
     SceneTextLoader.h
     SceneTimer.h
     SceneTimerHandle.h
+    SceneTravelContext.h
     ScoreSystem.h
     ScriptHost.h
     SeasonPass.h

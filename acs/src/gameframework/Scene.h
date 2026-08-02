@@ -10,6 +10,7 @@
 #include "gameframework/SubsystemCollection.h"
 #include "gameframework/ANode.h"
 #include "gameframework/SceneNodeGraph.h"
+#include "gameframework/SceneTravelContext.h"
 
 namespace acs {
 
@@ -220,6 +221,51 @@ public:
      * @return root ANode への const 参照。
      */
     const ANode& Root() const noexcept { return m_Graph.Root(); }
+
+    /**
+     * 遷移元から引き渡された travel context を型付きで取り出す。
+     *
+     * @details
+     * 型が違う / context 無しなら nullptr を返す (`Cast<T>` による安全な判定)。
+     * 所有権はシーン側にあるので、`OnEnter` / `OnReady` 以降いつ読んでもよい。
+     * @tparam T 期待する CSceneTravelContext 派生型。
+     * @return 一致すれば T*、違えば nullptr。
+     */
+    template<typename T>
+    const T* TravelContext() const noexcept { return Cast<const T>(m_TravelContext.Get()); }
+
+    /**
+     * 遷移元から引き渡された travel context を型付きで取り出す (可変版)。
+     *
+     * @tparam T 期待する CSceneTravelContext 派生型。
+     * @return 一致すれば T*、違えば nullptr。
+     */
+    template<typename T>
+    T* TravelContext() noexcept { return Cast<T>(m_TravelContext.Get()); }
+
+    /**
+     * travel context を受け取っているかを返す。
+     *
+     * @return 受け取っていれば true。
+     */
+    bool HasTravelContext() const noexcept { return m_TravelContext.Get() != nullptr; }
+
+    /**
+     * travel context を基底型のまま返す (型を問わず存在だけ見たいとき)。
+     *
+     * @return 受け取った context (無ければ nullptr)。
+     */
+    CSceneTravelContext* TravelContextBase() const noexcept { return m_TravelContext.Get(); }
+
+    /**
+     * travel context を差し込む (内部用。CSceneManager が遷移適用時に呼ぶ)。
+     *
+     * @details 既存の context は破棄される。nullptr を渡すと context 無しに戻る。
+     * @param context 引き渡す context (所有権が移る)。
+     */
+    void _SetTravelContext(TUniquePtr<CSceneTravelContext> context) noexcept {
+        m_TravelContext = Move(context);
+    }
 
     /**
      * シーンが所有するノードグラフへの可変参照を返す。
@@ -523,6 +569,9 @@ private:
 
     /** attach されたサービス束 (WantedServices に応じて CSceneManager が確保、所有権を持つ)。 */
     TUniquePtr<CSceneServices> m_Services;
+
+    /** 遷移元から引き渡された任意データ (無ければ null。CSceneManager が差し込む)。 */
+    TUniquePtr<CSceneTravelContext> m_TravelContext;
 
     /** World スコープのサブシステム束 (push 時に CSceneManager が Initialize)。 */
     CSubsystemCollection m_WorldSubsystems;

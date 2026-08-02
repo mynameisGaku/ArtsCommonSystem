@@ -12,28 +12,49 @@ namespace acs::game {
 
 /** Change 遷移を保留にセットする (next==nullptr は警告して無視)。 */
 void CSceneManager::ChangeScene(TUniquePtr<AScene> next) noexcept {
+    ChangeScene(Move(next), TUniquePtr<CSceneTravelContext>{});
+}
+
+/** travel context 付きの Change 遷移を保留にセットする (next==nullptr は警告して無視)。 */
+void CSceneManager::ChangeScene(TUniquePtr<AScene> next,
+                                TUniquePtr<CSceneTravelContext> context) noexcept {
     if (!next) {
         ACS_LOG_WARN("CSceneManager::ChangeScene(nullptr) ignored");
         return;
     }
-    m_PendingOp  = EOp::Change;
-    m_PendingArg = Move(next);
+    m_PendingOp      = EOp::Change;
+    m_PendingArg     = Move(next);
+    // 上書き時は前の要求に添えられていた context をここで捨てる (後勝ち)。
+    m_PendingContext = Move(context);
 }
 
 /** Push 遷移を保留にセットする (next==nullptr は警告して無視)。 */
 void CSceneManager::PushScene(TUniquePtr<AScene> next) noexcept {
+    PushScene(Move(next), TUniquePtr<CSceneTravelContext>{});
+}
+
+/** travel context 付きの Push 遷移を保留にセットする (next==nullptr は警告して無視)。 */
+void CSceneManager::PushScene(TUniquePtr<AScene> next,
+                              TUniquePtr<CSceneTravelContext> context) noexcept {
     if (!next) {
         ACS_LOG_WARN("CSceneManager::PushScene(nullptr) ignored");
         return;
     }
-    m_PendingOp  = EOp::Push;
-    m_PendingArg = Move(next);
+    m_PendingOp      = EOp::Push;
+    m_PendingArg     = Move(next);
+    m_PendingContext = Move(context);
 }
 
 /** Pop 遷移を保留にセットする。 */
 void CSceneManager::PopScene() noexcept {
+    PopScene(TUniquePtr<CSceneTravelContext>{});
+}
+
+/** travel context 付きの Pop 遷移を保留にセットする (context は戻り先の top が受け取る)。 */
+void CSceneManager::PopScene(TUniquePtr<CSceneTravelContext> context) noexcept {
     m_PendingOp = EOp::Pop;
     m_PendingArg.Reset();
+    m_PendingContext = Move(context);
 }
 
 /** top のシーンを返す (空なら nullptr)。 */
@@ -76,7 +97,8 @@ bool CSceneManager::CommitPush(TUniquePtr<AScene> Scene, bool PauseCurrent) noex
 }
 
 /** 内部 pop: top を OnExit して ring buffer へ退避し、任意で新 top を OnResume する。 */
-void CSceneManager::DoPopInternal(bool resume_new) noexcept {
+void CSceneManager::DoPopInternal(
+    bool resume_new, TUniquePtr<CSceneTravelContext> context) noexcept {
     if (m_Stack.IsEmpty()) return;
     m_Stack.Back()->_Exit();
     m_Stack.Back()->_DeinitWorldSubsystems();   // OnExit 後に World サブシステムを解体
@@ -86,6 +108,8 @@ void CSceneManager::DoPopInternal(bool resume_new) noexcept {
     m_Stack.PopBack();
     // 新 top を OnResume (Pop 時のみ。Change は次の Push が走るので skip)
     if (resume_new && !m_Stack.IsEmpty()) {
+        // 結果の受け渡しなので、OnResume より前に差し込む。
+        if (context) m_Stack.Back()->_SetTravelContext(Move(context));
         m_Stack.Back()->OnResume();
     }
 }
@@ -101,6 +125,8 @@ void CSceneManager::_ApplyPending(CGame& game) noexcept {
     EOp op = m_PendingOp;
     m_PendingOp = EOp::None;
     TUniquePtr<AScene> arg = Move(m_PendingArg);
+    // 適用されなかった場合、context はこのスコープを抜けるところで破棄される。
+    TUniquePtr<CSceneTravelContext> context = Move(m_PendingContext);
 
     switch (op) {
     case EOp::None:
@@ -116,7 +142,9 @@ void CSceneManager::_ApplyPending(CGame& game) noexcept {
             ACS_LOG_ERROR("CSceneManager: change scene preparation failed");
             return;
         }
-        DoPopInternal(/*resume_new=*/false);
+        // OnEnter/OnReady から読めるよう、commit (= _Enter) より前に引き渡す。
+        arg->_SetTravelContext(Move(context));
+        DoPopInternal(/*resume_new=*/false, TUniquePtr<CSceneTravelContext>{});
         if (!CommitPush(Move(arg), /*PauseCurrent=*/false)) {
             ACS_LOG_ERROR("CSceneManager: reserved change scene commit failed");
         }
@@ -132,6 +160,7 @@ void CSceneManager::_ApplyPending(CGame& game) noexcept {
             ACS_LOG_ERROR("CSceneManager: push scene preparation failed");
             return;
         }
+        arg->_SetTravelContext(Move(context));
         if (!CommitPush(Move(arg), /*PauseCurrent=*/true)) {
             ACS_LOG_ERROR("CSceneManager: reserved push scene commit failed");
         }
@@ -142,8 +171,8 @@ void CSceneManager::_ApplyPending(CGame& game) noexcept {
                          static_cast<u32>(m_Stack.Size()));
             return;
         }
-        // 新しく top に戻るシーンを OnResume する。
-        DoPopInternal(/*resume_new=*/true);
+        // 戻り先が OnResume で結果を読めるよう、pop 直後・OnResume 直前に渡す。
+        DoPopInternal(/*resume_new=*/true, Move(context));
         break;
     }
 }

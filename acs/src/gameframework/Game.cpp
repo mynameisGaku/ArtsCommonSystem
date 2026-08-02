@@ -56,7 +56,8 @@ void CGame::OnUpdate(f32 dt) noexcept {
     if (m_Fade.IsActive()) {
         m_Fade.Tick(dt);
         if (m_Fade.IsMidPause() && m_PendingScene) {
-            m_Scenes.ChangeScene(Move(m_PendingScene));   // deferred → 下の _ApplyPending で適用
+            // deferred → 下の _ApplyPending で適用 (context も一緒に渡す)
+            m_Scenes.ChangeScene(Move(m_PendingScene), Move(m_PendingSceneContext));
         }
     }
 
@@ -154,8 +155,16 @@ void CGame::DrawFadeOverlay() noexcept {
 
 /** 次 Scene を保留し FadeInOut を開始する (暗転中に切替)。 */
 void CGame::TransitionTo(TUniquePtr<AScene> next, f32 out_sec, f32 in_sec) noexcept {
+    TransitionTo(Move(next), TUniquePtr<CSceneTravelContext>{}, out_sec, in_sec);
+}
+
+/** travel context 付きでフェード遷移を開始する (切替は暗転中に行う)。 */
+void CGame::TransitionTo(TUniquePtr<AScene> next,
+                         TUniquePtr<CSceneTravelContext> context,
+                         f32 out_sec, f32 in_sec) noexcept {
     if (!next) return;
-    m_PendingScene = Move(next);
+    m_PendingScene        = Move(next);
+    m_PendingSceneContext = Move(context);
     m_Fade.StartFade(EFadeKind::FadeInOut, out_sec, in_sec, 0.0f);
 }
 
