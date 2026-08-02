@@ -4,7 +4,7 @@
 #include <type_traits>
 
 /** ANode.hだけで公開forward型を参照できることを固定する。 */
-class FANodeHeaderFirstConsumer final : public acs::ANode {
+class CANodeHeaderFirstConsumer final : public acs::ANode {
 public:
     void OnDraw(acs::FRenderContext&) noexcept override {}
 

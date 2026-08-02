@@ -21,9 +21,9 @@ using namespace acs;
 namespace {
 
 /** TextInput の transactional editing を allocation failure 下で検証する backing。 */
-class FUiSwitchableFailAllocator final : public IAllocator {
+class CUiSwitchableFailAllocator final : public IAllocator {
 public:
-    explicit FUiSwitchableFailAllocator(IAllocator& backing) noexcept
+    explicit CUiSwitchableFailAllocator(IAllocator& backing) noexcept
         : m_Backing(&backing) {}
 
     void SetFailing(bool failing) noexcept { m_Failing = failing; }
@@ -113,7 +113,7 @@ void FocusUiRoot(CUiInput& input, AWidget& root) noexcept {
     CInput::Update();
 }
 
-class FUiMutableCallbackRoot final : public AContainer {
+class CUiMutableCallbackRoot final : public AContainer {
 public:
     void RemoveAllChildren() noexcept { m_Children.Clear(); }
 
@@ -130,9 +130,9 @@ enum class EUiRemovalCallback : u8 {
     Key,
 };
 
-class FUiRemovingCallbackWidget final : public AWidget {
+class CUiRemovingCallbackWidget final : public AWidget {
 public:
-    FUiRemovingCallbackWidget(FUiMutableCallbackRoot& owner,
+    CUiRemovingCallbackWidget(CUiMutableCallbackRoot& owner,
                               EUiRemovalCallback callback,
                               bool remove_self,
                               i32& call_count) noexcept
@@ -165,7 +165,7 @@ private:
     void RemoveFromCallback(EUiRemovalCallback callback) noexcept {
         if (m_Fired || callback != m_Callback) return;
 
-        FUiMutableCallbackRoot* const owner = m_Owner;
+        CUiMutableCallbackRoot* const owner = m_Owner;
         i32* const call_count = m_CallCount;
         const bool remove_self = m_RemoveSelf;
         m_Fired = true;
@@ -175,7 +175,7 @@ private:
         // remove_self の場合はここで *this が破棄済み。member へ再接触しない。
     }
 
-    FUiMutableCallbackRoot* m_Owner = nullptr;
+    CUiMutableCallbackRoot* m_Owner = nullptr;
     EUiRemovalCallback m_Callback = EUiRemovalCallback::PointerMove;
     bool m_RemoveSelf = false;
     bool m_Fired = false;
@@ -510,7 +510,7 @@ ACS_TEST(Ui, TextInputFailedEditDoesNotCommitStagedCursorNormalization) {
 // ---- TextInput: OOM 時は text と cursor をともに変更しない -----------------------
 ACS_TEST(Ui, TextInputAllocationFailurePreservesState) {
     CSystemAllocator backing;
-    FUiSwitchableFailAllocator allocator(backing);
+    CUiSwitchableFailAllocator allocator(backing);
     ATextInput ti;
     FString initial(allocator);
     EXPECT_TRUE(initial.TryAppend("abcdefghijklmnopqrstuvwxyzABCDEF")); // 32 bytes
@@ -733,7 +733,7 @@ ACS_TEST(Ui, TextInputCtrlAAndLegacyOnKeyCompatibility) {
     ti.OnKey(0x41, true, control);
     EXPECT_FALSE(ti.HasSelection());
 
-    class FUiLegacyKeyWidget final : public AWidget {
+    class CUiLegacyKeyWidget final : public AWidget {
     public:
         void OnKey(i32 key, bool pressed_) noexcept override {
             LastKey = key;
@@ -746,7 +746,7 @@ ACS_TEST(Ui, TextInputCtrlAAndLegacyOnKeyCompatibility) {
         bool bLastPressed = false;
     };
 
-    FUiLegacyKeyWidget legacy;
+    CUiLegacyKeyWidget legacy;
     AWidget* const widget = &legacy;
     FUiKeyModifiers modified;
     modified.bShift = true;
@@ -758,7 +758,7 @@ ACS_TEST(Ui, TextInputCtrlAAndLegacyOnKeyCompatibility) {
 
 // ---- TextInput: nested 3→2 OnKey 後に外側 modifier snapshot を復元する ----
 ACS_TEST(Ui, TextInputNestedLegacyOnKeyRestoresOuterModifiers) {
-    class FUiNestedLegacyTextInput final : public ATextInput {
+    class CUiNestedLegacyTextInput final : public ATextInput {
     public:
         void OnKey(i32 key, bool pressed_) noexcept override {
             ++CallCount;
@@ -775,7 +775,7 @@ ACS_TEST(Ui, TextInputNestedLegacyOnKeyRestoresOuterModifiers) {
         bool bInNestedCall = false;
     };
 
-    FUiNestedLegacyTextInput input;
+    CUiNestedLegacyTextInput input;
     input.focused = true;
     input.text.Set(FString{"ABC"});
     FUiKeyModifiers outer_modifiers;
@@ -793,7 +793,7 @@ ACS_TEST(Ui, TextInputNestedLegacyOnKeyRestoresOuterModifiers) {
 ACS_TEST(Ui, UiInputDispatchesKeyPressAndReleaseToLegacyOverride) {
     ResetUiInputFeed();
 
-    class FUiLegacyDispatchProbe final : public AWidget {
+    class CUiLegacyDispatchProbe final : public AWidget {
     public:
         void OnKey(i32 key, bool pressed_) noexcept override {
             if (CallCount < 2) {
@@ -808,7 +808,7 @@ ACS_TEST(Ui, UiInputDispatchesKeyPressAndReleaseToLegacyOverride) {
         i32 CallCount = 0;
     };
 
-    FUiLegacyDispatchProbe root;
+    CUiLegacyDispatchProbe root;
     root.Layout(0.0f, 0.0f, 100.0f, 40.0f);
     CUiInput input;
     FocusUiRoot(input, root);
@@ -840,7 +840,7 @@ ACS_TEST(Ui, UiInputDispatchesKeyPressAndReleaseToLegacyOverride) {
 ACS_TEST(Ui, UiInputDispatchesTextEditingModifiers) {
     ResetUiInputFeed();
 
-    class FUiTextDispatchProbe final : public ATextInput {
+    class CUiTextDispatchProbe final : public ATextInput {
     public:
         void OnKey(i32 key, bool pressed_,
                    const FUiKeyModifiers& modifiers) noexcept override {
@@ -866,7 +866,7 @@ ACS_TEST(Ui, UiInputDispatchesTextEditingModifiers) {
         bool bControlOnARelease = true;
     };
 
-    FUiTextDispatchProbe root;
+    CUiTextDispatchProbe root;
     root.Layout(0.0f, 0.0f, 140.0f, 40.0f);
     root.text.Set(FString{"A\xE3\x81\x82" "B"});
     CUiInput input;
@@ -971,24 +971,24 @@ ACS_TEST(Ui, WidgetInputIdentitySeparatesModulesAndSkipsZeroAtWrap) {
 ACS_TEST(Ui, UiInputRejectsReusedRootAddress) {
     ResetUiInputFeed();
 
-    class FUiLifetimeProbe final : public AWidget {
+    class CUiLifetimeProbe final : public AWidget {
     public:
         void OnKey(i32, bool) noexcept override { ++KeyCalls; }
         i32 KeyCalls = 0;
     };
 
-    alignas(FUiLifetimeProbe) u8 storage[sizeof(FUiLifetimeProbe)]{};
+    alignas(CUiLifetimeProbe) u8 storage[sizeof(CUiLifetimeProbe)]{};
     CUiInput input;
 
-    auto* first = ::new (static_cast<void*>(storage)) FUiLifetimeProbe();
+    auto* first = ::new (static_cast<void*>(storage)) CUiLifetimeProbe();
     first->Layout(0.0f, 0.0f, 100.0f, 40.0f);
     FocusUiRoot(input, *first);
     EXPECT_TRUE(first->hovered);
     EXPECT_TRUE(first->focused);
 
     // Reset を呼ばず破棄し、まったく同じアドレスへ別実体を構築する。
-    first->~FUiLifetimeProbe();
-    auto* second = ::new (static_cast<void*>(storage)) FUiLifetimeProbe();
+    first->~CUiLifetimeProbe();
+    auto* second = ::new (static_cast<void*>(storage)) CUiLifetimeProbe();
     second->Layout(0.0f, 0.0f, 100.0f, 40.0f);
 
     input.Dispatch(*second);
@@ -1002,7 +1002,7 @@ ACS_TEST(Ui, UiInputRejectsReusedRootAddress) {
 
     input.Reset(*second);
     EXPECT_FALSE(second->hovered);
-    second->~FUiLifetimeProbe();
+    second->~CUiLifetimeProbe();
     ResetUiInputFeed();
 }
 
@@ -1010,16 +1010,16 @@ ACS_TEST(Ui, UiInputRejectsReusedRootAddress) {
 ACS_TEST(Ui, UiInputDropsRemovedChildIdentity) {
     ResetUiInputFeed();
 
-    class FUiMutableInputRoot final : public AContainer {
+    class CUiMutableInputRoot final : public AContainer {
     public:
         void RemoveAllChildren() noexcept { m_Children.Clear(); }
         void OnKey(i32, bool) noexcept override { ++KeyCalls; }
         i32 KeyCalls = 0;
     };
-    class FUiChildProbe final : public AWidget {};
+    class CUiChildProbe final : public AWidget {};
 
-    FUiMutableInputRoot root;
-    root.Add<FUiChildProbe>();
+    CUiMutableInputRoot root;
+    root.Add<CUiChildProbe>();
     root.Layout(0.0f, 0.0f, 100.0f, 40.0f);
     CUiInput input;
     FocusUiRoot(input, root);
@@ -1041,7 +1041,7 @@ ACS_TEST(Ui, UiInputDropsRemovedChildIdentity) {
 ACS_TEST(Ui, UiInputDispatchesToLegacyTextInputOverride) {
     ResetUiInputFeed();
 
-    class FUiLegacyTextInputProbe final : public ATextInput {
+    class CUiLegacyTextInputProbe final : public ATextInput {
     public:
         void OnKey(i32 key, bool pressed_) noexcept override {
             if (CallCount < 2) {
@@ -1057,7 +1057,7 @@ ACS_TEST(Ui, UiInputDispatchesToLegacyTextInputOverride) {
         i32 CallCount = 0;
     };
 
-    FUiLegacyTextInputProbe root;
+    CUiLegacyTextInputProbe root;
     root.Layout(0.0f, 0.0f, 120.0f, 40.0f);
     root.text.Set(FString{"AB"});
     CUiInput input;
@@ -1089,15 +1089,15 @@ ACS_TEST(Ui, UiInputDispatchesToLegacyTextInputOverride) {
 ACS_TEST(Ui, LegacyTextInputOverrideMayRemoveItself) {
     ResetUiInputFeed();
 
-    class FUiRemovingLegacyTextInput final : public ATextInput {
+    class CUiRemovingLegacyTextInput final : public ATextInput {
     public:
-        FUiRemovingLegacyTextInput(FUiMutableCallbackRoot& owner,
+        CUiRemovingLegacyTextInput(CUiMutableCallbackRoot& owner,
                                    i32& call_count) noexcept
             : m_Owner(&owner), m_CallCount(&call_count) {}
 
         void OnKey(i32, bool pressed_) noexcept override {
             if (!pressed_) return;
-            FUiMutableCallbackRoot* const owner = m_Owner;
+            CUiMutableCallbackRoot* const owner = m_Owner;
             i32* const call_count = m_CallCount;
             ++(*call_count);
             owner->RemoveAllChildren();
@@ -1105,13 +1105,13 @@ ACS_TEST(Ui, LegacyTextInputOverrideMayRemoveItself) {
         }
 
     private:
-        FUiMutableCallbackRoot* m_Owner = nullptr;
+        CUiMutableCallbackRoot* m_Owner = nullptr;
         i32* m_CallCount = nullptr;
     };
 
-    FUiMutableCallbackRoot root;
+    CUiMutableCallbackRoot root;
     i32 call_count = 0;
-    root.Add<FUiRemovingLegacyTextInput>(root, call_count);
+    root.Add<CUiRemovingLegacyTextInput>(root, call_count);
     root.Layout(0.0f, 0.0f, 120.0f, 40.0f);
     CUiInput input;
     FocusUiRoot(input, root);
@@ -1144,11 +1144,11 @@ ACS_TEST(Ui, UiInputCallbacksMayRemoveCurrentOrOtherChild) {
         for (EUiRemovalCallback callback : kCallbacks) {
             ResetUiInputFeed();
 
-            FUiMutableCallbackRoot root;
+            CUiMutableCallbackRoot root;
             if (!remove_self) root.Add<AWidget>();
             i32 call_count = 0;
-            FUiRemovingCallbackWidget* const target =
-                root.Add<FUiRemovingCallbackWidget>(
+            CUiRemovingCallbackWidget* const target =
+                root.Add<CUiRemovingCallbackWidget>(
                     root, callback, remove_self, call_count);
             root.Layout(0.0f, 0.0f, 120.0f, 40.0f);
             CUiInput input;
@@ -1215,11 +1215,11 @@ ACS_TEST(Ui, ButtonClickSubscriberMayRemoveCurrentOrOtherChild) {
     for (bool remove_self : kRemoveSelf) {
         ResetUiInputFeed();
 
-        FUiMutableCallbackRoot root;
+        CUiMutableCallbackRoot root;
         if (!remove_self) root.Add<AWidget>();
         AButton* const button = root.Add<AButton>("Remove");
         struct FContext {
-            FUiMutableCallbackRoot* Root = nullptr;
+            CUiMutableCallbackRoot* Root = nullptr;
             i32 Calls = 0;
             bool RemoveSelf = false;
         } context{ &root, 0, remove_self };
@@ -1258,10 +1258,10 @@ ACS_TEST(Ui, ButtonClickSubscriberMayRemoveCurrentOrOtherChild) {
 ACS_TEST(Ui, ButtonFalsePulseSubscriberMayRemoveCurrentChild) {
     ResetUiInputFeed();
 
-    FUiMutableCallbackRoot root;
+    CUiMutableCallbackRoot root;
     AButton* const button = root.Add<AButton>("RemoveOnFalse");
     struct FContext {
-        FUiMutableCallbackRoot* Root = nullptr;
+        CUiMutableCallbackRoot* Root = nullptr;
         i32 FalseCalls = 0;
     } context{ &root, 0 };
 
@@ -1292,11 +1292,11 @@ ACS_TEST(Ui, TextInputSubscriberMayRemoveCurrentOrOtherChild) {
     for (bool remove_self : kRemoveSelf) {
         ResetUiInputFeed();
 
-        FUiMutableCallbackRoot root;
+        CUiMutableCallbackRoot root;
         if (!remove_self) root.Add<AWidget>();
         ATextInput* const text_input = root.Add<ATextInput>();
         struct FContext {
-            FUiMutableCallbackRoot* Root = nullptr;
+            CUiMutableCallbackRoot* Root = nullptr;
             i32 Calls = 0;
             bool RemoveSelf = false;
         } context{ &root, 0, remove_self };
@@ -1340,12 +1340,12 @@ ACS_TEST(Ui, TextInputEraseSubscriberMayRemoveCurrentOrOtherChild) {
     for (bool remove_self : kRemoveSelf) {
         ResetUiInputFeed();
 
-        FUiMutableCallbackRoot root;
+        CUiMutableCallbackRoot root;
         if (!remove_self) root.Add<AWidget>();
         ATextInput* const text_input = root.Add<ATextInput>();
         text_input->text.Set(FString{"AB"});
         struct FContext {
-            FUiMutableCallbackRoot* Root = nullptr;
+            CUiMutableCallbackRoot* Root = nullptr;
             i32 Calls = 0;
             bool RemoveSelf = false;
         } context{ &root, 0, remove_self };
@@ -1390,7 +1390,7 @@ ACS_TEST(Ui, TextInputEraseSubscriberMayRemoveCurrentOrOtherChild) {
 
 // ---- UiRenderer: hidden root は Layout と render callback をともに省略する ----
 ACS_TEST(Ui, UiRendererSkipsHiddenRootLayoutAndRendering) {
-    class FUiRenderChildProbe final : public AWidget {
+    class CUiRenderChildProbe final : public AWidget {
     public:
         void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
             ++LayoutCalls;
@@ -1402,7 +1402,7 @@ ACS_TEST(Ui, UiRendererSkipsHiddenRootLayoutAndRendering) {
         i32 LayoutCalls = 0;
         i32 RenderCalls = 0;
     };
-    class FUiRenderRootProbe final : public AContainer {
+    class CUiRenderRootProbe final : public AContainer {
     public:
         void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
             ++LayoutCalls;
@@ -1418,8 +1418,8 @@ ACS_TEST(Ui, UiRendererSkipsHiddenRootLayoutAndRendering) {
         i32 RenderCalls = 0;
     };
 
-    FUiRenderRootProbe root;
-    FUiRenderChildProbe* const child = root.Add<FUiRenderChildProbe>();
+    CUiRenderRootProbe root;
+    CUiRenderChildProbe* const child = root.Add<CUiRenderChildProbe>();
     CUiRenderer renderer;
     root.visible = false;
     const bool hidden_visited = ui_detail::VisitVisibleUiRoot(
@@ -1494,7 +1494,7 @@ ACS_TEST(Ui, TextInputSelectionNormalizesAfterExternalBindingChange) {
 // ---- TextInput: selection 編集失敗は全状態と通知回数を維持する -----------------
 ACS_TEST(Ui, TextInputSelectionFailureIsTransactional) {
     CSystemAllocator backing;
-    FUiSwitchableFailAllocator allocator(backing);
+    CUiSwitchableFailAllocator allocator(backing);
     ATextInput ti;
     FString initial(allocator);
     EXPECT_TRUE(initial.TryAppend("abcdefghijklmnopqrstuvwxyzABCDEF")); // 32 bytes

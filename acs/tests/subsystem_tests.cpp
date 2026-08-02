@@ -39,7 +39,7 @@ static_assert(sizeof(CSubsystemCollection) == 80u);
 static_assert(alignof(CSubsystemCollection) == 8u);
 
 /** collectionが保持する全確保の解放を数えるtest allocator。 */
-class FSubsystemCountingAllocator final : public IAllocator {
+class CSubsystemCountingAllocator final : public IAllocator {
 public:
     void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override
     {
@@ -71,22 +71,22 @@ private:
 };
 
 /** test中だけ既定allocatorを差し替える。 */
-class FSubsystemDefaultAllocatorScope {
+class CSubsystemDefaultAllocatorScope {
 public:
-    explicit FSubsystemDefaultAllocatorScope(IAllocator& Allocator) noexcept
+    explicit CSubsystemDefaultAllocatorScope(IAllocator& Allocator) noexcept
         : m_Previous(&DefaultAllocator())
     {
         SetDefaultAllocator(&Allocator);
     }
 
-    ~FSubsystemDefaultAllocatorScope() noexcept { SetDefaultAllocator(m_Previous); }
+    ~CSubsystemDefaultAllocatorScope() noexcept { SetDefaultAllocator(m_Previous); }
 
 private:
     IAllocator* m_Previous = nullptr;
 };
 
 /** Free中のcollection再入を一度だけ注入するallocator。 */
-class FSubsystemReentrantFreeAllocator final : public IAllocator {
+class CSubsystemReentrantFreeAllocator final : public IAllocator {
 public:
     void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override
     {
@@ -128,9 +128,9 @@ private:
 };
 
 // World スコープ: スコア管理 (オブジェクト間のやり取りのハブを想定)。
-class FScoreSub : public ASubsystem {
+class CScoreSub : public ASubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(FScoreSub)
+    ACS_GAME_SUBSYSTEM_KIND(CScoreSub)
     int score  = -999;
     int ticks  = 0;
     int deinit = 0;
@@ -141,9 +141,9 @@ public:
 };
 
 // GameInstance スコープ: シーン跨ぎの設定 (シングルトン)。
-class FConfigSub : public ASubsystem {
+class CConfigSub : public ASubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(FConfigSub)
+    ACS_GAME_SUBSYSTEM_KIND(CConfigSub)
     int volume = 0;
     void OnInitialize() noexcept override { volume = 50; }
 };
@@ -151,26 +151,26 @@ public:
 bool g_DestructorParentVisible = false;
 u32 g_DestructorProbeDeinitializeCount = 0u;
 
-class FDestructorParentProbe final : public ASubsystem {
+class CDestructorParentProbe final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FDestructorParentProbe)
+    ACS_SUBSYSTEM_KIND(CDestructorParentProbe)
     void OnDeinitialize() noexcept override
     {
         AScene* const Scene = OwnerAs<AScene>();
-        g_DestructorParentVisible = Scene != nullptr && Scene->GetSubsystem<FConfigSub>() != nullptr;
+        g_DestructorParentVisible = Scene != nullptr && Scene->GetSubsystem<CConfigSub>() != nullptr;
         ++g_DestructorProbeDeinitializeCount;
     }
 };
 
 TUniquePtr<ASubsystem> CreateDestructorParentProbe() noexcept
 {
-    return MakeUnique<FDestructorParentProbe>();
+    return MakeUnique<CDestructorParentProbe>();
 }
 
 // Engine スコープ: アプリ全体寿命。
-class FEngineSub : public ASubsystem {
+class CEngineSub : public ASubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(FEngineSub)
+    ACS_GAME_SUBSYSTEM_KIND(CEngineSub)
     bool inited = false;
     void OnInitialize() noexcept override { inited = true; }
 };
@@ -181,31 +181,31 @@ struct AProbeComponent : public AComponent {
 };
 
 // OnInitialize 時点で Owner() を読み取って記録するサブシステム (World)。
-class FOwnerSub : public ASubsystem {
+class COwnerSub : public ASubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(FOwnerSub)
+    ACS_GAME_SUBSYSTEM_KIND(COwnerSub)
     void* seenOwner = reinterpret_cast<void*>(0x1);   // 初期値は «未設定» と区別できる値
     void OnInitialize() noexcept override { seenOwner = Owner(); }
 };
 
-class FDynamicSubsystemOne : public ASubsystem {
+class CDynamicSubsystemOne : public ASubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(FDynamicSubsystemOne)
+    ACS_GAME_SUBSYSTEM_KIND(CDynamicSubsystemOne)
 };
 
-class FDynamicSubsystemTwo : public ASubsystem {
+class CDynamicSubsystemTwo : public ASubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(FDynamicSubsystemTwo)
+    ACS_GAME_SUBSYSTEM_KIND(CDynamicSubsystemTwo)
 };
 
 TUniquePtr<ASubsystem> CreateDynamicSubsystemOne() noexcept
 {
-    return MakeUnique<FDynamicSubsystemOne>();
+    return MakeUnique<CDynamicSubsystemOne>();
 }
 
 TUniquePtr<ASubsystem> CreateDynamicSubsystemTwo() noexcept
 {
-    return MakeUnique<FDynamicSubsystemTwo>();
+    return MakeUnique<CDynamicSubsystemTwo>();
 }
 
 const FSubsystemFactory* FindFactoryByKind(const CSubsystemRegistry& registry, const void* kind) noexcept
@@ -256,9 +256,9 @@ bool PhaseContextMatches(
            Context.unscaled_delta_seconds == Unscaled && Context.frame_number == Frame;
 }
 
-class FWorldParticleTraceSubsystem final : public ASubsystem {
+class CWorldParticleTraceSubsystem final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FWorldParticleTraceSubsystem)
+    ACS_SUBSYSTEM_KIND(CWorldParticleTraceSubsystem)
     void OnTickFrame(const FSubsystemFrameContext& Context) noexcept override
     {
         FPhaseOrderData& Data = *g_PhaseOrderData;
@@ -271,9 +271,9 @@ public:
     }
 };
 
-class FWorldEffectTraceSubsystem final : public ASubsystem {
+class CWorldEffectTraceSubsystem final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FWorldEffectTraceSubsystem)
+    ACS_SUBSYSTEM_KIND(CWorldEffectTraceSubsystem)
     void OnTickFrame(const FSubsystemFrameContext& Context) noexcept override
     {
         FPhaseOrderData& Data = *g_PhaseOrderData;
@@ -283,9 +283,9 @@ public:
     }
 };
 
-class FGamePostTraceSubsystem final : public ASubsystem {
+class CGamePostTraceSubsystem final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FGamePostTraceSubsystem)
+    ACS_SUBSYSTEM_KIND(CGamePostTraceSubsystem)
     void OnTickFrame(const FSubsystemFrameContext& Context) noexcept override
     {
         FPhaseOrderData& Data = *g_PhaseOrderData;
@@ -295,9 +295,9 @@ public:
     }
 };
 
-class FEnginePostTraceSubsystem final : public ASubsystem {
+class CEnginePostTraceSubsystem final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FEnginePostTraceSubsystem)
+    ACS_SUBSYSTEM_KIND(CEnginePostTraceSubsystem)
     void OnTickFrame(const FSubsystemFrameContext& Context) noexcept override
     {
         FPhaseOrderData& Data = *g_PhaseOrderData;
@@ -309,27 +309,27 @@ public:
 
 TUniquePtr<ASubsystem> CreateWorldParticleTraceSubsystem() noexcept
 {
-    return MakeUnique<FWorldParticleTraceSubsystem>();
+    return MakeUnique<CWorldParticleTraceSubsystem>();
 }
 
 TUniquePtr<ASubsystem> CreateWorldEffectTraceSubsystem() noexcept
 {
-    return MakeUnique<FWorldEffectTraceSubsystem>();
+    return MakeUnique<CWorldEffectTraceSubsystem>();
 }
 
 TUniquePtr<ASubsystem> CreateGamePostTraceSubsystem() noexcept
 {
-    return MakeUnique<FGamePostTraceSubsystem>();
+    return MakeUnique<CGamePostTraceSubsystem>();
 }
 
 TUniquePtr<ASubsystem> CreateEnginePostTraceSubsystem() noexcept
 {
-    return MakeUnique<FEnginePostTraceSubsystem>();
+    return MakeUnique<CEnginePostTraceSubsystem>();
 }
 
-class FOrderedSubsystemA final : public ASubsystem {
+class COrderedSubsystemA final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FOrderedSubsystemA)
+    ACS_SUBSYSTEM_KIND(COrderedSubsystemA)
     void OnInitialize() noexcept override { g_SubsystemTrace->Add('A'); }
     void OnTickFrame(const FSubsystemFrameContext& Context) noexcept override
     {
@@ -338,9 +338,9 @@ public:
     void OnDeinitialize() noexcept override { g_SubsystemTrace->Add('D'); }
 };
 
-class FOrderedSubsystemB final : public ASubsystem {
+class COrderedSubsystemB final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FOrderedSubsystemB)
+    ACS_SUBSYSTEM_KIND(COrderedSubsystemB)
     void OnInitialize() noexcept override { g_SubsystemTrace->Add('B'); }
     void OnTickFrame(const FSubsystemFrameContext& Context) noexcept override
     {
@@ -349,9 +349,9 @@ public:
     void OnDeinitialize() noexcept override { g_SubsystemTrace->Add('E'); }
 };
 
-class FCancelTickSubsystem final : public ASubsystem {
+class CCancelTickSubsystem final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FCancelTickSubsystem)
+    ACS_SUBSYSTEM_KIND(CCancelTickSubsystem)
     void OnTick(f32) noexcept override
     {
         FSubsystemReentryOwner* const Reentry = OwnerAs<FSubsystemReentryOwner>();
@@ -364,9 +364,9 @@ public:
     }
 };
 
-class FSkippedTickSubsystem final : public ASubsystem {
+class CSkippedTickSubsystem final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FSkippedTickSubsystem)
+    ACS_SUBSYSTEM_KIND(CSkippedTickSubsystem)
     void OnTick(f32) noexcept override { OwnerAs<FSubsystemReentryOwner>()->trace->Add('S'); }
     void OnDeinitialize() noexcept override
     {
@@ -374,36 +374,36 @@ public:
     }
 };
 
-TUniquePtr<ASubsystem> CreateOrderedSubsystemA() noexcept { return MakeUnique<FOrderedSubsystemA>(); }
-TUniquePtr<ASubsystem> CreateOrderedSubsystemB() noexcept { return MakeUnique<FOrderedSubsystemB>(); }
-TUniquePtr<ASubsystem> CreateCancelTickSubsystem() noexcept { return MakeUnique<FCancelTickSubsystem>(); }
-TUniquePtr<ASubsystem> CreateSkippedTickSubsystem() noexcept { return MakeUnique<FSkippedTickSubsystem>(); }
+TUniquePtr<ASubsystem> CreateOrderedSubsystemA() noexcept { return MakeUnique<COrderedSubsystemA>(); }
+TUniquePtr<ASubsystem> CreateOrderedSubsystemB() noexcept { return MakeUnique<COrderedSubsystemB>(); }
+TUniquePtr<ASubsystem> CreateCancelTickSubsystem() noexcept { return MakeUnique<CCancelTickSubsystem>(); }
+TUniquePtr<ASubsystem> CreateSkippedTickSubsystem() noexcept { return MakeUnique<CSkippedTickSubsystem>(); }
 
 u32 g_DuplicateFactoryCreateCount = 0u;
 
 TUniquePtr<ASubsystem> CreateDuplicateOrderedSubsystemA() noexcept
 {
     ++g_DuplicateFactoryCreateCount;
-    return MakeUnique<FDynamicSubsystemOne>();
+    return MakeUnique<CDynamicSubsystemOne>();
 }
 
 TUniquePtr<ASubsystem> CreateDuplicateOrderedSubsystemB() noexcept
 {
     ++g_DuplicateFactoryCreateCount;
-    return MakeUnique<FDynamicSubsystemTwo>();
+    return MakeUnique<CDynamicSubsystemTwo>();
 }
 
 u32 g_OwnerProbeInitializeCount = 0u;
 
-class FOwnerValidationProbe final : public ASubsystem {
+class COwnerValidationProbe final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FOwnerValidationProbe)
+    ACS_SUBSYSTEM_KIND(COwnerValidationProbe)
     void OnInitialize() noexcept override { ++g_OwnerProbeInitializeCount; }
 };
 
 TUniquePtr<ASubsystem> CreateOwnerValidationProbe() noexcept
 {
-    return MakeUnique<FOwnerValidationProbe>();
+    return MakeUnique<COwnerValidationProbe>();
 }
 
 TUniquePtr<ASubsystem> CreateEmptySubsystem() noexcept
@@ -413,15 +413,15 @@ TUniquePtr<ASubsystem> CreateEmptySubsystem() noexcept
 
 u32 g_ParentFactoryCreateCount = 0u;
 
-class FParentValidationProbe final : public ASubsystem {
+class CParentValidationProbe final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FParentValidationProbe)
+    ACS_SUBSYSTEM_KIND(CParentValidationProbe)
 };
 
 TUniquePtr<ASubsystem> CreateParentValidationProbe() noexcept
 {
     ++g_ParentFactoryCreateCount;
-    return MakeUnique<FParentValidationProbe>();
+    return MakeUnique<CParentValidationProbe>();
 }
 
 /** parent tick中のchild初期化結果を記録する。 */
@@ -432,9 +432,9 @@ struct FTickParentContext {
     bool initialized = true;
 };
 
-class FTickParentInitializer final : public ASubsystem {
+class CTickParentInitializer final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FTickParentInitializer)
+    ACS_SUBSYSTEM_KIND(CTickParentInitializer)
     void OnTick(f32) noexcept override
     {
         FTickParentContext* const Context = OwnerAs<FTickParentContext>();
@@ -447,7 +447,7 @@ public:
 
 TUniquePtr<ASubsystem> CreateTickParentInitializer() noexcept
 {
-    return MakeUnique<FTickParentInitializer>();
+    return MakeUnique<CTickParentInitializer>();
 }
 
 /** Scene遷移の準備/commit境界を記録する。 */
@@ -457,9 +457,9 @@ struct FSceneTransitionTrace {
     u32 exited = 0u;
 };
 
-class FTransitionProbeScene final : public AScene {
+class ATransitionProbeScene final : public AScene {
 public:
-    explicit FTransitionProbeScene(FSceneTransitionTrace* Trace) noexcept : m_Trace(Trace) {}
+    explicit ATransitionProbeScene(FSceneTransitionTrace* Trace) noexcept : m_Trace(Trace) {}
     void OnEnter() noexcept override { ++m_Trace->entered; }
     void OnPause() noexcept override { ++m_Trace->paused; }
     void OnExit() noexcept override { ++m_Trace->exited; }
@@ -476,10 +476,10 @@ struct FServiceAllocationTrace {
 };
 
 /** 全serviceを要求し、失敗候補がattachされなかったことを記録する。 */
-class FAllServicesProbeScene final : public AScene {
+class AAllServicesProbeScene final : public AScene {
 public:
-    explicit FAllServicesProbeScene(FServiceAllocationTrace* Trace) noexcept : m_Trace(Trace) {}
-    ~FAllServicesProbeScene() noexcept override
+    explicit AAllServicesProbeScene(FServiceAllocationTrace* Trace) noexcept : m_Trace(Trace) {}
+    ~AAllServicesProbeScene() noexcept override
     {
         m_Trace->destroyed = true;
         m_Trace->had_services = HasServices();
@@ -507,10 +507,10 @@ struct FRootAllocationTrace {
 };
 
 /** AScene2D root生成失敗がcommitされないことを記録する。 */
-class FRootAllocationProbeScene final : public AScene2D {
+class ARootAllocationProbeScene final : public AScene2D {
 public:
-    explicit FRootAllocationProbeScene(FRootAllocationTrace* Trace) noexcept : m_Trace(Trace) {}
-    ~FRootAllocationProbeScene() noexcept override { m_Trace->destroyed = true; }
+    explicit ARootAllocationProbeScene(FRootAllocationTrace* Trace) noexcept : m_Trace(Trace) {}
+    ~ARootAllocationProbeScene() noexcept override { m_Trace->destroyed = true; }
     void OnEnter() noexcept override { ++m_Trace->entered; }
 
 private:
@@ -539,34 +539,34 @@ struct FWorldHookReentryTrace {
 /** 現在のWorld hook観測先。 */
 FWorldHookReentryTrace* g_WorldHookReentryTrace = nullptr;
 
-class FWorldHookProbeA final : public ASubsystem {
+class CWorldHookProbeA final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FWorldHookProbeA)
+    ACS_SUBSYSTEM_KIND(CWorldHookProbeA)
     void OnInitialize() noexcept override { g_WorldHookReentryTrace->Record('A'); }
     void OnDeinitialize() noexcept override { g_WorldHookReentryTrace->Record('a'); }
 };
 
-class FWorldHookProbeB final : public ASubsystem {
+class CWorldHookProbeB final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FWorldHookProbeB)
+    ACS_SUBSYSTEM_KIND(CWorldHookProbeB)
     void OnInitialize() noexcept override { g_WorldHookReentryTrace->Record('B'); }
     void OnDeinitialize() noexcept override { g_WorldHookReentryTrace->Record('b'); }
 };
 
 TUniquePtr<ASubsystem> CreateWorldHookProbeA() noexcept
 {
-    return MakeUnique<FWorldHookProbeA>();
+    return MakeUnique<CWorldHookProbeA>();
 }
 
 TUniquePtr<ASubsystem> CreateWorldHookProbeB() noexcept
 {
-    return MakeUnique<FWorldHookProbeB>();
+    return MakeUnique<CWorldHookProbeB>();
 }
 
 /** World準備hook内で終了または同一構成再初期化を行うscene。 */
-class FWorldHookReentryScene final : public AScene {
+class AWorldHookReentryScene final : public AScene {
 public:
-    explicit FWorldHookReentryScene(FWorldHookReentryTrace* Trace) noexcept : m_Trace(Trace) {}
+    explicit AWorldHookReentryScene(FWorldHookReentryTrace* Trace) noexcept : m_Trace(Trace) {}
     void OnEnter() noexcept override { ++m_Trace->entered; }
 
 protected:
@@ -607,9 +607,9 @@ struct FFactoryReentryTrace {
 /** 現在のfactory再入観測先。 */
 FFactoryReentryTrace* g_FactoryReentryTrace = nullptr;
 
-class FFactoryReentryProbe final : public ASubsystem {
+class CFactoryReentryProbe final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FFactoryReentryProbe)
+    ACS_SUBSYSTEM_KIND(CFactoryReentryProbe)
     bool OnOwnerAssigned() noexcept override
     {
         ++g_FactoryReentryTrace->callback_count;
@@ -628,7 +628,7 @@ TUniquePtr<ASubsystem> CreateFactoryReentryProbe() noexcept
 }
 
 /** Kind virtual内からnested初期化を試みるprobe。 */
-class FKindFactoryReentryProbe final : public ASubsystem {
+class CKindFactoryReentryProbe final : public ASubsystem {
 public:
     const void* Kind() const noexcept override
     {
@@ -636,21 +636,21 @@ public:
         Trace.nested_attempted = true;
         Trace.nested_result = Trace.collection->TryInitialize(
             ESubsystemScope::Engine, nullptr, Trace.owner);
-        return SubsystemKindOf<FFactoryReentryProbe>();
+        return SubsystemKindOf<CFactoryReentryProbe>();
     }
 };
 
 TUniquePtr<ASubsystem> CreateKindFactoryReentryProbe() noexcept
 {
     ++g_FactoryReentryTrace->create_count;
-    return MakeUnique<FKindFactoryReentryProbe>();
+    return MakeUnique<CKindFactoryReentryProbe>();
 }
 
 /** staged破棄中からnested初期化を試みるprobe。 */
-class FDestructorFactoryReentryProbe final : public ASubsystem {
+class CDestructorFactoryReentryProbe final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FDestructorFactoryReentryProbe)
-    ~FDestructorFactoryReentryProbe() noexcept override
+    ACS_SUBSYSTEM_KIND(CDestructorFactoryReentryProbe)
+    ~CDestructorFactoryReentryProbe() noexcept override
     {
         FFactoryReentryTrace& Trace = *g_FactoryReentryTrace;
         ++Trace.destructor_count;
@@ -663,7 +663,7 @@ public:
 TUniquePtr<ASubsystem> CreateDestructorFactoryReentryProbe() noexcept
 {
     ++g_FactoryReentryTrace->create_count;
-    return MakeUnique<FDestructorFactoryReentryProbe>();
+    return MakeUnique<CDestructorFactoryReentryProbe>();
 }
 
 TUniquePtr<ASubsystem> CreateFailureAfterStagedProbe() noexcept
@@ -685,7 +685,7 @@ struct FStoredKindTrace {
 /** 現在のKind lookup観測先。 */
 FStoredKindTrace* g_StoredKindTrace = nullptr;
 
-class FStoredKindProbe final : public ASubsystem {
+class CStoredKindProbe final : public ASubsystem {
 public:
     const void* Kind() const noexcept override
     {
@@ -693,13 +693,13 @@ public:
         if (g_StoredKindTrace->deinitialize_on_kind) {
             g_StoredKindTrace->collection->Deinitialize();
         }
-        return SubsystemKindOf<FStoredKindProbe>();
+        return SubsystemKindOf<CStoredKindProbe>();
     }
 };
 
 TUniquePtr<ASubsystem> CreateStoredKindProbe() noexcept
 {
-    return MakeUnique<FStoredKindProbe>();
+    return MakeUnique<CStoredKindProbe>();
 }
 
 enum class EParentTeardownStage : u8 {
@@ -738,10 +738,10 @@ struct FParentTeardownTrace {
     }
 };
 
-class FParentTeardownProbe final : public ASubsystem {
+class CParentTeardownProbe final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FParentTeardownProbe)
-    ~FParentTeardownProbe() noexcept override
+    ACS_SUBSYSTEM_KIND(CParentTeardownProbe)
+    ~CParentTeardownProbe() noexcept override
     {
         if (m_Trace != nullptr) {
             m_Trace->owner_cleared_before_destroy = Owner() == nullptr;
@@ -776,7 +776,7 @@ private:
 
 TUniquePtr<ASubsystem> CreateParentTeardownProbe() noexcept
 {
-    return MakeUnique<FParentTeardownProbe>();
+    return MakeUnique<CParentTeardownProbe>();
 }
 
 /** child tick中のparent lifecycle変更を記録する。 */
@@ -799,9 +799,9 @@ struct FTickParentTeardownTrace {
     u32 deinitialize_count = 0u;
 };
 
-class FTickParentTeardownFirst final : public ASubsystem {
+class CTickParentTeardownFirst final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FTickParentTeardownFirst)
+    ACS_SUBSYSTEM_KIND(CTickParentTeardownFirst)
     void OnTick(f32) noexcept override
     {
         FTickParentTeardownTrace* const Trace = OwnerAs<FTickParentTeardownTrace>();
@@ -819,9 +819,9 @@ public:
     }
 };
 
-class FTickParentTeardownSecond final : public ASubsystem {
+class CTickParentTeardownSecond final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FTickParentTeardownSecond)
+    ACS_SUBSYSTEM_KIND(CTickParentTeardownSecond)
     void OnTick(f32) noexcept override
     {
         ++OwnerAs<FTickParentTeardownTrace>()->second_ticks;
@@ -835,12 +835,12 @@ public:
 
 TUniquePtr<ASubsystem> CreateTickParentTeardownFirst() noexcept
 {
-    return MakeUnique<FTickParentTeardownFirst>();
+    return MakeUnique<CTickParentTeardownFirst>();
 }
 
 TUniquePtr<ASubsystem> CreateTickParentTeardownSecond() noexcept
 {
-    return MakeUnique<FTickParentTeardownSecond>();
+    return MakeUnique<CTickParentTeardownSecond>();
 }
 
 /** parent更新中の論理可視性と終了要求後の遮断を記録する。 */
@@ -869,9 +869,9 @@ struct FTickVisibilityTrace {
     u32 child_deinitializes = 0u;
 };
 
-class FTickVisibilityChild final : public ASubsystem {
+class CTickVisibilityChild final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FTickVisibilityChild)
+    ACS_SUBSYSTEM_KIND(CTickVisibilityChild)
     void OnTick(f32) noexcept override
     {
         ++OwnerAs<FTickVisibilityTrace>()->child_ticks;
@@ -882,29 +882,29 @@ public:
     }
 };
 
-class FTickVisibilityParent final : public ASubsystem {
+class CTickVisibilityParent final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FTickVisibilityParent)
+    ACS_SUBSYSTEM_KIND(CTickVisibilityParent)
     void OnTick(f32) noexcept override
     {
         /** collection可視性を共有する観測先。 */
         FTickVisibilityTrace* const Trace = OwnerAs<FTickVisibilityTrace>();
         Trace->parent_visible_before_request =
             Trace->parent->IsInitialized() && Trace->parent->Count() > 0u &&
-            Trace->parent->Get<FTickVisibilityParent>() != nullptr;
+            Trace->parent->Get<CTickVisibilityParent>() != nullptr;
         Trace->child_visible_before_request =
             Trace->child->IsInitialized() && Trace->child->Count() > 0u &&
-            Trace->child->Get<FTickVisibilityChild>() != nullptr;
+            Trace->child->Get<CTickVisibilityChild>() != nullptr;
         Trace->exact_initialize_before_request = Trace->parent->TryInitialize(
             ESubsystemScope::Engine, nullptr, Trace->parent_owner);
 
         Trace->parent->Deinitialize();
         Trace->parent_hidden_after_request =
             !Trace->parent->IsInitialized() && Trace->parent->Count() == 0u &&
-            Trace->parent->Get<FTickVisibilityParent>() == nullptr;
+            Trace->parent->Get<CTickVisibilityParent>() == nullptr;
         Trace->child_hidden_after_request =
             !Trace->child->IsInitialized() && Trace->child->Count() == 0u &&
-            Trace->child->Get<FTickVisibilityChild>() == nullptr;
+            Trace->child->Get<CTickVisibilityChild>() == nullptr;
         Trace->exact_initialize_after_request = Trace->parent->TryInitialize(
             ESubsystemScope::Engine, nullptr, Trace->parent_owner);
     }
@@ -912,35 +912,35 @@ public:
 
 TUniquePtr<ASubsystem> CreateTickVisibilityParent() noexcept
 {
-    return MakeUnique<FTickVisibilityParent>();
+    return MakeUnique<CTickVisibilityParent>();
 }
 
 TUniquePtr<ASubsystem> CreateTickVisibilityChild() noexcept
 {
-    return MakeUnique<FTickVisibilityChild>();
+    return MakeUnique<CTickVisibilityChild>();
 }
 
 /** 深いparent世代切替後にWorld callbackが実行されないことを数える。 */
 u32 g_AncestorWorldTicks = 0u;
 
-class FAncestorWorldProbe final : public ASubsystem {
+class CAncestorWorldProbe final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FAncestorWorldProbe)
+    ACS_SUBSYSTEM_KIND(CAncestorWorldProbe)
     void OnTick(f32) noexcept override { ++g_AncestorWorldTicks; }
 };
 
 TUniquePtr<ASubsystem> CreateAncestorWorldProbe() noexcept
 {
-    return MakeUnique<FAncestorWorldProbe>();
+    return MakeUnique<CAncestorWorldProbe>();
 }
 
-class FTransitionProbeGame final : public CGame {
+class CTransitionProbeGame final : public CGame {
 protected:
     TUniquePtr<AScene> InitialScene() noexcept override { return {}; }
 };
 
 /** OnStart時のcatalog再照合を直接検証する最小game。 */
-class FStartCatalogProbeGame final : public CGame {
+class CStartCatalogProbeGame final : public CGame {
 public:
     void InvokeStart() noexcept { OnStart(); }
     void InvokeShutdown() noexcept { OnShutdown(); }
@@ -954,7 +954,7 @@ protected:
     }
 };
 
-class FPhaseOrderScene final : public AScene {
+class APhaseOrderScene final : public AScene {
 public:
     ESvc WantedServices() const noexcept override { return ESvc::Camera2D; }
     void OnEnter() noexcept override
@@ -971,7 +971,7 @@ public:
     }
 };
 
-class FPhaseOrderGame final : public CGame {
+class CPhaseOrderGame final : public CGame {
 public:
     void InvokeStart() noexcept { OnStart(); }
     void InvokeUpdate(f32 DeltaSeconds) noexcept { OnUpdate(DeltaSeconds); }
@@ -980,16 +980,16 @@ public:
 protected:
     TUniquePtr<AScene> InitialScene() noexcept override
     {
-        return MakeUnique<FPhaseOrderScene>();
+        return MakeUnique<APhaseOrderScene>();
     }
 };
 
 } // namespace
 
-ACS_REGISTER_SUBSYSTEM(FScoreSub,  ESubsystemScope::World)
-ACS_REGISTER_SUBSYSTEM(FConfigSub, ESubsystemScope::GameInstance)
-ACS_REGISTER_SUBSYSTEM(FEngineSub, ESubsystemScope::Engine)
-ACS_REGISTER_SUBSYSTEM(FOwnerSub,  ESubsystemScope::World)
+ACS_REGISTER_SUBSYSTEM(CScoreSub,  ESubsystemScope::World)
+ACS_REGISTER_SUBSYSTEM(CConfigSub, ESubsystemScope::GameInstance)
+ACS_REGISTER_SUBSYSTEM(CEngineSub, ESubsystemScope::Engine)
+ACS_REGISTER_SUBSYSTEM(COwnerSub,  ESubsystemScope::World)
 
 namespace {
 
@@ -1008,27 +1008,27 @@ struct FStack {
 // 各スコープのサブシステムが «該当スコープのコレクションにのみ» 生成される。
 ACS_TEST(Subsystem, InstantiatedPerScope) {
     FStack s;
-    EXPECT_TRUE(s.world.Get<FScoreSub>()     != nullptr);
-    EXPECT_TRUE(s.gameInst.Get<FConfigSub>() != nullptr);
-    EXPECT_TRUE(s.engine.Get<FEngineSub>()   != nullptr);
+    EXPECT_TRUE(s.world.Get<CScoreSub>()     != nullptr);
+    EXPECT_TRUE(s.gameInst.Get<CConfigSub>() != nullptr);
+    EXPECT_TRUE(s.engine.Get<CEngineSub>()   != nullptr);
     // OnInitialize が走っている。
-    EXPECT_EQ(s.world.Get<FScoreSub>()->score, 0);
-    EXPECT_EQ(s.gameInst.Get<FConfigSub>()->volume, 50);
-    EXPECT_TRUE(s.engine.Get<FEngineSub>()->inited);
+    EXPECT_EQ(s.world.Get<CScoreSub>()->score, 0);
+    EXPECT_EQ(s.gameInst.Get<CConfigSub>()->volume, 50);
+    EXPECT_TRUE(s.engine.Get<CEngineSub>()->inited);
 }
 
 // 下位スコープから上位スコープを取得できる (フォールバック)。上位→下位は不可。
 ACS_TEST(Subsystem, ScopeFallback) {
     FStack s;
     // World から GameInstance / Engine が見える。
-    EXPECT_TRUE(s.world.Get<FConfigSub>() != nullptr);
-    EXPECT_TRUE(s.world.Get<FEngineSub>() != nullptr);
+    EXPECT_TRUE(s.world.Get<CConfigSub>() != nullptr);
+    EXPECT_TRUE(s.world.Get<CEngineSub>() != nullptr);
     // GameInstance から Engine は見えるが World は見えない。
-    EXPECT_TRUE(s.gameInst.Get<FEngineSub>() != nullptr);
-    EXPECT_TRUE(s.gameInst.Get<FScoreSub>()  == nullptr);
+    EXPECT_TRUE(s.gameInst.Get<CEngineSub>() != nullptr);
+    EXPECT_TRUE(s.gameInst.Get<CScoreSub>()  == nullptr);
     // Engine から下位は見えない。
-    EXPECT_TRUE(s.engine.Get<FConfigSub>() == nullptr);
-    EXPECT_TRUE(s.engine.Get<FScoreSub>()  == nullptr);
+    EXPECT_TRUE(s.engine.Get<CConfigSub>() == nullptr);
+    EXPECT_TRUE(s.engine.Get<CScoreSub>()  == nullptr);
 }
 
 // Tick が毎フレーム呼ばれる。
@@ -1037,16 +1037,16 @@ ACS_TEST(Subsystem, TickForwards) {
     s.world.Tick(0.016f);
     s.world.Tick(0.016f);
     s.world.Tick(0.016f);
-    EXPECT_EQ(s.world.Get<FScoreSub>()->ticks, 3);
+    EXPECT_EQ(s.world.Get<CScoreSub>()->ticks, 3);
 }
 
 // Deinitialize で OnDeinitialize が呼ばれ、以後取得不可になる。冪等。
 ACS_TEST(Subsystem, DeinitializeTearsDown) {
     CSubsystemCollection world;
     world.Initialize(ESubsystemScope::World);
-    EXPECT_TRUE(world.Get<FScoreSub>() != nullptr);
+    EXPECT_TRUE(world.Get<CScoreSub>() != nullptr);
     world.Deinitialize();
-    EXPECT_TRUE(world.Get<FScoreSub>() == nullptr);
+    EXPECT_TRUE(world.Get<CScoreSub>() == nullptr);
     world.Deinitialize();   // 冪等 (二重解体しても安全)
 }
 
@@ -1060,19 +1060,19 @@ ACS_TEST(Subsystem, NodeAndComponentAccess) {
     AProbeComponent& comp = child.AddComponent<AProbeComponent>();
 
     // 子ノードから (walk-to-root)。
-    EXPECT_TRUE(child.GetSubsystem<FScoreSub>()  != nullptr);
-    EXPECT_TRUE(child.GetSubsystem<FConfigSub>() != nullptr);   // 上位へフォールバック
+    EXPECT_TRUE(child.GetSubsystem<CScoreSub>()  != nullptr);
+    EXPECT_TRUE(child.GetSubsystem<CConfigSub>() != nullptr);   // 上位へフォールバック
     // コンポーネントから (owner → root)。
-    EXPECT_TRUE(comp.GetSubsystem<FScoreSub>() != nullptr);
+    EXPECT_TRUE(comp.GetSubsystem<CScoreSub>() != nullptr);
 
     // コンポーネント経由でスコアを加算 → 同じ World サブシステムへ反映される。
-    comp.GetSubsystem<FScoreSub>()->Add(7);
-    comp.GetSubsystem<FScoreSub>()->Add(3);
-    EXPECT_EQ(s.world.Get<FScoreSub>()->score, 10);
+    comp.GetSubsystem<CScoreSub>()->Add(7);
+    comp.GetSubsystem<CScoreSub>()->Add(3);
+    EXPECT_EQ(s.world.Get<CScoreSub>()->score, 10);
 
     // 未配線ノードは nullptr。
     ANode lonely;
-    EXPECT_TRUE(lonely.GetSubsystem<FScoreSub>() == nullptr);
+    EXPECT_TRUE(lonely.GetSubsystem<CScoreSub>() == nullptr);
 }
 
 // Owner() が Initialize で渡したコンテキストになる(OnInitialize 時点で有効)。
@@ -1081,7 +1081,7 @@ ACS_TEST(Subsystem, OwnerContextIsSet) {
     void* owner = &dummyOwner;
     CSubsystemCollection world;
     world.Initialize(ESubsystemScope::World, nullptr, owner);
-    FOwnerSub* s = world.Get<FOwnerSub>();
+    COwnerSub* s = world.Get<COwnerSub>();
     EXPECT_TRUE(s != nullptr);
     EXPECT_TRUE(s->Owner() == owner);            // 取得 API
     EXPECT_TRUE(s->seenOwner == owner);          // OnInitialize 時点で既に配線済み
@@ -1089,7 +1089,7 @@ ACS_TEST(Subsystem, OwnerContextIsSet) {
     // owner 未指定なら nullptr。
     CSubsystemCollection w2;
     w2.Initialize(ESubsystemScope::World);
-    EXPECT_TRUE(w2.Get<FOwnerSub>()->Owner() == nullptr);
+    EXPECT_TRUE(w2.Get<COwnerSub>()->Owner() == nullptr);
 }
 
 ACS_TEST(Subsystem, DuplicateFactorySourcesPromoteOnUnregister)
@@ -1167,11 +1167,11 @@ ACS_TEST(Subsystem, WorldClockAccumulatesElapsedAndFrames)
 
 ACS_TEST(Subsystem, PhaseAndOrderAreDeterministic)
 {
-    const FSubsystemFactory Later{SubsystemKindOf<FOrderedSubsystemB>(), ESubsystemScope::Engine,
-                                  "FOrderedSubsystemB", &CreateOrderedSubsystemB,
+    const FSubsystemFactory Later{SubsystemKindOf<COrderedSubsystemB>(), ESubsystemScope::Engine,
+                                  "COrderedSubsystemB", &CreateOrderedSubsystemB,
                                   ESubsystemTickPhase::PostUpdate, 20};
-    const FSubsystemFactory Earlier{SubsystemKindOf<FOrderedSubsystemA>(), ESubsystemScope::Engine,
-                                    "FOrderedSubsystemA", &CreateOrderedSubsystemA,
+    const FSubsystemFactory Earlier{SubsystemKindOf<COrderedSubsystemA>(), ESubsystemScope::Engine,
+                                    "COrderedSubsystemA", &CreateOrderedSubsystemA,
                                     ESubsystemTickPhase::PreUpdate, -20};
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     Registry.Register(Later);
@@ -1200,20 +1200,20 @@ ACS_TEST(Subsystem, PhaseAndOrderAreDeterministic)
 ACS_TEST(Subsystem, FramePhasesRunServicesWorldGameAndEngineInOrder)
 {
     const FSubsystemFactory WorldParticle{
-        SubsystemKindOf<FWorldParticleTraceSubsystem>(), ESubsystemScope::World,
-        "FWorldParticleTraceSubsystem", &CreateWorldParticleTraceSubsystem,
+        SubsystemKindOf<CWorldParticleTraceSubsystem>(), ESubsystemScope::World,
+        "CWorldParticleTraceSubsystem", &CreateWorldParticleTraceSubsystem,
         ESubsystemTickPhase::PostUpdate, 800};
     const FSubsystemFactory WorldEffect{
-        SubsystemKindOf<FWorldEffectTraceSubsystem>(), ESubsystemScope::World,
-        "FWorldEffectTraceSubsystem", &CreateWorldEffectTraceSubsystem,
+        SubsystemKindOf<CWorldEffectTraceSubsystem>(), ESubsystemScope::World,
+        "CWorldEffectTraceSubsystem", &CreateWorldEffectTraceSubsystem,
         ESubsystemTickPhase::PostUpdate, 900};
     const FSubsystemFactory GamePost{
-        SubsystemKindOf<FGamePostTraceSubsystem>(), ESubsystemScope::GameInstance,
-        "FGamePostTraceSubsystem", &CreateGamePostTraceSubsystem,
+        SubsystemKindOf<CGamePostTraceSubsystem>(), ESubsystemScope::GameInstance,
+        "CGamePostTraceSubsystem", &CreateGamePostTraceSubsystem,
         ESubsystemTickPhase::PostUpdate, 800};
     const FSubsystemFactory EnginePost{
-        SubsystemKindOf<FEnginePostTraceSubsystem>(), ESubsystemScope::Engine,
-        "FEnginePostTraceSubsystem", &CreateEnginePostTraceSubsystem,
+        SubsystemKindOf<CEnginePostTraceSubsystem>(), ESubsystemScope::Engine,
+        "CEnginePostTraceSubsystem", &CreateEnginePostTraceSubsystem,
         ESubsystemTickPhase::PostUpdate, 800};
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     EXPECT_TRUE(Registry.TryRegister(WorldParticle));
@@ -1225,7 +1225,7 @@ ACS_TEST(Subsystem, FramePhasesRunServicesWorldGameAndEngineInOrder)
     Data.scaled_delta_seconds = 0.2f;
     Data.unscaled_delta_seconds = 0.4f;
     g_PhaseOrderData = &Data;
-    FPhaseOrderGame Game;
+    CPhaseOrderGame Game;
     Game.SetTimeScale(0.5f);
     Game.SetFixedTimestep(0.0f);
     Data.frame_number = Game.FrameCount();
@@ -1264,11 +1264,11 @@ ACS_TEST(Subsystem, FramePhasesRunServicesWorldGameAndEngineInOrder)
 
 ACS_TEST(Subsystem, TickDeinitializeIsDeferredToCallbackBoundary)
 {
-    const FSubsystemFactory Cancel{SubsystemKindOf<FCancelTickSubsystem>(), ESubsystemScope::Engine,
-                                   "FCancelTickSubsystem", &CreateCancelTickSubsystem,
+    const FSubsystemFactory Cancel{SubsystemKindOf<CCancelTickSubsystem>(), ESubsystemScope::Engine,
+                                   "CCancelTickSubsystem", &CreateCancelTickSubsystem,
                                    ESubsystemTickPhase::PreUpdate, -10};
-    const FSubsystemFactory Skipped{SubsystemKindOf<FSkippedTickSubsystem>(), ESubsystemScope::Engine,
-                                    "FSkippedTickSubsystem", &CreateSkippedTickSubsystem,
+    const FSubsystemFactory Skipped{SubsystemKindOf<CSkippedTickSubsystem>(), ESubsystemScope::Engine,
+                                    "CSkippedTickSubsystem", &CreateSkippedTickSubsystem,
                                     ESubsystemTickPhase::PreUpdate, 10};
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     Registry.Register(Skipped);
@@ -1328,10 +1328,10 @@ ACS_TEST(Subsystem, InvalidFactoryAndParentCycleFailBeforeCallbacks)
 ACS_TEST(Subsystem, DuplicateOrderAndNameFailBeforeFactoryCreate)
 {
     const FSubsystemFactory First{
-        SubsystemKindOf<FDynamicSubsystemOne>(), ESubsystemScope::Engine, "DuplicateOrderName",
+        SubsystemKindOf<CDynamicSubsystemOne>(), ESubsystemScope::Engine, "DuplicateOrderName",
         &CreateDuplicateOrderedSubsystemA, ESubsystemTickPhase::PreUpdate, 300};
     const FSubsystemFactory Second{
-        SubsystemKindOf<FDynamicSubsystemTwo>(), ESubsystemScope::Engine, "DuplicateOrderName",
+        SubsystemKindOf<CDynamicSubsystemTwo>(), ESubsystemScope::Engine, "DuplicateOrderName",
         &CreateDuplicateOrderedSubsystemB, ESubsystemTickPhase::PostUpdate, 300};
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     EXPECT_TRUE(Registry.TryRegister(First));
@@ -1350,15 +1350,15 @@ ACS_TEST(Subsystem, DuplicateOrderAndNameFailBeforeFactoryCreate)
 ACS_TEST(Subsystem, DeinitializeReleasesCollectionAllocatorStorage)
 {
     const FSubsystemFactory Probe{
-        SubsystemKindOf<FParentValidationProbe>(), ESubsystemScope::Engine,
-        "FParentValidationProbe", &CreateParentValidationProbe,
+        SubsystemKindOf<CParentValidationProbe>(), ESubsystemScope::Engine,
+        "CParentValidationProbe", &CreateParentValidationProbe,
         ESubsystemTickPhase::None, 600};
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     EXPECT_TRUE(Registry.TryRegister(Probe));
 
-    FSubsystemCountingAllocator Allocator;
+    CSubsystemCountingAllocator Allocator;
     {
-        FSubsystemDefaultAllocatorScope AllocatorScope(Allocator);
+        CSubsystemDefaultAllocatorScope AllocatorScope(Allocator);
         CSubsystemCollection Collection;
         EXPECT_TRUE(Collection.TryInitialize(ESubsystemScope::Engine));
         EXPECT_TRUE(Allocator.outstanding_allocations > 0u);
@@ -1373,13 +1373,13 @@ ACS_TEST(Subsystem, InvalidParentScopeFailsBeforeFactoryCreate)
 {
     EXPECT_TRUE(AcsRegisterGameFrameworkSubsystems());
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
-    FTransitionProbeGame Game;
+    CTransitionProbeGame Game;
     AScene OwnerScene;
 
     CSubsystemCollection UninitializedParent;
     const FSubsystemFactory WorldProbe{
-        SubsystemKindOf<FParentValidationProbe>(), ESubsystemScope::World,
-        "FParentValidationProbe", &CreateParentValidationProbe,
+        SubsystemKindOf<CParentValidationProbe>(), ESubsystemScope::World,
+        "CParentValidationProbe", &CreateParentValidationProbe,
         ESubsystemTickPhase::None, 500};
     EXPECT_TRUE(Registry.TryRegister(WorldProbe));
     g_ParentFactoryCreateCount = 0u;
@@ -1404,8 +1404,8 @@ ACS_TEST(Subsystem, InvalidParentScopeFailsBeforeFactoryCreate)
     EXPECT_TRUE(Registry.Unregister(WorldProbe));
 
     const FSubsystemFactory GameProbe{
-        SubsystemKindOf<FParentValidationProbe>(), ESubsystemScope::GameInstance,
-        "FParentValidationProbe", &CreateParentValidationProbe,
+        SubsystemKindOf<CParentValidationProbe>(), ESubsystemScope::GameInstance,
+        "CParentValidationProbe", &CreateParentValidationProbe,
         ESubsystemTickPhase::None, 500};
     EXPECT_TRUE(Registry.TryRegister(GameProbe));
     g_ParentFactoryCreateCount = 0u;
@@ -1417,8 +1417,8 @@ ACS_TEST(Subsystem, InvalidParentScopeFailsBeforeFactoryCreate)
     EXPECT_TRUE(Registry.Unregister(GameProbe));
 
     const FSubsystemFactory EngineProbe{
-        SubsystemKindOf<FParentValidationProbe>(), ESubsystemScope::Engine,
-        "FParentValidationProbe", &CreateParentValidationProbe,
+        SubsystemKindOf<CParentValidationProbe>(), ESubsystemScope::Engine,
+        "CParentValidationProbe", &CreateParentValidationProbe,
         ESubsystemTickPhase::None, 500};
     EXPECT_TRUE(Registry.TryRegister(EngineProbe));
     g_ParentFactoryCreateCount = 0u;
@@ -1444,8 +1444,8 @@ ACS_TEST(Subsystem, InvalidParentScopeFailsBeforeFactoryCreate)
 ACS_TEST(Subsystem, TypedOwnerScopeMismatchFailsBeforeFactoryCreate)
 {
     const FSubsystemFactory Probe{
-        SubsystemKindOf<FParentValidationProbe>(), ESubsystemScope::GameInstance,
-        "FParentValidationProbe", &CreateParentValidationProbe,
+        SubsystemKindOf<CParentValidationProbe>(), ESubsystemScope::GameInstance,
+        "CParentValidationProbe", &CreateParentValidationProbe,
         ESubsystemTickPhase::None, 650};
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     EXPECT_TRUE(Registry.TryRegister(Probe));
@@ -1471,12 +1471,12 @@ ACS_TEST(Subsystem, TypedOwnerScopeMismatchFailsBeforeFactoryCreate)
 ACS_TEST(Subsystem, ParentTickRejectsChildInitializationBeforeFactoryCreate)
 {
     const FSubsystemFactory ParentFactory{
-        SubsystemKindOf<FTickParentInitializer>(), ESubsystemScope::Engine,
-        "FTickParentInitializer", &CreateTickParentInitializer,
+        SubsystemKindOf<CTickParentInitializer>(), ESubsystemScope::Engine,
+        "CTickParentInitializer", &CreateTickParentInitializer,
         ESubsystemTickPhase::PreUpdate, 700};
     const FSubsystemFactory ChildFactory{
-        SubsystemKindOf<FParentValidationProbe>(), ESubsystemScope::GameInstance,
-        "FParentValidationProbe", &CreateParentValidationProbe,
+        SubsystemKindOf<CParentValidationProbe>(), ESubsystemScope::GameInstance,
+        "CParentValidationProbe", &CreateParentValidationProbe,
         ESubsystemTickPhase::None, 700};
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     EXPECT_TRUE(Registry.TryRegister(ParentFactory));
@@ -1536,7 +1536,7 @@ ACS_TEST(Subsystem, GameStartRevalidatesCatalogAfterConstruction)
 {
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
 
-    FStartCatalogProbeGame MissingGame;
+    CStartCatalogProbeGame MissingGame;
     EXPECT_TRUE(MissingGame.EngineSubsystems().TryInitialize(
         ESubsystemScope::Engine, nullptr,
         FSubsystemOwner{&MissingGame, ESubsystemOwnerKind::Application}));
@@ -1551,7 +1551,7 @@ ACS_TEST(Subsystem, GameStartRevalidatesCatalogAfterConstruction)
     EXPECT_EQ(MissingGame.initial_scene_calls, 1u);
     MissingGame.InvokeShutdown();
 
-    FStartCatalogProbeGame ShadowGame;
+    CStartCatalogProbeGame ShadowGame;
     EXPECT_TRUE(ShadowGame.EngineSubsystems().TryInitialize(
         ESubsystemScope::Engine, nullptr,
         FSubsystemOwner{&ShadowGame, ESubsystemOwnerKind::Application}));
@@ -1573,15 +1573,15 @@ ACS_TEST(Subsystem, GameStartRevalidatesCatalogAfterConstruction)
 ACS_TEST(Subsystem, GameDestructorKeepsParentAliveDuringWorldTeardown)
 {
     const FSubsystemFactory Probe{
-        SubsystemKindOf<FDestructorParentProbe>(), ESubsystemScope::World,
-        "FDestructorParentProbe", &CreateDestructorParentProbe,
+        SubsystemKindOf<CDestructorParentProbe>(), ESubsystemScope::World,
+        "CDestructorParentProbe", &CreateDestructorParentProbe,
         ESubsystemTickPhase::None, 1100};
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     EXPECT_TRUE(Registry.TryRegister(Probe));
     g_DestructorParentVisible = false;
     g_DestructorProbeDeinitializeCount = 0u;
     {
-        FStartCatalogProbeGame Game;
+        CStartCatalogProbeGame Game;
         EXPECT_TRUE(Game.EngineSubsystems().TryInitialize(
             ESubsystemScope::Engine, nullptr,
             FSubsystemOwner{&Game, ESubsystemOwnerKind::Application}));
@@ -1596,7 +1596,7 @@ ACS_TEST(Subsystem, GameDestructorKeepsParentAliveDuringWorldTeardown)
 ACS_TEST(Subsystem, LegacyWorldOwnersKeepSpawnInert)
 {
     EXPECT_TRUE(AcsRegisterGameFrameworkSubsystems());
-    FTransitionProbeGame Game;
+    CTransitionProbeGame Game;
     AScene OwnerScene;
 
     CSubsystemCollection LegacyOwned;
@@ -1616,8 +1616,8 @@ ACS_TEST(Subsystem, LegacyWorldOwnersKeepSpawnInert)
     EXPECT_TRUE(LegacyNull.Get<ASpawn2DSubsystem>() != nullptr);
 
     const FSubsystemFactory Probe{
-        SubsystemKindOf<FOwnerValidationProbe>(), ESubsystemScope::World,
-        "FOwnerValidationProbe", &CreateOwnerValidationProbe,
+        SubsystemKindOf<COwnerValidationProbe>(), ESubsystemScope::World,
+        "COwnerValidationProbe", &CreateOwnerValidationProbe,
         ESubsystemTickPhase::None, 400};
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     EXPECT_TRUE(Registry.TryRegister(Probe));
@@ -1642,8 +1642,8 @@ ACS_TEST(Subsystem, PreparationReentryCannotCommitOrResetBeforeUnwind)
         FFactoryReentryTrace Trace{&Collection, Owner};
         g_FactoryReentryTrace = &Trace;
         const FSubsystemFactory Factory{
-            SubsystemKindOf<FFactoryReentryProbe>(), ESubsystemScope::Engine,
-            "FFactoryReentryProbe", &CreateFactoryReentryProbe,
+            SubsystemKindOf<CFactoryReentryProbe>(), ESubsystemScope::Engine,
+            "CFactoryReentryProbe", &CreateFactoryReentryProbe,
             ESubsystemTickPhase::None, 1300};
         EXPECT_TRUE(Registry.TryRegister(Factory));
         EXPECT_TRUE(!Collection.TryInitialize(ESubsystemScope::Engine, nullptr, Owner));
@@ -1662,8 +1662,8 @@ ACS_TEST(Subsystem, PreparationReentryCannotCommitOrResetBeforeUnwind)
         FFactoryReentryTrace Trace{&Collection, Owner};
         g_FactoryReentryTrace = &Trace;
         const FSubsystemFactory Factory{
-            SubsystemKindOf<FKindFactoryReentryProbe>(), ESubsystemScope::Engine,
-            "FKindFactoryReentryProbe", &CreateKindFactoryReentryProbe,
+            SubsystemKindOf<CKindFactoryReentryProbe>(), ESubsystemScope::Engine,
+            "CKindFactoryReentryProbe", &CreateKindFactoryReentryProbe,
             ESubsystemTickPhase::None, 1300};
         EXPECT_TRUE(Registry.TryRegister(Factory));
         EXPECT_TRUE(!Collection.TryInitialize(ESubsystemScope::Engine, nullptr, Owner));
@@ -1682,8 +1682,8 @@ ACS_TEST(Subsystem, PreparationReentryCannotCommitOrResetBeforeUnwind)
         g_FactoryReentryTrace = &Trace;
         static const int FailureKind = 0;
         const FSubsystemFactory StagedFactory{
-            SubsystemKindOf<FDestructorFactoryReentryProbe>(), ESubsystemScope::Engine,
-            "FDestructorFactoryReentryProbe", &CreateDestructorFactoryReentryProbe,
+            SubsystemKindOf<CDestructorFactoryReentryProbe>(), ESubsystemScope::Engine,
+            "CDestructorFactoryReentryProbe", &CreateDestructorFactoryReentryProbe,
             ESubsystemTickPhase::None, 1300};
         const FSubsystemFactory FailureFactory{
             &FailureKind, ESubsystemScope::Engine, "FFailureAfterStagedProbe",
@@ -1713,8 +1713,8 @@ ACS_TEST(Subsystem, PreparationReentryCannotCommitOrResetBeforeUnwind)
 
 ACS_TEST(Subsystem, SuccessUnwindDefersActiveUntilAllocatorCallbacksFinish)
 {
-    FSubsystemReentrantFreeAllocator Allocator;
-    FSubsystemDefaultAllocatorScope AllocatorScope(Allocator);
+    CSubsystemReentrantFreeAllocator Allocator;
+    CSubsystemDefaultAllocatorScope AllocatorScope(Allocator);
     CSubsystemCollection Collection;
     int OwnerValue = 0;
     const FSubsystemOwner Owner{&OwnerValue, ESubsystemOwnerKind::Application};
@@ -1736,8 +1736,8 @@ ACS_TEST(Subsystem, LookupUsesValidatedStoredKindWithoutVirtualReentry)
 {
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     const FSubsystemFactory Factory{
-        SubsystemKindOf<FStoredKindProbe>(), ESubsystemScope::Engine,
-        "FStoredKindProbe", &CreateStoredKindProbe,
+        SubsystemKindOf<CStoredKindProbe>(), ESubsystemScope::Engine,
+        "CStoredKindProbe", &CreateStoredKindProbe,
         ESubsystemTickPhase::None, 1300};
     EXPECT_TRUE(Registry.TryRegister(Factory));
 
@@ -1751,7 +1751,7 @@ ACS_TEST(Subsystem, LookupUsesValidatedStoredKindWithoutVirtualReentry)
     EXPECT_EQ(Trace.kind_calls, 1u);
     Trace.kind_calls = 0u;
     Trace.deinitialize_on_kind = true;
-    EXPECT_TRUE(Collection.Get<FStoredKindProbe>() != nullptr);
+    EXPECT_TRUE(Collection.Get<CStoredKindProbe>() != nullptr);
     EXPECT_EQ(Trace.kind_calls, 0u);
     EXPECT_TRUE(Collection.IsInitialized());
     Trace.deinitialize_on_kind = false;
@@ -1763,8 +1763,8 @@ ACS_TEST(Subsystem, LookupUsesValidatedStoredKindWithoutVirtualReentry)
 ACS_TEST(Subsystem, ParentGenerationRejectsCallbackTeardownAndReinitialize)
 {
     const FSubsystemFactory Factory{
-        SubsystemKindOf<FParentTeardownProbe>(), ESubsystemScope::GameInstance,
-        "FParentTeardownProbe", &CreateParentTeardownProbe,
+        SubsystemKindOf<CParentTeardownProbe>(), ESubsystemScope::GameInstance,
+        "CParentTeardownProbe", &CreateParentTeardownProbe,
         ESubsystemTickPhase::None, 1300};
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     EXPECT_TRUE(Registry.TryRegister(Factory));
@@ -1809,12 +1809,12 @@ ACS_TEST(Subsystem, ParentGenerationRejectsCallbackTeardownAndReinitialize)
 ACS_TEST(Subsystem, TickStopsAndTearsDownChildWhenParentLifecycleChanges)
 {
     const FSubsystemFactory FirstFactory{
-        SubsystemKindOf<FTickParentTeardownFirst>(), ESubsystemScope::GameInstance,
-        "FTickParentTeardownFirst", &CreateTickParentTeardownFirst,
+        SubsystemKindOf<CTickParentTeardownFirst>(), ESubsystemScope::GameInstance,
+        "CTickParentTeardownFirst", &CreateTickParentTeardownFirst,
         ESubsystemTickPhase::PreUpdate, 1300};
     const FSubsystemFactory SecondFactory{
-        SubsystemKindOf<FTickParentTeardownSecond>(), ESubsystemScope::GameInstance,
-        "FTickParentTeardownSecond", &CreateTickParentTeardownSecond,
+        SubsystemKindOf<CTickParentTeardownSecond>(), ESubsystemScope::GameInstance,
+        "CTickParentTeardownSecond", &CreateTickParentTeardownSecond,
         ESubsystemTickPhase::PreUpdate, 1301};
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     EXPECT_TRUE(Registry.TryRegister(FirstFactory));
@@ -1842,7 +1842,7 @@ ACS_TEST(Subsystem, TickStopsAndTearsDownChildWhenParentLifecycleChanges)
         EXPECT_EQ(Trace.deinitialize_order[1], 'A');
         EXPECT_TRUE(!Child.IsInitialized());
         EXPECT_EQ(Child.Count(), 0u);
-        EXPECT_TRUE(Child.Get<FTickParentTeardownFirst>() == nullptr);
+        EXPECT_TRUE(Child.Get<CTickParentTeardownFirst>() == nullptr);
         if (Reinitialize == 0u) {
             EXPECT_TRUE(!Parent.IsInitialized());
         } else {
@@ -1858,13 +1858,13 @@ ACS_TEST(Subsystem, TickRequestImmediatelyHidesSelfAndCommittedChild)
 {
     /** Engine更新中に終了要求を出すfactory。 */
     const FSubsystemFactory ParentFactory{
-        SubsystemKindOf<FTickVisibilityParent>(), ESubsystemScope::Engine,
-        "FTickVisibilityParent", &CreateTickVisibilityParent,
+        SubsystemKindOf<CTickVisibilityParent>(), ESubsystemScope::Engine,
+        "CTickVisibilityParent", &CreateTickVisibilityParent,
         ESubsystemTickPhase::PreUpdate, 1310};
     /** GameInstance更新が遮断されることを観測するfactory。 */
     const FSubsystemFactory ChildFactory{
-        SubsystemKindOf<FTickVisibilityChild>(), ESubsystemScope::GameInstance,
-        "FTickVisibilityChild", &CreateTickVisibilityChild,
+        SubsystemKindOf<CTickVisibilityChild>(), ESubsystemScope::GameInstance,
+        "CTickVisibilityChild", &CreateTickVisibilityChild,
         ESubsystemTickPhase::PreUpdate, 1310};
     /** process共通factory registry。 */
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
@@ -1902,7 +1902,7 @@ ACS_TEST(Subsystem, TickRequestImmediatelyHidesSelfAndCommittedChild)
     EXPECT_EQ(Trace.child_deinitializes, 1u);
     EXPECT_TRUE(!Child.IsInitialized());
     EXPECT_EQ(Child.Count(), 0u);
-    EXPECT_TRUE(Child.Get<FTickVisibilityChild>() == nullptr);
+    EXPECT_TRUE(Child.Get<CTickVisibilityChild>() == nullptr);
 
     EXPECT_TRUE(Registry.Unregister(ChildFactory));
     EXPECT_TRUE(Registry.Unregister(ParentFactory));
@@ -1912,8 +1912,8 @@ ACS_TEST(Subsystem, DeepCommittedChainRejectsAncestorReinitializeBeforeParentTic
 {
     /** World更新の実行有無を観測するfactory。 */
     const FSubsystemFactory WorldFactory{
-        SubsystemKindOf<FAncestorWorldProbe>(), ESubsystemScope::World,
-        "FAncestorWorldProbe", &CreateAncestorWorldProbe,
+        SubsystemKindOf<CAncestorWorldProbe>(), ESubsystemScope::World,
+        "CAncestorWorldProbe", &CreateAncestorWorldProbe,
         ESubsystemTickPhase::PreUpdate, 1310};
     /** process共通factory registry。 */
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
@@ -1942,7 +1942,7 @@ ACS_TEST(Subsystem, DeepCommittedChainRejectsAncestorReinitializeBeforeParentTic
     EXPECT_TRUE(World.TryInitialize(
         ESubsystemScope::World, &GameInstance,
         FSubsystemOwner{&WorldOwner, ESubsystemOwnerKind::Scene}));
-    EXPECT_TRUE(World.Get<FAncestorWorldProbe>() != nullptr);
+    EXPECT_TRUE(World.Get<CAncestorWorldProbe>() != nullptr);
 
     Engine.Deinitialize();
     EXPECT_TRUE(Engine.TryInitialize(
@@ -1951,7 +1951,7 @@ ACS_TEST(Subsystem, DeepCommittedChainRejectsAncestorReinitializeBeforeParentTic
     EXPECT_TRUE(!GameInstance.IsInitialized());
     EXPECT_TRUE(!World.IsInitialized());
     EXPECT_EQ(World.Count(), 0u);
-    EXPECT_TRUE(World.Get<FAncestorWorldProbe>() == nullptr);
+    EXPECT_TRUE(World.Get<CAncestorWorldProbe>() == nullptr);
 
     g_AncestorWorldTicks = 0u;
     World.TickFrame(FSubsystemFrameContext{
@@ -1959,7 +1959,7 @@ ACS_TEST(Subsystem, DeepCommittedChainRejectsAncestorReinitializeBeforeParentTic
     EXPECT_EQ(g_AncestorWorldTicks, 0u);
     EXPECT_TRUE(!World.IsInitialized());
     EXPECT_EQ(World.Count(), 0u);
-    EXPECT_TRUE(World.Get<FAncestorWorldProbe>() == nullptr);
+    EXPECT_TRUE(World.Get<CAncestorWorldProbe>() == nullptr);
     EXPECT_TRUE(!GameInstance.IsInitialized());
     EXPECT_TRUE(Engine.IsInitialized());
 
@@ -1970,7 +1970,7 @@ ACS_TEST(Subsystem, DeepCommittedChainRejectsAncestorReinitializeBeforeParentTic
 
 ACS_TEST(Subsystem, SceneServiceAllocationFailureNeverCommitsPartialCandidate)
 {
-    FTransitionProbeGame Game;
+    CTransitionProbeGame Game;
     EXPECT_TRUE(Game.EngineSubsystems().TryInitialize(
         ESubsystemScope::Engine, nullptr,
         FSubsystemOwner{&Game, ESubsystemOwnerKind::Application}));
@@ -1978,19 +1978,19 @@ ACS_TEST(Subsystem, SceneServiceAllocationFailureNeverCommitsPartialCandidate)
         ESubsystemScope::GameInstance, &Game.EngineSubsystems(),
         FSubsystemOwner{&Game, ESubsystemOwnerKind::Game}));
     FSceneTransitionTrace PreviousTrace{};
-    Game.Scenes().PushScene(MakeUnique<FTransitionProbeScene>(&PreviousTrace));
+    Game.Scenes().PushScene(MakeUnique<ATransitionProbeScene>(&PreviousTrace));
     Game.Scenes()._ApplyPending(Game);
     AScene* const Previous = Game.Scenes().Top();
     EXPECT_TRUE(Previous != nullptr);
 
     for (u32 FailureCall = 1u; FailureCall <= 8u; ++FailureCall) {
         FServiceAllocationTrace Trace{};
-        TUniquePtr<AScene> Candidate = MakeUnique<FAllServicesProbeScene>(&Trace);
+        TUniquePtr<AScene> Candidate = MakeUnique<AAllServicesProbeScene>(&Trace);
         EXPECT_TRUE(Candidate.Get() != nullptr);
-        FSubsystemCountingAllocator Allocator;
+        CSubsystemCountingAllocator Allocator;
         Allocator.fail_on_allocation = FailureCall;
         {
-            FSubsystemDefaultAllocatorScope AllocatorScope(Allocator);
+            CSubsystemDefaultAllocatorScope AllocatorScope(Allocator);
             Game.Scenes().ChangeScene(Move(Candidate));
             Game.Scenes()._ApplyPending(Game);
         }
@@ -2007,7 +2007,7 @@ ACS_TEST(Subsystem, SceneServiceAllocationFailureNeverCommitsPartialCandidate)
 
 ACS_TEST(Subsystem, Scene2DRootAllocationFailureRejectsPushAndChange)
 {
-    FTransitionProbeGame Game;
+    CTransitionProbeGame Game;
     EXPECT_TRUE(Game.EngineSubsystems().TryInitialize(
         ESubsystemScope::Engine, nullptr,
         FSubsystemOwner{&Game, ESubsystemOwnerKind::Application}));
@@ -2015,13 +2015,13 @@ ACS_TEST(Subsystem, Scene2DRootAllocationFailureRejectsPushAndChange)
         ESubsystemScope::GameInstance, &Game.EngineSubsystems(),
         FSubsystemOwner{&Game, ESubsystemOwnerKind::Game}));
     FSceneTransitionTrace PreviousTrace{};
-    Game.Scenes().PushScene(MakeUnique<FTransitionProbeScene>(&PreviousTrace));
+    Game.Scenes().PushScene(MakeUnique<ATransitionProbeScene>(&PreviousTrace));
     Game.Scenes()._ApplyPending(Game);
     AScene* const Previous = Game.Scenes().Top();
     EXPECT_TRUE(Previous != nullptr);
 
     const FSubsystemFactory WorldProbe{
-        SubsystemKindOf<FOwnerValidationProbe>(), ESubsystemScope::World,
+        SubsystemKindOf<COwnerValidationProbe>(), ESubsystemScope::World,
         "FRootReadinessWorldProbe", &CreateOwnerValidationProbe,
         ESubsystemTickPhase::None, 1300};
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
@@ -2029,12 +2029,12 @@ ACS_TEST(Subsystem, Scene2DRootAllocationFailureRejectsPushAndChange)
     g_OwnerProbeInitializeCount = 0u;
 
     for (u32 Operation = 0u; Operation < 2u; ++Operation) {
-        FSubsystemCountingAllocator Allocator;
+        CSubsystemCountingAllocator Allocator;
         Allocator.fail_on_allocation = 2u;
         FRootAllocationTrace Trace{};
         {
-            FSubsystemDefaultAllocatorScope AllocatorScope(Allocator);
-            TUniquePtr<AScene> Candidate = MakeUnique<FRootAllocationProbeScene>(&Trace);
+            CSubsystemDefaultAllocatorScope AllocatorScope(Allocator);
+            TUniquePtr<AScene> Candidate = MakeUnique<ARootAllocationProbeScene>(&Trace);
             EXPECT_TRUE(Candidate.Get() != nullptr);
             if (Operation == 0u) Game.Scenes().PushScene(Move(Candidate));
             else Game.Scenes().ChangeScene(Move(Candidate));
@@ -2054,7 +2054,7 @@ ACS_TEST(Subsystem, Scene2DRootAllocationFailureRejectsPushAndChange)
 
 ACS_TEST(Subsystem, WorldReadyHookGenerationRollbackKeepsPreviousTop)
 {
-    FTransitionProbeGame Game;
+    CTransitionProbeGame Game;
     EXPECT_TRUE(Game.EngineSubsystems().TryInitialize(
         ESubsystemScope::Engine, nullptr,
         FSubsystemOwner{&Game, ESubsystemOwnerKind::Application}));
@@ -2062,18 +2062,18 @@ ACS_TEST(Subsystem, WorldReadyHookGenerationRollbackKeepsPreviousTop)
         ESubsystemScope::GameInstance, &Game.EngineSubsystems(),
         FSubsystemOwner{&Game, ESubsystemOwnerKind::Game}));
     FSceneTransitionTrace PreviousTrace{};
-    Game.Scenes().PushScene(MakeUnique<FTransitionProbeScene>(&PreviousTrace));
+    Game.Scenes().PushScene(MakeUnique<ATransitionProbeScene>(&PreviousTrace));
     Game.Scenes()._ApplyPending(Game);
     AScene* const Previous = Game.Scenes().Top();
     EXPECT_TRUE(Previous != nullptr);
 
     const FSubsystemFactory FactoryA{
-        SubsystemKindOf<FWorldHookProbeA>(), ESubsystemScope::World,
-        "FWorldHookProbeA", &CreateWorldHookProbeA,
+        SubsystemKindOf<CWorldHookProbeA>(), ESubsystemScope::World,
+        "CWorldHookProbeA", &CreateWorldHookProbeA,
         ESubsystemTickPhase::None, 1300};
     const FSubsystemFactory FactoryB{
-        SubsystemKindOf<FWorldHookProbeB>(), ESubsystemScope::World,
-        "FWorldHookProbeB", &CreateWorldHookProbeB,
+        SubsystemKindOf<CWorldHookProbeB>(), ESubsystemScope::World,
+        "CWorldHookProbeB", &CreateWorldHookProbeB,
         ESubsystemTickPhase::None, 1301};
     CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     EXPECT_TRUE(Registry.TryRegister(FactoryA));
@@ -2084,7 +2084,7 @@ ACS_TEST(Subsystem, WorldReadyHookGenerationRollbackKeepsPreviousTop)
         Trace.parent = &Game.GameInstanceSubsystems();
         Trace.reinitialize_world = Operation != 0u;
         g_WorldHookReentryTrace = &Trace;
-        TUniquePtr<AScene> Candidate = MakeUnique<FWorldHookReentryScene>(&Trace);
+        TUniquePtr<AScene> Candidate = MakeUnique<AWorldHookReentryScene>(&Trace);
         EXPECT_TRUE(Candidate.Get() != nullptr);
         if (Operation == 0u) Game.Scenes().PushScene(Move(Candidate));
         else Game.Scenes().ChangeScene(Move(Candidate));
@@ -2120,7 +2120,7 @@ ACS_TEST(Subsystem, WorldReadyHookGenerationRollbackKeepsPreviousTop)
 
 ACS_TEST(Subsystem, FailedScenePreparationKeepsPreviousTopUnchanged)
 {
-    FTransitionProbeGame Game;
+    CTransitionProbeGame Game;
     EXPECT_TRUE(Game.EngineSubsystems().TryInitialize(
         ESubsystemScope::Engine, nullptr,
         FSubsystemOwner{&Game, ESubsystemOwnerKind::Application}));
@@ -2128,7 +2128,7 @@ ACS_TEST(Subsystem, FailedScenePreparationKeepsPreviousTopUnchanged)
         ESubsystemScope::GameInstance, &Game.EngineSubsystems(),
         FSubsystemOwner{&Game, ESubsystemOwnerKind::Game}));
     FSceneTransitionTrace PreviousTrace{};
-    Game.Scenes().PushScene(MakeUnique<FTransitionProbeScene>(&PreviousTrace));
+    Game.Scenes().PushScene(MakeUnique<ATransitionProbeScene>(&PreviousTrace));
     Game.Scenes()._ApplyPending(Game);
     AScene* const Previous = Game.Scenes().Top();
     EXPECT_TRUE(Previous != nullptr);
@@ -2142,7 +2142,7 @@ ACS_TEST(Subsystem, FailedScenePreparationKeepsPreviousTopUnchanged)
     EXPECT_TRUE(Registry.TryRegister(Invalid));
 
     FSceneTransitionTrace PushTrace{};
-    Game.Scenes().PushScene(MakeUnique<FTransitionProbeScene>(&PushTrace));
+    Game.Scenes().PushScene(MakeUnique<ATransitionProbeScene>(&PushTrace));
     Game.Scenes()._ApplyPending(Game);
     EXPECT_TRUE(Game.Scenes().Top() == Previous);
     EXPECT_EQ(Game.Scenes().Depth(), 1u);
@@ -2150,7 +2150,7 @@ ACS_TEST(Subsystem, FailedScenePreparationKeepsPreviousTopUnchanged)
     EXPECT_EQ(PushTrace.entered, 0u);
 
     FSceneTransitionTrace ChangeTrace{};
-    Game.Scenes().ChangeScene(MakeUnique<FTransitionProbeScene>(&ChangeTrace));
+    Game.Scenes().ChangeScene(MakeUnique<ATransitionProbeScene>(&ChangeTrace));
     Game.Scenes()._ApplyPending(Game);
     EXPECT_TRUE(Game.Scenes().Top() == Previous);
     EXPECT_EQ(PreviousTrace.exited, 0u);

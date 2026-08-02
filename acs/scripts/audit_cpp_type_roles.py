@@ -34,7 +34,7 @@ ROLE_NAME = re.compile(r"^[ACEFIT][A-Z0-9][A-Za-z0-9]*$")
 OBJECT_MACROS = frozenset({"ACS_OBJECT", "ACS_REGISTER_OBJECT"})
 
 # module単位の走査でも所有objectの継承関係を判定する正規基底。
-EXTERNAL_MANAGED_BASES = frozenset(
+CANONICAL_EXTERNAL_MANAGED_BASES = frozenset(
     {
         "acs::AObject",
         "acs::game::AComponent",
@@ -388,6 +388,13 @@ def _load_registered_type_role_migrations(
 
 
 REGISTERED_TYPE_ROLE_MIGRATIONS = _load_registered_type_role_migrations()
+# 登録済み旧名だけで宣言した所有objectも、正規基底と同じ管理対象として解決する。
+# 互換入口の維持を検査するcompile testは旧綴りを基底に書くため、綴りの違いで役割を変えない。
+EXTERNAL_MANAGED_BASES = CANONICAL_EXTERNAL_MANAGED_BASES | frozenset(
+    legacy
+    for legacy, canonical, _, _, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
+    if legacy is not None and canonical in CANONICAL_EXTERNAL_MANAGED_BASES
+)
 LEGACY_COMPATIBILITY_ALIASES = {
     legacy: canonical for legacy, canonical, _, _, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
     if legacy is not None
@@ -4094,6 +4101,35 @@ EventTypeId LegacyEventType = 0;
             print(
                 "type role external managed base self-test failed: "
                 f"{external_managed_violations}",
+                file=sys.stderr,
+            )
+            return False
+
+        legacy_managed_path = root / "legacy-managed-bases.cpp"
+        legacy_managed_path.write_text(
+            "namespace vendor { class FScene { public: int Value; }; }\n"
+            "namespace legacy_managed {\n"
+            "class ALegacyObjectProbe : public acs::FObject {};\n"
+            "class FLegacyObjectProbe : public acs::FObject {};\n"
+            "class FLegacySceneProbe : public acs::game::FScene {};\n"
+            "class FLegacyScene2DProbe : public acs::game::FScene2D {};\n"
+            "class AUnregisteredLegacyProbe : public vendor::FScene { public: void Run(); };\n"
+            "}",
+            encoding="utf-8",
+        )
+        legacy_managed_violations = scan_tree(legacy_managed_path).violations
+        if [
+            (item.rule, item.qualified_type, item.expected_prefix)
+            for item in legacy_managed_violations
+        ] != [
+            ("ACS-R020c", "legacy_managed::FLegacyObjectProbe", "A"),
+            ("ACS-R020c", "legacy_managed::FLegacySceneProbe", "A"),
+            ("ACS-R020c", "legacy_managed::FLegacyScene2DProbe", "A"),
+            ("ACS-R020c", "legacy_managed::AUnregisteredLegacyProbe", "C"),
+        ]:
+            print(
+                "type role registered legacy managed base self-test failed: "
+                f"{legacy_managed_violations}",
                 file=sys.stderr,
             )
             return False

@@ -2,7 +2,7 @@
 #include "gameframework/Scene.h"
 
 /** Scene.hだけで正規描画コンテキストをoverrideできることを固定する。 */
-class FSceneHeaderFirstConsumer final : public acs::AScene {
+class CSceneHeaderFirstConsumer final : public acs::AScene {
 public:
     void OnRender(acs::FRenderContext&) noexcept override {}
 

@@ -85,7 +85,7 @@ bool WriteTwoRawFiles(const wchar_t* Path, const TArray<u8>& First, const TArray
 }
 
 /** 非同期 ownership 境界を制御できる停止型 loader。 */
-class FBlockingWaveKLoader final : public IAssetLoader {
+class CBlockingWaveKLoader final : public IAssetLoader {
 public:
     /** loader が生成する asset 型を返す。 */
     AssetType TypeId() const noexcept override
@@ -107,7 +107,7 @@ public:
         /** 新規 binary asset の確保結果。 */
         auto Binary = MakeShared<ABinaryAsset>();
         if (!Binary.Get()) {
-            return ACS_ERR(Memory, 1950u, "FBlockingWaveKLoader: allocation failed");
+            return ACS_ERR(Memory, 1950u, "CBlockingWaveKLoader: allocation failed");
         }
         /** interface 型へ昇格した asset。 */
         TSharedPtr<AAsset> Asset(Move(Binary));
@@ -168,7 +168,7 @@ void ReadCompressedAsset(void* User) noexcept
 }
 
 /** 既定 batch fallback の互換性を検証する legacy reader。 */
-class FLegacyAssetPackReader final : public IAssetPackReader {
+class CLegacyAssetPackReader final : public IAssetPackReader {
 public:
     /** 検証 stub を mount 済みにする。 */
     TResult<void> Mount(const char*) noexcept override
@@ -209,10 +209,10 @@ public:
     {
         ++ReadCalls;
         if (std::strcmp(Name, "missing.bin") == 0) {
-            return ACS_ERR(IO, 1951u, "FLegacyAssetPackReader: missing");
+            return ACS_ERR(IO, 1951u, "CLegacyAssetPackReader: missing");
         }
         if (OutBuffer == nullptr || BufferSize < 1u) {
-            return ACS_ERR(IO, 1952u, "FLegacyAssetPackReader: bad buffer");
+            return ACS_ERR(IO, 1952u, "CLegacyAssetPackReader: bad buffer");
         }
         OutBuffer[0] = static_cast<u8>(ReadCalls);
         return Ok();
@@ -231,10 +231,10 @@ enum class EScenePackMode : u8 {
 };
 
 /** Scene dependency の dedup と error 順を観測する reader。 */
-class FScenePackReader final : public IAssetPackReader {
+class CScenePackReader final : public IAssetPackReader {
 public:
     /** 検証動作種別を指定して構築する。 */
-    explicit FScenePackReader(EScenePackMode Mode) noexcept : m_Mode(Mode)
+    explicit CScenePackReader(EScenePackMode Mode) noexcept : m_Mode(Mode)
     {
     }
 
@@ -271,7 +271,7 @@ public:
         /** asset 名へ対応する検証 text。 */
         const char* Text = TextFor(Name);
         if (Text == nullptr) {
-            return ACS_ERR(IO, 1953u, "FScenePackReader: missing size");
+            return ACS_ERR(IO, 1953u, "CScenePackReader: missing size");
         }
         return TResult<u64>(OkInit, static_cast<u64>(std::strlen(Text)));
     }
@@ -280,17 +280,17 @@ public:
     TResult<void> ReadFile(const char* Name, u8* OutBuffer, u64 BufferSize) noexcept override
     {
         if (std::strcmp(Name, "materials/missing.acsmat") == 0) {
-            return ACS_ERR(IO, 1954u, "FScenePackReader: missing data");
+            return ACS_ERR(IO, 1954u, "CScenePackReader: missing data");
         }
         /** asset 名へ対応する検証 text。 */
         const char* Text = TextFor(Name);
         if (Text == nullptr) {
-            return ACS_ERR(IO, 1955u, "FScenePackReader: unknown path");
+            return ACS_ERR(IO, 1955u, "CScenePackReader: unknown path");
         }
         /** NUL を除く検証 text の byte 数。 */
         const usize Size = std::strlen(Text);
         if (OutBuffer == nullptr || BufferSize < Size) {
-            return ACS_ERR(IO, 1956u, "FScenePackReader: bad buffer");
+            return ACS_ERR(IO, 1956u, "CScenePackReader: bad buffer");
         }
         if (std::strcmp(Name, "main.acscene") != 0) ++DependencyReadCalls;
         MemCopy(OutBuffer, Text, Size);
@@ -439,7 +439,7 @@ ACS_TEST(FoundationOptimizationWaveK, AsyncPathOwnershipSkipsHotHitsAndSurvivesS
     EXPECT_TRUE(CThreadPool::Init(2u).IsOk());
 
     /** 非同期 job の完了境界を制御する loader。 */
-    FBlockingWaveKLoader Loader;
+    CBlockingWaveKLoader Loader;
     /** path ownership と coalescing を検証する registry。 */
     CAssetRegistry Registry;
     Registry.RegisterLoader(&Loader);
@@ -520,7 +520,7 @@ ACS_TEST(FoundationOptimizationWaveK, AsyncPathOwnershipSkipsHotHitsAndSurvivesS
 ACS_TEST(FoundationOptimizationWaveK, LegacyBatchFallbackReportsPartialCommit)
 {
     /** 既定 batch fallback を使う legacy reader。 */
-    FLegacyAssetPackReader Reader;
+    CLegacyAssetPackReader Reader;
     /** 先頭成功 request の出力。 */
     u8 First = 0xCCu;
     /** 失敗 request の未変更出力。 */
@@ -794,7 +794,7 @@ ACS_TEST(FoundationOptimizationWaveK, CompressedScratchIsBoundedAndConcurrentSaf
 ACS_TEST(FoundationOptimizationWaveK, SceneDependenciesDeduplicateAndKeepErrorOrder)
 {
     /** 同一 material の共有を返す reader。 */
-    FScenePackReader SharedReader(EScenePackMode::SharedDependency);
+    CScenePackReader SharedReader(EScenePackMode::SharedDependency);
     /** shared dependency の load 先 scene。 */
     CScene3D SharedScene;
     /** shared dependency scene の load 結果。 */
@@ -806,7 +806,7 @@ ACS_TEST(FoundationOptimizationWaveK, SceneDependenciesDeduplicateAndKeepErrorOr
     EXPECT_EQ(SharedReader.DependencyReadCalls, 1u);
 
     /** 先行 decode と後続 read を失敗させる reader。 */
-    FScenePackReader FailureReader(EScenePackMode::EarlierDecodeFailure);
+    CScenePackReader FailureReader(EScenePackMode::EarlierDecodeFailure);
     /** transaction 不変性を確認する既存 node 付き scene。 */
     CScene3D FailureScene;
     FailureScene.Spawn(FStringView("Keep"));

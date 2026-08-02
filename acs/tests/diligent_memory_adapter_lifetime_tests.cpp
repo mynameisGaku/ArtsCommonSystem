@@ -10,13 +10,13 @@ using namespace acs;
 namespace {
 
 /** 寿命世代と VM 保護をテスト側から制御できる allocator。 */
-class FLifetimeTestAllocator final : public IAllocator {
+class CLifetimeTestAllocator final : public IAllocator {
 public:
-    explicit FLifetimeTestAllocator(u64 lifetime_generation) noexcept : m_LifetimeGeneration(lifetime_generation)
+    explicit CLifetimeTestAllocator(u64 lifetime_generation) noexcept : m_LifetimeGeneration(lifetime_generation)
     {
     }
 
-    ~FLifetimeTestAllocator() noexcept override
+    ~CLifetimeTestAllocator() noexcept override
     {
         if (m_Allocation) {
             (void)::VirtualFree(m_Allocation, 0, MEM_RELEASE);
@@ -104,7 +104,7 @@ bool TextEquals(const char* left, const char* right) noexcept
 
 int RunStaleLifetimeTest()
 {
-    FLifetimeTestAllocator allocator(1u);
+    CLifetimeTestAllocator allocator(1u);
     void* const raw_adapter = CDiligentMemoryAdapter::Create(&allocator);
     if (!raw_adapter) return 81;
 
@@ -135,7 +135,7 @@ int RunStaleLifetimeTest()
 
 int RunGenerationChangeDuringFreeTest()
 {
-    FLifetimeTestAllocator allocator(1u);
+    CLifetimeTestAllocator allocator(1u);
     void* const raw_adapter = CDiligentMemoryAdapter::Create(&allocator);
     if (!raw_adapter) return 91;
 

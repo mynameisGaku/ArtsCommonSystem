@@ -12,13 +12,13 @@ void AcceptLegacySampleApplication(acs::FApplication*) noexcept;
 #include "gameframework/Game.h"
 
 /** Game.hだけで正規AScene戻り値をoverrideできることを固定する。 */
-class FGameHeaderFirstConsumer : public acs::CGame {
+class CGameHeaderFirstConsumer : public acs::CGame {
 protected:
     acs::TUniquePtr<acs::AScene> InitialScene() noexcept override = 0;
 };
 
 /** Game.h 単独で旧ゲーム名と旧シーン名を利用できることを固定する。 */
-class FLegacyGameHeaderFirstConsumer : public acs::FGame {
+class CLegacyGameHeaderFirstConsumer : public acs::FGame {
 protected:
     acs::TUniquePtr<acs::FScene> InitialScene() noexcept override = 0;
 };
@@ -28,42 +28,42 @@ protected:
 namespace acs::game {
 
 /** 旧namespace配置でlegacy登録macroを検証する型。 */
-class FLegacyNamespaceMacroSubsystem final : public ASubsystem {
+class CLegacyNamespaceMacroSubsystem final : public ASubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(FLegacyNamespaceMacroSubsystem)
+    ACS_GAME_SUBSYSTEM_KIND(CLegacyNamespaceMacroSubsystem)
 };
 
 } // namespace acs::game
 
 /** global配置でlegacy登録macroを検証する型。 */
-class FGlobalMacroSubsystem final : public acs::ASubsystem {
+class CGlobalMacroSubsystem final : public acs::ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FGlobalMacroSubsystem)
+    ACS_SUBSYSTEM_KIND(CGlobalMacroSubsystem)
 };
 
 /** サブシステム基底の旧診断名を固定する検証型。 */
-class FDefaultSubsystemNameProbe final : public acs::ASubsystem {
+class CDefaultSubsystemNameProbe final : public acs::ASubsystem {
 public:
     /** 検証型固有のサブシステム種別を返す。 */
     const void* Kind() const noexcept override
     {
-        return acs::SubsystemKindOf<FDefaultSubsystemNameProbe>();
+        return acs::SubsystemKindOf<CDefaultSubsystemNameProbe>();
     }
 };
 
 namespace acs {
 
 /** canonical namespace配置でlegacy登録macroを検証する型。 */
-class FCanonicalNamespaceMacroSubsystem final : public ASubsystem {
+class CCanonicalNamespaceMacroSubsystem final : public ASubsystem {
 public:
-    ACS_SUBSYSTEM_KIND(FCanonicalNamespaceMacroSubsystem)
+    ACS_SUBSYSTEM_KIND(CCanonicalNamespaceMacroSubsystem)
 };
 
 } // namespace acs
 
-ACS_REGISTER_SUBSYSTEM(FLegacyNamespaceMacroSubsystem, ::acs::ESubsystemScope::Engine)
-ACS_REGISTER_SUBSYSTEM(FGlobalMacroSubsystem, ::acs::ESubsystemScope::Engine)
-ACS_REGISTER_SUBSYSTEM(FCanonicalNamespaceMacroSubsystem, ::acs::ESubsystemScope::Engine)
+ACS_REGISTER_SUBSYSTEM(CLegacyNamespaceMacroSubsystem, ::acs::ESubsystemScope::Engine)
+ACS_REGISTER_SUBSYSTEM(CGlobalMacroSubsystem, ::acs::ESubsystemScope::Engine)
+ACS_REGISTER_SUBSYSTEM(CCanonicalNamespaceMacroSubsystem, ::acs::ESubsystemScope::Engine)
 
 #include "subsystem/Subsystem.h"
 #include "subsystem/SubsystemCollection.h"
@@ -172,6 +172,6 @@ ACS_TEST(SubsystemCanonicalHeaders, TopLevelAndCompatibilityNamesMatch)
 {
     EXPECT_TRUE((std::is_same_v<acs::game::ASubsystem, acs::ASubsystem>));
     /** 既定診断名を確認する基底実装の検証値。 */
-    FDefaultSubsystemNameProbe Probe;
+    CDefaultSubsystemNameProbe Probe;
     EXPECT_TRUE(std::strcmp(Probe.Name(), "FSubsystem") == 0);
 }

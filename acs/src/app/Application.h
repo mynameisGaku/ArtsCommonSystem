@@ -36,7 +36,7 @@
 namespace acs {
 
 namespace app_internal {
-class FApplicationTestAccess;
+class CApplicationTestAccess;
 }
 
 /**
@@ -309,7 +309,7 @@ private:
         FCrtDebugHeapScope CrtHeapScope;
     };
 
-    friend class app_internal::FApplicationTestAccess;
+    friend class app_internal::CApplicationTestAccess;
 
     /**
      * FWindow のイベントを CInput に流しつつ OnEvent も呼ぶ静的ブリッジ。

@@ -17,7 +17,7 @@ using namespace acs;
 namespace {
 
 /** allocation 前の破損入力拒否と OOM 伝播を区別する失敗 allocator。 */
-class FCountingFailAllocator final : public IAllocator
+class CCountingFailAllocator final : public IAllocator
 {
 public:
     void* Alloc(usize /*Size*/, usize /*Alignment*/, FSourceLoc /*Location*/) noexcept override
@@ -131,7 +131,7 @@ ACS_TEST(AcpakLifetime, RejectsHugeFileCountBeforeAllocation)
     WriteU64(Bytes + 24, assetpack::kAcpakHeaderDiskSize);
     EXPECT_TRUE(CFileSystem::WriteAllBytes(kPath, Bytes, sizeof(Bytes)).IsOk());
 
-    FCountingFailAllocator Allocator;
+    CCountingFailAllocator Allocator;
     assetpack::CAcpakReader Reader(Allocator);
     const auto OpenResult = Reader.Open(kPath);
     EXPECT_TRUE(OpenResult.IsErr());
@@ -156,7 +156,7 @@ ACS_TEST(AcpakLifetime, PropagatesReaderAllocationFailure)
     EXPECT_TRUE(Writer.Finalize().IsOk());
     Writer.Close();
 
-    FCountingFailAllocator Allocator;
+    CCountingFailAllocator Allocator;
     assetpack::CAcpakReader Reader(Allocator);
     const auto OpenResult = Reader.Open(kPath);
     EXPECT_TRUE(OpenResult.IsErr());
@@ -176,7 +176,7 @@ ACS_TEST(AcpakLifetime, PropagatesWriterInputCopyAllocationFailure)
     constexpr u8 kPayload[] = {9, 8, 7};
     (void)CFileSystem::Delete(kPath);
 
-    FCountingFailAllocator Allocator;
+    CCountingFailAllocator Allocator;
     assetpack::CAcpakWriter Writer(Allocator);
     EXPECT_TRUE(Writer.Open(kPath, assetpack::AcpakFlagNone).IsOk());
     const auto AddResult = Writer.AddFile(L"oom/data.bin", kPayload, sizeof(kPayload));

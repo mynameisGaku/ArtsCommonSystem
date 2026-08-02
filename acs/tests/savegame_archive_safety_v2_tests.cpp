@@ -19,7 +19,7 @@ constexpr u16 SaveSub(ESaveArchiveSubCode code) noexcept {
     return static_cast<u16>(static_cast<u32>(code));
 }
 
-class FAlwaysFailAllocator final : public IAllocator {
+class CAlwaysFailAllocator final : public IAllocator {
 public:
     void* Alloc(usize, usize, FSourceLoc) noexcept override { return nullptr; }
     void Free(void*) noexcept override {}
@@ -281,7 +281,7 @@ ACS_TEST(SaveGameArchiveSafetyV2, TryInitOwnsTemporaryPath) {
 }
 
 ACS_TEST(SaveGameArchiveSafetyV2, TryInitOomPreservesBorrowedPath) {
-    FAlwaysFailAllocator allocator;
+    CAlwaysFailAllocator allocator;
     TSaveSlot<FSlotPayload> slot(allocator);
     constexpr wchar_t original[] = L"original.acssave";
     slot.Init(original);

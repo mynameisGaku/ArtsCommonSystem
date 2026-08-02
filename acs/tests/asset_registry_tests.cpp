@@ -15,7 +15,7 @@ namespace {
 
 constexpr const wchar_t* kAsyncAssetPath = L"acs_asset_registry_lifetime_test.tmp";
 
-class FBlockingAssetLoader final : public IAssetLoader {
+class CBlockingAssetLoader final : public IAssetLoader {
 public:
     AssetType TypeId() const noexcept override
     {
@@ -64,7 +64,7 @@ ACS_TEST(FAssetRegistry, DestructorWaitsForAsyncLoad)
     const byte file_data[] = {1, 2, 3, 4};
     EXPECT_TRUE(CFileSystem::WriteAllBytes(kAsyncAssetPath, file_data, sizeof(file_data)).IsOk());
 
-    FBlockingAssetLoader loader;
+    CBlockingAssetLoader loader;
     auto* registry = new CAssetRegistry();
     EXPECT_TRUE(registry != nullptr);
     if (!registry) {
@@ -107,7 +107,7 @@ ACS_TEST(FAssetRegistry, ConcurrentSamePathAsyncLoadsShareOneJobAndIdentity)
     const byte file_data[] = {9, 8, 7, 6};
     EXPECT_TRUE(CFileSystem::WriteAllBytes(kAsyncAssetPath, file_data, sizeof(file_data)).IsOk());
 
-    FBlockingAssetLoader loader;
+    CBlockingAssetLoader loader;
     CAssetRegistry registry;
     registry.RegisterLoader(&loader);
 
@@ -137,7 +137,7 @@ ACS_TEST(FAssetRegistry, ConcurrentSamePathAsyncLoadsShareOneJobAndIdentity)
 
 ACS_TEST(FAssetRegistry, ShutdownClosesLoadGate)
 {
-    FBlockingAssetLoader loader;
+    CBlockingAssetLoader loader;
     CAssetRegistry registry;
     registry.RegisterLoader(&loader);
     registry.Shutdown();
@@ -152,7 +152,7 @@ ACS_TEST(FAssetRegistry, ShutdownClosesLoadGate)
 ACS_TEST(FAssetRegistry, RestartPreservesInjectedAllocatorAndReopensGate)
 {
     CSystemAllocator allocator;
-    FBlockingAssetLoader loader;
+    CBlockingAssetLoader loader;
     CAssetRegistry registry(allocator);
 
     registry.RegisterLoader(&loader);

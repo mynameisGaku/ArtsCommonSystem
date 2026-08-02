@@ -37,7 +37,7 @@ DWORD QueryVirtualMemoryState(const void* Address) noexcept
 }
 
 /** 16 バイト整列を守りつつ、64 バイト境界から意図的にずらす backing。 */
-class FMisalignedRelocatableBacking final : public IAllocator {
+class CMisalignedRelocatableBacking final : public IAllocator {
 public:
     void* Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept override
     {
@@ -1199,7 +1199,7 @@ ACS_TEST(MemSystem, RelocatableBasicCompact)
 
 ACS_TEST(MemSystem, RelocatableUsesAbsoluteAlignmentAndInvalidatesPreviousLifetime)
 {
-    FMisalignedRelocatableBacking Backing;
+    CMisalignedRelocatableBacking Backing;
     CRelocatableAllocator Allocator;
     EXPECT_TRUE(Allocator.Init(4096u, 16u, &Backing).IsOk());
 

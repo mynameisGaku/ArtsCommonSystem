@@ -36,9 +36,9 @@ constexpr char kCanonicalTheme[] =
     "warning 0.90 0.60 0.10 1\n"
     "error 0.90 0.10 0.20 1\n";
 
-class FTestPanel final : public AEditorPanel {
+class CTestPanel final : public AEditorPanel {
 public:
-    explicit FTestPanel(const char* title = "PanelA") noexcept
+    explicit CTestPanel(const char* title = "PanelA") noexcept
         : m_Title(title) {}
 
     const char* Title() const noexcept override { return m_Title; }
@@ -48,16 +48,16 @@ private:
     const char* m_Title = nullptr;
 };
 
-class FImGuiContextScope {
+class CImGuiContextScope {
 public:
-    FImGuiContextScope() noexcept
+    CImGuiContextScope() noexcept
         : m_Previous(ImGui::GetCurrentContext()) {
         if (m_Previous == nullptr) {
             m_Owned = ImGui::CreateContext();
         }
     }
 
-    ~FImGuiContextScope() noexcept {
+    ~CImGuiContextScope() noexcept {
         if (m_Owned != nullptr) {
             ImGui::DestroyContext(m_Owned);
         } else {
@@ -153,11 +153,11 @@ ACS_TEST(EditorCorePersistenceSafety, ThemeRejectsHostileTextTransactionally) {
 }
 
 ACS_TEST(EditorCorePersistenceSafety, WorkspaceCommitsOnlyAfterFullValidation) {
-    FImGuiContextScope imgui;
+    CImGuiContextScope imgui;
     EXPECT_TRUE(imgui.IsValid());
     if (!imgui.IsValid()) return;
 
-    FTestPanel panel;
+    CTestPanel panel;
     CEditorWorkspace workspace;
     workspace.RegisterPanel(&panel);
     panel.SetVisible(true);
@@ -198,7 +198,7 @@ ACS_TEST(EditorCorePersistenceSafety, WorkspaceCommitsOnlyAfterFullValidation) {
 }
 
 ACS_TEST(EditorCorePersistenceSafety, WorkspaceTitleWithSpacesRoundTripsV1) {
-    FImGuiContextScope imgui;
+    CImGuiContextScope imgui;
     EXPECT_TRUE(imgui.IsValid());
     if (!imgui.IsValid()) return;
 
@@ -206,7 +206,7 @@ ACS_TEST(EditorCorePersistenceSafety, WorkspaceTitleWithSpacesRoundTripsV1) {
     MakeEditorCoreTempPath(
         path, sizeof(path) / sizeof(path[0]), L"layout.acslayout");
 
-    FTestPanel panel("Panel With Spaces");
+    CTestPanel panel("Panel With Spaces");
     CEditorWorkspace workspace;
     workspace.RegisterPanel(&panel);
     panel.SetVisible(false);
@@ -234,7 +234,7 @@ ACS_TEST(EditorCorePersistenceSafety, WorkspaceTitleWithSpacesRoundTripsV1) {
 /** NUL 終端を持たない空 ImGui ini を明示長のまま安全に読み込めることを検証する。 */
 ACS_TEST(EditorCorePersistenceSafety, WorkspaceLoadsNonNullTerminatedEmptyIni) {
     /** ImGui 設定を反映する一時 context。 */
-    FImGuiContextScope imgui;
+    CImGuiContextScope imgui;
     EXPECT_TRUE(imgui.IsValid());
     if (!imgui.IsValid()) return;
 
@@ -258,11 +258,11 @@ ACS_TEST(EditorCorePersistenceSafety, WorkspaceLoadsNonNullTerminatedEmptyIni) {
 }
 
 ACS_TEST(EditorCorePersistenceSafety, WorkspaceRejectsInvalidPanelTitles) {
-    FImGuiContextScope imgui;
+    CImGuiContextScope imgui;
     EXPECT_TRUE(imgui.IsValid());
     if (!imgui.IsValid()) return;
 
-    FTestPanel panel("Panel Name");
+    CTestPanel panel("Panel Name");
     CEditorWorkspace workspace;
     workspace.RegisterPanel(&panel);
     panel.SetVisible(true);
@@ -349,7 +349,7 @@ ACS_TEST(EditorCorePersistenceSafety, WorkspaceRejectsInvalidPanelTitles) {
         "NonAscii" "\xc3\xa9",
     };
     for (const char* invalid_title : invalid_titles) {
-        FTestPanel invalid_panel(invalid_title);
+        CTestPanel invalid_panel(invalid_title);
         CEditorWorkspace invalid_workspace;
         invalid_workspace.RegisterPanel(&invalid_panel);
         result = invalid_workspace.TrySaveLayout(path);

@@ -866,6 +866,8 @@ add_custom_target(acs_type_roles_check
             --root "${ACS_SOURCE_ROOT}/scripting"
             --migration-debt "${ACS_CPP_TYPE_ROLES_DEBT}"
     COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+            --root "${ACS_TREE_ROOT}/tests"
+    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
             --root "${ACS_TREE_ROOT}/samples"
     COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_PREFIX_CONSUMERS_AUDIT}"
             --self-test
@@ -894,6 +896,9 @@ add_test(NAME ACS.ScriptingTypeRoleAudit
          COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
                  --root "${ACS_SOURCE_ROOT}/scripting"
                  --migration-debt "${ACS_CPP_TYPE_ROLES_DEBT}")
+add_test(NAME ACS.TestTypeRoleAudit
+         COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+                 --root "${ACS_TREE_ROOT}/tests")
 add_test(NAME ACS.SampleTypeRoleAudit
          COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
                  --root "${ACS_TREE_ROOT}/samples")
@@ -902,6 +907,7 @@ set_tests_properties(
     ACS.EventTypeRoleAudit
     ACS.EcsTypeRoleAudit
     ACS.ScriptingTypeRoleAudit
+    ACS.TestTypeRoleAudit
     ACS.SampleTypeRoleAudit
     PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
 set_tests_properties(

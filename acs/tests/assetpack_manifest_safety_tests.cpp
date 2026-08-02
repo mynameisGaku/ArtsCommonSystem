@@ -49,9 +49,9 @@ bool WritePack(const wchar_t* Path, const wchar_t* VirtualPath,
     return Writer.Finalize().IsOk();
 }
 
-class FNamedLoader final : public IAssetLoader {
+class CNamedLoader final : public IAssetLoader {
 public:
-    explicit FNamedLoader(const char* Extension) noexcept : m_Extension(Extension) {}
+    explicit CNamedLoader(const char* Extension) noexcept : m_Extension(Extension) {}
 
     AssetType TypeId() const noexcept override { return ABinaryAsset::StaticType(); }
     const char* Extension() const noexcept override { return m_Extension; }
@@ -64,7 +64,7 @@ private:
     const char* m_Extension = nullptr;
 };
 
-class FFailAllocator final : public IAllocator {
+class CFailAllocator final : public IAllocator {
 public:
     void* Alloc(usize, usize, FSourceLoc) noexcept override { return nullptr; }
     void Free(void*) noexcept override {}
@@ -245,9 +245,9 @@ ACS_TEST(AcpakManifestSafety, AbortedWriterLeavesExistingArchiveUntouched)
 
 ACS_TEST(AssetRegistrySafety, CheckedLoaderRegistrationClassifiesFailures)
 {
-    FNamedLoader Valid("safe_ext");
-    FNamedLoader Duplicate("safe_ext");
-    FNamedLoader Invalid("UPPER");
+    CNamedLoader Valid("safe_ext");
+    CNamedLoader Duplicate("safe_ext");
+    CNamedLoader Invalid("UPPER");
     CAssetRegistry Registry;
 
     EXPECT_TRUE(Registry.TryRegisterLoader(&Valid).IsOk());
@@ -262,7 +262,7 @@ ACS_TEST(AssetRegistrySafety, CheckedLoaderRegistrationClassifiesFailures)
         EXPECT_EQ(InvalidResult.Error().subcode, kAssetRegistrySubInvalidExtension);
     }
 
-    FFailAllocator Allocator;
+    CFailAllocator Allocator;
     CAssetRegistry OomRegistry(Allocator);
     const auto OomResult = OomRegistry.TryRegisterLoader(&Valid);
     EXPECT_TRUE(OomResult.IsErr());

@@ -40,9 +40,9 @@ void RecordEnd(
     events.end_misses = misses;
 }
 
-class FSwitchableBeatAllocator final : public IAllocator {
+class CSwitchableBeatAllocator final : public IAllocator {
 public:
-    explicit FSwitchableBeatAllocator(IAllocator& backing) noexcept
+    explicit CSwitchableBeatAllocator(IAllocator& backing) noexcept
         : m_Backing(&backing) {
     }
 
@@ -262,7 +262,7 @@ ACS_TEST(BeatGridSafety, CheckedLoadRejectsInvalidValuesTransactionally) {
 
 ACS_TEST(BeatGridSafety, AllocationFailurePreservesExistingChart) {
     CSystemAllocator backing;
-    FSwitchableBeatAllocator allocator(backing);
+    CSwitchableBeatAllocator allocator(backing);
     CBeatGrid grid(allocator);
     const FBeatNote original{0.0f, EBeatLane::Up, false, 0.0f};
     const FBeatNote replacement[] = {

@@ -21,10 +21,10 @@ using namespace acs::game;
 
 namespace {
 
-class FOwnershipAllocator final : public IAllocator {
+class COwnershipAllocator final : public IAllocator {
 public:
     struct FHeader {
-        FOwnershipAllocator* owner;
+        COwnershipAllocator* owner;
         void* raw;
         usize size;
     };
@@ -58,7 +58,7 @@ public:
     {
         if (Pointer == nullptr) return;
         auto* const AllocationHeader = reinterpret_cast<FHeader*>(reinterpret_cast<usize>(Pointer) - sizeof(FHeader));
-        FOwnershipAllocator* const Owner = AllocationHeader->owner;
+        COwnershipAllocator* const Owner = AllocationHeader->owner;
         if (Owner != this) ++foreign_free_count;
         if (Owner == nullptr) return;
         Owner->outstanding_bytes -= AllocationHeader->size;
@@ -82,20 +82,20 @@ public:
     bool fail_allocations = false;
 };
 
-class FDefaultAllocatorScope {
+class CDefaultAllocatorScope {
 public:
-    explicit FDefaultAllocatorScope(IAllocator& Allocator) noexcept : previous(&DefaultAllocator())
+    explicit CDefaultAllocatorScope(IAllocator& Allocator) noexcept : previous(&DefaultAllocator())
     {
         SetDefaultAllocator(&Allocator);
     }
 
-    ~FDefaultAllocatorScope() noexcept
+    ~CDefaultAllocatorScope() noexcept
     {
         SetDefaultAllocator(previous);
     }
 
-    FDefaultAllocatorScope(const FDefaultAllocatorScope&) = delete;
-    FDefaultAllocatorScope& operator=(const FDefaultAllocatorScope&) = delete;
+    CDefaultAllocatorScope(const CDefaultAllocatorScope&) = delete;
+    CDefaultAllocatorScope& operator=(const CDefaultAllocatorScope&) = delete;
 
 private:
     IAllocator* previous;
@@ -109,9 +109,9 @@ struct FPoolValue {
 };
 
 #if WITH_RENDER_DX12_RAW
-class FOwnershipCommand final : public editor_core::AEditorCommand {
+class COwnershipCommand final : public editor_core::AEditorCommand {
 public:
-    explicit FOwnershipCommand(i32* Value) noexcept : m_Value(Value)
+    explicit COwnershipCommand(i32* Value) noexcept : m_Value(Value)
     {
     }
 
@@ -139,9 +139,9 @@ private:
 
 ACS_TEST(AllocatorOwnership, ParticlePoolReturnsToOriginalAllocator)
 {
-    FOwnershipAllocator First;
-    FOwnershipAllocator Second;
-    FDefaultAllocatorScope RestoreScope(First);
+    COwnershipAllocator First;
+    COwnershipAllocator Second;
+    CDefaultAllocatorScope RestoreScope(First);
 
     CParticleSystem Particles;
     const auto InitializationResult = Particles.Init(64);
@@ -158,9 +158,9 @@ ACS_TEST(AllocatorOwnership, ParticlePoolReturnsToOriginalAllocator)
 
 ACS_TEST(AllocatorOwnership, ParticleInitFailureLeavesEmptyState)
 {
-    FOwnershipAllocator FailingAllocator;
+    COwnershipAllocator FailingAllocator;
     FailingAllocator.fail_allocations = true;
-    FDefaultAllocatorScope RestoreScope(FailingAllocator);
+    CDefaultAllocatorScope RestoreScope(FailingAllocator);
 
     CParticleSystem Particles;
     const auto InitializationResult = Particles.Init(64);
@@ -173,15 +173,15 @@ ACS_TEST(AllocatorOwnership, ParticleInitFailureLeavesEmptyState)
 
 ACS_TEST(AllocatorOwnership, DevConsoleUsesConstructionAllocator)
 {
-    FOwnershipAllocator First;
-    FOwnershipAllocator Second;
+    COwnershipAllocator First;
+    COwnershipAllocator Second;
     {
         CDevConsole Console(First);
         Console.PushHistory("allocator ownership");
         Console.Log("diagnostic line");
         EXPECT_TRUE(First.outstanding_allocations > 0u);
 
-        FDefaultAllocatorScope RestoreScope(Second);
+        CDefaultAllocatorScope RestoreScope(Second);
         Console.Clear();
         EXPECT_EQ(Second.foreign_free_count, 0u);
     }
@@ -193,7 +193,7 @@ ACS_TEST(AllocatorOwnership, DevConsoleUsesConstructionAllocator)
 
 ACS_TEST(AllocatorOwnership, ObjectPoolReleasesAllStorageAndInvalidatesHandles)
 {
-    FOwnershipAllocator Allocator;
+    COwnershipAllocator Allocator;
     TObjectPool<FPoolValue> Pool(Allocator);
 
     const FObjectHandle FirstHandle = Pool.Create(7);
@@ -232,18 +232,18 @@ ACS_TEST(AllocatorOwnership, ObjectPoolReleasesAllStorageAndInvalidatesHandles)
 #if WITH_RENDER_DX12_RAW
 ACS_TEST(AllocatorOwnership, UndoStackKeepsCommandAllocator)
 {
-    FOwnershipAllocator First;
-    FOwnershipAllocator Second;
+    COwnershipAllocator First;
+    COwnershipAllocator Second;
     i32 Value = 0;
 
     {
         editor_core::CUndoStack Stack;
-        auto Command = MakeUniqueIn<FOwnershipCommand>(First, &Value);
+        auto Command = MakeUniqueIn<COwnershipCommand>(First, &Value);
         EXPECT_TRUE(static_cast<bool>(Command));
         Stack.Push(TUniquePtr<editor_core::AEditorCommand>(Move(Command)));
         EXPECT_EQ(Value, 1);
 
-        FDefaultAllocatorScope RestoreScope(Second);
+        CDefaultAllocatorScope RestoreScope(Second);
         Stack.Clear();
         EXPECT_EQ(Second.foreign_free_count, 0u);
     }
@@ -256,9 +256,9 @@ ACS_TEST(AllocatorOwnership, UndoStackKeepsCommandAllocator)
 
 ACS_TEST(AllocatorOwnership, EasyClosureReturnsToCreationAllocator)
 {
-    FOwnershipAllocator First;
-    FOwnershipAllocator Second;
-    FDefaultAllocatorScope RestoreScope(First);
+    COwnershipAllocator First;
+    COwnershipAllocator Second;
+    CDefaultAllocatorScope RestoreScope(First);
     i32 InvocationCount = 0;
 
     auto* const Closure = easy::jobdetail::MakeClosure([&InvocationCount]() noexcept { ++InvocationCount; });

@@ -12,15 +12,15 @@ using namespace acs::game;
 
 namespace {
 
-class FSpritePackFailAllocator final : public IAllocator {
+class CSpritePackFailAllocator final : public IAllocator {
 public:
     void* Alloc(usize, usize, FSourceLoc) noexcept override { return nullptr; }
     void Free(void*) noexcept override {}
 };
 
-class FSpritePackSwitchAllocator final : public IAllocator {
+class CSpritePackSwitchAllocator final : public IAllocator {
 public:
-    explicit FSpritePackSwitchAllocator(IAllocator& backing) noexcept
+    explicit CSpritePackSwitchAllocator(IAllocator& backing) noexcept
         : m_Backing(&backing) {}
 
     void SetFailing(bool failing) noexcept { m_Failing = failing; }
@@ -188,7 +188,7 @@ ACS_TEST(SpritePackSafety, LimitsAndAllocationFailureAreReportedWithoutCommit)
         pack.TryLoadAtlasJson(deep, sizeof(deep)).Error,
         ESpritePackLoadError::JsonDepthExceeded);
 
-    FSpritePackFailAllocator allocator;
+    CSpritePackFailAllocator allocator;
     FSpritePack failing_pack(allocator);
     const FSpritePackLoadResult oom =
         failing_pack.TryLoadAtlasJson(kValidAtlas, std::strlen(kValidAtlas));
@@ -200,7 +200,7 @@ ACS_TEST(SpritePackSafety, LimitsAndAllocationFailureAreReportedWithoutCommit)
 ACS_TEST(SpritePackSafety, AllocationFailurePreservesExistingStorageAndPointers)
 {
     CSystemAllocator backing;
-    FSpritePackSwitchAllocator allocator(backing);
+    CSpritePackSwitchAllocator allocator(backing);
     FSpritePack pack(allocator);
     EXPECT_TRUE(
         pack.TryLoadAtlasJson(kValidAtlas, std::strlen(kValidAtlas)).Succeeded());

@@ -23,7 +23,7 @@ namespace {
 constexpr wchar_t kSystemAllocatorGenerationProbeEnvironment[] = L"ACS_INTERNAL_SYSTEM_ALLOCATOR_GENERATION_PROBE";
 
 /** Arena のページ確保を任意の 1 回だけ停止し、Reset との順序を決定的に検証する backing。 */
-class FBlockingArenaBacking final : public IAllocator {
+class CBlockingArenaBacking final : public IAllocator {
 public:
     /** 次の Alloc を ResumeBlockedAllocation が呼ばれるまで停止する。 */
     void BlockNextAllocation() noexcept
@@ -868,7 +868,7 @@ ACS_TEST(Memory, ArenaLargeAlignmentIsBounded)
 ACS_TEST(Memory, ArenaResetWaitsForActiveAllocationAndRejectsNewAllocation)
 {
     constexpr usize kPageSize = 1u * 1024u * 1024u;
-    FBlockingArenaBacking Backing;
+    CBlockingArenaBacking Backing;
     CArenaAllocator Arena(kPageSize, &Backing);
     EXPECT_TRUE(Arena.Alloc(64u, 16u, FSourceLoc::Current()) != nullptr);
 

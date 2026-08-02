@@ -43,10 +43,10 @@ using namespace acs;
 namespace {
 
 /** PSO key の shader 内容比較に使う固定 shader。 */
-class FPipelineKeyTestShader final : public IRhiShader {
+class CPipelineKeyTestShader final : public IRhiShader {
 public:
     /** shader stage を保持する。 */
-    explicit FPipelineKeyTestShader(EShaderStage stage, byte marker = 4u) noexcept : m_Stage(stage) { m_Bytecode[3] = marker; }
+    explicit CPipelineKeyTestShader(EShaderStage stage, byte marker = 4u) noexcept : m_Stage(stage) { m_Bytecode[3] = marker; }
 
     /** 固定 stage を返す。 */
     EShaderStage Stage() const noexcept override { return m_Stage; }
@@ -159,10 +159,10 @@ ACS_TEST(Render, ShaderLayoutMetadataAndPipelineKeyCacheAreDeterministic)
     char first_texture[] = "BaseColor";
     char same_texture[] = "BaseColor";
     // 有効 RT 状態を持たせる pixel shader。
-    FPipelineKeyTestShader pixel_shader(EShaderStage::Pixel);
-    FPipelineKeyTestShader same_pixel_shader(EShaderStage::Pixel);
-    FPipelineKeyTestShader changed_bytecode_shader(EShaderStage::Pixel, 5u);
-    FPipelineKeyTestShader changed_stage_shader(EShaderStage::Vertex);
+    CPipelineKeyTestShader pixel_shader(EShaderStage::Pixel);
+    CPipelineKeyTestShader same_pixel_shader(EShaderStage::Pixel);
+    CPipelineKeyTestShader changed_bytecode_shader(EShaderStage::Pixel, 5u);
+    CPipelineKeyTestShader changed_stage_shader(EShaderStage::Vertex);
     FPipelineDesc first{};
     first.ps = &pixel_shader;
     first.cbuffer_slots = 2u;

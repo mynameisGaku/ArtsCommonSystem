@@ -10,7 +10,7 @@ using namespace acs::game;
 
 namespace {
 
-class FMockScriptVm final : public IScriptVm {
+class CMockScriptVm final : public IScriptVm {
 public:
     TResult<void> Init() noexcept override { return Ok(); }
     void Shutdown() noexcept override {}
@@ -142,7 +142,7 @@ private:
 
 ACS_TEST(ScriptHostSafety, SourceValidationPrecedesBackendExecution)
 {
-    FMockScriptVm vm;
+    CMockScriptVm vm;
     CScriptHost host;
     host.Init(&vm);
 
@@ -176,7 +176,7 @@ ACS_TEST(ScriptHostSafety, SourceValidationPrecedesBackendExecution)
 
 ACS_TEST(ScriptHostSafety, BackendFailureFiresCallback)
 {
-    FMockScriptVm vm;
+    CMockScriptVm vm;
     vm.FailLoad = true;
     CScriptHost host;
     FErrorCapture capture;
@@ -191,7 +191,7 @@ ACS_TEST(ScriptHostSafety, BackendFailureFiresCallback)
 
 ACS_TEST(ScriptHostSafety, FailedCallPreservesCallerReturnValue)
 {
-    FMockScriptVm vm;
+    CMockScriptVm vm;
     CScriptHost host;
     host.Init(&vm);
 
@@ -215,7 +215,7 @@ ACS_TEST(ScriptHostSafety, FailedCallPreservesCallerReturnValue)
 
 ACS_TEST(ScriptHostSafety, CallRejectsInvalidArgumentsBeforeBackend)
 {
-    FMockScriptVm vm;
+    CMockScriptVm vm;
     CScriptHost host;
     host.Init(&vm);
 
@@ -240,7 +240,7 @@ ACS_TEST(ScriptHostSafety, CallRejectsInvalidArgumentsBeforeBackend)
 
 ACS_TEST(ScriptHostSafety, NativeRegistryRollsBackBackendFailures)
 {
-    FMockScriptVm vm;
+    CMockScriptVm vm;
     CScriptHost host;
     host.Init(&vm);
     int first_user = 1;
@@ -271,7 +271,7 @@ ACS_TEST(ScriptHostSafety, NativeRegistryRollsBackBackendFailures)
 
 ACS_TEST(ScriptHostSafety, NativeNamesAreBounded)
 {
-    FMockScriptVm vm;
+    CMockScriptVm vm;
     CScriptHost host;
     host.Init(&vm);
 
@@ -289,7 +289,7 @@ ACS_TEST(ScriptHostSafety, NativeNamesAreBounded)
 
 ACS_TEST(ScriptHostSafety, NativeRegistryOwnsFunctionNames)
 {
-    FMockScriptVm vm;
+    CMockScriptVm vm;
     CScriptHost host;
     host.Init(&vm);
 
@@ -308,7 +308,7 @@ ACS_TEST(ScriptHostSafety, NativeRegistryOwnsFunctionNames)
 
 ACS_TEST(ScriptHostSafety, FileInputIsValidatedBeforeBackend)
 {
-    FMockScriptVm vm;
+    CMockScriptVm vm;
     CScriptHost host;
     host.Init(&vm);
     FTempScriptPath path(L"input");
@@ -336,7 +336,7 @@ ACS_TEST(ScriptHostSafety, FileInputIsValidatedBeforeBackend)
 
 ACS_TEST(ScriptHostSafety, FilePathsAreBoundedBeforeIo)
 {
-    FMockScriptVm vm;
+    CMockScriptVm vm;
     CScriptHost host;
     host.Init(&vm);
 

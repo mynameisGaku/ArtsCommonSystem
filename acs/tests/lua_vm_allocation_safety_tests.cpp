@@ -18,7 +18,7 @@ static_assert(sizeof(CLuaVm) == 16u && alignof(CLuaVm) == 8u, "Win64のLua実行
 namespace {
 
 /** 確保拒否と回復を切り替え、Lua 登録簿の失敗経路を再現する。 */
-class FRejectableAllocator final : public IAllocator {
+class CRejectableAllocator final : public IAllocator {
 public:
     /**
      * 指定領域を確保し、拒否中は nullptr を返す。
@@ -101,7 +101,7 @@ void CountNativeCall(IScriptVm& vm, FScriptCallFrame& frame, void* user_data) no
 }
 
 /** allocator callbackから同じLua実行環境への登録再入を一度だけ試す。 */
-class FReentrantAllocator final : public IAllocator {
+class CReentrantAllocator final : public IAllocator {
 public:
     /**
      * 指定領域を確保し、予約済みなら確保中に登録を再入する。
@@ -238,7 +238,7 @@ void AttemptReentrantRegistration(IScriptVm& vm, FScriptCallFrame& frame, void* 
 /** 登録簿の確保失敗が Lua 公開前に戻り、同じ VM で再試行できることを確認する。 */
 ACS_TEST(LuaVmAllocationSafety, NativeRegistrationReportsAllocationFailureAndRecovers) {
     /** 登録簿の確保失敗と回復を制御するアロケータ。 */
-    FRejectableAllocator allocator;
+    CRejectableAllocator allocator;
     /** Lua から C++ 関数が呼ばれた回数。 */
     u32 call_count = 0u;
 
@@ -290,7 +290,7 @@ ACS_TEST(LuaVmAllocationSafety, NativeRegistrationRejectsLuaGlobalSpoofAndRollsB
     u32 reference_growth_registration = 0u;
     {
         /** 通常登録時の容量成長位置を測るアロケータ。 */
-        FRejectableAllocator reference_allocator;
+        CRejectableAllocator reference_allocator;
         /** 通常登録を行う Lua 実行環境。 */
         CLuaVm reference_vm(reference_allocator);
         /** 基準関数から参照する呼び出し回数。 */
@@ -312,7 +312,7 @@ ACS_TEST(LuaVmAllocationSafety, NativeRegistrationRejectsLuaGlobalSpoofAndRollsB
     }
 
     /** Lua 公開失敗で残る容量と論理要素数を検証するアロケータ。 */
-    FRejectableAllocator allocator;
+    CRejectableAllocator allocator;
     /** Lua から C++ 関数が呼ばれた回数。 */
     u32 call_count = 0u;
     {
@@ -407,7 +407,7 @@ ACS_TEST(LuaVmAllocationSafety, NativeRegistrationRejectsLuaGlobalSpoofAndRollsB
 ACS_TEST(LuaVmAllocationSafety, NativeRegistrationRejectsSameVmReentryWithoutRegistryCorruption) {
     {
         /** allocator callbackからの再入を発生させる確保元。 */
-        FReentrantAllocator allocator;
+        CReentrantAllocator allocator;
         /** 外側登録のclosureが呼ばれた回数。 */
         u32 outer_call_count = 0u;
         /** allocator再入が誤って公開された場合に増える検出用回数。 */
@@ -475,7 +475,7 @@ ACS_TEST(LuaVmAllocationSafety, NativeRegistrationRejectsSameVmReentryWithoutReg
 /** 最大登録番号を公開した後に、Lua状態へ触れず恒久拒否することを確認する。 */
 ACS_TEST(LuaVmAllocationSafety, NativeRegistrationMaximumIdentifierSucceedsBeforePermanentExhaustion) {
     /** 最大番号の登録後に確保要求が増えないことを確認する確保元。 */
-    FRejectableAllocator allocator;
+    CRejectableAllocator allocator;
     /** 最大番号のLua関数が呼び出した回数。 */
     u32 maximum_call_count = 0u;
     /** 枯渇後の登録が誤って呼び出した場合に増える検出用回数。 */
@@ -560,7 +560,7 @@ ACS_TEST(LuaVmAllocationSafety, NativeRegistrationMaximumIdentifierSucceedsBefor
 /** 最大番号の公開失敗で退避されたLua関数が後続登録へ再接続しないことを確認する。 */
 ACS_TEST(LuaVmAllocationSafety, NativeRegistrationMaximumIdentifierRollbackCannotReconnect) {
     /** 登録簿への確保要求が枯渇後に増えないことを確認する確保元。 */
-    FRejectableAllocator allocator;
+    CRejectableAllocator allocator;
     /** 公開失敗時に退避された最大番号のLua関数が誤って呼び出した回数。 */
     u32 escaped_maximum_call_count = 0u;
     /** 枯渇後の登録が誤って公開された場合に増える検出用回数。 */

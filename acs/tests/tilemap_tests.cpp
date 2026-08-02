@@ -23,15 +23,15 @@ using namespace acs::game;
 
 namespace {
 
-class FTilemapFailAllocator final : public IAllocator {
+class CTilemapFailAllocator final : public IAllocator {
 public:
     void* Alloc(usize, usize, FSourceLoc) noexcept override { return nullptr; }
     void Free(void*) noexcept override {}
 };
 
-class FTilemapSwitchAllocator final : public IAllocator {
+class CTilemapSwitchAllocator final : public IAllocator {
 public:
-    explicit FTilemapSwitchAllocator(IAllocator& backing) noexcept
+    explicit CTilemapSwitchAllocator(IAllocator& backing) noexcept
         : m_Backing(&backing) {}
 
     void SetFailing(bool failing) noexcept { m_Failing = failing; }
@@ -156,7 +156,7 @@ ACS_TEST(Tilemap, CheckedInitRejectsOverflowAndReportsAllocationFailure) {
         ETilemapLoadError::DimensionLimitExceeded);
     EXPECT_TRUE(map.LayerData(0u) == old_data);
 
-    FTilemapFailAllocator allocator;
+    CTilemapFailAllocator allocator;
     FTilemap failing_map(allocator);
     EXPECT_EQ(
         failing_map.TryInit(2u, 2u, 1u, 16.0f).Error,
@@ -167,7 +167,7 @@ ACS_TEST(Tilemap, CheckedInitRejectsOverflowAndReportsAllocationFailure) {
 
 ACS_TEST(Tilemap, AllocationFailurePreservesExistingLayersAndPublishedPointer) {
     CSystemAllocator backing;
-    FTilemapSwitchAllocator allocator(backing);
+    CTilemapSwitchAllocator allocator(backing);
     FTilemap map(allocator);
     EXPECT_TRUE(map.TryInit(2u, 2u, 1u, 16.0f).Succeeded());
     map.SetTile(1u, 1u, FTileId(55u));

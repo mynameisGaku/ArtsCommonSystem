@@ -21,7 +21,7 @@ struct FThing {
 };
 
 /** 指定した次回確保だけを失敗させ、rollback を検証する backing。 */
-class FControllableFailAllocator final : public IAllocator {
+class CControllableFailAllocator final : public IAllocator {
 public:
     void FailNextAllocation() noexcept
     {
@@ -147,7 +147,7 @@ ACS_TEST(ObjectPool, ClearDestroysAll) {
 ACS_TEST(ObjectPool, AllocationFailuresPreserveOwnershipAndState)
 {
     g_live = 0;
-    FControllableFailAllocator Allocator;
+    CControllableFailAllocator Allocator;
 
     {
         TObjectPool<FThing> Pool(Allocator);

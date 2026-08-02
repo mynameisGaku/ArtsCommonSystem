@@ -15,9 +15,9 @@ using namespace acs::game;
 
 namespace {
 
-class FSwitchableArchiveAllocator final : public IAllocator {
+class CSwitchableArchiveAllocator final : public IAllocator {
 public:
-    explicit FSwitchableArchiveAllocator(IAllocator& backing) noexcept
+    explicit CSwitchableArchiveAllocator(IAllocator& backing) noexcept
         : m_Backing(&backing) {}
 
     void SetFailing(bool failing) noexcept { m_Failing = failing; }
@@ -529,7 +529,7 @@ ACS_TEST(AnimationCurvePersistence, DestinationOomPreservesCurve) {
     EXPECT_TRUE(EncodeCurve(source, bytes));
 
     CSystemAllocator backing;
-    FSwitchableArchiveAllocator allocator(backing);
+    CSwitchableArchiveAllocator allocator(backing);
     FAnimationCurve destination(allocator);
     EXPECT_TRUE(destination.TryAddKey(1.0f, 55.0f).Succeeded());
     allocator.SetFailing(true);

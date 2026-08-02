@@ -14,9 +14,9 @@ using namespace acs::game;
 
 namespace {
 
-class FSwitchableAllocator final : public IAllocator {
+class CSwitchableAllocator final : public IAllocator {
 public:
-    explicit FSwitchableAllocator(IAllocator& backing) noexcept : m_Backing(&backing) {}
+    explicit CSwitchableAllocator(IAllocator& backing) noexcept : m_Backing(&backing) {}
 
     void* Alloc(usize size, usize alignment, FSourceLoc location) noexcept override
     {
@@ -30,9 +30,9 @@ private:
     bool m_Failing = false;
 };
 
-class FSelectiveFailAllocator final : public IAllocator {
+class CSelectiveFailAllocator final : public IAllocator {
 public:
-    explicit FSelectiveFailAllocator(IAllocator& backing) noexcept : m_Backing(&backing) {}
+    explicit CSelectiveFailAllocator(IAllocator& backing) noexcept : m_Backing(&backing) {}
 
     void* Alloc(usize size, usize alignment, FSourceLoc location) noexcept override
     {
@@ -65,13 +65,13 @@ private:
     bool m_Armed = false;
 };
 
-class FDefaultAllocatorScope {
+class CDefaultAllocatorScope {
 public:
-    explicit FDefaultAllocatorScope(IAllocator& replacement) noexcept : m_Previous(&DefaultAllocator())
+    explicit CDefaultAllocatorScope(IAllocator& replacement) noexcept : m_Previous(&DefaultAllocator())
     {
         SetDefaultAllocator(&replacement);
     }
-    ~FDefaultAllocatorScope() noexcept { SetDefaultAllocator(m_Previous); }
+    ~CDefaultAllocatorScope() noexcept { SetDefaultAllocator(m_Previous); }
 
 private:
     IAllocator* m_Previous = nullptr;
@@ -320,9 +320,9 @@ ACS_TEST(ReplayDirectorSafety, SourceCheckedLoadsPreserveStateOnOomAndSaveDoesNo
     EXPECT_TRUE(source_recorder.SaveToBuffer(recorder_blob, sizeof(recorder_blob), recorder_size).IsOk());
     EXPECT_TRUE(source_lockstep.SaveToBuffer(lockstep_blob, sizeof(lockstep_blob), lockstep_size).IsOk());
 
-    FSwitchableAllocator allocator(DefaultAllocator());
+    CSwitchableAllocator allocator(DefaultAllocator());
     {
-        FDefaultAllocatorScope scope(allocator);
+        CDefaultAllocatorScope scope(allocator);
         CInputRecorder target_recorder;
         CLockstep target_lockstep;
         PopulateSources(target_recorder, target_lockstep, 1u);
@@ -398,9 +398,9 @@ ACS_TEST(ReplayDirectorSafety, ReplayStagesBothSourcesBeforeNoFailCommit)
     PopulateSources(file_recorder, file_lockstep, 2u);
     EXPECT_TRUE(SaveReplayFile(path.path, 55u, &file_recorder, &file_lockstep));
 
-    FSelectiveFailAllocator allocator(DefaultAllocator());
+    CSelectiveFailAllocator allocator(DefaultAllocator());
     {
-        FDefaultAllocatorScope scope(allocator);
+        CDefaultAllocatorScope scope(allocator);
         CInputRecorder target_recorder;
         CLockstep target_lockstep;
         PopulateSources(target_recorder, target_lockstep, 1u);

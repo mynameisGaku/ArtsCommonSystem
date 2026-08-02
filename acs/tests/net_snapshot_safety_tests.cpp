@@ -13,9 +13,9 @@ using namespace acs::game;
 namespace {
 
 /** 通常確保後に OOM を決定論的に注入できる allocator。 */
-class FSwitchableFailAllocator final : public IAllocator {
+class CSwitchableFailAllocator final : public IAllocator {
 public:
-    explicit FSwitchableFailAllocator(IAllocator& backing) noexcept : m_Backing(&backing)
+    explicit CSwitchableFailAllocator(IAllocator& backing) noexcept : m_Backing(&backing)
     {
     }
 
@@ -40,7 +40,7 @@ private:
 };
 
 /** message 境界と故障を script できる小さな transport fake。 */
-class FScriptedTransport final : public INetTransport {
+class CScriptedTransport final : public INetTransport {
 public:
     TResult<void> Connect(const char* address, u16 port) noexcept override
     {
@@ -63,10 +63,10 @@ public:
     TResult<void> Send(const void* data, u32 size) noexcept override
     {
         if (m_FailSend) {
-            return ACS_ERR(IO, FNetSnapshotError::kSub_BufferFull, "FScriptedTransport: injected send failure");
+            return ACS_ERR(IO, FNetSnapshotError::kSub_BufferFull, "CScriptedTransport: injected send failure");
         }
         if (data == nullptr || size > sizeof(m_LastSent)) {
-            return ACS_ERR(IO, FNetSnapshotError::kSub_BufferFull, "FScriptedTransport: send capture too small");
+            return ACS_ERR(IO, FNetSnapshotError::kSub_BufferFull, "CScriptedTransport: send capture too small");
         }
         MemCopy(m_LastSent, data, size);
         m_LastSentSize = size;
@@ -82,7 +82,7 @@ public:
         }
         if (out_buffer == nullptr || message.size > capacity) {
             return ACS_ERR(IO, FNetSnapshotError::kSub_DatagramTruncated,
-                           "FScriptedTransport: receive capacity too small");
+                           "CScriptedTransport: receive capacity too small");
         }
         MemCopy(out_buffer, message.bytes, message.size);
         return TResult<u32>(OkInit, message.size);
@@ -213,7 +213,7 @@ ACS_TEST(NetSnapshotSafety, DecodeAllocationFailurePreservesBothOutputs)
     const u32 written = MakeEntityFrame(frame, sizeof(frame));
     EXPECT_TRUE(written > 0u);
 
-    FSwitchableFailAllocator allocator(DefaultAllocator());
+    CSwitchableFailAllocator allocator(DefaultAllocator());
     TArray<u8> payload(allocator);
     EXPECT_TRUE(payload.TryResize(1u));
     payload[0] = 0xC3u;
@@ -279,7 +279,7 @@ ACS_TEST(NetSnapshotSafety, CodecRejectsAliasedInputAndOutputStorage)
 
 ACS_TEST(NetSnapshotSafety, CheckedInitRejectsInvalidConfigWithoutReplacingSession)
 {
-    FScriptedTransport transport;
+    CScriptedTransport transport;
     CNetSnapshot snapshot;
     FNetSnapshotConfig valid{};
     valid.buffer_capacity_snapshots = 2u;
@@ -295,7 +295,7 @@ ACS_TEST(NetSnapshotSafety, CheckedInitRejectsInvalidConfigWithoutReplacingSessi
 
 ACS_TEST(NetSnapshotSafety, CheckedCommitRetainsPendingStateAcrossTransportFailure)
 {
-    FScriptedTransport transport;
+    CScriptedTransport transport;
     CNetSnapshot snapshot;
     FNetSnapshotConfig config{};
     config.buffer_capacity_snapshots = 2u;
@@ -330,7 +330,7 @@ ACS_TEST(NetSnapshotSafety, TickCommitsOnlyCompleteMessagesAndStopsOnContractVio
     MemCopy(corrupt, valid, valid_size);
     corrupt[valid_size - 1u] ^= 0x40u;
 
-    FScriptedTransport transport;
+    CScriptedTransport transport;
     EXPECT_TRUE(transport.Queue(valid, valid_size));
     EXPECT_TRUE(transport.Queue(corrupt, valid_size));
     transport.QueueContractViolation();

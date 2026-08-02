@@ -12,7 +12,7 @@ using namespace acs;
 namespace {
 
 /** catalog 関数を直接参照せず CGame の link anchor を通す最小ゲーム。 */
-class FStaticLinkGame final : public CGame {
+class CStaticLinkGame final : public CGame {
 protected:
     TUniquePtr<AScene> InitialScene() noexcept override { return {}; }
 };
@@ -21,7 +21,7 @@ protected:
 
 ACS_TEST(SubsystemStaticLink, GameConstructorAnchorsBuiltins)
 {
-    FStaticLinkGame Game;
+    CStaticLinkGame Game;
     AScene OwnerScene;
     CSubsystemCollection World;
     EXPECT_TRUE(World.TryInitialize(ESubsystemScope::World, nullptr,

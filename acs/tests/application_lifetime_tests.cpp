@@ -13,7 +13,7 @@ using namespace acs;
 namespace acs::app_internal {
 
 /** GPU を起動せず CApplication の基盤寿命ガードだけを検証するテスト用窓口。 */
-class FApplicationTestAccess {
+class CApplicationTestAccess {
 public:
     /**
      * Run と同じ所有権判定で Logger、MemorySystem、ThreadPool を初期化する。
@@ -50,13 +50,13 @@ struct FApplicationLifetimeState {
 };
 
 /** 派生メンバの破棄時点で MemorySystem が生存していることを記録する。 */
-class FAllocationLifetimeProbe {
+class CAllocationLifetimeProbe {
 public:
-    explicit FAllocationLifetimeProbe(FApplicationLifetimeState* state) noexcept : m_State(state)
+    explicit CAllocationLifetimeProbe(FApplicationLifetimeState* state) noexcept : m_State(state)
     {
     }
 
-    ~FAllocationLifetimeProbe() noexcept
+    ~CAllocationLifetimeProbe() noexcept
     {
         m_State->allocation_destructor_called = true;
         m_State->memory_alive_during_allocation_destructor = CMemorySystem::Get(ESegment::Default) != nullptr;
@@ -67,13 +67,13 @@ private:
 };
 
 /** GPU を初期化せず、派生メンバと基底メンバの破棄順だけを観測するアプリ。 */
-class FLifetimeProbeApplication final : public CApplication {
+class CLifetimeProbeApplication final : public CApplication {
 public:
-    explicit FLifetimeProbeApplication(FApplicationLifetimeState* state) noexcept : m_State(state)
+    explicit CLifetimeProbeApplication(FApplicationLifetimeState* state) noexcept : m_State(state)
     {
     }
 
-    ~FLifetimeProbeApplication() noexcept override
+    ~CLifetimeProbeApplication() noexcept override
     {
         m_State->derived_destructor_called = true;
         m_State->renderer_alive = GetRenderer().Device() == nullptr;
@@ -82,13 +82,13 @@ public:
     /** 現在の既定アロケータから派生所有メンバを生成する。 */
     bool CreateAllocationProbe(IAllocator* expected_allocator) noexcept
     {
-        m_AllocationProbe = MakeUnique<FAllocationLifetimeProbe>(m_State);
+        m_AllocationProbe = MakeUnique<CAllocationLifetimeProbe>(m_State);
         return m_AllocationProbe.Get() != nullptr && m_AllocationProbe.GetAllocator() == expected_allocator;
     }
 
 private:
     FApplicationLifetimeState* m_State = nullptr;
-    TUniquePtr<FAllocationLifetimeProbe> m_AllocationProbe;
+    TUniquePtr<CAllocationLifetimeProbe> m_AllocationProbe;
 };
 
 FMemorySystemConfig ApplicationMemoryConfig() noexcept
@@ -109,9 +109,9 @@ ACS_TEST(FApplicationLifetime, OwnedFoundationOutlivesDerivedMembers)
 
     FApplicationLifetimeState state{};
     {
-        FLifetimeProbeApplication application(&state);
+        CLifetimeProbeApplication application(&state);
         EXPECT_TRUE(
-            acs::app_internal::FApplicationTestAccess::InitializeFoundation(application, ApplicationMemoryConfig()));
+            acs::app_internal::CApplicationTestAccess::InitializeFoundation(application, ApplicationMemoryConfig()));
 
         IAllocator* const default_allocator = CMemorySystem::Get(ESegment::Default);
         EXPECT_TRUE(default_allocator != nullptr);
@@ -150,8 +150,8 @@ ACS_TEST(FApplicationLifetime, ExternallyOwnedFoundationSurvivesApplication)
 
     FApplicationLifetimeState state{};
     {
-        FLifetimeProbeApplication application(&state);
-        EXPECT_TRUE(acs::app_internal::FApplicationTestAccess::InitializeFoundation(application, memory_config));
+        CLifetimeProbeApplication application(&state);
+        EXPECT_TRUE(acs::app_internal::CApplicationTestAccess::InitializeFoundation(application, memory_config));
         EXPECT_TRUE(application.CreateAllocationProbe(CMemorySystem::Get(ESegment::Default)));
     }
 

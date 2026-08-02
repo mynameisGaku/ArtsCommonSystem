@@ -71,7 +71,7 @@ ACS_TEST(Container, InlineArrayRemovePreservesOrderInBothStorageModes)
 namespace {
 
 /** 確保失敗時のコンテナ契約を検証する backing。 */
-class FAlwaysFailAllocator final : public IAllocator {
+class CAlwaysFailAllocator final : public IAllocator {
 public:
     void* Alloc(usize /*Size*/, usize /*Alignment*/, FSourceLoc /*Location*/) noexcept override
     {
@@ -84,9 +84,9 @@ public:
 };
 
 /** 実 backing へ委譲しつつ、フラグを立てた後の確保だけ失敗させる backing。 */
-class FSwitchableFailAllocator final : public IAllocator {
+class CSwitchableFailAllocator final : public IAllocator {
 public:
-    explicit FSwitchableFailAllocator(IAllocator& Backing) noexcept : m_Backing(&Backing)
+    explicit CSwitchableFailAllocator(IAllocator& Backing) noexcept : m_Backing(&Backing)
     {
     }
 
@@ -111,7 +111,7 @@ private:
 };
 
 /** 指定した確保要求だけを失敗させ、各commit段階を個別に検証するbacking。 */
-class FFailOnRequestAllocator final : public IAllocator {
+class CFailOnRequestAllocator final : public IAllocator {
 public:
     void FailOnRequest(u64 Request) noexcept
     {
@@ -157,9 +157,9 @@ private:
  * 依存せず検出する。コンテナからの Free は記録するが、実 backing への返却は
  * この allocator の破棄時まで遅延する。
  */
-class FQuarantiningAllocator final : public IAllocator {
+class CQuarantiningAllocator final : public IAllocator {
 public:
-    ~FQuarantiningAllocator() noexcept override
+    ~CQuarantiningAllocator() noexcept override
     {
         for (usize Index = 0u; Index < m_AllocationCount; ++Index) {
             m_Backing.Free(m_Allocations[Index].Pointer);
@@ -280,7 +280,7 @@ struct FArrayTrackedValue {
 };
 
 /** Alloc/Realloc/Free の経路と失敗時 rollback を観測する backing。 */
-class FCountingAllocator final : public IAllocator {
+class CCountingAllocator final : public IAllocator {
 public:
     /** Realloc を意図的に失敗させるかを切り替える。 */
     void SetFailRealloc(bool bFail) noexcept { m_bFailRealloc = bFail; }
@@ -426,7 +426,7 @@ ACS_TEST(Container, ArrayReleaseStoragePreservesAllocator)
 
 ACS_TEST(Container, ArrayTryOperationsPreserveStateOnOverflowAndOutOfMemory)
 {
-    FAlwaysFailAllocator FailingAllocator;
+    CAlwaysFailAllocator FailingAllocator;
     TArray<u64> Array(FailingAllocator);
 
     EXPECT_FALSE(Array.TryReserve(8u));
@@ -447,7 +447,7 @@ ACS_TEST(Container, ArrayTryOperationsPreserveStateOnOverflowAndOutOfMemory)
 ACS_TEST(Container, ArrayRemoveMaintainsNonTrivialLifetimeWithoutAllocation)
 {
     /** 削除中の確保要求を計数する allocator。 */
-    FCountingAllocator allocator;
+    CCountingAllocator allocator;
     /** 非 trivial 要素の構築・移動・破棄回数。 */
     FArrayValueCounters counters;
     {
@@ -495,7 +495,7 @@ ACS_TEST(Container, ArrayRemoveMaintainsNonTrivialLifetimeWithoutAllocation)
 ACS_TEST(Container, InlineArrayRemoveMaintainsNonTrivialLifetimeWithoutAllocation)
 {
     /** 直接領域の削除が確保しないことを計数する allocator。 */
-    FCountingAllocator allocator;
+    CCountingAllocator allocator;
     /** 非 trivial 要素の構築・移動・破棄回数。 */
     FArrayValueCounters counters;
     {
@@ -534,7 +534,7 @@ ACS_TEST(Container, InlineArrayRemoveMaintainsNonTrivialLifetimeWithoutAllocatio
 
 ACS_TEST(Container, ArraySelfReferentialGrowthKeepsArgumentsAliveUntilConstruction)
 {
-    FQuarantiningAllocator Allocator;
+    CQuarantiningAllocator Allocator;
 
     {
         FArrayValueCounters Counters;
@@ -596,7 +596,7 @@ ACS_TEST(Container, ArraySelfReferentialGrowthKeepsArgumentsAliveUntilConstructi
 ACS_TEST(Container, ArraySelfReferentialGrowthRollsBackOnAllocationFailure)
 {
     CSystemAllocator Backing;
-    FSwitchableFailAllocator Allocator(Backing);
+    CSwitchableFailAllocator Allocator(Backing);
     FArrayValueCounters Counters;
 
     {
@@ -649,7 +649,7 @@ ACS_TEST(Container, HashMapTryInsertPreservesStateOnOutOfMemory)
 {
     // Part A: 空の map + 常時失敗 backing。最初の TryInsert が bucket 確保 (rehash) で失敗し、
     // map は空・整合のまま。Reserve も false。
-    FAlwaysFailAllocator FailingAllocator;
+    CAlwaysFailAllocator FailingAllocator;
     THashMap<u32, u32> EmptyMap(FailingAllocator);
     EXPECT_FALSE(EmptyMap.TryReserve(8u));
     EXPECT_FALSE(EmptyMap.TryInsert(1u, 100u));
@@ -659,7 +659,7 @@ ACS_TEST(Container, HashMapTryInsertPreservesStateOnOutOfMemory)
     // Part B: 実 backing で構築後に確保失敗へ切替え、rehash / 値配列拡張の失敗時も既存
     // エントリを保つ (OOM で map を破壊しない)。
     CSystemAllocator Backing;
-    FSwitchableFailAllocator Switchable(Backing);
+    CSwitchableFailAllocator Switchable(Backing);
     THashMap<u32, u32> Map(Switchable);
     for (u32 Key = 0; Key < 10u; ++Key) {
         EXPECT_TRUE(Map.TryInsert(Key, Key * 7u));
@@ -690,7 +690,7 @@ ACS_TEST(Container, StringTryAppendPreservesStateOnOutOfMemory)
 {
     // SSO 内 (<=22 バイト) の間はヒープ確保が起きないので Try 系は成功する。
     CSystemAllocator Backing;
-    FSwitchableFailAllocator Switchable(Backing);
+    CSwitchableFailAllocator Switchable(Backing);
     FString Str(Switchable);
     Str.Append("short");  // SSO
     EXPECT_TRUE(Str.TryAppend("!"));
@@ -808,7 +808,7 @@ ACS_TEST(Container, StorageTrySetStringIsAtomicOnAllocationFailure)
     constexpr const char* replacementValue =
         "replacement value that also requires allocator backed storage";
 
-    FFailOnRequestAllocator allocator;
+    CFailOnRequestAllocator allocator;
     FStorage storage(allocator);
     EXPECT_TRUE(storage.TrySetString(existingKey, originalValue));
     EXPECT_TRUE(storage.TrySetString("stable.key", stableValue));
@@ -907,7 +907,7 @@ ACS_TEST(Container, StorageLoadFromBytesIsAtomicAndRejectsDuplicateKeys)
     constexpr const char* stableValue =
         "stable value that must survive every rejected load";
 
-    FFailOnRequestAllocator allocator;
+    CFailOnRequestAllocator allocator;
     FStorage storage(allocator);
     EXPECT_TRUE(storage.TrySetString(originalKey, originalValue));
     EXPECT_TRUE(storage.TrySetString(stableKey, stableValue));
@@ -1125,7 +1125,7 @@ ACS_TEST(Container, ArrayRelocatableTraitUsesReallocAndPreservesRollback)
     static_assert(IsTriviallyRelocatableV<FExplicitlyRelocatableValue>);
 
     // 確保経路を観測する allocator。
-    FCountingAllocator Counting;
+    CCountingAllocator Counting;
     // trivial relocation 経路を確認する配列。
     TArray<u32> Values(Counting);
     EXPECT_TRUE(Values.TryReserve(1u));
@@ -1181,7 +1181,7 @@ ACS_TEST(Container, ArrayRelocatableTraitUsesReallocAndPreservesRollback)
 ACS_TEST(Container, HashMapCollisionUpdateAndStableLookupContracts)
 {
     // map の確保回数を観測する allocator。
-    FCountingAllocator Counting;
+    CCountingAllocator Counting;
     // 全キーを同じ探索列へ集める map。
     THashMap<u32, u32, FConstantCountingHasher> Colliding(Counting);
     EXPECT_TRUE(Colliding.TryReserve(96u));
@@ -1245,7 +1245,7 @@ ACS_TEST(Container, HashMapGrowthFailurePreservesContentsAndSearchIntegrity)
 {
     {
         // 2 回目の Alloc、すなわち初回値配列確保だけを失敗させる allocator。
-        FCountingAllocator Allocator;
+        CCountingAllocator Allocator;
         Allocator.SetFailAllocCall(2u);
         // 初回 rehash 成功後の値配列 OOM を再現する map。
         THashMap<u32, u32> Map(Allocator);
@@ -1269,7 +1269,7 @@ ACS_TEST(Container, HashMapGrowthFailurePreservesContentsAndSearchIntegrity)
 
     {
         // populated map の Realloc 失敗を注入する allocator。
-        FCountingAllocator Allocator;
+        CCountingAllocator Allocator;
         // 値配列容量 8 を満たした状態から次の成長を試す map。
         THashMap<u32, u32> Map(Allocator);
         for (u32 Key = 0u; Key < 8u; ++Key) {
@@ -1321,7 +1321,7 @@ ACS_TEST(Container, StringByteSearchAppendAndCompareContracts)
     // 失敗注入 allocator の backing。
     CSystemAllocator Backing;
     // 次回確保を失敗させられる allocator。
-    FSwitchableFailAllocator Failing(Backing);
+    CSwitchableFailAllocator Failing(Backing);
     // 失敗時 rollback を確認する文字列。
     FString Rollback(Failing);
     Rollback.Append("0123456789abcdefghijklmnopqrstuv");

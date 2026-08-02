@@ -30,7 +30,7 @@ static_assert(sizeof(FStorage) == 40u);
 namespace {
 
 /** 指定した確保要求だけを失敗させる試験用 allocator。 */
-class FStorageStringBatchFailAllocator final : public IAllocator {
+class CStorageStringBatchFailAllocator final : public IAllocator {
 public:
     /**
      * 次の一括設定で失敗させる確保要求番号を指定する。
@@ -111,10 +111,10 @@ bool StorageBatchTextEquals(const char* left, const char* right) noexcept
 }
 
 /** 一意な絶対一時ファイルを所有し、テスト終了時のcleanup失敗を記録する。 */
-class FStorageBatchTemporaryFile final {
+class CStorageBatchTemporaryFile final {
 public:
     /** Win32の一時directoryに空の通常ファイルを作り、競合しない絶対pathを確保する。 */
-    FStorageBatchTemporaryFile() noexcept
+    CStorageBatchTemporaryFile() noexcept
     {
         /** OSが返す一時directory。 */
         wchar_t temporaryDirectory[MAX_PATH] = {};
@@ -129,13 +129,13 @@ public:
     }
 
     /** 一時pathのcleanup責務を複製しない。 */
-    FStorageBatchTemporaryFile(const FStorageBatchTemporaryFile&) = delete;
-    FStorageBatchTemporaryFile& operator=(const FStorageBatchTemporaryFile&) = delete;
-    FStorageBatchTemporaryFile(FStorageBatchTemporaryFile&&) = delete;
-    FStorageBatchTemporaryFile& operator=(FStorageBatchTemporaryFile&&) = delete;
+    CStorageBatchTemporaryFile(const CStorageBatchTemporaryFile&) = delete;
+    CStorageBatchTemporaryFile& operator=(const CStorageBatchTemporaryFile&) = delete;
+    CStorageBatchTemporaryFile(CStorageBatchTemporaryFile&&) = delete;
+    CStorageBatchTemporaryFile& operator=(CStorageBatchTemporaryFile&&) = delete;
 
     /** 所有する通常ファイルを削除し、失敗を現在のtestへ記録する。 */
-    ~FStorageBatchTemporaryFile() noexcept
+    ~CStorageBatchTemporaryFile() noexcept
     {
         if (!TryCleanup()) test::RecordFailure(FSourceLoc::Current(), "storage batch temporary file cleanup", "Win32 cleanup failed");
     }
@@ -173,7 +173,7 @@ private:
 ACS_TEST(StorageTransactionalBatch, AcceptsZeroMaximumAndRejectsBeyondLimit)
 {
     /** 上限時の無確保経路も検証する allocator。 */
-    FStorageStringBatchFailAllocator allocator;
+    CStorageStringBatchFailAllocator allocator;
 
     /** 上限境界を検証する保存領域。 */
     FStorage storage(allocator);
@@ -266,7 +266,7 @@ ACS_TEST(StorageTransactionalBatch, AcceptsZeroMaximumAndRejectsBeyondLimit)
 ACS_TEST(StorageTransactionalBatch, RejectsEveryNonEmptyBatchWhenExistingStateExceedsLimit)
 {
     /** 既存上限超過の拒否が無確保であることを検証する allocator。 */
-    FStorageStringBatchFailAllocator allocator;
+    CStorageStringBatchFailAllocator allocator;
 
     /** 旧単体 setter で上限を超えさせる保存領域。 */
     FStorage storage(allocator);
@@ -438,7 +438,7 @@ ACS_TEST(StorageTransactionalBatch, RejectsInvalidRangesKeysAndDuplicatesWithout
 ACS_TEST(StorageTransactionalBatch, RejectsLoaderTrimmedBoundarySpacesWithoutAllocationOrMutation)
 {
     /** key 境界の事前拒否が無確保であることを検証する allocator。 */
-    FStorageStringBatchFailAllocator allocator;
+    CStorageStringBatchFailAllocator allocator;
 
     /** loader trim と衝突する入力の拒否前後を比較する保存領域。 */
     FStorage storage(allocator);
@@ -495,7 +495,7 @@ ACS_TEST(StorageTransactionalBatch, RejectsLoaderTrimmedBoundarySpacesWithoutAll
 ACS_TEST(StorageTransactionalBatch, RejectsLegacyExistingAndBatchTrimCollisionWithoutAllocationOrMutation)
 {
     /** legacy key 衝突の事前拒否が無確保であることを検証する allocator。 */
-    FStorageStringBatchFailAllocator allocator;
+    CStorageStringBatchFailAllocator allocator;
 
     /** 単体 setter で末尾 space 付き key を保持する保存領域。 */
     FStorage storage(allocator);
@@ -539,7 +539,7 @@ ACS_TEST(StorageTransactionalBatch, RejectsLegacyExistingAndBatchTrimCollisionWi
 ACS_TEST(StorageTransactionalBatch, RejectsAlreadyCollidingExistingKeysWithoutAllocationOrMutation)
 {
     /** 既存同士の衝突拒否が無確保であることを検証する allocator。 */
-    FStorageStringBatchFailAllocator allocator;
+    CStorageStringBatchFailAllocator allocator;
 
     /** legacy setter で loader trim 後に衝突する二つの key を保持する保存領域。 */
     FStorage storage(allocator);
@@ -583,7 +583,7 @@ ACS_TEST(StorageTransactionalBatch, RejectsAlreadyCollidingExistingKeysWithoutAl
 ACS_TEST(StorageTransactionalBatch, AllowsUniqueLegacyBoundaryKeyAndLoadsItsTrimmedIdentity)
 {
     /** 衝突しない legacy key の保存と読込を確認する保存先。 */
-    FStorageBatchTemporaryFile savedPath;
+    CStorageBatchTemporaryFile savedPath;
     EXPECT_TRUE(savedPath.IsValid());
     if (!savedPath.IsValid()) return;
 
@@ -624,7 +624,7 @@ ACS_TEST(StorageTransactionalBatch, AllowsUniqueLegacyBoundaryKeyAndLoadsItsTrim
 ACS_TEST(StorageTransactionalBatch, ReportsOnlyActualChangesAndKeepsAllNoopPointers)
 {
     /** no-op 時の無確保を検証する allocator。 */
-    FStorageStringBatchFailAllocator allocator;
+    CStorageStringBatchFailAllocator allocator;
 
     /** 変更、同値、新規を混在させる保存領域。 */
     FStorage storage(allocator);
@@ -685,7 +685,7 @@ ACS_TEST(StorageTransactionalBatch, PreservesNonNullValueBytesWithoutAdditionalV
 ACS_TEST(StorageTransactionalBatch, PreservesInternalAsciiSpaceKeyThroughSaveAndLoad)
 {
     /** 内部 ASCII space を持つ key の往復確認先。 */
-    FStorageBatchTemporaryFile savedPath;
+    CStorageBatchTemporaryFile savedPath;
     EXPECT_TRUE(savedPath.IsValid());
     if (!savedPath.IsValid()) return;
 
@@ -727,10 +727,10 @@ ACS_TEST(StorageTransactionalBatch, PreservesInternalAsciiSpaceKeyThroughSaveAnd
 ACS_TEST(StorageTransactionalBatch, SaveKeepsExistingOrderAppendsBatchOrderAndRoundTrips)
 {
     /** 一括反映後の実ファイル内容を確認する保存先。 */
-    FStorageBatchTemporaryFile savedPath;
+    CStorageBatchTemporaryFile savedPath;
 
     /** Load 後に同値内容を再保存する確認先。 */
-    FStorageBatchTemporaryFile roundTripPath;
+    CStorageBatchTemporaryFile roundTripPath;
     EXPECT_TRUE(savedPath.IsValid());
     EXPECT_TRUE(roundTripPath.IsValid());
     if (!savedPath.IsValid() || !roundTripPath.IsValid()) return;
@@ -823,7 +823,7 @@ ACS_TEST(StorageTransactionalBatch, OwnsKeysAndValuesBorrowedFromTheSameStorage)
 ACS_TEST(StorageTransactionalBatch, EveryAllocationFailurePreservesStateAndBorrowedPointers)
 {
     /** 確保要求番号ごとに失敗を注入する allocator。 */
-    FStorageStringBatchFailAllocator allocator;
+    CStorageStringBatchFailAllocator allocator;
 
     /** 失敗前後の状態を比較する保存領域。 */
     FStorage storage(allocator);

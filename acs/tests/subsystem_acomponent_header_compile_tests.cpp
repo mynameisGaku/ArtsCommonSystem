@@ -2,7 +2,7 @@
 #include "gameframework/AComponent.h"
 
 /** AComponent.hだけで公開forward型をoverrideできることを固定する。 */
-class FAComponentHeaderFirstConsumer final : public acs::AComponent {
+class CAComponentHeaderFirstConsumer final : public acs::AComponent {
 public:
     void OnAttach(acs::ANode&) noexcept override {}
     void OnDraw(acs::FRenderContext&) noexcept override {}

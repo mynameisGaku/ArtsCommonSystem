@@ -14,7 +14,10 @@
 
 `class`か`struct`かという構文だけではなく責務で決める。`A`は名前だけで推定しない。
 監査は登録済みmigration registry 335件と`acs::AObject`の推移実継承、scope解決した
-登録macro実呼び出しを照合する。未登録のobject候補はR020fで拒否し、現行debtは0件である。
+登録macro実呼び出しを照合する。正規基底をregistry登録済みの旧名で綴った基底も同じ管理対象と
+して解決するため、互換入口だけで宣言するcompile検査型も`A`のままとなる。この旧名集合は
+registryのcanonicalから導出し、未登録の同名綴りは管理対象にしない。
+未登録のobject候補はR020fで拒否し、現行debtは0件である。
 macro定義中と`#if 0`中の
 `ACS_OBJECT(Type)`は実登録ではない。delegate、callback、関数pointer aliasには接頭辞を
 強制しない。template aliasもこのwaveのrole監査対象外である。
@@ -127,10 +130,11 @@ debt 0件が一致したことを示す。build、ABI、実行時の正しさま
 python -B scripts\audit_cpp_type_roles.py --self-test
 python -B scripts\audit_cpp_type_roles.py --root src --migration-debt scripts\data\cpp_type_role_migration_debt.json
 python -B scripts\audit_cpp_type_roles.py --root src\event --migration-debt scripts\data\cpp_type_role_migration_debt.json
+python -B scripts\audit_cpp_type_roles.py --root tests
 python -B scripts\audit_cpp_type_roles.py --root samples
 python -B scripts\audit_cpp_type_roles.py --root src --migration-debt scripts\data\cpp_type_role_migration_debt.json --format json
 cmake --build Intermediate\vs --config Debug --target acs_type_roles_check
-ctest --test-dir Intermediate\vs -C Debug -R "ACS.(CppTypeRoleAudit|CppTypeRoleAuditSelfTest|EventTypeRoleAudit|EcsTypeRoleAudit|ScriptingTypeRoleAudit|SampleTypeRoleAudit)"
+ctest --test-dir Intermediate\vs -C Debug -R "ACS.(CppTypeRoleAudit|CppTypeRoleAuditSelfTest|EventTypeRoleAudit|EcsTypeRoleAudit|ScriptingTypeRoleAudit|TestTypeRoleAudit|SampleTypeRoleAudit)"
 ```
 
 終了値は適合が`0`、違反ありが`1`、入力・schema・解決・出力の失敗が`2`である。JSON schema 3は

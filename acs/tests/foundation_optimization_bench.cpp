@@ -32,7 +32,7 @@ u64 NowNs() noexcept
 }
 
 /** Alloc、Realloc、Free の呼び出し回数を観測する allocator。 */
-struct FCountingAllocator final : IAllocator {
+struct CCountingAllocator final : IAllocator {
     /** Alloc を計数して backing へ転送する。 */
     void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override
     {
@@ -97,7 +97,7 @@ void BenchArray() noexcept
     constexpr usize kRepeats = 64u;
 
     // 決定的な確保回数を観測する allocator。
-    FCountingAllocator Allocator;
+    CCountingAllocator Allocator;
     {
         // 確保経路計測用の trivial 配列。
         TArray<u32> Values(Allocator);
@@ -123,7 +123,7 @@ void BenchArray() noexcept
 void BenchHashMap() noexcept
 {
     // map の確保回数を観測する allocator。
-    FCountingAllocator Allocator;
+    CCountingAllocator Allocator;
     // 更新と検索の対象 map。
     THashMap<u64, u64, FCountingU64Hasher> Values(Allocator);
     for (u64 Index = 0u; Index < 12u; ++Index) Values.Insert(Index, Index);
@@ -182,7 +182,7 @@ void BenchString() noexcept
     constexpr usize kRepeats = 25000u;
 
     // 文字列の確保回数を観測する allocator。
-    FCountingAllocator Allocator;
+    CCountingAllocator Allocator;
     // 長い検索対象文字列。
     FString Text(Allocator);
     for (usize Index = 0u; Index < kLength; ++Index) {

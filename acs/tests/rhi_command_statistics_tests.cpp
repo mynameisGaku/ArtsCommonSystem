@@ -13,7 +13,7 @@ using namespace acs;
 
 namespace {
 
-class FStatisticsCommandList : public IRhiCommandList {
+class CStatisticsCommandList : public IRhiCommandList {
 public:
     void Begin() noexcept override { ++begin_count; }
     void End() noexcept override {}
@@ -148,7 +148,7 @@ static_assert(sizeof(IRhiCommandList) == sizeof(void*));
 ACS_TEST(Render,
          NonBlockingCommandListDefaultsPreserveLegacyBackendContract)
 {
-    FStatisticsCommandList command;
+    CStatisticsCommandList command;
     EXPECT_TRUE(command.CanBeginWithoutGpuWait());
     EXPECT_TRUE(command.TryBeginWithoutGpuWait());
     EXPECT_TRUE(command.SubmitWithoutGpuWait());
@@ -159,7 +159,7 @@ ACS_TEST(Render,
     EXPECT_EQ(command.submit_count, 2u);
 }
 
-class FTimingCommandList final : public FStatisticsCommandList {
+class CTimingCommandList final : public CStatisticsCommandList {
 public:
     bool BeginGpuTimingFrame(u64 frame_index) noexcept override {
         frame = frame_index;
@@ -180,7 +180,7 @@ public:
     ERhiGpuTimingPass last_pass = ERhiGpuTimingPass::Count;
 };
 
-class FDepthCopyTexture final : public IRhiTexture {
+class CDepthCopyTexture final : public IRhiTexture {
 public:
     u32 Width() const noexcept override { return width; }
     u32 Height() const noexcept override { return height; }
@@ -205,9 +205,9 @@ public:
     bool shader_visible = false;
 };
 
-class FSwitchableMotionPoolAllocator final : public IAllocator {
+class CSwitchableMotionPoolAllocator final : public IAllocator {
 public:
-    explicit FSwitchableMotionPoolAllocator(IAllocator& backing) noexcept
+    explicit CSwitchableMotionPoolAllocator(IAllocator& backing) noexcept
         : m_Backing(&backing) {}
 
     void SetFailing(bool failing) noexcept { m_Failing = failing; }
@@ -233,7 +233,7 @@ private:
 
 ACS_TEST(Render, RhiCommandStatisticsCountAndReset)
 {
-    FStatisticsCommandList command_list;
+    CStatisticsCommandList command_list;
 
     command_list.Draw(0u);
     command_list.DrawIndexed(0u);
@@ -262,9 +262,9 @@ ACS_TEST(Render, RhiCommandStatisticsCountAndReset)
 ACS_TEST(Render, RhiCommandStatisticsStorageBelongsToConcreteCommandList)
 {
     /** draw統計だけを記録する一つ目のfake。 */
-    FStatisticsCommandList first;
+    CStatisticsCommandList first;
     /** dispatch統計だけを記録する二つ目のfake。 */
-    FStatisticsCommandList second;
+    CStatisticsCommandList second;
 
     first.Draw(6u);
     second.Dispatch(1u, 1u, 1u);
@@ -334,7 +334,7 @@ ACS_TEST(Render, EditorMainViewCullingRecordsTruthfulCommandsForEveryPass)
     const FSubmissionMaskView main_view_mask{
         true, visibility,
         static_cast<u32>(sizeof(visibility) / sizeof(visibility[0]))};
-    FStatisticsCommandList command_list;
+    CStatisticsCommandList command_list;
 
     // The normal/depth prepass is the one production non-indexed camera pass.
     // Visible nodes 2 and 3 are adjacent in the aggregate VB and coalesce.
@@ -430,7 +430,7 @@ ACS_TEST(Render, EditorNormalPrepassPreservesAggregateFastPath)
     EXPECT_TRUE(ShouldUseAggregateVertexDraw(
         FSubmissionMaskView{false, all_visible, 4u}, 4u));
 
-    FStatisticsCommandList command_list;
+    CStatisticsCommandList command_list;
     if (ShouldUseAggregateVertexDraw(enabled_mask, 0u))
         command_list.Draw(12u, 0u);
     EXPECT_EQ(command_list.draw_record_count, 1u);
@@ -526,7 +526,7 @@ ACS_TEST(Render, EditorMainViewCullingSubmissionMaskFailsOpen)
 
 ACS_TEST(Render, RhiGpuTimingDefaultsAndScopeBalance)
 {
-    FStatisticsCommandList unsupported;
+    CStatisticsCommandList unsupported;
     FRhiGpuTimingSnapshot unavailable{};
     unavailable.valid = true;
     EXPECT_FALSE(unsupported.BeginGpuTimingFrame(7u));
@@ -537,7 +537,7 @@ ACS_TEST(Render, RhiGpuTimingDefaultsAndScopeBalance)
             &unsupported, ERhiGpuTimingPass::Cloud);
     }
 
-    FTimingCommandList supported;
+    CTimingCommandList supported;
     EXPECT_TRUE(supported.BeginGpuTimingFrame(42u));
     {
         FScopedRhiGpuTiming scope(
@@ -555,8 +555,8 @@ ACS_TEST(Render, RhiGpuTimingDefaultsAndScopeBalance)
 
 ACS_TEST(Render, RhiMrtBeginResultIsObservableToCallers)
 {
-    FStatisticsCommandList command_list;
-    FDepthCopyTexture attachment;
+    CStatisticsCommandList command_list;
+    CDepthCopyTexture attachment;
     IRhiTexture* targets[1] = {&attachment};
 
     EXPECT_TRUE(command_list.BeginRenderToTextureMrt(
@@ -576,7 +576,7 @@ ACS_TEST(Render, MotionVectorMrtFailureSkipsPipelineDrawAndEnd)
     EXPECT_TRUE(init_result.IsOk());
     if (init_result.IsErr()) return;
 
-    FStatisticsCommandList rejected;
+    CStatisticsCommandList rejected;
     rejected.mrt_begin_result = false;
     EXPECT_FALSE(motion.Begin(
         rejected, FMat4::Identity(), FMat4::Identity()));
@@ -622,7 +622,7 @@ ACS_TEST(Render, MotionVectorMrtFailureSkipsPipelineDrawAndEnd)
 
     // The next valid pass must recover normally and end the same complete
     // two-attachment set, including the world-normal target.
-    FStatisticsCommandList accepted;
+    CStatisticsCommandList accepted;
     EXPECT_TRUE(motion.Begin(
         accepted, FMat4::Identity(), FMat4::Identity()));
     EXPECT_EQ(accepted.set_pipeline_count, 1u);
@@ -644,7 +644,7 @@ ACS_TEST(Render, MotionVectorPoolGrowsPastLegacyLimitAndRecoversAllocation)
     if (device_result.IsErr()) return;
 
     CSystemAllocator backing;
-    FSwitchableMotionPoolAllocator pool_allocator{backing};
+    CSwitchableMotionPoolAllocator pool_allocator{backing};
     CMotionVector motion{pool_allocator};
     const auto init_result = motion.Init(*device_result.Value(), 16u, 16u);
     EXPECT_TRUE(init_result.IsOk());
@@ -694,7 +694,7 @@ ACS_TEST(Render, MotionVectorPoolGrowsPastLegacyLimitAndRecoversAllocation)
     mesh.vertex_stride = sizeof(FMeshVertex);
     mesh.index_count = 3u;
 
-    FStatisticsCommandList command_list;
+    CStatisticsCommandList command_list;
     EXPECT_TRUE(motion.Begin(
         command_list, FMat4::Identity(), FMat4::Identity()));
     for (u32 i = 0; i < 512u; ++i) {
@@ -718,8 +718,8 @@ ACS_TEST(Render, MotionVectorPoolGrowsPastLegacyLimitAndRecoversAllocation)
 
 ACS_TEST(Render, DepthTextureCopyContractRejectsUnsafeResources)
 {
-    FDepthCopyTexture source;
-    FDepthCopyTexture destination;
+    CDepthCopyTexture source;
+    CDepthCopyTexture destination;
     destination.shader_visible = true;
 
     EXPECT_TRUE(IsDepthTextureCopyCompatible(source, destination));
@@ -746,6 +746,6 @@ ACS_TEST(Render, DepthTextureCopyContractRejectsUnsafeResources)
     EXPECT_FALSE(IsDepthTextureCopyCompatible(source, destination));
     destination.array_size = 1u;
 
-    FStatisticsCommandList unsupported;
+    CStatisticsCommandList unsupported;
     EXPECT_FALSE(unsupported.CopyDepthTexture(source, destination));
 }

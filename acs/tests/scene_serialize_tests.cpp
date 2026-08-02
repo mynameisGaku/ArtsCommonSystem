@@ -308,7 +308,7 @@ ACS_TEST(SceneSerialize, SingleNodeRoundTrips) {
 namespace {
 
 /** テスト用: LoadNodeTree のバイナリフォーマットでノード 1 件を手書きする簡易ライタ。 */
-struct FSceneBinWriter {
+struct CSceneBinWriter {
     TArray<u8> bytes;
     void U8 (u8 v)  noexcept { bytes.PushBack(v); }
     void U32(u32 v) noexcept { for (u32 i = 0; i < 4; ++i) bytes.PushBack(static_cast<u8>((v >> (8u * i)) & 0xFFu)); }
@@ -375,7 +375,7 @@ ACS_TEST(SceneSerialize, RejectsEveryTruncatedPrefixWithoutPartialTree) {
 
 // 親は DFS pre-order 上ですでに出現したノードだけを参照できる。
 ACS_TEST(SceneSerialize, RejectsInvalidParentIndexTransactionally) {
-    FSceneBinWriter w;
+    CSceneBinWriter w;
     w.U32(kSceneSerializeMagic);
     w.U32(kSceneSerializeVersion);
     w.U32(2u);
@@ -392,7 +392,7 @@ ACS_TEST(SceneSerialize, RejectsInvalidParentIndexTransactionally) {
 
 // ヘッダ値だけで巨大確保へ進まないよう、ノード・コンポーネント・payload を上限検証する。
 ACS_TEST(SceneSerialize, RejectsDeclaredResourceLimitsBeforeAllocation) {
-    FSceneBinWriter excessive_nodes;
+    CSceneBinWriter excessive_nodes;
     excessive_nodes.U32(kSceneSerializeMagic);
     excessive_nodes.U32(kSceneSerializeVersion);
     excessive_nodes.U32(kSceneSerializeMaxNodeCount + 1u);
@@ -401,7 +401,7 @@ ACS_TEST(SceneSerialize, RejectsDeclaredResourceLimitsBeforeAllocation) {
     EXPECT_EQ(static_cast<u32>(node_result.Error),
               static_cast<u32>(ESceneSerializeError::NodeLimitExceeded));
 
-    FSceneBinWriter excessive_components;
+    CSceneBinWriter excessive_components;
     excessive_components.U32(kSceneSerializeMagic);
     excessive_components.U32(kSceneSerializeVersion);
     excessive_components.U32(1u);
@@ -412,7 +412,7 @@ ACS_TEST(SceneSerialize, RejectsDeclaredResourceLimitsBeforeAllocation) {
     EXPECT_EQ(static_cast<u32>(component_result.Error),
               static_cast<u32>(ESceneSerializeError::ComponentLimitExceeded));
 
-    FSceneBinWriter excessive_payload;
+    CSceneBinWriter excessive_payload;
     excessive_payload.U32(kSceneSerializeMagic);
     excessive_payload.U32(kSceneSerializeVersion);
     excessive_payload.U32(1u);
@@ -428,7 +428,7 @@ ACS_TEST(SceneSerialize, RejectsDeclaredResourceLimitsBeforeAllocation) {
 }
 
 ACS_TEST(SceneSerialize, RejectsEmptyComponentName) {
-    FSceneBinWriter w;
+    CSceneBinWriter w;
     w.U32(kSceneSerializeMagic);
     w.U32(kSceneSerializeVersion);
     w.U32(1u);
@@ -447,7 +447,7 @@ ACS_TEST(SceneSerialize, RejectsCorruptKnownComponentPayloadTransactionally) {
     constexpr const char* kComponentName = "ASceneTestComponent";
     constexpr u32 kComponentNameLength = 19u;
 
-    FSceneBinWriter w;
+    CSceneBinWriter w;
     w.U32(kSceneSerializeMagic);
     w.U32(kSceneSerializeVersion);
     w.U32(1u);
@@ -467,7 +467,7 @@ ACS_TEST(SceneSerialize, RejectsCorruptKnownComponentPayloadTransactionally) {
 }
 
 ACS_TEST(SceneSerialize, LoadsLegacyV2DrawSettings) {
-    FSceneBinWriter w;
+    CSceneBinWriter w;
     w.U32(kSceneSerializeMagic);
     w.U32(2u);
     w.U32(1u);
@@ -487,7 +487,7 @@ ACS_TEST(SceneSerialize, LoadsLegacyV2DrawSettings) {
 }
 
 ACS_TEST(SceneSerialize, LoadsLegacyV3TransformAndDrawSettings) {
-    FSceneBinWriter w;
+    CSceneBinWriter w;
     w.U32(kSceneSerializeMagic);
     w.U32(3u);
     w.U32(1u);
@@ -518,7 +518,7 @@ ACS_TEST(SceneSerialize, LoadsLegacyV3TransformAndDrawSettings) {
 // 上限なしで深いままだとテスト終了時のデストラクタでスタックオーバーフローする。
 ACS_TEST(SceneSerialize, HostileDeepChainIsDepthCappedWithoutLosingNodes) {
     constexpr u32 kNodes = 20000u;
-    FSceneBinWriter w;
+    CSceneBinWriter w;
     w.U32(kSceneSerializeMagic);
     w.U32(kSceneSerializeVersion);
     w.U32(kNodes);

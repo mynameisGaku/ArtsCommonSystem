@@ -69,7 +69,7 @@ struct FMoveOnlyComp {
 };
 
 /** 常に確保失敗する backing (command buffer の OOM 契約検証用)。 */
-class FEcbFailAllocator final : public IAllocator {
+class CEcbFailAllocator final : public IAllocator {
 public:
     void* Alloc(usize /*Size*/, usize /*Alignment*/, FSourceLoc /*Location*/) noexcept override
     {
@@ -287,7 +287,7 @@ ACS_TEST(Ecs, EntityCommandBufferGracefullyHandlesOutOfMemory)
 
     // command buffer 自身のストレージを常時失敗 backing に載せると、記録は落ちるが
     // クラッシュせず HasOverflowed() で検知でき、Flush も安全 (何も適用しない)。
-    FEcbFailAllocator failing;
+    CEcbFailAllocator failing;
     FEntityCommandBuffer cmd(w, failing);
     cmd.Destroy(e);              // TryPushBack が失敗
     cmd.Add<FHealth>(e, {5});     // New が失敗 (値の退避不可)
