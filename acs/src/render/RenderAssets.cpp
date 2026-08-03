@@ -72,32 +72,32 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const AImageA
  * @return 成功なら空の TResult、空メッシュ・バッファ生成失敗ならエラー。
  */
 TResult<void> UploadMesh(IRhiDevice& device, const AMeshAsset& mesh, FGpuMesh& out) noexcept {
-    if (mesh.Vertices().Size() == 0)
+    if (mesh.Vertices().Num() == 0)
         return ACS_ERR(Render, 82, "UploadMesh: empty mesh");
 
     // 頂点バッファ
     FBufferDesc vb_desc{};
-    vb_desc.size  = mesh.Vertices().Size() * sizeof(FMeshVertex);
+    vb_desc.size  = mesh.Vertices().Num() * sizeof(FMeshVertex);
     vb_desc.usage = EBufferUsage::Vertex;
     vb_desc.cpu_writable = false;         // 静的 mesh は USAGE_IMMUTABLE で扱う
-    vb_desc.initial_data = mesh.Vertices().Data();
+    vb_desc.initial_data = mesh.Vertices().GetData();
     auto vbr = CreateRhiBuffer(device, vb_desc);
     if (vbr.IsErr()) return Err<void>(vbr.Error());
     out.vertex_buffer = Move(vbr.Value());
-    out.vertex_count  = static_cast<u32>(mesh.Vertices().Size());
+    out.vertex_count  = static_cast<u32>(mesh.Vertices().Num());
     out.vertex_stride = sizeof(FMeshVertex);
 
     // インデックスバッファ
-    if (mesh.Indices().Size() > 0) {
+    if (mesh.Indices().Num() > 0) {
         FBufferDesc ib_desc{};
-        ib_desc.size  = mesh.Indices().Size() * sizeof(u32);
+        ib_desc.size  = mesh.Indices().Num() * sizeof(u32);
         ib_desc.usage = EBufferUsage::Index32;
         ib_desc.cpu_writable = false;     // 静的 mesh は USAGE_IMMUTABLE
-        ib_desc.initial_data = mesh.Indices().Data();
+        ib_desc.initial_data = mesh.Indices().GetData();
         auto ibr = CreateRhiBuffer(device, ib_desc);
         if (ibr.IsErr()) return Err<void>(ibr.Error());
         out.index_buffer = Move(ibr.Value());
-        out.index_count  = static_cast<u32>(mesh.Indices().Size());
+        out.index_count  = static_cast<u32>(mesh.Indices().Num());
     }
     return Ok();
 }
@@ -115,30 +115,30 @@ TResult<void> UploadMesh(IRhiDevice& device, const AMeshAsset& mesh, FGpuMesh& o
  */
 TResult<void> UploadSkinnedMesh(IRhiDevice& device, const ASkinnedMeshAsset& mesh,
                                FSkinnedGpuMesh& out) noexcept {
-    if (mesh.Vertices().Size() == 0)
+    if (mesh.Vertices().Num() == 0)
         return ACS_ERR(Render, 84, "UploadSkinnedMesh: empty mesh");
 
     FBufferDesc vb{};
-    vb.size = mesh.Vertices().Size() * sizeof(FSkinnedVertex);
+    vb.size = mesh.Vertices().Num() * sizeof(FSkinnedVertex);
     vb.usage = EBufferUsage::Vertex;
     vb.cpu_writable = false;          // 静的 mesh は USAGE_IMMUTABLE
-    vb.initial_data = mesh.Vertices().Data();
+    vb.initial_data = mesh.Vertices().GetData();
     auto vbr = CreateRhiBuffer(device, vb);
     if (vbr.IsErr()) return Err<void>(vbr.Error());
     out.vertex_buffer = Move(vbr.Value());
-    out.vertex_count  = static_cast<u32>(mesh.Vertices().Size());
+    out.vertex_count  = static_cast<u32>(mesh.Vertices().Num());
     out.vertex_stride = sizeof(FSkinnedVertex);
 
-    if (mesh.Indices().Size() > 0) {
+    if (mesh.Indices().Num() > 0) {
         FBufferDesc ib{};
-        ib.size = mesh.Indices().Size() * sizeof(u32);
+        ib.size = mesh.Indices().Num() * sizeof(u32);
         ib.usage = EBufferUsage::Index32;
         ib.cpu_writable = false;      // 静的 mesh は USAGE_IMMUTABLE
-        ib.initial_data = mesh.Indices().Data();
+        ib.initial_data = mesh.Indices().GetData();
         auto ibr = CreateRhiBuffer(device, ib);
         if (ibr.IsErr()) return Err<void>(ibr.Error());
         out.index_buffer = Move(ibr.Value());
-        out.index_count  = static_cast<u32>(mesh.Indices().Size());
+        out.index_count  = static_cast<u32>(mesh.Indices().Num());
     }
     return Ok();
 }

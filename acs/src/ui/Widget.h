@@ -327,7 +327,7 @@ public:
         auto u = MakeUnique<W>(Forward<Args>(args)...);
         W* const raw = u.Get();
         raw->m_Parent = this;
-        m_Children.PushBack(Move(u));
+        m_Children.Add(Move(u));
         return raw;
     }
 
@@ -343,7 +343,7 @@ public:
      *
      * @return 子の数。
      */
-    usize   ChildCount() const noexcept { return m_Children.Size(); }
+    usize   ChildCount() const noexcept { return m_Children.Num(); }
 
     /**
      * i 番目の子を返す。
@@ -351,7 +351,7 @@ public:
      * @param i 子のインデックス。
      * @return i 番目の子 (範囲外なら nullptr)。
      */
-    AWidget* Child(usize i) const noexcept { return i < m_Children.Size() ? m_Children[i].Get() : nullptr; }
+    AWidget* Child(usize i) const noexcept { return i < m_Children.Num() ? m_Children[i].Get() : nullptr; }
 
     /** 表示フラグ (false で自身と子の描画・hit-test をスキップ)。 */
     bool   visible = true;
@@ -395,7 +395,7 @@ public:
      */
     virtual void Render(class CUiRenderer& r) noexcept {
         // 既定は子だけ描画する (visible なものに絞り)
-        for (usize i = 0; i < m_Children.Size(); ++i) {
+        for (usize i = 0; i < m_Children.Num(); ++i) {
             if (m_Children[i] && m_Children[i]->visible) m_Children[i]->Render(r);
         }
     }
@@ -484,7 +484,7 @@ public:
     AWidget* HitTestRecursive(f32 px, f32 py) noexcept {
         if (!visible) return nullptr;
         // 後ろの子 (上に描画されてる) から優先的にヒット
-        for (usize i = m_Children.Size(); i > 0; --i) {
+        for (usize i = m_Children.Num(); i > 0; --i) {
             AWidget* const c = m_Children[i - 1].Get();
             if (c) {
                 if (AWidget* h = c->HitTestRecursive(px, py)) return h;
@@ -514,7 +514,7 @@ private:
             const ui_detail::FWidgetInputIdentity& identity) noexcept {
         if (!identity.IsSet()) return nullptr;
         if (InputIdentity_Internal() == identity) return this;
-        for (usize i = 0; i < m_Children.Size(); ++i) {
+        for (usize i = 0; i < m_Children.Num(); ++i) {
             AWidget* const child = m_Children[i].Get();
             if (!child) continue;
             if (AWidget* const found =
@@ -554,7 +554,7 @@ private:
         hovered = false;
         focused = false;
         pressed = false;
-        for (usize i = 0; i < m_Children.Size(); ++i) {
+        for (usize i = 0; i < m_Children.Num(); ++i) {
             if (AWidget* const child = m_Children[i].Get()) {
                 child->ClearInputStateRecursive_Internal();
             }
@@ -664,7 +664,7 @@ public:
         const f32 cw = w - padding.l - padding.r;
         const f32 ch = h - padding.t - padding.b;
 
-        for (usize i = 0; i < m_Children.Size(); ++i) {
+        for (usize i = 0; i < m_Children.Num(); ++i) {
             AWidget* const c = m_Children[i].Get();
             if (!c || !c->visible) continue;
 
@@ -701,7 +701,7 @@ public:
      */
     void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
         rect = { x, y, w, h };
-        for (usize i = 0; i < m_Children.Size(); ++i) {
+        for (usize i = 0; i < m_Children.Num(); ++i) {
             AWidget* const c = m_Children[i].Get();
             if (c && c->visible) c->Layout(x, y, w, h);
         }
@@ -739,7 +739,7 @@ public:
      */
     void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
         rect = { x, y, w, h };
-        for (usize i = 0; i < m_Children.Size(); ++i) {
+        for (usize i = 0; i < m_Children.Num(); ++i) {
             AWidget* const c = m_Children[i].Get();
             if (!c || !c->visible) continue;
             const FUiRect cr = ComputeAnchoredRect(rect, c->anchor);

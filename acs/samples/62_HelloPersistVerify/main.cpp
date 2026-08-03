@@ -181,18 +181,18 @@ void TestObb() noexcept {
         TArray<FShapeId> hits;
 
         w.OverlapCircle(FCircle{FVec2{0, 0}, 0.3f}, hits);
-        Check(hits.Size() == 1 && hits[0] == oid, "OverlapCircle が OBB を検出");
+        Check(hits.Num() == 1 && hits[0] == oid, "OverlapCircle が OBB を検出");
         w.OverlapCircle(FCircle{FVec2{10, 10}, 0.3f}, hits);
-        Check(hits.Size() == 0, "遠い円は OBB 非検出");
+        Check(hits.Num() == 0, "遠い円は OBB 非検出");
 
         w.OverlapAabb(FAabb2{FVec2{0, 0}, FVec2{0.3f, 0.3f}}, hits);
-        Check(hits.Size() == 1 && hits[0] == oid, "OverlapAabb が OBB を検出");
+        Check(hits.Num() == 1 && hits[0] == oid, "OverlapAabb が OBB を検出");
 
         FConvexPoly2 probe;
         probe.Add({-0.3f, -0.3f}); probe.Add({0.3f, -0.3f});
         probe.Add({0.3f, 0.3f});   probe.Add({-0.3f, 0.3f});
         w.OverlapPolygon(probe, hits);
-        Check(hits.Size() == 1 && hits[0] == oid, "OverlapPolygon が OBB を検出");
+        Check(hits.Num() == 1 && hits[0] == oid, "OverlapPolygon が OBB を検出");
 
         const FVec2 push = w.ResolveCircle(FCircle{FVec2{0.1f, 0.1f}, 0.4f});
         Check(push.x * push.x + push.y * push.y > 1e-4f, "ResolveCircle が OBB から押し出す");
@@ -203,7 +203,7 @@ void TestObb() noexcept {
 
         w.UpdateObb(oid, FObb2{ FVec2{20, 20}, FVec2{2, 0.5f}, 0.0f });
         w.OverlapCircle(FCircle{FVec2{0, 0}, 0.3f}, hits);
-        Check(hits.Size() == 0, "UpdateObb 移動後は元位置で非検出");
+        Check(hits.Num() == 0, "UpdateObb 移動後は元位置で非検出");
     }
 }
 
@@ -688,7 +688,7 @@ void TestNetSnapshot() noexcept {
     auto dec = CNetSnapshot::DecodeSnapshot(buf, written, oh, opl);
     Check(dec.IsOk(), "DecodeSnapshot 成功");
     Check(oh.tick == 42 && oh.sequence == 7 && oh.payload_size == sizeof(payload), "header 復元");
-    bool same = (opl.Size() == sizeof(payload));
+    bool same = (opl.Num() == sizeof(payload));
     for (u32 i = 0; same && i < sizeof(payload); ++i) if (opl[i] != payload[i]) same = false;
     Check(same, "payload 内容一致");
     buf[written - 1] ^= 0xFFu;   // CRC footer 改竄

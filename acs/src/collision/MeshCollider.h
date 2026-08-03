@@ -92,14 +92,14 @@ public:
      *
      * @return 構築された三角形の数。
      */
-    u32   TriangleCount() const noexcept { return m_Tris.Size(); }
+    u32   TriangleCount() const noexcept { return m_Tris.Num(); }
 
     /**
      * BVH ノード数を返す。
      *
      * @return BVH のノード数 (内部 + 葉)。
      */
-    u32   NodeCount()     const noexcept { return m_Nodes.Size(); }
+    u32   NodeCount()     const noexcept { return m_Nodes.Num(); }
 
 private:
     /**

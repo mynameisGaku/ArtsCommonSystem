@@ -36,14 +36,14 @@ public:
      *
      * @return 文字列の先頭 (空なら "")。
      */
-    const char* CStr() const noexcept { return m_Text.IsEmpty() ? "" : m_Text.Data(); }
+    const char* CStr() const noexcept { return m_Text.IsEmpty() ? "" : m_Text.GetData(); }
 
     /**
      * NUL を除いた文字列長を返す。
      *
      * @return バイト数 (空なら 0)。
      */
-    usize       Size() const noexcept { return m_Text.IsEmpty() ? 0 : m_Text.Size() - 1; }
+    usize       Size() const noexcept { return m_Text.IsEmpty() ? 0 : m_Text.Num() - 1; }
 
     /**
      * 末尾 NUL を含む生バッファへの const 参照を返す。

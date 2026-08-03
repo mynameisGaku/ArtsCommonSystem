@@ -304,7 +304,7 @@ bool CHelloIblApp::OnCustomFrame() noexcept {
             BuildEquirectFromSky(m_Sky, m_EquirectRgba);
         }
         CImageBasedLighting::ComputeSh9FromEquirect(
-            m_EquirectRgba.Data(), kEquirectWidth, kEquirectHeight, m_Sh9);
+            m_EquirectRgba.GetData(), kEquirectWidth, kEquirectHeight, m_Sh9);
         m_bNeedSh9Rebuild = false;
     }
 

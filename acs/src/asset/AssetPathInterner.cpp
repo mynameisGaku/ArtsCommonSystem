@@ -61,13 +61,13 @@ TResult<TSharedPtr<FInternedAssetPath>> CAssetPathInterner::Intern(const wchar_t
     }
     EvictUnusedUntilFit(RequiredCodeUnits);
     /** entry 数と code unit 予算の両方へ収まるか。 */
-    const bool Fits = RequiredCodeUnits <= kAssetPathInternerMaxCodeUnits && m_Paths.Size() < kAssetPathInternerMaxEntries && m_Diagnostics.retained_code_units <= kAssetPathInternerMaxCodeUnits - RequiredCodeUnits;
+    const bool Fits = RequiredCodeUnits <= kAssetPathInternerMaxCodeUnits && m_Paths.Num() < kAssetPathInternerMaxEntries && m_Diagnostics.retained_code_units <= kAssetPathInternerMaxCodeUnits - RequiredCodeUnits;
     if (!Fits) {
         ++m_Diagnostics.bypass_count;
         return TResult<TSharedPtr<FInternedAssetPath>>(OkInit, Move(Created));
     }
 
-    if (!m_Paths.TryInsert(Id, Created)) {
+    if (!m_Paths.TryAdd(Id, Created)) {
         return ACS_ERR(Memory, kAssetPathInternerSubOutOfMemory, "CAssetPathInterner::Intern: table allocation failed");
     }
     ++m_Diagnostics.retained_path_count;
@@ -86,13 +86,13 @@ void CAssetPathInterner::Reset() noexcept
 {
     /** table と診断値の同時初期化を守る lock。 */
     FScopedLock Lock(m_Lock);
-    m_Paths.ReleaseStorage();
+    m_Paths.Empty();
     m_Diagnostics = {};
 }
 
 void CAssetPathInterner::EvictUnusedUntilFit(usize RequiredCodeUnits) noexcept
 {
-    while (!m_Paths.IsEmpty() && (m_Paths.Size() >= kAssetPathInternerMaxEntries || RequiredCodeUnits > kAssetPathInternerMaxCodeUnits || m_Diagnostics.retained_code_units > kAssetPathInternerMaxCodeUnits - RequiredCodeUnits)) {
+    while (!m_Paths.IsEmpty() && (m_Paths.Num() >= kAssetPathInternerMaxEntries || RequiredCodeUnits > kAssetPathInternerMaxCodeUnits || m_Diagnostics.retained_code_units > kAssetPathInternerMaxCodeUnits - RequiredCodeUnits)) {
         /** 今回 table から外す未参照 path の識別値。 */
         FAssetId EvictionId{};
         /** eviction で解放する code unit 数。 */

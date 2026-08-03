@@ -25,9 +25,9 @@ void CParticleEffectSystem::Init(u32 max_particles) noexcept {
     if (m_Capacity != 0u) return;                  // 既に初期化済み
     if (max_particles == 0u) max_particles = 1024u;
 
-    m_Particles.Resize(static_cast<usize>(max_particles));
-    m_ParticleActive.Resize(static_cast<usize>(max_particles));
-    for (usize i = 0; i < m_ParticleActive.Size(); ++i) {
+    m_Particles.SetNum(static_cast<usize>(max_particles));
+    m_ParticleActive.SetNum(static_cast<usize>(max_particles));
+    for (usize i = 0; i < m_ParticleActive.Num(); ++i) {
         m_ParticleActive[i] = 0u;
     }
     m_Capacity         = max_particles;
@@ -43,7 +43,7 @@ void CParticleEffectSystem::Init(u32 max_particles) noexcept {
  * emitter 数は通常 10〜100 程度なので線形探索で十分。
  */
 u32 CParticleEffectSystem::AcquireEmitterSlot() noexcept {
-    const usize n = m_Emitters.Size();
+    const usize n = m_Emitters.Num();
     for (usize i = 0; i < n; ++i) {
         if (!m_Emitters[i].in_use) {
             return static_cast<u32>(i);
@@ -52,8 +52,8 @@ u32 CParticleEffectSystem::AcquireEmitterSlot() noexcept {
     if (n >= static_cast<usize>(FEmitterHandle::kMaxIndex)) {
         return kInvalidIdx;
     }
-    m_Emitters.PushBack({});
-    return static_cast<u32>(m_Emitters.Size()) - 1u;
+    m_Emitters.Add({});
+    return static_cast<u32>(m_Emitters.Num()) - 1u;
 }
 
 /**
@@ -95,7 +95,7 @@ FEmitterHandle CParticleEffectSystem::CreateEmitter(const FParticleEmitterDef& d
 void CParticleEffectSystem::SetEmitterPosition(FEmitterHandle h, FVec2 pos) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
-    if (idx >= m_Emitters.Size()) return;
+    if (idx >= m_Emitters.Num()) return;
     FEmitter& e = m_Emitters[static_cast<usize>(idx)];
     if (!e.in_use || e.gen != h.Gen()) return;
     e.pos = pos;
@@ -111,7 +111,7 @@ void CParticleEffectSystem::SetEmitterPosition(FEmitterHandle h, FVec2 pos) noex
 void CParticleEffectSystem::SetEmitterActive(FEmitterHandle h, bool active) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
-    if (idx >= m_Emitters.Size()) return;
+    if (idx >= m_Emitters.Num()) return;
     FEmitter& e = m_Emitters[static_cast<usize>(idx)];
     if (!e.in_use || e.gen != h.Gen()) return;
     e.active     = active;
@@ -132,7 +132,7 @@ void CParticleEffectSystem::SetEmitterActive(FEmitterHandle h, bool active) noex
 void CParticleEffectSystem::Burst(FEmitterHandle h) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
-    if (idx >= m_Emitters.Size()) return;
+    if (idx >= m_Emitters.Num()) return;
     const FEmitter& e = m_Emitters[static_cast<usize>(idx)];
     if (!e.in_use || e.gen != h.Gen()) return;
     if (e.def.burst_count <= 0.0f) return;
@@ -158,7 +158,7 @@ void CParticleEffectSystem::Burst(FEmitterHandle h) noexcept {
 void CParticleEffectSystem::DestroyEmitter(FEmitterHandle h) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
-    if (idx >= m_Emitters.Size()) return;
+    if (idx >= m_Emitters.Num()) return;
     FEmitter& e = m_Emitters[static_cast<usize>(idx)];
     if (!e.in_use || e.gen != h.Gen()) return;
 
@@ -244,7 +244,7 @@ void CParticleEffectSystem::Tick(f32 dt) noexcept {
     if (m_Capacity == 0u) return;
 
     // ---- 連続放出 ----------------------------------------------------------
-    const usize en = m_Emitters.Size();
+    const usize en = m_Emitters.Num();
     for (usize i = 0; i < en; ++i) {
         FEmitter& e = m_Emitters[i];
         if (!e.in_use || !e.active) continue;
@@ -270,7 +270,7 @@ void CParticleEffectSystem::Tick(f32 dt) noexcept {
     // semi-implicit Euler: velocity を gravity で先に更新 → position を更新。
     // 寿命切れは m_ParticleActive[i] を 0 に戻す (slot を pool に返却) し、
     // m_NextFree を「今解放した index」まで戻して次の EmitOne の局所性を高める。
-    const usize pn = m_Particles.Size();
+    const usize pn = m_Particles.Num();
     for (usize i = 0; i < pn; ++i) {
         if (m_ParticleActive[i] == 0u) continue;
 
@@ -300,13 +300,13 @@ void CParticleEffectSystem::Tick(f32 dt) noexcept {
 const FParticle* CParticleEffectSystem::AllParticles(u32& out_count) const noexcept {
     out_count = m_Capacity;
     if (m_Capacity == 0u) return nullptr;
-    return m_Particles.Data();
+    return m_Particles.GetData();
 }
 
 /** 全 emitter slot を解放し全 particle を inactive 化する (gen と pool 容量は維持)。 */
 void CParticleEffectSystem::ClearAll() noexcept {
     // emitter slot を全て解放 (gen はそのまま残す = stale handle 検出を維持)
-    const usize en = m_Emitters.Size();
+    const usize en = m_Emitters.Num();
     for (usize i = 0; i < en; ++i) {
         FEmitter& e = m_Emitters[i];
         e.in_use     = false;
@@ -316,7 +316,7 @@ void CParticleEffectSystem::ClearAll() noexcept {
     m_EmitterCount = 0u;
 
     // particle pool を全 inactive 化 (中身の値は気にしない、active flag で gate)
-    for (usize i = 0; i < m_ParticleActive.Size(); ++i) {
+    for (usize i = 0; i < m_ParticleActive.Num(); ++i) {
         m_ParticleActive[i] = 0u;
     }
     m_ActiveParticles = 0u;

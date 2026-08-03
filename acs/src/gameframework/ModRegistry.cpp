@@ -27,14 +27,14 @@ void CModRegistry::Register(const FModInfo& info) noexcept {
 
     // 同 id 重複は警告 (既存エントリは残す = 先勝ち)。manifest loader 側で
     // 検出するのが本来だが、二重防御として警告ログだけ出す。
-    for (u32 i = 0; i < m_Mods.Size(); ++i) {
+    for (u32 i = 0; i < m_Mods.Num(); ++i) {
         if (IdEquals(m_Mods[i].id, info.id)) {
             ACS_LOG_WARN("CModRegistry::Register: duplicate id '%s' ignored", info.id);
             return;
         }
     }
 
-    m_Mods.PushBack(info);
+    m_Mods.Add(info);
 
     // AssetPack 統合後は、info.pack_path が非 nullptr なら VirtualFileSystem に
     // mount 予約する (enable=true のときだけ実 mount)。現状は path を持つだけ。
@@ -42,7 +42,7 @@ void CModRegistry::Register(const FModInfo& info) noexcept {
 
 /** mod_id に一致する Mod の enabled を true にする。見つかれば true。 */
 bool CModRegistry::Enable(const char* mod_id) noexcept {
-    for (u32 i = 0; i < m_Mods.Size(); ++i) {
+    for (u32 i = 0; i < m_Mods.Num(); ++i) {
         if (IdEquals(m_Mods[i].id, mod_id)) {
             m_Mods[i].enabled = true;
             // 実 mount + hook 適用 (Lua 5.4 / C++ plugin) は未実装。flag だけ立てる。
@@ -54,7 +54,7 @@ bool CModRegistry::Enable(const char* mod_id) noexcept {
 
 /** mod_id に一致する Mod の enabled を false にする。見つかれば true。 */
 bool CModRegistry::Disable(const char* mod_id) noexcept {
-    for (u32 i = 0; i < m_Mods.Size(); ++i) {
+    for (u32 i = 0; i < m_Mods.Num(); ++i) {
         if (IdEquals(m_Mods[i].id, mod_id)) {
             m_Mods[i].enabled = false;
             // unmount + hook 解除は未実装。flag だけ下げる。
@@ -66,7 +66,7 @@ bool CModRegistry::Disable(const char* mod_id) noexcept {
 
 /** mod_id に一致する Mod の load_order を変更する (未登録 id は no-op)。 */
 void CModRegistry::SetLoadOrder(const char* mod_id, i32 order) noexcept {
-    for (u32 i = 0; i < m_Mods.Size(); ++i) {
+    for (u32 i = 0; i < m_Mods.Num(); ++i) {
         if (IdEquals(m_Mods[i].id, mod_id)) {
             m_Mods[i].load_order = order;
             return;
@@ -77,12 +77,12 @@ void CModRegistry::SetLoadOrder(const char* mod_id, i32 order) noexcept {
 
 /** 登録済み Mod の個数を返す。 */
 u32 CModRegistry::Count() const noexcept {
-    return static_cast<u32>(m_Mods.Size());
+    return static_cast<u32>(m_Mods.Num());
 }
 
 /** mod_id に一致する Mod を返す (見つからなければ nullptr)。 */
 const FModInfo* CModRegistry::Find(const char* mod_id) const noexcept {
-    for (u32 i = 0; i < m_Mods.Size(); ++i) {
+    for (u32 i = 0; i < m_Mods.Num(); ++i) {
         if (IdEquals(m_Mods[i].id, mod_id)) return &m_Mods[i];
     }
     return nullptr;
@@ -90,14 +90,14 @@ const FModInfo* CModRegistry::Find(const char* mod_id) const noexcept {
 
 /** 登録済み Mod の生バッファ先頭を返す (長さは Count())。 */
 const FModInfo* CModRegistry::All() const noexcept {
-    return m_Mods.Data();
+    return m_Mods.GetData();
 }
 
 /** load_order 昇順に安定 insertion sort する (同値は登録順を保つ)。 */
 void CModRegistry::SortByLoadOrder() noexcept {
     // Insertion sort: N (= mod 数) は実用上 < 64 と想定。安定 sort なので
     // 同 load_order は登録順を保ち、UI の見え方に予測可能性が出る。
-    const u32 n = static_cast<u32>(m_Mods.Size());
+    const u32 n = static_cast<u32>(m_Mods.Num());
     for (u32 i = 1; i < n; ++i) {
         FModInfo key = m_Mods[i];
         u32 j = i;
@@ -112,7 +112,7 @@ void CModRegistry::SortByLoadOrder() noexcept {
 /** 全 Mod を削除する。 */
 void CModRegistry::Clear() noexcept {
     // enabled な Mod に対する Disable 相当の hook 解除は未実装。現状は単純クリア。
-    m_Mods.Clear();
+    m_Mods.Reset();
 }
 
 } // namespace acs::game

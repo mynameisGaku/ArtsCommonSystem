@@ -145,13 +145,13 @@ TResult<void> CAssetRegistry::TryRegisterLoader(IAssetLoader* loader) noexcept {
         return ACS_ERR(Asset, kAssetRegistrySubShuttingDown,
                        "CAssetRegistry::TryRegisterLoader: registry is shutting down");
     }
-    for (usize Index = 0; Index < m_Loaders.Size(); ++Index) {
+    for (usize Index = 0; Index < m_Loaders.Num(); ++Index) {
         if (StrEqAscii(m_Loaders[Index]->Extension(), Extension)) {
             return ACS_ERR(Asset, kAssetRegistrySubDuplicateLoader,
                            "CAssetRegistry::TryRegisterLoader: duplicate extension");
         }
     }
-    if (!m_Loaders.TryPushBack(loader)) {
+    if (!m_Loaders.TryAdd(loader)) {
         return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory,
                        "CAssetRegistry::TryRegisterLoader: allocation failed");
     }
@@ -162,7 +162,7 @@ IAssetLoader* CAssetRegistry::FindLoader(const wchar_t* path) noexcept {
     char ext[32]{};
     ExtractExtensionAscii(path, ext, sizeof(ext));
     IAssetLoader* fallback = nullptr;
-    for (usize i = 0; i < m_Loaders.Size(); ++i) {
+    for (usize i = 0; i < m_Loaders.Num(); ++i) {
         const char* const e = m_Loaders[i]->Extension();
         if (StrEqAscii(e, "*")) fallback = m_Loaders[i];
         if (StrEqAscii(e, ext)) return m_Loaders[i];
@@ -224,7 +224,7 @@ TResult<TSharedPtr<AAsset>> CAssetRegistry::Load(const wchar_t* path) noexcept {
     // キャッシュに登録
     {
         FScopedLock lk(m_Lock);
-        if (!m_Closing && !m_Cache.TryInsert(id, a)) {
+        if (!m_Closing && !m_Cache.TryAdd(id, a)) {
             return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory,
                            "CAssetRegistry::Load: cache allocation failed");
         }
@@ -328,7 +328,7 @@ TResult<void> CAssetRegistry::AsyncCacheInsert(FAssetId id, TSharedPtr<AAsset> a
         // 解放中の cache へだけ挿入しない。
         return Ok();
     }
-    if (!m_Cache.TryInsert(id, Move(a))) {
+    if (!m_Cache.TryAdd(id, Move(a))) {
         return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory,
                        "CAssetRegistry::AsyncCacheInsert: cache allocation failed");
     }
@@ -382,7 +382,7 @@ FAssetFuture CAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
         }
         loader = FindLoader(path);
         if (loader) {
-            if (!m_InFlight.TryInsert(id, state)) {
+            if (!m_InFlight.TryAdd(id, state)) {
                 state->error = ACS_ERR(Memory, kAssetRegistrySubOutOfMemory, "LoadAsync: in-flight allocation failed");
                 state->has_error = true;
                 state->counter.Done();
@@ -467,7 +467,7 @@ void CAssetRegistry::Unload(FAssetId id) noexcept {
 
 void CAssetRegistry::Clear() noexcept {
     FScopedLock lk(m_Lock);
-    m_Cache.Clear();
+    m_Cache.Reset();
 }
 
 FAssetRegistryDiagnostics CAssetRegistry::Diagnostics() const noexcept
@@ -507,9 +507,9 @@ void CAssetRegistry::Shutdown() noexcept
     FScopedLock lk(m_Lock);
     if (m_ShutdownComplete) return;
     // 確保元を維持したまま容量を返す。再起動後も同じアロケータを使用する。
-    m_Cache.ReleaseStorage();
-    m_InFlight.ReleaseStorage();
-    m_Loaders.ReleaseStorage();
+    m_Cache.Empty();
+    m_InFlight.Empty();
+    m_Loaders.Empty();
     m_PathInterner.Reset();
     m_ShutdownComplete = true;
 }

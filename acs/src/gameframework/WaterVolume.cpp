@@ -26,14 +26,14 @@ static bool ContainsPoint(const FWaterVolumeInfo& v, FVec2 pos) noexcept {
 
 /** 空き slot を探して返す (index 0 は invalid handle に予約)。 */
 u32 CWaterVolume::AcquireSlot() noexcept {
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {
         if (!m_Slots[i].active) return i;
     }
     if (m_Slots.IsEmpty()) {
-        m_Slots.PushBack({});   // dummy at index 0
+        m_Slots.Add({});   // dummy at index 0
     }
-    m_Slots.PushBack({});
-    return static_cast<u32>(m_Slots.Size()) - 1u;
+    m_Slots.Add({});
+    return static_cast<u32>(m_Slots.Num()) - 1u;
 }
 
 /** slot を確保し info を複製、generation を進めて handle を返す。 */
@@ -51,7 +51,7 @@ FWaterVolumeId CWaterVolume::AddVolume(const FWaterVolumeInfo& info) noexcept {
 
 /** handle を検証して slot を非 active 化する (stale handle は無視)。 */
 void CWaterVolume::RemoveVolume(FWaterVolumeId id) noexcept {
-    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    if (!id.IsValid() || id.Index() >= m_Slots.Num()) return;
     FSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
     s.active = false;
@@ -61,7 +61,7 @@ void CWaterVolume::RemoveVolume(FWaterVolumeId id) noexcept {
 
 /** handle を検証して center / half_size のみ更新する (他のパラメータは不変)。 */
 void CWaterVolume::UpdateVolume(FWaterVolumeId id, FVec2 center, FVec2 half_size) noexcept {
-    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    if (!id.IsValid() || id.Index() >= m_Slots.Num()) return;
     FSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
     s.info.center    = center;
@@ -74,7 +74,7 @@ void CWaterVolume::UpdateVolume(FWaterVolumeId id, FVec2 center, FVec2 half_size
 /** 全 active volume を線形走査し、pos を含む volume があれば true を返す。 */
 bool CWaterVolume::IsUnderwater(FVec2 pos) const noexcept {
     // index 0 は invalid 予約なので 1 から走査。
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {
         const FSlot& s = m_Slots[i];
         if (!s.active) continue;
         if (ContainsPoint(s.info, pos)) return true;
@@ -84,7 +84,7 @@ bool CWaterVolume::IsUnderwater(FVec2 pos) const noexcept {
 
 /** 最初に pos を含む volume の surface_y からの沈み深さ (>= 0) を返す。 */
 f32 CWaterVolume::SubmersionDepth(FVec2 pos) const noexcept {
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {
         const FSlot& s = m_Slots[i];
         if (!s.active) continue;
         if (!ContainsPoint(s.info, pos)) continue;
@@ -104,7 +104,7 @@ FVec2 CWaterVolume::ComputeBuoyancyForce(FVec2 pos, FVec2 velocity, f32 mass) co
     f32  total_drag           = 0.0f;  // Σ drag を蓄積
     bool in_water             = false;
 
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {
         const FSlot& s = m_Slots[i];
         if (!s.active) continue;
         if (!ContainsPoint(s.info, pos)) continue;
@@ -132,14 +132,14 @@ FVec2 CWaterVolume::ComputeBuoyancyForce(FVec2 pos, FVec2 velocity, f32 mass) co
 /** packed cache を必要なら再構築し、先頭ポインタと要素数を返す。 */
 const FWaterVolumeInfo* CWaterVolume::AllVolumes(u32& out_count) const noexcept {
     RebuildPackedCacheIfNeeded();
-    out_count = static_cast<u32>(m_PackedCache.Size());
-    return out_count > 0 ? m_PackedCache.Data() : nullptr;
+    out_count = static_cast<u32>(m_PackedCache.Num());
+    return out_count > 0 ? m_PackedCache.GetData() : nullptr;
 }
 
 /** slot 配列と cache を解放し volume カウントを 0 に戻す。 */
 void CWaterVolume::ClearAll() noexcept {
-    m_Slots.Clear();
-    m_PackedCache.Clear();
+    m_Slots.Reset();
+    m_PackedCache.Reset();
     m_VolumeCount = 0;
     m_CacheDirty  = false;   // 空状態は dirty 不要
 }
@@ -147,10 +147,10 @@ void CWaterVolume::ClearAll() noexcept {
 /** dirty なら active な info を m_PackedCache に詰め直す。 */
 void CWaterVolume::RebuildPackedCacheIfNeeded() const noexcept {
     if (!m_CacheDirty) return;
-    m_PackedCache.Clear();
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+    m_PackedCache.Reset();
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {
         const FSlot& s = m_Slots[i];
-        if (s.active) m_PackedCache.PushBack(s.info);
+        if (s.active) m_PackedCache.Add(s.info);
     }
     m_CacheDirty = false;
 }

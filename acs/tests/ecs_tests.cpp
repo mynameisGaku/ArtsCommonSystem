@@ -289,9 +289,9 @@ ACS_TEST(Ecs, EntityCommandBufferGracefullyHandlesOutOfMemory)
     // クラッシュせず HasOverflowed() で検知でき、Flush も安全 (何も適用しない)。
     CEcbFailAllocator failing;
     FEntityCommandBuffer cmd(w, failing);
-    cmd.Destroy(e);              // TryPushBack が失敗
+    cmd.Destroy(e);              // TryAdd が失敗
     cmd.Add<FHealth>(e, {5});     // New が失敗 (値の退避不可)
-    cmd.Remove<FHealth>(e);       // TryPushBack が失敗
+    cmd.Remove<FHealth>(e);       // TryAdd が失敗
 
     EXPECT_TRUE(cmd.HasOverflowed());
     EXPECT_EQ(cmd.Size(), static_cast<usize>(0));

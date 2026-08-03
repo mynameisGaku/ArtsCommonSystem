@@ -52,7 +52,7 @@ void CSocialModeration::Init() noexcept {
 /** block list を線形走査し user_id が含まれるかを返す (nullptr は false)。 */
 bool CSocialModeration::FindBlocked(const char* user_id) const noexcept {
     if (user_id == nullptr) return false;
-    const usize n = m_Blocked.Size();
+    const usize n = m_Blocked.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Blocked[i].blocked_user_id, user_id)) return true;
     }
@@ -77,7 +77,7 @@ void CSocialModeration::BlockUser(const char* user_id) noexcept {
     // 呼び出し側が必要なら BlockUser 前後で自分で記録する想定だが、構造体に
     // フィールドを残すことで将来の API 拡張余地は確保。
     e.timestamp = 0;
-    m_Blocked.PushBack(e);
+    m_Blocked.Add(e);
     // SDK 同期 (FSteamworksBridge.SetCommunicationRestriction(user_id, true)) は
     // backend 接続後に行う seam。PSN / Xbox では SDK 側にも通信遮断の反映が必要。
 }
@@ -85,7 +85,7 @@ void CSocialModeration::BlockUser(const char* user_id) noexcept {
 /** user_id のブロックを解除する (nullptr / 未登録は no-op、順序非保持)。 */
 void CSocialModeration::UnblockUser(const char* user_id) noexcept {
     if (user_id == nullptr) return;
-    const usize n = m_Blocked.Size();
+    const usize n = m_Blocked.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Blocked[i].blocked_user_id, user_id)) {
             // 順序は保持しない (RemoveAtSwap)。block list は集合的に扱われるため
@@ -107,13 +107,13 @@ bool CSocialModeration::IsBlocked(const char* user_id) const noexcept {
 
 /** ブロック済みユーザー数を返す。 */
 u32 CSocialModeration::BlockedCount() const noexcept {
-    return static_cast<u32>(m_Blocked.Size());
+    return static_cast<u32>(m_Blocked.Num());
 }
 
 /** ブロックエントリ配列の先頭を返し、件数を out_count に書き戻す。 */
 const FBlockEntry* CSocialModeration::AllBlocked(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(m_Blocked.Size());
-    return m_Blocked.Data();
+    out_count = static_cast<u32>(m_Blocked.Num());
+    return m_Blocked.GetData();
 }
 
 /** 通報を backend へ同期送信する seam (現状は常に未受理 = false を返す)。 */
@@ -150,14 +150,14 @@ TResult<void> CSocialModeration::SubmitReport(const FReportRecord& rep) noexcept
     if (TrySubmitToBackend(rep)) {
         ++m_Delivered;
     } else {
-        m_PendingReports.PushBack(rep);
+        m_PendingReports.Add(rep);
     }
     return Ok();
 }
 
 /** 未送信の保留通報数を返す。 */
 u32 CSocialModeration::PendingReportCount() const noexcept {
-    return static_cast<u32>(m_PendingReports.Size());
+    return static_cast<u32>(m_PendingReports.Num());
 }
 
 /** これまでに送信受理された通報の累計数を返す。 */
@@ -184,7 +184,7 @@ TResult<void> CSocialModeration::FlushReports() noexcept {
     // RemoveAtSwap で抜く設計だと順序が崩れ、通報の時系列が乱れる。通報は
     // timestamp 昇順 (= 追加順) を保ったまま再送したいので、前から走査しつつ
     // 受理分をスキップして「残す分」を in-place で前詰めする安定圧縮を行う。
-    const usize n     = m_PendingReports.Size();
+    const usize n     = m_PendingReports.Num();
     usize       keep  = 0;   // 残す要素の書き込み先 (前詰めカーソル)
     u32         failed = 0;  // 未受理 (= queue に残った) 件数
 
@@ -202,7 +202,7 @@ TResult<void> CSocialModeration::FlushReports() noexcept {
         }
     }
     // 末尾の余剰 (受理して落とした分) を捨てて queue サイズを残存数に縮める。
-    m_PendingReports.Resize(keep);
+    m_PendingReports.SetNum(keep);
 
     if (failed != 0) {
         // 1 件でも残れば「全件は送れていない」ことを集約エラーで通知。
@@ -218,8 +218,8 @@ void CSocialModeration::ClearLocalState() noexcept {
     // テスト / アカウント切り替え / セーブデータ削除時に呼ぶ。SDK 同期は
     // 行わない (ローカル state のみ消去するため、SDK 側のブロック設定は
     // 別途 UnblockUser を呼ぶか、SDK 自身の管理画面から消す必要がある)。
-    m_Blocked.Clear();
-    m_PendingReports.Clear();
+    m_Blocked.Reset();
+    m_PendingReports.Reset();
     // m_Delivered は累計監査値なのでリセットしない。m_BackendConnected も接続状態
     // を表す seam フラグであり local state ではないため触らない。
 }

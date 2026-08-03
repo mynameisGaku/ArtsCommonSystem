@@ -216,12 +216,12 @@ void FSpritePack::Init(const FSpritePackInfo& info) noexcept {
 }
 
 void FSpritePack::AddFrame(const FSpriteFrame& frame) noexcept {
-    if (frame.name != nullptr) m_Frames.PushBack(frame);
+    if (frame.name != nullptr) m_Frames.Add(frame);
 }
 
 void FSpritePack::RemoveFrame(const char* name) noexcept {
     if (name == nullptr) return;
-    usize index = m_Frames.Size();
+    usize index = m_Frames.Num();
     while (index != 0u) {
         --index;
         if (NameEquals(m_Frames[index].name, name)) {
@@ -231,8 +231,8 @@ void FSpritePack::RemoveFrame(const char* name) noexcept {
 }
 
 void FSpritePack::ClearAll() noexcept {
-    m_Frames.Clear();
-    m_OwnedNames.Clear();
+    m_Frames.Reset();
+    m_OwnedNames.Reset();
 }
 
 FSpritePackLoadResult FSpritePack::TryLoadAtlasJson(
@@ -412,14 +412,14 @@ FSpritePackLoadResult FSpritePack::TryLoadAtlasJson(
         const FStringView name = FrameNameAt(*frames, hash_form, index);
         FString owned_name(*m_OwnedNames.GetAllocator());
         if (!owned_name.TryAppend(name) ||
-            !staged_names.TryPushBack(Move(owned_name))) {
+            !staged_names.TryAdd(Move(owned_name))) {
             return SpriteFailure(
                 ESpritePackLoadError::AllocationFailure, index);
         }
 
         const FJsonValue& rectangle = entry.Get("frame");
         FSpriteFrame frame{};
-        frame.name = staged_names.Back().Data();
+        frame.name = staged_names.Last().Data();
         (void)TryReadU32(rectangle.Get("x"), frame.x);
         (void)TryReadU32(rectangle.Get("y"), frame.y);
         (void)TryReadU32(rectangle.Get("w"), frame.w);
@@ -429,7 +429,7 @@ FSpritePackLoadResult FSpritePack::TryLoadAtlasJson(
             (void)TryReadPivot(pivot->Get("x"), frame.pivot_x);
             (void)TryReadPivot(pivot->Get("y"), frame.pivot_y);
         }
-        if (!staged_frames.TryPushBack(frame)) {
+        if (!staged_frames.TryAdd(frame)) {
             return SpriteFailure(
                 ESpritePackLoadError::AllocationFailure, index);
         }
@@ -459,7 +459,7 @@ TResult<void> FSpritePack::LoadAtlasJson(
 
 const FSpriteFrame* FSpritePack::FindFrame(const char* name) const noexcept {
     if (name == nullptr) return nullptr;
-    for (usize i = 0u; i < m_Frames.Size(); ++i) {
+    for (usize i = 0u; i < m_Frames.Num(); ++i) {
         if (NameEquals(m_Frames[i].name, name)) return &m_Frames[i];
     }
     return nullptr;
@@ -470,14 +470,14 @@ bool FSpritePack::HasFrame(const char* name) const noexcept {
 }
 
 u32 FSpritePack::FrameCount() const noexcept {
-    return m_Frames.Size() > 0xFFFFFFFFu
+    return m_Frames.Num() > 0xFFFFFFFFu
         ? 0xFFFFFFFFu
-        : static_cast<u32>(m_Frames.Size());
+        : static_cast<u32>(m_Frames.Num());
 }
 
 const FSpriteFrame* FSpritePack::AllFrames(u32& out_count) const noexcept {
     out_count = FrameCount();
-    return m_Frames.Data();
+    return m_Frames.GetData();
 }
 
 acs::FVec4 FSpritePack::ComputeUv(

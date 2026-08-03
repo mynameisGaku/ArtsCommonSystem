@@ -48,7 +48,7 @@ void CLocalizationDirector::RegisterString(ELocale loc, const char* key, const c
     e.locale = loc;
     e.key    = key;
     e.value  = value;
-    m_Entries.PushBack(e);
+    m_Entries.Add(e);
 }
 
 const char* CLocalizationDirector::Get(const char* key) const noexcept {
@@ -102,7 +102,7 @@ bool CLocalizationDirector::Has(const char* key) const noexcept {
 
 u32 CLocalizationDirector::KeyCount(ELocale loc) const noexcept {
     u32 n = 0;
-    const usize total = m_Entries.Size();
+    const usize total = m_Entries.Num();
     for (usize i = 0; i < total; ++i) {
         if (m_Entries[i].locale == loc) ++n;
     }
@@ -110,14 +110,14 @@ u32 CLocalizationDirector::KeyCount(ELocale loc) const noexcept {
 }
 
 void CLocalizationDirector::Clear() noexcept {
-    m_Entries.Clear();
+    m_Entries.Reset();
 }
 
 void CLocalizationDirector::ClearLocale(ELocale loc) noexcept {
     // 指定 locale 以外を残して再構築。TArray に Erase が無いので、生存要素を
     // 前詰めしてから末尾を切る (RemoveAtSwap だと順序が壊れて Get の先頭一致
     // 挙動が不安定になるため使わない)。
-    const usize total = m_Entries.Size();
+    const usize total = m_Entries.Num();
     usize write = 0;
     for (usize read = 0; read < total; ++read) {
         if (m_Entries[read].locale != loc) {
@@ -130,13 +130,13 @@ void CLocalizationDirector::ClearLocale(ELocale loc) noexcept {
     // 末尾を縮める。Resize は LocaleEntry が trivially destructible なので
     // 単純にサイズだけ縮める動きになる (TArray<T>::Resize 実装参照)。
     if (write != total) {
-        m_Entries.Resize(write);
+        m_Entries.SetNum(write);
     }
 }
 
 isize CLocalizationDirector::FindIndex(ELocale loc, const char* key) const noexcept {
     if (key == nullptr) return -1;
-    const usize n = m_Entries.Size();
+    const usize n = m_Entries.Num();
     for (usize i = 0; i < n; ++i) {
         const FLocaleEntry& e = m_Entries[i];
         if (e.locale == loc && StrEq(e.key, key)) {

@@ -19,9 +19,9 @@ template<typename T>
 bool CopyPodArray(TArray<T>& dst, const TArray<T>& src) noexcept
 {
     static_assert(IsTriviallyCopyableV<T>, "CopyPodArray: T must be trivially copyable");
-    if (!dst.TryResize(src.Size())) return false;
-    if (src.Size() > 0) {
-        MemCopy(dst.Data(), src.Data(), src.Size() * sizeof(T));
+    if (!dst.TrySetNum(src.Num())) return false;
+    if (src.Num() > 0) {
+        MemCopy(dst.GetData(), src.GetData(), src.Num() * sizeof(T));
     }
     return true;
 }
@@ -41,7 +41,7 @@ void CWorld::Clear() noexcept
 {
     // 全 SparseSet を解放（Delete が仮想デストラクタ経由で型ごとの破棄を実行し、確保元
     // アロケータへ返す）。生 delete を避け、GetOrCreateSet の New と対で MemorySystem 追跡する。
-    for (usize i = 0; i < m_Sets.Size(); ++i) {
+    for (usize i = 0; i < m_Sets.Num(); ++i) {
         if (m_Sets[i]) {
             Delete(*m_Sets.GetAllocator(), m_Sets[i]);
             m_Sets[i] = nullptr;
@@ -72,11 +72,11 @@ bool CWorld::CopyFrom(const CWorld& src) noexcept
     m_GenerationSeed = src.m_GenerationSeed;
 
     // 各 SparseSet を型消去クローンで複製する (非コピー型 or OOM は全体を失敗させる)。
-    if (!m_Sets.TryResize(src.m_Sets.Size())) {
+    if (!m_Sets.TrySetNum(src.m_Sets.Num())) {
         Clear();
         return false;
     }
-    for (usize i = 0; i < src.m_Sets.Size(); ++i) {
+    for (usize i = 0; i < src.m_Sets.Num(); ++i) {
         m_Sets[i] = nullptr;
         if (src.m_Sets[i] != nullptr) {
             m_Sets[i] = src.m_Sets[i]->CloneErased(*m_Sets.GetAllocator());
@@ -94,16 +94,16 @@ FEntityId CWorld::Create() noexcept {
     FEntityId e{};
     if (!m_FreeIndices.IsEmpty()) {
         // フリースロットを再利用（生成回数で世代がインクリメントされる）
-        const u32 idx = m_FreeIndices.Back();
-        m_FreeIndices.PopBack();
+        const u32 idx = m_FreeIndices.Last();
+        m_FreeIndices.Pop();
         FSlot& s = m_Slots[idx];
         s.alive = true;
         e.index = idx;
         e.generation = s.generation;
     } else {
         // 新規スロット作成
-        const u32 idx = static_cast<u32>(m_Slots.Size());
-        m_Slots.PushBack({m_GenerationSeed, true});
+        const u32 idx = static_cast<u32>(m_Slots.Num());
+        m_Slots.Add({m_GenerationSeed, true});
         e.index = idx;
         e.generation = m_GenerationSeed;
     }
@@ -115,20 +115,20 @@ FEntityId CWorld::Create() noexcept {
 void CWorld::Destroy(FEntityId e) noexcept {
     if (!IsAlive(e)) return;
     // 全コンポーネントを取り除く（型消去 Remove で各 SparseSet に通知）
-    for (usize i = 0; i < m_Sets.Size(); ++i) {
+    for (usize i = 0; i < m_Sets.Num(); ++i) {
         if (m_Sets[i]) m_Sets[i]->RemoveErased(e.index);
     }
     FSlot& s = m_Slots[e.index];
     s.alive = false;
     ++s.generation;  // 世代を進めて古い EntityId を無効化
-    m_FreeIndices.PushBack(e.index);
+    m_FreeIndices.Add(e.index);
     --m_AliveCount;
 }
 
 /** エンティティが生存中かつ世代一致かを返す。 */
 bool CWorld::IsAlive(FEntityId e) const noexcept {
     if (!e.IsValid()) return false;
-    if (e.index >= m_Slots.Size()) return false;
+    if (e.index >= m_Slots.Num()) return false;
     const FSlot& s = m_Slots[e.index];
     return s.alive && s.generation == e.generation;
 }

@@ -63,7 +63,7 @@ inline const char* SafeClipName(const char* name) noexcept {
 
 /** 内部 state を完全に初期値へ戻し、callback も解除する。 */
 void AModelAnimationPanel::Init() noexcept {
-    m_Clips.Clear();  // 中身は破棄、容量は保持 (= 次回再構築のアロケ節約)
+    m_Clips.Reset();  // 中身は破棄、容量は保持 (= 次回再構築のアロケ節約)
     m_CurrentClipIdx = kNoClipSelected;
     _state            = EAnimationPlayState::Stopped;
     m_CurrentTimeSec = 0.0f;
@@ -78,7 +78,7 @@ void AModelAnimationPanel::Init() noexcept {
 void AModelAnimationPanel::Shutdown() noexcept {
     // TArray は ~TArray で破棄されるが明示 Clear で
     // 多重 Shutdown / 再 Init の確定状態を作る (AParticleEditorPanel と同形)。
-    m_Clips.Clear();
+    m_Clips.Reset();
     m_CurrentClipIdx = kNoClipSelected;
     _state            = EAnimationPlayState::Stopped;
     m_CurrentTimeSec = 0.0f;
@@ -94,7 +94,7 @@ void AModelAnimationPanel::SetClips(const FAnimationClipBinding* clips,
                                    u32 count) noexcept {
     // nullptr + count > 0 は呼出側ミスだが、defensive に「count = 0 として扱う」。
     // count == 0 / clips == nullptr ともに「空にする」セマンティクス。
-    m_Clips.Clear();
+    m_Clips.Reset();
     if (clips == nullptr || count == 0) {
         m_CurrentClipIdx = kNoClipSelected;
         _state            = EAnimationPlayState::Stopped;
@@ -105,7 +105,7 @@ void AModelAnimationPanel::SetClips(const FAnimationClipBinding* clips,
     // Resize で領域確保 + 中身を値コピー。FAnimationClipBinding は POD なので
     // 単純代入で安全。`name` ポインタの寿命は呼出側責任 (= 本 panel は
     // const char* リテラル / 永続バッファを前提とする)。
-    m_Clips.Resize(static_cast<usize>(count));
+    m_Clips.SetNum(static_cast<usize>(count));
     for (u32 i = 0; i < count; ++i) {
         m_Clips[i] = clips[i];
         // duration_sec が負 / NaN だと slider が壊れるので保険で 0 にクランプ。
@@ -124,7 +124,7 @@ void AModelAnimationPanel::SetClips(const FAnimationClipBinding* clips,
 
 /** clip リストを空にして Stopped + time 0 に戻す (callback / 設定値は保持)。 */
 void AModelAnimationPanel::ClearClips() noexcept {
-    m_Clips.Clear();
+    m_Clips.Reset();
     m_CurrentClipIdx = kNoClipSelected;
     _state            = EAnimationPlayState::Stopped;
     m_CurrentTimeSec = 0.0f;
@@ -134,12 +134,12 @@ void AModelAnimationPanel::ClearClips() noexcept {
 
 /** 現在登録されている clip の数を返す。 */
 u32 AModelAnimationPanel::ClipCount() const noexcept {
-    return static_cast<u32>(m_Clips.Size());
+    return static_cast<u32>(m_Clips.Num());
 }
 
 /** 現在選択中の clip メタを返す (未選択 / 範囲外は nullptr)。 */
 const FAnimationClipBinding* AModelAnimationPanel::CurrentClip() const noexcept {
-    if (!IsValidClipIndex(m_CurrentClipIdx, static_cast<u32>(m_Clips.Size()))) {
+    if (!IsValidClipIndex(m_CurrentClipIdx, static_cast<u32>(m_Clips.Num()))) {
         return nullptr;
     }
     return &m_Clips[static_cast<usize>(m_CurrentClipIdx)];
@@ -154,7 +154,7 @@ i32 AModelAnimationPanel::CurrentClipIndex() const noexcept {
 void AModelAnimationPanel::SelectClip(u32 clip_index) noexcept {
     // 範囲外 (>= ClipCount) は no-op (= 静かに無視、エラーは LogWarning 等で
     // 出すべきだが本 panel は log 依存を持たない方針)。
-    if (clip_index >= static_cast<u32>(m_Clips.Size())) return;
+    if (clip_index >= static_cast<u32>(m_Clips.Num())) return;
 
     // 同 clip を再選択した場合も time = 0 + Stopped に戻す
     // (= UI 上で同じ clip を「もう一度選ぶ」操作は明確なリスタート意図と解釈)。
@@ -329,7 +329,7 @@ void AModelAnimationPanel::DrawUI() noexcept {
         return;
     }
 
-    const u32 clip_count = static_cast<u32>(m_Clips.Size());
+    const u32 clip_count = static_cast<u32>(m_Clips.Num());
 
     // ClipCombo (dropdown)。
     // current preview 文字列: 未選択 / 空 list なら "(no clip)"、それ以外は

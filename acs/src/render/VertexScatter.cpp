@@ -25,60 +25,60 @@ FWeldKey QuantizePos(FVec3 p, f32 inv_eps) noexcept {
 bool CVertexScatter::Build(const AMeshAsset& mesh, f32 weld_epsilon) noexcept {
     const auto& verts = mesh.Vertices();
     const auto& idx   = mesh.Indices();
-    if (verts.Size() == 0 || idx.Size() < 3) return false;
+    if (verts.Num() == 0 || idx.Num() < 3) return false;
     // 位置だけを抜き出して汎用版へ渡す。
     TArray<FVec3> pos;
-    pos.Resize(verts.Size());
-    for (u32 i = 0; i < verts.Size(); ++i) pos[i] = verts[i].position;
-    return Build(pos.Data(), static_cast<u32>(verts.Size()),
-                 idx.Data(), static_cast<u32>(idx.Size()), weld_epsilon);
+    pos.SetNum(verts.Num());
+    for (u32 i = 0; i < verts.Num(); ++i) pos[i] = verts[i].position;
+    return Build(pos.GetData(), static_cast<u32>(verts.Num()),
+                 idx.GetData(), static_cast<u32>(idx.Num()), weld_epsilon);
 }
 
 bool CVertexScatter::Build(const FVec3* positions, u32 vcount, const u32* indices, u32 icount,
                            f32 weld_epsilon) noexcept {
     m_VertexCount = 0;
     m_NodeCount   = 0;
-    m_Weld.Clear();
-    m_Offset.Clear();
-    m_Neighbor.Clear();
-    m_Weight.Clear();
+    m_Weld.Reset();
+    m_Offset.Reset();
+    m_Neighbor.Reset();
+    m_Weight.Reset();
     if (positions == nullptr || vcount == 0 || indices == nullptr || icount < 3) return false;
 
     // --- 1. 位置溶接: 同位置の頂点 (UV シーム/極で複製) を 1 ノードに束ねる ---
     //   量子化キーの線形探索 (メッシュは数千頂点程度で十分速い)。
     const f32 inv_eps = (weld_epsilon > 0.0f) ? (1.0f / weld_epsilon) : 1e4f;
-    m_Weld.Resize(vcount);
+    m_Weld.SetNum(vcount);
     TArray<FWeldKey> nodeKeys;
     TArray<FVec3>   nodePos;     // 各ノードの代表位置 (溶接元の先頭)
     for (u32 i = 0; i < vcount; ++i) {
         const FWeldKey k = QuantizePos(positions[i], inv_eps);
         i32 node = -1;
-        for (u32 n = 0; n < nodeKeys.Size(); ++n)
+        for (u32 n = 0; n < nodeKeys.Num(); ++n)
             if (nodeKeys[n] == k) { node = static_cast<i32>(n); break; }
         if (node < 0) {
-            node = static_cast<i32>(nodeKeys.Size());
-            nodeKeys.PushBack(k);
-            nodePos.PushBack(positions[i]);
+            node = static_cast<i32>(nodeKeys.Num());
+            nodeKeys.Add(k);
+            nodePos.Add(positions[i]);
         }
         m_Weld[i] = node;
     }
-    m_NodeCount   = static_cast<u32>(nodeKeys.Size());
+    m_NodeCount   = static_cast<u32>(nodeKeys.Num());
     m_VertexCount = vcount;
 
     // --- 2. 隣接構築: 三角形の各辺を無向辺としてノード隣接に積む (重複辺は溶接後に統合) ---
     //   まず動的隣接 (ノードごとの可変リスト) を作り、辺長の逆数を重みとして加算する。
-    TArray<TArray<u32>> adj;     adj.Resize(m_NodeCount);
-    TArray<TArray<f32>> adjW;    adjW.Resize(m_NodeCount);
+    TArray<TArray<u32>> adj;     adj.SetNum(m_NodeCount);
+    TArray<TArray<f32>> adjW;    adjW.SetNum(m_NodeCount);
     auto addEdge = [&](u32 a, u32 b) noexcept {
         if (a == b) return;
         const FVec3 d = nodePos[a] - nodePos[b];
         const f32 len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
         const f32 w   = 1.0f / ((len > 1e-6f) ? len : 1e-6f);   // 近いほど強く散る
         // 既存隣接なら重みを加算 (複数三角形が共有する辺)
-        for (u32 e = 0; e < adj[a].Size(); ++e)
+        for (u32 e = 0; e < adj[a].Num(); ++e)
             if (adj[a][e] == b) { adjW[a][e] += w; return; }
-        adj[a].PushBack(b);
-        adjW[a].PushBack(w);
+        adj[a].Add(b);
+        adjW[a].Add(w);
     };
     const u32 tris = icount / 3;
     for (u32 t = 0; t < tris; ++t) {
@@ -95,18 +95,18 @@ bool CVertexScatter::Build(const FVec3* positions, u32 vcount, const u32* indice
     // --- 3. CSR へ変換 (重みは «対称» な辺長逆数のまま、正規化しない) ---
     //   対称ラプラシアン拡散で «総和 (= 総エネルギー) を保存» するため行正規化はしない。
     //   代わりに次数 D_n = Σ_e w を持ち、安定な拡散係数 λ = 0.5/max_n D_n を求める。
-    m_Offset.Resize(m_NodeCount + 1);
+    m_Offset.SetNum(m_NodeCount + 1);
     u32 total = 0;
-    for (u32 n = 0; n < m_NodeCount; ++n) { m_Offset[n] = total; total += static_cast<u32>(adj[n].Size()); }
+    for (u32 n = 0; n < m_NodeCount; ++n) { m_Offset[n] = total; total += static_cast<u32>(adj[n].Num()); }
     m_Offset[m_NodeCount] = total;
-    m_Neighbor.Resize(total);
-    m_Weight.Resize(total);
-    m_Degree.Resize(m_NodeCount);
+    m_Neighbor.SetNum(total);
+    m_Weight.SetNum(total);
+    m_Degree.SetNum(m_NodeCount);
     f32 maxDeg = 1e-6f;
     for (u32 n = 0; n < m_NodeCount; ++n) {
         const u32 base = m_Offset[n];
         f32 deg = 0.0f;
-        for (u32 e = 0; e < adj[n].Size(); ++e) {
+        for (u32 e = 0; e < adj[n].Num(); ++e) {
             m_Neighbor[base + e] = adj[n][e];
             m_Weight[base + e]   = adjW[n][e];           // 対称 (辺の両端で同値)
             deg += adjW[n][e];
@@ -143,8 +143,8 @@ void CVertexScatter::Scatter(const FVec3* in, FVec3* out, const FScatterProfile&
 
     // 頂点空間 → ノード空間へ集約 (溶接された頂点群は平均を取る)。
     TArray<f32> nodeR, nodeG, nodeB, cnt;
-    nodeR.Resize(m_NodeCount); nodeG.Resize(m_NodeCount);
-    nodeB.Resize(m_NodeCount); cnt.Resize(m_NodeCount);
+    nodeR.SetNum(m_NodeCount); nodeG.SetNum(m_NodeCount);
+    nodeB.SetNum(m_NodeCount); cnt.SetNum(m_NodeCount);
     for (u32 n = 0; n < m_NodeCount; ++n) { nodeR[n] = nodeG[n] = nodeB[n] = 0.0f; cnt[n] = 0.0f; }
     for (u32 i = 0; i < m_VertexCount; ++i) {
         const u32 n = static_cast<u32>(m_Weld[i]);
@@ -157,11 +157,11 @@ void CVertexScatter::Scatter(const FVec3* in, FVec3* out, const FScatterProfile&
 
     // RGB それぞれを別反復回数で拡散 (赤が最も遠くまで散る)。
     TArray<f32> outR, outG, outB, work;
-    outR.Resize(m_NodeCount); outG.Resize(m_NodeCount); outB.Resize(m_NodeCount);
-    work.Resize(m_NodeCount);
-    DiffuseChannel(nodeR.Data(), outR.Data(), work.Data(), profile.iterR);
-    DiffuseChannel(nodeG.Data(), outG.Data(), work.Data(), profile.iterG);
-    DiffuseChannel(nodeB.Data(), outB.Data(), work.Data(), profile.iterB);
+    outR.SetNum(m_NodeCount); outG.SetNum(m_NodeCount); outB.SetNum(m_NodeCount);
+    work.SetNum(m_NodeCount);
+    DiffuseChannel(nodeR.GetData(), outR.GetData(), work.GetData(), profile.iterR);
+    DiffuseChannel(nodeG.GetData(), outG.GetData(), work.GetData(), profile.iterG);
+    DiffuseChannel(nodeB.GetData(), outB.GetData(), work.GetData(), profile.iterB);
 
     // ノード空間 → 頂点空間へ展開 (溶接元の各頂点へ同じ値を配る)。
     for (u32 i = 0; i < m_VertexCount; ++i) {

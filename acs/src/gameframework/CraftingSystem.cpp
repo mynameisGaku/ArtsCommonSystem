@@ -61,7 +61,7 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 /** recipe_id を per-byte 線形検索して index を返す (未検出は kNotFound)。 */
 u32 CCraftingSystem::FindRecipeSlot(const char* recipe_id) const noexcept {
     if (recipe_id == nullptr) return kNotFound;
-    const usize n = m_Recipes.Size();
+    const usize n = m_Recipes.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Recipes[i].recipe_id, recipe_id)) return static_cast<u32>(i);
     }
@@ -93,13 +93,13 @@ void CCraftingSystem::RegisterRecipe(const FCraftRecipe& recipe) noexcept {
         copy.ingredient_count = 0;
     }
 
-    // 再確保前に進行中 craft の recipe index を控える。PushBack は末尾追加で既存 index は
+    // 再確保前に進行中 craft の recipe index を控える。Add は末尾追加で既存 index は
     // 不変なので、m_CurrentRecipe が Grow で dangling になっても index から張り直せる。
     const bool  had_active = (m_CurrentRecipe != nullptr);
     const usize active_idx = had_active
-        ? static_cast<usize>(m_CurrentRecipe - m_Recipes.Data()) : 0;
-    m_Recipes.PushBack(copy);
-    if (had_active && active_idx < m_Recipes.Size()) {
+        ? static_cast<usize>(m_CurrentRecipe - m_Recipes.GetData()) : 0;
+    m_Recipes.Add(copy);
+    if (had_active && active_idx < m_Recipes.Num()) {
         m_CurrentRecipe = &m_Recipes[active_idx];   // 旧バッファへの dangling pointer を防ぐ
     }
 }
@@ -113,13 +113,13 @@ const FCraftRecipe* CCraftingSystem::FindRecipe(const char* recipe_id) const noe
 
 /** 登録済みレシピ件数を返す。 */
 u32 CCraftingSystem::RecipeCount() const noexcept {
-    return static_cast<u32>(m_Recipes.Size());
+    return static_cast<u32>(m_Recipes.Num());
 }
 
 /** 全レシピの連続バッファと件数を返す。 */
 const FCraftRecipe* CCraftingSystem::AllRecipes(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(m_Recipes.Size());
-    return m_Recipes.Data();
+    out_count = static_cast<u32>(m_Recipes.Num());
+    return m_Recipes.GetData();
 }
 
 /** インベントリ adapter (query / consume / grant + user) をまとめて設定する。 */
@@ -322,7 +322,7 @@ void CCraftingSystem::SetOnCompleteCallback(CompleteCallback cb, void* user) noe
 
 /** レシピ + 状態 + adapter + callback をすべて初期化する。 */
 void CCraftingSystem::ClearAll() noexcept {
-    m_Recipes.Clear();
+    m_Recipes.Reset();
     m_Query            = nullptr;
     m_Consume          = nullptr;
     m_Grant            = nullptr;

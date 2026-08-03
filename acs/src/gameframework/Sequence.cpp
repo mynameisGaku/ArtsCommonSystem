@@ -31,7 +31,7 @@ FSequence& FSequence::Wait(f32 seconds) noexcept {
     FSeqAction a;
     a.kind     = FSeqAction::EKind::Wait;
     a.duration = seconds < 0.0f ? 0.0f : seconds;
-    m_Actions.PushBack(Move(a));
+    m_Actions.Add(Move(a));
     return *this;
 }
 
@@ -42,7 +42,7 @@ FSequence& FSequence::Call(void(*fn)(void*) noexcept, void* user) noexcept {
     a.duration  = 0.0f;
     a.call_fn   = fn;
     a.call_user = user;
-    m_Actions.PushBack(Move(a));
+    m_Actions.Add(Move(a));
     return *this;
 }
 
@@ -61,7 +61,7 @@ FSequence& FSequence::Tween(f32* target, f32 from, f32 to, f32 duration,
     a.tween_f_from   = from;
     a.tween_f_to     = to;
     a.ease           = ease != nullptr ? ease : Easing::Linear;
-    m_Actions.PushBack(Move(a));
+    m_Actions.Add(Move(a));
     return *this;
 }
 
@@ -85,7 +85,7 @@ FSequence& FSequence::Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
     a.tween_v2_from   = from;
     a.tween_v2_to     = to;
     a.ease            = ease != nullptr ? ease : Easing::Linear;
-    m_Actions.PushBack(Move(a));
+    m_Actions.Add(Move(a));
     return *this;
 }
 
@@ -109,7 +109,7 @@ FSequence& FSequence::Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
     a.tween_v3_from   = from;
     a.tween_v3_to     = to;
     a.ease            = ease != nullptr ? ease : Easing::Linear;
-    m_Actions.PushBack(Move(a));
+    m_Actions.Add(Move(a));
     return *this;
 }
 
@@ -120,16 +120,16 @@ FSequence& FSequence::Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
 
 /** 空きスロットを再利用優先で確保する (無ければ末尾に追加)。 */
 u32 CSequenceRunner::AcquireSlot() noexcept {
-    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+    for (u32 i = 0; i < m_Slots.Num(); ++i) {
         if (!m_Slots[i].active) return i;
     }
-    m_Slots.PushBack({});
-    return static_cast<u32>(m_Slots.Size()) - 1u;
+    m_Slots.Add({});
+    return static_cast<u32>(m_Slots.Num()) - 1u;
 }
 
 /** シーケンスをスロットに格納して実行開始する。 */
 FSeqHandle CSequenceRunner::Start(FSequence seq) noexcept {
-    if (seq.Actions().Size() == 0) return {};
+    if (seq.Actions().Num() == 0) return {};
     const u32 idx = AcquireSlot();
     FSlot& s = m_Slots[idx];
     // Slot は再利用なので明示的にリセット (seq は新しいものを Move 代入)
@@ -147,7 +147,7 @@ FSeqHandle CSequenceRunner::Start(FSequence seq) noexcept {
 
 /** ハンドルが指すスロットを非アクティブ化する。 */
 void CSequenceRunner::Cancel(FSeqHandle h) noexcept {
-    if (!h.IsValid() || h.index >= m_Slots.Size()) return;
+    if (!h.IsValid() || h.index >= m_Slots.Num()) return;
     FSlot& s = m_Slots[h.index];
     if (s.generation != h.generation || !s.active) return;
     s.active = false;
@@ -155,14 +155,14 @@ void CSequenceRunner::Cancel(FSeqHandle h) noexcept {
 }
 
 void CSequenceRunner::CancelAll() noexcept {
-    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+    for (u32 i = 0; i < m_Slots.Num(); ++i) {
         m_Slots[i].active = false;
     }
     m_ActiveCount = 0;
 }
 
 bool CSequenceRunner::IsActive(FSeqHandle h) const noexcept {
-    if (!h.IsValid() || h.index >= m_Slots.Size()) return false;
+    if (!h.IsValid() || h.index >= m_Slots.Num()) return false;
     const FSlot& s = m_Slots[h.index];
     return s.active && s.generation == h.generation;
 }
@@ -171,7 +171,7 @@ void CSequenceRunner::AdvanceToNext(FSlot& s) noexcept {
     ++s.action_idx;
     s.action_elapsed = 0.0f;
     s.call_fired     = false;
-    if (s.action_idx >= s.seq.Actions().Size()) {
+    if (s.action_idx >= s.seq.Actions().Num()) {
         // ループ判定: loop_count=0 は無限、それ以外は loops_done < loop_count-1 ならもう 1 周
         ++s.loops_done;
         const u32 lc = s.seq.LoopCount();
@@ -204,7 +204,7 @@ void CSequenceRunner::FinishAction(FSlot& /*s*/, const FSeqAction& act) noexcept
 void CSequenceRunner::Tick(f32 dt) noexcept {
     if (m_ActiveCount == 0 || dt <= 0.0f || !std::isfinite(dt)) return;
 
-    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+    for (u32 i = 0; i < m_Slots.Num(); ++i) {
         FSlot& s = m_Slots[i];
         if (!s.active) continue;
 
@@ -215,7 +215,7 @@ void CSequenceRunner::Tick(f32 dt) noexcept {
 
         while (s.active && safety-- > 0) {
             const auto& actions = s.seq.Actions();
-            if (s.action_idx >= actions.Size()) break;     // ループ判定済の保険
+            if (s.action_idx >= actions.Num()) break;     // ループ判定済の保険
             const FSeqAction& act = actions[s.action_idx];
 
             switch (act.kind) {
@@ -227,7 +227,7 @@ void CSequenceRunner::Tick(f32 dt) noexcept {
                     if (fn) {
                         fn(user);   // callback 内 Start() 等で m_Slots 再確保 → s/act が無効化され得る
                         // s/act を触らず index で再取得。まだ同一の active slot なら進める。
-                        if (i < m_Slots.Size() && m_Slots[i].active) AdvanceToNext(m_Slots[i]);
+                        if (i < m_Slots.Num() && m_Slots[i].active) AdvanceToNext(m_Slots[i]);
                         break;      // 今フレームのこの slot 処理は安全のため打ち切り (次 Tick で継続)
                     }
                 }

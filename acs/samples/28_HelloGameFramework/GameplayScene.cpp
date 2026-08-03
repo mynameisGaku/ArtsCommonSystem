@@ -172,7 +172,7 @@ void AGameplayScene::OnFixedUpdate(f32 dt) noexcept {
         if (HasServices()) {
             TArray<FShapeId> hits;
             Services().Physics().OverlapAabb(FAabb2{FVec2{0,0}, FVec2{2.0f,2.0f}}, hits);
-            overlap_count = static_cast<u32>(hits.Size());
+            overlap_count = static_cast<u32>(hits.Num());
             FRay2 r{FVec2{0,0}, FVec2{1,0}};
             FRayHit2 rh{};
             FShapeId rid{};

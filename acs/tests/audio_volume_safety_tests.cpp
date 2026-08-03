@@ -33,7 +33,7 @@ i32 RunAudioVolumeSafetyTest() noexcept
 
     /** 最小構成の16bit PCM音声データ。 */
     TArray<byte> Samples;
-    if (!Samples.TryResize(4u))
+    if (!Samples.TrySetNum(4u))
     {
         return 2;
     }

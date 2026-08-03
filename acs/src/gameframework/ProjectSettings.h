@@ -167,7 +167,7 @@ public:
     u32 SerializeText(char* out, usize cap) const noexcept;
 
     /** エントリ数を返す。 */
-    u32 Count() const noexcept { return m_Entries.Size(); }
+    u32 Count() const noexcept { return m_Entries.Num(); }
 
     /** index 番目のエントリを返す (範囲外は触らないこと)。 */
     const FSettingEntry& At(u32 i) const noexcept { return m_Entries[i]; }

@@ -45,7 +45,7 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 
 u32 CInventorySystem::FindItemSlot(const char* item_id) const noexcept {
     if (item_id == nullptr) return kNotFound;
-    const usize n = m_Items.Size();
+    const usize n = m_Items.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Items[i].id, item_id)) return static_cast<u32>(i);
     }
@@ -55,7 +55,7 @@ u32 CInventorySystem::FindItemSlot(const char* item_id) const noexcept {
 void CInventorySystem::NotifyChange(u32 slot_index) noexcept {
     if (m_OnChange == nullptr) return;
     // 範囲外は呼ばない (defensive)。slot_index < SlotCount() のときだけ。
-    if (slot_index >= static_cast<u32>(m_Slots.Size())) return;
+    if (slot_index >= static_cast<u32>(m_Slots.Num())) return;
     const FInventorySlot& s = m_Slots[slot_index];
     m_OnChange(m_OnChangeUser, slot_index, s.item_id, s.count);
 }
@@ -65,11 +65,11 @@ void CInventorySystem::Init(u32 slot_count) noexcept {
     if (slot_count == 0) slot_count = 1;
 
     // 同じ slot_count なら no-op (再 Init で内容をクリアしないことを保証)。
-    if (static_cast<u32>(m_Slots.Size()) == slot_count) return;
+    if (static_cast<u32>(m_Slots.Num()) == slot_count) return;
 
     // slot 数が違う場合は内容クリアして resize。
-    m_Slots.Clear();
-    m_Slots.Resize(slot_count);
+    m_Slots.Reset();
+    m_Slots.SetNum(slot_count);
     // Resize はデフォルト構築するので item_id = nullptr / count = 0 で初期化済。
 }
 
@@ -87,7 +87,7 @@ void CInventorySystem::RegisterItem(const FItemDef& def) noexcept {
     FItemDef copy = def;
     if (copy.max_stack == 0) copy.max_stack = 1;
 
-    m_Items.PushBack(copy);
+    m_Items.Add(copy);
 }
 
 const FItemDef* CInventorySystem::FindItem(const char* item_id) const noexcept {
@@ -99,7 +99,7 @@ const FItemDef* CInventorySystem::FindItem(const char* item_id) const noexcept {
 u32 CInventorySystem::AddItem(const char* item_id, u32 count) noexcept {
     // 早期 reject — side effect なし。
     if (item_id == nullptr || count == 0) return 0;
-    if (m_Slots.Size() == 0)               return 0;  // Init 前
+    if (m_Slots.Num() == 0)               return 0;  // Init 前
 
     const u32 def_idx = FindItemSlot(item_id);
     if (def_idx == kNotFound) return 0;  // 未登録 item
@@ -108,7 +108,7 @@ u32 CInventorySystem::AddItem(const char* item_id, u32 count) noexcept {
     const FItemDef& def     = m_Items[def_idx];
     const char*    canon_id = def.id;
     const u32      max_stk  = def.max_stack;
-    const u32      n_slots  = static_cast<u32>(m_Slots.Size());
+    const u32      n_slots  = static_cast<u32>(m_Slots.Num());
 
     u32 remaining = count;
 
@@ -141,9 +141,9 @@ u32 CInventorySystem::AddItem(const char* item_id, u32 count) noexcept {
 
 u32 CInventorySystem::RemoveItem(const char* item_id, u32 count) noexcept {
     if (item_id == nullptr || count == 0) return 0;
-    if (m_Slots.Size() == 0)               return 0;
+    if (m_Slots.Num() == 0)               return 0;
 
-    const u32 n_slots = static_cast<u32>(m_Slots.Size());
+    const u32 n_slots = static_cast<u32>(m_Slots.Num());
     u32       removed = 0;
 
     // 前方優先で減らす (UI の見え方を自然にする)。
@@ -176,9 +176,9 @@ bool CInventorySystem::HasItem(const char* item_id, u32 min_count) const noexcep
 
 u32 CInventorySystem::ItemTotal(const char* item_id) const noexcept {
     if (item_id == nullptr) return 0;
-    if (m_Slots.Size() == 0) return 0;
+    if (m_Slots.Num() == 0) return 0;
 
-    const u32 n_slots = static_cast<u32>(m_Slots.Size());
+    const u32 n_slots = static_cast<u32>(m_Slots.Num());
     u32       total   = 0;
     for (u32 i = 0; i < n_slots; ++i) {
         const FInventorySlot& s = m_Slots[i];
@@ -192,7 +192,7 @@ u32 CInventorySystem::ItemTotal(const char* item_id) const noexcept {
 }
 
 bool CInventorySystem::MoveSlot(u32 from_index, u32 to_index) noexcept {
-    const u32 n_slots = static_cast<u32>(m_Slots.Size());
+    const u32 n_slots = static_cast<u32>(m_Slots.Num());
     if (n_slots == 0) return false;
     if (from_index >= n_slots || to_index >= n_slots) return false;
 
@@ -251,7 +251,7 @@ bool CInventorySystem::MoveSlot(u32 from_index, u32 to_index) noexcept {
 }
 
 bool CInventorySystem::DropSlot(u32 index) noexcept {
-    if (index >= static_cast<u32>(m_Slots.Size())) return false;
+    if (index >= static_cast<u32>(m_Slots.Num())) return false;
 
     FInventorySlot& s = m_Slots[index];
     if (s.item_id == nullptr) return false;  // 既に空
@@ -267,16 +267,16 @@ bool CInventorySystem::DropSlot(u32 index) noexcept {
 }
 
 const FInventorySlot* CInventorySystem::GetSlot(u32 index) const noexcept {
-    if (index >= static_cast<u32>(m_Slots.Size())) return nullptr;
+    if (index >= static_cast<u32>(m_Slots.Num())) return nullptr;
     return &m_Slots[index];
 }
 
 u32 CInventorySystem::SlotCount() const noexcept {
-    return static_cast<u32>(m_Slots.Size());
+    return static_cast<u32>(m_Slots.Num());
 }
 
 u32 CInventorySystem::EmptySlotCount() const noexcept {
-    const u32 n = static_cast<u32>(m_Slots.Size());
+    const u32 n = static_cast<u32>(m_Slots.Num());
     u32       e = 0;
     for (u32 i = 0; i < n; ++i) {
         if (m_Slots[i].item_id == nullptr) ++e;
@@ -291,8 +291,8 @@ void CInventorySystem::SetOnChangeCallback(ChangeCallback cb, void* user) noexce
 }
 
 void CInventorySystem::ClearAll() noexcept {
-    m_Items.Clear();
-    m_Slots.Clear();
+    m_Items.Reset();
+    m_Slots.Reset();
     m_OnChange      = nullptr;
     m_OnChangeUser = nullptr;
 }

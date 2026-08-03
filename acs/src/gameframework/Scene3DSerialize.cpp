@@ -185,12 +185,12 @@ EScene3DSerializeError Flatten(
     const ANode& root, TArray<const ANode*>& nodes, TArray<i32>& parents) noexcept {
     TArray<FFlattenEntry> stack;
     THashMap<const ANode*, u8> states;
-    if (!stack.TryPushBack(FFlattenEntry{&root, -1, 0u, false}))
+    if (!stack.TryAdd(FFlattenEntry{&root, -1, 0u, false}))
         return EScene3DSerializeError::AllocationFailure;
 
     while (!stack.IsEmpty()) {
-        const FFlattenEntry entry = stack.Back();
-        stack.PopBack();
+        const FFlattenEntry entry = stack.Last();
+        stack.Pop();
         if (entry.Node == nullptr) return EScene3DSerializeError::InvalidParent;
 
         if (entry.Exit) {
@@ -207,25 +207,25 @@ EScene3DSerializeError Flatten(
         }
         if (entry.Depth > kScene3DSerializeMaxTreeDepth)
             return EScene3DSerializeError::TreeDepthLimitExceeded;
-        if (nodes.Size() >= kScene3DSerializeMaxNodeCount)
+        if (nodes.Num() >= kScene3DSerializeMaxNodeCount)
             return EScene3DSerializeError::NodeLimitExceeded;
-        if (!states.TryInsert(entry.Node, 1u)
-            || !nodes.TryPushBack(entry.Node)
-            || !parents.TryPushBack(entry.ParentId)) {
+        if (!states.TryAdd(entry.Node, 1u)
+            || !nodes.TryAdd(entry.Node)
+            || !parents.TryAdd(entry.ParentId)) {
             return EScene3DSerializeError::AllocationFailure;
         }
 
-        const i32 my_id = static_cast<i32>(nodes.Size() - 1u);
-        if (!stack.TryPushBack(
+        const i32 my_id = static_cast<i32>(nodes.Num() - 1u);
+        if (!stack.TryAdd(
                 FFlattenEntry{entry.Node, entry.ParentId, entry.Depth, true}))
             return EScene3DSerializeError::AllocationFailure;
         const u32 child_count = entry.Node->ChildCount();
-        if (child_count > kScene3DSerializeMaxNodeCount - static_cast<u32>(nodes.Size()))
+        if (child_count > kScene3DSerializeMaxNodeCount - static_cast<u32>(nodes.Num()))
             return EScene3DSerializeError::NodeLimitExceeded;
         for (u32 i = child_count; i > 0u; --i) {
             const ANode* child = entry.Node->Child(i - 1u);
             if (child == nullptr) return EScene3DSerializeError::InvalidParent;
-            if (!stack.TryPushBack(
+            if (!stack.TryAdd(
                     FFlattenEntry{child, my_id, entry.Depth + 1u, false}))
                 return EScene3DSerializeError::AllocationFailure;
         }
@@ -418,10 +418,10 @@ EScene3DSerializeError ParseNodeLine(
     if (id < 0) return EScene3DSerializeError::InvalidNodeId;
     if (id_to_index.Contains(id))
         return EScene3DSerializeError::DuplicateNodeId;
-    if (nodes.Size() >= kScene3DSerializeMaxNodeCount)
+    if (nodes.Num() >= kScene3DSerializeMaxNodeCount)
         return EScene3DSerializeError::NodeLimitExceeded;
 
-    const u32 node_index = static_cast<u32>(nodes.Size());
+    const u32 node_index = static_cast<u32>(nodes.Num());
     if (!editor_document && id != static_cast<i32>(node_index))
         return EScene3DSerializeError::InvalidNodeId;
     record.SourceId = id;
@@ -456,9 +456,9 @@ EScene3DSerializeError ParseNodeLine(
                        (!editor_document && node_index == 0u) ? "Root" : "Node",
                        EScene3DSerializeError::InvalidName);
     if (name_error != EScene3DSerializeError::None) return name_error;
-    if (!nodes.TryPushBack(record)) return EScene3DSerializeError::AllocationFailure;
-    if (!id_to_index.TryInsert(id, node_index)) {
-        nodes.PopBack();
+    if (!nodes.TryAdd(record)) return EScene3DSerializeError::AllocationFailure;
+    if (!id_to_index.TryAdd(id, node_index)) {
+        nodes.Pop();
         return EScene3DSerializeError::AllocationFailure;
     }
     return EScene3DSerializeError::None;
@@ -630,7 +630,7 @@ EScene3DSerializeError ParseComponentLine(
         if (component.TypeName[i] == ' ' || component.TypeName[i] == '\t')
             return EScene3DSerializeError::InvalidComponent;
     }
-    if (!components.TryPushBack(Move(component)))
+    if (!components.TryAdd(Move(component)))
         return EScene3DSerializeError::AllocationFailure;
     return EScene3DSerializeError::None;
 }
@@ -662,7 +662,7 @@ EScene3DSerializeError ParseComponentPropertyLine(
     parsed.NodeIndex = *node_index;
     parsed.Slot = static_cast<u32>(slot);
     parsed.Property = static_cast<u32>(property);
-    if (!properties.TryPushBack(parsed))
+    if (!properties.TryAdd(parsed))
         return EScene3DSerializeError::AllocationFailure;
     return EScene3DSerializeError::None;
 }
@@ -671,7 +671,7 @@ EScene3DSerializeError ParseCameraLine(
     const char* line, u32 size, const TArray<FParsedNode>& nodes,
     THashMap<i32, u32>& id_to_index,
     TArray<FParsedCamera>& cameras) noexcept {
-    if (cameras.Size() >= kScene3DSerializeMaxCameraCount)
+    if (cameras.Num() >= kScene3DSerializeMaxCameraCount)
         return EScene3DSerializeError::CameraLimitExceeded;
 
     const char* cursor = line + 6u;
@@ -683,7 +683,7 @@ EScene3DSerializeError ParseCameraLine(
     if (!ParseI32(cursor, end, node_id))
         return EScene3DSerializeError::InvalidInteger;
     const u32* node_index = id_to_index.Find(node_id);
-    if (node_id < 0 || node_index == nullptr || *node_index >= nodes.Size())
+    if (node_id < 0 || node_index == nullptr || *node_index >= nodes.Num())
         return EScene3DSerializeError::InvalidNodeId;
     if (!ParseCameraId(cursor, end, parsed.StableId)
         || !ParseI32(cursor, end, projection)
@@ -710,7 +710,7 @@ EScene3DSerializeError ParseCameraLine(
         || parsed.FarPlane > kScene3DCameraMaxFarPlane) {
         return EScene3DSerializeError::InvalidCamera;
     }
-    for (u32 index = 0u; index < cameras.Size(); ++index) {
+    for (u32 index = 0u; index < cameras.Num(); ++index) {
         if (cameras[index].NodeIndex == *node_index
             || std::strcmp(cameras[index].StableId, parsed.StableId) == 0) {
             return EScene3DSerializeError::DuplicateCamera;
@@ -720,7 +720,7 @@ EScene3DSerializeError ParseCameraLine(
     parsed.NodeId = node_id;
     parsed.Projection = static_cast<EScene3DCameraProjection>(projection);
     parsed.ActivePreferred = active != 0;
-    if (!cameras.TryPushBack(parsed))
+    if (!cameras.TryAdd(parsed))
         return EScene3DSerializeError::AllocationFailure;
     return EScene3DSerializeError::None;
 }
@@ -729,17 +729,17 @@ EScene3DSerializeError PrepareComponents(
     TArray<FParsedComponent>& components,
     const TArray<FParsedComponentProperty>& properties) noexcept {
     THashMap<u64, u32> component_indices;
-    for (u32 i = 0u; i < components.Size(); ++i) {
+    for (u32 i = 0u; i < components.Num(); ++i) {
         FParsedComponent& component = components[i];
         component.Instance = CreateComponentByName(component.TypeName);
         if (!component.Instance)
             return EScene3DSerializeError::InvalidComponent;
         const u64 key = (static_cast<u64>(component.NodeIndex) << 32u)
                       | static_cast<u64>(component.Slot);
-        if (!component_indices.TryInsert(key, i))
+        if (!component_indices.TryAdd(key, i))
             return EScene3DSerializeError::AllocationFailure;
     }
-    for (u32 i = 0u; i < properties.Size(); ++i) {
+    for (u32 i = 0u; i < properties.Num(); ++i) {
         const FParsedComponentProperty& property = properties[i];
         const u64 key = (static_cast<u64>(property.NodeIndex) << 32u)
                       | static_cast<u64>(property.Slot);
@@ -826,11 +826,11 @@ FScene3DSaveResult TrySaveScene3DText(
     TArray<i32> parents;
     result.Error = Flatten(graph.Root(), nodes, parents);
     if (result.Error != EScene3DSerializeError::None) return result;
-    result.NodeCount = static_cast<u32>(nodes.Size());
+    result.NodeCount = static_cast<u32>(nodes.Num());
 
     u32 text_bytes = 0u;
     char line[kNodeLineCapacity];
-    for (u32 i = 0u; i < nodes.Size(); ++i) {
+    for (u32 i = 0u; i < nodes.Num(); ++i) {
         u32 line_size = 0u;
         result.Error = FormatNodeLine(
             *nodes[i], static_cast<i32>(i), parents[i], line, sizeof(line), line_size);
@@ -902,7 +902,7 @@ FScene3DSaveResult TrySaveScene3DText(
     u32 cursor = 0u;
     u32 emitted_mesh_paths = 0u;
     u32 emitted_cameras = 0u;
-    for (u32 i = 0u; i < nodes.Size(); ++i) {
+    for (u32 i = 0u; i < nodes.Num(); ++i) {
         u32 line_size = 0u;
         result.Error = FormatNodeLine(
             *nodes[i], static_cast<i32>(i), parents[i], line, sizeof(line), line_size);
@@ -994,7 +994,7 @@ bool ParsedNodeEffectivelyEnabled(
     u32 traversed = 0u;
     i32 current = static_cast<i32>(node_index);
     while (current >= 0) {
-        if (static_cast<u32>(current) >= nodes.Size()
+        if (static_cast<u32>(current) >= nodes.Num()
             || traversed++ > kScene3DSerializeMaxTreeDepth
             || !nodes[static_cast<u32>(current)].Enabled) {
             return false;
@@ -1030,7 +1030,7 @@ EScene3DSerializeError BuildSelectedCameraState(
     u32& active_preferred_count) noexcept {
     active_preferred_count = 0u;
     const FParsedCamera* best = nullptr;
-    for (u32 index = 0u; index < document.Cameras.Size(); ++index) {
+    for (u32 index = 0u; index < document.Cameras.Num(); ++index) {
         const FParsedCamera& candidate = document.Cameras[index];
         if (candidate.ActivePreferred) ++active_preferred_count;
         if (!ParsedNodeEffectivelyEnabled(document.Nodes, candidate.NodeIndex))
@@ -1041,9 +1041,9 @@ EScene3DSerializeError BuildSelectedCameraState(
     if (best == nullptr) return EScene3DSerializeError::None;
 
     TArray<FTransform3D> world_transforms;
-    if (!world_transforms.TryResize(document.Nodes.Size()))
+    if (!world_transforms.TrySetNum(document.Nodes.Num()))
         return EScene3DSerializeError::AllocationFailure;
-    for (u32 index = 0u; index < document.Nodes.Size(); ++index) {
+    for (u32 index = 0u; index < document.Nodes.Num(); ++index) {
         const FParsedNode& node = document.Nodes[index];
         FTransform3D local;
         local.position = node.Position;
@@ -1122,7 +1122,7 @@ FScene3DLoadResult ParseScene3DDocument(
             if (text[cursor] == '\0') {
                 return LoadFailure(
                     EScene3DSerializeError::InvalidLine, cursor, line_number,
-                    static_cast<u32>(document.Nodes.Size()),
+                    static_cast<u32>(document.Nodes.Num()),
                     document.MeshPathCount);
             }
             ++cursor;
@@ -1134,7 +1134,7 @@ FScene3DLoadResult ParseScene3DDocument(
         if (line_size > kScene3DSerializeMaxLineBytes) {
             return LoadFailure(
                 EScene3DSerializeError::LineTooLong, line_start, line_number,
-                static_cast<u32>(document.Nodes.Size()),
+                static_cast<u32>(document.Nodes.Num()),
                 document.MeshPathCount);
         }
         if (line_size == 0u) continue;
@@ -1145,7 +1145,7 @@ FScene3DLoadResult ParseScene3DDocument(
             if (saw_content)
                 return LoadFailure(
                     EScene3DSerializeError::InvalidHeader, line_start,
-                    line_number, static_cast<u32>(document.Nodes.Size()),
+                    line_number, static_cast<u32>(document.Nodes.Num()),
                     document.MeshPathCount);
             saw_content = true;
             if (line_size != 8u || std::memcmp(line, "ACS3D v2", 8u) != 0) {
@@ -1163,7 +1163,7 @@ FScene3DLoadResult ParseScene3DDocument(
         if (++directive_count > kScene3DSerializeMaxDirectiveRecords) {
             return LoadFailure(
                 EScene3DSerializeError::DirectiveLimitExceeded, line_start,
-                line_number, static_cast<u32>(document.Nodes.Size()),
+                line_number, static_cast<u32>(document.Nodes.Num()),
                 document.MeshPathCount);
         }
 
@@ -1230,7 +1230,7 @@ FScene3DLoadResult ParseScene3DDocument(
         if (error != EScene3DSerializeError::None) {
             return LoadFailure(
                 error, line_start, line_number,
-                static_cast<u32>(document.Nodes.Size()),
+                static_cast<u32>(document.Nodes.Num()),
                 document.MeshPathCount);
         }
     }
@@ -1245,14 +1245,14 @@ FScene3DLoadResult ParseScene3DDocument(
     if (component_error != EScene3DSerializeError::None) {
         return LoadFailure(
             component_error, cursor, line_number,
-            static_cast<u32>(document.Nodes.Size()),
+            static_cast<u32>(document.Nodes.Num()),
             document.MeshPathCount);
     }
     document.SourceBytes = size;
     return FScene3DLoadResult{
         EScene3DSerializeError::None,
         size,
-        static_cast<u32>(document.Nodes.Size())
+        static_cast<u32>(document.Nodes.Num())
             + (document.EditorDocument ? 1u : 0u),
         document.MeshPathCount,
         0u,
@@ -1270,15 +1270,15 @@ FScene3DLoadResult CommitScene3DDocument(
     if (camera_error != EScene3DSerializeError::None) {
         return LoadFailure(
             camera_error, document.SourceBytes, 0u,
-            static_cast<u32>(document.Nodes.Size()),
+            static_cast<u32>(document.Nodes.Num()),
             document.MeshPathCount);
     }
 
     TArray<ANode*> runtime_nodes;
-    if (!runtime_nodes.TryReserve(document.Nodes.Size())) {
+    if (!runtime_nodes.TryReserve(document.Nodes.Num())) {
         return LoadFailure(
             EScene3DSerializeError::AllocationFailure, document.SourceBytes,
-            0u, static_cast<u32>(document.Nodes.Size()),
+            0u, static_cast<u32>(document.Nodes.Num()),
             document.MeshPathCount);
     }
 
@@ -1292,7 +1292,7 @@ FScene3DLoadResult CommitScene3DDocument(
     staged_scene.Root().SetVisible(true);
     staged_scene.Root().SetEnabled(true);
 
-    for (u32 i = 0u; i < document.Nodes.Size(); ++i) {
+    for (u32 i = 0u; i < document.Nodes.Num(); ++i) {
         FParsedNode& record = document.Nodes[i];
         ANode* node = nullptr;
         if (!document.EditorDocument && i == 0u) {
@@ -1303,11 +1303,11 @@ FScene3DLoadResult CommitScene3DDocument(
             if (record.ParentIndex >= 0) {
                 const u32 parent_index =
                     static_cast<u32>(record.ParentIndex);
-                if (parent_index >= runtime_nodes.Size()) {
+                if (parent_index >= runtime_nodes.Num()) {
                     return LoadFailure(
                         EScene3DSerializeError::InvalidParent,
                         document.SourceBytes, 0u,
-                        static_cast<u32>(document.Nodes.Size()),
+                        static_cast<u32>(document.Nodes.Num()),
                         document.MeshPathCount);
                 }
                 parent = runtime_nodes[parent_index];
@@ -1318,7 +1318,7 @@ FScene3DLoadResult CommitScene3DDocument(
                 return LoadFailure(
                     EScene3DSerializeError::AllocationFailure,
                     document.SourceBytes, 0u,
-                    static_cast<u32>(document.Nodes.Size()),
+                    static_cast<u32>(document.Nodes.Num()),
                     document.MeshPathCount);
             }
             node = spawned.Node;
@@ -1350,36 +1350,36 @@ FScene3DLoadResult CommitScene3DDocument(
                 mesh.SetMaterialLoaded(true);
             }
         }
-        if (!runtime_nodes.TryPushBack(node)) {
+        if (!runtime_nodes.TryAdd(node)) {
             return LoadFailure(
                 EScene3DSerializeError::AllocationFailure,
                 document.SourceBytes, 0u,
-                static_cast<u32>(document.Nodes.Size()),
+                static_cast<u32>(document.Nodes.Num()),
                 document.MeshPathCount);
         }
     }
 
-    for (u32 i = 0u; i < document.Components.Size(); ++i) {
+    for (u32 i = 0u; i < document.Components.Num(); ++i) {
         FParsedComponent& component = document.Components[i];
-        if (component.NodeIndex >= runtime_nodes.Size()
+        if (component.NodeIndex >= runtime_nodes.Num()
             || !component.Instance) {
             return LoadFailure(
                 EScene3DSerializeError::InvalidComponent,
                 document.SourceBytes, 0u,
-                static_cast<u32>(document.Nodes.Size()),
+                static_cast<u32>(document.Nodes.Num()),
                 document.MeshPathCount);
         }
         runtime_nodes[component.NodeIndex]->AttachComponent(
             Move(component.Instance));
     }
 
-    for (u32 i = 0u; i < document.Cameras.Size(); ++i) {
+    for (u32 i = 0u; i < document.Cameras.Num(); ++i) {
         const FParsedCamera& camera = document.Cameras[i];
-        if (camera.NodeIndex >= runtime_nodes.Size()) {
+        if (camera.NodeIndex >= runtime_nodes.Num()) {
             return LoadFailure(
                 EScene3DSerializeError::InvalidCamera,
                 document.SourceBytes, 0u,
-                static_cast<u32>(document.Nodes.Size()),
+                static_cast<u32>(document.Nodes.Num()),
                 document.MeshPathCount);
         }
         FScene3DCameraState authored;
@@ -1402,7 +1402,7 @@ FScene3DLoadResult CommitScene3DDocument(
             return LoadFailure(
                 EScene3DSerializeError::InvalidCamera,
                 document.SourceBytes, 0u,
-                static_cast<u32>(document.Nodes.Size()),
+                static_cast<u32>(document.Nodes.Num()),
                 document.MeshPathCount);
         }
     }
@@ -1410,13 +1410,13 @@ FScene3DLoadResult CommitScene3DDocument(
     FScene3DLoadResult result{
         EScene3DSerializeError::None,
         document.SourceBytes,
-        static_cast<u32>(document.Nodes.Size())
+        static_cast<u32>(document.Nodes.Num())
             + (document.EditorDocument ? 1u : 0u),
         document.MeshPathCount,
         0u,
         dependencies_loaded
     };
-    result.CameraCount = document.Cameras.Size();
+    result.CameraCount = document.Cameras.Num();
     result.ActivePreferredCameraCount = active_preferred_camera_count;
     result.ActiveCamera = active_camera;
     graph.SwapContents(staged_scene);
@@ -1479,13 +1479,13 @@ bool ReadPackEntry(
         return false;
     const u64 size64 = size_result.Value();
     const usize size = static_cast<usize>(size64);
-    if (static_cast<u64>(size) != size64 || !bytes.TryResize(size))
+    if (static_cast<u64>(size) != size64 || !bytes.TrySetNum(size))
         return false;
     if (size > 0u) {
         const auto read_result =
-            pack.ReadFile(path, reinterpret_cast<u8*>(bytes.Data()), size64);
+            pack.ReadFile(path, reinterpret_cast<u8*>(bytes.GetData()), size64);
         if (read_result.IsErr()) {
-            bytes.Clear();
+            bytes.Reset();
             return false;
         }
     }
@@ -1570,24 +1570,24 @@ bool AddStableSceneDependency(TArray<FSceneDependencyRecord>& Dependencies, THas
     const u64 Hash = SceneDependencyHash(Kind, Path);
     if (FirstByHash.Find(Hash) != nullptr) {
         /** hash 候補を完全一致で確認する添字。 */
-        for (usize Index = 0u; Index < Dependencies.Size(); ++Index) {
+        for (usize Index = 0u; Index < Dependencies.Num(); ++Index) {
             /** 現在確認する dependency record。 */
             FSceneDependencyRecord& Existing = Dependencies[Index];
             if (Existing.Hash == Hash && Existing.Kind == Kind && std::strcmp(Existing.Path, Path) == 0) {
-                return Existing.Nodes.TryPushBack(NodeIndex);
+                return Existing.Nodes.TryAdd(NodeIndex);
             }
         }
     }
 
     /** 新規 record を追加する添字。 */
-    const u32 NewIndex = static_cast<u32>(Dependencies.Size());
+    const u32 NewIndex = static_cast<u32>(Dependencies.Num());
     /** 追加できた dependency record。 */
-    FSceneDependencyRecord* const Record = Dependencies.TryEmplaceBack(*Dependencies.GetAllocator(), Kind, Path, Hash);
-    if (Record == nullptr || !Record->Nodes.TryPushBack(NodeIndex)) {
+    FSceneDependencyRecord* const Record = Dependencies.TryEmplace(*Dependencies.GetAllocator(), Kind, Path, Hash);
+    if (Record == nullptr || !Record->Nodes.TryAdd(NodeIndex)) {
         return false;
     }
-    if (FirstByHash.Find(Hash) == nullptr && !FirstByHash.TryInsert(Hash, NewIndex)) {
-        Dependencies.PopBack();
+    if (FirstByHash.Find(Hash) == nullptr && !FirstByHash.TryAdd(Hash, NewIndex)) {
+        Dependencies.Pop();
         return false;
     }
     return true;
@@ -1598,11 +1598,11 @@ EScene3DSerializeError BuildStableSceneDependencyOrder(FParsedScene3DDocument& D
 {
     /** hash ごとの最初の dependency 添字。 */
     THashMap<u64, u32> FirstByHash;
-    if (!Dependencies.TryReserve(static_cast<usize>(Document.Nodes.Size()) * 2u)) {
+    if (!Dependencies.TryReserve(static_cast<usize>(Document.Nodes.Num()) * 2u)) {
         return EScene3DSerializeError::AllocationFailure;
     }
     /** document node を初出順に調べる添字。 */
-    for (u32 NodeIndex = 0u; NodeIndex < Document.Nodes.Size(); ++NodeIndex) {
+    for (u32 NodeIndex = 0u; NodeIndex < Document.Nodes.Num(); ++NodeIndex) {
         /** 現在 dependency を収集する node。 */
         FParsedNode& Node = Document.Nodes[NodeIndex];
         if (Node.HasMeshPath) {
@@ -1645,7 +1645,7 @@ EScene3DSerializeError DecodeAndAssignSceneDependency(FParsedScene3DDocument& Do
     /** 共有する material decode 先。 */
     FMaterial2D Material{};
     /** material text の decode 結果。 */
-    const FMaterial2DLoadResult MaterialResult = TryParseAcsmatText(reinterpret_cast<const char*>(Bytes.Data()), Bytes.Size(), Material);
+    const FMaterial2DLoadResult MaterialResult = TryParseAcsmatText(reinterpret_cast<const char*>(Bytes.GetData()), Bytes.Num(), Material);
     if (!MaterialResult.Succeeded()) {
         return EScene3DSerializeError::MaterialDecodeFailed;
     }
@@ -1680,12 +1680,12 @@ EScene3DSerializeError LoadPackDependencies(IAssetPackReader& pack, FParsedScene
 
     /** 次に batch へ追加する dependency 添字。 */
     u32 Cursor = 0u;
-    while (Cursor < Dependencies.Size()) {
+    while (Cursor < Dependencies.Num()) {
         /** 現在 batch に追加済みの request 数。 */
         u32 BatchCount = 0u;
         /** 現在 batch の payload 合計 byte 数。 */
         u64 BatchSize = 0u;
-        while (Cursor < Dependencies.Size() && BatchCount < kBatchEntries) {
+        while (Cursor < Dependencies.Num() && BatchCount < kBatchEntries) {
             /** 現在 batch へ追加を試す dependency。 */
             const FSceneDependencyRecord& Dependency = Dependencies[Cursor];
             /** dependency 種別ごとの最大 payload byte 数。 */
@@ -1705,14 +1705,14 @@ EScene3DSerializeError LoadPackDependencies(IAssetPackReader& pack, FParsedScene
             }
             /** address space 内で表現した payload byte 数。 */
             const usize Size = static_cast<usize>(Size64);
-            if (static_cast<u64>(Size) != Size64 || !BatchBytes[BatchCount].TryResize(Size)) {
+            if (static_cast<u64>(Size) != Size64 || !BatchBytes[BatchCount].TrySetNum(Size)) {
                 return EScene3DSerializeError::AssetMissing;
             }
 
             Requests[BatchCount].Name = Dependency.Path;
             Requests[BatchCount].OutBuffer =
                 Size > 0u
-                    ? reinterpret_cast<u8*>(BatchBytes[BatchCount].Data())
+                    ? reinterpret_cast<u8*>(BatchBytes[BatchCount].GetData())
                     : &EmptyDestinations[BatchCount];
             Requests[BatchCount].BufferSize = Size64;
             DependencyIndices[BatchCount] = Cursor;
@@ -1739,7 +1739,7 @@ EScene3DSerializeError LoadPackDependencies(IAssetPackReader& pack, FParsedScene
             const EScene3DSerializeError DecodeError = DecodeAndAssignSceneDependency(document, Dependencies[DependencyIndices[Index]], BatchBytes[Index], dependencies_loaded);
             if (DecodeError != EScene3DSerializeError::None)
                 return DecodeError;
-            BatchBytes[Index].Clear();
+            BatchBytes[Index].Reset();
         }
         if (ReadResult.IsErr() || CompletedCount != BatchCount) {
             return EScene3DSerializeError::AssetMissing;
@@ -1766,12 +1766,12 @@ EScene3DSerializeError ReadLooseFile(
         return EScene3DSerializeError::FileSizeLimitExceeded;
     }
     const usize size = static_cast<usize>(length);
-    if (!bytes.TryResize(size)) {
+    if (!bytes.TrySetNum(size)) {
         std::fclose(file);
         return EScene3DSerializeError::AllocationFailure;
     }
     const usize read = size > 0u
-        ? std::fread(bytes.Data(), 1u, size, file)
+        ? std::fread(bytes.GetData(), 1u, size, file)
         : 0u;
     const bool failed = read != size || std::ferror(file) != 0;
     std::fclose(file);
@@ -1837,7 +1837,7 @@ EScene3DSerializeError LoadLooseDependencies(const char* scene_path, FParsedScen
         const EScene3DSerializeError DecodeError = DecodeAndAssignSceneDependency(document, Dependency, bytes, dependencies_loaded);
         if (DecodeError != EScene3DSerializeError::None)
             return DecodeError;
-        bytes.Clear();
+        bytes.Reset();
     }
     return EScene3DSerializeError::None;
 }
@@ -1867,15 +1867,15 @@ FScene3DLoadResult TryLoadScene3DFile(
     FParsedScene3DDocument document;
     const FScene3DLoadResult parsed =
         ParseScene3DDocument(
-            reinterpret_cast<const char*>(bytes.Data()),
-            static_cast<u32>(bytes.Size()), document);
+            reinterpret_cast<const char*>(bytes.GetData()),
+            static_cast<u32>(bytes.Num()), document);
     if (!parsed.Succeeded()) return parsed;
     u32 dependencies_loaded = 0u;
     const EScene3DSerializeError dependency_error =
         LoadLooseDependencies(path, document, dependencies_loaded);
     if (dependency_error != EScene3DSerializeError::None) {
         return LoadFailure(
-            dependency_error, static_cast<u32>(bytes.Size()), 0u,
+            dependency_error, static_cast<u32>(bytes.Num()), 0u,
             parsed.NodeCount, parsed.MeshPathCount);
     }
     return CommitScene3DDocument(
@@ -1910,15 +1910,15 @@ FScene3DLoadResult TryLoadScene3DAssetPack(
     FParsedScene3DDocument document;
     const FScene3DLoadResult parsed =
         ParseScene3DDocument(
-            reinterpret_cast<const char*>(bytes.Data()),
-            static_cast<u32>(bytes.Size()), document);
+            reinterpret_cast<const char*>(bytes.GetData()),
+            static_cast<u32>(bytes.Num()), document);
     if (!parsed.Succeeded()) return parsed;
     u32 dependencies_loaded = 0u;
     const EScene3DSerializeError dependency_error =
         LoadPackDependencies(pack, document, dependencies_loaded);
     if (dependency_error != EScene3DSerializeError::None) {
         return LoadFailure(
-            dependency_error, static_cast<u32>(bytes.Size()), 0u,
+            dependency_error, static_cast<u32>(bytes.Num()), 0u,
             parsed.NodeCount, parsed.MeshPathCount);
     }
     return CommitScene3DDocument(

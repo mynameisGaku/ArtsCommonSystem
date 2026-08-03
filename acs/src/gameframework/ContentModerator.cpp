@@ -352,8 +352,8 @@ TResult<FModerationResult> CContentModeratorStub::ModerateImage(const char* user
     // ため範囲外 (要 専用分類器)。詳細は SkinRatioRgba8 / ClassifyImageRgba8。
     CImageAssetLoader loader;
     TArray<byte> encoded;
-    encoded.Resize(static_cast<usize>(size));
-    MemCopy(encoded.Data(), image_data, static_cast<usize>(size));
+    encoded.SetNum(static_cast<usize>(size));
+    MemCopy(encoded.GetData(), image_data, static_cast<usize>(size));
     const auto decoded = loader.LoadFromBytes(FAssetId{0}, encoded);
     if (decoded.IsErr()) {
         return TResult<FModerationResult>(

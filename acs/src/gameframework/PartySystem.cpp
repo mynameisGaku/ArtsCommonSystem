@@ -51,7 +51,7 @@ void CPartySystem::EmplaceSelfAsLeader() noexcept {
     self.display_name = "You";
     self.is_leader    = true;
     self.is_ready     = false;
-    m_Members.PushBack(self);
+    m_Members.Add(self);
 }
 
 TResult<void> CPartySystem::CreateParty(const char* party_name) noexcept {
@@ -119,16 +119,16 @@ TResult<void> CPartySystem::InviteFriend(const char* friend_id) noexcept {
 }
 
 u32 CPartySystem::MemberCount() const noexcept {
-    return static_cast<u32>(m_Members.Size());
+    return static_cast<u32>(m_Members.Num());
 }
 
 const FPartyMember* CPartySystem::Members() const noexcept {
-    return m_Members.Data();
+    return m_Members.GetData();
 }
 
 u32 CPartySystem::FindMember(const char* player_id) const noexcept {
     if (player_id == nullptr) return kInvalidIndex;
-    const usize n = m_Members.Size();
+    const usize n = m_Members.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Members[i].player_id, player_id)) {
             return static_cast<u32>(i);
@@ -144,7 +144,7 @@ bool CPartySystem::HasMember(const char* player_id) const noexcept {
 const FPartyMember* CPartySystem::GetMember(u32 index) const noexcept {
     // kInvalidIndex を含む範囲外は安全に nullptr (FindMember の戻り値を
     // チェック無しで渡しても落ちないように)。
-    if (static_cast<usize>(index) >= m_Members.Size()) return nullptr;
+    if (static_cast<usize>(index) >= m_Members.Num()) return nullptr;
     return &m_Members[index];
 }
 
@@ -158,7 +158,7 @@ TResult<void> CPartySystem::AddMember(const FPartyMember& member) noexcept {
     if (FindMember(member.player_id) != kInvalidIndex) {
         return ACS_ERR(Generic, 9, "CPartySystem::AddMember: duplicate player_id");
     }
-    m_Members.PushBack(member);
+    m_Members.Add(member);
     return Ok();
 }
 
@@ -170,11 +170,11 @@ bool CPartySystem::RemoveMember(const char* player_id) noexcept {
     }
     // 順序を保ったまま前詰め (RemoveAtSwap だとリーダー先頭の並びが崩れ、
     // UI のメンバ表示順が安定しないため線形シフトを選択)。
-    const usize n = m_Members.Size();
+    const usize n = m_Members.Num();
     for (usize i = static_cast<usize>(idx) + 1; i < n; ++i) {
         m_Members[i - 1] = m_Members[i];
     }
-    m_Members.PopBack();
+    m_Members.Pop();
     return true;
 }
 
@@ -185,7 +185,7 @@ void CPartySystem::Tick(f32 dt) noexcept {
         if (m_PendingTimer >= kPendingDurationSec) {
             // 仮想 SDK 完了: メンバリストに自分をリーダーとして登録、InParty へ。
             // 既存メンバが残っている可能性は通常無いが、防御的に Clear してから登録。
-            m_Members.Clear();
+            m_Members.Reset();
             EmplaceSelfAsLeader();
             m_PendingTimer = 0.0f;
             _state         = EPartyState::InParty;
@@ -196,7 +196,7 @@ void CPartySystem::Tick(f32 dt) noexcept {
         m_PendingTimer += dt;
         if (m_PendingTimer >= kPendingDurationSec) {
             // 仮想 SDK 完了: メンバリストをクリアして Solo に戻す。
-            m_Members.Clear();
+            m_Members.Reset();
             m_PartyName    = nullptr;
             m_PartyId      = nullptr;
             m_PendingTimer = 0.0f;
@@ -213,17 +213,17 @@ void CPartySystem::AddFriend(const FFriend& f) noexcept {
     }
     // 重複 platform_id は上書きせず単純追加 (Pillar S 側で dedup する想定)。
     // 必要なら同 ID 検出ループを将来追加するが、線形走査コストを増やすので保留。
-    m_Friends.PushBack(f);
+    m_Friends.Add(f);
 }
 
 u32 CPartySystem::FriendCount() const noexcept {
     // Pillar O FEntitlement と同じく u32 範囲で十分 (現実的に friend list は
     // SDK 制限内: 大規模 SNS の Steam で 2000、PSN で 2000、Xbox で 1000 等)。
-    return static_cast<u32>(m_Friends.Size());
+    return static_cast<u32>(m_Friends.Num());
 }
 
 const FFriend* CPartySystem::Friends() const noexcept {
-    return m_Friends.Data();
+    return m_Friends.GetData();
 }
 
 /**
@@ -239,7 +239,7 @@ const FFriend* CPartySystem::Friends() const noexcept {
 [[maybe_unused]] static bool FriendListContains(const TArray<FFriend>& list,
                                                 const char* platform_id) noexcept {
     if (platform_id == nullptr) return false;
-    const usize n = list.Size();
+    const usize n = list.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(list[i].platform_id, platform_id)) return true;
     }

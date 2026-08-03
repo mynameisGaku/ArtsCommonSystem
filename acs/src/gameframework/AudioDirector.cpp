@@ -79,7 +79,7 @@ f32 CAudioDirector::Clamp01(f32 v) noexcept
 CAudioDirector::CAudioDirector() noexcept
 {
     // SFX ring を固定容量で予約。Resize で SfxEntry をデフォルト構築 (active=false)。
-    m_Sfx.Resize(kMaxSfxVoices);
+    m_Sfx.SetNum(kMaxSfxVoices);
 }
 
 /** Master ボリュームを clamp して設定する (backend には Tick で voice 単位反映)。 */

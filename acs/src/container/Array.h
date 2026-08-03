@@ -69,7 +69,7 @@ public:
      */
     TArray& operator=(TArray&& o) noexcept {
         if (this == &o) return *this;
-        Clear();
+        Reset();
         Free();
         m_Data = o.m_Data; m_Size = o.m_Size; m_Capacity = o.m_Capacity; m_Alloc = o.m_Alloc;
         o.m_Data = nullptr; o.m_Size = 0; o.m_Capacity = 0;
@@ -77,21 +77,21 @@ public:
     }
 
     /** 全要素を破棄しバッファを解放する。 */
-    ~TArray() noexcept { Clear(); Free(); }
+    ~TArray() noexcept { Reset(); Free(); }
 
     /**
      * 要素数を返す。
      *
      * @return 現在の要素数。
      */
-    usize Size()     const noexcept { return m_Size; }
+    usize Num()     const noexcept { return m_Size; }
 
     /**
      * 確保済み容量を返す。
      *
      * @return 再確保なしで保持できる要素数。
      */
-    usize Capacity() const noexcept { return m_Capacity; }
+    usize Max() const noexcept { return m_Capacity; }
 
     /**
      * 空かどうかを返す。
@@ -130,8 +130,8 @@ public:
      * 場合は超過要素をデストラクトする。
      * @param new_size 変更後の要素数。
      */
-    void Resize(usize new_size) noexcept {
-        ACS_CHECKF(TryResize(new_size), "TArray::Resize failed (size=%zu, T=%zu)",
+    void SetNum(usize new_size) noexcept {
+        ACS_CHECKF(TrySetNum(new_size), "TArray::Resize failed (size=%zu, T=%zu)",
                    new_size, sizeof(T));
     }
 
@@ -141,7 +141,7 @@ public:
      * @param NewSize 変更後の要素数。
      * @return 成功なら true、サイズoverflow/OOMなら false。
      */
-    bool TryResize(usize NewSize) noexcept
+    bool TrySetNum(usize NewSize) noexcept
     {
         if (NewSize > m_Capacity) {
             /** NewSize を収容する拡張後の容量。 */
@@ -166,7 +166,7 @@ public:
     }
 
     /** サイズを 0 にする (全要素をデストラクトするが容量は保持)。 */
-    void Clear() noexcept {
+    void Reset() noexcept {
         if constexpr (!IsTriviallyDestructibleV<T>) {
             for (usize i = m_Size; i-- > 0;) m_Data[i].~T();
         }
@@ -177,18 +177,18 @@ public:
      * 全要素を破棄し、確保済みの連続バッファも解放する。
      *
      * @details
-     * Clear() と異なり容量を 0 に戻す。配列に設定されたアロケータは維持するため、
-     * 次回の Reserve/Resize/PushBack も同じ確保元を使用する。大きな一時データを
+     * Reset() と異なり容量を 0 に戻す。配列に設定されたアロケータは維持するため、
+     * 次回の Reserve/Resize/Add も同じ確保元を使用する。大きな一時データを
      * 明示的に手放したい長寿命オブジェクト向け。
      */
-    void ReleaseStorage() noexcept
+    void Empty() noexcept
     {
-        Clear();
+        Reset();
         Free();
     }
 
     /** 余剰容量を解放してサイズちょうどに縮める。 */
-    void ShrinkToFit() noexcept {
+    void Shrink() noexcept {
         if (m_Size == m_Capacity) return;
         (void)Grow(m_Size);
     }
@@ -198,14 +198,14 @@ public:
      *
      * @return 内部バッファの先頭ポインタ。
      */
-    T*       Data()       noexcept { return m_Data; }
+    T*       GetData()       noexcept { return m_Data; }
 
     /**
      * 先頭ポインタを const で返す。
      *
      * @return 内部バッファの先頭 const ポインタ。
      */
-    const T* Data() const noexcept { return m_Data; }
+    const T* GetData() const noexcept { return m_Data; }
 
     /**
      * i 番目の要素への参照を返す。
@@ -247,7 +247,7 @@ public:
      * @details 空配列での呼び出しは ACS_ASSERT で検出する。
      * @return 末尾要素への参照。
      */
-    T&       Back ()       noexcept { ACS_ASSERT(m_Size > 0); return m_Data[m_Size - 1]; }
+    T&       Last ()       noexcept { ACS_ASSERT(m_Size > 0); return m_Data[m_Size - 1]; }
 
     /**
      * 末尾要素への const 参照を返す。
@@ -255,7 +255,7 @@ public:
      * @details 空配列での呼び出しは ACS_ASSERT で検出する。
      * @return 末尾要素への const 参照。
      */
-    const T& Back () const noexcept { ACS_ASSERT(m_Size > 0); return m_Data[m_Size - 1]; }
+    const T& Last () const noexcept { ACS_ASSERT(m_Size > 0); return m_Data[m_Size - 1]; }
 
     /**
      * 先頭イテレータを返す。
@@ -305,8 +305,8 @@ public:
      * @details 容量不足なら NextGrow で再確保する。
      * @param v 追加する値 (コピーされる)。
      */
-    void PushBack(const T& v) noexcept {
-        ACS_CHECKF(TryPushBack(v), "TArray::PushBack failed (size=%zu, T=%zu)", m_Size, sizeof(T));
+    void Add(const T& v) noexcept {
+        ACS_CHECKF(TryAdd(v), "TArray::Add failed (size=%zu, T=%zu)", m_Size, sizeof(T));
     }
 
     /**
@@ -315,12 +315,12 @@ public:
      * @details 容量成長時も、追加元が同じ配列内の要素なら旧領域を保持したまま
      * 新しい末尾を先に構築するため、自己参照を安全に扱える。
      */
-    bool TryPushBack(const T& Value) noexcept
+    bool TryAdd(const T& Value) noexcept
     {
         if constexpr (IsTriviallyCopyableV<T> && IsCopyConstructibleV<T>) {
             return TryPushBackTrivial(Value);
         }
-        return TryEmplaceBack(Value) != nullptr;
+        return TryEmplace(Value) != nullptr;
     }
 
     /**
@@ -329,8 +329,8 @@ public:
      * @details 容量不足なら NextGrow で再確保する。
      * @param v 追加する値 (ムーブされる)。
      */
-    void PushBack(T&& v) noexcept {
-        ACS_CHECKF(TryPushBack(Move(v)), "TArray::PushBack failed (size=%zu, T=%zu)", m_Size, sizeof(T));
+    void Add(T&& v) noexcept {
+        ACS_CHECKF(TryAdd(Move(v)), "TArray::Add failed (size=%zu, T=%zu)", m_Size, sizeof(T));
     }
 
     /**
@@ -339,14 +339,14 @@ public:
      * @details 容量成長時に追加元が同じ配列内の要素でも、旧要素から新しい末尾へ
      * 先にムーブしてから既存要素を移送する。
      */
-    bool TryPushBack(T&& Value) noexcept
+    bool TryAdd(T&& Value) noexcept
     {
         if constexpr (IsTriviallyCopyableV<T> && IsCopyConstructibleV<T>) {
             // move ではなく退避コピーする。確保失敗時は配列と右辺値引数の
             // どちらも変更しない。
             return TryPushBackTrivial(Value);
         }
-        return TryEmplaceBack(Move(Value)) != nullptr;
+        return TryEmplace(Move(Value)) != nullptr;
     }
 
     /**
@@ -358,9 +358,9 @@ public:
      * @return 構築した末尾要素への参照。
      */
     template<typename... Args>
-    T& EmplaceBack(Args&&... args) noexcept {
-        T* const Element = TryEmplaceBack(Forward<Args>(args)...);
-        ACS_CHECKF(Element != nullptr, "TArray::EmplaceBack failed (size=%zu, T=%zu)", m_Size, sizeof(T));
+    T& Emplace(Args&&... args) noexcept {
+        T* const Element = TryEmplace(Forward<Args>(args)...);
+        ACS_CHECKF(Element != nullptr, "TArray::Emplace failed (size=%zu, T=%zu)", m_Size, sizeof(T));
         return *Element;
     }
 
@@ -373,7 +373,7 @@ public:
      * 無効化しない。
      */
     template<typename... Args>
-    T* TryEmplaceBack(Args&&... Arguments) noexcept
+    T* TryEmplace(Args&&... Arguments) noexcept
     {
         if (m_Size < m_Capacity) {
             ::new (&m_Data[m_Size]) T(Forward<Args>(Arguments)...);
@@ -394,7 +394,7 @@ public:
      *
      * @details 空配列での呼び出しは ACS_ASSERT で検出する。
      */
-    void PopBack() noexcept {
+    void Pop() noexcept {
         ACS_ASSERT(m_Size > 0);
         --m_Size;
         if constexpr (!IsTriviallyDestructibleV<T>) m_Data[m_Size].~T();
@@ -426,7 +426,7 @@ public:
         if constexpr (!IsTriviallyDestructibleV<T>) m_Data[m_Size].~T();
     }
 
-    /** IndexOf / IndexOfIf が「見つからない」を表す番兵値。 */
+    /** IndexOfByKey / IndexOfByPredicate が「見つからない」を表す番兵値。 */
     static constexpr usize kNpos = static_cast<usize>(-1);
 
     /**
@@ -435,7 +435,7 @@ public:
      * @param value 探す値。
      * @return 最初に一致したインデックス (無ければ kNpos)。
      */
-    usize IndexOf(const T& value) const noexcept {
+    usize IndexOfByKey(const T& value) const noexcept {
         for (usize i = 0; i < m_Size; ++i) {
             if (m_Data[i] == value) return i;
         }
@@ -450,7 +450,7 @@ public:
      * @return 最初に一致したインデックス (無ければ kNpos)。
      */
     template<typename Pred>
-    usize IndexOfIf(Pred pred) const noexcept {
+    usize IndexOfByPredicate(Pred pred) const noexcept {
         for (usize i = 0; i < m_Size; ++i) {
             if (pred(m_Data[i])) return i;
         }
@@ -464,8 +464,8 @@ public:
      * @param value 探す値。
      * @return 最初に一致した要素 (無ければ nullptr)。
      */
-    T* Find(const T& value) noexcept {
-        const usize i = IndexOf(value);
+    T* FindByKey(const T& value) noexcept {
+        const usize i = IndexOfByKey(value);
         return i == kNpos ? nullptr : &m_Data[i];
     }
 
@@ -475,8 +475,8 @@ public:
      * @param value 探す値。
      * @return 最初に一致した要素 (無ければ nullptr)。
      */
-    const T* Find(const T& value) const noexcept {
-        const usize i = IndexOf(value);
+    const T* FindByKey(const T& value) const noexcept {
+        const usize i = IndexOfByKey(value);
         return i == kNpos ? nullptr : &m_Data[i];
     }
 
@@ -489,8 +489,8 @@ public:
      * @return 最初に一致した要素 (無ければ nullptr)。
      */
     template<typename Pred>
-    T* FindIf(Pred pred) noexcept {
-        const usize i = IndexOfIf(pred);
+    T* FindByPredicate(Pred pred) noexcept {
+        const usize i = IndexOfByPredicate(pred);
         return i == kNpos ? nullptr : &m_Data[i];
     }
 
@@ -502,8 +502,8 @@ public:
      * @return 最初に一致した要素 (無ければ nullptr)。
      */
     template<typename Pred>
-    const T* FindIf(Pred pred) const noexcept {
-        const usize i = IndexOfIf(pred);
+    const T* FindByPredicate(Pred pred) const noexcept {
+        const usize i = IndexOfByPredicate(pred);
         return i == kNpos ? nullptr : &m_Data[i];
     }
 
@@ -513,7 +513,7 @@ public:
      * @param value 探す値。
      * @return 1 つでも一致すれば true。
      */
-    bool Contains(const T& value) const noexcept { return IndexOf(value) != kNpos; }
+    bool Contains(const T& value) const noexcept { return IndexOfByKey(value) != kNpos; }
 
     /**
      * value と == で一致する最初の要素を、順序を保って削除する。
@@ -525,7 +525,7 @@ public:
      */
     bool Remove(const T& value) noexcept {
         // 最初に一致した削除位置。
-        const usize i = IndexOf(value);
+        const usize i = IndexOfByKey(value);
         if (i == kNpos) return false;
         RemoveAt(i);
         return true;
@@ -537,8 +537,8 @@ public:
      * @param value 削除する値。
      * @return 削除できたら true (見つからなければ false)。
      */
-    bool RemoveFirstSwap(const T& value) noexcept {
-        const usize i = IndexOf(value);
+    bool RemoveSingleSwap(const T& value) noexcept {
+        const usize i = IndexOfByKey(value);
         if (i == kNpos) return false;
         RemoveAtSwap(i);
         return true;
@@ -553,7 +553,7 @@ public:
      */
     TArray Clone() const noexcept {
         TArray c(m_Capacity, *m_Alloc);
-        c.Resize(m_Size);
+        c.SetNum(m_Size);
         if constexpr (IsTriviallyCopyableV<T>) {
             MemCopy(c.m_Data, m_Data, sizeof(T) * m_Size);
         } else {

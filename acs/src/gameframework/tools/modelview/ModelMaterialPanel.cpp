@@ -64,7 +64,7 @@ static inline void ResetOverrideToDefault(FMaterialOverride& o) noexcept {
 void AModelMaterialPanel::Init() noexcept {
     // slot list を空に戻す (= 多重 Init 時の状態リセット)。
     // 容量は破棄せず再利用 (= 再 Init / model 再 load のアロケーション節約)。
-    m_Overrides.Clear();
+    m_Overrides.Reset();
     // callback は維持 (= Init は state リセット責務、callback 解除は Shutdown 責務)。
 }
 
@@ -72,7 +72,7 @@ void AModelMaterialPanel::Init() noexcept {
 void AModelMaterialPanel::Shutdown() noexcept {
     // TArray はデストラクタで自然解放されるが、明示 Clear することで
     // 「多重 Shutdown 後の状態」を確定させる。
-    m_Overrides.Clear();
+    m_Overrides.Reset();
     m_OnChangeCb   = nullptr;
     m_OnChangeUser = nullptr;
 }
@@ -89,7 +89,7 @@ void AModelMaterialPanel::SetMaterialSlotCount(u32 count) noexcept {
     // では再現できない。よって、resize 後に明示的に default 値を書き直す必要が
     // ある。コストは slot 数線形だが、SetMaterialSlotCount は model load 時の
     // 単発呼び出しなので問題なし。
-    m_Overrides.Resize(static_cast<usize>(count));
+    m_Overrides.SetNum(static_cast<usize>(count));
     for (u32 i = 0; i < count; ++i) {
         FMaterialOverride& o = m_Overrides[static_cast<usize>(i)];
         ResetOverrideToDefault(o);
@@ -105,7 +105,7 @@ void AModelMaterialPanel::SetMaterialSlotCount(u32 count) noexcept {
 
 /** 1 slot を default に戻し callback を発火する (範囲外は no-op)。 */
 void AModelMaterialPanel::ResetSlot(u32 slot_index) noexcept {
-    const u32 count = static_cast<u32>(m_Overrides.Size());
+    const u32 count = static_cast<u32>(m_Overrides.Num());
     if (!IsValidSlot(slot_index, count)) {
         // 範囲外は no-op (= 仕様)。
         return;
@@ -120,7 +120,7 @@ void AModelMaterialPanel::ResetSlot(u32 slot_index) noexcept {
 
 /** 全 slot を ResetSlot で 1 件ずつ default に戻す (callback も slot 数だけ発火)。 */
 void AModelMaterialPanel::ResetAll() noexcept {
-    const u32 count = static_cast<u32>(m_Overrides.Size());
+    const u32 count = static_cast<u32>(m_Overrides.Num());
     for (u32 i = 0; i < count; ++i) {
         // ResetSlot を直接呼ぶと callback が slot 数だけ発火する仕様
         // (= ヘッダコメント参照)。1 件ずつ undo できる粒度を保つため意図的。
@@ -130,7 +130,7 @@ void AModelMaterialPanel::ResetAll() noexcept {
 
 /** 指定 slot が override 中かを返す (範囲外は false)。 */
 bool AModelMaterialPanel::IsSlotOverridden(u32 slot_index) const noexcept {
-    const u32 count = static_cast<u32>(m_Overrides.Size());
+    const u32 count = static_cast<u32>(m_Overrides.Num());
     if (!IsValidSlot(slot_index, count)) {
         return false;
     }
@@ -139,7 +139,7 @@ bool AModelMaterialPanel::IsSlotOverridden(u32 slot_index) const noexcept {
 
 /** 指定 slot の override を const ポインタで返す (範囲外は nullptr)。 */
 const FMaterialOverride* AModelMaterialPanel::GetOverride(u32 slot_index) const noexcept {
-    const u32 count = static_cast<u32>(m_Overrides.Size());
+    const u32 count = static_cast<u32>(m_Overrides.Num());
     if (!IsValidSlot(slot_index, count)) {
         return nullptr;
     }
@@ -148,7 +148,7 @@ const FMaterialOverride* AModelMaterialPanel::GetOverride(u32 slot_index) const 
 
 /** 指定 slot の override を可変ポインタで返す (範囲外は nullptr)。 */
 FMaterialOverride* AModelMaterialPanel::GetOverrideMutable(u32 slot_index) noexcept {
-    const u32 count = static_cast<u32>(m_Overrides.Size());
+    const u32 count = static_cast<u32>(m_Overrides.Num());
     if (!IsValidSlot(slot_index, count)) {
         return nullptr;
     }
@@ -157,7 +157,7 @@ FMaterialOverride* AModelMaterialPanel::GetOverrideMutable(u32 slot_index) noexc
 
 /** 現在の slot 数を返す。 */
 u32 AModelMaterialPanel::SlotCount() const noexcept {
-    return static_cast<u32>(m_Overrides.Size());
+    return static_cast<u32>(m_Overrides.Num());
 }
 
 /** material 変更通知 callback と user ポインタを設定する。 */
@@ -170,7 +170,7 @@ void AModelMaterialPanel::SetOnMaterialChangeCallback(MaterialChangeCallback cb,
 /** 指定 slot の現在値で変更 callback を発火する (callback 未設定 / 範囲外は no-op)。 */
 void AModelMaterialPanel::FireChangeCallback(u32 slot_index) noexcept {
     if (m_OnChangeCb == nullptr) return;
-    const u32 count = static_cast<u32>(m_Overrides.Size());
+    const u32 count = static_cast<u32>(m_Overrides.Num());
     if (!IsValidSlot(slot_index, count)) return;
     m_OnChangeCb(m_OnChangeUser,
                   slot_index,
@@ -191,7 +191,7 @@ void AModelMaterialPanel::DrawUI() noexcept {
         return;
     }
 
-    const u32 count = static_cast<u32>(m_Overrides.Size());
+    const u32 count = static_cast<u32>(m_Overrides.Num());
 
     // ヘッダ (slot 数 + Reset All)。
     ImGui::Text("Slot count: %u", static_cast<unsigned>(count));

@@ -35,13 +35,13 @@ bool StrEq(const char* a, const char* b) noexcept {
 } // namespace
 
 void CTutorialFlow::AddStep(const FTutorialStep& step) noexcept {
-    m_Steps.PushBack(step);
+    m_Steps.Add(step);
 }
 
 void CTutorialFlow::Start() noexcept {
     m_CurrentStep = 0;
     m_Completed    = false;
-    if (m_Steps.Size() == 0) {
+    if (m_Steps.Num() == 0) {
         // 空チュートリアル: 即完了扱いで終わる (no-op 防御)
         m_Active    = false;
         m_Completed = true;
@@ -53,7 +53,7 @@ void CTutorialFlow::Start() noexcept {
 void CTutorialFlow::AdvanceStep() noexcept {
     if (!m_Active) return;
     ++m_CurrentStep;
-    if (m_CurrentStep >= static_cast<u32>(m_Steps.Size())) {
+    if (m_CurrentStep >= static_cast<u32>(m_Steps.Num())) {
         // 最終ステップを越えた → 完了
         m_Active    = false;
         m_Completed = true;
@@ -62,7 +62,7 @@ void CTutorialFlow::AdvanceStep() noexcept {
 
 void CTutorialFlow::NotifyAction(const char* action_id) noexcept {
     if (!m_Active || action_id == nullptr) return;
-    if (m_CurrentStep >= static_cast<u32>(m_Steps.Size())) return;
+    if (m_CurrentStep >= static_cast<u32>(m_Steps.Num())) return;
     const FTutorialStep& step = m_Steps[m_CurrentStep];
     if (!step.require_user_action) return;     // 自動 advance しないステップ
     if (StrEq(step.id, action_id)) {
@@ -84,12 +84,12 @@ void CTutorialFlow::Skip() noexcept {
 
 const FTutorialStep* CTutorialFlow::CurrentStep() const noexcept {
     if (!m_Active) return nullptr;
-    if (m_CurrentStep >= static_cast<u32>(m_Steps.Size())) return nullptr;
+    if (m_CurrentStep >= static_cast<u32>(m_Steps.Num())) return nullptr;
     return &m_Steps[m_CurrentStep];
 }
 
 u32 CTutorialFlow::StepCount() const noexcept {
-    return static_cast<u32>(m_Steps.Size());
+    return static_cast<u32>(m_Steps.Num());
 }
 
 void CTutorialFlow::Tick(f32 /*dt*/) noexcept {

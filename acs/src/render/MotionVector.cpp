@@ -121,7 +121,7 @@ TResult<void> CMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noe
             Shutdown();
             return Err<void>(error);
         }
-        if (!m_Cbs.TryPushBack(Move(cbr.Value()))) {
+        if (!m_Cbs.TryAdd(Move(cbr.Value()))) {
             Shutdown();
             return ACS_ERR(
                 Render, 368,
@@ -134,7 +134,7 @@ TResult<void> CMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noe
 
 void CMotionVector::Shutdown() noexcept {
     m_PassActive = false;
-    m_Cbs.ReleaseStorage();
+    m_Cbs.Empty();
     m_Pipeline.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
@@ -246,9 +246,9 @@ TResult<void> CMotionVector::CreatePipeline(IRhiDevice& device) noexcept {
 bool CMotionVector::EnsureObjectCapacity(u32 required_draws) noexcept {
     if (required_draws == kInvalidObjectBuffer) return false;
     if (!m_Device) return false;
-    if (required_draws <= m_Cbs.Size()) return true;
+    if (required_draws <= m_Cbs.Num()) return true;
 
-    u32 target = static_cast<u32>(m_Cbs.Size());
+    u32 target = static_cast<u32>(m_Cbs.Num());
     if (target < kInitialObjectBufferCapacity) {
         target = kInitialObjectBufferCapacity;
     }
@@ -271,11 +271,11 @@ bool CMotionVector::EnsureObjectCapacity(u32 required_draws) noexcept {
     desc.cpu_writable = true;
     // Geometric reserve avoids repeatedly reallocating the owner array, while
     // GPU buffers themselves are created only for draws actually requested.
-    while (m_Cbs.Size() < required_draws) {
+    while (m_Cbs.Num() < required_draws) {
         auto created = CreateRhiBuffer(*m_Device, desc);
-        if (created.IsErr()) return m_Cbs.Size() >= required_draws;
-        if (!m_Cbs.TryPushBack(Move(created.Value()))) {
-            return m_Cbs.Size() >= required_draws;
+        if (created.IsErr()) return m_Cbs.Num() >= required_draws;
+        if (!m_Cbs.TryAdd(Move(created.Value()))) {
+            return m_Cbs.Num() >= required_draws;
         }
     }
     return true;
@@ -288,7 +288,7 @@ bool CMotionVector::BeginFrame(u32 required_draws) noexcept {
 
     ACS_LOG_WARN("CMotionVector: could not reserve %u per-object buffers "
                  "(retained %u); motion output will be skipped this frame",
-                 required_draws, static_cast<u32>(m_Cbs.Size()));
+                 required_draws, static_cast<u32>(m_Cbs.Num()));
     m_CapacityFailureLogged = true;
     return false;
 }
@@ -319,7 +319,7 @@ bool CMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
     if (!m_PassActive) return false;
     if (!mesh.vertex_buffer || !mesh.index_buffer) return false;
     if (m_DrawCursor == kInvalidObjectBuffer ||
-        (m_DrawCursor >= m_Cbs.Size() &&
+        (m_DrawCursor >= m_Cbs.Num() &&
          !EnsureObjectCapacity(m_DrawCursor + 1u))) {
         if (!m_CapacityFailureLogged) {
             ACS_LOG_WARN("CMotionVector: object-buffer growth failed at draw %u; "

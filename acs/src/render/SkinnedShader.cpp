@@ -272,7 +272,7 @@ TResult<void> CSkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EForma
 void CSkinnedShader::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_White.Reset();
-    m_DrawBuffers.ReleaseStorage();
+    m_DrawBuffers.Empty();
     m_ObjectCbCursor = 0u;
     m_CurrentObjectCb = kInvalidObjectBuffer;
     m_FrameCapacityReady = false;
@@ -287,9 +287,9 @@ bool CSkinnedShader::EnsureObjectCapacity(
     u32 required_object_draws) noexcept {
     if (required_object_draws == kInvalidObjectBuffer) return false;
     if (!m_ResourceDevice) return false;
-    if (required_object_draws <= m_DrawBuffers.Size()) return true;
+    if (required_object_draws <= m_DrawBuffers.Num()) return true;
 
-    u32 target = static_cast<u32>(m_DrawBuffers.Size());
+    u32 target = static_cast<u32>(m_DrawBuffers.Num());
     if (target < kInitialObjectBufferCapacity)
         target = kInitialObjectBufferCapacity;
     while (target < required_object_draws) {
@@ -306,7 +306,7 @@ bool CSkinnedShader::EnsureObjectCapacity(
     for (u32 i = 0; i < kMaxBones; ++i)
         identity_palette.palette[i] = FMat4::Identity();
 
-    while (m_DrawBuffers.Size() < target) {
+    while (m_DrawBuffers.Num() < target) {
         FBufferDesc object_description{};
         object_description.size = CBSize<FObjectCbLayout>();
         object_description.usage = EBufferUsage::Uniform;
@@ -314,7 +314,7 @@ bool CSkinnedShader::EnsureObjectCapacity(
         auto object =
             CreateRhiBuffer(*m_ResourceDevice, object_description);
         if (object.IsErr())
-            return m_DrawBuffers.Size() >= required_object_draws;
+            return m_DrawBuffers.Num() >= required_object_draws;
 
         FBufferDesc bones_description{};
         bones_description.size = CBSize<FBonesCbLayout>();
@@ -323,14 +323,14 @@ bool CSkinnedShader::EnsureObjectCapacity(
         auto bones =
             CreateRhiBuffer(*m_ResourceDevice, bones_description);
         if (bones.IsErr())
-            return m_DrawBuffers.Size() >= required_object_draws;
+            return m_DrawBuffers.Num() >= required_object_draws;
         bones.Value()->Update(&identity_palette, sizeof(identity_palette));
 
         FDrawBufferPair pair{};
         pair.object = Move(object.Value());
         pair.bones = Move(bones.Value());
-        if (!m_DrawBuffers.TryPushBack(Move(pair)))
-            return m_DrawBuffers.Size() >= required_object_draws;
+        if (!m_DrawBuffers.TryAdd(Move(pair)))
+            return m_DrawBuffers.Num() >= required_object_draws;
     }
     return true;
 }
@@ -399,7 +399,7 @@ bool CSkinnedShader::SetObject(const FMat4& model, FVec3 base_color,
                               f32 specular_strength, f32 shininess) noexcept {
     if (!m_FrameCapacityReady ||
         m_ObjectCbCursor == kInvalidObjectBuffer ||
-        (m_ObjectCbCursor >= m_DrawBuffers.Size() &&
+        (m_ObjectCbCursor >= m_DrawBuffers.Num() &&
          !EnsureObjectCapacity(m_ObjectCbCursor + 1u))) {
         if (!m_ObjectCapacityFailureLogged) {
             ACS_LOG_WARN(
@@ -407,7 +407,7 @@ bool CSkinnedShader::SetObject(const FMat4& model, FVec3 base_color,
                 "(required=%u, retained=%zu); remaining draws are skipped",
                 m_ObjectCbCursor == kInvalidObjectBuffer
                     ? kInvalidObjectBuffer : m_ObjectCbCursor + 1u,
-                m_DrawBuffers.Size());
+                m_DrawBuffers.Num());
             m_ObjectCapacityFailureLogged = true;
         }
         m_FrameCapacityReady = false;

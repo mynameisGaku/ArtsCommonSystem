@@ -50,7 +50,7 @@ constexpr u32 kMaxBalance = ~static_cast<u32>(0);
 /** currency_id に対応するスロット index を線形検索する (未発見は kNotFound)。 */
 u32 CEconomyDirector::FindCurrencySlot(const char* currency_id) const noexcept {
     if (currency_id == nullptr) return kNotFound;
-    const usize n = m_Currencies.Size();
+    const usize n = m_Currencies.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Currencies[i].id, currency_id)) return static_cast<u32>(i);
     }
@@ -60,7 +60,7 @@ u32 CEconomyDirector::FindCurrencySlot(const char* currency_id) const noexcept {
 /** item_id に対応するスロット index を線形検索する (未発見は kNotFound)。 */
 u32 CEconomyDirector::FindItemSlot(const char* item_id) const noexcept {
     if (item_id == nullptr) return kNotFound;
-    const usize n = m_Items.Size();
+    const usize n = m_Items.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Items[i].item_id, item_id)) return static_cast<u32>(i);
     }
@@ -78,9 +78,9 @@ void CEconomyDirector::RegisterCurrency(const FCurrencyDef& def) noexcept {
         return;
     }
 
-    m_Currencies.PushBack(def);
+    m_Currencies.Add(def);
     // 並行 TArray — 残高は 0 で初期化。
-    m_Balances.PushBack(static_cast<u32>(0));
+    m_Balances.Add(static_cast<u32>(0));
 }
 
 /** 指定通貨の残高を amount に上書きする (未登録通貨は no-op)。 */
@@ -136,7 +136,7 @@ void CEconomyDirector::RegisterItem(const FShopItem& item) noexcept {
 
     // currency_id 未登録でも登録自体は受理する (起動順序依存を緩める)。
     // 購入時に未登録通貨を検出して失敗を返す。
-    m_Items.PushBack(item);
+    m_Items.Add(item);
 }
 
 /**
@@ -217,13 +217,13 @@ const FShopItem* CEconomyDirector::FindItem(const char* item_id) const noexcept 
 
 /** 登録済み商品数を返す。 */
 u32 CEconomyDirector::ItemCount() const noexcept {
-    return static_cast<u32>(m_Items.Size());
+    return static_cast<u32>(m_Items.Num());
 }
 
 /** 全商品配列の生ポインタを返す (out_count に件数を書き込む)。 */
 const FShopItem* CEconomyDirector::AllItems(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(m_Items.Size());
-    return m_Items.Data();
+    out_count = static_cast<u32>(m_Items.Num());
+    return m_Items.GetData();
 }
 
 /** 購入結果コールバックと user ポインタを設定する (cb == nullptr で detach)。 */
@@ -235,9 +235,9 @@ void CEconomyDirector::SetOnPurchaseCallback(PurchaseCallback cb, void* user) no
 
 /** 通貨・残高・商品・コールバックを全てリセットする。 */
 void CEconomyDirector::ClearAll() noexcept {
-    m_Currencies.Clear();
-    m_Balances.Clear();
-    m_Items.Clear();
+    m_Currencies.Reset();
+    m_Balances.Reset();
+    m_Items.Reset();
     m_OnPurchase      = nullptr;
     m_OnPurchaseUser = nullptr;
 }

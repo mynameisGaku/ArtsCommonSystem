@@ -46,7 +46,7 @@ bool CRenderGraphTransientAliasPlanner::Build(const FRenderGraphResourceLifetime
             }
         }
     }
-    if (!m_Assignments.TryResize(count) || !m_Order.TryResize(count) || !m_SlotLastPass.TryResize(count) || !m_SlotCompatibility.TryResize(count) || !m_SlotBytes.TryResize(count) || !m_SlotReusable.TryResize(count)) {
+    if (!m_Assignments.TrySetNum(count) || !m_Order.TrySetNum(count) || !m_SlotLastPass.TrySetNum(count) || !m_SlotCompatibility.TrySetNum(count) || !m_SlotBytes.TrySetNum(count) || !m_SlotReusable.TrySetNum(count)) {
         Reset();
         return false;
     }
@@ -125,12 +125,12 @@ bool CRenderGraphTransientAliasPlanner::Build(const FRenderGraphResourceLifetime
 }
 
 void CRenderGraphTransientAliasPlanner::Reset() noexcept {
-    m_Assignments.Clear();
-    m_Order.Clear();
-    m_SlotLastPass.Clear();
-    m_SlotCompatibility.Clear();
-    m_SlotBytes.Clear();
-    m_SlotReusable.Clear();
+    m_Assignments.Reset();
+    m_Order.Reset();
+    m_SlotLastPass.Reset();
+    m_SlotCompatibility.Reset();
+    m_SlotBytes.Reset();
+    m_SlotReusable.Reset();
     m_Summary = {};
 }
 

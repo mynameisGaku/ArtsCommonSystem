@@ -9,7 +9,7 @@
 //  ・Interval の連続発火は while (elapsed >= period) で carry する。コールバック
 //    内で Cancel された場合の安全のため、ループ内で active/gen を都度確認。
 //  ・Tick 中のコールバックが新規 SetTimeout/SetInterval を呼んだ場合、m_Entries
-//    の PushBack が走り得る。生 reference を握り続けないよう、ループは index
+//    の Add が走り得る。生 reference を握り続けないよう、ループは index
 //    アクセスで回し、毎反復ごとに `m_Entries[i]` を取り直す。
 #include "gameframework/SceneTimer.h"
 
@@ -41,7 +41,7 @@ static_assert(FSceneTimerHandle::Pack(kLastIssuedSceneTimerIndex, kLastSceneTime
 /** inactive slot を再利用するか末尾に追加して空きスロット index を返す (上限到達で kMaxIndex)。 */
 u32 CSceneTimer::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用 (キャッシュ局所性 + index 上限 24bit 保護)
-    const usize n = m_Entries.Size();
+    const usize n = m_Entries.Num();
     for (usize i = 0; i < n; ++i) {
         if (!m_Entries[i].active) {
             return static_cast<u32>(i);
@@ -53,7 +53,7 @@ u32 CSceneTimer::AcquireSlot() noexcept {
         // 呼び出し側が無効値として扱う予約済み上限を返す。
         return FSceneTimerHandle::kMaxIndex;
     }
-    m_Entries.PushBack({});
+    m_Entries.Add({});
     return append_index;
 }
 
@@ -116,7 +116,7 @@ FSceneTimerHandle CSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, voi
 bool CSceneTimer::Cancel(FSceneTimerHandle h) noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
-    if (idx >= m_Entries.Size()) return false;
+    if (idx >= m_Entries.Num()) return false;
     FTimerEntry& e = m_Entries[idx];
     if (!e.active || e.gen != h.Gen()) return false;
 
@@ -129,7 +129,7 @@ bool CSceneTimer::Cancel(FSceneTimerHandle h) noexcept {
 
 /** 全 active timer を停止する (コールバックは呼ばない)。 */
 void CSceneTimer::CancelAll() noexcept {
-    const usize n = m_Entries.Size();
+    const usize n = m_Entries.Num();
     for (usize i = 0; i < n; ++i) {
         FTimerEntry& e = m_Entries[i];
         if (!e.active) continue;
@@ -144,7 +144,7 @@ void CSceneTimer::CancelAll() noexcept {
 bool CSceneTimer::IsActive(FSceneTimerHandle h) const noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
-    if (idx >= m_Entries.Size()) return false;
+    if (idx >= m_Entries.Num()) return false;
     const FTimerEntry& e = m_Entries[idx];
     return e.active && e.gen == h.Gen();
 }
@@ -154,11 +154,11 @@ void CSceneTimer::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (m_ActiveCount == 0u) return;
 
-    // 注意: コールバックは新規 SetTimeout/SetInterval を呼んで m_Entries.PushBack
+    // 注意: コールバックは新規 SetTimeout/SetInterval を呼んで m_Entries.Add
     // を起こし得る (= reference invalidation)。ループは index で回し、毎反復で
     // size を取り直す。新規追加された timer は今回の Tick では発火させない
     // (= 登録時の elapsed=0 で次 Tick まで待つ — 直感的な挙動)。
-    const usize snapshot_size = m_Entries.Size();
+    const usize snapshot_size = m_Entries.Num();
 
     for (usize i = 0; i < snapshot_size; ++i) {
         // 起動時の世代を覚えておく (コールバック内で Cancel→再 Acquire により

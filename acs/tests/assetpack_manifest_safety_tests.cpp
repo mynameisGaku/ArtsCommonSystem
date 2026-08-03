@@ -147,12 +147,12 @@ ACS_TEST(AcpakManifestSafety, RejectsEmbeddedNullAndDuplicateVirtualPaths)
     EXPECT_TRUE(BytesResult.IsOk());
     if (BytesResult.IsOk()) {
         TArray<byte>& Bytes = BytesResult.Value();
-        const u64 TableOffset = ReadU64(Bytes.Data() + 24u);
+        const u64 TableOffset = ReadU64(Bytes.GetData() + 24u);
     // 先頭の len=1 entry は 34 byte。2 個目の 1 文字 path を書き換える。
         Bytes[static_cast<usize>(TableOffset) + 34u + 4u] = static_cast<byte>('a');
         Bytes[static_cast<usize>(TableOffset) + 34u + 5u] = 0;
         EXPECT_TRUE(CFileSystem::WriteAllBytes(
-            kDuplicatePath, Bytes.Data(), Bytes.Size()).IsOk());
+            kDuplicatePath, Bytes.GetData(), Bytes.Num()).IsOk());
     }
 
     const auto DuplicateResult = Reader.Open(kDuplicatePath);

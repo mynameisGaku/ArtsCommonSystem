@@ -415,8 +415,8 @@ u32 NextRng() noexcept {
 TUniquePtr<IRhiTexture> MakeCircleTexture(IRhiDevice& device) noexcept {
     constexpr u32 N = 128;
     TArray<u8> px;
-    px.Resize(static_cast<usize>(N) * N * 4);
-    u8* p = px.Data();
+    px.SetNum(static_cast<usize>(N) * N * 4);
+    u8* p = px.GetData();
     const f32 center = (N - 1) * 0.5f;
     const f32 radius = N * 0.5f - 1.0f;
     for (u32 y = 0; y < N; ++y) {
@@ -437,7 +437,7 @@ TUniquePtr<IRhiTexture> MakeCircleTexture(IRhiDevice& device) noexcept {
     desc.height            = N;
     desc.format            = EFormat::R8G8B8A8_UNorm;
     desc.initial_data      = p;
-    desc.initial_data_size = px.Size();
+    desc.initial_data_size = px.Num();
     auto r = CreateRhiTexture(device, desc);
     if (r.IsErr()) {
         ACS_LOG_WARN("easy: 円テクスチャの作成に失敗（DrawCircle が無効化）");
@@ -557,16 +557,16 @@ void CleanupJobs() noexcept {
         FEasyState::FAsyncBatch& b = g_state.async_batches[i];
         if (!b.live) continue;
         CThreadPool::Wait(b.counter);
-        for (usize k = 0; k < b.closures.Size(); ++k)
+        for (usize k = 0; k < b.closures.Num(); ++k)
             FreeClosure(static_cast<jobdetail::FClosure*>(b.closures[k]));
-        b.closures.ReleaseStorage();
+        b.closures.Empty();
         b.live = false;
     }
     if (g_state.pending_graph) {
-        for (usize k = 0; k < g_state.graph_closures.Size(); ++k)
+        for (usize k = 0; k < g_state.graph_closures.Num(); ++k)
             FreeClosure(static_cast<jobdetail::FClosure*>(g_state.graph_closures[k]));
-        g_state.graph_closures.ReleaseStorage();
-        g_state.graph_handles.ReleaseStorage();
+        g_state.graph_closures.Empty();
+        g_state.graph_handles.Empty();
         delete g_state.pending_graph;
         g_state.pending_graph = nullptr;
     }
@@ -605,11 +605,11 @@ void ShutdownEasy() noexcept {
     g_state.circle_tex.Reset();
     // 静的状態が持つ配列の確保元は維持する。空配列のムーブ代入で現在の
     // MemorySystem アロケータへ差し替えると、停止後の再利用時に無効な確保元を触る。
-    g_state.sprites.ReleaseStorage(); // 全スプライトのテクスチャを解放
+    g_state.sprites.Empty(); // 全スプライトのテクスチャを解放
     // 部分初期化で失敗していても Shutdown は安全なので、成功フラグに依存させない。
     g_state.audio.Shutdown();
     g_state.audio_ok = false;
-    g_state.sounds.ReleaseStorage();
+    g_state.sounds.Empty();
     g_state.assets.Shutdown();
     ReleaseSaveStorage(); // FString の確保元が生きている間に静的容量も返す
     g_state.burn.Shutdown();
@@ -702,7 +702,7 @@ bool             g_save_loaded = false;
 /** セーブ内容と予約済み容量を解放し、次回アクセス時に再読込できる状態へ戻す。 */
 void ReleaseSaveStorage() noexcept
 {
-    g_save.ReleaseStorage();
+    g_save.Empty();
     g_save_loaded = false;
 }
 
@@ -721,10 +721,10 @@ void EnsureSaveLoaded() noexcept {
     fseek(f, 0, SEEK_SET);
     if (sz > 0 && sz < 4 * 1024 * 1024) {
         TArray<char> buf;
-        buf.Resize(static_cast<usize>(sz) + 1);
-        const usize rd = fread(buf.Data(), 1, static_cast<usize>(sz), f);
+        buf.SetNum(static_cast<usize>(sz) + 1);
+        const usize rd = fread(buf.GetData(), 1, static_cast<usize>(sz), f);
         buf[rd] = 0;
-        char* p = buf.Data();
+        char* p = buf.GetData();
         while (*p) {
             char* line = p;
             while (*p && *p != '\n' && *p != '\r') ++p;
@@ -738,7 +738,7 @@ void EnsureSaveLoaded() noexcept {
                 FSaveEntry e;
                 e.key = FString{line, g_easy_allocator};
                 e.value = FString{eq + 1, g_easy_allocator};
-                g_save.PushBack(Move(e));
+                g_save.Add(Move(e));
             }
         }
     }
@@ -752,7 +752,7 @@ void EnsureSaveLoaded() noexcept {
  * @return 一致したエントリへのポインタ (無ければ nullptr)。
  */
 FSaveEntry* FindSave(const char* key) noexcept {
-    for (usize i = 0; i < g_save.Size(); ++i) {
+    for (usize i = 0; i < g_save.Num(); ++i) {
         const char* k = g_save[i].key.Data();
         if (k && strcmp(k, key) == 0) return &g_save[i];
     }
@@ -772,7 +772,7 @@ void WriteSaveFile() noexcept {
             ACS_LOG_WARN("easy: セーブファイルに書き込めません");
         return;
     }
-    for (usize i = 0; i < g_save.Size(); ++i) {
+    for (usize i = 0; i < g_save.Num(); ++i) {
         const char* k = g_save[i].key.Data();
         const char* v = g_save[i].value.Data();
         if (k && *k) fwrite(k, 1, strlen(k), f);
@@ -798,7 +798,7 @@ void SetSaveValue(const char* key, const char* value) noexcept {
         FSaveEntry ne;
         ne.key = FString{key, g_easy_allocator};
         ne.value = FString{value, g_easy_allocator};
-        g_save.PushBack(Move(ne));
+        g_save.Add(Move(ne));
     }
     WriteSaveFile();
 }
@@ -1275,7 +1275,7 @@ void DrawPixel(f32 x, f32 y, FColor color) noexcept {
 /** スプライトを元サイズで描く。 */
 void DrawSprite(FSprite sprite, f32 x, f32 y) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
-    if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
+    if (sprite.id == 0 || sprite.id > g_state.sprites.Num()) return;
     FSpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (s.tex)
         g_state.batch.Draw(*s.tex, x, y, s.w, s.h, FVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
@@ -1284,7 +1284,7 @@ void DrawSprite(FSprite sprite, f32 x, f32 y) noexcept {
 /** スプライトを指定サイズに伸縮して描く。 */
 void DrawSprite(FSprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
-    if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
+    if (sprite.id == 0 || sprite.id > g_state.sprites.Num()) return;
     FSpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (s.tex)
         g_state.batch.Draw(*s.tex, x, y, width, height, FVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
@@ -1294,7 +1294,7 @@ void DrawSprite(FSprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept {
 void DrawSpriteRotated(FSprite sprite, f32 x, f32 y, f32 degrees,
                        f32 scale, FColor tint) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
-    if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
+    if (sprite.id == 0 || sprite.id > g_state.sprites.Num()) return;
     FSpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (!s.tex) return;
     const f32 w = s.w * scale;
@@ -1307,7 +1307,7 @@ void DrawSpriteRotated(FSprite sprite, f32 x, f32 y, f32 degrees,
 /** スプライトに色を掛けて元サイズで描く。 */
 void DrawSpriteTinted(FSprite sprite, f32 x, f32 y, FColor tint) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
-    if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
+    if (sprite.id == 0 || sprite.id > g_state.sprites.Num()) return;
     FSpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (s.tex)
         g_state.batch.Draw(*s.tex, x, y, s.w, s.h, ToVec4(tint));
@@ -1317,7 +1317,7 @@ void DrawSpriteTinted(FSprite sprite, f32 x, f32 y, FColor tint) noexcept {
 void DrawSpriteFlipped(FSprite sprite, f32 x, f32 y,
                        bool flip_x, bool flip_y) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
-    if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
+    if (sprite.id == 0 || sprite.id > g_state.sprites.Num()) return;
     FSpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (!s.tex) return;
     const f32 u0 = flip_x ? 1.0f : 0.0f, u1 = flip_x ? 0.0f : 1.0f;
@@ -1330,7 +1330,7 @@ void DrawSpriteFlipped(FSprite sprite, f32 x, f32 y,
 void DrawSpritePart(FSprite sprite, f32 x, f32 y, f32 width, f32 height,
                     f32 src_x, f32 src_y, f32 src_width, f32 src_height) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
-    if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
+    if (sprite.id == 0 || sprite.id > g_state.sprites.Num()) return;
     FSpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (!s.tex || s.w <= 0.0f || s.h <= 0.0f) return;
     const f32 u0 = src_x / s.w,                v0 = src_y / s.h;
@@ -1341,13 +1341,13 @@ void DrawSpritePart(FSprite sprite, f32 x, f32 y, f32 width, f32 height,
 
 /** スプライトの元画像の幅を返す。 */
 f32 SpriteWidth(FSprite sprite) noexcept {
-    if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return 0.0f;
+    if (sprite.id == 0 || sprite.id > g_state.sprites.Num()) return 0.0f;
     return g_state.sprites[sprite.id - 1].w;
 }
 
 /** スプライトの元画像の高さを返す。 */
 f32 SpriteHeight(FSprite sprite) noexcept {
-    if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return 0.0f;
+    if (sprite.id == 0 || sprite.id > g_state.sprites.Num()) return 0.0f;
     return g_state.sprites[sprite.id - 1].h;
 }
 
@@ -1489,7 +1489,7 @@ FSprite LoadSprite(const char* path) noexcept {
         return FSprite{ 0 };
     }
     if (!path) return FSprite{ 0 };
-    for (usize i = 0; i < g_state.sprites.Size(); ++i) {
+    for (usize i = 0; i < g_state.sprites.Num(); ++i) {
         const char* p = g_state.sprites[i].path.Data();
         if (p && strcmp(p, path) == 0)
             return FSprite{ static_cast<u32>(i + 1) };
@@ -1518,8 +1518,8 @@ FSprite LoadSprite(const char* path) noexcept {
     slot.path = FString{path, g_easy_allocator};
     slot.w    = static_cast<f32>(img->Width());
     slot.h    = static_cast<f32>(img->Height());
-    g_state.sprites.PushBack(Move(slot));
-    return FSprite{ static_cast<u32>(g_state.sprites.Size()) };
+    g_state.sprites.Add(Move(slot));
+    return FSprite{ static_cast<u32>(g_state.sprites.Num()) };
 }
 
 /** 音声を読み込みアセットを保持してサウンドを返す (同一パスはキャッシュ)。 */
@@ -1529,7 +1529,7 @@ FSound LoadSound(const char* path) noexcept {
         return FSound{ 0 };
     }
     if (!path) return FSound{ 0 };
-    for (usize i = 0; i < g_state.sounds.Size(); ++i) {
+    for (usize i = 0; i < g_state.sounds.Num(); ++i) {
         const char* p = g_state.sounds[i].path.Data();
         if (p && strcmp(p, path) == 0)
             return FSound{ static_cast<u32>(i + 1) };
@@ -1550,8 +1550,8 @@ FSound LoadSound(const char* path) noexcept {
     FSoundSlot slot;
     slot.asset = asset;            // TSharedPtr をコピー保持 -> 再生中ずっと生かす
     slot.path = FString{path, g_easy_allocator};
-    g_state.sounds.PushBack(Move(slot));
-    return FSound{ static_cast<u32>(g_state.sounds.Size()) };
+    g_state.sounds.Add(Move(slot));
+    return FSound{ static_cast<u32>(g_state.sounds.Num()) };
 }
 
 /** 効果音を既定音量で 1 回再生する。 */
@@ -1560,7 +1560,7 @@ void Play(FSound sound) noexcept { Play(sound, 1.0f); }
 /** 効果音を音量指定で 1 回再生する。 */
 void Play(FSound sound, f32 volume) noexcept {
     if (!g_state.audio_ok) return;
-    if (sound.id == 0 || sound.id > g_state.sounds.Size()) return;
+    if (sound.id == 0 || sound.id > g_state.sounds.Num()) return;
     AAsset* base = g_state.sounds[sound.id - 1].asset.Get();
     if (base)
         g_state.audio.Play(*static_cast<AAudioAsset*>(base), Clamp01(volume), false);
@@ -1572,7 +1572,7 @@ void PlayLoop(FSound sound) noexcept { PlayLoop(sound, 1.0f); }
 /** 音を音量指定でループ再生する (既存ループは二重再生防止に止める)。 */
 void PlayLoop(FSound sound, f32 volume) noexcept {
     if (!g_state.audio_ok) return;
-    if (sound.id == 0 || sound.id > g_state.sounds.Size()) return;
+    if (sound.id == 0 || sound.id > g_state.sounds.Num()) return;
     FSoundSlot& slot = g_state.sounds[sound.id - 1];
     AAsset* base = slot.asset.Get();
     if (!base) return;
@@ -1584,7 +1584,7 @@ void PlayLoop(FSound sound, f32 volume) noexcept {
 /** そのサウンドのループ再生を止める。 */
 void StopSound(FSound sound) noexcept {
     if (!g_state.audio_ok) return;
-    if (sound.id == 0 || sound.id > g_state.sounds.Size()) return;
+    if (sound.id == 0 || sound.id > g_state.sounds.Num()) return;
     FSoundSlot& slot = g_state.sounds[sound.id - 1];
     if (slot.loop.IsValid()) {
         g_state.audio.Stop(slot.loop);
@@ -1596,7 +1596,7 @@ void StopSound(FSound sound) noexcept {
 void StopAllSounds() noexcept {
     if (!g_state.audio_ok) return;
     g_state.audio.StopAll();
-    for (usize i = 0; i < g_state.sounds.Size(); ++i)
+    for (usize i = 0; i < g_state.sounds.Num(); ++i)
         g_state.sounds[i].loop = FSoundHandle{};
 }
 
@@ -2281,7 +2281,7 @@ bool HasSaveKey(const char* key) noexcept {
 
 /** 保存内容をすべて消去し save.dat も空にする。 */
 void DeleteAllSaves() noexcept {
-    g_save.ReleaseStorage();
+    g_save.Empty();
     g_save_loaded = true;        // 「ロード済み（空）」状態にする
     FILE* f = nullptr;
     if (fopen_s(&f, "save.dat", "wb") == 0 && f) fclose(f);
@@ -2343,9 +2343,9 @@ FJobBatch SubmitAsync(FClosure* c, FJobBatch existing) noexcept {
         if (!b) { RunClosureTask(c, 0); FreeClosure(c); return FJobBatch{}; }   // 枯渇 → 同期
         b->gen = static_cast<u16>(b->gen + 1u); if (b->gen == 0u) b->gen = 1u;
         b->live = true;
-        b->closures.ReleaseStorage();
+        b->closures.Empty();
     }
-    b->closures.PushBack(c);                               // batch がクロージャを所有
+    b->closures.Add(c);                               // batch がクロージャを所有
     FTask t{ &RunClosureTask, c, &b->counter };
     auto r = CThreadPool::Submit(t);
     if (r.IsErr()) { RunClosureTask(c, 0); }               // 投入失敗 → 同期実行 (解放は WaitJobs)
@@ -2357,13 +2357,13 @@ FJobNode AddNode(FClosure* c) noexcept {
     if (!c) return FJobNode{};
     if (!g_state.pending_graph) {
         g_state.pending_graph  = new CJobGraph();
-        g_state.graph_closures.ReleaseStorage();
-        g_state.graph_handles.ReleaseStorage();
+        g_state.graph_closures.Empty();
+        g_state.graph_handles.Empty();
     }
     const FJobHandle h = g_state.pending_graph->Add(&RunClosureTask, c);
-    const u32 id = static_cast<u32>(g_state.graph_handles.Size()) + 1u;
-    g_state.graph_handles.PushBack(h);
-    g_state.graph_closures.PushBack(c);
+    const u32 id = static_cast<u32>(g_state.graph_handles.Num()) + 1u;
+    g_state.graph_handles.Add(h);
+    g_state.graph_closures.Add(c);
     return FJobNode{ id };
 }
 
@@ -2377,9 +2377,9 @@ void WaitJobs(FJobBatch batch) noexcept {
     FEasyState::FAsyncBatch& b = g_state.async_batches[idx];
     if (!b.live || b.gen != static_cast<u16>(batch.id >> 16)) return;   // 既に Wait 済 or 無効
     CThreadPool::Wait(b.counter);
-    for (usize k = 0; k < b.closures.Size(); ++k)
+    for (usize k = 0; k < b.closures.Num(); ++k)
         FreeClosure(static_cast<jobdetail::FClosure*>(b.closures[k]));
-    b.closures.ReleaseStorage();
+    b.closures.Empty();
     b.live = false;
 }
 
@@ -2397,7 +2397,7 @@ bool JobsDone(FJobBatch batch) noexcept {
 void Then(FJobNode before, FJobNode after) noexcept {
     if (!g_state.pending_graph || before.id == 0 || after.id == 0) return;
     const u32 bi = before.id - 1u, ai = after.id - 1u;
-    if (bi >= g_state.graph_handles.Size() || ai >= g_state.graph_handles.Size()) return;
+    if (bi >= g_state.graph_handles.Num() || ai >= g_state.graph_handles.Num()) return;
     g_state.graph_handles[ai].DependOn(g_state.graph_handles[bi]);      // after は before の後
 }
 
@@ -2411,13 +2411,13 @@ void RunJobs() noexcept {
         g->Wait();
     } else {                                               // 循環/エントリ無 → 順次フォールバック
         ACS_LOG_WARN("easy: RunJobs の依存グラフが無効です (循環など)。順次実行にフォールバックします");
-        for (usize k = 0; k < g_state.graph_closures.Size(); ++k)
+        for (usize k = 0; k < g_state.graph_closures.Num(); ++k)
             RunClosureTask(g_state.graph_closures[k], 0);
     }
-    for (usize k = 0; k < g_state.graph_closures.Size(); ++k)
+    for (usize k = 0; k < g_state.graph_closures.Num(); ++k)
         FreeClosure(static_cast<jobdetail::FClosure*>(g_state.graph_closures[k]));
-    g_state.graph_closures.ReleaseStorage();
-    g_state.graph_handles.ReleaseStorage();
+    g_state.graph_closures.Empty();
+    g_state.graph_handles.Empty();
     delete g;
     g_state.pending_graph = nullptr;
 }

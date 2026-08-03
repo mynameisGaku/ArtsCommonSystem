@@ -46,9 +46,9 @@ void CHelloAnimationApp::OnStart() noexcept {
     m_Camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
 
     ACS_LOG_INFO("HelloAnimation initialized: %u verts, %u indices, %u bones",
-                 static_cast<u32>(m_Snake->Vertices().Size()),
-                 static_cast<u32>(m_Snake->Indices().Size()),
-                 static_cast<u32>(m_Snake->Bones().Size()));
+                 static_cast<u32>(m_Snake->Vertices().Num()),
+                 static_cast<u32>(m_Snake->Indices().Num()),
+                 static_cast<u32>(m_Snake->Bones().Num()));
 }
 
 void CHelloAnimationApp::OnUpdate(f32 dt) noexcept {

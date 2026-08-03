@@ -136,14 +136,14 @@ public:
     void DrawArrow(FVec2 a, FVec2 b, FVec4 color, f32 head_len = 0.0f) noexcept;
 
     /** 蓄積した線分をクリアする (容量は保持)。フレーム頭か描画消費後に呼ぶ。 */
-    void Clear() noexcept { m_Lines.Clear(); }
+    void Clear() noexcept { m_Lines.Reset(); }
 
     /**
      * 蓄積されている線分の本数を返す。
      *
      * @return 蓄積線数。
      */
-    u32 LineCount() const noexcept { return static_cast<u32>(m_Lines.Size()); }
+    u32 LineCount() const noexcept { return static_cast<u32>(m_Lines.Num()); }
 
     /**
      * 描画システムが読み取る生バッファ先頭を返す (連続メモリ保証)。

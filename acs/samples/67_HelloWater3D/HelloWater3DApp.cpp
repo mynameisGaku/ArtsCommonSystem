@@ -52,7 +52,7 @@ TSharedPtr<AMeshAsset> MakeWaterGrid(f32 width, f32 depth,
             vertex.normal = FVec3{0.0f, 1.0f, 0.0f};
             vertex.u = u;
             vertex.v = 1.0f - v;
-            vertices.PushBack(vertex);
+            vertices.Add(vertex);
         }
     }
 
@@ -64,19 +64,19 @@ TSharedPtr<AMeshAsset> MakeWaterGrid(f32 width, f32 depth,
             const u32 i2 = i0 + stride;
             const u32 i3 = i2 + 1u;
             // Same clockwise top-face convention as Primitive::MakePlane.
-            indices.PushBack(i0);
-            indices.PushBack(i1);
-            indices.PushBack(i3);
-            indices.PushBack(i0);
-            indices.PushBack(i3);
-            indices.PushBack(i2);
+            indices.Add(i0);
+            indices.Add(i1);
+            indices.Add(i3);
+            indices.Add(i0);
+            indices.Add(i3);
+            indices.Add(i2);
         }
     }
 
     FSubMesh submesh{};
     submesh.first_index = 0;
-    submesh.index_count = static_cast<u32>(indices.Size());
-    mesh->SubMeshes().PushBack(submesh);
+    submesh.index_count = static_cast<u32>(indices.Num());
+    mesh->SubMeshes().Add(submesh);
     return mesh;
 }
 
@@ -101,21 +101,21 @@ TSharedPtr<AMeshAsset> MakeFloorPlane(f32 width, f32 depth) noexcept {
     FMeshVertex d = a;
     d.position = FVec3{-half_width, 0, half_depth};
     d.u = 0; d.v = 0;
-    vertices.PushBack(a);
-    vertices.PushBack(b);
-    vertices.PushBack(c);
-    vertices.PushBack(d);
-    indices.PushBack(0); indices.PushBack(1); indices.PushBack(2);
-    indices.PushBack(0); indices.PushBack(2); indices.PushBack(3);
+    vertices.Add(a);
+    vertices.Add(b);
+    vertices.Add(c);
+    vertices.Add(d);
+    indices.Add(0); indices.Add(1); indices.Add(2);
+    indices.Add(0); indices.Add(2); indices.Add(3);
     // Keep the refraction reference floor visible on both RHI backends. Their
     // current rasterizer front-face conventions differ, while StandardShader
     // deliberately back-face culls.
-    indices.PushBack(2); indices.PushBack(1); indices.PushBack(0);
-    indices.PushBack(3); indices.PushBack(2); indices.PushBack(0);
+    indices.Add(2); indices.Add(1); indices.Add(0);
+    indices.Add(3); indices.Add(2); indices.Add(0);
     FSubMesh submesh{};
     submesh.first_index = 0;
     submesh.index_count = 12;
-    mesh->SubMeshes().PushBack(submesh);
+    mesh->SubMeshes().Add(submesh);
     return mesh;
 }
 

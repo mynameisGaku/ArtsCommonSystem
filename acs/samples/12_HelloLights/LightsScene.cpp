@@ -9,7 +9,7 @@ using namespace acs;
 namespace hellolights {
 
 void CLightsScene::Build() noexcept {
-    m_Objects.Clear();
+    m_Objects.Reset();
     for (u32 i = 0; i < kCubeCount; ++i) {
         // 開始位相 0.4f はカメラ初期位置と物体が重ならないようにずらすため。
         const f32 a = (kPi * 2.0f) * static_cast<f32>(i) / kCubeCount + 0.4f;
@@ -22,7 +22,7 @@ void CLightsScene::Build() noexcept {
         // 物体側は白に近い灰色に統一: 点光源の色がそのまま乗って見えるので
         // ライトのデモとして読みやすい。
         o.color = FVec3{0.85f, 0.85f, 0.85f};
-        m_Objects.PushBack(o);
+        m_Objects.Add(o);
     }
 }
 
@@ -34,10 +34,10 @@ void CLightsScene::Render(CStandardShader&  shader,
                          const FGpuMesh&   sphere,
                          f32              time) noexcept {
     constexpr u32 kNonObjectDraws = 1u + kPointCount;
-    if (m_Objects.Size() >
+    if (m_Objects.Num() >
         static_cast<usize>(~u32{0} - kNonObjectDraws)) return;
     const u32 object_draws =
-        static_cast<u32>(m_Objects.Size()) + kNonObjectDraws;
+        static_cast<u32>(m_Objects.Num()) + kNonObjectDraws;
     if (!shader.BeginFrame(object_draws)) return;
 
     // --- ライト設定 ---

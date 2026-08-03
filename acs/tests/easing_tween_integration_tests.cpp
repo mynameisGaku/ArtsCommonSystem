@@ -152,7 +152,7 @@ ACS_TEST(EasingTweenIntegration, InvalidEnumFallsBackToLinear) {
     f32 sequence_value = 2.0f;
     sequence.Tween(
         &sequence_value, 2.0f, 10.0f, 2.0f, invalid);
-    EXPECT_EQ(sequence.Actions().Size(), 1u);
+    EXPECT_EQ(sequence.Actions().Num(), 1u);
     CSequenceRunner runner;
     const FSeqHandle sequence_handle =
         StartSequence(runner, sequence);
@@ -195,7 +195,7 @@ ACS_TEST(EasingTweenIntegration, NonFiniteDurationPreservesState) {
 
     FSequence sequence;
     sequence.Wait(1.0f);
-    const usize original_action_count = sequence.Actions().Size();
+    const usize original_action_count = sequence.Actions().Num();
     sequence.Tween(
         &rejected_scalar, 0.0f, 1.0f, nan,
         Easing::EEasingType::Linear);
@@ -205,7 +205,7 @@ ACS_TEST(EasingTweenIntegration, NonFiniteDurationPreservesState) {
     sequence.Tween(
         &rejected_vector3, FVec3{}, FVec3{1.0f, 1.0f, 1.0f}, -infinity,
         Easing::EEasingType::Linear);
-    EXPECT_EQ(sequence.Actions().Size(), original_action_count);
+    EXPECT_EQ(sequence.Actions().Num(), original_action_count);
     EXPECT_EQ(rejected_scalar, 10.0f);
     EXPECT_EQ(rejected_vector2.x, 20.0f);
     EXPECT_EQ(rejected_vector3.x, 40.0f);

@@ -330,7 +330,7 @@ FVec3 GroundHemisphere(FVec3 viewer, FVec3 view_dir, FVec3 sun_dir,
 TArray<f32> CAtmosphere::BakeEquirect(u32 width, u32 height,
                                      const FAtmosphereParams& params) noexcept {
     TArray<f32> out;
-    out.Resize(static_cast<usize>(width) * height * 4u);
+    out.SetNum(static_cast<usize>(width) * height * 4u);
 
     FVec3 sun_dir;
     {
@@ -1244,9 +1244,9 @@ bool CSkyAtmosphere::BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
     cl.Dispatch((width + 7) / 8, (height + 7) / 8, 1);
 
     // 4) CPU へ読み戻す (ReadTexture が Flush+WaitIdle → 上の dispatch を実行してから copy)。
-    out.Resize(static_cast<usize>(width) * height * 4u);
-    return device.ReadTexture(*m_Equirect, out.Data(),
-                              static_cast<u32>(out.Size() * sizeof(f32)));
+    out.SetNum(static_cast<usize>(width) * height * 4u);
+    return device.ReadTexture(*m_Equirect, out.GetData(),
+                              static_cast<u32>(out.Num() * sizeof(f32)));
 }
 
 void CSkyAtmosphere::Shutdown() noexcept {

@@ -175,12 +175,12 @@ bool TryPosixAtomicReplace(
 }
 
 bool AppendBytes(TArray<char>& out, const char* text, usize length) noexcept {
-    const usize old_size = out.Size();
+    const usize old_size = out.Num();
     if (length > std::numeric_limits<usize>::max() - old_size ||
-        !out.TryResize(old_size + length)) {
+        !out.TrySetNum(old_size + length)) {
         return false;
     }
-    if (length > 0u) std::memcpy(out.Data() + old_size, text, length);
+    if (length > 0u) std::memcpy(out.GetData() + old_size, text, length);
     return true;
 }
 
@@ -1103,19 +1103,19 @@ FEditorThemePersistenceResult CEditorTheme::TryLoadTheme(
         return result;
     }
     TArray<char> text;
-    if (!text.TryResize(static_cast<usize>(size.QuadPart))) {
+    if (!text.TrySetNum(static_cast<usize>(size.QuadPart))) {
         (void)::CloseHandle(file);
         result.error = EEditorThemePersistenceError::AllocationFailure;
         return result;
     }
     usize total = 0u;
-    while (total < text.Size()) {
-        const usize remaining = text.Size() - total;
+    while (total < text.Num()) {
+        const usize remaining = text.Num() - total;
         const DWORD chunk = static_cast<DWORD>(
             remaining > 0x7ffff000u ? 0x7ffff000u : remaining);
         DWORD bytes_read = 0u;
         if (!::ReadFile(
-                file, text.Data() + total, chunk, &bytes_read, nullptr) ||
+                file, text.GetData() + total, chunk, &bytes_read, nullptr) ||
             bytes_read == 0u) {
             result.os_error = ::GetLastError();
             (void)::CloseHandle(file);
@@ -1159,7 +1159,7 @@ FEditorThemePersistenceResult CEditorTheme::TryLoadTheme(
         return result;
     }
     result = TryParseThemeText(
-        text.IsEmpty() ? "" : text.Data(), text.Size());
+        text.IsEmpty() ? "" : text.GetData(), text.Num());
     result.bytes_processed = static_cast<u64>(total);
     return result;
 }
@@ -1228,7 +1228,7 @@ FEditorThemePersistenceResult CEditorTheme::TrySaveTheme(
             return result;
         }
     }
-    if (output.Size() > kMaxThemeBytes) {
+    if (output.Num() > kMaxThemeBytes) {
         result.error = EEditorThemePersistenceError::InputTooLarge;
         return result;
     }
@@ -1258,13 +1258,13 @@ FEditorThemePersistenceResult CEditorTheme::TrySaveTheme(
         return result;
     }
     usize total = 0u;
-    while (total < output.Size()) {
-        const usize remaining = output.Size() - total;
+    while (total < output.Num()) {
+        const usize remaining = output.Num() - total;
         const DWORD chunk = static_cast<DWORD>(
             remaining > 0x7ffff000u ? 0x7ffff000u : remaining);
         DWORD written = 0u;
         if (!::WriteFile(
-                temp, output.Data() + total, chunk, &written, nullptr) ||
+                temp, output.GetData() + total, chunk, &written, nullptr) ||
             written == 0u) {
             result.os_error = ::GetLastError();
             (void)::CloseHandle(temp);

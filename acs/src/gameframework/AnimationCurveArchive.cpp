@@ -300,7 +300,7 @@ FAnimationCurveArchiveResult CAnimationCurveArchive::Decode(
     }
 
     TArray<FCurveKey> staged;
-    if (!staged.TryResize(key_count)) {
+    if (!staged.TrySetNum(key_count)) {
         FAnimationCurveArchiveResult result{};
         result.error = EAnimationCurveArchiveError::AllocationFailure;
         result.required_size = required_size;
@@ -328,7 +328,7 @@ FAnimationCurveArchiveResult CAnimationCurveArchive::Decode(
     }
 
     const FAnimationCurveResult curve_result =
-        out_curve.TrySetKeys(staged.Data(), key_count,
+        out_curve.TrySetKeys(staged.GetData(), key_count,
                              pre_wrap, post_wrap);
     if (!curve_result.Succeeded()) {
         return MakeCurveFailure(curve_result, required_size);
@@ -350,7 +350,7 @@ FAnimationCurveArchiveResult CAnimationCurveArchive::SaveToFile(
 
     const u64 required_size = EncodedSize(curve);
     TArray<u8> encoded;
-    if (!encoded.TryResize(static_cast<usize>(required_size))) {
+    if (!encoded.TrySetNum(static_cast<usize>(required_size))) {
         FAnimationCurveArchiveResult result{};
         result.error = EAnimationCurveArchiveError::AllocationFailure;
         result.required_size = required_size;
@@ -358,12 +358,12 @@ FAnimationCurveArchiveResult CAnimationCurveArchive::SaveToFile(
     }
     u64 encoded_size = 0u;
     FAnimationCurveArchiveResult result =
-        Encode(curve, encoded.Data(), required_size, encoded_size);
+        Encode(curve, encoded.GetData(), required_size, encoded_size);
     if (!result.Succeeded()) return result;
 
     const TResult<void> persisted = CSaveArchive::WriteToFile(
         file_path, kFileEnvelopeVersion,
-        encoded.Data(), encoded_size);
+        encoded.GetData(), encoded_size);
     if (persisted.IsErr()) {
         return MakePersistenceFailure(
             persisted.Error(), required_size);
@@ -397,7 +397,7 @@ FAnimationCurveArchiveResult CAnimationCurveArchive::LoadFromFile(
     }
 
     TArray<u8> encoded;
-    if (!encoded.TryResize(static_cast<usize>(payload_size))) {
+    if (!encoded.TrySetNum(static_cast<usize>(payload_size))) {
         FAnimationCurveArchiveResult result{};
         result.error = EAnimationCurveArchiveError::AllocationFailure;
         result.required_size = payload_size;
@@ -405,7 +405,7 @@ FAnimationCurveArchiveResult CAnimationCurveArchive::LoadFromFile(
     }
     u64 actual_size = 0u;
     const TResult<u32> loaded = CSaveArchive::ReadFromFile(
-        file_path, encoded.Data(), payload_size,
+        file_path, encoded.GetData(), payload_size,
         kFileEnvelopeVersion, actual_size);
     if (loaded.IsErr()) {
         return MakePersistenceFailure(
@@ -417,7 +417,7 @@ FAnimationCurveArchiveResult CAnimationCurveArchive::LoadFromFile(
         result.required_size = payload_size;
         return result;
     }
-    return Decode(encoded.Data(), payload_size, out_curve);
+    return Decode(encoded.GetData(), payload_size, out_curve);
 }
 
 } // namespace acs::game

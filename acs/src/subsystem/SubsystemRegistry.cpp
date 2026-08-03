@@ -24,7 +24,7 @@ bool CSubsystemRegistry::TryRegister(const FSubsystemFactory& factory) noexcept
 bool CSubsystemRegistry::TryRegisterActive(const FSubsystemFactory& factory) noexcept
 {
     if (!TryRegister(factory)) return false;
-    for (usize Index = 0u; Index < m_Entries.Size(); ++Index) {
+    for (usize Index = 0u; Index < m_Entries.Num(); ++Index) {
         if (m_Entries[Index].sources[0].factory.kind == factory.kind) {
             return SameImplementation(m_Entries[Index].sources[0].factory, factory);
         }
@@ -44,7 +44,7 @@ bool CSubsystemRegistry::Unregister(const FSubsystemFactory& factory) noexcept
 
 u32 CSubsystemRegistry::Count() const noexcept
 {
-    return static_cast<u32>(m_Entries.Size());
+    return static_cast<u32>(m_Entries.Num());
 }
 
 const FSubsystemFactory& CSubsystemRegistry::At(u32 index) const noexcept
@@ -55,9 +55,9 @@ const FSubsystemFactory& CSubsystemRegistry::At(u32 index) const noexcept
 bool CSubsystemRegistry::TrySnapshot(TArray<FSubsystemFactory>& output) const noexcept
 {
     TArray<FSubsystemFactory> Staged(*output.GetAllocator());
-    if (!Staged.TryReserve(m_Entries.Size())) return false;
-    for (usize Index = 0u; Index < m_Entries.Size(); ++Index) {
-        if (!Staged.TryPushBack(m_Entries[Index].sources[0].factory)) return false;
+    if (!Staged.TryReserve(m_Entries.Num())) return false;
+    for (usize Index = 0u; Index < m_Entries.Num(); ++Index) {
+        if (!Staged.TryAdd(m_Entries[Index].sources[0].factory)) return false;
     }
     output = Move(Staged);
     return true;
@@ -85,7 +85,7 @@ bool CSubsystemRegistry::RegisterSource(
     const FSubsystemFactory& factory, const void* token) noexcept
 {
     if (!IsValidSubsystemFactory(factory)) return false;
-    for (usize EntryIndex = 0u; EntryIndex < m_Entries.Size(); ++EntryIndex) {
+    for (usize EntryIndex = 0u; EntryIndex < m_Entries.Num(); ++EntryIndex) {
         FFactoryEntry& Entry = m_Entries[EntryIndex];
         if (Entry.sources[0].factory.kind != factory.kind) continue;
 
@@ -105,13 +105,13 @@ bool CSubsystemRegistry::RegisterSource(
     FFactoryEntry Entry{};
     Entry.sources[0] = FFactorySource{factory, token};
     Entry.source_count = 1u;
-    return m_Entries.TryPushBack(Entry);
+    return m_Entries.TryAdd(Entry);
 }
 
 bool CSubsystemRegistry::UnregisterSource(
     const FSubsystemFactory& factory, const void* token) noexcept
 {
-    for (usize EntryIndex = 0u; EntryIndex < m_Entries.Size(); ++EntryIndex) {
+    for (usize EntryIndex = 0u; EntryIndex < m_Entries.Num(); ++EntryIndex) {
         FFactoryEntry& Entry = m_Entries[EntryIndex];
         if (Entry.sources[0].factory.kind != factory.kind) continue;
 
@@ -136,10 +136,10 @@ bool CSubsystemRegistry::UnregisterSource(
         --Entry.source_count;
         if (Entry.source_count != 0u) return true;
 
-        for (usize Remaining = EntryIndex; Remaining + 1u < m_Entries.Size(); ++Remaining) {
+        for (usize Remaining = EntryIndex; Remaining + 1u < m_Entries.Num(); ++Remaining) {
             m_Entries[Remaining] = m_Entries[Remaining + 1u];
         }
-        m_Entries.PopBack();
+        m_Entries.Pop();
         return true;
     }
     return false;

@@ -264,7 +264,7 @@ void DestroySlot(CXAudio2Backend::FImpl& Implementation, FVoiceSlot& Slot) noexc
     {
         Implementation.ResidentBufferBytes = 0u;
     }
-    Slot.Buffer.ReleaseStorage();
+    Slot.Buffer.Empty();
     Slot.Handle = kInvalidAudioVoice;
     Slot.ReservedBufferBytes = 0u;
     Slot.bActive = false;
@@ -363,28 +363,28 @@ FAudioVoiceHandle PlayInternal(CXAudio2Backend::FImpl& Implementation,
     }
 
     const usize ByteCount = static_cast<usize>(Clip.pcm_size);
-    if (!Slot.Buffer.TryResize(ByteCount))
+    if (!Slot.Buffer.TrySetNum(ByteCount))
     {
         SourceVoice->DestroyVoice();
-        Slot.Buffer.ReleaseStorage();
+        Slot.Buffer.Empty();
         ACS_LOG_WARN("CXAudio2Backend::Play: PCM copy allocation failed (bytes=%llu)",
                      static_cast<unsigned long long>(Clip.pcm_size));
         return kInvalidAudioVoice;
     }
-    const u64 ReservedBufferBytes = static_cast<u64>(Slot.Buffer.Capacity());
+    const u64 ReservedBufferBytes = static_cast<u64>(Slot.Buffer.Max());
     if (ReservedBufferBytes >
         kXAudio2BackendResidentBufferBudgetBytes - Implementation.ResidentBufferBytes)
     {
         SourceVoice->DestroyVoice();
-        Slot.Buffer.ReleaseStorage();
+        Slot.Buffer.Empty();
         ACS_LOG_WARN("CXAudio2Backend::Play: allocated PCM capacity exceeds resident budget");
         return kInvalidAudioVoice;
     }
-    MemCopy(Slot.Buffer.Data(), Clip.pcm_data, ByteCount);
+    MemCopy(Slot.Buffer.GetData(), Clip.pcm_data, ByteCount);
 
     XAUDIO2_BUFFER Buffer{};
     Buffer.AudioBytes = static_cast<UINT32>(ByteCount);
-    Buffer.pAudioData = Slot.Buffer.Data();
+    Buffer.pAudioData = Slot.Buffer.GetData();
     Buffer.Flags = XAUDIO2_END_OF_STREAM;
     Buffer.LoopCount = bLoop ? XAUDIO2_LOOP_INFINITE : 0u;
 
@@ -392,7 +392,7 @@ FAudioVoiceHandle PlayInternal(CXAudio2Backend::FImpl& Implementation,
     if (FAILED(Result))
     {
         SourceVoice->DestroyVoice();
-        Slot.Buffer.ReleaseStorage();
+        Slot.Buffer.Empty();
         ACS_LOG_WARN("CXAudio2Backend::Play: SubmitSourceBuffer failed hr=0x%08x",
                      static_cast<u32>(Result));
         return kInvalidAudioVoice;
@@ -404,7 +404,7 @@ FAudioVoiceHandle PlayInternal(CXAudio2Backend::FImpl& Implementation,
     if (FAILED(Result))
     {
         SourceVoice->DestroyVoice();
-        Slot.Buffer.ReleaseStorage();
+        Slot.Buffer.Empty();
         ACS_LOG_WARN("CXAudio2Backend::Play: Start failed hr=0x%08x",
                      static_cast<u32>(Result));
         return kInvalidAudioVoice;
@@ -494,7 +494,7 @@ TResult<void> CXAudio2Backend::Init(u32 MaxVoices) noexcept
                           static_cast<u32>(Result));
     }
 
-    if (!m_Impl->Slots.TryResize(MaxVoices))
+    if (!m_Impl->Slots.TrySetNum(MaxVoices))
     {
         ShutdownUnlocked();
         return ACS_ERR(Memory, kSubAudioOutOfMemory,
@@ -523,7 +523,7 @@ void CXAudio2Backend::ShutdownUnlocked() noexcept
     {
         FScopedLock StateLock(Implementation->StateMutex);
         StopAllVoicesLocked(*Implementation);
-        Implementation->Slots.ReleaseStorage();
+        Implementation->Slots.Empty();
         Implementation->MaxVoices = 0u;
         Implementation->ResidentBufferBytes = 0u;
 

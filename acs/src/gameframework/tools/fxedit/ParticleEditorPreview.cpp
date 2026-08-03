@@ -36,7 +36,7 @@ inline bool HasPreview(FEmitterHandle h) noexcept {
 /** 60 frame 履歴を事前確保し、stats と handle をリセットする。 */
 void CParticleEditorPreview::Init() noexcept {
     // 60 frame 履歴を事前確保 (毎 Tick の reallocation 回避)。
-    m_FpsHistory.Clear();
+    m_FpsHistory.Reset();
     m_FpsHistory.Reserve(kFpsHistoryCap);
     m_FpsIndex  = 0u;
     m_bFpsFilled = false;
@@ -54,7 +54,7 @@ void CParticleEditorPreview::Shutdown() noexcept {
     // 明示的に止めたい呼出し側は Shutdown 前に StopAll(system) を呼ぶこと。
     m_PreviewHandle    = {};
     m_bHasDefSnapshot  = false;
-    m_FpsHistory.Clear();
+    m_FpsHistory.Reset();
     m_FpsIndex         = 0u;
     m_bFpsFilled        = false;
     m_LastActiveCount = 0u;
@@ -82,7 +82,7 @@ void CParticleEditorPreview::Tick(f32 dt, CParticleEffectSystem& system) noexcep
     if (dt <= 0.0f) return;
     const f32 fps = 1.0f / dt;
     if (!m_bFpsFilled) {
-        m_FpsHistory.PushBack(fps);
+        m_FpsHistory.Add(fps);
         ++m_FpsIndex;
         if (m_FpsIndex >= kFpsHistoryCap) {
             m_FpsIndex  = 0u;
@@ -283,7 +283,7 @@ void CParticleEditorPreview::SetAutoEmit(bool b) noexcept {
  * @return 平均 fps、履歴が空なら 0.0f。
  */
 f32 CParticleEditorPreview::GraphFps() const noexcept {
-    const usize n = m_FpsHistory.Size();
+    const usize n = m_FpsHistory.Num();
     if (n == 0u) return 0.0f;
     f32 sum = 0.0f;
     for (usize i = 0; i < n; ++i) sum += m_FpsHistory[i];

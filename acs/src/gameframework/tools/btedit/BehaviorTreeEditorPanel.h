@@ -415,7 +415,7 @@ public:
      *
      * @return メタミラー内の node 数。
      */
-    u32 NodeCount() const noexcept { return static_cast<u32>(m_Nodes.Size()); }
+    u32 NodeCount() const noexcept { return static_cast<u32>(m_Nodes.Num()); }
 
     /**
      * 指定 id の node の last_status を返す。

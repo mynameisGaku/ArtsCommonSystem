@@ -54,7 +54,7 @@ TResult<void> CTransientUploadArena::Init(IRhiDevice& device, usize allocation_s
 /** 全ページを解放して未初期化状態へ戻す。 */
 void CTransientUploadArena::Reset() noexcept
 {
-    m_Pages.ReleaseStorage();
+    m_Pages.Empty();
     m_Device = nullptr;
     m_AllocationSize = 0u;
     m_Stride = 0u;
@@ -109,12 +109,12 @@ IRhiBuffer* CTransientUploadArena::Get(u32 allocation_index) noexcept
     if (allocation_index >= m_Capacity || m_Pages.IsEmpty()) return nullptr;
     /** 検索を始めるページ番号。 */
     u32 page_index = allocation_index >= m_Pages[m_ActivePage].first_allocation ? m_ActivePage : 0u;
-    while (page_index < m_Pages.Size()) {
+    while (page_index < m_Pages.Num()) {
         /** 検査中の共有ページ。 */
         FPage& page = m_Pages[page_index];
         /** ページ内の論理slice番号。 */
         const u32 local_index = allocation_index - page.first_allocation;
-        if (local_index < page.slices.Size()) {
+        if (local_index < page.slices.Num()) {
             m_ActivePage = page_index;
             return &page.slices[local_index];
         }
@@ -127,12 +127,12 @@ IRhiBuffer* CTransientUploadArena::Get(u32 allocation_index) noexcept
 IRhiBuffer* CTransientUploadArena::Get(u32 allocation_index) const noexcept
 {
     if (allocation_index >= m_Capacity) return nullptr;
-    for (usize page_index = 0u; page_index < m_Pages.Size(); ++page_index) {
+    for (usize page_index = 0u; page_index < m_Pages.Num(); ++page_index) {
         /** 検査中の共有ページ。 */
         const FPage& page = m_Pages[page_index];
         /** ページ内の論理slice番号。 */
         const u32 local_index = allocation_index - page.first_allocation;
-        if (local_index < page.slices.Size()) return const_cast<FSlice*>(&page.slices[local_index]);
+        if (local_index < page.slices.Num()) return const_cast<FSlice*>(&page.slices[local_index]);
     }
     return nullptr;
 }
@@ -160,11 +160,11 @@ bool CTransientUploadArena::AddPage(u32 allocation_count) noexcept
     FPage page{};
     page.buffer = Move(created.Value());
     page.first_allocation = m_Capacity;
-    if (!page.slices.TryResize(allocation_count)) return false;
+    if (!page.slices.TrySetNum(allocation_count)) return false;
     for (u32 index = 0u; index < allocation_count; ++index) {
         page.slices[index].Configure(*page.buffer, m_Stride * static_cast<usize>(index), m_AllocationSize);
     }
-    if (!m_Pages.TryPushBack(Move(page))) return false;
+    if (!m_Pages.TryAdd(Move(page))) return false;
     m_Capacity += allocation_count;
     m_ReservedBytes += page_bytes;
     return true;

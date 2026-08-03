@@ -124,7 +124,7 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/AnimationCurveArchive.h",
       summary: "<t>FAnimationCurve</t> を固定幅 little-endian wire record として保存・復元する bounded codec。CRC、version、exact size、全 key と wrap mode を検証し、失敗時は出力 buffer と復元先曲線を変更しない。",
       when: "曲線をエディタデータや save file に永続化し、破損・旧 version・過大入力を明示的に診断したい時。",
-      sample: "u64 size = CAnimationCurveArchive::EncodedSize(curve);\nTArray&lt;u8&gt; bytes;\nbytes.TryResize(static_cast&lt;usize&gt;(size));\nu64 written = 0;\nauto saved = CAnimationCurveArchive::Encode(curve, bytes.Data(), size, written);\nFAnimationCurve restored;\nauto loaded = CAnimationCurveArchive::Decode(bytes.Data(), written, restored);",
+      sample: "u64 size = CAnimationCurveArchive::EncodedSize(curve);\nTArray&lt;u8&gt; bytes;\nbytes.TrySetNum(static_cast&lt;usize&gt;(size));\nu64 written = 0;\nauto saved = CAnimationCurveArchive::Encode(curve, bytes.Data(), size, written);\nFAnimationCurve restored;\nauto loaded = CAnimationCurveArchive::Decode(bytes.Data(), written, restored);",
       members: [
         { sig: "u64 EncodedSize(const FAnimationCurve&amp;) noexcept", desc: "正準 wire record の必要 byte 数を返す。" },
         { sig: "FAnimationCurveArchiveResult Encode(const FAnimationCurve&amp;, void*, u64 capacity, u64&amp; out_size) noexcept", desc: "全入力を検証後に caller buffer へ正準 encoding する。容量不足でも必要量を返し、buffer は変更しない。" },

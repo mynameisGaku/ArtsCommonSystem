@@ -906,7 +906,7 @@ void InvalidateTemporalRenderHistories(FEditorHost& h) noexcept {
 
 /** editor_id からノードを引く (無ければ nullptr)。 */
 AEditorNode* FindNode(FEditorHost& h, int id) noexcept {
-    for (u32 i = 0; i < h.nodes.Size(); ++i) if (h.nodes[i]->editor_id == id) return h.nodes[i];
+    for (u32 i = 0; i < h.nodes.Num(); ++i) if (h.nodes[i]->editor_id == id) return h.nodes[i];
     return nullptr;
 }
 
@@ -914,52 +914,52 @@ AEditorNode* FindNode(FEditorHost& h, int id) noexcept {
 
 /** id が選択集合に含まれるか。 */
 bool SelContains(const FEditorHost& h, int id) noexcept {
-    for (u32 i = 0; i < h.selection.Size(); ++i) if (h.selection[i] == id) return true;
+    for (u32 i = 0; i < h.selection.Num(); ++i) if (h.selection[i] == id) return true;
     return false;
 }
 
 /** 選択を空にする。 */
 void SelClear(FEditorHost& h) noexcept {
-    h.selection.Clear();
+    h.selection.Reset();
     h.selected = -1;
 }
 
 /** 単一選択にする (集合を {id} に置換、primary=id)。id 不正/未知なら選択解除。 */
 void SelSet(FEditorHost& h, int id) noexcept {
-    h.selection.Clear();
-    if (id >= 0 && FindNode(h, id) != nullptr) { h.selection.PushBack(id); h.selected = id; }
+    h.selection.Reset();
+    if (id >= 0 && FindNode(h, id) != nullptr) { h.selection.Add(id); h.selected = id; }
     else h.selected = -1;
 }
 
 /** id の選択を反転する (Ctrl+click)。追加なら primary になり、primary を外したら別の一員へ移す。 */
 void SelToggle(FEditorHost& h, int id) noexcept {
     if (id < 0 || FindNode(h, id) == nullptr) return;
-    for (u32 i = 0; i < h.selection.Size(); ++i) {
+    for (u32 i = 0; i < h.selection.Num(); ++i) {
         if (h.selection[i] == id) {                       // 既に選択 → 外す
             h.selection.RemoveAtSwap(i);
             if (h.selected == id)
-                h.selected = (h.selection.Size() > 0) ? h.selection[h.selection.Size() - 1] : -1;
+                h.selected = (h.selection.Num() > 0) ? h.selection[h.selection.Num() - 1] : -1;
             return;
         }
     }
-    h.selection.PushBack(id);                              // 未選択 → 追加して primary に
+    h.selection.Add(id);                              // 未選択 → 追加して primary に
     h.selected = id;
 }
 
 /** 構造変更後、選択集合から消えた id を取り除き primary を整える。 */
 void SelPrune(FEditorHost& h) noexcept {
-    for (u32 i = 0; i < h.selection.Size();) {
+    for (u32 i = 0; i < h.selection.Num();) {
         if (FindNode(h, h.selection[i]) == nullptr) h.selection.RemoveAtSwap(i);
         else ++i;
     }
     if (h.selected >= 0 && !SelContains(h, h.selected))
-        h.selected = (h.selection.Size() > 0) ? h.selection[h.selection.Size() - 1] : -1;
-    if (h.selection.Size() == 0) h.selected = -1;
+        h.selected = (h.selection.Num() > 0) ? h.selection[h.selection.Num() - 1] : -1;
+    if (h.selection.Num() == 0) h.selected = -1;
 }
 
 /** id がリストに含まれるか (TArray<int> 版の線形探索)。 */
 bool IdInList(const TArray<int>& ids, int id) noexcept {
-    for (u32 i = 0; i < ids.Size(); ++i) if (ids[i] == id) return true;
+    for (u32 i = 0; i < ids.Num(); ++i) if (ids[i] == id) return true;
     return false;
 }
 
@@ -1118,7 +1118,7 @@ AEditorNode* CreateNode(FEditorHost& h, int id, int parent_id, const char* nm,
     game::ANode* parent = (parent_id >= 0) ? static_cast<game::ANode*>(FindNode(h, parent_id)) : nullptr;
     if (parent == nullptr) parent = h.root.Get();
     parent->AddChild(Move(child));
-    h.nodes.PushBack(p);
+    h.nodes.Add(p);
     if (id >= h.next_id) h.next_id = id + 1;   // 明示 id でも採番カウンタを進める
     return p;
 }
@@ -1244,7 +1244,7 @@ AEditorNode* CloneSubtree(FEditorHost& h, AEditorNode* src, int parent_id, bool 
     AEditorNode* clone = CreateNode(h, h.next_id, parent_id, nm,
                                     t.position.x, t.position.y, t.rotation, t.scale.x, t.scale.y,
                                     src->base, src->color);
-    if (oldIds != nullptr && newIds != nullptr) { oldIds->PushBack(src->editor_id); newIds->PushBack(clone->editor_id); }
+    if (oldIds != nullptr && newIds != nullptr) { oldIds->Add(src->editor_id); newIds->Add(clone->editor_id); }
     clone->SetVisible(src->IsVisible());           // 表示フラグも複製
     clone->SetEnabled(src->IsEnabled());
     clone->SetDrawLayer(src->DrawLayer());
@@ -1272,10 +1272,10 @@ AEditorNode* CloneSubtree(FEditorHost& h, AEditorNode* src, int parent_id, bool 
 /** 複製した subtree 内の ObjectRef プロパティ値を old→new id で再マップする (subtree 内参照のみ)。 */
 void RemapClonedObjectRefs(FEditorHost& h, const TArray<int>& oldIds, const TArray<int>& newIds) noexcept {
     auto Map = [&](int o) -> int {
-        for (u32 i = 0; i < oldIds.Size(); ++i) if (oldIds[i] == o) return newIds[i];
+        for (u32 i = 0; i < oldIds.Num(); ++i) if (oldIds[i] == o) return newIds[i];
         return -1;
     };
-    for (u32 n = 0; n < newIds.Size(); ++n) {
+    for (u32 n = 0; n < newIds.Num(); ++n) {
         AEditorNode* node = FindNode(h, newIds[n]);
         if (node == nullptr) continue;
         for (u32 slot = 0; slot < node->component_count; ++slot) {
@@ -1319,7 +1319,7 @@ private:
 
 /** Release only the 2D graph. The caller must own a retirement scope. */
 void ClearScene2DResourcesRetired(FEditorHost& h) noexcept {
-    h.nodes.Clear();                           // 先にレジストリを空に (dangling 回避)
+    h.nodes.Reset();                           // 先にレジストリを空に (dangling 回避)
     h.root     = NewObject<game::ANode>();  // 旧ツリーは再代入で解放
     h.next_id  = 1;
     SelClear(h);
@@ -1341,37 +1341,37 @@ void ClearScene3DResourcesRetired(FEditorHost& h) noexcept {
     h.scene3d.Clear();
     // RenderHandle pointers inside the retired nodes point into this array.
     // Both must be destroyed only after the outer owner-thread WaitIdle.
-    h.sprite_textures.Clear();
+    h.sprite_textures.Reset();
     h.scene3d.Update(0.0f);
     h.sel3d = -1;
-    h.sel3d_multi.Clear();
+    h.sel3d_multi.Reset();
     h.clip3d = -1;
     h.next_id3d = 1;
     h.scene3d_seeded = true;
-    h.poly3d_pts.Clear();
+    h.poly3d_pts.Reset();
     h.giz3d_handle = 0;
     h.water3d_draw_count = 0u;
-    h.scene_mesh_nodes.Clear();
-    h.camera_resolve_nodes.Clear();
-    h.camera_node_ids_scratch.Clear();
-    h.scene_mesh_vertices.Clear();
-    h.scene_mesh_key.Clear();
-    h.scene_mesh_key_scratch.Clear();
-    h.scene_mesh_vertex_offset.Clear();
-    h.scene_mesh_vertex_count.Clear();
-    h.scene_mesh_local_center.Clear();
-    h.scene_mesh_local_radius.Clear();
-    h.scene_mesh_visible.Clear();
+    h.scene_mesh_nodes.Reset();
+    h.camera_resolve_nodes.Reset();
+    h.camera_node_ids_scratch.Reset();
+    h.scene_mesh_vertices.Reset();
+    h.scene_mesh_key.Reset();
+    h.scene_mesh_key_scratch.Reset();
+    h.scene_mesh_vertex_offset.Reset();
+    h.scene_mesh_vertex_count.Reset();
+    h.scene_mesh_local_center.Reset();
+    h.scene_mesh_local_radius.Reset();
+    h.scene_mesh_visible.Reset();
     h.scene_mesh_hierarchy_visibility.Clear();
     h.scene_mesh_hierarchy_batch_ready = false;
     h.scene_mesh_world_batch.Clear();
     h.scene_mesh_world_batch_ready = false;
-    h.frustum_centers_scratch.Clear();
-    h.frustum_radii_scratch.Clear();
-    h.frustum_scales_scratch.Clear();
-    h.frustum_padding_scratch.Clear();
-    h.frustum_node_indices_scratch.Clear();
-    h.frustum_decisions_scratch.Clear();
+    h.frustum_centers_scratch.Reset();
+    h.frustum_radii_scratch.Reset();
+    h.frustum_scales_scratch.Reset();
+    h.frustum_padding_scratch.Reset();
+    h.frustum_node_indices_scratch.Reset();
+    h.frustum_decisions_scratch.Reset();
     h.scene_mesh_cache_valid = false;
     h.last_render_camera_node_id = -2;
     h.game_camera_preview_node_id = -1;
@@ -1392,14 +1392,14 @@ void ClearScene3D(FEditorHost& h) noexcept {
 void CollectNodes(FEditorHost& h, game::ANode* node) noexcept {
     for (u32 i = 0; i < node->ChildCount(); ++i) {
         game::ANode* c = node->Child(i);
-        h.nodes.PushBack(static_cast<AEditorNode*>(c));
+        h.nodes.Add(static_cast<AEditorNode*>(c));
         CollectNodes(h, c);
     }
 }
 
 /** 構造変更 (削除 / 付け替え) の後にツリーから平坦レジストリを作り直す。 */
 void RebuildRegistry(FEditorHost& h) noexcept {
-    h.nodes.Clear();
+    h.nodes.Reset();
     if (h.root.Get() != nullptr) CollectNodes(h, h.root.Get());
     // 構造変更で消えた選択を集合から取り除き、primary を整える。
     SelPrune(h);
@@ -1442,10 +1442,10 @@ const char* SerializeScene(FEditorHost& h) noexcept {
     char* buf = h.scene_text;
     const int cap = static_cast<int>(sizeof(h.scene_text));
     int cur = std::snprintf(buf, static_cast<size_t>(cap), "ACSCENE v1\n%u\n",
-                            static_cast<u32>(h.nodes.Size()));
+                            static_cast<u32>(h.nodes.Num()));
     cur = EmitNodeTreeDFS(buf, cur, cap, h, h.root.Get());
     // コンポーネント記述子 (ノードごと COMP <editor_id> <type_name>)。
-    for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i) {
+    for (u32 i = 0; i < h.nodes.Num() && cur < cap; ++i) {
         const AEditorNode* n = h.nodes[i];
         for (u32 cmp = 0; cmp < n->component_count && cur < cap; ++cmp) {
             const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(n->components[cmp]);
@@ -1455,11 +1455,11 @@ const char* SerializeScene(FEditorHost& h) noexcept {
         }
     }
     // コンポーネントの編集プロパティ (ノードごと CPROP <id> <slot> <prop> <x y z w>)。
-    for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i)
+    for (u32 i = 0; i < h.nodes.Num() && cur < cap; ++i)
         cur = EmitCompProps(buf, cur, cap, h.nodes[i]);
     // ノードフラグ (非既定のみ): NFLG <id> <visible> <enabled> <sortLayer>。
     // 既定 (visible=1,enabled=1,layer=0) は省略 → 後方互換 (旧ファイルは全既定扱い)。
-    for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i) {
+    for (u32 i = 0; i < h.nodes.Num() && cur < cap; ++i) {
         const AEditorNode* n = h.nodes[i];
         if (!n->IsVisible() || !n->IsEnabled() || n->DrawLayer() != 0) {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
@@ -1470,7 +1470,7 @@ const char* SerializeScene(FEditorHost& h) noexcept {
         }
     }
     // スプライト画像パス (設定済みのみ): SPRT <id> <utf8_path> (path は行末まで)。
-    for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i) {
+    for (u32 i = 0; i < h.nodes.Num() && cur < cap; ++i) {
         const AEditorNode* n = h.nodes[i];
         if (n->sprite_path[0] != '\0') {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
@@ -1480,7 +1480,7 @@ const char* SerializeScene(FEditorHost& h) noexcept {
         }
     }
     // プレハブリンク (インスタンスのみ): PFAB <id> <utf8_path>。
-    for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i) {
+    for (u32 i = 0; i < h.nodes.Num() && cur < cap; ++i) {
         const AEditorNode* n = h.nodes[i];
         if (n->prefab_src[0] != '\0') {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
@@ -1490,7 +1490,7 @@ const char* SerializeScene(FEditorHost& h) noexcept {
         }
     }
     // 使用マテリアル (.acsmat パス): MAT <id> <utf8_path> (path は行末まで)。
-    for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i) {
+    for (u32 i = 0; i < h.nodes.Num() && cur < cap; ++i) {
         const AEditorNode* n = h.nodes[i];
         if (n->material_path[0] != '\0') {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
@@ -1500,16 +1500,16 @@ const char* SerializeScene(FEditorHost& h) noexcept {
         }
     }
     // カスタムポリゴン: POLY <id> <count> <x0> <y0> ...
-    for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i)
+    for (u32 i = 0; i < h.nodes.Num() && cur < cap; ++i)
         cur = EmitNodePoly(buf, cur, cap, h.nodes[i]);
     // 選択集合 (undo/redo/open で選択を保つ): SEL <primary> <count> <id...>
     if (cur < cap) {
         int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
-                              "SEL %d %u", h.selected, static_cast<u32>(h.selection.Size()));
+                              "SEL %d %u", h.selected, static_cast<u32>(h.selection.Num()));
         if (w > 0 && w < cap - cur) {
             cur += w;
             bool ok = true;
-            for (u32 i = 0; i < h.selection.Size() && ok; ++i) {
+            for (u32 i = 0; i < h.selection.Num() && ok; ++i) {
                 w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur), " %d", h.selection[i]);
                 if (w > 0 && w < cap - cur) cur += w; else ok = false;
             }
@@ -1658,7 +1658,7 @@ struct FValidatedEditor3DNode {
 int FindValidatedEditor3DNode(
     const TArray<FValidatedEditor3DNode>& nodes, int id) noexcept {
     u32 first = 0u;
-    u32 count = nodes.Size();
+    u32 count = nodes.Num();
     while (count > 0u) {
         const u32 step = count / 2u;
         const u32 index = first + step;
@@ -1669,7 +1669,7 @@ int FindValidatedEditor3DNode(
             count = step;
         }
     }
-    return first < nodes.Size() && nodes[first].id == id
+    return first < nodes.Num() && nodes[first].id == id
         ? static_cast<int>(first)
         : -1;
 }
@@ -1760,13 +1760,13 @@ bool ValidateEditorScene2DText(const char* text) noexcept {
                 return false;
             }
             u32 count = 0u;
-            for (u32 index = 0u; index < components.Size(); ++index) {
+            for (u32 index = 0u; index < components.Num(); ++index) {
                 if (components[index].node_id != id) continue;
                 if (components[index].type_id == descriptor->id) return false;
                 ++count;
             }
             if (count >= AEditorNode::kMaxComponents) return false;
-            components.PushBack(FValidatedEditorComponent{id, descriptor->id});
+            components.Add(FValidatedEditorComponent{id, descriptor->id});
             continue;
         }
         if (IsEditorTextDirective(line, "CPROP")) {
@@ -1783,7 +1783,7 @@ bool ValidateEditorScene2DText(const char* text) noexcept {
             }
             u32 component_slot = 0u;
             const FValidatedEditorComponent* target_component = nullptr;
-            for (u32 index = 0u; index < components.Size(); ++index) {
+            for (u32 index = 0u; index < components.Num(); ++index) {
                 if (components[index].node_id != id) continue;
                 if (component_slot == slot) {
                     target_component = &components[index];
@@ -1846,16 +1846,16 @@ bool ValidateEditorScene2DText(const char* text) noexcept {
                     staging.FindBySerialId(selected) == nullptr) {
                     return false;
                 }
-                for (u32 prior = 0; prior < selected_ids.Size(); ++prior) {
+                for (u32 prior = 0; prior < selected_ids.Num(); ++prior) {
                     if (selected_ids[prior] == selected) return false;
                 }
-                selected_ids.PushBack(selected);
+                selected_ids.Add(selected);
             }
             if (!EditorTextOnlyWhitespace(values)) return false;
             if (primary >= 0) {
                 if (staging.FindBySerialId(primary) == nullptr) return false;
                 bool primary_selected = false;
-                for (u32 index = 0; index < selected_ids.Size(); ++index) {
+                for (u32 index = 0; index < selected_ids.Num(); ++index) {
                     if (selected_ids[index] == primary) {
                         primary_selected = true;
                         break;
@@ -1926,12 +1926,12 @@ int LoadSceneTextValidated(FEditorHost& h, const char* text) noexcept {
         const char* nm = line + consumed;
         while (*nm == ' ') ++nm;   // 名前先頭の空白を飛ばす
         CreateNode(h, id, parent, nm, x, y, rot, sx, sy, base, FVec4{ r, g, b, a });
-        load_id.PushBack(id); load_parent.PushBack(parent);
+        load_id.Add(id); load_parent.Add(parent);
         ++created;
     }
     // 親付け fixup: 親が後から来て root 直下になった子を正しい親へ付け替える (Reparent は Local 保持)。
     bool reparented = false;
-    for (u32 i = 0; i < load_id.Size(); ++i) {
+    for (u32 i = 0; i < load_id.Num(); ++i) {
         if (load_parent[i] < 0) continue;
         AEditorNode* node = FindNode(h, load_id[i]);
         AEditorNode* par  = FindNode(h, load_parent[i]);
@@ -1960,7 +1960,7 @@ int LoadSceneTextValidated(FEditorHost& h, const char* text) noexcept {
                 const char* q = line + consumed;
                 for (int k = 0; k < cnt; ++k) {
                     int sid = 0, c2 = 0;
-                    if (std::sscanf(q, "%d%n", &sid, &c2) >= 1) { sel_ids.PushBack(sid); q += c2; }
+                    if (std::sscanf(q, "%d%n", &sid, &c2) >= 1) { sel_ids.Add(sid); q += c2; }
                     else break;
                 }
             }
@@ -2054,12 +2054,12 @@ int LoadSceneTextValidated(FEditorHost& h, const char* text) noexcept {
     }
     // 選択を復元する。SEL があれば集合を再構築 (生存 id のみ)、無ければ先頭ノードを単一選択。
     if (sel_present) {
-        h.selection.Clear();
-        for (u32 i = 0; i < sel_ids.Size(); ++i)
-            if (FindNode(h, sel_ids[i]) != nullptr) h.selection.PushBack(sel_ids[i]);
+        h.selection.Reset();
+        for (u32 i = 0; i < sel_ids.Num(); ++i)
+            if (FindNode(h, sel_ids[i]) != nullptr) h.selection.Add(sel_ids[i]);
         h.selected = (FindNode(h, sel_primary) != nullptr && SelContains(h, sel_primary))
                      ? sel_primary
-                     : (h.selection.Size() > 0 ? h.selection[h.selection.Size() - 1] : -1);
+                     : (h.selection.Num() > 0 ? h.selection[h.selection.Num() - 1] : -1);
     } else if (created > 0) {
         SelSet(h, h.nodes[0]->editor_id);
     }
@@ -2076,7 +2076,7 @@ int LoadSceneText(FEditorHost& h, const char* text) noexcept {
 
 /** node とその子孫を DFS で out へ集める (親が子より先)。 */
 void CollectSubtree(AEditorNode* n, TArray<AEditorNode*>& out) noexcept {
-    out.PushBack(n);
+    out.Add(n);
     for (u32 i = 0; i < n->ChildCount(); ++i)
         CollectSubtree(static_cast<AEditorNode*>(n->Child(i)), out);
 }
@@ -2087,8 +2087,8 @@ const char* SerializeSubtree(FEditorHost& h, AEditorNode* root) noexcept {
     CollectSubtree(root, sub);
     char* buf = h.scene_text;
     const int cap = static_cast<int>(sizeof(h.scene_text));
-    int cur = std::snprintf(buf, static_cast<size_t>(cap), "ACSCENE v1\n%u\n", static_cast<u32>(sub.Size()));
-    for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {
+    int cur = std::snprintf(buf, static_cast<size_t>(cap), "ACSCENE v1\n%u\n", static_cast<u32>(sub.Num()));
+    for (u32 i = 0; i < sub.Num() && cur < cap; ++i) {
         const AEditorNode* n = sub[i];
         const game::FTransform2D t = n->Local2D();
         const int pid = (n == root) ? -1 : ParentIdOf(h, n);
@@ -2099,7 +2099,7 @@ const char* SerializeSubtree(FEditorHost& h, AEditorNode* root) noexcept {
         if (w < 0 || w >= cap - cur) { buf[cap - 1] = '\0'; return buf; }
         cur += w;
     }
-    for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {
+    for (u32 i = 0; i < sub.Num() && cur < cap; ++i) {
         const AEditorNode* n = sub[i];
         for (u32 c = 0; c < n->component_count && cur < cap; ++c) {
             const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(n->components[c]);
@@ -2110,10 +2110,10 @@ const char* SerializeSubtree(FEditorHost& h, AEditorNode* root) noexcept {
             }
         }
     }
-    for (u32 i = 0; i < sub.Size() && cur < cap; ++i)
+    for (u32 i = 0; i < sub.Num() && cur < cap; ++i)
         cur = EmitCompProps(buf, cur, cap, sub[i]);
     // ノードフラグ (非既定のみ)。
-    for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {
+    for (u32 i = 0; i < sub.Num() && cur < cap; ++i) {
         const AEditorNode* n = sub[i];
         if (!n->IsVisible() || !n->IsEnabled() || n->DrawLayer() != 0) {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur), "NFLG %d %d %d %d\n",
@@ -2123,7 +2123,7 @@ const char* SerializeSubtree(FEditorHost& h, AEditorNode* root) noexcept {
         }
     }
     // スプライト画像パス。
-    for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {
+    for (u32 i = 0; i < sub.Num() && cur < cap; ++i) {
         const AEditorNode* n = sub[i];
         if (n->sprite_path[0] != '\0') {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
@@ -2132,7 +2132,7 @@ const char* SerializeSubtree(FEditorHost& h, AEditorNode* root) noexcept {
             cur += w;
         }
     }
-    for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {   // プレハブリンク (copy/paste で維持)
+    for (u32 i = 0; i < sub.Num() && cur < cap; ++i) {   // プレハブリンク (copy/paste で維持)
         const AEditorNode* n = sub[i];
         if (n->prefab_src[0] != '\0') {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
@@ -2141,7 +2141,7 @@ const char* SerializeSubtree(FEditorHost& h, AEditorNode* root) noexcept {
             cur += w;
         }
     }
-    for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {   // 使用マテリアル
+    for (u32 i = 0; i < sub.Num() && cur < cap; ++i) {   // 使用マテリアル
         const AEditorNode* n = sub[i];
         if (n->material_path[0] != '\0') {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
@@ -2150,7 +2150,7 @@ const char* SerializeSubtree(FEditorHost& h, AEditorNode* root) noexcept {
             cur += w;
         }
     }
-    for (u32 i = 0; i < sub.Size() && cur < cap; ++i)   // カスタムポリゴン
+    for (u32 i = 0; i < sub.Num() && cur < cap; ++i)   // カスタムポリゴン
         cur = EmitNodePoly(buf, cur, cap, sub[i]);
     if (cur >= cap) buf[cap - 1] = '\0';
     return buf;
@@ -2176,7 +2176,7 @@ int PasteSubtree(FEditorHost& h, const char* text, int target_parent) noexcept {
 
     TArray<int> oldIds, newIds;
     auto MapId = [&](int o) -> int {
-        for (u32 i = 0; i < oldIds.Size(); ++i) if (oldIds[i] == o) return newIds[i];
+        for (u32 i = 0; i < oldIds.Num(); ++i) if (oldIds[i] == o) return newIds[i];
         return -1;
     };
 
@@ -2194,8 +2194,8 @@ int PasteSubtree(FEditorHost& h, const char* text, int target_parent) noexcept {
         if (np < 0 && opar >= 0) np = target_parent;          // 親が未マップなら target へ
         const int nid = h.next_id;
         CreateNode(h, nid, np, nm, x, y, rot, sx, sy, base, FVec4{ r, g, b, a });
-        oldIds.PushBack(oid);
-        newIds.PushBack(nid);
+        oldIds.Add(oid);
+        newIds.Add(nid);
         if (firstNew < 0) firstNew = nid;
     }
     while (read_line(line, sizeof(line))) {                    // COMP / CPROP を old_id→new_id で再マップ
@@ -2394,8 +2394,8 @@ void RestoreSnapshot(FEditorHost& h, char* text) noexcept {
 
 /** スナップショットスタックを空にして各 heap バッファを解放する。 */
 void ClearStack(TArray<char*>& st) noexcept {
-    for (u32 i = 0; i < st.Size(); ++i) delete[] st[i];
-    st.Clear();
+    for (u32 i = 0; i < st.Num(); ++i) delete[] st[i];
+    st.Reset();
 }
 
 /** 変更操作の直前に呼ぶ: 現在状態を undo に積み、redo を破棄する。
@@ -2404,13 +2404,13 @@ void PushUndo(FEditorHost& h) noexcept {
     if (h.suppress_undo) return;
     char* snap = DupSnapshot(h);
     if (snap == nullptr) return;
-    h.undo.PushBack(snap);
+    h.undo.Add(snap);
     ClearStack(h.redo);
     constexpr u32 kMaxUndo = 128;
-    while (h.undo.Size() > kMaxUndo) {            // 上限超過は古いものから捨てる
+    while (h.undo.Num() > kMaxUndo) {            // 上限超過は古いものから捨てる
         delete[] h.undo[0];
-        for (u32 i = 1; i < h.undo.Size(); ++i) h.undo[i - 1] = h.undo[i];
-        h.undo.PopBack();
+        for (u32 i = 1; i < h.undo.Num(); ++i) h.undo[i - 1] = h.undo[i];
+        h.undo.Pop();
     }
 }
 
@@ -2636,7 +2636,7 @@ void DrawScene(FEditorHost& h, CSpriteBatch& sb, u32 w, u32 hh) noexcept {
     if (chrome && axy >= 0.0f && axy <= fh) sb.DrawRect(0.0f, axy, fw, 1.0f, axis);
 
     // 親子のリンク線 (world を screen に変換してから結ぶ)。
-    for (u32 i = 0; chrome && i < h.nodes.Size(); ++i) {
+    for (u32 i = 0; chrome && i < h.nodes.Num(); ++i) {
         AEditorNode* n = h.nodes[i];
         game::ANode* parent = n->Parent();
         if (parent == nullptr || parent == h.root.Get()) continue;
@@ -2654,7 +2654,7 @@ void DrawScene(FEditorHost& h, CSpriteBatch& sb, u32 w, u32 hh) noexcept {
     }
 
     // 選択ハイライト (選択集合の各ノード背後に枠)。primary は明るい黄、その他は淡い黄。
-    for (u32 i = 0; chrome && i < h.selection.Size(); ++i) {
+    for (u32 i = 0; chrome && i < h.selection.Num(); ++i) {
         const AEditorNode* sn = FindNode(h, h.selection[i]);
         if (sn == nullptr) continue;
         const game::FTransform2D w = sn->World2D();
@@ -2678,7 +2678,7 @@ void DrawScene(FEditorHost& h, CSpriteBatch& sb, u32 w, u32 hh) noexcept {
     // 位置/半径は screen px (DrawScene はノードを screen 空間に描くため)。
     FSpriteLight lights[16];
     u32 lightCount = 0;
-    for (u32 i = 0; i < h.nodes.Size() && lightCount < 16; ++i) {
+    for (u32 i = 0; i < h.nodes.Num() && lightCount < 16; ++i) {
         const AEditorNode* n = h.nodes[i];
         const int ls = LightComponentSlot(n);
         if (ls < 0 || !n->IsVisible()) continue;
@@ -2699,7 +2699,7 @@ void DrawScene(FEditorHost& h, CSpriteBatch& sb, u32 w, u32 hh) noexcept {
     u32 occCount = 0;
     int occNodeIdx[16];
     bool occSelfShadow[16];          // 自己影あり (m_SelfShadow=1) のオクルーダーはスキップ番号を渡さない
-    for (u32 i = 0; i < h.nodes.Size() && occCount < 16; ++i) {
+    for (u32 i = 0; i < h.nodes.Num() && occCount < 16; ++i) {
         const AEditorNode* n = h.nodes[i];
         const int cs = ShadowCasterSlot(n);
         if (cs < 0 || !n->IsVisible()) continue;
@@ -2753,7 +2753,7 @@ void DrawScene(FEditorHost& h, CSpriteBatch& sb, u32 w, u32 hh) noexcept {
 
     // ノード本体。スプライト画像があればそれを、無ければ色付き矩形を描く。
     // 非可視ノードはゴースト表示 (alpha を落として「隠し」を見せつつ選択可能に保つ)。
-    for (u32 i = 0; i < h.nodes.Size(); ++i) {
+    for (u32 i = 0; i < h.nodes.Num(); ++i) {
         AEditorNode* n = h.nodes[i];
         if (h.game_view && !n->IsVisible()) continue;   // ゲームでは非可視ノードは出さない (ゴースト無し)
         const game::FTransform2D w = n->World2D();
@@ -2875,10 +2875,10 @@ void DrawScene(FEditorHost& h, CSpriteBatch& sb, u32 w, u32 hh) noexcept {
     }
 
     // ポリゴン描画ツール: 集めた点と辺をオーバーレイ表示 (最後→最初は閉じプレビュー)。
-    if (h.poly_drawing && h.poly_points.Size() > 0) {
+    if (h.poly_drawing && h.poly_points.Num() > 0) {
         const FVec4 line{ 0.42f, 0.88f, 0.52f, 0.95f };
         const FVec4 dot{ 0.96f, 0.92f, 0.45f, 1.0f };
-        u32 np = h.poly_points.Size();
+        u32 np = h.poly_points.Num();
         constexpr u32 kRV = AEditorNode::kMaxRenderVerts;
         if (np >= 3) {                                            // 確定後と同じ滑らかな閉曲線をプレビュー
             if (np > kRV) np = kRV;
@@ -2903,7 +2903,7 @@ void DrawScene(FEditorHost& h, CSpriteBatch& sb, u32 w, u32 hh) noexcept {
             if (len > 1.0f)
                 sb.DrawRectRotated((px + px2) * 0.5f, (py + py2) * 0.5f, len, 2.0f, std::atan2(dy, dx), line);
         }
-        for (u32 i = 0; i < h.poly_points.Size(); ++i) {          // アンカーマーカー
+        for (u32 i = 0; i < h.poly_points.Num(); ++i) {          // アンカーマーカー
             const f32 px = SX(h.poly_points[i].x), py = SY(h.poly_points[i].y);
             sb.DrawRect(px - 3.0f, py - 3.0f, 6.0f, 6.0f, dot);
         }
@@ -2923,7 +2923,7 @@ int PickNode(const FEditorHost& h, f32 screen_x, f32 screen_y) noexcept {
     if (h.cam_zoom == 0.0f) return -1;
     const f32 wx = (screen_x - h.cam_pan_x) / h.cam_zoom;
     const f32 wy = (screen_y - h.cam_pan_y) / h.cam_zoom;
-    for (int i = static_cast<int>(h.nodes.Size()) - 1; i >= 0; --i) {   // topmost first
+    for (int i = static_cast<int>(h.nodes.Num()) - 1; i >= 0; --i) {   // topmost first
         const AEditorNode* n = h.nodes[static_cast<u32>(i)];
         const game::FTransform2D w = n->World2D();
         const f32 hw = n->base * w.scale.x * 0.5f;
@@ -4288,7 +4288,7 @@ TSharedPtr<AMeshAsset> MakeEditorWaterGrid(u32 cells = 64u) noexcept {
         const f32 v = static_cast<f32>(z) / static_cast<f32>(cells);
         for (u32 x = 0u; x <= cells; ++x) {
             const f32 u = static_cast<f32>(x) / static_cast<f32>(cells);
-            vertices.PushBack(FMeshVertex{
+            vertices.Add(FMeshVertex{
                 FVec3{u - 0.5f, 0.0f, v - 0.5f},
                 FVec3::UnitY(), u, v});
         }
@@ -4300,12 +4300,12 @@ TSharedPtr<AMeshAsset> MakeEditorWaterGrid(u32 cells = 64u) noexcept {
             const u32 c = a + row;
             const u32 d = c + 1u;
             // +Y authored normal with the engine's local XZ plane convention.
-            indices.PushBack(a); indices.PushBack(c); indices.PushBack(b);
-            indices.PushBack(b); indices.PushBack(c); indices.PushBack(d);
+            indices.Add(a); indices.Add(c); indices.Add(b);
+            indices.Add(b); indices.Add(c); indices.Add(d);
         }
     }
-    mesh->SubMeshes().PushBack(
-        FSubMesh{0u, static_cast<u32>(indices.Size())});
+    mesh->SubMeshes().Add(
+        FSubMesh{0u, static_cast<u32>(indices.Num())});
     return mesh;
 }
 
@@ -5942,7 +5942,7 @@ void Seed3DScene(FEditorHost& h) noexcept {
         game::ANode& box = AddNode3D(h, "Cube");
         box.Local().position = FVec3{ -1.4f, 0.5f, 0 };
         const int id = h.next_id3d++;
-        box.GetComponent<AEditor3DRecordComponent>()->id = id; h.sel3d_multi.Clear(); h.sel3d_multi.PushBack(id); h.sel3d = id;
+        box.GetComponent<AEditor3DRecordComponent>()->id = id; h.sel3d_multi.Reset(); h.sel3d_multi.Add(id); h.sel3d = id;
         box.GetComponent<game::AMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Cube);
         box.GetComponent<game::AMeshComponent3D>()->SetColor(FVec4{ 0.85f, 0.45f, 0.35f, 1 });
     }
@@ -5962,10 +5962,10 @@ TSharedPtr<AAsset> MakeFlatPolygon3D(const FVec2* pts, u32 n) noexcept {
     auto mesh = MakeShared<AMeshAsset>();
     auto& V = mesh->Vertices();
     for (u32 i = 0; i < n; ++i)
-        V.PushBack(FMeshVertex{ FVec3{ pts[i].x, pts[i].y, 0.0f }, FVec3{ 0, 0, 1 }, 0.0f, 0.0f });
+        V.Add(FMeshVertex{ FVec3{ pts[i].x, pts[i].y, 0.0f }, FVec3{ 0, 0, 1 }, 0.0f, 0.0f });
     auto& I = mesh->Indices();
-    for (u32 i = 1; i + 1 < n; ++i) { I.PushBack(0); I.PushBack(i); I.PushBack(i + 1); }   // 扇 (凸前提)
-    mesh->SubMeshes().PushBack(FSubMesh{ 0, static_cast<u32>(I.Size()) });
+    for (u32 i = 1; i + 1 < n; ++i) { I.Add(0); I.Add(i); I.Add(i + 1); }   // 扇 (凸前提)
+    mesh->SubMeshes().Add(FSubMesh{ 0, static_cast<u32>(I.Num()) });
     return TSharedPtr<AAsset>(mesh);
 }
 
@@ -6073,36 +6073,36 @@ game::ANode* FindNode3DNode(FEditorHost& h, int id) noexcept {
 
 // ----- 3D 選択集合の操作 (single/multi。primary = sel3d。2D の Sel* と対称) -----
 bool Sel3DContains(const FEditorHost& h, int id) noexcept {
-    for (u32 i = 0; i < h.sel3d_multi.Size(); ++i) if (h.sel3d_multi[i] == id) return true;
+    for (u32 i = 0; i < h.sel3d_multi.Num(); ++i) if (h.sel3d_multi[i] == id) return true;
     return false;
 }
 /** 単一選択にする (集合を {id} に。id 不正/未知なら解除)。sel3d を直接いじる各所はこれを使う。 */
 void SetSel3D(FEditorHost& h, int id) noexcept {
-    h.sel3d_multi.Clear();
-    if (id >= 0 && FindNode3DNode(h, id) != nullptr) { h.sel3d_multi.PushBack(id); h.sel3d = id; }
+    h.sel3d_multi.Reset();
+    if (id >= 0 && FindNode3DNode(h, id) != nullptr) { h.sel3d_multi.Add(id); h.sel3d = id; }
     else h.sel3d = -1;
 }
 /** id の選択を反転する (Ctrl+click)。追加なら primary、primary を外したら別の一員へ。 */
 void ToggleSel3D(FEditorHost& h, int id) noexcept {
     if (id < 0 || FindNode3DNode(h, id) == nullptr) return;
-    for (u32 i = 0; i < h.sel3d_multi.Size(); ++i) {
+    for (u32 i = 0; i < h.sel3d_multi.Num(); ++i) {
         if (h.sel3d_multi[i] == id) {
             h.sel3d_multi.RemoveAtSwap(i);
-            if (h.sel3d == id) h.sel3d = (h.sel3d_multi.Size() > 0) ? h.sel3d_multi[h.sel3d_multi.Size() - 1] : -1;
+            if (h.sel3d == id) h.sel3d = (h.sel3d_multi.Num() > 0) ? h.sel3d_multi[h.sel3d_multi.Num() - 1] : -1;
             return;
         }
     }
-    h.sel3d_multi.PushBack(id); h.sel3d = id;
+    h.sel3d_multi.Add(id); h.sel3d = id;
 }
 /** 構造変更後、消えた id を除き primary を整える。 */
 void PruneSel3D(FEditorHost& h) noexcept {
-    for (u32 i = 0; i < h.sel3d_multi.Size();) {
+    for (u32 i = 0; i < h.sel3d_multi.Num();) {
         if (FindNode3DNode(h, h.sel3d_multi[i]) == nullptr) h.sel3d_multi.RemoveAtSwap(i);
         else ++i;
     }
     if (h.sel3d >= 0 && !Sel3DContains(h, h.sel3d))
-        h.sel3d = (h.sel3d_multi.Size() > 0) ? h.sel3d_multi[h.sel3d_multi.Size() - 1] : -1;
-    if (h.sel3d_multi.Size() == 0) h.sel3d = -1;
+        h.sel3d = (h.sel3d_multi.Num() > 0) ? h.sel3d_multi[h.sel3d_multi.Num() - 1] : -1;
+    if (h.sel3d_multi.Num() == 0) h.sel3d = -1;
 }
 
 /** ノードの prim 種別 (AMeshComponent3D 無し or 不明は 0=Cube)。 */
@@ -6202,7 +6202,7 @@ FDeterministicGameCamera2D ResolveDeterministicGameCamera2D(
     f32 maximum_x = -std::numeric_limits<f32>::max();
     f32 maximum_y = -std::numeric_limits<f32>::max();
     bool found = false;
-    for (u32 index = 0u; index < host.nodes.Size(); ++index) {
+    for (u32 index = 0u; index < host.nodes.Num(); ++index) {
         const AEditorNode* node = host.nodes[index];
         if (!IsEffectivelyVisibleAndEnabled(node)) continue;
         const game::FTransform2D world = node->World2D();
@@ -6389,7 +6389,7 @@ void PrepareWater3DDrawEligibility(
     if (!Water3DPassAvailable(host)) return;
 
     for (u32 i = 0u;
-         i < nodes.Size() &&
+         i < nodes.Num() &&
          host.water3d_draw_count < CWaterSurface3D::kMaxTrackedSurfaces;
          ++i) {
         game::ANode* node = nodes[i];
@@ -6428,7 +6428,7 @@ void Dfs3DCollect(game::ANode* n, TArray<game::ANode*>& out) noexcept {
     if (n == nullptr) return;
     for (u32 i = 0; i < n->ChildCount(); ++i) {
         game::ANode* c = n->Child(i);
-        if (c != nullptr) { out.PushBack(c); Dfs3DCollect(c, out); }
+        if (c != nullptr) { out.Add(c); Dfs3DCollect(c, out); }
     }
 }
 
@@ -6506,7 +6506,7 @@ bool SceneCameraIdIsUnique(
     FEditorHost& host, int except_node_id, const char* stable_id) noexcept {
     TArray<game::ANode*> nodes;
     Dfs3DCollect(&host.scene3d.Root(), nodes);
-    for (u32 index = 0u; index < nodes.Size(); ++index) {
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
         AEditor3DRecordComponent* record = Rec3D(nodes[index]);
         if (record == nullptr || !record->has_scene_camera
             || record->id == except_node_id) {
@@ -6594,7 +6594,7 @@ bool ResolveActiveCamera3DFromNodes(
     const TArray<game::ANode*>& nodes,
     FResolvedSceneCamera3D& output) noexcept {
     output = FResolvedSceneCamera3D{};
-    for (u32 index = 0u; index < nodes.Size(); ++index) {
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
         game::ANode* node = nodes[index];
         AEditor3DRecordComponent* record = Rec3D(node);
         if (record == nullptr || !record->has_scene_camera
@@ -6616,7 +6616,7 @@ bool ResolveActiveCamera3DFromNodes(
 
 bool ResolveActiveCamera3D(
     FEditorHost& host, FResolvedSceneCamera3D& output) noexcept {
-    host.camera_resolve_nodes.Clear();
+    host.camera_resolve_nodes.Reset();
     Dfs3DCollect(
         &host.scene3d.Root(), host.camera_resolve_nodes);
     return ResolveActiveCamera3DFromNodes(
@@ -6650,7 +6650,7 @@ bool ResolvePreviewCamera3DFromNodes(
         else
             host.game_camera_preview_node_id = -1;
     };
-    for (u32 index = 0u; index < nodes.Size(); ++index) {
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
         game::ANode* node = nodes[index];
         AEditor3DRecordComponent* record = Rec3D(node);
         if (record == nullptr ||
@@ -6816,7 +6816,7 @@ void ComputeDeterministicGameBounds3D(
         found = true;
         return;
     }
-    for (u32 index = 0u; index < nodes.Size(); ++index) {
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
         game::ANode* node = nodes[index];
         AEditor3DRecordComponent* record = Rec3D(node);
         if (!IsEffectivelyVisibleAndEnabled(node) ||
@@ -7129,8 +7129,8 @@ bool EditorOpaqueRayDistance(
         break;
     case 3: {
         const AMeshAsset* mesh = NMesh(node);
-        if (mesh == nullptr || mesh->Vertices().Size() == 0u ||
-            mesh->Indices().Size() < 3u) {
+        if (mesh == nullptr || mesh->Vertices().Num() == 0u ||
+            mesh->Indices().Num() < 3u) {
             return false;
         }
         if (record->water_hit_collider_src != mesh) {
@@ -7171,7 +7171,7 @@ bool HitTestEditorWaterSurface(
     TArray<game::ANode*> nodes;
     Dfs3DCollect(&host.scene3d.Root(), nodes);
     bool found = false;
-    for (u32 i = 0u; i < nodes.Size(); ++i) {
+    for (u32 i = 0u; i < nodes.Num(); ++i) {
         game::ANode* node = nodes[i];
         AEditor3DRecordComponent* record = Rec3D(node);
         if (!IsAuthoredWaterSurface(node) || record == nullptr) continue;
@@ -7239,7 +7239,7 @@ bool HitTestEditorWaterSurface(
         // in front of the selected water hit must consume the pointer rather
         // than allowing a wake to appear through opaque geometry.
         constexpr f32 kOcclusionEpsilon = 1e-4f;
-        for (u32 i = 0u; i < nodes.Size(); ++i) {
+        for (u32 i = 0u; i < nodes.Num(); ++i) {
             game::ANode* node = nodes[i];
             if (IsAuthoredWaterSurface(node)) continue;
             f32 opaque_distance = 0.0f;
@@ -7256,7 +7256,7 @@ bool HitTestEditorWaterSurface(
 
 bool SceneHasAuthoredWater(
     const TArray<game::ANode*>& nodes) noexcept {
-    for (u32 i = 0u; i < nodes.Size(); ++i) {
+    for (u32 i = 0u; i < nodes.Num(); ++i) {
         if (IsAuthoredWaterSurface(nodes[i])) return true;
     }
     return false;
@@ -7509,7 +7509,7 @@ void DrawInteractiveWater3DPass(
     u32 width,
     u32 height) noexcept {
     bool any_water = false;
-    for (u32 i = 0u; i < nodes.Size(); ++i) {
+    for (u32 i = 0u; i < nodes.Num(); ++i) {
         if (!submission_mask.ShouldSubmit(i)) continue;
         if (IsRenderedByWater3D(host, nodes[i])) {
             any_water = true;
@@ -7563,7 +7563,7 @@ void DrawInteractiveWater3DPass(
         host.pbr3d.SetSheen(FVec3::Zero(), 0.0f, 0.3f);
         host.pbr3d.SetSubsurface(FVec3::Zero(), 0.0f);
         host.pbr3d.SetEmissive(FVec3::Zero(), 0.0f);
-        for (u32 i = 0u; i < nodes.Size(); ++i) {
+        for (u32 i = 0u; i < nodes.Num(); ++i) {
             if (!submission_mask.ShouldSubmit(i)) continue;
             game::ANode* node = nodes[i];
             if (!IsRenderedByWater3D(host, node)) continue;
@@ -7604,7 +7604,7 @@ void DrawInteractiveWater3DPass(
     IRhiTexture* reflection =
         host.ssr_computed
             ? host.ssr3d.OutputTexture() : nullptr;
-    for (u32 i = 0u; i < nodes.Size(); ++i) {
+    for (u32 i = 0u; i < nodes.Num(); ++i) {
         if (!submission_mask.ShouldSubmit(i)) continue;
         game::ANode* node = nodes[i];
         if (!IsRenderedByWater3D(host, node)) continue;
@@ -7652,7 +7652,7 @@ TSharedPtr<AAsset> LoadMeshFile(const char* path) noexcept {
     wchar_t wpath[512];
     if (MultiByteToWideChar(kCpUtf8, 0, path, -1, wpath, 512) <= 0) return nullptr;
     auto bytes = CFileSystem::ReadAllBytes(wpath);
-    if (bytes.IsErr() || bytes.Value().Size() == 0) { ACS_LOG_ERROR("[3D] メッシュ open 失敗: %s", path); return nullptr; }
+    if (bytes.IsErr() || bytes.Value().Num() == 0) { ACS_LOG_ERROR("[3D] メッシュ open 失敗: %s", path); return nullptr; }
     // 拡張子で loader を選ぶ。
     const char* ext = std::strrchr(path, '.');
     TResult<TSharedPtr<AAsset>> r = ACS_ERR(Asset, 900, "no loader");
@@ -7665,7 +7665,7 @@ TSharedPtr<AAsset> LoadMeshFile(const char* path) noexcept {
     if (r.IsErr()) { ACS_LOG_ERROR("[3D] メッシュ parse 失敗: %s", path); return nullptr; }
     TSharedPtr<AAsset> a = r.Value();
     const AMeshAsset* m = static_cast<const AMeshAsset*>(a.Get());
-    if (m == nullptr || m->Vertices().Size() == 0) { ACS_LOG_ERROR("[3D] メッシュ空: %s", path); return nullptr; }
+    if (m == nullptr || m->Vertices().Num() == 0) { ACS_LOG_ERROR("[3D] メッシュ空: %s", path); return nullptr; }
     return a;
 }
 
@@ -7675,7 +7675,7 @@ void AppendMeshTris(TArray<FM3DVtx>& dv, const AMeshAsset* cm, const FMat4& mode
     if (cm == nullptr) return;
     const auto& vtx = cm->Vertices();
     const auto& idx = cm->Indices();
-    for (u32 k = 0; k + 2 < idx.Size(); k += 3) {
+    for (u32 k = 0; k + 2 < idx.Num(); k += 3) {
         for (u32 t = 0; t < 3; ++t) {
             const FMeshVertex& mv = vtx[idx[k + t]];
             const FVec4 wp = Transform(FVec4{ mv.position.x, mv.position.y, mv.position.z, 1.0f }, model);
@@ -7683,7 +7683,7 @@ void AppendMeshTris(TArray<FM3DVtx>& dv, const AMeshAsset* cm, const FMat4& mode
             FM3DVtx o; o.px = wp.x; o.py = wp.y; o.pz = wp.z;
             o.nx = wn.x; o.ny = wn.y; o.nz = wn.z; o.r = col.x; o.g = col.y; o.b = col.z;
             o.mt = metallic; o.rg = roughness;
-            if (dv.Size() < cap) dv.PushBack(o);
+            if (dv.Num() < cap) dv.Add(o);
         }
     }
 }
@@ -7711,7 +7711,7 @@ void AppendCone(TArray<FM3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad, FVe
     FVec3 v{ ax.y*u.z - ax.z*u.y, ax.z*u.x - ax.x*u.z, ax.x*u.y - ax.y*u.x };
     const FVec3 apex{ base.x + ax.x*len, base.y + ax.y*len, base.z + ax.z*len };
     const int N = 24;   // 滑らかな矢じり
-    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { FM3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.PushBack(o);} };
+    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Num() < 4096) { FM3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.Add(o);} };
     for (int i = 0; i < N; ++i) {
         const f32 a0 = 6.2831853f * i / N, a1 = 6.2831853f * (i + 1) / N;
         const FVec3 rd0{ u.x*std::cos(a0)+v.x*std::sin(a0), u.y*std::cos(a0)+v.y*std::sin(a0), u.z*std::cos(a0)+v.z*std::sin(a0) };
@@ -7732,7 +7732,7 @@ void AppendCylinder(TArray<FM3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad,
     FVec3 v{ ax.y*u.z - ax.z*u.y, ax.z*u.x - ax.x*u.z, ax.x*u.y - ax.y*u.x };
     const FVec3 tip{ base.x + ax.x*len, base.y + ax.y*len, base.z + ax.z*len };
     const int N = 20;
-    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { FM3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.PushBack(o);} };
+    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Num() < 4096) { FM3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.Add(o);} };
     for (int i = 0; i < N; ++i) {
         const f32 a0 = 6.2831853f * i / N, a1 = 6.2831853f * (i + 1) / N;
         const FVec3 n0{ u.x*std::cos(a0)+v.x*std::sin(a0), u.y*std::cos(a0)+v.y*std::sin(a0), u.z*std::cos(a0)+v.z*std::sin(a0) };
@@ -7749,7 +7749,7 @@ void AppendRing(TArray<FM3DVtx>& gv, FVec3 center, int axis, f32 radius, f32 tub
     FVec3 u = (axis == 2) ? FVec3{ 1, 0, 0 } : FVec3{ 0, 1, 0 };
     FVec3 v{ ax.y*u.z - ax.z*u.y, ax.z*u.x - ax.x*u.z, ax.x*u.y - ax.y*u.x };   // u,v: リング平面
     const int N = 24, M = 5;
-    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { FM3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.PushBack(o);} };
+    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Num() < 4096) { FM3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.Add(o);} };
     auto ringDir = [&](f32 a){ return FVec3{ u.x*std::cos(a)+v.x*std::sin(a), u.y*std::cos(a)+v.y*std::sin(a), u.z*std::cos(a)+v.z*std::sin(a) }; };
     auto tubeN  = [&](FVec3 rd, f32 b){ return FVec3{ rd.x*std::cos(b)+ax.x*std::sin(b), rd.y*std::cos(b)+ax.y*std::sin(b), rd.z*std::cos(b)+ax.z*std::sin(b) }; };
     for (int i = 0; i < N; ++i) {
@@ -7775,7 +7775,7 @@ void AppendQuad(TArray<FM3DVtx>& gv, FVec3 c, FVec3 e1, FVec3 e2, f32 hs, FVec3 
     FVec3 p10{ c.x+(e1.x-e2.x)*hs, c.y+(e1.y-e2.y)*hs, c.z+(e1.z-e2.z)*hs };
     FVec3 p11{ c.x+(e1.x+e2.x)*hs, c.y+(e1.y+e2.y)*hs, c.z+(e1.z+e2.z)*hs };
     FVec3 p01{ c.x-(e1.x-e2.x)*hs, c.y-(e1.y-e2.y)*hs, c.z-(e1.z-e2.z)*hs };
-    auto pv = [&](FVec3 p){ if (gv.Size()<4096){ FM3DVtx o;o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f;gv.PushBack(o);} };
+    auto pv = [&](FVec3 p){ if (gv.Num()<4096){ FM3DVtx o;o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f;gv.Add(o);} };
     pv(p00);pv(p10);pv(p11); pv(p00);pv(p11);pv(p01);
 }
 
@@ -7905,8 +7905,8 @@ void DrawGizmo3DOverlay(FEditorHost& h, IRhiCommandList& cl,
     };
     const FVec3 hot{ 1.0f, 0.86f, 0.22f };
     TArray<FM3DVtx>& gv = h.gizmo_vertices;
-    gv.Clear();
-    if (gv.Capacity() < 4096u) gv.Reserve(4096u);
+    gv.Reset();
+    if (gv.Max() < 4096u) gv.Reserve(4096u);
 
     for (int a = 1; a <= 3; ++a) {
         const FVec3 d = AxisDir(a);
@@ -7966,7 +7966,7 @@ void DrawGizmo3DOverlay(FEditorHost& h, IRhiCommandList& cl,
             ? hot : FVec3{ 0.88f, 0.88f, 0.92f },
         4096);
 
-    if (gv.Size() == 0 || !h.m3d_overlay_pipe ||
+    if (gv.Num() == 0 || !h.m3d_overlay_pipe ||
         !h.m3d_giz_vb || !h.m3d_giz_cb) {
         return;
     }
@@ -7979,14 +7979,14 @@ void DrawGizmo3DOverlay(FEditorHost& h, IRhiCommandList& cl,
         camera_position.x, camera_position.y, camera_position.z, 0.0f
     };
     h.m3d_giz_cb->Update(&cb, sizeof(cb));
-    h.m3d_giz_vb->Update(gv.Data(), sizeof(FM3DVtx) * gv.Size());
+    h.m3d_giz_vb->Update(gv.GetData(), sizeof(FM3DVtx) * gv.Num());
     cl.SetPipeline(*h.m3d_overlay_pipe);
     cl.SetConstantBuffer(0, *h.m3d_giz_cb);
     if (h.shadow.DepthTexture() != nullptr) {
         cl.SetTexture(0, *h.shadow.DepthTexture());
     }
     cl.SetVertexBuffer(*h.m3d_giz_vb, sizeof(FM3DVtx));
-    cl.Draw(static_cast<u32>(gv.Size()), 0);
+    cl.Draw(static_cast<u32>(gv.Num()), 0);
 }
 
 // ===== Phase 5 VXGI: voxel global illumination =====================================
@@ -8094,7 +8094,7 @@ IRhiTexture* VxgiVoxelize(
     u64 geometry_revision,
     FVec3 bbMin, FVec3 bbMax) noexcept {
     IRhiDevice* dev = h.renderer.Device();
-    if (dev == nullptr || cl == nullptr || dv.Size() < 3) return nullptr;
+    if (dev == nullptr || cl == nullptr || dv.Num() < 3) return nullptr;
     // raw DX12 compute は texture SRV/UAV workload（clouds/AP）には対応するが、
     // StructuredBuffer SRV binding には未対応。raw buffer descriptor path が完全に
     // 同等になるまでは、実験的 VXGI に既存の graceful fallback を使う。
@@ -8130,7 +8130,7 @@ IRhiTexture* VxgiVoxelize(
     }
     if (!h.vxgi_ready) return nullptr;
     // 三角形 SB を (再)確保 + upload
-    const u32 vcount = dv.Size();
+    const u32 vcount = dv.Num();
     if (!h.vxgi_tri || h.vxgi_tri_cap < vcount) {
         FBufferDesc bd{}; bd.size=sizeof(FM3DVtx)*vcount; bd.usage=EBufferUsage::Storage;
         bd.cpu_writable=true; bd.struct_stride=sizeof(FM3DVtx);
@@ -8142,7 +8142,7 @@ IRhiTexture* VxgiVoxelize(
         else return nullptr;
     }
     if (h.vxgi_tri_uploaded_revision != geometry_revision) {
-        h.vxgi_tri->Update(dv.Data(), sizeof(FM3DVtx)*vcount);
+        h.vxgi_tri->Update(dv.GetData(), sizeof(FM3DVtx)*vcount);
         h.vxgi_tri_uploaded_revision = geometry_revision;
     }
     // CB
@@ -8289,8 +8289,8 @@ FSceneMeshCacheKey BuildSceneMeshCacheKey(FEditorHost& h, game::ANode* node, boo
 bool SceneMeshCacheKeysMatch(
     const TArray<FSceneMeshCacheKey>& lhs,
     const TArray<FSceneMeshCacheKey>& rhs) noexcept {
-    if (lhs.Size() != rhs.Size()) return false;
-    for (u32 index = 0u; index < lhs.Size(); ++index) {
+    if (lhs.Num() != rhs.Num()) return false;
+    for (u32 index = 0u; index < lhs.Num(); ++index) {
         if (!lhs[index].SameAs(rhs[index])) return false;
     }
     return true;
@@ -8299,11 +8299,11 @@ bool SceneMeshCacheKeysMatch(
 // シーンのメッシュ頂点を M3DVtx へ展開 + AABB を求める (シャドウ/本体/VXGI が共有)。
 void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
                          TArray<FM3DVtx>& dv, FVec3& bbMin, FVec3& bbMax) noexcept {
-    h.scene_mesh_vertex_offset.Resize(all3d.Size());
-    h.scene_mesh_vertex_count.Resize(all3d.Size());
-    h.scene_mesh_local_center.Resize(all3d.Size());
-    h.scene_mesh_local_radius.Resize(all3d.Size());
-    for (u32 i = 0; i < all3d.Size(); ++i) {
+    h.scene_mesh_vertex_offset.SetNum(all3d.Num());
+    h.scene_mesh_vertex_count.SetNum(all3d.Num());
+    h.scene_mesh_local_center.SetNum(all3d.Num());
+    h.scene_mesh_local_radius.SetNum(all3d.Num());
+    for (u32 i = 0; i < all3d.Num(); ++i) {
         h.scene_mesh_vertex_offset[i] = 0u;
         h.scene_mesh_vertex_count[i] = 0u;
         h.scene_mesh_local_center[i] = FVec3{0.0f, 0.0f, 0.0f};
@@ -8332,7 +8332,7 @@ void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
             -std::numeric_limits<f32>::max()};
         bool has_finite_vertex = false;
         for (u32 vertex_index = 0u;
-             vertex_index < cm->Vertices().Size(); ++vertex_index) {
+             vertex_index < cm->Vertices().Num(); ++vertex_index) {
             const FVec3 point = cm->Vertices()[vertex_index].position;
             if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
                 !std::isfinite(point.z)) {
@@ -8351,7 +8351,7 @@ void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
             (local_minimum + local_maximum) * 0.5f;
         f32 local_radius_squared = 0.0f;
         for (u32 vertex_index = 0u;
-             vertex_index < cm->Vertices().Size(); ++vertex_index) {
+             vertex_index < cm->Vertices().Num(); ++vertex_index) {
             const FVec3 point = cm->Vertices()[vertex_index].position;
             if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
                 !std::isfinite(point.z)) {
@@ -8382,15 +8382,15 @@ void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
             if (mc->HasMaterial() && mat.kind == game::EMaterialKind::Lit)             // material 設定時は baseColor を採用
                 albedo = FVec3{ mat.pbr.baseColor.x, mat.pbr.baseColor.y, mat.pbr.baseColor.z };
         }
-        const u32 vertex_offset = dv.Size();
+        const u32 vertex_offset = dv.Num();
         AppendMeshTris(
             dv, cm, SceneMeshWorldTransform(h, i, nn).ToMat4(), albedo,
             h.m3d_dyn_cap, mtl, rgh);
         h.scene_mesh_vertex_offset[i] = vertex_offset;
         h.scene_mesh_vertex_count[i] =
-            dv.Size() - vertex_offset;
+            dv.Num() - vertex_offset;
     }
-    for (u32 i = 0; i < dv.Size(); ++i) {
+    for (u32 i = 0; i < dv.Num(); ++i) {
         const FM3DVtx& q = dv[i];
         if (q.px < bbMin.x) bbMin.x = q.px; if (q.py < bbMin.y) bbMin.y = q.py; if (q.pz < bbMin.z) bbMin.z = q.pz;
         if (q.px > bbMax.x) bbMax.x = q.px; if (q.py > bbMax.y) bbMax.y = q.py; if (q.pz > bbMax.z) bbMax.z = q.pz;
@@ -8403,8 +8403,8 @@ editor_frustum_culling::FSubmissionMaskView SceneMeshSubmissionMask(
     const editor_frustum_culling::FSubmissionMaskView main_view_mask{
         host.profiler_work.frustum_culling_enabled,
         host.scene_mesh_visible.IsEmpty()
-            ? nullptr : host.scene_mesh_visible.Data(),
-        static_cast<u32>(host.scene_mesh_visible.Size())};
+            ? nullptr : host.scene_mesh_visible.GetData(),
+        static_cast<u32>(host.scene_mesh_visible.Num())};
     return editor_frustum_culling::SubmissionMaskForPass(
         pass, main_view_mask);
 }
@@ -8416,14 +8416,14 @@ void BuildSceneMeshVisibility(
     host.profiler_work.frustum_tested = 0u;
     host.profiler_work.frustum_visible = 0u;
     host.profiler_work.frustum_culled = 0u;
-    host.scene_mesh_visible.Resize(nodes.Size());
-    for (u32 index = 0u; index < nodes.Size(); ++index) host.scene_mesh_visible[index] = SceneMeshHierarchyVisible(host, index, nodes[index]) ? 1u : 0u;
+    host.scene_mesh_visible.SetNum(nodes.Num());
+    for (u32 index = 0u; index < nodes.Num(); ++index) host.scene_mesh_visible[index] = SceneMeshHierarchyVisible(host, index, nodes[index]) ? 1u : 0u;
 
     if (!host.pbr3d_ready ||
-        host.scene_mesh_local_center.Size() != nodes.Size() ||
-        host.scene_mesh_local_radius.Size() != nodes.Size() ||
-        host.scene_mesh_vertex_offset.Size() != nodes.Size() ||
-        host.scene_mesh_vertex_count.Size() != nodes.Size()) {
+        host.scene_mesh_local_center.Num() != nodes.Num() ||
+        host.scene_mesh_local_radius.Num() != nodes.Num() ||
+        host.scene_mesh_vertex_offset.Num() != nodes.Num() ||
+        host.scene_mesh_vertex_count.Num() != nodes.Num()) {
         return;
     }
     editor_frustum_culling::FPlane planes[6];
@@ -8432,14 +8432,14 @@ void BuildSceneMeshVisibility(
         return;
     editor_frustum_culling::FFrameDecision frame{};
 
-    host.frustum_centers_scratch.Resize(nodes.Size());
-    host.frustum_radii_scratch.Resize(nodes.Size());
-    host.frustum_scales_scratch.Resize(nodes.Size());
-    host.frustum_padding_scratch.Resize(nodes.Size());
-    host.frustum_node_indices_scratch.Resize(nodes.Size());
-    host.frustum_decisions_scratch.Resize(nodes.Size());
+    host.frustum_centers_scratch.SetNum(nodes.Num());
+    host.frustum_radii_scratch.SetNum(nodes.Num());
+    host.frustum_scales_scratch.SetNum(nodes.Num());
+    host.frustum_padding_scratch.SetNum(nodes.Num());
+    host.frustum_node_indices_scratch.SetNum(nodes.Num());
+    host.frustum_decisions_scratch.SetNum(nodes.Num());
     u32 candidate_count = 0u;
-    for (u32 index = 0u; index < nodes.Size(); ++index) {
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
         game::ANode* node = nodes[index];
         AEditor3DRecordComponent* record = Rec3D(node);
         game::AMeshComponent3D* mesh = Mesh3D(node);
@@ -8467,13 +8467,13 @@ void BuildSceneMeshVisibility(
         host.frustum_node_indices_scratch[candidate_count] = index;
         ++candidate_count;
     }
-    editor_frustum_culling::EvaluateSpheresBatch(planes, host.frustum_centers_scratch.Data(), host.frustum_radii_scratch.Data(), host.frustum_scales_scratch.Data(), host.frustum_padding_scratch.Data(), candidate_count, host.frustum_decisions_scratch.Data());
+    editor_frustum_culling::EvaluateSpheresBatch(planes, host.frustum_centers_scratch.GetData(), host.frustum_radii_scratch.GetData(), host.frustum_scales_scratch.GetData(), host.frustum_padding_scratch.GetData(), candidate_count, host.frustum_decisions_scratch.GetData());
     for (u32 candidate = 0u; candidate < candidate_count; ++candidate) {
         const editor_frustum_culling::FNodeDecision& decision = host.frustum_decisions_scratch[candidate];
         frame.Apply(decision);
         if (!frame.enabled) {
             // 部分的な可視マスクを公開せず、無効入力では従来どおり fail-open にする。
-            for (u32 reset = 0u; reset < nodes.Size(); ++reset)
+            for (u32 reset = 0u; reset < nodes.Num(); ++reset)
                 host.scene_mesh_visible[reset] = 1u;
             return;
         }
@@ -8489,10 +8489,10 @@ void BuildSceneMeshVisibility(
 bool RefreshSceneMeshCache(
     FEditorHost& h,
     const TArray<game::ANode*>& all3d) noexcept {
-    h.scene_mesh_key_scratch.Clear();
-    h.scene_mesh_key_scratch.Reserve(all3d.Size());
-    for (u32 index = 0u; index < all3d.Size(); ++index) {
-        h.scene_mesh_key_scratch.PushBack(BuildSceneMeshCacheKey(h, all3d[index], SceneMeshHierarchyVisible(h, index, all3d[index]), SceneMeshWorldTransform(h, index, all3d[index])));
+    h.scene_mesh_key_scratch.Reset();
+    h.scene_mesh_key_scratch.Reserve(all3d.Num());
+    for (u32 index = 0u; index < all3d.Num(); ++index) {
+        h.scene_mesh_key_scratch.Add(BuildSceneMeshCacheKey(h, all3d[index], SceneMeshHierarchyVisible(h, index, all3d[index]), SceneMeshWorldTransform(h, index, all3d[index])));
     }
 
     const bool cache_matches =
@@ -8503,8 +8503,8 @@ bool RefreshSceneMeshCache(
             h.scene_mesh_key, h.scene_mesh_key_scratch);
     if (cache_matches) return false;
 
-    h.scene_mesh_vertices.Clear();
-    if (h.scene_mesh_vertices.Capacity() == 0u) {
+    h.scene_mesh_vertices.Reset();
+    if (h.scene_mesh_vertices.Max() == 0u) {
         h.scene_mesh_vertices.Reserve(8192u);
     }
     h.scene_mesh_bb_min = FVec3{1e30f, 1e30f, 1e30f};
@@ -8514,8 +8514,8 @@ bool RefreshSceneMeshCache(
         h.scene_mesh_bb_min, h.scene_mesh_bb_max);
     if (!h.scene_mesh_vertices.IsEmpty() && h.m3d_dyn_vb) {
         h.m3d_dyn_vb->Update(
-            h.scene_mesh_vertices.Data(),
-            sizeof(FM3DVtx) * h.scene_mesh_vertices.Size());
+            h.scene_mesh_vertices.GetData(),
+            sizeof(FM3DVtx) * h.scene_mesh_vertices.Num());
     }
 
     // Rotate the two key arrays so both retain their allocations. The next
@@ -8524,7 +8524,7 @@ bool RefreshSceneMeshCache(
         Move(h.scene_mesh_key);
     h.scene_mesh_key = Move(h.scene_mesh_key_scratch);
     h.scene_mesh_key_scratch = Move(old_key);
-    h.scene_mesh_key_scratch.Clear();
+    h.scene_mesh_key_scratch.Reset();
 
     h.scene_mesh_uploaded_vb = h.m3d_dyn_vb.Get();
     h.scene_mesh_cached_cap = h.m3d_dyn_cap;
@@ -8592,9 +8592,9 @@ void Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
                             skyHeight,
                             ap);
                     }
-                    for (u32 si = 0; si < sky.Size(); ++si) sky[si] *= kAtmosScale;
+                    for (u32 si = 0; si < sky.Num(); ++si) sky[si] *= kAtmosScale;
                     ok = h.ibl3d.LoadEquirectHdrFromMemory(
-                        *idev, *cl, sky.Data(),
+                        *idev, *cl, sky.GetData(),
                         skyWidth,
                         skyHeight).IsOk();
                 } else {
@@ -8783,7 +8783,7 @@ InspectOpaqueSsssMaterials(
         main_view_mask = SceneMeshSubmissionMask(
             host,
             editor_frustum_culling::ESceneGeometryPass::PbrOpaqueCount);
-    for (u32 node_index = 0u; node_index < nodes.Size(); ++node_index) {
+    for (u32 node_index = 0u; node_index < nodes.Num(); ++node_index) {
         game::ANode* node = nodes[node_index];
         AEditor3DRecordComponent* record = Rec3D(node);
         game::AMeshComponent3D* mesh = Mesh3D(node);
@@ -8869,7 +8869,7 @@ FPbrFrameDrawCounts CountPbrFrameDraws(
         SceneMeshSubmissionMask(
             host,
             editor_frustum_culling::ESceneGeometryPass::PbrOpaqueCount),
-        nodes.Size(),
+        nodes.Num(),
         [&](u32 index) noexcept {
         game::ANode* node = nodes[index];
         AEditor3DRecordComponent* record = Rec3D(node);
@@ -9315,16 +9315,16 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     {
         editor_profiler::FCpuScope meshPrepassScope(
             h.profiler_work.opaque_cpu_ms);
-        all3d.Clear();
+        all3d.Reset();
         Dfs3DCollect(&h.scene3d.Root(), all3d);
-        h.scene_mesh_world_batch_ready = h.scene_mesh_world_batch.Evaluate(&h.scene3d.Root(), all3d.Size());
-        h.scene_mesh_hierarchy_batch_ready = h.scene_mesh_hierarchy_visibility.Evaluate(all3d.Data(), all3d.Size(), &h.scene3d.Root());
+        h.scene_mesh_world_batch_ready = h.scene_mesh_world_batch.Evaluate(&h.scene3d.Root(), all3d.Num());
+        h.scene_mesh_hierarchy_batch_ready = h.scene_mesh_hierarchy_visibility.Evaluate(all3d.GetData(), all3d.Num(), &h.scene3d.Root());
         PrepareWater3DDrawEligibility(h, all3d);
         (void)RefreshSceneMeshCache(h, all3d);
     }
     const FVec3& bbMin = h.scene_mesh_bb_min;
     const FVec3& bbMax = h.scene_mesh_bb_max;
-    u32 dvCount = static_cast<u32>(dv.Size());
+    u32 dvCount = static_cast<u32>(dv.Num());
 
     const f32 aspect = (scH > 0) ? static_cast<f32>(scW) / static_cast<f32>(scH) : 1.0f;
     const FRenderCamera3D renderCamera =
@@ -9692,7 +9692,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                     cl->Draw(dvCount, 0);
                 } else {
                     editor_frustum_culling::ForEachSubmittedVertexRange(
-                        normal_submission_mask, all3d.Size(),
+                        normal_submission_mask, all3d.Num(),
                         [&](u32 node_index) noexcept {
                             return h.scene_mesh_vertex_offset[node_index];
                         },
@@ -9782,7 +9782,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     const bool motionHistoryReady = h.mv_computed;
     h.mv_computed = false;
     auto invalidateMotionHistory = [&]() noexcept {
-        for (u32 i = 0; i < all3d.Size(); ++i) {
+        for (u32 i = 0; i < all3d.Num(); ++i) {
             if (AEditor3DRecordComponent* record = Rec3D(all3d[i])) {
                 record->prev_world_valid = false;
             }
@@ -9818,7 +9818,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             SceneMeshSubmissionMask(
                 h,
                 editor_frustum_culling::ESceneGeometryPass::MotionVectors);
-        for (u32 i = 0; i < all3d.Size(); ++i) {
+        for (u32 i = 0; i < all3d.Num(); ++i) {
             if (!submission_mask.ShouldSubmit(i)) {
                 if (AEditor3DRecordComponent* record =
                         Rec3D(all3d[i])) {
@@ -9846,7 +9846,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                 SceneMeshSubmissionMask(
                     h,
                     editor_frustum_culling::ESceneGeometryPass::MotionVectors),
-                all3d.Size(),
+                all3d.Num(),
                 [&](u32 i) noexcept {
                 game::ANode* nn = all3d[i];
                 FGpuMesh* gm = motionMeshForNode(nn);
@@ -10150,7 +10150,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             SceneMeshSubmissionMask(
                 h,
                 editor_frustum_culling::ESceneGeometryPass::PbrOpaqueDraw),
-            all3d.Size(),
+            all3d.Num(),
             [&](u32 node_index) noexcept {
                 ssss_mrt_draws_valid = DrawEditorPbrNode(h, *cl, all3d[node_index], SceneMeshWorldTransform(h, node_index, all3d[node_index]), ssss_mrt_bound) && ssss_mrt_draws_valid;
             });
@@ -10271,38 +10271,38 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     if (h.spr_pipe && h.spr_vb && h.m3d_frame_cb) {
         TArray<FSprVtx>& sv = h.sprite_vertices;
         TArray<IRhiTexture*>& stex = h.sprite_draw_textures;
-        sv.Clear();
-        stex.Clear();
+        sv.Reset();
+        stex.Reset();
         constexpr u32 kMaxSpr = 1024u;
         constexpr u32 kVerticesPerSprite = 6u;
-        if (sv.Capacity() < kMaxSpr * kVerticesPerSprite)
+        if (sv.Max() < kMaxSpr * kVerticesPerSprite)
             sv.Reserve(kMaxSpr * kVerticesPerSprite);
-        if (stex.Capacity() < kMaxSpr) stex.Reserve(kMaxSpr);
+        if (stex.Max() < kMaxSpr) stex.Reserve(kMaxSpr);
         // ローカルクアッドの 4 隅 (中心原点・1x1)。Ortho 2D ビュー (カメラ +Z→原点) では
         // world +X が «画面左» に写る (ギズモ赤 X 軸で実測)。画像が元の見た目どおり (左右非反転・
         // 上下正立) になるよう、画像左端 U=0 を world +X 側、V=0 を world +Y 側に割り当てる。
         const FVec3 lTL{ -0.5f,  0.5f, 0 }, lTR{ 0.5f,  0.5f, 0 };
         const FVec3 lBL{ -0.5f, -0.5f, 0 }, lBR{ 0.5f, -0.5f, 0 };
         const FVec2 uTL{ 1, 0 }, uTR{ 0, 0 }, uBL{ 1, 1 }, uBR{ 0, 1 };
-        for (u32 i = 0; i < all3d.Size() && stex.Size() < kMaxSpr; ++i) {
+        for (u32 i = 0; i < all3d.Num() && stex.Num() < kMaxSpr; ++i) {
             if (!SceneMeshHierarchyVisible(h, i, all3d[i])) continue;
             game::AMeshComponent3D* mc = Mesh3D(all3d[i]);
             if (mc == nullptr || mc->RenderHandle() == nullptr) continue;
             const FMat4 m = SceneMeshWorldTransform(h, i, all3d[i]).ToMat4();
             auto wv = [&](FVec3 lp, FVec2 uv) {
                 const FVec4 w = Transform(FVec4{ lp.x, lp.y, lp.z, 1.0f }, m);
-                FSprVtx o; o.px = w.x; o.py = w.y; o.pz = w.z; o.u = uv.x; o.v = uv.y; sv.PushBack(o);
+                FSprVtx o; o.px = w.x; o.py = w.y; o.pz = w.z; o.u = uv.x; o.v = uv.y; sv.Add(o);
             };
             wv(lTL, uTL); wv(lBL, uBL); wv(lBR, uBR);     // 三角形 1
             wv(lTL, uTL); wv(lBR, uBR); wv(lTR, uTR);     // 三角形 2
-            stex.PushBack(static_cast<IRhiTexture*>(mc->RenderHandle()));
+            stex.Add(static_cast<IRhiTexture*>(mc->RenderHandle()));
         }
-        if (stex.Size() > 0) {
-            h.spr_vb->Update(sv.Data(), sizeof(FSprVtx) * sv.Size());
+        if (stex.Num() > 0) {
+            h.spr_vb->Update(sv.GetData(), sizeof(FSprVtx) * sv.Num());
             cl->SetPipeline(*h.spr_pipe);
             cl->SetConstantBuffer(0, *h.m3d_frame_cb);    // 同じ Frame CB を共有 (sprite は先頭3つの float4 のみ宣言・cam_pos 未使用)
             cl->SetVertexBuffer(*h.spr_vb, sizeof(FSprVtx));
-            for (u32 i = 0; i < stex.Size(); ++i) {
+            for (u32 i = 0; i < stex.Num(); ++i) {
                 cl->SetTexture(0, *stex[i]);
                 cl->Draw(6, i * 6);                       // クアッド i は頂点 [6i, 6i+6)
             }
@@ -10475,7 +10475,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                         h,
                         editor_frustum_culling::ESceneGeometryPass::
                             RefractionPreflight),
-                    all3d.Size(),
+                    all3d.Num(),
                     [&](u32 i) noexcept {
                 if (!SceneMeshHierarchyVisible(h, i, all3d[i])) return false;
                 game::AMeshComponent3D* mc = Mesh3D(all3d[i]);
@@ -10507,7 +10507,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                             h,
                             editor_frustum_culling::ESceneGeometryPass::
                                 RefractionDraw),
-                        all3d.Size(),
+                        all3d.Num(),
                         [&](u32 i) noexcept {
                         game::ANode* nn = all3d[i];
                         if (!SceneMeshHierarchyVisible(h, i, nn)) return;
@@ -11425,7 +11425,7 @@ static int RenderEditorFrame(
         // TArray preserves capacity, eliminating the per-frame heap churn that
         // the former local water_nodes array caused in both 2D and 3D views.
         TArray<game::ANode*>& water_nodes = host->scene_mesh_nodes;
-        water_nodes.Clear();
+        water_nodes.Reset();
         Dfs3DCollect(&host->scene3d.Root(), water_nodes);
         // Resource commits happen before BeginFrame, but the authored scene
         // remains visible through every slice via the opaque PBR fallback.
@@ -12261,13 +12261,13 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->vxgi_cb_vox.Reset(); host->vxgi_cb_res.Reset(); host->vxgi_ready = false;
     host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
-    host->sprite_textures.Clear();
+    host->sprite_textures.Reset();
     // Per-node material and custom-mesh caches are component members; release
     // them explicitly while the RHI device still exists.
     {
         TArray<game::ANode*> all3d;
         Dfs3DCollect(&host->scene3d.Root(), all3d);
-        for (u32 i = 0u; i < all3d.Size(); ++i) {
+        for (u32 i = 0u; i < all3d.Num(); ++i) {
             AEditor3DRecordComponent* record = Rec3D(all3d[i]);
             if (record == nullptr) continue;
             record->gm_cache = FGpuMesh{};
@@ -12331,10 +12331,10 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     // ユーザー型記述子はグローバルレジストリからポインタ参照される。ホスト所有領域を
     // 先に破棄すると次の create/destroy 周回で dangling になるため、登録元だけを外す。
     game::CTypeRegistry& type_registry = game::CTypeRegistry::Get();
-    for (u32 i = 0; i < host->user_types.Size(); ++i) {
+    for (u32 i = 0; i < host->user_types.Num(); ++i) {
         (void)type_registry.Unregister(&host->user_types[i]->desc);
     }
-    host->user_types.ReleaseStorage();
+    host->user_types.Empty();
 
     host->renderer.Shutdown();
     delete host;
@@ -12348,13 +12348,13 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
 /** シーンのノード数。 */
 ACS_EDITOR_API int acs_editor_node_count(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    return (host != nullptr) ? static_cast<int>(host->nodes.Size()) : 0;
+    return (host != nullptr) ? static_cast<int>(host->nodes.Num()) : 0;
 }
 
 /** リスト index 番目のノード id (範囲外は -1)。 */
 ACS_EDITOR_API int acs_editor_node_id_at(void* handle, int index) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || index < 0 || index >= static_cast<int>(host->nodes.Size())) return -1;
+    if (host == nullptr || index < 0 || index >= static_cast<int>(host->nodes.Num())) return -1;
     return host->nodes[static_cast<u32>(index)]->editor_id;
 }
 
@@ -12548,13 +12548,13 @@ ACS_EDITOR_API int acs_editor_node_clear_material(void* handle, int id) {
 ACS_EDITOR_API int acs_editor_reload_material(void* handle, const char* utf8_path) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || utf8_path == nullptr) return 0;
-    for (u32 i = 0; i < host->nodes.Size(); ++i) {
+    for (u32 i = 0; i < host->nodes.Num(); ++i) {
         AEditorNode* n = host->nodes[i];
         if (std::strcmp(n->material_path, utf8_path) == 0) LoadNodeMaterial(n);
     }
     // 3D ノードも同じ .acsmat を参照していれば再ロード (material editor 保存→3D ビューポート即反映)。
     TArray<game::ANode*> all3d; Dfs3DCollect(&host->scene3d.Root(), all3d);
-    for (u32 i = 0; i < all3d.Size(); ++i) {
+    for (u32 i = 0; i < all3d.Num(); ++i) {
         game::AMeshComponent3D* mc = Mesh3D(all3d[i]);
         if (mc == nullptr) continue;
         const FStringView mp = mc->MaterialPath();
@@ -13547,9 +13547,9 @@ static void EnsurePreviewSamples(FEditorHost& h) noexcept {
     IRhiDevice* dev = h.renderer.Device();
     if (dev == nullptr) return;
     constexpr u32 S = 96;
-    TArray<u8> alb; alb.Resize(S * S * 4);
-    TArray<u8> nrm; nrm.Resize(S * S * 4);
-    TArray<u8> scn; scn.Resize(S * S * 4);
+    TArray<u8> alb; alb.SetNum(S * S * 4);
+    TArray<u8> nrm; nrm.SetNum(S * S * 4);
+    TArray<u8> scn; scn.SetNum(S * S * 4);
     auto B = [](f32 v) -> u8 { return static_cast<u8>(v < 0 ? 0 : (v > 1 ? 255 : v * 255.0f + 0.5f)); };
     for (u32 y = 0; y < S; ++y) for (u32 x = 0; x < S; ++x) {
         const u32 i = (y * S + x) * 4;
@@ -13574,9 +13574,9 @@ static void EnsurePreviewSamples(FEditorHost& h) noexcept {
         if (d < 0.15f) { f32 t = d/0.15f; rr = 1.0f+(rr-1.0f)*t; gg = 0.85f+(gg-0.85f)*t; bb = 0.30f+(bb-0.30f)*t; }
         scn[i+0]=B(rr); scn[i+1]=B(gg); scn[i+2]=B(bb); scn[i+3]=255;
     }
-    h.preview_sphere_albedo = MakeTex(*dev, S, S, alb.Data());
-    h.preview_sphere_normal = MakeTex(*dev, S, S, nrm.Data());
-    h.preview_scene         = MakeTex(*dev, S, S, scn.Data());
+    h.preview_sphere_albedo = MakeTex(*dev, S, S, alb.GetData());
+    h.preview_sphere_normal = MakeTex(*dev, S, S, nrm.GetData());
+    h.preview_scene         = MakeTex(*dev, S, S, scn.GetData());
     h.preview_samples_ready = true;
 }
 
@@ -13764,7 +13764,7 @@ static bool EnsurePreviewPbr(FEditorHost& h, u32 size) noexcept {
     if (!h.preview_brdf_lut) {
         constexpr u32 kBrdfSize = 128u;
         TArray<f32> brdf;
-        brdf.Resize(kBrdfSize * kBrdfSize * 2u);
+        brdf.SetNum(kBrdfSize * kBrdfSize * 2u);
         for (u32 y = 0u; y < kBrdfSize; ++y) {
             const f32 roughness =
                 (static_cast<f32>(y) + 0.5f) /
@@ -13801,9 +13801,9 @@ static bool EnsurePreviewPbr(FEditorHost& h, u32 size) noexcept {
         brdf_desc.width = kBrdfSize;
         brdf_desc.height = kBrdfSize;
         brdf_desc.format = EFormat::R32G32_Float;
-        brdf_desc.initial_data = brdf.Data();
+        brdf_desc.initial_data = brdf.GetData();
         brdf_desc.initial_data_size =
-            brdf.Size() * sizeof(f32);
+            brdf.Num() * sizeof(f32);
         auto brdf_result =
             CreateRhiTexture(*dev, brdf_desc);
         if (brdf_result.IsErr()) return false;
@@ -13872,7 +13872,7 @@ static bool EnsurePreviewPbr(FEditorHost& h, u32 size) noexcept {
         // Mapping (x, y=0, z) -> (x, -z, 0) preserves the authored UVs and
         // makes both the geometric and stored normal point toward -Z.
         for (u32 vertex = 0u;
-             vertex < plane->Vertices().Size();
+             vertex < plane->Vertices().Num();
              ++vertex) {
             FMeshVertex& value =
                 plane->Vertices()[vertex];
@@ -14328,10 +14328,10 @@ static int RigidBodySlot(const AEditorNode* n) noexcept {
  *  編集値 (comp_props、スキーマ順) から読む。動的のみ書き戻し対象に記録する。 */
 static void EditorBuildPlayWorld(FEditorHost& h) noexcept {
     h.play_world = MakeUnique<game::CRigidWorld2D>();
-    h.play_body.Clear();
-    h.play_node.Clear();
+    h.play_body.Reset();
+    h.play_node.Reset();
     if (h.play_world.Get() == nullptr) return;
-    for (u32 i = 0; i < h.nodes.Size(); ++i) {
+    for (u32 i = 0; i < h.nodes.Num(); ++i) {
         AEditorNode* n = h.nodes[i];
         const int slot = RigidBodySlot(n);
         if (slot < 0) continue;                                 // 剛体ボディ未付与 → 物理なし
@@ -14368,8 +14368,8 @@ static void EditorBuildPlayWorld(FEditorHost& h) noexcept {
         h.play_world->SetAngle(bi, w.rotation);                 // 向きを衝突に反映 (斜面/初期回転)
         if (dynamic) {
             h.play_world->SetDamping(bi, lind, angd);
-            h.play_body.PushBack(bi);                           // 動的のみ書き戻し対象
-            h.play_node.PushBack(n->editor_id);
+            h.play_body.Add(bi);                           // 動的のみ書き戻し対象
+            h.play_node.Add(n->editor_id);
         }
     }
 }
@@ -14379,7 +14379,7 @@ static void EditorStepPlay(FEditorHost& h, f32 dt) noexcept {
     if (h.play_world.Get() == nullptr) return;
     if (dt > 0.05f) dt = 0.05f;                          // 大 dt を抑制 (安定性)
     h.play_world->Step(dt, FVec2{ 0.0f, 900.0f });       // +Y = 画面下 → 下向き重力
-    for (u32 i = 0; i < h.play_node.Size(); ++i) {
+    for (u32 i = 0; i < h.play_node.Num(); ++i) {
         AEditorNode* n = FindNode(h, h.play_node[i]);
         if (n == nullptr) continue;
         const u32 bi = h.play_body[i];
@@ -14435,8 +14435,8 @@ ACS_EDITOR_API int acs_editor_play_stop(void* handle) {
     if (host == nullptr || host->play_state == 0) return 0;
     host->play_state = 0;
     host->play_world.Reset();
-    host->play_body.Clear();
-    host->play_node.Clear();
+    host->play_body.Reset();
+    host->play_node.Reset();
     if (host->play_snapshot != nullptr) {
         RestoreSnapshot(*host, host->play_snapshot);     // 開始状態 (2D + 3D) へ復元 (undo は積まない)
         delete[] host->play_snapshot;
@@ -14473,14 +14473,14 @@ ACS_EDITOR_API void acs_editor_poly_begin(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     host->poly_drawing = true;
-    host->poly_points.Clear();
+    host->poly_points.Reset();
 }
 
 /** 描画中にスクリーン点を 1 つ追加する (world に変換して保持)。 */
 ACS_EDITOR_API void acs_editor_poly_add_point(void* handle, float sx, float sy) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->poly_drawing) return;
-    host->poly_points.PushBack(FVec2{ S2WX(*host, sx), S2WY(*host, sy) });
+    host->poly_points.Add(FVec2{ S2WX(*host, sx), S2WY(*host, sy) });
 }
 
 /** 集めた点を 1 ノード (APrimitiveRenderer2D=Polygon) として確定する。新 id / 3 点未満は -1。
@@ -14490,8 +14490,8 @@ ACS_EDITOR_API int acs_editor_poly_finalize(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
     host->poly_drawing = false;
-    u32 np = host->poly_points.Size();
-    if (np < 3) { host->poly_points.Clear(); return -1; }
+    u32 np = host->poly_points.Num();
+    if (np < 3) { host->poly_points.Reset(); return -1; }
 
     // アンカー (クリック点) を world でコピー (ローカルバッファ上限まで)。
     constexpr u32 kRV = AEditorNode::kMaxRenderVerts;
@@ -14502,7 +14502,7 @@ ACS_EDITOR_API int acs_editor_poly_finalize(void* handle) {
     // 閉じた滑らかな曲線をサンプル (world)。
     FVec2 smooth[kRV];
     u32 sc = SmoothClosedSpline(anchors, np, smooth, kRV);
-    if (sc < 3) { host->poly_points.Clear(); return -1; }
+    if (sc < 3) { host->poly_points.Reset(); return -1; }
 
     // 重心 (ノード原点) を曲線から求める。
     f32 cx = 0.0f, cy = 0.0f;
@@ -14529,7 +14529,7 @@ ACS_EDITOR_API int acs_editor_poly_finalize(void* handle) {
     for (u32 i = 0; i < cc; ++i) n->poly_verts[i] = collider[i];
     AttachComponent(n, "APrimitiveRenderer2D");
     SetCompProp(n, 0, 0, 3.0f, 0.0f, 0.0f, 0.0f);             // renderer.shape = 3 (Polygon)
-    host->poly_points.Clear();
+    host->poly_points.Reset();
     SelSet(*host, n->editor_id);
     return n->editor_id;
 }
@@ -14539,7 +14539,7 @@ ACS_EDITOR_API void acs_editor_poly_cancel(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     host->poly_drawing = false;
-    host->poly_points.Clear();
+    host->poly_points.Reset();
 }
 
 /** ポリゴン描画中か (1/0)。 */
@@ -14572,10 +14572,10 @@ ACS_EDITOR_API void acs_editor_select_toggle(void* handle, int id) {
 ACS_EDITOR_API void acs_editor_select_all(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
-    host->selection.Clear();
-    for (u32 i = 0; i < host->nodes.Size(); ++i) host->selection.PushBack(host->nodes[i]->editor_id);
-    host->selected = (host->selection.Size() > 0)
-                     ? host->selection[host->selection.Size() - 1] : -1;
+    host->selection.Reset();
+    for (u32 i = 0; i < host->nodes.Num(); ++i) host->selection.Add(host->nodes[i]->editor_id);
+    host->selected = (host->selection.Num() > 0)
+                     ? host->selection[host->selection.Num() - 1] : -1;
 }
 
 /** 選択を全解除する。 */
@@ -14587,13 +14587,13 @@ ACS_EDITOR_API void acs_editor_select_none(void* handle) {
 /** 選択集合の要素数。 */
 ACS_EDITOR_API int acs_editor_selection_count(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    return (host != nullptr) ? static_cast<int>(host->selection.Size()) : 0;
+    return (host != nullptr) ? static_cast<int>(host->selection.Num()) : 0;
 }
 
 /** 選択集合の index 番目のノード id (範囲外は -1)。 */
 ACS_EDITOR_API int acs_editor_selection_at(void* handle, int index) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || index < 0 || index >= static_cast<int>(host->selection.Size())) return -1;
+    if (host == nullptr || index < 0 || index >= static_cast<int>(host->selection.Num())) return -1;
     return host->selection[static_cast<u32>(index)];
 }
 
@@ -14613,22 +14613,22 @@ ACS_EDITOR_API int acs_editor_select_box(void* handle, float x0, float y0, float
     if (host == nullptr) return 0;
     const f32 minx = (x0 < x1) ? x0 : x1, maxx = (x0 < x1) ? x1 : x0;
     const f32 miny = (y0 < y1) ? y0 : y1, maxy = (y0 < y1) ? y1 : y0;
-    if (additive == 0) host->selection.Clear();
+    if (additive == 0) host->selection.Reset();
     int inBox = 0;
-    for (u32 i = 0; i < host->nodes.Size(); ++i) {
+    for (u32 i = 0; i < host->nodes.Num(); ++i) {
         AEditorNode* n = host->nodes[i];
         const game::FTransform2D w = n->World2D();
         const f32 sx = W2SX(*host, w.position.x);
         const f32 sy = W2SY(*host, w.position.y);
         if (sx >= minx && sx <= maxx && sy >= miny && sy <= maxy) {   // 中心が矩形内
             ++inBox;
-            if (!SelContains(*host, n->editor_id)) host->selection.PushBack(n->editor_id);
+            if (!SelContains(*host, n->editor_id)) host->selection.Add(n->editor_id);
         }
     }
     // primary を整える: 追加で既存 primary が有効ならそのまま、でなければ末尾の一員へ。
-    if (host->selection.Size() > 0) {
+    if (host->selection.Num() > 0) {
         if (additive == 0 || host->selected < 0 || !SelContains(*host, host->selected))
-            host->selected = host->selection[host->selection.Size() - 1];
+            host->selected = host->selection[host->selection.Num() - 1];
     } else {
         host->selected = -1;
     }
@@ -14695,13 +14695,13 @@ ACS_EDITOR_API int acs_editor_type_member_count_at(int index) {
 /** ゲーム DLL から取り込んだユーザー定義型の数。 */
 ACS_EDITOR_API int acs_editor_user_type_count(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    return (host != nullptr) ? static_cast<int>(host->user_types.Size()) : 0;
+    return (host != nullptr) ? static_cast<int>(host->user_types.Num()) : 0;
 }
 
 /** i 番目のユーザー定義型の名前 (UTF-8、範囲外は "")。 */
 ACS_EDITOR_API const char* acs_editor_user_type_name_at(void* handle, int index) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || index < 0 || static_cast<u32>(index) >= host->user_types.Size()) return "";
+    if (host == nullptr || index < 0 || static_cast<u32>(index) >= host->user_types.Num()) return "";
     return host->user_types[static_cast<u32>(index)]->name;
 }
 
@@ -14715,7 +14715,7 @@ static void CopyCStr(char* dst, const char* src, u32 cap) noexcept {
 
 // id で既存ユーザー型を探す (無ければ nullptr)。
 static FUserType* FindUserType(FEditorHost& h, game::FTypeId id) noexcept {
-    for (u32 i = 0; i < h.user_types.Size(); ++i)
+    for (u32 i = 0; i < h.user_types.Num(); ++i)
         if (h.user_types[i]->desc.id == id) return h.user_types[i].Get();
     return nullptr;
 }
@@ -14769,8 +14769,8 @@ ACS_EDITOR_API int acs_editor_load_game_dll(void* handle, const char* path) {
 
         const bool isNew = (ut == nullptr);
         if (isNew) {
-            host->user_types.PushBack(MakeUnique<FUserType>());
-            ut = host->user_types[host->user_types.Size() - 1].Get();
+            host->user_types.Add(MakeUnique<FUserType>());
+            ut = host->user_types[host->user_types.Num() - 1].Get();
         }
         CopyCStr(ut->name, tn, sizeof(ut->name));
         unsigned fc = (fcF != nullptr) ? fcF(i) : 0u;
@@ -14786,7 +14786,7 @@ ACS_EDITOR_API int acs_editor_load_game_dll(void* handle, const char* path) {
         ut->Rebuild(category, fc);
         if (isNew && !game::CTypeRegistry::Get().Register(&ut->desc)) {
             // 固定長レジストリが満杯なら、未登録の記述子をホストへ残さない。
-            host->user_types.PopBack();
+            host->user_types.Pop();
             continue;
         }
         ++imported;
@@ -14810,10 +14810,10 @@ ACS_EDITOR_API int acs_editor_instantiate_scene(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     // 既存の実体を一掃してから作り直す。
-    for (u32 i = 0; i < host->nodes.Size(); ++i) host->nodes[i]->RemoveAllComponents();
+    for (u32 i = 0; i < host->nodes.Num(); ++i) host->nodes[i]->RemoveAllComponents();
 
     int total = 0;
-    for (u32 i = 0; i < host->nodes.Size(); ++i) {
+    for (u32 i = 0; i < host->nodes.Num(); ++i) {
         AEditorNode* n = host->nodes[i];
         for (u32 s = 0; s < n->component_count; ++s) {
             const game::FTypeDesc* d = game::CTypeRegistry::Get().FindById(n->components[s]);
@@ -14843,7 +14843,7 @@ ACS_EDITOR_API void acs_editor_tick_instances(void* handle, float dt) {
 ACS_EDITOR_API void acs_editor_clear_instances(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
-    for (u32 i = 0; i < host->nodes.Size(); ++i) host->nodes[i]->RemoveAllComponents();
+    for (u32 i = 0; i < host->nodes.Num(); ++i) host->nodes[i]->RemoveAllComponents();
     host->instances_live = false;
 }
 
@@ -14853,8 +14853,8 @@ ACS_EDITOR_API void acs_editor_clear_instances(void* handle) {
 ACS_EDITOR_API int acs_editor_preview_start(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->preview_live) return 0;
-    host->preview_snap.Clear();                                   // 開始時の transform を退避 (停止で復元)
-    for (u32 i = 0; i < host->nodes.Size(); ++i) host->preview_snap.PushBack(host->nodes[i]->Local2D());
+    host->preview_snap.Reset();                                   // 開始時の transform を退避 (停止で復元)
+    for (u32 i = 0; i < host->nodes.Num(); ++i) host->preview_snap.Add(host->nodes[i]->Local2D());
     acs_editor_instantiate_scene(handle);                         // 実コンポーネントを attach + authored 値適用
     host->preview_live = true;
     return 1;
@@ -14866,9 +14866,9 @@ ACS_EDITOR_API void acs_editor_preview_stop(void* handle) {
     if (host == nullptr || !host->preview_live) return;
     host->preview_live = false;
     acs_editor_clear_instances(handle);
-    const u32 n = (host->preview_snap.Size() < host->nodes.Size()) ? host->preview_snap.Size() : host->nodes.Size();
+    const u32 n = (host->preview_snap.Num() < host->nodes.Num()) ? host->preview_snap.Num() : host->nodes.Num();
     for (u32 i = 0; i < n; ++i) host->nodes[i]->SetLocal2D(host->preview_snap[i]);   // 非破壊: 位置を戻す
-    host->preview_snap.Clear();
+    host->preview_snap.Reset();
 }
 
 /** Preview 中なら 1。 */
@@ -14882,7 +14882,7 @@ ACS_EDITOR_API int acs_editor_instance_count(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     int total = 0;
-    for (u32 i = 0; i < host->nodes.Size(); ++i) total += static_cast<int>(host->nodes[i]->ComponentCount());
+    for (u32 i = 0; i < host->nodes.Num(); ++i) total += static_cast<int>(host->nodes[i]->ComponentCount());
     return total;
 }
 
@@ -14912,18 +14912,18 @@ static void EditorTickLogic(FEditorHost& h, f32 dt) noexcept {
     // PUSH: editor ノードの現在 transform (= editor 物理 Play が動かした結果) を DLL へ送ってから
     // tick する。これでコンポーネントの OnDraw / OnUpdate が «物理で動いた位置» を基準に走り、
     // editor メタデータ描画 (物理) と DLL の OnDraw が同じ位置に揃う (二重シミュの位置ずれ解消)。
-    for (u32 i = 0; i < h.nodes.Size(); ++i) {
+    for (u32 i = 0; i < h.nodes.Num(); ++i) {
         const game::FTransform2D t = h.nodes[i]->Local2D();
         h.logic_shim.set_transform(h.logic_scene, static_cast<int>(i),
                                    t.position.x, t.position.y, t.rotation, t.scale.x, t.scale.y);
     }
     h.logic_shim.tick(h.logic_scene, dt);
-    for (u32 i = 0; i < h.nodes.Size(); ++i) {   // dll node idx == host->nodes index (順次構築)
+    for (u32 i = 0; i < h.nodes.Num(); ++i) {   // dll node idx == host->nodes index (順次構築)
         f32 x = 0, y = 0, r = 0, sx = 1, sy = 1;
         h.logic_shim.get_transform(h.logic_scene, static_cast<int>(i), &x, &y, &r, &sx, &sy);
         // DLL が «動かしたノードだけ» 反映する (開始時 transform と同一なら触らない)。
         // → コンポーネントの無いノードは物理 Play 等の結果を保てる (両 Play の共存)。
-        const game::FTransform2D sv = (i < h.logic_saved.Size()) ? h.logic_saved[i] : h.nodes[i]->Local2D();
+        const game::FTransform2D sv = (i < h.logic_saved.Num()) ? h.logic_saved[i] : h.nodes[i]->Local2D();
         if (x != sv.position.x || y != sv.position.y || r != sv.rotation || sx != sv.scale.x || sy != sv.scale.y) {
             h.nodes[i]->SetLocal2D(game::FTransform2D{ FVec2{ x, y }, r, FVec2{ sx, sy } });
         }
@@ -14992,10 +14992,10 @@ ACS_EDITOR_API int acs_editor_logic_play_start(void* handle, const char* dll_pat
     // dll idx == host->nodes index になるよう、まず全ノードを «root 直下に平坦» 生成し
     // (transform + components 込み)、その後 set_parent で正しい親へ付け替える。これで
     // host->nodes が «親より先に子» の順 (reparent 後にあり得る) でも親子構造が崩れない。
-    host->logic_saved.Clear();
-    for (u32 i = 0; i < host->nodes.Size(); ++i) {
+    host->logic_saved.Reset();
+    for (u32 i = 0; i < host->nodes.Num(); ++i) {
         AEditorNode* n = host->nodes[i];
-        host->logic_saved.PushBack(n->Local2D());          // 復元用に退避
+        host->logic_saved.Add(n->Local2D());          // 復元用に退避
         // 旧 DLL (set_parent 無し) 互換: best-effort で親-先行ケースだけ即配置。
         int parentIdx = -1;
         if (sh.set_parent == nullptr) {
@@ -15020,11 +15020,11 @@ ACS_EDITOR_API int acs_editor_logic_play_start(void* handle, const char* dll_pat
     }
     // 2nd pass: 親子を «順序非依存» に確定する (全ノードを検索して親 index を解決)。
     if (sh.set_parent != nullptr) {
-        for (u32 i = 0; i < host->nodes.Size(); ++i) {
+        for (u32 i = 0; i < host->nodes.Num(); ++i) {
             const int pid = ParentIdOf(*host, host->nodes[i]);
             if (pid < 0) continue;                          // root 直下はそのまま
             int parentIdx = -1;
-            for (u32 k = 0; k < host->nodes.Size(); ++k)
+            for (u32 k = 0; k < host->nodes.Num(); ++k)
                 if (host->nodes[k]->editor_id == pid) { parentIdx = static_cast<int>(k); break; }
             if (parentIdx >= 0) sh.set_parent(scene, static_cast<int>(i), parentIdx);
         }
@@ -15058,11 +15058,11 @@ ACS_EDITOR_API void acs_editor_logic_play_stop(void* handle) {
     ResetLogicInput(*host);
     if (host->logic_scene != nullptr && host->logic_shim.destroy != nullptr)
         host->logic_shim.destroy(host->logic_scene);
-    for (u32 i = 0; i < host->nodes.Size() && i < host->logic_saved.Size(); ++i)
+    for (u32 i = 0; i < host->nodes.Num() && i < host->logic_saved.Num(); ++i)
         host->nodes[i]->SetLocal2D(host->logic_saved[i]);   // 編集状態へ復元
     if (host->logic_dll != nullptr) FreeLibrary(host->logic_dll);
     host->logic_dll = nullptr; host->logic_scene = nullptr; host->logic_play = false;
-    host->logic_saved.Clear();
+    host->logic_saved.Reset();
 }
 
 /** インプロセス Play 中か (1/0)。 */
@@ -15261,11 +15261,11 @@ ACS_EDITOR_API const char* acs_editor_node_get_prefab_src(void* handle, int id) 
 /** 直前の変更を取り消す (成功 1 / 何もなければ 0)。 */
 ACS_EDITOR_API int acs_editor_undo(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || host->undo.Size() == 0) return 0;
+    if (host == nullptr || host->undo.Num() == 0) return 0;
     char* cur = DupSnapshot(*host);                       // 現在状態を redo に退避
-    if (cur != nullptr) host->redo.PushBack(cur);
-    char* prev = host->undo[host->undo.Size() - 1];
-    host->undo.PopBack();
+    if (cur != nullptr) host->redo.Add(cur);
+    char* prev = host->undo[host->undo.Num() - 1];
+    host->undo.Pop();
     RestoreSnapshot(*host, prev);                         // 2D + 3D を復元 (スタックは不変)
     delete[] prev;
     return 1;
@@ -15274,11 +15274,11 @@ ACS_EDITOR_API int acs_editor_undo(void* handle) {
 /** 取り消した変更をやり直す (成功 1 / 何もなければ 0)。 */
 ACS_EDITOR_API int acs_editor_redo(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || host->redo.Size() == 0) return 0;
+    if (host == nullptr || host->redo.Num() == 0) return 0;
     char* cur = DupSnapshot(*host);                       // 現在状態を undo に積む
-    if (cur != nullptr) host->undo.PushBack(cur);
-    char* next = host->redo[host->redo.Size() - 1];
-    host->redo.PopBack();
+    if (cur != nullptr) host->undo.Add(cur);
+    char* next = host->redo[host->redo.Num() - 1];
+    host->redo.Pop();
     RestoreSnapshot(*host, next);                         // 2D + 3D を復元
     delete[] next;
     return 1;
@@ -15287,13 +15287,13 @@ ACS_EDITOR_API int acs_editor_redo(void* handle) {
 /** undo 可能か。 */
 ACS_EDITOR_API int acs_editor_can_undo(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    return (host != nullptr && host->undo.Size() > 0) ? 1 : 0;
+    return (host != nullptr && host->undo.Num() > 0) ? 1 : 0;
 }
 
 /** redo 可能か。 */
 ACS_EDITOR_API int acs_editor_can_redo(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    return (host != nullptr && host->redo.Size() > 0) ? 1 : 0;
+    return (host != nullptr && host->redo.Num() > 0) ? 1 : 0;
 }
 
 /** 連続編集 (ドラッグスクラブ等) を開始する。開始時点の状態を 1 度だけ undo に積み、
@@ -15496,7 +15496,7 @@ ACS_EDITOR_API int acs_editor_game_camera3d_get(
     if (host == nullptr || !std::isfinite(aspect) ||
         aspect < 1.0e-4f || aspect > 1.0e4f)
         return 0;
-    host->camera_resolve_nodes.Clear();
+    host->camera_resolve_nodes.Reset();
     Dfs3DCollect(
         &host->scene3d.Root(),
         host->camera_resolve_nodes);
@@ -15728,7 +15728,7 @@ ACS_EDITOR_API int acs_editor_game_camera_preview_get(
     auto* host = static_cast<FEditorHost*>(handle);
     if (node_id != nullptr) *node_id = -1;
     if (host == nullptr || node_id == nullptr) return 0;
-    host->camera_resolve_nodes.Clear();
+    host->camera_resolve_nodes.Reset();
     Dfs3DCollect(
         &host->scene3d.Root(),
         host->camera_resolve_nodes);
@@ -15752,28 +15752,28 @@ ACS_EDITOR_API int acs_editor_camera3d_count(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     constexpr u32 kMaximumEnumeratedCameras = 256u;
-    host->camera_resolve_nodes.Clear();
-    host->camera_node_ids_scratch.Clear();
+    host->camera_resolve_nodes.Reset();
+    host->camera_node_ids_scratch.Reset();
     Dfs3DCollect(
         &host->scene3d.Root(),
         host->camera_resolve_nodes);
-    if (host->camera_node_ids_scratch.Capacity() <
+    if (host->camera_node_ids_scratch.Max() <
         kMaximumEnumeratedCameras) {
         host->camera_node_ids_scratch.Reserve(
             kMaximumEnumeratedCameras);
     }
     for (u32 index = 0u;
-         index < host->camera_resolve_nodes.Size() &&
-         host->camera_node_ids_scratch.Size() <
+         index < host->camera_resolve_nodes.Num() &&
+         host->camera_node_ids_scratch.Num() <
              kMaximumEnumeratedCameras;
          ++index) {
         AEditor3DRecordComponent* record =
             Rec3D(host->camera_resolve_nodes[index]);
         if (record != nullptr && record->has_scene_camera)
-            host->camera_node_ids_scratch.PushBack(record->id);
+            host->camera_node_ids_scratch.Add(record->id);
     }
     return static_cast<int>(
-        host->camera_node_ids_scratch.Size());
+        host->camera_node_ids_scratch.Num());
 }
 
 ACS_EDITOR_API int acs_editor_camera3d_node_id_at(
@@ -15781,7 +15781,7 @@ ACS_EDITOR_API int acs_editor_camera3d_node_id_at(
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || index < 0 ||
         static_cast<u32>(index) >=
-            host->camera_node_ids_scratch.Size()) {
+            host->camera_node_ids_scratch.Num()) {
         return -1;
     }
     return host->camera_node_ids_scratch[
@@ -15895,7 +15895,7 @@ ACS_EDITOR_API int acs_editor_add_camera3d(
     TArray<game::ANode*> nodes;
     Dfs3DCollect(&host->scene3d.Root(), nodes);
     u32 camera_count = 0u;
-    for (u32 index = 0u; index < nodes.Size(); ++index) {
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
         AEditor3DRecordComponent* record = Rec3D(nodes[index]);
         if (record != nullptr && record->has_scene_camera) ++camera_count;
     }
@@ -15982,7 +15982,7 @@ ACS_EDITOR_API int acs_editor_node3d_camera_set(
         TArray<game::ANode*> nodes;
         Dfs3DCollect(&host->scene3d.Root(), nodes);
         u32 camera_count = 0u;
-        for (u32 index = 0u; index < nodes.Size(); ++index) {
+        for (u32 index = 0u; index < nodes.Num(); ++index) {
             AEditor3DRecordComponent* candidate = Rec3D(nodes[index]);
             if (candidate != nullptr && candidate->has_scene_camera)
                 ++camera_count;
@@ -15996,7 +15996,7 @@ ACS_EDITOR_API int acs_editor_node3d_camera_set(
     if (active != 0) {
         TArray<game::ANode*> nodes;
         Dfs3DCollect(&host->scene3d.Root(), nodes);
-        for (u32 index = 0u; index < nodes.Size(); ++index) {
+        for (u32 index = 0u; index < nodes.Num(); ++index) {
             AEditor3DRecordComponent* candidate = Rec3D(nodes[index]);
             if (candidate != nullptr && candidate->has_scene_camera)
                 candidate->scene_camera_active = false;
@@ -16282,7 +16282,7 @@ ACS_EDITOR_API int acs_editor_add_sprite3d(void* handle, const char* path, const
     game::AMeshComponent3D* m = n.GetComponent<game::AMeshComponent3D>();
     m->SetColor(FVec4{ 1, 1, 1, 1 });
     IRhiTexture* raw = tex.Get();                   // 所有は host->sprite_textures に移す (heap 上の実体は不動)
-    host->sprite_textures.PushBack(Move(tex));
+    host->sprite_textures.Add(Move(tex));
     m->SetRenderHandle(raw);                        // 描画パスが参照する «非所有» テクスチャポインタ
     SetSel3D(*host, id);
     return id;
@@ -16294,8 +16294,8 @@ ACS_EDITOR_API int acs_editor_add_polygon3d(void* handle, const float* xy, int c
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || xy == nullptr || count < 3) return -1;
     TArray<FVec2> pts; pts.Reserve(static_cast<usize>(count));
-    for (int i = 0; i < count; ++i) pts.PushBack(FVec2{ xy[i * 2], xy[i * 2 + 1] });
-    TSharedPtr<AAsset> mesh = MakeFlatPolygon3D(pts.Data(), static_cast<u32>(count));
+    for (int i = 0; i < count; ++i) pts.Add(FVec2{ xy[i * 2], xy[i * 2 + 1] });
+    TSharedPtr<AAsset> mesh = MakeFlatPolygon3D(pts.GetData(), static_cast<u32>(count));
     if (!mesh) return -1;
     game::ANode& n = AddNode3D(*host, (name != nullptr && name[0] != '\0') ? name : "Polygon2D");
     const int id = host->next_id3d++;
@@ -16314,7 +16314,7 @@ ACS_EDITOR_API int acs_editor_add_polygon3d(void* handle, const float* xy, int c
 /** Ortho ポリゴン描画を開始する (頂点バッファをクリア)。 */
 ACS_EDITOR_API void acs_editor_poly3d_begin(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host != nullptr) host->poly3d_pts.Clear();
+    if (host != nullptr) host->poly3d_pts.Reset();
 }
 
 /** 描画中: スクリーン点を z=0 へ逆射影して頂点を追加する。追加後の頂点数を返す。 */
@@ -16325,23 +16325,23 @@ ACS_EDITOR_API int acs_editor_poly3d_add_point(void* handle, float sx, float sy)
     if (sc != nullptr) {
         const f32 W = static_cast<f32>(sc->Width()), H = static_cast<f32>(sc->Height());
         FVec2 xy;
-        if (ScreenToZ0(*host, sx, sy, W, H, xy)) host->poly3d_pts.PushBack(xy);
+        if (ScreenToZ0(*host, sx, sy, W, H, xy)) host->poly3d_pts.Add(xy);
     }
-    return static_cast<int>(host->poly3d_pts.Size());
+    return static_cast<int>(host->poly3d_pts.Num());
 }
 
 /** 描画を確定し、頂点列からフラットポリゴンノードを作る。新 id (頂点<3 で -1)。 */
 ACS_EDITOR_API int acs_editor_poly3d_finalize(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || host->poly3d_pts.Size() < 3) { if (host != nullptr) host->poly3d_pts.Clear(); return -1; }
-    TSharedPtr<AAsset> mesh = MakeFlatPolygon3D(host->poly3d_pts.Data(), static_cast<u32>(host->poly3d_pts.Size()));
-    if (!mesh) { host->poly3d_pts.Clear(); return -1; }
+    if (host == nullptr || host->poly3d_pts.Num() < 3) { if (host != nullptr) host->poly3d_pts.Reset(); return -1; }
+    TSharedPtr<AAsset> mesh = MakeFlatPolygon3D(host->poly3d_pts.GetData(), static_cast<u32>(host->poly3d_pts.Num()));
+    if (!mesh) { host->poly3d_pts.Reset(); return -1; }
     game::ANode& n = AddNode3D(*host, "Polygon2D");
     const int id = host->next_id3d++;
     AEditor3DRecordComponent* rec = n.GetComponent<AEditor3DRecordComponent>();
     rec->id = id;
     rec->poly_pts = Move(host->poly3d_pts);              // 再生成用に元 2D 頂点列を保持 (シリアライズ。mesh は構築済み)
-    host->poly3d_pts.Clear();                            // moved-from を明示的に空へ
+    host->poly3d_pts.Reset();                            // moved-from を明示的に空へ
     game::AMeshComponent3D* m = n.GetComponent<game::AMeshComponent3D>();
     m->SetMeshAsset(mesh);
     m->SetColor(FVec4{ 0.45f, 0.78f, 0.95f, 1 });
@@ -16352,13 +16352,13 @@ ACS_EDITOR_API int acs_editor_poly3d_finalize(void* handle) {
 /** Ortho ポリゴン描画をキャンセルする。 */
 ACS_EDITOR_API void acs_editor_poly3d_cancel(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host != nullptr) host->poly3d_pts.Clear();
+    if (host != nullptr) host->poly3d_pts.Reset();
 }
 
 /** 描画中の頂点数。 */
 ACS_EDITOR_API int acs_editor_poly3d_count(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    return (host != nullptr) ? static_cast<int>(host->poly3d_pts.Size()) : 0;
+    return (host != nullptr) ? static_cast<int>(host->poly3d_pts.Num()) : 0;
 }
 
 /** 3D ノードを削除する (成功 1)。 */
@@ -16368,9 +16368,9 @@ ACS_EDITOR_API int acs_editor_delete_node3d(void* handle, int id) {
     game::ANode* nn = FindNode3DNode(*host, id);
     if (nn == nullptr) return 0;
     TArray<game::ANode*> removed;
-    removed.PushBack(nn);
+    removed.Add(nn);
     Dfs3DCollect(nn, removed);
-    for (u32 i = 0u; i < removed.Size(); ++i) {
+    for (u32 i = 0u; i < removed.Num(); ++i) {
         AEditor3DRecordComponent* record = Rec3D(removed[i]);
         if (record != nullptr) {
             host->water3d.ClearDisturbancesForSurface(
@@ -16394,7 +16394,7 @@ ACS_EDITOR_API int acs_editor_node3d_count(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     TArray<game::ANode*> all; Dfs3DCollect(&host->scene3d.Root(), all);
-    return static_cast<int>(all.Size());
+    return static_cast<int>(all.Num());
 }
 
 /** DFS pre-order で index 番目の 3D ノード id (範囲外は -1)。階層は親→子の順で並ぶ。 */
@@ -16402,7 +16402,7 @@ ACS_EDITOR_API int acs_editor_node3d_id_at(void* handle, int index) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || index < 0) return -1;
     TArray<game::ANode*> all; Dfs3DCollect(&host->scene3d.Root(), all);
-    if (static_cast<u32>(index) >= all.Size()) return -1;
+    if (static_cast<u32>(index) >= all.Num()) return -1;
     AEditor3DRecordComponent* r = Rec3D(all[static_cast<u32>(index)]);
     return (r != nullptr) ? r->id : -1;
 }
@@ -16472,7 +16472,7 @@ ACS_EDITOR_API int acs_editor_node3d_kind(void* handle, int id) {
     AEditor3DRecordComponent* r = Rec3D(n);
     if (r != nullptr && r->is_empty)               return 6;       // Empty (描画しないグループ用トランスフォーム)
     if (r != nullptr && r->sprite_path[0] != '\0') return 4;       // Sprite (テクスチャ付きクアッド)
-    if (r != nullptr && r->poly_pts.Size() >= 3)   return 5;       // Polygon (z=0 手続きメッシュ)
+    if (r != nullptr && r->poly_pts.Num() >= 3)   return 5;       // Polygon (z=0 手続きメッシュ)
     return NPrim(n);                                               // 0..3 (Cube/Sphere/Plane/Mesh)
 }
 
@@ -16500,7 +16500,7 @@ ACS_EDITOR_API int acs_editor_node3d_set_sprite(void* handle, int id, const char
     if (!tex || iw == 0 || ih == 0) { ACS_LOG_WARN("[3D] スプライト差替えの画像読込に失敗: %s", path); return 0; }
     std::snprintf(r->sprite_path, sizeof(r->sprite_path), "%s", path);
     IRhiTexture* raw = tex.Get();
-    host->sprite_textures.PushBack(Move(tex));
+    host->sprite_textures.Add(Move(tex));
     m->SetRenderHandle(raw);
     return 1;
 }
@@ -16544,7 +16544,7 @@ ACS_EDITOR_API int acs_editor_node3d_set_prim(void* handle, int id, int prim) {
     game::ANode* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
     AEditor3DRecordComponent* r = Rec3D(n);
-    if (r != nullptr && (r->sprite_path[0] != '\0' || r->poly_pts.Size() >= 3)) return 0;   // sprite/polygon は不可
+    if (r != nullptr && (r->sprite_path[0] != '\0' || r->poly_pts.Num() >= 3)) return 0;   // sprite/polygon は不可
     game::AMeshComponent3D* m = Mesh3D(n);
     if (m == nullptr || m->Primitive() == game::EMeshPrimitive3D::Mesh) return 0;            // mesh アセットも不可
     m->SetPrimitive(static_cast<game::EMeshPrimitive3D>(prim));
@@ -16763,12 +16763,12 @@ ACS_EDITOR_API int acs_editor_node3d_is_selected(void* handle, int id) {
 /** 3D 選択集合の要素数。 */
 ACS_EDITOR_API int acs_editor_selected3d_count(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    return (host != nullptr) ? static_cast<int>(host->sel3d_multi.Size()) : 0;
+    return (host != nullptr) ? static_cast<int>(host->sel3d_multi.Num()) : 0;
 }
 /** 3D 選択集合の index 番目の id (範囲外は -1)。 */
 ACS_EDITOR_API int acs_editor_selected3d_at(void* handle, int index) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || index < 0 || index >= static_cast<int>(host->sel3d_multi.Size())) return -1;
+    if (host == nullptr || index < 0 || index >= static_cast<int>(host->sel3d_multi.Num())) return -1;
     return host->sel3d_multi[static_cast<u32>(index)];
 }
 /** 3D 選択ノードを整列する (mode: 0=left/1=right/2=top/3=bottom/4=center-h/5=center-v、X=左右/Y=上下)。
@@ -16777,7 +16777,7 @@ ACS_EDITOR_API int acs_editor_align3d_selection(void* handle, int mode) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     f32 minx = 0, maxx = 0, miny = 0, maxy = 0; bool first = true; int cnt = 0;
-    for (u32 i = 0; i < host->sel3d_multi.Size(); ++i) {
+    for (u32 i = 0; i < host->sel3d_multi.Num(); ++i) {
         game::ANode* n = FindNode3DNode(*host, host->sel3d_multi[i]);
         if (n == nullptr) continue;
         const FVec3 p = n->Local().position;
@@ -16790,7 +16790,7 @@ ACS_EDITOR_API int acs_editor_align3d_selection(void* handle, int mode) {
     const f32 cx = (minx + maxx) * 0.5f, cy = (miny + maxy) * 0.5f;
     int applied = 0;
     bool resets_temporal_history = false;
-    for (u32 i = 0; i < host->sel3d_multi.Size(); ++i) {
+    for (u32 i = 0; i < host->sel3d_multi.Num(); ++i) {
         game::ANode* n = FindNode3DNode(*host, host->sel3d_multi[i]);
         if (n == nullptr) continue;
         resets_temporal_history =
@@ -16817,14 +16817,14 @@ ACS_EDITOR_API int acs_editor_distribute3d_selection(void* handle, int axis) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     TArray<int> ids; TArray<f32> pos;
-    for (u32 i = 0; i < host->sel3d_multi.Size(); ++i) {
+    for (u32 i = 0; i < host->sel3d_multi.Num(); ++i) {
         game::ANode* n = FindNode3DNode(*host, host->sel3d_multi[i]);
         if (n == nullptr) continue;
         const FVec3 p = n->Local().position;
-        ids.PushBack(host->sel3d_multi[i]);
-        pos.PushBack(axis == 0 ? p.x : p.y);
+        ids.Add(host->sel3d_multi[i]);
+        pos.Add(axis == 0 ? p.x : p.y);
     }
-    const u32 n = ids.Size();
+    const u32 n = ids.Num();
     if (n < 3) return 0;
     for (u32 i = 1; i < n; ++i) {                              // axis 位置で昇順 (挿入ソート、parallel)
         const f32 kp = pos[i]; const int ki = ids[i];
@@ -16907,11 +16907,11 @@ static int EmitNode3DBlock(char* out, int cur, int cap, FEditorHost* host,
         if (w2 < 0 || w2 >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
         cur += w2;
     }
-    if (r->poly_pts.Size() >= 3 && cur < cap) {                                    // 手続きポリゴン (z=0) の元 2D 頂点列
-        int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "PLY3D %d %u", r->id, static_cast<unsigned>(r->poly_pts.Size()));
+    if (r->poly_pts.Num() >= 3 && cur < cap) {                                    // 手続きポリゴン (z=0) の元 2D 頂点列
+        int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "PLY3D %d %u", r->id, static_cast<unsigned>(r->poly_pts.Num()));
         if (w2 < 0 || w2 >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
         cur += w2;
-        for (u32 k = 0; k < r->poly_pts.Size() && cur < cap; ++k) {
+        for (u32 k = 0; k < r->poly_pts.Num() && cur < cap; ++k) {
             const int wk = std::snprintf(out + cur, static_cast<size_t>(cap - cur), " %.4f %.4f", r->poly_pts[k].x, r->poly_pts[k].y);
             if (wk < 0 || wk >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
             cur += wk;
@@ -16983,7 +16983,7 @@ ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap
         cur += written;
     }
     TArray<game::ANode*> all; Dfs3DCollect(&host->scene3d.Root(), all);   // 親が子より先 (DFS pre-order)
-    for (u32 i = 0; i < all.Size() && cur < cap; ++i) {
+    for (u32 i = 0; i < all.Num() && cur < cap; ++i) {
         bool ov = false;
         cur = EmitNode3DBlock(out, cur, cap, host, all[i], /*parentOverride=*/-2, &ov);   // -2 = 実際の親を使う
         if (ov) {
@@ -17006,11 +17006,11 @@ ACS_EDITOR_API const char* acs_editor_copy_subtree3d(void* handle, int id) {
     if (host == nullptr) return "";
     game::ANode* root = FindNode3DNode(*host, id);
     if (root == nullptr) return "";
-    TArray<game::ANode*> sub; sub.PushBack(root); Dfs3DCollect(root, sub);   // root + 子孫 (pre-order)
+    TArray<game::ANode*> sub; sub.Add(root); Dfs3DCollect(root, sub);   // root + 子孫 (pre-order)
     char* buf = host->scene_text;
     const int cap = static_cast<int>(sizeof(host->scene_text));
     int cur = std::snprintf(buf, static_cast<size_t>(cap), "ACS3D v2\n");
-    for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {
+    for (u32 i = 0; i < sub.Num() && cur < cap; ++i) {
         bool ov = false;
         const int parentOverride = (sub[i] == root) ? -1 : -2;   // root は親なし、子孫は実親 (subtree 内)
         cur = EmitNode3DBlock(buf, cur, cap, host, sub[i], parentOverride, &ov);
@@ -17024,14 +17024,14 @@ namespace {
 
 bool AppendEditorTextLine(TArray<char>& output, const char* line) noexcept {
     const usize length = std::strlen(line);
-    if (length > static_cast<usize>(~u32{0}) - output.Size() - 1u ||
-        !output.TryReserve(output.Size() + static_cast<u32>(length) + 1u)) {
+    if (length > static_cast<usize>(~u32{0}) - output.Num() - 1u ||
+        !output.TryReserve(output.Num() + static_cast<u32>(length) + 1u)) {
         return false;
     }
     for (usize index = 0u; index < length; ++index) {
-        if (!output.TryPushBack(line[index])) return false;
+        if (!output.TryAdd(line[index])) return false;
     }
-    return output.TryPushBack('\n');
+    return output.TryAdd('\n');
 }
 
 bool ValidateEditorScene3DText(const char* text) noexcept {
@@ -17087,12 +17087,12 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
             }
             SkipEditorTextWhitespace(values);
             if (std::strlen(values) > 63u) return false;
-            if (nodes.Size() >= game::kScene3DSerializeMaxNodeCount) return false;
-            const u32 offset = node_lines.Size();
+            if (nodes.Num() >= game::kScene3DSerializeMaxNodeCount) return false;
+            const u32 offset = node_lines.Num();
             if (!AppendEditorTextLine(node_lines, line)) return false;
-            nodes.PushBack(FValidatedEditor3DNode{
+            nodes.Add(FValidatedEditor3DNode{
                 id, parent, -1, offset,
-                static_cast<u32>(node_lines.Size() - offset), 0u, 0u});
+                static_cast<u32>(node_lines.Num() - offset), 0u, 0u});
             continue;
         }
 
@@ -17126,7 +17126,7 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
                     return false;
                 }
                 u32 count = 0u;
-                for (u32 index = 0u; index < components.Size(); ++index) {
+                for (u32 index = 0u; index < components.Num(); ++index) {
                     if (components[index].node_id != id) continue;
                     if (components[index].type_id == descriptor->id) return false;
                     ++count;
@@ -17134,7 +17134,7 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
                 if (count >= AEditor3DRecordComponent::kMaxComponents) {
                     return false;
                 }
-                components.PushBack(
+                components.Add(
                     FValidatedEditorComponent{id, descriptor->id});
             } else {
                 u32 slot = 0u;
@@ -17150,10 +17150,10 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
                     if (!ParseEditorTextFloat(values, value)) return false;
                 }
                 if (!EditorTextOnlyWhitespace(values)) return false;
-                properties.PushBack(
+                properties.Add(
                     FValidatedEditorProperty{id, slot, property_index});
             }
-            editor_only_targets.PushBack(id);
+            editor_only_targets.Add(id);
             continue;
         }
         if (canonical_auxiliary) {
@@ -17193,7 +17193,7 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
                 // ACS3D reserves zero for «no selection». Every positive
                 // selection is a real scene reference and is resolved after
                 // the order-independent node preflight below.
-                if (selected > 0) editor_only_targets.PushBack(selected);
+                if (selected > 0) editor_only_targets.Add(selected);
             }
             if (!AppendEditorTextLine(auxiliary, line)) return false;
             continue;
@@ -17209,7 +17209,7 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
                 !ParseEditorTextRemainder(values, 255u)) {
                 return false;
             }
-            editor_only_targets.PushBack(id);
+            editor_only_targets.Add(id);
             continue;
         }
         if (IsEditorTextDirective(line, "PLY3D")) {
@@ -17231,7 +17231,7 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
                 }
             }
             if (!EditorTextOnlyWhitespace(values)) return false;
-            editor_only_targets.PushBack(id);
+            editor_only_targets.Add(id);
             continue;
         }
 
@@ -17240,15 +17240,15 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
         if (IsEditorTextDirective(line, "ACS3D")) return false;
     }
 
-    if (nodes.Size() > 1u) {
+    if (nodes.Num() > 1u) {
         std::sort(
-            nodes.Data(), nodes.Data() + nodes.Size(),
+            nodes.GetData(), nodes.GetData() + nodes.Num(),
             [](const FValidatedEditor3DNode& left,
                const FValidatedEditor3DNode& right) noexcept {
                 return left.id < right.id;
             });
     }
-    for (u32 index = 0u; index < nodes.Size(); ++index) {
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
         if (index > 0u && nodes[index - 1u].id == nodes[index].id) {
             return false;
         }
@@ -17262,9 +17262,9 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
     }
 
     TArray<u32> hierarchy_chain;
-    for (u32 index = 0u; index < nodes.Size(); ++index) {
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
         if (nodes[index].state == 2u) continue;
-        hierarchy_chain.Clear();
+        hierarchy_chain.Reset();
         int current = static_cast<int>(index);
         while (current >= 0 &&
                nodes[static_cast<u32>(current)].state != 2u) {
@@ -17272,7 +17272,7 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
                 nodes[static_cast<u32>(current)];
             if (node.state == 1u) return false;
             node.state = 1u;
-            hierarchy_chain.PushBack(static_cast<u32>(current));
+            hierarchy_chain.Add(static_cast<u32>(current));
             current = node.parent_index;
         }
         u32 depth = current >= 0
@@ -17280,8 +17280,8 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
             : 0u;
         while (!hierarchy_chain.IsEmpty()) {
             const u32 chain_index =
-                hierarchy_chain[hierarchy_chain.Size() - 1u];
-            hierarchy_chain.PopBack();
+                hierarchy_chain[hierarchy_chain.Num() - 1u];
+            hierarchy_chain.Pop();
             nodes[chain_index].depth = depth++;
             nodes[chain_index].state = 2u;
             if (nodes[chain_index].depth >
@@ -17292,14 +17292,14 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
     }
 
     TArray<u32> topological_order;
-    if (!topological_order.TryReserve(nodes.Size())) return false;
-    for (u32 index = 0u; index < nodes.Size(); ++index) {
-        if (!topological_order.TryPushBack(index)) return false;
+    if (!topological_order.TryReserve(nodes.Num())) return false;
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
+        if (!topological_order.TryAdd(index)) return false;
     }
-    if (topological_order.Size() > 1u) {
+    if (topological_order.Num() > 1u) {
         std::sort(
-            topological_order.Data(),
-            topological_order.Data() + topological_order.Size(),
+            topological_order.GetData(),
+            topological_order.GetData() + topological_order.Num(),
             [&](u32 left, u32 right) noexcept {
                 if (nodes[left].depth != nodes[right].depth)
                     return nodes[left].depth < nodes[right].depth;
@@ -17307,27 +17307,27 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
             });
     }
     for (u32 order_index = 0u;
-         order_index < topological_order.Size(); ++order_index) {
+         order_index < topological_order.Num(); ++order_index) {
         const FValidatedEditor3DNode& node =
             nodes[topological_order[order_index]];
-        if (!structural.TryReserve(structural.Size() + node.text_length)) {
+        if (!structural.TryReserve(structural.Num() + node.text_length)) {
             return false;
         }
         for (u32 byte_index = 0u;
              byte_index < node.text_length; ++byte_index) {
-            if (!structural.TryPushBack(
+            if (!structural.TryAdd(
                     node_lines[node.text_offset + byte_index])) {
                 return false;
             }
         }
     }
 
-    for (u32 index = 0u; index < properties.Size(); ++index) {
+    for (u32 index = 0u; index < properties.Num(); ++index) {
         const FValidatedEditorProperty& property_record = properties[index];
         u32 slot = 0u;
         const FValidatedEditorComponent* component_record = nullptr;
         for (u32 component_index = 0u;
-             component_index < components.Size(); ++component_index) {
+             component_index < components.Num(); ++component_index) {
             if (components[component_index].node_id !=
                 property_record.node_id) {
                 continue;
@@ -17347,19 +17347,19 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
         }
     }
 
-    if (!structural.TryReserve(structural.Size() + auxiliary.Size())) {
+    if (!structural.TryReserve(structural.Num() + auxiliary.Num())) {
         return false;
     }
-    for (u32 index = 0u; index < auxiliary.Size(); ++index) {
-        if (!structural.TryPushBack(auxiliary[index])) return false;
+    for (u32 index = 0u; index < auxiliary.Num(); ++index) {
+        if (!structural.TryAdd(auxiliary[index])) return false;
     }
 
     game::CSceneNodeGraph staging;
     const game::FScene3DLoadResult parsed = game::TryLoadScene3DText(
-        staging, structural.Data(), structural.Size());
+        staging, structural.GetData(), structural.Num());
     if (!parsed.Succeeded()) return false;
 
-    for (u32 index = 0u; index < editor_only_targets.Size(); ++index) {
+    for (u32 index = 0u; index < editor_only_targets.Num(); ++index) {
         if (staging.Root().FindBySerialId(editor_only_targets[index]) ==
             nullptr) {
             return false;
@@ -17382,7 +17382,7 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
         TArray<game::ANode*> existing_nodes;
         Dfs3DCollect(&host->scene3d.Root(), existing_nodes);
         u32 existing_camera_count = 0u;
-        for (u32 index = 0u; index < existing_nodes.Size(); ++index) {
+        for (u32 index = 0u; index < existing_nodes.Num(); ++index) {
             const AEditor3DRecordComponent* record =
                 Rec3D(existing_nodes[index]);
             if (record != nullptr && record->has_scene_camera)
@@ -17479,12 +17479,12 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
 
         const int effective_parent =
             nparent >= 0 ? nparent + idOffset : reparentRootTo;
-        loaded_ids.PushBack(new_id);
-        loaded_parents.PushBack(effective_parent);
+        loaded_ids.Add(new_id);
+        loaded_parents.Add(effective_parent);
         if (nparent < 0 && firstRoot < 0) firstRoot = new_id;
         if (new_id > maxId) maxId = new_id;
     }
-    for (u32 index = 0u; index < loaded_ids.Size(); ++index) {
+    for (u32 index = 0u; index < loaded_ids.Num(); ++index) {
         if (loaded_parents[index] < 0) continue;
         game::ANode* node = FindNode3DNode(*host, loaded_ids[index]);
         game::ANode* parent = FindNode3DNode(*host, loaded_parents[index]);
@@ -17524,7 +17524,7 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
                     TUniquePtr<IRhiTexture> tex = LoadTexWithSize(*host, sp, iw, ih);   // device 準備済み前提
                     if (tex && Mesh3D(en) != nullptr) {
                         IRhiTexture* raw = tex.Get();
-                        host->sprite_textures.PushBack(Move(tex));
+                        host->sprite_textures.Add(Move(tex));
                         Mesh3D(en)->SetRenderHandle(raw);            // 描画パスがスプライトとして扱う
                     }
                 }
@@ -17539,12 +17539,12 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
                 for (unsigned k = 0; k < pc; ++k) {
                     float x = 0, y = 0; int adv = 0;
                     if (std::sscanf(q, " %f %f%n", &x, &y, &adv) < 2) break;
-                    pts.PushBack(FVec2{ x, y }); q += adv;
+                    pts.Add(FVec2{ x, y }); q += adv;
                 }
-                if (pts.Size() == pc) {
+                if (pts.Num() == pc) {
                     if (game::ANode* en = FindNode3DNode(*host, pid + idOffset)) {
                         if (game::AMeshComponent3D* m = Mesh3D(en)) {
-                            TSharedPtr<AAsset> mesh = MakeFlatPolygon3D(pts.Data(), static_cast<u32>(pts.Size()));
+                            TSharedPtr<AAsset> mesh = MakeFlatPolygon3D(pts.GetData(), static_cast<u32>(pts.Num()));
                             if (mesh) m->SetMeshAsset(mesh);         // prim=Mesh + 所有 (z=0 フラット)
                         }
                         AEditor3DRecordComponent* rec = Rec3D(en);
@@ -17710,7 +17710,7 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
             SetSel3D(*host, restoredSel);   // SEL3D で保存された選択を復元 (undo/redo で選択維持)
         } else {                            // 無ければ先頭ノード (新規読込のデフォルト)
             TArray<game::ANode*> all; Dfs3DCollect(&host->scene3d.Root(), all);
-            AEditor3DRecordComponent* fr = (all.Size() > 0) ? Rec3D(all[0]) : nullptr;
+            AEditor3DRecordComponent* fr = (all.Num() > 0) ? Rec3D(all[0]) : nullptr;
             if (fr != nullptr) SetSel3D(*host, fr->id);
         }
     } else if (firstRoot >= 0) {
@@ -18124,9 +18124,9 @@ ACS_EDITOR_API int acs_editor_gizmo_begin(void* handle, float sx, float sy) {
     host->gizmo_pushed = false;
     host->gizmo_active = true;
     host->gizmo_axis   = axis;
-    host->gizmo_move_ids.Clear();          // 前回 drag の残骸を一掃 (rotate/scale では空のまま)
-    host->gizmo_move_bx.Clear();
-    host->gizmo_move_by.Clear();
+    host->gizmo_move_ids.Reset();          // 前回 drag の残骸を一掃 (rotate/scale では空のまま)
+    host->gizmo_move_bx.Reset();
+    host->gizmo_move_by.Reset();
 
     const game::FTransform2D  w   = n->World2D();
     const game::FTransform2D  loc = n->Local2D();
@@ -18151,13 +18151,13 @@ ACS_EDITOR_API int acs_editor_gizmo_begin(void* handle, float sx, float sy) {
         host->gizmo_off_wy   = S2WY(*host, sy) - w.position.y;
         // 複数選択の移動: 動かす「選択ルート」(祖先が選択外のもの) を集め、開始 world 位置を退避。
         // 子孫は祖先の移動に従うので含めない (= 二重移動を順序非依存で回避)。
-        for (u32 i = 0; i < host->selection.Size(); ++i) {
+        for (u32 i = 0; i < host->selection.Num(); ++i) {
             AEditorNode* sn = FindNode(*host, host->selection[i]);
             if (sn == nullptr || AnyAncestorInList(*host, sn, host->selection)) continue;
             const game::FTransform2D sw = sn->World2D();
-            host->gizmo_move_ids.PushBack(sn->editor_id);
-            host->gizmo_move_bx.PushBack(sw.position.x);
-            host->gizmo_move_by.PushBack(sw.position.y);
+            host->gizmo_move_ids.Add(sn->editor_id);
+            host->gizmo_move_bx.Add(sw.position.x);
+            host->gizmo_move_by.Add(sw.position.y);
         }
     }
     return axis;
@@ -18204,12 +18204,12 @@ ACS_EDITOR_API void acs_editor_gizmo_update(void* handle, float sx, float sy) {
             if (host->gizmo_axis != 2) tw_x = SnapTo(tw_x, host->snap_move);   // X or free
             if (host->gizmo_axis != 1) tw_y = SnapTo(tw_y, host->snap_move);   // Y or free
         }
-        if (host->gizmo_move_ids.Size() > 0) {
+        if (host->gizmo_move_ids.Num() > 0) {
             // primary の移動量 delta を、退避した各選択ルートの開始位置に絶対適用する
             // (begin+delta の絶対指定なので順序非依存。子孫は祖先に従って動く)。
             const f32 dx = tw_x - host->gizmo_begin_wx;
             const f32 dy = tw_y - host->gizmo_begin_wy;
-            for (u32 i = 0; i < host->gizmo_move_ids.Size(); ++i) {
+            for (u32 i = 0; i < host->gizmo_move_ids.Num(); ++i) {
                 AEditorNode* mn = FindNode(*host, host->gizmo_move_ids[i]);
                 if (mn != nullptr)
                     SetNodeWorldPosition(*host, mn, host->gizmo_move_bx[i] + dx, host->gizmo_move_by[i] + dy);
@@ -18284,7 +18284,7 @@ ACS_EDITOR_API void acs_editor_camera_frame_all(void* handle) {
 
         TArray<game::ANode*> all3d;
         Dfs3DCollect(&host->scene3d.Root(), all3d);
-        for (u32 node_index = 0; node_index < all3d.Size(); ++node_index) {
+        for (u32 node_index = 0; node_index < all3d.Num(); ++node_index) {
             game::ANode* node = all3d[node_index];
             const AEditor3DRecordComponent* record = Rec3D(node);
             const game::AMeshComponent3D* mesh_component = Mesh3D(node);
@@ -18300,9 +18300,9 @@ ACS_EDITOR_API void acs_editor_camera_frame_all(void* handle) {
                 local_maximum.y = 0.0f;
             } else if (mesh_component->Primitive() == game::EMeshPrimitive3D::Mesh) {
                 const AMeshAsset* mesh = mesh_component->Mesh();
-                if (mesh == nullptr || mesh->Vertices().Size() == 0) continue;
+                if (mesh == nullptr || mesh->Vertices().Num() == 0) continue;
                 bool has_local_point = false;
-                for (u32 vertex_index = 0; vertex_index < mesh->Vertices().Size(); ++vertex_index) {
+                for (u32 vertex_index = 0; vertex_index < mesh->Vertices().Num(); ++vertex_index) {
                     const FVec3 point = mesh->Vertices()[vertex_index].position;
                     if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) continue;
                     if (!has_local_point) {
@@ -18367,9 +18367,9 @@ ACS_EDITOR_API void acs_editor_camera_frame_all(void* handle) {
         InvalidateTemporalRenderHistories(*host);
         return;
     }
-    if (host->nodes.Size() == 0) return;
+    if (host->nodes.Num() == 0) return;
     f32 minx = 3.4e38f, miny = 3.4e38f, maxx = -3.4e38f, maxy = -3.4e38f;
-    for (u32 i = 0; i < host->nodes.Size(); ++i) {
+    for (u32 i = 0; i < host->nodes.Num(); ++i) {
         const AEditorNode* n = host->nodes[i];
         const game::FTransform2D w = n->World2D();
         const f32 sx = (w.scale.x < 0.0f) ? -w.scale.x : w.scale.x;
@@ -18522,12 +18522,12 @@ ACS_EDITOR_API int acs_editor_node_move(void* handle, int id, int target_id, int
 /** 選択集合のノードをまとめて削除する (1 undo step。削除数を返す、空/不正は 0)。 */
 ACS_EDITOR_API int acs_editor_selection_delete(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || host->root.Get() == nullptr || host->selection.Size() == 0) return 0;
+    if (host == nullptr || host->root.Get() == nullptr || host->selection.Num() == 0) return 0;
     PushUndo(*host);                           // 一括で 1 undo
     int n_deleted = 0;
     // selection は Destroy では変化しない (RebuildRegistry まで不変) ので直接走査してよい。
     // 祖先と子孫が両方選択されていても Destroy は冪等マークなので二重解放にならない。
-    for (u32 i = 0; i < host->selection.Size(); ++i) {
+    for (u32 i = 0; i < host->selection.Num(); ++i) {
         AEditorNode* node = FindNode(*host, host->selection[i]);
         if (node != nullptr) { node->Destroy(); ++n_deleted; }
     }
@@ -18539,27 +18539,27 @@ ACS_EDITOR_API int acs_editor_selection_delete(void* handle) {
 /** 選択集合のノードをまとめて複製する (1 undo step。複製した根の数を返す、空は 0)。 */
 ACS_EDITOR_API int acs_editor_selection_duplicate(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || host->selection.Size() == 0) return 0;
+    if (host == nullptr || host->selection.Num() == 0) return 0;
     PushUndo(*host);                           // 一括で 1 undo
     // 複製中に selection を書き換えるので、対象 id を先にコピーしておく。
     TArray<int> sources = host->selection.Clone();
     TArray<int> newIds;
     TArray<int> refOld, refNew;   // 複製した全ノードの old→new (ObjectRef 再マップ用)
-    for (u32 i = 0; i < sources.Size(); ++i) {
+    for (u32 i = 0; i < sources.Num(); ++i) {
         AEditorNode* src = FindNode(*host, sources[i]);
         if (src == nullptr) continue;
         // 祖先も選択集合にあるノードは、その祖先の複製に subtree として含まれる → 単独複製しない
         // (二重複製を防ぐ)。
         if (AnyAncestorInList(*host, src, sources)) continue;
         AEditorNode* clone = CloneSubtree(*host, src, ParentIdOf(*host, src), /*top=*/true, &refOld, &refNew);
-        newIds.PushBack(clone->editor_id);
+        newIds.Add(clone->editor_id);
     }
     RemapClonedObjectRefs(*host, refOld, refNew);   // 複製集合内を指す参照を新 id へ付け替え
     // 新しい複製群を選択する (primary = 最後の複製)。
-    host->selection.Clear();
-    for (u32 i = 0; i < newIds.Size(); ++i) host->selection.PushBack(newIds[i]);
-    host->selected = (host->selection.Size() > 0) ? host->selection[host->selection.Size() - 1] : -1;
-    return static_cast<int>(newIds.Size());
+    host->selection.Reset();
+    for (u32 i = 0; i < newIds.Num(); ++i) host->selection.Add(newIds[i]);
+    host->selected = (host->selection.Num() > 0) ? host->selection[host->selection.Num() - 1] : -1;
+    return static_cast<int>(newIds.Num());
 }
 
 /**
@@ -18575,7 +18575,7 @@ ACS_EDITOR_API int acs_editor_align_selection(void* handle, int mode) {
     // 選択ノードの world 位置の範囲を求める。
     f32 minx = 0, maxx = 0, miny = 0, maxy = 0;
     bool first = true; int cnt = 0;
-    for (u32 i = 0; i < host->selection.Size(); ++i) {
+    for (u32 i = 0; i < host->selection.Num(); ++i) {
         AEditorNode* n = FindNode(*host, host->selection[i]);
         if (n == nullptr) continue;
         const game::FTransform2D w = n->World2D();
@@ -18592,7 +18592,7 @@ ACS_EDITOR_API int acs_editor_align_selection(void* handle, int mode) {
 
     PushUndo(*host);
     int applied = 0;
-    for (u32 i = 0; i < host->selection.Size(); ++i) {
+    for (u32 i = 0; i < host->selection.Num(); ++i) {
         AEditorNode* n = FindNode(*host, host->selection[i]);
         if (n == nullptr) continue;
         const game::FTransform2D w = n->World2D();
@@ -18625,14 +18625,14 @@ ACS_EDITOR_API int acs_editor_distribute_selection(void* handle, int axis) {
     // (id, axis 位置) を集める。
     TArray<int> ids;
     TArray<f32> pos;
-    for (u32 i = 0; i < host->selection.Size(); ++i) {
+    for (u32 i = 0; i < host->selection.Num(); ++i) {
         AEditorNode* n = FindNode(*host, host->selection[i]);
         if (n == nullptr) continue;
         const game::FTransform2D w = n->World2D();
-        ids.PushBack(host->selection[i]);
-        pos.PushBack(axis == 0 ? w.position.x : w.position.y);
+        ids.Add(host->selection[i]);
+        pos.Add(axis == 0 ? w.position.x : w.position.y);
     }
-    const u32 n = ids.Size();
+    const u32 n = ids.Num();
     if (n < 3) return 0;
 
     // axis 位置で昇順ソート (挿入ソート、parallel)。

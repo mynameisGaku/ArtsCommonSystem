@@ -66,7 +66,7 @@ ACS_REF.modules.push({
       kind: "クラス", header: "threading/Mutex.h",
       summary: "一度に <b>1 スレッドだけ</b>が通れる関所(std::mutex 相当)。守りたいデータを触る前に <code>Lock</code> し、終わったら <code>Unlock</code> する。Win32 SRWLOCK ベースで軽量。コピー不可。",
       when: "複数の値をまとめて更新する等、<code>TAtomic</code> 1 個では守れない『データのかたまり』を保護したい時。",
-      sample: "FMutex m;\nm.Lock();\n// ここは同時に1スレッドだけ\nlist.PushBack(x);\nm.Unlock();\n// 実際は手で Unlock せず FScopedLock を使うのが安全",
+      sample: "FMutex m;\nm.Lock();\n// ここは同時に1スレッドだけ\nlist.Add(x);\nm.Unlock();\n// 実際は手で Unlock せず FScopedLock を使うのが安全",
       members: [
         { sig: "void Lock()", desc: "排他<t>ロック</t>を取る。他が持っていれば取れるまで待つ(ブロッキング)。" },
         { sig: "bool TryLock()", ret: "取れたか", desc: "取れたら true、取れなければ待たずに即 false を返す。", when: "ロックが空いていれば処理し、塞がっていれば後回しにしたい時。" },
@@ -89,7 +89,7 @@ ACS_REF.modules.push({
       kind: "クラス", header: "threading/ScopedLock.h",
       summary: "<t>FMutex</t> を<b>自動で</b>ロック/解除する <t>RAII</t> ガード(std::lock_guard 相当)。作った瞬間 Lock し、スコープを抜けると必ず Unlock する。",
       when: "<code>FMutex</code> を使う時は原則これ。途中で <code>return</code> しても <code>FPanic</code> しても解除し忘れがない。コピー/ムーブ不可。",
-      sample: "FMutex m;\n{\n    FScopedLock lk(m);   // ここで Lock\n    list.PushBack(x);\n    // 早期 return しても安全\n}                        // スコープ脱出で自動 Unlock",
+      sample: "FMutex m;\n{\n    FScopedLock lk(m);   // ここで Lock\n    list.Add(x);\n    // 早期 return しても安全\n}                        // スコープ脱出で自動 Unlock",
       members: [
         { sig: "explicit FScopedLock(FMutex&amp; m) noexcept", desc: "構築と同時に <code>m.Lock()</code> を呼び、デストラクタで <code>m.Unlock()</code> する。<code>FMutex&amp;</code> を参照で保持するため <code>m</code> はガードより長く生存させること。" }
       ]

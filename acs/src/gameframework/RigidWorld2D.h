@@ -154,37 +154,37 @@ public:
     u32   Count() const noexcept { return m_ActiveCount; }
 
     /** i 番ボディの位置 (範囲外は原点)。 */
-    FVec2 Position(u32 i) const noexcept { return i < m_Bodies.Size() ? m_Bodies[i].pos : FVec2{0.0f, 0.0f}; }
+    FVec2 Position(u32 i) const noexcept { return i < m_Bodies.Num() ? m_Bodies[i].pos : FVec2{0.0f, 0.0f}; }
 
     /** i 番ボディの速度 (範囲外は 0)。 */
-    FVec2 Velocity(u32 i) const noexcept { return i < m_Bodies.Size() ? m_Bodies[i].vel : FVec2{0.0f, 0.0f}; }
+    FVec2 Velocity(u32 i) const noexcept { return i < m_Bodies.Num() ? m_Bodies[i].vel : FVec2{0.0f, 0.0f}; }
 
     /** i 番ボディの速度を設定する。 */
-    void  SetVelocity(u32 i, FVec2 v) noexcept { if (i < m_Bodies.Size()) m_Bodies[i].vel = v; }
+    void  SetVelocity(u32 i, FVec2 v) noexcept { if (i < m_Bodies.Num()) m_Bodies[i].vel = v; }
 
     /** i 番ボディの回転角 [rad] (範囲外は 0)。 */
-    f32   Angle(u32 i) const noexcept { return i < m_Bodies.Size() ? m_Bodies[i].angle : 0.0f; }
+    f32   Angle(u32 i) const noexcept { return i < m_Bodies.Num() ? m_Bodies[i].angle : 0.0f; }
 
     /** i 番ボディの角速度 [rad/s] (範囲外は 0)。 */
-    f32   AngularVelocity(u32 i) const noexcept { return i < m_Bodies.Size() ? m_Bodies[i].ang_vel : 0.0f; }
+    f32   AngularVelocity(u32 i) const noexcept { return i < m_Bodies.Num() ? m_Bodies[i].ang_vel : 0.0f; }
 
     /** i 番ボディの角速度を設定する。 */
-    void  SetAngularVelocity(u32 i, f32 w) noexcept { if (i < m_Bodies.Size()) m_Bodies[i].ang_vel = w; }
+    void  SetAngularVelocity(u32 i, f32 w) noexcept { if (i < m_Bodies.Num()) m_Bodies[i].ang_vel = w; }
 
     /** i 番ボディの初期回転角 [rad] を設定する (有向ボックス OBB の向き)。生成直後に呼ぶ。 */
-    void  SetAngle(u32 i, f32 a) noexcept { if (i < m_Bodies.Size()) m_Bodies[i].angle = a; }
+    void  SetAngle(u32 i, f32 a) noexcept { if (i < m_Bodies.Num()) m_Bodies[i].angle = a; }
 
     /** i 番ボディの減衰を設定する (linear / angular、1/s)。回転や速度を時間で自然に弱める。 */
     void  SetDamping(u32 i, f32 linear, f32 angular) noexcept {
-        if (i < m_Bodies.Size()) { m_Bodies[i].lin_damp = (linear > 0.0f) ? linear : 0.0f;
+        if (i < m_Bodies.Num()) { m_Bodies[i].lin_damp = (linear > 0.0f) ? linear : 0.0f;
                                    m_Bodies[i].ang_damp = (angular > 0.0f) ? angular : 0.0f; }
     }
 
     /** i 番ボディ (read-only、非アクティブも返る)。 */
-    const FRigidBodyState* Body(u32 i) const noexcept { return i < m_Bodies.Size() ? &m_Bodies[i] : nullptr; }
+    const FRigidBodyState* Body(u32 i) const noexcept { return i < m_Bodies.Num() ? &m_Bodies[i] : nullptr; }
 
     /** index のボディがアクティブ (未削除) か。 */
-    bool IsActive(u32 i) const noexcept { return i < m_Bodies.Size() && m_Bodies[i].active; }
+    bool IsActive(u32 i) const noexcept { return i < m_Bodies.Num() && m_Bodies[i].active; }
 
     /**
      * i 番ボディの連続衝突判定 (CCD) を有効/無効にする。
@@ -197,10 +197,10 @@ public:
      * @param i ボディ index。
      * @param on true で CCD 有効。
      */
-    void SetCcd(u32 i, bool on) noexcept { if (i < m_Bodies.Size()) m_Bodies[i].ccd = on; }
+    void SetCcd(u32 i, bool on) noexcept { if (i < m_Bodies.Num()) m_Bodies[i].ccd = on; }
 
     /** i 番ボディの CCD が有効か (範囲外は false)。 */
-    bool IsCcd(u32 i) const noexcept { return i < m_Bodies.Size() && m_Bodies[i].ccd; }
+    bool IsCcd(u32 i) const noexcept { return i < m_Bodies.Num() && m_Bodies[i].ccd; }
 
     /**
      * index のボディを削除する (tombstone 化し、slot を再利用待ちにする)。

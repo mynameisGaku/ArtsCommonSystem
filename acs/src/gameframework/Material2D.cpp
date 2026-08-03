@@ -1381,14 +1381,14 @@ FMaterial2DLoadResult TryLoadAcsmatFile(const char* path, FMaterial2D& out) noex
     }
 
     TArray<char> buffer;
-    if (!buffer.TryResize(static_cast<usize>(file_size))) {
+    if (!buffer.TrySetNum(static_cast<usize>(file_size))) {
         std::fclose(file);
         result.error = EMaterial2DLoadError::AllocationFailure;
         return result;
     }
     usize total = 0u;
-    while (total < buffer.Size()) {
-        const usize count = std::fread(buffer.Data() + total, 1u, buffer.Size() - total, file);
+    while (total < buffer.Num()) {
+        const usize count = std::fread(buffer.GetData() + total, 1u, buffer.Num() - total, file);
         if (count == 0u) {
             const bool io_error = std::ferror(file) != 0;
             std::fclose(file);
@@ -1412,7 +1412,7 @@ FMaterial2DLoadResult TryLoadAcsmatFile(const char* path, FMaterial2D& out) noex
         result.error = EMaterial2DLoadError::FileChanged;
         return result;
     }
-    return TryParseAcsmatText(buffer.Data(), buffer.Size(), out);
+    return TryParseAcsmatText(buffer.GetData(), buffer.Num(), out);
 }
 
 bool LoadAcsmatFile(const char* path, FMaterial2D& out) noexcept {

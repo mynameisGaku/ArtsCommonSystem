@@ -96,7 +96,7 @@ public:
     {
         Shutdown();
         if (capacity == 0) return false;
-        if (!m_Slots.TryResize(capacity)) return false;
+        if (!m_Slots.TrySetNum(capacity)) return false;
         for (u32 i = 0; i < capacity; ++i) {
             m_Slots[i].world = New<CWorld>(*m_Slots.GetAllocator());
             if (m_Slots[i].world == nullptr) {
@@ -114,7 +114,7 @@ public:
      */
     void Shutdown() noexcept
     {
-        for (usize i = 0; i < m_Slots.Size(); ++i) {
+        for (usize i = 0; i < m_Slots.Num(); ++i) {
             if (m_Slots[i].world) {
                 Delete(*m_Slots.GetAllocator(), m_Slots[i].world);
                 m_Slots[i].world = nullptr;
@@ -131,7 +131,7 @@ public:
      */
     void InvalidateAll() noexcept
     {
-        for (usize i = 0; i < m_Slots.Size(); ++i) m_Slots[i].valid = false;
+        for (usize i = 0; i < m_Slots.Num(); ++i) m_Slots[i].valid = false;
     }
 
     /**
@@ -148,7 +148,7 @@ public:
     bool SaveFrame(u32 tick, const CWorld& world) noexcept
     {
         if (m_Slots.IsEmpty()) return false;
-        FSlot& slot = m_Slots[tick % m_Slots.Size()];
+        FSlot& slot = m_Slots[tick % m_Slots.Num()];
         slot.valid = false;   // 複製中に失敗しても古い履歴を残さない
         if (!slot.world->CopyFrom(world)) return false;
         slot.tick  = tick;
@@ -169,7 +169,7 @@ public:
     bool RestoreFrame(u32 tick, CWorld& world) const noexcept
     {
         if (m_Slots.IsEmpty()) return false;
-        const FSlot& slot = m_Slots[tick % m_Slots.Size()];
+        const FSlot& slot = m_Slots[tick % m_Slots.Num()];
         if (!slot.valid || slot.tick != tick) return false;
         return world.CopyFrom(*slot.world);
     }
@@ -183,7 +183,7 @@ public:
     bool HasFrame(u32 tick) const noexcept
     {
         if (m_Slots.IsEmpty()) return false;
-        const FSlot& slot = m_Slots[tick % m_Slots.Size()];
+        const FSlot& slot = m_Slots[tick % m_Slots.Num()];
         return slot.valid && slot.tick == tick;
     }
 
@@ -192,7 +192,7 @@ public:
      *
      * @return Init で確保した slot 数 (未初期化なら 0)。
      */
-    u32 Capacity() const noexcept { return static_cast<u32>(m_Slots.Size()); }
+    u32 Capacity() const noexcept { return static_cast<u32>(m_Slots.Num()); }
 
     /**
      * 現在有効なスナップショット数を返す。
@@ -202,7 +202,7 @@ public:
     u32 SavedCount() const noexcept
     {
         u32 n = 0;
-        for (usize i = 0; i < m_Slots.Size(); ++i) {
+        for (usize i = 0; i < m_Slots.Num(); ++i) {
             if (m_Slots[i].valid) ++n;
         }
         return n;

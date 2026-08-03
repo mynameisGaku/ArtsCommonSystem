@@ -110,7 +110,7 @@ public:
      *
      * @return ライン本数 (頂点数 / 2)。
      */
-    u32 LineCount() const noexcept { return static_cast<u32>(m_Verts.Size() / 2); }
+    u32 LineCount() const noexcept { return static_cast<u32>(m_Verts.Num() / 2); }
 
 private:
     /** 1 本のラインを構成する 1 頂点 (位置 + RGBA カラー)。 */

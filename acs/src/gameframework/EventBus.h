@@ -55,16 +55,16 @@ public:
      */
     int Subscribe(EventId ev, HandlerFn fn, void* listener = nullptr) noexcept {
         if (fn == nullptr) return -1;
-        for (u32 i = 0; i < m_Subs.Size(); ++i) {                 // 空きスロット再利用
+        for (u32 i = 0; i < m_Subs.Num(); ++i) {                 // 空きスロット再利用
             if (m_Subs[i].fn == nullptr) { m_Subs[i] = FSub{ ev, fn, listener }; return static_cast<int>(i); }
         }
-        m_Subs.PushBack(FSub{ ev, fn, listener });
-        return static_cast<int>(m_Subs.Size() - 1);
+        m_Subs.Add(FSub{ ev, fn, listener });
+        return static_cast<int>(m_Subs.Num() - 1);
     }
 
     /** Subscribe が返したハンドルで購読を解除する。 */
     void Unsubscribe(int handle) noexcept {
-        if (handle >= 0 && static_cast<u32>(handle) < m_Subs.Size()) m_Subs[static_cast<u32>(handle)].fn = nullptr;
+        if (handle >= 0 && static_cast<u32>(handle) < m_Subs.Num()) m_Subs[static_cast<u32>(handle)].fn = nullptr;
     }
 
     /**
@@ -76,16 +76,16 @@ public:
      * @param payload ハンドラへ渡すデータ(任意、既定 nullptr)。
      */
     void Publish(EventId ev, const void* payload = nullptr) noexcept {
-        for (u32 i = 0; i < m_Subs.Size(); ++i) {
+        for (u32 i = 0; i < m_Subs.Num(); ++i) {
             const FSub s = m_Subs[i];   // 値コピー(ハンドラ内で m_Subs が再確保されても安全)
             if (s.ev == ev && s.fn != nullptr) s.fn(s.listener, payload);
         }
     }
 
     /** 現在の購読数(空きスロット含む。デバッグ/検証用)。 */
-    u32 SubscriptionSlots() const noexcept { return static_cast<u32>(m_Subs.Size()); }
+    u32 SubscriptionSlots() const noexcept { return static_cast<u32>(m_Subs.Num()); }
 
-    void OnDeinitialize() noexcept override { m_Subs.Clear(); }
+    void OnDeinitialize() noexcept override { m_Subs.Reset(); }
 
 private:
     struct FSub { EventId ev; HandlerFn fn; void* listener; };

@@ -3930,21 +3930,21 @@ public:
      *
      * @return 連続領域の先頭ポインタ。
      */
-    constexpr T*       Data()       noexcept { return m_Data; }
+    constexpr T*       GetData()       noexcept { return m_Data; }
 
     /**
      * 先頭ポインタを const で返す。
      *
      * @return 連続領域の先頭 const ポインタ。
      */
-    constexpr const T* Data() const noexcept { return m_Data; }
+    constexpr const T* GetData() const noexcept { return m_Data; }
 
     /**
      * 要素数を返す。
      *
      * @return 要素数。
      */
-    constexpr usize    Size() const noexcept { return m_Size; }
+    constexpr usize    Num() const noexcept { return m_Size; }
 
     /**
      * 空かどうかを返す。
@@ -4098,7 +4098,7 @@ public:
      */
     TArray& operator=(TArray&& o) noexcept {
         if (this == &o) return *this;
-        Clear();
+        Reset();
         Free();
         m_Data = o.m_Data; m_Size = o.m_Size; m_Capacity = o.m_Capacity; m_Alloc = o.m_Alloc;
         o.m_Data = nullptr; o.m_Size = 0; o.m_Capacity = 0;
@@ -4106,21 +4106,21 @@ public:
     }
 
     /** 全要素を破棄しバッファを解放する。 */
-    ~TArray() noexcept { Clear(); Free(); }
+    ~TArray() noexcept { Reset(); Free(); }
 
     /**
      * 要素数を返す。
      *
      * @return 現在の要素数。
      */
-    usize Size()     const noexcept { return m_Size; }
+    usize Num()     const noexcept { return m_Size; }
 
     /**
      * 確保済み容量を返す。
      *
      * @return 再確保なしで保持できる要素数。
      */
-    usize Capacity() const noexcept { return m_Capacity; }
+    usize Max() const noexcept { return m_Capacity; }
 
     /**
      * 空かどうかを返す。
@@ -4159,8 +4159,8 @@ public:
      * 場合は超過要素をデストラクトする。
      * @param new_size 変更後の要素数。
      */
-    void Resize(usize new_size) noexcept {
-        ACS_CHECKF(TryResize(new_size), "TArray::Resize failed (size=%zu, T=%zu)",
+    void SetNum(usize new_size) noexcept {
+        ACS_CHECKF(TrySetNum(new_size), "TArray::Resize failed (size=%zu, T=%zu)",
                    new_size, sizeof(T));
     }
 
@@ -4170,7 +4170,7 @@ public:
      * @param NewSize 変更後の要素数。
      * @return 成功なら true、サイズoverflow/OOMなら false。
      */
-    bool TryResize(usize NewSize) noexcept
+    bool TrySetNum(usize NewSize) noexcept
     {
         if (NewSize > m_Capacity) {
             /** NewSize を収容する拡張後の容量。 */
@@ -4195,7 +4195,7 @@ public:
     }
 
     /** サイズを 0 にする (全要素をデストラクトするが容量は保持)。 */
-    void Clear() noexcept {
+    void Reset() noexcept {
         if constexpr (!IsTriviallyDestructibleV<T>) {
             for (usize i = m_Size; i-- > 0;) m_Data[i].~T();
         }
@@ -4206,18 +4206,18 @@ public:
      * 全要素を破棄し、確保済みの連続バッファも解放する。
      *
      * @details
-     * Clear() と異なり容量を 0 に戻す。配列に設定されたアロケータは維持するため、
-     * 次回の Reserve/Resize/PushBack も同じ確保元を使用する。大きな一時データを
+     * Reset() と異なり容量を 0 に戻す。配列に設定されたアロケータは維持するため、
+     * 次回の Reserve/Resize/Add も同じ確保元を使用する。大きな一時データを
      * 明示的に手放したい長寿命オブジェクト向け。
      */
-    void ReleaseStorage() noexcept
+    void Empty() noexcept
     {
-        Clear();
+        Reset();
         Free();
     }
 
     /** 余剰容量を解放してサイズちょうどに縮める。 */
-    void ShrinkToFit() noexcept {
+    void Shrink() noexcept {
         if (m_Size == m_Capacity) return;
         (void)Grow(m_Size);
     }
@@ -4227,14 +4227,14 @@ public:
      *
      * @return 内部バッファの先頭ポインタ。
      */
-    T*       Data()       noexcept { return m_Data; }
+    T*       GetData()       noexcept { return m_Data; }
 
     /**
      * 先頭ポインタを const で返す。
      *
      * @return 内部バッファの先頭 const ポインタ。
      */
-    const T* Data() const noexcept { return m_Data; }
+    const T* GetData() const noexcept { return m_Data; }
 
     /**
      * i 番目の要素への参照を返す。
@@ -4276,7 +4276,7 @@ public:
      * @details 空配列での呼び出しは ACS_ASSERT で検出する。
      * @return 末尾要素への参照。
      */
-    T&       Back ()       noexcept { ACS_ASSERT(m_Size > 0); return m_Data[m_Size - 1]; }
+    T&       Last ()       noexcept { ACS_ASSERT(m_Size > 0); return m_Data[m_Size - 1]; }
 
     /**
      * 末尾要素への const 参照を返す。
@@ -4284,7 +4284,7 @@ public:
      * @details 空配列での呼び出しは ACS_ASSERT で検出する。
      * @return 末尾要素への const 参照。
      */
-    const T& Back () const noexcept { ACS_ASSERT(m_Size > 0); return m_Data[m_Size - 1]; }
+    const T& Last () const noexcept { ACS_ASSERT(m_Size > 0); return m_Data[m_Size - 1]; }
 
     /**
      * 先頭イテレータを返す。
@@ -4334,8 +4334,8 @@ public:
      * @details 容量不足なら NextGrow で再確保する。
      * @param v 追加する値 (コピーされる)。
      */
-    void PushBack(const T& v) noexcept {
-        ACS_CHECKF(TryPushBack(v), "TArray::PushBack failed (size=%zu, T=%zu)", m_Size, sizeof(T));
+    void Add(const T& v) noexcept {
+        ACS_CHECKF(TryAdd(v), "TArray::Add failed (size=%zu, T=%zu)", m_Size, sizeof(T));
     }
 
     /**
@@ -4344,12 +4344,12 @@ public:
      * @details 容量成長時も、追加元が同じ配列内の要素なら旧領域を保持したまま
      * 新しい末尾を先に構築するため、自己参照を安全に扱える。
      */
-    bool TryPushBack(const T& Value) noexcept
+    bool TryAdd(const T& Value) noexcept
     {
         if constexpr (IsTriviallyCopyableV<T> && IsCopyConstructibleV<T>) {
             return TryPushBackTrivial(Value);
         }
-        return TryEmplaceBack(Value) != nullptr;
+        return TryEmplace(Value) != nullptr;
     }
 
     /**
@@ -4358,8 +4358,8 @@ public:
      * @details 容量不足なら NextGrow で再確保する。
      * @param v 追加する値 (ムーブされる)。
      */
-    void PushBack(T&& v) noexcept {
-        ACS_CHECKF(TryPushBack(Move(v)), "TArray::PushBack failed (size=%zu, T=%zu)", m_Size, sizeof(T));
+    void Add(T&& v) noexcept {
+        ACS_CHECKF(TryAdd(Move(v)), "TArray::Add failed (size=%zu, T=%zu)", m_Size, sizeof(T));
     }
 
     /**
@@ -4368,14 +4368,14 @@ public:
      * @details 容量成長時に追加元が同じ配列内の要素でも、旧要素から新しい末尾へ
      * 先にムーブしてから既存要素を移送する。
      */
-    bool TryPushBack(T&& Value) noexcept
+    bool TryAdd(T&& Value) noexcept
     {
         if constexpr (IsTriviallyCopyableV<T> && IsCopyConstructibleV<T>) {
             // move ではなく退避コピーする。確保失敗時は配列と右辺値引数の
             // どちらも変更しない。
             return TryPushBackTrivial(Value);
         }
-        return TryEmplaceBack(Move(Value)) != nullptr;
+        return TryEmplace(Move(Value)) != nullptr;
     }
 
     /**
@@ -4387,9 +4387,9 @@ public:
      * @return 構築した末尾要素への参照。
      */
     template<typename... Args>
-    T& EmplaceBack(Args&&... args) noexcept {
-        T* const Element = TryEmplaceBack(Forward<Args>(args)...);
-        ACS_CHECKF(Element != nullptr, "TArray::EmplaceBack failed (size=%zu, T=%zu)", m_Size, sizeof(T));
+    T& Emplace(Args&&... args) noexcept {
+        T* const Element = TryEmplace(Forward<Args>(args)...);
+        ACS_CHECKF(Element != nullptr, "TArray::Emplace failed (size=%zu, T=%zu)", m_Size, sizeof(T));
         return *Element;
     }
 
@@ -4402,7 +4402,7 @@ public:
      * 無効化しない。
      */
     template<typename... Args>
-    T* TryEmplaceBack(Args&&... Arguments) noexcept
+    T* TryEmplace(Args&&... Arguments) noexcept
     {
         if (m_Size < m_Capacity) {
             ::new (&m_Data[m_Size]) T(Forward<Args>(Arguments)...);
@@ -4423,7 +4423,7 @@ public:
      *
      * @details 空配列での呼び出しは ACS_ASSERT で検出する。
      */
-    void PopBack() noexcept {
+    void Pop() noexcept {
         ACS_ASSERT(m_Size > 0);
         --m_Size;
         if constexpr (!IsTriviallyDestructibleV<T>) m_Data[m_Size].~T();
@@ -4455,7 +4455,7 @@ public:
         if constexpr (!IsTriviallyDestructibleV<T>) m_Data[m_Size].~T();
     }
 
-    /** IndexOf / IndexOfIf が「見つからない」を表す番兵値。 */
+    /** IndexOfByKey / IndexOfByPredicate が「見つからない」を表す番兵値。 */
     static constexpr usize kNpos = static_cast<usize>(-1);
 
     /**
@@ -4464,7 +4464,7 @@ public:
      * @param value 探す値。
      * @return 最初に一致したインデックス (無ければ kNpos)。
      */
-    usize IndexOf(const T& value) const noexcept {
+    usize IndexOfByKey(const T& value) const noexcept {
         for (usize i = 0; i < m_Size; ++i) {
             if (m_Data[i] == value) return i;
         }
@@ -4479,7 +4479,7 @@ public:
      * @return 最初に一致したインデックス (無ければ kNpos)。
      */
     template<typename Pred>
-    usize IndexOfIf(Pred pred) const noexcept {
+    usize IndexOfByPredicate(Pred pred) const noexcept {
         for (usize i = 0; i < m_Size; ++i) {
             if (pred(m_Data[i])) return i;
         }
@@ -4493,8 +4493,8 @@ public:
      * @param value 探す値。
      * @return 最初に一致した要素 (無ければ nullptr)。
      */
-    T* Find(const T& value) noexcept {
-        const usize i = IndexOf(value);
+    T* FindByKey(const T& value) noexcept {
+        const usize i = IndexOfByKey(value);
         return i == kNpos ? nullptr : &m_Data[i];
     }
 
@@ -4504,8 +4504,8 @@ public:
      * @param value 探す値。
      * @return 最初に一致した要素 (無ければ nullptr)。
      */
-    const T* Find(const T& value) const noexcept {
-        const usize i = IndexOf(value);
+    const T* FindByKey(const T& value) const noexcept {
+        const usize i = IndexOfByKey(value);
         return i == kNpos ? nullptr : &m_Data[i];
     }
 
@@ -4518,8 +4518,8 @@ public:
      * @return 最初に一致した要素 (無ければ nullptr)。
      */
     template<typename Pred>
-    T* FindIf(Pred pred) noexcept {
-        const usize i = IndexOfIf(pred);
+    T* FindByPredicate(Pred pred) noexcept {
+        const usize i = IndexOfByPredicate(pred);
         return i == kNpos ? nullptr : &m_Data[i];
     }
 
@@ -4531,8 +4531,8 @@ public:
      * @return 最初に一致した要素 (無ければ nullptr)。
      */
     template<typename Pred>
-    const T* FindIf(Pred pred) const noexcept {
-        const usize i = IndexOfIf(pred);
+    const T* FindByPredicate(Pred pred) const noexcept {
+        const usize i = IndexOfByPredicate(pred);
         return i == kNpos ? nullptr : &m_Data[i];
     }
 
@@ -4542,7 +4542,7 @@ public:
      * @param value 探す値。
      * @return 1 つでも一致すれば true。
      */
-    bool Contains(const T& value) const noexcept { return IndexOf(value) != kNpos; }
+    bool Contains(const T& value) const noexcept { return IndexOfByKey(value) != kNpos; }
 
     /**
      * value と == で一致する最初の要素を、順序を保って削除する。
@@ -4554,7 +4554,7 @@ public:
      */
     bool Remove(const T& value) noexcept {
         // 最初に一致した削除位置。
-        const usize i = IndexOf(value);
+        const usize i = IndexOfByKey(value);
         if (i == kNpos) return false;
         RemoveAt(i);
         return true;
@@ -4566,8 +4566,8 @@ public:
      * @param value 削除する値。
      * @return 削除できたら true (見つからなければ false)。
      */
-    bool RemoveFirstSwap(const T& value) noexcept {
-        const usize i = IndexOf(value);
+    bool RemoveSingleSwap(const T& value) noexcept {
+        const usize i = IndexOfByKey(value);
         if (i == kNpos) return false;
         RemoveAtSwap(i);
         return true;
@@ -4582,7 +4582,7 @@ public:
      */
     TArray Clone() const noexcept {
         TArray c(m_Capacity, *m_Alloc);
-        c.Resize(m_Size);
+        c.SetNum(m_Size);
         if constexpr (IsTriviallyCopyableV<T>) {
             MemCopy(c.m_Data, m_Data, sizeof(T) * m_Size);
         } else {
@@ -5198,9 +5198,9 @@ public:
      * 維持する。長寿命オブジェクトを終了後に再利用する場合に、確保元が意図せず
      * DefaultAllocator へ変わることを防ぐ。
      */
-    void ReleaseStorage() noexcept
+    void Empty() noexcept
     {
-        m_Values.ReleaseStorage();
+        m_Values.Empty();
         if (m_Buckets) {
             m_Alloc->Free(m_Buckets);
             m_Buckets = nullptr;
@@ -5214,7 +5214,7 @@ public:
      *
      * @return 格納エントリ数。
      */
-    usize Size() const noexcept     { return m_Values.Size(); }
+    usize Num() const noexcept     { return m_Values.Num(); }
 
     /**
      * 空かどうかを返す。
@@ -5230,8 +5230,8 @@ public:
      * @param key 挿入するキー。
      * @param value 挿入する値 (ムーブされる)。
      */
-    void Insert(const K& key, V value) noexcept {
-        ACS_CHECKF(TryInsert(key, Move(value)), "THashMap::Insert failed (size=%zu)", Size());
+    void Add(const K& key, V value) noexcept {
+        ACS_CHECKF(TryAdd(key, Move(value)), "THashMap::Insert failed (size=%zu)", Num());
     }
 
     /**
@@ -5243,7 +5243,7 @@ public:
      * @param value 挿入する値 (ムーブされる)。
      * @return 挿入 / 上書き成功なら true、サイズ overflow / OOM なら false。
      */
-    bool TryInsert(const K& key, V value) noexcept {
+    bool TryAdd(const K& key, V value) noexcept {
         // 更新を再配置判定より先に1回のハッシュ計算と探索で完了させ、
         // 閾値付近の既存 key 更新では容量を増やさない。
         /** 検索と新規挿入で再利用するハッシュ値。 */
@@ -5361,14 +5361,14 @@ public:
                 const u32 vidx = b.value_idx;
                 m_Values.RemoveAtSwap(vidx);  // 末尾と入れ替えて削除
                 // 末尾要素が動いたなら、それを指していたバケットの value_idx を更新
-                if (vidx != m_Values.Size()) {
+                if (vidx != m_Values.Num()) {
                     const u64 mh = H{}(m_Values[vidx].first);
                     u32 cur_idx = static_cast<u32>(mh) & m_BucketMask;
                     const u32 cur_fp = static_cast<u32>((mh >> 56) | 0x01);
                     u32 cur_dist = 0;
                     while (true) {
                         FBucket& mb = m_Buckets[cur_idx];
-                        if (mb.dist_fp != 0 && mb.Fingerprint() == cur_fp && mb.value_idx == m_Values.Size()) {
+                        if (mb.dist_fp != 0 && mb.Fingerprint() == cur_fp && mb.value_idx == m_Values.Num()) {
                             mb.value_idx = vidx;
                             break;
                         }
@@ -5398,8 +5398,8 @@ public:
     }
 
     /** 全エントリを削除する (値配列をクリアし、バケットを 0 埋め。容量は保持)。 */
-    void Clear() noexcept {
-        m_Values.Clear();
+    void Reset() noexcept {
+        m_Values.Reset();
         if (m_Buckets) MemSet(m_Buckets, 0, sizeof(FBucket) * m_BucketCount);
     }
 
@@ -5554,7 +5554,7 @@ private:
         if (m_BucketCount == 0u) return true;
         /** 現在のバケット数で許可する最大要素数。 */
         const u64 Threshold = (static_cast<u64>(m_BucketCount) * static_cast<u64>(kLoadFactorPct)) / 100u;
-        return static_cast<u64>(Size()) + 1u > Threshold;
+        return static_cast<u64>(Num()) + 1u > Threshold;
     }
 
     /**
@@ -5602,7 +5602,7 @@ private:
         MemSet(m_Buckets, 0, sizeof(FBucket) * new_count);
 
         // 全 value を順に再挿入
-        for (u32 vi = 0; vi < m_Values.Size(); ++vi) {
+        for (u32 vi = 0; vi < m_Values.Num(); ++vi) {
             ReinsertBucket(vi);
         }
 
@@ -5662,11 +5662,11 @@ private:
         const u32 fp = static_cast<u32>((Hash >> 56u) | 0x01u);
 
         // 新規エントリ: 値配列末尾に追加 → Robin Hood 挿入
-        if (m_Values.Size() >= 0xFFFFFFFFull) return false;  // u32 index 切り詰め防止
-        // 値配列の容量を先に確保する。失敗時 value をムーブしないよう PushBack より前に判定する。
-        if (!m_Values.TryReserve(m_Values.Size() + 1u)) return false;
-        const u32 new_idx = static_cast<u32>(m_Values.Size());
-        m_Values.PushBack(EntryType{ key, Move(value) });  // 予約済みなので確保は起きない
+        if (m_Values.Num() >= 0xFFFFFFFFull) return false;  // u32 index 切り詰め防止
+        // 値配列の容量を先に確保する。失敗時 value をムーブしないよう Add より前に判定する。
+        if (!m_Values.TryReserve(m_Values.Num() + 1u)) return false;
+        const u32 new_idx = static_cast<u32>(m_Values.Num());
+        m_Values.Add(EntryType{ key, Move(value) });  // 予約済みなので確保は起きない
         FBucket nb;
         nb.Set(0, fp);
         nb.value_idx = new_idx;
@@ -6587,8 +6587,8 @@ public:
      * @param entity_index 問い合わせるエンティティのスロット番号。
      * @return 対応する dense インデックス (未登録なら kInvalid)。
      */
-    u32 IndexOf(u32 entity_index) const noexcept {
-        if (entity_index >= m_Sparse.Size()) return kInvalid;
+    u32 IndexOfByKey(u32 entity_index) const noexcept {
+        if (entity_index >= m_Sparse.Num()) return kInvalid;
         return m_Sparse[entity_index];
     }
 
@@ -6598,14 +6598,14 @@ public:
      * @param entity_index 問い合わせるエンティティのスロット番号。
      * @return 含まれていれば true。
      */
-    bool Contains(u32 entity_index) const noexcept { return IndexOf(entity_index) != kInvalid; }
+    bool Contains(u32 entity_index) const noexcept { return IndexOfByKey(entity_index) != kInvalid; }
 
     /**
      * 要素数 (コンポーネントを持つエンティティの数) を返す。
      *
      * @return dense 配列の要素数。
      */
-    usize Size() const noexcept { return m_Dense.Size(); }
+    usize Size() const noexcept { return m_Dense.Num(); }
 
     /**
      * dense 順に並んだエンティティ index の生配列を返す。
@@ -6613,7 +6613,7 @@ public:
      * @details Add/Remove で再確保され得るため、構造変更をまたいでポインタを保持しない。
      * @return dense_index → entity_index 配列の先頭 (要素数は Size())。
      */
-    const u32* DenseEntities() const noexcept { return m_Dense.Data(); }
+    const u32* DenseEntities() const noexcept { return m_Dense.GetData(); }
 
     /**
      * 型を知らずに指定エンティティの値を削除する (CWorld::Destroy から呼ぶ)。
@@ -6640,13 +6640,13 @@ protected:
      * @return 両配列をコピーできたら true (OOM なら false)。
      */
     bool CopyBaseFrom(const ASparseSetBase& other) noexcept {
-        if (!m_Sparse.TryResize(other.m_Sparse.Size())) return false;
-        if (!m_Dense.TryResize(other.m_Dense.Size())) return false;
-        if (other.m_Sparse.Size() > 0) {
-            MemCopy(m_Sparse.Data(), other.m_Sparse.Data(), other.m_Sparse.Size() * sizeof(u32));
+        if (!m_Sparse.TrySetNum(other.m_Sparse.Num())) return false;
+        if (!m_Dense.TrySetNum(other.m_Dense.Num())) return false;
+        if (other.m_Sparse.Num() > 0) {
+            MemCopy(m_Sparse.GetData(), other.m_Sparse.GetData(), other.m_Sparse.Num() * sizeof(u32));
         }
-        if (other.m_Dense.Size() > 0) {
-            MemCopy(m_Dense.Data(), other.m_Dense.Data(), other.m_Dense.Size() * sizeof(u32));
+        if (other.m_Dense.Num() > 0) {
+            MemCopy(m_Dense.GetData(), other.m_Dense.GetData(), other.m_Dense.Num() * sizeof(u32));
         }
         return true;
     }
@@ -6658,9 +6658,9 @@ protected:
      * @param entity_index 収まる必要のあるスロット番号。
      */
     void EnsureSparseCapacity(u32 entity_index) noexcept {
-        if (entity_index >= m_Sparse.Size()) {
-            const usize old = m_Sparse.Size();
-            m_Sparse.Resize(entity_index + 1);
+        if (entity_index >= m_Sparse.Num()) {
+            const usize old = m_Sparse.Num();
+            m_Sparse.SetNum(entity_index + 1);
             for (usize i = old; i <= entity_index; ++i) m_Sparse[i] = kInvalid;
         }
     }
@@ -6708,10 +6708,10 @@ public:
             m_Data[idx] = Move(value);  // 上書き
             return;
         }
-        const u32 new_idx = static_cast<u32>(m_Dense.Size());
+        const u32 new_idx = static_cast<u32>(m_Dense.Num());
         m_Sparse[entity_index] = new_idx;
-        m_Dense.PushBack(entity_index);
-        m_Data.PushBack(Move(value));
+        m_Dense.Add(entity_index);
+        m_Data.Add(Move(value));
     }
 
     /**
@@ -6722,10 +6722,10 @@ public:
      * @param entity_index 削除するエンティティのスロット番号。
      */
     void Remove(u32 entity_index) noexcept {
-        const u32 idx = IndexOf(entity_index);
+        const u32 idx = IndexOfByKey(entity_index);
         if (idx == kInvalid) return;
 
-        const u32 last = static_cast<u32>(m_Dense.Size() - 1);
+        const u32 last = static_cast<u32>(m_Dense.Num() - 1);
         if (idx != last) {
             // 末尾要素を idx 位置に移動
             const u32 last_entity = m_Dense[last];
@@ -6733,8 +6733,8 @@ public:
             m_Data[idx]  = Move(m_Data[last]);
             m_Sparse[last_entity] = idx;
         }
-        m_Dense.PopBack();
-        m_Data.PopBack();
+        m_Dense.Pop();
+        m_Data.Pop();
         m_Sparse[entity_index] = kInvalid;
     }
 
@@ -6745,7 +6745,7 @@ public:
      * @return 値へのポインタ (未登録なら nullptr)。
      */
     T* Get(u32 entity_index) noexcept {
-        const u32 idx = IndexOf(entity_index);
+        const u32 idx = IndexOfByKey(entity_index);
         return idx == kInvalid ? nullptr : &m_Data[idx];
     }
 
@@ -6756,7 +6756,7 @@ public:
      * @return 値への const ポインタ (未登録なら nullptr)。
      */
     const T* Get(u32 entity_index) const noexcept {
-        const u32 idx = IndexOf(entity_index);
+        const u32 idx = IndexOfByKey(entity_index);
         return idx == kInvalid ? nullptr : &m_Data[idx];
     }
 
@@ -6796,9 +6796,9 @@ public:
         } else {
             TSparseSet<T>* const clone = New<TSparseSet<T>>(alloc);
             if (clone == nullptr) return nullptr;
-            bool ok = clone->CopyBaseFrom(*this) && clone->m_Data.TryReserve(m_Data.Size());
-            for (usize i = 0; ok && i < m_Data.Size(); ++i) {
-                ok = clone->m_Data.TryPushBack(m_Data[i]);   // T のコピー構築
+            bool ok = clone->CopyBaseFrom(*this) && clone->m_Data.TryReserve(m_Data.Num());
+            for (usize i = 0; ok && i < m_Data.Num(); ++i) {
+                ok = clone->m_Data.TryAdd(m_Data[i]);   // T のコピー構築
             }
             if (!ok) {
                 Delete(alloc, clone);
@@ -6982,7 +6982,7 @@ public:
     template<typename T>
     TSparseSet<T>& GetOrCreateSet() noexcept {
         const FComponentTypeId id = GetComponentTypeId<T>();
-        if (id >= m_Sets.Size()) m_Sets.Resize(id + 1);
+        if (id >= m_Sets.Num()) m_Sets.SetNum(id + 1);
         if (!m_Sets[id]) {
             // 生 new を避け、MemorySystem 追跡下で確保する (R018 / リーク検出)。ASparseSetBase の
             // 仮想デストラクタで型ごとの破棄が走るため、解放は CWorld::Clear の Delete で型消去できる。
@@ -7002,7 +7002,7 @@ public:
     template<typename T>
     TSparseSet<T>* TryGetSet() noexcept {
         const FComponentTypeId id = GetComponentTypeId<T>();
-        if (id >= m_Sets.Size()) return nullptr;
+        if (id >= m_Sets.Num()) return nullptr;
         return static_cast<TSparseSet<T>*>(m_Sets[id]);
     }
 
@@ -7020,7 +7020,7 @@ public:
      * @return そのスロットの現世代を付けた FEntityId (範囲外なら kInvalidEntity)。
      */
     FEntityId MakeIdFromIndex(u32 index) const noexcept {
-        if (index >= m_Slots.Size()) return kInvalidEntity;
+        if (index >= m_Slots.Num()) return kInvalidEntity;
         return FEntityId{ index, m_Slots[index].generation };
     }
 
@@ -13469,14 +13469,14 @@ public:
      *
      * @return インターリーブ済み PCM バイト列の先頭。
      */
-    const byte*  Samples()    const noexcept { return m_Samples.Data(); }
+    const byte*  Samples()    const noexcept { return m_Samples.GetData(); }
 
     /**
      * 生 PCM データのバイト数を返す。
      *
      * @return PCM バイト列のサイズ。
      */
-    usize        SampleByteCount() const noexcept { return m_Samples.Size(); }
+    usize        SampleByteCount() const noexcept { return m_Samples.Num(); }
 
     /**
      * 再生時間を秒で返す。
@@ -13803,14 +13803,14 @@ public:
      *
      * @return ピクセルバイト列の先頭。
      */
-    const byte* Pixels() const noexcept { return m_Pixels.Data(); }
+    const byte* Pixels() const noexcept { return m_Pixels.GetData(); }
 
     /**
      * 生ピクセルデータのバイト数を返す。
      *
      * @return ピクセルバイト列のサイズ。
      */
-    usize       PixelByteCount() const noexcept { return m_Pixels.Size(); }
+    usize       PixelByteCount() const noexcept { return m_Pixels.Num(); }
 
 private:
     /** 画像の幅 (ピクセル)。 */
@@ -15047,7 +15047,7 @@ public:
      *
      * @param c 追加する文字。
      */
-    void PushBack(char c)      noexcept { Append(c); }
+    void Add(char c)      noexcept { Append(c); }
 
     /**
      * printf 風フォーマットで追記する。
@@ -15480,14 +15480,14 @@ public:
      *
      * @return 文字列の先頭 (空なら "")。
      */
-    const char* CStr() const noexcept { return m_Text.IsEmpty() ? "" : m_Text.Data(); }
+    const char* CStr() const noexcept { return m_Text.IsEmpty() ? "" : m_Text.GetData(); }
 
     /**
      * NUL を除いた文字列長を返す。
      *
      * @return バイト数 (空なら 0)。
      */
-    usize       Size() const noexcept { return m_Text.IsEmpty() ? 0 : m_Text.Size() - 1; }
+    usize       Size() const noexcept { return m_Text.IsEmpty() ? 0 : m_Text.Num() - 1; }
 
     /**
      * 末尾 NUL を含む生バッファへの const 参照を返す。
@@ -17929,14 +17929,14 @@ public:
      *
      * @return 構築された三角形の数。
      */
-    u32   TriangleCount() const noexcept { return m_Tris.Size(); }
+    u32   TriangleCount() const noexcept { return m_Tris.Num(); }
 
     /**
      * BVH ノード数を返す。
      *
      * @return BVH のノード数 (内部 + 葉)。
      */
-    u32   NodeCount()     const noexcept { return m_Nodes.Size(); }
+    u32   NodeCount()     const noexcept { return m_Nodes.Num(); }
 
 private:
     /**
@@ -19225,12 +19225,12 @@ public:
         DestroyInline();
     }
 
-    usize Size() const noexcept {
-        return m_UsingOverflow ? m_Overflow.Size() : m_InlineSize;
+    usize Num() const noexcept {
+        return m_UsingOverflow ? m_Overflow.Num() : m_InlineSize;
     }
 
     bool IsEmpty() const noexcept {
-        return Size() == 0u;
+        return Num() == 0u;
     }
 
     bool UsesInlineStorage() const noexcept {
@@ -19238,49 +19238,49 @@ public:
     }
 
     T& operator[](usize index) noexcept {
-        ACS_ASSERT(index < Size());
+        ACS_ASSERT(index < Num());
         return m_UsingOverflow ? m_Overflow[index] : InlineData()[index];
     }
 
     const T& operator[](usize index) const noexcept {
-        ACS_ASSERT(index < Size());
+        ACS_ASSERT(index < Num());
         return m_UsingOverflow ? m_Overflow[index] : InlineData()[index];
     }
 
-    bool TryPushBack(const T& value) noexcept {
-        if (m_UsingOverflow) return m_Overflow.TryPushBack(value);
+    bool TryAdd(const T& value) noexcept {
+        if (m_UsingOverflow) return m_Overflow.TryAdd(value);
         if (m_InlineSize < InlineCapacity) {
             ::new (static_cast<void*>(InlineData() + m_InlineSize)) T(value);
             ++m_InlineSize;
             return true;
         }
         if (!MoveToOverflow()) return false;
-        return m_Overflow.TryPushBack(value);
+        return m_Overflow.TryAdd(value);
     }
 
-    bool TryPushBack(T&& value) noexcept {
-        if (m_UsingOverflow) return m_Overflow.TryPushBack(Move(value));
+    bool TryAdd(T&& value) noexcept {
+        if (m_UsingOverflow) return m_Overflow.TryAdd(Move(value));
         if (m_InlineSize < InlineCapacity) {
             ::new (static_cast<void*>(InlineData() + m_InlineSize)) T(Move(value));
             ++m_InlineSize;
             return true;
         }
         if (!MoveToOverflow()) return false;
-        return m_Overflow.TryPushBack(Move(value));
+        return m_Overflow.TryAdd(Move(value));
     }
 
-    void PushBack(const T& value) noexcept {
-        ACS_CHECKF(TryPushBack(value), "TInlineArray::PushBack failed (size=%zu, T=%zu)", Size(), sizeof(T));
+    void Add(const T& value) noexcept {
+        ACS_CHECKF(TryAdd(value), "TInlineArray::Add failed (size=%zu, T=%zu)", Num(), sizeof(T));
     }
 
-    void PushBack(T&& value) noexcept {
-        ACS_CHECKF(TryPushBack(Move(value)), "TInlineArray::PushBack failed (size=%zu, T=%zu)", Size(), sizeof(T));
+    void Add(T&& value) noexcept {
+        ACS_CHECKF(TryAdd(Move(value)), "TInlineArray::Add failed (size=%zu, T=%zu)", Num(), sizeof(T));
     }
 
-    void PopBack() noexcept {
+    void Pop() noexcept {
         ACS_ASSERT(!IsEmpty());
         if (m_UsingOverflow) {
-            m_Overflow.PopBack();
+            m_Overflow.Pop();
             return;
         }
         --m_InlineSize;
@@ -19311,9 +19311,9 @@ public:
         return false;
     }
 
-    void Clear() noexcept {
+    void Reset() noexcept {
         if (m_UsingOverflow) {
-            m_Overflow.Clear();
+            m_Overflow.Reset();
             return;
         }
         DestroyInline();
@@ -19339,7 +19339,7 @@ private:
     bool MoveToOverflow() noexcept {
         if (!m_Overflow.TryReserve(InlineCapacity * 2u)) return false;
         for (usize i = 0u; i < m_InlineSize; ++i) {
-            if (!m_Overflow.TryPushBack(Move(InlineData()[i]))) {
+            if (!m_Overflow.TryAdd(Move(InlineData()[i]))) {
                 return false;
             }
         }
@@ -23619,7 +23619,7 @@ public:
         FCommand c{};
         c.kind = ECommandKind::Destroy;
         c.entity = e;
-        if (!m_Commands.TryPushBack(c)) {
+        if (!m_Commands.TryAdd(c)) {
             m_bOverflowed = true;
         }
     }
@@ -23638,7 +23638,7 @@ public:
         c.kind = ECommandKind::Remove;
         c.entity = e;
         c.apply = &ApplyRemove<T>;
-        if (!m_Commands.TryPushBack(c)) {
+        if (!m_Commands.TryAdd(c)) {
             m_bOverflowed = true;
         }
     }
@@ -23659,7 +23659,7 @@ public:
         c.entity = e;
         c.apply = &ApplyAdd<T>;
         if (!StoreValue(c, Move(value))) return;
-        if (!m_Commands.TryPushBack(c)) {
+        if (!m_Commands.TryAdd(c)) {
             DestroyStoredValue(c);
             m_bOverflowed = true;
         }
@@ -23677,7 +23677,7 @@ public:
         /** 追加する遅延コマンド。 */
         FCommand c{};
         c.kind = ECommandKind::Create;
-        if (!m_Commands.TryPushBack(c)) {
+        if (!m_Commands.TryAdd(c)) {
             m_bOverflowed = true;
         }
     }
@@ -23698,7 +23698,7 @@ public:
         c.kind = ECommandKind::Create;
         c.apply = &ApplyAdd<T>;
         if (!StoreValue(c, Move(value))) return;
-        if (!m_Commands.TryPushBack(c)) {
+        if (!m_Commands.TryAdd(c)) {
             DestroyStoredValue(c);
             m_bOverflowed = true;
         }
@@ -23712,7 +23712,7 @@ public:
     void Flush() noexcept
     {
         /** 適用するコマンド位置。 */
-        for (usize i = 0; i < m_Commands.Size(); ++i) {
+        for (usize i = 0; i < m_Commands.Num(); ++i) {
             /** 現在適用するコマンド。 */
             FCommand& c = m_Commands[i];
             switch (c.kind) {
@@ -23738,7 +23738,7 @@ public:
             }
             }
         }
-        m_Commands.Clear();
+        m_Commands.Reset();
     }
 
     /**
@@ -23747,18 +23747,18 @@ public:
     void Clear() noexcept
     {
         /** 破棄するコマンド位置。 */
-        for (usize i = 0; i < m_Commands.Size(); ++i) {
+        for (usize i = 0; i < m_Commands.Num(); ++i) {
             /** 現在破棄するコマンド。 */
             FCommand& c = m_Commands[i];
             DestroyStoredValue(c);
         }
-        m_Commands.Clear();
+        m_Commands.Reset();
     }
 
     /** 記録済み操作数を返す。 */
     usize Size() const noexcept
     {
-        return m_Commands.Size();
+        return m_Commands.Num();
     }
 
     /** 記録が空なら true。 */
@@ -23963,7 +23963,7 @@ public:
         }
         for (u32 i = 0; i < slots; ++i) {
             FEntityCommandBuffer* const buffer = New<FEntityCommandBuffer>(alloc, world, alloc);
-            if (buffer == nullptr || !m_Buffers.TryPushBack(buffer)) {
+            if (buffer == nullptr || !m_Buffers.TryAdd(buffer)) {
                 if (buffer != nullptr) Delete(alloc, buffer);
                 ReleaseBuffers();                            // 部分構築は全て畳んで無効化
                 return;
@@ -24044,7 +24044,7 @@ public:
      */
     void Flush() noexcept
     {
-        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+        for (usize i = 0; i < m_Buffers.Num(); ++i) {
             m_Buffers[i]->Flush();
         }
     }
@@ -24052,7 +24052,7 @@ public:
     /** 全スロットの記録を適用せず破棄する (単一スレッドから呼ぶこと)。 */
     void Clear() noexcept
     {
-        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+        for (usize i = 0; i < m_Buffers.Num(); ++i) {
             m_Buffers[i]->Clear();
         }
     }
@@ -24063,7 +24063,7 @@ public:
     bool TryReservePerSlot(usize command_count) noexcept
     {
         bool ok = !m_Buffers.IsEmpty();
-        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+        for (usize i = 0; i < m_Buffers.Num(); ++i) {
             ok = m_Buffers[i]->TryReserve(command_count) && ok;
         }
         if (!ok) m_DroppedRecords.FetchAdd(1u);
@@ -24078,7 +24078,7 @@ public:
     usize Size() const noexcept
     {
         usize total = 0;
-        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+        for (usize i = 0; i < m_Buffers.Num(); ++i) {
             total += m_Buffers[i]->Size();
         }
         return total;
@@ -24102,7 +24102,7 @@ public:
     bool HasOverflowed() const noexcept
     {
         if (m_DroppedRecords.Load(EMemoryOrder::Relaxed) != 0u) return true;
-        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+        for (usize i = 0; i < m_Buffers.Num(); ++i) {
             if (m_Buffers[i]->HasOverflowed()) return true;
         }
         return false;
@@ -24119,7 +24119,7 @@ private:
      */
     FEntityCommandBuffer* Slot() noexcept
     {
-        const usize count = m_Buffers.Size();
+        const usize count = m_Buffers.Num();
         if (count == 0) {
             m_DroppedRecords.FetchAdd(1u);
             return nullptr;
@@ -24138,10 +24138,10 @@ private:
     /** 全バッファを (未適用の記録ごと) 破棄して解放する。 */
     void ReleaseBuffers() noexcept
     {
-        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+        for (usize i = 0; i < m_Buffers.Num(); ++i) {
             Delete(*m_Alloc, m_Buffers[i]);
         }
-        m_Buffers.Clear();
+        m_Buffers.Reset();
     }
 
     /** バッファの確保・解放に使うアロケータ。 */
@@ -24225,7 +24225,7 @@ public:
         // Add/Remove して TSparseSet が m_Dense を再確保すると、生 dense ポインタが dangling
         // になり use-after-free する。コピーに対して反復することで構造的変更に安全化する。
         TArray<FEntityId> snapshot;
-        snapshot.Resize(count);
+        snapshot.SetNum(count);
         const u32* dense = primary->DenseEntities();
         for (usize i = 0; i < count; ++i)
             snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
@@ -24254,7 +24254,7 @@ public:
         if (count == 0) return;
 
         TArray<FEntityId> snapshot;
-        snapshot.Resize(count);
+        snapshot.SetNum(count);
         const u32* dense = primary->DenseEntities();
         for (usize i = 0; i < count; ++i)
             snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
@@ -24279,7 +24279,7 @@ public:
         if (count == 0u) return;
 
         TArray<FEntityId> snapshot;
-        if (!snapshot.TryResize(count)) return;
+        if (!snapshot.TrySetNum(count)) return;
         const u32* dense = primary->DenseEntities();
         for (usize i = 0; i < count; ++i)
             snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
@@ -24319,7 +24319,7 @@ public:
         // dense[] をスナップショットしてから並列反復する。fn が構造的変更を起こすと生 dense
         // が dangling するため、コピーを指す (snapshot は ParallelFor の block 中ずっと生存)。
         TArray<FEntityId> snapshot;
-        snapshot.Resize(count);
+        snapshot.SetNum(count);
         {
             const u32* dense = primary->DenseEntities();
             for (u32 i = 0; i < count; ++i)
@@ -24333,7 +24333,7 @@ public:
             Fn* fn;
             const FEntityId* entities;
         };
-        FCtx ctx{this, &fn, snapshot.Data()};
+        FCtx ctx{this, &fn, snapshot.GetData()};
 
         auto thunk = [](u32 i, u32 /*worker*/, void* user) {
             auto* c = static_cast<FCtx*>(user);
@@ -24541,7 +24541,7 @@ public:
     {
         Shutdown();
         if (capacity == 0) return false;
-        if (!m_Slots.TryResize(capacity)) return false;
+        if (!m_Slots.TrySetNum(capacity)) return false;
         for (u32 i = 0; i < capacity; ++i) {
             m_Slots[i].world = New<CWorld>(*m_Slots.GetAllocator());
             if (m_Slots[i].world == nullptr) {
@@ -24559,7 +24559,7 @@ public:
      */
     void Shutdown() noexcept
     {
-        for (usize i = 0; i < m_Slots.Size(); ++i) {
+        for (usize i = 0; i < m_Slots.Num(); ++i) {
             if (m_Slots[i].world) {
                 Delete(*m_Slots.GetAllocator(), m_Slots[i].world);
                 m_Slots[i].world = nullptr;
@@ -24576,7 +24576,7 @@ public:
      */
     void InvalidateAll() noexcept
     {
-        for (usize i = 0; i < m_Slots.Size(); ++i) m_Slots[i].valid = false;
+        for (usize i = 0; i < m_Slots.Num(); ++i) m_Slots[i].valid = false;
     }
 
     /**
@@ -24593,7 +24593,7 @@ public:
     bool SaveFrame(u32 tick, const CWorld& world) noexcept
     {
         if (m_Slots.IsEmpty()) return false;
-        FSlot& slot = m_Slots[tick % m_Slots.Size()];
+        FSlot& slot = m_Slots[tick % m_Slots.Num()];
         slot.valid = false;   // 複製中に失敗しても古い履歴を残さない
         if (!slot.world->CopyFrom(world)) return false;
         slot.tick  = tick;
@@ -24614,7 +24614,7 @@ public:
     bool RestoreFrame(u32 tick, CWorld& world) const noexcept
     {
         if (m_Slots.IsEmpty()) return false;
-        const FSlot& slot = m_Slots[tick % m_Slots.Size()];
+        const FSlot& slot = m_Slots[tick % m_Slots.Num()];
         if (!slot.valid || slot.tick != tick) return false;
         return world.CopyFrom(*slot.world);
     }
@@ -24628,7 +24628,7 @@ public:
     bool HasFrame(u32 tick) const noexcept
     {
         if (m_Slots.IsEmpty()) return false;
-        const FSlot& slot = m_Slots[tick % m_Slots.Size()];
+        const FSlot& slot = m_Slots[tick % m_Slots.Num()];
         return slot.valid && slot.tick == tick;
     }
 
@@ -24637,7 +24637,7 @@ public:
      *
      * @return Init で確保した slot 数 (未初期化なら 0)。
      */
-    u32 Capacity() const noexcept { return static_cast<u32>(m_Slots.Size()); }
+    u32 Capacity() const noexcept { return static_cast<u32>(m_Slots.Num()); }
 
     /**
      * 現在有効なスナップショット数を返す。
@@ -24647,7 +24647,7 @@ public:
     u32 SavedCount() const noexcept
     {
         u32 n = 0;
-        for (usize i = 0; i < m_Slots.Size(); ++i) {
+        for (usize i = 0; i < m_Slots.Num(); ++i) {
             if (m_Slots[i].valid) ++n;
         }
         return n;
@@ -24712,7 +24712,7 @@ public:
      *
      * @param fn 登録するシステム関数。
      */
-    void Add(SystemFn fn) noexcept { m_Systems.PushBack(fn); }
+    void Add(SystemFn fn) noexcept { m_Systems.Add(fn); }
 
     /**
      * 登録した全システムを登録順に 1 回ずつ呼ぶ。
@@ -24721,20 +24721,20 @@ public:
      * @param dt 前フレームからの経過秒。
      */
     void Tick(CWorld& world, f32 dt) noexcept {
-        for (usize i = 0; i < m_Systems.Size(); ++i) {
+        for (usize i = 0; i < m_Systems.Num(); ++i) {
             m_Systems[i](world, dt);
         }
     }
 
     /** 登録済みシステムを全て取り除く。 */
-    void Clear() noexcept { m_Systems.Clear(); }
+    void Clear() noexcept { m_Systems.Reset(); }
 
     /**
      * 登録済みシステム数を返す。
      *
      * @return 登録されているシステム関数の数。
      */
-    usize Count() const noexcept { return m_Systems.Size(); }
+    usize Count() const noexcept { return m_Systems.Num(); }
 
 private:
     /** 登録順に保持したシステム関数の配列。 */
@@ -26628,7 +26628,7 @@ public:
             FScopedLock lock(m_Mtx);
             if (m_Closed || IsFullLocked()) return false;
             CompactLocked(false);
-            if (!m_Queue.TryPushBack(Move(value))) return false;
+            if (!m_Queue.TryAdd(Move(value))) return false;
             notify = m_WaiterCount != 0;
         }
         if (notify) m_Cv.NotifyOne();
@@ -26655,7 +26655,7 @@ public:
             if (m_Closed) return 0;
             CompactLocked(false);
             while (pushed < count && !IsFullLocked()) {
-                if (!m_Queue.TryPushBack(Move(values[pushed]))) break;
+                if (!m_Queue.TryAdd(Move(values[pushed]))) break;
                 ++pushed;
             }
             waiters = m_WaiterCount;
@@ -26751,7 +26751,7 @@ public:
 private:
     /** lock 保持中の論理要素数を返す。 */
     usize LogicalSizeLocked() const noexcept {
-        return m_Queue.Size() - m_Head;
+        return m_Queue.Num() - m_Head;
     }
 
     /** lock 保持中に上限へ達しているかを返す。 */
@@ -26777,7 +26777,7 @@ private:
         const usize live = LogicalSizeLocked();
         if (live == 0) {
             if (allow_empty_clear || m_Head >= 64) {
-                m_Queue.Clear();
+                m_Queue.Reset();
                 m_Head = 0;
             }
             return;
@@ -26787,7 +26787,7 @@ private:
         for (usize i = 0; i < live; ++i) {
             m_Queue[i] = Move(m_Queue[m_Head + i]);
         }
-        while (m_Queue.Size() > live) m_Queue.PopBack();
+        while (m_Queue.Num() > live) m_Queue.Pop();
         m_Head = 0;
     }
 
@@ -27321,7 +27321,7 @@ public:
     /** 全購読を解除する。 */
     void Clear() noexcept {
         if (!m_State) return;
-        for (/** 現在解除する購読枠の位置。 */ u32 Index = 0; Index < m_State->slots.Size(); ++Index) {
+        for (/** 現在解除する購読枠の位置。 */ u32 Index = 0; Index < m_State->slots.Num(); ++Index) {
             if (m_State->slots[Index].active) RetireSlot(*m_State, Index);
         }
     }
@@ -27397,7 +27397,7 @@ namespace acs {
  */
 template<typename... Arguments>
 bool TEvent<Arguments...>::IsSubscribedState(const FState& State, FTypedEventHandle Handle) noexcept {
-    if (!Handle.IsValid() || Handle.event_id != State.event_id || Handle.slot_index >= State.slots.Size()) return false;
+    if (!Handle.IsValid() || Handle.event_id != State.event_id || Handle.slot_index >= State.slots.Num()) return false;
     /** ハンドルが指す購読情報。 */
     const FSlot& Slot = State.slots[Handle.slot_index];
     return Slot.active && Slot.generation == Handle.generation;
@@ -27421,11 +27421,11 @@ bool TEvent<Arguments...>::UnsubscribeState(FState& State, FTypedEventHandle Han
  */
 template<typename... Arguments>
 void TEvent<Arguments...>::CollectReusableSlots(FState& State) noexcept {
-    for (/** 現在調べる購読枠の位置。 */ u32 Index = 0; Index < State.slots.Size(); ++Index) {
+    for (/** 現在調べる購読枠の位置。 */ u32 Index = 0; Index < State.slots.Num(); ++Index) {
         /** 現在調べる購読情報。 */
         FSlot& Slot = State.slots[Index];
         if (!Slot.pending_reuse || Slot.retired) continue;
-        if (!State.free_slots.TryPushBack(Index)) return;
+        if (!State.free_slots.TryAdd(Index)) return;
         Slot.pending_reuse = false;
     }
 }
@@ -27437,7 +27437,7 @@ void TEvent<Arguments...>::CollectReusableSlots(FState& State) noexcept {
  */
 template<typename... Arguments>
 void TEvent<Arguments...>::RetireSlot(FState& State, u32 SlotIndex) noexcept {
-    if (SlotIndex >= State.slots.Size()) return;
+    if (SlotIndex >= State.slots.Num()) return;
     /** 無効にする購読情報。 */
     FSlot& Slot = State.slots[SlotIndex];
     if (!Slot.active) return;
@@ -27453,7 +27453,7 @@ void TEvent<Arguments...>::RetireSlot(FState& State, u32 SlotIndex) noexcept {
         return;
     }
     ++Slot.generation;
-    Slot.pending_reuse = !State.free_slots.TryPushBack(SlotIndex);
+    Slot.pending_reuse = !State.free_slots.TryAdd(SlotIndex);
 }
 
 /**
@@ -27471,11 +27471,11 @@ FTypedEventHandle TEvent<Arguments...>::AddSubscription(FState& State, FCallback
     /** 追加先の購読枠の位置。 */
     u32 SlotIndex = 0;
     if (!State.free_slots.IsEmpty()) {
-        SlotIndex = State.free_slots.Back();
-        State.free_slots.PopBack();
+        SlotIndex = State.free_slots.Last();
+        State.free_slots.Pop();
     } else {
-        if (State.slots.Size() >= 0xffffffffu || !State.slots.TryPushBack(FSlot{})) return {};
-        SlotIndex = static_cast<u32>(State.slots.Size() - 1);
+        if (State.slots.Num() >= 0xffffffffu || !State.slots.TryAdd(FSlot{})) return {};
+        SlotIndex = static_cast<u32>(State.slots.Num() - 1);
     }
     /** 追加先の購読情報。 */
     FSlot& Slot = State.slots[SlotIndex];
@@ -27502,7 +27502,7 @@ void TEvent<Arguments...>::Publish(Arguments... Values) noexcept {
     TSharedPtr<FState> State = m_State;
     if (!State) return;
     /** 配信開始時点で存在した購読枠の数。 */
-    const u32 DeliveryCount = static_cast<u32>(State->slots.Size());
+    const u32 DeliveryCount = static_cast<u32>(State->slots.Num());
     /** 配信開始後に追加された購読を除くための上限。 */
     const u64 ActivationLimit = State->latest_activation_sequence;
     ++State->publish_depth;
@@ -30434,7 +30434,7 @@ public:
      *
      * @return 子の数。
      */
-    u32     ChildCount() const noexcept { return static_cast<u32>(m_Children.Size()); }
+    u32     ChildCount() const noexcept { return static_cast<u32>(m_Children.Num()); }
 
     /** root から自身までの深度 (root=0) を返す。 */
     u32 TreeDepth() const noexcept;
@@ -30446,7 +30446,7 @@ public:
      * @return i 番目の子 (範囲外なら nullptr)。
      */
     ANode* Child(u32 i) const noexcept {
-        return i < m_Children.Size() ? m_Children[i].Get() : nullptr;
+        return i < m_Children.Num() ? m_Children[i].Get() : nullptr;
     }
 
     /**
@@ -30460,7 +30460,7 @@ public:
      * @return 移動したら true、`child` が子でなければ false。
      */
     bool MoveChild(ANode& child, u32 to) noexcept {
-        const u32 n = static_cast<u32>(m_Children.Size());
+        const u32 n = static_cast<u32>(m_Children.Num());
         u32 from = n;
         for (u32 i = 0; i < n; ++i) { if (m_Children[i].Get() == &child) { from = i; break; } }
         if (from >= n) return false;
@@ -30575,7 +30575,7 @@ public:
         ref->_SetOwner(this);
         // 依存コンポーネントを先に確保 (Unity の RequireComponent 相当)。
         ref->OnRequire(*this);
-        m_Components.PushBack(TUniquePtr<AComponent>(comp.Release(), comp.GetAllocator()));
+        m_Components.Add(TUniquePtr<AComponent>(comp.Release(), comp.GetAllocator()));
         ref->OnAttach(*this);
         ref->_MaybeAttachServices(SceneServices());   // ツリーが既に services 配線済なら即 fire
         return *ref;
@@ -30604,7 +30604,7 @@ public:
     template<typename T>
     T* GetComponent() noexcept {
         const void* k = ComponentKindOf<T>();
-        for (u32 i = 0; i < m_Components.Size(); ++i) {
+        for (u32 i = 0; i < m_Components.Num(); ++i) {
             if (m_Components[i] && m_Components[i]->Kind() == k) {
                 return static_cast<T*>(m_Components[i].Get());
             }
@@ -30621,7 +30621,7 @@ public:
     template<typename T>
     bool HasComponent() const noexcept {
         const void* k = ComponentKindOf<T>();
-        for (u32 i = 0; i < m_Components.Size(); ++i) {
+        for (u32 i = 0; i < m_Components.Num(); ++i) {
             if (m_Components[i] && m_Components[i]->Kind() == k) return true;
         }
         return false;
@@ -30636,15 +30636,15 @@ public:
     template<typename T>
     bool RemoveComponent() noexcept {
         const void* k = ComponentKindOf<T>();
-        for (u32 i = 0; i < m_Components.Size(); ++i) {
+        for (u32 i = 0; i < m_Components.Num(); ++i) {
             if (m_Components[i] && m_Components[i]->Kind() == k) {
                 m_Components[i]->OnDetach();
                 m_Components[i].Reset();
                 // compact: 末尾を i に詰める (順序は壊れる)
-                if (i + 1 < m_Components.Size()) {
-                    m_Components[i] = Move(m_Components[m_Components.Size() - 1]);
+                if (i + 1 < m_Components.Num()) {
+                    m_Components[i] = Move(m_Components[m_Components.Num() - 1]);
                 }
-                m_Components.PopBack();
+                m_Components.Pop();
                 return true;
             }
         }
@@ -30655,9 +30655,9 @@ public:
      * 全コンポーネントを除去する (各 OnDetach → 破棄)。Play 終了時のクリーンアップ等に使う。
      */
     void RemoveAllComponents() noexcept {
-        for (u32 i = 0; i < m_Components.Size(); ++i)
+        for (u32 i = 0; i < m_Components.Num(); ++i)
             if (m_Components[i]) { m_Components[i]->OnDetach(); m_Components[i].Reset(); }
-        m_Components.Clear();
+        m_Components.Reset();
     }
 
     /**
@@ -30665,7 +30665,7 @@ public:
      *
      * @return コンポーネント数。
      */
-    u32 ComponentCount() const noexcept { return static_cast<u32>(m_Components.Size()); }
+    u32 ComponentCount() const noexcept { return static_cast<u32>(m_Components.Num()); }
 
     /**
      * i 番目のコンポーネントを返す (型を知らない汎用列挙。範囲外は nullptr)。
@@ -30674,12 +30674,12 @@ public:
      * @return i 番目のコンポーネント (範囲外なら nullptr)。
      */
     AComponent*       ComponentAt(u32 i)       noexcept {
-        return i < m_Components.Size() ? m_Components[i].Get() : nullptr;
+        return i < m_Components.Num() ? m_Components[i].Get() : nullptr;
     }
 
     /** i 番目のコンポーネントを返す (const 版)。 */
     const AComponent* ComponentAt(u32 i) const noexcept {
-        return i < m_Components.Size() ? m_Components[i].Get() : nullptr;
+        return i < m_Components.Num() ? m_Components[i].Get() : nullptr;
     }
 
     /**
@@ -30696,7 +30696,7 @@ public:
         AComponent* ref = comp.Get();
         ref->_SetOwner(this);
         ref->OnRequire(*this);
-        m_Components.PushBack(Move(comp));
+        m_Components.Add(Move(comp));
         ref->OnAttach(*this);
         ref->_MaybeAttachServices(SceneServices());
         return *ref;
@@ -30799,7 +30799,7 @@ public:
      * @return 原子 subtree として扱うなら true。
      */
     bool HasAtomicSubtreeComponent() const noexcept {
-        for (u32 i = 0; i < m_Components.Size(); ++i) {
+        for (u32 i = 0; i < m_Components.Num(); ++i) {
             if (m_Components[i] && m_Components[i]->WantsAtomicSubtree()) return true;
         }
         return false;
@@ -32124,7 +32124,7 @@ public:
      *
      * @return key の個数。
      */
-    u32             KeyCount() const noexcept { return static_cast<u32>(m_Keys.Size()); }
+    u32             KeyCount() const noexcept { return static_cast<u32>(m_Keys.Num()); }
 
     /**
      * 指定 index の key への const ポインタを返す。
@@ -32133,7 +32133,7 @@ public:
      * @return key への const ポインタ (範囲外なら nullptr)。
      */
     const FCurveKey* Key(u32 index) const noexcept {
-        return index < m_Keys.Size() ? &m_Keys[index] : nullptr;
+        return index < m_Keys.Num() ? &m_Keys[index] : nullptr;
     }
 
     /**
@@ -34760,7 +34760,7 @@ public:
      *
      * @return 追加済みの子ノード数。
      */
-    usize ChildCount() const noexcept { return m_Children.Size(); }
+    usize ChildCount() const noexcept { return m_Children.Num(); }
 
 private:
     /** 子ノード (所有権を持つ)。 */
@@ -34810,7 +34810,7 @@ public:
      *
      * @return 追加済みの子ノード数。
      */
-    usize ChildCount() const noexcept { return m_Children.Size(); }
+    usize ChildCount() const noexcept { return m_Children.Num(); }
 
 private:
     /** 子ノード (所有権を持つ)。 */
@@ -36489,7 +36489,7 @@ public:
      *
      * @return スタック内のカメラ数。
      */
-    u32       Depth() const noexcept { return static_cast<u32>(m_Entries.Size()); }
+    u32       Depth() const noexcept { return static_cast<u32>(m_Entries.Num()); }
 
     /** スタックを空にする (全エントリを破棄)。 */
     void      Clear() noexcept;
@@ -37718,7 +37718,7 @@ public:
      *
      * @return keyframe の総数。
      */
-    u32 KeyframeCount()  const noexcept { return static_cast<u32>(m_Keyframes.Size()); }
+    u32 KeyframeCount()  const noexcept { return static_cast<u32>(m_Keyframes.Num()); }
 
     /**
      * MoveCamera 発火 callback を設定する。
@@ -40213,14 +40213,14 @@ public:
     void DrawArrow(FVec2 a, FVec2 b, FVec4 color, f32 head_len = 0.0f) noexcept;
 
     /** 蓄積した線分をクリアする (容量は保持)。フレーム頭か描画消費後に呼ぶ。 */
-    void Clear() noexcept { m_Lines.Clear(); }
+    void Clear() noexcept { m_Lines.Reset(); }
 
     /**
      * 蓄積されている線分の本数を返す。
      *
      * @return 蓄積線数。
      */
-    u32 LineCount() const noexcept { return static_cast<u32>(m_Lines.Size()); }
+    u32 LineCount() const noexcept { return static_cast<u32>(m_Lines.Num()); }
 
     /**
      * 描画システムが読み取る生バッファ先頭を返す (連続メモリ保証)。
@@ -40550,11 +40550,11 @@ using FDebugOverlay = CDebugOverlay;
 //     呼出側 (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
 //     deck / hand / discard / exile の `const char*` 要素は `m_Cards[].id` を直接指す (= リテラル参照、非所有)。
 //   ・**4 ゾーン (deck / hand / discard / exile) は別 TArray<const char*>**:
-//     - `deck`    : 山札。末尾が「次に引くトップ」(PopBack で O(1) ドロー)。
+//     - `deck`    : 山札。末尾が「次に引くトップ」(Pop で O(1) ドロー)。
 //     - `hand`    : 手札。順序は登録順 (= 引いた順)、UI の表示位置に対応。
 //     - `discard` : 捨札。プレイ済み or 強制捨札されたカード。Reshuffle で deck に戻る。
 //     - `exile`   : 完全除外。MtG の "Exile" / Slay the Spire の "Exhaust" 相当、戻らない。
-//   ・**Draw は「デッキ末尾」を取る**: 直感に反するように見えるが、`PushBack/PopBack` を使うと
+//   ・**Draw は「デッキ末尾」を取る**: 直感に反するように見えるが、`Add/Pop` を使うと
 //     O(1) で済む。Shuffle で順序がランダムになるので、どちらの端をトップと呼んでも UX 的に
 //     違いはない (= デッキトップは末尾、デッキボトムは先頭、と内部約束)。
 //   ・**Draw 自動 reshuffle**: デッキ空時に discard が残っていれば、discard を shuffle して
@@ -40864,7 +40864,7 @@ private:
     /** カード定義 (起動時 immutable、値で所有)。 */
     TArray<FCardDef> m_Cards;
 
-    /** 山札 (末尾がトップ、PushBack / PopBack で O(1) ドロー、要素は非所有)。 */
+    /** 山札 (末尾がトップ、Add / Pop で O(1) ドロー、要素は非所有)。 */
     TArray<const char*> m_Deck;
 
     /** 手札 (順序は引いた順、要素は m_Cards[].id を指す非所有参照)。 */
@@ -41047,7 +41047,7 @@ public:
      *
      * @return 履歴エントリ数。
      */
-    u32  HistoryCount() const noexcept { return static_cast<u32>(m_History.Size()); }
+    u32  HistoryCount() const noexcept { return static_cast<u32>(m_History.Num()); }
 
     /**
      * 履歴エントリを取得する (i = 0 が最古、HistoryCount()-1 が最新)。
@@ -41070,7 +41070,7 @@ public:
      *
      * @return ログ行数。
      */
-    u32  LogCount() const noexcept { return static_cast<u32>(m_Log.Size()); }
+    u32  LogCount() const noexcept { return static_cast<u32>(m_Log.Num()); }
 
     /**
      * ログ行を取得する (i = 0 が最古、LogCount()-1 が最新)。
@@ -41088,7 +41088,7 @@ public:
      *
      * @return 登録済みコマンド数。
      */
-    u32 CommandCount() const noexcept { return static_cast<u32>(m_Commands.Size()); }
+    u32 CommandCount() const noexcept { return static_cast<u32>(m_Commands.Num()); }
 
 private:
     /** tokenize する引数の上限 (コマンド名を除く)。 */
@@ -42689,7 +42689,7 @@ public:
      *
      * @return 部屋数。
      */
-    u32 RoomCount() const noexcept { return static_cast<u32>(m_Rooms.Size()); }
+    u32 RoomCount() const noexcept { return static_cast<u32>(m_Rooms.Num()); }
 
     /**
      * index 番目の部屋を返す。
@@ -45696,16 +45696,16 @@ public:
      */
     int Subscribe(EventId ev, HandlerFn fn, void* listener = nullptr) noexcept {
         if (fn == nullptr) return -1;
-        for (u32 i = 0; i < m_Subs.Size(); ++i) {                 // 空きスロット再利用
+        for (u32 i = 0; i < m_Subs.Num(); ++i) {                 // 空きスロット再利用
             if (m_Subs[i].fn == nullptr) { m_Subs[i] = FSub{ ev, fn, listener }; return static_cast<int>(i); }
         }
-        m_Subs.PushBack(FSub{ ev, fn, listener });
-        return static_cast<int>(m_Subs.Size() - 1);
+        m_Subs.Add(FSub{ ev, fn, listener });
+        return static_cast<int>(m_Subs.Num() - 1);
     }
 
     /** Subscribe が返したハンドルで購読を解除する。 */
     void Unsubscribe(int handle) noexcept {
-        if (handle >= 0 && static_cast<u32>(handle) < m_Subs.Size()) m_Subs[static_cast<u32>(handle)].fn = nullptr;
+        if (handle >= 0 && static_cast<u32>(handle) < m_Subs.Num()) m_Subs[static_cast<u32>(handle)].fn = nullptr;
     }
 
     /**
@@ -45717,16 +45717,16 @@ public:
      * @param payload ハンドラへ渡すデータ(任意、既定 nullptr)。
      */
     void Publish(EventId ev, const void* payload = nullptr) noexcept {
-        for (u32 i = 0; i < m_Subs.Size(); ++i) {
+        for (u32 i = 0; i < m_Subs.Num(); ++i) {
             const FSub s = m_Subs[i];   // 値コピー(ハンドラ内で m_Subs が再確保されても安全)
             if (s.ev == ev && s.fn != nullptr) s.fn(s.listener, payload);
         }
     }
 
     /** 現在の購読数(空きスロット含む。デバッグ/検証用)。 */
-    u32 SubscriptionSlots() const noexcept { return static_cast<u32>(m_Subs.Size()); }
+    u32 SubscriptionSlots() const noexcept { return static_cast<u32>(m_Subs.Num()); }
 
-    void OnDeinitialize() noexcept override { m_Subs.Clear(); }
+    void OnDeinitialize() noexcept override { m_Subs.Reset(); }
 
 private:
     struct FSub { EventId ev; HandlerFn fn; void* listener; };
@@ -49453,7 +49453,7 @@ using game::ESvc;
 //   ・**FSlot = {ptr, gen, active}**: CCollisionWorld2D::FSlot と同じパターン。
 //     index 0 は予約 (= invalid handle と一致させる)、有効 slot は 1..N。
 //   ・**free_indices stack**: 空き slot を O(1) で再利用。Unregister 時 push、
-//     TryRegisterExistingNode 時 pop。stack が空なら slot を新規 TryPushBack。
+//     TryRegisterExistingNode 時 pop。stack が空なら slot を新規 TryAdd。
 //   ・**generation 0 はスキップ**: gen++ がラップアラウンドで 0 に戻った場合、
 //     FNodeId(idx, 0) は IsValid() == false になってしまうため、ラップ時は 1 に
 //     強制する (CCollisionWorld2D と完全に同じ挙動)。
@@ -49615,7 +49615,7 @@ public:
      * @return index 0 の dummy を除いた slot 数。
      */
     u32 Capacity() const noexcept {
-        const u32 sz = static_cast<u32>(m_Slots.Size());
+        const u32 sz = static_cast<u32>(m_Slots.Num());
         return sz > 0 ? sz - 1u : 0u;   // index 0 予約分を引く
     }
 
@@ -51852,7 +51852,7 @@ private:
      * @param s 変換する state。
      * @return state の数値。範囲外なら kFlowStateCount 以上 (呼び出し側で skip 判定に使う)。
      */
-    static u32 IndexOf(EFlowState s) noexcept { return static_cast<u32>(s); }
+    static u32 IndexOfByKey(EFlowState s) noexcept { return static_cast<u32>(s); }
 
     /** state ごとのコールバックスロット (size = kFlowStateCount)。 */
     TArray<FStateSlot> _states;
@@ -52316,7 +52316,7 @@ public:
     u32 Used() const noexcept { return m_Cursor; }
 
     /** 所有する実GPUバッファ数を返す。 */
-    u32 GpuBufferCount() const noexcept { return static_cast<u32>(m_Pages.Size()); }
+    u32 GpuBufferCount() const noexcept { return static_cast<u32>(m_Pages.Num()); }
 
     /** RHIページ記述へ要求した一frame分の論理総バイト数を返す。 */
     usize ReservedBytes() const noexcept { return m_ReservedBytes; }
@@ -58629,7 +58629,7 @@ public:
      *
      * @return 確保済みレイヤー数。
      */
-    u32 LayerCount() const noexcept { return static_cast<u32>(m_Layers.Size()); }
+    u32 LayerCount() const noexcept { return static_cast<u32>(m_Layers.Num()); }
 
     /**
      * 1 tile の world 単位での辺長を返す。
@@ -59332,7 +59332,7 @@ private:
 template<typename T>
 void FRandom::Shuffle(TArray<T>& values) noexcept {
     /** 並べ替える要素数。 */
-    const usize count = values.Size();
+    const usize count = values.Num();
     if (count < 2u) return;
     /** 末尾から確定する配列位置。 */
     for (usize index = count - 1u; index > 0u; --index) {
@@ -59912,11 +59912,11 @@ public:
      * @param file_path このスロットが扱うファイルへの wide パス (非所有)。
      */
     void Init(const wchar_t* file_path) noexcept {
-        if (file_path == m_OwnedPath.Data() && file_path != nullptr) {
+        if (file_path == m_OwnedPath.GetData() && file_path != nullptr) {
             m_FilePath = file_path;
             return;
         }
-        m_OwnedPath.ReleaseStorage();
+        m_OwnedPath.Empty();
         m_FilePath = file_path;
     }
 
@@ -59948,7 +59948,7 @@ public:
         }
 
         TArray<wchar_t> staged(*m_OwnedPath.GetAllocator());
-        if (!staged.TryResize(path_chars + 1u)) {
+        if (!staged.TrySetNum(path_chars + 1u)) {
             return ACS_ERR(
                 Memory,
                 static_cast<u16>(ESaveArchiveSubCode::kSubAllocationFailed),
@@ -59959,7 +59959,7 @@ public:
         }
 
         m_OwnedPath = static_cast<TArray<wchar_t>&&>(staged);
-        m_FilePath = m_OwnedPath.Data();
+        m_FilePath = m_OwnedPath.GetData();
         return Ok();
     }
 
@@ -60014,7 +60014,7 @@ public:
 
     /** 現在のパスが TryInit により所有されているかを返す。 */
     bool IsPathOwned() const noexcept {
-        return m_FilePath != nullptr && m_FilePath == m_OwnedPath.Data();
+        return m_FilePath != nullptr && m_FilePath == m_OwnedPath.GetData();
     }
 
 private:
@@ -62156,7 +62156,7 @@ using FPartySystem = CPartySystem;
 //     払い出し、削除は FEntry を mark-inactive。Publish 走査時に inactive を
 //     スキップ。Publish 中の Unsubscribe / Subscribe を安全にするため
 //     **vector の物理削除はしない** (再エントランシ安全)。
-//   ・**Publish 中の Subscribe 安全性**: PushBack で再 alloc が起きると
+//   ・**Publish 中の Subscribe 安全性**: Add で再 alloc が起きると
 //     走査中の参照が無効化されるため、Publish の走査は size を最初に
 //     キャプチャしてその範囲のみ呼ぶ。Publish 中に追加された subscriber は
 //     次回以降の Publish で初めて呼ばれる (一般的な pub/sub セマンティクス)。
@@ -64666,7 +64666,7 @@ private:
      * @param y cell の y 座標。
      * @return y * width + x。
      */
-    u32 IndexOf(u32 x, u32 y) const noexcept { return y * m_Width + x; }
+    u32 IndexOfByKey(u32 x, u32 y) const noexcept { return y * m_Width + x; }
 
     /**
      * open list から f_score 最小のノードを線形走査で見つける。
@@ -70843,7 +70843,7 @@ using FPerfBudget = CPerfBudget;
 //   ・**Cancel**: label 一致の全 command を削除 (one_shot/repeating 両方)。
 //   ・**Flush 中の Enqueue 安全性**: CSceneEventBus と同じく、走査 size を最初に
 //     スナップショットして固定範囲のみ実行する。Flush 中に追加された command は
-//     次回 Flush で初めて実行される。Flush 中に同 slot が PushBack で再 alloc を
+//     次回 Flush で初めて実行される。Flush 中に同 slot が Add で再 alloc を
 //     起こしても、fn / user / one_shot を local にコピーしてから呼ぶことで安全。
 //   ・**非コピー・非ムーブ**: AScene にメンバとして埋め込む前提、所有権の
 //     ambiguity を持ち込まない。
@@ -74286,7 +74286,7 @@ using FScoreSystem = CScoreSystem;
 //     寿命を保証する責任を持つ (= literal / 静的定義を想定)。
 //   ・spawned_per_rule は wave ごとに別 TArray: 各 wave が任意数の rule を
 //     持つので TArray<TArray<u32>> で 2 段ネスト。これは Move 可能で TArray 同士の
-//     コピー禁止に抵触しない (PushBack(Move(inner)) で挿入)。
+//     コピー禁止に抵触しない (Add(Move(inner)) で挿入)。
 //   ・初期遅延 + spawn interval: 各 rule は initial_delay_sec 経過後に count 個を
 //     spawn_interval_sec 間隔で発火。複数 rule は並列に評価する (= 同 wave 内で
 //     異なる enemy 種が同時湧きできる)。
@@ -74694,7 +74694,7 @@ using FWaveSpawner = CWaveSpawner;
 //     FShapeId / FNodeId と同じパターン。slot 再利用しても古い handle は無効化される。
 //   ・**FSlot TArray**: 内部 `TArray<FSlot>` に固定。index 0 は予約 (= invalid)。
 //     Spawn 時に inactive slot を線形検索 (典型 N が小さいので十分)、無ければ
-//     末尾に PushBack。Despawn は active=false、slot は再利用。
+//     末尾に Add。Despawn は active=false、slot は再利用。
 //   ・**磁石効果は equal-step**: `|player - pickup| < magnet_radius` のとき
 //     `pickup_pos += normalize(player - pickup) * magnet_strength * dt`。
 //     物理的な近似 (加速度ベース) ではなく、「シンプルで予測可能な吸引」を採用。
@@ -75261,7 +75261,7 @@ public:
      * 武器定義を登録し、対応する reserve スロットを 0 で初期化する。
      *
      * @details
-     * 同 id の 2 重登録は WARN + no-op、def.id == nullptr も no-op。PushBack で
+     * 同 id の 2 重登録は WARN + no-op、def.id == nullptr も no-op。Add で
      * 配列が再確保された場合は装備中の m_CurrentDef を slot index から張り直す。
      * @param def 登録する武器定義 (文字列は呼出側で長寿命を保証すること)。
      */
@@ -77872,7 +77872,7 @@ public:
     bool IsVisible(usize index) const noexcept;
 
     /** 評価済み node 数を返す。 */
-    usize Count() const noexcept { return m_Visibility.Size(); }
+    usize Count() const noexcept { return m_Visibility.Num(); }
 
     /** 順序不整合で scalar fallback した件数を返す。 */
     u32 ScalarFallbackCount() const noexcept { return m_ScalarFallbackCount; }
@@ -77930,10 +77930,10 @@ public:
     void Clear() noexcept;
 
     /** 成功した直近評価の world transform 配列を返す。 */
-    const FTransform3D* Transforms() const noexcept { return m_Transforms.Data(); }
+    const FTransform3D* Transforms() const noexcept { return m_Transforms.GetData(); }
 
     /** 成功した直近評価の node 数を返す。 */
-    usize Count() const noexcept { return m_Transforms.Size(); }
+    usize Count() const noexcept { return m_Transforms.Num(); }
 
     /** 指定 index の world transform を返す。 */
     const FTransform3D& At(usize index) const noexcept { return m_Transforms[index]; }
@@ -80045,7 +80045,7 @@ public:
     u32 SerializeText(char* out, usize cap) const noexcept;
 
     /** エントリ数を返す。 */
-    u32 Count() const noexcept { return m_Entries.Size(); }
+    u32 Count() const noexcept { return m_Entries.Num(); }
 
     /** index 番目のエントリを返す (範囲外は触らないこと)。 */
     const FSettingEntry& At(u32 i) const noexcept { return m_Entries[i]; }
@@ -80435,7 +80435,7 @@ public:
     /** 全登録数。 */
     u32 Count() const noexcept
     {
-        return static_cast<u32>(m_Entries.Size());
+        return static_cast<u32>(m_Entries.Num());
     }
 
     /** i 番目。 */
@@ -80447,7 +80447,7 @@ public:
     /** owner 型の n 番目のメソッド(無ければ nullptr)。 */
     const FReflectMethod* AtOfOwner(FTypeId owner, u32 nth) const noexcept {
         u32 seen = 0;
-        for (u32 i = 0; i < m_Entries.Size(); ++i) {
+        for (u32 i = 0; i < m_Entries.Num(); ++i) {
             const FReflectMethod& method = m_Entries[i].sources[0].method;
             if (method.owner != owner) continue;
             if (seen == nth) return &method;
@@ -80459,7 +80459,7 @@ public:
     /** owner 型のメソッド数。 */
     u32 CountOfOwner(FTypeId owner) const noexcept {
         u32 c = 0;
-        for (u32 i = 0; i < m_Entries.Size(); ++i) {
+        for (u32 i = 0; i < m_Entries.Num(); ++i) {
             if (m_Entries[i].sources[0].method.owner == owner) ++c;
         }
         return c;
@@ -80467,7 +80467,7 @@ public:
 
     /** owner + 名前で引く(無ければ nullptr)。 */
     const FReflectMethod* Find(FTypeId owner, const char* name) const noexcept {
-        for (u32 i = 0; i < m_Entries.Size(); ++i) {
+        for (u32 i = 0; i < m_Entries.Num(); ++i) {
             const FReflectMethod& method = m_Entries[i].sources[0].method;
             if (method.owner == owner && StrEq(method.name, name)) return &method;
         }
@@ -80509,7 +80509,7 @@ private:
 
     void RegisterSource(const FReflectMethod& method, const void* token) noexcept
     {
-        for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
+        for (u32 entry_index = 0; entry_index < m_Entries.Num(); ++entry_index) {
             FMethodEntry& entry = m_Entries[entry_index];
             const FReflectMethod& active = entry.sources[0].method;
             if (active.owner != method.owner || !StrEq(active.name, method.name)) continue;
@@ -80528,12 +80528,12 @@ private:
         FMethodEntry entry{};
         entry.sources[0] = FMethodSource{method, token};
         entry.source_count = 1;
-        m_Entries.PushBack(entry);
+        m_Entries.Add(entry);
     }
 
     bool UnregisterSource(const FReflectMethod& method, const void* token) noexcept
     {
-        for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
+        for (u32 entry_index = 0; entry_index < m_Entries.Num(); ++entry_index) {
             FMethodEntry& entry = m_Entries[entry_index];
             const FReflectMethod& active = entry.sources[0].method;
             if (active.owner != method.owner || !StrEq(active.name, method.name)) continue;
@@ -80558,10 +80558,10 @@ private:
             --entry.source_count;
             if (entry.source_count != 0) return true;
 
-            for (u32 remaining = entry_index; remaining + 1u < m_Entries.Size(); ++remaining) {
+            for (u32 remaining = entry_index; remaining + 1u < m_Entries.Num(); ++remaining) {
                 m_Entries[remaining] = m_Entries[remaining + 1u];
             }
-            m_Entries.PopBack();
+            m_Entries.Pop();
             return true;
         }
         return false;
@@ -81064,37 +81064,37 @@ public:
     u32   Count() const noexcept { return m_ActiveCount; }
 
     /** i 番ボディの位置 (範囲外は原点)。 */
-    FVec2 Position(u32 i) const noexcept { return i < m_Bodies.Size() ? m_Bodies[i].pos : FVec2{0.0f, 0.0f}; }
+    FVec2 Position(u32 i) const noexcept { return i < m_Bodies.Num() ? m_Bodies[i].pos : FVec2{0.0f, 0.0f}; }
 
     /** i 番ボディの速度 (範囲外は 0)。 */
-    FVec2 Velocity(u32 i) const noexcept { return i < m_Bodies.Size() ? m_Bodies[i].vel : FVec2{0.0f, 0.0f}; }
+    FVec2 Velocity(u32 i) const noexcept { return i < m_Bodies.Num() ? m_Bodies[i].vel : FVec2{0.0f, 0.0f}; }
 
     /** i 番ボディの速度を設定する。 */
-    void  SetVelocity(u32 i, FVec2 v) noexcept { if (i < m_Bodies.Size()) m_Bodies[i].vel = v; }
+    void  SetVelocity(u32 i, FVec2 v) noexcept { if (i < m_Bodies.Num()) m_Bodies[i].vel = v; }
 
     /** i 番ボディの回転角 [rad] (範囲外は 0)。 */
-    f32   Angle(u32 i) const noexcept { return i < m_Bodies.Size() ? m_Bodies[i].angle : 0.0f; }
+    f32   Angle(u32 i) const noexcept { return i < m_Bodies.Num() ? m_Bodies[i].angle : 0.0f; }
 
     /** i 番ボディの角速度 [rad/s] (範囲外は 0)。 */
-    f32   AngularVelocity(u32 i) const noexcept { return i < m_Bodies.Size() ? m_Bodies[i].ang_vel : 0.0f; }
+    f32   AngularVelocity(u32 i) const noexcept { return i < m_Bodies.Num() ? m_Bodies[i].ang_vel : 0.0f; }
 
     /** i 番ボディの角速度を設定する。 */
-    void  SetAngularVelocity(u32 i, f32 w) noexcept { if (i < m_Bodies.Size()) m_Bodies[i].ang_vel = w; }
+    void  SetAngularVelocity(u32 i, f32 w) noexcept { if (i < m_Bodies.Num()) m_Bodies[i].ang_vel = w; }
 
     /** i 番ボディの初期回転角 [rad] を設定する (有向ボックス OBB の向き)。生成直後に呼ぶ。 */
-    void  SetAngle(u32 i, f32 a) noexcept { if (i < m_Bodies.Size()) m_Bodies[i].angle = a; }
+    void  SetAngle(u32 i, f32 a) noexcept { if (i < m_Bodies.Num()) m_Bodies[i].angle = a; }
 
     /** i 番ボディの減衰を設定する (linear / angular、1/s)。回転や速度を時間で自然に弱める。 */
     void  SetDamping(u32 i, f32 linear, f32 angular) noexcept {
-        if (i < m_Bodies.Size()) { m_Bodies[i].lin_damp = (linear > 0.0f) ? linear : 0.0f;
+        if (i < m_Bodies.Num()) { m_Bodies[i].lin_damp = (linear > 0.0f) ? linear : 0.0f;
                                    m_Bodies[i].ang_damp = (angular > 0.0f) ? angular : 0.0f; }
     }
 
     /** i 番ボディ (read-only、非アクティブも返る)。 */
-    const FRigidBodyState* Body(u32 i) const noexcept { return i < m_Bodies.Size() ? &m_Bodies[i] : nullptr; }
+    const FRigidBodyState* Body(u32 i) const noexcept { return i < m_Bodies.Num() ? &m_Bodies[i] : nullptr; }
 
     /** index のボディがアクティブ (未削除) か。 */
-    bool IsActive(u32 i) const noexcept { return i < m_Bodies.Size() && m_Bodies[i].active; }
+    bool IsActive(u32 i) const noexcept { return i < m_Bodies.Num() && m_Bodies[i].active; }
 
     /**
      * i 番ボディの連続衝突判定 (CCD) を有効/無効にする。
@@ -81107,10 +81107,10 @@ public:
      * @param i ボディ index。
      * @param on true で CCD 有効。
      */
-    void SetCcd(u32 i, bool on) noexcept { if (i < m_Bodies.Size()) m_Bodies[i].ccd = on; }
+    void SetCcd(u32 i, bool on) noexcept { if (i < m_Bodies.Num()) m_Bodies[i].ccd = on; }
 
     /** i 番ボディの CCD が有効か (範囲外は false)。 */
-    bool IsCcd(u32 i) const noexcept { return i < m_Bodies.Size() && m_Bodies[i].ccd; }
+    bool IsCcd(u32 i) const noexcept { return i < m_Bodies.Num() && m_Bodies[i].ccd; }
 
     /**
      * index のボディを削除する (tombstone 化し、slot を再利用待ちにする)。
@@ -82976,7 +82976,7 @@ public:
         s.max_distance = (max_distance > 0.0f) ? max_distance : 20.0f;
         s.curve        = static_cast<u8>(curve);
         s.active       = true;
-        m_Sources.PushBack(s);
+        m_Sources.Add(s);
         return s.source_id;
     }
 
@@ -82989,7 +82989,7 @@ public:
      */
     void UpdateSource(u32 id, FVec2 pos, FVec2 vel = FVec2::Zero()) noexcept {
         const usize idx = FindIndex(id);
-        if (idx >= m_Sources.Size()) return;
+        if (idx >= m_Sources.Num()) return;
         m_Sources[idx].position = pos;
         m_Sources[idx].velocity = vel;
     }
@@ -83002,7 +83002,7 @@ public:
      */
     void SetSourceVolume(u32 id, f32 v) noexcept {
         const usize idx = FindIndex(id);
-        if (idx >= m_Sources.Size()) return;
+        if (idx >= m_Sources.Num()) return;
         m_Sources[idx].volume = Saturate(v);
     }
 
@@ -83013,10 +83013,10 @@ public:
      */
     void RemoveSource(u32 id) noexcept {
         const usize idx = FindIndex(id);
-        if (idx >= m_Sources.Size()) return;
-        const usize last = m_Sources.Size() - 1;
+        if (idx >= m_Sources.Num()) return;
+        const usize last = m_Sources.Num() - 1;
         if (idx != last) m_Sources[idx] = m_Sources[last];
-        m_Sources.PopBack();
+        m_Sources.Pop();
     }
 
     /**
@@ -83027,7 +83027,7 @@ public:
      */
     f32 ComputeAttenuatedVolume(u32 id) const noexcept {
         const usize idx = FindIndex(id);
-        if (idx >= m_Sources.Size()) return 0.0f;
+        if (idx >= m_Sources.Num()) return 0.0f;
         const FAudioSource2D& s = m_Sources[idx];
         if (!s.active) return 0.0f;
         const f32 d = ComputeDistance2D(m_Listener.position, s.position);
@@ -83044,7 +83044,7 @@ public:
      */
     f32 ComputePan(u32 id) const noexcept {
         const usize idx = FindIndex(id);
-        if (idx >= m_Sources.Size()) return 0.0f;
+        if (idx >= m_Sources.Num()) return 0.0f;
         const FAudioSource2D& s = m_Sources[idx];
         if (!s.active) return 0.0f;
         return ComputePan2D(m_Listener.position, m_Listener.angle, s.position);
@@ -83057,14 +83057,14 @@ public:
      */
     u32 SourceCount() const noexcept {
         u32 n = 0;
-        for (usize i = 0; i < m_Sources.Size(); ++i) {
+        for (usize i = 0; i < m_Sources.Num(); ++i) {
             if (m_Sources[i].active) ++n;
         }
         return n;
     }
 
     /** 全 source を空にする (listener は保持、source_id カウンタは継続)。 */
-    void Clear() noexcept { m_Sources.Clear(); }
+    void Clear() noexcept { m_Sources.Reset(); }
 
 private:
     /**
@@ -83074,11 +83074,11 @@ private:
      * @return 見つかった index、無ければ m_Sources.Size()。
      */
     usize FindIndex(u32 id) const noexcept {
-        if (id == 0) return m_Sources.Size();
-        for (usize i = 0; i < m_Sources.Size(); ++i) {
+        if (id == 0) return m_Sources.Num();
+        for (usize i = 0; i < m_Sources.Num(); ++i) {
             if (m_Sources[i].source_id == id) return i;
         }
-        return m_Sources.Size();
+        return m_Sources.Num();
     }
 
     /** 保持中の listener 状態。 */
@@ -84615,7 +84615,7 @@ public:
      * @param name 探す変数名。
      * @return 見つかったインデックス (無ければ kInvalid)。
      */
-    u32 IndexOf(const char* name) const noexcept {
+    u32 IndexOfByKey(const char* name) const noexcept {
         if (name == nullptr) return kInvalid;
         for (u32 i = 0; i < m_Count; ++i) {
             if (std::strcmp(m_Names[i], name) == 0) return i;
@@ -84635,7 +84635,7 @@ public:
     /** i 番目の変数オフセットを返す (範囲外は 0)。 */
     u32 OffsetAt(u32 i) const noexcept { return (i < m_Count) ? m_Offsets[i] : 0u; }
 
-    /** IndexOf の "見つからない" シグナル。 */
+    /** IndexOfByKey の "見つからない" シグナル。 */
     static constexpr u32 kInvalid = 0xFFFFFFFFu;
 
 private:
@@ -84674,7 +84674,7 @@ public:
     /** 1 変数名の最大長 (NUL 含む)。 */
     static constexpr u32 kNameLen = 48u;
 
-    /** IndexOf / Add の "無効" シグナル。 */
+    /** IndexOfByKey / Add の "無効" シグナル。 */
     static constexpr u32 kInvalid = 0xFFFFFFFFu;
 
     /** 空のブラックボードを構築する。 */
@@ -84694,7 +84694,7 @@ public:
      */
     u32 Add(const char* name, EBtVarType type) noexcept {
         if (name != nullptr) {
-            const u32 ex = IndexOf(name);
+            const u32 ex = IndexOfByKey(name);
             if (ex != kInvalid) return ex;
         }
         if (m_Count >= kMax) return kInvalid;
@@ -84709,7 +84709,7 @@ public:
             do {
                 std::snprintf(cand, kNameLen, "var%u", suffix);
                 ++suffix;
-            } while (IndexOf(cand) != kInvalid);   // 既存 (0..m_Count-1) に無いものを採用
+            } while (IndexOfByKey(cand) != kInvalid);   // 既存 (0..m_Count-1) に無いものを採用
             std::snprintf(m_Vars[idx].name, kNameLen, "%s", cand);
         }
         m_Vars[idx].type  = type;
@@ -84766,7 +84766,7 @@ public:
     // ===== 問い合わせ =====
 
     /** 名前からインデックスを引く (無ければ kInvalid)。 */
-    u32 IndexOf(const char* name) const noexcept {
+    u32 IndexOfByKey(const char* name) const noexcept {
         if (name == nullptr) return kInvalid;
         for (u32 i = 0; i < m_Count; ++i) {
             if (std::strcmp(m_Vars[i].name, name) == 0) return i;
@@ -84775,7 +84775,7 @@ public:
     }
 
     /** 変数が存在するか。 */
-    bool Has(const char* name) const noexcept { return IndexOf(name) != kInvalid; }
+    bool Has(const char* name) const noexcept { return IndexOfByKey(name) != kInvalid; }
 
     /** 変数数。 */
     u32 Count() const noexcept { return m_Count; }
@@ -84791,17 +84791,17 @@ public:
 
     // ===== 値アクセス (名前指定、コードから) =====
 
-    bool GetBool(const char* name) const noexcept { const u32 i = IndexOf(name); return (i != kInvalid) && m_Vars[i].val.b; }
-    i32  GetI32 (const char* name) const noexcept { const u32 i = IndexOf(name); return (i != kInvalid) ? m_Vars[i].val.i : 0; }
-    f32  GetF32 (const char* name) const noexcept { const u32 i = IndexOf(name); return (i != kInvalid) ? m_Vars[i].val.f : 0.0f; }
+    bool GetBool(const char* name) const noexcept { const u32 i = IndexOfByKey(name); return (i != kInvalid) && m_Vars[i].val.b; }
+    i32  GetI32 (const char* name) const noexcept { const u32 i = IndexOfByKey(name); return (i != kInvalid) ? m_Vars[i].val.i : 0; }
+    f32  GetF32 (const char* name) const noexcept { const u32 i = IndexOfByKey(name); return (i != kInvalid) ? m_Vars[i].val.f : 0.0f; }
 
-    void SetBool(const char* name, bool v) noexcept { const u32 i = IndexOf(name); if (i != kInvalid) m_Vars[i].val.b = v; }
-    void SetI32 (const char* name, i32  v) noexcept { const u32 i = IndexOf(name); if (i != kInvalid) m_Vars[i].val.i = v; }
-    void SetF32 (const char* name, f32  v) noexcept { const u32 i = IndexOf(name); if (i != kInvalid) m_Vars[i].val.f = v; }
+    void SetBool(const char* name, bool v) noexcept { const u32 i = IndexOfByKey(name); if (i != kInvalid) m_Vars[i].val.b = v; }
+    void SetI32 (const char* name, i32  v) noexcept { const u32 i = IndexOfByKey(name); if (i != kInvalid) m_Vars[i].val.i = v; }
+    void SetF32 (const char* name, f32  v) noexcept { const u32 i = IndexOfByKey(name); if (i != kInvalid) m_Vars[i].val.f = v; }
 
     /** 名前指定で値を f32 に正規化して返す (Compare 評価用、無ければ 0)。 */
     f32 GetAsF32(const char* name) const noexcept {
-        const u32 i = IndexOf(name);
+        const u32 i = IndexOfByKey(name);
         return (i != kInvalid) ? ValueAsF32(i) : 0.0f;
     }
 
@@ -85164,7 +85164,7 @@ public:
      *
      * @return メタミラー内の node 数。
      */
-    u32 NodeCount() const noexcept { return static_cast<u32>(m_Nodes.Size()); }
+    u32 NodeCount() const noexcept { return static_cast<u32>(m_Nodes.Num()); }
 
     /**
      * 指定 id の node の last_status を返す。
@@ -88302,7 +88302,7 @@ using FEditorTheme = CEditorTheme;
 // まとめて配線するための中央 hub。
 //
 // 役割:
-//   ・登録 panel のリスト管理 (PushBack / Find / Remove)
+//   ・登録 panel のリスト管理 (Add / Find / Remove)
 //   ・毎フレームの main loop coordination
 //       (OnFrameBegin → DockSpace 描画 → DrawUI → MenuBar)
 //   ・ImGui DockSpace の作成 + Window メニュー (panel toggle list)
@@ -89092,8 +89092,8 @@ public:
      * @details
      * cmd == nullptr なら silent no-op。それ以外は受け取った直後に TUniquePtr へ
      * 詰め直して破棄責任を引き取り、cmd->Execute() を呼ぶ。直前 (m_UndoStack.Back())
-     * と CanMerge / MergeWith できれば PushBack せず merge して破棄し (連続 drag の
-     * 1 件化)、そうでなければ m_UndoStack に PushBack する。続けて m_RedoStack を
+     * と CanMerge / MergeWith できれば Add せず merge して破棄し (連続 drag の
+     * 1 件化)、そうでなければ m_UndoStack に Add する。続けて m_RedoStack を
      * Clear し (new edit で redo の未来は破棄)、上限超過なら最古 1 件を捨て、
      * 最後に callback を (cb_user, スタック top, is_redo=false) で発火する。
      * @param cmd 積む command (所有権が移る。nullptr は no-op)。
@@ -89200,7 +89200,7 @@ private:
     /**
      * m_UndoStack が上限を超えていれば最古の command を捨てる。
      *
-     * @details PushBack 直後にのみ呼ぶ前提なので、超過量は高々 1 件。
+     * @details Add 直後にのみ呼ぶ前提なので、超過量は高々 1 件。
      */
     void DropOldestIfOverflow() noexcept;
 
@@ -92345,7 +92345,7 @@ public:
      *
      * @details
      * summary は単一 struct を値コピー、submeshes / bones / clips は配列要素を 1 つずつ
-     * PushBack で値コピーする (部分更新ではなく全置換)。各ポインタは nullptr 可で、その
+     * Add で値コピーする (部分更新ではなく全置換)。各ポインタは nullptr 可で、その
      * 場合 count を 0 として扱う。呼び出し後 has_model = true になり DrawUI が情報を表示する。
      * @param summary model 全体の集計情報。
      * @param submeshes submesh 情報配列 (nullptr 可)。
@@ -92382,7 +92382,7 @@ public:
      *
      * @return submesh 数。
      */
-    u32 SubmeshCount() const noexcept { return static_cast<u32>(m_Submeshes.Size()); }
+    u32 SubmeshCount() const noexcept { return static_cast<u32>(m_Submeshes.Num()); }
 
     /**
      * i 番目の submesh 情報を返す。
@@ -92391,7 +92391,7 @@ public:
      * @return i 番目の FSubmeshInfo (i >= SubmeshCount() なら nullptr)。
      */
     const FSubmeshInfo* Submesh(u32 i) const noexcept {
-        return (i < m_Submeshes.Size()) ? &m_Submeshes[i] : nullptr;
+        return (i < m_Submeshes.Num()) ? &m_Submeshes[i] : nullptr;
     }
 
     /**
@@ -92399,7 +92399,7 @@ public:
      *
      * @return bone 数。
      */
-    u32 BoneCount() const noexcept { return static_cast<u32>(m_Bones.Size()); }
+    u32 BoneCount() const noexcept { return static_cast<u32>(m_Bones.Num()); }
 
     /**
      * i 番目の bone 情報を返す。
@@ -92408,7 +92408,7 @@ public:
      * @return i 番目の FBoneInfo (範囲外なら nullptr)。
      */
     const FBoneInfo* Bone(u32 i) const noexcept {
-        return (i < m_Bones.Size()) ? &m_Bones[i] : nullptr;
+        return (i < m_Bones.Num()) ? &m_Bones[i] : nullptr;
     }
 
     /**
@@ -92417,7 +92417,7 @@ public:
      * @return animation clip 数。
      */
     u32 AnimationClipCount() const noexcept {
-        return static_cast<u32>(m_Clips.Size());
+        return static_cast<u32>(m_Clips.Num());
     }
 
     /**
@@ -92427,7 +92427,7 @@ public:
      * @return i 番目の FAnimationClipInfo (範囲外なら nullptr)。
      */
     const FAnimationClipInfo* AnimationClip(u32 i) const noexcept {
-        return (i < m_Clips.Size()) ? &m_Clips[i] : nullptr;
+        return (i < m_Clips.Num()) ? &m_Clips[i] : nullptr;
     }
 
     /**
@@ -95203,9 +95203,9 @@ public:
     {
         u32 SlotIndex = Handle::kInvalidIndex;
         bool bReusedSlot = false;
-        if (m_Free.Size() > 0) {
-            SlotIndex = m_Free[m_Free.Size() - 1];
-            m_Free.PopBack();
+        if (m_Free.Num() > 0) {
+            SlotIndex = m_Free[m_Free.Num() - 1];
+            m_Free.Pop();
             bReusedSlot = true;
         } else {
             if (m_SlotCount >= Handle::kInvalidIndex) return {};
@@ -95213,13 +95213,13 @@ public:
             if (!EnsureChunkFor(SlotIndex)) return {};
         }
 
-        if (!m_Live.TryPushBack(SlotIndex)) {
-            if (bReusedSlot) m_Free.PushBack(SlotIndex);
+        if (!m_Live.TryAdd(SlotIndex)) {
+            if (bReusedSlot) m_Free.Add(SlotIndex);
             return {};
         }
 
         FSlot& PoolSlot = SlotRef(SlotIndex);
-        PoolSlot.liveIdx = static_cast<u32>(m_Live.Size() - 1u);
+        PoolSlot.liveIdx = static_cast<u32>(m_Live.Num() - 1u);
         ::new (static_cast<void*>(PoolSlot.storage)) T(Forward<Args>(Arguments)...);
         PoolSlot.alive = true;
         if (!bReusedSlot) ++m_SlotCount;
@@ -95238,18 +95238,18 @@ public:
     {
         FSlot* PoolSlot = Resolve(ObjectHandle);
         if (PoolSlot == nullptr) return false;
-        if (!m_Free.TryReserve(m_Free.Size() + 1u)) return false;
+        if (!m_Free.TryReserve(m_Free.Num() + 1u)) return false;
 
         reinterpret_cast<T*>(PoolSlot->storage)->~T();
         PoolSlot->alive = false;
         // 世代を進めて既存ハンドルを無効化する。
         PoolSlot->gen = AdvanceGeneration(PoolSlot->gen);
         /** 密な生存リストから末尾交換で除く slot index。 */
-        const u32 LastSlotIndex = m_Live[m_Live.Size() - 1];
+        const u32 LastSlotIndex = m_Live[m_Live.Num() - 1];
         m_Live[PoolSlot->liveIdx] = LastSlotIndex;
         SlotRef(LastSlotIndex).liveIdx = PoolSlot->liveIdx;
-        m_Live.PopBack();
-        m_Free.PushBack(ObjectHandle.index);
+        m_Live.Pop();
+        m_Free.Add(ObjectHandle.index);
         return true;
     }
 
@@ -95274,7 +95274,7 @@ public:
     /** 生存オブジェクト数。 */
     u32 Count() const noexcept
     {
-        return static_cast<u32>(m_Live.Size());
+        return static_cast<u32>(m_Live.Num());
     }
 
     /**
@@ -95285,7 +95285,7 @@ public:
     template<class Fn>
     void ForEach(Fn&& Function) noexcept
     {
-        for (usize i = 0; i < m_Live.Size(); ++i) {
+        for (usize i = 0; i < m_Live.Num(); ++i) {
             const u32 SlotIndex = m_Live[i];
             FSlot& PoolSlot = SlotRef(SlotIndex);
             Function(*reinterpret_cast<T*>(PoolSlot.storage), Handle{SlotIndex, PoolSlot.gen});
@@ -95301,19 +95301,19 @@ public:
     /** 全生存オブジェクトの破棄を試み、管理領域の確保失敗時は何も変更しない。 */
     bool TryClear() noexcept
     {
-        if (m_Live.Size() > (~usize(0)) - m_Free.Size() ||
-            !m_Free.TryReserve(m_Free.Size() + m_Live.Size())) {
+        if (m_Live.Num() > (~usize(0)) - m_Free.Num() ||
+            !m_Free.TryReserve(m_Free.Num() + m_Live.Num())) {
             return false;
         }
-        for (usize i = 0; i < m_Live.Size(); ++i) {
+        for (usize i = 0; i < m_Live.Num(); ++i) {
             const u32 SlotIndex = m_Live[i];
             FSlot& PoolSlot = SlotRef(SlotIndex);
             reinterpret_cast<T*>(PoolSlot.storage)->~T();
             PoolSlot.alive = false;
             PoolSlot.gen = AdvanceGeneration(PoolSlot.gen);
-            m_Free.PushBack(SlotIndex);
+            m_Free.Add(SlotIndex);
         }
-        m_Live.Clear();
+        m_Live.Reset();
         return true;
     }
 
@@ -95336,16 +95336,16 @@ public:
 
         // 完全解放中はフリーリストへ戻さない。Clear() 経由だと破棄処理中に
         // m_Free が拡張され、不要な再確保や確保失敗を招く可能性がある。
-        for (usize i = 0; i < m_Live.Size(); ++i) {
+        for (usize i = 0; i < m_Live.Num(); ++i) {
             FSlot& PoolSlot = SlotRef(m_Live[i]);
             reinterpret_cast<T*>(PoolSlot.storage)->~T();
             PoolSlot.alive = false;
         }
-        m_Live.Clear();
+        m_Live.Reset();
         FreeChunks();
-        m_Chunks.ReleaseStorage();
-        m_Free.ReleaseStorage();
-        m_Live.ReleaseStorage();
+        m_Chunks.Empty();
+        m_Free.Empty();
+        m_Live.Empty();
         m_SlotCount = 0;
     }
 
@@ -95371,13 +95371,13 @@ private:
     bool EnsureChunkFor(u32 SlotIndex) noexcept
     {
         const u32 ChunkIndex = SlotIndex / kChunkSize;
-        while (static_cast<u32>(m_Chunks.Size()) <= ChunkIndex) {
+        while (static_cast<u32>(m_Chunks.Num()) <= ChunkIndex) {
             /** アドレスを固定して追加する chunk。 */
             FChunk* NewChunk = New<FChunk>(*m_Alloc);
             if (NewChunk == nullptr) return false;
             for (u32 i = 0; i < kChunkSize; ++i)
                 NewChunk->slots[i].gen = m_GenerationSeed;
-            if (!m_Chunks.TryPushBack(NewChunk)) {
+            if (!m_Chunks.TryAdd(NewChunk)) {
                 Delete(*m_Alloc, NewChunk);
                 return false;
             }
@@ -95407,9 +95407,9 @@ private:
     }
     void FreeChunks() noexcept
     {
-        for (usize i = 0; i < m_Chunks.Size(); ++i)
+        for (usize i = 0; i < m_Chunks.Num(); ++i)
             Delete(*m_Alloc, m_Chunks[i]);
-        m_Chunks.Clear();
+        m_Chunks.Reset();
     }
 
     IAllocator* m_Alloc;
@@ -97742,12 +97742,12 @@ public:
         ACS_THREAD_AFFINITY_CHECK();
         if (!cb) return kInvalidObservable;
         u32 idx;
-        if (m_FreeIndices.Size() > 0) {
-            idx = m_FreeIndices[m_FreeIndices.Size() - 1];
-            m_FreeIndices.PopBack();
+        if (m_FreeIndices.Num() > 0) {
+            idx = m_FreeIndices[m_FreeIndices.Num() - 1];
+            m_FreeIndices.Pop();
         } else {
-            idx = static_cast<u32>(m_Slots.Size());
-            m_Slots.PushBack(FSlot{});
+            idx = static_cast<u32>(m_Slots.Num());
+            m_Slots.Add(FSlot{});
         }
         FSlot& s = m_Slots[idx];
         if (s.id == 0) s.id = m_NextId++;
@@ -97769,17 +97769,17 @@ public:
      */
     bool Unsubscribe(FObservableHandle h) noexcept {
         if (!h.IsValid()) return false;
-        for (usize i = 0; i < m_Slots.Size(); ++i) {
+        for (usize i = 0; i < m_Slots.Num(); ++i) {
             FSlot& s = m_Slots[i];
             if (s.id == h.id && s.generation == h.generation && s.active) {
                 if (m_NotifyDepth > 0) {
                     s.active = false;
-                    m_PendingCancel.PushBack(static_cast<u32>(i));
+                    m_PendingCancel.Add(static_cast<u32>(i));
                 } else {
                     s.active = false;
                     s.cb     = nullptr;
                     s.user   = nullptr;
-                    m_FreeIndices.PushBack(static_cast<u32>(i));
+                    m_FreeIndices.Add(static_cast<u32>(i));
                 }
                 return true;
             }
@@ -97794,7 +97794,7 @@ public:
      */
     u32 SubscriberCount() const noexcept {
         u32 n = 0;
-        for (usize i = 0; i < m_Slots.Size(); ++i) if (m_Slots[i].active) ++n;
+        for (usize i = 0; i < m_Slots.Num(); ++i) if (m_Slots[i].active) ++n;
         return n;
     }
 
@@ -97812,7 +97812,7 @@ private:
             m_NotifyLifetimeGuards);
 
         ++m_NotifyDepth;
-        const usize n = m_Slots.Size();
+        const usize n = m_Slots.Num();
         for (usize i = 0; i < n; ++i) {
             FSlot& s = m_Slots[i];
             if (!s.active || !s.cb) continue;
@@ -97820,17 +97820,17 @@ private:
             if (!lifetime_guard.IsAlive()) return;
         }
         --m_NotifyDepth;
-        if (m_NotifyDepth == 0 && m_PendingCancel.Size() > 0) {
-            for (usize i = 0; i < m_PendingCancel.Size(); ++i) {
+        if (m_NotifyDepth == 0 && m_PendingCancel.Num() > 0) {
+            for (usize i = 0; i < m_PendingCancel.Num(); ++i) {
                 const u32 idx = m_PendingCancel[i];
-                if (idx < m_Slots.Size()) {
+                if (idx < m_Slots.Num()) {
                     FSlot& s = m_Slots[idx];
                     s.cb   = nullptr;
                     s.user = nullptr;
-                    m_FreeIndices.PushBack(idx);
+                    m_FreeIndices.Add(idx);
                 }
             }
-            m_PendingCancel.Clear();
+            m_PendingCancel.Reset();
         }
     }
 
@@ -99197,14 +99197,14 @@ void BindProgress(const char* label, const TObservable<f32>& v, f32 v_min, f32 v
 //       }
 //   }, nullptr);
 //
-//   inv.PushBack(7);     // → Inserted, idx=0, v=7
+//   inv.Add(7);     // → Inserted, idx=0, v=7
 //   inv.SetAt(0, 99);    // → Changed,  idx=0, v=99
 //   inv.RemoveAt(0);     // → Removed,  idx=0
-//   inv.Clear();         // → Cleared
+//   inv.Reset();         // → Cleared
 //
 // 設計:
 //   ・通知は 1 種類の callback で kind を分岐 (UE5 の per-event fan-out より易い)
-//   ・listener 中は PushBack/PopBack/Remove/RemoveAt/SetAt/Clear による全変更を禁止する
+//   ・listener 中は Add/Pop/Remove/RemoveAt/SetAt/Clear による全変更を禁止する
 //     (Debug は assert 検出。assert 無効の Release では検出されず処理が実行されるため、
 //      呼び出した時点で caller の契約違反)
 //     → どうしても要るなら listener が処理キューに積んで後で実行
@@ -99270,7 +99270,7 @@ inline constexpr FArrayObserverHandle kInvalidArrayObserver{};
  *
  * @details
  * 各変更操作は単一のリスナを EArrayChange の種別付きで呼ぶ (per-event の fan-out はしない)。
- * 通知中 (Notify 内) は PushBack/PopBack/Remove/RemoveAt/SetAt/Clear による全変更を禁止する。
+ * 通知中 (Notify 内) は Add/Pop/Remove/RemoveAt/SetAt/Clear による全変更を禁止する。
  * Debug ビルドでは assert で検出する。assert を無効化した Release ビルドでは検出されず
  * 変更処理が実行されるため、呼び出した時点で caller の契約違反となる。
  * SetAt は通知外でも operator== で同値ならスキップする。
@@ -99310,22 +99310,22 @@ public:
      *
      * @param v 追加する要素 (ムーブで取り込む)。
      */
-    void PushBack(T v) noexcept {
+    void Add(T v) noexcept {
         AssertMutationOK();
-        const usize idx = m_Items.Size();
-        m_Items.PushBack(Move(v));
+        const usize idx = m_Items.Num();
+        m_Items.Add(Move(v));
         Notify(EArrayChange::Inserted, idx, &m_Items[idx]);
     }
 
     /**
      * 末尾要素を削除し Removed を通知する (空なら何もしない)。
      */
-    void PopBack() noexcept {
-        if (m_Items.Size() == 0) return;
+    void Pop() noexcept {
+        if (m_Items.Num() == 0) return;
         AssertMutationOK();
-        const usize idx = m_Items.Size() - 1;
-        // PopBack 後は要素アクセスできないので value=nullptr で通知
-        m_Items.PopBack();
+        const usize idx = m_Items.Num() - 1;
+        // Pop 後は要素アクセスできないので value=nullptr で通知
+        m_Items.Pop();
         Notify(EArrayChange::Removed, idx, nullptr);
     }
 
@@ -99336,12 +99336,12 @@ public:
      * @param index 削除する要素の位置。
      */
     void RemoveAt(usize index) noexcept {
-        if (index >= m_Items.Size()) return;
+        if (index >= m_Items.Num()) return;
         AssertMutationOK();
-        for (usize i = index + 1; i < m_Items.Size(); ++i) {
+        for (usize i = index + 1; i < m_Items.Num(); ++i) {
             m_Items[i - 1] = Move(m_Items[i]);
         }
-        m_Items.PopBack();
+        m_Items.Pop();
         Notify(EArrayChange::Removed, index, nullptr);
     }
 
@@ -99355,7 +99355,7 @@ public:
      */
     bool Remove(const T& value) noexcept {
         // 最初に一致した削除位置。
-        const usize index = m_Items.IndexOf(value);
+        const usize index = m_Items.IndexOfByKey(value);
         if (index == TArray<T>::kNpos) return false;
         RemoveAt(index);
         return true;
@@ -99369,7 +99369,7 @@ public:
      * @param v 設定する新しい値 (ムーブで取り込む)。
      */
     void SetAt(usize index, T v) noexcept {
-        if (index >= m_Items.Size()) return;
+        if (index >= m_Items.Num()) return;
         if (m_Items[index] == v) return;
         AssertMutationOK();
         m_Items[index] = Move(v);
@@ -99379,10 +99379,10 @@ public:
     /**
      * 全要素を削除し Cleared を通知する (空なら何もしない)。
      */
-    void Clear() noexcept {
-        if (m_Items.Size() == 0) return;
+    void Reset() noexcept {
+        if (m_Items.Num() == 0) return;
         AssertMutationOK();
-        m_Items.Clear();
+        m_Items.Reset();
         Notify(EArrayChange::Cleared, 0, nullptr);
     }
 
@@ -99391,14 +99391,14 @@ public:
      *
      * @return 現在の要素数。
      */
-    usize Size() const noexcept { return m_Items.Size(); }
+    usize Num() const noexcept { return m_Items.Num(); }
 
     /**
      * 空かどうかを返す。
      *
      * @return 要素が無ければ true。
      */
-    bool  Empty() const noexcept { return m_Items.Size() == 0; }
+    bool  Empty() const noexcept { return m_Items.Num() == 0; }
 
     /**
      * 指定 index の要素への const 参照を返す。
@@ -99422,14 +99422,14 @@ public:
      *
      * @return 要素配列の先頭 (空なら実装依存)。
      */
-    const T* Data() const noexcept { return m_Items.Data(); }
+    const T* GetData() const noexcept { return m_Items.GetData(); }
 
     /**
      * 内部配列先頭への可変ポインタを返す。
      *
      * @return 要素配列の先頭 (空なら実装依存)。
      */
-    T*       Data()       noexcept { return m_Items.Data(); }
+    T*       GetData()       noexcept { return m_Items.GetData(); }
 
     /**
      * 変更通知リスナを登録する。
@@ -99442,12 +99442,12 @@ public:
     FArrayObserverHandle Subscribe(Listener cb, void* user) noexcept {
         if (!cb) return kInvalidArrayObserver;
         u32 idx;
-        if (m_FreeIndices.Size() > 0) {
-            idx = m_FreeIndices[m_FreeIndices.Size() - 1];
-            m_FreeIndices.PopBack();
+        if (m_FreeIndices.Num() > 0) {
+            idx = m_FreeIndices[m_FreeIndices.Num() - 1];
+            m_FreeIndices.Pop();
         } else {
-            idx = static_cast<u32>(m_Slots.Size());
-            m_Slots.PushBack(FSlot{});
+            idx = static_cast<u32>(m_Slots.Num());
+            m_Slots.Add(FSlot{});
         }
         FSlot& s = m_Slots[idx];
         if (s.id == 0) s.id = m_NextId++;
@@ -99469,17 +99469,17 @@ public:
      */
     bool Unsubscribe(FArrayObserverHandle h) noexcept {
         if (!h.IsValid()) return false;
-        for (usize i = 0; i < m_Slots.Size(); ++i) {
+        for (usize i = 0; i < m_Slots.Num(); ++i) {
             FSlot& s = m_Slots[i];
             if (s.id == h.id && s.generation == h.generation && s.active) {
                 if (m_NotifyDepth > 0) {
                     s.active = false;
-                    m_PendingCancel.PushBack(static_cast<u32>(i));
+                    m_PendingCancel.Add(static_cast<u32>(i));
                 } else {
                     s.active = false;
                     s.cb     = nullptr;
                     s.user   = nullptr;
-                    m_FreeIndices.PushBack(static_cast<u32>(i));
+                    m_FreeIndices.Add(static_cast<u32>(i));
                 }
                 return true;
             }
@@ -99494,7 +99494,7 @@ public:
      */
     u32 SubscriberCount() const noexcept {
         u32 n = 0;
-        for (usize i = 0; i < m_Slots.Size(); ++i) if (m_Slots[i].active) ++n;
+        for (usize i = 0; i < m_Slots.Num(); ++i) if (m_Slots[i].active) ++n;
         return n;
     }
 
@@ -99555,7 +99555,7 @@ private:
      * 通知中の変更操作が行われていないかを検証する。
      *
      * @details
-     * リスナ (Notify) 実行中の PushBack/PopBack/Remove/RemoveAt/SetAt/Clear は、
+     * リスナ (Notify) 実行中の Add/Pop/Remove/RemoveAt/SetAt/Clear は、
      * 要素配列の再配置、通知の再入、通知対象の途中変更を招くためすべて禁止する。
      * Debug ビルドでは m_NotifyDepth==0 を assert する。assert を無効化した Release
      * ビルドでは検出されず変更処理が続くため、caller が契約を守らなければならない。
@@ -99582,7 +99582,7 @@ private:
     void Notify(EArrayChange kind, usize index, const T* value) noexcept {
         FNotifyFrame notify_frame(*this);
         ++m_NotifyDepth;
-        const usize n = m_Slots.Size();
+        const usize n = m_Slots.Num();
         for (usize i = 0; i < n; ++i) {
             FSlot& s = m_Slots[i];
             if (!s.active || !s.cb) continue;
@@ -99592,17 +99592,17 @@ private:
             if (!notify_frame.IsOwnerAlive()) return;
         }
         --m_NotifyDepth;
-        if (m_NotifyDepth == 0 && m_PendingCancel.Size() > 0) {
-            for (usize i = 0; i < m_PendingCancel.Size(); ++i) {
+        if (m_NotifyDepth == 0 && m_PendingCancel.Num() > 0) {
+            for (usize i = 0; i < m_PendingCancel.Num(); ++i) {
                 const u32 idx = m_PendingCancel[i];
-                if (idx < m_Slots.Size()) {
+                if (idx < m_Slots.Num()) {
                     FSlot& s = m_Slots[idx];
                     s.cb   = nullptr;
                     s.user = nullptr;
-                    m_FreeIndices.PushBack(idx);
+                    m_FreeIndices.Add(idx);
                 }
             }
-            m_PendingCancel.Clear();
+            m_PendingCancel.Reset();
         }
     }
 
@@ -101062,7 +101062,7 @@ public:
         FEntry candidate;
         candidate.key = Move(candidateKey);
         candidate.value = Move(candidateValue);
-        return m_Entries.TryPushBack(Move(candidate));
+        return m_Entries.TryAdd(Move(candidate));
     }
 
     /**
@@ -101177,7 +101177,7 @@ public:
      *
      * @return エントリ数。
      */
-    usize Count() const noexcept { return m_Entries.Size(); }
+    usize Count() const noexcept { return m_Entries.Num(); }
 
     /**
      * %APPDATA%/<sub_dir>/<file_name> へのフルパスを構築する (wchar_t 版)。
@@ -101868,7 +101868,7 @@ public:
      *
      * @return ライン本数 (頂点数 / 2)。
      */
-    u32 LineCount() const noexcept { return static_cast<u32>(m_Verts.Size() / 2); }
+    u32 LineCount() const noexcept { return static_cast<u32>(m_Verts.Num() / 2); }
 
 private:
     /** 1 本のラインを構成する 1 頂点 (位置 + RGBA カラー)。 */
@@ -103308,7 +103308,7 @@ public:
 
     /** Number of persistent per-object buffers currently retained. */
     u32 ObjectBufferCapacity() const noexcept {
-        return static_cast<u32>(m_Cbs.Size());
+        return static_cast<u32>(m_Cbs.Num());
     }
 
     /** Successfully recorded object draws since the latest BeginFrame/Begin. */
@@ -104432,12 +104432,12 @@ public:
 
     /** 入力順と同じ割り当て配列を返す。 */
     const FRenderGraphAliasAssignment* Assignments() const noexcept {
-        return m_Assignments.Data();
+        return m_Assignments.GetData();
     }
 
     /** 割り当て要素数を返す。 */
     usize AssignmentCount() const noexcept {
-        return m_Assignments.Size();
+        return m_Assignments.Num();
     }
 
     /** 現在の計画集計を返す。 */
@@ -104759,14 +104759,14 @@ public:
      */
     IRhiBuffer*   CasterObjectCB() const noexcept {
         const u32 slot = m_CurrentCasters[m_CurrentCascade];
-        return slot < m_ObjectCbs[m_CurrentCascade].Size()
+        return slot < m_ObjectCbs[m_CurrentCascade].Num()
              ? m_ObjectCbs[m_CurrentCascade][slot].Get()
              : nullptr;
     }
 
     u32 CasterBufferCapacity(u32 cascade = 0u) const noexcept {
         return cascade < m_CascadeCapacity
-             ? static_cast<u32>(m_ObjectCbs[cascade].Size()) : 0u;
+             ? static_cast<u32>(m_ObjectCbs[cascade].Num()) : 0u;
     }
 
     /** BeginFrame() 以降に消費した per-draw caster CB slot 数。 */
@@ -104993,7 +104993,7 @@ public:
     bool BeginFrame(u32 required_object_draws = 0u) noexcept;
 
     u32 ObjectBufferCapacity() const noexcept {
-        return static_cast<u32>(m_DrawBuffers.Size());
+        return static_cast<u32>(m_DrawBuffers.Num());
     }
 
     u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
@@ -105080,7 +105080,7 @@ public:
      * @return モデル行列・マテリアルを格納した定数バッファ。
      */
     IRhiBuffer*    PerObjectCB() const noexcept {
-        return m_CurrentObjectCb < m_DrawBuffers.Size()
+        return m_CurrentObjectCb < m_DrawBuffers.Num()
              ? m_DrawBuffers[m_CurrentObjectCb].object.Get()
              : nullptr;
     }
@@ -105091,7 +105091,7 @@ public:
      * @return ボーンパレット行列を格納した定数バッファ。
      */
     IRhiBuffer*    BonesCB()     const noexcept {
-        return m_CurrentObjectCb < m_DrawBuffers.Size()
+        return m_CurrentObjectCb < m_DrawBuffers.Num()
              ? m_DrawBuffers[m_CurrentObjectCb].bones.Get()
              : nullptr;
     }
@@ -105268,10 +105268,10 @@ public:
      * @details seq カウンタも 0 に戻す。
      */
     void Clear() noexcept {
-        m_Cmds.Clear();
-        m_Order.Clear();
-        m_Scratch.Clear();
-        m_Keys.Clear();
+        m_Cmds.Reset();
+        m_Order.Reset();
+        m_Scratch.Reset();
+        m_Keys.Reset();
         m_Seq = 0;
         m_LastSortPasses = 0u;
         m_LastSortItemVisits = 0u;
@@ -105294,7 +105294,7 @@ public:
      *
      * @return コマンド総数。
      */
-    u32 Count() const noexcept { return static_cast<u32>(m_Cmds.Size()); }
+    u32 Count() const noexcept { return static_cast<u32>(m_Cmds.Num()); }
 
     /**
      * テクスチャ全体のスプライトを積む。
@@ -105340,7 +105340,7 @@ public:
         c.color = tint;
         c.tex = &tex;
         c.seq = m_Seq++;
-        m_Cmds.PushBack(c);
+        m_Cmds.Add(c);
     }
 
     /**
@@ -105363,7 +105363,7 @@ public:
         c.color = color;
         c.tex = nullptr;
         c.seq = m_Seq++;
-        m_Cmds.PushBack(c);
+        m_Cmds.Add(c);
     }
 
     /**
@@ -105389,7 +105389,7 @@ public:
      */
     const FSpriteCmd& Ordered(u32 i) const noexcept {
         // Sort() 済み (m_Order が全コマンドを覆う) ならソート順、未ソートなら提出順。
-        return (m_Order.Size() == m_Cmds.Size()) ? m_Cmds[m_Order[i]] : m_Cmds[i];
+        return (m_Order.Num() == m_Cmds.Num()) ? m_Cmds[m_Order[i]] : m_Cmds[i];
     }
 
     /**
@@ -107454,7 +107454,7 @@ public:
         auto u = MakeUnique<W>(Forward<Args>(args)...);
         W* const raw = u.Get();
         raw->m_Parent = this;
-        m_Children.PushBack(Move(u));
+        m_Children.Add(Move(u));
         return raw;
     }
 
@@ -107470,7 +107470,7 @@ public:
      *
      * @return 子の数。
      */
-    usize   ChildCount() const noexcept { return m_Children.Size(); }
+    usize   ChildCount() const noexcept { return m_Children.Num(); }
 
     /**
      * i 番目の子を返す。
@@ -107478,7 +107478,7 @@ public:
      * @param i 子のインデックス。
      * @return i 番目の子 (範囲外なら nullptr)。
      */
-    AWidget* Child(usize i) const noexcept { return i < m_Children.Size() ? m_Children[i].Get() : nullptr; }
+    AWidget* Child(usize i) const noexcept { return i < m_Children.Num() ? m_Children[i].Get() : nullptr; }
 
     /** 表示フラグ (false で自身と子の描画・hit-test をスキップ)。 */
     bool   visible = true;
@@ -107522,7 +107522,7 @@ public:
      */
     virtual void Render(class CUiRenderer& r) noexcept {
         // 既定は子だけ描画する (visible なものに絞り)
-        for (usize i = 0; i < m_Children.Size(); ++i) {
+        for (usize i = 0; i < m_Children.Num(); ++i) {
             if (m_Children[i] && m_Children[i]->visible) m_Children[i]->Render(r);
         }
     }
@@ -107611,7 +107611,7 @@ public:
     AWidget* HitTestRecursive(f32 px, f32 py) noexcept {
         if (!visible) return nullptr;
         // 後ろの子 (上に描画されてる) から優先的にヒット
-        for (usize i = m_Children.Size(); i > 0; --i) {
+        for (usize i = m_Children.Num(); i > 0; --i) {
             AWidget* const c = m_Children[i - 1].Get();
             if (c) {
                 if (AWidget* h = c->HitTestRecursive(px, py)) return h;
@@ -107641,7 +107641,7 @@ private:
             const ui_detail::FWidgetInputIdentity& identity) noexcept {
         if (!identity.IsSet()) return nullptr;
         if (InputIdentity_Internal() == identity) return this;
-        for (usize i = 0; i < m_Children.Size(); ++i) {
+        for (usize i = 0; i < m_Children.Num(); ++i) {
             AWidget* const child = m_Children[i].Get();
             if (!child) continue;
             if (AWidget* const found =
@@ -107681,7 +107681,7 @@ private:
         hovered = false;
         focused = false;
         pressed = false;
-        for (usize i = 0; i < m_Children.Size(); ++i) {
+        for (usize i = 0; i < m_Children.Num(); ++i) {
             if (AWidget* const child = m_Children[i].Get()) {
                 child->ClearInputStateRecursive_Internal();
             }
@@ -107791,7 +107791,7 @@ public:
         const f32 cw = w - padding.l - padding.r;
         const f32 ch = h - padding.t - padding.b;
 
-        for (usize i = 0; i < m_Children.Size(); ++i) {
+        for (usize i = 0; i < m_Children.Num(); ++i) {
             AWidget* const c = m_Children[i].Get();
             if (!c || !c->visible) continue;
 
@@ -107828,7 +107828,7 @@ public:
      */
     void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
         rect = { x, y, w, h };
-        for (usize i = 0; i < m_Children.Size(); ++i) {
+        for (usize i = 0; i < m_Children.Num(); ++i) {
             AWidget* const c = m_Children[i].Get();
             if (c && c->visible) c->Layout(x, y, w, h);
         }
@@ -107866,7 +107866,7 @@ public:
      */
     void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
         rect = { x, y, w, h };
-        for (usize i = 0; i < m_Children.Size(); ++i) {
+        for (usize i = 0; i < m_Children.Num(); ++i) {
             AWidget* const c = m_Children[i].Get();
             if (!c || !c->visible) continue;
             const FUiRect cr = ComputeAnchoredRect(rect, c->anchor);

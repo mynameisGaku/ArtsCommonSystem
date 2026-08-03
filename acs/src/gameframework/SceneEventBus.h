@@ -44,7 +44,7 @@
 //     払い出し、削除は FEntry を mark-inactive。Publish 走査時に inactive を
 //     スキップ。Publish 中の Unsubscribe / Subscribe を安全にするため
 //     **vector の物理削除はしない** (再エントランシ安全)。
-//   ・**Publish 中の Subscribe 安全性**: PushBack で再 alloc が起きると
+//   ・**Publish 中の Subscribe 安全性**: Add で再 alloc が起きると
 //     走査中の参照が無効化されるため、Publish の走査は size を最初に
 //     キャプチャしてその範囲のみ呼ぶ。Publish 中に追加された subscriber は
 //     次回以降の Publish で初めて呼ばれる (一般的な pub/sub セマンティクス)。

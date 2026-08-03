@@ -195,9 +195,9 @@ void CAssetBrowser::Init(const wchar_t* root_directory) noexcept {
 
 /** pool / TArray / ディレクトリ文字列 / callback を全クリアする。 */
 void CAssetBrowser::Shutdown() noexcept {
-    m_Entries.Clear();
-    m_PathPool.Clear();
-    m_NamePool.Clear();
+    m_Entries.Reset();
+    m_PathPool.Reset();
+    m_NamePool.Reset();
     m_RootDirectory[0]    = L'\0';
     m_CurrentDirectory[0] = L'\0';
     m_SelectedIndex       = -1;
@@ -217,9 +217,9 @@ void CAssetBrowser::Refresh() noexcept {
 /** Win32 列挙で m_Entries / pool を作り直し、offset を絶対 pointer へ解決する。 */
 void CAssetBrowser::RebuildEntries() noexcept {
     // 既存 entry / pool を全クリア (容量は維持)。pointer は全て無効化される。
-    m_Entries.Clear();
-    m_PathPool.Clear();
-    m_NamePool.Clear();
+    m_Entries.Reset();
+    m_PathPool.Reset();
+    m_NamePool.Reset();
     m_SelectedIndex = -1;  // pool 再構築で path pointer 寿命が切れるため
 
     // Win32 FindFirstFileW で current_directory 配下を列挙。
@@ -303,7 +303,7 @@ void CAssetBrowser::RebuildEntries() noexcept {
             sz.HighPart = static_cast<LONG>(fd.nFileSizeHigh);
             pe.size = static_cast<u64>(sz.QuadPart);
         }
-        pending.PushBack(pe);
+        pending.Add(pe);
     } while (::FindNextFileW(h, &fd) != FALSE);
 
     ::FindClose(h);
@@ -311,8 +311,8 @@ void CAssetBrowser::RebuildEntries() noexcept {
     // offset → pointer 解決 (これ以後 pool は触らない)。
     const wchar_t* path_base = m_PathPool.IsEmpty() ? nullptr : &m_PathPool[0];
     const char*    name_base = m_NamePool.IsEmpty() ? nullptr : &m_NamePool[0];
-    m_Entries.Reserve(pending.Size());
-    for (usize i = 0; i < pending.Size(); ++i) {
+    m_Entries.Reserve(pending.Num());
+    for (usize i = 0; i < pending.Num(); ++i) {
         const FPendingEntry& pe = pending[i];
         FAssetEntry e {};
         e.path            = (path_base != nullptr) ? (path_base + pe.path_off) : nullptr;
@@ -321,18 +321,18 @@ void CAssetBrowser::RebuildEntries() noexcept {
         e.file_size_bytes = pe.size;
         e.last_modified   = pe.mtime;
         e.is_directory    = pe.is_dir;
-        m_Entries.PushBack(e);
+        m_Entries.Add(e);
     }
 }
 
 /** current directory の entry 件数を返す。 */
 u32 CAssetBrowser::EntryCount() const noexcept {
-    return static_cast<u32>(m_Entries.Size());
+    return static_cast<u32>(m_Entries.Num());
 }
 
 /** index 番目の entry を返す (範囲外は nullptr)。 */
 const FAssetEntry* CAssetBrowser::GetEntry(u32 index) const noexcept {
-    if (index >= m_Entries.Size()) return nullptr;
+    if (index >= m_Entries.Num()) return nullptr;
     return &m_Entries[static_cast<usize>(index)];
 }
 
@@ -375,7 +375,7 @@ void CAssetBrowser::SetCurrentDirectory(const wchar_t* path) noexcept {
 const wchar_t* CAssetBrowser::SelectedAssetPath() const noexcept {
     if (m_SelectedIndex < 0) return nullptr;
     const u32 idx = static_cast<u32>(m_SelectedIndex);
-    if (idx >= m_Entries.Size()) return nullptr;
+    if (idx >= m_Entries.Num()) return nullptr;
     return m_Entries[idx].path;
 }
 
@@ -383,7 +383,7 @@ const wchar_t* CAssetBrowser::SelectedAssetPath() const noexcept {
 EAssetKind CAssetBrowser::SelectedAssetKind() const noexcept {
     if (m_SelectedIndex < 0) return EAssetKind::Unknown;
     const u32 idx = static_cast<u32>(m_SelectedIndex);
-    if (idx >= m_Entries.Size()) return EAssetKind::Unknown;
+    if (idx >= m_Entries.Num()) return EAssetKind::Unknown;
     return m_Entries[idx].kind;
 }
 
@@ -485,20 +485,20 @@ usize CAssetBrowser::AppendPathOffset(const wchar_t* src) noexcept {
     if (src == nullptr) return 0;
     const usize len = WLen(src) + 1u;  // 終端 0 含む
 
-    // 不足時は予防的に余裕を持って Grow させ、書き込み中の inner PushBack
+    // 不足時は予防的に余裕を持って Grow させ、書き込み中の inner Add
     // が更に relocation を起こさないようにする (= 1 回の Reserve でこの append
     // を完了する分の容量を確保する)。
-    const usize need = m_PathPool.Size() + len;
-    if (need > m_PathPool.Capacity()) {
-        usize new_cap = m_PathPool.Capacity();
+    const usize need = m_PathPool.Num() + len;
+    if (need > m_PathPool.Max()) {
+        usize new_cap = m_PathPool.Max();
         if (new_cap == 0) new_cap = kInitialPathPoolBytes / sizeof(wchar_t);
         while (new_cap < need) new_cap *= 2u;
         m_PathPool.Reserve(new_cap);
     }
 
-    const usize start = m_PathPool.Size();
+    const usize start = m_PathPool.Num();
     for (usize i = 0; i < len; ++i) {
-        m_PathPool.PushBack(src[i]);
+        m_PathPool.Add(src[i]);
     }
     return start;
 }
@@ -508,17 +508,17 @@ usize CAssetBrowser::AppendNameOffset(const char* src) noexcept {
     if (src == nullptr) return 0;
     const usize len = std::strlen(src) + 1u;
 
-    const usize need = m_NamePool.Size() + len;
-    if (need > m_NamePool.Capacity()) {
-        usize new_cap = m_NamePool.Capacity();
+    const usize need = m_NamePool.Num() + len;
+    if (need > m_NamePool.Max()) {
+        usize new_cap = m_NamePool.Max();
         if (new_cap == 0) new_cap = kInitialPathPoolBytes / sizeof(char);
         while (new_cap < need) new_cap *= 2u;
         m_NamePool.Reserve(new_cap);
     }
 
-    const usize start = m_NamePool.Size();
+    const usize start = m_NamePool.Num();
     for (usize i = 0; i < len; ++i) {
-        m_NamePool.PushBack(src[i]);
+        m_NamePool.Add(src[i]);
     }
     return start;
 }
@@ -728,11 +728,11 @@ void CAssetBrowser::DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcep
 /** current directory の各 entry を kind フィルタ越しに行描画し、選択 / DnD / ダブルクリックを処理する。 */
 void CAssetBrowser::DrawList() noexcept {
     ImGui::Text("Entries: %u%s",
-                static_cast<unsigned>(m_Entries.Size()),
+                static_cast<unsigned>(m_Entries.Num()),
                 (m_FilterKind == EAssetKind::Unknown) ? "" : " (filtered)");
     ImGui::Separator();
 
-    for (u32 i = 0; i < m_Entries.Size(); ++i) {
+    for (u32 i = 0; i < m_Entries.Num(); ++i) {
         const FAssetEntry& e = m_Entries[static_cast<usize>(i)];
 
         // kind フィルタ (ディレクトリは常に表示)。

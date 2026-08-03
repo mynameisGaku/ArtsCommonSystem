@@ -97,10 +97,10 @@ public:
      * @details seq カウンタも 0 に戻す。
      */
     void Clear() noexcept {
-        m_Cmds.Clear();
-        m_Order.Clear();
-        m_Scratch.Clear();
-        m_Keys.Clear();
+        m_Cmds.Reset();
+        m_Order.Reset();
+        m_Scratch.Reset();
+        m_Keys.Reset();
         m_Seq = 0;
         m_LastSortPasses = 0u;
         m_LastSortItemVisits = 0u;
@@ -123,7 +123,7 @@ public:
      *
      * @return コマンド総数。
      */
-    u32 Count() const noexcept { return static_cast<u32>(m_Cmds.Size()); }
+    u32 Count() const noexcept { return static_cast<u32>(m_Cmds.Num()); }
 
     /**
      * テクスチャ全体のスプライトを積む。
@@ -169,7 +169,7 @@ public:
         c.color = tint;
         c.tex = &tex;
         c.seq = m_Seq++;
-        m_Cmds.PushBack(c);
+        m_Cmds.Add(c);
     }
 
     /**
@@ -192,7 +192,7 @@ public:
         c.color = color;
         c.tex = nullptr;
         c.seq = m_Seq++;
-        m_Cmds.PushBack(c);
+        m_Cmds.Add(c);
     }
 
     /**
@@ -218,7 +218,7 @@ public:
      */
     const FSpriteCmd& Ordered(u32 i) const noexcept {
         // Sort() 済み (m_Order が全コマンドを覆う) ならソート順、未ソートなら提出順。
-        return (m_Order.Size() == m_Cmds.Size()) ? m_Cmds[m_Order[i]] : m_Cmds[i];
+        return (m_Order.Num() == m_Cmds.Num()) ? m_Cmds[m_Order[i]] : m_Cmds[i];
     }
 
     /**

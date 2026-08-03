@@ -158,13 +158,13 @@ ACS_TEST(NetSnapshotSafety, CodecRejectsTruncationTrailingCrcAndNoncanonicalHead
     FSnapshotHeader output{};
     output.tick = 0xAABBCCDDu;
     TArray<u8> payload;
-    payload.Resize(2u);
+    payload.SetNum(2u);
     payload[0] = 0x55u;
     payload[1] = 0xAAu;
 
     EXPECT_TRUE(CNetSnapshot::DecodeSnapshot(frame, written - 1u, output, payload).IsErr());
     EXPECT_EQ(output.tick, 0xAABBCCDDu);
-    EXPECT_EQ(payload.Size(), static_cast<usize>(2u));
+    EXPECT_EQ(payload.Num(), static_cast<usize>(2u));
 
     frame[written] = 0xCCu;
     EXPECT_TRUE(CNetSnapshot::DecodeSnapshot(frame, written + 1u, output, payload).IsErr());
@@ -184,7 +184,7 @@ ACS_TEST(NetSnapshotSafety, CodecRejectsTruncationTrailingCrcAndNoncanonicalHead
                   static_cast<u16>(FNetSnapshotError::kSub_NonCanonicalHeader));
     }
     EXPECT_EQ(output.tick, 0xAABBCCDDu);
-    EXPECT_EQ(payload.Size(), static_cast<usize>(2u));
+    EXPECT_EQ(payload.Num(), static_cast<usize>(2u));
 }
 
 ACS_TEST(NetSnapshotSafety, EncodeRejectsProductLimitWithoutPartialFrame)
@@ -215,10 +215,10 @@ ACS_TEST(NetSnapshotSafety, DecodeAllocationFailurePreservesBothOutputs)
 
     CSwitchableFailAllocator allocator(DefaultAllocator());
     TArray<u8> payload(allocator);
-    EXPECT_TRUE(payload.TryResize(1u));
+    EXPECT_TRUE(payload.TrySetNum(1u));
     payload[0] = 0xC3u;
-    u8* const original_pointer = payload.Data();
-    const usize original_capacity = payload.Capacity();
+    u8* const original_pointer = payload.GetData();
+    const usize original_capacity = payload.Max();
     allocator.SetFailing(true);
 
     FSnapshotHeader output{};
@@ -229,10 +229,10 @@ ACS_TEST(NetSnapshotSafety, DecodeAllocationFailurePreservesBothOutputs)
         EXPECT_EQ(result.Error().subcode, static_cast<u16>(FNetSnapshotError::kSub_AllocationFailed));
     }
     EXPECT_EQ(output.tick, 0x12345678u);
-    EXPECT_EQ(payload.Size(), static_cast<usize>(1u));
+    EXPECT_EQ(payload.Num(), static_cast<usize>(1u));
     EXPECT_EQ(payload[0], static_cast<u8>(0xC3u));
-    EXPECT_TRUE(payload.Data() == original_pointer);
-    EXPECT_EQ(payload.Capacity(), original_capacity);
+    EXPECT_TRUE(payload.GetData() == original_pointer);
+    EXPECT_EQ(payload.Max(), original_capacity);
 }
 
 ACS_TEST(NetSnapshotSafety, CodecRejectsAliasedInputAndOutputStorage)
@@ -242,22 +242,22 @@ ACS_TEST(NetSnapshotSafety, CodecRejectsAliasedInputAndOutputStorage)
     EXPECT_TRUE(written > 0u);
 
     TArray<u8> aliased;
-    aliased.Resize(written);
-    MemCopy(aliased.Data(), frame, written);
-    u8* const original_pointer = aliased.Data();
-    const usize original_size = aliased.Size();
-    const usize original_capacity = aliased.Capacity();
+    aliased.SetNum(written);
+    MemCopy(aliased.GetData(), frame, written);
+    u8* const original_pointer = aliased.GetData();
+    const usize original_size = aliased.Num();
+    const usize original_capacity = aliased.Max();
     FSnapshotHeader decoded{};
     decoded.tick = 0xDEADBEEFu;
     const TResult<void> decode =
-        CNetSnapshot::DecodeSnapshot(aliased.Data(), written, decoded, aliased);
+        CNetSnapshot::DecodeSnapshot(aliased.GetData(), written, decoded, aliased);
     EXPECT_TRUE(decode.IsErr());
     if (decode.IsErr()) {
         EXPECT_EQ(decode.Error().subcode, static_cast<u16>(FNetSnapshotError::kSub_BadArgument));
     }
-    EXPECT_TRUE(aliased.Data() == original_pointer);
-    EXPECT_EQ(aliased.Size(), original_size);
-    EXPECT_EQ(aliased.Capacity(), original_capacity);
+    EXPECT_TRUE(aliased.GetData() == original_pointer);
+    EXPECT_EQ(aliased.Num(), original_size);
+    EXPECT_EQ(aliased.Max(), original_capacity);
     EXPECT_EQ(decoded.tick, 0xDEADBEEFu);
 
     u8 overlapping[128] = {};
@@ -318,7 +318,7 @@ ACS_TEST(NetSnapshotSafety, CheckedCommitRetainsPendingStateAcrossTransportFailu
     EXPECT_TRUE(CNetSnapshot::DecodeSnapshot(transport.m_LastSent, transport.m_LastSentSize, header, payload).IsOk());
     EXPECT_EQ(header.sequence, 1u);
     EXPECT_EQ(header.tick, 99u);
-    EXPECT_EQ(payload.Size(), static_cast<usize>(16u));
+    EXPECT_EQ(payload.Num(), static_cast<usize>(16u));
 }
 
 ACS_TEST(NetSnapshotSafety, TickCommitsOnlyCompleteMessagesAndStopsOnContractViolation)

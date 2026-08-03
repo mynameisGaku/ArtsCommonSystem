@@ -37,13 +37,13 @@ void CEntitlementRegistry::Add(FEntitlementInfo info) noexcept {
     // id == nullptr は意味を持たないので静かに弾く (DLC 一覧取得が失敗した
     // 時のフォールバック流入で nullptr が来ても registry を壊さない)。
     if (info.id == nullptr) return;
-    m_Infos.PushBack(info);
+    m_Infos.Add(info);
 }
 
 /** 指定 id の entitlement が登録済みか (active は問わない) を返す。 */
 bool CEntitlementRegistry::Has(const char* id) const noexcept {
     if (id == nullptr) return false;
-    const usize n = m_Infos.Size();
+    const usize n = m_Infos.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Infos[i].id, id)) return true;
     }
@@ -53,7 +53,7 @@ bool CEntitlementRegistry::Has(const char* id) const noexcept {
 /** 指定 id の entitlement が登録済みかつ active かを返す。 */
 bool CEntitlementRegistry::IsActive(const char* id) const noexcept {
     if (id == nullptr) return false;
-    const usize n = m_Infos.Size();
+    const usize n = m_Infos.Num();
     for (usize i = 0; i < n; ++i) {
         const FEntitlementInfo& e = m_Infos[i];
         if (StrEq(e.id, id)) return e.active;
@@ -63,7 +63,7 @@ bool CEntitlementRegistry::IsActive(const char* id) const noexcept {
 
 /** 指定 kind の active な entitlement を 1 件でも持っているかを返す。 */
 bool CEntitlementRegistry::HasAny(EEntitlementKind k) const noexcept {
-    const usize n = m_Infos.Size();
+    const usize n = m_Infos.Num();
     for (usize i = 0; i < n; ++i) {
         const FEntitlementInfo& e = m_Infos[i];
         if (e.kind == k && e.active) return true;
@@ -73,19 +73,19 @@ bool CEntitlementRegistry::HasAny(EEntitlementKind k) const noexcept {
 
 /** 登録済み entitlement をすべて破棄する。 */
 void CEntitlementRegistry::Clear() noexcept {
-    m_Infos.Clear();
+    m_Infos.Reset();
 }
 
 /** 登録済み entitlement の件数を返す。 */
 u32 CEntitlementRegistry::Count() const noexcept {
     // TArray<T>::Size() は usize (= size_t) を返す。entitlement 件数は
     // 現実的に u32 範囲を超えないので、上位ビットを切り捨てる cast で十分。
-    return static_cast<u32>(m_Infos.Size());
+    return static_cast<u32>(m_Infos.Num());
 }
 
 /** 登録済み entitlement の生バッファ先頭を返す (Count() 件の連続領域)。 */
 const FEntitlementInfo* CEntitlementRegistry::AllInfos() const noexcept {
-    return m_Infos.Data();
+    return m_Infos.GetData();
 }
 
 } // namespace acs::game

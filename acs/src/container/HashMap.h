@@ -103,9 +103,9 @@ public:
      * 維持する。長寿命オブジェクトを終了後に再利用する場合に、確保元が意図せず
      * DefaultAllocator へ変わることを防ぐ。
      */
-    void ReleaseStorage() noexcept
+    void Empty() noexcept
     {
-        m_Values.ReleaseStorage();
+        m_Values.Empty();
         if (m_Buckets) {
             m_Alloc->Free(m_Buckets);
             m_Buckets = nullptr;
@@ -119,7 +119,7 @@ public:
      *
      * @return 格納エントリ数。
      */
-    usize Size() const noexcept     { return m_Values.Size(); }
+    usize Num() const noexcept     { return m_Values.Num(); }
 
     /**
      * 空かどうかを返す。
@@ -135,8 +135,8 @@ public:
      * @param key 挿入するキー。
      * @param value 挿入する値 (ムーブされる)。
      */
-    void Insert(const K& key, V value) noexcept {
-        ACS_CHECKF(TryInsert(key, Move(value)), "THashMap::Insert failed (size=%zu)", Size());
+    void Add(const K& key, V value) noexcept {
+        ACS_CHECKF(TryAdd(key, Move(value)), "THashMap::Insert failed (size=%zu)", Num());
     }
 
     /**
@@ -148,7 +148,7 @@ public:
      * @param value 挿入する値 (ムーブされる)。
      * @return 挿入 / 上書き成功なら true、サイズ overflow / OOM なら false。
      */
-    bool TryInsert(const K& key, V value) noexcept {
+    bool TryAdd(const K& key, V value) noexcept {
         // 更新を再配置判定より先に1回のハッシュ計算と探索で完了させ、
         // 閾値付近の既存 key 更新では容量を増やさない。
         /** 検索と新規挿入で再利用するハッシュ値。 */
@@ -266,14 +266,14 @@ public:
                 const u32 vidx = b.value_idx;
                 m_Values.RemoveAtSwap(vidx);  // 末尾と入れ替えて削除
                 // 末尾要素が動いたなら、それを指していたバケットの value_idx を更新
-                if (vidx != m_Values.Size()) {
+                if (vidx != m_Values.Num()) {
                     const u64 mh = H{}(m_Values[vidx].first);
                     u32 cur_idx = static_cast<u32>(mh) & m_BucketMask;
                     const u32 cur_fp = static_cast<u32>((mh >> 56) | 0x01);
                     u32 cur_dist = 0;
                     while (true) {
                         FBucket& mb = m_Buckets[cur_idx];
-                        if (mb.dist_fp != 0 && mb.Fingerprint() == cur_fp && mb.value_idx == m_Values.Size()) {
+                        if (mb.dist_fp != 0 && mb.Fingerprint() == cur_fp && mb.value_idx == m_Values.Num()) {
                             mb.value_idx = vidx;
                             break;
                         }
@@ -303,8 +303,8 @@ public:
     }
 
     /** 全エントリを削除する (値配列をクリアし、バケットを 0 埋め。容量は保持)。 */
-    void Clear() noexcept {
-        m_Values.Clear();
+    void Reset() noexcept {
+        m_Values.Reset();
         if (m_Buckets) MemSet(m_Buckets, 0, sizeof(FBucket) * m_BucketCount);
     }
 
@@ -459,7 +459,7 @@ private:
         if (m_BucketCount == 0u) return true;
         /** 現在のバケット数で許可する最大要素数。 */
         const u64 Threshold = (static_cast<u64>(m_BucketCount) * static_cast<u64>(kLoadFactorPct)) / 100u;
-        return static_cast<u64>(Size()) + 1u > Threshold;
+        return static_cast<u64>(Num()) + 1u > Threshold;
     }
 
     /**
@@ -507,7 +507,7 @@ private:
         MemSet(m_Buckets, 0, sizeof(FBucket) * new_count);
 
         // 全 value を順に再挿入
-        for (u32 vi = 0; vi < m_Values.Size(); ++vi) {
+        for (u32 vi = 0; vi < m_Values.Num(); ++vi) {
             ReinsertBucket(vi);
         }
 
@@ -567,11 +567,11 @@ private:
         const u32 fp = static_cast<u32>((Hash >> 56u) | 0x01u);
 
         // 新規エントリ: 値配列末尾に追加 → Robin Hood 挿入
-        if (m_Values.Size() >= 0xFFFFFFFFull) return false;  // u32 index 切り詰め防止
-        // 値配列の容量を先に確保する。失敗時 value をムーブしないよう PushBack より前に判定する。
-        if (!m_Values.TryReserve(m_Values.Size() + 1u)) return false;
-        const u32 new_idx = static_cast<u32>(m_Values.Size());
-        m_Values.PushBack(EntryType{ key, Move(value) });  // 予約済みなので確保は起きない
+        if (m_Values.Num() >= 0xFFFFFFFFull) return false;  // u32 index 切り詰め防止
+        // 値配列の容量を先に確保する。失敗時 value をムーブしないよう Add より前に判定する。
+        if (!m_Values.TryReserve(m_Values.Num() + 1u)) return false;
+        const u32 new_idx = static_cast<u32>(m_Values.Num());
+        m_Values.Add(EntryType{ key, Move(value) });  // 予約済みなので確保は起きない
         FBucket nb;
         nb.Set(0, fp);
         nb.value_idx = new_idx;

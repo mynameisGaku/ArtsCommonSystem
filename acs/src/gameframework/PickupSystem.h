@@ -42,7 +42,7 @@
 //     FShapeId / FNodeId と同じパターン。slot 再利用しても古い handle は無効化される。
 //   ・**FSlot TArray**: 内部 `TArray<FSlot>` に固定。index 0 は予約 (= invalid)。
 //     Spawn 時に inactive slot を線形検索 (典型 N が小さいので十分)、無ければ
-//     末尾に PushBack。Despawn は active=false、slot は再利用。
+//     末尾に Add。Despawn は active=false、slot は再利用。
 //   ・**磁石効果は equal-step**: `|player - pickup| < magnet_radius` のとき
 //     `pickup_pos += normalize(player - pickup) * magnet_strength * dt`。
 //     物理的な近似 (加速度ベース) ではなく、「シンプルで予測可能な吸引」を採用。

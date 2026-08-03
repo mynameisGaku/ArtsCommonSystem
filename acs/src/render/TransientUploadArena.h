@@ -84,7 +84,7 @@ public:
     u32 Used() const noexcept { return m_Cursor; }
 
     /** 所有する実GPUバッファ数を返す。 */
-    u32 GpuBufferCount() const noexcept { return static_cast<u32>(m_Pages.Size()); }
+    u32 GpuBufferCount() const noexcept { return static_cast<u32>(m_Pages.Num()); }
 
     /** RHIページ記述へ要求した一frame分の論理総バイト数を返す。 */
     usize ReservedBytes() const noexcept { return m_ReservedBytes; }

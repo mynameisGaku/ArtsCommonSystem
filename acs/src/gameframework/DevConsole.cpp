@@ -41,23 +41,23 @@ void CDevConsole::PushLine(TArray<const char*>& buf, const char* line) noexcept 
     const char* copy = DupString(line);
     if (copy == nullptr) return;  // 確保失敗時は黙って捨てる (Log 内 Log のループ防止)
 
-    if (buf.Size() >= kLineCap) {
+    if (buf.Num() >= kLineCap) {
         // 最古を Free して shift left。100 要素以下なので memmove 1 回で済む。
         FreeString(buf[0]);
-        for (usize i = 1; i < buf.Size(); ++i) {
+        for (usize i = 1; i < buf.Num(); ++i) {
             buf[i - 1] = buf[i];
         }
-        buf.PopBack();
+        buf.Pop();
     }
-    buf.PushBack(copy);
+    buf.Add(copy);
 }
 
 /** buf の全エントリを Free してから Clear する。 */
 void CDevConsole::ClearLines(TArray<const char*>& buf) noexcept {
-    for (usize i = 0; i < buf.Size(); ++i) {
+    for (usize i = 0; i < buf.Num(); ++i) {
         FreeString(buf[i]);
     }
-    buf.Clear();
+    buf.Reset();
 }
 
 /** 履歴 / ログのヒープバッファを Free する (コマンドは非所有なので Free 不要)。 */
@@ -78,7 +78,7 @@ void CDevConsole::RegisterCommand(const char* name,
     }
 
     // 既存検索 (線形)。あれば後勝ち上書き。
-    for (usize i = 0; i < m_Commands.Size(); ++i) {
+    for (usize i = 0; i < m_Commands.Num(); ++i) {
         if (std::strcmp(m_Commands[i].name, name) == 0) {
             ACS_LOG_WARN("CDevConsole: command '%s' re-registered (overwriting)", name);
             m_Commands[i].fn   = fn;
@@ -93,7 +93,7 @@ void CDevConsole::RegisterCommand(const char* name,
     c.fn   = fn;
     c.user = user;
     c.help = help_text;
-    m_Commands.PushBack(c);
+    m_Commands.Add(c);
 }
 
 /** command_line をコピーして in-place tokenize し、コマンドを照合して dispatch する。 */
@@ -142,7 +142,7 @@ void CDevConsole::Execute(const char* command_line) noexcept {
     // 3) コマンド名検索 (線形)。
     const char* cmd_name = tokens[0];
     const FCommand* found = nullptr;
-    for (usize ci = 0; ci < m_Commands.Size(); ++ci) {
+    for (usize ci = 0; ci < m_Commands.Num(); ++ci) {
         if (std::strcmp(m_Commands[ci].name, cmd_name) == 0) {
             found = &m_Commands[ci];
             break;
@@ -173,7 +173,7 @@ void CDevConsole::PushHistory(const char* line) noexcept {
 
 /** i 番目の履歴行を返す (範囲外は nullptr)。 */
 const char* CDevConsole::History(u32 i) const noexcept {
-    if (i >= m_History.Size()) return nullptr;
+    if (i >= m_History.Num()) return nullptr;
     return m_History[i];
 }
 
@@ -185,7 +185,7 @@ void CDevConsole::Log(const char* msg) noexcept {
 
 /** i 番目のログ行を返す (範囲外は nullptr)。 */
 const char* CDevConsole::LogLine(u32 i) const noexcept {
-    if (i >= m_Log.Size()) return nullptr;
+    if (i >= m_Log.Num()) return nullptr;
     return m_Log[i];
 }
 

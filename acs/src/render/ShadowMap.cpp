@@ -229,7 +229,7 @@ TResult<void> CShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
 void CShadowMap::Shutdown() noexcept {
     m_Pipeline.Reset();
     for (u32 cascade = 0; cascade < kMaxCascades; ++cascade) {
-        m_ObjectCbs[cascade].ReleaseStorage();
+        m_ObjectCbs[cascade].Empty();
     }
     for (u32 i = 0; i < kMaxCascades; ++i) m_LightCbs[i].Reset();
     m_Vs.Reset();
@@ -283,9 +283,9 @@ bool CShadowMap::EnsureCasterCapacity(
     if (cascade >= m_CascadeCapacity || !m_Device ||
         required_casters == kInvalidCasterBuffer) return false;
     TArray<TUniquePtr<IRhiBuffer>>& buffers = m_ObjectCbs[cascade];
-    if (required_casters <= buffers.Size()) return true;
+    if (required_casters <= buffers.Num()) return true;
 
-    u32 target = static_cast<u32>(buffers.Size());
+    u32 target = static_cast<u32>(buffers.Num());
     if (target == 0u) target = 1u;
     while (target < required_casters) {
         const u32 growth = target > 1u ? target / 2u : 1u;
@@ -297,16 +297,16 @@ bool CShadowMap::EnsureCasterCapacity(
     }
 
     if (!buffers.TryReserve(target)) return false;
-    while (buffers.Size() < target) {
+    while (buffers.Num() < target) {
         FBufferDesc desc{};
         desc.size = 256;
         desc.usage = EBufferUsage::Uniform;
         desc.cpu_writable = true;
         auto result = CreateRhiBuffer(*m_Device, desc);
         if (result.IsErr())
-            return buffers.Size() >= required_casters;
-        if (!buffers.TryPushBack(Move(result.Value())))
-            return buffers.Size() >= required_casters;
+            return buffers.Num() >= required_casters;
+        if (!buffers.TryAdd(Move(result.Value())))
+            return buffers.Num() >= required_casters;
     }
     return true;
 }
@@ -555,7 +555,7 @@ bool CShadowMap::TrySetCaster(const FMat4& model) noexcept {
             ACS_LOG_WARN(
                 "CShadowMap failed to grow cascade %u caster-CB pool "
                 "(required=%u, retained=%zu); remaining pass is skipped",
-                cascade, slot + 1u, m_ObjectCbs[cascade].Size());
+                cascade, slot + 1u, m_ObjectCbs[cascade].Num());
             m_CasterWarningIssued[cascade] = true;
         }
         m_FrameCapacityReady = false;

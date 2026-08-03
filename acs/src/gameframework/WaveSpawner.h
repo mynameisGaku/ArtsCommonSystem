@@ -39,7 +39,7 @@
 //     寿命を保証する責任を持つ (= literal / 静的定義を想定)。
 //   ・spawned_per_rule は wave ごとに別 TArray: 各 wave が任意数の rule を
 //     持つので TArray<TArray<u32>> で 2 段ネスト。これは Move 可能で TArray 同士の
-//     コピー禁止に抵触しない (PushBack(Move(inner)) で挿入)。
+//     コピー禁止に抵触しない (Add(Move(inner)) で挿入)。
 //   ・初期遅延 + spawn interval: 各 rule は initial_delay_sec 経過後に count 個を
 //     spawn_interval_sec 間隔で発火。複数 rule は並列に評価する (= 同 wave 内で
 //     異なる enemy 種が同時湧きできる)。

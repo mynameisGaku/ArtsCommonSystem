@@ -44,21 +44,21 @@ public:
      *
      * @return 連続領域の先頭ポインタ。
      */
-    constexpr T*       Data()       noexcept { return m_Data; }
+    constexpr T*       GetData()       noexcept { return m_Data; }
 
     /**
      * 先頭ポインタを const で返す。
      *
      * @return 連続領域の先頭 const ポインタ。
      */
-    constexpr const T* Data() const noexcept { return m_Data; }
+    constexpr const T* GetData() const noexcept { return m_Data; }
 
     /**
      * 要素数を返す。
      *
      * @return 要素数。
      */
-    constexpr usize    Size() const noexcept { return m_Size; }
+    constexpr usize    Num() const noexcept { return m_Size; }
 
     /**
      * 空かどうかを返す。

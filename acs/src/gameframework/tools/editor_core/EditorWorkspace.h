@@ -7,7 +7,7 @@
 // まとめて配線するための中央 hub。
 //
 // 役割:
-//   ・登録 panel のリスト管理 (PushBack / Find / Remove)
+//   ・登録 panel のリスト管理 (Add / Find / Remove)
 //   ・毎フレームの main loop coordination
 //       (OnFrameBegin → DockSpace 描画 → DrawUI → MenuBar)
 //   ・ImGui DockSpace の作成 + Window メニュー (panel toggle list)

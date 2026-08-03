@@ -43,8 +43,8 @@ public:
      * @param entity_index 問い合わせるエンティティのスロット番号。
      * @return 対応する dense インデックス (未登録なら kInvalid)。
      */
-    u32 IndexOf(u32 entity_index) const noexcept {
-        if (entity_index >= m_Sparse.Size()) return kInvalid;
+    u32 IndexOfByKey(u32 entity_index) const noexcept {
+        if (entity_index >= m_Sparse.Num()) return kInvalid;
         return m_Sparse[entity_index];
     }
 
@@ -54,14 +54,14 @@ public:
      * @param entity_index 問い合わせるエンティティのスロット番号。
      * @return 含まれていれば true。
      */
-    bool Contains(u32 entity_index) const noexcept { return IndexOf(entity_index) != kInvalid; }
+    bool Contains(u32 entity_index) const noexcept { return IndexOfByKey(entity_index) != kInvalid; }
 
     /**
      * 要素数 (コンポーネントを持つエンティティの数) を返す。
      *
      * @return dense 配列の要素数。
      */
-    usize Size() const noexcept { return m_Dense.Size(); }
+    usize Size() const noexcept { return m_Dense.Num(); }
 
     /**
      * dense 順に並んだエンティティ index の生配列を返す。
@@ -69,7 +69,7 @@ public:
      * @details Add/Remove で再確保され得るため、構造変更をまたいでポインタを保持しない。
      * @return dense_index → entity_index 配列の先頭 (要素数は Size())。
      */
-    const u32* DenseEntities() const noexcept { return m_Dense.Data(); }
+    const u32* DenseEntities() const noexcept { return m_Dense.GetData(); }
 
     /**
      * 型を知らずに指定エンティティの値を削除する (CWorld::Destroy から呼ぶ)。
@@ -96,13 +96,13 @@ protected:
      * @return 両配列をコピーできたら true (OOM なら false)。
      */
     bool CopyBaseFrom(const ASparseSetBase& other) noexcept {
-        if (!m_Sparse.TryResize(other.m_Sparse.Size())) return false;
-        if (!m_Dense.TryResize(other.m_Dense.Size())) return false;
-        if (other.m_Sparse.Size() > 0) {
-            MemCopy(m_Sparse.Data(), other.m_Sparse.Data(), other.m_Sparse.Size() * sizeof(u32));
+        if (!m_Sparse.TrySetNum(other.m_Sparse.Num())) return false;
+        if (!m_Dense.TrySetNum(other.m_Dense.Num())) return false;
+        if (other.m_Sparse.Num() > 0) {
+            MemCopy(m_Sparse.GetData(), other.m_Sparse.GetData(), other.m_Sparse.Num() * sizeof(u32));
         }
-        if (other.m_Dense.Size() > 0) {
-            MemCopy(m_Dense.Data(), other.m_Dense.Data(), other.m_Dense.Size() * sizeof(u32));
+        if (other.m_Dense.Num() > 0) {
+            MemCopy(m_Dense.GetData(), other.m_Dense.GetData(), other.m_Dense.Num() * sizeof(u32));
         }
         return true;
     }
@@ -114,9 +114,9 @@ protected:
      * @param entity_index 収まる必要のあるスロット番号。
      */
     void EnsureSparseCapacity(u32 entity_index) noexcept {
-        if (entity_index >= m_Sparse.Size()) {
-            const usize old = m_Sparse.Size();
-            m_Sparse.Resize(entity_index + 1);
+        if (entity_index >= m_Sparse.Num()) {
+            const usize old = m_Sparse.Num();
+            m_Sparse.SetNum(entity_index + 1);
             for (usize i = old; i <= entity_index; ++i) m_Sparse[i] = kInvalid;
         }
     }
@@ -164,10 +164,10 @@ public:
             m_Data[idx] = Move(value);  // 上書き
             return;
         }
-        const u32 new_idx = static_cast<u32>(m_Dense.Size());
+        const u32 new_idx = static_cast<u32>(m_Dense.Num());
         m_Sparse[entity_index] = new_idx;
-        m_Dense.PushBack(entity_index);
-        m_Data.PushBack(Move(value));
+        m_Dense.Add(entity_index);
+        m_Data.Add(Move(value));
     }
 
     /**
@@ -178,10 +178,10 @@ public:
      * @param entity_index 削除するエンティティのスロット番号。
      */
     void Remove(u32 entity_index) noexcept {
-        const u32 idx = IndexOf(entity_index);
+        const u32 idx = IndexOfByKey(entity_index);
         if (idx == kInvalid) return;
 
-        const u32 last = static_cast<u32>(m_Dense.Size() - 1);
+        const u32 last = static_cast<u32>(m_Dense.Num() - 1);
         if (idx != last) {
             // 末尾要素を idx 位置に移動
             const u32 last_entity = m_Dense[last];
@@ -189,8 +189,8 @@ public:
             m_Data[idx]  = Move(m_Data[last]);
             m_Sparse[last_entity] = idx;
         }
-        m_Dense.PopBack();
-        m_Data.PopBack();
+        m_Dense.Pop();
+        m_Data.Pop();
         m_Sparse[entity_index] = kInvalid;
     }
 
@@ -201,7 +201,7 @@ public:
      * @return 値へのポインタ (未登録なら nullptr)。
      */
     T* Get(u32 entity_index) noexcept {
-        const u32 idx = IndexOf(entity_index);
+        const u32 idx = IndexOfByKey(entity_index);
         return idx == kInvalid ? nullptr : &m_Data[idx];
     }
 
@@ -212,7 +212,7 @@ public:
      * @return 値への const ポインタ (未登録なら nullptr)。
      */
     const T* Get(u32 entity_index) const noexcept {
-        const u32 idx = IndexOf(entity_index);
+        const u32 idx = IndexOfByKey(entity_index);
         return idx == kInvalid ? nullptr : &m_Data[idx];
     }
 
@@ -252,9 +252,9 @@ public:
         } else {
             TSparseSet<T>* const clone = New<TSparseSet<T>>(alloc);
             if (clone == nullptr) return nullptr;
-            bool ok = clone->CopyBaseFrom(*this) && clone->m_Data.TryReserve(m_Data.Size());
-            for (usize i = 0; ok && i < m_Data.Size(); ++i) {
-                ok = clone->m_Data.TryPushBack(m_Data[i]);   // T のコピー構築
+            bool ok = clone->CopyBaseFrom(*this) && clone->m_Data.TryReserve(m_Data.Num());
+            for (usize i = 0; ok && i < m_Data.Num(); ++i) {
+                ok = clone->m_Data.TryAdd(m_Data[i]);   // T のコピー構築
             }
             if (!ok) {
                 Delete(alloc, clone);

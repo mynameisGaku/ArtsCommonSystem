@@ -154,7 +154,7 @@ public:
      * @param name 探す変数名。
      * @return 見つかったインデックス (無ければ kInvalid)。
      */
-    u32 IndexOf(const char* name) const noexcept {
+    u32 IndexOfByKey(const char* name) const noexcept {
         if (name == nullptr) return kInvalid;
         for (u32 i = 0; i < m_Count; ++i) {
             if (std::strcmp(m_Names[i], name) == 0) return i;
@@ -174,7 +174,7 @@ public:
     /** i 番目の変数オフセットを返す (範囲外は 0)。 */
     u32 OffsetAt(u32 i) const noexcept { return (i < m_Count) ? m_Offsets[i] : 0u; }
 
-    /** IndexOf の "見つからない" シグナル。 */
+    /** IndexOfByKey の "見つからない" シグナル。 */
     static constexpr u32 kInvalid = 0xFFFFFFFFu;
 
 private:
@@ -213,7 +213,7 @@ public:
     /** 1 変数名の最大長 (NUL 含む)。 */
     static constexpr u32 kNameLen = 48u;
 
-    /** IndexOf / Add の "無効" シグナル。 */
+    /** IndexOfByKey / Add の "無効" シグナル。 */
     static constexpr u32 kInvalid = 0xFFFFFFFFu;
 
     /** 空のブラックボードを構築する。 */
@@ -233,7 +233,7 @@ public:
      */
     u32 Add(const char* name, EBtVarType type) noexcept {
         if (name != nullptr) {
-            const u32 ex = IndexOf(name);
+            const u32 ex = IndexOfByKey(name);
             if (ex != kInvalid) return ex;
         }
         if (m_Count >= kMax) return kInvalid;
@@ -248,7 +248,7 @@ public:
             do {
                 std::snprintf(cand, kNameLen, "var%u", suffix);
                 ++suffix;
-            } while (IndexOf(cand) != kInvalid);   // 既存 (0..m_Count-1) に無いものを採用
+            } while (IndexOfByKey(cand) != kInvalid);   // 既存 (0..m_Count-1) に無いものを採用
             std::snprintf(m_Vars[idx].name, kNameLen, "%s", cand);
         }
         m_Vars[idx].type  = type;
@@ -305,7 +305,7 @@ public:
     // ===== 問い合わせ =====
 
     /** 名前からインデックスを引く (無ければ kInvalid)。 */
-    u32 IndexOf(const char* name) const noexcept {
+    u32 IndexOfByKey(const char* name) const noexcept {
         if (name == nullptr) return kInvalid;
         for (u32 i = 0; i < m_Count; ++i) {
             if (std::strcmp(m_Vars[i].name, name) == 0) return i;
@@ -314,7 +314,7 @@ public:
     }
 
     /** 変数が存在するか。 */
-    bool Has(const char* name) const noexcept { return IndexOf(name) != kInvalid; }
+    bool Has(const char* name) const noexcept { return IndexOfByKey(name) != kInvalid; }
 
     /** 変数数。 */
     u32 Count() const noexcept { return m_Count; }
@@ -330,17 +330,17 @@ public:
 
     // ===== 値アクセス (名前指定、コードから) =====
 
-    bool GetBool(const char* name) const noexcept { const u32 i = IndexOf(name); return (i != kInvalid) && m_Vars[i].val.b; }
-    i32  GetI32 (const char* name) const noexcept { const u32 i = IndexOf(name); return (i != kInvalid) ? m_Vars[i].val.i : 0; }
-    f32  GetF32 (const char* name) const noexcept { const u32 i = IndexOf(name); return (i != kInvalid) ? m_Vars[i].val.f : 0.0f; }
+    bool GetBool(const char* name) const noexcept { const u32 i = IndexOfByKey(name); return (i != kInvalid) && m_Vars[i].val.b; }
+    i32  GetI32 (const char* name) const noexcept { const u32 i = IndexOfByKey(name); return (i != kInvalid) ? m_Vars[i].val.i : 0; }
+    f32  GetF32 (const char* name) const noexcept { const u32 i = IndexOfByKey(name); return (i != kInvalid) ? m_Vars[i].val.f : 0.0f; }
 
-    void SetBool(const char* name, bool v) noexcept { const u32 i = IndexOf(name); if (i != kInvalid) m_Vars[i].val.b = v; }
-    void SetI32 (const char* name, i32  v) noexcept { const u32 i = IndexOf(name); if (i != kInvalid) m_Vars[i].val.i = v; }
-    void SetF32 (const char* name, f32  v) noexcept { const u32 i = IndexOf(name); if (i != kInvalid) m_Vars[i].val.f = v; }
+    void SetBool(const char* name, bool v) noexcept { const u32 i = IndexOfByKey(name); if (i != kInvalid) m_Vars[i].val.b = v; }
+    void SetI32 (const char* name, i32  v) noexcept { const u32 i = IndexOfByKey(name); if (i != kInvalid) m_Vars[i].val.i = v; }
+    void SetF32 (const char* name, f32  v) noexcept { const u32 i = IndexOfByKey(name); if (i != kInvalid) m_Vars[i].val.f = v; }
 
     /** 名前指定で値を f32 に正規化して返す (Compare 評価用、無ければ 0)。 */
     f32 GetAsF32(const char* name) const noexcept {
-        const u32 i = IndexOf(name);
+        const u32 i = IndexOfByKey(name);
         return (i != kInvalid) ? ValueAsF32(i) : 0.0f;
     }
 

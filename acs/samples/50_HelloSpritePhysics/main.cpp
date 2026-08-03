@@ -47,17 +47,17 @@ int main() {
 
     // (1) 凸包中心に重なる円 → poly に当たる
     world.OverlapCircle(FCircle{ {64, 64}, 8.0f }, hits);
-    const bool t1 = (hits.Size() == 1 && hits[0] == poly_id);
+    const bool t1 = (hits.Num() == 1 && hits[0] == poly_id);
 
     // (2) 何も無い所の円 → 0 件
     world.OverlapCircle(FCircle{ {64, 260}, 8.0f }, hits);
-    const bool t2 = (hits.Size() == 0);
+    const bool t2 = (hits.Num() == 0);
 
     // (3) 凸包に重なる小ボックス poly → poly に当たる
     FConvexPoly2 probe;
     probe.Add({ 60, 60 }); probe.Add({ 72, 60 }); probe.Add({ 72, 72 }); probe.Add({ 60, 72 });
     world.OverlapPolygon(probe, hits);
-    const bool t3 = (hits.Size() == 1 && hits[0] == poly_id);
+    const bool t3 = (hits.Num() == 1 && hits[0] == poly_id);
 
     // (4) 上からレイ → 凸包の上側 (y < 64) にヒット
     FRayHit2 rh; FShapeId hid;
@@ -69,7 +69,7 @@ int main() {
     wall_probe.Add({ 290, 290 }); wall_probe.Add({ 310, 290 });
     wall_probe.Add({ 310, 310 }); wall_probe.Add({ 290, 310 });
     world.OverlapPolygon(wall_probe, hits);
-    const bool t5 = (hits.Size() == 1 && hits[0] == wall_id);
+    const bool t5 = (hits.Num() == 1 && hits[0] == wall_id);
 
     std::printf("  hull verts=%u  shapes=%u\n", hull.count, world.ShapeCount());
     std::printf("  overlapCircle(center)=%d  overlapCircle(empty)=%d  overlapPoly=%d\n",

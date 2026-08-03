@@ -467,15 +467,15 @@ ACS_TEST(Render, RawDx12PbrSh9FallbackPreservesBaseColor)
     if (depth_result.IsErr()) return;
 
     AMeshAsset triangle;
-    triangle.Vertices().PushBack(
+    triangle.Vertices().Add(
         FMeshVertex{FVec3{-0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 0, 1});
-    triangle.Vertices().PushBack(
+    triangle.Vertices().Add(
         FMeshVertex{FVec3{0.0f, 0.8f, 0.5f}, FVec3{0, 0, 1}, 0.5f, 0});
-    triangle.Vertices().PushBack(
+    triangle.Vertices().Add(
         FMeshVertex{FVec3{0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 1, 1});
-    triangle.Indices().PushBack(0);
-    triangle.Indices().PushBack(1);
-    triangle.Indices().PushBack(2);
+    triangle.Indices().Add(0);
+    triangle.Indices().Add(1);
+    triangle.Indices().Add(2);
     FGpuMesh gpu_mesh{};
     EXPECT_TRUE(UploadMesh(device, triangle, gpu_mesh).IsOk());
     if (!gpu_mesh.vertex_buffer || !gpu_mesh.index_buffer) return;

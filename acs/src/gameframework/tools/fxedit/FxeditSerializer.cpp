@@ -74,10 +74,10 @@ inline usize StrLenBounded(const char* s, usize max_len) noexcept {
  * @return 追記できたら true、alloc 失敗なら false。
  */
 inline bool AppendStr(TArray<char>& out, const char* s, usize len) noexcept {
-    const usize old = out.Size();
+    const usize old = out.Num();
     if (len > std::numeric_limits<usize>::max() - old ||
-        !out.TryResize(old + len)) return false;
-    std::memcpy(out.Data() + old, s, len);
+        !out.TrySetNum(old + len)) return false;
+    std::memcpy(out.GetData() + old, s, len);
     return true;
 }
 
@@ -717,11 +717,11 @@ FFxeditSerializeResult CFxeditSerializer::TryParseText(
             }
             const usize curve_slots =
                 static_cast<usize>(declared_count) * kMaxCurvesPerEmitter;
-            if (!staged_defs.TryResize(declared_count) ||
-                !staged_names.TryResize(required_names) ||
-                !seen_keys.TryResize(declared_count) ||
-                !curve_defined.TryResize(curve_slots) ||
-                !keyframe_counts.TryResize(curve_slots)) {
+            if (!staged_defs.TrySetNum(declared_count) ||
+                !staged_names.TrySetNum(required_names) ||
+                !seen_keys.TrySetNum(declared_count) ||
+                !curve_defined.TrySetNum(curve_slots) ||
+                !keyframe_counts.TrySetNum(curve_slots)) {
                 return fail(EFxeditSerializeError::AllocationFailure);
             }
             saw_count = true;
@@ -774,7 +774,7 @@ FFxeditSerializeResult CFxeditSerializer::TryParseText(
             }
             ++value_text;
             if (!AtValueEnd(value_text)) return fail(EFxeditSerializeError::InvalidName);
-            char* destination = staged_names.Data() +
+            char* destination = staged_names.GetData() +
                 static_cast<usize>(emitter_index) * (kMaxEmitterName + 1u);
             std::memcpy(destination, name_begin, name_length);
             destination[name_length] = '\0';
@@ -893,7 +893,7 @@ FFxeditSerializeResult CFxeditSerializer::TryParseText(
     std::memset(out_name_buffer, 0, name_buffer_capacity);
     for (u32 i = 0u; i < declared_count; ++i) out_defs[i] = staged_defs[i];
     if (!staged_names.IsEmpty()) {
-        std::memcpy(out_name_buffer, staged_names.Data(), staged_names.Size());
+        std::memcpy(out_name_buffer, staged_names.GetData(), staged_names.Num());
     }
     result.emitter_count = declared_count;
     return result;
@@ -941,18 +941,18 @@ FFxeditSerializeResult CFxeditSerializer::TryLoad(
         return result;
     }
     TArray<char> text;
-    if (!text.TryResize(static_cast<usize>(size.QuadPart))) {
+    if (!text.TrySetNum(static_cast<usize>(size.QuadPart))) {
         ::CloseHandle(file);
         result.error = EFxeditSerializeError::AllocationFailure;
         return result;
     }
     usize total = 0u;
-    while (total < text.Size()) {
-        const usize remaining = text.Size() - total;
+    while (total < text.Num()) {
+        const usize remaining = text.Num() - total;
         const DWORD chunk = static_cast<DWORD>(
             remaining > 0x7ffff000u ? 0x7ffff000u : remaining);
         DWORD read = 0u;
-        if (!::ReadFile(file, text.Data() + total, chunk, &read, nullptr) || read == 0u) {
+        if (!::ReadFile(file, text.GetData() + total, chunk, &read, nullptr) || read == 0u) {
             result.os_error = ::GetLastError();
             ::CloseHandle(file);
             result.error = EFxeditSerializeError::FileReadFailed;
@@ -995,7 +995,7 @@ FFxeditSerializeResult CFxeditSerializer::TryLoad(
         return result;
     }
     result = TryParseText(
-        text.IsEmpty() ? "" : text.Data(), text.Size(),
+        text.IsEmpty() ? "" : text.GetData(), text.Num(),
         out_defs, out_name_buffer, name_buffer_capacity, max_emitters);
     result.bytes_processed = static_cast<u64>(total);
     return result;
@@ -1094,7 +1094,7 @@ FFxeditSerializeResult CFxeditSerializer::TrySave(
             return result;
         }
     }
-    if (out.Size() > kMaxInputBytes) {
+    if (out.Num() > kMaxInputBytes) {
         result.error = EFxeditSerializeError::InputTooLarge;
         return result;
     }
@@ -1125,12 +1125,12 @@ FFxeditSerializeResult CFxeditSerializer::TrySave(
         return result;
     }
     usize total = 0u;
-    while (total < out.Size()) {
-        const usize remaining = out.Size() - total;
+    while (total < out.Num()) {
+        const usize remaining = out.Num() - total;
         const DWORD chunk = static_cast<DWORD>(
             remaining > 0x7ffff000u ? 0x7ffff000u : remaining);
         DWORD bytes_written = 0u;
-        if (!::WriteFile(temp, out.Data() + total, chunk, &bytes_written, nullptr) ||
+        if (!::WriteFile(temp, out.GetData() + total, chunk, &bytes_written, nullptr) ||
             bytes_written == 0u) {
             result.os_error = ::GetLastError();
             ::CloseHandle(temp);

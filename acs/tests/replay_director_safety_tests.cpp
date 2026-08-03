@@ -149,13 +149,13 @@ bool ReadFileBytes(const wchar_t* path, TArray<u8>& bytes) noexcept
     if (file == INVALID_HANDLE_VALUE) return false;
     LARGE_INTEGER size{};
     if (!::GetFileSizeEx(file, &size) || size.QuadPart < 0 || size.QuadPart > 16 * 1024 * 1024 ||
-        !bytes.TryResize(static_cast<usize>(size.QuadPart))) {
+        !bytes.TrySetNum(static_cast<usize>(size.QuadPart))) {
         ::CloseHandle(file);
         return false;
     }
     DWORD read = 0;
-    const bool read_all = ::ReadFile(file, bytes.Data(), static_cast<DWORD>(bytes.Size()), &read, nullptr) &&
-                          read == bytes.Size();
+    const bool read_all = ::ReadFile(file, bytes.GetData(), static_cast<DWORD>(bytes.Num()), &read, nullptr) &&
+                          read == bytes.Num();
     const bool closed = ::CloseHandle(file) != 0;
     return read_all && closed;
 }
@@ -251,7 +251,7 @@ ACS_TEST(ReplayDirectorSafety, StrictLoadRejectsCrcTruncationTrailingAndOversize
     EXPECT_TRUE(SaveReplayFile(valid_path.path, 1u));
     TArray<u8> valid;
     EXPECT_TRUE(ReadFileBytes(valid_path.path, valid));
-    EXPECT_TRUE(valid.Size() >= 56u);
+    EXPECT_TRUE(valid.Num() >= 56u);
 
     CReplayDirector target;
     target.Init();
@@ -260,26 +260,26 @@ ACS_TEST(ReplayDirectorSafety, StrictLoadRejectsCrcTruncationTrailingAndOversize
 
     TArray<u8> variant = valid.Clone();
     variant[8] ^= 1u;
-    EXPECT_TRUE(WriteFileBytes(corrupt_path.path, variant.Data(), static_cast<u32>(variant.Size())));
+    EXPECT_TRUE(WriteFileBytes(corrupt_path.path, variant.GetData(), static_cast<u32>(variant.Num())));
     EXPECT_TRUE(target.TryLoadReplay(corrupt_path.path).IsErr());
     EXPECT_EQ(target.Metadata().seed, 99u);
 
-    EXPECT_TRUE(WriteFileBytes(corrupt_path.path, valid.Data(), 32u));
+    EXPECT_TRUE(WriteFileBytes(corrupt_path.path, valid.GetData(), 32u));
     EXPECT_TRUE(target.TryLoadReplay(corrupt_path.path).IsErr());
     EXPECT_EQ(target.Metadata().seed, 99u);
 
-    variant.Resize(valid.Size() + 1u);
-    MemCopy(variant.Data(), valid.Data(), valid.Size() - 4u);
-    variant[valid.Size() - 4u] = 0xA5u;
-    WriteU32(variant.Data() + variant.Size() - 4u, Crc32(variant.Data(), variant.Size() - 4u));
-    EXPECT_TRUE(WriteFileBytes(corrupt_path.path, variant.Data(), static_cast<u32>(variant.Size())));
+    variant.SetNum(valid.Num() + 1u);
+    MemCopy(variant.GetData(), valid.GetData(), valid.Num() - 4u);
+    variant[valid.Num() - 4u] = 0xA5u;
+    WriteU32(variant.GetData() + variant.Num() - 4u, Crc32(variant.GetData(), variant.Num() - 4u));
+    EXPECT_TRUE(WriteFileBytes(corrupt_path.path, variant.GetData(), static_cast<u32>(variant.Num())));
     EXPECT_TRUE(target.TryLoadReplay(corrupt_path.path).IsErr());
     EXPECT_EQ(target.Metadata().seed, 99u);
 
     variant = valid.Clone();
-    WriteU32(variant.Data() + 28u, kReplayMaximumGameVersionBytes + 1u);
-    WriteU32(variant.Data() + variant.Size() - 4u, Crc32(variant.Data(), variant.Size() - 4u));
-    EXPECT_TRUE(WriteFileBytes(corrupt_path.path, variant.Data(), static_cast<u32>(variant.Size())));
+    WriteU32(variant.GetData() + 28u, kReplayMaximumGameVersionBytes + 1u);
+    WriteU32(variant.GetData() + variant.Num() - 4u, Crc32(variant.GetData(), variant.Num() - 4u));
+    EXPECT_TRUE(WriteFileBytes(corrupt_path.path, variant.GetData(), static_cast<u32>(variant.Num())));
     const TResult<void> oversized = target.TryLoadReplay(corrupt_path.path);
     EXPECT_TRUE(oversized.IsErr());
     if (oversized.IsErr()) EXPECT_EQ(oversized.Error().subcode,

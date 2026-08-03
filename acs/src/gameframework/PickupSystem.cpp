@@ -76,20 +76,20 @@ void CPickupSystem::Init() noexcept {
  * 未使用 slot を確保して index を返す。
  *
  * @details index 0 は予約なので i>=1 から inactive slot を線形検索し、初回は 0 番に dummy を
- * 置き、無ければ末尾に PushBack する。
+ * 置き、無ければ末尾に Add する。
  * @return 確保した slot の index。
  */
 u32 CPickupSystem::AcquireSlot() noexcept {
     // index 0 は予約 (= invalid)。i >= 1 から線形検索で inactive slot を探す。
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {
         if (!m_Slots[i].active) return i;
     }
     // 初回は dummy slot を 0 番に置く (CCollisionWorld2D と同パターン)。
     if (m_Slots.IsEmpty()) {
-        m_Slots.PushBack({});
+        m_Slots.Add({});
     }
-    m_Slots.PushBack({});
-    return static_cast<u32>(m_Slots.Size()) - 1u;
+    m_Slots.Add({});
+    return static_cast<u32>(m_Slots.Num()) - 1u;
 }
 
 /**
@@ -119,7 +119,7 @@ FPickupId CPickupSystem::Spawn(const FPickupInfo& info) noexcept {
 void CPickupSystem::Despawn(FPickupId id) noexcept {
     if (!id.IsValid()) return;
     const u32 idx = id.Index();
-    if (idx >= m_Slots.Size()) return;
+    if (idx >= m_Slots.Num()) return;
     FSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Generation()) return;
     s.active = false;
@@ -134,7 +134,7 @@ void CPickupSystem::Despawn(FPickupId id) noexcept {
  * @param magnet_strength 磁石による吸引速度 (world unit / sec)。
  */
 void CPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept {
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     // index 0 は予約なのでスキップ。
     for (usize i = 1; i < n; ++i) {
         FSlot& s = m_Slots[i];
@@ -209,7 +209,7 @@ u32 CPickupSystem::AlivePickupCount() const noexcept {
 const FPickupInfo* CPickupSystem::GetPickup(FPickupId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx >= m_Slots.Size()) return nullptr;
+    if (idx >= m_Slots.Num()) return nullptr;
     const FSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Generation()) return nullptr;
     return &s.info;
@@ -275,7 +275,7 @@ void CPickupSystem::SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_rad
  * @param kind 消滅させる pickup の種別。
  */
 void CPickupSystem::DespawnAllOfKind(EPickupKind kind) noexcept {
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 1; i < n; ++i) {
         FSlot& s = m_Slots[i];
         if (!s.active) continue;
@@ -293,7 +293,7 @@ void CPickupSystem::DespawnAllOfKind(EPickupKind kind) noexcept {
  */
 u32 CPickupSystem::CountOfKind(EPickupKind kind) const noexcept {
     u32 count = 0;
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 1; i < n; ++i) {
         const FSlot& s = m_Slots[i];
         if (!s.active) continue;
@@ -304,7 +304,7 @@ u32 CPickupSystem::CountOfKind(EPickupKind kind) const noexcept {
 
 /** 全 slot を破棄し alive 数を 0 にする (コールバック設定は維持)。 */
 void CPickupSystem::ClearAll() noexcept {
-    m_Slots.Clear();
+    m_Slots.Reset();
     m_AliveCount = 0;
     // コールバック設定は維持 (ヘッダ仕様コメントと対応)。
 }

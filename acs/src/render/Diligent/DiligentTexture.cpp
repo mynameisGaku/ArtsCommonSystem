@@ -20,11 +20,11 @@ void FDiligentTexture::Reset() noexcept
 {
     // m_Srv/m_Rtv/m_Dsv は ITexture が所有するビューなので個別 Release は不要。
     // per_slice_rtv で CreateView した別個ビューだけ明示 Release。
-    for (usize i = 0, n = m_SliceRtvs.Size(); i < n; ++i) {
+    for (usize i = 0, n = m_SliceRtvs.Num(); i < n; ++i) {
         if (m_SliceRtvs[i]) { m_SliceRtvs[i]->Release(); m_SliceRtvs[i] = nullptr; }
     }
     if (m_Texture) { m_Texture->Release(); m_Texture = nullptr; }
-    m_SliceRtvs.ReleaseStorage();
+    m_SliceRtvs.Empty();
     m_Device = nullptr;
     m_Srv = nullptr;
     m_Rtv = nullptr;
@@ -48,7 +48,7 @@ Diligent::ITextureView* FDiligentTexture::RtvSlice(u32 slice, u32 mip) const noe
     if (m_ArraySize == 0 || m_Mips == 0) return nullptr;
     if (slice >= m_ArraySize || mip >= m_Mips) return nullptr;
     const usize idx = static_cast<usize>(slice) * m_Mips + mip;
-    if (idx >= m_SliceRtvs.Size()) return nullptr;
+    if (idx >= m_SliceRtvs.Num()) return nullptr;
     return m_SliceRtvs[idx];
 }
 
@@ -173,7 +173,7 @@ TResult<void> FDiligentTexture::Init(CDiligentDevice& device, const FTextureDesc
     // cubemap face / 2D array slice / mip 単位の描画パスで使う (IBL prefilter 等)。
     if (m_IsRt && desc.per_slice_rtv) {
         const usize total = static_cast<usize>(m_ArraySize) * m_Mips;
-        m_SliceRtvs.Resize(total);
+        m_SliceRtvs.SetNum(total);
         for (u32 s = 0; s < m_ArraySize; ++s) {
             for (u32 m = 0; m < m_Mips; ++m) {
                 Diligent::TextureViewDesc vd;

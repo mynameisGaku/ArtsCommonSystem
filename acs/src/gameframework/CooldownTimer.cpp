@@ -22,7 +22,7 @@ namespace acs::game {
 /** inactive な slot を再利用し、なければ末尾に追加して index を返す。 */
 u32 CCooldownTimer::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 0; i < n; ++i) {
         if (!m_Slots[i].active) {
             return static_cast<u32>(i);
@@ -32,8 +32,8 @@ u32 CCooldownTimer::AcquireSlot() noexcept {
     if (n >= static_cast<usize>(FCooldownId::kMaxIndex)) {
         return FCooldownId::kMaxIndex; // sentinel: caller 側で invalid 扱い
     }
-    m_Slots.PushBack({});
-    return static_cast<u32>(m_Slots.Size()) - 1u;
+    m_Slots.Add({});
+    return static_cast<u32>(m_Slots.Num()) - 1u;
 }
 
 /** index と generation を packed して CooldownId を作る。 */
@@ -45,7 +45,7 @@ FCooldownId CCooldownTimer::MakeId(u32 index, u8 gen) const noexcept {
 CCooldownTimer::FSlot* CCooldownTimer::Resolve(FCooldownId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx >= m_Slots.Size()) return nullptr;
+    if (idx >= m_Slots.Num()) return nullptr;
     FSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Gen()) return nullptr;
     return &s;
@@ -55,7 +55,7 @@ CCooldownTimer::FSlot* CCooldownTimer::Resolve(FCooldownId id) noexcept {
 const CCooldownTimer::FSlot* CCooldownTimer::Resolve(FCooldownId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx >= m_Slots.Size()) return nullptr;
+    if (idx >= m_Slots.Num()) return nullptr;
     const FSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Gen()) return nullptr;
     return &s;
@@ -174,7 +174,7 @@ void CCooldownTimer::SetDuration(FCooldownId id, f32 new_duration_sec) noexcept 
 
 /** 全 active slot をクリアして active 解除し、件数を 0 にする。 */
 void CCooldownTimer::ClearAll() noexcept {
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 0; i < n; ++i) {
         FSlot& s = m_Slots[i];
         if (!s.active) continue;
@@ -195,7 +195,7 @@ void CCooldownTimer::Tick(f32 dt) noexcept {
     // Tick 中に callback が Register / Unregister / ClearAll を呼んでも安全な
     // ように index アクセスで回す。新規追加された slot は今回の Tick で進行
     // させない (snapshot_size でストップ、登録時の remaining=duration で次 Tick まで保持)。
-    const usize snapshot_size = m_Slots.Size();
+    const usize snapshot_size = m_Slots.Num();
 
     for (usize i = 0; i < snapshot_size; ++i) {
         FSlot& s = m_Slots[i];

@@ -778,7 +778,7 @@ ACS_TEST(FoundationOptimizationWaveB, FileIoReadsTextWithoutIntermediateCopy)
     auto text_result = CFileSystem::ReadAllText(kPath);
     EXPECT_TRUE(text_result.IsOk());
     if (text_result.IsOk()) {
-        EXPECT_TRUE(TextEquals(text_result.Value().Data(), kText));
+        EXPECT_TRUE(TextEquals(text_result.Value().GetData(), kText));
     }
     /** テキスト読み取り後の I/O 診断値。 */
     const FFileSystemDiagnostics diagnostics = CFileSystem::Diagnostics();
@@ -818,7 +818,7 @@ ACS_TEST(FoundationOptimizationWaveB, FileIoReadsTextWithoutIntermediateCopy)
     auto preserved_text = CFileSystem::ReadAllText(kStoragePath);
     EXPECT_TRUE(preserved_text.IsOk());
     if (preserved_text.IsOk()) {
-        EXPECT_TRUE(TextEquals(preserved_text.Value().Data(), "stable-before-failed-replace"));
+        EXPECT_TRUE(TextEquals(preserved_text.Value().GetData(), "stable-before-failed-replace"));
     }
 
     storage.SetInt("generation", 42);

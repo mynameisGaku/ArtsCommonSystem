@@ -307,7 +307,7 @@ public:
      *
      * @return keyframe の総数。
      */
-    u32 KeyframeCount()  const noexcept { return static_cast<u32>(m_Keyframes.Size()); }
+    u32 KeyframeCount()  const noexcept { return static_cast<u32>(m_Keyframes.Num()); }
 
     /**
      * MoveCamera 発火 callback を設定する。

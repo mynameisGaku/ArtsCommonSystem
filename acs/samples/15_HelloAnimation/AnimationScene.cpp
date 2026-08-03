@@ -18,7 +18,7 @@ TSharedPtr<ASkinnedMeshAsset> CAnimationScene::BuildSnake() noexcept {
     auto& A = m->Animations();
 
     // ===== ボーン =====
-    B.Resize(kBoneCount);
+    B.SetNum(kBoneCount);
     for (u32 i = 0; i < kBoneCount; ++i) {
         FBone& b = B[i];
         b.parent = (i == 0) ? -1 : static_cast<i32>(i - 1);
@@ -63,7 +63,7 @@ TSharedPtr<ASkinnedMeshAsset> CAnimationScene::BuildSnake() noexcept {
             v.weights[1] = blend;
             v.weights[2] = 0.0f;
             v.weights[3] = 0.0f;
-            V.PushBack(v);
+            V.Add(v);
         }
     }
 
@@ -77,8 +77,8 @@ TSharedPtr<ASkinnedMeshAsset> CAnimationScene::BuildSnake() noexcept {
             const u32 i10 = (r + 1) * kSegmentCount + s;
             const u32 i11 = (r + 1) * kSegmentCount + sn;
             // 反時計回り (+Y 上、外向き法線)
-            I.PushBack(i00); I.PushBack(i10); I.PushBack(i01);
-            I.PushBack(i01); I.PushBack(i10); I.PushBack(i11);
+            I.Add(i00); I.Add(i10); I.Add(i01);
+            I.Add(i01); I.Add(i10); I.Add(i11);
         }
     }
 
@@ -102,11 +102,11 @@ TSharedPtr<ASkinnedMeshAsset> CAnimationScene::BuildSnake() noexcept {
             key.translation = FVec3{0, kHeight / kBoneCount, 0};   // バインドと同じ
             key.rotation    = FQuat::AxisAngle(FVec3{0, 0, 1}, angle);
             key.scale       = FVec3{1, 1, 1};
-            ch.keys.PushBack(key);
+            ch.keys.Add(key);
         }
-        anim.channels.PushBack(Move(ch));
+        anim.channels.Add(Move(ch));
     }
-    A.PushBack(Move(anim));
+    A.Add(Move(anim));
     return m;
 }
 

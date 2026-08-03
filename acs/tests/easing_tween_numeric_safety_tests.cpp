@@ -73,7 +73,7 @@ ACS_TEST(EasingTweenNumericSafety, NonFiniteEndpointsPreserveStateForEveryValueT
 
     FSequence sequence;
     sequence.Wait(1.0f);
-    const usize original_action_count = sequence.Actions().Size();
+    const usize original_action_count = sequence.Actions().Num();
     for (usize index = 0u;
          index < sizeof(invalid_values) / sizeof(invalid_values[0]); ++index) {
         const f32 invalid = invalid_values[index];
@@ -98,7 +98,7 @@ ACS_TEST(EasingTweenNumericSafety, NonFiniteEndpointsPreserveStateForEveryValueT
             FVec3{3.0f, 4.0f, invalid}, 1.0f,
             Easing::EEasingType::Linear);
     }
-    EXPECT_EQ(sequence.Actions().Size(), original_action_count);
+    EXPECT_EQ(sequence.Actions().Num(), original_action_count);
     EXPECT_EQ(scalar_target, 11.0f);
     EXPECT_EQ(vector2_target.x, 21.0f);
     EXPECT_EQ(vector2_target.y, 22.0f);
@@ -164,7 +164,7 @@ ACS_TEST(EasingTweenNumericSafety, InvalidEndpointsCannotUseImmediateCompletion)
         &vector3_target, FVec3{0.0f, 1.0f, 2.0f},
         FVec3{3.0f, nan, 5.0f}, -1.0f,
         Easing::EEasingType::Linear);
-    EXPECT_EQ(sequence.Actions().Size(), 0u);
+    EXPECT_EQ(sequence.Actions().Num(), 0u);
     EXPECT_EQ(scalar_target, 10.0f);
     EXPECT_EQ(vector2_target.x, 20.0f);
     EXPECT_EQ(vector2_target.y, 21.0f);

@@ -64,13 +64,13 @@ void CHelloVertexSssApp::OnStart() noexcept {
     if (!dev) { Quit(); return; }
 
     m_Sphere = Primitive::MakeSphere(1.0f, 64, 32);
-    if (!m_Sphere || m_Sphere->Vertices().Size() == 0) { ACS_LOG_ERROR("sphere make failed"); Quit(); return; }
+    if (!m_Sphere || m_Sphere->Vertices().Num() == 0) { ACS_LOG_ERROR("sphere make failed"); Quit(); return; }
     if (!m_Scatter.Build(*m_Sphere)) { ACS_LOG_ERROR("scatter build failed"); Quit(); return; }
 
-    const u32 vc = static_cast<u32>(m_Sphere->Vertices().Size());
-    m_CpuVtx.Resize(vc);
-    m_Irr.Resize(vc);
-    m_IrrOut.Resize(vc);
+    const u32 vc = static_cast<u32>(m_Sphere->Vertices().Num());
+    m_CpuVtx.SetNum(vc);
+    m_Irr.SetNum(vc);
+    m_IrrOut.SetNum(vc);
 
     // シェーダ
     FShaderDesc vs{}; vs.stage = EShaderStage::Vertex; vs.hlsl_source = kHLSL; vs.entry_point = "VSMain"; vs.debug_name = "VSSS.VS";
@@ -100,9 +100,9 @@ void CHelloVertexSssApp::OnStart() noexcept {
 
     // インデックスバッファ (u32)
     const auto& idx = m_Sphere->Indices();
-    m_IndexCount = static_cast<u32>(idx.Size());
-    FBufferDesc ibd{}; ibd.size = sizeof(u32) * idx.Size(); ibd.usage = EBufferUsage::Index32;
-    ibd.cpu_writable = true; ibd.initial_data = idx.Data();
+    m_IndexCount = static_cast<u32>(idx.Num());
+    FBufferDesc ibd{}; ibd.size = sizeof(u32) * idx.Num(); ibd.usage = EBufferUsage::Index32;
+    ibd.cpu_writable = true; ibd.initial_data = idx.GetData();
     auto ibr = CreateRhiBuffer(*dev, ibd);
     if (ibr.IsErr()) { ACS_LOG_ERROR("ib failed"); Quit(); return; }
     m_Ib = Move(ibr.Value());
@@ -139,7 +139,7 @@ void CHelloVertexSssApp::OnStart() noexcept {
 void CHelloVertexSssApp::UpdateSphere(IRhiBuffer* vb, FVec3 lightDir, bool scatter) noexcept {
     if (vb == nullptr) return;
     const auto& v = m_Sphere->Vertices();
-    const u32 vc = static_cast<u32>(v.Size());
+    const u32 vc = static_cast<u32>(v.Num());
     // per-vertex Lambert 放射照度 (法線・光方向から)。RGB 同値で入れる。
     for (u32 i = 0; i < vc; ++i) {
         const FVec3 n = v[i].normal;
@@ -147,16 +147,16 @@ void CHelloVertexSssApp::UpdateSphere(IRhiBuffer* vb, FVec3 lightDir, bool scatt
         if (ndl < 0.0f) ndl = 0.0f;
         m_Irr[i] = FVec3{ ndl, ndl, ndl };
     }
-    const FVec3* src = m_Irr.Data();
+    const FVec3* src = m_Irr.GetData();
     // 散乱は «見えない裏面» にもエネルギーを回すため可視面は全体に暗くなる。SSS らしい
     // «赤いにじみ» を «単なる減光» と見せないよう、可視面ぶんのゲインで明るさを補償する。
     f32 gain = 1.0f;
-    if (scatter) { m_Scatter.Scatter(m_Irr.Data(), m_IrrOut.Data(), kSkinProfile); src = m_IrrOut.Data(); gain = 1.3f; }
+    if (scatter) { m_Scatter.Scatter(m_Irr.GetData(), m_IrrOut.GetData(), kSkinProfile); src = m_IrrOut.GetData(); gain = 1.3f; }
     for (u32 i = 0; i < vc; ++i) {
         const FVec3 p = v[i].position, nn = v[i].normal, s = src[i];
         m_CpuVtx[i] = FVtxSss{ p.x, p.y, p.z, nn.x, nn.y, nn.z, s.x * gain, s.y * gain, s.z * gain };
     }
-    vb->Update(m_CpuVtx.Data(), sizeof(FVtxSss) * vc);
+    vb->Update(m_CpuVtx.GetData(), sizeof(FVtxSss) * vc);
 }
 
 void CHelloVertexSssApp::OnUpdate(f32 dt) noexcept {

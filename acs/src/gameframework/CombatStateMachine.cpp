@@ -48,7 +48,7 @@ void CCombatStateMachine::Init() noexcept {
     m_ThreatCurrent    = 0.0f;
     m_EngagedElapsed   = 0.0f;
     m_PreBossState    = ECombatState::Peaceful;
-    m_Enemies.Clear();
+    m_Enemies.Reset();
     // m_Callback / m_CallbackUser は保持 (Init は scene 再 enter 用と位置付け)。
 }
 
@@ -61,7 +61,7 @@ void CCombatStateMachine::Reset() noexcept {
 
 /** EnemyAwareness を id で線形探索する (無ければ m_Enemies.Size() を返す)。 */
 usize CCombatStateMachine::FindEnemy(u32 enemy_id) const noexcept {
-    const usize n = m_Enemies.Size();
+    const usize n = m_Enemies.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Enemies[i].enemy_id == enemy_id) return i;
     }
@@ -71,7 +71,7 @@ usize CCombatStateMachine::FindEnemy(u32 enemy_id) const noexcept {
 /** is_engaged=true な敵の数を返す。 */
 u32 CCombatStateMachine::EngagedEnemyCount() const noexcept {
     u32 count = 0;
-    const usize n = m_Enemies.Size();
+    const usize n = m_Enemies.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Enemies[i].is_engaged) ++count;
     }
@@ -110,12 +110,12 @@ void CCombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
     // awareness レコードを upsert (新規 or 1.0 へ上書き)。is_engaged は据置 —
     // 既に交戦中の敵を再検出しても engaged 状態を解除しない。
     const usize idx = FindEnemy(enemy_id);
-    if (idx >= m_Enemies.Size()) {
+    if (idx >= m_Enemies.Num()) {
         FEnemyAwareness aw;
         aw.enemy_id        = enemy_id;
         aw.awareness_level = 1.0f;
         aw.is_engaged      = false;
-        m_Enemies.PushBack(aw);
+        m_Enemies.Add(aw);
     } else {
         m_Enemies[idx].awareness_level = 1.0f;
     }
@@ -132,12 +132,12 @@ void CCombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
 void CCombatStateMachine::NotifyCombatStarted(u32 enemy_id) noexcept {
     // 該当敵を is_engaged=true に。未登録なら新規追加 (awareness=1.0)。
     const usize idx = FindEnemy(enemy_id);
-    if (idx >= m_Enemies.Size()) {
+    if (idx >= m_Enemies.Num()) {
         FEnemyAwareness aw;
         aw.enemy_id        = enemy_id;
         aw.awareness_level = 1.0f;
         aw.is_engaged      = true;
-        m_Enemies.PushBack(aw);
+        m_Enemies.Add(aw);
     } else {
         m_Enemies[idx].awareness_level = 1.0f;
         m_Enemies[idx].is_engaged      = true;
@@ -155,7 +155,7 @@ void CCombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept
     // 該当敵を engaged から外す。awareness は 0 に落として「忘れた」扱いに。
     // (= 次フレーム以降の NotifyEnemyDetected で再 alert 可能)
     const usize idx = FindEnemy(enemy_id);
-    if (idx < m_Enemies.Size()) {
+    if (idx < m_Enemies.Num()) {
         m_Enemies[idx].is_engaged      = false;
         m_Enemies[idx].awareness_level = 0.0f;
     } else {
@@ -176,12 +176,12 @@ void CCombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept
 void CCombatStateMachine::NotifyBossEncountered(u32 boss_id) noexcept {
     // ボスを engaged 一覧に upsert (awareness=1, is_engaged=true)。
     const usize idx = FindEnemy(boss_id);
-    if (idx >= m_Enemies.Size()) {
+    if (idx >= m_Enemies.Num()) {
         FEnemyAwareness aw;
         aw.enemy_id        = boss_id;
         aw.awareness_level = 1.0f;
         aw.is_engaged      = true;
-        m_Enemies.PushBack(aw);
+        m_Enemies.Add(aw);
     } else {
         m_Enemies[idx].awareness_level = 1.0f;
         m_Enemies[idx].is_engaged      = true;
@@ -209,7 +209,7 @@ void CCombatStateMachine::NotifyBossDefeated() noexcept {
 
     // is_engaged=true な最初の敵を boss とみなして外す (= 単一ボス想定)。
     // 複数ボス対応が必要になったら ID を引数に取る別 API を追加する。
-    const usize n = m_Enemies.Size();
+    const usize n = m_Enemies.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Enemies[i].is_engaged) {
             m_Enemies[i].is_engaged      = false;

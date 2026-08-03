@@ -11,7 +11,7 @@ void FInputMap::BindKey(FActionId action, EKey key) noexcept {
     b.action = action;
     b.kind   = EBindKind::Key;
     b.code   = static_cast<u32>(key);
-    m_Bindings.PushBack(b);
+    m_Bindings.Add(b);
 }
 
 /** マウスボタンの binding を末尾に追加する。 */
@@ -20,7 +20,7 @@ void FInputMap::BindMouseButton(FActionId action, EMouseButton mb) noexcept {
     b.action = action;
     b.kind   = EBindKind::MouseButton;
     b.code   = static_cast<u32>(mb);
-    m_Bindings.PushBack(b);
+    m_Bindings.Add(b);
 }
 
 /** ゲームパッドボタンの binding を player_index 付きで末尾に追加する。 */
@@ -30,7 +30,7 @@ void FInputMap::BindGamepad(FActionId action, EGamepadButton gb, u32 player_inde
     b.kind   = EBindKind::GamepadButton;
     b.code   = static_cast<u32>(gb);
     b.player = player_index;
-    m_Bindings.PushBack(b);
+    m_Bindings.Add(b);
 }
 
 /** neg/pos キーのペアを 1D axis binding として末尾に追加する。 */
@@ -40,7 +40,7 @@ void FInputMap::BindAxisKeys(FActionId action, EKey neg, EKey pos) noexcept {
     b.kind     = EBindKind::Axis1D;
     b.code     = static_cast<u32>(neg);
     b.code_pos = static_cast<u32>(pos);
-    m_Bindings.PushBack(b);
+    m_Bindings.Add(b);
 }
 
 /** ゲームパッドのアナログ軸 binding を倍率付きで末尾へ追加する。 */
@@ -52,29 +52,29 @@ void FInputMap::BindGamepadAxis(FActionId action, EGamepadAxis axis, u32 player_
     b.code = static_cast<u32>(axis);
     b.player = player_index;
     b.scale = scale;
-    m_Bindings.PushBack(b);
+    m_Bindings.Add(b);
 }
 
 /** 指定アクションの binding を in-place の compaction で全削除する。 */
 void FInputMap::Unbind(FActionId action) noexcept {
     u32 w = 0;
-    for (u32 r = 0; r < m_Bindings.Size(); ++r) {
+    for (u32 r = 0; r < m_Bindings.Num(); ++r) {
         if (m_Bindings[r].action != action) {
             if (w != r) m_Bindings[w] = m_Bindings[r];
             ++w;
         }
     }
-    while (m_Bindings.Size() > w) m_Bindings.PopBack();
+    while (m_Bindings.Num() > w) m_Bindings.Pop();
 }
 
 /** 全 binding を破棄する。 */
 void FInputMap::ClearAll() noexcept {
-    m_Bindings.Clear();
+    m_Bindings.Reset();
 }
 
 /** 該当アクションの各 binding を走査し、いずれかがこのフレームで押されたか判定する。 */
 bool FInputMap::IsPressed(FActionId action) const noexcept {
-    for (u32 i = 0; i < m_Bindings.Size(); ++i) {
+    for (u32 i = 0; i < m_Bindings.Num(); ++i) {
         const FBinding& b = m_Bindings[i];
         if (b.action != action) continue;
         switch (b.kind) {
@@ -99,7 +99,7 @@ bool FInputMap::IsPressed(FActionId action) const noexcept {
 
 /** 該当アクションの各 binding を走査し、いずれかが押下中か判定する (axis は |値|>0 で Held)。 */
 bool FInputMap::IsHeld(FActionId action) const noexcept {
-    for (u32 i = 0; i < m_Bindings.Size(); ++i) {
+    for (u32 i = 0; i < m_Bindings.Num(); ++i) {
         const FBinding& b = m_Bindings[i];
         if (b.action != action) continue;
         switch (b.kind) {
@@ -129,7 +129,7 @@ bool FInputMap::IsHeld(FActionId action) const noexcept {
 
 /** 該当アクションの各 binding を走査し、いずれかがこのフレームで離されたか判定する。 */
 bool FInputMap::IsReleased(FActionId action) const noexcept {
-    for (u32 i = 0; i < m_Bindings.Size(); ++i) {
+    for (u32 i = 0; i < m_Bindings.Num(); ++i) {
         const FBinding& b = m_Bindings[i];
         if (b.action != action) continue;
         switch (b.kind) {
@@ -154,7 +154,7 @@ bool FInputMap::IsReleased(FActionId action) const noexcept {
 /** 該当アクションの axis binding を累積し、clamp(-1, +1) した値を返す。 */
 f32 FInputMap::Axis(FActionId action) const noexcept {
     f32 acc = 0.0f;
-    for (u32 i = 0; i < m_Bindings.Size(); ++i) {
+    for (u32 i = 0; i < m_Bindings.Num(); ++i) {
         const FBinding& b = m_Bindings[i];
         if (b.action != action) continue;
         if (b.kind == EBindKind::Axis1D) {

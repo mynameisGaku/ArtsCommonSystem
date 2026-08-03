@@ -26,10 +26,10 @@ void CWaveSpawner::Init() noexcept {
     m_Paused             = false;
 
     // 各 wave の spawned_per_rule を全部 0 にリセット (queue 自身は保持)。
-    const usize n = m_Waves.Size();
+    const usize n = m_Waves.Num();
     for (usize i = 0; i < n; ++i) {
         TArray<u32>& s = m_Waves[i].spawned_per_rule;
-        const usize m = s.Size();
+        const usize m = s.Num();
         for (usize j = 0; j < m; ++j) {
             s[j] = 0u;
         }
@@ -50,7 +50,7 @@ void CWaveSpawner::ClearAll() noexcept {
     m_IntermissionTimer = 0.0f;
     m_AliveCount        = 0u;
     m_Paused             = false;
-    m_Waves.Clear();
+    m_Waves.Reset();
     m_SpawnCb       = nullptr;
     m_SpawnCbUser  = nullptr;
     _state_cb       = nullptr;
@@ -64,18 +64,18 @@ void CWaveSpawner::AddWave(const FWaveDef& def) noexcept {
     // spawned_per_rule を rule_count 個の 0 で初期化。
     // TArray は trivially constructible な u32 については MemSet 0 で初期化される
     // ので、Resize だけで OK (= 中身は全部 0)。
-    entry.spawned_per_rule.Resize(static_cast<usize>(def.rule_count));
+    entry.spawned_per_rule.SetNum(static_cast<usize>(def.rule_count));
     // Resize で 0 埋めされた前提だが、defense-in-depth で明示的に 0 を入れる。
     for (u32 i = 0; i < def.rule_count; ++i) {
         entry.spawned_per_rule[static_cast<usize>(i)] = 0u;
     }
     // TArray<TArray<u32>> は move-only なので Move で挿入。
-    m_Waves.PushBack(Move(entry));
+    m_Waves.Add(Move(entry));
 }
 
 /** 登録済み wave の総数を返す。 */
 u32 CWaveSpawner::TotalWaves() const noexcept {
-    return static_cast<u32>(m_Waves.Size());
+    return static_cast<u32>(m_Waves.Num());
 }
 
 /** state を遷移させ、補助タイマを初期化して state 変更 callback を発火する。 */
@@ -130,7 +130,7 @@ void CWaveSpawner::StartWaves() noexcept {
     // 0 番 wave の spawned_per_rule を 0 に揃え直す (= 再 Start での再湧き対応)。
     {
         TArray<u32>& s = m_Waves[0].spawned_per_rule;
-        const usize m = s.Size();
+        const usize m = s.Num();
         for (usize j = 0; j < m; ++j) s[j] = 0u;
     }
     TransitionTo(EWaveState::Spawning);
@@ -171,7 +171,7 @@ void CWaveSpawner::NotifyEnemyKilled(const char* enemy_id) noexcept {
 
 /** 現 wave の各 rule を評価して spawn callback を発火し、完走で WaitingClear へ遷移する。 */
 void CWaveSpawner::TickSpawning(f32 dt) noexcept {
-    if (m_CurrentWave >= m_Waves.Size()) return;  // defense
+    if (m_CurrentWave >= m_Waves.Num()) return;  // defense
     FWaveEntry&     entry = m_Waves[m_CurrentWave];
     const FWaveDef& def   = entry.def;
 
@@ -190,7 +190,7 @@ void CWaveSpawner::TickSpawning(f32 dt) noexcept {
     // AddWave (m_Waves 再確保) / Init / Clear を行うと entry / rule / spawned の
     // 参照が dangling になるため、走査を終えて参照を手放してからまとめて発火する
     // (BuffSystem::Tick と同じ「配列操作を済ませてから発火」規約)。
-    m_PendingSpawns.Clear();
+    m_PendingSpawns.Reset();
     u32 total_completed_rules = 0u;
     for (u32 i = 0; i < def.rule_count; ++i) {
         const FSpawnRule& rule = def.rules[i];
@@ -216,7 +216,7 @@ void CWaveSpawner::TickSpawning(f32 dt) noexcept {
         if (rule.spawn_interval_sec <= 0.0f) {
             if (m_WaveTimer >= rule.initial_delay_sec) {
                 while (spawned < rule.count) {
-                    m_PendingSpawns.PushBack({rule.enemy_id, rule.spawn_position});
+                    m_PendingSpawns.Add({rule.enemy_id, rule.spawn_position});
                     ++spawned;
                     ++m_AliveCount;
                 }
@@ -228,7 +228,7 @@ void CWaveSpawner::TickSpawning(f32 dt) noexcept {
                 const f32 next_fire_time = rule.initial_delay_sec
                                          + static_cast<f32>(spawned) * rule.spawn_interval_sec;
                 if (m_WaveTimer < next_fire_time) break;
-                m_PendingSpawns.PushBack({rule.enemy_id, rule.spawn_position});
+                m_PendingSpawns.Add({rule.enemy_id, rule.spawn_position});
                 ++spawned;
                 ++m_AliveCount;
             }
@@ -239,11 +239,11 @@ void CWaveSpawner::TickSpawning(f32 dt) noexcept {
 
     // 参照を手放した後にまとめて発火する。
     const bool all_rules_completed = (total_completed_rules >= def.rule_count);
-    for (usize p = 0; p < m_PendingSpawns.Size(); ++p) {
+    for (usize p = 0; p < m_PendingSpawns.Num(); ++p) {
         if (m_SpawnCb == nullptr) break;
         m_SpawnCb(m_SpawnCbUser, m_PendingSpawns[p].enemy_id, m_PendingSpawns[p].position);
     }
-    m_PendingSpawns.Clear();
+    m_PendingSpawns.Reset();
 
     // callback が再入で Stop / Init / Clear 等を行い state が Spawning でなくなった
     // 場合は、この wave の遷移判定を続けない (外側の意思を尊重する)。
@@ -262,7 +262,7 @@ void CWaveSpawner::TickSpawning(f32 dt) noexcept {
 /** 次 wave へ進めて Spawning に入れる (最後の wave なら AllComplete へ遷移)。 */
 void CWaveSpawner::AdvanceToNextWave() noexcept {
     const u32 next_index = m_CurrentWave + 1u;
-    if (next_index >= m_Waves.Size()) {
+    if (next_index >= m_Waves.Num()) {
         // 最後の wave を終えた → AllComplete。m_CurrentWave はそのまま (最後の
         // 有効 wave index を保持) で callback に渡す。
         TransitionTo(EWaveState::AllComplete);
@@ -274,7 +274,7 @@ void CWaveSpawner::AdvanceToNextWave() noexcept {
     // 次 wave の spawned_per_rule を 0 に揃え直す (= 再起動時の再湧きにも対応)。
     {
         TArray<u32>& s = m_Waves[m_CurrentWave].spawned_per_rule;
-        const usize m = s.Size();
+        const usize m = s.Num();
         for (usize j = 0; j < m; ++j) s[j] = 0u;
     }
     TransitionTo(EWaveState::Spawning);
@@ -295,10 +295,10 @@ void CWaveSpawner::SetOnWaveStateChangeCallback(WaveStateChangeCallback cb, void
 /** 現 wave で各 rule が spawn した数の合計を返す (Idle/AllComplete は 0)。 */
 u32 CWaveSpawner::EnemiesSpawnedInWave() const noexcept {
     if (_state == EWaveState::Idle || _state == EWaveState::AllComplete) return 0u;
-    if (m_CurrentWave >= m_Waves.Size()) return 0u;
+    if (m_CurrentWave >= m_Waves.Num()) return 0u;
     const TArray<u32>& s = m_Waves[m_CurrentWave].spawned_per_rule;
     u32 total = 0u;
-    const usize m = s.Size();
+    const usize m = s.Num();
     for (usize i = 0; i < m; ++i) total += s[i];
     return total;
 }
@@ -348,7 +348,7 @@ void CWaveSpawner::Tick(f32 dt) noexcept {
                 m_IntermissionTimer += dt;
                 // 現 wave の intermission 設定を引く。
                 f32 threshold = 0.0f;
-                if (m_CurrentWave < m_Waves.Size()) {
+                if (m_CurrentWave < m_Waves.Num()) {
                     threshold = m_Waves[m_CurrentWave].def.wave_intermission_sec;
                     if (threshold < 0.0f) threshold = 0.0f;
                 }

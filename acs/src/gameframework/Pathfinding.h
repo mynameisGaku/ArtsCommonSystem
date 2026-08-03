@@ -161,7 +161,7 @@ private:
      * @param y cell の y 座標。
      * @return y * width + x。
      */
-    u32 IndexOf(u32 x, u32 y) const noexcept { return y * m_Width + x; }
+    u32 IndexOfByKey(u32 x, u32 y) const noexcept { return y * m_Width + x; }
 
     /**
      * open list から f_score 最小のノードを線形走査で見つける。

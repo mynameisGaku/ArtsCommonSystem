@@ -59,7 +59,7 @@ CCharacterCustomizer::CCharacterCustomizer() noexcept {
 
 u32 CCharacterCustomizer::FindIndex(const char* id) const noexcept {
     if (id == nullptr) return kNotFound;
-    const usize n = m_Items.Size();
+    const usize n = m_Items.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Items[i].id, id)) return static_cast<u32>(i);
     }
@@ -73,8 +73,8 @@ void CCharacterCustomizer::RegisterCosmetic(const FCosmeticItem& item) noexcept 
     // 同 id の 2 重登録は no-op (アセット二重ロード保護、CAchievementManager と揃える)。
     if (FindIndex(item.id) != kNotFound) return;
 
-    m_Items.PushBack(item);
-    m_Unlocked.PushBack(false);  // 登録時は未 unlock がデフォルト
+    m_Items.Add(item);
+    m_Unlocked.Add(false);  // 登録時は未 unlock がデフォルト
 }
 
 bool CCharacterCustomizer::UnlockCosmetic(const char* id) noexcept {
@@ -144,12 +144,12 @@ const char* CCharacterCustomizer::EquippedInSlot(ECosmeticSlot slot) const noexc
 }
 
 u32 CCharacterCustomizer::CosmeticCount() const noexcept {
-    return static_cast<u32>(m_Items.Size());
+    return static_cast<u32>(m_Items.Num());
 }
 
 u32 CCharacterCustomizer::UnlockedCount() const noexcept {
     u32 c = 0;
-    const usize n = m_Unlocked.Size();
+    const usize n = m_Unlocked.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Unlocked[i]) ++c;
     }
@@ -158,7 +158,7 @@ u32 CCharacterCustomizer::UnlockedCount() const noexcept {
 
 u32 CCharacterCustomizer::CountInSlot(ECosmeticSlot slot) const noexcept {
     u32 c = 0;
-    const usize n = m_Items.Size();
+    const usize n = m_Items.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Items[i].slot == slot) ++c;
     }
@@ -172,8 +172,8 @@ const FCosmeticItem* CCharacterCustomizer::FindCosmetic(const char* id) const no
 }
 
 const FCosmeticItem* CCharacterCustomizer::AllCosmetics(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(m_Items.Size());
-    return m_Items.Data();
+    out_count = static_cast<u32>(m_Items.Num());
+    return m_Items.GetData();
 }
 
 void CCharacterCustomizer::SetOnEquipCallback(EquipCallback cb, void* user) noexcept {
@@ -182,8 +182,8 @@ void CCharacterCustomizer::SetOnEquipCallback(EquipCallback cb, void* user) noex
 }
 
 void CCharacterCustomizer::ClearAll() noexcept {
-    m_Items.Clear();
-    m_Unlocked.Clear();
+    m_Items.Reset();
+    m_Unlocked.Reset();
     // loop / ノイズ防止のため callback は呼ばない (装着解除を通知しない)。
     for (u32 i = 0; i < kCosmeticSlotCount; ++i) {
         m_EquippedInSlot[i] = nullptr;

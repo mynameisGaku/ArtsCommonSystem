@@ -401,7 +401,7 @@ public:
      *
      * @return 子の数。
      */
-    u32     ChildCount() const noexcept { return static_cast<u32>(m_Children.Size()); }
+    u32     ChildCount() const noexcept { return static_cast<u32>(m_Children.Num()); }
 
     /** root から自身までの深度 (root=0) を返す。 */
     u32 TreeDepth() const noexcept;
@@ -413,7 +413,7 @@ public:
      * @return i 番目の子 (範囲外なら nullptr)。
      */
     ANode* Child(u32 i) const noexcept {
-        return i < m_Children.Size() ? m_Children[i].Get() : nullptr;
+        return i < m_Children.Num() ? m_Children[i].Get() : nullptr;
     }
 
     /**
@@ -427,7 +427,7 @@ public:
      * @return 移動したら true、`child` が子でなければ false。
      */
     bool MoveChild(ANode& child, u32 to) noexcept {
-        const u32 n = static_cast<u32>(m_Children.Size());
+        const u32 n = static_cast<u32>(m_Children.Num());
         u32 from = n;
         for (u32 i = 0; i < n; ++i) { if (m_Children[i].Get() == &child) { from = i; break; } }
         if (from >= n) return false;
@@ -542,7 +542,7 @@ public:
         ref->_SetOwner(this);
         // 依存コンポーネントを先に確保 (Unity の RequireComponent 相当)。
         ref->OnRequire(*this);
-        m_Components.PushBack(TUniquePtr<AComponent>(comp.Release(), comp.GetAllocator()));
+        m_Components.Add(TUniquePtr<AComponent>(comp.Release(), comp.GetAllocator()));
         ref->OnAttach(*this);
         ref->_MaybeAttachServices(SceneServices());   // ツリーが既に services 配線済なら即 fire
         return *ref;
@@ -571,7 +571,7 @@ public:
     template<typename T>
     T* GetComponent() noexcept {
         const void* k = ComponentKindOf<T>();
-        for (u32 i = 0; i < m_Components.Size(); ++i) {
+        for (u32 i = 0; i < m_Components.Num(); ++i) {
             if (m_Components[i] && m_Components[i]->Kind() == k) {
                 return static_cast<T*>(m_Components[i].Get());
             }
@@ -588,7 +588,7 @@ public:
     template<typename T>
     bool HasComponent() const noexcept {
         const void* k = ComponentKindOf<T>();
-        for (u32 i = 0; i < m_Components.Size(); ++i) {
+        for (u32 i = 0; i < m_Components.Num(); ++i) {
             if (m_Components[i] && m_Components[i]->Kind() == k) return true;
         }
         return false;
@@ -603,15 +603,15 @@ public:
     template<typename T>
     bool RemoveComponent() noexcept {
         const void* k = ComponentKindOf<T>();
-        for (u32 i = 0; i < m_Components.Size(); ++i) {
+        for (u32 i = 0; i < m_Components.Num(); ++i) {
             if (m_Components[i] && m_Components[i]->Kind() == k) {
                 m_Components[i]->OnDetach();
                 m_Components[i].Reset();
                 // compact: 末尾を i に詰める (順序は壊れる)
-                if (i + 1 < m_Components.Size()) {
-                    m_Components[i] = Move(m_Components[m_Components.Size() - 1]);
+                if (i + 1 < m_Components.Num()) {
+                    m_Components[i] = Move(m_Components[m_Components.Num() - 1]);
                 }
-                m_Components.PopBack();
+                m_Components.Pop();
                 return true;
             }
         }
@@ -622,9 +622,9 @@ public:
      * 全コンポーネントを除去する (各 OnDetach → 破棄)。Play 終了時のクリーンアップ等に使う。
      */
     void RemoveAllComponents() noexcept {
-        for (u32 i = 0; i < m_Components.Size(); ++i)
+        for (u32 i = 0; i < m_Components.Num(); ++i)
             if (m_Components[i]) { m_Components[i]->OnDetach(); m_Components[i].Reset(); }
-        m_Components.Clear();
+        m_Components.Reset();
     }
 
     /**
@@ -632,7 +632,7 @@ public:
      *
      * @return コンポーネント数。
      */
-    u32 ComponentCount() const noexcept { return static_cast<u32>(m_Components.Size()); }
+    u32 ComponentCount() const noexcept { return static_cast<u32>(m_Components.Num()); }
 
     /**
      * i 番目のコンポーネントを返す (型を知らない汎用列挙。範囲外は nullptr)。
@@ -641,12 +641,12 @@ public:
      * @return i 番目のコンポーネント (範囲外なら nullptr)。
      */
     AComponent*       ComponentAt(u32 i)       noexcept {
-        return i < m_Components.Size() ? m_Components[i].Get() : nullptr;
+        return i < m_Components.Num() ? m_Components[i].Get() : nullptr;
     }
 
     /** i 番目のコンポーネントを返す (const 版)。 */
     const AComponent* ComponentAt(u32 i) const noexcept {
-        return i < m_Components.Size() ? m_Components[i].Get() : nullptr;
+        return i < m_Components.Num() ? m_Components[i].Get() : nullptr;
     }
 
     /**
@@ -663,7 +663,7 @@ public:
         AComponent* ref = comp.Get();
         ref->_SetOwner(this);
         ref->OnRequire(*this);
-        m_Components.PushBack(Move(comp));
+        m_Components.Add(Move(comp));
         ref->OnAttach(*this);
         ref->_MaybeAttachServices(SceneServices());
         return *ref;
@@ -766,7 +766,7 @@ public:
      * @return 原子 subtree として扱うなら true。
      */
     bool HasAtomicSubtreeComponent() const noexcept {
-        for (u32 i = 0; i < m_Components.Size(); ++i) {
+        for (u32 i = 0; i < m_Components.Num(); ++i) {
             if (m_Components[i] && m_Components[i]->WantsAtomicSubtree()) return true;
         }
         return false;

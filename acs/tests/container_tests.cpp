@@ -21,19 +21,19 @@ ACS_TEST(Container, InlineArrayAvoidsHeapUntilCapacityAndPreservesOrder)
     CSystemAllocator allocator;
     TInlineArray<u32, 4u> values(allocator);
     const u64 initial_allocations = allocator.AllocationCount();
-    for (u32 i = 0u; i < 4u; ++i) values.PushBack(i + 10u);
+    for (u32 i = 0u; i < 4u; ++i) values.Add(i + 10u);
     EXPECT_TRUE(values.UsesInlineStorage());
     EXPECT_EQ(allocator.AllocationCount(), initial_allocations);
 
-    values.PushBack(14u);
+    values.Add(14u);
     EXPECT_FALSE(values.UsesInlineStorage());
     EXPECT_TRUE(allocator.AllocationCount() > initial_allocations);
-    EXPECT_EQ(values.Size(), static_cast<usize>(5u));
+    EXPECT_EQ(values.Num(), static_cast<usize>(5u));
     for (u32 i = 0u; i < 5u; ++i) EXPECT_EQ(values[i], i + 10u);
 
     const u64 spilled_allocations = allocator.AllocationCount();
-    values.Clear();
-    values.PushBack(99u);
+    values.Reset();
+    values.Add(99u);
     EXPECT_FALSE(values.UsesInlineStorage());
     EXPECT_EQ(allocator.AllocationCount(), spilled_allocations);
     EXPECT_EQ(values[0], 99u);
@@ -43,25 +43,25 @@ ACS_TEST(Container, InlineArrayRemovePreservesOrderInBothStorageModes)
 {
     /** 直接領域と動的領域の削除を順に検証する配列。 */
     TInlineArray<u32, 4u> values;
-    values.PushBack(10u);
-    values.PushBack(20u);
-    values.PushBack(10u);
-    values.PushBack(30u);
+    values.Add(10u);
+    values.Add(20u);
+    values.Add(10u);
+    values.Add(30u);
 
     EXPECT_TRUE(values.Remove(values[0]));
     EXPECT_TRUE(values.UsesInlineStorage());
-    EXPECT_EQ(values.Size(), static_cast<usize>(3u));
+    EXPECT_EQ(values.Num(), static_cast<usize>(3u));
     EXPECT_EQ(values[0], 20u);
     EXPECT_EQ(values[1], 10u);
     EXPECT_EQ(values[2], 30u);
     EXPECT_FALSE(values.Remove(99u));
 
-    values.PushBack(40u);
-    values.PushBack(50u);
+    values.Add(40u);
+    values.Add(50u);
     EXPECT_FALSE(values.UsesInlineStorage());
     EXPECT_TRUE(values.Remove(10u));
     EXPECT_FALSE(values.UsesInlineStorage());
-    EXPECT_EQ(values.Size(), static_cast<usize>(4u));
+    EXPECT_EQ(values.Num(), static_cast<usize>(4u));
     EXPECT_EQ(values[0], 20u);
     EXPECT_EQ(values[1], 30u);
     EXPECT_EQ(values[2], 40u);
@@ -391,35 +391,35 @@ struct TIsTriviallyRelocatable<FExplicitlyRelocatableValue> : TTrueType {};
 
 ACS_TEST(Container, ArrayPushAndIndex) {
     TArray<int> a;
-    for (int i = 0; i < 100; ++i) a.PushBack(i);
-    EXPECT_EQ(a.Size(), (usize)100);
+    for (int i = 0; i < 100; ++i) a.Add(i);
+    EXPECT_EQ(a.Num(), (usize)100);
     EXPECT_EQ(a[0], 0);
     EXPECT_EQ(a[99], 99);
-    EXPECT_EQ(a.Back(), 99);
+    EXPECT_EQ(a.Last(), 99);
 }
 
 ACS_TEST(Container, ArrayResize) {
     TArray<int> a;
-    a.Resize(50);
-    EXPECT_EQ(a.Size(), (usize)50);
-    a.Resize(10);
-    EXPECT_EQ(a.Size(), (usize)10);
+    a.SetNum(50);
+    EXPECT_EQ(a.Num(), (usize)50);
+    a.SetNum(10);
+    EXPECT_EQ(a.Num(), (usize)10);
 }
 
 ACS_TEST(Container, ArrayReleaseStoragePreservesAllocator)
 {
     TArray<int> a;
     IAllocator* const allocator = a.GetAllocator();
-    a.Resize(256);
-    EXPECT_TRUE(a.Capacity() >= 256);
+    a.SetNum(256);
+    EXPECT_TRUE(a.Max() >= 256);
 
-    a.ReleaseStorage();
-    EXPECT_EQ(a.Size(), static_cast<usize>(0));
-    EXPECT_EQ(a.Capacity(), static_cast<usize>(0));
-    EXPECT_TRUE(a.Data() == nullptr);
+    a.Empty();
+    EXPECT_EQ(a.Num(), static_cast<usize>(0));
+    EXPECT_EQ(a.Max(), static_cast<usize>(0));
+    EXPECT_TRUE(a.GetData() == nullptr);
     EXPECT_TRUE(a.GetAllocator() == allocator);
 
-    a.PushBack(42);
+    a.Add(42);
     EXPECT_EQ(a[0], 42);
     EXPECT_TRUE(a.GetAllocator() == allocator);
 }
@@ -430,18 +430,18 @@ ACS_TEST(Container, ArrayTryOperationsPreserveStateOnOverflowAndOutOfMemory)
     TArray<u64> Array(FailingAllocator);
 
     EXPECT_FALSE(Array.TryReserve(8u));
-    EXPECT_FALSE(Array.TryResize(8u));
-    EXPECT_FALSE(Array.TryPushBack(42u));
-    EXPECT_TRUE(Array.TryEmplaceBack(7u) == nullptr);
-    EXPECT_EQ(Array.Size(), static_cast<usize>(0));
-    EXPECT_EQ(Array.Capacity(), static_cast<usize>(0));
-    EXPECT_TRUE(Array.Data() == nullptr);
+    EXPECT_FALSE(Array.TrySetNum(8u));
+    EXPECT_FALSE(Array.TryAdd(42u));
+    EXPECT_TRUE(Array.TryEmplace(7u) == nullptr);
+    EXPECT_EQ(Array.Num(), static_cast<usize>(0));
+    EXPECT_EQ(Array.Max(), static_cast<usize>(0));
+    EXPECT_TRUE(Array.GetData() == nullptr);
 
     TArray<u64> OverflowArray;
     EXPECT_FALSE(OverflowArray.TryReserve(~usize(0)));
-    EXPECT_FALSE(OverflowArray.TryResize(~usize(0)));
-    EXPECT_EQ(OverflowArray.Size(), static_cast<usize>(0));
-    EXPECT_EQ(OverflowArray.Capacity(), static_cast<usize>(0));
+    EXPECT_FALSE(OverflowArray.TrySetNum(~usize(0)));
+    EXPECT_EQ(OverflowArray.Num(), static_cast<usize>(0));
+    EXPECT_EQ(OverflowArray.Max(), static_cast<usize>(0));
 }
 
 ACS_TEST(Container, ArrayRemoveMaintainsNonTrivialLifetimeWithoutAllocation)
@@ -454,14 +454,14 @@ ACS_TEST(Container, ArrayRemoveMaintainsNonTrivialLifetimeWithoutAllocation)
         /** 寿命と確保不変を検証する配列。 */
         TArray<FArrayTrackedValue> values(allocator);
         EXPECT_TRUE(values.TryReserve(4u));
-        EXPECT_TRUE(values.TryEmplaceBack(counters, 10) != nullptr);
-        EXPECT_TRUE(values.TryEmplaceBack(counters, 20) != nullptr);
-        EXPECT_TRUE(values.TryEmplaceBack(counters, 10) != nullptr);
-        EXPECT_TRUE(values.TryEmplaceBack(counters, 30) != nullptr);
+        EXPECT_TRUE(values.TryEmplace(counters, 10) != nullptr);
+        EXPECT_TRUE(values.TryEmplace(counters, 20) != nullptr);
+        EXPECT_TRUE(values.TryEmplace(counters, 10) != nullptr);
+        EXPECT_TRUE(values.TryEmplace(counters, 30) != nullptr);
         /** 削除前の連続領域先頭。 */
-        FArrayTrackedValue* const data_before = values.Data();
+        FArrayTrackedValue* const data_before = values.GetData();
         /** 削除前の確保容量。 */
-        const usize capacity_before = values.Capacity();
+        const usize capacity_before = values.Max();
         /** 削除前の allocator identity。 */
         IAllocator* const allocator_before = values.GetAllocator();
         /** 削除前の確保回数。 */
@@ -474,13 +474,13 @@ ACS_TEST(Container, ArrayRemoveMaintainsNonTrivialLifetimeWithoutAllocation)
         /** 先頭と同値な後続要素を指す内部参照。 */
         const FArrayTrackedValue& aliased_later_match = values[2];
         EXPECT_TRUE(values.Remove(aliased_later_match));
-        EXPECT_TRUE(values.Data() == data_before);
-        EXPECT_EQ(values.Capacity(), capacity_before);
+        EXPECT_TRUE(values.GetData() == data_before);
+        EXPECT_EQ(values.Max(), capacity_before);
         EXPECT_TRUE(values.GetAllocator() == allocator_before);
         EXPECT_EQ(allocator.AllocCalls, alloc_calls_before);
         EXPECT_EQ(allocator.ReallocCalls, realloc_calls_before);
         EXPECT_EQ(allocator.FreeCalls, free_calls_before);
-        EXPECT_EQ(values.Size(), static_cast<usize>(3u));
+        EXPECT_EQ(values.Num(), static_cast<usize>(3u));
         EXPECT_EQ(values[0].Value, 20);
         EXPECT_EQ(values[1].Value, 10);
         EXPECT_EQ(values[2].Value, 30);
@@ -501,10 +501,10 @@ ACS_TEST(Container, InlineArrayRemoveMaintainsNonTrivialLifetimeWithoutAllocatio
     {
         /** 直接領域内の寿命を検証する配列。 */
         TInlineArray<FArrayTrackedValue, 4u> values(allocator);
-        values.PushBack(FArrayTrackedValue(counters, 10));
-        values.PushBack(FArrayTrackedValue(counters, 20));
-        values.PushBack(FArrayTrackedValue(counters, 10));
-        values.PushBack(FArrayTrackedValue(counters, 30));
+        values.Add(FArrayTrackedValue(counters, 10));
+        values.Add(FArrayTrackedValue(counters, 20));
+        values.Add(FArrayTrackedValue(counters, 10));
+        values.Add(FArrayTrackedValue(counters, 30));
         /** 削除前の確保回数。 */
         const u64 alloc_calls_before = allocator.AllocCalls;
         /** 削除前の再確保回数。 */
@@ -521,7 +521,7 @@ ACS_TEST(Container, InlineArrayRemoveMaintainsNonTrivialLifetimeWithoutAllocatio
         EXPECT_EQ(allocator.AllocCalls, alloc_calls_before);
         EXPECT_EQ(allocator.ReallocCalls, realloc_calls_before);
         EXPECT_EQ(allocator.FreeCalls, free_calls_before);
-        EXPECT_EQ(values.Size(), static_cast<usize>(3u));
+        EXPECT_EQ(values.Num(), static_cast<usize>(3u));
         EXPECT_EQ(values[0].Value, 20);
         EXPECT_EQ(values[1].Value, 10);
         EXPECT_EQ(values[2].Value, 30);
@@ -540,12 +540,12 @@ ACS_TEST(Container, ArraySelfReferentialGrowthKeepsArgumentsAliveUntilConstructi
         FArrayValueCounters Counters;
         TArray<FArrayTrackedValue> Array(Allocator);
         EXPECT_TRUE(Array.TryReserve(1u));
-        EXPECT_TRUE(Array.TryEmplaceBack(Counters, 41) != nullptr);
-        FArrayTrackedValue* const OldData = Array.Data();
+        EXPECT_TRUE(Array.TryEmplace(Counters, 41) != nullptr);
+        FArrayTrackedValue* const OldData = Array.GetData();
 
-        EXPECT_TRUE(Array.TryPushBack(Array[0]));
-        EXPECT_NE(Array.Data(), OldData);
-        EXPECT_EQ(Array.Size(), static_cast<usize>(2));
+        EXPECT_TRUE(Array.TryAdd(Array[0]));
+        EXPECT_NE(Array.GetData(), OldData);
+        EXPECT_EQ(Array.Num(), static_cast<usize>(2));
         EXPECT_EQ(Array[0].Value, 41);
         EXPECT_EQ(Array[1].Value, 41);
         EXPECT_EQ(Counters.CopyConstructions, static_cast<usize>(1));
@@ -560,11 +560,11 @@ ACS_TEST(Container, ArraySelfReferentialGrowthKeepsArgumentsAliveUntilConstructi
         FArrayValueCounters Counters;
         TArray<FArrayTrackedValue> Array(Allocator);
         EXPECT_TRUE(Array.TryReserve(1u));
-        EXPECT_TRUE(Array.TryEmplaceBack(Counters, 73) != nullptr);
+        EXPECT_TRUE(Array.TryEmplace(Counters, 73) != nullptr);
 
         EXPECT_TRUE(
-            Array.TryEmplaceBack(Counters, Array[0].Value) != nullptr);
-        EXPECT_EQ(Array.Size(), static_cast<usize>(2));
+            Array.TryEmplace(Counters, Array[0].Value) != nullptr);
+        EXPECT_EQ(Array.Num(), static_cast<usize>(2));
         EXPECT_EQ(Array[0].Value, 73);
         EXPECT_EQ(Array[1].Value, 73);
         EXPECT_EQ(Counters.ValueConstructions, static_cast<usize>(2));
@@ -579,10 +579,10 @@ ACS_TEST(Container, ArraySelfReferentialGrowthKeepsArgumentsAliveUntilConstructi
         FArrayValueCounters Counters;
         TArray<FArrayTrackedValue> Array(Allocator);
         EXPECT_TRUE(Array.TryReserve(1u));
-        EXPECT_TRUE(Array.TryEmplaceBack(Counters, 95) != nullptr);
+        EXPECT_TRUE(Array.TryEmplace(Counters, 95) != nullptr);
 
-        EXPECT_TRUE(Array.TryPushBack(Move(Array[0])));
-        EXPECT_EQ(Array.Size(), static_cast<usize>(2));
+        EXPECT_TRUE(Array.TryAdd(Move(Array[0])));
+        EXPECT_EQ(Array.Num(), static_cast<usize>(2));
         EXPECT_EQ(Array[0].Value, FArrayTrackedValue::kMovedFromValue);
         EXPECT_EQ(Array[1].Value, 95);
         EXPECT_EQ(Counters.MoveConstructions, static_cast<usize>(2));
@@ -602,11 +602,11 @@ ACS_TEST(Container, ArraySelfReferentialGrowthRollsBackOnAllocationFailure)
     {
         TArray<FArrayTrackedValue> Array(Allocator);
         EXPECT_TRUE(Array.TryReserve(1u));
-        EXPECT_TRUE(Array.TryEmplaceBack(Counters, 127) != nullptr);
+        EXPECT_TRUE(Array.TryEmplace(Counters, 127) != nullptr);
 
-        FArrayTrackedValue* const DataBefore = Array.Data();
-        const usize SizeBefore = Array.Size();
-        const usize CapacityBefore = Array.Capacity();
+        FArrayTrackedValue* const DataBefore = Array.GetData();
+        const usize SizeBefore = Array.Num();
+        const usize CapacityBefore = Array.Max();
         const usize ValueConstructionsBefore = Counters.ValueConstructions;
         const usize CopyConstructionsBefore = Counters.CopyConstructions;
         const usize MoveConstructionsBefore = Counters.MoveConstructions;
@@ -614,14 +614,14 @@ ACS_TEST(Container, ArraySelfReferentialGrowthRollsBackOnAllocationFailure)
         // ACS は例外を無効化しているため、grow の例外経路は明示的な
         // allocation failure。確保失敗時は constructor を一度も呼ばない。
         Allocator.SetFailing(true);
-        EXPECT_FALSE(Array.TryPushBack(Array[0]));
-        EXPECT_FALSE(Array.TryPushBack(Move(Array[0])));
+        EXPECT_FALSE(Array.TryAdd(Array[0]));
+        EXPECT_FALSE(Array.TryAdd(Move(Array[0])));
         EXPECT_TRUE(
-            Array.TryEmplaceBack(Counters, Array[0].Value) == nullptr);
+            Array.TryEmplace(Counters, Array[0].Value) == nullptr);
 
-        EXPECT_TRUE(Array.Data() == DataBefore);
-        EXPECT_EQ(Array.Size(), SizeBefore);
-        EXPECT_EQ(Array.Capacity(), CapacityBefore);
+        EXPECT_TRUE(Array.GetData() == DataBefore);
+        EXPECT_EQ(Array.Num(), SizeBefore);
+        EXPECT_EQ(Array.Max(), CapacityBefore);
         EXPECT_EQ(Array[0].Value, 127);
         EXPECT_EQ(
             Counters.ValueConstructions,
@@ -635,8 +635,8 @@ ACS_TEST(Container, ArraySelfReferentialGrowthRollsBackOnAllocationFailure)
         EXPECT_EQ(Counters.LiveValues, static_cast<usize>(1));
 
         Allocator.SetFailing(false);
-        EXPECT_TRUE(Array.TryPushBack(Array[0]));
-        EXPECT_EQ(Array.Size(), static_cast<usize>(2));
+        EXPECT_TRUE(Array.TryAdd(Array[0]));
+        EXPECT_EQ(Array.Num(), static_cast<usize>(2));
         EXPECT_EQ(Array[0].Value, 127);
         EXPECT_EQ(Array[1].Value, 127);
     }
@@ -652,8 +652,8 @@ ACS_TEST(Container, HashMapTryInsertPreservesStateOnOutOfMemory)
     CAlwaysFailAllocator FailingAllocator;
     THashMap<u32, u32> EmptyMap(FailingAllocator);
     EXPECT_FALSE(EmptyMap.TryReserve(8u));
-    EXPECT_FALSE(EmptyMap.TryInsert(1u, 100u));
-    EXPECT_EQ(EmptyMap.Size(), static_cast<usize>(0));
+    EXPECT_FALSE(EmptyMap.TryAdd(1u, 100u));
+    EXPECT_EQ(EmptyMap.Num(), static_cast<usize>(0));
     EXPECT_FALSE(EmptyMap.Contains(1u));
 
     // Part B: 実 backing で構築後に確保失敗へ切替え、rehash / 値配列拡張の失敗時も既存
@@ -662,15 +662,15 @@ ACS_TEST(Container, HashMapTryInsertPreservesStateOnOutOfMemory)
     CSwitchableFailAllocator Switchable(Backing);
     THashMap<u32, u32> Map(Switchable);
     for (u32 Key = 0; Key < 10u; ++Key) {
-        EXPECT_TRUE(Map.TryInsert(Key, Key * 7u));
+        EXPECT_TRUE(Map.TryAdd(Key, Key * 7u));
     }
-    const usize SizeBefore = Map.Size();
+    const usize SizeBefore = Map.Num();
 
     Switchable.SetFailing(true);
     // load factor を超えて rehash / 値配列拡張を強制 → 確保失敗で TryInsert は false を返す。
     bool bRejected = false;
     for (u32 Key = 10u; Key < 4096u && !bRejected; ++Key) {
-        bRejected = !Map.TryInsert(Key, Key);
+        bRejected = !Map.TryAdd(Key, Key);
     }
     EXPECT_TRUE(bRejected);
 
@@ -682,7 +682,7 @@ ACS_TEST(Container, HashMapTryInsertPreservesStateOnOutOfMemory)
             EXPECT_EQ(*Value, Key * 7u);
         }
     }
-    EXPECT_TRUE(Map.Size() >= SizeBefore);
+    EXPECT_TRUE(Map.Num() >= SizeBefore);
     Switchable.SetFailing(false);
 }
 
@@ -735,7 +735,7 @@ ACS_TEST(Container, EmptyViewsDoNotPerformNullPointerArithmetic)
     TSpan<u32> Span;
     EXPECT_TRUE(Span.begin() == nullptr);
     EXPECT_TRUE(Span.end() == Span.begin());
-    EXPECT_TRUE(Span.SubSpan(0u, 0u).Data() == nullptr);
+    EXPECT_TRUE(Span.SubSpan(0u, 0u).GetData() == nullptr);
 
     const FStringView StringView;
     EXPECT_TRUE(StringView.begin() == nullptr);
@@ -976,8 +976,8 @@ ACS_TEST(Container, StorageLoadFromBytesIsAtomicAndRejectsDuplicateKeys)
 
 ACS_TEST(Container, HashMapInsertFindRemove) {
     THashMap<u32, u32> m;
-    for (u32 i = 0; i < 1000; ++i) m.Insert(i, i * 2);
-    EXPECT_EQ(m.Size(), (usize)1000);
+    for (u32 i = 0; i < 1000; ++i) m.Add(i, i * 2);
+    EXPECT_EQ(m.Num(), (usize)1000);
     for (u32 i = 0; i < 1000; ++i) {
         u32* v = m.Find(i);
         EXPECT_TRUE(v != nullptr);
@@ -985,7 +985,7 @@ ACS_TEST(Container, HashMapInsertFindRemove) {
     }
     EXPECT_TRUE(m.Remove(500));
     EXPECT_TRUE(m.Find(500) == nullptr);
-    EXPECT_EQ(m.Size(), (usize)999);
+    EXPECT_EQ(m.Num(), (usize)999);
 }
 
 ACS_TEST(Container, HashMapReleaseStoragePreservesAllocator)
@@ -993,15 +993,15 @@ ACS_TEST(Container, HashMapReleaseStoragePreservesAllocator)
     CSystemAllocator allocator;
     THashMap<u32, u32> map(allocator);
     for (u32 i = 0; i < 64; ++i)
-        map.Insert(i, i + 1u);
+        map.Add(i, i + 1u);
     EXPECT_TRUE(allocator.BytesAllocated() > 0u);
 
-    map.ReleaseStorage();
+    map.Empty();
     EXPECT_TRUE(map.IsEmpty());
     EXPECT_EQ(allocator.BytesAllocated(), 0ull);
 
     // 解放後の再利用も、構築時と同じアロケータへ戻る。
-    map.Insert(7u, 11u);
+    map.Add(7u, 11u);
     EXPECT_TRUE(allocator.BytesAllocated() > 0u);
     EXPECT_TRUE(map.Find(7u) != nullptr);
 }
@@ -1016,73 +1016,73 @@ ACS_TEST(Container, HashBytesDeterministic) {
 ACS_TEST(Container, ArrayFindIndexOfContains)
 {
     TArray<i32> a;
-    a.PushBack(3); a.PushBack(1); a.PushBack(4); a.PushBack(1); a.PushBack(5);
+    a.Add(3); a.Add(1); a.Add(4); a.Add(1); a.Add(5);
 
-    EXPECT_EQ(a.IndexOf(4), static_cast<usize>(2));
-    EXPECT_EQ(a.IndexOf(1), static_cast<usize>(1));      // 最初の一致
-    EXPECT_EQ(a.IndexOf(9), TArray<i32>::kNpos);
+    EXPECT_EQ(a.IndexOfByKey(4), static_cast<usize>(2));
+    EXPECT_EQ(a.IndexOfByKey(1), static_cast<usize>(1));      // 最初の一致
+    EXPECT_EQ(a.IndexOfByKey(9), TArray<i32>::kNpos);
     EXPECT_TRUE(a.Contains(5));
     EXPECT_FALSE(a.Contains(0));
 
-    i32* const p = a.Find(4);
+    i32* const p = a.FindByKey(4);
     EXPECT_TRUE(p != nullptr);
     if (p) { *p = 40; }                                   // 可変アクセスできる
     EXPECT_EQ(a[2], 40);
-    EXPECT_TRUE(a.Find(999) == nullptr);
+    EXPECT_TRUE(a.FindByKey(999) == nullptr);
 
     // 述語版。
-    EXPECT_EQ(a.IndexOfIf([](const i32& v) { return v > 10; }), static_cast<usize>(2));
-    const i32* const q = a.FindIf([](const i32& v) { return v % 5 == 0; });
+    EXPECT_EQ(a.IndexOfByPredicate([](const i32& v) { return v > 10; }), static_cast<usize>(2));
+    const i32* const q = a.FindByPredicate([](const i32& v) { return v % 5 == 0; });
     EXPECT_TRUE(q != nullptr && *q == 40);
-    EXPECT_TRUE(a.FindIf([](const i32& v) { return v < 0; }) == nullptr);
+    EXPECT_TRUE(a.FindByPredicate([](const i32& v) { return v < 0; }) == nullptr);
 }
 
 ACS_TEST(Container, ArrayRemoveAtAndRemoveFirstSwap)
 {
     TArray<i32> a;
-    a.PushBack(10); a.PushBack(20); a.PushBack(30); a.PushBack(40);
+    a.Add(10); a.Add(20); a.Add(30); a.Add(40);
 
     // RemoveAt は順序を保つ (O(n) シフト)。
     a.RemoveAt(1);                        // {10, 30, 40}
-    EXPECT_EQ(a.Size(), static_cast<usize>(3));
+    EXPECT_EQ(a.Num(), static_cast<usize>(3));
     EXPECT_EQ(a[0], 10);
     EXPECT_EQ(a[1], 30);
     EXPECT_EQ(a[2], 40);
 
-    // RemoveFirstSwap は O(1) だが順序は入れ替わる。
-    EXPECT_TRUE(a.RemoveFirstSwap(10));   // {40, 30}
-    EXPECT_EQ(a.Size(), static_cast<usize>(2));
+    // RemoveSingleSwap は O(1) だが順序は入れ替わる。
+    EXPECT_TRUE(a.RemoveSingleSwap(10));   // {40, 30}
+    EXPECT_EQ(a.Num(), static_cast<usize>(2));
     EXPECT_TRUE(a.Contains(30));
     EXPECT_TRUE(a.Contains(40));
-    EXPECT_FALSE(a.RemoveFirstSwap(999)); // 見つからなければ false / 変更なし
-    EXPECT_EQ(a.Size(), static_cast<usize>(2));
+    EXPECT_FALSE(a.RemoveSingleSwap(999)); // 見つからなければ false / 変更なし
+    EXPECT_EQ(a.Num(), static_cast<usize>(2));
 }
 
 ACS_TEST(Container, ArrayRemovePreservesOrderAndRemovesFirstMatch)
 {
     /** 最初の一致だけを削除する契約を検証する配列。 */
     TArray<i32> values;
-    values.PushBack(10);
-    values.PushBack(20);
-    values.PushBack(10);
-    values.PushBack(30);
+    values.Add(10);
+    values.Add(20);
+    values.Add(10);
+    values.Add(30);
 
     /** 先頭の削除対象を指す内部参照。 */
     const i32& aliased_value = values[0];
     EXPECT_TRUE(values.Remove(aliased_value));
-    EXPECT_EQ(values.Size(), static_cast<usize>(3));
+    EXPECT_EQ(values.Num(), static_cast<usize>(3));
     EXPECT_EQ(values[0], 20);
     EXPECT_EQ(values[1], 10);
     EXPECT_EQ(values[2], 30);
 
     /** 未一致削除前の連続領域先頭。 */
-    i32* const data_before = values.Data();
+    i32* const data_before = values.GetData();
     /** 未一致削除前の確保容量。 */
-    const usize capacity_before = values.Capacity();
+    const usize capacity_before = values.Max();
     EXPECT_FALSE(values.Remove(99));
-    EXPECT_TRUE(values.Data() == data_before);
-    EXPECT_EQ(values.Capacity(), capacity_before);
-    EXPECT_EQ(values.Size(), static_cast<usize>(3));
+    EXPECT_TRUE(values.GetData() == data_before);
+    EXPECT_EQ(values.Max(), capacity_before);
+    EXPECT_EQ(values.Num(), static_cast<usize>(3));
 }
 
 ACS_TEST(Container, StringViewFindAndContains)
@@ -1129,34 +1129,34 @@ ACS_TEST(Container, ArrayRelocatableTraitUsesReallocAndPreservesRollback)
     // trivial relocation 経路を確認する配列。
     TArray<u32> Values(Counting);
     EXPECT_TRUE(Values.TryReserve(1u));
-    EXPECT_TRUE(Values.TryPushBack(41u));
+    EXPECT_TRUE(Values.TryAdd(41u));
     // 最初の成長前に使われていた格納先。
-    u32* const BeforeGrowth = Values.Data();
+    u32* const BeforeGrowth = Values.GetData();
 
-    EXPECT_TRUE(Values.TryPushBack(73u));
+    EXPECT_TRUE(Values.TryAdd(73u));
     EXPECT_EQ(Counting.AllocCalls, 1ull);
     EXPECT_EQ(Counting.ReallocCalls, 1ull);
     EXPECT_EQ(Values[0], 41u);
     EXPECT_EQ(Values[1], 73u);
-    EXPECT_TRUE(Values.Data() != nullptr);
+    EXPECT_TRUE(Values.GetData() != nullptr);
     (void)BeforeGrowth;
 
     // 失敗前の格納先。
-    u32* const BeforeFailure = Values.Data();
+    u32* const BeforeFailure = Values.GetData();
     // 失敗前の容量。
-    const usize CapacityBeforeFailure = Values.Capacity();
+    const usize CapacityBeforeFailure = Values.Max();
     Counting.SetFailRealloc(true);
-    while (Values.Size() < Values.Capacity()) {
-        EXPECT_TRUE(Values.TryPushBack(static_cast<u32>(Values.Size())));
+    while (Values.Num() < Values.Max()) {
+        EXPECT_TRUE(Values.TryAdd(static_cast<u32>(Values.Num())));
     }
     // 失敗前の要素数。
-    const usize SizeBeforeFailure = Values.Size();
+    const usize SizeBeforeFailure = Values.Num();
     // 失敗前の先頭値。
     const u32 FirstBeforeFailure = Values[0];
-    EXPECT_FALSE(Values.TryPushBack(999u));
-    EXPECT_EQ(Values.Data(), BeforeFailure);
-    EXPECT_EQ(Values.Size(), SizeBeforeFailure);
-    EXPECT_EQ(Values.Capacity(), CapacityBeforeFailure);
+    EXPECT_FALSE(Values.TryAdd(999u));
+    EXPECT_EQ(Values.GetData(), BeforeFailure);
+    EXPECT_EQ(Values.Num(), SizeBeforeFailure);
+    EXPECT_EQ(Values.Max(), CapacityBeforeFailure);
     EXPECT_EQ(Values[0], FirstBeforeFailure);
 
     // 明示 relocation 型のムーブ回数。
@@ -1167,8 +1167,8 @@ ACS_TEST(Container, ArrayRelocatableTraitUsesReallocAndPreservesRollback)
         // byte relocation opt-in 型の配列。
         TArray<FExplicitlyRelocatableValue> Relocatable;
         EXPECT_TRUE(Relocatable.TryReserve(1u));
-        EXPECT_TRUE(Relocatable.TryEmplaceBack(MoveCount, DestructionCount, 17) != nullptr);
-        EXPECT_TRUE(Relocatable.TryEmplaceBack(MoveCount, DestructionCount, 29) != nullptr);
+        EXPECT_TRUE(Relocatable.TryEmplace(MoveCount, DestructionCount, 17) != nullptr);
+        EXPECT_TRUE(Relocatable.TryEmplace(MoveCount, DestructionCount, 29) != nullptr);
         EXPECT_EQ(MoveCount, static_cast<usize>(0));
         EXPECT_EQ(DestructionCount, static_cast<usize>(0));
         EXPECT_EQ(Relocatable[0].Value, 17);
@@ -1186,7 +1186,7 @@ ACS_TEST(Container, HashMapCollisionUpdateAndStableLookupContracts)
     THashMap<u32, u32, FConstantCountingHasher> Colliding(Counting);
     EXPECT_TRUE(Colliding.TryReserve(96u));
     for (u32 Key = 0u; Key < 64u; ++Key) {
-        EXPECT_TRUE(Colliding.TryInsert(Key, Key * 3u));
+        EXPECT_TRUE(Colliding.TryAdd(Key, Key * 3u));
     }
     for (u32 Key = 0u; Key < 64u; ++Key) {
         // 衝突探索で見つけた値。
@@ -1198,7 +1198,7 @@ ACS_TEST(Container, HashMapCollisionUpdateAndStableLookupContracts)
     // 既存キー更新直前の確保回数。
     const u64 AllocCallsBeforeUpdate = Counting.AllocCalls;
     FConstantCountingHasher::CallCount = 0u;
-    EXPECT_TRUE(Colliding.TryInsert(31u, 999u));
+    EXPECT_TRUE(Colliding.TryAdd(31u, 999u));
     EXPECT_EQ(FConstantCountingHasher::CallCount, static_cast<usize>(1));
     EXPECT_EQ(Counting.AllocCalls, AllocCallsBeforeUpdate);
     EXPECT_EQ(*Colliding.Find(31u), 999u);
@@ -1225,8 +1225,8 @@ ACS_TEST(Container, HashMapCollisionUpdateAndStableLookupContracts)
     FString Stable("stable");
     // 埋め込み NUL キー。
     FString Embedded(FStringView(EmbeddedLiteral, sizeof(EmbeddedLiteral) - 1u));
-    EXPECT_TRUE(Strings.TryInsert(Stable, 7u));
-    EXPECT_TRUE(Strings.TryInsert(Embedded, 11u));
+    EXPECT_TRUE(Strings.TryAdd(Stable, 7u));
+    EXPECT_TRUE(Strings.TryAdd(Embedded, 11u));
     EXPECT_EQ(*Strings.FindAs(FStringView("stable")), 7u);
     // 短い文字列のコンパイル時 hash key。
     constexpr FStableStringKey StableKey = MakeStableStringKey("stable");
@@ -1250,17 +1250,17 @@ ACS_TEST(Container, HashMapGrowthFailurePreservesContentsAndSearchIntegrity)
         // 初回 rehash 成功後の値配列 OOM を再現する map。
         THashMap<u32, u32> Map(Allocator);
 
-        EXPECT_FALSE(Map.TryInsert(7u, 70u));
-        EXPECT_EQ(Map.Size(), static_cast<usize>(0));
+        EXPECT_FALSE(Map.TryAdd(7u, 70u));
+        EXPECT_EQ(Map.Num(), static_cast<usize>(0));
         EXPECT_TRUE(Map.Find(7u) == nullptr);
         EXPECT_EQ(Allocator.AllocCalls, 2ull);
 
         // 失敗前に確保済みの bucket 容量を再利用するため、retry は値配列の 1 確保だけになる。
         const u64 CallsAfterFailure = Allocator.AllocCalls;
         Allocator.SetFailAllocCall(0u);
-        EXPECT_TRUE(Map.TryInsert(7u, 70u));
+        EXPECT_TRUE(Map.TryAdd(7u, 70u));
         EXPECT_EQ(Allocator.AllocCalls - CallsAfterFailure, 1ull);
-        EXPECT_EQ(Map.Size(), static_cast<usize>(1));
+        EXPECT_EQ(Map.Num(), static_cast<usize>(1));
         // retry 後に検索した値。
         const u32* const RetriedValue = Map.Find(7u);
         EXPECT_TRUE(RetriedValue != nullptr);
@@ -1273,12 +1273,12 @@ ACS_TEST(Container, HashMapGrowthFailurePreservesContentsAndSearchIntegrity)
         // 値配列容量 8 を満たした状態から次の成長を試す map。
         THashMap<u32, u32> Map(Allocator);
         for (u32 Key = 0u; Key < 8u; ++Key) {
-            EXPECT_TRUE(Map.TryInsert(Key, Key + 100u));
+            EXPECT_TRUE(Map.TryAdd(Key, Key + 100u));
         }
 
         Allocator.SetFailRealloc(true);
-        EXPECT_FALSE(Map.TryInsert(8u, 108u));
-        EXPECT_EQ(Map.Size(), static_cast<usize>(8));
+        EXPECT_FALSE(Map.TryAdd(8u, 108u));
+        EXPECT_EQ(Map.Num(), static_cast<usize>(8));
         EXPECT_TRUE(Map.Find(8u) == nullptr);
         for (u32 Key = 0u; Key < 8u; ++Key) {
             const u32* const Value = Map.Find(Key);
@@ -1287,7 +1287,7 @@ ACS_TEST(Container, HashMapGrowthFailurePreservesContentsAndSearchIntegrity)
         }
 
         Allocator.SetFailRealloc(false);
-        EXPECT_TRUE(Map.TryInsert(8u, 108u));
+        EXPECT_TRUE(Map.TryAdd(8u, 108u));
         // retry 後に追加できた値。
         const u32* const AddedValue = Map.Find(8u);
         EXPECT_TRUE(AddedValue != nullptr);

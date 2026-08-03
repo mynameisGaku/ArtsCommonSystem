@@ -30,7 +30,7 @@
 //   ・**FSlot = {ptr, gen, active}**: CCollisionWorld2D::FSlot と同じパターン。
 //     index 0 は予約 (= invalid handle と一致させる)、有効 slot は 1..N。
 //   ・**free_indices stack**: 空き slot を O(1) で再利用。Unregister 時 push、
-//     TryRegisterExistingNode 時 pop。stack が空なら slot を新規 TryPushBack。
+//     TryRegisterExistingNode 時 pop。stack が空なら slot を新規 TryAdd。
 //   ・**generation 0 はスキップ**: gen++ がラップアラウンドで 0 に戻った場合、
 //     FNodeId(idx, 0) は IsValid() == false になってしまうため、ラップ時は 1 に
 //     強制する (CCollisionWorld2D と完全に同じ挙動)。
@@ -196,7 +196,7 @@ public:
      * @return index 0 の dummy を除いた slot 数。
      */
     u32 Capacity() const noexcept {
-        const u32 sz = static_cast<u32>(m_Slots.Size());
+        const u32 sz = static_cast<u32>(m_Slots.Num());
         return sz > 0 ? sz - 1u : 0u;   // index 0 予約分を引く
     }
 

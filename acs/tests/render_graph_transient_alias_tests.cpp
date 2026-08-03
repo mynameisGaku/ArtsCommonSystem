@@ -68,10 +68,10 @@ ACS_TEST(RenderGraphTransientAlias, StressIsDeterministicAndFailClosed)
     constexpr usize resource_count = 4096;
     // 逆順で与える寿命群。
     TArray<FRenderGraphResourceLifetime> lifetimes;
-    EXPECT_TRUE(lifetimes.TryResize(resource_count));
+    EXPECT_TRUE(lifetimes.TrySetNum(resource_count));
     // 同じ graph を正順へ並べた比較入力。
     TArray<FRenderGraphResourceLifetime> ordered;
-    EXPECT_TRUE(ordered.TryResize(resource_count));
+    EXPECT_TRUE(ordered.TrySetNum(resource_count));
     for (usize input_index = 0; input_index < resource_count; ++input_index) {
         // 逆順にした論理 pass 番号。
         const u32 logical_index = static_cast<u32>(resource_count - input_index - 1);
@@ -83,8 +83,8 @@ ACS_TEST(RenderGraphTransientAlias, StressIsDeterministicAndFailClosed)
     CRenderGraphTransientAliasPlanner first;
     // 正順入力の候補計画。
     CRenderGraphTransientAliasPlanner second;
-    EXPECT_TRUE(first.Build(lifetimes.Data(), lifetimes.Size()));
-    EXPECT_TRUE(second.Build(ordered.Data(), ordered.Size()));
+    EXPECT_TRUE(first.Build(lifetimes.GetData(), lifetimes.Num()));
+    EXPECT_TRUE(second.Build(ordered.GetData(), ordered.Num()));
     EXPECT_EQ(first.Summary().resource_count, 4096u);
     EXPECT_EQ(first.Summary().slot_count, 4u);
     EXPECT_EQ(first.Summary().candidate_heap_bytes, second.Summary().candidate_heap_bytes);

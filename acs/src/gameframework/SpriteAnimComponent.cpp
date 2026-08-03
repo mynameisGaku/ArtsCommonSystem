@@ -7,7 +7,7 @@ namespace acs::game {
 
 void ASpriteAnimComponent::InitGrid(u32 cols, u32 rows, u32 frame_count, f32 fps,
                                     EPlayMode mode) noexcept {
-    m_FrameUvs.Clear();
+    m_FrameUvs.Reset();
     if (cols == 0) cols = 1;
     if (rows == 0) rows = 1;
     const u32 total = cols * rows;
@@ -20,13 +20,13 @@ void ASpriteAnimComponent::InitGrid(u32 cols, u32 rows, u32 frame_count, f32 fps
         const u32 cyi = i / cols;
         const f32 u0 = static_cast<f32>(cxi) * cw;
         const f32 v0 = static_cast<f32>(cyi) * ch;
-        m_FrameUvs.PushBack(FVec4{u0, v0, u0 + cw, v0 + ch});
+        m_FrameUvs.Add(FVec4{u0, v0, u0 + cw, v0 + ch});
     }
     m_Anim.Init(frame_count, fps, mode);
 }
 
 void ASpriteAnimComponent::BeginFrames(f32 fps, EPlayMode mode) noexcept {
-    m_FrameUvs.Clear();
+    m_FrameUvs.Reset();
     m_PendingFps  = fps;
     m_PendingMode = mode;
     m_Building    = true;
@@ -34,20 +34,20 @@ void ASpriteAnimComponent::BeginFrames(f32 fps, EPlayMode mode) noexcept {
 
 void ASpriteAnimComponent::AddFrameUv(FVec4 uv) noexcept {
     if (!m_Building) return;
-    m_FrameUvs.PushBack(uv);
+    m_FrameUvs.Add(uv);
 }
 
 void ASpriteAnimComponent::EndFrames() noexcept {
     if (!m_Building) return;
     m_Building = false;
-    const u32 n = m_FrameUvs.Size();
+    const u32 n = m_FrameUvs.Num();
     m_Anim.Init(n == 0 ? 1u : n, m_PendingFps, m_PendingMode);
 }
 
 void ASpriteAnimComponent::ApplyCurrentFrame() noexcept {
-    if (!m_Sprite || m_FrameUvs.Size() == 0) return;
+    if (!m_Sprite || m_FrameUvs.Num() == 0) return;
     u32 i = m_Anim.CurrentFrame();
-    if (i >= m_FrameUvs.Size()) i = m_FrameUvs.Size() - 1u;
+    if (i >= m_FrameUvs.Num()) i = m_FrameUvs.Num() - 1u;
     m_Sprite->SetUvRect(m_FrameUvs[i]);
 }
 

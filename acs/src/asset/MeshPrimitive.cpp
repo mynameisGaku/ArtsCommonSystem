@@ -24,7 +24,7 @@ void PushVertex(TArray<FMeshVertex>& dst, FVec3 pos, FVec3 nrm, f32 u, f32 v) no
     mv.normal   = nrm;
     mv.u        = u;
     mv.v        = v;
-    dst.PushBack(mv);
+    dst.Add(mv);
 }
 
 } // namespace
@@ -61,18 +61,18 @@ TSharedPtr<AMeshAsset> MakeCube(f32 size) noexcept {
     };
 
     for (u32 f = 0; f < 6; ++f) {
-        const u32 base = static_cast<u32>(V.Size());
+        const u32 base = static_cast<u32>(V.Num());
         PushVertex(V, faces[f].a, faces[f].n, 0, 1);
         PushVertex(V, faces[f].b, faces[f].n, 1, 1);
         PushVertex(V, faces[f].c, faces[f].n, 1, 0);
         PushVertex(V, faces[f].d, faces[f].n, 0, 0);
         // 三角形 2 つ（CW: フロントフェイス）
-        I.PushBack(base + 0); I.PushBack(base + 1); I.PushBack(base + 2);
-        I.PushBack(base + 0); I.PushBack(base + 2); I.PushBack(base + 3);
+        I.Add(base + 0); I.Add(base + 1); I.Add(base + 2);
+        I.Add(base + 0); I.Add(base + 2); I.Add(base + 3);
     }
 
-    FSubMesh sm; sm.first_index = 0; sm.index_count = static_cast<u32>(I.Size());
-    m->SubMeshes().PushBack(sm);
+    FSubMesh sm; sm.first_index = 0; sm.index_count = static_cast<u32>(I.Num());
+    m->SubMeshes().Add(sm);
     return m;
 }
 
@@ -113,13 +113,13 @@ TSharedPtr<AMeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept 
             const u32 i2 = i0 + stride;
             const u32 i3 = i2 + 1;
             // CW front-face (with our coordinate system)
-            I.PushBack(i0); I.PushBack(i2); I.PushBack(i1);
-            I.PushBack(i1); I.PushBack(i2); I.PushBack(i3);
+            I.Add(i0); I.Add(i2); I.Add(i1);
+            I.Add(i1); I.Add(i2); I.Add(i3);
         }
     }
 
-    FSubMesh sm; sm.first_index = 0; sm.index_count = static_cast<u32>(I.Size());
-    m->SubMeshes().PushBack(sm);
+    FSubMesh sm; sm.first_index = 0; sm.index_count = static_cast<u32>(I.Num());
+    m->SubMeshes().Add(sm);
     return m;
 }
 
@@ -137,11 +137,11 @@ TSharedPtr<AMeshAsset> MakePlane(f32 width, f32 depth) noexcept {
     PushVertex(V, { hw, 0, -hd}, up, 1, 1);
     PushVertex(V, { hw, 0,  hd}, up, 1, 0);
     PushVertex(V, {-hw, 0,  hd}, up, 0, 0);
-    I.PushBack(0); I.PushBack(1); I.PushBack(2);
-    I.PushBack(0); I.PushBack(2); I.PushBack(3);
+    I.Add(0); I.Add(1); I.Add(2);
+    I.Add(0); I.Add(2); I.Add(3);
 
     FSubMesh sm; sm.first_index = 0; sm.index_count = 6;
-    m->SubMeshes().PushBack(sm);
+    m->SubMeshes().Add(sm);
     return m;
 }
 

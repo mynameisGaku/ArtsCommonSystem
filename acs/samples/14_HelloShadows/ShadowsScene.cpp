@@ -9,7 +9,7 @@ using namespace acs;
 namespace helloshadows {
 
 void CShadowsScene::Build() noexcept {
-    m_Casters.Clear();
+    m_Casters.Reset();
     // 中央に背の高い柱
     for (u32 i = 0; i < 4; ++i) {
         const f32 a = (kPi * 2.0f) * static_cast<f32>(i) / 4.0f + 0.4f;
@@ -19,7 +19,7 @@ void CShadowsScene::Build() noexcept {
         c.base_color = FVec3{0.85f, 0.7f, 0.5f};
         c.model = FMat4::Scale(FVec3{0.6f, 2.0f, 0.6f}) *
                   FMat4::Translation(FVec3{Sin(a) * r, 1.0f, Cos(a) * r});
-        m_Casters.PushBack(c);
+        m_Casters.Add(c);
     }
     // 周囲に球 (複数色)
     const FVec3 colors[4] = {
@@ -36,7 +36,7 @@ void CShadowsScene::Build() noexcept {
         c.base_color = colors[i];
         c.model = FMat4::Scale(FVec3{1.0f, 1.0f, 1.0f}) *
                   FMat4::Translation(FVec3{Sin(a) * r, 0.5f, Cos(a) * r});
-        m_Casters.PushBack(c);
+        m_Casters.Add(c);
     }
 }
 
@@ -49,8 +49,8 @@ void CShadowsScene::Render(CSky&             sky,
                           const FGpuMesh&   cube,
                           const FGpuMesh&   sphere,
                           FVec3             sun_dir) noexcept {
-    if (m_Casters.Size() >= static_cast<usize>(~u32{0})) return;
-    const u32 caster_draws = static_cast<u32>(m_Casters.Size());
+    if (m_Casters.Num() >= static_cast<usize>(~u32{0})) return;
+    const u32 caster_draws = static_cast<u32>(m_Casters.Num());
     if (!shader.BeginFrame(caster_draws + 1u) ||
         !shadow.BeginFrame(caster_draws)) return;
 

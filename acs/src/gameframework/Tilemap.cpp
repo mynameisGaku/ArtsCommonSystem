@@ -223,8 +223,8 @@ FTilemapLoadResult FTilemap::TryInit(
     }
     for (u32 layer = 0u; layer < layer_count; ++layer) {
         TArray<FTileId> staged_layer(*m_Layers.GetAllocator());
-        if (!staged_layer.TryResize(cells) ||
-            !staged_layers.TryPushBack(Move(staged_layer))) {
+        if (!staged_layer.TrySetNum(cells) ||
+            !staged_layers.TryAdd(Move(staged_layer))) {
             return TileFailure(
                 ETilemapLoadError::AllocationFailure, layer);
         }
@@ -401,8 +401,8 @@ FTilemapLoadResult FTilemap::TryLoadTiledJson(
     }
     for (u32 layer = 0u; layer < tile_layer_count; ++layer) {
         TArray<FTileId> staged_layer(*m_Layers.GetAllocator());
-        if (!staged_layer.TryResize(cells) ||
-            !staged_layers.TryPushBack(Move(staged_layer))) {
+        if (!staged_layer.TrySetNum(cells) ||
+            !staged_layers.TryAdd(Move(staged_layer))) {
             return TileFailure(
                 ETilemapLoadError::AllocationFailure, layer);
         }
@@ -446,13 +446,13 @@ TResult<void> FTilemap::LoadTiledJson(
 
 void FTilemap::SetTile(
     u32 x, u32 y, FTileId tile, u32 layer) noexcept {
-    if (x >= m_Width || y >= m_Height || layer >= m_Layers.Size()) return;
+    if (x >= m_Width || y >= m_Height || layer >= m_Layers.Num()) return;
     m_Layers[layer][
         static_cast<usize>(y) * static_cast<usize>(m_Width) + x] = tile;
 }
 
 FTileId FTilemap::GetTile(u32 x, u32 y, u32 layer) const noexcept {
-    if (x >= m_Width || y >= m_Height || layer >= m_Layers.Size()) {
+    if (x >= m_Width || y >= m_Height || layer >= m_Layers.Num()) {
         return FTileId{};
     }
     return m_Layers[layer][
@@ -460,14 +460,14 @@ FTileId FTilemap::GetTile(u32 x, u32 y, u32 layer) const noexcept {
 }
 
 void FTilemap::Fill(FTileId tile, u32 layer) noexcept {
-    if (layer >= m_Layers.Size()) return;
+    if (layer >= m_Layers.Num()) return;
     TArray<FTileId>& buffer = m_Layers[layer];
-    for (usize i = 0u; i < buffer.Size(); ++i) buffer[i] = tile;
+    for (usize i = 0u; i < buffer.Num(); ++i) buffer[i] = tile;
 }
 
 void FTilemap::FillRect(
     u32 x0, u32 y0, u32 x1, u32 y1, FTileId tile, u32 layer) noexcept {
-    if (layer >= m_Layers.Size() || m_Width == 0u || m_Height == 0u) return;
+    if (layer >= m_Layers.Num() || m_Width == 0u || m_Height == 0u) return;
     if (x0 > x1) { const u32 value = x0; x0 = x1; x1 = value; }
     if (y0 > y1) { const u32 value = y0; y0 = y1; y1 = value; }
 
@@ -485,9 +485,9 @@ void FTilemap::FillRect(
 }
 
 void FTilemap::Clear() noexcept {
-    for (usize layer = 0u; layer < m_Layers.Size(); ++layer) {
+    for (usize layer = 0u; layer < m_Layers.Num(); ++layer) {
         TArray<FTileId>& buffer = m_Layers[layer];
-        for (usize i = 0u; i < buffer.Size(); ++i) buffer[i] = FTileId{};
+        for (usize i = 0u; i < buffer.Num(); ++i) buffer[i] = FTileId{};
     }
 }
 
@@ -517,7 +517,7 @@ bool FTilemap::WorldToTile(
 }
 
 const FTileId* FTilemap::LayerData(u32 layer) const noexcept {
-    return layer < m_Layers.Size() ? m_Layers[layer].Data() : nullptr;
+    return layer < m_Layers.Num() ? m_Layers[layer].GetData() : nullptr;
 }
 
 } // namespace acs::game

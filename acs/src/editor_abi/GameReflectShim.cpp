@@ -116,7 +116,7 @@ GR_API int acs_game_scene_add_node(void* scene, int parent_idx) noexcept {
     ANode* parent = (parent_idx >= 0 && static_cast<unsigned>(parent_idx) < s->nodes.Size())
                           ? s->nodes[static_cast<u32>(parent_idx)] : s->root.Get();
     ANode& child = parent->AddChild(NewObject<ANode>());
-    s->nodes.PushBack(&child);
+    s->nodes.Add(&child);
     return static_cast<int>(s->nodes.Size()) - 1;
 }
 

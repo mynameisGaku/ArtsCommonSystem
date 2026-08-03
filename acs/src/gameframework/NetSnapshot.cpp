@@ -1302,7 +1302,7 @@ TResult<void> CNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size, FSnapshot
         return ACS_ERR(IO, FNetSnapshotError::kSub_FrameTooLarge,
                        "CNetSnapshot::DecodeSnapshot: frame exceeds the product limit");
     }
-    if (ByteRangesOverlap(buffer, size, out_payload.Data(), out_payload.Capacity())) {
+    if (ByteRangesOverlap(buffer, size, out_payload.GetData(), out_payload.Max())) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument,
                        "CNetSnapshot::DecodeSnapshot: input frame aliases output payload storage");
     }
@@ -1351,12 +1351,12 @@ TResult<void> CNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size, FSnapshot
     }
 
     // ---- payload を復元 (置換) ------------------------------------------
-    if (!out_payload.TryResize(static_cast<usize>(hdr.payload_size))) {
+    if (!out_payload.TrySetNum(static_cast<usize>(hdr.payload_size))) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
                        "CNetSnapshot::DecodeSnapshot: output payload allocation failed");
     }
     if (hdr.payload_size > 0) {
-        MemCopy(out_payload.Data(), buffer + kPayloadOffset, static_cast<usize>(hdr.payload_size));
+        MemCopy(out_payload.GetData(), buffer + kPayloadOffset, static_cast<usize>(hdr.payload_size));
     }
 
     // footer の CRC を header に復元して返す (呼出側が保持できるように)。
@@ -1400,7 +1400,7 @@ TResult<void> CNetSnapshot::TryInit(const FNetSnapshotConfig& config, ENetRole r
     }
 
     TArray<FBufferedSnapshot> staged_ring;
-    if (!staged_ring.TryResize(static_cast<usize>(config.buffer_capacity_snapshots))) {
+    if (!staged_ring.TrySetNum(static_cast<usize>(config.buffer_capacity_snapshots))) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
                        "CNetSnapshot::TryInit: ring buffer allocation failed");
     }
@@ -1411,8 +1411,8 @@ TResult<void> CNetSnapshot::TryInit(const FNetSnapshotConfig& config, ENetRole r
                       ? transport
                       : (transport != nullptr ? transport : &GetTransportStub());
     m_RingBuffer = Move(staged_ring);
-    m_PendingEntities.Clear();
-    m_InterpScratch.Clear();
+    m_PendingEntities.Reset();
+    m_InterpScratch.Reset();
     m_RingHead = 0;
     m_RingCount = 0;
     m_NextSequence = 1;
@@ -1430,9 +1430,9 @@ TResult<void> CNetSnapshot::TryInit(const FNetSnapshotConfig& config, ENetRole r
 /** ring buffer / pending / scratch を解放する (transport は外部所有なので触らない)。 */
 void CNetSnapshot::Shutdown() noexcept
 {
-    m_RingBuffer.Clear();
-    m_PendingEntities.Clear();
-    m_InterpScratch.Clear();
+    m_RingBuffer.Reset();
+    m_PendingEntities.Reset();
+    m_InterpScratch.Reset();
     m_RingHead = 0;
     m_RingCount = 0;
     m_Transport = nullptr;
@@ -1472,7 +1472,7 @@ TResult<void> CNetSnapshot::TryAddEntitySnapshot(u32 entity_id, u32 component_ma
                        "CNetSnapshot::TryAddEntitySnapshot: invalid entity id or data pointer");
     }
     const u64 next_payload_size = static_cast<u64>(m_PendingPayloadBytes) + kEntityHeaderSize + data_size;
-    if (m_PendingEntities.Size() >= kNetSnapshotMaximumPendingEntities ||
+    if (m_PendingEntities.Num() >= kNetSnapshotMaximumPendingEntities ||
         next_payload_size > m_Config.max_payload_bytes) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_PendingLimit,
                        "CNetSnapshot::TryAddEntitySnapshot: pending snapshot limit exceeded");
@@ -1481,14 +1481,14 @@ TResult<void> CNetSnapshot::TryAddEntitySnapshot(u32 entity_id, u32 component_ma
     FPendingEntity pe{};
     pe.entity_id = entity_id;
     pe.component_mask = component_mask;
-    if (data_size > 0 && !pe.data.TryResize(static_cast<usize>(data_size))) {
+    if (data_size > 0 && !pe.data.TrySetNum(static_cast<usize>(data_size))) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
                        "CNetSnapshot::TryAddEntitySnapshot: component allocation failed");
     }
     if (data_size > 0) {
-        MemCopy(pe.data.Data(), data, data_size);
+        MemCopy(pe.data.GetData(), data, data_size);
     }
-    if (!m_PendingEntities.TryPushBack(Move(pe))) {
+    if (!m_PendingEntities.TryAdd(Move(pe))) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
                        "CNetSnapshot::TryAddEntitySnapshot: pending list allocation failed");
     }
@@ -1501,7 +1501,7 @@ void CNetSnapshot::CommitSnapshot(u32 tick) noexcept
 {
     if (TryCommitSnapshot(tick).IsErr()) {
         // 互換 API は従来どおり best-effort で 1 tick 分を消費する。
-        m_PendingEntities.Clear();
+        m_PendingEntities.Reset();
         m_PendingPayloadBytes = 0;
     }
 }
@@ -1519,15 +1519,15 @@ TResult<void> CNetSnapshot::TryCommitSnapshot(u32 tick) noexcept
     }
     if (m_PendingPayloadBytes > m_Config.max_payload_bytes ||
         m_PendingPayloadBytes > kNetSnapshotMaximumPayloadBytes ||
-        m_PendingEntities.Size() > kNetSnapshotMaximumPendingEntities) {
+        m_PendingEntities.Num() > kNetSnapshotMaximumPendingEntities) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_PendingLimit,
                        "CNetSnapshot::TryCommitSnapshot: pending state exceeds configured bounds");
     }
 
     u64 verified_payload_size = 0;
-    const usize n_ent = m_PendingEntities.Size();
+    const usize n_ent = m_PendingEntities.Num();
     for (usize i = 0; i < n_ent; ++i) {
-        const usize data_size = m_PendingEntities[i].data.Size();
+        const usize data_size = m_PendingEntities[i].data.Num();
         if (data_size > ~u32{0}) {
             return ACS_ERR(IO, FNetSnapshotError::kSub_BadEntityPayload,
                            "CNetSnapshot::TryCommitSnapshot: entity payload exceeds wire integer range");
@@ -1540,20 +1540,20 @@ TResult<void> CNetSnapshot::TryCommitSnapshot(u32 tick) noexcept
     }
 
     TArray<u8> payload_buf;
-    if (!payload_buf.TryResize(static_cast<usize>(m_PendingPayloadBytes))) {
+    if (!payload_buf.TrySetNum(static_cast<usize>(m_PendingPayloadBytes))) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
                        "CNetSnapshot::TryCommitSnapshot: payload allocation failed");
     }
-    u8* payload_ptr = payload_buf.Data();
+    u8* payload_ptr = payload_buf.GetData();
     usize off = 0;
     for (usize i = 0; i < n_ent; ++i) {
         const FPendingEntity& pe = m_PendingEntities[i];
-        const u32 data_size = static_cast<u32>(pe.data.Size());
+        const u32 data_size = static_cast<u32>(pe.data.Num());
         WriteU32LE(payload_ptr + off + 0, pe.entity_id);
         WriteU32LE(payload_ptr + off + 4, pe.component_mask);
         WriteU32LE(payload_ptr + off + 8, data_size);
         if (data_size > 0) {
-            MemCopy(payload_ptr + off + kEntityHeaderSize, pe.data.Data(), data_size);
+            MemCopy(payload_ptr + off + kEntityHeaderSize, pe.data.GetData(), data_size);
         }
         off += static_cast<usize>(kEntityHeaderSize) + static_cast<usize>(data_size);
     }
@@ -1568,13 +1568,13 @@ TResult<void> CNetSnapshot::TryCommitSnapshot(u32 tick) noexcept
 
     TArray<u8> wire_buf;
     const u32 frame_size = EncodedSnapshotSize(m_PendingPayloadBytes);
-    if (!wire_buf.TryResize(static_cast<usize>(frame_size))) {
+    if (!wire_buf.TrySetNum(static_cast<usize>(frame_size))) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
                        "CNetSnapshot::TryCommitSnapshot: frame allocation failed");
     }
     u32 written = 0;
     TResult<void> enc =
-        EncodeSnapshot(hdr, payload_ptr, m_PendingPayloadBytes, wire_buf.Data(), frame_size, written);
+        EncodeSnapshot(hdr, payload_ptr, m_PendingPayloadBytes, wire_buf.GetData(), frame_size, written);
     if (enc.IsErr()) {
         return enc;
     }
@@ -1582,15 +1582,15 @@ TResult<void> CNetSnapshot::TryCommitSnapshot(u32 tick) noexcept
     FSnapshotHeader loopback_header{};
     TArray<u8> loopback_payload;
     if (m_Role == ENetRole::ServerListener) {
-        TResult<void> dec = DecodeSnapshot(wire_buf.Data(), written, loopback_header, loopback_payload);
+        TResult<void> dec = DecodeSnapshot(wire_buf.GetData(), written, loopback_header, loopback_payload);
         if (dec.IsErr()) return dec;
-        if (!IsCanonicalEntityPayload(loopback_payload.Data(), static_cast<u32>(loopback_payload.Size()))) {
+        if (!IsCanonicalEntityPayload(loopback_payload.GetData(), static_cast<u32>(loopback_payload.Num()))) {
             return ACS_ERR(IO, FNetSnapshotError::kSub_BadEntityPayload,
                            "CNetSnapshot::TryCommitSnapshot: generated entity payload is noncanonical");
         }
     }
 
-    TResult<void> sent = m_Transport->Send(wire_buf.Data(), written);
+    TResult<void> sent = m_Transport->Send(wire_buf.GetData(), written);
     if (sent.IsErr()) return sent;
 
     SaturatingAdd(m_PacketsSent, 1u);
@@ -1608,7 +1608,7 @@ TResult<void> CNetSnapshot::TryCommitSnapshot(u32 tick) noexcept
         m_LastReceivedTick = loopback_header.tick;
     }
 
-    m_PendingEntities.Clear();
+    m_PendingEntities.Reset();
     m_PendingPayloadBytes = 0;
     return Ok();
 }
@@ -1636,14 +1636,14 @@ FNetSnapshotTickResult CNetSnapshot::TryTick(f32 dt) noexcept
     if (m_Config.max_payload_bytes == 0 || m_Config.max_payload_bytes > kNetSnapshotMaximumPayloadBytes ||
         m_Config.buffer_capacity_snapshots < 2u ||
         m_Config.buffer_capacity_snapshots > kNetSnapshotMaximumRingCapacity ||
-        m_RingBuffer.Size() != m_Config.buffer_capacity_snapshots) {
+        m_RingBuffer.Num() != m_Config.buffer_capacity_snapshots) {
         result.stop_subcode = FNetSnapshotError::kSub_InvalidConfig;
         return result;
     }
 
     const u32 cap = kFrameFixedOverhead + m_Config.max_payload_bytes;
     TArray<u8> rx_buf;
-    if (!rx_buf.TryResize(static_cast<usize>(cap))) {
+    if (!rx_buf.TrySetNum(static_cast<usize>(cap))) {
         result.stop_subcode = FNetSnapshotError::kSub_AllocationFailed;
         return result;
     }
@@ -1651,7 +1651,7 @@ FNetSnapshotTickResult CNetSnapshot::TryTick(f32 dt) noexcept
     u32 max_iters = m_Config.buffer_capacity_snapshots * 2u;
     if (max_iters > kNetSnapshotMaximumReceivesPerTick) max_iters = kNetSnapshotMaximumReceivesPerTick;
     for (u32 iter = 0; iter < max_iters; ++iter) {
-        TResult<u32> r = m_Transport->Receive(rx_buf.Data(), cap);
+        TResult<u32> r = m_Transport->Receive(rx_buf.GetData(), cap);
         if (r.IsErr()) {
             result.stop_subcode = r.Error().subcode != 0 ? r.Error().subcode : FNetSnapshotError::kSub_RecvFailed;
             break;
@@ -1676,7 +1676,7 @@ FNetSnapshotTickResult CNetSnapshot::TryTick(f32 dt) noexcept
 
         TArray<u8> staged_payload;
         FSnapshotHeader hdr{};
-        TResult<void> dec = DecodeSnapshot(rx_buf.Data(), got, hdr, staged_payload);
+        TResult<void> dec = DecodeSnapshot(rx_buf.GetData(), got, hdr, staged_payload);
         if (dec.IsErr()) {
             SaturatingAdd(result.rejected_messages, 1u);
             SaturatingAdd(m_RejectedPackets, 1u);
@@ -1687,7 +1687,7 @@ FNetSnapshotTickResult CNetSnapshot::TryTick(f32 dt) noexcept
             }
             continue;
         }
-        if (!IsCanonicalEntityPayload(staged_payload.Data(), static_cast<u32>(staged_payload.Size()))) {
+        if (!IsCanonicalEntityPayload(staged_payload.GetData(), static_cast<u32>(staged_payload.Num()))) {
             SaturatingAdd(result.rejected_messages, 1u);
             SaturatingAdd(m_RejectedPackets, 1u);
             result.last_rejected_subcode = FNetSnapshotError::kSub_BadEntityPayload;
@@ -1741,12 +1741,12 @@ bool CNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec, FEntitySnapsh
     (void)client_time_sec;
 
     const FSnapshotHeader& hdr = newest.header;
-    const u8* payload_ptr = newest.payload.Data();
-    if (newest.payload.Size() > kNetSnapshotMaximumPayloadBytes ||
-        newest.payload.Size() != static_cast<usize>(hdr.payload_size)) {
+    const u8* payload_ptr = newest.payload.GetData();
+    if (newest.payload.Num() > kNetSnapshotMaximumPayloadBytes ||
+        newest.payload.Num() != static_cast<usize>(hdr.payload_size)) {
         return false;
     }
-    const u32 payload_size = static_cast<u32>(newest.payload.Size());
+    const u32 payload_size = static_cast<u32>(newest.payload.Num());
     if (!IsCanonicalEntityPayload(payload_ptr, payload_size)) return false;
 
     // payload を per-entity wire format で walk して EntitySnapshot に流す。

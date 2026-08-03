@@ -145,12 +145,12 @@ void FloodFill(class FTilemap& map, u32 layer,
     // 再帰だと巨大マップで stack overflow するため明示スタックを使う。
     TArray<u32> stack;
     stack.Reserve(64u);
-    stack.PushBack(sy * w + sx);
+    stack.Add(sy * w + sx);
 
     u32 processed = 0u;
-    while (stack.Size() > 0u && processed < max_cells) {
-        const u32 idx = stack[stack.Size() - 1u];
-        stack.PopBack();
+    while (stack.Num() > 0u && processed < max_cells) {
+        const u32 idx = stack[stack.Num() - 1u];
+        stack.Pop();
 
         const u32 cx = idx % w;
         const u32 cy = idx / w;
@@ -164,13 +164,13 @@ void FloodFill(class FTilemap& map, u32 layer,
         // 4-neighbor を push (範囲チェックは GetTile/SetTile 側でも弾かれるが、
         // スタックに無駄な要素を積まないようここで境界チェック)。
         if (cx + 1u < w && map.GetTile(cx + 1u, cy, layer).value == start_id)
-            stack.PushBack(cy * w + (cx + 1u));
+            stack.Add(cy * w + (cx + 1u));
         if (cx > 0u       && map.GetTile(cx - 1u, cy, layer).value == start_id)
-            stack.PushBack(cy * w + (cx - 1u));
+            stack.Add(cy * w + (cx - 1u));
         if (cy + 1u < h && map.GetTile(cx, cy + 1u, layer).value == start_id)
-            stack.PushBack((cy + 1u) * w + cx);
+            stack.Add((cy + 1u) * w + cx);
         if (cy > 0u       && map.GetTile(cx, cy - 1u, layer).value == start_id)
-            stack.PushBack((cy - 1u) * w + cx);
+            stack.Add((cy - 1u) * w + cx);
     }
 }
 

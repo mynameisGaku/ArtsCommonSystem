@@ -10,20 +10,20 @@ namespace acs::game {
 
 u32 CLapTimer::AcquireSlot() noexcept {
     // index 0 を invalid 予約として残す (dummy slot)。
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {
         if (!m_Slots[i].active) return i;
     }
     if (m_Slots.IsEmpty()) {
-        m_Slots.PushBack({});   // dummy at index 0
+        m_Slots.Add({});   // dummy at index 0
     }
-    m_Slots.PushBack({});
-    return static_cast<u32>(m_Slots.Size()) - 1u;
+    m_Slots.Add({});
+    return static_cast<u32>(m_Slots.Num()) - 1u;
 }
 
 CLapTimer::FSlot* CLapTimer::FindSlot(FRacerId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx == 0 || idx >= m_Slots.Size()) return nullptr;
+    if (idx == 0 || idx >= m_Slots.Num()) return nullptr;
     FSlot& s = m_Slots[idx];
     if (!s.active) return nullptr;
     if (s.gen != id.Generation()) return nullptr;
@@ -33,7 +33,7 @@ CLapTimer::FSlot* CLapTimer::FindSlot(FRacerId id) noexcept {
 const CLapTimer::FSlot* CLapTimer::FindSlot(FRacerId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx == 0 || idx >= m_Slots.Size()) return nullptr;
+    if (idx == 0 || idx >= m_Slots.Num()) return nullptr;
     const FSlot& s = m_Slots[idx];
     if (!s.active) return nullptr;
     if (s.gen != id.Generation()) return nullptr;
@@ -62,7 +62,7 @@ void CLapTimer::Init(u32 total_laps, u32 checkpoints_per_lap) noexcept {
     m_FinishedCount      = 0;
 
     // racer 一覧は維持。各 stats の進捗だけリセットする。
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 1; i < n; ++i) {
         FSlot& s = m_Slots[i];
         if (!s.active) continue;
@@ -71,7 +71,7 @@ void CLapTimer::Init(u32 total_laps, u32 checkpoints_per_lap) noexcept {
         s.stats.total_time_sec     = 0.0f;
         s.stats.best_lap_time_sec  = 0.0f;
         s.stats.racer_position     = 0;
-        s.records.Clear();
+        s.records.Reset();
         s.expected_checkpoint      = 0;
         s.lap_start_time           = 0.0f;
         s.finished                 = false;
@@ -90,7 +90,7 @@ FRacerId CLapTimer::AddRacer(const char* display_name) noexcept {
     s.finished                 = false;
     s.expected_checkpoint      = 0;
     s.lap_start_time           = 0.0f;
-    s.records.Clear();
+    s.records.Reset();
 
     s.stats.display_name       = display_name;
     s.stats.current_lap        = 0;
@@ -111,7 +111,7 @@ void CLapTimer::RemoveRacer(FRacerId id) noexcept {
     s->finished                 = false;
     s->expected_checkpoint      = 0;
     s->lap_start_time           = 0.0f;
-    s->records.Clear();
+    s->records.Reset();
     s->stats.display_name       = nullptr;
     s->stats.current_lap        = 0;
     s->stats.checkpoints_passed = 0;
@@ -126,7 +126,7 @@ void CLapTimer::Start() noexcept {
     m_RaceTimeSec  = 0.0f;
     m_FinishedCount = 0;
 
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 1; i < n; ++i) {
         FSlot& s = m_Slots[i];
         if (!s.active) continue;
@@ -135,7 +135,7 @@ void CLapTimer::Start() noexcept {
         s.stats.total_time_sec     = 0.0f;
         s.stats.best_lap_time_sec  = 0.0f;
         s.stats.racer_position     = 0;
-        s.records.Clear();
+        s.records.Reset();
         s.expected_checkpoint      = 0;
         s.lap_start_time           = 0.0f;
         s.finished                 = false;
@@ -207,7 +207,7 @@ void CLapTimer::NotifyLapCompleted(FRacerId id) noexcept {
     rec.lap_time_sec     = lap_time;
     rec.split_time_sec   = m_RaceTimeSec;
     rec.is_personal_best = is_pb;
-    s->records.PushBack(rec);
+    s->records.Add(rec);
 
     // 次ラップ準備。
     s->stats.current_lap        = lap_number;
@@ -238,7 +238,7 @@ void CLapTimer::Tick(f32 dt) noexcept {
     m_RaceTimeSec += dt;
 
     // フィニッシュ未確定の racer のみ total_time を進める。
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 1; i < n; ++i) {
         FSlot& s = m_Slots[i];
         if (!s.active) continue;
@@ -260,7 +260,7 @@ const FRacerStats* CLapTimer::GetStats(FRacerId id) const noexcept {
 FRacerId CLapTimer::GetLeader() const noexcept {
     // フィニッシュ済 racer が居れば、その中で racer_position == 1 を返す。
     // 未フィニッシュ集合は IsBetterRank で best を選ぶ。
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
 
     // 既ゴール組から 1 位を探す。
     for (usize i = 1; i < n; ++i) {
@@ -298,7 +298,7 @@ u32 CLapTimer::PositionOf(FRacerId id) const noexcept {
     // 走行中: 自分より上位の racer 数 + 1 (フィニッシュ済 + 走行中ベター両方)。
     // フィニッシュ済はすべて走行中より上位とみなす (ゴール順位確定済のため)。
     u32 better = 0;
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 1; i < n; ++i) {
         const FSlot& s = m_Slots[i];
         if (!s.active) continue;
@@ -318,13 +318,13 @@ u32 CLapTimer::PositionOf(FRacerId id) const noexcept {
 u32 CLapTimer::LapRecordCount(FRacerId id) const noexcept {
     const FSlot* s = FindSlot(id);
     if (s == nullptr) return 0;
-    return static_cast<u32>(s->records.Size());
+    return static_cast<u32>(s->records.Num());
 }
 
 const FLapRecord* CLapTimer::GetLapRecord(FRacerId id, u32 lap_index) const noexcept {
     const FSlot* s = FindSlot(id);
     if (s == nullptr) return nullptr;
-    if (static_cast<usize>(lap_index) >= s->records.Size()) return nullptr;
+    if (static_cast<usize>(lap_index) >= s->records.Num()) return nullptr;
     return &s->records[lap_index];
 }
 
@@ -339,7 +339,7 @@ void CLapTimer::SetOnFinishCallback(FinishCallback cb, void* user) noexcept {
 }
 
 void CLapTimer::ClearAll() noexcept {
-    m_Slots.Clear();
+    m_Slots.Reset();
     m_RacerCount    = 0;
     _state          = EState::Stopped;
     m_RaceTimeSec  = 0.0f;

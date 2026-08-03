@@ -383,14 +383,14 @@ void CDx12Device::ReleaseRetiredResource(
     if (retired.srv_slot >= 0) FreeSrvSlot(retired.srv_slot);
     if (retired.uav_slot >= 0) FreeSrvSlot(retired.uav_slot);
     if (retired.dsv_slot >= 0) FreeDsvSlot(retired.dsv_slot);
-    for (usize i = 0; i < retired.rtv_slots.Size(); ++i) {
+    for (usize i = 0; i < retired.rtv_slots.Num(); ++i) {
         if (retired.rtv_slots[i] >= 0)
             FreeRtvSlot(retired.rtv_slots[i]);
     }
     retired.srv_slot = -1;
     retired.uav_slot = -1;
     retired.dsv_slot = -1;
-    retired.rtv_slots.ReleaseStorage();
+    retired.rtv_slots.Empty();
     ACS_SAFE_RELEASE(retired.resource);
     retired.fence_value = 0u;
 }
@@ -398,9 +398,9 @@ void CDx12Device::ReleaseRetiredResource(
 void CDx12Device::ReleaseAllRetiredResources() noexcept
 {
     FExclusiveLockGuard retirement_guard(m_RetirementLock);
-    for (usize i = 0; i < m_RetiredResources.Size(); ++i)
+    for (usize i = 0; i < m_RetiredResources.Num(); ++i)
         ReleaseRetiredResource(m_RetiredResources[i]);
-    m_RetiredResources.Clear();
+    m_RetiredResources.Reset();
     for (u32 i = 0u; i < m_EmergencyRetiredResourceCount; ++i)
         ReleaseRetiredResource(m_EmergencyRetiredResources[i]);
     m_EmergencyRetiredResourceCount = 0u;
@@ -417,12 +417,12 @@ void CDx12Device::AbandonAllRetiredResources() noexcept
         retired.srv_slot = -1;
         retired.uav_slot = -1;
         retired.dsv_slot = -1;
-        retired.rtv_slots.ReleaseStorage();
+        retired.rtv_slots.Empty();
         retired.fence_value = 0u;
     };
-    for (usize i = 0; i < m_RetiredResources.Size(); ++i)
+    for (usize i = 0; i < m_RetiredResources.Num(); ++i)
         abandon(m_RetiredResources[i]);
-    m_RetiredResources.ReleaseStorage();
+    m_RetiredResources.Empty();
     for (u32 i = 0u; i < m_EmergencyRetiredResourceCount; ++i)
         abandon(m_EmergencyRetiredResources[i]);
     m_EmergencyRetiredResourceCount = 0u;
@@ -439,7 +439,7 @@ void CDx12Device::QueueRetiredResource(
 
     {
         FExclusiveLockGuard retirement_guard(m_RetirementLock);
-        if (m_RetiredResources.TryPushBack(Move(retired))) return;
+        if (m_RetiredResources.TryAdd(Move(retired))) return;
         if (m_EmergencyRetiredResourceCount <
             kEmergencyRetirementCapacity) {
             m_EmergencyRetiredResources[
@@ -457,7 +457,7 @@ void CDx12Device::QueueRetiredResource(
     retired.srv_slot = -1;
     retired.uav_slot = -1;
     retired.dsv_slot = -1;
-    retired.rtv_slots.ReleaseStorage();
+    retired.rtv_slots.Empty();
     retired.fence_value = 0u;
 }
 
@@ -488,7 +488,7 @@ void CDx12Device::CollectRetiredResources() noexcept
     if (m_IdleFence == nullptr) return;
     const u64 completed = m_IdleFence->GetCompletedValue();
     FExclusiveLockGuard retirement_guard(m_RetirementLock);
-    for (usize i = m_RetiredResources.Size(); i-- > 0u;) {
+    for (usize i = m_RetiredResources.Num(); i-- > 0u;) {
         FRetiredResource& retired = m_RetiredResources[i];
         if (retired.fence_value == 0u ||
             (completed != static_cast<u64>(-1) &&
@@ -517,7 +517,7 @@ void CDx12Device::CollectRetiredResources() noexcept
 usize CDx12Device::RetiredResourceCount() noexcept
 {
     FExclusiveLockGuard retirement_guard(m_RetirementLock);
-    return m_RetiredResources.Size() +
+    return m_RetiredResources.Num() +
            static_cast<usize>(m_EmergencyRetiredResourceCount);
 }
 
@@ -662,7 +662,7 @@ u64 CDx12Device::SignalGraphicsQueueLocked() noexcept
 void CDx12Device::SealPendingRetirements(u64 fence_value) noexcept
 {
     if (fence_value == 0u) return;
-    for (usize i = 0; i < m_RetiredResources.Size(); ++i) {
+    for (usize i = 0; i < m_RetiredResources.Num(); ++i) {
         if (m_RetiredResources[i].fence_value == 0u)
             m_RetiredResources[i].fence_value = fence_value;
     }

@@ -49,16 +49,16 @@ int main() {
 
         TArray<FShapeId> hits;
         world.OverlapCircle(FCircle{FVec2{0, 0}, 3.0f}, hits, {}, kWall);
-        Check(hits.Size() == 1, "mask=Wall -> 1 hit");
+        Check(hits.Num() == 1, "mask=Wall -> 1 hit");
         world.OverlapCircle(FCircle{FVec2{0, 0}, 3.0f}, hits, {}, kPickup);
-        Check(hits.Size() == 1, "mask=Pickup -> 1 hit");
+        Check(hits.Num() == 1, "mask=Pickup -> 1 hit");
         world.OverlapCircle(FCircle{FVec2{0, 0}, 3.0f}, hits, {}, kWall | kPickup);
-        Check(hits.Size() == 2, "mask=Wall|Pickup -> 2 hits");
+        Check(hits.Num() == 2, "mask=Wall|Pickup -> 2 hits");
         world.OverlapCircle(FCircle{FVec2{0, 0}, 3.0f}, hits, {}, kEnemy);
-        Check(hits.Size() == 0, "mask=Enemy -> 0 hits");
+        Check(hits.Num() == 0, "mask=Enemy -> 0 hits");
         // default mask = all → both
         world.OverlapCircle(FCircle{FVec2{0, 0}, 3.0f}, hits);
-        Check(hits.Size() == 2, "mask=default(all) -> 2 hits");
+        Check(hits.Num() == 2, "mask=default(all) -> 2 hits");
     }
 
     // ---- 2) node tree + world.Tick 経由の ATriggerComponent enter/exit ----

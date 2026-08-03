@@ -13,7 +13,7 @@ u32 CSceneEventBus::Subscribe(FEventId id, HandlerFn fn, void* user) noexcept {
 
     // 既に inactive になっている Entry があれば再利用してメモリを節約。
     // Publish 中の再エントランシ安全性のため、Entry の物理削除はしない設計。
-    for (usize i = 0; i < m_Entries.Size(); ++i) {
+    for (usize i = 0; i < m_Entries.Num(); ++i) {
         FEntry& e = m_Entries[i];
         if (!e.active) {
             // handle は新規発行 (古い handle で Unsubscribe されても誤爆しないように)
@@ -37,14 +37,14 @@ u32 CSceneEventBus::Subscribe(FEventId id, HandlerFn fn, void* user) noexcept {
     e.user   = user;
     e.handle = h;
     e.active = true;
-    m_Entries.PushBack(e);
+    m_Entries.Add(e);
     return h;
 }
 
 /** handle に対応する entry を inactive 化する (物理削除はしない、二重解除は静かに無視)。 */
 void CSceneEventBus::Unsubscribe(u32 handle) noexcept {
     if (handle == 0u) return;  // invalid handle は静かに無視 (RAII 解除パスで頻出)
-    for (usize i = 0; i < m_Entries.Size(); ++i) {
+    for (usize i = 0; i < m_Entries.Num(); ++i) {
         FEntry& e = m_Entries[i];
         if (e.handle == handle && e.active) {
             e.active = false;
@@ -59,11 +59,11 @@ void CSceneEventBus::Unsubscribe(u32 handle) noexcept {
 void CSceneEventBus::Publish(FEventId id, const void* payload, u32 payload_size) noexcept {
     // 走査範囲を呼び出し時点で固定。Publish 中に Subscribe された Entry は
     // 次回以降の Publish で呼ばれる (循環 publish の防止にもなる)。
-    const usize snapshot_size = m_Entries.Size();
+    const usize snapshot_size = m_Entries.Num();
     for (usize i = 0; i < snapshot_size; ++i) {
         // ハンドラが ClearAll() で m_Entries を縮めると、固定 snapshot_size の i が現サイズを
         // 超えて OOB になる。各反復で現在サイズをガードする。
-        if (i >= m_Entries.Size()) break;
+        if (i >= m_Entries.Num()) break;
         FEntry& e = m_Entries[i];
         if (!e.active) continue;
         if (e.id != id) continue;
@@ -82,7 +82,7 @@ void CSceneEventBus::Publish(FEventId id, const void* payload, u32 payload_size)
 /** 指定 id の active な subscriber 数を返す。 */
 u32 CSceneEventBus::SubscriberCount(FEventId id) const noexcept {
     u32 count = 0u;
-    for (usize i = 0; i < m_Entries.Size(); ++i) {
+    for (usize i = 0; i < m_Entries.Num(); ++i) {
         const FEntry& e = m_Entries[i];
         if (e.active && e.id == id) ++count;
     }
@@ -91,7 +91,7 @@ u32 CSceneEventBus::SubscriberCount(FEventId id) const noexcept {
 
 /** 全 entry を破棄する (m_NextHandle はリセットせず単調増加を維持)。 */
 void CSceneEventBus::ClearAll() noexcept {
-    m_Entries.Clear();
+    m_Entries.Reset();
     // m_NextHandle はリセットしない: ClearAll 後も以前払い出した handle と
     // 衝突しないように単調増加を維持。
 }

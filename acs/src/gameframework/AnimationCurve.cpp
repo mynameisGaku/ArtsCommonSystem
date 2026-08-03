@@ -87,7 +87,7 @@ const char* FAnimationCurveResult::ErrorName(
  */
 static u32 LowerBoundByTime(const TArray<FCurveKey>& keys, f32 time) noexcept {
     u32 lo = 0;
-    u32 hi = static_cast<u32>(keys.Size());
+    u32 hi = static_cast<u32>(keys.Num());
     while (lo < hi) {
         const u32 mid = lo + (hi - lo) / 2u;
         if (keys[mid].time < time) lo = mid + 1u;
@@ -99,7 +99,7 @@ static u32 LowerBoundByTime(const TArray<FCurveKey>& keys, f32 time) noexcept {
 FAnimationCurveResult FAnimationCurve::TryAddKey(
     f32 time, f32 value, ECurveInterpolation interp) noexcept {
     FAnimationCurveResult result{};
-    result.key_count = static_cast<u32>(m_Keys.Size());
+    result.key_count = static_cast<u32>(m_Keys.Num());
     if (!IsFiniteCurveValue(time) || !IsFiniteCurveValue(value)) {
         result.error = EAnimationCurveError::NonFiniteValue;
         return result;
@@ -110,13 +110,13 @@ FAnimationCurveResult FAnimationCurve::TryAddKey(
     }
 
     const u32 pos = LowerBoundByTime(m_Keys, time);
-    if (pos < m_Keys.Size() && m_Keys[pos].time == time) {
+    if (pos < m_Keys.Num() && m_Keys[pos].time == time) {
         m_Keys[pos].value      = value;
         m_Keys[pos].out_interp = interp;
         result.key_index = pos;
         return result;
     }
-    if (m_Keys.Size() >= kMaxKeys) {
+    if (m_Keys.Num() >= kMaxKeys) {
         result.error = EAnimationCurveError::TooManyKeys;
         return result;
     }
@@ -128,18 +128,18 @@ FAnimationCurveResult FAnimationCurve::TryAddKey(
     k.out_interp  = interp;
     k.in_tangent  = 0.0f;
     k.out_tangent = 0.0f;
-    if (!m_Keys.TryPushBack(k)) {
+    if (!m_Keys.TryAdd(k)) {
         result.error = EAnimationCurveError::AllocationFailure;
         return result;
     }
 
-    for (u32 i = static_cast<u32>(m_Keys.Size()) - 1u; i > pos; --i) {
+    for (u32 i = static_cast<u32>(m_Keys.Num()) - 1u; i > pos; --i) {
         const FCurveKey tmp = m_Keys[i];
         m_Keys[i]     = m_Keys[i - 1u];
         m_Keys[i - 1u] = tmp;
     }
     result.key_index = pos;
-    result.key_count = static_cast<u32>(m_Keys.Size());
+    result.key_count = static_cast<u32>(m_Keys.Num());
     return result;
 }
 
@@ -152,7 +152,7 @@ FAnimationCurveResult FAnimationCurve::TryAddKeyHermite(
     f32 time, f32 value,
     f32 in_tangent, f32 out_tangent) noexcept {
     FAnimationCurveResult result{};
-    result.key_count = static_cast<u32>(m_Keys.Size());
+    result.key_count = static_cast<u32>(m_Keys.Num());
     if (!IsFiniteCurveValue(time) || !IsFiniteCurveValue(value) ||
         !IsFiniteCurveValue(in_tangent) ||
         !IsFiniteCurveValue(out_tangent)) {
@@ -161,7 +161,7 @@ FAnimationCurveResult FAnimationCurve::TryAddKeyHermite(
     }
 
     const u32 pos = LowerBoundByTime(m_Keys, time);
-    if (pos < m_Keys.Size() && m_Keys[pos].time == time) {
+    if (pos < m_Keys.Num() && m_Keys[pos].time == time) {
         m_Keys[pos].value       = value;
         m_Keys[pos].in_tangent  = in_tangent;
         m_Keys[pos].out_tangent = out_tangent;
@@ -170,7 +170,7 @@ FAnimationCurveResult FAnimationCurve::TryAddKeyHermite(
         result.key_index = pos;
         return result;
     }
-    if (m_Keys.Size() >= kMaxKeys) {
+    if (m_Keys.Num() >= kMaxKeys) {
         result.error = EAnimationCurveError::TooManyKeys;
         return result;
     }
@@ -182,18 +182,18 @@ FAnimationCurveResult FAnimationCurve::TryAddKeyHermite(
     k.out_tangent = out_tangent;
     k.in_interp   = ECurveInterpolation::Hermite;
     k.out_interp  = ECurveInterpolation::Hermite;
-    if (!m_Keys.TryPushBack(k)) {
+    if (!m_Keys.TryAdd(k)) {
         result.error = EAnimationCurveError::AllocationFailure;
         return result;
     }
 
-    for (u32 i = static_cast<u32>(m_Keys.Size()) - 1u; i > pos; --i) {
+    for (u32 i = static_cast<u32>(m_Keys.Num()) - 1u; i > pos; --i) {
         const FCurveKey tmp = m_Keys[i];
         m_Keys[i]      = m_Keys[i - 1u];
         m_Keys[i - 1u] = tmp;
     }
     result.key_index = pos;
-    result.key_count = static_cast<u32>(m_Keys.Size());
+    result.key_count = static_cast<u32>(m_Keys.Num());
     return result;
 }
 
@@ -249,7 +249,7 @@ FAnimationCurveResult FAnimationCurve::TrySetKeys(
     }
 
     TArray<FCurveKey> staged(*m_Keys.GetAllocator());
-    if (!staged.TryResize(count)) {
+    if (!staged.TrySetNum(count)) {
         result.error = EAnimationCurveError::AllocationFailure;
         return result;
     }
@@ -265,7 +265,7 @@ FAnimationCurveResult FAnimationCurve::TrySetKeys(
 FAnimationCurveResult FAnimationCurve::TrySetEasingPreset(
     Easing::EEasingType type, u32 sample_count) noexcept {
     FAnimationCurveResult result{};
-    result.key_count = static_cast<u32>(m_Keys.Size());
+    result.key_count = static_cast<u32>(m_Keys.Num());
     if (sample_count < 2u || sample_count > kMaxEasingPresetSamples) {
         result.error = EAnimationCurveError::InvalidSampleCount;
         return result;
@@ -276,7 +276,7 @@ FAnimationCurveResult FAnimationCurve::TrySetEasingPreset(
     }
 
     TArray<FCurveKey> staged(*m_Keys.GetAllocator());
-    if (!staged.TryResize(sample_count)) {
+    if (!staged.TrySetNum(sample_count)) {
         result.error = EAnimationCurveError::AllocationFailure;
         return result;
     }
@@ -311,22 +311,22 @@ FAnimationCurveResult FAnimationCurve::TrySetEasingPreset(
 }
 
 void FAnimationCurve::RemoveKey(u32 index) noexcept {
-    if (index >= m_Keys.Size()) return;
+    if (index >= m_Keys.Num()) return;
     // 順序を保つため左詰め (TArray::RemoveAtSwap は順序を崩すので使えない)
-    for (u32 i = index; i + 1u < m_Keys.Size(); ++i) {
+    for (u32 i = index; i + 1u < m_Keys.Num(); ++i) {
         m_Keys[i] = m_Keys[i + 1u];
     }
-    m_Keys.PopBack();
+    m_Keys.Pop();
 }
 
 void FAnimationCurve::ClearKeys() noexcept {
-    m_Keys.Clear();
+    m_Keys.Reset();
 }
 
 FAnimationCurveResult FAnimationCurve::TrySetWrapModes(
     EWrapMode pre_wrap, EWrapMode post_wrap) noexcept {
     FAnimationCurveResult result{};
-    result.key_count = static_cast<u32>(m_Keys.Size());
+    result.key_count = static_cast<u32>(m_Keys.Num());
     if (!IsValidWrapMode(pre_wrap) || !IsValidWrapMode(post_wrap)) {
         result.error = EAnimationCurveError::InvalidWrapMode;
         return result;
@@ -347,15 +347,15 @@ void FAnimationCurve::SetPostWrap(EWrapMode mode) noexcept {
 f32 FAnimationCurve::Duration() const noexcept {
     // 仕様: 「末尾 key の time」を返す。key 0 個では 0。
     // (1 個でも「t==末尾 key.time」を返すことで Evaluate(Duration()) が末尾値になる)
-    if (m_Keys.Size() == 0u) return 0.0f;
-    return m_Keys[m_Keys.Size() - 1u].time;
+    if (m_Keys.Num() == 0u) return 0.0f;
+    return m_Keys[m_Keys.Num() - 1u].time;
 }
 
 f32 FAnimationCurve::ApplyWrap(f32 time) const noexcept {
-    if (m_Keys.Size() < 2u) return time;
+    if (m_Keys.Num() < 2u) return time;
 
     const f32 t0  = m_Keys[0].time;
-    const f32 t1  = m_Keys[m_Keys.Size() - 1u].time;
+    const f32 t1  = m_Keys[m_Keys.Num() - 1u].time;
     const f32 dur = t1 - t0;
     if (dur <= 0.0f) return t0;
 
@@ -407,7 +407,7 @@ f32 FAnimationCurve::ApplyWrap(f32 time) const noexcept {
 
 u32 FAnimationCurve::FindSegmentIndex(f32 time) const noexcept {
     // 戻り値は左端 key の index。呼び出し側は m_Keys.Size() >= 2 を保証する。
-    const u32 n = static_cast<u32>(m_Keys.Size());
+    const u32 n = static_cast<u32>(m_Keys.Num());
     if (time <= m_Keys[0].time)         return 0u;
     if (time >= m_Keys[n - 1u].time)    return n - 2u;
 
@@ -449,7 +449,7 @@ f32 FAnimationCurve::InterpolateSegment(const FCurveKey& k0, const FCurveKey& k1
 FAnimationCurveResult FAnimationCurve::TryEvaluate(
     f32 time, f32& out_value) const noexcept {
     FAnimationCurveResult result{};
-    const u32 n = static_cast<u32>(m_Keys.Size());
+    const u32 n = static_cast<u32>(m_Keys.Num());
     result.key_count = n;
     if (!IsFiniteCurveValue(time)) {
         result.error = EAnimationCurveError::NonFiniteValue;

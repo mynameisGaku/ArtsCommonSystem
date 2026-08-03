@@ -28,9 +28,9 @@ FAabb3 LocalBounds3D(const AMeshComponent3D& m) noexcept {
     }
     if (m.Primitive() == EMeshPrimitive3D::Mesh) {
         const AMeshAsset* a = m.Mesh();
-        if (a != nullptr && a->Vertices().Size() > 0) {
+        if (a != nullptr && a->Vertices().Num() > 0) {
             FVec3 mn = a->Vertices()[0].position, mx = mn;
-            for (u32 i = 1; i < a->Vertices().Size(); ++i) {
+            for (u32 i = 1; i < a->Vertices().Num(); ++i) {
                 const FVec3 p = a->Vertices()[i].position;
                 mn.x = p.x < mn.x ? p.x : mn.x; mx.x = p.x > mx.x ? p.x : mx.x;
                 mn.y = p.y < mn.y ? p.y : mn.y; mx.y = p.y > mx.y ? p.y : mx.y;

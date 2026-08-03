@@ -40,8 +40,8 @@ void CMatchGrid::Init(u32 width, u32 height, u32 color_count) noexcept {
     m_TotalCleared = 0;
 
     const usize n = static_cast<usize>(width) * static_cast<usize>(height);
-    m_Cells.Clear();
-    m_Cells.Resize(n);   // GridCell は trivially-constructible → 0 埋め (empty=true)
+    m_Cells.Reset();
+    m_Cells.SetNum(n);   // GridCell は trivially-constructible → 0 埋め (empty=true)
     for (usize i = 0; i < n; ++i) {
         m_Cells[i] = FGridCell{};  // 明示的に既定値 (color=0/special=0/empty=true)
     }
@@ -67,7 +67,7 @@ void CMatchGrid::Set(u32 x, u32 y, u8 color, ESpecialKind special) noexcept {
 }
 
 void CMatchGrid::ClearAll() noexcept {
-    const usize n = m_Cells.Size();
+    const usize n = m_Cells.Num();
     for (usize i = 0; i < n; ++i) m_Cells[i] = FGridCell{};
 }
 
@@ -338,30 +338,30 @@ u32 CMatchGrid::RefillFromTop() noexcept {
 
 u32 CMatchGrid::ResolveAllMatches() noexcept {
     const u32 cleared_before = m_TotalCleared;
-    const usize n = m_Cells.Size();
+    const usize n = m_Cells.Num();
 
     // 一時バッファ: マッチ検出結果 (最大 = 行マッチ + 列マッチ ≒ w+h 個程度)。
     // 余裕を持って w*h を上限にする (実際は遥かに少ない)。
     TArray<FMatchInfo> matches;
-    matches.Resize(n);
+    matches.SetNum(n);
 
     // visited は ClearOne 再入防止用 (cascade ループ間で reset)。
     TArray<u8> visited;
-    visited.Resize(n);
+    visited.SetNum(n);
 
     // 連鎖が止まるまで (= マッチ検出 0) ループ。
     // 安全ガード: 理論上 width*height 回以内には必ず止まる (毎ループ少なくとも
     // 3 cell 減るため)。それでも暴走防止に固定上限を設ける。
     const u32 safety_limit = (m_Width * m_Height) + 8u;
     for (u32 iter = 0; iter < safety_limit; ++iter) {
-        const u32 m = DetectMatches(matches.Data(), static_cast<u32>(matches.Size()));
+        const u32 m = DetectMatches(matches.GetData(), static_cast<u32>(matches.Num()));
         if (m == 0u) break;
 
         // visited を 0 クリアして消去フェーズ
         for (usize i = 0; i < n; ++i) visited[i] = 0u;
 
         // 各マッチ範囲を ClearOne
-        for (u32 mi = 0; mi < m && mi < static_cast<u32>(matches.Size()); ++mi) {
+        for (u32 mi = 0; mi < m && mi < static_cast<u32>(matches.Num()); ++mi) {
             const FMatchInfo& info = matches[mi];
             if (info.horizontal) {
                 for (u32 k = 0; k < info.length; ++k) {

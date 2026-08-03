@@ -13,7 +13,7 @@ namespace helloibl {
 
 TResult<TUniquePtr<IRhiTexture>> BakeFloorLightmap(IRhiDevice& dev) noexcept {
     constexpr u32 kSize = 256;
-    TArray<u8> rgba; rgba.Resize(static_cast<usize>(kSize) * kSize * 4u);
+    TArray<u8> rgba; rgba.SetNum(static_cast<usize>(kSize) * kSize * 4u);
 
     // 球グリッドのパラメータ (OnCustomFrame の draw 計算と一致)
     constexpr u32 kGrid = 5;
@@ -75,8 +75,8 @@ TResult<TUniquePtr<IRhiTexture>> BakeFloorLightmap(IRhiDevice& dev) noexcept {
     FTextureDesc td{};
     td.width = kSize; td.height = kSize;
     td.format = EFormat::R8G8B8A8_UNorm;
-    td.initial_data = rgba.Data();
-    td.initial_data_size = rgba.Size();
+    td.initial_data = rgba.GetData();
+    td.initial_data_size = rgba.Num();
     auto r = CreateRhiTexture(dev, td);
     if (r.IsErr()) {
         return Err<TUniquePtr<IRhiTexture>>(r.Error());

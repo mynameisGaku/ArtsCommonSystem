@@ -72,7 +72,7 @@ public:
             FScopedLock lock(m_Mtx);
             if (m_Closed || IsFullLocked()) return false;
             CompactLocked(false);
-            if (!m_Queue.TryPushBack(Move(value))) return false;
+            if (!m_Queue.TryAdd(Move(value))) return false;
             notify = m_WaiterCount != 0;
         }
         if (notify) m_Cv.NotifyOne();
@@ -99,7 +99,7 @@ public:
             if (m_Closed) return 0;
             CompactLocked(false);
             while (pushed < count && !IsFullLocked()) {
-                if (!m_Queue.TryPushBack(Move(values[pushed]))) break;
+                if (!m_Queue.TryAdd(Move(values[pushed]))) break;
                 ++pushed;
             }
             waiters = m_WaiterCount;
@@ -195,7 +195,7 @@ public:
 private:
     /** lock 保持中の論理要素数を返す。 */
     usize LogicalSizeLocked() const noexcept {
-        return m_Queue.Size() - m_Head;
+        return m_Queue.Num() - m_Head;
     }
 
     /** lock 保持中に上限へ達しているかを返す。 */
@@ -221,7 +221,7 @@ private:
         const usize live = LogicalSizeLocked();
         if (live == 0) {
             if (allow_empty_clear || m_Head >= 64) {
-                m_Queue.Clear();
+                m_Queue.Reset();
                 m_Head = 0;
             }
             return;
@@ -231,7 +231,7 @@ private:
         for (usize i = 0; i < live; ++i) {
             m_Queue[i] = Move(m_Queue[m_Head + i]);
         }
-        while (m_Queue.Size() > live) m_Queue.PopBack();
+        while (m_Queue.Num() > live) m_Queue.Pop();
         m_Head = 0;
     }
 

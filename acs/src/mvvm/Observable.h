@@ -252,12 +252,12 @@ public:
         ACS_THREAD_AFFINITY_CHECK();
         if (!cb) return kInvalidObservable;
         u32 idx;
-        if (m_FreeIndices.Size() > 0) {
-            idx = m_FreeIndices[m_FreeIndices.Size() - 1];
-            m_FreeIndices.PopBack();
+        if (m_FreeIndices.Num() > 0) {
+            idx = m_FreeIndices[m_FreeIndices.Num() - 1];
+            m_FreeIndices.Pop();
         } else {
-            idx = static_cast<u32>(m_Slots.Size());
-            m_Slots.PushBack(FSlot{});
+            idx = static_cast<u32>(m_Slots.Num());
+            m_Slots.Add(FSlot{});
         }
         FSlot& s = m_Slots[idx];
         if (s.id == 0) s.id = m_NextId++;
@@ -279,17 +279,17 @@ public:
      */
     bool Unsubscribe(FObservableHandle h) noexcept {
         if (!h.IsValid()) return false;
-        for (usize i = 0; i < m_Slots.Size(); ++i) {
+        for (usize i = 0; i < m_Slots.Num(); ++i) {
             FSlot& s = m_Slots[i];
             if (s.id == h.id && s.generation == h.generation && s.active) {
                 if (m_NotifyDepth > 0) {
                     s.active = false;
-                    m_PendingCancel.PushBack(static_cast<u32>(i));
+                    m_PendingCancel.Add(static_cast<u32>(i));
                 } else {
                     s.active = false;
                     s.cb     = nullptr;
                     s.user   = nullptr;
-                    m_FreeIndices.PushBack(static_cast<u32>(i));
+                    m_FreeIndices.Add(static_cast<u32>(i));
                 }
                 return true;
             }
@@ -304,7 +304,7 @@ public:
      */
     u32 SubscriberCount() const noexcept {
         u32 n = 0;
-        for (usize i = 0; i < m_Slots.Size(); ++i) if (m_Slots[i].active) ++n;
+        for (usize i = 0; i < m_Slots.Num(); ++i) if (m_Slots[i].active) ++n;
         return n;
     }
 
@@ -322,7 +322,7 @@ private:
             m_NotifyLifetimeGuards);
 
         ++m_NotifyDepth;
-        const usize n = m_Slots.Size();
+        const usize n = m_Slots.Num();
         for (usize i = 0; i < n; ++i) {
             FSlot& s = m_Slots[i];
             if (!s.active || !s.cb) continue;
@@ -330,17 +330,17 @@ private:
             if (!lifetime_guard.IsAlive()) return;
         }
         --m_NotifyDepth;
-        if (m_NotifyDepth == 0 && m_PendingCancel.Size() > 0) {
-            for (usize i = 0; i < m_PendingCancel.Size(); ++i) {
+        if (m_NotifyDepth == 0 && m_PendingCancel.Num() > 0) {
+            for (usize i = 0; i < m_PendingCancel.Num(); ++i) {
                 const u32 idx = m_PendingCancel[i];
-                if (idx < m_Slots.Size()) {
+                if (idx < m_Slots.Num()) {
                     FSlot& s = m_Slots[idx];
                     s.cb   = nullptr;
                     s.user = nullptr;
-                    m_FreeIndices.PushBack(idx);
+                    m_FreeIndices.Add(idx);
                 }
             }
-            m_PendingCancel.Clear();
+            m_PendingCancel.Reset();
         }
     }
 

@@ -113,14 +113,14 @@ TResult<void> CSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
             if (!img.Opaque(xi, yi)) continue;
             if (!img.Opaque(xi - 1, yi) || !img.Opaque(xi + 1, yi) ||
                 !img.Opaque(xi, yi - 1) || !img.Opaque(xi, yi + 1)) {
-                boundary.PushBack(FVec2{ static_cast<f32>(x), static_cast<f32>(y) });
+                boundary.Add(FVec2{ static_cast<f32>(x), static_cast<f32>(y) });
             }
         }
     }
-    if (boundary.Size() < 3) {
+    if (boundary.Num() < 3) {
         return ACS_ERR(Generic, kSubSpriteColEmpty, "CSpriteCollider: too few opaque boundary pixels");
     }
-    const u32 bn = static_cast<u32>(boundary.Size());
+    const u32 bn = static_cast<u32>(boundary.Num());
 
     // 2. 凸包 (Jarvis march、順序非依存で堅牢)
     u32 start = 0;
@@ -167,7 +167,7 @@ TResult<void> CSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
         int bx = sx - 1, by = sy; // backtrack (背景側)
         const u32 max_iter = width * height * 4u + 8u;
         u32 iter = 0;
-        raw.PushBack(FVec2{ static_cast<f32>(px), static_cast<f32>(py) });
+        raw.Add(FVec2{ static_cast<f32>(px), static_cast<f32>(py) });
         while (iter++ < max_iter) {
             // backtrack 方向を求める
             int d = 4;  // 既定 W
@@ -189,23 +189,23 @@ TResult<void> CSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
             }
             if (!found) break;                         // 孤立画素
             if (px == sx && py == sy) break;           // 開始に戻った
-            raw.PushBack(FVec2{ static_cast<f32>(px), static_cast<f32>(py) });
+            raw.Add(FVec2{ static_cast<f32>(px), static_cast<f32>(py) });
         }
     }
 
     // Douglas-Peucker (反復、keep フラグ方式)
-    if (raw.Size() >= 2) {
-        const u32 rn = static_cast<u32>(raw.Size());
+    if (raw.Num() >= 2) {
+        const u32 rn = static_cast<u32>(raw.Num());
         TArray<u8> keep;
-        keep.Resize(rn);
+        keep.SetNum(rn);
         for (u32 i = 0; i < rn; ++i) keep[i] = 0;
         keep[0] = 1; keep[rn - 1] = 1;
         struct FSeg { u32 lo, hi; };
         TArray<FSeg> stack;
-        stack.PushBack(FSeg{ 0, rn - 1 });
-        while (stack.Size() > 0) {
-            const FSeg s = stack[stack.Size() - 1];
-            stack.PopBack();
+        stack.Add(FSeg{ 0, rn - 1 });
+        while (stack.Num() > 0) {
+            const FSeg s = stack[stack.Num() - 1];
+            stack.Pop();
             if (s.hi <= s.lo + 1) continue;
             f32 max_d = 0.0f; u32 max_i = s.lo;
             for (u32 i = s.lo + 1; i < s.hi; ++i) {
@@ -214,8 +214,8 @@ TResult<void> CSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
             }
             if (max_d > simplify_epsilon) {
                 keep[max_i] = 1;
-                stack.PushBack(FSeg{ s.lo, max_i });
-                stack.PushBack(FSeg{ max_i, s.hi });
+                stack.Add(FSeg{ s.lo, max_i });
+                stack.Add(FSeg{ max_i, s.hi });
             }
         }
         for (u32 i = 0; i < rn && m_OutlineCount < kMaxVertices; ++i) {

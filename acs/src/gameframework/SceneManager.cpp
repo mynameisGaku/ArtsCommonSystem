@@ -60,12 +60,12 @@ void CSceneManager::PopScene(TUniquePtr<CSceneTravelContext> context) noexcept {
 /** top のシーンを返す (空なら nullptr)。 */
 AScene* CSceneManager::Top() const noexcept {
     if (m_Stack.IsEmpty()) return nullptr;
-    return m_Stack.Back().Get();
+    return m_Stack.Last().Get();
 }
 
 /** スタックの深さを返す。 */
 u32 CSceneManager::Depth() const noexcept {
-    return static_cast<u32>(m_Stack.Size());
+    return static_cast<u32>(m_Stack.Num());
 }
 
 /** scene を可視化せず、context/services/World サブシステムを全て準備する。 */
@@ -89,10 +89,10 @@ bool CSceneManager::PrepareScene(CGame& Game, AScene& Scene) noexcept
 bool CSceneManager::CommitPush(TUniquePtr<AScene> Scene, bool PauseCurrent) noexcept
 {
     if (!Scene) return false;
-    if (PauseCurrent && !m_Stack.IsEmpty()) m_Stack.Back()->OnPause();
+    if (PauseCurrent && !m_Stack.IsEmpty()) m_Stack.Last()->OnPause();
     // _ApplyPending が必要容量を事前確保済みなので、ここでは割り当てが発生しない。
-    if (!m_Stack.TryPushBack(Move(Scene))) return false;
-    m_Stack.Back()->_Enter();
+    if (!m_Stack.TryAdd(Move(Scene))) return false;
+    m_Stack.Last()->_Enter();
     return true;
 }
 
@@ -100,17 +100,17 @@ bool CSceneManager::CommitPush(TUniquePtr<AScene> Scene, bool PauseCurrent) noex
 void CSceneManager::DoPopInternal(
     bool resume_new, TUniquePtr<CSceneTravelContext> context) noexcept {
     if (m_Stack.IsEmpty()) return;
-    m_Stack.Back()->_Exit();
-    m_Stack.Back()->_DeinitWorldSubsystems();   // OnExit 後に World サブシステムを解体
+    m_Stack.Last()->_Exit();
+    m_Stack.Last()->_DeinitWorldSubsystems();   // OnExit 後に World サブシステムを解体
     // 退場 Scene を ring buffer の現在ヘッドに格納 (3 フレーム保持)。
     // ヘッドは _ApplyPending の冒頭で前進 + 古いスロット解放済。
-    m_Retired[m_RetireHead] = Move(m_Stack.Back());
-    m_Stack.PopBack();
+    m_Retired[m_RetireHead] = Move(m_Stack.Last());
+    m_Stack.Pop();
     // 新 top を OnResume (Pop 時のみ。Change は次の Push が走るので skip)
     if (resume_new && !m_Stack.IsEmpty()) {
         // 結果の受け渡しなので、OnResume より前に差し込む。
-        if (context) m_Stack.Back()->_SetTravelContext(Move(context));
-        m_Stack.Back()->OnResume();
+        if (context) m_Stack.Last()->_SetTravelContext(Move(context));
+        m_Stack.Last()->OnResume();
     }
 }
 
@@ -133,7 +133,7 @@ void CSceneManager::_ApplyPending(CGame& game) noexcept {
         return;
     case EOp::Change:
         // 旧topを残したまま、置換後の要素数を先に収容できることを保証する。
-        if (!m_Stack.TryReserve(m_Stack.IsEmpty() ? 1u : m_Stack.Size())) {
+        if (!m_Stack.TryReserve(m_Stack.IsEmpty() ? 1u : m_Stack.Num())) {
             ACS_LOG_ERROR("CSceneManager: change scene stack allocation failed");
             return;
         }
@@ -151,7 +151,7 @@ void CSceneManager::_ApplyPending(CGame& game) noexcept {
         break;
     case EOp::Push:
         // pause前に新topを格納する容量を確保し、OOM時は旧topを変更しない。
-        if (!m_Stack.TryReserve(m_Stack.Size() + 1u)) {
+        if (!m_Stack.TryReserve(m_Stack.Num() + 1u)) {
             ACS_LOG_ERROR("CSceneManager: push scene stack allocation failed");
             return;
         }
@@ -166,9 +166,9 @@ void CSceneManager::_ApplyPending(CGame& game) noexcept {
         }
         break;
     case EOp::Pop:
-        if (m_Stack.Size() <= 1) {
+        if (m_Stack.Num() <= 1) {
             ACS_LOG_WARN("CSceneManager::PopScene on a stack of size %u (need >=2) — ignored",
-                         static_cast<u32>(m_Stack.Size()));
+                         static_cast<u32>(m_Stack.Num()));
             return;
         }
         // 戻り先が OnResume で結果を読めるよう、pop 直後・OnResume 直前に渡す。
@@ -227,9 +227,9 @@ void CSceneManager::_DispatchEvent(const FEvent& e) noexcept {
 void CSceneManager::_ShutdownAll() noexcept {
     // top から順に OnExit を呼んでから破棄。
     while (!m_Stack.IsEmpty()) {
-        m_Stack.Back()->_Exit();
-        m_Stack.Back()->_DeinitWorldSubsystems();   // World サブシステムも解体
-        m_Stack.PopBack();
+        m_Stack.Last()->_Exit();
+        m_Stack.Last()->_DeinitWorldSubsystems();   // World サブシステムも解体
+        m_Stack.Pop();
     }
     for (u32 i = 0; i < kRetireRingSize; ++i) {
         m_Retired[i].Reset();

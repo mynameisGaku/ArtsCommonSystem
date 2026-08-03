@@ -40,7 +40,7 @@ public:
      *
      * @param fn 登録するシステム関数。
      */
-    void Add(SystemFn fn) noexcept { m_Systems.PushBack(fn); }
+    void Add(SystemFn fn) noexcept { m_Systems.Add(fn); }
 
     /**
      * 登録した全システムを登録順に 1 回ずつ呼ぶ。
@@ -49,20 +49,20 @@ public:
      * @param dt 前フレームからの経過秒。
      */
     void Tick(CWorld& world, f32 dt) noexcept {
-        for (usize i = 0; i < m_Systems.Size(); ++i) {
+        for (usize i = 0; i < m_Systems.Num(); ++i) {
             m_Systems[i](world, dt);
         }
     }
 
     /** 登録済みシステムを全て取り除く。 */
-    void Clear() noexcept { m_Systems.Clear(); }
+    void Clear() noexcept { m_Systems.Reset(); }
 
     /**
      * 登録済みシステム数を返す。
      *
      * @return 登録されているシステム関数の数。
      */
-    usize Count() const noexcept { return m_Systems.Size(); }
+    usize Count() const noexcept { return m_Systems.Num(); }
 
 private:
     /** 登録順に保持したシステム関数の配列。 */

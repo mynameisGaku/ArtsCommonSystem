@@ -147,7 +147,7 @@ public:
         FEntry candidate;
         candidate.key = Move(candidateKey);
         candidate.value = Move(candidateValue);
-        return m_Entries.TryPushBack(Move(candidate));
+        return m_Entries.TryAdd(Move(candidate));
     }
 
     /**
@@ -262,7 +262,7 @@ public:
      *
      * @return エントリ数。
      */
-    usize Count() const noexcept { return m_Entries.Size(); }
+    usize Count() const noexcept { return m_Entries.Num(); }
 
     /**
      * %APPDATA%/<sub_dir>/<file_name> へのフルパスを構築する (wchar_t 版)。

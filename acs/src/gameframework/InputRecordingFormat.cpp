@@ -91,7 +91,7 @@ u32 ComputeCrc32(TSpan<const u8> bytes) noexcept
     const u32* table = Crc32Table();
     /** 更新中の CRC。 */
     u32 crc = 0xFFFFFFFFu;
-    for (usize index = 0u; index < bytes.Size(); ++index) crc = table[(crc ^ bytes[index]) & 0xFFu] ^ (crc >> 8u);
+    for (usize index = 0u; index < bytes.Num(); ++index) crc = table[(crc ^ bytes[index]) & 0xFFu] ^ (crc >> 8u);
     return crc ^ 0xFFFFFFFFu;
 }
 

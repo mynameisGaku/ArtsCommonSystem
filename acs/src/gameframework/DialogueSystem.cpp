@@ -20,33 +20,33 @@ namespace acs::game {
 
 /** 末尾に会話行を 1 行追加する。 */
 void CDialogueSystem::AddLine(const FDialogueLine& line) noexcept {
-    m_Lines.PushBack(line);
+    m_Lines.Add(line);
 }
 
 /** 指定行に選択肢を紐づける (同 line への重複登録は無視)。 */
 void CDialogueSystem::AddChoices(u32 at_line_index,
                                 const FDialogueChoice* choices, u32 count) noexcept {
     if (choices == nullptr || count == 0u) return;
-    if (at_line_index >= static_cast<u32>(m_Lines.Size())) return;
+    if (at_line_index >= static_cast<u32>(m_Lines.Num())) return;
 
     // 同 line への重複登録は無視 (= 上書き禁止、最初の登録のみ有効)
-    for (usize i = 0; i < m_ChoicesAt.Size(); ++i) {
+    for (usize i = 0; i < m_ChoicesAt.Num(); ++i) {
         if (m_ChoicesAt[i].line_index == at_line_index) return;
     }
 
     FChoicesAt rec;
     rec.line_index   = at_line_index;
-    rec.choice_start = static_cast<u32>(m_AllChoices.Size());
+    rec.choice_start = static_cast<u32>(m_AllChoices.Num());
     rec.choice_count = count;
     for (u32 i = 0; i < count; ++i) {
-        m_AllChoices.PushBack(choices[i]);
+        m_AllChoices.Add(choices[i]);
     }
-    m_ChoicesAt.PushBack(rec);
+    m_ChoicesAt.Add(rec);
 }
 
 /** 会話を開始し先頭行へ入る (行が無ければ非アクティブのまま)。 */
 void CDialogueSystem::Start() noexcept {
-    if (m_Lines.Size() == 0) {
+    if (m_Lines.Num() == 0) {
         // 行が無い場合は何もしない (caller は IsActive()==false を見て検知)
         m_Active    = false;
         m_Completed = false;
@@ -95,9 +95,9 @@ void CDialogueSystem::ChooseOption(u32 choice_index) noexcept {
 
 /** 全行・選択肢・進行状態をクリアして初期状態に戻す。 */
 void CDialogueSystem::Reset() noexcept {
-    m_Lines.Clear();
-    m_ChoicesAt.Clear();
-    m_AllChoices.Clear();
+    m_Lines.Reset();
+    m_ChoicesAt.Reset();
+    m_AllChoices.Reset();
     m_CurrentLineIndex = 0;
     m_VisibleChars      = 0;
     m_CharAccum         = 0.0f;
@@ -119,7 +119,7 @@ bool CDialogueSystem::HasChoicesPending() const noexcept {
 /** 現在表示中の会話行を返す (非アクティブ・範囲外なら nullptr)。 */
 const FDialogueLine* CDialogueSystem::CurrentLine() const noexcept {
     if (!m_Active) return nullptr;
-    if (m_CurrentLineIndex >= static_cast<u32>(m_Lines.Size())) return nullptr;
+    if (m_CurrentLineIndex >= static_cast<u32>(m_Lines.Num())) return nullptr;
     return &m_Lines[m_CurrentLineIndex];
 }
 
@@ -135,7 +135,7 @@ const FDialogueChoice* CDialogueSystem::Choices() const noexcept {
     if (!HasChoicesPending()) return nullptr;
     const FChoicesAt* rec = FindChoicesForCurrent();
     if (rec == nullptr) return nullptr;
-    if (m_AllChoices.Size() == 0) return nullptr;
+    if (m_AllChoices.Num() == 0) return nullptr;
     return &m_AllChoices[rec->choice_start];
 }
 
@@ -187,7 +187,7 @@ void CDialogueSystem::SetAutoAdvanceDelay(f32 delay_sec) noexcept {
 
 /** 現在行に紐づく選択肢レコードを線形検索で返す (無ければ nullptr)。 */
 const CDialogueSystem::FChoicesAt* CDialogueSystem::FindChoicesForCurrent() const noexcept {
-    for (usize i = 0; i < m_ChoicesAt.Size(); ++i) {
+    for (usize i = 0; i < m_ChoicesAt.Num(); ++i) {
         if (m_ChoicesAt[i].line_index == m_CurrentLineIndex) {
             return &m_ChoicesAt[i];
         }
@@ -205,7 +205,7 @@ u32 CDialogueSystem::CurrentLineLength() const noexcept {
 /** 指定行に入って表示状態を初期化する (範囲外なら完了扱い)。 */
 void CDialogueSystem::EnterLine(u32 new_index) noexcept {
     // 範囲外 (= 末尾の先 or ChooseOption が UINT32_MAX を返した) なら終了
-    if (new_index >= static_cast<u32>(m_Lines.Size())) {
+    if (new_index >= static_cast<u32>(m_Lines.Num())) {
         m_Active             = false;
         m_Completed          = true;
         m_Typing             = false;

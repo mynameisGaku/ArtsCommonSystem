@@ -145,7 +145,7 @@ void NotifyInnerArray(EArrayChange, usize, const i32*, void* user) noexcept {
     ++context->OuterListenerCalls;
 
     FNestedArrayOwner* const owner = context->Owner;
-    owner->Inner.PushBack(22);
+    owner->Inner.Add(22);
 
     // Inner の callback が owner を破棄し得るため、以後 owner を参照しない。
 }
@@ -199,7 +199,7 @@ ACS_TEST(Mvvm, ObservableArrayNotifyStopsWhenOwnerIsDestroyed) {
     owner->Values.Subscribe(&DestroyArrayOwner, &context);
     owner->Values.Subscribe(&CountLaterOwnerListener, &context);
 
-    owner->Values.PushBack(7);
+    owner->Values.Add(7);
 
     EXPECT_TRUE(context.Owner == nullptr);
     EXPECT_EQ(context.DestroyingListenerCalls, 1);
@@ -218,17 +218,17 @@ ACS_TEST(Mvvm, ObservableArrayOldNotifyDoesNotEnterReplacementAtSameAddress) {
     first->Subscribe(&ReplaceArrayAtSameAddress, &context);
     first->Subscribe(&CountOldLaterListener, &context);
 
-    first->PushBack(11);
+    first->Add(11);
 
     EXPECT_TRUE(context.Current == reinterpret_cast<FIntObservableArray*>(storage));
     EXPECT_EQ(context.ReplacingListenerCalls, 1);
     EXPECT_EQ(context.OldLaterListenerCalls, 0);
     EXPECT_EQ(context.ReplacementListenerCalls, 0);
-    EXPECT_EQ(context.Current->Size(), usize(0));
+    EXPECT_EQ(context.Current->Num(), usize(0));
 
-    context.Current->PushBack(33);
+    context.Current->Add(33);
     EXPECT_EQ(context.ReplacementListenerCalls, 1);
-    EXPECT_EQ(context.Current->Size(), usize(1));
+    EXPECT_EQ(context.Current->Num(), usize(1));
     context.Current->~FIntObservableArray();
 }
 
@@ -245,7 +245,7 @@ ACS_TEST(Mvvm, ObservableArrayNestedNotificationOwnerDestructionStopsBothFrames)
     owner->Outer.Subscribe(&NotifyInnerArray, &context);
     owner->Outer.Subscribe(&CountOuterLaterListener, &context);
 
-    owner->Outer.PushBack(11);
+    owner->Outer.Add(11);
 
     EXPECT_TRUE(context.Owner == nullptr);
     EXPECT_EQ(context.OuterListenerCalls, 1);
@@ -265,7 +265,7 @@ ACS_TEST(Mvvm, ObservableArrayInvalidatesWholeSameArrayNotifyFrameChain) {
 
     EXPECT_FALSE(outer_alive);
     EXPECT_FALSE(inner_alive);
-    EXPECT_EQ(array.Size(), usize(0));
+    EXPECT_EQ(array.Num(), usize(0));
     EXPECT_EQ(array.SubscriberCount(), u32(0));
 }
 
@@ -276,7 +276,7 @@ ACS_TEST(Mvvm, ObservableArrayUnsubscribeDuringNotifyStillDefersSlotReuse) {
 
     array.Subscribe(&RemoveLaterSubscription, &context);
     context.Target = array.Subscribe(&CountRemovedListener, &context);
-    array.PushBack(1);
+    array.Add(1);
 
     EXPECT_EQ(context.RemovingListenerCalls, 1);
     EXPECT_EQ(context.SuccessfulRemovals, 1);
@@ -287,7 +287,7 @@ ACS_TEST(Mvvm, ObservableArrayUnsubscribeDuringNotifyStillDefersSlotReuse) {
     EXPECT_EQ(context.ReplacementListenerCalls, 0);
     EXPECT_FALSE(array.Unsubscribe(context.Target));
 
-    array.PushBack(2);
+    array.Add(2);
     EXPECT_EQ(context.RemovingListenerCalls, 2);
     EXPECT_EQ(context.SuccessfulRemovals, 1);
     EXPECT_EQ(context.RemovedListenerCalls, 0);

@@ -118,15 +118,15 @@ ACS_TEST(Transform3D, HierarchyBatchMatchesScalarAtMaximumDepthWithoutRecursiveS
             added.Node->Local().position = FVec3{0.001f * static_cast<f32>(depth), 0.01f * static_cast<f32>(chain), -0.002f};
             added.Node->Local().rotation = FQuat::AxisAngle(FVec3{0.0f, 1.0f, 0.0f}, 0.0001f * static_cast<f32>(depth));
             added.Node->Local().scale = FVec3{1.0f, 1.0f, 1.0f};
-            EXPECT_TRUE(preorder.TryPushBack(added.Node));
+            EXPECT_TRUE(preorder.TryAdd(added.Node));
             parent = added.Node;
         }
     }
 
     CHierarchyWorldTransformBatch batch;
-    EXPECT_TRUE(batch.Evaluate(&scene.Root(), preorder.Size()));
-    EXPECT_EQ(batch.Count(), preorder.Size());
-    for (usize index = 0u; index < preorder.Size(); ++index) {
+    EXPECT_TRUE(batch.Evaluate(&scene.Root(), preorder.Num()));
+    EXPECT_EQ(batch.Count(), preorder.Num());
+    for (usize index = 0u; index < preorder.Num(); ++index) {
         const FTransform3D scalar = preorder[index]->World();
         const FTransform3D& batched = batch.At(index);
         ExpectVec3Near(batched.position, scalar.position, 1.0e-4f);
@@ -139,7 +139,7 @@ ACS_TEST(Transform3D, HierarchyBatchMatchesScalarAtMaximumDepthWithoutRecursiveS
 
     const FTransform3D* retained = batch.Transforms();
     for (u32 repeat = 0u; repeat < 64u; ++repeat) {
-        EXPECT_TRUE(batch.Evaluate(&scene.Root(), preorder.Size()));
+        EXPECT_TRUE(batch.Evaluate(&scene.Root(), preorder.Num()));
         EXPECT_TRUE(batch.Transforms() == retained);
     }
 }
@@ -305,21 +305,21 @@ ACS_TEST(Node3D, HierarchyVisibilityBatchRetainsParityUnderStress)
         ANode& parent = scene.Spawn(FStringView("VisibilityStressParent"));
         parent.SetVisible((authored_index % 17u) != 0u);
         parent.SetEnabled((authored_index % 29u) != 0u);
-        nodes.PushBack(&parent);
+        nodes.Add(&parent);
         ++authored_index;
         for (u32 child_index = 0u; child_index < 7u; ++child_index) {
             ANode& child = scene.Spawn(FStringView("VisibilityStressChild"), &parent);
             child.SetVisible((authored_index % 17u) != 0u);
             child.SetEnabled((authored_index % 29u) != 0u);
-            nodes.PushBack(&child);
+            nodes.Add(&child);
             ++authored_index;
         }
     }
     CHierarchyVisibilityBatch batch;
     for (u32 iteration = 0u; iteration < 64u; ++iteration) {
-        EXPECT_TRUE(batch.Evaluate(nodes.Data(), nodes.Size(), &scene.Root()));
+        EXPECT_TRUE(batch.Evaluate(nodes.GetData(), nodes.Num(), &scene.Root()));
         EXPECT_EQ(batch.ScalarFallbackCount(), 0u);
-        for (u32 index = 0u; index < nodes.Size(); ++index) EXPECT_EQ(batch.IsVisible(index), CHierarchyVisibilityBatch::EvaluateScalar(nodes[index]));
+        for (u32 index = 0u; index < nodes.Num(); ++index) EXPECT_EQ(batch.IsVisible(index), CHierarchyVisibilityBatch::EvaluateScalar(nodes[index]));
     }
 }
 
@@ -1267,8 +1267,8 @@ ACS_TEST(MeshComponent3D, OwnsMeshAsset) {
 
     // メッシュを作って 2 頂点入れる
     TSharedPtr<AMeshAsset> mesh = MakeShared<AMeshAsset>();
-    mesh->Vertices().PushBack(FMeshVertex{ FVec3{0,0,0}, FVec3{0,1,0}, 0.0f, 0.0f });
-    mesh->Vertices().PushBack(FMeshVertex{ FVec3{1,0,0}, FVec3{0,1,0}, 1.0f, 0.0f });
+    mesh->Vertices().Add(FMeshVertex{ FVec3{0,0,0}, FVec3{0,1,0}, 0.0f, 0.0f });
+    mesh->Vertices().Add(FMeshVertex{ FVec3{1,0,0}, FVec3{0,1,0}, 1.0f, 0.0f });
     AMeshAsset* raw = mesh.Get();
 
     // Asset 基底へアップキャストして所有させる (種別が Mesh に切り替わる)
@@ -1276,12 +1276,12 @@ ACS_TEST(MeshComponent3D, OwnsMeshAsset) {
     EXPECT_TRUE(m.HasMeshAsset());
     EXPECT_TRUE(m.Primitive() == EMeshPrimitive3D::Mesh);
     EXPECT_TRUE(m.Mesh() == raw);
-    EXPECT_EQ(m.Mesh()->Vertices().Size(), 2u);
+    EXPECT_EQ(m.Mesh()->Vertices().Num(), 2u);
 
     // 外部の共有参照を捨てる → コンポーネントが強参照を持つので生存
     mesh.Reset();
     EXPECT_TRUE(m.Mesh() == raw);
-    EXPECT_EQ(m.Mesh()->Vertices().Size(), 2u);
+    EXPECT_EQ(m.Mesh()->Vertices().Num(), 2u);
 
     // null を渡すと外れる (種別はそのまま Mesh)
     m.SetMeshAsset(TSharedPtr<AAsset>{});

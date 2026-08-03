@@ -197,7 +197,7 @@ TResult<TArray<Element>> ReadWholeFile(const wchar_t* path) noexcept
 
     /** ファイル内容を直接受け取る出力配列。 */
     TArray<Element> buffer;
-    if (!buffer.TryResize(allocation_size)) {
+    if (!buffer.TrySetNum(allocation_size)) {
         ::CloseHandle(h);
         return ACS_ERR(IO, 105, "ReadWholeFile: allocation failed");
     }
@@ -210,7 +210,7 @@ TResult<TArray<Element>> ReadWholeFile(const wchar_t* path) noexcept
     DWORD read_error = ERROR_SUCCESS;
     if (content_size != 0) {
         g_ReadSyscalls.FetchAdd(1);
-        read_ok = ::ReadFile(h, buffer.Data(), static_cast<DWORD>(content_size), &bytes_read, nullptr);
+        read_ok = ::ReadFile(h, buffer.GetData(), static_cast<DWORD>(content_size), &bytes_read, nullptr);
         if (!read_ok) read_error = ::GetLastError();
     }
     ::CloseHandle(h);

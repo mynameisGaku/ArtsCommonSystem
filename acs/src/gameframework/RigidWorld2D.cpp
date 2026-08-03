@@ -294,22 +294,22 @@ bool SweptCircleVsStatic(FVec2 p0, FVec2 disp, f32 r,
 
 u32 CRigidWorld2D::AllocBody(const FRigidBodyState& state) noexcept {
     ++m_ActiveCount;
-    if (m_FreeList.Size() > 0) {                       // 削除済み slot を再利用
-        const u32 idx = m_FreeList[m_FreeList.Size() - 1];
-        m_FreeList.PopBack();
+    if (m_FreeList.Num() > 0) {                       // 削除済み slot を再利用
+        const u32 idx = m_FreeList[m_FreeList.Num() - 1];
+        m_FreeList.Pop();
         m_Bodies[idx] = state;
         m_Bodies[idx].active = true;
         return idx;
     }
-    m_Bodies.PushBack(state);
-    return static_cast<u32>(m_Bodies.Size() - 1);
+    m_Bodies.Add(state);
+    return static_cast<u32>(m_Bodies.Num() - 1);
 }
 
 void CRigidWorld2D::RemoveBody(u32 index) noexcept {
-    if (index >= m_Bodies.Size() || !m_Bodies[index].active) return;
+    if (index >= m_Bodies.Num() || !m_Bodies[index].active) return;
     m_Bodies[index].active   = false;     // tombstone
     m_Bodies[index].inv_mass = 0.0f;      // 念のため (万一処理されても不動)
-    m_FreeList.PushBack(index);
+    m_FreeList.Add(index);
     if (m_ActiveCount > 0) --m_ActiveCount;
 }
 
@@ -402,7 +402,7 @@ void CRigidWorld2D::Step(f32 dt, FVec2 gravity) noexcept {
     if (dt <= 0.0f) return;
 
     // --- 1. 速度積分 (重力 + 減衰)。動的ボディのみ。 ---
-    for (u32 i = 0; i < m_Bodies.Size(); ++i) {
+    for (u32 i = 0; i < m_Bodies.Num(); ++i) {
         FRigidBodyState& bd = m_Bodies[i];
         if (!bd.active || bd.inv_mass <= 0.0f) continue;
         bd.vel.x += gravity.x * dt;
@@ -416,10 +416,10 @@ void CRigidWorld2D::Step(f32 dt, FVec2 gravity) noexcept {
     // SI スケール (g=10) でもピクセルスケール (g=900) でも妥当に効くようにする。
     const f32 restThresh = VLen(gravity) * dt * 2.0f;
     TArray<FContact> contacts;
-    for (u32 i = 0; i < m_Bodies.Size(); ++i) {
+    for (u32 i = 0; i < m_Bodies.Num(); ++i) {
         FRigidBodyState& A = m_Bodies[i];
         if (!A.active || A.is_sensor) continue;
-        for (u32 j = i + 1; j < m_Bodies.Size(); ++j) {
+        for (u32 j = i + 1; j < m_Bodies.Num(); ++j) {
             FRigidBodyState& B = m_Bodies[j];
             if (!B.active || B.is_sensor) continue;
             if (A.inv_mass + B.inv_mass <= 0.0f) continue;   // 両方静的 → 衝突解決しない
@@ -442,14 +442,14 @@ void CRigidWorld2D::Step(f32 dt, FVec2 gravity) noexcept {
                 const FVec2 vB = VAdd(B.vel, CrossWR(B.ang_vel, c.rb));
                 const f32   vn0 = VDot(VSub(vB, vA), m.n);
                 c.rest_bias = (vn0 < -restThresh) ? -e * vn0 : 0.0f;   // 速い接近のみ跳ね返す
-                contacts.PushBack(c);
+                contacts.Add(c);
             }
         }
     }
 
     // --- 3. 速度反復 (逐次インパルス、累積)。法線→接線 (摩擦) を Gauss-Seidel で。 ---
     for (u32 it = 0; it < kVelIters; ++it) {
-        for (u32 ci = 0; ci < contacts.Size(); ++ci) {
+        for (u32 ci = 0; ci < contacts.Num(); ++ci) {
             FContact& c = contacts[ci];
             FRigidBodyState& A = m_Bodies[c.a];
             FRigidBodyState& B = m_Bodies[c.b];
@@ -488,7 +488,7 @@ void CRigidWorld2D::Step(f32 dt, FVec2 gravity) noexcept {
     }
 
     // --- 4. 位置積分 (CCD 有効ボディは静的形状へのスウィープで TOI クランプ)。 ---
-    for (u32 i = 0; i < m_Bodies.Size(); ++i) {
+    for (u32 i = 0; i < m_Bodies.Num(); ++i) {
         FRigidBodyState& bd = m_Bodies[i];
         if (!bd.active || bd.inv_mass <= 0.0f) continue;
         const FVec2 disp{ bd.vel.x * dt, bd.vel.y * dt };
@@ -498,7 +498,7 @@ void CRigidWorld2D::Step(f32 dt, FVec2 gravity) noexcept {
             // 1 ステップの移動量が自半径を超える「高速」時のみスウィープ (低速は離散で十分・安価)。
             if (VDot(disp, disp) > cr * cr) {
                 f32 bestToi = 1e30f; FVec2 bestN{ 0.0f, 0.0f }; bool blocked = false;
-                for (u32 j = 0; j < m_Bodies.Size(); ++j) {
+                for (u32 j = 0; j < m_Bodies.Num(); ++j) {
                     if (j == i) continue;
                     const FRigidBodyState& s = m_Bodies[j];
                     if (!s.active || s.is_sensor || s.inv_mass > 0.0f) continue;   // 静的のみ
@@ -528,10 +528,10 @@ void CRigidWorld2D::Step(f32 dt, FVec2 gravity) noexcept {
     //         注入せず、Baumgarte の跳ね/ジッタが出ない。接触を再検出して押し出す。 ---
     constexpr f32 kSlop = 0.01f, kPosBeta = 0.2f;
     for (u32 it = 0; it < kPosIters; ++it) {
-        for (u32 i = 0; i < m_Bodies.Size(); ++i) {
+        for (u32 i = 0; i < m_Bodies.Num(); ++i) {
             FRigidBodyState& A = m_Bodies[i];
             if (!A.active || A.is_sensor) continue;
-            for (u32 j = i + 1; j < m_Bodies.Size(); ++j) {
+            for (u32 j = i + 1; j < m_Bodies.Num(); ++j) {
                 FRigidBodyState& B = m_Bodies[j];
                 if (!B.active || B.is_sensor) continue;
                 const f32 invSum = A.inv_mass + B.inv_mass;
@@ -611,7 +611,7 @@ bool RayAabb(FVec2 o, FVec2 d, const FRigidBodyState& b, f32& tOut, FVec2& n) no
 } // namespace
 
 i32 CRigidWorld2D::QueryPoint(FVec2 p) const noexcept {
-    for (u32 i = 0; i < m_Bodies.Size(); ++i) {
+    for (u32 i = 0; i < m_Bodies.Num(); ++i) {
         if (m_Bodies[i].active && PointInBody(m_Bodies[i], p)) return static_cast<i32>(i);
     }
     return -1;
@@ -623,7 +623,7 @@ FRayHit2D CRigidWorld2D::Raycast(FVec2 origin, FVec2 dir, f32 max_dist) const no
     if (dl < 1e-9f) return best;
     const FVec2 d = VScale(dir, 1.0f / dl);
     f32 bestT = max_dist;
-    for (u32 i = 0; i < m_Bodies.Size(); ++i) {
+    for (u32 i = 0; i < m_Bodies.Num(); ++i) {
         const FRigidBodyState& b = m_Bodies[i];
         if (!b.active) continue;
         f32 t = 0.0f; FVec2 nrm{ 0.0f, 0.0f };
@@ -640,7 +640,7 @@ FRayHit2D CRigidWorld2D::Raycast(FVec2 origin, FVec2 dir, f32 max_dist) const no
 
 u32 CRigidWorld2D::OverlapCircle(FVec2 center, f32 radius, u32* out_indices, u32 cap) const noexcept {
     u32 n = 0u;
-    for (u32 i = 0; i < m_Bodies.Size(); ++i) {
+    for (u32 i = 0; i < m_Bodies.Num(); ++i) {
         const FRigidBodyState& b = m_Bodies[i];
         if (!b.active) continue;
         bool overlap;
@@ -660,10 +660,10 @@ u32 CRigidWorld2D::OverlapCircle(FVec2 center, f32 radius, u32* out_indices, u32
 }
 
 u32 CRigidWorld2D::OverlapBody(u32 index, u32* out_indices, u32 cap) const noexcept {
-    if (index >= m_Bodies.Size() || !m_Bodies[index].active) return 0u;
+    if (index >= m_Bodies.Num() || !m_Bodies[index].active) return 0u;
     const FRigidBodyState& s = m_Bodies[index];
     u32 n = 0u;
-    for (u32 i = 0; i < m_Bodies.Size(); ++i) {
+    for (u32 i = 0; i < m_Bodies.Num(); ++i) {
         if (i == index) continue;
         const FRigidBodyState& b = m_Bodies[i];
         if (!b.active) continue;

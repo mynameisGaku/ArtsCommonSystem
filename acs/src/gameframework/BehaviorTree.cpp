@@ -13,7 +13,7 @@ namespace acs::game {
 void ABtSelector::AddChild(TUniquePtr<ABtNode> child) noexcept {
     // nullptr 子はそもそも tick できないので追加しない (静かに無視)。
     if (!child) return;
-    m_Children.PushBack(Move(child));
+    m_Children.Add(Move(child));
 }
 
 /** 子を順に Tick し、最初の Running/Success で抜ける (全 Failure なら Failure)。 */
@@ -23,7 +23,7 @@ EBtStatus ABtSelector::Tick(void* blackboard, f32 dt) noexcept {
     //   ・Success → この子で目的達成、Selector も Success
     //   ・Failure → 次の子へ
     // すべて Failure を返したら、Selector 全体としても Failure。
-    const usize n = m_Children.Size();
+    const usize n = m_Children.Num();
     for (usize i = 0; i < n; ++i) {
         ABtNode* c = m_Children[i].Get();
         if (c == nullptr) continue;            // 万一の null 安全 (本来 AddChild で弾く)
@@ -38,7 +38,7 @@ EBtStatus ABtSelector::Tick(void* blackboard, f32 dt) noexcept {
 /** 子の所有権を奪って末尾に追加する (nullptr は静かに無視)。 */
 void ABtSequence::AddChild(TUniquePtr<ABtNode> child) noexcept {
     if (!child) return;
-    m_Children.PushBack(Move(child));
+    m_Children.Add(Move(child));
 }
 
 /** 子を順に Tick し、最初の Running/Failure で抜ける (全 Success なら Success)。 */
@@ -48,7 +48,7 @@ EBtStatus ABtSequence::Tick(void* blackboard, f32 dt) noexcept {
     //   ・Failure → この子で失敗、FSequence も Failure
     //   ・Success → 次の子へ
     // すべて Success を返したら、FSequence 全体としても Success。
-    const usize n = m_Children.Size();
+    const usize n = m_Children.Num();
     for (usize i = 0; i < n; ++i) {
         ABtNode* c = m_Children[i].Get();
         if (c == nullptr) continue;

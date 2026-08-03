@@ -66,7 +66,7 @@ bool APhysicsBody2D::WouldBlockAt(FVec2 pos) noexcept {
     } else if (m_Kind == EShapeKind::Poly) {
         m_World->OverlapPolygon(WorldPoly(pos), hits, m_Handle);
     }
-    return hits.Size() > 0;
+    return hits.Num() > 0;
 }
 
 /**

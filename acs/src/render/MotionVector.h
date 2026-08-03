@@ -119,7 +119,7 @@ public:
 
     /** Number of persistent per-object buffers currently retained. */
     u32 ObjectBufferCapacity() const noexcept {
-        return static_cast<u32>(m_Cbs.Size());
+        return static_cast<u32>(m_Cbs.Num());
     }
 
     /** Successfully recorded object draws since the latest BeginFrame/Begin. */

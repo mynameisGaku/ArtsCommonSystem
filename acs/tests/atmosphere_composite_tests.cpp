@@ -419,10 +419,10 @@ ACS_TEST(Atmosphere,
     constexpr u32 kHeight = 128u;
     const TArray<f32> pixels =
         CAtmosphere::BakeEquirect(kWidth, kHeight, params);
-    EXPECT_EQ(pixels.Size(),
+    EXPECT_EQ(pixels.Num(),
               static_cast<usize>(kWidth) * kHeight * 4u);
 
-    for (usize index = 0; index < pixels.Size(); ++index) {
+    for (usize index = 0; index < pixels.Num(); ++index) {
         EXPECT_TRUE(std::isfinite(static_cast<double>(pixels[index])));
         if ((index & 3u) != 3u) {
             EXPECT_TRUE(pixels[index] >= 0.0f);
@@ -566,16 +566,16 @@ ACS_TEST(Atmosphere,
     // u1, whose alpha is exactly half(1.0). This catches a silently missing
     // second UAV binding that source-token tests cannot observe.
     TArray<u16> transmittance;
-    transmittance.Resize(
+    transmittance.SetNum(
         static_cast<usize>(kSkyAtmosphereFroxelXyResolution) *
         kSkyAtmosphereFroxelXyResolution * 4u);
     const bool readbackOk = deviceResult.Value()->ReadTexture(
-        *atmosphere.ApTransmittanceVolume(), transmittance.Data(),
-        static_cast<u32>(transmittance.Size() * sizeof(u16)));
+        *atmosphere.ApTransmittanceVolume(), transmittance.GetData(),
+        static_cast<u32>(transmittance.Num() * sizeof(u16)));
     EXPECT_TRUE(readbackOk);
     if (readbackOk) {
         usize writtenTexels = 0;
-        for (usize texel = 0; texel < transmittance.Size() / 4u;
+        for (usize texel = 0; texel < transmittance.Num() / 4u;
              ++texel) {
             const usize base = texel * 4u;
             if (transmittance[base + 3u] == 0x3c00u &&
@@ -1060,8 +1060,8 @@ ACS_TEST(EditorPerformance,
     EXPECT_TRUE(Contains(
         source, "TArray<IRhiTexture*> sprite_draw_textures;"));
     EXPECT_TRUE(Contains(gizmo, "h.gizmo_vertices"));
-    EXPECT_TRUE(Contains(gizmo, "gv.Clear();"));
-    EXPECT_TRUE(Contains(gizmo, "gv.Capacity() < 4096u"));
+    EXPECT_TRUE(Contains(gizmo, "gv.Reset();"));
+    EXPECT_TRUE(Contains(gizmo, "gv.Max() < 4096u"));
     EXPECT_FALSE(Contains(gizmo, "TArray<FM3DVtx> gv;"));
     EXPECT_TRUE(Contains(sprites, "h.sprite_vertices"));
     EXPECT_TRUE(Contains(sprites, "h.sprite_draw_textures"));
@@ -1288,7 +1288,7 @@ ACS_TEST(EditorPerformance,
         render,
         "TArray<game::ANode*>& water_nodes = "
         "host->scene_mesh_nodes;"));
-    EXPECT_TRUE(Contains(render, "water_nodes.Clear();"));
+    EXPECT_TRUE(Contains(render, "water_nodes.Reset();"));
     EXPECT_FALSE(Contains(
         render, "TArray<game::ANode*> water_nodes;"));
 }

@@ -58,7 +58,7 @@ void CGameFlow::BuildTransitionTable() noexcept {
     }
 
     auto allow = [this](EFlowState from, EFlowState to) noexcept {
-        m_Allowed[IndexOf(from)][IndexOf(to)] = true;
+        m_Allowed[IndexOfByKey(from)][IndexOfByKey(to)] = true;
     };
 
     // Splash → MainTitle, ExitingGame
@@ -114,9 +114,9 @@ void CGameFlow::BuildTransitionTable() noexcept {
 /** state スロットと遷移テーブルを構築し、初期状態へ入って OnEnter を即発火する。 */
 void CGameFlow::Init(EFlowState initial_state) noexcept {
     // 既存スロットを破棄して再構築 (複数回 Init 対応)。
-    _states.Clear();
+    _states.Reset();
     for (u32 i = 0; i < kFlowStateCount; ++i) {
-        _states.PushBack(FStateSlot{});
+        _states.Add(FStateSlot{});
     }
 
     BuildTransitionTable();
@@ -132,7 +132,7 @@ void CGameFlow::Init(EFlowState initial_state) noexcept {
     m_Initialized      = true;
 
     // initial_state の OnEnter を即発火 (画面起動時 = Splash 入場相当)。
-    const u32 idx = IndexOf(initial_state);
+    const u32 idx = IndexOfByKey(initial_state);
     if (idx < kFlowStateCount) {
         const FStateSlot& slot = _states[idx];
         if (slot.enter != nullptr) {
@@ -144,8 +144,8 @@ void CGameFlow::Init(EFlowState initial_state) noexcept {
 /** 現在 state から to への遷移が許可テーブルで許されているかを返す。 */
 bool CGameFlow::CanTransitionTo(EFlowState to) const noexcept {
     if (!m_Initialized) return false;
-    const u32 from_idx = IndexOf(m_Current);
-    const u32 to_idx   = IndexOf(to);
+    const u32 from_idx = IndexOfByKey(m_Current);
+    const u32 to_idx   = IndexOfByKey(to);
     if (from_idx >= kFlowStateCount || to_idx >= kFlowStateCount) return false;
     if (from_idx == to_idx) return false;  // 同一 state への遷移は不可
     return m_Allowed[from_idx][to_idx];
@@ -181,7 +181,7 @@ void CGameFlow::RequestTransition(EFlowState to, f32 fade_sec) noexcept {
 /** 指定 state の OnEnter コールバックを登録する (範囲外は no-op)。 */
 void CGameFlow::SetOnEnterCallback(EFlowState state, StateCallback cb, void* user) noexcept {
     if (!m_Initialized) return;
-    const u32 idx = IndexOf(state);
+    const u32 idx = IndexOfByKey(state);
     if (idx >= kFlowStateCount) return;
     FStateSlot& slot = _states[idx];
     slot.enter      = cb;
@@ -191,7 +191,7 @@ void CGameFlow::SetOnEnterCallback(EFlowState state, StateCallback cb, void* use
 /** 指定 state の OnExit コールバックを登録する (範囲外は no-op)。 */
 void CGameFlow::SetOnExitCallback(EFlowState state, StateCallback cb, void* user) noexcept {
     if (!m_Initialized) return;
-    const u32 idx = IndexOf(state);
+    const u32 idx = IndexOfByKey(state);
     if (idx >= kFlowStateCount) return;
     FStateSlot& slot = _states[idx];
     slot.exit       = cb;
@@ -212,7 +212,7 @@ void CGameFlow::Tick(f32 dt) noexcept {
             m_FadeProgress = t;                // 0 → 1
             if (t >= 1.0f) {
                 // 旧 state の OnExit を発火。
-                const u32 old_idx = IndexOf(m_Current);
+                const u32 old_idx = IndexOfByKey(m_Current);
                 if (old_idx < kFlowStateCount) {
                     const FStateSlot& old_slot = _states[old_idx];
                     if (old_slot.exit != nullptr) {
@@ -224,7 +224,7 @@ void CGameFlow::Tick(f32 dt) noexcept {
                 m_Current = m_Pending;
 
                 // 新 state の OnEnter を発火。
-                const u32 new_idx = IndexOf(m_Current);
+                const u32 new_idx = IndexOfByKey(m_Current);
                 if (new_idx < kFlowStateCount) {
                     const FStateSlot& new_slot = _states[new_idx];
                     if (new_slot.enter != nullptr) {

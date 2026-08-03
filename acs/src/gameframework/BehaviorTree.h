@@ -266,7 +266,7 @@ public:
      *
      * @return 追加済みの子ノード数。
      */
-    usize ChildCount() const noexcept { return m_Children.Size(); }
+    usize ChildCount() const noexcept { return m_Children.Num(); }
 
 private:
     /** 子ノード (所有権を持つ)。 */
@@ -316,7 +316,7 @@ public:
      *
      * @return 追加済みの子ノード数。
      */
-    usize ChildCount() const noexcept { return m_Children.Size(); }
+    usize ChildCount() const noexcept { return m_Children.Num(); }
 
 private:
     /** 子ノード (所有権を持つ)。 */

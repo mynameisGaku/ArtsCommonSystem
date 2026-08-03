@@ -219,7 +219,7 @@ private:
 template<typename T>
 void FRandom::Shuffle(TArray<T>& values) noexcept {
     /** 並べ替える要素数。 */
-    const usize count = values.Size();
+    const usize count = values.Num();
     if (count < 2u) return;
     /** 末尾から確定する配列位置。 */
     for (usize index = count - 1u; index > 0u; --index) {

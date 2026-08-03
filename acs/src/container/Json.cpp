@@ -95,8 +95,8 @@ void FJsonValue::Reset(EJsonType t) noexcept {
     m_Bool = false;
     m_Number = 0.0;
     m_String.Clear();
-    m_Elems.Clear();
-    m_Keys.Clear();
+    m_Elems.Reset();
+    m_Keys.Reset();
 }
 
 /**
@@ -134,7 +134,7 @@ u32 FJsonValue::AsU32(u32 def) const noexcept {
  *
  * @return m_Elems の要素数。
  */
-u32 FJsonValue::Size() const noexcept { return static_cast<u32>(m_Elems.Size()); }
+u32 FJsonValue::Size() const noexcept { return static_cast<u32>(m_Elems.Num()); }
 
 /**
  * 配列要素を index で取得する (範囲外は静的 Null 値)。
@@ -143,7 +143,7 @@ u32 FJsonValue::Size() const noexcept { return static_cast<u32>(m_Elems.Size());
  * @return i 番目の要素、または静的 Null 値。
  */
 const FJsonValue& FJsonValue::At(u32 i) const noexcept {
-    return (i < m_Elems.Size()) ? m_Elems[i] : NullValue();
+    return (i < m_Elems.Num()) ? m_Elems[i] : NullValue();
 }
 
 /**
@@ -155,7 +155,7 @@ const FJsonValue& FJsonValue::At(u32 i) const noexcept {
 const FJsonValue* FJsonValue::Find(const char* key) const noexcept {
     if (m_Type != EJsonType::Object || key == nullptr) return nullptr;
     const FStringView want(key);
-    for (usize i = 0; i < m_Keys.Size(); ++i) {
+    for (usize i = 0; i < m_Keys.Num(); ++i) {
         if (m_Keys[i].View() == want) return &m_Elems[i];
     }
     return nullptr;
@@ -178,7 +178,7 @@ const FJsonValue& FJsonValue::Get(const char* key) const noexcept {
  * @return メンバ数。
  */
 u32 FJsonValue::MemberCount() const noexcept {
-    return m_Type == EJsonType::Object ? static_cast<u32>(m_Elems.Size()) : 0;
+    return m_Type == EJsonType::Object ? static_cast<u32>(m_Elems.Num()) : 0;
 }
 
 /**
@@ -188,7 +188,7 @@ u32 FJsonValue::MemberCount() const noexcept {
  * @return key のビュー、または空 view。
  */
 FStringView FJsonValue::MemberKey(u32 i) const noexcept {
-    if (m_Type != EJsonType::Object || i >= m_Keys.Size()) return FStringView{};
+    if (m_Type != EJsonType::Object || i >= m_Keys.Num()) return FStringView{};
     return m_Keys[i].View();
 }
 
@@ -198,8 +198,8 @@ FStringView FJsonValue::MemberKey(u32 i) const noexcept {
  * @return 追加した空要素への参照。
  */
 FJsonValue& FJsonValue::_PushArrayElem() noexcept {
-    m_Elems.PushBack(FJsonValue{*m_String.GetAllocator()});
-    return m_Elems[m_Elems.Size() - 1];
+    m_Elems.Add(FJsonValue{*m_String.GetAllocator()});
+    return m_Elems[m_Elems.Num() - 1];
 }
 
 /**
@@ -212,9 +212,9 @@ FJsonValue& FJsonValue::_AddMember(FStringView key) noexcept {
     // 値と同じ allocator で所有キーを作る。
     FString k(*m_String.GetAllocator());
     k.Append(key);
-    m_Keys.PushBack(Move(k));
-    m_Elems.PushBack(FJsonValue{*m_String.GetAllocator()});
-    return m_Elems[m_Elems.Size() - 1];
+    m_Keys.Add(Move(k));
+    m_Elems.Add(FJsonValue{*m_String.GetAllocator()});
+    return m_Elems[m_Elems.Num() - 1];
 }
 
 /**
@@ -224,9 +224,9 @@ FJsonValue& FJsonValue::_AddMember(FStringView key) noexcept {
  * @return 追加した value への参照。
  */
 FJsonValue& FJsonValue::_AddMember(FString&& key) noexcept {
-    m_Keys.PushBack(Move(key));
-    m_Elems.PushBack(FJsonValue{*m_String.GetAllocator()});
-    return m_Elems[m_Elems.Size() - 1];
+    m_Keys.Add(Move(key));
+    m_Elems.Add(FJsonValue{*m_String.GetAllocator()});
+    return m_Elems[m_Elems.Num() - 1];
 }
 
 namespace {

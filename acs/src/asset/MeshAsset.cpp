@@ -90,9 +90,9 @@ TSharedPtr<AMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
 
             // 頂点数を最初の attribute から取得
             const usize vcount = p.attributes[0].data->count;
-            const usize start = mesh->Vertices().Size();
-            mesh->Vertices().Resize(start + vcount);
-            FMeshVertex* dst = mesh->Vertices().Data() + start;
+            const usize start = mesh->Vertices().Num();
+            mesh->Vertices().SetNum(start + vcount);
+            FMeshVertex* dst = mesh->Vertices().GetData() + start;
 
             // POSITION / NORMAL / TEXCOORD_0 を取得
             const cgltf_accessor* pos = nullptr;
@@ -114,20 +114,20 @@ TSharedPtr<AMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
 
             // インデックス取得（無ければトライアングルストリップ的に連番生成）
             FSubMesh sub{};
-            sub.first_index = static_cast<u32>(mesh->Indices().Size());
+            sub.first_index = static_cast<u32>(mesh->Indices().Num());
             if (p.indices) {
                 cgltf_accessor* idx = p.indices;
                 for (cgltf_size ii = 0; ii < idx->count; ++ii) {
                     cgltf_uint v = 0;
                     ::cgltf_accessor_read_uint(idx, ii, &v, 1);
-                    mesh->Indices().PushBack(static_cast<u32>(v) + vertex_offset);
+                    mesh->Indices().Add(static_cast<u32>(v) + vertex_offset);
                 }
                 sub.index_count = static_cast<u32>(idx->count);
             } else {
-                for (u32 ii = 0; ii < vcount; ++ii) mesh->Indices().PushBack(ii + vertex_offset);
+                for (u32 ii = 0; ii < vcount; ++ii) mesh->Indices().Add(ii + vertex_offset);
                 sub.index_count = static_cast<u32>(vcount);
             }
-            mesh->SubMeshes().PushBack(sub);
+            mesh->SubMeshes().Add(sub);
             vertex_offset += static_cast<u32>(vcount);
         }
     }
@@ -140,7 +140,7 @@ TSharedPtr<AMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
 TResult<TSharedPtr<AAsset>> CGltfAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     cgltf_options opts{};
     cgltf_data* data = nullptr;
-    if (::cgltf_parse(&opts, bytes.Data(), bytes.Size(), &data) != cgltf_result_success || !data)
+    if (::cgltf_parse(&opts, bytes.GetData(), bytes.Num(), &data) != cgltf_result_success || !data)
         return ACS_ERR(Asset, 300, "cgltf_parse failed (.gltf)");
     // .gltf は別ファイルにバイナリを持つことがあるので、メモリ単体ロードは
     // 簡易対応として「埋め込みバッファのみ」サポート。
@@ -158,7 +158,7 @@ TResult<TSharedPtr<AAsset>> CGlbAssetLoader::LoadFromBytes(FAssetId id, const TA
     cgltf_options opts{};
     opts.type = cgltf_file_type_glb;
     cgltf_data* data = nullptr;
-    if (::cgltf_parse(&opts, bytes.Data(), bytes.Size(), &data) != cgltf_result_success || !data)
+    if (::cgltf_parse(&opts, bytes.GetData(), bytes.Num(), &data) != cgltf_result_success || !data)
         return ACS_ERR(Asset, 310, "cgltf_parse failed (.glb)");
     if (::cgltf_load_buffers(&opts, data, nullptr) != cgltf_result_success) {
         ::cgltf_free(data);
@@ -180,11 +180,11 @@ TResult<TSharedPtr<AAsset>> CObjAssetLoader::LoadFromBytes(FAssetId id, const TA
     // strtod/strtol は NUL 終端まで数字を読むため、bytes が NUL 終端でないと
     // バッファ末尾を越えて OOB read する。NUL 終端コピーを作ってから解析する。
     TArray<char> text;
-    text.Resize(bytes.Size() + 1);
-    for (usize i = 0; i < bytes.Size(); ++i) text[i] = static_cast<char>(bytes[i]);
-    text[bytes.Size()] = '\0';
-    const char* p = text.Data();
-    const char* end = p + bytes.Size();
+    text.SetNum(bytes.Num() + 1);
+    for (usize i = 0; i < bytes.Num(); ++i) text[i] = static_cast<char>(bytes[i]);
+    text[bytes.Num()] = '\0';
+    const char* p = text.GetData();
+    const char* end = p + bytes.Num();
 
     auto skip_ws = [&](const char*& s) {
         while (s < end && (*s == ' ' || *s == '\t')) ++s;
@@ -215,18 +215,18 @@ TResult<TSharedPtr<AAsset>> CObjAssetLoader::LoadFromBytes(FAssetId id, const TA
             const f32 x = parse_f32(p);
             const f32 y = parse_f32(p);
             const f32 z = parse_f32(p);
-            positions.PushBack(FVec3(x, y, z));
+            positions.Add(FVec3(x, y, z));
         } else if (p[0] == 'v' && p[1] == 'n') {
             p += 2;
             const f32 x = parse_f32(p);
             const f32 y = parse_f32(p);
             const f32 z = parse_f32(p);
-            normals.PushBack(FVec3(x, y, z));
+            normals.Add(FVec3(x, y, z));
         } else if (p[0] == 'v' && p[1] == 't') {
             p += 2;
             const f32 u = parse_f32(p);
             const f32 v = parse_f32(p);
-            uvs.PushBack({u, v});
+            uvs.Add({u, v});
         } else if (p[0] == 'f' && p[1] == ' ') {
             p += 2;
             // f は 3 〜 4 頂点。v/vt/vn の 1-based 添字
@@ -249,17 +249,17 @@ TResult<TSharedPtr<AAsset>> CObjAssetLoader::LoadFromBytes(FAssetId id, const TA
             // 三角形化（クアッドは 0-1-2, 0-2-3）
             auto add_vertex = [&](int k) {
                 FMeshVertex mv{};
-                if (vi[k] > 0 && static_cast<usize>(vi[k]) <= positions.Size())
+                if (vi[k] > 0 && static_cast<usize>(vi[k]) <= positions.Num())
                     mv.position = positions[vi[k] - 1];
-                if (ni[k] > 0 && static_cast<usize>(ni[k]) <= normals.Size())
+                if (ni[k] > 0 && static_cast<usize>(ni[k]) <= normals.Num())
                     mv.normal = normals[ni[k] - 1];
-                if (ti[k] > 0 && static_cast<usize>(ti[k]) <= uvs.Size()) {
+                if (ti[k] > 0 && static_cast<usize>(ti[k]) <= uvs.Num()) {
                     mv.u = uvs[ti[k] - 1].u;
                     mv.v = uvs[ti[k] - 1].v;
                 }
-                const u32 idx = static_cast<u32>(mesh->Vertices().Size());
-                mesh->Vertices().PushBack(mv);
-                mesh->Indices().PushBack(idx);
+                const u32 idx = static_cast<u32>(mesh->Vertices().Num());
+                mesh->Vertices().Add(mv);
+                mesh->Indices().Add(idx);
             };
             if (n >= 3) {
                 add_vertex(0); add_vertex(1); add_vertex(2);
@@ -271,8 +271,8 @@ TResult<TSharedPtr<AAsset>> CObjAssetLoader::LoadFromBytes(FAssetId id, const TA
 
     FSubMesh sub{};
     sub.first_index = 0;
-    sub.index_count = static_cast<u32>(mesh->Indices().Size());
-    mesh->SubMeshes().PushBack(sub);
+    sub.index_count = static_cast<u32>(mesh->Indices().Num());
+    mesh->SubMeshes().Add(sub);
     return TResult<TSharedPtr<AAsset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
@@ -280,7 +280,7 @@ TResult<TSharedPtr<AAsset>> CObjAssetLoader::LoadFromBytes(FAssetId id, const TA
 TResult<TSharedPtr<AAsset>> CFbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     ufbx_load_opts opts{};
     ufbx_error err{};
-    ufbx_scene* scene = ::ufbx_load_memory(bytes.Data(), bytes.Size(), &opts, &err);
+    ufbx_scene* scene = ::ufbx_load_memory(bytes.GetData(), bytes.Num(), &opts, &err);
     if (!scene) return ACS_ERR(Asset, 400, "ufbx_load_memory failed");
 
     auto mesh = MakeShared<AMeshAsset>();
@@ -290,7 +290,7 @@ TResult<TSharedPtr<AAsset>> CFbxAssetLoader::LoadFromBytes(FAssetId id, const TA
         // 三角形化（ufbx の標準ヘルパ）
         const usize tri_count = fm->num_triangles;
         TArray<u32> tri_indices;
-        tri_indices.Resize(tri_count * 3);
+        tri_indices.SetNum(tri_count * 3);
         usize triangle_idx = 0;
         for (size_t fi = 0; fi < fm->num_faces; ++fi) {
             const ufbx_face face = fm->faces.data[fi];
@@ -303,8 +303,8 @@ TResult<TSharedPtr<AAsset>> CFbxAssetLoader::LoadFromBytes(FAssetId id, const TA
         }
         // 頂点は ufbx_get_vertex_* で取得
         FSubMesh sub{};
-        sub.first_index = static_cast<u32>(mesh->Indices().Size());
-        for (u32 i = 0; i < tri_indices.Size(); ++i) {
+        sub.first_index = static_cast<u32>(mesh->Indices().Num());
+        for (u32 i = 0; i < tri_indices.Num(); ++i) {
             const uint32_t fi = tri_indices[i];
             const ufbx_vec3 p = ::ufbx_get_vertex_vec3(&fm->vertex_position, fi);
             const ufbx_vec3 n = fm->vertex_normal.exists ? ::ufbx_get_vertex_vec3(&fm->vertex_normal, fi) : ufbx_vec3{0,0,0};
@@ -314,13 +314,13 @@ TResult<TSharedPtr<AAsset>> CFbxAssetLoader::LoadFromBytes(FAssetId id, const TA
             v.normal   = FVec3(static_cast<f32>(n.x), static_cast<f32>(n.y), static_cast<f32>(n.z));
             v.u        = static_cast<f32>(t.x);
             v.v        = static_cast<f32>(t.y);
-            const u32 idx = static_cast<u32>(mesh->Vertices().Size());
-            mesh->Vertices().PushBack(v);
-            mesh->Indices().PushBack(idx);
+            const u32 idx = static_cast<u32>(mesh->Vertices().Num());
+            mesh->Vertices().Add(v);
+            mesh->Indices().Add(idx);
         }
-        sub.index_count = static_cast<u32>(mesh->Indices().Size()) - sub.first_index;
-        mesh->SubMeshes().PushBack(sub);
-        vertex_offset = static_cast<u32>(mesh->Vertices().Size());
+        sub.index_count = static_cast<u32>(mesh->Indices().Num()) - sub.first_index;
+        mesh->SubMeshes().Add(sub);
+        vertex_offset = static_cast<u32>(mesh->Vertices().Num());
     }
     ::ufbx_free_scene(scene);
     return TResult<TSharedPtr<AAsset>>(OkInit, WrapMesh(id, Move(mesh)));

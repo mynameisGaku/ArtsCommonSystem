@@ -448,7 +448,7 @@ const char* SettingsPersistenceErrorName(
 
 isize CSettings::FindIndex(const char* key) const noexcept {
     if (key == nullptr) return -1;
-    const usize count = m_Entries.Size();
+    const usize count = m_Entries.Num();
     for (usize i = 0u; i < count; ++i) {
         if (StrEq(m_Entries[i].key, key)) return static_cast<isize>(i);
     }
@@ -460,8 +460,8 @@ CSettings::FEntry& CSettings::UpsertEntry(const char* key) noexcept {
     if (index >= 0) return m_Entries[static_cast<usize>(index)];
     FEntry entry{};
     entry.key = key;
-    m_Entries.PushBack(entry);
-    return m_Entries.Back();
+    m_Entries.Add(entry);
+    return m_Entries.Last();
 }
 
 void CSettings::SetF32(const char* key, f32 value) noexcept {
@@ -531,26 +531,26 @@ void CSettings::Remove(const char* key) noexcept {
 }
 
 void CSettings::Clear() noexcept {
-    m_Entries.Clear();
+    m_Entries.Reset();
 }
 
 u32 CSettings::Count() const noexcept {
-    return m_Entries.Size() > 0xFFFFFFFFu
+    return m_Entries.Num() > 0xFFFFFFFFu
         ? 0xFFFFFFFFu
-        : static_cast<u32>(m_Entries.Size());
+        : static_cast<u32>(m_Entries.Num());
 }
 
 FSettingsPersistenceResult CSettings::TrySave(
     const wchar_t* file_path) noexcept {
     const ESettingsPersistenceError path_error = ValidatePath(file_path);
     if (path_error != ESettingsPersistenceError::None) return Failure(path_error);
-    if (m_Entries.Size() > kMaxPersistenceEntries) {
+    if (m_Entries.Num() > kMaxPersistenceEntries) {
         return Failure(ESettingsPersistenceError::EntryLimitExceeded);
     }
 
     FString text;
     u32 serialized_entries = 0u;
-    for (usize i = 0u; i < m_Entries.Size(); ++i) {
+    for (usize i = 0u; i < m_Entries.Num(); ++i) {
         const usize line_begin = text.Size();
         const FEntry& entry = m_Entries[i];
         usize key_length = 0u;
@@ -910,10 +910,10 @@ FSettingsPersistenceResult CSettings::TryLoad(
             allocator.Free(raw);
             return Failure(
                 parse_error, line_number,
-                static_cast<u32>(staged_entries.Size()));
+                static_cast<u32>(staged_entries.Num()));
         }
 
-        for (usize prior = 0u; prior < staged_entries.Size(); ++prior) {
+        for (usize prior = 0u; prior < staged_entries.Num(); ++prior) {
             usize prior_length = 0u;
             (void)TryBoundedLength(
                 staged_entries[prior].key, kMaxPersistenceKeyBytes,
@@ -924,21 +924,21 @@ FSettingsPersistenceResult CSettings::TryLoad(
                 allocator.Free(raw);
                 return Failure(
                     ESettingsPersistenceError::DuplicateKey, line_number,
-                    static_cast<u32>(staged_entries.Size()));
+                    static_cast<u32>(staged_entries.Num()));
             }
         }
 
         FString key;
         if (!key.TryAppend(FStringView(parsed.Key, parsed.KeyLength)) ||
-            !staged_pool.TryPushBack(Move(key))) {
+            !staged_pool.TryAdd(Move(key))) {
             allocator.Free(raw);
             return Failure(
                 ESettingsPersistenceError::AllocationFailure, line_number,
-                static_cast<u32>(staged_entries.Size()));
+                static_cast<u32>(staged_entries.Num()));
         }
 
         FEntry entry{};
-        entry.key = staged_pool.Back().Data();
+        entry.key = staged_pool.Last().Data();
         entry.kind = parsed.Kind;
         switch (parsed.Kind) {
             case ESettingKind::F32:
@@ -954,27 +954,27 @@ FSettingsPersistenceResult CSettings::TryLoad(
                 FString value;
                 if (!value.TryAppend(
                         FStringView(parsed.Value, parsed.ValueLength)) ||
-                    !staged_pool.TryPushBack(Move(value))) {
+                    !staged_pool.TryAdd(Move(value))) {
                     allocator.Free(raw);
                     return Failure(
                         ESettingsPersistenceError::AllocationFailure,
                         line_number,
-                        static_cast<u32>(staged_entries.Size()));
+                        static_cast<u32>(staged_entries.Num()));
                 }
-                entry.value.s = staged_pool.Back().Data();
+                entry.value.s = staged_pool.Last().Data();
                 break;
             }
             default:
                 allocator.Free(raw);
                 return Failure(
                     ESettingsPersistenceError::UnknownType, line_number,
-                    static_cast<u32>(staged_entries.Size()));
+                    static_cast<u32>(staged_entries.Num()));
         }
-        if (!staged_entries.TryPushBack(entry)) {
+        if (!staged_entries.TryAdd(entry)) {
             allocator.Free(raw);
             return Failure(
                 ESettingsPersistenceError::AllocationFailure, line_number,
-                static_cast<u32>(staged_entries.Size()));
+                static_cast<u32>(staged_entries.Num()));
         }
     }
 

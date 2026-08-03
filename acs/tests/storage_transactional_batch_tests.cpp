@@ -708,7 +708,7 @@ ACS_TEST(StorageTransactionalBatch, PreservesInternalAsciiSpaceKeyThroughSaveAnd
     auto savedTextResult = CFileSystem::ReadAllText(savedPath.Get());
     EXPECT_TRUE(savedTextResult.IsOk());
     if (savedTextResult.IsOk()) {
-        EXPECT_TRUE(StorageBatchTextEquals(savedTextResult.Value().Data(), "# acs FStorage\nfoo bar=internal space value\n"));
+        EXPECT_TRUE(StorageBatchTextEquals(savedTextResult.Value().GetData(), "# acs FStorage\nfoo bar=internal space value\n"));
     }
 
     /** 実ファイルから内部 space key を復元する保存領域。 */
@@ -765,7 +765,7 @@ ACS_TEST(StorageTransactionalBatch, SaveKeepsExistingOrderAppendsBatchOrderAndRo
     auto savedTextResult = CFileSystem::ReadAllText(savedPath.Get());
     EXPECT_TRUE(savedTextResult.IsOk());
     if (savedTextResult.IsOk()) {
-        EXPECT_TRUE(StorageBatchTextEquals(savedTextResult.Value().Data(), kExpectedSavedText));
+        EXPECT_TRUE(StorageBatchTextEquals(savedTextResult.Value().GetData(), kExpectedSavedText));
     }
 
     /** 実ファイルから同値状態を復元する保存領域。 */
@@ -789,7 +789,7 @@ ACS_TEST(StorageTransactionalBatch, SaveKeepsExistingOrderAppendsBatchOrderAndRo
     auto roundTripTextResult = CFileSystem::ReadAllText(roundTripPath.Get());
     EXPECT_TRUE(roundTripTextResult.IsOk());
     if (roundTripTextResult.IsOk()) {
-        EXPECT_TRUE(StorageBatchTextEquals(roundTripTextResult.Value().Data(), kExpectedSavedText));
+        EXPECT_TRUE(StorageBatchTextEquals(roundTripTextResult.Value().GetData(), kExpectedSavedText));
     }
 }
 

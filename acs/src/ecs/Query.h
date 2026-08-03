@@ -70,7 +70,7 @@ public:
         // Add/Remove して TSparseSet が m_Dense を再確保すると、生 dense ポインタが dangling
         // になり use-after-free する。コピーに対して反復することで構造的変更に安全化する。
         TArray<FEntityId> snapshot;
-        snapshot.Resize(count);
+        snapshot.SetNum(count);
         const u32* dense = primary->DenseEntities();
         for (usize i = 0; i < count; ++i)
             snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
@@ -99,7 +99,7 @@ public:
         if (count == 0) return;
 
         TArray<FEntityId> snapshot;
-        snapshot.Resize(count);
+        snapshot.SetNum(count);
         const u32* dense = primary->DenseEntities();
         for (usize i = 0; i < count; ++i)
             snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
@@ -124,7 +124,7 @@ public:
         if (count == 0u) return;
 
         TArray<FEntityId> snapshot;
-        if (!snapshot.TryResize(count)) return;
+        if (!snapshot.TrySetNum(count)) return;
         const u32* dense = primary->DenseEntities();
         for (usize i = 0; i < count; ++i)
             snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
@@ -164,7 +164,7 @@ public:
         // dense[] をスナップショットしてから並列反復する。fn が構造的変更を起こすと生 dense
         // が dangling するため、コピーを指す (snapshot は ParallelFor の block 中ずっと生存)。
         TArray<FEntityId> snapshot;
-        snapshot.Resize(count);
+        snapshot.SetNum(count);
         {
             const u32* dense = primary->DenseEntities();
             for (u32 i = 0; i < count; ++i)
@@ -178,7 +178,7 @@ public:
             Fn* fn;
             const FEntityId* entities;
         };
-        FCtx ctx{this, &fn, snapshot.Data()};
+        FCtx ctx{this, &fn, snapshot.GetData()};
 
         auto thunk = [](u32 i, u32 /*worker*/, void* user) {
             auto* c = static_cast<FCtx*>(user);

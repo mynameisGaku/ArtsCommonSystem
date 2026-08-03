@@ -73,11 +73,11 @@ ESceneSerializeError Flatten(const ANode* root,
 
     TArray<FFlattenEntry> stack;
     THashMap<const ANode*, u8> states;
-    if (!stack.TryPushBack(FFlattenEntry{root, -1, false}))
+    if (!stack.TryAdd(FFlattenEntry{root, -1, false}))
         return ESceneSerializeError::AllocationFailure;
     while (!stack.IsEmpty()) {
-        const FFlattenEntry entry = stack.Back();
-        stack.PopBack();
+        const FFlattenEntry entry = stack.Last();
+        stack.Pop();
         if (entry.Node == nullptr) return ESceneSerializeError::InvalidStructure;
 
         if (entry.Exit) {
@@ -92,24 +92,24 @@ ESceneSerializeError Flatten(const ANode* root,
             return *state == 1u ? ESceneSerializeError::CyclicNodeGraph
                                 : ESceneSerializeError::DuplicateNodeReference;
         }
-        if (nodes.Size() >= kSceneSerializeMaxNodeCount)
+        if (nodes.Num() >= kSceneSerializeMaxNodeCount)
             return ESceneSerializeError::NodeLimitExceeded;
-        if (!states.TryInsert(entry.Node, 1u))
+        if (!states.TryAdd(entry.Node, 1u))
             return ESceneSerializeError::AllocationFailure;
-        const i32 my_index = static_cast<i32>(nodes.Size());
-        if (!nodes.TryPushBack(entry.Node) || !parents.TryPushBack(entry.ParentIndex))
+        const i32 my_index = static_cast<i32>(nodes.Num());
+        if (!nodes.TryAdd(entry.Node) || !parents.TryAdd(entry.ParentIndex))
             return ESceneSerializeError::AllocationFailure;
-        if (!stack.TryPushBack(FFlattenEntry{entry.Node, entry.ParentIndex, true}))
+        if (!stack.TryAdd(FFlattenEntry{entry.Node, entry.ParentIndex, true}))
             return ESceneSerializeError::AllocationFailure;
 
         // 逆順に積むことで従来の再帰 DFS と同じ子順を保つ。
         const u32 child_count = entry.Node->ChildCount();
-        if (child_count > kSceneSerializeMaxNodeCount - static_cast<u32>(nodes.Size()))
+        if (child_count > kSceneSerializeMaxNodeCount - static_cast<u32>(nodes.Num()))
             return ESceneSerializeError::NodeLimitExceeded;
         for (u32 i = entry.Node->ChildCount(); i > 0u; --i) {
             const ANode* child = entry.Node->Child(i - 1u);
             if (child == nullptr) return ESceneSerializeError::InvalidStructure;
-            if (!stack.TryPushBack(FFlattenEntry{child, my_index, false}))
+            if (!stack.TryAdd(FFlattenEntry{child, my_index, false}))
                 return ESceneSerializeError::AllocationFailure;
         }
     }
@@ -276,8 +276,8 @@ FSceneSaveResult TrySaveNodeTree(const ANode* root, u8* buf, u32 cap) noexcept {
     if (result.Error != ESceneSerializeError::None) return result;
 
     result.RequiredBytes = 12u;
-    result.NodeCount = static_cast<u32>(nodes.Size());
-    for (u32 i = 0; i < nodes.Size(); ++i) {
+    result.NodeCount = static_cast<u32>(nodes.Num());
+    for (u32 i = 0; i < nodes.Num(); ++i) {
         result.Error = MeasureNode(nodes[i], result.RequiredBytes, result.ComponentCount);
         if (result.Error != ESceneSerializeError::None) return result;
     }
@@ -295,8 +295,8 @@ FSceneSaveResult TrySaveNodeTree(const ANode* root, u8* buf, u32 cap) noexcept {
     FWriter w(buf, cap);
     w.U32(kSceneSerializeMagic);
     w.U32(kSceneSerializeVersion);
-    w.U32(static_cast<u32>(nodes.Size()));
-    for (u32 i = 0; i < nodes.Size(); ++i) {
+    w.U32(static_cast<u32>(nodes.Num()));
+    for (u32 i = 0; i < nodes.Num(); ++i) {
         result.Error = WriteNode(w, nodes[i], parents[i]);
         if (result.Error != ESceneSerializeError::None) {
             result.BytesWritten = w.cur;
@@ -442,7 +442,7 @@ FSceneLoadResult TryLoadNodeTree(const u8* data, u32 size) noexcept {
 
         if (i == 0u) {
             root = Move(node);
-            if (!ptrs.TryPushBack(root.Get()) || !depths.TryPushBack(0u))
+            if (!ptrs.TryAdd(root.Get()) || !depths.TryAdd(0u))
                 return LoadFailure(ESceneSerializeError::AllocationFailure, r.cur, version);
         } else {
             ANode* parent = ptrs[static_cast<u32>(parent_index)];
@@ -455,7 +455,7 @@ FSceneLoadResult TryLoadNodeTree(const u8* data, u32 size) noexcept {
                 ++depth_capped_count;
             }
             ANode& added = parent->AddChild(Move(node));
-            if (!ptrs.TryPushBack(&added) || !depths.TryPushBack(parent_depth + 1u))
+            if (!ptrs.TryAdd(&added) || !depths.TryAdd(parent_depth + 1u))
                 return LoadFailure(ESceneSerializeError::AllocationFailure, r.cur, version);
         }
     }

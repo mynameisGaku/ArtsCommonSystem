@@ -218,7 +218,7 @@ void FStorage::SetString(const char* key, const char* value) noexcept {
         FEntry ne;
         ne.key = FString(key, *m_Allocator);
         ne.value = FString(value ? value : "", *m_Allocator);
-        m_Entries.PushBack(Move(ne));
+        m_Entries.Add(Move(ne));
     }
 }
 
@@ -257,11 +257,11 @@ TResult<usize> FStorage::TrySetStringBatch(const FStorageStringBatchEntry* entri
         }
     }
 
-    if (m_Entries.Size() > kMaximumStringBatchEntryCount) {
+    if (m_Entries.Num() > kMaximumStringBatchEntryCount) {
         return ACS_ERR(Container, 147, "FStorage::TrySetStringBatch: final entry count exceeds limit");
     }
 
-    for (usize existingIndex = 0u; existingIndex < m_Entries.Size(); ++existingIndex) {
+    for (usize existingIndex = 0u; existingIndex < m_Entries.Num(); ++existingIndex) {
         /** loader と同じ規則で正規化した現在の既存 key。 */
         const FStringView normalizedExistingKey = TrimStorageKeyForLoad(m_Entries[existingIndex].key.View());
         for (usize priorIndex = 0u; priorIndex < existingIndex; ++priorIndex) {
@@ -279,7 +279,7 @@ TResult<usize> FStorage::TrySetStringBatch(const FStorageStringBatchEntry* entri
 
         /** loader と同じ規則で正規化した入力 key。 */
         const FStringView normalizedInputKey = TrimStorageKeyForLoad(inputKey);
-        for (usize existingIndex = 0u; existingIndex < m_Entries.Size(); ++existingIndex) {
+        for (usize existingIndex = 0u; existingIndex < m_Entries.Num(); ++existingIndex) {
             /** 現在比較している既存 key。 */
             const FStringView existingKey = m_Entries[existingIndex].key.View();
 
@@ -309,16 +309,16 @@ TResult<usize> FStorage::TrySetStringBatch(const FStorageStringBatchEntry* entri
             ++changedCount;
         }
     }
-    if (addedCount > kMaximumStringBatchEntryCount - m_Entries.Size()) {
+    if (addedCount > kMaximumStringBatchEntryCount - m_Entries.Num()) {
         return ACS_ERR(Container, 147, "FStorage::TrySetStringBatch: final entry count exceeds limit");
     }
     if (changedCount == 0u) return Ok(static_cast<usize>(0u));
-    if (addedCount > (~usize(0)) - m_Entries.Size()) {
+    if (addedCount > (~usize(0)) - m_Entries.Num()) {
         return ACS_ERR(Container, 148, "FStorage::TrySetStringBatch: final entry count overflow");
     }
 
     /** 反映成功後に保持する項目数。 */
-    const usize finalCount = m_Entries.Size() + addedCount;
+    const usize finalCount = m_Entries.Num() + addedCount;
     if (finalCount > (~usize(0)) / sizeof(FEntry)) {
         return ACS_ERR(Container, 149, "FStorage::TrySetStringBatch: final entry byte count overflow");
     }
@@ -334,7 +334,7 @@ TResult<usize> FStorage::TrySetStringBatch(const FStorageStringBatchEntry* entri
         if (!ownedEntry.key.TryAppend(FStringView(entries[index].key)) || !ownedEntry.value.TryAppend(FStringView(entries[index].value ? entries[index].value : ""))) {
             return ACS_ERR(Memory, 151, "FStorage::TrySetStringBatch: input string allocation failed");
         }
-        if (!ownedEntries.TryPushBack(Move(ownedEntry))) {
+        if (!ownedEntries.TryAdd(Move(ownedEntry))) {
             return ACS_ERR(Memory, 152, "FStorage::TrySetStringBatch: input table growth failed");
         }
     }
@@ -344,7 +344,7 @@ TResult<usize> FStorage::TrySetStringBatch(const FStorageStringBatchEntry* entri
     if (!candidate.m_Entries.TryReserve(finalCount)) {
         return ACS_ERR(Memory, 153, "FStorage::TrySetStringBatch: candidate table allocation failed");
     }
-    for (usize index = 0u; index < m_Entries.Size(); ++index) {
+    for (usize index = 0u; index < m_Entries.Num(); ++index) {
         /** 複製する既存項目のキー。 */
         FString candidateKey(*m_Allocator);
 
@@ -356,12 +356,12 @@ TResult<usize> FStorage::TrySetStringBatch(const FStorageStringBatchEntry* entri
 
         /** 候補へ追加する既存項目の複製。 */
         FEntry candidateEntry{Move(candidateKey), Move(candidateValue)};
-        if (!candidate.m_Entries.TryPushBack(Move(candidateEntry))) {
+        if (!candidate.m_Entries.TryAdd(Move(candidateEntry))) {
             return ACS_ERR(Memory, 155, "FStorage::TrySetStringBatch: candidate table growth failed");
         }
     }
 
-    for (usize index = 0u; index < ownedEntries.Size(); ++index) {
+    for (usize index = 0u; index < ownedEntries.Num(); ++index) {
         /** 入力キーに対応する反映前の項目。 */
         const FEntry* existingEntry = FindEntry(ownedEntries[index].key.Data());
         if (existingEntry && StrEq(existingEntry->value.Data(), ownedEntries[index].value.Data())) {
@@ -375,7 +375,7 @@ TResult<usize> FStorage::TrySetStringBatch(const FStorageStringBatchEntry* entri
         } else {
             /** 候補へ新規追加する所有済み項目。 */
             FEntry addedEntry{Move(ownedEntries[index].key), Move(ownedEntries[index].value)};
-            if (!candidate.m_Entries.TryPushBack(Move(addedEntry))) {
+            if (!candidate.m_Entries.TryAdd(Move(addedEntry))) {
                 return ACS_ERR(Memory, 156, "FStorage::TrySetStringBatch: new entry insertion failed");
             }
         }
@@ -434,11 +434,11 @@ bool FStorage::Has(const char* key) const noexcept {
 
 void FStorage::Remove(const char* key) noexcept {
     if (!key) return;
-    for (usize i = 0; i < m_Entries.Size(); ++i) {
+    for (usize i = 0; i < m_Entries.Num(); ++i) {
         if (StrEq(m_Entries[i].key.Data(), key)) {
             // 末尾と入替えて Pop（順序は保証しない）
-            m_Entries[i] = Move(m_Entries[m_Entries.Size() - 1]);
-            m_Entries.PopBack();
+            m_Entries[i] = Move(m_Entries[m_Entries.Num() - 1]);
+            m_Entries.Pop();
             return;
         }
     }
@@ -446,7 +446,7 @@ void FStorage::Remove(const char* key) noexcept {
 
 FStorage::FEntry* FStorage::FindEntry(const char* key) noexcept {
     if (!key) return nullptr;
-    for (usize i = 0; i < m_Entries.Size(); ++i) {
+    for (usize i = 0; i < m_Entries.Num(); ++i) {
         if (StrEq(m_Entries[i].key.Data(), key)) return &m_Entries[i];
     }
     return nullptr;
@@ -466,7 +466,7 @@ TResult<void> FStorage::Load(const wchar_t* path) noexcept {
     auto bytes_r = CFileSystem::ReadAllBytes(path);
     if (bytes_r.IsErr()) return Err<void>(bytes_r.Error());
     const TArray<byte>& bytes = bytes_r.Value();
-    return LoadFromBytes(reinterpret_cast<const u8*>(bytes.Data()), bytes.Size());
+    return LoadFromBytes(reinterpret_cast<const u8*>(bytes.GetData()), bytes.Num());
 }
 
 TResult<void> FStorage::LoadFromBytes(const u8* data, usize size) noexcept {
@@ -509,7 +509,7 @@ TResult<void> FStorage::LoadFromBytes(const u8* data, usize size) noexcept {
         const usize ve = line.Size();
 
         const FStringView key = TrimStorageKeyForLoad(line.SubView(0u, eq));
-        for (usize i = 0; i < loaded.m_Entries.Size(); ++i) {
+        for (usize i = 0; i < loaded.m_Entries.Num(); ++i) {
             if (loaded.m_Entries[i].key.View() == key) {
                 return ACS_ERR(
                     Container, 130,
@@ -530,7 +530,7 @@ TResult<void> FStorage::LoadFromBytes(const u8* data, usize size) noexcept {
         FEntry entry;
         entry.key = Move(candidateKey);
         entry.value = Move(candidateValue);
-        if (!loaded.m_Entries.TryPushBack(Move(entry))) {
+        if (!loaded.m_Entries.TryAdd(Move(entry))) {
             return ACS_ERR(
                 Memory, 132,
                 "FStorage::LoadFromBytes: entry table allocation failed");
@@ -557,9 +557,9 @@ TResult<void> FStorage::Save(const wchar_t* path) noexcept {
     }
 
     FString out("", *m_Allocator);
-    out.Reserve(64 * (m_Entries.Size() + 1));
+    out.Reserve(64 * (m_Entries.Num() + 1));
     out.Append(FStringView("# acs FStorage\n"));
-    for (usize i = 0; i < m_Entries.Size(); ++i) {
+    for (usize i = 0; i < m_Entries.Num(); ++i) {
         out.Append(m_Entries[i].key.View());
         out.Append('=');
         out.Append(m_Entries[i].value.View());

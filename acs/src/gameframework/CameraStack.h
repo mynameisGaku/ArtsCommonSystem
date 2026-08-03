@@ -138,7 +138,7 @@ public:
      *
      * @return スタック内のカメラ数。
      */
-    u32       Depth() const noexcept { return static_cast<u32>(m_Entries.Size()); }
+    u32       Depth() const noexcept { return static_cast<u32>(m_Entries.Num()); }
 
     /** スタックを空にする (全エントリを破棄)。 */
     void      Clear() noexcept;

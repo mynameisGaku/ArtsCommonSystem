@@ -54,11 +54,11 @@
 //     呼出側 (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
 //     deck / hand / discard / exile の `const char*` 要素は `m_Cards[].id` を直接指す (= リテラル参照、非所有)。
 //   ・**4 ゾーン (deck / hand / discard / exile) は別 TArray<const char*>**:
-//     - `deck`    : 山札。末尾が「次に引くトップ」(PopBack で O(1) ドロー)。
+//     - `deck`    : 山札。末尾が「次に引くトップ」(Pop で O(1) ドロー)。
 //     - `hand`    : 手札。順序は登録順 (= 引いた順)、UI の表示位置に対応。
 //     - `discard` : 捨札。プレイ済み or 強制捨札されたカード。Reshuffle で deck に戻る。
 //     - `exile`   : 完全除外。MtG の "Exile" / Slay the Spire の "Exhaust" 相当、戻らない。
-//   ・**Draw は「デッキ末尾」を取る**: 直感に反するように見えるが、`PushBack/PopBack` を使うと
+//   ・**Draw は「デッキ末尾」を取る**: 直感に反するように見えるが、`Add/Pop` を使うと
 //     O(1) で済む。Shuffle で順序がランダムになるので、どちらの端をトップと呼んでも UX 的に
 //     違いはない (= デッキトップは末尾、デッキボトムは先頭、と内部約束)。
 //   ・**Draw 自動 reshuffle**: デッキ空時に discard が残っていれば、discard を shuffle して
@@ -371,7 +371,7 @@ private:
     /** カード定義 (起動時 immutable、値で所有)。 */
     TArray<FCardDef> m_Cards;
 
-    /** 山札 (末尾がトップ、PushBack / PopBack で O(1) ドロー、要素は非所有)。 */
+    /** 山札 (末尾がトップ、Add / Pop で O(1) ドロー、要素は非所有)。 */
     TArray<const char*> m_Deck;
 
     /** 手札 (順序は引いた順、要素は m_Cards[].id を指す非所有参照)。 */

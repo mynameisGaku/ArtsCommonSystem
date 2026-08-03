@@ -59,10 +59,10 @@ constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 } // namespace
 
 void CAnimationGraph::Init() noexcept {
-    m_Clips.Clear();
-    _state_nodes.Clear();
-    m_Transitions.Clear();
-    m_Params.Clear();
+    m_Clips.Reset();
+    _state_nodes.Reset();
+    m_Transitions.Reset();
+    m_Params.Reset();
 
     m_CurrentState    = EAnimationGraphState::Idle;
     m_PreviousState   = EAnimationGraphState::Idle;
@@ -81,10 +81,10 @@ void CAnimationGraph::Init() noexcept {
 }
 
 void CAnimationGraph::Shutdown() noexcept {
-    m_Clips.Clear();
-    _state_nodes.Clear();
-    m_Transitions.Clear();
-    m_Params.Clear();
+    m_Clips.Reset();
+    _state_nodes.Reset();
+    m_Transitions.Reset();
+    m_Params.Reset();
 
     m_HasCurrent      = false;
     m_bTriggerPending  = false;
@@ -95,29 +95,29 @@ void CAnimationGraph::Shutdown() noexcept {
 }
 
 u32 CAnimationGraph::AddClip(const FAnimationClipBinding& clip) noexcept {
-    m_Clips.PushBack(clip);
-    return static_cast<u32>(m_Clips.Size()) - 1u;
+    m_Clips.Add(clip);
+    return static_cast<u32>(m_Clips.Num()) - 1u;
 }
 
 u32 CAnimationGraph::ClipCount() const noexcept {
-    return static_cast<u32>(m_Clips.Size());
+    return static_cast<u32>(m_Clips.Num());
 }
 
 const FAnimationClipBinding* CAnimationGraph::GetClip(u32 i) const noexcept {
-    if (i >= m_Clips.Size()) return nullptr;
+    if (i >= m_Clips.Num()) return nullptr;
     return &m_Clips[i];
 }
 
 void CAnimationGraph::AddStateNode(const FAnimationStateNode& node) noexcept {
     // 既存 ID と同じ node なら後勝ち上書き (重複 ID を許容しない)
-    const usize n = _state_nodes.Size();
+    const usize n = _state_nodes.Num();
     for (usize i = 0; i < n; ++i) {
         if (_state_nodes[i].id == node.id) {
             _state_nodes[i] = node;
             return;
         }
     }
-    _state_nodes.PushBack(node);
+    _state_nodes.Add(node);
 
     // 初回追加で m_HasCurrent が立っていなければ初期状態としてセット
     if (!m_HasCurrent) {
@@ -132,31 +132,31 @@ void CAnimationGraph::AddStateNode(const FAnimationStateNode& node) noexcept {
 }
 
 u32 CAnimationGraph::StateNodeCount() const noexcept {
-    return static_cast<u32>(_state_nodes.Size());
+    return static_cast<u32>(_state_nodes.Num());
 }
 
 const FAnimationStateNode* CAnimationGraph::GetStateNode(u32 i) const noexcept {
-    if (i >= _state_nodes.Size()) return nullptr;
+    if (i >= _state_nodes.Num()) return nullptr;
     return &_state_nodes[i];
 }
 
 void CAnimationGraph::AddTransition(const FAnimationTransition& trans) noexcept {
-    m_Transitions.PushBack(trans);
+    m_Transitions.Add(trans);
 }
 
 u32 CAnimationGraph::TransitionCount() const noexcept {
-    return static_cast<u32>(m_Transitions.Size());
+    return static_cast<u32>(m_Transitions.Num());
 }
 
 const FAnimationTransition* CAnimationGraph::GetTransition(u32 i) const noexcept {
-    if (i >= m_Transitions.Size()) return nullptr;
+    if (i >= m_Transitions.Num()) return nullptr;
     return &m_Transitions[i];
 }
 
 void CAnimationGraph::SetParam(const char* name, f32 value) noexcept {
     if (name == nullptr) return;
 
-    const usize n = m_Params.Size();
+    const usize n = m_Params.Num();
     for (usize i = 0; i < n; ++i) {
         if (NamesEqual(m_Params[i].name, name)) {
             m_Params[i].value = value;
@@ -166,12 +166,12 @@ void CAnimationGraph::SetParam(const char* name, f32 value) noexcept {
     FParam p;
     p.name  = name;
     p.value = value;
-    m_Params.PushBack(p);
+    m_Params.Add(p);
 }
 
 f32 CAnimationGraph::GetParam(const char* name) const noexcept {
     if (name == nullptr) return 0.0f;
-    const usize n = m_Params.Size();
+    const usize n = m_Params.Num();
     for (usize i = 0; i < n; ++i) {
         if (NamesEqual(m_Params[i].name, name)) {
             return m_Params[i].value;
@@ -207,7 +207,7 @@ u32 CAnimationGraph::CurrentClipIndex() const noexcept {
 }
 
 u32 CAnimationGraph::FindStateNodeIndex(EAnimationGraphState id) const noexcept {
-    const usize n = _state_nodes.Size();
+    const usize n = _state_nodes.Num();
     for (usize i = 0; i < n; ++i) {
         if (_state_nodes[i].id == id) return static_cast<u32>(i);
     }
@@ -238,7 +238,7 @@ bool CAnimationGraph::AdvanceLocalTime(f32 dt) noexcept {
     if (idx == kInvalidIndex) return false;
 
     const FAnimationStateNode& node = _state_nodes[idx];
-    if (node.clip_index >= m_Clips.Size()) return false;
+    if (node.clip_index >= m_Clips.Num()) return false;
 
     const FAnimationClipBinding& clip = m_Clips[node.clip_index];
 
@@ -269,7 +269,7 @@ bool CAnimationGraph::AdvanceLocalTime(f32 dt) noexcept {
 }
 
 bool CAnimationGraph::EvaluateTransitions() noexcept {
-    const usize n = m_Transitions.Size();
+    const usize n = m_Transitions.Num();
     for (usize i = 0; i < n; ++i) {
         const FAnimationTransition& t = m_Transitions[i];
         if (t.from != m_CurrentState) continue;

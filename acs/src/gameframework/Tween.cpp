@@ -26,14 +26,14 @@ bool IsFiniteTweenValue(FVec3 value) noexcept {
 
 u32 CTweenManager::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用 (= 一定 Tick 後の FTween 群はキャッシュ局所性高い)
-    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+    for (u32 i = 0; i < m_Slots.Num(); ++i) {
         if (!m_Slots[i].active) {
             return i;
         }
     }
     // 全 slot 使用中 → 末尾に追加
-    m_Slots.PushBack({});
-    return static_cast<u32>(m_Slots.Size()) - 1u;
+    m_Slots.Add({});
+    return static_cast<u32>(m_Slots.Num()) - 1u;
 }
 
 void CTweenManager::FillCommon(FSlot& s, void* target, f32 duration,
@@ -130,7 +130,7 @@ FTweenHandle CTweenManager::Tween(FVec3* target, FVec3 from, FVec3 to, f32 durat
 }
 
 void CTweenManager::Cancel(FTweenHandle h) noexcept {
-    if (!h.IsValid() || h.index >= m_Slots.Size()) return;
+    if (!h.IsValid() || h.index >= m_Slots.Num()) return;
     FSlot& s = m_Slots[h.index];
     if (s.generation != h.generation || !s.active) return;
     s.active = false;
@@ -140,7 +140,7 @@ void CTweenManager::Cancel(FTweenHandle h) noexcept {
 }
 
 void CTweenManager::CompleteAll() noexcept {
-    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+    for (u32 i = 0; i < m_Slots.Num(); ++i) {
         FSlot& s = m_Slots[i];
         if (!s.active) continue;
         switch (s.kind) {
@@ -157,7 +157,7 @@ void CTweenManager::CompleteAll() noexcept {
 }
 
 void CTweenManager::CancelAll() noexcept {
-    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+    for (u32 i = 0; i < m_Slots.Num(); ++i) {
         m_Slots[i].active = false;
         m_Slots[i].kind   = EKind::None;
         m_Slots[i].target = nullptr;
@@ -166,7 +166,7 @@ void CTweenManager::CancelAll() noexcept {
 }
 
 bool CTweenManager::IsActive(FTweenHandle h) const noexcept {
-    if (!h.IsValid() || h.index >= m_Slots.Size()) return false;
+    if (!h.IsValid() || h.index >= m_Slots.Num()) return false;
     const FSlot& s = m_Slots[h.index];
     return s.active && s.generation == h.generation;
 }
@@ -177,7 +177,7 @@ u32 CTweenManager::ActiveCount() const noexcept {
 
 void CTweenManager::Tick(f32 dt) noexcept {
     if (m_ActiveCount == 0 || dt <= 0.0f || !std::isfinite(dt)) return;
-    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+    for (u32 i = 0; i < m_Slots.Num(); ++i) {
         FSlot& s = m_Slots[i];
         if (!s.active) continue;
 

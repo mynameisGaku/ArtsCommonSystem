@@ -73,7 +73,7 @@ void CInputRecorder::Capture(const FInputSample& s) noexcept {
     if (m_Mode != ERecorderMode::Recording) {
         return;
     }
-    m_Samples.PushBack(s);
+    m_Samples.Add(s);
     // m_CurrentTick は「次に書き込む tick」のヒント。連続 tick 想定で
     // sample.tick + 1 に進める。CLockstep::RecordInput と同じ方針。
     m_CurrentTick = s.tick + 1u;
@@ -85,7 +85,7 @@ bool CInputRecorder::ConsumeSample(u32 tick, FInputSample& out) noexcept {
     if (m_Mode != ERecorderMode::Replaying) {
         return false;
     }
-    const usize n = m_Samples.Size();
+    const usize n = m_Samples.Num();
     // m_Cursor から線形走査。記録順 = tick 昇順を仮定するため、
     // ヒット後に cursor を前進させて amortised O(1) を狙う。
     for (usize i = m_Cursor; i < n; ++i) {
@@ -107,12 +107,12 @@ bool CInputRecorder::ConsumeSample(u32 tick, FInputSample& out) noexcept {
 
 /** 蓄積済み sample 数を返す。 */
 u32 CInputRecorder::SampleCount() const noexcept {
-    return static_cast<u32>(m_Samples.Size());
+    return static_cast<u32>(m_Samples.Num());
 }
 
 /** 全 sample を破棄し cursor / current_tick を 0 に戻す (Mode / tick_rate は保持)。 */
 void CInputRecorder::Clear() noexcept {
-    m_Samples.Clear();
+    m_Samples.Reset();
     m_CurrentTick = 0;
     m_Cursor       = 0;
     // m_Mode / m_TickRateHz は保持。StartRecording / StartReplay で改めて切り替える設計。
@@ -137,12 +137,12 @@ TResult<void> CInputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_writte
                        "CInputRecorder::SaveToBuffer: buffer is null");
     }
 
-    if (m_Samples.Size() > kInputRecorderMaximumSamples ||
+    if (m_Samples.Num() > kInputRecorderMaximumSamples ||
         m_TickRateHz == 0 || m_TickRateHz > kInputRecorderMaximumTickRateHz) {
         return ACS_ERR(IO, kSub_LimitExceeded,
                        "CInputRecorder::SaveToBuffer: tick rate or sample count exceeds the limit");
     }
-    const u32 sample_count = static_cast<u32>(m_Samples.Size());
+    const u32 sample_count = static_cast<u32>(m_Samples.Num());
     for (u32 i = 0; i < sample_count; ++i) {
         if (!input_recording_detail::HasFiniteMousePosition(m_Samples[i])) {
             return ACS_ERR(IO, kSub_BadValue,
@@ -214,7 +214,7 @@ TResult<void> CInputRecorder::TryLoadFromBuffer(const u8* buffer, u32 size) noex
     for (u32 index = 0u; index < view.SampleCount(); ++index) {
         /** view から復元する一件分の sample。 */
         FInputSample sample;
-        if (!view.DecodeSample(index, sample) || !staged.TryPushBack(sample)) {
+        if (!view.DecodeSample(index, sample) || !staged.TryAdd(sample)) {
             return ACS_ERR(Memory, kSub_Oom,
                            "CInputRecorder::TryLoadFromBuffer: sample staging append failed");
         }

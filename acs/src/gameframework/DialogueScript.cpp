@@ -48,16 +48,16 @@ constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 } // namespace
 
 void CDialogueScript::Init() noexcept {
-    m_CurrentChoices.Clear();
+    m_CurrentChoices.Reset();
     m_CurrentOpIndex = 0u;
     m_WaitRemaining   = 0.0f;
     _state            = EDialogueScriptState::Idle;
 }
 
 void CDialogueScript::LoadScript(const FScriptOp* ops, u32 op_count, const char* script_id) noexcept {
-    m_Ops.Clear();
-    m_Labels.Clear();
-    m_CurrentChoices.Clear();
+    m_Ops.Reset();
+    m_Labels.Reset();
+    m_CurrentChoices.Reset();
     m_ScriptId        = script_id;
     m_CurrentOpIndex = 0u;
     m_WaitRemaining   = 0.0f;
@@ -67,27 +67,27 @@ void CDialogueScript::LoadScript(const FScriptOp* ops, u32 op_count, const char*
 
     m_Ops.Reserve(op_count);
     for (u32 i = 0; i < op_count; ++i) {
-        m_Ops.PushBack(ops[i]);
+        m_Ops.Add(ops[i]);
     }
 }
 
 void CDialogueScript::AddLabel(const char* label, u32 op_index) noexcept {
     if (label == nullptr) return;
-    if (op_index >= static_cast<u32>(m_Ops.Size())) return;
+    if (op_index >= static_cast<u32>(m_Ops.Num())) return;
 
     // 同名は最初の登録のみ有効 (上書き禁止)
-    for (usize i = 0; i < m_Labels.Size(); ++i) {
+    for (usize i = 0; i < m_Labels.Num(); ++i) {
         if (StrEq(m_Labels[i].label, label)) return;
     }
 
     FLabelEntry e;
     e.label    = label;
     e.op_index = op_index;
-    m_Labels.PushBack(e);
+    m_Labels.Add(e);
 }
 
 void CDialogueScript::Start(const char* start_label) noexcept {
-    if (m_Ops.Size() == 0) {
+    if (m_Ops.Num() == 0) {
         // 空スクリプト: 即 Finished にして End callback を発火
         _state = EDialogueScriptState::Playing;
         EnterFinished();
@@ -108,7 +108,7 @@ void CDialogueScript::Start(const char* start_label) noexcept {
 
     m_CurrentOpIndex = start_index;
     m_WaitRemaining   = 0.0f;
-    m_CurrentChoices.Clear();
+    m_CurrentChoices.Reset();
     _state            = EDialogueScriptState::Playing;
     RunUntilBlocked();
 }
@@ -117,13 +117,13 @@ void CDialogueScript::Stop() noexcept {
     _state            = EDialogueScriptState::Idle;
     m_CurrentOpIndex = 0u;
     m_WaitRemaining   = 0.0f;
-    m_CurrentChoices.Clear();
+    m_CurrentChoices.Reset();
 }
 
 void CDialogueScript::ClearAll() noexcept {
-    m_Ops.Clear();
-    m_Labels.Clear();
-    m_CurrentChoices.Clear();
+    m_Ops.Reset();
+    m_Labels.Reset();
+    m_CurrentChoices.Reset();
     m_ScriptId        = nullptr;
     m_CurrentOpIndex = 0u;
     m_WaitRemaining   = 0.0f;
@@ -156,12 +156,12 @@ void CDialogueScript::Advance() noexcept {
 
 void CDialogueScript::SelectChoice(u32 choice_index) noexcept {
     if (_state != EDialogueScriptState::AwaitingChoice) return;
-    if (choice_index >= static_cast<u32>(m_CurrentChoices.Size())) return;
+    if (choice_index >= static_cast<u32>(m_CurrentChoices.Num())) return;
 
     const FScriptChoice& c = m_CurrentChoices[choice_index];
     const u32 target = (c.jump_label != nullptr) ? ResolveLabel(c.jump_label) : kInvalidIndex;
 
-    m_CurrentChoices.Clear();
+    m_CurrentChoices.Reset();
 
     if (target == kInvalidIndex) {
         // ジャンプ先が無い / 未解決: スクリプト終了に倒す
@@ -176,18 +176,18 @@ void CDialogueScript::SelectChoice(u32 choice_index) noexcept {
 }
 
 const FScriptOp* CDialogueScript::CurrentOp() const noexcept {
-    if (m_CurrentOpIndex >= static_cast<u32>(m_Ops.Size())) return nullptr;
+    if (m_CurrentOpIndex >= static_cast<u32>(m_Ops.Num())) return nullptr;
     return &m_Ops[m_CurrentOpIndex];
 }
 
 u32 CDialogueScript::CurrentChoiceCount() const noexcept {
     if (_state != EDialogueScriptState::AwaitingChoice) return 0;
-    return static_cast<u32>(m_CurrentChoices.Size());
+    return static_cast<u32>(m_CurrentChoices.Num());
 }
 
 const FScriptChoice* CDialogueScript::CurrentChoice(u32 index) const noexcept {
     if (_state != EDialogueScriptState::AwaitingChoice) return nullptr;
-    if (index >= static_cast<u32>(m_CurrentChoices.Size())) return nullptr;
+    if (index >= static_cast<u32>(m_CurrentChoices.Num())) return nullptr;
     return &m_CurrentChoices[index];
 }
 
@@ -237,7 +237,7 @@ void CDialogueScript::SetOnEndCallback(EndCallback cb, void* user) noexcept {
 
 u32 CDialogueScript::ResolveLabel(const char* label) const noexcept {
     if (label == nullptr) return kInvalidIndex;
-    for (usize i = 0; i < m_Labels.Size(); ++i) {
+    for (usize i = 0; i < m_Labels.Num(); ++i) {
         if (StrEq(m_Labels[i].label, label)) {
             return m_Labels[i].op_index;
         }
@@ -247,7 +247,7 @@ u32 CDialogueScript::ResolveLabel(const char* label) const noexcept {
 
 void CDialogueScript::RunUntilBlocked() noexcept {
     // 即進行系を一気に消化し、停止ポイント (Say / Choice / Wait / EndScene / 末尾) で抜ける。
-    const u32 n = static_cast<u32>(m_Ops.Size());
+    const u32 n = static_cast<u32>(m_Ops.Num());
 
     // Jump によるラベル循環 (op0 → Jump op0 等) では停止ポイントに到達できず
     // while が無限ループする。即進行 op の処理回数は最大でも op 数 n 回までで、
@@ -311,8 +311,8 @@ void CDialogueScript::RunUntilBlocked() noexcept {
 }
 
 void CDialogueScript::EnterChoiceGroup() noexcept {
-    m_CurrentChoices.Clear();
-    const u32 n = static_cast<u32>(m_Ops.Size());
+    m_CurrentChoices.Reset();
+    const u32 n = static_cast<u32>(m_Ops.Num());
 
     // m_CurrentOpIndex 起点から連続する Choice op を全て選択肢に展開
     u32 i = m_CurrentOpIndex;
@@ -320,11 +320,11 @@ void CDialogueScript::EnterChoiceGroup() noexcept {
         FScriptChoice c;
         c.label      = m_Ops[i].arg1;
         c.jump_label = m_Ops[i].arg2;
-        m_CurrentChoices.PushBack(c);
+        m_CurrentChoices.Add(c);
         ++i;
     }
 
-    if (m_CurrentChoices.Size() == 0) {
+    if (m_CurrentChoices.Num() == 0) {
         // 念のため: Choice op だが選択肢を一つも展開できなかった (= ロジックバグ)。
         // フォールバックとして次 op へ進めて Playing を継続。
         m_CurrentOpIndex += 1u;
@@ -336,8 +336,8 @@ void CDialogueScript::EnterChoiceGroup() noexcept {
     _state = EDialogueScriptState::AwaitingChoice;
 
     if (m_ChoiceCb != nullptr) {
-        const FScriptChoice* base = (m_CurrentChoices.Size() > 0) ? &m_CurrentChoices[0] : nullptr;
-        m_ChoiceCb(m_ChoiceUser, base, static_cast<u32>(m_CurrentChoices.Size()));
+        const FScriptChoice* base = (m_CurrentChoices.Num() > 0) ? &m_CurrentChoices[0] : nullptr;
+        m_ChoiceCb(m_ChoiceUser, base, static_cast<u32>(m_CurrentChoices.Num()));
     }
 }
 
@@ -395,7 +395,7 @@ void CDialogueScript::EnterFinished() noexcept {
     if (_state == EDialogueScriptState::Finished) return;
     _state          = EDialogueScriptState::Finished;
     m_WaitRemaining = 0.0f;
-    m_CurrentChoices.Clear();
+    m_CurrentChoices.Reset();
     if (m_EndCb != nullptr) {
         m_EndCb(m_EndUser, m_ScriptId);
     }

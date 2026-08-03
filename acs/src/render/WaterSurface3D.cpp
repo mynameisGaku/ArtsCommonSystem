@@ -1052,8 +1052,8 @@ bool CWaterSurface3D::IsLocalXzSurfaceMesh(
     const AMeshAsset& mesh) noexcept {
     const TArray<FMeshVertex>& vertices = mesh.Vertices();
     const TArray<u32>& indices = mesh.Indices();
-    if (vertices.Size() < 3u || indices.Size() < 3u ||
-        indices.Size() % 3u != 0u) {
+    if (vertices.Num() < 3u || indices.Num() < 3u ||
+        indices.Num() % 3u != 0u) {
         return false;
     }
 
@@ -1063,7 +1063,7 @@ bool CWaterSurface3D::IsLocalXzSurfaceMesh(
     f64 max_x = -std::numeric_limits<f64>::max();
     f64 max_y = -std::numeric_limits<f64>::max();
     f64 max_z = -std::numeric_limits<f64>::max();
-    for (usize i = 0u; i < vertices.Size(); ++i) {
+    for (usize i = 0u; i < vertices.Num(); ++i) {
         const FMeshVertex& vertex = vertices[i];
         if (!IsFinite(vertex.position) || !IsFinite(vertex.normal)) {
             return false;
@@ -1095,13 +1095,13 @@ bool CWaterSurface3D::IsLocalXzSurfaceMesh(
     if (max_y - min_y > local_plane_tolerance) return false;
 
     f64 projected_twice_area = 0.0;
-    for (usize i = 0u; i < indices.Size(); i += 3u) {
+    for (usize i = 0u; i < indices.Num(); i += 3u) {
         const u32 ia = indices[i];
         const u32 ib = indices[i + 1u];
         const u32 ic = indices[i + 2u];
-        if (ia >= vertices.Size() ||
-            ib >= vertices.Size() ||
-            ic >= vertices.Size()) {
+        if (ia >= vertices.Num() ||
+            ib >= vertices.Num() ||
+            ic >= vertices.Num()) {
             return false;
         }
         const FVec3& a = vertices[ia].position;

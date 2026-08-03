@@ -286,13 +286,13 @@ ACS_TEST(TilemapNav, PathfindAroundWall) {
     TArray<FVec2> path;
     const bool found = FindTilemapPath(map, nav, map.TileToWorld(0, 0), map.TileToWorld(9, 0), path);
     EXPECT_TRUE(found);
-    EXPECT_TRUE(path.Size() > 0u);
-    if (path.Size() > 0u) {
+    EXPECT_TRUE(path.Num() > 0u);
+    if (path.Num() > 0u) {
         EXPECT_NEAR(path[0].x, map.TileToWorld(0, 0).x, 1e-3f);                    // 始点
-        EXPECT_NEAR(path[path.Size() - 1u].x, map.TileToWorld(9, 0).x, 1e-3f);     // 終点
+        EXPECT_NEAR(path[path.Num() - 1u].x, map.TileToWorld(9, 0).x, 1e-3f);     // 終点
     }
     // どの waypoint も壁タイル上に乗らない。
-    for (u32 i = 0; i < path.Size(); ++i) {
+    for (u32 i = 0; i < path.Num(); ++i) {
         u32 tx, ty;
         EXPECT_TRUE(map.WorldToTile(path[i], tx, ty));
         EXPECT_TRUE(map.GetTile(tx, ty, 0).IsEmpty());
@@ -309,7 +309,7 @@ ACS_TEST(TilemapNav, NoPathWhenFullyBlocked) {
     BuildNavGridFromTilemap(map, 0, nav);
 
     TArray<FVec2> path;
-    path.PushBack(FVec2{ 99.0f, 99.0f });   // 事前に汚す
+    path.Add(FVec2{ 99.0f, 99.0f });   // 事前に汚す
     EXPECT_TRUE(!FindTilemapPath(map, nav, map.TileToWorld(0, 0), map.TileToWorld(9, 0), path));
-    EXPECT_EQ(path.Size(), 0u);             // 失敗時も出力は空 (stale を残さない)
+    EXPECT_EQ(path.Num(), 0u);             // 失敗時も出力は空 (stale を残さない)
 }

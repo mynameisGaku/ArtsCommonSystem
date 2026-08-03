@@ -212,7 +212,7 @@ void CLuaVm::Shutdown() noexcept {
         m_Impl->m_L = nullptr;
     }
     // process singleton でも shutdown 時点で容量を返し、再 Init は同じ allocator を使う。
-    m_Impl->m_Natives.ReleaseStorage();
+    m_Impl->m_Natives.Empty();
     // 旧 state の registry ref を持ち越すと再 Init 後に別 state へ
     // luaL_unref してしまうため、未保持状態にリセットする。
     m_Impl->m_LastStringRef = LUA_NOREF;
@@ -329,7 +329,7 @@ acs::TResult<void> CLuaVm::RegisterNativeFunction(const char* function_name, Nat
         return ACS_ERR(Memory, script_err::kSub_AllocationFailed, "CLuaVm::RegisterNativeFunction: Lua stack allocation failed");
     }
     /** 新しい登録情報の番号。 */
-    const int reg_index = static_cast<int>(m_Impl->m_Natives.Size());
+    const int reg_index = static_cast<int>(m_Impl->m_Natives.Num());
     /** 登録する関数と利用者情報。 */
     FLuaVmImpl::FNativeReg reg;
     reg.fn   = fn;
@@ -340,7 +340,7 @@ acs::TResult<void> CLuaVm::RegisterNativeFunction(const char* function_name, Nat
     // 登録簿を変える前に、確保を伴わないC関数と軽量利用者ポインタを保護呼び出し用の2枠へ積む。
     lua_pushcfunction(L, &PublishNativeRegistration);
     lua_pushlightuserdata(L, &operation);
-    if (!m_Impl->m_Natives.TryPushBack(reg)) {
+    if (!m_Impl->m_Natives.TryAdd(reg)) {
         lua_pop(L, 2);
         return ACS_ERR(Memory, script_err::kSub_AllocationFailed, "CLuaVm::RegisterNativeFunction: registry allocation failed");
     }
@@ -351,7 +351,7 @@ acs::TResult<void> CLuaVm::RegisterNativeFunction(const char* function_name, Nat
     const int publish_status = lua_pcall(L, 1, 0, 0);
     if (publish_status != LUA_OK) {
         lua_settop(L, stack_guard.InitialTop());
-        m_Impl->m_Natives.PopBack();
+        m_Impl->m_Natives.Pop();
         /** 同名グローバルを書き戻した結果。 */
         int rollback_status = LUA_OK;
         if (operation.previous_global_ref != LUA_NOREF) {

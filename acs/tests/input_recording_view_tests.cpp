@@ -107,8 +107,8 @@ ACS_TEST(InputRecordingView, SpanTrySubSpanPreservesOutputOnInvalidRange)
     /** 失敗時に維持される sentinel view。 */
     TSpan<const u8> output(storage + 1u, 1u);
     EXPECT_TRUE(!source.TrySubSpan(3u, 2u, output));
-    EXPECT_TRUE(output.Data() == storage + 1u);
-    EXPECT_EQ(output.Size(), static_cast<usize>(1u));
+    EXPECT_TRUE(output.GetData() == storage + 1u);
+    EXPECT_EQ(output.Num(), static_cast<usize>(1u));
 
     /** null と非 zero size の不正 view。 */
     const TSpan<const u8> invalid(nullptr, 4u);

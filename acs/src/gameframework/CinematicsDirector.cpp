@@ -25,7 +25,7 @@ void CCinematicsDirector::AddKeyframe(const FTimelineKeyframe& kf) noexcept {
     // time_sec 昇順 / 同時刻は登録順 (stable) を維持する挿入位置を線形探索。
     // 典型 N < 100 なので O(N) で実用上問題なし。strict less-than 比較で
     // 「同時刻のものは後ろ」になり stable insertion になる。
-    const usize n = m_Keyframes.Size();
+    const usize n = m_Keyframes.Num();
     usize insert_at = n;
     for (usize i = 0; i < n; ++i) {
         if (entry.time_sec < m_Keyframes[i].time_sec) {
@@ -36,13 +36,13 @@ void CCinematicsDirector::AddKeyframe(const FTimelineKeyframe& kf) noexcept {
 
     if (insert_at == n) {
         // 末尾に追加 (時刻が現在の最大以上)
-        m_Keyframes.PushBack(entry);
+        m_Keyframes.Add(entry);
     } else {
         // [insert_at..n-1] を 1 つ後ろにずらして空きを作る。
-        // 末尾要素を必ずローカルへ退避してから PushBack する。PushBack(m_Keyframes[n-1])
+        // 末尾要素を必ずローカルへ退避してから Add する。Add(m_Keyframes[n-1])
         // と書くと、Grow 再確保で旧バッファが Free された後に引数参照を読み UAF になる。
         const FTimelineKeyframe tail = m_Keyframes[n - 1];
-        m_Keyframes.PushBack(tail);
+        m_Keyframes.Add(tail);
         for (usize i = n - 1; i > insert_at; --i) {
             m_Keyframes[i] = m_Keyframes[i - 1];
         }
@@ -56,7 +56,7 @@ void CCinematicsDirector::AddKeyframe(const FTimelineKeyframe& kf) noexcept {
 }
 
 void CCinematicsDirector::Clear() noexcept {
-    m_Keyframes.Clear();
+    m_Keyframes.Reset();
     m_Time             = 0.0f;
     m_LastFiredIndex = 0u;
     m_Playing          = false;
@@ -82,13 +82,13 @@ void CCinematicsDirector::Skip() noexcept {
     const f32 total = TotalDuration();
     FireUpTo(total);
     m_Time             = total;
-    m_LastFiredIndex = static_cast<u32>(m_Keyframes.Size());
+    m_LastFiredIndex = static_cast<u32>(m_Keyframes.Num());
     // m_Playing は維持 (= caller が Stop / Pause を別途呼ぶ責務)。Skip 後に
     // IsFinished() が true になるので、Tick が呼ばれ続けても無害。
 }
 
 bool CCinematicsDirector::IsFinished() const noexcept {
-    return m_LastFiredIndex >= static_cast<u32>(m_Keyframes.Size());
+    return m_LastFiredIndex >= static_cast<u32>(m_Keyframes.Num());
 }
 
 void CCinematicsDirector::Tick(f32 dt) noexcept {
@@ -101,8 +101,8 @@ void CCinematicsDirector::Tick(f32 dt) noexcept {
 
 f32 CCinematicsDirector::TotalDuration() const noexcept {
     // 昇順を維持しているので末尾 (Back) の time_sec が最大。
-    if (m_Keyframes.Size() == 0) return 0.0f;
-    return m_Keyframes[m_Keyframes.Size() - 1].time_sec;
+    if (m_Keyframes.Num() == 0) return 0.0f;
+    return m_Keyframes[m_Keyframes.Num() - 1].time_sec;
 }
 
 void CCinematicsDirector::SetCameraCallback(CameraCallbackFn cb, void* user) noexcept {
@@ -133,13 +133,13 @@ void CCinematicsDirector::FireUpTo(f32 up_to_time) noexcept {
     // 発火」規約)。退避は値コピー — payload は POD union なので所有参照を持たない。
     // 走査ループ中は callback を呼ばないので、m_Keyframes は不変で index は常に in-bounds。
     TArray<FTimelineKeyframe> to_fire;
-    while (m_LastFiredIndex < static_cast<u32>(m_Keyframes.Size())) {
+    while (m_LastFiredIndex < static_cast<u32>(m_Keyframes.Num())) {
         const FTimelineKeyframe& kf = m_Keyframes[m_LastFiredIndex];
         if (kf.time_sec > up_to_time) break;   // 未来の keyframe はまだ発火しない
-        (void)to_fire.TryPushBack(kf);
+        (void)to_fire.TryAdd(kf);
         ++m_LastFiredIndex;
     }
-    for (usize i = 0; i < to_fire.Size(); ++i) {
+    for (usize i = 0; i < to_fire.Num(); ++i) {
         FireOne(to_fire[i]);
     }
 }

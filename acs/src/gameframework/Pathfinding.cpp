@@ -35,33 +35,33 @@ void CNavGrid::Init(u32 width, u32 height) noexcept {
     m_Width  = width;
     m_Height = height;
     const u32 count = width * height;
-    m_Walkable.Clear();
-    m_Walkable.Resize(count);
+    m_Walkable.Reset();
+    m_Walkable.SetNum(count);
     for (u32 i = 0; i < count; ++i) m_Walkable[i] = 1;   // 全 cell walkable
     // A* 一時バッファも事前 reserve しておく (FindPath 初回の alloc を減らす)。
-    _open.Clear();
-    _closed.Clear();
-    _closed.Resize(count);
-    m_InOpen.Clear();
-    m_InOpen.Resize(count);
-    m_GScore.Clear();
-    m_GScore.Resize(count);
-    m_FScore.Clear();
-    m_FScore.Resize(count);
-    m_CameFrom.Clear();
-    m_CameFrom.Resize(count);
+    _open.Reset();
+    _closed.Reset();
+    _closed.SetNum(count);
+    m_InOpen.Reset();
+    m_InOpen.SetNum(count);
+    m_GScore.Reset();
+    m_GScore.SetNum(count);
+    m_FScore.Reset();
+    m_FScore.SetNum(count);
+    m_CameFrom.Reset();
+    m_CameFrom.SetNum(count);
 }
 
 /** cell の通行可否を設定する (範囲外は no-op)。 */
 void CNavGrid::SetWalkable(u32 x, u32 y, bool walkable) noexcept {
     if (x >= m_Width || y >= m_Height) return;          // 範囲外は no-op
-    m_Walkable[IndexOf(x, y)] = walkable ? 1 : 0;
+    m_Walkable[IndexOfByKey(x, y)] = walkable ? 1 : 0;
 }
 
 /** cell の通行可否を返す (範囲外は通行不可扱い)。 */
 bool CNavGrid::IsWalkable(u32 x, u32 y) const noexcept {
     if (x >= m_Width || y >= m_Height) return false;   // 範囲外は通行不可扱い
-    return m_Walkable[IndexOf(x, y)] != 0;
+    return m_Walkable[IndexOfByKey(x, y)] != 0;
 }
 
 /** 全 cell を walkable に戻す (グリッドサイズは保持)。 */
@@ -90,7 +90,7 @@ f32 CNavGrid::Heuristic(u32 x, u32 y, u32 goal_x, u32 goal_y) const noexcept {
 /** open list から f_score 最小のノードの位置を線形走査で返す。 */
 usize CNavGrid::PopLowestF() noexcept {
     // 線形最小値走査の簡素実装。binary heap への置換は将来検討。
-    const usize n = _open.Size();
+    const usize n = _open.Num();
     if (n == 0) return 0;
     usize best_pos = 0;
     f32   best_f   = m_FScore[_open[0]];
@@ -108,7 +108,7 @@ usize CNavGrid::PopLowestF() noexcept {
 void CNavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<FPathPoint>& out_path) const noexcept {
     // goal から came_from を辿って start まで遡り、out_path に逆順で push。
     // 最後に reverse して start → goal の順にする。
-    out_path.Clear();
+    out_path.Reset();
     u32 cur = goal_idx;
     // 安全弁 (循環参照などで無限ループしないよう、最大 width*height 回で打ち切り)。
     const u32 max_steps = m_Width * m_Height + 1u;
@@ -117,13 +117,13 @@ void CNavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<FPathPoint>& out_
         FPathPoint p;
         p.x = cur % m_Width;
         p.y = cur / m_Width;
-        out_path.PushBack(p);
+        out_path.Add(p);
         if (cur == start_idx) break;
         cur = m_CameFrom[cur];
         ++steps;
     }
     // 逆順反転 (start → goal にする)。
-    const usize n = out_path.Size();
+    const usize n = out_path.Num();
     for (usize i = 0; i < n / 2; ++i) {
         FPathPoint tmp        = out_path[i];
         out_path[i]          = out_path[n - 1 - i];
@@ -135,7 +135,7 @@ void CNavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<FPathPoint>& out_
 bool CNavGrid::FindPath(u32 start_x, u32 start_y,
                        u32 goal_x,  u32 goal_y,
                        TArray<FPathPoint>& out_path) noexcept {
-    out_path.Clear();
+    out_path.Reset();
 
     // 早期失敗ガード
     if (m_Width == 0 || m_Height == 0)                return false;
@@ -144,26 +144,26 @@ bool CNavGrid::FindPath(u32 start_x, u32 start_y,
     if (!IsWalkable(start_x, start_y))              return false;
     if (!IsWalkable(goal_x,  goal_y))               return false;
 
-    const u32 start_idx = IndexOf(start_x, start_y);
-    const u32 goal_idx  = IndexOf(goal_x,  goal_y);
+    const u32 start_idx = IndexOfByKey(start_x, start_y);
+    const u32 goal_idx  = IndexOfByKey(goal_x,  goal_y);
 
     // start == goal の特殊ケース: 長さ 1 の path として成功。
     if (start_idx == goal_idx) {
         FPathPoint p;
         p.x = start_x;
         p.y = start_y;
-        out_path.PushBack(p);
+        out_path.Add(p);
         return true;
     }
 
     // 一時バッファのリセット
     // (Init で resize 済みのはずだが、念のためサイズ齟齬があれば調整)。
     const u32 count = m_Width * m_Height;
-    if (_closed.Size()    != count) _closed.Resize(count);
-    if (m_InOpen.Size()   != count) m_InOpen.Resize(count);
-    if (m_GScore.Size()   != count) m_GScore.Resize(count);
-    if (m_FScore.Size()   != count) m_FScore.Resize(count);
-    if (m_CameFrom.Size() != count) m_CameFrom.Resize(count);
+    if (_closed.Num()    != count) _closed.SetNum(count);
+    if (m_InOpen.Num()   != count) m_InOpen.SetNum(count);
+    if (m_GScore.Num()   != count) m_GScore.SetNum(count);
+    if (m_FScore.Num()   != count) m_FScore.SetNum(count);
+    if (m_CameFrom.Num() != count) m_CameFrom.SetNum(count);
     for (u32 i = 0; i < count; ++i) {
         _closed[i]    = 0;
         m_InOpen[i]   = 0;
@@ -171,13 +171,13 @@ bool CNavGrid::FindPath(u32 start_x, u32 start_y,
         m_FScore[i]   = 0.0f;
         m_CameFrom[i] = kInvalidIndex;
     }
-    _open.Clear();
+    _open.Reset();
 
     // start を open へ
     m_GScore[start_idx]  = 0.0f;
     m_FScore[start_idx]  = Heuristic(start_x, start_y, goal_x, goal_y);
     m_InOpen[start_idx]  = 1;
-    _open.PushBack(start_idx);
+    _open.Add(start_idx);
 
     // 隣接 offset 表
     // 4 方向 + (allow_diagonal なら 4 つ追加) = 最大 8。
@@ -229,7 +229,7 @@ bool CNavGrid::FindPath(u32 start_x, u32 start_y,
             const u32 nx = static_cast<u32>(nx_i);
             const u32 ny = static_cast<u32>(ny_i);
             if (nx >= m_Width || ny >= m_Height) continue;
-            const u32 n_idx = IndexOf(nx, ny);
+            const u32 n_idx = IndexOfByKey(nx, ny);
             // 通行不可 / closed ならスキップ。
             if (m_Walkable[n_idx] == 0) continue;
             if (_closed[n_idx] != 0)   continue;
@@ -245,7 +245,7 @@ bool CNavGrid::FindPath(u32 start_x, u32 start_y,
                 m_FScore[n_idx]   = tentative_g + Heuristic(nx, ny, goal_x, goal_y);
                 if (!in_open_now) {
                     m_InOpen[n_idx] = 1;
-                    _open.PushBack(n_idx);
+                    _open.Add(n_idx);
                 }
                 // 既に open にいる場合は f を上書きするだけで OK (次の PopLowestF が拾う)。
             }
@@ -253,7 +253,7 @@ bool CNavGrid::FindPath(u32 start_x, u32 start_y,
     }
 
     // open set が空になっても goal に届かなかった → 到達不能。
-    out_path.Clear();
+    out_path.Reset();
     return false;
 }
 

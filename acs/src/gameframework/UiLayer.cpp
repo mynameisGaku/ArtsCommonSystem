@@ -42,7 +42,7 @@ void CUiLayer::Init() noexcept {
     }
     // 自前の軽量 WidgetEntry 配列で Button/Text を直接保持・描画する設計のため、
     // acs::ui::Container のツリーは確保しない (リッチ widget は acs::ui を直接使う)。
-    m_Widgets.Clear();
+    m_Widgets.Reset();
     m_NextHandle = 1;
     m_Initialized = true;
     ACS_LOG_DEBUG("CUiLayer::Init: ready");
@@ -53,7 +53,7 @@ void CUiLayer::Shutdown() noexcept {
         // 未初期化での Shutdown は no-op (冪等)。
         return;
     }
-    m_Widgets.Clear();
+    m_Widgets.Reset();
     m_NextHandle = 1;
     m_Initialized = false;
     ACS_LOG_DEBUG("CUiLayer::Shutdown: state cleared");
@@ -73,7 +73,7 @@ void CUiLayer::HandleInput(const acs::FEvent& event) noexcept {
             m_MouseX = event.mouse_move.x;
             m_MouseY = event.mouse_move.y;
             // hover 状態を更新 (ボタンのみ)。
-            for (u32 i = 0; i < m_Widgets.Size(); ++i) {
+            for (u32 i = 0; i < m_Widgets.Num(); ++i) {
                 FWidgetEntry& e = m_Widgets[i];
                 if (e.kind != EWidgetKind::Button) continue;
                 e.hovered = e.visible
@@ -99,7 +99,7 @@ void CUiLayer::HandleInput(const acs::FEvent& event) noexcept {
                 if (idx != kInvalidIndex) m_Widgets[idx].just_pressed = true;
             }
             // 押し込み状態を全解除。
-            for (u32 i = 0; i < m_Widgets.Size(); ++i) m_Widgets[i].pressed_down = false;
+            for (u32 i = 0; i < m_Widgets.Num(); ++i) m_Widgets[i].pressed_down = false;
             m_PressedHandle = 0;
             break;
         }
@@ -110,7 +110,7 @@ void CUiLayer::HandleInput(const acs::FEvent& event) noexcept {
 
 // (x,y) を含む最前面 (= 最後に追加) の visible なボタンの handle。無ければ 0。
 u32 CUiLayer::HitTopButton(f32 x, f32 y) const noexcept {
-    for (u32 i = static_cast<u32>(m_Widgets.Size()); i > 0; --i) {
+    for (u32 i = static_cast<u32>(m_Widgets.Num()); i > 0; --i) {
         const FWidgetEntry& e = m_Widgets[i - 1];
         if (e.kind == EWidgetKind::Button && e.visible
             && x >= e.pos.x && x < e.pos.x + e.size.x
@@ -125,7 +125,7 @@ void CUiLayer::Draw(FRenderContext& rc) const noexcept {
     if (!rc.HasSprites()) return;
     CSpriteBatch& sb = rc.Sprites();
     const bool has_font = rc.HasFont();
-    for (u32 i = 0; i < m_Widgets.Size(); ++i) {
+    for (u32 i = 0; i < m_Widgets.Num(); ++i) {
         const FWidgetEntry& e = m_Widgets[i];
         if (!e.visible) continue;
         if (e.kind == EWidgetKind::Button) {
@@ -147,7 +147,7 @@ void CUiLayer::Draw(FRenderContext& rc) const noexcept {
 }
 
 u32 CUiLayer::WidgetCount() const noexcept {
-    return static_cast<u32>(m_Widgets.Size());
+    return static_cast<u32>(m_Widgets.Num());
 }
 
 u32 CUiLayer::AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size) noexcept {
@@ -164,7 +164,7 @@ u32 CUiLayer::AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size) noex
     e.text         = label;          // 非所有、寿命は呼び出し側保証
     e.visible      = true;
     e.just_pressed = false;
-    m_Widgets.PushBack(e);
+    m_Widgets.Add(e);
     return e.handle;
 }
 
@@ -181,7 +181,7 @@ u32 CUiLayer::AddText(const char* text, acs::FVec2 pos) noexcept {
     e.text         = text;                    // 非所有
     e.visible      = true;
     e.just_pressed = false;
-    m_Widgets.PushBack(e);
+    m_Widgets.Add(e);
     return e.handle;
 }
 
@@ -215,18 +215,18 @@ void CUiLayer::Remove(u32 handle) noexcept {
         ACS_LOG_DEBUG("CUiLayer::Remove: invalid handle %u (already removed?)", handle);
         return;
     }
-    // 末尾と swap して PopBack (順序非保持の高速削除、ハンドル探索は線形なので
+    // 末尾と swap して Pop (順序非保持の高速削除、ハンドル探索は線形なので
     // 順序保持不要)。TArray に EraseSwap 等の API があればそちらを使うがここでは
     // 明示的に書く。
-    const u32 last = static_cast<u32>(m_Widgets.Size()) - 1u;
+    const u32 last = static_cast<u32>(m_Widgets.Num()) - 1u;
     if (idx != last) {
         m_Widgets[idx] = m_Widgets[last];
     }
-    m_Widgets.PopBack();
+    m_Widgets.Pop();
 }
 
 void CUiLayer::Clear() noexcept {
-    m_Widgets.Clear();
+    m_Widgets.Reset();
     // m_NextHandle はリセットしない: Clear 後も以前の handle が外部に残っている
     // 可能性があり、再利用すると意図しないヒットが起こり得る。Shutdown まで
     // 単調増加を維持する。
@@ -234,7 +234,7 @@ void CUiLayer::Clear() noexcept {
 
 u32 CUiLayer::FindIndex(u32 handle) const noexcept {
     if (handle == 0) return kInvalidIndex;
-    for (u32 i = 0; i < m_Widgets.Size(); ++i) {
+    for (u32 i = 0; i < m_Widgets.Num(); ++i) {
         if (m_Widgets[i].handle == handle) return i;
     }
     return kInvalidIndex;

@@ -209,12 +209,12 @@ TResult<u32> CVoiceChatLoopbackBackend::DecodeFrame(const u8* in, u32 in_size,
 
 /** ch 内で user_id を線形検索する (見つからなければ size を返す)。 */
 u32 CVoiceChatLoopbackBackend::FindParticipant(const FChannel& c, const char* user_id) const noexcept {
-    if (user_id == nullptr) return static_cast<u32>(c.participants.Size());
+    if (user_id == nullptr) return static_cast<u32>(c.participants.Num());
     const FStringView want(user_id);
-    for (usize i = 0; i < c.participants.Size(); ++i) {
+    for (usize i = 0; i < c.participants.Num(); ++i) {
         if (c.participants[i].user_id.View() == want) return static_cast<u32>(i);
     }
-    return static_cast<u32>(c.participants.Size());
+    return static_cast<u32>(c.participants.Num());
 }
 
 /** 1 フレームを encode して participant の rx_frames 末尾に append する。 */
@@ -227,9 +227,9 @@ void CVoiceChatLoopbackBackend::EnqueueFrame(FLoopParticipant& p, const i16* pcm
     if (n == 0) return;  // 引数不正 (上位で弾いている想定だが防御的に)
     ++p.next_seq;
 
-    const usize old = p.rx_frames.Size();
-    p.rx_frames.Resize(old + n);
-    MemCopy(p.rx_frames.Data() + old, staging, n);
+    const usize old = p.rx_frames.Num();
+    p.rx_frames.SetNum(old + n);
+    MemCopy(p.rx_frames.GetData() + old, staging, n);
 }
 
 /** provider を記録し全チャンネルの状態をリセットする。 */
@@ -244,7 +244,7 @@ TResult<void> CVoiceChatLoopbackBackend::Init(EVoiceProvider p) noexcept {
         m_Channels[i].joined      = false;
         m_Channels[i].pump_target = 0;
         m_Channels[i].channel_id.ReleaseStorage();
-        m_Channels[i].participants.ReleaseStorage();
+        m_Channels[i].participants.Empty();
     }
     return Ok();
 }
@@ -260,7 +260,7 @@ void CVoiceChatLoopbackBackend::Shutdown() noexcept {
         m_Channels[i].joined      = false;
         m_Channels[i].pump_target = 0;
         m_Channels[i].channel_id.ReleaseStorage();
-        m_Channels[i].participants.ReleaseStorage();
+        m_Channels[i].participants.Empty();
     }
 }
 
@@ -289,7 +289,7 @@ TResult<void> CVoiceChatLoopbackBackend::LeaveChannel(EVoiceChannel ch) noexcept
     c.joined      = false;
     c.pump_target = 0;
     c.channel_id.Clear();
-    c.participants.Clear();
+    c.participants.Reset();
     return Ok();
 }
 
@@ -318,7 +318,7 @@ TResult<void> CVoiceChatLoopbackBackend::SetParticipantMute(const char* user_id,
     for (u32 i = 0; i < 4; ++i) {
         FChannel& c = m_Channels[i];
         const u32 idx = FindParticipant(c, user_id);
-        if (idx < c.participants.Size()) {
+        if (idx < c.participants.Num()) {
             c.participants[idx].muted_local = muted;
             found = true;
         }
@@ -349,7 +349,7 @@ TResult<void> CVoiceChatLoopbackBackend::SetParticipantVolume(const char* user_i
     for (u32 i = 0; i < 4; ++i) {
         FChannel& c = m_Channels[i];
         const u32 idx = FindParticipant(c, user_id);
-        if (idx < c.participants.Size()) {
+        if (idx < c.participants.Num()) {
             c.participants[idx].volume = v;
             found = true;
         }
@@ -366,7 +366,7 @@ u32 CVoiceChatLoopbackBackend::ParticipantCount(EVoiceChannel ch) noexcept {
     if (!m_Initialized) return 0;
     const FChannel& c = Chan(ch);
     if (!c.joined) return 0;
-    return static_cast<u32>(c.participants.Size());
+    return static_cast<u32>(c.participants.Num());
 }
 
 /** index 番目の参加者を VoiceParticipant に詰めて返す。 */
@@ -382,7 +382,7 @@ TResult<FVoiceParticipant> CVoiceChatLoopbackBackend::GetParticipant(EVoiceChann
             ACS_ERR(Generic, kSubVoiceNotJoined,
                     "CVoiceChatLoopbackBackend::GetParticipant: channel not joined"));
     }
-    if (index >= c.participants.Size()) {
+    if (index >= c.participants.Num()) {
         return TResult<FVoiceParticipant>(
             ACS_ERR(Generic, kSubVoiceBadArgument,
                     "CVoiceChatLoopbackBackend::GetParticipant: index out of range"));
@@ -423,7 +423,7 @@ TResult<void> CVoiceChatLoopbackBackend::AddParticipant(EVoiceChannel ch, const 
     }
     // 冪等: 既存 user は表示名のみ更新して成功扱い。
     const u32 idx = FindParticipant(c, user_id);
-    if (idx < c.participants.Size()) {
+    if (idx < c.participants.Num()) {
         c.participants[idx].display_name.Clear();
         c.participants[idx].display_name.Append(display_name ? display_name : "");
         return Ok();
@@ -434,7 +434,7 @@ TResult<void> CVoiceChatLoopbackBackend::AddParticipant(EVoiceChannel ch, const 
     p.volume       = 1.0f;
     p.muted_local  = false;
     p.next_seq     = 0;
-    c.participants.PushBack(Move(p));
+    c.participants.Add(Move(p));
     return Ok();
 }
 
@@ -450,16 +450,16 @@ TResult<void> CVoiceChatLoopbackBackend::RemoveParticipant(EVoiceChannel ch, con
     }
     FChannel& c = Chan(ch);
     const u32 idx = FindParticipant(c, user_id);
-    if (idx >= c.participants.Size()) {
+    if (idx >= c.participants.Num()) {
         return ACS_ERR(Generic, kSubVoiceUnknownUser,
                        "CVoiceChatLoopbackBackend::RemoveParticipant: unknown user_id");
     }
     // 順序維持の必要が薄いので swap-remove。pump_target が末尾を指していたら
     // 補正する (swap で末尾要素が idx に移動するため)。
-    const u32 last = static_cast<u32>(c.participants.Size()) - 1;
+    const u32 last = static_cast<u32>(c.participants.Num()) - 1;
     c.participants.RemoveAtSwap(idx);
     if (c.pump_target == last) c.pump_target = idx;
-    if (c.pump_target >= c.participants.Size()) c.pump_target = 0;
+    if (c.pump_target >= c.participants.Num()) c.pump_target = 0;
     return Ok();
 }
 
@@ -471,7 +471,7 @@ TResult<void> CVoiceChatLoopbackBackend::SetPumpTarget(EVoiceChannel ch, const c
     }
     FChannel& c = Chan(ch);
     const u32 idx = FindParticipant(c, user_id);
-    if (idx >= c.participants.Size()) {
+    if (idx >= c.participants.Num()) {
         return ACS_ERR(Generic, kSubVoiceUnknownUser,
                        "CVoiceChatLoopbackBackend::SetPumpTarget: unknown user_id");
     }
@@ -484,11 +484,11 @@ u32 CVoiceChatLoopbackBackend::PendingFrameCount(EVoiceChannel ch, const char* u
     if (!m_Initialized) return 0;
     FChannel& c = Chan(ch);
     const u32 idx = FindParticipant(c, user_id);
-    if (idx >= c.participants.Size()) return 0;
+    if (idx >= c.participants.Num()) return 0;
     // rx_frames は frame の連結。header を辿って frame 数を数える。
     const FLoopParticipant& p = c.participants[idx];
-    const u8* base = p.rx_frames.Data();
-    const usize total = p.rx_frames.Size();
+    const u8* base = p.rx_frames.GetData();
+    const usize total = p.rx_frames.Num();
     usize off = 0;
     u32 count = 0;
     while (off + sizeof(FVoiceFrameHeader) <= total) {
@@ -560,7 +560,7 @@ TResult<void> CVoiceChatLoopbackBackend::PushLocalFrame(EVoiceChannel ch, const 
     if (m_LocalMuted) return Ok();
 
     // 自分 (index 0) 以外の全参加者の受信キューへ enqueue。これが loopback の本体。
-    for (usize i = 1; i < c.participants.Size(); ++i) {
+    for (usize i = 1; i < c.participants.Num(); ++i) {
         EnqueueFrame(c.participants[i], pcm, sample_count);
     }
     return Ok();
@@ -597,10 +597,10 @@ u32 CVoiceChatLoopbackBackend::PumpMixedOutput(EVoiceChannel ch, i16* out, u32 o
     if (!m_Initialized || out == nullptr || out_capacity == 0) return 0;
     FChannel& c = Chan(ch);
     if (!c.joined) return 0;
-    if (c.pump_target >= c.participants.Size()) return 0;
+    if (c.pump_target >= c.participants.Num()) return 0;
 
     FLoopParticipant& target = c.participants[c.pump_target];
-    const usize total = target.rx_frames.Size();
+    const usize total = target.rx_frames.Num();
     if (total == 0) return 0;
 
     // mix アキュムレータ。out_capacity を超える分のフレームは consume せず残す。
@@ -619,7 +619,7 @@ u32 CVoiceChatLoopbackBackend::PumpMixedOutput(EVoiceChannel ch, i16* out, u32 o
     u32 mixed_samples = 0;          // 実際に音を書いた最大サンプル index+1
     const f32 gain = target.muted_local ? 0.0f : target.volume;
 
-    const u8* base = target.rx_frames.Data();
+    const u8* base = target.rx_frames.GetData();
     usize off = 0;
     usize consumed = 0;             // 完全に mix し終えたバイト数 (キューから除去する量)
     i16 decoded[kVoiceMaxFrameSamples];
@@ -658,9 +658,9 @@ u32 CVoiceChatLoopbackBackend::PumpMixedOutput(EVoiceChannel ch, i16* out, u32 o
     if (consumed > 0) {
         const usize remain = total - consumed;
         if (remain > 0) {
-            MemMove(target.rx_frames.Data(), base + consumed, remain);
+            MemMove(target.rx_frames.GetData(), base + consumed, remain);
         }
-        target.rx_frames.Resize(remain);
+        target.rx_frames.SetNum(remain);
     }
 
     return mixed_samples;

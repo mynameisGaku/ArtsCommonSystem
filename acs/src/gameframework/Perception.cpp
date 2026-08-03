@@ -47,7 +47,7 @@ void CPerception::SetEyePos(FVec2 pos, FVec2 forward) noexcept {
 /** id からターゲット配列の index を線形検索で返す (無ければ要素数)。 */
 usize CPerception::FindIndexById(u32 id) const noexcept {
     // 線形検索。N が小さい想定 (1 NPC あたり数〜数十) なので妥当。
-    const usize n = m_Targets.Size();
+    const usize n = m_Targets.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Targets[i].id == id) return i;
     }
@@ -59,7 +59,7 @@ void CPerception::AddTarget(u32 id, FVec2 pos) noexcept {
     // 同一 id が既存ならば「位置を更新するだけ」のセマンティクス。
     // これにより呼び出し側が "Add 前に Remove が必要か" を判断しなくて済む。
     const usize idx = FindIndexById(id);
-    if (idx < m_Targets.Size()) {
+    if (idx < m_Targets.Num()) {
         m_Targets[idx].pos = pos;
         return;
     }
@@ -68,13 +68,13 @@ void CPerception::AddTarget(u32 id, FVec2 pos) noexcept {
     t.id         = id;
     t.is_visible = false;   // 初期状態は未検知 (次の Tick で再計算)
     t.is_audible = false;
-    m_Targets.PushBack(t);
+    m_Targets.Add(t);
 }
 
 /** 指定 id のターゲットを除去する (存在しなければ no-op)。 */
 void CPerception::RemoveTarget(u32 id) noexcept {
     const usize idx = FindIndexById(id);
-    if (idx >= m_Targets.Size()) return;   // 存在しない id は静かに no-op
+    if (idx >= m_Targets.Num()) return;   // 存在しない id は静かに no-op
     // 順序非保証の高速削除 (末尾を idx に swap してから縮める)。
     m_Targets.RemoveAtSwap(idx);
 }
@@ -82,33 +82,33 @@ void CPerception::RemoveTarget(u32 id) noexcept {
 /** 既存ターゲットの位置を更新する (削除済みなら no-op)。 */
 void CPerception::UpdateTarget(u32 id, FVec2 pos) noexcept {
     const usize idx = FindIndexById(id);
-    if (idx >= m_Targets.Size()) return;   // 削除済み target への Update は no-op
+    if (idx >= m_Targets.Num()) return;   // 削除済み target への Update は no-op
     m_Targets[idx].pos = pos;
 }
 
 /** 指定ターゲットが直近 Tick で可視判定されたかを返す。 */
 bool CPerception::IsTargetVisible(u32 id) const noexcept {
     const usize idx = FindIndexById(id);
-    if (idx >= m_Targets.Size()) return false;
+    if (idx >= m_Targets.Num()) return false;
     return m_Targets[idx].is_visible;
 }
 
 /** 指定ターゲットが直近 Tick で可聴判定されたかを返す。 */
 bool CPerception::IsTargetAudible(u32 id) const noexcept {
     const usize idx = FindIndexById(id);
-    if (idx >= m_Targets.Size()) return false;
+    if (idx >= m_Targets.Num()) return false;
     return m_Targets[idx].is_audible;
 }
 
 /** 登録中のターゲット数を返す。 */
 u32 CPerception::TargetCount() const noexcept {
-    return static_cast<u32>(m_Targets.Size());
+    return static_cast<u32>(m_Targets.Num());
 }
 
 /** 全ターゲット配列の先頭を返し、out_count に個数を入れる。 */
 const FPerceptionTarget* CPerception::AllTargets(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(m_Targets.Size());
-    return m_Targets.Data();
+    out_count = static_cast<u32>(m_Targets.Num());
+    return m_Targets.GetData();
 }
 
 /** 全ターゲットの可視・可聴フラグを距離と視野角から再計算する。 */
@@ -122,7 +122,7 @@ void CPerception::Tick(f32 /*dt*/) noexcept {
     const f32 sight_range_sq   = m_Cfg.sight_range   * m_Cfg.sight_range;
     const f32 hearing_range_sq = m_Cfg.hearing_range * m_Cfg.hearing_range;
 
-    const usize n = m_Targets.Size();
+    const usize n = m_Targets.Num();
     for (usize i = 0; i < n; ++i) {
         FPerceptionTarget& t = m_Targets[i];
         const FVec2 delta    = t.pos - m_EyePos;
@@ -154,7 +154,7 @@ void CPerception::Tick(f32 /*dt*/) noexcept {
 /** ターゲット配列のみクリアする (設定・視点状態は維持)。 */
 void CPerception::ClearAll() noexcept {
     // target 配列のみクリア。config / eye 状態は維持 (再利用時の利便性)。
-    m_Targets.Clear();
+    m_Targets.Reset();
 }
 
 } // namespace acs::game

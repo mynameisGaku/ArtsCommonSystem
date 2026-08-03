@@ -209,7 +209,7 @@ public:
      *
      * @return 部屋数。
      */
-    u32 RoomCount() const noexcept { return static_cast<u32>(m_Rooms.Size()); }
+    u32 RoomCount() const noexcept { return static_cast<u32>(m_Rooms.Num()); }
 
     /**
      * index 番目の部屋を返す。

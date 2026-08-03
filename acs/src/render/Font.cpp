@@ -178,30 +178,30 @@ TResult<void> FFont::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize
     TArray<FCpRange> active_ranges;
     active_ranges.Reserve(kNumDefaultRanges + 1);
     for (u32 i = 0; i < kNumDefaultRanges; ++i) {
-        active_ranges.PushBack(kDefaultRanges[i]);
+        active_ranges.Add(kDefaultRanges[i]);
     }
     if (include_cjk) {
-        active_ranges.PushBack(kCjkRange);
+        active_ranges.Add(kCjkRange);
     }
-    const u32 num_active = static_cast<u32>(active_ranges.Size());
+    const u32 num_active = static_cast<u32>(active_ranges.Num());
 
     // 各範囲ぶん stbtt_packedchar を確保
     TArray<TArray<stbtt_packedchar>> packed_per_range;
-    packed_per_range.Resize(num_active);
+    packed_per_range.SetNum(num_active);
     TArray<stbtt_pack_range> ranges;
-    ranges.Resize(num_active);
+    ranges.SetNum(num_active);
     for (u32 i = 0; i < num_active; ++i) {
-        packed_per_range[i].Resize(active_ranges[i].count);
+        packed_per_range[i].SetNum(active_ranges[i].count);
         stbtt_pack_range& pr = ranges[i];
         pr = stbtt_pack_range{};
         pr.font_size                       = pixel_size;
         pr.first_unicode_codepoint_in_range = static_cast<int>(active_ranges[i].first);
         pr.array_of_unicode_codepoints    = nullptr;
         pr.num_chars                       = static_cast<int>(active_ranges[i].count);
-        pr.chardata_for_range              = packed_per_range[i].Data();
+        pr.chardata_for_range              = packed_per_range[i].GetData();
     }
     // PackFontRanges は失敗しても部分的に成功している場合があるので結果は無視
-    (void)stbtt_PackFontRanges(&spc, ttf_data, 0, ranges.Data(), static_cast<int>(num_active));
+    (void)stbtt_PackFontRanges(&spc, ttf_data, 0, ranges.GetData(), static_cast<int>(num_active));
     stbtt_PackEnd(&spc);
 
     // R8 → RGBA8 変換（アルファのみ、RGB は白）
@@ -240,7 +240,7 @@ TResult<void> FFont::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize
     // グリフマップ構築
     const f32 inv_size = 1.0f / static_cast<f32>(atlas_size);
     for (u32 ri = 0; ri < num_active; ++ri) {
-        const stbtt_packedchar* pcs = packed_per_range[ri].Data();
+        const stbtt_packedchar* pcs = packed_per_range[ri].GetData();
         for (u32 i = 0; i < active_ranges[ri].count; ++i) {
             const stbtt_packedchar& pc = pcs[i];
             // 焼き込み失敗グリフ (xadvance=0 等) はスキップ
@@ -256,7 +256,7 @@ TResult<void> FFont::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize
             g.y_offset = pc.yoff;
             g.x_advance = pc.xadvance;
             const u32 cp = active_ranges[ri].first + i;
-            m_Glyphs.Insert(cp, g);
+            m_Glyphs.Add(cp, g);
         }
     }
 
@@ -272,14 +272,14 @@ TResult<void> FFont::LoadFromFile(IRhiDevice& device, const wchar_t* path,
         return Err<void>(bytes_r.Error());
     }
     const TArray<byte>& bytes = bytes_r.Value();
-    return LoadFromBytes(device, reinterpret_cast<const u8*>(bytes.Data()),
-                         bytes.Size(), pixel_size, atlas_size, include_cjk);
+    return LoadFromBytes(device, reinterpret_cast<const u8*>(bytes.GetData()),
+                         bytes.Num(), pixel_size, atlas_size, include_cjk);
 }
 
 /** アトラステクスチャとグリフマップを解放し、メトリクスを 0 に戻す。 */
 void FFont::Shutdown() noexcept {
     m_Atlas.Reset();
-    m_Glyphs.ReleaseStorage();
+    m_Glyphs.Empty();
     m_AtlasSize = 0;
     m_PixelSize = 0;
     m_Ascent = 0;

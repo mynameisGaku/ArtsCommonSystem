@@ -52,7 +52,7 @@ void CAssetBundle::Add(const char* asset_path) noexcept
     FEntry e{};
     e.path = asset_path;
     e.status = ELoadStatus::Pending;
-    m_Entries.PushBack(e);
+    m_Entries.Add(e);
 }
 
 void CAssetBundle::BeginLoad(CAssetRegistry& registry) noexcept
@@ -65,7 +65,7 @@ void CAssetBundle::BeginLoad(CAssetRegistry& registry) noexcept
 
     // 各 entry を registry 経由で同期ロードし、TSharedPtr を保持。失敗は Failed としてマーク
     // し他 entry のロードは続ける (bundle 全体は HasFailed() で判定できる)。
-    for (usize i = 0; i < m_Entries.Size(); ++i) {
+    for (usize i = 0; i < m_Entries.Num(); ++i) {
         FEntry& e = m_Entries[i];
         wchar_t wpath[260];
         if (!WidenPath(e.path, wpath, 260)) {
@@ -86,14 +86,14 @@ void CAssetBundle::BeginLoad(CAssetRegistry& registry) noexcept
 
 TSharedPtr<AAsset> CAssetBundle::GetAsset(u32 index) const noexcept
 {
-    if (index >= m_Entries.Size()) return TSharedPtr<AAsset>();
+    if (index >= m_Entries.Num()) return TSharedPtr<AAsset>();
     return m_Entries[index].asset;
 }
 
 TSharedPtr<AAsset> CAssetBundle::FindAsset(const char* asset_path) const noexcept
 {
     if (!asset_path) return TSharedPtr<AAsset>();
-    for (usize i = 0; i < m_Entries.Size(); ++i) {
+    for (usize i = 0; i < m_Entries.Num(); ++i) {
         const char* p = m_Entries[i].path;
         if (p) {
             const char* a = p;
@@ -110,7 +110,7 @@ TSharedPtr<AAsset> CAssetBundle::FindAsset(const char* asset_path) const noexcep
 
 f32 CAssetBundle::Progress() const noexcept
 {
-    const usize n = m_Entries.Size();
+    const usize n = m_Entries.Num();
     if (n == 0) {
         // 空 bundle は「読むものが無い = 100%」とみなす (UI のプログレスバー実装を簡潔に)。
         return 1.0f;
@@ -131,7 +131,7 @@ f32 CAssetBundle::Progress() const noexcept
 
 bool CAssetBundle::IsLoaded() const noexcept
 {
-    const usize n = m_Entries.Size();
+    const usize n = m_Entries.Num();
     if (n == 0) return true;     // 空 bundle は即 loaded
     if (!m_bBegun) return false; // 未開始なら未完了
     for (usize i = 0; i < n; ++i) {
@@ -145,7 +145,7 @@ bool CAssetBundle::IsLoaded() const noexcept
 
 bool CAssetBundle::HasFailed() const noexcept
 {
-    const usize n = m_Entries.Size();
+    const usize n = m_Entries.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Entries[i].status == ELoadStatus::Failed) {
             return true;
@@ -156,13 +156,13 @@ bool CAssetBundle::HasFailed() const noexcept
 
 u32 CAssetBundle::AssetCount() const noexcept
 {
-    return static_cast<u32>(m_Entries.Size());
+    return static_cast<u32>(m_Entries.Num());
 }
 
 u32 CAssetBundle::LoadedCount() const noexcept
 {
     u32 done = 0;
-    const usize n = m_Entries.Size();
+    const usize n = m_Entries.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Entries[i].status == ELoadStatus::Loaded) {
             ++done;
@@ -178,7 +178,7 @@ void CAssetBundle::Unload() noexcept
     // 参照消失時に自動解放される (TSharedPtr の決定的破棄、GC 不要)。registry cache から完全に
     // 外したい場合は app 側で registry.Unload(id) / Clear() を呼ぶ (bundle は共有参照の
     // 解放のみ担当し、cache 寿命管理には踏み込まない)。
-    m_Entries.Clear();
+    m_Entries.Reset();
     m_bBegun = false;
 }
 

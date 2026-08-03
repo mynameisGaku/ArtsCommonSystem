@@ -422,7 +422,7 @@ FHrResult FDx12Texture::Init(CDx12Device& device, const FTextureDesc& desc) noex
         rtv.Format = typed_fmt;
         rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
         device.D3DDevice()->CreateRenderTargetView(m_Resource, &rtv, device.RtvCpuHandle(slot));
-        m_RtvSlots.PushBack(slot);
+        m_RtvSlots.Add(slot);
         return r;
     }
     m_SrvSlot = device.AllocateSrvSlot();
@@ -507,7 +507,7 @@ FHrResult FDx12Texture::Init(CDx12Device& device, const FTextureDesc& desc) noex
                 return r;
             }
             const u32 rtv_count = m_ArraySize * m_MipLevels;
-            if (!m_RtvSlots.TryResize(rtv_count) || !device.AllocateRtvSlots(m_RtvSlots.Data(), rtv_count)) {
+            if (!m_RtvSlots.TrySetNum(rtv_count) || !device.AllocateRtvSlots(m_RtvSlots.GetData(), rtv_count)) {
                 ACS_LOG_ERROR("Dx12Texture: per-slice RTV slot exhausted (count=%u)", rtv_count);
                 r.hr = E_OUTOFMEMORY;
                 Reset();
@@ -550,7 +550,7 @@ FHrResult FDx12Texture::Init(CDx12Device& device, const FTextureDesc& desc) noex
             }
             device.D3DDevice()->CreateRenderTargetView(
                 m_Resource, &rtv, device.RtvCpuHandle(slot));
-            m_RtvSlots.PushBack(slot);
+            m_RtvSlots.Add(slot);
         }
     }
 
@@ -567,7 +567,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE FDx12Texture::RtvCpuHandle() const noexcept {
 D3D12_CPU_DESCRIPTOR_HANDLE FDx12Texture::RtvCpuHandleForSlice(u32 slice, u32 mip) const noexcept {
     if (!m_Device) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     const usize idx = static_cast<usize>(slice) * m_MipLevels + mip;
-    if (idx >= m_RtvSlots.Size()) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
+    if (idx >= m_RtvSlots.Num()) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     return m_Device->RtvCpuHandle(m_RtvSlots[idx]);
 }
 

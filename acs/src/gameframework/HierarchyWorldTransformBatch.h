@@ -28,10 +28,10 @@ public:
     void Clear() noexcept;
 
     /** 成功した直近評価の world transform 配列を返す。 */
-    const FTransform3D* Transforms() const noexcept { return m_Transforms.Data(); }
+    const FTransform3D* Transforms() const noexcept { return m_Transforms.GetData(); }
 
     /** 成功した直近評価の node 数を返す。 */
-    usize Count() const noexcept { return m_Transforms.Size(); }
+    usize Count() const noexcept { return m_Transforms.Num(); }
 
     /** 指定 index の world transform を返す。 */
     const FTransform3D& At(usize index) const noexcept { return m_Transforms[index]; }

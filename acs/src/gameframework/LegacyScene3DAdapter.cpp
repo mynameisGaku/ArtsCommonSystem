@@ -98,7 +98,7 @@ void LocalBounds(
     }
     minimum = FVec3{FLT_MAX, FLT_MAX, FLT_MAX};
     maximum = FVec3{-FLT_MAX, -FLT_MAX, -FLT_MAX};
-    for (u32 index = 0u; index < mesh->Vertices().Size(); ++index) {
+    for (u32 index = 0u; index < mesh->Vertices().Num(); ++index) {
         const FVec3 value = mesh->Vertices()[index].position;
         if (value.x < minimum.x) minimum.x = value.x;
         if (value.y < minimum.y) minimum.y = value.y;
@@ -298,19 +298,19 @@ FRayHit3 RaycastMeshLocal(
     }
 
     const AMeshAsset* mesh = component.Mesh();
-    if (mesh == nullptr || mesh->Vertices().Size() < 3u)
+    if (mesh == nullptr || mesh->Vertices().Num() < 3u)
         return FRayHit3{};
     const auto& vertices = mesh->Vertices();
     const auto& indices = mesh->Indices();
     FRayHit3 best{};
     f32 best_distance = max_distance;
-    if (indices.Size() >= 3u) {
-        for (u32 index = 0u; index + 2u < indices.Size(); index += 3u) {
+    if (indices.Num() >= 3u) {
+        for (u32 index = 0u; index + 2u < indices.Num(); index += 3u) {
             const u32 i0 = indices[index + 0u];
             const u32 i1 = indices[index + 1u];
             const u32 i2 = indices[index + 2u];
-            if (i0 >= vertices.Size() || i1 >= vertices.Size()
-                || i2 >= vertices.Size()) {
+            if (i0 >= vertices.Num() || i1 >= vertices.Num()
+                || i2 >= vertices.Num()) {
                 continue;
             }
             const FRayHit3 hit = RaycastTriangle(
@@ -322,7 +322,7 @@ FRayHit3 RaycastMeshLocal(
             }
         }
     } else {
-        for (u32 index = 0u; index + 2u < vertices.Size(); index += 3u) {
+        for (u32 index = 0u; index + 2u < vertices.Num(); index += 3u) {
             const FRayHit3 hit = RaycastTriangle(
                 ray, vertices[index + 0u].position,
                 vertices[index + 1u].position,
@@ -403,16 +403,16 @@ FSceneRenderFeatures ScanSceneRenderFeatures(
     const ANode& root) noexcept {
     FSceneRenderFeatures features{};
     TArray<const ANode*> stack;
-    if (!stack.TryPushBack(&root)) return features;
+    if (!stack.TryAdd(&root)) return features;
     while (!stack.IsEmpty()) {
-        const ANode* node = stack.Back();
-        stack.PopBack();
+        const ANode* node = stack.Last();
+        stack.Pop();
         if (node == nullptr || node->IsPendingDestroy()) continue;
         // Visibility/enabled state is inherited, so an inactive node lets the
         // complete subtree be rejected before any child or material work.
         if (!IsEffectivelyActive(*node)) continue;
         for (u32 index = 0u; index < node->ChildCount(); ++index) {
-            if (!stack.TryPushBack(node->Child(index))) return features;
+            if (!stack.TryAdd(node->Child(index))) return features;
         }
         const AMeshComponent3D* mesh = FindMesh(*node);
         if (mesh == nullptr) continue;
@@ -595,10 +595,10 @@ void ALegacyScene3DAdapter::FrameScene() noexcept {
     FVec3 maximum{-FLT_MAX, -FLT_MAX, -FLT_MAX};
     bool found = false;
     TArray<const ANode*> stack;
-    if (!stack.TryPushBack(&Graph().Root())) return;
+    if (!stack.TryAdd(&Graph().Root())) return;
     while (!stack.IsEmpty()) {
-        const ANode* node = stack.Back();
-        stack.PopBack();
+        const ANode* node = stack.Last();
+        stack.Pop();
         if (node == nullptr) continue;
         if (const AMeshComponent3D* component = FindMesh(*node)) {
             FVec3 local_minimum, local_maximum;
@@ -616,7 +616,7 @@ void ALegacyScene3DAdapter::FrameScene() noexcept {
             found = true;
         }
         for (u32 index = 0u; index < node->ChildCount(); ++index)
-            if (!stack.TryPushBack(node->Child(index))) return;
+            if (!stack.TryAdd(node->Child(index))) return;
     }
     if (!found) {
         m_Target = FVec3{0.0f, 0.0f, 0.0f};
@@ -648,7 +648,7 @@ bool ALegacyScene3DAdapter::RaycastWater(
         bool ParentEnabled = true;
     };
     TArray<FEntry> stack;
-    if (!stack.TryPushBack(FEntry{&Graph().Root(), true, true}))
+    if (!stack.TryAdd(FEntry{&Graph().Root(), true, true}))
         return false;
 
     f32 best_distance = max_distance;
@@ -659,14 +659,14 @@ bool ALegacyScene3DAdapter::RaycastWater(
     bool have_hit = false;
 
     while (!stack.IsEmpty()) {
-        const FEntry entry = stack.Back();
-        stack.PopBack();
+        const FEntry entry = stack.Last();
+        stack.Pop();
         const ANode* node = entry.Node;
         if (node == nullptr || node->IsPendingDestroy()) continue;
         const bool enabled = entry.ParentEnabled && node->IsEnabled();
         const bool visible = entry.ParentVisible && node->IsVisible();
         for (u32 index = node->ChildCount(); index > 0u; --index) {
-            if (!stack.TryPushBack(FEntry{
+            if (!stack.TryAdd(FEntry{
                     node->Child(index - 1u), visible, enabled})) {
                 return false;
             }
@@ -1025,19 +1025,19 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
         bool ParentEnabled = true;
     };
     TArray<FRenderEntry> stack;
-    if (!stack.TryPushBack(FRenderEntry{&Graph().Root(), true, true}))
+    if (!stack.TryAdd(FRenderEntry{&Graph().Root(), true, true}))
         return false;
 
     bool draws_valid = true;
     while (!stack.IsEmpty()) {
-        const FRenderEntry entry = stack.Back();
-        stack.PopBack();
+        const FRenderEntry entry = stack.Last();
+        stack.Pop();
         const ANode* node = entry.Node;
         if (node == nullptr) continue;
         const bool enabled = entry.ParentEnabled && node->IsEnabled();
         const bool visible = entry.ParentVisible && node->IsVisible();
         for (u32 index = node->ChildCount(); index > 0u; --index) {
-            if (!stack.TryPushBack(
+            if (!stack.TryAdd(
                     FRenderEntry{node->Child(index - 1u), visible, enabled})) {
                 return false;
             }
@@ -2592,19 +2592,19 @@ u32 ALegacyScene3DAdapter::CollectWaterDraws(
         bool ParentEnabled = true;
     };
     TArray<FEntry> stack;
-    if (!stack.TryPushBack(FEntry{&Graph().Root(), true, true}))
+    if (!stack.TryAdd(FEntry{&Graph().Root(), true, true}))
         return 0u;
 
     u32 count = 0u;
     while (!stack.IsEmpty()) {
-        const FEntry entry = stack.Back();
-        stack.PopBack();
+        const FEntry entry = stack.Last();
+        stack.Pop();
         const ANode* node = entry.Node;
         if (node == nullptr || node->IsPendingDestroy()) continue;
         const bool enabled = entry.ParentEnabled && node->IsEnabled();
         const bool visible = entry.ParentVisible && node->IsVisible();
         for (u32 index = node->ChildCount(); index > 0u; --index) {
-            if (!stack.TryPushBack(FEntry{
+            if (!stack.TryAdd(FEntry{
                     node->Child(index - 1u), visible, enabled})) {
                 // Never leave a partially excluded scene: draw every water
                 // node through opaque PBR when collection cannot complete.
@@ -2690,14 +2690,14 @@ void ALegacyScene3DAdapter::DrawWaterFallback(
 }
 
 bool ALegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
-    m_CustomMeshes.Clear();
+    m_CustomMeshes.Reset();
     if (!m_CustomMeshes.TryReserve(Graph().NodeCount()))
         return false;
     TArray<ANode*> stack;
-    if (!stack.TryPushBack(&Graph().Root())) return false;
+    if (!stack.TryAdd(&Graph().Root())) return false;
     while (!stack.IsEmpty()) {
-        ANode* node = stack.Back();
-        stack.PopBack();
+        ANode* node = stack.Last();
+        stack.Pop();
         if (node == nullptr) continue;
         AMeshComponent3D* component = FindMesh(*node);
         if (component != nullptr
@@ -2707,12 +2707,12 @@ bool ALegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
             FCustomGpuMesh uploaded;
             uploaded.Component = component;
             if (UploadMesh(device, *mesh, uploaded.Mesh).IsErr()
-                || !m_CustomMeshes.TryPushBack(Move(uploaded))) {
+                || !m_CustomMeshes.TryAdd(Move(uploaded))) {
                 return false;
             }
         }
         for (u32 index = 0u; index < node->ChildCount(); ++index)
-            if (!stack.TryPushBack(node->Child(index))) return false;
+            if (!stack.TryAdd(node->Child(index))) return false;
     }
     return true;
 }
@@ -2752,7 +2752,7 @@ void ALegacyScene3DAdapter::ReleaseGpu() noexcept {
     m_Post.Shutdown();
     m_HdrShaders[0].Shutdown();
     m_HdrShaders[1].Shutdown();
-    m_CustomMeshes.Clear();
+    m_CustomMeshes.Reset();
     m_Cube = FGpuMesh{};
     m_Sphere = FGpuMesh{};
     m_Plane = FGpuMesh{};
@@ -2868,7 +2868,7 @@ const FGpuMesh* ALegacyScene3DAdapter::GpuMeshFor(
     case EMeshPrimitive3D::Sphere: return &m_Sphere;
     case EMeshPrimitive3D::Plane: return &m_Plane;
     case EMeshPrimitive3D::Mesh:
-        for (u32 index = 0u; index < m_CustomMeshes.Size(); ++index) {
+        for (u32 index = 0u; index < m_CustomMeshes.Num(); ++index) {
             if (m_CustomMeshes[index].Component == &component)
                 return &m_CustomMeshes[index].Mesh;
         }

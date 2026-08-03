@@ -168,7 +168,7 @@ inline void FormatCodepointLabel(u32 cp, c8* out, usize out_cap) noexcept {
 /** 内部状態を初期化する (face リストを空に、preview をデフォルト文字列に)。 */
 void AFontEditorPanel::Init() noexcept {
     // m_Faces (acs::TArray) は Clear で size を 0 に (capacity は保持)。
-    m_Faces.Clear();
+    m_Faces.Reset();
     m_Selected     = -1;
     m_PreviewSize = 24.0f;
 
@@ -189,7 +189,7 @@ void AFontEditorPanel::Init() noexcept {
 
 /** 内部状態を破棄して初期値に戻す (face リスト・選択・preview をリセット)。 */
 void AFontEditorPanel::Shutdown() noexcept {
-    m_Faces.Clear();
+    m_Faces.Reset();
     m_Selected     = -1;
     m_PreviewSize = 24.0f;
     for (u32 i = 0; i < kPreviewTextCapacity; ++i) m_PreviewText[i] = '\0';
@@ -197,21 +197,21 @@ void AFontEditorPanel::Shutdown() noexcept {
 
 /** 登録済み font face の数を返す。 */
 u32 AFontEditorPanel::FontFaceCount() const noexcept {
-    return static_cast<u32>(m_Faces.Size());
+    return static_cast<u32>(m_Faces.Num());
 }
 
 /** i 番目の font face を返す (範囲外なら nullptr)。 */
 const FFontFaceInfo* AFontEditorPanel::GetFontFace(u32 i) const noexcept {
-    if (i >= static_cast<u32>(m_Faces.Size())) return nullptr;
+    if (i >= static_cast<u32>(m_Faces.Num())) return nullptr;
     return &m_Faces[static_cast<usize>(i)];
 }
 
 /** face を末尾に追加し、fallback_index を index と同期する (上限超過時は無視)。 */
 void AFontEditorPanel::AddFontFace(const FFontFaceInfo& info) noexcept {
-    if (static_cast<u32>(m_Faces.Size()) >= kMaxFontFaces) return;
+    if (static_cast<u32>(m_Faces.Num()) >= kMaxFontFaces) return;
     // 末尾追加 + fallback_index を TArray index と同期。
-    m_Faces.PushBack(info);
-    const u32 new_idx = static_cast<u32>(m_Faces.Size()) - 1u;
+    m_Faces.Add(info);
+    const u32 new_idx = static_cast<u32>(m_Faces.Num()) - 1u;
     m_Faces[new_idx].fallback_index = new_idx;
     // 未選択だったら新規 face を選択 (UX: 追加直後に inspector が表示される)。
     if (m_Selected < 0) m_Selected = static_cast<i32>(new_idx);
@@ -219,16 +219,16 @@ void AFontEditorPanel::AddFontFace(const FFontFaceInfo& info) noexcept {
 
 /** i 番目の face を順序保持で削除し、fallback_index と選択を補正する。 */
 void AFontEditorPanel::RemoveFontFace(u32 i) noexcept {
-    const u32 count = static_cast<u32>(m_Faces.Size());
+    const u32 count = static_cast<u32>(m_Faces.Num());
     if (i >= count) return;
-    // 順序保持削除: i 以降を 1 つ前にシフトしてから PopBack。TArray に
+    // 順序保持削除: i 以降を 1 つ前にシフトしてから Pop。TArray に
     // RemoveAt (順序保持) が無いため、PODs だけ手で詰める。
     for (usize k = static_cast<usize>(i); k + 1u < static_cast<usize>(count); ++k) {
         m_Faces[k] = m_Faces[k + 1u];
     }
-    m_Faces.PopBack();
+    m_Faces.Pop();
     // fallback_index 再振り直し (= chain 順位と同期)。
-    const u32 new_count = static_cast<u32>(m_Faces.Size());
+    const u32 new_count = static_cast<u32>(m_Faces.Num());
     for (u32 k = 0; k < new_count; ++k) {
         m_Faces[static_cast<usize>(k)].fallback_index = k;
     }
@@ -248,7 +248,7 @@ void AFontEditorPanel::RemoveFontFace(u32 i) noexcept {
 
 /** i 番目の face を chain 内で 1 つ前へ移動し、選択を追随させる。 */
 void AFontEditorPanel::MoveFaceUp(u32 i) noexcept {
-    const u32 count = static_cast<u32>(m_Faces.Size());
+    const u32 count = static_cast<u32>(m_Faces.Num());
     if (i == 0u || i >= count) return;
     SwapFaces(m_Faces[static_cast<usize>(i - 1u)], m_Faces[static_cast<usize>(i)]);
     m_Faces[static_cast<usize>(i - 1u)].fallback_index = i - 1u;
@@ -260,7 +260,7 @@ void AFontEditorPanel::MoveFaceUp(u32 i) noexcept {
 
 /** i 番目の face を chain 内で 1 つ後ろへ移動し、選択を追随させる。 */
 void AFontEditorPanel::MoveFaceDown(u32 i) noexcept {
-    const u32 count = static_cast<u32>(m_Faces.Size());
+    const u32 count = static_cast<u32>(m_Faces.Num());
     if (count == 0u || i + 1u >= count) return;
     SwapFaces(m_Faces[static_cast<usize>(i)], m_Faces[static_cast<usize>(i + 1u)]);
     m_Faces[static_cast<usize>(i)     ].fallback_index = i;
@@ -276,7 +276,7 @@ i32 AFontEditorPanel::SelectedIndex() const noexcept {
 
 /** face を選択する (範囲外の index を渡すと未選択 -1 になる)。 */
 void AFontEditorPanel::SelectFace(i32 i) noexcept {
-    const i32 count = static_cast<i32>(m_Faces.Size());
+    const i32 count = static_cast<i32>(m_Faces.Num());
     if (i < 0 || i >= count) { m_Selected = -1; return; }
     m_Selected = i;
 }
@@ -346,7 +346,7 @@ void AFontEditorPanel::DrawUI() noexcept {
         return;
     }
 
-    const i32 count = static_cast<i32>(m_Faces.Size());
+    const i32 count = static_cast<i32>(m_Faces.Num());
 
     // 上部 toolbar
     {

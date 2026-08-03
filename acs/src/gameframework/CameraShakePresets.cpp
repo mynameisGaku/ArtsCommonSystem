@@ -96,7 +96,7 @@ void CCameraShakePresets::ApplyPreset(IShakeTarget& target,
 /** 名前でカスタムプリセットのインデックスを線形検索する (未検出は kNotFound)。 */
 u32 CCameraShakePresets::FindCustomIndex(const char* name) const noexcept {
     if (name == nullptr) return kNotFound;
-    const usize n = m_Customs.Size();
+    const usize n = m_Customs.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Customs[i].name, name)) return static_cast<u32>(i);
     }
@@ -118,7 +118,7 @@ void CCameraShakePresets::RegisterCustomPreset(const char*        name,
     FCustomEntry e{};
     e.name   = name;     // static lifetime を caller が保証する
     e.params = params;
-    m_Customs.PushBack(e);
+    m_Customs.Add(e);
 }
 
 /** 名前で引いたカスタム preset を ApplyPreset と同じ順序で target に流し込む。 */
@@ -137,7 +137,7 @@ bool CCameraShakePresets::ApplyCustomByName(IShakeTarget& target,
 
 /** 登録済みカスタムプリセット数を返す。 */
 u32 CCameraShakePresets::CustomCount() const noexcept {
-    return static_cast<u32>(m_Customs.Size());
+    return static_cast<u32>(m_Customs.Num());
 }
 
 } // namespace acs::game

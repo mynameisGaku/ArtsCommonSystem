@@ -196,7 +196,7 @@ void CLockstep::RecordInput(const FInputFrame& frame) noexcept {
     if (m_Mode == ENetMode::Replay) {
         return;
     }
-    m_Frames.PushBack(frame);
+    m_Frames.Add(frame);
     // m_CurrentTick は「次に書き込む tick」のヒント。連続 tick 想定で frame.tick+1
     // に進める。非連続な tick (rollback で巻き戻し等) を許容する場合は呼び出し側で
     // 明示的に管理することになる。
@@ -215,7 +215,7 @@ bool CLockstep::ConsumeInput(u32 tick, u32 player_id, FInputFrame& out) noexcept
     if (m_Mode != ENetMode::Replay) {
         return false;
     }
-    const usize n = m_Frames.Size();
+    const usize n = m_Frames.Num();
     // m_ReplayCursor から線形走査。記録順 = tick 昇順を仮定するため、
     // ヒット後に cursor を前進させて amortised O(1) を狙う。
     for (usize i = m_ReplayCursor; i < n; ++i) {
@@ -237,12 +237,12 @@ bool CLockstep::ConsumeInput(u32 tick, u32 player_id, FInputFrame& out) noexcept
 }
 
 u32 CLockstep::InputCount() const noexcept {
-    return static_cast<u32>(m_Frames.Size());
+    return static_cast<u32>(m_Frames.Num());
 }
 
 u64 CLockstep::ComputeChecksum() const noexcept {
     u64 h = kFnvOffsetBasis;
-    const usize n = m_Frames.Size();
+    const usize n = m_Frames.Num();
     for (usize i = 0; i < n; ++i) {
         const FInputFrame& f = m_Frames[i];
         h = FnvFoldU32(h, f.tick);
@@ -257,7 +257,7 @@ u64 CLockstep::ComputeChecksum() const noexcept {
 }
 
 void CLockstep::Clear() noexcept {
-    m_Frames.Clear();
+    m_Frames.Reset();
     m_CurrentTick  = 0;
     m_ReplayCursor = 0;
     // m_Mode / m_TickRateHz は保持。Init で改めて切り替える設計。
@@ -271,12 +271,12 @@ TResult<void> CLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) no
                        "CLockstep::SaveToBuffer: buffer is null");
     }
 
-    if (m_Frames.Size() > kLockstepMaximumFrames ||
+    if (m_Frames.Num() > kLockstepMaximumFrames ||
         m_TickRateHz == 0 || m_TickRateHz > kLockstepMaximumTickRateHz) {
         return ACS_ERR(IO, kSub_LimitExceeded,
                        "CLockstep::SaveToBuffer: tick rate or frame count exceeds the limit");
     }
-    const u32 frame_count = static_cast<u32>(m_Frames.Size());
+    const u32 frame_count = static_cast<u32>(m_Frames.Num());
     for (u32 i = 0; i < frame_count; ++i) {
         if (!IsFiniteF32Bits(BitsOf(m_Frames[i].axis.x)) ||
             !IsFiniteF32Bits(BitsOf(m_Frames[i].axis.y))) {
@@ -406,7 +406,7 @@ TResult<void> CLockstep::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept 
         f.buttons   = p[8];                    // +8:  buttons (u8)
         f.axis.x    = F32FromBits(ReadU32LE(p + 9));   // +9:  axis.x
         f.axis.y    = F32FromBits(ReadU32LE(p + 13));  // +13: axis.y
-        if (!staged.TryPushBack(f)) {
+        if (!staged.TryAdd(f)) {
             return ACS_ERR(Memory, kSub_Oom,
                            "CLockstep::TryLoadFromBuffer: frame staging append failed");
         }

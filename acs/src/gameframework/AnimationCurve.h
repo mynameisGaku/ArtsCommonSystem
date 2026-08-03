@@ -241,7 +241,7 @@ public:
      *
      * @return key の個数。
      */
-    u32             KeyCount() const noexcept { return static_cast<u32>(m_Keys.Size()); }
+    u32             KeyCount() const noexcept { return static_cast<u32>(m_Keys.Num()); }
 
     /**
      * 指定 index の key への const ポインタを返す。
@@ -250,7 +250,7 @@ public:
      * @return key への const ポインタ (範囲外なら nullptr)。
      */
     const FCurveKey* Key(u32 index) const noexcept {
-        return index < m_Keys.Size() ? &m_Keys[index] : nullptr;
+        return index < m_Keys.Num() ? &m_Keys[index] : nullptr;
     }
 
     /**

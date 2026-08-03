@@ -372,7 +372,7 @@ FProjectSettingsLoadResult CProjectSettings::TryResetToDefaults() noexcept {
         entry.options = s[i].options;
         entry.desc = s[i].desc;
         entry.builtin = true;
-        if (!staged.TryPushBack(entry)) {
+        if (!staged.TryAdd(entry)) {
             result.error = EProjectSettingsLoadError::AllocationFailure;
             return result;
         }
@@ -593,14 +593,14 @@ FProjectSettingsLoadResult CProjectSettings::TryLoadFile(const char* ini_path) n
     }
 
     TArray<char> buffer;
-    if (!buffer.TryResize(static_cast<usize>(file_size))) {
+    if (!buffer.TrySetNum(static_cast<usize>(file_size))) {
         std::fclose(file);
         result.error = EProjectSettingsLoadError::AllocationFailure;
         return result;
     }
     usize total = 0u;
-    while (total < buffer.Size()) {
-        const usize count = std::fread(buffer.Data() + total, 1u, buffer.Size() - total, file);
+    while (total < buffer.Num()) {
+        const usize count = std::fread(buffer.GetData() + total, 1u, buffer.Num() - total, file);
         if (count == 0u) {
             const bool io_error = std::ferror(file) != 0;
             std::fclose(file);
@@ -625,7 +625,7 @@ FProjectSettingsLoadResult CProjectSettings::TryLoadFile(const char* ini_path) n
         return result;
     }
     if (buffer.IsEmpty()) return TryLoadText("", 0u);
-    return TryLoadText(buffer.Data(), buffer.Size());
+    return TryLoadText(buffer.GetData(), buffer.Num());
 }
 
 u32 CProjectSettings::SerializeText(char* out, usize cap) const noexcept {
@@ -638,13 +638,13 @@ u32 CProjectSettings::SerializeText(char* out, usize cap) const noexcept {
         cur = (static_cast<usize>(w) < cap - cur) ? cur + static_cast<usize>(w) : cap - 1;
     };
     append("%s%s", "; ACS Project Settings (エディタの Edit > Project Settings から編集できます)\n", "");
-    for (u32 i = 0; i < m_Entries.Size(); ++i) {
+    for (u32 i = 0; i < m_Entries.Num(); ++i) {
         bool first_of_cat = true;
         for (u32 j = 0; j < i; ++j)
             if (std::strcmp(m_Entries[j].category, m_Entries[i].category) == 0) { first_of_cat = false; break; }
         if (!first_of_cat) continue;
         append("\n[%s]%s", m_Entries[i].category, "\n");
-        for (u32 j = i; j < m_Entries.Size(); ++j)
+        for (u32 j = i; j < m_Entries.Num(); ++j)
             if (std::strcmp(m_Entries[j].category, m_Entries[i].category) == 0)
                 append("%s=%s\n", m_Entries[j].key, m_Entries[j].value);
     }
@@ -665,13 +665,13 @@ bool CProjectSettings::Save(const char* ini_path) const noexcept {
     bool write_ok =
         std::fprintf(f, "; ACS Project Settings (このファイルはエディタの Project Settings から編集できます)\n") >= 0;
     // カテゴリの出現順を保ったままセクションごとにまとめて出力する
-    for (u32 i = 0; i < m_Entries.Size(); ++i) {
+    for (u32 i = 0; i < m_Entries.Num(); ++i) {
         bool first_of_cat = true;                                  // この index がカテゴリ初出か
         for (u32 j = 0; j < i; ++j)
             if (std::strcmp(m_Entries[j].category, m_Entries[i].category) == 0) { first_of_cat = false; break; }
         if (!first_of_cat) continue;
         if (std::fprintf(f, "\n[%s]\n", m_Entries[i].category) < 0) write_ok = false;
-        for (u32 j = i; j < m_Entries.Size(); ++j)
+        for (u32 j = i; j < m_Entries.Num(); ++j)
             if (std::strcmp(m_Entries[j].category, m_Entries[i].category) == 0)
                 if (std::fprintf(f, "%s=%s\n", m_Entries[j].key, m_Entries[j].value) < 0)
                     write_ok = false;
@@ -691,7 +691,7 @@ const FSettingEntry* CProjectSettings::Find(const char* cat, const char* key) co
         category_length == 0u || key_length == 0u) {
         return nullptr;
     }
-    for (u32 i = 0; i < m_Entries.Size(); ++i)
+    for (u32 i = 0; i < m_Entries.Num(); ++i)
         if (std::strcmp(m_Entries[i].category, cat) == 0 && std::strcmp(m_Entries[i].key, key) == 0)
             return &m_Entries[i];
     return nullptr;
@@ -732,18 +732,18 @@ bool CProjectSettings::TryAdd(const char* cat, const char* key, const char* valu
     CopyStr(e.value,    sizeof(e.value),    value);
     e.type    = ESettingType::String;
     e.builtin = false;
-    return m_Entries.TryPushBack(e);
+    return m_Entries.TryAdd(e);
 }
 
 bool CProjectSettings::Remove(const char* cat, const char* key) noexcept {
     if (Find(cat, key) == nullptr) return false;
-    for (u32 i = 0; i < m_Entries.Size(); ++i) {
+    for (u32 i = 0; i < m_Entries.Num(); ++i) {
         FSettingEntry& e = m_Entries[i];
         if (std::strcmp(e.category, cat) == 0 && std::strcmp(e.key, key) == 0) {
             if (e.builtin) return false;       // ビルトインは削除不可 (値の変更のみ)
-            for (u32 j = i; j + 1 < m_Entries.Size(); ++j)   // 表示順を保って詰める
+            for (u32 j = i; j + 1 < m_Entries.Num(); ++j)   // 表示順を保って詰める
                 m_Entries[j] = m_Entries[j + 1];
-            m_Entries.PopBack();
+            m_Entries.Pop();
             return true;
         }
     }

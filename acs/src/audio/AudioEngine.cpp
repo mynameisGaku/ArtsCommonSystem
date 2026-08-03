@@ -586,12 +586,12 @@ FSoundHandle CAudioEngine::Play(const AAudioAsset& Asset, f32 Volume, bool bLoop
     }
 
     // サンプルデータを再生中保持するためコピー
-    if (!Slot.BufferCopy.TryResize(Asset.SampleByteCount()))
+    if (!Slot.BufferCopy.TrySetNum(Asset.SampleByteCount()))
     {
         DestroySlot(Slot);
         return kInvalidSound;
     }
-    const u64 ReservedBufferBytes = static_cast<u64>(Slot.BufferCopy.Capacity());
+    const u64 ReservedBufferBytes = static_cast<u64>(Slot.BufferCopy.Max());
     if (ReservedBufferBytes >
         kAudioEngineResidentBufferBudgetBytes - Implementation->ResidentBufferBytes)
     {
@@ -604,8 +604,8 @@ FSoundHandle CAudioEngine::Play(const AAudioAsset& Asset, f32 Volume, bool bLoop
     }
 
     XAUDIO2_BUFFER Buffer{};
-    Buffer.AudioBytes = static_cast<UINT32>(Slot.BufferCopy.Size());
-    Buffer.pAudioData = Slot.BufferCopy.Data();
+    Buffer.AudioBytes = static_cast<UINT32>(Slot.BufferCopy.Num());
+    Buffer.pAudioData = Slot.BufferCopy.GetData();
     Buffer.Flags = XAUDIO2_END_OF_STREAM;
     Buffer.LoopCount = bLoop ? XAUDIO2_LOOP_INFINITE : 0;
 
@@ -654,7 +654,7 @@ u64 DestroySlot(FVoiceSlot& Slot) noexcept
         Slot.Voice->DestroyVoice();
         Slot.Voice = nullptr;
     }
-    Slot.BufferCopy.ReleaseStorage();
+    Slot.BufferCopy.Empty();
     ++Slot.Generation;
     Slot.ReservedBufferBytes = 0u;
     Slot.bInUse = false;

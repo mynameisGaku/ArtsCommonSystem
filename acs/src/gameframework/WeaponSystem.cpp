@@ -58,7 +58,7 @@ u32 SaturatingAdd(u32 a, u32 b) noexcept {
 /** 武器 id を内部配列位置へ変換する (per-byte 線形検索、未検出は kNotFound)。 */
 u32 CWeaponSystem::FindWeaponSlot(const char* weapon_id) const noexcept {
     if (weapon_id == nullptr) return kNotFound;
-    const usize n = m_Defs.Size();
+    const usize n = m_Defs.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Defs[i].id, weapon_id)) return static_cast<u32>(i);
     }
@@ -76,7 +76,7 @@ void CWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
         return;
     }
 
-    m_Defs.PushBack(def);
+    m_Defs.Add(def);
     // 並行 TArray — reserve は 0、mag も 0 で初期化。EquipWeapon 時に新規装備の
     // mag が 0 のままだと使い物にならないので、Equip 時に「初装備なら mag_size
     // まで充填する」フォールバックを入れる (詳細は EquipWeapon 参照)。
@@ -84,11 +84,11 @@ void CWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
     slot.weapon_id    = def.id;
     slot.reserve_ammo = 0u;
     slot.ammo_in_mag  = 0u;
-    m_Reserves.PushBack(slot);
+    m_Reserves.Add(slot);
 
-    // m_Defs を PushBack で再確保した可能性があるため、装備中なら m_CurrentDef を
+    // m_Defs を Add で再確保した可能性があるため、装備中なら m_CurrentDef を
     // slot index から張り直す (旧バッファへの dangling pointer = UAF を防ぐ)。
-    if (m_CurrentSlot != kNotFound && m_CurrentSlot < static_cast<u32>(m_Defs.Size())) {
+    if (m_CurrentSlot != kNotFound && m_CurrentSlot < static_cast<u32>(m_Defs.Num())) {
         m_CurrentDef = &m_Defs[m_CurrentSlot];
     }
 }
@@ -97,7 +97,7 @@ void CWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
 void CWeaponSystem::SaveCurrentToSlot() noexcept {
     if (m_CurrentDef == nullptr) return;
     if (m_CurrentSlot == kNotFound) return;
-    if (m_CurrentSlot >= static_cast<u32>(m_Reserves.Size())) return;
+    if (m_CurrentSlot >= static_cast<u32>(m_Reserves.Num())) return;
 
     FReserveSlot& slot = m_Reserves[m_CurrentSlot];
     slot.reserve_ammo = _state.reserve_ammo;
@@ -302,8 +302,8 @@ void CWeaponSystem::Tick(f32 dt) noexcept {
 
 /** 武器定義 / reserve / current state / コールバックをすべてクリアする。 */
 void CWeaponSystem::ClearAll() noexcept {
-    m_Defs.Clear();
-    m_Reserves.Clear();
+    m_Defs.Reset();
+    m_Reserves.Reset();
     m_CurrentDef  = nullptr;
     m_CurrentSlot = kNotFound;
     _state        = FWeaponState{};

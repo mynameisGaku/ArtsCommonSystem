@@ -198,7 +198,7 @@ usize LenWBounded(const wchar_t* Text) noexcept
 
 bool EqualPath(const TArray<wchar_t>& Stored, const wchar_t* Path, usize Length) noexcept
 {
-    if (Stored.Size() != Length + 1u) return false;
+    if (Stored.Num() != Length + 1u) return false;
     for (usize Index = 0; Index < Length; ++Index) {
         if (Stored[Index] != Path[Index]) return false;
     }
@@ -317,7 +317,7 @@ void CAcpakWriter::ResetState() noexcept
 {
     m_Flags = 0;
     m_Finalized = false;
-    m_Pending.ReleaseStorage();
+    m_Pending.Empty();
 
     // 鍵 defensive zero
     MemSet(m_Key.bytes, 0, sizeof(m_Key.bytes));
@@ -386,7 +386,7 @@ TResult<void> CAcpakWriter::Open(const wchar_t* OutputPath, EAcpakFlags Flags) n
     m_FileHandle = Handle;
     m_Flags = static_cast<u32>(Flags);
     m_Finalized = false;
-    m_Pending.Clear();
+    m_Pending.Reset();
 
     // ---- ヘッダプレースホルダを書く (Finalize で上書きする) -----------------
     u8 header[kAcpakHeaderDiskSize] = {};
@@ -427,7 +427,7 @@ TResult<void> CAcpakWriter::AddFile(const wchar_t* VirtualPath, const void* Data
         return ACS_ERR(IO, kAcpakSubIOFailure, "CAcpakWriter::AddFile: data is null but size > 0");
     }
 
-    if (m_Pending.Size() >= kAcpakMaxFileCount) {
+    if (m_Pending.Num() >= kAcpakMaxFileCount) {
         return ACS_ERR(IO, kAcpakSubBadSize, "CAcpakWriter::AddFile: file count exceeds limit");
     }
 
@@ -440,7 +440,7 @@ TResult<void> CAcpakWriter::AddFile(const wchar_t* VirtualPath, const void* Data
     /** 正規形 path に対して AddFile 中に一度だけ計算する hash。 */
     const u64 PathHash = HashCanonicalAcpakVirtualPath(VirtualPath, PathLength);
     /** hash 一致候補だけを完全比較する登録済み entry index。 */
-    for (usize Index = 0; Index < m_Pending.Size(); ++Index) {
+    for (usize Index = 0; Index < m_Pending.Num(); ++Index) {
         if (m_Pending[Index].PathHash == PathHash && EqualPath(m_Pending[Index].Path, VirtualPath, PathLength)) {
             return ACS_ERR(Asset, kAcpakSubDuplicatePath,
                            "CAcpakWriter::AddFile: duplicate virtual path");
@@ -453,24 +453,24 @@ TResult<void> CAcpakWriter::AddFile(const wchar_t* VirtualPath, const void* Data
     }
 
     /** path と payload を保持する新規 pending entry。 */
-    FPendingEntry* Entry = m_Pending.TryEmplaceBack(*m_Allocator);
+    FPendingEntry* Entry = m_Pending.TryEmplace(*m_Allocator);
     if (Entry == nullptr) {
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::AddFile: pending entry allocation failed");
     }
 
-    if (!Entry->Path.TryResize(PathLength + 1u)) {
-        m_Pending.PopBack();
+    if (!Entry->Path.TrySetNum(PathLength + 1u)) {
+        m_Pending.Pop();
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::AddFile: path copy allocation failed");
     }
     Entry->PathHash = PathHash;
-    MemCopy(Entry->Path.Data(), VirtualPath, (PathLength + 1u) * sizeof(wchar_t));
+    MemCopy(Entry->Path.GetData(), VirtualPath, (PathLength + 1u) * sizeof(wchar_t));
 
-    if (!Entry->Data.TryResize(PayloadSize)) {
-        m_Pending.PopBack();
+    if (!Entry->Data.TrySetNum(PayloadSize)) {
+        m_Pending.Pop();
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::AddFile: payload copy allocation failed");
     }
     if (Size > 0) {
-        MemCopy(Entry->Data.Data(), Data, static_cast<usize>(Size));
+        MemCopy(Entry->Data.GetData(), Data, static_cast<usize>(Size));
     }
     return Ok();
 }
@@ -525,7 +525,7 @@ TResult<void> CAcpakWriter::Finalize() noexcept
         u8 CipherTag[16];
     };
     TArray<FWrittenEntry> written(*m_Allocator);
-    if (!written.TryResize(m_Pending.Size())) {
+    if (!written.TrySetNum(m_Pending.Num())) {
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::Finalize: entry result allocation failed");
     }
 
@@ -534,7 +534,7 @@ TResult<void> CAcpakWriter::Finalize() noexcept
     TArray<u8> stage_encrypt(*m_Allocator);  // AES-GCM 暗号化出力先
 
     // ---- ファイルデータ書き出し -------------------------------------------
-    for (usize i = 0; i < m_Pending.Size(); ++i) {
+    for (usize i = 0; i < m_Pending.Num(); ++i) {
         const FPendingEntry& p = m_Pending[i];
 
         FWrittenEntry w{};
@@ -542,26 +542,26 @@ TResult<void> CAcpakWriter::Finalize() noexcept
             return ACS_ERR_OS(IO, kAcpakSubIOFailure,
                               "CAcpakWriter::Finalize: tell data offset failed", err);
         }
-        w.UncompressedSize = static_cast<u64>(p.Data.Size());
-        w.Crc32 = ComputeCrc32(p.Data.Data(), p.Data.Size());
+        w.UncompressedSize = static_cast<u64>(p.Data.Num());
+        w.Crc32 = ComputeCrc32(p.Data.GetData(), p.Data.Num());
 
         // ステージごとの (data, size) を pipeline で更新していく。
-        const u8* stage_ptr = p.Data.Data();
-        u64 stage_size = static_cast<u64>(p.Data.Size());
+        const u8* stage_ptr = p.Data.GetData();
+        u64 stage_size = static_cast<u64>(p.Data.Num());
 
         // ---- 圧縮 (compress-then-encrypt の 1 段目) --------------------
         if (is_compressed) {
-            if (p.Data.Size() > 0xFFFFFFFFu) {
+            if (p.Data.Num() > 0xFFFFFFFFu) {
                 return ACS_ERR(Asset, kAcpakSubBadSize, "CAcpakWriter::Finalize: input > 4GiB (LZ4 limit)");
             }
-            const u32 src_size = static_cast<u32>(p.Data.Size());
+            const u32 src_size = static_cast<u32>(p.Data.Num());
             const u32 dst_cap = CAcpakLz4::MaxCompressedSize(src_size);
-            if (!stage_compress.TryResize(dst_cap)) {
+            if (!stage_compress.TrySetNum(dst_cap)) {
                 return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::Finalize: compression allocation failed");
             }
-            const auto cr = CAcpakLz4::Compress(p.Data.Data(), src_size, stage_compress.Data(), dst_cap);
+            const auto cr = CAcpakLz4::Compress(p.Data.GetData(), src_size, stage_compress.GetData(), dst_cap);
             if (cr.IsErr()) return cr.Error();
-            stage_ptr = stage_compress.Data();
+            stage_ptr = stage_compress.GetData();
             stage_size = cr.Value();
         }
 
@@ -574,13 +574,13 @@ TResult<void> CAcpakWriter::Finalize() noexcept
             if (nr.IsErr()) return nr.Error();
 
             // 出力バッファ (= 同 size の別領域、in-place も可だが分離で安全)
-            if (!stage_encrypt.TryResize(static_cast<usize>(stage_size))) {
+            if (!stage_encrypt.TrySetNum(static_cast<usize>(stage_size))) {
                 return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::Finalize: encryption allocation failed");
             }
-            const auto er = CAcpakCrypto::Encrypt(m_Key, w.CipherNonce, stage_ptr, stage_size, stage_encrypt.Data(),
+            const auto er = CAcpakCrypto::Encrypt(m_Key, w.CipherNonce, stage_ptr, stage_size, stage_encrypt.GetData(),
                                                   w.CipherTag);
             if (er.IsErr()) return er.Error();
-            stage_ptr = stage_encrypt.Data();
+            stage_ptr = stage_encrypt.GetData();
             // size 不変 (AES-GCM は size == size)
         }
 
@@ -603,10 +603,10 @@ TResult<void> CAcpakWriter::Finalize() noexcept
                           "CAcpakWriter::Finalize: tell manifest offset failed", err);
     }
 
-    for (usize i = 0; i < m_Pending.Size(); ++i) {
+    for (usize i = 0; i < m_Pending.Num(); ++i) {
         const FPendingEntry& p = m_Pending[i];
         const FWrittenEntry& w = written[i];
-        const u32 len = static_cast<u32>(p.Path.Size() - 1u);
+        const u32 len = static_cast<u32>(p.Path.Num() - 1u);
 
         // path_len (4) + path (len*2) + offset (8) + size_unc (8) + size_st (8)
         // + crc32 (4) を 1 つの一時バッファに詰めて書く。
@@ -619,15 +619,15 @@ TResult<void> CAcpakWriter::Finalize() noexcept
         u8* buf = stack_buf;
         TArray<u8> heap_buf(*m_Allocator);
         if (entry_bytes > sizeof(stack_buf)) {
-            if (!heap_buf.TryResize(static_cast<usize>(entry_bytes))) {
+            if (!heap_buf.TrySetNum(static_cast<usize>(entry_bytes))) {
                 return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::Finalize: table entry allocation failed");
             }
-            buf = heap_buf.Data();
+            buf = heap_buf.GetData();
         }
 
         WriteU32LE(buf + 0, len);
         if (path_bytes > 0) {
-            MemCopy(buf + 4, p.Path.Data(), static_cast<usize>(path_bytes));
+            MemCopy(buf + 4, p.Path.GetData(), static_cast<usize>(path_bytes));
         }
         u8* const tail = buf + 4 + path_bytes;
         WriteU64LE(tail + 0, w.Offset);
@@ -660,7 +660,7 @@ TResult<void> CAcpakWriter::Finalize() noexcept
     MemCopy(header, kAcpakMagic, 8);
     WriteU32LE(header + 8, kAcpakVersion);
     WriteU32LE(header + 12, m_Flags);
-    WriteU32LE(header + 16, static_cast<u32>(m_Pending.Size()));
+    WriteU32LE(header + 16, static_cast<u32>(m_Pending.Num()));
     WriteU32LE(header + 20, 0); // padding = 0
     WriteU64LE(header + 24, file_table_offset);
     WriteU32LE(header + 32, 0); // reserved = 0

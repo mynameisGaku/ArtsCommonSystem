@@ -15,7 +15,7 @@ void CSelectionService::Init() noexcept {
     // 完全初期化: 現選択を invalid に、callback list を空に。
     // 容量は保持 (Reserve 状態を保つ ≒ 再 Init 後のアロケーション節約)。
     m_Current = FNodeId{};
-    m_Callbacks.Clear();
+    m_Callbacks.Reset();
 }
 
 /** 現選択を id に切り替え、値が変化した場合のみ callback を一斉発火する。 */
@@ -64,7 +64,7 @@ void CSelectionService::RegisterCallback(SelectionChangeCallback cb, void* user)
     }
     // (cb, user) ペア重複は no-op で弾く (二重 dispatch 防止)。
     // 登録数は購読 panel 数 = せいぜい数〜十数件なので線形探索で十分。
-    for (usize i = 0; i < m_Callbacks.Size(); ++i) {
+    for (usize i = 0; i < m_Callbacks.Num(); ++i) {
         if (m_Callbacks[i].cb == cb && m_Callbacks[i].user == user) {
             return;
         }
@@ -72,7 +72,7 @@ void CSelectionService::RegisterCallback(SelectionChangeCallback cb, void* user)
     FCallbackEntry e{};
     e.cb   = cb;
     e.user = user;
-    m_Callbacks.PushBack(e);
+    m_Callbacks.Add(e);
 }
 
 /** (cb, user) に完全一致する登録 1 件を解除する (該当なし・null は no-op)。 */
@@ -83,7 +83,7 @@ void CSelectionService::UnregisterCallback(SelectionChangeCallback cb, void* use
     }
     // (cb, user) 完全一致 1 件のみ削除 (Register が重複弾きしているので
     // 同一ペアは高々 1 件)。順序を保つ必要は仕様上ないので swap-remove。
-    const usize n = m_Callbacks.Size();
+    const usize n = m_Callbacks.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Callbacks[i].cb == cb && m_Callbacks[i].user == user) {
             m_Callbacks.RemoveAtSwap(i);
@@ -95,7 +95,7 @@ void CSelectionService::UnregisterCallback(SelectionChangeCallback cb, void* use
 
 /** 登録済みコールバック数を返す。 */
 u32 CSelectionService::CallbackCount() const noexcept {
-    return static_cast<u32>(m_Callbacks.Size());
+    return static_cast<u32>(m_Callbacks.Num());
 }
 
 /** 全 callback 登録を破棄し、選択も invalid に戻す (通知は行わない)。 */
@@ -104,17 +104,17 @@ void CSelectionService::ClearAll() noexcept {
     // — 購読側はもはや listening しない前提で呼ぶ API なので、ここで dispatch
     // すると逆に dangling user pointer に飛ぶリスクがある。
     m_Current = FNodeId{};
-    m_Callbacks.Clear();
+    m_Callbacks.Reset();
 }
 
 /** 登録順に全 callback へ選択変更を dispatch する内部ヘルパ。 */
 void CSelectionService::FireChange(FNodeId from, FNodeId to) const noexcept {
     // callback 内で別の panel が UnregisterCallback / RegisterCallback を
     // 呼ぶ可能性があるが、「dispatch 中の自己改変は未定義」と
-    // 規定する (登録 list を index で走査するので、swap-remove や PushBack が
+    // 規定する (登録 list を index で走査するので、swap-remove や Add が
     // 走ると同じ要素が 2 回呼ばれる / スキップされる可能性がある)。実用上は
     // editor の panel 構成は起動時に確定するため問題ない。
-    const usize n = m_Callbacks.Size();
+    const usize n = m_Callbacks.Num();
     for (usize i = 0; i < n; ++i) {
         const FCallbackEntry& e = m_Callbacks[i];
         // cb は nullptr で登録されない (RegisterCallback で弾く) ため、

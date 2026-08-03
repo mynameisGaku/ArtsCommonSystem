@@ -192,7 +192,7 @@ public:
     template<typename T>
     TSparseSet<T>& GetOrCreateSet() noexcept {
         const FComponentTypeId id = GetComponentTypeId<T>();
-        if (id >= m_Sets.Size()) m_Sets.Resize(id + 1);
+        if (id >= m_Sets.Num()) m_Sets.SetNum(id + 1);
         if (!m_Sets[id]) {
             // 生 new を避け、MemorySystem 追跡下で確保する (R018 / リーク検出)。ASparseSetBase の
             // 仮想デストラクタで型ごとの破棄が走るため、解放は CWorld::Clear の Delete で型消去できる。
@@ -212,7 +212,7 @@ public:
     template<typename T>
     TSparseSet<T>* TryGetSet() noexcept {
         const FComponentTypeId id = GetComponentTypeId<T>();
-        if (id >= m_Sets.Size()) return nullptr;
+        if (id >= m_Sets.Num()) return nullptr;
         return static_cast<TSparseSet<T>*>(m_Sets[id]);
     }
 
@@ -230,7 +230,7 @@ public:
      * @return そのスロットの現世代を付けた FEntityId (範囲外なら kInvalidEntity)。
      */
     FEntityId MakeIdFromIndex(u32 index) const noexcept {
-        if (index >= m_Slots.Size()) return kInvalidEntity;
+        if (index >= m_Slots.Num()) return kInvalidEntity;
         return FEntityId{ index, m_Slots[index].generation };
     }
 

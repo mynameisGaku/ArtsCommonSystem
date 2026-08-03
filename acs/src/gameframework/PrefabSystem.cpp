@@ -49,18 +49,18 @@ bool IsEmptyName(const char* s) noexcept {
 /** 未使用 slot を探して index を返す (容量上限なら 0、index 0 は予約)。 */
 u32 CPrefabSystem::AcquireSlot() noexcept {
     // index 0 は invalid 予約。index 1 以降から未使用 slot を探す。
-    for (u32 i = 1; i < m_Entries.Size(); ++i) {
+    for (u32 i = 1; i < m_Entries.Num(); ++i) {
         if (!m_Entries[i].active) return i;
     }
     // 全部使用中 → 末尾を 1 つ拡張。
     // 配列がまだ空なら index 0 を dummy で埋めて以降 index 1 から始める。
     if (m_Entries.IsEmpty()) {
-        m_Entries.PushBack(FPrefabEntry{});   // dummy at index 0 (常に inactive)
+        m_Entries.Add(FPrefabEntry{});   // dummy at index 0 (常に inactive)
     }
     // 次に割り当てる index が low24 を超えると FPrefabId で切り詰められるため拒否する。
-    if (m_Entries.Size() > kMaxPrefabIndex) return 0u;
-    m_Entries.PushBack(FPrefabEntry{});
-    return static_cast<u32>(m_Entries.Size()) - 1u;
+    if (m_Entries.Num() > kMaxPrefabIndex) return 0u;
+    m_Entries.Add(FPrefabEntry{});
+    return static_cast<u32>(m_Entries.Num()) - 1u;
 }
 
 /** 新規 Prefab を登録して FPrefabId を返す (バリデーション失敗時は invalid)。 */
@@ -86,7 +86,7 @@ FPrefabId CPrefabSystem::Register(const char* name, PrefabFactoryFn factory, voi
 /** 名前で active な Prefab を線形探索する (一致しなければ invalid)。 */
 FPrefabId CPrefabSystem::FindByName(const char* name) const noexcept {
     if (IsEmptyName(name)) return FPrefabId{};
-    const u32 n = static_cast<u32>(m_Entries.Size());
+    const u32 n = static_cast<u32>(m_Entries.Num());
     // index 0 は dummy なので 1 から走査。
     for (u32 i = 1; i < n; ++i) {
         const FPrefabEntry& e = m_Entries[i];
@@ -100,7 +100,7 @@ FPrefabId CPrefabSystem::FindByName(const char* name) const noexcept {
 TObjectPtr<ANode> CPrefabSystem::Spawn(FPrefabId id) noexcept {
     if (!id.IsValid()) return TObjectPtr<ANode>{};
     const u32 idx = id.Index();
-    if (idx >= m_Entries.Size()) return TObjectPtr<ANode>{};
+    if (idx >= m_Entries.Num()) return TObjectPtr<ANode>{};
     const FPrefabEntry& e = m_Entries[idx];
     // active 検証 + 世代一致 (stale handle を弾く)。
     if (!e.active || e.gen != id.Generation()) return TObjectPtr<ANode>{};
@@ -117,7 +117,7 @@ TObjectPtr<ANode> CPrefabSystem::SpawnByName(const char* name) noexcept {
 bool CPrefabSystem::Unregister(FPrefabId id) noexcept {
     if (!id.IsValid()) return false;
     const u32 idx = id.Index();
-    if (idx >= m_Entries.Size()) return false;
+    if (idx >= m_Entries.Num()) return false;
     FPrefabEntry& e = m_Entries[idx];
     if (!e.active || e.gen != id.Generation()) return false;
 
@@ -134,7 +134,7 @@ bool CPrefabSystem::Unregister(FPrefabId id) noexcept {
 const char* CPrefabSystem::GetName(FPrefabId id) const noexcept {
     if (!id.IsValid()) return "(unknown)";
     const u32 idx = id.Index();
-    if (idx >= m_Entries.Size()) return "(unknown)";
+    if (idx >= m_Entries.Num()) return "(unknown)";
     const FPrefabEntry& e = m_Entries[idx];
     if (!e.active || e.gen != id.Generation()) return "(unknown)";
     if (e.name == nullptr) return "(unknown)";
@@ -145,7 +145,7 @@ const char* CPrefabSystem::GetName(FPrefabId id) const noexcept {
 void CPrefabSystem::ClearAll() noexcept {
     // 配列を捨てると、次の Register が同じ index / generation を再発行して古い ID が
     // 復活し得る。世代履歴を保持したまま inactive にし、次回再利用時に gen を進める。
-    for (u32 i = 1u; i < m_Entries.Size(); ++i) {
+    for (u32 i = 1u; i < m_Entries.Num(); ++i) {
         FPrefabEntry& entry = m_Entries[i];
         entry.active = false;
         entry.factory = nullptr;

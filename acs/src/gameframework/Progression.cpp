@@ -164,7 +164,7 @@ u32 Floor_Log2_NonZero(u32 v) noexcept {
 /** id に一致する Def の index を線形探索する (見つからなければ -1)。 */
 isize CProgression::FindIndex(const char* id) const noexcept {
     if (id == nullptr) return -1;
-    const usize n = m_Defs.Size();
+    const usize n = m_Defs.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Defs[i].id, id)) return static_cast<isize>(i);
     }
@@ -178,18 +178,18 @@ void CProgression::RegisterMilestone(const FMilestoneDef& def) noexcept {
     // 同 id の 2 重登録は no-op (CAchievementManager / CModRegistry と同じ防御)。
     if (FindIndex(def.id) >= 0) return;
 
-    if (m_Defs.Size() != m_States.Size()) {
+    if (m_Defs.Num() != m_States.Num()) {
         ACS_LOG_ERROR("CProgression::RegisterMilestone: definition/state invariant broken");
         return;
     }
-    if (m_Defs.Size() >= static_cast<usize>(kMaxPersistedMilestones)) {
+    if (m_Defs.Num() >= static_cast<usize>(kMaxPersistedMilestones)) {
         ACS_LOG_WARN("CProgression::RegisterMilestone: persistence limit reached (%u)",
                      kMaxPersistedMilestones);
         return;
     }
 
     const u32 new_hash = HashId(def.id);
-    for (usize i = 0; i < m_Defs.Size(); ++i) {
+    for (usize i = 0; i < m_Defs.Num(); ++i) {
         if (HashId(m_Defs[i].id) == new_hash) {
             ACS_LOG_ERROR("CProgression::RegisterMilestone: persistence hash collision "
                           "(new=%s, existing=%s, hash=0x%08x)",
@@ -205,17 +205,17 @@ void CProgression::RegisterMilestone(const FMilestoneDef& def) noexcept {
     st.achieved           = false;
     st.achieved_timestamp = 0;
 
-    const usize new_size = m_Defs.Size() + 1u;
+    const usize new_size = m_Defs.Num() + 1u;
     if (!m_Defs.TryReserve(new_size) || !m_States.TryReserve(new_size)) {
         ACS_LOG_ERROR("CProgression::RegisterMilestone: allocation failed");
         return;
     }
-    if (!m_Defs.TryPushBack(def)) {
+    if (!m_Defs.TryAdd(def)) {
         ACS_LOG_ERROR("CProgression::RegisterMilestone: definition append failed");
         return;
     }
-    if (!m_States.TryPushBack(st)) {
-        m_Defs.PopBack();
+    if (!m_States.TryAdd(st)) {
+        m_Defs.Pop();
         ACS_LOG_ERROR("CProgression::RegisterMilestone: state append failed");
     }
 }
@@ -238,7 +238,7 @@ void CProgression::AwardXp(u32 amount) noexcept {
     // timestamp は Clock::MillisSinceStartup() を 1 回だけ取得して全達成に
     // 同じ値を入れる (同フレームで複数達成しても順序情報は持たない設計)。
     const u64 now = ::acs::CClock::MillisSinceStartup();
-    const usize n = m_Defs.Size();
+    const usize n = m_Defs.Num();
     for (usize i = 0; i < n; ++i) {
         FMilestoneState& st  = m_States[i];
         const FMilestoneDef& d = m_Defs[i];
@@ -294,13 +294,13 @@ bool CProgression::IsMilestoneAchieved(const char* id) const noexcept {
 /** 登録済み milestone の総数を返す。 */
 u32 CProgression::MilestoneCount() const noexcept {
     // 件数は通常 u32 範囲を超えない (タイトル 1 つで通常 10〜100)。
-    return static_cast<u32>(m_Defs.Size());
+    return static_cast<u32>(m_Defs.Num());
 }
 
 /** 達成済み milestone の数を数えて返す。 */
 u32 CProgression::AchievedCount() const noexcept {
     u32 count = 0;
-    const usize n = m_States.Size();
+    const usize n = m_States.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_States[i].achieved) ++count;
     }
@@ -316,15 +316,15 @@ const FMilestoneState* CProgression::GetState(const char* id) const noexcept {
 
 /** 全 milestone 状態の配列先頭を返し、件数を out_count に書き戻す。 */
 const FMilestoneState* CProgression::AllStates(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(m_States.Size());
-    return m_States.Data();
+    out_count = static_cast<u32>(m_States.Num());
+    return m_States.GetData();
 }
 
 /** XP を 0 に戻し全 milestone を未達成に戻す (定義配列は保持)。 */
 void CProgression::ResetProgress() noexcept {
     m_Xp = 0;
     // 定義配列 (m_Defs) は保持。State 側だけ未達成に戻す。
-    const usize n = m_States.Size();
+    const usize n = m_States.Num();
     for (usize i = 0; i < n; ++i) {
         m_States[i].achieved           = false;
         m_States[i].achieved_timestamp = 0;
@@ -368,8 +368,8 @@ TResult<void> CProgression::Save(const wchar_t* file_path) noexcept {
                        "CProgression::Save: file_path is null");
     }
 
-    const usize n = m_Defs.Size();
-    if (n != m_States.Size()) {
+    const usize n = m_Defs.Num();
+    if (n != m_States.Num()) {
         return ACS_ERR(Asset,
                        ProgressionSub(EProgressionPersistenceSubCode::kSubStateInvariant),
                        "CProgression::Save: definition/state invariant broken");
@@ -409,12 +409,12 @@ TResult<void> CProgression::Save(const wchar_t* file_path) noexcept {
 
     // checked allocation 後に固定offsetへ書き、PushBack途中のOOMを排除する。
     TArray<u8> payload;
-    if (!payload.TryResize(payload_size)) {
+    if (!payload.TrySetNum(payload_size)) {
         return ACS_ERR(Memory,
                        ProgressionSub(EProgressionPersistenceSubCode::kSubAllocationFailed),
                        "CProgression::Save: payload allocation failed");
     }
-    u8* const bytes = payload.Data();
+    u8* const bytes = payload.GetData();
     WriteU32LE(bytes + 0, m_Xp);
     WriteU32LE(bytes + 4, static_cast<u32>(n));
 
@@ -431,7 +431,7 @@ TResult<void> CProgression::Save(const wchar_t* file_path) noexcept {
 
     return CSaveArchive::WriteToFile(file_path,
                                      kProgressionSaveVersion,
-                                     payload.Data(),
+                                     payload.GetData(),
                                      static_cast<u64>(payload_size));
 }
 
@@ -475,7 +475,7 @@ TResult<void> CProgression::Load(const wchar_t* file_path) noexcept {
     }
 
     TArray<u8> payload;
-    if (!payload.TryResize(static_cast<usize>(payload_size))) {
+    if (!payload.TrySetNum(static_cast<usize>(payload_size))) {
         return ACS_ERR(Memory,
                        ProgressionSub(EProgressionPersistenceSubCode::kSubAllocationFailed),
                        "CProgression::Load: payload allocation failed");
@@ -483,7 +483,7 @@ TResult<void> CProgression::Load(const wchar_t* file_path) noexcept {
 
     u64 actual_size = 0;
     const auto rd = CSaveArchive::ReadFromFile(file_path,
-                                               payload.Data(),
+                                               payload.GetData(),
                                                payload_size,
                                                kProgressionSaveVersion,
                                                actual_size);
@@ -494,7 +494,7 @@ TResult<void> CProgression::Load(const wchar_t* file_path) noexcept {
                        "CProgression::Load: payload changed between peek and read");
     }
 
-    const u8* p = payload.Data();
+    const u8* p = payload.GetData();
     const u32 xp    = ReadU32LE(p + 0);
     const u32 count = ReadU32LE(p + 4);
 
@@ -512,8 +512,8 @@ TResult<void> CProgression::Load(const wchar_t* file_path) noexcept {
                        "CProgression::Load: entry count does not exactly match payload");
     }
 
-    const usize ns = m_States.Size();
-    if (m_Defs.Size() != ns) {
+    const usize ns = m_States.Num();
+    if (m_Defs.Num() != ns) {
         return ACS_ERR(Asset,
                        ProgressionSub(EProgressionPersistenceSubCode::kSubStateInvariant),
                        "CProgression::Load: definition/state invariant broken");
@@ -528,7 +528,7 @@ TResult<void> CProgression::Load(const wchar_t* file_path) noexcept {
     // 既存状態と分離した staging を用意し、全entry検証後にだけcommitする。
     TArray<FMilestoneState> staged;
     TArray<u32> seen_hashes;
-    if (!staged.TryResize(ns) || !seen_hashes.TryResize(static_cast<usize>(count))) {
+    if (!staged.TrySetNum(ns) || !seen_hashes.TrySetNum(static_cast<usize>(count))) {
         return ACS_ERR(Memory,
                        ProgressionSub(EProgressionPersistenceSubCode::kSubAllocationFailed),
                        "CProgression::Load: staging allocation failed");

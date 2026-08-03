@@ -58,15 +58,15 @@ void ExpandMax(FVec3& mx, FVec3 p) noexcept {
 TResult<void> CMeshCollider::BuildFromMesh(const AMeshAsset& mesh) noexcept {
     const TArray<FMeshVertex>& verts = mesh.Vertices();
     const TArray<u32>&        idx   = mesh.Indices();
-    if (verts.Size() == 0) {
+    if (verts.Num() == 0) {
         return ACS_ERR(Generic, kSubColMeshEmpty, "CMeshCollider: mesh has no vertices");
     }
     // 位置だけ抜き出して BuildFromTriangles に渡す。
     TArray<FVec3> pos;
-    pos.Reserve(verts.Size());
-    for (usize i = 0; i < verts.Size(); ++i) pos.PushBack(verts[i].position);
-    return BuildFromTriangles(pos.Data(), static_cast<u32>(pos.Size()),
-                              idx.Data(), static_cast<u32>(idx.Size()));
+    pos.Reserve(verts.Num());
+    for (usize i = 0; i < verts.Num(); ++i) pos.Add(verts[i].position);
+    return BuildFromTriangles(pos.GetData(), static_cast<u32>(pos.Num()),
+                              idx.GetData(), static_cast<u32>(idx.Num()));
 }
 
 /** 生の頂点位置 + 三角形インデックス列から collider を構築する。 */
@@ -102,9 +102,9 @@ TResult<void> CMeshCollider::BuildFromTriangles(const FVec3* positions, u32 vert
         tr.centroid = (tr.v0 + tr.v1 + tr.v2) * (1.0f / 3.0f);
         ExpandMin(mn, tr.v0); ExpandMin(mn, tr.v1); ExpandMin(mn, tr.v2);
         ExpandMax(mx, tr.v0); ExpandMax(mx, tr.v1); ExpandMax(mx, tr.v2);
-        m_Tris.PushBack(tr);
+        m_Tris.Add(tr);
     }
-    if (m_Tris.Size() == 0) {
+    if (m_Tris.Num() == 0) {
         return ACS_ERR(Generic, kSubColMeshEmpty, "CMeshCollider: no triangles built");
     }
     m_Bounds = FAabb3::FromMinMax(mn, mx);
@@ -114,9 +114,9 @@ TResult<void> CMeshCollider::BuildFromTriangles(const FVec3* positions, u32 vert
 
 /** 三角形・BVH・境界をすべて破棄して空状態に戻す。 */
 void CMeshCollider::Clear() noexcept {
-    m_Tris.Clear();
-    m_TriIndex.Clear();
-    m_Nodes.Clear();
+    m_Tris.Reset();
+    m_TriIndex.Reset();
+    m_Nodes.Reset();
     m_Bounds = FAabb3{};
 }
 
@@ -134,21 +134,21 @@ FAabb3 CMeshCollider::ComputeBounds(u32 first, u32 count) const noexcept {
 
 /** m_Tris から median-split AABB BVH を構築する。 */
 void CMeshCollider::BuildBvh() noexcept {
-    m_Nodes.Clear();
-    m_TriIndex.Clear();
-    if (m_Tris.Size() == 0) return;
-    m_TriIndex.Reserve(m_Tris.Size());
-    for (u32 i = 0; i < m_Tris.Size(); ++i) m_TriIndex.PushBack(i);
+    m_Nodes.Reset();
+    m_TriIndex.Reset();
+    if (m_Tris.Num() == 0) return;
+    m_TriIndex.Reserve(m_Tris.Num());
+    for (u32 i = 0; i < m_Tris.Num(); ++i) m_TriIndex.Add(i);
 
-    m_Nodes.PushBack(FBvhNode{});      // ルートはノード 0
+    m_Nodes.Add(FBvhNode{});      // ルートはノード 0
 
     struct FItem { u32 node, first, count; };
     TArray<FItem> stack;
-    stack.PushBack(FItem{ 0, 0, static_cast<u32>(m_Tris.Size()) });
+    stack.Add(FItem{ 0, 0, static_cast<u32>(m_Tris.Num()) });
 
-    while (stack.Size() > 0) {
-        const FItem it = stack[stack.Size() - 1];
-        stack.PopBack();
+    while (stack.Num() > 0) {
+        const FItem it = stack[stack.Num() - 1];
+        stack.Pop();
 
         const FAabb3 b = ComputeBounds(it.first, it.count);
         m_Nodes[it.node].bounds = b;
@@ -176,21 +176,21 @@ void CMeshCollider::BuildBvh() noexcept {
         u32 left_count = i - it.first;
         if (left_count == 0 || left_count == it.count) left_count = it.count / 2;  // 退化時は半分
 
-        const u32 left_idx = static_cast<u32>(m_Nodes.Size());
-        m_Nodes.PushBack(FBvhNode{});
-        m_Nodes.PushBack(FBvhNode{});
+        const u32 left_idx = static_cast<u32>(m_Nodes.Num());
+        m_Nodes.Add(FBvhNode{});
+        m_Nodes.Add(FBvhNode{});
         m_Nodes[it.node].left      = left_idx;
         m_Nodes[it.node].tri_count = 0;     // internal
 
-        stack.PushBack(FItem{ left_idx,     it.first,              left_count });
-        stack.PushBack(FItem{ left_idx + 1, it.first + left_count, it.count - left_count });
+        stack.Add(FItem{ left_idx,     it.first,              left_count });
+        stack.Add(FItem{ left_idx + 1, it.first + left_count, it.count - left_count });
     }
 }
 
 /** レイを撃って最近接ヒットを返す (三角形面法線つき)。 */
 FRayHit3 CMeshCollider::Raycast(const FRay3& ray, f32 t_max) const noexcept {
     FRayHit3 best{};
-    if (m_Nodes.Size() == 0) return best;
+    if (m_Nodes.Num() == 0) return best;
     f32 closest = t_max;
 
     u32 stack[128];
@@ -218,7 +218,7 @@ FRayHit3 CMeshCollider::Raycast(const FRay3& ray, f32 t_max) const noexcept {
 
 /** AABB がメッシュと重なるかを判定する (broadphase 用)。 */
 bool CMeshCollider::OverlapsAabb(const FAabb3& box) const noexcept {
-    if (m_Nodes.Size() == 0) return false;
+    if (m_Nodes.Num() == 0) return false;
     u32 stack[128];
     u32 sp = 0;
     stack[sp++] = 0;

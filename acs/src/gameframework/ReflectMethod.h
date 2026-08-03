@@ -83,7 +83,7 @@ public:
     /** 全登録数。 */
     u32 Count() const noexcept
     {
-        return static_cast<u32>(m_Entries.Size());
+        return static_cast<u32>(m_Entries.Num());
     }
 
     /** i 番目。 */
@@ -95,7 +95,7 @@ public:
     /** owner 型の n 番目のメソッド(無ければ nullptr)。 */
     const FReflectMethod* AtOfOwner(FTypeId owner, u32 nth) const noexcept {
         u32 seen = 0;
-        for (u32 i = 0; i < m_Entries.Size(); ++i) {
+        for (u32 i = 0; i < m_Entries.Num(); ++i) {
             const FReflectMethod& method = m_Entries[i].sources[0].method;
             if (method.owner != owner) continue;
             if (seen == nth) return &method;
@@ -107,7 +107,7 @@ public:
     /** owner 型のメソッド数。 */
     u32 CountOfOwner(FTypeId owner) const noexcept {
         u32 c = 0;
-        for (u32 i = 0; i < m_Entries.Size(); ++i) {
+        for (u32 i = 0; i < m_Entries.Num(); ++i) {
             if (m_Entries[i].sources[0].method.owner == owner) ++c;
         }
         return c;
@@ -115,7 +115,7 @@ public:
 
     /** owner + 名前で引く(無ければ nullptr)。 */
     const FReflectMethod* Find(FTypeId owner, const char* name) const noexcept {
-        for (u32 i = 0; i < m_Entries.Size(); ++i) {
+        for (u32 i = 0; i < m_Entries.Num(); ++i) {
             const FReflectMethod& method = m_Entries[i].sources[0].method;
             if (method.owner == owner && StrEq(method.name, name)) return &method;
         }
@@ -157,7 +157,7 @@ private:
 
     void RegisterSource(const FReflectMethod& method, const void* token) noexcept
     {
-        for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
+        for (u32 entry_index = 0; entry_index < m_Entries.Num(); ++entry_index) {
             FMethodEntry& entry = m_Entries[entry_index];
             const FReflectMethod& active = entry.sources[0].method;
             if (active.owner != method.owner || !StrEq(active.name, method.name)) continue;
@@ -176,12 +176,12 @@ private:
         FMethodEntry entry{};
         entry.sources[0] = FMethodSource{method, token};
         entry.source_count = 1;
-        m_Entries.PushBack(entry);
+        m_Entries.Add(entry);
     }
 
     bool UnregisterSource(const FReflectMethod& method, const void* token) noexcept
     {
-        for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
+        for (u32 entry_index = 0; entry_index < m_Entries.Num(); ++entry_index) {
             FMethodEntry& entry = m_Entries[entry_index];
             const FReflectMethod& active = entry.sources[0].method;
             if (active.owner != method.owner || !StrEq(active.name, method.name)) continue;
@@ -206,10 +206,10 @@ private:
             --entry.source_count;
             if (entry.source_count != 0) return true;
 
-            for (u32 remaining = entry_index; remaining + 1u < m_Entries.Size(); ++remaining) {
+            for (u32 remaining = entry_index; remaining + 1u < m_Entries.Num(); ++remaining) {
                 m_Entries[remaining] = m_Entries[remaining + 1u];
             }
-            m_Entries.PopBack();
+            m_Entries.Pop();
             return true;
         }
         return false;

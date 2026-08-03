@@ -156,7 +156,7 @@ public:
     /** 全購読を解除する。 */
     void Clear() noexcept {
         if (!m_State) return;
-        for (/** 現在解除する購読枠の位置。 */ u32 Index = 0; Index < m_State->slots.Size(); ++Index) {
+        for (/** 現在解除する購読枠の位置。 */ u32 Index = 0; Index < m_State->slots.Num(); ++Index) {
             if (m_State->slots[Index].active) RetireSlot(*m_State, Index);
         }
     }

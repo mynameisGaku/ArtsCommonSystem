@@ -13,14 +13,14 @@
 //       }
 //   }, nullptr);
 //
-//   inv.PushBack(7);     // → Inserted, idx=0, v=7
+//   inv.Add(7);     // → Inserted, idx=0, v=7
 //   inv.SetAt(0, 99);    // → Changed,  idx=0, v=99
 //   inv.RemoveAt(0);     // → Removed,  idx=0
-//   inv.Clear();         // → Cleared
+//   inv.Reset();         // → Cleared
 //
 // 設計:
 //   ・通知は 1 種類の callback で kind を分岐 (UE5 の per-event fan-out より易い)
-//   ・listener 中は PushBack/PopBack/Remove/RemoveAt/SetAt/Clear による全変更を禁止する
+//   ・listener 中は Add/Pop/Remove/RemoveAt/SetAt/Clear による全変更を禁止する
 //     (Debug は assert 検出。assert 無効の Release では検出されず処理が実行されるため、
 //      呼び出した時点で caller の契約違反)
 //     → どうしても要るなら listener が処理キューに積んで後で実行
@@ -91,7 +91,7 @@ inline constexpr FArrayObserverHandle kInvalidArrayObserver{};
  *
  * @details
  * 各変更操作は単一のリスナを EArrayChange の種別付きで呼ぶ (per-event の fan-out はしない)。
- * 通知中 (Notify 内) は PushBack/PopBack/Remove/RemoveAt/SetAt/Clear による全変更を禁止する。
+ * 通知中 (Notify 内) は Add/Pop/Remove/RemoveAt/SetAt/Clear による全変更を禁止する。
  * Debug ビルドでは assert で検出する。assert を無効化した Release ビルドでは検出されず
  * 変更処理が実行されるため、呼び出した時点で caller の契約違反となる。
  * SetAt は通知外でも operator== で同値ならスキップする。
@@ -131,22 +131,22 @@ public:
      *
      * @param v 追加する要素 (ムーブで取り込む)。
      */
-    void PushBack(T v) noexcept {
+    void Add(T v) noexcept {
         AssertMutationOK();
-        const usize idx = m_Items.Size();
-        m_Items.PushBack(Move(v));
+        const usize idx = m_Items.Num();
+        m_Items.Add(Move(v));
         Notify(EArrayChange::Inserted, idx, &m_Items[idx]);
     }
 
     /**
      * 末尾要素を削除し Removed を通知する (空なら何もしない)。
      */
-    void PopBack() noexcept {
-        if (m_Items.Size() == 0) return;
+    void Pop() noexcept {
+        if (m_Items.Num() == 0) return;
         AssertMutationOK();
-        const usize idx = m_Items.Size() - 1;
-        // PopBack 後は要素アクセスできないので value=nullptr で通知
-        m_Items.PopBack();
+        const usize idx = m_Items.Num() - 1;
+        // Pop 後は要素アクセスできないので value=nullptr で通知
+        m_Items.Pop();
         Notify(EArrayChange::Removed, idx, nullptr);
     }
 
@@ -157,12 +157,12 @@ public:
      * @param index 削除する要素の位置。
      */
     void RemoveAt(usize index) noexcept {
-        if (index >= m_Items.Size()) return;
+        if (index >= m_Items.Num()) return;
         AssertMutationOK();
-        for (usize i = index + 1; i < m_Items.Size(); ++i) {
+        for (usize i = index + 1; i < m_Items.Num(); ++i) {
             m_Items[i - 1] = Move(m_Items[i]);
         }
-        m_Items.PopBack();
+        m_Items.Pop();
         Notify(EArrayChange::Removed, index, nullptr);
     }
 
@@ -176,7 +176,7 @@ public:
      */
     bool Remove(const T& value) noexcept {
         // 最初に一致した削除位置。
-        const usize index = m_Items.IndexOf(value);
+        const usize index = m_Items.IndexOfByKey(value);
         if (index == TArray<T>::kNpos) return false;
         RemoveAt(index);
         return true;
@@ -190,7 +190,7 @@ public:
      * @param v 設定する新しい値 (ムーブで取り込む)。
      */
     void SetAt(usize index, T v) noexcept {
-        if (index >= m_Items.Size()) return;
+        if (index >= m_Items.Num()) return;
         if (m_Items[index] == v) return;
         AssertMutationOK();
         m_Items[index] = Move(v);
@@ -200,10 +200,10 @@ public:
     /**
      * 全要素を削除し Cleared を通知する (空なら何もしない)。
      */
-    void Clear() noexcept {
-        if (m_Items.Size() == 0) return;
+    void Reset() noexcept {
+        if (m_Items.Num() == 0) return;
         AssertMutationOK();
-        m_Items.Clear();
+        m_Items.Reset();
         Notify(EArrayChange::Cleared, 0, nullptr);
     }
 
@@ -212,14 +212,14 @@ public:
      *
      * @return 現在の要素数。
      */
-    usize Size() const noexcept { return m_Items.Size(); }
+    usize Num() const noexcept { return m_Items.Num(); }
 
     /**
      * 空かどうかを返す。
      *
      * @return 要素が無ければ true。
      */
-    bool  Empty() const noexcept { return m_Items.Size() == 0; }
+    bool  Empty() const noexcept { return m_Items.Num() == 0; }
 
     /**
      * 指定 index の要素への const 参照を返す。
@@ -243,14 +243,14 @@ public:
      *
      * @return 要素配列の先頭 (空なら実装依存)。
      */
-    const T* Data() const noexcept { return m_Items.Data(); }
+    const T* GetData() const noexcept { return m_Items.GetData(); }
 
     /**
      * 内部配列先頭への可変ポインタを返す。
      *
      * @return 要素配列の先頭 (空なら実装依存)。
      */
-    T*       Data()       noexcept { return m_Items.Data(); }
+    T*       GetData()       noexcept { return m_Items.GetData(); }
 
     /**
      * 変更通知リスナを登録する。
@@ -263,12 +263,12 @@ public:
     FArrayObserverHandle Subscribe(Listener cb, void* user) noexcept {
         if (!cb) return kInvalidArrayObserver;
         u32 idx;
-        if (m_FreeIndices.Size() > 0) {
-            idx = m_FreeIndices[m_FreeIndices.Size() - 1];
-            m_FreeIndices.PopBack();
+        if (m_FreeIndices.Num() > 0) {
+            idx = m_FreeIndices[m_FreeIndices.Num() - 1];
+            m_FreeIndices.Pop();
         } else {
-            idx = static_cast<u32>(m_Slots.Size());
-            m_Slots.PushBack(FSlot{});
+            idx = static_cast<u32>(m_Slots.Num());
+            m_Slots.Add(FSlot{});
         }
         FSlot& s = m_Slots[idx];
         if (s.id == 0) s.id = m_NextId++;
@@ -290,17 +290,17 @@ public:
      */
     bool Unsubscribe(FArrayObserverHandle h) noexcept {
         if (!h.IsValid()) return false;
-        for (usize i = 0; i < m_Slots.Size(); ++i) {
+        for (usize i = 0; i < m_Slots.Num(); ++i) {
             FSlot& s = m_Slots[i];
             if (s.id == h.id && s.generation == h.generation && s.active) {
                 if (m_NotifyDepth > 0) {
                     s.active = false;
-                    m_PendingCancel.PushBack(static_cast<u32>(i));
+                    m_PendingCancel.Add(static_cast<u32>(i));
                 } else {
                     s.active = false;
                     s.cb     = nullptr;
                     s.user   = nullptr;
-                    m_FreeIndices.PushBack(static_cast<u32>(i));
+                    m_FreeIndices.Add(static_cast<u32>(i));
                 }
                 return true;
             }
@@ -315,7 +315,7 @@ public:
      */
     u32 SubscriberCount() const noexcept {
         u32 n = 0;
-        for (usize i = 0; i < m_Slots.Size(); ++i) if (m_Slots[i].active) ++n;
+        for (usize i = 0; i < m_Slots.Num(); ++i) if (m_Slots[i].active) ++n;
         return n;
     }
 
@@ -376,7 +376,7 @@ private:
      * 通知中の変更操作が行われていないかを検証する。
      *
      * @details
-     * リスナ (Notify) 実行中の PushBack/PopBack/Remove/RemoveAt/SetAt/Clear は、
+     * リスナ (Notify) 実行中の Add/Pop/Remove/RemoveAt/SetAt/Clear は、
      * 要素配列の再配置、通知の再入、通知対象の途中変更を招くためすべて禁止する。
      * Debug ビルドでは m_NotifyDepth==0 を assert する。assert を無効化した Release
      * ビルドでは検出されず変更処理が続くため、caller が契約を守らなければならない。
@@ -403,7 +403,7 @@ private:
     void Notify(EArrayChange kind, usize index, const T* value) noexcept {
         FNotifyFrame notify_frame(*this);
         ++m_NotifyDepth;
-        const usize n = m_Slots.Size();
+        const usize n = m_Slots.Num();
         for (usize i = 0; i < n; ++i) {
             FSlot& s = m_Slots[i];
             if (!s.active || !s.cb) continue;
@@ -413,17 +413,17 @@ private:
             if (!notify_frame.IsOwnerAlive()) return;
         }
         --m_NotifyDepth;
-        if (m_NotifyDepth == 0 && m_PendingCancel.Size() > 0) {
-            for (usize i = 0; i < m_PendingCancel.Size(); ++i) {
+        if (m_NotifyDepth == 0 && m_PendingCancel.Num() > 0) {
+            for (usize i = 0; i < m_PendingCancel.Num(); ++i) {
                 const u32 idx = m_PendingCancel[i];
-                if (idx < m_Slots.Size()) {
+                if (idx < m_Slots.Num()) {
                     FSlot& s = m_Slots[idx];
                     s.cb   = nullptr;
                     s.user = nullptr;
-                    m_FreeIndices.PushBack(idx);
+                    m_FreeIndices.Add(idx);
                 }
             }
-            m_PendingCancel.Clear();
+            m_PendingCancel.Reset();
         }
     }
 

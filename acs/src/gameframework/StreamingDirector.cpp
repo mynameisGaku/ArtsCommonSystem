@@ -58,7 +58,7 @@ void CStreamingDirector::SetChunkPathFormat(const char* fmt) noexcept {
 }
 
 CStreamingDirector::FChunkInfo* CStreamingDirector::Find(FChunkId id) noexcept {
-    const usize n = m_Chunks.Size();
+    const usize n = m_Chunks.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Chunks[i].id == id) return &m_Chunks[i];
     }
@@ -66,7 +66,7 @@ CStreamingDirector::FChunkInfo* CStreamingDirector::Find(FChunkId id) noexcept {
 }
 
 const CStreamingDirector::FChunkInfo* CStreamingDirector::Find(FChunkId id) const noexcept {
-    const usize n = m_Chunks.Size();
+    const usize n = m_Chunks.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Chunks[i].id == id) return &m_Chunks[i];
     }
@@ -99,9 +99,9 @@ void CStreamingDirector::EnqueueInRange() noexcept {
         for (i32 dx = -m_ViewRadius; dx <= m_ViewRadius; ++dx) {
             const FChunkId cid{v.cx + dx, v.cy + dy};
             if (Find(cid) != nullptr) continue;   // 既に管理下 (どの状態でも)
-            // FChunkInfo は move-only (FString / TUniquePtr 保有) のため EmplaceBack で
-            // その場構築し、戻り参照にフィールドを設定する (コピー PushBack は使えない)。
-            FChunkInfo& info = m_Chunks.EmplaceBack();
+            // FChunkInfo は move-only (FString / TUniquePtr 保有) のため Emplace で
+            // その場構築し、戻り参照にフィールドを設定する (コピー Add は使えない)。
+            FChunkInfo& info = m_Chunks.Emplace();
             info.id      = cid;
             info.state   = EChunkState::Queued;
             info.elapsed = 0.0f;
@@ -142,7 +142,7 @@ void CStreamingDirector::BeginChunkLoad(FChunkInfo& c) noexcept {
 void CStreamingDirector::PromoteQueuedToLoading() noexcept {
     // 現在 Loading 中のチャンクをカウント。
     u32 loading_now = 0;
-    const usize n = m_Chunks.Size();
+    const usize n = m_Chunks.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Chunks[i].state == EChunkState::Loading) ++loading_now;
     }
@@ -173,7 +173,7 @@ void CStreamingDirector::Tick(f32 dt) noexcept {
     // 2. Loading の進捗を進めて完了で Loaded へ、範囲外 Loaded は Unloading へ。
     //    走査中に EraseSwap せず、Unloaded フラグを別途立てて後で一括除去する
     //    (TArray のインデックス安定性を保つため)。
-    for (usize i = 0; i < m_Chunks.Size(); ++i) {
+    for (usize i = 0; i < m_Chunks.Num(); ++i) {
         FChunkInfo& c = m_Chunks[i];
         switch (c.state) {
         case EChunkState::Loading: {
@@ -226,7 +226,7 @@ void CStreamingDirector::Tick(f32 dt) noexcept {
     //    (順序は保たない = FChunkInfo は (cx,cy) で識別するので問題なし)。
     {
         usize i = 0;
-        while (i < m_Chunks.Size()) {
+        while (i < m_Chunks.Num()) {
             if (m_Chunks[i].state == EChunkState::Unloading) {
                 if (m_Chunks[i].bundle) m_Chunks[i].bundle->Unload();
                 m_Chunks.RemoveAtSwap(i);
@@ -248,7 +248,7 @@ EChunkState CStreamingDirector::GetState(FChunkId id) const noexcept {
 
 u32 CStreamingDirector::LoadedCount() const noexcept {
     u32 n = 0;
-    const usize sz = m_Chunks.Size();
+    const usize sz = m_Chunks.Num();
     for (usize i = 0; i < sz; ++i) {
         if (m_Chunks[i].state == EChunkState::Loaded) ++n;
     }
@@ -257,7 +257,7 @@ u32 CStreamingDirector::LoadedCount() const noexcept {
 
 u32 CStreamingDirector::LoadingCount() const noexcept {
     u32 n = 0;
-    const usize sz = m_Chunks.Size();
+    const usize sz = m_Chunks.Num();
     for (usize i = 0; i < sz; ++i) {
         if (m_Chunks[i].state == EChunkState::Loading) ++n;
     }
@@ -267,7 +267,7 @@ u32 CStreamingDirector::LoadingCount() const noexcept {
 void CStreamingDirector::ForceUnload(FChunkId id) noexcept {
     // swap-erase で即破棄。Loading 中だった場合も bundle.Unload で TSharedPtr を即 drop する
     // (CAssetBundle は同期ロードなので「進行中の async load」は存在しない)。
-    const usize n = m_Chunks.Size();
+    const usize n = m_Chunks.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Chunks[i].id == id) {
             if (m_Chunks[i].bundle) m_Chunks[i].bundle->Unload();
@@ -283,11 +283,11 @@ void CStreamingDirector::ClearAll() noexcept {
     // 全チャンクの bundle を Unload してから破棄する (Loaded/Loading 問わず TSharedPtr を drop)。
     // FChunkInfo のデストラクタ (TUniquePtr<CAssetBundle> drop) でも実体は解放されるが、
     // Unload を明示することで registry refcount を決定的タイミングで落とす。
-    const usize n = m_Chunks.Size();
+    const usize n = m_Chunks.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Chunks[i].bundle) m_Chunks[i].bundle->Unload();
     }
-    m_Chunks.Clear();
+    m_Chunks.Reset();
 }
 
 } // namespace acs::game

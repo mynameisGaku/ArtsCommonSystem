@@ -48,7 +48,7 @@ public:
         FCommand c{};
         c.kind = ECommandKind::Destroy;
         c.entity = e;
-        if (!m_Commands.TryPushBack(c)) {
+        if (!m_Commands.TryAdd(c)) {
             m_bOverflowed = true;
         }
     }
@@ -67,7 +67,7 @@ public:
         c.kind = ECommandKind::Remove;
         c.entity = e;
         c.apply = &ApplyRemove<T>;
-        if (!m_Commands.TryPushBack(c)) {
+        if (!m_Commands.TryAdd(c)) {
             m_bOverflowed = true;
         }
     }
@@ -88,7 +88,7 @@ public:
         c.entity = e;
         c.apply = &ApplyAdd<T>;
         if (!StoreValue(c, Move(value))) return;
-        if (!m_Commands.TryPushBack(c)) {
+        if (!m_Commands.TryAdd(c)) {
             DestroyStoredValue(c);
             m_bOverflowed = true;
         }
@@ -106,7 +106,7 @@ public:
         /** 追加する遅延コマンド。 */
         FCommand c{};
         c.kind = ECommandKind::Create;
-        if (!m_Commands.TryPushBack(c)) {
+        if (!m_Commands.TryAdd(c)) {
             m_bOverflowed = true;
         }
     }
@@ -127,7 +127,7 @@ public:
         c.kind = ECommandKind::Create;
         c.apply = &ApplyAdd<T>;
         if (!StoreValue(c, Move(value))) return;
-        if (!m_Commands.TryPushBack(c)) {
+        if (!m_Commands.TryAdd(c)) {
             DestroyStoredValue(c);
             m_bOverflowed = true;
         }
@@ -141,7 +141,7 @@ public:
     void Flush() noexcept
     {
         /** 適用するコマンド位置。 */
-        for (usize i = 0; i < m_Commands.Size(); ++i) {
+        for (usize i = 0; i < m_Commands.Num(); ++i) {
             /** 現在適用するコマンド。 */
             FCommand& c = m_Commands[i];
             switch (c.kind) {
@@ -167,7 +167,7 @@ public:
             }
             }
         }
-        m_Commands.Clear();
+        m_Commands.Reset();
     }
 
     /**
@@ -176,18 +176,18 @@ public:
     void Clear() noexcept
     {
         /** 破棄するコマンド位置。 */
-        for (usize i = 0; i < m_Commands.Size(); ++i) {
+        for (usize i = 0; i < m_Commands.Num(); ++i) {
             /** 現在破棄するコマンド。 */
             FCommand& c = m_Commands[i];
             DestroyStoredValue(c);
         }
-        m_Commands.Clear();
+        m_Commands.Reset();
     }
 
     /** 記録済み操作数を返す。 */
     usize Size() const noexcept
     {
-        return m_Commands.Size();
+        return m_Commands.Num();
     }
 
     /** 記録が空なら true。 */

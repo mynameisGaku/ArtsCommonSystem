@@ -88,14 +88,14 @@ public:
      *
      * @return インターリーブ済み PCM バイト列の先頭。
      */
-    const byte*  Samples()    const noexcept { return m_Samples.Data(); }
+    const byte*  Samples()    const noexcept { return m_Samples.GetData(); }
 
     /**
      * 生 PCM データのバイト数を返す。
      *
      * @return PCM バイト列のサイズ。
      */
-    usize        SampleByteCount() const noexcept { return m_Samples.Size(); }
+    usize        SampleByteCount() const noexcept { return m_Samples.Num(); }
 
     /**
      * 再生時間を秒で返す。

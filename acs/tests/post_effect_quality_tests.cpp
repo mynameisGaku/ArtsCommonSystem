@@ -2494,15 +2494,15 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         // RT3 proves the final normal after PBR normal mapping is exported.
         EXPECT_TRUE(pbr.HasSubsurfaceMrtPipeline());
         AMeshAsset triangle;
-        triangle.Vertices().PushBack(FMeshVertex{
+        triangle.Vertices().Add(FMeshVertex{
             FVec3{-0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 0, 1});
-        triangle.Vertices().PushBack(FMeshVertex{
+        triangle.Vertices().Add(FMeshVertex{
             FVec3{0.0f, 0.8f, 0.5f}, FVec3{0, 0, 1}, 0.5f, 0});
-        triangle.Vertices().PushBack(FMeshVertex{
+        triangle.Vertices().Add(FMeshVertex{
             FVec3{0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 1, 1});
-        triangle.Indices().PushBack(0);
-        triangle.Indices().PushBack(1);
-        triangle.Indices().PushBack(2);
+        triangle.Indices().Add(0);
+        triangle.Indices().Add(1);
+        triangle.Indices().Add(2);
         FGpuMesh gpu_triangle{};
         const auto mesh_result =
             UploadMesh(device, triangle, gpu_triangle);
@@ -3892,7 +3892,7 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
         "void CDx12Device::QueueRetiredResource(",
         "void CDx12Device::RetireResource(");
     EXPECT_TRUE(!queue.empty());
-    EXPECT_TRUE(queue.find("m_RetiredResources.TryPushBack") !=
+    EXPECT_TRUE(queue.find("m_RetiredResources.TryAdd") !=
                 std::string::npos);
     EXPECT_TRUE(queue.find("m_EmergencyRetiredResources[") !=
                 std::string::npos);

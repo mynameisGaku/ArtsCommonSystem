@@ -54,7 +54,7 @@ bool AllBytesEqual(const u8* Bytes, usize Size, u8 Expected) noexcept
 /** 再現可能な疑似乱数 payload を作る。 */
 void FillPayload(TArray<u8>& Bytes, usize Size, u32 Seed) noexcept
 {
-    if (!Bytes.TryResize(Size)) return;
+    if (!Bytes.TrySetNum(Size)) return;
     /** xorshift32 の現在状態。 */
     u32 State = Seed;
     /** payload を埋める添字。 */
@@ -72,10 +72,10 @@ bool WriteTwoRawFiles(const wchar_t* Path, const TArray<u8>& First, const TArray
     /** 検証 package の writer。 */
     assetpack::CAcpakWriter Writer;
     if (Writer.Open(Path, assetpack::AcpakFlagNone).IsErr()) return false;
-    if (Writer.AddFile(L"stream/first.bin", First.Data(), First.Size()).IsErr()) {
+    if (Writer.AddFile(L"stream/first.bin", First.GetData(), First.Num()).IsErr()) {
         return false;
     }
-    if (Writer.AddFile(L"stream/second.bin", Second.Data(), Second.Size()).IsErr()) {
+    if (Writer.AddFile(L"stream/second.bin", Second.GetData(), Second.Num()).IsErr()) {
         return false;
     }
     /** package finalize の成否。 */
@@ -161,8 +161,8 @@ void ReadCompressedAsset(void* User) noexcept
     Context.Ready->FetchAdd(1u);
     while (Context.Start->Load(EMemoryOrder::Acquire) == 0u) Yield();
     /** 圧縮 payload の read 結果。 */
-    const auto Result = Context.Reader->ReadFile(L"compressed/payload.bin", Context.Output->Data(), Context.Output->Size());
-    if (Result.IsErr() || !EqualBytes(Context.Output->Data(), Context.Expected->Data(), Context.Expected->Size())) {
+    const auto Result = Context.Reader->ReadFile(L"compressed/payload.bin", Context.Output->GetData(), Context.Output->Num());
+    if (Result.IsErr() || !EqualBytes(Context.Output->GetData(), Context.Expected->GetData(), Context.Expected->Num())) {
         Context.Failures->FetchAdd(1u);
     }
 }
@@ -391,7 +391,7 @@ ACS_TEST(FoundationOptimizationWaveK, InternerIsBoundedAndPinnedPathsSurviveRese
     /** eviction を防ぐ参照保持配列。 */
     TArray<TSharedPtr<FInternedAssetPath>> Pins;
     EXPECT_TRUE(Pins.TryReserve(kAssetPathInternerMaxEntries));
-    EXPECT_TRUE(Pins.TryPushBack(First));
+    EXPECT_TRUE(Pins.TryAdd(First));
     /** interner 上限まで異なる path を追加する添字。 */
     for (usize Index = 1u; Index < kAssetPathInternerMaxEntries; ++Index) {
         /** 現在追加する path の整形先。 */
@@ -404,7 +404,7 @@ ACS_TEST(FoundationOptimizationWaveK, InternerIsBoundedAndPinnedPathsSurviveRese
         auto Result = Interner.Intern(Path, static_cast<usize>(Length));
         EXPECT_TRUE(Result.IsOk());
         if (Result.IsErr()) return;
-        EXPECT_TRUE(Pins.TryPushBack(Result.Value()));
+        EXPECT_TRUE(Pins.TryAdd(Result.Value()));
     }
 
     /** 上限到達後に非保持で返す path の intern 結果。 */
@@ -557,10 +557,10 @@ ACS_TEST(FoundationOptimizationWaveK, MappedBatchKeepsAtomicSnapshotAndCrcCommit
     TArray<u8> NewSecond;
     FillPayload(OldFirst, 192u * 1024u, 0x12345678u);
     FillPayload(OldSecond, 128u * 1024u, 0x87654321u);
-    FillPayload(NewFirst, OldFirst.Size(), 0xCAFEBABEu);
-    FillPayload(NewSecond, OldSecond.Size(), 0x10203040u);
-    EXPECT_EQ(OldFirst.Size(), 192u * 1024u);
-    EXPECT_EQ(OldSecond.Size(), 128u * 1024u);
+    FillPayload(NewFirst, OldFirst.Num(), 0xCAFEBABEu);
+    FillPayload(NewSecond, OldSecond.Num(), 0x10203040u);
+    EXPECT_EQ(OldFirst.Num(), 192u * 1024u);
+    EXPECT_EQ(OldSecond.Num(), 128u * 1024u);
     EXPECT_TRUE(WriteTwoRawFiles(kPath, OldFirst, OldSecond));
 
     /** 置換前 snapshot を保持する reader。 */
@@ -573,22 +573,22 @@ ACS_TEST(FoundationOptimizationWaveK, MappedBatchKeepsAtomicSnapshotAndCrcCommit
     TArray<u8> FirstOut;
     /** 二番目 payload の読み戻し先。 */
     TArray<u8> SecondOut;
-    EXPECT_TRUE(FirstOut.TryResize(OldFirst.Size()));
-    EXPECT_TRUE(SecondOut.TryResize(OldSecond.Size()));
+    EXPECT_TRUE(FirstOut.TrySetNum(OldFirst.Num()));
+    EXPECT_TRUE(SecondOut.TrySetNum(OldSecond.Num()));
     /** batch で読む path 配列。 */
     const wchar_t* Paths[] = {L"stream/first.bin", L"stream/second.bin"};
     /** batch の出力先配列。 */
-    void* Buffers[] = {FirstOut.Data(), SecondOut.Data()};
+    void* Buffers[] = {FirstOut.GetData(), SecondOut.GetData()};
     /** batch の出力容量配列。 */
-    const u64 Sizes[] = {static_cast<u64>(FirstOut.Size()), static_cast<u64>(SecondOut.Size())};
+    const u64 Sizes[] = {static_cast<u64>(FirstOut.Num()), static_cast<u64>(SecondOut.Num())};
     /** batch が完了した先頭 request 数。 */
     u32 Completed = 99u;
     /** 置換前 snapshot からの batch read 結果。 */
     const auto BatchResult = OldReader.ReadFiles(Paths, Buffers, Sizes, 2u, &Completed);
     EXPECT_TRUE(BatchResult.IsOk());
     EXPECT_EQ(Completed, 2u);
-    EXPECT_TRUE(EqualBytes(FirstOut.Data(), OldFirst.Data(), OldFirst.Size()));
-    EXPECT_TRUE(EqualBytes(SecondOut.Data(), OldSecond.Data(), OldSecond.Size()));
+    EXPECT_TRUE(EqualBytes(FirstOut.GetData(), OldFirst.GetData(), OldFirst.Num()));
+    EXPECT_TRUE(EqualBytes(SecondOut.GetData(), OldSecond.GetData(), OldSecond.Num()));
 
     /** mapping batch 後の read 診断値。 */
     const assetpack::FAcpakReadDiagnostics BatchDiagnostics = OldReader.ReadDiagnostics();
@@ -600,49 +600,49 @@ ACS_TEST(FoundationOptimizationWaveK, MappedBatchKeepsAtomicSnapshotAndCrcCommit
     /** 置換後 snapshot を読む reader。 */
     assetpack::CAcpakReader NewReader;
     EXPECT_TRUE(NewReader.Open(kPath).IsOk());
-    EXPECT_TRUE(NewReader.ReadFile(L"stream/first.bin", FirstOut.Data(), FirstOut.Size()).IsOk());
-    EXPECT_TRUE(EqualBytes(FirstOut.Data(), NewFirst.Data(), NewFirst.Size()));
+    EXPECT_TRUE(NewReader.ReadFile(L"stream/first.bin", FirstOut.GetData(), FirstOut.Num()).IsOk());
+    EXPECT_TRUE(EqualBytes(FirstOut.GetData(), NewFirst.GetData(), NewFirst.Num()));
 
     // bridge も後続 UTF-8 エラーより先行 read を優先し、部分完了数を維持する。
     /** UTF-8 batch 変換を検証する bridge reader。 */
     assetpack::CAcpakGameReader BridgeReader;
     EXPECT_TRUE(BridgeReader.Mount("acs_wave_k_mapped.acpak").IsOk());
-    MemSet(FirstOut.Data(), 0xCCu, FirstOut.Size());
+    MemSet(FirstOut.GetData(), 0xCCu, FirstOut.Num());
     /** 二番目 request で拒否する不正 UTF-8。 */
     char InvalidUtf8[] = {static_cast<char>(0xFFu), '\0'};
     /** 変換失敗 request の未変更出力。 */
     u8 BridgeMissingOut = 0xCCu;
     /** 先行 read 後に UTF-8 変換失敗する request 群。 */
-    FAssetPackReadRequest BridgeRequests[] = {{"stream/first.bin", FirstOut.Data(), FirstOut.Size()}, {InvalidUtf8, &BridgeMissingOut, 1u}};
+    FAssetPackReadRequest BridgeRequests[] = {{"stream/first.bin", FirstOut.GetData(), FirstOut.Num()}, {InvalidUtf8, &BridgeMissingOut, 1u}};
     /** bridge が書き戻す成功済み request 数。 */
     u32 BridgeCompleted = 99u;
     /** bridge の部分完了 batch 結果。 */
     const auto BridgeResult = BridgeReader.ReadFiles(BridgeRequests, 2u, &BridgeCompleted);
     EXPECT_TRUE(BridgeResult.IsErr());
     EXPECT_EQ(BridgeCompleted, 1u);
-    EXPECT_TRUE(EqualBytes(FirstOut.Data(), NewFirst.Data(), NewFirst.Size()));
+    EXPECT_TRUE(EqualBytes(FirstOut.GetData(), NewFirst.GetData(), NewFirst.Num()));
     EXPECT_EQ(BridgeMissingOut, 0xCCu);
     BridgeReader.Unmount();
 
     // 後続失敗では先行出力だけ commit され、完了数が明示される。
-    MemSet(FirstOut.Data(), 0xCCu, FirstOut.Size());
-    MemSet(SecondOut.Data(), 0xCCu, SecondOut.Size());
+    MemSet(FirstOut.GetData(), 0xCCu, FirstOut.Num());
+    MemSet(SecondOut.GetData(), 0xCCu, SecondOut.Num());
     /** 見つからない request の未変更出力。 */
     u8 MissingOut = 0xCCu;
     /** 二番目が見つからない batch path 群。 */
     const wchar_t* PartialPaths[] = {L"stream/first.bin", L"missing.bin", L"stream/second.bin"};
     /** 部分失敗 batch の出力先群。 */
-    void* PartialBuffers[] = {FirstOut.Data(), &MissingOut, SecondOut.Data()};
+    void* PartialBuffers[] = {FirstOut.GetData(), &MissingOut, SecondOut.GetData()};
     /** 部分失敗 batch の出力容量群。 */
-    const u64 PartialSizes[] = {static_cast<u64>(FirstOut.Size()), 1u, static_cast<u64>(SecondOut.Size())};
+    const u64 PartialSizes[] = {static_cast<u64>(FirstOut.Num()), 1u, static_cast<u64>(SecondOut.Num())};
     Completed = 99u;
     /** 見つからない二番目 request を含む batch 結果。 */
     const auto PartialResult = NewReader.ReadFiles(PartialPaths, PartialBuffers, PartialSizes, 3u, &Completed);
     EXPECT_TRUE(PartialResult.IsErr());
     EXPECT_EQ(Completed, 1u);
-    EXPECT_TRUE(EqualBytes(FirstOut.Data(), NewFirst.Data(), NewFirst.Size()));
+    EXPECT_TRUE(EqualBytes(FirstOut.GetData(), NewFirst.GetData(), NewFirst.Num()));
     EXPECT_EQ(MissingOut, 0xCCu);
-    EXPECT_TRUE(AllBytesEqual(SecondOut.Data(), SecondOut.Size(), 0xCCu));
+    EXPECT_TRUE(AllBytesEqual(SecondOut.GetData(), SecondOut.Num(), 0xCCu));
 
     // Release 参考値: 同一 bytes/CRC workload で lock 境界だけを比較する。
     /** sequential と batch を比較する反復数。 */
@@ -651,8 +651,8 @@ ACS_TEST(FoundationOptimizationWaveK, MappedBatchKeepsAtomicSnapshotAndCrcCommit
     auto SequentialBegin = std::chrono::steady_clock::now();
     /** sequential read を繰り返す添字。 */
     for (u32 Index = 0u; Index < kMeasureIterations; ++Index) {
-        (void)NewReader.ReadFile(Paths[0], FirstOut.Data(), FirstOut.Size());
-        (void)NewReader.ReadFile(Paths[1], SecondOut.Data(), SecondOut.Size());
+        (void)NewReader.ReadFile(Paths[0], FirstOut.GetData(), FirstOut.Num());
+        (void)NewReader.ReadFile(Paths[1], SecondOut.GetData(), SecondOut.Num());
     }
     /** sequential 計測の終了時刻。 */
     auto SequentialEnd = std::chrono::steady_clock::now();
@@ -668,7 +668,7 @@ ACS_TEST(FoundationOptimizationWaveK, MappedBatchKeepsAtomicSnapshotAndCrcCommit
     const auto SequentialUs = std::chrono::duration_cast<std::chrono::microseconds>(SequentialEnd - SequentialBegin).count();
     /** batch read の経過 microsecond。 */
     const auto BatchUs = std::chrono::duration_cast<std::chrono::microseconds>(BatchEnd - BatchBegin).count();
-    std::printf("[WaveK] mapped-read iterations=%u sequential_us=%lld batch_us=%lld bytes_per_iteration=%zu\n", kMeasureIterations, static_cast<long long>(SequentialUs), static_cast<long long>(BatchUs), OldFirst.Size() + OldSecond.Size());
+    std::printf("[WaveK] mapped-read iterations=%u sequential_us=%lld batch_us=%lld bytes_per_iteration=%zu\n", kMeasureIterations, static_cast<long long>(SequentialUs), static_cast<long long>(BatchUs), OldFirst.Num() + OldSecond.Num());
 
     OldReader.Close();
     NewReader.Close();
@@ -687,19 +687,19 @@ ACS_TEST(FoundationOptimizationWaveK, MappedBatchKeepsAtomicSnapshotAndCrcCommit
     /** package 全体の読み込み結果。 */
     auto ArchiveResult = CFileSystem::ReadAllBytes(kPath);
     EXPECT_TRUE(ArchiveResult.IsOk());
-    if (ArchiveResult.IsOk() && DataOffset < ArchiveResult.Value().Size()) {
+    if (ArchiveResult.IsOk() && DataOffset < ArchiveResult.Value().Num()) {
         ArchiveResult.Value()[static_cast<usize>(DataOffset)] ^= 0x5Au;
-        EXPECT_TRUE(CFileSystem::WriteAllBytes(kPath, ArchiveResult.Value().Data(), ArchiveResult.Value().Size()).IsOk());
+        EXPECT_TRUE(CFileSystem::WriteAllBytes(kPath, ArchiveResult.Value().GetData(), ArchiveResult.Value().Num()).IsOk());
     }
 
     /** CRC 失敗時の transaction 出力を検証する reader。 */
     assetpack::CAcpakReader CorruptReader;
     EXPECT_TRUE(CorruptReader.Open(kPath).IsOk());
-    MemSet(FirstOut.Data(), 0xA5u, FirstOut.Size());
+    MemSet(FirstOut.GetData(), 0xA5u, FirstOut.Num());
     /** 破損 payload の read 結果。 */
-    const auto CorruptResult = CorruptReader.ReadFile(L"stream/first.bin", FirstOut.Data(), FirstOut.Size());
+    const auto CorruptResult = CorruptReader.ReadFile(L"stream/first.bin", FirstOut.GetData(), FirstOut.Num());
     EXPECT_TRUE(CorruptResult.IsErr());
-    EXPECT_TRUE(AllBytesEqual(FirstOut.Data(), FirstOut.Size(), 0xA5u));
+    EXPECT_TRUE(AllBytesEqual(FirstOut.GetData(), FirstOut.Num(), 0xA5u));
     CorruptReader.Close();
     (void)CFileSystem::Delete(kPath);
 }
@@ -715,12 +715,12 @@ ACS_TEST(FoundationOptimizationWaveK, CompressedScratchIsBoundedAndConcurrentSaf
     /** 圧縮して格納する検証 payload。 */
     TArray<u8> Payload;
     FillPayload(Payload, 2u * 1024u * 1024u, 0x31415926u);
-    EXPECT_EQ(Payload.Size(), 2u * 1024u * 1024u);
+    EXPECT_EQ(Payload.Num(), 2u * 1024u * 1024u);
 
     /** 圧縮 package の writer。 */
     assetpack::CAcpakWriter Writer;
     EXPECT_TRUE(Writer.Open(kPath, assetpack::AcpakFlagCompressed).IsOk());
-    EXPECT_TRUE(Writer.AddFile(L"compressed/payload.bin", Payload.Data(), Payload.Size()).IsOk());
+    EXPECT_TRUE(Writer.AddFile(L"compressed/payload.bin", Payload.GetData(), Payload.Num()).IsOk());
     EXPECT_TRUE(Writer.Finalize().IsOk());
     Writer.Close();
 
@@ -729,9 +729,9 @@ ACS_TEST(FoundationOptimizationWaveK, CompressedScratchIsBoundedAndConcurrentSaf
     EXPECT_TRUE(Reader.Open(kPath).IsOk());
     /** 保持 scratch を warmup する出力先。 */
     TArray<u8> WarmOutput;
-    EXPECT_TRUE(WarmOutput.TryResize(Payload.Size()));
-    EXPECT_TRUE(Reader.ReadFile(L"compressed/payload.bin", WarmOutput.Data(), WarmOutput.Size()).IsOk());
-    EXPECT_TRUE(EqualBytes(WarmOutput.Data(), Payload.Data(), Payload.Size()));
+    EXPECT_TRUE(WarmOutput.TrySetNum(Payload.Num()));
+    EXPECT_TRUE(Reader.ReadFile(L"compressed/payload.bin", WarmOutput.GetData(), WarmOutput.Num()).IsOk());
+    EXPECT_TRUE(EqualBytes(WarmOutput.GetData(), Payload.GetData(), Payload.Num()));
 
     Reader.ResetReadDiagnostics();
     /** 各 worker 固有の出力配列。 */
@@ -750,7 +750,7 @@ ACS_TEST(FoundationOptimizationWaveK, CompressedScratchIsBoundedAndConcurrentSaf
     u32 StartedWorkers = 0u;
     /** worker を構築する添字。 */
     for (u32 Index = 0u; Index < kWorkerCount; ++Index) {
-        EXPECT_TRUE(Outputs[Index].TryResize(Payload.Size()));
+        EXPECT_TRUE(Outputs[Index].TrySetNum(Payload.Num()));
         Contexts[Index].Reader = &Reader;
         Contexts[Index].Expected = &Payload;
         Contexts[Index].Output = &Outputs[Index];

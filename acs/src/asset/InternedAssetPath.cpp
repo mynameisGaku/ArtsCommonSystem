@@ -11,7 +11,7 @@ FInternedAssetPath::FInternedAssetPath(IAllocator& Allocator, FAssetId Id) noexc
 bool FInternedAssetPath::TryInitialize(const wchar_t* Path, usize Length) noexcept
 {
     if (Path == nullptr || !m_Units.IsEmpty()) return false;
-    if (!m_Units.TryResize(Length + 1u)) return false;
+    if (!m_Units.TrySetNum(Length + 1u)) return false;
     /** 所有配列へ複写する path の添字。 */
     for (usize Index = 0u; Index < Length; ++Index) {
         m_Units[Index] = Path[Index];
@@ -22,12 +22,12 @@ bool FInternedAssetPath::TryInitialize(const wchar_t* Path, usize Length) noexce
 
 const wchar_t* FInternedAssetPath::Path() const noexcept
 {
-    return m_Units.IsEmpty() ? L"" : m_Units.Data();
+    return m_Units.IsEmpty() ? L"" : m_Units.GetData();
 }
 
 usize FInternedAssetPath::Length() const noexcept
 {
-    return m_Units.IsEmpty() ? 0u : m_Units.Size() - 1u;
+    return m_Units.IsEmpty() ? 0u : m_Units.Num() - 1u;
 }
 
 FAssetId FInternedAssetPath::Id() const noexcept

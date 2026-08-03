@@ -101,8 +101,8 @@ void BenchArray() noexcept
     {
         // 確保経路計測用の trivial 配列。
         TArray<u32> Values(Allocator);
-        for (usize Index = 0u; Index < kCount; ++Index) Values.PushBack(static_cast<u32>(Index));
-        g_Sink += Values.Back();
+        for (usize Index = 0u; Index < kCount; ++Index) Values.Add(static_cast<u32>(Index));
+        g_Sink += Values.Last();
     }
 
     // 時間計測の開始時刻。
@@ -110,8 +110,8 @@ void BenchArray() noexcept
     for (usize Repeat = 0u; Repeat < kRepeats; ++Repeat) {
         // 現在反復で成長させる配列。
         TArray<u32> Values;
-        for (usize Index = 0u; Index < kCount; ++Index) Values.PushBack(static_cast<u32>(Index));
-        g_Sink += Values.Back();
+        for (usize Index = 0u; Index < kCount; ++Index) Values.Add(static_cast<u32>(Index));
+        g_Sink += Values.Last();
     }
     // 反復全体の経過時間。
     const u64 Elapsed = NowNs() - Started;
@@ -126,7 +126,7 @@ void BenchHashMap() noexcept
     CCountingAllocator Allocator;
     // 更新と検索の対象 map。
     THashMap<u64, u64, FCountingU64Hasher> Values(Allocator);
-    for (u64 Index = 0u; Index < 12u; ++Index) Values.Insert(Index, Index);
+    for (u64 Index = 0u; Index < 12u; ++Index) Values.Add(Index, Index);
 
     // 更新前の確保回数。
     const u64 AllocBefore = Allocator.AllocCalls;
@@ -142,12 +142,12 @@ void BenchHashMap() noexcept
     // u64 検索の経過時間。
     const u64 Elapsed = NowNs() - Started;
 
-    Values.Insert(0u, 99u);
+    Values.Add(0u, 99u);
     std::printf("T02 hashmap_find ns=%llu update_alloc=%llu update_hash=%llu\n", static_cast<unsigned long long>(Elapsed), static_cast<unsigned long long>(Allocator.AllocCalls - AllocBefore), static_cast<unsigned long long>(FCountingU64Hasher::CallCount - HashBefore - 1000000u));
 
     // heterogeneous 検索対象の文字列 map。
     THashMap<FString, u64, FStringHasher> StringValues;
-    StringValues.Insert(FString("foundation.optimization.stable-key"), 37u);
+    StringValues.Add(FString("foundation.optimization.stable-key"), 37u);
     // 毎回 hash 化する動的キー。
     const FStringView DynamicKey("foundation.optimization.stable-key");
     // コンパイル時に hash を固定した安定キー。

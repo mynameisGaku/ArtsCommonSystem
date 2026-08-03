@@ -74,8 +74,8 @@ FFace MakeFace(const FVec3* p, u32 a, u32 b, u32 c, FVec3 centroid) noexcept {
 TResult<void> BuildConvexHull3(const FVec3* points, u32 count,
                                TArray<FVec3>& out_verts,
                                TArray<u32>& out_indices) noexcept {
-    out_verts.Clear();
-    out_indices.Clear();
+    out_verts.Reset();
+    out_indices.Reset();
     if (!points || count < 4) {
         return ACS_ERR(Generic, kSubHullTooFew, "BuildConvexHull3: need >= 4 points");
     }
@@ -113,13 +113,13 @@ TResult<void> BuildConvexHull3(const FVec3* points, u32 count,
     const FVec3 centroid = (points[i0] + points[i1] + points[i2] + points[i3]) * 0.25f;
 
     TArray<FFace> faces;
-    faces.PushBack(MakeFace(points, i0, i1, i2, centroid));
-    faces.PushBack(MakeFace(points, i0, i1, i3, centroid));
-    faces.PushBack(MakeFace(points, i0, i2, i3, centroid));
-    faces.PushBack(MakeFace(points, i1, i2, i3, centroid));
+    faces.Add(MakeFace(points, i0, i1, i2, centroid));
+    faces.Add(MakeFace(points, i0, i1, i3, centroid));
+    faces.Add(MakeFace(points, i0, i2, i3, centroid));
+    faces.Add(MakeFace(points, i1, i2, i3, centroid));
 
     TArray<u8> processed;
-    processed.Resize(count);
+    processed.SetNum(count);
     for (u32 i = 0; i < count; ++i) processed[i] = 0;
     processed[i0] = processed[i1] = processed[i2] = processed[i3] = 1;
 
@@ -134,15 +134,15 @@ TResult<void> BuildConvexHull3(const FVec3* points, u32 count,
         const FVec3 P = points[k];
 
         bool any_visible = false;
-        for (u32 f = 0; f < faces.Size(); ++f) {
+        for (u32 f = 0; f < faces.Num(); ++f) {
             faces[f].visible = (Dot(faces[f].n, P) > faces[f].d + eps);
             any_visible = any_visible || faces[f].visible;
         }
         if (!any_visible) continue;   // 内部または面上 → スキップ
 
         // 地平線エッジ: 可視面の辺のうち、反対側の面が非可視 (or 無し) なもの。
-        horizon.Clear();
-        for (u32 f = 0; f < faces.Size(); ++f) {
+        horizon.Reset();
+        for (u32 f = 0; f < faces.Num(); ++f) {
             if (!faces[f].visible) continue;
             const u32 vs[3] = { faces[f].a, faces[f].b, faces[f].c };
             for (int e = 0; e < 3; ++e) {
@@ -151,7 +151,7 @@ TResult<void> BuildConvexHull3(const FVec3* points, u32 count,
                 // 反対向き辺 (eb,ea) を持つ面を探す
                 bool neighbor_visible = false;
                 bool found = false;
-                for (u32 g = 0; g < faces.Size(); ++g) {
+                for (u32 g = 0; g < faces.Num(); ++g) {
                     if (g == f) continue;
                     const u32 gv[3] = { faces[g].a, faces[g].b, faces[g].c };
                     for (int ge = 0; ge < 3; ++ge) {
@@ -161,37 +161,37 @@ TResult<void> BuildConvexHull3(const FVec3* points, u32 count,
                     }
                     if (found) break;
                 }
-                if (!found || !neighbor_visible) horizon.PushBack(FEdge{ ea, eb });
+                if (!found || !neighbor_visible) horizon.Add(FEdge{ ea, eb });
             }
         }
 
         // 可視面を除去 (非可視を前方に詰める)
         u32 w = 0;
-        for (u32 f = 0; f < faces.Size(); ++f) {
+        for (u32 f = 0; f < faces.Num(); ++f) {
             if (!faces[f].visible) { faces[w++] = faces[f]; }
         }
-        while (faces.Size() > w) faces.PopBack();
+        while (faces.Num() > w) faces.Pop();
 
         // 地平線エッジ + P で新面を張る
-        for (u32 h = 0; h < horizon.Size(); ++h) {
-            faces.PushBack(MakeFace(points, horizon[h].a, horizon[h].b, k, centroid));
+        for (u32 h = 0; h < horizon.Num(); ++h) {
+            faces.Add(MakeFace(points, horizon[h].a, horizon[h].b, k, centroid));
         }
         processed[k] = 1;
     }
 
     // 使用頂点を集めて remap → out_verts / out_indices
     TArray<i32> remap;
-    remap.Resize(count);
+    remap.SetNum(count);
     for (u32 i = 0; i < count; ++i) remap[i] = -1;
-    for (u32 f = 0; f < faces.Size(); ++f) {
+    for (u32 f = 0; f < faces.Num(); ++f) {
         const u32 idx[3] = { faces[f].a, faces[f].b, faces[f].c };
         for (int e = 0; e < 3; ++e) {
             const u32 v = idx[e];
             if (remap[v] < 0) {
-                remap[v] = static_cast<i32>(out_verts.Size());
-                out_verts.PushBack(points[v]);
+                remap[v] = static_cast<i32>(out_verts.Num());
+                out_verts.Add(points[v]);
             }
-            out_indices.PushBack(static_cast<u32>(remap[v]));
+            out_indices.Add(static_cast<u32>(remap[v]));
         }
     }
     return Ok();

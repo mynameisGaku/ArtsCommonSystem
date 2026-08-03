@@ -82,7 +82,7 @@ CAcpakGameReader::~CAcpakGameReader() noexcept
 TResult<void> CAcpakGameReader::BuildFileNamePool() noexcept
 {
     const u32 FileCount = m_Reader.FileCount();
-    if (!m_Utf8NameOffsets.TryResize(FileCount)) {
+    if (!m_Utf8NameOffsets.TrySetNum(FileCount)) {
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakGameReader: file name offset allocation failed");
     }
 
@@ -105,13 +105,13 @@ TResult<void> CAcpakGameReader::BuildFileNamePool() noexcept
         TotalBytes += RequiredBytes;
     }
 
-    if (!m_Utf8NamePool.TryResize(TotalBytes)) {
+    if (!m_Utf8NamePool.TrySetNum(TotalBytes)) {
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakGameReader: file name pool allocation failed");
     }
 
     for (u32 Index = 0; Index < FileCount; ++Index) {
         const FAcpakFileEntry* Entry = m_Reader.GetEntry(Index);
-        char* Destination = m_Utf8NamePool.Data() + m_Utf8NameOffsets[Index];
+        char* Destination = m_Utf8NamePool.GetData() + m_Utf8NameOffsets[Index];
         const usize AvailableBytes = TotalBytes - m_Utf8NameOffsets[Index];
         if (Entry == nullptr) {
             return ACS_ERR(IO, kAcpakSubBadSize, "CAcpakGameReader: invalid file name pool layout");
@@ -129,8 +129,8 @@ TResult<void> CAcpakGameReader::BuildFileNamePool() noexcept
 
 void CAcpakGameReader::ReleaseFileNamePool() noexcept
 {
-    m_Utf8NameOffsets.ReleaseStorage();
-    m_Utf8NamePool.ReleaseStorage();
+    m_Utf8NameOffsets.Empty();
+    m_Utf8NamePool.Empty();
 }
 
 TResult<void> CAcpakGameReader::Mount(const char* PackPath) noexcept
@@ -188,10 +188,10 @@ TResult<const char*> CAcpakGameReader::FileName(u32 Index) noexcept
         return TResult<const char*>(
             ACS_ERR(IO, game::kSubAssetPackNotMounted, "CAcpakGameReader::FileName before Mount"));
     }
-    if (static_cast<usize>(Index) >= m_Utf8NameOffsets.Size()) {
+    if (static_cast<usize>(Index) >= m_Utf8NameOffsets.Num()) {
         return TResult<const char*>(ACS_ERR(IO, kAcpakSubNotFound, "CAcpakGameReader::FileName index not found"));
     }
-    return TResult<const char*>(OkInit, m_Utf8NamePool.Data() + m_Utf8NameOffsets[Index]);
+    return TResult<const char*>(OkInit, m_Utf8NamePool.GetData() + m_Utf8NameOffsets[Index]);
 }
 
 TResult<u64> CAcpakGameReader::FileSize(const char* Name) noexcept
@@ -242,7 +242,7 @@ TResult<void> CAcpakGameReader::ReadFiles(const game::FAssetPackReadRequest* Req
     TArray<u64> BufferSizes(Allocator);
     /** 各 path の末尾 NUL を含む UTF-16 要素数。 */
     TArray<u32> RequiredUnits(Allocator);
-    if (!WideNames.TryResize(Count) || !OutBuffers.TryResize(Count) || !BufferSizes.TryResize(Count) || !RequiredUnits.TryResize(Count)) {
+    if (!WideNames.TrySetNum(Count) || !OutBuffers.TrySetNum(Count) || !BufferSizes.TrySetNum(Count) || !RequiredUnits.TrySetNum(Count)) {
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakGameReader::ReadFiles: allocation failed");
     }
 
@@ -270,7 +270,7 @@ TResult<void> CAcpakGameReader::ReadFiles(const game::FAssetPackReadRequest* Req
         BufferSizes[Index] = Requests[Index].BufferSize;
         ++PreparedCount;
     }
-    if (!WideNamePool.TryResize(PathUnits)) {
+    if (!WideNamePool.TrySetNum(PathUnits)) {
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakGameReader::ReadFiles: path pool allocation failed");
     }
 
@@ -281,7 +281,7 @@ TResult<void> CAcpakGameReader::ReadFiles(const game::FAssetPackReadRequest* Req
     /** 準備済み path を変換する添字。 */
     for (u32 Index = 0u; Index < PreparedCount; ++Index) {
         /** 現在 path の UTF-16 変換先。 */
-        wchar_t* const WideName = WideNamePool.Data() + PathOffset;
+        wchar_t* const WideName = WideNamePool.GetData() + PathOffset;
         /** 現在 path で実際に変換した要素数。 */
         const int Written = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, Requests[Index].Name, -1, WideName, static_cast<int>(RequiredUnits[Index]));
         if (Written != static_cast<int>(RequiredUnits[Index])) {
@@ -300,7 +300,7 @@ TResult<void> CAcpakGameReader::ReadFiles(const game::FAssetPackReadRequest* Req
     /** reader が成功済み要素数を書き戻す先。 */
     u32* const ActualCompletedCount = CompletedCount != nullptr ? CompletedCount : &IgnoredCompletedCount;
     /** 変換済み要求の一括 read 結果。 */
-    const auto Result = m_Reader.ReadFiles(WideNames.Data(), OutBuffers.Data(), BufferSizes.Data(), ConvertedCount, ActualCompletedCount);
+    const auto Result = m_Reader.ReadFiles(WideNames.GetData(), OutBuffers.GetData(), BufferSizes.GetData(), ConvertedCount, ActualCompletedCount);
     if (Result.IsErr()) return Result.Error();
     if (!DeferredError.IsOk()) return DeferredError;
     return Ok();

@@ -118,12 +118,12 @@ bool TryPosixAtomicReplace(
 }
 
 bool AppendBytes(TArray<char>& out, const char* data, usize length) noexcept {
-    const usize old_size = out.Size();
+    const usize old_size = out.Num();
     if (length > std::numeric_limits<usize>::max() - old_size ||
-        !out.TryResize(old_size + length)) {
+        !out.TrySetNum(old_size + length)) {
         return false;
     }
-    if (length > 0u) std::memcpy(out.Data() + old_size, data, length);
+    if (length > 0u) std::memcpy(out.GetData() + old_size, data, length);
     return true;
 }
 
@@ -226,7 +226,7 @@ static bool StrEqual(const char* a, const char* b) noexcept {
 void CEditorWorkspace::Init() noexcept {
     // 完全リセット: 登録 panel list を空に、参照 / フラグを default に。
     // 容量は保持 (Clear は size=0 にするだけ、capacity はそのまま)。
-    m_Panels.Clear();
+    m_Panels.Reset();
 
     m_SelectionService          = nullptr;
 
@@ -239,14 +239,14 @@ void CEditorWorkspace::Init() noexcept {
 void CEditorWorkspace::Shutdown() noexcept {
     // 登録済み panel に OnShutdown を呼び、list を空にする。
     // 呼び出し順は登録順 (= Init / Tick と同じ順序で逆順にしない)。
-    const usize n = m_Panels.Size();
+    const usize n = m_Panels.Num();
     for (usize i = 0; i < n; ++i) {
         AEditorPanel* p = m_Panels[i];
         if (p != nullptr) {
             p->OnShutdown();
         }
     }
-    m_Panels.Clear();
+    m_Panels.Reset();
 
     m_SelectionService = nullptr;
     // フラグ類は意図的にリセットしない (= Shutdown 後に再 Init で同じ host 設定を
@@ -266,13 +266,13 @@ void CEditorWorkspace::RegisterPanel(AEditorPanel* panel) noexcept {
         return;
     }
     // 上限到達 silent no-op (kMaxPanels はあくまで安全弁)。
-    if (m_Panels.Size() >= static_cast<usize>(kMaxPanels)) {
+    if (m_Panels.Num() >= static_cast<usize>(kMaxPanels)) {
         ACS_LOG_WARN("CEditorWorkspace::RegisterPanel: panel limit %u reached, ignoring '%s'",
                      static_cast<unsigned>(kMaxPanels),
                      panel->Title());
         return;
     }
-    m_Panels.PushBack(panel);
+    m_Panels.Add(panel);
     // OnInit はリスト登録 **後** に呼ぶ。これにより OnInit 内から
     // `Workspace()->PanelCount()` 等を呼んだ場合に自身も数に含まれる
     // (= 自己参照アクセスが破綻しない)。
@@ -293,27 +293,27 @@ void CEditorWorkspace::UnregisterPanel(AEditorPanel* panel) noexcept {
     // 順序保存削除 (shift)。RemoveAtSwap は使わない (= UI 表示順を保ちたい)。
     // TArray に Erase API が無いため手書きシフト (= AParticleEditorPanel と同形)。
     const usize sel = static_cast<usize>(idx);
-    for (usize i = sel + 1; i < m_Panels.Size(); ++i) {
+    for (usize i = sel + 1; i < m_Panels.Num(); ++i) {
         m_Panels[i - 1] = m_Panels[i];
     }
-    m_Panels.PopBack();
+    m_Panels.Pop();
 }
 
 /** 現在の登録 panel 数を返す。 */
 u32 CEditorWorkspace::PanelCount() const noexcept {
-    return static_cast<u32>(m_Panels.Size());
+    return static_cast<u32>(m_Panels.Num());
 }
 
 /** index 番目の panel を返す (範囲外は nullptr)。 */
 AEditorPanel* CEditorWorkspace::GetPanelByIndex(u32 i) const noexcept {
-    if (i >= static_cast<u32>(m_Panels.Size())) return nullptr;
+    if (i >= static_cast<u32>(m_Panels.Num())) return nullptr;
     return m_Panels[static_cast<usize>(i)];
 }
 
 /** Title が strcmp 一致する panel を返す (なければ nullptr)。 */
 AEditorPanel* CEditorWorkspace::FindPanelByTitle(const char* title) const noexcept {
     if (title == nullptr) return nullptr;
-    const usize n = m_Panels.Size();
+    const usize n = m_Panels.Num();
     for (usize i = 0; i < n; ++i) {
         AEditorPanel* p = m_Panels[i];
         if (p == nullptr) continue;
@@ -337,7 +337,7 @@ void CEditorWorkspace::TickAllPanels(f32 dt) noexcept {
     //    polling, animation timer 等) を進める可能性があるため、visibility を
     //    問わず全 panel に呼ぶ。
     {
-        const usize n = m_Panels.Size();
+        const usize n = m_Panels.Num();
         for (usize i = 0; i < n; ++i) {
             AEditorPanel* p = m_Panels[i];
             if (p != nullptr) {
@@ -361,7 +361,7 @@ void CEditorWorkspace::TickAllPanels(f32 dt) noexcept {
     // 4) DrawUI: 各 panel に描画させる。visibility / ImGui::Begin / End は
     //    派生 panel 側の責務 (本 workspace は呼び出すだけ)。
     {
-        const usize n = m_Panels.Size();
+        const usize n = m_Panels.Num();
         for (usize i = 0; i < n; ++i) {
             AEditorPanel* p = m_Panels[i];
             if (p != nullptr) {
@@ -401,7 +401,7 @@ void CEditorWorkspace::DrawMenuBar() noexcept {
 
     // Window メニュー (panel toggle)
     if (ImGui::BeginMenu("Window")) {
-        const usize n = m_Panels.Size();
+        const usize n = m_Panels.Num();
         if (n == 0) {
             ImGui::TextDisabled("(no panels registered)");
         } else {
@@ -751,19 +751,19 @@ FEditorWorkspacePersistenceResult CEditorWorkspace::TryLoadLayout(
         return result;
     }
     TArray<char> text;
-    if (!text.TryResize(static_cast<usize>(size.QuadPart))) {
+    if (!text.TrySetNum(static_cast<usize>(size.QuadPart))) {
         (void)::CloseHandle(file);
         result.error = EEditorWorkspacePersistenceError::AllocationFailure;
         return result;
     }
     usize total = 0u;
-    while (total < text.Size()) {
-        const usize remaining = text.Size() - total;
+    while (total < text.Num()) {
+        const usize remaining = text.Num() - total;
         const DWORD chunk = static_cast<DWORD>(
             remaining > 0x7ffff000u ? 0x7ffff000u : remaining);
         DWORD bytes_read = 0u;
         if (!::ReadFile(
-                file, text.Data() + total, chunk, &bytes_read, nullptr) ||
+                file, text.GetData() + total, chunk, &bytes_read, nullptr) ||
             bytes_read == 0u) {
             result.os_error = ::GetLastError();
             (void)::CloseHandle(file);
@@ -807,7 +807,7 @@ FEditorWorkspacePersistenceResult CEditorWorkspace::TryLoadLayout(
         return result;
     }
     result = TryParseLayoutText(
-        text.IsEmpty() ? "" : text.Data(), text.Size());
+        text.IsEmpty() ? "" : text.GetData(), text.Num());
     result.bytes_processed = static_cast<u64>(total);
     return result;
 }
@@ -840,7 +840,7 @@ FEditorWorkspacePersistenceResult CEditorWorkspace::TrySaveLayout(
         result.error = EEditorWorkspacePersistenceError::EmbeddedNul;
         return result;
     }
-    const usize panel_count = m_Panels.Size();
+    const usize panel_count = m_Panels.Num();
     if (panel_count > kMaxPanels) {
         result.error = EEditorWorkspacePersistenceError::TooManyPanels;
         return result;
@@ -903,7 +903,7 @@ FEditorWorkspacePersistenceResult CEditorWorkspace::TrySaveLayout(
             return result;
         }
     }
-    if (output.Size() > kMaxLayoutBytes) {
+    if (output.Num() > kMaxLayoutBytes) {
         result.error = EEditorWorkspacePersistenceError::InputTooLarge;
         return result;
     }
@@ -933,13 +933,13 @@ FEditorWorkspacePersistenceResult CEditorWorkspace::TrySaveLayout(
         return result;
     }
     usize total = 0u;
-    while (total < output.Size()) {
-        const usize remaining = output.Size() - total;
+    while (total < output.Num()) {
+        const usize remaining = output.Num() - total;
         const DWORD chunk = static_cast<DWORD>(
             remaining > 0x7ffff000u ? 0x7ffff000u : remaining);
         DWORD written = 0u;
         if (!::WriteFile(
-                temp, output.Data() + total, chunk, &written, nullptr) ||
+                temp, output.GetData() + total, chunk, &written, nullptr) ||
             written == 0u) {
             result.os_error = ::GetLastError();
             (void)::CloseHandle(temp);
@@ -1022,7 +1022,7 @@ void CEditorWorkspace::BroadcastSelectionChanged() noexcept {
         // 未注入時は呼べない。silent no-op (= editor 起動初期化中の呼出しも安全)。
         return;
     }
-    const usize n = m_Panels.Size();
+    const usize n = m_Panels.Num();
     for (usize i = 0; i < n; ++i) {
         AEditorPanel* p = m_Panels[i];
         if (p != nullptr) {
@@ -1035,7 +1035,7 @@ void CEditorWorkspace::BroadcastSelectionChanged() noexcept {
 void CEditorWorkspace::BroadcastAssetSelected(const char* asset_path) noexcept {
     // asset_path == nullptr は「選択解除」として panel に伝播する規約
     // (AEditorPanel.h の OnAssetSelected コメント参照)。null チェックはしない。
-    const usize n = m_Panels.Size();
+    const usize n = m_Panels.Num();
     for (usize i = 0; i < n; ++i) {
         AEditorPanel* p = m_Panels[i];
         if (p != nullptr) {
@@ -1047,7 +1047,7 @@ void CEditorWorkspace::BroadcastAssetSelected(const char* asset_path) noexcept {
 /** panel をポインタ完全一致で探索する (未ヒットは kInvalidIndex)。 */
 i32 CEditorWorkspace::FindPanelIndex(const AEditorPanel* panel) const noexcept {
     if (panel == nullptr) return kInvalidIndex;
-    const usize n = m_Panels.Size();
+    const usize n = m_Panels.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Panels[i] == panel) {
             return static_cast<i32>(i);

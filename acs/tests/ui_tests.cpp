@@ -115,10 +115,10 @@ void FocusUiRoot(CUiInput& input, AWidget& root) noexcept {
 
 class CUiMutableCallbackRoot final : public AContainer {
 public:
-    void RemoveAllChildren() noexcept { m_Children.Clear(); }
+    void RemoveAllChildren() noexcept { m_Children.Reset(); }
 
     void RemoveFirstChild() noexcept {
-        if (m_Children.Size() > 0) m_Children.RemoveAt(0);
+        if (m_Children.Num() > 0) m_Children.RemoveAt(0);
     }
 };
 
@@ -1012,7 +1012,7 @@ ACS_TEST(Ui, UiInputDropsRemovedChildIdentity) {
 
     class CUiMutableInputRoot final : public AContainer {
     public:
-        void RemoveAllChildren() noexcept { m_Children.Clear(); }
+        void RemoveAllChildren() noexcept { m_Children.Reset(); }
         void OnKey(i32, bool) noexcept override { ++KeyCalls; }
         i32 KeyCalls = 0;
     };

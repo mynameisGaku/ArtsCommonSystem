@@ -32,7 +32,7 @@ void ApplyPresetRebuilds(CHelloIblApp& app) noexcept {
         BuildStudioHdrEquirect(app.m_EquirectRgba);
         auto r = app.m_Ibl.LoadEquirectHdrFromMemory(
             *dev, *cl,
-            app.m_EquirectRgba.Data(),
+            app.m_EquirectRgba.GetData(),
             kEquirectWidth, kEquirectHeight);
         if (r.IsErr()) ACS_LOG_ERROR("HelloIbl: LoadEquirectHdr failed");
         app.m_bNeedStudioHdr = false;
@@ -49,7 +49,7 @@ void ApplyPresetRebuilds(CHelloIblApp& app) noexcept {
         app.m_EquirectRgba = Move(baked);
         auto r = app.m_Ibl.LoadEquirectHdrFromMemory(
             *dev, *cl,
-            app.m_EquirectRgba.Data(),
+            app.m_EquirectRgba.GetData(),
             kEquirectWidth, kEquirectHeight);
         if (r.IsErr()) ACS_LOG_ERROR("HelloIbl: CAtmosphere bake failed");
         app.m_bNeedAtmosphere = false;

@@ -123,18 +123,18 @@ u32 ANode::SubtreeHeight() const noexcept {
     };
 
     TArray<FDepthEntry> stack;
-    stack.PushBack(FDepthEntry{this, 0u});
+    stack.Add(FDepthEntry{this, 0u});
     u32 max_depth = 0u;
     while (!stack.IsEmpty()) {
-        const FDepthEntry entry = stack.Back();
-        stack.PopBack();
+        const FDepthEntry entry = stack.Last();
+        stack.Pop();
         if (entry.node == nullptr) continue;
         if (entry.depth > max_depth) max_depth = entry.depth;
         // 上限超過を判定する用途なので、それ以上の全走査は不要。
         if (max_depth > kNodeMaxTreeDepth) return max_depth;
-        for (u32 i = 0; i < entry.node->m_Children.Size(); ++i) {
+        for (u32 i = 0; i < entry.node->m_Children.Num(); ++i) {
             const ANode* child = entry.node->m_Children[i].Get();
-            if (child != nullptr) stack.PushBack(FDepthEntry{child, entry.depth + 1u});
+            if (child != nullptr) stack.Add(FDepthEntry{child, entry.depth + 1u});
         }
     }
     return max_depth;
@@ -157,8 +157,8 @@ EAddChildResult ANode::TryAddChild(TObjectPtr<ANode>& child) noexcept {
     }
 
     child->m_Parent = this;
-    m_Children.PushBack(Move(child));
-    ANode& ref = *m_Children.Back();
+    m_Children.Add(Move(child));
+    ANode& ref = *m_Children.Last();
     if (!ref.m_Spawned) {
         ref.m_Spawned = true;
         ref.OnSpawn();
@@ -193,10 +193,10 @@ void ANode::_ActivateServices(CSceneServices& svc) noexcept {
 
 /** subtree を DFS し各コンポーネントの OnAttachServices をガード付きで発火する。 */
 void ANode::_ActivateSubtreeServices(CSceneServices* svc) noexcept {
-    for (u32 i = 0; i < m_Components.Size(); ++i) {
+    for (u32 i = 0; i < m_Components.Num(); ++i) {
         if (m_Components[i]) m_Components[i]->_MaybeAttachServices(svc);
     }
-    for (u32 i = 0; i < m_Children.Size(); ++i) {
+    for (u32 i = 0; i < m_Children.Num(); ++i) {
         if (m_Children[i]) m_Children[i]->_ActivateSubtreeServices(svc);
     }
 }
@@ -212,7 +212,7 @@ CSubsystemCollection* ANode::Subsystems() const noexcept {
 ANode* ANode::FindBySerialId(i32 id) noexcept {
     if (id < 0) return nullptr;
     if (m_SerialId == id) return this;
-    for (u32 i = 0; i < m_Children.Size(); ++i) {
+    for (u32 i = 0; i < m_Children.Num(); ++i) {
         if (m_Children[i]) {
             if (ANode* hit = m_Children[i]->FindBySerialId(id)) return hit;
         }
@@ -240,11 +240,11 @@ void ANode::UpdateTree(f32 dt) noexcept {
     if (!m_Enabled || m_PendingDestroy) return;
     OnUpdate(dt);
     // components の OnUpdate を node 自身の後に呼ぶ (合成された振る舞いを適用)
-    for (u32 i = 0; i < m_Components.Size(); ++i) {
+    for (u32 i = 0; i < m_Components.Num(); ++i) {
         if (m_Components[i]) m_Components[i]->OnUpdate(dt);
     }
     // index 走査で AddChild 走査中追加に対応 (新しい子は同フレームで OnUpdate される)
-    for (u32 i = 0; i < m_Children.Size(); ++i) {
+    for (u32 i = 0; i < m_Children.Num(); ++i) {
         ANode* c = m_Children[i].Get();
         if (c != nullptr) c->UpdateTree(dt);
     }
@@ -254,10 +254,10 @@ void ANode::UpdateTree(f32 dt) noexcept {
 void ANode::FixedUpdateTree(f32 fixed_dt) noexcept {
     if (!m_Enabled || m_PendingDestroy) return;
     OnFixedUpdate(fixed_dt);
-    for (u32 i = 0; i < m_Components.Size(); ++i) {
+    for (u32 i = 0; i < m_Components.Num(); ++i) {
         if (m_Components[i]) m_Components[i]->OnFixedUpdate(fixed_dt);
     }
-    for (u32 i = 0; i < m_Children.Size(); ++i) {
+    for (u32 i = 0; i < m_Children.Num(); ++i) {
         ANode* c = m_Children[i].Get();
         if (c != nullptr) c->FixedUpdateTree(fixed_dt);
     }
@@ -322,9 +322,9 @@ void CollectDrawItems(ANode& n, TArray<FDrawItem>& out, bool& any_keys) noexcept
     it.ysort    = n.IsYSortEnabled();
     it.atomic   = n.HasAtomicSubtreeComponent();
     it.y        = it.ysort ? (n.World().position.y + n.YSortBias()) : 0.0f;
-    it.seq      = static_cast<u32>(out.Size());
+    it.seq      = static_cast<u32>(out.Num());
     if (it.layer != 0 || it.priority != 0 || it.ysort || it.atomic) any_keys = true;
-    out.PushBack(it);
+    out.Add(it);
     if (it.atomic) return;   // 内部は DrawTree (ツリー順) で一塊描画
     for (u32 i = 0; i < n.ChildCount(); ++i) {
         if (ANode* c = n.Child(i)) CollectDrawItems(*c, out, any_keys);
@@ -339,13 +339,13 @@ void CollectDrawItems(ANode& n, TArray<FDrawItem>& out, bool& any_keys) noexcept
  */
 void StableSortDrawOrder(const TArray<FDrawItem>& items, TArray<u32>& order, TArray<u32>& scratch) noexcept
 {
-    const u32 n = static_cast<u32>(items.Size());
-    order.Resize(n);
-    scratch.Resize(n);
+    const u32 n = static_cast<u32>(items.Num());
+    order.SetNum(n);
+    scratch.SetNum(n);
     for (u32 i = 0; i < n; ++i) order[i] = i;
 
-    u32* src = order.Data();
-    u32* dst = scratch.Data();
+    u32* src = order.GetData();
+    u32* dst = scratch.GetData();
     for (u32 width = 1; width < n; width *= 2) {
         for (u32 lo = 0; lo < n; lo += width * 2) {
             const u32 mid = (lo + width < n) ? (lo + width) : n;
@@ -362,7 +362,7 @@ void StableSortDrawOrder(const TArray<FDrawItem>& items, TArray<u32>& order, TAr
         u32* t = src; src = dst; dst = t;   // ping-pong
     }
     // 最終結果が scratch 側にある場合は order へ書き戻す。
-    if (src != order.Data()) {
+    if (src != order.GetData()) {
         for (u32 i = 0; i < n; ++i) order[i] = src[i];
     }
 }
@@ -420,14 +420,14 @@ void ANode::DrawSelf(FRenderContext& rc) noexcept {
     }
     OnDraw(rc);
     // components の OnDraw (描画も合成)
-    for (u32 i = 0; i < m_Components.Size(); ++i) {
+    for (u32 i = 0; i < m_Components.Num(); ++i) {
         if (m_Components[i]) m_Components[i]->OnDraw(rc);
     }
     if (lit)     rc.Sprites().ClearLit();
     else if (fx) rc.Sprites().ClearEffect();
     // フラット実行では子は独立アイテムとして後から描かれるため、非原子ノードの
     // OnDrawPostChildren (no-op が既定) はここで即時に呼ぶ。
-    for (u32 i = 0; i < m_Components.Size(); ++i) {
+    for (u32 i = 0; i < m_Components.Num(); ++i) {
         if (m_Components[i]) m_Components[i]->OnDrawPostChildren(rc);
     }
 }
@@ -477,18 +477,18 @@ void ANode::DrawTree(FRenderContext& rc) noexcept {
         lit = true;
     }
     OnDraw(rc);
-    for (u32 i = 0; i < m_Components.Size(); ++i) {
+    for (u32 i = 0; i < m_Components.Num(); ++i) {
         if (m_Components[i]) m_Components[i]->OnDraw(rc);
     }
     if (lit)     rc.Sprites().ClearLit();
     else if (fx) rc.Sprites().ClearEffect();   // 子ツリーの前に効果を解除
     // 子はツリー順。
-    for (u32 i = 0; i < m_Children.Size(); ++i) {
+    for (u32 i = 0; i < m_Children.Num(); ++i) {
         ANode* c = m_Children[i].Get();
         if (c != nullptr) c->DrawTree(rc);
     }
     // 子ツリー描画の後に後処理フックを呼ぶ (ステンシルマスクの解除等)。
-    for (u32 i = 0; i < m_Components.Size(); ++i) {
+    for (u32 i = 0; i < m_Components.Num(); ++i) {
         if (m_Components[i]) m_Components[i]->OnDrawPostChildren(rc);
     }
 }
@@ -513,7 +513,7 @@ void ANode::DrawTreeSorted(FRenderContext& rc) noexcept {
     TArray<u32> order;
     TArray<u32> scratch;
     StableSortDrawOrder(items, order, scratch);
-    for (u32 i = 0; i < order.Size(); ++i) {
+    for (u32 i = 0; i < order.Num(); ++i) {
         const FDrawItem& it = items[order[i]];
         if (it.node == nullptr) continue;
         if (it.atomic) it.node->DrawTree(rc);
@@ -569,7 +569,7 @@ void ANode::Reparent(ANode& new_parent) noexcept {
 
 void ANode::ResolveStructuralChanges() noexcept {
     // 1) 子の subtree を先に resolve (子の死を先に確定させる)
-    for (u32 i = 0; i < m_Children.Size(); ++i) {
+    for (u32 i = 0; i < m_Children.Num(); ++i) {
         ANode* c = m_Children[i].Get();
         if (c != nullptr) c->ResolveStructuralChanges();
     }
@@ -579,15 +579,15 @@ void ANode::ResolveStructuralChanges() noexcept {
     TArray<TObjectPtr<ANode>> reparent_pending;
 
     u32 w = 0;
-    for (u32 r = 0; r < m_Children.Size(); ++r) {
+    for (u32 r = 0; r < m_Children.Num(); ++r) {
         ANode* c = m_Children[r].Get();
         if (c == nullptr) continue;
         if (c->m_PendingDestroy) {
             // 親→子の順で OnDespawn。components の OnDetach を node より先に発火。
-            for (u32 ci = 0; ci < c->m_Components.Size(); ++ci) {
+            for (u32 ci = 0; ci < c->m_Components.Num(); ++ci) {
                 if (c->m_Components[ci]) c->m_Components[ci]->OnDetach();
             }
-            c->m_Components.Clear();
+            c->m_Components.Reset();
             c->OnDespawn();
             // 強参照をリセット (これが最後の強参照なら node のデストラクタ →
             // children 配列のデストラクタが走り、子孫の破棄は子→親の順)。
@@ -595,17 +595,17 @@ void ANode::ResolveStructuralChanges() noexcept {
         } else if (c->m_PendingReparentTarget.Get() != nullptr) {
             // Reparent 対象 → m_Children から外して reparent_pending へ Move。
             // OnSpawn/OnDespawn は呼ばない (= 既に生きているノードの移動)。
-            reparent_pending.PushBack(Move(m_Children[r]));
+            reparent_pending.Add(Move(m_Children[r]));
         } else {
             if (w != r) m_Children[w] = Move(m_Children[r]);
             ++w;
         }
     }
     // 余分の slot を末尾から削除
-    while (m_Children.Size() > w) m_Children.PopBack();
+    while (m_Children.Num() > w) m_Children.Pop();
 
     // 3) reparent 対象を target の m_Children に追加 (防御的 nullptr ガード付き)。
-    for (u32 i = 0; i < reparent_pending.Size(); ++i) {
+    for (u32 i = 0; i < reparent_pending.Num(); ++i) {
         if (!reparent_pending[i]) continue;
         ANode* moved = reparent_pending[i].Get();
         ANode* target = moved->m_PendingReparentTarget.Get();
@@ -634,11 +634,11 @@ void ANode::ResolveStructuralChanges() noexcept {
             // 対象消滅・破棄予定・循環・深度超過では orphan を作らず元の親へ戻す。
             ACS_LOG_WARN("ANode::ResolveStructuralChanges: stale or unsafe reparent target — cancelled");
             moved->m_Parent = this;
-            m_Children.PushBack(Move(reparent_pending[i]));
+            m_Children.Add(Move(reparent_pending[i]));
             continue;
         }
         moved->m_Parent = target;
-        target->m_Children.PushBack(Move(reparent_pending[i]));
+        target->m_Children.Add(Move(reparent_pending[i]));
     }
 }
 

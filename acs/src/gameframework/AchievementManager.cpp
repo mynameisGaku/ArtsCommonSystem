@@ -48,7 +48,7 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 /** id 文字列を全実績から線形検索し、index か kNotFound を返す。 */
 u32 CAchievementManager::FindIndex(const char* id) const noexcept {
     if (id == nullptr) return kNotFound;
-    const usize n = m_Defs.Size();
+    const usize n = m_Defs.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Defs[i].id, id)) return static_cast<u32>(i);
     }
@@ -59,7 +59,7 @@ u32 CAchievementManager::FindIndex(const char* id) const noexcept {
 void CAchievementManager::UnlockInternal(u32 index) noexcept {
     // 呼出側で index 有効性は保証済 (FindIndex から流れてくる) だが、
     // 念のため範囲チェック (Reset 等経由のレースに備える保険)。
-    if (static_cast<usize>(index) >= m_Progress.Size()) return;
+    if (static_cast<usize>(index) >= m_Progress.Num()) return;
 
     FAchievementProgress& p = m_Progress[index];
     if (p.unlocked) return;  // 多重 unlock は no-op (timestamp は最初の値を保持)
@@ -103,8 +103,8 @@ void CAchievementManager::RegisterAchievement(const FAchievementDef& def) noexce
     p.unlocked         = false;
     p.unlock_timestamp = 0;
 
-    m_Defs.PushBack(d);
-    m_Progress.PushBack(p);
+    m_Defs.Add(d);
+    m_Progress.Add(p);
 }
 
 /** 進捗を絶対値で設定し、max 到達なら自動 unlock する。 */
@@ -168,7 +168,7 @@ void CAchievementManager::Reset(const char* id) noexcept {
 
 /** 全実績の進捗を初期化する。 */
 void CAchievementManager::ResetAll() noexcept {
-    const usize n = m_Progress.Size();
+    const usize n = m_Progress.Num();
     for (usize i = 0; i < n; ++i) {
         FAchievementProgress& p = m_Progress[i];
         p.current_progress = 0;
@@ -193,13 +193,13 @@ u32 CAchievementManager::GetProgress(const char* id) const noexcept {
 
 /** 登録済み実績の総数を返す。 */
 u32 CAchievementManager::TotalCount() const noexcept {
-    return static_cast<u32>(m_Progress.Size());
+    return static_cast<u32>(m_Progress.Num());
 }
 
 /** unlock 済み実績の数を数えて返す。 */
 u32 CAchievementManager::UnlockedCount() const noexcept {
     u32 c = 0;
-    const usize n = m_Progress.Size();
+    const usize n = m_Progress.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Progress[i].unlocked) ++c;
     }
@@ -215,8 +215,8 @@ const FAchievementProgress* CAchievementManager::GetState(const char* id) const 
 
 /** 全実績状態の生バッファを返し、件数を out_count に書き出す。 */
 const FAchievementProgress* CAchievementManager::AllStates(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(m_Progress.Size());
-    return m_Progress.Data();
+    out_count = static_cast<u32>(m_Progress.Num());
+    return m_Progress.GetData();
 }
 
 /** Storefront SDK ブリッジを attach / detach する (nullptr で detach)。 */

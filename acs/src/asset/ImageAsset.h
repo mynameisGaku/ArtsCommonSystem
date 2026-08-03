@@ -83,14 +83,14 @@ public:
      *
      * @return ピクセルバイト列の先頭。
      */
-    const byte* Pixels() const noexcept { return m_Pixels.Data(); }
+    const byte* Pixels() const noexcept { return m_Pixels.GetData(); }
 
     /**
      * 生ピクセルデータのバイト数を返す。
      *
      * @return ピクセルバイト列のサイズ。
      */
-    usize       PixelByteCount() const noexcept { return m_Pixels.Size(); }
+    usize       PixelByteCount() const noexcept { return m_Pixels.Num(); }
 
 private:
     /** 画像の幅 (ピクセル)。 */

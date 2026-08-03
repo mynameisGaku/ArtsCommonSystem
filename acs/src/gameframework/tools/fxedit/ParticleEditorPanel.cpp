@@ -46,8 +46,8 @@ void AParticleEditorPanel::Init() noexcept {
     // 完全リセット: 既存登録があれば破棄して 0 件状態にする。
     // 多重 Init を許容するため、m_Emitters.Clear() で実体は解放せず
     // 容量だけ保持 (= 次回再構築のアロケーション節約)。
-    m_Emitters.Clear();
-    m_ExtraSpreadRadians.Clear();
+    m_Emitters.Reset();
+    m_ExtraSpreadRadians.Reset();
     m_Selected  = -1;
     m_Dirty     = false;
     // callback はリセットしない (Init は emitter list の reset、callback の
@@ -58,8 +58,8 @@ void AParticleEditorPanel::Init() noexcept {
 void AParticleEditorPanel::Shutdown() noexcept {
     // TArray はデストラクタで解放されるが、明示的に Clear することで
     // 多重 Shutdown / 再 Init の確定状態を作る。
-    m_Emitters.Clear();
-    m_ExtraSpreadRadians.Clear();
+    m_Emitters.Reset();
+    m_ExtraSpreadRadians.Reset();
     m_Selected = -1;
     m_Dirty    = false;
     // callback は外部所有 (関数ポインタ) なので破棄不要。明示的に解除する。
@@ -71,7 +71,7 @@ void AParticleEditorPanel::Shutdown() noexcept {
 
 /** 「火花っぽい」プリセットの emitter を 1 件追加し、新規 emitter を選択する。 */
 void AParticleEditorPanel::AddEmitter() noexcept {
-    if (m_Emitters.Size() >= static_cast<usize>(kMaxEmitters)) {
+    if (m_Emitters.Num() >= static_cast<usize>(kMaxEmitters)) {
         // 上限到達は silent no-op (UI からは Add ボタンが見えていても安全)。
         return;
     }
@@ -89,30 +89,30 @@ void AParticleEditorPanel::AddEmitter() noexcept {
     def.color_end          = {0.8f, 0.1f, 0.0f};
     def.gravity            = {0.0f, 60.0f};
 
-    m_Emitters.PushBack(def);
-    m_ExtraSpreadRadians.PushBack(0.0f);  // spread = 0 = 円周一様
-    m_Selected = static_cast<i32>(m_Emitters.Size()) - 1;
+    m_Emitters.Add(def);
+    m_ExtraSpreadRadians.Add(0.0f);  // spread = 0 = 円周一様
+    m_Selected = static_cast<i32>(m_Emitters.Num()) - 1;
     m_Dirty    = true;
 }
 
 /** 選択中 emitter を順序保存しつつ削除し、selection を更新する。 */
 void AParticleEditorPanel::RemoveSelectedEmitter() noexcept {
-    const u32 count = static_cast<u32>(m_Emitters.Size());
+    const u32 count = static_cast<u32>(m_Emitters.Num());
     if (!IsValidIndex(m_Selected, count)) return;
 
     const usize sel = static_cast<usize>(m_Selected);
     // 順序保存削除 (= 後ろの要素を 1 個ずつ前に詰める)。
     // TArray に Erase API が無いので手書き。
-    for (usize i = sel + 1; i < m_Emitters.Size(); ++i) {
+    for (usize i = sel + 1; i < m_Emitters.Num(); ++i) {
         m_Emitters[i - 1]               = m_Emitters[i];
         m_ExtraSpreadRadians[i - 1]   = m_ExtraSpreadRadians[i];
     }
-    m_Emitters.PopBack();
-    m_ExtraSpreadRadians.PopBack();
+    m_Emitters.Pop();
+    m_ExtraSpreadRadians.Pop();
 
     // selection 更新: 削除後は同 index の要素 (= 元の次の emitter) を
     // 選択。最後尾を消した場合は前の要素を選択。空なら -1。
-    const i32 new_count = static_cast<i32>(m_Emitters.Size());
+    const i32 new_count = static_cast<i32>(m_Emitters.Num());
     if (new_count == 0) {
         m_Selected = -1;
     } else if (m_Selected >= new_count) {
@@ -124,22 +124,22 @@ void AParticleEditorPanel::RemoveSelectedEmitter() noexcept {
 
 /** 選択中 emitter を直後に複製挿入し、selection を複製先へ移す。 */
 void AParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
-    const u32 count = static_cast<u32>(m_Emitters.Size());
+    const u32 count = static_cast<u32>(m_Emitters.Num());
     if (!IsValidIndex(m_Selected, count)) return;
-    if (m_Emitters.Size() >= static_cast<usize>(kMaxEmitters)) return;
+    if (m_Emitters.Num() >= static_cast<usize>(kMaxEmitters)) return;
 
     const usize src = static_cast<usize>(m_Selected);
-    // 末尾に PushBack してから 1 個ずつ後ろにシフトして挿入位置を空ける。
+    // 末尾に Add してから 1 個ずつ後ろにシフトして挿入位置を空ける。
     // src+1 番目に挿入したい。
     const FParticleEmitterDef copy   = m_Emitters[src];          // 値コピー
     const f32                spread = m_ExtraSpreadRadians[src];
-    m_Emitters.PushBack(copy);
-    m_ExtraSpreadRadians.PushBack(spread);
+    m_Emitters.Add(copy);
+    m_ExtraSpreadRadians.Add(spread);
 
-    // src+1 .. (旧末尾) を 1 つ後ろにシフト。末尾には今 PushBack した
+    // src+1 .. (旧末尾) を 1 つ後ろにシフト。末尾には今 Add した
     // 値が居るので、その上書きは避けるため逆順に走査する。
     // 旧末尾 index = new_size - 2、shift 範囲 = src+1 .. old_last
-    const usize new_size = m_Emitters.Size();
+    const usize new_size = m_Emitters.Num();
     if (new_size >= 2) {
         for (usize i = new_size - 1; i > src + 1; --i) {
             m_Emitters[i]             = m_Emitters[i - 1];
@@ -159,7 +159,7 @@ void AParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
 
 /** 選択 index を設定する (範囲外 / 負値は -1 に正規化)。 */
 void AParticleEditorPanel::SelectEmitter(i32 index) noexcept {
-    const u32 count = static_cast<u32>(m_Emitters.Size());
+    const u32 count = static_cast<u32>(m_Emitters.Num());
     if (index < 0) {
         m_Selected = -1;
         return;
@@ -173,18 +173,18 @@ void AParticleEditorPanel::SelectEmitter(i32 index) noexcept {
 
 /** 現在の emitter 数を返す。 */
 u32 AParticleEditorPanel::EmitterCount() const noexcept {
-    return static_cast<u32>(m_Emitters.Size());
+    return static_cast<u32>(m_Emitters.Num());
 }
 
 /** index 番目の emitter def を返す (read-only、範囲外は nullptr)。 */
 const FParticleEmitterDef* AParticleEditorPanel::GetEmitterDef(i32 index) const noexcept {
-    if (!IsValidIndex(index, static_cast<u32>(m_Emitters.Size()))) return nullptr;
+    if (!IsValidIndex(index, static_cast<u32>(m_Emitters.Num()))) return nullptr;
     return &m_Emitters[static_cast<usize>(index)];
 }
 
 /** index 番目の emitter def を返す (mutable、範囲外は nullptr)。 */
 FParticleEmitterDef* AParticleEditorPanel::GetEmitterDefMutable(i32 index) noexcept {
-    if (!IsValidIndex(index, static_cast<u32>(m_Emitters.Size()))) return nullptr;
+    if (!IsValidIndex(index, static_cast<u32>(m_Emitters.Num()))) return nullptr;
     return &m_Emitters[static_cast<usize>(index)];
 }
 
@@ -215,12 +215,12 @@ void AParticleEditorPanel::DrawUI() noexcept {
     // particle 数は system が真値なので分けて表示する。
     if (m_TargetSystem != nullptr) {
         ImGui::Text("Editor Emitters: %u / %u    Live Particles: %u",
-                    static_cast<unsigned>(m_Emitters.Size()),
+                    static_cast<unsigned>(m_Emitters.Num()),
                     static_cast<unsigned>(kMaxEmitters),
                     static_cast<unsigned>(m_TargetSystem->ActiveParticleCount()));
     } else {
         ImGui::Text("Editor Emitters: %u / %u    Live Particles: (no system attached)",
-                    static_cast<unsigned>(m_Emitters.Size()),
+                    static_cast<unsigned>(m_Emitters.Num()),
                     static_cast<unsigned>(kMaxEmitters));
     }
     ImGui::Separator();
@@ -236,7 +236,7 @@ void AParticleEditorPanel::DrawUI() noexcept {
         ImGui::TextUnformatted("Emitters");
         ImGui::Separator();
 
-        for (i32 i = 0; i < static_cast<i32>(m_Emitters.Size()); ++i) {
+        for (i32 i = 0; i < static_cast<i32>(m_Emitters.Num()); ++i) {
             char label[32];
             FormatEmitterLabel(label, sizeof(label), i);
             const bool is_selected = (m_Selected == i);
@@ -267,8 +267,8 @@ void AParticleEditorPanel::DrawUI() noexcept {
         if (ImGui::Button("Save")) {
             if (m_SaveCb) {
                 m_SaveCb(m_SaveUser,
-                         m_Emitters.IsEmpty() ? nullptr : m_Emitters.Data(),
-                         static_cast<u32>(m_Emitters.Size()));
+                         m_Emitters.IsEmpty() ? nullptr : m_Emitters.GetData(),
+                         static_cast<u32>(m_Emitters.Num()));
                 // Save 後は dirty クリア (= 外部書き出し完了)。
                 m_Dirty = false;
             }
@@ -282,16 +282,16 @@ void AParticleEditorPanel::DrawUI() noexcept {
             if (m_LoadCb) {
                 // Load は in-out で個数を受け渡し。callback 側で kMaxEmitters
                 // 個まで埋めてもらう。内部 TArray を resize してから渡す。
-                m_Emitters.Resize(static_cast<usize>(kMaxEmitters));
-                m_ExtraSpreadRadians.Resize(static_cast<usize>(kMaxEmitters));
-                for (usize i = 0; i < m_ExtraSpreadRadians.Size(); ++i) {
+                m_Emitters.SetNum(static_cast<usize>(kMaxEmitters));
+                m_ExtraSpreadRadians.SetNum(static_cast<usize>(kMaxEmitters));
+                for (usize i = 0; i < m_ExtraSpreadRadians.Num(); ++i) {
                     m_ExtraSpreadRadians[i] = 0.0f;
                 }
                 u32 actual = kMaxEmitters;
-                m_LoadCb(m_LoadUser, m_Emitters.Data(), actual);
+                m_LoadCb(m_LoadUser, m_Emitters.GetData(), actual);
                 if (actual > kMaxEmitters) actual = kMaxEmitters;
-                m_Emitters.Resize(static_cast<usize>(actual));
-                m_ExtraSpreadRadians.Resize(static_cast<usize>(actual));
+                m_Emitters.SetNum(static_cast<usize>(actual));
+                m_ExtraSpreadRadians.SetNum(static_cast<usize>(actual));
                 m_Selected = (actual == 0) ? -1 : 0;
                 m_Dirty    = true;
             }
@@ -305,7 +305,7 @@ void AParticleEditorPanel::DrawUI() noexcept {
     // 右カラム: 選択中 emitter properties。
     ImGui::BeginChild("##fxedit_right", ImVec2(0, 0), true);
     {
-        const u32 count = static_cast<u32>(m_Emitters.Size());
+        const u32 count = static_cast<u32>(m_Emitters.Num());
         if (!IsValidIndex(m_Selected, count)) {
             ImGui::TextDisabled("(No emitter selected)");
         } else {

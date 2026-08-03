@@ -67,7 +67,7 @@ public:
         }
         for (u32 i = 0; i < slots; ++i) {
             FEntityCommandBuffer* const buffer = New<FEntityCommandBuffer>(alloc, world, alloc);
-            if (buffer == nullptr || !m_Buffers.TryPushBack(buffer)) {
+            if (buffer == nullptr || !m_Buffers.TryAdd(buffer)) {
                 if (buffer != nullptr) Delete(alloc, buffer);
                 ReleaseBuffers();                            // 部分構築は全て畳んで無効化
                 return;
@@ -148,7 +148,7 @@ public:
      */
     void Flush() noexcept
     {
-        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+        for (usize i = 0; i < m_Buffers.Num(); ++i) {
             m_Buffers[i]->Flush();
         }
     }
@@ -156,7 +156,7 @@ public:
     /** 全スロットの記録を適用せず破棄する (単一スレッドから呼ぶこと)。 */
     void Clear() noexcept
     {
-        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+        for (usize i = 0; i < m_Buffers.Num(); ++i) {
             m_Buffers[i]->Clear();
         }
     }
@@ -167,7 +167,7 @@ public:
     bool TryReservePerSlot(usize command_count) noexcept
     {
         bool ok = !m_Buffers.IsEmpty();
-        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+        for (usize i = 0; i < m_Buffers.Num(); ++i) {
             ok = m_Buffers[i]->TryReserve(command_count) && ok;
         }
         if (!ok) m_DroppedRecords.FetchAdd(1u);
@@ -182,7 +182,7 @@ public:
     usize Size() const noexcept
     {
         usize total = 0;
-        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+        for (usize i = 0; i < m_Buffers.Num(); ++i) {
             total += m_Buffers[i]->Size();
         }
         return total;
@@ -206,7 +206,7 @@ public:
     bool HasOverflowed() const noexcept
     {
         if (m_DroppedRecords.Load(EMemoryOrder::Relaxed) != 0u) return true;
-        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+        for (usize i = 0; i < m_Buffers.Num(); ++i) {
             if (m_Buffers[i]->HasOverflowed()) return true;
         }
         return false;
@@ -223,7 +223,7 @@ private:
      */
     FEntityCommandBuffer* Slot() noexcept
     {
-        const usize count = m_Buffers.Size();
+        const usize count = m_Buffers.Num();
         if (count == 0) {
             m_DroppedRecords.FetchAdd(1u);
             return nullptr;
@@ -242,10 +242,10 @@ private:
     /** 全バッファを (未適用の記録ごと) 破棄して解放する。 */
     void ReleaseBuffers() noexcept
     {
-        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+        for (usize i = 0; i < m_Buffers.Num(); ++i) {
             Delete(*m_Alloc, m_Buffers[i]);
         }
-        m_Buffers.Clear();
+        m_Buffers.Reset();
     }
 
     /** バッファの確保・解放に使うアロケータ。 */

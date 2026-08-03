@@ -184,7 +184,7 @@ bool ReadKeyFile(const wchar_t* path, u8 out_key[32],
     // hex nibble だけを 64 個集める (空白 / 改行はスキップ)。
     wchar_t hex[65];
     usize   n = 0;
-    for (usize i = 0; i < bytes.Size(); ++i) {
+    for (usize i = 0; i < bytes.Num(); ++i) {
         char c = static_cast<char>(bytes[i]);
         if (c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
         if (n >= 64) {
@@ -279,7 +279,7 @@ bool BuildWideArgs(FWideArgs& out) noexcept {
     out.raw_argv = av;
     out.argc     = ac;
     out.argv.Reserve(static_cast<usize>(ac));
-    for (int i = 0; i < ac; ++i) out.argv.PushBack(av[i]);
+    for (int i = 0; i < ac; ++i) out.argv.Add(av[i]);
     return true;
 }
 
@@ -337,12 +337,12 @@ void SiftDownPackedBlobs(TArray<FPackedBlob>& blobs,
         usize greater = left;
         const usize right = left + 1u;
         if (right < count &&
-            ComparePackedPath(blobs[left].path.Data(),
-                              blobs[right].path.Data()) < 0) {
+            ComparePackedPath(blobs[left].path.GetData(),
+                              blobs[right].path.GetData()) < 0) {
             greater = right;
         }
-        if (ComparePackedPath(blobs[root].path.Data(),
-                              blobs[greater].path.Data()) >= 0) {
+        if (ComparePackedPath(blobs[root].path.GetData(),
+                              blobs[greater].path.GetData()) >= 0) {
             break;
         }
         acs::Swap(blobs[root], blobs[greater]);
@@ -351,7 +351,7 @@ void SiftDownPackedBlobs(TArray<FPackedBlob>& blobs,
 }
 
 void SortPackedBlobs(TArray<FPackedBlob>& blobs) noexcept {
-    const usize count = blobs.Size();
+    const usize count = blobs.Num();
     if (count < 2u) return;
 
     for (usize start = count / 2u; start > 0u; --start) {
@@ -445,12 +445,12 @@ TResult<void> ScanDirRecursive(const wchar_t*       cur_dir,
 
             // virtual path をコピーして slash 正規化
             usize plen = StrLenW(next_rel);
-            blob.path.Resize(plen + 1);
-            MemCopy(blob.path.Data(), next_rel, plen * sizeof(wchar_t));
+            blob.path.SetNum(plen + 1);
+            MemCopy(blob.path.GetData(), next_rel, plen * sizeof(wchar_t));
             blob.path[plen] = L'\0';
-            NormalizeSlashes(blob.path.Data());
+            NormalizeSlashes(blob.path.GetData());
 
-            out_blobs.PushBack(Move(blob));
+            out_blobs.Add(Move(blob));
         }
     } while (::FindNextFileW(h, &fd));
 
@@ -460,7 +460,7 @@ TResult<void> ScanDirRecursive(const wchar_t*       cur_dir,
 
 int CmdPack(const TArray<wchar_t*>& argv) noexcept {
     // argv: [0]=exe [1]=pack [2]=input_dir [3]=output.acpak [opts...]
-    if (argv.Size() < 4) {
+    if (argv.Num() < 4) {
         std::fputs(kUsagePack, stderr);
         return 1;
     }
@@ -474,18 +474,18 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
     const wchar_t* opt_key      = nullptr;   // --key <hex64>      (生鍵)
     const wchar_t* opt_key_file = nullptr;   // --key-file <path>  (推奨)
 
-    for (usize i = 4; i < argv.Size(); ++i) {
+    for (usize i = 4; i < argv.Num(); ++i) {
         const wchar_t* a = argv[i];
         if      (EqualsW(a, L"--encrypt"))  opt_encrypt  = true;
         else if (EqualsW(a, L"--compress")) opt_compress = true;
         else if (EqualsW(a, L"--key")) {
-            if (i + 1 >= argv.Size()) {
+            if (i + 1 >= argv.Num()) {
                 std::fputs("pack: --key requires hex argument\n", stderr);
                 return 1;
             }
             opt_key = argv[++i];
         } else if (EqualsW(a, L"--key-file")) {
-            if (i + 1 >= argv.Size()) {
+            if (i + 1 >= argv.Num()) {
                 std::fputs("pack: --key-file requires a path argument\n", stderr);
                 return 1;
             }
@@ -571,12 +571,12 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
     }
 
     u64 input_bytes_total = 0;
-    for (usize i = 0; i < blobs.Size(); ++i) {
+    for (usize i = 0; i < blobs.Num(); ++i) {
         const FPackedBlob& b = blobs[i];
-        input_bytes_total += static_cast<u64>(b.bytes.Size());
-        auto r = writer.AddFile(b.path.Data(),
-                                b.bytes.Data(),
-                                static_cast<u64>(b.bytes.Size()));
+        input_bytes_total += static_cast<u64>(b.bytes.Num());
+        auto r = writer.AddFile(b.path.GetData(),
+                                b.bytes.GetData(),
+                                static_cast<u64>(b.bytes.Num()));
         if (r.IsErr()) {
             PrintError(r.Error(), "pack: FAcpakWriter::AddFile");
             return 2;
@@ -606,7 +606,7 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
     FormatBytes(input_bytes_total, in_str, sizeof(in_str));
     FormatBytes(output_size,       out_str, sizeof(out_str));
     std::printf("Packed %llu files (%s -> %s) into %s\n",
-                static_cast<unsigned long long>(blobs.Size()),
+                static_cast<unsigned long long>(blobs.Num()),
                 in_str, out_str, path_u8);
     if (opt_encrypt || opt_compress) {
         std::printf("  flags: %s%s\n",
@@ -620,7 +620,7 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
 // unpack — Reader 開く → 各 entry を ReadFile → output_dir/<path> に書き出す
 // ============================================================================
 int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
-    if (argv.Size() < 4) {
+    if (argv.Num() < 4) {
         std::fputs(kUsageUnpack, stderr);
         return 1;
     }
@@ -631,10 +631,10 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
     // --key <hex64> / --key-file <path> を解決する (暗号化 pak の復号用)。
     FAcpakKey dec_key{};
     bool      have_key = false;
-    for (usize i = 4; i < argv.Size(); ++i) {
+    for (usize i = 4; i < argv.Num(); ++i) {
         const wchar_t* a = argv[i];
         if (EqualsW(a, L"--key")) {
-            if (i + 1 >= argv.Size()) {
+            if (i + 1 >= argv.Num()) {
                 std::fputs("unpack: --key requires hex argument\n", stderr);
                 return 1;
             }
@@ -644,7 +644,7 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
             }
             have_key = true;
         } else if (EqualsW(a, L"--key-file")) {
-            if (i + 1 >= argv.Size()) {
+            if (i + 1 >= argv.Num()) {
                 std::fputs("unpack: --key-file requires a path argument\n", stderr);
                 return 1;
             }
@@ -730,9 +730,9 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
 
         // entry のバイト数 → buffer 確保 → ReadFile
         TArray<byte> buf;
-        buf.Resize(static_cast<usize>(e->size_uncompressed));
+        buf.SetNum(static_cast<usize>(e->size_uncompressed));
         if (e->size_uncompressed > 0) {
-            auto rr = reader.ReadFile(e->path, buf.Data(), e->size_uncompressed);
+            auto rr = reader.ReadFile(e->path, buf.GetData(), e->size_uncompressed);
             if (rr.IsErr()) {
                 PrintError(rr.Error(), "unpack: ReadFile");
                 return 2;
@@ -740,7 +740,7 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
         }
 
         // 書き出し
-        auto wr = FFileSystem::WriteAllBytes(dst_path, buf.Data(), buf.Size());
+        auto wr = FFileSystem::WriteAllBytes(dst_path, buf.GetData(), buf.Num());
         if (wr.IsErr()) {
             PrintError(wr.Error(), "unpack: WriteAllBytes");
             return 2;
@@ -761,7 +761,7 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
 // list — entry 一覧 (path / size / crc32)
 // ============================================================================
 int CmdList(const TArray<wchar_t*>& argv) noexcept {
-    if (argv.Size() < 3) {
+    if (argv.Num() < 3) {
         std::fputs(kUsageList, stderr);
         return 1;
     }
@@ -801,7 +801,7 @@ int CmdList(const TArray<wchar_t*>& argv) noexcept {
 // verify — 全 entry を ReadFile して CRC32 検証 (失敗があれば exit 2)
 // ============================================================================
 int CmdVerify(const TArray<wchar_t*>& argv) noexcept {
-    if (argv.Size() < 3) {
+    if (argv.Num() < 3) {
         std::fputs(kUsageVerify, stderr);
         return 1;
     }
@@ -810,10 +810,10 @@ int CmdVerify(const TArray<wchar_t*>& argv) noexcept {
     // --key <hex64> / --key-file <path> を解決する (暗号化 pak の検証用)。
     FAcpakKey dec_key{};
     bool      have_key = false;
-    for (usize i = 3; i < argv.Size(); ++i) {
+    for (usize i = 3; i < argv.Num(); ++i) {
         const wchar_t* a = argv[i];
         if (EqualsW(a, L"--key")) {
-            if (i + 1 >= argv.Size()) {
+            if (i + 1 >= argv.Num()) {
                 std::fputs("verify: --key requires hex argument\n", stderr);
                 return 1;
             }
@@ -823,7 +823,7 @@ int CmdVerify(const TArray<wchar_t*>& argv) noexcept {
             }
             have_key = true;
         } else if (EqualsW(a, L"--key-file")) {
-            if (i + 1 >= argv.Size()) {
+            if (i + 1 >= argv.Num()) {
                 std::fputs("verify: --key-file requires a path argument\n", stderr);
                 return 1;
             }
@@ -871,8 +871,8 @@ int CmdVerify(const TArray<wchar_t*>& argv) noexcept {
             continue;
         }
         TArray<byte> buf;
-        buf.Resize(static_cast<usize>(e->size_uncompressed));
-        auto rr = reader.ReadFile(e->path, buf.Data(), e->size_uncompressed);
+        buf.SetNum(static_cast<usize>(e->size_uncompressed));
+        auto rr = reader.ReadFile(e->path, buf.GetData(), e->size_uncompressed);
         if (rr.IsErr()) {
             char path_u8[1024];
             Utf16ToUtf8(e->path, path_u8, sizeof(path_u8));
@@ -897,7 +897,7 @@ int CmdVerify(const TArray<wchar_t*>& argv) noexcept {
 // info — header 情報のみ表示 (open 中に Reader が parse 済)
 // ============================================================================
 int CmdInfo(const TArray<wchar_t*>& argv) noexcept {
-    if (argv.Size() < 3) {
+    if (argv.Num() < 3) {
         std::fputs(kUsageInfo, stderr);
         return 1;
     }
@@ -949,7 +949,7 @@ int CmdInfo(const TArray<wchar_t*>& argv) noexcept {
 // help — 全体 usage または specific subcommand の usage
 // ============================================================================
 int CmdHelp(const TArray<wchar_t*>& argv) noexcept {
-    if (argv.Size() < 3) {
+    if (argv.Num() < 3) {
         std::fputs(kUsageMain, stdout);
         return 0;
     }

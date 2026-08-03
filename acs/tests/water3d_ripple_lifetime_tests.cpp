@@ -16,17 +16,17 @@ namespace {
 void AddWaterMeshVertex(
     AMeshAsset& mesh, FVec3 position,
     FVec3 normal = FVec3{0.0f, 1.0f, 0.0f}) {
-    mesh.Vertices().PushBack(
+    mesh.Vertices().Add(
         FMeshVertex{position, normal, 0.0f, 0.0f});
 }
 
 void AddWaterMeshQuadIndices(AMeshAsset& mesh) {
-    mesh.Indices().PushBack(0u);
-    mesh.Indices().PushBack(1u);
-    mesh.Indices().PushBack(2u);
-    mesh.Indices().PushBack(0u);
-    mesh.Indices().PushBack(2u);
-    mesh.Indices().PushBack(3u);
+    mesh.Indices().Add(0u);
+    mesh.Indices().Add(1u);
+    mesh.Indices().Add(2u);
+    mesh.Indices().Add(0u);
+    mesh.Indices().Add(2u);
+    mesh.Indices().Add(3u);
 }
 
 std::string ReadHelloWater3DSource(const char* file_name) {
@@ -843,9 +843,9 @@ ACS_TEST(Water3DMeshContract, RejectsWarpedOrVerticalCustomSurface) {
     AddWaterMeshVertex(
         vertical, FVec3{ 1.0f,  1.0f, 0.0f},
         FVec3{0.0f, 0.0f, 1.0f});
-    vertical.Indices().PushBack(0u);
-    vertical.Indices().PushBack(1u);
-    vertical.Indices().PushBack(2u);
+    vertical.Indices().Add(0u);
+    vertical.Indices().Add(1u);
+    vertical.Indices().Add(2u);
     EXPECT_FALSE(CWaterSurface3D::IsLocalXzSurfaceMesh(vertical));
 }
 
@@ -854,9 +854,9 @@ ACS_TEST(Water3DMeshContract, RejectsMalformedCustomSurfaceIndices) {
     AddWaterMeshVertex(mesh, FVec3{-1.0f, 0.0f, -1.0f});
     AddWaterMeshVertex(mesh, FVec3{ 1.0f, 0.0f, -1.0f});
     AddWaterMeshVertex(mesh, FVec3{ 0.0f, 0.0f,  1.0f});
-    mesh.Indices().PushBack(0u);
-    mesh.Indices().PushBack(1u);
-    mesh.Indices().PushBack(9u);
+    mesh.Indices().Add(0u);
+    mesh.Indices().Add(1u);
+    mesh.Indices().Add(9u);
 
     EXPECT_FALSE(CWaterSurface3D::IsLocalXzSurfaceMesh(mesh));
 }

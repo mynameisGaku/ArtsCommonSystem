@@ -90,10 +90,10 @@ bool EncodeCurve(
     TArray<u8>& bytes) noexcept {
     const u64 required =
         CAnimationCurveArchive::EncodedSize(curve);
-    if (!bytes.TryResize(static_cast<usize>(required))) return false;
+    if (!bytes.TrySetNum(static_cast<usize>(required))) return false;
     u64 written = 0u;
     return CAnimationCurveArchive::Encode(
-        curve, bytes.Data(), required, written).Succeeded() &&
+        curve, bytes.GetData(), required, written).Succeeded() &&
         written == required;
 }
 
@@ -131,10 +131,10 @@ u32 WireCrc32(const u8* bytes, usize size) noexcept {
 }
 
 void RefreshWireCrc(TArray<u8>& bytes) noexcept {
-    WriteU32LE(bytes.Data() + 24u, 0u);
+    WriteU32LE(bytes.GetData() + 24u, 0u);
     WriteU32LE(
-        bytes.Data() + 24u,
-        WireCrc32(bytes.Data(), bytes.Size()));
+        bytes.GetData() + 24u,
+        WireCrc32(bytes.GetData(), bytes.Num()));
 }
 
 bool BuildDestinationSentinel(FAnimationCurve& curve) noexcept {
@@ -226,7 +226,7 @@ ACS_TEST(AnimationCurvePersistence, CanonicalRoundTripPreservesAllFields) {
     TArray<u8> bytes;
     EXPECT_TRUE(EncodeCurve(source, bytes));
     EXPECT_EQ(
-        bytes.Size(),
+        bytes.Num(),
         static_cast<usize>(
             CAnimationCurveArchive::kHeaderSize +
             3u * CAnimationCurveArchive::kKeyRecordSize));
@@ -234,7 +234,7 @@ ACS_TEST(AnimationCurvePersistence, CanonicalRoundTripPreservesAllFields) {
     FAnimationCurve restored;
     const FAnimationCurveArchiveResult result =
         CAnimationCurveArchive::Decode(
-            bytes.Data(), bytes.Size(), restored);
+            bytes.GetData(), bytes.Num(), restored);
     EXPECT_TRUE(result.Succeeded());
     EXPECT_TRUE(CurvesEqual(source, restored));
 }
@@ -269,16 +269,16 @@ ACS_TEST(AnimationCurvePersistence, EveryEasingPresetRoundTripsCanonically) {
         FAnimationCurve decoded;
         const FAnimationCurveArchiveResult result =
             CAnimationCurveArchive::Decode(
-                bytes.Data(), bytes.Size(), decoded);
+                bytes.GetData(), bytes.Num(), decoded);
         EXPECT_TRUE(result.Succeeded());
         EXPECT_TRUE(CurvesEqual(source, decoded));
 
         TArray<u8> reencoded;
         EXPECT_TRUE(EncodeCurve(decoded, reencoded));
-        EXPECT_EQ(reencoded.Size(), bytes.Size());
-        if (reencoded.Size() == bytes.Size()) {
+        EXPECT_EQ(reencoded.Num(), bytes.Num());
+        if (reencoded.Num() == bytes.Num()) {
             bool bytes_equal = true;
-            for (usize index = 0u; index < bytes.Size(); ++index) {
+            for (usize index = 0u; index < bytes.Num(); ++index) {
                 if (bytes[index] != reencoded[index]) {
                     bytes_equal = false;
                     break;
@@ -299,7 +299,7 @@ ACS_TEST(AnimationCurvePersistence, EmptyCurveRoundTripsWithWrapModes) {
 
     FAnimationCurve restored;
     EXPECT_TRUE(CAnimationCurveArchive::Decode(
-        bytes.Data(), bytes.Size(), restored).Succeeded());
+        bytes.GetData(), bytes.Num(), restored).Succeeded());
     EXPECT_EQ(restored.KeyCount(), 0u);
     EXPECT_EQ(restored.PreWrap(),
               FAnimationCurve::EWrapMode::PingPong);
@@ -338,16 +338,16 @@ ACS_TEST(AnimationCurvePersistence, HeaderFailuresAreTransactional) {
     bytes[0u] ^= 0x80u;
     FAnimationCurveArchiveResult result =
         CAnimationCurveArchive::Decode(
-            bytes.Data(), bytes.Size(), destination);
+            bytes.GetData(), bytes.Num(), destination);
     EXPECT_EQ(result.error,
               EAnimationCurveArchiveError::InvalidMagic);
     EXPECT_EQ(destination.KeyCount(), 1u);
     EXPECT_NEAR(destination.Key(0u)->value, 99.0f, 1e-6f);
     bytes[0u] ^= 0x80u;
 
-    WriteU16LE(bytes.Data() + 8u, 77u);
+    WriteU16LE(bytes.GetData() + 8u, 77u);
     result = CAnimationCurveArchive::Decode(
-        bytes.Data(), bytes.Size(), destination);
+        bytes.GetData(), bytes.Num(), destination);
     EXPECT_EQ(result.error,
               EAnimationCurveArchiveError::UnsupportedVersion);
     EXPECT_EQ(destination.KeyCount(), 1u);
@@ -363,13 +363,13 @@ ACS_TEST(AnimationCurvePersistence, ExactSizeAndReservedBytesAreEnforced) {
 
     FAnimationCurveArchiveResult result =
         CAnimationCurveArchive::Decode(
-            bytes.Data(), bytes.Size() - 1u, destination);
+            bytes.GetData(), bytes.Num() - 1u, destination);
     EXPECT_EQ(result.error,
               EAnimationCurveArchiveError::SizeMismatch);
 
     bytes[18u] = 1u;
     result = CAnimationCurveArchive::Decode(
-        bytes.Data(), bytes.Size(), destination);
+        bytes.GetData(), bytes.Num(), destination);
     EXPECT_EQ(result.error,
               EAnimationCurveArchiveError::InvalidHeader);
     EXPECT_NEAR(destination.Key(0u)->value, 11.0f, 1e-6f);
@@ -408,7 +408,7 @@ ACS_TEST(AnimationCurvePersistence, PayloadCrcDetectsBitFlip) {
     EXPECT_TRUE(destination.TryAddKey(1.0f, 88.0f).Succeeded());
     const FAnimationCurveArchiveResult result =
         CAnimationCurveArchive::Decode(
-            bytes.Data(), bytes.Size(), destination);
+            bytes.GetData(), bytes.Num(), destination);
     EXPECT_EQ(result.error,
               EAnimationCurveArchiveError::ChecksumMismatch);
     EXPECT_NEAR(destination.Key(0u)->value, 88.0f, 1e-6f);
@@ -428,7 +428,7 @@ ACS_TEST(AnimationCurvePersistence, HeaderCrcBindsWrapModes) {
     EXPECT_TRUE(destination.TryAddKey(1.0f, 77.0f).Succeeded());
     const FAnimationCurveArchiveResult result =
         CAnimationCurveArchive::Decode(
-            bytes.Data(), bytes.Size(), destination);
+            bytes.GetData(), bytes.Num(), destination);
     EXPECT_EQ(result.error,
               EAnimationCurveArchiveError::ChecksumMismatch);
     EXPECT_NEAR(destination.Key(0u)->value, 77.0f, 1e-6f);
@@ -446,12 +446,12 @@ ACS_TEST(AnimationCurvePersistence, ValidCrcDoesNotBypassKeyValidation) {
     // quiet NaNはIEEE-754表現として構造上有効だが、curve dataとしては無効。
     // semantic検証まで到達させるためwire CRCを再計算する。
     WriteU32LE(
-        bytes.Data() + CAnimationCurveArchive::kHeaderSize + 4u,
+        bytes.GetData() + CAnimationCurveArchive::kHeaderSize + 4u,
         0x7FC00000u);
     RefreshWireCrc(bytes);
     FAnimationCurveArchiveResult result =
         CAnimationCurveArchive::Decode(
-            bytes.Data(), bytes.Size(), destination);
+            bytes.GetData(), bytes.Num(), destination);
     EXPECT_EQ(result.error,
               EAnimationCurveArchiveError::InvalidCurveData);
     EXPECT_EQ(result.curve_error,
@@ -463,7 +463,7 @@ ACS_TEST(AnimationCurvePersistence, ValidCrcDoesNotBypassKeyValidation) {
     bytes[CAnimationCurveArchive::kHeaderSize + 16u] = 0xFFu;
     RefreshWireCrc(bytes);
     result = CAnimationCurveArchive::Decode(
-        bytes.Data(), bytes.Size(), destination);
+        bytes.GetData(), bytes.Num(), destination);
     EXPECT_EQ(result.error,
               EAnimationCurveArchiveError::InvalidCurveData);
     EXPECT_EQ(result.curve_error,
@@ -473,12 +473,12 @@ ACS_TEST(AnimationCurvePersistence, ValidCrcDoesNotBypassKeyValidation) {
 
     EXPECT_TRUE(EncodeCurve(source, bytes));
     WriteF32LE(
-        bytes.Data() + CAnimationCurveArchive::kHeaderSize +
+        bytes.GetData() + CAnimationCurveArchive::kHeaderSize +
             CAnimationCurveArchive::kKeyRecordSize,
         -1.0f);
     RefreshWireCrc(bytes);
     result = CAnimationCurveArchive::Decode(
-        bytes.Data(), bytes.Size(), destination);
+        bytes.GetData(), bytes.Num(), destination);
     EXPECT_EQ(result.error,
               EAnimationCurveArchiveError::InvalidCurveData);
     EXPECT_EQ(result.curve_error,
@@ -488,12 +488,12 @@ ACS_TEST(AnimationCurvePersistence, ValidCrcDoesNotBypassKeyValidation) {
 
     EXPECT_TRUE(EncodeCurve(source, bytes));
     WriteF32LE(
-        bytes.Data() + CAnimationCurveArchive::kHeaderSize +
+        bytes.GetData() + CAnimationCurveArchive::kHeaderSize +
             CAnimationCurveArchive::kKeyRecordSize,
         -2.0f);
     RefreshWireCrc(bytes);
     result = CAnimationCurveArchive::Decode(
-        bytes.Data(), bytes.Size(), destination);
+        bytes.GetData(), bytes.Num(), destination);
     EXPECT_EQ(result.error,
               EAnimationCurveArchiveError::InvalidCurveData);
     EXPECT_EQ(result.curve_error,
@@ -515,7 +515,7 @@ ACS_TEST(AnimationCurvePersistence, ValidCrcRejectsRecordReservedBytes) {
     EXPECT_TRUE(BuildDestinationSentinel(destination));
     const FAnimationCurveArchiveResult result =
         CAnimationCurveArchive::Decode(
-            bytes.Data(), bytes.Size(), destination);
+            bytes.GetData(), bytes.Num(), destination);
     EXPECT_EQ(result.error,
               EAnimationCurveArchiveError::InvalidHeader);
     EXPECT_EQ(result.key_index, 2u);
@@ -536,7 +536,7 @@ ACS_TEST(AnimationCurvePersistence, DestinationOomPreservesCurve) {
 
     const FAnimationCurveArchiveResult result =
         CAnimationCurveArchive::Decode(
-            bytes.Data(), bytes.Size(), destination);
+            bytes.GetData(), bytes.Num(), destination);
     EXPECT_EQ(result.error,
               EAnimationCurveArchiveError::AllocationFailure);
     EXPECT_EQ(result.curve_error,
@@ -583,7 +583,7 @@ ACS_TEST(AnimationCurvePersistence, ValidEnvelopeRejectsInvalidInnerWire) {
     EXPECT_TRUE(CSaveArchive::WriteToFile(
         path.path,
         CAnimationCurveArchive::kFileEnvelopeVersion,
-        bytes.Data(), bytes.Size()).IsOk());
+        bytes.GetData(), bytes.Num()).IsOk());
 
     FAnimationCurve destination;
     EXPECT_TRUE(BuildDestinationSentinel(destination));

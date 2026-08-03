@@ -63,30 +63,30 @@ const char* ResolveKey(const CLocalizationDirector* loc, const char* key) noexce
 void CDialogueLocalizer::RegisterLine(const FLocalizedDialogueLine& line) noexcept {
     // speaker_id / line_key が nullptr でも蓄積は許す (= ナレーション行 / 空行を
     // 表現可能)。StartFromLine 側で nullptr→"" 変換するので落ちない。
-    m_Lines.PushBack(line);
+    m_Lines.Add(line);
 }
 
 void CDialogueLocalizer::RegisterChoice(u32 at_line_index,
                                        const FLocalizedDialogueChoice* choices, u32 count) noexcept {
     // CDialogueSystem::AddChoices と同契約: 不正引数は no-op、上書き禁止。
     if (choices == nullptr || count == 0u) return;
-    if (at_line_index >= static_cast<u32>(m_Lines.Size())) return;
+    if (at_line_index >= static_cast<u32>(m_Lines.Num())) return;
 
     // 同 line への重複登録は無視 (= 最初の登録のみ有効)
-    for (usize i = 0; i < m_ChoicesAt.Size(); ++i) {
+    for (usize i = 0; i < m_ChoicesAt.Num(); ++i) {
         if (m_ChoicesAt[i].line_index == at_line_index) return;
     }
 
     FChoicesAt rec;
     rec.line_index   = at_line_index;
-    rec.choice_start = static_cast<u32>(m_AllChoices.Size());
+    rec.choice_start = static_cast<u32>(m_AllChoices.Num());
     rec.choice_count = count;
     for (u32 i = 0; i < count; ++i) {
         // choices[i] を値コピーで保持 (const char* メンバの寿命は呼び出し側保証、
         // 文字列バッファそのものは複製しない)
-        m_AllChoices.PushBack(choices[i]);
+        m_AllChoices.Add(choices[i]);
     }
-    m_ChoicesAt.PushBack(rec);
+    m_ChoicesAt.Add(rec);
 }
 
 void CDialogueLocalizer::SetLocalizer(CLocalizationDirector* loc) noexcept {
@@ -101,7 +101,7 @@ void CDialogueLocalizer::StartFromLine(u32 line_index, BindCallback cb, void* us
     if (cb == nullptr) return;
     // 範囲外 index は no-op (= DialogueChoice::next_line_index で UINT32_MAX 等が
     // 渡されて終了扱いになるケースをここで吸収)。
-    if (line_index >= static_cast<u32>(m_Lines.Size())) return;
+    if (line_index >= static_cast<u32>(m_Lines.Num())) return;
 
     const FLocalizedDialogueLine& line = m_Lines[line_index];
 
@@ -114,15 +114,15 @@ void CDialogueLocalizer::StartFromLine(u32 line_index, BindCallback cb, void* us
 }
 
 u32 CDialogueLocalizer::LineCount() const noexcept {
-    return static_cast<u32>(m_Lines.Size());
+    return static_cast<u32>(m_Lines.Num());
 }
 
 void CDialogueLocalizer::Clear() noexcept {
     // 蓄積データを全破棄。Localizer 参照は維持する
     // (= 同 Localizer で別シナリオを再構築する想定が大半)。
-    m_Lines.Clear();
-    m_ChoicesAt.Clear();
-    m_AllChoices.Clear();
+    m_Lines.Reset();
+    m_ChoicesAt.Reset();
+    m_AllChoices.Reset();
 }
 
 } // namespace acs::game

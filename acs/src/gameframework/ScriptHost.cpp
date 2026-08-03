@@ -187,7 +187,7 @@ void CScriptHost::Init(IScriptVm* vm) noexcept {
     if (m_Vm != nullptr && m_Vm != vm) {
         ACS_LOG_WARN("CScriptHost::Init: overwriting existing vm (likely a re-init in tests)");
         // 既存の native 登録は新 vm 向けではないのでクリアする。
-        m_Natives.Clear();
+        m_Natives.Reset();
     }
     m_Vm = vm;
 }
@@ -196,7 +196,7 @@ void CScriptHost::Init(IScriptVm* vm) noexcept {
 void CScriptHost::Shutdown() noexcept {
     // vm 自体は所有していないので破棄しない。参照だけ切る。
     m_Vm = nullptr;
-    m_Natives.Clear();
+    m_Natives.Reset();
     // error callback はあえて残す (Shutdown 後 → 再 Init で同じ UI に
     // 通知させたいシナリオが多いため)。明示的に SetOnErrorCallback(nullptr)
     // を呼んでクリアすること。
@@ -483,7 +483,7 @@ TResult<void> CScriptHost::RegisterNative(const char*    function_name,
     }
 
     usize existing_index = static_cast<usize>(-1);
-    for (usize i = 0u; i < m_Natives.Size(); ++i) {
+    for (usize i = 0u; i < m_Natives.Num(); ++i) {
         if (CStrEquals(m_Natives[i].name, function_name)) {
             existing_index = i;
             break;
@@ -497,11 +497,11 @@ TResult<void> CScriptHost::RegisterNative(const char*    function_name,
         m_Natives[existing_index].fn = fn;
         m_Natives[existing_index].user = user;
     } else {
-        if (m_Natives.Size() >= static_cast<usize>(kMaxScriptNativeFunctions)) {
+        if (m_Natives.Num() >= static_cast<usize>(kMaxScriptNativeFunctions)) {
             return ACS_ERR(Container, script_err::kSub_RegistryLimit,
                            "CScriptHost::RegisterNative: registry limit exceeded");
         }
-        if (!m_Natives.TryReserve(m_Natives.Size() + 1u)) {
+        if (!m_Natives.TryReserve(m_Natives.Num() + 1u)) {
             return ACS_ERR(Memory, script_err::kSub_AllocationFailed,
                            "CScriptHost::RegisterNative: registry allocation failed");
         }
@@ -511,21 +511,21 @@ TResult<void> CScriptHost::RegisterNative(const char*    function_name,
         }
         entry.fn = fn;
         entry.user = user;
-        if (!m_Natives.TryPushBack(entry)) {
+        if (!m_Natives.TryAdd(entry)) {
             return ACS_ERR(Memory, script_err::kSub_AllocationFailed,
                            "CScriptHost::RegisterNative: registry append failed");
         }
     }
 
     const usize staged_index =
-        replacing ? existing_index : (m_Natives.Size() - 1u);
+        replacing ? existing_index : (m_Natives.Num() - 1u);
     TResult<void> r =
         m_Vm->RegisterNativeFunction(m_Natives[staged_index].name, fn, user);
     if (r.IsErr()) {
         if (replacing) {
             m_Natives[existing_index] = previous;
         } else {
-            m_Natives.PopBack();
+            m_Natives.Pop();
         }
         ACS_LOG_WARN("CScriptHost::RegisterNative: backend rejected '%s'; cache rolled back",
                      function_name);
@@ -560,7 +560,7 @@ void CScriptHost::RegisterStandardBindings() noexcept {
 
 /** RegisteredNativeCount の実装 (内部キャッシュの件数を返す)。 */
 u32 CScriptHost::RegisteredNativeCount() const noexcept {
-    return static_cast<u32>(m_Natives.Size());
+    return static_cast<u32>(m_Natives.Num());
 }
 
 /** 登録済みnative functionを名前で取得する。 */
@@ -574,7 +574,7 @@ bool CScriptHost::TryGetRegisteredNative(const char*     function_name,
         function_name_length == 0u) {
         return false;
     }
-    for (usize i = 0u; i < m_Natives.Size(); ++i) {
+    for (usize i = 0u; i < m_Natives.Num(); ++i) {
         if (CStrEquals(m_Natives[i].name, function_name)) {
             out_fn = m_Natives[i].fn;
             out_user = m_Natives[i].user;

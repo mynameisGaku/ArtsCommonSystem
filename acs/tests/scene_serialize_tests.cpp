@@ -310,8 +310,8 @@ namespace {
 /** テスト用: LoadNodeTree のバイナリフォーマットでノード 1 件を手書きする簡易ライタ。 */
 struct CSceneBinWriter {
     TArray<u8> bytes;
-    void U8 (u8 v)  noexcept { bytes.PushBack(v); }
-    void U32(u32 v) noexcept { for (u32 i = 0; i < 4; ++i) bytes.PushBack(static_cast<u8>((v >> (8u * i)) & 0xFFu)); }
+    void U8 (u8 v)  noexcept { bytes.Add(v); }
+    void U32(u32 v) noexcept { for (u32 i = 0; i < 4; ++i) bytes.Add(static_cast<u8>((v >> (8u * i)) & 0xFFu)); }
     void I32(i32 v) noexcept { U32(static_cast<u32>(v)); }
     void F32(f32 v) noexcept { u32 u = 0; std::memcpy(&u, &v, 4u); U32(u); }
     void Bytes(const char* data, u32 size) noexcept {
@@ -383,7 +383,7 @@ ACS_TEST(SceneSerialize, RejectsInvalidParentIndexTransactionally) {
     w.Node(2);   // 自分自身より後ろを指す不正 index
 
     const FSceneLoadResult result =
-        TryLoadNodeTree(w.bytes.Data(), static_cast<u32>(w.bytes.Size()));
+        TryLoadNodeTree(w.bytes.GetData(), static_cast<u32>(w.bytes.Num()));
     EXPECT_TRUE(!result.Succeeded());
     EXPECT_TRUE(result.Root.Get() == nullptr);
     EXPECT_EQ(static_cast<u32>(result.Error),
@@ -397,7 +397,7 @@ ACS_TEST(SceneSerialize, RejectsDeclaredResourceLimitsBeforeAllocation) {
     excessive_nodes.U32(kSceneSerializeVersion);
     excessive_nodes.U32(kSceneSerializeMaxNodeCount + 1u);
     const FSceneLoadResult node_result =
-        TryLoadNodeTree(excessive_nodes.bytes.Data(), static_cast<u32>(excessive_nodes.bytes.Size()));
+        TryLoadNodeTree(excessive_nodes.bytes.GetData(), static_cast<u32>(excessive_nodes.bytes.Num()));
     EXPECT_EQ(static_cast<u32>(node_result.Error),
               static_cast<u32>(ESceneSerializeError::NodeLimitExceeded));
 
@@ -407,8 +407,8 @@ ACS_TEST(SceneSerialize, RejectsDeclaredResourceLimitsBeforeAllocation) {
     excessive_components.U32(1u);
     excessive_components.Node(-1, kSceneSerializeMaxComponentCountPerNode + 1u);
     const FSceneLoadResult component_result =
-        TryLoadNodeTree(excessive_components.bytes.Data(),
-                        static_cast<u32>(excessive_components.bytes.Size()));
+        TryLoadNodeTree(excessive_components.bytes.GetData(),
+                        static_cast<u32>(excessive_components.bytes.Num()));
     EXPECT_EQ(static_cast<u32>(component_result.Error),
               static_cast<u32>(ESceneSerializeError::ComponentLimitExceeded));
 
@@ -421,8 +421,8 @@ ACS_TEST(SceneSerialize, RejectsDeclaredResourceLimitsBeforeAllocation) {
     excessive_payload.Bytes("X", 1u);
     excessive_payload.U32(kSceneSerializeMaxComponentPayloadBytes + 1u);
     const FSceneLoadResult payload_result =
-        TryLoadNodeTree(excessive_payload.bytes.Data(),
-                        static_cast<u32>(excessive_payload.bytes.Size()));
+        TryLoadNodeTree(excessive_payload.bytes.GetData(),
+                        static_cast<u32>(excessive_payload.bytes.Num()));
     EXPECT_EQ(static_cast<u32>(payload_result.Error),
               static_cast<u32>(ESceneSerializeError::ComponentPayloadLimitExceeded));
 }
@@ -437,7 +437,7 @@ ACS_TEST(SceneSerialize, RejectsEmptyComponentName) {
     w.U32(0u);
 
     const FSceneLoadResult result =
-        TryLoadNodeTree(w.bytes.Data(), static_cast<u32>(w.bytes.Size()));
+        TryLoadNodeTree(w.bytes.GetData(), static_cast<u32>(w.bytes.Num()));
     EXPECT_EQ(static_cast<u32>(result.Error),
               static_cast<u32>(ESceneSerializeError::InvalidComponentName));
     EXPECT_TRUE(result.Root.Get() == nullptr);
@@ -458,7 +458,7 @@ ACS_TEST(SceneSerialize, RejectsCorruptKnownComponentPayloadTransactionally) {
     for (u32 i = 0u; i < 12u; ++i) w.U8(0u); // magic/type/count がすべて不正。
 
     const FSceneLoadResult result =
-        TryLoadNodeTree(w.bytes.Data(), static_cast<u32>(w.bytes.Size()));
+        TryLoadNodeTree(w.bytes.GetData(), static_cast<u32>(w.bytes.Num()));
     EXPECT_EQ(static_cast<u32>(result.Error),
               static_cast<u32>(ESceneSerializeError::InvalidComponentPayload));
     EXPECT_TRUE(result.Root.Get() == nullptr);
@@ -474,7 +474,7 @@ ACS_TEST(SceneSerialize, LoadsLegacyV2DrawSettings) {
     w.LegacyV2Node(-1);
 
     FSceneLoadResult result =
-        TryLoadNodeTree(w.bytes.Data(), static_cast<u32>(w.bytes.Size()));
+        TryLoadNodeTree(w.bytes.GetData(), static_cast<u32>(w.bytes.Num()));
     EXPECT_TRUE(result.Succeeded());
     EXPECT_EQ(result.DepthCappedNodeCount, 0u);
     TObjectPtr<ANode> loaded = Move(result.Root);
@@ -494,7 +494,7 @@ ACS_TEST(SceneSerialize, LoadsLegacyV3TransformAndDrawSettings) {
     w.LegacyV3Node(-1);
 
     FSceneLoadResult result =
-        TryLoadNodeTree(w.bytes.Data(), static_cast<u32>(w.bytes.Size()));
+        TryLoadNodeTree(w.bytes.GetData(), static_cast<u32>(w.bytes.Num()));
     EXPECT_TRUE(result.Succeeded());
     EXPECT_EQ(result.DepthCappedNodeCount, 0u);
     TObjectPtr<ANode> loaded = Move(result.Root);
@@ -526,7 +526,7 @@ ACS_TEST(SceneSerialize, HostileDeepChainIsDepthCappedWithoutLosingNodes) {
     for (u32 i = 1; i < kNodes; ++i) w.Node(static_cast<i32>(i - 1));  // 一本鎖
 
     FSceneLoadResult result =
-        TryLoadNodeTree(w.bytes.Data(), static_cast<u32>(w.bytes.Size()));
+        TryLoadNodeTree(w.bytes.GetData(), static_cast<u32>(w.bytes.Num()));
     EXPECT_TRUE(result.Succeeded());
     EXPECT_TRUE(result.DepthCappedNodeCount > 0u);
     TObjectPtr<ANode> loaded = Move(result.Root);
@@ -537,18 +537,18 @@ ACS_TEST(SceneSerialize, HostileDeepChainIsDepthCappedWithoutLosingNodes) {
     u32 total = 0, max_depth = 0;
     TArray<const ANode*> stack_nodes;
     TArray<u32>            stack_depths;
-    stack_nodes.PushBack(loaded.Get());
-    stack_depths.PushBack(0u);
-    while (stack_nodes.Size() > 0) {
-        const ANode* n = stack_nodes[stack_nodes.Size() - 1];
-        const u32      d = stack_depths[stack_depths.Size() - 1];
-        stack_nodes.PopBack();
-        stack_depths.PopBack();
+    stack_nodes.Add(loaded.Get());
+    stack_depths.Add(0u);
+    while (stack_nodes.Num() > 0) {
+        const ANode* n = stack_nodes[stack_nodes.Num() - 1];
+        const u32      d = stack_depths[stack_depths.Num() - 1];
+        stack_nodes.Pop();
+        stack_depths.Pop();
         ++total;
         if (d > max_depth) max_depth = d;
         for (u32 c = 0; c < n->ChildCount(); ++c) {
-            stack_nodes.PushBack(n->Child(c));
-            stack_depths.PushBack(d + 1u);
+            stack_nodes.Add(n->Child(c));
+            stack_depths.Add(d + 1u);
         }
     }
     EXPECT_EQ(total, kNodes);            // ノードは 1 つも失わない

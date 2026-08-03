@@ -487,16 +487,16 @@ void CHotReloadWatcher::Init() noexcept {
 void CHotReloadWatcher::Shutdown() noexcept {
     // OS watcher ハンドルを閉じる (TUniquePtr<FWatchEntry> の dtor → Close())。
     // 発行中の ReadDirectoryChangesW は CancelIoEx + CloseHandle で取り消される。
-    m_Watchers.Clear();
+    m_Watchers.Reset();
 
     // watched paths / callbacks / pending events を全クリア。
     // 監視 path は FString の所有値であり、Clear によって解放される。
     // pending event の file_path は m_EventPaths が所有するので両方クリアして
     // dangling を防ぐ (lockstep)。
-    m_WatchedPaths.Clear();
-    m_Callbacks.Clear();
-    m_PendingEvents.Clear();
-    m_EventPaths.Clear();
+    m_WatchedPaths.Reset();
+    m_Callbacks.Reset();
+    m_PendingEvents.Reset();
+    m_EventPaths.Reset();
     m_LastConsumedPath.Clear();
     m_AbortDispatch = true;
     m_StopDrainAfterCurrentEvent = true;
@@ -517,22 +517,22 @@ EHotReloadResult CHotReloadWatcher::TryWatchDirectory(
     const FStringView path_view(dir_path, path_len);
     // WatchFile entry は filter 登録にすぎないため、同じ path を後から native
     // directory watcher へ昇格する処理を妨げてはならない。
-    for (usize i = 0; i < m_Watchers.Size(); ++i) {
+    for (usize i = 0; i < m_Watchers.Num(); ++i) {
         const FWatchEntry* watcher = m_Watchers[i].Get();
         if (watcher != nullptr && watcher->m_Path == path_view) {
             return EHotReloadResult::AlreadyRegistered;
         }
     }
     bool path_already_listed = false;
-    for (usize i = 0; i < m_WatchedPaths.Size(); ++i) {
+    for (usize i = 0; i < m_WatchedPaths.Num(); ++i) {
         if (m_WatchedPaths[i] == path_view) {
             path_already_listed = true;
             break;
         }
     }
     if ((!path_already_listed &&
-         m_WatchedPaths.Size() >= kMaxWatchedPaths) ||
-        m_Watchers.Size() >= kMaxDirectoryWatches) {
+         m_WatchedPaths.Num() >= kMaxWatchedPaths) ||
+        m_Watchers.Num() >= kMaxDirectoryWatches) {
         return EHotReloadResult::LimitExceeded;
     }
 
@@ -541,8 +541,8 @@ EHotReloadResult CHotReloadWatcher::TryWatchDirectory(
     if (!owned_path.TryAppend(path_view) ||
         (!path_already_listed && !listed_path.TryAppend(path_view)) ||
         (!path_already_listed &&
-         !m_WatchedPaths.TryReserve(m_WatchedPaths.Size() + 1u)) ||
-        !m_Watchers.TryReserve(m_Watchers.Size() + 1u)) {
+         !m_WatchedPaths.TryReserve(m_WatchedPaths.Num() + 1u)) ||
+        !m_Watchers.TryReserve(m_Watchers.Num() + 1u)) {
         return EHotReloadResult::OutOfMemory;
     }
 
@@ -589,12 +589,12 @@ EHotReloadResult CHotReloadWatcher::TryWatchDirectory(
         return EHotReloadResult::OsError;
     }
 
-    if (!m_Watchers.TryPushBack(Move(entry))) {
+    if (!m_Watchers.TryAdd(Move(entry))) {
         return EHotReloadResult::OutOfMemory;
     }
     if (!path_already_listed &&
-        !m_WatchedPaths.TryPushBack(Move(listed_path))) {
-        m_Watchers.PopBack();
+        !m_WatchedPaths.TryAdd(Move(listed_path))) {
+        m_Watchers.Pop();
         return EHotReloadResult::OutOfMemory;
     }
     return EHotReloadResult::Success;
@@ -612,17 +612,17 @@ EHotReloadResult CHotReloadWatcher::TryWatchFile(const char* file_path) noexcept
         return validation;
     }
     const FStringView path_view(file_path, path_len);
-    for (usize i = 0; i < m_WatchedPaths.Size(); ++i) {
+    for (usize i = 0; i < m_WatchedPaths.Num(); ++i) {
         if (m_WatchedPaths[i] == path_view) {
             return EHotReloadResult::AlreadyRegistered;
         }
     }
-    if (m_WatchedPaths.Size() >= kMaxWatchedPaths) {
+    if (m_WatchedPaths.Num() >= kMaxWatchedPaths) {
         return EHotReloadResult::LimitExceeded;
     }
     FString owned_path;
     if (!owned_path.TryAppend(path_view) ||
-        !m_WatchedPaths.TryPushBack(Move(owned_path))) {
+        !m_WatchedPaths.TryAdd(Move(owned_path))) {
         return EHotReloadResult::OutOfMemory;
     }
     return EHotReloadResult::Success;
@@ -638,7 +638,7 @@ void CHotReloadWatcher::Unwatch(const char* path) noexcept {
     // 対応する OS watcher があれば HANDLE を閉じて除去 (TUniquePtr dtor → Close)。
     // m_Watchers は m_WatchedPaths とは別配列 (WatchFile 分は entry を持たない /
     // 起動失敗分も無い) なので path 文字列で照合する。
-    for (usize i = 0; i < m_Watchers.Size(); ++i) {
+    for (usize i = 0; i < m_Watchers.Num(); ++i) {
         const FWatchEntry* e = m_Watchers[i].Get();
         if (e != nullptr && e->m_Path == FStringView(path, path_len)) {
             m_Watchers.RemoveAtSwap(i);
@@ -648,7 +648,7 @@ void CHotReloadWatcher::Unwatch(const char* path) noexcept {
 
     // 完全一致 1 件を削除。順序は保証しないので swap-remove (RemoveAtSwap)。
     // watched paths は描画レイアウト等の順序依存がないため OK。
-    const usize n = m_WatchedPaths.Size();
+    const usize n = m_WatchedPaths.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_WatchedPaths[i] == FStringView(path, path_len)) {
             m_WatchedPaths.RemoveAtSwap(i);
@@ -671,18 +671,18 @@ EHotReloadResult CHotReloadWatcher::TryRegisterCallback(
     }
 
     // (cb, user) ペア重複は no-op。誤って二重 register しても二重 dispatch を防ぐ。
-    for (usize i = 0; i < m_Callbacks.Size(); ++i) {
+    for (usize i = 0; i < m_Callbacks.Num(); ++i) {
         if (m_Callbacks[i].cb == cb && m_Callbacks[i].user == user) {
             return EHotReloadResult::AlreadyRegistered;
         }
     }
-    if (m_Callbacks.Size() >= kMaxCallbacks) {
+    if (m_Callbacks.Num() >= kMaxCallbacks) {
         return EHotReloadResult::LimitExceeded;
     }
     FCallbackEntry e{};
     e.cb   = cb;
     e.user = user;
-    return m_Callbacks.TryPushBack(e)
+    return m_Callbacks.TryAdd(e)
         ? EHotReloadResult::Success
         : EHotReloadResult::OutOfMemory;
 }
@@ -692,7 +692,7 @@ EHotReloadResult CHotReloadWatcher::UnregisterCallback(
     if (cb == nullptr) {
         return EHotReloadResult::InvalidArgument;
     }
-    for (usize i = 0; i < m_Callbacks.Size(); ++i) {
+    for (usize i = 0; i < m_Callbacks.Num(); ++i) {
         if (m_Callbacks[i].cb == cb && m_Callbacks[i].user == user) {
             m_Callbacks.RemoveAtSwap(i);
             return EHotReloadResult::Success;
@@ -758,9 +758,9 @@ EHotReloadResult CHotReloadWatcher::TryQueueEvent(
         // 完全な event/path pair の末尾から検索する。古い burst が queue に残っていても
         // 正しい debounce 候補を選び、内部 lockstep 不変条件が崩れた場合も範囲内を保つ。
         const usize pair_count =
-            m_EventPaths.Size() < m_PendingEvents.Size()
-                ? m_EventPaths.Size()
-                : m_PendingEvents.Size();
+            m_EventPaths.Num() < m_PendingEvents.Num()
+                ? m_EventPaths.Num()
+                : m_PendingEvents.Num();
         for (usize i = pair_count; i-- > 0u;) {
             if (m_EventPaths[i] != path) {
                 continue;
@@ -778,10 +778,10 @@ EHotReloadResult CHotReloadWatcher::TryQueueEvent(
         }
     }
 
-    if (m_PendingEvents.Size() >= kMaxPendingEvents) {
+    if (m_PendingEvents.Num() >= kMaxPendingEvents) {
         return EHotReloadResult::LimitExceeded;
     }
-    const usize required = m_PendingEvents.Size() + 1u;
+    const usize required = m_PendingEvents.Num() + 1u;
     if (!m_PendingEvents.TryReserve(required) ||
         !m_EventPaths.TryReserve(required)) {
         return EHotReloadResult::OutOfMemory;
@@ -790,11 +790,11 @@ EHotReloadResult CHotReloadWatcher::TryQueueEvent(
     FHotReloadEvent event{};
     event.modified_timestamp = timestamp;
     event.removed = removed;
-    if (!m_EventPaths.TryPushBack(Move(path))) {
+    if (!m_EventPaths.TryAdd(Move(path))) {
         return EHotReloadResult::OutOfMemory;
     }
-    if (!m_PendingEvents.TryPushBack(event)) {
-        m_EventPaths.PopBack();
+    if (!m_PendingEvents.TryAdd(event)) {
+        m_EventPaths.Pop();
         return EHotReloadResult::OutOfMemory;
     }
     hot_reload_detail::SaturatingIncrement(
@@ -944,7 +944,7 @@ EHotReloadResult CHotReloadWatcher::TryTick(f32 dt) noexcept {
     // GetOverlappedResult(bWait=FALSE) で ReadDirectoryChangesW の完了を確認。
     // 完了していれば FILE_NOTIFY_INFORMATION を走査して event を積み、
     // 同じ HANDLE に対し read を再発行する (継続監視)。
-    for (usize wi = 0; wi < m_Watchers.Size(); ++wi) {
+    for (usize wi = 0; wi < m_Watchers.Num(); ++wi) {
         FWatchEntry* e = m_Watchers[wi].Get();
         if (e == nullptr || e->m_Dir == INVALID_HANDLE_VALUE) {
             continue;
@@ -1008,41 +1008,41 @@ EHotReloadResult CHotReloadWatcher::TryTick(f32 dt) noexcept {
     // pending を FIFO で drain しながら callback を呼ぶ。Consume と同じ FIFO 規約。
     // file_path は呼び出し直前に m_EventPaths から解決して「常に現行の安定アドレス」
     // を渡す (TArray 再確保で SSO 文字列のアドレスが動いても安全)。
-    if (m_PendingEvents.Size() == 0 || m_Callbacks.Size() == 0) {
+    if (m_PendingEvents.Num() == 0 || m_Callbacks.Num() == 0) {
         return tick_result;
     }
 
     TArray<FCallbackEntry> callback_snapshot;
-    if (!callback_snapshot.TryReserve(m_Callbacks.Size())) {
+    if (!callback_snapshot.TryReserve(m_Callbacks.Num())) {
         record_result(EHotReloadResult::OutOfMemory, false, false);
         return tick_result;
     }
-    for (usize i = 0; i < m_Callbacks.Size(); ++i) {
-        if (!callback_snapshot.TryPushBack(m_Callbacks[i])) {
+    for (usize i = 0; i < m_Callbacks.Num(); ++i) {
+        if (!callback_snapshot.TryAdd(m_Callbacks[i])) {
             record_result(EHotReloadResult::OutOfMemory, false, false);
             return tick_result;
         }
     }
 
     m_Dispatching = true;
-    usize dispatch_remaining = m_PendingEvents.Size();
+    usize dispatch_remaining = m_PendingEvents.Num();
     while (dispatch_remaining > 0u &&
-           m_PendingEvents.Size() > 0u &&
+           m_PendingEvents.Num() > 0u &&
            !m_AbortDispatch &&
            !m_StopDrainAfterCurrentEvent) {
         FHotReloadEvent ev = m_PendingEvents[0];
         FString event_path =
-            (m_EventPaths.Size() > 0) ? Move(m_EventPaths[0]) : FString{};
+            (m_EventPaths.Num() > 0) ? Move(m_EventPaths[0]) : FString{};
         RemoveFrontEventPair();
         --dispatch_remaining;
         hot_reload_detail::SaturatingIncrement(
             m_Diagnostics.dispatched_event_count);
         ev.file_path = event_path.Data();
 
-        for (usize ci = 0; ci < callback_snapshot.Size() && !m_AbortDispatch; ++ci) {
+        for (usize ci = 0; ci < callback_snapshot.Num() && !m_AbortDispatch; ++ci) {
             const FCallbackEntry& c = callback_snapshot[ci];
             bool still_registered = false;
-            for (usize current = 0; current < m_Callbacks.Size(); ++current) {
+            for (usize current = 0; current < m_Callbacks.Num(); ++current) {
                 if (m_Callbacks[current].cb == c.cb &&
                     m_Callbacks[current].user == c.user) {
                     still_registered = true;
@@ -1060,12 +1060,12 @@ EHotReloadResult CHotReloadWatcher::TryTick(f32 dt) noexcept {
 
 // 監視登録された path の数を返す。
 u32 CHotReloadWatcher::WatchedCount() const noexcept {
-    return static_cast<u32>(m_WatchedPaths.Size());
+    return static_cast<u32>(m_WatchedPaths.Num());
 }
 
 // 未消費の pending event 数を返す。
 u32 CHotReloadWatcher::PendingEventCount() const noexcept {
-    return static_cast<u32>(m_PendingEvents.Size());
+    return static_cast<u32>(m_PendingEvents.Num());
 }
 
 // 診断値を allocation-free の値コピーとして取得する。
@@ -1080,7 +1080,7 @@ void CHotReloadWatcher::ClearDiagnostics() noexcept {
 
 // pending event の先頭 1 件を FIFO で取り出して除去する (空なら false)。
 bool CHotReloadWatcher::ConsumeNextEvent(FHotReloadEvent& out) noexcept {
-    if (m_PendingEvents.Size() == 0 || m_EventPaths.Size() == 0) {
+    if (m_PendingEvents.Num() == 0 || m_EventPaths.Num() == 0) {
         return false;  // 空なら out は触らず false
     }
     if (m_Dispatching) {
@@ -1107,17 +1107,17 @@ bool CHotReloadWatcher::ConsumeNextEvent(FHotReloadEvent& out) noexcept {
 
 // pending event 先頭 1 件を m_PendingEvents / m_EventPaths から lockstep で shift 除去する。
 void CHotReloadWatcher::RemoveFrontEventPair() noexcept {
-    if (m_PendingEvents.Size() > 0) {
-        for (usize i = 1; i < m_PendingEvents.Size(); ++i) {
+    if (m_PendingEvents.Num() > 0) {
+        for (usize i = 1; i < m_PendingEvents.Num(); ++i) {
             m_PendingEvents[i - 1] = m_PendingEvents[i];
         }
-        m_PendingEvents.PopBack();
+        m_PendingEvents.Pop();
     }
-    if (m_EventPaths.Size() > 0) {
-        for (usize i = 1; i < m_EventPaths.Size(); ++i) {
+    if (m_EventPaths.Num() > 0) {
+        for (usize i = 1; i < m_EventPaths.Num(); ++i) {
             m_EventPaths[i - 1] = Move(m_EventPaths[i]);
         }
-        m_EventPaths.PopBack();
+        m_EventPaths.Pop();
     }
 }
 
@@ -1130,8 +1130,8 @@ void CHotReloadWatcher::ClearEvents() noexcept {
         m_StopDrainAfterCurrentEvent = true;
     }
     // pending events と所有 path 文字列を lockstep で全クリア。
-    m_PendingEvents.Clear();
-    m_EventPaths.Clear();
+    m_PendingEvents.Reset();
+    m_EventPaths.Reset();
     m_LastConsumedPath.Clear();
 }
 

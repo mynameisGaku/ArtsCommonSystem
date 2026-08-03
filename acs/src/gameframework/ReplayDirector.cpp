@@ -686,15 +686,15 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
             return ACS_ERR(IO, kSub_LimitExceeded,
                            "CReplayDirector::TrySaveReplay: recorder blob exceeds the limit");
         }
-        if (!input_blob.TryResize(static_cast<usize>(required))) {
+        if (!input_blob.TrySetNum(static_cast<usize>(required))) {
             return ACS_ERR(Memory, kSub_Oom,
                            "CReplayDirector::TrySaveReplay: recorder blob allocation failed");
         }
         u32 written = 0;
         TResult<void> source_result =
-            m_Recorder->SaveToBuffer(input_blob.Data(), static_cast<u32>(required), written);
+            m_Recorder->SaveToBuffer(input_blob.GetData(), static_cast<u32>(required), written);
         if (source_result.IsErr() || written != required ||
-            !ValidateSourceBlob(input_blob.Data(), written, true)) {
+            !ValidateSourceBlob(input_blob.GetData(), written, true)) {
             return ACS_ERR(IO, kSub_BadSourceBlob,
                            "CReplayDirector::TrySaveReplay: recorder produced an invalid blob");
         }
@@ -714,15 +714,15 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
             return ACS_ERR(IO, kSub_LimitExceeded,
                            "CReplayDirector::TrySaveReplay: lockstep blob exceeds the limit");
         }
-        if (!lockstep_blob.TryResize(static_cast<usize>(required))) {
+        if (!lockstep_blob.TrySetNum(static_cast<usize>(required))) {
             return ACS_ERR(Memory, kSub_Oom,
                            "CReplayDirector::TrySaveReplay: lockstep blob allocation failed");
         }
         u32 written = 0;
         TResult<void> source_result =
-            m_Lockstep->SaveToBuffer(lockstep_blob.Data(), static_cast<u32>(required), written);
+            m_Lockstep->SaveToBuffer(lockstep_blob.GetData(), static_cast<u32>(required), written);
         if (source_result.IsErr() || written != required ||
-            !ValidateSourceBlob(lockstep_blob.Data(), written, false)) {
+            !ValidateSourceBlob(lockstep_blob.GetData(), written, false)) {
             return ACS_ERR(IO, kSub_BadSourceBlob,
                            "CReplayDirector::TrySaveReplay: lockstep produced an invalid blob");
         }
@@ -733,30 +733,30 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
                            metadata_lengths.level_id +
                            metadata_lengths.player_name +
                            metadata_lengths.checksum +
-                           input_blob.Size() +
-                           lockstep_blob.Size();
+                           input_blob.Num() +
+                           lockstep_blob.Num();
     if (total_size > kReplayMaximumContainerBytes || total_size > ~u32{0}) {
         return ACS_ERR(IO, kSub_LimitExceeded,
                        "CReplayDirector::TrySaveReplay: container exceeds the product limit");
     }
 
     TArray<u8> body;
-    if (!body.TryResize(static_cast<usize>(total_size))) {
+    if (!body.TrySetNum(static_cast<usize>(total_size))) {
         return ACS_ERR(Memory, kSub_Oom,
                        "CReplayDirector::TrySaveReplay: container allocation failed");
     }
     u64 offset = 0;
-    MemCopy(body.Data() + offset, kReplayMagic, sizeof(kReplayMagic)); offset += sizeof(kReplayMagic);
-    WriteU32LE(body.Data() + offset, kReplayVersion); offset += sizeof(u32);
-    WriteU64LE(body.Data() + offset, m_Metadata.seed); offset += sizeof(u64);
-    WriteU64LE(body.Data() + offset, m_Metadata.timestamp); offset += sizeof(u64);
-    WriteU32LE(body.Data() + offset, m_Metadata.duration_ticks); offset += sizeof(u32);
+    MemCopy(body.GetData() + offset, kReplayMagic, sizeof(kReplayMagic)); offset += sizeof(kReplayMagic);
+    WriteU32LE(body.GetData() + offset, kReplayVersion); offset += sizeof(u32);
+    WriteU64LE(body.GetData() + offset, m_Metadata.seed); offset += sizeof(u64);
+    WriteU64LE(body.GetData() + offset, m_Metadata.timestamp); offset += sizeof(u64);
+    WriteU32LE(body.GetData() + offset, m_Metadata.duration_ticks); offset += sizeof(u32);
 
     const auto write_string = [&](const char* text, u32 length) noexcept {
-        WriteU32LE(body.Data() + offset, length);
+        WriteU32LE(body.GetData() + offset, length);
         offset += sizeof(u32);
         if (length > 0) {
-            MemCopy(body.Data() + offset, text, length);
+            MemCopy(body.GetData() + offset, text, length);
             offset += length;
         }
     };
@@ -764,18 +764,18 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
     write_string(m_Metadata.level_id, metadata_lengths.level_id);
     write_string(m_Metadata.player_name, metadata_lengths.player_name);
     write_string(m_Metadata.checksum_hex, metadata_lengths.checksum);
-    WriteU32LE(body.Data() + offset, static_cast<u32>(input_blob.Size())); offset += sizeof(u32);
+    WriteU32LE(body.GetData() + offset, static_cast<u32>(input_blob.Num())); offset += sizeof(u32);
     if (!input_blob.IsEmpty()) {
-        MemCopy(body.Data() + offset, input_blob.Data(), input_blob.Size());
-        offset += input_blob.Size();
+        MemCopy(body.GetData() + offset, input_blob.GetData(), input_blob.Num());
+        offset += input_blob.Num();
     }
-    WriteU32LE(body.Data() + offset, static_cast<u32>(lockstep_blob.Size())); offset += sizeof(u32);
+    WriteU32LE(body.GetData() + offset, static_cast<u32>(lockstep_blob.Num())); offset += sizeof(u32);
     if (!lockstep_blob.IsEmpty()) {
-        MemCopy(body.Data() + offset, lockstep_blob.Data(), lockstep_blob.Size());
-        offset += lockstep_blob.Size();
+        MemCopy(body.GetData() + offset, lockstep_blob.GetData(), lockstep_blob.Num());
+        offset += lockstep_blob.Num();
     }
-    const u32 crc = ComputeCrc32(body.Data(), offset);
-    WriteU32LE(body.Data() + offset, crc);
+    const u32 crc = ComputeCrc32(body.GetData(), offset);
+    WriteU32LE(body.GetData() + offset, crc);
     offset += sizeof(u32);
     if (offset != total_size) {
         return ACS_ERR(IO, kSub_BadSize,
@@ -802,7 +802,7 @@ TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
     }
 
     DWORD err = 0;
-    if (!WriteAll(h, body.Data(), total_size, err)) {
+    if (!WriteAll(h, body.GetData(), total_size, err)) {
         ::CloseHandle(h);
         ::DeleteFileW(tmp_path);
         return ACS_ERR_OS(IO, kSub_Io,

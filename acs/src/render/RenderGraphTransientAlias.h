@@ -40,12 +40,12 @@ public:
 
     /** 入力順と同じ割り当て配列を返す。 */
     const FRenderGraphAliasAssignment* Assignments() const noexcept {
-        return m_Assignments.Data();
+        return m_Assignments.GetData();
     }
 
     /** 割り当て要素数を返す。 */
     usize AssignmentCount() const noexcept {
-        return m_Assignments.Size();
+        return m_Assignments.Num();
     }
 
     /** 現在の計画集計を返す。 */

@@ -559,12 +559,12 @@ ACS_TEST(Mvvm, ObservableArrayLifecycle) {
     FArrayCtx ctx;
     arr.Subscribe(&OnArr, &ctx);
 
-    arr.PushBack(10);
+    arr.Add(10);
     EXPECT_EQ(ctx.inserted, 1);
     EXPECT_EQ(ctx.last_idx, 0);
     EXPECT_EQ(ctx.last_val, 10);
 
-    arr.PushBack(20);
+    arr.Add(20);
     EXPECT_EQ(ctx.inserted, 2);
     EXPECT_EQ(ctx.last_idx, 1);
     EXPECT_EQ(ctx.last_val, 20);
@@ -581,21 +581,21 @@ ACS_TEST(Mvvm, ObservableArrayLifecycle) {
     EXPECT_TRUE(arr.Remove(20));
     EXPECT_EQ(ctx.removed, 1);
     EXPECT_EQ(ctx.last_idx, 1);
-    EXPECT_EQ(arr.Size(), (usize)1);
+    EXPECT_EQ(arr.Num(), (usize)1);
     EXPECT_EQ(arr.At(0), 99);
     EXPECT_FALSE(arr.Remove(20));
     EXPECT_EQ(ctx.removed, 1);
 
-    arr.PushBack(30);
+    arr.Add(30);
     arr.RemoveAt(0);
     EXPECT_EQ(ctx.removed, 2);
     EXPECT_EQ(ctx.last_idx, 0);
-    EXPECT_EQ(arr.Size(), (usize)1);
+    EXPECT_EQ(arr.Num(), (usize)1);
     EXPECT_EQ(arr.At(0), 30);
 
-    arr.Clear();
+    arr.Reset();
     EXPECT_EQ(ctx.cleared, 1);
-    EXPECT_EQ(arr.Size(), (usize)0);
+    EXPECT_EQ(arr.Num(), (usize)0);
 }
 
 // ---- ObservableArray: Remove 通知中に owner を破棄しても戻り値を返す ------
@@ -615,7 +615,7 @@ ACS_TEST(Mvvm, ObservableArrayRemoveListenerMayDestroyOwner) {
 
     // Remove の通知元を所有する object。
     TUniquePtr<FOwner> owner = MakeUnique<FOwner>();
-    owner->Values.PushBack(7);
+    owner->Values.Add(7);
     // listener 間で owner と回数を共有する状態。
     FDestroyContext context{ &owner, 0, 0 };
     owner->Values.Subscribe(

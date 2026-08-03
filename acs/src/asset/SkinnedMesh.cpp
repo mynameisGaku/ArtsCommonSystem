@@ -33,7 +33,7 @@ FMat4 ComposeTRS(FVec3 t, FQuat r, FVec3 s) noexcept {
  */
 void SampleChannel(const FAnimationChannel& ch, f32 t,
                    FVec3& out_t, FQuat& out_r, FVec3& out_s) noexcept {
-    const usize n = ch.keys.Size();
+    const usize n = ch.keys.Num();
     if (n == 0) {
         out_t = FVec3{0, 0, 0};
         out_r = FQuat{};
@@ -74,13 +74,13 @@ void SampleChannel(const FAnimationChannel& ch, f32 t,
 
 /** 各ボーンのバインドワールド行列を親から合成し、その逆行列を inverse_bind に格納する。 */
 void ASkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
-    const u32 n = static_cast<u32>(m_Bones.Size());
+    const u32 n = static_cast<u32>(m_Bones.Num());
     if (n == 0) return;
 
     // 1) 各ボーンのバインド世界行列を親から順に計算する。
     //    TArray<FBone> は親が i より小さい番号で並んでいる前提（前向き列挙可）。
     TArray<FMat4> world_at_bind;
-    world_at_bind.Resize(n);
+    world_at_bind.SetNum(n);
 
     for (u32 i = 0; i < n; ++i) {
         const FBone& b = m_Bones[i];
@@ -104,7 +104,7 @@ void ASkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
 /** 指定アニメーションを先頭から再生開始する (mesh 未設定・範囲外は無視)。 */
 void CAnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
     if (!m_Mesh) return;
-    if (anim_index >= m_Mesh->Animations().Size()) return;
+    if (anim_index >= m_Mesh->Animations().Num()) return;
     m_Anim = static_cast<i32>(anim_index);
     m_bLoop = loop;
     m_Time = 0;
@@ -114,7 +114,7 @@ void CAnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
 /** 再生時刻を dt 進め、ループ時は wrap、非ループ時は終端でクランプして停止する。 */
 void CAnimationPlayer::Update(f32 dt) noexcept {
     if (!m_Playing || !m_Mesh || m_Anim < 0) return;
-    if (m_Anim >= static_cast<i32>(m_Mesh->Animations().Size())) return;
+    if (m_Anim >= static_cast<i32>(m_Mesh->Animations().Num())) return;
     const FAnimation& a = m_Mesh->Animations()[m_Anim];
     m_Time += dt;
     if (a.duration > 0) {
@@ -135,7 +135,7 @@ void CAnimationPlayer::Update(f32 dt) noexcept {
 u32 CAnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noexcept {
     if (!m_Mesh || !out_palette) return 0;
     const TArray<FBone>& bones = m_Mesh->Bones();
-    const u32 nb = static_cast<u32>(bones.Size());
+    const u32 nb = static_cast<u32>(bones.Num());
     const u32 count = nb < max_count ? nb : max_count;
     if (count == 0) return 0;
 
@@ -157,9 +157,9 @@ u32 CAnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noex
     }
 
     // アニメーションチャネルで上書き
-    if (m_Anim >= 0 && m_Anim < static_cast<i32>(m_Mesh->Animations().Size())) {
+    if (m_Anim >= 0 && m_Anim < static_cast<i32>(m_Mesh->Animations().Num())) {
         const FAnimation& a = m_Mesh->Animations()[m_Anim];
-        for (usize ci = 0; ci < a.channels.Size(); ++ci) {
+        for (usize ci = 0; ci < a.channels.Num(); ++ci) {
             const FAnimationChannel& ch = a.channels[ci];
             if (ch.bone_index < 0 || ch.bone_index >= static_cast<i32>(effective)) continue;
             FVec3 t, s; FQuat r;

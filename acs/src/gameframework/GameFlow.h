@@ -287,7 +287,7 @@ private:
      * @param s 変換する state。
      * @return state の数値。範囲外なら kFlowStateCount 以上 (呼び出し側で skip 判定に使う)。
      */
-    static u32 IndexOf(EFlowState s) noexcept { return static_cast<u32>(s); }
+    static u32 IndexOfByKey(EFlowState s) noexcept { return static_cast<u32>(s); }
 
     /** state ごとのコールバックスロット (size = kFlowStateCount)。 */
     TArray<FStateSlot> _states;

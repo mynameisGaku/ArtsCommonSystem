@@ -39,7 +39,7 @@ public:
     bool IsVisible(usize index) const noexcept;
 
     /** 評価済み node 数を返す。 */
-    usize Count() const noexcept { return m_Visibility.Size(); }
+    usize Count() const noexcept { return m_Visibility.Num(); }
 
     /** 順序不整合で scalar fallback した件数を返す。 */
     u32 ScalarFallbackCount() const noexcept { return m_ScalarFallbackCount; }

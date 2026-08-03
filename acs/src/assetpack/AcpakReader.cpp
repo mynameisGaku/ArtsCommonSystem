@@ -15,7 +15,7 @@
 //     データだけ拾い、m_StringPool を 1 度だけ最終サイズで Reserve する。
 //     2 パス目で path 文字列を pool にコピーし、entry.path を pool の最終
 //     アドレスにバインドする。
-//   ・これにより「pool が PushBack 中に grow して既存 entry.path が dangling
+//   ・これにより「pool が Add 中に grow して既存 entry.path が dangling
 //     になる」問題を構造的に防ぐ (= grow が起きない条件で操作する)。
 // =============================================================================
 #include "assetpack/AcpakReader.h"
@@ -230,11 +230,11 @@ void CAcpakReader::CloseUnlocked() noexcept
     m_FileSize = 0;
     m_Flags = 0;
     m_TableOffset = 0;
-    m_Entries.ReleaseStorage();
-    m_PathHashes.ReleaseStorage();
-    m_StringPool.ReleaseStorage();
-    m_StoredScratch.ReleaseStorage();
-    m_FinalScratch.ReleaseStorage();
+    m_Entries.Empty();
+    m_PathHashes.Empty();
+    m_StringPool.Empty();
+    m_StoredScratch.Empty();
+    m_FinalScratch.Empty();
 
     // 鍵情報の defensive zero (再 Open のときに古い鍵が漏れないよう)。
     MemSet(m_Key.bytes, 0, sizeof(m_Key.bytes));
@@ -381,7 +381,7 @@ TResult<void> CAcpakReader::LoadHeaderAndTable() noexcept
     //   Pass 2: m_StringPool に paths_temp をコピーし、entries_raw を m_Entries
     //           に変換 (entry.path = pool_base + path_pool_offset)。
     // このやり方なら m_StringPool は Pass 2 で 1 度だけ Resize するので、
-    // PushBack 中の re-grow による dangling pointer が起きない。
+    // Add 中の re-grow による dangling pointer が起きない。
     const HANDLE Handle = static_cast<HANDLE>(m_FileHandle);
 
     if (m_FileSize < kAcpakHeaderDiskSize) {
@@ -505,40 +505,40 @@ TResult<void> CAcpakReader::LoadHeaderAndTable() noexcept
 
         // path を paths_temp に書き込む (NUL 込みで連結)。
         // path_len の現在末尾オフセットを記録する。
-        const usize PoolOffset = PathsTemporary.Size();
+        const usize PoolOffset = PathsTemporary.Num();
 
-        // PushBack ループ — TArray は exponential grow なので O(amortized 1)/wchar_t
+        // Add ループ — TArray は exponential grow なので O(amortized 1)/wchar_t
         if (PathLength > 0) {
             // 効率のため Resize して直接 ReadFile する
-            const usize PreviousSize = PathsTemporary.Size();
+            const usize PreviousSize = PathsTemporary.Num();
             const usize PathUnits = static_cast<usize>(PathLength);
             if (PreviousSize > static_cast<usize>(-1) - PathUnits - 1u ||
                 (PreviousSize + PathUnits + 1u) > kAcpakMaxPathPoolBytes / sizeof(wchar_t)) {
                 return ACS_ERR(IO, kAcpakSubBadSize, "CAcpakReader::Open: path pool exceeds limit");
             }
-            if (!PathsTemporary.TryResize(PreviousSize + PathUnits)) {
+            if (!PathsTemporary.TrySetNum(PreviousSize + PathUnits)) {
                 return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakReader::Open: path pool allocation failed");
             }
-            if (!ReadAt(Handle, Cursor, PathsTemporary.Data() + PreviousSize, PathBytes, Error, m_IoLock)) {
+            if (!ReadAt(Handle, Cursor, PathsTemporary.GetData() + PreviousSize, PathBytes, Error, m_IoLock)) {
                 return ACS_ERR_OS(IO, kAcpakSubIOFailure, "CAcpakReader::Open: ReadFile (path) failed", Error);
             }
         }
 
-        const wchar_t* const CurrentPath = PathsTemporary.Data() + PoolOffset;
+        const wchar_t* const CurrentPath = PathsTemporary.GetData() + PoolOffset;
         if (!IsCanonicalAcpakVirtualPath(CurrentPath, PathLength)) {
             return ACS_ERR(Asset, kAcpakSubBadPath,
                            "CAcpakReader::Open: invalid virtual path");
         }
         /** manifest の正規形 path に対して一度だけ計算する hash。 */
         const u64 CurrentPathHash = HashCanonicalAcpakVirtualPath(CurrentPath, PathLength);
-        for (usize PriorIndex = 0; PriorIndex < Raws.Size(); ++PriorIndex) {
+        for (usize PriorIndex = 0; PriorIndex < Raws.Num(); ++PriorIndex) {
             const FRawEntry& Prior = Raws[PriorIndex];
-            if (Prior.PathHash == CurrentPathHash && EqualPathUnits(CurrentPath, PathLength, PathsTemporary.Data() + Prior.PathPoolOffset, Prior.PathLength)) {
+            if (Prior.PathHash == CurrentPathHash && EqualPathUnits(CurrentPath, PathLength, PathsTemporary.GetData() + Prior.PathPoolOffset, Prior.PathLength)) {
                 return ACS_ERR(Asset, kAcpakSubDuplicatePath,
                                "CAcpakReader::Open: duplicate virtual path");
             }
         }
-        if (!PathsTemporary.TryPushBack(L'\0')) {
+        if (!PathsTemporary.TryAdd(L'\0')) {
             return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakReader::Open: path terminator allocation failed");
         }
         Cursor += PathBytes;
@@ -585,7 +585,7 @@ TResult<void> CAcpakReader::LoadHeaderAndTable() noexcept
         }
 
         if (Raw.StoredSize > 0) {
-            for (usize PriorIndex = 0; PriorIndex < Raws.Size(); ++PriorIndex) {
+            for (usize PriorIndex = 0; PriorIndex < Raws.Num(); ++PriorIndex) {
                 const FRawEntry& Prior = Raws[PriorIndex];
                 if (Prior.StoredSize > 0 &&
                     Raw.Offset < Prior.Offset + Prior.StoredSize &&
@@ -596,7 +596,7 @@ TResult<void> CAcpakReader::LoadHeaderAndTable() noexcept
             }
         }
 
-        if (!Raws.TryPushBack(Raw)) {
+        if (!Raws.TryAdd(Raw)) {
             return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakReader::Open: entry metadata allocation failed");
         }
     }
@@ -608,20 +608,20 @@ TResult<void> CAcpakReader::LoadHeaderAndTable() noexcept
 
     // ---- Pass 2: m_StringPool を最終サイズで Resize し、paths_temp を
     //              ムーブ相当でコピー。entry を組み立てて m_Entries に格納 ----
-    if (!m_StringPool.TryResize(PathsTemporary.Size())) {
+    if (!m_StringPool.TrySetNum(PathsTemporary.Num())) {
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakReader::Open: final path pool allocation failed");
     }
     if (!PathsTemporary.IsEmpty()) {
-        MemCopy(m_StringPool.Data(), PathsTemporary.Data(), PathsTemporary.Size() * sizeof(wchar_t));
+        MemCopy(m_StringPool.GetData(), PathsTemporary.GetData(), PathsTemporary.Num() * sizeof(wchar_t));
     }
     // ここから m_StringPool は再 grow させない (entry.path は pool ベースに
     // 依存するため)。
 
-    if (!m_Entries.TryReserve(Raws.Size()) || !m_PathHashes.TryReserve(Raws.Size())) {
+    if (!m_Entries.TryReserve(Raws.Num()) || !m_PathHashes.TryReserve(Raws.Num())) {
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakReader::Open: final entry allocation failed");
     }
-    const wchar_t* PoolBase = m_StringPool.Data();
-    for (usize Index = 0; Index < Raws.Size(); ++Index) {
+    const wchar_t* PoolBase = m_StringPool.GetData();
+    for (usize Index = 0; Index < Raws.Num(); ++Index) {
         const FRawEntry& Raw = Raws[Index];
         FAcpakFileEntry Entry{};
         Entry.path = PoolBase + Raw.PathPoolOffset;
@@ -632,10 +632,10 @@ TResult<void> CAcpakReader::LoadHeaderAndTable() noexcept
         // 暗号化フィールドは encrypted pak のみ意味あり、それ以外は 0。
         MemCopy(Entry.cipher_nonce, Raw.CipherNonce, 12);
         MemCopy(Entry.cipher_tag, Raw.CipherTag, 16);
-        if (!m_Entries.TryPushBack(Entry)) {
+        if (!m_Entries.TryAdd(Entry)) {
             return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakReader::Open: final entry allocation failed");
         }
-        if (!m_PathHashes.TryPushBack(Raw.PathHash)) {
+        if (!m_PathHashes.TryAdd(Raw.PathHash)) {
             return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakReader::Open: final path hash allocation failed");
         }
     }
@@ -654,7 +654,7 @@ bool CAcpakReader::IsOpen() const noexcept
 u32 CAcpakReader::FileCount() const noexcept
 {
     FScopedSharedLock Lock(m_LifecycleLock);
-    return static_cast<u32>(m_Entries.Size());
+    return static_cast<u32>(m_Entries.Num());
 }
 
 /** header.flags を返す。 */
@@ -668,7 +668,7 @@ u32 CAcpakReader::Flags() const noexcept
 const FAcpakFileEntry* CAcpakReader::GetEntry(u32 Index) const noexcept
 {
     FScopedSharedLock Lock(m_LifecycleLock);
-    if (m_FileHandle == nullptr || static_cast<usize>(Index) >= m_Entries.Size()) {
+    if (m_FileHandle == nullptr || static_cast<usize>(Index) >= m_Entries.Num()) {
         return nullptr;
     }
     return &m_Entries[static_cast<usize>(Index)];
@@ -692,12 +692,12 @@ const FAcpakFileEntry* CAcpakReader::FindEntryUnlocked(const wchar_t* Path) cons
     while (PathLength <= kAcpakMaxPathLength && Path[PathLength] != L'\0') {
         ++PathLength;
     }
-    if (PathLength > kAcpakMaxPathLength || !IsCanonicalAcpakVirtualPath(Path, PathLength) || m_PathHashes.Size() != m_Entries.Size()) {
+    if (PathLength > kAcpakMaxPathLength || !IsCanonicalAcpakVirtualPath(Path, PathLength) || m_PathHashes.Num() != m_Entries.Num()) {
         return nullptr;
     }
     /** 検索要求ごとに一度だけ計算する正規形 path hash。 */
     const u64 PathHash = HashCanonicalAcpakVirtualPath(Path, PathLength);
-    for (usize Index = 0; Index < m_Entries.Size(); ++Index) {
+    for (usize Index = 0; Index < m_Entries.Num(); ++Index) {
         if (m_PathHashes[Index] == PathHash && CompareW(m_Entries[Index].path, Path) == 0) {
             return &m_Entries[Index];
         }
@@ -812,7 +812,7 @@ TResult<u64> CAcpakReader::ReadEntryUnlocked(const FAcpakFileEntry& EntryReferen
         Stored = &m_StoredScratch;
         Final = &m_FinalScratch;
         /** 追加確保なしで今回の payload を収められるか。 */
-        const bool Reused = (!NeedStoredScratch || Stored->Capacity() >= StoredSize) && (!NeedFinalScratch || Final->Capacity() >= FinalSize);
+        const bool Reused = (!NeedStoredScratch || Stored->Max() >= StoredSize) && (!NeedFinalScratch || Final->Max() >= FinalSize);
         if (Reused) Diagnostic.ScratchReuseCount.FetchAdd(1u);
     } else {
         Diagnostic.ScratchFallbackCount.FetchAdd(1u);
@@ -830,15 +830,15 @@ TResult<u64> CAcpakReader::ReadEntryUnlocked(const FAcpakFileEntry& EntryReferen
     /** 全 return 経路で保持 scratch を返す guard。 */
     FRetainedScratchGuard ScratchGuard{RetainedLock};
 
-    if (NeedStoredScratch && !Stored->TryResize(StoredSize)) {
+    if (NeedStoredScratch && !Stored->TrySetNum(StoredSize)) {
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakReader::ReadFile: intermediate allocation failed");
     }
-    if (!Final->TryResize(FinalSize)) {
+    if (!Final->TrySetNum(FinalSize)) {
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakReader::ReadFile: transactional output allocation failed");
     }
 
     /** 復号・展開後の transaction 出力先。 */
-    u8* const FinalDestination = Final->IsEmpty() ? nullptr : Final->Data();
+    u8* const FinalDestination = Final->IsEmpty() ? nullptr : Final->GetData();
     /** read または in-place 復号の書き込み先。 */
     u8* MutableStored = nullptr;
     /** 展開処理が読む格納 payload。 */
@@ -848,7 +848,7 @@ TResult<u64> CAcpakReader::ReadEntryUnlocked(const FAcpakFileEntry& EntryReferen
             return ACS_ERR(Asset, kAcpakSubBadSize, "CAcpakReader::ReadFile: stored size > 4GiB (LZ4 limit)");
         }
         if (NeedStoredScratch) {
-            MutableStored = Stored->IsEmpty() ? nullptr : Stored->Data();
+            MutableStored = Stored->IsEmpty() ? nullptr : Stored->GetData();
             StoredSource = MutableStored;
         } else {
             StoredSource = MappedSource;
@@ -976,8 +976,8 @@ FAcpakReadDiagnostics CAcpakReader::ReadDiagnostics() const noexcept
         /** 保持 scratch 容量の同時取得を守る lock。 */
         FScopedLock ScratchLock(m_ScratchLock);
         Result.retained_scratch_bytes =
-            static_cast<u64>(m_StoredScratch.Capacity()) +
-            static_cast<u64>(m_FinalScratch.Capacity());
+            static_cast<u64>(m_StoredScratch.Max()) +
+            static_cast<u64>(m_FinalScratch.Max());
     }
     Result.mapped_view_active = m_MappedView != nullptr;
     return Result;

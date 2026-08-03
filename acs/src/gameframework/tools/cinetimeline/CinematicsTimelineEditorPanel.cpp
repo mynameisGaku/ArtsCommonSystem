@@ -198,7 +198,7 @@ static f32 CanvasXToTime(f32 x, f32 duration,
 /** 内部 state を既定値にリセットする。 */
 void ACinematicsTimelineEditorPanel::Init() noexcept {
     m_Director        = nullptr;
-    m_Keyframes.Clear();
+    m_Keyframes.Reset();
     m_SelectedIdx    = kNoKeySelected;
     m_CurrentTime    = 0.0f;
     m_Duration        = kDefaultDurationSec;
@@ -211,7 +211,7 @@ void ACinematicsTimelineEditorPanel::Init() noexcept {
 /** 内部 state を全解放する (director は非所有なので破棄しない)。 */
 void ACinematicsTimelineEditorPanel::Shutdown() noexcept {
     m_Director        = nullptr;
-    m_Keyframes.Clear();
+    m_Keyframes.Reset();
     m_SelectedIdx    = kNoKeySelected;
     m_CurrentTime    = 0.0f;
     m_Playing         = false;
@@ -317,7 +317,7 @@ void ACinematicsTimelineEditorPanel::SetDurationSec(f32 d) noexcept {
     if (d < kMinDurationSec) d = kMinDurationSec;
     m_Duration = d;
     // duration が縮んだ場合、既存 keyframe が範囲外に出ていれば clamp する。
-    for (usize i = 0; i < m_Keyframes.Size(); ++i) {
+    for (usize i = 0; i < m_Keyframes.Num(); ++i) {
         if (m_Keyframes[i].time_sec > m_Duration) {
             m_Keyframes[i].time_sec = m_Duration;
         }
@@ -332,7 +332,7 @@ i32 ACinematicsTimelineEditorPanel::SelectedKeyframeIndex() const noexcept {
 
 /** selection を変更する (有効範囲外は kNoKeySelected に丸める)。 */
 void ACinematicsTimelineEditorPanel::SelectKeyframe(i32 i) noexcept {
-    if (i < 0 || static_cast<usize>(i) >= m_Keyframes.Size()) {
+    if (i < 0 || static_cast<usize>(i) >= m_Keyframes.Num()) {
         m_SelectedIdx = kNoKeySelected;
     } else {
         m_SelectedIdx = i;
@@ -360,16 +360,16 @@ void ACinematicsTimelineEditorPanel::AddKeyframe(ETimelineKeyKind kind,
 void ACinematicsTimelineEditorPanel::RemoveSelectedKeyframe() noexcept {
     if (m_SelectedIdx < 0) return;
     const usize idx = static_cast<usize>(m_SelectedIdx);
-    if (idx >= m_Keyframes.Size()) {
+    if (idx >= m_Keyframes.Num()) {
         m_SelectedIdx = kNoKeySelected;
         return;
     }
     // 順序保存削除 (= shift)。TArray に Erase が無いので手動で詰める。
-    const usize n = m_Keyframes.Size();
+    const usize n = m_Keyframes.Num();
     for (usize i = idx; i + 1 < n; ++i) {
         m_Keyframes[i] = m_Keyframes[i + 1];
     }
-    m_Keyframes.PopBack();
+    m_Keyframes.Pop();
     m_SelectedIdx = kNoKeySelected;
     // director に即時 bake (= 次の Step / Play で発火対象から外れる)。
     BakeToDirector();
@@ -380,7 +380,7 @@ i32 ACinematicsTimelineEditorPanel::InsertKeyframeSorted(
         const FEditorKeyframe& kf) noexcept {
     // time 昇順 (同時刻は登録順 = stable) を維持する挿入位置を線形探索。
     // 典型 N < 200 で線形でも実用問題なし。
-    const usize n = m_Keyframes.Size();
+    const usize n = m_Keyframes.Num();
     usize insert_at = n;
     for (usize i = 0; i < n; ++i) {
         if (kf.time_sec < m_Keyframes[i].time_sec) {
@@ -390,10 +390,10 @@ i32 ACinematicsTimelineEditorPanel::InsertKeyframeSorted(
     }
 
     if (insert_at == n) {
-        m_Keyframes.PushBack(kf);
+        m_Keyframes.Add(kf);
     } else {
         // 末尾を 1 つ伸ばし、[insert_at..n-1] を 1 つ後ろにずらして空きを作る。
-        m_Keyframes.PushBack(m_Keyframes[n - 1]);
+        m_Keyframes.Add(m_Keyframes[n - 1]);
         for (usize i = n - 1; i > insert_at; --i) {
             m_Keyframes[i] = m_Keyframes[i - 1];
         }
@@ -406,7 +406,7 @@ i32 ACinematicsTimelineEditorPanel::InsertKeyframeSorted(
 void ACinematicsTimelineEditorPanel::BakeToDirector() noexcept {
     if (m_Director == nullptr) return;
     m_Director->Clear();
-    const usize n = m_Keyframes.Size();
+    const usize n = m_Keyframes.Num();
     for (usize i = 0; i < n; ++i) {
         const FEditorKeyframe& ek = m_Keyframes[i];
         FTimelineKeyframe rk;
@@ -617,7 +617,7 @@ void ACinematicsTimelineEditorPanel::DrawUI() noexcept {
             && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             i32 hit = -1;
             const f32 half_w = kMarkerWidthPx * 0.5f + kMarkerHitSlackPx;
-            for (usize i = 0; i < m_Keyframes.Size(); ++i) {
+            for (usize i = 0; i < m_Keyframes.Num(); ++i) {
                 const FEditorKeyframe& kf = m_Keyframes[i];
                 const u32 row = static_cast<u32>(kf.kind);
                 if (row >= kTrackCount) continue;
@@ -652,18 +652,18 @@ void ACinematicsTimelineEditorPanel::DrawUI() noexcept {
         // 並び順を維持するため、変更後に sorted insert で並び直す簡易方式
         // (= 抜いて入れ直す)。
         if (m_bDraggingMarker && m_DragIdx >= 0
-            && static_cast<usize>(m_DragIdx) < m_Keyframes.Size()) {
+            && static_cast<usize>(m_DragIdx) < m_Keyframes.Num()) {
             const f32 new_t = CanvasXToTime(mouse.x, m_Duration,
                                             canvas_origin.x, canvas_w);
             FEditorKeyframe modified = m_Keyframes[static_cast<usize>(m_DragIdx)];
             modified.time_sec = ClampF(new_t, 0.0f, m_Duration);
             // 抜く → 並び直して挿入
             const usize remove_at = static_cast<usize>(m_DragIdx);
-            const usize n = m_Keyframes.Size();
+            const usize n = m_Keyframes.Num();
             for (usize i = remove_at; i + 1 < n; ++i) {
                 m_Keyframes[i] = m_Keyframes[i + 1];
             }
-            m_Keyframes.PopBack();
+            m_Keyframes.Pop();
             const i32 new_idx = InsertKeyframeSorted(modified);
             if (new_idx >= 0) {
                 m_DragIdx     = new_idx;
@@ -684,7 +684,7 @@ void ACinematicsTimelineEditorPanel::DrawUI() noexcept {
 
         // marker 描画: 全 keyframe を縦長四角で描く
         const f32 marker_pad_y = 4.0f;
-        for (usize i = 0; i < m_Keyframes.Size(); ++i) {
+        for (usize i = 0; i < m_Keyframes.Num(); ++i) {
             const FEditorKeyframe& kf = m_Keyframes[i];
             const u32 row = static_cast<u32>(kf.kind);
             if (row >= kTrackCount) continue;
@@ -724,13 +724,13 @@ void ACinematicsTimelineEditorPanel::DrawUI() noexcept {
         ImGui::TextUnformatted("Inspector");
         ImGui::Separator();
         if (m_SelectedIdx < 0
-            || static_cast<usize>(m_SelectedIdx) >= m_Keyframes.Size()) {
+            || static_cast<usize>(m_SelectedIdx) >= m_Keyframes.Num()) {
             ImGui::TextDisabled("(no keyframe selected)");
             ImGui::TextDisabled("Click a marker in the timeline,");
             ImGui::TextDisabled("or use +Add to create one.");
         } else {
             // 参照が reorder で無効化されないよう、UI 編集前に kind を controlled
-            // 変数として捕獲しておく (= time の DragFloat が並び替え + PushBack
+            // 変数として捕獲しておく (= time の DragFloat が並び替え + Add
             // による TArray 再確保を引き起こすと kf 参照が dangling になる)。
             const ETimelineKeyKind kind_for_payload =
                 m_Keyframes[static_cast<usize>(m_SelectedIdx)].kind;
@@ -747,11 +747,11 @@ void ACinematicsTimelineEditorPanel::DrawUI() noexcept {
                     modified.time_sec = ClampF(t, 0.0f, m_Duration);
                     // 古 entry を順序保存削除 → 新時刻で挿入し直す。
                     const usize remove_at = static_cast<usize>(m_SelectedIdx);
-                    const usize n = m_Keyframes.Size();
+                    const usize n = m_Keyframes.Num();
                     for (usize i = remove_at; i + 1 < n; ++i) {
                         m_Keyframes[i] = m_Keyframes[i + 1];
                     }
-                    m_Keyframes.PopBack();
+                    m_Keyframes.Pop();
                     const i32 new_idx = InsertKeyframeSorted(modified);
                     if (new_idx >= 0) m_SelectedIdx = new_idx;
                     BakeToDirector();
@@ -761,7 +761,7 @@ void ACinematicsTimelineEditorPanel::DrawUI() noexcept {
 
             // payload 編集 (= 上記 time 編集で reorder されていなければ index は
             // 有効なので、改めて参照を取り直して安全に編集)。
-            if (static_cast<usize>(m_SelectedIdx) < m_Keyframes.Size()) {
+            if (static_cast<usize>(m_SelectedIdx) < m_Keyframes.Num()) {
                 FEditorKeyframe& kf = m_Keyframes[static_cast<usize>(m_SelectedIdx)];
                 switch (kind_for_payload) {
                 case ETimelineKeyKind::CameraCut: {
@@ -822,7 +822,7 @@ void ACinematicsTimelineEditorPanel::DrawUI() noexcept {
             }
         }
         ImGui::Separator();
-        ImGui::Text("Count: %u", static_cast<unsigned>(m_Keyframes.Size()));
+        ImGui::Text("Count: %u", static_cast<unsigned>(m_Keyframes.Num()));
         ImGui::Text("Director: %s", m_Director ? "bound" : "(none)");
         ImGui::Text("Playing: %s", m_Playing ? "yes" : "no");
     }

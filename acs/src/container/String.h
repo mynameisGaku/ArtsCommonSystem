@@ -267,7 +267,7 @@ public:
      *
      * @param c 追加する文字。
      */
-    void PushBack(char c)      noexcept { Append(c); }
+    void Add(char c)      noexcept { Append(c); }
 
     /**
      * printf 風フォーマットで追記する。

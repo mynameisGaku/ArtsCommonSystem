@@ -332,8 +332,8 @@ sm.Init(*device, /*size=*/2048);
 shd.SetShadowMap(sm.DepthTexture(), sm.LightViewProjection(), /*bias=*/0.001f);
 
 // 毎フレーム
-const u32 caster_count = static_cast<u32>(casters.Size());
-const u32 standard_draw_count = static_cast<u32>(visible_meshes.Size());
+const u32 caster_count = static_cast<u32>(casters.Num());
+const u32 standard_draw_count = static_cast<u32>(visible_meshes.Num());
 sm.SetDirectionalLight(sun_dir, scene_center, scene_radius);
 if (!sm.BeginFrame(caster_count) ||
     !shd.BeginFrame(standard_draw_count)) return;
@@ -374,7 +374,7 @@ pts[0].position = FVec3{ 2, 1.5f, 0};   pts[0].color = FVec3{1.0f, 0.3f, 0.3f}; 
 pts[1].position = FVec3{-2, 1.5f, 0};   pts[1].color = FVec3{0.3f, 1.0f, 0.4f}; pts[1].range = 6.0f;
 pts[2].position = FVec3{ 0, 1.5f, 3};   pts[2].color = FVec3{0.3f, 0.5f, 1.0f}; pts[2].range = 6.0f;
 
-const u32 visible_draw_count = static_cast<u32>(visible_meshes.Size());
+const u32 visible_draw_count = static_cast<u32>(visible_meshes.Num());
 if (!shd.BeginFrame(visible_draw_count)) return;
 shd.SetLights(camera.ViewProjection(), camera.Eye(),
               dir_lights, dir_count, ambient);
@@ -468,7 +468,7 @@ pass 前に正確に予約し、途中失敗した texture を TAA / SSR / SSGI 
 
 ```cpp
 const u32 motion_draw_count =
-    static_cast<u32>(visible_meshes.Size());
+    static_cast<u32>(visible_meshes.Num());
 bool motion_gbuffer_valid = false;
 
 if (motion.BeginFrame(motion_draw_count) &&

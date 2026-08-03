@@ -57,13 +57,13 @@ ACS_TEST(ContentModerator, HardcodedBlockIsNotBypassableByLongPadding)
     // 切り捨てられて» 素通りした (生経路は変種を捕捉できない)。ストリーミング照合に
     // 変えた現実装では、位置によらず捕捉できることを検証する。
     TArray<char> long_text;
-    for (u32 i = 0; i < 600u; ++i) long_text.PushBack('a');   // 正規化 600 文字分のパディング
+    for (u32 i = 0; i < 600u; ++i) long_text.Add('a');   // 正規化 600 文字分のパディング
     const char* variant = "c.h.i.l.d p.o.r.n";                 // ハードコード辞書の spaced 変種
-    for (const char* p = variant; *p != '\0'; ++p) long_text.PushBack(*p);
-    long_text.PushBack('\0');
+    for (const char* p = variant; *p != '\0'; ++p) long_text.Add(*p);
+    long_text.Add('\0');
 
     CContentModeratorStub stub;
-    const auto r = stub.ModerateText("test_user", long_text.Data());
+    const auto r = stub.ModerateText("test_user", long_text.GetData());
     EXPECT_TRUE(r.IsOk());
     if (r.IsOk()) {
         EXPECT_TRUE(r.Value().verdict == EModerationVerdict::Block);
@@ -72,11 +72,11 @@ ACS_TEST(ContentModerator, HardcodedBlockIsNotBypassableByLongPadding)
 
     // 一般 NG ワードも同様に長文パディングで素通りしない。
     TArray<char> long_text2;
-    for (u32 i = 0; i < 600u; ++i) long_text2.PushBack('x');
+    for (u32 i = 0; i < 600u; ++i) long_text2.Add('x');
     const char* variant2 = "k y s";
-    for (const char* p = variant2; *p != '\0'; ++p) long_text2.PushBack(*p);
-    long_text2.PushBack('\0');
-    EXPECT_TRUE(VerdictOf(long_text2.Data()) == EModerationVerdict::Block);
+    for (const char* p = variant2; *p != '\0'; ++p) long_text2.Add(*p);
+    long_text2.Add('\0');
+    EXPECT_TRUE(VerdictOf(long_text2.GetData()) == EModerationVerdict::Block);
 }
 
 ACS_TEST(ContentModerator, UserNameUsesSameDictionary)

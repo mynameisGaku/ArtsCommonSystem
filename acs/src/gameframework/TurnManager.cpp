@@ -40,7 +40,7 @@ ETurnPhase CTurnManager::ClassifyPhase(const FSideSlot& s) noexcept {
 /** 空き slot index を確保する (inactive を再利用、無ければ末尾追加)。 */
 u32 CTurnManager::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 0; i < n; ++i) {
         if (!m_Slots[i].active) {
             return static_cast<u32>(i);
@@ -50,15 +50,15 @@ u32 CTurnManager::AcquireSlot() noexcept {
     if (n >= static_cast<usize>(FTurnSideId::kMaxIndex)) {
         return FTurnSideId::kMaxIndex; // sentinel
     }
-    m_Slots.PushBack({});
-    return static_cast<u32>(m_Slots.Size()) - 1u;
+    m_Slots.Add({});
+    return static_cast<u32>(m_Slots.Num()) - 1u;
 }
 
 /** handle を生存中の slot へ解決する (stale なら nullptr)。 */
 CTurnManager::FSideSlot* CTurnManager::Resolve(FTurnSideId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx >= m_Slots.Size()) return nullptr;
+    if (idx >= m_Slots.Num()) return nullptr;
     FSideSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Gen()) return nullptr;
     return &s;
@@ -68,7 +68,7 @@ CTurnManager::FSideSlot* CTurnManager::Resolve(FTurnSideId id) noexcept {
 const CTurnManager::FSideSlot* CTurnManager::Resolve(FTurnSideId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx >= m_Slots.Size()) return nullptr;
+    if (idx >= m_Slots.Num()) return nullptr;
     const FSideSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Gen()) return nullptr;
     return &s;
@@ -77,7 +77,7 @@ const CTurnManager::FSideSlot* CTurnManager::Resolve(FTurnSideId id) const noexc
 /** 全 slot を inactive 化し、ラウンド状態を Setup にリセットする (callback は保持)。 */
 void CTurnManager::Init() noexcept {
     // 全 slot を inactive 化 (gen は維持 = 次 Acquire で +1 される)
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 0; i < n; ++i) {
         FSideSlot& s = m_Slots[i];
         s.active                     = false;
@@ -89,7 +89,7 @@ void CTurnManager::Init() noexcept {
         s.view.has_acted             = false;
         // gen はそのまま
     }
-    m_TurnOrder.Clear();
+    m_TurnOrder.Reset();
     m_ActiveCount        = 0u;
     m_Round               = 0u;
     m_Phase               = ETurnPhase::Setup;
@@ -149,7 +149,7 @@ void CTurnManager::RemoveSide(FTurnSideId id) noexcept {
     // 現 turn が自身かどうかを判定
     bool was_current = false;
     if (m_CurrentOrderIndex != kInvalidOrderIndex &&
-        m_CurrentOrderIndex < m_TurnOrder.Size() &&
+        m_CurrentOrderIndex < m_TurnOrder.Num() &&
         m_TurnOrder[m_CurrentOrderIndex] == removed_index) {
         was_current = true;
     }
@@ -168,7 +168,7 @@ void CTurnManager::RemoveSide(FTurnSideId id) noexcept {
 
     // m_TurnOrder から removed_index を除去 (順序保持のため線形 erase)。
     // RemoveAtSwap を使うと initiative 順が崩れるので index 単位で前詰めする。
-    const usize order_n = m_TurnOrder.Size();
+    const usize order_n = m_TurnOrder.Num();
     usize found_at = order_n;
     for (usize i = 0; i < order_n; ++i) {
         if (m_TurnOrder[i] == removed_index) {
@@ -180,7 +180,7 @@ void CTurnManager::RemoveSide(FTurnSideId id) noexcept {
         for (usize i = found_at; i + 1u < order_n; ++i) {
             m_TurnOrder[i] = m_TurnOrder[i + 1u];
         }
-        m_TurnOrder.Resize(order_n - 1u);
+        m_TurnOrder.SetNum(order_n - 1u);
 
         // 現 turn が後ろにずれていれば追従。削除位置より前の current は影響なし。
         if (was_current) {
@@ -225,26 +225,26 @@ void CTurnManager::RemoveSide(FTurnSideId id) noexcept {
     if (m_ActiveCount == 0u) {
         m_Phase               = ETurnPhase::Setup;
         m_CurrentOrderIndex = kInvalidOrderIndex;
-        m_TurnOrder.Clear();
+        m_TurnOrder.Reset();
     }
 }
 
 /** active side を initiative 降順 (同値は AddSide 順) で turn order に並べ直す。 */
 void CTurnManager::RebuildTurnOrder() noexcept {
-    m_TurnOrder.Clear();
-    const usize n = m_Slots.Size();
+    m_TurnOrder.Reset();
+    const usize n = m_Slots.Num();
     m_TurnOrder.Reserve(n);
 
     // active な slot index を AddSide 順 (= slot index 昇順) で列挙
     for (usize i = 0; i < n; ++i) {
         if (m_Slots[i].active) {
-            m_TurnOrder.PushBack(static_cast<u32>(i));
+            m_TurnOrder.Add(static_cast<u32>(i));
         }
     }
 
     // insertion sort: initiative 降順、同値は slot index 昇順 (安定)
     // m_TurnOrder が既に slot index 昇順なので、initiative 降順だけで安定性確保。
-    const usize order_n = m_TurnOrder.Size();
+    const usize order_n = m_TurnOrder.Num();
     for (usize i = 1; i < order_n; ++i) {
         const u32 cur_idx = m_TurnOrder[i];
         const u32 cur_init = m_Slots[cur_idx].view.initiative;
@@ -266,10 +266,10 @@ void CTurnManager::RebuildTurnOrder() noexcept {
 
 /** start_from 以降で最初の未行動 active side を探し m_CurrentOrderIndex に設定する。 */
 void CTurnManager::AdvanceToNextActor(u32 start_from) noexcept {
-    const u32 order_n = static_cast<u32>(m_TurnOrder.Size());
+    const u32 order_n = static_cast<u32>(m_TurnOrder.Num());
     for (u32 i = start_from; i < order_n; ++i) {
         const u32 slot_idx = m_TurnOrder[i];
-        if (slot_idx >= m_Slots.Size()) continue;
+        if (slot_idx >= m_Slots.Num()) continue;
         const FSideSlot& s = m_Slots[slot_idx];
         if (!s.active) continue;
         if (s.view.has_acted) continue;
@@ -287,7 +287,7 @@ void CTurnManager::StartRound() noexcept {
     }
 
     // 全 active side の AP refill + has_acted リセット
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 0; i < n; ++i) {
         FSideSlot& s = m_Slots[i];
         if (!s.active) continue;
@@ -324,11 +324,11 @@ void CTurnManager::EndCurrentTurn() noexcept {
     // Setup / EndOfRound 中の呼び出しは no-op
     if (m_Phase == ETurnPhase::Setup || m_Phase == ETurnPhase::EndOfRound) return;
     if (m_CurrentOrderIndex == kInvalidOrderIndex) return;
-    if (m_CurrentOrderIndex >= m_TurnOrder.Size()) return;
+    if (m_CurrentOrderIndex >= m_TurnOrder.Num()) return;
 
     // 現 side を行動済に
     const u32 cur_slot_idx = m_TurnOrder[m_CurrentOrderIndex];
-    if (cur_slot_idx < m_Slots.Size()) {
+    if (cur_slot_idx < m_Slots.Num()) {
         FSideSlot& cs = m_Slots[cur_slot_idx];
         if (cs.active) {
             cs.view.has_acted = true;
@@ -361,7 +361,7 @@ void CTurnManager::EndCurrentTurn() noexcept {
     if (m_ActiveCount == 0u) {
         m_Phase               = ETurnPhase::Setup;
         m_CurrentOrderIndex = kInvalidOrderIndex;
-        m_TurnOrder.Clear();
+        m_TurnOrder.Reset();
         return;
     }
 
@@ -373,10 +373,10 @@ bool CTurnManager::TryConsumeAP(u32 amount) noexcept {
     if (amount == 0u) return false;
     if (m_Phase == ETurnPhase::Setup || m_Phase == ETurnPhase::EndOfRound) return false;
     if (m_CurrentOrderIndex == kInvalidOrderIndex) return false;
-    if (m_CurrentOrderIndex >= m_TurnOrder.Size()) return false;
+    if (m_CurrentOrderIndex >= m_TurnOrder.Num()) return false;
 
     const u32 slot_idx = m_TurnOrder[m_CurrentOrderIndex];
-    if (slot_idx >= m_Slots.Size()) return false;
+    if (slot_idx >= m_Slots.Num()) return false;
 
     FSideSlot& s = m_Slots[slot_idx];
     if (!s.active) return false;
@@ -390,10 +390,10 @@ bool CTurnManager::TryConsumeAP(u32 amount) noexcept {
 FTurnSideId CTurnManager::CurrentTurnSide() const noexcept {
     if (m_Phase == ETurnPhase::Setup || m_Phase == ETurnPhase::EndOfRound) return {};
     if (m_CurrentOrderIndex == kInvalidOrderIndex) return {};
-    if (m_CurrentOrderIndex >= m_TurnOrder.Size()) return {};
+    if (m_CurrentOrderIndex >= m_TurnOrder.Num()) return {};
 
     const u32 slot_idx = m_TurnOrder[m_CurrentOrderIndex];
-    if (slot_idx >= m_Slots.Size()) return {};
+    if (slot_idx >= m_Slots.Num()) return {};
 
     const FSideSlot& s = m_Slots[slot_idx];
     if (!s.active) return {};
@@ -414,10 +414,10 @@ u32 CTurnManager::TurnsRemainingThisRound() const noexcept {
     if (m_Phase == ETurnPhase::Setup || m_Phase == ETurnPhase::EndOfRound) return 0u;
 
     u32 count = 0u;
-    const usize order_n = m_TurnOrder.Size();
+    const usize order_n = m_TurnOrder.Num();
     for (usize i = 0; i < order_n; ++i) {
         const u32 slot_idx = m_TurnOrder[i];
-        if (slot_idx >= m_Slots.Size()) continue;
+        if (slot_idx >= m_Slots.Num()) continue;
         const FSideSlot& s = m_Slots[slot_idx];
         if (!s.active) continue;
         if (!s.view.has_acted) ++count;

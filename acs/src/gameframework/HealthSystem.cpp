@@ -18,21 +18,21 @@ f32 CHealthSystem::Clamp(f32 v, f32 lo, f32 hi) noexcept {
 /** 空き slot を線形検索し、無ければ末尾を拡張してインデックスを返す。 */
 u32 CHealthSystem::AcquireSlot() noexcept {
     // index 0 を invalid 予約として残す (dummy slot)。
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {
         if (!m_Slots[i].active) return i;
     }
     if (m_Slots.IsEmpty()) {
-        m_Slots.PushBack({});   // dummy at index 0
+        m_Slots.Add({});   // dummy at index 0
     }
-    m_Slots.PushBack({});
-    return static_cast<u32>(m_Slots.Size()) - 1u;
+    m_Slots.Add({});
+    return static_cast<u32>(m_Slots.Num()) - 1u;
 }
 
 /** id が有効 (範囲内 + active + generation 一致) なら slot を返す。 */
 CHealthSystem::FSlot* CHealthSystem::FindSlot(FHealthId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx == 0 || idx >= m_Slots.Size()) return nullptr;
+    if (idx == 0 || idx >= m_Slots.Num()) return nullptr;
     FSlot& s = m_Slots[idx];
     if (!s.active) return nullptr;
     if (s.gen != id.Generation()) return nullptr;
@@ -43,7 +43,7 @@ CHealthSystem::FSlot* CHealthSystem::FindSlot(FHealthId id) noexcept {
 const CHealthSystem::FSlot* CHealthSystem::FindSlot(FHealthId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx == 0 || idx >= m_Slots.Size()) return nullptr;
+    if (idx == 0 || idx >= m_Slots.Num()) return nullptr;
     const FSlot& s = m_Slots[idx];
     if (!s.active) return nullptr;
     if (s.gen != id.Generation()) return nullptr;
@@ -220,7 +220,7 @@ bool CHealthSystem::IsInvulnerable(FHealthId id) const noexcept {
 /** active かつ is_alive な entity を数えて返す。 */
 u32 CHealthSystem::AliveCount() const noexcept {
     u32 count = 0;
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     // index 0 は dummy なので 1 から走査。
     for (usize i = 1; i < n; ++i) {
         const FSlot& s = m_Slots[i];
@@ -232,7 +232,7 @@ u32 CHealthSystem::AliveCount() const noexcept {
 /** 全 active entity の invuln_timer を減算し、0 到達で無敵を解除する。 */
 void CHealthSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 1; i < n; ++i) {
         FSlot& s = m_Slots[i];
         if (!s.active) continue;
@@ -254,7 +254,7 @@ void CHealthSystem::SetOnDeathCallback(DeathCallback cb, void* user) noexcept {
 
 /** slot 配列をクリアして全 entity を破棄する (callback は保持)。 */
 void CHealthSystem::ClearAll() noexcept {
-    m_Slots.Clear();
+    m_Slots.Reset();
     m_EntityCount = 0;
     // callback は保持 (ClearAll は entity 全消去のみ、ディレクタ結線は維持)。
 }

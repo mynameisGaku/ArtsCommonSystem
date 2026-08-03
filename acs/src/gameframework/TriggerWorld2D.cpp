@@ -8,14 +8,14 @@ namespace acs::game {
 /** 空き slot を確保する (index 0 は invalid 用に予約)。 */
 u32 CTriggerWorld2D::AcquireSlot() noexcept {
     // index 0 を invalid 用に予約 (FTriggerId == 0 == invalid と一致させる)
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {
         if (!m_Slots[i].active) return i;
     }
     if (m_Slots.IsEmpty()) {
-        m_Slots.PushBack({});   // dummy at index 0
+        m_Slots.Add({});   // dummy at index 0
     }
-    m_Slots.PushBack({});
-    return static_cast<u32>(m_Slots.Size()) - 1u;
+    m_Slots.Add({});
+    return static_cast<u32>(m_Slots.Num()) - 1u;
 }
 
 /** 初期化する (現状は状態を持たないが、将来の SpatialGrid 等のため API を予約)。 */
@@ -55,7 +55,7 @@ FTriggerId CTriggerWorld2D::AddAabb(const FAabb2& a, u32 layer) noexcept {
 
 /** 円形 trigger の形状を更新する (移動時)。 */
 void CTriggerWorld2D::UpdateCircle(FTriggerId id, const FCircle& c) noexcept {
-    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    if (!id.IsValid() || id.Index() >= m_Slots.Num()) return;
     FTriggerSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation() || s.kind != EKind::Circle) return;
     s.circle = c;
@@ -63,7 +63,7 @@ void CTriggerWorld2D::UpdateCircle(FTriggerId id, const FCircle& c) noexcept {
 
 /** AABB trigger の形状を更新する (移動時)。 */
 void CTriggerWorld2D::UpdateAabb(FTriggerId id, const FAabb2& a) noexcept {
-    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    if (!id.IsValid() || id.Index() >= m_Slots.Num()) return;
     FTriggerSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation() || s.kind != EKind::Aabb) return;
     s.aabb = a;
@@ -71,7 +71,7 @@ void CTriggerWorld2D::UpdateAabb(FTriggerId id, const FAabb2& a) noexcept {
 
 /** trigger を削除する (slot は再利用、generation が進む)。 */
 void CTriggerWorld2D::Remove(FTriggerId id) noexcept {
-    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    if (!id.IsValid() || id.Index() >= m_Slots.Num()) return;
     FTriggerSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
     s.active = false;
@@ -82,7 +82,7 @@ void CTriggerWorld2D::Remove(FTriggerId id) noexcept {
 
 /** trigger に任意の user ポインタを紐付ける。 */
 void CTriggerWorld2D::SetUserData(FTriggerId id, void* user) noexcept {
-    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    if (!id.IsValid() || id.Index() >= m_Slots.Num()) return;
     FTriggerSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
     s.user = user;
@@ -90,7 +90,7 @@ void CTriggerWorld2D::SetUserData(FTriggerId id, void* user) noexcept {
 
 /** trigger に紐付けた user ポインタを取得する。 */
 void* CTriggerWorld2D::UserData(FTriggerId id) const noexcept {
-    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return nullptr;
+    if (!id.IsValid() || id.Index() >= m_Slots.Num()) return nullptr;
     const FTriggerSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return nullptr;
     return s.user;
@@ -116,9 +116,9 @@ void CTriggerWorld2D::SetOnExit(TriggerEventCallback cb, void* user) noexcept {
 
 /** 全 trigger と overlap state を破棄する。 */
 void CTriggerWorld2D::ClearAll() noexcept {
-    m_Slots.Clear();
-    m_Pairs.Clear();
-    m_NextPairs.Clear();
+    m_Slots.Reset();
+    m_Pairs.Reset();
+    m_NextPairs.Reset();
     m_TriggerCount = 0;
 }
 
@@ -135,8 +135,8 @@ bool CTriggerWorld2D::ShapesOverlap(const FTriggerSlot& a, const FTriggerSlot& b
 void CTriggerWorld2D::Tick(f32 /*dt*/) noexcept {
     // 1. 今フレの overlap pair を全 O(N^2) ペアで再計算し m_NextPairs に格納。
     //    (a, b) は a < b で正規化。active な slot のみを対象。
-    m_NextPairs.Clear();
-    const u32 slot_count = static_cast<u32>(m_Slots.Size());
+    m_NextPairs.Reset();
+    const u32 slot_count = static_cast<u32>(m_Slots.Num());
     for (u32 i = 1; i < slot_count; ++i) {                  // 0 は invalid 予約
         const FTriggerSlot& sa = m_Slots[i];
         if (!sa.active) continue;
@@ -148,7 +148,7 @@ void CTriggerWorld2D::Tick(f32 /*dt*/) noexcept {
             np.a_idx           = i;
             np.b_idx           = j;
             np.was_overlapping = true;   // 「今フレ overlap している」マーカ
-            m_NextPairs.PushBack(np);
+            m_NextPairs.Add(np);
         }
     }
     // 走査順 (i 昇順、j > i) により m_NextPairs は (a_idx, b_idx) 辞書順でソート済み。
@@ -159,8 +159,8 @@ void CTriggerWorld2D::Tick(f32 /*dt*/) noexcept {
     //    ・今のみ      → OnEnter
     u32 ip = 0;                                  // 前フレ pairs index
     u32 in = 0;                                  // 今フレ next_pairs index
-    const u32 np = static_cast<u32>(m_Pairs.Size());
-    const u32 nn = static_cast<u32>(m_NextPairs.Size());
+    const u32 np = static_cast<u32>(m_Pairs.Num());
+    const u32 nn = static_cast<u32>(m_NextPairs.Num());
 
     while (ip < np && in < nn) {
         const FOverlapPair& p = m_Pairs[ip];

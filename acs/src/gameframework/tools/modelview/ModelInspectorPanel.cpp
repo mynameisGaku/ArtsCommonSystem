@@ -43,9 +43,9 @@ static const char* SafeName(const char* name) noexcept {
 void AModelInspectorPanel::Init() noexcept {
     // m_Summary は値型 = ゼロ初期化に戻す。
     m_Summary    = FMeshSummary{};
-    m_Submeshes.Clear();
-    m_Bones.Clear();
-    m_Clips.Clear();
+    m_Submeshes.Reset();
+    m_Bones.Reset();
+    m_Clips.Reset();
     m_HasModel  = false;
 }
 
@@ -54,9 +54,9 @@ void AModelInspectorPanel::Shutdown() noexcept {
     // TArray は Clear で要素数 0。容量解放は panel 自身の destructor に任せ、
     // ここでは要素破棄のみで十分。
     m_Summary    = FMeshSummary{};
-    m_Submeshes.Clear();
-    m_Bones.Clear();
-    m_Clips.Clear();
+    m_Submeshes.Reset();
+    m_Bones.Reset();
+    m_Clips.Reset();
     m_HasModel  = false;
 }
 
@@ -71,31 +71,31 @@ void AModelInspectorPanel::UpdateFromModel(const FMeshSummary&        summary,
     m_Summary = summary;
 
     // Submeshes。
-    m_Submeshes.Clear();
+    m_Submeshes.Reset();
     if (submeshes != nullptr && submesh_count > 0) {
         m_Submeshes.Reserve(submesh_count);
         for (u32 i = 0; i < submesh_count; ++i) {
             // SubmeshInfo は POD (const char* + u32 三つ) なので値コピーで OK。
-            // TArray::PushBack は perfect forward され T(...) で構築する。
-            m_Submeshes.PushBack(submeshes[i]);
+            // TArray::Add は perfect forward され T(...) で構築する。
+            m_Submeshes.Add(submeshes[i]);
         }
     }
 
     // Bones。
-    m_Bones.Clear();
+    m_Bones.Reset();
     if (bones != nullptr && bone_count > 0) {
         m_Bones.Reserve(bone_count);
         for (u32 i = 0; i < bone_count; ++i) {
-            m_Bones.PushBack(bones[i]);
+            m_Bones.Add(bones[i]);
         }
     }
 
     // Animation Clips。
-    m_Clips.Clear();
+    m_Clips.Reset();
     if (clips != nullptr && clip_count > 0) {
         m_Clips.Reserve(clip_count);
         for (u32 i = 0; i < clip_count; ++i) {
-            m_Clips.PushBack(clips[i]);
+            m_Clips.Add(clips[i]);
         }
     }
 
@@ -105,9 +105,9 @@ void AModelInspectorPanel::UpdateFromModel(const FMeshSummary&        summary,
 /** 表示内容を空に戻し "No model loaded" 状態にする。 */
 void AModelInspectorPanel::Clear() noexcept {
     m_Summary    = FMeshSummary{};
-    m_Submeshes.Clear();
-    m_Bones.Clear();
-    m_Clips.Clear();
+    m_Submeshes.Reset();
+    m_Bones.Reset();
+    m_Clips.Reset();
     m_HasModel  = false;
 }
 
@@ -117,7 +117,7 @@ void AModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept
         ImGui::TextDisabled("  (bone depth limit reached)");
         return;
     }
-    if (bone_index < 0 || static_cast<u32>(bone_index) >= m_Bones.Size()) {
+    if (bone_index < 0 || static_cast<u32>(bone_index) >= m_Bones.Num()) {
         // 範囲外 = データ破損 / 不正 parent。安全に no-op。
         return;
     }
@@ -127,7 +127,7 @@ void AModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept
     // この bone を親とする子 bone があるかを線形走査で先に確認。
     // (TreeNode の Leaf flag を正確に立てるため = 矢印表示の精度が上がる)。
     bool has_child = false;
-    for (u32 i = 0; i < m_Bones.Size(); ++i) {
+    for (u32 i = 0; i < m_Bones.Num(); ++i) {
         if (m_Bones[i].parent_index == bone_index) {
             has_child = true;
             break;
@@ -154,7 +154,7 @@ void AModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept
 
     if (open && has_child) {
         // 子 bone を線形走査して再帰描画。元配列を走査するため index は安定。
-        for (u32 i = 0; i < m_Bones.Size(); ++i) {
+        for (u32 i = 0; i < m_Bones.Num(); ++i) {
             if (m_Bones[i].parent_index == bone_index) {
                 DrawBoneRecursive(static_cast<i32>(i), depth + 1u);
             }
@@ -227,7 +227,7 @@ void AModelInspectorPanel::DrawUI() noexcept {
                 ImGui::TableSetupColumn("Material Slot", ImGuiTableColumnFlags_WidthStretch, 1.0f);
                 ImGui::TableHeadersRow();
 
-                for (u32 i = 0; i < m_Submeshes.Size(); ++i) {
+                for (u32 i = 0; i < m_Submeshes.Num(); ++i) {
                     const FSubmeshInfo& sm = m_Submeshes[i];
                     ImGui::TableNextRow();
 
@@ -261,11 +261,11 @@ void AModelInspectorPanel::DrawUI() noexcept {
             // parent_index < 0 もしくは「parent_index が m_Bones 範囲外」を root とみなす
             // (= 不正データに対する fail-safe で、孤立した bone も表示できるように)。
             bool drew_any_root = false;
-            for (u32 i = 0; i < m_Bones.Size(); ++i) {
+            for (u32 i = 0; i < m_Bones.Num(); ++i) {
                 const i32 pi = m_Bones[i].parent_index;
                 const bool is_root =
                     (pi < 0) ||
-                    (static_cast<u32>(pi) >= m_Bones.Size());
+                    (static_cast<u32>(pi) >= m_Bones.Num());
                 if (is_root) {
                     DrawBoneRecursive(static_cast<i32>(i), 0u);
                     drew_any_root = true;
@@ -302,7 +302,7 @@ void AModelInspectorPanel::DrawUI() noexcept {
                 ImGui::TableSetupColumn("Looping",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
                 ImGui::TableHeadersRow();
 
-                for (u32 i = 0; i < m_Clips.Size(); ++i) {
+                for (u32 i = 0; i < m_Clips.Num(); ++i) {
                     const FAnimationClipInfo& clip = m_Clips[i];
                     ImGui::TableNextRow();
 

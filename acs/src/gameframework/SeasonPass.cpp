@@ -28,7 +28,7 @@ constexpr u64 kMaxTimestamp = ~static_cast<u64>(0);
 
 /** FindTierSlot の実装 (tier_index を線形走査して配列スロットを返す、未発見は kNotFound)。 */
 u32 CSeasonPass::FindTierSlot(u32 tier_index) const noexcept {
-    const usize n = m_Tiers.Size();
+    const usize n = m_Tiers.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Tiers[i].tier_index == tier_index) return static_cast<u32>(i);
     }
@@ -43,8 +43,8 @@ void CSeasonPass::StartSeason(const FSeasonInfo& info) noexcept {
     m_CurrentTime = info.start_timestamp;
 
     // 既存 tier 定義 / claim 状態を破棄 (新シーズンはクリーンスレート)。
-    m_Tiers.Clear();
-    m_Claims.Clear();
+    m_Tiers.Reset();
+    m_Claims.Reset();
 }
 
 /** DefineTier の実装 (tier 定義と空の claim 状態を追加、tier_index 重複は警告して無視)。 */
@@ -55,13 +55,13 @@ void CSeasonPass::DefineTier(const FTier& t) noexcept {
         return;
     }
 
-    m_Tiers.PushBack(t);
+    m_Tiers.Add(t);
 
     FClaimState cs{};
     cs.tier_index      = t.tier_index;
     cs.free_claimed    = false;
     cs.premium_claimed = false;
-    m_Claims.PushBack(cs);
+    m_Claims.Add(cs);
 }
 
 /** EndSeason の実装 (現在時刻を end_timestamp に強制して Ended に固定、tier / claim / xp は保持)。 */
@@ -127,7 +127,7 @@ u32 CSeasonPass::CurrentTier() const noexcept {
     // 線形走査 (件数は通常 50〜100)。
     u32 best   = kNotFound;
     u32 best_t = 0;  // tier_index 比較用
-    const usize n = m_Tiers.Size();
+    const usize n = m_Tiers.Num();
     for (usize i = 0; i < n; ++i) {
         const FTier& t = m_Tiers[i];
         if (m_Xp < t.xp_threshold) continue;
@@ -208,7 +208,7 @@ u32 CSeasonPass::ClaimableCount() const noexcept {
     // ・free: reward_id_free != nullptr かつ xp >= threshold かつ !free_claimed
     // ・premium: 同条件 + HasPremiumPass()==true
     u32 count = 0;
-    const usize n = m_Tiers.Size();
+    const usize n = m_Tiers.Num();
     for (usize i = 0; i < n; ++i) {
         const FTier&       tier = m_Tiers[i];
         const FClaimState& cs   = m_Claims[i];
@@ -226,7 +226,7 @@ u32 CSeasonPass::ClaimableCount() const noexcept {
 
 /** TierCount の実装 (定義済み tier の数を返す)。 */
 u32 CSeasonPass::TierCount() const noexcept {
-    return static_cast<u32>(m_Tiers.Size());
+    return static_cast<u32>(m_Tiers.Num());
 }
 
 } // namespace acs::game

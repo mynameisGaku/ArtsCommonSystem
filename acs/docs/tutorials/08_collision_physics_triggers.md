@@ -31,7 +31,7 @@ FShapeId player = world.AddCircle(FCircle{ FVec2{0, 0}, 16.0f });           // c
 // 範囲クエリ: 半径 32 の円と重なる形状を全部集める
 TArray<FShapeId> hits;
 world.OverlapCircle(FCircle{ FVec2{0, 0}, 32.0f }, hits);
-// hits.Size() に重なった shape 数。中身の FShapeId で wall/player を識別できる
+// hits.Num() に重なった shape 数。中身の FShapeId で wall/player を識別できる
 
 // レイキャスト: 最も近い 1 つだけ返す
 FRayHit2 rh;

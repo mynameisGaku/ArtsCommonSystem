@@ -42,18 +42,18 @@ FScene3DSpawnResult SpawnWaterPlane(
 TSharedPtr<AMeshAsset> MakePlanarTriangle() noexcept {
     TSharedPtr<AMeshAsset> mesh = MakeShared<AMeshAsset>();
     if (!mesh) return {};
-    mesh->Vertices().PushBack(
+    mesh->Vertices().Add(
         FMeshVertex{FVec3{0.0f, 0.0f, 0.0f},
                     FVec3{0.0f, 1.0f, 0.0f}, 0.0f, 0.0f});
-    mesh->Vertices().PushBack(
+    mesh->Vertices().Add(
         FMeshVertex{FVec3{2.0f, 0.0f, 0.0f},
                     FVec3{0.0f, 1.0f, 0.0f}, 1.0f, 0.0f});
-    mesh->Vertices().PushBack(
+    mesh->Vertices().Add(
         FMeshVertex{FVec3{0.0f, 0.0f, 2.0f},
                     FVec3{0.0f, 1.0f, 0.0f}, 0.0f, 1.0f});
-    mesh->Indices().PushBack(0u);
-    mesh->Indices().PushBack(1u);
-    mesh->Indices().PushBack(2u);
+    mesh->Indices().Add(0u);
+    mesh->Indices().Add(1u);
+    mesh->Indices().Add(2u);
     return mesh;
 }
 

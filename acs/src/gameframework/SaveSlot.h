@@ -89,11 +89,11 @@ public:
      * @param file_path このスロットが扱うファイルへの wide パス (非所有)。
      */
     void Init(const wchar_t* file_path) noexcept {
-        if (file_path == m_OwnedPath.Data() && file_path != nullptr) {
+        if (file_path == m_OwnedPath.GetData() && file_path != nullptr) {
             m_FilePath = file_path;
             return;
         }
-        m_OwnedPath.ReleaseStorage();
+        m_OwnedPath.Empty();
         m_FilePath = file_path;
     }
 
@@ -125,7 +125,7 @@ public:
         }
 
         TArray<wchar_t> staged(*m_OwnedPath.GetAllocator());
-        if (!staged.TryResize(path_chars + 1u)) {
+        if (!staged.TrySetNum(path_chars + 1u)) {
             return ACS_ERR(
                 Memory,
                 static_cast<u16>(ESaveArchiveSubCode::kSubAllocationFailed),
@@ -136,7 +136,7 @@ public:
         }
 
         m_OwnedPath = static_cast<TArray<wchar_t>&&>(staged);
-        m_FilePath = m_OwnedPath.Data();
+        m_FilePath = m_OwnedPath.GetData();
         return Ok();
     }
 
@@ -191,7 +191,7 @@ public:
 
     /** 現在のパスが TryInit により所有されているかを返す。 */
     bool IsPathOwned() const noexcept {
-        return m_FilePath != nullptr && m_FilePath == m_OwnedPath.Data();
+        return m_FilePath != nullptr && m_FilePath == m_OwnedPath.GetData();
     }
 
 private:

@@ -25,7 +25,7 @@ int CLuaVm::FLuaVmImpl::NativeTrampoline(lua_State* state) noexcept {
     /** 呼び出し先を保持する実装。 */
     auto* implementation = static_cast<CLuaVm::FLuaVmImpl*>(lua_touserdata(state, lua_upvalueindex(2)));
     const lua_Integer registration_id = lua_tointeger(state, lua_upvalueindex(3)); // closureを作成した登録の識別番号。
-    if (!implementation || registration_index < 0 || static_cast<usize>(registration_index) >= implementation->m_Natives.Size()) {
+    if (!implementation || registration_index < 0 || static_cast<usize>(registration_index) >= implementation->m_Natives.Num()) {
         return 0;
     }
 

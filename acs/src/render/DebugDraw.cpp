@@ -93,15 +93,15 @@ void CDebugDraw3D::Shutdown() noexcept {
     m_Vb.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
-    m_Verts.Clear();
+    m_Verts.Reset();
 }
 
-void CDebugDraw3D::Begin() noexcept { m_Verts.Clear(); }
+void CDebugDraw3D::Begin() noexcept { m_Verts.Reset(); }
 
 void CDebugDraw3D::Line(FVec3 a, FVec3 b, FVec4 c) noexcept {
-    if (m_Verts.Size() + 2 > m_MaxVerts) return;
-    m_Verts.PushBack(FLineVtx{ a.x, a.y, a.z, c.x, c.y, c.z, c.w });
-    m_Verts.PushBack(FLineVtx{ b.x, b.y, b.z, c.x, c.y, c.z, c.w });
+    if (m_Verts.Num() + 2 > m_MaxVerts) return;
+    m_Verts.Add(FLineVtx{ a.x, a.y, a.z, c.x, c.y, c.z, c.w });
+    m_Verts.Add(FLineVtx{ b.x, b.y, b.z, c.x, c.y, c.z, c.w });
 }
 
 void CDebugDraw3D::Aabb(const FAabb3& box, FVec4 color) noexcept {
@@ -129,16 +129,16 @@ void CDebugDraw3D::Wireframe(const FVec3* positions, u32 vertex_count,
 }
 
 void CDebugDraw3D::End(IRhiCommandList& cl, const FMat4& view_proj) noexcept {
-    if (!m_Pipeline || !m_Vb || !m_Cb || m_Verts.Size() == 0) return;
+    if (!m_Pipeline || !m_Vb || !m_Cb || m_Verts.Num() == 0) return;
     FDebugCbLayout cb{};
     cb.view_proj = view_proj;
     m_Cb->Update(&cb, sizeof(cb));
-    m_Vb->Update(m_Verts.Data(), m_Verts.Size() * sizeof(FLineVtx), 0);
+    m_Vb->Update(m_Verts.GetData(), m_Verts.Num() * sizeof(FLineVtx), 0);
 
     cl.SetPipeline(*m_Pipeline);
     cl.SetConstantBuffer(0, *m_Cb);
     cl.SetVertexBuffer(*m_Vb, sizeof(FLineVtx));
-    cl.Draw(static_cast<u32>(m_Verts.Size()), 0);
+    cl.Draw(static_cast<u32>(m_Verts.Num()), 0);
 }
 
 } // namespace acs

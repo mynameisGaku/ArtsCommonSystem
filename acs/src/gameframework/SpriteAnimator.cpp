@@ -130,7 +130,7 @@ void CSpriteAnimator::FireEventsBetween(u32 prev, u32 next, bool wrapped) noexce
     // ここに来るので二重発火しない)
     (void)prev;
     (void)wrapped;
-    const u32 n = static_cast<u32>(m_Events.Size());
+    const u32 n = static_cast<u32>(m_Events.Num());
     for (u32 i = 0; i < n; ++i) {
         const FFrameEvent& e = m_Events[i];
         if (e.cb != nullptr && e.frame == next) {
@@ -184,7 +184,7 @@ void CSpriteAnimator::SetFps(f32 fps) noexcept {
 void CSpriteAnimator::AddFrameEvent(u32 frame, FrameEventFn cb, void* user) noexcept {
     if (cb == nullptr)         return;
     if (frame >= m_FrameCount) return; // 範囲外は黙って無視
-    m_Events.PushBack(FFrameEvent{frame, cb, user});
+    m_Events.Add(FFrameEvent{frame, cb, user});
 }
 
 } // namespace acs::game

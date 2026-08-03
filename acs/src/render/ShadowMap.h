@@ -212,14 +212,14 @@ public:
      */
     IRhiBuffer*   CasterObjectCB() const noexcept {
         const u32 slot = m_CurrentCasters[m_CurrentCascade];
-        return slot < m_ObjectCbs[m_CurrentCascade].Size()
+        return slot < m_ObjectCbs[m_CurrentCascade].Num()
              ? m_ObjectCbs[m_CurrentCascade][slot].Get()
              : nullptr;
     }
 
     u32 CasterBufferCapacity(u32 cascade = 0u) const noexcept {
         return cascade < m_CascadeCapacity
-             ? static_cast<u32>(m_ObjectCbs[cascade].Size()) : 0u;
+             ? static_cast<u32>(m_ObjectCbs[cascade].Num()) : 0u;
     }
 
     /** BeginFrame() 以降に消費した per-draw caster CB slot 数。 */

@@ -146,7 +146,7 @@ ACS_TEST(SceneTextLoader, InvalidDocumentPreservesTreeRequestsAndOutRoot) {
     TArray<FSpriteRequest> sprites;
     FSpriteRequest marker;
     marker.node = &existing;
-    sprites.PushBack(marker);
+    sprites.Add(marker);
     ANode* published_root = &existing;
 
     const FSceneTextLoadResult result =
@@ -157,7 +157,7 @@ ACS_TEST(SceneTextLoader, InvalidDocumentPreservesTreeRequestsAndOutRoot) {
     EXPECT_EQ(result.Line, 4u);
     EXPECT_EQ(root.ChildCount(), 1u);
     EXPECT_TRUE(root.Child(0) == &existing);
-    EXPECT_EQ(sprites.Size(), 1u);
+    EXPECT_EQ(sprites.Num(), 1u);
     EXPECT_TRUE(sprites[0].node == &existing);
     EXPECT_TRUE(published_root == &existing);
 }

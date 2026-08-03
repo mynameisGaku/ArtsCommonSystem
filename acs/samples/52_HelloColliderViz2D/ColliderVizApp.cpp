@@ -91,7 +91,7 @@ void CColliderVizApp::OnUpdate(f32) noexcept {
     m_Probe = CInput::MousePos();
     TArray<acs::game::FShapeId> hits;
     m_World.OverlapCircle(FCircle{ m_Probe, 18.0f }, hits);
-    m_bOverlap = hits.Size() > 0;
+    m_bOverlap = hits.Num() > 0;
 }
 
 void CColliderVizApp::OnRender() noexcept {

@@ -51,7 +51,7 @@ void CBeatGrid::BumpRevision() noexcept {
 }
 
 void CBeatGrid::ClearActiveHolds() noexcept {
-    for (usize i = 0; i < m_Holds.Size(); ++i) {
+    for (usize i = 0; i < m_Holds.Num(); ++i) {
         m_Holds[i].active = false;
         m_Holds[i].head_judgement = EJudgement::Miss;
     }
@@ -69,7 +69,7 @@ void CBeatGrid::ResetRunState() noexcept {
     m_CurrentCombo = 0u;
     m_MaxCombo = 0u;
 
-    for (usize i = 0; i < m_Judged.Size(); ++i) m_Judged[i] = false;
+    for (usize i = 0; i < m_Judged.Num(); ++i) m_Judged[i] = false;
     ClearActiveHolds();
 }
 
@@ -123,9 +123,9 @@ EBeatChartLoadResult CBeatGrid::TryLoadChart(
         FBeatNote note = notes[i];
         if (!note.is_hold) note.hold_duration_sec = 0.0f;
         const FHoldState hold{};
-        if (!staged_notes.TryPushBack(note)
-            || !staged_judged.TryPushBack(false)
-            || !staged_holds.TryPushBack(hold)) {
+        if (!staged_notes.TryAdd(note)
+            || !staged_judged.TryAdd(false)
+            || !staged_holds.TryAdd(hold)) {
             return EBeatChartLoadResult::OutOfMemory;
         }
     }
@@ -217,7 +217,7 @@ EJudgement CBeatGrid::ClassifyDelta(f32 abs_delta_sec) const noexcept {
 }
 
 usize CBeatGrid::FindNearestNote(EBeatLane lane) const noexcept {
-    const usize count = m_Notes.Size();
+    const usize count = m_Notes.Num();
     usize best_index = count;
     f32 best_delta = 0.0f;
 
@@ -236,7 +236,7 @@ usize CBeatGrid::FindNearestNote(EBeatLane lane) const noexcept {
 }
 
 usize CBeatGrid::FindNearestActiveHold(EBeatLane lane) const noexcept {
-    const usize count = m_Notes.Size();
+    const usize count = m_Notes.Num();
     usize best_index = count;
     f32 best_delta = 0.0f;
 
@@ -284,7 +284,7 @@ bool CBeatGrid::ApplyJudgement(
 
 bool CBeatGrid::FireEndIfComplete() noexcept {
     if (m_bEndedFired) return true;
-    for (usize i = 0; i < m_Judged.Size(); ++i) {
+    for (usize i = 0; i < m_Judged.Num(); ++i) {
         if (!m_Judged[i]) return true;
     }
 
@@ -300,7 +300,7 @@ EJudgement CBeatGrid::PressLane(EBeatLane lane) noexcept {
     if (!m_Playing || !IsValidLane(lane)) return EJudgement::Miss;
 
     const usize index = FindNearestNote(lane);
-    if (index >= m_Notes.Size()) return EJudgement::Miss;
+    if (index >= m_Notes.Num()) return EJudgement::Miss;
 
     const EJudgement judgement =
         ClassifyDelta(Abs(m_Notes[index].time_sec - m_CurrentTime));
@@ -321,7 +321,7 @@ EJudgement CBeatGrid::ReleaseLane(EBeatLane lane) noexcept {
     if (!m_Playing || !IsValidLane(lane)) return EJudgement::Miss;
 
     const usize index = FindNearestActiveHold(lane);
-    if (index >= m_Notes.Size()) return EJudgement::Miss;
+    if (index >= m_Notes.Num()) return EJudgement::Miss;
 
     const FBeatNote& note = m_Notes[index];
     const f32 tail_time = note.time_sec + note.hold_duration_sec;
@@ -339,7 +339,7 @@ EJudgement CBeatGrid::ReleaseLane(EBeatLane lane) noexcept {
 
 bool CBeatGrid::IsLaneHolding(EBeatLane lane) const noexcept {
     if (!IsValidLane(lane)) return false;
-    for (usize i = 0; i < m_Holds.Size(); ++i) {
+    for (usize i = 0; i < m_Holds.Num(); ++i) {
         if (m_Holds[i].active && m_Notes[i].lane == lane) return true;
     }
     return false;
@@ -347,7 +347,7 @@ bool CBeatGrid::IsLaneHolding(EBeatLane lane) const noexcept {
 
 u32 CBeatGrid::ActiveHoldCount() const noexcept {
     u32 count = 0u;
-    for (usize i = 0; i < m_Holds.Size(); ++i) {
+    for (usize i = 0; i < m_Holds.Num(); ++i) {
         if (m_Holds[i].active) ++count;
     }
     return count;
@@ -360,7 +360,7 @@ void CBeatGrid::Tick(f32 dt) noexcept {
     if (m_CurrentTime > FLT_MAX - dt) return;
 
     m_CurrentTime += dt;
-    const usize count = m_Notes.Size();
+    const usize count = m_Notes.Num();
     const u64 revision = m_StateRevision;
 
     for (usize i = 0; i < count; ++i) {
@@ -401,9 +401,9 @@ f32 CBeatGrid::Accuracy() const noexcept {
 
 void CBeatGrid::ClearAll() noexcept {
     BumpRevision();
-    m_Notes.Clear();
-    m_Judged.Clear();
-    m_Holds.Clear();
+    m_Notes.Reset();
+    m_Judged.Reset();
+    m_Holds.Reset();
     m_Bpm = 0.0f;
     m_PerfectWindowSec = 0.025f;
     m_GreatWindowSec = 0.050f;

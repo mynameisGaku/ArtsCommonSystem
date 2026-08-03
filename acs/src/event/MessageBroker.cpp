@@ -36,11 +36,11 @@ CMessageBroker::~CMessageBroker() noexcept {
 
 /** 全通路の購読を無効化し、配信中の参照が指す領域は維持する。 */
 void CMessageBroker::InvalidateAllChannels() noexcept {
-    for (/** 無効にする通路の位置。 */ usize i = 0; i < m_Channels.Size(); ++i) {
+    for (/** 無効にする通路の位置。 */ usize i = 0; i < m_Channels.Num(); ++i) {
         /** 購読を無効化する通路。 */
         FChannel* const channel = m_Channels[i];
         if (!channel) continue;
-        for (/** 無効化する購読枠の位置。 */ usize slot_index = 0; slot_index < channel->slots.Size(); ++slot_index) {
+        for (/** 無効化する購読枠の位置。 */ usize slot_index = 0; slot_index < channel->slots.Num(); ++slot_index) {
             /** 無効化する購読情報。 */
             FSlot& slot = channel->slots[slot_index];
             slot.active = false;
@@ -48,7 +48,7 @@ void CMessageBroker::InvalidateAllChannels() noexcept {
             slot.cb = nullptr;
             slot.user = nullptr;
         }
-        channel->free_indices.Clear();
+        channel->free_indices.Reset();
         channel->active_count = 0;
     }
 }
@@ -57,7 +57,7 @@ void CMessageBroker::InvalidateAllChannels() noexcept {
 void CMessageBroker::ReleaseChannels() noexcept {
     /** 通路の確保と解放に使う既存配列のメモリ管理器。 */
     IAllocator& allocator = *m_Channels.GetAllocator();
-    for (/** 解放する通路の位置。 */ usize i = 0; i < m_Channels.Size(); ++i) {
+    for (/** 解放する通路の位置。 */ usize i = 0; i < m_Channels.Num(); ++i) {
         if (m_Channels[i]) Delete(allocator, m_Channels[i]);
     }
     m_Channels = TArray<FChannel*>{*m_Channels.GetAllocator()};
@@ -78,12 +78,12 @@ void CMessageBroker::Clear() noexcept {
 
 /** 制御領域を返し、未作成ならnullptrを返す。 */
 CMessageBroker::FChannel* CMessageBroker::GetControlChannel() noexcept {
-    return m_Channels.Size() != 0 ? m_Channels[0] : nullptr;
+    return m_Channels.Num() != 0 ? m_Channels[0] : nullptr;
 }
 
 /** 配信終了まで全解除を保留しているかを返す。 */
 bool CMessageBroker::IsClearPending() const noexcept {
-    return m_Channels.Size() != 0 && m_Channels[0] && m_Channels[0]->broker_clear_pending;
+    return m_Channels.Num() != 0 && m_Channels[0] && m_Channels[0]->broker_clear_pending;
 }
 
 /**
@@ -95,11 +95,11 @@ CMessageBroker::FChannel* CMessageBroker::GetChannel(FEventTypeId id, bool creat
     if (IsClearPending() || !IsValidEventTypeId(id)) return nullptr;
     /** 通路番号と一致する配列位置。 */
     const usize storage_index = static_cast<usize>(id);
-    if (storage_index >= m_Channels.Size()) {
+    if (storage_index >= m_Channels.Num()) {
         if (!create) return nullptr;
         /** 拡張前の通路数。 */
-        const usize old_size = m_Channels.Size();
-        if (!m_Channels.TryResize(storage_index + 1u)) return nullptr;
+        const usize old_size = m_Channels.Num();
+        if (!m_Channels.TrySetNum(storage_index + 1u)) return nullptr;
         for (/** 未初期化の通路位置。 */ usize i = old_size; i <= storage_index; ++i) m_Channels[i] = nullptr;
     }
     if (!m_Channels[0] && create) {
@@ -123,11 +123,11 @@ CMessageBroker::FChannel* CMessageBroker::GetChannel(FEventTypeId id, bool creat
  */
 void CMessageBroker::CollectReusableSlots(FChannel& channel) noexcept {
     if (channel.publish_depth != 0) return;
-    for (/** 現在調べる購読枠の位置。 */ u32 index = 0; index < channel.slots.Size(); ++index) {
+    for (/** 現在調べる購読枠の位置。 */ u32 index = 0; index < channel.slots.Num(); ++index) {
         /** 現在調べる購読情報。 */
         FSlot& slot = channel.slots[index];
         if (!slot.pending_reuse) continue;
-        if (!channel.free_indices.TryPushBack(index)) return;
+        if (!channel.free_indices.TryAdd(index)) return;
         slot.pending_reuse = false;
     }
 }
@@ -149,13 +149,13 @@ FSubscriptionHandle CMessageBroker::SubscribeRaw(FEventTypeId channel, MessageCa
     CollectReusableSlots(*ch);
     /** 登録先の購読枠の位置。 */
     u32 index = 0;
-    if (ch->publish_depth == 0 && ch->free_indices.Size() > 0) {
-        index = ch->free_indices[ch->free_indices.Size() - 1];
-        ch->free_indices.PopBack();
+    if (ch->publish_depth == 0 && ch->free_indices.Num() > 0) {
+        index = ch->free_indices[ch->free_indices.Num() - 1];
+        ch->free_indices.Pop();
     } else {
-        if (ch->slots.Size() >= static_cast<usize>(std::numeric_limits<u32>::max())) return kInvalidSubscription;
-        index = static_cast<u32>(ch->slots.Size());
-        if (!ch->slots.TryPushBack(FSlot{})) return kInvalidSubscription;
+        if (ch->slots.Num() >= static_cast<usize>(std::numeric_limits<u32>::max())) return kInvalidSubscription;
+        index = static_cast<u32>(ch->slots.Num());
+        if (!ch->slots.TryAdd(FSlot{})) return kInvalidSubscription;
     }
 
     /** 登録先の購読情報。 */
@@ -183,7 +183,7 @@ bool CMessageBroker::Unsubscribe(FSubscriptionHandle handle) noexcept {
 
     /** 購読番号から求めた購読枠の位置。 */
     const u32 index = handle.id - 1;
-    if (index >= channel->slots.Size()) return false;
+    if (index >= channel->slots.Num()) return false;
     /** 解除候補の購読情報。 */
     FSlot& slot = channel->slots[index];
     if (slot.id != handle.id || slot.generation != handle.generation || !slot.active) return false;
@@ -192,7 +192,7 @@ bool CMessageBroker::Unsubscribe(FSubscriptionHandle handle) noexcept {
     slot.cb = nullptr;
     slot.user = nullptr;
     --channel->active_count;
-    slot.pending_reuse = channel->publish_depth != 0 || !channel->free_indices.TryPushBack(index);
+    slot.pending_reuse = channel->publish_depth != 0 || !channel->free_indices.TryAdd(index);
     return true;
 }
 
@@ -213,7 +213,7 @@ void CMessageBroker::PublishRaw(FEventTypeId channel, const void* payload) noexc
     ++target->publish_depth;
     ++control->broker_publish_depth;
     /** 配信開始時点の購読枠数。 */
-    const usize initial_count = target->slots.Size();
+    const usize initial_count = target->slots.Num();
     for (/** 現在配信する購読枠の位置。 */ usize i = 0; i < initial_count; ++i) {
         if (control->broker_clear_pending) break;
         /** 現在配信する購読情報。 */
@@ -242,7 +242,7 @@ u32 CMessageBroker::SubscriberCount(FEventTypeId channel) const noexcept {
     if (!IsValidEventTypeId(channel)) return 0;
     /** 通路番号と一致する配列位置。 */
     const usize storage_index = static_cast<usize>(channel);
-    if (storage_index >= m_Channels.Size() || !m_Channels[storage_index]) return 0;
+    if (storage_index >= m_Channels.Num() || !m_Channels[storage_index]) return 0;
     return m_Channels[storage_index]->active_count;
 }
 

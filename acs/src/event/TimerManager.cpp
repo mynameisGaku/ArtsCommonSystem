@@ -58,26 +58,26 @@ bool CTimerManager::EnsureActiveWord(u32 slot_index) noexcept {
     /** 必要な active word 数。 */
     const usize required = static_cast<usize>(slot_index / 64u) + 1;
     /** 拡張前の active word 数。 */
-    const usize old_size = m_ActiveWords.Size();
+    const usize old_size = m_ActiveWords.Num();
     if (required <= old_size) return true;
-    if (!m_ActiveWords.TryResize(required)) return false;
+    if (!m_ActiveWords.TrySetNum(required)) return false;
     for (/** 初期化する active word 位置。 */ usize i = old_size; i < required; ++i) m_ActiveWords[i] = 0;
     return true;
 }
 
 /** 登録に使う空き枠を返し、確保できなければ無効な位置を返す。 */
 u32 CTimerManager::AcquireSlotIndex() noexcept {
-    if (m_FreeIndices.Size() > 0) {
+    if (m_FreeIndices.Num() > 0) {
         /** 再利用するタイマー枠の位置。 */
-        const u32 index = m_FreeIndices[m_FreeIndices.Size() - 1];
-        m_FreeIndices.PopBack();
+        const u32 index = m_FreeIndices[m_FreeIndices.Num() - 1];
+        m_FreeIndices.Pop();
         return index;
     }
-    if (m_Slots.Size() >= static_cast<usize>(std::numeric_limits<u32>::max())) return std::numeric_limits<u32>::max();
+    if (m_Slots.Num() >= static_cast<usize>(std::numeric_limits<u32>::max())) return std::numeric_limits<u32>::max();
     /** 新しく追加するタイマー枠の位置。 */
-    const u32 index = static_cast<u32>(m_Slots.Size());
+    const u32 index = static_cast<u32>(m_Slots.Num());
     if (!EnsureActiveWord(index)) return std::numeric_limits<u32>::max();
-    return m_Slots.TryPushBack(FSlot{}) ? index : std::numeric_limits<u32>::max();
+    return m_Slots.TryAdd(FSlot{}) ? index : std::numeric_limits<u32>::max();
 }
 
 /**
@@ -127,7 +127,7 @@ void CTimerManager::MarkActive(u32 slot_index) noexcept {
 void CTimerManager::MarkInactive(u32 slot_index) noexcept {
     /** active word の位置。 */
     const usize word_index = slot_index / 64u;
-    if (word_index >= m_ActiveWords.Size()) return;
+    if (word_index >= m_ActiveWords.Num()) return;
     /** active bit の mask。 */
     const u64 mask = u64{1} << (slot_index & 63u);
     if ((m_ActiveWords[word_index] & mask) != 0) {
@@ -138,7 +138,7 @@ void CTimerManager::MarkInactive(u32 slot_index) noexcept {
 
 /** 全タイマー枠を無効にする。 */
 void CTimerManager::InvalidateAllSlots() noexcept {
-    for (/** 無効にするタイマー枠の位置。 */ usize i = 0; i < m_Slots.Size(); ++i) {
+    for (/** 無効にするタイマー枠の位置。 */ usize i = 0; i < m_Slots.Num(); ++i) {
         /** 無効にするタイマー情報。 */
         FSlot& slot = m_Slots[i];
         slot.active = false;
@@ -146,8 +146,8 @@ void CTimerManager::InvalidateAllSlots() noexcept {
         slot.cb = nullptr;
         slot.user = nullptr;
     }
-    for (/** 消去する active word の位置。 */ usize i = 0; i < m_ActiveWords.Size(); ++i) m_ActiveWords[i] = 0;
-    m_FreeIndices.Clear();
+    for (/** 消去する active word の位置。 */ usize i = 0; i < m_ActiveWords.Num(); ++i) m_ActiveWords[i] = 0;
+    m_FreeIndices.Reset();
     m_ActiveCount = 0;
     m_NextId = 1;
 }
@@ -201,7 +201,7 @@ bool CTimerManager::Cancel(FTimerHandle handle) noexcept {
     if (!handle.IsValid()) return false;
     /** 識別番号から求めたタイマー枠の位置。 */
     const u32 index = handle.id - 1;
-    if (index >= m_Slots.Size()) return false;
+    if (index >= m_Slots.Num()) return false;
     ++m_Diagnostics.cancel_slot_probes;
     /** 取り消し候補のタイマー情報。 */
     FSlot& slot = m_Slots[index];
@@ -211,7 +211,7 @@ bool CTimerManager::Cancel(FTimerHandle handle) noexcept {
     slot.cb = nullptr;
     slot.user = nullptr;
     MarkInactive(index);
-    (void)m_FreeIndices.TryPushBack(index);
+    (void)m_FreeIndices.TryAdd(index);
     return true;
 }
 
@@ -228,7 +228,7 @@ bool CTimerManager::IsActive(FTimerHandle handle) const noexcept {
     if (!handle.IsValid()) return false;
     /** 識別番号から求めたタイマー枠の位置。 */
     const u32 index = handle.id - 1;
-    if (index >= m_Slots.Size()) return false;
+    if (index >= m_Slots.Num()) return false;
     /** 生存確認するタイマー情報。 */
     const FSlot& slot = m_Slots[index];
     return slot.id == handle.id && slot.generation == handle.generation && slot.active;
@@ -245,10 +245,10 @@ void CTimerManager::Tick(f32 dt) noexcept {
     m_Diagnostics.active_words_loaded = 0;
 
     /** 更新開始時点のタイマー枠数。 */
-    const usize initial_count = m_Slots.Size();
+    const usize initial_count = m_Slots.Num();
     /** 更新開始時点の active word 数。 */
     const usize initial_words = (initial_count + 63u) / 64u;
-    for (/** 現在更新する active word 位置。 */ usize word_index = 0; word_index < initial_words && word_index < m_ActiveWords.Size(); ++word_index) {
+    for (/** 現在更新する active word 位置。 */ usize word_index = 0; word_index < initial_words && word_index < m_ActiveWords.Num(); ++word_index) {
         ++m_Diagnostics.active_words_loaded;
         /** この word で次に調べる最小 bit。 */
         u32 minimum_bit = 0;
@@ -285,7 +285,7 @@ void CTimerManager::Tick(f32 dt) noexcept {
                 slot.cb = nullptr;
                 slot.user = nullptr;
                 MarkInactive(static_cast<u32>(slot_index));
-                (void)m_FreeIndices.TryPushBack(static_cast<u32>(slot_index));
+                (void)m_FreeIndices.TryAdd(static_cast<u32>(slot_index));
                 callback(user);
                 continue;
             }
@@ -299,7 +299,7 @@ void CTimerManager::Tick(f32 dt) noexcept {
             /** 今回の更新で発火した回数。 */
             u32 fired = 0;
             while (true) {
-                if (slot_index >= m_Slots.Size()) break;
+                if (slot_index >= m_Slots.Num()) break;
                 /** 呼出し後の状態を取り直したタイマー情報。 */
                 FSlot& current_slot = m_Slots[slot_index];
                 if (!current_slot.active || !current_slot.repeating || current_slot.id != fire_id || current_slot.generation != fire_generation) break;
@@ -309,7 +309,7 @@ void CTimerManager::Tick(f32 dt) noexcept {
                     current_slot.cb = nullptr;
                     current_slot.user = nullptr;
                     MarkInactive(static_cast<u32>(slot_index));
-                    (void)m_FreeIndices.TryPushBack(static_cast<u32>(slot_index));
+                    (void)m_FreeIndices.TryAdd(static_cast<u32>(slot_index));
                     break;
                 }
                 current_slot.remaining += current_slot.period;
@@ -327,7 +327,7 @@ void CTimerManager::Tick(f32 dt) noexcept {
         }
     }
 
-    for (/** 次回更新から有効にするタイマー枠の位置。 */ usize i = 0; i < m_Slots.Size(); ++i) m_Slots[i].pending_until_next_tick = false;
+    for (/** 次回更新から有効にするタイマー枠の位置。 */ usize i = 0; i < m_Slots.Num(); ++i) m_Slots[i].pending_until_next_tick = false;
     --m_TickDepth;
     if (m_TickDepth == 0 && m_ClearPending) ReleaseClearedStorage();
 }

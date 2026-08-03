@@ -59,12 +59,12 @@ public:
         DestroyInline();
     }
 
-    usize Size() const noexcept {
-        return m_UsingOverflow ? m_Overflow.Size() : m_InlineSize;
+    usize Num() const noexcept {
+        return m_UsingOverflow ? m_Overflow.Num() : m_InlineSize;
     }
 
     bool IsEmpty() const noexcept {
-        return Size() == 0u;
+        return Num() == 0u;
     }
 
     bool UsesInlineStorage() const noexcept {
@@ -72,49 +72,49 @@ public:
     }
 
     T& operator[](usize index) noexcept {
-        ACS_ASSERT(index < Size());
+        ACS_ASSERT(index < Num());
         return m_UsingOverflow ? m_Overflow[index] : InlineData()[index];
     }
 
     const T& operator[](usize index) const noexcept {
-        ACS_ASSERT(index < Size());
+        ACS_ASSERT(index < Num());
         return m_UsingOverflow ? m_Overflow[index] : InlineData()[index];
     }
 
-    bool TryPushBack(const T& value) noexcept {
-        if (m_UsingOverflow) return m_Overflow.TryPushBack(value);
+    bool TryAdd(const T& value) noexcept {
+        if (m_UsingOverflow) return m_Overflow.TryAdd(value);
         if (m_InlineSize < InlineCapacity) {
             ::new (static_cast<void*>(InlineData() + m_InlineSize)) T(value);
             ++m_InlineSize;
             return true;
         }
         if (!MoveToOverflow()) return false;
-        return m_Overflow.TryPushBack(value);
+        return m_Overflow.TryAdd(value);
     }
 
-    bool TryPushBack(T&& value) noexcept {
-        if (m_UsingOverflow) return m_Overflow.TryPushBack(Move(value));
+    bool TryAdd(T&& value) noexcept {
+        if (m_UsingOverflow) return m_Overflow.TryAdd(Move(value));
         if (m_InlineSize < InlineCapacity) {
             ::new (static_cast<void*>(InlineData() + m_InlineSize)) T(Move(value));
             ++m_InlineSize;
             return true;
         }
         if (!MoveToOverflow()) return false;
-        return m_Overflow.TryPushBack(Move(value));
+        return m_Overflow.TryAdd(Move(value));
     }
 
-    void PushBack(const T& value) noexcept {
-        ACS_CHECKF(TryPushBack(value), "TInlineArray::PushBack failed (size=%zu, T=%zu)", Size(), sizeof(T));
+    void Add(const T& value) noexcept {
+        ACS_CHECKF(TryAdd(value), "TInlineArray::Add failed (size=%zu, T=%zu)", Num(), sizeof(T));
     }
 
-    void PushBack(T&& value) noexcept {
-        ACS_CHECKF(TryPushBack(Move(value)), "TInlineArray::PushBack failed (size=%zu, T=%zu)", Size(), sizeof(T));
+    void Add(T&& value) noexcept {
+        ACS_CHECKF(TryAdd(Move(value)), "TInlineArray::Add failed (size=%zu, T=%zu)", Num(), sizeof(T));
     }
 
-    void PopBack() noexcept {
+    void Pop() noexcept {
         ACS_ASSERT(!IsEmpty());
         if (m_UsingOverflow) {
-            m_Overflow.PopBack();
+            m_Overflow.Pop();
             return;
         }
         --m_InlineSize;
@@ -145,9 +145,9 @@ public:
         return false;
     }
 
-    void Clear() noexcept {
+    void Reset() noexcept {
         if (m_UsingOverflow) {
-            m_Overflow.Clear();
+            m_Overflow.Reset();
             return;
         }
         DestroyInline();
@@ -173,7 +173,7 @@ private:
     bool MoveToOverflow() noexcept {
         if (!m_Overflow.TryReserve(InlineCapacity * 2u)) return false;
         for (usize i = 0u; i < m_InlineSize; ++i) {
-            if (!m_Overflow.TryPushBack(Move(InlineData()[i]))) {
+            if (!m_Overflow.TryAdd(Move(InlineData()[i]))) {
                 return false;
             }
         }

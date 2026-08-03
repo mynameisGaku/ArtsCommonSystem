@@ -260,7 +260,7 @@ void Drawer_TextInput(const FPropertyContext& ctx) noexcept {
 /** 既存登録を破棄して bundled drawer 9 種を自動登録する。 */
 void CPropertyDrawerRegistry::Init() noexcept {
     // 既存登録を全て破棄 (多重 Init を許容)。
-    m_Entries.Clear();
+    m_Entries.Reset();
 
     // bundled drawer 9 種を順に自動登録。
     //   ・名前順ではなく「カテゴリ順 (scalar → vector → color → asset → enum → text)」
@@ -281,20 +281,20 @@ void CPropertyDrawerRegistry::Init() noexcept {
 void CPropertyDrawerRegistry::Shutdown() noexcept {
     // 全 drawer 登録を破棄。Init での bundled 再注入は呼び出し側で `Init()` を
     // 呼び直す責務 (= Shutdown は state を空に倒すだけ)。
-    m_Entries.Clear();
+    m_Entries.Reset();
 }
 
 /** 全 drawer 登録を破棄して空に戻す (Shutdown と同義)。 */
 void CPropertyDrawerRegistry::ClearAll() noexcept {
     // Shutdown と同義 (= ImGui 等のグローバル状態は触らないため等価)。
     // 別名 API として残しているのは Init/Shutdown/ClearAll の対称性を取るため。
-    m_Entries.Clear();
+    m_Entries.Reset();
 }
 
 /** name 一致のエントリを線形探索する (未ヒットは -1)。 */
 isize CPropertyDrawerRegistry::FindIndex(const char* type_name) const noexcept {
     if (type_name == nullptr || type_name[0] == '\0') return -1;
-    const usize n = m_Entries.Size();
+    const usize n = m_Entries.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Entries[i].name, type_name)) {
             return static_cast<isize>(i);
@@ -322,7 +322,7 @@ void CPropertyDrawerRegistry::RegisterDrawer(const char* type_name, DrawerFn fn)
     FEntry e;
     e.name = type_name;
     e.fn   = fn;
-    m_Entries.PushBack(e);
+    m_Entries.Add(e);
 }
 
 /** type_name 一致の登録 1 件を末尾 swap で解除する (順序非保持)。 */
@@ -356,12 +356,12 @@ bool CPropertyDrawerRegistry::DrawProperty(const char* type_name,
 
 /** 登録済み drawer 数を返す。 */
 u32 CPropertyDrawerRegistry::DrawerCount() const noexcept {
-    return static_cast<u32>(m_Entries.Size());
+    return static_cast<u32>(m_Entries.Num());
 }
 
 /** index 番目の drawer name を返す (範囲外は nullptr)。 */
 const char* CPropertyDrawerRegistry::DrawerName(u32 index) const noexcept {
-    if (static_cast<usize>(index) >= m_Entries.Size()) return nullptr;
+    if (static_cast<usize>(index) >= m_Entries.Num()) return nullptr;
     return m_Entries[static_cast<usize>(index)].name;
 }
 

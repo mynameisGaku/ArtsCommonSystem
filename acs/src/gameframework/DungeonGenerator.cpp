@@ -77,8 +77,8 @@ inline u32 PartitionH(const FBspNode& n) noexcept { return n.y1 - n.y0 + 1u; }
 } // namespace
 
 void CDungeonGenerator::Clear() noexcept {
-    m_Grid.Clear();
-    m_Rooms.Clear();
+    m_Grid.Reset();
+    m_Rooms.Reset();
     m_Width  = 0;
     m_Height = 0;
     m_Seed   = 0;
@@ -95,18 +95,18 @@ void CDungeonGenerator::SetTile(u32 x, u32 y, ETileKind kind) noexcept {
 }
 
 const FRoom* CDungeonGenerator::GetRoom(u32 index) const noexcept {
-    if (index >= m_Rooms.Size()) return nullptr;
+    if (index >= m_Rooms.Num()) return nullptr;
     return &m_Rooms[index];
 }
 
 const FRoom* CDungeonGenerator::AllRooms(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(m_Rooms.Size());
+    out_count = static_cast<u32>(m_Rooms.Num());
     if (out_count == 0u) return nullptr;
-    return m_Rooms.Data();
+    return m_Rooms.GetData();
 }
 
 void CDungeonGenerator::GetRoomCenter(u32 room_index, u32& out_x, u32& out_y) const noexcept {
-    if (room_index >= m_Rooms.Size()) { out_x = 0; out_y = 0; return; }
+    if (room_index >= m_Rooms.Num()) { out_x = 0; out_y = 0; return; }
     const FRoom& r = m_Rooms[room_index];
     out_x = r.x + r.w / 2u;
     out_y = r.y + r.h / 2u;
@@ -159,11 +159,11 @@ void CDungeonGenerator::Generate(const FDungeonGenConfig& config) noexcept {
     // 2. グリッド確保 + Wall で塗る
     m_Width  = width;
     m_Height = height;
-    m_Grid.Clear();
+    m_Grid.Reset();
     const usize cells = static_cast<usize>(width) * static_cast<usize>(height);
-    m_Grid.Resize(cells);
+    m_Grid.SetNum(cells);
     for (usize i = 0; i < cells; ++i) m_Grid[i] = ETileKind::Wall;
-    m_Rooms.Clear();
+    m_Rooms.Reset();
     m_Seed = config.seed;
 
     FRandom rng(static_cast<u64>(config.seed));
@@ -179,17 +179,17 @@ void CDungeonGenerator::Generate(const FDungeonGenConfig& config) noexcept {
         root.x1 = width  - 2u;
         root.y1 = height - 2u;
         root.depth = 0u;
-        nodes.PushBack(root);
+        nodes.Add(root);
     }
 
     // 反復的 BSP: stack に「これから分割を試みるノード index」を積む。
     TArray<u32> work;
     work.Reserve(64u);
-    work.PushBack(0u);
+    work.Add(0u);
 
     while (!work.IsEmpty()) {
-        const u32 idx = work[work.Size() - 1u];
-        work.PopBack();
+        const u32 idx = work[work.Num() - 1u];
+        work.Pop();
         FBspNode node = nodes[idx]; // コピー (後で書き戻す)
 
         const u32 w = PartitionW(node);
@@ -252,21 +252,21 @@ void CDungeonGenerator::Generate(const FDungeonGenConfig& config) noexcept {
             right.x1 = node.x1;      right.y1 = node.y1;
         }
 
-        const u32 left_idx  = static_cast<u32>(nodes.Size());
-        nodes.PushBack(left);
-        const u32 right_idx = static_cast<u32>(nodes.Size());
-        nodes.PushBack(right);
+        const u32 left_idx  = static_cast<u32>(nodes.Num());
+        nodes.Add(left);
+        const u32 right_idx = static_cast<u32>(nodes.Num());
+        nodes.Add(right);
         node.left  = left_idx;
         node.right = right_idx;
         nodes[idx] = node;
 
         // 子も分割対象にする
-        work.PushBack(left_idx);
-        work.PushBack(right_idx);
+        work.Add(left_idx);
+        work.Add(right_idx);
     }
 
     // 4. リーフに room を配置: 全ノードを線形走査し、子なしのノードがリーフ。
-    for (u32 i = 0; i < nodes.Size(); ++i) {
+    for (u32 i = 0; i < nodes.Num(); ++i) {
         FBspNode& n = nodes[i];
         if (n.left != kInvalidIdx || n.right != kInvalidIdx) continue;
 
@@ -299,7 +299,7 @@ void CDungeonGenerator::Generate(const FDungeonGenConfig& config) noexcept {
         room.y  = ry;
         room.w  = rw;
         room.h  = rh;
-        room.id = static_cast<u32>(m_Rooms.Size());
+        room.id = static_cast<u32>(m_Rooms.Num());
         for (u32 yy = ry; yy < ry + rh; ++yy) {
             const usize row = static_cast<usize>(yy) * static_cast<usize>(m_Width);
             for (u32 xx = rx; xx < rx + rw; ++xx) {
@@ -307,7 +307,7 @@ void CDungeonGenerator::Generate(const FDungeonGenConfig& config) noexcept {
             }
         }
         n.rep_room = room.id;
-        m_Rooms.PushBack(room);
+        m_Rooms.Add(room);
     }
 
     // 5. 兄弟 leaf 間に廊下を引く。
@@ -316,7 +316,7 @@ void CDungeonGenerator::Generate(const FDungeonGenConfig& config) noexcept {
     // (max_depth は 16 上限なので O(N * max_depth) は十分高速)
     for (u32 d = max_depth; d > 0u; --d) {
         const u32 target_depth = d - 1u;     // 親側 (子は depth = d)
-        for (u32 i = 0; i < nodes.Size(); ++i) {
+        for (u32 i = 0; i < nodes.Num(); ++i) {
             FBspNode& n = nodes[i];
             if (n.depth != target_depth) continue;
             if (n.left == kInvalidIdx || n.right == kInvalidIdx) continue;
@@ -382,8 +382,8 @@ void CDungeonGenerator::Generate(const FDungeonGenConfig& config) noexcept {
     // 仕様: ランダムな部屋に階段。最後の部屋固定だとプレイヤーが学習してしまうので
     //       random pick が望ましい。部屋が無い (極小 grid で leaf に room が
     //       入らなかった) ケースは no-op。
-    if (m_Rooms.Size() > 0u) {
-        const u32 pick = rng.NextU32() % static_cast<u32>(m_Rooms.Size());
+    if (m_Rooms.Num() > 0u) {
+        const u32 pick = rng.NextU32() % static_cast<u32>(m_Rooms.Num());
         const FRoom& r = m_Rooms[pick];
         const u32 sx = r.x + r.w / 2u;
         const u32 sy = r.y + r.h / 2u;

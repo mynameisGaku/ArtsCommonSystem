@@ -228,7 +228,7 @@ public:
      * 武器定義を登録し、対応する reserve スロットを 0 で初期化する。
      *
      * @details
-     * 同 id の 2 重登録は WARN + no-op、def.id == nullptr も no-op。PushBack で
+     * 同 id の 2 重登録は WARN + no-op、def.id == nullptr も no-op。Add で
      * 配列が再確保された場合は装備中の m_CurrentDef を slot index から張り直す。
      * @param def 登録する武器定義 (文字列は呼出側で長寿命を保証すること)。
      */

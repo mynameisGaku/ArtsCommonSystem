@@ -135,8 +135,8 @@ public:
      * @details
      * cmd == nullptr なら silent no-op。それ以外は受け取った直後に TUniquePtr へ
      * 詰め直して破棄責任を引き取り、cmd->Execute() を呼ぶ。直前 (m_UndoStack.Back())
-     * と CanMerge / MergeWith できれば PushBack せず merge して破棄し (連続 drag の
-     * 1 件化)、そうでなければ m_UndoStack に PushBack する。続けて m_RedoStack を
+     * と CanMerge / MergeWith できれば Add せず merge して破棄し (連続 drag の
+     * 1 件化)、そうでなければ m_UndoStack に Add する。続けて m_RedoStack を
      * Clear し (new edit で redo の未来は破棄)、上限超過なら最古 1 件を捨て、
      * 最後に callback を (cb_user, スタック top, is_redo=false) で発火する。
      * @param cmd 積む command (所有権が移る。nullptr は no-op)。
@@ -243,7 +243,7 @@ private:
     /**
      * m_UndoStack が上限を超えていれば最古の command を捨てる。
      *
-     * @details PushBack 直後にのみ呼ぶ前提なので、超過量は高々 1 件。
+     * @details Add 直後にのみ呼ぶ前提なので、超過量は高々 1 件。
      */
     void DropOldestIfOverflow() noexcept;
 

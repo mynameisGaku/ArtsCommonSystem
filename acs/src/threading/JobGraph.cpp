@@ -12,7 +12,7 @@ CJobGraph::~CJobGraph() noexcept
     while (m_JobCount != 0) {
         /** 末尾から破棄する job。 */
         FJob* const job = JobAt(m_JobCount - 1);
-        if (m_JobCount > kInlineJobCapacity) m_OverflowJobs.PopBack();
+        if (m_JobCount > kInlineJobCapacity) m_OverflowJobs.Pop();
         --m_JobCount;
         DestroyJob(job);
     }
@@ -33,7 +33,7 @@ CJobGraph::FJob* CJobGraph::AppendEmptyJob() noexcept
     } else {
         job = new (std::nothrow) FJob();
         if (!job) return nullptr;
-        if (!m_OverflowJobs.TryPushBack(job)) {
+        if (!m_OverflowJobs.TryAdd(job)) {
             delete job;
             return nullptr;
         }
@@ -52,7 +52,7 @@ void CJobGraph::RemoveLastJob(FJob* job) noexcept
 {
     if (!job || m_JobCount == 0 || JobAt(m_JobCount - 1) != job) return;
     if (m_JobCount > kInlineJobCapacity) {
-        m_OverflowJobs.PopBack();
+        m_OverflowJobs.Pop();
         --m_Diagnostics.heap_job_count;
     } else {
         --m_Diagnostics.inline_job_count;
@@ -131,7 +131,7 @@ void CJobGraph::AddDependency(FJobHandle upstream, FJobHandle downstream) noexce
     FJob* const up = JobAt(upstream.index);
     /** 未解決依存数を増やす下流 job。 */
     FJob* const down = JobAt(downstream.index);
-    up->dependents.PushBack(downstream.index);
+    up->dependents.Add(downstream.index);
     ++down->initial_deps;
     down->deps_remaining.Store(down->initial_deps, EMemoryOrder::Release);
     m_TopologyCompiled = false;
@@ -148,7 +148,7 @@ void CJobGraph::JobThunk(void* user, u32 worker_index) noexcept
 
     job->fn(job->user, worker_index);
 
-    for (usize i = 0; i < job->dependents.Size(); ++i) {
+    for (usize i = 0; i < job->dependents.Num(); ++i) {
         /** 現在の job に依存する後続 job。 */
         FJob* const dependent = graph->JobAt(job->dependents[i]);
         /** 減算前の未解決依存数。 */
@@ -178,10 +178,10 @@ TResult<void> CJobGraph::CompileTopology() noexcept
 
     ++m_Diagnostics.topology_compilations;
     ++m_Diagnostics.submit_full_graph_scans;
-    m_EntryJobs.Clear();
-    m_TopologyQueue.Clear();
+    m_EntryJobs.Reset();
+    m_TopologyQueue.Reset();
 
-    if (!m_TopologyRemaining.TryResize(m_JobCount) || !m_EntryJobs.TryReserve(m_JobCount) || !m_TopologyQueue.TryReserve(m_JobCount)) {
+    if (!m_TopologyRemaining.TrySetNum(m_JobCount) || !m_EntryJobs.TryReserve(m_JobCount) || !m_TopologyQueue.TryReserve(m_JobCount)) {
         return ACS_ERR(Memory, 4, "CJobGraph: topology scratch allocation failed");
     }
 
@@ -190,7 +190,7 @@ TResult<void> CJobGraph::CompileTopology() noexcept
         const FJob* const job = JobAt(i);
         m_TopologyRemaining[i] = job->initial_deps;
         if (job->initial_deps == 0) {
-            if (!m_EntryJobs.TryPushBack(i) || !m_TopologyQueue.TryPushBack(i)) {
+            if (!m_EntryJobs.TryAdd(i) || !m_TopologyQueue.TryAdd(i)) {
                 return ACS_ERR(Memory, 5, "CJobGraph: topology queue allocation failed");
             }
         }
@@ -200,16 +200,16 @@ TResult<void> CJobGraph::CompileTopology() noexcept
     u32 visited = 0;
     while (!m_TopologyQueue.IsEmpty()) {
         /** 今回依存辺を取り除く job index。 */
-        const u32 index = m_TopologyQueue[m_TopologyQueue.Size() - 1];
-        m_TopologyQueue.PopBack();
+        const u32 index = m_TopologyQueue[m_TopologyQueue.Num() - 1];
+        m_TopologyQueue.Pop();
         ++visited;
 
         /** 現在 job に依存する job index 群。 */
         const TArray<u32>& dependents = JobAt(index)->dependents;
-        for (usize i = 0; i < dependents.Size(); ++i) {
+        for (usize i = 0; i < dependents.Num(); ++i) {
             /** 未解決依存数を減らす後続 index。 */
             const u32 dependent_index = dependents[i];
-            if (--m_TopologyRemaining[dependent_index] == 0 && !m_TopologyQueue.TryPushBack(dependent_index)) {
+            if (--m_TopologyRemaining[dependent_index] == 0 && !m_TopologyQueue.TryAdd(dependent_index)) {
                 return ACS_ERR(Memory, 6, "CJobGraph: topology queue allocation failed");
             }
         }
@@ -245,7 +245,7 @@ TResult<void> CJobGraph::Submit() noexcept
     // 後続公開と Wait の競合で 0 が一時的に見えることなく、RMW は一回で済む。
     m_Counter.Add(m_JobCount);
 
-    for (usize i = 0; i < m_EntryJobs.Size(); ++i) {
+    for (usize i = 0; i < m_EntryJobs.Num(); ++i) {
         /** 依存がない実行開始 job。 */
         FJob* const job = JobAt(m_EntryJobs[i]);
         /** ThreadPool へ公開する開始 task。 */

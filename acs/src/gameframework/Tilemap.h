@@ -298,7 +298,7 @@ public:
      *
      * @return 確保済みレイヤー数。
      */
-    u32 LayerCount() const noexcept { return static_cast<u32>(m_Layers.Size()); }
+    u32 LayerCount() const noexcept { return static_cast<u32>(m_Layers.Num()); }
 
     /**
      * 1 tile の world 単位での辺長を返す。

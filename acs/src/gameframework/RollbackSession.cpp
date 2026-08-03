@@ -41,16 +41,16 @@ bool CRollbackSession::Init(CWorld* world, const FRollbackSessionConfig& config)
 
     const u32 slots = config.history_length * config.player_count;
     if (!m_History.Init(config.history_length)) return false;
-    if (!m_SlotTick.TryResize(config.history_length) ||
-        !m_Confirmed.TryResize(slots) ||
-        !m_Ledger.TryResize(slots) ||
-        !m_Used.TryResize(slots) ||
-        !m_TickInputs.TryResize(config.player_count)) {
+    if (!m_SlotTick.TrySetNum(config.history_length) ||
+        !m_Confirmed.TrySetNum(slots) ||
+        !m_Ledger.TrySetNum(slots) ||
+        !m_Used.TrySetNum(slots) ||
+        !m_TickInputs.TrySetNum(config.player_count)) {
         m_History.Shutdown();
         return false;
     }
-    for (usize i = 0; i < m_SlotTick.Size(); ++i) m_SlotTick[i] = kInvalidSlotTick;
-    for (usize i = 0; i < m_Confirmed.Size(); ++i) m_Confirmed[i] = 0;
+    for (usize i = 0; i < m_SlotTick.Num(); ++i) m_SlotTick[i] = kInvalidSlotTick;
+    for (usize i = 0; i < m_Confirmed.Num(); ++i) m_Confirmed[i] = 0;
 
     m_PlayerCount    = config.player_count;
     m_HistoryLength  = config.history_length;
@@ -66,8 +66,8 @@ void CRollbackSession::Reset(u32 start_tick) noexcept
 {
     if (!IsInitialized()) return;
     m_History.InvalidateAll();
-    for (usize i = 0; i < m_SlotTick.Size(); ++i) m_SlotTick[i] = kInvalidSlotTick;
-    for (usize i = 0; i < m_Confirmed.Size(); ++i) m_Confirmed[i] = 0;
+    for (usize i = 0; i < m_SlotTick.Num(); ++i) m_SlotTick[i] = kInvalidSlotTick;
+    for (usize i = 0; i < m_Confirmed.Num(); ++i) m_Confirmed[i] = 0;
     m_CurrentTick    = start_tick;
     m_ConfirmedFloor = start_tick;
     m_DirtyTick      = kNoDirtyTick;
@@ -184,7 +184,7 @@ bool CRollbackSession::ResimulateIfNeeded() noexcept
             return false;
         }
         GatherInputs(t);
-        m_SimFn(*m_World, t, m_TickInputs.Data(), m_PlayerCount, m_SimUser);
+        m_SimFn(*m_World, t, m_TickInputs.GetData(), m_PlayerCount, m_SimUser);
     }
     m_DirtyTick = kNoDirtyTick;
     return true;
@@ -205,7 +205,7 @@ bool CRollbackSession::AdvanceTick() noexcept
     EnsureSlot(m_CurrentTick);
     if (!m_History.SaveFrame(m_CurrentTick, *m_World)) return false;
     GatherInputs(m_CurrentTick);
-    m_SimFn(*m_World, m_CurrentTick, m_TickInputs.Data(), m_PlayerCount, m_SimUser);
+    m_SimFn(*m_World, m_CurrentTick, m_TickInputs.GetData(), m_PlayerCount, m_SimUser);
     ++m_CurrentTick;
     AdvanceConfirmedFloor();
     return true;

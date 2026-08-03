@@ -48,7 +48,7 @@ static void FormatNodeLabel(char* buf, usize buf_size,
 
 /** 折りたたみマップを空にし selection を解除して初期化する (CSelectionService / callback は維持)。 */
 void AHierarchyPanel::Init() noexcept {
-    m_CollapsedMap.Clear();
+    m_CollapsedMap.Reset();
     m_SelectedId         = FNodeId{};
     m_SelectedNode       = nullptr;
     m_ReparentTarget     = nullptr;
@@ -59,7 +59,7 @@ void AHierarchyPanel::Init() noexcept {
 
 /** 折りたたみマップ・selection・callback を全て解除して後始末する。 */
 void AHierarchyPanel::Shutdown() noexcept {
-    m_CollapsedMap.Clear();
+    m_CollapsedMap.Reset();
     m_SelectedId         = FNodeId{};
     m_SelectedNode       = nullptr;
     m_ReparentTarget     = nullptr;
@@ -127,7 +127,7 @@ void AHierarchyPanel::SelectNode(ANode* node) noexcept {
 /** 折りたたみマップを空にして全 TreeNode を展開状態にする (default expanded 扱い)。 */
 void AHierarchyPanel::ExpandAll() noexcept {
     // 折りたたみマップを空にする = 全 FNodeId が "default expanded" 扱い。
-    m_CollapsedMap.Clear();
+    m_CollapsedMap.Reset();
     m_bCollapseAllPending = false;
 }
 
@@ -184,7 +184,7 @@ void AHierarchyPanel::SetOnNodeRightClickCallback(NodeRightClickCallback cb,
  * @return 折りたたみ済みなら true (エントリ無しは展開扱いで false)。
  */
 bool AHierarchyPanel::IsCollapsed(FNodeId id) const noexcept {
-    for (u32 i = 0; i < m_CollapsedMap.Size(); ++i) {
+    for (u32 i = 0; i < m_CollapsedMap.Num(); ++i) {
         if (m_CollapsedMap[i].id == id) return m_CollapsedMap[i].collapsed;
     }
     return false;  // エントリ無し = default expanded
@@ -198,7 +198,7 @@ bool AHierarchyPanel::IsCollapsed(FNodeId id) const noexcept {
  * @param c true で折りたたみ、false で展開。
  */
 void AHierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
-    for (u32 i = 0; i < m_CollapsedMap.Size(); ++i) {
+    for (u32 i = 0; i < m_CollapsedMap.Num(); ++i) {
         if (m_CollapsedMap[i].id == id) {
             m_CollapsedMap[i].collapsed = c;
             return;
@@ -210,7 +210,7 @@ void AHierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
         FCollapsedEntry e {};
         e.id        = id;
         e.collapsed = true;
-        m_CollapsedMap.PushBack(e);
+        m_CollapsedMap.Add(e);
     }
 }
 

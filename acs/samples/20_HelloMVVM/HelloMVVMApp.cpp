@@ -39,9 +39,9 @@ void CHelloMvvmApp::OnStart() noexcept {
         },
         m_Vm.hp, m_Vm.max_hp);
 
-    m_Vm.inventory.PushBack(7);
-    m_Vm.inventory.PushBack(15);
-    m_Vm.inventory.PushBack(99);
+    m_Vm.inventory.Add(7);
+    m_Vm.inventory.Add(15);
+    m_Vm.inventory.Add(99);
 
     // ObservableArray は要素単位の Insert/Remove/Change/Clear イベントを
     // 配るので、UI 全更新ではなく差分更新が書ける。
@@ -119,20 +119,20 @@ void CHelloMvvmApp::OnRender() noexcept {
     // ④ TObservableArray + FCommand — コレクションとアクション
     // ============================================================
     if (ImGui::CollapsingHeader("④ TArray + Command")) {
-        ImGui::Text("Inventory (%zu 個):", m_Vm.inventory.Size());
-        for (usize i = 0; i < m_Vm.inventory.Size(); ++i) {
+        ImGui::Text("Inventory (%zu 個):", m_Vm.inventory.Num());
+        for (usize i = 0; i < m_Vm.inventory.Num(); ++i) {
             ImGui::BulletText("[%zu] = %d", i, m_Vm.inventory.At(i));
         }
         if (ImGui::Button("ランダム追加")) {
-            m_Vm.inventory.PushBack((rand() % 100) + 1);
+            m_Vm.inventory.Add((rand() % 100) + 1);
         }
         ImGui::SameLine();
-        if (ImGui::Button("末尾削除") && m_Vm.inventory.Size() > 0) {
-            m_Vm.inventory.PopBack();
+        if (ImGui::Button("末尾削除") && m_Vm.inventory.Num() > 0) {
+            m_Vm.inventory.Pop();
         }
         ImGui::SameLine();
         if (ImGui::Button("全削除")) {
-            m_Vm.inventory.Clear();
+            m_Vm.inventory.Reset();
         }
 
         ImGui::Spacing();

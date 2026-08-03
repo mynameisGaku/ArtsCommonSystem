@@ -184,7 +184,7 @@ bool CSubsystemCollection::TryInitialize(ESubsystemScope scope, CSubsystemCollec
         if (m_DeinitializeRequested || !ParentMatches(scope, parent, ParentGeneration)) return false;
 
         // create前に全factoryと決定順序キーを検証し、static初期化順への依存を拒否する。
-        for (usize FactoryIndex = 0u; FactoryIndex < Factories.Size(); ++FactoryIndex) {
+        for (usize FactoryIndex = 0u; FactoryIndex < Factories.Num(); ++FactoryIndex) {
             const FSubsystemFactory& Factory = Factories[FactoryIndex];
             if (!IsValidSubsystemFactory(Factory)) return false;
             if (Factory.scope != scope) continue;
@@ -199,9 +199,9 @@ bool CSubsystemCollection::TryInitialize(ESubsystemScope scope, CSubsystemCollec
 
         /** factory 検証と生成を完了してから commit する一時所有配列。 */
         TArray<FEntry> Staged(*m_Subsystems.GetAllocator());
-        if (!Staged.TryReserve(Factories.Size())) return false;
+        if (!Staged.TryReserve(Factories.Num())) return false;
         if (m_DeinitializeRequested || !ParentMatches(scope, parent, ParentGeneration)) return false;
-        for (usize FactoryIndex = 0u; FactoryIndex < Factories.Size(); ++FactoryIndex) {
+        for (usize FactoryIndex = 0u; FactoryIndex < Factories.Num(); ++FactoryIndex) {
             /** 今回の snapshot に含まれる登録値。 */
             const FSubsystemFactory& Factory = Factories[FactoryIndex];
             if (Factory.scope != scope) continue;
@@ -219,7 +219,7 @@ bool CSubsystemCollection::TryInitialize(ESubsystemScope scope, CSubsystemCollec
             Entry.phase = Factory.phase;
             Entry.order = Factory.order;
             Entry.name = Factory.name;
-            if (!Staged.TryPushBack(Move(Entry))) return false;
+            if (!Staged.TryAdd(Move(Entry))) return false;
             if (m_DeinitializeRequested || !ParentMatches(scope, parent, ParentGeneration)) return false;
         }
 
@@ -227,7 +227,7 @@ bool CSubsystemCollection::TryInitialize(ESubsystemScope scope, CSubsystemCollec
         if (m_DeinitializeRequested || !ParentMatches(scope, parent, ParentGeneration)) return false;
 
         // 安定 insertion sort により同じ order/name の snapshot 順序も保持する。
-        for (usize Index = 1u; Index < Staged.Size(); ++Index) {
+        for (usize Index = 1u; Index < Staged.Num(); ++Index) {
             usize Position = Index;
             while (Position > 0u && EntryLess(Staged[Position], Staged[Position - 1u])) {
                 Swap(Staged[Position], Staged[Position - 1u]);
@@ -245,10 +245,10 @@ bool CSubsystemCollection::TryInitialize(ESubsystemScope scope, CSubsystemCollec
         m_VisibleCount = 0u;
         m_DeinitializeRequested = false;
 
-        for (usize Index = 0u; Index < m_Subsystems.Size(); ++Index) {
+        for (usize Index = 0u; Index < m_Subsystems.Num(); ++Index) {
             m_Subsystems[Index].instance->_SetOwnerDescriptor(owner);
         }
-        for (usize Index = 0u; Index < m_Subsystems.Size(); ++Index) {
+        for (usize Index = 0u; Index < m_Subsystems.Num(); ++Index) {
             if (!m_Subsystems[Index].instance->OnOwnerAssigned() || m_DeinitializeRequested ||
                 !ParentMatches(scope, parent, ParentGeneration)) {
                 ClearOwners();
@@ -262,7 +262,7 @@ bool CSubsystemCollection::TryInitialize(ESubsystemScope scope, CSubsystemCollec
             }
         }
 
-        for (usize Index = 0u; Index < m_Subsystems.Size(); ++Index) {
+        for (usize Index = 0u; Index < m_Subsystems.Num(); ++Index) {
             m_VisibleCount = static_cast<u32>(Index + 1u);
             m_Subsystems[Index].instance->OnInitialize();
             if (m_DeinitializeRequested || !ParentMatches(scope, parent, ParentGeneration)) {
@@ -319,7 +319,7 @@ void CSubsystemCollection::Initialize(ESubsystemScope scope, CSubsystemCollectio
 
 void CSubsystemCollection::ClearOwners() noexcept
 {
-    for (usize Index = 0u; Index < m_Subsystems.Size(); ++Index) {
+    for (usize Index = 0u; Index < m_Subsystems.Num(); ++Index) {
         if (m_Subsystems[Index].instance) {
             m_Subsystems[Index].instance->_SetOwnerDescriptor(FSubsystemOwner{});
         }
@@ -339,7 +339,7 @@ void CSubsystemCollection::TeardownVisibleEntries() noexcept
         --m_VisibleCount;
     }
     ClearOwners();
-    m_Subsystems.ReleaseStorage();
+    m_Subsystems.Empty();
 }
 
 void CSubsystemCollection::Deinitialize() noexcept

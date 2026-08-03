@@ -10,7 +10,7 @@ namespace acs {
  */
 template<typename... Arguments>
 bool TEvent<Arguments...>::IsSubscribedState(const FState& State, FTypedEventHandle Handle) noexcept {
-    if (!Handle.IsValid() || Handle.event_id != State.event_id || Handle.slot_index >= State.slots.Size()) return false;
+    if (!Handle.IsValid() || Handle.event_id != State.event_id || Handle.slot_index >= State.slots.Num()) return false;
     /** ハンドルが指す購読情報。 */
     const FSlot& Slot = State.slots[Handle.slot_index];
     return Slot.active && Slot.generation == Handle.generation;
@@ -34,11 +34,11 @@ bool TEvent<Arguments...>::UnsubscribeState(FState& State, FTypedEventHandle Han
  */
 template<typename... Arguments>
 void TEvent<Arguments...>::CollectReusableSlots(FState& State) noexcept {
-    for (/** 現在調べる購読枠の位置。 */ u32 Index = 0; Index < State.slots.Size(); ++Index) {
+    for (/** 現在調べる購読枠の位置。 */ u32 Index = 0; Index < State.slots.Num(); ++Index) {
         /** 現在調べる購読情報。 */
         FSlot& Slot = State.slots[Index];
         if (!Slot.pending_reuse || Slot.retired) continue;
-        if (!State.free_slots.TryPushBack(Index)) return;
+        if (!State.free_slots.TryAdd(Index)) return;
         Slot.pending_reuse = false;
     }
 }
@@ -50,7 +50,7 @@ void TEvent<Arguments...>::CollectReusableSlots(FState& State) noexcept {
  */
 template<typename... Arguments>
 void TEvent<Arguments...>::RetireSlot(FState& State, u32 SlotIndex) noexcept {
-    if (SlotIndex >= State.slots.Size()) return;
+    if (SlotIndex >= State.slots.Num()) return;
     /** 無効にする購読情報。 */
     FSlot& Slot = State.slots[SlotIndex];
     if (!Slot.active) return;
@@ -66,7 +66,7 @@ void TEvent<Arguments...>::RetireSlot(FState& State, u32 SlotIndex) noexcept {
         return;
     }
     ++Slot.generation;
-    Slot.pending_reuse = !State.free_slots.TryPushBack(SlotIndex);
+    Slot.pending_reuse = !State.free_slots.TryAdd(SlotIndex);
 }
 
 /**
@@ -84,11 +84,11 @@ FTypedEventHandle TEvent<Arguments...>::AddSubscription(FState& State, FCallback
     /** 追加先の購読枠の位置。 */
     u32 SlotIndex = 0;
     if (!State.free_slots.IsEmpty()) {
-        SlotIndex = State.free_slots.Back();
-        State.free_slots.PopBack();
+        SlotIndex = State.free_slots.Last();
+        State.free_slots.Pop();
     } else {
-        if (State.slots.Size() >= 0xffffffffu || !State.slots.TryPushBack(FSlot{})) return {};
-        SlotIndex = static_cast<u32>(State.slots.Size() - 1);
+        if (State.slots.Num() >= 0xffffffffu || !State.slots.TryAdd(FSlot{})) return {};
+        SlotIndex = static_cast<u32>(State.slots.Num() - 1);
     }
     /** 追加先の購読情報。 */
     FSlot& Slot = State.slots[SlotIndex];
@@ -115,7 +115,7 @@ void TEvent<Arguments...>::Publish(Arguments... Values) noexcept {
     TSharedPtr<FState> State = m_State;
     if (!State) return;
     /** 配信開始時点で存在した購読枠の数。 */
-    const u32 DeliveryCount = static_cast<u32>(State->slots.Size());
+    const u32 DeliveryCount = static_cast<u32>(State->slots.Num());
     /** 配信開始後に追加された購読を除くための上限。 */
     const u64 ActivationLimit = State->latest_activation_sequence;
     ++State->publish_depth;

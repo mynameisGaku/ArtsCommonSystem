@@ -26,7 +26,7 @@ u32 CHungerSystem::StatIndex(ESurvivalStat stat) noexcept {
 CHungerSystem::FSurvivorSlot* CHungerSystem::ResolveSurvivor(FSurvivorId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx == 0u || idx >= m_Survivors.Size()) return nullptr;
+    if (idx == 0u || idx >= m_Survivors.Num()) return nullptr;
     FSurvivorSlot& s = m_Survivors[idx];
     if (!s.in_use) return nullptr;
     if (s.gen != id.Gen()) return nullptr;
@@ -37,7 +37,7 @@ CHungerSystem::FSurvivorSlot* CHungerSystem::ResolveSurvivor(FSurvivorId id) noe
 const CHungerSystem::FSurvivorSlot* CHungerSystem::ResolveSurvivor(FSurvivorId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx == 0u || idx >= m_Survivors.Size()) return nullptr;
+    if (idx == 0u || idx >= m_Survivors.Num()) return nullptr;
     const FSurvivorSlot& s = m_Survivors[idx];
     if (!s.in_use) return nullptr;
     if (s.gen != id.Gen()) return nullptr;
@@ -47,24 +47,24 @@ const CHungerSystem::FSurvivorSlot* CHungerSystem::ResolveSurvivor(FSurvivorId i
 /** 既存 survivor / config を全破棄し、7 stat 分の default config と dummy slot を確保する。 */
 void CHungerSystem::Init() noexcept {
     // 既存 survivor / config を全破棄して再初期化する。
-    m_Survivors.Clear();
+    m_Survivors.Reset();
     m_SurvivorCount = 0u;
-    m_Configs.Clear();
+    m_Configs.Reset();
 
     // 7 stat 分の default config を確保。default 値は StatConfig 既定 (max=100,
     // decay=0, critical=20, zero_dmg=0)。caller が ConfigureStat で上書きする。
     for (u32 i = 0; i < kSurvivalStatCount; ++i) {
-        m_Configs.PushBack(FStatConfig{});
+        m_Configs.Add(FStatConfig{});
     }
     // index 0 dummy slot を確保 (= SurvivorId.m_Packed == 0 を invalid 予約)。
-    m_Survivors.PushBack(FSurvivorSlot{});
+    m_Survivors.Add(FSurvivorSlot{});
 }
 
 /** stat 種別の config を sanitize (負値 / max 超過を補正) して上書きする。 */
 void CHungerSystem::ConfigureStat(ESurvivalStat stat, const FStatConfig& config) noexcept {
     const u32 idx = StatIndex(stat);
     if (idx == ~0u) return;
-    if (m_Configs.Size() < kSurvivalStatCount) return;   // Init 未呼び出し防御
+    if (m_Configs.Num() < kSurvivalStatCount) return;   // Init 未呼び出し防御
 
     FStatConfig sanitized = config;
     if (sanitized.max_value <= 0.0f) sanitized.max_value = 1.0f;   // 0/負値は防御的に 1.0
@@ -82,19 +82,19 @@ void CHungerSystem::ConfigureStat(ESurvivalStat stat, const FStatConfig& config)
 
 /** 空き slot を再利用または末尾拡張で確保し、全 stat を max で初期化して handle を返す。 */
 FSurvivorId CHungerSystem::AddSurvivor() noexcept {
-    if (m_Configs.Size() < kSurvivalStatCount) return FSurvivorId{};   // Init 未呼び出し
+    if (m_Configs.Num() < kSurvivalStatCount) return FSurvivorId{};   // Init 未呼び出し
 
     // 空き slot を線形検索 (index 0 は dummy なので 1 から)。
     u32 found = 0u;
-    for (u32 i = 1u; i < m_Survivors.Size(); ++i) {
+    for (u32 i = 1u; i < m_Survivors.Num(); ++i) {
         if (!m_Survivors[i].in_use) { found = i; break; }
     }
 
     if (found == 0u) {
         // 末尾に新規拡張。24bit index 上限を超えるなら invalid 返却。
-        if (m_Survivors.Size() > FSurvivorId::kMaxIndex) return FSurvivorId{};
-        m_Survivors.PushBack(FSurvivorSlot{});
-        found = static_cast<u32>(m_Survivors.Size() - 1u);
+        if (m_Survivors.Num() > FSurvivorId::kMaxIndex) return FSurvivorId{};
+        m_Survivors.Add(FSurvivorSlot{});
+        found = static_cast<u32>(m_Survivors.Num() - 1u);
     }
 
     FSurvivorSlot& s = m_Survivors[found];
@@ -104,14 +104,14 @@ FSurvivorId CHungerSystem::AddSurvivor() noexcept {
     s.in_use = true;
 
     // stat 配列を 7 個用意 (再利用 slot の場合は既存があるので Clear で 0 戻し)。
-    s.stats.Clear();
+    s.stats.Reset();
     for (u32 i = 0u; i < kSurvivalStatCount; ++i) {
         const FStatConfig& cfg = m_Configs[i];
         FStatState st;
         st.current     = cfg.max_value;     // 全 stat を max でスタート
         st.max         = cfg.max_value;
         st.is_critical = (cfg.max_value < cfg.critical_threshold);  // 通常 false
-        s.stats.PushBack(st);
+        s.stats.Add(st);
     }
 
     ++m_SurvivorCount;
@@ -124,7 +124,7 @@ void CHungerSystem::RemoveSurvivor(FSurvivorId id) noexcept {
     if (s == nullptr) return;
 
     s->in_use = false;
-    s->stats.Clear();
+    s->stats.Reset();
     // gen はそのまま (次回 AddSurvivor で +1 されて古い handle 無効化)。
 
     if (m_SurvivorCount > 0u) --m_SurvivorCount;
@@ -136,7 +136,7 @@ void CHungerSystem::RestoreStat(FSurvivorId id, ESurvivalStat stat, f32 amount) 
     FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return;
     const u32 sidx = StatIndex(stat);
-    if (sidx == ~0u || sidx >= s->stats.Size()) return;
+    if (sidx == ~0u || sidx >= s->stats.Num()) return;
 
     FStatState& st = s->stats[sidx];
     st.current = Clamp(st.current + amount, 0.0f, st.max);
@@ -148,7 +148,7 @@ void CHungerSystem::DrainStat(FSurvivorId id, ESurvivalStat stat, f32 amount) no
     FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return;
     const u32 sidx = StatIndex(stat);
-    if (sidx == ~0u || sidx >= s->stats.Size()) return;
+    if (sidx == ~0u || sidx >= s->stats.Num()) return;
 
     FStatState& st = s->stats[sidx];
     st.current = Clamp(st.current - amount, 0.0f, st.max);
@@ -160,7 +160,7 @@ void CHungerSystem::SetStat(FSurvivorId id, ESurvivalStat stat, f32 value) noexc
     FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return;
     const u32 sidx = StatIndex(stat);
-    if (sidx == ~0u || sidx >= s->stats.Size()) return;
+    if (sidx == ~0u || sidx >= s->stats.Num()) return;
 
     FStatState& st = s->stats[sidx];
     st.current = Clamp(value, 0.0f, st.max);
@@ -171,7 +171,7 @@ f32 CHungerSystem::GetStat(FSurvivorId id, ESurvivalStat stat) const noexcept {
     const FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return 0.0f;
     const u32 sidx = StatIndex(stat);
-    if (sidx == ~0u || sidx >= s->stats.Size()) return 0.0f;
+    if (sidx == ~0u || sidx >= s->stats.Num()) return 0.0f;
     return s->stats[sidx].current;
 }
 
@@ -180,7 +180,7 @@ bool CHungerSystem::IsCritical(FSurvivorId id, ESurvivalStat stat) const noexcep
     const FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return false;
     const u32 sidx = StatIndex(stat);
-    if (sidx == ~0u || sidx >= s->stats.Size()) return false;
+    if (sidx == ~0u || sidx >= s->stats.Num()) return false;
     return s->stats[sidx].is_critical;
 }
 
@@ -195,7 +195,7 @@ bool CHungerSystem::IsAlive(FSurvivorId id) const noexcept {
     // 尽きたら CHungerSystem の世界では死亡扱い)。HealthBridge 未実装の現状
     // では stat 部分のみで判定する。
     bool any_nonzero = false;
-    const usize n = s->stats.Size();
+    const usize n = s->stats.Num();
     for (usize i = 0; i < n; ++i) {
         if (s->stats[i].current > 0.0f) { any_nonzero = true; break; }
     }
@@ -211,7 +211,7 @@ f32 CHungerSystem::OverallSurvivalHealth(FSurvivorId id) const noexcept {
     const FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return 0.0f;
 
-    const usize n = s->stats.Size();
+    const usize n = s->stats.Num();
     if (n == 0) return 0.0f;
 
     f32 sum_fraction = 0.0f;
@@ -230,15 +230,15 @@ f32 CHungerSystem::OverallSurvivalHealth(FSurvivorId id) const noexcept {
 /** 全 survivor × 全 stat に decay を適用し、critical 跨ぎと zero ダメージを callback 通知する。 */
 void CHungerSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
-    if (m_Configs.Size() < kSurvivalStatCount) return;   // Init 未呼び出し防御
+    if (m_Configs.Num() < kSurvivalStatCount) return;   // Init 未呼び出し防御
 
-    const usize n_surv = m_Survivors.Size();
+    const usize n_surv = m_Survivors.Num();
     // index 0 は dummy なので 1 から走査。
     for (usize si = 1u; si < n_surv; ++si) {
         FSurvivorSlot& slot = m_Survivors[si];
         if (!slot.in_use) continue;
 
-        const usize n_stat = slot.stats.Size();
+        const usize n_stat = slot.stats.Num();
         for (usize st_i = 0u; st_i < n_stat && st_i < kSurvivalStatCount; ++st_i) {
             FStatState&        st  = slot.stats[st_i];
             const FStatConfig& cfg = m_Configs[st_i];
@@ -291,13 +291,13 @@ void CHungerSystem::SetOnDamageCallback(DamageCallback cb, void* user) noexcept 
 /** 全 survivor + stat config を default に戻し dummy slot を再確保する (callback は保持)。 */
 void CHungerSystem::ClearAll() noexcept {
     // 全 survivor + stat config を default に戻し、index 0 dummy を再確保。
-    m_Survivors.Clear();
-    m_Configs.Clear();
+    m_Survivors.Reset();
+    m_Configs.Reset();
     m_SurvivorCount = 0u;
     for (u32 i = 0u; i < kSurvivalStatCount; ++i) {
-        m_Configs.PushBack(FStatConfig{});
+        m_Configs.Add(FStatConfig{});
     }
-    m_Survivors.PushBack(FSurvivorSlot{});
+    m_Survivors.Add(FSurvivorSlot{});
     // callback は保持 (ClearAll は entity 全消去のみ、Director 結線は維持)。
 }
 

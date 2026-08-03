@@ -50,7 +50,7 @@
 //   ・**Cancel**: label 一致の全 command を削除 (one_shot/repeating 両方)。
 //   ・**Flush 中の Enqueue 安全性**: CSceneEventBus と同じく、走査 size を最初に
 //     スナップショットして固定範囲のみ実行する。Flush 中に追加された command は
-//     次回 Flush で初めて実行される。Flush 中に同 slot が PushBack で再 alloc を
+//     次回 Flush で初めて実行される。Flush 中に同 slot が Add で再 alloc を
 //     起こしても、fn / user / one_shot を local にコピーしてから呼ぶことで安全。
 //   ・**非コピー・非ムーブ**: AScene にメンバとして埋め込む前提、所有権の
 //     ambiguity を持ち込まない。

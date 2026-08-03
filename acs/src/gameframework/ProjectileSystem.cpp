@@ -50,12 +50,12 @@ void CProjectileSystem::Init(u32 max_concurrent) noexcept {
     if (m_Capacity != 0u) return;
     if (max_concurrent == 0u) max_concurrent = 256u;
 
-    m_Slots.Resize(static_cast<usize>(max_concurrent));
-    m_AliveSnapshot.Resize(static_cast<usize>(max_concurrent));
+    m_Slots.SetNum(static_cast<usize>(max_concurrent));
+    m_AliveSnapshot.SetNum(static_cast<usize>(max_concurrent));
 
     // 各 slot を inactive 初期化 (Resize default 構築で active=false になっているが
     // gen はゼロのまま。最初の Spawn で gen=1 から払い出す)。
-    for (usize i = 0; i < m_Slots.Size(); ++i) {
+    for (usize i = 0; i < m_Slots.Num(); ++i) {
         m_Slots[i].active            = false;
         m_Slots[i].gen               = 0u;
         m_Slots[i].has_homing_target = false;
@@ -79,14 +79,14 @@ void CProjectileSystem::RegisterDef(const FProjectileDef& def) noexcept {
     if (def.id == nullptr) return;
     if (def.lifetime_sec <= 0.0f) return;
 
-    const usize n = m_Defs.Size();
+    const usize n = m_Defs.Num();
     for (usize i = 0; i < n; ++i) {
         if (CStrEquals(m_Defs[i].id, def.id)) {
             m_Defs[i] = def;
             return;
         }
     }
-    m_Defs.PushBack(def);
+    m_Defs.Add(def);
 }
 
 /**
@@ -98,7 +98,7 @@ void CProjectileSystem::RegisterDef(const FProjectileDef& def) noexcept {
  */
 const FProjectileDef* CProjectileSystem::FindDef(const char* id) const noexcept {
     if (id == nullptr) return nullptr;
-    const usize n = m_Defs.Size();
+    const usize n = m_Defs.Num();
     for (usize i = 0; i < n; ++i) {
         if (CStrEquals(m_Defs[i].id, id)) return &m_Defs[i];
     }
@@ -118,7 +118,7 @@ u32 CProjectileSystem::AcquireSlot() noexcept {
     // alive_count >= capacity の早期 return で満杯時の無駄ループを排除。
     if (m_AliveCount >= m_Capacity) return kInvalidIdx;
 
-    for (usize i = 0; i < m_Slots.Size(); ++i) {
+    for (usize i = 0; i < m_Slots.Num(); ++i) {
         if (!m_Slots[i].active) {
             return static_cast<u32>(i);
         }
@@ -136,7 +136,7 @@ u32 CProjectileSystem::AcquireSlot() noexcept {
 CProjectileSystem::FSlot* CProjectileSystem::FindSlot(FProjectileId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx >= m_Slots.Size()) return nullptr;
+    if (idx >= m_Slots.Num()) return nullptr;
     FSlot& s = m_Slots[static_cast<usize>(idx)];
     if (!s.active) return nullptr;
     if (s.gen != id.Gen()) return nullptr;
@@ -153,7 +153,7 @@ CProjectileSystem::FSlot* CProjectileSystem::FindSlot(FProjectileId id) noexcept
 const CProjectileSystem::FSlot* CProjectileSystem::FindSlot(FProjectileId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx >= m_Slots.Size()) return nullptr;
+    if (idx >= m_Slots.Num()) return nullptr;
     const FSlot& s = m_Slots[static_cast<usize>(idx)];
     if (!s.active) return nullptr;
     if (s.gen != id.Gen()) return nullptr;
@@ -255,7 +255,7 @@ const FProjectileInstance* CProjectileSystem::AllAlive(u32& out_count) const noe
 
     out_count = self->m_AliveCount;
     if (self->m_AliveCount == 0u) return nullptr;
-    return self->m_AliveSnapshot.Data();
+    return self->m_AliveSnapshot.GetData();
 }
 
 /**
@@ -265,7 +265,7 @@ const FProjectileInstance* CProjectileSystem::AllAlive(u32& out_count) const noe
  */
 void CProjectileSystem::RebuildAliveSnapshot() noexcept {
     u32 written = 0u;
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 0; i < n; ++i) {
         if (!m_Slots[i].active) continue;
         m_AliveSnapshot[static_cast<usize>(written)] = m_Slots[i].inst;
@@ -294,7 +294,7 @@ void CProjectileSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (m_Capacity == 0u) return;
 
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 0; i < n; ++i) {
         FSlot& s = m_Slots[i];
         if (!s.active) continue;
@@ -467,7 +467,7 @@ void CProjectileSystem::SetHomingTarget(FProjectileId id, FVec2 target_pos) noex
  * 維持する。サイレントな全消去。
  */
 void CProjectileSystem::ClearAll() noexcept {
-    const usize n = m_Slots.Size();
+    const usize n = m_Slots.Num();
     for (usize i = 0; i < n; ++i) {
         m_Slots[i].active            = false;
         m_Slots[i].has_homing_target = false;

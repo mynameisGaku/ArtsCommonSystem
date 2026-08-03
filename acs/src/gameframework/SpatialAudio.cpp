@@ -180,14 +180,14 @@ u32 CSpatialAudio::RegisterSource(FVec3 pos, f32 max_distance,
     s.max_distance = (max_distance > 0.0f) ? max_distance : 20.0f;
     s.active       = true;
     s.curve        = static_cast<u8>(curve);
-    m_Sources.PushBack(s);
+    m_Sources.Add(s);
     return s.source_id;
 }
 
 /** source の位置と速度を更新する (stale id は警告して無視)。 */
 void CSpatialAudio::UpdateSource(u32 id, FVec3 pos, FVec3 vel) noexcept {
     const usize idx = FindIndex(id);
-    if (idx >= m_Sources.Size()) {
+    if (idx >= m_Sources.Num()) {
         ACS_LOG_WARN("CSpatialAudio::UpdateSource: stale id=%u → ignored", id);
         return;
     }
@@ -198,7 +198,7 @@ void CSpatialAudio::UpdateSource(u32 id, FVec3 pos, FVec3 vel) noexcept {
 /** source の基準音量を設定する ([0,1] に clamp、stale id は警告して無視)。 */
 void CSpatialAudio::SetSourceVolume(u32 id, f32 v) noexcept {
     const usize idx = FindIndex(id);
-    if (idx >= m_Sources.Size()) {
+    if (idx >= m_Sources.Num()) {
         ACS_LOG_WARN("CSpatialAudio::SetSourceVolume: stale id=%u → ignored", id);
         return;
     }
@@ -212,7 +212,7 @@ void CSpatialAudio::SetSourceVolume(u32 id, f32 v) noexcept {
 /** source を削除する (未登録 / 削除済みは静かに無視、順序非保持)。 */
 void CSpatialAudio::RemoveSource(u32 id) noexcept {
     const usize idx = FindIndex(id);
-    if (idx >= m_Sources.Size()) {
+    if (idx >= m_Sources.Num()) {
         // 既に削除済みは静かに無視 (典型: クロスフェード後の cleanup)。
         return;
     }
@@ -224,7 +224,7 @@ void CSpatialAudio::RemoveSource(u32 id) noexcept {
 /** source の距離減衰後の音量を返す (未登録 / 非アクティブは 0)。 */
 f32 CSpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
     const usize idx = FindIndex(id);
-    if (idx >= m_Sources.Size()) return 0.0f;
+    if (idx >= m_Sources.Num()) return 0.0f;
     const FAudioSource3D& s = m_Sources[idx];
     if (!s.active) return 0.0f;
 
@@ -240,7 +240,7 @@ f32 CSpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
 /** source の pan [-1,+1] を listener 基準で返す (未登録 / 縮退姿勢は 0=中央)。 */
 f32 CSpatialAudio::ComputePan(u32 id) const noexcept {
     const usize idx = FindIndex(id);
-    if (idx >= m_Sources.Size()) return 0.0f;
+    if (idx >= m_Sources.Num()) return 0.0f;
     const FAudioSource3D& s = m_Sources[idx];
     if (!s.active) return 0.0f;
 
@@ -268,7 +268,7 @@ f32 CSpatialAudio::ComputePan(u32 id) const noexcept {
 /** アクティブな source の数を返す。 */
 u32 CSpatialAudio::SourceCount() const noexcept {
     u32 n = 0;
-    for (usize i = 0; i < m_Sources.Size(); ++i) {
+    for (usize i = 0; i < m_Sources.Num(); ++i) {
         if (m_Sources[i].active) ++n;
     }
     return n;
@@ -286,18 +286,18 @@ void CSpatialAudio::Tick(f32 /*dt*/) noexcept {
 
 /** 全 source を削除する (m_NextSourceId はリセットしない)。 */
 void CSpatialAudio::Clear() noexcept {
-    m_Sources.Clear();
+    m_Sources.Reset();
     // m_NextSourceId はリセットしない。Clear 直後に登録した source は新 ID
     // を受け取り、外部に握られた古い ID とは衝突しない (stale 検出が機能する)。
 }
 
 /** id 一致 source の index を返す (未検出 / id==0 は m_Sources.Size())。 */
 usize CSpatialAudio::FindIndex(u32 id) const noexcept {
-    if (id == 0) return m_Sources.Size();  // 0 は無効予約
-    for (usize i = 0; i < m_Sources.Size(); ++i) {
+    if (id == 0) return m_Sources.Num();  // 0 は無効予約
+    for (usize i = 0; i < m_Sources.Num(); ++i) {
         if (m_Sources[i].source_id == id) return i;
     }
-    return m_Sources.Size();
+    return m_Sources.Num();
 }
 
 } // namespace acs::game

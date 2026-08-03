@@ -58,32 +58,32 @@ int main()
 
     // containerの基本操作を検証する値。
     TArray<i32> v;
-    v.PushBack(10);
-    v.PushBack(32);
-    v.PushBack(10);
+    v.Add(10);
+    v.Add(32);
+    v.Add(10);
     // 最初の一致だけを順序保持で削除できたか。
-    const bool array_remove_ok = v.Remove(10) && v.Size() == 2u && v[0] == 32 && v[1] == 10;
+    const bool array_remove_ok = v.Remove(10) && v.Num() == 2u && v[0] == 32 && v[1] == 10;
     // containerから得た合計値。
     i32 sum = 0;
-    for (usize i = 0; i < v.Size(); ++i)
+    for (usize i = 0; i < v.Num(); ++i)
     {
         sum += v[i];
     }
 
     // 直接領域を越えた配列でも同じ削除契約を検証する値。
     TInlineArray<i32, 2u> inline_values;
-    inline_values.PushBack(7);
-    inline_values.PushBack(8);
-    inline_values.PushBack(7);
+    inline_values.Add(7);
+    inline_values.Add(8);
+    inline_values.Add(7);
     // 動的領域へ移行した配列の削除結果。
-    const bool inline_remove_ok = inline_values.Remove(7) && inline_values.Size() == 2u && inline_values[0] == 8 && inline_values[1] == 7;
+    const bool inline_remove_ok = inline_values.Remove(7) && inline_values.Num() == 2u && inline_values[0] == 8 && inline_values[1] == 7;
 
     // 通知付き配列の値削除を検証する値。
     TObservableArray<i32> observable_values;
-    observable_values.PushBack(3);
-    observable_values.PushBack(4);
+    observable_values.Add(3);
+    observable_values.Add(4);
     // 値削除後の順序と未一致時の不変結果。
-    const bool observable_remove_ok = observable_values.Remove(3) && !observable_values.Remove(9) && observable_values.Size() == 1u && observable_values.At(0) == 4;
+    const bool observable_remove_ok = observable_values.Remove(3) && !observable_values.Remove(9) && observable_values.Num() == 1u && observable_values.At(0) == 4;
 
     // 距離計算の始点。
     FVec2 a{0.0f, 0.0f};

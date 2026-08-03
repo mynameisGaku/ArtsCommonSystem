@@ -17,7 +17,7 @@ namespace {
 /** out に id が含まれるか。 */
 bool Contains(const TArray<FShapeId>& out, FShapeId id) noexcept
 {
-    for (u32 i = 0; i < out.Size(); ++i) {
+    for (u32 i = 0; i < out.Num(); ++i) {
         if (out[i] == id) return true;
     }
     return false;
@@ -39,7 +39,7 @@ ACS_TEST(CollisionWorld2D, BasicOverlapAndRemove) {
 
     w.Remove(ball);
     w.OverlapAabb(FAabb2{ {0, 0}, {8, 8} }, hits);
-    EXPECT_EQ(hits.Size(), 0u);
+    EXPECT_EQ(hits.Num(), 0u);
 }
 
 ACS_TEST(CollisionWorld2D, HugeShapeGoesToOverflowListAndIsStillFound) {
@@ -79,7 +79,7 @@ ACS_TEST(CollisionWorld2D, HugeQueryFallsBackToLinearScan) {
     w.OverlapAabb(FAabb2{ {0, 0}, {1e30f, 1e30f} }, hits);
     EXPECT_TRUE(Contains(hits, a));
     EXPECT_TRUE(Contains(hits, b));
-    EXPECT_EQ(hits.Size(), 2u);
+    EXPECT_EQ(hits.Num(), 2u);
 
     // 巨大円クエリも同様に完走する。
     w.OverlapCircle(FCircle{ {0, 0}, 1e30f }, hits);

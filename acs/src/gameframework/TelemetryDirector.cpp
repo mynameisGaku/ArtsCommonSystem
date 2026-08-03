@@ -54,7 +54,7 @@ bool CTelemetryDirector::IsCategoryEnabledInternal(const char* category) const n
     if (category == nullptr) return true;
 
     // 線形検索: 明示 false に設定されたカテゴリのみ deny、それ以外は enabled。
-    const usize n = m_Filters.Size();
+    const usize n = m_Filters.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Filters[i].category, category)) {
             return m_Filters[i].enabled;
@@ -67,7 +67,7 @@ bool CTelemetryDirector::IsCategoryEnabledInternal(const char* category) const n
 /** pending queue が上限に達していれば最古 1 件 (index 0) を drop する。 */
 void CTelemetryDirector::DropOldestIfFull() noexcept {
     // 上限未満なら何もしない。
-    if (m_Pending.Size() < static_cast<usize>(kMaxPending)) return;
+    if (m_Pending.Num() < static_cast<usize>(kMaxPending)) return;
 
     // 上限に達している = 最古 1 件 (index 0) を捨てて 1 枠空ける。
     // RemoveAtSwap は末尾要素を index 0 にムーブするため FIFO 順序は壊れる
@@ -90,8 +90,8 @@ void CTelemetryDirector::Init(IBackendClient* backend, CPrivacyDirector* privacy
 /** pending queue とフィルタを空にし、参照を切る (送信は試みない)。 */
 void CTelemetryDirector::Shutdown() noexcept {
     // pending queue を空にし、参照を切る。送信は試みない (呼出側が事前に Flush)。
-    m_Pending.Clear();
-    m_Filters.Clear();
+    m_Pending.Reset();
+    m_Filters.Reset();
     m_Backend            = nullptr;
     m_Privacy            = nullptr;
     m_Initialized        = false;
@@ -132,7 +132,7 @@ void CTelemetryDirector::TrackEvent(const char*   event_name,
     e.priority     = priority;
     e.timestamp    = CClock::MillisSinceStartup();
 
-    m_Pending.PushBack(e);
+    m_Pending.Add(e);
 }
 
 /** pending を逆順に backend へ送信し、成功分のみ除去する (失敗分は次回再送)。 */
@@ -155,7 +155,7 @@ void CTelemetryDirector::Flush() noexcept {
     // pending を末尾から走査して送信。成功 → 該当 index を RemoveAtSwap で除去、
     // 失敗 → 残す。逆順走査により RemoveAtSwap で起こる末尾→該当位置のムーブ
     // で「未走査側を壊す」事故を防ぐ (走査済み末尾が消えるだけ)。
-    for (usize i = m_Pending.Size(); i-- > 0;) {
+    for (usize i = m_Pending.Num(); i-- > 0;) {
         const FTelemetryEvent& e = m_Pending[i];
         TResult<void> r = m_Backend->SendTelemetry(e.event_name, e.json_payload);
         if (r.IsErr()) {
@@ -179,7 +179,7 @@ void CTelemetryDirector::Flush() noexcept {
 
 /** 現在 pending queue に溜まっている event 数を返す。 */
 u32 CTelemetryDirector::PendingCount() const noexcept {
-    return static_cast<u32>(m_Pending.Size());
+    return static_cast<u32>(m_Pending.Num());
 }
 
 /** 送信に成功した累計 event 数を返す。 */
@@ -216,7 +216,7 @@ void CTelemetryDirector::EnableCategory(const char* category, bool enabled) noex
     if (category == nullptr) return;
 
     // 既存登録があれば in-place 更新。
-    const usize n = m_Filters.Size();
+    const usize n = m_Filters.Num();
     for (usize i = 0; i < n; ++i) {
         if (StrEq(m_Filters[i].category, category)) {
             m_Filters[i].enabled = enabled;
@@ -230,14 +230,14 @@ void CTelemetryDirector::EnableCategory(const char* category, bool enabled) noex
         FCategoryFilter f;
         f.category = category;
         f.enabled  = false;
-        m_Filters.PushBack(f);
+        m_Filters.Add(f);
     }
 }
 
 /** pending・フィルタ・統計をリセットする (backend / privacy 参照は維持)。 */
 void CTelemetryDirector::Clear() noexcept {
-    m_Pending.Clear();
-    m_Filters.Clear();
+    m_Pending.Reset();
+    m_Filters.Reset();
     m_SentCount          = 0;
     m_FailedCount        = 0;
     m_ElapsedSinceFlush = 0.0f;

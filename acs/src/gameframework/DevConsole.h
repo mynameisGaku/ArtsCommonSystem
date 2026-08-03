@@ -160,7 +160,7 @@ public:
      *
      * @return 履歴エントリ数。
      */
-    u32  HistoryCount() const noexcept { return static_cast<u32>(m_History.Size()); }
+    u32  HistoryCount() const noexcept { return static_cast<u32>(m_History.Num()); }
 
     /**
      * 履歴エントリを取得する (i = 0 が最古、HistoryCount()-1 が最新)。
@@ -183,7 +183,7 @@ public:
      *
      * @return ログ行数。
      */
-    u32  LogCount() const noexcept { return static_cast<u32>(m_Log.Size()); }
+    u32  LogCount() const noexcept { return static_cast<u32>(m_Log.Num()); }
 
     /**
      * ログ行を取得する (i = 0 が最古、LogCount()-1 が最新)。
@@ -201,7 +201,7 @@ public:
      *
      * @return 登録済みコマンド数。
      */
-    u32 CommandCount() const noexcept { return static_cast<u32>(m_Commands.Size()); }
+    u32 CommandCount() const noexcept { return static_cast<u32>(m_Commands.Num()); }
 
 private:
     /** tokenize する引数の上限 (コマンド名を除く)。 */

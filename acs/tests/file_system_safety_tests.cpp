@@ -130,10 +130,10 @@ void ExpectOriginalContents(const wchar_t* path)
     if (contents_result.IsErr()) return;
     /** 読み戻した通常ファイルのバイト列。 */
     const TArray<byte>& contents = contents_result.Value();
-    EXPECT_EQ(contents.Size(), kOriginalContentSize);
+    EXPECT_EQ(contents.Num(), kOriginalContentSize);
     /** 元の内容と照合するバイト位置。 */
     usize index = 0u;
-    for (; index < contents.Size(); ++index) {
+    for (; index < contents.Num(); ++index) {
         EXPECT_EQ(contents[index], kOriginalContents[index]);
     }
 }

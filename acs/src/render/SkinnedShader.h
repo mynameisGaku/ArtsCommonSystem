@@ -103,7 +103,7 @@ public:
     bool BeginFrame(u32 required_object_draws = 0u) noexcept;
 
     u32 ObjectBufferCapacity() const noexcept {
-        return static_cast<u32>(m_DrawBuffers.Size());
+        return static_cast<u32>(m_DrawBuffers.Num());
     }
 
     u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
@@ -190,7 +190,7 @@ public:
      * @return モデル行列・マテリアルを格納した定数バッファ。
      */
     IRhiBuffer*    PerObjectCB() const noexcept {
-        return m_CurrentObjectCb < m_DrawBuffers.Size()
+        return m_CurrentObjectCb < m_DrawBuffers.Num()
              ? m_DrawBuffers[m_CurrentObjectCb].object.Get()
              : nullptr;
     }
@@ -201,7 +201,7 @@ public:
      * @return ボーンパレット行列を格納した定数バッファ。
      */
     IRhiBuffer*    BonesCB()     const noexcept {
-        return m_CurrentObjectCb < m_DrawBuffers.Size()
+        return m_CurrentObjectCb < m_DrawBuffers.Num()
              ? m_DrawBuffers[m_CurrentObjectCb].bones.Get()
              : nullptr;
     }

@@ -14,7 +14,7 @@ void CNodePool::Init(u32 initial_capacity) noexcept {
     // index 0 は予約 (FNodeId{0,0} = invalid と衝突しない dummy slot)。
     // 既に Init 済 (= m_Slots.Size() > 0) の場合でも追加 reserve だけ行う。
     if (m_Slots.IsEmpty()) {
-        m_Slots.PushBack(FSlot{});   // インデックス 0 はダミー
+        m_Slots.Add(FSlot{});   // インデックス 0 はダミー
     }
     if (initial_capacity > 0) {
         // +1 して index 0 分も含めて予約 (再 alloc 回避)。
@@ -28,23 +28,23 @@ ENodePoolRegisterError CNodePool::TryAcquireSlot(u32& out_index) noexcept {
     out_index = 0u;
     // free stack から再利用 slot を取得
     if (!m_FreeIndices.IsEmpty()) {
-        out_index = m_FreeIndices.Back();
-        m_FreeIndices.PopBack();
+        out_index = m_FreeIndices.Last();
+        m_FreeIndices.Pop();
         return ENodePoolRegisterError::None;
     }
     // 末尾追加。index 0 (dummy) が無ければ先に確保。
     if (m_Slots.IsEmpty()) {
-        if (!m_Slots.TryPushBack(FSlot{}))
+        if (!m_Slots.TryAdd(FSlot{}))
             return ENodePoolRegisterError::AllocationFailure;
     }
     // 24bit index 上限チェック。次に追加されると Size() == m_Slots.Size()。
     // 既に kMaxIndex まで埋まっていたら拒否 (= 0 = invalid 表現)。
-    if (m_Slots.Size() > static_cast<usize>(kMaxIndex)) {
+    if (m_Slots.Num() > static_cast<usize>(kMaxIndex)) {
         return ENodePoolRegisterError::IndexLimitExceeded;
     }
-    if (!m_Slots.TryPushBack(FSlot{}))
+    if (!m_Slots.TryAdd(FSlot{}))
         return ENodePoolRegisterError::AllocationFailure;
-    out_index = static_cast<u32>(m_Slots.Size()) - 1u;
+    out_index = static_cast<u32>(m_Slots.Num()) - 1u;
     return ENodePoolRegisterError::None;
 }
 
@@ -95,7 +95,7 @@ FNodeId CNodePool::RegisterExistingNode(ANode* node) noexcept {
 void CNodePool::Unregister(FNodeId id) noexcept {
     if (!id.IsValid()) return;
     const u32 idx = id.Index();
-    if (idx == 0u || idx >= m_Slots.Size()) return;   // 0 / 範囲外は無視
+    if (idx == 0u || idx >= m_Slots.Num()) return;   // 0 / 範囲外は無視
 
     FSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Generation()) return;   // stale / 既に free
@@ -111,13 +111,13 @@ void CNodePool::Unregister(FNodeId id) noexcept {
     // 結果として「次に同 slot を再利用した時 gen が必ず変わる」性質は維持される。
 
     if (m_ActiveCount > 0u) --m_ActiveCount;
-    (void)m_FreeIndices.TryPushBack(idx);
+    (void)m_FreeIndices.TryAdd(idx);
 }
 
 /** Destroy 済みのノードを、ツリーから解放される前に一括 Unregister する。 */
 u32 CNodePool::PurgePendingDestroy() noexcept {
     u32 purged = 0u;
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {
         FSlot& s = m_Slots[i];
         if (!s.active || s.ptr == nullptr) continue;
 
@@ -140,7 +140,7 @@ u32 CNodePool::PurgePendingDestroy() noexcept {
             s.active = false;
             s.ptr    = nullptr;
             if (m_ActiveCount > 0u) --m_ActiveCount;
-            (void)m_FreeIndices.TryPushBack(i);
+            (void)m_FreeIndices.TryAdd(i);
             ++purged;
         }
     }
@@ -151,7 +151,7 @@ u32 CNodePool::PurgePendingDestroy() noexcept {
 bool CNodePool::IsValid(FNodeId id) const noexcept {
     if (!id.IsValid()) return false;
     const u32 idx = id.Index();
-    if (idx == 0u || idx >= m_Slots.Size()) return false;
+    if (idx == 0u || idx >= m_Slots.Num()) return false;
     const FSlot& s = m_Slots[idx];
     return s.active && s.ptr != nullptr && s.gen == id.Generation();
 }
@@ -160,7 +160,7 @@ bool CNodePool::IsValid(FNodeId id) const noexcept {
 ANode* CNodePool::Get(FNodeId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx == 0u || idx >= m_Slots.Size()) return nullptr;
+    if (idx == 0u || idx >= m_Slots.Num()) return nullptr;
     const FSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Generation()) return nullptr;
     return s.ptr;
@@ -170,7 +170,7 @@ ANode* CNodePool::Get(FNodeId id) const noexcept {
 FNodeId CNodePool::IdOf(ANode* node) const noexcept {
     if (node == nullptr) return FNodeId{};
     // index 0 は dummy なので 1 から走査。
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {
         const FSlot& s = m_Slots[i];
         if (s.active && s.ptr == node) {
             return FNodeId{i, s.gen};
@@ -181,12 +181,12 @@ FNodeId CNodePool::IdOf(ANode* node) const noexcept {
 
 /** 全 active slot を free 化し、各 ANode の Id を invalid に戻す (gen は維持)。 */
 void CNodePool::ClearAll() noexcept {
-    const usize reusable_count = m_Slots.Size() > 0u ? m_Slots.Size() - 1u : 0u;
+    const usize reusable_count = m_Slots.Num() > 0u ? m_Slots.Num() - 1u : 0u;
     const bool can_rebuild_free_list = m_FreeIndices.TryReserve(reusable_count);
     // 全 active slot を free 化、対応 node の Id を invalid に。
     // gen はあえてリセットせず維持する (= 同じ slot を ClearAll 後に再利用した時、
     // 旧 handle が gen 不一致で確実に stale 検出される)。
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {
         FSlot& s = m_Slots[i];
         if (s.active) {
             if (s.ptr != nullptr) {
@@ -199,9 +199,9 @@ void CNodePool::ClearAll() noexcept {
     if (can_rebuild_free_list) {
         // 全物理 slot をちょうど1回ずつ再利用可能にする。従来は Clear 後に空き slot が
         // free list へ戻らず、再登録のたび slot 配列だけが増える状態だった。
-        m_FreeIndices.Clear();
-        for (u32 i = 1u; i < m_Slots.Size(); ++i) {
-            (void)m_FreeIndices.TryPushBack(i); // 事前 Reserve 済みなので失敗しない
+        m_FreeIndices.Reset();
+        for (u32 i = 1u; i < m_Slots.Num(); ++i) {
+            (void)m_FreeIndices.TryAdd(i); // 事前 Reserve 済みなので失敗しない
         }
     }
     m_ActiveCount = 0u;

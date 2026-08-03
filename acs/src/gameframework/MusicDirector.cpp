@@ -22,7 +22,7 @@ void CMusicDirector::RouteCurrentTrackToAudio(f32 fade_in_sec) noexcept {
     if (m_Audio == nullptr) return;  // state-only 動作 (無音、crash しない)
 
     const usize idx = FindTrackForState(m_TargetState, m_Intensity);
-    if (idx >= m_Tracks.Size()) {
+    if (idx >= m_Tracks.Num()) {
         // 対象 state に track 未登録 → 鳴らすものが無いので BGM 停止。
         m_Audio->StopBgm(fade_in_sec);
         return;
@@ -68,8 +68,8 @@ void CMusicDirector::RegisterTrack(EMusicState state, const FMusicTrack& track) 
     // 該当 state の末尾位置に挿入するため、それより後ろの track を 1 つずつ後方シフト。
     // (state ごとに連続区間を維持する SoA 戦略)
     const u32 insert_at = _state_first[state_idx] + _state_count[state_idx];
-    m_Tracks.PushBack(FMusicTrack{});  // 末尾に空き枠を確保
-    for (usize i = m_Tracks.Size() - 1; i > insert_at; --i) {
+    m_Tracks.Add(FMusicTrack{});  // 末尾に空き枠を確保
+    for (usize i = m_Tracks.Num() - 1; i > insert_at; --i) {
         m_Tracks[i] = m_Tracks[i - 1];
     }
     m_Tracks[insert_at] = normalized;
@@ -90,13 +90,13 @@ void CMusicDirector::RebuildStateIndex() noexcept {
 /** 指定 state 内で intensity に合う track index を返す (なければ fallback)。 */
 usize CMusicDirector::FindTrackForState(EMusicState state, f32 intensity) const noexcept {
     const u32 state_idx = static_cast<u32>(state);
-    if (state_idx >= kStateCount) return m_Tracks.Size();
+    if (state_idx >= kStateCount) return m_Tracks.Num();
     const u32 first = _state_first[state_idx];
     const u32 count = _state_count[state_idx];
-    if (count == 0) return m_Tracks.Size();
+    if (count == 0) return m_Tracks.Num();
 
     // 1) intensity 範囲ヒットを線形探索 (count は通常 1..4 個程度)。
-    usize fallback = m_Tracks.Size();
+    usize fallback = m_Tracks.Num();
     f32   fallback_max = -1.0f;
     for (u32 i = 0; i < count; ++i) {
         const usize idx = static_cast<usize>(first + i);
@@ -261,7 +261,7 @@ void CMusicDirector::Stop() noexcept {
 /** 現在 state で intensity に合致する track を返す。 */
 const FMusicTrack* CMusicDirector::CurrentTrack() const noexcept {
     const usize idx = FindTrackForState(m_CurrentState, m_Intensity);
-    if (idx >= m_Tracks.Size()) return nullptr;
+    if (idx >= m_Tracks.Num()) return nullptr;
     return &m_Tracks[idx];
 }
 
@@ -269,7 +269,7 @@ const FMusicTrack* CMusicDirector::CurrentTrack() const noexcept {
 const FMusicTrack* CMusicDirector::TargetTrack() const noexcept {
     if (m_CurrentState == m_TargetState) return nullptr;
     const usize idx = FindTrackForState(m_TargetState, m_Intensity);
-    if (idx >= m_Tracks.Size()) return nullptr;
+    if (idx >= m_Tracks.Num()) return nullptr;
     return &m_Tracks[idx];
 }
 

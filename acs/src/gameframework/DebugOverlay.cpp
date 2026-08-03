@@ -12,7 +12,7 @@ namespace acs::game {
 void CDebugOverlay::Init() noexcept {
     // 履歴 (60 frame) を事前確保しておく (毎 Tick の reallocation を回避)。
     // Reserve は capacity のみで size 不変なので、論理 size はそのまま 0 始まり。
-    m_FpsHistory.Clear();
+    m_FpsHistory.Reset();
     m_FpsHistory.Reserve(kFpsHistoryCap);
     m_FpsIndex    = 0u;
     m_bFpsFilled   = false;
@@ -28,9 +28,9 @@ void CDebugOverlay::Tick(f32 dt) noexcept {
     m_CurrentFps = fps;
 
     // 循環バッファ書き込み。
-    // まだ 60 個揃っていない間は PushBack で末尾追加、揃った後は index 位置に上書き。
+    // まだ 60 個揃っていない間は Add で末尾追加、揃った後は index 位置に上書き。
     if (!m_bFpsFilled) {
-        m_FpsHistory.PushBack(fps);
+        m_FpsHistory.Add(fps);
         ++m_FpsIndex;
         if (m_FpsIndex >= kFpsHistoryCap) {
             m_FpsIndex  = 0u;
@@ -45,18 +45,18 @@ void CDebugOverlay::Tick(f32 dt) noexcept {
 
 /** 履歴 / watches / scene name をクリアする (m_Visible は保持)。 */
 void CDebugOverlay::Reset() noexcept {
-    m_FpsHistory.Clear();
+    m_FpsHistory.Reset();
     m_FpsIndex    = 0u;
     m_bFpsFilled   = false;
     m_CurrentFps  = 0.0f;
     m_SceneName   = nullptr;
-    m_Watches.Clear();
+    m_Watches.Reset();
     // m_Visible は意図的に保持 (Reset で誤って非表示にしない)。
 }
 
 /** 履歴中の fps の算術平均を返す (履歴空時は 0)。 */
 f32 CDebugOverlay::AverageFps() const noexcept {
-    const usize n = m_FpsHistory.Size();
+    const usize n = m_FpsHistory.Num();
     if (n == 0u) return 0.0f;
     f32 sum = 0.0f;
     for (usize i = 0; i < n; ++i) sum += m_FpsHistory[i];
@@ -65,7 +65,7 @@ f32 CDebugOverlay::AverageFps() const noexcept {
 
 /** 履歴を線形走査して最小 fps を返す (履歴空時は 0)。 */
 f32 CDebugOverlay::MinFps() const noexcept {
-    const usize n = m_FpsHistory.Size();
+    const usize n = m_FpsHistory.Num();
     if (n == 0u) return 0.0f;
     f32 m = m_FpsHistory[0];
     for (usize i = 1; i < n; ++i) {
@@ -77,7 +77,7 @@ f32 CDebugOverlay::MinFps() const noexcept {
 
 /** 履歴を線形走査して最大 fps を返す (履歴空時は 0)。 */
 f32 CDebugOverlay::MaxFps() const noexcept {
-    const usize n = m_FpsHistory.Size();
+    const usize n = m_FpsHistory.Num();
     if (n == 0u) return 0.0f;
     f32 m = m_FpsHistory[0];
     for (usize i = 1; i < n; ++i) {
@@ -91,7 +91,7 @@ f32 CDebugOverlay::MaxFps() const noexcept {
 void CDebugOverlay::AddWatch(const char* label, const char* value) noexcept {
     if (label == nullptr || value == nullptr) return;
     // 同名 label があれば value を差し替え (後勝ち)。
-    for (usize i = 0; i < m_Watches.Size(); ++i) {
+    for (usize i = 0; i < m_Watches.Num(); ++i) {
         const char* existing = m_Watches[i].label;
         if (existing == label || (existing != nullptr && ::strcmp(existing, label) == 0)) {
             m_Watches[i].value = value;
@@ -101,13 +101,13 @@ void CDebugOverlay::AddWatch(const char* label, const char* value) noexcept {
     FWatch w;
     w.label = label;
     w.value = value;
-    m_Watches.PushBack(w);
+    m_Watches.Add(w);
 }
 
 /** label 一致する watch を swap-remove する (順序非保持)。 */
 void CDebugOverlay::RemoveWatch(const char* label) noexcept {
     if (label == nullptr) return;
-    for (usize i = 0; i < m_Watches.Size(); ++i) {
+    for (usize i = 0; i < m_Watches.Num(); ++i) {
         const char* existing = m_Watches[i].label;
         if (existing == label || (existing != nullptr && ::strcmp(existing, label) == 0)) {
             // 順序は描画側責務として swap-remove で十分。
@@ -119,19 +119,19 @@ void CDebugOverlay::RemoveWatch(const char* label) noexcept {
 
 /** 全 watch を削除する。 */
 void CDebugOverlay::ClearWatches() noexcept {
-    m_Watches.Clear();
+    m_Watches.Reset();
 }
 
 /** 登録済み watch 数を返す。 */
 u32 CDebugOverlay::WatchCount() const noexcept {
-    return static_cast<u32>(m_Watches.Size());
+    return static_cast<u32>(m_Watches.Num());
 }
 
 /** watch 配列の先頭ポインタと件数を返す (空なら nullptr)。 */
 const CDebugOverlay::FWatch* CDebugOverlay::AllWatches(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(m_Watches.Size());
-    if (m_Watches.Size() == 0u) return nullptr;
-    return m_Watches.Data();
+    out_count = static_cast<u32>(m_Watches.Num());
+    if (m_Watches.Num() == 0u) return nullptr;
+    return m_Watches.GetData();
 }
 
 } // namespace acs::game

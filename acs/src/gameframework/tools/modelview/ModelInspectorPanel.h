@@ -200,7 +200,7 @@ public:
      *
      * @details
      * summary は単一 struct を値コピー、submeshes / bones / clips は配列要素を 1 つずつ
-     * PushBack で値コピーする (部分更新ではなく全置換)。各ポインタは nullptr 可で、その
+     * Add で値コピーする (部分更新ではなく全置換)。各ポインタは nullptr 可で、その
      * 場合 count を 0 として扱う。呼び出し後 has_model = true になり DrawUI が情報を表示する。
      * @param summary model 全体の集計情報。
      * @param submeshes submesh 情報配列 (nullptr 可)。
@@ -237,7 +237,7 @@ public:
      *
      * @return submesh 数。
      */
-    u32 SubmeshCount() const noexcept { return static_cast<u32>(m_Submeshes.Size()); }
+    u32 SubmeshCount() const noexcept { return static_cast<u32>(m_Submeshes.Num()); }
 
     /**
      * i 番目の submesh 情報を返す。
@@ -246,7 +246,7 @@ public:
      * @return i 番目の FSubmeshInfo (i >= SubmeshCount() なら nullptr)。
      */
     const FSubmeshInfo* Submesh(u32 i) const noexcept {
-        return (i < m_Submeshes.Size()) ? &m_Submeshes[i] : nullptr;
+        return (i < m_Submeshes.Num()) ? &m_Submeshes[i] : nullptr;
     }
 
     /**
@@ -254,7 +254,7 @@ public:
      *
      * @return bone 数。
      */
-    u32 BoneCount() const noexcept { return static_cast<u32>(m_Bones.Size()); }
+    u32 BoneCount() const noexcept { return static_cast<u32>(m_Bones.Num()); }
 
     /**
      * i 番目の bone 情報を返す。
@@ -263,7 +263,7 @@ public:
      * @return i 番目の FBoneInfo (範囲外なら nullptr)。
      */
     const FBoneInfo* Bone(u32 i) const noexcept {
-        return (i < m_Bones.Size()) ? &m_Bones[i] : nullptr;
+        return (i < m_Bones.Num()) ? &m_Bones[i] : nullptr;
     }
 
     /**
@@ -272,7 +272,7 @@ public:
      * @return animation clip 数。
      */
     u32 AnimationClipCount() const noexcept {
-        return static_cast<u32>(m_Clips.Size());
+        return static_cast<u32>(m_Clips.Num());
     }
 
     /**
@@ -282,7 +282,7 @@ public:
      * @return i 番目の FAnimationClipInfo (範囲外なら nullptr)。
      */
     const FAnimationClipInfo* AnimationClip(u32 i) const noexcept {
-        return (i < m_Clips.Size()) ? &m_Clips[i] : nullptr;
+        return (i < m_Clips.Num()) ? &m_Clips[i] : nullptr;
     }
 
     /**

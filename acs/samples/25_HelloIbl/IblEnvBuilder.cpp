@@ -12,8 +12,8 @@ using namespace acs;
 namespace helloibl {
 
 void BuildEquirectFromSky(const CSky& sky, TArray<f32>& buf) noexcept {
-    if (buf.Size() == 0) {
-        buf.Resize(static_cast<usize>(kEquirectWidth) * kEquirectHeight * 4u);
+    if (buf.Num() == 0) {
+        buf.SetNum(static_cast<usize>(kEquirectWidth) * kEquirectHeight * 4u);
     }
     auto safe_sqrt_n = [](FVec3 v) noexcept {
         f32 len2 = v.x*v.x + v.y*v.y + v.z*v.z;
@@ -70,8 +70,8 @@ void BuildEquirectFromSky(const CSky& sky, TArray<f32>& buf) noexcept {
 }
 
 void BuildStudioHdrEquirect(TArray<f32>& buf) noexcept {
-    if (buf.Size() == 0) {
-        buf.Resize(static_cast<usize>(kEquirectWidth) * kEquirectHeight * 4u);
+    if (buf.Num() == 0) {
+        buf.SetNum(static_cast<usize>(kEquirectWidth) * kEquirectHeight * 4u);
     }
     const f32 background[3] = {0.03f, 0.03f, 0.04f};
     struct FPanel { f32 phi; f32 r, g, b; };

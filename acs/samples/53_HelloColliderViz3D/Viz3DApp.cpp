@@ -27,11 +27,11 @@ void CViz3DApp::OnStart() noexcept {
 
     // メッシュ (球) を生成 → 位置 / インデックスを取り出す。
     TSharedPtr<AMeshAsset> mesh = Primitive::MakeSphere(1.0f, 20, 10);
-    for (usize i = 0; i < mesh->Vertices().Size(); ++i) m_MeshPos.PushBack(mesh->Vertices()[i].position);
-    for (usize i = 0; i < mesh->Indices().Size(); ++i)  m_MeshIdx.PushBack(mesh->Indices()[i]);
+    for (usize i = 0; i < mesh->Vertices().Num(); ++i) m_MeshPos.Add(mesh->Vertices()[i].position);
+    for (usize i = 0; i < mesh->Indices().Num(); ++i)  m_MeshIdx.Add(mesh->Indices()[i]);
 
     ACS_SAMPLE_INIT(m_Collider.BuildFromMesh(*mesh));
-    ACS_SAMPLE_INIT(BuildConvexHull3(m_MeshPos.Data(), static_cast<u32>(m_MeshPos.Size()),
+    ACS_SAMPLE_INIT(BuildConvexHull3(m_MeshPos.GetData(), static_cast<u32>(m_MeshPos.Num()),
                                      m_HullPos, m_HullIdx));
 }
 
@@ -57,11 +57,11 @@ void CViz3DApp::OnRender() noexcept {
     const FRayHit3 hit = m_Collider.Raycast(ray);
 
     m_Dd.Begin();
-    m_Dd.Wireframe(m_HullPos.Data(), static_cast<u32>(m_HullPos.Size()),
-                   m_HullIdx.Data(), static_cast<u32>(m_HullIdx.Size()),
+    m_Dd.Wireframe(m_HullPos.GetData(), static_cast<u32>(m_HullPos.Num()),
+                   m_HullIdx.GetData(), static_cast<u32>(m_HullIdx.Num()),
                    FVec4{ 1.0f, 0.85f, 0.2f, 0.5f });                     // 凸包 (黄、半透明)
-    m_Dd.Wireframe(m_MeshPos.Data(), static_cast<u32>(m_MeshPos.Size()),
-                   m_MeshIdx.Data(), static_cast<u32>(m_MeshIdx.Size()),
+    m_Dd.Wireframe(m_MeshPos.GetData(), static_cast<u32>(m_MeshPos.Num()),
+                   m_MeshIdx.GetData(), static_cast<u32>(m_MeshIdx.Num()),
                    FVec4{ 0.4f, 1.0f, 0.5f, 0.9f });                      // メッシュ (緑)
     m_Dd.Line(ray.origin, FVec3{ 0, -2.0f, 0 }, FVec4{ 0.3f, 0.9f, 1.0f, 1.0f });  // レイ (シアン)
     if (hit.hit) {
@@ -82,7 +82,7 @@ void CViz3DApp::OnRender() noexcept {
         char info[96];
         std::snprintf(info, sizeof(info), "mesh tris=%u  hull tris=%u  raycast hit y=%.3f",
                       m_Collider.TriangleCount(),
-                      static_cast<unsigned>(m_HullIdx.Size() / 3),
+                      static_cast<unsigned>(m_HullIdx.Num() / 3),
                       hit.hit ? hit.point.y : 0.0f);
         m_Batch.DrawString(m_Font, info, 24.0f, 46.0f, FVec4{ 0.7f, 0.8f, 0.95f, 1.0f });
         m_Batch.DrawString(m_Font, "Esc: quit", 24.0f, static_cast<f32>(sh) - 34.0f,

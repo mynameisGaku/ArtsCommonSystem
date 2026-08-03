@@ -240,7 +240,7 @@ public:
         s.max_distance = (max_distance > 0.0f) ? max_distance : 20.0f;
         s.curve        = static_cast<u8>(curve);
         s.active       = true;
-        m_Sources.PushBack(s);
+        m_Sources.Add(s);
         return s.source_id;
     }
 
@@ -253,7 +253,7 @@ public:
      */
     void UpdateSource(u32 id, FVec2 pos, FVec2 vel = FVec2::Zero()) noexcept {
         const usize idx = FindIndex(id);
-        if (idx >= m_Sources.Size()) return;
+        if (idx >= m_Sources.Num()) return;
         m_Sources[idx].position = pos;
         m_Sources[idx].velocity = vel;
     }
@@ -266,7 +266,7 @@ public:
      */
     void SetSourceVolume(u32 id, f32 v) noexcept {
         const usize idx = FindIndex(id);
-        if (idx >= m_Sources.Size()) return;
+        if (idx >= m_Sources.Num()) return;
         m_Sources[idx].volume = Saturate(v);
     }
 
@@ -277,10 +277,10 @@ public:
      */
     void RemoveSource(u32 id) noexcept {
         const usize idx = FindIndex(id);
-        if (idx >= m_Sources.Size()) return;
-        const usize last = m_Sources.Size() - 1;
+        if (idx >= m_Sources.Num()) return;
+        const usize last = m_Sources.Num() - 1;
         if (idx != last) m_Sources[idx] = m_Sources[last];
-        m_Sources.PopBack();
+        m_Sources.Pop();
     }
 
     /**
@@ -291,7 +291,7 @@ public:
      */
     f32 ComputeAttenuatedVolume(u32 id) const noexcept {
         const usize idx = FindIndex(id);
-        if (idx >= m_Sources.Size()) return 0.0f;
+        if (idx >= m_Sources.Num()) return 0.0f;
         const FAudioSource2D& s = m_Sources[idx];
         if (!s.active) return 0.0f;
         const f32 d = ComputeDistance2D(m_Listener.position, s.position);
@@ -308,7 +308,7 @@ public:
      */
     f32 ComputePan(u32 id) const noexcept {
         const usize idx = FindIndex(id);
-        if (idx >= m_Sources.Size()) return 0.0f;
+        if (idx >= m_Sources.Num()) return 0.0f;
         const FAudioSource2D& s = m_Sources[idx];
         if (!s.active) return 0.0f;
         return ComputePan2D(m_Listener.position, m_Listener.angle, s.position);
@@ -321,14 +321,14 @@ public:
      */
     u32 SourceCount() const noexcept {
         u32 n = 0;
-        for (usize i = 0; i < m_Sources.Size(); ++i) {
+        for (usize i = 0; i < m_Sources.Num(); ++i) {
             if (m_Sources[i].active) ++n;
         }
         return n;
     }
 
     /** 全 source を空にする (listener は保持、source_id カウンタは継続)。 */
-    void Clear() noexcept { m_Sources.Clear(); }
+    void Clear() noexcept { m_Sources.Reset(); }
 
 private:
     /**
@@ -338,11 +338,11 @@ private:
      * @return 見つかった index、無ければ m_Sources.Size()。
      */
     usize FindIndex(u32 id) const noexcept {
-        if (id == 0) return m_Sources.Size();
-        for (usize i = 0; i < m_Sources.Size(); ++i) {
+        if (id == 0) return m_Sources.Num();
+        for (usize i = 0; i < m_Sources.Num(); ++i) {
             if (m_Sources[i].source_id == id) return i;
         }
-        return m_Sources.Size();
+        return m_Sources.Num();
     }
 
     /** 保持中の listener 状態。 */

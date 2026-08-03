@@ -96,7 +96,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
     }
 
     TArray<u8> temporary;
-    if (!temporary.TryResize(payload_size)) {
+    if (!temporary.TrySetNum(payload_size)) {
         return ACS_ERR(Memory,
                        static_cast<u16>(ESaveArchiveSubCode::kSubAllocationFailed),
                        "TSaveSlot::Load: temporary payload allocation failed");
@@ -104,7 +104,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
 
     u64 actual_payload_size = 0;
     const auto r = CSaveArchive::ReadFromFile(file_path,
-                                              temporary.Data(),
+                                              temporary.GetData(),
                                               static_cast<u64>(payload_size),
                                               expected_version,
                                               actual_payload_size);
@@ -121,7 +121,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
     }
 
     if (payload_size > 0) {
-        MemCopy(payload_out, temporary.Data(), payload_size);
+        MemCopy(payload_out, temporary.GetData(), payload_size);
     }
     return Ok();
 }

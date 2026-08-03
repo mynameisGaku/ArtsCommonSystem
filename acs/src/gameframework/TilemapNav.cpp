@@ -19,7 +19,7 @@ void BuildNavGridFromTilemap(const FTilemap& map, u32 layer, CNavGrid& nav) noex
 
 bool FindTilemapPath(const FTilemap& map, CNavGrid& nav,
                      FVec2 start_world, FVec2 goal_world, TArray<FVec2>& out_path) noexcept {
-    out_path.Clear();   // 失敗時も出力を空にする (stale データを残さない)
+    out_path.Reset();   // 失敗時も出力を空にする (stale データを残さない)
     u32 sx, sy, gx, gy;
     if (!map.WorldToTile(start_world, sx, sy)) return false;
     if (!map.WorldToTile(goal_world,  gx, gy)) return false;
@@ -27,8 +27,8 @@ bool FindTilemapPath(const FTilemap& map, CNavGrid& nav,
     TArray<CNavGrid::FPathPoint> pts;
     if (!nav.FindPath(sx, sy, gx, gy, pts)) return false;
 
-    for (u32 i = 0; i < pts.Size(); ++i)
-        out_path.PushBack(map.TileToWorld(pts[i].x, pts[i].y));   // tile 中心 world 座標へ
+    for (u32 i = 0; i < pts.Num(); ++i)
+        out_path.Add(map.TileToWorld(pts[i].x, pts[i].y));   // tile 中心 world 座標へ
     return true;
 }
 

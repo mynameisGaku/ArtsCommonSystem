@@ -62,9 +62,9 @@ void CScoreSystem::Init() noexcept {
     m_ComboCount     = 0;
     m_ComboTimer     = 0.0f;
     m_ComboDuration  = 3.0f;
-    m_Entries.Clear();
-    m_Milestones.Clear();
-    m_MilestoneHit.Clear();
+    m_Entries.Reset();
+    m_Milestones.Reset();
+    m_MilestoneHit.Reset();
     m_MultiplierFn      = nullptr;
     m_OnMilestone       = nullptr;
     m_OnMilestoneUser  = nullptr;
@@ -76,9 +76,9 @@ void CScoreSystem::Reset() noexcept {
     m_CurrentScore = 0;
     m_ComboCount   = 0;
     m_ComboTimer   = 0.0f;
-    m_Entries.Clear();
+    m_Entries.Reset();
     // milestone 定義は保持、通過フラグだけ false に戻して再武装する。
-    const usize n = m_MilestoneHit.Size();
+    const usize n = m_MilestoneHit.Num();
     for (usize i = 0; i < n; ++i) {
         m_MilestoneHit[i] = false;
     }
@@ -91,9 +91,9 @@ void CScoreSystem::ClearAll() noexcept {
     m_ComboCount        = 0;
     m_ComboTimer        = 0.0f;
     m_ComboDuration     = 3.0f;
-    m_Entries.Clear();
-    m_Milestones.Clear();
-    m_MilestoneHit.Clear();
+    m_Entries.Reset();
+    m_Milestones.Reset();
+    m_MilestoneHit.Reset();
     m_MultiplierFn      = nullptr;
     m_OnMilestone       = nullptr;
     m_OnMilestoneUser  = nullptr;
@@ -193,25 +193,25 @@ void CScoreSystem::SetMultiplierFn(MultiplierFn fn) noexcept {
 }
 
 u32 CScoreSystem::EntryCount() const noexcept {
-    return static_cast<u32>(m_Entries.Size());
+    return static_cast<u32>(m_Entries.Num());
 }
 
 const FScoreEntry* CScoreSystem::AllEntries(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(m_Entries.Size());
-    return m_Entries.Data();
+    out_count = static_cast<u32>(m_Entries.Num());
+    return m_Entries.GetData();
 }
 
 void CScoreSystem::PushEntry(const FScoreEntry& e) noexcept {
-    if (m_Entries.Size() >= kMaxEntries) {
+    if (m_Entries.Num() >= kMaxEntries) {
         // 最古を捨てる単純実装。kMaxEntries=100 なので memmove コストは
         // 実害なしの範囲。リング化はプロファイラで実測されたら検討。
-        const usize n = m_Entries.Size();
+        const usize n = m_Entries.Num();
         for (usize i = 1; i < n; ++i) {
             m_Entries[i - 1] = m_Entries[i];
         }
         m_Entries[n - 1] = e;
     } else {
-        m_Entries.PushBack(e);
+        m_Entries.Add(e);
     }
 }
 
@@ -220,7 +220,7 @@ void CScoreSystem::RegisterMilestone(u64 milestone_score) noexcept {
     if (milestone_score == 0) return;
 
     // 重複登録は no-op + WARN (他 Manager と同パターン)。
-    const usize n = m_Milestones.Size();
+    const usize n = m_Milestones.Num();
     for (usize i = 0; i < n; ++i) {
         if (m_Milestones[i] == milestone_score) {
             ACS_LOG_WARN("CScoreSystem: duplicate milestone ignored (%llu)",
@@ -229,11 +229,11 @@ void CScoreSystem::RegisterMilestone(u64 milestone_score) noexcept {
         }
     }
 
-    m_Milestones.PushBack(milestone_score);
+    m_Milestones.Add(milestone_score);
     // 通過フラグも 1:1 で追加。既に CurrentScore がこの milestone を超えていても
     // 「登録時点では未通過扱い」にして、次の AddScore で初回通過させる方針。
     // (登録時に即発火すると順序依存になり予測しづらいため)
-    m_MilestoneHit.PushBack(false);
+    m_MilestoneHit.Add(false);
 }
 
 void CScoreSystem::SetOnMilestoneCallback(MilestoneCallback cb, void* user) noexcept {
@@ -245,7 +245,7 @@ void CScoreSystem::CheckMilestones() noexcept {
     if (m_OnMilestone == nullptr) {
         // callback 未登録なら通過フラグだけ更新する (= 後から callback を attach
         // しても過去の通過を再通知しない、という単方向設計)。
-        const usize n = m_Milestones.Size();
+        const usize n = m_Milestones.Num();
         for (usize i = 0; i < n; ++i) {
             if (!m_MilestoneHit[i] && m_CurrentScore >= m_Milestones[i]) {
                 m_MilestoneHit[i] = true;
@@ -257,7 +257,7 @@ void CScoreSystem::CheckMilestones() noexcept {
     // サイズはキャッシュせず毎周読む: callback (ユーザーコード) が再入で
     // ClearAll / RegisterMilestone を呼ぶと配列長が変わるため、キャッシュした
     // 長さで回すと縮小時に範囲外アクセスになる。
-    for (usize i = 0; i < m_Milestones.Size(); ++i) {
+    for (usize i = 0; i < m_Milestones.Num(); ++i) {
         if (m_MilestoneHit[i]) continue;
         if (m_CurrentScore >= m_Milestones[i]) {
             m_MilestoneHit[i] = true;

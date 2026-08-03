@@ -25,7 +25,7 @@ class ARecordComponent final : public AComponent {
 public:
     ACS_GAME_COMPONENT_KIND(ARecordComponent)
     ARecordComponent(FRecFixture* fx, i32 tag) noexcept : m_Fx(fx), m_Tag(tag) {}
-    void OnDraw(FRenderContext&) noexcept override { m_Fx->order.PushBack(m_Tag); }
+    void OnDraw(FRenderContext&) noexcept override { m_Fx->order.Add(m_Tag); }
 private:
     FRecFixture* m_Fx;
     i32          m_Tag;
@@ -341,8 +341,8 @@ ACS_TEST(ANode, SortedDrawDefaultsToTreeOrder) {
 
     FRenderContext rc;
     root->DrawTreeSorted(rc);
-    EXPECT_EQ(fx.order.Size(), 3u);
-    if (fx.order.Size() == 3) {
+    EXPECT_EQ(fx.order.Num(), 3u);
+    if (fx.order.Num() == 3) {
         EXPECT_EQ(fx.order[0], 1);
         EXPECT_EQ(fx.order[1], 2);
         EXPECT_EQ(fx.order[2], 3);
@@ -362,8 +362,8 @@ ACS_TEST(ANode, DrawLayerReordersAcrossHierarchy) {
     root->DrawTreeSorted(rc);
     // b が階層に関係なく最奥へ。子 3 は独立アイテムとして layer 0 に残り、
     // 出現順で a(1) の後。
-    EXPECT_EQ(fx.order.Size(), 3u);
-    if (fx.order.Size() == 3) {
+    EXPECT_EQ(fx.order.Num(), 3u);
+    if (fx.order.Num() == 3) {
         EXPECT_EQ(fx.order[0], 2);
         EXPECT_EQ(fx.order[1], 1);
         EXPECT_EQ(fx.order[2], 3);
@@ -382,8 +382,8 @@ ACS_TEST(ANode, DrawPriorityOrdersWithinLayer) {
 
     FRenderContext rc;
     root->DrawTreeSorted(rc);
-    EXPECT_EQ(fx.order.Size(), 3u);
-    if (fx.order.Size() == 3) {
+    EXPECT_EQ(fx.order.Num(), 3u);
+    if (fx.order.Num() == 3) {
         EXPECT_EQ(fx.order[0], 2);   // -5
         EXPECT_EQ(fx.order[1], 3);   //  0
         EXPECT_EQ(fx.order[2], 1);   // +5
@@ -402,17 +402,17 @@ ACS_TEST(ANode, YSortOrdersEqualPriorityNodes) {
 
     FRenderContext rc;
     root->DrawTreeSorted(rc);
-    EXPECT_EQ(fx.order.Size(), 2u);
-    if (fx.order.Size() == 2) {
+    EXPECT_EQ(fx.order.Num(), 2u);
+    if (fx.order.Num() == 2) {
         EXPECT_EQ(fx.order[0], 2);
         EXPECT_EQ(fx.order[1], 1);
     }
 
     // バイアスで逆転できる (a の足元を大きく上へ)。
-    fx.order.Clear();
+    fx.order.Reset();
     a.SetYSortBias(-100.0f);   // 実効 y = -50 < 10
     root->DrawTreeSorted(rc);
-    if (fx.order.Size() == 2) {
+    if (fx.order.Num() == 2) {
         EXPECT_EQ(fx.order[0], 1);
         EXPECT_EQ(fx.order[1], 2);
     }
@@ -433,8 +433,8 @@ ACS_TEST(ANode, AtomicSubtreeStaysContiguousAndSortsByRoot) {
 
     FRenderContext rc;
     root->DrawTreeSorted(rc);
-    EXPECT_EQ(fx.order.Size(), 3u);
-    if (fx.order.Size() == 3) {
+    EXPECT_EQ(fx.order.Num(), 3u);
+    if (fx.order.Num() == 3) {
         EXPECT_EQ(fx.order[0], 4);   // M 自身
         EXPECT_EQ(fx.order[1], 5);   // M の子 (subtree 一塊)
         EXPECT_EQ(fx.order[2], 6);   // D は layer 2 で最後

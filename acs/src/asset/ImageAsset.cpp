@@ -12,20 +12,20 @@ namespace acs {
 TResult<TSharedPtr<AAsset>> CImageAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     int w = 0, h = 0, channels = 0;
     // HDR ファイル（.hdr など）は float ピクセル、それ以外は 8-bit に統一
-    const bool is_hdr = ::stbi_is_hdr_from_memory(reinterpret_cast<const stbi_uc*>(bytes.Data()),
-                                            static_cast<int>(bytes.Size())) != 0;
+    const bool is_hdr = ::stbi_is_hdr_from_memory(reinterpret_cast<const stbi_uc*>(bytes.GetData()),
+                                            static_cast<int>(bytes.Num())) != 0;
 
     if (is_hdr) {
         // HDR: 32-bit float RGBA に強制（4ch 固定で扱いを統一）
         float* px = ::stbi_loadf_from_memory(
-            reinterpret_cast<const stbi_uc*>(bytes.Data()),
-            static_cast<int>(bytes.Size()), &w, &h, &channels, 4);
+            reinterpret_cast<const stbi_uc*>(bytes.GetData()),
+            static_cast<int>(bytes.Num()), &w, &h, &channels, 4);
         if (!px) return ACS_ERR(Asset, 100, "stbi_loadf_from_memory failed");
 
         const usize byte_count = static_cast<usize>(w) * h * 4 * sizeof(float);
         TArray<byte> pixels;
-        pixels.Resize(byte_count);
-        MemCopy(pixels.Data(), px, byte_count);
+        pixels.SetNum(byte_count);
+        MemCopy(pixels.GetData(), px, byte_count);
         ::stbi_image_free(px);
 
         TSharedPtr<AImageAsset> a = MakeShared<AImageAsset>(static_cast<u32>(w), static_cast<u32>(h),
@@ -37,14 +37,14 @@ TResult<TSharedPtr<AAsset>> CImageAssetLoader::LoadFromBytes(FAssetId id, const 
 
     // LDR: 8-bit RGBA に強制
     stbi_uc* px = ::stbi_load_from_memory(
-        reinterpret_cast<const stbi_uc*>(bytes.Data()),
-        static_cast<int>(bytes.Size()), &w, &h, &channels, 4);
+        reinterpret_cast<const stbi_uc*>(bytes.GetData()),
+        static_cast<int>(bytes.Num()), &w, &h, &channels, 4);
     if (!px) return ACS_ERR(Asset, 101, "stbi_load_from_memory failed");
 
     const usize byte_count = static_cast<usize>(w) * h * 4;
     TArray<byte> pixels;
-    pixels.Resize(byte_count);
-    MemCopy(pixels.Data(), px, byte_count);
+    pixels.SetNum(byte_count);
+    MemCopy(pixels.GetData(), px, byte_count);
     ::stbi_image_free(px);
 
     TSharedPtr<AImageAsset> a = MakeShared<AImageAsset>(static_cast<u32>(w), static_cast<u32>(h),

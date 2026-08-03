@@ -42,12 +42,12 @@ u64 BuildSortKey(const FSpriteCmd& command) noexcept
 
 void FSpriteSortList::Sort() noexcept {
     /** 並べるcommand数。 */
-    const u32 n = static_cast<u32>(m_Cmds.Size());
-    m_Order.Clear();
+    const u32 n = static_cast<u32>(m_Cmds.Num());
+    m_Order.Reset();
     m_LastSortPasses = 0u;
     m_LastSortItemVisits = 0u;
-    if (!m_Order.TryResize(n) || !m_Scratch.TryResize(n) || !m_Keys.TryResize(n)) {
-        m_Order.Clear();
+    if (!m_Order.TrySetNum(n) || !m_Scratch.TrySetNum(n) || !m_Keys.TrySetNum(n)) {
+        m_Order.Reset();
         return;
     }
     for (u32 index = 0u; index < n; ++index) {
@@ -88,9 +88,9 @@ void FSpriteSortList::Sort() noexcept {
     m_LastSortItemVisits += n;
 
     /** 現passの読み取りindex列。 */
-    u32* source = m_Order.Data();
+    u32* source = m_Order.GetData();
     /** 現passの書き込みindex列。 */
-    u32* destination = m_Scratch.Data();
+    u32* destination = m_Scratch.GetData();
     for (u32 byte_index = 0u; byte_index < sizeof(u64); ++byte_index) {
         /** 現byteを抜き出すbit位置。 */
         const u32 shift = byte_index * 8u;
@@ -118,15 +118,15 @@ void FSpriteSortList::Sort() noexcept {
         ++m_LastSortPasses;
         m_LastSortItemVisits += static_cast<u64>(n) * 2u;
     }
-    if (source != m_Order.Data()) {
+    if (source != m_Order.GetData()) {
         for (u32 index = 0u; index < n; ++index) m_Order[index] = source[index];
         m_LastSortItemVisits += n;
     }
 }
 
 void FSpriteSortList::Replay(CSpriteBatch& sb) const noexcept {
-    const u32 n = static_cast<u32>(m_Cmds.Size());
-    const bool sorted = (m_Order.Size() == m_Cmds.Size());
+    const u32 n = static_cast<u32>(m_Cmds.Num());
+    const bool sorted = (m_Order.Num() == m_Cmds.Num());
     for (u32 k = 0; k < n; ++k) {
         const FSpriteCmd& c = sorted ? m_Cmds[m_Order[k]] : m_Cmds[k];
         if (c.kind == ESpriteCmdKind::Rect) {

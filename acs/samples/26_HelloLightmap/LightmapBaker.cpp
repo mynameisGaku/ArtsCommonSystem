@@ -49,17 +49,17 @@ FVec3 PathTrace(FVec3 origin, FVec3 normal,
 }
 
 void BakeLightmaps(IRhiDevice& dev, FQuad (&quads)[kQuadCount]) noexcept {
-    TArray<FVec3> raw;      raw.Resize(static_cast<usize>(kLmSize) * kLmSize);
-    TArray<FVec3> blurred;  blurred.Resize(static_cast<usize>(kLmSize) * kLmSize);
+    TArray<FVec3> raw;      raw.SetNum(static_cast<usize>(kLmSize) * kLmSize);
+    TArray<FVec3> blurred;  blurred.SetNum(static_cast<usize>(kLmSize) * kLmSize);
 
     for (u32 qi = 0; qi < kQuadCount; ++qi) {
         FQuad& q = quads[qi];
-        q.lm_data.Resize(static_cast<usize>(kLmSize) * kLmSize);   // 1 FVec4 / texel
+        q.lm_data.SetNum(static_cast<usize>(kLmSize) * kLmSize);   // 1 FVec4 / texel
 
         if (q.emissive) {
             // 天井 = 光源。受光ではなく放射輝度そのものを焼く
             // (描画時に albedo が掛かり、box 内で最も明るい面になる)。
-            for (usize i = 0; i < raw.Size(); ++i) raw[i] = kLightRadiance;
+            for (usize i = 0; i < raw.Num(); ++i) raw[i] = kLightRadiance;
         } else {
             const FVec3 N = q.normal;
             for (u32 ty = 0; ty < kLmSize; ++ty) {
@@ -113,8 +113,8 @@ void BakeLightmaps(IRhiDevice& dev, FQuad (&quads)[kQuadCount]) noexcept {
         td.width  = kLmSize;
         td.height = kLmSize;
         td.format = EFormat::R32G32B32A32_Float;
-        td.initial_data      = q.lm_data.Data();
-        td.initial_data_size = q.lm_data.Size() * sizeof(FVec4);
+        td.initial_data      = q.lm_data.GetData();
+        td.initial_data_size = q.lm_data.Num() * sizeof(FVec4);
         auto r = CreateRhiTexture(dev, td);
         if (r.IsErr()) {
             ACS_LOG_ERROR("HelloLightmap: lightmap texture 生成失敗 (quad %u)", qi);

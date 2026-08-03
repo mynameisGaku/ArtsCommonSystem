@@ -8,14 +8,14 @@ namespace acs::game {
 
 /** 空き slot を確保してインデックスを返す (index 0 は invalid 予約)。 */
 u32 CCollisionWorld2D::AcquireSlot() noexcept {
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {   // index 0 を予約 (= invalid)
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {   // index 0 を予約 (= invalid)
         if (!m_Slots[i].active) return i;
     }
     if (m_Slots.IsEmpty()) {
-        m_Slots.PushBack({});   // dummy at index 0
+        m_Slots.Add({});   // dummy at index 0
     }
-    m_Slots.PushBack({});
-    return static_cast<u32>(m_Slots.Size()) - 1u;
+    m_Slots.Add({});
+    return static_cast<u32>(m_Slots.Num()) - 1u;
 }
 
 /** AABB 形状を登録して handle を返す。 */
@@ -80,7 +80,7 @@ FShapeId CCollisionWorld2D::AddObb(const FObb2& o, u32 layer) noexcept {
 
 /** AABB 形状を更新する (handle / 種別不一致なら no-op)。 */
 void CCollisionWorld2D::UpdateAabb(FShapeId id, const FAabb2& a) noexcept {
-    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    if (!id.IsValid() || id.Index() >= m_Slots.Num()) return;
     FSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation() || s.kind != EKind::Aabb) return;
     s.aabb = a;
@@ -89,7 +89,7 @@ void CCollisionWorld2D::UpdateAabb(FShapeId id, const FAabb2& a) noexcept {
 
 /** 円形状を更新する (handle / 種別不一致なら no-op)。 */
 void CCollisionWorld2D::UpdateCircle(FShapeId id, const FCircle& c) noexcept {
-    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    if (!id.IsValid() || id.Index() >= m_Slots.Num()) return;
     FSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation() || s.kind != EKind::Circle) return;
     s.circle = c;
@@ -98,7 +98,7 @@ void CCollisionWorld2D::UpdateCircle(FShapeId id, const FCircle& c) noexcept {
 
 /** 凸ポリゴン形状を更新する (handle / 種別不一致なら no-op)。 */
 void CCollisionWorld2D::UpdatePolygon(FShapeId id, const FConvexPoly2& p) noexcept {
-    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    if (!id.IsValid() || id.Index() >= m_Slots.Num()) return;
     FSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation() || s.kind != EKind::Poly) return;
     s.poly = p;
@@ -107,7 +107,7 @@ void CCollisionWorld2D::UpdatePolygon(FShapeId id, const FConvexPoly2& p) noexce
 
 /** OBB 形状を更新する (handle / 種別不一致なら no-op)。 */
 void CCollisionWorld2D::UpdateObb(FShapeId id, const FObb2& o) noexcept {
-    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    if (!id.IsValid() || id.Index() >= m_Slots.Num()) return;
     FSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation() || s.kind != EKind::Obb) return;
     s.obb = o;
@@ -116,7 +116,7 @@ void CCollisionWorld2D::UpdateObb(FShapeId id, const FObb2& o) noexcept {
 
 /** shape を削除する (slot 再利用・generation 進行)。 */
 void CCollisionWorld2D::Remove(FShapeId id) noexcept {
-    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    if (!id.IsValid() || id.Index() >= m_Slots.Num()) return;
     FSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
     s.active = false;
@@ -127,9 +127,9 @@ void CCollisionWorld2D::Remove(FShapeId id) noexcept {
 
 /** 全 shape を破棄し grid もクリアする。 */
 void CCollisionWorld2D::ClearAll() noexcept {
-    m_Slots.Clear();
-    m_Cells.Clear();
-    m_HugeShapes.Clear();
+    m_Slots.Reset();
+    m_Cells.Reset();
+    m_HugeShapes.Reset();
     m_ShapeCount = 0;
     m_Dirty = false;
 }
@@ -194,7 +194,7 @@ void CCollisionWorld2D::CellRange(const FCircle& c, i32& cx_min, i32& cy_min,
 
 /** (cx, cy) のセルを線形探索する (無ければ nullptr)。 */
 CCollisionWorld2D::FGridCell* CCollisionWorld2D::FindCell(i32 cx, i32 cy) noexcept {
-    for (u32 i = 0; i < m_Cells.Size(); ++i) {
+    for (u32 i = 0; i < m_Cells.Num(); ++i) {
         if (m_Cells[i].cx == cx && m_Cells[i].cy == cy) return &m_Cells[i];
     }
     return nullptr;
@@ -206,8 +206,8 @@ CCollisionWorld2D::FGridCell& CCollisionWorld2D::GetOrCreateCell(i32 cx, i32 cy)
     FGridCell nc;
     nc.cx = cx;
     nc.cy = cy;
-    m_Cells.PushBack(Move(nc));
-    return m_Cells.Back();
+    m_Cells.Add(Move(nc));
+    return m_Cells.Last();
 }
 
 /** slot を重なる全セルに登録する (巨大形状は m_HugeShapes へ退避)。 */
@@ -223,12 +223,12 @@ void CCollisionWorld2D::InsertSlotIntoCells(u32 slot_idx) noexcept {
     default: return;
     }
     if (CellRangeTooLarge(cx_min, cy_min, cx_max, cy_max)) {
-        m_HugeShapes.PushBack(slot_idx);
+        m_HugeShapes.Add(slot_idx);
         return;
     }
     for (i32 cy = cy_min; cy <= cy_max; ++cy) {
         for (i32 cx = cx_min; cx <= cx_max; ++cx) {
-            GetOrCreateCell(cx, cy).shapes.PushBack(slot_idx);
+            GetOrCreateCell(cx, cy).shapes.Add(slot_idx);
         }
     }
 }
@@ -236,9 +236,9 @@ void CCollisionWorld2D::InsertSlotIntoCells(u32 slot_idx) noexcept {
 /** dirty なときだけグリッドを全再構築する。 */
 void CCollisionWorld2D::RebuildGridIfDirty() noexcept {
     if (!m_Dirty) return;
-    m_Cells.Clear();
-    m_HugeShapes.Clear();
-    for (u32 i = 1; i < m_Slots.Size(); ++i) {   // 0 は invalid
+    m_Cells.Reset();
+    m_HugeShapes.Reset();
+    for (u32 i = 1; i < m_Slots.Num(); ++i) {   // 0 は invalid
         if (m_Slots[i].active) InsertSlotIntoCells(i);
     }
     m_Dirty = false;
@@ -246,9 +246,9 @@ void CCollisionWorld2D::RebuildGridIfDirty() noexcept {
 
 /** クエリ AABB のブロードフェーズ候補 slot を m_QueryScratch へ集める。 */
 void CCollisionWorld2D::CollectCandidates(const FAabb2& box) noexcept {
-    m_QueryScratch.Clear();
-    m_QueryMarks.Resize(m_Slots.Size());
-    for (u32 i = 0; i < m_QueryMarks.Size(); ++i) m_QueryMarks[i] = 0;
+    m_QueryScratch.Reset();
+    m_QueryMarks.SetNum(m_Slots.Num());
+    for (u32 i = 0; i < m_QueryMarks.Num(); ++i) m_QueryMarks[i] = 0;
 
     i32 cx_min = 0, cy_min = 0, cx_max = 0, cy_max = 0;
     CellRange(box, cx_min, cy_min, cx_max, cy_max);
@@ -256,8 +256,8 @@ void CCollisionWorld2D::CollectCandidates(const FAabb2& box) noexcept {
     // クエリ範囲自体が巨大な場合はセル走査を諦めて全 slot 線形走査 (正しさ優先で
     // ハングしない)。巨大形状も含めて全て候補になるのでこれで完結する。
     if (CellRangeTooLarge(cx_min, cy_min, cx_max, cy_max)) {
-        for (u32 i = 1; i < m_Slots.Size(); ++i) {
-            if (m_Slots[i].active) m_QueryScratch.PushBack(i);
+        for (u32 i = 1; i < m_Slots.Num(); ++i) {
+            if (m_Slots[i].active) m_QueryScratch.Add(i);
         }
         return;
     }
@@ -266,20 +266,20 @@ void CCollisionWorld2D::CollectCandidates(const FAabb2& box) noexcept {
         for (i32 cx = cx_min; cx <= cx_max; ++cx) {
             FGridCell* cell = FindCell(cx, cy);
             if (!cell) continue;
-            for (u32 i = 0; i < cell->shapes.Size(); ++i) {
+            for (u32 i = 0; i < cell->shapes.Num(); ++i) {
                 const u32 idx = cell->shapes[i];
                 if (m_QueryMarks[idx]) continue;
                 m_QueryMarks[idx] = 1;
-                m_QueryScratch.PushBack(idx);
+                m_QueryScratch.Add(idx);
             }
         }
     }
     // グリッドに入っていない巨大形状は常に候補へ加える。
-    for (u32 i = 0; i < m_HugeShapes.Size(); ++i) {
+    for (u32 i = 0; i < m_HugeShapes.Num(); ++i) {
         const u32 idx = m_HugeShapes[i];
         if (m_QueryMarks[idx]) continue;
         m_QueryMarks[idx] = 1;
-        m_QueryScratch.PushBack(idx);
+        m_QueryScratch.Add(idx);
     }
 }
 
@@ -321,50 +321,50 @@ bool CCollisionWorld2D::NarrowIntersectPoly(u32 slot_idx, const FConvexPoly2& p)
 
 /** AABB と重なる shape を列挙する。 */
 void CCollisionWorld2D::OverlapAabb(const FAabb2& a, TArray<FShapeId>& out, FShapeId exclude, u32 mask) noexcept {
-    out.Clear();
+    out.Reset();
     RebuildGridIfDirty();
     CollectCandidates(a);
     const u32 ex_idx = exclude.IsValid() ? exclude.Index() : 0u;
-    for (u32 i = 0; i < m_QueryScratch.Size(); ++i) {
+    for (u32 i = 0; i < m_QueryScratch.Num(); ++i) {
         const u32 idx = m_QueryScratch[i];
         if (idx == ex_idx) continue;
         if ((m_Slots[idx].layer & mask) == 0u) continue;
         if (NarrowIntersectAabb(idx, a)) {
-            out.PushBack(FShapeId{idx, m_Slots[idx].gen});
+            out.Add(FShapeId{idx, m_Slots[idx].gen});
         }
     }
 }
 
 /** 円と重なる shape を列挙する。 */
 void CCollisionWorld2D::OverlapCircle(const FCircle& c, TArray<FShapeId>& out, FShapeId exclude, u32 mask) noexcept {
-    out.Clear();
+    out.Reset();
     RebuildGridIfDirty();
     const FAabb2 box{ c.center, FVec2{ c.radius, c.radius } };
     CollectCandidates(box);
     const u32 ex_idx = exclude.IsValid() ? exclude.Index() : 0u;
-    for (u32 i = 0; i < m_QueryScratch.Size(); ++i) {
+    for (u32 i = 0; i < m_QueryScratch.Num(); ++i) {
         const u32 idx = m_QueryScratch[i];
         if (idx == ex_idx) continue;
         if ((m_Slots[idx].layer & mask) == 0u) continue;
         if (NarrowIntersectCircle(idx, c)) {
-            out.PushBack(FShapeId{idx, m_Slots[idx].gen});
+            out.Add(FShapeId{idx, m_Slots[idx].gen});
         }
     }
 }
 
 /** 凸ポリゴンと重なる shape を列挙する (頂点数 3 未満は無視)。 */
 void CCollisionWorld2D::OverlapPolygon(const FConvexPoly2& p, TArray<FShapeId>& out, FShapeId exclude, u32 mask) noexcept {
-    out.Clear();
+    out.Reset();
     if (p.count < 3) return;
     RebuildGridIfDirty();
     CollectCandidates(AabbOf(p));
     const u32 ex_idx = exclude.IsValid() ? exclude.Index() : 0u;
-    for (u32 i = 0; i < m_QueryScratch.Size(); ++i) {
+    for (u32 i = 0; i < m_QueryScratch.Num(); ++i) {
         const u32 idx = m_QueryScratch[i];
         if (idx == ex_idx) continue;
         if ((m_Slots[idx].layer & mask) == 0u) continue;
         if (NarrowIntersectPoly(idx, p)) {
-            out.PushBack(FShapeId{idx, m_Slots[idx].gen});
+            out.Add(FShapeId{idx, m_Slots[idx].gen});
         }
     }
 }
@@ -376,7 +376,7 @@ FVec2 CCollisionWorld2D::ResolveCircle(const FCircle& c, FShapeId exclude, u32 m
     CollectCandidates(box);
     const u32 ex_idx = exclude.IsValid() ? exclude.Index() : 0u;
     FVec2 total{ 0, 0 };
-    for (u32 i = 0; i < m_QueryScratch.Size(); ++i) {
+    for (u32 i = 0; i < m_QueryScratch.Num(); ++i) {
         const u32 idx = m_QueryScratch[i];
         if (idx == ex_idx) continue;
         if ((m_Slots[idx].layer & mask) == 0u) continue;
@@ -400,7 +400,7 @@ FVec2 CCollisionWorld2D::ResolvePolygon(const FConvexPoly2& p, FShapeId exclude,
     CollectCandidates(AabbOf(p));
     const u32 ex_idx = exclude.IsValid() ? exclude.Index() : 0u;
     FVec2 total{ 0, 0 };
-    for (u32 i = 0; i < m_QueryScratch.Size(); ++i) {
+    for (u32 i = 0; i < m_QueryScratch.Num(); ++i) {
         const u32 idx = m_QueryScratch[i];
         if (idx == ex_idx) continue;
         if ((m_Slots[idx].layer & mask) == 0u) continue;
@@ -442,7 +442,7 @@ bool CCollisionWorld2D::Raycast(const FRay2& ray, f32 max_t,
     f32 best_t = max_t + 1.0f;
     bool any_hit = false;
 
-    for (u32 i = 0; i < m_QueryScratch.Size(); ++i) {
+    for (u32 i = 0; i < m_QueryScratch.Num(); ++i) {
         const u32 idx = m_QueryScratch[i];
         if ((m_Slots[idx].layer & mask) == 0u) continue;
         const FSlot& s = m_Slots[idx];

@@ -99,9 +99,9 @@ public:
     {
         u32 SlotIndex = Handle::kInvalidIndex;
         bool bReusedSlot = false;
-        if (m_Free.Size() > 0) {
-            SlotIndex = m_Free[m_Free.Size() - 1];
-            m_Free.PopBack();
+        if (m_Free.Num() > 0) {
+            SlotIndex = m_Free[m_Free.Num() - 1];
+            m_Free.Pop();
             bReusedSlot = true;
         } else {
             if (m_SlotCount >= Handle::kInvalidIndex) return {};
@@ -109,13 +109,13 @@ public:
             if (!EnsureChunkFor(SlotIndex)) return {};
         }
 
-        if (!m_Live.TryPushBack(SlotIndex)) {
-            if (bReusedSlot) m_Free.PushBack(SlotIndex);
+        if (!m_Live.TryAdd(SlotIndex)) {
+            if (bReusedSlot) m_Free.Add(SlotIndex);
             return {};
         }
 
         FSlot& PoolSlot = SlotRef(SlotIndex);
-        PoolSlot.liveIdx = static_cast<u32>(m_Live.Size() - 1u);
+        PoolSlot.liveIdx = static_cast<u32>(m_Live.Num() - 1u);
         ::new (static_cast<void*>(PoolSlot.storage)) T(Forward<Args>(Arguments)...);
         PoolSlot.alive = true;
         if (!bReusedSlot) ++m_SlotCount;
@@ -134,18 +134,18 @@ public:
     {
         FSlot* PoolSlot = Resolve(ObjectHandle);
         if (PoolSlot == nullptr) return false;
-        if (!m_Free.TryReserve(m_Free.Size() + 1u)) return false;
+        if (!m_Free.TryReserve(m_Free.Num() + 1u)) return false;
 
         reinterpret_cast<T*>(PoolSlot->storage)->~T();
         PoolSlot->alive = false;
         // 世代を進めて既存ハンドルを無効化する。
         PoolSlot->gen = AdvanceGeneration(PoolSlot->gen);
         /** 密な生存リストから末尾交換で除く slot index。 */
-        const u32 LastSlotIndex = m_Live[m_Live.Size() - 1];
+        const u32 LastSlotIndex = m_Live[m_Live.Num() - 1];
         m_Live[PoolSlot->liveIdx] = LastSlotIndex;
         SlotRef(LastSlotIndex).liveIdx = PoolSlot->liveIdx;
-        m_Live.PopBack();
-        m_Free.PushBack(ObjectHandle.index);
+        m_Live.Pop();
+        m_Free.Add(ObjectHandle.index);
         return true;
     }
 
@@ -170,7 +170,7 @@ public:
     /** 生存オブジェクト数。 */
     u32 Count() const noexcept
     {
-        return static_cast<u32>(m_Live.Size());
+        return static_cast<u32>(m_Live.Num());
     }
 
     /**
@@ -181,7 +181,7 @@ public:
     template<class Fn>
     void ForEach(Fn&& Function) noexcept
     {
-        for (usize i = 0; i < m_Live.Size(); ++i) {
+        for (usize i = 0; i < m_Live.Num(); ++i) {
             const u32 SlotIndex = m_Live[i];
             FSlot& PoolSlot = SlotRef(SlotIndex);
             Function(*reinterpret_cast<T*>(PoolSlot.storage), Handle{SlotIndex, PoolSlot.gen});
@@ -197,19 +197,19 @@ public:
     /** 全生存オブジェクトの破棄を試み、管理領域の確保失敗時は何も変更しない。 */
     bool TryClear() noexcept
     {
-        if (m_Live.Size() > (~usize(0)) - m_Free.Size() ||
-            !m_Free.TryReserve(m_Free.Size() + m_Live.Size())) {
+        if (m_Live.Num() > (~usize(0)) - m_Free.Num() ||
+            !m_Free.TryReserve(m_Free.Num() + m_Live.Num())) {
             return false;
         }
-        for (usize i = 0; i < m_Live.Size(); ++i) {
+        for (usize i = 0; i < m_Live.Num(); ++i) {
             const u32 SlotIndex = m_Live[i];
             FSlot& PoolSlot = SlotRef(SlotIndex);
             reinterpret_cast<T*>(PoolSlot.storage)->~T();
             PoolSlot.alive = false;
             PoolSlot.gen = AdvanceGeneration(PoolSlot.gen);
-            m_Free.PushBack(SlotIndex);
+            m_Free.Add(SlotIndex);
         }
-        m_Live.Clear();
+        m_Live.Reset();
         return true;
     }
 
@@ -232,16 +232,16 @@ public:
 
         // 完全解放中はフリーリストへ戻さない。Clear() 経由だと破棄処理中に
         // m_Free が拡張され、不要な再確保や確保失敗を招く可能性がある。
-        for (usize i = 0; i < m_Live.Size(); ++i) {
+        for (usize i = 0; i < m_Live.Num(); ++i) {
             FSlot& PoolSlot = SlotRef(m_Live[i]);
             reinterpret_cast<T*>(PoolSlot.storage)->~T();
             PoolSlot.alive = false;
         }
-        m_Live.Clear();
+        m_Live.Reset();
         FreeChunks();
-        m_Chunks.ReleaseStorage();
-        m_Free.ReleaseStorage();
-        m_Live.ReleaseStorage();
+        m_Chunks.Empty();
+        m_Free.Empty();
+        m_Live.Empty();
         m_SlotCount = 0;
     }
 
@@ -267,13 +267,13 @@ private:
     bool EnsureChunkFor(u32 SlotIndex) noexcept
     {
         const u32 ChunkIndex = SlotIndex / kChunkSize;
-        while (static_cast<u32>(m_Chunks.Size()) <= ChunkIndex) {
+        while (static_cast<u32>(m_Chunks.Num()) <= ChunkIndex) {
             /** アドレスを固定して追加する chunk。 */
             FChunk* NewChunk = New<FChunk>(*m_Alloc);
             if (NewChunk == nullptr) return false;
             for (u32 i = 0; i < kChunkSize; ++i)
                 NewChunk->slots[i].gen = m_GenerationSeed;
-            if (!m_Chunks.TryPushBack(NewChunk)) {
+            if (!m_Chunks.TryAdd(NewChunk)) {
                 Delete(*m_Alloc, NewChunk);
                 return false;
             }
@@ -303,9 +303,9 @@ private:
     }
     void FreeChunks() noexcept
     {
-        for (usize i = 0; i < m_Chunks.Size(); ++i)
+        for (usize i = 0; i < m_Chunks.Num(); ++i)
             Delete(*m_Alloc, m_Chunks[i]);
-        m_Chunks.Clear();
+        m_Chunks.Reset();
     }
 
     IAllocator* m_Alloc;

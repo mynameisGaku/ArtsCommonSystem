@@ -45,10 +45,10 @@ bool CHierarchyWorldTransformBatch::PushChildrenReverse(ANode* parent, const FTr
             /** stack へ積む child。 */
             ANode* child = parent->Child(first + lane - 1u);
             if (child == nullptr) continue;
-            if (m_Transforms.Size() >= expected_count || m_Pending.Size() >= expected_count - m_Transforms.Size()) return false;
+            if (m_Transforms.Num() >= expected_count || m_Pending.Num() >= expected_count - m_Transforms.Num()) return false;
             /** fast path または scalar fallback の world transform。 */
             const FTransform3D world = composed ? FTransform3D{world_positions[lane - 1u], world_rotations[lane - 1u], world_scales[lane - 1u]} : parent_world.Compose(child->Local());
-            if (!m_Pending.TryPushBack(FPendingWorld{child, world})) return false;
+            if (!m_Pending.TryAdd(FPendingWorld{child, world})) return false;
         }
         batch_end = first;
     }
@@ -65,14 +65,14 @@ bool CHierarchyWorldTransformBatch::Evaluate(ANode* root, usize expected_count) 
     }
     while (!m_Pending.IsEmpty()) {
         /** 次に処理する node と確定 world transform。 */
-        const FPendingWorld pending = m_Pending[m_Pending.Size() - 1u];
-        m_Pending.PopBack();
-        if (!m_Transforms.TryPushBack(pending.world) || !PushChildrenReverse(pending.node, pending.world, expected_count)) {
+        const FPendingWorld pending = m_Pending[m_Pending.Num() - 1u];
+        m_Pending.Pop();
+        if (!m_Transforms.TryAdd(pending.world) || !PushChildrenReverse(pending.node, pending.world, expected_count)) {
             Clear();
             return false;
         }
     }
-    if (m_Transforms.Size() != expected_count) {
+    if (m_Transforms.Num() != expected_count) {
         Clear();
         return false;
     }
@@ -81,8 +81,8 @@ bool CHierarchyWorldTransformBatch::Evaluate(ANode* root, usize expected_count) 
 
 /** 結果と pending stack を空に戻す。 */
 void CHierarchyWorldTransformBatch::Clear() noexcept {
-    m_Pending.Clear();
-    m_Transforms.Clear();
+    m_Pending.Reset();
+    m_Transforms.Reset();
 }
 
 } // namespace acs::game
