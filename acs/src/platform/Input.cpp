@@ -2,6 +2,7 @@
 // 入力ポーリング実装
 #include "platform/Input.h"
 #include "platform/GamepadPollScheduler.h"
+#include "platform/HidGamepad.h"
 #include "foundation/Platform.h"
 
 #include <Xinput.h>
@@ -71,6 +72,41 @@ FInputState g_input;
 
 /** 接続中は毎フレーム取得し、未接続確認だけをフレーム間へ分散する。 */
 detail::TGamepadPollScheduler<4> g_gamepad_poll_scheduler;
+
+/** XInput が拾わないゲームパッド (PlayStation 系 / Nintendo 系) の読み取り元。 */
+CHidGamepadSource g_hid_gamepads;
+
+/** ポートごとの HID 状態 (XInput が埋まっていないポートにだけ入る)。 */
+FHidGamepadState g_hid_now[4] {};
+
+/** 前フレームの HID 状態 (Pressed / Released 判定用)。 */
+FHidGamepadState g_hid_prev[4] {};
+
+/** そのポートを HID 側で賄っているか。 */
+bool g_pad_uses_hid[4] {};
+
+/**
+ * ポートが HID 由来かを返す。
+ *
+ * @param idx ポート番号。
+ * @return HID のデバイスを割り当てているなら true。
+ */
+ACS_FORCEINLINE bool UsesHid(u32 idx) noexcept {
+    return idx < 4 && g_pad_uses_hid[idx];
+}
+
+/**
+ * HID 状態からボタンの押下を取り出す。
+ *
+ * @param state 対象の状態。
+ * @param b 対象のボタン。
+ * @return 押下中なら true。
+ */
+ACS_FORCEINLINE bool HidButtonDown(const FHidGamepadState& state, EGamepadButton b) noexcept {
+    const usize button_index = static_cast<usize>(b);
+    if (button_index >= static_cast<usize>(EGamepadButton::_Count)) return false;
+    return (state.buttons & (u32{1} << static_cast<u32>(button_index))) != 0;
+}
 
 /** EGamepadButton から XInput のボタンビットへ変換するテーブル (0 は未対応ボタン)。 */
 constexpr WORD kPadBits[(usize)EGamepadButton::_Count] = {
@@ -202,6 +238,29 @@ void CInput::Update() noexcept {
         const DWORD result = ::XInputGetState(port_index, &g_input.pad_now[port_index]);
         g_input.pad_connected[port_index] = (result == ERROR_SUCCESS);
     }
+
+    // XInput から見えないゲームパッド (DualShock 4 / DualSense / Switch Pro / Joy-Con) を
+    // HID から読み、XInput で埋まらなかったポートへ前から順に割り当てる。
+    g_hid_gamepads.Poll();
+    /** 次に割り当てる HID スロット。 */
+    u32 hid_slot = 0;
+    for (u32 port_index = 0; port_index < 4; ++port_index) {
+        g_hid_prev[port_index] = g_hid_now[port_index];
+        g_pad_uses_hid[port_index] = false;
+        g_hid_now[port_index] = FHidGamepadState{};
+
+        if (g_input.pad_connected[port_index]) continue;
+
+        while (hid_slot < CHidGamepadSource::kMaxDevices &&
+               !g_hid_gamepads.GetState(hid_slot).connected) {
+            ++hid_slot;
+        }
+        if (hid_slot >= CHidGamepadSource::kMaxDevices) continue;
+
+        g_hid_now[port_index] = g_hid_gamepads.GetState(hid_slot);
+        g_pad_uses_hid[port_index] = true;
+        ++hid_slot;
+    }
 }
 
 // FWindow からの Event を Input 状態に反映
@@ -265,10 +324,11 @@ const char* CInput::TextInput() noexcept { return g_input.text_utf8; }
 
 bool CInput::IsGamepadConnected(u32 idx) noexcept {
     if (idx >= 4) return false;
-    return g_input.pad_connected[idx];
+    return g_input.pad_connected[idx] || g_pad_uses_hid[idx];
 }
 
 bool CInput::IsGamepadButtonDown(u32 idx, EGamepadButton b) noexcept {
+    if (UsesHid(idx)) return HidButtonDown(g_hid_now[idx], b);
     if (idx >= 4 || !g_input.pad_connected[idx]) return false;
     const usize button_index = static_cast<usize>(b);
     if (button_index >= static_cast<usize>(EGamepadButton::_Count)) return false;
@@ -278,6 +338,9 @@ bool CInput::IsGamepadButtonDown(u32 idx, EGamepadButton b) noexcept {
 }
 
 bool CInput::IsGamepadButtonPressed(u32 idx, EGamepadButton b) noexcept {
+    if (UsesHid(idx)) {
+        return HidButtonDown(g_hid_now[idx], b) && !HidButtonDown(g_hid_prev[idx], b);
+    }
     if (idx >= 4 || !g_input.pad_connected[idx]) return false;
     const usize button_index = static_cast<usize>(b);
     if (button_index >= static_cast<usize>(EGamepadButton::_Count)) return false;
@@ -290,6 +353,9 @@ bool CInput::IsGamepadButtonPressed(u32 idx, EGamepadButton b) noexcept {
 
 bool CInput::IsGamepadButtonReleased(u32 idx, EGamepadButton b) noexcept
 {
+    if (UsesHid(idx)) {
+        return !HidButtonDown(g_hid_now[idx], b) && HidButtonDown(g_hid_prev[idx], b);
+    }
     if (idx >= 4) return false;
     const usize button_index = static_cast<usize>(b);
     if (button_index >= static_cast<usize>(EGamepadButton::_Count)) return false;
@@ -301,6 +367,11 @@ bool CInput::IsGamepadButtonReleased(u32 idx, EGamepadButton b) noexcept
 }
 
 f32 CInput::GamepadAxisValue(u32 idx, EGamepadAxis axis) noexcept {
+    if (UsesHid(idx)) {
+        const usize axis_index = static_cast<usize>(axis);
+        if (axis_index >= static_cast<usize>(EGamepadAxis::_Count)) return 0.0f;
+        return g_hid_now[idx].axes[axis_index];
+    }
     if (idx >= 4 || !g_input.pad_connected[idx]) return 0.0f;
     const auto& g = g_input.pad_now[idx].Gamepad;
     switch (axis) {

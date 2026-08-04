@@ -258,14 +258,24 @@ enum class EMouseButton : u8 {
  * @details 値は kPadBits テーブル (Input.cpp) の添字に使うため連続。
  */
 enum class EGamepadButton : u8 {
-    /** A ボタン。 */
-    A,
-    /** B ボタン。 */
-    B,
-    /** X ボタン。 */
-    X,
-    /** Y ボタン。 */
-    Y,
+    /**
+     * face ボタンの下 (Xbox の A / PlayStation の × / Nintendo の B)。
+     *
+     * @details
+     * 同じ位置のボタンでも機種で刻印が違い (Nintendo は A と B が Xbox と左右逆)、名前で
+     * 持つと機種ごとに割り当てが入れ替わってしまう。そこで位置で持ち、各バックエンドが
+     * 「物理的にどの位置か」へ読み替える。刻印で書きたい場合は下の別名を使う。
+     */
+    South,
+
+    /** face ボタンの右 (Xbox の B / PlayStation の ○ / Nintendo の A)。 */
+    East,
+
+    /** face ボタンの左 (Xbox の X / PlayStation の □ / Nintendo の Y)。 */
+    West,
+
+    /** face ボタンの上 (Xbox の Y / PlayStation の △ / Nintendo の X)。 */
+    North,
 
     /** 方向パッド上。 */
     Up,
@@ -294,7 +304,27 @@ enum class EGamepadButton : u8 {
     Guide,
 
     /** ボタン総数 (配列サイズ用の番兵。実ボタンではない)。 */
-    _Count
+    _Count,
+
+    // --- 刻印で書きたいときの別名 (値は位置と同じ。_Count は増えない) ---
+
+    /** Xbox の A (= South)。 */
+    A = South,
+    /** Xbox の B (= East)。 */
+    B = East,
+    /** Xbox の X (= West)。 */
+    X = West,
+    /** Xbox の Y (= North)。 */
+    Y = North,
+
+    /** PlayStation の × (= South)。 */
+    Cross = South,
+    /** PlayStation の ○ (= East)。 */
+    Circle = East,
+    /** PlayStation の □ (= West)。 */
+    Square = West,
+    /** PlayStation の △ (= North)。 */
+    Triangle = North,
 };
 
 /** ゲームパッドのアナログ軸識別子 (スティックは -1.0〜+1.0、トリガーは 0.0〜1.0)。 */
