@@ -1159,3 +1159,22 @@ if(ACS_IS_TOP_LEVEL)
         endif()
     endif()
 endif()
+
+# HID の解析関数は無名 namespace に閉じているので、実装ごと取り込む専用の実行ファイルで回す
+# (通常 unit 群へ混ぜると、engine 側の実体と二重定義になる)。
+if(WIN32)
+    add_executable(acs_hid_gamepad_report_tests
+        main.cpp
+        hid_gamepad_report_tests.cpp
+    )
+    set_target_properties(acs_hid_gamepad_report_tests PROPERTIES FOLDER "Engine/Tests")
+    acs_apply_compiler_options(acs_hid_gamepad_report_tests)
+    target_link_libraries(acs_hid_gamepad_report_tests PRIVATE
+        ACS::Foundation
+        ACS::Test
+        setupapi
+        hid
+    )
+    add_test(NAME ACS.HidGamepadReport COMMAND acs_hid_gamepad_report_tests)
+    set_tests_properties(ACS.HidGamepadReport PROPERTIES LABELS "Platform;Input" TIMEOUT 60)
+endif()
