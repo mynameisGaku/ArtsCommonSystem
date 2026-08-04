@@ -18,6 +18,7 @@
 
 #include "foundation/Types.h"
 #include "math/Vec.h"
+#include "platform/GamepadMotion.h"
 #include "platform/InputCodes.h"
 #include "platform/Event.h"
 
@@ -171,6 +172,17 @@ public:
      * @return 正規化された軸の値 (未接続・範囲外は 0.0)。
      */
     static f32  GamepadAxisValue(u32 player_index, EGamepadAxis axis) noexcept;
+
+    /**
+     * 指定プレイヤーのゲームパッドのモーションセンサーの値を返す。
+     *
+     * @details
+     * ジャイロと加速度を積んだパッド (DualShock 4 / DualSense / Switch Pro / Joy-Con) でのみ
+     * 取れる。センサーを持たないパッドや未接続では valid が false の既定値を返す。
+     * @param player_index プレイヤー番号 (0..3)。
+     * @return モーションの値。
+     */
+    static const FGamepadMotion& GamepadMotion(u32 player_index) noexcept;
 };
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */

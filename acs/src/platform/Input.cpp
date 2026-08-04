@@ -262,6 +262,7 @@ void CInput::Update() noexcept {
         if (hid_slot >= CHidGamepadSource::kMaxDevices) continue;
 
         g_hid_now[port_index] = g_hid_gamepads.GetState(hid_slot);
+        g_hid_now[port_index].motion = g_hid_gamepads.GetMotion(hid_slot);
         g_pad_uses_hid[port_index] = true;
         ++hid_slot;
     }
@@ -286,6 +287,7 @@ void CInput::Update() noexcept {
             g_hid_now[port_index].axes[axis_index] = source.axes[axis_index];
         }
         g_hid_now[port_index].connected = true;
+        g_hid_now[port_index].motion = FGamepadMotion{};   // 汎用パッドはセンサーを持たない
         g_pad_uses_hid[port_index] = true;
         ++dinput_slot;
     }
@@ -392,6 +394,13 @@ bool CInput::IsGamepadButtonReleased(u32 idx, EGamepadButton b) noexcept
     const bool now = (g_input.pad_now[idx].Gamepad.wButtons & bit) != 0;
     const bool prev = (g_input.pad_prev[idx].Gamepad.wButtons & bit) != 0;
     return !now && prev;
+}
+
+const FGamepadMotion& CInput::GamepadMotion(u32 idx) noexcept {
+    /** センサーを持たない場合に返す既定値。 */
+    static const FGamepadMotion kNoMotion {};
+    if (idx >= 4 || !g_pad_uses_hid[idx]) return kNoMotion;
+    return g_hid_now[idx].motion;
 }
 
 f32 CInput::GamepadAxisValue(u32 idx, EGamepadAxis axis) noexcept {

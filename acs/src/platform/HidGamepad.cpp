@@ -59,6 +59,30 @@ constexpr f32 kSwitchStickCenter = 2048.0f;
 /** Switch のスティック生値の振れ幅。 */
 constexpr f32 kSwitchStickRange = 1800.0f;
 
+/** Switch のジャイロ生値を度/秒へ直す係数 (標準の感度設定 ±2000dps を前提)。 */
+constexpr f32 kSwitchGyroScale = 0.06103f;
+
+/** Switch の加速度生値を G へ直す係数 (標準の感度設定 ±8G を前提)。 */
+constexpr f32 kSwitchAccelScale = 0.000244f;
+
+/** Sony 系のジャイロ生値を度/秒へ直す係数 (±2000dps を 16 bit へ写した値)。 */
+constexpr f32 kSonyGyroScale = 2000.0f / 32767.0f;
+
+/** Sony 系の加速度生値を G へ直す係数 (1G = 8192)。 */
+constexpr f32 kSonyAccelScale = 1.0f / 8192.0f;
+
+/**
+ * 連続する 2 byte をリトルエンディアンの符号付き 16 bit として読む。
+ *
+ * @param report 読み出し元。
+ * @param offset 下位 byte の位置。
+ * @return 読み出した値。
+ */
+inline i32 ReadInt16( const u8* report, u32 offset ) noexcept {
+    const u32 raw = static_cast<u32>(report[offset]) | (static_cast<u32>(report[offset + 1]) << 8);
+    return static_cast<i32>(static_cast<i16>(static_cast<u16>(raw)));
+}
+
 /**
  * ボタンビットを立てる。
  *
@@ -187,6 +211,17 @@ bool ParseDualShock4(const u8* report, u32 length, FHidGamepadState& out_state) 
     out_state.axes[static_cast<usize>(EGamepadAxis::RightY)] = -NormalizeByteAxis(report[base + 3]);
     out_state.axes[static_cast<usize>(EGamepadAxis::LeftTrigger)]  = static_cast<f32>(report[base + 7]) / 255.0f;
     out_state.axes[static_cast<usize>(EGamepadAxis::RightTrigger)] = static_cast<f32>(report[base + 8]) / 255.0f;
+
+    // タイムスタンプと電池の後ろにジャイロと加速度が並ぶ。
+    if (length >= base + 24) {
+        out_state.motion.gyro.x  = static_cast<f32>(ReadInt16(report, base + 12)) * kSonyGyroScale;
+        out_state.motion.gyro.y  = static_cast<f32>(ReadInt16(report, base + 14)) * kSonyGyroScale;
+        out_state.motion.gyro.z  = static_cast<f32>(ReadInt16(report, base + 16)) * kSonyGyroScale;
+        out_state.motion.accel.x = static_cast<f32>(ReadInt16(report, base + 18)) * kSonyAccelScale;
+        out_state.motion.accel.y = static_cast<f32>(ReadInt16(report, base + 20)) * kSonyAccelScale;
+        out_state.motion.accel.z = static_cast<f32>(ReadInt16(report, base + 22)) * kSonyAccelScale;
+        out_state.motion.valid = true;
+    }
     return true;
 }
 
@@ -235,6 +270,17 @@ bool ParseDualSense(const u8* report, u32 length, FHidGamepadState& out_state) n
     out_state.axes[static_cast<usize>(EGamepadAxis::RightY)] = -NormalizeByteAxis(report[base + 3]);
     out_state.axes[static_cast<usize>(EGamepadAxis::LeftTrigger)]  = static_cast<f32>(report[base + 4]) / 255.0f;
     out_state.axes[static_cast<usize>(EGamepadAxis::RightTrigger)] = static_cast<f32>(report[base + 5]) / 255.0f;
+
+    // 4 byte のタイムスタンプを挟んでジャイロと加速度が並ぶ。
+    if (length >= base + 27) {
+        out_state.motion.gyro.x  = static_cast<f32>(ReadInt16(report, base + 15)) * kSonyGyroScale;
+        out_state.motion.gyro.y  = static_cast<f32>(ReadInt16(report, base + 17)) * kSonyGyroScale;
+        out_state.motion.gyro.z  = static_cast<f32>(ReadInt16(report, base + 19)) * kSonyGyroScale;
+        out_state.motion.accel.x = static_cast<f32>(ReadInt16(report, base + 21)) * kSonyAccelScale;
+        out_state.motion.accel.y = static_cast<f32>(ReadInt16(report, base + 23)) * kSonyAccelScale;
+        out_state.motion.accel.z = static_cast<f32>(ReadInt16(report, base + 25)) * kSonyAccelScale;
+        out_state.motion.valid = true;
+    }
     return true;
 }
 
@@ -294,6 +340,20 @@ bool ParseSwitch(const u8* report, u32 length, EHidGamepadKind kind, FHidGamepad
     out_state.axes[static_cast<usize>(EGamepadAxis::LeftY)]  = NormalizeSwitchAxis(left_y);
     out_state.axes[static_cast<usize>(EGamepadAxis::RightX)] = NormalizeSwitchAxis(right_x);
     out_state.axes[static_cast<usize>(EGamepadAxis::RightY)] = NormalizeSwitchAxis(right_y);
+
+    // 後半には 5ms 間隔で 3 サンプル分の IMU が並ぶ。ここでは最新の 1 つだけ使う
+    // (フレーム単位で見れば十分で、取りこぼしても姿勢はすぐ追いつく)。
+    if (length >= 49) {
+        /** 3 サンプルのうち最後のものの先頭。 */
+        constexpr u32 kLastSample = 13 + 24;
+        out_state.motion.accel.x = static_cast<f32>(ReadInt16(report, kLastSample + 0)) * kSwitchAccelScale;
+        out_state.motion.accel.y = static_cast<f32>(ReadInt16(report, kLastSample + 2)) * kSwitchAccelScale;
+        out_state.motion.accel.z = static_cast<f32>(ReadInt16(report, kLastSample + 4)) * kSwitchAccelScale;
+        out_state.motion.gyro.x  = static_cast<f32>(ReadInt16(report, kLastSample + 6)) * kSwitchGyroScale;
+        out_state.motion.gyro.y  = static_cast<f32>(ReadInt16(report, kLastSample + 8)) * kSwitchGyroScale;
+        out_state.motion.gyro.z  = static_cast<f32>(ReadInt16(report, kLastSample + 10)) * kSwitchGyroScale;
+        out_state.motion.valid = true;
+    }
 
     // Joy-Con 単体は横持ちが前提で、スティックの向きが本体と 90 度ずれる。
     if (kind == EHidGamepadKind::JoyConLeft) {
@@ -421,6 +481,11 @@ void CHidGamepadSource::Shutdown() noexcept {
 const FHidGamepadState& CHidGamepadSource::GetState(u32 index) const noexcept {
     if (index >= kMaxDevices) return m_Empty;
     return m_States[index];
+}
+
+const FGamepadMotion& CHidGamepadSource::GetMotion(u32 index) const noexcept {
+    if (index >= kMaxDevices) return m_Empty.motion;
+    return m_States[index].motion;
 }
 
 EHidGamepadKind CHidGamepadSource::GetKind(u32 index) const noexcept {

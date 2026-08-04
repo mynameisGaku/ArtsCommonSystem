@@ -2,6 +2,7 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "platform/GamepadMotion.h"
 #include "platform/InputCodes.h"
 
 // XInput が拾わないゲームパッドを HID から直接読む。
@@ -34,6 +35,9 @@ struct FHidGamepadState {
 
     /** 各軸の値 (スティックは -1..+1、トリガーは 0..1)。 */
     f32 axes[static_cast<usize>(EGamepadAxis::_Count)] {};
+
+    /** モーションセンサーの値 (積んでいない機種では valid が false)。 */
+    FGamepadMotion motion {};
 
     /** このスロットにデバイスが繋がっているか。 */
     bool connected = false;
@@ -100,6 +104,14 @@ public:
      * @return そのスロットの状態 (範囲外や未接続なら connected == false)。
      */
     const FHidGamepadState& GetState(u32 index) const noexcept;
+
+    /**
+     * 指定スロットのモーションセンサーの値を返す。
+     *
+     * @param index 0..kMaxDevices-1 のスロット番号。
+     * @return モーションの値 (センサーが無い機種や範囲外は valid == false)。
+     */
+    const FGamepadMotion& GetMotion(u32 index) const noexcept;
 
     /**
      * 指定スロットの機種を返す。
