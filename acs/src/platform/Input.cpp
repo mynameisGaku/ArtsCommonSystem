@@ -2,6 +2,7 @@
 // 入力ポーリング実装
 #include "platform/Input.h"
 #include "platform/GamepadPollScheduler.h"
+#include "platform/DirectInputGamepad.h"
 #include "platform/HidGamepad.h"
 #include "foundation/Platform.h"
 
@@ -75,6 +76,9 @@ detail::TGamepadPollScheduler<4> g_gamepad_poll_scheduler;
 
 /** XInput が拾わないゲームパッド (PlayStation 系 / Nintendo 系) の読み取り元。 */
 CHidGamepadSource g_hid_gamepads;
+
+/** XInput にも HID の機種別対応にも載らない汎用パッドの読み取り元。 */
+CDirectInputGamepadSource g_dinput_gamepads;
 
 /** ポートごとの HID 状態 (XInput が埋まっていないポートにだけ入る)。 */
 FHidGamepadState g_hid_now[4] {};
@@ -260,6 +264,30 @@ void CInput::Update() noexcept {
         g_hid_now[port_index] = g_hid_gamepads.GetState(hid_slot);
         g_pad_uses_hid[port_index] = true;
         ++hid_slot;
+    }
+
+    // XInput でも HID の機種別対応でも埋まらなかったポートを、汎用パッドで埋める。
+    g_dinput_gamepads.Poll();
+    /** 次に割り当てる DirectInput スロット。 */
+    u32 dinput_slot = 0;
+    for (u32 port_index = 0; port_index < 4; ++port_index) {
+        if (g_input.pad_connected[port_index] || g_pad_uses_hid[port_index]) continue;
+
+        while (dinput_slot < CDirectInputGamepadSource::kMaxDevices &&
+               !g_dinput_gamepads.GetState(dinput_slot).connected) {
+            ++dinput_slot;
+        }
+        if (dinput_slot >= CDirectInputGamepadSource::kMaxDevices) continue;
+
+        /** 汎用パッドの状態を HID と同じ形へ写して扱う。 */
+        const FDirectInputGamepadState& source = g_dinput_gamepads.GetState(dinput_slot);
+        g_hid_now[port_index].buttons = source.buttons;
+        for (usize axis_index = 0; axis_index < static_cast<usize>(EGamepadAxis::_Count); ++axis_index) {
+            g_hid_now[port_index].axes[axis_index] = source.axes[axis_index];
+        }
+        g_hid_now[port_index].connected = true;
+        g_pad_uses_hid[port_index] = true;
+        ++dinput_slot;
     }
 }
 
