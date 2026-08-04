@@ -3,6 +3,7 @@
 #include "platform/Input.h"
 #include "platform/GamepadPollScheduler.h"
 #include "platform/DirectInputGamepad.h"
+#include "platform/GamepadOrientation.h"
 #include "platform/HidGamepad.h"
 #include "foundation/Platform.h"
 
@@ -88,6 +89,15 @@ FHidGamepadState g_hid_prev[4] {};
 
 /** そのポートを HID 側で賄っているか。 */
 bool g_pad_uses_hid[4] {};
+
+/** ポートごとの姿勢 (ジャイロを積分したもの)。 */
+CGamepadOrientation g_pad_orientation[4] {};
+
+/** 姿勢の積分に使う、前回 Update からの経過秒を測るための時刻。 */
+LARGE_INTEGER g_motion_last_counter {};
+
+/** 高分解能カウンタの 1 秒あたりの目盛り数 (0 なら未取得)。 */
+LARGE_INTEGER g_motion_frequency {};
 
 /**
  * ポートが HID 由来かを返す。
@@ -291,6 +301,28 @@ void CInput::Update() noexcept {
         g_pad_uses_hid[port_index] = true;
         ++dinput_slot;
     }
+
+    // 姿勢はジャイロの積分なので、フレーム間の実時間が要る。Update の間隔を自前で測る。
+    if (g_motion_frequency.QuadPart == 0) ::QueryPerformanceFrequency(&g_motion_frequency);
+    LARGE_INTEGER now {};
+    ::QueryPerformanceCounter(&now);
+    /** 前フレームからの経過秒。 */
+    f32 motion_delta = 0.0f;
+    if (g_motion_last_counter.QuadPart != 0 && g_motion_frequency.QuadPart != 0) {
+        motion_delta = static_cast<f32>(
+            static_cast<f64>(now.QuadPart - g_motion_last_counter.QuadPart) /
+            static_cast<f64>(g_motion_frequency.QuadPart));
+    }
+    g_motion_last_counter = now;
+
+    // 中断や重い 1 フレームで大きく飛ぶと姿勢が暴れるため、上限で頭を押さえる。
+    if (motion_delta > 0.1f) motion_delta = 0.1f;
+
+    for (u32 port_index = 0; port_index < 4; ++port_index) {
+        if (!g_pad_uses_hid[port_index]) continue;
+
+        g_pad_orientation[port_index].Integrate(g_hid_now[port_index].motion, motion_delta);
+    }
 }
 
 // FWindow からの Event を Input 状態に反映
@@ -401,6 +433,23 @@ const FGamepadMotion& CInput::GamepadMotion(u32 idx) noexcept {
     static const FGamepadMotion kNoMotion {};
     if (idx >= 4 || !g_pad_uses_hid[idx]) return kNoMotion;
     return g_hid_now[idx].motion;
+}
+
+const FQuat& CInput::GamepadRotation(u32 idx) noexcept {
+    /** センサーを持たない場合に返す無回転。 */
+    static const FQuat kIdentity = FQuat::Identity();
+    if (idx >= 4) return kIdentity;
+    return g_pad_orientation[idx].Rotation();
+}
+
+FMat4 CInput::GamepadRotationMatrix(u32 idx) noexcept {
+    if (idx >= 4) return FMat4::Identity();
+    return g_pad_orientation[idx].RotationMatrix();
+}
+
+void CInput::ResetGamepadOrientation(u32 idx) noexcept {
+    if (idx >= 4) return;
+    g_pad_orientation[idx].Reset();
 }
 
 f32 CInput::GamepadAxisValue(u32 idx, EGamepadAxis axis) noexcept {

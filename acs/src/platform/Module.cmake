@@ -8,6 +8,7 @@ acs_module(
     TYPE    Runtime
     SOURCES
         FileSystem.cpp
+        GamepadOrientation.cpp
         HidGamepad.cpp
         Input.cpp
         Localization.cpp
@@ -20,6 +21,7 @@ acs_module(
         FileSystem.h
         FileSystemDiagnostics.h
         GamepadMotion.h
+        GamepadOrientation.h
         GamepadPollScheduler.h
         HidGamepad.h
         Input.h

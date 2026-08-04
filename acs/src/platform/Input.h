@@ -18,6 +18,8 @@
 
 #include "foundation/Types.h"
 #include "math/Vec.h"
+#include "math/Mat.h"
+#include "math/Quat.h"
 #include "platform/GamepadMotion.h"
 #include "platform/InputCodes.h"
 #include "platform/Event.h"
@@ -183,6 +185,34 @@ public:
      * @return モーションの値。
      */
     static const FGamepadMotion& GamepadMotion(u32 player_index) noexcept;
+
+    /**
+     * 指定プレイヤーのゲームパッドの姿勢をクォータニオンで返す。
+     *
+     * @details
+     * ジャイロを積分し、静止しているときは加速度で傾きを補正した向き。基準は最後に
+     * ResetGamepadOrientation を呼んだ時点 (既定は接続時) の姿勢で、絶対方位は分からない。
+     * センサーを持たないパッドでは無回転を返す。
+     * @param player_index プレイヤー番号 (0..3)。
+     * @return 姿勢を表す単位クォータニオン。
+     */
+    static const FQuat& GamepadRotation(u32 player_index) noexcept;
+
+    /**
+     * 指定プレイヤーのゲームパッドの姿勢を回転行列で返す。
+     *
+     * @details 中身は GamepadRotation と同じ向きで、行列が欲しい場合に使う。
+     * @param player_index プレイヤー番号 (0..3)。
+     * @return 回転行列 (平行移動なし)。
+     */
+    static FMat4 GamepadRotationMatrix(u32 player_index) noexcept;
+
+    /**
+     * 指定プレイヤーのゲームパッドの姿勢の基準を、いまの向きに取り直す。
+     *
+     * @param player_index プレイヤー番号 (0..3)。
+     */
+    static void ResetGamepadOrientation(u32 player_index) noexcept;
 };
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */
