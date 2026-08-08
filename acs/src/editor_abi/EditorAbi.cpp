@@ -51,7 +51,8 @@
 #include "render/IRhiTexture.h"             // IRhiTexture (スプライト)
 #include "render/IRhiCommandList.h"
 #include "render/RenderAssets.h"            // UploadTexture / UploadMesh / FGpuMesh
-#include "render/DebugDraw.h"               // CDebugDraw3D (グリッド/ギズモ/選択 AABB の線)
+// FDebugDraw3D (グリッド/ギズモ/選択 AABB の線)
+#include "render/DebugDraw.h"
 #include "render/Sky.h"                     // CSky (エンジン標準の手続きスカイ。Phase2: kSky3DHLSL を置換)
 #include "render/PbrShader.h"               // CPbrShader (エンジン標準 PBR。Phase2: メッシュ移行先)
 #include "render/StandardShader.h"          // FDirLight (有向光源)
@@ -712,8 +713,10 @@ struct FEditorHost {
     TUniquePtr<IRhiBuffer>   shadow_lvp_cb;           // b0: 光の view-projection (single cascade)
     TUniquePtr<IRhiBuffer>   shadow_cascade_cb[acs::CShadowMap::kMaxCascades];  // CSM: cascade 毎に別 CB (1フレーム内の上書き回避)
     bool                     shadow_ready = false;
-    CDebugDraw3D    dbg3d;                // グリッド/選択 AABB/ギズモの線
-    CDebugDraw3D    camera_frustum_dbg3d; // post後のdisplay-space camera線
+    // グリッド/選択 AABB/ギズモの線。
+    FDebugDraw3D dbg3d;
+    // post後のdisplay-space camera線。
+    FDebugDraw3D camera_frustum_dbg3d;
     bool         r3d_ready     = false;   // 3D リソース初期化済み
     u32          r3d_init_phase = 0;      // incremental startup phase
     bool         r3d_init_failed = false;

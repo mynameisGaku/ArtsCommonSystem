@@ -43,27 +43,28 @@ static_assert(std::is_same_v<decltype(&acs::CDebugDraw::TryDrawCircle), FDebugDr
 static_assert(std::is_same_v<decltype(&acs::CDebugDraw::TryDrawCross), FDebugDraw2DTryCrossSignature>);
 static_assert(std::is_same_v<decltype(&acs::CDebugDraw::TryDrawArrow), FDebugDraw2DTryArrowSignature>);
 
-/** CDebugDraw3Dの既存・追加公開入口を配布headerとlibrary間で照合する署名。 */
-using FDebugDrawInitSignature = acs::TResult<void> (acs::CDebugDraw3D::*)(acs::IRhiDevice&, acs::EFormat, acs::u32) noexcept;
-using FDebugDrawVoidSignature = void (acs::CDebugDraw3D::*)() noexcept;
-using FDebugDrawLineSignature = void (acs::CDebugDraw3D::*)(acs::FVec3, acs::FVec3, acs::FVec4) noexcept;
-using FDebugDrawAabbSignature = void (acs::CDebugDraw3D::*)(const acs::FAabb3&, acs::FVec4) noexcept;
-using FDebugDrawWireframeSignature = void (acs::CDebugDraw3D::*)(const acs::FVec3*, acs::u32, const acs::u32*, acs::u32, acs::FVec4) noexcept;
-using FDebugDrawEndSignature = void (acs::CDebugDraw3D::*)(acs::IRhiCommandList&, const acs::FMat4&) noexcept;
-using FDebugDrawTryLineSignature = bool (acs::CDebugDraw3D::*)(acs::FVec3, acs::FVec3, acs::FVec4) noexcept;
-using FDebugDrawTryAabbSignature = bool (acs::CDebugDraw3D::*)(const acs::FAabb3&, acs::FVec4) noexcept;
-using FDebugDrawTryWireframeSignature = bool (acs::CDebugDraw3D::*)(const acs::FVec3*, acs::u32, const acs::u32*, acs::u32, acs::FVec4) noexcept;
+/** FDebugDraw3Dの既存・追加公開入口を配布headerとlibrary間で照合する署名。 */
+using FDebugDrawInitSignature = acs::TResult<void> (acs::FDebugDraw3D::*)(acs::IRhiDevice&, acs::EFormat, acs::u32) noexcept;
+using FDebugDrawVoidSignature = void (acs::FDebugDraw3D::*)() noexcept;
+using FDebugDrawLineSignature = void (acs::FDebugDraw3D::*)(acs::FVec3, acs::FVec3, acs::FVec4) noexcept;
+using FDebugDrawAabbSignature = void (acs::FDebugDraw3D::*)(const acs::FAabb3&, acs::FVec4) noexcept;
+using FDebugDrawWireframeSignature = void (acs::FDebugDraw3D::*)(const acs::FVec3*, acs::u32, const acs::u32*, acs::u32, acs::FVec4) noexcept;
+using FDebugDrawEndSignature = void (acs::FDebugDraw3D::*)(acs::IRhiCommandList&, const acs::FMat4&) noexcept;
+using FDebugDrawTryLineSignature = bool (acs::FDebugDraw3D::*)(acs::FVec3, acs::FVec3, acs::FVec4) noexcept;
+using FDebugDrawTryAabbSignature = bool (acs::FDebugDraw3D::*)(const acs::FAabb3&, acs::FVec4) noexcept;
+using FDebugDrawTryWireframeSignature = bool (acs::FDebugDraw3D::*)(const acs::FVec3*, acs::u32, const acs::u32*, acs::u32, acs::FVec4) noexcept;
 
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::Init), FDebugDrawInitSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::Shutdown), FDebugDrawVoidSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::Begin), FDebugDrawVoidSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::Line), FDebugDrawLineSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::Aabb), FDebugDrawAabbSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::Wireframe), FDebugDrawWireframeSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::End), FDebugDrawEndSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::TryLine), FDebugDrawTryLineSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::TryAabb), FDebugDrawTryAabbSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::TryWireframe), FDebugDrawTryWireframeSignature>);
+static_assert(std::is_same_v<acs::CDebugDraw3D, acs::FDebugDraw3D>);
+static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::Init), FDebugDrawInitSignature>);
+static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::Shutdown), FDebugDrawVoidSignature>);
+static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::Begin), FDebugDrawVoidSignature>);
+static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::Line), FDebugDrawLineSignature>);
+static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::Aabb), FDebugDrawAabbSignature>);
+static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::Wireframe), FDebugDrawWireframeSignature>);
+static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::End), FDebugDrawEndSignature>);
+static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::TryLine), FDebugDrawTryLineSignature>);
+static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::TryAabb), FDebugDrawTryAabbSignature>);
+static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::TryWireframe), FDebugDrawTryWireframeSignature>);
 
 /** Primitive の既存・追加公開入口を配布 header と library 間で照合する署名。 */
 using FPrimitiveMakeCubeSignature = acs::TSharedPtr<acs::AMeshAsset> (*)(acs::f32) noexcept;
@@ -135,17 +136,17 @@ void LinkMeshPrimitiveSymbols() noexcept
 void LinkDebugDraw3DSymbols() noexcept
 {
     /** linkerが除去できない既存公開symbolのmember pointer。 */
-    volatile FDebugDrawInitSignature init = &acs::CDebugDraw3D::Init;
-    volatile FDebugDrawVoidSignature shutdown = &acs::CDebugDraw3D::Shutdown;
-    volatile FDebugDrawVoidSignature begin = &acs::CDebugDraw3D::Begin;
-    volatile FDebugDrawLineSignature line = &acs::CDebugDraw3D::Line;
-    volatile FDebugDrawAabbSignature aabb = &acs::CDebugDraw3D::Aabb;
-    volatile FDebugDrawWireframeSignature wireframe = &acs::CDebugDraw3D::Wireframe;
-    volatile FDebugDrawEndSignature end = &acs::CDebugDraw3D::End;
+    volatile FDebugDrawInitSignature init = &acs::FDebugDraw3D::Init;
+    volatile FDebugDrawVoidSignature shutdown = &acs::FDebugDraw3D::Shutdown;
+    volatile FDebugDrawVoidSignature begin = &acs::FDebugDraw3D::Begin;
+    volatile FDebugDrawLineSignature line = &acs::FDebugDraw3D::Line;
+    volatile FDebugDrawAabbSignature aabb = &acs::FDebugDraw3D::Aabb;
+    volatile FDebugDrawWireframeSignature wireframe = &acs::FDebugDraw3D::Wireframe;
+    volatile FDebugDrawEndSignature end = &acs::FDebugDraw3D::End;
     /** linkerが除去できない追加公開symbolのmember pointer。 */
-    volatile FDebugDrawTryLineSignature try_line = &acs::CDebugDraw3D::TryLine;
-    volatile FDebugDrawTryAabbSignature try_aabb = &acs::CDebugDraw3D::TryAabb;
-    volatile FDebugDrawTryWireframeSignature try_wireframe = &acs::CDebugDraw3D::TryWireframe;
+    volatile FDebugDrawTryLineSignature try_line = &acs::FDebugDraw3D::TryLine;
+    volatile FDebugDrawTryAabbSignature try_aabb = &acs::FDebugDraw3D::TryAabb;
+    volatile FDebugDrawTryWireframeSignature try_wireframe = &acs::FDebugDraw3D::TryWireframe;
     (void)init;
     (void)shutdown;
     (void)begin;

@@ -538,11 +538,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "CDebugDraw3D",
+      name: "FDebugDraw3D",
       kind: "クラス", header: "render/DebugDraw.h",
       summary: "3D の<b>デバッグ線描画</b>(LineList)。コライダーの<t>ワイヤーフレーム</t>・<t>AABB</t>・レイなどを色付きで重ねる。深度なしで常に手前に見える overlay。",
       when: "当たり判定や法線、デバッグ用の補助線を画面に重ねて確認したいとき。",
-      sample: "CDebugDraw3D dd;\ndd.Init(*dev, rdr.ColorFormat());\ndd.Begin();\ndd.Aabb(box, FVec4{1,1,0,1});\ndd.Line(a, b, FVec4{0,1,1,1});\ndd.Wireframe(positions, vcount, indices, icount, FVec4{0.4f,1,0.4f,1});\ndd.End(*cl, view_proj);   // RT が bind 済みの状態で",
+      sample: "FDebugDraw3D dd;\ndd.Init(*dev, rdr.ColorFormat());\ndd.Begin();\ndd.Aabb(box, FVec4{1,1,0,1});\ndd.Line(a, b, FVec4{0,1,1,1});\ndd.Wireframe(positions, vcount, indices, icount, FVec4{0.4f,1,0.4f,1});\ndd.End(*cl, view_proj);   // RT が bind 済みの状態で",
       members: [
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, u32 max_lines = 16384)", desc: "初期化。0 は 1 本へ補正する。容量計算、CPU 頂点領域、GPU 資源生成に失敗した場合は、以前の資源・頂点・容量を変更しない。" },
         { sig: "void Begin()", desc: "線の蓄積を開始(リセット)。" },
@@ -554,7 +554,7 @@ ACS_REF.modules.push({
         { sig: "void Wireframe(const FVec3* positions, u32 vertex_count, const u32* indices, u32 index_count, FVec4 color)", desc: "TryWireframe の既存 void 互換入口。同じ skip・末尾無視を保ち、失敗時は何も変更しない。" },
         { sig: "void End(IRhiCommandList& cl, const FMat4& view_proj)", desc: "現在 bind 中のターゲットへ全線を描画する。" },
         { sig: "u32 LineCount() const", desc: "蓄積済みの線数。" },
-        { sig: "using FDebugDraw3D = CDebugDraw3D", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CDebugDraw3D</code> を使う。" }
+        { sig: "using CDebugDraw3D = FDebugDraw3D", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>FDebugDraw3D</code> を使う。" }
       ]
     },
     {

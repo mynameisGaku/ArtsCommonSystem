@@ -25,19 +25,19 @@ namespace acs {
  * 中のターゲットへ描画する。depth テスト無しで常に手前に重なる。ACS 規約準拠
  * (noexcept / TResult / 非コピー)。
  */
-class CDebugDraw3D {
+class FDebugDraw3D {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    CDebugDraw3D() noexcept = default;
+    FDebugDraw3D() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~CDebugDraw3D() noexcept = default;
+    ~FDebugDraw3D() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CDebugDraw3D(const CDebugDraw3D&) = delete;
+    FDebugDraw3D(const FDebugDraw3D&) = delete;
 
     /** コピー代入も禁止。 */
-    CDebugDraw3D& operator=(const CDebugDraw3D&) = delete;
+    FDebugDraw3D& operator=(const FDebugDraw3D&) = delete;
 
     /**
      * GPU リソース (シェーダ・パイプライン・頂点/定数バッファ) を確保する。
@@ -143,6 +143,6 @@ private:
 };
 
 /** 旧名を使う既存コード向けの互換別名。 */
-using FDebugDraw3D = CDebugDraw3D;
+using CDebugDraw3D = FDebugDraw3D;
 
 } // namespace acs

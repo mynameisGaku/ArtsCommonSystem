@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "registry_legacy_sha256": "0625B4405FD84BDC0EE6E558DD6DA8CC216B823E947342BDCECD3D53F380F55F",
+  "registry_legacy_sha256": "26E994EEA06EC6E95852E0184747D11E45B5319D30DE10BBA700F78D54E194F5",
   "entries": [
     {
       "path": "acs/tests/aobject_header_compile_tests.cpp",
@@ -2059,7 +2059,22 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "0205C7097388357F7A9A587DDDBA8C0869F3707D1817A1458ABA6DBD6C57D987",
+      "file_sha256": "7BCFD0302074547A350E591A934473082E03DD03AB45A3A3AC6B0E1A92B3AB74",
+      "line_hint": 57,
+      "line_sha256": "0C118A69CB8C7EB3B0A5FA760951569A1C4BB13C40072D3F93645776BF894AF1",
+      "line_occurrence": 0,
+      "token_occurrence": 0,
+      "legacy": "CDebugDraw3D",
+      "canonical": "acs::FDebugDraw3D",
+      "reason": "distribution_compatibility",
+      "lexical_context": "code",
+      "construct": "compatibility_type_assertion",
+      "qualifier": "acs",
+      "preprocessor_state": "active"
+    },
+    {
+      "path": "dist/examples/check.cpp",
+      "file_sha256": "7BCFD0302074547A350E591A934473082E03DD03AB45A3A3AC6B0E1A92B3AB74",
       "line_hint": 11,
       "line_sha256": "658AAF3D91E68E96AD95A4FAA703586DE0ECD9361012559814F54C0E7A0BB259",
       "line_occurrence": 0,
@@ -2074,7 +2089,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "0205C7097388357F7A9A587DDDBA8C0869F3707D1817A1458ABA6DBD6C57D987",
+      "file_sha256": "7BCFD0302074547A350E591A934473082E03DD03AB45A3A3AC6B0E1A92B3AB74",
       "line_hint": 12,
       "line_sha256": "7ADE0FA389E18093321C9ECB3BCC53247900C877B08E7B33F5229A568258DCB4",
       "line_occurrence": 0,
@@ -2089,7 +2104,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "0205C7097388357F7A9A587DDDBA8C0869F3707D1817A1458ABA6DBD6C57D987",
+      "file_sha256": "7BCFD0302074547A350E591A934473082E03DD03AB45A3A3AC6B0E1A92B3AB74",
       "line_hint": 10,
       "line_sha256": "8D671E3BD7CD0CE3CC7342CBAE5479580829AB9F87E3D4C1E2EEB6341C2B77D0",
       "line_occurrence": 0,
@@ -2104,7 +2119,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "0205C7097388357F7A9A587DDDBA8C0869F3707D1817A1458ABA6DBD6C57D987",
+      "file_sha256": "7BCFD0302074547A350E591A934473082E03DD03AB45A3A3AC6B0E1A92B3AB74",
       "line_hint": 14,
       "line_sha256": "927F131FD41ADCA6DAA8F82C28C07985CB4114E59545D9CF540C68F745997ABF",
       "line_occurrence": 0,
@@ -2119,7 +2134,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "0205C7097388357F7A9A587DDDBA8C0869F3707D1817A1458ABA6DBD6C57D987",
+      "file_sha256": "7BCFD0302074547A350E591A934473082E03DD03AB45A3A3AC6B0E1A92B3AB74",
       "line_hint": 13,
       "line_sha256": "BE684A2669E4AFA7DB6B4C3E9C09A301453C1EB421532A17061B6C01E5CAA586",
       "line_occurrence": 0,
@@ -2134,7 +2149,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "0205C7097388357F7A9A587DDDBA8C0869F3707D1817A1458ABA6DBD6C57D987",
+      "file_sha256": "7BCFD0302074547A350E591A934473082E03DD03AB45A3A3AC6B0E1A92B3AB74",
       "line_hint": 34,
       "line_sha256": "F58D52A06E68E5AB0BD9696F57906290D07FBCDA01F0F56D7AAA114EA1C91D78",
       "line_occurrence": 0,

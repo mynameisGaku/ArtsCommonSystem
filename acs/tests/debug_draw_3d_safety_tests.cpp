@@ -433,24 +433,24 @@ bool TextEquals(const char* left, const char* right) noexcept
     return *left == *right;
 }
 
-using FLineSignature = void (CDebugDraw3D::*)(FVec3, FVec3, FVec4) noexcept;
-using FAabbSignature = void (CDebugDraw3D::*)(const FAabb3&, FVec4) noexcept;
-using FWireframeSignature = void (CDebugDraw3D::*)(const FVec3*, u32, const u32*, u32, FVec4) noexcept;
-using FTryLineSignature = bool (CDebugDraw3D::*)(FVec3, FVec3, FVec4) noexcept;
-using FTryAabbSignature = bool (CDebugDraw3D::*)(const FAabb3&, FVec4) noexcept;
-using FTryWireframeSignature = bool (CDebugDraw3D::*)(const FVec3*, u32, const u32*, u32, FVec4) noexcept;
+using FLineSignature = void (FDebugDraw3D::*)(FVec3, FVec3, FVec4) noexcept;
+using FAabbSignature = void (FDebugDraw3D::*)(const FAabb3&, FVec4) noexcept;
+using FWireframeSignature = void (FDebugDraw3D::*)(const FVec3*, u32, const u32*, u32, FVec4) noexcept;
+using FTryLineSignature = bool (FDebugDraw3D::*)(FVec3, FVec3, FVec4) noexcept;
+using FTryAabbSignature = bool (FDebugDraw3D::*)(const FAabb3&, FVec4) noexcept;
+using FTryWireframeSignature = bool (FDebugDraw3D::*)(const FVec3*, u32, const u32*, u32, FVec4) noexcept;
 
-static_assert(std::is_default_constructible_v<CDebugDraw3D>);
-static_assert(!std::is_copy_constructible_v<CDebugDraw3D>);
-static_assert(!std::is_copy_assignable_v<CDebugDraw3D>);
-static_assert(std::is_same_v<decltype(&CDebugDraw3D::Line), FLineSignature>);
-static_assert(std::is_same_v<decltype(&CDebugDraw3D::Aabb), FAabbSignature>);
-static_assert(std::is_same_v<decltype(&CDebugDraw3D::Wireframe), FWireframeSignature>);
-static_assert(std::is_same_v<decltype(&CDebugDraw3D::TryLine), FTryLineSignature>);
-static_assert(std::is_same_v<decltype(&CDebugDraw3D::TryAabb), FTryAabbSignature>);
-static_assert(std::is_same_v<decltype(&CDebugDraw3D::TryWireframe), FTryWireframeSignature>);
-static_assert(sizeof(CDebugDraw3D) == 120u);
-static_assert(alignof(CDebugDraw3D) == 8u);
+static_assert(std::is_default_constructible_v<FDebugDraw3D>);
+static_assert(!std::is_copy_constructible_v<FDebugDraw3D>);
+static_assert(!std::is_copy_assignable_v<FDebugDraw3D>);
+static_assert(std::is_same_v<decltype(&FDebugDraw3D::Line), FLineSignature>);
+static_assert(std::is_same_v<decltype(&FDebugDraw3D::Aabb), FAabbSignature>);
+static_assert(std::is_same_v<decltype(&FDebugDraw3D::Wireframe), FWireframeSignature>);
+static_assert(std::is_same_v<decltype(&FDebugDraw3D::TryLine), FTryLineSignature>);
+static_assert(std::is_same_v<decltype(&FDebugDraw3D::TryAabb), FTryAabbSignature>);
+static_assert(std::is_same_v<decltype(&FDebugDraw3D::TryWireframe), FTryWireframeSignature>);
+static_assert(sizeof(FDebugDraw3D) == 120u);
+static_assert(alignof(FDebugDraw3D) == 8u);
 
 } // namespace
 
@@ -504,7 +504,7 @@ ACS_TEST(DebugDraw3DSafety, FactoryFailuresPreserveResourcesVerticesAndCapacity)
 
     CFakeRhiDevice device;
     {
-        CDebugDraw3D debug_draw;
+        FDebugDraw3D debug_draw;
         g_FactoryState.BeginAttempt(0u);
         EXPECT_TRUE(debug_draw.Init(device, EFormat::B8G8R8A8_UNorm, 1u).IsOk());
         EXPECT_EQ(g_FactoryState.CreatedCount(), 5u);
@@ -551,7 +551,7 @@ ACS_TEST(DebugDraw3DSafety, CpuAllocationFailurePreservesOldStateBeforeFactories
 
     {
         CDefaultAllocatorScope allocator_scope(failing_allocator);
-        CDebugDraw3D debug_draw;
+        FDebugDraw3D debug_draw;
         g_FactoryState.BeginAttempt(0u);
         EXPECT_TRUE(debug_draw.Init(device, EFormat::B8G8R8A8_UNorm, 1u).IsOk());
         const FResourceIds baseline_ids = CaptureFiveCreatedIds();
@@ -584,7 +584,7 @@ ACS_TEST(DebugDraw3DSafety, OverflowFailurePreservesOldStateBeforeFactories)
     CFakeRhiDevice device;
 
     {
-        CDebugDraw3D debug_draw;
+        FDebugDraw3D debug_draw;
         g_FactoryState.BeginAttempt(0u);
         EXPECT_TRUE(debug_draw.Init(device, EFormat::B8G8R8A8_UNorm, 1u).IsOk());
         const FResourceIds baseline_ids = CaptureFiveCreatedIds();
@@ -612,7 +612,7 @@ ACS_TEST(DebugDraw3DSafety, SuccessfulReinitAndShutdownUseDefinedReleaseOrder)
     g_FactoryState.Reset(resource_allocator);
     CFakeRhiDevice device;
 
-    CDebugDraw3D debug_draw;
+    FDebugDraw3D debug_draw;
     g_FactoryState.BeginAttempt(0u);
     EXPECT_TRUE(debug_draw.Init(device, EFormat::B8G8R8A8_UNorm, 2u).IsOk());
     const FResourceIds old_ids = CaptureFiveCreatedIds();
@@ -651,7 +651,7 @@ ACS_TEST(DebugDraw3DSafety, ZeroLineLimitNormalizesAndUsesStagedShaderDescriptor
     CFakeRhiDevice device;
 
     {
-        CDebugDraw3D debug_draw;
+        FDebugDraw3D debug_draw;
         g_FactoryState.BeginAttempt(0u);
         EXPECT_TRUE(debug_draw.Init(device, EFormat::B8G8R8A8_UNorm, 0u).IsOk());
         EXPECT_EQ(g_FactoryState.CreatedCount(), 5u);
@@ -703,7 +703,7 @@ ACS_TEST(DebugDraw3DSafety, PrimitiveWritesAreZeroOrComplete)
     EXPECT_EQ(g_FactoryState.LiveCount(), 0u);
     g_FactoryState.Reset(resource_allocator);
     CFakeRhiDevice device;
-    CDebugDraw3D debug_draw;
+    FDebugDraw3D debug_draw;
     const FVec4 color{1.0f, 0.5f, 0.25f, 1.0f};
     const FAabb3 box({0.0f, 0.0f, 0.0f}, {1.0f, 2.0f, 3.0f});
 
@@ -734,7 +734,7 @@ ACS_TEST(DebugDraw3DSafety, WireframePreservesSkippedTrianglesAndRemainder)
     EXPECT_EQ(g_FactoryState.LiveCount(), 0u);
     g_FactoryState.Reset(resource_allocator);
     CFakeRhiDevice device;
-    CDebugDraw3D debug_draw;
+    FDebugDraw3D debug_draw;
     const FVec4 color{0.25f, 1.0f, 0.5f, 1.0f};
     const FVec3 positions[4] = {
         {0.0f, 0.0f, 0.0f},

@@ -1,7 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloColliderViz3D — 3D コライダーを目視確認するデモ。
-// 回転するメッシュを wireframe (緑) で、その凸包を wireframe (黄) で重ね描き、
-// メッシュコライダーへのレイキャスト (シアン) と命中点 (赤い十字) を表示する。
 #pragma once
 
 #include "app/Application.h"
@@ -11,6 +8,9 @@
 #include "collision/MeshCollider.h"
 #include "container/Array.h"
 
+// HelloColliderViz3D — 3D コライダーを目視確認するデモ。
+// 回転するメッシュを wireframe (緑) で、その凸包を wireframe (黄) で重ね描き、
+// メッシュコライダーへのレイキャスト (シアン) と命中点 (赤い十字) を表示する。
 namespace viz3d {
 
 class CViz3DApp : public acs::CApplication {
@@ -21,7 +21,7 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    acs::CDebugDraw3D m_Dd;
+    acs::FDebugDraw3D m_Dd;
     acs::CSpriteBatch m_Batch;
     acs::FFont         m_Font;
     bool              m_bFontReady = false;

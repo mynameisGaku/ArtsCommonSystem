@@ -2091,11 +2091,11 @@
     },
     {
       "path": "render/DebugDraw.h",
-      "legacy": "acs::FDebugDraw3D",
+      "legacy": "acs::CDebugDraw3D",
       "legacy_path": "render/DebugDraw.h",
-      "canonical": "acs::CDebugDraw3D",
+      "canonical": "acs::FDebugDraw3D",
       "kind": "class",
-      "prefix": "C"
+      "prefix": "F"
     },
     {
       "path": "render/Diligent/DiligentBuffer.h",

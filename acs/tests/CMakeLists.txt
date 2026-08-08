@@ -183,7 +183,7 @@ target_link_libraries(acs_log_sink_registry_tests PRIVATE
 add_test(NAME ACS.LogSinkRegistry COMMAND acs_log_sink_registry_tests)
 set_tests_properties(ACS.LogSinkRegistry PROPERTIES LABELS "Foundation;Concurrency" TIMEOUT 60)
 
-# CDebugDraw3Dの生成失敗を実GPUなしで注入し、Render本体と分離して検証する。
+# FDebugDraw3Dの生成失敗を実GPUなしで注入し、Render本体と分離して検証する。
 add_executable(acs_debug_draw_3d_safety_tests
     main.cpp
     debug_draw_3d_safety_tests.cpp

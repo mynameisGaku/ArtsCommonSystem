@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// CDebugDraw3D 実装。
+// FDebugDraw3D 実装。
 #include "render/DebugDraw.h"
 #include "foundation/Limits.h"
 #include "foundation/Move.h"
@@ -36,24 +36,24 @@ constexpr usize CBSize() noexcept
 
 } // namespace
 
-TResult<void> CDebugDraw3D::Init(IRhiDevice& device, EFormat rt_format, u32 max_lines) noexcept
+TResult<void> FDebugDraw3D::Init(IRhiDevice& device, EFormat rt_format, u32 max_lines) noexcept
 {
     /** 0指定を従来どおり1本へ補正した線容量。 */
     const u32 line_capacity = max_lines < 1u ? 1u : max_lines;
     if (line_capacity > TNumLimits<u32>::Max() / 2u) {
-        return ACS_ERR(Render, 300, "CDebugDraw3D line capacity overflow");
+        return ACS_ERR(Render, 300, "FDebugDraw3D line capacity overflow");
     }
 
     /** 線容量を2頂点単位へ変換した新しい上限。 */
     const u32 new_max_vertices = line_capacity * 2u;
     if (static_cast<usize>(new_max_vertices) > TNumLimits<usize>::Max() / sizeof(FLineVtx)) {
-        return ACS_ERR(Render, 301, "CDebugDraw3D vertex buffer size overflow");
+        return ACS_ERR(Render, 301, "FDebugDraw3D vertex buffer size overflow");
     }
 
     /** 全生成処理が成功するまで既存頂点列と分離して保持する領域。 */
     TArray<FLineVtx> new_vertices(*m_Verts.GetAllocator());
     if (!new_vertices.TryReserve(new_max_vertices)) {
-        return ACS_ERR(Memory, 302, "CDebugDraw3D vertex allocation failed");
+        return ACS_ERR(Memory, 302, "FDebugDraw3D vertex allocation failed");
     }
 
     /** commit前に独立して保持する新しいGPU資源。 */
@@ -67,7 +67,7 @@ TResult<void> CDebugDraw3D::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kDebugLineHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name = "CDebugDraw3D.VS";
+    vs_d.debug_name = "FDebugDraw3D.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr())
         return Err<void>(r.Error());
     else
@@ -77,7 +77,7 @@ TResult<void> CDebugDraw3D::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kDebugLineHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name = "CDebugDraw3D.PS";
+    ps_d.debug_name = "FDebugDraw3D.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr())
         return Err<void>(r.Error());
     else
@@ -152,7 +152,7 @@ TResult<void> CDebugDraw3D::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     return Ok();
 }
 
-void CDebugDraw3D::Shutdown() noexcept
+void FDebugDraw3D::Shutdown() noexcept
 {
     m_Pipeline.Reset();
     m_Cb.Reset();
@@ -163,12 +163,12 @@ void CDebugDraw3D::Shutdown() noexcept
     m_MaxVerts = 0u;
 }
 
-void CDebugDraw3D::Begin() noexcept
+void FDebugDraw3D::Begin() noexcept
 {
     m_Verts.Reset();
 }
 
-bool CDebugDraw3D::TryLine(FVec3 a, FVec3 b, FVec4 c) noexcept
+bool FDebugDraw3D::TryLine(FVec3 a, FVec3 b, FVec4 c) noexcept
 {
     /** 失敗時に維持する追加前の頂点数。 */
     const usize old_size = m_Verts.Num();
@@ -186,12 +186,12 @@ bool CDebugDraw3D::TryLine(FVec3 a, FVec3 b, FVec4 c) noexcept
     return true;
 }
 
-void CDebugDraw3D::Line(FVec3 a, FVec3 b, FVec4 c) noexcept
+void FDebugDraw3D::Line(FVec3 a, FVec3 b, FVec4 c) noexcept
 {
     (void)TryLine(a, b, c);
 }
 
-bool CDebugDraw3D::TryAabb(const FAabb3& box, FVec4 color) noexcept
+bool FDebugDraw3D::TryAabb(const FAabb3& box, FVec4 color) noexcept
 {
     const FVec3 mn = box.Min(), mx = box.Max();
     const FVec3 c[8] = {
@@ -218,12 +218,12 @@ bool CDebugDraw3D::TryAabb(const FAabb3& box, FVec4 color) noexcept
     return true;
 }
 
-void CDebugDraw3D::Aabb(const FAabb3& box, FVec4 color) noexcept
+void FDebugDraw3D::Aabb(const FAabb3& box, FVec4 color) noexcept
 {
     (void)TryAabb(box, color);
 }
 
-bool CDebugDraw3D::TryWireframe(const FVec3* positions, u32 vertex_count, const u32* indices, u32 index_count, FVec4 color) noexcept
+bool FDebugDraw3D::TryWireframe(const FVec3* positions, u32 vertex_count, const u32* indices, u32 index_count, FVec4 color) noexcept
 {
     if (!positions || !indices) return false;
     if (index_count < 3u) return true;
@@ -266,12 +266,12 @@ bool CDebugDraw3D::TryWireframe(const FVec3* positions, u32 vertex_count, const 
     return true;
 }
 
-void CDebugDraw3D::Wireframe(const FVec3* positions, u32 vertex_count, const u32* indices, u32 index_count, FVec4 color) noexcept
+void FDebugDraw3D::Wireframe(const FVec3* positions, u32 vertex_count, const u32* indices, u32 index_count, FVec4 color) noexcept
 {
     (void)TryWireframe(positions, vertex_count, indices, index_count, color);
 }
 
-void CDebugDraw3D::End(IRhiCommandList& cl, const FMat4& view_proj) noexcept
+void FDebugDraw3D::End(IRhiCommandList& cl, const FMat4& view_proj) noexcept
 {
     if (!m_Pipeline || !m_Vb || !m_Cb || m_Verts.Num() == 0) return;
     FDebugCbLayout cb{};
