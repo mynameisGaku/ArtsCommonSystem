@@ -75,7 +75,10 @@ public:
      */
     TResult<void> TryRegisterLoader(IAssetLoader* loader) noexcept;
 
-    /** 標準ローダ群を一括登録する (Image / Audio / Mesh / Text / Binary)。 */
+    /** 標準ローダ群を全件または0件で登録し、duplicate、OOM、shutdownを分類して返す。 */
+    TResult<void> TryRegisterDefaultLoaders() noexcept;
+
+    /** 標準ローダ群を一括登録する既存互換wrapper。 */
     void RegisterDefaultLoaders() noexcept;
 
     /**
@@ -146,6 +149,12 @@ public:
     void AsyncLoadFinished(FAssetId id) noexcept;
 
 private:
+    /** loader生成assetを既存cache winnerと統合し、成功後だけIDとReady状態を確定する。 */
+    TResult<TSharedPtr<AAsset>> TryPublishLoadedAsset(FAssetId id, TSharedPtr<AAsset> asset) noexcept;
+
+    /** thread poolから非同期load jobを実行する。 */
+    static void AsyncLoadWorker(void* user, u32 worker) noexcept;
+
     /**
      * 拡張子から適切なローダを選ぶ。
      *

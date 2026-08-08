@@ -10,6 +10,7 @@
 #include "threading/ScopedLock.h"
 #include "threading/Thread.h"
 #include "memory/UniquePtr.h"
+#include "foundation/Limits.h"
 #include "foundation/Move.h"
 
 namespace acs {
@@ -118,6 +119,18 @@ private:
     FCompletionCounter* m_Counter = nullptr;
 };
 
+/** 即時errorを完了済みfutureとして返し、共有状態OOM時だけ空futureを返す。 */
+FAssetFuture MakeCompletedAssetError(FErrorCode Error) noexcept
+{
+    /** error結果を所有する完了済み共有状態。 */
+    auto State = MakeShared<FAsyncLoadState>();
+    if (!State.Get()) return FAssetFuture{};
+    State->error = Error;
+    State->has_error = true;
+    State->counter.Done();
+    return FAssetFuture(Move(State));
+}
+
 } // namespace
 
 CAssetRegistry::~CAssetRegistry() noexcept
@@ -156,6 +169,30 @@ TResult<void> CAssetRegistry::TryRegisterLoader(IAssetLoader* loader) noexcept {
                        "CAssetRegistry::TryRegisterLoader: allocation failed");
     }
     return Ok();
+}
+
+TResult<TSharedPtr<AAsset>> CAssetRegistry::TryPublishLoadedAsset(FAssetId id, TSharedPtr<AAsset> asset) noexcept
+{
+    if (!asset.Get()) {
+        return ACS_ERR(Asset, kAssetRegistrySubNullAsset, "CAssetRegistry::TryPublishLoadedAsset: null asset");
+    }
+
+    FScopedLock lock(m_Lock);
+    /** 同時loadが先に公開したcanonical asset。 */
+    const TSharedPtr<AAsset>* const existing = m_Cache.Find(id);
+    if (existing != nullptr && existing->Get() != nullptr) {
+        return TResult<TSharedPtr<AAsset>>(OkInit, *existing);
+    }
+
+    if (!m_Closing && !m_Cache.TryAdd(id, asset)) {
+        return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory,
+                       "CAssetRegistry::TryPublishLoadedAsset: cache allocation failed");
+    }
+
+    // cache追加またはshutdown中の非保持成功が確定した後は失敗経路が無い。
+    asset->SetId(id);
+    asset->SetState(EAssetState::Ready);
+    return TResult<TSharedPtr<AAsset>>(OkInit, Move(asset));
 }
 
 IAssetLoader* CAssetRegistry::FindLoader(const wchar_t* path) noexcept {
@@ -218,18 +255,7 @@ TResult<TSharedPtr<AAsset>> CAssetRegistry::Load(const wchar_t* path) noexcept {
     TSharedPtr<AAsset> a = Move(asset_r.Value());
     if (!a.Get())  // ローダが OkInit で null を返した場合 (alloc 失敗等) の null-deref 回避
         return ACS_ERR(Asset, kAssetRegistrySubNullAsset, "loader returned null asset");
-    a->SetId(id);
-    a->SetState(EAssetState::Ready);
-
-    // キャッシュに登録
-    {
-        FScopedLock lk(m_Lock);
-        if (!m_Closing && !m_Cache.TryAdd(id, a)) {
-            return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory,
-                           "CAssetRegistry::Load: cache allocation failed");
-        }
-    }
-    return TResult<TSharedPtr<AAsset>>(OkInit, Move(a));
+    return TryPublishLoadedAsset(id, Move(a));
 }
 
 namespace {
@@ -256,6 +282,7 @@ struct FAsyncLoadJob {
     /** ワーカー完了まで共有する不変パス。 */
     TSharedPtr<FInternedAssetPath> path;
 };
+} // namespace
 
 /**
  * 非同期ロードを実行するワーカー関数 (CThreadPool から呼ばれる)。
@@ -266,7 +293,7 @@ struct FAsyncLoadJob {
  * @param user AsyncLoadJob* を指す不透明ポインタ (所有権を受け取る)。
  * @param worker 呼び出し元ワーカーのインデックス (未使用)。
  */
-void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
+void CAssetRegistry::AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
     FAsyncLoadJob* const raw_job = static_cast<FAsyncLoadJob*>(user);
     // 処理中カウントはジョブ引数と、その中の共有状態を解放し終えてから戻す。
     // 先に Done すると Shutdown 後の MemorySystem 停止とジョブ解放が競合する。
@@ -301,25 +328,21 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
         job->state->counter.Done();
         return;
     }
-    a->SetId(job->id);
-    a->SetState(EAssetState::Ready);
-
-    // キャッシュ登録
-    const auto CacheResult = job->registry->AsyncCacheInsert(job->id, a);
-    if (CacheResult.IsErr()) {
-        job->state->error = CacheResult.Error();
+    /** 同時loadのcache winnerと統合した公開結果。 */
+    auto PublishResult = job->registry->TryPublishLoadedAsset(job->id, Move(a));
+    if (PublishResult.IsErr()) {
+        job->state->error = PublishResult.Error();
         job->state->has_error = true;
         job->registry->AsyncLoadFinished(job->id);
         job->state->counter.Done();
         return;
     }
 
-    job->state->result = Move(a);
+    job->state->result = Move(PublishResult.Value());
     job->registry->AsyncLoadFinished(job->id);
     job->state->counter.Done();
     // job は TUniquePtr のスコープ抜けで自動 delete
 }
-} // namespace
 
 TResult<void> CAssetRegistry::AsyncCacheInsert(FAssetId id, TSharedPtr<AAsset> a) noexcept {
     FScopedLock lk(m_Lock);
@@ -341,19 +364,29 @@ void CAssetRegistry::AsyncLoadFinished(FAssetId id) noexcept {
 }
 
 FAssetFuture CAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
-    // 共有状態を作る
-    auto state = MakeShared<FAsyncLoadState>();
-    if (!state.Get()) return FAssetFuture{};
-
     const u16 PathError = ValidateRegistryPath(path);
     if (PathError != 0) {
-        state->error = ACS_ERR(Asset, PathError, "LoadAsync: invalid path");
-        state->has_error = true;
-        state->counter.Done();
-        return FAssetFuture(Move(state));
+        return MakeCompletedAssetError(ACS_ERR(Asset, PathError, "LoadAsync: invalid path"));
     }
 
     const FAssetId id = MakeIdFromPath(path);
+
+    // 進行中要求への合流は新しい共有状態を確保する前に完了する。
+    {
+        FScopedLock lk(m_Lock);
+        if (!m_Closing) {
+            const TSharedPtr<FAsyncLoadState>* pending = m_InFlight.Find(id);
+            if (pending && pending->Get()) {
+                ++m_AsyncRequestCount;
+                ++m_AsyncCoalescedCount;
+                return FAssetFuture(*pending);
+            }
+        }
+    }
+
+    /** 新規要求または即時完了結果が所有する共有状態。 */
+    auto state = MakeShared<FAsyncLoadState>();
+    if (!state.Get()) return FAssetFuture{};
 
     // 受付判定・キャッシュ確認・ローダ確保・処理中登録を同じロック区間で行う。
     IAssetLoader* loader = nullptr;
@@ -441,7 +474,7 @@ FAssetFuture CAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     }
 
     FTask t{};
-    t.fn      = &AsyncLoadWorker;
+    t.fn      = &CAssetRegistry::AsyncLoadWorker;
     t.user    = job.Get();
     t.counter = nullptr;     // 完了通知は state->counter 側で行う
     auto sub = CThreadPool::Submit(t);
@@ -691,39 +724,78 @@ FAliasLoader g_text_lua  { &g_text_loader, "lua"  };
 FAliasLoader g_text_py   { &g_text_loader, "py"   };
 } // namespace
 
-// 標準ローダを 1 度に登録する
-void CAssetRegistry::RegisterDefaultLoaders() noexcept {
-    // 画像
-    RegisterLoader(&g_image_loader);
-    RegisterLoader(&g_image_jpg);  RegisterLoader(&g_image_jpeg);
-    RegisterLoader(&g_image_bmp);  RegisterLoader(&g_image_tga);
-    RegisterLoader(&g_image_gif);  RegisterLoader(&g_image_hdr);
-    RegisterLoader(&g_image_pic);  RegisterLoader(&g_image_pnm);
-    RegisterLoader(&g_image_ppm);  RegisterLoader(&g_image_pgm);
-    RegisterLoader(&g_image_psd);
-    // 音声
-    RegisterLoader(&g_wav_loader);
-    RegisterLoader(&g_mp3_loader);
-    RegisterLoader(&g_flac_loader);
-    RegisterLoader(&g_ogg_loader);
-    RegisterLoader(&g_ogg_oga);
-    // メッシュ
-    RegisterLoader(&g_gltf_loader);
-    RegisterLoader(&g_glb_loader);
-    RegisterLoader(&g_obj_loader);
-    RegisterLoader(&g_fbx_loader);
-    // テキスト
-    RegisterLoader(&g_text_loader);
-    RegisterLoader(&g_text_json); RegisterLoader(&g_text_xml);
-    RegisterLoader(&g_text_yaml); RegisterLoader(&g_text_yml);
-    RegisterLoader(&g_text_toml); RegisterLoader(&g_text_ini);
-    RegisterLoader(&g_text_csv);  RegisterLoader(&g_text_md);
-    RegisterLoader(&g_text_log);  RegisterLoader(&g_text_hlsl);
-    RegisterLoader(&g_text_glsl); RegisterLoader(&g_text_vert);
-    RegisterLoader(&g_text_frag); RegisterLoader(&g_text_lua);
-    RegisterLoader(&g_text_py);
-    // バイナリ（フォールバック、最後）
-    RegisterLoader(&g_binary_loader);
+TResult<void> CAssetRegistry::TryRegisterDefaultLoaders() noexcept
+{
+    /** 既存の登録順とfallbackの最終位置を保つ標準loader一覧。 */
+    IAssetLoader* const DefaultLoaders[] = {
+        &g_image_loader, &g_image_jpg, &g_image_jpeg, &g_image_bmp, &g_image_tga,
+        &g_image_gif, &g_image_hdr, &g_image_pic, &g_image_pnm, &g_image_ppm,
+        &g_image_pgm, &g_image_psd, &g_wav_loader, &g_mp3_loader, &g_flac_loader,
+        &g_ogg_loader, &g_ogg_oga, &g_gltf_loader, &g_glb_loader, &g_obj_loader,
+        &g_fbx_loader, &g_text_loader, &g_text_json, &g_text_xml, &g_text_yaml,
+        &g_text_yml, &g_text_toml, &g_text_ini, &g_text_csv, &g_text_md,
+        &g_text_log, &g_text_hlsl, &g_text_glsl, &g_text_vert, &g_text_frag,
+        &g_text_lua, &g_text_py, &g_binary_loader,
+    };
+
+    FScopedLock lock(m_Lock);
+    if (m_Closing) {
+        return ACS_ERR(Asset, kAssetRegistrySubShuttingDown,
+                       "CAssetRegistry::TryRegisterDefaultLoaders: registry is shutting down");
+    }
+
+    /** まだ登録されていない標準loader数。 */
+    usize MissingCount = 0u;
+    for (IAssetLoader* const DefaultLoader : DefaultLoaders) {
+        const char* const Extension = DefaultLoader->Extension();
+        if (!IsValidLoaderExtension(Extension)) {
+            return ACS_ERR(Asset, kAssetRegistrySubInvalidExtension,
+                           "CAssetRegistry::TryRegisterDefaultLoaders: invalid extension");
+        }
+
+        /** 同じ標準loaderが既に登録済みならidempotent successとして扱う。 */
+        bool AlreadyRegistered = false;
+        for (usize Index = 0u; Index < m_Loaders.Num(); ++Index) {
+            if (!StrEqAscii(m_Loaders[Index]->Extension(), Extension)) continue;
+            if (m_Loaders[Index] != DefaultLoader) {
+                return ACS_ERR(Asset, kAssetRegistrySubDuplicateLoader,
+                               "CAssetRegistry::TryRegisterDefaultLoaders: duplicate extension");
+            }
+            AlreadyRegistered = true;
+            break;
+        }
+        if (!AlreadyRegistered) ++MissingCount;
+    }
+
+    if (MissingCount > TNumLimits<usize>::Max() - m_Loaders.Num() ||
+        !m_Loaders.TryReserve(m_Loaders.Num() + MissingCount)) {
+        return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory,
+                       "CAssetRegistry::TryRegisterDefaultLoaders: allocation failed");
+    }
+
+    /** 予期しない追加失敗時に戻す登録済みloader数。 */
+    const usize OriginalCount = m_Loaders.Num();
+    for (IAssetLoader* const DefaultLoader : DefaultLoaders) {
+        /** preflightで同一pointerを確認済みの登録は追加しない。 */
+        bool AlreadyRegistered = false;
+        for (usize Index = 0u; Index < OriginalCount; ++Index) {
+            if (m_Loaders[Index] == DefaultLoader) {
+                AlreadyRegistered = true;
+                break;
+            }
+        }
+        if (!AlreadyRegistered && !m_Loaders.TryAdd(DefaultLoader)) {
+            (void)m_Loaders.TrySetNum(OriginalCount);
+            return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory,
+                           "CAssetRegistry::TryRegisterDefaultLoaders: append failed");
+        }
+    }
+    return Ok();
+}
+
+void CAssetRegistry::RegisterDefaultLoaders() noexcept
+{
+    (void)TryRegisterDefaultLoaders();
 }
 
 } // namespace acs

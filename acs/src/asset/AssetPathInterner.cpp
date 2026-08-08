@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "asset/AssetPathInterner.h"
 
+#include "foundation/Limits.h"
 #include "foundation/Move.h"
 #include "threading/ScopedLock.h"
 
@@ -26,7 +27,9 @@ CAssetPathInterner::CAssetPathInterner(IAllocator& Allocator) noexcept : m_Alloc
 
 TResult<TSharedPtr<FInternedAssetPath>> CAssetPathInterner::Intern(const wchar_t* Path, usize Length) noexcept
 {
-    if (Path == nullptr || Length == 0u) {
+    /** hash byte 数と末尾 NUL 込み要素数を安全に表現できる最大 path 長。 */
+    constexpr usize MaximumOwnedPathLength = TNumLimits<usize>::Max() / sizeof(wchar_t);
+    if (Path == nullptr || Length == 0u || Length >= MaximumOwnedPathLength) {
         return ACS_ERR(Asset, kAssetPathInternerSubInvalidPath, "CAssetPathInterner::Intern: invalid path");
     }
 

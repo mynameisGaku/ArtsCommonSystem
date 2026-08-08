@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "asset/InternedAssetPath.h"
 
+#include "foundation/Limits.h"
+
 namespace acs {
 
 FInternedAssetPath::FInternedAssetPath(IAllocator& Allocator, FAssetId Id) noexcept
@@ -10,8 +12,12 @@ FInternedAssetPath::FInternedAssetPath(IAllocator& Allocator, FAssetId Id) noexc
 
 bool FInternedAssetPath::TryInitialize(const wchar_t* Path, usize Length) noexcept
 {
-    if (Path == nullptr || !m_Units.IsEmpty()) return false;
-    if (!m_Units.TrySetNum(Length + 1u)) return false;
+    /** 末尾 NUL 込み配列の byte 数を安全に表現できる最大 path 長。 */
+    constexpr usize MaximumOwnedPathLength = TNumLimits<usize>::Max() / sizeof(wchar_t);
+    if (Path == nullptr || !m_Units.IsEmpty() || Length >= MaximumOwnedPathLength) return false;
+    /** 末尾 NUL を含む所有要素数。 */
+    const usize RequiredCodeUnits = Length + 1u;
+    if (!m_Units.TrySetNum(RequiredCodeUnits)) return false;
     /** 所有配列へ複写する path の添字。 */
     for (usize Index = 0u; Index < Length; ++Index) {
         m_Units[Index] = Path[Index];
