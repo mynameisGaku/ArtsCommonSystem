@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "artifacts": [
+    {
+      "source_path_at_baseline": "acs/screenshots/mrt_verify_mesh.png",
+      "destination_path": "artifact/visual/historical-render/mrt/hello-mesh/mrt_verify_mesh.png",
+      "classification": "historical-visual-evidence",
+      "responsibility_owner": "acs/samples/17_HelloMesh",
+      "canonical_role": "artifact-source",
+      "source-of-truth": "artifact/visual/historical-render/mrt/hello-mesh/mrt_verify_mesh.png",
+      "tracked": {
+        "baseline_commit": "641ab645a0ada0cfb14e10780829b46dd4e5a9c7",
+        "introduced_by_commit": "19a836c0ae8e011b1edad44ce29f82da38c00c2f",
+        "git_blob": "fd0b8bd48b365877e3707831c1fe9e2346b05d26",
+        "byte_count": 12737,
+        "sha256": "A43DF06EAC3A5BB9C0D8EFD9F9AE144E27D26BCA209F94ECA282C35F6A618C3F",
+        "media_type": "image/png",
+        "width": 1296,
+        "height": 759
+      },
+      "generated-from": {
+        "status": "incomplete-historical-provenance",
+        "historical_sample_path": "acs/samples/HelloMesh",
+        "inferred_parent_commit": "7e454fc4f379d7e64b5b2b9cb3e45e6a7bc9d704",
+        "historical_context_commit": "403e19032d968dd475659bcb2961257019fcb0ec",
+        "historical_backend": null,
+        "exact_source_commit": null,
+        "exact_capture_command": null,
+        "evidence": "The introduction commit records a grouped build-to-capture session, but not the per-image source commit or command. Its parent is an inference only."
+      },
+      "references": {
+        "textual_reference_count_at_baseline": 0,
+        "textual_reference_count_at_current": 0,
+        "build_manifest_reference_count_at_baseline": 0,
+        "build_manifest_reference_count_at_current": 0,
+        "audit_command": "python acs/scripts/audit_artifact_ledger.py --root ."
+      },
+      "build_reproducibility": {
+        "status": "historical-provenance-incomplete",
+        "exact_byte_reproduction": false,
+        "reason": "The historical build configuration, window geometry, capture delay, and capture command were not recorded.",
+        "current_semantic_candidate": {
+          "status": "unverified",
+          "commands": [
+            "powershell -NoProfile -ExecutionPolicy Bypass -File acs/generate.ps1 -Sample 17_HelloMesh -StartupProject hello_mesh -Name HelloMeshArtifact -Diligent",
+            "cmake --build acs/Intermediate/vs --config Debug --target hello_mesh --parallel 1",
+            "powershell -NoProfile -ExecutionPolicy Bypass -File acs/tools/capture_window.ps1 -Exe acs/Binaries/Debug/hello_mesh.exe -Out \"$env:TEMP\\mrt_verify_mesh-current.png\" -Sleep 4 -CaptureMode Screen"
+          ]
+        }
+      },
+      "move_reason": "Preserve tracked historical evidence while separating it from source and build trees.",
+      "verification_gates": [
+        {
+          "gate": "byte-identity",
+          "expected": "Destination bytes, SHA-256, PNG dimensions, and Git blob match the baseline source."
+        },
+        {
+          "gate": "rename-and-residue",
+          "expected": "Git reports a 100 percent rename and the former path is absent from the tracked tree."
+        },
+        {
+          "gate": "reference-scan",
+          "expected": "No text or build manifest outside this ledger refers to the former path or basename."
+        },
+        {
+          "gate": "debug-release-build-test",
+          "status": "required-before-integration",
+          "commands": [
+            "cmake --build acs/Intermediate/vs --config Debug --parallel 1",
+            "ctest --test-dir acs/Intermediate/vs -C Debug --output-on-failure",
+            "cmake --build acs/Intermediate/vs --config Release --parallel 1",
+            "ctest --test-dir acs/Intermediate/vs -C Release --output-on-failure"
+          ]
+        }
+      ]
+    }
+  ]
+}

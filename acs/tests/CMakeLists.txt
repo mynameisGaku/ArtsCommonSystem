@@ -999,6 +999,32 @@ set_tests_properties(
     ACS.ModuleSourcesAudit
     PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
 
+# tracked artifact の履歴 anchor、移動先、byte identity、参照 0 を台帳と照合する。
+set(ACS_ARTIFACT_LEDGER_AUDIT
+    "${ACS_TREE_ROOT}/scripts/audit_artifact_ledger.py")
+
+add_custom_target(acs_artifact_ledger_check
+    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+            "${Python3_EXECUTABLE}" "${ACS_ARTIFACT_LEDGER_AUDIT}"
+            --root "${ACS_TREE_ROOT}/.."
+    WORKING_DIRECTORY "${ACS_TREE_ROOT}/.."
+    COMMENT "ACS: tracked artifact 台帳の履歴・byte・参照を照合"
+    USES_TERMINAL VERBATIM)
+set_target_properties(acs_artifact_ledger_check PROPERTIES FOLDER "Tools")
+
+add_test(NAME ACS.ArtifactLedgerAuditSelfTest
+         COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+                 "${Python3_EXECUTABLE}" "${ACS_ARTIFACT_LEDGER_AUDIT}"
+                 --self-test)
+add_test(NAME ACS.ArtifactLedgerAudit
+         COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDWRITEBYTECODE=1"
+                 "${Python3_EXECUTABLE}" "${ACS_ARTIFACT_LEDGER_AUDIT}"
+                 --root "${ACS_TREE_ROOT}/..")
+set_tests_properties(
+    ACS.ArtifactLedgerAuditSelfTest
+    ACS.ArtifactLedgerAudit
+    PROPERTIES LABELS "StaticAnalysis;BuildSystem" TIMEOUT 60)
+
 # C++ の旧 Kit 境界と独立 Kit ディレクトリが再流入しないことを確認する。
 set(ACS_KIT_ABSORPTION_AUDIT "${ACS_TREE_ROOT}/scripts/audit_kit_absorption.py")
 add_custom_target(acs_kit_absorption_check
