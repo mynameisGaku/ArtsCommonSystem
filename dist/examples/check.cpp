@@ -19,6 +19,30 @@ static_assert(std::is_same_v<decltype(&acs::TArray<acs::i32>::Remove), bool (acs
 static_assert(std::is_same_v<decltype(&acs::TInlineArray<acs::i32, 2u>::Remove), bool (acs::TInlineArray<acs::i32, 2u>::*)(const acs::i32&) noexcept>);
 static_assert(std::is_same_v<decltype(&acs::TObservableArray<acs::i32>::Remove), bool (acs::TObservableArray<acs::i32>::*)(const acs::i32&) noexcept>);
 
+/** CDebugDraw の既存・追加公開入口を配布 header と library 間で照合する署名。 */
+using FDebugDraw2DLineSignature = void (acs::CDebugDraw::*)(acs::FVec2, acs::FVec2, acs::FVec4) noexcept;
+using FDebugDraw2DAabbSignature = void (acs::CDebugDraw::*)(const acs::FAabb2&, acs::FVec4) noexcept;
+using FDebugDraw2DCircleSignature = void (acs::CDebugDraw::*)(const acs::FCircle&, acs::FVec4, acs::u32) noexcept;
+using FDebugDraw2DCrossSignature = void (acs::CDebugDraw::*)(acs::FVec2, acs::f32, acs::FVec4) noexcept;
+using FDebugDraw2DArrowSignature = void (acs::CDebugDraw::*)(acs::FVec2, acs::FVec2, acs::FVec4, acs::f32) noexcept;
+using FDebugDraw2DTryLineSignature = bool (acs::CDebugDraw::*)(acs::FVec2, acs::FVec2, acs::FVec4) noexcept;
+using FDebugDraw2DTryAabbSignature = bool (acs::CDebugDraw::*)(const acs::FAabb2&, acs::FVec4) noexcept;
+using FDebugDraw2DTryCircleSignature = bool (acs::CDebugDraw::*)(const acs::FCircle&, acs::FVec4, acs::u32) noexcept;
+using FDebugDraw2DTryCrossSignature = bool (acs::CDebugDraw::*)(acs::FVec2, acs::f32, acs::FVec4) noexcept;
+using FDebugDraw2DTryArrowSignature = bool (acs::CDebugDraw::*)(acs::FVec2, acs::FVec2, acs::FVec4, acs::f32) noexcept;
+
+static_assert(acs::IsSameV<acs::FDebugDraw, acs::CDebugDraw>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw::DrawLine), FDebugDraw2DLineSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw::DrawAabb), FDebugDraw2DAabbSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw::DrawCircle), FDebugDraw2DCircleSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw::DrawCross), FDebugDraw2DCrossSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw::DrawArrow), FDebugDraw2DArrowSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw::TryDrawLine), FDebugDraw2DTryLineSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw::TryDrawAabb), FDebugDraw2DTryAabbSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw::TryDrawCircle), FDebugDraw2DTryCircleSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw::TryDrawCross), FDebugDraw2DTryCrossSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw::TryDrawArrow), FDebugDraw2DTryArrowSignature>);
+
 /** CDebugDraw3Dの既存・追加公開入口を配布headerとlibrary間で照合する署名。 */
 using FDebugDrawInitSignature = acs::TResult<void> (acs::CDebugDraw3D::*)(acs::IRhiDevice&, acs::EFormat, acs::u32) noexcept;
 using FDebugDrawVoidSignature = void (acs::CDebugDraw3D::*)() noexcept;
@@ -100,11 +124,39 @@ void LinkDebugDraw3DSymbols() noexcept
     (void)try_wireframe;
 }
 
+/** 配布 library に既存 5 入口と追加 5 入口の symbol が揃うことを link で固定する。 */
+void LinkDebugDraw2DSymbols() noexcept
+{
+    /** linker が除去できない既存公開 symbol の member pointer。 */
+    volatile FDebugDraw2DLineSignature line = &acs::CDebugDraw::DrawLine;
+    volatile FDebugDraw2DAabbSignature aabb = &acs::CDebugDraw::DrawAabb;
+    volatile FDebugDraw2DCircleSignature circle = &acs::CDebugDraw::DrawCircle;
+    volatile FDebugDraw2DCrossSignature cross = &acs::CDebugDraw::DrawCross;
+    volatile FDebugDraw2DArrowSignature arrow = &acs::CDebugDraw::DrawArrow;
+    /** linker が除去できない追加公開 symbol の member pointer。 */
+    volatile FDebugDraw2DTryLineSignature try_line = &acs::CDebugDraw::TryDrawLine;
+    volatile FDebugDraw2DTryAabbSignature try_aabb = &acs::CDebugDraw::TryDrawAabb;
+    volatile FDebugDraw2DTryCircleSignature try_circle = &acs::CDebugDraw::TryDrawCircle;
+    volatile FDebugDraw2DTryCrossSignature try_cross = &acs::CDebugDraw::TryDrawCross;
+    volatile FDebugDraw2DTryArrowSignature try_arrow = &acs::CDebugDraw::TryDrawArrow;
+    (void)line;
+    (void)aabb;
+    (void)circle;
+    (void)cross;
+    (void)arrow;
+    (void)try_line;
+    (void)try_aabb;
+    (void)try_circle;
+    (void)try_cross;
+    (void)try_arrow;
+}
+
 /** 配布SDKのheader、外部symbol、基本計算を検証し、失敗時は1を返す。 */
 int main()
 {
     using namespace acs;
 
+    LinkDebugDraw2DSymbols();
     LinkDebugDraw3DSymbols();
 
     // containerの基本操作を検証する値。

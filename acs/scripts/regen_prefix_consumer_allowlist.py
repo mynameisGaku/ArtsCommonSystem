@@ -8,8 +8,8 @@ entry が全て無効化されて監査が落ちる。
 
 このスクリプトは監査本体を import し、同じ ``_capture_repository_snapshot`` →
 ``_scan_snapshot`` の観測をそのまま allowlist として書き出す。reason は
-``(path, legacy, construct)`` をキーに旧 allowlist から引き継ぎ、対応が無い新規 site だけ
-``compatibility_fixture`` を既定にする。
+``(path, legacy, construct)`` をキーに旧 allowlist から引き継ぎ、対応が無い新規 site は
+監査本体と同じ構文・path 規則から理由を決める。
 
 使い方:
 
@@ -59,9 +59,14 @@ def main(argv: list[str]) -> int:
     for item in observed:
         site = item.site
         key = (site.path, site.legacy, site.construct)
+        expected_reason = audit._expected_allowlist_reason(site.path, site.construct)
+        if not expected_reason:
+            raise RuntimeError(
+                "unsupported allowlist site: {}:{}".format(site.path, site.construct)
+            )
         reason = previous_reasons.get(key)
-        if reason is None:
-            reason = "compatibility_fixture"
+        if reason != expected_reason:
+            reason = expected_reason
             defaulted[key] += 1
         entries.append(
             {

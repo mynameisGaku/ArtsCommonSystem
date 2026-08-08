@@ -148,6 +148,22 @@ set_target_properties(acs_unit_tests PROPERTIES FOLDER "Engine/Tests")
 
 acs_apply_compiler_options(acs_unit_tests)
 
+# CDebugDraw の一括追加と確保失敗時の不変条件を、他の GameFramework テストから分離して検証する。
+add_executable(acs_debug_draw_2d_transactional_tests
+    main.cpp
+    debugdraw_tests.cpp
+)
+set_target_properties(acs_debug_draw_2d_transactional_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_debug_draw_2d_transactional_tests)
+target_link_libraries(acs_debug_draw_2d_transactional_tests PRIVATE
+    ACS::GameFramework
+    ACS::Test
+)
+add_test(NAME ACS.DebugDraw2DTransactional COMMAND acs_debug_draw_2d_transactional_tests)
+set_tests_properties(ACS.DebugDraw2DTransactional PROPERTIES
+    LABELS "GameFramework;Safety;Compatibility"
+    TIMEOUT 60)
+
 # Log の失敗注入と同期点は製品 acs_foundation に混ぜず、この専用実行ファイルだけで再コンパイルする。
 add_executable(acs_log_sink_registry_tests
     main.cpp

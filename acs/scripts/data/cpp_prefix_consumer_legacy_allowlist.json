@@ -318,6 +318,21 @@
       "preprocessor_state": "active"
     },
     {
+      "path": "acs/tests/debugdraw_tests.cpp",
+      "file_sha256": "F6922E25133E292FB66247566FE3575387A35752D395E7CE0BF0DF42ABE40E9C",
+      "line_hint": 140,
+      "line_sha256": "55CCACF043F9B940321FD27772F9357CE861E62F80B71646457A5A83BE9D879C",
+      "line_occurrence": 0,
+      "token_occurrence": 0,
+      "legacy": "FDebugDraw",
+      "canonical": "acs::game::CDebugDraw",
+      "reason": "compatibility_fixture",
+      "lexical_context": "code",
+      "construct": "compatibility_type_assertion",
+      "qualifier": "",
+      "preprocessor_state": "active"
+    },
+    {
       "path": "acs/tests/diligent_memory_adapter_tests.cpp",
       "file_sha256": "74B64A6A6DE92D61F4A9F8558B4BCC81F755BDC4A3D73BB1968C5FE23517CD46",
       "line_hint": 130,
@@ -1999,7 +2014,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "7AE578FFE9C078CFA0C26993A89C5152A2B229F4053AB3C8E678F3455F1BDA27",
+      "file_sha256": "1A7C0FA7FC03415173267FFC99131A519E7816E08100D1EAA85509B12F5C9C93",
       "line_hint": 11,
       "line_sha256": "658AAF3D91E68E96AD95A4FAA703586DE0ECD9361012559814F54C0E7A0BB259",
       "line_occurrence": 0,
@@ -2014,7 +2029,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "7AE578FFE9C078CFA0C26993A89C5152A2B229F4053AB3C8E678F3455F1BDA27",
+      "file_sha256": "1A7C0FA7FC03415173267FFC99131A519E7816E08100D1EAA85509B12F5C9C93",
       "line_hint": 12,
       "line_sha256": "7ADE0FA389E18093321C9ECB3BCC53247900C877B08E7B33F5229A568258DCB4",
       "line_occurrence": 0,
@@ -2029,7 +2044,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "7AE578FFE9C078CFA0C26993A89C5152A2B229F4053AB3C8E678F3455F1BDA27",
+      "file_sha256": "1A7C0FA7FC03415173267FFC99131A519E7816E08100D1EAA85509B12F5C9C93",
       "line_hint": 10,
       "line_sha256": "8D671E3BD7CD0CE3CC7342CBAE5479580829AB9F87E3D4C1E2EEB6341C2B77D0",
       "line_occurrence": 0,
@@ -2044,7 +2059,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "7AE578FFE9C078CFA0C26993A89C5152A2B229F4053AB3C8E678F3455F1BDA27",
+      "file_sha256": "1A7C0FA7FC03415173267FFC99131A519E7816E08100D1EAA85509B12F5C9C93",
       "line_hint": 14,
       "line_sha256": "927F131FD41ADCA6DAA8F82C28C07985CB4114E59545D9CF540C68F745997ABF",
       "line_occurrence": 0,
@@ -2059,13 +2074,28 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "7AE578FFE9C078CFA0C26993A89C5152A2B229F4053AB3C8E678F3455F1BDA27",
+      "file_sha256": "1A7C0FA7FC03415173267FFC99131A519E7816E08100D1EAA85509B12F5C9C93",
       "line_hint": 13,
       "line_sha256": "BE684A2669E4AFA7DB6B4C3E9C09A301453C1EB421532A17061B6C01E5CAA586",
       "line_occurrence": 0,
       "token_occurrence": 0,
       "legacy": "FTimerManager",
       "canonical": "acs::CTimerManager",
+      "reason": "distribution_compatibility",
+      "lexical_context": "code",
+      "construct": "compatibility_type_assertion",
+      "qualifier": "acs",
+      "preprocessor_state": "active"
+    },
+    {
+      "path": "dist/examples/check.cpp",
+      "file_sha256": "1A7C0FA7FC03415173267FFC99131A519E7816E08100D1EAA85509B12F5C9C93",
+      "line_hint": 34,
+      "line_sha256": "F58D52A06E68E5AB0BD9696F57906290D07FBCDA01F0F56D7AAA114EA1C91D78",
+      "line_occurrence": 0,
+      "token_occurrence": 0,
+      "legacy": "FDebugDraw",
+      "canonical": "acs::game::CDebugDraw",
       "reason": "distribution_compatibility",
       "lexical_context": "code",
       "construct": "compatibility_type_assertion",

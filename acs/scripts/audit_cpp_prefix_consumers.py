@@ -85,7 +85,7 @@ COMPATIBILITY_FILE_PATHS = frozenset(
         "acs/tests/subsystem_spawn_header_compile_tests.cpp",
     }
 )
-EXPECTED_ALLOWLIST_SHA256 = "780105FE7C3BD7710FC5B9565F4ADFA2A46618420626B13FFEC772E1BD387585"
+EXPECTED_ALLOWLIST_SHA256 = "AAF6F525489C923F376B9DCBFFA0A0E63F6E0E14EE69E301D26A24F9CC41AD48"
 EXPECTED_IDENTITY_MACRO_SHA256 = "119C3F33527DEB7E34D8FE766CF54E27924680CE025F0FCF74BB7B1A702AA5CD"
 EXPECTED_IDENTITY_MACRO_CATALOG_SHA256 = "2F8472035BEE931112DB24DB252AA5691BA0321F514F88E31CD813ABEB5E6770"
 FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
@@ -2336,6 +2336,22 @@ def _parse_any_string(entry: Mapping[str, object], key: str) -> str:
     return value
 
 
+def _expected_allowlist_reason(path: str, construct: str) -> str:
+    """構文と配布consumer pathから許可理由を一意に決める。"""
+
+    if construct in {
+        "runtime_name_comparison",
+        "runtime_test_suite_identity",
+        "runtime_type_lookup",
+    }:
+        return construct
+    if path == "dist/examples/check.cpp" and construct.startswith("compatibility_"):
+        return "distribution_compatibility"
+    if construct.startswith("compatibility_"):
+        return "compatibility_fixture"
+    return ""
+
+
 def _load_allowlist_document(
     document: object,
     mapping: Mapping[str, str],
@@ -2398,20 +2414,7 @@ def _load_allowlist_document(
         preprocessor_state = _parse_string(raw_entry, "preprocessor_state")
         if preprocessor_state not in {"active", "conditional"}:
             raise ValueError("allowlist occurrences must not be preprocessor-inactive")
-        expected_reason = (
-            construct
-            if construct
-            in {
-                "runtime_name_comparison",
-                "runtime_test_suite_identity",
-                "runtime_type_lookup",
-            }
-            else "distribution_compatibility"
-            if path == "dist/examples/check.cpp" and construct.startswith("compatibility_")
-            else "compatibility_fixture"
-            if construct.startswith("compatibility_")
-            else ""
-        )
+        expected_reason = _expected_allowlist_reason(path, construct)
         if expected_reason != reason:
             raise ValueError("allowlist reason does not match source construct")
         if (
