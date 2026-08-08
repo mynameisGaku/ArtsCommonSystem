@@ -26,6 +26,20 @@ struct FMeshBuild {
 };
 
 /**
+ * 二つの要素数をオーバーフローさせずに加算する。
+ * @param left 左辺。
+ * @param right 右辺。
+ * @param output 成功時の和。失敗時は変更しない。
+ * @return 和を usize で表せる場合は true。
+ */
+bool TryAddCount(usize left, usize right, usize& output) noexcept
+{
+    if (right > (~usize(0)) - left) return false;
+    output = left + right;
+    return true;
+}
+
+/**
  * 二つの要素数をオーバーフローさせずに乗算する。
  * @param left 左辺。
  * @param right 右辺。
@@ -45,17 +59,17 @@ bool TryMultiplyCount(usize left, usize right, usize& output) noexcept
  * @param rings 補正済みの緯度分割数。
  * @param vertex_count 成功時の頂点数。失敗時は変更しない。
  * @param index_count 成功時のインデックス数。失敗時は変更しない。
- * @return 上限内で両方の個数を u32 と usize に表せる場合は true。
+ * @return 両方の個数を u32 と usize に表せる場合は true。
  */
 bool TryCalculateSphereCounts(u32 segments, u32 rings, usize& vertex_count, usize& index_count) noexcept
 {
-    if (segments > kMaximumSphereSegments || rings > kMaximumSphereRings) return false;
+    /** 一行あたりの頂点数。 */
+    usize vertex_stride = 0u;
+    if (!TryAddCount(static_cast<usize>(segments), 1u, vertex_stride)) return false;
 
-    /** u32 加算を避けてから数える一行あたりの頂点数。 */
-    const usize vertex_stride = static_cast<usize>(segments) + 1u;
-
-    /** u32 加算を避けてから数える頂点行数。 */
-    const usize vertex_rows = static_cast<usize>(rings) + 1u;
+    /** 頂点行数。 */
+    usize vertex_rows = 0u;
+    if (!TryAddCount(static_cast<usize>(rings), 1u, vertex_rows)) return false;
 
     /** 全頂点数の一時値。 */
     usize staged_vertex_count = 0u;

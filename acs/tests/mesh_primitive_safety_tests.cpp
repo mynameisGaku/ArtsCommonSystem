@@ -165,8 +165,6 @@ ACS_TEST(MeshPrimitiveSafety, PublicSignaturesAndLayoutsRemainStable)
     static_assert(sizeof(FSubMesh) == 8u && alignof(FSubMesh) == 4u);
     static_assert(offsetof(FSubMesh, first_index) == 0u);
     static_assert(offsetof(FSubMesh, index_count) == 4u);
-    static_assert(Primitive::kMaximumSphereSegments == 1024u);
-    static_assert(Primitive::kMaximumSphereRings == 1024u);
     EXPECT_TRUE(true);
 }
 
@@ -254,7 +252,7 @@ ACS_TEST(MeshPrimitiveSafety, EveryAllocationFailurePreservesOutputAndLeavesNoPa
     ExpectAllocationFailureMatrix([](TSharedPtr<AMeshAsset>& output) noexcept { return Primitive::TryMakePlane(1.0f, 1.0f, output); }, []() noexcept { return Primitive::MakePlane(1.0f, 1.0f); });
 }
 
-ACS_TEST(MeshPrimitiveSafety, InvalidAndOversizedInputsAllocateNothingAndPreserveOutput)
+ACS_TEST(MeshPrimitiveSafety, InvalidAndUnrepresentableInputsAllocateNothingAndPreserveOutput)
 {
     /** 失敗時の同一性を確認する既存出力。 */
     TSharedPtr<AMeshAsset> sentinel = MakeShared<AMeshAsset>();
@@ -278,8 +276,6 @@ ACS_TEST(MeshPrimitiveSafety, InvalidAndOversizedInputsAllocateNothingAndPreserv
     EXPECT_FALSE(Primitive::TryMakePlane(not_a_number, 1.0f, output));
     EXPECT_FALSE(Primitive::TryMakePlane(1.0f, infinity, output));
     EXPECT_FALSE(Primitive::TryMakeSphere(not_a_number, 3u, 2u, output));
-    EXPECT_FALSE(Primitive::TryMakeSphere(1.0f, Primitive::kMaximumSphereSegments + 1u, 2u, output));
-    EXPECT_FALSE(Primitive::TryMakeSphere(1.0f, 3u, Primitive::kMaximumSphereRings + 1u, output));
     EXPECT_FALSE(Primitive::TryMakeSphere(1.0f, ~u32(0), 2u, output));
     EXPECT_FALSE(Primitive::TryMakeSphere(1.0f, 3u, ~u32(0), output));
     EXPECT_EQ(output.Get(), sentinel_address);
@@ -301,4 +297,16 @@ ACS_TEST(MeshPrimitiveSafety, SphereKeepsLegacyMinimumSubdivisionClamp)
     EXPECT_TRUE(output.IsValid());
     if (!output) return;
     ExpectWholeMeshRange(*output, 12u, 36u);
+}
+
+ACS_TEST(MeshPrimitiveSafety, SphereKeepsLegacyLargeSingleAxisInput)
+{
+    /** 旧 API で安全に生成できた 1024 超の経度分割。 */
+    constexpr u32 segments = 1025u;
+
+    /** 最小緯度分割との組み合わせで生成した互換 API の結果。 */
+    TSharedPtr<AMeshAsset> output = Primitive::MakeSphere(1.0f, segments, 2u);
+    EXPECT_TRUE(output.IsValid());
+    if (!output) return;
+    ExpectWholeMeshRange(*output, 3078u, 12300u);
 }
