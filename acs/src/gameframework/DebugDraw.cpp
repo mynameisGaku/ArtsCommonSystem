@@ -11,9 +11,6 @@ namespace acs::game {
 
 namespace {
 
-/** 1回の図形追加で生成できる線分数を有界にするKit互換上限。 */
-constexpr u32 kMaximumDebugDrawPrimitiveLines = 4096u;
-
 /** 2次元vectorの全成分が有限かを返す。 */
 bool IsFinite(FVec2 value) noexcept
 {
@@ -107,7 +104,6 @@ bool CDebugDraw::TryDrawCircle(const FCircle& circle, FVec4 color, u32 segments)
 {
     if (!IsFinite(circle.center) || !std::isfinite(circle.radius) || !IsFinite(color)) return false;
     if (segments < 3u) segments = 3u;
-    if (segments > kMaximumDebugDrawPrimitiveLines) return false;
 
     /** 全角度の中心加算がf32有限範囲に収まるかを先に検査する。 */
     constexpr f64 maximum = static_cast<f64>(TNumLimits<f32>::Max());

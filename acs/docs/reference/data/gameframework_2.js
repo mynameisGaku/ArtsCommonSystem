@@ -411,7 +411,7 @@ ACS_REF.modules.push({
         { sig: "void DrawLine(FVec2 a, FVec2 b, FVec4 color)", desc: "TryDrawLine の既存 void 互換入口。失敗時は蓄積を変更しない。" },
         { sig: "bool TryDrawAabb(const FAabb2& a, FVec4 color)", ret: "4 辺をすべて追加できたか", desc: "AABB の輪郭を一括追加する。無効値・容量不足では蓄積を変更しない。", when: "矩形コライダーの可視化。" },
         { sig: "void DrawAabb(const FAabb2& a, FVec4 color)", desc: "TryDrawAabb の既存 void 互換入口。失敗時は蓄積を変更しない。" },
-        { sig: "bool TryDrawCircle(const FCircle& c, FVec4 color, u32 segments = 24)", ret: "全線分を追加できたか", desc: "3 未満を 3 に丸め、最大 4096 本の円周線を一括追加する。無効値・容量不足では蓄積を変更しない。", when: "円コライダーや範囲の可視化。" },
+        { sig: "bool TryDrawCircle(const FCircle& c, FVec4 color, u32 segments = 24)", ret: "全線分を追加できたか", desc: "3 未満を 3 に丸めて円周線を一括追加する。無効値・件数超過・容量不足では蓄積を変更しない。", when: "円コライダーや範囲の可視化。" },
         { sig: "void DrawCircle(const FCircle& c, FVec4 color, u32 segments = 24)", desc: "TryDrawCircle の既存 void 互換入口。失敗時は蓄積を変更しない。" },
         { sig: "void DrawCross(FVec2 pos, f32 size, FVec4 color)", desc: "中心 pos の \\\"+\\\" 記号を積む。位置可視化に便利。" },
         { sig: "bool TryDrawCross(FVec2 pos, f32 size, FVec4 color)", ret: "2 本をすべて追加できたか", desc: "中心 pos の十字を一括追加する。無効値・容量不足では蓄積を変更しない。" },

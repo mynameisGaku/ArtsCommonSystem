@@ -217,8 +217,12 @@ ACS_TEST(DebugDraw, PrimitiveWritesPreserveOrderAndColor)
     }
 
     debug_draw.Clear();
-    EXPECT_TRUE(debug_draw.TryDrawCircle(FCircle{FVec2{0.0f, 0.0f}, 1.0f}, color, 4096u));
-    EXPECT_EQ(debug_draw.LineCount(), 4096u);
+    EXPECT_TRUE(debug_draw.TryDrawCircle(FCircle{FVec2{0.0f, 0.0f}, 1.0f}, color, 4097u));
+    EXPECT_EQ(debug_draw.LineCount(), 4097u);
+
+    CDebugDraw legacy_draw;
+    legacy_draw.DrawCircle(FCircle{FVec2{0.0f, 0.0f}, 1.0f}, color, 4097u);
+    EXPECT_EQ(legacy_draw.LineCount(), 4097u);
 }
 
 ACS_TEST(DebugDraw, AllocationFailuresLeavePrimitiveAndCapacityUnchanged)
@@ -261,6 +265,11 @@ ACS_TEST(DebugDraw, AllocationFailuresLeavePrimitiveAndCapacityUnchanged)
     EXPECT_TRUE(debug_draw.Lines() == storage);
     EXPECT_TRUE(SevenLinesAreUnchanged(debug_draw, color));
     EXPECT_EQ(allocator.RequestCount(), 1u);
+    debug_draw.DrawCircle(FCircle{FVec2{0.0f, 0.0f}, 1.0f}, color, 3u);
+    EXPECT_EQ(debug_draw.LineCount(), 7u);
+    EXPECT_TRUE(debug_draw.Lines() == storage);
+    EXPECT_TRUE(SevenLinesAreUnchanged(debug_draw, color));
+    EXPECT_EQ(allocator.RequestCount(), 2u);
 
     EXPECT_TRUE(FillSevenLines(debug_draw, color));
     allocator.ResetRequestCount();
@@ -297,8 +306,8 @@ ACS_TEST(DebugDraw, InvalidAndOverflowInputsDoNotAllocateOrChangeState)
     EXPECT_FALSE(debug_draw.TryDrawLine(FVec2{infinity, 0.0f}, FVec2{1.0f, 0.0f}, color));
     EXPECT_FALSE(debug_draw.TryDrawLine(FVec2{0.0f, 0.0f}, FVec2{1.0f, 0.0f}, FVec4{infinity, 1.0f, 1.0f, 1.0f}));
     EXPECT_FALSE(debug_draw.TryDrawAabb(FAabb2{FVec2{maximum, maximum}, FVec2{maximum, maximum}}, color));
-    EXPECT_FALSE(debug_draw.TryDrawCircle(FCircle{FVec2{0.0f, 0.0f}, 1.0f}, color, 4097u));
     EXPECT_FALSE(debug_draw.TryDrawCircle(FCircle{FVec2{0.0f, 0.0f}, 1.0f}, color, TNumLimits<u32>::Max()));
+    debug_draw.DrawCircle(FCircle{FVec2{0.0f, 0.0f}, 1.0f}, color, TNumLimits<u32>::Max());
     EXPECT_FALSE(debug_draw.TryDrawCircle(FCircle{FVec2{infinity, 0.0f}, 1.0f}, color, 8u));
     EXPECT_FALSE(debug_draw.TryDrawCross(FVec2{maximum, maximum}, maximum, color));
     EXPECT_FALSE(debug_draw.TryDrawArrow(FVec2{-maximum, 0.0f}, FVec2{maximum, 0.0f}, color));

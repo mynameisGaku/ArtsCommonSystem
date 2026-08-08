@@ -91,18 +91,18 @@ public:
     /**
      * 円を線分列へ分解して一括追加する。
      *
-     * @details segmentsが3未満なら3へ補正する。4096を超える要求は拒否する。
+     * @details segmentsが3未満なら3へ補正する。
      * @param c 輪郭を描く円。
      * @param color 線分のRGBA色。
      * @param segments 分割数。
-     * @return 成功ならtrue。有限でない入力、座標計算や分割上限の範囲超過、確保失敗なら何も変更せずfalse。
+     * @return 成功ならtrue。有限でない入力、座標計算や線分件数の範囲超過、確保失敗なら何も変更せずfalse。
      */
     bool TryDrawCircle(const FCircle& c, FVec4 color, u32 segments = 24u) noexcept;
 
     /**
      * 円を segments 本の線分に分解した近似輪郭を蓄積する。
      *
-     * @details segments < 3 のときは3へ丸める。4096を超える要求や失敗時は何も変更しない。
+     * @details segments < 3 のときは3へ丸める。失敗時は何も変更しない。
      * @param c 輪郭を描く円 (中心と半径)。
      * @param color 線分の RGBA 色。
      * @param segments 分割数 (既定 24)。
