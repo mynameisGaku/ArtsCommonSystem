@@ -7,6 +7,7 @@ acs_module(
     NAME    Platform
     TYPE    Runtime
     SOURCES
+        DirectInputGamepad.cpp
         FileSystem.cpp
         GamepadOrientation.cpp
         HidGamepad.cpp
@@ -16,6 +17,7 @@ acs_module(
         Time.cpp
         Window.cpp
     HEADERS
+        DirectInputGamepad.h
         Event.h
         FileExtensionKind.h
         FileSystem.h
