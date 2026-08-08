@@ -307,6 +307,20 @@ target_link_libraries(acs_mesh_primitive_safety_tests PRIVATE
 add_test(NAME ACS.MeshPrimitiveSafety COMMAND acs_mesh_primitive_safety_tests)
 set_tests_properties(ACS.MeshPrimitiveSafety PROPERTIES LABELS "Asset;Safety;Compatibility" TIMEOUT 60)
 
+# FBX loaderのcount検査、OOM時の一括破棄、旧geometry順を独立して反復する。
+add_executable(acs_fbx_loader_transactional_tests
+    main.cpp
+    mesh_asset_fbx_transactional_tests.cpp
+)
+set_target_properties(acs_fbx_loader_transactional_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_fbx_loader_transactional_tests)
+target_link_libraries(acs_fbx_loader_transactional_tests PRIVATE
+    ACS::Asset
+    ACS::Test
+)
+add_test(NAME ACS.FbxLoaderTransactional COMMAND acs_fbx_loader_transactional_tests)
+set_tests_properties(ACS.FbxLoaderTransactional PROPERTIES LABELS "Asset;Safety;Compatibility" TIMEOUT 60)
+
 # 実機タイミングだけに依存せず、削減した呼び出し・起床回数を JSON で検証する。
 add_executable(acs_foundation_performance
     foundation_performance_main.cpp

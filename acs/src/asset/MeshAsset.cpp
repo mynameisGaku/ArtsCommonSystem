@@ -16,6 +16,174 @@ namespace acs {
 
 namespace {
 
+/** FBX の三角形化scratchに許可するindex数。 */
+inline constexpr usize kFbxTriangulationScratchIndexCount = 256u;
+
+/** FBXの要素数または範囲が公開mesh形式へ収まらない。 */
+inline constexpr u16 kFbxSubCountOutOfRange = 401u;
+
+/** FBX mesh構築用の確保に失敗した。 */
+inline constexpr u16 kFbxSubOutOfMemory = 402u;
+
+/** FBX faceの三角形化に失敗した。 */
+inline constexpr u16 kFbxSubTriangulationFailed = 403u;
+
+/** FBX sceneを全経路で解放する所有scope。 */
+class CFbxSceneScope final {
+public:
+    /** 解放対象sceneを所有する。 */
+    explicit CFbxSceneScope(ufbx_scene* scene) noexcept : m_Scene(scene) {}
+
+    /** 所有sceneを解放する。 */
+    ~CFbxSceneScope() noexcept
+    {
+        if (m_Scene != nullptr) ::ufbx_free_scene(m_Scene);
+    }
+
+    /** コピーを禁止する。 */
+    CFbxSceneScope(const CFbxSceneScope&) = delete;
+
+    /** コピー代入を禁止する。 */
+    CFbxSceneScope& operator=(const CFbxSceneScope&) = delete;
+
+    /** 所有sceneを返す。 */
+    ufbx_scene* Get() const noexcept { return m_Scene; }
+
+private:
+    /** 解放対象のufbx scene。 */
+    ufbx_scene* m_Scene = nullptr;
+};
+
+/** FBX scene全体を構築するための検査済み要素数。 */
+struct FFbxBuildCounts {
+    /** 出力するsubmesh数。 */
+    usize mesh_count = 0u;
+
+    /** 出力する頂点数とindex数。 */
+    usize element_count = 0u;
+};
+
+/** 乗算結果が指定上限へ収まるかを返す。 */
+constexpr bool FbxProductFits(usize left, usize right, usize limit) noexcept
+{
+    return left == 0u || right <= limit / left;
+}
+
+/** 加算結果が指定上限へ収まるかを返す。 */
+constexpr bool FbxSumFits(usize left, usize right, usize limit) noexcept
+{
+    return left <= limit && right <= limit - left;
+}
+
+/**
+ * 指定上限内で二つの要素数を乗算する。
+ * @param left 左辺。
+ * @param right 右辺。
+ * @param limit 許可する積の上限。
+ * @param output 成功時の積。失敗時は変更しない。
+ * @return 積がusizeとlimitへ収まる場合はtrue。
+ */
+bool TryMultiplyFbxCount(usize left, usize right, usize limit, usize& output) noexcept
+{
+    if (!FbxProductFits(left, right, limit)) return false;
+    output = left * right;
+    return true;
+}
+
+/**
+ * 指定上限内で二つの要素数を加算する。
+ * @param left 左辺。
+ * @param right 右辺。
+ * @param limit 許可する和の上限。
+ * @param output 成功時の和。失敗時は変更しない。
+ * @return 和がusizeとlimitへ収まる場合はtrue。
+ */
+bool TryAddFbxCount(usize left, usize right, usize limit, usize& output) noexcept
+{
+    if (!FbxSumFits(left, right, limit)) return false;
+    output = left + right;
+    return true;
+}
+
+/** u32公開形式の乗算境界。 */
+inline constexpr usize kMaximumFbxElementCount = static_cast<usize>(~u32(0));
+
+static_assert(FbxProductFits(kMaximumFbxElementCount / 3u, 3u, kMaximumFbxElementCount));
+static_assert(!FbxProductFits(kMaximumFbxElementCount / 3u + 1u, 3u, kMaximumFbxElementCount));
+static_assert(FbxSumFits(kMaximumFbxElementCount - 1u, 1u, kMaximumFbxElementCount));
+static_assert(!FbxSumFits(kMaximumFbxElementCount, 1u, kMaximumFbxElementCount));
+
+/**
+ * FBX sceneの全出力数とface範囲を、確保や三角形化より前に検査する。
+ * @param scene ufbxでparse済みのscene。
+ * @param output 成功時に検査済み要素数を受け取る。失敗時は変更しない。
+ * @return 全meshがu32公開形式と固定scratchへ収まる場合はtrue。
+ */
+bool TryCalculateFbxBuildCounts(const ufbx_scene& scene, FFbxBuildCounts& output) noexcept
+{
+    if (scene.meshes.count > kMaximumFbxElementCount) return false;
+    if (scene.meshes.count != 0u && scene.meshes.data == nullptr) return false;
+
+    /** 全検査が終わるまで呼び出し元へ渡さない要素数。 */
+    FFbxBuildCounts staged_counts{};
+    staged_counts.mesh_count = scene.meshes.count;
+    for (usize mesh_index = 0u; mesh_index < scene.meshes.count; ++mesh_index) {
+        /** 現在検査するufbx mesh。 */
+        const ufbx_mesh* mesh = scene.meshes.data[mesh_index];
+        if (mesh == nullptr || mesh->faces.count != mesh->num_faces) return false;
+        if (mesh->faces.count != 0u && mesh->faces.data == nullptr) return false;
+        /** 現在meshが公開配列へ追加する要素数。 */
+        usize mesh_element_count = 0u;
+        if (!TryMultiplyFbxCount(mesh->num_triangles, 3u, kMaximumFbxElementCount, mesh_element_count)) return false;
+
+        /** 現在meshを追加した後の全要素数。 */
+        usize next_element_count = 0u;
+        if (!TryAddFbxCount(staged_counts.element_count, mesh_element_count, kMaximumFbxElementCount, next_element_count)) return false;
+
+        /** face列が主張する三角形数。 */
+        usize counted_triangles = 0u;
+        for (usize face_index = 0u; face_index < mesh->faces.count; ++face_index) {
+            /** 現在検査するface。 */
+            const ufbx_face face = mesh->faces.data[face_index];
+
+            /** ufbx mesh内でのface先頭index。 */
+            const usize face_begin = static_cast<usize>(face.index_begin);
+            if (face_begin > mesh->num_indices) return false;
+            if (static_cast<usize>(face.num_indices) > mesh->num_indices - face_begin) return false;
+            if (face.num_indices < 3u) continue;
+
+            /** 現在faceが必要とする三角形数。 */
+            const usize face_triangle_count = static_cast<usize>(face.num_indices) - 2u;
+
+            /** 現在faceを含む三角形数。 */
+            usize next_triangle_count = 0u;
+            if (!TryAddFbxCount(counted_triangles, face_triangle_count, mesh->num_triangles, next_triangle_count)) return false;
+            counted_triangles = next_triangle_count;
+
+            if (!FbxProductFits(face_triangle_count, 3u, kFbxTriangulationScratchIndexCount)) return false;
+        }
+        if (counted_triangles != mesh->num_triangles) return false;
+        staged_counts.element_count = next_element_count;
+    }
+
+    output = staged_counts;
+    return true;
+}
+
+/**
+ * 事前確保で既に進んだrevisionを差し引き、旧loaderのmutable accessor一回分を再現する。
+ * @param mesh revisionを進める構築途中mesh。
+ * @param absorbed_mutation_count 事前確保の三accessorが既に再現した残り回数。
+ */
+void RecordLegacyFbxGeometryMutation(AMeshAsset& mesh, usize& absorbed_mutation_count) noexcept
+{
+    if (absorbed_mutation_count != 0u) {
+        --absorbed_mutation_count;
+        return;
+    }
+    mesh.MarkGeometryDirty();
+}
+
 /**
  * 構築済み AMeshAsset に ID と Ready 状態を設定し TSharedPtr<Asset> として返す。
  *
@@ -280,50 +448,120 @@ TResult<TSharedPtr<AAsset>> CObjAssetLoader::LoadFromBytes(FAssetId id, const TA
 TResult<TSharedPtr<AAsset>> CFbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     ufbx_load_opts opts{};
     ufbx_error err{};
-    ufbx_scene* scene = ::ufbx_load_memory(bytes.GetData(), bytes.Num(), &opts, &err);
-    if (!scene) return ACS_ERR(Asset, 400, "ufbx_load_memory failed");
+    CFbxSceneScope scene_scope(::ufbx_load_memory(bytes.GetData(), bytes.Num(), &opts, &err));
+    ufbx_scene* const scene = scene_scope.Get();
+    if (scene == nullptr) return ACS_ERR(Asset, 400, "ufbx_load_memory failed");
 
-    auto mesh = MakeShared<AMeshAsset>();
-    u32 vertex_offset = 0;
-    for (size_t mi = 0; mi < scene->meshes.count; ++mi) {
-        ufbx_mesh* fm = scene->meshes.data[mi];
-        // 三角形化（ufbx の標準ヘルパ）
-        const usize tri_count = fm->num_triangles;
-        TArray<u32> tri_indices;
-        tri_indices.SetNum(tri_count * 3);
-        usize triangle_idx = 0;
-        for (size_t fi = 0; fi < fm->num_faces; ++fi) {
-            const ufbx_face face = fm->faces.data[fi];
-            // 1 face = 多角形 → 三角形へ分割
-            uint32_t local_indices[256];
-            const uint32_t added = ::ufbx_triangulate_face(local_indices, 256, fm, face);
-            for (uint32_t t = 0; t < added; ++t) {
-                tri_indices[triangle_idx++] = local_indices[t];
-            }
+    /** 全確保より前に検査するscene全体の要素数。 */
+    FFbxBuildCounts counts{};
+    if (!TryCalculateFbxBuildCounts(*scene, counts)) return ACS_ERR(Asset, kFbxSubCountOutOfRange, "FBX mesh count or face range is invalid");
+
+    /** 全構築が終わるまで結果へ公開しないmesh。 */
+    TSharedPtr<AMeshAsset> staged_mesh = MakeShared<AMeshAsset>();
+    if (!staged_mesh) return ACS_ERR(Memory, kFbxSubOutOfMemory, "FBX mesh allocation failed");
+
+    // 旧loaderはmeshが無い場合にmutable accessorを呼ばず、revision 1を維持する。
+    if (counts.mesh_count == 0u) return TResult<TSharedPtr<AAsset>>(OkInit, WrapMesh(id, Move(staged_mesh)));
+
+    /** 現行loaderの三角形化結果列を保持する一時配列。 */
+    TArray<u32> source_indices;
+    if (!source_indices.TrySetNum(counts.element_count)) return ACS_ERR(Memory, kFbxSubOutOfMemory, "FBX source index allocation failed");
+
+    /** 一度だけ取得して事前確保する頂点配列。 */
+    TArray<FMeshVertex>& staged_vertices = staged_mesh->Vertices();
+
+    /** 一度だけ取得して事前確保するindex配列。 */
+    TArray<u32>& staged_indices = staged_mesh->Indices();
+
+    /** 一度だけ取得して事前確保するsubmesh配列。 */
+    TArray<FSubMesh>& staged_submeshes = staged_mesh->SubMeshes();
+    if (!staged_vertices.TrySetNum(counts.element_count) || !staged_indices.TrySetNum(counts.element_count) || !staged_submeshes.TrySetNum(counts.mesh_count)) return ACS_ERR(Memory, kFbxSubOutOfMemory, "FBX mesh buffer allocation failed");
+
+    /** 三配列の事前取得で既に進んだ旧mutable accessor相当回数。 */
+    usize absorbed_mutation_count = 3u;
+
+    /** 現在meshの出力先頭位置。 */
+    usize mesh_element_begin = 0u;
+    for (usize mesh_index = 0u; mesh_index < scene->meshes.count; ++mesh_index) {
+        /** 現在構築するufbx mesh。 */
+        const ufbx_mesh* mesh = scene->meshes.data[mesh_index];
+
+        /** 現在meshが公開配列へ書く要素数。 */
+        usize mesh_element_count = 0u;
+        if (!TryMultiplyFbxCount(mesh->num_triangles, 3u, kMaximumFbxElementCount, mesh_element_count)) return ACS_ERR(Asset, kFbxSubCountOutOfRange, "FBX mesh count changed after preflight");
+
+        /** 現在meshの出力終端位置。 */
+        usize mesh_element_end = 0u;
+        if (!TryAddFbxCount(mesh_element_begin, mesh_element_count, counts.element_count, mesh_element_end)) return ACS_ERR(Asset, kFbxSubCountOutOfRange, "FBX mesh range changed after preflight");
+
+        // 旧loaderがsubmesh先頭取得時にIndices()を呼んだ一回分。
+        RecordLegacyFbxGeometryMutation(*staged_mesh, absorbed_mutation_count);
+
+        /** legacy loaderが三角形化結果を書いていた次の位置。 */
+        usize source_write = mesh_element_begin;
+        for (usize face_index = 0u; face_index < mesh->faces.count; ++face_index) {
+            /** 現在三角形化するface。 */
+            const ufbx_face face = mesh->faces.data[face_index];
+            if (face.num_indices < 3u) continue;
+
+            /** 既存loaderと同じ固定長のface三角形化scratch。 */
+            u32 local_indices[kFbxTriangulationScratchIndexCount]{};
+
+            /** ufbx内部panicを戻り値へ変換する診断値。 */
+            ufbx_panic panic{};
+
+            /** ufbxが生成した三角形数。 */
+            const u32 added = ::ufbx_catch_triangulate_face(&panic, local_indices, kFbxTriangulationScratchIndexCount, mesh, face);
+            if (panic.did_panic) return ACS_ERR(Asset, kFbxSubTriangulationFailed, "FBX face triangulation failed");
+            if (static_cast<usize>(added) != static_cast<usize>(face.num_indices) - 2u) return ACS_ERR(Asset, kFbxSubTriangulationFailed, "FBX face triangle count changed after preflight");
+            if (source_write > mesh_element_end || static_cast<usize>(added) > mesh_element_end - source_write) return ACS_ERR(Asset, kFbxSubCountOutOfRange, "FBX triangle count exceeds preflight count");
+
+            // ufbxは3倍のindexを書いてtriangle数を返す。現行loaderは戻り値個だけ
+            // 採用していたため、そのobservable列はこの安全化waveでは維持する。
+            for (usize triangle = 0u; triangle < static_cast<usize>(added); ++triangle) source_indices[source_write++] = local_indices[triangle];
         }
-        // 頂点は ufbx_get_vertex_* で取得
-        FSubMesh sub{};
-        sub.first_index = static_cast<u32>(mesh->Indices().Num());
-        for (u32 i = 0; i < tri_indices.Num(); ++i) {
-            const uint32_t fi = tri_indices[i];
-            const ufbx_vec3 p = ::ufbx_get_vertex_vec3(&fm->vertex_position, fi);
-            const ufbx_vec3 n = fm->vertex_normal.exists ? ::ufbx_get_vertex_vec3(&fm->vertex_normal, fi) : ufbx_vec3{0,0,0};
-            const ufbx_vec2 t = fm->vertex_uv.exists ? ::ufbx_get_vertex_vec2(&fm->vertex_uv, fi) : ufbx_vec2{0,0};
-            FMeshVertex v{};
-            v.position = FVec3(static_cast<f32>(p.x), static_cast<f32>(p.y), static_cast<f32>(p.z));
-            v.normal   = FVec3(static_cast<f32>(n.x), static_cast<f32>(n.y), static_cast<f32>(n.z));
-            v.u        = static_cast<f32>(t.x);
-            v.v        = static_cast<f32>(t.y);
-            const u32 idx = static_cast<u32>(mesh->Vertices().Num());
-            mesh->Vertices().Add(v);
-            mesh->Indices().Add(idx);
+
+        /** 現在meshのsubmesh範囲。 */
+        FSubMesh& submesh = staged_submeshes[mesh_index];
+        submesh.first_index = static_cast<u32>(mesh_element_begin);
+        submesh.index_count = static_cast<u32>(mesh_element_count);
+        for (usize output_index = mesh_element_begin; output_index < mesh_element_end; ++output_index) {
+            /** ufbx属性列から読むsource index。 */
+            const u32 source_index = source_indices[output_index];
+            if (static_cast<usize>(source_index) >= mesh->num_indices) return ACS_ERR(Asset, kFbxSubCountOutOfRange, "FBX source index exceeds mesh range");
+
+            /** source indexに対応する位置。 */
+            const ufbx_vec3 position = ::ufbx_get_vertex_vec3(&mesh->vertex_position, source_index);
+
+            /** source indexに対応する法線。 */
+            const ufbx_vec3 normal = mesh->vertex_normal.exists ? ::ufbx_get_vertex_vec3(&mesh->vertex_normal, source_index) : ufbx_vec3{0, 0, 0};
+
+            /** source indexに対応するUV。 */
+            const ufbx_vec2 uv = mesh->vertex_uv.exists ? ::ufbx_get_vertex_vec2(&mesh->vertex_uv, source_index) : ufbx_vec2{0, 0};
+
+            FMeshVertex& vertex = staged_vertices[output_index];
+            vertex.position = FVec3(static_cast<f32>(position.x), static_cast<f32>(position.y), static_cast<f32>(position.z));
+            vertex.normal = FVec3(static_cast<f32>(normal.x), static_cast<f32>(normal.y), static_cast<f32>(normal.z));
+            vertex.u = static_cast<f32>(uv.x);
+            vertex.v = static_cast<f32>(uv.y);
+            staged_indices[output_index] = static_cast<u32>(output_index);
+
+            // 旧loaderがVertices().Num()/Vertices().Add()/Indices().Add()で進めた三回分。
+            RecordLegacyFbxGeometryMutation(*staged_mesh, absorbed_mutation_count);
+            RecordLegacyFbxGeometryMutation(*staged_mesh, absorbed_mutation_count);
+            RecordLegacyFbxGeometryMutation(*staged_mesh, absorbed_mutation_count);
         }
-        sub.index_count = static_cast<u32>(mesh->Indices().Num()) - sub.first_index;
-        mesh->SubMeshes().Add(sub);
-        vertex_offset = static_cast<u32>(mesh->Vertices().Num());
+
+        // 旧loaderがIndices().Num()/SubMeshes().Add()/Vertices().Num()で進めた三回分。
+        RecordLegacyFbxGeometryMutation(*staged_mesh, absorbed_mutation_count);
+        RecordLegacyFbxGeometryMutation(*staged_mesh, absorbed_mutation_count);
+        RecordLegacyFbxGeometryMutation(*staged_mesh, absorbed_mutation_count);
+        mesh_element_begin = mesh_element_end;
     }
-    ::ufbx_free_scene(scene);
-    return TResult<TSharedPtr<AAsset>>(OkInit, WrapMesh(id, Move(mesh)));
+
+    if (mesh_element_begin != counts.element_count || absorbed_mutation_count != 0u) return ACS_ERR(Asset, kFbxSubCountOutOfRange, "FBX mesh totals changed after preflight");
+
+    return TResult<TSharedPtr<AAsset>>(OkInit, WrapMesh(id, Move(staged_mesh)));
 }
 
 } // namespace acs
