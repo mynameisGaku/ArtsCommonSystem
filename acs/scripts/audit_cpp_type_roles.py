@@ -3919,6 +3919,13 @@ EventTypeId LegacyEventType = 0;
             "namespace inherited { class AInheritedUsingProbe : public ANode {}; } "
             "namespace child { using vendor::ANode; "
             "class AShadowUsing : public ANode { public: void Run(); }; } } "
+            "namespace outer { namespace ag = acs::game; using acs::game::ANode; "
+            "namespace inherited { class AInheritedAlias : public ag::ANode {}; "
+            "class AInheritedUsing : public ANode {}; } "
+            "namespace child_alias { namespace ag = vendor; "
+            "class AShadowAlias : public ag::ANode { public: void Run(); }; } "
+            "namespace child_using { using vendor::ANode; "
+            "class AShadowUsing : public ANode { public: void Run(); }; } } "
             "namespace local_type_shadow { using ::acs::game::ANode; "
             "namespace child { class ANode { public: void Run(); }; "
             "class ALocalTypeShadow : public ANode { public: void Run(); }; } } "
@@ -4058,6 +4065,8 @@ EventTypeId LegacyEventType = 0;
             ("ACS-R020c", "alias_cycle::AAliasCycleProbe", "C"),
             ("ACS-R020c", "alias_shadow::child::AShadowAlias", "C"),
             ("ACS-R020c", "using_shadow::child::AShadowUsing", "C"),
+            ("ACS-R020c", "outer::child_alias::AShadowAlias", "C"),
+            ("ACS-R020c", "outer::child_using::AShadowUsing", "C"),
             ("ACS-R020c", "local_type_shadow::child::ANode", "C"),
             ("ACS-R020c", "local_type_shadow::child::ALocalTypeShadow", "C"),
             ("ACS-R020c", "local_struct_shadow::child::ANode", "C"),
