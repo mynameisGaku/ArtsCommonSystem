@@ -277,6 +277,20 @@ target_link_libraries(acs_storage_transactional_batch_tests PRIVATE
 add_test(NAME ACS.StorageTransactionalBatch COMMAND acs_storage_transactional_batch_tests)
 set_tests_properties(ACS.StorageTransactionalBatch PROPERTIES LABELS "Platform;Persistence;Compatibility" TIMEOUT 60)
 
+# プリミティブメッシュ生成の入力検査と確保失敗時の一括反映を検証する。
+add_executable(acs_mesh_primitive_safety_tests
+    main.cpp
+    mesh_primitive_safety_tests.cpp
+)
+set_target_properties(acs_mesh_primitive_safety_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_mesh_primitive_safety_tests)
+target_link_libraries(acs_mesh_primitive_safety_tests PRIVATE
+    ACS::Asset
+    ACS::Test
+)
+add_test(NAME ACS.MeshPrimitiveSafety COMMAND acs_mesh_primitive_safety_tests)
+set_tests_properties(ACS.MeshPrimitiveSafety PROPERTIES LABELS "Asset;Safety;Compatibility" TIMEOUT 60)
+
 # 実機タイミングだけに依存せず、削減した呼び出し・起床回数を JSON で検証する。
 add_executable(acs_foundation_performance
     foundation_performance_main.cpp
