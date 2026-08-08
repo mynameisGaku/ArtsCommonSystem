@@ -132,9 +132,14 @@ void CAnimationPlayer::Update(f32 dt) noexcept {
         /** duration内へ一回で折り返した時刻。 */
         f64 wrapped_time = std::fmod(summed_time, duration);
         if (wrapped_time < 0.0) wrapped_time += duration;
+        /** f32へ丸めたloop時刻。 */
+        f32 narrowed_time = static_cast<f32>(wrapped_time);
+
+        // f32への丸めでduration端に達した値は、旧f32加算と同じく先頭へ戻す。
+        if (narrowed_time >= a.duration) narrowed_time = 0.0f;
         // 負の0を公開しない。
-        if (wrapped_time == 0.0) wrapped_time = 0.0;
-        m_Time = static_cast<f32>(wrapped_time);
+        if (narrowed_time == 0.0f) narrowed_time = 0.0f;
+        m_Time = narrowed_time;
         return;
     }
 

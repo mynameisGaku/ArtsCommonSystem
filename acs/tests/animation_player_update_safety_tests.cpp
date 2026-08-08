@@ -2,6 +2,7 @@
 #include "asset/SkinnedMesh.h"
 #include "test/Expect.h"
 #include "test/Test.h"
+#include "memory/Memory.h"
 
 #include <cmath>
 #include <limits>
@@ -21,6 +22,15 @@ bool PreparePlayer(ASkinnedMeshAsset& mesh, CAnimationPlayer& player, f32 durati
     player.SetMesh(&mesh);
     player.Play(0u, loop);
     return true;
+}
+
+/** IEEE-754 binary32のbit列からf32をaliasing安全に復元する。 */
+f32 FloatFromBits(u32 bits) noexcept
+{
+    /** 復元するf32値。 */
+    f32 value = 0.0f;
+    MemCopy(&value, &bits, sizeof(value));
+    return value;
 }
 
 } // namespace
@@ -75,6 +85,49 @@ ACS_TEST(AnimationPlayerUpdateSafety, FiniteLoopPreservesPositiveAndNegativeWrap
     player.Update(-0.5f);
     EXPECT_NEAR(player.Time(), 1.75f, 1.0e-6f);
     EXPECT_TRUE(player.IsPlaying());
+}
+
+ACS_TEST(AnimationPlayerUpdateSafety, FiniteLoopRoundsNarrowedEndpointToPositiveZero)
+{
+    ASkinnedMeshAsset mesh;
+    CAnimationPlayer player;
+    /** f32加算がちょうどdurationへ丸まる再現用duration。 */
+    const f32 duration = FloatFromBits(0x3F800000u);
+    const bool prepared = PreparePlayer(mesh, player, duration, true);
+    EXPECT_TRUE(prepared);
+    if (!prepared) return;
+
+    /** 独立reviewで見つかった時刻のbit列。 */
+    const f32 starting_time = FloatFromBits(0x3B449BA6u);
+    /** 独立reviewで見つかった差分時刻のbit列。 */
+    const f32 delta_time = FloatFromBits(0x3F7F3B64u);
+    EXPECT_EQ(static_cast<f32>(starting_time + delta_time), duration);
+
+    player.SetTime(starting_time);
+    player.Update(delta_time);
+    EXPECT_EQ(player.Time(), 0.0f);
+    EXPECT_FALSE(std::signbit(player.Time()));
+    EXPECT_TRUE(player.Time() >= 0.0f);
+    EXPECT_TRUE(player.Time() < duration);
+}
+
+ACS_TEST(AnimationPlayerUpdateSafety, FiniteLoopKeepsPositiveSubnormalDurationInRange)
+{
+    ASkinnedMeshAsset mesh;
+    CAnimationPlayer player;
+    /** 最小の正subnormal duration。 */
+    const f32 duration = FloatFromBits(0x00000001u);
+    const bool prepared = PreparePlayer(mesh, player, duration, true);
+    EXPECT_TRUE(prepared);
+    if (!prepared) return;
+
+    EXPECT_EQ(std::fpclassify(duration), FP_SUBNORMAL);
+    player.SetTime(duration);
+    player.Update(duration);
+    EXPECT_EQ(player.Time(), 0.0f);
+    EXPECT_FALSE(std::signbit(player.Time()));
+    EXPECT_TRUE(player.Time() >= 0.0f);
+    EXPECT_TRUE(player.Time() < duration);
 }
 
 ACS_TEST(AnimationPlayerUpdateSafety, InvalidFiniteLoopInputsPreserveOldState)
@@ -170,6 +223,55 @@ ACS_TEST(AnimationPlayerUpdateSafety, NonPositiveDurationsKeepAdditiveBehavior)
         ASkinnedMeshAsset mesh;
         CAnimationPlayer player;
         const bool prepared = PreparePlayer(mesh, player, -2.0f, false);
+        EXPECT_TRUE(prepared);
+        if (!prepared) return;
+
+        player.SetTime(1.0f);
+        player.Update(2.0f);
+        EXPECT_NEAR(player.Time(), 3.0f, 0.0f);
+        EXPECT_TRUE(player.IsPlaying());
+    }
+}
+
+ACS_TEST(AnimationPlayerUpdateSafety, NonFiniteDurationsKeepLegacyBehavior)
+{
+    {
+        ASkinnedMeshAsset mesh;
+        CAnimationPlayer player;
+        /** 比較がfalseとなる非数duration。 */
+        const f32 duration = std::numeric_limits<f32>::quiet_NaN();
+        const bool prepared = PreparePlayer(mesh, player, duration, true);
+        EXPECT_TRUE(prepared);
+        if (!prepared) return;
+
+        player.SetTime(1.0f);
+        player.Update(2.0f);
+        EXPECT_NEAR(player.Time(), 3.0f, 0.0f);
+        EXPECT_TRUE(player.IsPlaying());
+    }
+
+    {
+        ASkinnedMeshAsset mesh;
+        CAnimationPlayer player;
+        /** 旧loopの負時刻補正を保つ正無限duration。 */
+        const f32 duration = std::numeric_limits<f32>::infinity();
+        const bool prepared = PreparePlayer(mesh, player, duration, true);
+        EXPECT_TRUE(prepared);
+        if (!prepared) return;
+
+        player.SetTime(-1.0f);
+        player.Update(0.0f);
+        EXPECT_TRUE(std::isinf(player.Time()));
+        EXPECT_FALSE(std::signbit(player.Time()));
+        EXPECT_TRUE(player.IsPlaying());
+    }
+
+    {
+        ASkinnedMeshAsset mesh;
+        CAnimationPlayer player;
+        /** 比較がfalseとなる負無限duration。 */
+        const f32 duration = -std::numeric_limits<f32>::infinity();
+        const bool prepared = PreparePlayer(mesh, player, duration, false);
         EXPECT_TRUE(prepared);
         if (!prepared) return;
 
