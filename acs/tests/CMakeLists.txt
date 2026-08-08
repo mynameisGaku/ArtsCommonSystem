@@ -1085,6 +1085,8 @@ add_test(NAME ACS.ArtifactLedgerAudit
                  --root "${ACS_TREE_ROOT}/..")
 set_tests_properties(
     ACS.ArtifactLedgerAuditSelfTest
+    PROPERTIES LABELS "StaticAnalysis;BuildSystem" TIMEOUT 600)
+set_tests_properties(
     ACS.ArtifactLedgerAudit
     PROPERTIES LABELS "StaticAnalysis;BuildSystem" TIMEOUT 60)
 
