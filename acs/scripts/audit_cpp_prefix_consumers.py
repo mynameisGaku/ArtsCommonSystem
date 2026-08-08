@@ -85,8 +85,8 @@ COMPATIBILITY_FILE_PATHS = frozenset(
         "acs/tests/subsystem_spawn_header_compile_tests.cpp",
     }
 )
-EXPECTED_ALLOWLIST_SHA256 = "E063D7A491FC65C0DA9FA972FDEC5676A68A2B33B786E5965D2A13641E983339"
-EXPECTED_IDENTITY_MACRO_SHA256 = "119C3F33527DEB7E34D8FE766CF54E27924680CE025F0FCF74BB7B1A702AA5CD"
+EXPECTED_ALLOWLIST_SHA256 = "5B4C0CD1950E49F6C008791092D5EDC77E9D12B5EF7948BB796B21A40AEC7E13"
+EXPECTED_IDENTITY_MACRO_SHA256 = "89047ADEDDCCDC1696C6A0AF88F6F60C4C5B70AD7DF472B6750A54372EAF416C"
 EXPECTED_IDENTITY_MACRO_CATALOG_SHA256 = "2F8472035BEE931112DB24DB252AA5691BA0321F514F88E31CD813ABEB5E6770"
 FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
 FILE_ATTRIBUTE_DIRECTORY = 0x00000010
@@ -2994,10 +2994,15 @@ def _self_test() -> int:
         return 1
 
     identity_baseline_rows: List[List[object]] = [
-        ["acs/tests/asset_registry_tests.cpp", 59, "ACS_TEST", "FAssetRegistry"],
-        ["acs/tests/asset_registry_tests.cpp", 102, "ACS_TEST", "FAssetRegistry"],
-        ["acs/tests/asset_registry_tests.cpp", 138, "ACS_TEST", "FAssetRegistry"],
-        ["acs/tests/asset_registry_tests.cpp", 152, "ACS_TEST", "FAssetRegistry"],
+        ["acs/tests/asset_registry_tests.cpp", 222, "ACS_TEST", "FAssetRegistry"],
+        ["acs/tests/asset_registry_tests.cpp", 265, "ACS_TEST", "FAssetRegistry"],
+        ["acs/tests/asset_registry_tests.cpp", 301, "ACS_TEST", "FAssetRegistry"],
+        ["acs/tests/asset_registry_tests.cpp", 315, "ACS_TEST", "FAssetRegistry"],
+        ["acs/tests/asset_registry_tests.cpp", 336, "ACS_TEST", "CAssetRegistry"],
+        ["acs/tests/asset_registry_tests.cpp", 356, "ACS_TEST", "CAssetRegistry"],
+        ["acs/tests/asset_registry_tests.cpp", 420, "ACS_TEST", "CAssetRegistry"],
+        ["acs/tests/asset_registry_tests.cpp", 471, "ACS_TEST", "CAssetRegistry"],
+        ["acs/tests/asset_registry_tests.cpp", 519, "ACS_TEST", "CAssetRegistry"],
         ["acs/tests/diligent_memory_adapter_tests.cpp", 41, "ACS_TEST", "FDiligentDevice"],
         ["acs/tests/diligent_memory_adapter_tests.cpp", 55, "ACS_TEST", "FDiligentMemoryAdapter"],
         ["acs/tests/diligent_memory_adapter_tests.cpp", 88, "ACS_TEST", "FDiligentDevice"],

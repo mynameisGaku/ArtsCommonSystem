@@ -333,7 +333,7 @@ ACS_TEST(FAssetRegistry, RestartPreservesInjectedAllocatorAndReopensGate)
     EXPECT_EQ(allocator.BytesAllocated(), 0ull);
 }
 
-ACS_TEST(FAssetRegistry, RejectsInternerLengthOverflowBeforeHashOrAllocation)
+ACS_TEST(CAssetRegistry, RejectsInternerLengthOverflowBeforeHashOrAllocation)
 {
     CSystemAllocator Allocator;
     CAssetPathInterner Interner(Allocator);
@@ -353,7 +353,7 @@ ACS_TEST(FAssetRegistry, RejectsInternerLengthOverflowBeforeHashOrAllocation)
     EXPECT_EQ(Allocator.BytesAllocated(), 0ull);
 }
 
-ACS_TEST(FAssetRegistry, CachePublicationFailurePreservesRetainedAssetState)
+ACS_TEST(CAssetRegistry, CachePublicationFailurePreservesRetainedAssetState)
 {
     CThreadPool::Shutdown();
     const auto PoolInit = CThreadPool::Init(1u);
@@ -362,8 +362,7 @@ ACS_TEST(FAssetRegistry, CachePublicationFailurePreservesRetainedAssetState)
 
     const byte FileData[] = {4u, 3u, 2u, 1u};
     (void)CFileSystem::Delete(kTransactionalAssetPath);
-    EXPECT_TRUE(CFileSystem::WriteAllBytes(
-        kTransactionalAssetPath, FileData, sizeof(FileData)).IsOk());
+    EXPECT_TRUE(CFileSystem::WriteAllBytes(kTransactionalAssetPath, FileData, sizeof(FileData)).IsOk());
 
     auto Binary = MakeShared<ABinaryAsset>();
     EXPECT_TRUE(Binary.Get() != nullptr);
@@ -418,7 +417,7 @@ ACS_TEST(FAssetRegistry, CachePublicationFailurePreservesRetainedAssetState)
     (void)CFileSystem::Delete(kTransactionalAssetPath);
 }
 
-ACS_TEST(FAssetRegistry, MixedSyncAndAsyncLoadsPublishOneCanonicalIdentity)
+ACS_TEST(CAssetRegistry, MixedSyncAndAsyncLoadsPublishOneCanonicalIdentity)
 {
     CThreadPool::Shutdown();
     const auto PoolInit = CThreadPool::Init(1u);
@@ -427,8 +426,7 @@ ACS_TEST(FAssetRegistry, MixedSyncAndAsyncLoadsPublishOneCanonicalIdentity)
 
     const byte FileData[] = {7u, 5u, 3u, 1u};
     (void)CFileSystem::Delete(kTransactionalAssetPath);
-    EXPECT_TRUE(CFileSystem::WriteAllBytes(
-        kTransactionalAssetPath, FileData, sizeof(FileData)).IsOk());
+    EXPECT_TRUE(CFileSystem::WriteAllBytes(kTransactionalAssetPath, FileData, sizeof(FileData)).IsOk());
 
     CBlockingAssetLoader Loader;
     CAssetRegistry Registry;
@@ -470,7 +468,7 @@ ACS_TEST(FAssetRegistry, MixedSyncAndAsyncLoadsPublishOneCanonicalIdentity)
     (void)CFileSystem::Delete(kTransactionalAssetPath);
 }
 
-ACS_TEST(FAssetRegistry, PendingAsyncLoadJoinsWhileDefaultAllocatorRejectsAllocation)
+ACS_TEST(CAssetRegistry, PendingAsyncLoadJoinsWhileDefaultAllocatorRejectsAllocation)
 {
     CThreadPool::Shutdown();
     const auto PoolInit = CThreadPool::Init(1u);
@@ -479,8 +477,7 @@ ACS_TEST(FAssetRegistry, PendingAsyncLoadJoinsWhileDefaultAllocatorRejectsAlloca
 
     const byte FileData[] = {2u, 4u, 6u, 8u};
     (void)CFileSystem::Delete(kTransactionalAssetPath);
-    EXPECT_TRUE(CFileSystem::WriteAllBytes(
-        kTransactionalAssetPath, FileData, sizeof(FileData)).IsOk());
+    EXPECT_TRUE(CFileSystem::WriteAllBytes(kTransactionalAssetPath, FileData, sizeof(FileData)).IsOk());
 
     CBlockingAssetLoader Loader;
     CAssetRegistry Registry;
@@ -519,7 +516,7 @@ ACS_TEST(FAssetRegistry, PendingAsyncLoadJoinsWhileDefaultAllocatorRejectsAlloca
     (void)CFileSystem::Delete(kTransactionalAssetPath);
 }
 
-ACS_TEST(FAssetRegistry, DefaultLoaderBatchIsTransactionalAndIdempotent)
+ACS_TEST(CAssetRegistry, DefaultLoaderBatchIsTransactionalAndIdempotent)
 {
     CExtensionOnlyLoader ConflictingWav("wav");
     CExtensionOnlyLoader CustomPng("png");

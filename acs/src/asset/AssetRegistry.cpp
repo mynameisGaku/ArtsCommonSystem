@@ -185,8 +185,7 @@ TResult<TSharedPtr<AAsset>> CAssetRegistry::TryPublishLoadedAsset(FAssetId id, T
     }
 
     if (!m_Closing && !m_Cache.TryAdd(id, asset)) {
-        return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory,
-                       "CAssetRegistry::TryPublishLoadedAsset: cache allocation failed");
+        return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory, "CAssetRegistry::TryPublishLoadedAsset: cache allocation failed");
     }
 
     // cache追加またはshutdown中の非保持成功が確定した後は失敗経路が無い。
@@ -727,21 +726,11 @@ FAliasLoader g_text_py   { &g_text_loader, "py"   };
 TResult<void> CAssetRegistry::TryRegisterDefaultLoaders() noexcept
 {
     /** 既存の登録順とfallbackの最終位置を保つ標準loader一覧。 */
-    IAssetLoader* const DefaultLoaders[] = {
-        &g_image_loader, &g_image_jpg, &g_image_jpeg, &g_image_bmp, &g_image_tga,
-        &g_image_gif, &g_image_hdr, &g_image_pic, &g_image_pnm, &g_image_ppm,
-        &g_image_pgm, &g_image_psd, &g_wav_loader, &g_mp3_loader, &g_flac_loader,
-        &g_ogg_loader, &g_ogg_oga, &g_gltf_loader, &g_glb_loader, &g_obj_loader,
-        &g_fbx_loader, &g_text_loader, &g_text_json, &g_text_xml, &g_text_yaml,
-        &g_text_yml, &g_text_toml, &g_text_ini, &g_text_csv, &g_text_md,
-        &g_text_log, &g_text_hlsl, &g_text_glsl, &g_text_vert, &g_text_frag,
-        &g_text_lua, &g_text_py, &g_binary_loader,
-    };
+    IAssetLoader* const DefaultLoaders[] = {&g_image_loader, &g_image_jpg, &g_image_jpeg, &g_image_bmp, &g_image_tga, &g_image_gif, &g_image_hdr, &g_image_pic, &g_image_pnm, &g_image_ppm, &g_image_pgm, &g_image_psd, &g_wav_loader, &g_mp3_loader, &g_flac_loader, &g_ogg_loader, &g_ogg_oga, &g_gltf_loader, &g_glb_loader, &g_obj_loader, &g_fbx_loader, &g_text_loader, &g_text_json, &g_text_xml, &g_text_yaml, &g_text_yml, &g_text_toml, &g_text_ini, &g_text_csv, &g_text_md, &g_text_log, &g_text_hlsl, &g_text_glsl, &g_text_vert, &g_text_frag, &g_text_lua, &g_text_py, &g_binary_loader,};
 
     FScopedLock lock(m_Lock);
     if (m_Closing) {
-        return ACS_ERR(Asset, kAssetRegistrySubShuttingDown,
-                       "CAssetRegistry::TryRegisterDefaultLoaders: registry is shutting down");
+        return ACS_ERR(Asset, kAssetRegistrySubShuttingDown, "CAssetRegistry::TryRegisterDefaultLoaders: registry is shutting down");
     }
 
     /** まだ登録されていない標準loader数。 */
@@ -749,8 +738,7 @@ TResult<void> CAssetRegistry::TryRegisterDefaultLoaders() noexcept
     for (IAssetLoader* const DefaultLoader : DefaultLoaders) {
         const char* const Extension = DefaultLoader->Extension();
         if (!IsValidLoaderExtension(Extension)) {
-            return ACS_ERR(Asset, kAssetRegistrySubInvalidExtension,
-                           "CAssetRegistry::TryRegisterDefaultLoaders: invalid extension");
+            return ACS_ERR(Asset, kAssetRegistrySubInvalidExtension, "CAssetRegistry::TryRegisterDefaultLoaders: invalid extension");
         }
 
         /** 同じ標準loaderが既に登録済みならidempotent successとして扱う。 */
@@ -758,8 +746,7 @@ TResult<void> CAssetRegistry::TryRegisterDefaultLoaders() noexcept
         for (usize Index = 0u; Index < m_Loaders.Num(); ++Index) {
             if (!StrEqAscii(m_Loaders[Index]->Extension(), Extension)) continue;
             if (m_Loaders[Index] != DefaultLoader) {
-                return ACS_ERR(Asset, kAssetRegistrySubDuplicateLoader,
-                               "CAssetRegistry::TryRegisterDefaultLoaders: duplicate extension");
+                return ACS_ERR(Asset, kAssetRegistrySubDuplicateLoader, "CAssetRegistry::TryRegisterDefaultLoaders: duplicate extension");
             }
             AlreadyRegistered = true;
             break;
@@ -767,10 +754,8 @@ TResult<void> CAssetRegistry::TryRegisterDefaultLoaders() noexcept
         if (!AlreadyRegistered) ++MissingCount;
     }
 
-    if (MissingCount > TNumLimits<usize>::Max() - m_Loaders.Num() ||
-        !m_Loaders.TryReserve(m_Loaders.Num() + MissingCount)) {
-        return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory,
-                       "CAssetRegistry::TryRegisterDefaultLoaders: allocation failed");
+    if (MissingCount > TNumLimits<usize>::Max() - m_Loaders.Num() || !m_Loaders.TryReserve(m_Loaders.Num() + MissingCount)) {
+        return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory, "CAssetRegistry::TryRegisterDefaultLoaders: allocation failed");
     }
 
     /** 予期しない追加失敗時に戻す登録済みloader数。 */
@@ -786,8 +771,7 @@ TResult<void> CAssetRegistry::TryRegisterDefaultLoaders() noexcept
         }
         if (!AlreadyRegistered && !m_Loaders.TryAdd(DefaultLoader)) {
             (void)m_Loaders.TrySetNum(OriginalCount);
-            return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory,
-                           "CAssetRegistry::TryRegisterDefaultLoaders: append failed");
+            return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory, "CAssetRegistry::TryRegisterDefaultLoaders: append failed");
         }
     }
     return Ok();
