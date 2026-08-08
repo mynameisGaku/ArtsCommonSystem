@@ -78,25 +78,25 @@ private:
 };
 
 /** test区間だけdefault allocatorを差し替えて終了時に必ず戻すguard。 */
-class FDefaultAllocatorScope final {
+class CDefaultAllocatorScope final {
 public:
     /** 差し替え前allocatorを保持して指定allocatorを公開する。 */
-    explicit FDefaultAllocatorScope(IAllocator& Allocator) noexcept : m_Previous(&DefaultAllocator())
+    explicit CDefaultAllocatorScope(IAllocator& Allocator) noexcept : m_Previous(&DefaultAllocator())
     {
         SetDefaultAllocator(&Allocator);
     }
 
     /** 差し替え前allocatorを復元する。 */
-    ~FDefaultAllocatorScope() noexcept
+    ~CDefaultAllocatorScope() noexcept
     {
         SetDefaultAllocator(m_Previous);
     }
 
     /** 二重復元を避けるためcopyを禁止する。 */
-    FDefaultAllocatorScope(const FDefaultAllocatorScope&) = delete;
+    CDefaultAllocatorScope(const CDefaultAllocatorScope&) = delete;
 
     /** guardのcopy代入を禁止する。 */
-    FDefaultAllocatorScope& operator=(const FDefaultAllocatorScope&) = delete;
+    CDefaultAllocatorScope& operator=(const CDefaultAllocatorScope&) = delete;
 
 private:
     /** 復元するdefault allocator。 */
@@ -492,7 +492,7 @@ ACS_TEST(CAssetRegistry, PendingAsyncLoadJoinsWhileDefaultAllocatorRejectsAlloca
     RejectingAllocator.SetFail(true);
     FAssetFuture Second;
     {
-        FDefaultAllocatorScope AllocatorScope(RejectingAllocator);
+        CDefaultAllocatorScope AllocatorScope(RejectingAllocator);
         Second = Registry.LoadAsync(kTransactionalAssetPath);
     }
     EXPECT_TRUE(First.Valid());
