@@ -1,13 +1,66 @@
 # ラバーバンド (矩形) 選択 ABI の P/Invoke 検証。
 # 既定カメラ (screen==world) で demo シーンのノード中心を矩形に入れて選択を確認する。
+param(
+    [ValidateSet('Debug', 'Release')]
+    [string]$Configuration = 'Release'
+)
+
 $ErrorActionPreference = 'Stop'
-$bin = "C:\dev\acs_github\acs\editor\AcsEditor\bin\Release\net10.0-windows\win-x64"
-[Environment]::CurrentDirectory = $bin
+$nativeDirectory = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\Binaries\$Configuration"))
+$nativeDll = Join-Path $nativeDirectory 'acs_editor_abi.dll'
+
+function Assert-NoReparsePointAncestors {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $currentPath = [System.IO.Path]::GetFullPath($Path)
+    while ($true) {
+        $item = Get-Item -LiteralPath $currentPath -Force
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Native ABI path contains a reparse point: $currentPath"
+        }
+
+        $parent = [System.IO.Directory]::GetParent($currentPath)
+        if ($null -eq $parent) {
+            break
+        }
+
+        $currentPath = $parent.FullName
+    }
+}
+
+function Assert-NativeAbiOutput {
+    if (-not (Test-Path -LiteralPath $nativeDirectory -PathType Container)) {
+        throw "Native ABI output directory is missing or not a directory: $nativeDirectory"
+    }
+
+    $nativeDirectoryItem = Get-Item -LiteralPath $nativeDirectory -Force
+    if (($nativeDirectoryItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Native ABI output directory is a reparse point: $nativeDirectory"
+    }
+
+    if (-not (Test-Path -LiteralPath $nativeDll -PathType Leaf)) {
+        throw "Native ABI DLL is missing or not a file: $nativeDll"
+    }
+
+    $nativeDllItem = Get-Item -LiteralPath $nativeDll -Force
+    if ($nativeDllItem.PSIsContainer -or (($nativeDllItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw "Native ABI DLL must be a regular file: $nativeDll"
+    }
+
+    Assert-NoReparsePointAncestors -Path $nativeDirectory
+    Assert-NoReparsePointAncestors -Path $nativeDll
+}
+
+Assert-NativeAbiOutput
+$csharpNativeDll = $nativeDll.Replace('"', '""')
 
 $src = @"
 using System; using System.Runtime.InteropServices;
 public static class Bx {
-    const string D = "acs_editor_abi";
+    const string D = @"$csharpNativeDll";
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern IntPtr acs_editor_create();
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern void acs_editor_destroy(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_scene_load_text(IntPtr h, [MarshalAs(UnmanagedType.LPUTF8Str)] string t);
@@ -20,8 +73,6 @@ public static class Bx {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern void acs_editor_render(IntPtr h, float dt);
 }
 "@
-Add-Type -TypeDefinition $src
-
 $pass=0;$fail=0
 function Check($n,$c){ if($c){$script:pass++;Write-Host "  PASS  $n"} else {$script:fail++;Write-Host "  FAIL  $n" -ForegroundColor Red} }
 
@@ -35,12 +86,21 @@ ACSCENE v1
 5 -1 180 330 0 1 1 24 0.82 0.76 0.32 1 Pickup
 "@
 
-$h = [Bx]::acs_editor_create()
-if ($h -eq [IntPtr]::Zero) { throw "acs_editor_create failed" }
-if ([Bx]::acs_editor_scene_load_text($h, $scene) -ne 1) {
-    [Bx]::acs_editor_destroy($h)
-    throw "acs_editor_scene_load_text failed"
-}
+$originalCurrentDirectory = [Environment]::CurrentDirectory
+$h = [IntPtr]::Zero
+$hasHost = $false
+
+try {
+    [Environment]::CurrentDirectory = $nativeDirectory
+    Add-Type -TypeDefinition $src
+    Assert-NativeAbiOutput
+
+    $h = [Bx]::acs_editor_create()
+    if ($h -eq [IntPtr]::Zero) { throw "acs_editor_create failed" }
+    $hasHost = $true
+    if ([Bx]::acs_editor_scene_load_text($h, $scene) -ne 1) {
+        throw "acs_editor_scene_load_text failed"
+    }
 
 # demo: 1 Player(320,230) 2 Sprite(372,230) 3 Collider(282,254) 4 Enemy(520,150) 5 Pickup(180,330)
 Write-Host "`n[1] box replace selects centers inside (1,2,3)"
@@ -73,5 +133,20 @@ Write-Host "`n[5] set_marquee does not crash (overlay state)"
 [Bx]::acs_editor_set_marquee($h, 0, 0,0,0,0)
 Check "set_marquee ok" $true
 
-[Bx]::acs_editor_destroy($h)
+}
+finally {
+    try {
+        if ($hasHost) {
+            $hostToDestroy = $h
+            $h = [IntPtr]::Zero
+            $hasHost = $false
+            [Bx]::acs_editor_destroy($hostToDestroy)
+        }
+    }
+    finally {
+        [Environment]::CurrentDirectory = $originalCurrentDirectory
+    }
+}
+
 Write-Host "`n==== $pass passed, $fail failed ===="
+if ($fail -ne 0) { exit 1 }
