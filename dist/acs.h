@@ -3215,14 +3215,24 @@ enum class EMouseButton : u8 {
  * @details 値は kPadBits テーブル (Input.cpp) の添字に使うため連続。
  */
 enum class EGamepadButton : u8 {
-    /** A ボタン。 */
-    A,
-    /** B ボタン。 */
-    B,
-    /** X ボタン。 */
-    X,
-    /** Y ボタン。 */
-    Y,
+    /**
+     * face ボタンの下 (Xbox の A / PlayStation の × / Nintendo の B)。
+     *
+     * @details
+     * 同じ位置のボタンでも機種で刻印が違い (Nintendo は A と B が Xbox と左右逆)、名前で
+     * 持つと機種ごとに割り当てが入れ替わってしまう。そこで位置で持ち、各バックエンドが
+     * 「物理的にどの位置か」へ読み替える。刻印で書きたい場合は下の別名を使う。
+     */
+    South,
+
+    /** face ボタンの右 (Xbox の B / PlayStation の ○ / Nintendo の A)。 */
+    East,
+
+    /** face ボタンの左 (Xbox の X / PlayStation の □ / Nintendo の Y)。 */
+    West,
+
+    /** face ボタンの上 (Xbox の Y / PlayStation の △ / Nintendo の X)。 */
+    North,
 
     /** 方向パッド上。 */
     Up,
@@ -3251,7 +3261,27 @@ enum class EGamepadButton : u8 {
     Guide,
 
     /** ボタン総数 (配列サイズ用の番兵。実ボタンではない)。 */
-    _Count
+    _Count,
+
+    // --- 刻印で書きたいときの別名 (値は位置と同じ。_Count は増えない) ---
+
+    /** Xbox の A (= South)。 */
+    A = South,
+    /** Xbox の B (= East)。 */
+    B = East,
+    /** Xbox の X (= West)。 */
+    X = West,
+    /** Xbox の Y (= North)。 */
+    Y = North,
+
+    /** PlayStation の × (= South)。 */
+    Cross = South,
+    /** PlayStation の ○ (= East)。 */
+    Circle = East,
+    /** PlayStation の □ (= West)。 */
+    Square = West,
+    /** PlayStation の △ (= North)。 */
+    Triangle = North,
 };
 
 /** ゲームパッドのアナログ軸識別子 (スティックは -1.0〜+1.0、トリガーは 0.0〜1.0)。 */
@@ -28086,6 +28116,456 @@ private:
 };
 
 } // namespace acs
+
+// ===================== foundation/EnumTraits.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// 列挙に「名前・個数・並び」を持たせる仕掛け (UE の UENUM 相当)。
+//
+// UE は UHT がヘッダを走査してコードを生成するが、こちらはコード生成を挟まない。
+// コンパイラが持つ関数シグネチャ文字列 (__FUNCSIG__ / __PRETTY_FUNCTION__) から列挙子名を
+// constexpr で切り出すため、列挙子を二度書く必要が無く、型を指定するだけで名前が引ける。
+// 名前表はコンパイル時に確定し、実行時の確保も RTTI も要らない。
+//
+// 使い方:
+//   ACS_ENUM()
+//   enum class EMyColor : u8 { Red, Green, Blue };
+//
+//   TEnumTraits<EMyColor>::kCount;                  // 3
+//   TEnumTraits<EMyColor>::Name(EMyColor::Green);   // "Green" (FEnumName)
+//   TEnumTraits<EMyColor>::FromIndex(2);            // EMyColor::Blue
+//   TEnumTraits<EMyColor>::TryParse("Blue", out);   // true
+//
+// 制約:
+//   ・列挙子の値は 0 以上 kEnumScanMax 未満であること (既定 64)。範囲外の値を持つ列挙や
+//     ビットフラグ列挙は TEnumTraits を明示特殊化して上書きする。
+//   ・同じ値に別名を付けた場合、名前は先に宣言した方が引かれる。
+
+namespace acs {
+
+/**
+ * 列挙子の名前 (コンパイラのシグネチャ内を指す参照)。
+ *
+ * @details
+ * NUL 終端ではないので、C 文字列として渡す場合は呼び出し側で終端を用意すること。
+ * 参照先はコンパイラが埋め込んだ静的な文字列なので、寿命は気にしなくてよい。
+ */
+struct FEnumName {
+    /** 名前の先頭 (NUL 終端ではない)。 */
+    const char* Data = nullptr;
+
+    /** 名前のバイト数。 */
+    usize Size = 0;
+
+    /** 名前を引けなかった (未定義の値) なら true。 */
+    constexpr bool IsEmpty() const noexcept { return Size == 0; }
+
+    /**
+     * NUL 終端文字列と一致するかを返す。
+     *
+     * @param text 比較する NUL 終端文字列。
+     * @return 長さも中身も一致すれば true。
+     */
+    constexpr bool Equals(const char* text) const noexcept {
+        if (text == nullptr || Data == nullptr) return false;
+        for (usize i = 0; i < Size; ++i) {
+            if (text[i] == '\0' || text[i] != Data[i]) return false;
+        }
+        return text[Size] == '\0';
+    }
+};
+
+namespace detail {
+
+/** 自動で走査する列挙子の上限 (0 .. kEnumScanMax-1 を見る)。 */
+inline constexpr usize kEnumScanMax = 64;
+
+/** コンパイル時に添字を展開するための列 (std::index_sequence 相当)。 */
+template<usize... Indices>
+struct TIndexSeq {};
+
+/** kEnumScanMax 個の添字列を作るための再帰。 */
+template<usize N, usize... Indices>
+struct TMakeIndexSeq : TMakeIndexSeq<N - 1, N - 1, Indices...> {};
+
+/** 添字列の再帰終端。 */
+template<usize... Indices>
+struct TMakeIndexSeq<0, Indices...> { using FType = TIndexSeq<Indices...>; };
+
+/**
+ * 列挙子 1 つ分の名前をコンパイラのシグネチャから切り出す。
+ *
+ * @details
+ * MSVC は有効な列挙子を `...Fn<EMyColor::Green>(void)`、未定義の値を
+ * `...Fn<(enum EMyColor)0xc8>(void)` と綴る。clang / gcc も `[Value = EMyColor::Green]` と
+ * `[Value = (EMyColor)200]` で同じ見分けができるため、括弧で始まるものを未定義として弾く。
+ * @tparam Value 名前を引きたい列挙子。
+ * @return 切り出した名前。未定義の値なら空。
+ */
+template<auto Value>
+constexpr FEnumName EnumNameFromSignature() noexcept {
+#if defined(_MSC_VER)
+    /** 対象の列挙子を含む関数シグネチャ。 */
+    const char* const signature = __FUNCSIG__;
+    /** 名前の終わりを示す文字。 */
+    constexpr char kCloser = '>';
+    /** 名前の始まりを示す文字。 */
+    constexpr char kOpener = '<';
+#else
+    const char* const signature = __PRETTY_FUNCTION__;
+    constexpr char kCloser = ']';
+    constexpr char kOpener = '=';
+#endif
+
+    /** シグネチャ全体の長さ。 */
+    usize length = 0;
+    while (signature[length] != '\0') ++length;
+
+    /** 名前の終端位置。 */
+    usize close = 0;
+    bool closed = false;
+    for (usize i = length; i > 0; --i) {
+        if (signature[i - 1] != kCloser) continue;
+        close = i - 1;
+        closed = true;
+        break;
+    }
+    if (!closed) return FEnumName{};
+
+    /** 名前の開始位置 (開き記号の次)。 */
+    usize begin = 0;
+    bool opened = false;
+    for (usize i = 0; i < close; ++i) {
+        if (signature[i] != kOpener) continue;
+        begin = i + 1;
+        opened = true;
+        break;
+    }
+    if (!opened) return FEnumName{};
+
+    // 空白を飛ばす (clang / gcc の "= " 対策)。
+    while (begin < close && signature[begin] == ' ') ++begin;
+    if (begin >= close) return FEnumName{};
+
+    // キャスト表記で綴られるのは列挙子が割り当たっていない値。
+    if (signature[begin] == '(') return FEnumName{};
+
+    // 「型名::列挙子」で来るので、最後の :: の後ろだけを取る。
+    for (usize i = close; i > begin + 1; --i) {
+        if (signature[i - 1] != ':' || signature[i - 2] != ':') continue;
+        begin = i;
+        break;
+    }
+    return FEnumName{ signature + begin, close - begin };
+}
+
+/** 走査範囲ぶんの名前表。 */
+template<usize N>
+struct TEnumNameTable {
+    /** 添字 = 列挙子の値。名前を引けなかった位置は空。 */
+    FEnumName Items[N];
+};
+
+/**
+ * 走査範囲の名前をまとめて引く。
+ *
+ * @tparam TEnum 対象の列挙型。
+ * @param indices 走査する添字列。
+ * @return 添字ぶんの名前表。
+ */
+template<typename TEnum, usize... Indices>
+constexpr TEnumNameTable<sizeof...(Indices)> MakeEnumNameTable(TIndexSeq<Indices...> indices) noexcept {
+    (void)indices;
+    return TEnumNameTable<sizeof...(Indices)>{ { EnumNameFromSignature<static_cast<TEnum>(Indices)>()... } };
+}
+
+} // namespace detail
+
+/**
+ * 列挙型の名前表。
+ *
+ * @details
+ * 型を渡すだけで使える。飛び番やビットフラグなど自動走査に載らない列挙は、本テンプレートを
+ * 明示特殊化すれば同じ形のまま差し替えられる。
+ * @tparam TEnum 対象の列挙型。
+ */
+template<typename TEnum>
+struct TEnumTraits {
+    /** 対象の列挙型。 */
+    using FType = TEnum;
+
+    /** 走査範囲ぶんの名前表 (添字 = 列挙子の値)。 */
+    static constexpr auto kTable =
+        detail::MakeEnumNameTable<TEnum>(typename detail::TMakeIndexSeq<detail::kEnumScanMax>::FType{});
+
+    /** 名前を引けた列挙子の個数。 */
+    static constexpr usize kCount = [] {
+        usize count = 0;
+        for (usize i = 0; i < detail::kEnumScanMax; ++i) {
+            if (!kTable.Items[i].IsEmpty()) ++count;
+        }
+        return count;
+    }();
+
+    /**
+     * 名前を返す。
+     *
+     * @param value 対象の列挙子。
+     * @return 名前。走査範囲外や未定義の値なら空。
+     */
+    static constexpr FEnumName Name(TEnum value) noexcept {
+        const usize index = static_cast<usize>(value);
+        return index < detail::kEnumScanMax ? kTable.Items[index] : FEnumName{};
+    }
+
+    /**
+     * 添字から列挙子を作る。
+     *
+     * @details 名前を引けた列挙子だけを宣言順に数えた添字で指す (飛び番があっても詰めて数える)。
+     * @param index 0 起点の添字。
+     * @return 対応する列挙子。範囲外なら先頭の列挙子。
+     */
+    static constexpr TEnum FromIndex(i32 index) noexcept {
+        if (index < 0) return TEnum{};
+        usize remaining = static_cast<usize>(index);
+        for (usize i = 0; i < detail::kEnumScanMax; ++i) {
+            if (kTable.Items[i].IsEmpty()) continue;
+            if (remaining == 0) return static_cast<TEnum>(i);
+            --remaining;
+        }
+        return TEnum{};
+    }
+
+    /**
+     * 列挙子を添字にする。
+     *
+     * @param value 対象の列挙子。
+     * @return 0 起点の添字。名前を引けない値なら -1。
+     */
+    static constexpr i32 ToIndex(TEnum value) noexcept {
+        const usize target = static_cast<usize>(value);
+        if (target >= detail::kEnumScanMax || kTable.Items[target].IsEmpty()) return -1;
+
+        i32 index = 0;
+        for (usize i = 0; i < target; ++i) {
+            if (!kTable.Items[i].IsEmpty()) ++index;
+        }
+        return index;
+    }
+
+    /**
+     * 名前から列挙子へ戻す。
+     *
+     * @param name 探す名前 (NUL 終端)。
+     * @param out_value 見つかった列挙子の書き込み先。
+     * @return 見つかれば true。
+     */
+    static constexpr bool TryParse(const char* name, TEnum& out_value) noexcept {
+        for (usize i = 0; i < detail::kEnumScanMax; ++i) {
+            if (!kTable.Items[i].Equals(name)) continue;
+
+            out_value = static_cast<TEnum>(i);
+            return true;
+        }
+        return false;
+    }
+};
+
+/**
+ * 列挙子をまとめて持つ表 (範囲 for で回せる)。
+ *
+ * @tparam TValue 要素の型。
+ * @tparam N 要素数。
+ */
+template<typename TValue, usize N>
+struct TEnumTable {
+    /** 要素 (宣言順)。 */
+    TValue Items[N > 0 ? N : 1];
+
+    /** 要素数を返す。 */
+    constexpr usize Size() const noexcept { return N; }
+
+    /** 先頭を指す。 */
+    constexpr const TValue* begin() const noexcept { return Items; }
+
+    /** 終端を指す。 */
+    constexpr const TValue* end() const noexcept { return Items + N; }
+
+    /**
+     * 要素を 1 つ返す。
+     *
+     * @param index 0 起点の添字 (範囲外は先頭を返す)。
+     * @return 該当要素。
+     */
+    constexpr const TValue& operator[](usize index) const noexcept {
+        return Items[index < N ? index : 0];
+    }
+};
+
+
+/**
+ * 列挙子の名前を返す。
+ *
+ * @tparam TEnum 対象の列挙型 (呼び出し時は引数から推論される)。
+ * @param value 対象の列挙子。
+ * @return 名前。未定義の値なら空。
+ */
+template<typename TEnum>
+constexpr FEnumName ToString(TEnum value) noexcept {
+    return TEnumTraits<TEnum>::Name(value);
+}
+
+/**
+ * 名前から列挙子へ戻す。
+ *
+ * @tparam TEnum 対象の列挙型。
+ * @param name 探す名前 (NUL 終端)。
+ * @param out_value 見つかった列挙子の書き込み先。
+ * @return 見つかれば true。
+ */
+template<typename TEnum>
+constexpr bool ToEnum(const char* name, TEnum& out_value) noexcept {
+    return TEnumTraits<TEnum>::TryParse(name, out_value);
+}
+
+/**
+ * 名前から列挙子へ戻す (見つからなければ既定値)。
+ *
+ * @tparam TEnum 対象の列挙型。
+ * @param name 探す名前 (NUL 終端)。
+ * @param fallback 見つからなかったときに返す値。
+ * @return 見つかった列挙子、または fallback。
+ */
+template<typename TEnum>
+constexpr TEnum FromString(const char* name, TEnum fallback = TEnum{}) noexcept {
+    TEnum value{};
+    return TEnumTraits<TEnum>::TryParse(name, value) ? value : fallback;
+}
+
+/**
+ * 列挙子の個数。
+ *
+ * @tparam TEnum 対象の列挙型。
+ */
+template<typename TEnum>
+inline constexpr usize EnumCount = TEnumTraits<TEnum>::kCount;
+
+/**
+ * 名前を引ける列挙子かを返す。
+ *
+ * @tparam TEnum 対象の列挙型。
+ * @param value 調べる値。
+ * @return 宣言された列挙子なら true。
+ */
+template<typename TEnum>
+constexpr bool IsValidEnum(TEnum value) noexcept {
+    return !TEnumTraits<TEnum>::Name(value).IsEmpty();
+}
+
+/**
+ * 添字から列挙子を作る。
+ *
+ * @tparam TEnum 対象の列挙型。
+ * @param index 0 起点の添字。
+ * @return 対応する列挙子。範囲外なら先頭。
+ */
+template<typename TEnum>
+constexpr TEnum EnumFromIndex(i32 index) noexcept {
+    return TEnumTraits<TEnum>::FromIndex(index);
+}
+
+/**
+ * 列挙子を添字にする。
+ *
+ * @tparam TEnum 対象の列挙型。
+ * @param value 対象の列挙子。
+ * @return 0 起点の添字。名前を引けない値なら -1。
+ */
+template<typename TEnum>
+constexpr i32 EnumToIndex(TEnum value) noexcept {
+    return TEnumTraits<TEnum>::ToIndex(value);
+}
+
+/**
+ * 全ての列挙子を宣言順に並べた表を返す。
+ *
+ * @details 範囲 for でそのまま回せる。UI の選択肢を作るときなどに使う。
+ * @tparam TEnum 対象の列挙型。
+ * @return 列挙子の表。
+ */
+template<typename TEnum>
+constexpr TEnumTable<TEnum, TEnumTraits<TEnum>::kCount> EnumValues() noexcept {
+    TEnumTable<TEnum, TEnumTraits<TEnum>::kCount> table{};
+    usize next = 0;
+    for (usize i = 0; i < detail::kEnumScanMax; ++i) {
+        if (TEnumTraits<TEnum>::kTable.Items[i].IsEmpty()) continue;
+
+        table.Items[next] = static_cast<TEnum>(i);
+        ++next;
+    }
+    return table;
+}
+
+/**
+ * 全ての列挙子の名前を宣言順に並べた表を返す。
+ *
+ * @tparam TEnum 対象の列挙型。
+ * @return 名前の表。
+ */
+template<typename TEnum>
+constexpr TEnumTable<FEnumName, TEnumTraits<TEnum>::kCount> EnumNames() noexcept {
+    TEnumTable<FEnumName, TEnumTraits<TEnum>::kCount> table{};
+    usize next = 0;
+    for (usize i = 0; i < detail::kEnumScanMax; ++i) {
+        if (TEnumTraits<TEnum>::kTable.Items[i].IsEmpty()) continue;
+
+        table.Items[next] = TEnumTraits<TEnum>::kTable.Items[i];
+        ++next;
+    }
+    return table;
+}
+
+/**
+ * 宣言順で次 (または前) の列挙子を返す。
+ *
+ * @details UI の左右送りに使う。飛び番があっても宣言順で 1 つずつ動く。
+ * @tparam TEnum 対象の列挙型。
+ * @param value 現在の列挙子。
+ * @param delta 進める数 (負で戻る)。
+ * @param wrap true なら端で反対側へ回り込み、false なら端で止まる。
+ * @return 移動後の列挙子。
+ */
+template<typename TEnum>
+constexpr TEnum EnumNext(TEnum value, i32 delta = 1, bool wrap = true) noexcept {
+    const i32 count = static_cast<i32>(TEnumTraits<TEnum>::kCount);
+    if (count <= 0) return value;
+
+    const i32 current = TEnumTraits<TEnum>::ToIndex(value);
+    if (current < 0) return TEnumTraits<TEnum>::FromIndex(0);
+
+    i32 next = current + delta;
+    if (wrap) {
+        next %= count;
+        if (next < 0) next += count;
+    } else {
+        if (next < 0) next = 0;
+        if (next >= count) next = count - 1;
+    }
+    return TEnumTraits<TEnum>::FromIndex(next);
+}
+
+} // namespace acs
+
+/**
+ * 列挙をリフレクション対象として印付ける (UE の UENUM 相当)。
+ *
+ * @details
+ * 名前と個数は TEnumTraits がコンパイラのシグネチャから自動で引くため、この印自体は
+ * 何も展開しない。列挙の意図をコード上に残し、将来 acsbuild が走査してカタログを
+ * 生成できるようにするための目印として置く。指定子を書いても無視される。
+ */
+#define ACS_ENUM(...)
 
 // ===================== foundation/Limits.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -100354,6 +100834,111 @@ void InstallOpenXrAsDefault() noexcept;
 
 } // namespace acs::openxr
 
+// ===================== platform/DirectInputGamepad.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// XInput にも HID の機種別対応にも載らないゲームパッドを DirectInput から読む。
+//
+// Xbox 系は XInput、PlayStation 系と Nintendo 系は platform/HidGamepad が受け持つ。ここは
+// その 2 つから漏れる汎用パッド (サードパーティ製のアーケードスティックや古いパッド等) を
+// 拾うための最後の受け皿。
+//
+// DirectInput は軸やボタンの並びを機器が自由に決められるため、どのボタンがどの位置かは
+// 分からない。DirectInput の慣習 (0 番から順に South / East / West / North) として扱い、
+// 十字キーは POV から取る。XInput で既に見えている機器は二重に数えないよう除外する。
+
+namespace acs {
+
+/**
+ * DirectInput 経由で読んだゲームパッド 1 台分の状態。
+ */
+struct FDirectInputGamepadState {
+    /** 押下中のボタン (EGamepadButton を添字とするビット)。 */
+    u32 buttons = 0;
+
+    /** 各軸の値 (スティックは -1..+1、トリガーは 0..1)。 */
+    f32 axes[static_cast<usize>(EGamepadAxis::_Count)] {};
+
+    /** このスロットにデバイスが繋がっているか。 */
+    bool connected = false;
+};
+
+/**
+ * DirectInput のゲームパッドを列挙して読む源。
+ *
+ * @details
+ * 実体の寿命は利用側 (CInput) が持つ。Poll をフレーム先頭で 1 回呼ぶと状態を更新し、
+ * 一定間隔でデバイスを列挙し直す (ホットプラグ対応)。DirectInput が使えない環境では
+ * 初期化に 1 度だけ失敗し、以降は何もしない。
+ */
+class CDirectInputGamepadSource {
+public:
+    /** 同時に扱うデバイス数の上限。 */
+    static constexpr u32 kMaxDevices = 4;
+
+    /** 空の状態で構築する (初期化は最初の Poll で行う)。 */
+    CDirectInputGamepadSource() noexcept = default;
+
+    /** 保持しているデバイスを解放する。 */
+    ~CDirectInputGamepadSource() noexcept;
+
+    /** コピー禁止 (デバイスを単独所有するため)。 */
+    CDirectInputGamepadSource(const CDirectInputGamepadSource&) = delete;
+
+    /** コピー代入も禁止。 */
+    CDirectInputGamepadSource& operator=(const CDirectInputGamepadSource&) = delete;
+
+    /**
+     * 全デバイスの状態を取得する (フレーム先頭で 1 回呼ぶ)。
+     */
+    void Poll() noexcept;
+
+    /**
+     * 指定スロットの状態を返す。
+     *
+     * @param index 0..kMaxDevices-1 のスロット番号。
+     * @return そのスロットの状態 (範囲外や未接続なら connected == false)。
+     */
+    const FDirectInputGamepadState& GetState(u32 index) const noexcept;
+
+    /** 保持しているデバイスを全て解放する。 */
+    void Shutdown() noexcept;
+
+private:
+    /** 開いているデバイス 1 台分。 */
+    struct FDevice {
+        /** IDirectInputDevice8W* (型を漏らさないため void* で持つ)。 */
+        void* device = nullptr;
+
+        /** 機器を識別する GUID (再列挙時の重複判定に使う)。 */
+        u8 instance_guid[16] {};
+    };
+
+    /** 接続済みデバイスを探し直す。 */
+    void Rescan() noexcept;
+
+    /** 各スロットのデバイス。 */
+    FDevice m_Devices[kMaxDevices] {};
+
+    /** 各スロットの状態。 */
+    FDirectInputGamepadState m_States[kMaxDevices] {};
+
+    /** 未接続スロットを返すための既定値。 */
+    FDirectInputGamepadState m_Empty {};
+
+    /** IDirectInput8W* (型を漏らさないため void* で持つ)。 */
+    void* m_DirectInput = nullptr;
+
+    /** 次に再列挙するまでに残っている Poll 回数。 */
+    u32 m_RescanCountdown = 0;
+
+    /** 初期化を試したか (失敗した場合も二度と試さない)。 */
+    bool m_Tried = false;
+};
+
+} // namespace acs
+
 // ===================== platform/FileExtensionKind.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -100621,6 +101206,104 @@ using FFileSystem = CFileSystem;
 
 } // namespace acs
 
+// ===================== platform/GamepadMotion.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ゲームパッドのモーションセンサー (ジャイロ / 加速度) の値。
+//
+// Joy-Con や DualSense のように IMU を積んだパッドは、スティックやボタンとは別に姿勢の情報を
+// 出す。軸 (EGamepadAxis) はスティックとトリガーのための -1..+1 / 0..1 の世界なので、単位が
+// 違うモーションはそこへ混ぜず、この型で別に受け取る。
+//
+// センサーを持たないパッド (Xbox 系や DirectInput 経由の汎用パッド) では valid が false になる。
+
+namespace acs {
+
+/**
+ * ゲームパッドのモーションセンサーの値。
+ *
+ * @details
+ * 座標系はパッドを正面に構えた状態を基準に、x が右、y が上、z が手前 (自分側) 方向。
+ * ジャイロは各軸まわりの角速度、加速度は重力込みの値で、静止していると下向きに約 1G かかる。
+ * 出荷時の個体差までは補正していないので、静止時に僅かな値が残る。厳密に使う場合は
+ * 静止状態のジャイロ値を平均して差し引く (ドリフト補正) こと。
+ */
+struct FGamepadMotion {
+    /** 角速度 (度/秒)。 */
+    FVec3 gyro { 0.0f, 0.0f, 0.0f };
+
+    /** 加速度 (G。静止時は重力ぶんが乗る)。 */
+    FVec3 accel { 0.0f, 0.0f, 0.0f };
+
+    /** センサーを積んだパッドから実際に値を取れているか。 */
+    bool valid = false;
+};
+
+} // namespace acs
+
+// ===================== platform/GamepadOrientation.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ジャイロと加速度から、パッドの姿勢 (向き) を積み上げる。
+//
+// ジャイロが返すのは角速度なので、そのままでは「いまどちらを向いているか」は分からない。
+// 毎フレーム積分して回転として持ち、クォータニオンでも回転行列でも取り出せるようにする。
+//
+// 積分だけだと誤差が溜まって少しずつ傾いていく (ドリフト) ため、パッドがほぼ静止している
+// ときだけ加速度から重力の向きを見て、傾きをゆっくり引き戻す。振り回している間は加速度に
+// 重力以外の成分が混ざるので補正しない。
+//
+// 向きの基準は「最後に Reset した時点の姿勢」。絶対方位 (北がどちらか) は分からないので、
+// 方位を合わせたい場合は任意のタイミングで Reset を呼んで基準を取り直す。
+
+namespace acs {
+
+/**
+ * ゲームパッドの姿勢。
+ *
+ * @details 1 台につき 1 つ持ち、毎フレーム Integrate を呼んで進める。
+ */
+class CGamepadOrientation {
+public:
+    /** 無回転の状態で構築する。 */
+    CGamepadOrientation() noexcept = default;
+
+    /**
+     * モーションの値で姿勢を 1 フレーム進める。
+     *
+     * @details valid でないモーションを渡した場合は何もしない (姿勢は保たれる)。
+     * @param motion このフレームのモーション。
+     * @param delta_seconds 前フレームからの経過秒。
+     */
+    void Integrate(const FGamepadMotion& motion, f32 delta_seconds) noexcept;
+
+    /**
+     * 姿勢をクォータニオンで返す。
+     *
+     * @return 単位クォータニオン。
+     */
+    const FQuat& Rotation() const noexcept { return m_Rotation; }
+
+    /**
+     * 姿勢を回転行列で返す。
+     *
+     * @details 呼ぶたびにクォータニオンから作るので、繰り返し使う場合は控えておくこと。
+     * @return 回転行列 (平行移動なし)。
+     */
+    FMat4 RotationMatrix() const noexcept { return ToMatrix(m_Rotation); }
+
+    /** 現在の向きを基準 (無回転) に取り直す。 */
+    void Reset() noexcept { m_Rotation = FQuat::Identity(); }
+
+private:
+    /** 積み上げた姿勢。 */
+    FQuat m_Rotation = FQuat::Identity();
+};
+
+} // namespace acs
+
 // ===================== platform/GamepadPollScheduler.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -100675,6 +101358,189 @@ private:
 };
 
 } // acs::detail 名前空間
+
+// ===================== platform/HidGamepad.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// XInput が拾わないゲームパッドを HID から直接読む。
+//
+// XInput は Xbox 系専用のため、PlayStation 系 (DualShock 4 / DualSense) と Nintendo 系
+// (Pro Controller / Joy-Con) は XInput から見えない。DirectInput でも一応は読めるが、軸の
+// 割り当てが機種ごとに推測になり、Switch 系は USB だと初期化しないと標準レポートを出さない。
+//
+// そこで JoyShockLibrary と同じく HID を直接開き、機種ごとの入力レポートを自前で解釈する。
+// 各機種の識別は VID/PID で行い、ボタンは刻印ではなく物理位置 (South / East / West / North)
+// へ読み替えるので、Nintendo のように A と B が左右逆な機種でも呼び出し側は同じ扱いで済む。
+//
+// 対応:
+//   ・DualShock 4 (USB / Bluetooth)
+//   ・DualSense (USB / Bluetooth)
+//   ・Switch Pro Controller / Joy-Con (USB は 0x80 系のハンドシェイク後、Bluetooth はそのまま)
+//
+// CInput が内部で使う想定で、ゲーム側は CInput のゲームパッド API を通して触る。
+
+namespace acs {
+
+/**
+ * HID から読んだゲームパッド 1 台分の状態。
+ *
+ * @details XInput の生状態とは独立した、機種差を吸収済みの表現。
+ */
+struct FHidGamepadState {
+    /** 押下中のボタン (EGamepadButton を添字とするビット)。 */
+    u32 buttons = 0;
+
+    /** 各軸の値 (スティックは -1..+1、トリガーは 0..1)。 */
+    f32 axes[static_cast<usize>(EGamepadAxis::_Count)] {};
+
+    /** モーションセンサーの値 (積んでいない機種では valid が false)。 */
+    FGamepadMotion motion {};
+
+    /** このスロットにデバイスが繋がっているか。 */
+    bool connected = false;
+};
+
+/**
+ * 対応している機種の種別。
+ */
+enum class EHidGamepadKind : u8 {
+    /** 未対応 / 未接続。 */
+    None,
+
+    /** DualShock 4。 */
+    DualShock4,
+
+    /** DualSense。 */
+    DualSense,
+
+    /** Switch Pro Controller / 充電グリップ。 */
+    SwitchPro,
+
+    /** Joy-Con (L)。 */
+    JoyConLeft,
+
+    /** Joy-Con (R)。 */
+    JoyConRight,
+};
+
+/**
+ * HID のゲームパッドを列挙して読む源。
+ *
+ * @details
+ * 実体の寿命は利用側 (CInput) が持つ。Poll をフレーム先頭で 1 回呼ぶと、接続済みデバイスの
+ * 入力レポートを読んで状態を更新し、一定間隔でデバイスの再列挙も行う (ホットプラグ対応)。
+ */
+class CHidGamepadSource {
+public:
+    /** 同時に扱うデバイス数の上限。 */
+    static constexpr u32 kMaxDevices = 4;
+
+    /** 空の状態で構築する (デバイスは最初の Poll で探す)。 */
+    CHidGamepadSource() noexcept = default;
+
+    /** 開いているデバイスを閉じる。 */
+    ~CHidGamepadSource() noexcept;
+
+    /** コピー禁止 (デバイスハンドルを単独所有するため)。 */
+    CHidGamepadSource(const CHidGamepadSource&) = delete;
+
+    /** コピー代入も禁止。 */
+    CHidGamepadSource& operator=(const CHidGamepadSource&) = delete;
+
+    /**
+     * 全デバイスの状態を取得する (フレーム先頭で 1 回呼ぶ)。
+     *
+     * @details 初回と一定間隔で再列挙し、以降は開いているデバイスからレポートを読む。
+     */
+    void Poll() noexcept;
+
+    /**
+     * 指定スロットの状態を返す。
+     *
+     * @param index 0..kMaxDevices-1 のスロット番号。
+     * @return そのスロットの状態 (範囲外や未接続なら connected == false)。
+     */
+    const FHidGamepadState& GetState(u32 index) const noexcept;
+
+    /**
+     * 指定スロットのモーションセンサーの値を返す。
+     *
+     * @param index 0..kMaxDevices-1 のスロット番号。
+     * @return モーションの値 (センサーが無い機種や範囲外は valid == false)。
+     */
+    const FGamepadMotion& GetMotion(u32 index) const noexcept;
+
+    /**
+     * 指定スロットの機種を返す。
+     *
+     * @param index 0..kMaxDevices-1 のスロット番号。
+     * @return 機種 (未接続なら None)。
+     */
+    EHidGamepadKind GetKind(u32 index) const noexcept;
+
+    /** 開いているデバイスを全て閉じる。 */
+    void Shutdown() noexcept;
+
+private:
+    /** 開いているデバイス 1 台分。 */
+    struct FDevice {
+        /** デバイスハンドル (未使用なら無効値)。 */
+        void* handle = nullptr;
+
+        /** 読み取り用の重なり I/O 構造体 (実装側で確保する)。 */
+        void* overlapped = nullptr;
+
+        /** 入力レポートの受け皿。 */
+        u8 report[64] {};
+
+        /** 1 回の入力レポート長。 */
+        u32 report_length = 0;
+
+        /** デバイスパス (再列挙時の重複判定に使う)。 */
+        char path[256] {};
+
+        /** 機種。 */
+        EHidGamepadKind kind = EHidGamepadKind::None;
+
+        /** Bluetooth 接続か (レポートのオフセットが変わる)。 */
+        bool is_bluetooth = false;
+
+        /** 読み取りを発行済みか (重なり I/O の完了待ち)。 */
+        bool read_pending = false;
+
+        /** Switch 系の出力レポートに付ける通し番号 (0..15 で回す)。 */
+        u8 packet_number = 0;
+    };
+
+    /**
+     * 接続済みデバイスを探し直す。
+     *
+     * @details 既に開いているものは開き直さず、消えたものだけ閉じる。
+     */
+    void Rescan() noexcept;
+
+    /**
+     * 1 台ぶんの入力レポートを読んで状態へ反映する。
+     *
+     * @param slot 対象スロット。
+     */
+    void ReadDevice(u32 slot) noexcept;
+
+    /** 各スロットのデバイス。 */
+    FDevice m_Devices[kMaxDevices] {};
+
+    /** 各スロットの状態。 */
+    FHidGamepadState m_States[kMaxDevices] {};
+
+    /** 未接続スロットを返すための既定値。 */
+    FHidGamepadState m_Empty {};
+
+    /** 次に再列挙するまでに残っている Poll 回数。 */
+    u32 m_RescanCountdown = 0;
+};
+
+} // namespace acs
 
 // ===================== platform/Input.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -100845,6 +101711,45 @@ public:
      * @return 正規化された軸の値 (未接続・範囲外は 0.0)。
      */
     static f32  GamepadAxisValue(u32 player_index, EGamepadAxis axis) noexcept;
+
+    /**
+     * 指定プレイヤーのゲームパッドのモーションセンサーの値を返す。
+     *
+     * @details
+     * ジャイロと加速度を積んだパッド (DualShock 4 / DualSense / Switch Pro / Joy-Con) でのみ
+     * 取れる。センサーを持たないパッドや未接続では valid が false の既定値を返す。
+     * @param player_index プレイヤー番号 (0..3)。
+     * @return モーションの値。
+     */
+    static const FGamepadMotion& GamepadMotion(u32 player_index) noexcept;
+
+    /**
+     * 指定プレイヤーのゲームパッドの姿勢をクォータニオンで返す。
+     *
+     * @details
+     * ジャイロを積分し、静止しているときは加速度で傾きを補正した向き。基準は最後に
+     * ResetGamepadOrientation を呼んだ時点 (既定は接続時) の姿勢で、絶対方位は分からない。
+     * センサーを持たないパッドでは無回転を返す。
+     * @param player_index プレイヤー番号 (0..3)。
+     * @return 姿勢を表す単位クォータニオン。
+     */
+    static const FQuat& GamepadRotation(u32 player_index) noexcept;
+
+    /**
+     * 指定プレイヤーのゲームパッドの姿勢を回転行列で返す。
+     *
+     * @details 中身は GamepadRotation と同じ向きで、行列が欲しい場合に使う。
+     * @param player_index プレイヤー番号 (0..3)。
+     * @return 回転行列 (平行移動なし)。
+     */
+    static FMat4 GamepadRotationMatrix(u32 player_index) noexcept;
+
+    /**
+     * 指定プレイヤーのゲームパッドの姿勢の基準を、いまの向きに取り直す。
+     *
+     * @param player_index プレイヤー番号 (0..3)。
+     */
+    static void ResetGamepadOrientation(u32 player_index) noexcept;
 };
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */
@@ -101770,19 +102675,6 @@ using FBurnEffect = CBurnEffect;
 
 // ===================== render/DebugDraw.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// CDebugDraw3D — 3D ライン (LineList) のデバッグ描画。コライダーの wireframe、
-// AABB、レイ等を色付きで重ねるのに使う。
-//
-//   CDebugDraw3D dd;
-//   dd.Init(*dev, renderer.ColorFormat());
-//   ...
-//   dd.Begin();
-//   dd.Wireframe(positions, vcount, indices, icount, {0.4f,1,0.4f,1});  // メッシュ
-//   dd.Aabb(box, {1,1,0,1});
-//   dd.Line(a, b, {0,1,1,1});                                           // レイ等
-//   dd.End(*cl, view_proj);   // backbuffer / RT が bind 済みの状態で
-//
-// depth 無し (常に手前に重なる overlay)。ACS 規約準拠 (noexcept / TResult / 非コピー)。
 
 
 namespace acs {
@@ -101805,7 +102697,7 @@ public:
     ~CDebugDraw3D() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CDebugDraw3D(const CDebugDraw3D&)            = delete;
+    CDebugDraw3D(const CDebugDraw3D&) = delete;
 
     /** コピー代入も禁止。 */
     CDebugDraw3D& operator=(const CDebugDraw3D&) = delete;
@@ -101813,10 +102705,12 @@ public:
     /**
      * GPU リソース (シェーダ・パイプライン・頂点/定数バッファ) を確保する。
      *
+     * @details 容量計算、CPU 頂点領域、または GPU リソース生成に失敗した場合は、以前の
+     * リソース、頂点、容量を変更しない。
      * @param device リソース生成に使う RHI デバイス。
      * @param rt_format 描画先レンダーターゲットの色フォーマット。
      * @param max_lines 1 フレームで積めるライン本数の上限 (頂点バッファ容量)。
-     * @return 成功なら空の TResult、確保失敗ならエラー。
+     * @return 成功なら空の TResult、容量 overflow、CPU 確保失敗、GPU 生成失敗ならエラー。
      */
     TResult<void> Init(IRhiDevice& device, EFormat rt_format, u32 max_lines = 16384) noexcept;
 
@@ -101826,8 +102720,11 @@ public:
     /** フレームのライン蓄積を開始する (頂点バッファをクリアする)。 */
     void Begin() noexcept;
 
+    /** 1本の線を全頂点追加する。成功なら true、容量不足なら変更せず false を返す。 */
+    bool TryLine(FVec3 a, FVec3 b, FVec4 color) noexcept;
+
     /**
-     * 2 点を結ぶ 1 本の線を積む。
+     * 2 点を結ぶ 1 本の線を積む。容量不足なら何も変更しない。
      *
      * @param a 始点。
      * @param b 終点。
@@ -101835,25 +102732,32 @@ public:
      */
     void Line(FVec3 a, FVec3 b, FVec4 color) noexcept;
 
+    /** AABBの12本の線を一括追加する。成功なら true、容量不足なら変更せず false を返す。 */
+    bool TryAabb(const FAabb3& box, FVec4 color) noexcept;
+
     /**
-     * AABB の 12 本のエッジを線で積む。
+     * AABB の 12 本のエッジを線で積む。容量不足なら何も変更しない。
      *
      * @param box 描画する軸並行境界ボックス。
      * @param color 線の色 (RGBA)。
      */
     void Aabb(const FAabb3& box, FVec4 color) noexcept;
 
+    /** 範囲内 index の三角形だけを一括追加する。末尾1、2個は無視し、nullまたは容量不足なら false。 */
+    bool TryWireframe(const FVec3* positions, u32 vertex_count, const u32* indices, u32 index_count, FVec4 color) noexcept;
+
     /**
-     * 三角形インデックス列の全エッジを線で積む (メッシュ/凸包の wireframe)。
+     * 三角形インデックス列の有効な全エッジを線で積む (メッシュ/凸包の wireframe)。
      *
+     * @details 範囲外 index を含む三角形と、末尾の1または2 indexは無視する。容量不足なら
+     * 有効な三角形も含めて何も追加しない。
      * @param positions 頂点座標配列。
      * @param vertex_count positions の頂点数。
      * @param indices 三角形を構成するインデックス列。
-     * @param index_count indices の要素数 (3 の倍数)。
+     * @param index_count indices の要素数。
      * @param color 線の色 (RGBA)。
      */
-    void Wireframe(const FVec3* positions, u32 vertex_count,
-                   const u32* indices, u32 index_count, FVec4 color) noexcept;
+    void Wireframe(const FVec3* positions, u32 vertex_count, const u32* indices, u32 index_count, FVec4 color) noexcept;
 
     /**
      * 積んだ全ラインを現在 bind 中のターゲットへ描画する。
@@ -101868,37 +102772,41 @@ public:
      *
      * @return ライン本数 (頂点数 / 2)。
      */
-    u32 LineCount() const noexcept { return static_cast<u32>(m_Verts.Num() / 2); }
+    u32 LineCount() const noexcept
+    {
+        return static_cast<u32>(m_Verts.Num() / 2);
+    }
 
 private:
     /** 1 本のラインを構成する 1 頂点 (位置 + RGBA カラー)。 */
-    struct FLineVtx { f32 px, py, pz, r, g, b, a; };
+    struct FLineVtx {
+        f32 px, py, pz, r, g, b, a;
+    };
 
     /** ライン描画の頂点シェーダ。 */
-    TUniquePtr<IRhiShader>   m_Vs;
+    TUniquePtr<IRhiShader> m_Vs;
 
     /** ライン描画のピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_Ps;
+    TUniquePtr<IRhiShader> m_Ps;
 
     /** ライン描画のパイプライン (LineList、depth 無し)。 */
     TUniquePtr<IRhiPipeline> m_Pipeline;
 
     /** ライン頂点を保持する GPU 頂点バッファ。 */
-    TUniquePtr<IRhiBuffer>   m_Vb;
+    TUniquePtr<IRhiBuffer> m_Vb;
 
     /** view-projection 行列を渡す定数バッファ。 */
-    TUniquePtr<IRhiBuffer>   m_Cb;
+    TUniquePtr<IRhiBuffer> m_Cb;
 
     /** CPU 側のライン頂点蓄積 (End で頂点バッファへ転送)。 */
-    TArray<FLineVtx>          m_Verts;
+    TArray<FLineVtx> m_Verts;
 
     /** 頂点バッファに収まる頂点数の上限 (max_lines * 2)。 */
-    u32                      m_MaxVerts = 0;
+    u32 m_MaxVerts = 0;
 };
 
 /** 旧名を使う既存コード向けの互換別名。 */
 using FDebugDraw3D = CDebugDraw3D;
-
 
 } // namespace acs
 

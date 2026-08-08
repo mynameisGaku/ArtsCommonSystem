@@ -544,11 +544,14 @@ ACS_REF.modules.push({
       when: "当たり判定や法線、デバッグ用の補助線を画面に重ねて確認したいとき。",
       sample: "CDebugDraw3D dd;\ndd.Init(*dev, rdr.ColorFormat());\ndd.Begin();\ndd.Aabb(box, FVec4{1,1,0,1});\ndd.Line(a, b, FVec4{0,1,1,1});\ndd.Wireframe(positions, vcount, indices, icount, FVec4{0.4f,1,0.4f,1});\ndd.End(*cl, view_proj);   // RT が bind 済みの状態で",
       members: [
-        { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, u32 max_lines = 16384)", desc: "初期化。1 フレームの最大線数を指定。" },
+        { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, u32 max_lines = 16384)", desc: "初期化。0 は 1 本へ補正する。容量計算、CPU 頂点領域、GPU 資源生成に失敗した場合は、以前の資源・頂点・容量を変更しない。" },
         { sig: "void Begin()", desc: "線の蓄積を開始(リセット)。" },
-        { sig: "void Line(FVec3 a, FVec3 b, FVec4 color)", desc: "2 点間の線を積む。" },
-        { sig: "void Aabb(const FAabb3& box, FVec4 color)", desc: "軸並行ボックスの 12 辺を積む。" },
-        { sig: "void Wireframe(const FVec3* positions, u32 vertex_count, const u32* indices, u32 index_count, FVec4 color)", desc: "三角形インデックス列の全エッジを線で描く(メッシュ/凸包の輪郭)。" },
+        { sig: "bool TryLine(FVec3 a, FVec3 b, FVec4 color)", desc: "2 点間の線を全頂点追加する。容量不足なら変更せず false。" },
+        { sig: "void Line(FVec3 a, FVec3 b, FVec4 color)", desc: "TryLine の既存 void 互換入口。失敗時は何も変更しない。" },
+        { sig: "bool TryAabb(const FAabb3& box, FVec4 color)", desc: "軸並行ボックスの 12 辺を一括追加する。容量不足なら変更せず false。" },
+        { sig: "void Aabb(const FAabb3& box, FVec4 color)", desc: "TryAabb の既存 void 互換入口。失敗時は何も変更しない。" },
+        { sig: "bool TryWireframe(const FVec3* positions, u32 vertex_count, const u32* indices, u32 index_count, FVec4 color)", desc: "範囲外 index の三角形を飛ばし、末尾 1、2 index を無視して有効な全辺を一括追加する。有効な三角形 0 件は true、null または容量不足は変更せず false。" },
+        { sig: "void Wireframe(const FVec3* positions, u32 vertex_count, const u32* indices, u32 index_count, FVec4 color)", desc: "TryWireframe の既存 void 互換入口。同じ skip・末尾無視を保ち、失敗時は何も変更しない。" },
         { sig: "void End(IRhiCommandList& cl, const FMat4& view_proj)", desc: "現在 bind 中のターゲットへ全線を描画する。" },
         { sig: "u32 LineCount() const", desc: "蓄積済みの線数。" },
         { sig: "using FDebugDraw3D = CDebugDraw3D", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CDebugDraw3D</code> を使う。" }

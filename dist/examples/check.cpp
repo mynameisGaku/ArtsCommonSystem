@@ -19,6 +19,28 @@ static_assert(std::is_same_v<decltype(&acs::TArray<acs::i32>::Remove), bool (acs
 static_assert(std::is_same_v<decltype(&acs::TInlineArray<acs::i32, 2u>::Remove), bool (acs::TInlineArray<acs::i32, 2u>::*)(const acs::i32&) noexcept>);
 static_assert(std::is_same_v<decltype(&acs::TObservableArray<acs::i32>::Remove), bool (acs::TObservableArray<acs::i32>::*)(const acs::i32&) noexcept>);
 
+/** CDebugDraw3Dの既存・追加公開入口を配布headerとlibrary間で照合する署名。 */
+using FDebugDrawInitSignature = acs::TResult<void> (acs::CDebugDraw3D::*)(acs::IRhiDevice&, acs::EFormat, acs::u32) noexcept;
+using FDebugDrawVoidSignature = void (acs::CDebugDraw3D::*)() noexcept;
+using FDebugDrawLineSignature = void (acs::CDebugDraw3D::*)(acs::FVec3, acs::FVec3, acs::FVec4) noexcept;
+using FDebugDrawAabbSignature = void (acs::CDebugDraw3D::*)(const acs::FAabb3&, acs::FVec4) noexcept;
+using FDebugDrawWireframeSignature = void (acs::CDebugDraw3D::*)(const acs::FVec3*, acs::u32, const acs::u32*, acs::u32, acs::FVec4) noexcept;
+using FDebugDrawEndSignature = void (acs::CDebugDraw3D::*)(acs::IRhiCommandList&, const acs::FMat4&) noexcept;
+using FDebugDrawTryLineSignature = bool (acs::CDebugDraw3D::*)(acs::FVec3, acs::FVec3, acs::FVec4) noexcept;
+using FDebugDrawTryAabbSignature = bool (acs::CDebugDraw3D::*)(const acs::FAabb3&, acs::FVec4) noexcept;
+using FDebugDrawTryWireframeSignature = bool (acs::CDebugDraw3D::*)(const acs::FVec3*, acs::u32, const acs::u32*, acs::u32, acs::FVec4) noexcept;
+
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::Init), FDebugDrawInitSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::Shutdown), FDebugDrawVoidSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::Begin), FDebugDrawVoidSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::Line), FDebugDrawLineSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::Aabb), FDebugDrawAabbSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::Wireframe), FDebugDrawWireframeSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::End), FDebugDrawEndSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::TryLine), FDebugDrawTryLineSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::TryAabb), FDebugDrawTryAabbSignature>);
+static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::TryWireframe), FDebugDrawTryWireframeSignature>);
+
 /** 配布物のイベント通路番号を割り当てる検査型。 */
 struct FDistributionEventProbe {};
 
@@ -51,10 +73,39 @@ void CountLogSink(acs::ELogSeverity severity, const char* message, void* user) n
     if (severity == acs::ELogSeverity::Info && message != nullptr) ++notification_count;
 }
 
+/** 配布libraryに既存7入口と追加3入口の実symbolが揃うことをlinkで固定する。 */
+void LinkDebugDraw3DSymbols() noexcept
+{
+    /** linkerが除去できない既存公開symbolのmember pointer。 */
+    volatile FDebugDrawInitSignature init = &acs::CDebugDraw3D::Init;
+    volatile FDebugDrawVoidSignature shutdown = &acs::CDebugDraw3D::Shutdown;
+    volatile FDebugDrawVoidSignature begin = &acs::CDebugDraw3D::Begin;
+    volatile FDebugDrawLineSignature line = &acs::CDebugDraw3D::Line;
+    volatile FDebugDrawAabbSignature aabb = &acs::CDebugDraw3D::Aabb;
+    volatile FDebugDrawWireframeSignature wireframe = &acs::CDebugDraw3D::Wireframe;
+    volatile FDebugDrawEndSignature end = &acs::CDebugDraw3D::End;
+    /** linkerが除去できない追加公開symbolのmember pointer。 */
+    volatile FDebugDrawTryLineSignature try_line = &acs::CDebugDraw3D::TryLine;
+    volatile FDebugDrawTryAabbSignature try_aabb = &acs::CDebugDraw3D::TryAabb;
+    volatile FDebugDrawTryWireframeSignature try_wireframe = &acs::CDebugDraw3D::TryWireframe;
+    (void)init;
+    (void)shutdown;
+    (void)begin;
+    (void)line;
+    (void)aabb;
+    (void)wireframe;
+    (void)end;
+    (void)try_line;
+    (void)try_aabb;
+    (void)try_wireframe;
+}
+
 /** 配布SDKのheader、外部symbol、基本計算を検証し、失敗時は1を返す。 */
 int main()
 {
     using namespace acs;
+
+    LinkDebugDraw3DSymbols();
 
     // containerの基本操作を検証する値。
     TArray<i32> v;
