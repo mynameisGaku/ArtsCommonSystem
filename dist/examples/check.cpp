@@ -65,6 +65,21 @@ static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::TryLine), FDebugDrawTr
 static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::TryAabb), FDebugDrawTryAabbSignature>);
 static_assert(std::is_same_v<decltype(&acs::CDebugDraw3D::TryWireframe), FDebugDrawTryWireframeSignature>);
 
+/** Primitive の既存・追加公開入口を配布 header と library 間で照合する署名。 */
+using FPrimitiveMakeCubeSignature = acs::TSharedPtr<acs::AMeshAsset> (*)(acs::f32) noexcept;
+using FPrimitiveMakeSphereSignature = acs::TSharedPtr<acs::AMeshAsset> (*)(acs::f32, acs::u32, acs::u32) noexcept;
+using FPrimitiveMakePlaneSignature = acs::TSharedPtr<acs::AMeshAsset> (*)(acs::f32, acs::f32) noexcept;
+using FPrimitiveTryMakeCubeSignature = bool (*)(acs::f32, acs::TSharedPtr<acs::AMeshAsset>&) noexcept;
+using FPrimitiveTryMakeSphereSignature = bool (*)(acs::f32, acs::u32, acs::u32, acs::TSharedPtr<acs::AMeshAsset>&) noexcept;
+using FPrimitiveTryMakePlaneSignature = bool (*)(acs::f32, acs::f32, acs::TSharedPtr<acs::AMeshAsset>&) noexcept;
+
+static_assert(std::is_same_v<decltype(&acs::Primitive::MakeCube), FPrimitiveMakeCubeSignature>);
+static_assert(std::is_same_v<decltype(&acs::Primitive::MakeSphere), FPrimitiveMakeSphereSignature>);
+static_assert(std::is_same_v<decltype(&acs::Primitive::MakePlane), FPrimitiveMakePlaneSignature>);
+static_assert(std::is_same_v<decltype(&acs::Primitive::TryMakeCube), FPrimitiveTryMakeCubeSignature>);
+static_assert(std::is_same_v<decltype(&acs::Primitive::TryMakeSphere), FPrimitiveTryMakeSphereSignature>);
+static_assert(std::is_same_v<decltype(&acs::Primitive::TryMakePlane), FPrimitiveTryMakePlaneSignature>);
+
 /** 配布物のイベント通路番号を割り当てる検査型。 */
 struct FDistributionEventProbe {};
 
@@ -95,6 +110,25 @@ void CountLogSink(acs::ELogSeverity severity, const char* message, void* user) n
     /** 呼び出し側が所有する通知回数。 */
     auto& notification_count = *static_cast<acs::u32*>(user);
     if (severity == acs::ELogSeverity::Info && message != nullptr) ++notification_count;
+}
+
+/** 配布 library に Primitive の既存 3 入口と追加 3 入口が揃うことを link で固定する。 */
+void LinkMeshPrimitiveSymbols() noexcept
+{
+    /** linker が除去できない既存公開 symbol の関数 pointer。 */
+    volatile FPrimitiveMakeCubeSignature make_cube = &acs::Primitive::MakeCube;
+    volatile FPrimitiveMakeSphereSignature make_sphere = &acs::Primitive::MakeSphere;
+    volatile FPrimitiveMakePlaneSignature make_plane = &acs::Primitive::MakePlane;
+    /** linker が除去できない追加公開 symbol の関数 pointer。 */
+    volatile FPrimitiveTryMakeCubeSignature try_make_cube = &acs::Primitive::TryMakeCube;
+    volatile FPrimitiveTryMakeSphereSignature try_make_sphere = &acs::Primitive::TryMakeSphere;
+    volatile FPrimitiveTryMakePlaneSignature try_make_plane = &acs::Primitive::TryMakePlane;
+    (void)make_cube;
+    (void)make_sphere;
+    (void)make_plane;
+    (void)try_make_cube;
+    (void)try_make_sphere;
+    (void)try_make_plane;
 }
 
 /** 配布libraryに既存7入口と追加3入口の実symbolが揃うことをlinkで固定する。 */
@@ -156,6 +190,7 @@ int main()
 {
     using namespace acs;
 
+    LinkMeshPrimitiveSymbols();
     LinkDebugDraw2DSymbols();
     LinkDebugDraw3DSymbols();
 

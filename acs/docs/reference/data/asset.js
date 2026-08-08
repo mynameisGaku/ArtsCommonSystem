@@ -271,6 +271,9 @@ ACS_REF.modules.push({
       when: "モデルを用意せずにとりあえず形を描きたい/動作確認したい時。",
       sample: "TSharedPtr&lt;AMeshAsset&gt; cube   = Primitive::MakeCube();\nTSharedPtr&lt;AMeshAsset&gt; sphere = Primitive::MakeSphere(1.0f, 32, 16);\nTSharedPtr&lt;AMeshAsset&gt; plane  = Primitive::MakePlane(10.0f, 10.0f);",
       members: [
+        { sig: "bool TryMakeCube(f32 size, TSharedPtr<AMeshAsset>& output) noexcept", desc: "成功時だけ output を立方体へ置き換える。入力不正または確保失敗時は変更しない。" },
+        { sig: "bool TryMakeSphere(f32 radius, u32 segments, u32 rings, TSharedPtr<AMeshAsset>& output) noexcept", desc: "成功時だけ output を球へ置き換える。入力不正、要素数超過、確保失敗時は変更しない。" },
+        { sig: "bool TryMakePlane(f32 width, f32 depth, TSharedPtr<AMeshAsset>& output) noexcept", desc: "成功時だけ output を平面へ置き換える。入力不正または確保失敗時は変更しない。" },
         { sig: "TSharedPtr<AMeshAsset> MakeCube(f32 size = 1.0f)", ret: "立方体", desc: "中心原点の立方体。各面 4 頂点で法線と UV 0..1 を持つ。" },
         { sig: "TSharedPtr<AMeshAsset> MakeSphere(f32 radius = 0.5f, u32 segments = 32, u32 rings = 16)", ret: "球", desc: "UV 球(半径・横分割・縦分割)。" },
         { sig: "TSharedPtr<AMeshAsset> MakePlane(f32 width = 1.0f, f32 depth = 1.0f)", ret: "平面", desc: "XZ 平面(Y=0、法線 +Y)。" }

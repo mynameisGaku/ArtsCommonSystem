@@ -1458,6 +1458,36 @@
       "preprocessor_state": "active"
     },
     {
+      "path": "acs/tests/image_asset_transactional_tests.cpp",
+      "file_sha256": "A4001D4D58DA21482D4720C0846DB47E8CBE63A2A29FE69920FBCE9F27FC1E56",
+      "line_hint": 305,
+      "line_sha256": "112F42BD0DBCE18E2931B8509FF5AF3427604547F000520606072AF2AB3A48E8",
+      "line_occurrence": 0,
+      "token_occurrence": 0,
+      "legacy": "FImageAsset",
+      "canonical": "acs::AImageAsset",
+      "reason": "compatibility_fixture",
+      "lexical_context": "code",
+      "construct": "compatibility_type_assertion",
+      "qualifier": "",
+      "preprocessor_state": "active"
+    },
+    {
+      "path": "acs/tests/image_asset_transactional_tests.cpp",
+      "file_sha256": "A4001D4D58DA21482D4720C0846DB47E8CBE63A2A29FE69920FBCE9F27FC1E56",
+      "line_hint": 306,
+      "line_sha256": "2FB742794620D18488AB9C1D924693016A20C95D9DC494914F7AD13C9CFD3AC3",
+      "line_occurrence": 0,
+      "token_occurrence": 0,
+      "legacy": "FImageAssetLoader",
+      "canonical": "acs::CImageAssetLoader",
+      "reason": "compatibility_fixture",
+      "lexical_context": "code",
+      "construct": "compatibility_type_assertion",
+      "qualifier": "",
+      "preprocessor_state": "active"
+    },
+    {
       "path": "acs/tests/jobgraph_tests.cpp",
       "file_sha256": "7E1929024850EEA27C32737242EEEC330C8D54B9E30341137895AD002F941DF6",
       "line_hint": 87,
@@ -1511,6 +1541,21 @@
       "token_occurrence": 0,
       "legacy": "FLuaVm",
       "canonical": "acs::scripting::CLuaVm",
+      "reason": "compatibility_fixture",
+      "lexical_context": "code",
+      "construct": "compatibility_type_assertion",
+      "qualifier": "",
+      "preprocessor_state": "active"
+    },
+    {
+      "path": "acs/tests/mesh_asset_fbx_transactional_tests.cpp",
+      "file_sha256": "20C3735651D01CAD7BABDE70F81BDFA1C641592BB6322F5C280EE389F7A80671",
+      "line_hint": 331,
+      "line_sha256": "DD2778BFDB4009D71BB9002E26ED0261ABCDE297219E4F75ACA478102E352491",
+      "line_occurrence": 0,
+      "token_occurrence": 0,
+      "legacy": "FFbxAssetLoader",
+      "canonical": "acs::CFbxAssetLoader",
       "reason": "compatibility_fixture",
       "lexical_context": "code",
       "construct": "compatibility_type_assertion",
@@ -2014,7 +2059,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "1A7C0FA7FC03415173267FFC99131A519E7816E08100D1EAA85509B12F5C9C93",
+      "file_sha256": "0205C7097388357F7A9A587DDDBA8C0869F3707D1817A1458ABA6DBD6C57D987",
       "line_hint": 11,
       "line_sha256": "658AAF3D91E68E96AD95A4FAA703586DE0ECD9361012559814F54C0E7A0BB259",
       "line_occurrence": 0,
@@ -2029,7 +2074,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "1A7C0FA7FC03415173267FFC99131A519E7816E08100D1EAA85509B12F5C9C93",
+      "file_sha256": "0205C7097388357F7A9A587DDDBA8C0869F3707D1817A1458ABA6DBD6C57D987",
       "line_hint": 12,
       "line_sha256": "7ADE0FA389E18093321C9ECB3BCC53247900C877B08E7B33F5229A568258DCB4",
       "line_occurrence": 0,
@@ -2044,7 +2089,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "1A7C0FA7FC03415173267FFC99131A519E7816E08100D1EAA85509B12F5C9C93",
+      "file_sha256": "0205C7097388357F7A9A587DDDBA8C0869F3707D1817A1458ABA6DBD6C57D987",
       "line_hint": 10,
       "line_sha256": "8D671E3BD7CD0CE3CC7342CBAE5479580829AB9F87E3D4C1E2EEB6341C2B77D0",
       "line_occurrence": 0,
@@ -2059,7 +2104,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "1A7C0FA7FC03415173267FFC99131A519E7816E08100D1EAA85509B12F5C9C93",
+      "file_sha256": "0205C7097388357F7A9A587DDDBA8C0869F3707D1817A1458ABA6DBD6C57D987",
       "line_hint": 14,
       "line_sha256": "927F131FD41ADCA6DAA8F82C28C07985CB4114E59545D9CF540C68F745997ABF",
       "line_occurrence": 0,
@@ -2074,7 +2119,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "1A7C0FA7FC03415173267FFC99131A519E7816E08100D1EAA85509B12F5C9C93",
+      "file_sha256": "0205C7097388357F7A9A587DDDBA8C0869F3707D1817A1458ABA6DBD6C57D987",
       "line_hint": 13,
       "line_sha256": "BE684A2669E4AFA7DB6B4C3E9C09A301453C1EB421532A17061B6C01E5CAA586",
       "line_occurrence": 0,
@@ -2089,7 +2134,7 @@
     },
     {
       "path": "dist/examples/check.cpp",
-      "file_sha256": "1A7C0FA7FC03415173267FFC99131A519E7816E08100D1EAA85509B12F5C9C93",
+      "file_sha256": "0205C7097388357F7A9A587DDDBA8C0869F3707D1817A1458ABA6DBD6C57D987",
       "line_hint": 34,
       "line_sha256": "F58D52A06E68E5AB0BD9696F57906290D07FBCDA01F0F56D7AAA114EA1C91D78",
       "line_occurrence": 0,
