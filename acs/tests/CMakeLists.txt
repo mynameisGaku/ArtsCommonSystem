@@ -167,6 +167,24 @@ target_link_libraries(acs_log_sink_registry_tests PRIVATE
 add_test(NAME ACS.LogSinkRegistry COMMAND acs_log_sink_registry_tests)
 set_tests_properties(ACS.LogSinkRegistry PROPERTIES LABELS "Foundation;Concurrency" TIMEOUT 60)
 
+# CDebugDraw3Dの生成失敗を実GPUなしで注入し、Render本体と分離して検証する。
+add_executable(acs_debug_draw_3d_safety_tests
+    main.cpp
+    debug_draw_3d_safety_tests.cpp
+    "${ACS_SOURCE_ROOT}/render/DebugDraw.cpp"
+)
+set_target_properties(acs_debug_draw_3d_safety_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_debug_draw_3d_safety_tests)
+target_link_libraries(acs_debug_draw_3d_safety_tests PRIVATE
+    ACS::Foundation
+    ACS::Memory
+    ACS::Container
+    ACS::Math
+    ACS::Test
+)
+add_test(NAME ACS.DebugDraw3DSafety COMMAND acs_debug_draw_3d_safety_tests)
+set_tests_properties(ACS.DebugDraw3DSafety PROPERTIES LABELS "Render;Safety;Compatibility" TIMEOUT 60)
+
 # Randomの既存列、layout、検査済みKit吸収APIを独立して反復する。
 add_executable(acs_random_compatibility_tests
     main.cpp
