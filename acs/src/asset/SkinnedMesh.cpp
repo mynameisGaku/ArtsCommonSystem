@@ -4,6 +4,8 @@
 #include "math/Math.h"
 #include "foundation/Move.h"
 
+#include <cmath>
+
 namespace acs {
 
 namespace {
@@ -116,6 +118,26 @@ void CAnimationPlayer::Update(f32 dt) noexcept {
     if (!m_Playing || !m_Mesh || m_Anim < 0) return;
     if (m_Anim >= static_cast<i32>(m_Mesh->Animations().Num())) return;
     const FAnimation& a = m_Mesh->Animations()[m_Anim];
+
+    if (m_bLoop && a.duration > 0.0f && std::isfinite(a.duration)) {
+        // 非有限入力では再生時刻と再生状態を変更しない。
+        if (!std::isfinite(m_Time) || !std::isfinite(dt)) return;
+
+        /** wrapに使う正の有限duration。 */
+        const f64 duration = static_cast<f64>(a.duration);
+
+        /** f32 の加算overflowを避けるため、wrap前の時刻を倍精度で合成する。 */
+        const f64 summed_time = static_cast<f64>(m_Time) + static_cast<f64>(dt);
+
+        /** duration内へ一回で折り返した時刻。 */
+        f64 wrapped_time = std::fmod(summed_time, duration);
+        if (wrapped_time < 0.0) wrapped_time += duration;
+        // 負の0を公開しない。
+        if (wrapped_time == 0.0) wrapped_time = 0.0;
+        m_Time = static_cast<f32>(wrapped_time);
+        return;
+    }
+
     m_Time += dt;
     if (a.duration > 0) {
         if (m_bLoop) {

@@ -307,6 +307,20 @@ target_link_libraries(acs_mesh_primitive_safety_tests PRIVATE
 add_test(NAME ACS.MeshPrimitiveSafety COMMAND acs_mesh_primitive_safety_tests)
 set_tests_properties(ACS.MeshPrimitiveSafety PROPERTIES LABELS "Asset;Safety;Compatibility" TIMEOUT 60)
 
+# CAnimationPlayerの有限loop wrapと旧非loop境界を独立して反復する。
+add_executable(acs_animation_player_update_safety_tests
+    main.cpp
+    animation_player_update_safety_tests.cpp
+)
+set_target_properties(acs_animation_player_update_safety_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_animation_player_update_safety_tests)
+target_link_libraries(acs_animation_player_update_safety_tests PRIVATE
+    ACS::Asset
+    ACS::Test
+)
+add_test(NAME ACS.AnimationPlayerUpdateSafety COMMAND acs_animation_player_update_safety_tests)
+set_tests_properties(ACS.AnimationPlayerUpdateSafety PROPERTIES LABELS "Asset;Animation;Safety;Compatibility" TIMEOUT 60)
+
 # FBX loaderのcount検査、OOM時の一括破棄、旧geometry順を独立して反復する。
 add_executable(acs_fbx_loader_transactional_tests
     main.cpp
