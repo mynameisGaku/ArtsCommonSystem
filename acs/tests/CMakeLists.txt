@@ -321,6 +321,25 @@ target_link_libraries(acs_fbx_loader_transactional_tests PRIVATE
 add_test(NAME ACS.FbxLoaderTransactional COMMAND acs_fbx_loader_transactional_tests)
 set_tests_properties(ACS.FbxLoaderTransactional PROPERTIES LABELS "Asset;Safety;Compatibility" TIMEOUT 60)
 
+# CImageAssetLoaderを専用stb確保hook付きで再コンパイルし、decode後OOMと解放を検証する。
+add_executable(acs_image_asset_transactional_tests
+    main.cpp
+    image_asset_transactional_tests.cpp
+    "${ACS_SOURCE_ROOT}/asset/ImageAsset.cpp"
+)
+set_target_properties(acs_image_asset_transactional_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_image_asset_transactional_tests)
+target_compile_definitions(acs_image_asset_transactional_tests PRIVATE ACS_IMAGE_ASSET_TEST_HOOKS=1)
+target_link_libraries(acs_image_asset_transactional_tests PRIVATE
+    ACS::Foundation
+    ACS::Memory
+    ACS::Container
+    ACS::Test
+    acs_third_party::stb
+)
+add_test(NAME ACS.ImageAssetTransactional COMMAND acs_image_asset_transactional_tests)
+set_tests_properties(ACS.ImageAssetTransactional PROPERTIES LABELS "Asset;Memory;Compatibility" TIMEOUT 60)
+
 # 実機タイミングだけに依存せず、削減した呼び出し・起床回数を JSON で検証する。
 add_executable(acs_foundation_performance
     foundation_performance_main.cpp
