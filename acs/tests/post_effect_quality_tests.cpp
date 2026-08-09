@@ -4221,12 +4221,75 @@ ACS_TEST(RenderLifecycle,
 
     const std::size_t easy_resize_failure =
         easy_bridge.find("if (!g_state.renderer.OnResize(");
+    const std::string easy_post_block = ExtractFunction(easy_bridge, "if (g_state.post_available)");
+    const std::string easy_post_error_block = ExtractFunction(easy_post_block, "if (post_resize.IsErr())");
+    const std::string easy_renderer_failure_block = ExtractFunction(easy_bridge, "if (!g_state.renderer.OnResize(");
+    const std::string easy_failure_block = ExtractFunction(easy_frame, "if (g_state.renderer_failure_pending)");
+    const std::size_t easy_post_guard =
+        easy_bridge.find("if (g_state.post_available)");
+    const std::size_t easy_post_resize =
+        easy_post_block.find("g_state.post.Resize(");
+    const std::size_t easy_post_error =
+        easy_post_block.find("post_resize.IsErr()");
+    const std::size_t easy_post_dimensions = easy_post_error_block.find("post-process resize failed (%u x %u)");
+    const std::size_t easy_post_error_message =
+        easy_post_error_block.find("post_resize.Error().message");
+    const std::size_t easy_post_failure =
+        easy_post_error_block.find("g_state.renderer_failure_pending = true;");
+    const std::size_t easy_post_return =
+        easy_post_error_block.find("return;");
+    const std::size_t easy_renderer_failure_pending = easy_renderer_failure_block.find("g_state.renderer_failure_pending = true;");
+    const std::size_t easy_renderer_return =
+        easy_renderer_failure_block.find("return;");
+    const std::size_t easy_post_discarded_result =
+        easy_bridge.find("(void)g_state.post.Resize");
     const std::size_t easy_failure_gate =
         easy_frame.find("if (g_state.renderer_failure_pending)");
+    const std::size_t easy_first_acquire =
+        easy_frame.find("AcquireNextImage()");
+    const std::size_t easy_shutdown =
+        easy_failure_block.find("RunShutdownOnce()");
+    const std::size_t easy_stop = easy_failure_block.find("return false;", easy_shutdown);
     const std::size_t easy_begin =
         easy_frame.find("g_state.renderer.BeginFrame(");
     EXPECT_TRUE(easy_resize_failure != std::string::npos);
+    EXPECT_TRUE(!easy_post_block.empty());
+    EXPECT_TRUE(!easy_post_error_block.empty());
+    EXPECT_TRUE(!easy_renderer_failure_block.empty());
+    EXPECT_TRUE(!easy_failure_block.empty());
+    EXPECT_TRUE(easy_post_guard != std::string::npos);
+    EXPECT_EQ(CountOccurrences(easy_post_block, "g_state.post.Resize("), std::size_t{1u});
+    EXPECT_TRUE(easy_post_resize != std::string::npos);
+    EXPECT_TRUE(easy_post_error != std::string::npos);
+    EXPECT_TRUE(easy_post_dimensions != std::string::npos);
+    EXPECT_TRUE(easy_post_error_message != std::string::npos);
+    EXPECT_TRUE(easy_post_failure != std::string::npos);
+    EXPECT_TRUE(easy_post_return != std::string::npos);
+    EXPECT_TRUE(easy_post_resize < easy_post_error);
+    EXPECT_TRUE(easy_post_dimensions < easy_post_error_message);
+    EXPECT_TRUE(easy_post_error_message < easy_post_failure);
+    EXPECT_TRUE(easy_post_failure < easy_post_return);
+    EXPECT_EQ(CountOccurrences(easy_post_error_block, "post-process resize failed (%u x %u)"), std::size_t{1u});
+    EXPECT_EQ(CountOccurrences(easy_post_error_block, "post_resize.Error().message"), std::size_t{1u});
+    EXPECT_EQ(CountOccurrences(easy_post_error_block, "g_state.renderer_failure_pending = true;"), std::size_t{1u});
+    EXPECT_EQ(CountOccurrences(easy_post_error_block, "return;"), std::size_t{1u});
+    EXPECT_EQ(CountOccurrences(easy_renderer_failure_block, "g_state.renderer_failure_pending = true;"), std::size_t{1u});
+    EXPECT_EQ(CountOccurrences(easy_renderer_failure_block, "return;"), std::size_t{1u});
+    EXPECT_TRUE(easy_renderer_failure_pending != std::string::npos);
+    EXPECT_TRUE(easy_renderer_return != std::string::npos);
+    EXPECT_TRUE(easy_renderer_failure_pending < easy_renderer_return);
+    EXPECT_TRUE(easy_resize_failure + easy_renderer_failure_block.size() <= easy_post_guard);
+    EXPECT_TRUE(easy_resize_failure < easy_post_guard);
+    EXPECT_EQ(easy_post_discarded_result, std::string::npos);
     EXPECT_TRUE(easy_failure_gate != std::string::npos);
+    EXPECT_TRUE(easy_first_acquire != std::string::npos);
+    EXPECT_TRUE(easy_shutdown != std::string::npos);
+    EXPECT_TRUE(easy_stop != std::string::npos);
+    EXPECT_EQ(CountOccurrences(easy_failure_block, "RunShutdownOnce()"), std::size_t{1u});
+    EXPECT_EQ(CountOccurrences(easy_failure_block, "return false;"), std::size_t{1u});
+    EXPECT_TRUE(easy_failure_gate < easy_first_acquire);
+    EXPECT_TRUE(easy_shutdown < easy_stop);
+    EXPECT_TRUE(easy_failure_gate + easy_failure_block.size() <= easy_first_acquire);
     EXPECT_TRUE(easy_begin != std::string::npos);
     EXPECT_TRUE(easy_failure_gate < easy_begin);
 }

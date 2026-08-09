@@ -179,7 +179,7 @@ struct FEasyState {
     /** Quit() が呼ばれた。 */
     bool quit_req    = false;
 
-    /** Resize failure: do not record into a possibly missing backbuffer. */
+    /** レンダラまたはポストプロセスのリサイズ失敗後にフレーム記録を止めるフラグ。 */
     bool renderer_failure_pending = false;
 
     /** 「枠の外で描画した」警告を 1 度だけ出すためのフラグ。 */
@@ -521,8 +521,15 @@ void EasyEventBridge(void* /*user*/, const FEvent& e) noexcept {
             g_state.renderer_failure_pending = true;
             return;
         }
-        if (g_state.post_available)
-            (void)g_state.post.Resize(e.resize.width, e.resize.height);
+        if (g_state.post_available) {
+            const auto post_resize = g_state.post.Resize(e.resize.width, e.resize.height);
+            if (post_resize.IsErr()) {
+                ACS_LOG_ERROR("easy: post-process resize failed (%u x %u)", e.resize.width, e.resize.height);
+                ACS_LOG_ERROR("easy: post-process resize error: %s", post_resize.Error().message);
+                g_state.renderer_failure_pending = true;
+                return;
+            }
+        }
     }
 }
 
@@ -997,7 +1004,7 @@ bool NextFrame() noexcept {
     }
     if (g_state.renderer_failure_pending) {
         ACS_LOG_ERROR(
-            "easy: renderer resize failed; "
+            "easy: renderer or post-process resize failed; "
             "stopping before frame recording");
         RunShutdownOnce();
         return false;
