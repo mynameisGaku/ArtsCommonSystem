@@ -32091,8 +32091,9 @@ using FAchievementManager = CAchievementManager;
 
 #define ACS_CLASS(...)
 #define ACS_PROPERTY(...)
-// ACS_FUNCTION(BlueprintCallable, CallInEditor, ...) — 引数なし void メソッドに付けると、
-// codegen が ACS_REGISTER_METHOD 相当を生成し、エディタのボタンや将来の Blueprint から呼べる。
+// ACS_FUNCTION(...) は反射対象メソッドと公開指定子を示す無処理マクロ。
+// ゲーム側の ACS_CLASS 内にある引数なし void メソッドは codegen が登録コードを生成し、Engine 組込み型は ReflectCatalog で登録する。
+// 登録後は指定子に応じてエディタのボタンや Blueprint グラフから呼び出せる。
 #define ACS_FUNCTION(...)
 
 // ===================== gameframework/AmbientDirector.h =====================

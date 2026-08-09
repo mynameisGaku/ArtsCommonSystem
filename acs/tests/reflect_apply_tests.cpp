@@ -157,7 +157,7 @@ ACS_TEST(ReflectApply, ObjectRefApplyAndRead) {
 }
 
 // ----- 関数リフレクション (ACS_FUNCTION / BlueprintCallable / CallInEditor) -----
-// 引数なし void メソッドを登録 → 名前で呼べ、フラグが取れる (= 将来の Blueprint/ボタンの土台)。
+// 明示的な ACS_REGISTER_METHOD で引数なし void メソッドを登録し、名前呼び出しと指定子フラグを検証する。
 struct FMethodHost {
     virtual ~FMethodHost() noexcept = default;
     int counter = 0;
