@@ -27,7 +27,7 @@ bool IsDiligentBackend(IRhiDevice& device) noexcept {
 namespace {
 
 // BRDF LUT 生成シェーダ。
-// Epic Games "Real Shading in UE4" の split-sum approximation。
+// split-sum approximation を使う。
 // 出力 RG16F: r=scale (F0 にかける係数), g=bias (F0 と無関係なオフセット)
 // 実行時 PBR 反射: F0 * lut.r + lut.g を Fresnel-modulated specular IBL の係数として使う。
 //
@@ -432,7 +432,7 @@ struct FIrradianceCBLayout {
 // 各 mip 各 face 各 texel の方向 N について:
 //   prefilter(N, r) = Σ L_env(L_i) * (N·L_i) / Σ (N·L_i)
 // L_i は GGX importance-sampled half-vector H から reflect(-V, H) として得る。
-// Karis の "V = N" 近似で V 依存を取り除いている (split-sum の片側、もう片方が BRDF LUT)。
+// "V = N" 近似で V 依存を取り除いている (split-sum の片側、もう片方が BRDF LUT)。
 //
 // mip 0 = roughness 0 (鏡面、env をそのままコピー)
 // mip 6 = roughness 1 (極限ぼかし)
@@ -670,8 +670,7 @@ TResult<void> CImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
         }
         return ACS_ERR(Render, 88, "BRDF LUT requires the Diligent backend (-DACS_RENDER_DILIGENT=ON)");
     }
-    // 前回失敗で残った半端テクスチャは破棄。途中失敗時にも次回呼び出しで
-    // 確実に rebuild されるよう、入口で全 reset しておく。
+    // 初期化失敗で残った半端テクスチャを破棄し、再試行時に全リソースを rebuild する。
     m_BrdfLut.Reset();
 
     // 1) RT 用テクスチャ

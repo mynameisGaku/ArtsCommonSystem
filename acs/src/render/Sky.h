@@ -316,7 +316,7 @@ using FSky = CSky;
 
 
 /**
- * GPU レイマーチ volumetric clouds (WickedEngine / Nubis 流)。
+ * GPU レイマーチによる volumetric clouds。
  *
  * @details
  * compute シェーダで全画面の視線ごとに雲スラブをレイマーチし、3D 手続きノイズ (Worley FBM) の
@@ -325,7 +325,7 @@ using FSky = CSky;
  * + alpha) を hdrRt の «空» の上に合成する。ray march は half-res、雲自身の代表深度を使う
  * bilateral spatial reconstruction と camera/wind reprojection temporal accumulation で full-res に
  * 復元する。CSky の 2D-FBM 雲より遥かにディテール/立体感が高い。
- * 要 Phase 0 compute コア (RWTexture2D UAV)。full-res color/depth も一つの
+ * compute コア (RWTexture2D UAV) が必要。full-res color/depth も一つの
  * 8x8 compute pass で別 format UAV へ同時に再構成し、重複 read と MRT overhead を避ける。
  */
 /**
@@ -784,9 +784,11 @@ private:
         EFormat hdr_format) noexcept;
 
     bool                     m_Ready = false;
-    bool                     m_NoiseBaked = false;       // Phase 4.5: shape noise を焼いたか
+    /** 形状ノイズを生成済みか。 */
+    bool                     m_NoiseBaked = false;
     EFormat                  m_HdrFormat = EFormat::R16G16B16A16_Float;
-    TUniquePtr<IRhiShader>   m_NoiseCs;                  // Phase 4.5: Perlin-Worley 生成 compute
+    /** Perlin-Worley ノイズを生成する計算シェーダー。 */
+    TUniquePtr<IRhiShader>   m_NoiseCs;
     TUniquePtr<IRhiPipeline> m_NoisePipe;                // compute (noise gen)
     TUniquePtr<IRhiTexture>  m_ShapeTex;                 // 128^3 RG16F Perlin-Worley/low-frequency Worley
     bool                     m_WeatherBaked = false;

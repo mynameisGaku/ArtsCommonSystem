@@ -123,7 +123,7 @@ ACS_FORCEINLINE f32 DensityRayleigh(f32 h) noexcept { return Exp(-h / kRayleighH
 ACS_FORCEINLINE f32 DensityMie(f32 h)      noexcept { return Exp(-h / kMieH); }
 
 /**
- * 高度 h でのオゾン密度比 (Hillaire/Bruneton)。25km をピークとするテント (10〜40km)。
+ * 高度 h でのオゾン密度比。25km をピークとするテント (10〜40km)。
  * オゾン層は «吸収のみ»。これが «正しい青» と薄明の色 (sunset の青紫帯) を生む。
  * @param h 地表を 0 とした高度 (m)。
  */
@@ -134,7 +134,7 @@ ACS_FORCEINLINE f32 DensityOzone(f32 h) noexcept {
     return d < 0.0f ? 0.0f : (d > 1.0f ? 1.0f : d);
 }
 
-/** オゾン吸収係数 β (RGB、m⁻¹)。Hillaire 標準 (0.650, 1.881, 0.085)×10⁻⁶。散乱はしない (吸収のみ)。 */
+/** オゾン吸収係数 β (RGB、m⁻¹)。(0.650, 1.881, 0.085)×10⁻⁶。散乱はしない (吸収のみ)。 */
 inline FVec3 OzoneAbsorption() noexcept {
     return FVec3{0.650e-6f, 1.881e-6f, 0.085e-6f};
 }
@@ -243,7 +243,7 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
         inscatter_m = inscatter_m + T_combined * (d_m);
     }
 
-    // 多重散乱 (Hillaire 近似): 2 次以降の散乱は方向依存が薄れ «等方» に近い。単散乱の蓄積
+    // 多重散乱近似: 2 次以降の散乱は方向依存が薄れ «等方» に近い。単散乱の蓄積
     // (inscatter_r/m) を等方位相 1/4π で再評価し ms 強度を掛けて加算 → 空が暗くなりすぎず、
     // 地平線/薄明が自然に満ちる (Rayleigh+Mie+ozone の完全 LUT は将来の GPU 化で)。
     const f32 kIso = 1.0f / (4.0f * kPi);
@@ -380,7 +380,7 @@ TArray<f32> CAtmosphere::BakeEquirect(u32 width, u32 height,
     return out;
 }
 
-// ===================== GPU Hillaire 大気 (CSkyAtmosphere) =====================
+// ===================== GPU 物理大気 (CSkyAtmosphere) =====================
 namespace {
 
 /** AtmoCB レイアウト (HLSL の cbuffer AtmoCB と一致)。 */
@@ -440,7 +440,7 @@ FMat4 SanitizeMatrix(const FMat4& value) noexcept {
 constexpr u32 kApXYRes = kSkyAtmosphereFroxelXyResolution;
 constexpr u32 kApZRes  = kSkyAtmosphereFroxelZResolution;
 
-// 共通 HLSL (km 単位、Hillaire/Bruneton Earth)。各 CS に inline する。
+// 共通 HLSL (km 単位、地球規模の大気パラメータ)。各 CS に inline する。
 #define ATMO_COMMON_HLSL \
 "static const float PI = 3.14159265;\n" \
 "static const float kBottom = 6360.0;\n" \
@@ -479,12 +479,12 @@ ATMO_COMMON_HLSL
 "  transOut[id.xy]=float4(exp(-tau),1.0);\n"
 "}\n";
 
-// Multi-scattering LUT (32x32)。WickedEngine skyAtmosphere_multiScatteredLuminanceLutCS の忠実移植。
+// Multi-scattering LUT (32x32)。方向別の二次散乱と等方伝達を積算する。
 // texel=(cosSunZenith=uv.x*2-1, viewHeight=bottom+uv.y*(top-bottom))。64 方向 (8x8) を
 // azimuth × uniform-cos-polar で等立体角サンプルし、各方向を march して
 // «太陽からの 2 次 in-scatter L» と «等方 transfer multiScatAs1» を蓄積。sphereSolidAngle/64
 // × isotropicPhase(1/4π) = 1/64 平均。Fms = (L/64)/(1-(multiScatAs1/64)) で無限多重散乱を幾何級数和。
-// ★前回失敗の正規化ミス (球平均/Tsun 二重掛け) を排除し WE と厳密一致。
+// 球平均と太陽透過率は各経路で一度だけ適用する。
 const char* kMultiCS =
 ATMO_COMMON_HLSL
 "Texture2D<float4> transLut : register(t0);\n"

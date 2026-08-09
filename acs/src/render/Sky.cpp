@@ -543,7 +543,7 @@ namespace {
 
 // 雲レイマーチ compute。視線ごとに雲スラブを march、Worley FBM 密度を coverage/height で remap、
 // 太陽へ light-march (Beer) + dual-lobe HG + powder でエネルギー保存散乱を積分。出力=非premult色+alpha。
-// ---- Phase 4.5: Perlin-Worley 3D noise を init で 1 回焼く (WickedEngine/Nubis 流) ----
+// ---- Perlin-Worley 3D noise を init で 1 回焼く ----
 // 128^3 RG16F: R=Perlin-Worley (dilate), G=base Worley。tileable。
 // per-voxel に worley 27-cell を計算するのは «高価» だが init 1 回だけなので実用 (per-frame march では
 // この焼き上がりテクスチャを 1 fetch する → 速くて crisp)。
@@ -3699,9 +3699,8 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
         m_ShadowGridInitialized = false;
         m_ShadowCacheDispatchCount = 0;
     }
-    // Phase 4.5: Perlin-Worley noise 生成 compute。
-    // shader 宣言は独立した物理行へ置く。以前の文字化け edit で行 comment と結合し、
-    // noise pass が黙って消えたことがある。
+    // Perlin-Worley noise 生成 compute。
+    // shader 宣言は独立した物理行へ置き、行 comment と結合させない。
     {
         m_NoiseCs = Move(shaders.noise); }
     {   FComputePipelineDesc pd{}; pd.cs = m_NoiseCs.Get();
@@ -4299,7 +4298,7 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     cb.cloudShellTerms = FVec4{
         shellC(m_Layer.top_height), 0.0f, 0.0f, 0.0f};
     m_Cb->Update(&cb, sizeof(cb));
-    // Phase 4.5: 初回に Perlin-Worley shape noise (128^3) を焼く (1 回のみ、以降 SRV で sample)。
+    // 初回に Perlin-Worley shape noise (128^3) を焼く (1 回のみ、以降 SRV で sample)。
     if (bakeShapeNoiseThisFrame) {
         cl.SetComputePipeline(*m_NoisePipe);
         cl.BindUav(0, *m_ShapeTex);

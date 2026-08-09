@@ -53,8 +53,10 @@
 #include "render/RenderAssets.h"            // UploadTexture / UploadMesh / FGpuMesh
 // FDebugDraw3D (グリッド/ギズモ/選択 AABB の線)
 #include "render/DebugDraw.h"
-#include "render/Sky.h"                     // CSky (エンジン標準の手続きスカイ。Phase2: kSky3DHLSL を置換)
-#include "render/PbrShader.h"               // CPbrShader (エンジン標準 PBR。Phase2: メッシュ移行先)
+// エンジン標準の手続きスカイ。
+#include "render/Sky.h"
+// エンジン標準の PBR 描画。
+#include "render/PbrShader.h"
 #include "render/StandardShader.h"          // FDirLight (有向光源)
 #include "render/PostProcess.h"             // CPostProcess (HDR→ACES トーンマップ)
 #include "render/SubsurfaceScattering.h"    // diffuse-only bilateral SSSS
@@ -295,7 +297,8 @@ struct AEditor3DRecordComponent : public acs::game::AComponent {
     char  prefab_src[256]  = {};              ///< 非空なら prefab/blueprint インスタンス (.acsprefab/.acsbp パス。2D AEditorNode 鏡映)。
     bool  is_empty         = false;           ///< true なら «空ノード» (描画しないグループ用トランスフォーム。2D の空ノード相当)。
     TArray<FVec2> poly_pts;                   ///< 3点以上なら手続きポリゴン (z=0)。再生成用の元 2D 頂点列。
-    FGpuMesh       gm_cache;                    ///< Phase2: prim==Mesh の GPU メッシュキャッシュ (CPbrShader 描画用)。
+    /** prim==Mesh を CPbrShader で描画するための GPU メッシュキャッシュ。 */
+    FGpuMesh       gm_cache;
     CMeshCollider  water_hit_collider;          ///< CPU BVH, built lazily for exact water pointer hits.
     const void*    water_hit_collider_src = nullptr;
     const void*    water_surface_validation_src = nullptr;
@@ -472,7 +475,7 @@ struct FEditorHost {
     CSpriteBatch                preview_sprites;
     bool                        preview_sprites_ready = false;
 
-    // プロジェクト設定 (UE の Project Settings 相当)。acs_editor_settings_load で
+    // プロジェクト設定。acs_editor_settings_load で
     // <project>/Config/ProjectSettings.ini を読み、変更のたび保存 + エンジンへ適用する。
     game::CProjectSettings      settings;
     char                        settings_path[512] = {};
@@ -493,7 +496,8 @@ struct FEditorHost {
     bool  q_bloom_on         = true;  f32  q_bloom_intensity = 0.50f; f32 q_bloom_threshold = 0.80f; f32 q_bloom_radius = 1.5f;
     f32   q_exposure         = 1.05f; f32  q_cg_saturation   = 1.10f; f32 q_cg_contrast = 1.12f;
     i32   q_tonemap          = 0;     bool q_auto_exposure   = false;  // 0=ACES 1=AgX 2=Reinhard / 自動露出(eye adaptation)
-    bool  q_fog_on           = false; f32  q_fog_density     = 0.015f; f32 q_fog_height_falloff = 0.10f;  // 既定OFF (単一色ハイトフォグ。FogDensity>0 で有効)。非忠実な cubemap aerial-perspective ハックは撤去済
+    // 既定は無効。FogDensity が正なら単一色の高さフォグを有効にする。
+    bool  q_fog_on           = false; f32  q_fog_density     = 0.015f; f32 q_fog_height_falloff = 0.10f;
     i32   q_sky_mode         = 0;     // 0=CSky(グラデ+雲) / 1=CAtmosphere(物理大気散乱)。要 Diligent (IBL 経路)
     f32   q_cloud_coverage   = 0.50f; f32 q_cloud_density = 1.6f; f32 q_cloud_wind = 1.0f;
     f32   q_cloud_render_scale = 0.75f;   // quality multiplier for the internal quarter-dimension trace policy
@@ -559,7 +563,7 @@ struct FEditorHost {
     f32          cam_pan_y = 0.0f;
     f32          cam_zoom  = 1.0f;
 
-    // --- 3D ビューポート (Phase 1: 軌道カメラ + ライト付きプリミティブ + グリッド) ---
+    // --- 3D ビューポート: 軌道カメラ + ライト付きプリミティブ + グリッド ---
     // 2D シーン (ANode) とは別系統。view3d=true でレンダ/入力が 3D に切り替わる。
     bool         view3d        = false;
     bool         ortho3d       = false;  // true=正射影 (2D ビュー)。透視⇔正射を切り替え
@@ -585,11 +589,14 @@ struct FEditorHost {
     TUniquePtr<IRhiShader>   sky_vs, sky_ps;
     TUniquePtr<IRhiPipeline> sky_pipe;
     TUniquePtr<IRhiBuffer>   sky_cb;                  // カメラ基底 (レイ再構成用)
-    acs::CSky                sky3d;                   // Phase2: エンジン標準スカイ (kSky3DHLSL を置換)
+    /** エンジン標準スカイ。 */
+    acs::CSky                sky3d;
     bool                     sky3d_ready = false;
-    acs::CPbrShader          pbr3d;                   // Phase2: エンジン標準 PBR (メッシュ移行先)
+    /** エンジン標準の PBR 描画。 */
+    acs::CPbrShader          pbr3d;
     bool                     pbr3d_ready = false;
-    acs::CPostProcess        post3d;                  // Phase2: HDR→ACES トーンマップ
+    /** HDR 画像へ ACES トーンマップを適用する。 */
+    acs::CPostProcess        post3d;
     bool                     post3d_ready = false;
     u32                      post3d_w = 0, post3d_h = 0;
     acs::CSubsurfaceScattering ssss3d;
@@ -634,8 +641,8 @@ struct FEditorHost {
     u32                      ssgi_w = 0, ssgi_h = 0;
     bool                     ssgi_init_tried = false;
     bool                     ssgi_computed = false;    // 今フレーム SSGI を焼いたか (次フレームの SetSsgi 用)
-    // --- Phase 5 VXGI (voxel global illumination、色のにじみ): 三角形を radiance volume に voxelize →
-    //     画面空間で cone trace して間接光を resolve → SSGI スロット (ssgi_color) に流す。compute (Phase 0)。
+    // --- VXGI (voxel global illumination、色のにじみ): 三角形を radiance volume に voxelize →
+    //     画面空間で cone trace して間接光を resolve → SSGI スロット (ssgi_color) に流す。
     TUniquePtr<IRhiTexture>  vxgi_vol;                 // radiance volume (64^3 RGBA16F、UAV+SRV)
     TUniquePtr<IRhiTexture>  vxgi_resolve;             // 画面空間 間接光 (half-res、UAV+SRV) → SetSsgi
     TUniquePtr<IRhiBuffer>   vxgi_tri;  u32 vxgi_tri_cap = 0;   // 三角形 SoA (M3DVtx StructuredBuffer)
@@ -693,9 +700,11 @@ struct FEditorHost {
     u32                      taa_frame = 0;                // TAA Halton ジッタ列のフレームインデックス
     // IBL (鏡面+拡散 環境光)。CSky を env cubemap 化 → irradiance/prefilter/BRDF-LUT → CPbrShader.SetIbl。
     acs::CImageBasedLighting  ibl3d;                    // Diligent backend 専用 (raw-DX12 は失敗 → SH9 フォールバック)
-    acs::CSkyAtmosphere      sky_atmo;                 // GPU Hillaire 大気 (compute LUT)。SkyMode==1 で CPU CAtmosphere を置換
+    /** GPU で物理大気の表を構築し、SkyMode==1 で CPU の CAtmosphere を置き換える。 */
+    acs::CSkyAtmosphere      sky_atmo;
     bool                     sky_atmo_tried = false;   // Init を一度試したか
-    acs::CVolumetricClouds   vclouds3d;                // GPU レイマーチ volumetric clouds (Phase4)。CSky 2D 雲を置換
+    /** GPU レイマーチで立体雲を描画し、CSky の 2D 雲を置き換える。 */
+    acs::CVolumetricClouds   vclouds3d;
     bool                     vclouds_ready = false;    // Init 済み
     bool                     vclouds_tried = false;    // Init を一度試したか
     f32                      vclouds_time  = 0.0f;     // 雲アニメ用時間
@@ -3319,7 +3328,7 @@ const char* CategoryLabel(acs::game::ETypeCategory cat) noexcept {
 }
 
 // =============================================================================
-// 3D ビューポート (Phase 1): 軌道カメラ + ライト付きプリミティブ + グリッド
+// 3D ビューポート: 軌道カメラ + ライト付きプリミティブ + グリッド
 // =============================================================================
 
 /** 3D 描画リソース (シェーダ / デバッグ線 / プリミティブメッシュ) を遅延初期化する。 */
@@ -3831,9 +3840,7 @@ inline FMat4 ApplyTaaJitter(FMat4 vp, float jx, float jy) noexcept {
 // «暖色の直射 vs 青い陰» のコントラスト=立体感を残す (直射は 3 点ライトが確保)。鏡面 fallback も兼ねる。
 constexpr float kSh9Ambient = 0.55f;
 
-// Physical-atmosphere LUTs already produce linear HDR radiance.  Keep their
-// scale at unity so exposure/tonemapping owns display brightness; the previous
-// hidden 2.2 multiplier clipped most of the sky before cloud contrast existed.
+// 物理大気 LUT は線形 HDR 輝度を返すため、表示輝度は露出と tonemap だけで調整する。
 constexpr float kAtmosScale = 1.0f;
 constexpr float kDefaultConfiguredSunIntensity = 2.35f;
 constexpr float kAtmosphereSunRadianceAtDefault = 22.0f;
@@ -4327,7 +4334,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     if (dev == nullptr) return false;
     const EFormat cf = h.renderer.ColorFormat();
     const EFormat df = h.renderer.DepthFormat();
-    // Phase2: 3D シーンは «線形 HDR RT» に描いて CPostProcess(ACES) で一度だけ tonemap する。
+    // 3D シーンは «線形 HDR RT» に描いて CPostProcess(ACES) で一度だけ tonemap する。
     // そのため色を出すパイプは全て HDR フォーマットで作る (cf=backbuffer は CPostProcess の出力のみ)。
     const EFormat hdrf = EFormat::R16G16B16A16_Float;
     if (h.r3d_init_phase == 0u) {
@@ -4599,8 +4606,8 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     return false;
     }
 
-    // Phase2: エンジン標準スカイ CSky。自前 kSky3DHLSL と同じ «depth off の背景フルスクリーン三角» 方式
-    // (2D の CSpriteBatch と同じ depth-off エンジンパス) なのでこの文脈で描けるはず + 手続き雲つき。
+    // エンジン標準スカイ CSky は «depth off の背景フルスクリーン三角» 方式で描く。
+    // 2D の CSpriteBatch と同じ depth-off エンジンパスを使い、手続き雲を合成する。
     if (h.r3d_init_phase == 8u) {
     const char* const backend_name = dev->BackendName();
     const bool raw_dx12 = backend_name != nullptr &&
@@ -4729,7 +4736,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     return false;
     }
 
-    // Phase2: エンジン標準 PBR。HDR フォーマット + cull None (editor の単面 plane/polygon も出す)。
+    // エンジン標準 PBR。HDR フォーマット + cull None (editor の単面 plane/polygon も出す)。
     if (h.r3d_init_phase == 9u) {
     const char* const backend_name = dev->BackendName();
     const bool raw_dx12 = backend_name != nullptr &&
@@ -6126,7 +6133,7 @@ const AMeshAsset* NMesh(game::ANode* n) noexcept {
     return (m != nullptr) ? m->Mesh() : nullptr;
 }
 
-/** Phase2: ノードを CPbrShader (DrawIndexed) で描くための FGpuMesh を返す。
+/** ノードを CPbrShader (DrawIndexed) で描くための FGpuMesh を返す。
  *  prim 0/1/2 は共有プリミティブ、prim 3 (Mesh/ポリゴン) はノードの AMeshAsset を on-demand
  *  アップロードして AEditor3DRecordComponent にキャッシュ (元メッシュが変われば再アップロード)。失敗は nullptr。 */
 FGpuMesh* GpuMeshForNode3D(FEditorHost& h, game::ANode* nn) noexcept {
@@ -7992,7 +7999,7 @@ void DrawGizmo3DOverlay(FEditorHost& h, IRhiCommandList& cl,
     cl.Draw(static_cast<u32>(gv.Num()), 0);
 }
 
-// ===== Phase 5 VXGI: voxel global illumination =====================================
+// ===== VXGI: ボクセルを使う広域照明 =====================================
 // 三角形 (M3DVtx の StructuredBuffer) を 64^3 radiance volume に voxelize (compute)。
 // 各 voxel = albedo * 直射太陽 (影なし、色のにじみ proof には十分)。PBR が volume を cone trace。
 constexpr u32 kVxgiRes = 64;
@@ -8211,7 +8218,7 @@ IRhiTexture* VxgiResolve(FEditorHost& h, IRhiCommandList* cl, IRhiTexture* vol,
 }
 
 /** 3D シーンを描画する (スカイ + ライト付きメッシュ + 選択ハイライト/太いギズモ)。 */
-// ===== DrawScene3D の pass 関数群 (WickedEngine 風 named pass。挙動はインライン時と完全一致) =====
+// ===== DrawScene3D の描画工程別関数群 =====
 
 int SceneMeshWaterSlot(
     const FEditorHost& h,
@@ -9453,9 +9460,9 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         return;
     }
 
-    // --- Phase 5 VXGI: 三角形を radiance volume へ voxelize (色のにじみ。Diligent compute、Ultra=q_ssgi_on)。
+    // --- VXGI: 三角形を radiance volume へ voxelize (色のにじみ。Diligent compute、Ultra=q_ssgi_on)。
     //     Raw DX12 は StructuredBuffer SRV 未対応のため VxgiVoxelize 冒頭で明示的に graceful skip。
-    //     volume は PBR の cone trace (SetVxgi) で消費予定。本コミットは voxelize パイプラインまで。
+    //     volume は VxgiResolve で画面空間の間接光へ変換し、SetSsgi へ渡す。
     IRhiTexture* vxgiVol = nullptr;
     IRhiTexture* vxgiResolveTex = nullptr;   // VXGI resolve (cone trace) 結果 → SetSsgi へ
     IRhiTexture* apVol = nullptr;            // aerial-perspective premultiplied in-scatter
@@ -9890,7 +9897,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         invalidateMotionHistory();
     }
 
-    // Phase2: 3D シーンを «線形 HDR RT» へ描く → 末尾で CPostProcess(ACES) が一度だけ tonemap。post3d 遅延初期化。
+    // 3D シーンを «線形 HDR RT» へ描く → 末尾で CPostProcess(ACES) が一度だけ tonemap。post3d 遅延初期化。
     IRhiDevice* pdev = h.renderer.Device();
     if (pdev != nullptr && h.post3d_ready &&
         (h.post3d_w != scW || h.post3d_h != scH)) {
@@ -9913,7 +9920,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             localFogVol != nullptr, localFogSceneDepth != nullptr,
             hdrRt != nullptr && scSwap != nullptr);
 
-    // --- Phase4 volumetric clouds: render pass の «外» で雲を compute レイマーチ (UAV へ書く)。
+    // --- Volumetric clouds: render pass の «外» で雲を compute レイマーチ (UAV へ書く)。
     //     composite は AP 後まで遅延する。CSky の 2D 雲は無効化して二重描画回避。
     bool cloudsActive = false;
     if (h.q_cloud_coverage > 0.001f && !renderOrtho && hdrRt != nullptr) {
@@ -9986,7 +9993,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     }
     }
 
-    // --- Phase4 volumetric clouds: 空 pass を一旦 End → 雲 compute を pass «外» で dispatch (UAV→SRV
+    // --- Volumetric clouds: 空 pass を一旦 End → 雲 compute を pass «外» で dispatch (UAV→SRV
     //     遷移が成立) → depth 付き load pass を再開してシーンメッシュを描く。雲の合成は AP 後まで
     //     遅延し、完成した scene depth で実ジオメトリを除外する。
     if (cloudsActive && hdrRt != nullptr) {
@@ -10321,7 +10328,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         DrawGizmo3DOverlay(h, *cl, vp, camPos);
     }
 
-    // Phase2: HDR RT → CPostProcess(ACES + 軽 Bloom)で backbuffer へ一度だけ tonemap。
+    // HDR RT → CPostProcess(ACES + 軽 Bloom)で backbuffer へ一度だけ tonemap。
     //         グリッド/ギズモも HDR に線形で乗っているので正しく tonemap される。editor は
     //         ビネット/色収差/グレイン無効でクリーンに。
     if (hdrRt != nullptr && scSwap != nullptr) {
@@ -11803,7 +11810,7 @@ ACS_EDITOR_API int acs_editor_resize(void* handle, uint32_t width, uint32_t heig
 }
 
 // =============================================================================
-// C ABI — プロジェクト設定 (UE の Project Settings 相当)
+// C ABI — プロジェクト設定
 // =============================================================================
 
 /** プロジェクト設定をエンジン状態へ反映する (ロード/変更時に呼ぶ)。 */
@@ -12230,7 +12237,8 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->fxaa.Shutdown();
     host->dbg3d.Shutdown();
     host->camera_frustum_dbg3d.Shutdown();
-    host->sky_atmo.Shutdown();   // GPU Hillaire 大気 (UAF 防止)
+    // GPU 物理大気を device より先に終了して解放後参照を防ぐ。
+    host->sky_atmo.Shutdown();
     host->vclouds3d.Shutdown();  // GPU volumetric clouds (UAF 防止)
     host->m3d_pipe.Reset(); host->m3d_overlay_pipe.Reset(); host->m3d_vs.Reset(); host->m3d_ps.Reset();
     host->sky_pipe.Reset(); host->sky_vs.Reset(); host->sky_ps.Reset(); host->sky_cb.Reset();
@@ -12257,7 +12265,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->dof_pipe.Reset(); host->dof_vs.Reset(); host->dof_ps.Reset(); host->dof_cb.Reset(); host->dof_ready = false;
     host->gray_pipe.Reset(); host->gray_vs.Reset(); host->gray_ps.Reset(); host->gray_cb.Reset(); host->gray_ready = false;
     host->mblur_pipe.Reset(); host->mblur_vs.Reset(); host->mblur_ps.Reset(); host->mblur_cb.Reset(); host->mblur_ready = false;
-    // Phase 5 VXGI teardown (UAF 防止: device 破棄前に GPU リソース Release)
+    // VXGI の GPU リソースを device 破棄前に解放して UAF を防ぐ。
     host->vxgi_vol.Reset(); host->vxgi_resolve.Reset(); host->vxgi_tri.Reset();
     host->vxgi_pipe_clear.Reset(); host->vxgi_pipe_vox.Reset(); host->vxgi_pipe_res.Reset();
     host->vxgi_cs_clear.Reset(); host->vxgi_cs_vox.Reset(); host->vxgi_cs_res.Reset();
@@ -12289,7 +12297,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->gm_cube = FGpuMesh{}; host->gm_sphere = FGpuMesh{}; host->gm_plane = FGpuMesh{};
     host->gm_water_plane = FGpuMesh{};
     host->cpu_water_plane.Reset();
-    // Phase2 で追加した GPU サブシステム/RT は «device 破棄より前» に明示解放する。これを怠ると
+    // GPU サブシステム/RT は «device 破棄より前» に明示解放する。これを怠ると
     // delete host のデストラクタが renderer.Shutdown() (device 破棄) の «後» に走り、解放済み device
     // 上で GPU リソースを Release して «終了時に間欠 access violation (acs_editor_destroy)» を起こす。
     host->pbr3d.Shutdown();
@@ -13741,10 +13749,8 @@ static bool EnsurePreviewPbr(FEditorHost& h, u32 size) noexcept {
     IRhiDevice* dev = h.renderer.Device();
     if (dev == nullptr) return false;
 
-    // SH9 supplies the preview environment radiance, but CPbrShader still
-    // samples the split-sum BRDF LUT for metallic/specular response.  Its
-    // generic no-IBL fallback is intentionally black, so provide a compact
-    // UE-style analytic LUT plus valid cube bindings for this studio path.
+    // プレビュー環境光は SH9 から供給する。金属・鏡面反射では split-sum BRDF LUT も
+    // 参照するため、環境光未設定時の黒出力を避ける解析 LUT と有効な立方体テクスチャを結線する。
     if (!h.preview_ibl_irradiance ||
         !h.preview_ibl_prefilter) {
         FTextureDesc cube_desc{};
@@ -15792,7 +15798,7 @@ ACS_EDITOR_API int acs_editor_camera3d_node_id_at(
 }
 
 // =============================================================================
-// C ABI — 3D ビューポート (Phase 1: モード切替 / ノード / 軌道カメラ / ピック)
+// C ABI — 3D ビューポート (モード切替 / ノード / 軌道カメラ / ピック)
 // =============================================================================
 
 /** 3D ビューポートの ON/OFF を切り替える。初回 ON で既定の 3D シーンを置く。 */
@@ -18926,7 +18932,7 @@ ACS_EDITOR_API int acs_editor_component_prop_default_at(
     return 1;
 }
 
-/** 型名と index で、編集プロパティのカテゴリ名を返す (UPROPERTY(Category="…")。未指定は "")。 */
+/** 型名と index で、ACS_PROPERTY のカテゴリ名を返す (未指定は "")。 */
 ACS_EDITOR_API const char* acs_editor_component_prop_category_at(const char* type_name, int index) {
     if (type_name == nullptr || index < 0) return "";
     game::AcsRegisterEngineTypes();

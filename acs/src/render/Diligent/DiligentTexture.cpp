@@ -112,7 +112,8 @@ TResult<void> FDiligentTexture::Init(CDiligentDevice& device, const FTextureDesc
     if (m_IsRt) {
         td.BindFlags = static_cast<Diligent::BIND_FLAGS>(td.BindFlags | Diligent::BIND_RENDER_TARGET);
     }
-    if (m_IsUav) {   // compute から RWTexture として書ける (Phase 0)
+    // 計算シェーダーから RWTexture として書き込めるようにする。
+    if (m_IsUav) {
         td.BindFlags = static_cast<Diligent::BIND_FLAGS>(td.BindFlags | Diligent::BIND_UNORDERED_ACCESS);
     }
     if (m_IsDepth) {

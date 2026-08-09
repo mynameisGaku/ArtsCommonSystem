@@ -272,7 +272,7 @@ public:
      */
     void* NativeHandle() noexcept override;
 
-    // ---- Compute (Phase 0) ----
+    // ---- 計算シェーダー命令 ----
     /** compute パイプラインを設定する (次の Dispatch で使う CS + SRB)。 */
     void SetComputePipeline(IRhiPipeline& pipeline) noexcept override;
     /** compute dispatch (スレッドグループ数)。bind 済み UAV を UNORDERED_ACCESS へ遷移してから発行。 */

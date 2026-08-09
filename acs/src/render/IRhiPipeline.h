@@ -286,7 +286,7 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
                                                        const FPipelineDesc& desc) noexcept;
 
 /**
- * compute パイプライン生成パラメータ (Phase 0)。
+ * compute パイプライン生成パラメータ。
  *
  * @details CS + binding slot 数/名前。cbuffer(b#)・SRV(t#、StructuredBuffer/Texture)・UAV(u#、
  * RWTexture/RWStructuredBuffer) を名前ベースで Diligent SRB に割り当てる。

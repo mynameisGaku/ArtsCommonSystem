@@ -125,7 +125,7 @@ public:
     Diligent::ITextureView* DsvView()   const noexcept { return m_Dsv; }
 
     /**
-     * 順序なしアクセスビュー (UAV) を返す (Phase 0、compute の RWTexture 用)。
+     * compute の RWTexture 用の順序なしアクセスビュー (UAV) を返す。
      *
      * @return デフォルト UAV (is_uav=false なら nullptr)。
      */
@@ -196,7 +196,7 @@ private:
     /** 深度ステンシルビュー (m_Texture 所有)。 */
     Diligent::ITextureView* m_Dsv     = nullptr;
 
-    /** 順序なしアクセスビュー (UAV、m_Texture 所有、Phase 0)。 */
+    /** 順序なしアクセスビュー (UAV、m_Texture 所有)。 */
     Diligent::ITextureView* m_Uav     = nullptr;
 
     /** UAV (RWTexture) として生成されたか。 */

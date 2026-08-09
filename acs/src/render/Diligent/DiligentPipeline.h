@@ -49,7 +49,7 @@ public:
     TResult<void> Init(CDiligentDevice& device, const FPipelineDesc& desc) noexcept;
 
     /**
-     * FComputePipelineDesc から compute PSO と SRB を生成する (Phase 0)。
+     * FComputePipelineDesc から compute PSO と SRB を生成する。
      *
      * @param device PSO 生成に使う Diligent デバイス。
      * @param desc compute パイプラインの記述 (CS・cbuffer/SRV/UAV slot と名前)。

@@ -70,7 +70,7 @@ struct FTextureDesc {
     /** 初期ピクセルデータのバイト数。 */
     usize       initial_data_size = 0;
 
-    /** UAV (RWTexture) として compute から書き込み可能にするか (Phase 0)。BIND_UNORDERED_ACCESS + UAV view。 */
+    /** UAV (RWTexture) として compute から書き込み可能にするか。BIND_UNORDERED_ACCESS + UAV view。 */
     bool        is_uav           = false;
 
     /** 深度 (3D テクスチャ用。>1 で RESOURCE_DIM_TEX_3D。volumetric clouds の shape/detail noise 用)。 */

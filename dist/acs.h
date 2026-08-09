@@ -10454,7 +10454,7 @@ struct FTextureDesc {
     /** 初期ピクセルデータのバイト数。 */
     usize       initial_data_size = 0;
 
-    /** UAV (RWTexture) として compute から書き込み可能にするか (Phase 0)。BIND_UNORDERED_ACCESS + UAV view。 */
+    /** UAV (RWTexture) として compute から書き込み可能にするか。BIND_UNORDERED_ACCESS + UAV view。 */
     bool        is_uav           = false;
 
     /** 深度 (3D テクスチャ用。>1 で RESOURCE_DIM_TEX_3D。volumetric clouds の shape/detail noise 用)。 */
@@ -10993,7 +10993,7 @@ public:
      */
     virtual void* NativeHandle() noexcept = 0;
 
-    // ---- Compute (Phase 0: WickedEngine 流レンダラ移植の基盤) ----
+    // ---- 計算シェーダー命令 ----
     // 非 pure virtual + 既定空実装 → Dx12 raw backend は override せず no-op で済む
     // (Diligent のみ実装)。compute PSO は CreateRhiComputePipeline で生成。
 
@@ -47049,7 +47049,7 @@ struct FSamplerDesc {
      * true にすると HW 深度比較 PCF サンプラになる（フィルタは比較版＝タップごとに 2x2
      * バイリニア比較）。比較関数は LessEqual 固定（lit ⇔ cmp ≤ stored_depth）。シェーダ側は
      * SamplerComparisonState で受け、SampleCmpLevelZero(s, uv, my_d - bias) で滑らかな
-     * penumbra を得る。WickedEngine の sampler_cmp_depth 相当。通常テクスチャには使わない。
+     * penumbra を得る。通常テクスチャには使わない。
      */
     bool           comparison  = false;
 };
@@ -47333,7 +47333,7 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
                                                        const FPipelineDesc& desc) noexcept;
 
 /**
- * compute パイプライン生成パラメータ (Phase 0)。
+ * compute パイプライン生成パラメータ。
  *
  * @details CS + binding slot 数/名前。cbuffer(b#)・SRV(t#、StructuredBuffer/Texture)・UAV(u#、
  * RWTexture/RWStructuredBuffer) を名前ベースで Diligent SRB に割り当てる。
@@ -47422,7 +47422,7 @@ struct FBufferDesc {
     /** 初期データへのポインタ (任意、不要なら nullptr)。 */
     const void* initial_data = nullptr;
 
-    /** 構造化バッファの 1 要素のバイト数 (Phase 0)。>0 で BUFFER_MODE_STRUCTURED + ElementByteStride
+    /** 構造化バッファの 1 要素のバイト数。>0 で BUFFER_MODE_STRUCTURED + ElementByteStride
      *  → SRV/UAV view が作られ compute から StructuredBuffer / RWStructuredBuffer として読み書き可能に。
      *  usage=Storage と併用する (light culling のタイルバケット等)。 */
     u32         struct_stride = 0;
@@ -54126,8 +54126,8 @@ public:
      * Normal map を設定する。
      *
      * @details null で fallback (flat normal、無変化)。ddx/ddy 由来の screen-space TBN を
-     * shader が自前で計算するので頂点 tangent は不要。tileable な RGB8
-     * (DirectX 流: (R,G,B)=tangent×0.5+0.5) を想定。
+     * shader が自前で計算するので頂点 tangent は不要。tileable な RGB8 の各成分は
+     * tangent×0.5+0.5 の値を想定。
      * @param tex normal map テクスチャ (null で無効)。
      * @param strength tangent-space slope の強度。0 で flat、1 で authored 値。
      */
@@ -54166,7 +54166,7 @@ public:
     void SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept;
 
     /**
-     * Aerial perspective camera-volume LUT を設定する (WickedEngine 流の大気の距離霞)。
+     * 大気の距離霞に使う Aerial perspective camera-volume LUT を設定する。
      *
      * @details screen UV は現在の view-projection と world position から復元するため、
      * SSAO の有無や viewport 設定には依存しない。
@@ -54822,8 +54822,8 @@ struct FPostProcessParams {
      * Tonemap カーブの種類。
      *
      * @details
-     * 0=ACES Filmic (Narkowicz)、1=AgX (Sobotka)、2=Reinhard 拡張。AgX は彩度を
-     * 控えめにする tonemap (UE5 デフォルトに近い neutral look)。既存サンプル互換の
+     * 0=ACES Filmic、1=AgX、2=Reinhard 拡張。AgX は彩度を
+     * 控えめにする neutral look の tonemap。既存サンプル互換の
      * ため初期値は ACES。
      */
     i32   tonemap_kind     = 0;
@@ -55132,8 +55132,8 @@ private:
     /**
      * Bloom mip chain の段数 (1/2 から 1/64 までの 6 段)。
      *
-     * @details Downsample は Jimenez 13-tap。段数を増やすと «より低周波 (広い)» の soft glow まで
-     * 届き、UE5 風の広く柔らかい bloom になる。段数増による強度 lift は progressive upsample radius
+     * @details Downsample は 13-tap。段数を増やすと «より低周波 (広い)» の soft glow まで
+     * 届き、広く柔らかい bloom になる。段数増による強度 lift は progressive upsample radius
      * (深い mip ほど tent を広げる) と bloom_intensity 側で吸収する。各 mip は 1px までクランプ確保。
      */
     static constexpr u32 kBloomMips = 6;
@@ -55738,7 +55738,7 @@ using FSky = CSky;
 
 
 /**
- * GPU レイマーチ volumetric clouds (WickedEngine / Nubis 流)。
+ * GPU レイマーチによる volumetric clouds。
  *
  * @details
  * compute シェーダで全画面の視線ごとに雲スラブをレイマーチし、3D 手続きノイズ (Worley FBM) の
@@ -55747,7 +55747,7 @@ using FSky = CSky;
  * + alpha) を hdrRt の «空» の上に合成する。ray march は half-res、雲自身の代表深度を使う
  * bilateral spatial reconstruction と camera/wind reprojection temporal accumulation で full-res に
  * 復元する。CSky の 2D-FBM 雲より遥かにディテール/立体感が高い。
- * 要 Phase 0 compute コア (RWTexture2D UAV)。full-res color/depth も一つの
+ * compute コア (RWTexture2D UAV) が必要。full-res color/depth も一つの
  * 8x8 compute pass で別 format UAV へ同時に再構成し、重複 read と MRT overhead を避ける。
  */
 /**
@@ -56206,9 +56206,11 @@ private:
         EFormat hdr_format) noexcept;
 
     bool                     m_Ready = false;
-    bool                     m_NoiseBaked = false;       // Phase 4.5: shape noise を焼いたか
+    /** 形状ノイズを生成済みか。 */
+    bool                     m_NoiseBaked = false;
     EFormat                  m_HdrFormat = EFormat::R16G16B16A16_Float;
-    TUniquePtr<IRhiShader>   m_NoiseCs;                  // Phase 4.5: Perlin-Worley 生成 compute
+    /** Perlin-Worley ノイズを生成する計算シェーダー。 */
+    TUniquePtr<IRhiShader>   m_NoiseCs;
     TUniquePtr<IRhiPipeline> m_NoisePipe;                // compute (noise gen)
     TUniquePtr<IRhiTexture>  m_ShapeTex;                 // 128^3 RG16F Perlin-Worley/low-frequency Worley
     bool                     m_WeatherBaked = false;
@@ -102277,13 +102279,13 @@ private:
 
 // ===================== render/Atmosphere.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// Physical atmospheric scattering (Hillaire 2020 / Bruneton 風)
+// CPU / GPU で評価する物理大気散乱。
 //
 // Rayleigh + Mie 単散乱を per-direction で CPU 評価し equirect 画像に焼く。
 // `CImageBasedLighting::LoadEquirectHdrFromMemory` に通せば env cubemap →
 // irradiance → prefilter の IBL chain が一気に物理ベースの sky で構築される。
 //
-// 物理パラメータ (Earth、Bruneton 2008):
+// 地球規模の既定物理パラメータ:
 //   - 地表半径 6360 km、大気上端 6420 km (厚さ 60 km)
 //   - Rayleigh: β = (5.802, 13.558, 33.1) ×10⁻⁶ m⁻¹、scale height 8 km
 //   - Mie:      β = 3.996 ×10⁻⁶ m⁻¹、absorption 4.4 ×10⁻⁶ m⁻¹、scale height 1.2 km、g=0.8
@@ -102345,7 +102347,7 @@ struct FVolumetricFogParams {
  * 物理大気散乱を CPU で評価し equirect 画像へ焼くユーティリティ。
  *
  * @details
- * Hillaire 2020 / Bruneton 風の Rayleigh + Mie 単散乱を per-direction で評価し、
+ * Rayleigh + Mie 単散乱を per-direction で評価し、
  * 焼いた equirect 画像を CImageBasedLighting に渡すと env cubemap → irradiance →
  * prefilter の IBL chain が物理ベースの sky で構築できる。
  */
@@ -102372,16 +102374,15 @@ using FAtmosphere = CAtmosphere;
 
 
 /**
- * GPU 物理大気 (WickedEngine / Hillaire 2020 流の GPU compute パイプライン)。
+ * GPU の計算処理で参照表を構築する物理大気。
  *
-     * @details
-     * Transmittance LUT (256x64) を compute で焼き、equirect bake compute がそれを使って
-     * Rayleigh+Mie+ozone の単散乱 + 等方多重散乱を per-direction で評価して equirect texture
-     * (RGBA32F、解析的な太陽ディスクを含まない) に書く。ReadTexture で CPU へ読み戻し、
-     * CImageBasedLighting::LoadEquirectHdrFromMemory
- * に通せば既存の env cubemap → irradiance → prefilter の IBL chain と背景描画がそのまま動く。
+ * @details 透過率表 (256x64) を計算処理で焼き、正距円筒画像の生成処理がそれを使って
+ * Rayleigh+Mie+ozone の単散乱 + 等方多重散乱を per-direction で評価して equirect texture
+ * (RGBA32F、解析的な太陽ディスクを含まない) に書く。ReadTexture で CPU へ読み戻し、
+ * 結果を CImageBasedLighting::LoadEquirectHdrFromMemory に通せば既存の
+ * env cubemap → irradiance → prefilter の IBL chain と背景描画がそのまま動く。
  * CPU 版 CAtmosphere::BakeEquirect の置き換え (GPU で高速 + ozone/multiscatter で物理的に正しい空)。
- * 要 Phase 0 compute コア + CDiligentDevice::ReadTexture。Diligent backend 専用。
+ * compute コア + CDiligentDevice::ReadTexture が必要。Diligent backend 専用。
  */
 class CSkyAtmosphere {
 public:
@@ -105487,7 +105488,7 @@ constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FComputePipe
 //      距離で 2-4 個に分割し、近景は高解像度・遠景は広範囲を 1 枚の atlas
 //      テクスチャ (width = cascade_count * size、height = size) に並べる。
 //      ピクセルの view-space z で cascade を選択するため遠景まで鮮鋭な影を
-//      保てる (UE5 等 large outdoor scene の標準解)。
+//      保てるため、広い屋外シーンに適する。
 //
 // 使い方 (single cascade、後方互換):
 //   CShadowMap sm;
@@ -108225,7 +108226,7 @@ struct FUiKeyModifiers {
 };
 
 /**
- * アンカー (Unity RectTransform 風): 親矩形に対する正規化アンカー + ピクセルオフセット。
+ * 親矩形に対する正規化アンカーとピクセルオフセット。
  *
  * @details
  * 子の各辺を「親矩形の正規化点 (anchor) からのピクセルオフセット」で決める。
@@ -108758,7 +108759,7 @@ public:
 using FContainer = AContainer;
 
 /**
- * 各子を自身の anchor (RectTransform 風) に従って配置するレスポンシブパネル。
+ * 各子を自身の正規化 anchor に従って配置するレスポンシブパネル。
  *
  * @details
  * AContainer が全子に同じ矩形を渡すのに対し、AAnchorPanel は子ごとの `anchor` を

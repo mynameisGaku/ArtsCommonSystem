@@ -448,7 +448,7 @@ public:
      */
     virtual void* NativeHandle() noexcept = 0;
 
-    // ---- Compute (Phase 0: WickedEngine 流レンダラ移植の基盤) ----
+    // ---- 計算シェーダー命令 ----
     // 非 pure virtual + 既定空実装 → Dx12 raw backend は override せず no-op で済む
     // (Diligent のみ実装)。compute PSO は CreateRhiComputePipeline で生成。
 

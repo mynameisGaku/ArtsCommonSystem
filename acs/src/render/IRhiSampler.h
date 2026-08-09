@@ -78,7 +78,7 @@ struct FSamplerDesc {
      * true にすると HW 深度比較 PCF サンプラになる（フィルタは比較版＝タップごとに 2x2
      * バイリニア比較）。比較関数は LessEqual 固定（lit ⇔ cmp ≤ stored_depth）。シェーダ側は
      * SamplerComparisonState で受け、SampleCmpLevelZero(s, uv, my_d - bias) で滑らかな
-     * penumbra を得る。WickedEngine の sampler_cmp_depth 相当。通常テクスチャには使わない。
+     * penumbra を得る。通常テクスチャには使わない。
      */
     bool           comparison  = false;
 };

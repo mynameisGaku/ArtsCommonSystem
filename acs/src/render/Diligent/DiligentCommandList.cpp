@@ -852,7 +852,7 @@ void CDiligentCommandList::DrawIndexed(u32 index_count, u32 first_index, i32 bas
     ctx->DrawIndexed(dia);
 }
 
-// ---- Compute (Phase 0) ----
+// ---- 計算シェーダー命令 ----
 
 void CDiligentCommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
     if (!m_Device) return;

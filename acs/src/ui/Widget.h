@@ -179,7 +179,7 @@ struct FUiKeyModifiers {
 };
 
 /**
- * アンカー (Unity RectTransform 風): 親矩形に対する正規化アンカー + ピクセルオフセット。
+ * 親矩形に対する正規化アンカーとピクセルオフセット。
  *
  * @details
  * 子の各辺を「親矩形の正規化点 (anchor) からのピクセルオフセット」で決める。
@@ -712,7 +712,7 @@ public:
 using FContainer = AContainer;
 
 /**
- * 各子を自身の anchor (RectTransform 風) に従って配置するレスポンシブパネル。
+ * 各子を自身の正規化 anchor に従って配置するレスポンシブパネル。
  *
  * @details
  * AContainer が全子に同じ矩形を渡すのに対し、AAnchorPanel は子ごとの `anchor` を

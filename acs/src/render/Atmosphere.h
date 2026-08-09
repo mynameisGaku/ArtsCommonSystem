@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// Physical atmospheric scattering (Hillaire 2020 / Bruneton 風)
+// CPU / GPU で評価する物理大気散乱。
 //
 // Rayleigh + Mie 単散乱を per-direction で CPU 評価し equirect 画像に焼く。
 // `CImageBasedLighting::LoadEquirectHdrFromMemory` に通せば env cubemap →
 // irradiance → prefilter の IBL chain が一気に物理ベースの sky で構築される。
 //
-// 物理パラメータ (Earth、Bruneton 2008):
+// 地球規模の既定物理パラメータ:
 //   - 地表半径 6360 km、大気上端 6420 km (厚さ 60 km)
 //   - Rayleigh: β = (5.802, 13.558, 33.1) ×10⁻⁶ m⁻¹、scale height 8 km
 //   - Mie:      β = 3.996 ×10⁻⁶ m⁻¹、absorption 4.4 ×10⁻⁶ m⁻¹、scale height 1.2 km、g=0.8
@@ -79,7 +79,7 @@ struct FVolumetricFogParams {
  * 物理大気散乱を CPU で評価し equirect 画像へ焼くユーティリティ。
  *
  * @details
- * Hillaire 2020 / Bruneton 風の Rayleigh + Mie 単散乱を per-direction で評価し、
+ * Rayleigh + Mie 単散乱を per-direction で評価し、
  * 焼いた equirect 画像を CImageBasedLighting に渡すと env cubemap → irradiance →
  * prefilter の IBL chain が物理ベースの sky で構築できる。
  */
@@ -106,16 +106,15 @@ using FAtmosphere = CAtmosphere;
 
 
 /**
- * GPU 物理大気 (WickedEngine / Hillaire 2020 流の GPU compute パイプライン)。
+ * GPU の計算処理で参照表を構築する物理大気。
  *
-     * @details
-     * Transmittance LUT (256x64) を compute で焼き、equirect bake compute がそれを使って
-     * Rayleigh+Mie+ozone の単散乱 + 等方多重散乱を per-direction で評価して equirect texture
-     * (RGBA32F、解析的な太陽ディスクを含まない) に書く。ReadTexture で CPU へ読み戻し、
-     * CImageBasedLighting::LoadEquirectHdrFromMemory
- * に通せば既存の env cubemap → irradiance → prefilter の IBL chain と背景描画がそのまま動く。
+ * @details 透過率表 (256x64) を計算処理で焼き、正距円筒画像の生成処理がそれを使って
+ * Rayleigh+Mie+ozone の単散乱 + 等方多重散乱を per-direction で評価して equirect texture
+ * (RGBA32F、解析的な太陽ディスクを含まない) に書く。ReadTexture で CPU へ読み戻し、
+ * 結果を CImageBasedLighting::LoadEquirectHdrFromMemory に通せば既存の
+ * env cubemap → irradiance → prefilter の IBL chain と背景描画がそのまま動く。
  * CPU 版 CAtmosphere::BakeEquirect の置き換え (GPU で高速 + ozone/multiscatter で物理的に正しい空)。
- * 要 Phase 0 compute コア + CDiligentDevice::ReadTexture。Diligent backend 専用。
+ * compute コア + CDiligentDevice::ReadTexture が必要。Diligent backend 専用。
  */
 class CSkyAtmosphere {
 public:

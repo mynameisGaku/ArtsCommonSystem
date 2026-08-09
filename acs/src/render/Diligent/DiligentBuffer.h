@@ -105,10 +105,10 @@ private:
     /** バッファの用途 (bind flag と Update 経路の選択に使う)。 */
     EBufferUsage        m_Usage  = EBufferUsage::Vertex;
 
-    /** 構造化バッファ SRV (m_Buffer 所有、Phase 0)。 */
+    /** 構造化バッファ SRV (m_Buffer 所有)。 */
     Diligent::IBufferView* m_Srv = nullptr;
 
-    /** 構造化バッファ UAV (m_Buffer 所有、Phase 0)。 */
+    /** 構造化バッファ UAV (m_Buffer 所有)。 */
     Diligent::IBufferView* m_Uav = nullptr;
 };
 

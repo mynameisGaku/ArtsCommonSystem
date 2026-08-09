@@ -123,8 +123,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// Downsample: 13-tap Jimenez (Call of Duty: Advanced Warfare、SIGGRAPH 2014)。
-// 5 つの partial-box average を Karis-style weighted blend する。
+// Downsample: 13-tap の partial-box filter。
+// 5 つの partial-box average を輝度重み付きで blend する。
 //
 // FSample layout (t = 1 source texel):
 //   A . B . C

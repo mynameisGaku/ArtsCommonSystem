@@ -225,8 +225,8 @@ public:
      * Normal map を設定する。
      *
      * @details null で fallback (flat normal、無変化)。ddx/ddy 由来の screen-space TBN を
-     * shader が自前で計算するので頂点 tangent は不要。tileable な RGB8
-     * (DirectX 流: (R,G,B)=tangent×0.5+0.5) を想定。
+     * shader が自前で計算するので頂点 tangent は不要。tileable な RGB8 の各成分は
+     * tangent×0.5+0.5 の値を想定。
      * @param tex normal map テクスチャ (null で無効)。
      * @param strength tangent-space slope の強度。0 で flat、1 で authored 値。
      */
@@ -265,7 +265,7 @@ public:
     void SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept;
 
     /**
-     * Aerial perspective camera-volume LUT を設定する (WickedEngine 流の大気の距離霞)。
+     * 大気の距離霞に使う Aerial perspective camera-volume LUT を設定する。
      *
      * @details screen UV は現在の view-projection と world position から復元するため、
      * SSAO の有無や viewport 設定には依存しない。

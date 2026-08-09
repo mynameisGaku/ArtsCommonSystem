@@ -9,7 +9,7 @@
 //      距離で 2-4 個に分割し、近景は高解像度・遠景は広範囲を 1 枚の atlas
 //      テクスチャ (width = cascade_count * size、height = size) に並べる。
 //      ピクセルの view-space z で cascade を選択するため遠景まで鮮鋭な影を
-//      保てる (UE5 等 large outdoor scene の標準解)。
+//      保てるため、広い屋外シーンに適する。
 //
 // 使い方 (single cascade、後方互換):
 //   CShadowMap sm;

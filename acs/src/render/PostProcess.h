@@ -57,8 +57,8 @@ struct FPostProcessParams {
      * Tonemap カーブの種類。
      *
      * @details
-     * 0=ACES Filmic (Narkowicz)、1=AgX (Sobotka)、2=Reinhard 拡張。AgX は彩度を
-     * 控えめにする tonemap (UE5 デフォルトに近い neutral look)。既存サンプル互換の
+     * 0=ACES Filmic、1=AgX、2=Reinhard 拡張。AgX は彩度を
+     * 控えめにする neutral look の tonemap。既存サンプル互換の
      * ため初期値は ACES。
      */
     i32   tonemap_kind     = 0;
@@ -367,8 +367,8 @@ private:
     /**
      * Bloom mip chain の段数 (1/2 から 1/64 までの 6 段)。
      *
-     * @details Downsample は Jimenez 13-tap。段数を増やすと «より低周波 (広い)» の soft glow まで
-     * 届き、UE5 風の広く柔らかい bloom になる。段数増による強度 lift は progressive upsample radius
+     * @details Downsample は 13-tap。段数を増やすと «より低周波 (広い)» の soft glow まで
+     * 届き、広く柔らかい bloom になる。段数増による強度 lift は progressive upsample radius
      * (深い mip ほど tent を広げる) と bloom_intensity 側で吸収する。各 mip は 1px までクランプ確保。
      */
     static constexpr u32 kBloomMips = 6;

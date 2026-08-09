@@ -73,7 +73,8 @@ TResult<void> FDiligentBuffer::Init(CDiligentDevice& device, const FBufferDesc& 
         bd.BindFlags = static_cast<Diligent::BIND_FLAGS>(
             bd.BindFlags | Diligent::BIND_INDIRECT_DRAW_ARGS);
     }
-    if (desc.struct_stride > 0) {   // 構造化バッファ (Phase 0): SRV/UAV view が作られる
+    // 要素幅が指定されたバッファには計算処理用の SRV/UAV view を作る。
+    if (desc.struct_stride > 0) {
         bd.Mode             = Diligent::BUFFER_MODE_STRUCTURED;
         bd.ElementByteStride = desc.struct_stride;
     }
