@@ -8,7 +8,7 @@
 
 ## 最小例
 
-`AScene` 派生シーンで、毎フレームプレイヤー位置にカメラを追従させる最小コードです (sample 55 と同じ構造)。
+`AScene` 派生シーンで、毎フレームプレイヤー位置にカメラを追従させる最小コードです。
 
 ```cpp
 #include "gameframework/GameFramework.h"
@@ -91,7 +91,7 @@ FVec2 world = ScreenToWorld(FInput::MousePos());
 
 ## よく使うパターン
 
-### 1. プレイヤー追従 (sample 55 そのまま)
+### 1. プレイヤー追従
 
 ```cpp
 void OnTick(f32 /*dt*/) noexcept override
@@ -154,8 +154,9 @@ void OnTick(f32 /*dt*/) noexcept override
 
 ---
 
-## 動くサンプル
+## API の流れ
 
-- **`acs/samples/55_HelloScene2D/Scene2DStarter.cpp`** — `AScene` 派生 + `SetTargetPos(player, 8.0f)` でのプレイヤー追従、`SetPosition` / `SetZoom` の初期化、`SetPixelsPerUnit(64)` を実際に動かして screenshot 検証済みのスターター。カメラ追従の挙動はまずここを動かすのが早いです。
+`AScene` は `CCamera2D::SetTargetPos` で追従先を更新し、`SetPosition` / `SetZoom` で
+初期表示を決めます。`SetPixelsPerUnit` は world と画面 pixel の変換倍率を設定します。
 
 実装本体は `acs/src/gameframework/Camera2D.h` (全ロジックがヘッダに inline)、シーン側の座標変換は `acs/src/gameframework/Scene.cpp` の `AScene::ScreenToWorld` を参照してください。

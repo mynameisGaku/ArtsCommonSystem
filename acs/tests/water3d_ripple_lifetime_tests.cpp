@@ -29,37 +29,6 @@ void AddWaterMeshQuadIndices(AMeshAsset& mesh) {
     mesh.Indices().Add(3u);
 }
 
-std::string ReadHelloWater3DSource(const char* file_name) {
-    std::string path = __FILE__;
-    const std::size_t separator = path.find_last_of("\\/");
-    if (separator == std::string::npos) return {};
-    path.resize(separator);
-    path += "/../samples/67_HelloWater3D/";
-    path += file_name;
-    std::FILE* file = nullptr;
-#if defined(_MSC_VER)
-    if (fopen_s(&file, path.c_str(), "rb") != 0) return {};
-#else
-    file = std::fopen(path.c_str(), "rb");
-    if (file == nullptr) return {};
-#endif
-    if (std::fseek(file, 0, SEEK_END) != 0) {
-        std::fclose(file);
-        return {};
-    }
-    const long size = std::ftell(file);
-    if (size < 0 || std::fseek(file, 0, SEEK_SET) != 0) {
-        std::fclose(file);
-        return {};
-    }
-    std::string source(static_cast<std::size_t>(size), '\0');
-    const std::size_t read = source.empty()
-        ? 0u : std::fread(source.data(), 1u, source.size(), file);
-    std::fclose(file);
-    if (read != source.size()) return {};
-    return source;
-}
-
 std::string ReadWaterRepositorySource(const char* relative_path) {
     std::string path = __FILE__;
     const std::size_t separator = path.find_last_of("\\/");
@@ -301,27 +270,6 @@ ACS_TEST(Water3DRippleLifetime,
                   0.1f, 0.1f, 0.18f, 0.16f),
               0u);
     EXPECT_EQ(water.ActiveRippleCount(), 0u);
-}
-
-ACS_TEST(Water3DSampleContract,
-         SlowDragPublishesTheWholeUnemittedSegment) {
-    const std::string source =
-        ReadHelloWater3DSource("HelloWater3DApp.cpp");
-    const std::string header =
-        ReadHelloWater3DSource("HelloWater3DApp.h");
-    EXPECT_TRUE(!source.empty());
-    EXPECT_TRUE(!header.empty());
-    EXPECT_TRUE(source.find(
-        "m_LastWakePoint, water_point,") != std::string::npos);
-    EXPECT_TRUE(source.find(
-        "m_UnemittedWakeTime, kWakeSpacing") != std::string::npos);
-    EXPECT_TRUE(source.find(
-        "m_LastWakePoint = water_point;") != std::string::npos);
-    EXPECT_TRUE(source.find(
-        "m_UnemittedWakeTime = 0.0f;") != std::string::npos);
-    EXPECT_TRUE(header.find("m_LastWakePoint") != std::string::npos);
-    EXPECT_TRUE(header.find("m_UnemittedWakeTime") != std::string::npos);
-    EXPECT_TRUE(source.find("m_LastDragPoint") == std::string::npos);
 }
 
 ACS_TEST(Water3DRippleLifetime, FullImpactPoolDropsNewEventWithoutRefreshingOldOne) {

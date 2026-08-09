@@ -7,7 +7,7 @@
 #include "render/Renderer.h"
 #include "render/IRhiCommandList.h"
 #include "render/IRhiSwapchain.h"
-#include "app/Sample.h"
+#include "app/UiFontDefaults.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"
 
@@ -103,7 +103,7 @@ void CGame::EnsureUiFont() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (dev == nullptr) return;     // device 未準備 → 次フレーム再試行
     m_UiFontTried = true;
-    const auto r = FSample::TryLoadDefaultUIFont(m_UiFont, *dev, 18.0f);
+    const auto r = UiFontDefaults::TryLoad(m_UiFont, *dev, 18.0f);
     m_UiFontReady = r.IsOk();
     if (!m_UiFontReady) {
         ACS_LOG_WARN("CGame: default UI font のロードに失敗 (HUD テキストは無効)");

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Foundation Optimization Wave B の性能契約・寿命・並行性テスト
+// ThreadPool、JobGraph、MessagePipe、Timer、File I/O の性能・寿命・並行性契約を検証する。
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "event/MessageBroker.h"
@@ -767,7 +767,7 @@ ACS_TEST(FoundationOptimizationWaveB, FileIoReadsTextWithoutIntermediateCopy)
     /** 親がファイルの場合に拒否する子パス。 */
     constexpr const wchar_t* kBlockedChildPath = L"acs_foundation_optimization_wave_b_parent\\child";
     /** 読み書きするテキスト。 */
-    constexpr const char* kText = "ACS Foundation Optimization Wave B\n";
+    constexpr const char* kText = "ACS transactional file fixture\n";
     (void)CFileSystem::Delete(kPath);
     (void)CFileSystem::Delete(kStoragePath);
     (void)CFileSystem::Delete(kParentFilePath);

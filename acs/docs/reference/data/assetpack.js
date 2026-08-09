@@ -173,7 +173,7 @@ ACS_REF.modules.push({
       name: "kAcpakMagic / kAcpakVersion",
       kind: "定数", header: "assetpack/AcpakFormat.h",
       summary: "<code>.acpak</code> ファイル先頭の<b><t>マジックナンバー</t></b>と<b>フォーマット版数</b>。<code>kAcpakMagic</code> は 8 バイト <code>\"ACPAK\\0\\0\\0\"</code>、<code>kAcpakVersion</code> は現行 <code>1</code>。Reader は Open 直後にこの 2 つを検査し、不一致なら <code>kAcpakSubBadMagic</code> / <code>kAcpakSubBadVersion</code> を返す。",
-      when: "フォーマットを自前で読み書きする時の検査値。Phase 2 で暗号化/圧縮を足しても version は 1 のまま、flags のビット追加で互換を保つ(互換破壊時のみ 2 へ上げる)。",
+      when: "フォーマットを自前で読み書きする時の検査値。暗号化と圧縮は version 1 の flags で表し、互換を破る形式変更時だけ version を上げる。",
       sample: "// 先頭 8 バイトを memcmp で照合(reinterpret_cast 比較は禁止)\nif (memcmp(head, kAcpakMagic, 8) != 0) return badMagic;\nif (header.version != kAcpakVersion) return badVersion;",
       members: [
         { sig: "inline constexpr u8 kAcpakMagic[8] = {'A','C','P','A','K',0,0,0}", desc: "pak 判定用 8 バイト signature。必ず memcmp / バイト列比較で検査する(strict-aliasing 回避)。" },
@@ -214,7 +214,7 @@ ACS_REF.modules.push({
         { sig: "kAcpakSubBadSize = 1303", desc: "ファイル長が想定外/範囲外(ヘッダより小さい等)。" },
         { sig: "kAcpakSubBadCrc = 1304", desc: "<t>CRC32</t> 不一致(破損または改竄)。" },
         { sig: "kAcpakSubBadFlags = 1305", desc: "未知の flags ビットが立っている。" },
-        { sig: "kAcpakSubNotImplemented = 1306", desc: "(Phase 1 残留)encrypted/compressed 用。Phase 2 で実装済のため現状未使用、将来の未実装機能用に再利用可。" },
+        { sig: "kAcpakSubNotImplemented = 1306", desc: "現状未使用。未対応機能を明示するため予約された値。" },
         { sig: "kAcpakSubNotOpen = 1307", desc: "Open() 前に API を呼んだ。" },
         { sig: "kAcpakSubNotFound = 1308", desc: "指定 path / index が pak 内に無い。" },
         { sig: "kAcpakSubBufferTooSmall = 1309", desc: "<code>ReadFile</code> の out_buffer が小さすぎる。" },

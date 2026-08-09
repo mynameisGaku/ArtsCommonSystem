@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — leveledit / ALevelEditorPanel
+#pragma once
+// GameFramework の tilemap level editor — ALevelEditorPanel
 //
 // `acs::game::FTilemap` (multi-layer u16 FTileId grid) を **対話的に編集する
 // tilemap painter panel**。「ペイント / 消し / 塗りつぶし / スポイト」 4 ブラシ +
@@ -35,8 +36,8 @@
 //   ・FTilemap の描画は「ImDrawList で色付き矩形を描く placeholder」のみ
 //     (本物テクスチャ atlas は未対応)。tile id を疑似乱数ハッシュで色に変換する
 //     `TileIdToColor` を内部実装する。
-//   ・Save / Load tilemap は sample 34 側で stub menu を出す。本 panel 自身は
-//     永続化 API を持たない (= JSON / binary / pak 等の選択を panel が知らない)。
+//   ・Save / Load tilemap は呼び出し側が担当する。本 panel 自身は永続化 API を
+//     持たず、JSON / binary / pak 等の保存形式を扱わない。
 //
 // 使い方 (典型):
 //   ALevelEditorPanel panel;
@@ -93,8 +94,6 @@
 //   ・auto-tiling (= Wang tiles / 4-bit neighbor mask)
 //   ・collision layer の特別扱い (= 現状はただの layer)
 //   ・タイル単位 flip / rotate (= FTileId 自体は純粋 id のまま、flag は別配列が必要)
-#pragma once
-
 #include "foundation/Types.h"
 #include "gameframework/tools/editor_core/EditorPanel.h"
 #include "gameframework/tools/editor_core/EditorCamera.h"

@@ -1,6 +1,6 @@
 # エフェクト(水/炎/トレイル) & 2Dライト & ステンシル & HUDテキスト
 
-シェーダーもアセットも書かずに「波打つ水・揺れる炎・残像トレイル・点光源+ソフト影・窓型くりぬき・HUD文字」を出すための drop-in コンポーネント集です。`AddComponent` してパラメータを設定するだけで動きます。`acs::game` の `AWater2DComponent` / `AFire2DComponent` / `ATrail2DComponent` / `AStencilClip2DComponent`、`acs` の `FLighting2D` / `FFont` を扱います。「水辺・たき火のある2Dシーンを作りたい」「暗い洞窟に松明を灯したい」「窓越しに別シーンを覗かせたい」ときに使います。
+シェーダーもアセットも書かずに「波打つ水・揺れる炎・残像トレイル・点光源+ソフト影・窓型くりぬき・HUD文字」を出すための drop-in コンポーネント集です。`AddComponent` してパラメータを設定するだけで動きます。`acs::game` の `AWater2DComponent` / `AFire2DComponent` / `ATrail2DComponent` / `AStencilClip2DComponent`、`acs` の `CLighting2D` / `FFont` を扱います。「水辺・たき火のある2Dシーンを作りたい」「暗い洞窟に松明を灯したい」「窓越しに別シーンを覗かせたい」ときに使います。
 
 > すべて `CSpriteBatch` のプリミティブ(三角形/矩形)を毎フレーム手続き生成して描くので HLSL は不要です。
 
@@ -110,7 +110,7 @@ w.Disturb(FVec2{0.5f, 0.0f}, 0.6f);                        // クリック位置
 | `SetRef(u8)` | 入れ子用のステンシル参照値(1..255、既定1) |
 | `SetDebugVisualize(on, color)` | マスク形状自体を可視化(デバッグ用) |
 
-### FLighting2D — 点光源 + ソフト影 (render層、生の `acs`)
+### CLighting2D — 点光源 + ソフト影 (render層、生の `acs`)
 
 `AScene` には組み込まれていません。`CApplication::OnCustomFrame` 等で自前のレンダーループを組む低レベルAPIです。
 
@@ -135,7 +135,7 @@ w.Disturb(FVec2{0.5f, 0.0f}, 0.6f);                        // クリック位置
 
 ### 1. マウスで水をなぞる/クリックして波紋を立てる
 
-`AScene::ScreenToWorld`(ppu対応のピッキング)で画面座標→ワールド座標に変換し、`ContainsPoint` で当たった水域に `Disturb` します(sample 59)。
+`AScene::ScreenToWorld`（ppu 対応の picking）で画面座標を world 座標へ変換し、`ContainsPoint` で当たった水域に `Disturb` します。
 
 ```cpp
 void OnTick(f32 /*dt*/) noexcept override {
@@ -153,7 +153,7 @@ void OnTick(f32 /*dt*/) noexcept override {
 
 ### 2. 平面反射を有効にする (横視点の海)
 
-`AWater2DComponent::SetReflection(true, ...)` だけでは映りません。シーン側で `SetReflectionEnabled(true)` を呼んで「world→RT→swapchain」の3パス描画にする必要があります(sample 59)。
+`AWater2DComponent::SetReflection(true, ...)` だけでは映りません。シーン側で `SetReflectionEnabled(true)` を呼んで「world→RT→swapchain」の3パス描画にする必要があります。
 
 ```cpp
 void OnReady() noexcept override {
@@ -168,7 +168,7 @@ void OnReady() noexcept override {
 
 ### 3. 窓越しに隠しシーンを覗かせる (ステンシル)
 
-マスクノードの**子ツリー**が、マスク形状の内側だけに描かれます。`SetStencilMaskEnabled(true)` が前提(sample 60)。
+マスクノードの**子ツリー**が、マスク形状の内側だけに描かれます。`SetStencilMaskEnabled(true)` が前提です。
 
 ```cpp
 void OnReady() noexcept override {
@@ -193,7 +193,7 @@ void OnTick(f32) noexcept override {
 
 ### 4. 点光源+ソフト影の合成パス (低レベル)
 
-`FLighting2D` は描画ブラケットの呼び順が厳格です(sample 47)。
+`CLighting2D` は描画ブラケットの呼び順が厳格です。
 
 ```cpp
 m_Lighting.SetAmbient(FVec3{0.05f,0.05f,0.08f});   // 暗い洞窟
@@ -219,7 +219,7 @@ cl->EndRenderToSwapchain(*sc, idx);
 
 ### 5. HUD にテキストを描く
 
-`AScene::OnDrawHud` で `rc.HasFont()` をガードしてから描きます(sample 59/60/61 共通)。
+`AScene::OnDrawHud` で `rc.HasFont()` をガードしてから描きます。
 
 ```cpp
 void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override {
@@ -239,24 +239,23 @@ void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override {
 - **コースティクスは実用上 TopDown**: `SetCaustics`/`SetSkyTint` は見下ろし(`EWaterStyle::TopDown`)の見せ方です。横視点は反射+泡+縁で表現します。`SetCaustics` を呼ぶと内部で `EnableCaustics(true)` も立ちます。
 - **ステンシルも2段階**: `SetStencilMaskEnabled(true)` を呼び忘れると DSV が無く、`AStencilClip2DComponent` は素通し(クリップしない)になります。また反射のRTパスなど stencil バッファの無いパスでは自動的に素通しです。入れ子マスクは `SetRef` を別値にしてください。
 - **クリップ対象は「子ツリー」**: マスクは attach したノード自身ではなく、その子に追加したノード群に効きます。`win->AddChild(...)` で中身を足す構造にします。
-- **座標系の混在に注意**: `AWater2DComponent`/`AStencilClip2DComponent` の `SetRect` 等はすべて **owner ノード相対**で、world +Y が画面下(sample のコメント参照)。一方 `FLighting2D` と `FFont`/`DrawString` は **スクリーンのピクセル空間(左上原点)** です。混同しないこと。
+- **座標系の混在に注意**: `AWater2DComponent` / `AStencilClip2DComponent` の `SetRect` 等はすべて **owner ノード相対**で、world +Y が画面下です。一方 `CLighting2D` と `FFont` / `DrawString` は **スクリーンのピクセル空間（左上原点）** です。混同しないこと。
 - **ピッキングは `ScreenToWorld` を使う**: マウス→ワールド変換は `AScene::ScreenToWorld`(ppu と camera zoom を考慮)を使います。`CCamera2D::ScreenToWorld`(ppu非考慮)では水域とズレます。
-- **`FLighting2D` の呼び順**: `BeginScene/EndScene` → `BeginOccluders/EndOccluders` → ターゲットbind → `Composite` の順序が必須。occluder は**白tint**で黒地に焼くとシルエットが遮蔽物になります。光源は最大16個(`AddLight` が `false` を返したら上限)。
+- **`CLighting2D` の呼び順**: `BeginScene/EndScene` → `BeginOccluders/EndOccluders` → ターゲットbind → `Composite` の順序が必須。occluder は**白tint**で黒地に焼くとシルエットが遮蔽物になります。光源は最大16個(`AddLight` が `false` を返したら上限)。
 - **メッシュ上限**: 水は頂点320/三角形560が上限。強い凹形状の `SetPolygon` は centroid 扇塗りで破綻しやすいので、複数の水域に分けるのが安全です。
 - **トレイルは owner を追う**: `ATrail2DComponent` はノードを動かして初めて軌跡が出ます。静止ノードでは何も描かれません。
 - **コンポーネントの生ポインタは owner 寿命内だけ**: 例の `m_Clip` / `m_Waters` は各ノードが所有するコンポーネントへの非所有参照です。ノードを `Destroy()` した後は参照せず、必要なら同時に `nullptr` へ戻してください。
-- **初期化結果を確認する**: `FLighting2D::Init` / `Resize` と `FFont::LoadFromFile` は `TResult<void>` を返します。`IsOk()` / `IsErr()` で分岐し、失敗した機能を使わないでください。
+- **初期化結果を確認する**: `CLighting2D::Init` / `Resize` と `FFont::LoadFromFile` は `TResult<void>` を返します。`IsOk()` / `IsErr()` で分岐し、失敗した機能を使わないでください。
 - **`FFont` は事前ロード**: `FFont::LoadFromFile` 失敗時(フォントが無い環境)は `rc.HasFont()` が `false` になり、テキストは単に描かれません(クラッシュはしない)。`FFont` はコピー不可で、device 破棄前に `Shutdown()` します。
 
 ---
 
-## 動くサンプル
+## API の責務
 
-- 水(横視点・3形状の水域+反射+トレイル+炎+HUD): `acs/samples/59_HelloEffects2D/EffectsDemo.cpp`
-- 水(見下ろし・湖/池/小川 Core Keeper風コースティクス): `acs/samples/61_HelloWaterTopDown/WaterTopDownDemo.cpp`
-- ステンシル窓(円⇔矩形、内外反転): `acs/samples/60_HelloStencilMask/StencilMaskDemo.cpp`
-- 2Dライト+ソフト影(松明・占有遮蔽・ブロブ影・HUD): `acs/samples/47_HelloLight2D/Light2DApp.cpp`
-
-いずれも実機ビルド+スクリーンショット確認済みのサンプルです。
+- `AWater2DComponent` は水域形状、法線、反射、岸辺表現を描画します。
+- `AFire2DComponent` と `ATrail2DComponent` は node に追従する時間変化を保持します。
+- `AStencilClip2DComponent` は子 tree の内外を任意形状で切り替えます。
+- `CLighting2D` は点光源、遮蔽物、soft shadow を合成します。
+- `FFont` と `CSpriteBatch` は HUD text の atlas と描画を担当します。
 
 ヘッダ実体: `acs/src/gameframework/Effects2D.h` / `acs/src/render/Light2D.h` / `acs/src/render/Font.h`。

@@ -95,14 +95,14 @@ struct FTileId {
 | `SetTexture(IRhiTexture* tex)` | アトラステクスチャ（**非所有**）を設定。未設定だと ID 由来色でデバッグ描画 |
 | `SetAtlasGrid(u32 cols, u32 rows)` | アトラス内のタイル格子（既定 1×1）。0 は 1 に補正 |
 | `SetTint(FVec4 tint)` | 全タイルの乗算カラー（既定 白 `{1,1,1,1}`） |
-| `BuildCollision(FCollisionWorld2D& world, u32 layer, u32 collision_layer_bit)` | 指定レイヤーの非空タイルを 1 マス = 1 AABB として物理ワールドへ登録 |
+| `BuildCollision(CCollisionWorld2D& world, u32 layer, u32 collision_layer_bit)` | 指定レイヤーの非空タイルを 1 マス = 1 AABB として物理ワールドへ登録 |
 | `OnDraw(FRenderContext& rc)` | フレームワークが自動で呼ぶ。手動呼び出し不要 |
 
 ---
 
 ## よく使うパターン
 
-### 1. 枠付きの部屋を作る（サンプル 58 そのまま）
+### 1. 枠付きの部屋を作る
 
 `Fill` で下地を敷き、`FillRect` で 1 マス幅の壁を 4 辺に置きます。`FillRect` が **閉区間**なので、右端は `15..15`（マップ幅 16 → 最大 index 15）と書きます。
 
@@ -121,7 +121,7 @@ tm.SetAtlasGrid(2, 2);                       // 2x2 アトラス → cell0..3
 
 ### 2. アトラスを手で作る（テクスチャアセットが無いとき）
 
-サンプル 58 は 2×2（各 32px）の色ブロックを CPU で生成しています。`SetAtlasGrid(cols, rows)` の値と、置く `FTileId` が指すセルが一致していることが重要です（`value-1` が `row*cols+col`）。
+2×2（各 32px）の色ブロックを CPU で生成できます。`SetAtlasGrid(cols, rows)` の値と、置く `FTileId` が指すセルが一致していることが重要です（`value-1` が `row*cols+col`）。
 
 ```cpp
 // 2x2 = 4 セルのテクスチャを作り、cell index と tile id を対応させる:
@@ -167,22 +167,23 @@ if (tm.Map().WorldToTile(local, tx, ty)) {
 - **マップ原点はノードの world 位置**。`FTilemap` 自体は原点 (0,0) 基準で `TileToWorld` を返し、描画/`BuildCollision` 時に `Owner().World2D().position` を足します。マップ全体を動かしたいときはノードを動かす。
 - **`TileToWorld` はタイルの中心**を返す（`(x+0.5)*tile_size`）。グリッド線ではありません。スプライト描画基準に合わせた仕様。
 - **`WorldToTile` は負値/原点未満を `false`** にします（早期 reject）。マップ原点をオフセットしているときは前述のとおりローカル座標に直してから渡すこと。
-- **`SetTexture` は非所有**。テクスチャの寿命はあなたが管理（サンプルではシーンが `TUniquePtr<IRhiTexture>` で保持）。コンポーネントより先に破棄すると dangling。
-- **`tile_size` は world 単位**。サンプル 58 は `tile_size=1.0f` + `SetPixelsPerUnit(48.0f)` で「1 タイル = 画面上 48px」。ピクセル基準にしたいなら `tile_size=16.0f`/`32.0f` + PPU=1 などにする。
+- **`SetTexture` は非所有**。呼び出し側が `TUniquePtr<IRhiTexture>` などで寿命を所有し、コンポーネントより先に破棄しないこと。
+- **`tile_size` は world 単位**。`tile_size=1.0f` と `SetPixelsPerUnit(48.0f)` なら 1 タイルは画面上 48px。ピクセル基準にしたいなら `tile_size=16.0f`/`32.0f` と PPU=1 などにする。
 - **`FTilemap` は非コピー・非ムーブ**。値で持ち回らず、`AComponent` 経由か参照で扱う。
 - **インポータ（実装済み / 未対応の区別）**: Tiled の **JSON 形式 `.tmj` は
   `FTilemap::TryLoadTiledJson(text, len)` で厳格・トランザクション的に読み込めます**。
   `tilelayer` の `data` を行優先で取り込み、GID の上位 flip フラグは除去して
   `FTileId` に clamp します。`LoadTiledJson` は `TResult<void>` を返す互換APIです。
-  ファイル文字列は `FFileSystem::ReadAllText` で読んで渡します。検証例は
-  `62_HelloPersistVerify` の `TestTilemapLoad` です。一方 **`.tmx`（XML 形式）は未対応**
+  ファイル文字列は `CFileSystem::ReadAllText` で読んで渡します。一方 **`.tmx`（XML 形式）は未対応**
   です。auto-tiling / per-tile flip の反映 / chunk 化も現状ありません。
 
 ---
 
-## 動くサンプル
+## 責務の組み合わせ
 
-- **`acs/samples/58_HelloTilemap/TilemapDemo.cpp`** — Package C デモ。Title→Level のフェード遷移付きで、`ATilemapComponent` が 2×2 アトラスのセルとして枠付きの部屋＋中央の水たまりを描画します（実機スクショ確認済み）。アトラステクスチャを CPU で生成する `MakeTileAtlas` も参照になります。
+`FTilemap` は tile 値と座標変換、`ATilemapComponent` は atlas を使った描画、
+`CGame::TransitionTo` は scene 遷移を担当します。CPU 生成 texture を使う場合も
+texture の寿命は scene または asset owner が保持します。
 
 ヘッダ／実装は以下：
 - `acs/src/gameframework/Tilemap.h` / `Tilemap.cpp` — データ本体

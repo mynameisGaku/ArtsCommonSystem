@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — ModelViewer / AModelAnimationPanel
+#pragma once
+// GameFramework の model animation 制御 — AModelAnimationPanel
 //
 // ModelViewer 内で、ロード済みモデルに含まれる **animation clip の再生制御 +
 // timeline 表示** を行う panel。共通基盤の `editor_core::AEditorPanel`
@@ -60,7 +61,7 @@
 //     Paused の三状態。E-prefix 規約 (`enum class E*` + 基底 u8)。
 //   ・**Tick (dt) を panel 内に持つ**: CSpriteAnimator と同設計 — DrawUI は
 //     ImGui 描画専任、時刻進行は別 hook (= Workspace の OnFrameBegin 経由 or
-//     FSample 側が明示的に Tick) に分離してテスト容易性を確保。本 panel の
+//     呼び出し側が明示的に Tick) に分離してテスト容易性を確保。本 panel の
 //     AEditorPanel::OnFrameBegin は override せず、呼出側が Tick(dt) を直接
 //     呼ぶ規約 (= Workspace の dt と animation の dt は分離したい場面用)。
 //   ・**duration 到達時の挙動**: clip の `is_looping` または `m_LoopOverride`
@@ -93,8 +94,6 @@
 //   ・root motion 抽出 / カメラ追従 (= CCinematicsDirector との連携範疇)。
 //   ・clip 圧縮設定 / curve 編集 (= model importer の役割)。
 //   ・retargeting (= bone mapping エディタの役割)。
-#pragma once
-
 #include "foundation/Types.h"
 #include "container/Array.h"
 #include "gameframework/tools/editor_core/EditorPanel.h"

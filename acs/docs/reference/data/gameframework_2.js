@@ -195,11 +195,11 @@ ACS_REF.modules.push({
       name: "AComponent",
       kind: "クラス", header: "gameframework/AComponent.h",
       summary: "<code>ANode</code> に付ける<b>振る舞いパーツ</b>の基底。sprite 描画・当たり判定・アニメ・カスタムロジックを<b>継承でなく合成</b>で組み上げる (composition over inheritance)。<code>OnUpdate</code> 等のフックを override して使う。",
-      when: "ノードに独自の振る舞いを足したい時。Unity の MonoBehaviour 的な感覚で 1 機能 = 1 コンポーネントを書く。",
+      when: "ノードに独自の振る舞いを足したい時。1 機能を 1 コンポーネントへ分けて実装する。",
       sample: "class ARotateComponent : public AComponent {\npublic:\n    ACS_GAME_COMPONENT_KIND(ARotateComponent)\n    void OnUpdate(f32 dt) noexcept override {\n        Owner().SetRotation2D(Owner().Rotation2D() + m_Speed * dt);\n    }\n    f32 m_Speed = 1.0f;\n};\nnode-&gt;AddComponent&lt;ARotateComponent&gt;();",
       members: [
         { sig: "virtual const void* Kind() const", desc: "型を識別する ID。派生では <code>ACS_GAME_COMPONENT_KIND(T)</code> マクロで 1 行 override する。" },
-        { sig: "virtual void OnRequire(ANode& owner)", desc: "依存コンポーネント宣言フック (Unity の [RequireComponent] 相当)。<code>owner.GetOrAddComponent&lt;Dep&gt;()</code> で兄弟を自動確保。", when: "「このコンポーネントは ASprite2DComponent が必要」のような依存を表明する時。" },
+        { sig: "virtual void OnRequire(ANode& owner)", desc: "依存コンポーネント宣言フック。<code>owner.GetOrAddComponent&lt;Dep&gt;()</code> で不足する兄弟を自動確保。", when: "「このコンポーネントは ASprite2DComponent が必要」のような依存を表明する時。" },
         { sig: "virtual void OnAttach(ANode& owner)", desc: "ノードに付いた瞬間に呼ばれる。初期化に使う。" },
         { sig: "virtual void OnUpdate(f32 dt)", desc: "毎フレーム呼ばれる。可変 dt のロジック用。", when: "毎フレームの移動・回転・状態更新。" },
         { sig: "virtual void OnFixedUpdate(f32 fixed_dt)", desc: "固定刻みで呼ばれる (同フレームで 0 回 / 複数回あり得る)。物理や決定論的ロジック用。" },
@@ -503,7 +503,7 @@ ACS_REF.modules.push({
     {
       name: "FConsoleArg / CommandFn",
       kind: "構造体 / 関数ポインタ型", header: "gameframework/DevConsole.h",
-      summary: "<code>FConsoleArg</code> はコマンド引数 1 つ (Phase 1 では raw 文字列のみ)。<code>CommandFn</code> はコマンド本体の関数ポインタ型 <code>void(*)(void* user, u32 argc, const FConsoleArg* args)</code>。argv[0] はコマンド名でなく最初の引数。",
+      summary: "<code>FConsoleArg</code> は raw 文字列として保持するコマンド引数 1 つ。<code>CommandFn</code> はコマンド本体の関数ポインタ型 <code>void(*)(void* user, u32 argc, const FConsoleArg* args)</code>。argv[0] はコマンド名でなく最初の引数。",
       when: "コマンドを実装する時のシグネチャ。",
       sample: "static void SpawnCmd(void* user, u32 argc, const FConsoleArg* args) noexcept {\n    if (argc >= 1) Spawn(args[0].str);\n}"
     }

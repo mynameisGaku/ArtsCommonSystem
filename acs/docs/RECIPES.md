@@ -5,12 +5,12 @@
 テクスチャ・アニメーション・シャドウ・パーティクル・多言語対応・セーブデータ
 など、ACS の主要 API のコピペ可能なコード例を集めています。
 
-> 以下のコード例の `dev` / `registry` / `renderer` は、`FApplication` を継承した
+> 以下のコード例の `dev` / `registry` / `renderer` は、`CApplication` を継承した
 > クラスの中で次のように取得した変数です：
 > `IRhiDevice* dev = GetRenderer().Device();` ／
 > `FAssetRegistry& registry = GetAssets();` ／ `FRenderer& renderer = GetRenderer();`
 
-関連サンプル: `17_HelloMesh` / `18_HelloTextured`（低レベル RHI）。
+低レベル RHI では shader、buffer、pipeline、command list の順に構築します。
 
 ---
 
@@ -22,7 +22,7 @@ struct FVertex {
     f32 color[3];
 };
 
-class FMyGame : public FApplication {
+class CMyGame : public CApplication {
     TUniquePtr<IRhiShader>   _vs, _ps;
     TUniquePtr<IRhiBuffer>   _vb, _ib, _cb;
     TUniquePtr<IRhiPipeline> _pipe;
@@ -31,7 +31,7 @@ class FMyGame : public FApplication {
 
     void OnStart() noexcept override {
         IRhiDevice* dev = GetRenderer().Device();
-        // 1. シェーダコンパイル — 17_HelloMesh の HLSL を流用
+        // 1. CreateRhiShader で vertex / pixel shader をコンパイル
         // 2. 頂点 / インデックスバッファ作成
         // 3. 定数バッファ（256B 確保しておく）
         // 4. パイプライン: cbuffer_slots=1, depth_test=true, cull=Back
@@ -185,10 +185,10 @@ FSkinnedGpuMesh gm;
 UploadSkinnedMesh(*device, *mesh, gm);
 
 // 3) シェーダ + プレイヤー
-FSkinnedShader shd;
+CSkinnedShader shd;
 shd.Init(*device, color_fmt, depth_fmt);
 
-FAnimationPlayer player;
+CAnimationPlayer player;
 player.SetMesh(mesh.Get());
 player.Play(0, /*loop=*/true);
 
@@ -215,8 +215,8 @@ cl->DrawIndexed(gm.index_count);
 - 最大 64 ボーン、4 ボーン/頂点まで影響
 - 旧 `kMaxObjectDrawsPerFrame` は互換用の目安値であり、ハード上限ではない
 - TRS キーフレームを Slerp/Lerp で時刻補間
-- FAnimationPlayer がループ再生・一時停止・任意時刻指定
-- 15_HelloAnimation サンプルが手続き 4 ボーン円柱でうねうねデモ
+- CAnimationPlayer がループ再生・一時停止・任意時刻指定
+- `CAnimationPlayer` の出力を `CSkinnedShader::BonesCB` へ反映する
 
 ## 2D パーティクル
 
@@ -383,7 +383,7 @@ shd.SetPointLights(pts, 3);     // 最大 4 灯
 - FStandardShader / FSkinnedShader 両対応
 - range を超えた位置では影響ゼロ（カットオフ）
 - range 内は (1 - dist/range)² で滑らかに減衰
-- 暗い部屋を 4 色で照らすデモは `samples/12_HelloLights`
+- `SetPointLights` は最大 4 灯を一度に反映する
 
 ## マルチライト + 鏡面反射
 
@@ -508,5 +508,5 @@ if (motion_gbuffer_valid) {
 
 ---
 
-PBR / IBL / Bloom など上級グラフィックスは `samples/23_HelloPbr` 〜
-`26_HelloLightmap` を参照してください。
+PBR は `CPbrShader`、IBL は `CImageBasedLighting`、Bloom は `CPostProcess` が
+それぞれ shader、環境 map、HDR pass の責務を持ちます。

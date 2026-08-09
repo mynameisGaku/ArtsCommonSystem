@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — CDevConsole
+#pragma once
+// GameFramework 開発コンソール state — CDevConsole
 //
 // `~` (チルダ) で開く開発用テキストコマンドコンソールの **state コンテナ**。
 // 描画 / 入力ハンドリング (ImGui ウィンドウ、IME、オートコンプリート UI 等) は
-// 上位レイヤ (Tools / Editor / 各サンプル) の責務で、本クラスは:
+// 上位レイヤ (Tools / Editor / game UI) の責務で、本クラスは:
 //   1. コマンド名 → 関数ポインタの登録 / 検索 / 実行
 //   2. 入力履歴 (上下キーで再呼び出しする想定の生バッファ)
 //   3. ログ出力バッファ (描画側がスクロールバックに表示する想定)
@@ -43,8 +44,6 @@
 //       con.Execute(input_buf);
 //   }
 //   for (u32 i = 0; i < con.LogCount(); ++i) DrawLine(con.LogLine(i));
-#pragma once
-
 #include "foundation/Types.h"
 #include "foundation/Log.h"
 #include "container/Array.h"

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — fontedit / AFontEditorPanel 実装
+// GameFramework font atlas editor — AFontEditorPanel 実装
 //
 // 仕様の意図は AFontEditorPanel.h を参照。本ファイルでは:
 //   ・AEditorPanel 基底 hook (OnInit / DrawUI) の override
@@ -172,9 +172,8 @@ void AFontEditorPanel::Init() noexcept {
     m_Selected     = -1;
     m_PreviewSize = 24.0f;
 
-    // preview buffer はデフォルト文字列で埋める。utf-8 リテラルで安全な範囲
-    // (= ASCII + ASCII range) のみ採用。広めの代表的サンプルは caller (sample
-    // 36) が SetPreviewText で上書きする想定。
+    // preview buffer は utf-8 リテラルで安全な ASCII の既定文字列で埋める。
+    // 呼び出し側は SetPreviewText で表示対象の文字列へ差し替えられる。
     for (u32 i = 0; i < kPreviewTextCapacity; ++i) m_PreviewText[i] = '\0';
     const c8* def = "The quick brown fox jumps over the lazy dog.";
     for (u32 i = 0; def[i] != '\0' && i + 1u < kPreviewTextCapacity; ++i) {
@@ -354,8 +353,8 @@ void AFontEditorPanel::DrawUI() noexcept {
         if (!can_add) ImGui::BeginDisabled();
         if (ImGui::Button("+ Add Face")) {
             // 空 face (= default 値、family/path は nullptr) を 1 個追加。
-            // caller が後で family/path を設定する想定 (実用はサンプル 36 のように
-            // AddFontFace(populated_info) を直接呼ぶ)。
+            // caller は追加後に family/path を設定するか、設定済み情報を
+            // AddFontFace へ直接渡す。
             FFontFaceInfo def{};
             AddFontFace(def);
         }

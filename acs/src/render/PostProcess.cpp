@@ -126,7 +126,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 // Downsample: 13-tap の partial-box filter。
 // 5 つの partial-box average を輝度重み付きで blend する。
 //
-// FSample layout (t = 1 source texel):
+// フィルター配置 (t = 元テクセル 1 個分):
 //   A . B . C
 //   . J . K .
 //   D . E . F      (center = E)

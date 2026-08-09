@@ -14,7 +14,7 @@ UE5 純正 (prefix 無し) は accessor method 名 (`T Member() const`) と衝�
   - `_Out_` / `_In_` / `_M_X64` (uppercase 直後始まり)
   - C ライブラリ `_open` `_close` 等 (rare、ACS では使用していない想定)
 
-bool 変数の `b` 前置 (`_is_active` -> `m_bIsActive`) は型解析必要なので別 phase。
+bool 変数の `b` 前置 (`_is_active` -> `m_bIsActive`) は型解析が必要なため本 tool の対象外。
 ここでは `_is_active` -> `m_IsActive` のように単純 m_PascalCase。
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ TARGET_EXTS = {".h", ".hpp", ".inl", ".cpp", ".cxx", ".cc", ".c"}
 EXCLUDE_DIRS = {"cmake-build-diligent-debug","cmake-build-diligent-release",
                 "cmake-build-debug","cmake-build-release","build","_deps",
                 "out",".git",".vs",".idea"}
-ROOTS = ["src","samples","tests","tools"]
+ROOTS = ["src","tests","tools"]
 
 # preprocessor / reserved (skip these specific names even if they match pattern)
 RESERVED_NAMES = {

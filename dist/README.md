@@ -15,9 +15,9 @@ dist/
 ├─ lib/x64/
 │  ├─ Debug/                 ← acs.lib + adjacent Diligent/xxhash libs (/MDd)
 │  └─ Release/               ← acs.lib + adjacent Diligent/xxhash libs (/MD)
-├─ examples/
-│  ├─ check.cpp              ← minimal single-header consumer smoke test
-│  └─ build_example.cmd      ← build it: `build_example.cmd Debug|Release`
+├─ verification/
+│  ├─ consumer_contract.cpp       ← single-header consumer contract
+│  └─ build_consumer_contract.cmd ← build it: `build_consumer_contract.cmd Debug|Release`
 └─ README.md
 ```
 
@@ -80,12 +80,12 @@ library search path.
 
 ---
 
-## Try the example
+## Run the consumer contract
 
 ```bat
-cd dist\examples
-build_example.cmd Debug      ::  or: build_example.cmd Release
-check.exe
+cd dist\verification
+build_consumer_contract.cmd Debug :: or: build_consumer_contract.cmd Release
+consumer_contract.exe
 ```
 
 Expected output:
@@ -94,7 +94,7 @@ Expected output:
 acs.h OK | sum=42 dist=5.0 clamp=100.0 len=5.0 hash=2773fad09b34e937 event=1 component=1 scene_timer=1 log_sink=1
 ```
 
-`examples\check.cpp` is the canonical "is my setup correct?" test: it includes
+`verification\consumer_contract.cpp` is the canonical distribution contract: it includes
 *only* `<acs.h>` and checks the container, math, easy, event, ECS, scene timer,
 log sink and non-inline hash-library paths. The consumer does not list
 individual libraries on its command line; `acs.h` supplies the `acs.lib`,
@@ -156,7 +156,7 @@ python acs/scripts/amalgamate.py --self-test
 python acs/scripts/amalgamate.py --check
 python acs/scripts/audit_cpp_conventions.py --root dist --scope .
 # 4) syntax-check the consumer
-cl /nologo /Zs /std:c++20 /utf-8 /permissive- /Zc:__cplusplus /Zc:preprocessor /EHsc /GR- /D_HAS_EXCEPTIONS=1 /I dist dist/examples/check.cpp
+cl /nologo /Zs /std:c++20 /utf-8 /permissive- /Zc:__cplusplus /Zc:preprocessor /EHsc /GR- /D_HAS_EXCEPTIONS=1 /I dist dist/verification/consumer_contract.cpp
 # 5) configure, link, and execute a temporary Debug/Release consumer
 python acs/scripts/run_distribution_consumer_smoke.py --distribution-root dist --configuration Debug --generator "Visual Studio 18 2026" --generator-platform x64
 python acs/scripts/run_distribution_consumer_smoke.py --distribution-root dist --configuration Release --generator "Visual Studio 18 2026" --generator-platform x64
@@ -223,7 +223,7 @@ directory. Before copying, it rejects reparse points and any file outside the
 fixed 33-file mirror. It then pins the root, all directories, and all files
 against rename or write, strictly parses the canonical 29-entry named manifest,
 and verifies every header/library hash. The selected configuration, `acs.h`,
-and the reviewed `examples/check.cpp` are copied into the snapshot. Configure,
+and the canonical `verification/consumer_contract.cpp` are copied into the snapshot. Configure,
 link, and execution use only that snapshot; the live SDK root is not read after
 snapshot creation. The three commands share one overall deadline. Each command
 runs below a Windows Job Object, so a timeout stops CMake/MSBuild and every

@@ -489,7 +489,7 @@ def _run_self_test() -> bool:
         root = Path(directory)
         outside = Path(outside_directory)
         (root / "src").mkdir()
-        (root / "samples").mkdir()
+        (root / "tests").mkdir()
         (root / "tools" / "Kit").mkdir(parents=True)
         (root / "editor" / "Kit").mkdir(parents=True)
         (root / "src" / "ThirdParty" / "Kit").mkdir(parents=True)
@@ -504,7 +504,7 @@ def _run_self_test() -> bool:
         (root / "src" / "Module.ixx").write_text("export module kit.audit;\nimport kit;\nexport import kit.foo;\n", encoding="utf-8")
         module_source = 'export module acs.kit.bridge;\nimport acs.kit;\nimport "Kit.h";\nimport <Kit/Timer.h>;\n'
         (root / "src" / "Module.cppm").write_text(module_source, encoding="utf-8")
-        splice_source = 'export module sample.splice;\nimpor\\\nt "Kit.h";\nimport "Ki\\\nt.h";\n// ignored \\\nimport "Kit.h";\n'
+        splice_source = 'export module fixture.splice;\nimpor\\\nt "Kit.h";\nimport "Ki\\\nt.h";\n// ignored \\\nimport "Kit.h";\n'
         (root / "src" / "Splice.cppm").write_text(splice_source, encoding="utf-8")
         fragment_source = 'module;\n#define ACS_FRAGMENT 1\n#define ACS_FAKE export module kit.fake\n#include "Foundation/Config.h"\nexport module kit.fragment;\n'
         (root / "src" / "GlobalFragment.cppm").write_text(fragment_source, encoding="utf-8")
@@ -518,7 +518,7 @@ def _run_self_test() -> bool:
 
         (outside / "Kit").mkdir()
         (outside / "Escaped.cpp").write_text("void Escape() { kit::Timer value; }\n", encoding="utf-8")
-        kit_reparse = root / "samples" / "Kit"
+        kit_reparse = root / "tests" / "Kit"
         ancestor_reparse = root / "src" / "ExternalBridge"
         if not _create_directory_reparse(kit_reparse, outside) or not _create_directory_reparse(ancestor_reparse, outside):
             _remove_directory_reparse(kit_reparse)
@@ -546,7 +546,7 @@ def _run_self_test() -> bool:
             print(f"kit_absorption_audit_self_test failed: global module fragment positions={sorted(fragment_positions)}", file=sys.stderr)
             return False
         kit_paths = {item.path for item in violations if item.rule == "ACS-KIT001"}
-        if "samples/Kit" not in kit_paths or any("ExternalBridge" in item.path or outside.as_posix() in item.path for item in violations):
+        if "tests/Kit" not in kit_paths or any("ExternalBridge" in item.path or outside.as_posix() in item.path for item in violations):
             print(f"kit_absorption_audit_self_test failed: lexical reparse path or pruning was lost: paths={sorted(kit_paths)}", file=sys.stderr)
             return False
         if any(any(name in item.path for name in ("ThirdParty", "Intermediate", "cmake-build-debug")) for item in violations):

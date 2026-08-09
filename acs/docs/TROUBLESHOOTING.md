@@ -9,9 +9,9 @@
 
 ACS のビルドには次が必要です（リポジトリ直下の `README.md` 参照）：
 
-- **Visual Studio 2022** ＋ ワークロード **「C++ によるデスクトップ開発」**
+- **Visual Studio 2026** ＋ ワークロード **「C++ によるデスクトップ開発」**
   — これで MSVC コンパイラ・Windows SDK・**Ninja**・CMake が一括で入ります。
-- 以下のコマンドは **「x64 Native Tools Command Prompt for VS 2022」** または
+- 以下のコマンドは **「x64 Native Tools Command Prompt for VS」** または
   Rider などの IDE から実行すると、環境変数が整っていて確実です。
 
 ---
@@ -19,11 +19,11 @@ ACS のビルドには次が必要です（リポジトリ直下の `README.md` 
 ## ビルド時のエラー
 
 ### `CMake Error: No such preset ... 'dx12-debug'`
-`cmake --preset` を実行する場所が違います。**`acs/` ディレクトリの中**で
+`cmake --preset` を実行する場所が違います。**`acs/engine/` ディレクトリの中**で
 実行してください（`CMakePresets.json` がある場所）。
 
 ```pwsh
-cd acs
+cd acs/engine
 cmake --preset dx12-debug
 ```
 
@@ -59,7 +59,7 @@ STL ヘッダを include すると STL 内部の `throw` が原因で大量の�
 ください。
 
 ### `looser exception specification` / フックのオーバーライドが通らない
-`FApplication` のフック（`OnStart` / `OnUpdate` / `OnRender` / `OnShutdown` /
+`CApplication` のフック（`OnStart` / `OnUpdate` / `OnRender` / `OnShutdown` /
 `OnEvent`）はすべて `noexcept` です。オーバーライド側も **`noexcept override`**
 と書いてください。`noexcept` を付け忘れると基底と署名が合わず、
 `looser exception specification` 等のコンパイルエラーになります。
@@ -70,31 +70,29 @@ STL ヘッダを include すると STL 内部の `throw` が原因で大量の�
 明示的に `b = a.Clone();` を使ってください。
 
 ### `unresolved external symbol`（リンクエラー）
-必要なモジュールがリンクされていません。サンプルや自作ゲームの
+必要なモジュールがリンクされていません。ゲーム target の
 `CMakeLists.txt` で `target_link_libraries(... PRIVATE ACS::Game ...)` に
 不足モジュールを足してください。`ACS::Game` は標準的なゲームに必要な 10
 モジュールをまとめた集約ターゲットです。音声なら `ACS::Audio`、ImGui なら
-`ACS::Imgui` を追加します（`samples/README.md`「自分のゲームを作る」参照）。
+`ACS::Imgui` を追加します。
 
 ### `ImGui_ImplDX12_Init` などが未解決
-`20_HelloMVVM` / `21_HelloImGui` は ImGui が DX12 raw backend 専用のため、
-`diligent-*` プリセット**単独**ではビルドされません。`dx12-debug` /
-`dx12-release` プリセットでビルドしてください。
+ImGui 実装は DX12 raw backend を必要とします。`ACS_RENDER_DX12_RAW=ON` の構成で
+ゲーム target をビルドしてください。
 
 ---
 
 ## 実行時の問題
 
 ### ビルドは成功したのに `.exe` が見つからない
-成果物は **`acs/cmake-build-<preset>/samples/<番号付き名>/<exe 名>.exe`** に
-出力されます。例：
+Visual Studio generator の実行ファイルと配布 DLL は
+**`acs/Binaries/<構成>/<target>.exe`** に出力されます。例：
 
 ```
-acs\cmake-build-debug\samples\01_HelloWindow\hello_window.exe
+acs\Binaries\Debug\my_game.exe
 ```
 
-ACS は Ninja の**単一構成ビルド**を使うため、`Release/` `Debug/` といった
-サブフォルダは作られません。
+Ninja preset は単一構成のため、`acs/Binaries/` 直下へ出力します。
 
 ### アセット（画像・モデル・音声）が「見つからない」と言われる
 ファイルパスは **実行時の作業ディレクトリ（カレントディレクトリ）からの相対**で
@@ -115,9 +113,9 @@ git clone するため **10 分前後かかります**。固まったように�
 待ってください。2 回目以降はキャッシュが効いて高速です。
 まずは外部依存のない `dx12-debug` プリセットを使うのがおすすめです。
 
-### `24`〜`26` のサンプルが起動できない / ビルドされていない
-`24_HelloBloom` / `25_HelloIbl` / `26_HelloLightmap` は Diligent backend 専用です。
-`diligent-debug` / `diligent-release` プリセットでビルドしてください。
+### IBL を使うと backend capability error になる
+`CImageBasedLighting` の生成・描画経路は Diligent backend の機能です。
+`generate.ps1 -Diligent` または `ACS_RENDER_DILIGENT=ON` の構成でビルドしてください。
 
 ---
 
@@ -148,9 +146,9 @@ auto asset = r.Value();   // ここに来た時点で成功が保証される
 ```
 
 ### `ACS_LOG_*` を呼んだのに何も出力されない
-`FLogger` が初期化されていない可能性があります。`FApplication` を継承した
-ゲームでは起動時に自動で初期化されるため通常は問題ありません。`FApplication`
-の外（テスト用の小さなコードなど）でログを使う場合は、先に `FLogger` の初期化が
+`CLogger` が初期化されていない可能性があります。`CApplication` を継承した
+ゲームでは起動時に自動で初期化されるため通常は問題ありません。`CApplication`
+の外（テスト用の小さなコードなど）でログを使う場合は、先に `CLogger` の初期化が
 必要です。
 
 ---
@@ -160,4 +158,4 @@ auto asset = r.Value();   // ここに来た時点で成功が保証される
 - リポジトリ直下の `README.md`（必要なもの・ビルド手順）
 - `docs/QUICKSTART.md`（API の使い方）
 - `docs/ARCHITECTURE.md`（設計・モジュール構成）
-- `samples/`（26 個の動くサンプル）と `tests/*_tests.cpp`（コア API の使用例）
+- `docs/tutorials/`（機能別ガイド）と `tests/*_tests.cpp`（コア API の回帰契約）

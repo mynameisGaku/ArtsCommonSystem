@@ -1,11 +1,11 @@
-# 入力 (FInput / FInputMap)
+# 入力 (CInput / FInputMap)
 
 キーボード・マウス・ゲームパッドを読む方法は 2 層あります。
 
-- **`acs::FInput`** … 物理キー直読みのポーリング API。手早く動かしたいとき・1 サンプルで完結するデモ向き。
+- **`acs::CInput`** … 物理キー直読みのポーリング API。小さな application や低レベル入力処理向き。
 - **`acs::game::FInputMap`** … 「`Jump` を押した」のような *名前付きアクション* に物理入力を束ねる層。複数キーの OR バインド、デッドゾーン等の明示的な軸補正、キーコンフィグ UI を後付けしやすい。**ゲーム本体ではこちらを推奨**。
 
-座標系の注意: `FInput::MousePos()` は **ウィンドウのクライアント座標 (px)**。スプライト等の **ワールド座標** に変換するには `ScreenToWorld(...)` を通します（後述）。
+座標系の注意: `CInput::MousePos()` は **ウィンドウのクライアント座標 (px)**。スプライト等の **ワールド座標** に変換するには `ScreenToWorld(...)` を通します（後述）。
 
 ---
 
@@ -19,17 +19,17 @@ using namespace acs;
 
 void OnUpdate(f32 dt) noexcept {
     // エッジ: このフレームで押された瞬間だけ true
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (CInput::IsKeyPressed(EKey::Escape)) Quit();
 
     // レベル: 押されている間ずっと true
-    if (FInput::IsKeyDown(EKey::W)) MoveUp(dt);
+    if (CInput::IsKeyDown(EKey::W)) MoveUp(dt);
 
     // マウス (クライアント座標 px)
-    FVec2 m = FInput::MousePos();
-    if (FInput::IsMouseButtonPressed(EMouseButton::Left)) Shoot(m);
+    FVec2 m = CInput::MousePos();
+    if (CInput::IsMouseButtonPressed(EMouseButton::Left)) Shoot(m);
 
     // ホイール (正:奥 / 負:手前)
-    f32 wheel = FInput::MouseWheel();
+    f32 wheel = CInput::MouseWheel();
 }
 ```
 
@@ -54,11 +54,11 @@ f32 mvx = im.AxisValue(FActionId("MoveX"), move_options);
 
 ## 主要 API
 
-### `acs::FInput`（物理キー直読み）
+### `acs::CInput`（物理キー直読み）
 
 | メソッド | 説明 |
 |---|---|
-| `FInput::Update()` | フレーム先頭で 1 回。前フレーム状態を確定する（Pressed/Released 判定の土台） |
+| `CInput::Update()` | フレーム先頭で 1 回。前フレーム状態を確定する（Pressed/Released 判定の土台） |
 | `IsKeyDown(EKey)` | 押されている間 true（レベル） |
 | `IsKeyPressed(EKey)` | **このフレームで押された瞬間だけ** true（立ち上がりエッジ） |
 | `IsKeyReleased(EKey)` | このフレームで離された瞬間だけ true（立ち下がりエッジ） |
@@ -134,17 +134,17 @@ enum class EGamepadAxis : u8 {
 `MousePos()` はクライアント px なので、必ず `ScreenToWorld` を通します。`AScene` 派生シーン内では基底クラスの `ScreenToWorld(...)` ヘルパが使えます（ppu = pixels-per-unit を考慮）。
 
 ```cpp
-// 実サンプル 61_HelloWaterTopDown を弱参照で安全にした形
+// 破棄可能な node は弱参照で保持する
 void OnTick(f32 dt) noexcept override {
-    if (FInput::IsKeyPressed(EKey::Escape)) { GetGame().Quit(); return; }
+    if (CInput::IsKeyPressed(EKey::Escape)) { GetGame().Quit(); return; }
 
-    const FVec2 mw = ScreenToWorld(FInput::MousePos());   // px -> world
+    const FVec2 mw = ScreenToWorld(CInput::MousePos());   // px -> world
     if (ANode* player = m_Player.Get()) {
         player->SetPosition2D(mw);                         // マウス追従
     }
 
-    const FVec2 md = FInput::MouseDelta();                  // なぞり速度に使う
-    const bool   click = FInput::IsMouseButtonPressed(EMouseButton::Left);
+    const FVec2 md = CInput::MouseDelta();                  // なぞり速度に使う
+    const bool   click = CInput::IsMouseButtonPressed(EMouseButton::Left);
 }
 ```
 
@@ -159,7 +159,7 @@ void OnTick(f32 dt) noexcept override {
 セットアップ（シーン開始時に 1 回）と消費を分けて書きます。`Services().Input()` は `AScene` が要求する共有 `FInputMap`。
 
 ```cpp
-// 実サンプル 38_HelloFullGame: OnEnter でバインド
+// OnEnter で action をバインドする
 FInputMap& im = Services().Input();
 im.ClearAll();
 im.BindAxisKeys   (FActionId("MoveX"), EKey::A, EKey::D);
@@ -182,8 +182,8 @@ if (im.IsPressed(FActionId("Quit"))) GetGame().Quit();
 レベル系の `IsKeyDown` をそのまま使うと毎フレーム反転して暴れます。エッジ系 `IsKeyPressed` を使うか、自前で前フレーム値を保持します。
 
 ```cpp
-// 実サンプル 60_HelloStencilMask より（前フレーム保持で確実にエッジ化）
-const bool space = FInput::IsKeyPressed(EKey::Space);
+// 前フレーム値を保持して確実にエッジ化する
+const bool space = CInput::IsKeyPressed(EKey::Space);
 if (space && !m_SpacePrev) m_Invert = !m_Invert;
 m_SpacePrev = space;
 ```
@@ -201,7 +201,7 @@ LookHorizontal(look_x);
 ```
 
 物理デバイス値そのものを調査する場合は、従来どおり
-`FInput::GamepadAxisValue(player, axis)`で生アナログ値を読めます。
+`CInput::GamepadAxisValue(player, axis)`で生アナログ値を読めます。
 
 ---
 
@@ -209,7 +209,7 @@ LookHorizontal(look_x);
 
 - **`Pressed` はそのフレームだけ**。`IsKeyPressed` / `IsMouseButtonPressed` は立ち上がりエッジ。「押されている間」が欲しいなら `IsKeyDown` / `IsHeld`。逆にトグルでエッジが欲しいのに `Down` を使うと毎フレーム反転して暴れる。
 - **`MousePos()` はクライアント座標 (px)**。ワールド座標と混同しない。スプライトに当てる前に必ず `ScreenToWorld(...)` を通す。`MouseDelta()` も px 単位。
-- **`CInput::Update()` の呼び出し場所**。生ウィンドウループでは毎フレーム先頭で自分で呼ぶ。`CApplication`/`CGame`（サンプル 28/38/55〜61 系）ではフレームワークが代行するので、`OnUpdate`/`OnTick` 内で **重ねて呼ばない**。
+- **`CInput::Update()` の呼び出し場所**。生ウィンドウループでは毎フレーム先頭で自分で呼ぶ。`CApplication` / `CGame` ではフレームワークが代行するので、`OnUpdate` / `OnTick` 内で **重ねて呼ばない**。
 - **複数バインドは OR**。1 アクションに `BindKey`+`BindGamepad` を重ねると、どれか 1 つでも該当で `IsPressed/IsHeld/IsReleased` が true。「全部押す」AND セマンティクスは無い。
 - **軸キーの相殺**。`BindAxisKeys(neg, pos)` で *両方同時押し* は `0`（相殺）。複数の軸バインドは合算後 `clamp(-1, +1)`。
 - **軸補正は合算後**。`FInputAxisOptions`は各物理バインドではなく`Axis(action)`の最終値へ一度だけ適用される。不正な`dead_zone`、負または非有限の`scale`、非有限入力は安全に0を返す。
@@ -221,14 +221,13 @@ LookHorizontal(look_x);
 
 ---
 
-## 動くサンプル
+## API の選び方
 
-| 内容 | パス |
+| 内容 | ACS API |
 |---|---|
-| `FInput` 直読み（IsKeyPressed/Down で背景色操作） | `acs/samples/01_HelloWindow/HelloWindowApp.cpp` |
-| マウス→ワールド + `MouseDelta` + 左クリック | `acs/samples/61_HelloWaterTopDown/WaterTopDownDemo.cpp` |
-| 同上（`ScreenToWorld` でピッキング） | `acs/samples/59_HelloEffects2D/EffectsDemo.cpp` |
-| トグル（前フレーム保持でエッジ化）+ `IsKeyDown` で連続操作 | `acs/samples/60_HelloStencilMask/StencilMaskDemo.cpp` |
-| `FInputMap` 実戦（`BindAxisKeys`/`BindMouseButton`/`Axis`/`IsHeld`/`IsPressed`） | `acs/samples/38_HelloFullGame/GameplayScene.cpp`, `Player.cpp` |
+| キーやマウスの即時状態 | `CInput::IsKeyPressed` / `IsKeyDown` / `MouseDelta` |
+| 画面 pixel から world へのピッキング | `AScene::ScreenToWorld` |
+| 押下エッジによるトグル | `IsKeyPressed` または前フレーム状態との比較 |
+| action 単位の入力 | `FInputMap::BindAxisKeys` / `BindMouseButton` / `Axis` / `IsHeld` / `IsPressed` |
 
 ヘッダ実体: `acs/src/platform/Input.h`, `acs/src/platform/InputCodes.h`, `acs/src/gameframework/InputAxisOptions.h`, `acs/src/gameframework/InputMap.h`（実装 `InputAxisOptions.cpp`, `InputMap.cpp`）。

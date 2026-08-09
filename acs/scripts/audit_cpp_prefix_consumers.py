@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""tests、samples、配布consumerに残す旧公開型名をexact監査する。"""
+"""testsと配布consumerに残す旧公開型名をexact監査する。"""
 
 from __future__ import annotations
 
@@ -25,9 +25,9 @@ from unittest import mock
 
 ALLOWLIST_RELATIVE_PATH = Path("scripts/data/cpp_prefix_consumer_legacy_allowlist.json")
 REGISTRY_RELATIVE_PATH = Path("scripts/data/cpp_type_role_migrations.json")
-TARGET_DIRECTORIES = (Path("src"), Path("tests"), Path("samples"))
+TARGET_DIRECTORIES = (Path("src"), Path("tests"))
 TARGET_REPOSITORY_FILES = (
-    Path("dist/examples/check.cpp"),
+    Path("dist/verification/consumer_contract.cpp"),
     Path("acs/scripts/run_distribution_consumer_smoke.py"),
     Path("acs/scripts/amalgamate.py"),
     Path("acs/scripts/audit_cpp_prefix_consumers.py"),
@@ -85,9 +85,9 @@ COMPATIBILITY_FILE_PATHS = frozenset(
         "acs/tests/subsystem_spawn_header_compile_tests.cpp",
     }
 )
-EXPECTED_ALLOWLIST_SHA256 = "F551787A895C031841D7EB4127E2C8DC95C093ADC89C13FE38590F1962522EE3"
+EXPECTED_ALLOWLIST_SHA256 = "A0ABE73CD706BF680375B86A465A204FC11473EF2FA86BCBE14016696C1C57F2"
 EXPECTED_IDENTITY_MACRO_SHA256 = "89047ADEDDCCDC1696C6A0AF88F6F60C4C5B70AD7DF472B6750A54372EAF416C"
-EXPECTED_IDENTITY_MACRO_CATALOG_SHA256 = "0A4D3498FD8BD521802000A440B7A88B65AA1AE3DB47E00F24691FFDCCAA801A"
+EXPECTED_IDENTITY_MACRO_CATALOG_SHA256 = "BC1296735D13EAA6B3F5A6FFE3379A29DF782024314BE76C6C41B27F28EA1973"
 FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
 FILE_ATTRIBUTE_DIRECTORY = 0x00000010
 FILE_LIST_DIRECTORY = 0x00000001
@@ -2345,7 +2345,7 @@ def _expected_allowlist_reason(path: str, construct: str) -> str:
         "runtime_type_lookup",
     }:
         return construct
-    if path == "dist/examples/check.cpp" and construct.startswith("compatibility_"):
+    if path == "dist/verification/consumer_contract.cpp" and construct.startswith("compatibility_"):
         return "distribution_compatibility"
     if construct.startswith("compatibility_"):
         return "compatibility_fixture"
@@ -3285,7 +3285,6 @@ def _self_test() -> int:
         acs_root = repository_root / "acs"
         (acs_root / "src").mkdir(parents=True)
         (acs_root / "tests").mkdir(parents=True)
-        (acs_root / "samples").mkdir(parents=True)
         for relative_path in TARGET_REPOSITORY_FILES:
             target = repository_root / relative_path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -3763,7 +3762,7 @@ def _parse_arguments(argv: Optional[Sequence[str]]) -> argparse.Namespace:
     """command lineを解析する。"""
 
     parser = argparse.ArgumentParser(
-        description="tests、samples、配布consumerの旧公開型名をexact監査します"
+        description="testsと配布consumerの旧公開型名をexact監査します"
     )
     parser.add_argument("--root", type=Path, help="ACS directory（例: acs）")
     parser.add_argument("--self-test", action="store_true", help="内蔵mutation fixtureを実行")

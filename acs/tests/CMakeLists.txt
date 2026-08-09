@@ -252,7 +252,7 @@ target_link_libraries(acs_debug_draw_3d_safety_tests PRIVATE
 add_test(NAME ACS.DebugDraw3DSafety COMMAND acs_debug_draw_3d_safety_tests)
 set_tests_properties(ACS.DebugDraw3DSafety PROPERTIES LABELS "Render;Safety;Compatibility" TIMEOUT 60)
 
-# Randomの既存列、layout、検査済みKit吸収APIを独立して反復する。
+# Randomの既存列、layout、snapshot、検査済み一括APIを独立して反復する。
 add_executable(acs_random_compatibility_tests
     main.cpp
     random_compatibility_tests.cpp
@@ -456,7 +456,7 @@ set_tests_properties(
     ACS.FoundationPerformanceContract
     PROPERTIES LABELS "Performance;Foundation" TIMEOUT 30)
 
-# Foundation Optimization Wave B を他の長時間テストから分離して反復する。
+# ThreadPool、JobGraph、MessagePipe、Timer、File I/O の所有権契約を独立反復する。
 add_executable(acs_foundation_optimization_wave_b_tests
     main.cpp
     foundation_optimization_wave_b_tests.cpp
@@ -526,7 +526,7 @@ set_tests_properties(
     ACS.FoundationOwnershipStress
     PROPERTIES LABELS "Foundation;Stress" TIMEOUT 2100)
 
-# Foundation Optimization Wave K の mapped I/O / ownership / batch 契約を
+# mapped I/O、package snapshot、batch 読み込みの所有権契約を
 # Debug / Release で独立反復する。
 add_executable(acs_foundation_optimization_wave_k_tests
     main.cpp
@@ -557,7 +557,7 @@ set_tests_properties(
     ACS.FoundationOptimizationWaveK
     PROPERTIES LABELS "Performance;Foundation" TIMEOUT 120)
 
-# Foundation Optimization Wave I を並行性 stress と共に独立反復する。
+# Arena、ParallelFor、固定幅直列化の契約を並行性 stress と共に独立反復する。
 add_executable(acs_foundation_optimization_wave_i_tests
     main.cpp
     foundation_optimization_wave_i_tests.cpp
@@ -580,7 +580,7 @@ set_tests_properties(
     ACS.FoundationOptimizationWaveI
     PROPERTIES LABELS "Performance;Foundation;Stress" TIMEOUT 60)
 
-# Foundation Optimization Wave M の completion / event / path 契約を独立反復する。
+# Job 完了数、event 配送、package path の契約を独立反復する。
 add_executable(acs_foundation_optimization_wave_m_tests
     main.cpp
     foundation_optimization_wave_m_tests.cpp
@@ -863,7 +863,7 @@ set_tests_properties(
     ACS.SceneTimerHandle
     PROPERTIES LABELS "GameFramework;ABI" TIMEOUT 30)
 
-# FoundationOptimizationWaveA 用 Release マイクロベンチマーク。実時間は
+# Container、Memory、Math の Release マイクロベンチマーク。実時間は
 # 診断用の参考値なので、意図的に CTest へは登録しない。
 add_executable(acs_foundation_optimization_bench
     foundation_optimization_bench.cpp
@@ -913,7 +913,7 @@ target_link_libraries(acs_render_packet_performance PRIVATE
 add_test(NAME ACS.RenderPacketPerformance COMMAND acs_render_packet_performance)
 set_tests_properties(ACS.RenderPacketPerformance PROPERTIES LABELS "Performance;Render" TIMEOUT 30)
 
-# FoundationOptimizationWaveI 用 Release 診断 benchmark。時間値は CTest 合否に使わない。
+# Arena と ParallelFor の Release 診断 benchmark。時間値は CTest 合否に使わない。
 add_executable(acs_foundation_optimization_wave_i_bench
     foundation_optimization_wave_i_bench.cpp
 )
@@ -1016,14 +1016,12 @@ add_custom_target(acs_type_roles_check
             --migration-debt "${ACS_CPP_TYPE_ROLES_DEBT}"
     COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
             --root "${ACS_TREE_ROOT}/tests"
-    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
-            --root "${ACS_TREE_ROOT}/samples"
     COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_PREFIX_CONSUMERS_AUDIT}"
             --self-test
     COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_PREFIX_CONSUMERS_AUDIT}"
             --root "${ACS_TREE_ROOT}"
     WORKING_DIRECTORY "${ACS_TREE_ROOT}"
-    COMMENT "ACS: source、tests、samples、配布consumerの型役割を監査"
+    COMMENT "ACS: source、tests、配布consumerの型役割を監査"
     USES_TERMINAL VERBATIM)
 set_target_properties(acs_type_roles_check PROPERTIES FOLDER "Tools")
 
@@ -1048,16 +1046,12 @@ add_test(NAME ACS.ScriptingTypeRoleAudit
 add_test(NAME ACS.TestTypeRoleAudit
          COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
                  --root "${ACS_TREE_ROOT}/tests")
-add_test(NAME ACS.SampleTypeRoleAudit
-         COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
-                 --root "${ACS_TREE_ROOT}/samples")
 set_tests_properties(
     ACS.CppTypeRoleAudit
     ACS.EventTypeRoleAudit
     ACS.EcsTypeRoleAudit
     ACS.ScriptingTypeRoleAudit
     ACS.TestTypeRoleAudit
-    ACS.SampleTypeRoleAudit
     PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
 set_tests_properties(
     ACS.CppTypeRoleAuditSelfTest
@@ -1079,7 +1073,7 @@ set_tests_properties(
     PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
 
 # 手書き API リファレンスの class/struct/enum 表記を現行 C++ 宣言と照合し、
-# 大規模 rename 後にサンプルだけ旧名へ戻る drift を防ぐ。
+# 大規模 rename 後に利用側の表記だけ旧名へ戻る drift を防ぐ。
 set(ACS_REFERENCE_TYPE_NAMES_AUDIT
     "${ACS_TREE_ROOT}/scripts/audit_reference_type_names.py")
 
@@ -1128,7 +1122,7 @@ set_tests_properties(
     ACS.ModuleSourcesAudit
     PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
 
-# tracked artifact の履歴 anchor、移動先、byte identity、参照 0 を台帳と照合する。
+# tracked artifact 実体と台帳の一致、履歴、byte identity、参照 0 を照合する。
 set(ACS_ARTIFACT_LEDGER_AUDIT
     "${ACS_TREE_ROOT}/scripts/audit_artifact_ledger.py")
 
@@ -1137,7 +1131,7 @@ add_custom_target(acs_artifact_ledger_check
             "${Python3_EXECUTABLE}" "${ACS_ARTIFACT_LEDGER_AUDIT}"
             --root "${ACS_TREE_ROOT}/.."
     WORKING_DIRECTORY "${ACS_TREE_ROOT}/.."
-    COMMENT "ACS: tracked artifact 台帳の履歴・byte・参照を照合"
+    COMMENT "ACS: tracked artifact 実体と台帳の整合を照合"
     USES_TERMINAL VERBATIM)
 set_target_properties(acs_artifact_ledger_check PROPERTIES FOLDER "Tools")
 
@@ -1226,7 +1220,7 @@ if(ACS_IS_TOP_LEVEL)
     endif()
 
     if(EXISTS "${ACS_DIST_ROOT}/acs.h"
-       AND EXISTS "${ACS_DIST_ROOT}/examples/check.cpp")
+       AND EXISTS "${ACS_DIST_ROOT}/verification/consumer_contract.cpp")
         add_custom_target(acs_dist_check
             COMMAND "${Python3_EXECUTABLE}" "${ACS_AMALGAMATE_SCRIPT}" --check
             COMMAND "${Python3_EXECUTABLE}" "${ACS_CPP_CONVENTIONS_AUDIT}"
@@ -1306,9 +1300,9 @@ if(ACS_IS_TOP_LEVEL)
                         /permissive- /Zc:__cplusplus /Zc:preprocessor
                         /EHsc /GR- /D_HAS_EXCEPTIONS=1
                         "/I${ACS_DIST_ROOT}"
-                        "${ACS_DIST_ROOT}/examples/check.cpp"
+                        "${ACS_DIST_ROOT}/verification/consumer_contract.cpp"
                 WORKING_DIRECTORY "${ACS_DIST_ROOT}"
-                COMMENT "ACS: dist/examples/check.cpp を /Zs で単一ヘッダ構文検証"
+                COMMENT "ACS: 配布 consumer 契約を /Zs で単一 header 構文検証"
                 USES_TERMINAL VERBATIM)
             set_target_properties(
                 acs_dist_header_syntax PROPERTIES FOLDER "Tools")

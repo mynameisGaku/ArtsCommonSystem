@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#pragma once
 // 高レベル CRenderer（ウィンドウへの描画ループを統括する司令塔）
 //
 // 使い方 (典型的):
@@ -16,16 +17,14 @@
 //       //   FFont            — TTrueType -> アトラス -> CSpriteBatch
 //       //   CParticleSystem  — 簡易 GPU パーティクル
 //       //   CShadowMap       — depth-only パス
-//       //   CPostProcess     — HDR + Bloom + ACES Tonemap (Diligent backend 専用)
+//       //   CPostProcess     — HDR、Bloom、ACES 色変換 (raw-DX12 / Diligent)
 //       if (!rdr.EndFrame()) break;
 //   }
 //   rdr.Shutdown();
 //
 // HDR ポストプロセス経路を組むときは CApplication::OnCustomFrame() を override
 // して、自分で BeginRenderToTexture(HDR_RT) → 描画 → CPostProcess.Render() →
-// Present までを直接書く (HelloBloom 参照)。
-#pragma once
-
+// Present までを直接制御する。
 #include "foundation/Result.h"
 #include "memory/UniquePtr.h"
 #include "render/IRhiDevice.h"

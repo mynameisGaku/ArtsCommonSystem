@@ -2,7 +2,7 @@
 // =============================================================================
 // acs_assetpack — `.acpak` v1 アーカイブ操作 CLI ツール
 // -----------------------------------------------------------------------------
-// 使い方 (samples):
+// 使い方 (examples):
 //   acs_assetpack pack ./assets game.acpak --compress
 //   acs_assetpack list game.acpak
 //   acs_assetpack unpack game.acpak ./extracted

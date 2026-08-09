@@ -11,7 +11,7 @@
 
 ## 最小例
 
-`AScene` 上でノードに 1 枚スプライトを付ける（sample 55 を抜粋）。テクスチャ無しコンストラクタは **単色矩形** になります。
+`AScene` 上でノードに 1 枚スプライトを付けます。テクスチャ無しコンストラクタは **単色矩形** になります。
 
 ```cpp
 #include "gameframework/GameFramework.h"
@@ -167,7 +167,7 @@ void OnReady() noexcept override {
 
 ### 2) 手続き生成テクスチャ（PNG を用意しない）
 
-ピクセルを CPU で作って `CreateRhiTexture` に渡す。RGBA 8bit・tightly-packed・上→下/左→右の順（sample 02 / 56 がこれ）。
+ピクセルを CPU で作って `CreateRhiTexture` に渡します。RGBA 8bit・tightly-packed・上→下/左→右の順です。
 
 ```cpp
 constexpr u32 N = 64;
@@ -189,7 +189,7 @@ if (r.IsOk()) m_Tex = Move(r.Value());
 
 ### 3) HUD をピクセル座標で描く（`OnDrawHud`）
 
-`AScene::OnDrawHud(rc, sb)` は **画面ピクセル座標**で呼ばれます（world view ではない）。背景バー + テキスト（sample 56 抜粋）：
+`AScene::OnDrawHud(rc, sb)` は **画面ピクセル座標**で呼ばれます（world view ではない）。背景バー + テキストは次のように描きます：
 
 ```cpp
 void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override {
@@ -202,7 +202,7 @@ void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override {
 
 ### 4) world にプリミティブ（グリッド線・三角形）を直接描く（`OnDrawWorld`）
 
-`OnDrawWorld(rc, sb)` は **ワールド座標**（カメラ適用済み）で呼ばれます。sample 55 のグリッド：
+`OnDrawWorld(rc, sb)` は **ワールド座標**（カメラ適用済み）で呼ばれます。グリッドは次のように描きます：
 
 ```cpp
 void OnDrawWorld(FRenderContext& /*rc*/, CSpriteBatch& sb) noexcept override {
@@ -229,9 +229,9 @@ void OnDrawWorld(FRenderContext& /*rc*/, CSpriteBatch& sb) noexcept override {
 
 ---
 
-## 動くサンプル
+## API の選び方
 
-- `acs/samples/55_HelloScene2D/Scene2DStarter.cpp` — `ASprite2DComponent`（単色矩形）+ `OnDrawWorld` のグリッド + `OnDrawHud` のバー + カメラ追従。基本形はこれ。
-- `acs/samples/56_HelloSpriteAnim/SpriteAnimDemo.cpp` — 手続き生成スプライトシート（`CreateRhiTexture`）+ `SetTexture` + UV アニメ + `DrawString` HUD。
-- `acs/samples/02_HelloSprite/HelloSpriteApp.cpp` — 素の `CSpriteBatch` を自前 `Init`/`Begin`/`Draw`/`DrawRect`/`End` する低レベル例（`AScene` を使わない）。
-- PNG→texture の実経路（`Load`→`UploadTexture`→`static_cast<FImageAsset*>`）は `acs/src/easy/Easy.cpp` の `LoadSprite` 実装が参考になる。
+- Scene graph では `ASprite2DComponent` が texture、UV、色、world transform を描画へ渡します。
+- UV animation は `ASpriteAnimComponent` が同じ node の sprite を更新します。
+- 低レベル描画では `CSpriteBatch::Init` / `Begin` / `Draw` / `DrawRect` / `End` を直接使います。
+- PNG から texture への経路は `acs/src/easy/Easy.cpp` の `LoadSprite` が `Load` と `UploadTexture` を接続します。

@@ -32,7 +32,7 @@ from typing import Iterable, Optional, Sequence
 
 
 CPP_SUFFIXES = frozenset({".h", ".hh", ".hpp", ".inl", ".cpp", ".cc", ".cxx", ".ixx"})
-DEFAULT_SCOPES = ("src", "samples", "tests", "tools", "editor")
+DEFAULT_SCOPES = ("src", "tests", "tools", "editor")
 EXCLUDED_DIRECTORY_NAMES = frozenset(
     {
         ".git",
@@ -998,7 +998,7 @@ struct FMethodTarget {};
 template<typename T> class TArray {};
 template<typename T> union TStorage {};
 enum class EState : unsigned char { Ready, Fatal };
-class sample::BadQualified;
+class fixture::BadQualified;
 using HotReloadCallback = void (*)(void* user) noexcept;
 using FHotReloadCallback = HotReloadCallback;
 using RenderTarget = FValue;

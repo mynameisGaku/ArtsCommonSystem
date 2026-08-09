@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / AEditorCommand
+#pragma once
+// GameFramework editor の undo/redo command — AEditorCommand
 //
 // 役割:
 //   ACS の全エディタ (AHierarchyPanel / AInspectorPanel / ParticleEditor /
@@ -37,8 +38,6 @@
 //     ではなく分岐として保存する。AEditorCommand 側に変更は不要。
 //   ・serialization: `virtual void Serialize(Writer&) const` を後付け可能。
 //     既存派生は default = no-op で問題ない。
-#pragma once
-
 #include "foundation/Types.h"
 #include "gameframework/Forward.h"
 #include "gameframework/ANode.h"
@@ -140,7 +139,7 @@ public:
 };
 
 /**
- * ANode の position を変更する AEditorCommand 派生サンプル。
+ * ANode の position を変更する AEditorCommand 派生実装。
  *
  * @details
  * 教科書的な使用例で、連続 drag を 1 件にまとめる CanMerge 実装も持つ。マージ規約は、

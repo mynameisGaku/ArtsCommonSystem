@@ -1038,7 +1038,7 @@ ACS_TEST(EditorPerformance,
     const std::size_t gizmo_begin =
         source.find("void DrawGizmo3DOverlay(");
     const std::size_t gizmo_end =
-        source.find("// ===== Phase 5 VXGI", gizmo_begin);
+        source.find("// ===== VXGI:", gizmo_begin);
     const std::string gizmo =
         gizmo_begin != std::string::npos &&
                 gizmo_end != std::string::npos

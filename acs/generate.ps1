@@ -1,10 +1,9 @@
 ﻿# SPDX-License-Identifier: Apache-2.0
-# ACS — ゲーム制作用ソリューション生成スクリプト
+# ACS — Engineソリューション生成スクリプト
 #
 # 役割:
-#   初めて ACS を触る人が迷わないよう、表層には名前付き .slnx を 1 つだけ置く。
-#   既定では starter game (55_HelloScene2D) + Engine だけを生成し、
-#   Solution Explorer の root filter は Engine / Game の 2 つだけにする。
+#   Engine moduleを中心とした名前付き .slnx を表層へ1つ生成する。
+#   testsとtoolsは明示optionで追加し、生成物をsource treeから分離する。
 #
 #   .vcxproj / obj / .lib / FetchContent は以下に隔離し、hidden 属性 + .gitignore 済み:
 #     Binaries/     … 実行ファイル + 配布 DLL
@@ -15,12 +14,10 @@
 # 初回 configure 時に FetchContent が自動ダウンロード + リンクする。
 #
 # 使い方:
-#   .\generate.ps1                 # 標準構成で生成 (DX12 raw + starter game)
+#   .\generate.ps1                 # 標準Engine構成を生成
 #   .\generate.ps1 -Name MyGame    # MyGame.slnx を表層に生成
 #   .\generate.ps1 -Open           # 生成して VS で開く
 #   .\generate.ps1 -Clean          # Intermediate を消してから生成
-#   .\generate.ps1 -AllSamples     # 全 sample を Game filter に追加
-#   .\generate.ps1 -Sample 38_HelloFullGame -Name MyShooter
 #   .\generate.ps1 -Tests -Tools   # tests/tools も Engine 配下に追加
 #   .\generate.ps1 -DistributionSmoke -DistributionRoot C:\acs
 #                                  生成済み配布SDKの実link/run gateを追加
@@ -34,10 +31,8 @@ param(
     [switch]$Open,
     [switch]$Clean,
     [Alias("Name", "ProjectName", "GameName")]
-    [string]$SolutionName = "ACSGame",
-    [string]$Sample = "55_HelloScene2D",
-    [string]$StartupProject = "hello_scene2d",
-    [switch]$AllSamples,
+    [string]$SolutionName = "ACSEngine",
+    [string]$StartupProject = "",
     [switch]$Tests,
     [switch]$Tools,
     [switch]$DistributionSmoke,
@@ -75,7 +70,7 @@ $saved = Join-Path $proj "Saved"
 $bin   = Join-Path $proj "Binaries"
 
 function Convert-ToSolutionFileName([string]$name) {
-    if (-not $name -or $name.Trim().Length -eq 0) { $name = "ACSGame" }
+    if (-not $name -or $name.Trim().Length -eq 0) { $name = "ACSEngine" }
     $invalid = [System.IO.Path]::GetInvalidFileNameChars()
     $out = New-Object System.Text.StringBuilder
     foreach ($ch in $name.Trim().ToCharArray()) {
@@ -105,15 +100,6 @@ function Write-SurfaceSolution([string]$source, [string]$dest, [string]$buildRel
         return $m.Groups[1].Value + $prefix + "/" + $p + '"'
     })
     Set-Content -LiteralPath $dest -Value $rewritten -Encoding UTF8
-}
-
-function Get-SampleExecutableTarget([string]$sampleDir) {
-    $cmake = Join-Path $proj "samples\$sampleDir\CMakeLists.txt"
-    if (-not (Test-Path $cmake)) { return "" }
-    $m = Select-String -LiteralPath $cmake -Pattern 'add_executable\(\s*([A-Za-z_][A-Za-z0-9_]*)' |
-        Select-Object -First 1
-    if (-not $m) { return "" }
-    return $m.Matches[0].Groups[1].Value
 }
 
 function Repair-GeneratedAcl([string]$path) {
@@ -155,27 +141,16 @@ Repair-GeneratedAcl (Join-Path $proj "Intermediate")
 Repair-GeneratedAcl $saved
 Repair-GeneratedAcl $bin
 
-if (-not $AllSamples -and $Sample -ne "55_HelloScene2D" -and $StartupProject -eq "hello_scene2d") {
-    $detectedStartup = Get-SampleExecutableTarget $Sample
-    if ($detectedStartup) { $StartupProject = $detectedStartup }
-}
-
 $cmakeArgs = @(
     "-S", (Join-Path $proj "engine"),
     "-B", $inter,
     "-G", $Generator,
     "-DACS_RENDER_DX12_RAW=ON",
-    "-DACS_BUILD_SAMPLES=ON",
     "-DACS_BUILD_TESTS=$(if ($Tests) { 'ON' } else { 'OFF' })",
     "-DACS_BUILD_TOOLS=$(if ($Tools) { 'ON' } else { 'OFF' })",
-    "-DACS_ENABLE_DISTRIBUTION_CONSUMER_SMOKE=$(if ($DistributionSmoke) { 'ON' } else { 'OFF' })",
-    "-DACS_STARTUP_PROJECT=$StartupProject"
+    "-DACS_ENABLE_DISTRIBUTION_CONSUMER_SMOKE=$(if ($DistributionSmoke) { 'ON' } else { 'OFF' })"
 )
-if ($AllSamples) {
-    $cmakeArgs += "-DACS_ONLY_SAMPLE="
-} else {
-    $cmakeArgs += "-DACS_ONLY_SAMPLE=$Sample"
-}
+if ($StartupProject) { $cmakeArgs += "-DACS_STARTUP_PROJECT=$StartupProject" }
 if ($DistributionRoot) {
     $cmakeArgs += "-DACS_DISTRIBUTION_CONSUMER_ROOT=$DistributionRoot"
 }

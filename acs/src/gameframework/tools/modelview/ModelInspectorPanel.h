@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — modelview / AModelInspectorPanel
+#pragma once
+// GameFramework の model 情報 inspector — AModelInspectorPanel
 //
 // ModelViewer ワークスペース内に配置される **読み取り専用の mesh 情報 panel**。
 // CAssetBrowser から選択 / DragDrop された model (.mdl / .fbx / .gltf 等) を
@@ -20,14 +21,14 @@
 // 役割分担:
 //   ・本パネルは「描画 + 配列のスナップショット保持」だけを担当。実 model load /
 //     parse は AModelViewerPanel と Mesh / Skeleton / AnimationClip
-//     モジュールの責任。caller (= AModelViewerPanel もしくは sample 31) が
+//     モジュールの責任。model load を担当する呼び出し側が
 //     load 完了時に本 panel の `UpdateFromModel` を呼んで情報を流し込む。
 //   ・本 panel は callback / 編集 / GPU リソース確保を一切持たない (= 純粋な
 //     read-only viewer)。
 //
 // 設計選択 (modelview):
 //   ・**AEditorPanel 継承**: editor_core 基底に乗せる。
-//     AModelViewerPanel / sample 31 が CEditorWorkspace 経由で本 panel を
+//     呼び出し側が CEditorWorkspace 経由で本 panel を
 //     register する。Title は "Model Info" とする。
 //   ・**スナップショット方式**: 元の Mesh / Skeleton / AnimationClip オブジェクト
 //     を ref で保持しない (= モデル再 load / 解放と本 panel の表示が race しない
@@ -67,8 +68,6 @@
 //   ・LOD 階層情報
 //   ・mesh / submesh の visibility toggle (= 編集機能、別 panel で)
 //   ・export / re-import ボタン
-#pragma once
-
 #include "container/Array.h"
 #include "foundation/Types.h"
 #include "gameframework/tools/editor_core/EditorPanel.h"

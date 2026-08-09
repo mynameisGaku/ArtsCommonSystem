@@ -81,7 +81,7 @@ ACS_REF.modules.push({
     {
       name: "FAnimationCurve",
       kind: "クラス", header: "gameframework/AnimationCurve.h",
-      summary: "編集できる「<b>時間 → 値</b>」の補間曲線 (Unity の AnimationCurve 相当)。キーを打って、任意の <code>f32</code> 値を時間で滑らかに変化させる。Step / Linear / Hermite 補間と前後の折り返し (Clamp/Loop/PingPong) に対応。",
+      summary: "編集できる「<b>時間 → 値</b>」の補間曲線。キーを打って、任意の <code>f32</code> 値を時間で滑らかに変化させる。Step / Linear / Hermite 補間と前後の折り返し (Clamp/Loop/PingPong) に対応。",
       when: "FOV やフェード、体力バー演出など、固定の <t>イージング</t>式では表せない自由なカーブが欲しい時。",
       sample: "FAnimationCurve fade;\nfade.TryAddKey(0.0f, 0.0f);\nfade.TryAddKey(0.5f, 0.8f);\nfade.TryAddKey(1.0f, 1.0f, ECurveInterpolation::Hermite);\nfade.TrySetWrapModes(FAnimationCurve::EWrapMode::Clamp, FAnimationCurve::EWrapMode::Clamp);\nf32 alpha = 0.0f;\nfade.TryEvaluate(t, alpha);  // checked 評価",
       members: [
@@ -89,7 +89,7 @@ ACS_REF.modules.push({
         { sig: "void AddKeyHermite(f32 time, f32 value, f32 in_tangent, f32 out_tangent)", desc: "Hermite 用に接線付きでキーを追加する。接線は「1 秒あたりの傾き」。" },
         { sig: "void RemoveKey(u32 index) / void ClearKeys()", desc: "キーを削除する / 全消去する (範囲外は安全に無視)。" },
         { sig: "f32 Evaluate(f32 time) const", ret: "補間値", desc: "指定時刻の値を補間で求める。定義域外は前後の <code>FAnimationCurve::EWrapMode</code> に従う。", when: "毎フレーム、現在時刻の値を取り出す主役メソッド。" },
-        { sig: "f32 Duration() const", ret: "末尾キーの time", desc: "最後のキーの時刻を返す (曲線の長さではなく Unity 同様の仕様)。" },
+        { sig: "f32 Duration() const", ret: "末尾キーの time", desc: "最後のキーの時刻を返す。先頭キーとの差ではなく、末尾キーが持つ絶対時刻。" },
         { sig: "void SetPreWrap(EWrapMode m) / void SetPostWrap(EWrapMode m)", desc: "定義域の前/後に出たときの挙動 (Clamp/Loop/PingPong) を指定する互換 API。" },
         { sig: "FAnimationCurveResult TryAddKey(...) / TryAddKeyHermite(...)", desc: "入力と補間 enum を検証して key を追加する。失敗時は既存曲線を変更しない。" },
         { sig: "FAnimationCurveResult TrySetKeys(const FCurveKey*, u32, EWrapMode, EWrapMode)", desc: "sort 済み key 列と wrap mode を全検証して一括置換する。" },
@@ -280,7 +280,7 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/BackendClient.h",
       summary: "サーバ側 (テレメトリ送信・設定取得など) への<b>汎用バックエンド窓口の<t>シーム</t></b>。具体的な通信スタック (HTTP/gRPC/Steam) は抱えず interface だけ提供し、実装はプロジェクト側で差し込む。失敗は <t>Result</t> で返す。",
       when: "プレイ統計をサーバに送る等の通信が要る時。オフラインビルドでもリンクが通るよう抽象越しに使う。",
-      sample: "IBackendClient& be = GetDefaultBackendClient();\nif (be.Connect(\"https://api.example.com/v1\").IsOk()) {\n    be.SendTelemetry(\"level_completed\", \"{\\\"level\\\":3}\");\n}\n// 毎フレーム:\nbe.Tick(dt);",
+      sample: "IBackendClient& be = GetDefaultBackendClient();\nif (be.Connect(\"game-backend\").IsOk()) {\n    be.SendTelemetry(\"level_completed\", \"{\\\"level\\\":3}\");\n}\n// 毎フレーム:\nbe.Tick(dt);",
       members: [
         { sig: "TResult<void> Connect(const char* server_url)", desc: "指定 URL のサーバに接続する。完了/失敗を Result で返す。" },
         { sig: "void Disconnect()", desc: "接続を切る (多重/未接続呼び出しは安全に no-op)。" },

@@ -3862,7 +3862,7 @@ EventTypeId LegacyEventType = 0;
             "namespace game { struct FNode {}; } "
             "namespace acs::game { using ANode = ::vendor::FNode; } } "
             "namespace acs::fake { using ANode = ::vendor::FNode; } "
-            "namespace sample { "
+            "namespace fixture { "
             "class ASceneProbe : public acs::game::AScene {}; "
             "class ASceneDerivedProbe : public acs::game::AScene {}; "
             "class ANodeProbe : public acs::game::ANode {}; "
@@ -4052,7 +4052,7 @@ EventTypeId LegacyEventType = 0;
             for item in external_managed_violations
         ] != [
             ("ACS-R020c", "vendor::ANode", "C"),
-            ("ACS-R020c", "sample::AFalseProbe", "C"),
+            ("ACS-R020c", "fixture::AFalseProbe", "C"),
             ("ACS-R020c", "foreign::AForeignProbe", "C"),
             ("ACS-R020c", "AGlobalProbe", "C"),
             ("ACS-R020c", "after::AAfterProbe", "C"),
@@ -4163,8 +4163,8 @@ EventTypeId LegacyEventType = 0;
 
         behavior_name_path = root / "behavior-role-names.h"
         behavior_name_path.write_text(
-            "namespace sample { "
-            "struct CHelloApp { static int Run(); }; "
+            "namespace fixture { "
+            "struct CExampleApp { static int Run(); }; "
             "class CPlayerVm { public: int Value; }; "
             "class CPlayerViewModel { public: int Value; }; "
             "}",

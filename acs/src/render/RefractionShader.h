@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
+#pragma once
 // スクリーンスペース屈折シェーダ
 //
 // 用途: ガラス・水・氷のような透明屈折オブジェクトを描画する。屈折は
 //       「描画済みの opaque シーン (background) を、屈折方向にずらして
 //       sample する」スクリーンスペース手法で表現する。
 //
-// 前提となるフレーム構成 (呼び出し側 = サンプルが用意する):
+// 前提となるフレーム構成 (呼び出し側が用意する):
 //   1. opaque ジオメトリを HDR RT へ描画する
 //   2. HDR RT を background テクスチャへ複製する (屈折オブジェクトが読むため。
 //      同一 RT の read+write は不可なので複製が要る)
@@ -21,8 +22,6 @@
 //
 // blend は Opaque。屈折オブジェクトは「背景を曲げた色」を不透明に書き込むため
 // alpha blend は不要 (深度も書き、後続の描画を正しく遮蔽する)。
-#pragma once
-
 #include "render/RenderAssets.h"   // FGpuMesh
 #include "render/IRhiCommandList.h"
 

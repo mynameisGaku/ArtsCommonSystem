@@ -6,8 +6,8 @@ It is the authoritative overview for the desktop Editor, asset authoring,
 profiling, packaging, and verification entry points.
 
 The native ImGui authoring panels under `src/gameframework/tools` are a
-separate in-engine tools library. They can be embedded by samples, but they
-are not the WPF desktop Editor described here.
+separate in-engine tools library. Game and editor hosts can embed them, but
+they are not the WPF desktop Editor described here.
 
 ## Supported host
 
@@ -1087,7 +1087,7 @@ steps still report their results.
 |---|---|
 | `fast` | isolated Editor Release build; ABI negotiation, document host (including Project Settings), Material Preview, Asset Browser (including thumbnail DDC), profiler, managed operation diagnostics, and package-responsiveness self-tests |
 | `managed` | isolated Editor build; every public self-test switch registered in `App.xaml.cs`; Blueprint self-test; isolated `acspackage --self-test` |
-| `full` | managed mode; isolated native CMake build with samples/tools disabled; complete CTest registration |
+| `full` | managed mode; isolated native CMake build with tools disabled; complete CTest registration |
 
 Native unit coverage anchors the temporal contract in
 `src/render/TemporalHistory.h` and

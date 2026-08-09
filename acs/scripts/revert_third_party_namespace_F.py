@@ -33,7 +33,7 @@ THIRD_PARTY_NAMESPACES = [
 TARGET_EXTS = {".h", ".hpp", ".inl", ".cpp", ".cxx", ".cc", ".c"}
 EXCLUDE_DIRS = {"cmake-build-diligent-debug","cmake-build-diligent-release","cmake-build-debug",
                 "cmake-build-release","build","_deps","out",".git",".vs",".idea"}
-ROOTS = ["src","samples","tests","tools"]
+ROOTS = ["src","tests","tools"]
 
 
 def collect(repo_root: Path) -> list[Path]:

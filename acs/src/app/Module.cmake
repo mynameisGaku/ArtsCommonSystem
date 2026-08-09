@@ -10,7 +10,7 @@ acs_module(
         Application.cpp
         ApplicationSubsystemCatalog.cpp
         AssetSubsystem.cpp
-        Sample.cpp
+        UiFontDefaults.cpp
         TimerSubsystem.cpp
     HEADERS
         AppConfig.h
@@ -19,7 +19,7 @@ acs_module(
         AssetSubsystem.h
         EntryPoint.h
         Forward.h
-        Sample.h
+        UiFontDefaults.h
         TimerSubsystem.h
     PUBLIC_DEPS
         Foundation

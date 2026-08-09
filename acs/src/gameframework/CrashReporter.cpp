@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — FCrashReporter stub 実装
+// GameFramework crash reporter stub 実装
 //
 // 本ファイルは FCrashReporter.h で宣言した ICrashReporterBackend に対し、
 // 「常に NotImplemented を返すだけ」の defensive stub (`CrashReporterStub`) と、
 // 高レベル wrapper (`CrashHandler`) を提供する。
 //
 // 目的:
-//   ・ACS 本体 / サンプルが Sentry / Crashpad 等の実装の有無に関わらず
-//     リンクを通せるようにする (Pillar O の seam 要件)。
+//   ・ACS の利用側が crash reporter 実装の有無に関わらず
+//     リンクを通せるようにする (crash reporter seam の要件)。
 //   ・タイトル側が `ICrashReporterBackend* p = &acs::game::GetCrashStub();` の
 //     ように null-object パターンで保持し、後から具象実装に差し替える経路を
 //     確保する。
@@ -15,7 +15,7 @@
 //     **必ず TResult<...> Err を返す**ことで、本番ビルドに stub が紛れ込んだ
 //     ケースを QA 工程で検出可能にしておく。
 //
-// 将来 (Pillar O 本実装):
+// 具象実装側の責務:
 //   ・Sentry Native SDK ラッパ (CrashReporterSentry)
 //   ・Crashpad out-of-process minidump 連携 (CrashReporterCrashpad)
 //   ・SEH / POSIX signal handler の登録と coredump pipe

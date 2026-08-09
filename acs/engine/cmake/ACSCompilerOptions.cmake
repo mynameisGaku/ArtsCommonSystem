@@ -89,9 +89,9 @@ function(acs_apply_compiler_options tgt)
         ACS_COMPILED_LOG_MIN_SEVERITY=${ACS_COMPILED_LOG_MIN_SEVERITY})
 
     # VS Solution Explorer のフィルタを実ディスクのフォルダ構成と一致させる。
-    # ターゲット定義 dir を基準に source_group(TREE) を張り、engine は src/<mod>/…、
-    # 各サンプルは自身の dir 構成をそのまま反映する。各サンプル CMakeLists 側で
-    # "Source Files"/"Header Files" の regex grouping を書く必要はない (撤去済み)。
+    # ターゲット定義 dir を基準に source_group(TREE) を張り、src/<mod>/… や
+    # tool の実ディスク構成をそのまま反映する。各 CMakeLists 側で追加の
+    # "Source Files"/"Header Files" grouping を書く必要はない。
     #
     # 外部プロジェクトは別 drive の ACS source も取り込むため、path prefix で
     # target 内・ACS 内・外部共有 source の三種類へ分類する。
@@ -123,7 +123,7 @@ function(acs_apply_compiler_options tgt)
         endif()
         if(_acs_engine)
             # Files referenced from outside the target's own dir (e.g. editor
-            # samples pulling in src/gameframework/tools/...). Anchor the VS
+            # targets pulling in src/gameframework/tools/...). Anchor the VS
             # filter tree at the acs/ source root, NOT CMAKE_SOURCE_DIR — the
             # latter is acs/engine/ (where the build system lives) and those
             # files live one level up under acs/src, which source_group(TREE)

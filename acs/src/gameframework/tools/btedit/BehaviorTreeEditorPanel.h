@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — btedit / ABehaviorTreeEditorPanel
+#pragma once
+// GameFramework の behavior tree デバッガー — ABehaviorTreeEditorPanel
 //
-// `gameframework/BehaviorTree.h` (Pillar L) の BT を **可視化 + ライブデバッグ**
+// `gameframework/BehaviorTree.h` の BT を **可視化 + ライブデバッグ**
 // するための ImGui パネル。実行状態の可視化と 1 tick ずつのデバッグに絞り、
 // ノードのグラフ編集 (drag drop で composite に子追加 / 配置入替) は範囲外。
 //
@@ -10,7 +11,7 @@
 //     panel が直接 walk しない (= ABtSelector / ABtSequence の `m_Children` は private、
 //     ACS は RTTI 無効で `dynamic_cast` も使えない、ABtAction の `m_Fn` も private、
 //     という三重の事情で実体ツリーを panel から覗けない)。
-//     代わりに「**メタデータミラー**」: ユーザ (sample / ゲーム側) が AddNode で
+//     代わりに「**メタデータミラー**」: ゲーム側が AddNode で
 //     「親 id・kind・表示名」を panel に push し、panel はそのミラーを描画する。
 //     実体 BT とメタミラーの構造が乖離しない責務はユーザ側にあるが、最も
 //     一般的な「BT 構築直後にミラーも組み立てる」運用なら手書きでも整合は楽。
@@ -81,8 +82,6 @@
 //   ・複数 BT の同時編集 (現状 1 panel = 1 tree)
 //   ・time-scaled tick (= 通常の dt の N 倍速で進める、slow-motion debug)
 //   ・履歴の長さ可変 (現状 60 frame 固定)
-#pragma once
-
 #include "container/Array.h"
 #include "foundation/Types.h"
 #include "gameframework/BehaviorTree.h"

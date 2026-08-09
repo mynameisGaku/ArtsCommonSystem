@@ -91,7 +91,7 @@ fails as `PACKAGE_METADATA_INVALID`; it is never silently repaired.
   "publisher": "Example Studio",
   "description": "Example Game",
   "copyright": "Copyright Example Studio",
-  "supportUrl": "https://support.example.com/game"
+  "supportUrl": "<HTTPS support URL>"
 }
 ```
 

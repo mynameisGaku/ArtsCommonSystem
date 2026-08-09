@@ -3,7 +3,7 @@
 
 ``audit_cpp_prefix_consumers.py`` は allowlist を「観測結果そのもの」と突き合わせる
 exact 監査で、``--write`` を持たない。allowlist の entry は対象 file の **全体 SHA-256**
-を含むため、tests / samples / dist/examples を 1 byte でも変更すると、その file の
+を含むため、tests / dist/verification を 1 byte でも変更すると、その file の
 entry が全て無効化されて監査が落ちる。
 
 このスクリプトは監査本体を import し、同じ ``_capture_repository_snapshot`` →

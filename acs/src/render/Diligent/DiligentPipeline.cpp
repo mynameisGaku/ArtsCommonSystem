@@ -146,13 +146,8 @@ TResult<void> FDiligentPipeline::Init(CDiligentDevice& device, const FPipelineDe
     gp.PrimitiveTopology            = diligent_detail::ToDiligent(desc.topology);
     gp.RasterizerDesc.CullMode      = diligent_detail::ToDiligent(desc.cull_mode);
     gp.RasterizerDesc.FillMode      = Diligent::FILL_MODE_SOLID;
-    // 経験的に: 色 pass (PS あり) で `true`、depth-only (PS なし) で `false`
-    // にすると ACS sample 群 (HelloLights / Bloom / Shadows / CSky / Mesh ...)
-    // で正しい winding になる。Diligent の D3D12 backend が swap chain / RT
-    // 種別で内部的に何か変換してると推測。
-    // 注: HelloBloom の off-screen HDR RT (PS あり、has_ps=true) も `true`
-    // で正常動作。off-screen color RT で誤動作する suspected ケースは現状
-    // 未観測。
+    // 色パスでは反時計回り、深度専用パスでは時計回りを前面として扱う。
+    // オフスクリーン HDR を含む pixel shader 付きの描画先も色パスに含める。
     gp.RasterizerDesc.FrontCounterClockwise = has_ps;
     gp.DepthStencilDesc.DepthEnable = desc.depth_test && desc.depth_format != EFormat::Unknown;
     gp.DepthStencilDesc.DepthWriteEnable = desc.depth_write;

@@ -73,7 +73,7 @@ ACS_REF.modules.push({
     {
       name: "FRandom",
       kind: "クラス", header: "gameframework/Random.h",
-      summary: "<b>決定論的な<t>乱数生成器</t></b>(xoshiro128**)。既存の16byte状態と値列を保ったまま、Kitの同責務だったsnapshot・検査済み一括生成・偏り除去APIを統合する。",
+      summary: "<b>決定論的な<t>乱数生成器</t></b>(xoshiro128**)。既存の16byte状態と値列を保ち、定数時間snapshot・検査済み一括生成・偏り除去APIを提供する。",
       when: "敵の出現位置・ドロップ抽選・シャッフルなど、ゲーム中の乱数全般。再現性が欲しいなら<t>シード</t>を明示する。",
       sample: "FRandom r(0x12345678ull);\nFRandomSnapshot saved = r.CaptureSnapshot();\nu32 selected = 0;\nconst f32 weights[] = {1.0f, 2.0f, 3.0f};\nif (r.TryWeightedIndex(weights, 3, selected)) { /* 使用 */ }\nr.TryRestoreSnapshot(saved);",
       members: [

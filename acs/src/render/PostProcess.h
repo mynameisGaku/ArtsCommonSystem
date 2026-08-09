@@ -58,8 +58,7 @@ struct FPostProcessParams {
      *
      * @details
      * 0=ACES Filmic、1=AgX、2=Reinhard 拡張。AgX は彩度を
-     * 控えめにする neutral look の tonemap。既存サンプル互換の
-     * ため初期値は ACES。
+     * 控えめにする neutral look の tonemap。安定した既定表示のため初期値は ACES。
      */
     i32   tonemap_kind     = 0;
 
@@ -180,7 +179,7 @@ struct FPostProcessParams {
      * Auto-exposure を有効にするか。
      *
      * @details
-     * false なら exposure をそのまま使う (既存サンプル互換)。true なら luma reduction →
+     * false なら exposure をそのまま使う。true なら luma reduction →
      * 露出順応 → ExposureApply の 3 pass を内部で実行し、露出はシーン輝度から自動算出される。
      * このとき exposure は「自動露出にさらに掛ける手動補正 (EV compensation)」として働く
      * (中性 = 1.0)。
@@ -218,8 +217,8 @@ struct FPostProcessParams {
  * @details
  * シーンを HDR R16G16B16A16_Float RT に描画した後、Bloom (extract → downsample →
  * upsample) → 任意の TAA resolve → Tonemap (ACES/AgX/Reinhard) → backbuffer の順に
- * 処理する。auto-exposure 有効時は luma 測定と露出順応 pass を追加で挟む。Diligent
- * backend を前提とし、GPU リソースを単独所有する non-copy 型。
+ * 処理する。auto-exposure 有効時は luma 測定と露出順応 pass を追加で挟む。
+ * raw-DX12 と Diligent の両 backend を扱い、GPU リソースを単独所有する non-copy 型。
  */
 class CPostProcess {
 public:

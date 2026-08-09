@@ -62,7 +62,7 @@ if (-not $exe) {
     $bld = Join-Path $acs 'Intermediate\packtool'
     $gen = 'Visual Studio 18 2026'
     & cmake -S (Join-Path $acs 'engine') -B $bld -G $gen -A x64 `
-        -DACS_BUILD_SAMPLES=OFF -DACS_BUILD_TESTS=OFF -DACS_BUILD_TOOLS=ON `
+        -DACS_BUILD_TESTS=OFF -DACS_BUILD_TOOLS=ON `
         -DACS_RENDER_DX12_RAW=ON -DACS_RENDER_DILIGENT=OFF
     if ($LASTEXITCODE -ne 0) { Fail "cmake configure failed (exit $LASTEXITCODE)" }
     # NOTE: the exe target is acs_assetpack_cli (OUTPUT_NAME acs_assetpack.exe);

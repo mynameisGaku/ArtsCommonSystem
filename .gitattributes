@@ -1,5 +1,5 @@
 # ============================================================================
-# ACS git attributes (Phase 0 / Option A+).
+# ACS git attributes.
 # Enforce LF line endings, UTF-8 source, and binary classification.
 # ============================================================================
 * text=auto eol=lf
@@ -112,5 +112,4 @@ CMakeLists.txt   text eol=lf
 
 # ---- linguist hints for GitHub display -------------------------------------
 cmake-build-*/**    linguist-generated=true
-samples/**          linguist-documentation=false
 docs/**             linguist-documentation=true

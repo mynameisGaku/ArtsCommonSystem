@@ -794,7 +794,7 @@ ACS_REF.modules.push({
     {
       name: "CNetTransportStub",
       kind: "クラス", header: "gameframework/NetSnapshot.h",
-      summary: "<code>INetTransport</code> の null-object <t>スタブ</t>。Connect/Send/Receive は必ず Err を返す。サンプル/テスト/リンク互換用。",
+      summary: "<code>INetTransport</code> の null-object <t>スタブ</t>。Connect/Send/Receive は必ず Err を返す。利用側/テスト/リンク互換用。",
       when: "本番ビルドに混入したケースを QA で必ず検出させたい時。<code>GetTransportStub()</code> でプロセス共有インスタンスを取得できる。",
       members: [
         { sig: "using FNetTransportStub = CNetTransportStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CNetTransportStub</code> を使う。" }

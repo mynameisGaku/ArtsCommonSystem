@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Foundation Optimization Wave K の ownership / I/O / batching 契約テスト
+// Asset path、package snapshot、batch I/O の所有権と失敗時状態を検証する。
 #include "test/Expect.h"
 #include "test/Test.h"
 

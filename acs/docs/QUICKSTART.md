@@ -2,7 +2,7 @@
 
 ## 5 行でゲームを作る
 
-`FApplication` を継承して 4 つの関数を実装すれば、ウィンドウ + 入力 + 描画 + ECS が
+`CApplication` を継承して 4 つの関数を実装すれば、ウィンドウ + 入力 + 描画 + ECS が
 すぐ使えます。
 
 ```cpp
@@ -12,7 +12,7 @@
 
 using namespace acs;
 
-class FMyGame : public FApplication {
+class CMyGame : public CApplication {
 public:
     void OnStart() noexcept override {
         // 起動時に 1 度だけ呼ばれる（リソース読み込みなど）
@@ -20,7 +20,7 @@ public:
 
     void OnUpdate(f32 dt) noexcept override {
         // 毎フレーム呼ばれる（ゲームロジック）
-        if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+        if (CInput::IsKeyPressed(EKey::Escape)) Quit();
     }
 
     void OnRender() noexcept override {
@@ -32,7 +32,7 @@ public:
     }
 };
 
-ACS_DEFINE_MAIN(FMyGame)
+ACS_DEFINE_MAIN(CMyGame)
 ```
 
 `ACS_DEFINE_MAIN` がエントリポイント (`int main()`) を自動生成します。
@@ -45,13 +45,13 @@ ACS_DEFINE_MAIN(FMyGame)
 
 ```pwsh
 cd acs
-.\generate.ps1 -Sample 01_HelloWindow -StartupProject hello_window
-cmake --build Intermediate/vs --config Debug --target hello_window
-.\Binaries\Debug\hello_window.exe
+.\generate.ps1 -Tests -Tools
+cmake --build Intermediate/vs --config Debug --target acs_unit_tests
+ctest --test-dir Intermediate/vs -C Debug --output-on-failure
 ```
 
 実行ファイルと配布 DLL は `acs/Binaries/<構成>/`、中間生成物は
-`acs/Intermediate/vs/` に分離されます。生成された `ACSGame.slnx` を開けば
+`acs/Intermediate/vs/` に分離されます。生成された `ACSEngine.slnx` を開けば
 Visual Studio からも同じ構成をビルドできます。
 
 ## モジュール一覧
@@ -66,35 +66,35 @@ Visual Studio からも同じ構成をビルドできます。
 | Memory | メモリ管理 | `FAllocator`, `FMemorySystem`, `TUniquePtr<T>`, `TRc<T>` |
 | Container | コンテナ | `TArray<T>`, `FString`, `THashMap<K,V>` |
 | Math | 数学 | `FVec2/3/4`, `FMat4`, `FQuat` |
-| Platform | OS 層 | `FWindow`, `FInput`, Time API, `FFileSystem` |
-| Ecs | エンティティ・コンポーネント | `FWorld`, `FEntityId`, `TQueryView<...>` |
-| Asset | アセット管理 | `FAssetRegistry`, 画像/メッシュ/音声ローダ, 非同期ロード |
-| Render | 描画 | `FRenderer` (DX12 / Diligent) |
-| App | アプリ枠組み | `FApplication`, `FAppConfig` |
+| Platform | OS 層 | `FWindow`, `CInput`, Time API, `CFileSystem` |
+| Ecs | エンティティ・コンポーネント | `CWorld`, `FEntityId`, `TQueryView<...>` |
+| Asset | アセット管理 | `CAssetRegistry`, 画像/メッシュ/音声ローダ, 非同期ロード |
+| Render | 描画 | `CRenderer` (DX12 / Diligent) |
+| App | アプリ枠組み | `CApplication`, `FAppConfig` |
 
 ## よく使うコード例
 
 ### 1. キー入力
 ```cpp
-if (FInput::IsKeyDown(EKey::W)) move_forward();   // 押されている間
-if (FInput::IsKeyPressed(EKey::Space)) jump();    // 押した瞬間
-if (FInput::IsKeyReleased(EKey::F)) release();    // 離した瞬間
+if (CInput::IsKeyDown(EKey::W)) move_forward();   // 押されている間
+if (CInput::IsKeyPressed(EKey::Space)) jump();    // 押した瞬間
+if (CInput::IsKeyReleased(EKey::F)) release();    // 離した瞬間
 ```
 
 ### 2. マウス
 ```cpp
-FVec2 mouse = FInput::MousePos();
-FVec2 delta = FInput::MouseDelta();
-if (FInput::IsMouseButtonPressed(EMouseButton::Left)) shoot();
+FVec2 mouse = CInput::MousePos();
+FVec2 delta = CInput::MouseDelta();
+if (CInput::IsMouseButtonPressed(EMouseButton::Left)) shoot();
 ```
 
 ### 3. ECS
 ```cpp
-// コンポーネントは FVec3 などを包んだ POD（samples/04_HelloECS と同じ流儀）
+// コンポーネントは FVec3 などを包む値型として定義する
 struct FPosition { FVec3 v; };
 struct FVelocity { FVec3 v; };
 
-FWorld& w = GetWorld();
+CWorld& w = GetWorld();
 FEntityId player = w.Create();
 w.Add<FPosition>(player, { FVec3{0, 0, 0} });
 w.Add<FVelocity>(player, { FVec3{1, 0, 0} });
@@ -108,7 +108,7 @@ w.Query<FPosition, FVelocity>().Each([dt](FEntityId, FPosition& p, FVelocity& v)
 
 ### 4. ファイル I/O
 ```cpp
-auto data = FFileSystem::ReadAllBytes(L"data/save.bin");
+auto data = CFileSystem::ReadAllBytes(L"data/save.bin");
 if (data.IsErr()) {
     ACS_LOG_ERROR("save not found: %s", data.Error().message);
     return;
@@ -163,27 +163,14 @@ TResult<void> Setup() noexcept {
 
 ## 次のステップ
 
-サンプルは `acs/samples/` に 67 本あります。**学習順とそれぞれの説明は
-[`samples/README.md`](../samples/README.md) にまとまっています。** 番号順に
-読み進めるのがおすすめです：
+scene、node、component を使ったゲーム構成は [`tutorials/README.md`](tutorials/README.md)、
+機能別のコードは [`RECIPES.md`](RECIPES.md) へ進みます。コア API の実行契約は
+`acs/tests/*_tests.cpp` で確認できます。
 
-- `01_HelloWindow` — ウィンドウ + 入力（最初の 1 本、73 行）
-- `02_HelloSprite` 〜 `09_HelloParticles` — 2D 描画とゲームの基本（シェーダ記述不要）
-- `10_HelloModel` 〜 `15_HelloAnimation` — `FStandardShader` での 3D（シェーダ記述不要）
-- `16_HelloTriangle` 〜 `18_HelloTextured` — 低レベル RHI（HLSL を直接書く発展編）
-- `19_HelloUI` 〜 `22_HelloNet` — UI・MVVM・ImGui・ネットワーク
-- `23_HelloPbr` 〜 `26_HelloLightmap` — 上級グラフィックス（PBR / IBL など）
-
-`24`〜`26` は Diligent バックエンド（`diligent-*` プリセット）が必要です。
-各サンプルのビルド要件は `samples/README.md` を参照してください。
-
-コア API（`TArray` / `TResult` / `FWorld` など描画以外）の使用例は
-`acs/tests/*_tests.cpp` も参考になります。グラフィックス API の使い方は
-上記サンプルと [`RECIPES.md`](RECIPES.md) を参照してください。
-
-準備ができたら、`samples/01_HelloWindow` を真似て自分のゲーム用フォルダを作り、
-`FApplication` を継承して開発を始めましょう。CMake の書き方は
-`samples/README.md` の「自分のゲームを作る」節を参照してください。
+学習用実行例は現在同梱していません。再導入候補と検証条件は
+[`LearningSamplesMigrationPlan.md`](LearningSamplesMigrationPlan.md) に集約します。
+ゲーム側では `CApplication` または `CGame` の派生型を作り、CMake target を
+`ACS::App` または `ACS::GameFramework` へリンクします。
 
 ## ゲームを配布する（ZIP 化）
 
@@ -226,5 +213,5 @@ Licenses/
 ```
 
 ZIP を相手に渡し、`my_game.exe` をダブルクリックすればすぐ動きます。
-`samples/00_HelloEasy/CMakeLists.txt` も同じ仕組みで `hello_easy` を ZIP 化
-できるので、まずはサンプルで試して動作確認するのがおすすめです。
+`acs_package_game()` は登録したゲーム target と必要な runtime、asset、license を
+同じ契約で検証して ZIP 化します。

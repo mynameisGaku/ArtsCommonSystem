@@ -198,7 +198,6 @@ public static class PackagingService
                 "-S", Path.Combine(engineRoot, "engine"),
                 "-B", build,
                 "-DACS_BUILD_TOOLS=ON",
-                "-DACS_BUILD_SAMPLES=OFF",
                 "-DACS_BUILD_TESTS=OFF",
                 "-DACS_RENDER_DX12_RAW=ON",
                 "-DACS_RENDER_DILIGENT=OFF",

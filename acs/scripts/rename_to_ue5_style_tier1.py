@@ -15,7 +15,7 @@ ACS v1 -> v2 命名規則移行: Tier 1 (canonical types).
   - word boundary regex で誤検出を最小化
 
 スコープ:
-  src/**, samples/**, tests/**, docs/**.md
+  src/**, tests/**, docs/**.md
   cmake-build-*/_deps/ は除外。
 
 使い方:
@@ -79,7 +79,7 @@ EXCLUDE_DIRS = {
 }
 
 # CMake 関連だがプロジェクトの一部
-INCLUDE_DIRS_WHITELIST = {"src", "samples", "tests", "docs", "tools", "cmake", "scripts"}
+INCLUDE_DIRS_WHITELIST = {"src", "tests", "docs", "tools", "cmake", "scripts"}
 
 
 def is_excluded(path: Path, repo_root: Path) -> bool:
@@ -122,8 +122,8 @@ def build_patterns(mapping: list[tuple[str, str]]) -> list[tuple[re.Pattern, str
     for old, new in mapping:
         # negative lookbehind で '.' (member 経由) と '>' (-> の > 経由) を除外。
         # ':' は除外しない (acs::Array<T> や Foo::Result のような namespace 修飾
-        # は rename 対象に含めるため)。\w lookbehind は word boundary が既に
-        # 担当しているので冗長だが安全側で残す。
+        # は rename 対象に含めるため)。\w lookbehind は word boundary と重なるが、
+        # 識別子内部の一致を明示的に拒否するため残す。
         pat = re.compile(rf"(?<![\w.>])\b{re.escape(old)}\b(?![\w])")
         patterns.append((pat, new))
     return patterns

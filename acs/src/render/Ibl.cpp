@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Image-Based Lighting 実装
 //
-// 現段階の機能: BRDF LUT 生成、CSky → env cubemap キャプチャ、skybox preview 描画。
-// irradiance / prefilter は後続ステップで追加する。
+// BRDF LUT、env cubemap、irradiance、prefilter、skybox preview を生成・描画する。
 #include "render/Ibl.h"
 #include "render/Sky.h"
 #include "math/Mat.h"
@@ -15,9 +14,8 @@
 namespace acs {
 
 namespace {
-// IBL の build / draw 系は Diligent backend 専用 (BeginRenderToTextureSlice /
-// cubemap / R11G11B10F に依存)。Dx12 raw backend では呼ばれても crash しないよう
-// 早期 return できるかチェックする。
+// CImageBasedLighting の build / draw 系は現在 Diligent backend だけを公開する。
+// 他 backend では安定した capability error または no-op を返すため、先に判定する。
 bool IsDiligentBackend(IRhiDevice& device) noexcept {
     const char* n = device.BackendName();
     return n && std::strncmp(n, "Diligent", 8) == 0;

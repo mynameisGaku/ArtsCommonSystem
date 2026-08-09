@@ -327,7 +327,7 @@ ACS_REF.modules.push({
       name: "CPbrShader",
       kind: "クラス", header: "render/PbrShader.h",
       summary: "物理ベースレンダリング(<t>PBR</t>、Cook-Torrance / Metalness-Roughness)の本格シェーダ。金属/粗さ + 環境光 + <t>IBL</t> + 影に加え、法線マップ・<t>SSAO</t>/<t>SSGI</t>/<t>SSR</t>・フォグ・布(Sheen)・薄膜(Iridescence)・<t>サブサーフェス</t>など多彩な質感を載せられる。",
-      when: "UE5 級の見た目を狙う 3D 描画。リアルな金属・プラスチック・肌・布などを描き分けたいとき。",
+      when: "IBL、影、画面空間効果を組み合わせる 3D 描画。金属・プラスチック・肌・布などを描き分けたいとき。",
       sample: "CPbrShader shd;\nshd.Init(*rdr.Device(), rdr.ColorFormat(), rdr.DepthFormat());\nshd.SetLights(cam.ViewProjection(), cam.Eye(), lights, 1, ambient);\nshd.SetIbl(ibl.IrradianceMap(), ibl.PrefilterMap(), ibl.BrdfLut(), ibl.PrefilterMips());\nshd.DrawMesh(*rdr.CommandList(), gm, model,\n             FVec3{1,1,1}, /*metallic=*/0.0f, /*roughness=*/0.4f, /*ao=*/1.0f);",
       members: [
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)", desc: "シェーダ・パイプライン・定数バッファ・fallback テクスチャを作る。" },

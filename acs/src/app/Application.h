@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#pragma once
 // CApplication 基底（継承して OnStart / OnUpdate / OnRender / OnShutdown を実装）
 //
 // 使い方:
@@ -18,8 +19,6 @@
 //   };
 //
 //   ACS_DEFINE_MAIN(FMyGame)   // エントリポイントを自動生成 (app/EntryPoint.h)
-#pragma once
-
 #include "foundation/Types.h"
 #include "platform/Window.h"
 #include "platform/Time.h"
@@ -40,7 +39,7 @@ class CApplicationTestAccess;
 }
 
 /**
- * ゲーム/サンプルが継承するアプリケーション基底クラス。
+ * ゲーム実行 target が継承するアプリケーション基底クラス。
  *
  * @details
  * ウィンドウ・レンダラ・ECS CWorld・アセット・タイマー・イベントブローカーといった
@@ -251,7 +250,7 @@ protected:
      * @details
      * true を返すと基底は BeginFrame/OnRender/EndFrame を呼ばず、派生クラスが
      * コマンドリストとスワップチェインを直接制御する責任を負う。HDR + ポストプロセスの
-     * パイプラインを自前で組む場合 (HelloBloom 等) に使う。true は submit/present
+     * HDR とポストプロセスのパイプラインを自前で組む場合に使う。true は submit/present
      * まで担当したフレームを表す。担当後に失敗した場合は Quit() を呼んでから true を
      * 返すこと。false は標準描画へ委譲する。
      * @return フルカスタム描画を行ったなら true、標準描画に任せるなら false (既定)。

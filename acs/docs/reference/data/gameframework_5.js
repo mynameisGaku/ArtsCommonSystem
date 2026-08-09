@@ -331,7 +331,7 @@ ACS_REF.modules.push({
     {
       name: "CPrefabSystem",
       kind: "クラス", header: "gameframework/PrefabSystem.h",
-      summary: "名前付きの ANode ツリーテンプレート (<b>Prefab</b>) を<t>ファクトリ関数</t>として登録し、ID か名前から <code>TObjectPtr&lt;ANode&gt;</code> を生成 (spawn) する軽量レジストリ。Unity の Prefab / Unreal の Blueprint asset に相当する役割を、ファイルではなく関数で表現する。",
+      summary: "名前付きの ANode ツリーテンプレート (<b>Prefab</b>) を<t>ファクトリ関数</t>として登録し、ID か名前から <code>TObjectPtr&lt;ANode&gt;</code> を生成 (spawn) する軽量レジストリ。組み立て済みのノード構成をファイルではなく関数で表現する。",
       when: "「敵」「コイン」「弾」などの組み立て済みオブジェクトを 1 度登録しておき、ゲーム中に何度も spawn したい時。",
       sample: "static TObjectPtr&lt;ANode&gt; SpawnEnemy(void*) noexcept {\n    auto n = NewObject&lt;ANode&gt;();\n    // 子ノード / コンポーネントを組み立てる\n    return n;\n}\nFPrefabSystem prefabs;\nFPrefabId id = prefabs.Register(\"Enemy\", &amp;SpawnEnemy);\nauto a = prefabs.Spawn(id);\nauto b = prefabs.SpawnByName(\"Enemy\");",
       members: [

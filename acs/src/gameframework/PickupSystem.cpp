@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — CPickupSystem 実装
+// GameFramework pickup lifecycle — CPickupSystem 実装
 //
 // 設計上のポイント (ヘッダの設計コメントと対応):
 //   ・slot+gen pattern: CCollisionWorld2D と統一。index 0 は予約。
@@ -23,7 +23,7 @@ namespace {
  * SpawnRandomAt 用の kind 別既定値。
  *
  * @details 数値は AAA でも indie でも違和感のない一般的なバランスを狙う。
- * 単位は world unit (サンプル既定で 1px 想定)。
+ * 単位は world unit。
  */
 struct FKindDefaults {
     /** 拾取半径。 */

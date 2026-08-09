@@ -2946,7 +2946,6 @@ struct FAppConfig {
 //
 //   ACS_DEFINE_MAIN(FMyGame)   // エントリポイントを自動生成 (app/EntryPoint.h)
 
-
 // ===================== platform/Window.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8862,15 +8861,14 @@ using FAssetRegistry = CAssetRegistry;
 //       //   FFont            — TTrueType -> アトラス -> CSpriteBatch
 //       //   CParticleSystem  — 簡易 GPU パーティクル
 //       //   CShadowMap       — depth-only パス
-//       //   CPostProcess     — HDR + Bloom + ACES Tonemap (Diligent backend 専用)
+//       //   CPostProcess     — HDR、Bloom、ACES 色変換 (raw-DX12 / Diligent)
 //       if (!rdr.EndFrame()) break;
 //   }
 //   rdr.Shutdown();
 //
 // HDR ポストプロセス経路を組むときは CApplication::OnCustomFrame() を override
 // して、自分で BeginRenderToTexture(HDR_RT) → 描画 → CPostProcess.Render() →
-// Present までを直接書く (HelloBloom 参照)。
-
+// Present までを直接制御する。
 
 // ===================== memory/UniquePtr.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -12743,7 +12741,7 @@ class CApplicationTestAccess;
 }
 
 /**
- * ゲーム/サンプルが継承するアプリケーション基底クラス。
+ * ゲーム実行 target が継承するアプリケーション基底クラス。
  *
  * @details
  * ウィンドウ・レンダラ・ECS CWorld・アセット・タイマー・イベントブローカーといった
@@ -12954,7 +12952,7 @@ protected:
      * @details
      * true を返すと基底は BeginFrame/OnRender/EndFrame を呼ばず、派生クラスが
      * コマンドリストとスワップチェインを直接制御する責任を負う。HDR + ポストプロセスの
-     * パイプラインを自前で組む場合 (HelloBloom 等) に使う。true は submit/present
+     * HDR とポストプロセスのパイプラインを自前で組む場合に使う。true は submit/present
      * まで担当したフレームを表す。担当後に失敗した場合は Quit() を呼んでから true を
      * 返すこと。false は標準描画へ委譲する。
      * @return フルカスタム描画を行ったなら true、標準描画に任せるなら false (既定)。
@@ -13276,107 +13274,6 @@ private:
         }
 #endif
 
-// ===================== app/Sample.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// acs::FSample — サンプル用の高レベル便利機能まとめ
-//
-// 目的:
-//   ・ サンプルの定型コード (Init チェーンの IsErr+Quit 5 連や Win 限定フォントパス) を
-//     一掃して、サンプルが「何を見せたいか」だけに集中できるようにする。
-//
-// 使用例 (HelloHelloMVVM 等):
-//   class FMyApp : public CApplication {
-//       void OnStart() noexcept override {
-//           ACS_SAMPLE_INIT(m_Imgui.Init(GetWindow(), GetRenderer()));
-//           ACS_SAMPLE_INIT(m_Shader.Init(*GetRenderer().Device(),
-//                                        GetRenderer().ColorFormat(),
-//                                        GetRenderer().DepthFormat()));
-//           // 失敗した時点で自動的に Quit() + ログ出して return される
-//       }
-//       /* ... */
-//   };
-//
-// 標準フォント解決:
-//   const wchar_t* fp = acs::FSample::DefaultUIFontPath();   // OS 別の優先パス
-//   m_Font.LoadFromFile(*dev, fp, 18.0f);
-//
-// 文字列ベースで複数候補を試すヘルパ:
-//   if (acs::FSample::TryLoadDefaultUIFont(m_Font, *dev, 18.0f).IsErr()) {
-//       // どれも見つからなかった
-//   }
-
-
-namespace acs {
-
-class FFont;
-class IRhiDevice;
-
-namespace FSample {
-
-/**
- * プラットフォーム別の既定 UI フォントパスを 1 つ返す。
- *
- * @details 見つからない場合も最初の候補をそのまま返す (後段の LoadFromFile が IsErr を返す)。
- * @return OS ごとに優先される UI フォントのファイルパス。
- */
-const wchar_t* DefaultUIFontPath() noexcept;
-
-/**
- * 候補フォントを順に試し、最初に読み込めたものを font に展開する。
- *
- * @param font 読み込み先の FFont (成功時に内容が構築される)。
- * @param device アトラス生成に使う RHI デバイス。
- * @param size_px フォントのピクセルサイズ (既定 18.0)。
- * @param atlas_size グリフアトラスの一辺サイズ (既定 1024)。
- * @param include_cjk 日本語等を含めるか (true で大きな atlas を使う、既定 false)。
- * @return いずれか成功なら空の TResult、全候補が失敗ならエラー。
- */
-TResult<void> TryLoadDefaultUIFont(FFont& font, IRhiDevice& device,
-                                   f32  size_px     = 18.0f,
-                                   u32  atlas_size  = 1024,
-                                   bool include_cjk = false) noexcept;
-
-} // namespace FSample
-} // namespace acs
-
-/**
- * expr を評価し、TResult が IsErr なら理由をログして Quit() + return する。
- *
- * @details
- * 「Init を呼んで失敗したら Quit して return」を 1 行で書くためのヘルパ。Quit() を
- * 参照するため CApplication のメンバ関数 (戻り値 void) の中からのみ使える。
- * @param expr TResult を返す初期化式。
- */
-#define ACS_SAMPLE_INIT(expr)                                                      \
-    do {                                                                           \
-        auto m_AcsSampleR = (expr);                                               \
-        if (m_AcsSampleR.IsErr()) {                                               \
-            ACS_LOG_ERROR("FSample init failed at " #expr ": %s",                  \
-                          m_AcsSampleR.Error().message);                          \
-            Quit();                                                                \
-            return;                                                                \
-        }                                                                          \
-    } while (0)
-
-/**
- * expr を評価し、成功なら value を name に束縛、失敗なら Quit() + return する。
- *
- * @details
- * 行内の一意な一時名 (__LINE__ 連結) に受けてから Move して name に束縛する。
- * ACS_SAMPLE_INIT 同様 CApplication のメンバ関数からのみ使える。
- * @param name 取り出した値を束縛するローカル変数名。
- * @param expr TResult を返す式。
- */
-#define ACS_SAMPLE_TAKE(name, expr)                                                \
-    auto ACS_CONCAT(m_AcsTakeR, __LINE__) = (expr);                              \
-    if (ACS_CONCAT(m_AcsTakeR, __LINE__).IsErr()) {                              \
-        ACS_LOG_ERROR("FSample take failed at " #expr ": %s",                      \
-                      ACS_CONCAT(m_AcsTakeR, __LINE__).Error().message);         \
-        Quit();                                                                    \
-        return;                                                                    \
-    }                                                                              \
-    auto name = ::acs::Move(ACS_CONCAT(m_AcsTakeR, __LINE__).Value())
-
 // ===================== app/TimerSubsystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -13420,6 +13317,31 @@ private:
     CTimerManager* m_Timers = nullptr;
 };
 
+} // namespace acs
+
+// ===================== app/UiFontDefaults.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+class FFont;
+class IRhiDevice;
+
+namespace UiFontDefaults {
+
+/**
+ * OS 既定 UI フォント候補を優先順に読み込む。
+ * @param font 読み込み結果を保持する呼び出し側所有のフォント。
+ * @param device グリフ atlas を作成する RHI device。
+ * @param size_px 読み込むフォントの pixel size。
+ * @param atlas_size グリフ atlas 一辺の pixel 数。
+ * @param include_cjk 日本語を含む CJK グリフを atlas へ含める指定。
+ * @return 最初に読み込めた候補では成功、全候補の失敗時は Asset error。
+ */
+TResult<void> TryLoad(FFont& font, IRhiDevice& device, f32 size_px = 18.0f, u32 atlas_size = 1024u, bool include_cjk = false) noexcept;
+
+} // namespace UiFontDefaults
 } // namespace acs
 
 // ===================== asset/AudioAsset.h =====================
@@ -19877,7 +19799,7 @@ struct FStringHasher {
 
 // ===================== gameframework/CrashReporter.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — CrashReporter (ship build 専用クラッシュ報告 seam)
+// GameFramework crash reporter (ship build 専用クラッシュ報告 seam)
 //
 // 役割:
 //   出荷ビルドでプロセスが落ちた時、外部のクラッシュ集約サービス (Sentry /
@@ -19926,7 +19848,6 @@ struct FStringHasher {
 //   ・**Tick(f32 dt)**: 非同期送信キューの pump。毎フレーム呼ばれる前提で、
 //     内部キューや受信スレッドからのメッセージをメインスレッドに引き上げる。
 //     stub は no-op。
-
 
 namespace acs::game {
 
@@ -20168,8 +20089,8 @@ public:
 /**
  * プロセス共有の stub backend を返す。
  *
- * @details 常に NotImplemented を返す process-wide singleton。本体側 (タイトル / サンプル)
- * はまずこれを使ってリンクを通し、後から具象実装に差し替える。
+ * @details 常に NotImplemented を返す process-wide singleton。利用側は初期値として保持し、
+ * 必要に応じて具象実装へ差し替える。
  * @return stub ICrashReporterBackend への参照。
  */
 ICrashReporterBackend& GetCrashStub() noexcept;
@@ -34429,7 +34350,7 @@ private:
 
 // ===================== gameframework/BackendClient.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar V — Backend Services seam (IBackendClient / IMatchmaker)
+// GameFramework の backend 接続境界 (IBackendClient / IMatchmaker)
 //
 // 役割:
 //   ゲーム本体から「サーバ側 (dedicated server, テレメトリ、マッチメイカー)」へ
@@ -34454,10 +34375,10 @@ private:
 //   ・MatchmakerDedicatedSrv   — 自社 dedicated server の placement service と RPC
 //
 // 範囲外:
-//   ・実プロトコル / シリアライズ (Pillar J Serialize 側で必要なら整える)
-//   ・認証トークン管理      (Pillar S Storefront のセッションを再利用する想定)
+//   ・実プロトコル / シリアライズ (具象通信 adapter 側の責務)
+//   ・認証トークン管理      (storefront の session provider 側の責務)
 //   ・暗号化 / TLS 設定     (具象実装側の責務)
-//   ・サーバ側のリーダーボード (Pillar O LiveOps 側で扱う)
+//   ・サーバ側のリーダーボード (具象 backend 側の責務)
 //
 // 設計選択:
 //   ・**stub interface のみ**: 本ヘッダ + .cpp は IBackendClient / IMatchmaker を
@@ -34474,14 +34395,13 @@ private:
 //   ・**Tick(f32 dt)**: 非同期 RPC の応答 pump。実装はメインスレッドで callback
 //     を発火する想定 (副 thread からの直接 dispatch を避ける)。
 
-
 namespace acs::game {
 
 /**
  * backend / matchmaker 共通の失敗サブコード集。
  *
  * @details
- * TSaveSlot 等と同じく、本ピラーでも「stub = NotImplemented」を
+ * TSaveSlot 等と同じく、本 backend seam でも「stub = NotImplemented」を
  * subcode = kSub_NotImplemented で表現する。EErrCategory には IO を使う
  * (ネットワーク = I/O の一形態)。
  */
@@ -34543,7 +34463,7 @@ public:
      *
      * @details
      * server_url は呼出側が寿命保証する静的文字列 / member バッファ
-     * (例: "https://api.example.com/v1")。同期/非同期は実装次第だが、
+     * (例: "<HTTPS server URL>")。同期/非同期は実装次第だが、
      * API 上は完了/失敗を TResult で返す約束。
      * @param server_url 接続先サーバの URL (呼出側が寿命を保証)。
      * @return 成功なら空の TResult、接続失敗ならエラー。
@@ -34696,7 +34616,7 @@ public:
 /**
  * プロセス共有の stub IBackendClient を返す。
  *
- * @details 本体側 (タイトル / サンプル) はまずこれを使ってリンクを通す。
+ * @details 利用側はこれを初期値として保持し、必要に応じて具象実装へ差し替える。
  * @return 常に NotImplemented を返す stub クライアントへの参照。
  */
 IBackendClient& GetBackendStub() noexcept;
@@ -41398,11 +41318,11 @@ using FDeckSystem = CDeckSystem;
 
 // ===================== gameframework/DevConsole.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — CDevConsole
+// GameFramework 開発コンソール state — CDevConsole
 //
 // `~` (チルダ) で開く開発用テキストコマンドコンソールの **state コンテナ**。
 // 描画 / 入力ハンドリング (ImGui ウィンドウ、IME、オートコンプリート UI 等) は
-// 上位レイヤ (Tools / Editor / 各サンプル) の責務で、本クラスは:
+// 上位レイヤ (Tools / Editor / game UI) の責務で、本クラスは:
 //   1. コマンド名 → 関数ポインタの登録 / 検索 / 実行
 //   2. 入力履歴 (上下キーで再呼び出しする想定の生バッファ)
 //   3. ログ出力バッファ (描画側がスクロールバックに表示する想定)
@@ -41442,7 +41362,6 @@ using FDeckSystem = CDeckSystem;
 //       con.Execute(input_buf);
 //   }
 //   for (u32 i = 0; i < con.LogCount(); ++i) DrawLine(con.LogLine(i));
-
 
 namespace acs::game {
 
@@ -54822,8 +54741,7 @@ struct FPostProcessParams {
      *
      * @details
      * 0=ACES Filmic、1=AgX、2=Reinhard 拡張。AgX は彩度を
-     * 控えめにする neutral look の tonemap。既存サンプル互換の
-     * ため初期値は ACES。
+     * 控えめにする neutral look の tonemap。安定した既定表示のため初期値は ACES。
      */
     i32   tonemap_kind     = 0;
 
@@ -54944,7 +54862,7 @@ struct FPostProcessParams {
      * Auto-exposure を有効にするか。
      *
      * @details
-     * false なら exposure をそのまま使う (既存サンプル互換)。true なら luma reduction →
+     * false なら exposure をそのまま使う。true なら luma reduction →
      * 露出順応 → ExposureApply の 3 pass を内部で実行し、露出はシーン輝度から自動算出される。
      * このとき exposure は「自動露出にさらに掛ける手動補正 (EV compensation)」として働く
      * (中性 = 1.0)。
@@ -54982,8 +54900,8 @@ struct FPostProcessParams {
  * @details
  * シーンを HDR R16G16B16A16_Float RT に描画した後、Bloom (extract → downsample →
  * upsample) → 任意の TAA resolve → Tonemap (ACES/AgX/Reinhard) → backbuffer の順に
- * 処理する。auto-exposure 有効時は luma 測定と露出順応 pass を追加で挟む。Diligent
- * backend を前提とし、GPU リソースを単独所有する non-copy 型。
+ * 処理する。auto-exposure 有効時は luma 測定と露出順応 pass を追加で挟む。
+ * raw-DX12 と Diligent の両 backend を扱い、GPU リソースを単独所有する non-copy 型。
  */
 class CPostProcess {
 public:
@@ -66860,7 +66778,7 @@ using FPrefabSystem = CPrefabSystem;
 
 // ===================== gameframework/LocalizationDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — CLocalizationDirector (i18n 文字列辞書)
+// GameFramework localization — CLocalizationDirector (i18n 文字列辞書)
 //
 // 「ロケール + 文字列 ID」を「翻訳済みの const char*」に解決する小型ストア。
 // UI ラベル / セリフ / メニュー文言 / エラーメッセージ等を、ゲームロジックから
@@ -66869,13 +66787,13 @@ using FPrefabSystem = CPrefabSystem;
 //
 // 使い方:
 //   CLocalizationDirector loc;
-//   loc.RegisterString(ELocale::En, "ui.title",      "Adventure of Claude");
-//   loc.RegisterString(ELocale::Ja, "ui.title",      "クロードの冒険");
+//   英語のタイトルを登録: loc.RegisterString(ELocale::En, "ui.title", "Star Adventure");
+//   loc.RegisterString(ELocale::Ja, "ui.title",      "星の冒険");
 //   loc.RegisterString(ELocale::En, "ui.start",      "Start");
 //   loc.RegisterString(ELocale::Ja, "ui.start",      "はじめる");
 //
 //   loc.SetLocale(ELocale::Ja);
-//   const char* title = loc.Get("ui.title");   // -> "クロードの冒険"
+//   const char* title = loc.Get("ui.title");   // -> "星の冒険"
 //   const char* miss  = loc.Get("ui.missing"); // -> "ui.missing" (key 自身)
 //
 // 設計選択 (簡素優先):
@@ -66901,11 +66819,10 @@ using FPrefabSystem = CPrefabSystem;
 // 範囲外:
 //   ・format 引数展開 ("Score: {0}" の {0} 置換)。`Sprintf`/`Format` 層を別途用意する想定。
 //   ・複数形 (plural rules) / 性別 (gender) / ICU MessageFormat 相当
-//   ・右から左 (RTL) レイアウト判定 (Pillar Q Polish 側の UI 描画で扱う)
+//   ・右から左 (RTL) レイアウト判定 (UI 描画層の責務)
 //   ・フォントフォールバック (CJK / Cyrillic / Arabic 等のグリフセット切替)
-//   ・永続化 / シリアライズ (Pillar J Serialize 側で扱う、loc.json 等から流し込む)
+//   ・永続化 / シリアライズ (保存 adapter から loc.json 等を流し込む)
 //   ・PO/MO/CSV からの自動取り込み (ツール側で RegisterString 列に変換する想定)
-
 
 namespace acs::game {
 
@@ -79178,7 +79095,7 @@ private:
 
 // ===================== gameframework/NetSnapshot.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M — CNetSnapshot
+// GameFramework のサーバー権威 snapshot — CNetSnapshot
 //   server-authoritative snapshot ベースのネットコード seam
 //
 // 役割:
@@ -79239,7 +79156,7 @@ private:
 //     (送信のみ) / ServerListener (listen-server 兼任) の 4 状態。listen-server
 //     は内部的に Server + Client を同居させる役割で、host プレイヤーが自機の
 //     simulation を server として回しつつ自分の画面用に snapshot 補間も使う
-//     ケースに使う (HelloMultiplayer サンプル等)。
+//     ケースに使う。
 //   ・**FSnapshotHeader fixed 24B**: tick(4) + sequence(4) + timestamp(8) +
 //     payload_size(4) + crc32(4) = 24 byte。LE 固定。CRC32 は magic 直後 〜
 //     payload 末尾 (= version + FSnapshotHeader 本体 + payload) に対する Zlib /
@@ -79263,7 +79180,6 @@ private:
 //   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 全体方針。
 //   ・**コピー / ムーブ禁止**: 1 セッション 1 オブジェクトの長寿命 (transport
 //     との結合関係を分裂させないため CLockstep / IBackendClient と同じ方針)。
-
 
 namespace acs::game {
 
@@ -79593,7 +79509,7 @@ struct FNetSnapshotTickResult {
  * INetTransport の null-object 実装 (defensive stub)。
  *
  * @details
- * 「常に NotImplemented を返す」stub でサンプル / テスト / linker 互換用。本番
+ * 「常に NotImplemented を返す」stub で利用側 / テスト / linker 互換用。本番
  * ビルドに混入したケースを QA で必ず検出できるよう、Connect / Send / Receive は
  * 必ず Err を返す (GetBackendStub() と同じ pattern)。
  */
@@ -84778,9 +84694,9 @@ using FAnimCurveEditorPanel = AAnimCurveEditorPanel;
 
 // ===================== gameframework/tools/btedit/BehaviorTreeEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — btedit / ABehaviorTreeEditorPanel
+// GameFramework の behavior tree デバッガー — ABehaviorTreeEditorPanel
 //
-// `gameframework/BehaviorTree.h` (Pillar L) の BT を **可視化 + ライブデバッグ**
+// `gameframework/BehaviorTree.h` の BT を **可視化 + ライブデバッグ**
 // するための ImGui パネル。実行状態の可視化と 1 tick ずつのデバッグに絞り、
 // ノードのグラフ編集 (drag drop で composite に子追加 / 配置入替) は範囲外。
 //
@@ -84789,7 +84705,7 @@ using FAnimCurveEditorPanel = AAnimCurveEditorPanel;
 //     panel が直接 walk しない (= ABtSelector / ABtSequence の `m_Children` は private、
 //     ACS は RTTI 無効で `dynamic_cast` も使えない、ABtAction の `m_Fn` も private、
 //     という三重の事情で実体ツリーを panel から覗けない)。
-//     代わりに「**メタデータミラー**」: ユーザ (sample / ゲーム側) が AddNode で
+//     代わりに「**メタデータミラー**」: ゲーム側が AddNode で
 //     「親 id・kind・表示名」を panel に push し、panel はそのミラーを描画する。
 //     実体 BT とメタミラーの構造が乖離しない責務はユーザ側にあるが、最も
 //     一般的な「BT 構築直後にミラーも組み立てる」運用なら手書きでも整合は楽。
@@ -84860,7 +84776,6 @@ using FAnimCurveEditorPanel = AAnimCurveEditorPanel;
 //   ・複数 BT の同時編集 (現状 1 panel = 1 tree)
 //   ・time-scaled tick (= 通常の dt の N 倍速で進める、slow-motion debug)
 //   ・履歴の長さ可変 (現状 60 frame 固定)
-
 
 // ===================== gameframework/tools/btedit/BtActionRegistry.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -86309,7 +86224,7 @@ private:
 
 // ===================== gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — cinetimeline / ACinematicsTimelineEditorPanel
+// GameFramework の映像 timeline editor — ACinematicsTimelineEditorPanel
 //
 // `acs::game::CCinematicsDirector` (= タイムライン上の cutscene 駆動器) を
 // **対話的に編集する timeline editor panel**。水平タイムライン、複数トラック、
@@ -86343,8 +86258,7 @@ private:
 //     / event_id / 文字列リテラル) を panel 側で保持する。Play 時に director に
 //     対応する FTimelineKeyframe を AddKeyframe する設計 (= editor data →
 //     runtime data の「ベイク」)。
-//   ・実 file save/load は本 panel 範囲外 (= sample 37 menu で stub menu、本物は
-//     .acscinetimeline serializer を追加した時点で配線)。
+//   ・実 file save/load は本 panel 範囲外で、呼び出し側が保存を担当する。
 //
 // 使い方 (典型):
 //   ACinematicsTimelineEditorPanel panel;
@@ -86404,8 +86318,7 @@ private:
 //     AParticleEditorPanel) と同形。
 //
 // 範囲外:
-//   ・実 file save/load (= sample 37 menu で stub、
-//     .acscinetimeline serializer を作って配線)
+//   ・実 file save/load
 //   ・複数 director の同時編集
 //   ・undo / redo 統合 (= CUndoStack 経由、OnUndo / OnRedo hook)
 //   ・keyframe の補間 / curve 編集 (= AnimCurveEditor と統合した時点で検討)
@@ -86417,7 +86330,6 @@ private:
 // 関連実装: gameframework/CinematicsDirector.h,
 //      gameframework/tools/editor_core/EditorPanel.h,
 //      gameframework/tools/animcurve/AnimCurveEditorPanel.h
-
 
 // 編集対象の CCinematicsDirector は Forward.h から forward-decl のみで受ける。
 // `<gameframework/CinematicsDirector.h>` を include しないことで、本 panel を
@@ -87532,7 +87444,7 @@ using FEditorCamera = CEditorCamera;
 
 // ===================== gameframework/tools/editor_core/EditorCommand.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / AEditorCommand
+// GameFramework editor の undo/redo command — AEditorCommand
 //
 // 役割:
 //   ACS の全エディタ (AHierarchyPanel / AInspectorPanel / ParticleEditor /
@@ -87570,7 +87482,6 @@ using FEditorCamera = CEditorCamera;
 //     ではなく分岐として保存する。AEditorCommand 側に変更は不要。
 //   ・serialization: `virtual void Serialize(Writer&) const` を後付け可能。
 //     既存派生は default = no-op で問題ない。
-
 
 namespace acs::game::editor_core {
 
@@ -87668,7 +87579,7 @@ public:
 };
 
 /**
- * ANode の position を変更する AEditorCommand 派生サンプル。
+ * ANode の position を変更する AEditorCommand 派生実装。
  *
  * @details
  * 教科書的な使用例で、連続 drag を 1 件にまとめる CanMerge 実装も持つ。マージ規約は、
@@ -91885,7 +91796,7 @@ private:
 
 // ===================== gameframework/tools/leveledit/LevelEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — leveledit / ALevelEditorPanel
+// GameFramework の tilemap level editor — ALevelEditorPanel
 //
 // `acs::game::FTilemap` (multi-layer u16 FTileId grid) を **対話的に編集する
 // tilemap painter panel**。「ペイント / 消し / 塗りつぶし / スポイト」 4 ブラシ +
@@ -91921,8 +91832,8 @@ private:
 //   ・FTilemap の描画は「ImDrawList で色付き矩形を描く placeholder」のみ
 //     (本物テクスチャ atlas は未対応)。tile id を疑似乱数ハッシュで色に変換する
 //     `TileIdToColor` を内部実装する。
-//   ・Save / Load tilemap は sample 34 側で stub menu を出す。本 panel 自身は
-//     永続化 API を持たない (= JSON / binary / pak 等の選択を panel が知らない)。
+//   ・Save / Load tilemap は呼び出し側が担当する。本 panel 自身は永続化 API を
+//     持たず、JSON / binary / pak 等の保存形式を扱わない。
 //
 // 使い方 (典型):
 //   ALevelEditorPanel panel;
@@ -91979,7 +91890,6 @@ private:
 //   ・auto-tiling (= Wang tiles / 4-bit neighbor mask)
 //   ・collision layer の特別扱い (= 現状はただの layer)
 //   ・タイル単位 flip / rotate (= FTileId 自体は純粋 id のまま、flag は別配列が必要)
-
 
 namespace acs::game {
 // 編集対象の FTilemap は本ヘッダから forward-decl のみで受ける。
@@ -92235,7 +92145,7 @@ using FLevelEditorPanel = ALevelEditorPanel;
 
 // ===================== gameframework/tools/modelview/ModelAnimationPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — ModelViewer / AModelAnimationPanel
+// GameFramework の model animation 制御 — AModelAnimationPanel
 //
 // ModelViewer 内で、ロード済みモデルに含まれる **animation clip の再生制御 +
 // timeline 表示** を行う panel。共通基盤の `editor_core::AEditorPanel`
@@ -92296,7 +92206,7 @@ using FLevelEditorPanel = ALevelEditorPanel;
 //     Paused の三状態。E-prefix 規約 (`enum class E*` + 基底 u8)。
 //   ・**Tick (dt) を panel 内に持つ**: CSpriteAnimator と同設計 — DrawUI は
 //     ImGui 描画専任、時刻進行は別 hook (= Workspace の OnFrameBegin 経由 or
-//     FSample 側が明示的に Tick) に分離してテスト容易性を確保。本 panel の
+//     呼び出し側が明示的に Tick) に分離してテスト容易性を確保。本 panel の
 //     AEditorPanel::OnFrameBegin は override せず、呼出側が Tick(dt) を直接
 //     呼ぶ規約 (= Workspace の dt と animation の dt は分離したい場面用)。
 //   ・**duration 到達時の挙動**: clip の `is_looping` または `m_LoopOverride`
@@ -92329,7 +92239,6 @@ using FLevelEditorPanel = ALevelEditorPanel;
 //   ・root motion 抽出 / カメラ追従 (= CCinematicsDirector との連携範疇)。
 //   ・clip 圧縮設定 / curve 編集 (= model importer の役割)。
 //   ・retargeting (= bone mapping エディタの役割)。
-
 
 namespace acs::game::modelview {
 
@@ -92643,7 +92552,7 @@ using FModelAnimationPanel = AModelAnimationPanel;
 
 // ===================== gameframework/tools/modelview/ModelInspectorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — modelview / AModelInspectorPanel
+// GameFramework の model 情報 inspector — AModelInspectorPanel
 //
 // ModelViewer ワークスペース内に配置される **読み取り専用の mesh 情報 panel**。
 // CAssetBrowser から選択 / DragDrop された model (.mdl / .fbx / .gltf 等) を
@@ -92664,14 +92573,14 @@ using FModelAnimationPanel = AModelAnimationPanel;
 // 役割分担:
 //   ・本パネルは「描画 + 配列のスナップショット保持」だけを担当。実 model load /
 //     parse は AModelViewerPanel と Mesh / Skeleton / AnimationClip
-//     モジュールの責任。caller (= AModelViewerPanel もしくは sample 31) が
+//     モジュールの責任。model load を担当する呼び出し側が
 //     load 完了時に本 panel の `UpdateFromModel` を呼んで情報を流し込む。
 //   ・本 panel は callback / 編集 / GPU リソース確保を一切持たない (= 純粋な
 //     read-only viewer)。
 //
 // 設計選択 (modelview):
 //   ・**AEditorPanel 継承**: editor_core 基底に乗せる。
-//     AModelViewerPanel / sample 31 が CEditorWorkspace 経由で本 panel を
+//     呼び出し側が CEditorWorkspace 経由で本 panel を
 //     register する。Title は "Model Info" とする。
 //   ・**スナップショット方式**: 元の Mesh / Skeleton / AnimationClip オブジェクト
 //     を ref で保持しない (= モデル再 load / 解放と本 panel の表示が race しない
@@ -92711,7 +92620,6 @@ using FModelAnimationPanel = AModelAnimationPanel;
 //   ・LOD 階層情報
 //   ・mesh / submesh の visibility toggle (= 編集機能、別 panel で)
 //   ・export / re-import ボタン
-
 
 namespace acs::game::modelview {
 
@@ -93723,7 +93631,7 @@ using FModelViewerPanel = AModelViewerPanel;
 
 // ===================== gameframework/tools/spriteatlas/SpriteAtlasEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — spriteatlas / ASpriteAtlasEditorPanel
+// GameFramework の sprite atlas editor — ASpriteAtlasEditorPanel
 //
 // `acs::game::FSpritePack` (gameframework/SpritePack.h) が保持する atlas メタ情報
 // と名前付き frame 矩形のリストを、ImGui ベースで対話的に編集する **エディタ
@@ -93732,9 +93640,8 @@ using FModelViewerPanel = AModelViewerPanel;
 // と同形の組立方を持つ。
 //
 // 役割:
-//   ・atlas texture path + 名前付き FSpriteFrame 列の **編集** のみを担う
-//     (atlas texture そのものの読込 / 描画は責務外、FSample 35 側で素のグリッド
-//      placeholder を出す)。
+//   ・atlas texture path + 名前付き FSpriteFrame 列の **編集** のみを担う。
+//     atlas texture そのものの読込 / 描画は呼び出し側の責務。
 //   ・toolbar (New Frame / Delete Selected / Pivot プリセット切替) + 中央 viewport
 //     (atlas placeholder + 矩形 overlay) + 左 frame list + 右 inspector の
 //     3 カラム + toolbar の 1 window レイアウト。
@@ -93745,8 +93652,7 @@ using FModelViewerPanel = AModelViewerPanel;
 //
 // 役割分担 (SpriteAtlasEditor 全体):
 //   ・本 panel (ASpriteAtlasEditorPanel) : ImGui UI + frame rect 編集
-//   ・FSample 35 (HelloSpriteAtlasEditor) : Workspace + 256x256 dummy atlas を
-//                                          初期登録 + Save/Load .acsatlas stub menu
+//   ・呼び出し側 : Workspace への登録と編集結果の永続化
 //
 // 使い方 (典型):
 //   acs::game::FSpritePack pack;
@@ -93812,8 +93718,7 @@ using FModelViewerPanel = AModelViewerPanel;
 //   ・複数 frame の box-select / 一括操作
 //   ・カスタム pivot guide 線描画 (現状は数値表示のみ)
 //   ・animation timeline 連携 (CSpriteAnimator との結合は別 panel)
-//   ・.acsatlas serializer 実装 (= FSample 35 側で stub callback のみ)
-
+//   ・atlas データの保存形式と読み書き
 
 namespace acs::game {
 // FSpritePack の forward-decl。SpritePack.h は .cpp 側でのみ include する
@@ -103395,7 +103300,7 @@ using FHiZ = CHiZ;
 
 // ===================== render/Ibl.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// Image-Based Lighting
+// 画像ベース照明 (Image-Based Lighting)
 //
 // PBR の ambient 項を「環境マップから事前積分した光」で置き換える。
 // 構成要素:
@@ -103404,20 +103309,19 @@ using FHiZ = CHiZ;
 //   ・拡散 irradiance cubemap — 64x64x6、半球積分された diffuse 反射
 //   ・specular prefilter cubemap — 512x512x6 (7 mip)、roughness 段階別 GGX 反射
 //
-// 使い方 (HelloIbl):
+// 初期化と更新の使用例:
 //   CImageBasedLighting ibl;
 //   ibl.EnsureBrdfLut(*dev, *cl);              // 初回のみ LUT 生成 (256x256)
 //   ibl.EnsureEnvCubemap(*dev, *cl, sky);       // 初回のみ env cubemap キャプチャ
 //   // (irradiance / prefilter を生成してから:)
-//   // ibl.EnsureIrradiance(*cl);                // 環境 → irradiance
-//   // ibl.EnsurePrefilter(*cl);                 // 環境 → prefilter (mip)
-//   // pbr.SetIbl(*ibl.IrradianceMap(), *ibl.PrefilterMap(), *ibl.BrdfLut());
+//   // ibl.EnsureIrradiance(*dev, *cl);           // 環境 → irradiance
+//   // ibl.EnsurePrefilter(*dev, *cl);            // 環境 → prefilter (mip)
+//   // IBL を設定: pbr.SetIbl(ibl.IrradianceMap(), ibl.PrefilterMap(), ibl.BrdfLut(), ibl.PrefilterMips());
 //
-// 注意: IBL は Diligent backend 専用の本実装 (BeginRenderToTextureSlice / cubemap 依存)。
+// 注意: CImageBasedLighting の生成・描画経路は現在 Diligent backend 専用。
 //       raw-DX12 backend では各 Build/Ensure が ACS_ERR(Render, 88) を返す
 //       (fake-success しない)。高度3D を使うには -DACS_RENDER_DILIGENT=ON でビルドする。
 //       (raw-DX12 = 軽量 2D/基本3D backend、Diligent = 公式の高度3D backend)
-
 
 namespace acs {
 
@@ -105020,7 +104924,7 @@ private:
 //       「描画済みの opaque シーン (background) を、屈折方向にずらして
 //       sample する」スクリーンスペース手法で表現する。
 //
-// 前提となるフレーム構成 (呼び出し側 = サンプルが用意する):
+// 前提となるフレーム構成 (呼び出し側が用意する):
 //   1. opaque ジオメトリを HDR RT へ描画する
 //   2. HDR RT を background テクスチャへ複製する (屈折オブジェクトが読むため。
 //      同一 RT の read+write は不可なので複製が要る)
@@ -105036,7 +104940,6 @@ private:
 //
 // blend は Opaque。屈折オブジェクトは「背景を曲げた色」を不透明に書き込むため
 // alpha blend は不要 (深度も書き、後続の描画を正しく遮蔽する)。
-
 
 
 namespace acs {
@@ -105252,9 +105155,8 @@ using FRefractionShader = CRefractionShader;
 //
 // PBR・スカイ・シャドウ・IBL・スキンメッシュなど特定機能のヘッダ
 // (CPbrShader.h / CSky.h / CShadowMap.h / FIbl.h / CSkinnedShader.h ...) は、
-// 使うサンプル側で必要なときに個別に include してください。
+// 利用側で必要なときに個別に include してください。
 // =============================================================================
-
 // ---- 低レベル RHI（バックエンド非依存の描画インターフェイス）----------------
 
 // ---- 高レベルヘルパ ---------------------------------------------------------
@@ -105481,8 +105383,8 @@ constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FComputePipe
 //
 // 2 つのモード:
 //   1. Single cascade (既定、cascade_count=1): 1 つの 2D 深度テクスチャに
-//      シーン全体を 1 つの ortho 投影で描く。HelloShadows (CStandardShader) や
-//      昔の HelloIbl が使う伝統的な方式。
+//      シーン全体を 1 つの ortho 投影で描く。CStandardShader と IBL 描画で
+//      単一のライト空間を共有する方式。
 //   2. Cascaded Shadow Map (CSM、cascade_count >= 2): カメラ frustum を
 //      距離で 2-4 個に分割し、近景は高解像度・遠景は広範囲を 1 枚の atlas
 //      テクスチャ (width = cascade_count * size、height = size) に並べる。
@@ -105525,11 +105427,10 @@ constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FComputePipe
 //   cl->EndShadowPass(*sm.DepthTexture());
 //
 // 主パスでの使用 (CPbrShader 統合):
-//   single mode: pbr.SetShadowMap(*sm.DepthTexture(), sm.LightViewProjection(), ...);
-//   CSM mode   : FMat4 vps[3] = { sm.LightViewProjection(0), sm.LightViewProjection(1), sm.LightViewProjection(2) };
+//   単一カスケード: pbr.SetShadowMap(sm.DepthTexture(), sm.LightViewProjection(), ...);
+//   複数カスケード: FMat4 vps[3] = { sm.LightViewProjection(0), sm.LightViewProjection(1), sm.LightViewProjection(2) };
 //                f32  spl[3] = { sm.CascadeSplit(0), sm.CascadeSplit(1), sm.CascadeSplit(2) };
-//                pbr.SetShadowMapCascades(*sm.DepthTexture(), vps, spl, sm.CascadeCount(), ...);
-
+//   複数カスケードを設定: pbr.SetShadowMapCascades(sm.DepthTexture(), vps, spl, sm.CascadeCount(), ...);
 
 namespace acs {
 

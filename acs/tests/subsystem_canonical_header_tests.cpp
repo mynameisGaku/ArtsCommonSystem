@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-#include "app/Sample.h"
+#include "app/UiFontDefaults.h"
 
 #include <cstring>
 #include <type_traits>
 
-static_assert(std::is_same_v<acs::FApplication, acs::CApplication>);
-
-/** Sample.h 単独で旧アプリケーション前方宣言を利用できることを固定する。 */
-void AcceptLegacySampleApplication(acs::FApplication*) noexcept;
+/** UiFontDefaults.h 単独で利用できる公開関数の型。 */
+using FUiFontLoadSignature = acs::TResult<void> (*)(acs::FFont&, acs::IRhiDevice&, acs::f32, acs::u32, bool) noexcept;
+static_assert(std::is_same_v<decltype(&acs::UiFontDefaults::TryLoad), FUiFontLoadSignature>);
 
 #include "gameframework/Game.h"
 

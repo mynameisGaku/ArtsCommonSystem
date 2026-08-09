@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — spriteatlas / ASpriteAtlasEditorPanel
+#pragma once
+// GameFramework の sprite atlas editor — ASpriteAtlasEditorPanel
 //
 // `acs::game::FSpritePack` (gameframework/SpritePack.h) が保持する atlas メタ情報
 // と名前付き frame 矩形のリストを、ImGui ベースで対話的に編集する **エディタ
@@ -8,9 +9,8 @@
 // と同形の組立方を持つ。
 //
 // 役割:
-//   ・atlas texture path + 名前付き FSpriteFrame 列の **編集** のみを担う
-//     (atlas texture そのものの読込 / 描画は責務外、FSample 35 側で素のグリッド
-//      placeholder を出す)。
+//   ・atlas texture path + 名前付き FSpriteFrame 列の **編集** のみを担う。
+//     atlas texture そのものの読込 / 描画は呼び出し側の責務。
 //   ・toolbar (New Frame / Delete Selected / Pivot プリセット切替) + 中央 viewport
 //     (atlas placeholder + 矩形 overlay) + 左 frame list + 右 inspector の
 //     3 カラム + toolbar の 1 window レイアウト。
@@ -21,8 +21,7 @@
 //
 // 役割分担 (SpriteAtlasEditor 全体):
 //   ・本 panel (ASpriteAtlasEditorPanel) : ImGui UI + frame rect 編集
-//   ・FSample 35 (HelloSpriteAtlasEditor) : Workspace + 256x256 dummy atlas を
-//                                          初期登録 + Save/Load .acsatlas stub menu
+//   ・呼び出し側 : Workspace への登録と編集結果の永続化
 //
 // 使い方 (典型):
 //   acs::game::FSpritePack pack;
@@ -88,9 +87,7 @@
 //   ・複数 frame の box-select / 一括操作
 //   ・カスタム pivot guide 線描画 (現状は数値表示のみ)
 //   ・animation timeline 連携 (CSpriteAnimator との結合は別 panel)
-//   ・.acsatlas serializer 実装 (= FSample 35 側で stub callback のみ)
-#pragma once
-
+//   ・atlas データの保存形式と読み書き
 #include "foundation/Types.h"
 #include "gameframework/Forward.h"
 #include "gameframework/tools/editor_core/EditorPanel.h"

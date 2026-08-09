@@ -23,7 +23,7 @@ using namespace acs::game;
 
 namespace {
 
-class AHelloScene final : public AScene
+class AFirstScene final : public AScene
 {
     /** 2D の標準サービス構成 (Default2D | Camera2D | Physics2D) を要求する。 */
     ESvc WantedServices() const noexcept override { return kScene2DServices; }
@@ -50,22 +50,22 @@ public:
     void OnTick(f32 /*dt*/) noexcept override {}
 };
 
-class CHelloGame final : public CGame
+class CFirstGame final : public CGame
 {
 protected:
     // CGame が唯一要求するのはこれ。最初に push する AScene を返す。
     TUniquePtr<AScene> InitialScene() noexcept override
     {
-        return MakeUnique<AHelloScene>();
+        return MakeUnique<AFirstScene>();
     }
 };
 
 } // namespace
 
-ACS_GAME_MAIN(CHelloGame)   // main / WinMain を自動生成
+ACS_GAME_MAIN(CFirstGame)   // main / WinMain を自動生成
 ```
 
-CMake 側（`samples/55_HelloScene2D/CMakeLists.txt` と同型）:
+CMake 側はゲーム target を `ACS::GameFramework` へリンクします:
 
 ```cmake
 add_executable(my_first WIN32 MyFirst.cpp)
@@ -155,7 +155,7 @@ void OnDrawHud() noexcept override
 
 - `Services().Input()` → `FInputMap`（キー/軸バインド）
 - `Services().Camera()` → `CCamera2D`（`SetPosition` / `SetZoom` / `SetTargetPos`）
-- `Services().Physics()` → `FCollisionWorld2D`（AABB 等のコリジョン）
+- `Services().Physics()` → `CCollisionWorld2D`（AABB 等のコリジョン）
 - `Services().Clock()` / `Tweens()` / `Sequences()` — `Default2D` に含まれる（補間・演出）
 - `Services().Triggers()` は `kScene2DServices` には**含まれない**（`Triggers` ビットを足したシーンでのみ可）
 
@@ -163,7 +163,7 @@ void OnDrawHud() noexcept override
 
 ## よく使うパターン
 
-実例は `samples/55_HelloScene2D/Scene2DStarter.cpp`（スクショ確認済み）から抜粋・整理したものです。
+以降は `AScene` の公開 API を責務ごとに組み合わせます。
 
 ### 1. 入力バインドと終了（`OnReady` + `OnTick`）
 
@@ -243,7 +243,7 @@ void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override
 
 - **座標系（ワールド）**: 中心が原点、`+Y = 画面下`（スクリーン系・DirectX/Tiled と同じ。HUD も同じ向き）。スクリーン投影は
   `screen_px = (world - ViewCenter) * (ppu * zoom) + (Width/2, Height/2)`。
-  `OnReady` でプレイヤーに `gravity = FVec2{0, 14}` のように**下向きは正の Y**を使います（サンプル 55 もそう）。
+  `OnReady` でプレイヤーに `gravity = FVec2{0, 14}` のように**下向きは正の Y**を使います。
 - **HUD は別座標系**: `OnDrawHud` のスプライトバッチは**左上原点・ピクセル単位**。world と混同しない。
 - **ピッキングは `AScene::ScreenToWorld` を使う**: `CCamera2D::ScreenToWorld` は ppu を考慮しないため、`AScene` のレンダリングと逆対応しません。マウス→ワールド変換はシーン側の `ScreenToWorld(FInput::MousePos())` を使うこと。
 - **フックは全部 `noexcept`**: `override` の付け忘れ・`noexcept` の付け忘れはコンパイルエラー。
@@ -255,10 +255,10 @@ void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override
 
 ---
 
-## 動くサンプル
+## この章で扱う責務
 
-- `acs/samples/55_HelloScene2D/Scene2DStarter.cpp`
-  本チュートリアルの全要素（`AScene` 派生 / `OnReady`-`OnTick`-`OnDrawWorld`-`OnDrawHud` / 入力バインド / `ASprite2DComponent` / `APhysicsBody2D` の collide-and-slide / カメラ追従 / `SetPixelsPerUnit` / `SetClearColor`）を 1 ファイルで実演。ビルドターゲットは `hello_scene2d`。スクリーンショット確認済みの実動サンプルです。
-- ビルド: `acs/samples/55_HelloScene2D/CMakeLists.txt`（`ACS::GameFramework` にリンクするだけ）。
+本文のコードは `AScene` の lifecycle、入力バインド、`ASprite2DComponent`、
+`APhysicsBody2D`、カメラ追従、world/HUD 座標系を一つのゲーム target へ組み立てます。
+CMake target は `ACS::GameFramework` へリンクします。
 
 参照したヘッダ: `acs/src/gameframework/Game.h` / `Scene2D.h` / `Scene.h` / `EntryPoint.h` / `RenderContext.h` / `SceneServices.h`、および `acs/src/app/Application.h` / `AppConfig.h` / `EntryPoint.h`。

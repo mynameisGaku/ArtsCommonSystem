@@ -2,7 +2,7 @@
 using Acs.Build;
 namespace Acs.Modules;
 
-/// <summary>App モジュール: acs::Application エントリ + サンプル雛形。</summary>
+/// <summary>App モジュール: application lifecycle と実行エントリ。</summary>
 public sealed class App : AcsModule
 {
     public App()

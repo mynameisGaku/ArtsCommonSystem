@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — CrashReporter (ship build 専用クラッシュ報告 seam)
+#pragma once
+// GameFramework crash reporter (ship build 専用クラッシュ報告 seam)
 //
 // 役割:
 //   出荷ビルドでプロセスが落ちた時、外部のクラッシュ集約サービス (Sentry /
@@ -48,8 +49,6 @@
 //   ・**Tick(f32 dt)**: 非同期送信キューの pump。毎フレーム呼ばれる前提で、
 //     内部キューや受信スレッドからのメッセージをメインスレッドに引き上げる。
 //     stub は no-op。
-#pragma once
-
 #include "foundation/Result.h"
 #include "foundation/Types.h"
 
@@ -293,8 +292,8 @@ public:
 /**
  * プロセス共有の stub backend を返す。
  *
- * @details 常に NotImplemented を返す process-wide singleton。本体側 (タイトル / サンプル)
- * はまずこれを使ってリンクを通し、後から具象実装に差し替える。
+ * @details 常に NotImplemented を返す process-wide singleton。利用側は初期値として保持し、
+ * 必要に応じて具象実装へ差し替える。
  * @return stub ICrashReporterBackend への参照。
  */
 ICrashReporterBackend& GetCrashStub() noexcept;

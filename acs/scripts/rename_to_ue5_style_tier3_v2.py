@@ -44,7 +44,7 @@ TIER3_V2 = [
     "AudioEngine", "AudioListener", "AudioSource3D",
     "XAudio2Backend",
 
-    # ----- GameFramework Pillars (specific) -----
+    # ----- GameFramework types (specific) -----
     "BeatGrid", "BeatNote",
     "AnimationGraph", "AnimationCurve", "AnimationStateNode", "AnimationTransition",
     "AnimationClipInfo", "AnimationClipBinding",
@@ -196,7 +196,7 @@ EXCLUDE_DIRS = {
     "cmake-build-debug","cmake-build-release","build","_deps","out",
     ".git",".vs",".idea","node_modules",
 }
-INCLUDE_DIRS_WHITELIST = {"src","samples","tests","tools"}
+INCLUDE_DIRS_WHITELIST = {"src","tests","tools"}
 
 _INCLUDE_LINE = re.compile(r"^\s*#\s*include\b")
 

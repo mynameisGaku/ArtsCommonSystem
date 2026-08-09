@@ -1,12 +1,10 @@
 # ============================================================================
-# ACS clang-tidy config (Phase 0 / Option A+).
+# ACS clang-tidy config.
 #
 # Strategy: standard checks ON as warnings, naming rules ENFORCED to ACS style,
-# custom acs-* rules (R001-R048) wired in when the out-of-tree plugin lands
-# in Phase 3.
+# custom acs-* rules (R001-R048) are recognized when the out-of-tree plugin is enabled.
 #
-# WarningsAsErrors is intentionally narrow at Phase 0 so existing src/ passes
-# without churn. Promote checks to error as cleanups land in Phase 1+.
+# WarningsAsErrors is intentionally narrow so existing src/ passes without churn.
 # ============================================================================
 ---
 Checks: >
@@ -61,7 +59,7 @@ Checks: >
   -readability-redundant-access-specifiers,
   acs-*
 
-# Phase 0: only the load-bearing checks are errors. Promote as cleanups land.
+# Only the load-bearing checks are errors.
 WarningsAsErrors: >
   bugprone-use-after-move,
   bugprone-dangling-handle,
@@ -71,7 +69,7 @@ WarningsAsErrors: >
   performance-move-const-arg,
   acs-*
 
-HeaderFilterRegex: '^(src|samples|tests|easy)/.*\.(h|hpp|inl)$'
+HeaderFilterRegex: '^(src|tests|easy)/.*\.(h|hpp|inl)$'
 FormatStyle: file
 SystemHeaders: false
 UseColor: true

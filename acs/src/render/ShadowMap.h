@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
+#pragma once
 // シャドウマップ（有向光源用、orthographic）
 //
 // 2 つのモード:
 //   1. Single cascade (既定、cascade_count=1): 1 つの 2D 深度テクスチャに
-//      シーン全体を 1 つの ortho 投影で描く。HelloShadows (CStandardShader) や
-//      昔の HelloIbl が使う伝統的な方式。
+//      シーン全体を 1 つの ortho 投影で描く。CStandardShader と IBL 描画で
+//      単一のライト空間を共有する方式。
 //   2. Cascaded Shadow Map (CSM、cascade_count >= 2): カメラ frustum を
 //      距離で 2-4 個に分割し、近景は高解像度・遠景は広範囲を 1 枚の atlas
 //      テクスチャ (width = cascade_count * size、height = size) に並べる。
@@ -47,12 +48,10 @@
 //   cl->EndShadowPass(*sm.DepthTexture());
 //
 // 主パスでの使用 (CPbrShader 統合):
-//   single mode: pbr.SetShadowMap(*sm.DepthTexture(), sm.LightViewProjection(), ...);
-//   CSM mode   : FMat4 vps[3] = { sm.LightViewProjection(0), sm.LightViewProjection(1), sm.LightViewProjection(2) };
+//   単一カスケード: pbr.SetShadowMap(sm.DepthTexture(), sm.LightViewProjection(), ...);
+//   複数カスケード: FMat4 vps[3] = { sm.LightViewProjection(0), sm.LightViewProjection(1), sm.LightViewProjection(2) };
 //                f32  spl[3] = { sm.CascadeSplit(0), sm.CascadeSplit(1), sm.CascadeSplit(2) };
-//                pbr.SetShadowMapCascades(*sm.DepthTexture(), vps, spl, sm.CascadeCount(), ...);
-#pragma once
-
+//   複数カスケードを設定: pbr.SetShadowMapCascades(sm.DepthTexture(), vps, spl, sm.CascadeCount(), ...);
 #include "foundation/Result.h"
 #include "container/Array.h"
 #include "memory/UniquePtr.h"

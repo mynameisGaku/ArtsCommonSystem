@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-ローカル変数 / 関数引数の rename: **deferred (AST 必須)**。
+ローカル変数 / 関数引数の rename 候補抽出 (自動変換には AST 必須)。
 
 WARNING: このスクリプトを単独で適用すると POD struct の public field
 (`u32 message_len = 0;`、`bool use_console = true;` 等) や namespace-scope
@@ -9,16 +9,16 @@ global (`static const char* g_hook_user = nullptr;`) も誤って rename して
 のどれか区別できないため、安全な変換は AST refactoring (clang-tidy plugin)
 が必須。
 
-本 script は実装の試行版として残しているが、適用は禁止 (2026-05-28 試行で
-hello_full_game build break、即 revert)。
+本 script は正規表現による候補抽出の参考実装であり、自動変換の安全性を
+保証しない。
 
-将来対応案:
+安全な自動変換の要件:
   - clang-tidy `acs_lint` plugin で AST-aware identifier rename を実装
-    (StyleGuide v1 §12.6、acs_lint Phase 3 後続)
+    (StyleGuide v1 §12.6 の acs_lint 拡張として実装)
   - もしくは clang-tidy `readability-identifier-naming` の VariableCase /
     ParameterCase を有効化して fix-it 自動適用
 
-対象パターン (将来の AST 実装の参考):
+対象パターン (AST 実装の参考):
   - function-local variable declarations: PascalCase
   - function parameters: PascalCase
   - bool 変数は `b` 前置 (bIsActive)
@@ -70,7 +70,7 @@ TARGET_EXTS = {".h", ".hpp", ".inl", ".cpp", ".cxx", ".cc", ".c"}
 EXCLUDE_DIRS = {"cmake-build-diligent-debug","cmake-build-diligent-release",
                 "cmake-build-debug","cmake-build-release","build","_deps",
                 "out",".git",".vs",".idea"}
-ROOTS = ["src","samples","tests","tools"]
+ROOTS = ["src","tests","tools"]
 
 
 def collect(repo_root: Path) -> list[Path]:

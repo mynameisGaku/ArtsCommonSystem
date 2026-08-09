@@ -1,5 +1,5 @@
-/* ACS リファレンス — ガイド / トラブルシュート / 用語集シード（手書き）。
-   ここは品質の手本。各モジュール data/<module>.js も同じ <t>用語</t> 記法・口調で書く。 */
+/* ACS リファレンス — ガイド / トラブルシュート / 用語集。
+   各モジュール data/<module>.js と同じ <t>用語</t> 記法を使う。 */
 
 // ============================ はじめに & 規約 ============================
 ACS_REF.guide = [
@@ -52,18 +52,18 @@ ACS_REF.guide = [
     "生死だけ見たい(持たない) → <code>TWeakPtr</code> / <code>TWeakObjectPtr</code>"
   ]},
 
-  { h2: "2D は Y 軸が下向き" },
-  { p: "ACS の 2D 座標は<b>左上が原点 (0,0)、下に行くほど Y が増える</b>(Y-down)規約です。数学の授業と上下が逆なので注意。画面の縦サイズが H なら、一番下は y=H 付近です。" },
+  { h2: "2D world と screen の座標" },
+  { p: "GameFramework の 2D world はscene/camera中心で <b>+Y が下向き</b>です。HUD、screen、easy のpixel座標は<b>左上が原点</b>で、下に行くほど Y が増えます。world と screen は <code>AScene::ScreenToWorld</code> で変換します。" },
 
   { h2: "ビルドと実行" },
-  { p: "Visual Studio 用の <code>ACS.slnx</code> を <code>acs/generate.ps1</code> で生成し、<code>acs/Intermediate/vs</code> にプロジェクトが出ます。実行ファイルは <code>acs/Binaries/&lt;構成&gt;</code>(Debug/Release) に出ます。" },
-  { note: "source・文書・build設定は UTF-8 <t>BOM</t>なしで保存します。改行は通常 LF、Windows shell (<code>.bat</code>、<code>.cmd</code>、<code>.ps1</code>、<code>.psm1</code>、<code>.psd1</code>)だけ CRLF です。MSBuild のターゲット名は snake_case(例 <code>hello_jobs</code>)です。", kind: "warn" }
+  { p: "Visual Studio 用の <code>ACSEngine.slnx</code> を <code>acs/generate.ps1</code> で生成し、<code>acs/Intermediate/vs</code> にプロジェクトが出ます。実行ファイルは <code>acs/Binaries/&lt;構成&gt;</code>(Debug/Release) に出ます。" },
+  { note: "source・文書・build設定は UTF-8 <t>BOM</t>なしで保存します。改行は通常 LF、Windows shell (<code>.bat</code>、<code>.cmd</code>、<code>.ps1</code>、<code>.psm1</code>、<code>.psd1</code>)だけ CRLF です。MSBuild のターゲット名は snake_case(例 <code>acs_unit_tests</code>)です。", kind: "warn" }
 ];
 
 // ============================ トラブルシュート ============================
 ACS_REF.troubleshooting = [
   { q: "ビルドはできたのに、ウィンドウが真っ黒/何も描画されない", tags:["描画","真っ黒","window"],
-    a: "<t>描画</t>ループ(<code>while(NextFrame())</code>)の中で毎フレーム描画関数を呼べているか確認。easy 層なら <code>NextFrame()</code> が裏で画面クリア→提示をしています。座標が画面外(特に 2D は <b>Y-down</b>なので下方向)になっていないかも要確認。<br><b>必ず実機で目視確認すること。</b> 過去に『プロセスは生きているのに何も描いていない』事故があり、起動成功(alive)だけでは不十分です。" },
+    a: "<t>描画</t>ループ(<code>while(NextFrame())</code>)の中で毎フレーム描画関数を呼べているか確認。easy 層なら <code>NextFrame()</code> が裏で画面クリア→提示をしています。座標が画面外(特に 2D は <b>Y-down</b>なので下方向)になっていないかも要確認。<br>GUI target は起動状態だけでなく、代表フレームの描画領域も確認します。" },
   { q: "ジョブ(ParallelFor / RunAsync)の中で描画したら落ちた/おかしくなった", tags:["ジョブ","スレッド","クラッシュ"],
     a: "ジョブのラムダは<b>別<t>スレッド</t>で動きます</b>。描画など easy/レンダラの関数はメインスレッド専用なので、ジョブの中では<b>計算だけ</b>して結果を変数に書き、描画は <code>while</code> ループ側(メインスレッド)で行ってください。" },
   { q: "TSharedPtr 同士が互いを持ち合って、いつまでもメモリが解放されない", tags:["メモリ","リーク","スマートポインタ","循環参照"],
@@ -77,27 +77,27 @@ ACS_REF.troubleshooting = [
   { q: "std::vector や std::string を使ったらビルドが通らない/方針に合わない", tags:["STL","コンテナ"],
     a: "ACS は <t>STL</t> を使わない方針です。<code>TArray</code> / <code>FString</code> / <code>THashMap</code> など独自コンテナに置き換えてください(『はじめに』の対応表参照)。" },
   { q: "generate.ps1 を実行してもプロジェクトが更新されない/文字化けする", tags:["ビルド","generate","BOM"],
-    a: "source・文書・build設定は <b>UTF-8 (BOMなし)</b>が前提です。改行は通常 LF、Windows shell (<code>.bat</code>、<code>.cmd</code>、<code>.ps1</code>、<code>.psm1</code>、<code>.psd1</code>)だけ CRLF です。エディタの保存形式を確認してください。新しいサンプルを足したら <code>cmake -S engine -B Intermediate/vs</code> で再構成が必要です。" },
-  { q: "新しく追加したサンプルがビルド対象に出てこない", tags:["ビルド","サンプル","cmake"],
-    a: "サンプルは <code>engine/CMakeLists.txt</code> に <code>acs_add_sample(NN_Name)</code> で明示登録します。ウィンドウを開くサンプルは <code>ACS_RENDER_DX12_RAW</code> ガード内に入れます。登録後に CMake 再構成してください。" },
+    a: "source・文書・build設定は <b>UTF-8 (BOMなし)</b>が前提です。改行は通常 LF、Windows shell (<code>.bat</code>、<code>.cmd</code>、<code>.ps1</code>、<code>.psm1</code>、<code>.psd1</code>)だけ CRLF です。エディタの保存形式を確認し、sourceやtargetを追加したら <code>cmake -S engine -B Intermediate/vs</code> で再構成してください。" },
+  { q: "新しく追加した module target がビルド対象に出てこない", tags:["ビルド","module","cmake"],
+    a: "module の <code>Module.cmake</code> に sourceを登録し、<code>engine/CMakeLists.txt</code> から moduleを読み込んでいるか確認します。登録後に CMake を再構成してください。" },
   { q: "リンクエラー(未解決のシンボル)が出る", tags:["ビルド","リンク","LNK"],
     a: "そのモジュールを <code>target_link_libraries(... PRIVATE ACS::Xxx)</code> でリンクしているか、ヘッダだけで実体(.cpp)をビルドに含め忘れていないか確認。モジュールは <code>src/&lt;mod&gt;/Module.cmake</code> の SOURCES/HEADERS に列挙します。" },
   { q: "実行ファイルが見つからない / どこに出る？", tags:["ビルド","実行","exe"],
-    a: "<code>acs/Binaries/&lt;構成&gt;</code>(例 <code>acs/Binaries/Debug</code>)に出ます。MSBuild ターゲット名は snake_case(例 <code>hello_jobs</code>)。リポジトリは OneDrive 外の作業コピーで扱う運用です。" },
-  { q: "ウィンドウ版サンプルが『たまにカクつく』", tags:["パフォーマンス","描画"],
+    a: "<code>acs/Binaries/&lt;構成&gt;</code>(例 <code>acs/Binaries/Debug</code>)に出ます。MSBuild ターゲット名は snake_case(例 <code>acs_unit_tests</code>)です。" },
+  { q: "GUI target が『たまにカクつく』", tags:["パフォーマンス","描画"],
     a: "まず <b>Release</b> で実行(Debug は重く・ブレやすい)。毎フレームの <code>ParallelFor</code> は粒度(grain)を大きめにしてタスク投入数を減らすと安定します。極端に軽い処理を並列化するとオーバーヘッドが勝つので、その場合は直列でも可。" },
   { q: "毎フレーム ParallelFor しているのに速くならない", tags:["ジョブ","パフォーマンス"],
     a: "1 回の処理が軽すぎるとタスク投入・待ち合わせのコストが勝ちます。要素数を増やすか、1 要素あたりの計算を増やすか、grain を大きくして直列寄りにしてください。並列化が効くのは『十分に重い処理』です。" },
   { q: "DirectX 12 デバイスの作成に失敗する/起動直後に落ちる", tags:["描画","DX12","クラッシュ"],
-    a: "GPU ドライバが古い、または DX12 非対応環境の可能性。ドライバ更新を試し、別の DX12 サンプルが動くか確認。デバッグレイヤのメッセージ(出力ウィンドウ)に原因が出ることが多いです。" },
+    a: "GPU ドライバが古い、または DX12 非対応環境の可能性があります。デバッグレイヤのメッセージと <code>CRenderer::Init</code> のエラーを確認してください。" },
   { q: "2D のスプライトが思った場所と上下逆/ずれる", tags:["2D","座標","Y-down"],
-    a: "ACS の 2D は <b>Y-down</b>(左上原点・下が +Y)。数学座標のつもりで上下を反転して計算していないか確認。画面下端は y≈画面高さ です。" },
+    a: "GameFramework の 2D world は scene/camera 中心で <b>+Y が下向き</b>です。HUD / screen / easy の pixel 座標だけが左上原点です。world の picking は <code>AScene::ScreenToWorld</code> を使ってください。" },
   { q: "アロケータを差し替えたい / フレーム毎に大量確保して遅い", tags:["メモリ","アロケータ","パフォーマンス"],
     a: "用途別に使い分けます。毎フレーム捨てる一時確保は <code>CArenaAllocator</code>(リセットで一括解放)、汎用は <code>TSharedPtr</code>/<code>MakeShared</code> の既定(<code>DefaultAllocator</code>)。<code>MakeSharedIn(alloc, ...)</code> でアロケータを明示指定できます。" },
   { q: "マルチスレッドでカウンタや変数を更新したら値が壊れる", tags:["スレッド","アトミック","競合"],
     a: "複数スレッドが同じ変数を同時に書くと<t>データ競合</t>になります。カウンタ類は <code>TAtomic&lt;T&gt;</code> を使うか、<code>FMutex</code> で囲ってください。読むだけ/各自別の要素を書くだけなら競合しません。" },
   { q: "音を鳴らしたいが鳴らない", tags:["音","audio"],
-    a: "オーディオエンジンの初期化と、音アセットの読み込み成否(<code>Result</code>)を確認。サンプルによってはバックエンドのコードはあるが未接続で実発音まで未確認のものがあります(チュートリアル注記参照)。" },
+    a: "オーディオエンジンの初期化、backendのattach、音assetの読み込み成否(<code>Result</code>)を確認してください。backendまたはclipが未登録なら再生できません。" },
   { q: "デバッグだと動くが Release で挙動が変わる", tags:["ビルド","最適化"],
     a: "未初期化変数・<t>未定義動作</t>(配列外・寿命切れポインタ等)が Release の最適化で表面化した可能性。スマートポインタで寿命を明確にし、配列アクセス範囲を見直してください。" },
   { q: "ヘッダを増やしたらコンパイルが急に遅くなった", tags:["ビルド","コンパイル時間"],

@@ -392,7 +392,7 @@ ACS_REF.modules.push({
       when: "Init でプロバイダを選ぶ / JoinChannel でチャンネル種別を指定する時。",
       sample: "voice->Init(EVoiceProvider::Vivox);\nvoice->JoinChannel(EVoiceChannel::Team, matchId);",
       members: [
-        { sig: "EVoiceProvider::{None, SteamVoice, EosVoice, Vivox, Discord, OpusSelf}", desc: "未選択 / Steam Voice / EOS Voice / Unity Vivox / Discord SDK / 自前 Opus。" },
+        { sig: "EVoiceProvider::{None, SteamVoice, EosVoice, Vivox, Discord, OpusSelf}", desc: "未選択 / Steam Voice / EOS Voice / Vivox / Discord SDK / 自前 Opus。" },
         { sig: "EVoiceChannel::{Party, Team, Global, Custom}", desc: "パーティ / チーム / 全体 / タイトル固有の追加チャンネル。" }
       ]
     },
@@ -661,13 +661,13 @@ ACS_REF.modules.push({
     {
       name: "EAudioFormat",
       kind: "列挙(enum)", header: "gameframework/audio_backend/IAudioBackend.h",
-      summary: "<code>FAudioClipDesc</code> が指す PCM バッファの形式。<code>Pcm16</code>(16bit signed PCM) / <code>Pcm32Float</code>(32bit IEEE float) / <code>Wav</code>(RIFF ヘッダ込み、Phase 3)。",
+      summary: "<code>FAudioClipDesc</code> が指す PCM バッファの形式。<code>Pcm16</code>(16bit signed PCM) / <code>Pcm32Float</code>(32bit IEEE float) / <code>Wav</code>(RIFF ヘッダ込み)。",
       when: "再生する clip のサンプル形式を指定する時。",
       sample: "FAudioClipDesc d; d.format = EAudioFormat::Pcm16;",
       members: [
         { sig: "Pcm16 = 0", desc: "16bit signed PCM (典型的な WAV PCM の raw bytes)。" },
         { sig: "Pcm32Float = 1", desc: "32bit IEEE float PCM (高品質・DSP-friendly)。" },
-        { sig: "Wav = 2", desc: "ファイルからロード済の WAV 形式 (パーサ別途、Phase 3)。" }
+        { sig: "Wav = 2", desc: "ファイルからロード済みの WAV 形式。解析処理は呼び出し側が用意する。" }
       ]
     },
     {

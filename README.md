@@ -17,8 +17,8 @@ DirectX 12 で、Diligent Engine バックエンドも選択できます。
 
 ## 最短の入口
 
-最も小さい入口は [`00_HelloEasy`](acs/samples/00_HelloEasy/) です。現行の Easy API
-では、継承や手書きの描画パイプラインなしで次の形から始められます。
+最も小さい入口は `acs::easy` です。継承や手書きの描画パイプラインなしで
+次の形から始められます。
 
 ```cpp
 #include "easy/Easy.h"
@@ -38,8 +38,8 @@ int main() {
 }
 ```
 
-実用的な2Dゲームの土台は、ソリューション生成時の既定サンプル
-[`55_HelloScene2D`](acs/samples/55_HelloScene2D/) です。初学者向けの説明は
+実用的な2Dゲームでは `CGame`、`AScene`、`ANode`、`AComponent` を組み合わせます。
+初学者向けの説明は
 [`QUICKSTART.md`](acs/docs/QUICKSTART.md)、問題が起きた場合は
 [`TROUBLESHOOTING.md`](acs/docs/TROUBLESHOOTING.md) を参照してください。
 
@@ -55,7 +55,7 @@ Ninjaと`CMakePresets.json`は現行の標準生成手順では使用しませ�
 使う場合は、generatorとソリューション拡張子を明示します。
 
 ```pwsh
-.\acs.ps1 configure --generator "Visual Studio 17 2022" --name ACSGame.sln
+.\acs.ps1 configure --generator "Visual Studio 17 2022" --name ACSEngine.sln
 ```
 
 ## 生成・ビルド・実行
@@ -77,28 +77,27 @@ acs.cmd open
 
 - CMake source: `acs/engine/`
 - build tree: `acs/Intermediate/vs/`
-- solution: `acs/ACSGame.slnx`
-- build target / startup project: `hello_scene2d`
+- solution: `acs/ACSEngine.slnx`
+- startup project: 未指定
 - executable / DLL: `acs/Binaries/<構成>/`
 - configure log: `acs/Saved/generate.log`
 - renderer: raw DirectX 12
-- samples: `55_HelloScene2D`だけ
 - tests / CLI tools / optional backends: 無効
 
 Visual Studioを開かずにbuild・実行する場合も同じ入口を使います。
 
 ```pwsh
-.\acs.ps1 configure
-.\acs.ps1 build --config Debug --target hello_scene2d
-.\acs\Binaries\Debug\hello_scene2d.exe
+.\acs.ps1 configure --tests
+.\acs.ps1 build --config Debug --target acs_unit_tests
+.\acs.ps1 test --config Debug --filter "^ACS.UnitTests$"
 ```
 
 コマンドプロンプトでは次のように実行します。
 
 ```bat
-acs.cmd configure
-acs.cmd build --config Debug --target hello_scene2d
-acs\Binaries\Debug\hello_scene2d.exe
+acs.cmd configure --tests
+acs.cmd build --config Debug --target acs_unit_tests
+acs.cmd test --config Debug --filter "^ACS.UnitTests$"
 ```
 
 ### 主な生成オプション
@@ -108,9 +107,8 @@ acs\Binaries\Debug\hello_scene2d.exe
 | `--open` | 生成したソリューションをVisual Studioで開く |
 | `--clean` | `Intermediate/vs`を削除してから再生成する |
 | `--name MyGame` | 表層のソリューション名を`MyGame.slnx`へ変更する |
-| `--sample 38_HelloFullGame` | 指定サンプルだけを生成し、targetも自動検出する |
-| `--all-samples` | 選択したバックエンドで利用可能な全サンプルを追加する |
 | `--tests` / `--tools` | tests / `acs_assetpack` CLI targetを追加する |
+| `--startup-project <target>` | 生成済みtargetをVisual Studioの起動projectへ設定する |
 | `--diligent` | raw DX12に加えてDiligent rendererを有効にする |
 | `--scripting`, `--steamworks`, `--onnx`, `--openxr` | 対応する任意backendを有効にする |
 | `--crash-reporter`, `--telemetry`, `--matchmaker` | Windows crash dump、file telemetry、local matchmakerを有効にする |
@@ -253,29 +251,12 @@ AEventBus* component_events = component.GetSubsystem<AEventBus>();
 | `-Telemetry` | JSON Lines file backend（`CFileTelemetryBackendClient`） |
 | `-Matchmaker` | deterministic local matchmaker（`CLocalMatchmaker`） |
 
-## サンプル
+## 学習例
 
-`acs/samples/`には、`00_HelloEasy`から`66_HelloVertexSSS`まで、CMake targetを持つ
-**68個（00〜67）**の番号付きサンプルディレクトリがあります。backend依存のサンプルは、対応する
-生成スイッチを有効にした時だけCMake targetへ追加されます。
-
-| サンプル | target | 内容 | 追加条件 |
-|---|---|---|---|
-| `00_HelloEasy` | `hello_easy` | Easy APIによる最小2Dループ | 常時 |
-| `01_HelloWindow` | `hello_window` | `CApplication`とwindow / rendererの最小構成 | 常時 |
-| `20_HelloMVVM` | `hello_mvvm` | MVVMとImGui binding | raw DX12 |
-| `24_HelloBloom` | `hello_bloom` | HDR bloom / post process | `--diligent` |
-| `38_HelloFullGame` | `hello_full_game` | 複数sceneを持つ完結ミニゲーム | raw DX12 |
-| `41_HelloOnnx` | `hello_onnx` | ONNX Runtime smoke test | `--onnx` |
-| `42_HelloOpenXR` | `hello_openxr` | OpenXR loader smoke test | `--openxr` |
-| `46_HelloAssetPackBridge` | `hello_asset_pack_bridge` | `.acpak` write / mount / read | 常時 |
-| `55_HelloScene2D` | `hello_scene2d` | `AScene`と統一`ANode`の実用starter | raw DX12・既定 |
-| `63_HelloVerticalSlice` | `hello_vertical_slice` | titleからsaveまでの2D vertical slice | raw DX12 |
-| `64_HelloJobs` | `hello_jobs` | Easy job / parallel API | 常時 |
-| `66_HelloVertexSSS` | `hello_vertex_sss` | `CVertexScatter`による頂点空間SSS | 常時 |
-
-全ソースをソリューションへ加える場合は`.\acs.ps1 configure --all-samples`、1件だけなら
-`.\acs.ps1 configure --sample 64_HelloJobs`のように指定します。
+Engine は現在、学習用実行例を同梱していません。再導入候補と受け入れ条件は
+[`LearningSamplesMigrationPlan.md`](acs/docs/LearningSamplesMigrationPlan.md) を正本とします。
+公開 API の使い方は [`QUICKSTART.md`](acs/docs/QUICKSTART.md)、tutorial、
+[`RECIPES.md`](acs/docs/RECIPES.md) の自己完結したコード例で説明します。
 
 ## 設計上の前提
 
@@ -296,9 +277,8 @@ AEventBus* component_events = component.GetSubsystem<AEventBus>();
 - [`QUICKSTART.md`](acs/docs/QUICKSTART.md) — 初学者向けの導入
 - [`ProjectOperations.md`](acs/docs/ProjectOperations.md) — Windowsでのconfigure・build・test・配布・cleanの統一入口
 - [`FixedStepClock.md`](acs/docs/FixedStepClock.md) — 値所有の固定更新時計と一括処理の安全契約
-- [`LearningSamplesMigrationPlan.md`](acs/docs/LearningSamplesMigrationPlan.md) — 既存68サンプルを段階的な学習用サンプルへ全面移行する必須計画
+- [`LearningSamplesMigrationPlan.md`](acs/docs/LearningSamplesMigrationPlan.md) — 学習用実行例の唯一のバックログ
 - [`RECIPES.md`](acs/docs/RECIPES.md) — 3D描画・音・UIなどの逆引き
-- [`samples/README.md`](acs/samples/README.md) — 入門サンプルの学習ガイド
 - [`ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) — module構成と設計
 - [`StyleGuide.md`](acs/docs/StyleGuide.md) — A / C / F / I / T / E命名とcoding rule
 - [`TypeRoleAudit.md`](acs/docs/TypeRoleAudit.md) — 公開型registry、互換alias、移行債務をexact照合する型役割監査

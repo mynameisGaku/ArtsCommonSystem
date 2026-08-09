@@ -1708,8 +1708,8 @@ void CSpriteBatch::Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexce
     // これをしないと「フレーム最初の content draw」が「パイプライン新規 bind 後の最初の
     // descriptor-table bind」を兼ねてしまい、シーン遷移直後 (バッチ再 Init で descriptor
     // slot が LIFO 再利用 + frames-in-flight が 1 フレーム重なる) に、その最初の draw が
-    // GPU 実行時に stale を読んで落ちることがある (world 空で HUD パスだけのシーンで顕在化
-    // = sample 63 の GameOver が真っ暗になる事象)。白テクスチャを先に bind しておくことで、
+    // GPU 実行時に stale を読んで落ちることがある。world が空で HUD パスだけの
+    // シーンでも安全に描画できるよう、白テクスチャを先に bind しておくことで、
     // 最初の content Flush は「2 回目以降の table bind」となり保護される。m_CurrentTex も
     // m_White にしておくと、最初の DrawSub(別tex) は no-op Flush 経由で正しく切り替わる。
     cl.SetTexture(0, *m_White);

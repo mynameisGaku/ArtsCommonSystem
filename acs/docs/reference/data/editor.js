@@ -1,11 +1,11 @@
-/* ACS リファレンス — editor / 制作支援モジュール（手書き: 各エージェントが acs/src/gameframework/tools/ の実ヘッダを読んで作成）。
+/* ACS リファレンス — editor / 制作支援モジュールの公開 API。
    形式: ACS_REF.modules.push({...}) + Object.assign(ACS_REF.glossary,{...})
    記法: 本文の専門用語は <t>用語</t> で囲む。コード内の < > & は &lt; &gt; &amp;。 */
 ACS_REF.modules.push({
   id: "editor",
   order: 41,
   title: "editor — 制作支援 / エディタ (acs::game::tools)",
-  blurb: "ゲーム制作を支援する <b>ImGui ベースのエディタ部品群</b>(<code>acs::game::tools</code>)。パネル基底 <code>AEditorPanel</code> とワークスペース <code>CEditorWorkspace</code> を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、そして Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer といった専用エディタが載る。サンプル 29〜37 がこの層を使う。",
+  blurb: "ゲーム制作を支援する <b>ImGui ベースのエディタ部品群</b>(<code>acs::game::tools</code>)。パネル基底 <code>AEditorPanel</code> とワークスペース <code>CEditorWorkspace</code> を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。",
   types: [
 {
   name: "AEditorPanel",
@@ -19,10 +19,10 @@ ACS_REF.modules.push({
     { sig: "virtual void OnInit(CEditorWorkspace&amp; workspace) noexcept", ret: "—", desc: "Workspace 登録時に 1 度呼ばれる。基底実装が <code>workspace</code> 参照を保存し以降 <code>Workspace()</code> で取得可能にする。override する場合は基底呼び出しを先に。", when: "追加初期化が要る時。" },
     { sig: "virtual void OnShutdown() noexcept", ret: "—", desc: "登録解除 / editor 終了時に呼ばれる。GPU リソース解放やコールバック解除をここで。既定 no-op(多重呼び出し可)。" },
     { sig: "virtual void OnFrameBegin(f32 dt) noexcept", ret: "—", desc: "フレーム開始時(UI 描画より前)に呼ばれる。input 取得 / state 更新 / 非同期ポーリング用。<code>dt</code> はスケール後の秒。既定 no-op。" },
-    { sig: "virtual void OnSelectionChanged(inspector::CSelectionService&amp; selection) noexcept", ret: "—", desc: "AScene 内 ANode の選択が変わった時に呼ばれる(Phase 20 <code>CSelectionService</code> 統合)。既定 no-op。", when: "Inspector 等 node 系 panel。" },
+    { sig: "virtual void OnSelectionChanged(inspector::CSelectionService&amp; selection) noexcept", ret: "—", desc: "AScene 内 ANode の選択が変わった時に呼ばれる。既定 no-op。", when: "Inspector 等 node 系 panel。" },
     { sig: "virtual void OnAssetSelected(const char* asset_path) noexcept", ret: "—", desc: "<code>CAssetBrowser</code> からファイル選択された時の通知。<code>asset_path</code> は Browser 所有文字列(コピー禁止)。<code>nullptr</code> は「選択解除」。既定 no-op。", when: "ModelViewer 等 asset 系 panel。" },
     { sig: "virtual bool WantsFocus() const noexcept", ret: "Focus 要求", desc: "起動時 / dock reset 時に <code>true</code> を返すと一度だけ window focus が当たる。既定 <code>false</code>。" },
-    { sig: "virtual void OnSaveLayout(FEditorLayoutSerializer&amp; out) noexcept / OnLoadLayout(... in)", ret: "—", desc: "panel 独自のレイアウト情報(splitter 比率 / カラム幅 / 表示モード)の永続化予約点。Phase 21c 本実装、現状 stub(no-op)。" },
+    { sig: "virtual void OnSaveLayout(FEditorLayoutSerializer&amp; out) noexcept / OnLoadLayout(... in)", ret: "—", desc: "panel 独自のレイアウト情報(splitter 比率 / カラム幅 / 表示モード)の永続化予約点。現在は既定 no-op。" },
     { sig: "bool IsVisible() const noexcept / void SetVisible(bool)", ret: "表示状態", desc: "panel 表示状態(close ボタン or プログラム的 hide)の取得 / 設定。" },
     { sig: "bool IsDockTarget() const noexcept / void SetDockTarget(bool)", ret: "dock 可否", desc: "dock target にできるかのヒント。ステータスバー / ツールバーは false、ビュー / インスペクタは true が典型。" },
     { sig: "CEditorWorkspace* Workspace() const noexcept", ret: "Workspace*", desc: "<code>OnInit</code> で保存された Workspace ポインタ(non-owning)。OnInit 前 / OnShutdown 後は <code>nullptr</code>。" },
@@ -101,7 +101,7 @@ ACS_REF.modules.push({
 {
   name: "CAssetBrowser",
   kind: "クラス(panel)", header: "gameframework/tools/editor_core/AssetBrowser.h",
-  summary: "<b>assets/ ディレクトリツリーを ImGui で参照し、Drag &amp; Drop で他 panel にアセットパスを供給する</b> panel(Unity の Project Window / Godot の FileSystem Dock 相当)。左ペインに tree、右ペインに current directory 一覧を表示。各エントリは <code>\"ASSET_PATH\"</code> payload(<code>const wchar_t*</code> 直渡し)の Drag Source。拡張子から <code>EAssetKind</code> を判定。非コピー / 非ムーブ、全 <code>noexcept</code>、文字列は内部 pool 管理。",
+  summary: "<b>assets/ ディレクトリツリーを ImGui で参照し、Drag &amp; Drop で他 panel にアセットパスを供給する</b> panel。左ペインに tree、右ペインに current directory 一覧を表示。各エントリは <code>\"ASSET_PATH\"</code> payload(<code>const wchar_t*</code> 直渡し)の Drag Source。拡張子から <code>EAssetKind</code> を判定。非コピー / 非ムーブ、全 <code>noexcept</code>、文字列は内部 pool 管理。",
   when: "エディタにアセットブラウザを組み込み、ファイルを panel へドラッグ供給したい時。",
   sample: "CAssetBrowser browser;\nbrowser.Init(L\"assets\");\n// 毎フレーム:\nbrowser.DrawUI();\nif (const wchar_t* p = browser.SelectedAssetPath())\n    use(p);   // 寿命は次の Refresh まで",
   members: [
@@ -152,13 +152,13 @@ ACS_REF.modules.push({
 {
   name: "EGizmoAxis",
   kind: "列挙(enum class : u8)", header: "gameframework/tools/editor_core/EditorGizmo.h",
-  summary: "<b>どの軸 / 平面ハンドルが hot(ホバー or drag 中)か</b>。<code>None_</code> の末尾アンダースコアは <code>None</code> キーワード衝突回避の ACS 規約。XY / XZ / YZ は translate モードの平面ハンドル。<code>ScreenAlign</code> は rotate の画面平行ハンドル用で Phase 21a では値だけ予約。",
+  summary: "<b>どの軸 / 平面ハンドルが hot(ホバー or drag 中)か</b>。<code>None_</code> の末尾アンダースコアは <code>None</code> キーワード衝突回避の ACS 規約。XY / XZ / YZ は translate モードの平面ハンドル。<code>ScreenAlign</code> は rotate の画面平行ハンドル用に予約された値。",
   when: "<code>CEditorGizmo::HotAxis()</code> や <code>FGizmoState::hot_axis</code> で現在 hot な軸を読む時。",
   members: [
     { sig: "None_ = 0", desc: "どのハンドルもホバー / drag していない。" },
     { sig: "X = 1 / Y = 2 / Z = 3", desc: "各軸ハンドル。" },
     { sig: "XY = 4 / XZ = 5 / YZ = 6", desc: "平面ハンドル(translate モードで 2 軸同時 drag)。" },
-    { sig: "ScreenAlign = 7", desc: "画面平行ハンドル(rotate 用、Phase 21a は予約)。" }
+    { sig: "ScreenAlign = 7", desc: "画面平行ハンドル(rotate 用、現在は予約値)。" }
   ]
 },
 {
@@ -238,7 +238,7 @@ ACS_REF.modules.push({
 {
   name: "CEditorCamera",
   kind: "クラス(サービス)", header: "gameframework/tools/editor_core/EditorCamera.h",
-  summary: "<b>2D / 3D を 1 クラスで扱う editor カメラコントローラ</b>。3D は yaw + pitch + distance + target の Maya / Blender 風 orbit、2D は position + zoom_2d の pan/zoom。<code>HandleMouseInput</code> でマウス IO を集約し、<code>Tick</code> が framerate-independent な <code>1 - exp(-rate*dt)</code> 補間で smoothing する。view / projection 行列を生成。非コピー / 非ムーブ、全 <code>noexcept</code>。",
+  summary: "<b>2D / 3D を 1 クラスで扱う editor カメラコントローラ</b>。3D は target を yaw + pitch + distance で周回する orbit、2D は position + zoom_2d の pan/zoom。<code>HandleMouseInput</code> でマウス IO を集約し、<code>Tick</code> が framerate-independent な <code>1 - exp(-rate*dt)</code> 補間で smoothing する。view / projection 行列を生成。非コピー / 非ムーブ、全 <code>noexcept</code>。",
   when: "ModelViewer / LevelEditor 等の viewport カメラを動かす時。",
   sample: "CEditorCamera cam;\ncam.Init(EEditorCameraMode::Mode3D);\n// 毎フレーム:\ncam.HandleMouseInput(mouse_delta, lmb, rmb, mmb, wheel);\ncam.Tick(dt);\nFMat4 view = cam.ViewMatrix();\nFMat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 1000.0f);",
   members: [
@@ -310,8 +310,8 @@ ACS_REF.modules.push({
 },
 {
   name: "AMoveNodeCommand",
-  kind: "クラス(AEditorCommand 派生サンプル)", header: "gameframework/tools/editor_core/EditorCommand.h",
-  summary: "<b><code>ANode</code> の 2D position を変更する <code>AEditorCommand</code> 派生の教科書的サンプル</b>。old / new 位置を保持し、<code>Execute</code> / <code>Undo</code> から <code>SetPosition2D</code> で new / old を設定する。<b>同一 target の連続 <code>AMoveNodeCommand</code> を 1 件にまとめる <code>CanMerge</code> / <code>MergeWith</code></b> を実装(Kind tag のポインタ一致 + target 一致で判定、new 値だけ更新し old 値は始点を保持)。",
+  kind: "クラス", header: "gameframework/tools/editor_core/EditorCommand.h",
+  summary: "<b><code>ANode</code> の 2D position を変更する <code>AEditorCommand</code> 派生の基本実装</b>。old / new 位置を保持し、<code>Execute</code> / <code>Undo</code> から <code>SetPosition2D</code> で new / old を設定する。<b>同一 target の連続 <code>AMoveNodeCommand</code> を 1 件にまとめる <code>CanMerge</code> / <code>MergeWith</code></b> を実装(Kind tag のポインタ一致 + target 一致で判定、new 値だけ更新し old 値は始点を保持)。",
   when: "ドラッグでノード位置を変えた操作を undo 可能にする時のひな形として。",
   sample: "const acs::FVec2 old_pos = node.Position2D();\nconst acs::FVec2 new_pos = old_pos + delta;\nauto command = acs::MakeUnique&lt;acs::game::editor_core::AMoveNodeCommand&gt;(\n    &amp;node, old_pos, new_pos);\nundo_stack.Push(acs::Move(command));",
   members: [
@@ -450,7 +450,7 @@ ACS_REF.modules.push({
 {
   name: "CSelectionService",
   kind: "クラス", header: "gameframework/tools/inspector/SelectionService.h",
-  summary: "今「選択されている <code>FNodeId</code>」を全 editor panel (<code>AHierarchyPanel</code> / <code>AInspectorPanel</code> / <code>AEditorToolbar</code> / SceneView 等) で共有するための<b>選択ハブ</b>。単一の選択だけを持ち、変化時に登録済み <t>コールバック</t>を <code>(from, to)</code> 付きで一斉発火する。<code>CGame</code> / <code>CSceneManager</code> には依存せず、対象 ANode が生きているかの検証は購読側責務。STL 不使用 (内部は <code>TArray</code>)、非コピー・非ムーブ。",
+  summary: "今「選択されている <code>FNodeId</code>」を全 editor panel (<code>AHierarchyPanel</code> / <code>AInspectorPanel</code> / <code>AEditorToolbar</code> / scene view 等) で共有するための<b>選択ハブ</b>。単一の選択だけを持ち、変化時に登録済み <t>コールバック</t>を <code>(from, to)</code> 付きで一斉発火する。<code>CGame</code> / <code>CSceneManager</code> には依存せず、対象 ANode が生きているかの検証は購読側責務。STL 不使用 (内部は <code>TArray</code>)、非コピー・非ムーブ。",
   when: "editor 起動コードが 1 個だけ所有し、各 panel が選択を読み書き・購読する集中点として使う。クリックで <code>SelectNode</code>、ハイライト判定に <code>IsSelected</code>、選択追従に <code>RegisterCallback</code>。",
   sample: "CSelectionService sel;\nsel.Init();\nsel.RegisterCallback(&amp;OnSelChanged, &amp;hierarchy);\nif (ImGui::Selectable(label, sel.IsSelected(node_id)))\n    sel.SelectNode(node_id);   // 登録済み callback が一斉に呼ばれる",
   members: [
@@ -470,7 +470,7 @@ ACS_REF.modules.push({
 {
   name: "AHierarchyPanel",
   kind: "クラス(AEditorPanel 派生)", header: "gameframework/tools/inspector/HierarchyPanel.h",
-  summary: "<code>ANode</code> ツリー (シーン) を ImGui の hierarchy パネルで可視化・編集する、Unity の Hierarchy / UE の World Outliner 相当の panel。root 配下を再帰 <code>TreeNode</code> で描画し、クリックで選択 (<code>CSelectionService</code> 経由 or 内部保持)、右クリックで Delete / Duplicate / Reparent、Drag &amp; Drop で reparent、ExpandAll / CollapseAll で一括開閉する。<code>editor_core::AEditorPanel</code> を継承。STL 不使用 (折りたたみ状態は <code>TArray</code> の linear search)。",
+  summary: "<code>ANode</code> ツリー (シーン) を ImGui の hierarchy パネルで可視化・編集する。root 配下を再帰 <code>TreeNode</code> で描画し、クリックで選択 (<code>CSelectionService</code> 経由 or 内部保持)、右クリックで Delete / Duplicate / Reparent、Drag &amp; Drop で reparent、ExpandAll / CollapseAll で一括開閉する。<code>editor_core::AEditorPanel</code> を継承。STL 不使用 (折りたたみ状態は <code>TArray</code> の linear search)。",
   when: "シーンの ANode 階層を GUI で見せ・選択・削除・親子付けさせたい時。<code>SetRootNode</code> で起点 ANode を、必要なら <code>SetSelectionService</code> で選択を他 panel と共有し、毎フレーム <code>DrawUI()</code> を呼ぶ。",
   sample: "AHierarchyPanel hier;\nhier.Init();\nhier.SetRootNode(&amp;scene_root);\nhier.SetSelectionService(&amp;sel);   // Inspector と選択を共有\n// 毎フレーム:\nhier.DrawUI();",
   members: [
@@ -653,7 +653,7 @@ ACS_REF.modules.push({
 {
   name: "ABehaviorTreeEditorPanel",
   kind: "クラス(AEditorPanel 派生)", header: "gameframework/tools/btedit/BehaviorTreeEditorPanel.h",
-  summary: "<code>CBehaviorTree</code> を <b>可視化 + step debug</b> する ImGui パネル (Unreal の Behavior Tree Debugger 相当)。実体 BT は private で覗けないため、ユーザが <code>AddNode</code> で「親 id / kind / 表示名」を push する <t>メタミラー</t>方式を採る。node 状態は <code>SetNodeStatus</code> で push。root status の履歴を 60-frame ring に保持。非コピー・非ムーブ・全 noexcept。",
+  summary: "<code>CBehaviorTree</code> を <b>可視化 + step debug</b> する ImGui パネル。実体 BT は private で覗けないため、利用側が <code>AddNode</code> で「親 id / kind / 表示名」を push する <t>メタミラー</t>方式を採る。node 状態は <code>SetNodeStatus</code> で push。root status の履歴を 60-frame ring に保持。非コピー・非ムーブ・全 noexcept。",
   when: "実行中の BT を観察 / step 実行したい時。BT 構築直後にミラーも組み立て、tick のたびに status を push する。",
   sample: "namespace bt = acs::game::btedit;\nbt::ABehaviorTreeEditorPanel panel;\npanel.Init();\nacs::game::CBehaviorTree tree;  // 別途構築済とする\npanel.SetTree(&amp;tree);\nacs::u32 root = panel.AddNode(bt::EBtKind::Selector, \"Root\", bt::ABehaviorTreeEditorPanel::kInvalidId);\nacs::u32 act  = panel.AddNode(bt::EBtKind::Action, \"Move\", root);\npanel.SetNodeStatus(act, acs::game::EBtStatus::Running);\npanel.StepOnce();\npanel.Shutdown();",
   members: [
@@ -829,7 +829,7 @@ ACS_REF.modules.push({
 {
   name: "ACinematicsTimelineEditorPanel",
   kind: "クラス(AEditorPanel 派生)", header: "gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.h",
-  summary: "<code>CCinematicsDirector</code> を対話編集する <b>timeline editor パネル</b> (Unreal Sequencer の最小版)。水平タイムライン + 5 トラック (ETimelineKeyKind ごと) + keyframe marker + 再生制御 (Play/Pause/Stop/Step) + scrub slider を提供。リッチな <code>FEditorKeyframe</code> を panel 所有で持ち、Play 時に director へベイクする。director は <b>非所有 (caller 所有)</b>。非コピー・非ムーブ・全 noexcept。",
+  summary: "<code>CCinematicsDirector</code> を対話編集する <b>timeline editor パネル</b>。水平タイムライン + 5 トラック (ETimelineKeyKind ごと) + keyframe marker + 再生制御 (Play/Pause/Stop/Step) + scrub slider を提供。リッチな <code>FEditorKeyframe</code> を panel 所有で持ち、Play 時に director へベイクする。director は <b>非所有 (caller 所有)</b>。非コピー・非ムーブ・全 noexcept。",
   when: "cutscene の keyframe を時間軸上で配置・編集し、再生確認したい時。<code>SetCinematicsDirector(&amp;dir)</code> でバインドする。",
   sample: "namespace ct = acs::game::cinetimeline;\nct::ACinematicsTimelineEditorPanel panel;\npanel.Init();\nworkspace.RegisterPanel(&amp;panel);\nacs::game::CCinematicsDirector director;\npanel.SetCinematicsDirector(&amp;director);\npanel.AddKeyframe(ct::ETimelineKeyKind::CameraCut, 0.0f);\npanel.AddKeyframe(ct::ETimelineKeyKind::FadeColor, 2.0f);\npanel.Play();\npanel.Step(0.016f);\npanel.Shutdown();",
   members: [
@@ -898,7 +898,7 @@ ACS_REF.modules.push({
 {
   name: "FMeshSummary",
   kind: "構造体(POD)", header: "gameframework/tools/modelview/ModelInspectorPanel.h",
-  summary: "model 全体の<b>集計情報</b>を 1 インスタンスにまとめた値型。caller(<code>AModelViewerPanel</code> 等)が model load 後に集計し、<code>AModelInspectorPanel::UpdateFromModel</code> に渡す。全フィールド値型なので Mesh / Skeleton 側のリソース解放と panel 表示が完全に decouple される。",
+  summary: "model 全体の<b>集計情報</b>を 1 インスタンスにまとめた値型。model load を担当するcallerが集計し、<code>AModelInspectorPanel::UpdateFromModel</code> に渡す。全フィールド値型なので Mesh / Skeleton 側のリソース解放と panel 表示が完全に decouple される。",
   when: "Inspector パネルに「頂点数 / 三角形数 / submesh / material slot / ボーン / クリップ数 / バウンディング球」を渡す時に組み立てる。",
   sample: "FMeshSummary s;\ns.vertex_count    = 12000;\ns.triangle_count  = 4000;\ns.submesh_count   = 3;\ns.bone_count      = 52;\ns.bounding_radius = 1.8f;",
   members: [
@@ -952,8 +952,8 @@ ACS_REF.modules.push({
 {
   name: "AModelInspectorPanel",
   kind: "クラス(AEditorPanel 派生)", header: "gameframework/tools/modelview/ModelInspectorPanel.h",
-  summary: "ModelViewer 内の<b>読み取り専用 mesh / skeleton / anim 情報ビューア</b>。<t>AEditorPanel</t> を継承し、<code>UpdateFromModel</code> で push された <code>FMeshSummary</code> / submesh / bone / clip 配列を<b>値コピーでスナップショット保持</b>して ImGui に表示する(Summary / Submeshes テーブル / Bones ツリー / Animations テーブルの 4 セクション)。callback も編集も GPU リソースも持たない純粋な viewer。非コピー / 非ムーブ。Unity の Mesh Inspector 相当。",
-  when: "モデルのメタ情報を確認するパネルとして使う。<code>AModelViewerPanel</code> や sample がモデル load 完了時に <code>UpdateFromModel</code> を呼んで情報を流し込む。",
+  summary: "ModelViewer 内の<b>読み取り専用 mesh / skeleton / anim 情報ビューア</b>。<t>AEditorPanel</t> を継承し、<code>UpdateFromModel</code> で push された <code>FMeshSummary</code> / submesh / bone / clip 配列を<b>値コピーでスナップショット保持</b>して ImGui に表示する(Summary / Submeshes テーブル / Bones ツリー / Animations テーブルの 4 セクション)。callback も編集も GPU リソースも持たない純粋な viewer。非コピー / 非ムーブ。",
+  when: "モデルのメタ情報を確認するパネルとして使う。model load を担当するcallerが完了時に <code>UpdateFromModel</code> を呼んで情報を流し込む。",
   sample: "AModelInspectorPanel insp;\ninsp.Init();\nworkspace.RegisterPanel(&amp;insp);\n\nFMeshSummary    sum;       // 集計を埋める\nFSubmeshInfo    subs[1]  = { { \"Body\", 0, 3600, 0 } };\ninsp.UpdateFromModel(sum, subs, 1,\n                     nullptr, 0,    // bones なし\n                     nullptr, 0);   // clips なし",
   members: [
     { sig: "void Init() noexcept", ret: "—", desc: "内部状態を空にする。多重呼び出し可。", when: "生成直後 / 再利用時。" },
@@ -1011,7 +1011,7 @@ ACS_REF.modules.push({
     { sig: "void SetOnMaterialChangeCallback(MaterialChangeCallback cb, void* user) noexcept", ret: "—", desc: "変更通知 callback を登録。<code>nullptr</code> で解除。発火は DrawUI 内で field が変わった時 + ResetSlot / ResetAll 時。1 frame で複数 slot 変更なら複数回。", when: "shader 反映 / Undo 連携時。" },
     { sig: "const char* Title() const noexcept override", ret: "\"Material Override\"", desc: "ImGui ウインドウタイトル兼 ID。", when: "基底からの呼び出し。" },
     { sig: "void DrawUI() noexcept override", ret: "—", desc: "ImGui::Begin(\"Material Override\") で start し、各 slot を CollapsingHeader 内に展開(Override enabled / Base Color / Metallic / Roughness / Normal / AO / Emissive / Emissive Intensity / Reset)。", when: "毎フレーム。" },
-    { sig: "static constexpr f32 kMinMetallic=0 / kMaxMetallic=1", desc: "Metallic SliderFloat の値域(Phase 21b 暫定)。" },
+    { sig: "static constexpr f32 kMinMetallic=0 / kMaxMetallic=1", desc: "Metallic SliderFloat の値域。" },
     { sig: "static constexpr f32 kMinRoughness=0 / kMaxRoughness=1", desc: "Roughness SliderFloat の値域。" },
     { sig: "static constexpr f32 kMinNormalStrength=0 / kMaxNormalStrength=2", desc: "Normal Strength SliderFloat の値域。" },
     { sig: "static constexpr f32 kMinAoStrength=0 / kMaxAoStrength=1", desc: "AO Strength SliderFloat の値域。" },
@@ -1023,7 +1023,7 @@ ACS_REF.modules.push({
 {
   name: "EAnimationPlayState",
   kind: "列挙型(enum class : u8)", header: "gameframework/tools/modelview/ModelAnimationPanel.h",
-  summary: "<code>AModelAnimationPanel</code> の<b>再生状態</b>を表す 3 状態 enum。Phase 19a の E-prefix 規約(<code>enum class E*</code> + 基底 <code>u8</code>)に従う。",
+  summary: "<code>AModelAnimationPanel</code> の<b>再生状態</b>を表す 3 状態 enum。ACS の E-prefix 規約(<code>enum class E*</code> + 基底 <code>u8</code>)に従う。",
   when: "<code>PlayState()</code> の戻り値や再生制御の状態判定に使う。",
   sample: "if (anim.PlayState() == EAnimationPlayState::Playing) {\n    anim.Pause();\n}",
   members: [
@@ -1068,9 +1068,9 @@ ACS_REF.modules.push({
     { sig: "f32 CurrentTimeSec() const noexcept", ret: "秒", desc: "現在の再生位置(秒)。Stopped 時は 0、Playing / Paused 時は最新 Tick 結果 or SetCurrentTimeSec の値。", when: "任意" },
     { sig: "void SetCurrentTimeSec(f32 t) noexcept", ret: "—", desc: "再生位置を直接設定(Time slider / スクラブ用)。0 未満は 0、duration 超過は duration にクランプ(clip 未選択時は 0 のまま no-op)。state は変更しない。", when: "スクラブ操作時。" },
     { sig: "f32 PlaybackSpeed() const noexcept", ret: "倍率", desc: "現在の再生速度。Tick で <code>m_CurrentTime += dt * speed</code> に乗る。", when: "任意" },
-    { sig: "void SetPlaybackSpeed(f32 speed) noexcept", ret: "—", desc: "再生速度を設定。<code>[0.1, 4.0]</code> にクランプ。0 は実質一時停止だが下限 0.1 を強制。負値(逆再生)は Phase 21b 範囲外。", when: "速度変更時。" },
+    { sig: "void SetPlaybackSpeed(f32 speed) noexcept", ret: "—", desc: "再生速度を設定。<code>[0.1, 4.0]</code> にクランプするため、停止と逆再生は指定できない。", when: "速度変更時。" },
     { sig: "bool IsLoopingOverride() const noexcept / void SetLoopingOverride(bool b) noexcept", ret: "—", desc: "UI の Loop checkbox 状態。true なら clip 側 <code>is_looping</code> を無視して強制 loop、false なら clip 既定に従う。", when: "ループ切替時。" },
-    { sig: "f32 BlendWeight() const noexcept / void SetBlendWeight(f32 w) noexcept", ret: "—", desc: "blend weight <code>[0,1]</code>(0 未満 / 1 超過はクランプ)。Phase 21b は単一 clip 再生のため表示用 + callback 経由で renderer が参考にする値。", when: "ブレンド重み設定時。" },
+    { sig: "f32 BlendWeight() const noexcept / void SetBlendWeight(f32 w) noexcept", ret: "—", desc: "blend weight <code>[0,1]</code>(0 未満 / 1 超過はクランプ)。単一 clip の表示と callback 経由の renderer 入力に使う。", when: "ブレンド重み設定時。" },
     { sig: "void Tick(f32 dt) noexcept", ret: "—", desc: "Playing 中は <code>m_CurrentTime += dt * m_Speed</code>。duration 到達時、loop 有効なら wrap、無効なら duration に固定 + Stopped に遷移。終端で callback を発火。clip 未選択 / Stopped / Paused / <code>dt &lt;= 0</code> は no-op(巻き戻し非対応)。", when: "毎フレーム。" },
     { sig: "void SetOnFrameCallback(AnimationFrameCallback cb, void* user) noexcept", ret: "—", desc: "Tick 終端で 1 度呼ばれる callback を設定。<code>nullptr</code> で解除。引数は (user, clip_index, time_sec)。", when: "CAnimationPlayer 連携時。" },
     { sig: "const char* Title() const noexcept override", ret: "\"Animation\"", desc: "ImGui ウインドウタイトル兼 ID。固定リテラル。", when: "基底からの呼び出し。" },
@@ -1131,7 +1131,7 @@ ACS_REF.modules.push({
 Object.assign(ACS_REF.glossary, {
 "ギズモ": "viewport 上で選択 ANode の Transform(移動 / 回転 / 拡縮)を直接ドラッグ操作するハンドル。ACS では CEditorGizmo が実装する。",
 "ワークスペース": "複数のエディタ panel を 1 つの editor アプリとしてまとめ、ライフサイクル・メインループ・レイアウト永続化・イベント broadcast を統括する中央 hub。ACS では CEditorWorkspace。",
-"orbit": "3D カメラが注視点(target)を中心に yaw / pitch / distance で周回する操作モデル(Maya / Blender 風)。",
+"orbit": "3D カメラが注視点(target)を中心に yaw / pitch / distance で周回する操作モデル。",
 "dolly": "カメラを前後に寄せる / 引く操作。3D では target からの distance、2D では zoom_2d を変化させる。",
 "Drag Source": "ImGui のドラッグ &amp; ドロップで、つかんで運ばれる側(payload を提供する元)。受け側は BeginDragDropTarget で受け取る。",
 "payload": "ImGui のドラッグ &amp; ドロップで運ばれるデータ本体。ACS の CAssetBrowser では \"ASSET_PATH\" id で wchar_t* を渡す。",
@@ -1149,6 +1149,6 @@ Object.assign(ACS_REF.glossary, {
 "pivot": "スプライトの基準点 (回転・配置の原点)。0〜1 の正規化座標で (0.5,0.5)=中央、(0,0)=左上 を表す。",
 "IBL": "Image-Based Lighting。環境マップ(パノラマ等)を光源として使う間接照明手法。物体の周囲を映り込ませ、より自然な陰影を得る。",
 "AEditorPanel": "ACS の editor_core が提供するエディタパネルの抽象基底クラス。Title / DrawUI / OnInit などを override し、CEditorWorkspace に登録して使う。",
-"CEditorCamera": "editor_core のエディタ用カメラ。3D orbit / pan / dolly 操作と ViewMatrix / ProjectionMatrix の取得を提供する。各パネルが値メンバとして内包する Unity SceneView 風モデル。",
+"CEditorCamera": "editor_core のエディタ用カメラ。3D orbit / pan / dolly 操作と ViewMatrix / ProjectionMatrix の取得を提供し、各パネルが値メンバとして所有する。",
 "CAssetBrowser": "editor_core のアセットブラウザパネル。ファイル選択を OnAssetSelected で各パネルに通知し、拡張子で mesh / texture などに分類する。"
 });

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M — CNetSnapshot
+#pragma once
+// GameFramework のサーバー権威 snapshot — CNetSnapshot
 //   server-authoritative snapshot ベースのネットコード seam
 //
 // 役割:
@@ -60,7 +61,7 @@
 //     (送信のみ) / ServerListener (listen-server 兼任) の 4 状態。listen-server
 //     は内部的に Server + Client を同居させる役割で、host プレイヤーが自機の
 //     simulation を server として回しつつ自分の画面用に snapshot 補間も使う
-//     ケースに使う (HelloMultiplayer サンプル等)。
+//     ケースに使う。
 //   ・**FSnapshotHeader fixed 24B**: tick(4) + sequence(4) + timestamp(8) +
 //     payload_size(4) + crc32(4) = 24 byte。LE 固定。CRC32 は magic 直後 〜
 //     payload 末尾 (= version + FSnapshotHeader 本体 + payload) に対する Zlib /
@@ -84,8 +85,6 @@
 //   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 全体方針。
 //   ・**コピー / ムーブ禁止**: 1 セッション 1 オブジェクトの長寿命 (transport
 //     との結合関係を分裂させないため CLockstep / IBackendClient と同じ方針)。
-#pragma once
-
 #include "container/Array.h"
 #include "foundation/Result.h"
 #include "foundation/Types.h"
@@ -419,7 +418,7 @@ struct FNetSnapshotTickResult {
  * INetTransport の null-object 実装 (defensive stub)。
  *
  * @details
- * 「常に NotImplemented を返す」stub でサンプル / テスト / linker 互換用。本番
+ * 「常に NotImplemented を返す」stub で利用側 / テスト / linker 互換用。本番
  * ビルドに混入したケースを QA で必ず検出できるよう、Connect / Send / Receive は
  * 必ず Err を返す (GetBackendStub() と同じ pattern)。
  */

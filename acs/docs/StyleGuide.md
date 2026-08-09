@@ -4,7 +4,7 @@
 **目的 / Purpose**: ACS の唯一のコーディング規約。**This document is the single source of truth for ACS coding style.**
 機械検証する subset と専用 gate は本書の toolchain 節に明記し、それ以外は実装レビューで確認する。
 
-**対象 / Scope**: `src/**`, `samples/**`, `tests/**`, `tools/**`, `editor/**` 配下の C++ コード。`cmake-build-*/_deps/` 配下のサードパーティ、`docs/`, `cmake/` は対象外。
+**対象 / Scope**: `src/**`, `tests/**`, `tools/**`, `editor/**` 配下の C++ コード。`cmake-build-*/_deps/` 配下のサードパーティ、`docs/`, `cmake/` は対象外。
 
 **基本方針 / Core philosophy**: prefix は構文ではなく責務と所有権を表す。owner / registry に
 所有され多態的に扱われる object は `A`、独立した identity、lifecycle、所有資源を持つ
@@ -871,7 +871,7 @@ Apache-2.0 (patent grant 込み)。各ソースファイルは `// SPDX-License-
 cmake --build Intermediate/vs --config Debug --target acs_lint
 ```
 
-`acs_lint` は `.clang-tidy` 設定で `src/`, `samples/`, `tests/` の C++ source を走査する。
+`acs_lint` は `.clang-tidy` 設定で `src/`, `tests/` の C++ source を走査する。
 CMake configure 時に clang-tidy を検出した構成だけがこの target を登録する。未検出の構成では
 target を登録せず、再 configure が必要になる。`CMAKE_EXPORT_COMPILE_COMMANDS` は CMake で有効にしており、
 対応 generator は build tree へ `compile_commands.json` を生成する。
@@ -894,7 +894,7 @@ cmake --build Intermediate/vs --config Debug --target acs_conventions_check
 ctest --test-dir Intermediate/vs -C Debug -R "ACS.CppConventionsAudit"
 ```
 
-`ACS.CppConventionsAudit` は `src/`, `samples/`, `tests/`, `tools/`, `editor/` の C++
+`ACS.CppConventionsAudit` は `src/`, `tests/`, `tools/`, `editor/` の C++
 ソースを走査し、R020a / R020b / R021 / R027 の型・関数命名を検証する。既存型名と
 完全一致する `.FType()` / `->FType()` 形式のメンバー呼び出しは、型 rename がメソッド名へ
 誤波及した R021 違反として検出する。同時に、統一後に削除した
@@ -991,7 +991,7 @@ ctest --test-dir Intermediate/vs -C Debug -R "ACS.ReferenceTypeNamesAudit"
 `src/**/*.h` の実宣言を C++ lexer で照合する。クラス、構造体、列挙、
 インターフェース、テンプレートの旧名に対して、現行の `A` / `C` / `F` / `E` / `I` / `T`
 名が一意に見つかる場合を error にする。これにより、大規模 rename 後に手書きの
-signature や sample だけが旧名へ戻る drift を早期に検出できる。
+signature や consumer だけが旧名へ戻る drift を早期に検出できる。
 
 aliasのうち、正規scalar 3名と`AObject` / C4は正規名とheaderが1件ずつあることを固定し、
 登録済み旧名の独立entryを拒否する。互換説明は正規entryのmember本文に置く。delegate、
@@ -1019,7 +1019,7 @@ public / internal 分類は別契約のため対象外である。自己テス�
 
 ## 13. 規則カタログ / Rule Catalog (R001-R048)
 
-> **注 / Note**: `Check` 列は現在検証する tool または review を表す。`acs-Rxxx` という rule ID だけで
+> **注 / Note**: `Check` 列は現在検証する tool または手動確認を表す。`acs-Rxxx` という rule ID だけで
 > 専用監査の実装済みを意味しない。標準 clang-tidy の規則は `.clang-tidy`、型と命名は
 > `scripts/audit_cpp_conventions.py` と `scripts/audit_cpp_type_roles.py`、変更行の一部は
 > `scripts/audit_changed_cpp_rules.py` で検証する。
@@ -1105,7 +1105,7 @@ scalar監査対象外である。新規宣言には`using`を使い、公開name
 | **R033** | result-nodiscard | warning | acs-R033 | `TResult<T,E>` を返す関数の戻り値破棄を検出 |
 | **R034** | lifecycle-on-prefix | info | acs-R034 | ライフサイクルフック (OnSpawn/OnUpdate/OnExit) は `On` プレフィックス |
 | **R035** | rule-of-five-or-zero | warning | cppcoreguidelines-special-member-functions | Rule of zero / five 違反 |
-| **R036** | header-pragma-once | error | review / changed-header preamble | ヘッダは `#pragma once` (`#ifndef` include guard は正規形にしない) |
+| **R036** | header-pragma-once | error | manual / changed-header preamble | ヘッダは `#pragma once` (`#ifndef` include guard は正規形にしない) |
 | **R037** | header-self-contained | warning | misc-include-cleaner | ヘッダは自己完結 (必要な include を持つ) |
 | **R038** | no-using-namespace-header | error | google-build-using-namespace | ヘッダ内 `using namespace` 禁止 |
 | **R039** | const-correctness | warning | misc-const-correctness | const 可能なローカル変数は const に |
@@ -1119,8 +1119,8 @@ scalar監査対象外である。新規宣言には`using`を使い、公開name
 | **R042** | typed-handle | info | acs-R042 | EntityId / FAssetId 等は型付き wrapper (raw u32 禁止) |
 | **R043** | log-channel-known | warning | acs-R043 | `ACS_LOG_*` は登録済み channel のみ |
 | **R044** | locale-via-director | info | acs-R044 | UI 文字列は `Tr("...")` 経由 (raw 英文字列禁止) |
-| **R045** | declaration-comment-contract | info | review | header冒頭はSPDXとguardだけにし、役割・入力・失敗条件は対象宣言の直前へ置く |
-| **R046** | no-temporary-task-markers | warning | review / search | TODO/FIXME/HACKを製品sourceへ置かない |
+| **R045** | declaration-comment-contract | info | manual | header冒頭はSPDXとguardだけにし、役割・入力・失敗条件は対象宣言の直前へ置く |
+| **R046** | no-temporary-task-markers | warning | manual / search | TODO/FIXME/HACKを製品sourceへ置かない |
 | **R047** | spdx-header-required | error | acs-R047 | 全 `.h` / `.cpp` / `.inl` の 1 行目に SPDX |
 | **R048** | event-via-registry | info | acs-R048 | event 配信は `gameframework/meta/Events.h` 経由 |
 

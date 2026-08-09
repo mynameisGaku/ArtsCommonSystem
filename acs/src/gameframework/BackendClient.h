@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar V — Backend Services seam (IBackendClient / IMatchmaker)
+#pragma once
+// GameFramework の backend 接続境界 (IBackendClient / IMatchmaker)
 //
 // 役割:
 //   ゲーム本体から「サーバ側 (dedicated server, テレメトリ、マッチメイカー)」へ
@@ -24,10 +25,10 @@
 //   ・MatchmakerDedicatedSrv   — 自社 dedicated server の placement service と RPC
 //
 // 範囲外:
-//   ・実プロトコル / シリアライズ (Pillar J Serialize 側で必要なら整える)
-//   ・認証トークン管理      (Pillar S Storefront のセッションを再利用する想定)
+//   ・実プロトコル / シリアライズ (具象通信 adapter 側の責務)
+//   ・認証トークン管理      (storefront の session provider 側の責務)
 //   ・暗号化 / TLS 設定     (具象実装側の責務)
-//   ・サーバ側のリーダーボード (Pillar O LiveOps 側で扱う)
+//   ・サーバ側のリーダーボード (具象 backend 側の責務)
 //
 // 設計選択:
 //   ・**stub interface のみ**: 本ヘッダ + .cpp は IBackendClient / IMatchmaker を
@@ -43,8 +44,6 @@
 //   ・**全 noexcept**: 例外境界を関数単位で固定し、ABI として整える。
 //   ・**Tick(f32 dt)**: 非同期 RPC の応答 pump。実装はメインスレッドで callback
 //     を発火する想定 (副 thread からの直接 dispatch を避ける)。
-#pragma once
-
 #include "foundation/Result.h"
 #include "foundation/Types.h"
 
@@ -54,7 +53,7 @@ namespace acs::game {
  * backend / matchmaker 共通の失敗サブコード集。
  *
  * @details
- * TSaveSlot 等と同じく、本ピラーでも「stub = NotImplemented」を
+ * TSaveSlot 等と同じく、本 backend seam でも「stub = NotImplemented」を
  * subcode = kSub_NotImplemented で表現する。EErrCategory には IO を使う
  * (ネットワーク = I/O の一形態)。
  */
@@ -116,7 +115,7 @@ public:
      *
      * @details
      * server_url は呼出側が寿命保証する静的文字列 / member バッファ
-     * (例: "https://api.example.com/v1")。同期/非同期は実装次第だが、
+     * (例: "<HTTPS server URL>")。同期/非同期は実装次第だが、
      * API 上は完了/失敗を TResult で返す約束。
      * @param server_url 接続先サーバの URL (呼出側が寿命を保証)。
      * @return 成功なら空の TResult、接続失敗ならエラー。
@@ -269,7 +268,7 @@ public:
 /**
  * プロセス共有の stub IBackendClient を返す。
  *
- * @details 本体側 (タイトル / サンプル) はまずこれを使ってリンクを通す。
+ * @details 利用側はこれを初期値として保持し、必要に応じて具象実装へ差し替える。
  * @return 常に NotImplemented を返す stub クライアントへの参照。
  */
 IBackendClient& GetBackendStub() noexcept;

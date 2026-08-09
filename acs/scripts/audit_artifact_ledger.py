@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Validate tracked artifact moves and their historical provenance ledger."""
+"""Validate tracked ACS artifacts and their provenance ledger."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ REFERENCE_ENCODINGS = ("utf-8", "utf-16-le", "utf-16-be", "utf-32-le", "utf-32-b
 GENERATED_FROM_KEYS = frozenset(
     {
         "status",
-        "historical_sample_path",
+        "historical_generator_path",
         "inferred_parent_commit",
         "historical_context_commit",
         "historical_backend",
@@ -43,7 +43,8 @@ GENERATED_FROM_KEYS = frozenset(
 BUILD_REPRODUCIBILITY_KEYS = frozenset(
     {"status", "exact_byte_reproduction", "reason", "current_semantic_candidate"}
 )
-SEMANTIC_CANDIDATE_KEYS = frozenset({"status", "commands"})
+SEMANTIC_CANDIDATE_UNVERIFIED_KEYS = frozenset({"status", "commands"})
+SEMANTIC_CANDIDATE_UNAVAILABLE_KEYS = frozenset({"status", "reason", "commands"})
 REQUIRED_VERIFICATION_COMMANDS = (
     "cmake --build acs/Intermediate/vs --config Debug --parallel 1",
     "ctest --test-dir acs/Intermediate/vs -C Debug --output-on-failure",
@@ -78,15 +79,22 @@ def run_git(
     arguments: Sequence[str],
     *,
     accepted_codes: frozenset[int] = frozenset({0}),
+    input_bytes: bytes | None = None,
+    environment_overrides: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
     """Run Git without a shell and reject every unexpected exit status."""
 
+    environment = os.environ.copy()
+    if environment_overrides is not None:
+        environment.update(environment_overrides)
     result = subprocess.run(
         ["git", *arguments],
         cwd=root,
         check=False,
+        input=input_bytes,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=environment,
     )
     if result.returncode not in accepted_codes:
         stderr = result.stderr.decode("utf-8", errors="replace").strip()
@@ -95,6 +103,53 @@ def run_git(
             f"{command} failed with exit {result.returncode}: {stderr}"
         )
     return result
+
+
+def create_candidate_tree(root: Path) -> str:
+    """Build a temporary-index tree from tracked changes and new artifact files."""
+
+    changed_paths = run_git(
+        root,
+        ["diff", "--name-only", "--no-renames", "-z", "HEAD", "--"],
+    ).stdout
+    untracked_artifact_paths = run_git(
+        root,
+        ["ls-files", "--others", "--exclude-standard", "-z", "--", "artifact"],
+    ).stdout
+    candidate_paths = {
+        path
+        for output in (changed_paths, untracked_artifact_paths)
+        for path in output.split(b"\0")
+        if path
+    }
+    encoded_candidate_paths = (
+        b"\0".join(sorted(candidate_paths)) + b"\0" if candidate_paths else b""
+    )
+    with tempfile.TemporaryDirectory(prefix="acs-artifact-candidate-index-") as temp:
+        index_path = Path(temp) / "index"
+        environment = {"GIT_INDEX_FILE": str(index_path)}
+        run_git(root, ["read-tree", "HEAD"], environment_overrides=environment)
+        if encoded_candidate_paths:
+            run_git(
+                root,
+                [
+                    "add",
+                    "-A",
+                    "--force",
+                    "--pathspec-from-file=-",
+                    "--pathspec-file-nul",
+                ],
+                input_bytes=encoded_candidate_paths,
+                environment_overrides=environment,
+            )
+        tree = run_git(
+            root,
+            ["write-tree"],
+            environment_overrides=environment,
+        ).stdout.decode("ascii").strip()
+    if OBJECT_PATTERN.fullmatch(tree) is None:
+        raise FAuditError("Git returned an invalid candidate tree id")
+    return tree
 
 
 def require_mapping(value: Any, location: str) -> dict[str, Any]:
@@ -406,16 +461,12 @@ def validate_generated_from(
         raise FAuditError(
             f"{generated_location}.status must be incomplete-historical-provenance"
         )
-    sample_path = require_string(
-        generated, "historical_sample_path", generated_location
+    generator_path = require_string(
+        generated, "historical_generator_path", generated_location
     )
-    sample = validate_relative_path(
-        sample_path, f"{generated_location}.historical_sample_path"
+    validate_relative_path(
+        generator_path, f"{generated_location}.historical_generator_path"
     )
-    if sample.parts[:2] != ("acs", "samples"):
-        raise FAuditError(
-            f"{generated_location}.historical_sample_path must be under acs/samples/"
-        )
 
     inferred_parent = require_string(
         generated, "inferred_parent_commit", generated_location
@@ -459,7 +510,7 @@ def validate_generated_from(
 def validate_build_reproducibility(
     entry: dict[str, Any], location: str
 ) -> None:
-    """Validate the schema-v1 statement that exact reproduction is unavailable."""
+    """Validate the schema-v2 statement that exact reproduction is unavailable."""
 
     build_location = f"{location}.build_reproducibility"
     build = require_mapping(entry.get("build_reproducibility"), build_location)
@@ -470,7 +521,7 @@ def validate_build_reproducibility(
         )
     if require_boolean(build, "exact_byte_reproduction", build_location):
         raise FAuditError(
-            f"{build_location}.exact_byte_reproduction must be false in schema version 1"
+            f"{build_location}.exact_byte_reproduction must be false in schema version 2"
         )
     require_string(build, "reason", build_location)
 
@@ -478,14 +529,28 @@ def validate_build_reproducibility(
     candidate = require_mapping(
         build.get("current_semantic_candidate"), candidate_location
     )
-    require_exact_keys(candidate, SEMANTIC_CANDIDATE_KEYS, candidate_location)
-    if candidate.get("status") != "unverified":
-        raise FAuditError(f"{candidate_location}.status must be unverified")
-    require_string_list(candidate, "commands", candidate_location)
+    status = require_string(candidate, "status", candidate_location)
+    if status == "unverified":
+        require_exact_keys(
+            candidate, SEMANTIC_CANDIDATE_UNVERIFIED_KEYS, candidate_location
+        )
+        require_string_list(candidate, "commands", candidate_location)
+    elif status == "not-available":
+        require_exact_keys(
+            candidate, SEMANTIC_CANDIDATE_UNAVAILABLE_KEYS, candidate_location
+        )
+        require_string(candidate, "reason", candidate_location)
+        commands = candidate.get("commands")
+        if not isinstance(commands, list) or commands:
+            raise FAuditError(f"{candidate_location}.commands must be an empty list")
+    else:
+        raise FAuditError(
+            f"{candidate_location}.status must be unverified or not-available"
+        )
 
 
 def validate_verification_gates(entry: dict[str, Any], location: str) -> None:
-    """Require each schema-v1 integration gate exactly once."""
+    """Require each schema-v2 verification gate exactly once."""
 
     gates = entry.get("verification_gates")
     if not isinstance(gates, list) or not gates:
@@ -537,6 +602,8 @@ def scan_references(
 ) -> tuple[str, ...]:
     """Scan every tracked blob case-insensitively, including UTF-16 data."""
 
+    if not needles:
+        return ()
     entries = tuple(
         entry
         for entry in tree_entries_recursive(root, revision)
@@ -584,7 +651,7 @@ def validate_reference_contract(
     for field in expected_fields:
         if require_integer(references, field, f"{location}.references") != 0:
             raise FAuditError(
-                f"{location}.references.{field} must be zero in schema version 1"
+                f"{location}.references.{field} must be zero in schema version 2"
             )
     if references.get("audit_command") != AUDIT_COMMAND:
         raise FAuditError(
@@ -599,6 +666,7 @@ def validate_entry(
     root: Path,
     entry: dict[str, Any],
     index: int,
+    candidate_revision: str,
 ) -> tuple[str, str, str, frozenset[str]]:
     """Validate one ledger entry and return its unique paths."""
 
@@ -681,16 +749,16 @@ def validate_entry(
             f"{location}: baseline blob {baseline_blob} != {recorded_blob}"
         )
 
-    if tree_entry(root, "HEAD", source_path) is not None:
-        raise FAuditError(f"{location}: source path is still tracked at HEAD")
-    head_entry = tree_entry(root, "HEAD", destination_path)
-    if head_entry is None:
-        raise FAuditError(f"{location}: destination is not tracked at HEAD")
-    head_mode, head_type, head_blob = head_entry
-    if head_mode != "100644" or head_type != "blob":
+    if tree_entry(root, candidate_revision, source_path) is not None:
+        raise FAuditError(f"{location}: source path remains in the candidate tree")
+    candidate_entry = tree_entry(root, candidate_revision, destination_path)
+    if candidate_entry is None:
+        raise FAuditError(f"{location}: destination is not tracked in the candidate tree")
+    candidate_mode, candidate_type, candidate_blob = candidate_entry
+    if candidate_mode != "100644" or candidate_type != "blob":
         raise FAuditError(f"{location}: destination is not a regular blob")
-    if head_blob != recorded_blob:
-        raise FAuditError(f"{location}: HEAD destination blob drifted")
+    if candidate_blob != recorded_blob:
+        raise FAuditError(f"{location}: candidate destination blob drifted")
 
     source_file = filesystem_path(root, source)
     destination_file = filesystem_path(root, destination)
@@ -703,10 +771,10 @@ def validate_entry(
         raise FAuditError(f"{location}: destination is not a regular file")
 
     baseline_bytes = blob_bytes(root, baseline_commit, source_path)
-    head_bytes = blob_bytes(root, "HEAD", destination_path)
+    candidate_bytes = blob_bytes(root, candidate_revision, destination_path)
     current_bytes = destination_file.read_bytes()
-    if baseline_bytes != head_bytes or head_bytes != current_bytes:
-        raise FAuditError(f"{location}: baseline, HEAD, and worktree bytes differ")
+    if baseline_bytes != candidate_bytes or candidate_bytes != current_bytes:
+        raise FAuditError(f"{location}: baseline, candidate, and working bytes differ")
     if len(current_bytes) != byte_count:
         raise FAuditError(f"{location}: byte_count does not match destination")
     actual_sha256 = hashlib.sha256(current_bytes).hexdigest().upper()
@@ -726,7 +794,7 @@ def validate_entry(
 
 
 def audit_repository(root: Path) -> list[str]:
-    """Validate the artifact ledger against Git history and current bytes."""
+    """Validate the artifact ledger against Git history and candidate bytes."""
 
     root = root.resolve(strict=True)
     top_level = run_git(root, ["rev-parse", "--show-toplevel"]).stdout
@@ -737,24 +805,32 @@ def audit_repository(root: Path) -> list[str]:
     if git_root != root:
         raise FAuditError(f"--root must be Git top-level: {git_root}")
 
+    candidate_revision = create_candidate_tree(root)
     ledger_file = root / LEDGER_PATH
     reject_reparse_chain(root, ledger_file, LEDGER_PATH)
-    ledger_entry = tree_entry(root, "HEAD", LEDGER_PATH)
+    ledger_entry = tree_entry(root, candidate_revision, LEDGER_PATH)
     if ledger_entry is None or ledger_entry[:2] != ("100644", "blob"):
-        raise FAuditError(f"{LEDGER_PATH} must be a tracked regular blob at HEAD")
+        raise FAuditError(f"{LEDGER_PATH} must be a tracked regular candidate blob")
     try:
         raw_ledger = ledger_file.read_bytes()
+        if blob_bytes(root, candidate_revision, LEDGER_PATH) != raw_ledger:
+            raise FAuditError(f"{LEDGER_PATH} candidate and working bytes differ")
         if raw_ledger.startswith(b"\xef\xbb\xbf"):
             raise FAuditError(f"{LEDGER_PATH} must not contain a UTF-8 BOM")
         ledger = json.loads(raw_ledger.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise FAuditError(f"{LEDGER_PATH} is not strict UTF-8 JSON: {error}") from error
     ledger_object = require_mapping(ledger, LEDGER_PATH)
-    if ledger_object.get("schema_version") != 1:
-        raise FAuditError(f"{LEDGER_PATH}.schema_version must equal 1")
+    require_exact_keys(
+        ledger_object,
+        frozenset({"schema_version", "artifacts"}),
+        LEDGER_PATH,
+    )
+    if ledger_object.get("schema_version") != 2:
+        raise FAuditError(f"{LEDGER_PATH}.schema_version must equal 2")
     artifacts = ledger_object.get("artifacts")
-    if not isinstance(artifacts, list) or not artifacts:
-        raise FAuditError(f"{LEDGER_PATH}.artifacts must be a non-empty list")
+    if not isinstance(artifacts, list):
+        raise FAuditError(f"{LEDGER_PATH}.artifacts must be a list")
 
     violations: list[str] = []
     sources: set[str] = set()
@@ -765,7 +841,7 @@ def audit_repository(root: Path) -> list[str]:
     for index, raw_entry in enumerate(artifacts):
         entry = require_mapping(raw_entry, f"artifacts[{index}]")
         source_path, destination_path, baseline_commit, reference_needles = validate_entry(
-            root, entry, index
+            root, entry, index, candidate_revision
         )
         if source_path in sources:
             raise FAuditError(f"duplicate source path: {source_path}")
@@ -792,7 +868,7 @@ def audit_repository(root: Path) -> list[str]:
     current_matches = scan_references(
         root,
         frozenset(current_needles),
-        revision="HEAD",
+        revision=candidate_revision,
         excluded_paths=frozenset(destinations),
     )
     if current_matches:
@@ -803,7 +879,7 @@ def audit_repository(root: Path) -> list[str]:
     tracked_artifacts = {
         path
         for path, _mode, _object_type, _object_id in tree_entries_recursive(
-            root, "HEAD", "artifact"
+            root, candidate_revision, "artifact"
         )
         if path != LEDGER_PATH
     }
@@ -857,7 +933,7 @@ def commit_all(root: Path, message: str) -> str:
             "-c",
             "user.name=ACS Artifact Audit",
             "-c",
-            "user.email=artifact-audit@example.invalid",
+            "user.email=artifact-audit@acs.invalid",
             "commit",
             "-m",
             message,
@@ -867,8 +943,13 @@ def commit_all(root: Path, message: str) -> str:
     return run_git(root, ["rev-parse", "HEAD"]).stdout.decode("ascii").strip()
 
 
-def create_fixture(root: Path, *, baseline_reference: bool = False) -> dict[str, Any]:
-    """Create one valid two-commit artifact-move repository."""
+def create_fixture(
+    root: Path,
+    *,
+    baseline_reference: bool = False,
+    commit_candidate: bool = True,
+) -> dict[str, Any]:
+    """Create one valid artifact move as a commit or pending candidate."""
 
     run_git(root, ["init", "--quiet"])
     with (root / "historical-context.txt").open(
@@ -876,8 +957,8 @@ def create_fixture(root: Path, *, baseline_reference: bool = False) -> dict[str,
     ) as output:
         output.write("historical context\n")
     historical_context = commit_all(root, "historical context")
-    source_path = "acs/screenshots/example.png"
-    destination_path = "artifact/visual/example.png"
+    source_path = "acs/screenshots/render-proof.png"
+    destination_path = "artifact/visual/render-proof.png"
     source_file = root.joinpath(*PurePosixPath(source_path).parts)
     source_file.parent.mkdir(parents=True, exist_ok=True)
     data = png_bytes()
@@ -886,7 +967,7 @@ def create_fixture(root: Path, *, baseline_reference: bool = False) -> dict[str,
         with (root / "baseline-reference.txt").open(
             "w", encoding="utf-8", newline="\n"
         ) as output:
-            output.write("example.png\n")
+            output.write("render-proof.png\n")
     baseline_commit = commit_all(root, "baseline")
     source_blob = tree_entry(root, baseline_commit, source_path)
     if source_blob is None:
@@ -896,13 +977,13 @@ def create_fixture(root: Path, *, baseline_reference: bool = False) -> dict[str,
     destination_file.parent.mkdir(parents=True, exist_ok=True)
     source_file.replace(destination_file)
     ledger: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "artifacts": [
             {
                 "source_path_at_baseline": source_path,
                 "destination_path": destination_path,
                 "classification": "historical-visual-evidence",
-                "responsibility_owner": "acs/samples/Example",
+                "responsibility_owner": "acs/src/render",
                 "canonical_role": "artifact-source",
                 "source-of-truth": destination_path,
                 "tracked": {
@@ -917,7 +998,7 @@ def create_fixture(root: Path, *, baseline_reference: bool = False) -> dict[str,
                 },
                 "generated-from": {
                     "status": "incomplete-historical-provenance",
-                    "historical_sample_path": "acs/samples/Example",
+                    "historical_generator_path": "acs/tools/RenderProofCapture",
                     "inferred_parent_commit": historical_context,
                     "historical_context_commit": historical_context,
                     "historical_backend": None,
@@ -937,8 +1018,9 @@ def create_fixture(root: Path, *, baseline_reference: bool = False) -> dict[str,
                     "exact_byte_reproduction": False,
                     "reason": "Synthetic capture details were not recorded.",
                     "current_semantic_candidate": {
-                        "status": "unverified",
-                        "commands": ["cmake --build synthetic"],
+                        "status": "not-available",
+                        "reason": "No current ACS executable owns this historical visual.",
+                        "commands": [],
                     },
                 },
                 "move_reason": "self-test",
@@ -965,7 +1047,8 @@ def create_fixture(root: Path, *, baseline_reference: bool = False) -> dict[str,
         ],
     }
     write_json(root / LEDGER_PATH, ledger)
-    commit_all(root, "move artifact")
+    if commit_candidate:
+        commit_all(root, "move artifact")
     return ledger
 
 
@@ -984,6 +1067,17 @@ def expect_failure(root: Path, expected_text: str) -> None:
         )
 
 
+def create_empty_fixture(root: Path) -> None:
+    """Create an uncommitted candidate that removes the final tracked artifact."""
+
+    ledger = create_fixture(root)
+    destination = root.joinpath(
+        *PurePosixPath(ledger["artifacts"][0]["destination_path"]).parts
+    )
+    destination.unlink()
+    write_json(root / LEDGER_PATH, {"schema_version": 2, "artifacts": []})
+
+
 def run_self_test() -> None:
     """Exercise success and fail-closed mutations in isolated Git fixtures."""
 
@@ -999,7 +1093,7 @@ def run_self_test() -> None:
         try:
             scan_references(
                 valid_root,
-                frozenset({"example.png"}),
+                frozenset({"render-proof.png"}),
                 revision="not-a-revision",
             )
         except FAuditError as error:
@@ -1008,10 +1102,68 @@ def run_self_test() -> None:
         else:
             raise FAuditError("invalid reference-scan revision was accepted")
 
+        empty_root = parent / "empty"
+        empty_root.mkdir()
+        create_empty_fixture(empty_root)
+        violations = audit_repository(empty_root)
+        if violations:
+            raise FAuditError("empty fixture failed: " + " | ".join(violations))
+
+        new_candidate_root = parent / "new-artifact-candidate"
+        new_candidate_root.mkdir()
+        create_fixture(new_candidate_root, commit_candidate=False)
+        index_path = Path(
+            run_git(new_candidate_root, ["rev-parse", "--git-path", "index"])
+            .stdout.decode("utf-8")
+            .strip()
+        )
+        if not index_path.is_absolute():
+            index_path = new_candidate_root / index_path
+        index_before = index_path.read_bytes()
+        status_before = run_git(
+            new_candidate_root,
+            ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        ).stdout
+        violations = audit_repository(new_candidate_root)
+        status_after = run_git(
+            new_candidate_root,
+            ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        ).stdout
+        if violations:
+            raise FAuditError(
+                "new artifact candidate failed: " + " | ".join(violations)
+            )
+        if index_path.read_bytes() != index_before or status_after != status_before:
+            raise FAuditError("candidate audit changed the live index or working files")
+
+        stray_root = parent / "untracked-artifact"
+        stray_root.mkdir()
+        create_empty_fixture(stray_root)
+        stray = stray_root / "artifact/visual/stray.png"
+        stray.parent.mkdir(parents=True, exist_ok=True)
+        stray.write_bytes(png_bytes())
+        expect_failure(stray_root, "unlisted=")
+
+        unverified_root = parent / "unverified"
+        unverified_root.mkdir()
+        ledger = create_fixture(unverified_root)
+        ledger["artifacts"][0]["build_reproducibility"][
+            "current_semantic_candidate"
+        ] = {
+            "status": "unverified",
+            "commands": ["cmake --build synthetic"],
+        }
+        write_json(unverified_root / LEDGER_PATH, ledger)
+        violations = audit_repository(unverified_root)
+        if violations:
+            raise FAuditError(
+                "unverified fixture failed: " + " | ".join(violations)
+            )
+
         schema_root = parent / "schema"
         schema_root.mkdir()
         ledger = create_fixture(schema_root)
-        ledger["schema_version"] = 2
+        ledger["schema_version"] = 1
         write_json(schema_root / LEDGER_PATH, ledger)
         expect_failure(schema_root, "schema_version")
 
@@ -1064,7 +1216,7 @@ def run_self_test() -> None:
         with (current_ref_root / "current-reference.txt").open(
             "w", encoding="utf-8", newline="\n"
         ) as output:
-            output.write("example.png\n")
+            output.write("render-proof.png\n")
         commit_all(current_ref_root, "add current reference")
         expect_failure(current_ref_root, "current references are not zero")
 
@@ -1096,7 +1248,7 @@ def run_self_test() -> None:
         with (uppercase_ref_root / "uppercase-reference.txt").open(
             "w", encoding="utf-8", newline="\n"
         ) as output:
-            output.write("EXAMPLE.PNG\n")
+            output.write("RENDER-PROOF.PNG\n")
         commit_all(uppercase_ref_root, "add uppercase reference")
         expect_failure(uppercase_ref_root, "current references are not zero")
 
@@ -1104,7 +1256,7 @@ def run_self_test() -> None:
         utf16_ref_root.mkdir()
         create_fixture(utf16_ref_root)
         (utf16_ref_root / "utf16-reference.bin").write_bytes(
-            "EXAMPLE.PNG".encode("utf-16-le")
+            "RENDER-PROOF.PNG".encode("utf-16-le")
         )
         commit_all(utf16_ref_root, "add UTF-16 reference")
         expect_failure(utf16_ref_root, "current references are not zero")
@@ -1151,7 +1303,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     try:
         if parsed.self_test:
             run_self_test()
-            print("artifact ledger audit self-test PASS cases=18")
+            print("artifact ledger audit self-test PASS cases=22")
             return 0
         violations = audit_repository(parsed.root)
     except (FAuditError, OSError) as error:

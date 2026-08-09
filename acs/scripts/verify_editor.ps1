@@ -988,7 +988,6 @@ if ($Mode -eq "full") {
             "-B", $nativeBuild,
             "-DACS_LAYOUT_ROOT=$nativeLayout",
             "-DACS_BUILD_TESTS=ON",
-            "-DACS_BUILD_SAMPLES=OFF",
             "-DACS_BUILD_TOOLS=OFF"
         )
         $nativeConfigured = Invoke-VerificationStep `

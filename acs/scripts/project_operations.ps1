@@ -92,9 +92,7 @@ function New-OperationOptions {
         DistributionRoot = ""
         Generator = ""
         SolutionName = ""
-        Sample = ""
         StartupProject = ""
-        AllSamples = $false
         Diligent = $false
         Scripting = $false
         Steamworks = $false
@@ -199,9 +197,7 @@ function Convert-ArgumentsToOptions([string[]]$Tokens) {
             "--distribution-root" { $options.DistributionRoot = Get-RequiredArgument $Tokens ([ref]$index) $token }
             "--generator" { $options.Generator = Get-RequiredArgument $Tokens ([ref]$index) $token }
             "--name" { $options.SolutionName = Get-RequiredArgument $Tokens ([ref]$index) $token }
-            "--sample" { $options.Sample = Get-RequiredArgument $Tokens ([ref]$index) $token }
             "--startup-project" { $options.StartupProject = Get-RequiredArgument $Tokens ([ref]$index) $token }
-            "--all-samples" { $options.AllSamples = $true }
             "--diligent" { $options.Diligent = $true }
             "--scripting" { $options.Scripting = $true }
             "--steamworks" { $options.Steamworks = $true }
@@ -228,7 +224,7 @@ function Convert-ArgumentsToOptions([string[]]$Tokens) {
 }
 
 function Test-GenerateOptionSpecified($Options) {
-    return ($Options.Open -or $Options.Clean -or $Options.Tests -or $Options.Tools -or $Options.DistributionSmoke -or $Options.DistributionRoot -or $Options.Generator -or $Options.SolutionName -or $Options.Sample -or $Options.StartupProject -or $Options.AllSamples -or $Options.Diligent -or $Options.Scripting -or $Options.Steamworks -or $Options.Onnx -or $Options.OpenXr -or $Options.CrashReporter -or $Options.Telemetry -or $Options.Matchmaker -or $Options.AllBackends)
+    return ($Options.Open -or $Options.Clean -or $Options.Tests -or $Options.Tools -or $Options.DistributionSmoke -or $Options.DistributionRoot -or $Options.Generator -or $Options.SolutionName -or $Options.StartupProject -or $Options.Diligent -or $Options.Scripting -or $Options.Steamworks -or $Options.Onnx -or $Options.OpenXr -or $Options.CrashReporter -or $Options.Telemetry -or $Options.Matchmaker -or $Options.AllBackends)
 }
 
 function Assert-OptionBoundary($Options) {
@@ -538,13 +534,6 @@ function Add-ConfigureCacheArguments($Options, [System.Collections.Generic.List[
     if ($Options.Tools) { $Arguments.Add("-DACS_BUILD_TOOLS=ON") }
     if ($Options.DistributionSmoke) { $Arguments.Add("-DACS_ENABLE_DISTRIBUTION_CONSUMER_SMOKE=ON") }
     if ($Options.DistributionRoot) { $Arguments.Add("-DACS_DISTRIBUTION_CONSUMER_ROOT=$($Options.DistributionRoot)") }
-    if ($Options.AllSamples) {
-        $Arguments.Add("-DACS_BUILD_SAMPLES=ON")
-        $Arguments.Add("-DACS_ONLY_SAMPLE=")
-    } elseif ($Options.Sample) {
-        $Arguments.Add("-DACS_BUILD_SAMPLES=ON")
-        $Arguments.Add("-DACS_ONLY_SAMPLE=$($Options.Sample)")
-    }
     if ($Options.StartupProject) { $Arguments.Add("-DACS_STARTUP_PROJECT=$($Options.StartupProject)") }
     if ($Options.Diligent -or $Options.AllBackends) {
         $Arguments.Add("-DACS_RENDER_DILIGENT=ON")
@@ -587,9 +576,7 @@ function Invoke-ConfigureOperation($Options, $PresetContext) {
     if ($Options.DistributionRoot) { $parameters.DistributionRoot = $Options.DistributionRoot }
     if ($Options.Generator) { $parameters.Generator = $Options.Generator }
     if ($Options.SolutionName) { $parameters.SolutionName = $Options.SolutionName }
-    if ($Options.Sample) { $parameters.Sample = $Options.Sample }
     if ($Options.StartupProject) { $parameters.StartupProject = $Options.StartupProject }
-    if ($Options.AllSamples) { $parameters.AllSamples = $true }
     if ($Options.Diligent) { $parameters.Diligent = $true }
     if ($Options.Scripting) { $parameters.Scripting = $true }
     if ($Options.Steamworks) { $parameters.Steamworks = $true }
@@ -742,7 +729,7 @@ IDE互換:
   --foundation             testをrun_foundation_end_to_end.pyへ切替
   --yes, -y                clean-up.ps1の確認を省略
   --tests --tools --scripting --diligent --all-backends
-  --sample <name> --all-samples --name <solution> --open --clean
+  --startup-project <name> --name <solution> --open --clean
 
 現在のshellへ貼れる例:
   $LauncherCommand configure --tests --scripting

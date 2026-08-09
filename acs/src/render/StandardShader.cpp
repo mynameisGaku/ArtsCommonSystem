@@ -160,7 +160,7 @@ float ComputeShadow(float3 world_p, float3 world_n, float3 light_to_surface) {
 
     // ---- 2) Penumbra width ----
     // light_size_uv = 0.01 をハードコード、kFilt で全体スケーリング。
-    // CPbrShader と同じ係数で 27_HelloShowcase 等の見た目に整合。
+    // CPbrShader と同じ係数を使い、標準描画と PBR 描画の半影幅を揃える。
     float pcss_penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
     float filter_r = max(pcss_penumbra * 0.01 * kFilt, ts * 1.25);
     // 極端な receiver/blocker 比で隣接物へ影が漏れるのを防ぐ。

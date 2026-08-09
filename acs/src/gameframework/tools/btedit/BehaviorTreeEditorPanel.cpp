@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — btedit / ABehaviorTreeEditorPanel 実装
+// GameFramework behavior tree debugger — ABehaviorTreeEditorPanel 実装
 //
 // 仕様の意図は ABehaviorTreeEditorPanel.h を参照。本ファイルでは:
 //   ・Init / Shutdown / Reset / autorun & step 制御
@@ -2629,7 +2629,7 @@ void ABehaviorTreeEditorPanel::DrawUI() noexcept {
             ImGui::Separator();
             if (m_Nodes.IsEmpty()) {
                 ImGui::TextDisabled("(No nodes registered)");
-                ImGui::TextDisabled("Call panel.AddNode(kind, name, parent_id) from your sample.");
+                ImGui::TextDisabled("Call panel.AddNode(kind, name, parent_id) from the owner.");
             } else {
                 // root (= parent_id == kInvalidId) を全て描画。複数 root も許容 (forest)。
                 bool drew_any = false;

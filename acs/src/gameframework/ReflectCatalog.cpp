@@ -29,7 +29,8 @@
 #include "gameframework/PrimitiveRenderer2D.h"  // APrimitiveRenderer2D (形状描画 + コライダー形状)
 #include "gameframework/MeshComponent3D.h"       // AMeshComponent3D (3D メッシュ: primitive/color を反射プロパティ化)
 #include "gameframework/WaterSurface3DComponent.h"
-#include "gameframework/Effects2D.h"   // FWater2D / FFire2D / FTrail2D / FStencilClip2D
+// 2D 水面・炎・軌跡・ステンシルの反射登録に必要な型を読む。
+#include "gameframework/Effects2D.h"
 #include "gameframework/Light2DComponent.h"  // ALight2DComponent (2D 点光源)
 #include "gameframework/Follow2DComponent.h"  // AFollow2DComponent (オブジェクト参照デモ)
 #include "gameframework/ReflectMethod.h"      // ACS_REGISTER_METHOD (関数リフレクション)

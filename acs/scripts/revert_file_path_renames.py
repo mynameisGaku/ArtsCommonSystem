@@ -85,7 +85,7 @@ REVERT_MAP = {
 TARGET_EXTS = {".h", ".hpp", ".inl", ".cpp", ".cxx", ".cc", ".c", ".md", ".cmake", ".txt"}
 EXCLUDE_DIRS = {"cmake-build-diligent-debug", "cmake-build-diligent-release", "cmake-build-debug",
                 "cmake-build-release", "build", "_deps", ".git", ".vs", ".idea"}
-ROOTS = ["src", "samples", "tests", "tools", "docs", "cmake", "scripts"]
+ROOTS = ["src", "tests", "tools", "docs", "cmake", "scripts"]
 
 
 def collect(repo_root: Path) -> list[Path]:

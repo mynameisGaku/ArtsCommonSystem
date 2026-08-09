@@ -22,7 +22,7 @@ CANDIDATES = [
 
 TARGET_EXTS = {".h", ".hpp", ".inl", ".cpp", ".cxx", ".cc", ".c"}
 EXCLUDE = {"cmake-build-diligent-debug", "cmake-build-diligent-release", "cmake-build-debug", "cmake-build-release", "build", "_deps", ".git"}
-ROOTS = ["src", "samples", "tests"]
+ROOTS = ["src", "tests"]
 
 
 def collect(repo_root: Path) -> list[Path]:

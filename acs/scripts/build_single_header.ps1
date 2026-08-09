@@ -43,7 +43,7 @@ $distributionAdjacentLibraryNames = @(
 $distributionLibraryNames = @('acs.lib') + @($distributionAdjacentLibraryNames | ForEach-Object { "$_.lib" })
 $distributionLibraryCountPerConfiguration = 14
 $distributionContractFileCount = 29
-$distributionStaticRelativePaths = @('README.md', 'acs.h', 'examples/build_example.cmd', 'examples/check.cpp')
+$distributionStaticRelativePaths = @('README.md', 'acs.h', 'verification/build_consumer_contract.cmd', 'verification/consumer_contract.cpp')
 if ($distributionLibraryNames.Count -ne $distributionLibraryCountPerConfiguration -or 1 + (2 * $distributionLibraryNames.Count) -ne $distributionContractFileCount) {
     throw "配布libraryまたはmanifestの固定file数が一致しません"
 }
@@ -1591,14 +1591,14 @@ function Invoke-PipelineSelfTest {
         $manifestSource = Join-Path $testDirectory 'manifest source'
         $debugManifestDirectory = Join-Path $manifestSource 'lib\x64\Debug'
         $releaseManifestDirectory = Join-Path $manifestSource 'lib\x64\Release'
-        $manifestExampleDirectory = Join-Path $manifestSource 'examples'
+        $manifestVerificationDirectory = Join-Path $manifestSource 'verification'
         New-Item -ItemType Directory -Force -Path $debugManifestDirectory | Out-Null
         New-Item -ItemType Directory -Force -Path $releaseManifestDirectory | Out-Null
-        New-Item -ItemType Directory -Force -Path $manifestExampleDirectory | Out-Null
+        New-Item -ItemType Directory -Force -Path $manifestVerificationDirectory | Out-Null
         [System.IO.File]::WriteAllText((Join-Path $manifestSource 'README.md'), 'fixture-readme')
         [System.IO.File]::WriteAllText((Join-Path $manifestSource 'acs.h'), 'fixture-header')
-        [System.IO.File]::WriteAllText((Join-Path $manifestExampleDirectory 'build_example.cmd'), 'fixture-build')
-        [System.IO.File]::WriteAllText((Join-Path $manifestExampleDirectory 'check.cpp'), 'fixture-source')
+        [System.IO.File]::WriteAllText((Join-Path $manifestVerificationDirectory 'build_consumer_contract.cmd'), 'fixture-build')
+        [System.IO.File]::WriteAllText((Join-Path $manifestVerificationDirectory 'consumer_contract.cpp'), 'fixture-source')
         $configurationFixtures = @(
             [pscustomobject]@{ Name = 'Debug'; Directory = $debugManifestDirectory }
             [pscustomobject]@{ Name = 'Release'; Directory = $releaseManifestDirectory }
@@ -1980,20 +1980,20 @@ function Invoke-PipelineSelfTest {
         } 'unexpected library outside canonical directories'
         Remove-Item -LiteralPath $outsideLibraryPath -Force
 
-        $ignoredArtifactPath = Join-Path $manifestExampleDirectory 'check.exe'
+        $ignoredArtifactPath = Join-Path $manifestVerificationDirectory 'consumer_contract.exe'
         [System.IO.File]::WriteAllText($ignoredArtifactPath, 'ignored')
         Assert-ExpectedFailure {
             Publish-AcsDistributionManifest $manifestSource
         } 'unexpected ignored distribution artifact outside libraries'
         Remove-Item -LiteralPath $ignoredArtifactPath -Force
 
-        $requiredExamplePath = Join-Path $manifestExampleDirectory 'check.cpp'
-        $requiredExampleBytes = [System.IO.File]::ReadAllBytes($requiredExamplePath)
-        Remove-Item -LiteralPath $requiredExamplePath -Force
+        $requiredContractPath = Join-Path $manifestVerificationDirectory 'consumer_contract.cpp'
+        $requiredContractBytes = [System.IO.File]::ReadAllBytes($requiredContractPath)
+        Remove-Item -LiteralPath $requiredContractPath -Force
         Assert-ExpectedFailure {
             Publish-AcsDistributionManifest $manifestSource
-        } 'missing required distribution example'
-        [System.IO.File]::WriteAllBytes($requiredExamplePath, $requiredExampleBytes)
+        } 'missing required distribution consumer contract'
+        [System.IO.File]::WriteAllBytes($requiredContractPath, $requiredContractBytes)
 
         $missingAdjacentLibraryPath = Join-Path $releaseManifestDirectory 'Diligent-Common.lib'
         $missingAdjacentLibraryBytes = [System.IO.File]::ReadAllBytes($missingAdjacentLibraryPath)

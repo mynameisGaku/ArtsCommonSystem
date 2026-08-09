@@ -75,7 +75,7 @@ ACS_GAME_MAIN(CMyGame)
 | `OnRender(rc)` | 描画。`rc` は `CSpriteBatch` / `FFont` / `IRhiCommandList` を配線する |
 | `OnEvent(e)` | 入力/ウィンドウイベント。top のみに届く |
 
-> 注: 上の表は `AScene` のライフサイクル API です。サンプル 58 も同じ `AScene` を使い、2D の共通サービスは `WantedServices()` が `kScene2DServices` を返して要求します。`OnReady()` / `OnTick(dt)` / `OnDrawHud(rc, sb)` も `AScene` 自身が提供します。
+> 注: 上の表は `AScene` のライフサイクル API です。2D の共通サービスは `WantedServices()` が `kScene2DServices` を返して要求します。`OnReady()` / `OnTick(dt)` / `OnDrawHud(rc, sb)` も `AScene` 自身が提供します。
 
 ### CSceneManager (SceneManager.h)
 
@@ -158,12 +158,12 @@ ACS_GAME_MAIN(CMyGame)
 
 ## よく使うパターン
 
-### 1. フェード付きシーン遷移(サンプル 58 そのまま)
+### 1. フェード付きシーン遷移
 
 `TransitionTo` がフェードアウト→暗転中に切替→フェードインを全部やってくれます。**遷移中は入力を無視**するのが定番です。
 
 ```cpp
-// AScene の OnTick から (サンプル 58)
+// AScene の OnTick から
 void ATitleScene::OnTick(f32 /*dt*/) noexcept {
     if (GetGame().Fade().IsActive()) return;           // 遷移中はガード
     if (Services().Input().IsPressed(kStart)) {
@@ -254,7 +254,7 @@ if (auto* prof = GetGame().AppState<FPlayerProfile>()) {
 
 RTTI 不使用で型 ID を管理するため、`AppState<別の型>()` は安全に `nullptr` を返します。
 
-### 5. ハイスコアを実ファイルに保存・復元(サンプル 38 のラウンドトリップ)
+### 5. ハイスコアを実ファイルに保存・復元
 
 保存対象は POD。`static_assert(__is_trivially_copyable(...))` で型を守ります。
 
@@ -263,11 +263,9 @@ RTTI 不使用で型 ID を管理するため、`AppState<別の型>()` は安�
 struct FHighScore { acs::u64 best_score = 0; acs::u64 timestamp = 0; };
 static_assert(__is_trivially_copyable(FHighScore), "POD only");
 
-inline constexpr wchar_t kSaveFile[] = L"hello_full_game_highscore.acssave";
+inline constexpr wchar_t kSaveFile[] = L"my_game_highscore.acssave";
 
-// 起動時にロード (FFullGameApp::OnStart)。
-// サンプル 38 の Init(kSaveFile) も static 配列なので安全だが、
-// 新規コードでは所有コピーする TryInit を基本にする。
+// 起動時にロードする。所有コピーする TryInit を基本にする。
 auto init = m_HighscoreSlot.TryInit(kSaveFile);
 if (init.IsErr()) {
     ACS_LOG_WARN("save slot init failed: %s", init.Error().message);
@@ -279,25 +277,25 @@ if (init.IsErr()) {
     ACS_LOG_INFO("first run, no save yet");
 }
 
-// ベスト更新時だけ保存 (FFullGameApp::SaveHighScoreIfBetter)
-void FFullGameApp::SaveHighScoreIfBetter(u64 final_score) noexcept {
-    if (final_score <= m_Highscore.best_score) return;
-    m_Highscore.best_score = final_score;
-    auto r = m_HighscoreSlot.Save(m_Highscore);   // 実ディスクへ書込
+// ベスト更新時だけ保存する
+void SaveHighScoreIfBetter(TSaveSlot<FHighScore>& slot, FHighScore& highscore, u64 final_score) noexcept {
+    if (final_score <= highscore.best_score) return;
+    highscore.best_score = final_score;
+    auto r = slot.Save(highscore);   // 実ディスクへ書込
     if (r.IsErr()) ACS_LOG_WARN("save failed: %s", r.Error().message);
 }
 ```
 
 スキーマ(`T` の中身)を変えたら `Save(data, version)` の version を増やすと、旧データ読込時に `Load` が `ESaveArchiveSubCode::kSubMigrationNeeded` を返すので migrate へ分岐できます。
 
-### 6. 高レベル進行を CGameFlow で(サンプル 38)
+### 6. 高レベル進行を CGameFlow で
 
 ```cpp
 m_Flow.Init(EFlowState::Splash);
 m_Flow.RequestTransition(EFlowState::MainTitle, 0.0f);  // fade_sec=0 → 即時
 // ... 毎フレーム:
 m_Flow.Tick(dt);
-if (FInput::IsKeyPressed(EKey::Enter) &&
+if (CInput::IsKeyPressed(EKey::Enter) &&
     m_Flow.CurrentState() == EFlowState::MainTitle) {
     m_Flow.RequestTransition(EFlowState::Gameplay, 0.5f);
 }
@@ -312,8 +310,8 @@ if (m_Flow.IsTransitioning()) {
 
 - **遷移は次フレーム頭で適用**。`Change/Push/Pop` を呼んでも即座には切り替わらない。同フレームに複数要求すると後勝ち。`OnUpdate` 内で安全にスタックを書き換えられるのはこのため。
 - **`TransitionTo` の描画は CGame 持ち**。切替先シーンで二重にフェードを描かない。フェードは time_scale の影響を受けず**実時間で進む**(ポーズ中でも遷移は進む)。
-- **遷移中は入力をガード**。`if (GetGame().Fade().IsActive()) return;` を入れないと暗転中に二重遷移しがち(サンプル 58 の定番パターン)。
-- **`AScene` と `AScene` で利用するフックを選べる**。`AScene` はライフサイクル hook と `OnReady/OnTick/OnDrawHud` の両方を提供し、`AScene` は既定サービス構成だけを追加する。
+- **遷移中は入力をガード**。`if (GetGame().Fade().IsActive()) return;` を入れないと暗転中に二重遷移しやすくなります。
+- **`AScene` は lifecycle と描画 hook を提供**。必要な service は `WantedServices()` で明示します。
 - **`AScene::OnPause/OnResume` は Push/Pop でのみ呼ばれる**。`ChangeScene` は pause/resume を呼ばない(退場側は `OnExit`、新 top は `OnEnter`)。
 - **新規コードは `TSaveSlot::TryInit` を優先**。パスを検証して所有コピーし、空・長すぎるパスや OOM を `TResult<void>` で返します。失敗時は以前のパスを変えません。互換 API の `Init` はコピーしないため、`static` / メンバの `constexpr wchar_t[]` など**寿命がスロット以上の文字列**だけを渡してください。
 - **`Save` は atomic replace**。同一ディレクトリの一時ファイルへ完全書込・flush 後に置換するため、途中失敗では既存ファイルを保持する。`Load` 側はサイズ完全一致と CRC32 を検証し、失敗時に呼び出し側の値を変更しない。
@@ -321,15 +319,17 @@ if (m_Flow.IsTransitioning()) {
 - **`TSaveSlot<T>` の `T` は trivially-copyable 限定**。ポインタは型制約を通っても参照先を永続化できないため、動的配列・文字列・プロセス固有アドレスを含めず、固定レイアウトの値だけを使う。
 - **`CPauseDirector` は値を返すだけ**。`EffectiveTimeScale()` を取得して自分で `GetGame().SetTimeScale(...)` を呼ぶ必要がある(モジュールが CGame に依存しない設計)。
 - **`CGameFlow` は遷移中の追加要求を無視**(後勝ちしない)。現遷移を完了させてから次を受ける。不正遷移(許可テーブル外)も no-op。
-- **`FSettings::Save/Load` は実装済み**(INI 風テキスト、`.tmp`→`MoveFileExW` の atomic write)。`SetI32/GetI32/SetF32/SetBool/SetString/...` の型付き key-value を `Save(L"...ini")` でディスクへ、`Load(L"...ini")` で復元(ファイルが無ければ `Err` → 既定値のまま)。検証 = `62`(round-trip) / `63`(ハイスコアを保存→次回起動でロード)。整数 1〜数個の設定/スコアなら最短、POD をまとめて残すゲームセーブ全般は `TSaveSlot<T>`。
+- **`CSettings::Save/Load` は INI 風テキストを atomic write**。`SetI32/GetI32/SetF32/SetBool/SetString/...` の型付き key-value を `Save(L"...ini")` でディスクへ、`Load(L"...ini")` で復元します。ファイルが無ければ `Err` を返し、呼び出し側の既定値を保ちます。整数 1〜数個の設定やスコアには `CSettings`、POD をまとめて残すゲームセーブには `TSaveSlot<T>` を使います。
 
 ---
 
-## 動くサンプル
+## 責務の組み合わせ
 
-- **`acs/samples/58_HelloTilemap/TilemapDemo.cpp`** — `CGame::TransitionTo` による FadeInOut 遷移(Title ⇄ Level)。`GetGame().Fade().IsActive()` での入力ガード。`AScene` 派生・`OnReady/OnTick/OnDrawHud`。
-- **`acs/samples/38_HelloFullGame/`** — フルゲーム構成。`TSaveSlot<FHighScore>` の実ファイル・ラウンドトリップ(`FullGameApp.cpp` の `OnStart` でロード / `SaveHighScoreIfBetter` で保存)、`CGameFlow` の進行管理、`AScene` 派生の `ChangeScene`(`GameplayScene.cpp` → `GameOverScene.cpp` → `TitleScene.cpp`)。POD 定義は `GameTypes.h`。
-- **`acs/samples/63_HelloVerticalSlice/main.cpp`** — **縦スライスの完結例**。`AScene` 派生の Title/Play/GameOver を `ChangeScene` で遷移、Pause は Play 内 state でゲームを背後に凍結。`FSettings` でハイスコアを INI 保存→次回起動でロード(`OnStart` で `Load`、`AGameOverScene::OnReady` で `SubmitScore`)。UI(`FUiLayer`)・atlas(`FSpritePack`)・tilemap・collide-and-slide(OBB 含む)を 1 本に統合。全 Y-down。
+- `CGame::TransitionTo` と `CFadeTransition` が暗転を挟む scene 交換を担当します。
+- `CSceneManager` が `ChangeScene` / `PushScene` / `PopScene` の lifecycle を管理します。
+- `TSaveSlot<T>` が固定 layout の値を保存し、version と CRC32 を検証します。
+- `CSettings` が少数の型付き key-value を保存します。
+- `CGameFlow` と `CPauseDirector` は進行状態と時間倍率を値として返します。
 - ヘッダ実物: `acs/src/gameframework/Game.h` / `SceneManager.h` / `Scene.h` /
   `FadeTransition.h` / `GameFlow.h` / `PauseDirector.h` / `AppState.h` /
   `SaveSlot.h` / `SaveArchive.h`

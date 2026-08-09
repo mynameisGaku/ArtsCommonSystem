@@ -13,7 +13,7 @@
 
 ## 最小例
 
-`ANode` にスプライトとアニメコンポーネントを付け、`InitGrid` でグリッドを割って `Play()` するだけ。これが verified サンプル 56 の中核そのまま。
+`ANode` にスプライトとアニメコンポーネントを付け、`InitGrid` でグリッドを割って `Play()` します。
 
 ```cpp
 #include "gameframework/GameFramework.h"
@@ -82,7 +82,7 @@ Root().AddChild(Move(node));
 
 ## よく使うパターン
 
-### 1. グリッドシートをループ再生 (サンプル 56)
+### 1. グリッドシートをループ再生
 
 横並び 4 セル (256x64) を 8fps でループ。これが最も基本。
 
@@ -138,7 +138,7 @@ anim.Play();
 
 ## 注意点 (gotcha)
 
-- **`ASprite2DComponent` が描画先**: `ASpriteAnimComponent` 自身は描かない。同じ `ANode` に貼った sprite の `SetUvRect` を書き換えるだけ。`OnRequire` で sprite が無ければ `GetOrAddComponent<ASprite2DComponent>()` で**自動追加される**が、それだと**テクスチャ未設定の素の sprite**になる。アニメさせたいなら自分で `AddComponent<ASprite2DComponent>` してから `SetTexture` を呼ぶこと (サンプル 56 もそうしている)。
+- **`ASprite2DComponent` が描画先**: `ASpriteAnimComponent` 自身は描かない。同じ `ANode` に貼った sprite の `SetUvRect` を書き換えるだけ。`OnRequire` で sprite が無ければ `GetOrAddComponent<ASprite2DComponent>()` で**自動追加される**が、それだと**テクスチャ未設定の素の sprite**になる。アニメさせたいなら自分で `AddComponent<ASprite2DComponent>` してから `SetTexture` を呼ぶこと。
 
 - **sibling は初回 `OnUpdate` で遅延 lookup**: コンポーネントの追加順 (sprite が先か anim が先か) に依存しないよう、sprite ポインタは最初の `OnUpdate` で解決される。つまり **`OnReady`/構築直後の時点ではまだ UV は適用されていない**。1 フレーム目以降で反映される点に注意 (静止 1 フレーム目を即見せたい用途では誤解しやすい)。
 
@@ -154,9 +154,11 @@ anim.Play();
 
 ---
 
-## 動くサンプル
+## 期待する動作
 
-- `acs/samples/56_HelloSpriteAnim/SpriteAnimDemo.cpp` — 手続き生成した 4 セル (256x64) シートを `InitGrid(4,1,4,8.0f,Loop)` で 8fps ループ再生。ノードを左右に揺らしつつ HUD に `CurrentFrame()` を表示する (verified / スクショ確認済)。
+`InitGrid(4, 1, 4, 8.0f, Loop)` は横 4 セルを 8fps で循環し、
+`CurrentFrame()` は現在のセル index を返します。描画は同じ node の
+`ASprite2DComponent` が担当します。
 
 実装本体:
 

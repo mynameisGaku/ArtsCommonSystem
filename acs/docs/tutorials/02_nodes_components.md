@@ -1,6 +1,6 @@
 # ノードツリー & コンポーネント (ANode / AComponent)
 
-ACS GameFramework のシーンは **`ANode` の親子ツリー** でできています。各ノードは共通の `FTransform3D`（位置・回転・スケール）を持ち、2D ゲームでは `Position2D()` / `SetPosition2D()` などの射影ヘルパを使います。振る舞いは **継承（`OnUpdate` を override）** か **コンポーネント合成（`AddComponent<T>()`）** のどちらでも書けます。「キャラやエフェクトを階層構造で並べたい」「Unity 風に `GetComponent<T>()` で部品を組み合わせたい」ときに使います。
+ACS GameFramework のシーンは **`ANode` の親子ツリー** でできています。各ノードは共通の `FTransform3D`（位置・回転・スケール）を持ち、2D ゲームでは `Position2D()` / `SetPosition2D()` などの射影ヘルパを使います。振る舞いは **継承（`OnUpdate` を override）** か **コンポーネント合成（`AddComponent<T>()`）** のどちらでも書けます。キャラやエフェクトを階層化し、一つの機能を一つのコンポーネントとして組み合わせる場合に使います。
 
 - ヘッダ: `acs/src/gameframework/ANode.h` / `AComponent.h` / `Transform3D.h` /
   `Transform2D.h`
@@ -10,7 +10,7 @@ ACS GameFramework のシーンは **`ANode` の親子ツリー** でできてい
 
 ## 最小例
 
-プレーンな `ANode` に「毎フレーム回す」コンポーネントを付ける、verified サンプル 28 の構成そのものです。
+プレーンな `ANode` に毎フレーム更新するコンポーネントを付ける構成です。
 
 ```cpp
 #include "gameframework/GameFramework.h"
@@ -137,7 +137,7 @@ void TickRoot(ANode& root, f32 dt) noexcept {
 
 ## よく使うパターン
 
-### 1. 親子で transform が伝播する「車輪とスポーク」（サンプル 28）
+### 1. 親子で transform が伝播する「車輪とスポーク」
 
 ```cpp
 auto wheel_up = NewObject<ARotatingNode>(/*speed=*/1.0f, "wheel");
@@ -151,7 +151,7 @@ wheel.AddChild(Move(spoke_up));                      // wheel が回ると spoke
 `wheel.SetRotation2D(...)` で回転が変わると、子 `spoke` の `World2D()` は親回転と
 親位置を含めて再計算されます。
 
-### 2. 継承 vs 合成、同じ動きを 2 通りで（サンプル 28）
+### 2. 継承 vs 合成、同じ動きを 2 通りで
 
 ```cpp
 // (a) 継承版: ANode を継承して OnUpdate を override
@@ -189,7 +189,7 @@ private:
 ただし後から `RemoveComponent<Dep>()` できるため、生ポインタを保存する場合は依存先を
 動的に除去しない設計にするか、使用時に `GetComponent<Dep>()` で取り直してください。
 
-### 4. 実コンポーネントで body を持たせる（サンプル 55）
+### 4. 実コンポーネントで body を持たせる
 
 ```cpp
 auto player = NewObject<ANode>();
@@ -211,9 +211,9 @@ Root().AddChild(Move(player));        // 強参照はツリーへ移す
 - **non-copy/non-move**: `ANode`/`AComponent` はコピー・ムーブ禁止。子ノードは
   `NewObject<T>(...)` で生成し、`AddChild` へ `Move()` する。ツリーは
   `TObjectPtr<ANode>` で所有し、長期の外部参照には `TWeakObjectPtr<ANode>` を使う。
-- **`AddChild` は即 `OnSpawn`**（Phase 1 簡略化）。一方 `Destroy()` / `Reparent()` は**遅延**で、次の `ResolveStructuralChanges()` まで反映されない。`UpdateTree` の後に `ResolveStructuralChanges()` を毎フレーム呼ぶこと（サンプル 28 の `OnUpdate` 末尾参照）。
-- **走査中の追加と削除**: `UpdateTree`/`DrawTree` は index ベース。走査中に `AddChild` された子は同フレームで走る（Unity 互換）。`Destroy` は遅延 reap なので走査中に即時除去はされない。
-- **`World()` はキャッシュなし**（Phase 1）。深い階層で毎フレーム何度も呼ぶとコストがかさむ。ループ内で使うなら一度ローカル変数に取る。
+- **`AddChild` は即 `OnSpawn`**。一方 `Destroy()` / `Reparent()` は**遅延**で、次の `ResolveStructuralChanges()` まで反映されない。`UpdateTree` の後に `ResolveStructuralChanges()` を毎フレーム呼びます。
+- **走査中の追加と削除**: `UpdateTree`/`DrawTree` は index ベース。走査中に `AddChild` された子は同フレームで走る。`Destroy` は遅延 reap なので走査中に即時除去はされない。
+- **`World()` はキャッシュなし**。深い階層で毎フレーム何度も呼ぶとコストがかさむ。ループ内で使うなら一度ローカル変数に取る。
 - **2D 回転はラジアン**。`Rotation2D()` / `SetRotation2D()` は度ではない。
 - **`AddComponent` の戻り値を捨てない**: 後でいじるコンポーネントは戻り値の参照（またはアドレス）を控える。`GetComponent<T>()` で取り直すこともできるが、最初の一致しか返さない線形探索。
 - **コンポーネントは owner が単独所有**: `ANode` は各 `AComponent` を `TUniquePtr` で保持する。参照や生ポインタは寿命を延ばさず、`RemoveComponent` または owner 破棄後は無効。
@@ -224,12 +224,10 @@ Root().AddChild(Move(player));        // 強参照はツリーへ移す
 
 ---
 
-## 動くサンプル
+## 責務の組み合わせ
 
-| 見たいもの | パス |
+| 実現したいこと | ACS の責務 |
 | --- | --- |
-| 継承ノード + 自作コンポーネント + 親子 transform 伝播 | `acs/samples/28_HelloGameFramework/`（特に `GameplayScene.cpp`, `RotateComponent.{h,cpp}`, `RotatingNode.{h,cpp}`） |
-| `AScene` 上で sprite + physics body を組む実用スターター | `acs/samples/55_HelloScene2D/Scene2DStarter.cpp` |
-| エフェクト系コンポーネント（`AWater2DComponent`/`AFire2DComponent`/`ATrail2DComponent`）を `AddComponent` する例 | `acs/samples/59_HelloEffects2D/EffectsDemo.cpp` |
-
-上記 3 サンプルはいずれも実機ビルド + スクリーンショット確認済みです。
+| 継承ノード + 自作コンポーネント + 親子 transform 伝播 | `ANode`、`AComponent`、`FTransform3D` |
+| `AScene` 上で sprite + physics body を構成 | `ASprite2DComponent`、`APhysicsBody2D`、`CSceneNodeGraph` |
+| 水、炎、トレイルを node へ追加 | `AWater2DComponent`、`AFire2DComponent`、`ATrail2DComponent` |

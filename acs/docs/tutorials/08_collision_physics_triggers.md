@@ -4,9 +4,9 @@ ACS の 2D 衝突まわりは **3 つの独立した部品** でできていま�
 
 | 部品 | これは何 | いつ使う |
 |------|---------|---------|
-| `FCollisionWorld2D` | 形状 (AABB / 円 / 凸ポリゴン / **OBB=回転矩形**) を登録して overlap / raycast を問い合わせる「クエリ用ワールド」 | 「この範囲に何がいる?」「壁にレイが当たる?」を知りたい |
-| `APhysicsBody2D` | velocity + gravity を積分し、`FCollisionWorld2D` の他形状にぶつかったら **押し戻し + スライド** する `AComponent` | プレイヤー/敵を壁にめり込ませず動かしたい (プラットフォーマー/トップダウン) |
-| `ATriggerComponent` / `FTriggerWorld2D` | 押し戻し**せず** overlap の `enter` / `exit` だけ通知する「センサー」 | アイテム取得・ダメージ判定・ゴール到達など「触れたら発火」 |
+| `CCollisionWorld2D` | 形状 (AABB / 円 / 凸ポリゴン / **OBB=回転矩形**) を登録して overlap / raycast を問い合わせる「クエリ用ワールド」 | 「この範囲に何がいる?」「壁にレイが当たる?」を知りたい |
+| `APhysicsBody2D` | velocity + gravity を積分し、`CCollisionWorld2D` の他形状にぶつかったら **押し戻し + スライド** する `AComponent` | プレイヤー/敵を壁にめり込ませず動かしたい (プラットフォーマー/トップダウン) |
+| `ATriggerComponent` / `CTriggerWorld2D` | 押し戻し**せず** overlap の `enter` / `exit` だけ通知する「センサー」 | アイテム取得・ダメージ判定・ゴール到達など「触れたら発火」 |
 
 すべて `namespace acs::game`、形状型 (`FAabb2` / `FCircle` / `FConvexPoly2` / `FObb2` / `FRay2` / `FRayHit2`) は `namespace acs`、ヘッダは `math/Collision2D.h`。
 
@@ -14,14 +14,14 @@ ACS の 2D 衝突まわりは **3 つの独立した部品** でできていま�
 
 ## 最小例
 
-### A. クエリだけ (FCollisionWorld2D 単体、GPU 不要)
+### A. クエリだけ (CCollisionWorld2D 単体、GPU 不要)
 
 ```cpp
 #include "gameframework/CollisionWorld2D.h"
 using namespace acs;
 using namespace acs::game;
 
-FCollisionWorld2D world;
+CCollisionWorld2D world;
 world.Init(64.0f);                                 // cell_size = 形状最大サイズの 2-3 倍が目安
 
 // 形状を登録 → FShapeId が返る
@@ -45,7 +45,7 @@ if (world.Raycast(FRay2{ FVec2{-50, 0}, FVec2{1, 0} }, /*max_t=*/200.0f, rh, hit
 
 ### B. 重力で落ちて床を滑る body (APhysicsBody2D)
 
-`54_HelloCollideSlide` の核そのものです。
+`APhysicsBody2D` が重力積分と collide-and-slide を担当します。
 
 ```cpp
 #include "gameframework/PhysicsBody2D.h"
@@ -54,7 +54,7 @@ if (world.Raycast(FRay2{ FVec2{-50, 0}, FVec2{1, 0} }, /*max_t=*/200.0f, rh, hit
 using namespace acs;
 using namespace acs::game;
 
-FCollisionWorld2D w; w.Init(8.0f);
+CCollisionWorld2D w; w.Init(8.0f);
 w.AddAabb(FAabb2{ FVec2{0, 10}, FVec2{100, 10} });    // 床 (上面 y=0、本体 y∈[0,20]=画面下)
 
 ANode node;
@@ -70,7 +70,7 @@ for (int i = 0; i < 90; ++i) node.UpdateTree(1.0f / 60.0f);
 
 ### C. 触れたら発火するセンサー (ATriggerComponent)
 
-`57_HelloTriggers` ベース。
+`ATriggerComponent` が layer / mask と enter / stay / exit を担当します。
 
 ```cpp
 #include "gameframework/TriggerComponent.h"
@@ -81,7 +81,7 @@ using namespace acs::game;
 constexpr u32 kPlayer = 1u << 3;
 constexpr u32 kPickup = 1u << 1;
 
-FTriggerWorld2D tw; tw.Init();
+CTriggerWorld2D tw; tw.Init();
 ANode root;
 
 auto pnode = NewObject<ANode>();
@@ -112,7 +112,7 @@ tw.Tick(1.0f / 60.0f);           // ★ ここで overlap 比較 → OnEnter/OnE
 
 ## 主要 API
 
-### FCollisionWorld2D
+### CCollisionWorld2D
 
 | メソッド | 説明 |
 |---------|------|
@@ -140,7 +140,7 @@ tw.Tick(1.0f / 60.0f);           // ★ ここで overlap 比較 → OnEnter/OnE
 
 | メンバ | 説明 |
 |--------|------|
-| `explicit APhysicsBody2D(FCollisionWorld2D& world) noexcept` | constructor で衝突ワールドが**必須**。`AddComponent<APhysicsBody2D>(world)` で渡す |
+| `explicit APhysicsBody2D(CCollisionWorld2D& world) noexcept` | constructor で衝突ワールドが**必須**。`AddComponent<APhysicsBody2D>(world)` で渡す |
 | `void SetCircle(f32 radius)` | 円形状。半径 0 以下は 0.001 に補正 |
 | `void SetAabb(FVec2 half_size)` | AABB 形状 (半サイズ指定) |
 | `void SetPolygon(const FConvexPoly2& local_poly)` | 凸ポリゴン (body 原点基準のローカル頂点) |
@@ -155,7 +155,7 @@ tw.Tick(1.0f / 60.0f);           // ★ ここで overlap 比較 → OnEnter/OnE
 
 | メンバ | 説明 |
 |--------|------|
-| `explicit ATriggerComponent(FTriggerWorld2D& world, u32 layer = kAllLayers, u32 mask = kAllLayers) noexcept` | trigger ワールド + 自分の layer + 反応する mask |
+| `explicit ATriggerComponent(CTriggerWorld2D& world, u32 layer = kAllLayers, u32 mask = kAllLayers) noexcept` | trigger ワールド + 自分の layer + 反応する mask |
 | `void SetCircle(f32 radius)` / `void SetAabb(FVec2 half_size)` | 形状設定 |
 | `void SetLayer(u32)` / `void SetMask(u32)` / `Layer()` / `Mask()` | layer/mask の後変更・取得 |
 | `void SetOnEnter(TriggerFn, void* user)` / `void SetOnExit(TriggerFn, void* user)` | 関数ポインタ版コールバック |
@@ -167,7 +167,7 @@ tw.Tick(1.0f / 60.0f);           // ★ ここで overlap 比較 → OnEnter/OnE
 
 ### ESvc — サービス有効化
 
-シーン (`AScene`) 内で `FCollisionWorld2D` / `FTriggerWorld2D` を使うときは `WantedServices()` で宣言すると、`Services().Physics()` / `Services().Triggers()` で取り出せます。両ワールドはサービス構築時に初期化済みで、Triggers はシーンから自動で `Tick` されます。
+シーン (`AScene`) 内で `CCollisionWorld2D` / `CTriggerWorld2D` を使うときは `WantedServices()` で宣言すると、`Services().Physics()` / `Services().Triggers()` で取り出せます。両ワールドはサービス構築時に初期化済みで、Triggers はシーンから自動で `Tick` されます。
 
 ```cpp
 using namespace acs::game;
@@ -194,13 +194,13 @@ public:
 
 ### 1. layer / mask で絞り込む (player / pickup / wall)
 
-`57_HelloTriggers` の検証コードがそのままレシピです。
+クエリ mask は対象 layer の bit を組み合わせます。
 
 ```cpp
 constexpr u32 kWall   = 1u << 0;
 constexpr u32 kPickup = 1u << 1;
 
-FCollisionWorld2D world; world.Init(1.0f);
+CCollisionWorld2D world; world.Init(1.0f);
 world.AddAabb  (FAabb2{ FVec2{0,0}, FVec2{1,1} }, kWall);
 world.AddCircle(FCircle{ FVec2{0,0}, 0.5f },      kPickup);
 
@@ -215,7 +215,7 @@ world.OverlapCircle(FCircle{ FVec2{0,0}, 3.0f }, hits);                     // �
 
 ### 2. ポリゴン body も同じくスライドする
 
-`54_HelloCollideSlide` の (2)。凸包コライダーを `SetPolygon` に渡すだけ。
+凸包コライダーは `SetPolygon` に渡します。
 
 ```cpp
 auto& body = node.AddComponent<APhysicsBody2D>(w);
@@ -231,7 +231,7 @@ body.velocity = FVec2{4, 0};
 
 ### 3. enter/exit を 2 物体で受ける (双方向)
 
-`57_HelloTriggers` の core。player と pickup を互いの mask に入れると、両方のハンドラが鳴ります。
+player と pickup を互いの mask に入れると、両方のハンドラが呼ばれます。
 
 ```cpp
 using namespace acs;
@@ -240,7 +240,7 @@ using namespace acs::game;
 constexpr u32 kPlayer = 1u << 3;
 constexpr u32 kPickup = 1u << 1;
 
-FTriggerWorld2D tw;
+CTriggerWorld2D tw;
 tw.Init();
 ANode root;  // root は tw より後に破棄される
 
@@ -275,10 +275,10 @@ pk.SetCircle(0.4f);
 
 ### 4. ResolveCircle を直接使った貫通解消
 
-body を使わず手動で押し戻したいとき (`54_HelloCollideSlide` の (0))。
+body を使わず手動で押し戻したい場合は `ResolveCircle` を直接使います。
 
 ```cpp
-FCollisionWorld2D w; w.Init(8.0f);
+CCollisionWorld2D w; w.Init(8.0f);
 w.AddAabb(FAabb2{ FVec2{0, 10}, FVec2{100, 10} });             // 上面 y=0
 FVec2 push = w.ResolveCircle(FCircle{ FVec2{0, -0.5f}, 1.0f }); // 下端 y=0.5 が床へ 0.5 めり込む
 // push ≈ (0, -0.5) → my_pos += push で画面上側へ抜け出す
@@ -289,28 +289,28 @@ FVec2 push = w.ResolveCircle(FCircle{ FVec2{0, -0.5f}, 1.0f }); // 下端 y=0.5 
 ## 注意点 (gotcha)
 
 - **`FShapeId{}` / `FTriggerId{}` (packed==0) は無効値**。`AddXxx` の戻り値が有効な最初の handle で、無効値は「自身除外なし」の意味でも使えます (`OverlapCircle(..., {}, mask)`)。
-- **SpatialGrid は lazy rebuild**。`Add` / `Update` / `Remove` は `m_Dirty` を立てるだけで、**クエリ直前に full rebuild** されます。だから「移動 → `UpdateCircle` → そのまま `OverlapCircle`」で最新状態が反映されます。が、大量形状で毎フレーム full rebuild はコスト源 (Phase 1 仕様)。
+- **SpatialGrid は lazy rebuild**。`Add` / `Update` / `Remove` は `m_Dirty` を立てるだけで、**クエリ直前に full rebuild** されます。したがって「移動 → `UpdateCircle` → そのまま `OverlapCircle`」で最新状態が反映されます。大量形状で毎フレーム更新すると full rebuild のコストが増えます。
 - **layer/mask の既定は `kAllLayers` (全部)**。1 つでも layer を指定したら、クエリ側 mask も合わせて指定しないと「全部ヒット」のままです。
-- **`FTriggerWorld2D::Tick(dt)` を毎フレーム必ず呼ぶ**。これが overlap の前フレ/今フレ比較 → enter/exit 発火の本体です。形状の `Update` だけでは何も鳴りません。シーン内で `ESvc::Triggers` を有効化していれば、シーンの `OnUpdate` 後に自動で `Tick` されます (手動 Tick 不要)。
-- **`APhysicsBody2D` の積分は body 自身の `OnUpdate`** で行われます。`node.UpdateTree(dt)` を回す (= ノードツリーが update される) ことが前提。`FCollisionWorld2D` 側に「physics tick」は無く、Physics2D サービスは自動 tick の対象**外**です (= body コンポーネントが駆動)。
-- **`APhysicsBody2D` は kinematic / swept**。剛体ソルバ (回転・運動量交換) ではありません。「めり込まず動く + 床/壁で速度を殺してスライド」が責務。質量・反発・回転が要るボール同士の弾性衝突は別物 (`08_HelloPhysics2D` は `math/Collision2D.h` の `Resolve(FCircle,FCircle)` を手書きで回しており、`APhysicsBody2D` は使っていません)。
-- **dt が大きすぎると破綻**します。`08_HelloPhysics2D` は `if (dt > 0.05f) dt = 0.05f;` で clamp しています。スパイク時は同様に clamp 推奨。
+- **`CTriggerWorld2D::Tick(dt)` を毎フレーム必ず呼ぶ**。これが overlap の前フレ/今フレ比較 → enter/exit 発火の本体です。形状の `Update` だけでは何も鳴りません。シーン内で `ESvc::Triggers` を有効化していれば、シーンの `OnUpdate` 後に自動で `Tick` されます (手動 Tick 不要)。
+- **`APhysicsBody2D` の積分は body 自身の `OnUpdate`** で行われます。`node.UpdateTree(dt)` を回す (= ノードツリーが update される) ことが前提。`CCollisionWorld2D` 側に「physics tick」は無く、Physics2D サービスは自動 tick の対象**外**です (= body コンポーネントが駆動)。
+- **`APhysicsBody2D` は kinematic / swept**。剛体ソルバ (回転・運動量交換) ではありません。「めり込まず動く + 床/壁で速度を殺してスライド」が責務。質量・反発・回転が要る弾性衝突は `math/Collision2D.h` の `Resolve(FCircle, FCircle)` などを別に組み立てます。
+- **dt が大きすぎると破綻**します。フレームスパイク時は `dt` を上限へ clamp します。
 - **`FAabb2` は中心 + 半サイズ**。`FCircle` は中心 + 半径。`FConvexPoly2` の頂点は最大 16 (`kMaxVerts`)。`FObb2` は中心 + 半サイズ + 回転 (rad、反時計回り)。`FRay2` の `direction` は正規化不要ですが、`t` の意味 (`origin + direction * t`) は direction の長さに依存します。
-- **OBB (回転矩形) は 4 頂点凸ポリとして判定**されます。`world.AddObb(FObb2{ FVec2{cx,cy}, FVec2{hw,hh}, rad });` で斜めの壁/プラットフォームを置けて、円 body は `ResolveCircle` 経由で角度のある面に沿って collide-and-slide します。可視化は `sb.DrawRectRotated(cx, cy, hw*2, hh*2, rad, color)`（OBB と同じ中心/回転）。毎フレーム `UpdateObb` すれば回転する障害物に。実例 = `63_HelloVerticalSlice`（斜め OBB バー）。
+- **OBB (回転矩形) は 4 頂点凸ポリとして判定**されます。`world.AddObb(FObb2{ FVec2{cx,cy}, FVec2{hw,hh}, rad });` で斜めの壁/プラットフォームを置けて、円 body は `ResolveCircle` 経由で角度のある面に沿って collide-and-slide します。可視化は `sb.DrawRectRotated(cx, cy, hw*2, hh*2, rad, color)`（OBB と同じ中心/回転）。毎フレーム `UpdateObb` すれば回転する障害物になります。
 - **`SetPolygon` の `local_poly` は body 原点基準のローカル頂点**。world 形状は「body 位置 + ローカル頂点」。スプライト凸包をそのまま渡すなら、中心を原点へずらしてから渡します。
-- **body / trigger は world を所有しません**。`APhysicsBody2D` と `ATriggerComponent` は constructor で受けた world を参照するため、`FCollisionWorld2D` / `FTriggerWorld2D` を、それらを付けたノードより先に破棄しないでください。シーンサービスを使う場合はシーン寿命に揃います。
-- **`FTriggerWorld2D` / `FCollisionWorld2D` は非コピー・非ムーブ** (handle 安定性のため)。参照かポインタで持ち回します。`FTriggerWorld2D` のブロードフェーズは現状 O(N^2) (Phase 3 仕様、将来 grid 化予定)。
+- **body / trigger は world を所有しません**。`APhysicsBody2D` と `ATriggerComponent` は constructor で受けた world を参照するため、`CCollisionWorld2D` / `CTriggerWorld2D` を、それらを付けたノードより先に破棄しないでください。シーンサービスを使う場合はシーン寿命に揃います。
+- **`CTriggerWorld2D` / `CCollisionWorld2D` は非コピー・非ムーブ** (handle 安定性のため)。参照かポインタで持ち回します。`CTriggerWorld2D` のブロードフェーズは現状 O(N^2) です。
 
 ---
 
-## 動くサンプル
+## API の責務
 
-| サンプル | パス | 何が見られる |
-|---------|------|------------|
-| `57_HelloTriggers` | `acs/samples/57_HelloTriggers/main.cpp` | layer/mask 絞り込み + ATriggerComponent の enter/exit。ヘッドレス (GPU 不要) で assert 検証 |
-| `54_HelloCollideSlide` | `acs/samples/54_HelloCollideSlide/main.cpp` | 円/ポリゴン body の重力落下 + 床スライド + `ResolveCircle` 直接呼び。ヘッドレス検証 |
-| `08_HelloPhysics2D` | `acs/samples/08_HelloPhysics2D/HelloPhysics2DApp.cpp` | `math/Collision2D.h` の `Resolve` を手書きで回す円のバウンド (描画あり)。`APhysicsBody2D` は未使用な点に注意 |
-| `63_HelloVerticalSlice` | `acs/samples/63_HelloVerticalSlice/main.cpp` | 円プレイヤーが石壁 (AABB) / 水 / 斜め **OBB** バーに collide-and-slide する見下ろし (描画あり、Y-down) |
-| `62_HelloPersistVerify` | `acs/samples/62_HelloPersistVerify/main.cpp` | `TestObb` = OBB の math + world 全クエリ経路 (overlap/resolve/raycast) のヘッドレス検証 |
+| API | 責務 |
+|---------|------------|
+| `CCollisionWorld2D` | shape 登録、overlap、raycast、貫通解消 |
+| `APhysicsBody2D` | node の速度積分と collide-and-slide |
+| `CTriggerWorld2D` | 前後 frame の overlap 比較と event dispatch |
+| `ATriggerComponent` | node に紐づく shape、layer、mask、callback |
+| `Collision2D.h` | 円、AABB、OBB、凸 polygon の決定論的な値計算 |
 
 ヘッダ実体: `acs/src/gameframework/CollisionWorld2D.h` / `PhysicsBody2D.h` / `TriggerComponent.h` / `TriggerWorld2D.h`、形状型は `acs/src/math/Collision2D.h`、サービス宣言は `acs/src/gameframework/SceneServices.h`。

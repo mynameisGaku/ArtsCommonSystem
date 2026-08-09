@@ -29,15 +29,15 @@ if (result.IsErr()) {
 
 `value == nullptr` は既存の `TrySetString` と同じく空文字列として扱います。
 非 null の `value` は最初の終端までを byte 列として取り込み、batch 固有の UTF-8、
-制御文字、INI 文字の検査や変換を追加しません。この wave では既存の単体 setter より
-値の制約を強めず、ファイル保存時は従来の INI 表現の契約をそのまま使います。
+制御文字、INI 文字の検査や変換を追加しません。既存の単体 setter より値の制約を強めず、
+ファイル保存時は従来の INI 表現の契約をそのまま使います。
 削除や型付き変換はこの API の責務に含みません。
 
 ## 入力契約
 
 一回の入力と反映後のストアは `FStorage::kMaximumStringBatchEntryCount` の
 4,096 項目を上限とします。上限件数のストアでも既存項目だけの更新はできます。
-既存互換の `TrySetString`、`SetString`、読み込み経路はこの wave で同じ上限へ変更しないため、
+既存互換の `TrySetString`、`SetString`、読み込み経路は同じ上限へ変更しないため、
 呼び出し前から 4,096 件を超える場合があります。その状態への非0件 batch は、全項目が
 no-op でも最終件数検査で確保前に拒否し、件数、値、借用ポインタ、allocator 使用量を維持します。
 反映前の検査では次を拒否します。
@@ -95,9 +95,8 @@ allocator へ所有退避します。
 `GetString` から借用した全ポインタが無効になります。全項目が no-op の `Ok(0)` と
 失敗では候補を反映せず、借用ポインタを同じアドレスで維持します。
 
-## Kit からの吸収範囲
+## 責務外
 
-Kit Persistence のうち、インスタンス所有の文字列 upsert を一括反映する最小責務だけを
-`FStorage` へ統合しています。既存の single / atomic I/O と string upsert batch は統合済みです。
-transactional remove、typed codec、owned snapshot、document export/summary は未統合であり、
-process-global storage、subsystem、mutex、thread-local 状態も追加していません。
+`TrySetStringBatch` は、インスタンスが所有する文字列の upsert だけを一括反映します。
+transactional remove、typed codec、owned snapshot、document export/summary は提供しません。
+process-global storage、subsystem、mutex、thread-local 状態もこの API の責務に含めません。

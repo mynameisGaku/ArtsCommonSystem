@@ -6,7 +6,7 @@
 
   python acs/scripts/generate_reference.py
 
-acs/src のヘッダー、サンプル、CMake メタデータ、既存文書を走査し、
+acs/src のヘッダー、CMake メタデータ、既存文書を走査し、
 acs/docs/REFERENCE.html を書き出す。パーサーは C++ コンパイラーではないため
 保守的に解析するが、日常的なエンジン利用に必要な構造を網羅できる範囲で抽出する。
 """
@@ -26,7 +26,6 @@ from typing import Iterable
 ACS_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = ACS_ROOT.parent
 SRC_ROOT = ACS_ROOT / "src"
-SAMPLES_ROOT = ACS_ROOT / "samples"
 DOCS_ROOT = ACS_ROOT / "docs"
 ENGINE_ROOT = ACS_ROOT / "engine"
 OUT_PATH = DOCS_ROOT / "REFERENCE.html"
@@ -65,7 +64,7 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     }),
     ("platform", {
         "title": "Platform",
-        "summary": "FWindow、FInput、Time API、FFileSystem、FStorage、FLocalization。",
+        "summary": "FWindow、CInput、Time API、CFileSystem、FStorage、FLocalization。",
         "use": "OS と直接接する層。ゲームコードは基本的にこの API 経由で触る。",
     }),
     ("ecs", {
@@ -95,12 +94,12 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     }),
     ("render", {
         "title": "Render",
-        "summary": "FRenderer、RHI、FSpriteBatch、FFont、FStandardShader/FPbrShader、post process、IBL。",
+        "summary": "CRenderer、RHI、CSpriteBatch、FFont、CStandardShader/CPbrShader、post process、IBL。",
         "use": "2D/3D 描画、低レベル GPU リソース、高レベル描画ヘルパを提供する。",
     }),
     ("app", {
         "title": "App",
-        "summary": "FApplication、FAppConfig、ACS_DEFINE_MAIN。",
+        "summary": "CApplication、FAppConfig、ACS_DEFINE_MAIN。",
         "use": "ウィンドウ・入力・レンダラ・ECS をまとめた最小ゲームループを書く。",
     }),
     ("audio", {
@@ -111,7 +110,7 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     ("network", {
         "title": "Network",
         "summary": "TCP/UDP、listener、connection、IP address。",
-        "use": "軽量な通信サンプルや独自プロトコルの土台にする。",
+        "use": "軽量な通信 application や独自プロトコルの土台にする。",
     }),
     ("imgui", {
         "title": "ImGui",
@@ -176,74 +175,6 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
 ])
 
 
-SAMPLE_DESCRIPTIONS: dict[str, str] = {
-    "00_HelloEasy": "acs::easy の最小 2D ゲーム。OpenWindow と while(NextFrame()) だけで描画・入力を学ぶ。",
-    "01_HelloWindow": "FApplication の lifecycle、FWindow、FInput、終了処理の最小構成。",
-    "02_HelloSprite": "FSpriteBatch によるスプライト、矩形、アルファブレンド。",
-    "03_HelloText": "FFont と UTF-8 テキスト描画。日本語文字列の扱いも確認できる。",
-    "04_HelloECS": "FWorld/FEntityId/TQueryView、CMessageBroker、CTimerManager を使う ECS 入門。",
-    "05_HelloSave": "FStorage による INI 風の設定・セーブ永続化。",
-    "06_HelloLocalization": "FLocalization と多言語切替。ja/en/fr の切替例。",
-    "07_HelloAudio": "CAudioEngine で WAV/MP3 を再生する。",
-    "08_HelloPhysics2D": "2D の円衝突、重力、マウス発射の基礎。",
-    "09_HelloParticles": "2D パーティクル表現。火、火花、噴水、煙など。",
-    "10_HelloModel": "FStandardShader と手続きプリミティブで最初の 3D 描画。",
-    "11_HelloRaycast3D": "3D レイキャスト、ターゲット選択、HUD 表示。",
-    "12_HelloLights": "複数点光源と動的ライティング。",
-    "13_HelloSky": "手続きスカイと昼/夕/夜プリセット。",
-    "14_HelloShadows": "シャドウマップ、PCF、太陽方向アニメーション。",
-    "15_HelloAnimation": "スキンメッシュと GPU ボーンスキニング。",
-    "16_HelloTriangle": "低レベル RHI、HLSL、頂点バッファ、パイプラインの最小例。",
-    "17_HelloMesh": "3D メッシュ、定数バッファ、深度テスト、カメラ。",
-    "18_HelloTextured": "テクスチャ、サンプラ、UV。",
-    "19_HelloUI": "ACS 純正 FWidget UI と TObservable バインディング。",
-    "20_HelloMVVM": "TObservable、TOneWayBinder/TTwoWayBinder、FCommand による MVVM。",
-    "21_HelloImGui": "Dear ImGui 統合とデバッグ UI。",
-    "22_HelloNet": "TCP echo。Application を使わない通信の素の例。",
-    "23_HelloPbr": "PBR material と metallic/roughness の変化。",
-    "24_HelloBloom": "HDR、Bloom、ACES tonemap。Diligent backend 向け。",
-    "25_HelloIbl": "Image-Based Lighting の統合デモ。",
-    "26_HelloLightmap": "Cornell box と CPU path tracing による lightmap bake。",
-    "27_HelloShowcase": "PBR、IBL、屈折、post-process をまとめた cinematic demo。",
-    "28_HelloGameFramework": "CGame、AScene、CSceneManager による画面遷移。",
-    "29_HelloParticleEditor": "GameFramework tools の Particle Editor。",
-    "30_HelloSceneInspector": "FHierarchyPanel、FInspectorPanel、FEditorToolbar を持つ Scene Inspector。",
-    "31_HelloModelViewer": "モデルビューア、マテリアル/アニメーション/インスペクタ panels。",
-    "32_HelloAnimCurveEditor": "FAnimationCurve の編集 UI。",
-    "33_HelloBehaviorTreeEditor": "FBehaviorTree の編集と TreeActions の action 関数群。",
-    "34_HelloLevelEditor": "FLevelEditorPanel とエディタ基盤。",
-    "35_HelloSpriteAtlasEditor": "FSpriteAtlasEditorPanel と FSpritePack の atlas 作成フロー。",
-    "36_HelloFontEditor": "FFont editor と glyph/preview workflow。",
-    "37_HelloCinematicsEditor": "FCinematicsTimelineEditorPanel。",
-    "38_HelloFullGame": "タイトル、ゲームプレイ、敵、弾、HUD、セーブを含む mini full game。",
-    "39_HelloSteamworks": "ISteamworksBridge の stub/real backend デモ。",
-    "40_HelloScripting": "IScriptVm と Lua backend の stub/real デモ。",
-    "41_HelloOnnx": "IMlRuntime と ONNX Runtime backend の smoke test。",
-    "42_HelloOpenXR": "IOpenXrBridge と OpenXR loader の smoke test。",
-    "43_HelloCrashReporter": "Windows minidump backend のクラッシュレポート確認。",
-    "44_HelloTelemetryFile": "JSON Lines telemetry sink の確認。",
-    "45_HelloLocalMatchmaker": "deterministic local matchmaker の search/match/accept/cancel。",
-    "46_HelloAssetPackBridge": ".acpak reader/writer と GameFramework bridge の smoke test。",
-    "47_HelloLight2D": "2D 動的ライト、ソフト影、blob shadow。",
-    "48_HelloSpriteCollider": "Sprite alpha から collider を生成する headless 検証。",
-    "49_HelloMeshCollider": "3D mesh から triangle BVH collider を生成する検証。",
-    "50_HelloSpritePhysics": "sprite collider と FCollisionWorld2D の統合。",
-    "51_HelloConvexHull": "3D convex hull 生成と convex collider。",
-    "52_HelloColliderViz2D": "2D collider の可視化。",
-    "53_HelloColliderViz3D": "3D mesh/convex hull collider の wireframe 可視化。",
-    "54_HelloCollideSlide": "APhysicsBody2D の collide-and-slide 検証。",
-    "55_HelloScene2D": "AScene starter foundation。",
-    "56_HelloSpriteAnim": "sprite-sheet animation と HUD text。",
-    "57_HelloTriggers": "collision layers/masks と trigger enter/stay/exit。",
-    "58_HelloTilemap": "Tilemap render と fade scene transition。",
-    "59_HelloEffects2D": "shader-free interactive effects。",
-    "60_HelloStencilMask": "任意形状 stencil mask で子ツリーを clipping。",
-    "61_HelloWaterTopDown": "見下ろし水面、caustics、岸泡。",
-    "62_HelloPersistVerify": "永続化 round-trip 検証。",
-    "63_HelloVerticalSlice": "title/play/pause/game over/save を統合した縦スライス。",
-}
-
-
 GLOSSARY: "OrderedDict[str, str]" = OrderedDict([
     ("TResult", "例外の代わりに成功/失敗を返す ACS の標準結果型。IsErr() を確認してから Value() を読む。"),
     ("noexcept", "ACS の公開 callback/engine API で原則付ける例外禁止の契約。例外を投げず TResult や bool で失敗を返す。"),
@@ -263,7 +194,7 @@ GLOSSARY: "OrderedDict[str, str]" = OrderedDict([
     ("AComponent", "ANode に attach する再利用可能な振る舞い。sprite/collider/trigger など。"),
     ("FInputMap", "物理キーを gameplay action 名へ束ねる GameFramework の入力 mapping。"),
     ("FTweenManager", "値を時間で補間する仕組み。UI、カメラ、演出、scene transition に使う。"),
-    ("Diligent", "Diligent Engine backend。HDR、cubemap、上級 post-process で使う sample がある。"),
+    ("Diligent", "Diligent Engine backend。HDR、cubemap、上級 post-process を提供する。"),
     ("DX12 raw", "ACS 独自の DirectX 12 backend。既定の dx12-* preset。"),
     ("generate.ps1", "ACS の推奨生成スクリプト。Visual Studio solution、Binaries、Intermediate を現行レイアウトで作る。"),
     ("acs_assetpack", ".acpak archive を pack/unpack/list/verify/info する CLI。tools/acs_assetpack に実装がある。"),
@@ -295,7 +226,7 @@ int main() {
     {
         "title": "Application の基本形",
         "module": "app",
-        "summary": "本格的なサンプルはこの形。CApplication を継承して 4 つの hook を実装する。",
+        "summary": "application の基本形。CApplication を継承して 4 つの hook を実装する。",
         "code": r'''#include "app/Application.h"
 #include "app/EntryPoint.h"
 #include "platform/Input.h"
@@ -862,65 +793,6 @@ def parse_cmake_presets() -> list[dict[str, object]]:
     return data.get("configurePresets", [])
 
 
-def parse_samples(api_names: set[str]) -> list[dict[str, object]]:
-    samples: list[dict[str, object]] = []
-    if not SAMPLES_ROOT.exists():
-        return samples
-    for d in sorted(SAMPLES_ROOT.iterdir()):
-        if not d.is_dir() or not re.match(r"^\d{2}_", d.name):
-            continue
-        files = sorted([p for p in d.rglob("*") if p.suffix.lower() in {".cpp", ".h", ".hpp"}])
-        joined = "\n".join(p.read_text(encoding="utf-8", errors="replace")[:120000] for p in files[:30])
-        detected = [name for name in sorted(api_names) if re.search(rf"\b{re.escape(name)}\b", joined)]
-        detected = [name for name in detected if len(name) > 2][:16]
-        includes = sorted(set(re.findall(r'#include\s+"([^"]+)"', joined)))[:12]
-        samples.append({
-            "name": d.name,
-            "path": d,
-            "description": SAMPLE_DESCRIPTIONS.get(d.name, prettify_sample_name(d.name)),
-            "requirement": sample_requirement(d.name),
-            "files": files[:10],
-            "apis": detected,
-            "includes": includes,
-        })
-    return samples
-
-
-def prettify_sample_name(name: str) -> str:
-    body = re.sub(r"^\d{2}_", "", name)
-    body = re.sub(r"(?<!^)([A-Z])", r" \1", body).strip()
-    return f"{body} のサンプル。"
-
-
-def sample_requirement(name: str) -> str:
-    n = int(name[:2]) if re.match(r"^\d{2}", name) else -1
-    dx12_only = {
-        20, 21, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
-        47, 52, 53, 55, 56, 58, 59, 60, 61, 63,
-    }
-    diligent_only = {24, 25, 26, 27}
-    feature_flags = {
-        41: "ACS_BUILD_ML_ONNX=ON",
-        42: "ACS_BUILD_OPENXR=ON",
-        43: "ACS_BUILD_CRASH_REPORTER=ON",
-        44: "ACS_BUILD_TELEMETRY_FILE=ON",
-        45: "ACS_BUILD_LOCAL_MATCHMAKER=ON",
-    }
-    if n in diligent_only:
-        return "Diligent backend only"
-    if n in feature_flags:
-        return feature_flags[n]
-    if n in dx12_only:
-        return "DX12 raw only"
-    if n == 40:
-        return "console; Lua real backendは ACS_BUILD_SCRIPTING=ON"
-    if n == 46:
-        return "AssetPack module/tool smoke test"
-    if n in {48, 49, 50, 51, 54, 57, 62}:
-        return "console/headless"
-    return "DX12 raw / Diligent"
-
-
 def detect_module_order(modules: Iterable[str]) -> list[str]:
     known = [m for m in MODULE_INFO.keys() if m in modules]
     extra = sorted(m for m in modules if m not in MODULE_INFO)
@@ -959,7 +831,7 @@ def render_api_decl(decl: ApiDecl, anchor_map: dict[str, str]) -> str:
     qname = f"{decl.namespace}::{decl.name}" if decl.namespace else decl.name
     index = " ".join([decl.name, decl.kind, decl.module, qname, rel(decl.path), decl.doc])
     title = esc(qname)
-    doc = decl.doc or "ヘッダーから抽出した公開宣言。詳細な意味は source comment とサンプルの使用箇所を参照。"
+    doc = decl.doc or "ヘッダーから抽出した公開宣言。詳細な意味は source comment と関連 unit test を参照。"
     if decl.kind in {"class", "struct"}:
         public_funcs = [f for f in decl.functions if f.access == "public"]
         body = [
@@ -1030,8 +902,7 @@ def render_setup(presets: list[dict[str, object]]) -> str:
         "cd acs\n"
         ".\\generate.ps1\n"
         ".\\generate.ps1 -Open\n"
-        ".\\generate.ps1 -Sample 38_HelloFullGame -SolutionName MyShooter\n"
-        ".\\generate.ps1 -AllSamples -Tests -Tools\n"
+        ".\\generate.ps1 -Tests -Tools\n"
         ".\\generate.ps1 -Diligent"
     )
     cmake_code = (
@@ -1044,7 +915,7 @@ def render_setup(presets: list[dict[str, object]]) -> str:
   <h2>セットアップとビルド</h2>
   <p>初心者向けの推奨経路は <code>acs/generate.ps1</code> です。Visual Studio solution、<code>Binaries/</code>、<code>Intermediate/</code>、<code>Saved/generate.log</code> を現行レイアウトで作ります。</p>
   {render_code(generate_code)}
-  <p>直接 CMake preset を使う場合は、preset ファイルが <code>acs/engine/CMakePresets.json</code> にあるため <code>acs/engine</code> で実行します。古い文書の <code>cd acs; cmake --preset ...</code> は現在の配置とずれています。</p>
+  <p>直接 CMake preset を使う場合は、preset ファイルが <code>acs/engine/CMakePresets.json</code> にあるため <code>acs/engine</code> で実行します。</p>
   {render_code(cmake_code)}
   <table>
     <thead><tr><th>preset</th><th>表示名</th><th>用途</th><th>DX12 raw</th><th>Diligent</th></tr></thead>
@@ -1066,7 +937,7 @@ def render_guide(anchor_map: dict[str, str]) -> str:
         <li>{term('easy', anchor_map) if 'easy' in GLOSSARY else '<code>acs::easy</code>'} で座標・入力・描画に慣れる。</li>
         <li>{term('CApplication', anchor_map)} へ移り、<code>OnStart</code>/<code>OnUpdate</code>/<code>OnRender</code> の流れを覚える。</li>
         <li>大量オブジェクトは {term('FWorld', anchor_map)} と {term('TQueryView', anchor_map)}、画面遷移は {term('AScene', anchor_map)} を使う。</li>
-        <li>描画が 2D なら {term('CSpriteBatch', anchor_map)}、3D なら <code>FStandardShader</code>/<code>FPbrShader</code> へ進む。</li>
+        <li>描画が 2D なら {term('CSpriteBatch', anchor_map)}、3D なら <code>CStandardShader</code>/<code>CPbrShader</code> へ進む。</li>
       </ol>
     </article>
     <article class="guide-card">
@@ -1105,8 +976,7 @@ def render_tools() -> str:
     )
     cleanup_code = (
         ".\\clean-up.ps1\n"
-        ".\\clean-up.ps1 -y\n"
-        "acs\\tools\\capture_window.ps1 -Exe acs\\Binaries\\Debug\\hello_scene2d.exe -Out shot.png -Sleep 4"
+        ".\\clean-up.ps1 -y"
     )
     return f"""
 <section id="tools" class="panel">
@@ -1130,8 +1000,8 @@ def render_tools() -> str:
       {render_code(test_code)}
     </article>
     <article class="guide-card">
-      <h3>掃除とキャプチャ</h3>
-      <p><code>clean-up.ps1</code> は再生成可能な build/output を確認して削除します。<code>capture_window.ps1</code> は GUI サンプルのスクリーンショット確認用です。</p>
+      <h3>生成物の掃除</h3>
+      <p><code>clean-up.ps1</code> は再生成可能な build/output を確認して削除します。</p>
       {render_code(cleanup_code)}
     </article>
   </div>
@@ -1157,8 +1027,8 @@ def render_recipes(anchor_map: dict[str, str]) -> str:
         )
     return f"""
 <section id="recipes" class="panel">
-  <h2>コピーして使うサンプルコード</h2>
-  <p>各コードは、対応する API カタログやサンプルへ飛べるようにしています。</p>
+  <h2>コピーして使うコード例</h2>
+  <p>各コードは、対応する API カタログへ移動できます。</p>
   {''.join(cards)}
 </section>
 """
@@ -1204,35 +1074,6 @@ def render_modules(module_order: list[str], grouped: dict[str, list[ApiDecl]], h
   <h2>API カタログ</h2>
   <p>ヘッダーから自動抽出した class/struct/enum/free function/macro です。検索欄で絞り込めます。各カードを開くとメンバ変数・関数・source へのリンクが出ます。</p>
   {''.join(details)}
-</section>
-"""
-
-
-def render_samples(samples: list[dict[str, object]], anchor_map: dict[str, str]) -> str:
-    cards = []
-    for s in samples:
-        files = s["files"]  # type: ignore[index]
-        file_links = " ".join(f"<a class='source-chip' href='{esc(rel_from_docs(p))}'>{esc(p.name)}</a>" for p in files[:5])  # type: ignore[union-attr]
-        api_links = []
-        for name in s["apis"][:10]:  # type: ignore[index]
-            if name in anchor_map:
-                api_links.append(f"<a class='pill' href='#{esc(anchor_map[name])}'>{esc(name)}</a>")
-            else:
-                api_links.append(f"<span class='pill'>{esc(name)}</span>")
-        cards.append(
-            f"<article class='sample-card' data-index='{esc(str(s['name']) + ' ' + str(s['description']) + ' ' + ' '.join(s['apis']))}'>"
-            f"<h3><a href='{esc(rel_from_docs(s['path']))}'>{esc(s['name'])}</a></h3>"
-            f"<p>{esc(s['description'])}</p>"
-            f"<p><span class='pill requirement'>{esc(s['requirement'])}</span></p>"
-            f"<p>{''.join(api_links)}</p>"
-            f"<p class='tiny'>files: {file_links}</p>"
-            "</article>"
-        )
-    return f"""
-<section id="samples" class="panel">
-  <h2>サンプル逆引き</h2>
-  <p>実際に存在する <code>acs/samples/00_*</code> 〜 <code>63_*</code> を全て列挙しています。古い README よりこちらが実態に近いです。</p>
-  <div class="grid samples">{''.join(cards)}</div>
 </section>
 """
 
@@ -1356,14 +1197,13 @@ button.small {
 .grid { display: grid; gap: 1rem; }
 .grid.two { grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
 .grid.modules { grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); }
-.grid.samples { grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); }
-.module-card, .sample-card, .guide-card, .recipe, .api-card {
+.module-card, .guide-card, .recipe, .api-card {
   background: rgba(24, 34, 59, .88);
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 1rem;
 }
-.module-card h3, .sample-card h3, .guide-card h3, .recipe h3 { margin-top: 0; }
+.module-card h3, .guide-card h3, .recipe h3 { margin-top: 0; }
 .tiny { color: var(--muted); font-size: .88rem; }
 .pill, .source-chip {
   display: inline-block;
@@ -1457,7 +1297,7 @@ const q = document.getElementById('search');
 const status = document.getElementById('search-status');
 function applySearch() {
   const needle = (q.value || '').trim().toLowerCase();
-  const items = document.querySelectorAll('.api-item,.module-card,.sample-card');
+  const items = document.querySelectorAll('.api-item,.module-card');
   let visible = 0;
   items.forEach(el => {
     const hay = (el.dataset.index || el.textContent || '').toLowerCase();
@@ -1517,9 +1357,6 @@ def build_reference() -> str:
     for d in decls:
         anchor_map.setdefault(d.name, d.anchor)
 
-    api_names = {d.name for d in decls}
-    samples = parse_samples(api_names)
-
     counts = Counter(d.kind for d in decls)
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
     sidebar_modules = "".join(f"<a href='#module-{esc(m)}'>{esc(MODULE_INFO.get(m, {'title': m})['title'])}</a>" for m in module_order)
@@ -1536,16 +1373,15 @@ def build_reference() -> str:
 <div class="layout">
   <aside>
     <h1>ACS Reference</h1>
-    <input id="search" type="search" placeholder="API / sample / module を検索">
+    <input id="search" type="search" placeholder="API / module を検索">
     <p id="search-status" class="tiny"></p>
     <nav>
       <a href="#top">概要</a>
       <a href="#setup">セットアップ</a>
       <a href="#tools">ツール</a>
       <a href="#guide">読み方</a>
-      <a href="#recipes">サンプルコード</a>
+      <a href="#recipes">コード例</a>
       <a href="#module-map">機能マップ</a>
-      <a href="#samples">サンプル逆引き</a>
       <a href="#api">API カタログ</a>
       <a href="#glossary">用語集</a>
       <hr>
@@ -1555,8 +1391,8 @@ def build_reference() -> str:
   <main id="top">
     <section class="hero">
       <h1>ACS 全機能リファレンス</h1>
-      <p>公開ヘッダー、CMake モジュール、サンプルを横断した静的リファレンスです。用語はホバーで説明を表示し、クリックで API カードまたは用語集へ移動します。</p>
-      <p class="tiny">Generated: {esc(generated_at)} · Headers: {len(header_infos)} · API declarations: {len(decls)} · Classes/Structs: {counts.get('class',0)+counts.get('struct',0)} · Enums: {counts.get('enum',0)+counts.get('enum class',0)} · Free functions: {counts.get('function',0)} · Samples: {len(samples)}</p>
+      <p>公開ヘッダーと CMake モジュールを横断した静的リファレンスです。用語はホバーで説明を表示し、クリックで API カードまたは用語集へ移動します。</p>
+      <p class="tiny">Generated: {esc(generated_at)} · Headers: {len(header_infos)} · API declarations: {len(decls)} · Classes/Structs: {counts.get('class',0)+counts.get('struct',0)} · Enums: {counts.get('enum',0)+counts.get('enum class',0)} · Free functions: {counts.get('function',0)}</p>
       <div class="toolbar">
         <span class="tiny">検索は左サイドバーでもこのページ全体でも即時反映されます。</span>
         <button id="expand-all" class="small" type="button">API を全部開く</button>
@@ -1568,7 +1404,6 @@ def build_reference() -> str:
     {render_guide(anchor_map)}
     {render_recipes(anchor_map)}
     {render_modules(module_order, grouped, headers_by_module, cmake_meta, anchor_map)}
-    {render_samples(samples, anchor_map)}
     {render_glossary(anchor_map)}
     <section class="panel">
       <h2>生成について</h2>

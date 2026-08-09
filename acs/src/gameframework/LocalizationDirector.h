@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — CLocalizationDirector (i18n 文字列辞書)
+#pragma once
+// GameFramework localization — CLocalizationDirector (i18n 文字列辞書)
 //
 // 「ロケール + 文字列 ID」を「翻訳済みの const char*」に解決する小型ストア。
 // UI ラベル / セリフ / メニュー文言 / エラーメッセージ等を、ゲームロジックから
@@ -8,13 +9,13 @@
 //
 // 使い方:
 //   CLocalizationDirector loc;
-//   loc.RegisterString(ELocale::En, "ui.title",      "Adventure of Claude");
-//   loc.RegisterString(ELocale::Ja, "ui.title",      "クロードの冒険");
+//   英語のタイトルを登録: loc.RegisterString(ELocale::En, "ui.title", "Star Adventure");
+//   loc.RegisterString(ELocale::Ja, "ui.title",      "星の冒険");
 //   loc.RegisterString(ELocale::En, "ui.start",      "Start");
 //   loc.RegisterString(ELocale::Ja, "ui.start",      "はじめる");
 //
 //   loc.SetLocale(ELocale::Ja);
-//   const char* title = loc.Get("ui.title");   // -> "クロードの冒険"
+//   const char* title = loc.Get("ui.title");   // -> "星の冒険"
 //   const char* miss  = loc.Get("ui.missing"); // -> "ui.missing" (key 自身)
 //
 // 設計選択 (簡素優先):
@@ -40,12 +41,10 @@
 // 範囲外:
 //   ・format 引数展開 ("Score: {0}" の {0} 置換)。`Sprintf`/`Format` 層を別途用意する想定。
 //   ・複数形 (plural rules) / 性別 (gender) / ICU MessageFormat 相当
-//   ・右から左 (RTL) レイアウト判定 (Pillar Q Polish 側の UI 描画で扱う)
+//   ・右から左 (RTL) レイアウト判定 (UI 描画層の責務)
 //   ・フォントフォールバック (CJK / Cyrillic / Arabic 等のグリフセット切替)
-//   ・永続化 / シリアライズ (Pillar J Serialize 側で扱う、loc.json 等から流し込む)
+//   ・永続化 / シリアライズ (保存 adapter から loc.json 等を流し込む)
 //   ・PO/MO/CSV からの自動取り込み (ツール側で RegisterString 列に変換する想定)
-#pragma once
-
 #include "foundation/Types.h"
 #include "container/Array.h"
 #include "gameframework/Forward.h"

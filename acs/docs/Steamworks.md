@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# Steamworks SDK 統合 (Phase 26)
+# Steamworks SDK 統合
 
-ACS は **Steamworks SDK** を `acs_steamworks` モジュールとして統合する。デフォルトは OFF (= `FSteamworksBridgeStub` no-op)、明示的に ON にしたときだけ real backend がビルドされる。
+ACS は **Steamworks SDK** を `acs_steamworks` モジュールとして統合する。デフォルトは OFF (= `CSteamworksBridgeStub` no-op)、明示的に ON にしたときだけ real backend がビルドされる。
 
 ## アーキテクチャ
 
@@ -13,7 +13,7 @@ ACS は **Steamworks SDK** を `acs_steamworks` モジュールとして統合�
             ▲                ▲
             │                │
 +-----------+--+    +--------+---------------+
-|  FSteamworks |    |  FSteamworksBridgeImpl |  ← real backend
+|  CSteamworks |    |  CSteamworksBridgeImpl |  ← real backend
 |  BridgeStub  |    |  (src/steamworks/      |
 |  (no-op)     |    |   SteamworksBridgeImpl.cpp) |
 +--------------+    +------------------------+
@@ -24,7 +24,7 @@ ACS は **Steamworks SDK** を `acs_steamworks` モジュールとして統合�
 
 ## API 一覧 (21 メソッド)
 
-### Phase 1 — 必須機能
+### 必須機能
 
 | API | 説明 |
 |---|---|
@@ -37,7 +37,7 @@ ACS は **Steamworks SDK** を `acs_steamworks` モジュールとして統合�
 | `GetLeaderboardScore(board)` | リーダーボード自分の score 取得 (async) |
 | `Tick(dt)` | `SteamAPI_RunCallbacks` 毎フレーム |
 
-### Phase 2 — 拡張機能
+### 拡張機能
 
 | API | 説明 |
 |---|---|
@@ -47,7 +47,7 @@ ACS は **Steamworks SDK** を `acs_steamworks` モジュールとして統合�
 | `SetRichPresence(key, value)` | rich presence |
 | `GetFriendCount()` / `GetFriendByIndex(i)` | フレンドリスト |
 
-### Phase 3 — フル機能
+### 追加機能
 
 | API | 説明 |
 |---|---|
@@ -66,7 +66,7 @@ ACS は **Steamworks SDK** を `acs_steamworks` モジュールとして統合�
 
 ### 方式 A (推奨): ローカル SDK ディレクトリ指定
 
-1. [Steamworks Partner](https://partner.steamgames.com/downloads/) から `steamworks_sdk_<version>.zip` を取得 (要パートナー登録)
+1. パートナーアカウントで `steamworks_sdk_<version>.zip` を取得する
 2. 展開する (例: `C:/lib/steamworks_sdk_162/`)
 3. CMake 設定:
    ```
@@ -92,7 +92,7 @@ cmake -B build -DACS_BUILD_STEAMWORKS=ON \
 cmake -B build   # ACS_BUILD_STEAMWORKS=OFF (default)
 ```
 
-`FSteamworksBridgeStub` が DI される。実績解除等の呼び出しは `kSubSteamworksNotImplemented` エラーを返すが、ゲーム挙動には影響しない (例外も投げない)。
+`CSteamworksBridgeStub` が DI される。実績解除等の呼び出しは `kSubSteamworksNotImplemented` エラーを返すが、ゲーム挙動には影響しない (例外も投げない)。
 
 ## ランタイム要件
 
@@ -115,7 +115,7 @@ real SDK 実行時には、exe と同じディレクトリに `steam_appid.txt` 
 
 ### `steam_api64.dll`
 
-real backend を使う場合、`steam_api64.dll` (= SDK の `redistributable_bin/win64/steam_api64.dll`) を exe と同じディレクトリにコピーする必要がある。CMake の `install(FILES ...)` 経由で自動コピーする予定 (Phase 26-2)。
+real backend を使う場合、`steam_api64.dll` (= SDK の `redistributable_bin/win64/steam_api64.dll`) を exe と同じディレクトリにコピーする必要がある。現在は自動コピーしないため、配置漏れを起動前に確認する。
 
 ## ゲーム側での使い方
 
@@ -129,7 +129,7 @@ real backend を使う場合、`steam_api64.dll` (= SDK の `redistributable_bin
 class CMyGame : public acs::game::CGame {
     acs::game::ISteamworksBridge* m_Social = nullptr;
 #ifdef WITH_ACS_STEAMWORKS
-    acs::steamworks::FSteamworksBridgeImpl m_RealSocial;
+    acs::steamworks::CSteamworksBridgeImpl m_RealSocial;
 #endif
 
     void OnStart() noexcept override {
@@ -138,10 +138,10 @@ class CMyGame : public acs::game::CGame {
         if (m_RealSocial.Init().IsOk()) {
             m_Social = &m_RealSocial;
         } else {
-            m_Social = &acs::game::FSteamworksBridgeStub::GetStub();
+            m_Social = &acs::game::CSteamworksBridgeStub::GetStub();
         }
 #else
-        m_Social = &acs::game::FSteamworksBridgeStub::GetStub();
+        m_Social = &acs::game::CSteamworksBridgeStub::GetStub();
         (void)m_Social->Init();
 #endif
     }
@@ -172,7 +172,7 @@ class CMyGame : public acs::game::CGame {
 | Leaderboard が 0 を返す | async API なので `Tick()` を数フレーム呼ばないと完了通知が来ない |
 | `IsDlcOwned()` が false | 開発時は Spacewar で DLC を持たない (本番 AppID で確認) |
 
-## Phase 1/2/3 範囲外 (将来拡張)
+## 未対応機能
 
 - マッチメイキング (`ISteamMatchmaking`)
 - P2P ネットワーキング (`ISteamNetworking`)

@@ -59,7 +59,6 @@
                 "ACS_LAYOUT_ROOT": "${sourceDir}/../Intermediate/address-sanitizer-diligent/layout",
                 "ACS_ENABLE_ADDRESS_SANITIZER": "ON",
                 "ACS_RENDER_DX12_RAW": "ON",
-                "ACS_BUILD_SAMPLES": "OFF",
                 "ACS_BUILD_TOOLS": "OFF"
             }
         }

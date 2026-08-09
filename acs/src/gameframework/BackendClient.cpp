@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar V — IBackendClient / IMatchmaker stub 実装
+// GameFramework backend client / matchmaker stub 実装
 //
 // 本ファイルは FBackendClient.h で宣言した 2 つの interface に対し、
 // 「常に NotImplemented を返すだけ」の defensive stub を提供する。
 //
 // 目的:
-//   ・ACS 本体 / サンプルがサーバ実装の有無に関わらずリンクを通せるようにする
-//     (Pillar V の seam 要件)。
+//   ・ACS の利用側がサーバ実装の有無に関わらずリンクできるようにする
+//     (backend seam の要件)。
 //   ・タイトル側が `IBackendClient* p = &acs::game::GetBackendStub();` のように
 //     null-object パターンで保持し、後から具象実装に差し替える経路を確保する。
 //   ・stub に対する Connect / SendTelemetry 呼び出しは「成功扱いで黙る」ではなく

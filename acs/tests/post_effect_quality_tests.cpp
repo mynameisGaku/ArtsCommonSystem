@@ -516,25 +516,12 @@ ACS_TEST(PostEffects,
         std::string::npos);
 }
 
-ACS_TEST(PostEffects,
-         MotionVectorCallsitesPublishOnlyCompleteAuthoritativeOutputs)
+ACS_TEST(PostEffects, MotionVectorContractsPublishOnlyCompleteAuthoritativeOutputs)
 {
     const std::string motion_header =
         ReadWorkspaceSource("src/render/MotionVector.h");
     const std::string motion_source =
         ReadWorkspaceSource("src/render/MotionVector.cpp");
-    const std::string ibl_gbuffer =
-        ReadWorkspaceSource("samples/25_HelloIbl/GBufferPass.cpp");
-    const std::string ibl_app =
-        ReadWorkspaceSource("samples/25_HelloIbl/HelloIblApp.cpp");
-    const std::string ibl_effects =
-        ReadWorkspaceSource("samples/25_HelloIbl/ScreenSpaceEffects.cpp");
-    const std::string showcase_header =
-        ReadWorkspaceSource("samples/27_HelloShowcase/MotionPass.h");
-    const std::string showcase_motion =
-        ReadWorkspaceSource("samples/27_HelloShowcase/MotionPass.cpp");
-    const std::string showcase_app =
-        ReadWorkspaceSource("samples/27_HelloShowcase/ShowcaseApp.cpp");
     const std::string reference =
         ReadWorkspaceSource("docs/reference/data/render_core.js");
     const std::string recipes =
@@ -542,18 +529,9 @@ ACS_TEST(PostEffects,
 
     EXPECT_TRUE(!motion_header.empty());
     EXPECT_TRUE(!motion_source.empty());
-    EXPECT_TRUE(!ibl_gbuffer.empty());
-    EXPECT_TRUE(!ibl_app.empty());
-    EXPECT_TRUE(!ibl_effects.empty());
-    EXPECT_TRUE(!showcase_header.empty());
-    EXPECT_TRUE(!showcase_motion.empty());
-    EXPECT_TRUE(!showcase_app.empty());
     EXPECT_TRUE(!reference.empty());
     EXPECT_TRUE(!recipes.empty());
-    if (motion_header.empty() || motion_source.empty() ||
-        ibl_gbuffer.empty() || ibl_app.empty() || ibl_effects.empty() ||
-        showcase_header.empty() || showcase_motion.empty() ||
-        showcase_app.empty() || reference.empty() || recipes.empty()) {
+    if (motion_header.empty() || motion_source.empty() || reference.empty() || recipes.empty()) {
         return;
     }
 
@@ -565,42 +543,6 @@ ACS_TEST(PostEffects,
         "required_draws == kInvalidObjectBuffer") != std::string::npos);
     EXPECT_TRUE(motion_source.find(
         "m_DrawCursor == kInvalidObjectBuffer ||") != std::string::npos);
-
-    // HelloIbl pre-counts floor + grid + dynamic + optional glass draws and
-    // gates every temporal/normal consumer with the complete-pass result.
-    EXPECT_TRUE(ibl_gbuffer.find(
-        "1u + kGrid * kGrid + kDynCount +") != std::string::npos);
-    EXPECT_TRUE(ibl_gbuffer.find(
-        "app.m_ShowRefraction ? 2u : 0u") != std::string::npos);
-    EXPECT_TRUE(ibl_gbuffer.find(
-        "app.m_Motion.BeginFrame(required_draws)") != std::string::npos);
-    EXPECT_TRUE(ibl_gbuffer.find(
-        "app.m_Motion.ObjectDrawCount() == required_draws") !=
-                std::string::npos);
-    EXPECT_TRUE(ibl_app.find(
-        "m_MotionGBufferValid && m_bUseMotionVec") !=
-                std::string::npos);
-    EXPECT_EQ(CountOccurrences(
-        ibl_effects, "if (!app.m_MotionGBufferValid)"),
-        static_cast<std::size_t>(3u));
-
-    // HelloShowcase returns both attachments only after all exact-count draws
-    // succeed, then clears SSR/SSAO warm state instead of reusing stale data.
-    EXPECT_TRUE(showcase_header.find(
-        "struct FMotionPassOutput") != std::string::npos);
-    EXPECT_TRUE(showcase_motion.find(
-        "1u + kSphereCount + kOrbCount") != std::string::npos);
-    EXPECT_TRUE(showcase_motion.find(
-        "a.motion.BeginFrame(kRequiredDraws)") != std::string::npos);
-    EXPECT_TRUE(showcase_motion.find(
-        "a.motion.ObjectDrawCount() != kRequiredDraws") !=
-                std::string::npos);
-    EXPECT_TRUE(showcase_app.find(
-        "motion_output.normal != nullptr") != std::string::npos);
-    EXPECT_TRUE(showcase_app.find(
-        "m_SsrWarm = false;") != std::string::npos);
-    EXPECT_TRUE(showcase_app.find(
-        "m_bSsaoWarm = false;") != std::string::npos);
 
     // Public examples must teach the same fail-closed lifecycle rather than
     // the former void Begin/Draw API.
@@ -1146,7 +1088,7 @@ ACS_TEST(PostEffects, EditorCompositeOrderKeepsCloudsInRefractionBackground)
     if (draw.empty()) return;
 
     const std::size_t opaque_done =
-        draw.find("// Phase2: HDR RT → CPostProcess");
+        draw.find("// HDR RT → CPostProcess");
     const std::size_t motion_blur =
         draw.find("// --- モーションブラー", opaque_done);
     const std::size_t aerial_perspective =
@@ -2815,29 +2757,10 @@ ACS_TEST(PostEffects,
     const std::string legacy =
         ReadWorkspaceSource(
             "src/gameframework/LegacyScene3DAdapter.cpp");
-    const std::string hello_pbr =
-        ReadWorkspaceSource(
-            "samples/23_HelloPbr/HelloPbrApp.cpp");
-    const std::string hello_ibl =
-        ReadWorkspaceSource(
-            "samples/25_HelloIbl/HelloIblApp.cpp");
-    const std::string hello_lightmap =
-        ReadWorkspaceSource(
-            "samples/26_HelloLightmap/HelloLightmapApp.cpp");
-    const std::string hello_showcase =
-        ReadWorkspaceSource(
-            "samples/27_HelloShowcase/ShowcaseApp.cpp");
-
     EXPECT_TRUE(!pbr.empty());
     EXPECT_TRUE(!editor.empty());
     EXPECT_TRUE(!legacy.empty());
-    EXPECT_TRUE(!hello_pbr.empty());
-    EXPECT_TRUE(!hello_ibl.empty());
-    EXPECT_TRUE(!hello_lightmap.empty());
-    EXPECT_TRUE(!hello_showcase.empty());
-    if (pbr.empty() || editor.empty() || legacy.empty() ||
-        hello_pbr.empty() || hello_ibl.empty() ||
-        hello_lightmap.empty() || hello_showcase.empty()) {
+    if (pbr.empty() || editor.empty() || legacy.empty()) {
         return;
     }
 
@@ -2862,21 +2785,9 @@ ACS_TEST(PostEffects,
     EXPECT_TRUE(legacy.find(
         "draws_valid =\n                shader.DrawMesh(") !=
         std::string::npos);
-
-    EXPECT_TRUE(hello_pbr.find("m_Shader.BeginFrame(") !=
-                std::string::npos);
-    EXPECT_TRUE(hello_ibl.find("m_Pbr.BeginFrame(") !=
-                std::string::npos);
-    EXPECT_TRUE(hello_lightmap.find("m_Pbr.BeginFrame(") !=
-                std::string::npos);
-    EXPECT_TRUE(hello_showcase.find("m_Assets.pbr.BeginFrame(") !=
-                std::string::npos);
-    EXPECT_TRUE(hello_lightmap.find(
-        "m_Pbr.PerObjectCB()") != std::string::npos);
 }
 
-ACS_TEST(PostEffects,
-         GrowableLegacyShaderPoolsCoverEveryRealCallsite)
+ACS_TEST(PostEffects, GrowableLegacyShaderPoolsCoverProductionAndPublicContracts)
 {
     const std::string standard =
         ReadWorkspaceSource("src/render/StandardShader.cpp");
@@ -2962,64 +2873,6 @@ ACS_TEST(PostEffects,
                 std::string::npos);
     EXPECT_TRUE(skinned_header.find("TArray<FDrawBufferPair>") !=
                 std::string::npos);
-
-    struct FCallsiteContract {
-        const char* path;
-        const char* begin_gate;
-        std::size_t expected_begin_frames;
-    };
-    const FCallsiteContract callsites[] = {
-        {"samples/10_HelloModel/ModelScene.cpp",
-         "if (!shader.BeginFrame(", 1u},
-        {"samples/11_HelloRaycast3D/RaycastScene.cpp",
-         "!shader.BeginFrame(", 1u},
-        {"samples/12_HelloLights/LightsScene.cpp",
-         "if (!shader.BeginFrame(", 1u},
-        {"samples/13_HelloSky/SkyScene.cpp",
-         "if (!shader.BeginFrame(", 1u},
-        {"samples/14_HelloShadows/ShadowsScene.cpp",
-         "if (!shader.BeginFrame(", 2u},
-        {"samples/15_HelloAnimation/AnimationScene.cpp",
-         "if (!std_shader.BeginFrame(", 2u},
-        {"samples/24_HelloBloom/HelloBloomApp.cpp",
-         "if (!m_Shader.BeginFrame(", 1u},
-        {"samples/25_HelloIbl/ShadowPass.cpp",
-         "if (!app.m_Shadow.BeginFrame(", 1u},
-        {"samples/67_HelloWater3D/HelloWater3DApp.cpp",
-         "if (!m_OpaqueShader.BeginFrame(", 1u},
-    };
-    for (const FCallsiteContract& contract : callsites) {
-        const std::string source =
-            ReadWorkspaceSource(contract.path);
-        EXPECT_TRUE(!source.empty());
-        if (source.empty()) continue;
-        EXPECT_TRUE(source.find(contract.begin_gate) !=
-                    std::string::npos);
-        EXPECT_EQ(
-            CountOccurrences(source, ".BeginFrame("),
-            contract.expected_begin_frames);
-    }
-
-    const std::string shadows_scene =
-        ReadWorkspaceSource(
-            "samples/14_HelloShadows/ShadowsScene.cpp");
-    const std::string animation_scene =
-        ReadWorkspaceSource(
-            "samples/15_HelloAnimation/AnimationScene.cpp");
-    EXPECT_TRUE(shadows_scene.find("!shadow.BeginFrame(") !=
-                std::string::npos);
-    EXPECT_TRUE(animation_scene.find("!skin_shader.BeginFrame(") !=
-                std::string::npos);
-
-    const std::string ibl_shadow_pass =
-        ReadWorkspaceSource("samples/25_HelloIbl/ShadowPass.cpp");
-    const std::size_t configure_csm =
-        ibl_shadow_pass.find("SetDirectionalLightCascades(");
-    const std::size_t reserve_casters =
-        ibl_shadow_pass.find("m_Shadow.BeginFrame(");
-    EXPECT_TRUE(configure_csm != std::string::npos);
-    EXPECT_TRUE(reserve_casters != std::string::npos);
-    EXPECT_TRUE(configure_csm < reserve_casters);
 
     EXPECT_TRUE(render_reference.find(
         "if (!shd.BeginFrame(/* exact standard draws this frame */ 1u)) "

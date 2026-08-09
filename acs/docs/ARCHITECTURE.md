@@ -72,13 +72,11 @@ acs/
 │   ├── gameframework/          # Scene、Node、ゲーム機能
 │   ├── collision/              # 2D / 3D 衝突判定
 │   └── <optional>/             # Steamworks、Lua、ONNX、OpenXR、crash、telemetry、local match
-├── samples/                    # 68 個（00〜67）の番号付きサンプル (samples/README.md 参照)
 └── tests/                      # モジュール単体テスト
 ```
 
-`samples` は番号順に学べる実行例と、公開 API の利用証拠を保持します。各 sample は
-必要 module と実行結果を明示し、Debug / Release、単一 header、配布物からの利用を
-検証できる構成にします。
+公開 API の回帰契約は `tests` が所有します。学習用実行例は現在同梱せず、
+再導入候補を `LearningSamplesMigrationPlan.md` に集約します。
 
 ### 依存グラフ
 

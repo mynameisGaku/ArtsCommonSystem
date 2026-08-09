@@ -107,7 +107,7 @@ EXCLUDE_DIRS = {
     ".idea",
     "node_modules",
 }
-INCLUDE_DIRS_WHITELIST = {"src", "samples", "tests", "docs", "tools", "cmake", "scripts"}
+INCLUDE_DIRS_WHITELIST = {"src", "tests", "docs", "tools", "cmake", "scripts"}
 
 _INCLUDE_LINE = re.compile(r"^\s*#\s*include\b")
 

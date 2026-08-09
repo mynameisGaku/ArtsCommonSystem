@@ -131,7 +131,6 @@ python -B scripts\audit_cpp_type_roles.py --self-test
 python -B scripts\audit_cpp_type_roles.py --root src --migration-debt scripts\data\cpp_type_role_migration_debt.json
 python -B scripts\audit_cpp_type_roles.py --root src\event --migration-debt scripts\data\cpp_type_role_migration_debt.json
 python -B scripts\audit_cpp_type_roles.py --root tests
-python -B scripts\audit_cpp_type_roles.py --root samples
 python -B scripts\audit_cpp_type_roles.py --root src --migration-debt scripts\data\cpp_type_role_migration_debt.json --format json
 cmake --build Intermediate\vs --config Debug --target acs_type_roles_check
 ctest --test-dir Intermediate\vs -C Debug -R "ACS.(CppTypeRoleAudit|CppTypeRoleAuditSelfTest|EventTypeRoleAudit|EcsTypeRoleAudit|ScriptingTypeRoleAudit|TestTypeRoleAudit|SampleTypeRoleAudit)"

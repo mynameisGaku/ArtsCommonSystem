@@ -9,8 +9,7 @@ bool メンバ変数の `b` 前置: `m_IsActive` -> `m_bIsActive`.
      (member は private なので class 外から触れないという ACS 前提に依存)
 
 POD struct の public bool field (`bool bEnabled = false;` 等) は `m_` 前置
-が無いので本 script の対象外。POD field の b 前置は別途 (= 既に b 前置に
-なっているはず or 別 phase)。
+が無いので本 script の対象外。POD field の b 前置は別の型監査で扱う。
 """
 from __future__ import annotations
 import argparse
@@ -24,7 +23,7 @@ TARGET_EXTS = {".h", ".hpp", ".inl", ".cpp", ".cxx", ".cc", ".c"}
 EXCLUDE_DIRS = {"cmake-build-diligent-debug","cmake-build-diligent-release",
                 "cmake-build-debug","cmake-build-release","build","_deps",
                 "out",".git",".vs",".idea"}
-ROOTS = ["src","samples","tests","tools"]
+ROOTS = ["src","tests","tools"]
 
 # bool 宣言の検出: `bool\s+m_<UpperCase><word>` (= まだ b 前置されていない)
 # 直後が = か ; か , (declaration / param) であること

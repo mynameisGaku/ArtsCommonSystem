@@ -33,34 +33,33 @@ ACS は 2 つの RHI バックエンドを持つ。**どちらをビルドする
 | 2D ライト・影・コライダー・水/炎エフェクト | ✅ | ✅ | |
 | 基本 3D メッシュ / PBR / シャドウマップ | ✅ | ✅ | |
 | Bloom / ACES トーンマップ / FXAA 等の単純 postfx | ✅ | ✅ | |
-| **IBL (BRDF LUT / env cubemap / irradiance / prefilter)** | ❌ | ✅ | cubemap slice 描画に依存 |
-| **MRT (G-buffer / motion vector)** | ❌ | ✅ | `BeginRenderToTextureMrt` |
-| **cubemap/array slice 描画** | ❌ | ✅ | `BeginRenderToTextureSlice` |
-| TAA / SSR / SSAO / SSGI 等 MRT 前提の高度 postfx | ❌ | ✅ | MRT に依存 |
+| **IBL (BRDF LUT / env cubemap / irradiance / prefilter)** | ❌ | ✅ | `CImageBasedLighting` の現在の公開境界 |
+| **MRT (G-buffer / motion vector)** | ✅ | ✅ | `BeginRenderToTextureMrt` |
+| **cubemap/array slice 描画** | ✅ | ✅ | `BeginRenderToTextureSlice` |
 
 ## 「fake-success しない」方針
 
 raw-DX12 で高度 3D 機能 (IBL 等) を呼んだ場合、**黙って `Ok()` を返さない**。
 
-- `TResult<void>` を返す経路 (`FImageBasedLighting::BuildBrdfLut` / `BuildEnvCubemap` /
+- `TResult<void>` を返す経路 (`CImageBasedLighting::BuildBrdfLut` / `BuildEnvCubemap` /
   `LoadEquirectHdrFromMemory` / `EnsureIrradiance` / `BuildIrradiance` /
   `EnsurePrefilter` / `BuildPrefilter`) は **`ACS_ERR(Render, 88)`** を返す
   (「Diligent backend が必要」)。機能ごとに 1 回だけ警告ログを出す。
-- `void` を返す command-list 経路 (`FDx12CommandList::BeginRenderToTextureMrt` /
-  `BeginRenderToTextureSlice`、`FImageBasedLighting::DrawSkybox`) はエラーを返せないため、
-  no-op + 1 回限りの明示的な警告ログで「やっていない」ことを正直に伝える。
+- `CImageBasedLighting::DrawSkybox` はエラーを返せないため、対象外 backend では
+  no-op と 1 回限りの警告ログで能力境界を伝える。raw-DX12 の MRT と slice 描画は
+  `CDx12CommandList` が実装しており、この IBL 制限とは独立して利用できる。
 
 これは「未実装の偽装」ではない。**機能自体は Diligent backend に本実装**されており、
 raw-DX12 は副次バックエンドとして当該機能を持たない、という**能力境界**を正直に表明する
-ものである。高度 3D を使うサンプル (例 `25_HelloIbl`) は Diligent でビルドする:
+ものである。高度 3D を使う target は Diligent を有効にしてビルドする:
 
 ```powershell
-.\generate.ps1 -Sample 25_HelloIbl -Diligent
+.\generate.ps1 -Diligent -Tests
 # または cmake 直接:
-cmake -S acs/engine -B <build> -DACS_RENDER_DILIGENT=ON -DACS_ONLY_SAMPLE=25_HelloIbl
+cmake -S acs/engine -B <build> -DACS_RENDER_DILIGENT=ON -DACS_BUILD_TESTS=ON
 ```
 
 ## どちらを使うべきか
 
 - **2D ゲーム / 軽量 3D** → raw-DX12 (既定)。依存ゼロで配布が軽い。
-- **UE5 級の高度 3D (IBL/TAA/SSR/SSGI/MRT G-buffer)** → Diligent。
+- **IBL/TAA/SSR/SSGI/MRT G-buffer を使う高度な 3D** → Diligent。

@@ -63,8 +63,8 @@ MIRROR_RELATIVE_PATHS = tuple(
             MANIFEST_NAME,
             "README.md",
             "acs.h",
-            "examples/build_example.cmd",
-            "examples/check.cpp",
+            "verification/build_consumer_contract.cmd",
+            "verification/consumer_contract.cpp",
             *(
                 f"lib/x64/{configuration}/{library}"
                 for configuration in SUPPORTED_CONFIGURATIONS
@@ -74,16 +74,16 @@ MIRROR_RELATIVE_PATHS = tuple(
     )
 )
 MIRROR_RELATIVE_DIRECTORIES = (
-    "examples",
     "lib",
     "lib/x64",
     "lib/x64/Debug",
     "lib/x64/Release",
+    "verification",
 )
 MANIFEST_ENTRY = re.compile(r"^([0-9A-F]{64})  ([A-Za-z0-9._/-]+)$")
 COPY_BUFFER_BYTES = 1024 * 1024
-# named manifest外の公式consumer sourceも同じreviewed世代へ固定する。
-EXPECTED_EXAMPLE_SHA256 = "7BCFD0302074547A350E591A934473082E03DD03AB45A3A3AC6B0E1A92B3AB74"
+# named manifest 外の公式 consumer source も検証対象の内容へ固定する。
+EXPECTED_CONSUMER_CONTRACT_SHA256 = "4C179EA8EF12BFF83B554AFE4C3D2D093AACBF0D95A54D91C4CA5C6A5BE410DA"
 FILE_ATTRIBUTE_DIRECTORY = 0x10
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
@@ -656,7 +656,7 @@ def create_verified_snapshot(
     live_root: Path,
     snapshot_root: Path,
     configuration: str,
-    expected_example_sha256: str,
+    expected_consumer_contract_sha256: str,
     copy_hook: Optional[Callable[[str, int], None]] = None,
     commit_hook: Optional[Callable[[], None]] = None,
 ) -> Path:
@@ -698,35 +698,35 @@ def create_verified_snapshot(
                         f"{relative_path}"
                     ) from error
 
-        check_source = _distribution_path(mirror.root, "examples/check.cpp")
-        check_identity = mirror.expected_identity(check_source)
-        check_before_hash, check_before_size = _hash_regular_file(
-            check_source,
-            check_identity,
+        contract_source = _distribution_path(mirror.root, "verification/consumer_contract.cpp")
+        contract_identity = mirror.expected_identity(contract_source)
+        contract_before_hash, contract_before_size = _hash_regular_file(
+            contract_source,
+            contract_identity,
         )
-        check_hash, check_size = _copy_and_hash(
-            check_source,
-            snapshot_root / "examples" / "check.cpp",
-            check_identity,
+        contract_hash, contract_size = _copy_and_hash(
+            contract_source,
+            snapshot_root / "verification" / "consumer_contract.cpp",
+            contract_identity,
         )
-        check_after_hash, check_after_size = _hash_regular_file(
-            check_source,
-            check_identity,
+        contract_after_hash, contract_after_size = _hash_regular_file(
+            contract_source,
+            contract_identity,
         )
         if (
-            check_size <= 0
-            or check_before_size != check_size
-            or check_after_size != check_size
-            or check_before_hash != check_hash
-            or check_after_hash != check_hash
-            or check_hash != expected_example_sha256
+            contract_size <= 0
+            or contract_before_size != contract_size
+            or contract_after_size != contract_size
+            or contract_before_hash != contract_hash
+            or contract_after_hash != contract_hash
+            or contract_hash != expected_consumer_contract_sha256
         ):
             raise DistributionValidationError(
-                "distribution example differs from the reviewed consumer source"
+                "distribution consumer contract differs from the canonical source"
             )
     if commit_hook is not None:
         commit_hook()
-    # copy後にpinを取り直し、publisherの別世代commitをmanifest byteで拒否する。
+    # copy 後に pin を取り直し、検証中の差し替えを manifest byte で拒否する。
     with pin_complete_mirror(live_root) as mirror:
         manifest_after, _ = _read_manifest(mirror)
     if manifest_before != manifest_after:
@@ -759,7 +759,7 @@ if(ACS_CXX_STANDARD_LIBRARIES_LOWER MATCHES
 endif()
 
 add_executable(acs_distribution_consumer
-    "${ACS_DISTRIBUTION_ROOT}/examples/check.cpp")
+    "${ACS_DISTRIBUTION_ROOT}/verification/consumer_contract.cpp")
 target_compile_features(acs_distribution_consumer PRIVATE cxx_std_20)
 target_compile_definitions(acs_distribution_consumer PRIVATE _HAS_EXCEPTIONS=1)
 target_compile_options(acs_distribution_consumer PRIVATE
@@ -785,7 +785,7 @@ def required_distribution_files(root: Path, configuration: str) -> tuple[Path, .
     """consumerの構文・link・実行に必要な最小配布fileを返す。"""
     return (
         root / "acs.h",
-        root / "examples" / "check.cpp",
+        root / "verification" / "consumer_contract.cpp",
         *(
             root / "lib" / "x64" / configuration / library
             for library in DISTRIBUTION_LIBRARY_NAMES
@@ -1014,7 +1014,7 @@ def _run_smoke(
                 args.distribution_root,
                 root / "distribution",
                 configuration,
-                EXPECTED_EXAMPLE_SHA256,
+                EXPECTED_CONSUMER_CONTRACT_SHA256,
             )
             missing = [
                 str(path)
@@ -1295,8 +1295,8 @@ def self_test() -> int:
         distribution.mkdir()
         _write_test_distribution(distribution, "A")
         directory_pin_contract = _self_test_directory_pin(root)
-        fixture_example_hash = hashlib.sha256(
-            (distribution / "examples" / "check.cpp").read_bytes()
+        fixture_contract_hash = hashlib.sha256(
+            (distribution / "verification" / "consumer_contract.cpp").read_bytes()
         ).hexdigest().upper()
         expected = required_distribution_files(distribution, "Debug")
         build_directory = root / "build"
@@ -1373,11 +1373,11 @@ def self_test() -> int:
                 (
                     Path(__file__).resolve().parents[2]
                     / "dist"
-                    / "examples"
-                    / "check.cpp"
+                    / "verification"
+                    / "consumer_contract.cpp"
                 ).read_bytes()
             ).hexdigest().upper()
-            == EXPECTED_EXAMPLE_SHA256
+            == EXPECTED_CONSUMER_CONTRACT_SHA256
             and len(expected) == 2 + len(DISTRIBUTION_LIBRARY_NAMES)
             and expected[0] == distribution / "acs.h"
             and expected[2] == distribution / "lib" / "x64" / "Debug" / "acs.lib"
@@ -1405,7 +1405,7 @@ def self_test() -> int:
             distribution,
             root / "snapshot",
             "Debug",
-            fixture_example_hash,
+            fixture_contract_hash,
         )
         valid = (
             valid
@@ -1464,18 +1464,18 @@ def self_test() -> int:
         )
         extra.unlink()
 
-        example_path = distribution / "examples" / "check.cpp"
-        original_example = example_path.read_bytes()
-        example_path.write_bytes(b"stable but different generation\n")
+        contract_path = distribution / "verification" / "consumer_contract.cpp"
+        original_contract = contract_path.read_bytes()
+        contract_path.write_bytes(b"stable but different generation\n")
         valid = valid and _expect_distribution_failure(
             lambda: create_verified_snapshot(
                 distribution,
-                root / "example-drift-snapshot",
+                root / "contract-drift-snapshot",
                 "Debug",
-                fixture_example_hash,
+                fixture_contract_hash,
             )
         )
-        example_path.write_bytes(original_example)
+        contract_path.write_bytes(original_contract)
 
         tampered = distribution / "lib" / "x64" / "Debug" / "acs.lib"
         original_payload = tampered.read_bytes()
@@ -1485,7 +1485,7 @@ def self_test() -> int:
                 distribution,
                 root / "tampered-snapshot",
                 "Debug",
-                fixture_example_hash,
+                fixture_contract_hash,
             )
         )
         tampered.write_bytes(original_payload)
@@ -1508,7 +1508,7 @@ def self_test() -> int:
                 distribution,
                 root / "raced-payload-snapshot",
                 "Debug",
-                fixture_example_hash,
+                fixture_contract_hash,
                 mutate_payload_after_nth_copy,
             )
         )
@@ -1534,7 +1534,7 @@ def self_test() -> int:
                 distribution,
                 root / "raced-manifest-snapshot",
                 "Debug",
-                fixture_example_hash,
+                fixture_contract_hash,
                 commit_hook=publish_generation_b,
             )
         )
@@ -1569,7 +1569,7 @@ def self_test() -> int:
             distribution,
             root / "root-pin-snapshot",
             "Debug",
-            fixture_example_hash,
+            fixture_contract_hash,
             attempt_root_swap,
         )
         valid = (
@@ -1604,7 +1604,7 @@ def self_test() -> int:
                             linked_root,
                             root / "linked-root-snapshot",
                             "Debug",
-                            fixture_example_hash,
+                            fixture_contract_hash,
                         )
                     )
                 )
@@ -1623,17 +1623,17 @@ def self_test() -> int:
         nested_fixture = root / "nested-junction-distribution"
         nested_fixture.mkdir()
         _write_test_distribution(nested_fixture, "J")
-        nested_example_hash = hashlib.sha256(
-            (nested_fixture / "examples" / "check.cpp").read_bytes()
+        nested_contract_hash = hashlib.sha256(
+            (nested_fixture / "verification" / "consumer_contract.cpp").read_bytes()
         ).hexdigest().upper()
-        real_examples = nested_fixture / "examples-real"
-        (nested_fixture / "examples").rename(real_examples)
-        external_examples = external / "examples"
-        external_examples.mkdir()
-        external_example_sentinel = external_examples / "outside.txt"
-        external_example_sentinel.write_text("outside", encoding="utf-8")
-        nested_link = nested_fixture / "examples"
-        nested_link_created = _create_test_junction(nested_link, external_examples)
+        real_verification = nested_fixture / "verification-real"
+        (nested_fixture / "verification").rename(real_verification)
+        external_verification = external / "verification"
+        external_verification.mkdir()
+        external_contract_sentinel = external_verification / "outside.txt"
+        external_contract_sentinel.write_text("outside", encoding="utf-8")
+        nested_link = nested_fixture / "verification"
+        nested_link_created = _create_test_junction(nested_link, external_verification)
         with _reject_external_self_test_io(external) as nested_link_observed:
             valid = (
                 valid
@@ -1645,7 +1645,7 @@ def self_test() -> int:
                             nested_fixture,
                             root / "nested-link-snapshot",
                             "Release",
-                            nested_example_hash,
+                            nested_contract_hash,
                         )
                     )
                 )
@@ -1653,11 +1653,11 @@ def self_test() -> int:
         valid = (
             valid
             and nested_link_observed == {"opens": 0, "scans": 0}
-            and external_example_sentinel.read_text(encoding="utf-8") == "outside"
+            and external_contract_sentinel.read_text(encoding="utf-8") == "outside"
         )
         if nested_link_created:
             nested_link.rmdir()
-        real_examples.rename(nested_fixture / "examples")
+        real_verification.rename(nested_fixture / "verification")
 
         command_success = run_command(
             [sys.executable, "-c", "print('job-success')"],
@@ -1724,7 +1724,7 @@ def self_test() -> int:
                 live_root,
                 snapshot_root,
                 configuration,
-                fixture_example_hash,
+                fixture_contract_hash,
             )
 
         def successful_runner(

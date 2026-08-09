@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — cinetimeline / ACinematicsTimelineEditorPanel
+#pragma once
+// GameFramework の映像 timeline editor — ACinematicsTimelineEditorPanel
 //
 // `acs::game::CCinematicsDirector` (= タイムライン上の cutscene 駆動器) を
 // **対話的に編集する timeline editor panel**。水平タイムライン、複数トラック、
@@ -33,8 +34,7 @@
 //     / event_id / 文字列リテラル) を panel 側で保持する。Play 時に director に
 //     対応する FTimelineKeyframe を AddKeyframe する設計 (= editor data →
 //     runtime data の「ベイク」)。
-//   ・実 file save/load は本 panel 範囲外 (= sample 37 menu で stub menu、本物は
-//     .acscinetimeline serializer を追加した時点で配線)。
+//   ・実 file save/load は本 panel 範囲外で、呼び出し側が保存を担当する。
 //
 // 使い方 (典型):
 //   ACinematicsTimelineEditorPanel panel;
@@ -94,8 +94,7 @@
 //     AParticleEditorPanel) と同形。
 //
 // 範囲外:
-//   ・実 file save/load (= sample 37 menu で stub、
-//     .acscinetimeline serializer を作って配線)
+//   ・実 file save/load
 //   ・複数 director の同時編集
 //   ・undo / redo 統合 (= CUndoStack 経由、OnUndo / OnRedo hook)
 //   ・keyframe の補間 / curve 編集 (= AnimCurveEditor と統合した時点で検討)
@@ -107,8 +106,6 @@
 // 関連実装: gameframework/CinematicsDirector.h,
 //      gameframework/tools/editor_core/EditorPanel.h,
 //      gameframework/tools/animcurve/AnimCurveEditorPanel.h
-#pragma once
-
 #include "foundation/Types.h"
 #include "container/Array.h"
 #include "gameframework/Forward.h"
