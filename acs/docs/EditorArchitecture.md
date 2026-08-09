@@ -1,10 +1,9 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # ACS Editor: architecture and workflows
 
-This document describes the production ACS Editor under
-`editor/AcsEditor`, as implemented on 2026-07-27. It is the authoritative
-overview for the desktop Editor, asset authoring, profiling, packaging, and
-verification entry points.
+This document describes the production ACS Editor under `editor/AcsEditor`.
+It is the authoritative overview for the desktop Editor, asset authoring,
+profiling, packaging, and verification entry points.
 
 The native ImGui authoring panels under `src/gameframework/tools` are a
 separate in-engine tools library. They can be embedded by samples, but they
@@ -18,9 +17,8 @@ are not the WPF desktop Editor described here.
   viewport.
 - A project rooted by one `.acsproject` manifest and an `Assets` directory.
 
-The Editor is not binary- or project-compatible with Unreal Editor or Unity.
-Its UI and workflows may use familiar conventions, but ACS assets and scene
-formats are ACS contracts.
+ACS assets, project manifests, scene formats, and native ABI are defined only
+by the ACS contracts documented in this repository.
 
 The scene identity and 2D-authoring policy is fixed by
 [ADR 0001: Single 3D scene document with Orthographic 2D authoring](adr/0001-single-scene-document.md).
@@ -339,7 +337,7 @@ serialized as a game camera, never becomes a `CAM3D` record implicitly, and
 gameplay camera updates do not overwrite it. Play and Stop own simulation
 lifetime and restoration. Switching between Scene and Game tabs changes only
 which camera is presented: Play continues, the Scene View remains navigable,
-and the Game View routes gameplay input only while user logic is active.
+and the Game View routes gameplay input only while gameplay code is active.
 Focus loss or a view switch releases every forwarded key and mouse button so
 input cannot remain latched.
 
@@ -386,12 +384,12 @@ Owner shutdown returns floating WPF tools and Camera View through one
 all-or-nothing auxiliary-surface transaction. Camera return is the commit
 boundary: failure restores the captured six-tool layout, cancels the approved
 close, revokes hosted material close approvals, resumes asset operations, and
-re-enables editor input. The successful shutdown path persists the user's
+re-enables editor input. The successful shutdown path persists the stored
 pre-shutdown floating placements and active bottom tab, not the temporary
 re-docked shutdown geometry. Only after every auxiliary surface commits does
-the editor join autosave workers and attempt to discard session recoveries.
+the editor join autosave workers and attempt to discard recovery entries.
 Cleanup failures are diagnosed, but once autosave has begun its irreversible
-stop the editor does not try to resume a partially stopped session; it proceeds
+stop the editor does not try to resume a partially stopped run; it proceeds
 to the final close, which bypasses the temporary re-dock handlers. A failed
 auxiliary return occurs before that boundary and therefore leaves autosave and
 recovery fully usable.
@@ -481,7 +479,7 @@ Restoration permits negative desktop coordinates, clamps a reachable title
 region to the nearest work area after monitor-topology changes, and rejects
 non-finite geometry, unknown IDs, duplicate panel records, and unsupported
 versions. The six-panel placement snapshot uses schema version 2. The layout
-is user-local UI state; it never mutates Scene, Project, undo, dirty, or
+is per-account UI state; it never mutates Scene, Project, undo, dirty, or
 gameplay-camera state.
 
 Layout reset is transactional across the registered tool panels. It captures
@@ -496,8 +494,7 @@ layout is not deleted.
 `EditorDocumentHost` supplies common identity, dirty, save, and transaction
 state. The Scene adapter, the authored Substrate graph in each open Material
 Editor, and the project-owned `ProjectSettings.ini` document are connected to
-this host today. Blueprint and Prefab adapters are migration targets for the
-same stable `(kind, ID)` contract.
+this host. Blueprint and Prefab documents are not registered in this contract.
 Material documents prefer the adjacent Asset Database GUID, so rename/move
 does not replace their identity; a loose material uses a canonical absolute
 path and is rebound after a successful path mutation. A supplied malformed
@@ -543,10 +540,9 @@ retains its local confirmation. Layout-only graph changes are intentionally
 excluded from the source fingerprint but the sidecar is still written on every
 non-Discard close.
 
-This vertical slice does not claim that all legacy material controls are
-transactional: the legacy PBR/effect panels still use their existing immediate
-native writers. Common material autosave/recovery, cross-window Undo routing,
-and Blueprint/Prefab registration remain follow-up work.
+Legacy PBR/effect panels still use their immediate native writers and are not
+part of the common material transaction. Common material autosave/recovery,
+cross-window Undo routing, and Blueprint/Prefab registration are not provided.
 
 Project Settings uses the canonical settings-file path as its stable identity
 and participates in common dirty, Undo/Redo transaction, Save All, and
@@ -572,9 +568,9 @@ gate before saving the Scene or starting downstream work. The gate invokes the
 hosted save contract for both clean and dirty Settings through the common save
 exclusion, so external disk/manifest drift cannot pass through the clean
 shortcut; cancelled, suspended, transactional, or failed persistence aborts
-the operation. Package runs the Settings gate again when the user presses the
-Package action, after any unbounded dialog delay and before taking the project
-snapshot used by preflight and publication. If a concurrent editor made the
+the operation. After the Package confirmation dialog returns, Package runs the
+Settings gate again before taking the project snapshot used by preflight and
+publication. If a concurrent editor made the
 manifest's `Game.DefaultScene` authoritative, the save callback applies that
 durable canonical rewrite only when live state still equals its pre-write
 snapshot, then reconciles `Project.InitialScene` before Scene/build gates run.
@@ -645,8 +641,8 @@ with a no-overwrite move. Collision-safe suffixes are selected without
 overwriting an existing file.
 
 The material editor provides ACS closure and expression graphs, preview, and
-canonical ACSMAT persistence. It is Substrate-inspired ACS functionality, not
-an implementation of Unreal's serialized Substrate asset format.
+canonical ACSMAT persistence. This is an ACS-specific graph and does not define
+compatibility with another serialized graph format.
 
 ### Browsing and management
 
@@ -683,7 +679,7 @@ profile so large directory imports do not open one modal per file. See
 
 The first processed-import worker is source-preserving: it reads and validates
 the complete staged source bytes before any payload or `.acsmeta` publication.
-Its artifact key is path independent and combines source content with the
+Its derived-data key is path independent and combines source content with the
 canonical importer recipe. Strict, bounded, hash-verified envelopes are
 published atomically under
 `Temp/DerivedDataCache/AssetImports/v1`; a malformed, truncated, mismatched, or
@@ -694,7 +690,7 @@ progress are intentionally later processors; v1 does not claim that copied
 source bytes are GPU-ready derived formats.
 
 Image and Material tiles retain the bounded decoded-image LRU for the current
-session and add a project-local persistent thumbnail DDC under
+browser lifetime and add a project-local persistent thumbnail DDC under
 `Temp/DerivedDataCache/AssetBrowserThumbnails`. Its key is derived from the
 Asset Database content SHA-256, thumbnail generator version, asset kind, and
 requested edge; source paths and timestamps are not cache identity, so a safe
@@ -728,7 +724,7 @@ first cache request after the periodic deadline, once when entering the
 high-water band, on explicit maintenance, or after an
 unknown/missing/size-mismatched/corrupt entry exposes cross-process drift.
 Reconciliation has explicit directory and entry-inspection ceilings; a
-same-user process that externally inflates the cache beyond that bounded scan
+process under the same local account that externally inflates the cache beyond that bounded scan
 disables the persistent layer instead of causing an unbounded allocation or
 loop. It removes only canonical private temporary files older than the stale
 threshold, leaving a second Editor's fresh atomic write untouched. Publication
@@ -766,10 +762,10 @@ The thumbnail DDC has no cross-process cache lease. Two Editor processes may
 redundantly generate, replace, or evict the same content-addressed entry. A
 complete atomic entry is equivalent regardless of the winner; an I/O,
 sharing, or path-safety race disables the persistent layer for that browser
-session and falls back to the bounded memory cache and full-quality generator.
+lifetime and falls back to the bounded memory cache and full-quality generator.
 Source assets and Asset Database identity never depend on cache success. This
 is a consistency fallback, not a filesystem compare-and-swap claim against a
-non-cooperating same-user process replacing a validated cache path.
+non-cooperating process under the same local account replacing a validated cache path.
 
 Rename, move, duplicate, replace-reference, and delete paths inspect or
 rewrite supported references transactionally. Referenced assets are refused
@@ -791,12 +787,12 @@ lowercase codes and empty operation IDs fail closed.
 
 `EditorOperationSession` owns the lifecycle. Success, failure, and cancellation
 append exactly one terminal diagnostic, freeze the ordered aggregate, and are
-idempotent under repeated completion. Leaving a session scope without a
+idempotent under repeated completion. Leaving an operation scope without a
 terminal outcome produces `ACS.OPERATION.INCOMPLETE` instead of silently
 claiming success. Each operation retains at most 256 diagnostics: the final
 slot is reserved for terminal completion and overflow produces one
 `ACS.OPERATION.DIAGNOSTICS_TRUNCATED` warning. `EditorOperationJournal` removes
-completed sessions from its active set atomically, retains a bounded result
+completed operations from its active set atomically, retains a bounded result
 history, and returns retained results in operation-start order even when
 completion order differs.
 
@@ -808,9 +804,8 @@ failure, cancellation, or an exception. The same events are formatted into the
 existing Build log with their operation ID, so this foundation does not remove
 or reinterpret legacy process output. Native optional-service state and typed
 errors use the independent ABI payload above. Correlating native errors with
-managed operation GUIDs and adding cooperative cancellation to long-running
-native jobs remain follow-up work; the service-status query does not claim that
-job contract.
+managed operation GUIDs and cooperative cancellation of long-running native
+jobs are not part of the service-status query contract.
 `--operation-diagnostics-selftest` fixes contract validation, deterministic
 ordering and eviction, observer isolation, overflow truncation, and
 cancellation-safe terminal publication.
@@ -938,7 +933,7 @@ completed-GPU-query p95 values retain their bounded 10 Hz sample counts and
 exact budget-violation rates, so a missing GPU timestamp remains `N/A` instead
 of looking artificially fast. `Export CSV` snapshots the current history,
 writes it asynchronously to a unique sibling temporary file, and atomically
-moves it over the user-selected destination. See
+moves it over the selected destination. See
 [`EditorPerformanceProfiler.md`](EditorPerformanceProfiler.md) for
 interpretation and capture guidance.
 
@@ -947,7 +942,7 @@ interpretation and capture guidance.
 `EditorDispatcherWatchdog` is driven by a ThreadPool timer, independent of the
 WPF Dispatcher. A minimal `DispatcherPriority.Input` heartbeat records startup
 phase and normal interaction health every 500 ms, so starvation is measured at
-the same scheduling class as user input rather than a hidden background panel.
+the same scheduling class as input dispatch rather than a hidden background panel.
 If no heartbeat arrives for two seconds, the watchdog
 writes `DISPATCHER_STALL`; the first later heartbeat writes
 `DISPATCHER_RECOVERED` with the measured duration and phase. This distinction
@@ -957,9 +952,9 @@ An explicit profiler capture reset rebases the watchdog's heartbeat origin,
 heartbeat/stall counts, active-stall state, and extrema so startup evidence
 cannot leak into the capture interval.
 
-Each Editor process writes a session-scoped
+Each Editor process writes a process-scoped
 `%LOCALAPPDATA%\ACS\Editor\Diagnostics\interaction-health-<UTC>-<PID>.log`.
-A single FIFO worker preserves transition order, rotates the current session
+A single FIFO worker preserves transition order, rotates the current log lifetime
 at 2 MiB to `.previous`, and performs console/file I/O away from the UI thread.
 Reliability-soak completion awaits its final diagnostic asynchronously. Normal
 window close queues only a best-effort terminal line and never waits on the WPF
@@ -969,7 +964,7 @@ Lines are bounded and control-, bidi-, and line-injection safe; the phase token
 additionally removes key/value separators. The watchdog diagnoses a stall; it
 does not abort a native call or attempt unsafe UI-thread recovery.
 
-Cold ABI/subsystem creation and user-local layout/workspace reads are also
+Cold ABI/subsystem creation and per-account layout/workspace reads are also
 kept off the Dispatcher. Native host publication is generation-gated and
 cleans up every unpublished handle; delayed layout results cannot overwrite
 mouse-, keyboard-, or caption-move changes made after the read began. The
@@ -1046,16 +1041,12 @@ cross-platform package.
 - Asset collections and browser layout are Editor conveniences; authoritative
   asset identity lives in `.acsmeta`.
 - The project mutation lease coordinates ACS processes. It is not an
-  operating-system sandbox against a hostile same-user process replacing a
+  operating-system sandbox against a hostile process under the same local account replacing a
   validated directory between filesystem calls.
 - Packaged asset packs are runtime/cook products, not editable Content Browser
   mounts.
 - Signing, installers, store deployment, source-control integration, and
   multi-platform distribution remain outside the current local Editor flow.
-
-The prioritized implementation gaps are maintained in
-[`EditorProductionRoadmap.md`](EditorProductionRoadmap.md). That roadmap is
-planning material; this document describes only current contracts.
 
 ## Verification
 
@@ -1063,7 +1054,7 @@ Use `scripts/verify_editor.ps1` from the `acs` directory. It redirects build
 outputs, logs, NuGet state, temporary files, and application profile folders
 to one unique directory below the system temp root. By default that directory
 is removed before the final result summary. Repository `Binaries`,
-`Intermediate`, and `Saved` trees and normal Editor user settings are not
+`Intermediate`, and `Saved` trees and normal Editor settings are not
 cleaned or overwritten.
 
 ```powershell

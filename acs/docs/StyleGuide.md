@@ -1,26 +1,15 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# ACS Coding Style Guide (v3)
+# ACS Coding Style Guide
 
-**目的 / Purpose**: ACS の唯一のコーディング規約。`.clang-format` / `.clang-tidy` / `acs_lint` が機械強制する内容と一対一で対応する。**This document is the single source of truth for ACS coding style** — what tools enforce, this doc explains.
+**目的 / Purpose**: ACS の唯一のコーディング規約。**This document is the single source of truth for ACS coding style.**
+機械検証する subset と専用 gate は本書の toolchain 節に明記し、それ以外は実装レビューで確認する。
 
 **対象 / Scope**: `src/**`, `samples/**`, `tests/**`, `tools/**`, `editor/**` 配下の C++ コード。`cmake-build-*/_deps/` 配下のサードパーティ、`docs/`, `cmake/` は対象外。
 
-**バージョン / Version**: v3.0 (2026-08-01 改訂)
-
-> **基本方針 / Core philosophy** — prefixは構文ではなく責務を表す。owner / registryに所有され多態的に扱われるobjectは`A`、機能や処理を持つ具象classは`C`、データ中心のstruct・値・handleは`F`、templateは`T`、純粋interfaceは`I`、enumは`E`とする。
->
-> **v1 → v2 の変更点** (詳細は §15 Revision history):
-> - owner / registryに所有され多態的に扱われるobjectに **`A` prefix**
-> - 機能を持つ具象classに **`C` prefix**、データ・値・handleに **`F` prefix**
-> - template に **`T` prefix** (Tier 1+2 で適用済)
-> - **メンバ変数 `_snake_case` → `m_PascalCase`** (2026-05-28 確定、UE5 純正は accessor method 衝突のため `m_` 前置のハイブリッド方式に変更)
-> - bool 変数 `is_xxx` → **`bIsXxx`** (member は `m_bIsXxx`、local は `bIsXxx`) **— 未実装、AST 必要**
-> - ローカル変数 / 引数 `snake_case` → **`PascalCase`** **— deferred (clang-tidy AST 必須)**
-> - 定数 `kPascalCase` 維持
-> - 関数 / メソッド `PascalCase` 維持
-> - enum `E` prefix 維持 (v1 で確定済)
-> - interface `I` prefix 維持 (v1 で確定済)
-> - namespace公開の意味付きscalar/value aliasは `F`。delegate / callback / 関数ポインタは指定なし
+**基本方針 / Core philosophy**: prefix は構文ではなく責務と所有権を表す。owner / registry に
+所有され多態的に扱われる object は `A`、独立した identity、lifecycle、所有資源を持つ
+具象 class は `C`、値・handle・owner の寿命内で提供する service は `F`、template は `T`、
+純粋 interface は `I`、enum は `E` とする。
 
 ---
 
@@ -40,7 +29,6 @@
 12. [ツールチェイン / Toolchain](#12-ツールチェイン--toolchain)
 13. [規則カタログ / Rule Catalog (R001-R048)](#13-規則カタログ--rule-catalog-r001-r048)
 14. [例外規定 / Exception Mechanism](#14-例外規定--exception-mechanism)
-15. [改訂履歴 / Revision History](#15-改訂履歴--revision-history)
 
 ---
 
@@ -62,19 +50,19 @@ ACS は以下の **5 つの言語制約** の上に成り立つ。これらは�
 
 ### 2.1 型 / Types — `<Prefix>PascalCase`
 
-ACS では型の種類に応じて prefix を付ける。**ACS-fit prefix scheme** = 「UE5 と同じ意味の prefix だけ採用、ACS の哲学に合わないものは使わない」。
+ACS では型の責務に応じて prefix を付ける。
 
 | 種別 / Kind | Prefix | 例 / Example |
 |---|---|---|
 | **owner / registryに所有され多態的に扱われるobject** | **`A`** | `AObject`, `ANode`, `AComponent` |
-| **機能・処理を持つ具象class** | **`C`** | `CAudioEngine`, `CMessageBroker`, `CTimerManager` |
-| **データ中心のstruct / union、値、handle** | **`F`** | `FVec2`, `FErrorCode`, `FSoundHandle` |
+| **独立したidentity、lifecycle、所有資源を持つ具象class** | **`C`** | `CAudioEngine`, `CMessageBroker`, `CTimerManager` |
+| **値、descriptor、handle、owner寿命内のservice** | **`F`** | `FVec2`, `FErrorCode`, `FSoundHandle`, `FFileSystem` |
 | **template** | **`T`** | `TArray<T>`, `TUniquePtr<T>`, `TResult<T,E>`, `THashMap<K,V>` |
 | **interface (純粋仮想 base)** | **`I`** | `IRhiDevice`, `IRhiBuffer`, `IAssetLoader` |
 | **enum class** | **`E`** | `EFormat`, `EFlowState`, `ELogSeverity` |
 | **namespace公開のscalar/value alias** | **`F`** | `FEventTypeId`, `FComponentTypeId` |
 | **delegate / callback / 関数ポインタalias** | **指定なし** | `EasingFn`, `HotReloadCallback`, `FHotReloadCallback` |
-| **template alias** | **今回のscalar監査対象外** | `Owned`, `RemoveRefT` |
+| **template alias** | **scalar alias 監査対象外** | `Owned`, `RemoveRefT` |
 
 ```cpp
 class  CRenderer { /* ... */ };
@@ -95,31 +83,22 @@ class IRhiDevice { virtual ~IRhiDevice() noexcept = default; /* pure virtual */ 
   `UpperCamelCase` (`PascalCase`) を使う。
   `HotReloadCallback` / `JudgeCallback` / `BeatEndCallback` と
   `FHotReloadCallback` / `FJudgeCallback` / `FBeatEndCallback` はどちらも適合する。
-- template aliasは今回のscalar監査対象外で、既存名を維持する。`T`を強制するかは
-  実利用とsource互換を棚卸しする後続waveで判断する。
+- template alias は scalar alias 監査の対象外とし、既存の公開名を維持する。
 - 新規の型 alias 宣言には **`using` を使う**。公開namespaceの`typedef`は追加しない。
   `AssetType = u32`はasset familyの移行設計が確定するまで、場所・名前・参照先を固定した
   登録済み例外として維持する。
 - `AAsset`とその直接・間接派生は、ownerに所有され多態的に扱われる`A`として登録済みである。
   修飾名、単純名、公開alias chainの基底を解決し、曖昧または解決不能なら監査を
   fail-closedにする。structや`FScoped*`も名前だけで例外にしない。
-- 操作のないデータ中心classは`F`、`Draw` / `Render`など明白な処理を持つstructは`C`候補とする。
-  valueのconstructor・accessor・operatorは`F`のままとし、member initializerの関数呼び出しと
-  function-pointer fieldをmethodと誤認しない。
+- `C` と `F` は class / struct 構文や method の有無で分けない。独立した identity、lifecycle、
+  所有資源を統括する型は `C`、値・handle・descriptor・owner の寿命内で借りる service は
+  `F` とする。value の constructor・accessor・operator は `F` のままとする。
 - 元の単語が prefix と同じ文字で始まっても prefix は省略しない。例: `FileSystem` → `FFileSystem`、`Font` → `FFont`、`ErrCategory` → `EErrCategory`。
-- template / interface / objectの分類は意味に基づく。現waveが`A`と機械確定するのは、
-  `acs::AObject`の推移実継承またはscope解決した`ACS_OBJECT` / `ACS_REGISTER_OBJECT`実登録である。
-  未登録のobject候補はR020fで拒否し、review済みcommitでregistryまたはdebtへ反映する。
-  現行debtは0件である。macro定義中と`#if 0`中の記述は実登録ではない。
+- template / interface / object の分類は意味に基づく。`A` の機械判定は
+  `acs::AObject` の推移実継承、または scope 解決した `ACS_OBJECT` / `ACS_REGISTER_OBJECT`
+  の実登録を根拠にする。未登録の object 候補は R020f で拒否する。macro 定義中と
+  `#if 0` 中の記述は実登録ではない。
   機能classには`C`を使う。
-
-**UE5 との対応**:
-- UE5 `F*` (non-UObject struct/class) とACS `F*` / `C*`は同一ではない。ACSはデータと機能を分ける
-- UE5 `T*` (template) ↔ ACS `T*` — 完全一致
-- UE5 `E*` (enum) ↔ ACS `E*` — 完全一致
-- UE5 `I*` (interface) ↔ ACS `I*` — 完全一致
-- UE5 `U*` (UObject) — **ACS は採用しない** (GC 無し)
-- UE5 `A*` (AActor) とACS `A*`は意味が異なる。ACSではowner / registryに所有され多態的に扱われるobjectを表す。
 
 ### 2.2 関数 / メソッド — `PascalCase`
 
@@ -162,7 +141,8 @@ void Foo(u32 FrameIndex, const FMat4& ViewProjection) noexcept
 | **public POD bool field** | `bPascalCase` | `FConfig::bEnabled` |
 | **`static` class member** | `PascalCase`、bool は `bPascalCase` | `kFooDefault` (constexpr の場合は §2.5 の k prefix) |
 
-**理由 / Rationale**: UE5 純正 (prefix 無し) は accessor method 名と衝突する (`T Member() const { return m_Member; }` の `Member()` と member `Member` が同名)。`m_` 前置で member と accessor を区別 (Microsoft/Naughty Dog 流ハイブリッド)。POD struct field は accessor を持たないので prefix 無し。
+**理由 / Rationale**: `m_` により member と同名 accessor を区別する。
+POD struct field は accessor を持たないため prefix を付けない。
 
 ```cpp
 class FFoo {
@@ -212,7 +192,7 @@ static constexpr i32    kInvalidEntityId  = -1;
 
 ACS の公開マクロは必ず `ACS_` プレフィックス。内部ヘルパーは `_acs_` (小文字) 始まり。
 
-### 2.7 `enum class` — `E` プレフィックス + `PascalCase` (Phase 19a〜)
+### 2.7 `enum class` — `E` プレフィックス + `PascalCase`
 
 ```cpp
 enum class EErrCategory : u16 { None, Generic, Memory, OS, IO, Container, /* ... */ };
@@ -220,7 +200,7 @@ enum class ELogSeverity : u8  { Trace, Debug, Info, Warn, Error, Fatal, Off };
 enum class EFlowState   : u8  { Splash, MainTitle, MainMenu, /* ... */ };
 ```
 
-- 型名: **`E` プレフィックス + PascalCase** (Phase 19a で確定)。
+- 型名: **`E` プレフィックス + PascalCase**。
 - 値: 型 prefix を付けない PascalCase。既存の class / struct / union / enum
   型名そのもの (`FString`, `EKey` 等)を列挙子へ流用しない。
 - 必ず **underlying type を明示** (`: u8` / `: u16` / `: u32`)。
@@ -229,8 +209,6 @@ enum class EFlowState   : u8  { Splash, MainTitle, MainMenu, /* ... */ };
 **例外 / Exceptions**:
 - 元の単語が `E` で始まっても prefix は省略しない (`ErrCategory` → `EErrCategory`)。
 - HLSL format 値 (`R8`, `R8G8B8A8`, `R32G32B32_F` 等) は HLSL 慣習に従う (型名は `EPixelFormat` で E prefix 適用)。
-
-**Phase 19a の経緯**: ACS は元々 enum class に prefix なしだったが、UE5 経験者の親和性 + grep ヒット率向上 + interface の `I` prefix と整合させるため `E` prefix を必須化した。`scripts/rename_enums_to_e_prefix.py` で機械的に rename 済み (~80 enum / 254 file / 2551 replacement)。
 
 **例外 / Exception**: HLSL の format に対応する `EPixelFormat` 値 (`R8`, `R8G8B8A8`, `R32G32B32_F` 等) は HLSL 慣習に従う (値名のみ、型名は `E` prefix 適用)。
 
@@ -269,10 +247,10 @@ src/render/Diligent/DiligentDevice.h
 ### 2.11 bool 命名 / Boolean Naming — `b` 前置
 
 - **メソッド**: `IsXxx()`, `HasXxx()`, `CanXxx()`, `ShouldXxx()` 形式 (動詞的)。
-- **メンバ / ローカル / 引数**: **`bXxx`** で b 前置 (UE5 純正)。`Is` / `Has` / `Can` / `Should` を付けて意味を明確化する。
+- **メンバ / ローカル / 引数**: **`bXxx`** で b 前置。`Is` / `Has` / `Can` / `Should` を付けて意味を明確化する。
 
 ```cpp
-// OK (v2: UE5 純正)
+// OK
 bool IsAlive() const noexcept;
 bool bIsActive = false;
 bool bHasPendingDestroy = true;
@@ -289,7 +267,7 @@ bool is_active = false;        // snake_case 局所
 bool has_pending_destroy;      // snake_case
 ```
 
-**理由**: ローカル変数 PascalCase 化と整合させるため、bool だけ `b` 前置で「条件分岐に書ける値」を視覚的に区別する。UE5 とも同じ形式。
+**理由**: bool だけ `b` 前置にし、条件値であることを名前から判別できるようにする。
 
 ---
 
@@ -423,7 +401,7 @@ using FEntityIndex = u32;                // OK: 公開する値aliasはF
 using Callback = void (*)(void*, u32);   // OK: callback aliasはprefix自由
 using FCallback = Callback;              // OK: 既存のF付きcallback aliasも維持可能
 template<typename T>
-using Owned = TUniquePtr<T>;             // OK: template aliasは今回の監査対象外
+using Owned = TUniquePtr<T>;             // OK: template aliasはscalar alias監査対象外
 
 // 登録済みの旧名は、正規型を指す互換別名としてだけ残す。
 using EventTypeId = FEventTypeId;
@@ -666,7 +644,8 @@ TArray<u32> Build(Allocator& alloc) noexcept
 ### 7.2 スレッドエントリは `noexcept` 必須
 
 ```cpp
-void WorkerEntry(void* user) noexcept  // noexcept 必須
+// thread entry の失敗を例外で逃がさない。
+void WorkerEntry(void* user) noexcept
 {
     /* ... */
 }
@@ -764,9 +743,10 @@ auto Foo() noexcept -> TResult<int>;   // NG (trailing は通常不要)
 
 template 戻り値で leading が表現困難な場合のみ trailing。
 
-### 9.5 C++20 modules — 当面延期
+### 9.5 C++20 modules — 現行契約の対象外
 
-ACS は `#include` + `#pragma once` を継続。DiligentEngine / ImGui が modules 対応するまで保留。
+ACS の公開 header、module source manifest、生成配布は `#include` + `#pragma once` を
+現行契約とする。C++20 modules は現在の build と配布対象に含めない。
 
 ---
 
@@ -776,10 +756,14 @@ ACS は `#include` + `#pragma once` を継続。DiligentEngine / ImGui が modul
 
 - **識別子** (型名、関数名、ファイル名): 英語
 - **コメント narrative**: 日本語
-- **Doxygen tag**: 採用しない (`@brief` / `@param` / `@return` 等は使わない)
-- **公開 API の `@brief` ribbon** (推奨): 1 行英語 `///` で IDE tooltip 用
+- 公開宣言で既存の `@details`、`@param`、`@return` を使う場合も、役割、入力、失敗条件を
+  日本語で具体的に記述する。tag 自体は必須としない。
+- 型と関数の宣言直前には、役割、入力、失敗条件を現在形の日本語で記述する。
+- field、global、local、定数、列挙値には、その場所での役割を短く具体的に記述する。
+- 専門用語が必要な場合は、直後に短い説明を添える。
+- コメントは ACS の実装、契約、失敗条件、安全性だけを説明し、一時的な管理情報を含めない。
 
-### 10.2 コメント形式 — `//` 統一
+### 10.2 コメント形式
 
 ```cpp
 // 1 行コメント
@@ -792,20 +776,25 @@ ACS は `#include` + `#pragma once` を継続。DiligentEngine / ImGui が modul
 // ===========================================================================
 
 // ---- サブセクションヘッダ ----
+
+/** 入力を検証し、現在値を変更せずに結果を返す。 */
 ```
 
-Doxygen `///` / `/** */` は採用しない (R045-c)。
+field や実装補足は `//`、宣言直前の契約は `//` または `/** ... */` を使える。
+形式にかかわらず、対象宣言の直前に役割、入力、失敗条件を置く。
 
-### 10.3 標準化された marker
+### 10.3 実装補足 marker
 
-| Marker | 意味 / Meaning | owner 必須? |
-|---|---|---|
-| `// TODO(owner): ...` | 後でやる作業 | はい |
-| `// FIXME(owner): ...` | 既知バグ、リリース前に直す | はい |
-| `// HACK(owner): ...` | 意図的回避策、issue リンク必須 | はい |
-| `// PERF: ...` | パフォーマンス hot path 注意 | いいえ |
-| `// NOTE: ...` | 読者向け補足 | いいえ |
-| `// SAFETY: ...` | unsafe 操作 (placement new, reinterpret_cast) の安全性証明 | いいえ |
+製品 source に `TODO` / `FIXME` / `HACK` を追加しない。未実装事項は source comment ではなく
+責務に対応する ACS の正規計画へ記録する。
+
+実装上必要な補足には次を使える。
+
+| Marker | 意味 / Meaning |
+|---|---|
+| `// PERF: ...` | 現在の hot path と維持すべきコスト条件 |
+| `// NOTE: ...` | 現在の ACS 契約に必要な補足 |
+| `// SAFETY: ...` | placement new や cast の具体的な安全性証明 |
 
 禁止: `XXX`, `BUG`, `KLUDGE`, `OPTIMIZE`, `WTF`。
 
@@ -813,17 +802,15 @@ Doxygen `///` / `/** */` は採用しない (R045-c)。
 
 ```cpp
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Foundation — TResult<T, E> 型（例外なしエラー伝搬）
-// -----------------------------------------------------------------------------
-// 設計意図、使用例、特徴を 5-30 行で記述。
-// =============================================================================
 #pragma once
 ```
 
+header 冒頭には SPDX と include guard だけを置く。型の役割、入力、失敗条件は対象宣言の
+直前へ置き、長い説明や使用例を header banner に置かない。
+
 ### 10.5 著者・バージョンタグ禁止
 
-`@author`, `@version`, `@date` は使わない (git blame / git log で十分)。
+`@author`, `@version`, `@date` は使わない。source comment は現在の ACS 契約だけを記述する。
 
 ---
 
@@ -847,14 +834,11 @@ Doxygen `///` / `/** */` は採用しない (R045-c)。
 - `HWND` → `void*` (`// HWND` コメント付き)
 - `SOCKET` → `uptr` (`// SOCKET` コメント付き)
 
-### 11.3 13 platform seam
+### 11.3 Platform module boundary
 
-下記の 13 関心事のみ platform/ 以下に集約 (詳細は `docs/GameFramework.md` §15.5):
-
-1. Window 2. Input 3. FileSystem 4. FStorage 5. Time
-6. VirtualMemory 7. Localization 8. Network 9. Audio (mix-thread)
-10. Threading primitive 11. Crash reporting 12. Platform IO
-13. Power / sleep
+`src/platform/` は window、input、gamepad、file system、storage、localization、time の
+OS 境界を持つ。network、audio、threading、crash、render backend はそれぞれの ACS module が
+所有し、`platform/` へ実装を重複させない。
 
 ---
 
@@ -881,22 +865,24 @@ binary/text 分類、LF 強制、ACS 固有形式 (`.acpak`, `.acsr`, `.scene`) 
 
 Apache-2.0 (patent grant 込み)。各ソースファイルは `// SPDX-License-Identifier: Apache-2.0` 1 行のみ。長い copyright header は禁止。
 
-### 12.6 `acs_lint` ターゲット (Phase 3c で導入)
+### 12.6 `acs_lint` ターゲット
 
 ```bash
-cmake --build cmake-build-diligent-debug --target acs_lint
+cmake --build Intermediate/vs --config Debug --target acs_lint
 ```
 
-clang-tidy を `.clang-tidy` 設定で `src/`, `samples/`, `tests/` 全体に走らせる CMake target。`CMakeLists.txt` 末尾で定義。`CMAKE_EXPORT_COMPILE_COMMANDS=ON` でリポジトリルートに `compile_commands.json` が生成され、IDE 言語サーバ (clangd / VS / Rider / CLion) も同じデータで動作する。
+`acs_lint` は `.clang-tidy` 設定で `src/`, `samples/`, `tests/` の C++ source を走査する。
+CMake configure 時に clang-tidy を検出した構成だけがこの target を登録する。未検出の構成では
+target を登録せず、再 configure が必要になる。`CMAKE_EXPORT_COMPILE_COMMANDS` は CMake で有効にしており、
+対応 generator は build tree へ `compile_commands.json` を生成する。
 
-**現在 (v1) 有効化されているチェック**:
+**有効化されているチェック**:
 - 標準 clang-tidy モジュール: `bugprone-*` / `cert-*` / `concurrency-*` / `cppcoreguidelines-*` / `hicpp-*` / `misc-*` / `modernize-*` / `performance-*` / `portability-*` / `readability-*`
 - 命名強制: `readability-identifier-naming` を ACS スタイルに完全 calibration (R020-R029 該当)
 - error 昇格: `bugprone-use-after-move` / `bugprone-dangling-handle` / `cert-dcl58-cpp` / `cppcoreguidelines-slicing` / `modernize-use-override` / `performance-move-const-arg`
 
-**まだ未実装**: `acs-*` カスタムチェック (R001-R012 / R026 / R029 / R031-R032 / R040-R048)。`.clang-tidy` の Checks リストには `acs-*` がワイルドカード登録されているが、対応するプラグイン (clang-tidy out-of-tree shared lib) を後続フェーズで作る必要がある。`docs/GameFramework.md` §18.21 参照。それまでは本書 (StyleGuide.md) + 手動レビューが規範。
-
-**`.github/workflows/lint.yml`**: GitHub Actions seed。リモートに push されれば自動で発火し `clang-format --dry-run` + `acs_lint` を実行する。CI 未稼働時は休眠 (リポジトリにファイルが存在するだけ)。
+`acs-*` と表記する規則には標準 clang-tidy に実装がないものがある。それらは本書と
+`audit_cpp_conventions.py`、`audit_cpp_type_roles.py` などの専用監査を正規 gate とする。
 
 ### 12.7 C++ conventions / Node-unification audit
 
@@ -914,7 +900,21 @@ ctest --test-dir Intermediate/vs -C Debug -R "ACS.CppConventionsAudit"
 誤波及した R021 違反として検出する。同時に、統一後に削除した
 `gameframework/Node2D.h`, `Node3D.h`, `Component2D.h`, `Component3D.h` の include と、
 旧実型 `FNode2D`, `FNode3D`, `FComponent2D`, `FComponent3D` のコード利用を error にする。
-歴史説明を残す Markdown やコメントは対象外である。
+Markdown と C++ comment はこの identifier 監査の対象外である。
+
+#### 変更 C++ 行の補助監査
+
+```bash
+python -B scripts/audit_changed_cpp_rules.py --root . --base-ref <base-ref>
+python -B scripts/audit_changed_cpp_rules.py --self-test
+```
+
+`audit_changed_cpp_rules.py` は diff で追加した C++ 行の日本語 comment、行末 comment、括弧・初期化子の
+一行形式と、変更 header の先頭が SPDX と guard であることを検証する。guard の構文は
+`#pragma once` と `#ifndef` の両方を補助監査が受理するが、ACS source の正規規約は 3.8 の
+`#pragma once` である。この preamble 検査は R036 全体の強制ではない。宣言 comment の
+有無・内容、`TODO` / `FIXME` / `HACK` の禁止、全既存行の形式はこの script の検証範囲に
+含まれない。
 
 監査器自体の lexer 回帰は `ACS.CppConventionsAuditSelfTest` で検証する。fixture には
 prefix なしと`F`付きのdelegate / callback alias、およびtemplate aliasの正常例を含める。
@@ -950,10 +950,11 @@ JSONのtop-levelは `schema_version`, `scanned_file_count`, `violation_count`, `
 #### 型の意味と接頭辞の監査
 
 `scripts/audit_cpp_type_roles.py`は、宣言構文だけでなく仮想操作、状態・寿命操作を根拠に
-`A` / `C` / `F` / `I` / `T` / `E`を照合する。機能を持つ具象classは`C`、データ・値・handleは
-`F`である。`A`は名前だけで推定せず、現waveは`AObject`推移実継承または実際の
-ACS object登録を機械確定し、その他のobject候補を未登録debtとして拒否する。macro定義中と
-`#if 0`中の`ACS_OBJECT(Type)`は登録として扱わない。
+`A` / `C` / `F` / `I` / `T` / `E`を照合する。独立した identity、lifecycle、所有資源を統括する
+具象 class は `C`、値・handle・descriptor・owner 寿命内の service は `F` である。`A` は名前だけで
+推定せず、`AObject`推移実継承または実際の ACS object登録を
+機械確定し、未登録のobject候補を拒否する。macro定義中と`#if 0`中の`ACS_OBJECT(Type)`は
+登録として扱わない。
 
 同じ監査は、公開headerのnamespace直下にある意味付きscalar/value aliasをR020dで検証する。
 正規の`FEventTypeId` / `FComponentTypeId` / `FComponentSignatureId`と旧3名を固定する。
@@ -969,13 +970,10 @@ ecs、scriptingのmodule走査は補助gateとして残す。詳細と実行方�
 hard canonical定義とcompatibility aliasは`#if SOME_FLAG` / `#else`へ分けず、unconditionalに
 一件だけ宣言する。両branchに同じ宣言があってもraw scanでは重複契約違反となる。
 
-`cpp_type_role_migrations.json`はreview済み335件の正規型、定義header、旧名aliasの公開先、
-宣言種別、接頭辞をexact登録する。`cpp_type_role_migration_debt.json`は現在0件である。
-監査はpublic collectorから未解決候補を再構成し、追加、消失、移動、分類driftをR020fにする。
-registry 335件とdebt 0件はそれぞれ独立した件数とsemantic hashでfreezeし、review済みの
-分類訂正または移行waveだけがsource、entry、件数、baseline hashを同じcommitで更新する。
-sampleは旧`F`定義128件を`A` 25件、`C` 77件、値・データの`F` 26件へ確定し、移行対象
-102件の旧tokenを0件にした。型名へ合わせるためのfile renameは行わない。
+`cpp_type_role_migrations.json`は正規型、定義header、旧名aliasの公開先、宣言種別、接頭辞を
+登録する。監査はpublic collectorから未解決候補を再構成し、追加、消失、移動、分類driftを
+R020fにする。registry と `cpp_type_role_migration_debt.json` は独立した件数と semantic hash を
+持ち、source、entry、件数、baseline hash を同じ変更で同期する。
 台帳はsymlink、junction、reparse pointを含まない通常fileに置き、BOMなしUTF-8、CR 0件、
 LF改行、最終LFちょうど1件へ固定する。`schema_version`はexact integerとし、物理byte契約を
 JSON parseより先に検証する。
@@ -1021,7 +1019,10 @@ public / internal 分類は別契約のため対象外である。自己テス�
 
 ## 13. 規則カタログ / Rule Catalog (R001-R048)
 
-> **注 / Note**: `Check` 列で `acs-Rxxx` と書かれた規則は ACS 専用のカスタム clang-tidy プラグイン (`acs_lint`、`docs/GameFramework.md` §18.21) の管轄。プラグインは **Phase 3 で実装予定**。それまでは本書 (StyleGuide.md) と手動レビューが規範となる。標準 clang-tidy チェックが利用可能な規則 (R020-R029 命名、R030 override 等) は `.clang-tidy` で既に gate されている。
+> **注 / Note**: `Check` 列は現在検証する tool または review を表す。`acs-Rxxx` という rule ID だけで
+> 専用監査の実装済みを意味しない。標準 clang-tidy の規則は `.clang-tidy`、型と命名は
+> `scripts/audit_cpp_conventions.py` と `scripts/audit_cpp_type_roles.py`、変更行の一部は
+> `scripts/audit_changed_cpp_rules.py` で検証する。
 
 ### A. STL / 例外 / RTTI 禁止 (R001-R009)
 
@@ -1061,7 +1062,7 @@ public / internal 分類は別契約のため対象外である。自己テス�
 | **R020c** | type-role-prefix | error | 型役割補助監査 | 型の意味と `A` / `C` / `F` / `I` / `T` / `E` prefixの不一致と無接頭辞を禁止 |
 | **R020d** | scalar-alias-prefix | error | 型役割補助監査 | namespace公開の意味付きscalar/value aliasは`F`。登録済み例外とcallback/template aliasは別契約 |
 | **R020e** | legacy-alias-use | error | 型役割補助監査 | 登録済み互換別名はalias宣言だけに置き、製品sourceでは正規名を使用 |
-| **R020f** | migration-debt-contract | error | 型役割補助監査 | public candidate/manual debtの追加、消失、移動、分類driftを禁止 |
+| **R020f** | migration-debt-contract | error | 型役割補助監査 | 未登録public型とmigration台帳の追加、消失、移動、分類driftを禁止 |
 | **R021** | function-pascal-case | error | readability-identifier-naming.FunctionCase + 補助監査 | 関数・メソッドは型 prefix なしの PascalCase。既存型名と同名のメンバー呼び出しは禁止 |
 | **R022** | variable-pascal-case | error | readability-identifier-naming.VariableCase (段階導入) | ローカル変数・引数は PascalCase (1 字 / iterator 例外あり)。既存コードへの全面 gate は AST 移行後 |
 | **R022b** | bool-b-prefix | warning | acs-R022b | ローカル・引数・public POD bool は `bPascalCase`、private / protected member は `m_bPascalCase` |
@@ -1085,13 +1086,13 @@ public / internal 分類は別契約のため対象外である。自己テス�
 class / struct / union / enum 型名と完全一致する場合を R021 違反にする。constructor、
 型変換、`FPS` / `I32` / `F32`、WinAPI の `IASet*`、実型名を示す診断は対象外である。
 公開headerのnamespace直下にある意味付きscalar/value aliasはR020d、登録済み互換名の
-再利用はR020eで検証する。delegate、callback、関数ポインタaliasとtemplate aliasは今回の
+再利用はR020eで検証する。delegate、callback、関数ポインタaliasとtemplate aliasは
 scalar監査対象外である。新規宣言には`using`を使い、公開namespaceへ`typedef`を追加しない。
 コメント、通常の文字列・文字リテラル、raw string 内の HLSL、qualified elaborated-type
-宣言 (`class namespace::FType`) は字句解析で除外する。現waveの型役割補助監査R020cは、
+宣言 (`class namespace::FType`) は字句解析で除外する。型役割補助監査R020cは、
 `AObject`の推移実継承またはmacro定義以外の`ACS_OBJECT` / `ACS_REGISTER_OBJECT`実呼び出しを
-`A`と機械確定し、その他の未登録object候補はR020fで拒否する。現行debtは0件である。
-`I`の純粋仮想分類も同監査でreviewする。
+`A`と機械確定し、その他の未登録object候補はR020fで拒否する。
+`I`の純粋仮想分類も同じ監査で検証する。
 非template class / struct / union の `T` prefix と、型名中の underscore は違反とする。
 
 ### D. ライフサイクル / `noexcept` / `override` (R030-R039)
@@ -1104,7 +1105,7 @@ scalar監査対象外である。新規宣言には`using`を使い、公開name
 | **R033** | result-nodiscard | warning | acs-R033 | `TResult<T,E>` を返す関数の戻り値破棄を検出 |
 | **R034** | lifecycle-on-prefix | info | acs-R034 | ライフサイクルフック (OnSpawn/OnUpdate/OnExit) は `On` プレフィックス |
 | **R035** | rule-of-five-or-zero | warning | cppcoreguidelines-special-member-functions | Rule of zero / five 違反 |
-| **R036** | header-pragma-once | error | acs-R036 | ヘッダは `#pragma once` (include guard 禁止) |
+| **R036** | header-pragma-once | error | review / changed-header preamble | ヘッダは `#pragma once` (`#ifndef` include guard は正規形にしない) |
 | **R037** | header-self-contained | warning | misc-include-cleaner | ヘッダは自己完結 (必要な include を持つ) |
 | **R038** | no-using-namespace-header | error | google-build-using-namespace | ヘッダ内 `using namespace` 禁止 |
 | **R039** | const-correctness | warning | misc-const-correctness | const 可能なローカル変数は const に |
@@ -1118,8 +1119,8 @@ scalar監査対象外である。新規宣言には`using`を使い、公開name
 | **R042** | typed-handle | info | acs-R042 | EntityId / FAssetId 等は型付き wrapper (raw u32 禁止) |
 | **R043** | log-channel-known | warning | acs-R043 | `ACS_LOG_*` は登録済み channel のみ |
 | **R044** | locale-via-director | info | acs-R044 | UI 文字列は `Tr("...")` 経由 (raw 英文字列禁止) |
-| **R045** | comment-banner-style | info | acs-R045 | ファイルヘッダ・セクションは `// ====` バナー |
-| **R046** | comment-marker-with-owner | warning | acs-R046 | TODO/FIXME/HACK は owner 注釈 (`TODO(name):`) 必須 |
+| **R045** | declaration-comment-contract | info | review | header冒頭はSPDXとguardだけにし、役割・入力・失敗条件は対象宣言の直前へ置く |
+| **R046** | no-temporary-task-markers | warning | review / search | TODO/FIXME/HACKを製品sourceへ置かない |
 | **R047** | spdx-header-required | error | acs-R047 | 全 `.h` / `.cpp` / `.inl` の 1 行目に SPDX |
 | **R048** | event-via-registry | info | acs-R048 | event 配信は `gameframework/meta/Events.h` 経由 |
 
@@ -1148,34 +1149,14 @@ auto _r = ThreadPool::Submit(t);  // acs-lint: NOLINT(R033)
 
 ### 14.3 サブツリー単位の無効化
 
-`.clang-tidy` を該当ディレクトリに配置して `Checks: '-acs-Rxxx'` 等で無効化。Phase 3 以降で必要に応じて。
+`.clang-tidy` を該当ディレクトリに配置して `Checks: '-acs-Rxxx'` 等で無効化する。
 
 ---
 
-## 15. 改訂履歴 / Revision History
-
-| 日付 | バージョン | 変更点 |
-|---|---|---|
-| 2026-05-21 | v1.0 | 初版。Option A+ (現状 codify + 4 改善) で確定。Phase 0 で `.clang-format` 等 5 ファイル投入、Phase 1+ で `[[nodiscard]]` / 29 rename / SPDX / 11 discard fix を実施。Phase 2 で本書 + assertion triad (`ACS_CHECK` / `ACS_NOTREACHED`) を導入。R001-R048 は Phase 3 で `acs_lint` プラグインで機械化予定。 |
-| 2026-05-26 | v2.0 | **UE5 風命名規則に移行**。F prefix (struct/class) / T prefix (template) / b 前置 (bool) を追加、ローカル変数 + メンバ変数 + 引数を PascalCase 化、`_snake_case` メンバ prefix を廃止。U/A prefix は ACS の GC 無し / Actor 無し設計と合わないので採用しない (UE5 風だが ACS-fit な scheme)。R020 を R020a/R020b に分割、R022b (bool b 前置) と R023 (PascalCase member) を新設。`scripts/rename_to_ue5_style_tier{1,2,3_v2}.py` で機械的に rename (Tier 1=23 型 / Tier 2=59 型 / Tier 3 v2=200+ 型)。 |
-| 2026-05-28 | v2.1 | **メンバ変数を `m_PascalCase` ハイブリッドに改訂**。UE5 純正 (prefix 無し) は ACS の既存コード (`T Member() const { return _member; }` 型 accessor pattern) と衝突するため、`m_` 前置で member / accessor を区別する Microsoft/Naughty Dog 流に切替え。`scripts/rename_member_vars_to_pascal.py` で 15328 件 / 587 ファイル rename。ローカル変数 PascalCase 化は AST 必須なので deferred (clang-tidy plugin で後続実装)。bool 前置 `b` も同様に deferred。 |
-| 2026-07-18 | v2.2 | class / struct / enum の全面監査を実施。通常型 `F`、`FObject` 管理型 `A`、template `T`、interface `I`、enum `E` の役割を明文化し、`ANode` / `AComponent` 統一と二重文字を省略しない規則 (`FFont`, `FFileSystem`, `EErrCategory`) に更新。標準 clang-tidy の意味判別限界と補助監査の責務も追記。 |
-| 2026-07-18 | v2.3 | C++ 実宣言の型 prefix と、削除済み Node2D / Node3D / Component2D / Component3D API の再流入を防ぐ `acs_conventions_check` / CTest gate を追加。 |
-| 2026-07-19 | v2.4 | `using` / `typedef` の型 alias（delegate / function-pointer callback を含む）は prefix を指定せず、意味の明確な PascalCase を許可すると明文化。新規aliasは `using`、`typedef` はlegacy互換に限定。callbackの `user` とpayloadの順序はAPI固有とした。class / struct / union、`FObject` 管理型、template、interface、enum の prefix 規約は維持。 |
-| 2026-07-19 | v2.5 | C++ conventions監査にCI向けJSON出力を追加。従来human形式を維持しつつ、決定的な違反順序、UTF-8、原子的なファイル保存、専用の書込み失敗終了値、JSON回帰fixtureを規定。 |
-| 2026-07-19 | v2.6 | R027を列挙子の型名衝突まで拡張。型renameが列挙子へ誤波及した場合をC++ lexerの二段監査で検出し、Windowsでも日本語診断をUTF-8で安定出力する。 |
-| 2026-07-19 | v2.7 | R021補助監査を既存型名と同名のメンバー呼び出しまで拡張し、型renameのメソッド名への誤波及を低誤検知で防止。変数規約表を現行の `m_PascalCase` と整合させ、module source監査への導線も追記。 |
-| 2026-07-30 | v2.8 | `F`を値・handle・serviceの正規接頭辞として明確化し、型の意味を照合する`audit_cpp_type_roles.py`、自己試験、event / scripting実走査gateを追加。`class` / `struct`構文を役割判定に使わず、旧`C` serviceの再流入をR020cで検出する。 |
-| 2026-08-01 | v2.9 | namespace公開の意味付きscalar/value aliasを`F`へ正規化し、R020d/R020e、全`src`走査、正規reference entryを追加。callback/delegate/関数ポインタはprefix自由、template aliasは今回のscalar監査対象外、`AssetType`は後続移行まで固定例外とした。 |
-| 2026-08-01 | v3.0 | `A`をowner / registryに所有され多態的に扱われるobject、`C`を機能class、`F`をデータ・値・handleへ再定義。現waveの`A`機械確定を`AObject`推移実継承またはscope解決済み実登録macroに固定し、`AObject`とC4のhard canonical、326件のexact migration debt、R020f、raw非依存public collectorを追加した。 |
-| 2026-08-02 | v3.1 | 旧326件の分類を完了し、review済みmigration registry 335件、debt 0件へ更新。sampleの旧`F`定義128件を`A` 25件、`C` 77件、値・データの`F` 26件へ確定し、file名は維持した。 |
-
----
-
-## 参考リンク / References
+## 関連 ACS ファイル
 
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — ACS 全体アーキテクチャ
-- [`docs/GameFramework.md`](GameFramework.md) — GameFramework v13 仕様 (§15.3 メタ層、§18.21 acs_lint)
+- [`docs/GameFramework.md`](GameFramework.md) — GameFramework の責務、所有権、lifecycle
 - [`.clang-format`](../../.clang-format) — フォーマッタ設定
 - [`.clang-tidy`](../../.clang-tidy) — リント設定
 - [`.editorconfig`](../../.editorconfig) — IDE 共通設定

@@ -186,7 +186,7 @@ Root().AddChild(Move(player));
 ```
 
 親は`TObjectPtr<ANode>`で子を所有し、長期参照には`TWeakObjectPtr<ANode>`を使います。
-移行理由と所有権・transform・描画順の詳細は
+所有権・transform・描画順・serialization の詳細は
 [`NodeUnification.md`](acs/docs/NodeUnification.md) にあります。
 
 ## Subsystemの取得
@@ -210,17 +210,6 @@ AEventBus* component_events = component.GetSubsystem<AEventBus>();
 
 未登録、またはownerへ未配線の場合は`nullptr`を返します。Subsystemの登録・scope・frame phaseは
 専用のcatalogとcollectionで管理し、単なる局所値や決定論的な計算機能はSubsystemにしません。
-
-## 今後のVoxel破壊
-
-破壊可能なVoxel worldは、現在のprefix・module・Subsystem契約を維持した独立waveで追加します。
-CPU側の密度・material・chunk snapshotなどのデータは`F`、編集・mesh生成などの機能classは`C`とし、
-複数ownerが共有する寿命と終了処理が必要になるまではSubsystem化しません。core処理と描画連携を
-`Voxel` / `VoxelRender`へ分離し、非同期mesh生成はchunk instance IDとgenerationで古い結果を破棄、
-動的GPU meshは静的asset registryから分離する方針です。破壊eventのmaterialとpenetrationの意味は、
-実装前の契約reviewで確定します。着想元は
-[4Gamerの講演記事](https://www.4gamer.net/games/897/G089771/20260729064/)と
-[DevelopersIOのセッションレポート](https://dev.classmethod.jp/articles/cedec-2026-voxel/)です。
 
 ## モジュール
 
@@ -304,9 +293,6 @@ CPU側の密度・material・chunk snapshotなどのデータは`F`、編集・m
 
 ## ドキュメント
 
-- [`FoundationOptimizationWaveM.md`](acs/docs/FoundationOptimizationWaveM.md) — handle layout、timer、immutable input decode、完了通知batch、event snapshot、canonical package pathのWave M検証
-- [`FoundationOptimizationWaveK.md`](acs/docs/FoundationOptimizationWaveK.md) — mapped package I/O、scratch再利用、依存batch、path所有のWave K検証
-- [`FoundationOptimizationWaveC.md`](acs/docs/FoundationOptimizationWaveC.md) — アセット/ECS/reflection/RHI の Wave C 最適化と Release 証跡
 - [`QUICKSTART.md`](acs/docs/QUICKSTART.md) — 初学者向けの導入
 - [`ProjectOperations.md`](acs/docs/ProjectOperations.md) — Windowsでのconfigure・build・test・配布・cleanの統一入口
 - [`FixedStepClock.md`](acs/docs/FixedStepClock.md) — 値所有の固定更新時計と一括処理の安全契約
@@ -316,8 +302,8 @@ CPU側の密度・material・chunk snapshotなどのデータは`F`、編集・m
 - [`ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) — module構成と設計
 - [`StyleGuide.md`](acs/docs/StyleGuide.md) — A / C / F / I / T / E命名とcoding rule
 - [`TypeRoleAudit.md`](acs/docs/TypeRoleAudit.md) — 公開型registry、互換alias、移行債務をexact照合する型役割監査
-- [`NodeUnification.md`](acs/docs/NodeUnification.md) — `ANode`統一と移行指針
-- [`SceneUnification.md`](acs/docs/SceneUnification.md) — `AScene`統一の実測設計（Phase 1a / 1b 完了、Phase 2 / 3 保留）
+- [`NodeUnification.md`](acs/docs/NodeUnification.md) — 統一 `ANode` の責務、所有権、transform
+- [`SceneUnification.md`](acs/docs/SceneUnification.md) — 統一 `AScene` の責務、所有権、lifecycle
 - [`SerializationSafety.md`](acs/docs/SerializationSafety.md) — 外部入力・永続化・checked API
 - [`TROUBLESHOOTING.md`](acs/docs/TROUBLESHOOTING.md) — よくある問題と対処
 

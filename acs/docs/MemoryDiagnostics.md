@@ -64,9 +64,9 @@ ctest --test-dir acs/engine/cmake-build-debug `
   -R "ACS.CrtDumpMemoryLeaks(Clean|Positive)" --output-on-failure
 ```
 
-API の挙動は Microsoft の
-[`_CrtDumpMemoryLeaks` リファレンス](https://learn.microsoft.com/ja-jp/cpp/c-runtime-library/reference/crtdumpmemoryleaks?view=msvc-170)
-に合わせる。Release、非 MSVC、AddressSanitizer 構成では `unsupported` を記録し、成功とは扱わない。
+`DumpProcessMemoryLeaks()` は MSVC Debug かつ AddressSanitizer 無効の構成でだけ
+`_CrtDumpMemoryLeaks` を実行する。Release、非 MSVC、AddressSanitizer 構成では
+`unsupported` を記録し、成功とは扱わない。
 
 ## AddressSanitizer
 
