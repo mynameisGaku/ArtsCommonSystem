@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Phase 19a-fix part 2:
-# Phase 19a の enum rename script が render backend の struct member 参照まで
-# E prefix を付けてしまったのを revert する。
+# レンダーバックエンドのメンバー参照を更新する。
+# enum class の変換で誤って E 接頭辞が付いた参照を元へ戻す。
 #
 # 対象パターン: `<dot|arrow>E(Format|CullMode|PrimitiveTopology|BufferUsage|BlendMode|SampleFormat|PixelFormat|ShaderStage)` を element-access として認識し、E を剥がす。
 #   `desc.EFormat`        -> `desc.Format`        (Diligent::TextureDesc.Format)

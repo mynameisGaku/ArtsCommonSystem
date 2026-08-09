@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# ACS Phase 19a: enum class XxxYyy -> EXxxYyy 一括 rename
+# enum class XxxYyy を EXxxYyy へ変換する。
 #
 # 使い方:
 #   python scripts/rename_enums_to_e_prefix.py --dry-run    # 影響範囲確認

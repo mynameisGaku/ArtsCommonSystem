@@ -1,4 +1,4 @@
-# ACS::Easy / ACS::Game で作ったゲームの配布パッケージング (Phase 4 beginner-UX)。
+# ACS::Easy / ACS::Game で作ったゲームの配布パッケージング。
 #
 # 「ZIP 1 個を相手に渡せば動く」が目標。依存 DLL (Diligent / d3dcompiler 等) と
 # アセットと exe を CPack ZIP に詰める。
@@ -27,8 +27,7 @@
 #     インストール先」が共通の DESTINATION ツリーになる。CMAKE_INSTALL_PREFIX で
 #     ローカルインストール先も変更可。
 #   ・ASSETS_DIR が存在しないとき (空 / 未指定) は黙ってスキップ。
-#   ・Phase 4 では win64 ZIP のみ。Mac / Linux 移植時に拡張する余地を残す
-#     (CPACK_GENERATOR の上書きで NSIS / DMG / TGZ も選べる)。
+#   ・win64 ZIP を生成する。CPACK_GENERATOR の上書きで他形式も選択できる。
 
 include_guard(GLOBAL)
 

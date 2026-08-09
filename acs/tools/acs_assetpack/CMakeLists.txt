@@ -4,9 +4,8 @@
 # ようなものではなく、アセットの pack / unpack / verify / info / list をする
 # 開発時ユーティリティ。
 #
-# Phase 1 では raw bytes + CRC32 のみ操作する。Phase 2 で AcpakCrypto /
-# AcpakLz4 が AssetPack モジュールに追加された後は --encrypt / --compress /
-# --key オプションが実機能を持つ (本 CLI 側のコード変更は不要)。
+# raw bytes + CRC32 を扱う。--compress は LZ4、--encrypt は AES-256-GCM。
+# --encrypt には --key-file または --key の指定が必要。
 #
 # 使い方:
 #   acs_assetpack pack ./assets game.acpak --compress
@@ -30,5 +29,5 @@ target_link_libraries(acs_assetpack_cli PRIVATE
     ACS::Container
     ACS::Memory
     ACS::Platform
-    Bcrypt.lib    # Phase 24 AcpakCrypto (AES-256-GCM via Windows CNG)
+    Bcrypt.lib    # AES-256-GCM (Windows CNG) のリンク依存
     Shell32.lib)  # CommandLineToArgvW (UTF-16 引数 parse)

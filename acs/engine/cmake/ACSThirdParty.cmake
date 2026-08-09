@@ -159,7 +159,7 @@ function(acs_third_party_mimalloc)
     add_library(acs_third_party::mimalloc ALIAS acs_third_party_mimalloc)
 endfunction()
 
-# ---- Steamworks SDK (Phase 26+ 実バックエンド) ----------------------------
+# ---- Steamworks SDK (実バックエンド) --------------------------------------
 # Valve の SDK は partner.steamgames.com (要パートナー登録) からのみ入手可能で
 # 公開ミラー URL は存在しない。よって以下のいずれかで SDK を確保する:
 #
@@ -496,9 +496,9 @@ endfunction()
 # ImGui は src/imgui/Module.cmake が独自に FetchContent するため、
 # ここでは扱わない（重複ダウンロードを避ける）。
 
-# ---- Diligent Engine (DiligentCore + DiligentTools + DiligentFX) ----------
-# acs_third_party::diligent_core / ::diligent_tools / ::diligent_fx を提供する。
-# 現在は DX12 のみ有効化。Vulkan / Metal は後続フェーズで段階的に有効化する。
+# ---- DiligentCore (ACS の描画基盤) ----------------------------------------
+# acs_third_party::diligent_core だけを提供し、Tools/Fx の target は作成しない。
+# Windows は DX12 を標準とし、Vulkan は ACS_DILIGENT_VULKAN=ON の場合だけ追加する。
 function(acs_third_party_diligent)
     if(TARGET acs_third_party::diligent_core)
         return()
@@ -541,13 +541,11 @@ function(acs_third_party_diligent)
         # 例外設定でビルドする。function スコープ内だけで /EHsc を復元する。
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc")
     endif()
-    # 注意 (Phase 19a-fix-3): Diligent-Tools / DiligentFX は ACS が一切使って
-    # おらず (`src/render/Module.cmake` は `acs_third_party::diligent_core`
-    # しかリンクしない)、`MakeAvailable` で取得すると Diligent 内部の相対
-    # include path (`../../../DiligentCore/...`) が FetchContent layout
+    # Diligent-Tools / DiligentFX は使用せず、diligent_core のみ取得する。
+    # FetchContent で取得すると Diligent 内部の相対 include path
+    # (`../../../DiligentCore/...`) が FetchContent の配置
     # (`_deps/acs_diligent_*-src/`) と合わず Build Solution が壊れる。
-    # 不要なので Fetch しない。将来 PBR/IBL の Diligent 標準実装が欲しく
-    # なったら、ここを再有効化 + relative include path の修正を別途行う。
+    # この構成では diligent_core だけをリンクする。
     FetchContent_MakeAvailable(acs_diligent_core)
     # Diligent はリンク依存として構築し、上流の install 規則を ACS 配布から隔離する。
     set_property(DIRECTORY "${acs_diligent_core_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
@@ -618,7 +616,6 @@ function(acs_third_party_diligent)
     )
     add_library(acs_third_party::diligent_core ALIAS acs_third_party_diligent_core)
 
-    # Phase 19a-fix-3: diligent_tools / diligent_fx INTERFACE target は ACS が
-    # 誰もリンクしておらず (上記コメント参照)、Fetch を止めた今、これらを
-    # 公開すると linker error になる。declaring side を完全に削除。
+    # diligent_tools / diligent_fx INTERFACE target はリンクされない。
+    # 公開すると linker error になるため、target declaration を作成しない。
 endfunction()

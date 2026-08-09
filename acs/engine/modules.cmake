@@ -4,7 +4,7 @@
 # CMake は依存関係を検証し、対応する WITH_ACS_<MODULE> / WITH_<FEATURE>
 # プリプロセッサ define を自動的に付与する。
 
-# ---- Phase 1: ランタイム基盤 ---------------------------------------------
+# ---- ランタイム基盤 ------------------------------------------------------
 acs_enable_module(Foundation REQUIRED
     FEATURES STACKTRACE LOG_FILE_SINK LOG_DEBUG_OUTPUT
 )
@@ -35,7 +35,7 @@ acs_enable_module(Test
     # テストフレームワーク（ship build では無効化推奨）
 )
 
-# ---- Phase 2: プラットフォーム / ECS / アセット / レンダ / アプリ ---------
+# ---- プラットフォーム / ECS / アセット / レンダ / アプリ ----------------
 acs_enable_module(Platform
     FEATURES WINDOW INPUT
 )
@@ -51,11 +51,11 @@ acs_enable_module(Asset)
 #
 #   生 DX12 (デフォルト):       cmake configure で何も指定しない
 #   Diligent Engine に切替:      -DACS_RENDER_DILIGENT=ON -DACS_RENDER_DX12_RAW=OFF
-#   両方併存（過渡期用）:         -DACS_RENDER_DILIGENT=ON -DACS_RENDER_DX12_RAW=ON
+#   両方を有効化:                 -DACS_RENDER_DILIGENT=ON -DACS_RENDER_DX12_RAW=ON
 #                                  実際にどちらが使われるかは CreateRhiDevice() の
 #                                  実体（リンク時の選択）で決まる。
 #
-# Diligent ON のときは初回 cmake configure で DiligentCore/Tools/FX を git clone
+# Diligent ON のときは初回 cmake configure で DiligentCore を取得
 # するため数分〜十数分かかる。CMake のキャッシュを保持していれば 2 回目以降は
 # 高速。
 #
@@ -85,7 +85,7 @@ unset(_acs_render_disabled_features)
 
 acs_enable_module(App)
 
-# ---- Phase 4: 音声・ネットワーク ----
+# ---- 音声・ネットワーク --------------------------------------------------
 acs_enable_module(Audio
     FEATURES XAUDIO2
 )
@@ -111,12 +111,12 @@ acs_enable_module(Easy)
 
 # AssetPack — `.acpak` v1 アーカイブ (raw bytes + CRC32) の Reader/Writer を提供
 # する独立エンジンモジュール。名前空間 acs::assetpack、CMake target ACS::AssetPack。
-# GameFramework Pillar G (acs::game::IAssetPackReader) の concrete backend として
+# GameFramework の acs::game::IAssetPackReader に対応するアセットパックバックエンドとして
 # も使える設計。詳細 docs/AssetPack.md
 acs_enable_module(AssetPack)
 
 # GameFramework — Application の上に Scene 切替・固定タイムステップ等を載せる
-# フレームワーク。Phase 1 (Pillar A: App & Scene) は v3 確定設計の最小骨格のみ。
+# Application と Scene 切替、固定タイムステップ等を最小構成で提供する。
 # 名前空間 acs::game、CMake target ACS::GameFramework。詳細 docs/GameFramework.md
 acs_enable_module(GameFramework)
 
