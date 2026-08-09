@@ -519,6 +519,7 @@ target_link_libraries(acs_foundation_optimization_wave_i_tests PRIVATE
     ACS::Foundation
     ACS::Threading
     ACS::Memory
+    ACS::Platform
     ACS::Test
 )
 add_test(

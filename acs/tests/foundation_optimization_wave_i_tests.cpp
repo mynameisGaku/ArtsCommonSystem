@@ -7,6 +7,7 @@
 #include "foundation/Move.h"
 #include "memory/ArenaAllocator.h"
 #include "memory/ArenaAllocatorDiagnostics.h"
+#include "platform/Time.h"
 #include "threading/Atomic.h"
 #include "threading/Thread.h"
 #include "threading/ThreadPool.h"
@@ -82,6 +83,11 @@ struct FArenaResetStressContext {
     TAtomic<u32> ready_workers{0u};
 };
 
+/** arena Reset stress で起動する worker 数。 */
+constexpr u32 kArenaResetStressWorkerCount = 4u;
+/** worker の開始と確保成功を単調時計で待つ上限時間 (ミリ秒)。 */
+constexpr u64 kArenaResetStressWaitTimeoutMilliseconds = 3000u;
+
 /**
  * Reset と並行して小領域を確保し、gate の終了性を検証する。
  *
@@ -98,6 +104,36 @@ void RunArenaResetStress(void* User) noexcept
         if (Allocation) Context.successes.FetchAdd(1u);
         else Context.rejections.FetchAdd(1u);
     }
+}
+
+/**
+ * worker の開始または確保成功を期限まで待つ。
+ * @param Value 待機する単調増加カウンター。
+ * @param Minimum 成功とみなす最小値。
+ * @return 期限内に最小値へ達した場合は true、達しなければ false。
+ */
+bool WaitForArenaResetStressCount(const TAtomic<u32>& Value, u32 Minimum) noexcept
+{
+    /** 単調時計で取得した待機開始時刻。 */
+    const u64 StartMilliseconds = CClock::MillisSinceStartup();
+    while (CClock::MillisSinceStartup() - StartMilliseconds < kArenaResetStressWaitTimeoutMilliseconds) {
+        if (Value.Load(EMemoryOrder::Acquire) >= Minimum) {
+            return true;
+        }
+        SleepMs(1u);
+    }
+    return Value.Load(EMemoryOrder::Acquire) >= Minimum;
+}
+
+/**
+ * worker へ停止要求を公開し、起動済み worker の終了を待つ。
+ * @param Context 停止要求を書き込む stress 状態。
+ * @param Workers 起動済み worker を保持する配列。
+ */
+void StopAndJoinArenaResetStressWorkers(FArenaResetStressContext& Context, FThread (&Workers)[kArenaResetStressWorkerCount]) noexcept
+{
+    Context.stop.Store(1u, EMemoryOrder::Release);
+    for (FThread& Worker : Workers) Worker.Join();
 }
 
 /** Shutdown 競合中の ParallelFor body を停止させる gate。 */
@@ -292,25 +328,44 @@ ACS_TEST(FoundationOptimizationWaveI, ArenaResetGateSurvivesConcurrentAllocation
     FArenaResetStressContext Context{};
     Context.arena = &Arena;
     /** Reset と競合する allocator worker 群。 */
-    FThread Workers[4];
+    FThread Workers[kArenaResetStressWorkerCount];
     /** 生成する allocator worker の index。 */
-    for (usize Index = 0u; Index < 4u; ++Index) {
+    for (u32 Index = 0u; Index < kArenaResetStressWorkerCount; ++Index) {
         /** 現在 worker の生成結果。 */
         TResult<FThread> Result = FThread::Spawn(&RunArenaResetStress, &Context);
-        EXPECT_TRUE(Result.IsOk());
-        if (Result.IsOk()) Workers[Index] = Move(Result.Value());
+        /** 現在 worker の生成成否。 */
+        const bool bSpawned = Result.IsOk();
+        if (!bSpawned) test::RecordInfo(FSourceLoc::Current(), "Arena reset stress worker spawn failed.");
+        EXPECT_TRUE(bSpawned);
+        if (!bSpawned) {
+            StopAndJoinArenaResetStressWorkers(Context, Workers);
+            return;
+        }
+        Workers[Index] = Move(Result.Value());
     }
 
-    /** 全 worker の起動を待つ反復 index。 */
-    for (u32 WaitIndex = 0u; WaitIndex < 10000u && Context.ready_workers.Load(EMemoryOrder::Acquire) != 4u; ++WaitIndex) Yield();
-    EXPECT_EQ(Context.ready_workers.Load(EMemoryOrder::Acquire), u32{4u});
-    /** 最初の確保成功を待つ反復 index。 */
-    for (u32 WaitIndex = 0u; WaitIndex < 10000u && Context.successes.Load(EMemoryOrder::Acquire) == 0u; ++WaitIndex) Yield();
+    /** 全 worker の開始を上限時間まで待つ。 */
+    /** 生成済み worker がすべて entry へ到達したか。 */
+    const bool bWorkersStarted = WaitForArenaResetStressCount(Context.ready_workers, kArenaResetStressWorkerCount);
+    if (!bWorkersStarted) test::RecordInfo(FSourceLoc::Current(), "Arena reset stress worker startup timed out.");
+    EXPECT_TRUE(bWorkersStarted);
+    if (!bWorkersStarted) {
+        StopAndJoinArenaResetStressWorkers(Context, Workers);
+        return;
+    }
+    /** 最初の確保成功を上限時間まで待つ。 */
+    /** 少なくとも一度の確保が成功したか。 */
+    const bool bAllocationSucceeded = WaitForArenaResetStressCount(Context.successes, 1u);
+    if (!bAllocationSucceeded) test::RecordInfo(FSourceLoc::Current(), "Arena reset stress allocation success timed out.");
+    EXPECT_TRUE(bAllocationSucceeded);
+    if (!bAllocationSucceeded) {
+        StopAndJoinArenaResetStressWorkers(Context, Workers);
+        return;
+    }
     /** 競合させる Reset の反復 index。 */
     for (u32 ResetIndex = 0u; ResetIndex < 500u; ++ResetIndex) Arena.Reset(false);
-    Context.stop.Store(1u, EMemoryOrder::Release);
     /** 終了を待つ allocator worker。 */
-    for (FThread& Worker : Workers) Worker.Join();
+    StopAndJoinArenaResetStressWorkers(Context, Workers);
     EXPECT_TRUE(Context.successes.Load(EMemoryOrder::Acquire) != 0u);
     Arena.Reset(false);
     EXPECT_TRUE(Arena.Diagnostics().last_reset_page_visits <= 1u);
