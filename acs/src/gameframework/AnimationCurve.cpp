@@ -12,7 +12,7 @@
 //                h01 = -2t^3 + 3t^2
 //                h11 =      t^3 -  t^2
 //              value = h00*p0 + h10*(m0*dt) + h01*p1 + h11*(m1*dt)
-//              タンジェントを dt 倍するのは Unity と同じく「単位 1 秒あたりの傾き」
+//              タンジェントを dt 倍するのは「単位 1 秒あたりの傾き」
 //              を保存しているため。これで key 間隔を変えても曲線形が直感的に保てる。
 #include "gameframework/AnimationCurve.h"
 #include "gameframework/Easing.h"

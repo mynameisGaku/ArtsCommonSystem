@@ -540,7 +540,7 @@ public:
         TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
         T* ref = comp.Get();
         ref->_SetOwner(this);
-        // 依存コンポーネントを先に確保 (Unity の RequireComponent 相当)。
+        // 依存コンポーネントを先に確保する。
         ref->OnRequire(*this);
         m_Components.Add(TUniquePtr<AComponent>(comp.Release(), comp.GetAllocator()));
         ref->OnAttach(*this);

@@ -68,8 +68,7 @@
 //     / FShapeId / FNodeId と同パターン。Unregister 後の slot 再利用でも古い
 //     handle は generation 不一致で弾かれる。0 は invalid 予約 (index 0 dummy)。
 //   ・**string id を主キーに**: gameplay 設計者が触る Trigger アクタは「Activate
-//     先 checkpoint id」を文字列で指定するのが一般的 (FTilemap / Unity prefab の
-//     文化と整合)。handle 経由の Activate も提供して両対応。
+//     先 checkpoint id」を文字列で指定する。handle 経由の Activate も提供して両対応。
 //   ・**所有しない const char***: id は呼出側 (リソースバンドル or ステージ
 //     データ) が保証する static lifetime の文字列リテラルを想定。STL <string>
 //     禁止方針で、Manager 内ではコピーしない。

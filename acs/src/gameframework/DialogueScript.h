@@ -42,7 +42,7 @@
 //     Say op の末尾で AwaitingInput になり、Advance() で次へ進む契約。
 //   ・**非コピー・非ムーブ**: 現在 op_index / state の唯一性を担保するため。
 //
-// 参考: CDialogueSystem (タイプライタ + 選択肢)、CCinematicsDirector (timeline)
+// 関連実装: CDialogueSystem (タイプライタ + 選択肢)、CCinematicsDirector (timeline)
 #pragma once
 
 #include "foundation/Types.h"

@@ -92,7 +92,7 @@ public:
     virtual const char* ReflectName() const noexcept { return nullptr; }
 
     /**
-     * 依存コンポーネント宣言フック (Unity の [RequireComponent] 相当)。
+     * 所有ノードへ依存コンポーネントを追加する宣言フック。
      *
      * @details
      * AddComponent が OnAttach の前に 1 度だけ呼ぶ。実装側で

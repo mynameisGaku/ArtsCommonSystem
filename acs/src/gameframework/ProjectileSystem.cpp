@@ -402,8 +402,7 @@ void CProjectileSystem::Tick(f32 dt) noexcept {
 
     // Tick で alive bullet 全部の position を更新したので、snapshot は
     // alive_count が変わっていなくても **古いまま**。必ず rebuild する。
-    // (これを忘れると AllAlive が古い position を返し、bullet が動いていない
-    //  ように見える — 2026-05-26 ユーザー実機検証で発覚)
+    // AllAlive が古い position を返さないよう、更新完了後に再構築する。
     RebuildAliveSnapshot();
 }
 

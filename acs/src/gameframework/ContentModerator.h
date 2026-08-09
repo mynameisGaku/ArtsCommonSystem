@@ -40,7 +40,7 @@
 //   ・STL 不使用 / `<string>` 不使用 / 例外不使用 / 全 noexcept
 //   ・非コピー・非ムーブ (state を 1 箇所にとどめる)
 //
-// 参考:
+// 関連実装:
 //   ・CLlmSafetyPipeline (text validation pattern)
 //   ・ISteamworksBridge   (seam + Stub singleton pattern)
 #pragma once

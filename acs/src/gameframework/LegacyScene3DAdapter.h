@@ -56,13 +56,12 @@ enum class ESceneProjectionMode : u8 {
 };
 
 /**
- * Standalone AScene bridge for the legacy `ACS3D v2` document adapter.
+ * 旧 `ACS3D v2` document を AScene へ接続する adapter。
  *
- * @details The scene graph is the AScene-owned ANode/FTransform3D graph shared with the editor
- * runtime (docs/SceneUnification.md Phase 2). This class is
- * intentionally an adapter rather than a second permanent scene asset type: packages expose one
- * `main.acscene` bootstrap entry and choose the legacy .acscene/.acs3d reader from its validated
- * header. Sprite batching, Canvas/UI, and 2D physics stay on their dedicated runtime path.
+ * @details scene graph は editor runtime と共有する AScene 所有の ANode/FTransform3D graph。
+ * 永続 scene asset type を増やさず adapter として実装する。package は 1 つの
+ * `main.acscene` bootstrap entry を公開し、検証済み header から旧 .acscene/.acs3d reader を
+ * 選ぶ。Sprite batching、Canvas/UI、2D physics は専用 runtime path に残す。
  */
 class ALegacyScene3DAdapter : public AScene {
 public:

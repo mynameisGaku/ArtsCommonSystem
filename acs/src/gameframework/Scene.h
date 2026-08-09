@@ -51,7 +51,7 @@ public:
     /** 空のシーンを構築する (コンテキスト・サービスは未配線)。 */
     AScene() noexcept {
         // loader が SwapContents で root を差し替えた直後に service/subsystem 配線を
-        // やり直せるよう、graph へ再配線 hook を登録する (docs/SceneUnification.md Phase 2)。
+        // やり直せるよう、graph へ再配線 hook を登録する。
         m_Graph._SetRootSwapHook(&AScene::_OnGraphRootSwapped, this);
     }
 
@@ -271,8 +271,7 @@ public:
      * シーンが所有するノードグラフへの可変参照を返す。
      *
      * @details root ツリーと generational pool (FNodeId の発行・stale 検出) の実体。
-     * Spawn / Get / Raycast など graph 単位の操作はここへ委譲する
-     * (docs/SceneUnification.md Phase 2)。
+     * Spawn / Get / Raycast など graph 単位の操作はここへ委譲する。
      * @return 所有する CSceneNodeGraph への参照。
      */
     CSceneNodeGraph& Graph() noexcept { return m_Graph; }

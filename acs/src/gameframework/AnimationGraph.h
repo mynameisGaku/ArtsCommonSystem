@@ -49,8 +49,7 @@
 //   //    bone palette を blend する
 //
 // 設計判断:
-//   ・**enum 駆動の固定状態 ID** (EAnimationGraphState): UE Blueprint / Unity
-//     Mecanim の Any State 風自由 ID と違い、ACS は「状態が極端に多くない 3D
+//   ・**enum 駆動の固定状態 ID** (EAnimationGraphState): ACS は「状態が極端に多くない 3D
 //     キャラ」を想定して 9 個のプリセット (Idle/Walk/Run/Jump/Attack/Hit/Death/
 //     Custom1/Custom2) に固定。将来必要なら EAnimationGraphState を拡張。
 //   ・**clip と state を分離**: 1 clip を複数 state から参照する余地を残す (= 例
@@ -61,8 +60,7 @@
 //     使うケース; 条件式で表現するのは煩雑なため)。
 //   ・**enter/exit blend duration を state ごとに保持**: 「Idle → Walk」のとき
 //     使う duration は **新状態 (Walk) の enter_blend_sec**。これにより遷移先に
-//     応じた blend 長を 1 箇所で管理できる (= UE Mecanim の Transition Duration
-//     を「state 入口側に持たせた」設計)。
+//     応じた blend 長を state 入口側の 1 箇所で管理できる。
 //   ・**blend 中は previous_state / blend_alpha を出力**: alpha は 0→1 で「新状態
 //     の比率」。blend 完了で alpha=1.0、previous_state は last_state として
 //     残す (= 履歴照会用)。
@@ -72,7 +70,7 @@
 //     共有の場合はポインタ一致 fast path, 異なるバッファでも strcmp で機能)。
 //   ・**非コピー・非ムーブ**, 全 noexcept, STL 不使用, `<string>` 禁止。
 //
-// 参考: CSpriteAnimator (frame anim), FAnimationCurve (curve), TStateMachine<T> (FSM 基盤),
+// 関連実装: CSpriteAnimator (frame anim), FAnimationCurve (curve), TStateMachine<T> (FSM 基盤),
 //      AModelAnimationPanel (UI 連動可能)
 #pragma once
 

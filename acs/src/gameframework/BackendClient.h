@@ -19,10 +19,9 @@
 //   ・BackendClientSteam       — Steamworks ISteamGameServer / ISteamUserStats
 //   ・MatchmakerGlicko2        — Glicko-2 レーティングベースの非同期マッチ検索
 //                                (ELO の後継。1v1 系で標準的な選択)
-//   ・MatchmakerTrueSkill      — Microsoft TrueSkill (チーム戦/n人混合向け)
+//   ・MatchmakerTrueSkill      — TrueSkill (チーム戦/n人混合向け)
 //   ・MatchmakerSteam          — Steam Lobby + GameCoordinator 連携
-//   ・MatchmakerDedicatedSrv   — 自社 dedicated server (Agones / Unreal Pixel
-//                                Streaming 風の placement service と RPC)
+//   ・MatchmakerDedicatedSrv   — 自社 dedicated server の placement service と RPC
 //
 // 範囲外:
 //   ・実プロトコル / シリアライズ (Pillar J Serialize 側で必要なら整える)

@@ -2,7 +2,7 @@
 // GameFramework — AFollow2DComponent (オブジェクト参照プロパティのデモ + 実用コンポーネント)
 //
 // 「別のノードを参照して、そこへ向かって追従する」コンポーネント。インスペクタの
-// «オブジェクト参照» プロパティ(他オブジェクトへの参照を渡す UE 風 UPROPERTY)の実例。
+// 他オブジェクトを安定 ID で参照する ACS_PROPERTY の実例。
 // target は参照先ノードの «安定 ID»(SerialId = エディタ id)を保持する。実行時に
 // id → 生きた ANode* へ解決して追従する(解決は FindBySerialId、結果はキャッシュ)。
 #pragma once

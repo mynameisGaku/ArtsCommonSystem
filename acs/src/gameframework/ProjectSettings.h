@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// プロジェクト設定 (UE の Project Settings 相当)
+// ACS のプロジェクト設定。
 //
 // 用途: プロジェクトごとの設定 (レンダリング / エディタ / 物理 / ゲーム / ユーザー定義) を
 //       カテゴリ分けして INI テキスト (<project>/Config/ProjectSettings.ini) で永続化する。

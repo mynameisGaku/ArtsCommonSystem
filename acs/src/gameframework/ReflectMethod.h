@@ -2,9 +2,8 @@
 // GameFramework — 関数リフレクション (ACS_FUNCTION / BlueprintCallable の土台)
 //
 // 「型に属する引数なし void メソッド」を名前 + 呼び出しサンク(関数ポインタ)として
-// 登録する軽量レジストリ。UE の UFUNCTION(BlueprintCallable / CallInEditor) に相当する
-// «名前で呼べる関数» を、reflection 経由でエディタのボタンや将来のスクリプト/Blueprint
-// グラフから起動できるようにする土台。
+// 登録する軽量レジストリ。ACS_FUNCTION の «名前で呼べる関数» を reflection 経由で
+// エディタのボタン、スクリプト、ノードで構成した処理グラフから起動するための土台。
 //
 //   // クラス側 (引数なし void メソッド):
 //   void Ping() noexcept { ACS_LOG_INFO("ping"); }
@@ -27,7 +26,7 @@
 
 namespace acs::game {
 
-/** メソッド指定子フラグ(UFUNCTION 相当)。 */
+/** ACS_FUNCTION のメソッド指定子フラグ。 */
 enum EMethodFlags : u32 {
     METHOD_NONE           = 0u,
     METHOD_BP_CALLABLE    = 1u << 0,   /**< Blueprint/スクリプトから呼べる。 */

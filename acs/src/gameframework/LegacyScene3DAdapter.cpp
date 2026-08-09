@@ -784,8 +784,8 @@ void ALegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
     m_PostParams.delta_time =
         std::isfinite(dt) && dt > 0.0f ? dt : 0.0f;
     m_PostParams.grain_time += m_PostParams.delta_time;
-    // graph の tick は基底 AScene::_Update が OnUpdate 後に必ず実行する
-    // (docs/SceneUnification.md Phase 2)。ここで手動 tick すると二重更新になる。
+    // graph の tick は基底 AScene::_Update が OnUpdate 後に必ず実行する。
+    // ここで手動 tick すると二重更新になる。
     RefreshAuthoredCameraPose();
     if (CInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();

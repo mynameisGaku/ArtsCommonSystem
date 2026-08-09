@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar C — FAnimationCurve
 //
-// 編集可能な「時間→値」補間曲線。Unity AnimationCurve / Unreal FRichCurve に相当。
+// 編集可能な「時間→値」補間曲線。
 // CSpriteAnimator が「frame index 計算」だけを担うのと違い、FAnimationCurve は
 // 任意の f32 を時間で滑らかに変化させる汎用パスを提供する。
 //
@@ -30,7 +30,7 @@
 //     k_i.out_tangent と k_{i+1}.in_tangent を使う 3 次 Hermite。
 //   ・Hermite のタンジェントは「単位 1.0 秒あたりの傾き」として保存。Evaluate
 //     時に segment 長 dt で乗算してスケールするので、key 間隔を変えても曲線形が
-//     直感的に保てる (Unity の Tangent と同セマンティクス)。
+//     直感的に保てる。
 //   ・EWrapMode = {Clamp, Loop, PingPong} の前後別指定。Loop / PingPong は
 //     CSpriteAnimator と同じ折り返し方式で実装し、長時間呼び出しでも f32 精度を
 //     失わないよう time → 内部正規化 time の段階で fold する。
@@ -118,7 +118,7 @@ struct FAnimationCurveResult {
 };
 
 /**
- * 編集可能な「時間→値」補間曲線 (Unity AnimationCurve / Unreal FRichCurve 相当)。
+ * 編集可能な「時間→値」補間曲線。
  *
  * @details
  * key を time 昇順で内部 TArray に保持し、AddKey は二分探索で適切位置に挿入するため
@@ -274,8 +274,7 @@ public:
      * 末尾 key の time (絶対値) を返す。
      *
      * @details
-     * 「曲線の長さ」ではなく「最後のキーの time」を返す仕様 (Unity の
-     * FAnimationCurve.keys[last].time に相当)。最初の key の time が 0 でない場合は
+     * 「曲線の長さ」ではなく「最後のキーの time」を返す仕様。最初の key の time が 0 でない場合は
      * 「Duration() - 第 1 key の time」が真の長さとなる。key 0 個では 0。
      * @return 末尾 key の time。
      */
@@ -284,13 +283,13 @@ public:
     /**
      * 定義域より前 (time < 第 1 key の time) の折り返し方式を設定する。
      *
-     * @details 典型ケースで第 1 key.time == 0 なら time < 0 の挙動 = Unity の preWrapMode と等価。
+     * @details 典型ケースで第 1 key.time == 0 なら time < 0 に適用する。
      * @param m 適用する EWrapMode。
      */
     void SetPreWrap(EWrapMode mode) noexcept;
 
     /**
-     * 定義域より後 (time > 末尾 key の time = Duration()) の折り返し方式を設定する (= Unity の postWrapMode)。
+     * 定義域より後 (time > 末尾 key の time = Duration()) の折り返し方式を設定する。
      *
      * @param m 適用する EWrapMode。
      */

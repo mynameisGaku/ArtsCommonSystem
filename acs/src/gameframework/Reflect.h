@@ -102,7 +102,7 @@ struct FReflectField {
     u32         size;          /**< フィールドのバイトサイズ (名前のみ反射では 0)。 */
     u32         flags;         /**< EFieldFlags の OR。 */
     f32         defaults[4];   /**< スキーマ既定値 (最大 4 成分。ACS_RPROP* 用、offsetof 反射は 0)。 */
-    const char* category = nullptr;  /**< UPROPERTY(Category="…") の分類名。インスペクタのグループ見出し (既定 nullptr)。 */
+    const char* category = nullptr;  /**< ACS_PROPERTY の分類名。インスペクタのグループ見出し (既定 nullptr)。 */
 };
 
 /** 反射された列挙値 1 件 (名前 + 整数値)。 */
@@ -344,7 +344,7 @@ using FTypeRegistry = CTypeRegistry;
         static_cast<::acs::f32>(d3) } }
 
 /**
- * offset + 既定値 + «フラグ» 付きフィールド記述子 (codegen が UPROPERTY 指定子から出力)。
+ * offset + 既定値 + «フラグ» 付きフィールド記述子 (codegen が ACS_PROPERTY 指定子から出力)。
  *
  * @details flags = EFieldFlags の OR。VisibleAnywhere→FIELD_READONLY、Hidden→FIELD_HIDDEN 等。
  */

@@ -5,7 +5,7 @@
 // AScene が正規のシーングラフとして保持するほか、checked loader や editor の staging の
 // ようにスタック上へ一時グラフを構築する用途でも使う。
 // CSubsystemCollection / CSceneServices を一切持たないため、一時グラフがシーン文脈を
-// 抱え込むことはない (docs/SceneUnification.md Phase 2)。
+// 抱え込むことはない。
 #pragma once
 
 #include "foundation/Types.h"

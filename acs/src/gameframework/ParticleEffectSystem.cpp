@@ -327,7 +327,7 @@ void CParticleEffectSystem::ClearAll() noexcept {
  * LCG を 1 step 進めて [0,1) の一様乱数を返す。
  *
  * @details
- * Numerical Recipes 由来の LCG (a=1664525, c=1013904223, m=2^32)。統計的品質は高くないが
+ * LCG (a=1664525, c=1013904223, m=2^32)。統計的品質は高くないが
  * particle 用途には十分。上位 24bit を仮数に詰めて [0,1) f32 を作る (bias 最小)。
  */
 f32 CParticleEffectSystem::NextRandUnit() noexcept {

@@ -52,7 +52,7 @@
 //   ・スクリプト / JSON からの自動取り込み → ツール側で Register* 列に変換する想定
 //   ・フォントフォールバック / RTL → Pillar Q Polish 側の UI 描画責務
 //
-// 参考: gameframework/DialogueSystem.h, gameframework/LocalizationDirector.h
+// 関連実装: gameframework/DialogueSystem.h, gameframework/LocalizationDirector.h
 #pragma once
 
 #include "foundation/Types.h"

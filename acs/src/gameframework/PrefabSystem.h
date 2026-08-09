@@ -3,8 +3,7 @@
 //
 // 名前付きの ANode ツリーテンプレート (= 「Prefab」) を関数ポインタファクトリ
 // として登録し、ID または名前から `acs::TObjectPtr<ANode>` を spawn する軽量
-// レジストリ。Unity の Prefab / Unreal の Blueprint asset に相当する役割を、
-// 「アセットファイル」ではなく「ファクトリ関数」で表現する設計。
+// レジストリ。「アセットファイル」ではなく「ファクトリ関数」で表現する設計。
 //
 // 使い方:
 //   // 1) ファクトリ関数を書く (cpp 側で ANode の full type を include する)

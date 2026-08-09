@@ -26,7 +26,7 @@
 //   ・**非コピー・非ムーブ**: state holder の唯一性 (現在行 / タイプ進行) を
 //     担保するため。
 //
-// 参考: CSpriteAnimator (frame-based progression), FSequence (action 連鎖)
+// 関連実装: CSpriteAnimator (frame-based progression), FSequence (action 連鎖)
 #pragma once
 
 #include "foundation/Types.h"
