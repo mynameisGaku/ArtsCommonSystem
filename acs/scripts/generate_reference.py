@@ -379,7 +379,7 @@ sprites.End();''',
     {
         "title": "AssetPack bridge の考え方",
         "module": "assetpack",
-        "summary": "開発時は loose file、出荷時は .acpak を mount する。ゲーム側ロードコードは同じに保つ。",
+        "summary": ".acpak は IAssetPackReader 実装または登録済み provider から reader を取得し、利用側が Mount() して読む。CAssetBundle は CAssetRegistry 経由の同期 load であり、loose file と pak を自動切替しない。",
         "code": r'''acs::assetpack::FAcpakGameReader reader;
 ACS_TRY(reader.Mount("game.acpak"));
 
@@ -1135,7 +1135,7 @@ def render_tools() -> str:
       {render_code(cleanup_code)}
     </article>
   </div>
-  <div class="callout warn"><strong>AssetPack の正確性:</strong> 現実装は <code>.acpak v1</code>、CRC32、LZ4 圧縮、AES-256-GCM、PBKDF2-HMAC-SHA256、Windows CNG/Bcrypt を使います。<code>docs/AssetPack.md</code> には将来設計も含まれるため、コマンド仕様はこのリファレンスと <code>main.cpp</code>/<code>AcpakFormat.h</code> を基準にしてください。</div>
+  <div class="callout warn"><strong>AssetPack の正確性:</strong> 現実装は <code>.acpak v1</code>、CRC32、LZ4 圧縮、AES-256-GCM、PBKDF2-HMAC-SHA256、Windows CNG/Bcrypt を使います。format、CLI、GameFramework bridge の現行契約は <code>docs/AssetPack.md</code> を正本とします。GameFramework では <code>IAssetPackReader</code> の provider 登録と <code>Mount()</code> を利用側が明示し、<code>CAssetBundle</code> は <code>CAssetRegistry</code> 経由で同期 load します。</div>
 </section>
 """
 
