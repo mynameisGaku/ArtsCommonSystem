@@ -61,6 +61,8 @@ option(ACS_BUILD_TESTS    "Build ACS unit tests"               ON)
 option(ACS_BUILD_SAMPLES  "Build sample applications"          ON)
 option(ACS_BUILD_TOOLS    "Build ACS CLI tools (acs_assetpack)" ON)
 option(ACS_ENABLE_ASSERTS "Enable ACS_ASSERT in all builds"    ON)
+option(ACS_ENABLE_WATER_TAA_EVIDENCE
+       "Build the opt-in deterministic water TAA evidence fixture" OFF)
 option(ACS_ENABLE_ADDRESS_SANITIZER
        "Instrument ACS targets with AddressSanitizer"          OFF)
 option(ACS_ENABLE_RELEASE_IPO

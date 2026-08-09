@@ -14,6 +14,57 @@ if(WIN32)
     endif()
 endif()
 
+# Water TAA evidence は通常の test 群へ常設しない。raw DX12 の final swapchain
+# readback を使うため、明示 opt-in 時だけ専用 fixture と三反復 runner を生成する。
+if(ACS_ENABLE_WATER_TAA_EVIDENCE)
+    if(NOT WIN32)
+        message(FATAL_ERROR
+            "ACS_ENABLE_WATER_TAA_EVIDENCE requires a Windows raw-DX12 host")
+    endif()
+    if(NOT ACS_RENDER_DX12_RAW OR ACS_RENDER_DILIGENT)
+        message(FATAL_ERROR
+            "ACS_ENABLE_WATER_TAA_EVIDENCE requires ACS_RENDER_DX12_RAW=ON and ACS_RENDER_DILIGENT=OFF")
+    endif()
+    if(NOT ACS_PROJECT_OPERATIONS_POWERSHELL)
+        message(FATAL_ERROR
+            "ACS_ENABLE_WATER_TAA_EVIDENCE requires PowerShell for the evidence runner")
+    endif()
+
+    add_executable(acs_water_taa_evidence_fixture WIN32
+        WaterTaaBaselineFixture.cpp
+    )
+    set_target_properties(
+        acs_water_taa_evidence_fixture
+        PROPERTIES
+            FOLDER "Engine/Tests"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${CMAKE_CURRENT_BINARY_DIR}/water_taa_evidence/Debug/bin"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${CMAKE_CURRENT_BINARY_DIR}/water_taa_evidence/Release/bin")
+    acs_apply_compiler_options(acs_water_taa_evidence_fixture)
+    target_include_directories(
+        acs_water_taa_evidence_fixture
+        PRIVATE "${ACS_SOURCE_ROOT}")
+    target_link_libraries(
+        acs_water_taa_evidence_fixture
+        PRIVATE ACS::Game d3d12 dxgi shell32)
+
+    add_test(
+        NAME ACS.WaterTaaEvidence
+        COMMAND "${ACS_PROJECT_OPERATIONS_POWERSHELL}"
+                -NoLogo -NoProfile -ExecutionPolicy Bypass
+                -File "${CMAKE_CURRENT_SOURCE_DIR}/run_water_taa_baseline.ps1"
+                -FixtureExe "$<TARGET_FILE:acs_water_taa_evidence_fixture>"
+                -ArtifactRoot "${CMAKE_CURRENT_BINARY_DIR}/water_taa_evidence/$<CONFIG>/artifacts"
+                -Configuration "$<CONFIG>")
+    set_tests_properties(
+        ACS.WaterTaaEvidence
+        PROPERTIES
+            LABELS "Render;Evidence"
+            TIMEOUT 900
+            RUN_SERIAL TRUE)
+endif()
+
 add_executable(acs_unit_tests
     main.cpp
     foundation_tests.cpp
