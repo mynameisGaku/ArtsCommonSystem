@@ -1767,11 +1767,11 @@ ACS_NORETURN void FPanic(FSourceLoc loc, const char* expr, const char* fmt, ...)
                  "supposedly unreachable code was reached")
 
 // =============================================================================
-// Unreal 互換の小文字エイリアス — checkf
+// 条件検査用の小文字エイリアス — checkf
 // -----------------------------------------------------------------------------
 //   checkf(expr, fmt, ...) == ACS_CHECKF(expr, fmt, ...)  (常時有効・メッセージ付き)
 //
-// Unreal から来た人が手癖で書けるように用意する。
+// 既存コードで同じ検査構文を使えるように用意する。
 // ※ bare `check` / `verify` はあえて提供しない: これらは一般的な識別子
 //   (ローカル関数・変数名) と衝突するため (例: tests が check(p, sz, sd) を使用)。
 //   メッセージ無しの常時検査は ACS_CHECK を、debug 検査は ACS_VERIFY を直接使う。
@@ -27802,8 +27802,8 @@ using FSimpleMulticastDelegate = TMulticastDelegate<void()>;
 // =============================================================================
 // ACS Foundation — Cast<T> / CastChecked<T> (RTTI 不使用の安全ダウンキャスト)
 // -----------------------------------------------------------------------------
-// ACS は RTTI 無効 (dynamic_cast 不可) なので、Unreal 風の `Cast<T>` /
-// `CastChecked<T>` を「軽量な侵入型 (intrusive) RTTI」で提供する。階層側が
+// ACS は RTTI 無効 (dynamic_cast 不可) なので、`Cast<T>` / `CastChecked<T>` を
+// 「軽量な侵入型 (intrusive) RTTI」で提供する。階層側が
 // マクロで型 ID と IsA を opt-in 宣言し、Cast はそれを使って実行時に安全な
 // ダウンキャストを行う。
 //
@@ -27939,7 +27939,7 @@ ACS_FORCEINLINE const To* Cast(const From* p) noexcept {
 /**
  * p を To* へキャストする。失敗時 (null / 型不一致) は ACS_CHECKF で panic する。
  *
- * @details 「ここは必ず To のはず」という確信がある場面で使う (Unreal の CastChecked 相当)。
+ * @details 「ここは必ず To のはず」という前提を実行時に検査する場面で使う。
  * @tparam To キャスト先の型 (ACS_RTTI_* 宣言済み)。
  * @param p キャストする non-owning ポインタ。
  * @return To* (必ず非 null。さもなくば panic)。
@@ -28138,9 +28138,9 @@ private:
 // SPDX-License-Identifier: Apache-2.0
 
 
-// 列挙に「名前・個数・並び」を持たせる仕掛け (UE の UENUM 相当)。
+// 列挙に「名前・個数・並び」を持たせる仕掛け。
 //
-// UE は UHT がヘッダを走査してコードを生成するが、こちらはコード生成を挟まない。
+// コード生成を挟まず、コンパイラの関数シグネチャ文字列を使う。
 // コンパイラが持つ関数シグネチャ文字列 (__FUNCSIG__ / __PRETTY_FUNCTION__) から列挙子名を
 // constexpr で切り出すため、列挙子を二度書く必要が無く、型を指定するだけで名前が引ける。
 // 名前表はコンパイル時に確定し、実行時の確保も RTTI も要らない。
@@ -28575,7 +28575,7 @@ constexpr TEnum EnumNext(TEnum value, i32 delta = 1, bool wrap = true) noexcept 
 } // namespace acs
 
 /**
- * 列挙をリフレクション対象として印付ける (UE の UENUM 相当)。
+ * 列挙を ACS のリフレクション対象として印付ける。
  *
  * @details
  * 名前と個数は TEnumTraits がコンパイラのシグネチャから自動で引くため、この印自体は
@@ -29265,7 +29265,7 @@ private:
 };
 
 /**
- * 「強参照である」ことを明示したいとき用の TObjectPtr 別名 (UE の TStrongObjectPtr に相当)。
+ * 「強参照である」ことを明示したいときに使う TObjectPtr の別名。
  *
  * @tparam T 所有する AObject 派生型。
  */
@@ -29952,7 +29952,7 @@ public:
     virtual const char* ReflectName() const noexcept { return nullptr; }
 
     /**
-     * 依存コンポーネント宣言フック (Unity の [RequireComponent] 相当)。
+     * 所有ノードへ依存コンポーネントを追加する宣言フック。
      *
      * @details
      * AddComponent が OnAttach の前に 1 度だけ呼ぶ。実装側で
@@ -31070,7 +31070,7 @@ public:
         TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
         T* ref = comp.Get();
         ref->_SetOwner(this);
-        // 依存コンポーネントを先に確保 (Unity の RequireComponent 相当)。
+        // 依存コンポーネントを先に確保する。
         ref->OnRequire(*this);
         m_Components.Add(TUniquePtr<AComponent>(comp.Release(), comp.GetAllocator()));
         ref->OnAttach(*this);
@@ -32156,7 +32156,7 @@ using FAchievementManager = CAchievementManager;
 
 // ===================== gameframework/AcsClass.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ACS_CLASS / ACS_PROPERTY — UE 風のリフレクションマーカー。
+// ACS_CLASS / ACS_PROPERTY — ACS のリフレクションマーカー。
 //
 // 使い方:
 //   ACS_CLASS()
@@ -32167,7 +32167,7 @@ using FAchievementManager = CAchievementManager;
 //       void OnUpdate(acs::f32 dt) noexcept override {}
 //   };
 //
-// これらのマクロ自体は «何も生成しない» (UHT の UCLASS/UPROPERTY と同じ)。エディタの
+// これらのマクロ自体は «何も生成しない»。エディタの
 // リフレクション・コードジェネレータが Source/*.h を走査してこのマーカーを見つけ、
 // ACS_REGISTER_COMPONENT(AMover, ACS_RPROP_F("speed", 3.0f)) 相当の登録コードを自動生成する。
 // 従来の手書き ACS_REGISTER_COMPONENT も引き続き使える (併用可)。
@@ -32384,7 +32384,7 @@ using FAmbientDirector = CAmbientDirector;
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar C — FAnimationCurve
 //
-// 編集可能な「時間→値」補間曲線。Unity AnimationCurve / Unreal FRichCurve に相当。
+// 編集可能な「時間→値」補間曲線。
 // CSpriteAnimator が「frame index 計算」だけを担うのと違い、FAnimationCurve は
 // 任意の f32 を時間で滑らかに変化させる汎用パスを提供する。
 //
@@ -32413,7 +32413,7 @@ using FAmbientDirector = CAmbientDirector;
 //     k_i.out_tangent と k_{i+1}.in_tangent を使う 3 次 Hermite。
 //   ・Hermite のタンジェントは「単位 1.0 秒あたりの傾き」として保存。Evaluate
 //     時に segment 長 dt で乗算してスケールするので、key 間隔を変えても曲線形が
-//     直感的に保てる (Unity の Tangent と同セマンティクス)。
+//     直感的に保てる。
 //   ・EWrapMode = {Clamp, Loop, PingPong} の前後別指定。Loop / PingPong は
 //     CSpriteAnimator と同じ折り返し方式で実装し、長時間呼び出しでも f32 精度を
 //     失わないよう time → 内部正規化 time の段階で fold する。
@@ -32498,7 +32498,7 @@ struct FAnimationCurveResult {
 };
 
 /**
- * 編集可能な「時間→値」補間曲線 (Unity AnimationCurve / Unreal FRichCurve 相当)。
+ * 編集可能な「時間→値」補間曲線。
  *
  * @details
  * key を time 昇順で内部 TArray に保持し、AddKey は二分探索で適切位置に挿入するため
@@ -32654,8 +32654,7 @@ public:
      * 末尾 key の time (絶対値) を返す。
      *
      * @details
-     * 「曲線の長さ」ではなく「最後のキーの time」を返す仕様 (Unity の
-     * FAnimationCurve.keys[last].time に相当)。最初の key の time が 0 でない場合は
+     * 「曲線の長さ」ではなく「最後のキーの time」を返す仕様。最初の key の time が 0 でない場合は
      * 「Duration() - 第 1 key の time」が真の長さとなる。key 0 個では 0。
      * @return 末尾 key の time。
      */
@@ -32664,13 +32663,13 @@ public:
     /**
      * 定義域より前 (time < 第 1 key の time) の折り返し方式を設定する。
      *
-     * @details 典型ケースで第 1 key.time == 0 なら time < 0 の挙動 = Unity の preWrapMode と等価。
+     * @details 典型ケースで第 1 key.time == 0 なら time < 0 に適用する。
      * @param m 適用する EWrapMode。
      */
     void SetPreWrap(EWrapMode mode) noexcept;
 
     /**
-     * 定義域より後 (time > 末尾 key の time = Duration()) の折り返し方式を設定する (= Unity の postWrapMode)。
+     * 定義域より後 (time > 末尾 key の time = Duration()) の折り返し方式を設定する。
      *
      * @param m 適用する EWrapMode。
      */
@@ -32912,8 +32911,7 @@ using FAnimationCurveArchive = CAnimationCurveArchive;
 //   //    bone palette を blend する
 //
 // 設計判断:
-//   ・**enum 駆動の固定状態 ID** (EAnimationGraphState): UE Blueprint / Unity
-//     Mecanim の Any State 風自由 ID と違い、ACS は「状態が極端に多くない 3D
+//   ・**enum 駆動の固定状態 ID** (EAnimationGraphState): ACS は「状態が極端に多くない 3D
 //     キャラ」を想定して 9 個のプリセット (Idle/Walk/Run/Jump/Attack/Hit/Death/
 //     Custom1/Custom2) に固定。将来必要なら EAnimationGraphState を拡張。
 //   ・**clip と state を分離**: 1 clip を複数 state から参照する余地を残す (= 例
@@ -32924,8 +32922,7 @@ using FAnimationCurveArchive = CAnimationCurveArchive;
 //     使うケース; 条件式で表現するのは煩雑なため)。
 //   ・**enter/exit blend duration を state ごとに保持**: 「Idle → Walk」のとき
 //     使う duration は **新状態 (Walk) の enter_blend_sec**。これにより遷移先に
-//     応じた blend 長を 1 箇所で管理できる (= UE Mecanim の Transition Duration
-//     を「state 入口側に持たせた」設計)。
+//     応じた blend 長を state 入口側の 1 箇所で管理できる。
 //   ・**blend 中は previous_state / blend_alpha を出力**: alpha は 0→1 で「新状態
 //     の比率」。blend 完了で alpha=1.0、previous_state は last_state として
 //     残す (= 履歴照会用)。
@@ -32935,7 +32932,7 @@ using FAnimationCurveArchive = CAnimationCurveArchive;
 //     共有の場合はポインタ一致 fast path, 異なるバッファでも strcmp で機能)。
 //   ・**非コピー・非ムーブ**, 全 noexcept, STL 不使用, `<string>` 禁止。
 //
-// 参考: CSpriteAnimator (frame anim), FAnimationCurve (curve), TStateMachine<T> (FSM 基盤),
+// 関連実装: CSpriteAnimator (frame anim), FAnimationCurve (curve), TStateMachine<T> (FSM 基盤),
 //      AModelAnimationPanel (UI 連動可能)
 
 
@@ -34453,10 +34450,9 @@ private:
 //   ・BackendClientSteam       — Steamworks ISteamGameServer / ISteamUserStats
 //   ・MatchmakerGlicko2        — Glicko-2 レーティングベースの非同期マッチ検索
 //                                (ELO の後継。1v1 系で標準的な選択)
-//   ・MatchmakerTrueSkill      — Microsoft TrueSkill (チーム戦/n人混合向け)
+//   ・MatchmakerTrueSkill      — TrueSkill (チーム戦/n人混合向け)
 //   ・MatchmakerSteam          — Steam Lobby + GameCoordinator 連携
-//   ・MatchmakerDedicatedSrv   — 自社 dedicated server (Agones / Unreal Pixel
-//                                Streaming 風の placement service と RPC)
+//   ・MatchmakerDedicatedSrv   — 自社 dedicated server の placement service と RPC
 //
 // 範囲外:
 //   ・実プロトコル / シリアライズ (Pillar J Serialize 側で必要なら整える)
@@ -37490,8 +37486,7 @@ using FCharacterCustomizer = CCharacterCustomizer;
 //     / FShapeId / FNodeId と同パターン。Unregister 後の slot 再利用でも古い
 //     handle は generation 不一致で弾かれる。0 は invalid 予約 (index 0 dummy)。
 //   ・**string id を主キーに**: gameplay 設計者が触る Trigger アクタは「Activate
-//     先 checkpoint id」を文字列で指定するのが一般的 (FTilemap / Unity prefab の
-//     文化と整合)。handle 経由の Activate も提供して両対応。
+//     先 checkpoint id」を文字列で指定する。handle 経由の Activate も提供して両対応。
 //   ・**所有しない const char***: id は呼出側 (リソースバンドル or ステージ
 //     データ) が保証する static lifetime の文字列リテラルを想定。STL <string>
 //     禁止方針で、Manager 内ではコピーしない。
@@ -39363,7 +39358,7 @@ TUniquePtr<AComponent> CreateComponentByName(const char* name) noexcept;
 //   ・STL 不使用 / `<string>` 不使用 / 例外不使用 / 全 noexcept
 //   ・非コピー・非ムーブ (state を 1 箇所にとどめる)
 //
-// 参考:
+// 関連実装:
 //   ・CLlmSafetyPipeline (text validation pattern)
 //   ・ISteamworksBridge   (seam + Stub singleton pattern)
 
@@ -41738,7 +41733,7 @@ using FDevConsole = CDevConsole;
 //   ・スクリプト / JSON からの自動取り込み → ツール側で Register* 列に変換する想定
 //   ・フォントフォールバック / RTL → Pillar Q Polish 側の UI 描画責務
 //
-// 参考: gameframework/DialogueSystem.h, gameframework/LocalizationDirector.h
+// 関連実装: gameframework/DialogueSystem.h, gameframework/LocalizationDirector.h
 
 
 namespace acs::game {
@@ -41951,7 +41946,7 @@ using FDialogueLocalizer = CDialogueLocalizer;
 //     Say op の末尾で AwaitingInput になり、Advance() で次へ進む契約。
 //   ・**非コピー・非ムーブ**: 現在 op_index / state の唯一性を担保するため。
 //
-// 参考: CDialogueSystem (タイプライタ + 選択肢)、CCinematicsDirector (timeline)
+// 関連実装: CDialogueSystem (タイプライタ + 選択肢)、CCinematicsDirector (timeline)
 
 
 namespace acs::game {
@@ -42459,7 +42454,7 @@ using FDialogueScript = CDialogueScript;
 //   ・**非コピー・非ムーブ**: state holder の唯一性 (現在行 / タイプ進行) を
 //     担保するため。
 //
-// 参考: CSpriteAnimator (frame-based progression), FSequence (action 連鎖)
+// 関連実装: CSpriteAnimator (frame-based progression), FSequence (action 連鎖)
 
 
 namespace acs::game {
@@ -45736,7 +45731,7 @@ struct FReflectField {
     u32         size;          /**< フィールドのバイトサイズ (名前のみ反射では 0)。 */
     u32         flags;         /**< EFieldFlags の OR。 */
     f32         defaults[4];   /**< スキーマ既定値 (最大 4 成分。ACS_RPROP* 用、offsetof 反射は 0)。 */
-    const char* category = nullptr;  /**< UPROPERTY(Category="…") の分類名。インスペクタのグループ見出し (既定 nullptr)。 */
+    const char* category = nullptr;  /**< ACS_PROPERTY の分類名。インスペクタのグループ見出し (既定 nullptr)。 */
 };
 
 /** 反射された列挙値 1 件 (名前 + 整数値)。 */
@@ -45978,7 +45973,7 @@ using FTypeRegistry = CTypeRegistry;
         static_cast<::acs::f32>(d3) } }
 
 /**
- * offset + 既定値 + «フラグ» 付きフィールド記述子 (codegen が UPROPERTY 指定子から出力)。
+ * offset + 既定値 + «フラグ» 付きフィールド記述子 (codegen が ACS_PROPERTY 指定子から出力)。
  *
  * @details flags = EFieldFlags の OR。VisibleAnywhere→FIELD_READONLY、Hidden→FIELD_HIDDEN 等。
  */
@@ -46500,7 +46495,7 @@ using FFadeTransition = CFadeTransition;
 // GameFramework — AFollow2DComponent (オブジェクト参照プロパティのデモ + 実用コンポーネント)
 //
 // 「別のノードを参照して、そこへ向かって追従する」コンポーネント。インスペクタの
-// «オブジェクト参照» プロパティ(他オブジェクトへの参照を渡す UE 風 UPROPERTY)の実例。
+// 他オブジェクトを安定 ID で参照する ACS_PROPERTY の実例。
 // target は参照先ノードの «安定 ID»(SerialId = エディタ id)を保持する。実行時に
 // id → 生きた ANode* へ解決して追従する(解決は FindBySerialId、結果はキャッシュ)。
 
@@ -49931,7 +49926,7 @@ using game::ESvc;
 // AScene が正規のシーングラフとして保持するほか、checked loader や editor の staging の
 // ようにスタック上へ一時グラフを構築する用途でも使う。
 // CSubsystemCollection / CSceneServices を一切持たないため、一時グラフがシーン文脈を
-// 抱え込むことはない (docs/SceneUnification.md Phase 2)。
+// 抱え込むことはない。
 
 
 // ===================== gameframework/NodePool.h =====================
@@ -50555,7 +50550,7 @@ public:
     /** 空のシーンを構築する (コンテキスト・サービスは未配線)。 */
     AScene() noexcept {
         // loader が SwapContents で root を差し替えた直後に service/subsystem 配線を
-        // やり直せるよう、graph へ再配線 hook を登録する (docs/SceneUnification.md Phase 2)。
+        // やり直せるよう、graph へ再配線 hook を登録する。
         m_Graph._SetRootSwapHook(&AScene::_OnGraphRootSwapped, this);
     }
 
@@ -50775,8 +50770,7 @@ public:
      * シーンが所有するノードグラフへの可変参照を返す。
      *
      * @details root ツリーと generational pool (FNodeId の発行・stale 検出) の実体。
-     * Spawn / Get / Raycast など graph 単位の操作はここへ委譲する
-     * (docs/SceneUnification.md Phase 2)。
+     * Spawn / Get / Raycast など graph 単位の操作はここへ委譲する。
      * @return 所有する CSceneNodeGraph への参照。
      */
     CSceneNodeGraph& Graph() noexcept { return m_Graph; }
@@ -57199,13 +57193,12 @@ enum class ESceneProjectionMode : u8 {
 };
 
 /**
- * Standalone AScene bridge for the legacy `ACS3D v2` document adapter.
+ * 旧 `ACS3D v2` document を AScene へ接続する adapter。
  *
- * @details The scene graph is the AScene-owned ANode/FTransform3D graph shared with the editor
- * runtime (docs/SceneUnification.md Phase 2). This class is
- * intentionally an adapter rather than a second permanent scene asset type: packages expose one
- * `main.acscene` bootstrap entry and choose the legacy .acscene/.acs3d reader from its validated
- * header. Sprite batching, Canvas/UI, and 2D physics stay on their dedicated runtime path.
+ * @details scene graph は editor runtime と共有する AScene 所有の ANode/FTransform3D graph。
+ * 永続 scene asset type を増やさず adapter として実装する。package は 1 つの
+ * `main.acscene` bootstrap entry を公開し、検証済み header から旧 .acscene/.acs3d reader を
+ * 選ぶ。Sprite batching、Canvas/UI、2D physics は専用 runtime path に残す。
  */
 class ALegacyScene3DAdapter : public AScene {
 public:
@@ -60671,7 +60664,7 @@ TResult<void> TSaveSlot<T>::Delete() noexcept {
 //     寿命を持ち、Registry の寿命を超えるまで生かす責務を負う。manifest を
 //     パースしたバッファをそのまま指す前提。
 //   ・**load_order = i32 昇順**: 数値が小さい方を先に load、大きい方が後で
-//     上書きする (UE / Bethesda 系と同じ慣習)。負値は core 系 (= 必須前段)
+//     上書きする。負値は core 系 (= 必須前段)
 //     のため確保。
 //   ・**並び替えは明示**: `Register` 時には末尾追加するだけで、`SortByLoadOrder`
 //     を呼ぶまでは登録順を保つ。Editor 側 UI で一覧表示 → ユーザーが順序を
@@ -66600,8 +66593,7 @@ using FSceneTimer = CSceneTimer;
 //
 // 名前付きの ANode ツリーテンプレート (= 「Prefab」) を関数ポインタファクトリ
 // として登録し、ID または名前から `acs::TObjectPtr<ANode>` を spawn する軽量
-// レジストリ。Unity の Prefab / Unreal の Blueprint asset に相当する役割を、
-// 「アセットファイル」ではなく「ファクトリ関数」で表現する設計。
+// レジストリ。「アセットファイル」ではなく「ファクトリ関数」で表現する設計。
 //
 // 使い方:
 //   // 1) ファクトリ関数を書く (cpp 側で ANode の full type を include する)
@@ -80395,7 +80387,7 @@ private:
 
 // ===================== gameframework/ProjectSettings.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// プロジェクト設定 (UE の Project Settings 相当)
+// ACS のプロジェクト設定。
 //
 // 用途: プロジェクトごとの設定 (レンダリング / エディタ / 物理 / ゲーム / ユーザー定義) を
 //       カテゴリ分けして INI テキスト (<project>/Config/ProjectSettings.ini) で永続化する。
@@ -80873,9 +80865,8 @@ u32 AcsRegisterEngineTypes() noexcept;
 // GameFramework — 関数リフレクション (ACS_FUNCTION / BlueprintCallable の土台)
 //
 // 「型に属する引数なし void メソッド」を名前 + 呼び出しサンク(関数ポインタ)として
-// 登録する軽量レジストリ。UE の UFUNCTION(BlueprintCallable / CallInEditor) に相当する
-// «名前で呼べる関数» を、reflection 経由でエディタのボタンや将来のスクリプト/Blueprint
-// グラフから起動できるようにする土台。
+// 登録する軽量レジストリ。ACS_FUNCTION の «名前で呼べる関数» を reflection 経由で
+// エディタのボタン、スクリプト、ノードで構成した処理グラフから起動するための土台。
 //
 //   // クラス側 (引数なし void メソッド):
 //   void Ping() noexcept { ACS_LOG_INFO("ping"); }
@@ -80893,7 +80884,7 @@ u32 AcsRegisterEngineTypes() noexcept;
 
 namespace acs::game {
 
-/** メソッド指定子フラグ(UFUNCTION 相当)。 */
+/** ACS_FUNCTION のメソッド指定子フラグ。 */
 enum EMethodFlags : u32 {
     METHOD_NONE           = 0u,
     METHOD_BP_CALLABLE    = 1u << 0,   /**< Blueprint/スクリプトから呼べる。 */
@@ -84243,9 +84234,8 @@ using FXAudio2Backend = CXAudio2Backend;
 // GameFramework Pillar — animcurve / AAnimCurveEditorPanel
 //
 // `acs::game::FAnimationCurve` (Hermite/Linear/Step + EWrapMode) を ImGui で
-// **対話的に編集する curve editor panel**。Unity AnimationCurve エディタ /
-// Unreal CurveEditor / Godot Curve のキー打ち + タンジェントドラッグの
-// 簡易版に相当。`editor_core::AEditorPanel` 基底に
+// **対話的に編集する curve editor panel**。キー追加とタンジェントドラッグを扱う。
+// `editor_core::AEditorPanel` 基底に
 // 載せ、`CEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
 // 統合できる形にしている。
 //
@@ -84381,8 +84371,8 @@ using FXAudio2Backend = CXAudio2Backend;
 //     必要な panel だけ override する形。
 //   ・**ImGui::Begin/End は派生クラス側責務**: 基底で wrap する案も検討したが、
 //     panel ごとに ImGuiWindowFlags / dock target / MenuBar の有無が異なるため、
-//     強制 wrap せず派生側で完全制御させる方針 (Unity Editor の `EditorWindow`
-//     と同じ責任分担)。`m_Visible` は派生側で `ImGui::Begin(Title(), &m_Visible)`
+//     強制 wrap せず派生側で完全制御させる方針。`m_Visible` は派生側で
+//     `ImGui::Begin(Title(), &m_Visible)`
 //     の close ボタンに直接渡せる public-ish state。
 //   ・**CEditorWorkspace は forward-decl のみ**: ヘッダ依存を最小化。具体的な
 //     workspace 型 (CSelectionService / CAssetBrowser / DockSpace 等の集約 hub) は
@@ -84623,8 +84613,7 @@ namespace acs::game::animcurve {
  * FAnimationCurve を ImGui で対話的に編集する curve editor panel。
  *
  * @details
- * Unity AnimationCurve エディタ / Unreal CurveEditor 相当のキー打ち +
- * タンジェントドラッグの簡易版。editor_core::AEditorPanel を継承し、
+ * キー追加とタンジェントドラッグを扱う。editor_core::AEditorPanel を継承し、
  * CEditorWorkspace::RegisterPanel(&panel) で workspace に統合できる。
  * canvas 上に curve を kCurveSampleCount sample で線描画し、各 key を丸 marker、
  * Hermite key の in/out tangent を handle として描画して drag 編集できる。
@@ -84791,10 +84780,8 @@ using FAnimCurveEditorPanel = AAnimCurveEditorPanel;
 // GameFramework Pillar — btedit / ABehaviorTreeEditorPanel
 //
 // `gameframework/BehaviorTree.h` (Pillar L) の BT を **可視化 + ライブデバッグ**
-// するための ImGui パネル。Unity の Behavior Designer / Unreal の Behavior Tree
-// Editor の `Debugger` モードに相当する役割を担う。スコープは "visualize
-// + step debug" に絞り、ノードのグラフ編集 (drag drop で
-// composite に子追加 / 配置入替) は範囲外。
+// するための ImGui パネル。実行状態の可視化と 1 tick ずつのデバッグに絞り、
+// ノードのグラフ編集 (drag drop で composite に子追加 / 配置入替) は範囲外。
 //
 // 役割分担:
 //   ・本パネルは「**実行中の BT を観察する**」のが第一責務。CBehaviorTree 本体は
@@ -85476,7 +85463,7 @@ struct FBtGraphPersistenceResult {
 };
 
 /**
- * CBehaviorTree を可視化 + step debug する ImGui パネル。
+ * CBehaviorTree の実行状態を可視化し、1 tick ずつデバッグする ImGui パネル。
  *
  * @details
  * 実行中の BT を観察するのが第一責務。実体ツリーは private メンバ + RTTI 無効で
@@ -86324,9 +86311,8 @@ private:
 // GameFramework Pillar — cinetimeline / ACinematicsTimelineEditorPanel
 //
 // `acs::game::CCinematicsDirector` (= タイムライン上の cutscene 駆動器) を
-// **対話的に編集する timeline editor panel**。Unity Timeline / Unreal Sequencer /
-// Godot AnimationPlayer の「水平タイムライン + 複数トラック + キーフレーム
-// マーカー + 再生制御」の最小版に相当。
+// **対話的に編集する timeline editor panel**。水平タイムライン、複数トラック、
+// キーフレームマーカー、再生制御を 1 つの panel にまとめる。
 // `editor_core::AEditorPanel` 基底に載せ、`CEditorWorkspace::RegisterPanel(&panel)`
 // の 1 行で workspace に統合できる形にしている。
 //
@@ -86350,7 +86336,7 @@ private:
 //   ・panel は **editor 専用の keyframe storage** (= `FEditorKeyframe` の TArray)
 //     を内部に持つ。CCinematicsDirector::FTimelineKeyframe は payload が
 //     {camera/dialogue/music/event} の 4 種固定 union だが、editor 上では
-//     UE Sequencer / Unity Timeline のように "5 種類のオーサリング概念"
+//     5 種類のオーサリング概念
 //     (CameraCut / FadeColor / TimeScale / SpawnEffect / TriggerCallback) を
 //     扱えるように **追加 metadata** (FVec3 target / start/end color / scale 値
 //     / event_id / 文字列リテラル) を panel 側で保持する。Play 時に director に
@@ -86427,7 +86413,7 @@ private:
 //   ・スナップグリッド / 等間隔配置 (= 現状は自由配置のみ)
 //   ・preview viewport (= scrub したら 3D scene が更新されるリアルタイム連動)
 //
-// 参考: gameframework/CinematicsDirector.h,
+// 関連実装: gameframework/CinematicsDirector.h,
 //      gameframework/tools/editor_core/EditorPanel.h,
 //      gameframework/tools/animcurve/AnimCurveEditorPanel.h
 
@@ -86747,8 +86733,7 @@ using FCinematicsTimelineEditorPanel = ACinematicsTimelineEditorPanel;
 //
 // プロジェクト `assets/` 配下のファイルツリーを ImGui で参照 + 各種 panel
 // (ModelViewer / TilemapEditor / ParticleEditor 等) に Drag & Drop 経由で
-// 「アセットパス」を供給する Unity の Project Window / Godot の FileSystem
-// Dock 相当の基盤パネル。
+// 「アセットパス」を供給する基盤パネル。
 //
 // 役割:
 //   ・assets/ ルートを起点にディレクトリを再帰列挙し、左ペインに tree、
@@ -86899,7 +86884,7 @@ struct FAssetEntry {
  * assets/ ディレクトリツリーを ImGui で参照し Drag Source としてパスを供給するパネル。
  *
  * @details
- * Unity の Project Window / Godot の FileSystem Dock 相当の基盤パネル。assets/ ルートを
+ * assets/ ルートを
  * 起点に左ペインへ tree、右ペインへ current directory のエントリ一覧を表示し、各エントリは
  * "ASSET_PATH" payload (wchar_t*) を提供する Drag Source となる。非コピー / 非ムーブ、
  * 全 noexcept、STL 不使用で、文字列は内部 pool に積み FAssetEntry はそこへの pointer を持つ
@@ -87197,8 +87182,8 @@ using FAssetBrowser = CAssetBrowser;
 //     文が増え、共通の "Frame to selection" や "Tick smoothing" を 2 回
 //     書くハメになる。1 クラス内 mode フラグで管理し、API は両モード共通形に
 //     揃える (Pan / Dolly は意味を mode で読み替え)。
-//   ・**3D orbit = yaw + pitch + distance + target**: industry-standard な
-//     Maya / Blender 風の orbit。eye 位置は (target + spherical(yaw,pitch)
+//   ・**3D orbit = yaw + pitch + distance + target**: eye 位置は
+//     (target + spherical(yaw,pitch)
 //     * distance) で算出。pitch は ±89° にクランプして極点で gimbal flip
 //     しないようにする。
 //   ・**2D = position + zoom_2d**: CCamera2D と同じ pan/zoom モデル。orthographic
@@ -87206,7 +87191,7 @@ using FAssetBrowser = CAssetBrowser;
 //     が直感通り。CCamera2D の rotation までは持たない (editor は通常 axis-aligned)。
 //   ・**HandleMouseInput で操作系を集約**: panel 側は ImGui の IO から取った
 //     delta / button / wheel をそのまま渡せばよい。マウス操作の規約:
-//       - 3D: LMB drag = orbit, MMB drag = pan, RMB drag = orbit (Maya 風代替),
+//       - 3D: LMB drag = orbit, MMB drag = pan, RMB drag = orbit,
 //             wheel = dolly
 //       - 2D: LMB drag = pan, MMB drag = pan, wheel = zoom
 //     この規約は editor 全体で統一すべきもの。
@@ -87826,8 +87811,7 @@ using FMoveNodeCommand = AMoveNodeCommand;
 //   選択中の ANode の FTransform3D を viewport 上で直接ドラッグ操作する
 //   「ハンドル」。translate (移動) / rotate (回転) / scale (拡縮) の 3 モードを
 //   持ち、各モードで X / Y / Z 軸ハンドル + 平面 (XY/XZ/YZ) ハンドル + 画面
-//   並列ハンドル (rotate のみ) を提供する。Unity / Godot / UE のシーンビュー上の
-//   操作系を最小集合で再実装したもの。
+//   並列ハンドル (rotate のみ) を提供するエディタ操作系。
 //
 // 使い方 (典型):
 //   acs::game::editor_core::CEditorGizmo gizmo;
@@ -87892,14 +87876,14 @@ using FMoveNodeCommand = AMoveNodeCommand;
 //   ・**Manipulate は delta ベースで動く**: drag 開始時の world-space 座標
 //     (`drag_start_world`) を覚え、現フレームの mouse ray と軸/平面の交点との
 //     差分から delta を計算する。これにより「クリック位置とハンドル中心がずれて
-//     いても」drag が滑らかになる (Unity / Blender と同じ感覚)。
+//     いても」drag が滑らかになる。
 //   ・**rotate モードは euler 角度差分**: quat 補間は使わず、
 //     軸ごとに「現マウス角度 - 開始マウス角度」を計算して inout_rotation_euler の
 //     対応軸に加算する単純実装。Gimbal lock の心配があるが、editor 上の手動
 //     編集なので許容範囲。
 //   ・**scale モードは axis-aligned**: 軸ハンドルで「その軸方向の uniform scale
 //     倍率」を計算。XY/XZ/YZ 平面 + ScreenAlign は scale モードでは hit を取らない
-//     (= 各軸ごとの非一様 scale を意図的に強制、Unity と同じ)。
+//     (= 各軸ごとの非一様 scale を意図的に強制する)。
 //   ・**DrawGizmo は CDebugDraw (FVec2 ベース) に出力**: CDebugDraw は 2D
 //     ラインバッファ。本ヘッダでは「Z 軸を捨てて XY 平面に
 //     射影する」simple projection を採用する (= 2D top-down view を想定)。
@@ -88435,8 +88419,8 @@ using FEditorGizmo = CEditorGizmo;
 // preset カラー設計指針:
 //   Dark         : 標準 dark grey (ImGui 既定の StyleColorsDark に近い + 若干
 //                  暖色寄りの中間グレーで目疲れ低減)。
-//   DarkBlue     : VS Code "Dark+" 風。Window/Frame に青みのある #1F232C 系。
-//                  accent は Visual Studio の青 #007ACC 系。
+//   DarkBlue     : Window/Frame に青みのある #1F232C 系。
+//                  accent は #007ACC 系。
 //   Light        : 明るい背景 (ImGui StyleColorsLight 相当)。長時間屋外作業や
 //                  プロジェクタ表示向け。
 //   HighContrast : 黒 / 白 / 黄 (#FFD700) の三色設計。AccessibilityProfile.h の
@@ -88484,7 +88468,7 @@ enum class EEditorThemePreset : u8 {
     /** 標準 dark grey (デフォルト)。 */
     Dark         = 0,
 
-    /** VS Code Dark+ 風 (青みのある dark)。 */
+    /** 青みのある暗色テーマ。 */
     DarkBlue     = 1,
 
     /** 明るい背景 (屋外 / プロジェクタ向け)。 */
@@ -90078,8 +90062,7 @@ using FFontEditorPanel = AFontEditorPanel;
 //   ParticleEditor (in-engine particle authoring tool) が編集中の emitter 群を
 //   人間可読 / git diff 可能なテキスト形式で保存・復元するためのシリアライザ。
 //   バイナリ形式の `TSaveSlot<T>` (Pillar J) と違い、**作業中アセットを版管理に
-//   そのまま乗せられる** ことを最優先する (= UE5 の `.uasset` ではなく Unity の
-//   `.meta` 風のフィロソフィー)。
+//   そのまま乗せられる** ことを最優先する。
 //
 // 使い方:
 //   acs::game::FParticleEmitterDef defs[8] = {};
@@ -91000,8 +90983,7 @@ using FParticleEditorPreview = CParticleEditorPreview;
 //
 // 設計選択 (Pillar SceneInspector):
 //   ・**Play / Pause / Step / Save / CDebugOverlay の 5 アクション**: 最低限の
-//     editor インタラクション集合。Unity / Godot エディタの中央バーから
-//     "再生制御 + 保存 + デバッグ表示" だけ抜き出した形。
+//     editor インタラクション集合。再生制御、保存、デバッグ表示をまとめる。
 //   ・**状態は EEditorState で 1 個保持**: Playing / Paused / Stepping の 3 値。
 //     Stepping は「1 fixed step 進めたら自動で Paused に戻る」一時状態として
 //     扱い、外側の CGame ループは TimeScale=1 で 1 フレーム走らせた後に
@@ -91219,8 +91201,7 @@ using FEditorToolbar = AEditorToolbar;
 // GameFramework Tools — SceneInspector / AHierarchyPanel
 //
 // シーン (ANode ツリー) を ImGui ベースの hierarchy パネルで可視化 + 編集する
-// エディタ用パネル。Unity の Hierarchy / Godot の SceneTree / UE の World Outliner
-// 相当の役割で、retail ビルドからは #ifdef で消す前提。
+// エディタ用パネル。retail ビルドからは #ifdef で消す前提。
 //
 // 機能:
 //   ・root_node 配下を再帰 TreeNode で描画 ("Scene Hierarchy" タイトルの ImGui window)
@@ -91232,11 +91213,11 @@ using FEditorToolbar = AEditorToolbar;
 //   ・DeleteSelected で `ANode::Destroy()` 呼出 (フレーム境界 reap 任せ)
 //
 // 連携:
-//   ・**CSelectionService** (別エージェントが実装中) — selection 状態を他パネル
+//   ・**CSelectionService** — selection 状態を他パネル
 //     (AInspectorPanel 等) と共有する集中点。forward decl で受け、Set されていれば
 //     そちら経由で selection を読み書きする。未注入時は本パネル内の `m_SelectedId`
 //     を使う (= スタンドアロン動作可能)。
-//   ・**AInspectorPanel** (別エージェントが実装中) — 選択中 ANode の property を
+//   ・**AInspectorPanel** — 選択中 ANode の property を
 //     編集するパネル。本パネルとは selection 経由でしか連携しない (Hierarchy は
 //     Inspector を知らない)。
 //   ・**Right-click callback** — Delete / Duplicate / Reparent 以外のメニュー
@@ -91281,7 +91262,6 @@ namespace acs::game::inspector {
  * ImGui ベースで ANode 階層ツリーを可視化・編集するエディタパネル。
  *
  * @details
- * Unity の Hierarchy / Godot の SceneTree / UE の World Outliner 相当。
  * `Begin("Scene Hierarchy")` の 1 window で root_node 配下を再帰 TreeNode 描画し、
  * クリック選択・右クリック context menu (Delete / Duplicate / Reparent)・Drag & Drop
  * による reparent・ExpandAll/CollapseAll をサポートする。selection は注入された
@@ -91514,7 +91494,7 @@ using FHierarchyPanel = AHierarchyPanel;
 //     破棄 / 値の永続化は呼び出し側 (CInspectorSeam owner) の責務。値の変更
 //     通知は `FieldChangeCallback` で外部 (undo / dirty tracker / 永続化) に
 //     委譲する。
-//   ・`CSelectionService` (別エージェントで実装中) に依存する。本パネルは
+//   ・`CSelectionService` に依存する。本パネルは
 //     forward-decl のみで受け、ポインタ経由で「現在の選択 FNodeId」を取得する。
 //     CSelectionService 未設定時は `DrawUI` の引数 `selected_id` を採用する。
 //
@@ -91731,9 +91711,8 @@ using FInspectorPanel = AInspectorPanel;
 //   }
 //
 // 設計選択 (Pillar SceneInspector):
-//   ・**1 個の "選択" だけを持つ最小ハブ**: Unity Inspector のように
-//     multi-select も将来は欲しいが、現状は「currently selected single
-//     node」のみ。Multi-select は別 API (`SelectionSet`) で分離する。
+//   ・**1 個の "選択" だけを持つ最小ハブ**: 単一ノードだけを選択状態として保持する。
+//     複数選択は別 API (`SelectionSet`) で分離する。
 //   ・**callback は複数登録 (CHotReloadWatcher と同形)**: (cb, user) ペアで
 //     重複弾き、Unregister で 1 件除去。dispatch 順は登録順。
 //   ・**from / to を渡す**: 単純な「to」だけだと、購読側で前回値を覚えて
@@ -91771,8 +91750,8 @@ using SelectionChangeCallback = void (*)(void* user, FNodeId from, FNodeId to) n
  *
  * @details
  * 1 個のシングルなインスタンスを editor 起動コードが所有し、各 panel が
- * RegisterCallback で選択変更を購読する。currently selected single node のみを保持し、
- * multi-select は範囲外。FNodeId のみを扱い、選択対象が生きているか / どの AScene に
+ * RegisterCallback で選択変更を購読する。現在選択中の 1 ノードだけを保持し、
+ * 複数選択は範囲外。FNodeId のみを扱い、選択対象が生きているか / どの AScene に
  * 属するかの検証は購読側の責務。non-copy / non-move、全 noexcept、STL 不使用。
  */
 class CSelectionService {
@@ -91908,8 +91887,8 @@ private:
 // GameFramework Pillar — leveledit / ALevelEditorPanel
 //
 // `acs::game::FTilemap` (multi-layer u16 FTileId grid) を **対話的に編集する
-// tilemap painter panel**。Unity Tile Palette / Tiled / LDtk の「ペイント /
-// 消し / 塗りつぶし / スポイト」 4 ブラシ + アクティブレイヤ切替 + tile id
+// tilemap painter panel**。「ペイント / 消し / 塗りつぶし / スポイト」 4 ブラシ +
+// アクティブレイヤ切替 + tile id
 // picker + grid show/hide + snap-to-grid を提供する。`editor_core::AEditorPanel`
 // 基底に載せ、`CEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
 // 統合できる形にしている。
@@ -91966,8 +91945,8 @@ private:
 //   ・**tilemap は raw pointer の非所有保持**: caller 所有 (AAnimCurveEditorPanel
 //     が FAnimationCurve を non-owning で受けるのと同方針)。本 panel は tilemap
 //     の寿命に関与せず、`m_Tilemap == nullptr` 時は "(No tilemap bound)" を表示。
-//   ・**CEditorCamera Mode2D を内包**: 各 panel が独自 camera を持つ Unity
-//     SceneView 風モデル (AModelViewerPanel と同形)。Camera() アクセサで参照を
+//   ・**CEditorCamera Mode2D を内包**: 各 panel が独自 camera を持つ。
+//     Camera() アクセサで参照を
 //     返し、外部は HandleMouseInput / Tick を呼ぶ。本 panel 内部の
 //     viewport drawing でも `m_Camera.State().zoom_2d` と `m_Camera.State().position`
 //     を使って world → screen 変換する。
@@ -92667,10 +92646,10 @@ using FModelAnimationPanel = AModelAnimationPanel;
 //
 // ModelViewer ワークスペース内に配置される **読み取り専用の mesh 情報 panel**。
 // CAssetBrowser から選択 / DragDrop された model (.mdl / .fbx / .gltf 等) を
-// AModelViewerPanel (別エージェント) が load した結果を、本 panel に
+// AModelViewerPanel が load した結果を、本 panel に
 // `UpdateFromModel(...)` でプッシュしてもらい、内部にスナップショットとして
-// 保持して ImGui で表示する。Unity の Mesh Inspector / Godot の "Import"
-// 出力タブ / UE の Static Mesh Editor の "Mesh Details" 相当。
+// 保持して ImGui で表示する。mesh の集計、submesh、bone 階層、animation clip を
+// 同じ panel で確認できる。
 //
 // 表示内容:
 //   1) **Summary**     : vertex / triangle / submesh / material slot / bone /
@@ -92683,7 +92662,7 @@ using FModelAnimationPanel = AModelAnimationPanel;
 //
 // 役割分担:
 //   ・本パネルは「描画 + 配列のスナップショット保持」だけを担当。実 model load /
-//     parse は AModelViewerPanel (別エージェント) と Mesh / Skeleton / AnimationClip
+//     parse は AModelViewerPanel と Mesh / Skeleton / AnimationClip
 //     モジュールの責任。caller (= AModelViewerPanel もしくは sample 31) が
 //     load 完了時に本 panel の `UpdateFromModel` を呼んで情報を流し込む。
 //   ・本 panel は callback / 編集 / GPU リソース確保を一切持たない (= 純粋な
@@ -92692,7 +92671,7 @@ using FModelAnimationPanel = AModelAnimationPanel;
 // 設計選択 (modelview):
 //   ・**AEditorPanel 継承**: editor_core 基底に乗せる。
 //     AModelViewerPanel / sample 31 が CEditorWorkspace 経由で本 panel を
-//     register する。Title は "Model Info" (Unity / Godot の Inspector 表記寄り)。
+//     register する。Title は "Model Info" とする。
 //   ・**スナップショット方式**: 元の Mesh / Skeleton / AnimationClip オブジェクト
 //     を ref で保持しない (= モデル再 load / 解放と本 panel の表示が race しない
 //     ように、name / index 等を `acs::TArray<...>` に値コピーで持つ)。`const char*`
@@ -93418,8 +93397,8 @@ using FModelMaterialPanel = AModelMaterialPanel;
 //     「CCamera state + light params + background + toggle 群」の保管 + UI のみ。
 //     こうしておけば panel 単体テストや、別の renderer (= raymarched preview /
 //     OBJ thumbnail) への差し替えが容易。
-//   ・**CEditorCamera を内包 (値メンバ)**: 各 panel が独自 camera を持つ Unity
-//     SceneView 風モデル。Camera() アクセサで参照を返し、renderer が
+//   ・**CEditorCamera を内包 (値メンバ)**: 各 panel が独自 camera を持つ。
+//     Camera() アクセサで参照を返し、renderer が
 //     ViewMatrix / ProjectionMatrix を取り出して使う。
 //   ・**asset path は wchar_t バッファ (kMaxPathChars = 512)**: CAssetBrowser
 //     と同じ規約。STL の std::wstring は使えないため、固定長で保持。
@@ -93523,8 +93502,8 @@ public:
      * 内部 asset path を空文字に戻し HasModel() を false にする。
      *
      * @details
-     * CEditorCamera 状態 / Lighting / Background は保持する (= モデルを切替えても視点と
-     * 照明が維持される、Unity SceneView と同じ挙動)。
+     * CEditorCamera 状態 / Lighting / Background は保持するため、モデルを切替えても視点と
+     * 照明が維持される。
      */
     void ClearModel() noexcept;
 
@@ -99717,7 +99696,7 @@ void BindProgress(const char* label, const TObservable<f32>& v, f32 v_min, f32 v
 //   inv.Reset();         // → Cleared
 //
 // 設計:
-//   ・通知は 1 種類の callback で kind を分岐 (UE5 の per-event fan-out より易い)
+//   ・通知は 1 種類の callback で kind を分岐する
 //   ・listener 中は Add/Pop/Remove/RemoveAt/SetAt/Clear による全変更を禁止する
 //     (Debug は assert 検出。assert 無効の Release では検出されず処理が実行されるため、
 //      呼び出した時点で caller の契約違反)
@@ -100166,9 +100145,7 @@ private:
 // SPDX-License-Identifier: Apache-2.0
 // CViewModel — MVVM の M-V-VM のうち中央の VM 基底クラス
 //
-// MVVM は **一般的な UI architecture pattern** (WPF / Xamarin / Vue / React 等で
-// 共通) であり、UE5 の UMG CViewModel 専用の概念ではない。
-// ACS の MVVM は次の 3 層で構成される:
+// MVVM は UI の状態と表示を分離し、ACS では次の 3 層で構成する:
 //   Model     = ゲームロジック / アセット / ECS 内のデータ
 //   View      = src/ui/ の AWidget tree (ALabel / AButton / ASlider 等)、または
 //               src/imgui/ の ImGui (ad-hoc デバッグ用、本番 UI は src/ui/ 推奨)
