@@ -13,21 +13,21 @@
 | `E` | enum |
 
 `class`か`struct`かという構文だけではなく責務で決める。`A`は名前だけで推定しない。
-監査は登録済みmigration registry 335件と`acs::AObject`の推移実継承、scope解決した
+監査は登録済みmigration registry 333件と`acs::AObject`の推移実継承、scope解決した
 登録macro実呼び出しを照合する。正規基底をregistry登録済みの旧名で綴った基底も同じ管理対象と
 して解決するため、互換入口だけで宣言するcompile検査型も`A`のままとなる。この旧名集合は
 registryのcanonicalから導出し、未登録の同名綴りは管理対象にしない。
 未登録のobject候補はR020fで拒否し、現行debtは0件である。
 macro定義中と`#if 0`中の
 `ACS_OBJECT(Type)`は実登録ではない。delegate、callback、関数pointer aliasには接頭辞を
-強制しない。template aliasもこのwaveのrole監査対象外である。
+強制しない。template aliasもrole監査対象外である。
 監査はpreprocess前のtoken列を読み、確実に無効な`#if 0`以外の条件式やbranchを評価しない。
 このためhard canonical定義と一時compatibility aliasは、`#if SOME_FLAG` / `#else`へ分けず
 unconditionalに一件だけ宣言する。条件branchごとの重複宣言もraw scanでは契約違反となる。
 
 ## hard canonical
 
-次は第一waveで固定した代表例である。全335件の正本はmigration registryとする。
+次は代表例である。全333件の正本はmigration registryとする。
 
 | 正規名 | 一時的な旧名 | header |
 |---|---|---|
@@ -67,20 +67,20 @@ R020eとして拒否する。これらの旧綴りはC++型の正規名ではな
 
 ## exact migration debt
 
-現行の正本は`scripts/data/cpp_type_role_migrations.json`である。schema version 2の335件に、
+現行の正本は`scripts/data/cpp_type_role_migrations.json`である。schema version 2の333件に、
 正規型、定義header、旧名、旧名を公開するheader、宣言種別、接頭辞を固定する。旧名がない
-review済み`F`型も登録し、正規型の定義と一時互換aliasを別々に検査する。監査器はsourceから
-独立した件数335とentries semantic SHA-256
-`44C90E6BF0F40A8BC460DAFD0C87F991F88BE0C4C57291FE4B23B6B5DEAC16D5`を持つため、
+`F`型も登録し、正規型の定義と一時互換aliasを別々に検査する。監査器はsourceから
+独立した件数333とentries semantic SHA-256
+`8054D56AB0F21BF0D98B72E02A486EA98578A110E6D37BF36B5CAF425DF29945`を持つため、
 sourceとregistryを同時に削除しても通らない。
 
 未解決型だけを置く`scripts/data/cpp_type_role_migration_debt.json`は現在0件である。
 default baselineは件数0とsemantic SHA-256
 `4F53CDA18C2BAA0C0354BB5F9A3ECBE5ED12AB4D8E11BA873C2F11161202B945`に固定する。
 公開collectorは毎回candidate/manual集合を再構成し、新しい未登録候補、stale entry、移動、
-重複、順序違反、接頭辞・status・候補・理由・waveのdriftをfail-closedにする。将来debtを
-追加または支払う場合は、source、registryまたはdebt、件数、baseline hashを同じreview済み
-commitで更新する。
+重複、順序違反、接頭辞・status・候補・理由・waveの不整合をfail-closedにする。debtを
+追加または支払う場合は、source、registryまたはdebt、件数、baseline hashを同一変更で
+更新する。
 
 valueのconstructor・accessor・operatorは`F`を保つ。member initializerの関数呼び出しと
 function-pointer fieldはmethodと数えない。操作のないデータ中心classは`F`とし、
@@ -94,29 +94,7 @@ C0制御文字・DELを拒否する。`schema_version`はboolや浮動小数で�
 でなければならない。bytesはBOMなしUTF-8、CR 0件、LF改行、最終LFちょうど1件に固定し、
 この物理契約を検証してから厳密decodeとJSON parseを行う。
 
-### historical provenance（active contractではない）
-
-初回分類の正本artifactは
-`public-type-inventory-924-debt326-v1.json`（243,808 bytes、SHA-256
-`624BD17B433EBBB0FA9E018DDB4F475262B8C94FA934F94148D1D059570AB45C`）から機械変換した。
-先に生成された非atomic初版はbyte identityが変化したため破棄し、正本には使用していない。
-機械変換直後の正規JSON semantic hashは
-`286EA95DC7FF3653BC7C75B4166AD2568D316E09797543D55908925BE0A1D13A`であった。実methodの
-`Draw` / `Render`をreviewし、`FDiligentCommandList`、`FDx12CommandList`、`FWidget`、
-`FLabel`、`FButton`、`FSlider`、`FCheckbox`、`FTextInput`の8件をmanualから
-candidate `C`へ更新した。これはcandidate 200件、manual 126件、合計326件だった移行前の
-provenanceであり、現行のregistry件数やdebt件数ではない。
-
-default台帳はrepo schemaの全9 fieldを固定順array rowとし、そのrow arrayを
-`ensure_ascii=false`、空白なしの正規JSON UTF-8 bytesへ直列化したsemantic SHA-256
-`7F3260326DFC5C77494DC5DF3B43F8D479B9F73B42AB4496EEDCC259EA404841`でもfreezeする。
-これはinventory artifactのunresolved tuple hash `F32F5C0068ACFFCE101C3642345210E40C2D695B67DAC713240AB753C9AF8F6D`
-とは直列化と用途が異なる。この旧hashは現行gateでは使用しない。
-
-今回のsample reviewでは、旧`F`定義128件を`A` 25件、`C` 77件、値・データとして維持する
-`F` 26件へ確定した。移行対象102件の旧tokenは0件で、型名に合わせたfile renameは行わない。
-
-`violations=0`はhard canonicalとregistry 335件が成立し、新しい未登録debtがなく、default
+`violations=0`はhard canonicalとregistry 333件が成立し、新しい未登録debtがなく、default
 debt 0件が一致したことを示す。build、ABI、実行時の正しさまで示すものではない。
 
 ## 規則と実行
@@ -133,7 +111,7 @@ python -B scripts\audit_cpp_type_roles.py --root src\event --migration-debt scri
 python -B scripts\audit_cpp_type_roles.py --root tests
 python -B scripts\audit_cpp_type_roles.py --root src --migration-debt scripts\data\cpp_type_role_migration_debt.json --format json
 cmake --build Intermediate\vs --config Debug --target acs_type_roles_check
-ctest --test-dir Intermediate\vs -C Debug -R "ACS.(CppTypeRoleAudit|CppTypeRoleAuditSelfTest|EventTypeRoleAudit|EcsTypeRoleAudit|ScriptingTypeRoleAudit|TestTypeRoleAudit|SampleTypeRoleAudit)"
+ctest --test-dir Intermediate\vs -C Debug -R "ACS.(CppTypeRoleAudit|CppTypeRoleAuditSelfTest|EventTypeRoleAudit|EcsTypeRoleAudit|ScriptingTypeRoleAudit|TestTypeRoleAudit)"
 ```
 
 終了値は適合が`0`、違反ありが`1`、入力・schema・解決・出力の失敗が`2`である。JSON schema 3は
