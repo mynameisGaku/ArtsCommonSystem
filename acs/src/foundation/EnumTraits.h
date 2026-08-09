@@ -3,9 +3,9 @@
 
 #include "foundation/Types.h"
 
-// 列挙に「名前・個数・並び」を持たせる仕掛け (UE の UENUM 相当)。
+// 列挙に「名前・個数・並び」を持たせる仕掛け。
 //
-// UE は UHT がヘッダを走査してコードを生成するが、こちらはコード生成を挟まない。
+// コード生成を挟まず、コンパイラの関数シグネチャ文字列を使う。
 // コンパイラが持つ関数シグネチャ文字列 (__FUNCSIG__ / __PRETTY_FUNCTION__) から列挙子名を
 // constexpr で切り出すため、列挙子を二度書く必要が無く、型を指定するだけで名前が引ける。
 // 名前表はコンパイル時に確定し、実行時の確保も RTTI も要らない。
@@ -440,7 +440,7 @@ constexpr TEnum EnumNext(TEnum value, i32 delta = 1, bool wrap = true) noexcept 
 } // namespace acs
 
 /**
- * 列挙をリフレクション対象として印付ける (UE の UENUM 相当)。
+ * 列挙を ACS のリフレクション対象として印付ける。
  *
  * @details
  * 名前と個数は TEnumTraits がコンパイラのシグネチャから自動で引くため、この印自体は

@@ -45,7 +45,7 @@ ACS_FORCEINLINE u64 ReadU32(const byte* p) noexcept {
  * @return 64bit ハッシュ値。
  */
 u64 HashBytes(const void* data, usize len, u64 seed) noexcept {
-    // 黄金比由来の素数定数（xxhash と同じ）
+    // ハッシュ値のビット拡散に使う素数定数。
     constexpr u64 P1 = 0x9E3779B185EBCA87ull;
     constexpr u64 P2 = 0xC2B2AE3D27D4EB4Full;
     constexpr u64 P3 = 0x165667B19E3779F9ull;

@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // CViewModel — MVVM の M-V-VM のうち中央の VM 基底クラス
 //
-// MVVM は **一般的な UI architecture pattern** (WPF / Xamarin / Vue / React 等で
-// 共通) であり、UE5 の UMG CViewModel 専用の概念ではない。
-// ACS の MVVM は次の 3 層で構成される:
+// MVVM は UI の状態と表示を分離し、ACS では次の 3 層で構成する:
 //   Model     = ゲームロジック / アセット / ECS 内のデータ
 //   View      = src/ui/ の AWidget tree (ALabel / AButton / ASlider 等)、または
 //               src/imgui/ の ImGui (ad-hoc デバッグ用、本番 UI は src/ui/ 推奨)

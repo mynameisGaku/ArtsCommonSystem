@@ -19,7 +19,7 @@
 //   inv.Reset();         // → Cleared
 //
 // 設計:
-//   ・通知は 1 種類の callback で kind を分岐 (UE5 の per-event fan-out より易い)
+//   ・通知は 1 種類の callback で kind を分岐する
 //   ・listener 中は Add/Pop/Remove/RemoveAt/SetAt/Clear による全変更を禁止する
 //     (Debug は assert 検出。assert 無効の Release では検出されず処理が実行されるため、
 //      呼び出した時点で caller の契約違反)

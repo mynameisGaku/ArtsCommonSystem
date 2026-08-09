@@ -2,8 +2,8 @@
 // =============================================================================
 // ACS Foundation — Cast<T> / CastChecked<T> (RTTI 不使用の安全ダウンキャスト)
 // -----------------------------------------------------------------------------
-// ACS は RTTI 無効 (dynamic_cast 不可) なので、Unreal 風の `Cast<T>` /
-// `CastChecked<T>` を「軽量な侵入型 (intrusive) RTTI」で提供する。階層側が
+// ACS は RTTI 無効 (dynamic_cast 不可) なので、`Cast<T>` / `CastChecked<T>` を
+// 「軽量な侵入型 (intrusive) RTTI」で提供する。階層側が
 // マクロで型 ID と IsA を opt-in 宣言し、Cast はそれを使って実行時に安全な
 // ダウンキャストを行う。
 //
@@ -142,7 +142,7 @@ ACS_FORCEINLINE const To* Cast(const From* p) noexcept {
 /**
  * p を To* へキャストする。失敗時 (null / 型不一致) は ACS_CHECKF で panic する。
  *
- * @details 「ここは必ず To のはず」という確信がある場面で使う (Unreal の CastChecked 相当)。
+ * @details 「ここは必ず To のはず」という前提を実行時に検査する場面で使う。
  * @tparam To キャスト先の型 (ACS_RTTI_* 宣言済み)。
  * @param p キャストする non-owning ポインタ。
  * @return To* (必ず非 null。さもなくば panic)。

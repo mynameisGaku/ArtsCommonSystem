@@ -201,7 +201,7 @@ private:
 };
 
 /**
- * 「強参照である」ことを明示したいとき用の TObjectPtr 別名 (UE の TStrongObjectPtr に相当)。
+ * 「強参照である」ことを明示したいときに使う TObjectPtr の別名。
  *
  * @tparam T 所有する AObject 派生型。
  */
