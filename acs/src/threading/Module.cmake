@@ -40,5 +40,5 @@ acs_module_feature(MODULE Threading NAME THREADPOOL
 
 acs_module_feature(MODULE Threading NAME LOCKFREE_MPSC
     DEFINE THREADING_LOCKFREE_MPSC
-    DESCRIPTION "Build the lock-free MPSC queue (Phase 2 — currently placeholder)"
+    DESCRIPTION "Reserved ACS build switch that controls WITH_THREADING_LOCKFREE_MPSC; currently unused by Threading sources"
     DEFAULT OFF)

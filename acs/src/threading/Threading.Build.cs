@@ -11,6 +11,6 @@ public sealed class Threading : AcsModule
         PublicDeps.Add("Foundation");
         Feature("THREADPOOL", "THREADING_THREADPOOL", desc: "Build the work-stealing thread pool");
         Feature("LOCKFREE_MPSC", "THREADING_LOCKFREE_MPSC", def: false,
-            desc: "Build the lock-free MPSC queue (Phase 2 — currently placeholder)");
+            desc: "Reserved ACS build switch that controls WITH_THREADING_LOCKFREE_MPSC; currently unused by Threading sources");
     }
 }
