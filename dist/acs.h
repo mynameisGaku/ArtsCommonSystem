@@ -28495,12 +28495,9 @@ constexpr TEnum EnumNext(TEnum value, i32 delta = 1, bool wrap = true) noexcept 
 } // namespace acs
 
 /**
- * 列挙を ACS のリフレクション対象として印付ける。
+ * 列挙宣言へ付けられる無処理マクロ。
  *
- * @details
- * 名前と個数は TEnumTraits がコンパイラのシグネチャから自動で引くため、この印自体は
- * 何も展開しない。列挙の意図をコード上に残し、将来 acsbuild が走査してカタログを
- * 生成できるようにするための目印として置く。指定子を書いても無視される。
+ * 渡された引数は展開せず、列挙型と実行時登録を変更しない。
  */
 #define ACS_ENUM(...)
 
