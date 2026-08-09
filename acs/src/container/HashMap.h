@@ -136,7 +136,7 @@ public:
      * @param value 挿入する値 (ムーブされる)。
      */
     void Add(const K& key, V value) noexcept {
-        ACS_CHECKF(TryAdd(key, Move(value)), "THashMap::Insert failed (size=%zu)", Num());
+        ACS_CHECKF(TryAdd(key, Move(value)), "THashMap::Add failed (size=%zu)", Num());
     }
 
     /**

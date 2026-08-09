@@ -16,8 +16,8 @@ namespace {
 /**
  * パースエラーメッセージ用 thread_local バッファ。
  *
- * @details ParseJson の戻り FErrorCode がこのバッファを指すため、Parser ローカルだと
- * dangling する (review 指摘)。寿命は「同スレッドで次に ParseJson を呼ぶまで」。
+ * @details ParseJson の戻り FErrorCode がこのバッファを指すため、Parser の局所領域には置かない。
+ * 寿命は「同スレッドで次に ParseJson を呼ぶまで」。
  */
 thread_local char g_JsonErrBuf[160] = {0};
 
@@ -412,8 +412,7 @@ struct FParser {
     void Fail(u16 sub, const char* msg) noexcept {
         if (err_sub != 0) return;   // 最初のエラーを保持
         err_sub = sub;
-        // thread_local バッファへ (ParseJson の戻り FErrorCode が指すため、
-        // Parser ローカルだと dangling する — review 指摘)。
+        // ParseJson の戻り FErrorCode が指すため、thread_local バッファへ格納する。
         std::snprintf(g_JsonErrBuf, sizeof(g_JsonErrBuf), "JSON %s (line %u, col %u)", msg, line, col);
     }
 

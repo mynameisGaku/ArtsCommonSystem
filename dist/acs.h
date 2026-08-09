@@ -4190,8 +4190,7 @@ public:
      * @param new_size 変更後の要素数。
      */
     void SetNum(usize new_size) noexcept {
-        ACS_CHECKF(TrySetNum(new_size), "TArray::Resize failed (size=%zu, T=%zu)",
-                   new_size, sizeof(T));
+        ACS_CHECKF(TrySetNum(new_size), "TArray::SetNum failed (size=%zu, T=%zu)", new_size, sizeof(T));
     }
 
     /**
@@ -4237,7 +4236,7 @@ public:
      *
      * @details
      * Reset() と異なり容量を 0 に戻す。配列に設定されたアロケータは維持するため、
-     * 次回の Reserve/Resize/Add も同じ確保元を使用する。大きな一時データを
+     * 次回の Reserve/SetNum/Add も同じ確保元を使用する。大きな一時データを
      * 明示的に手放したい長寿命オブジェクト向け。
      */
     void Empty() noexcept
@@ -5261,7 +5260,7 @@ public:
      * @param value 挿入する値 (ムーブされる)。
      */
     void Add(const K& key, V value) noexcept {
-        ACS_CHECKF(TryAdd(key, Move(value)), "THashMap::Insert failed (size=%zu)", Num());
+        ACS_CHECKF(TryAdd(key, Move(value)), "THashMap::Add failed (size=%zu)", Num());
     }
 
     /**
@@ -19224,7 +19223,7 @@ namespace acs {
  * 小規模な配列をオブジェクト内に保持し、容量超過時だけ動的配列へ移行する。
  *
  * @details 動的領域へ移行した場合の再利用規則を次に示す。
- * 一度動的領域へ移行した後は Clear 後も確保済み容量を再利用する。これにより、
+ * 一度動的領域へ移行した後は Reset 後も確保済み容量を再利用する。これにより、
  * フレームごとに同じピークへ達するキューで確保と解放を繰り返さない。
  */
 template<typename T, usize InlineCapacity>

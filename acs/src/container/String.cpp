@@ -257,8 +257,8 @@ bool FString::TryAppend(FStringView v) noexcept {
 
     // self-aliasing 検出: v が自分のバッファ内容を指しているか (s += s /
     // s.Append(s.View()) / 自分の部分文字列の append)。Grow() は旧バッファを
-    // Free して内容を新バッファへコピーするので、aliasing したまま後で v.Data()
-    // を読むと use-after-free / overwritten-union 読みになる (auditor 指摘)。
+    // Free して内容を新バッファへコピーするため、aliasing したまま後で v.Data()
+    // を読むと use-after-free / overwritten-union 読みになる。
     /** 追記前の自領域先頭。 */
     const char* const old_data = Data();
 
