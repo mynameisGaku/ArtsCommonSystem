@@ -3,10 +3,10 @@
 //
 // ModelViewer ワークスペース内に配置される **読み取り専用の mesh 情報 panel**。
 // CAssetBrowser から選択 / DragDrop された model (.mdl / .fbx / .gltf 等) を
-// AModelViewerPanel (別エージェント) が load した結果を、本 panel に
+// AModelViewerPanel が load した結果を、本 panel に
 // `UpdateFromModel(...)` でプッシュしてもらい、内部にスナップショットとして
-// 保持して ImGui で表示する。Unity の Mesh Inspector / Godot の "Import"
-// 出力タブ / UE の Static Mesh Editor の "Mesh Details" 相当。
+// 保持して ImGui で表示する。mesh の集計、submesh、bone 階層、animation clip を
+// 同じ panel で確認できる。
 //
 // 表示内容:
 //   1) **Summary**     : vertex / triangle / submesh / material slot / bone /
@@ -19,7 +19,7 @@
 //
 // 役割分担:
 //   ・本パネルは「描画 + 配列のスナップショット保持」だけを担当。実 model load /
-//     parse は AModelViewerPanel (別エージェント) と Mesh / Skeleton / AnimationClip
+//     parse は AModelViewerPanel と Mesh / Skeleton / AnimationClip
 //     モジュールの責任。caller (= AModelViewerPanel もしくは sample 31) が
 //     load 完了時に本 panel の `UpdateFromModel` を呼んで情報を流し込む。
 //   ・本 panel は callback / 編集 / GPU リソース確保を一切持たない (= 純粋な
@@ -28,7 +28,7 @@
 // 設計選択 (modelview):
 //   ・**AEditorPanel 継承**: editor_core 基底に乗せる。
 //     AModelViewerPanel / sample 31 が CEditorWorkspace 経由で本 panel を
-//     register する。Title は "Model Info" (Unity / Godot の Inspector 表記寄り)。
+//     register する。Title は "Model Info" とする。
 //   ・**スナップショット方式**: 元の Mesh / Skeleton / AnimationClip オブジェクト
 //     を ref で保持しない (= モデル再 load / 解放と本 panel の表示が race しない
 //     ように、name / index 等を `acs::TArray<...>` に値コピーで持つ)。`const char*`

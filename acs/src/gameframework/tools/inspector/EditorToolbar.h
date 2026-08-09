@@ -17,8 +17,7 @@
 //
 // 設計選択 (Pillar SceneInspector):
 //   ・**Play / Pause / Step / Save / CDebugOverlay の 5 アクション**: 最低限の
-//     editor インタラクション集合。Unity / Godot エディタの中央バーから
-//     "再生制御 + 保存 + デバッグ表示" だけ抜き出した形。
+//     editor インタラクション集合。再生制御、保存、デバッグ表示をまとめる。
 //   ・**状態は EEditorState で 1 個保持**: Playing / Paused / Stepping の 3 値。
 //     Stepping は「1 fixed step 進めたら自動で Paused に戻る」一時状態として
 //     扱い、外側の CGame ループは TimeScale=1 で 1 フレーム走らせた後に

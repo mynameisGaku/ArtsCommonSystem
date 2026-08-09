@@ -89,11 +89,10 @@ void CEditorCamera::HandleMouseInput(FVec2 mouse_delta,
     //   2D: LMB drag or MMB drag = pan / wheel = zoom (= Dolly)
     if (m_Mode == EEditorCameraMode::Mode3D) {
         if (mmb) {
-            // 中ボタンドラッグ = pan (Maya / Blender 風)
+            // 中ボタンドラッグ = pan
             Pan(mouse_delta);
         } else if (lmb || rmb) {
-            // 左 / 右ボタンドラッグ = orbit (どちらでも同じ; Maya は alt 必須
-            // だが editor は無修飾でも回せる方が初学者に親切)
+            // 左 / 右ボタンドラッグ = orbit (どちらも無修飾で回せる)
             Orbit(mouse_delta.x * kOrbitSensitivity,
                   mouse_delta.y * kOrbitSensitivity);
         }

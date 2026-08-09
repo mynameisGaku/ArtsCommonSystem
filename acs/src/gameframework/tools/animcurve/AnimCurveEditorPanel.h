@@ -2,9 +2,8 @@
 // GameFramework Pillar — animcurve / AAnimCurveEditorPanel
 //
 // `acs::game::FAnimationCurve` (Hermite/Linear/Step + EWrapMode) を ImGui で
-// **対話的に編集する curve editor panel**。Unity AnimationCurve エディタ /
-// Unreal CurveEditor / Godot Curve のキー打ち + タンジェントドラッグの
-// 簡易版に相当。`editor_core::AEditorPanel` 基底に
+// **対話的に編集する curve editor panel**。キー追加とタンジェントドラッグを扱う。
+// `editor_core::AEditorPanel` 基底に
 // 載せ、`CEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
 // 統合できる形にしている。
 //
@@ -115,8 +114,7 @@ namespace acs::game::animcurve {
  * FAnimationCurve を ImGui で対話的に編集する curve editor panel。
  *
  * @details
- * Unity AnimationCurve エディタ / Unreal CurveEditor 相当のキー打ち +
- * タンジェントドラッグの簡易版。editor_core::AEditorPanel を継承し、
+ * キー追加とタンジェントドラッグを扱う。editor_core::AEditorPanel を継承し、
  * CEditorWorkspace::RegisterPanel(&panel) で workspace に統合できる。
  * canvas 上に curve を kCurveSampleCount sample で線描画し、各 key を丸 marker、
  * Hermite key の in/out tangent を handle として描画して drag 編集できる。

@@ -752,7 +752,7 @@ void ABehaviorTreeEditorPanel::SetOnStepCallback(StepCallback cb, void* user) no
  * @details
  * parent_id が node_id を指す子 node を m_Nodes 内で線形に探して再帰描画する。
  * Action (= leaf) は ImGuiTreeNodeFlags_Leaf を付ける。ImGuiTreeNodeFlags_OpenOnArrow で
- * 「矢印クリックで展開、ラベルクリックで選択」にする (Unity Hierarchy と同形)。
+ * 「矢印クリックで展開、ラベルクリックで選択」にする。
  */
 void ABehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcept {
     if (depth >= kTreeRecursionLimit) {

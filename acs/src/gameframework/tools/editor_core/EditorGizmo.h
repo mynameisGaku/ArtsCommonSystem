@@ -5,8 +5,7 @@
 //   選択中の ANode の FTransform3D を viewport 上で直接ドラッグ操作する
 //   「ハンドル」。translate (移動) / rotate (回転) / scale (拡縮) の 3 モードを
 //   持ち、各モードで X / Y / Z 軸ハンドル + 平面 (XY/XZ/YZ) ハンドル + 画面
-//   並列ハンドル (rotate のみ) を提供する。Unity / Godot / UE のシーンビュー上の
-//   操作系を最小集合で再実装したもの。
+//   並列ハンドル (rotate のみ) を提供するエディタ操作系。
 //
 // 使い方 (典型):
 //   acs::game::editor_core::CEditorGizmo gizmo;
@@ -71,14 +70,14 @@
 //   ・**Manipulate は delta ベースで動く**: drag 開始時の world-space 座標
 //     (`drag_start_world`) を覚え、現フレームの mouse ray と軸/平面の交点との
 //     差分から delta を計算する。これにより「クリック位置とハンドル中心がずれて
-//     いても」drag が滑らかになる (Unity / Blender と同じ感覚)。
+//     いても」drag が滑らかになる。
 //   ・**rotate モードは euler 角度差分**: quat 補間は使わず、
 //     軸ごとに「現マウス角度 - 開始マウス角度」を計算して inout_rotation_euler の
 //     対応軸に加算する単純実装。Gimbal lock の心配があるが、editor 上の手動
 //     編集なので許容範囲。
 //   ・**scale モードは axis-aligned**: 軸ハンドルで「その軸方向の uniform scale
 //     倍率」を計算。XY/XZ/YZ 平面 + ScreenAlign は scale モードでは hit を取らない
-//     (= 各軸ごとの非一様 scale を意図的に強制、Unity と同じ)。
+//     (= 各軸ごとの非一様 scale を意図的に強制する)。
 //   ・**DrawGizmo は CDebugDraw (FVec2 ベース) に出力**: CDebugDraw は 2D
 //     ラインバッファ。本ヘッダでは「Z 軸を捨てて XY 平面に
 //     射影する」simple projection を採用する (= 2D top-down view を想定)。

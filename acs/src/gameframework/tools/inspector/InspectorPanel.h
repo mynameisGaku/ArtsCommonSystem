@@ -11,7 +11,7 @@
 //     破棄 / 値の永続化は呼び出し側 (CInspectorSeam owner) の責務。値の変更
 //     通知は `FieldChangeCallback` で外部 (undo / dirty tracker / 永続化) に
 //     委譲する。
-//   ・`CSelectionService` (別エージェントで実装中) に依存する。本パネルは
+//   ・`CSelectionService` に依存する。本パネルは
 //     forward-decl のみで受け、ポインタ経由で「現在の選択 FNodeId」を取得する。
 //     CSelectionService 未設定時は `DrawUI` の引数 `selected_id` を採用する。
 //

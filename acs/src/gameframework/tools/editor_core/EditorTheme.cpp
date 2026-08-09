@@ -276,7 +276,7 @@ bool IsUnitColor(const FVec4& value) noexcept {
  *
  * @details
  * 各 preset の RGBA [0,1] カラーを設定する (コメントの hex は人間用の参考表記)。
- * Dark は中間グレー + 暖色オレンジ accent、DarkBlue は青み grey + VSCode blue、
+ * Dark は中間グレーと暖色オレンジの強調色、DarkBlue は青みのあるグレーと青の強調色、
  * Light は白基調、HighContrast は黒/白/黄の WCAG AAA 想定、Sepia は茶系 e-reader 風。
  * Custom は SetCustomColors が直接書き込むため out を変更しない。
  * @param preset カラーを得たい preset 種別。

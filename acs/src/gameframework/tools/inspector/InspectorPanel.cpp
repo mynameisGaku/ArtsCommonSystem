@@ -12,7 +12,7 @@
 #include "gameframework/tools/inspector/InspectorPanel.h"
 
 #include "gameframework/InspectorSeam.h"
-#include "gameframework/tools/inspector/SelectionService.h"  // 別エージェントが提供する SelectionService の本物 API
+#include "gameframework/tools/inspector/SelectionService.h"  // 選択状態を取得する具象 API
 #include "math/Vec.h"
 
 #include <imgui.h>
@@ -140,11 +140,8 @@ static bool DrawField(FInspectableField& field) noexcept {
         // バッファコピー後 InputText を出すが、書き戻しは行わない
         // (= panel 内のローカル編集のみ、永続化は callback 経由で外部担当)。
         //
-        // 【修正】EFieldKind::String の data は `const char**` (= 文字列ポインタ
-        // への間接) が仕様 (CInspectorSeam.h enum コメント参照)。以前は data を
-        // 直接 `const char*` とキャストしており、ポインタのポインタを文字列
-        // 本体ポインタとして誤読していた (= 文字データではなくアドレス値の
-        // バイト列を文字列として読む不正アクセス)。正しくは一段 deref する。
+        // EFieldKind::String の data は `const char**` (= 文字列ポインタへの間接)。
+        // 一段参照を外して文字列本体を取得し、null は空文字として扱う。
         const char* const* pp = static_cast<const char* const*>(field.data);
         const char* src = (pp != nullptr) ? *pp : nullptr;
         if (src == nullptr) src = "";

@@ -24,8 +24,8 @@
 //     文が増え、共通の "Frame to selection" や "Tick smoothing" を 2 回
 //     書くハメになる。1 クラス内 mode フラグで管理し、API は両モード共通形に
 //     揃える (Pan / Dolly は意味を mode で読み替え)。
-//   ・**3D orbit = yaw + pitch + distance + target**: industry-standard な
-//     Maya / Blender 風の orbit。eye 位置は (target + spherical(yaw,pitch)
+//   ・**3D orbit = yaw + pitch + distance + target**: eye 位置は
+//     (target + spherical(yaw,pitch)
 //     * distance) で算出。pitch は ±89° にクランプして極点で gimbal flip
 //     しないようにする。
 //   ・**2D = position + zoom_2d**: CCamera2D と同じ pan/zoom モデル。orthographic
@@ -33,7 +33,7 @@
 //     が直感通り。CCamera2D の rotation までは持たない (editor は通常 axis-aligned)。
 //   ・**HandleMouseInput で操作系を集約**: panel 側は ImGui の IO から取った
 //     delta / button / wheel をそのまま渡せばよい。マウス操作の規約:
-//       - 3D: LMB drag = orbit, MMB drag = pan, RMB drag = orbit (Maya 風代替),
+//       - 3D: LMB drag = orbit, MMB drag = pan, RMB drag = orbit,
 //             wheel = dolly
 //       - 2D: LMB drag = pan, MMB drag = pan, wheel = zoom
 //     この規約は editor 全体で統一すべきもの。

@@ -51,8 +51,8 @@
 //     「CCamera state + light params + background + toggle 群」の保管 + UI のみ。
 //     こうしておけば panel 単体テストや、別の renderer (= raymarched preview /
 //     OBJ thumbnail) への差し替えが容易。
-//   ・**CEditorCamera を内包 (値メンバ)**: 各 panel が独自 camera を持つ Unity
-//     SceneView 風モデル。Camera() アクセサで参照を返し、renderer が
+//   ・**CEditorCamera を内包 (値メンバ)**: 各 panel が独自 camera を持つ。
+//     Camera() アクセサで参照を返し、renderer が
 //     ViewMatrix / ProjectionMatrix を取り出して使う。
 //   ・**asset path は wchar_t バッファ (kMaxPathChars = 512)**: CAssetBrowser
 //     と同じ規約。STL の std::wstring は使えないため、固定長で保持。
@@ -162,8 +162,8 @@ public:
      * 内部 asset path を空文字に戻し HasModel() を false にする。
      *
      * @details
-     * CEditorCamera 状態 / Lighting / Background は保持する (= モデルを切替えても視点と
-     * 照明が維持される、Unity SceneView と同じ挙動)。
+     * CEditorCamera 状態 / Lighting / Background は保持するため、モデルを切替えても視点と
+     * 照明が維持される。
      */
     void ClearModel() noexcept;
 

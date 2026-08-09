@@ -39,8 +39,8 @@
 //     必要な panel だけ override する形。
 //   ・**ImGui::Begin/End は派生クラス側責務**: 基底で wrap する案も検討したが、
 //     panel ごとに ImGuiWindowFlags / dock target / MenuBar の有無が異なるため、
-//     強制 wrap せず派生側で完全制御させる方針 (Unity Editor の `EditorWindow`
-//     と同じ責任分担)。`m_Visible` は派生側で `ImGui::Begin(Title(), &m_Visible)`
+//     強制 wrap せず派生側で完全制御させる方針。`m_Visible` は派生側で
+//     `ImGui::Begin(Title(), &m_Visible)`
 //     の close ボタンに直接渡せる public-ish state。
 //   ・**CEditorWorkspace は forward-decl のみ**: ヘッダ依存を最小化。具体的な
 //     workspace 型 (CSelectionService / CAssetBrowser / DockSpace 等の集約 hub) は

@@ -2,8 +2,8 @@
 // GameFramework Pillar — leveledit / ALevelEditorPanel
 //
 // `acs::game::FTilemap` (multi-layer u16 FTileId grid) を **対話的に編集する
-// tilemap painter panel**。Unity Tile Palette / Tiled / LDtk の「ペイント /
-// 消し / 塗りつぶし / スポイト」 4 ブラシ + アクティブレイヤ切替 + tile id
+// tilemap painter panel**。「ペイント / 消し / 塗りつぶし / スポイト」 4 ブラシ +
+// アクティブレイヤ切替 + tile id
 // picker + grid show/hide + snap-to-grid を提供する。`editor_core::AEditorPanel`
 // 基底に載せ、`CEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
 // 統合できる形にしている。
@@ -60,8 +60,8 @@
 //   ・**tilemap は raw pointer の非所有保持**: caller 所有 (AAnimCurveEditorPanel
 //     が FAnimationCurve を non-owning で受けるのと同方針)。本 panel は tilemap
 //     の寿命に関与せず、`m_Tilemap == nullptr` 時は "(No tilemap bound)" を表示。
-//   ・**CEditorCamera Mode2D を内包**: 各 panel が独自 camera を持つ Unity
-//     SceneView 風モデル (AModelViewerPanel と同形)。Camera() アクセサで参照を
+//   ・**CEditorCamera Mode2D を内包**: 各 panel が独自 camera を持つ。
+//     Camera() アクセサで参照を
 //     返し、外部は HandleMouseInput / Tick を呼ぶ。本 panel 内部の
 //     viewport drawing でも `m_Camera.State().zoom_2d` と `m_Camera.State().position`
 //     を使って world → screen 変換する。

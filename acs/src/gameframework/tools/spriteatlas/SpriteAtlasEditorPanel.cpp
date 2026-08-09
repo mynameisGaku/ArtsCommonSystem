@@ -167,7 +167,7 @@ void ASpriteAtlasEditorPanel::Shutdown() noexcept {
 void ASpriteAtlasEditorPanel::SetSpritePack(acs::game::FSpritePack* pack) noexcept {
     m_Pack = pack;
     // 新しい pack を渡されたら selection を 0 (= 最初の frame) にリセット
-    // するのが UX 上自然 (Unity Sprite Editor も同様)。frame が無ければ -1。
+    // する。frame が無ければ -1。
     if (m_Pack != nullptr && m_Pack->FrameCount() > 0u) {
         m_Selected = 0;
     } else {

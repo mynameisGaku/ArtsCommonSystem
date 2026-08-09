@@ -2,9 +2,8 @@
 // GameFramework Pillar — cinetimeline / ACinematicsTimelineEditorPanel
 //
 // `acs::game::CCinematicsDirector` (= タイムライン上の cutscene 駆動器) を
-// **対話的に編集する timeline editor panel**。Unity Timeline / Unreal Sequencer /
-// Godot AnimationPlayer の「水平タイムライン + 複数トラック + キーフレーム
-// マーカー + 再生制御」の最小版に相当。
+// **対話的に編集する timeline editor panel**。水平タイムライン、複数トラック、
+// キーフレームマーカー、再生制御を 1 つの panel にまとめる。
 // `editor_core::AEditorPanel` 基底に載せ、`CEditorWorkspace::RegisterPanel(&panel)`
 // の 1 行で workspace に統合できる形にしている。
 //
@@ -28,7 +27,7 @@
 //   ・panel は **editor 専用の keyframe storage** (= `FEditorKeyframe` の TArray)
 //     を内部に持つ。CCinematicsDirector::FTimelineKeyframe は payload が
 //     {camera/dialogue/music/event} の 4 種固定 union だが、editor 上では
-//     UE Sequencer / Unity Timeline のように "5 種類のオーサリング概念"
+//     5 種類のオーサリング概念
 //     (CameraCut / FadeColor / TimeScale / SpawnEffect / TriggerCallback) を
 //     扱えるように **追加 metadata** (FVec3 target / start/end color / scale 値
 //     / event_id / 文字列リテラル) を panel 側で保持する。Play 時に director に
@@ -105,7 +104,7 @@
 //   ・スナップグリッド / 等間隔配置 (= 現状は自由配置のみ)
 //   ・preview viewport (= scrub したら 3D scene が更新されるリアルタイム連動)
 //
-// 参考: gameframework/CinematicsDirector.h,
+// 関連実装: gameframework/CinematicsDirector.h,
 //      gameframework/tools/editor_core/EditorPanel.h,
 //      gameframework/tools/animcurve/AnimCurveEditorPanel.h
 #pragma once

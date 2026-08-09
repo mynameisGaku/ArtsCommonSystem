@@ -2,8 +2,7 @@
 // GameFramework Tools — SceneInspector / AHierarchyPanel
 //
 // シーン (ANode ツリー) を ImGui ベースの hierarchy パネルで可視化 + 編集する
-// エディタ用パネル。Unity の Hierarchy / Godot の SceneTree / UE の World Outliner
-// 相当の役割で、retail ビルドからは #ifdef で消す前提。
+// エディタ用パネル。retail ビルドからは #ifdef で消す前提。
 //
 // 機能:
 //   ・root_node 配下を再帰 TreeNode で描画 ("Scene Hierarchy" タイトルの ImGui window)
@@ -15,11 +14,11 @@
 //   ・DeleteSelected で `ANode::Destroy()` 呼出 (フレーム境界 reap 任せ)
 //
 // 連携:
-//   ・**CSelectionService** (別エージェントが実装中) — selection 状態を他パネル
+//   ・**CSelectionService** — selection 状態を他パネル
 //     (AInspectorPanel 等) と共有する集中点。forward decl で受け、Set されていれば
 //     そちら経由で selection を読み書きする。未注入時は本パネル内の `m_SelectedId`
 //     を使う (= スタンドアロン動作可能)。
-//   ・**AInspectorPanel** (別エージェントが実装中) — 選択中 ANode の property を
+//   ・**AInspectorPanel** — 選択中 ANode の property を
 //     編集するパネル。本パネルとは selection 経由でしか連携しない (Hierarchy は
 //     Inspector を知らない)。
 //   ・**Right-click callback** — Delete / Duplicate / Reparent 以外のメニュー
@@ -70,7 +69,6 @@ namespace acs::game::inspector {
  * ImGui ベースで ANode 階層ツリーを可視化・編集するエディタパネル。
  *
  * @details
- * Unity の Hierarchy / Godot の SceneTree / UE の World Outliner 相当。
  * `Begin("Scene Hierarchy")` の 1 window で root_node 配下を再帰 TreeNode 描画し、
  * クリック選択・右クリック context menu (Delete / Duplicate / Reparent)・Drag & Drop
  * による reparent・ExpandAll/CollapseAll をサポートする。selection は注入された

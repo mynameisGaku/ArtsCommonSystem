@@ -2,10 +2,8 @@
 // GameFramework Pillar — btedit / ABehaviorTreeEditorPanel
 //
 // `gameframework/BehaviorTree.h` (Pillar L) の BT を **可視化 + ライブデバッグ**
-// するための ImGui パネル。Unity の Behavior Designer / Unreal の Behavior Tree
-// Editor の `Debugger` モードに相当する役割を担う。スコープは "visualize
-// + step debug" に絞り、ノードのグラフ編集 (drag drop で
-// composite に子追加 / 配置入替) は範囲外。
+// するための ImGui パネル。実行状態の可視化と 1 tick ずつのデバッグに絞り、
+// ノードのグラフ編集 (drag drop で composite に子追加 / 配置入替) は範囲外。
 //
 // 役割分担:
 //   ・本パネルは「**実行中の BT を観察する**」のが第一責務。CBehaviorTree 本体は
@@ -213,7 +211,7 @@ struct FBtGraphPersistenceResult {
 };
 
 /**
- * CBehaviorTree を可視化 + step debug する ImGui パネル。
+ * CBehaviorTree の実行状態を可視化し、1 tick ずつデバッグする ImGui パネル。
  *
  * @details
  * 実行中の BT を観察するのが第一責務。実体ツリーは private メンバ + RTTI 無効で

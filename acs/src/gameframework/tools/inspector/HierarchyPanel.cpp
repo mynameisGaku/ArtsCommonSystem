@@ -24,8 +24,8 @@ namespace acs::game::inspector {
  *
  * @details
  * FNodeId が valid なら "Node #idx (id=N:gen)"、invalid なら "Node #idx (no-id)" と書く。
- * これにより同名 (ラベル無し) のノードでも hierarchy 上で区別できる
- * (Unity の "GameObject (1)" 命名相当)。buf が nullptr または buf_size==0 なら no-op。
+ * これにより同名 (ラベル無し) のノードでも hierarchy 上で区別できる。
+ * buf が nullptr または buf_size==0 なら no-op。
  * @param buf 出力先バッファ。
  * @param buf_size buf の容量 (NUL 終端を含む)。
  * @param node ラベルを整形する対象ノード。

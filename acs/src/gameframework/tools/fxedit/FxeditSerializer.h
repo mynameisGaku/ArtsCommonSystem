@@ -5,8 +5,7 @@
 //   ParticleEditor (in-engine particle authoring tool) が編集中の emitter 群を
 //   人間可読 / git diff 可能なテキスト形式で保存・復元するためのシリアライザ。
 //   バイナリ形式の `TSaveSlot<T>` (Pillar J) と違い、**作業中アセットを版管理に
-//   そのまま乗せられる** ことを最優先する (= UE5 の `.uasset` ではなく Unity の
-//   `.meta` 風のフィロソフィー)。
+//   そのまま乗せられる** ことを最優先する。
 //
 // 使い方:
 //   acs::game::FParticleEmitterDef defs[8] = {};

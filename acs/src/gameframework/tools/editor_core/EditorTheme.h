@@ -51,8 +51,8 @@
 // preset カラー設計指針:
 //   Dark         : 標準 dark grey (ImGui 既定の StyleColorsDark に近い + 若干
 //                  暖色寄りの中間グレーで目疲れ低減)。
-//   DarkBlue     : VS Code "Dark+" 風。Window/Frame に青みのある #1F232C 系。
-//                  accent は Visual Studio の青 #007ACC 系。
+//   DarkBlue     : Window/Frame に青みのある #1F232C 系。
+//                  accent は #007ACC 系。
 //   Light        : 明るい背景 (ImGui StyleColorsLight 相当)。長時間屋外作業や
 //                  プロジェクタ表示向け。
 //   HighContrast : 黒 / 白 / 黄 (#FFD700) の三色設計。AccessibilityProfile.h の
@@ -103,7 +103,7 @@ enum class EEditorThemePreset : u8 {
     /** 標準 dark grey (デフォルト)。 */
     Dark         = 0,
 
-    /** VS Code Dark+ 風 (青みのある dark)。 */
+    /** 青みのある暗色テーマ。 */
     DarkBlue     = 1,
 
     /** 明るい背景 (屋外 / プロジェクタ向け)。 */

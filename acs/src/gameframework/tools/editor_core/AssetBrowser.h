@@ -3,8 +3,7 @@
 //
 // プロジェクト `assets/` 配下のファイルツリーを ImGui で参照 + 各種 panel
 // (ModelViewer / TilemapEditor / ParticleEditor 等) に Drag & Drop 経由で
-// 「アセットパス」を供給する Unity の Project Window / Godot の FileSystem
-// Dock 相当の基盤パネル。
+// 「アセットパス」を供給する基盤パネル。
 //
 // 役割:
 //   ・assets/ ルートを起点にディレクトリを再帰列挙し、左ペインに tree、
@@ -158,7 +157,7 @@ struct FAssetEntry {
  * assets/ ディレクトリツリーを ImGui で参照し Drag Source としてパスを供給するパネル。
  *
  * @details
- * Unity の Project Window / Godot の FileSystem Dock 相当の基盤パネル。assets/ ルートを
+ * assets/ ルートを
  * 起点に左ペインへ tree、右ペインへ current directory のエントリ一覧を表示し、各エントリは
  * "ASSET_PATH" payload (wchar_t*) を提供する Drag Source となる。非コピー / 非ムーブ、
  * 全 noexcept、STL 不使用で、文字列は内部 pool に積み FAssetEntry はそこへの pointer を持つ

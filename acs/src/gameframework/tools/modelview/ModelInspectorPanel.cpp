@@ -184,8 +184,7 @@ void AModelInspectorPanel::DrawUI() noexcept {
 
     // 1) Summary セクション — 常時表示、CollapsingHeader 外で簡潔に出す。
     // CollapsingHeader にせず素の Text 群にする理由: summary は本 panel で最も
-    // 高頻度に確認される情報のため、開閉を許さず常に視認できる位置に置く
-    // (Unity の Mesh Inspector もヘッダー直下に常時表示する設計)。
+    // 高頻度に確認される情報のため、開閉を許さず常に視認できる位置に置く。
     ImGui::SeparatorText("Summary");
     ImGui::Text("Vertices       : %u", static_cast<unsigned>(m_Summary.vertex_count));
     ImGui::Text("Triangles      : %u", static_cast<unsigned>(m_Summary.triangle_count));
