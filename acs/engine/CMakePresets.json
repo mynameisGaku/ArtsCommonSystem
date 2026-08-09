@@ -28,7 +28,7 @@
         {
             "name": "diligent-debug",
             "displayName": "Diligent Engine — Debug",
-            "description": "クロスプラットフォーム対応 (DX12 + 後で Vulkan/Metal も)。初回 configure は重い。",
+            "description": "ACS の Diligent DX12 構成。初回 configure は時間がかかる。",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/cmake-build-diligent-debug",
             "cacheVariables": {
