@@ -226,11 +226,19 @@ public:
     CCinematicsDirector& operator=(CCinematicsDirector&&)      = delete;
 
     /**
+     * 有効な keyframe を追加し、成功可否を返す。
+     *
+     * @details 非有限時刻、再生中、または進行後は追加せず false を返す。
+     * 負の有限時刻は 0 に丸め、同時刻は登録順を保つ。確保失敗時も配列を変えない。
+     * @param kf 追加する keyframe (内部にコピーされる)。
+     * @return 追加できた場合 true、入力または状態が不正か確保に失敗した場合 false。
+     */
+    bool TryAddKeyframe(const FTimelineKeyframe& kf) noexcept;
+
+    /**
      * keyframe を追加する。
      *
-     * @details
-     * 内部で time_sec 昇順 (同時刻は登録順の stable) を維持するよう挿入位置を決める。
-     * time_sec < 0 は 0 に clamp して受け入れる。
+     * @details TryAddKeyframe の結果を返さず、追加できない入力や状態を無視する。
      * @param kf 追加する keyframe (内部にコピーされる)。
      */
     void AddKeyframe(const FTimelineKeyframe& kf) noexcept;

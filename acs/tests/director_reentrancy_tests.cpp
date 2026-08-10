@@ -10,6 +10,8 @@
 #include "gameframework/BuffSystem.h"
 #include "gameframework/CinematicsDirector.h"
 
+#include <limits>
+
 using namespace acs;
 using namespace acs::game;
 
@@ -193,4 +195,115 @@ ACS_TEST(DirectorReentrancy, CinematicsFiresInTimeOrderAndSkipCompletes)
     EXPECT_EQ(order[1], 20u);
     EXPECT_EQ(order[2], 30u);
     EXPECT_TRUE(dir.IsFinished());
+}
+
+ACS_TEST(DirectorReentrancy, CinematicsRejectsInvalidKeyframesAndProgressMutation)
+{
+    CCinematicsDirector dir;
+    // 初期 keyframe の登録結果と負値の 0 丸めを確認する。
+    EXPECT_TRUE(dir.TryAddKeyframe(MakeEventKf(-1.0f, 1u)));
+    EXPECT_EQ(dir.KeyframeCount(), 1u);
+
+    // 非有限時刻を拒否した後の keyframe 数を保持する。
+    const f32 nan_time = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FALSE(dir.TryAddKeyframe(MakeEventKf(nan_time, 2u)));
+    dir.AddKeyframe(MakeEventKf(std::numeric_limits<f32>::infinity(), 3u));
+    EXPECT_FALSE(dir.TryAddKeyframe(MakeEventKf(-std::numeric_limits<f32>::infinity(), 3u)));
+    EXPECT_EQ(dir.KeyframeCount(), 1u);
+
+    // 再生中の追加拒否と件数不変を確認する。
+    dir.Play();
+    // 再生中の拒否判定前に保持するkeyframe件数。
+    const u32 while_playing_count = dir.KeyframeCount();
+    EXPECT_FALSE(dir.TryAddKeyframe(MakeEventKf(2.0f, 4u)));
+    EXPECT_EQ(dir.KeyframeCount(), while_playing_count);
+
+    // 進行後に停止していても追加を拒否し、Stopで初期状態へ戻す。
+    dir.Tick(1.0f);
+    dir.Pause();
+    // 進行後の拒否判定前に保持するkeyframe件数。
+    const u32 after_progress_count = dir.KeyframeCount();
+    EXPECT_FALSE(dir.TryAddKeyframe(MakeEventKf(2.0f, 5u)));
+    EXPECT_EQ(dir.KeyframeCount(), after_progress_count);
+    dir.Stop();
+    EXPECT_TRUE(dir.TryAddKeyframe(MakeEventKf(2.0f, 6u)));
+}
+
+ACS_TEST(DirectorReentrancy, CinematicsRejectsNonFiniteAndOverflowTickAtomically)
+{
+    CCinematicsDirector dir;
+    // Tick の通常発火回数を記録する callback 状態。
+    u32 fires = 0u;
+    struct FFireCounter {
+        static void Fn(void* user, u32) noexcept { ++*static_cast<u32*>(user); }
+    };
+    EXPECT_TRUE(dir.TryAddKeyframe(MakeEventKf(0.5f, 10u)));
+    dir.SetEventCallback(&FFireCounter::Fn, &fires);
+    dir.Play();
+
+    // 非有限 dt は時刻を変更しない。
+    dir.Tick(std::numeric_limits<f32>::quiet_NaN());
+    dir.Tick(std::numeric_limits<f32>::infinity());
+    dir.Tick(-std::numeric_limits<f32>::infinity());
+    EXPECT_EQ(dir.CurrentTime(), 0.0f);
+    EXPECT_EQ(fires, 0u);
+    EXPECT_TRUE(dir.IsPlaying());
+
+    // 有限最大値を受け入れ、次の加算 overflow は状態を変更しない。
+    const f32 max_time = std::numeric_limits<f32>::max();
+    dir.Tick(max_time);
+    EXPECT_EQ(dir.CurrentTime(), max_time);
+    const f32 before_overflow = dir.CurrentTime();
+    dir.Tick(max_time);
+    EXPECT_EQ(dir.CurrentTime(), before_overflow);
+    EXPECT_EQ(fires, 1u);
+
+    // 通常 dt は同じ keyframe を一度だけ発火する。
+    dir.Stop();
+    dir.Clear();
+    EXPECT_TRUE(dir.TryAddKeyframe(MakeEventKf(0.5f, 20u)));
+    dir.SetEventCallback(&FFireCounter::Fn, &fires);
+    fires = 0u;
+    dir.Play();
+    dir.Tick(1.0f);
+    dir.Tick(1.0f);
+    EXPECT_EQ(fires, 1u);
+}
+
+namespace {
+
+// 同時刻 callback の登録順を保存する状態。
+struct FCineOrderCtx {
+    u32 ids[3] = {};
+    u32 count = 0u;
+};
+
+// 同時刻 callback の ID を発火順に記録する。
+void OnCineOrder(void* user, u32 event_id) noexcept
+{
+    auto* ctx = static_cast<FCineOrderCtx*>(user);
+    if (ctx->count < 3u) ctx->ids[ctx->count] = event_id;
+    ++ctx->count;
+}
+
+} // namespace
+
+ACS_TEST(DirectorReentrancy, CinematicsSameTimeRegistrationOrderIsStable)
+{
+    CCinematicsDirector dir;
+    // 同じ発火時刻へ登録する三つの event。
+    dir.AddKeyframe(MakeEventKf(1.0f, 100u));
+    dir.AddKeyframe(MakeEventKf(1.0f, 200u));
+    dir.AddKeyframe(MakeEventKf(1.0f, 300u));
+
+    // callback の発火順を検証する状態。
+    FCineOrderCtx ctx{};
+    dir.SetEventCallback(&OnCineOrder, &ctx);
+    dir.Play();
+    dir.Tick(1.0f);
+
+    EXPECT_EQ(ctx.count, 3u);
+    EXPECT_EQ(ctx.ids[0], 100u);
+    EXPECT_EQ(ctx.ids[1], 200u);
+    EXPECT_EQ(ctx.ids[2], 300u);
 }

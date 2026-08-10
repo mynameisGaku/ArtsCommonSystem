@@ -15,9 +15,19 @@
 //   同時刻 (= 同じ time_sec) の keyframe は登録順に発火する (stable insertion)。
 #include "gameframework/CinematicsDirector.h"
 
+#include <cmath>
+
 namespace acs::game {
 
 void CCinematicsDirector::AddKeyframe(const FTimelineKeyframe& kf) noexcept {
+    (void)TryAddKeyframe(kf);
+}
+
+bool CCinematicsDirector::TryAddKeyframe(const FTimelineKeyframe& kf) noexcept {
+    if (!std::isfinite(kf.time_sec) || m_Playing || m_Time != 0.0f || m_LastFiredIndex != 0u) {
+        return false;
+    }
+
     // 負の time_sec は 0 に clamp して受け入れる (= タイムライン頭打ち発火)。
     FTimelineKeyframe entry = kf;
     if (entry.time_sec < 0.0f) entry.time_sec = 0.0f;
@@ -36,23 +46,21 @@ void CCinematicsDirector::AddKeyframe(const FTimelineKeyframe& kf) noexcept {
 
     if (insert_at == n) {
         // 末尾に追加 (時刻が現在の最大以上)
-        m_Keyframes.Add(entry);
+        return m_Keyframes.TryAdd(entry);
     } else {
         // [insert_at..n-1] を 1 つ後ろにずらして空きを作る。
-        // 末尾要素を必ずローカルへ退避してから Add する。Add(m_Keyframes[n-1])
-        // と書くと、Grow 再確保で旧バッファが Free された後に引数参照を読み UAF になる。
+        // 末尾要素をローカルへ退避してから TryAdd する。TArray は再確保前に
+        // 追加元をコピーするため、配列内要素を参照したままでも値が保たれる。
         const FTimelineKeyframe tail = m_Keyframes[n - 1];
-        m_Keyframes.Add(tail);
+        if (!m_Keyframes.TryAdd(tail)) return false;
         for (usize i = n - 1; i > insert_at; --i) {
             m_Keyframes[i] = m_Keyframes[i - 1];
         }
         m_Keyframes[insert_at] = entry;
     }
 
-    // 挿入位置が m_LastFiredIndex 以下だと「過去 keyframe が増えた」状態に
-    // なるが、再生中の場合は時間がそこを既に過ぎているため次 Tick で即発火
-    // される。設計上は「キーフレーム追加は基本セットアップ段階のみ行う」前提
-    // なので m_LastFiredIndex の補正はしない (Play() 前なら m_LastFired=0)。
+    // 初期停止状態だけを受け付けるため、登録後も発火位置は 0 のまま保たれる。
+    return true;
 }
 
 void CCinematicsDirector::Clear() noexcept {
@@ -93,9 +101,11 @@ bool CCinematicsDirector::IsFinished() const noexcept {
 
 void CCinematicsDirector::Tick(f32 dt) noexcept {
     if (!m_Playing) return;
-    if (dt <= 0.0f) return;
+    if (!std::isfinite(dt) || dt <= 0.0f) return;
 
-    m_Time += dt;
+    const f32 next_time = m_Time + dt;
+    if (!std::isfinite(next_time)) return;
+    m_Time = next_time;
     FireUpTo(m_Time);
 }
 

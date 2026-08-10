@@ -18,6 +18,7 @@
 
 #include <imgui.h>
 
+#include <cmath>
 #include <cstdio>   // std::snprintf (marker label 整形)
 
 namespace acs::game::cinetimeline {
@@ -274,13 +275,18 @@ void ACinematicsTimelineEditorPanel::Stop() noexcept {
 /** 再生中のみ dt 秒進め、director と時刻を同期する。 */
 void ACinematicsTimelineEditorPanel::Step(f32 dt) noexcept {
     if (!m_Playing) return;
-    if (dt <= 0.0f) return;
+    if (!std::isfinite(dt) || dt <= 0.0f) return;
     if (m_Director != nullptr) {
+        // director側で次に許容できる有限時刻を先に検証する。
+        const f32 director_next_time = m_Director->CurrentTime() + dt;
+        if (!std::isfinite(director_next_time)) return;
         m_Director->Tick(dt);
         // director の時刻と同期する (= editor cursor が一緒に進む)。
         m_CurrentTime = m_Director->CurrentTime();
     } else {
-        m_CurrentTime += dt;
+        const f32 next_time = m_CurrentTime + dt;
+        if (!std::isfinite(next_time)) return;
+        m_CurrentTime = next_time;
     }
     // duration を超えたら再生終了 (= Pause 相当、m_CurrentTime は最大値に固定)。
     if (m_CurrentTime >= m_Duration) {
@@ -304,6 +310,7 @@ f32 ACinematicsTimelineEditorPanel::CurrentTimeSec() const noexcept {
 
 /** タイムカーソル位置を [0, Duration] にクランプして設定する。 */
 void ACinematicsTimelineEditorPanel::SetCurrentTimeSec(f32 t) noexcept {
+    if (!std::isfinite(t)) return;
     m_CurrentTime = ClampF(t, 0.0f, m_Duration);
 }
 
@@ -314,6 +321,7 @@ f32 ACinematicsTimelineEditorPanel::DurationSec() const noexcept {
 
 /** 全体の長さを設定し、範囲外の keyframe / 現在時刻をクランプする。 */
 void ACinematicsTimelineEditorPanel::SetDurationSec(f32 d) noexcept {
+    if (!std::isfinite(d)) return;
     if (d < kMinDurationSec) d = kMinDurationSec;
     m_Duration = d;
     // duration が縮んだ場合、既存 keyframe が範囲外に出ていれば clamp する。
@@ -342,6 +350,7 @@ void ACinematicsTimelineEditorPanel::SelectKeyframe(i32 i) noexcept {
 /** 新規 keyframe を time 昇順で追加し、selection と director を更新する。 */
 void ACinematicsTimelineEditorPanel::AddKeyframe(ETimelineKeyKind kind,
                                                 f32 time_sec) noexcept {
+    if (!std::isfinite(time_sec)) return;
     FEditorKeyframe kf;
     kf.kind     = kind;
     kf.time_sec = ClampF(time_sec, 0.0f, m_Duration);

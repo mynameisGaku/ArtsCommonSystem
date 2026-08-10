@@ -801,6 +801,24 @@ if(TARGET ACS::Imgui)
         editor_core_persistence_safety_tests.cpp
     )
     target_link_libraries(acs_unit_tests PRIVATE ACS::Imgui)
+
+    if(ACS_RENDER_DX12_RAW AND NOT ACS_RENDER_DILIGENT)
+        add_executable(acs_cinematics_timeline_editor_tests
+            main.cpp
+            cinematics_timeline_editor_tests.cpp
+        )
+        set_target_properties(acs_cinematics_timeline_editor_tests PROPERTIES FOLDER "Engine/Tests")
+        acs_apply_compiler_options(acs_cinematics_timeline_editor_tests)
+        target_link_libraries(acs_cinematics_timeline_editor_tests PRIVATE
+            ACS::Foundation
+            ACS::Container
+            ACS::GameFramework
+            ACS::Test
+            ACS::Imgui
+        )
+        add_test(NAME ACS.CinematicsTimelineEditor COMMAND acs_cinematics_timeline_editor_tests)
+        set_tests_properties(ACS.CinematicsTimelineEditor PROPERTIES LABELS "Editor;Cinematics" TIMEOUT 30)
+    endif()
 endif()
 
 if(TARGET ACS::MlOnnx)
