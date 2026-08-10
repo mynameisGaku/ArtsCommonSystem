@@ -12,6 +12,8 @@
 #include "gameframework/ReflectMethod.h"
 #include "math/Vec.h"
 
+#include <cmath>
+
 using namespace acs;
 using namespace acs::game;
 
@@ -182,6 +184,227 @@ ACS_TEST(ReflectMethod, RegisterAndInvoke) {
     EXPECT_TRUE(InvokeMethodByName(owner, &host, "Bump"));
     EXPECT_EQ(host.counter, 20);
     EXPECT_TRUE(!InvokeMethodByName(owner, &host, "Nope"));   // 不明メソッドは false
+}
+
+// 数値引数の変換結果と呼出し回数を保持する検証用型。
+struct FNumericMethodHost {
+    // f32メソッドの呼出し回数。
+    int f32_calls = 0;
+    // i32メソッドの呼出し回数。
+    int i32_calls = 0;
+    // 未知の引数種別メソッドの呼出し回数。
+    int unknown_calls = 0;
+    // 最後に受け取ったf32値。
+    f32 f32_value = 0.0f;
+    // 最後に受け取ったi32値。
+    i32 i32_value = 0;
+    // 未知の引数種別メソッドが受け取った文字列。
+    const char* unknown_arg = nullptr;
+
+    // f32値を保存して呼出し回数を増やす。
+    void SetF32(f32 value) noexcept { ++f32_calls; f32_value = value; }
+    // i32値を保存して呼出し回数を増やす。
+    void SetI32(i32 value) noexcept { ++i32_calls; i32_value = value; }
+    // 未知の引数種別でも文字列をそのまま保持する。
+    void SetUnknown(const char* value) noexcept { ++unknown_calls; unknown_arg = value; }
+};
+
+ACS_REGISTER_METHOD_F32(FNumericMethodHost, SetF32, METHOD_NONE)
+ACS_REGISTER_METHOD_I32(FNumericMethodHost, SetI32, METHOD_NONE)
+
+// 厳密なf32/i32文字列の成功条件と失敗時の不変条件を検証する。
+ACS_TEST(ReflectMethod, StrictNumericArguments) {
+    // 検証対象型のID。
+    const FTypeId owner = AcsTypeHash("FNumericMethodHost");
+    // f32引数メソッドの登録。
+    const FReflectMethod* f32_method = CMethodRegistry::Get().Find(owner, "SetF32");
+    // i32引数メソッドの登録。
+    const FReflectMethod* i32_method = CMethodRegistry::Get().Find(owner, "SetI32");
+    EXPECT_TRUE(f32_method != nullptr && i32_method != nullptr && f32_method->invokeArg != nullptr && i32_method->invokeArg != nullptr);
+    if (f32_method == nullptr || i32_method == nullptr || f32_method->invokeArg == nullptr || i32_method->invokeArg == nullptr) return;
+
+    // 数値引数を受ける検証対象。
+    FNumericMethodHost host;
+    // f32の正常値と期待値を検証する補助処理。
+    auto expect_f32 = [&](const char* text, f32 expected) {
+        const int before_calls = host.f32_calls;
+        EXPECT_TRUE(InvokeMethodByNameArg(owner, &host, "SetF32", text));
+        EXPECT_EQ(host.f32_calls, before_calls + 1);
+        EXPECT_TRUE(host.f32_value == expected);
+    };
+    // i32の正常値と期待値を検証する補助処理。
+    auto expect_i32 = [&](const char* text, i32 expected) {
+        const int before_calls = host.i32_calls;
+        EXPECT_TRUE(InvokeMethodByNameArg(owner, &host, "SetI32", text));
+        EXPECT_EQ(host.i32_calls, before_calls + 1);
+        EXPECT_EQ(host.i32_value, expected);
+    };
+    // f32の不正値で呼出し先が実行されないことを検証する補助処理。
+    auto expect_f32_invalid = [&](const char* text) {
+        const int before_calls = host.f32_calls;
+        const f32 before_value = host.f32_value;
+        EXPECT_TRUE(!InvokeMethodByNameArg(owner, &host, "SetF32", text));
+        EXPECT_EQ(host.f32_calls, before_calls);
+        EXPECT_TRUE(host.f32_value == before_value);
+    };
+    // i32の不正値で呼出し先が実行されないことを検証する補助処理。
+    auto expect_i32_invalid = [&](const char* text) {
+        const int before_calls = host.i32_calls;
+        const i32 before_value = host.i32_value;
+        EXPECT_TRUE(!InvokeMethodByNameArg(owner, &host, "SetI32", text));
+        EXPECT_EQ(host.i32_calls, before_calls);
+        EXPECT_EQ(host.i32_value, before_value);
+    };
+
+    expect_f32("+1.5", 1.5f);
+    expect_f32("+42", 42.0f);
+    expect_f32(".5", 0.5f);
+    expect_f32("1.", 1.0f);
+    expect_f32("-1.25e+2", -125.0f);
+    expect_f32("1e+2", 100.0f);
+    expect_f32("-0", -0.0f);
+    EXPECT_TRUE(std::signbit(host.f32_value));
+    expect_f32("1.40129846e-45", 1.40129846e-45f);
+    EXPECT_TRUE(host.f32_value > 0.0f && std::isfinite(host.f32_value));
+    expect_f32_invalid("++1");
+    expect_f32_invalid("+-1");
+    expect_f32_invalid("1e");
+    expect_f32_invalid("0x1p0");
+    expect_f32_invalid("0x10");
+    expect_f32_invalid("nan");
+    expect_f32_invalid("NAN");
+    expect_f32_invalid("-nan");
+    expect_f32_invalid("inf");
+    expect_f32_invalid("INF");
+    expect_f32_invalid("+INF");
+    expect_f32_invalid("+inf");
+    expect_f32_invalid("1e-46");
+    expect_f32_invalid("3.4028236e38");
+    expect_f32_invalid("1.5suffix");
+    expect_f32_invalid("1,5");
+    expect_f32_invalid("");
+    expect_f32_invalid(" ");
+    expect_f32_invalid("\t");
+    expect_f32_invalid(" 1.5");
+    expect_f32_invalid("1.5 ");
+    expect_f32_invalid("\t1.5");
+    expect_f32_invalid(nullptr);
+
+    expect_i32("+42", 42);
+    expect_i32("-2147483648", static_cast<i32>(-2147483647 - 1));
+    expect_i32("2147483647", 2147483647);
+    expect_i32("+2147483647", 2147483647);
+    expect_i32("0", 0);
+    expect_i32_invalid("++1");
+    expect_i32_invalid("+-1");
+    expect_i32_invalid("1e2");
+    expect_i32_invalid("0x10");
+    expect_i32_invalid("2147483648");
+    expect_i32_invalid("-2147483649");
+    expect_i32_invalid("1suffix");
+    expect_i32_invalid("1,0");
+    expect_i32_invalid("");
+    expect_i32_invalid(" ");
+    expect_i32_invalid("\t");
+    expect_i32_invalid(" 1");
+    expect_i32_invalid("1 ");
+    expect_i32_invalid(nullptr);
+}
+
+// 戻り値なしのarg付き経路が同じ数値検査を使うことを検証する。
+ACS_TEST(ReflectMethod, StrictNumericReturnFallback) {
+    // 検証対象型のID。
+    const FTypeId owner = AcsTypeHash("FNumericMethodHost");
+    // 数値引数を受ける検証対象。
+    FNumericMethodHost host;
+    // 数値引数の呼出し前後を確認する1文字出力領域。
+    char out[1] = {'x'};
+    // 有効なf32入力は出力領域を空にして呼べる。
+    EXPECT_TRUE(InvokeMethodByNameRet(owner, &host, "SetF32", "+1.5", out, 1));
+    EXPECT_TRUE(out[0] == '\0');
+    EXPECT_EQ(host.f32_calls, 1);
+    // 有効なi32入力は出力領域を空にして呼べる。
+    out[0] = 'x';
+    EXPECT_TRUE(InvokeMethodByNameRet(owner, &host, "SetI32", "-7", out, 1));
+    EXPECT_TRUE(out[0] == '\0');
+    EXPECT_EQ(host.i32_calls, 1);
+    // 不正なf32入力は出力領域を空にして呼出し先を実行しない。
+    out[0] = 'x';
+    EXPECT_TRUE(!InvokeMethodByNameRet(owner, &host, "SetF32", "bad", out, 1));
+    EXPECT_TRUE(out[0] == '\0');
+    EXPECT_EQ(host.f32_calls, 1);
+    // 不正なi32入力は出力領域を空にして呼出し先を実行しない。
+    out[0] = 'x';
+    EXPECT_TRUE(!InvokeMethodByNameRet(owner, &host, "SetI32", "2147483648", out, 1));
+    EXPECT_TRUE(out[0] == '\0');
+    EXPECT_EQ(host.i32_calls, 1);
+}
+
+// 数値サンクをdispatcherを経由せず呼んでも不正値をmethodへ渡さないことを検証する。
+ACS_TEST(ReflectMethod, NumericThunkRejectsInvalid) {
+    // 検証対象型のID。
+    const FTypeId owner = AcsTypeHash("FNumericMethodHost");
+    // f32引数メソッドの登録。
+    const FReflectMethod* f32_method = CMethodRegistry::Get().Find(owner, "SetF32");
+    // i32引数メソッドの登録。
+    const FReflectMethod* i32_method = CMethodRegistry::Get().Find(owner, "SetI32");
+    EXPECT_TRUE(f32_method != nullptr && i32_method != nullptr && f32_method->invokeArg != nullptr && i32_method->invokeArg != nullptr);
+    if (f32_method == nullptr || i32_method == nullptr || f32_method->invokeArg == nullptr || i32_method->invokeArg == nullptr) return;
+    // 直接サンクの検証対象。
+    FNumericMethodHost host;
+    // 不正入力後も保持する既存値。
+    host.f32_value = 12.5f;
+    host.i32_value = -9;
+    f32_method->invokeArg(&host, "not-number");
+    i32_method->invokeArg(&host, "9999999999");
+    f32_method->invokeArg(&host, nullptr);
+    i32_method->invokeArg(&host, nullptr);
+    EXPECT_EQ(host.f32_calls, 0);
+    EXPECT_EQ(host.i32_calls, 0);
+    EXPECT_TRUE(host.f32_value == 12.5f);
+    EXPECT_EQ(host.i32_value, -9);
+    f32_method->invokeArg(&host, "+1.25");
+    i32_method->invokeArg(&host, "-7");
+    EXPECT_EQ(host.f32_calls, 1);
+    EXPECT_EQ(host.i32_calls, 1);
+}
+
+// F32/I32以外の引数種別が従来どおり文字列を渡すことを検証する。
+ACS_TEST(ReflectMethod, UnknownArgumentKindKeepsFallback) {
+    // 検証対象型のID。
+    const FTypeId owner = AcsTypeHash("FNumericMethodHost");
+    // 未知の引数種別を持つ手動登録情報。
+    const FReflectMethod unknown{owner, "SetUnknown", nullptr, ACS_RMETHOD_THUNK_STR(FNumericMethodHost, SetUnknown), nullptr, static_cast<u32>(255u), METHOD_ARG_NONE, METHOD_NONE};
+    // 手動登録を管理する登録簿。
+    CMethodRegistry& registry = CMethodRegistry::Get();
+    registry.Register(unknown);
+    // 未知の引数種別を受ける検証対象。
+    FNumericMethodHost host;
+    EXPECT_TRUE(InvokeMethodByNameArg(owner, &host, "SetUnknown", "future"));
+    EXPECT_EQ(host.unknown_calls, 1);
+    EXPECT_TRUE(host.unknown_arg != nullptr && host.unknown_arg[0] == 'f');
+    EXPECT_TRUE(InvokeMethodByNameRet(owner, &host, "SetUnknown", nullptr, nullptr, 0));
+    EXPECT_EQ(host.unknown_calls, 2);
+    EXPECT_TRUE(host.unknown_arg != nullptr && host.unknown_arg[0] == '\0');
+    EXPECT_TRUE(registry.Unregister(unknown));
+}
+
+// 数値種別でも引数サンクがない登録は従来のinvokeへ戻ることを検証する。
+ACS_TEST(ReflectMethod, NumericKindWithoutArgThunkUsesInvokeFallback) {
+    // 検証対象型のID。
+    const FTypeId owner = AcsTypeHash("FMethodHost");
+    // 数値種別と引数サンクなしを持つ手動登録情報。
+    const FReflectMethod malformed{owner, "Fallback", ACS_RMETHOD_THUNK(FMethodHost, Bump), nullptr, nullptr, METHOD_ARG_F32, METHOD_ARG_NONE, METHOD_NONE};
+    // 手動登録を管理する登録簿。
+    CMethodRegistry& registry = CMethodRegistry::Get();
+    registry.Register(malformed);
+    // invoke fallbackの検証対象。
+    FMethodHost host;
+    EXPECT_TRUE(InvokeMethodByNameArg(owner, &host, "Fallback", "not-number"));
+    EXPECT_EQ(host.counter, 10);
+    EXPECT_TRUE(InvokeMethodByNameRet(owner, &host, "Fallback", "not-number", nullptr, 0));
+    EXPECT_EQ(host.counter, 20);
+    EXPECT_TRUE(registry.Unregister(malformed));
 }
 
 // 戻り値サンクの呼出し回数を保持する検証用型。

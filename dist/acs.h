@@ -80779,8 +80779,11 @@ u32 AcsRegisterEngineTypes() noexcept;
 // SPDX-License-Identifier: Apache-2.0
 
 
-#include <cstdlib>   // atof / atoi (文字列引数のパース)
+#include <charconv>  // 数値引数のlocale非依存変換
 #include <cstdio>    // snprintf (戻り値の文字列化)
+#include <cmath>     // f32の有限値判定
+#include <system_error>
+#include <type_traits>
 
 namespace acs::game {
 
@@ -80998,6 +81001,103 @@ private:
     FReflectMethod m_Method{};
 };
 
+namespace detail {
+
+/**
+ * 数値メソッド引数を厳密な十進表記から変換する。
+ *
+ * @param text 数値引数の文字列。nullまたは空文字ならfalse。
+ * @param out 変換結果の格納先。失敗時は変更しない。
+ * @return 全量を変換でき、値が型の範囲内ならtrue。
+ */
+template <typename TValue>
+inline bool TryParseMethodNumericArgument(const char* text, TValue& out) noexcept
+{
+    static_assert(std::is_same_v<TValue, f32> || std::is_same_v<TValue, i32>);
+    if (text == nullptr || *text == '\0') return false;
+
+    // 符号を除いた構文走査の開始位置。
+    const char* digits_begin = text;
+    if (*digits_begin == '+' || *digits_begin == '-') ++digits_begin;
+    if (*digits_begin == '\0') return false;
+
+    // 仮数部の数字と、0以外の数字の有無。
+    const char* cursor = digits_begin;
+    bool has_mantissa_digit = false;
+    bool has_nonzero_mantissa_digit = false;
+    while (*cursor >= '0' && *cursor <= '9') {
+        has_mantissa_digit = true;
+        if (*cursor != '0') has_nonzero_mantissa_digit = true;
+        ++cursor;
+    }
+
+    if constexpr (std::is_same_v<TValue, f32>) {
+        if (*cursor == '.') {
+            ++cursor;
+            while (*cursor >= '0' && *cursor <= '9') {
+                has_mantissa_digit = true;
+                if (*cursor != '0') has_nonzero_mantissa_digit = true;
+                ++cursor;
+            }
+        }
+        if (!has_mantissa_digit) return false;
+        if (*cursor == 'e' || *cursor == 'E') {
+            ++cursor;
+            if (*cursor == '+' || *cursor == '-') ++cursor;
+            const char* exponent_begin = cursor;
+            while (*cursor >= '0' && *cursor <= '9') ++cursor;
+            if (cursor == exponent_begin) return false;
+        }
+    } else {
+        if (!has_mantissa_digit) return false;
+    }
+    if (*cursor != '\0') return false;
+
+    // 先頭+だけを除き、-はfrom_charsへ渡して符号を保つ。
+    const char* conversion_begin = *text == '+' ? text + 1 : text;
+    TValue parsed{};
+    if constexpr (std::is_same_v<TValue, f32>) {
+        const bool negative = *text == '-';
+        const std::from_chars_result conversion = std::from_chars(conversion_begin, cursor, parsed, std::chars_format::general);
+        if (conversion.ec != std::errc{} || conversion.ptr != cursor || !std::isfinite(parsed)) return false;
+        if (parsed == 0.0f && has_nonzero_mantissa_digit) return false;
+        if (negative && parsed == 0.0f) parsed = -0.0f;
+    } else {
+        const std::from_chars_result conversion = std::from_chars(conversion_begin, cursor, parsed, 10);
+        if (conversion.ec != std::errc{} || conversion.ptr != cursor) return false;
+    }
+    out = parsed;
+    return true;
+}
+
+/**
+ * 登録情報の引数種別を検査してから引数サンクを呼ぶ。
+ *
+ * @param method 呼出し対象の登録情報。
+ * @param obj    呼出し対象インスタンス。
+ * @param arg    文字列引数。nullは空文字列として扱う。
+ * @return 引数を検査してサンクを呼べた場合はtrue。
+ */
+inline bool InvokeMethodArgument(const FReflectMethod& method, void* obj, const char* arg) noexcept
+{
+    if (method.invokeArg == nullptr) return false;
+    // サンクへ渡すnull正規化済みの文字列。
+    const char* normalized_arg = arg != nullptr ? arg : "";
+    if (method.argKind == METHOD_ARG_F32) {
+        // 呼出し前に検査するf32値。
+        f32 parsed = 0.0f;
+        if (!TryParseMethodNumericArgument(normalized_arg, parsed)) return false;
+    } else if (method.argKind == METHOD_ARG_I32) {
+        // 呼出し前に検査するi32値。
+        i32 parsed = 0;
+        if (!TryParseMethodNumericArgument(normalized_arg, parsed)) return false;
+    }
+    method.invokeArg(obj, normalized_arg);
+    return true;
+}
+
+} // namespace detail
+
 /**
  * 名前で型の引数なし void メソッドを呼ぶ。
  *
@@ -81015,18 +81115,21 @@ inline bool InvokeMethodByName(FTypeId owner, void* obj, const char* name) noexc
 
 /**
  * 名前で型のメソッドを文字列引数付きで呼ぶ。引数ありメソッドは invokeArg で
- * arg をパースして起動し、引数なしメソッドは arg を無視して invoke を起動する。
+ * arg を検査して起動し、引数なしメソッドは arg を無視して invoke を起動する。
+ *
+ * @details F32/I32 の null、空文字、空白、範囲外、非有限値、構文不正は false とし、method を呼ばない。
+ *          STR、NONE、引数サンクがない登録の invoke fallback は既存の動作を保つ。
  *
  * @param owner 所有型の ID。
  * @param obj   呼び出し対象インスタンス先頭。
  * @param name  メソッド名。
- * @param arg   文字列引数。null は空文字列として渡す。
- * @return owner、obj、name、対応サンクが有効で呼び出せた場合は true。見つからない場合は false。
+ * @param arg   文字列引数。STR では null を空文字列として渡し、数値では null を不正値として扱う。
+ * @return 引数を検査して method を呼べた場合、または引数なしの invoke fallback が呼べた場合は true。
  */
 inline bool InvokeMethodByNameArg(FTypeId owner, void* obj, const char* name, const char* arg) noexcept {
     const FReflectMethod* m = CMethodRegistry::Get().Find(owner, name);
     if (m == nullptr || obj == nullptr) return false;
-    if (m->argKind != METHOD_ARG_NONE && m->invokeArg != nullptr) { m->invokeArg(obj, arg != nullptr ? arg : ""); return true; }
+    if (m->argKind != METHOD_ARG_NONE && m->invokeArg != nullptr) return detail::InvokeMethodArgument(*m, obj, arg);
     if (m->invoke != nullptr) { m->invoke(obj); return true; }
     return false;
 }
@@ -81036,14 +81139,16 @@ inline bool InvokeMethodByNameArg(FTypeId owner, void* obj, const char* name, co
  *
  * @details 戻り値ありメソッドは invokeRet で結果を out に書く。戻り値サンクを使う呼出し元は
  *          out 非null、outcap 1以上を満たす。void fallback では out が null、outcap が0でも呼び出せる。
+ *          F32/I32 の引数が null、空文字、空白、範囲外、非有限値、構文不正なら false とし、method を呼ばない。
+ *          STR、NONE、引数サンクがない登録の invoke fallback は既存の動作を保つ。
  *          out は有効容量がある場合に呼び出し前に空文字へ初期化される。
  * @param owner  所有型の ID。
  * @param obj    対象インスタンス先頭。
  * @param name   メソッド名。
- * @param arg    文字列引数。null は空文字列として渡す。
+ * @param arg    文字列引数。STR では null を空文字列として渡し、数値では null を不正値として扱う。
  * @param out    戻り値文字列の書き込み先。戻り値サンクを使う場合は非null。
  * @param outcap out の容量。戻り値サンクを使う場合は1以上。
- * @return 登録、対象インスタンス、対応サンクが揃って呼び出せた場合は true。
+ * @return 登録、対象インスタンス、対応サンクが揃い、入力を検査して呼び出せた場合は true。
  */
 inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
                                   const char* arg, char* out, int outcap) noexcept {
@@ -81055,7 +81160,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
         m->invokeRet(obj, arg != nullptr ? arg : "", out, outcap);
         return true;
     }
-    if (m->argKind != METHOD_ARG_NONE && m->invokeArg != nullptr) { m->invokeArg(obj, arg != nullptr ? arg : ""); return true; }
+    if (m->argKind != METHOD_ARG_NONE && m->invokeArg != nullptr) return detail::InvokeMethodArgument(*m, obj, arg);
     if (m->invoke != nullptr) { m->invoke(obj); return true; }
     return false;
 }
@@ -81074,10 +81179,16 @@ using FMethodRegistry = CMethodRegistry;
 
 /** f32 単一引数サンク。文字列 a を f32 へ変換して method へ渡す。 */
 #define ACS_RMETHOD_THUNK_F32(Type, method)                                          \
-    [](void* self, const char* a) noexcept { static_cast<Type*>(self)->method(static_cast<::acs::f32>(::atof(a))); }
+    [](void* self, const char* a) noexcept {                                        \
+        ::acs::f32 value = 0.0f;                                                     \
+        if (!::acs::game::detail::TryParseMethodNumericArgument(a, value)) return;   \
+        static_cast<Type*>(self)->method(value); }
 /** i32 単一引数サンク。文字列 a を i32 へ変換して method へ渡す。 */
 #define ACS_RMETHOD_THUNK_I32(Type, method)                                          \
-    [](void* self, const char* a) noexcept { static_cast<Type*>(self)->method(static_cast<::acs::i32>(::atoi(a))); }
+    [](void* self, const char* a) noexcept {                                        \
+        ::acs::i32 value = 0;                                                        \
+        if (!::acs::game::detail::TryParseMethodNumericArgument(a, value)) return;   \
+        static_cast<Type*>(self)->method(value); }
 /** const char* 単一引数サンク。文字列 a を method へ渡す。 */
 #define ACS_RMETHOD_THUNK_STR(Type, method)                                          \
     [](void* self, const char* a) noexcept { static_cast<Type*>(self)->method(a); }
