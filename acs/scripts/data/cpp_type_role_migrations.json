@@ -194,6 +194,22 @@
       "prefix": "C"
     },
     {
+      "path": "asset/cinematics/ACinematicAsset.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::asset::ACinematicAsset",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "asset/cinematics/FCinematicCodec.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::asset::FCinematicCodec",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
       "path": "assetpack/AcpakCrypto.h",
       "legacy": "acs::assetpack::FAcpakCrypto",
       "legacy_path": "assetpack/AcpakCrypto.h",
@@ -1528,6 +1544,14 @@
       "canonical": "acs::game::CXAudio2Backend",
       "kind": "class",
       "prefix": "C"
+    },
+    {
+      "path": "gameframework/cinematics/FCinematicDirectorBridge.h",
+      "legacy": null,
+      "legacy_path": null,
+      "canonical": "acs::game::FCinematicDirectorBridge",
+      "kind": "class",
+      "prefix": "F"
     },
     {
       "path": "gameframework/tools/animcurve/AnimCurveEditorPanel.h",

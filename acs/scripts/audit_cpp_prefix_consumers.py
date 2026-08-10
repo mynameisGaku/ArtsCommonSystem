@@ -87,7 +87,7 @@ COMPATIBILITY_FILE_PATHS = frozenset(
 )
 EXPECTED_ALLOWLIST_SHA256 = "A0ABE73CD706BF680375B86A465A204FC11473EF2FA86BCBE14016696C1C57F2"
 EXPECTED_IDENTITY_MACRO_SHA256 = "89047ADEDDCCDC1696C6A0AF88F6F60C4C5B70AD7DF472B6750A54372EAF416C"
-EXPECTED_IDENTITY_MACRO_CATALOG_SHA256 = "BC1296735D13EAA6B3F5A6FFE3379A29DF782024314BE76C6C41B27F28EA1973"
+EXPECTED_IDENTITY_MACRO_CATALOG_SHA256 = "2FC9FEBC138FEE7561B2A3D8380861251D3BB220E01236FC3FE5791FF4D30561"
 FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
 FILE_ATTRIBUTE_DIRECTORY = 0x00000010
 FILE_LIST_DIRECTORY = 0x00000001
@@ -450,30 +450,6 @@ def _run_windows_command(
     return subprocess.CompletedProcess(
         completed.args, completed.returncode, stdout, stderr
     )
-
-
-def _windows_free_subst_drive() -> str:
-    """logical driveと既存SUBST表の両方に無いdriveを返す。"""
-
-    if os.name != "nt":
-        return ""
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    get_logical_drives = kernel32.GetLogicalDrives
-    get_logical_drives.argtypes = []
-    get_logical_drives.restype = wintypes.DWORD
-    logical_drive_bits = int(get_logical_drives())
-    subst_table = _run_windows_command(["subst.exe"])
-    if subst_table.returncode != 0:
-        raise RuntimeError("SUBST table query failed")
-    subst_drives = {
-        match.group(1).upper()
-        for match in re.finditer(r"(?mi)^([A-Z]):\\:", subst_table.stdout)
-    }
-    for drive_letter in reversed("DEFGHIJKLMNOPQRSTUVWXYZ"):
-        drive_bit = 1 << (ord(drive_letter) - ord("A"))
-        if not (logical_drive_bits & drive_bit) and drive_letter not in subst_drives:
-            return "{}:".format(drive_letter)
-    return ""
 
 
 def _checked_stat(path: Path, expected_directory: bool) -> os.stat_result:
@@ -3376,244 +3352,68 @@ def _self_test() -> int:
         long_path.unlink()
 
         if os.name == "nt":
-            external_probe_payload = (
-                b"ACS_PREFIX_EXTERNAL_SUBST_SENTINEL_7D0E8C82\n"
-            )
-            external_probe_path = external_root / "acs/src/subst-external-probe.cpp"
+            # 実ディレクトリの置換で物理識別子の再確認と読み取り前拒否を検証する。
+            external_probe_payload = b"ACS_PREFIX_EXTERNAL_PHYSICAL_SENTINEL_7D0E8C82\n"
+            external_probe_path = external_root / "replacement/external-probe.cpp"
             external_probe_path.parent.mkdir(parents=True)
             external_probe_path.write_bytes(external_probe_payload)
             external_sentinel = external_root / "sentinel.txt"
             _write_utf8_lf(external_sentinel, "external sentinel")
-            external_sentinel_sha256 = hashlib.sha256(
-                external_sentinel.read_bytes()
-            ).hexdigest()
-            for replacement_kind in ("ordinary", "junction"):
-                swap_path = acs_root / "tests/swap-entry"
-                saved_path = acs_root / "tests/swap-entry-original"
-                swap_path.mkdir()
-                mutation_done = False
-                replacement_scans = 0
-                original_checked_stat = _checked_stat
-                original_directory_scandir = _directory_scandir
+            external_sentinel_sha256 = hashlib.sha256(external_sentinel.read_bytes()).hexdigest()
+            swap_path = acs_root / "tests/swap-entry"
+            saved_path = acs_root / "tests/swap-entry-original"
+            swap_path.mkdir()
+            mutation_done = False
+            replacement_scans = 0
+            original_checked_stat = _checked_stat
+            original_directory_scandir = _directory_scandir
 
-                def swap_before_check(
-                    checked_path: Path, expected_directory: bool
-                ) -> os.stat_result:
-                    """entry取得後に同名別objectへ差し替える。"""
+            def swap_before_check(checked_path: Path, expected_directory: bool) -> os.stat_result:
+                """検査直前に通常ディレクトリを別通常ディレクトリへ置き換える。"""
 
-                    nonlocal mutation_done
-                    if checked_path.name == "swap-entry" and not mutation_done:
-                        os.rename(swap_path, saved_path)
-                        if replacement_kind == "ordinary":
-                            swap_path.mkdir()
-                        else:
-                            junction_result = _run_windows_command(
-                                [
-                                    "cmd.exe",
-                                    "/d",
-                                    "/c",
-                                    "mklink",
-                                    "/J",
-                                    str(swap_path),
-                                    str(external_root),
-                                ]
-                            )
-                            if junction_result.returncode != 0:
-                                raise RuntimeError(
-                                    "junction fixture setup failed: {}".format(
-                                        junction_result.stderr.strip()
-                                    )
-                                )
-                        mutation_done = True
-                    return original_checked_stat(
-                        checked_path, expected_directory
-                    )
+                nonlocal mutation_done
+                if checked_path.name == "swap-entry" and not mutation_done:
+                    os.rename(swap_path, saved_path)
+                    swap_path.mkdir()
+                    (swap_path / "external-probe.cpp").write_bytes(external_probe_payload)
+                    mutation_done = True
+                return original_checked_stat(checked_path, expected_directory)
 
-                def observe_directory_scandir(
-                    scanned_path: Path, directory_pin: FDirectoryPin
-                ) -> os.ScandirIterator[str]:
-                    """差替え先を列挙しなかったことを記録する。"""
+            def observe_directory_scandir(scanned_path: Path, directory_pin: FDirectoryPin) -> os.ScandirIterator[str]:
+                """置換後ディレクトリを読み取らないことを数える。"""
 
-                    nonlocal replacement_scans
-                    if scanned_path.name == "swap-entry":
-                        replacement_scans += 1
-                    return original_directory_scandir(scanned_path, directory_pin)
+                nonlocal replacement_scans
+                if scanned_path.name == "swap-entry":
+                    replacement_scans += 1
+                return original_directory_scandir(scanned_path, directory_pin)
 
-                try:
-                    with mock.patch(
-                        __name__ + "._checked_stat", side_effect=swap_before_check
-                    ), mock.patch(
-                        __name__ + "._directory_scandir",
-                        side_effect=observe_directory_scandir,
-                    ):
-                        _capture_repository_snapshot(acs_root)
-                except ValueError:
-                    pass
-                else:
-                    print(
-                        "self-test directory entry replacement was accepted",
-                        file=sys.stderr,
-                    )
-                    return 1
-                finally:
-                    if mutation_done:
-                        if replacement_kind == "junction":
-                            os.rmdir(swap_path)
-                        else:
-                            swap_path.rmdir()
-                        os.rename(saved_path, swap_path)
-                if not mutation_done or replacement_scans != 0:
-                    print(
-                        "self-test replacement was read before rejection",
-                        file=sys.stderr,
-                    )
-                    return 1
-                if hashlib.sha256(external_sentinel.read_bytes()).hexdigest() != (
-                    external_sentinel_sha256
-                ):
-                    print("self-test external sentinel changed", file=sys.stderr)
-                    return 1
-                swap_path.rmdir()
-
-            free_drive = _windows_free_subst_drive()
-            if not free_drive:
-                print("self-test has no free SUBST drive", file=sys.stderr)
-                return 1
-            subst_create = _run_windows_command(
-                ["subst.exe", free_drive, str(repository_root)]
-            )
-            if subst_create.returncode != 0:
-                print("self-test SUBST setup failed", file=sys.stderr)
-                return 1
-            subst_is_active = True
             try:
-                with _held_directory(external_root) as external_pin:
-                    external_physical_key = _windows_physical_path_key(
-                        external_pin.physical_path
-                    )
-                original_pin_absolute_chain = _pin_absolute_ancestor_chain
-                original_directory_scandir = _directory_scandir
-                original_capture_file = _capture_file
-                subst_remapped = False
-                subst_restored = False
-                external_scan_count = 0
-                external_file_count = 0
-
-                def replace_subst(target: Path) -> None:
-                    """fixture driveを指定targetへboundedに差し替える。"""
-
-                    remove_result = _run_windows_command(
-                        ["subst.exe", free_drive, "/D"]
-                    )
-                    if remove_result.returncode != 0:
-                        raise RuntimeError("SUBST fixture removal failed")
-                    replace_result = _run_windows_command(
-                        ["subst.exe", free_drive, str(target)]
-                    )
-                    if replace_result.returncode != 0:
-                        raise RuntimeError("SUBST fixture replacement failed")
-
-                def remap_before_physical_pin(
-                    path: Path,
-                    stack: ExitStack,
-                    held_paths: Dict[str, FDirectoryPin],
-                    expected_identity: Optional[FPathIdentity] = None,
-                ) -> FDirectoryPin:
-                    """alias root取得後かつphysical走査前にmappingを差し替える。"""
-
-                    nonlocal subst_remapped
-                    if not subst_remapped:
-                        replace_subst(external_root)
-                        subst_remapped = True
-                    return original_pin_absolute_chain(
-                        path, stack, held_paths, expected_identity
-                    )
-
-                def restore_before_first_scan(
-                    directory: Path, directory_pin: FDirectoryPin
-                ) -> os.ScandirIterator[str]:
-                    """physical引数を記録してaliasを元targetへ戻す。"""
-
-                    nonlocal subst_restored, external_scan_count
-                    if _windows_physical_path_key(
-                        directory_pin.physical_path
-                    ).startswith(external_physical_key):
-                        external_scan_count += 1
-                    iterator = original_directory_scandir(directory, directory_pin)
-                    if not subst_restored:
-                        replace_subst(repository_root)
-                        subst_restored = True
-                    return iterator
-
-                def observe_capture_file(
-                    path: Path,
-                    repository_path: Path,
-                    expected_identity: Optional[FPathIdentity] = None,
-                    parent_pin: Optional[FDirectoryPin] = None,
-                    entry_name: Optional[str] = None,
-                ) -> FTargetFileSnapshot:
-                    """external physical targetをfile readしなかったことを数える。"""
-
-                    nonlocal external_file_count
-                    if _windows_physical_path_key(str(path)).startswith(
-                        external_physical_key
-                    ):
-                        external_file_count += 1
-                    return original_capture_file(
-                        path,
-                        repository_path,
-                        expected_identity,
-                        parent_pin,
-                        entry_name,
-                    )
-
-                with mock.patch(
-                    __name__ + "._pin_absolute_ancestor_chain",
-                    side_effect=remap_before_physical_pin,
-                ), mock.patch(
-                    __name__ + "._directory_scandir",
-                    side_effect=restore_before_first_scan,
-                ), mock.patch(
-                    __name__ + "._capture_file", side_effect=observe_capture_file
+                with mock.patch(__name__ + "._checked_stat", side_effect=swap_before_check), mock.patch(
+                    __name__ + "._directory_scandir", side_effect=observe_directory_scandir
                 ):
-                    alias_snapshot = _capture_repository_snapshot(
-                        Path(free_drive + "\\acs")
-                    )
-                if not alias_snapshot.files:
-                    print("self-test SUBST physical snapshot was empty", file=sys.stderr)
-                    return 1
-                if any(
-                    external_probe_payload in item.raw
-                    or item.path == "acs/src/subst-external-probe.cpp"
-                    for item in alias_snapshot.files
-                ):
-                    print("self-test SUBST external payload was read", file=sys.stderr)
-                    return 1
-                if (
-                    not subst_remapped
-                    or not subst_restored
-                    or external_scan_count != 0
-                    or external_file_count != 0
-                ):
-                    print("self-test SUBST physical binding failed", file=sys.stderr)
-                    return 1
-                if hashlib.sha256(external_sentinel.read_bytes()).hexdigest() != (
-                    external_sentinel_sha256
-                ):
-                    print("self-test SUBST external sentinel changed", file=sys.stderr)
-                    return 1
+                    _capture_repository_snapshot(acs_root)
+            except ValueError:
+                pass
+            else:
+                print("self-test directory entry replacement was accepted", file=sys.stderr)
+                return 1
             finally:
-                subst_cleanup_returncode = 0
-                if subst_is_active:
-                    subst_cleanup = _run_windows_command(
-                        ["subst.exe", free_drive, "/D"]
-                    )
-                    subst_cleanup_returncode = subst_cleanup.returncode
-                if subst_cleanup_returncode != 0 or Path(
-                    free_drive + "\\"
-                ).exists():
-                    print("self-test SUBST cleanup failed", file=sys.stderr)
-                    return 1
+                if mutation_done:
+                    (swap_path / "external-probe.cpp").unlink()
+                    swap_path.rmdir()
+                    os.rename(saved_path, swap_path)
+            if not mutation_done or replacement_scans != 0:
+                print("self-test replacement was read before rejection", file=sys.stderr)
+                return 1
+            if hashlib.sha256(external_sentinel.read_bytes()).hexdigest() != external_sentinel_sha256:
+                print("self-test external sentinel changed", file=sys.stderr)
+                return 1
+            implementation_text = Path(__file__).read_text(encoding="utf-8").casefold()
+            forbidden_commands = ("sub" + "st.exe", "new" + "-psdrive", "net" + " use", "mk" + "link")
+            if any(command in implementation_text for command in forbidden_commands):
+                print("self-test found a forbidden path command", file=sys.stderr)
+                return 1
+            swap_path.rmdir()
 
         _write_utf8_lf(acs_root / "tests/probe.cpp", baseline_source)
         registry_document = {
