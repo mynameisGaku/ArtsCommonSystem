@@ -28,7 +28,6 @@ if(NOT TARGET imgui)
         ${imgui_src_SOURCE_DIR}/imgui_draw.cpp
         ${imgui_src_SOURCE_DIR}/imgui_widgets.cpp
         ${imgui_src_SOURCE_DIR}/imgui_tables.cpp
-        ${imgui_src_SOURCE_DIR}/imgui_demo.cpp
     )
     if(WIN32)
         list(APPEND _imgui_sources ${imgui_src_SOURCE_DIR}/backends/imgui_impl_win32.cpp)
@@ -65,8 +64,3 @@ acs_module(
     LINK_PUBLIC
         imgui
 )
-
-acs_module_feature(MODULE Imgui NAME DEMO_WINDOW
-    DEFINE IMGUI_DEMO
-    DESCRIPTION "Include the ImGui demo window code"
-    DEFAULT ON)
