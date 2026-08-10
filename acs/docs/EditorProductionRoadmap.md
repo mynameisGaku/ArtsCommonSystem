@@ -5,7 +5,8 @@
 - Accepted target: one scene/world document identity. Perspective,
   Orthographic, and the 2D authoring workspace are presentation/tool presets,
   not alternate project scene identities.
-- Current implementation: new 2D/3D projects share `Assets/main.acs3d`, while
+- Current implementation: new 2D/3D projects share an empty
+  `Assets/main.acs3d`; only 2D selects the XY Orthographic initial view, while
   native `AScene`/`CSceneNodeGraph`, their serializers, physics, and renderers remain
   separate compatibility subsystems. `SceneWorldDocumentEnvelope` supplies an
   atomic Editor transaction; it is not yet a canonical mixed-world serializer.
@@ -49,13 +50,13 @@ UE と同等という表現は、単一機能の有無ではなく、次のワ�
 
 ACS Editor には、シーンアウトライナー、詳細パネル、2D/3D ビューポート、Play 制御、Blueprint、ノードベースの Material Editor、プロジェクト設定、リフレクションベースのコンポーネント編集など、エディタの核になる機能がすでにある。
 
-以前の最優先ブロッカーだった新規 3D authoring と実行・配布の二重経路は、2D/3D 共通の `Assets/main.acs3d`、manifest の canonical Scene Asset ID、3D runtime bootstrap、required-only dependency-closure Cook によって vertical slice が成立した。2D template は別 Scene 形式ではなく、同じ 3D world を XY Orthographic で開く preset である。現時点の最重要課題は、runtime/package adapter の対応範囲を Editor authoring 全体へ広げること、旧 project を安全に移行すること、共通 document/transaction と製品配布基盤を完成させることである。
+以前の最優先ブロッカーだった新規 3D authoring と実行・配布の二重経路は、2D/3D 共通の空の `Assets/main.acs3d`、manifest の canonical Scene Asset ID、3D runtime bootstrap、required-only dependency-closure Cook によって vertical slice が成立した。すべての新規 template は同じ空の ACS3D world から始まり、2D template だけが XY Orthographic の初期 view を選ぶ。現時点の最重要課題は、runtime/package adapter の対応範囲を Editor authoring 全体へ広げること、旧 project を安全に移行すること、共通 document/transaction と製品配布基盤を完成させることである。
 
 ### 現状スコアカード
 
 | 領域 | 現状 | プロダクション上の主要不足 | 優先度 |
 |---|---|---|---|
-| シーン / Outliner | 新規2D/3D共通の `.acs3d` world、Orthographic preset、legacy adapter、階層、検索、複数選択、DnD、Scene Save All、自動保存・復旧あり | runtime adapter の全 authoring directive 対応、3D sibling reorder、subscene | P0 |
+| シーン / Outliner | 新規2D/3D共通の空の `.acs3d` world、2DだけのOrthographic初期view、legacy adapter、階層、検索、複数選択、DnD、Scene Save All、自動保存・復旧あり | runtime adapter の全 authoring directive 対応、3D sibling reorder、subscene | P0 |
 | Details / Components | Transform、コンポーネント追加削除、反射プロパティ、CallInEditor、3D複数選択のper-axis mixed value・atomic Transform/Enabled/Color編集・Transform reset、共通反射component propertyのmixed/sparse/atomic編集とschema default resetあり | copy/paste/diff、配列・構造体編集、component add/remove/reorderの複数編集、legacy 2D parity | P1 |
 | Asset Browser | Import、texture/mesh/audio設定UIとcanonical recipe identity、source-preserving worker、hash検証付きprocessed-import DDC、監視、current/subfolder/all-assets 検索、永続 thumbnail DDC、配置、Material 変換、永続 GUID/DB、依存・参照元、Reference Viewer あり | tag filter、native texture/mesh/audio transcoder、詳細progress | P0 |
 | Undo / Redo | Scene、Blueprint、Material graph に個別 snapshot 履歴。Scene 自動保存・復旧、Material graph と Project Settings の共通 host transaction 参加あり | cross-document command routing、Asset の履歴、履歴表示 | P0 |
@@ -73,7 +74,7 @@ ACS Editor には、シーンアウトライナー、詳細パネル、2D/3D ビ
 
 ## 最優先の残課題: 3D authoring と runtime/package adapter の完全 parity
 
-新規 `3d` と `2d` project はどちらも `Assets/main.acs3d` を作成し、`2d` は同じ world を XY Orthographic preset で開く。manifest は初期 Scene の persistent Asset ID を保持し、Build/Run/Package は source format と project runtime capability を共通 guard で検証する。
+新規 `3d`、`2d`、`blank` project はいずれもexactな `ACS3D v2\n` だけを持つ空の `Assets/main.acs3d` を作成し、`2d` だけが同じ world を XY Orthographic の初期 view で開く。manifest は初期 Scene の persistent Asset ID を保持し、Build/Run/Package は source format と project runtime capability を共通 guard で検証する。
 
 - `editor/AcsEditor/ProjectManager.cs`
 - `editor/AcsEditor/MainWindow.BuildCompatibility.cs`
@@ -434,7 +435,7 @@ flowchart TD
 - 2D/3D 共通 document contract。
 - Project manifest の default Scene Asset ID。
 - Editor Play、Standalone、Package 共通 loader。
-- 3D project template。
+- 空の2D/3D project template。
 
 実装済み基盤:
 
@@ -446,7 +447,7 @@ flowchart TD
 
 固定済み検証:
 
-- `--scene-editor-migration-selftest` が共通 `.acs3d` template、Orthographic view preset、transaction round trip、package bootstrap/source-format discrimination を固定する。
+- `--scene-editor-migration-selftest` が全templateのexactな空の `.acs3d` source、2DだけのOrthographic初期view、transaction round trip、package bootstrap/source-format discrimination を固定する。
 - legacy `.acscene` は明示的 adapter のまま保持し、view 切替では変換しない。
 - 未対応 format、malformed envelope、path/Asset ID 不一致は fail closed にする。
 

@@ -61,8 +61,7 @@ public static partial class ProjectManager
 
         NewProjectScenePlan scenePlan = PlanNewProjectScene(template);
 
-        // New projects always author one ACS3D world. "2d" is only an initial
-        // XY-Orthographic viewport preset; it is never a second payload format.
+        // 新規projectは空のACS3D worldから開始する。2dは初期viewだけをXY Orthographicにする。
         string assetsDir = Path.Combine(rootDir, "Assets");
         string initialScenePath = SceneSourceFile.ResolveProjectSceneReference(
             rootDir,
@@ -121,10 +120,7 @@ public static partial class ProjectManager
         return proj;
     }
 
-    /// <summary>
-    /// Produces the source contract for a new project without touching disk. "2d" selects an
-    /// editor camera preset only; both templates author the same ACS3D document format.
-    /// </summary>
+    /// <summary>テンプレート名を空のACS3D sourceと初期viewへ変換し、未対応名は拒否する。</summary>
     internal static NewProjectScenePlan PlanNewProjectScene(string? template)
     {
         string normalized = (template ?? "").Trim().ToLowerInvariant();
@@ -138,7 +134,7 @@ public static partial class ProjectManager
         return new NewProjectScenePlan(
             normalized,
             "Assets/main.acs3d",
-            is2D ? Template2DScene3D : BlankScene3D,
+            BlankScene3D,
             SceneDocumentMode.ThreeD,
             StartsOrthographic: is2D);
     }
@@ -1314,15 +1310,6 @@ public static partial class ProjectManager
     }
 
     private const string BlankScene3D = "ACS3D v2\n";
-
-    // The 2D starter is ordinary 3D geometry viewed through the XY-front
-    // Orthographic preset. It can be rotated back into Perspective at any time.
-    private const string Template2DScene3D =
-        "ACS3D v2\n" +
-        "N3D 1 -1 0 0.0000 220.0000 0.0000 0.0000 0.0000 0.0000 520.0000 14.0000 40.0000 0.2500 0.2800 0.3400 1.0000 Ground\n" +
-        "N3D 2 -1 0 0.0000 -160.0000 0.0000 0.0000 0.0000 0.0000 48.0000 48.0000 48.0000 0.1500 0.8500 1.0000 1.0000 Player\n" +
-        "N3D 3 -1 0 -260.0000 40.0000 0.0000 0.0000 0.0000 0.0000 20.0000 240.0000 40.0000 0.2200 0.2400 0.3000 1.0000 WallLeft\n" +
-        "SEL3D -1\n";
 
     // blank / 2d 共通: エディタで保存した main.acscene を読み込んで表示するスタンドアロン。
     // editor は world=pixel で扱うので PixelsPerUnit=1、読み込んだ境界にカメラを合わせる。

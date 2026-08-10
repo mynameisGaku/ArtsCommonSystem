@@ -137,7 +137,7 @@
                                   ToolTip="Create an empty 3D world"/>
                     <ToggleButton x:Name="Tpl2D" Grid.Column="2" Content="2D (Orthographic)"
                                   Height="32" Click="OnPickTemplate" Tag="2d"
-                                  ToolTip="Create a 3D world with the XY Orthographic editing preset"/>
+                                  ToolTip="Create an empty ACS3D world with the XY Orthographic editing preset"/>
                 </Grid>
 
                 <Button x:Name="CreateBtn" Grid.Row="6" Content="Create Project" Height="34"

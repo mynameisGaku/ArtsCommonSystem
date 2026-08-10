@@ -100,12 +100,13 @@ internal static class SceneContractFixtureSelfTest
 
         Check(
             perspective.SceneText == EngineInterop.EmptyScene3DText &&
+            orthographic.SceneText == EngineInterop.EmptyScene3DText &&
             blankAlias.SceneText == EngineInterop.EmptyScene3DText &&
-            orthographic.SceneText.StartsWith(
-                "ACS3D v2\n",
-                StringComparison.Ordinal) &&
+            perspective.SceneText == "ACS3D v2\n" &&
+            perspective.Template == "3d" &&
+            orthographic.Template == "2d" &&
             blankAlias.Template == "3d",
-            "3D templates start empty while the 2D preset remains valid ACS3D v2");
+            "all new project templates start with the exact empty ACS3D v2 source");
 
         CanonicalSceneAdapterInspection perspectiveInspection =
             CanonicalSceneAdapter.InspectText(
@@ -115,9 +116,14 @@ internal static class SceneContractFixtureSelfTest
             CanonicalSceneAdapter.InspectText(
                 orthographic.SceneText,
                 ".acs3d");
+        CanonicalSceneAdapterInspection blankInspection =
+            CanonicalSceneAdapter.InspectText(
+                blankAlias.SceneText,
+                ".acs3d");
         Check(
             !perspectiveInspection.HasErrors &&
             !orthographicInspection.HasErrors &&
+            !blankInspection.HasErrors &&
             perspectiveInspection.Envelope.path ==
                 CanonicalSceneAdapter.BootstrapPath &&
             perspectiveInspection.Envelope.contract ==

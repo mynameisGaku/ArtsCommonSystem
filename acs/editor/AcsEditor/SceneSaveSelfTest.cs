@@ -209,24 +209,30 @@ internal static class SceneSaveSelfTest
             Check(
                 new3DProject.InitialScene == "Assets/main.acs3d" &&
                 new2DProject.InitialScene == "Assets/main.acs3d" &&
+                legacyBlankAlias.InitialScene == "Assets/main.acs3d" &&
                 new3DProject.SourceMode == SceneDocumentMode.ThreeD &&
                 new2DProject.SourceMode == SceneDocumentMode.ThreeD &&
-                new3DProject.SceneText.StartsWith(
-                    "ACS3D v2\n",
-                    StringComparison.Ordinal) &&
-                new2DProject.SceneText.StartsWith(
-                    "ACS3D v2\n",
-                    StringComparison.Ordinal) &&
+                legacyBlankAlias.SourceMode == SceneDocumentMode.ThreeD &&
+                new3DProject.SceneText == EngineInterop.EmptyScene3DText &&
+                new2DProject.SceneText == EngineInterop.EmptyScene3DText &&
+                legacyBlankAlias.SceneText == EngineInterop.EmptyScene3DText &&
+                new3DProject.SceneText == "ACS3D v2\n" &&
                 !CanonicalSceneAdapter.InspectText(
                     new3DProject.SceneText,
                     ".acs3d").HasErrors &&
                 !CanonicalSceneAdapter.InspectText(
                     new2DProject.SceneText,
                     ".acs3d").HasErrors &&
+                !CanonicalSceneAdapter.InspectText(
+                    legacyBlankAlias.SceneText,
+                    ".acs3d").HasErrors &&
                 !new3DProject.StartsOrthographic &&
                 new2DProject.StartsOrthographic &&
+                !legacyBlankAlias.StartsOrthographic &&
+                new3DProject.Template == "3d" &&
+                new2DProject.Template == "2d" &&
                 legacyBlankAlias.Template == "3d",
-                "new 3D and 2D templates share main.acs3d while 2D is only an Orthographic preset");
+                "new project templates share an exact empty main.acs3d while only 2D starts Orthographic");
 
             string runtimeRoot = Path.Combine(root, "RuntimeCapabilityProject");
             string runtimeSourceDir = Path.Combine(runtimeRoot, "Source");

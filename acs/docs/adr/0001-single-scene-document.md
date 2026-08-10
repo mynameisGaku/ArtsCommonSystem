@@ -21,8 +21,8 @@ must preserve those ACS contracts while keeping legacy projects readable.
    Perspective and Orthographic are view presets. Camera, projection, selection,
    gizmo, and workspace layout do not change scene-content identity.
 2. New `3d`, `blank`, and `2d` projects persist `Assets/main.acs3d` using
-   `ACS3D v2`. The `2d` template selects the XY-front Orthographic preset and
-   authors ordinary spatial nodes.
+   the exact empty `ACS3D v2` document with no authored nodes. The `2d`
+   template differs only by selecting the XY-front Orthographic initial view.
 3. Existing `.acscene` projects remain supported through the explicit
    `legacy-acscene-v1` adapter. Opening a project or changing a view never
    converts or swaps the source adapter.
@@ -56,8 +56,8 @@ must preserve those ACS contracts while keeping legacy projects readable.
 
 | Input | Editor document | Initial view | Package source format |
 |---|---|---|---|
-| New `3d` / `blank` | One `ACS3D v2` source | Perspective | `legacy-acs3d-v2` |
-| New `2d` | One `ACS3D v2` source | Orthographic | `legacy-acs3d-v2` |
+| New `3d` / `blank` | One empty `ACS3D v2` source | Perspective | `legacy-acs3d-v2` |
+| New `2d` | The same empty `ACS3D v2` source | Orthographic | `legacy-acs3d-v2` |
 | Existing `.acs3d` | One `ACS3D v2` source | Project/view policy | `legacy-acs3d-v2` |
 | Existing `.acscene` | One legacy source adapter | Orthographic | `legacy-acscene-v1` |
 
@@ -106,8 +106,8 @@ source or its durable identity.
 `SceneContractFixtureSelfTest`, invoked by
 `--scene-editor-migration-selftest`, checks:
 
-- the shared `Assets/main.acs3d` project-template contract;
-- Orthographic as a view preset;
+- the exact empty `Assets/main.acs3d` source shared by `3d`, `blank`, and `2d`;
+- Orthographic as the only initial-view difference for `2d`;
 - bootstrap path, contract, and source-format discrimination;
 - exact dual-payload transaction round trips;
 - blank startup selecting `ACS3D`/Perspective;

@@ -286,10 +286,11 @@ project source assets. Verification runs isolate `APPDATA` and
 
 ### One world, projection as a view
 
-New 2D and 3D projects both create one `Assets/main.acs3d` world. The 2D
-template is ordinary 3D scene data opened with an XY orthographic view
-preset. Perspective versus orthographic projection is camera/editor state,
-not a second scene asset type.
+New `3d`, `2d`, and legacy `blank` templates all create the same empty
+`Assets/main.acs3d` world with the exact `ACS3D v2` header and no authored
+nodes. The `2d` template differs only by opening that world with the XY
+Orthographic view preset. Perspective versus Orthographic projection is
+camera/editor state, not a second scene asset type.
 
 Compatibility remains explicit:
 
