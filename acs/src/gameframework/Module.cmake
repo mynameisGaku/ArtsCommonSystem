@@ -146,6 +146,8 @@ set(_acsgen_gameframework_sources
     WeatherSystem.cpp
     WorkshopBridge.cpp
     audio_backend/XAudio2Backend.cpp
+    cinematics/CCinematicPlayer.cpp
+    cinematics/FCinematicDirectorBridge.cpp
 )
 set(_acsgen_gameframework_headers
     AComponent.h
@@ -329,6 +331,8 @@ set(_acsgen_gameframework_headers
     WorldClockSubsystem.h
     audio_backend/IAudioBackend.h
     audio_backend/XAudio2Backend.h
+    cinematics/CCinematicPlayer.h
+    cinematics/FCinematicDirectorBridge.h
 )
 set(_acsgen_gameframework_public_deps
     Foundation
@@ -340,6 +344,7 @@ set(_acsgen_gameframework_public_deps
     Platform
     Render
     App
+    Asset
     Ecs
 )
 set(_acsgen_gameframework_link_public

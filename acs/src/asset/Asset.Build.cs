@@ -8,6 +8,7 @@ public sealed class Asset : AcsModule
     public Asset()
     {
         Type = ModuleType.Runtime;
+        // cinematics 配下もAssetの通常ソースとして収集する。
         // サードパーティは FetchContent (cmake/ACSThirdParty.cmake) 経由で取得。
         Preamble = @"acs_third_party_stb()
 acs_third_party_cgltf()

@@ -80,6 +80,7 @@
 #include "gameframework/AccessibilityProfile.h"
 #include "gameframework/PrivacyDirector.h"
 #include "gameframework/CinematicsDirector.h"
+#include "gameframework/cinematics/CCinematicPlayer.h"
 #include "gameframework/InspectorSeam.h"
 #include "gameframework/Progression.h"
 

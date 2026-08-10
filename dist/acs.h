@@ -15504,6 +15504,234 @@ using FTextAssetLoader = CTextAssetLoader;
 
 } // namespace acs
 
+// ===================== asset/cinematics/ACinematicAsset.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== asset/cinematics/FCinematicEvent.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== asset/cinematics/ECinematicEventKind.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::asset {
+
+/** .cine のイベント種別を表す値です。 */
+enum class ECinematicEventKind : u8 {
+    /** 経過時間だけを表す待機イベント。 */
+    Wait = 0,
+    /** カメラ位置・倍率・補間時間を表すイベント。 */
+    MoveCamera = 1,
+    /** 所有文字列を表示する会話イベント。 */
+    Dialogue = 2,
+    /** 所有文字列とフェード時間を持つ音楽イベント。 */
+    Music = 3,
+    /** 整数識別子を通知するイベント。 */
+    FireEvent = 4
+};
+
+} // namespace acs::asset
+
+namespace acs::asset {
+
+/** 一時点の演出値を所有する値型です。 */
+struct FCinematicEvent {
+    /** イベント時刻です。有限で0以上にします。 */
+    f32 time_sec = 0.0f;
+
+    /** イベントの種別です。 */
+    ECinematicEventKind kind = ECinematicEventKind::Wait;
+
+    /** MoveCamera の目標位置です。 */
+    FVec2 target_pos{};
+
+    /** MoveCamera のズーム値です。 */
+    f32 camera_zoom = 1.0f;
+
+    /** MoveCamera の移動時間です。 */
+    f32 camera_duration = 0.0f;
+
+    /** Dialogue または Music の所有文字列です。 */
+    FString text;
+
+    /** Music のフェード秒数です。 */
+    f32 music_fade = 0.0f;
+
+    /** FireEvent の識別子です。 */
+    u32 event_id = 0u;
+};
+
+} // namespace acs::asset
+
+namespace acs::asset {
+
+/** 検証済みイベント列と明示時間を所有する不変アセットです。 */
+class ACinematicAsset final : public AAsset {
+public:
+    ACS_ASSET_TYPE("FCinematicAsset")
+
+    /** assetが保持できる最大イベント数です。 */
+    static constexpr u32 kMaxEvents = 4096u;
+
+    /** DialogueとMusicが保持できる最大UTF-8 bytes数です。 */
+    static constexpr u32 kMaxTextBytes = 65535u;
+
+    /** 入力イベントとdurationを検証してアセットを生成し、不正値または確保失敗時はerrorを返します。 */
+    static TResult<TSharedPtr<ACinematicAsset>> TryCreate(TArray<FCinematicEvent>&& events, f32 duration_sec) noexcept;
+
+    /** 検証済みイベント列を読み取り専用で返します。 */
+    const TArray<FCinematicEvent>& Events() const noexcept
+    {
+        return m_Events;
+    }
+
+    /** イベント数を返します。 */
+    u32 EventCount() const noexcept
+    {
+        return static_cast<u32>(m_Events.Num());
+    }
+
+    /** 保存された明示時間を返します。 */
+    f32 DurationSec() const noexcept
+    {
+        return m_DurationSec;
+    }
+
+private:
+    template<typename T, typename... Args>
+    friend TSharedPtr<T> acs::MakeShared(Args&&...) noexcept;
+    template<typename T, typename... Args>
+    friend TSharedPtr<T> acs::MakeSharedIn(IAllocator&, Args&&...) noexcept;
+
+    /** 検証済み配列と時間だけを受け取って初期化します。 */
+    ACinematicAsset(TArray<FCinematicEvent>&& events, f32 duration_sec) noexcept;
+
+    /** イベントと明示時間の不変条件を確認します。 */
+    static bool Validate(const TArray<FCinematicEvent>& events, f32 duration_sec) noexcept;
+
+    /** 検証済みイベントを所有します。 */
+    TArray<FCinematicEvent> m_Events;
+
+    /** イベント末尾以上の明示再生時間です。 */
+    f32 m_DurationSec = 0.0f;
+};
+
+} // namespace acs::asset
+
+// ===================== asset/cinematics/CCinematicAssetLoader.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== asset/cinematics/FCinematicCodec.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::asset {
+
+/** 検証済みアセットと固定バイナリ形式を相互変換します。 */
+class FCinematicCodec final {
+public:
+    /** .cine v1のversion値です。 */
+    static constexpr u16 kVersion = 1u;
+    /** 固定headerのbyte数です。 */
+    static constexpr u16 kHeaderSize = 32u;
+    /** codecが受け入れる最大イベント数です。 */
+    static constexpr u32 kMaxEvents = ACinematicAsset::kMaxEvents;
+    /** record内version位置です。 */
+    static constexpr usize kVersionOffset = 8u;
+    /** header内イベント数位置です。 */
+    static constexpr usize kCountOffset = 16u;
+    /** header内duration位置です。 */
+    static constexpr usize kDurationOffset = 20u;
+    /** 最初のrecord位置です。 */
+    static constexpr usize kFirstRecordOffset = kHeaderSize;
+    /** record headerのbyte数です。 */
+    static constexpr usize kRecordHeaderSize = 20u;
+    /** record内時刻位置です。 */
+    static constexpr usize kRecordTimeOffset = 4u;
+    /** record内payload長位置です。 */
+    static constexpr usize kRecordPayloadSizeOffset = 8u;
+    /** record内record長位置です。 */
+    static constexpr usize kRecordSizeOffset = 12u;
+    /** camera payloadのbyte数です。 */
+    static constexpr usize kMoveCameraPayloadSize = 16u;
+    /** camera payload内zoom位置です。 */
+    static constexpr usize kMoveCameraZoomOffset = 8u;
+    /** Dialogue payload内の文字列データ位置です。 */
+    static constexpr usize kDialogueTextDataOffset = 4u;
+
+    /** 入力bytesを検証してアセットへ変換し、不正形式・サイズ・確保失敗時はtyped errorを返します。 */
+    static TResult<TSharedPtr<ACinematicAsset>> Decode(const TArray<byte>& bytes) noexcept;
+
+    /** 入力assetをcanonical bytesへ変換し、値または確保失敗時はtyped errorを返します。 */
+    static TResult<TArray<byte>> Encode(const ACinematicAsset& asset) noexcept;
+};
+
+} // namespace acs::asset
+
+namespace acs::asset {
+
+/** .cine のAssetRegistry接続とCodec呼出しだけを担うローダーです。 */
+class CCinematicAssetLoader final : public IAssetLoader {
+public:
+    /** レジストリへ公開する型を返します。 */
+    AssetType TypeId() const noexcept override
+    {
+        return ACinematicAsset::StaticType();
+    }
+
+    /** 対応拡張子を返します。 */
+    const char* Extension() const noexcept override
+    {
+        return "cine";
+    }
+
+    /** レジストリから渡された識別子とバイト列を検証して読み込みます。 */
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+};
+
+} // namespace acs::asset
+
+// ===================== asset/cinematics/ECinematicFormatError.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::asset {
+
+/** .cine 検証で分類する入力エラーです。 */
+enum class ECinematicFormatError : u8 {
+    /** エラーなしの状態。 */
+    None,
+    /** magicが一致しない入力。 */
+    InvalidMagic,
+    /** 対応しないversion。 */
+    UnsupportedVersion,
+    /** headerまたは予約値が不正な入力。 */
+    InvalidHeader,
+    /** 定義外のイベント種別。 */
+    UnknownKind,
+    /** 時刻順序が不正な入力。 */
+    InvalidOrder,
+    /** 数値が有限範囲外の入力。 */
+    InvalidNumber,
+    /** 文字列がUTF-8またはNUL規約に違反する入力。 */
+    InvalidText,
+    /** 種別に合わないイベントpayload。 */
+    InvalidEvent,
+    /** 許容サイズを超えた入力。 */
+    SizeLimit,
+    /** 入力が途中で終わった状態。 */
+    Truncated,
+    /** 規定領域の後に残るデータ。 */
+    TrailingData,
+    /** メモリ確保に失敗した状態。 */
+    OutOfMemory
+};
+
+} // namespace acs::asset
+
 // ===================== assetpack/AcpakCrypto.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
@@ -37902,6 +38130,8 @@ using FCheckpointSystem = CCheckpointSystem;
 
 namespace acs::game {
 
+class CCinematicPlayer;
+
 /**
  * タイムライン上の各 keyframe が何を起こすかを表す種別。
  *
@@ -38174,6 +38404,11 @@ public:
     void SetEventCallback   (EventCallbackFn    cb, void* user) noexcept;
 
 private:
+    friend class CCinematicPlayer;
+
+    /** CCinematicPlayerが構築した時刻順の列へ置き換えます。文字列参照は同Playerが保持するACinematicAssetの所有期間中だけ有効です。再生中、時刻または発火位置の進行後、時刻が非有限値・負値・降順ではfalseを返し、既存列を変更しません。 */
+    bool TryReplaceKeyframes(TArray<FTimelineKeyframe>&& keyframes) noexcept;
+
     /**
      * 発火位置以降で時刻条件を満たす keyframe を全て発火し、発火位置を進める。
      *
@@ -68030,6 +68265,118 @@ private:
 
 } // namespace acs::game
 
+// ===================== gameframework/cinematics/CCinematicPlayer.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 所有者単位でアセットを再生し、検証済みviewを保持するプレイヤーです。 */
+class CCinematicPlayer final {
+public:
+    /** 空の再生状態を生成します。 */
+    CCinematicPlayer() noexcept = default;
+
+    /** コピーを禁止します。 */
+    CCinematicPlayer(const CCinematicPlayer&) = delete;
+    CCinematicPlayer& operator=(const CCinematicPlayer&) = delete;
+    CCinematicPlayer(CCinematicPlayer&&) = delete;
+    CCinematicPlayer& operator=(CCinematicPlayer&&) = delete;
+
+    /** assetを検証して全keyframeを確保し、失敗時は既存assetと再生列を変更しません。 */
+    bool TrySetAsset(TSharedPtr<asset::ACinematicAsset> asset) noexcept;
+
+    /** アセットと再生状態を空に戻します。 */
+    void Clear() noexcept;
+
+    /** 再生を開始または再開します。 */
+    void Play() noexcept
+    {
+        m_Director.Play();
+    }
+
+    /** 再生を一時停止します。 */
+    void Pause() noexcept
+    {
+        m_Director.Pause();
+    }
+
+    /** 再生を停止して時刻を初期化します。 */
+    void Stop() noexcept
+    {
+        m_Director.Stop();
+    }
+
+    /** 有限の経過時間だけ再生を進め、callback実行中のasset寿命を保持します。 */
+    void Tick(f32 dt) noexcept;
+
+    /** 現在時刻を返します。 */
+    f32 CurrentTime() const noexcept
+    {
+        return m_Director.CurrentTime();
+    }
+
+    /** 再生中か返します。 */
+    bool IsPlaying() const noexcept
+    {
+        return m_Director.IsPlaying();
+    }
+
+    /** 全keyframeを発火し終えたか返します。 */
+    bool IsFinished() const noexcept
+    {
+        return m_Director.IsFinished();
+    }
+
+    /** 保持中タイムラインの明示時間を返します。 */
+    f32 TotalDuration() const noexcept
+    {
+        return m_Director.TotalDuration();
+    }
+
+    /** 所有中アセットの読み取りviewを返します。 */
+    const asset::ACinematicAsset* AssetView() const noexcept
+    {
+        return m_AssetView;
+    }
+
+    /** カメラ発火通知をDirectorへ設定します。 */
+    void SetCameraCallback(CameraCallbackFn callback, void* user) noexcept
+    {
+        m_Director.SetCameraCallback(callback, user);
+    }
+
+    /** 会話発火通知をDirectorへ設定します。 */
+    void SetDialogueCallback(DialogueCallbackFn callback, void* user) noexcept
+    {
+        m_Director.SetDialogueCallback(callback, user);
+    }
+
+    /** 音楽発火通知をDirectorへ設定します。 */
+    void SetMusicCallback(MusicCallbackFn callback, void* user) noexcept
+    {
+        m_Director.SetMusicCallback(callback, user);
+    }
+
+    /** 汎用イベント発火通知をDirectorへ設定します。 */
+    void SetEventCallback(EventCallbackFn callback, void* user) noexcept
+    {
+        m_Director.SetEventCallback(callback, user);
+    }
+
+private:
+    /** 所有アセットを保持して再生列のpayload寿命を保証します。 */
+    TSharedPtr<asset::ACinematicAsset> m_Asset;
+
+    /** 所有アセットの不変読み取りviewです。 */
+    const asset::ACinematicAsset* m_AssetView = nullptr;
+
+    /** プレイヤー固有の再生状態です。 */
+    CCinematicsDirector m_Director;
+};
+
+} // namespace acs::game
+
 // ===================== gameframework/Progression.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework 完成度システム v7 — CProgression (XP / Level / Milestones / Unlocks)
@@ -84260,6 +84607,25 @@ private:
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */
 using FXAudio2Backend = CXAudio2Backend;
+
+} // namespace acs::game
+
+// ===================== gameframework/cinematics/FCinematicDirectorBridge.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+class CCinematicPlayer;
+
+/** 検証済みアセットをDirector用keyframeへ変換する値操作です。 */
+class FCinematicDirectorBridge final {
+private:
+    friend class CCinematicPlayer;
+
+    /** assetの値と確保を検証してkeyframe列を返し、失敗時は部分列を返しません。 */
+    static TResult<TArray<FTimelineKeyframe>> BuildKeyframes(const asset::ACinematicAsset& asset) noexcept;
+};
 
 } // namespace acs::game
 

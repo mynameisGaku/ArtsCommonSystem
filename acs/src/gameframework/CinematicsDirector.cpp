@@ -63,6 +63,18 @@ bool CCinematicsDirector::TryAddKeyframe(const FTimelineKeyframe& kf) noexcept {
     return true;
 }
 
+bool CCinematicsDirector::TryReplaceKeyframes(TArray<FTimelineKeyframe>&& keyframes) noexcept {
+    if (m_Playing || m_Time != 0.0f || m_LastFiredIndex != 0u) return false;
+    // 置換前に有限値と時刻順を検証し、失敗時に既存列を変更しない。
+    f32 previous_time = 0.0f;
+    for (const FTimelineKeyframe& keyframe : keyframes) {
+        if (!std::isfinite(keyframe.time_sec) || keyframe.time_sec < 0.0f || keyframe.time_sec < previous_time) return false;
+        previous_time = keyframe.time_sec;
+    }
+    m_Keyframes = Move(keyframes);
+    return true;
+}
+
 void CCinematicsDirector::Clear() noexcept {
     m_Keyframes.Reset();
     m_Time             = 0.0f;

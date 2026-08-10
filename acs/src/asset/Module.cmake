@@ -22,6 +22,9 @@ acs_module(
         MeshPrimitive.cpp
         SkinnedMesh.cpp
         TextAsset.cpp
+        cinematics/ACinematicAsset.cpp
+        cinematics/CCinematicAssetLoader.cpp
+        cinematics/FCinematicCodec.cpp
     HEADERS
         Asset.h
         AssetFuture.h
@@ -39,6 +42,12 @@ acs_module(
         MeshPrimitive.h
         SkinnedMesh.h
         TextAsset.h
+        cinematics/ACinematicAsset.h
+        cinematics/CCinematicAssetLoader.h
+        cinematics/ECinematicEventKind.h
+        cinematics/ECinematicFormatError.h
+        cinematics/FCinematicCodec.h
+        cinematics/FCinematicEvent.h
     PUBLIC_DEPS
         Foundation
         Memory

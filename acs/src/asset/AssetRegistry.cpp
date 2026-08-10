@@ -6,6 +6,7 @@
 #include "asset/ImageAsset.h"
 #include "asset/AudioAsset.h"
 #include "asset/MeshAsset.h"
+#include "asset/cinematics/CCinematicAssetLoader.h"
 #include "platform/FileSystem.h"
 #include "threading/ScopedLock.h"
 #include "threading/Thread.h"
@@ -593,6 +594,8 @@ CTextAssetLoader   g_text_loader;
 
 /** バイナリフォールバックローダ実体。 */
 CBinaryAssetLoader g_binary_loader;
+/** .cine bytesをACinematicAssetへ変換するローダ実体です。 */
+asset::CCinematicAssetLoader g_cinematic_loader;
 
 /**
  * 拡張子別名のラッパローダ。
@@ -726,7 +729,7 @@ FAliasLoader g_text_py   { &g_text_loader, "py"   };
 TResult<void> CAssetRegistry::TryRegisterDefaultLoaders() noexcept
 {
     /** 既存の登録順とfallbackの最終位置を保つ標準loader一覧。 */
-    IAssetLoader* const DefaultLoaders[] = {&g_image_loader, &g_image_jpg, &g_image_jpeg, &g_image_bmp, &g_image_tga, &g_image_gif, &g_image_hdr, &g_image_pic, &g_image_pnm, &g_image_ppm, &g_image_pgm, &g_image_psd, &g_wav_loader, &g_mp3_loader, &g_flac_loader, &g_ogg_loader, &g_ogg_oga, &g_gltf_loader, &g_glb_loader, &g_obj_loader, &g_fbx_loader, &g_text_loader, &g_text_json, &g_text_xml, &g_text_yaml, &g_text_yml, &g_text_toml, &g_text_ini, &g_text_csv, &g_text_md, &g_text_log, &g_text_hlsl, &g_text_glsl, &g_text_vert, &g_text_frag, &g_text_lua, &g_text_py, &g_binary_loader,};
+    IAssetLoader* const DefaultLoaders[] = {&g_image_loader, &g_image_jpg, &g_image_jpeg, &g_image_bmp, &g_image_tga, &g_image_gif, &g_image_hdr, &g_image_pic, &g_image_pnm, &g_image_ppm, &g_image_pgm, &g_image_psd, &g_wav_loader, &g_mp3_loader, &g_flac_loader, &g_ogg_loader, &g_ogg_oga, &g_gltf_loader, &g_glb_loader, &g_obj_loader, &g_fbx_loader, &g_text_loader, &g_text_json, &g_text_xml, &g_text_yaml, &g_text_yml, &g_text_toml, &g_text_ini, &g_text_csv, &g_text_md, &g_text_log, &g_text_hlsl, &g_text_glsl, &g_text_vert, &g_text_frag, &g_text_lua, &g_text_py, &g_cinematic_loader, &g_binary_loader,};
 
     FScopedLock lock(m_Lock);
     if (m_Closing) {

@@ -169,6 +169,7 @@ add_executable(acs_unit_tests
     save_integration_tests.cpp
     savegame_archive_safety_v2_tests.cpp
     content_moderator_tests.cpp
+    cinematic_asset_tests.cpp
     director_reentrancy_tests.cpp
     rollback_tests.cpp
     rollback_session_tests.cpp
