@@ -67,6 +67,7 @@ endif()
 
 add_executable(acs_unit_tests
     main.cpp
+    cinematic_timeline_document_tests.cpp
     foundation_tests.cpp
     cast_tests.cpp
     reflect_tests.cpp

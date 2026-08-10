@@ -75,6 +75,13 @@ bool CCinematicsDirector::TryReplaceKeyframes(TArray<FTimelineKeyframe>&& keyfra
     return true;
 }
 
+void CCinematicsDirector::TryResetKeyframes(TArray<FTimelineKeyframe>&& keyframes) noexcept {
+    m_Keyframes = Move(keyframes);
+    m_Time = 0.0f;
+    m_LastFiredIndex = 0u;
+    m_Playing = false;
+}
+
 void CCinematicsDirector::Clear() noexcept {
     m_Keyframes.Reset();
     m_Time             = 0.0f;

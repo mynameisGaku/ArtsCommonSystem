@@ -23,6 +23,7 @@ set(_acsgen_gameframework_sources
     CharacterCustomizer.cpp
     CheckpointSystem.cpp
     CinematicsDirector.cpp
+    cinetimeline/CCinematicTimelineDocument.cpp
     CollisionWorld2D.cpp
     CombatStateMachine.cpp
     ComponentFactory.cpp
@@ -333,6 +334,11 @@ set(_acsgen_gameframework_headers
     audio_backend/XAudio2Backend.h
     cinematics/CCinematicPlayer.h
     cinematics/FCinematicDirectorBridge.h
+    cinetimeline/CCinematicTimelineDocument.h
+    cinetimeline/ECinematicTimelineKeyKind.h
+    cinetimeline/FCinematicTimelineKeyframe.h
+    tools/cinetimeline/ACinematicsTimelineEditorPanel.h
+    tools/cinetimeline/CinematicsTimelineEditorPanel.h
 )
 set(_acsgen_gameframework_public_deps
     Foundation
@@ -356,7 +362,7 @@ if(ACS_RENDER_DX12_RAW)
     list(APPEND _acsgen_gameframework_sources
         tools/animcurve/AnimCurveEditorPanel.cpp
         tools/btedit/BehaviorTreeEditorPanel.cpp
-        tools/cinetimeline/CinematicsTimelineEditorPanel.cpp
+        tools/cinetimeline/ACinematicsTimelineEditorPanel.cpp
         tools/editor_core/AssetBrowser.cpp
         tools/editor_core/EditorCamera.cpp
         tools/editor_core/EditorGizmo.cpp

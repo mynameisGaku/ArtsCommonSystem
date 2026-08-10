@@ -83,6 +83,9 @@
 namespace acs::game {
 
 class CCinematicPlayer;
+namespace cinetimeline {
+class CCinematicTimelineDocument;
+}
 
 /**
  * タイムライン上の各 keyframe が何を起こすかを表す種別。
@@ -357,6 +360,10 @@ public:
 
 private:
     friend class CCinematicPlayer;
+    friend class cinetimeline::CCinematicTimelineDocument;
+
+    // 同じアロケータで構築した列を受け取り、再生状態と時刻を初期化して置き換えます。
+    void TryResetKeyframes(TArray<FTimelineKeyframe>&& keyframes) noexcept;
 
     /** CCinematicPlayerが構築した時刻順の列へ置き換えます。文字列参照は同Playerが保持するACinematicAssetの所有期間中だけ有効です。再生中、時刻または発火位置の進行後、時刻が非有限値・負値・降順ではfalseを返し、既存列を変更しません。 */
     bool TryReplaceKeyframes(TArray<FTimelineKeyframe>&& keyframes) noexcept;
