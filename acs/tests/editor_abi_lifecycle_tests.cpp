@@ -35,6 +35,8 @@ acs_editor_optional_service_diagnostic_get(
 extern "C" __declspec(dllimport) const char* acs_editor_render_backend(void);
 extern "C" __declspec(dllimport) void acs_editor_destroy(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_node_count(void* handle);
+extern "C" __declspec(dllimport) int acs_editor_node3d_count(void* handle);
+extern "C" __declspec(dllimport) int acs_editor_selected3d(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_add_node3d(
     void* handle, int primitive, const char* name);
 extern "C" __declspec(dllimport) int acs_editor_add_empty3d(
@@ -564,6 +566,38 @@ bool RunOneLifecycle() noexcept
     acs_editor_set_scene_presentation_suppressed(host, 0);
     acs_editor_destroy(host);
     return scene_ready;
+}
+
+/** 新しいホストの 3D グラフを検証し、空状態または最初の明示追加 id が不正なら false を返す。 */
+bool RunEmptyScene3DStartupContract() noexcept
+{
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+
+    bool ok = acs_editor_node3d_count(host) == 0 &&
+              acs_editor_selected3d(host) == -1;
+    acs_editor_set_view3d(host, 1);
+    char empty_scene[32]{};
+    const int written = acs_editor_scene3d_serialize(
+        host, empty_scene, static_cast<int>(sizeof(empty_scene)));
+    ok = ok && acs_editor_get_view3d(host) != 0 &&
+         acs_editor_node3d_count(host) == 0 &&
+         acs_editor_selected3d(host) == -1 &&
+         written == static_cast<int>(std::strlen("ACS3D v2\n")) &&
+         std::strcmp(empty_scene, "ACS3D v2\n") == 0;
+
+    acs_editor_set_view3d(host, 0);
+    acs_editor_set_view3d(host, 1);
+    ok = ok && acs_editor_node3d_count(host) == 0 &&
+         acs_editor_selected3d(host) == -1;
+
+    const int explicit_node = acs_editor_add_node3d(
+        host, 0, "ExplicitFixtureNode");
+    ok = ok && explicit_node == 1 &&
+         acs_editor_node3d_count(host) == 1 &&
+         acs_editor_selected3d(host) == explicit_node;
+    acs_editor_destroy(host);
+    return ok;
 }
 
 /** Startup warm-up is observable without doing GPU work or mutating the host. */
@@ -2262,9 +2296,7 @@ bool RunRenderedFrustumProfilerContract() noexcept
     bool ok = quality_applied && startup_state > 0 &&
               completed == total && total > 1u;
     if (ok) {
-        // Startup completed while the host was still in its first 2D view.
-        // Mark the 3D graph explicitly empty so set_view3d cannot seed the
-        // three editor sample meshes into this authored-camera fixture.
+        // この描画検証が全ノードを所有するため、明示的な空グラフから開始する。
         acs_editor_scene3d_new(host);
     }
     const int inside = ok
@@ -2455,6 +2487,7 @@ int main()
     if (!RunAbiCapabilityContract()) return 18;
     if (!RunOptionalServiceDiagnosticContract()) return 26;
     if (!RunOneLifecycle()) return 1;
+    if (!RunEmptyScene3DStartupContract()) return 28;
     if (!RunStartupStatusContract()) return 13;
     if (!RunDestroyDuringAsyncWarmup()) return 14;
     if (!RunProfilerSnapshotContract()) return 12;

@@ -99,14 +99,13 @@ internal static class SceneContractFixtureSelfTest
             "startup without a source is blank ACS3D/Perspective while legacy ACSCENE remains an explicit adapter");
 
         Check(
-            perspective.SceneText.StartsWith(
-                "ACS3D v2\n",
-                StringComparison.Ordinal) &&
+            perspective.SceneText == EngineInterop.EmptyScene3DText &&
+            blankAlias.SceneText == EngineInterop.EmptyScene3DText &&
             orthographic.SceneText.StartsWith(
                 "ACS3D v2\n",
                 StringComparison.Ordinal) &&
             blankAlias.Template == "3d",
-            "project templates emit the accepted ACS3D v2 source contract");
+            "3D templates start empty while the 2D preset remains valid ACS3D v2");
 
         CanonicalSceneAdapterInspection perspectiveInspection =
             CanonicalSceneAdapter.InspectText(

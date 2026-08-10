@@ -784,7 +784,6 @@ struct FEditorHost {
     TArray<int>  sel3d_multi;             // 3D 選択集合 (multi-select。空 ⇔ sel3d==-1)
     int          next_id3d     = 1;
     int          clip3d        = -1;      // 3D コピー&ペースト用クリップボード (コピー元ノード id)
-    bool         scene3d_seeded = false;  // 初回 3D 切替でデフォルトシーンを置いたか
     game::CSceneNodeGraph scene3d;        // 3D シーングラフ (各ノード = root の子 ANode + AEditor3DRecordComponent)
     TArray<FVec2> poly3d_pts;             // Ortho ポリゴン描画中の頂点 (XY, z=0 平面へ逆射影済み)
     // 3D ギズモのドラッグ状態。
@@ -1359,7 +1358,6 @@ void ClearScene3DResourcesRetired(FEditorHost& h) noexcept {
     h.sel3d_multi.Reset();
     h.clip3d = -1;
     h.next_id3d = 1;
-    h.scene3d_seeded = true;
     h.poly3d_pts.Reset();
     h.giz3d_handle = 0;
     h.water3d_draw_count = 0u;
@@ -5932,37 +5930,6 @@ FVec3 AxisDir(int axis) noexcept {
     if (axis == 1) return FVec3{ 1, 0, 0 };
     if (axis == 2) return FVec3{ 0, 1, 0 };
     return FVec3{ 0, 0, 1 };
-}
-
-// 3D ノードアクセス補助 (実体は FindNode3D 群の直後)。Seed3DScene が先に使うため前方宣言。
-game::ANode& AddNode3D(FEditorHost& h, const char* name) noexcept;
-
-/** 初回 3D 切替でデフォルトの 3D シーン (床 + 立方体 + 球) を置く。 */
-void Seed3DScene(FEditorHost& h) noexcept {
-    if (h.scene3d_seeded) return;
-    h.scene3d_seeded = true;
-    {
-        game::ANode& g = AddNode3D(h, "Ground");
-        g.Local().position = FVec3{ 0, 0, 0 }; g.Local().scale = FVec3{ 16, 1, 16 };
-        g.GetComponent<AEditor3DRecordComponent>()->id = h.next_id3d++;
-        g.GetComponent<game::AMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Plane);
-        g.GetComponent<game::AMeshComponent3D>()->SetColor(FVec4{ 0.32f, 0.34f, 0.38f, 1 });
-    }
-    {
-        game::ANode& box = AddNode3D(h, "Cube");
-        box.Local().position = FVec3{ -1.4f, 0.5f, 0 };
-        const int id = h.next_id3d++;
-        box.GetComponent<AEditor3DRecordComponent>()->id = id; h.sel3d_multi.Reset(); h.sel3d_multi.Add(id); h.sel3d = id;
-        box.GetComponent<game::AMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Cube);
-        box.GetComponent<game::AMeshComponent3D>()->SetColor(FVec4{ 0.85f, 0.45f, 0.35f, 1 });
-    }
-    {
-        game::ANode& ball = AddNode3D(h, "Sphere");
-        ball.Local().position = FVec3{ 1.3f, 0.6f, 0.2f }; ball.Local().scale = FVec3{ 1.2f, 1.2f, 1.2f };
-        ball.GetComponent<AEditor3DRecordComponent>()->id = h.next_id3d++;
-        ball.GetComponent<game::AMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Sphere);
-        ball.GetComponent<game::AMeshComponent3D>()->SetColor(FVec4{ 0.40f, 0.62f, 0.92f, 1 });
-    }
 }
 
 /** 2D ポリゴン点列 (XY 平面、z=0) からフラットな AMeshAsset を作る (扇状三角形分割、法線+Z)。
@@ -15801,7 +15768,7 @@ ACS_EDITOR_API int acs_editor_camera3d_node_id_at(
 // C ABI — 3D ビューポート (モード切替 / ノード / 軌道カメラ / ピック)
 // =============================================================================
 
-/** 3D ビューポートの ON/OFF を切り替える。初回 ON で既定の 3D シーンを置く。 */
+/** 3D ビューポートの ON/OFF を切り替え、表示方式の変更時は時間履歴を無効化する。 */
 ACS_EDITOR_API void acs_editor_set_view3d(void* handle, int on) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
@@ -15809,7 +15776,6 @@ ACS_EDITOR_API void acs_editor_set_view3d(void* handle, int on) {
     if (host->view3d != view3d)
         InvalidateTemporalRenderHistories(*host);
     host->view3d = view3d;
-    if (host->view3d) Seed3DScene(*host);
 }
 
 /** 現在 3D ビューポートか。 */
@@ -17428,7 +17394,6 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
     if (clear) {
         ClearScene3D(*host);
     }
-    host->scene3d_seeded = true;                     // 読み込んだら seed しない
     int maxId = 0;
     int restoredSel = -1;                            // SEL3D 行があれば選択を復元 (無ければ先頭)
     int firstRoot = -1;                              // paste: 最初に作った «親 -1» ノードの新 id (選択用)
