@@ -32,8 +32,7 @@
 // 2D 水面・炎・軌跡・ステンシルの反射登録に必要な型を読む。
 #include "gameframework/Effects2D.h"
 #include "gameframework/Light2DComponent.h"  // ALight2DComponent (2D 点光源)
-#include "gameframework/Follow2DComponent.h"  // AFollow2DComponent (オブジェクト参照デモ)
-#include "gameframework/ReflectMethod.h"      // ACS_REGISTER_METHOD (関数リフレクション)
+#include "gameframework/Follow2DComponent.h"  // AFollow2DComponent (オブジェクト参照)
 
 // ----- Scene -----
 #include "gameframework/Scene.h"
@@ -203,16 +202,6 @@ ACS_REGISTER_COMPONENT(AFollow2DComponent,
     ACS_RFIELD_DFC(AFollow2DComponent, target,  EFieldKind::ObjectRef, FIELD_NONE,     "Follow", -1, 0, 0, 0),  // 参照先 (ピッカー)
     ACS_RFIELD_DFC(AFollow2DComponent, speed,   EFieldKind::F32,       FIELD_NONE,     "Follow", 3.0f, 0, 0, 0),
     ACS_RFIELD_DFC(AFollow2DComponent, arrived, EFieldKind::Bool,      FIELD_READONLY, "Status", 0, 0, 0, 0))
-// BlueprintCallable + CallInEditor メソッド(エディタのボタン / Blueprint グラフから呼べる)。
-ACS_REGISTER_METHOD(AFollow2DComponent, Ping, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
-// ASprite2DComponent / APrimitiveRenderer2D: 描画ノードに常在するので Blueprint の
-// «関数» ノード→実ノード作用の実例 (どちらのノードを選んでも呼べるよう両方登録)。
-ACS_REGISTER_METHOD(ASprite2DComponent,   LogState, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
-ACS_REGISTER_METHOD(APrimitiveRenderer2D, LogState, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
-// 引数あり(f32)メソッドのデモ: Blueprint の定数ピンから実引数を渡せる。
-ACS_REGISTER_METHOD_F32(APrimitiveRenderer2D, LogValue, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
-// 戻り値あり(f32)メソッドのデモ: 結果が data 出力ピンへ流れ下流ノードが消費できる。
-ACS_REGISTER_METHOD_RET_F32(APrimitiveRenderer2D, GetArea, METHOD_BP_CALLABLE)
 
 // ----- Scene -----
 ACS_REGISTER_SCENE(AScene)

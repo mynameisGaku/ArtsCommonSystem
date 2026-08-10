@@ -8,9 +8,7 @@
 #pragma once
 
 #include "foundation/Types.h"
-#include "foundation/Log.h"           // ACS_LOG_INFO (LogState のデモ出力)
 #include "math/Vec.h"
-#include "gameframework/AcsClass.h"    // ACS_FUNCTION マーカー
 #include "gameframework/AComponent.h"
 #include "gameframework/ANode.h"
 #include "gameframework/RenderContext.h"
@@ -55,26 +53,6 @@ public:
         half_size = FVec2{ m_Size.x * 0.5f, m_Size.y * 0.5f };
         return true;
     }
-
-    /** 現在の形状/サイズ/色をログ出力する(BlueprintCallable + CallInEditor のデモ関数)。
-     *  Blueprint グラフの «関数» ノード→実ノード作用の実例。 */
-    ACS_FUNCTION(BlueprintCallable, CallInEditor)
-    void LogState() noexcept {
-        ACS_LOG_INFO("[Prim] LogState shape=%d size=(%.2f,%.2f) color=(%.2f,%.2f,%.2f,%.2f)",
-            static_cast<int>(m_Shape), static_cast<double>(m_Size.x), static_cast<double>(m_Size.y),
-            static_cast<double>(m_Color.x), static_cast<double>(m_Color.y),
-            static_cast<double>(m_Color.z), static_cast<double>(m_Color.w));
-    }
-
-    /** f32 引数を 1 個取りログ出力する(BlueprintCallable + 引数ありメソッドのデモ)。 */
-    ACS_FUNCTION(BlueprintCallable, CallInEditor)
-    void LogValue(f32 v) noexcept {
-        ACS_LOG_INFO("[Prim] LogValue v=%.3f", static_cast<double>(v));
-    }
-
-    /** 形状の面積 (size.x*size.y) を返す(BlueprintCallable + 戻り値ありメソッドのデモ)。 */
-    ACS_FUNCTION(BlueprintCallable)
-    f32 GetArea() const noexcept { return m_Size.x * m_Size.y; }
 
     /** owner の world transform で形状を CSpriteBatch へ積む。 */
     void OnDraw(FRenderContext& rc) noexcept override {

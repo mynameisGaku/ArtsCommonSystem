@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — AFollow2DComponent (オブジェクト参照プロパティのデモ + 実用コンポーネント)
+// GameFramework — AFollow2DComponent
 //
 // 「別のノードを参照して、そこへ向かって追従する」コンポーネント。インスペクタの
-// 他オブジェクトを安定 ID で参照する ACS_PROPERTY の実例。
+// 他オブジェクトを安定 ID で参照する ACS_PROPERTY を持つ。
 // target は参照先ノードの «安定 ID»(SerialId = エディタ id)を保持する。実行時に
 // id → 生きた ANode* へ解決して追従する(解決は FindBySerialId、結果はキャッシュ)。
 #pragma once
 
 #include "foundation/Types.h"
-#include "foundation/Log.h"
-#include "gameframework/AcsClass.h"   // ACS_FUNCTION マーカー
 #include "gameframework/AComponent.h"
 #include "gameframework/ANode.h"
 
@@ -18,7 +16,7 @@
 namespace acs::game {
 
 /**
- * 参照したノードへ追従する 2D コンポーネント(オブジェクト参照プロパティのデモ)。
+ * 参照したノードへ追従する 2D コンポーネント。
  *
  * @details
  * public メンバ + 単一継承なので ACS_RFIELD_REF / ACS_RFIELD_D で offset 反射でき、
@@ -35,7 +33,7 @@ public:
     /** 追従速度(units/sec)。 */
     f32 speed  = 3.0f;
 
-    /** target に到達したか(実行時の «読み取り専用» ステータス = VisibleAnywhere のデモ)。 */
+    /** target に到達したかを示す実行時の読み取り専用ステータス。 */
     bool arrived = false;
 
     void OnUpdate(f32 dt) noexcept override {
@@ -55,12 +53,6 @@ public:
         if (len <= step || len < 1e-5f) { owner->SetPosition2D(dst); arrived = true; }   // 到達
         else { owner->SetPosition2D(FVec2{ cur.x + d.x / len * step,
                                            cur.y + d.y / len * step }); arrived = false; }
-    }
-
-    /** 現在の参照/速度をログ出力する(BlueprintCallable + CallInEditor のデモ関数)。 */
-    ACS_FUNCTION(BlueprintCallable, CallInEditor)
-    void Ping() noexcept {
-        ACS_LOG_INFO("[Follow] Ping! target=%d speed=%.1f arrived=%d", target, static_cast<double>(speed), arrived ? 1 : 0);
     }
 
 private:
