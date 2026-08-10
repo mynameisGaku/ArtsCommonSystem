@@ -158,4 +158,4 @@ auto asset = r.Value();   // ここに来た時点で成功が保証される
 - リポジトリ直下の `README.md`（必要なもの・ビルド手順）
 - `docs/QUICKSTART.md`（API の使い方）
 - `docs/ARCHITECTURE.md`（設計・モジュール構成）
-- `docs/tutorials/`（機能別ガイド）と `tests/*_tests.cpp`（コア API の回帰契約）
+- `tests/*_tests.cpp`（コア API の回帰契約）

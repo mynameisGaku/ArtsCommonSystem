@@ -255,7 +255,7 @@ AEventBus* component_events = component.GetSubsystem<AEventBus>();
 
 Engine は現在、学習用実行例を同梱していません。再導入候補と受け入れ条件は
 [`LearningSamplesMigrationPlan.md`](acs/docs/LearningSamplesMigrationPlan.md) を正本とします。
-公開 API の使い方は [`QUICKSTART.md`](acs/docs/QUICKSTART.md)、tutorial、
+公開 API の使い方は [`QUICKSTART.md`](acs/docs/QUICKSTART.md) と
 [`RECIPES.md`](acs/docs/RECIPES.md) の自己完結したコード例で説明します。
 
 ## 設計上の前提

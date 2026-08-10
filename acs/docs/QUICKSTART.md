@@ -163,7 +163,6 @@ TResult<void> Setup() noexcept {
 
 ## 次のステップ
 
-scene、node、component を使ったゲーム構成は [`tutorials/README.md`](tutorials/README.md)、
 機能別のコードは [`RECIPES.md`](RECIPES.md) へ進みます。コア API の実行契約は
 `acs/tests/*_tests.cpp` で確認できます。
 
