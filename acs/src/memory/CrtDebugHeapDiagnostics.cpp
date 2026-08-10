@@ -16,6 +16,79 @@ namespace {
 
 constexpr usize kScopeNameCapacity = 64u;
 
+// 標準出力へ書けなかったときに標準エラーへ送る固定結果です。
+constexpr char kStandardOutputWriteFailedFallback[] =
+    "[acs][memory] tracker=msvc_crt_debug_heap status=write_failed target=standard_output "
+    "reason=standard_output_write_failed\n";
+// 標準エラーへ書けなかったときにデバッガだけへ送る固定結果です。
+constexpr char kStandardErrorWriteFailedFallback[] =
+    "[acs][memory] tracker=msvc_crt_debug_heap status=write_failed target=standard_error "
+    "reason=standard_error_write_failed\n";
+// 機械行を構築できなかったときに標準エラーへ送る固定結果です。
+constexpr char kDiagnosticFormatFailedFallback[] =
+    "[acs][memory] tracker=msvc_crt_debug_heap status=write_failed target=diagnostic_format "
+    "reason=diagnostic_format_failed\n";
+
+// 指定ハンドルへ全量を書き、部分書込みや無効ハンドルを失敗にします。
+bool WriteRawDiagnosticText(HANDLE StandardHandle, const char* Text, usize TextLength) noexcept
+{
+    if (!StandardHandle || StandardHandle == INVALID_HANDLE_VALUE || !Text) {
+        return false;
+    }
+
+    usize WrittenTotal = 0u;
+    while (WrittenTotal < TextLength) {
+        const usize Remaining = TextLength - WrittenTotal;
+        const DWORD ChunkSize = Remaining > 0xFFFFFFFFull ? 0xFFFFFFFFu : static_cast<DWORD>(Remaining);
+        DWORD Written = 0u;
+        if (!::WriteFile(StandardHandle, Text + WrittenTotal, ChunkSize, &Written, nullptr) || Written != ChunkSize) {
+            return false;
+        }
+        WrittenTotal += Written;
+    }
+    return true;
+}
+
+// 結果をデバッガと成功・失敗に応じた標準ストリームへ送ります。
+bool WriteDiagnosticLine(const char* Text, bool bFailure) noexcept
+{
+    if (!Text) {
+        return false;
+    }
+
+    ::OutputDebugStringA(Text);
+    const HANDLE StandardHandle = ::GetStdHandle(bFailure ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
+    return WriteRawDiagnosticText(StandardHandle, Text, std::strlen(Text));
+}
+
+// 出力先の失敗を固定文で通知し、標準エラーの再帰書込みを避けます。
+void WriteDiagnosticFailureFallback(bool bFailure) noexcept
+{
+    const char* Fallback = bFailure ? kStandardErrorWriteFailedFallback : kStandardOutputWriteFailedFallback;
+    ::OutputDebugStringA(Fallback);
+    if (!bFailure) {
+        const HANDLE StandardError = ::GetStdHandle(STD_ERROR_HANDLE);
+        (void)WriteRawDiagnosticText(StandardError, Fallback, std::strlen(Fallback));
+    }
+}
+
+// 診断行の切断を成功結果として出さず固定文に置き換えます。
+void WriteDiagnosticFormatFailureFallback() noexcept
+{
+    ::OutputDebugStringA(kDiagnosticFormatFailedFallback);
+    const HANDLE StandardError = ::GetStdHandle(STD_ERROR_HANDLE);
+    (void)WriteRawDiagnosticText(StandardError, kDiagnosticFormatFailedFallback,
+                                 std::strlen(kDiagnosticFormatFailedFallback));
+}
+
+// 通常出力に失敗したときだけ固定フォールバックを送ります。
+void EmitDiagnosticLine(const char* Text, bool bFailure) noexcept
+{
+    if (!WriteDiagnosticLine(Text, bFailure)) {
+        WriteDiagnosticFailureFallback(bFailure);
+    }
+}
+
 #if ACS_COMPILER_MSVC && ACS_BUILD_DEBUG && !ACS_ADDRESS_SANITIZER
 
 struct FCrtDebugHeapScopeImplementation {
@@ -151,38 +224,15 @@ u64 PositiveDifference(usize Current, usize Baseline) noexcept
     return static_cast<u64>(Current - Baseline);
 }
 
-void WriteDiagnosticLine(const char* Text) noexcept
-{
-    if (!Text) {
-        return;
-    }
-
-    ::OutputDebugStringA(Text);
-
-    const HANDLE StandardError = ::GetStdHandle(STD_ERROR_HANDLE);
-    if (!StandardError || StandardError == INVALID_HANDLE_VALUE) {
-        return;
-    }
-
-    const usize TextLength = std::strlen(Text);
-    usize WrittenTotal = 0u;
-    while (WrittenTotal < TextLength) {
-        const usize Remaining = TextLength - WrittenTotal;
-        const DWORD ChunkSize = Remaining > 0xFFFFFFFFull ? 0xFFFFFFFFu : static_cast<DWORD>(Remaining);
-        DWORD Written = 0u;
-        if (!::WriteFile(StandardError, Text + WrittenTotal, ChunkSize, &Written, nullptr) || Written == 0u) {
-            break;
-        }
-        WrittenTotal += Written;
-    }
-}
-
 void WriteScopeReport(const FCrtDebugHeapScopeImplementation& Implementation,
                       const FCrtDebugHeapScopeReport& Report) noexcept
 {
     const char* LeakResult = Report.bMeasurementConclusive ? (Report.bLeakDetected ? "true" : "false") : "inconclusive";
     const char* DifferenceResult = Report.bMeasurementConclusive ? (Report.bDifferenceDetected ? "true" : "false")
                                                                  : "inconclusive";
+    // 検査確定とリーク有無から出力先を選びます。
+    const bool bFailure = !Report.bMeasurementConclusive || Report.bLeakDetected;
+    const char* Status = !Report.bMeasurementConclusive ? "inconclusive" : (Report.bLeakDetected ? "leak_detected" : "ok");
     const char* Reason = "none";
     if (!Report.bAllocationTrackingEnabled) {
         Reason = "allocation_tracking_disabled";
@@ -203,7 +253,7 @@ void WriteScopeReport(const FCrtDebugHeapScopeImplementation& Implementation,
         "crt_bytes=%llu difference_detected=%s heap_valid=%s\n",
         Implementation.ScopeName, Report.bMeasurementConclusive ? "true" : "false",
         Report.bConfigurationStable ? "true" : "false", Report.bAllocationTrackingEnabled ? "true" : "false",
-        LeakResult, Report.bMeasurementConclusive ? "ok" : "inconclusive", Reason,
+        LeakResult, Status, Reason,
         static_cast<unsigned long long>(Report.OutstandingAllocationCount),
         static_cast<unsigned long long>(Report.OutstandingBytes),
         static_cast<unsigned long long>(Report.NormalAllocationCount),
@@ -211,9 +261,10 @@ void WriteScopeReport(const FCrtDebugHeapScopeImplementation& Implementation,
         static_cast<unsigned long long>(Report.ClientAllocationCount),
         static_cast<unsigned long long>(Report.ClientBytes), static_cast<unsigned long long>(Report.CrtAllocationCount),
         static_cast<unsigned long long>(Report.CrtBytes), DifferenceResult, Report.bHeapValid ? "true" : "false");
-    if (Result > 0) {
-        Line[sizeof(Line) - 1u] = '\0';
-        WriteDiagnosticLine(Line);
+    if (Result > 0 && static_cast<usize>(Result) < sizeof(Line)) {
+        EmitDiagnosticLine(Line, bFailure);
+    } else {
+        WriteDiagnosticFormatFailureFallback();
     }
 }
 
@@ -313,7 +364,7 @@ const char* UnsupportedReason() noexcept
 
 void WriteUnsupportedScopeReport(const FCrtDebugHeapScopeImplementation& Implementation) noexcept
 {
-    char Line[384]{};
+    char Line[1024]{};
     const int Result = std::snprintf(Line, sizeof(Line),
                                      "[acs][memory] tracker=msvc_crt_debug_heap supported=false "
                                      "scope=%s measurement_performed=false measurement_conclusive=false "
@@ -323,18 +374,12 @@ void WriteUnsupportedScopeReport(const FCrtDebugHeapScopeImplementation& Impleme
                                      "normal_bytes=0 client_allocations=0 client_bytes=0 crt_allocations=0 "
                                      "crt_bytes=0 difference_detected=inconclusive heap_valid=inconclusive\n",
                                      Implementation.ScopeName, UnsupportedReason());
-    if (Result <= 0) {
+    if (Result <= 0 || static_cast<usize>(Result) >= sizeof(Line)) {
+        WriteDiagnosticFormatFailureFallback();
         return;
     }
 
-    Line[sizeof(Line) - 1u] = '\0';
-    ::OutputDebugStringA(Line);
-    const HANDLE StandardError = ::GetStdHandle(STD_ERROR_HANDLE);
-    if (!StandardError || StandardError == INVALID_HANDLE_VALUE) {
-        return;
-    }
-    DWORD Written = 0u;
-    (void)::WriteFile(StandardError, Line, static_cast<DWORD>(std::strlen(Line)), &Written, nullptr);
+    EmitDiagnosticLine(Line, true);
 }
 
 #endif
@@ -654,11 +699,12 @@ FCrtDebugHeapProcessLeakReport CCrtDebugHeapDiagnostics::DumpProcessMemoryLeaks(
             "supported=true inspection_succeeded=%s leak_detected=%s status=%s reason=%s\n",
             Report.bInspectionSucceeded ? "true" : "false",
             Report.bInspectionSucceeded ? (Report.bLeakDetected ? "true" : "false") : "inconclusive",
-            Report.bInspectionSucceeded ? "ok" : "inconclusive",
-            Report.bInspectionSucceeded ? "none" : "report_hook_reentry");
-        if (Length > 0) {
-            Line[sizeof(Line) - 1u] = '\0';
-            WriteDiagnosticLine(Line);
+            !Report.bInspectionSucceeded ? "inconclusive" : (Report.bLeakDetected ? "leak_detected" : "ok"),
+            !Report.bInspectionSucceeded ? "report_hook_reentry" : "none");
+        if (Length > 0 && static_cast<usize>(Length) < sizeof(Line)) {
+            EmitDiagnosticLine(Line, !Report.bInspectionSucceeded || Report.bLeakDetected);
+        } else {
+            WriteDiagnosticFormatFailureFallback();
         }
     }
 #else
@@ -670,14 +716,10 @@ FCrtDebugHeapProcessLeakReport CCrtDebugHeapDiagnostics::DumpProcessMemoryLeaks(
             "supported=false inspection_succeeded=false leak_detected=inconclusive "
             "status=unsupported reason=%s\n",
             UnsupportedReason());
-        if (Length > 0) {
-            Line[sizeof(Line) - 1u] = '\0';
-            ::OutputDebugStringA(Line);
-            const HANDLE StandardError = ::GetStdHandle(STD_ERROR_HANDLE);
-            if (StandardError && StandardError != INVALID_HANDLE_VALUE) {
-                DWORD Written = 0u;
-                (void)::WriteFile(StandardError, Line, static_cast<DWORD>(std::strlen(Line)), &Written, nullptr);
-            }
+        if (Length > 0 && static_cast<usize>(Length) < sizeof(Line)) {
+            EmitDiagnosticLine(Line, true);
+        } else {
+            WriteDiagnosticFormatFailureFallback();
         }
     }
 #endif

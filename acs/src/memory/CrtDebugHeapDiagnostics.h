@@ -26,7 +26,7 @@ struct FCrtDebugHeapScopeConfiguration {
     /** CRT 自身の内部ブロックもリーク判定へ含める。通常は false を推奨する。 */
     bool bIncludeCrtBlocksInLeakResult = false;
 
-    /** End 時に一行の機械可読ログを標準エラーとデバッガへ出力する。 */
+    /** End 時に成否に応じた機械可読ログを標準出力または標準エラーへ出力する。 */
     bool bWriteMachineReadableLog = true;
 };
 
@@ -219,12 +219,11 @@ public:
     static void DumpAllLiveObjects() noexcept;
 
     /**
-     * `_CrtDumpMemoryLeaks` を直接実行し、戻り値を機械判定可能な結果として返す。
-     *
-     * @details MSVC Debug CRT 専用。通常は対象サブシステムを終了した静止点で呼ぶ。
-     * `bWriteMachineReadableLog` が true なら標準エラーとデバッガへ最終判定を1行出力する。
-     * @param bWriteMachineReadableLog 機械可読な最終判定を出力するか。
-     * @return 対応状況、検査完了、リーク検出の各状態。
+     * `_CrtDumpMemoryLeaks` を実行し、結果を機械可読な1行として出力します。
+     * 成功は標準出力、リーク・検査不能・非対応・標準出力の書込み失敗は標準エラーへ送ります。
+     * 標準エラーの書込み失敗はデバッガだけへ送ります。
+     * @param bWriteMachineReadableLog 機械可読な判定を出力するか。
+     * @return 対応状況、検査完了、リーク検出の結果。
      */
     static FCrtDebugHeapProcessLeakReport DumpProcessMemoryLeaks(
         bool bWriteMachineReadableLog = true) noexcept;

@@ -47,6 +47,10 @@ debt が毎ラウンド 0 に戻ること、明示作成した HANDLE をすべ�
 連続増加が上限内で停止することを別々に検証する。Winsock provider の遅延初期化 HANDLE は
 総数の完全一致だけではリークと断定しない。
 
+## 診断出力契約
+
+機械可読な成功結果は標準出力へ1行だけ書きます。リーク検出、検査不能、非対応、標準出力の書込み失敗は標準エラーへ書きます。標準エラーの書込み失敗はデバッガだけへ送ります。部分書込みも失敗として `status=write_failed` を記録します。機械行の構築失敗または切断検知は `target=diagnostic_format` と `reason=diagnostic_format_failed` を標準エラーとデバッガへ固定出力します。成功状態は `status=ok`、リークは `status=leak_detected`、検査不能は `status=inconclusive`、非対応は `status=unsupported` です。
+
 ## MSVC Debug CRT
 
 MSVC Debug かつ AddressSanitizer 無効の構成では、`FApplication` の基盤寿命を

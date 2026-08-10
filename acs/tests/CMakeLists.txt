@@ -948,10 +948,8 @@ target_link_libraries(acs_foundation_optimization_wave_i_bench PRIVATE
     ACS::Platform
 )
 
-# Debug CRT 専用 probe は multi-config でも target を生成し、実行構成だけ Debug に限定する。
-if(MSVC
-   AND NOT ACS_ENABLE_ADDRESS_SANITIZER
-   AND (CMAKE_CONFIGURATION_TYPES OR CMAKE_BUILD_TYPE STREQUAL "Debug"))
+# CRT診断probeをDebugとReleaseの各出力経路で検証する。
+if(MSVC AND NOT ACS_ENABLE_ADDRESS_SANITIZER)
     add_executable(acs_crt_debug_heap_process_tests
         crt_debug_heap_process_tests.cpp
     )
@@ -965,7 +963,14 @@ if(MSVC
     add_test(NAME ACS.CrtDumpMemoryLeaksPositive
              COMMAND acs_crt_debug_heap_process_tests --positive
              CONFIGURATIONS Debug)
+    add_test(NAME ACS.CrtDiagnosticRouting
+             COMMAND acs_crt_debug_heap_process_tests --verify-routing
+             CONFIGURATIONS Debug)
+    add_test(NAME ACS.CrtDiagnosticRoutingRelease
+             COMMAND acs_crt_debug_heap_process_tests --verify-release
+             CONFIGURATIONS Release)
     set_tests_properties(ACS.CrtDumpMemoryLeaksClean ACS.CrtDumpMemoryLeaksPositive
+                         ACS.CrtDiagnosticRouting ACS.CrtDiagnosticRoutingRelease
                          PROPERTIES TIMEOUT 30)
 endif()
 
