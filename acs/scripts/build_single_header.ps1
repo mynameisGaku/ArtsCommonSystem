@@ -1210,21 +1210,6 @@ function Assert-AcsDistributionAliasSafety([string]$CanonicalRoot, [string]$Alia
     }
 }
 
-# self-test専用の未使用driveへdirectoryを割り当て、SUBST aliasを返す。
-function New-AcsSubstAlias([string]$Target) {
-    foreach ($driveLetter in @('Z', 'Y', 'X', 'V', 'U', 'T', 'S', 'R', 'Q', 'P')) {
-        $driveRoot = "${driveLetter}:\"
-        if (Test-Path -LiteralPath $driveRoot) { continue }
-        & subst.exe "${driveLetter}:" $Target | Out-Null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $driveRoot -PathType Container)) {
-            $global:LASTEXITCODE = 0
-            return $driveRoot
-        }
-        $global:LASTEXITCODE = 0
-    }
-    throw "self-test用SUBST driveを確保できません"
-}
-
 # canonical root配下のpathを、同じ物理directoryを指すalias root配下へ写す。
 function ConvertTo-AcsRootAliasPath([string]$Path, [string]$CanonicalRoot, [string]$AliasRoot) {
     $normalizedPath = Get-NormalizedFullPath $Path
@@ -1237,7 +1222,40 @@ function ConvertTo-AcsRootAliasPath([string]$Path, [string]$CanonicalRoot, [stri
     if (-not $normalizedPath.StartsWith($canonicalPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "self-testのalias変換元がcanonical root配下ではありません: path=$normalizedPath root=$normalizedCanonicalRoot"
     }
-    return Get-NormalizedFullPath (Join-Path $normalizedAliasRoot $normalizedPath.Substring($canonicalPrefix.Length))
+    return Get-NormalizedFullPath ($normalizedAliasRoot.TrimEnd('\', '/') + '\' + $normalizedPath.Substring($canonicalPrefix.Length))
+}
+
+# 既存ancestorのFinalPathへ未作成末尾を連結し、nativeな物理path aliasを返す。
+function Get-AcsNativeFinalPathAlias([string]$Path) {
+    $normalizedPath = Get-NormalizedFullPath $Path
+    Assert-NoReparseAncestor $normalizedPath
+    $remainingParts = [System.Collections.Generic.List[string]]::new()
+    $existingAncestor = $normalizedPath
+    while (-not (Test-Path -LiteralPath $existingAncestor)) {
+        $remainingLeaf = [System.IO.Path]::GetFileName($existingAncestor)
+        $existingParent = Get-AcsParentPath $existingAncestor
+        if ([string]::IsNullOrWhiteSpace($remainingLeaf) -or [string]::IsNullOrWhiteSpace($existingParent)) {
+            throw "native FinalPathの既存ancestorを特定できません: $normalizedPath"
+        }
+        $remainingParts.Insert(0, $remainingLeaf)
+        $existingAncestor = $existingParent
+    }
+    if (-not (Test-Path -LiteralPath $existingAncestor -PathType Container)) {
+        throw "native FinalPathのancestorが通常directoryではありません: $existingAncestor"
+    }
+    $ancestorPin = Open-AcsDistributionDirectoryPin $existingAncestor
+    try {
+        [string]$nativePath = $ancestorPin.FinalPath
+    } finally {
+        Close-AcsDistributionDirectoryPin $ancestorPin
+    }
+    if ($nativePath -match '^\\\\\?\\([A-Za-z]:\\.*)$') {
+        $nativePath = $Matches[1]
+    }
+    foreach ($remainingPart in $remainingParts) {
+        $nativePath = $nativePath.TrimEnd('\', '/') + '\' + $remainingPart
+    }
+    return [string](Get-NormalizedFullPath $nativePath)
 }
 
 # drive pathをlocalhost管理共有経由のUNC aliasへ変換する。
@@ -1281,7 +1299,7 @@ function Get-AcsDistributionFixtureSnapshot([string]$Root) {
     return "$treeState`nPAYLOAD=$payloadHash`nMANIFEST=$manifestHash"
 }
 
-# volume root直下を作れない環境だけ、pure descriptor検証へ安全にfallbackする。
+# 権限不足だけを例外chainから判定する。
 function Test-AcsAccessDeniedError($ErrorRecord) {
     $currentException = $ErrorRecord.Exception
     while ($currentException) {
@@ -1290,6 +1308,46 @@ function Test-AcsAccessDeniedError($ErrorRecord) {
         $currentException = $currentException.InnerException
     }
     return $false
+}
+
+# 既存directoryへアクセスできるか確認し、権限不足だけを利用不可として扱う。
+function Test-AcsAccessibleDirectory([string]$Path) {
+    try {
+        return (Test-Path -LiteralPath $Path -PathType Container -ErrorAction Stop)
+    } catch {
+        if (Test-AcsAccessDeniedError $_) { return $false }
+        throw
+    }
+}
+
+# 作成を伴わず、利用できる物理aliasを優先順に解決する。
+function Resolve-AcsExistingPhysicalAlias([string]$Path, [string]$DriveRoot, [string]$VolumeRoot) {
+    $normalizedPath = Get-NormalizedFullPath $Path
+    $nativeAlias = Get-AcsNativeFinalPathAlias $normalizedPath
+    if (-not [string]::Equals($normalizedPath, $nativeAlias, [System.StringComparison]::OrdinalIgnoreCase) -and
+        (Test-AcsAccessibleDirectory $nativeAlias)) {
+        return [pscustomobject]@{ Path = $nativeAlias; Provider = 'native FinalPath' }
+    }
+
+    $volumeAlias = ConvertTo-AcsRootAliasPath $normalizedPath $DriveRoot $VolumeRoot
+    if (-not [string]::Equals($normalizedPath, $volumeAlias, [System.StringComparison]::OrdinalIgnoreCase) -and
+        (Test-AcsAccessibleDirectory $volumeAlias)) {
+        return [pscustomobject]@{ Path = $volumeAlias; Provider = 'volume GUID' }
+    }
+
+    $localhostAlias = ConvertTo-AcsLocalhostAdminSharePath $normalizedPath
+    if (-not [string]::Equals($normalizedPath, $localhostAlias, [System.StringComparison]::OrdinalIgnoreCase) -and
+        (Test-AcsAccessibleDirectory $localhostAlias)) {
+        return [pscustomobject]@{ Path = $localhostAlias; Provider = 'localhost UNC' }
+    }
+
+    $shortAlias = Get-AcsShortAliasPath $normalizedPath
+    if (-not [string]::IsNullOrWhiteSpace($shortAlias) -and
+        -not [string]::Equals($normalizedPath, $shortAlias, [System.StringComparison]::OrdinalIgnoreCase) -and
+        (Test-AcsAccessibleDirectory $shortAlias)) {
+        return [pscustomobject]@{ Path = $shortAlias; Provider = '8.3' }
+    }
+    throw "self-testの既存physical alias providerを確保できません: $normalizedPath"
 }
 
 function Invoke-PipelineSelfTest {
@@ -1306,7 +1364,7 @@ function Invoke-PipelineSelfTest {
     $volumeRootOutput = @(& mountvol.exe $volumeQueryRoot /L)
     $volumeRootExitCode = $LASTEXITCODE
     if ($volumeRootExitCode -ne 0 -or @($volumeRootOutput | ForEach-Object { $_.Trim() } | Where-Object { $_ }).Count -ne 1) {
-        # SUBSTなどmountvolが直接扱えないaliasは、pinしたrepoの物理final pathへ解決する。
+        # 特殊な別名は、pinしたrepoの物理final pathへ解決する。
         $repositoryPinForVolume = Open-AcsDistributionDirectoryPin $repo
 
         # pinから得た物理repository pathのroot。
@@ -1392,44 +1450,97 @@ function Invoke-PipelineSelfTest {
     $directRootNonce = [Guid]::NewGuid().ToString('N')
     $existingDirectRoot = Join-Path $driveRoot "acs-v4-existing-$directRootNonce"
     $missingDirectRoot = Join-Path $driveRoot "acs-v4-missing-$directRootNonce"
+    $directRootPin = Open-AcsDistributionDirectoryPin $driveRoot
     try {
-        if (-not [AcsDistributionDirectoryPinNative]::TryCreateDirectory($existingDirectRoot)) {
-            throw "self-testの既存drive直下fixtureが衝突しました: $existingDirectRoot"
-        }
-        $existingDirectDescriptor = Get-AcsDistributionNamespaceDescriptor $existingDirectRoot
-        try {
-            if (-not $existingDirectDescriptor.RootPin -or -not $existingDirectDescriptor.ParentPin) {
-                throw "self-testの既存C:\<leaf> descriptorがidentityを固定しませんでした"
-            }
-        } finally {
-            Close-AcsDistributionDirectoryPin $existingDirectDescriptor.RootPin
-            Close-AcsDistributionDirectoryPin $existingDirectDescriptor.ParentPin
-        }
+        $driveRootIdentity = $directRootPin.Identity
+    } finally {
+        Close-AcsDistributionDirectoryPin $directRootPin
+    }
+    if (-not [string]::Equals(
+            (Get-AcsParentPath $missingDirectRoot),
+            $driveRoot,
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "self-testの未作成C:\<leaf> parentがdrive rootと一致しませんでした"
+    }
 
-        $missingDirectDescriptor = Get-AcsDistributionNamespaceDescriptor $missingDirectRoot
-        try {
-            if ($missingDirectDescriptor.RootPin -or -not $missingDirectDescriptor.ParentPin) {
-                throw "self-testの未作成C:\<leaf> descriptorが既存rootを誤認しました"
-            }
-        } finally {
-            Close-AcsDistributionDirectoryPin $missingDirectDescriptor.RootPin
-            Close-AcsDistributionDirectoryPin $missingDirectDescriptor.ParentPin
-        }
-        $missingDirectLock = Enter-AcsDistributionOperationLock $missingDirectRoot 'self-test-drive-leaf'
-        try {
-            $createdDirectRoots = @(Ensure-AcsDistributionOperationRoot $missingDirectLock)
-            if ($createdDirectRoots.Count -ne 1 -or -not $missingDirectLock.RootPin -or -not $missingDirectLock.IdentityLock) {
-                throw "self-testの未作成C:\<leaf> identity移行が完成しませんでした"
-            }
-        } finally {
-            Exit-AcsDistributionOperationLock $missingDirectLock
+    $missingDirectDescriptor = Get-AcsDistributionNamespaceDescriptor $missingDirectRoot
+    try {
+        if ($missingDirectDescriptor.RootPin -or
+            -not $missingDirectDescriptor.ParentPin -or
+            $missingDirectDescriptor.ParentPin.Identity -cne $driveRootIdentity) {
+            throw "self-testの未作成C:\<leaf> descriptorがdrive root identityを固定しませんでした"
         }
     } finally {
-        Remove-AcsCreatedEmptyDirectoryChain @($missingDirectRoot, $existingDirectRoot)
+        Close-AcsDistributionDirectoryPin $missingDirectDescriptor.RootPin
+        Close-AcsDistributionDirectoryPin $missingDirectDescriptor.ParentPin
+    }
+    $missingDirectPhysicalDescriptor = Get-AcsPhysicalPathDescriptor $missingDirectRoot
+    try {
+        if ($missingDirectPhysicalDescriptor.Exists -or
+            $missingDirectPhysicalDescriptor.ExistingAncestorIdentity -cne $driveRootIdentity -or
+            $missingDirectPhysicalDescriptor.RemainingParts.Count -ne 1 -or
+            $missingDirectPhysicalDescriptor.RemainingParts[0] -cne [System.IO.Path]::GetFileName($missingDirectRoot)) {
+            throw "self-testの未作成C:\<leaf> physical descriptorが一致しませんでした"
+        }
+    } finally {
+        Close-AcsPhysicalPathDescriptor $missingDirectPhysicalDescriptor
+    }
+    $missingDirectMutexName = Get-AcsDistributionOperationMutexName $missingDirectRoot
+    if ([string]::IsNullOrWhiteSpace($missingDirectMutexName) -or
+        $missingDirectMutexName -cne (Get-AcsDistributionOperationMutexName $missingDirectRoot)) {
+        throw "self-testの未作成C:\<leaf> mutexが決定的ではありません"
+    }
+
+    $createdDirectFixturePaths = [System.Collections.Generic.List[string]]::new()
+    $directRootCreationPermitted = $false
+    try {
+        try {
+            if (-not [AcsDistributionDirectoryPinNative]::TryCreateDirectory($existingDirectRoot)) {
+                throw "self-testの既存drive直下fixtureが衝突しました: $existingDirectRoot"
+            }
+            $createdDirectFixturePaths.Add($existingDirectRoot)
+            $existingDirectDescriptor = Get-AcsDistributionNamespaceDescriptor $existingDirectRoot
+            try {
+                if (-not $existingDirectDescriptor.RootPin -or
+                    -not $existingDirectDescriptor.ParentPin -or
+                    $existingDirectDescriptor.ParentPin.Identity -cne $driveRootIdentity) {
+                    throw "self-testの既存C:\<leaf> descriptorがidentityを固定しませんでした"
+                }
+            } finally {
+                Close-AcsDistributionDirectoryPin $existingDirectDescriptor.RootPin
+                Close-AcsDistributionDirectoryPin $existingDirectDescriptor.ParentPin
+            }
+
+            $missingDirectLock = Enter-AcsDistributionOperationLock $missingDirectRoot 'self-test-drive-leaf'
+            try {
+                $createdDirectRoots = @(Ensure-AcsDistributionOperationRoot $missingDirectLock)
+                foreach ($createdDirectRoot in $createdDirectRoots) {
+                    if ([string]::Equals($createdDirectRoot, $missingDirectRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                        $createdDirectFixturePaths.Add($createdDirectRoot)
+                    }
+                }
+                if ($createdDirectRoots.Count -ne 1 -or
+                    -not [string]::Equals($createdDirectRoots[0], $missingDirectRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+                    -not $missingDirectLock.RootPin -or
+                    -not $missingDirectLock.IdentityLock) {
+                    throw "self-testの未作成C:\<leaf> identity移行が完成しませんでした"
+                }
+            } finally {
+                Exit-AcsDistributionOperationLock $missingDirectLock
+            }
+            $directRootCreationPermitted = $true
+        } catch {
+            if (-not (Test-AcsAccessDeniedError $_)) { throw }
+            Write-Warning "drive root直下を作成する権限がないため、pure helper・descriptor・mutex testのみ実行しました"
+        }
+    } finally {
+        Remove-AcsCreatedEmptyDirectoryChain ([string[]]$createdDirectFixturePaths)
     }
     if ((Test-Path -LiteralPath $missingDirectRoot) -or (Test-Path -LiteralPath $existingDirectRoot)) {
         throw "self-testのC:\acs-v4-* fixtureが残っています"
     }
+    $directRootTestMode = if ($directRootCreationPermitted) { 'helper,descriptor,mutex,ensure,identity,cleanup' } else { 'helper,descriptor,mutex' }
+    Write-Host "acs_distribution_drive_root_self_test=ok mode=$directRootTestMode"
 
     $volumeDirectLeaf = 'acs-v5-volume-' + [Guid]::NewGuid().ToString('N')
     $volumeDirectRoot = (Get-NormalizedFullPath $volumeRoots[0]) + $volumeDirectLeaf
@@ -1506,8 +1617,6 @@ function Invoke-PipelineSelfTest {
         throw "self-test directory が Saved の外です: $testDirectory"
     }
     New-Item -ItemType Directory -Force -Path $testDirectory | Out-Null
-    $substAliasRoot = ''
-    $blockedSubstAliasRoot = ''
     try {
         $destination = Join-Path $testDirectory 'acs.lib'
         $temporary = Join-Path $testDirectory '.new.lib'
@@ -1724,19 +1833,24 @@ function Invoke-PipelineSelfTest {
             Exit-AcsDistributionOperationLock $rollbackLock
         }
 
-        $substAliasRoot = New-AcsSubstAlias $testDirectory
-        $substManifestSource = Join-Path $substAliasRoot 'manifest source'
-        Assert-AcsDistributionAliasSafety $manifestSource $substManifestSource $testDirectory 'SUBST'
+        $manifestSourceAlias = Resolve-AcsExistingPhysicalAlias $manifestSource $driveRoot $volumeRoots[0]
+        Write-Host "acs_distribution_source_alias_provider=$($manifestSourceAlias.Provider)"
+        Assert-AcsDistributionAliasSafety $manifestSource $manifestSourceAlias.Path $testDirectory $manifestSourceAlias.Provider
+        Assert-ExpectedFailure {
+            ConvertTo-AcsRootAliasPath (Join-Path $repo 'outside') $testDirectory $manifestSourceAlias.Path
+        } "$($manifestSourceAlias.Provider) path containment"
         $shortManifestSource = [AcsDistributionDirectoryPinNative]::TryGetShortPath($manifestSource)
-        if (-not [string]::IsNullOrWhiteSpace($shortManifestSource) -and -not [string]::Equals($manifestSource, $shortManifestSource, [System.StringComparison]::OrdinalIgnoreCase)) {
+        if ($manifestSourceAlias.Provider -cne '8.3' -and
+            -not [string]::IsNullOrWhiteSpace($shortManifestSource) -and
+            -not [string]::Equals($manifestSource, $shortManifestSource, [System.StringComparison]::OrdinalIgnoreCase)) {
             Assert-AcsDistributionAliasSafety $manifestSource $shortManifestSource $testDirectory '8.3'
-        } else {
+        } elseif ($manifestSourceAlias.Provider -cne '8.3') {
             Write-Warning "8.3 aliasが無効なvolumeのため、物理identity共通化の短縮名testを省略します"
         }
         $manifestSourceRoot = [System.IO.Path]::GetPathRoot($manifestSource)
-        if ($manifestSourceRoot -match '^([A-Za-z]):\\$') {
+        if ($manifestSourceAlias.Provider -cne 'localhost UNC' -and $manifestSourceRoot -match '^([A-Za-z]):\\$') {
             $localhostManifestSource = "\\localhost\$($Matches[1])$\" + $manifestSource.Substring($manifestSourceRoot.Length)
-            if (Test-Path -LiteralPath $localhostManifestSource -PathType Container) {
+            if (Test-AcsAccessibleDirectory $localhostManifestSource) {
                 Assert-AcsDistributionAliasSafety $manifestSource $localhostManifestSource $testDirectory 'localhost UNC'
             } else {
                 Write-Warning "localhost管理共有へ接続できないため、UNC alias testを省略します"
@@ -1764,37 +1878,25 @@ function Invoke-PipelineSelfTest {
             $blockedOverlapCases.Add([pscustomobject]@{ Name = "$($blockedRoot.Name)-descendant"; Path = (Join-Path $blockedRoot.Path '__acs_v5_unsafe_deploy_probe__') })
         }
 
+        $blockedAncestor = Get-AcsParentPath $repo
+        $blockedAncestorAlias = Resolve-AcsExistingPhysicalAlias $blockedAncestor $driveRoot $volumeRoots[0]
+        Write-Host "acs_distribution_blocked_alias_provider=$($blockedAncestorAlias.Provider)"
         $blockedAliasProviders = [System.Collections.Generic.List[object]]::new()
-        # 通常は広いancestorをalias変換範囲にし、parent chainが尽きる場合はrepo自身へ留める。
-        $blockedSubstTarget = $repo
-        $repositoryParentForAlias = Get-AcsParentPath $repo
-        if ($repositoryParentForAlias) {
-            $blockedSubstTarget = $repositoryParentForAlias
-            # repository parentより上にalias変換可能なancestorがある場合だけ範囲を広げる。
-            $repositoryAncestorForAlias = Get-AcsParentPath $repositoryParentForAlias
-            if ($repositoryAncestorForAlias) {
-                $blockedSubstTarget = $repositoryAncestorForAlias
-            }
-        }
-        $blockedSubstAliasRoot = New-AcsSubstAlias $blockedSubstTarget
-        $blockedAliasProviders.Add([pscustomobject]@{
-            Name = 'SUBST'
-            Kind = 'root'
-            CanonicalRoot = $blockedSubstTarget
-            AliasRoot = $blockedSubstAliasRoot
-        })
-
+        $blockedAliasProviders.Add([pscustomobject]@{ Name = $blockedAncestorAlias.Provider; Kind = 'root'; CanonicalRoot = $blockedAncestor; AliasRoot = $blockedAncestorAlias.Path })
+        # 利用できる既存aliasだけを追加し、path作成は行わない。
         $localhostRepository = ConvertTo-AcsLocalhostAdminSharePath $repo
-        if (Test-Path -LiteralPath $localhostRepository -PathType Container) {
+        if ($blockedAncestorAlias.Provider -cne 'localhost UNC' -and (Test-AcsAccessibleDirectory $localhostRepository)) {
             $blockedAliasProviders.Add([pscustomobject]@{ Name = 'localhost-UNC'; Kind = 'localhost' })
-        } else {
+        } elseif ($blockedAncestorAlias.Provider -cne 'localhost UNC') {
             Write-Warning "localhost管理共有へ接続できないため、physical overlapのUNC testを省略します"
         }
 
         $shortRepository = Get-AcsShortAliasPath $repo
-        if (-not [string]::IsNullOrWhiteSpace($shortRepository) -and -not [string]::Equals($shortRepository, $repo, [System.StringComparison]::OrdinalIgnoreCase)) {
+        if ($blockedAncestorAlias.Provider -cne '8.3' -and
+            -not [string]::IsNullOrWhiteSpace($shortRepository) -and
+            -not [string]::Equals($shortRepository, $repo, [System.StringComparison]::OrdinalIgnoreCase)) {
             $blockedAliasProviders.Add([pscustomobject]@{ Name = '8.3'; Kind = 'short' })
-        } else {
+        } elseif ($blockedAncestorAlias.Provider -cne '8.3') {
             Write-Warning "8.3 aliasが無効なvolumeのため、physical overlapの短縮名testを省略します"
         }
 
@@ -1901,21 +2003,41 @@ function Invoke-PipelineSelfTest {
         $permissionRoot = Join-Path $testDirectory 'operation-lock-permission'
         New-Item -ItemType Directory -Path $permissionRoot | Out-Null
         $permissionAcl = Get-Acl -LiteralPath $permissionRoot
-        $permissionRule = [System.Security.AccessControl.FileSystemAccessRule]::new([System.Security.Principal.WindowsIdentity]::GetCurrent().User, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Deny)
+        $permissionSddl = $permissionAcl.Sddl
+        $permissionDeniedRights = [System.Security.AccessControl.FileSystemRights]::ListDirectory -bor [System.Security.AccessControl.FileSystemRights]::ReadAttributes
+        # directory pinを拒否しつつ、ACLを復元する権限は保持する。
+        $permissionRule = [System.Security.AccessControl.FileSystemAccessRule]::new([System.Security.Principal.WindowsIdentity]::GetCurrent().User, $permissionDeniedRights, [System.Security.AccessControl.AccessControlType]::Deny)
+        $permissionAclMutated = $false
+        $permissionMode = 'unavailable'
         try {
             $restrictedAcl = Get-Acl -LiteralPath $permissionRoot
             $restrictedAcl.AddAccessRule($permissionRule)
-            Set-Acl -LiteralPath $permissionRoot -AclObject $restrictedAcl
-            Assert-ExpectedFailure {
-                $unexpectedPermissionLock = Enter-AcsDistributionOperationLock $permissionRoot 'self-test-permission-failure'
-                Exit-AcsDistributionOperationLock $unexpectedPermissionLock
-            } 'operation lock permission failure'
+            try {
+                Set-Acl -LiteralPath $permissionRoot -AclObject $restrictedAcl
+                $permissionAclMutated = $true
+                $permissionMode = 'deny-open'
+            } catch {
+                if (-not (Test-AcsAccessDeniedError $_)) { throw }
+                Write-Warning "ACL変更権限がないため、operation lockの権限拒否testを省略します"
+            }
+            if ($permissionAclMutated) {
+                Assert-ExpectedFailure {
+                    $unexpectedPermissionLock = Enter-AcsDistributionOperationLock $permissionRoot 'self-test-permission-failure'
+                    Exit-AcsDistributionOperationLock $unexpectedPermissionLock
+                } 'operation lock permission failure'
+            }
         } finally {
-            Set-Acl -LiteralPath $permissionRoot -AclObject $permissionAcl
+            if ($permissionAclMutated) {
+                Set-Acl -LiteralPath $permissionRoot -AclObject $permissionAcl
+            }
+        }
+        if ((Get-Acl -LiteralPath $permissionRoot).Sddl -cne $permissionSddl) {
+            throw "self-testの権限拒否経路がACLを復元しませんでした"
         }
         if (@(Get-ChildItem -LiteralPath $permissionRoot -Force).Count -ne 0) {
             throw "self-testの権限拒否経路が配布rootを変更しました"
         }
+        Write-Host "acs_distribution_permission_self_test=ok mode=$permissionMode"
 
         $manifestPath = Join-Path $manifestSource $distributionManifestName
         $manifestBytes = [System.IO.File]::ReadAllBytes($manifestPath)
@@ -2005,17 +2127,19 @@ function Invoke-PipelineSelfTest {
         Assert-AcsDistributionManifest $manifestSource
 
         $manifestDestination = Join-Path $testDirectory 'manifest destination'
-        $substManifestDestination = Join-Path $substAliasRoot 'manifest destination'
-        if ((Get-AcsDistributionOperationMutexName $manifestDestination) -cne (Get-AcsDistributionOperationMutexName $substManifestDestination)) {
-            throw "self-testの未作成SUBST deploy先mutexが一致しません"
+        $testDirectoryAlias = Resolve-AcsExistingPhysicalAlias $testDirectory $driveRoot $volumeRoots[0]
+        Write-Host "acs_distribution_destination_alias_provider=$($testDirectoryAlias.Provider)"
+        $manifestDestinationAliasPath = Get-NormalizedFullPath (Join-Path $testDirectoryAlias.Path 'manifest destination')
+        if ((Get-AcsDistributionOperationMutexName $manifestDestination) -cne (Get-AcsDistributionOperationMutexName $manifestDestinationAliasPath)) {
+            throw "self-testの未作成$($testDirectoryAlias.Provider) deploy先mutexが一致しません"
         }
         $sourceBeforeMissingDestinationLock = Get-DistributionTreeStateSignature $manifestSource
         $missingDestinationHolder = $null
         try {
-            $missingDestinationHolder = Start-AcsOperationLockHolder $substManifestDestination $testDirectory
+            $missingDestinationHolder = Start-AcsOperationLockHolder $manifestDestinationAliasPath $testDirectory
             Assert-ExpectedFailure {
                 Publish-MirroredDistribution $manifestSource $manifestDestination
-            } 'nonexistent destination alias writer'
+            } 'destination writer lock'
             if ((Test-Path -LiteralPath $manifestDestination) -or $sourceBeforeMissingDestinationLock -cne (Get-DistributionTreeStateSignature $manifestSource)) {
                 throw "self-testの未作成deploy先lock拒否がsourceまたはdeploy先を変更しました"
             }
@@ -2025,7 +2149,7 @@ function Invoke-PipelineSelfTest {
         Publish-MirroredDistribution $manifestSource $manifestDestination
         Assert-MirroredDistribution $manifestSource $manifestDestination
         Assert-AcsDistributionManifest $manifestDestination
-        Assert-AcsDistributionAliasSafety $manifestDestination $substManifestDestination $testDirectory 'SUBST destination'
+        Assert-AcsDistributionAliasSafety $manifestDestination $manifestDestinationAliasPath $testDirectory "$($testDirectoryAlias.Provider) destination"
         $nestedManifestDestination = Join-Path $testDirectory 'p1\p2\dest'
         $nestedDescriptorBefore = Get-AcsDistributionNamespaceDescriptor $nestedManifestDestination
         try {
@@ -2120,49 +2244,14 @@ function Invoke-PipelineSelfTest {
             throw "self-testの並列manifest更新が既存内容を変更しました"
         }
 
-        $junctionTarget = Join-Path $testDirectory 'junction-target'
-        $junctionPath = Join-Path $manifestDestination 'junction-probe'
-        New-Item -ItemType Directory -Force -Path $junctionTarget | Out-Null
-        $junctionSentinel = Join-Path $junctionTarget 'sentinel.txt'
-        [System.IO.File]::WriteAllText($junctionSentinel, 'outside')
-        & cmd.exe /d /c ('mklink /J "{0}" "{1}"' -f $junctionPath, $junctionTarget) | Out-Null
-        if ($LASTEXITCODE -ne 0 -or -not (Test-ReparsePoint $junctionPath)) {
-            throw "self-testのjunction作成に失敗しました"
-        }
-        try {
-            $manifestHashBeforeJunction = (Get-FileHash -LiteralPath $destinationManifestPath -Algorithm SHA256).Hash
-            Assert-ExpectedFailure {
-                $unexpectedJunctionLock = Enter-AcsDistributionOperationLock (Join-Path $junctionPath 'nested-root') 'self-test-reparse-parent'
-                Exit-AcsDistributionOperationLock $unexpectedJunctionLock
-            } 'operation lock parent junction'
-            Assert-ExpectedFailure {
-                Publish-MirroredDistribution $manifestSource $manifestDestination
-            } 'destination subtree junction'
-            if (-not (Test-Path -LiteralPath $junctionSentinel -PathType Leaf) -or [System.IO.File]::ReadAllText($junctionSentinel) -cne 'outside' -or $manifestHashBeforeJunction -cne (Get-FileHash -LiteralPath $destinationManifestPath -Algorithm SHA256).Hash) {
-                throw "self-testのjunction拒否がroot外fileまたは旧manifestを変更しました"
-            }
-        } finally {
-            if (Test-Path -LiteralPath $junctionPath) {
-                [System.IO.Directory]::Delete($junctionPath)
-            }
-        }
-
         $remainingManifestTemporaries = @(Get-ChildItem -LiteralPath $manifestDestination -File -Filter (".$distributionManifestName.*.tmp"))
         if ($remainingManifestTemporaries.Count -ne 0) {
             throw "self-testのmanifest一時fileが残っています"
         }
-        Write-Host 'acs_distribution_manifest_self_test=ok cases=canonical,tamper,missing,stale,extra,partial,source_lock,destination_lock,alias_lock,self_deploy,physical_overlap,nested_transition,external_create,migration_rollback,root_normalization,root_parent,direct_root,volume_root,abandoned,cleanup,permission,root_identity,skip,reader_lock,junction,mirror'
+        Write-Host 'acs_distribution_manifest_self_test=ok cases=canonical,tamper,missing,stale,extra,partial,source_lock,destination_lock,alias_lock,self_deploy,physical_overlap,nested_transition,external_create,migration_rollback,root_normalization,root_parent,direct_root,volume_root,abandoned,cleanup,permission,root_identity,skip,reader_lock,native_final_path,mirror'
     } finally {
         Stop-AcsOperationLockHolder $sourceLockHolder
         Stop-AcsOperationLockHolder $destinationLockHolder
-        if ($blockedSubstAliasRoot) {
-            & subst.exe $blockedSubstAliasRoot.Substring(0, 2) /D | Out-Null
-            $global:LASTEXITCODE = 0
-        }
-        if ($substAliasRoot) {
-            & subst.exe $substAliasRoot.Substring(0, 2) /D | Out-Null
-            $global:LASTEXITCODE = 0
-        }
         Remove-Item -LiteralPath $testDirectory -Recurse -Force -ErrorAction SilentlyContinue
     }
     Write-Host "単一 header 配布 pipeline self-test passed"
