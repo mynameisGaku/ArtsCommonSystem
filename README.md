@@ -255,8 +255,8 @@ AEventBus* component_events = component.GetSubsystem<AEventBus>();
 
 Engine は現在、学習用実行例を同梱していません。再導入候補と受け入れ条件は
 [`LearningSamplesMigrationPlan.md`](acs/docs/LearningSamplesMigrationPlan.md) を正本とします。
-公開 API の使い方は [`QUICKSTART.md`](acs/docs/QUICKSTART.md) と
-[`RECIPES.md`](acs/docs/RECIPES.md) の自己完結したコード例で説明します。
+公開 API の使い方は [`QUICKSTART.md`](acs/docs/QUICKSTART.md)、実行契約は
+`acs/tests/*_tests.cpp` で確認できます。
 
 ## 設計上の前提
 
@@ -278,7 +278,6 @@ Engine は現在、学習用実行例を同梱していません。再導入候�
 - [`ProjectOperations.md`](acs/docs/ProjectOperations.md) — Windowsでのconfigure・build・test・配布・cleanの統一入口
 - [`FixedStepClock.md`](acs/docs/FixedStepClock.md) — 値所有の固定更新時計と一括処理の安全契約
 - [`LearningSamplesMigrationPlan.md`](acs/docs/LearningSamplesMigrationPlan.md) — 学習用実行例の唯一のバックログ
-- [`RECIPES.md`](acs/docs/RECIPES.md) — 3D描画・音・UIなどの逆引き
 - [`ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) — module構成と設計
 - [`StyleGuide.md`](acs/docs/StyleGuide.md) — A / C / F / I / T / E命名とcoding rule
 - [`TypeRoleAudit.md`](acs/docs/TypeRoleAudit.md) — 公開型registry、互換alias、移行債務をexact照合する型役割監査

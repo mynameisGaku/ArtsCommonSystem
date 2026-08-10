@@ -155,16 +155,9 @@ TResult<void> Setup() noexcept {
 }
 ```
 
-## 発展的な使い方（レシピ集）
-
-3D 描画・テクスチャ・メッシュ読み込み・アニメーション・シャドウ・パーティクル・
-多言語対応・セーブデータなど、各機能のコピペ可能なコード例は
-**[`RECIPES.md`](RECIPES.md)（逆引きレシピ集）** にまとめてあります。
-
 ## 次のステップ
 
-機能別のコードは [`RECIPES.md`](RECIPES.md) へ進みます。コア API の実行契約は
-`acs/tests/*_tests.cpp` で確認できます。
+コア API の実行契約は `acs/tests/*_tests.cpp` で確認できます。
 
 学習用実行例は現在同梱していません。再導入候補と検証条件は
 [`LearningSamplesMigrationPlan.md`](LearningSamplesMigrationPlan.md) に集約します。

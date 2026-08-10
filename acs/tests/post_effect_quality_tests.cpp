@@ -524,14 +524,11 @@ ACS_TEST(PostEffects, MotionVectorContractsPublishOnlyCompleteAuthoritativeOutpu
         ReadWorkspaceSource("src/render/MotionVector.cpp");
     const std::string reference =
         ReadWorkspaceSource("docs/reference/data/render_core.js");
-    const std::string recipes =
-        ReadWorkspaceSource("docs/RECIPES.md");
 
     EXPECT_TRUE(!motion_header.empty());
     EXPECT_TRUE(!motion_source.empty());
     EXPECT_TRUE(!reference.empty());
-    EXPECT_TRUE(!recipes.empty());
-    if (motion_header.empty() || motion_source.empty() || reference.empty() || recipes.empty()) {
+    if (motion_header.empty() || motion_source.empty() || reference.empty()) {
         return;
     }
 
@@ -554,12 +551,6 @@ ACS_TEST(PostEffects, MotionVectorContractsPublishOnlyCompleteAuthoritativeOutpu
         "bool DrawMesh(IRhiCommandList& cl") != std::string::npos);
     EXPECT_TRUE(reference.find(
         "sig: \"void DrawMesh(IRhiCommandList& cl") ==
-                std::string::npos);
-    EXPECT_TRUE(recipes.find(
-        "## TAA / SSR 用のモーション・法線 G-buffer") !=
-                std::string::npos);
-    EXPECT_TRUE(recipes.find(
-        "motion.ObjectDrawCount() == motion_draw_count") !=
                 std::string::npos);
 }
 
@@ -2803,8 +2794,6 @@ ACS_TEST(PostEffects, GrowableLegacyShaderPoolsCoverProductionAndPublicContracts
         ReadWorkspaceSource("src/render/ShadowMap.h");
     const std::string render_reference =
         ReadWorkspaceSource("docs/reference/data/render_core.js");
-    const std::string recipes =
-        ReadWorkspaceSource("docs/RECIPES.md");
 
     EXPECT_TRUE(!standard.empty());
     EXPECT_TRUE(!standard_header.empty());
@@ -2813,11 +2802,10 @@ ACS_TEST(PostEffects, GrowableLegacyShaderPoolsCoverProductionAndPublicContracts
     EXPECT_TRUE(!shadow.empty());
     EXPECT_TRUE(!shadow_header.empty());
     EXPECT_TRUE(!render_reference.empty());
-    EXPECT_TRUE(!recipes.empty());
     if (standard.empty() || standard_header.empty() ||
         skinned.empty() || skinned_header.empty() ||
         shadow.empty() || shadow_header.empty() ||
-        render_reference.empty() || recipes.empty()) return;
+        render_reference.empty()) return;
 
     const std::string standard_set_lights =
         ExtractFunction(
@@ -2897,20 +2885,6 @@ ACS_TEST(PostEffects, GrowableLegacyShaderPoolsCoverProductionAndPublicContracts
         "bool TrySetCaster(const FMat4& model)") != std::string::npos);
     EXPECT_TRUE(render_reference.find("sm.SetCaster(") ==
                 std::string::npos);
-    EXPECT_TRUE(recipes.find(
-        "if (!shd.BeginFrame(/* exact skinned draws */ 1u)) return;") !=
-        std::string::npos);
-    EXPECT_TRUE(recipes.find(
-        "if (!shd.SetBonePalette(palette, nb)) return;") !=
-        std::string::npos);
-    EXPECT_EQ(
-        CountOccurrences(
-            recipes,
-            "if (!shd.BeginFrame(/* exact standard draws */ 1u)) return;"),
-        static_cast<std::size_t>(2u));
-    EXPECT_TRUE(recipes.find("if (!sm.BeginFrame(caster_count) ||") !=
-                std::string::npos);
-    EXPECT_TRUE(recipes.find("sm.SetCaster(") == std::string::npos);
 }
 
 ACS_TEST(PostEffects, TemporalHistoryRemainsSceneLinearAcrossEyeAdaptation)
