@@ -168,7 +168,7 @@ ACS_REF.modules.push({
     },
     {
       name: "FTutorialStep",
-      kind: "構造体", header: "gameframework/TutorialFlow.h",
+      kind: "構造体", header: "gameframework/TutorialStep.h",
       summary: "チュートリアル 1 ステップ分の定義。文字列はすべて<b>非所有</b>(寿命は呼び出し側が保証)で、本クラスは保持するだけです。",
       when: "AddStep に渡す 1 件のガイド内容を組み立てる時。",
       sample: "tut.AddStep({ \"open_map\", \"M でマップを開こう\", \"map_button\", true });",

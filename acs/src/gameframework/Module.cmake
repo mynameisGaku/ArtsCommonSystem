@@ -319,6 +319,7 @@ set(_acsgen_gameframework_headers
     TriggerWorld2D.h
     TurnManager.h
     TutorialFlow.h
+    TutorialStep.h
     Tween.h
     TypeInfo.h
     UiLayer.h

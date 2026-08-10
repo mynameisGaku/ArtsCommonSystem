@@ -63,6 +63,7 @@
 #include "gameframework/DamageFeedback.h"
 #include "gameframework/WorkshopBridge.h"
 #include "gameframework/LlmSafetyPipeline.h"
+#include "gameframework/TutorialStep.h"
 #include "gameframework/TutorialFlow.h"
 #include "gameframework/DialogueSystem.h"
 
