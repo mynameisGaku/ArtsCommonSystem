@@ -1618,9 +1618,9 @@
       "prefix": "A"
     },
     {
-      "path": "gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.h",
+      "path": "gameframework/tools/cinetimeline/ACinematicsTimelineEditorPanel.h",
       "legacy": "acs::game::cinetimeline::FCinematicsTimelineEditorPanel",
-      "legacy_path": "gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.h",
+      "legacy_path": "gameframework/tools/cinetimeline/ACinematicsTimelineEditorPanel.h",
       "canonical": "acs::game::cinetimeline::ACinematicsTimelineEditorPanel",
       "kind": "class",
       "prefix": "A"

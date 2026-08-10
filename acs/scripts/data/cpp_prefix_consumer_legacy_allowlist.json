@@ -273,6 +273,21 @@
       "preprocessor_state": "active"
     },
     {
+      "path": "acs/tests/cinematics_timeline_editor_tests.cpp",
+      "file_sha256": "C51ECDBEB9496198B032DE64E79E12CBD19F3708470A648300C7EFE5369EE4B2",
+      "line_hint": 70,
+      "line_sha256": "0282371CF7222A6B0AEB5322BC35C680E4517AEA41E75C8B58CC5EC4DBCD1650",
+      "line_occurrence": 0,
+      "token_occurrence": 0,
+      "legacy": "FCinematicsTimelineEditorPanel",
+      "canonical": "acs::game::cinetimeline::ACinematicsTimelineEditorPanel",
+      "reason": "compatibility_fixture",
+      "lexical_context": "code",
+      "construct": "compatibility_type_assertion",
+      "qualifier": "",
+      "preprocessor_state": "active"
+    },
+    {
       "path": "acs/tests/collider_tests.cpp",
       "file_sha256": "941D97D7510F4FE13F13677362E28A98A044BA05BFE40AE41394872FDD8298B6",
       "line_hint": 14,
