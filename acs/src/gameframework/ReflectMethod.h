@@ -277,7 +277,11 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
     if (out != nullptr && outcap > 0) out[0] = '\0';
     const FReflectMethod* m = CMethodRegistry::Get().Find(owner, name);
     if (m == nullptr || obj == nullptr) return false;
-    if (m->retKind != METHOD_ARG_NONE && m->invokeRet != nullptr) { m->invokeRet(obj, arg != nullptr ? arg : "", out, outcap); return true; }
+    if (m->retKind != METHOD_ARG_NONE) {
+        if (m->invokeRet == nullptr || out == nullptr || outcap <= 0) return false;
+        m->invokeRet(obj, arg != nullptr ? arg : "", out, outcap);
+        return true;
+    }
     if (m->argKind != METHOD_ARG_NONE && m->invokeArg != nullptr) { m->invokeArg(obj, arg != nullptr ? arg : ""); return true; }
     if (m->invoke != nullptr) { m->invoke(obj); return true; }
     return false;
@@ -308,19 +312,22 @@ using FMethodRegistry = CMethodRegistry;
 /** f32 戻り値サンク。out は非null、cap は1以上でなければならない。 */
 #define ACS_RMETHOD_THUNK_RET_F32(Type, method)                                      \
     [](void* self, const char*, char* out, int cap) noexcept {                       \
+        if (out == nullptr || cap <= 0) return;                                      \
         ::snprintf(out, static_cast<size_t>(cap), "%.6g",                            \
                    static_cast<double>(static_cast<Type*>(self)->method())); }
 /** i32 戻り値サンク。out は非null、cap は1以上でなければならない。 */
 #define ACS_RMETHOD_THUNK_RET_I32(Type, method)                                      \
     [](void* self, const char*, char* out, int cap) noexcept {                       \
+        if (out == nullptr || cap <= 0) return;                                      \
         ::snprintf(out, static_cast<size_t>(cap), "%d",                              \
                    static_cast<int>(static_cast<Type*>(self)->method())); }
 /** const char* 戻り値サンク。out は非null、cap は1以上でなければならない。 */
 #define ACS_RMETHOD_THUNK_RET_STR(Type, method)                                      \
     [](void* self, const char*, char* out, int cap) noexcept {                       \
+        if (out == nullptr || cap <= 0) return;                                      \
         const char* r = static_cast<Type*>(self)->method();                          \
         int i = 0; for (; r != nullptr && r[i] != '\0' && i < cap - 1; ++i) out[i] = r[i]; \
-        if (cap > 0) out[i] = '\0'; }
+        out[i] = '\0'; }
 
 /** 型 Type の引数なし void メソッドを flags 付きで登録する。owner+name の8件超過は登録しない。
  *  namespace acs::game を開き、Type は内側と外側の名前を解決する。 */

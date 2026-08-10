@@ -184,6 +184,93 @@ ACS_TEST(ReflectMethod, RegisterAndInvoke) {
     EXPECT_TRUE(!InvokeMethodByName(owner, &host, "Nope"));   // 不明メソッドは false
 }
 
+// 戻り値サンクの呼出し回数を保持する検証用型。
+struct FReturnMethodHost {
+    // f32 戻り値メソッドの呼出し回数。
+    int f32_calls = 0;
+    // i32 戻り値メソッドの呼出し回数。
+    int i32_calls = 0;
+    // 文字列戻り値メソッドの呼出し回数。
+    int text_calls = 0;
+
+    // f32 戻り値を返し、呼出し回数を記録する。
+    f32 GetF32() noexcept { ++f32_calls; return 1.25f; }
+    // i32 戻り値を返し、呼出し回数を記録する。
+    i32 GetI32() noexcept { ++i32_calls; return 42; }
+    // 文字列戻り値を返し、呼出し回数を記録する。
+    const char* GetText() noexcept { ++text_calls; return "ok"; }
+};
+
+ACS_REGISTER_METHOD_RET_F32(FReturnMethodHost, GetF32, METHOD_NONE)
+ACS_REGISTER_METHOD_RET_I32(FReturnMethodHost, GetI32, METHOD_NONE)
+ACS_REGISTER_METHOD_RET_STR(FReturnMethodHost, GetText, METHOD_NONE)
+
+// 戻り値用サンクと名前呼出しの出力領域失敗条件を検証する。
+ACS_TEST(ReflectMethod, ReturnBufferGuards) {
+    // 検証対象型のID。
+    const FTypeId owner = AcsTypeHash("FReturnMethodHost");
+    // メソッド登録簿。
+    CMethodRegistry& registry = CMethodRegistry::Get();
+    // f32戻り値メソッドの登録。
+    const FReflectMethod* ret_f32 = registry.Find(owner, "GetF32");
+    // i32戻り値メソッドの登録。
+    const FReflectMethod* ret_i32 = registry.Find(owner, "GetI32");
+    // 文字列戻り値メソッドの登録。
+    const FReflectMethod* ret_text = registry.Find(owner, "GetText");
+    EXPECT_TRUE(ret_f32 != nullptr && ret_i32 != nullptr && ret_text != nullptr && ret_f32->invokeRet != nullptr && ret_i32->invokeRet != nullptr && ret_text->invokeRet != nullptr);
+    if (ret_f32 == nullptr || ret_i32 == nullptr || ret_text == nullptr || ret_f32->invokeRet == nullptr || ret_i32->invokeRet == nullptr || ret_text->invokeRet == nullptr) return;
+    // 呼出し回数を記録する対象。
+    FReturnMethodHost host;
+    // 無効な容量でも確認値を保持する出力領域。
+    char out[16] = {'x', 'x', '\0'};
+    ret_f32->invokeRet(&host, "", nullptr, 0);
+    EXPECT_EQ(host.f32_calls, 0);
+    ret_i32->invokeRet(&host, "", out, -1);
+    EXPECT_TRUE(host.i32_calls == 0 && out[0] == 'x');
+    ret_text->invokeRet(&host, "", nullptr, -1);
+    EXPECT_TRUE(host.text_calls == 0 && out[0] == 'x');
+    EXPECT_TRUE(!InvokeMethodByNameRet(owner, &host, "GetF32", "", nullptr, 8));
+    EXPECT_EQ(host.f32_calls, 0);
+    EXPECT_TRUE(!InvokeMethodByNameRet(owner, &host, "GetI32", "", out, 0));
+    EXPECT_TRUE(host.i32_calls == 0 && out[0] == 'x');
+    EXPECT_TRUE(!InvokeMethodByNameRet(owner, &host, "GetText", "", out, -1));
+    EXPECT_TRUE(host.text_calls == 0 && out[0] == 'x');
+}
+
+// 出力領域、未登録名、戻り値なし呼出しの結果を検証する。
+ACS_TEST(ReflectMethod, ReturnBufferResults) {
+    // 検証対象型のID。
+    const FTypeId owner = AcsTypeHash("FReturnMethodHost");
+    // 戻り値呼出し回数を記録する対象。
+    FReturnMethodHost host;
+    // 戻り値を書き込む出力領域。
+    char out[16] = {};
+    EXPECT_TRUE(InvokeMethodByNameRet(owner, &host, "GetF32", "", out, 16));
+    EXPECT_TRUE(out[0] == '1' && out[1] == '.' && out[2] == '2' && out[3] == '5');
+    EXPECT_TRUE(InvokeMethodByNameRet(owner, &host, "GetI32", "", out, 16));
+    EXPECT_TRUE(out[0] == '4' && out[1] == '2');
+    // 終端だけを保持する出力容量。
+    char cap1[1] = {'x'};
+    EXPECT_TRUE(InvokeMethodByNameRet(owner, &host, "GetF32", "", cap1, 1));
+    EXPECT_TRUE(cap1[0] == '\0');
+    // 1文字と終端を保持する出力容量。
+    char cap2[2] = {'x', 'x'};
+    EXPECT_TRUE(InvokeMethodByNameRet(owner, &host, "GetI32", "", cap2, 2));
+    EXPECT_TRUE(cap2[1] == '\0');
+    // 未登録名呼出し前の確認値。
+    out[0] = 'x';
+    EXPECT_TRUE(!InvokeMethodByNameRet(owner, &host, "Unknown", "", out, 16));
+    EXPECT_TRUE(out[0] == '\0');
+    // 戻り値なし呼出しの対象。
+    FMethodHost void_host;
+    // 戻り値なし呼出し前の出力確認値。
+    out[0] = 'x';
+    EXPECT_TRUE(InvokeMethodByNameRet(AcsTypeHash("FMethodHost"), &void_host, "Bump", "", out, 16));
+    EXPECT_TRUE(out[0] == '\0');
+    EXPECT_TRUE(InvokeMethodByNameRet(AcsTypeHash("FMethodHost"), &void_host, "Bump", "", nullptr, 0));
+    EXPECT_TRUE(host.f32_calls == 2 && host.i32_calls == 2 && host.text_calls == 0 && void_host.counter == 20);
+}
+
 namespace {
 
 void FirstDynamicMethod(void* self) noexcept
