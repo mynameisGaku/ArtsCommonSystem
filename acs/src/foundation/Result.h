@@ -1,25 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Foundation — TResult<T, E> 型（例外なしエラー伝搬）
-// -----------------------------------------------------------------------------
-// std::expected / Rust TResult と同じ役割を持つ「成功値 or エラー値」型。
-// 例外を使わずにエラーを伝搬するのが ACS 全体の方針。
-//
-// 特徴:
-//   - STL 不使用
-//   - トリビアル破棄可能型 (T / E) ではゼロコスト
-//   - ムーブ専用型 (TUniquePtr 等) でも動作
-//   - E のデフォルトは FErrorCode（任意の型でも可）
-//   - TResult<void, E> 特殊化を提供（成功 / エラーのみを返す関数用）
-//
-// 典型的な使用例:
-//   TResult<FFile, FErrorCode> r = OpenFile("foo");
-//   if (!r) {
-//       CLogger::Error("open failed: %s", r.Error().message);
-//       return;
-//   }
-//   FFile& f = r.Value();
-// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"
@@ -51,7 +30,7 @@ inline constexpr detail::FErrTag   ErrInit{};
  * 成功値 T またはエラー値 E のいずれかを保持する例外なしの結果型。
  *
  * @details
- * std::expected / Rust の Result 相当。STL 不使用で、トリビアル破棄可能型では
+ * 成功値 T またはエラー値 E の一方だけを保持する。STL 不使用で、トリビアル破棄可能型では
  * ゼロコスト、ムーブ専用型でも動作する。内部は union で T と E を排他的に保持し、
  * どちらが有効かを m_HasValue で判別する。
  * @tparam T 成功時に保持する値の型。
@@ -467,7 +446,7 @@ inline TResult<void> Ok() noexcept { return TResult<void>(OkInit); }
 template<typename T = void>
 TResult<T> Err(FErrorCode e) noexcept { return TResult<T>(e); }
 
-// 早期リターンマクロ（Rust の ? 演算子 相当）
+// 失敗時に呼び出し元へエラーを早期 return するマクロ。
 // ACS_TRY(expr) — TResult<void> 用。エラーなら関数から FErrorCode を返す。
 // ACS_TRY_ASSIGN(name, expr) — TResult<T> 用。成功なら値を name に束縛。
 #define ACS_TRY(expr)                                                         \

@@ -1,13 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// ACS Threading — 条件変数（Win32 CONDITION_VARIABLE ベース）
-//
-// std::condition_variable 相当。FMutex と組み合わせて「条件が満たされるまで
-// スレッドを停止し、別スレッドからの NotifyOne / NotifyAll で起こす」。
-//
-// 典型的な使用例（生産者・消費者）:
-//   FScopedLock lk(m);
-//   while (queue.IsEmpty()) cv.Wait(m);
-//   auto item = queue.Pop();
 #pragma once
 
 #include "foundation/Types.h"
@@ -16,7 +7,7 @@
 namespace acs {
 
 /**
- * Win32 CONDITION_VARIABLE による条件変数 (std::condition_variable 代替)。
+ * FMutex と組み合わせて待機と通知を制御する Win32 条件変数。
  *
  * @details
  * FMutex と組み合わせ、条件が満たされるまでスレッドを停止し、別スレッドからの

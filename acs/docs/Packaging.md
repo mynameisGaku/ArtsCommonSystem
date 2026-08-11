@@ -85,15 +85,9 @@ preflight without the file emits `PACKAGE_METADATA_MISSING` as a warning for
 backward compatibility. If the file exists, malformed or ambiguous input
 fails as `PACKAGE_METADATA_INVALID`; it is never silently repaired.
 
-```json
-{
-  "schemaVersion": 1,
-  "publisher": "Example Studio",
-  "description": "Example Game",
-  "copyright": "Copyright Example Studio",
-  "supportUrl": "<HTTPS support URL>"
-}
-```
+The object contains the integer `schemaVersion` field and the string fields
+`publisher`, `description`, `copyright`, and `supportUrl`. `schemaVersion` must
+identify schema 1, and `supportUrl` must be a canonical absolute HTTPS URL.
 
 The parser accepts only those five fields, rejects duplicate or unknown JSON
 properties, bounds the file and each string, rejects hidden control

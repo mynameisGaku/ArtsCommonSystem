@@ -1,27 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// 画像ベース照明 (Image-Based Lighting)
-//
-// PBR の ambient 項を「環境マップから事前積分した光」で置き換える。
-// 構成要素:
-//   ・BRDF LUT       — 2D 256x256 RG16F。GGX split-sum approximation の scale+bias
-//   ・環境 cubemap   — シーンの背景 (CSky 等から captured)。1024x1024x6、R11G11B10_Float
-//   ・拡散 irradiance cubemap — 64x64x6、半球積分された diffuse 反射
-//   ・specular prefilter cubemap — 512x512x6 (7 mip)、roughness 段階別 GGX 反射
-//
-// 初期化と更新の使用例:
-//   CImageBasedLighting ibl;
-//   ibl.EnsureBrdfLut(*dev, *cl);              // 初回のみ LUT 生成 (256x256)
-//   ibl.EnsureEnvCubemap(*dev, *cl, sky);       // 初回のみ env cubemap キャプチャ
-//   // (irradiance / prefilter を生成してから:)
-//   // ibl.EnsureIrradiance(*dev, *cl);           // 環境 → irradiance
-//   // ibl.EnsurePrefilter(*dev, *cl);            // 環境 → prefilter (mip)
-//   // IBL を設定: pbr.SetIbl(ibl.IrradianceMap(), ibl.PrefilterMap(), ibl.BrdfLut(), ibl.PrefilterMips());
-//
-// 注意: CImageBasedLighting の生成・描画経路は現在 Diligent backend 専用。
-//       raw-DX12 backend では各 Build/Ensure が ACS_ERR(Render, 88) を返す
-//       (fake-success しない)。高度3D を使うには -DACS_RENDER_DILIGENT=ON でビルドする。
-//       (raw-DX12 = 軽量 2D/基本3D backend、Diligent = 公式の高度3D backend)
+
 #include "foundation/Result.h"
 #include "memory/UniquePtr.h"
 #include "math/Mat.h"
