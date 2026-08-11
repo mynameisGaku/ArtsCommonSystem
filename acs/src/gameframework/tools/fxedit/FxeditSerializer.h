@@ -1,81 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — ParticleEditor `.fxedit` テキスト I/O
-//
-// 役割:
-//   ParticleEditor (in-engine particle authoring tool) が編集中の emitter 群を
-//   人間可読 / git diff 可能なテキスト形式で保存・復元するためのシリアライザ。
-//   バイナリ形式の `TSaveSlot<T>` (Pillar J) と違い、**作業中アセットを版管理に
-//   そのまま乗せられる** ことを最優先する。
-//
-// 使い方:
-//   acs::game::FParticleEmitterDef defs[8] = {};
-//   defs[0].lifetime_sec      = 2.0f;
-//   defs[0].emit_rate_per_sec = 50.0f;
-//   defs[0].color_start       = {1.0f, 0.8f, 0.2f};
-//   defs[0].color_end         = {1.0f, 0.2f, 0.0f};
-//   const char* names[]       = {"fire", "smoke"};
-//
-//   acs::game::fxedit::CFxeditSerializer::Save(L"data/effects/fireball.fxedit",
-//                                              defs, names, 2);
-//
-//   // ロード側:
-//   acs::game::FParticleEmitterDef loaded[16] = {};
-//   char                          name_buf[16 * 32] = {};
-//   auto r = acs::game::fxedit::CFxeditSerializer::Load(
-//       L"data/effects/fireball.fxedit", loaded, name_buf, sizeof(name_buf), 16);
-//   if (r.IsOk()) { u32 n = r.Value(); /* n 個ロード成功 */ }
-//
-// テキストフォーマット (`ACS_FXEDIT` v1):
-//   ACS_FXEDIT 1
-//   EMITTER count 2
-//   E0 name "fire"
-//   E0 emit_rate 50.0
-//   E0 lifetime_sec 2.0
-//   E0 burst_count 0
-//   E0 speed_min 0.5
-//   E0 speed_max 2.0
-//   E0 scale_start 1.0
-//   E0 scale_end 0.2
-//   E0 gravity 0.0 -1.0 0.0
-//   E0 color_start 1.0 0.8 0.2 1.0
-//   E0 color_end 1.0 0.2 0.0 0.0
-//   E0 spread_radians 3.14
-//   E1 name "smoke"
-//   ...
-//
-//   ・1 行 1 key=value、key 行頭は emitter index (E0, E1, ..., E<N-1>)。
-//   ・数値は `%g` フォーマット (シリアライズ側) / `strtof` (デシリアライズ側)。
-//   ・`name "..."` は二重引用符で囲んだ ASCII (現状エスケープ無し、簡素化)。
-//   ・`#` 始まりはコメント (parse 時にスキップ)。
-//   ・空行スキップ。
-//   ・未知 key は無視 (前方互換: 将来 key を増やしても旧ローダで読める)。
-//   ・実 `FParticleEmitterDef` 構造体は color が FVec3、gravity が FVec2 であり、
-//     テキスト形式の 4 番目 (alpha) / 3 番目 (z) 成分はシリアライズ側で 1.0/0.0
-//     を埋め、デシリアライズ側で破棄する。`spread_radians` は emitter def の
-//     正式メンバではないため将来拡張用の予約 key として読み込みのみサポート
-//     (現状は値を保持する場所が無いので捨てる)。
-//
-// 設計選択:
-//   ・**Text + 1 行 = 1 key**: git diff で 1 パラメータ変更が 1 行 diff になる。
-//   ・**emitter index prefix (E0, E1, ...)**: 順序が壊れても再構築可能、
-//     かつ多重 emitter ファイル (1 ファイル = N emitters) を素直に扱える。
-//   ・**Magic + Version**: 先頭行で `ACS_FXEDIT 1` を要求。schema が変わったら
-//     version をインクリメントし、後方互換ローダが分岐する。
-//   ・**非コピー・非ムーブ static class**: state を持たないため。
-//   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 規約。
-//   ・**file I/O は acs::CFileSystem に委譲**: `<stdio.h>` 等の C 標準 I/O を
-//     直接呼ばず、Win32 CreateFileW ベースの platform/FileSystem を使うことで
-//     wchar_t パスや GetLastError 由来エラーが一貫して扱える。
-//   ・**name buffer は呼び出し側持ち**: 内部に `TArray<char>` を持つ設計も
-//     可能だが、ロード結果を ParticleEditor 側に流し込む際にコピーが必要に
-//     なるため、最初から呼び出し側 buffer に書き込む方式にして余計な
-//     allocation を省く。format は `name0\0name1\0name2\0...` 連結。
-//
-// 注意:
-//   ・本クラスは FParticleEmitterDef の型を不完全宣言 (forward decl) のみで
-//     参照する (.h では `struct FParticleEmitterDef;`)。実体は .cpp 側で
-//     `ParticleEffectSystem.h` を include する。これにより本ヘッダのインクルードコストを
-//     最小に保つ。
 #pragma once
 
 #include "foundation/Result.h"
@@ -90,46 +13,83 @@ namespace fxedit {
 
 /** `.fxedit` の checked parse/load/save が返す安定したエラー種別。 */
 enum class EFxeditSerializeError : u8 {
+    /** エラーなし。 */
     None = 0,
+    /** 必須引数が null。 */
     NullArgument,
+    /** 指定パスが上限を超過。 */
     PathTooLong,
+    /** 入力全体が上限を超過。 */
     InputTooLarge,
+    /** 入力に埋め込み NUL を検出。 */
     EmbeddedNul,
+    /** 行数が上限を超過。 */
     TooManyLines,
+    /** 1 行の長さが上限を超過。 */
     LineTooLong,
+    /** ファイル識別子が不正。 */
     BadMagic,
+    /** 形式バージョンが未対応。 */
     UnsupportedVersion,
+    /** emitter 数の宣言が不足。 */
     MissingEmitterCount,
+    /** emitter 数の宣言が重複。 */
     DuplicateEmitterCount,
+    /** emitter 数が上限を超過。 */
     TooManyEmitters,
+    /** 出力領域が不足。 */
     BufferTooSmall,
+    /** 構文が不正。 */
     InvalidSyntax,
+    /** emitter index が不正。 */
     InvalidEmitterIndex,
+    /** 同じ property key が重複。 */
     DuplicateKey,
+    /** property 値の表現が不正。 */
     InvalidValue,
+    /** property 値が許容範囲を超過。 */
     ValueOutOfRange,
+    /** emitter 名の長さが上限を超過。 */
     NameTooLong,
+    /** emitter 名が不正。 */
     InvalidName,
+    /** curve 数が上限を超過。 */
     TooManyCurves,
+    /** keyframe 数が上限を超過。 */
     TooManyKeyframes,
+    /** 必要なメモリを確保できない。 */
     AllocationFailure,
+    /** 対象ファイルが存在しない。 */
     FileNotFound,
+    /** 対象ファイルを開けない。 */
     FileOpenFailed,
+    /** ファイルサイズを取得できない。 */
     FileSizeFailed,
+    /** 読み取り中にファイルが変更された。 */
     FileChanged,
+    /** ファイル読み取りに失敗。 */
     FileReadFailed,
+    /** ファイル書き込みに失敗。 */
     FileWriteFailed,
+    /** ファイル内容の同期に失敗。 */
     FileFlushFailed,
+    /** ファイルを正常に閉じられない。 */
     FileCloseFailed,
+    /** 一時ファイルからの置換に失敗。 */
     AtomicReplaceFailed,
 };
 
 /** `.fxedit` の checked operation 結果。 */
 struct FFxeditSerializeResult {
+    /** serialize 処理が返したエラー。 */
     EFxeditSerializeError error = EFxeditSerializeError::None;
+    /** 構文エラーを検出した行。該当しない場合は 0。 */
     u32 line = 0u;
+    /** 正常に処理できた emitter 数。 */
     u32 emitter_count = 0u;
+    /** 正常に処理できたバイト数。 */
     u64 bytes_processed = 0u;
+    /** OS が返したエラーコード。該当しない場合は 0。 */
     u32 os_error = 0u;
 
     bool Succeeded() const noexcept { return error == EFxeditSerializeError::None; }
@@ -142,7 +102,7 @@ struct FFxeditSerializeResult {
  * @details
  * すべてのメンバは static。state を持たない utility class なので、コンストラクタ・
  * コピー・ムーブを禁止しておく (誤って実体化されるのを防ぐ)。emitter 群を人間可読 /
- * git diff 可能なテキスト (`ACS_FXEDIT` v1) で書き出し・復元する。
+ * 差分を確認しやすいテキスト (`ACS_FXEDIT` v1) で書き出し・復元する。
  */
 class CFxeditSerializer {
 public:

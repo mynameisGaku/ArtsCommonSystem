@@ -1,90 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / CEditorTheme  (ImGui スタイル統一テーマ)
-//
-// 役割:
-//   ACS の全エディタ panel (AHierarchyPanel / AInspectorPanel / AEditorToolbar /
-//   AParticleEditorPanel / ModelViewer / LevelEditor / AnimCurveEditor /
-//   BehaviorTreeEditor 等) が共通で参照する **ImGui スタイル統一テーマ**。
-//   色パレット / spacing / font scale / corner radius を 1 ヶ所で管理し、
-//   起動時に `Init()` を呼ぶだけで全エディタが統一見た目になる。
-//
-// 使い方 (editor 起動コード):
-//   CEditorTheme theme;
-//   theme.Init();                              // default = Dark を ImGui に流す
-//   theme.ApplyPreset(EEditorThemePreset::DarkBlue);
-//   theme.SetFontScale(1.25f);                 // 高 DPI 対応
-//   theme.SetRoundedCorners(4.0f);
-//   // ... 毎フレーム panel.DrawUI() ...
-//   theme.DrawThemeSettingsUI();               // Theme Settings window を出す
-//   // 終了時:
-//   theme.SaveTheme(L"data/editor/theme.acstheme");
-//
-// 設計選択:
-//   ・**ACS::FVec4 ベース、ImVec4 は .cpp 内変換のみ**: ヘッダから <imgui.h> を
-//     漏らさないことで、本ヘッダを include しても include order が壊れない
-//     (AInspectorPanel / AParticleEditorPanel と同パターン)。
-//   ・**preset = 「色パレット定数 + spacing + corner」のスナップショット**:
-//     ApplyPreset は内部 `m_Colors` を上書きしたあと、`ApplyToImGui()` で
-//     ImGui::GetStyle() に流す。Custom はユーザが SetCustomColors した状態を
-//     哨兵とする (= 既定の Custom 値は Dark と同等)。
-//   ・**font scale は ImGuiIO::FontGlobalScale に流す**: フォント atlas 自体は
-//     再構築せず、グローバルスケール変更で済ませる (高 DPI で軽い)。本格的な
-//     atlas 再構築 (= 異なる px サイズの bake) は本クラスでは扱わない。
-//   ・**SetRoundedCorners は Frame/Window/Popup/Grab/Tab/Scrollbar すべてに
-//     同 radius を流す**: 統一感のため。違う値を当てたい派生 panel は ImGui の
-//     `ImGui::PushStyleVar` で局所上書きすればよい。
-//   ・**SetSpacing は ItemSpacing.y のみを操作する**: 縦詰めは「情報密度」を
-//     決める主軸。横 spacing は ItemSpacing.y * 0.5 比例で連動 (見た目バランス
-//     のための経験則、後述の ApplyToImGui で計算)。
-//   ・**SaveTheme/LoadTheme は人間可読テキスト (`.acstheme`)**: `CFxeditSerializer`
-//     と同設計 (1 行 1 key=value、git diff 可能、magic + version)。バイナリで
-//     ない理由は「アーティストが直接編集してチームに共有」できることを優先。
-//     エラーは ACS_LOG_WARN で握る (戻り値 void = 「ベストエフォート」)。
-//   ・**DrawThemeSettingsUI は ImGui::Begin/End を自前で包む**: editor 設定 UI
-//     なので独立 window として出す。AEditorPanel 継承はせず、調整 UI 限定の
-//     シンプル window として動く (= AEditorPanel として workspace 登録するなら
-//     派生ラッパを別途用意する)。
-//   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用**: ACS 規約 + 他
-//     editor_core 系コンポーネントと統一。`<string>` 禁止のためファイルパスは
-//     `wchar_t*`、preset 名は const char* リテラル。
-//
-// preset カラー設計指針:
-//   Dark         : 標準 dark grey (ImGui 既定の StyleColorsDark に近い + 若干
-//                  暖色寄りの中間グレーで目疲れ低減)。
-//   DarkBlue     : Window/Frame に青みのある #1F232C 系。
-//                  accent は #007ACC 系。
-//   Light        : 明るい背景 (ImGui StyleColorsLight 相当)。長時間屋外作業や
-//                  プロジェクタ表示向け。
-//   HighContrast : 黒 / 白 / 黄 (#FFD700) の三色設計。AccessibilityProfile.h の
-//                  `high_contrast_ui` フラグと連動する想定。
-//   Sepia        : 焼け紙のような暖色基調 (#3A2E22 系背景、#F4E8D8 系 text)。
-//                  長時間作業時の眼精疲労低減 (e-reader 系から着想)。
-//   Custom       : SetCustomColors() で渡された値をそのまま使う。
-//
-// 将来拡張余地:
-//   ・per-panel custom theme: ParticleEditor は赤系、ModelViewer は青系等、
-//     panel ごとに別色を適用する (panel_name → FEditorThemeColors map を持ち、
-//     panel.DrawUI() の前後で Push/PopStyleColor する仕組み)。
-//   ・automatic dark/light mode 切替: OS のテーマ設定 (Windows 10+ の
-//     `AppsUseLightTheme` レジストリ) を参照して起動時 / 切替時に自動追従。
-//   ・FAccessibilityProfile 連動: Colorblind モード時に HighContrast を強制、
-//     ColorMode::Protanopia 時に accent を青系に切り替える等の自動マッピング。
-//   ・syntax highlighting palette: BehaviorTree editor の AST node 種別、
-//     CDialogueScript の語彙ハイライト、CCombatStateMachine の遷移条件等を
-//     色分けするための拡張カラーパレット (FEditorThemeColors を継承する派生
-//     SyntaxColors 構造体)。
-//   ・color picker のリアルタイムプレビュー: 現状は SetCustomColors 経由で
-//     パレット差し替え時のみ反映。DrawThemeSettingsUI 内で個別 ColorEdit4 を
-//     drag 中にも即時反映する slim pipeline。
-//
-// 範囲外 (本クラスでは持たない):
-//   ・font atlas 再構築 (= 異なる px サイズの bake)。SetFontScale は
-//     ImGuiIO::FontGlobalScale を変えるのみで、低 dpi → 高 dpi で文字が
-//     ボケる課題は別途解決する。
-//   ・カラーピッカーの HSV / LCh 等の高度な色空間。現状は ImGui::ColorEdit4
-//     (RGB + α) のみ。
-//   ・theme アニメーション (起動時に Dark → DarkBlue へフェード等)。
-//   ・theme の zip 化 / アセットパック化 (将来 AssetPack 経由で配布する場合)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -169,39 +83,69 @@ struct FEditorThemeColors {
 
 /** `.acstheme` checked persistence の安定したエラー種別。 */
 enum class EEditorThemePersistenceError : u8 {
+    /** エラーなし。 */
     None = 0,
+    /** 必須引数が null。 */
     NullArgument,
+    /** 指定パスが上限を超過。 */
     PathTooLong,
+    /** 入力全体が上限を超過。 */
     InputTooLarge,
+    /** 入力に埋め込み NUL を検出。 */
     EmbeddedNul,
+    /** 行数が上限を超過。 */
     TooManyLines,
+    /** 1 行の長さが上限を超過。 */
     LineTooLong,
+    /** ファイル識別子が不正。 */
     BadMagic,
+    /** 形式バージョンが未対応。 */
     UnsupportedVersion,
+    /** 構文が不正。 */
     InvalidSyntax,
+    /** 未知の設定キーを検出。 */
     UnknownKey,
+    /** 同じ設定キーが重複。 */
     DuplicateKey,
+    /** 必須の設定キーが不足。 */
     MissingKey,
+    /** 設定値の型が不一致。 */
     InvalidType,
+    /** 設定値の表現が不正。 */
     InvalidValue,
+    /** 設定値が許容範囲を超過。 */
     ValueOutOfRange,
+    /** 必要なメモリを確保できない。 */
     AllocationFailure,
+    /** 対象ファイルが存在しない。 */
     FileNotFound,
+    /** 対象ファイルを開けない。 */
     FileOpenFailed,
+    /** ファイルサイズを取得できない。 */
     FileSizeFailed,
+    /** 読み取り中にファイルが変更された。 */
     FileChanged,
+    /** ファイル読み取りに失敗。 */
     FileReadFailed,
+    /** ファイル書き込みに失敗。 */
     FileWriteFailed,
+    /** ファイル内容の同期に失敗。 */
     FileFlushFailed,
+    /** ファイルを正常に閉じられない。 */
     FileCloseFailed,
+    /** 一時ファイルからの置換に失敗。 */
     AtomicReplaceFailed,
 };
 
 /** `.acstheme` checked load/save の結果。 */
 struct FEditorThemePersistenceResult {
+    /** 永続化処理が返したエラー。 */
     EEditorThemePersistenceError error = EEditorThemePersistenceError::None;
+    /** 構文エラーを検出した行。該当しない場合は 0。 */
     u32 line = 0u;
+    /** 正常に処理できたバイト数。 */
     u64 bytes_processed = 0u;
+    /** OS が返したエラーコード。該当しない場合は 0。 */
     u32 os_error = 0u;
 
     bool Succeeded() const noexcept {

@@ -1,76 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / CEditorWorkspace
-//
-// 複数の `AEditorPanel` (ModelViewer / AnimCurveEditor / BehaviorTreeEditor /
-// LevelEditor / SpriteAtlasEditor / FontEditor / CinematicsTimelineEditor 等) を
-// 統括する **ワークスペース**。panel 群を 1 つの editor アプリケーションとして
-// まとめて配線するための中央 hub。
-//
-// 役割:
-//   ・登録 panel のリスト管理 (Add / Find / Remove)
-//   ・毎フレームの main loop coordination
-//       (OnFrameBegin → DockSpace 描画 → DrawUI → MenuBar)
-//   ・ImGui DockSpace の作成 + Window メニュー (panel toggle list)
-//   ・レイアウト永続化 (ImGui ini + per-panel state を `.acslayout` 1 ファイル)
-//   ・選択 / asset 選択イベントの全 panel への broadcast
-//   ・CSelectionService の保管点 (非所有)
-//
-// 使い方 (典型):
-//   acs::game::editor_core::CEditorWorkspace ws;
-//   ws.Init();
-//
-//   ws.SetSelectionService(&selection);   // CSelectionService を注入
-//   ws.RegisterPanel(&hierarchy_panel);    // 各 panel は caller 所有
-//   ws.RegisterPanel(&inspector_panel);
-//   ws.RegisterPanel(&model_viewer);
-//
-//   // 必要なら起動時にレイアウト復元:
-//   ws.LoadLayout(L"data/editor/last.acslayout");
-//
-//   // 毎フレーム:
-//   ws.TickAllPanels(dt);
-//
-//   // 終了時:
-//   ws.SaveLayout(L"data/editor/last.acslayout");
-//   ws.Shutdown();
-//
-// 設計選択:
-//   ・**panel は raw pointer の非所有保持**: caller が own する (= caller が
-//     panel の lifetime を制御する) ことで、panel の動的生成 / scope-stack 配置
-//     の両方を許容する。AParticleEditorPanel / AEditorToolbar と同形。
-//   ・**`acs::TArray<AEditorPanel*>` で順序保持**: dispatch 順 / Window メニュー
-//     の表示順 = 登録順。登録順以外のソートはしない。
-//   ・**`UnregisterPanel` は順序保存削除**: Window メニューの並びがフレーム間で
-//     ぶれないよう、swap-remove ではなく shift 削除。CSelectionService の
-//     RemoveAtSwap とは方針を変える (UI 表示順の体験を優先)。
-//   ・**Title はリテラル文字列を期待**: `AEditorPanel::Title()` の規約 (リテラル /
-//     静的領域) に依存する。`FindPanelByTitle` は strcmp 比較。
-//   ・**ImGui::DockSpaceOverViewport**: 「メインビューポート全体に central dock
-//     node を持つ」最小構成。central node 内で float window 動作させたい panel は
-//     `SetDockTarget(false)` でヒントを出せるが、現状は dock_target hint を
-//     DockSpace に強制反映する仕組みは持たない。
-//   ・**Window メニュー / Layout メニュー は `DrawMenuBar()` 内で MainMenuBar に
-//     直接 push**: 派生コードからは TickAllPanels を呼ぶだけで自動描画される。
-//     MenuBar の有無は `m_EnableMenuBar` で制御可能 (= 既存 MainMenuBar に
-//     共存させたい host は disable できる)。
-//   ・**SaveLayout / LoadLayout のファイル形式**: 自前テキストフォーマット
-//     `ACS_EDLAYOUT 1`。
-//       1) ヘッダ行  : `ACS_EDLAYOUT <version>`
-//       2) ImGui ini : `IMGUI_INI <byte_size>\n<raw ini bytes>\n`
-//       3) panel state: `PANEL <title> <visible:0/1> <dock_target:0/1>\n` (1 行 1 panel)
-//     PANEL 行は右端 2 token を flag として解析するため、title 内部の ASCII space
-//     (0x20) を保持できる。空 title、先頭/末尾 space、制御文字、非 ASCII は拒否する。
-//     ImGui ini は ImGui::SaveIniSettingsToMemory() で取得した raw 文字列を
-//     生埋め込み。LoadLayout 側で同じく LoadIniSettingsFromMemory に渡す。
-//   ・**BroadcastSelectionChanged / BroadcastAssetSelected** は全 panel への
-//     fan-out: 戻り値は無く、panel 側で必要に応じて自身に反映する。null safe。
-//   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用**: ACS 規約。
-//   ・**ImGui ヘッダは .cpp 側のみ include**: header からは imgui 依存を漏らさず、
-//     AParticleEditorPanel / AInspectorPanel と同方針。
-//
-// 範囲外 (本クラスでは持たない):
-//   ・panel の生成 / 破棄 (= caller 責務)
-//   ・ImGui Context / GPU resource 管理 (= 外側の ImGuiBackend が持つ)
 #pragma once
 
 #include "container/Array.h"
@@ -81,44 +9,78 @@ namespace acs::game::editor_core {
 
 /** `.acslayout` checked persistence の安定したエラー種別。 */
 enum class EEditorWorkspacePersistenceError : u8 {
+    /** エラーなし。 */
     None = 0,
+    /** 必須引数が null。 */
     NullArgument,
+    /** 指定パスが上限を超過。 */
     PathTooLong,
+    /** 入力全体が上限を超過。 */
     InputTooLarge,
+    /** 入力に埋め込み NUL を検出。 */
     EmbeddedNul,
+    /** 行数が上限を超過。 */
     TooManyLines,
+    /** 1 行の長さが上限を超過。 */
     LineTooLong,
+    /** ファイル識別子が不正。 */
     BadMagic,
+    /** 形式バージョンが未対応。 */
     UnsupportedVersion,
+    /** 構文が不正。 */
     InvalidSyntax,
+    /** 同じ section が重複。 */
     DuplicateSection,
+    /** 同じ panel が重複。 */
     DuplicatePanel,
+    /** panel 数が上限を超過。 */
     TooManyPanels,
+    /** panel 名の長さが上限を超過。 */
     TitleTooLong,
+    /** panel 名が不正。 */
     InvalidTitle,
+    /** ImGui レイアウトデータが上限を超過。 */
     IniTooLarge,
+    /** ImGui レイアウトデータが途中で終了。 */
     TruncatedIni,
+    /** 形式末尾に不要なデータを検出。 */
     TrailingData,
+    /** ImGui context が未設定。 */
     ImGuiContextMissing,
+    /** 必要なメモリを確保できない。 */
     AllocationFailure,
+    /** 対象ファイルが存在しない。 */
     FileNotFound,
+    /** 対象ファイルを開けない。 */
     FileOpenFailed,
+    /** ファイルサイズを取得できない。 */
     FileSizeFailed,
+    /** 読み取り中にファイルが変更された。 */
     FileChanged,
+    /** ファイル読み取りに失敗。 */
     FileReadFailed,
+    /** ファイル書き込みに失敗。 */
     FileWriteFailed,
+    /** ファイル内容の同期に失敗。 */
     FileFlushFailed,
+    /** ファイルを正常に閉じられない。 */
     FileCloseFailed,
+    /** 一時ファイルからの置換に失敗。 */
     AtomicReplaceFailed,
 };
 
 /** `.acslayout` checked load/save の結果。 */
 struct FEditorWorkspacePersistenceResult {
+    /** 永続化処理が返したエラー。 */
     EEditorWorkspacePersistenceError error =
         EEditorWorkspacePersistenceError::None;
+    /** 構文エラーを検出した行。該当しない場合は 0。 */
     u32 line = 0u;
+    /** 読み書きできた panel entry 数。 */
     u32 panel_entries = 0u;
+    /** 正常に処理できたバイト数。 */
     u64 bytes_processed = 0u;
+    /** OS が返したエラーコード。該当しない場合は 0。 */
     u32 os_error = 0u;
 
     bool Succeeded() const noexcept {
