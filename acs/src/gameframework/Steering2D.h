@@ -1,16 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// GameFramework — 2D 操舵ビヘイビア (Steering2D)
-// -----------------------------------------------------------------------------
-// エージェントの「目標へ向かう/止まる/逃げる/経路を辿る」操舵力を計算する純関数群。
-// 利用側が pos/vel を保持し、戻りの操舵力で速度を更新する (本モジュールは状態を持たない)。
-// CNavGrid/TilemapNav の waypoint 列と組み合わせて敵 AI の移動を駆動する。
-//
-// 使い方:
-//   FSteerParams sp{ .max_speed = 4.0f, .max_force = 8.0f };
-//   FVec2 steer = SteerArrive(pos, vel, target, sp, /*slow_radius=*/2.0f);
-//   vel += steer * dt; clamp(|vel|, max_speed); pos += vel * dt;
-// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"

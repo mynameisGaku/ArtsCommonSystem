@@ -1,38 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CSpatialAudio2D (2D 平面向け位置情報オーディオ)
-//
-// CSpatialAudio (3D) の 2D ゲーム特化版。3D の up/forward 三次元姿勢の代わりに
-// 「位置 (FVec2) + 向き角 (ラジアン)」だけで距離減衰 / 左右パンを算出する。
-// 計算は **純数学** で in-repo 完結し、外部依存 (HRTF IR 等) は持たない。
-//
-// 3D 版との関係:
-//   ・距離減衰カーブ (EAttenuationCurve) と各式は SpatialAudio.h と**完全に共有**する
-//     (Linear / Inverse(ref_d = max/8 + tail blend) / Exponential(k = 4/max + tail))。
-//     3D の ComputeAttenuationGain と同一の数値を返す。
-//   ・パンは 3D が「right = up × forward への射影」だったのを、2D では
-//     「listener の右手ベクトル (= forward を時計回り 90° 回転) への射影」に縮約する。
-//   ・constant-power (等パワー / -3dB) パン則も 3D 版と同式。
-//
-// 座標系: **Y+ が上 (math 慣習)**。向き角 θ の forward = (cosθ, sinθ)。
-//   listener の右手ベクトル right = (forward.y, -forward.x) (forward を CW 90°)。
-//   → 東 (+X) を向くと北 (+Y) は左 (pan<0)、南 (-Y) は右 (pan>0)。
-//   Y+ が下のスクリーン座標系を使う場合は angle の符号を反転して渡す。
-//
-// 使い方 (free function 直叩き — AScene が独自に source を持つ場合):
-//   const f32 d   = ComputeDistance2D(ear_pos, enemy_pos);
-//   const f32 vol = ComputeVolume2D(d, 20.0f, EAttenuationCurve::Linear);
-//   const f32 pan = ComputePan2D(ear_pos, ear_angle, enemy_pos);
-//   f32 l, r; ComputeConstantPowerStereo2D(pan, l, r);
-//
-// 使い方 (CSpatialAudio2D マネージャ — listener 1 + source N を集中管理):
-//   acs::game::CSpatialAudio2D spatial;
-//   spatial.SetListener({{0,0}, 0.0f});
-//   u32 s = spatial.RegisterSource({5, 3}, 20.0f, EAttenuationCurve::Linear);
-//   spatial.UpdateSource(s, enemy.Pos());
-//   f32 vol = spatial.ComputeAttenuatedVolume(s);
-//   f32 pan = spatial.ComputePan(s);
-//
-// 範囲外: Doppler / occlusion / 複数 listener / reverb (3D 版と同様)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -66,7 +32,7 @@ struct FAudioSource2D {
     /** 世界座標。 */
     FVec2 position     = FVec2::Zero();
 
-    /** 速度 (Doppler 用に保持のみ、現状未使用)。 */
+    /** Doppler 計算用の速度。距離減衰と pan 計算では参照しない。 */
     FVec2 velocity     = FVec2::Zero();
 
     /** 基準ゲイン [0, 1] (距離減衰前の素の音量)。 */

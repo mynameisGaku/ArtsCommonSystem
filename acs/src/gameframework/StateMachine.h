@@ -1,38 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — TStateMachine<Owner>
-//
-// 小さな汎用 FSM (有限状態機械)。AI / ゲームフロー / アニメーション制御等に。
-//   ・状態は u32 ID で識別 (連続値を想定、最大 kMaxStates=16)
-//   ・状態ごとに `on_enter` / `on_update(dt)` / `on_exit` を関数ポインタで登録
-//     (`std::function` 不使用、ACS 規約)
-//   ・テンプレート `<Owner>` で「所有者」型を持つ → 関数は `Owner&` を受け取る
-//     (= scene/actor/component が自分自身を渡す典型パターン)
-//
-// 使い方:
-//   class FEnemy {
-//   public:
-//       enum EStates { Idle = 0, Chase, Attack };
-//       acs::game::TStateMachine<FEnemy> sm;
-//
-//       FEnemy() noexcept {
-//           sm.Configure(Idle,  { &FEnemy::EnterIdle, &FEnemy::UpdateIdle, nullptr });
-//           sm.Configure(Chase, { nullptr, &FEnemy::UpdateChase, nullptr });
-//           sm.Start(Idle, *this);
-//       }
-//
-//       void Tick(f32 dt) noexcept { sm.Update(*this, dt); }
-//
-//       static void EnterIdle (FEnemy& e) noexcept            { ... }
-//       static void UpdateIdle(FEnemy& e, f32 dt) noexcept    { if (...) e.sm.ChangeState(Chase, e); }
-//       static void UpdateChase(FEnemy& e, f32 dt) noexcept   { ... }
-//   };
-//
-// 注意:
-//   ・`ChangeState` は **即時遷移** (OnExit 旧 → OnEnter 新 を同期で呼ぶ)。
-//     OnUpdate 内から ChangeState すれば、その時点で旧の OnExit + 新の OnEnter
-//     が走る。同フレーム中の再 ChangeState は許容するが、循環遷移には注意。
-//   ・状態 ID が `kMaxStates` を超える / `Configure` していない ID で `Start` /
-//     `ChangeState` した場合は静かに skip (assert なしのソフトフェイル)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -45,7 +11,7 @@ namespace acs::game {
  * @details
  * 状態は u32 ID で識別し (最大 kMaxStates=16)、状態ごとに on_enter / on_update /
  * on_exit を関数ポインタ (std::function 不使用) で登録する。各コールバックは
- * Owner& を受け取るため、scene/actor/component が自分自身を渡す使い方を想定する。
+ * Owner& を受け取り、呼び出し側は Owner 型に一致する所有者 object を渡す。
  * ChangeState は即時遷移 (旧 on_exit → 新 on_enter を同期で呼ぶ)。範囲外 ID や
  * 未 Configure の ID は静かに skip するソフトフェイル設計。non-copy。
  * @tparam Owner コールバックに渡される所有者型。

@@ -1,37 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar P (Scale-Stream) — CStreamingDirector (大規模シーン chunk streaming)
-//
-// 役割:
-//   オープンワールド / 広大なステージで全アセットを常駐させられない場合に、
-//   ビューア (カメラ) 位置を中心とした矩形範囲のチャンク (cx, cy) だけを
-//   load 状態に保ち、範囲外を unload する。CCollisionWorld2D の SpatialGrid と
-//   思想は似ているが、こちらは「アセットの load/unload」を扱う上位レイヤ。
-//
-// 使い方 (典型例):
-//   acs::game::CStreamingDirector dir;
-//   dir.Init(/*chunk_size=*/100.0f, /*view_radius=*/2);
-//   dir.SetMaxConcurrentLoads(4);
-//   // 毎フレーム:
-//   dir.SetViewerPos({ camera.x, camera.y });
-//   dir.Tick(dt);
-//   // ロード状況を UI 等で確認:
-//   const u32 loading = dir.LoadingCount();
-//   const u32 loaded  = dir.LoadedCount();
-//
-// 設計方針:
-//   ・チャンクは 2D 整数座標 (cx, cy) で識別。world (x, y) → cx = floor(x / chunk_size)。
-//   ・view_radius_chunks=2 は ビューアチャンクを中心に 5x5 (= (2*2+1)^2 = 25 個)。
-//   ・状態遷移: Unloaded → Queued → Loading → Loaded → Unloading → Unloaded。
-//     Tick() で「同時 Loading 数 ≤ max_concurrent_loads」を保ちつつキューを進める。
-//   ・実アセットロード: 1 chunk = 1 CAssetBundle。SetAssetRegistry() で app 所有の
-//     CAssetRegistry を差し込むと、Loading 遷移時に bundle.BeginLoad(registry) を発行し、
-//     bundle.Progress()/IsLoaded() で実完了を判定、Unloading で bundle.Unload() する。
-//     registry が未設定 (nullptr) のときは simulated load time = 0.5s/chunk の
-//     フォールバックで進行する (ヘッドレステスト / registry を持たない用途向け)。
-//   ・Pillar G の CAssetBundle と二段構え: CStreamingDirector が各チャンクの CAssetBundle
-//     を保有し、チャンクごとのアセット集合 (パス) を SetChunkPathFormat() で決める。
-//   ・非コピー・非ムーブ (内部 TArray 規約 / 単一所有を強制)。
-//   ・全 API noexcept、STL 不使用 (acs::TArray<FChunkInfo> で管理)。
 #pragma once
 
 #include "foundation/Types.h"

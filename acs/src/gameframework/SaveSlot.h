@@ -1,37 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J — TSaveSlot<T> (`.acssave` 経由の単一 POD 永続化)
-//
-// 役割:
-//   ユーザー定義の trivially-copyable な POD/struct T を 1 個のファイルに保存し、
-//   後で復元する「セーブスロット」抽象。タイトル画面の continue/new game 判定、
-//   オプション設定、進捗データ等、いわゆる "save data" 全般の土台となる。
-//
-// 使い方 (典型例):
-//   struct FPlayerProfile {
-//       acs::u32 hi_score;
-//       acs::u32 play_count;
-//       acs::f32 master_volume;
-//   };
-//   static_assert(__is_trivially_copyable(FPlayerProfile));
-//
-//   acs::game::TSaveSlot<FPlayerProfile> slot;
-//   slot.Init(L"user/profile.acssave");
-//   if (slot.Exists()) {
-//       auto r = slot.Load();
-//       if (r) profile = r.Value();
-//   }
-//   slot.Save(profile);
-//
-// 設計方針:
-//   ・**バイナリ format**: CSaveArchive (`.acssave`、24B header + payload + crc) に
-//     委譲する。詳細は gameframework/SaveArchive.h を参照。
-//   ・**スキーマ進化耐性**: T を直接 memcpy で書く current design は schema 固定
-//     な T 専用。CSaveArchive の version パラメータを使って schema 変更を検知できる
-//     (デフォルト version=1)。version 不一致時は FErrorCode.subcode に
-//     ESaveArchiveSubCode::kSubMigrationNeeded が入る。
-//   ・**例外なし**: 全 noexcept、エラーは TResult<T, FErrorCode> で伝搬する。
-//   ・**STL 不使用**: container 依存も無し。ファイル I/O は CSaveArchive 経由
-//     (Win32 直叩き) に委譲。
 #pragma once
 
 #include "container/Array.h"

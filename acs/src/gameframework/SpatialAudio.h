@@ -1,75 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CSpatialAudio (3D positional + HRTF binaural seam)
-//
-// 3D 位置情報を持つ FAudioSource3D と単一の FAudioListener (= プレイヤ耳位置) から
-// 距離減衰 (attenuation) / 左右パン (stereo pan) を算出する音声空間化レイヤ。
-// HRTF (Head-Related Transfer Function) によるバイノーラル化は `IHrtfRenderer`
-// interface seam として隔離する。`CHrtfRendererStub` は constant-power stereo
-// panning + 距離減衰を**実数学** (in-repo 完結) で行い、真のバイノーラル化
-// (KEMAR 256-tap convolution、~140KB の埋め込み impulse response) のみが seam
-// として残る (外部 IR データ必須のため別モジュールとして差し込む)。
-//
-// CAudioDirector との関係:
-//   CAudioDirector = master / bgm / sfx の音量バスと BGM クロスフェードのみを扱う
-//   「2D 混音層」。本 CSpatialAudio は CAudioDirector の上に乗る「3D 空間化前段」で、
-//   listener / source を保持し、毎フレーム attenuation と pan を算出する。
-//   CAudioEngine と接続したとき、各 source を CAudioEngine voice に
-//   バインドして、CSpatialAudio が計算した volume * pan を per-voice に書き込む。
-//
-// 使い方:
-//   class AWorldScene : public AScene {
-//       acs::game::CSpatialAudio m_Spatial;
-//
-//       void OnEnter() noexcept override {
-//           // プレイヤ耳位置を listener として登録
-//           m_Spatial.SetListener({{0,0,0}, {0,0,1}, {0,1,0}});
-//           // 敵から鳴る連続音 (max 20m 圏内で減衰、線形カーブ)
-//           u32 src = m_Spatial.RegisterSource({5,0,3}, 20.0f,
-//                                             acs::game::EAttenuationCurve::Linear);
-//           m_SrcEnemy = src;
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Spatial.UpdateSource(m_SrcEnemy, enemy.WorldPos(), enemy.Velocity());
-//           m_Spatial.Tick(dt);
-//           // CAudioEngine voice に volume/pan を書き込む。
-//           // f32 vol = m_Spatial.ComputeAttenuatedVolume(m_SrcEnemy);
-//           // f32 pan = m_Spatial.ComputePan(m_SrcEnemy);
-//       }
-//   };
-//
-// 設計選択:
-//   ・**listener は 1 個** (プレイヤ耳位置 = カメラに同期するのが典型)。
-//     スプリットスクリーンで複数 listener が必要になったら配列化する。
-//   ・**source は AoS (TArray of Structures)**: SoA は CAudioEngine voice
-//     バインドより後段で検討。現状は ~32 source 規模の想定。
-//   ・**source_id は単調増加 u32** (1..): 0 = 無効 ID。再利用しない (re-use しない)
-//     ので update/remove に対する stale ID 検出が単純化する。
-//   ・**Attenuation 3 curve**:
-//       Linear:      vol = 1 - (d / max_d)                  (素朴な線形減衰)
-//       Inverse:     vol = 1 / (1 + d / ref_d)              (距離 1 倍で 0.5、自然)
-//       Exponential: vol = max(0, e^(-d * rolloff))         (急峻に落ちる)
-//     d > max_distance は強制 0 (= culling)。
-//   ・**Pan 計算**: listener の right = up × forward。
-//     dir = normalize(source.pos - listener.pos)。
-//     dot(dir, right) ∈ [-1, +1] をそのまま pan として返す。
-//     左手系 / 右手系どちらでも Y+up 慣習なら X+ が右になり符号一貫。
-//     listener の真後ろも +0 ± で連続 (head-shadow なしの単純化)。
-//   ・**Pan→ゲイン変換**: constant-power (等パワー) パン則。
-//     θ = (pan+1)·π/4、left = cos θ、right = sin θ。中央でも left²+right² = 1 を
-//     満たし、左右に振っても知覚音量が一定 (linear pan の中央ディップを回避)。
-//   ・**HRTF seam**: `IHrtfRenderer` 経由で convolution を差し替え可能に。
-//     stub は constant-power パン + 距離減衰を実数学で行う (= 実空間化)。
-//     真のバイノーラル化 (KEMAR IR convolution、外部データ必須) のみ
-//     別モジュールとして差し込む。
-//   ・**非コピー・非ムーブ**: シーン局所 instance としての所有が前提。
-//
-// 範囲外:
-//   ・実 HRTF convolution (KEMAR 256-tap、~140KB embedded IR)
-//   ・Doppler shift (velocity 比率から pitch 計算)
-//   ・Occlusion / obstruction (壁越し減衰、レイキャスト)
-//   ・複数 listener (split-screen)
-//   ・3D reverb (リバーブゾーン)
-//   ・CAudioEngine voice バインド (CAudioDirector と統合)
 #pragma once
 
 #include "foundation/Types.h"
@@ -105,7 +34,7 @@ struct FAudioSource3D {
     /** 世界座標での位置。 */
     FVec3               position     = FVec3::Zero();
 
-    /** 速度 (Doppler 用、現状は未使用で保持のみ)。 */
+    /** Doppler 計算用の速度。距離減衰と pan 計算では参照しない。 */
     FVec3               velocity     = FVec3::Zero();
 
     /** 基準ゲイン [0, 1] (距離減衰前の素の音量)。 */
@@ -215,7 +144,7 @@ protected:
  * 真のバイノーラル化 (HRTF convolution) のみ stub で、stereo 空間化は本物:
  * pan = 右ベクトル投影 (dot(dir, right))、L = mono·cos((pan+1)·π/4)·volume·atten、
  * R = mono·sin((pan+1)·π/4)·volume·atten (constant-power パン則)、atten は
- * source.curve に応じた距離減衰 (ComputeAttenuatedVolume と同式)。現状これが唯一の
+ * source.curve に応じた距離減衰 (ComputeAttenuatedVolume と同式)。この型が唯一の
  * IHrtfRenderer 実装で、IsHrtfEnabled() は false を返す (真の HRTF 効果のみ無い)。
  */
 class CHrtfRendererStub final : public IHrtfRenderer {
@@ -379,7 +308,7 @@ public:
     /**
      * state を 1 フレーム進める。
      *
-     * @details 現状は no-op (将来 Doppler shift / inactive source の GC 等を追加予定)。
+     * @details dt は更新契約として受け取るが、内部 state を変更しない no-op。
      * @param dt 前フレームからの経過秒。
      */
     void Tick(f32 dt) noexcept;

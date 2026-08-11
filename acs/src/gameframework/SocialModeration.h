@@ -1,79 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — CSocialModeration (blocking / reporting / 通報管理)
-//
-// 役割:
-//   ローカルブロックリストと通報 (報告) キューを管理する。実プラットフォームの
-//   モデレーション SDK (Steam ISteamUser::ReportPlayer / EOS ReportPlayer /
-//   PSN Communication Block / Xbox Reputation / NSO 通報 API) への送信は seam
-//   として未接続で、`ISteamworksBridge` 等を経由して接続する。
-//
-//   PartySystem.h で「moderation / blocking は別モジュール」と明記した通り、
-//   本 system が「上位レイヤから呼ばれる単一窓口」を担う。InviteFriend で
-//   ブロック相手かどうかを判定したい場合は、呼び出し側で IsBlocked() を
-//   先に問い合わせる責任分離 (CPartySystem 自身は moderation を意識しない)。
-//
-// 設計上の倫理方針 (通報 / ブロック + 児童保護):
-//   ・**ブロックはローカル即時反映**: BlockUser はネットワーク往復を伴わず、
-//     UI 上「ブロックしました」を即座に確定できる。SDK 連携 (相互通信遮断)
-//     は seam 経由で後追い同期する想定。これにより通信障害時でもユーザーが
-//     「ブロックしたつもりで通信が続く」事故を防ぐ。
-//   ・**通報は category 必須**: 自由記述だけだと審査側で分類困難。プラット
-//     フォーム規約 (Steam / PSN / Xbox / NSO のすべて) で「種別選択」が
-//     共通要件となっており、enum で型安全に強制する。
-//   ・**通報送信失敗時は queue に残す**: ネットワーク不安定環境 (モバイル
-//     ゲーム / 機内 Wi-Fi) で「通報したつもりが消えた」を防ぐため、送信
-//     失敗時は pending queue に保持し FlushReports() で再送する設計。
-//   ・**under-18 デフォルト**: 未成年アカウントの場合は呼び出し側で
-//     「全ユーザーをデフォルトブロック / フレンドのみ可」等のポリシーを
-//     かぶせる想定。本 system はフラグを持たず、強制機構も入れない
-//     (プラットフォームごとの年齢推定 API 差を吸収するため、上位レイヤで
-//     判断する責任分離)。
-//   ・**自分自身のブロックは防御的に弾かない**: 文字列比較で「自分の
-//     user_id」を知らないため、上位レイヤで弾く責任。本 system は受け取った
-//     文字列をそのままリストに入れる (CPartySystem と同じ哲学)。
-//
-// 使い方 (典型例):
-//   CSocialModeration mod;
-//   mod.Init();
-//
-//   // toxic プレイヤーを即時ブロック
-//   mod.BlockUser("steam:76561198000000999");
-//
-//   // 通報送信
-//   FReportRecord rep{};
-//   rep.reported_user_id = "steam:76561198000000999";
-//   rep.reporter_user_id = "steam:76561198000000001";  // local player
-//   rep.category         = EReportCategory::Harassment;
-//   rep.note             = "voice chat で継続的に侮辱発言";
-//   rep.timestamp        = NowUnixSec();
-//   (void)mod.SubmitReport(rep);  // 失敗時は pending queue へ
-//
-//   // 後で再送 (オンライン復帰時など)
-//   (void)mod.FlushReports();
-//
-// 設計選択:
-//   ・**ローカル state は完全実装**: ブロックリストの追加/解除/検索、通報
-//     キューへの追加/フラッシュはすべて動く。
-//   ・**SDK 接続は TODO**: 実 ReportPlayer 送信 / Steam Block 同期 / PSN
-//     CommunicationRestriction 反映は seam 経由で接続する。本 system は
-//     seam として const char* (user_id) を受けるだけ。
-//   ・**const char* 非所有**: 規約通り <string> 不使用。user_id / note の
-//     寿命は呼び出し側 (文字列リテラル or 長寿命バッファ) が保証する。
-//     SDK 側で動的取得した名前は呼び出し側で永続バッファにコピーして渡す。
-//   ・**重複ブロックは no-op**: 既にブロック済みの user_id を再度 BlockUser
-//     しても list が肥大化しない (検索 → 早期 return)。
-//   ・**コピー / ムーブ禁止**: モデレーション state は通常 1 つの長寿命
-//     オブジェクトで運用。誤コピーで block list が分裂すると安全性が
-//     損なわれるため非コピー・非ムーブ。
-//   ・**全 noexcept**: ACS 全体方針 (TResult<T, FErrorCode> + bool 戻り値)。
-//
-// 範囲外:
-//   ・実 SDK 接続 (Steam ReportPlayer / EOS / PSN / Xbox Reputation / NSO)
-//   ・ブロック list の永続化 (Pillar J Serialize 経由 / クラウド同期)
-//   ・自動モデレーション (toxic 検出 ML、Pillar U AI 側に分離)
-//   ・voice / text chat の透過フィルタ (別モジュール)
-//   ・shadow-ban / mute 区別 (今は block のみ)
-//   ・freezing period / クールダウン (連続通報の rate limit)
 #pragma once
 
 #include "foundation/Types.h"
@@ -88,7 +13,7 @@ namespace acs::game {
  * @details
  * プラットフォーム規約 (Steam / PSN / Xbox / NSO) で共通的に求められる種別を
  * 最小公倍数として定義する。プラットフォーム固有の細分カテゴリ (Steam の
- * 「不正な広告」等) は将来 OtherToxicity 内の note で表現する想定。
+ * 「不正な広告」等) は OtherToxicity の note に記録する。
  */
 enum class EReportCategory : u8 {
     /** 嫌がらせ / 暴言 / つきまとい。 */
@@ -114,8 +39,8 @@ enum class EReportCategory : u8 {
  * 通報 1 件分のレコード。
  *
  * @details
- * `reported_user_id` / `reporter_user_id` / `note` はすべて const char* 非所有
- * (CPartySystem と同じポリシー)。timestamp は Unix 秒など呼び出し側が決めた
+ * `reported_user_id` / `reporter_user_id` / `note` はすべて const char* 非所有で、
+ * 呼び出し側が操作中の寿命を保証する。timestamp は Unix 秒など呼び出し側が決めた
  * 単調増加値で、本 system は比較せず保存のみ行う。
  */
 struct FReportRecord {
@@ -182,14 +107,14 @@ public:
     /**
      * 内部 state を初期化する。
      *
-     * @details 現状は no-op。将来 SDK ハンドルや永続化ロードを行う想定の seam で、多重呼び出し可。
+     * @details 内部状態を持たない no-op で、多重呼び出しできる。
      */
     void Init() noexcept;
 
     /**
      * user_id をローカルブロックリストに追加する。
      *
-     * @details 既に登録済み、または user_id == nullptr なら no-op (CPartySystem.AddFriend と同じ防御)。
+     * @details 既に登録済み、または user_id == nullptr なら no-op。
      * @param user_id ブロックする相手の user_id (非所有)。
      */
     void BlockUser(const char* user_id) noexcept;
@@ -205,7 +130,7 @@ public:
     /**
      * user_id がブロック済みかを返す。
      *
-     * @details CPartySystem.InviteFriend() の前段ガードとしての呼び出しを想定。
+     * @details ブロック済みユーザーへの処理可否を判断する。
      * @param user_id 判定する相手の user_id (nullptr は常に false)。
      * @return ブロック済みなら true。
      */
@@ -231,8 +156,7 @@ public:
      * 通報を送信する。
      *
      * @details
-     * 現状は SDK 未接続のため常に pending queue に追加して Ok() を返す
-     * (将来 backend 接続後は同期送信を試み、失敗時のみ queue に残す挙動になる)。
+     * 通報を pending queue に追加して Ok() を返す。
      * reported_user_id == nullptr は弾く。
      * @param rep 送信する通報レコード。
      * @return 受理または queue 追加に成功すれば Ok、不正入力ならエラー。
@@ -303,8 +227,7 @@ private:
      * 1 件の通報を backend へ送信する seam。
      *
      * @details
-     * 実 SDK (Steam ReportPlayer / EOS / PSN / Xbox / NSO もしくはクラウドフィルタ)
-     * へのネットワーク送信本体はここで実装する。現状は m_BackendConnected が false の間は
+     * 接続済み backend へのネットワーク送信本体を実装する。m_BackendConnected が false の間は
      * 常に false を返す (1 件も受理せず queue に残す)。local state machine はこの戻り値だけを
      * 見て bookkeeping し、SDK の有無を意識しない。
      * @param rep 送信する通報レコード。

@@ -1,76 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar W — StudioWorkflow seam (IAssetLockingBackend / IBuildFarmBackend)
-//
-// 役割:
-//   スタジオ運用 (チーム開発 / CI/CD) のために必要な 2 つの外部システムへ橋渡しする
-//   **シーム (seam) インターフェース** を提供する。
-//   ・**AssetLocking**: Perforce (P4) / Plastic SCM / Helix Core / Unity Accelerator
-//     等の「アセット排他ロック」を抽象化。バイナリアセット (.fbx / .psd / .wav 等) を
-//     複数人で同時編集して conflict を起こさないため、編集前にサーバ側で排他ロックを
-//     取得する運用が AAA / 中規模スタジオで一般的。
-//   ・**BuildFarm**: Jenkins / TeamCity / GitHub Actions self-hosted / Incredibuild /
-//     Unreal Build Service / Unity Cloud Build 等の「ビルドファーム」を抽象化。
-//     プリセット + branch + commit を指定して非同期にビルドジョブを投入し、artifact
-//     の URL を受け取る運用を seam として固定する。
-//
-// 使い方:
-//   class FStudioEditor {
-//       acs::game::IAssetLockingBackend* m_Locks = nullptr;
-//       acs::game::IBuildFarmBackend*    m_Farm  = nullptr;
-//
-//       void OnStart() noexcept override {
-//           // 出荷ビルドでは PerforceAssetLocking / JenkinsBuildFarm を DI、
-//           // 開発ビルドでは Stub。
-//           m_Locks = &acs::game::GetAssetLockingStub();
-//           m_Farm  = &acs::game::GetBuildFarmStub();
-//       }
-//       void OnOpenAsset(const char* path) noexcept {
-//           (void)m_Locks->LockAsset(path, "designer_a");
-//       }
-//       void OnRequestNightlyBuild() noexcept {
-//           acs::game::IBuildFarmBackend::FBuildRequest req{
-//               "Shipping_Win64", "main", "1e6c12b"};
-//           (void)m_Farm->SubmitBuild(req);
-//       }
-//   };
-//
-// 設計選択:
-//   ・**シーム (= 純粋仮想 I/F) として抽象化**: Perforce / Plastic / Jenkins SDK は
-//     プラットフォーム別 lib 配布 (libp4api.a など) で依存追加が重い。本体は SDK
-//     非依存のままビルドできるよう、ヘッダだけは常に提供し、実装は別モジュール
-//     (将来の `acs_perforce` / `acs_jenkins` 等) で override する形を取る。
-//   ・**cross-backend で同じ I/F**: Perforce / Plastic / Helix / Git LFS のいずれを
-//     後ろで使ってもエディタ側コードを書き換えない。アセットパスは `const char*
-//     asset_path` の opaque な depot/relative path 文字列として渡す (例:
-//     "//depot/Game/Art/Characters/hero.fbx")。
-//   ・**所有しない const char*** : 文字列は呼び出し側 / 外部 SDK のライフタイムに
-//     従う。Backend はコピーしない (STL <string> 不使用方針)。利用側は
-//     `QueryLock()` の戻り値を「ティック内のみ有効」と扱うこと。
-//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は IsConnected
-//     が常に false で、各操作は `ACS_ERR(Generic, kSub_NotImplemented, "...")` を
-//     返す (IBackendClient / ISteamworksBridge と同じ defensive pattern)。
-//   ・**Build ID は不透明 u64**: SubmitBuild の戻り値 / PollBuild の入力。実装側で
-//     ジョブ番号 (連番) / hash / pointer-as-u64 等の意味を持たせてよいが、呼出側は
-//     opaque ID として扱う。`0` は「無効な ID」予約 (StartSearch ticket と同じ約束)。
-//   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
-//     `GetAssetLockingStub()` / `GetBuildFarmStub()` を提供。実 SDK 未統合の
-//     ビルドでも `m_Locks = &GetAssetLockingStub();` だけでコンパイル可能。
-//   ・**実 (ローカル) 実装を同梱**: 外部 SDK (P4 / Jenkins) を必要としない
-//     ローカル本実装を 2 つ提供する。`CLocalFileAssetLocking` = オンディスクの
-//     サイドカー lock ファイル (CreateFileW CREATE_NEW の原子性で協調ロック) を
-//     使う実ロック、`CLocalBuildRunner` = CreateProcessW で実際にローカルの
-//     ビルドコマンドを起動し終了コードを回収する「サイズ 1 の実ビルドファーム」。
-//     `GetLocalFileAssetLocking()` / `GetLocalBuildRunner()` で取得する。
-//     これらは stub ではなく、実際に動作する本実装である。
-//   ・**実 SDK 実装はここでは作らない**: PerforceAssetLocking / JenkinsBuildFarm 等
-//     「ネットワーク越しの SCM / ビルドファーム」連携は外部 SDK 依存を伴うため、
-//     本ファイルでは I/F + Stub + ローカル本実装まで。SDK 連携は別モジュールで。
-//
-// 範囲外:
-//   ・ロック取得のリトライ / 自動再接続 / 切断検知の callback。
-//   ・ビルドログのストリーミング (artifact url 経由で取得する想定)。
-//   ・コードレビュー / PR 連携 (別 seam で扱う候補)。
-//   ・アーティスト向け P4V/PlasticGUI 連携 (本 seam ではプログラム API のみ)。
 #pragma once
 
 #include "foundation/Result.h"
@@ -83,9 +11,8 @@ namespace acs::game {
  *
  * @details
  * IBackendClient / TSaveSlot 等と同じく「stub = NotImplemented」を
- * kSub_NotImplemented (= 99) で表現する。EErrCategory には Generic を使う (P4 /
- * Jenkins は I/O だが、本 seam は API 抽象であって特定の通信路を仮定しないため
- * Generic が妥当)。
+ * kSub_NotImplemented (= 99) で表現する。backend は file、network、process のいずれも
+ * 使用でき、interface は通信路を固定しないため EErrCategory には Generic を使う。
  */
 struct FStudioWorkflowError {
     /** 各種失敗を表すサブコード。 */
@@ -111,7 +38,7 @@ struct FStudioWorkflowError {
 };
 
 /**
- * QueryLock の戻り値 (P4 の `p4 fstat` 相当の最小情報)。
+ * アセットのロック状態と保持者を返す QueryLock の結果。
  *
  * @details
  * Backend は文字列を所有しない。asset_path / locker_user は外部 SDK 側 (または Stub
@@ -119,10 +46,10 @@ struct FStudioWorkflowError {
  * 「次の Tick / 次の Backend 呼び出しまで」を保証する (実装によってはより長い)。
  */
 struct FAssetLockInfo {
-    /** ロック対象パス (例: "//depot/Game/foo.fbx")。Backend が所有しない借用文字列。 */
+    /** ロック対象パス。Backend が所有しない借用文字列。 */
     const char* asset_path  = nullptr;
 
-    /** ロック保持ユーザー (例: "designer_a")。Backend が所有しない借用文字列。 */
+    /** ロック保持ユーザー。Backend が所有しない借用文字列。 */
     const char* locker_user = nullptr;
 
     /** ロック取得時刻 (実装依存; UNIX epoch 推奨)。 */
@@ -130,7 +57,7 @@ struct FAssetLockInfo {
 };
 
 /**
- * P4 / Plastic / Helix Core 等への抽象シーム (アセット排他ロック)。
+ * アセット排他 lock backend へ接続する抽象インターフェース。
  *
  * @details
  * ロックの粒度は「アセットパス 1 本につき 1 ロック」を想定。フォルダロックや階層
@@ -173,7 +100,7 @@ public:
      *
      * @details
      * asset_path が未ロック状態なら kSub_NotFound。他ユーザーのロックを解除する権限は
-     * 実装依存 (P4 では admin 権限が要る)。
+     * backend の管理権限規則に従い、権限がなければエラーを返す。
      * @param asset_path ロック解除するアセットパス。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
@@ -197,7 +124,7 @@ public:
 };
 
 /**
- * Jenkins / TeamCity / Unity Cloud Build 等への抽象シーム (ビルドファーム)。
+ * ACS の外部ビルド実行先へ接続する抽象インターフェース。
  *
  * @details
  * 「ビルドを投入 → ポーリングで完了確認 → artifact URL を受け取る」フローのみを抽象化
@@ -209,19 +136,18 @@ public:
      * ビルド投入リクエスト。
      *
      * @details
-     * フィールドはすべて呼出側が寿命保証する const char*。preset は farm 側で予め登録
-     * されたビルド構成名 (例: "Shipping_Win64")、branch は git/p4 のブランチ/ストリーム
-     * 名、commit_sha はピンポイントのリビジョン識別子 (git sha / p4 changelist 番号
-     * 文字列 等)。
+     * フィールドはすべて呼出側が寿命保証する const char*。preset は build provider に
+     * 登録された構成名、branch は source control の branch または
+     * stream 名、commit_sha は hash や変更番号を表す正確な revision 識別子。
      */
     struct FBuildRequest {
-        /** farm 側で予め登録されたビルド構成名 (例: "Shipping_Win64")。 */
+        /** build provider に登録されたビルド構成名。 */
         const char* preset     = nullptr;
 
-        /** git/p4 のブランチ/ストリーム名。 */
+        /** source control の branch または stream 名。 */
         const char* branch     = nullptr;
 
-        /** ピンポイントのリビジョン識別子 (git sha / p4 changelist 番号文字列 等)。 */
+        /** hash または変更番号を表す正確な revision 識別子。 */
         const char* commit_sha = nullptr;
     };
 
@@ -308,7 +234,7 @@ public:
  * IAssetLockingBackend の null-object stub 実装。
  *
  * @details
- * 外部 SDK (P4 / Plastic 等) 未統合ビルド / ユニットテスト用の no-op 実装。
+ * アセット lock backend 未接続ビルドとユニットテスト用の no-op 実装。
  * IsConnected() は常に false、各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を
  * 返す。コピー/ムーブは基底 I/F で delete 済みのため本クラスも自然に non-copy。
  */
@@ -357,7 +283,7 @@ public:
  * IBuildFarmBackend の null-object stub 実装。
  *
  * @details
- * 外部 SDK (Jenkins / TeamCity 等) 未統合ビルド / ユニットテスト用の no-op 実装。
+ * build provider 未接続ビルドとユニットテスト用の no-op 実装。
  * IsConnected() は常に false、各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を
  * 返す。
  */
@@ -401,44 +327,49 @@ public:
     bool                 IsConnected() const noexcept override { return false; }
 };
 
-/**
- * オンディスク lock ファイルによる IAssetLockingBackend の実ロック実装。
- *
- * @details
- * Perforce / Plastic 等の外部 SCM サーバを使わず、ローカルファイルシステム上の
- * サイドカー lock ファイルで本実装する (「実 (non-Perforce) 実装」であり stub では
- * ない)。LockAsset は `<asset_path>.lock` を Win32 CreateFileW(CREATE_NEW) で生成する
- * (CREATE_NEW は「既に存在したら ERROR_FILE_EXISTS で失敗」する原子的フラグで、OS
- * カーネルが排他を保証するため 2 プロセス/スレッドが同時にロックしても片方だけが成功
- * する)。成功側は version / owner / 128-bit token / 取得時刻を含む厳密なレコードを書き、
- * FlushFileBuffers + CloseHandle が完了してから取得成功を公開する。解除時は同じファイル
- * handle 上でレコードを検証して delete-pending にするため、「検証後に別プロセスが lock
- * を取り直し、その新しい lock をパス名で削除する」TOCTOU を許さない。破損・旧形式・
- * trailing data・期限切れらしき lock は安全側に倒して自動削除しない。
- */
-
 /** CLocalFileAssetLocking の機械判定可能な安定エラー。値は永続ログ/API 用に固定する。 */
 enum class ELocalAssetLockError : u16 {
+    /** lock 操作が成功した。 */
     None              = 0,
+    /** path、owner、または出力先の引数が不正だった。 */
     BadArgument       = 1500,
+    /** asset path のバイト数が上限を超えた。 */
     PathTooLong       = 1501,
+    /** owner 名のバイト数が上限を超えた。 */
     OwnerTooLong      = 1502,
+    /** path または owner が正しい UTF-8 ではなかった。 */
     InvalidUtf8       = 1503,
+    /** owner 名が lock record の条件を満たさなかった。 */
     InvalidOwner      = 1504,
+    /** 対象 asset は既に lock されていた。 */
     AlreadyLocked     = 1505,
+    /** 対象の lock file が存在しなかった。 */
     NotFound          = 1506,
+    /** lock record が読み取り上限を超えた。 */
     RecordTooLarge    = 1507,
+    /** lock record の形式または値が不正だった。 */
     CorruptRecord     = 1508,
+    /** lock file を開けなかった。 */
     OpenFailed        = 1509,
+    /** lock file のサイズを取得できなかった。 */
     SizeFailed        = 1510,
+    /** lock record の全内容を読み取れなかった。 */
     ReadFailed        = 1511,
+    /** lock record の全内容を書き込めなかった。 */
     WriteFailed       = 1512,
+    /** lock record を永続記憶へ反映できなかった。 */
     FlushFailed       = 1513,
+    /** lock file handle を閉じられなかった。 */
     CloseFailed       = 1514,
+    /** 指定 owner が記録された保持者と一致しなかった。 */
     OwnerMismatch     = 1515,
+    /** 指定 token が現在の取得世代と一致しなかった。 */
     TokenMismatch     = 1516,
+    /** 現在の instance が対象 lock を所有していなかった。 */
     NotOwned          = 1517,
+    /** 検証済み lock file を削除できなかった。 */
     DeleteFailed      = 1518,
+    /** instance の lock 保持 table に空きがなかった。 */
     CapacityExceeded  = 1519,
 };
 
@@ -464,6 +395,14 @@ struct FLocalAssetLockResult {
 /** ログ/telemetry 用の安定した ASCII error 名を返す。 */
 const char* LocalAssetLockErrorName(ELocalAssetLockError error) noexcept;
 
+/**
+ * 対象アセットの隣に置く管理用 lock ファイルで排他編集を管理するローカル実装。
+ *
+ * @details 取得時は CreateFileW(CREATE_NEW) で競合を排除し、所有者、128-bit token、
+ * 取得時刻を書き終えてから成功を返す。解除時は同じファイル handle 上で所有権を検証し、
+ * 別の取得世代を誤って削除しない。破損、旧形式、余分なデータ、期限切れらしき lock は
+ * 自動削除せず失敗として返す。
+ */
 class CLocalFileAssetLocking final : public IAssetLockingBackend {
 public:
     /** path バッファの最大長 (NUL 含む)。MAX_PATH 級 + 余裕。 */
@@ -587,9 +526,8 @@ private:
  * Win32 CreateProcessW によるローカルビルド実行で IBuildFarmBackend を本実装する。
  *
  * @details
- * Jenkins / TeamCity 等の外部ビルドファームを使わず、ローカルマシン上で実際にビルド
- * コマンド (バッチ / exe) を起動して終了コードを回収する「サイズ 1 の実ビルドファーム」
- * (「実 (non-Jenkins) 実装」であり stub ではない)。2 系統の API を提供する: (A)
+ * ローカルマシン上でビルドコマンド (バッチ / exe) を起動し、終了コードを回収する
+ * 単一実行環境の IBuildFarmBackend 実装。stub ではなく、2 系統の API を提供する: (A)
  * RunBuild(command_line, &out_exit_code) は同期実行ヘルパで、CreateProcessW で起動し
  * WaitForSingleObject で完了を待ち GetExitCodeProcess で終了コードを回収する (プロセス
  * 起動自体に成功すれば終了コードが何であれ IsOk)。(B) IBuildFarmBackend seam
@@ -727,7 +665,7 @@ private:
  * @details
  * 依存ゼロのデフォルト実装で、常に NotImplemented を返す。本体側 (タイトル / エディタ)
  * はまずこれを使ってリンクを通し、具象実装に切り替える際は IAssetLockingBackend* を持つ
- * メンバ変数に PerforceAssetLocking 等を差し替える。
+ * メンバ変数に接続済みの具象 backend を差し替える。
  * @return プロセス共有の CAssetLockingStub への参照。
  */
 IAssetLockingBackend& GetAssetLockingStub() noexcept;

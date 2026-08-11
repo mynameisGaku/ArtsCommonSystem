@@ -1,44 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G / Q — FSpritePack (sprite atlas data + 名前付き frame lookup)
-//
-// 「1 枚の atlas テクスチャ + その中に並ぶ複数 frame の矩形」を持つだけのデータ層。
-// 描画 API・asset loader には触れない。利用者は AtlasTexturePath() で texture を
-// 自前ロードし、FindFrame("Idle_03") で矩形と pivot を取り出し、ComputeUv で
-// [0, 1] UV を得る。CSpriteAnimator (時間→index) と組み合わせて animation を再生する。
-//
-// 使い方:
-//   FSpritePack pack;
-//   FSpritePackInfo info;
-//   info.atlas_texture_path = "assets/hero_atlas.png";
-//   info.atlas_width        = 1024;
-//   info.atlas_height       = 1024;
-//   pack.Init(info);
-//
-//   FSpriteFrame f;
-//   f.name = "Idle_00";
-//   f.x = 0;   f.y = 0;   f.w = 64; f.h = 64;
-//   f.pivot_x = 0.5f; f.pivot_y = 0.5f;
-//   pack.AddFrame(f);
-//   // ...
-//
-//   if (const FSpriteFrame* frame = pack.FindFrame("Idle_00"); frame != nullptr) {
-//       acs::FVec4 uv = pack.ComputeUv(*frame); // {u0, v0, u1, v1}
-//       // → DrawSprite(uv, ...)
-//   }
-//
-// 設計判断:
-//   ・Pillar G (asset/IO の data layout) と Pillar Q (視覚世界, atlas) の交差点に
-//     位置するモジュール。テクスチャの所有 / ロードは責務外 (Pillar G の CAssetBundle
-//     / AssetPack 側) で、FSpritePack は「矩形と名前の辞書」に徹する。
-//   ・name は `const char*` 借用 (caller 所有 = 文字列リテラルまたは別所有の
-//     永続バッファ前提)。`<string>` 禁止に従い ACS 規約と整合。比較は pointer
-//     同一 → strcmp の順で評価し、リテラル運用なら pointer 一致の高速 path を抜ける。
-//   ・非コピー・非ムーブ: frame 配列を不意に複製しないため。所有権を明示したい
-//     場合は Init/AddFrame を再呼出しすることで上書き or 別 instance を作る。
-//   ・ComputeUv は atlas_width/atlas_height が 0 の場合に 0 除算を避け {0,0,0,0}
-//     を返す。CSpriteAnimator と同様、不正状態でも crash しないことを優先。
-//   ・RemoveFrame は順序非保持の swap remove (= 内部 TArray::RemoveAtSwap 相当)。
-//     animation はインデックスではなく名前で参照する前提なので順序破壊は許容。
 #pragma once
 
 #include "foundation/Types.h"
@@ -97,28 +57,51 @@ struct FSpritePackInfo {
 
 /** 検証付き atlas JSON loader が返す安定した失敗理由。 */
 enum class ESpritePackLoadError : u16 {
+    /** atlas JSON の読み込みが成功した。 */
     None = 0,
+    /** 入力 JSON pointer が null だった。 */
     NullInput = 1450,
+    /** 入力 JSON が空だった。 */
     EmptyInput = 1451,
+    /** 入力 JSON が読み込み上限を超えた。 */
     InputTooLarge = 1452,
+    /** 入力 JSON 内に埋め込み NUL があった。 */
     EmbeddedNul = 1453,
+    /** JSON の入れ子が安全上限を超えた。 */
     JsonDepthExceeded = 1454,
+    /** JSON string のバイト数が上限を超えた。 */
     JsonStringTooLong = 1455,
+    /** JSON node 件数が安全上限を超えた。 */
     JsonNodeLimitExceeded = 1456,
+    /** JSON の構文を解釈できなかった。 */
     JsonSyntaxError = 1457,
+    /** JSON root が要求された object ではなかった。 */
     RootTypeMismatch = 1458,
+    /** 同じ JSON member が複数回現れた。 */
     DuplicateMember = 1459,
+    /** 必須 JSON member がなかった。 */
     MissingMember = 1460,
+    /** JSON member の型が atlas 契約と一致しなかった。 */
     MemberTypeMismatch = 1461,
+    /** 整数 member を範囲内の整数として解釈できなかった。 */
     InvalidInteger = 1462,
+    /** 数値 member が有限値ではなかった。 */
     NonFiniteNumber = 1463,
+    /** frame 件数が安全上限を超えた。 */
     FrameLimitExceeded = 1464,
+    /** frame 名のバイト数が上限を超えた。 */
     NameTooLong = 1465,
+    /** 同じ frame 名が複数回現れた。 */
     DuplicateFrameName = 1466,
+    /** atlas の幅または高さが有効範囲外だった。 */
     InvalidAtlasSize = 1467,
+    /** frame rectangle が atlas 範囲内に収まらなかった。 */
     InvalidFrameRect = 1468,
+    /** frame pivot が許可範囲外だった。 */
     InvalidPivot = 1469,
+    /** atlas image path のバイト数が上限を超えた。 */
     ImagePathTooLong = 1470,
+    /** frame table 用メモリを確保できなかった。 */
     AllocationFailure = 1471,
 };
 

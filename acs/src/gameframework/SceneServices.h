@@ -1,41 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — CSceneServices
-//
-// シーンが必要なサービス (CSceneClock / CTweenManager / CSequenceRunner / FInputMap)
-// を bit flag (`ESvc`) で宣言、CSceneServices が遅延 alloc して保持する取り付けハブ。
-// CGame/CSceneManager が自動で tick + scene 切替に追従。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//   public:
-//       ESvc WantedServices() const noexcept override {
-//           return ESvc::Default2D;  // Clock | Tweens | Sequences | Input
-//       }
-//       void OnEnter() noexcept override {
-//           Services().Input().BindKey(FActionId("Jump"), EKey::Space);
-//           Services().Tweens().Tween(&m_Color, c1, c2, 2.0f, Easing::InOutSine);
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           // dt は Clock 経由 scaled (services 有効時)。Tweens/Sequences は
-//           // この OnUpdate の **後** に自動 tick されるので、ここで新規スケジュール
-//           // した tween は次フレームから進行する。
-//           if (Services().Input().IsPressed(FActionId("Jump"))) DoJump();
-//       }
-//   };
-//
-// 設計選択:
-//   ・**bit flag 宣言**: `WantedServices()` で宣言したサービスだけ alloc。
-//     使わないシーン (例: メニュー) は Physics/Tweens のコストを払わない。
-//   ・**遅延 alloc**: constructor 内で wanted bit を見て TUniquePtr<T> を作る。
-//     未要求のサービスは TUniquePtr が null、accessor 呼出は assert で検出。
-//   ・**2 phase tick**: PreUpdate (Clock 進行) → scene.OnUpdate → PostUpdate
-//     (Tweens/Sequences tick)。新規スケジュールは次フレーム頭から進行 (predictable)。
-//   ・**自動 pause**: シーンが下位に追いやられた間は OnUpdate が呼ばれず、
-//     Clock も tick されないので tween/seq は自然に止まる。明示的 Pause 不要。
-//
-// 範囲外 (本クラスでは持たない):
-//   ・Audio / Events / Debug / Timers / Ui の各サービス
-//     (該当 Pillar 実装時に ESvc enum と CSceneServices に追加)。
 #pragma once
 
 #include "foundation/Types.h"

@@ -1,55 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — ISteamworksBridge (Achievements / Leaderboards / FPlayerIdentity)
-//
-// Steam / EOS / PS / Xbox / Switch といったプラットフォーム固有 SDK へ橋渡しする
-// 「シーム (seam)」インターフェース。ゲーム側コードは ISteamworksBridge 経由でのみ
-// 実績解除 / リーダーボード / ローカルプレイヤー情報を取得し、実 SDK (Steamworks
-// SDK 等) との結合はビルド時の選択で差し替える。
-//
-// 使い方:
-//   class CGame {
-//       acs::game::ISteamworksBridge* m_Social = nullptr;
-//
-//       void OnStart() noexcept override {
-//           // 出荷ビルドでは GoldenSteamworksBridge を DI、開発ビルドでは Stub。
-//           m_Social = &acs::game::CSteamworksBridgeStub::GetStub();
-//           (void)m_Social->Init();
-//       }
-//       void OnTick(f32 dt) noexcept override {
-//           m_Social->Tick(dt);  // callback pump
-//       }
-//       void OnBossKilled() noexcept {
-//           (void)m_Social->UnlockAchievement("ACH_BOSS_01");
-//       }
-//   };
-//
-// 設計選択 (Pillar S):
-//   ・**シーム (= 純粋仮想 I/F) として抽象化**: Steamworks SDK は static lib 配布で
-//     依存追加が重い (~30MB / Win+Linux 別ライブラリ)。本体は SDK 非依存のままで
-//     ビルドできるよう、ヘッダだけは常に提供し、実装は別モジュール (将来の
-//     `acs_steamworks` 等) で `ISteamworksBridge` を override する形を取る。
-//   ・**cross-platform で同じ I/F**: Steam / EOS / PS / Xbox のいずれを後ろで使っても
-//     ゲーム側コードを書き換えない。プラットフォーム固有 ID は `const char*
-//     platform_id` の opaque な文字列として渡す (例: SteamID64 を "76561198..." の
-//     decimal 文字列で)。
-//   ・**所有しない const char*** : 文字列は呼び出し側 / プラットフォーム SDK の
-//     ライフタイムに従う。Bridge はコピーしない (STL <string> 不使用方針)。
-//     利用側は GetLocalPlayer() の戻り値を「ティック内のみ有効」と扱うこと。
-//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は Init() のみ
-//     成功を返し、他は ACS_ERR(Generic, kSubNotImplemented, "...") を返す。
-//   ・**Tick(dt) は必須**: Steamworks の `SteamAPI_RunCallbacks()` 相当を Bridge 側に
-//     畳み込む。ゲーム側は dt を毎フレーム渡すだけで、コールバックポンプの存在を
-//     意識しなくて良い。
-//   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
-//     `CSteamworksBridgeStub::GetStub()` を提供。実 SDK 未統合のビルドでも
-//     `m_Social = &CSteamworksBridgeStub::GetStub();` だけでコンパイル可能。
-//   ・**実 SDK 実装はここでは作らない**: GoldenSteamworksBridge 等は Steamworks SDK
-//     ヘッダ / ライブラリへの依存を伴うため、本ファイルでは I/F + Stub のみ。
-//
-// 範囲外:
-//   ・マルチプレイ招待。
-//   ・非同期 result の Future / コールバック登録。今は同期 API 前提 (Leaderboard
-//     get は SDK 側でキャッシュされた値を即返す形を想定)。
 #pragma once
 
 #include "foundation/Result.h"
@@ -61,8 +10,7 @@ namespace acs::game {
  * Stub が未実装機能で返すエラーサブコード (EErrCategory::Generic 配下)。
  *
  * @details
- * 本来は EErrCategory に NotImplemented を足したいが Foundation の enum 変更は影響が
- * 広いため、Generic + 安定 subcode で表現する。利用側は
+ * 未実装状態は Generic category と安定 subcode の組で表現する。利用側は
  * `err.subcode == kSubSteamworksNotImplemented` でフィルタできる。
  */
 inline constexpr u16 kSubSteamworksNotImplemented = 1001;

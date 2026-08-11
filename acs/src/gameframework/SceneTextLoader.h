@@ -1,21 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — エディタの ACSCENE テキスト形式をランタイムで読み込むローダ
-//
-// エディタ (editor_abi の SerializeScene) が保存する `*.acscene` (ACSCENE v1 テキスト) を
-// «スタンドアロン実行ファイル» 側で読み込み、ANode ツリー + コンポーネント (反射 factory)
-// として復元する。これで「エディタで編集したシーン」と「Build & Run で立ち上がるシーン」が
-// 一致する。座標は editor が world=pixel で扱うので、読込側は PixelsPerUnit=1 を想定。
-//
-// 対応行: ノード行 (id parent x y rot sx sy base r g b a name) / COMP <id> <type> /
-//         CPROP <id> <slot> <prop> <x y z w> / POLY <id> <count> <x y ...> /
-//         RPLY <id> <count> <x y ...> (描画用滑らか頂点) /
-//         NFLG <id> <visible> <enabled> <sortLayer> /
-//         SPRT <id> <path> / MAT <id> <path>。
-//
-// 使い方 (AScene 派生の OnReady から):
-//   SetPixelsPerUnit(1.0f);
-//   FSceneBounds b = LoadAcsceneFile("main.acscene", Root());
-//   if (b.valid) { Services().Camera().SetPosition(b.Center()); /* zoom はフレーム後合わせる */ }
 #pragma once
 
 #include "foundation/Types.h"
@@ -95,31 +78,57 @@ inline constexpr u32 kSceneTextMaxPathBytes = 259u;
 
 /** 検証付き ACSCENE loader が返す詳細な失敗理由。 */
 enum class ESceneTextLoadError : u8 {
+    /** 読み込みが成功した。 */
     None = 0,
+    /** 入力 text が null だった。 */
     NullText,
+    /** ファイル入力の path が null だった。 */
     NullPath,
+    /** 入力 text が許容バイト数を超えた。 */
     TextTooLarge,
+    /** 1 行のバイト数が上限を超えた。 */
     LineTooLong,
+    /** ACSCENE header の形式が不正だった。 */
     InvalidHeader,
+    /** node 件数の宣言がなかった。 */
     MissingNodeCount,
+    /** node 件数が安全上限を超えた。 */
     NodeLimitExceeded,
+    /** 宣言件数より前に node list が終端した。 */
     TruncatedNodeList,
+    /** node record の構文または値が不正だった。 */
     InvalidNodeRecord,
+    /** 同じ node id が複数回現れた。 */
     DuplicateNodeId,
+    /** node が存在しない node id を参照した。 */
     InvalidNodeReference,
+    /** node の親子関係に循環があった。 */
     HierarchyCycle,
+    /** node tree の深さが安全上限を超えた。 */
     TreeDepthLimitExceeded,
+    /** directive 件数が安全上限を超えた。 */
     DirectiveLimitExceeded,
+    /** 1 node の component 件数が上限を超えた。 */
     ComponentLimitExceeded,
+    /** directive の種類または引数が不正だった。 */
     InvalidDirective,
+    /** 入力 path のバイト数が上限を超えた。 */
     PathTooLong,
+    /** 書き込み先 node が破棄待ちだった。 */
     TargetPendingDestroy,
+    /** 読み込み用メモリを確保できなかった。 */
     AllocationFailure,
+    /** 検証済み scene を出力先へ確定できなかった。 */
     CommitFailed,
+    /** scene file を開けなかった。 */
     FileOpenFailed,
+    /** scene file の読み取り位置を移動できなかった。 */
     FileSeekFailed,
+    /** scene file のサイズが安全上限を超えた。 */
     FileSizeLimitExceeded,
+    /** scene file の全内容を読み取れなかった。 */
     FileReadFailed,
+    /** text 内に埋め込み NUL があった。 */
     EmbeddedNul,
 };
 

@@ -1,34 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FSequence / CSequenceRunner
-//
-// 時間付きアクションの連鎖 (cutscene / 出現ウェーブ / scripted UI 等)。
-//   `seq.Wait(0.5f).Call(my_fn, user).Tween(&x, 0, 100, 1.0f).Loop(0)`
-// のようなビルダーで定義し、CSequenceRunner::Start(Move(seq)) で実行開始。
-//
-// 設計選択:
-//   ・パラレル合成 (`Parallel(sub)`) は未実装。複数 FSequence を Runner に
-//     並列で Start すれば事実上のパラレルになる。
-//   ・コールバックは `void(*)(void*)` 関数ポインタ。ACS 規約 (std::function 不使用)。
-//   ・tween 処理は FSequence 内蔵 (CTweenManager に委譲しない) — sequence の進行
-//     時間と一体化させたいため。完了時は最終値を正確に書く。
-//
-// 使い方:
-//   class ATitleScene : public AScene {
-//       CSequenceRunner m_Seqs;
-//       FVec3 m_LogoColor;
-//       void OnEnter() noexcept override {
-//           FSequence s;
-//           s.Wait(0.3f)
-//            .Tween(&m_LogoColor, FVec3{0,0,0}, FVec3{1,1,1}, 0.5f, Easing::OutCubic)
-//            .Wait(1.0f)
-//            .Call(&ATitleScene::FadeOutBegin, this);
-//           m_Seqs.Start(Move(s));
-//       }
-//       void OnUpdate(f32 dt) noexcept override { m_Seqs.Tick(dt); }
-//       static void FadeOutBegin(void* self) noexcept {
-//           static_cast<ATitleScene*>(self)->_ready_to_quit = true;
-//       }
-//   };
 #pragma once
 
 #include "foundation/Types.h"
@@ -343,7 +313,7 @@ public:
     /**
      * 全シーケンスを 1 フレーム進める。
      *
-     * @details AScene::OnUpdate から CSceneClock::Dt() を渡して毎フレーム呼ぶ想定。
+     * @details 更新 owner が前フレームからの経過秒を渡し、1 フレームに 1 回呼ぶ。
      * @param dt 前フレームからの経過秒。
      * @note 非有限の dt は無視し、easing の非有限な戻り値は Linear にフォールバックする。
      * 補間演算が非有限になったフレームは target を変更しない。

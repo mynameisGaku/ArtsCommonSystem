@@ -1,29 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// ASpriteAnimComponent — CSpriteAnimator (時間→frame index) を ASprite2DComponent
-// (UV サブ矩形) に橋渡しする AComponent。同じ ANode に付いた ASprite2DComponent
-// の UV を毎フレーム書き換えてスプライトシートアニメを再生する。
-//
-// 使い方 (グリッドシート: 1 枚のテクスチャを cols×rows に等分):
-//   auto node = NewObject<ANode>();
-//   auto& spr = node->AddComponent<ASprite2DComponent>(FVec2{1,1});
-//   spr.SetTexture(sheet_tex);
-//   auto& anim = node->AddComponent<ASpriteAnimComponent>();
-//   anim.InitGrid(/*cols=*/4, /*rows=*/1, /*frame_count=*/4, /*fps=*/8.0f);
-//   anim.Play();
-//
-// 使い方 (FSpritePack の名前付き frame からアニメ列を作る):
-//   anim.BeginFrames(/*fps=*/12.0f, EPlayMode::Loop);
-//   anim.AddFrameUv(pack.ComputeUv(*pack.FindFrame("Run_00")));
-//   anim.AddFrameUv(pack.ComputeUv(*pack.FindFrame("Run_01")));
-//   anim.EndFrames();
-//   anim.Play();
-//
-// 設計:
-//   ・sibling の ASprite2DComponent は OnAttach 時点では未登録のことがある
-//     (add 順依存) ため、最初の OnUpdate で遅延 lookup する (add 順非依存)。
-//   ・frame index → UV は m_FrameUvs に事前計算して持つ。InitGrid はグリッドを
-//     計算、BeginFrames/AddFrameUv/EndFrames は任意 UV 列を積む。
-//   ・CSpriteAnimator が時間管理 (Loop/PingPong/Once、frame event) を担う。
 #pragma once
 
 #include "gameframework/AComponent.h"

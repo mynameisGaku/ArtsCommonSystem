@@ -1,38 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — CSpriteAnimator
-//
-// 「現在フレーム index を時間から算出する」ロジックだけを担うコンポーネント。
-// 画像 asset / 描画 API には一切触れず、利用者が CurrentFrame() を取り出して
-// 自分の Sprite/Quad に適用する責務分離 = テスタブルかつ asset 層と独立にビルド可能。
-//
-// 機能:
-//   ・EPlayMode = Loop / PingPong / Once
-//   ・Play / Pause / Stop / Tick / SetCurrentFrame / SetFps
-//   ・PingPong は端で折り返す (例: 4 frame → 0,1,2,3,2,1,0,1,2,3,…)
-//   ・Once は末尾で停止し IsFinished() = true
-//   ・フレームイベント: 指定 frame に入った瞬間 1 度だけ関数ポインタを呼ぶ
-//     (Loop の周回毎に再発火、std::function は使わない)
-//
-// 使い方:
-//   CSpriteAnimator anim;
-//   anim.Init(/*frame_count=*/8, /*fps=*/12.0f, EPlayMode::Loop);
-//   anim.AddFrameEvent(4, [](void* ud) noexcept {
-//       static_cast<MyActor*>(ud)->OnFootstep();
-//   }, this);
-//   anim.Play();
-//   // 毎フレーム:
-//   anim.Tick(dt);
-//   u32 idx = anim.CurrentFrame(); // ← Sprite/Quad の UV 切替に使う
-//
-// 設計判断:
-//   ・asset 非依存にすることで Pillar C (フレーム時間管理) と Pillar Q (視覚世界,
-//     スプライトシート) の関心を分離。CSpriteAnimator は時間→index 関数として
-//     ユニットテスト可能。
-//   ・std::function を避けるため frame event のコールバックは関数ポインタ + user 引数。
-//     Lambda は capture 無しに限る (= ACS の関数ポインタ規約と整合)。
-//   ・dt 駆動でラップアラウンドを正しく扱うため m_Elapsed は周期長を超えないよう
-//     wrap (Loop/PingPong) または末尾に固定 (Once)。長時間プレイで m_Elapsed が
-//     f32 精度を失う事故を防ぐ。
 #pragma once
 
 #include "foundation/Types.h"

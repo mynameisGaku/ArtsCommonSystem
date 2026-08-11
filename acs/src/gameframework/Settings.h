@@ -1,51 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — CSettings (型付きゲーム設定)
-//
-// 音量・解像度・キーバインド等の「ゲームを跨いで永続化したい設定値」を
-// 型付き key-value で保持する小型ストア。FInputMap (Pillar D) のキーコンフィグや
-// AudioMixer の音量、Display の解像度・ウィンドウモード等の永続化先として使う。
-//
-// 使い方:
-//   CSettings s;
-//   s.SetF32 ("audio.master",   0.8f);
-//   s.SetI32 ("display.width",  1920);
-//   s.SetBool("display.vsync",  true);
-//   s.SetString("locale",       "ja");
-//
-//   f32  master = s.GetF32 ("audio.master",  1.0f);
-//   bool vsync  = s.GetBool("display.vsync", false);
-//
-//   s.Save(L"settings.ini");  // 次回起動時に Load() で復元
-//
-// 設計選択 (Pillar G):
-//   ・**flat key-value**: key は `audio.master` のようなドット階層を文字列で表現する
-//     だけで、ツリー構造は持たない。深いネストが必要になったら `Section`
-//     型を上にかぶせる方が安全 (今は YAGNI)。
-//   ・**4 型タグ付き union**: f32 / i32 / bool / const char*。FVec2/FVec3 等の複合型は
-//     呼び出し側で複数 key (`pos.x`, `pos.y`) に分割するか、将来 配列型を追加。
-//   ・**key / string 値は非所有 const char***: ACS の STL 禁止方針 + 文字列ストア
-//     導入を避けるため、key と string 値の寿命は呼び出し側が保証する (リテラル or
-//     長寿命バッファ前提)。短命バッファ渡しが dangling になる点は要注意。
-//   ・**同 key の SetX は上書き**: 同名 key が既に存在すれば値と kind を上書きする。
-//     ユーザーが UI で「音量」を動かす度に SetF32() が呼ばれる典型ケースに合わせる。
-//   ・**線形検索**: settings 件数は通常 10〜200 程度なので TArray<FEntry> の線形走査で
-//     十分。ハッシュテーブル化は計測してから検討。
-//   ・**コピー / ムーブ禁止**: settings は通常 1 セッションに 1 オブジェクト
-//     (グローバル所有) で運用される。誤って値渡しされて分裂すると同期ずれを
-//     検知しづらいため、最初から非コピー・非ムーブで固定する。
-//   ・**全 noexcept**: 例外不使用方針 (TResult<T,E> + bool 戻り値)。
-//
-// Save / Load (実装済み、round-trip 検証済み):
-//   ・INI 風 `<tag>:<key>=<value>` テキスト (UTF-8 + LF) で読み書きする。Save は
-//     CREATE_NEW の一意な一時ファイルから atomic replace して破損を防ぐ。
-//   ・型は **prefix tag** (`f:`, `i:`, `b:`, `s:`) でディスクに残し、Load 時に復元する。
-//
-// 範囲外:
-//   ・配列値 / FVec2 / FVec3 / FColor 等の複合型 (現状は 4 プリミティブのみ)
-//   ・change notification (オブザーバ pattern / callback)
-//   ・section / namespace ツリー
-//   ・暗号化 / 改竄検知 (Pillar S Storefront / AssetPack 側で扱う)
-//   ・schema migration (バージョン番号の埋め込みと変換)
 #pragma once
 
 #include "foundation/Types.h"
@@ -85,34 +38,63 @@ enum class ESettingKind : u8 {
  * 数値は診断契約の一部である。既存値を再利用せず、新しい値は末尾へ追加する。
  */
 enum class ESettingsPersistenceError : u16 {
+    /** 永続化処理が成功した。 */
     None = 0,
+    /** 設定ファイルを開けなかった。 */
     FileOpenFailed = 10,
+    /** 入力ファイルが読み込み上限を超えた。 */
     FileTooLarge = 11,
+    /** 入力 path が null だった。 */
     NullPath = 12,
+    /** 永続化用メモリを確保できなかった。 */
     AllocationFailure = 13,
+    /** 設定ファイルのサイズを取得できなかった。 */
     FileSizeFailed = 14,
+    /** 設定ファイルの全内容を読み取れなかった。 */
     FileReadFailed = 15,
+    /** 設定ファイルを閉じられなかった。 */
     FileCloseFailed = 16,
+    /** 入力 text 内に埋め込み NUL があった。 */
     EmbeddedNul = 17,
+    /** 1 行のバイト数が上限を超えた。 */
     LineTooLong = 18,
+    /** 設定 entry 件数が安全上限を超えた。 */
     EntryLimitExceeded = 19,
+    /** 設定 record の区切りまたは項目数が不正だった。 */
     MalformedRecord = 20,
+    /** 設定値の型名を解釈できなかった。 */
     UnknownType = 21,
+    /** 設定 key が空だった。 */
     EmptyKey = 22,
+    /** 設定 key のバイト数が上限を超えた。 */
     KeyTooLong = 23,
+    /** 設定 value のバイト数が上限を超えた。 */
     ValueTooLong = 24,
+    /** 整数 value を全体として解釈できなかった。 */
     InvalidInteger = 25,
+    /** 浮動小数 value を全体として解釈できなかった。 */
     InvalidFloat = 26,
+    /** 浮動小数 value が有限値ではなかった。 */
     NonFiniteFloat = 27,
+    /** bool value が許可された表記ではなかった。 */
     InvalidBool = 28,
+    /** 同じ設定 key が複数回現れた。 */
     DuplicateKey = 29,
+    /** 保存対象のメモリ上 entry が型契約を満たさなかった。 */
     InvalidInMemoryEntry = 30,
+    /** 保存対象文字列を設定ファイル形式で表現できなかった。 */
     UnrepresentableText = 31,
+    /** 生成する設定 text が出力上限を超えた。 */
     OutputTooLarge = 32,
+    /** 設定ファイル path のバイト数が上限を超えた。 */
     PathTooLong = 33,
+    /** 利用可能な一時ファイル名を確保できなかった。 */
     TemporaryFileExhausted = 34,
+    /** 一時設定ファイルへ全内容を書き込めなかった。 */
     FileWriteFailed = 35,
+    /** 一時設定ファイルを永続記憶へ反映できなかった。 */
     FileFlushFailed = 36,
+    /** 一時ファイルを設定ファイルへ置き換えられなかった。 */
     AtomicReplaceFailed = 37,
 };
 
