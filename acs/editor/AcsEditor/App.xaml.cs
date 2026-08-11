@@ -727,79 +727,13 @@ public partial class App : Application
             return;
         }
 
-        // CLI: --bpshot <out.png> [acsbp]  → BlueprintWindow を画面外で描画し PNG 保存して終了。
-        // GPU 不要 (WPF ソフト描画)。ノードグラフ/グリッド/型付きピン/コメント枠の UI 検証用。
-        if (e.Args.Length >= 2 && e.Args[0] == "--bpshot")
+        // Blueprint 診断 CLI の入力検証、グラフ、出力と終了コードは専用 fixture が管理する。
+        if (BlueprintVisualFixture.TryStart(
+                e.Args,
+                Console.Out,
+                Console.Error,
+                exitCode => Shutdown(exitCode)))
         {
-            string outPng = e.Args[1];
-            string? bpPath = e.Args.Length >= 3 ? e.Args[2] : null;
-            var win = new BlueprintWindow
-            {
-                WindowStartupLocation = WindowStartupLocation.Manual,
-                Left = -4000, Top = -4000, Width = 1280, Height = 760,
-            };
-            win.Show();
-            _ = win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
-            {
-                try
-                {
-                    if (bpPath != null && File.Exists(bpPath)) win.Editor.LoadFromFile(bpPath);
-                    string mode = e.Args.Length >= 4 ? e.Args[3] : "";
-                    if (mode == "sel") win.Editor.SelectAll();                                  // 選択枠の描画検証
-                    else if (mode == "validate") win.Editor.ValidateForTest();                  // ⚠ バッジ検証
-                    else if (mode == "run") { win.Editor.ValidateForTest(); win.Editor.RunGraph(); }   // 実行=ウォッチ値+発火配線+バッジ
-                    else if (mode == "gencpp") win.Editor.GenerateCppForTest();                 // C++ 生成
-                    else if (mode == "func") win.Editor.SwitchToFirstFunctionForTest();         // 関数サブグラフへ切替
-                    else if (mode == "viewport") win.Editor.ShowViewportForTest();               // ビューポート (見た目+当たり判定)
-                    else if (mode == "vpangle") win.Editor.ViewportAngleForTest(2.4, 0.22);      // 別アングル (オービット確認)
-                    else if (mode == "vptop") win.Editor.ViewportAngleForTest(0.0, 1.35);        // ほぼ真上
-                    else if (mode == "varcombo") win.Editor.OpenVarComboForTest();                // 変数名コンボのドロップダウン
-                    else if (mode == "collapse") win.Editor.CollapseForTest();                    // 関数に折りたたむ
-                    else if (mode == "watch") win.Editor.WatchPinForTest();                        // ピン留めウォッチ
-                    else if (mode == "funcio") win.Editor.FuncIOForTest();                          // 関数の入出力ピン編集
-                    else if (mode == "macro") win.Editor.MacroForTest();                            // マクログラフへ切替
-                    else if (mode == "override") win.Editor.OverrideForTest();                      // 親関数をオーバーライド
-                    else if (mode == "split") win.Editor.SplitForTest();                            // 構造体ピン分割
-                    else if (mode == "arrange") win.Editor.ArrangeForTest();                        // 自動整列
-                    else if (mode == "expand") win.Editor.ExpandMathForTest();                      // 式をノード展開
-                    else if (mode.StartsWith("vpnode")) win.Editor.HighlightViewportNode(int.TryParse(mode.Substring(6), out var vid) ? vid : 1);   // ビューポートでノード強調
-                    else if (mode == "vpmove") win.Editor.MoveComponentForTest(1, 70, -30);   // ビューポートのドラッグ配置を検証 (Player を移動)
-                    else if (mode == "promote") win.Editor.PromotePinForTest(3, false, 1);   // データピンを変数に昇格 (Compare.a)
-                    else if (mode == "refs") win.Editor.SelectVariableReferences("HP");   // 変数の参照を全選択 (Find References)
-                    else if (mode == "align") win.Editor.AlignGuideForTest(4, 2);   // ドラッグ整列ガイド
-                    else if (mode == "autoconv") win.Editor.AutoConvertForTest();   // 型変換ノードの自動挿入
-                    else if (mode.StartsWith("node")) win.Editor.SelectOneForTest(int.TryParse(mode.Substring(4), out var nid) ? nid : 0);   // 単一ノード選択 (Details 確認)
-                    else if (mode == "wire") win.Editor.DebugStartWireForTest(2, 1);             // 互換ピン強調 (Object 出力から)
-                    else if (mode.StartsWith("zoom")) win.Editor.DebugZoomForTest(double.TryParse(mode.Substring(4), out var zz) ? zz : 2.2);   // 拡大監査
-                    else if (mode.StartsWith("step")) win.Editor.DebugStepForTest(int.TryParse(mode.Substring(4), out var st) ? st : 3);   // ステップ実行
-                    win.UpdateLayout();
-                    int w = (int)Math.Ceiling(win.ActualWidth);
-                    int h = (int)Math.Ceiling(win.ActualHeight);
-                    var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
-                    rtb.Render(win);
-                    var enc = new PngBitmapEncoder();
-                    enc.Frames.Add(BitmapFrame.Create(rtb));
-                    using var fs = File.Create(outPng);
-                    enc.Save(fs);
-                    Console.Error.WriteLine($"bpshot saved: {outPng} ({w}x{h})");
-                }
-                catch (Exception ex) { Console.Error.WriteLine(ex.Message); }
-                Shutdown();
-            }));
-            return;
-        }
-
-        // CLI: --bpcurve <acsbp>  → Timeline のカーブエディタを開いた BlueprintWindow を実画面に表示する (ポップアップ検証)。
-        if (e.Args.Length >= 2 && e.Args[0] == "--bpcurve")
-        {
-            string path = e.Args[1];
-            var win = new BlueprintWindow { WindowStartupLocation = WindowStartupLocation.CenterScreen, Width = 1280, Height = 760 };
-            MainWindow = win; win.Show();
-            _ = win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
-            {
-                try { win.Editor.LoadFromFile(path); } catch { }
-                win.Editor.OpenCurveForTest();
-            }));
             return;
         }
 
@@ -832,28 +766,6 @@ public partial class App : Application
                 };
                 win.Editor.SetPalette(pal);
                 win.Editor.DebugOpenSearch();
-            }));
-            return;
-        }
-
-        // CLI: --bpsrcgen <acsbp> <srcdir>  → SourceDir を設定して C++ を生成 (エンジン組み込みルーティングの検証)。
-        if (e.Args.Length >= 3 && e.Args[0] == "--bpsrcgen")
-        {
-            string acsbp = e.Args[1], srcdir = e.Args[2];
-            var win = new BlueprintWindow { WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
-            win.Show();
-            _ = win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
-            {
-                try
-                {
-                    System.IO.Directory.CreateDirectory(srcdir);
-                    if (File.Exists(acsbp)) win.Editor.LoadFromFile(acsbp);
-                    win.Editor.SourceDir = srcdir;
-                    var cp = win.Editor.GenerateCppFile(build: false);
-                    Console.Error.WriteLine("generated to: " + cp);
-                }
-                catch (Exception ex) { Console.Error.WriteLine(ex.Message); }
-                Shutdown();
             }));
             return;
         }

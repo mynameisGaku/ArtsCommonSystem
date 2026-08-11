@@ -545,35 +545,7 @@ public partial class BlueprintEditor : UserControl
         ViewportCanvas.MouseMove += OnViewportMove;             // 回転 / コンポーネント移動
         ViewportCanvas.MouseLeftButtonUp += OnViewportUp;
         ViewportCanvas.MouseWheel += OnViewportWheel;           // ズーム
-        Loaded += (_, __) => { if (_nodes.Count == 0) BuildDemoGraph(); BuildGraphTabs(); UpdateGrid(); UpdateMinimap(); };
-    }
-
-    // ----- デモグラフ: BeginPlay → Spawn → SetPosition(target=spawned) → Publish -----
-    private void BuildDemoGraph()
-    {
-        Brush ev = new SolidColorBrush(Color.FromRgb(0xB0, 0x3A, 0x46));   // イベント = 赤
-        Brush fn = new SolidColorBrush(Color.FromRgb(0x2E, 0x5C, 0x8A));   // 関数 = 青
-        Brush bus= new SolidColorBrush(Color.FromRgb(0x35, 0x7A, 0x55));   // イベント送出 = 緑
-
-        var begin = AddNode(1, "Event  On BeginPlay", 60, 90, ev,
-            ins: new Pin[] { },
-            outs: new[] { new Pin("▶", PinKind.Exec) });
-        var spawn = AddNode(2, "Spawn Prefab", 330, 70, fn,
-            ins:  new[] { new Pin("▶", PinKind.Exec), new Pin("path", PinKind.Data, "String"), new Pin("pos", PinKind.Data, "Vector") },
-            outs: new[] { new Pin("▶", PinKind.Exec), new Pin("spawned", PinKind.Data, "Object") });
-        var setp = AddNode(3, "Set Position", 620, 110, fn,
-            ins:  new[] { new Pin("▶", PinKind.Exec), new Pin("target", PinKind.Data, "Object"), new Pin("x", PinKind.Data, "Float"), new Pin("y", PinKind.Data, "Float") },
-            outs: new[] { new Pin("▶", PinKind.Exec) });
-        var pub  = AddNode(4, "Publish  \"Spawned\"", 620, 270, bus,
-            ins:  new[] { new Pin("▶", PinKind.Exec) },
-            outs: new[] { new Pin("▶", PinKind.Exec) });
-
-        _conns.Add(new BpConn(begin.Id, 0, spawn.Id, 0));   // exec: BeginPlay → Spawn
-        _conns.Add(new BpConn(spawn.Id, 0, setp.Id, 0));    // exec: Spawn → SetPosition
-        _conns.Add(new BpConn(spawn.Id, 1, setp.Id, 1));    // data: spawned → target
-        _conns.Add(new BpConn(setp.Id, 0, pub.Id, 0));      // exec: SetPosition → Publish
-
-        Rebuild();
+        Loaded += (_, __) => { BuildGraphTabs(); UpdateGrid(); UpdateMinimap(); };
     }
 
     private BpNode AddNode(int id, string title, double x, double y, Brush header, Pin[] ins, Pin[] outs)
@@ -3066,6 +3038,17 @@ public partial class BlueprintEditor : UserControl
         int pass = 0, fail = 0;
         var log = new StringBuilder();
         var savedLog = LogSink; LogSink = null;   // トレースを抑止
+
+        // 新しいエディターは、明示入力前にノードや接続を作らない。
+        string emptyStartupGraph = Serialize();
+        bool emptyStartup =
+            _nodes.Count == 0 &&
+            _conns.Count == 0 &&
+            emptyStartupGraph == "ACSBP 1\n";
+        if (emptyStartup) pass++; else fail++;
+        log.Append(emptyStartup ? "  OK   " : "  FAIL ")
+            .Append("EmptyStartup")
+            .Append('\n');
 
         // r = «id 50 の式ノード» の outPin。BeginPlay → Set Variable(r = expr) で評価する。
         string Calc(string exprLines, int outPin) =>
