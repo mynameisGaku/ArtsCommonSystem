@@ -1,21 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 2D 衝突判定プリミティブ（AABB / 円 / 線分 / 点）
-//
-// ヘッダオンリー、ゲーム実装に直結する最小集合：
-//   - 形状定義: FAabb2, FCircle
-//   - 重なり判定: Intersect(A, B)
-//   - 押し出しベクトル: Resolve(A, B)
-//   - レイキャスト: RaycastAabb / RaycastCircle
-//
-// 使い方:
-//   FAabb2 player{ {x, y}, {w, h} };
-//   FAabb2 wall  { {0, 0}, {100, 8} };
-//   if (Intersect(player, wall)) { /* 衝突 */ }
-//
-//   FCircle a{{px, py}, 16};
-//   FCircle b{{ex, ey}, 12};
-//   FVec2 push;
-//   if (Resolve(a, b, push)) { player.center += push; }
 #pragma once
 
 #include "foundation/Types.h"

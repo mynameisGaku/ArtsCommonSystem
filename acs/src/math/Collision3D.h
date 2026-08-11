@@ -1,14 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 3D 衝突判定プリミティブ（AABB / 球 / 平面 / レイ）
-//
-// 使い方:
-//   FAabb3 box = FAabb3::FromCenterExtents({0,0,0}, {1,1,1});
-//   FSphere s{ {3,0,0}, 0.5f };
-//   if (Intersect(box, s)) { /* 重なっている */ }
-//
-//   FRay3 ray{ camera.Eye(), forward };
-//   FRayHit3 h = RaycastAabb(ray, box);
-//   if (h.hit) { /* h.point, h.normal, h.t */ }
 #pragma once
 
 #include "foundation/Types.h"

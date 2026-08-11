@@ -1,16 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// システム関数の登録と実行（World に対して毎フレーム呼ばれる関数の登録機構）
-//
-// 使い方:
-//   void MovementSystem(CWorld& w, f32 dt) {
-//       w.Query<FPosition, FVelocity>().Each([dt](FEntityId, FPosition& p, FVelocity& v) {
-//           p.x += v.x * dt;
-//       });
-//   }
-//
-//   CSystemScheduler s;
-//   s.Add(&MovementSystem);
-//   while (running) { s.Tick(world, dt); }
 #pragma once
 
 #include "foundation/Types.h"

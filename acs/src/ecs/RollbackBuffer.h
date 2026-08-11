@@ -1,49 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// ECS の FRollbackBuffer（CWorld スナップショットのリングバッファ / rollback netcode の状態履歴）
-//
-// 役割:
-//   CWorld::CopyFrom (snapshot/rollback 基盤) の上に「直近 N tick 分の状態履歴」を
-//   提供する。GGPO 風 rollback netcode の状態レイヤで、入力レイヤの
-//   acs::game::CLockstep と対になる:
-//     ・CLockstep      … どの tick に誰が何を入力したか (入力履歴)
-//     ・FRollbackBuffer … 各 tick 開始時点の CWorld 状態 (状態履歴)
-//
-// 使い方 (rollback netcode の典型ループ):
-//   FRollbackBuffer history;
-//   history.Init(/*capacity=*/8);              // 直近 8 tick 分を保持
-//
-//   // 毎 tick、シミュレーション前に状態を退避してから進める:
-//   history.SaveFrame(tick, world);
-//   Simulate(world, PredictedInput(tick));
-//   ++tick;
-//
-//   // 遅れて権威入力が tick T (< tick) に届いたら、T へ巻き戻して再シミュレーション:
-//   if (history.RestoreFrame(T, world)) {
-//       for (u32 t = T; t < tick; ++t) {
-//           history.SaveFrame(t, world);       // 履歴も正しい系列で上書きする
-//           Simulate(world, AuthoritativeInput(t));
-//       }
-//   }
-//
-// 設計選択:
-//   ・**tick % capacity の直接添字リング**: 検索無しで O(1) に slot が決まる。
-//     slot には保存時の tick を記録し、Restore 時に一致検証する (容量を超えて
-//     進んだ後の古い tick は自然に上書き済み = 復元不可と判定される)。
-//   ・**CWorld は slot ごとに 1 個を Init で確保して使い回す**: SaveFrame のたびに
-//     CWorld を作り直さず CopyFrom で中身だけ入れ替えるため、TSparseSet の器の
-//     再確保が抑えられ、定常状態の確保回数が安定する。
-//   ・**部分状態を残さない**: Init の途中 OOM は確保済み分を解放して false。
-//     SaveFrame で CopyFrom が失敗した slot は invalid 化し、後の Restore が
-//     壊れた状態を返さない。
-//   ・**コピー / ムーブ禁止**: CWorld の履歴という重い状態の誤複製を防ぐ
-//     (CLockstep と同じ規約)。
-//   ・**全 noexcept / 失敗は bool**: ACS 全体方針。CWorld::CopyFrom の契約
-//     (非コピー型コンポーネントを含む CWorld は複製不可) をそのまま伝搬する。
-//
-// 範囲外:
-//   ・入力履歴 / desync 検出 (CLockstep::ComputeChecksum を使う)
-//   ・差分 snapshot / 圧縮 (全量コピー。まず正しさを取る)
-//   ・スレッド安全性 (シミュレーションスレッド専有を想定)
 #pragma once
 
 #include "foundation/Types.h"

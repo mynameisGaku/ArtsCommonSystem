@@ -1,21 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// ImGui を ACS FWindow + CRenderer に統合する薄いラッパ
-//
-// 使い方:
-//   ImGuiCtx imgui;
-//   imgui.Init(window, renderer);
-//
-//   while (!window.ShouldClose()) {
-//       ...
-//       renderer.BeginFrame(...);
-//       imgui.NewFrame();
-//       ImGui::Begin("Hello");
-//       ImGui::Text("Hello, world!");
-//       ImGui::End();
-//       imgui.Render();           // 描画コマンドをコマンドリストに発行
-//       if (!renderer.EndFrame()) break;
-//   }
-//   imgui.Shutdown();
 #pragma once
 
 #include "foundation/Result.h"

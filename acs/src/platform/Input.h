@@ -1,19 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 入力ポーリング API（キーボード / マウス / ゲームパッド）
-//
-// 使い方:
-//   while (!w.ShouldClose()) {
-//       CInput::Update();           // フレーム先頭で呼ぶ
-//       w.PollEvents();
-//
-//       if (CInput::IsKeyDown(EKey::Space)) Jump();
-//       if (CInput::IsMouseButtonPressed(EMouseButton::Left)) Shoot();
-//       FVec2 m = CInput::MousePos();
-//   }
-//
-// ・「Down」 = 現在押されている
-// ・「Pressed」 = このフレームで押された (前フレームは Down ではなかった)
-// ・「Released」 = このフレームで離された
 #pragma once
 
 #include "foundation/Types.h"

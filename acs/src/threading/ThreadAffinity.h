@@ -1,20 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// ThreadAffinity — クラスごとに「どのスレッドから呼べるか」を Debug ビルドで検証する
-//
-// 使い方:
-//   class FMyView {
-//       ACS_THREAD_AFFINITY_FIELD();
-//   public:
-//       void Set(int v) noexcept {
-//           ACS_THREAD_AFFINITY_CHECK();   // 最初の呼び出し時のスレッドに固定
-//           // ...
-//       }
-//   };
-//
-// ACS_THREAD_AFFINITY_FIELD: クラス内に検査用メンバを生やす (Debug only、Release で 0 byte)
-// ACS_THREAD_AFFINITY_CHECK: 現在のスレッドが初回スレッドと違ったら panic
-//
-// Release ビルドでは全部 no-op。
 #pragma once
 
 #include "foundation/Compiler.h"

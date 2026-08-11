@@ -1,15 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 非同期アセットロードの結果ハンドル
-//
-// 使い方:
-//   FAssetFuture fut = registry.LoadAsync(L"big_mesh.glb");
-//   ...
-//   if (fut.IsReady()) {
-//       auto r = fut.Get();
-//       if (r.IsOk()) TSharedPtr<AAsset> a = r.Value();
-//   }
-//   // または同期待ち（ワーカースチール参加付き）
-//   auto r = fut.Wait();
 #pragma once
 
 #include "foundation/Types.h"

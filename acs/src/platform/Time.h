@@ -1,13 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 時間計測（高精度タイマ + フレーム時間管理）
-//
-// 使い方:
-//   FFrameTimer ft;
-//   while (running) {
-//       f32 dt = ft.Tick();   // 経過秒（前フレームから今フレームまで）
-//       Update(dt);
-//       Render();
-//   }
 #pragma once
 
 #include "foundation/Types.h"
@@ -18,8 +9,7 @@ namespace acs {
  * 高精度な時刻取得ユーティリティ (全メソッド static)。
  *
  * @details
- * 実装は std::chrono::steady_clock ベースで、初回参照時を起点とする単調増加時刻を返す。
- * Windows では内部的に QPC、Linux/macOS では CLOCK_MONOTONIC 相当。
+ * 初回参照時を起点とする単調増加時刻を返し、フレーム間の経過時間計測に使う。
  */
 class CClock {
 public:

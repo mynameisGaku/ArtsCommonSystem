@@ -1,11 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// IPv4 アドレス（v1 では v6 は未対応）
-//
-// 使い方:
-//   FIpAddress addr = FIpAddress::FromString("127.0.0.1");
-//   FIpAddress any  = FIpAddress::Any();
-//   FIpAddress lo   = FIpAddress::Loopback();
-//   addr.port = 8080;
 #pragma once
 
 #include "foundation/Types.h"

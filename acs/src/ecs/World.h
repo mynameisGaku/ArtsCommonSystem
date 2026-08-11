@@ -1,20 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// ECS の CWorld（エンティティとコンポーネントを管理する中心）
-//
-// 使い方:
-//   CWorld w;
-//   FEntityId e = w.Create();
-//   w.Add<FPosition>(e, {0, 0, 0});
-//   w.Add<FVelocity>(e, {1, 0, 0});
-//
-//   if (FPosition* p = w.Get<FPosition>(e)) p->x += 1.0f;
-//
-//   w.Query<FPosition, FVelocity>().Each([](FEntityId id, FPosition& p, FVelocity& v) {
-//       p.x += v.x; p.y += v.y; p.z += v.z;
-//   });
-//
-//   w.Remove<FVelocity>(e);
-//   w.Destroy(e);
 #pragma once
 
 #include "foundation/Types.h"

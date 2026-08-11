@@ -1,16 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Foundation — エラーコード型 (TResult<T,E> の E パラメータ)
-// -----------------------------------------------------------------------------
-// 例外を使わない方針のため、エラーは戻り値として伝搬する。FErrorCode は
-// カテゴリ + サブコード + 任意の OS エラー値 + メッセージ + 発生位置 を
-// まとめて持つ POD 構造体である。
-//
-// 設計の意図:
-//   - カテゴリで大まかに分類し、ロガー側でフィルタしやすくする
-//   - サブコードはモジュール固有の細分化に使う
-//   - FSourceLoc を埋めることで「どこで失敗したか」を常時追跡できる
-// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"
@@ -143,9 +131,6 @@ constexpr const char* ToString(EErrCategory c) noexcept {
 
 // 呼び出し元の FSourceLoc を自動的にキャプチャしつつ FErrorCode を生成する。
 //
-// 使い方:
-//   return ACS_ERR(IO, 1, "ファイルが開けません");
-//   return ACS_ERR_OS(OS, 5, "CreateFile failed", GetLastError());
 #define ACS_ERR(cat, sub, msg) \
     ::acs::FErrorCode(::acs::EErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::FSourceLoc::Current())
 

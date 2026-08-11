@@ -10,15 +10,6 @@
 // constexpr で切り出すため、列挙子を二度書く必要が無く、型を指定するだけで名前が引ける。
 // 名前表はコンパイル時に確定し、実行時の確保も RTTI も要らない。
 //
-// 使い方:
-//   ACS_ENUM()
-//   enum class EMyColor : u8 { Red, Green, Blue };
-//
-//   TEnumTraits<EMyColor>::kCount;                  // 3
-//   TEnumTraits<EMyColor>::Name(EMyColor::Green);   // "Green" (FEnumName)
-//   TEnumTraits<EMyColor>::FromIndex(2);            // EMyColor::Blue
-//   TEnumTraits<EMyColor>::TryParse("Blue", out);   // true
-//
 // 制約:
 //   ・列挙子の値は 0 以上 kEnumScanMax 未満であること (既定 64)。範囲外の値を持つ列挙や
 //     ビットフラグ列挙は TEnumTraits を明示特殊化して上書きする。
@@ -63,7 +54,7 @@ namespace detail {
 /** 自動で走査する列挙子の上限 (0 .. kEnumScanMax-1 を見る)。 */
 inline constexpr usize kEnumScanMax = 64;
 
-/** コンパイル時に添字を展開するための列 (std::index_sequence 相当)。 */
+/** コンパイル時に添字を展開するための列。 */
 template<usize... Indices>
 struct TIndexSeq {};
 

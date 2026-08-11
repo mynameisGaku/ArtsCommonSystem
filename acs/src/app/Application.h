@@ -2,23 +2,6 @@
 #pragma once
 // CApplication 基底（継承して OnStart / OnUpdate / OnRender / OnShutdown を実装）
 //
-// 使い方:
-//   class FMyGame : public CApplication {
-//   public:
-//       // フックは必ず noexcept override で宣言する
-//       // （基底のフックが noexcept のため。noexcept を省くとコンパイルエラー）
-//       void OnStart() noexcept override {
-//           ACS_LOG_INFO("ゲーム開始");
-//       }
-//       void OnUpdate(f32 delta_time) noexcept override {
-//           if (CInput::IsKeyPressed(EKey::Escape)) Quit();
-//       }
-//       void OnRender() noexcept override {
-//           // 描画コマンド (BeginFrame / EndFrame は基底が呼ぶ)
-//       }
-//   };
-//
-//   ACS_DEFINE_MAIN(FMyGame)   // エントリポイントを自動生成 (app/EntryPoint.h)
 #include "foundation/Types.h"
 #include "platform/Window.h"
 #include "platform/Time.h"

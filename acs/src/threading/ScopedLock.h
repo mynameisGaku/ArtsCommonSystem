@@ -1,13 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// ACS Threading — RAII ロックガード（<mutex> の lock_guard / shared_lock 代替）
-//
-// スコープ脱出時に自動的にロックを解放するヘルパ。
-// 関数の早期 return / 例外なしパス / FPanic 経路でも確実に解放される。
-//
-// 使い方:
-//   { FScopedLock lk(mutex); ... }                  // FMutex 排他
-//   { FScopedSharedLock lk(rwlock); ... }            // FRwLock 共有
-//   { FScopedExclusiveLock lk(rwlock); ... }         // FRwLock 排他
 #pragma once
 
 #include "threading/Mutex.h"
@@ -16,7 +7,7 @@
 namespace acs {
 
 /**
- * FMutex を排他ロックする RAII ガード (lock_guard 代替)。
+ * FMutex を排他ロックし、スコープを抜けると自動で解放する。
  *
  * @details 構築時に Lock し、スコープ脱出時に Unlock する。コピー / ムーブ不可。
  */
@@ -43,7 +34,7 @@ private:
 };
 
 /**
- * FRwLock を共有 (読み取り) ロックする RAII ガード (shared_lock 代替)。
+ * FRwLock を共有 (読み取り) ロックし、スコープを抜けると自動で解放する。
  *
  * @details 構築時に LockShared し、スコープ脱出時に UnlockShared する。コピー / ムーブ不可。
  */

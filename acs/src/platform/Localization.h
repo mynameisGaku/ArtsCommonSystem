@@ -1,32 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 多言語対応（i18n）
-//
-// 設計:
-//   - 各言語は INI 形式の FStorage（key=value、UTF-8）
-//   - active = 現在表示中の言語、fallback = キーが無い時の代替
-//   - FStorage を直接利用するので、ファイル形式 / 内部構造を学び直す必要なし
-//
-// 使い方:
-//   FLocalization L;
-//   L.LoadActive(L"lang/ja.lang");
-//   L.LoadFallback(L"lang/en.lang");
-//
-//   CRenderer 内:
-//     sb.DrawText(font, L.Tr("greeting"), 100, 100, color);
-//
-//   ja.lang 内容例:
-//     # コメント
-//     greeting=ハロー、世界！
-//     menu.start=ゲーム開始
-//     menu.exit=終了
-//
-//   en.lang 内容例:
-//     greeting=Hello, World!
-//     menu.start=Start Game
-//     menu.exit=Quit
-//
-// 言語切替:
-//   L.LoadActive(L"lang/de.lang");   // 別言語に切替（fallback はそのまま）
 #pragma once
 
 #include "foundation/Types.h"
