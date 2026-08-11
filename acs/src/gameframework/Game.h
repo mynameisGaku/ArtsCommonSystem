@@ -1,21 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// CGame — CSceneManager を駆動するゲーム基底クラス
-//
-// CApplication を継承し、CSceneManager を駆動する基底。利用者は派生クラスで
-// InitialScene() を override して最初の AScene を返すだけでよい。
-//
-// 使い方:
-//   class CMyGame : public acs::CGame {
-//   protected:
-//       acs::TUniquePtr<acs::AScene> InitialScene() noexcept override {
-//           return acs::MakeUnique<ATitleScene>();
-//       }
-//   };
-//   ACS_GAME_MAIN(CMyGame)
-//
-// CSceneManager 駆動 + FRenderContext 配線。固定タイムステップ accumulator +
-// AppState 型消去永続状態 + AScene への dt は time_scale 乗算済を渡す。
-// OnPause/OnResume は CSceneManager 側で配線済 (Push/Pop 時)。
 #pragma once
 
 #include "app/Application.h"

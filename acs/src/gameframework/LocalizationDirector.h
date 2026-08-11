@@ -1,50 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// GameFramework localization — CLocalizationDirector (i18n 文字列辞書)
-//
-// 「ロケール + 文字列 ID」を「翻訳済みの const char*」に解決する小型ストア。
-// UI ラベル / セリフ / メニュー文言 / エラーメッセージ等を、ゲームロジックから
-// 言語非依存に引けるようにする。出荷タイトルの多言語対応で必要になる完成度
-// パーツの 1 つ。
-//
-// 使い方:
-//   CLocalizationDirector loc;
-//   英語のタイトルを登録: loc.RegisterString(ELocale::En, "ui.title", "Star Adventure");
-//   loc.RegisterString(ELocale::Ja, "ui.title",      "星の冒険");
-//   loc.RegisterString(ELocale::En, "ui.start",      "Start");
-//   loc.RegisterString(ELocale::Ja, "ui.start",      "はじめる");
-//
-//   loc.SetLocale(ELocale::Ja);
-//   const char* title = loc.Get("ui.title");   // -> "星の冒険"
-//   const char* miss  = loc.Get("ui.missing"); // -> "ui.missing" (key 自身)
-//
-// 設計選択 (簡素優先):
-//   ・**ロケール固定セット**: enum で 11 言語 + Default(=En) を最初から並べておく。
-//     市場想定 (日本インディーが世界に出すとき) で英・日・繁中・簡中・韓・仏・独・
-//     西・葡・露・伊 が現実的なカバレッジ。将来言語追加は enum 末尾に append、
-//     Default = En はそのまま (バイナリ互換目的)。
-//   ・**key / value とも const char* 非所有**: ACS の STL 禁止方針 + 文字列ストア
-//     導入を避けるため、key と value の寿命は呼び出し側が保証する (リテラル or
-//     長寿命バッファ前提)。短命バッファ渡しが dangling になる点は要注意。
-//   ・**3 段フォールバック**: Get(key) は
-//        現 locale で検索 → 無ければ Default(En) で検索 → それでも無ければ key 自身を返す
-//     最後の「key 自身を返す」は開発中に未翻訳箇所を画面で発見しやすくするための
-//     ガード (空文字や nullptr を返すと UI 側で別の null チェックが必要になる)。
-//   ・**線形探索**: 文字列 ID は通常 100〜2000 のオーダー、locale 切替は起動時 +
-//     設定変更時のみで頻発しないため、線形走査で十分。数千 key 規模になったら
-//     THashMap 化を検討する。
-//   ・**コピー / ムーブ禁止**: localization は通常 1 セッション 1 オブジェクトで
-//     運用される。誤って値渡しされて分裂すると翻訳ずれを検知しづらいため、
-//     最初から非コピー・非ムーブで固定する。
-//   ・**全 noexcept**: 例外不使用方針 (TResult<T,E> + bool 戻り値)。
-//
-// 範囲外:
-//   ・format 引数展開 ("Score: {0}" の {0} 置換)。`Sprintf`/`Format` 層を別途用意する想定。
-//   ・複数形 (plural rules) / 性別 (gender) / ICU MessageFormat 相当
-//   ・右から左 (RTL) レイアウト判定 (UI 描画層の責務)
-//   ・フォントフォールバック (CJK / Cyrillic / Arabic 等のグリフセット切替)
-//   ・永続化 / シリアライズ (保存 adapter から loc.json 等を流し込む)
-//   ・PO/MO/CSV からの自動取り込み (ツール側で RegisterString 列に変換する想定)
 #include "foundation/Types.h"
 #include "container/Array.h"
 #include "gameframework/Forward.h"
