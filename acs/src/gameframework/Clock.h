@@ -1,28 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — CSceneClock
-//
-// AScene 単位の時間トラッカ。scaled / unscaled 時間、frame count、pause/resume、
-// per-clock time_scale を持つ軽量値型 (40 byte 程度)。CTweenManager/FSequence/カスタム
-// タイマー等が共通の時間軸として参照する。
-//
-// 命名: `acs::CClock` (platform/Time.h、ハイレベル時間 API) との衝突を避けるため
-// `CSceneClock`。役割は「シーンの感じる時間 = pause/slow-mo を反映する論理時間」。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//   public:
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Clock.Tick(dt);
-//           // m_Clock.Dt() を CTweenManager 等の更新に渡す
-//       }
-//       void OnPause()  noexcept override { m_Clock.Pause();  }
-//       void OnResume() noexcept override { m_Clock.Resume(); }
-//   private:
-//       acs::game::CSceneClock m_Clock;
-//   };
-//
-// CGame の CApplication::DeltaTime() は常にリアル時間。シーンの感じる「時間」
-// (slow-mo・pause・スピードランナーの倍速モード等) は CSceneClock を経由する。
 #pragma once
 
 #include "foundation/Types.h"

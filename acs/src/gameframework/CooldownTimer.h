@@ -1,48 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CCooldownTimer (スキル/アビリティ cooldown 管理)
-//
-// 複数の cooldown (スキル / アビリティ / 弾薬リロード等) を同時追跡する軽量
-// マネージャ。各 cooldown は `label` (デバッグ / UI 表示用) と `duration_sec`
-// を持ち、Tick で remaining を減算、0 到達で charged 状態になる。TryUse は
-// charged のときだけ true を返して即時 reload を開始する (= remaining=duration)。
-//
-// 使い方:
-//   class APlayer : public ANode {
-//       acs::game::CCooldownTimer m_Cd;
-//       acs::game::FCooldownId   m_Fireball;
-//       acs::game::FCooldownId   m_Dash;
-//
-//       void OnEnter() noexcept override {
-//           m_Fireball = m_Cd.Register("fireball", 3.0f);
-//           m_Dash     = m_Cd.Register("dash",     0.8f);
-//           m_Cd.SetOnReadyCallback(&APlayer::OnReady, this);
-//           m_Cd.ForceReady(m_Fireball); // 初期は即撃てる
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Cd.Tick(dt);
-//           if (input.JustPressed(EKey::Z) && m_Cd.TryUse(m_Fireball)) {
-//               SpawnFireball();
-//           }
-//       }
-//       static void OnReady(void* self, acs::game::FCooldownId id,
-//                           const char* label) noexcept {
-//           // HUD に "Ready!" を点滅させる等
-//       }
-//   };
-//
-// 設計:
-//   ・**FCooldownId**: 24bit index + 8bit generation (CSceneTimer / CCollisionWorld2D
-//     と同じパターン)。Unregister 後の slot 再利用で stale 検出可能。
-//   ・**charged 状態**: `remaining <= 0` かつ `charged == true`。Tick 内で
-//     `remaining` が 0 を跨いだ瞬間に `charged` が false→true に遷移し、
-//     ReadyCallback が発火する。1 回の Tick 内で 1 回だけ。
-//   ・**TryUse**: charged のとき remaining=duration、charged=false を立てて
-//     true を返す。reload 中 (charged=false) は何もせず false。
-//   ・**Register 直後**: charged=false、remaining=duration (= reload 中扱い)。
-//     即時使用したい場合は ForceReady で明示。
-//   ・**ReadyCallback**: 関数ポインタ (std::function 不使用)。設定は単一スロット。
-//   ・**非コピー・非ムーブ**、全 noexcept、STL 不使用。
-//   ・Tick 中に Register / Unregister が呼ばれても安全 (slot index アクセスで回す)。
 #pragma once
 
 #include "foundation/Types.h"

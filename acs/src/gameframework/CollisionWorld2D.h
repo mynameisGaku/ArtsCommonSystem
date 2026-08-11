@@ -1,39 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — CCollisionWorld2D + SpatialGrid
-//
-// 2D 衝突判定の高レベル API。形状 (FAabb2 / FCircle) を `FShapeId` で管理し、
-// 内部の SpatialGrid (一様グリッド broad-phase) で O(N + K) クエリ
-// (K = 結果数) を提供する。narrow phase は `math/Collision2D.h` の
-// 既存関数 (Intersect / Resolve / RaycastAabb / RaycastCircle) を再利用。
-//
-// 使い方:
-//   CCollisionWorld2D world;
-//   world.Init(/*cell_size=*/64.0f);
-//
-//   FShapeId player = world.AddCircle({ {0,0}, 16.0f });
-//   FShapeId wall   = world.AddAabb({ {100,0}, {16,32} });
-//
-//   // 毎フレーム移動した形状を Update
-//   world.UpdateCircle(player, { player_pos, 16.0f });
-//
-//   // クエリ
-//   TArray<FShapeId> hits;
-//   world.OverlapCircle({ player_pos, 32.0f }, hits);  // 32 範囲のもの全部
-//
-//   FRayHit2 rh;
-//   FShapeId hit_id;
-//   if (world.Raycast({ origin, dir }, /*max_t=*/100.0f, rh, hit_id)) {
-//       // rh.point/normal/t、hit_id でどの形状か分かる
-//   }
-//
-// 設計 (Pillar F):
-//   ・**FShapeId**: 32bit packed = 24bit index + 8bit generation。removed slot
-//     を再利用しても古い handle は無効化される (FNodeId と同パターン)。
-//   ・**一様グリッド**: `cell_size` で固定、shape は overlapping cells に
-//     全部登録 (= shape は複数 cell に存在し得る)。クエリ時は cell 走査して
-//     候補集合を作り、narrow phase で実際の交差判定。
-//   ・**dirty flag + lazy rebuild**: Add/Update/Remove で `m_Dirty = true`、
-//     query 直前にグリッド再構築。per-frame full rebuild。
 #pragma once
 
 #include "foundation/Types.h"

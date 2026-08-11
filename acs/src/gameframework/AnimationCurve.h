@@ -1,41 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FAnimationCurve
-//
-// 編集可能な「時間→値」補間曲線。
-// CSpriteAnimator が「frame index 計算」だけを担うのと違い、FAnimationCurve は
-// 任意の f32 を時間で滑らかに変化させる汎用パスを提供する。
-//
-// 用途:
-//   ・カメラ FOV / 露出のキー打ち
-//   ・カスタム easing (Easing 関数群で表現できない自由曲線)
-//   ・体力バー演出やフェード等のスクリプト連動 (FSequence に渡す値生成器として)
-//
-// 使い方:
-//   FAnimationCurve fade;
-//   fade.AddKey(0.0f, 0.0f, ECurveInterpolation::Linear);
-//   fade.AddKey(0.5f, 0.8f, ECurveInterpolation::Linear);
-//   fade.AddKey(1.0f, 1.0f, ECurveInterpolation::Hermite); // 出口を滑らか
-//   fade.SetPostWrap(FAnimationCurve::EWrapMode::Clamp);
-//   // 毎フレーム:
-//   f32 alpha = fade.Evaluate(t);
-//
-// 設計判断:
-//   ・Easing.h は標準 easing の型付きカタログとして十分軽量だが、デザイナが任意の曲線を
-//     差し込みたい局面 (ボス演出曲線, カスタム UI スライドカーブ) に対応するため
-//     キー打ち式の曲線を別途用意する。
-//   ・key は time 昇順で内部 TArray に保持。AddKey は二分探索で適切位置に挿入する
-//     ことで Evaluate を O(log N) に保つ (FSequence の sorted insert と同方針)。
-//   ・各 key は in_interp / out_interp を持ち、segment [k_i, k_{i+1}] の補間方式は
-//     k_i.out_interp で決定。Step → 左 value 保持。Linear → 線形。Hermite →
-//     k_i.out_tangent と k_{i+1}.in_tangent を使う 3 次 Hermite。
-//   ・Hermite のタンジェントは「単位 1.0 秒あたりの傾き」として保存。Evaluate
-//     時に segment 長 dt で乗算してスケールするので、key 間隔を変えても曲線形が
-//     直感的に保てる。
-//   ・EWrapMode = {Clamp, Loop, PingPong} の前後別指定。Loop / PingPong は
-//     CSpriteAnimator と同じ折り返し方式で実装し、長時間呼び出しでも f32 精度を
-//     失わないよう time → 内部正規化 time の段階で fold する。
-//   ・CSpriteAnimator と同様に「ランタイム状態を不意に複製しないため非コピー・
-//     非ムーブ」。曲線を共有したい場合は FAnimationCurve を 1 つ作って参照渡しする。
 #pragma once
 
 #include "foundation/Types.h"
@@ -90,24 +53,39 @@ struct FCurveKey {
 
 /** FAnimationCurve の checked 更新・評価 API が返す安定したエラー分類。 */
 enum class EAnimationCurveError : u8 {
+    /** エラーなし。 */
     None = 0,
+    /** key 数が 0 以外なのに入力配列が null。 */
     NullKeys,
+    /** key 数が許容上限を超過。 */
     TooManyKeys,
+    /** time、value、tangent のいずれかが有限値ではない。 */
     NonFiniteValue,
+    /** 補間方式が定義済み列挙値ではない。 */
     InvalidInterpolation,
+    /** easing 種別に対応する評価関数がない。 */
     InvalidEasingType,
+    /** easing 曲線を生成する点数が許容範囲外。 */
     InvalidSampleCount,
+    /** 定義域外の折り返し方式が不正。 */
     InvalidWrapMode,
+    /** 入力 key が time 昇順ではない。 */
     UnsortedKeys,
+    /** 同じ time の入力 key が重複。 */
     DuplicateKeyTime,
+    /** key の保持領域を確保できない。 */
     AllocationFailure,
+    /** 評価結果を有限な f32 値として返せない。 */
     ResultOutOfRange,
 };
 
 /** checked 更新・評価の結果。 */
 struct FAnimationCurveResult {
+    /** checked API が返したエラー。 */
     EAnimationCurveError error = EAnimationCurveError::None;
+    /** 処理対象またはエラーを検出した key の位置。 */
     u32 key_index = 0u;
+    /** API が検証または保持した key 数。 */
     u32 key_count = 0u;
 
     bool Succeeded() const noexcept {

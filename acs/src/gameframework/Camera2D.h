@@ -1,37 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — CCamera2D
-//
-// 2D カメラ: position / zoom / rotation、target 追従 (指数 smoothing)、
-// screen shake (trauma 方式)、world↔screen 座標変換、world boundary clamping。
-// CSceneServices 経由で自動 tick (`ESvc::Camera2D` を WantedServices に含める)。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//   public:
-//       ESvc WantedServices() const noexcept override {
-//           return ESvc::Default2D | ESvc::Camera2D;
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           // player の位置にカメラを追従
-//           Services().Camera().SetTargetPos(player.Position());
-//           // 攻撃ヒットで画面振動
-//           if (player.JustHit()) Services().Camera().AddShake(0.5f);
-//       }
-//   };
-//
-// 設計選択:
-//   ・**framerate independent smoothing**: `1 - exp(-smoothing * dt)` で
-//     dt 不変な指数追従。`smoothing = 5.0` で約 0.2 秒で 63% 詰める典型値。
-//   ・**Eiserloh trauma shake** (Squirrel Eiserloh GDC 2016):
-//     `trauma += amount` で累積 (clamped [0,1])、毎フレーム `trauma -= decay*dt`
-//     で減衰。実 shake 量 = trauma² * amplitude * noise → 「弱 trauma で控えめ、
-//     強 trauma で派手」が自然に出る。noise は sin/cos 直流回避。
-//   ・**bounds clamp**: SetBounds(min, max) で position を rect 内に clamp。
-//     未設定なら無制限。
-//   ・**EffectiveViewCenter()** = position + shake_offset。レンダラーが
-//     実際に view 設定に使う値。
-//   ・**World↔Screen**: 画面中心 = view center、zoom > 1 で拡大表示。
-//     rotation は radians、+ で CCW。
 #pragma once
 
 #include "foundation/Types.h"

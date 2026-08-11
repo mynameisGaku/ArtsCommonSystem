@@ -1,38 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — CAssetBundle (シーンスコープのアセット集合非同期ロード)
-//
-// 役割:
-//   シーンが「このシーンで使う N 個のアセット」をまとめて宣言し、BeginLoad() で
-//   一括非同期ロード → 集約進捗 (Progress / IsLoaded / HasFailed) を確認する。
-//   個別 path の FAssetFuture を散在管理する代わりに 1 つの bundle で扱える。
-//
-// 使い方 (典型例):
-//   class AGameplayScene : public AScene {
-//       acs::game::CAssetBundle m_Bundle;
-//       void OnEnter() noexcept override {
-//           m_Bundle.Add("textures/hero.png");
-//           m_Bundle.Add("audio/bgm.ogg");
-//           m_Bundle.Add("meshes/level.glb");
-//           m_Bundle.BeginLoad();
-//       }
-//       void OnUpdate(f32) noexcept override {
-//           if (!m_Bundle.IsLoaded()) {
-//               // ローディング画面: m_Bundle.Progress() を表示
-//               return;
-//           }
-//           // 通常ゲームループ
-//       }
-//       void OnExit() noexcept override { m_Bundle.Unload(); }
-//   };
-//
-// 設計方針:
-//   ・シーン死亡で bundle 廃棄 → 内部 TSharedPtr<AAsset> が drop → CAssetRegistry の refcount
-//     が下がり、他参照がなければ実体メモリも解放される (GC 不要 / 決定的解放)。
-//   ・path 文字列は呼び出し側が寿命を保証する (string literal / 永続バッファ前提)。
-//     ACS 規約により <string> は使わない (const char* を TArray に保持)。
-//   ・BeginLoad(registry) は CAssetRegistry::Load を使った同期ロード。戻った時点で
-//     各 entry は Loaded / Failed 確定 (非同期分割は本 bundle の対象外)。
-//   ・全 API noexcept (例外は使わない / TResult も bundle 表層では露出しない)。
 #pragma once
 
 #include "foundation/Types.h"
