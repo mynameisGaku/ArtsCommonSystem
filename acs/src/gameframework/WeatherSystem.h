@@ -1,51 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — CWeatherSystem (天候モード)
-//
-// 役割:
-//   CAmbientDirector (時刻補間) と直交する「天候」状態を保持し、現在天候 →
-//   ターゲット天候への線形遷移と、各天候に対応する描画 / lighting 修飾係数
-//   (ambient 倍率 / 粒子密度 / sky tint / 風 / 霧密度) を提供する。
-//   レンダラ / CEffectSystem / CParticleSystem 側は毎フレーム本クラスから係数を
-//   pull するだけで天候表情を反映できる。
-//
-// 使い方:
-//   class AWorldScene : public AScene {
-//       acs::game::CWeatherSystem m_Weather;
-//
-//       void OnEnter() noexcept override {
-//           m_Weather.SetWeather(acs::game::EWeatherKind::Clear);
-//           m_Weather.SetWindDirection(acs::FVec2{1.0f, 0.0f});
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Weather.Tick(dt);
-//           // 雨へ 8 秒掛けて遷移
-//           if (player.EnteredRainZone()) m_Weather.SetWeather(
-//               acs::game::EWeatherKind::Rain, 8.0f);
-//
-//           CRenderer().SetAmbientMultiplier(m_Weather.AmbientLightMultiplier());
-//           CRenderer().SetSkyTint          (m_Weather.SkyTintMultiplier());
-//           CRenderer().SetFogDensityScale  (m_Weather.FogDensityMultiplier());
-//           Particles().SetGlobalDensity    (m_Weather.ParticleDensity());
-//           Wind().SetVector(m_Weather.WindDirection() * m_Weather.WindStrength());
-//       }
-//   };
-//
-// 設計選択 (Pillar Q):
-//   ・8 種の固定 enum: Clear / Cloudy / Rain / HeavyRain / Snow / Storm /
-//     Fog / Sandstorm。表現の幅を確保しつつ、各描画モディファイアを 1 テーブルで
-//     LUT 引きできる粒度 (FKindParams)。利用者は「現在 / 目標 / 遷移時間」だけ
-//     意識すれば良い。
-//   ・線形遷移: SetWeather(target, duration) → transition_t を 0→1 で線形に
-//     進める。current/target の全モディファイア値を t で Lerp。
-//   ・遷移完了で snap: transition_t == 1.0 で current = target に書き換え、
-//     transition_t を 1.0f に固定。次に SetWeather を呼ぶまで「完了状態」に
-//     とどまる。これにより current/target の lerp は常に t∈[0,1] の閉区間で済む。
-//   ・WindDirection は天候とは独立: 「南風が雨を運ぶ」「無風の雪」など表現が
-//     衝突するため、wind 方向はユーザーが任意に設定可能 (天候は強さのみ決める)。
-//     デフォルトは (1, 0) = 東向き。
-//   ・ambient/sky 修飾は乗算: CAmbientDirector の出力に「天候による調整」を
-//     掛けるだけで時刻 × 天候の合成が完了する設計。Storm/Sandstorm 時は
-//     ambient を 0.5 倍に暗くするなど。
 #pragma once
 
 #include "foundation/Types.h"
@@ -57,8 +10,8 @@ namespace acs::game {
  * 天候種別。
  *
  * @details
- * レンダラ / 粒子 / 音響側で参照する。値は安定なので save に書ける
- * (将来 enum 追加時は末尾追加のみ、既存値の意味は不変とする規約)。
+ * レンダラ / 粒子 / 音響側で参照する。save 互換性のため新しい値は末尾に追加し、
+ * 既存値の数値と意味は変更しない。
  */
 enum class EWeatherKind : u8 {
     /** 快晴 / 通常。 */

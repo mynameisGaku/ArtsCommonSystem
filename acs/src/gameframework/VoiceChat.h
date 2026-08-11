@@ -1,67 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — VoiceChat (Steam Voice / EOS Voice / Vivox / Discord / Opus seam)
-//
-// 役割:
-//   パーティ / チーム / 全体チャンネルに対するボイスチャットの「シーム」インター
-//   フェース。実プロバイダは Steam Voice / EOS Voice / Unity Vivox / Discord
-//   CGame SDK / Opus self-host のいずれでも良く、ゲーム側コードは `IVoiceChatBackend`
-//   経由でのみ参加者管理 / ミュート / 音量を扱う。SDK 統合はビルド時の選択で
-//   差し替える。
-//
-// 使い方 (典型例):
-//   class CGame {
-//       acs::game::IVoiceChatBackend* m_Voice = nullptr;
-//
-//       void OnStart() noexcept override {
-//           // 出荷ビルドでは Vivox/Discord/Steam Voice 実装を DI、開発ビルドは Stub。
-//           m_Voice = &acs::game::GetVoiceStub();
-//           (void)m_Voice->Init(acs::game::EVoiceProvider::None);
-//       }
-//       void OnPartyJoined() noexcept {
-//           (void)m_Voice->JoinChannel(acs::game::EVoiceChannel::Party, "party-1234");
-//       }
-//       void OnTick(f32 dt) noexcept override {
-//           m_Voice->Tick(dt);  // audio level 取得 / 発言検出 pump
-//       }
-//   };
-//
-// 設計選択 (Pillar T):
-//   ・**シーム (= 純粋仮想 I/F) として抽象化**: Vivox / Discord / Steam Voice 各 SDK
-//     はライセンスもバイナリサイズも大きく、本体に直接リンクできない。ヘッダだけは
-//     常に提供し、実装は別モジュール (将来の `acs_voice_vivox` / `acs_voice_discord`
-//     等) で `IVoiceChatBackend` を override する形を取る。
-//   ・**プロバイダは enum で表現**: 同時に複数バックエンドが共存する稀ケース
-//     (Steam Voice + Discord overlay) は扱わず、`Init(EVoiceProvider)`
-//     で 1 個を選んで初期化する。`ActiveProvider()` で取得可能。
-//   ・**チャンネルは 4 種類固定**: Party / Team / Global / Custom。最初の 3 つは
-//     ゲームロジック共通の意味論を持たせ、Custom は SDK 固有の追加チャンネル用
-//     (raid voice / region voice / dev チャット等)。
-//   ・**所有しない const char***: 文字列 (user_id / display_name / channel_id) は
-//     呼び出し側 / SDK のライフタイムに従い、Bridge はコピーしない (STL <string>
-//     不使用方針)。`GetParticipant` の戻り値は「次の Tick まで有効」と扱うこと。
-//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は全 API で
-//     `ACS_ERR(Generic, kSubVoiceNotImplemented, ...)` を返す。
-//   ・**コピー / ムーブ禁止**: backend は通常 1 個の長寿命オブジェクトで運用。
-//     誤コピーで SDK ハンドルが二重解放されると詰むため最初から非コピー・非ムーブ。
-//   ・**Tick(dt) は必須**: Vivox の `Update3DPosition()` 相当 / Discord の event pump
-//     を Backend 側に畳み込む。ゲーム側は dt を毎フレーム渡すだけで、コールバック
-//     ポンプの存在を意識しなくて良い。
-//   ・**Stub は static singleton**: 依存ゼロのデフォルト実装として `GetVoiceStub()`
-//     を提供。実 SDK 未統合のビルドでも `m_Voice = &GetVoiceStub();` だけでコンパイル可能。
-//
-// 倫理 / 安全方針:
-//   ・**moderation は別モジュール**: 文字起こしによる NG ワード判定 / 通報導線は
-//     `CSocialModeration` (別 Pillar) が担当。本 system は技術的な mute/volume 管理のみ。
-//   ・**under-18 のデフォルト**: 未成年アカウントが既知の場合、呼び出し側で
-//     `SetLocalMute(true)` をかぶせる想定。本 system はフラグを持たず強制機構なし
-//     (プラットフォームごとに年齢推定 API が異なるため一律ルール化が危険)。
-//
-// 範囲外:
-//   ・push-to-talk / VAD threshold 設定 / 3D ポジショナルボイス座標更新 API。
-//   ・録音 / 文字起こし (Pillar U AI 経由 STT)。
-//   ・音声エフェクト (ボイスチェンジャー / ノイズリダクション設定)。
-//   ・テキストチャット (別モジュール)。
-//   ・各 SDK 固有の advanced API (Vivox の transmit policy 等)。
 #pragma once
 
 #include "foundation/Result.h"
@@ -75,9 +12,8 @@ namespace acs::game {
  * Stub による未実装 (仕様準拠) を表す FErrorCode subcode。
  *
  * @details
- * ISteamworksBridge と同様、Foundation の EErrCategory enum を増やさず Generic +
- * 安定 subcode で表現する。呼び出し側は `err.subcode == kSubVoiceNotImplemented`
- * でフィルタ可能。
+ * 未実装状態は Generic category と安定 subcode の組で表現する。呼び出し側は
+ * err.subcode == kSubVoiceNotImplemented で判別できる。
  */
 inline constexpr u16 kSubVoiceNotImplemented = 99;
 
@@ -203,16 +139,16 @@ struct FVoiceFrameHeader {
     /** payload の int16 サンプル数。 */
     u32 sample_count = 0;
 
-    /** codec id / channel 用の予約フィールド (現状 0)。 */
+    /** codec id / channel 用の予約フィールド。値は 0 で保持する。 */
     u32 reserved     = 0;
 };
 
 /**
- * 各 SDK の差を吸収するボイスチャット backend の純粋仮想インターフェース。
+ * EVoiceProvider で選択した音声 backend の純粋仮想インターフェース。
  *
  * @details
- * Steam Voice / EOS Voice / Vivox / Discord / OpusSelf の差を吸収する。実装は
- * 本体外モジュール (or テスト) で override する。
+ * EVoiceProvider で選択した音声 backend の差を吸収する。具象実装は本体外モジュールで
+ * 提供する。
  */
 class IVoiceChatBackend {
 public:
@@ -281,7 +217,7 @@ public:
     /**
      * 自分のマイクをローカル側でミュート / 解除する。
      *
-     * @details 送信を止めるかどうかは実装依存 (Vivox はミュート時も local capture を続けるが送信を停止)。
+     * @details 送信停止と local capture 継続の組み合わせは具象 backend が決定する。
      * @param muted true でミュート、false で解除。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
@@ -325,15 +261,15 @@ public:
     virtual TResult<FVoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index) noexcept = 0;
 
     /**
-     * コールバック / 状態更新ポンプ (ゲームループから毎フレーム呼ぶ)。
+     * 1 frame 分の callback と provider 状態を更新する。
      *
-     * @details Vivox の Update3DPosition / Discord の event pump / VAD threshold 監視を Backend 側に畳み込む。
+     * @details provider 固有の 3D 位置更新、event 処理、発話検出を backend 側にまとめる。
      * @param dt 実時間秒 (実装によっては使わない)。
      */
     virtual void Tick(f32 dt) noexcept = 0;
 
     /**
-     * ローカルマイク相当の int16 PCM フレームを 1 つ push する (push 型 capture)。
+     * ローカルマイクから得た int16 PCM フレームを 1 つ push する (push 型 capture)。
      *
      * @details
      * 実 SDK backend はマイク捕捉/再生を SDK 内部で行うため override せず、既定実装は
@@ -389,12 +325,12 @@ public:
 };
 
 /**
- * SDK 未統合ビルド / ユニットテスト用の no-op backend 実装。
+ * 外部 backend 未接続時に使用する no-op backend 実装。
  *
  * @details
  * Init() は受け取った provider を記録するが操作系 API は全て
  * ACS_ERR(Generic, kSubVoiceNotImplemented, ...) を返し、IsAvailable() は常に false。
- * Shutdown() / Tick() は副作用なし。ISteamworksBridge と違い「未実装」を強調する。
+ * Shutdown() / Tick() は副作用を持たない。
  */
 class CVoiceChatBackendStub final : public IVoiceChatBackend {
 public:
@@ -505,10 +441,10 @@ private:
 };
 
 /**
- * Stub backend の static singleton アクセサ (Meyer's singleton)。
+ * process 共有 Stub backend の accessor。
  *
  * @details
- * 実 SDK 実装が DI される前のデフォルト。ISteamworksBridge::GetStub() と同じパターン。
+ * 具象 backend が登録される前の既定値として共有 Stub を返す。
  * @return 共有 Stub backend への参照。
  */
 IVoiceChatBackend& GetVoiceStub() noexcept;
@@ -517,10 +453,10 @@ IVoiceChatBackend& GetVoiceStub() noexcept;
  * SDK 非依存で実際に音声フレームを往復させる in-process ループバック backend。
  *
  * @details
- * Vivox 等の外部 SDK をリンクできない / したくないビルドでも、同一プロセス内で
+ * 外部 backend を接続しない構成でも、同一プロセス内で
  * PushLocalFrame(A) → encode(framing) → A 以外の全参加者の受信キュー → decode
  * → per-participant gain/mute → N-way mix(sum+clamp) → PumpMixedOutput(B) を
- * 成立させる。ネットワークは使わず純粋に in-process なので決定的でユニットテスト可能。
+ * 成立させる。ネットワークを使わないため処理結果は決定的になる。
  * 各チャンネル (Party/Team/Global/Custom) は独立した参加者テーブル + per-user 受信
  * キューを持ち、index 0 の participant をローカルユーザ (= 自分) として扱う。
  */
@@ -707,7 +643,7 @@ public:
     f32 LocalAudioPeak() const noexcept { return m_LastLocalPeak; }
 
     /**
-     * 指定参加者の受信キューに溜まっているフレーム数を返す (テスト検証用)。
+     * 指定参加者の受信 queue に保持する未処理 frame 数を返す。
      *
      * @param ch 対象チャンネル種別。
      * @param user_id 対象 user_id。
@@ -716,7 +652,7 @@ public:
     u32 PendingFrameCount(EVoiceChannel ch, const char* user_id) noexcept;
 
     /**
-     * int16 PCM を framed バイト列に encode する (ユニットテストから直接叩ける)。
+     * int16 PCM を検証済み header 付き framed バイト列へ encode する。
      *
      * @details out は header(16B) + sample_count*2 byte 必要。
      * @param pcm 入力 int16 PCM (sample_count 個、非所有)。

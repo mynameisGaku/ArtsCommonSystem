@@ -1,45 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — CTriggerWorld2D (overlap tracking + events)
-//
-// CCollisionWorld2D とは独立に「重なりだけを監視するトリガ専用ワールド」。
-// 物理応答や押し戻し (Resolve) は行わず、毎フレーム全 trigger pair の重なり
-// 状態を更新し、前フレと比較して以下の 3 種類のイベントを発火する:
-//
-//   ・OnEnter : 前フレ非重なり → 今フレ重なり (新規 overlap pair)
-//   ・OnStay  : 前フレ重なり   → 今フレ重なり (継続中の overlap pair)
-//   ・OnExit  : 前フレ重なり   → 今フレ非重なり (離れた overlap pair)
-//
-// 使い方:
-//   CTriggerWorld2D world;
-//   world.Init();
-//
-//   FTriggerId player = world.AddCircle({ {0,0}, 16.0f }, /*layer=*/0);
-//   FTriggerId pickup = world.AddAabb  ({ {100,0}, {8,8} }, /*layer=*/1);
-//
-//   world.SetOnEnter(+[](void* /*user*/, FTriggerId self, FTriggerId other) noexcept {
-//       // self と other が今フレ初めて重なった
-//   }, /*user=*/nullptr);
-//
-//   // 毎フレーム:
-//   world.UpdateCircle(player, { player_pos, 16.0f });
-//   world.Tick(dt);    // overlap 比較 → OnEnter / OnStay / OnExit 発火
-//
-// 設計:
-//   ・**broad phase は O(N^2)**: 全 pair を直接比較。将来
-//     CCollisionWorld2D と同じ SpatialGrid に置換し O(N + K) に下げる予定。
-//   ・**FTriggerId は FShapeId と同じ generational handle** (24bit index + 8bit gen)。
-//     remove → re-add で slot 再利用しても旧 handle は無効化される。
-//   ・**overlap pair は array で保持**: 前フレの状態は `TArray<FOverlapPair>` に
-//     `was_overlapping` 付きで保存。次フレで再計算し、(was, now) の組合せで
-//     どのイベントを発火するか決める。
-//   ・**layer はメタデータとして格納のみ**: event 側で参照する。
-//     mask による絞り込みは将来導入。
-//   ・**コールバックは関数ポインタ + void* user**: STL 不使用のため std::function
-//     ではなく C-style コールバックを採用。各イベントは独立に設定可能で、
-//     未設定なら発火スキップ。
-//   ・**非コピー・非ムーブ**: 内部の overlap state がポインタ的セマンティクスを
-//     持つわけではないが、ハンドルの安定性を保証するため複製を禁止。
-//   ・**全関数 noexcept**: ACS 全体の規約に従い例外伝播ゼロ。
 #pragma once
 
 #include "foundation/Types.h"
@@ -152,7 +111,7 @@ public:
     /** ムーブ代入も禁止。 */
     CTriggerWorld2D& operator=(CTriggerWorld2D&&)      = delete;
 
-    /** 初期化する (現状は状態を持たないが、将来の SpatialGrid 等のため API を予約)。 */
+    /** 内部状態を初期化する。保持状態を持たないため安全な no-op。 */
     void Init() noexcept;
 
     /**
@@ -246,9 +205,9 @@ public:
      * 毎フレ呼び、全 pair の overlap 状態を更新してイベントを発火する。
      *
      * @details
-     * 前フレと比較して OnEnter / OnStay / OnExit を発火する。dt は現状未使用だが、
-     * 将来 OnStay の経過時間通知などで利用予定。
-     * @param dt 前フレームからの経過秒 (現状未使用)。
+     * 前フレと比較して OnEnter / OnStay / OnExit を発火する。dt は更新契約として
+     * 受け取るが、overlap 判定では参照しない。
+     * @param dt 前フレームからの経過秒。
      */
     void Tick(f32 dt) noexcept;
 

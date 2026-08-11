@@ -1,37 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J — TTypeInfo
-//
-// RTTI 不使用の最小反射 (reflection)。シリアライザ / インスペクタ / デバッガ
-// などが「フィールド名 / 型名 / オフセット / サイズ」を知るための最小限の
-// メタ情報を、コンパイル時に生成する。
-//
-// 使い方:
-//   struct FPlayerState {
-//       acs::f32 x;
-//       acs::f32 y;
-//       acs::i32 hp;
-//   };
-//
-//   // (ヘッダ末尾、グローバル空間で)
-//   ACS_GAME_REFLECT(FPlayerState,
-//       ACS_GAME_FIELD(FPlayerState, x,  "f32"),
-//       ACS_GAME_FIELD(FPlayerState, y,  "f32"),
-//       ACS_GAME_FIELD(FPlayerState, hp, "i32"))
-//
-//   // 取得:
-//   const auto& ti = acs::game::Reflect<FPlayerState>();
-//   for (acs::u32 i = 0; i < ti.field_count; ++i) {
-//       const auto& f = ti.fields[i];
-//       // f.name / f.type_name / f.offset / f.size を使う
-//   }
-//
-// 設計選択:
-//   ・RTTI / <typeinfo> 不使用。型 ID は AppState / AComponent と同じ
-//     「template static int のアドレス」パターン (`TypeTag<T>()`)。
-//   ・ヘッダオンリ。`TTypeInfo<T>` の特殊化に static const FFieldInfo[] を持ち、
-//     `Reflect<T>()` から FTypeInfoBase の static 参照を返す。
-//   ・default `TTypeInfo<T>` は「未反射」を表す空特殊化 (field_count == 0)。
-//   ・依存は foundation/Types.h + <cstddef> (offsetof) のみ。STL 不使用。
 #pragma once
 
 #include "foundation/Types.h"
@@ -84,8 +51,7 @@ struct FTypeInfoBase {
  * 型 T の一意 ID (static int のアドレス) を返す。
  *
  * @details
- * AppState / AComponent と同じパターン。RTTI 不使用で、各 T のインスタンス化ごとに
- * 別 instantiation = 別アドレスになる。
+ * RTTI を使わず、各 T のインスタンス化ごとに異なる static object のアドレスを返す。
  * @tparam T ID を取得する型。
  * @return 型 T を一意に識別する不透明ポインタ。
  */
@@ -180,8 +146,8 @@ inline const FTypeInfoBase& Reflect() noexcept {
  * 型 T を反射するマクロ。
  *
  * @details
- * TReflectedFields<T> と TTypeInfo<T> の特殊化を生成する。template 特殊化のため
- * グローバル名前空間で呼ぶこと。
+ * TReflectedFields<T> と TTypeInfo<T> の特殊化を生成する。グローバル名前空間
+ * 以外で展開すると、正しい template 特殊化を生成できない。
  * @param T 反射する型。
  * @param ... ACS_GAME_FIELD で生成した FFieldInfo 初期化子の可変長リスト。
  */

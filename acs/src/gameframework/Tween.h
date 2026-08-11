@@ -1,34 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — CTweenManager
-//
-// 値書き戻し型 tween manager: 利用者の f32/FVec2/FVec3 変数のポインタを渡し、
-// CTweenManager が毎 Tick で補間して書き込む。コールバック不要 (= ACS の
-// std::function 非使用方針と整合)。Easing は関数ポインタで指定。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//       acs::game::CTweenManager m_Tweens;
-//       acs::FVec3 m_Color{0, 0, 0};
-//
-//       void OnEnter() noexcept override {
-//           m_Tweens.Tween(&m_Color,
-//                          acs::FVec3{0.05f, 0.20f, 0.10f},
-//                          acs::FVec3{0.10f, 0.30f, 0.20f},
-//                          /*duration=*/2.0f,
-//                          Easing::InOutSine);
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Tweens.Tick(dt);
-//           GetGame().SetClearColor(m_Color.x, m_Color.y, m_Color.z);
-//       }
-//   };
-//
-// 安全性:
-//   ・Handle は (index, generation) で stale 参照を検出。Cancel(h) は
-//     完了済 or 別 tween に再利用された slot を弄らない。
-//   ・duration <= 0 を渡すと「即時設定」(target に to を書いて Handle=invalid 返す)。
-//   ・target が null なら no-op + invalid handle 返却。
-//   ・tween 完了時は target に正確に `to` を書く (浮動小数誤差を 1 frame 残さない)。
 #pragma once
 
 #include "foundation/Types.h"

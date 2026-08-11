@@ -1,46 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — IWorkshopBridge (Steam Workshop / UGC seam)
-//
-// Steam Workshop / EOS UGC / mod.io といったプラットフォーム固有 UGC SDK へ橋渡し
-// するシーム (seam) インターフェース。ゲーム側コードは IWorkshopBridge 経由でのみ
-// ユーザー生成コンテンツ (UGC) の publish / subscribe / download を行い、実 SDK
-// (Steamworks UGC API 等) との結合はビルド時の選択で差し替える。
-//
-// 使い方:
-//   class FModBrowserUi {
-//       acs::game::IWorkshopBridge* m_Workshop = nullptr;
-//
-//       void OnStart() noexcept override {
-//           m_Workshop = &acs::game::GetWorkshopStub();
-//           (void)m_Workshop->Init();
-//       }
-//       void OnTick(f32 dt) noexcept override {
-//           m_Workshop->Tick(dt);  // callback pump
-//       }
-//       void OnSubscribeClicked(acs::u64 item_id) noexcept {
-//           (void)m_Workshop->SubscribeItem(item_id);
-//           (void)m_Workshop->DownloadItem(item_id);
-//       }
-//   };
-//
-// 設計選択:
-//   ・**ISteamworksBridge とは別 I/F**: Workshop は publish ワークフロー (CreateItem /
-//     UpdateItem) を持ち、API 面が Achievement / Leaderboard とは別領域。一緒くたに
-//     すると Bridge が肥大化するため、別ファイルで隔離する。
-//   ・**`u64 item_id` を opaque key として扱う**: Steamworks では PublishedFileId_t
-//     (= u64)、mod.io では mod ID (= u32 だが u64 上位ビット 0 で表現可) を共通化。
-//   ・**所有しない const char***: 文字列は ISteamworksBridge と同じく呼び出し側 /
-//     プラットフォーム SDK のライフタイムに従い、Bridge はコピーしない。
-//     QueryItem() の戻り値は「次の Tick() を呼ぶまで有効」と扱うこと。
-//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は Init() のみ
-//     成功、その他は ACS_ERR(Generic, kSubWorkshopNotImplemented, ...) を返す。
-//   ・**ダウンロード進捗は同期 poll**: GetDownloadProgress(item_id) を毎フレーム
-//     呼んで [0, 1] を取得。-1 は「現在ダウンロード中ではない / 不明」を表す。
-//   ・**Stub は static singleton で取得**: ISteamworksBridge と同じく
-//     `GetWorkshopStub()` を提供。`CWorkshopBridgeStub::IsAvailable()` は
-//     常に false を返し、UI 側で「Workshop 機能無効」表示の判定に使える。
-//   ・**実 SDK 実装はここでは作らない**: GoldenWorkshopBridge 等は Steamworks UGC
-//     API への依存を伴うため、本ファイルでは I/F + Stub のみ。
 #pragma once
 
 #include "foundation/Result.h"
@@ -51,7 +9,7 @@ namespace acs::game {
 /**
  * Stub が未実装 API で返す subcode (EErrCategory::Generic 配下)。
  *
- * @details ISteamworksBridge と subcode 空間が重ならないよう 1100 番台を使う。
+ * @details UGC bridge の未実装状態を Generic category の 1100 番台で識別する。
  */
 inline constexpr u16 kSubWorkshopNotImplemented = 1101;
 
@@ -65,12 +23,12 @@ inline constexpr u16 kSubWorkshopUnavailable    = 1103;
  * cross-platform 共通の UGC アイテムメタ情報。
  *
  * @details
- * Bridge は文字列を所有しない。title / description / author は実 SDK 側
+ * Bridge は文字列を所有しない。title / description / author は具象 backend 側
  * (または Stub 内 static literal) のメモリを参照し、寿命は「次の Tick() を
  * 呼ぶまで」を保証する (実装によってはそれより長い)。
  */
 struct FWorkshopItem {
-    /** SDK 固有の opaque ID (Steam PublishedFileId_t 等)。 */
+    /** UGC backend が発行する opaque ID。 */
     u64         item_id     = 0;
 
     /** ユーザー表示タイトル (UTF-8、所有しない)。 */
@@ -93,12 +51,12 @@ struct FWorkshopItem {
 };
 
 /**
- * Steam Workshop / EOS UGC / mod.io への橋渡しシーム (純粋仮想 I/F)。
+ * UGC の publish / subscribe / download を抽象化する純粋仮想インターフェース。
  *
  * @details
- * プラットフォーム固有 UGC SDK の差を吸収し、ゲーム側は本 I/F 経由でのみ UGC の
- * publish / subscribe / download を行う。実装は本体外モジュール (or テスト) で
- * Override する。u64 item_id は SDK 固有 ID を表す opaque key として扱う。
+ * 具象 UGC backend の差を吸収し、ゲーム側は本インターフェース経由で UGC の
+ * publish / subscribe / download を行う。u64 item_id は backend 固有 ID を表す
+ * opaque key として扱う。
  */
 class IWorkshopBridge {
 public:
@@ -180,7 +138,7 @@ public:
     /**
      * アイテムを subscribe する。
      *
-     * @details SDK 側で自動的にダウンロードが始まる場合もある (Steam の標準挙動)。
+     * @details subscribe 後の自動 download 開始有無は具象 backend が決定する。
      * @param item_id subscribe するアイテムの opaque ID。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
@@ -212,16 +170,16 @@ public:
     virtual f32 GetDownloadProgress(u64 item_id) noexcept = 0;
 
     /**
-     * コールバックポンプを回す (ゲームループから毎フレーム呼ぶ)。
+     * 1 frame 分の callback と provider 状態を更新する。
      *
-     * @details SteamAPI_RunCallbacks() 相当を Bridge 側に畳み込む。
+     * @details provider 固有の callback と状態更新を Bridge 側にまとめる。
      * @param dt 前フレームからの経過秒。
      */
     virtual void Tick(f32 dt) noexcept = 0;
 };
 
 /**
- * Steamworks UGC SDK 未統合ビルド / ユニットテスト用の no-op 実装。
+ * 具象 UGC backend 未接続時に使用する no-op 実装。
  *
  * @details
  * Init() のみ常に成功 (m_Initialized = true)、IsAvailable() は常に false
@@ -336,9 +294,8 @@ private:
  * 全コードで共有できる Stub の static singleton を返す。
  *
  * @details
- * 実 SDK 実装が DI される前のデフォルト。Meyer's singleton で構築するため
- * thread-safe。ISteamworksBridge は静的メンバ関数を使うが、Workshop 側は仕様に
- * 合わせて自由関数で公開する。
+ * 具象 backend が登録される前の既定値として、thread-safe に初期化される
+ * process 共有 Stub を自由関数で公開する。
  * @return プロセス内で唯一の CWorkshopBridgeStub への参照。
  */
 IWorkshopBridge& GetWorkshopStub() noexcept;

@@ -1,34 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// ATriggerComponent — ANode を CTriggerWorld2D に橋渡しし、overlap の
-// enter / exit を「コンポーネント単位」で受け取れるようにする AComponent。
-//
-// CTriggerWorld2D 自体は world 全体で 1 組のコールバックしか持たないため、本
-// コンポーネントは各 trigger に自分自身 (this) を user data として紐付け、world の
-// global コールバックを静的ディスパッチャに差し替えて id→component を逆引きする。
-// これにより player / pickup / hazard などを各ノードのハンドラで個別に処理できる。
-//
-// 使い方 (サブクラスで override):
-//   class APickup : public ATriggerComponent {
-//   public:
-//       ACS_GAME_COMPONENT_KIND(APickup)
-//       using ATriggerComponent::ATriggerComponent;
-//       void OnTriggerEnter(ATriggerComponent* other) noexcept override { /* 取得処理 */ }
-//   };
-//   auto& pk = node->AddComponent<APickup>(Services().Triggers(),
-//                                          /*layer=*/kPickupLayer, /*mask=*/0);
-//   pk.SetCircle(0.4f);
-//
-// 使い方 (関数ポインタ):
-//   auto& tg = node->AddComponent<ATriggerComponent>(world, kPlayerLayer, kPickupLayer);
-//   tg.SetCircle(0.45f);
-//   tg.SetOnEnter(+[](ATriggerComponent& self, ATriggerComponent* other, void* user) noexcept {
-//       // self が mask に合致する other に触れた
-//   }, this);
-//
-// layer / mask 規約 (CCollisionWorld2D と同じ bitmask):
-//   ・layer = 自分が属するレイヤ。mask = 自分が反応したいレイヤ。
-//   ・this は「other.layer & this.mask != 0」のときだけ自分のハンドラが発火する。
-//     (幾何 overlap 判定自体は CTriggerWorld2D が全 pair で行い、フィルタは本層で適用)
 #pragma once
 
 #include "gameframework/AComponent.h"

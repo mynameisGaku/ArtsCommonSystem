@@ -1,57 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — FTilemap (2D タイルマップ data structure)
-//
-// 2D グリッド上に `FTileId` を並べる data-only コンテナ。レイヤー対応
-// (背景 / フォアグラウンド / コリジョン用などをそれぞれ別 grid として
-// 持てる)、tile↔world 座標変換、Fill / FillRect ユーティリティを提供する。
-//
-// 使い方:
-//   FTilemap map;
-//   map.Init(/*width=*/64, /*height=*/48, /*layer_count=*/2, /*tile_size=*/16.0f);
-//
-//   map.Fill(FTileId{1}, /*layer=*/0);          // layer 0 を tile 1 で埋める
-//   map.SetTile(10, 5, FTileId{2}, /*layer=*/0); // 個別タイル設定
-//   map.FillRect(0, 0, 4, 4, FTileId{3}, 1);     // layer 1 に 4x4 矩形塗り
-//
-//   // 描画ループ
-//   const FTileId* layer0 = map.LayerData(0);
-//   for (u32 y = 0; y < map.Height(); ++y) {
-//       for (u32 x = 0; x < map.Width(); ++x) {
-//           FTileId t = layer0[y * map.Width() + x];
-//           if (t.IsEmpty()) continue;
-//           FVec2 wpos = map.TileToWorld(x, y);
-//           // DrawSprite(t, wpos)...
-//       }
-//   }
-//
-//   // hit-test (例: マウス座標が tile のどれを指しているか)
-//   u32 tx, ty;
-//   if (map.WorldToTile(mouse_world, tx, ty)) {
-//       FTileId hovered = map.GetTile(tx, ty, 0);
-//   }
-//
-// 設計 (Pillar Q):
-//   ・**FTileId = u16**: 65535 種類のタイル ID を許容。0 = 空 (背景透過扱い)。
-//     描画側が atlas index として解釈するか辞書 lookup するかは利用者責任。
-//   ・**レイヤー = 独立した TArray<FTileId>**: layer 数 N に対して N 本の
-//     row-major (`y * width + x`) フラット配列。layer 0 が最背面、
-//     layer_count-1 が最前面という慣習だが順序は描画側で自由に決めて良い。
-//     `LayerData(L)` で生ポインタを返すので GPU upload / tile renderer
-//     から直接舐められる。
-//   ・**tile_size**: world unit / tile (典型的に px = world unit のとき 16, 32)。
-//     座標変換は `TileToWorld` が tile (x,y) の **中心** world 位置 (一致しやすい
-//     スプライト描画基準)。
-//   ・**WorldToTile**: world.x / tile_size を floor。範囲外 (負値含む) は
-//     false を返す。usize→u32 cast の安全性のため負値は早期 reject。
-//   ・**非コピー・非ムーブ**: シーン所有 / TPool 経由想定。複製したい場合は
-//     利用者側で明示的に Clone (今は提供しない)。
-//   ・**全 noexcept / STL 不使用 / acs::TArray のみ**: 規約準拠。
-//
-// 範囲外 (将来拡張):
-//   ・auto-tiling / wang tiles の lookup table。
-//   ・per-tile flags (flip x/y, rotate90, collision-type) ─ 必要なら別配列で
-//     追加して FTileId 自体は純粋 ID のままにする方針。
-//   ・スパース / chunk 化 (巨大マップ向け)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -108,35 +55,85 @@ struct FTileId {
 
 /** 検証付き tilemap 構築・読み込みが返す安定した失敗理由。 */
 enum class ETilemapLoadError : u16 {
+    /** 失敗なし。 */
     None = 0,
+
+    /** 入力ポインタが null。 */
     NullInput = 1420,
+
+    /** 入力バイト列が空。 */
     EmptyInput = 1421,
+
+    /** 入力バイト数が上限を超えた。 */
     InputTooLarge = 1422,
+
+    /** JSON 入力に埋め込み NUL が含まれる。 */
     EmbeddedNul = 1423,
+
+    /** JSON 階層の深さが上限を超えた。 */
     JsonDepthExceeded = 1424,
+
+    /** JSON 文字列のバイト数が上限を超えた。 */
     JsonStringTooLong = 1425,
+
+    /** JSON ノード数が上限を超えた。 */
     JsonNodeLimitExceeded = 1426,
+
+    /** JSON 構文を解析できない。 */
     JsonSyntaxError = 1427,
+
+    /** JSON ルートが object ではない。 */
     RootTypeMismatch = 1428,
+
+    /** 同じ object 内に同名 member が重複した。 */
     DuplicateMember = 1429,
+
+    /** 必須 member が存在しない。 */
     MissingMember = 1430,
+
+    /** 既知 member の型が契約と異なる。 */
     MemberTypeMismatch = 1431,
+
+    /** 整数 member が範囲外または整数形式ではない。 */
     InvalidInteger = 1432,
+
+    /** 数値 member が有限値ではない。 */
     NonFiniteNumber = 1433,
+
+    /** 幅、高さ、レイヤー数、または tile size が無効。 */
     InvalidDimensions = 1434,
+
+    /** 幅または高さが上限を超えた。 */
     DimensionLimitExceeded = 1435,
+
+    /** セル数の積が表現範囲を超えた。 */
     CellCountOverflow = 1436,
+
+    /** レイヤー数が上限を超えた。 */
     LayerLimitExceeded = 1437,
+
+    /** tilelayer が 1 件も存在しない。 */
     MissingTileLayer = 1438,
+
+    /** tilelayer の data 件数がセル数と一致しない。 */
     DataLengthMismatch = 1439,
+
+    /** 読み込み用領域を確保できない。 */
     AllocationFailure = 1440,
 };
 
 /** TryInit と TryLoadTiledJson が返す allocation-free の結果。 */
 struct FTilemapLoadResult {
+    /** 失敗理由。None なら成功。 */
     ETilemapLoadError Error = ETilemapLoadError::None;
+
+    /** JSON parser の詳細診断 subcode。該当しなければ 0。 */
     u16 JsonSubcode = 0u;
+
+    /** 失敗したレイヤー index。特定できなければ 0。 */
     u32 Layer = 0u;
+
+    /** 失敗した要素 index。特定できなければ 0。 */
     u32 Element = 0u;
 
     bool Succeeded() const noexcept { return Error == ETilemapLoadError::None; }
@@ -157,15 +154,34 @@ const char* TilemapLoadErrorName(ETilemapLoadError error) noexcept;
  */
 class FTilemap {
 public:
+    /** 受理する Tiled JSON の最大バイト数。 */
     static constexpr usize kMaxTiledJsonBytes = 8u * 1024u * 1024u;
+
+    /** 受理する JSON 階層の最大深さ。 */
     static constexpr u32 kMaxJsonDepth = 64u;
+
+    /** 受理する JSON 文字列 1 件の最大バイト数。 */
     static constexpr usize kMaxJsonStringBytes = 4096u;
+
+    /** 受理する JSON ノードの最大総数。 */
     static constexpr u32 kMaxJsonNodes = 1100000u;
+
+    /** JSON object 1 件で受理する member の最大数。 */
     static constexpr u32 kMaxJsonObjectMembers = 4096u;
+
+    /** 読み込み中に保持する layer record の最大数。 */
     static constexpr u32 kMaxLayerRecords = 256u;
+
+    /** map の幅または高さとして受理する最大セル数。 */
     static constexpr u32 kMaxMapDimension = 2048u;
+
+    /** 1 レイヤーで受理する最大セル数。 */
     static constexpr usize kMaxCellsPerLayer = 262144u;
+
+    /** tilelayer として保持する最大レイヤー数。 */
     static constexpr u32 kMaxTileLayers = 32u;
+
+    /** 全 tilelayer を合わせて受理する最大セル数。 */
     static constexpr usize kMaxTotalCells = 1048576u;
 
     /** 空のタイルマップを構築する (グリッドは Init で確保)。 */

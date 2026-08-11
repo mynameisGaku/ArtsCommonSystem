@@ -1,55 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L/R — CWaveSpawner (敵 wave スポーン管理)
-//
-// 連続する複数の wave をキュー管理し、各 wave に紐づく複数の FSpawnRule を
-// 時間軸上で順次発火させる。残数管理 → wave clear → intermission → 次 wave →
-// 全 wave 完了の state machine を内包する。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//       acs::game::CWaveSpawner m_Waves;
-//
-//       static void OnSpawn(void* self, const char* enemy_id, acs::FVec2 pos) noexcept {
-//           auto* s = static_cast<AGameplayScene*>(self);
-//           s->SpawnEnemyAt(enemy_id, pos);
-//       }
-//       static void OnWaveState(void* self, u32 idx,
-//                               acs::game::EWaveState from,
-//                               acs::game::EWaveState to) noexcept {
-//           // BGM / UI / カメラ演出をここで連動
-//       }
-//
-//       void OnEnter() noexcept override {
-//           m_Waves.Init();
-//           m_Waves.SetOnSpawnCallback(&OnSpawn, this);
-//           m_Waves.SetOnWaveStateChangeCallback(&OnWaveState, this);
-//           m_Waves.AddWave(wave0_def);
-//           m_Waves.AddWave(wave1_def);
-//           m_Waves.StartWaves();
-//       }
-//       void OnUpdate(f32 dt) noexcept override { m_Waves.Tick(dt); }
-//       void OnEnemyDefeated(const char* id) noexcept { m_Waves.NotifyEnemyKilled(id); }
-//   };
-//
-// 設計選択:
-//   ・state machine は線形: Idle → Spawning → WaitingClear → Cleared →
-//     (intermission) → Spawning (次 wave) → … → AllComplete。逆遷移は Reset でのみ。
-//   ・FSpawnRule は POD + ポインタ参照: FWaveDef の rules は caller 所有の
-//     FSpawnRule 配列を指す軽量ハンドル。caller は wave が終わるまで配列の
-//     寿命を保証する責任を持つ (= literal / 静的定義を想定)。
-//   ・spawned_per_rule は wave ごとに別 TArray: 各 wave が任意数の rule を
-//     持つので TArray<TArray<u32>> で 2 段ネスト。これは Move 可能で TArray 同士の
-//     コピー禁止に抵触しない (Add(Move(inner)) で挿入)。
-//   ・初期遅延 + spawn interval: 各 rule は initial_delay_sec 経過後に count 個を
-//     spawn_interval_sec 間隔で発火。複数 rule は並列に評価する (= 同 wave 内で
-//     異なる enemy 種が同時湧きできる)。
-//   ・alive_count の正値性保証: NotifyEnemyKilled は alive_count を 0 未満にしない
-//     (= 過剰 kill 通知は no-op)。
-//   ・Pause / Resume は単純フラグ: タイマー進行のみ止め、state は据置。Resume
-//     後は中断時の進捗から再開する。
-//   ・callback は state 更新後: 内部状態を反映してから呼ぶ (= callback 内で
-//     CurrentState() / EnemiesRemainingInWave() を問い合わせて OK)。callback 内で
-//     StopWaves / Reset を呼んでも安全。
 #pragma once
 
 #include "foundation/Types.h"
@@ -127,7 +76,7 @@ struct FWaveDef {
  * 敵 1 体出現時の callback 型。
  *
  * @details
- * caller (= AScene 側) が実 entity を生成して NodeGraph に放り込む想定。
+ * 出現が確定した敵の識別子と位置を渡し、owner に実 entity の生成を要求する。
  * enemy_id は FSpawnRule の literal そのものをそのまま渡す。
  * @param user SetOnSpawnCallback で登録した user ポインタ。
  * @param enemy_id 出現させる敵の識別子。
@@ -152,7 +101,7 @@ using WaveStateChangeCallback = void(*)(void* user, u32 wave_index, EWaveState f
  * @details
  * 各 wave に紐づく複数の FSpawnRule を並列評価し、残数管理 → wave clear →
  * intermission → 次 wave → 全 wave 完了を線形に進める。non-copy / non-move で
- * AScene 等に値メンバとして持たせる想定。Tick(dt) で駆動し、敵撃破は
+ * 単一 owner が寿命を管理する。Tick(dt) で駆動し、敵撃破は
  * NotifyEnemyKilled で通知する。
  */
 class CWaveSpawner {
@@ -375,7 +324,7 @@ private:
      *
      * @details spawn callback はユーザーコードで、再入 (AddWave の realloc /
      * Init / Clear) で m_Waves への参照を無効化し得る。走査中は本リストに積み、
- * 参照を手放してからまとめて発火する (CBuffSystem と同じ規約)。
+     * 参照を手放してから callback をまとめて発火する。
      */
     struct FPendingSpawn {
         /** 発火する敵 id (rule 由来、caller 所有文字列)。 */

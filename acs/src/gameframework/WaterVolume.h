@@ -1,49 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — CWaterVolume (浮力 + 水域判定)
-//
-// AABB で定義された 2D 水域を複数登録し、点が水中に居るかの query と、
-// 物体に掛かる浮力 + drag を世界座標 force ベクトルとして返す。
-// APhysicsBody2D / CEffectSystem 側は本クラスを参照することで「浮く」「沈む」「水流
-// 抵抗」といった水中挙動を組み立てられる。水面演出 (波 / splash 粒子) はレンダラ
-// 側で `FWaterVolumeInfo::surface_y` と `water_color` を pull して描画する想定。
-//
-// 使い方:
-//   acs::game::CWaterVolume water;
-//
-//   // 池を 1 つ登録
-//   acs::game::FWaterVolumeInfo pond{
-//       /*center=*/      {0.0f, 50.0f},
-//       /*half_size=*/   {200.0f, 50.0f},
-//       /*buoyancy=*/    9.8f,        // 重力と同程度の浮力強度
-//       /*drag=*/        2.0f,        // 水中減衰係数
-//       /*surface_y=*/    0.0f,        // 水面 y 座標 (= center.y - half_size.y、+Y=画面下なので水面=最小 y)
-//       /*water_color=*/ {0.1f, 0.3f, 0.6f},
-//   };
-//   auto id = water.AddVolume(pond);
-//
-//   // 毎フレーム、APhysicsBody2D に浮力を適用
-//   if (water.IsUnderwater(body.position)) {
-//       FVec2 f = water.ComputeBuoyancyForce(body.position, body.velocity, body.mass);
-//       body.ApplyForce(f);
-//   }
-//
-// 設計選択 (Pillar Q):
-//   ・**FWaterVolumeId は FShapeId / FNodeId と同パターン**: 24bit index + 8bit
-//     generation。remove → re-add で slot 再利用しても旧 handle は無効化される。
-//   ・**broad phase は線形走査**: 全 volume を直接走査 (典型 N ≤ 数十)。
-//   ・**浮力モデル = 単純な「水深×強さ×質量」の上向き力**: depth = pos.y -
-//     surface_y (+Y=画面下: 水面=最小y、沈むほど y 大)。depth が大きいほど浮力大きい。実 Archimedes の「排除体積」ではなく
-//     ゲーム向けの簡易モデル。volume 毎に `buoyancy_strength` で調整可。
-//   ・**drag**: velocity に対し `-velocity * drag` を加算。水中での運動減衰を
-//     表現。`drag` は加速度ではなく力係数 (kg / s 単位の粘性的減衰) として扱う。
-//   ・**surface_y は info に明示保持**: center.y + half_size.y で算出も可能だが、
-//     利用者が「center 中央ではなく水面が y=0」のような幾何を作る場合に便利な
-//     よう冗長保持。AddVolume 時に整合しないと判定がズレる可能性がある点を
-//     コメントで注意。
-//   ・**non-overlap な volume 前提**: 複数 volume が空間的に重なる場合、IsUnderwater
-//     は最初に当たった volume だけを採用 (短絡)。浮力は重なる全 volume の合計。
-//   ・**非コピー・非ムーブ**: handle 安定性のため複製禁止。
-//   ・**全関数 noexcept、STL 不使用**: ACS 全体規約。
 #pragma once
 
 #include "foundation/Types.h"
@@ -64,7 +19,7 @@ struct FWaterVolumeInfo {
     /** AABB 半サイズ (world、両軸 > 0 想定)。 */
     FVec2 half_size          {1.0f, 1.0f};
 
-    /** 浮力強度 (重力相当)。 */
+    /** 浮力計算に使う加速度強度。 */
     f32  buoyancy_strength  = 9.8f;
 
     /** 水中 drag 係数 (kg/s 粘性)。 */
@@ -238,7 +193,8 @@ public:
      * active な全 volume を packed array で返す (内部表現とは別の連続配列)。
      *
      * @details
-     * 内部 cache を返すので Add/Remove/Update で無効化される。Add 等の直後に呼ぶこと。
+     * 内部 cache を返す。返却 pointer は次の Add/Remove/Update まで有効で、
+     * いずれかの操作で無効になる。
      * @param out_count 書き込んだ要素数の出力先。
      * @return 先頭ポインタ。VolumeCount() == 0 なら nullptr (out_count=0)。
      */

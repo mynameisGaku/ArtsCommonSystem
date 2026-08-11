@@ -1,19 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// ATilemapComponent — FTilemap (data) を ANode 上で描画する AComponent。
-//
-// グリッドアトラス (cols×rows のタイル) テクスチャを持ち、各レイヤの非空タイルを
-// その atlas セルの UV で CSpriteBatch に描く。タイル ID v (1-based、0=空) は
-// セル index (v-1) に対応する。owner ノードの world 位置がマップ原点になるので、
-// タイルマップを丸ごと移動/配置できる。
-//
-// 使い方:
-//   auto& tm = node->AddComponent<ATilemapComponent>();
-//   tm.Map().Init(/*w=*/16, /*h=*/12, /*layers=*/1, /*tile_size=*/1.0f);  // world 単位
-//   tm.Map().FillRect(0, 0, 15, 0, FTileId{1});   // 上端を tile 1 で
-//   tm.SetTexture(atlas_tex);
-//   tm.SetAtlasGrid(/*cols=*/4, /*rows=*/4);
-//   // ソリッドにしたいレイヤを物理ワールドへ:
-//   tm.BuildCollision(Services().Physics(), /*layer=*/0, /*collision_layer_bit=*/kWall);
 #pragma once
 
 #include "gameframework/AComponent.h"
