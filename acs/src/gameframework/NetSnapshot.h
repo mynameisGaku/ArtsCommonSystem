@@ -1,90 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// GameFramework のサーバー権威 snapshot — CNetSnapshot
-//   server-authoritative snapshot ベースのネットコード seam
-//
-// 役割:
-//   1) **Server 側 snapshot 書出**: 毎 tick のゲーム状態 (entity ごとの位置 /
-//      速度 / 姿勢 / health 等) を 1 つの FSnapshotHeader + payload に固めて
-//      INetTransport.Send で配信する。1 snapshot = 「ある tick の世界全体の
-//      authoritative state」を意味する。
-//   2) **Client 側 snapshot 補間**: server から到着した複数 snapshot を ring
-//      buffer に貯め、client 時刻に対して「interpolation_delay_sec 前」の
-//      snapshot を 2 つ (基準 / 次) 取り出して補間する (= snapshot interpolation,
-//      Source / Halo / Valorant 等で採用されている定石)。
-//   3) **transport の差し替え**: 実 socket / Steam Datagram Relay / loopback
-//      テスト fake のいずれを使うかは INetTransport seam で抽象化し、本クラスは
-//      send/recv バイト列だけを扱う。CLockstep (deterministic input replay) と
-//      並ぶもう一つの netcode 流儀を提供する。
-//
-// CLockstep との対比:
-//   ・**CLockstep**: 全プレイヤーが同じ入力を受信し、同じ deterministic
-//     simulation を回す (=「結果」ではなく「入力」を配信する)。
-//     格闘ゲーム / RTS / GGPO 系で標準。
-//   ・**CNetSnapshot**: server が 1 体の authoritative simulation を回し、
-//     client は受け取った snapshot を補間表示するだけ (=「結果」だけを配信)。
-//     FPS / TPS / MMORPG 系で標準。
-//   どちらを採用するかはジャンル次第。両方を seam として提供し、タイトル
-//   側が用途に応じて選べるようにする。
-//
-// 使い方 (server 側):
-//   FNetSnapshotConfig cfg{ /*snapshot_rate_hz=*/30, /*buffer_capacity=*/64,
-//                          /*interpolation_delay_sec=*/0.1f,
-//                          /*max_payload_bytes=*/8192 };
-//   CNetSnapshot snap;
-//   snap.Init(cfg, ENetRole::Server, &transport);
-//
-//   // 毎 simulation tick:
-//   for (auto& e : world.Entities()) {
-//       snap.AddEntitySnapshot(e.id, e.mask, &e.data, sizeof(e.data));
-//   }
-//   snap.CommitSnapshot(world.CurrentTick());  // ← Send まで実行
-//
-// 使い方 (client 側):
-//   CNetSnapshot snap;
-//   snap.Init(cfg, ENetRole::Client, &transport);
-//
-//   // 毎フレーム:
-//   snap.Tick(dt);  // ← Receive + ring buffer 維持
-//   FEntitySnapshot view_buf[256];
-//   u32 view_n = 0;
-//   if (snap.TryGetInterpolatedSnapshot(client_time, view_buf, 256, view_n)) {
-//       // view_buf[0..view_n] を描画用 state に流し込む (補間後の世界状態)
-//   }
-//
-// 設計選択:
-//   ・**INetTransport seam**: 実 socket は持たない。Connect/Send/Receive/
-//     PendingBytesIn/PendingBytesOut の最小 API だけを切り、TCP / UDP / Steam
-//     Datagram / loopback テスト fake は派生クラスで差し込む。IBackendClient
-//     の seam パターンを踏襲。
-//   ・**ENetRole 4 種**: Standalone (シングル) / Client (受信のみ) / Server
-//     (送信のみ) / ServerListener (listen-server 兼任) の 4 状態。listen-server
-//     は内部的に Server + Client を同居させる役割で、host プレイヤーが自機の
-//     simulation を server として回しつつ自分の画面用に snapshot 補間も使う
-//     ケースに使う。
-//   ・**FSnapshotHeader fixed 24B**: tick(4) + sequence(4) + timestamp(8) +
-//     payload_size(4) + crc32(4) = 24 byte。LE 固定。CRC32 は magic 直後 〜
-//     payload 末尾 (= version + FSnapshotHeader 本体 + payload) に対する Zlib /
-//     PNG 規約 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) で、wire format の
-//     改竄 / 破損検知に使う。EncodeSnapshot で計算し DecodeSnapshot で検証する。
-//     なお FSnapshotHeader::crc32 フィールドは header を CRC 対象に含めるため
-//     計算時に 0 として扱い (= header の他フィールドのみが寄与)、実際の値は
-//     frame 末尾 4 byte の footer に格納される。
-//   ・**FEntitySnapshot は非所有 view**: `const void*` + size の pair。Server 側
-//     は AddEntitySnapshot で m_PendingEntities にコピーを積み、CommitSnapshot
-//     で payload に bulk concat する。Client 側は TryGetInterpolatedSnapshot
-//     で ring buffer の中の payload を指す view として返す (寿命は次の Tick
-//     呼び出しまで)。
-//   ・**delta compression は範囲外**: 前 snapshot との XOR 差分のみを送る最適化は
-//     本クラスでは扱わず、full snapshot を毎回 encode/送信する。各 frame は
-//     EncodeSnapshot / DecodeSnapshot で magic+version+payload+crc32 を伴う
-//     real な byte serialization として完結している (round-trip 検証済み)。
-//   ・**ring buffer = TArray<{header, payload}> 固定容量**: snapshot は時系列順
-//     に追加され、capacity を超えたら最古を上書きする FIFO。線形検索でも
-//     buffer_capacity (= 数十) なので O(N) で十分。
-//   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 全体方針。
-//   ・**コピー / ムーブ禁止**: 1 セッション 1 オブジェクトの長寿命 (transport
-//     との結合関係を分裂させないため CLockstep / IBackendClient と同じ方針)。
 #include "container/Array.h"
 #include "foundation/Result.h"
 #include "foundation/Types.h"
@@ -632,9 +547,13 @@ public:
 private:
     /** socket の利用可否と解放保留を区別する内部状態。 */
     enum class EState : u8 {
+        /** socket と WSA 参照を保持していない。 */
         Disconnected,
+        /** socket の生成と接続設定を実行中。 */
         Configuring,
+        /** UDP 送受信が可能。 */
         Established,
+        /** 接続失敗または切断後の資源回収が未完了。 */
         CleanupPending,
     };
 

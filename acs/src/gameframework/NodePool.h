@@ -1,47 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — CNodePool (ANode の generational pool)
-//
-// シーン全体で唯一の `ANode*` レジストリ。`ANode` インスタンス自体は親の
-// `m_Children` (TObjectPtr<ANode>) が所有し続け、本 pool は **参照のみ** を
-// 保持して安定した `FNodeId` を発行する。同時に発行済 `FNodeId` の **stale 検出**
-// (= 既に Unregister されたハンドル) を提供する。
-//
-// 使い方:
-//   CNodePool pool;
-//   pool.Init(/*initial_capacity=*/512);
-//
-//   // ANode を新規生成して scene tree に attach した直後に登録:
-//   ANode& enemy = scene.Root().AddChild(NewObject<EnemyNode>());
-//   FNodeId enemy_id = pool.RegisterExistingNode(&enemy);
-//   // enemy.Id() == enemy_id が成立する (RegisterExistingNode 内で _SetId 済)
-//
-//   // 後で stale 検査付きで取り出し:
-//   if (ANode* p = pool.Get(enemy_id)) {
-//       p->SetPosition2D(p->Position2D() + FVec2{1, 0});
-//   }
-//
-//   // 破棄時:
-//   pool.Unregister(enemy_id);   // slot 解放 + gen++ → 古い handle は invalid 化
-//   enemy.Destroy();              // scene tree からは別途 reap される
-//
-// 設計選択 (Pillar B):
-//   ・**non-owning**: 所有権は ANode の親 (=TObjectPtr<ANode>) 側にあり、本 pool
-//     は raw ポインタだけ持つ。TPool の破棄や ClearAll は ANode を delete しない。
-//   ・**FSlot = {ptr, gen, active}**: CCollisionWorld2D::FSlot と同じパターン。
-//     index 0 は予約 (= invalid handle と一致させる)、有効 slot は 1..N。
-//   ・**free_indices stack**: 空き slot を O(1) で再利用。Unregister 時 push、
-//     TryRegisterExistingNode 時 pop。stack が空なら slot を新規 TryAdd。
-//   ・**generation 0 はスキップ**: gen++ がラップアラウンドで 0 に戻った場合、
-//     FNodeId(idx, 0) は IsValid() == false になってしまうため、ラップ時は 1 に
-//     強制する (CCollisionWorld2D と完全に同じ挙動)。
-//   ・**24bit index = 16,777,216 slot 上限**: FNodeId の pack 仕様に従い、これを
-//     超える RegisterExistingNode は invalid FNodeId を返す (拒否)。実用上 1 シーン
-//     で 16M ANode を生成することはまずあり得ないが安全策として明示拒否。
-//   ・**IdOf は線形探索**: ポインタ → FNodeId の逆引きは利用頻度が低い (基本は
-//     RegisterExistingNode の戻り値を保持する) ため、専用 hash は持たない。
-//     真に必要なら呼び出し側で THashMap<ANode*, FNodeId> を別途持てば良い。
-//   ・**非コピー・非ムーブ**: pool 自体は固定オブジェクトとして scene が所有する想定。
-//   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約に厳格準拠。
 #pragma once
 
 #include "foundation/Types.h"
@@ -54,17 +11,25 @@ class ANode;   // forward decl — full include は .cpp 側 (ANode::_SetId 呼�
 
 /** CNodePool への checked 登録が返す状態。 */
 enum class ENodePoolRegisterError : u8 {
+    /** 登録に成功。 */
     None = 0,
+    /** 入力ノードが null。 */
     NullNode,
+    /** 同じ pool に登録済み。 */
     AlreadyRegistered,
+    /** 別の pool が発行した有効 Id を保持中。 */
     RegisteredByAnotherPool,
+    /** FNodeId が表現できる index 上限を超過。 */
     IndexLimitExceeded,
+    /** slot または空き index の保持領域を確保できない。 */
     AllocationFailure,
 };
 
 /** checked ノード登録結果。AlreadyRegistered の場合も既存 Id を返す。 */
 struct FNodePoolRegisterResult {
+    /** 登録済みまたは新規発行したノード Id。 */
     FNodeId Id{};
+    /** 登録処理の状態。 */
     ENodePoolRegisterError Error = ENodePoolRegisterError::None;
 
     bool Succeeded() const noexcept {

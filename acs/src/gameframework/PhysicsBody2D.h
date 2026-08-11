@@ -1,30 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — APhysicsBody2D
-//
-// kinematic 物理 body の AComponent。velocity + acceleration + gravity を
-// 統合し、CCollisionWorld2D に登録された他の shape と衝突したら **軸独立で**
-// blocking する (X 軸試行 → overlap なら velocity.x=0 / x 移動キャンセル、
-// 同様に Y 軸)。剛体ソルバではなく「2D プラットフォーマー / トップダウン用の
-// swept kinematic」。
-//
-// 使い方:
-//   auto ball = NewObject<ANode>();
-//   ball->SetPosition2D(FVec2{0, 5});
-//   auto& body = ball->AddComponent<APhysicsBody2D>(Services().Physics());
-//   body.SetCircle(0.5f);
-//   body.gravity = FVec2{0, 10};   // +Y=画面下: 重力は下向き = 正の Y
-//   body.velocity = FVec2{1, 0};
-//   root.AddChild(Move(ball));
-//
-// 設計選択:
-//   ・**AComponent 派生**: AddComponent<APhysicsBody2D>(world) で attach。
-//     CollisionWorld への参照は constructor で受け取る。
-//   ・**axis-separated movement**: X / Y を独立に試して overlap なら止める。
-//   ・**自己除外**: OverlapAabb/Circle の `exclude` 引数で m_Handle を渡し、
-//     自分との衝突を無視。
-//   ・**OnUpdate で統合**: dt は scene の (scaled) dt。fixed timestep が
-//     必要なら scene 側で `OnFixedUpdate` から body.Step(fixed_dt) を呼ぶ
-//     形式に拡張可。
 #pragma once
 
 #include "foundation/Types.h"

@@ -1,47 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J — CPrefabSystem
-//
-// 名前付きの ANode ツリーテンプレート (= 「Prefab」) を関数ポインタファクトリ
-// として登録し、ID または名前から `acs::TObjectPtr<ANode>` を spawn する軽量
-// レジストリ。「アセットファイル」ではなく「ファクトリ関数」で表現する設計。
-//
-// 使い方:
-//   // 1) ファクトリ関数を書く (cpp 側で ANode の full type を include する)
-//   static acs::TObjectPtr<acs::game::ANode> SpawnEnemy(void* /*user*/) noexcept {
-//       auto n = acs::NewObject<acs::game::ANode>();
-//       // 子ノード / コンポーネント / 初期値 ... を組み立てる
-//       return n;
-//   }
-//
-//   // 2) 登録
-//   CPrefabSystem prefabs;
-//   FPrefabId enemy_id = prefabs.Register("Enemy", &SpawnEnemy);
-//
-//   // 3) spawn (AScene 側からは ID 経由 / Mod 側からは名前経由 が想定)
-//   auto a = prefabs.Spawn(enemy_id);
-//   auto b = prefabs.SpawnByName("Enemy");
-//
-// 設計選択 (Pillar J):
-//   ・**`std::function` 不使用 / 関数ポインタ + `void* user_data`**: ACS 規約
-//     (STL 不使用、heap 割り当てなしの callback)。closure を渡したい場合は
-//     呼び出し側が context 構造体を `user_data` 経由で寄越す。
-//   ・**`<string>` 禁止 / `const char*` で受ける**: 文字列の所有権はクライアント
-//     側 (string literal か、別途寿命管理された永続バッファ)。CPrefabSystem は
-//     ポインタを保管するだけで複製しない。これを忘れた使用は文字列が dangling
-//     になり得るので、コメントで強く注意する。
-//   ・**24bit idx + 8bit gen の packed handle**: `FNodeId` / `FShapeId` と完全に
-//     同パターン。Unregister 後の slot 再利用で生まれる stale handle 検出に
-//     generation を 1〜255 で循環させる (0 は「未使用 slot」予約)。
-//   ・**slot 0 を invalid 予約**: `FPrefabId{}` (= packed == 0) がそのまま
-//     IsValid() == false になる。Register 時に必ず index >= 1 を返す。
-//   ・**線形走査の `TArray<FPrefabEntry>`**: 想定登録件数は数十〜数百 (1 タイトル
-//     の prefab 数)、Register/Find は load 時に集中して走るので O(N) で十分。
-//     ハッシュ化は実用上ボトルネックになった時点で検討。
-//   ・**ANode は forward declare**: `TObjectPtr<ANode>` のメンバ宣言には full
-//     type は不要 (TObjectPtr の宣言上の forward 互換、`.cpp` 側は触らない)。
-//     factory 関数の中身は呼び出し側 cpp が `ANode.h` を include する責務。
-//   ・**非コピー / 非ムーブ**: 登録された factory ポインタを別所有者に渡す事故
-//     を排除。プロジェクト中 CPrefabSystem は通常 AScene/CGame に 1 個。
 #pragma once
 
 #include "foundation/Types.h"

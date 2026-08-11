@@ -1,49 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — CPerception (NPC sight / hearing sense)
-//
-// NPC が複数 target (player / 他の NPC / 音源等) を「視覚」「聴覚」で
-// 検知できるかを判定するための最小モジュール。CBehaviorTree の leaf や
-// blackboard の値ソースとして使う想定で、本体は単純な幾何判定の集約。
-//
-// 視覚判定 (sight):
-//     distance(eye, target) <= sight_range
-//     AND  dot(forward, normalize(target - eye)) >= cos(sight_fov_rad / 2)
-//
-//   ・前者が距離フィルタ、後者が "視野角内" フィルタ。両方満たした時のみ visible。
-//   ・forward は SetEyePos で渡された正規化済み向きを保持。
-//   ・target が eye と完全同位置 (距離 0) の場合は方向が定義できないため
-//     visible 扱いとする (= 自分の足下に target がいるケースをロストしない)。
-//
-// 聴覚判定 (hearing):
-//     distance(eye, target) <= hearing_range
-//
-//   ・障害物無視 (壁ごしも聞こえる)。raycast による occlusion は未対応。
-//   ・視野角に依存しない 360 度判定。
-//
-// 設計選択:
-//   ・target は `acs::TArray<FPerceptionTarget>` で線形管理。
-//     N が小さい想定 (1 NPC あたり数〜数十 target) なので hash map 不要。
-//     RemoveAtSwap で順序非保証の高速削除。
-//   ・cos(fov/2) は SetConfig 呼び出し時に 1 回だけ計算してキャッシュ。
-//     Tick の hot path に Cos を入れない。
-//   ・visible / audible は Tick 内でまとめて更新し、結果を FPerceptionTarget に
-//     書き戻す。これにより IsTargetVisible / IsTargetAudible は O(N) lookup。
-//   ・非コピー・非ムーブ — AScene / Actor のメンバとして固定の場所に置く想定。
-//   ・全 noexcept、STL 不使用。
-//
-// 使い方:
-//   acs::game::CPerception perc;
-//   acs::game::FSenseConfig cfg;
-//   cfg.sight_range   = 10.0f;
-//   cfg.sight_fov_rad = acs::kPi * 0.5f;   // 90 度
-//   cfg.hearing_range = 5.0f;
-//   perc.SetConfig(cfg);
-//
-//   perc.AddTarget(/*id=*/1, acs::FVec2{ 3.0f, 0.0f });
-//   perc.SetEyePos(acs::FVec2{ 0.0f, 0.0f }, acs::FVec2{ 1.0f, 0.0f });   // +X 向き
-//   perc.Tick(/*dt=*/0.016f);
-//
-//   if (perc.IsTargetVisible(1)) { /* 視認した */ }
 #pragma once
 
 #include "foundation/Types.h"

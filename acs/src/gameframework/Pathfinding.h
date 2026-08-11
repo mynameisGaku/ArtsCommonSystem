@@ -1,33 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — Pathfinding (grid A*)
-//
-// 2D 格子状の通行可否マップ + A* 経路探索。タワーディフェンス / 敵の追跡 /
-// クリック移動 RPG など、グリッドベースの AI 動作に汎用に使える。
-//
-// 使い方:
-//   CNavGrid nav;
-//   nav.Init(32, 24);
-//   nav.SetWalkable(5, 10, false);                // 壁を 1 マス置く
-//   nav.SetAllowDiagonal(true);                   // 8 方向許可 (既定は 4 方向)
-//
-//   TArray<CNavGrid::FPathPoint> path;
-//   if (nav.FindPath(/*start=*/0, 0, /*goal=*/20, 15, path)) {
-//       // path[0] = start, path[Size()-1] = goal の連続セル列
-//   }
-//
-// 設計選択:
-//   ・cost = 4 方向移動 1.0 / 対角 sqrt(2) ≈ 1.414。SetAllowDiagonal(true) で
-//     対角を許可、その時は heuristic も Euclidean (より admissible) に切替。
-//     4 方向のみの場合は Manhattan が optimal な heuristic。
-//   ・open set は **priority queue 代わりの線形最小値走査**。
-//     N=width*height が大きくなったら binary heap へ置換する。
-//   ・closed flag は `acs::TArray<u8>` (size = width*height) で O(1) lookup。
-//   ・came_from / g_score も 1D 配列で持つ (index = y*width + x)。
-//   ・STL 不使用 (<algorithm> 含む)、`acs::TArray` のみ。
-//
-// 制限:
-//   ・cost は固定 (terrain weight 未対応)。
-//   ・対角通過時の "壁すり抜け" は許可 (両隣が壁でも対角通れる)。
 #pragma once
 
 #include "foundation/Types.h"
