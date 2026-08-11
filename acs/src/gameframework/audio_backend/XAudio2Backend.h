@@ -1,49 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CXAudio2Backend (Windows 用 IAudioBackend 実装)
-//
-// 役割:
-//   `IAudioBackend` の concrete 実装 = Win32 XAudio2 (Windows SDK 同梱) を
-//   叩いて実音声を出す。`CAudioDirector::SetBackend(&xaudio2)` で差し込んで
-//   使う。
-//
-// 使い方 (典型例):
-//   class CGame {
-//       acs::game::CXAudio2Backend m_Audio;
-//       acs::game::CAudioDirector  m_Director;
-//
-//       TResult<void> OnStart() noexcept override {
-//           ACS_TRY(m_Audio.Init(64));      // 同時発音 64 voice
-//           m_Director.SetBackend(&m_Audio);
-//           return Ok();
-//       }
-//       void OnShutdown() noexcept override {
-//           m_Director.SetBackend(nullptr);  // 先に director を切る (delegate 停止)
-//           m_Audio.Shutdown();
-//       }
-//   };
-//
-// 設計選択:
-//   ・**pimpl で XAudio2 ヘッダ隠蔽**: `<xaudio2.h>` は <windows.h> + COM を
-//     引っ張る重いヘッダなので .cpp に閉じ込め、.h ではポインタ前方宣言だけ
-//     公開する (ACS の `acs::CAudioEngine` と同じパターン)。
-//   ・**固定容量 voice pool**: `Init(max_voices)` 時に確保。再 init 不可。
-//     PlayOneShot / PlayLooped で空きを線形探索 (max_voices は通常 ≦ 128 で、
-//     ホットパス影響は無視できる)。
-//   ・**一意 handle**: slot 再利用時に古いハンドルで操作されても不一致で
-//     no-op 化し、use-after-free を防ぐ。
-//   ・**COM MTA 寿命は本 backend が責任を持つ**: `CoIncrementMTAUsage` の
-//     cookie を保持し、Shutdown で `CoDecrementMTAUsage` を呼ぶ。cookie は
-//     スレッドに属さないため、Init と異なるスレッドからも安全に終了できる。
-//   ・**Pcm32Float / Pcm16 のみ実音再生対応**: Wav 形式は asset layer
-//     側で事前デコードしてから raw PCM として渡す前提 (本 backend 内に
-//     wav parser を追加するなら拡張可)。
-//   ・**Tick で完了 voice 回収**: 一発再生は `BuffersQueued == 0` を見て
-//     自然回収する。回収しないと kMaxVoices 回再生でスロット枯渇する。
-//
-// 範囲外:
-//   ・3D positional / spatial (Pillar CSpatialAudio 担当、別 backend)
-//   ・stream 再生 / 動的バッファ供給
-//   ・wav/ogg/mp3 デコード (raw PCM を渡す前提)
 #pragma once
 
 #include "container/Array.h"

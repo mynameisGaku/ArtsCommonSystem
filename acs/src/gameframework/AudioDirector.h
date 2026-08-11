@@ -1,49 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CAudioDirector
-//
-// シーン跨ぎで生存する「音声指揮層」。CSceneServices ではなく CGame (or app)
-// に持たせる前提 (BGM はシーン切替で途切れないため、シーン局所では困る)。
-//
-// 機能:
-//   ・3 段ボリュームバス: Master / Bgm / Sfx (各 f32 [0, 1])
-//   ・BGM クロスフェード: `PlayBgm("battle", 2.0f, true)` で 2 秒掛けて遷移
-//   ・SFX one-shot: `PlaySfx("hit", 0.8f)` で即時再生 (混ぜて並列発火)
-//   ・ダッキング: 短期間だけ BGM 音量を一時的に下げる (ボイス再生中など)
-//   ・Pause / Resume / StopAll
-//   ・Tick(dt) で内部 timer (クロスフェード / ダッキング) を進行
-//   ・**IAudioBackend 接続**: `SetBackend(IAudioBackend*)` で
-//     `CXAudio2Backend` 等の concrete backend を差し込むと、実音再生 + master /
-//     pause / stop / Tick を backend に delegate する。backend == nullptr のとき
-//     は state-only 動作 (= 無音、ログ警告も出さない)。
-//   ・**clip 直接再生 API**: `PlayBgmClip(const FAudioClipDesc&,
-//     fade, loop)` / `PlaySfxClip(const FAudioClipDesc&, vol, pitch)` で raw PCM
-//     データから直接再生できる。名前ベース API (PlayBgm / PlaySfx) は state 管理
-//     のみ (将来 name→clip resolver を導入予定)。
-//
-// 設計選択:
-//   ・**TResult<void> は使わない**: この層は失敗を返さない (ログ警告のみ)。
-//     不正引数 (null name / 負の duration 等) は警告ログ + 既定値で続行。
-//   ・**SoA cross-fade state**: 同時に鳴る BGM は最大 2 本 (current + next)。
-//     `m_Bgm[0]` が現行、`m_Bgm[1]` が遷移中の新 BGM。遷移完了で swap。
-//   ・**Ducking は単一 timer**: スタックしない (新 Duck が来たら上書き)。
-//     fade-in/fade-out は単純な線形 (depth → 1.0 まで 0.1 秒で復帰の固定窓)。
-//   ・**SFX は ring 風に固定容量**: 容量 32 (典型的同時発音数を踏まえた目安)。
-//     満杯なら最古を上書き (シューティング的に許容)。
-//   ・**name は所有しない**: `const char*` を保持 = ROM の文字列リテラル前提。
-//     将来 FStringView / Asset Handle に置き換える。
-//   ・**backend は所有しない**: `IAudioBackend*` は raw ptr。呼び出し側が
-//     `CXAudio2Backend` 等を所有し、SetBackend(nullptr) で先に切ってから
-//     backend の Shutdown を呼ぶ責任を負う (二重解放回避)。
-//   ・**Pause/Resume/StopAll/SetMasterVolume は backend に forward**: backend
-//     が存在すれば実音にも反映される。volume バス変更 (SetBgmVolume 等) は
-//     Tick() で BGM voice の `SetVoiceVolume` に反映する (EffectiveBgmVolume
-//     を毎フレ算出して backend へ流す)。
-//
-// 範囲外:
-//   ・name → FAudioClipDesc resolver (CAssetRegistry 統合)
-//   ・3D positional / spatial / submix bus / DSP chain
-//   ・スナップショット (mixer state を hot-swap)
-//   ・wav/ogg/mp3 decode (本層は raw PCM 前提)
 #pragma once
 
 #include "foundation/Types.h"
