@@ -1,24 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — AEventBus (ワールド内オブジェクト間の疎結合な通信)
-//
-// 「名前付きイベントの pub/sub」を提供する World サブシステム。発火側と購読側が
-// «互いを知らずに» やり取りできる(プレイヤー死亡・スコア加算・ドア開放 等)。
-// 直接参照(ObjectRef)が «1対1の固い結線» なのに対し、こちらは «1対多の緩い通知»。
-//
-// ACS 規約: std::function / std::string 不使用。イベントはコンパイル時ハッシュ ID、
-// ハンドラは «関数ポインタ + listener コンテキスト»(captureless ラムダ or 静的関数)。
-//
-// 使い方:
-//   // 購読 (例: コンポーネントの OnAttach で)
-//   auto* bus = GetSubsystem<acs::game::AEventBus>();
-//   m_Sub = bus->Subscribe(acs::game::AEventBus::Id("PlayerDied"),
-//       [](void* self, const void* payload) noexcept {
-//           static_cast<MyComp*>(self)->OnPlayerDied();
-//       }, this);
-//   // 発火 (どこからでも)
-//   bus->Publish(acs::game::AEventBus::Id("PlayerDied"));
-//   // 解除 (OnDetach 等で)
-//   bus->Unsubscribe(m_Sub);
 #pragma once
 
 #include "foundation/Types.h"

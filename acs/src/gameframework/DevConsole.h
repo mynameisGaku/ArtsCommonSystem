@@ -1,49 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// GameFramework 開発コンソール state — CDevConsole
-//
-// `~` (チルダ) で開く開発用テキストコマンドコンソールの **state コンテナ**。
-// 描画 / 入力ハンドリング (ImGui ウィンドウ、IME、オートコンプリート UI 等) は
-// 上位レイヤ (Tools / Editor / game UI) の責務で、本クラスは:
-//   1. コマンド名 → 関数ポインタの登録 / 検索 / 実行
-//   2. 入力履歴 (上下キーで再呼び出しする想定の生バッファ)
-//   3. ログ出力バッファ (描画側がスクロールバックに表示する想定)
-//   4. 開閉トグル状態
-// だけを提供する。Ship build では namespace ごと丸ごと #ifdef で除外する想定。
-//
-// 設計選択:
-//   ・**std::function 不使用**: コマンドは C 関数ポインタ + void* user の組。
-//     クラスメンバを束ねたいときは静的 trampoline + this を user に渡す。
-//   ・**const char* 引数**: raw token をそのまま渡し、呼び出し側がパースする。
-//   ・**履歴 / ログは内部所有のバッファに copy**: 呼び出し側で形成した文字列が
-//     スタック消滅しても保持できるよう、Push 時に DefaultAllocator から長さ +1
-//     を取って memcpy する。drop 時に Free。TArray<const char*> 自体は所有ポインタを
-//     保持するだけのため、エントリ追加 / 削除のたびに自前で Alloc/Free 管理。
-//   ・**固定キャップ 100 行**: 上限到達後に push すると最古 (index 0) を Free して
-//     shift left。100 行 × O(memmove(99 ptrs)) なので push 自体は十分軽い。
-//   ・**コマンド検索は線形**: 数十〜数百規模を想定。
-//   ・**tokenize 最大 8 args**: 上限超過時は余剰トークンを無視 (warning ログのみ)。
-//     args 用一時バッファは Execute スタック上に置く (heap 触らない)。
-//
-// 範囲外:
-//   ・argument type (i32 / f32 / bool) の自動パース
-//   ・コマンド補完 (prefix → 候補列挙)
-//   ・variadic args / quoted string ("hello world" を 1 トークンに)
-//   ・UI レンダリング (ImGui ウィジェット)
-//   ・コマンドツリー (set graphics.shadow_quality 2 のような階層名)
-//   ・cvar (別クラス)
-//
-// 使い方:
-//   CDevConsole con;
-//   con.RegisterCommand("quit", &FMyApp::QuitCmd, this, "exit the application");
-//   con.RegisterCommand("help", &FMyApp::HelpCmd, this, "list commands");
-//   ...
-//   if (CInput::IsKeyPressed(EKey::Tilde)) con.Toggle();
-//   if (con.IsOpen() && enter_pressed) {
-//       con.PushHistory(input_buf);
-//       con.Execute(input_buf);
-//   }
-//   for (u32 i = 0; i < con.LogCount(); ++i) DrawLine(con.LogLine(i));
 #include "foundation/Types.h"
 #include "foundation/Log.h"
 #include "container/Array.h"

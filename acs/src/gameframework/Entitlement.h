@@ -1,44 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// CEntitlementRegistry — DLC / シーズンパス / コスメティック等の権利チェック
-//
-// プレイヤーが「持っているかどうか」をゲームロジック側から問い合わせる窓口。
-// DLC、シーズンパス、バトルパス、コスメティックパック、グッズ同梱の引換コード等の
-// **権利情報** (entitlement) をローカルに保持し、ストアからの取得結果や
-// プラットフォーム SDK (Pillar S = Steamworks / EOS / 各家庭機 SDK) の問い合わせ結果を
-// Add() で流し込んでもらう想定。CEntitlementRegistry 自体は **ストア非依存** であり、
-// 配信プラットフォームに紐付かない (Pillar S 側がアダプタ層になる)。
-//
-// 設計上の倫理方針 (LiveOps と pay-to-win の境界):
-//   ・本レジストリは **cosmetic 中心** で運用することを推奨する。装備性能や
-//     ゲームプレイのコア体験を金銭で買わせる pay-to-win 設計は、開発者の責任で
-//     避けるべきという立場 (ACS の出荷フィルタ層には強制機構を置かないが、
-//     IsActive() を見て「攻撃力 +10」のようなコードを書くと簡単に踏み外せる)。
-//   ・GoodsRedeemCode は物販同梱のリアル商品コード等を想定。再現性ある安全な
-//     redeem フローは Pillar S 側で実装し、ここには結果だけが流れてくる。
-//
-// 使い方:
-//   CEntitlementRegistry reg;
-//   reg.Add({ "dlc.expansion_1",  EEntitlementKind::Dlc,           true  });
-//   reg.Add({ "cosmetic.hat_red", EEntitlementKind::CosmeticPack,  true  });
-//
-//   if (reg.IsActive("dlc.expansion_1")) UnlockExpansionMap();
-//   if (reg.HasAny(EEntitlementKind::SeasonPass)) ShowSeasonPassBadge();
-//
-// 設計選択:
-//   ・id は **const char* 非所有**: ACS の STL 禁止方針 + 寿命管理単純化のため、
-//     呼び出し側が文字列リテラル or 長寿命バッファを保証する。短命バッファを
-//     渡すと dangling になる点は API ドキュメントで明示。
-//   ・コピー / ムーブ禁止: registry は通常 1 つの長寿命オブジェクトで運用される。
-//     誤って値渡しされた結果として entitlement が分裂すると検知しづらいため、
-//     最初から非コピー・非ムーブで固定する。
-//   ・全 noexcept: 例外不使用方針 (TResult<T,E> + bool 戻り値)。
-//
-// 範囲外:
-//   ・永続化 / シリアライズ (Pillar J Serialize 側で扱う)
-//   ・プラットフォーム SDK 連携の具象 (Pillar S Storefront 側で実装、こちらは依存しない)
-//   ・期限付き entitlement (期限切れ判定や残時間照会) — `active` フラグの更新を
-//     ストア側で行う前提とし、本レジストリは時間概念を持たない
-//   ・サーバ検証 (Pillar V Backend Services 側で実装)
 #pragma once
 
 #include "foundation/Types.h"
