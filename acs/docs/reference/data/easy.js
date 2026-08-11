@@ -8,14 +8,6 @@ ACS_REF.modules.push({
   blurb: "クラスもテンプレートも使わず、<b>関数を呼ぶだけ</b>で 2D ゲームを書くための入口。ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。<code>using namespace acs::easy;</code> で全関数が使えます。",
   types: [
     {
-      name: "（最小プログラム）",
-      kind: "使い方",
-      header: "easy/Easy.h",
-      summary: "<code>OpenWindow</code> で開き、<code>while (NextFrame())</code> ループの中で入力を読んで図形を描く、が基本形。ゲームの状態は <code>main</code> の中のローカル変数でよく、すべての関数を<b>メインスレッド 1 本</b>から呼びます。座標は<b>左上が原点</b>・ピクセル単位・Y は下向き、角度は<b>度（°）</b>で正が時計回り。",
-      when: "DXLib のような感覚で、設計を気にせずまず動くゲームを書き始めたい時。本格化したくなったら <code>acs::CApplication</code> へ進めます。"
-    },
-
-    {
       name: "FColor",
       kind: "構造体", header: "easy/Easy.h",
       summary: "色を表す値。各成分 <code>r,g,b,a</code> は <b>0.0〜1.0</b>。<code>a</code> は不透明度（0=透明, 1=不透明）。<code>FColor::Red</code> などの定数を使うか、<code>Rgb(255,0,0)</code> で作ります。",
@@ -41,7 +33,7 @@ ACS_REF.modules.push({
       name: "FSprite / FSound",
       kind: "構造体", header: "easy/Easy.h",
       summary: "<code>LoadSprite</code> / <code>LoadSound</code> が返す、コピー可能な軽い<b>素材ハンドル</b>（中身は番号 <code>id</code> だけ）。<code>id==0</code> は無効。",
-      when: "読み込んだ画像・音を持ち回って描画/再生に渡す時。失敗しても落ちず、無効ハンドルが返る（描画/再生は無視される）。",
+      when: "読み込んだ画像・音を識別し、描画／再生APIが受け取る素材handle。無効handleは描画／再生を発生させない。",
       members: [
         { sig: "u32 id", desc: "素材を指す内部番号。0 は無効（読み込み失敗など）。" }
       ]
@@ -387,14 +379,14 @@ ACS_REF.modules.push({
     {
       name: "入力コード（EKey / EMouseButton / EGamepadButton）",
       kind: "列挙", header: "platform/InputCodes.h",
-      summary: "easy が再公開している入力用の列挙。<code>using acs::EKey;</code> 等で <code>acs::easy</code> 名前空間からそのまま <code>EKey::Space</code> のように書ける。実体は <t>platform</t> モジュールの <code>InputCodes.h</code> で定義され、easy 側では値一覧が見えないため、よく使う値をここにまとめる。<code>IsKeyDown</code> / <code>IsMouseDown</code> / <code>IsGamepadDown</code> などに渡す。",
-      when: "キーボード・マウス・ゲームパッドの入力関数に「どのキー/ボタンか」を渡す時。先頭の <code>EKey::</code> 等を省略せず、列挙の値名で指定する。",
+      summary: "easy が再公開する入力列挙。実体は <t>platform</t> モジュールの <code>InputCodes.h</code> で定義され、<code>IsKeyDown</code> / <code>IsMouseDown</code> / <code>IsGamepadDown</code> の入力値を提供する。",
+      when: "入力関数が受け取るkeyboard／mouse／gamepad code。値名は列挙型prefix込みで安定識別する。",
       members: [
         { sig: "EKey::A 〜 EKey::Z", desc: "文字キー(<code>A</code>〜<code>Z</code>、26 個)。" },
         { sig: "EKey::Num0 〜 EKey::Num9", desc: "最上段の数字キー(テンキーではない)。テンキーは <code>EKey::KP0</code>〜<code>EKey::KP9</code>。" },
-        { sig: "EKey::F1 〜 EKey::F12", desc: "ファンクションキー。全画面トグルに <code>EKey::F11</code> など。" },
-        { sig: "EKey::Up / Down / Left / Right", desc: "矢印キー。移動入力の定番。" },
-        { sig: "EKey::Space / Enter / Tab / Backspace / Escape", desc: "主要な制御キー。決定・ジャンプ・キャンセル・文字消去などに。" },
+        { sig: "EKey::F1 〜 EKey::F12", desc: "ファンクションキーの物理code範囲。" },
+        { sig: "EKey::Up / Down / Left / Right", desc: "4方向の矢印キー。" },
+        { sig: "EKey::Space / Enter / Tab / Backspace / Escape", desc: "主要な制御キー。" },
         { sig: "EKey::Insert / Delete / Home / End / PageUp / PageDown", desc: "編集・ページ移動系のキー。" },
         { sig: "EKey::LeftShift / RightShift / LeftCtrl / RightCtrl / LeftAlt / RightAlt / LeftSuper / RightSuper", desc: "修飾キー(左右別)。<code>Super</code> は Windows キー / Cmd キー。" },
         { sig: "EKey::CapsLock / NumLock / ScrollLock", desc: "ロック系キー。" },

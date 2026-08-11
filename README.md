@@ -1,5 +1,7 @@
 # Arts Common System (ACS)
 
+ACSはapplication、rendering、asset、game framework、editorを責務別moduleで提供します。
+
 ## ACS Editor
 
 The current desktop Editor architecture, scene and asset workflows, profiler,
@@ -18,25 +20,8 @@ DirectX 12 で、Diligent Engine バックエンドも選択できます。
 ## 最短の入口
 
 最も小さい入口は `acs::easy` です。継承や手書きの描画パイプラインなしで
-次の形から始められます。
-
-```cpp
-#include "easy/Easy.h"
-
-using namespace acs::easy;
-
-int main() {
-    OpenWindow(1280, 720, "ACS Easy");
-    float x = 600.0f;
-
-    while (NextFrame()) {
-        if (IsKeyPressed(EKey::Escape)) Quit();
-        x += 180.0f * DeltaTime();
-        DrawRect(x, 320.0f, 80.0f, 80.0f, FColor::Sky);
-    }
-    return 0;
-}
-```
+ウィンドウ、frame更新、入力、2D描画を同じmain threadから扱えます。`OpenWindow`が
+描画環境を初期化し、`NextFrame`が入力更新から画面提示までのframe境界を管理します。
 
 実用的な2Dゲームでは `CGame`、`AScene`、`ANode`、`AComponent` を組み合わせます。
 初学者向けの説明は
@@ -52,11 +37,8 @@ int main() {
 - Windows SDK、PowerShell、Git、初回依存取得用のインターネット接続。
 
 Ninjaと`CMakePresets.json`は現行の標準生成手順では使用しません。Visual Studio 2022を
-使う場合は、generatorとソリューション拡張子を明示します。
-
-```pwsh
-.\acs.ps1 configure --generator "Visual Studio 17 2022" --name ACSEngine.sln
-```
+選ぶ場合は、generator名とソリューション名をconfigure入力として明示します。認識できない
+generatorまたは不正なソリューション名は生成前に失敗し、理由をconfigure logへ記録します。
 
 ## 生成・ビルド・実行
 
@@ -65,13 +47,8 @@ Ninjaと`CMakePresets.json`は現行の標準生成手順では使用しませ�
 `.\acs.ps1`、コマンドプロンプトとIDE外部ツールでは`acs.cmd`を使います。両launcherは
 同じ操作実体へ委譲し、buildやcleanの規則を複製しません。
 
-```pwsh
-.\acs.ps1 open
-```
-
-```bat
-acs.cmd open
-```
+`open`は生成済みソリューションの起動を担当し、対象が存在しない場合は生成が必要であることを
+報告して失敗します。
 
 既定では次の構成になります。
 
@@ -84,21 +61,9 @@ acs.cmd open
 - renderer: raw DirectX 12
 - tests / CLI tools / optional backends: 無効
 
-Visual Studioを開かずにbuild・実行する場合も同じ入口を使います。
-
-```pwsh
-.\acs.ps1 configure --tests
-.\acs.ps1 build --config Debug --target acs_unit_tests
-.\acs.ps1 test --config Debug --filter "^ACS.UnitTests$"
-```
-
-コマンドプロンプトでは次のように実行します。
-
-```bat
-acs.cmd configure --tests
-acs.cmd build --config Debug --target acs_unit_tests
-acs.cmd test --config Debug --filter "^ACS.UnitTests$"
-```
+Visual Studioを開かない処理も同じ入口へ渡します。`configure`は有効化する機能、`build`は
+構成とtarget、`test`は構成とfilterを入力として受け取り、PowerShellとコマンドプロンプトの
+どちらから呼んでも同じ処理結果と終了codeを返します。
 
 ### 主な生成オプション
 
@@ -106,13 +71,13 @@ acs.cmd test --config Debug --filter "^ACS.UnitTests$"
 |---|---|
 | `--open` | 生成したソリューションをVisual Studioで開く |
 | `--clean` | `Intermediate/vs`を削除してから再生成する |
-| `--name MyGame` | 表層のソリューション名を`MyGame.slnx`へ変更する |
+| `--name <solution-name>` | 表層のソリューション名を指定値へ変更する |
 | `--tests` / `--tools` | tests / `acs_assetpack` CLI targetを追加する |
 | `--startup-project <target>` | 生成済みtargetをVisual Studioの起動projectへ設定する |
 | `--diligent` | raw DX12に加えてDiligent rendererを有効にする |
 | `--scripting`, `--steamworks`, `--onnx`, `--openxr` | 対応する任意backendを有効にする |
 | `--crash-reporter`, `--telemetry`, `--matchmaker` | Windows crash dump、file telemetry、local matchmakerを有効にする |
-| `--all-backends` | 上記の任意backendをまとめて有効にする。SDK設定が必要なbackendも含む |
+| `--all-backends` | 任意backend群をまとめて有効にする。SDK設定が必要なbackendも含む |
 
 Diligentや任意backendを初めて有効化するconfigureでは、追加のGit repositoryやarchiveを
 取得するため時間がかかります。Steamworksなど、公開URLから自動取得できないSDKは個別設定が
@@ -120,24 +85,17 @@ Diligentや任意backendを初めて有効化するconfigureでは、追加のGi
 
 ### テスト
 
-```pwsh
-.\acs.ps1 configure --tests
-.\acs.ps1 build --config Debug
-.\acs.ps1 test --config Debug
-```
+test targetはconfigure時にtestsを有効化した構成だけへ追加されます。`build`と`test`は同じ構成を
+入力として使い、compile failureまたはtest failureをlauncherの非0終了codeとして返します。
 
 ### 低位の診断手順
 
 `acs/generate.ps1`、`cmake --build`、`ctest`は統一入口が委譲する既存実体です。
 launcher自体の調査やCMake固有の診断では直接実行できますが、通常の生成・build・test・
-配布・cleanでは上記launcherを使います。追加argumentはPowerShellでは引用した`'--'`、
+配布・cleanでは`acs.ps1`または`acs.cmd`を使います。追加argumentはPowerShellでは引用した`'--'`、
 コマンドプロンプトでは`--`より後ろへ指定できます。
-
-```pwsh
-powershell -NoProfile -ExecutionPolicy Bypass -File .\acs\generate.ps1 -Tests
-cmake --build .\acs\Intermediate\vs --config Debug
-ctest --test-dir .\acs\Intermediate\vs -C Debug --output-on-failure
-```
+低位実体は生成済みbuild tree、構成、test選択を受け取り、configure log、build出力、test結果と
+終了codeをそのまま診断情報として返します。
 
 ## 型名規約
 
@@ -175,14 +133,6 @@ Debug/Releaseとも全量をclean rebuildしてください。
 `SetPosition2D`・`Position2D`・`World2D`などのヘルパを提供します。ノードへ付ける
 componentは`AObject`の実派生である`AComponent`から派生します。
 
-```cpp
-auto player = NewObject<ANode>(FStringView("Player"));
-player->SetPosition2D(FVec2{0.0f, 0.0f});
-player->AddComponent<ASprite2DComponent>(
-    FVec2{0.9f, 0.9f}, FVec4{0.15f, 0.85f, 1.0f, 1.0f});
-Root().AddChild(Move(player));
-```
-
 親は`TObjectPtr<ANode>`で子を所有し、長期参照には`TWeakObjectPtr<ANode>`を使います。
 所有権・transform・描画順・serialization の詳細は
 [`NodeUnification.md`](acs/docs/NodeUnification.md) にあります。
@@ -194,17 +144,6 @@ Subsystemは、ownerと寿命が明確で、複数の利用者が共有する更
 World寿命のSubsystemを所有します。`GetSubsystem<T>()`は各ownerのscopeから親へ探し、
 WorldからはWorld → GameInstance → Engineの順で解決します。`ANode`と`AComponent`は、
 所属するsceneから配線された同じAPIを使えます。
-
-```cpp
-// Engine寿命のassetとtimerを取得する。
-AAssetSubsystem* assets = application.GetSubsystem<AAssetSubsystem>();
-ATimerSubsystem* timers = game.GetSubsystem<ATimerSubsystem>();
-
-// World寿命のeventとclockをscene配下から取得する。
-AEventBus* events = scene.GetSubsystem<AEventBus>();
-AWorldClockSubsystem* node_clock = node.GetSubsystem<AWorldClockSubsystem>();
-AEventBus* component_events = component.GetSubsystem<AEventBus>();
-```
 
 未登録、またはownerへ未配線の場合は`nullptr`を返します。Subsystemの登録・scope・frame phaseは
 専用のcatalogとcollectionで管理し、単なる局所値や決定論的な計算機能はSubsystemにしません。
@@ -251,12 +190,11 @@ AEventBus* component_events = component.GetSubsystem<AEventBus>();
 | `-Telemetry` | JSON Lines file backend（`CFileTelemetryBackendClient`） |
 | `-Matchmaker` | deterministic local matchmaker（`CLocalMatchmaker`） |
 
-## 学習例
+## 学習用実装の再導入方針
 
 Engine は現在、学習用実行例を同梱していません。再導入候補と受け入れ条件は
 [`LearningSamplesMigrationPlan.md`](acs/docs/LearningSamplesMigrationPlan.md) を正本とします。
-公開 API の使い方は [`QUICKSTART.md`](acs/docs/QUICKSTART.md)、実行契約は
-`acs/tests/*_tests.cpp` で確認できます。
+この文書が候補の優先度、必要なACS機能、検証範囲、再導入条件を一元管理します。
 
 ## 設計上の前提
 

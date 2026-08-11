@@ -4,21 +4,6 @@
 全項目を反映できる場合だけ対象インスタンスを更新します。新しい保存サービスや
 共有状態は作らず、呼び出し側が所有する既存の `FStorage` と allocator を使います。
 
-```cpp
-#include "platform/Storage.h"
-
-acs::FStorage storage;
-const acs::FStorageStringBatchEntry entries[] = {
-    {"audio.master", "0.8"},
-    {"player.name", "タロウ"},
-};
-
-auto result = storage.TrySetStringBatch(entries, 2u);
-if (result.IsErr()) {
-    // storage は呼び出し前の件数、値、借用ポインタを維持する。
-}
-```
-
 ## 成功値
 
 - `count == 0` は `entries == nullptr` でも `Ok(0)` を返す。
@@ -52,19 +37,15 @@ no-op でも最終件数検査で確保前に拒否し、件数、値、借用�
 `LoadFromBytes` は `=` より前の key について先頭と末尾の ASCII space と tab を
 取り除きます。tab は制御文字として拒否し、ASCII space は境界にある場合だけ拒否するため、
 batch から追加する key は Save/Load 後も同じ raw identity を維持します。
-`"foo bar"` のような内部の ASCII space は許可し、Save/Load 後もその位置を維持します。
+内部の ASCII space は許可し、Save/Load 後もその位置を維持します。
 
 既存互換の単体 setter は境界 space/tab を持つ key を保持できるため、非0件 batch のたびに
 既存全 key を `LoadFromBytes` と同じ境界 trim で allocation 前に比較します。正規化した
 既存 key 同士が同じになる場合と、byte 列が異なる既存 key と batch key が同じになる場合は
-エラーにします。たとえば既存 `"foo "` と batch `"foo"`、既存 `"foo"` と `"\tfoo "` が
-ある状態への無関係な batch は拒否します。既存 `"foo"` と batch `"foo"` のように byte 列も
-同じ場合は衝突ではなく、通常の update または no-op です。衝突しない legacy key はこの検査
-だけを理由には拒否も正規化もしません。たとえば既存に `"foo "` だけがあり、batch が
-`"bar"` を追加する場合は成功します。その後の Save/Load では loader の従来契約により
-`"foo "` は `"foo"` へ変わります。この API が保証するのは trim 後の重複を作らず
-`LoadFromBytes` の duplicate key エラーを防ぐことであり、legacy key の raw identity 維持
-ではありません。
+エラーにします。byte列も同じ既存keyとbatch keyは衝突ではなく、通常のupdateまたはno-opです。
+trim後も衝突しないlegacy keyはbatchを妨げず、この検査では正規化しません。後続のSave/Loadで
+loader契約に従って正規化される場合があります。このAPIはtrim後の重複を作らず
+`LoadFromBytes`のduplicate key errorを防ぎますが、legacy keyのraw identityは保証しません。
 
 この identity 検査は no-op 判定と一時領域の確保より前に完了します。拒否時は allocator へ
 確保要求を出さず、件数、全値、呼び出し前に借用した全ポインタを維持します。

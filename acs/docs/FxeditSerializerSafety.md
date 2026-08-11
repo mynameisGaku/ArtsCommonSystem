@@ -6,17 +6,6 @@
 
 ## 検証付き API
 
-```cpp
-FParticleEmitterDef definitions[16]{};
-char names[16 * 32]{};
-
-FFxeditSerializeResult result = FFxeditSerializer::TryLoad(
-    path, definitions, names, sizeof(names), 16);
-if (!result.Succeeded()) {
-    // ErrorName(result.error), result.line, result.os_error を UI に表示する。
-}
-```
-
 `FFxeditSerializeResult` は安定した error enum、入力行、emitter 数、処理 byte 数、
 Win32 error を分離して返す。失敗時に `out_defs` と `out_name_buffer` は変化しない。
 

@@ -39,15 +39,8 @@ chart は入力順を保持し、内部 sort しません。
 
 ## 検証付き chart 読み込み
 
-次のように結果を確認します。
-
-```cpp
-const auto result = grid.TryLoadChart(notes, count, bpm);
-if (result != acs::game::EBeatChartLoadResult::Success) {
-    ACS_LOG_ERROR("ビートチャート読み込み失敗: %s",
-                  acs::game::BeatChartLoadResultName(result));
-}
-```
+`TryLoadChart` は `EBeatChartLoadResult` で成否を返し、
+`BeatChartLoadResultName` は診断用の安定した名前を返します。
 
 `TryLoadChart` は入力全体を検証し、3 個の一時 array を reserve して chart をコピーした後
 だけ live chart を置き換えます。エラー時は以前の chart、再生 state、統計、callbacks を

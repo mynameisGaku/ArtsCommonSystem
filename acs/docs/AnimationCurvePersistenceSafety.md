@@ -50,24 +50,5 @@ reserved zero で構成されます。native の `FCurveKey` 全体を `memcpy` 
 CRC、および同一ディレクトリ一時ファイルからの flush 済み atomic replace が適用されます。
 保存中の失敗で既存ファイルを途中状態へ置き換えません。
 
-```cpp
-FAnimationCurve curve;
-// ... checked API で key を設定 ...
-
-auto saved = FAnimationCurveArchive::SaveToFile(
-    L"camera_fov.acssave", curve);
-if (!saved.Succeeded()) {
-    // saved.error / persistence_subcode / os_error を記録
-}
-
-FAnimationCurve loaded;
-auto restored = FAnimationCurveArchive::LoadFromFile(
-    L"camera_fov.acssave", loaded);
-if (!restored.Succeeded()) {
-    // loaded は呼び出し前の状態を保持
-}
-```
-
-wire version を変更する場合は既存 layout を上書きせず、新 version の decoder と
-migration path を追加してください。`UnsupportedVersion` は migration 分岐のための
-明示的な診断です。
+各wire versionは既存layoutと専用decoder／migration pathを個別に保持します。
+未知versionは既存layoutを解釈せず、`UnsupportedVersion`を明示的な診断として返します。

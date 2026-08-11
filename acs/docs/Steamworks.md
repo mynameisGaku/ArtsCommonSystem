@@ -20,9 +20,11 @@ ACS は **Steamworks SDK** を `acs_steamworks` モジュールとして統合�
    default               ACS_BUILD_STEAMWORKS=ON
 ```
 
-利用側は **常に `ISteamworksBridge*` 経由**で API を呼び、実装は CMake オプションで差し替える。
+`ISteamworksBridge`が安定したAPI seamを定義し、CMakeで選択したbackendをその背後へ束縛します。
 
 ## API 一覧 (21 メソッド)
+
+bridge APIは初期化とplayer state、非同期service、cloud／workshop／voice入力を分離します。
 
 ### 必須機能
 
@@ -62,52 +64,35 @@ ACS は **Steamworks SDK** を `acs_steamworks` モジュールとして統合�
 | `VoiceGetCompressed(buf, size)` | 圧縮音声取得 |
 | `InputInit()` / `InputGetControllerCount()` | Steam Input |
 
-## ビルド方法
+## SDK 構成契約
 
-### 方式 A (推奨): ローカル SDK ディレクトリ指定
+CMake構成はlocal SDK、管理済みarchive、stubのいずれかを明示的に選択します。
 
-1. パートナーアカウントで `steamworks_sdk_<version>.zip` を取得する
-2. 展開する (例: `C:/lib/steamworks_sdk_162/`)
-3. CMake 設定:
-   ```
-   cmake -B build -DACS_BUILD_STEAMWORKS=ON \
-                  -DACS_STEAMWORKS_SDK_DIR=C:/lib/steamworks_sdk_162
-   ```
-4. ビルド (`cmake --build build`)
-5. 実行ディレクトリに **`steam_appid.txt`** (内容: AppID 数字のみ、例 `480` for Spacewar) を置く
-6. 実行 (Steam クライアントが起動している必要がある)
+### ローカル SDK
 
-### 方式 B (CI 用): FetchContent (URL)
+`ACS_BUILD_STEAMWORKS=ON`では、`ACS_STEAMWORKS_SDK_DIR`が展開済みSDK rootを示す必要が
+あります。必須headerまたはlibraryを解決できない場合、configureはreal backendを生成せず
+失敗理由を返します。
 
-```
-cmake -B build -DACS_BUILD_STEAMWORKS=ON \
-               -DACS_STEAMWORKS_SDK_URL=file:///path/to/sdk.zip
-```
+### 管理済み SDK archive
 
-`ACS_STEAMWORKS_SDK_URL` には自前ミラーまたは S3 URL 等を指定。Valve の公式 SDK は公開ミラーが無いため、URL は user 自身で用意する。
+`ACS_STEAMWORKS_SDK_URL`はbuild環境が管理するSDK archiveを入力として受け取ります。
+archiveを取得または展開できない場合はconfigureを失敗させ、stubへ暗黙fallbackしません。
 
-### 方式 C (default): Stub のみ (SDK 不要)
+### Stub backend
 
-```
-cmake -B build   # ACS_BUILD_STEAMWORKS=OFF (default)
-```
+`ACS_BUILD_STEAMWORKS=OFF`ではSDKを要求せず、`CSteamworksBridgeStub`を選択します。
 
 `CSteamworksBridgeStub` が DI される。実績解除等の呼び出しは `kSubSteamworksNotImplemented` エラーを返すが、ゲーム挙動には影響しない (例外も投げない)。
 
 ## ランタイム要件
 
+real backendはAppID、client session、runtime DLLを初期化前に解決します。
+
 ### `steam_appid.txt`
 
-real SDK 実行時には、exe と同じディレクトリに `steam_appid.txt` を配置する必要がある。内容は AppID の 10 進数字のみ:
-
-```
-480
-```
-
-- **480 = Spacewar** (Valve 提供のテスト AppID、誰でも使える)
-- **本番 AppID**: Steam Direct で取得した game の AppID
-
-開発時は 480 で十分。本番リリース時に置換する。**`steam_appid.txt` は `.gitignore` 推奨** (環境ごとに異なる、CI/CD で生成)。
+real backendはexeと同じディレクトリの`steam_appid.txt`から10進AppIDを読み取ります。
+fileがない、内容が10進数でない、または実行環境のAppIDと一致しない場合、初期化を失敗させます。
 
 ### Steam クライアント
 
@@ -117,60 +102,22 @@ real SDK 実行時には、exe と同じディレクトリに `steam_appid.txt` 
 
 real backend を使う場合、`steam_api64.dll` (= SDK の `redistributable_bin/win64/steam_api64.dll`) を exe と同じディレクトリにコピーする必要がある。現在は自動コピーしないため、配置漏れを起動前に確認する。
 
-## ゲーム側での使い方
+## ゲーム側の backend 契約
 
-```cpp
-#include "gameframework/SteamworksBridge.h"
-// real backend を使うなら:
-#ifdef WITH_ACS_STEAMWORKS
-#  include "steamworks/SteamworksBridgeImpl.h"
-#endif
-
-class CMyGame : public acs::game::CGame {
-    acs::game::ISteamworksBridge* m_Social = nullptr;
-#ifdef WITH_ACS_STEAMWORKS
-    acs::steamworks::CSteamworksBridgeImpl m_RealSocial;
-#endif
-
-    void OnStart() noexcept override {
-#ifdef WITH_ACS_STEAMWORKS
-        // real backend を優先、失敗時は stub にフォールバック
-        if (m_RealSocial.Init().IsOk()) {
-            m_Social = &m_RealSocial;
-        } else {
-            m_Social = &acs::game::CSteamworksBridgeStub::GetStub();
-        }
-#else
-        m_Social = &acs::game::CSteamworksBridgeStub::GetStub();
-        (void)m_Social->Init();
-#endif
-    }
-
-    void OnUpdate(f32 dt) noexcept override {
-        m_Social->Tick(dt);  // 必須: callback ポンプ
-        // ... game logic
-    }
-
-    void OnBossKilled() noexcept {
-        (void)m_Social->UnlockAchievement("ACH_BOSS_01");
-        (void)m_Social->SetStat("bosses_killed", 1);
-    }
-
-    void OnShutdown() noexcept override {
-        m_Social->Shutdown();
-    }
-};
-```
+`WITH_ACS_STEAMWORKS` 有効時は `CSteamworksBridgeImpl` が実backendを所有し、
+初期化失敗時は `CSteamworksBridgeStub` へ切り替えられます。選択したbridgeはframeごとに
+`Tick` でcallbackを処理し、application終了前に `Shutdown` でbackend資源を解放します。
+achievement、stat、leaderboard、DLCの操作は `ISteamworksBridge` の結果で成否を返します。
 
 ## トラブルシューティング
 
 | 症状 | 原因 / 対策 |
 |---|---|
 | `Init()` が `kSubSteamworksInitFailed` で fail | Steam クライアント未起動 / `steam_appid.txt` 不在 / AppID 不一致 |
-| Achievement 解除しても見えない | Spacewar 480 で開発中は実際の Steam 実績が無い (本番 AppID で確認) |
+| Achievement 解除しても見えない | 選択した AppID に対応するachievement定義がない、または別AppIDで初期化されている |
 | `steam_api64.dll not found` ランタイムエラー | DLL を exe ディレクトリにコピー (`<SDK>/redistributable_bin/win64/steam_api64.dll`) |
-| Leaderboard が 0 を返す | async API なので `Tick()` を数フレーム呼ばないと完了通知が来ない |
-| `IsDlcOwned()` が false | 開発時は Spacewar で DLC を持たない (本番 AppID で確認) |
+| Leaderboard が 0 を返す | callback pumpが進むまでasync結果はpendingのまま保持される |
+| `IsDlcOwned()` が false | 初期化した AppID に対象DLCのentitlementがない |
 
 ## 未対応機能
 

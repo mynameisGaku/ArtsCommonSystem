@@ -176,7 +176,7 @@ ACS_REF.modules.push({
       name: "FHrResult",
       kind: "構造体", header: "render/Dx12/Dx12Common.h",
       summary: "<t>DX12</t> 内部用の小さな結果ラッパ。<code>HRESULT</code>(Win32 のエラーコード)を保持し、ACS の <t>Result</t> 系と橋渡しします。",
-      when: "DX12 バックエンドの <code>Init</code> 系が返す内部型。利用側コードでは普通 <code>TResult</code> を見るので、これを直接触ることは稀。",
+      when: "DX12 backendの<code>Init</code>が返す内部結果。公開境界では<code>TResult</code>へ変換される。",
       members: [
         { sig: "HRESULT hr", desc: "生の <code>HRESULT</code>(既定 <code>S_OK</code>)。" },
         { sig: "bool IsOk() const / bool IsErr() const", desc: "成功(<code>SUCCEEDED</code>) / 失敗(<code>FAILED</code>)判定。" }
@@ -205,7 +205,7 @@ ACS_REF.modules.push({
       name: "FDiligentSwapchain",
       kind: "クラス", header: "render/Diligent/DiligentSwapchain.h",
       summary: "<t>Diligent</t> の<t>スワップチェイン</t>(<code>IRhiSwapchain</code> 派生)。Diligent の <code>ISwapChain</code> を薄くラップし、取得・提示・リサイズを <code>FDx12Swapchain</code> と同じ API で提供します。",
-      when: "<code>CreateRhiSwapchain()</code> が Diligent で生成する実体。使い方は DX12 版と同一(取得→描画→提示)。",
+      when: "<code>CreateRhiSwapchain()</code> が Diligent backend に生成し、buffer取得・描画・提示のswapchain lifecycleを提供する。",
       members: [
         { sig: "u32 AcquireNextImage()", ret: "バッファ番号", desc: "次に描けるバックバッファを取得。" },
         { sig: "bool Present()", ret: "提示成功なら true", desc: "画面へ反映。backend/device failure は false。" },
@@ -251,7 +251,7 @@ ACS_REF.modules.push({
       name: "FDiligentTexture",
       kind: "クラス", header: "render/Diligent/DiligentTexture.h",
       summary: "<t>Diligent</t> のテクスチャ(<code>IRhiTexture</code> 派生)。<code>ITexture</code> と、その SRV/RTV/DSV <t>ビュー</t>を持ちます。cubemap・テクスチャ配列・per-slice RTV にも対応します。",
-      when: "<code>CreateRhiTexture()</code> が Diligent で生成する実体。使い方は <code>FDx12Texture</code> と同じく <code>FTextureDesc</code> のフラグで切り替える。",
+      when: "<code>CreateRhiTexture()</code> が Diligent backend に生成し、<code>FTextureDesc</code> のresource flagsからcubemap・render target・depth targetを構築する。",
       members: [
         { sig: "u32 Width() / Height() / MipLevels() / ArraySize() const", desc: "解像度・mip 数・配列枚数。" },
         { sig: "EFormat PixelFormat() const", desc: "ピクセル<t>フォーマット</t>。" },
@@ -301,7 +301,7 @@ ACS_REF.modules.push({
   name: "ToDxgiFormat / ToD3D12State",
   kind: "自由関数", header: "render/Dx12/Dx12Common.h",
   summary: "<t>DX12</t> バックエンド共通の小さな変換ヘルパ群(いずれも <code>inline noexcept</code>)。ACS の論理列挙を Direct3D12 / DXGI のネイティブ列挙へ写します。<code>Dx12Common.h</code> を include する DX12 系 <code>.cpp</code> から使われます。",
-  when: "<t>DX12</t> バックエンド内部で <code>EFormat</code> や <code>EResourceState</code> をネイティブ型に直す時。利用側コードは普通 <code>IRhi*</code> 越しなので直接触りません。",
+  when: "<t>DX12</t> backend内部で<code>EFormat</code>と<code>EResourceState</code>をnative型へ変換する。公開境界は<code>IRhi*</code>が所有する。",
   members: [
     { sig: "DXGI_FORMAT ToDxgiFormat(EFormat f) noexcept", ret: "DXGI フォーマット", desc: "<code>EFormat</code> を <code>DXGI_FORMAT</code> へ変換。未対応値は <code>DXGI_FORMAT_UNKNOWN</code>。" },
     { sig: "D3D12_RESOURCE_STATES ToD3D12State(EResourceState s) noexcept", ret: "D3D12 リソース状態", desc: "<code>EResourceState</code> を <code>D3D12_RESOURCE_STATES</code> へ変換。未対応値は <code>D3D12_RESOURCE_STATE_COMMON</code>。" }

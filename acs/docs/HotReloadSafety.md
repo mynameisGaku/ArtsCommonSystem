@@ -36,21 +36,8 @@ enum 値を独自に `switch` せず、`HotReloadResultName` を使うこと。
 
 ## checked 登録と transactional な失敗
 
-新規コードでは次の checked API を優先する。
-
-```cpp
-FHotReloadWatcher watcher;
-watcher.Init();
-
-const EHotReloadResult watch_result =
-    watcher.TryWatchDirectory("Assets", true);
-if (watch_result != EHotReloadResult::Success) {
-    // 既存アセット状態を維持し、登録失敗を報告する。
-}
-
-const EHotReloadResult callback_result =
-    watcher.TryRegisterCallback(&OnAssetChanged, this);
-```
+新規コードでは `TryWatchDirectory`、`TryWatchFile`、`TryRegisterCallback`、
+`TryTick` の checked 結果を処理し、失敗時は公開中の監視状態を維持する。
 
 `WatchDirectory`、`WatchFile`、`RegisterCallback`、`Tick` は source
 compatibility のために残した wrapper であり、内部で checked 結果を捨てる。
@@ -132,14 +119,6 @@ tick が成功しても `Success` または `false` へ戻らない。診断の�
 監視登録、callback、pending event には触れない。`Shutdown()` も診断値を暗黙には
 clear しないため、停止後に失敗原因を調査できる。
 
-```cpp
-const FHotReloadDiagnostics diagnostics = watcher.CaptureDiagnostics();
-if (diagnostics.authoritative_rescan_required) {
-    RescanAssetsFromAuthoritativeDatabase();
-    watcher.ClearDiagnostics();
-}
-```
-
 無効な `dt`、`TryTick` 再入、callback snapshot の OOM は `last_failure` に残るが、
 特定 event の拒否または通知欠落ではないため event/loss counter は増やさない。
 監視・callback 登録や debounce 設定の checked 結果は呼び出し元がその場で処理する
@@ -160,12 +139,6 @@ clock の分解能が整数ミリ秒なので、0 より大きく 1 ms 未満の
 として扱う。coalescing を完全に無効にできる値は厳密な `0` だけである。
 
 native event と外部 event は同じ上限付き FIFO を共有する。
-
-```cpp
-watcher.TryEnqueueEvent(
-    "Assets/generated.mesh", timestamp_ms, false);
-const EHotReloadResult tick_result = watcher.TryTick(delta_seconds);
-```
 
 `TryTick` は負数、NaN、無限大の `dt` を、native poll と dispatch を始める前に
 `InvalidArgument` で拒否する。callback から再帰的に呼んだ `TryTick` は

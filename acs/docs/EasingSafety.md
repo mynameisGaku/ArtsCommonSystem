@@ -33,13 +33,6 @@ ASCII識別子である。
 `FLegacyKitEaseIdCodec` で移行する。旧形式とACSでは同じ曲線でも数値順が
 異なり、同じ数値を持つのは `Linear = 0` だけである。
 
-```cpp
-Easing::EEasingType type = Easing::EEasingType::Linear;
-if (!FLegacyKitEaseIdCodec::TryDecode(saved_legacy_id, type)) {
-    // typeは変更されない
-}
-```
-
 固定された33個の対応は次の通り。
 
 | 旧 ID | ACS型 | 旧 ID | ACS型 | 旧 ID | ACS型 |
@@ -87,15 +80,6 @@ NaNは決定的に `0`、負の無限大は `0`、正の無限大は `1` へ写�
 
 ## checked評価
 
-```cpp
-f32 progress = previous_progress;
-const Easing::FEasingResult result =
-    Easing::TryEvaluate(Easing::EEasingType::OutCubic, raw_time, progress);
-if (!result.Succeeded()) {
-    // progressは変更されない
-}
-```
-
 `TryEvaluate` は次の安全性を保証する。
 
 - 評価前に有限入力を `[0, 1]` へclampする。
@@ -133,16 +117,6 @@ if (!result.Succeeded()) {
 エディタのプレビュー、lookup table、デバッグ描画では、個別評価ループの代わりに
 `TrySampleCurve(type, out_values, sample_count)` を使用できる。
 
-```cpp
-f32 preview[65]{};
-const Easing::FEasingResult sample_result =
-    Easing::TrySampleCurve(
-        Easing::EEasingType::InOutSine, preview, 65);
-if (!sample_result.Succeeded()) {
-    // preview 全体は変更されない
-}
-```
-
 - `[0,1]` 上を等間隔に評価し、先頭は厳密な `0`、末尾は厳密な `1`。
 - `sample_count` は `kMinSampleCount = 2` 以上、
   `kMaxSampleCount = 65536` 以下。
@@ -157,27 +131,7 @@ if (!sample_result.Succeeded()) {
 enumオーバーロードを使うと、選択したイージングを永続化・検査可能な状態で
 保持できる。
 
-```cpp
-FTweenManager tweens;
-f32 opacity = 0.0f;
-tweens.Tween(&opacity, 0.0f, 1.0f, 0.25f,
-             Easing::EEasingType::OutCubic);
-
-FSequence sequence;
-sequence.Tween(&opacity, 1.0f, 0.0f, 0.2f,
-                Easing::EEasingType::InOutSine);
-```
-
 既存の呼び出し側は互換関数ポインタを引き続き渡せる。
-
-```cpp
-Easing::EasingFn easing = Easing::GetFunction(
-    Easing::EEasingType::OutBounce);
-tweens.Tween(&opacity, 0.0f, 1.0f, 0.5f, easing);
-
-// 名前付き直接関数も引き続き利用できる
-sequence.Tween(&opacity, 1.0f, 0.0f, 0.3f, Easing::InQuad);
-```
 
 エディタデータ、永続化、reflection、新規APIではenumオーバーロードを優先する。
 `EasingFn` は互換境界、または呼び出し側が意図的にカスタムイージング関数を
@@ -187,35 +141,6 @@ sequence.Tween(&opacity, 1.0f, 0.0f, 0.3f, Easing::InQuad);
 
 `easy/Easy.h` をincludeすると、`acs::game` namespaceへ入らずに全カタログを
 利用できる。
-
-```cpp
-using namespace acs::easy;
-
-const EEasingType type = EEasingType::SmootherStep;
-const f32 progress = Ease(raw_time, type, /*fallback=*/0.0f);
-
-f32 checked_progress = previous_progress;
-const FEasingResult result =
-    TryEase(raw_time, EEasingType::OutElastic, checked_progress);
-if (!result.Succeeded()) {
-    // checked_progressは変更されない
-}
-
-const char* name = EasingName(type);
-EEasingType parsed = EEasingType::Linear;
-const bool parsed_ok = TryParseEasingName(name, parsed);
-
-const char* checked_name = nullptr;
-const FEasingResult name_result =
-    TryGetEasingName(type, checked_name);
-
-const FEasingResult parse_result =
-    TryParseEasingNameChecked(checked_name, parsed);
-
-f32 preview[33]{};
-const FEasingResult sample_result =
-    TrySampleEasing(type, preview, 33);
-```
 
 `acs::easy::EEasingType`、`EEasingError`、`FEasingResult` はGameFramework型の
 aliasである。`Ease`、`TryEase`、`TrySampleEasing`、`EasingName`、`TryParseEasingName`、
@@ -229,11 +154,12 @@ aliasである。`Ease`、`TryEase`、`TrySampleEasing`、`EasingName`、`TryPar
 `OutBack`、`OutBounce`、`OutElastic` へ委譲する。
 
 モジュール依存は意図的に一方向とし、EasyはGameFrameworkへpublic依存するが、
-GameFrameworkはEasyへ依存しない。この境界を変更する場合は
-`src/easy/Easy.Build.cs` と生成済み `src/easy/Module.cmake` の依存リストを
-同期する。
+GameFrameworkはEasyへ依存しない。`src/easy/Easy.Build.cs`と生成済み
+`src/easy/Module.cmake`は、この一方向依存を同じ内容で記録する。
 
 ## 回帰カバレッジ
+
+回帰検査はcatalog完全性、数値契約、互換入口を責務別testへ分けます。
 
 ### `tests/easing_completeness_tests.cpp`
 

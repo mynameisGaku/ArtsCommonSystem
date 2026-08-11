@@ -18,16 +18,8 @@
 
 ## FMaterial2D
 
-推奨 API は次のとおり。
-
-```cpp
-FMaterial2D next = current;
-FMaterial2DLoadResult result =
-    TryParseAcsmatText(bytes, byte_count, next);
-if (result.Succeeded()) {
-    current = next;
-}
-```
+推奨 API は `TryParseAcsmatText` です。入力を一時 `FMaterial2D` へ解析し、
+全検証が成功した場合だけ呼び出し側のmaterialを置き換えます。
 
 ファイルには `TryLoadAcsmatFile` を使う。`ParseAcsmatText` と
 `LoadAcsmatFile` は互換 API であり、同じ検証を通る。

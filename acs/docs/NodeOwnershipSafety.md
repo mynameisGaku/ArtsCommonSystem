@@ -9,18 +9,6 @@ API を使います。
 外部入力、エディタ操作、生成スクリプトなど、追加失敗を処理する必要がある経路では
 `TryAddChild` を使います。
 
-```cpp
-TObjectPtr<ANode> child = NewObject<ANode>("Enemy");
-switch (parent.TryAddChild(child)) {
-case EAddChildResult::Added:
-    // child は空になり、parent が所有する。
-    break;
-default:
-    // 失敗時の child は変更されない。再利用、隔離、エラー表示が可能。
-    break;
-}
-```
-
 `TryAddChild` は次を拒否します。
 
 - null、自分自身、祖先の追加による循環

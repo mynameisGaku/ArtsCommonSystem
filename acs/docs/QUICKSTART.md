@@ -1,54 +1,20 @@
 # ACS クイックスタート（C++ 初学者向け）
 
-## 5 行でゲームを作る
+この文書はapplication寿命、build入力、主要API、配布物のACS契約をまとめます。
 
-`CApplication` を継承して 4 つの関数を実装すれば、ウィンドウ + 入力 + 描画 + ECS が
-すぐ使えます。
+## Application lifecycle
 
-```cpp
-#include "app/Application.h"
-#include "app/EntryPoint.h"
-#include "platform/Input.h"
-
-using namespace acs;
-
-class CMyGame : public CApplication {
-public:
-    void OnStart() noexcept override {
-        // 起動時に 1 度だけ呼ばれる（リソース読み込みなど）
-    }
-
-    void OnUpdate(f32 dt) noexcept override {
-        // 毎フレーム呼ばれる（ゲームロジック）
-        if (CInput::IsKeyPressed(EKey::Escape)) Quit();
-    }
-
-    void OnRender() noexcept override {
-        // 毎フレーム呼ばれる（描画コマンド）
-    }
-
-    void OnShutdown() noexcept override {
-        // 終了時に 1 度だけ呼ばれる（後片付け）
-    }
-};
-
-ACS_DEFINE_MAIN(CMyGame)
-```
+`CApplication` は window、入力、描画、ECS のapplication寿命を所有します。
+`OnStart`、`OnUpdate`、`OnRender`、`OnShutdown` が起動、frame更新、描画、終了の
+各phaseを受け持ち、`ACS_DEFINE_MAIN` が登録した派生型のentry pointを生成します。
 
 `ACS_DEFINE_MAIN` がエントリポイント (`int main()`) を自動生成します。
 
 ## ビルド方法
 
-`acs/` ディレクトリの中で、生成スクリプトから構成 → ビルド → 実行します
-（PowerShell）。必要なツール（Visual Studio・CMake など）は README.md の
-「必要なもの」を参照してください。
-
-```pwsh
-cd acs
-.\generate.ps1 -Tests -Tools
-cmake --build Intermediate/vs --config Debug --target acs_unit_tests
-ctest --test-dir Intermediate/vs -C Debug --output-on-failure
-```
+生成処理はACS source root、有効化するtests／tools、build構成を入力として受け取ります。
+必要なツール（Visual Studio・CMakeなど）が不足する場合、または構成名やtargetが無効な場合は
+処理を停止し、configure logまたはbuild／test出力へ理由を記録します。
 
 実行ファイルと配布 DLL は `acs/Binaries/<構成>/`、中間生成物は
 `acs/Intermediate/vs/` に分離されます。生成された `ACSEngine.slnx` を開けば
@@ -72,88 +38,45 @@ Visual Studio からも同じ構成をビルドできます。
 | Render | 描画 | `CRenderer` (DX12 / Diligent) |
 | App | アプリ枠組み | `CApplication`, `FAppConfig` |
 
-## よく使うコード例
+## 主要 API の責務
+
+主要moduleの入口は、保持状態、所有権、失敗結果を明示して呼び出し側へ返します。
 
 ### 1. キー入力
-```cpp
-if (CInput::IsKeyDown(EKey::W)) move_forward();   // 押されている間
-if (CInput::IsKeyPressed(EKey::Space)) jump();    // 押した瞬間
-if (CInput::IsKeyReleased(EKey::F)) release();    // 離した瞬間
-```
+
+`CInput::IsKeyDown` は保持状態、`IsKeyPressed` と `IsKeyReleased` はframe間のedgeを返します。
 
 ### 2. マウス
-```cpp
-FVec2 mouse = CInput::MousePos();
-FVec2 delta = CInput::MouseDelta();
-if (CInput::IsMouseButtonPressed(EMouseButton::Left)) shoot();
-```
+
+`MousePos` は現在位置、`MouseDelta` は前frameからの移動量を返し、mouse button APIは
+保持状態とpress/release edgeを区別します。
 
 ### 3. ECS
-```cpp
-// コンポーネントは FVec3 などを包む値型として定義する
-struct FPosition { FVec3 v; };
-struct FVelocity { FVec3 v; };
 
-CWorld& w = GetWorld();
-FEntityId player = w.Create();
-w.Add<FPosition>(player, { FVec3{0, 0, 0} });
-w.Add<FVelocity>(player, { FVec3{1, 0, 0} });
-
-w.Query<FPosition, FVelocity>().Each([dt](FEntityId, FPosition& p, FVelocity& v) {
-    p.v.x += v.v.x * dt;
-    p.v.y += v.v.y * dt;
-    p.v.z += v.v.z * dt;
-});
-```
+`CWorld` がentityとcomponent storageを所有し、`Create`が安定handleを発行します。
+`Add<T>` はcomponent値を登録し、`Query<T...>` は必要なcomponentを持つentityだけを走査します。
 
 ### 4. ファイル I/O
-```cpp
-auto data = CFileSystem::ReadAllBytes(L"data/save.bin");
-if (data.IsErr()) {
-    ACS_LOG_ERROR("save not found: %s", data.Error().message);
-    return;
-}
-TArray<byte>& bytes = data.Value();
-```
+
+`CFileSystem::ReadAllBytes` は成功時に所有byte列、失敗時に診断可能なerrorを返します。
+`TResult::Value` は成功確認後だけ参照できます。
 
 ### 5. ログ出力
-```cpp
-ACS_LOG_INFO("プレイヤーが %s を装備しました", weapon_name);
-ACS_LOG_WARN("HP が低い: %d", hp);
-ACS_LOG_ERROR("セーブ失敗: %s", err_message);
-```
+
+`ACS_LOG_INFO`、`ACS_LOG_WARN`、`ACS_LOG_ERROR` はseverityを付けて現在のlog sinkへ記録します。
 
 ### 6. メモリスナップショット出力
-```cpp
-FMemorySnapshot::WriteSvg(L"memdump.svg");  // ブラウザで開ける
-FMemorySnapshot::WriteBmp(L"memdump.bmp");  // 画像ビューアで開ける
-FMemorySnapshot::DumpToStdOut();             // コンソールへテキスト
-```
+
+`FMemorySnapshot` は現在のmemory診断をSVG、BMP、標準出力へ固定形式で出力します。
 
 ## エラー処理の流儀
 
 ACS は例外を使いません。失敗する関数は `TResult<T, FErrorCode>` を返します。
 **`Value()` は成功時のみ呼べます** — `IsErr()` で確認せずに呼ぶと `ACS_ASSERT`
-で停止します（アサート無効のリリースビルドでは未定義動作）。必ず下記のように
-`IsErr()` を確認してから `Value()` を呼んでください。
+で停止します（アサート無効のリリースビルドでは未定義動作）。`IsErr()` を確認してから
+`Value()` を呼んでください。
 
-```cpp
-auto wr = FWindow::Create(cfg);
-if (wr.IsErr()) {
-    ACS_LOG_ERROR("Window 作成失敗: %s", wr.Error().message);
-    return -1;
-}
-FWindow& w = wr.Value();
-```
-
-`ACS_TRY` マクロで早期 return も書けます：
-```cpp
-TResult<void> Setup() noexcept {
-    ACS_TRY(FMemorySystem::Init(FMemorySystem::DefaultConfig()));
-    ACS_TRY(FThreadPool::Init());
-    return Ok();
-}
-```
+`ACS_TRY` は失敗した `TResult` のerrorを呼び出し元へ早期returnし、成功時だけ後続処理を続けます。
 
 ## 次のステップ
 
@@ -164,26 +87,11 @@ TResult<void> Setup() noexcept {
 ゲーム側では `CApplication` または `CGame` の派生型を作り、CMake target を
 `ACS::App` または `ACS::GameFramework` へリンクします。
 
-## ゲームを配布する（ZIP 化）
+## ゲーム配布アーカイブ
 
-完成したゲームを友だちに渡すときは、exe・依存 DLL・アセットをまとめた ZIP を
-1 行で作れます。
-
-自分のゲームの `CMakeLists.txt` に 1 行追加するだけ：
-
-```cmake
-add_executable(my_game main.cpp)
-target_link_libraries(my_game PRIVATE ACS::Easy)
-acs_package_game(my_game ASSETS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assets)
-```
-
-ビルド後、`package` ターゲットで ZIP を作ります：
-
-```pwsh
-cmake --build build --config Release
-cmake --build build --config Release --target package
-# → build/ACS-0.1.0-win64.zip ができる
-```
+`acs_package_game`は登録済みゲームtargetとasset rootを入力として受け取り、選択したbuild構成の
+実行物、runtime依存、asset、licenseを配布アーカイブへまとめます。targetが未登録、asset rootが
+不正、または必須runtimeが不足する場合はpackage処理を失敗させます。
 
 ZIP は `acs_package_game()` で宣言したゲーム実行物だけを収録し、private な
 FetchContent 依存の SDK や CMake metadata は混入させません。実際に必要な依存 DLL と
@@ -192,18 +100,15 @@ FetchContent 依存の SDK や CMake metadata は混入させません。実際�
 ZIP の中身：
 
 ```
-my_game/
-    my_game.exe
-    d3dcompiler_47.dll        # 依存 DLL は自動収集
-    ... (Diligent DLL など)
-    assets/
-        ... (ASSETS_DIR の中身)
+<game>/
+    <game>.exe
+    <runtime dependencies>
+    <asset root>/
 Licenses/
     ACS-License.txt
     ThirdParty/
-        ... (利用中の第三者licenseとnotice)
+        <required licenses and notices>
 ```
 
-ZIP を相手に渡し、`my_game.exe` をダブルクリックすればすぐ動きます。
-`acs_package_game()` は登録したゲーム target と必要な runtime、asset、license を
-同じ契約で検証して ZIP 化します。
+アーカイブのentrypointは登録したゲーム実行物です。package処理は必要なruntime、asset、licenseを
+同じ契約で検証してから出力を確定します。

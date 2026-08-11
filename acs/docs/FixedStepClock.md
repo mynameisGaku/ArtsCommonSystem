@@ -1,5 +1,7 @@
 # 固定更新時計
 
+`CFixedStepClock`は可変frame時間を固定tickへ変換し、過負荷時の追従上限と補間率を管理します。
+
 ## 目的
 
 `Timing` moduleの`acs::timing::CFixedStepClock`は、可変な経過秒を固定更新回数と描画補間率へ変換する。
@@ -10,22 +12,6 @@
 経過時間とframe数を扱う。責務と所有期間が異なるため、これらを`CFixedStepClock`へ置換しない。
 
 ## 基本操作
-
-```cpp
-#include "timing/FixedStepClock.h"
-
-acs::timing::CFixedStepClock clock;
-acs::timing::FFixedStepOptions options{1.0 / 120.0, 8u, 0.25};
-if (!clock.Configure(options)) {
-    return;
-}
-
-const acs::timing::FFixedStepAdvanceResult result = clock.Advance(frame_seconds);
-for (acs::u32 index = 0u; index < result.step_count; ++index) {
-    SimulateFixedStep(options.step_seconds);
-}
-RenderInterpolated(result.interpolation_alpha);
-```
 
 一回の`Advance`は、蓄積上限を超えた秒数と実行回数上限を超えた固定更新を破棄する。
 破棄量は今回結果と累積統計の両方へ記録する。負値、NaN、無限大は拒否し、時計を変更しない。
