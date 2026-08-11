@@ -1,43 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// GameFramework — 統一リフレクション / 型レジストリ (Reflect)
-// -----------------------------------------------------------------------------
-// 「エンジンの型 (Object / Component / Node / Scene / Asset / System / Enum /
-// Interface / Event / Command …) をマーク + 反射 (名前・サイズ・フィールド・列挙値・
-// ファクトリ・カテゴリ・能力) して、エンジン全体から 1 つのレジストリで列挙・
-// 名前/ID 検索・生成できる」土台。
-//
-// 設計の要点 (ACS の型は Object/Component に留まらない — 実コードから網羅):
-//   ・**カテゴリ** ETypeCategory … 何の種類か。Struct/Enum/Object/Component/Node/
-//     Scene/Asset/System/Prefab/Interface/Event/Command/Resource/Service/Custom。
-//     新種は Custom + category_name で拡張できる (将来の種類に耐える)。
-//   ・**能力トレイト** ETypeTraits … 何ができるか (直交)。Serializable/Networked/
-//     EditorVisible/Scriptable/Abstract/Instantiable のビット OR。
-//   ・**Enum 反射** … 列挙体は value↔name を持つ (editor コンボ/シリアライズ/スクリプト)。
-//   ・既存の TypeInfo.h (TU ローカル・コンパイル時のみ) を補完し、グローバル自動登録の
-//     CTypeRegistry を提供。フィールド種別は InspectorSeam.h の EFieldKind を共通利用。
-//
-// 使い方:
-//   struct FHealth { acs::f32 hp; acs::f32 max_hp; bool alive; };
-//   ACS_COMPONENT(FHealth,
-//       ACS_RFIELD(FHealth, hp,     acs::game::EFieldKind::F32),
-//       ACS_RFIELD(FHealth, max_hp, acs::game::EFieldKind::F32),
-//       ACS_RFIELD(FHealth, alive,  acs::game::EFieldKind::Bool))
-//
-//   enum class EWeapon : acs::u8 { Sword, Bow, Staff };
-//   ACS_REFLECT_ENUM(EWeapon,
-//       ACS_EVAL(EWeapon, Sword), ACS_EVAL(EWeapon, Bow), ACS_EVAL(EWeapon, Staff))
-//
-//   auto& reg = acs::game::CTypeRegistry::Get();
-//   const auto* d = reg.FindByName("FHealth");      // 名前で型
-//   void* obj     = reg.Create("FHealth");          // factory 生成
-//   reg.Destroy(d->id, obj);
-//
-// 規約: no-STL / no-exceptions / 固定長 / 全 noexcept。型 ID は型名の FNV-1a (u32)。
-// マクロは C++20 inline 変数で生成し、生成シンボルは __LINE__ ではなく「型名」でキー付け
-// する → 別ヘッダで同名・同種別の型を反射しても全 TU 単一実体 = 1 度だけ登録 (同名衝突や
-// ODR 違反が起きない。同じ型を 2 ヘッダで反射した場合も token 一致で inline マージされる)。
-// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"

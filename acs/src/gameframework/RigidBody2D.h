@@ -1,30 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// GameFramework Pillar F — ARigidBody2D (剛体ボディ・コンポーネント)
-// -----------------------------------------------------------------------------
-// CRigidWorld2D の剛体を ANode に結びつける AComponent。owner ノードに attach
-// すると共有ワールドへ円/箱ボディを登録し、物理ステップ後にボディ位置を owner の
-// Local 位置へ書き戻す。これで「ノードに付けたら落ちて衝突する」がゲームから書ける。
-//
-// 使い方:
-//   CRigidWorld2D world;
-//   world.AddStaticAabb({0, 12}, {20, 0.5f});             // 床
-//   auto crate = NewObject<ANode>();
-//   crate->SetPosition2D(FVec2{0, 0});
-//   auto& rb = crate->AddComponent<ARigidBody2D>(world);   // 共有ワールドを渡す
-//   rb.SetBox({0.5f, 0.5f}, /*mass=*/1.0f);
-//   root.AddChild(Move(crate));
-//   // 毎フレーム:
-//   StepRigidBodies(world, root, dt, FVec2{0, 10});        // step + ノード同期
-//
-// 注意:
-//   ・ボディ位置は world 座標。owner の Local へ書き戻すため、物理ノードは identity
-//     transform の親 (シーン root 等) 直下に置くこと (親に回転/スケールがあると
-//     Local==World が崩れる。world→local 逆変換は今後の拡張点)。
-//   ・1 ノードにつき ARigidBody2D は 1 つ (複数付けると同じ Local 位置を奪い合う)。
-//   ・SetCircle/SetBox を再呼び出しすると古いボディを置き換える (ghost を残さない)。
-//   ・owner ノード破棄時に OnDetach でボディをワールドから除去する (ghost/leak 防止)。
-// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"

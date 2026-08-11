@@ -1,28 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// GameFramework Pillar F — CRigidWorld2D (2D 剛体ダイナミクス、線形インパルス)
-// -----------------------------------------------------------------------------
-// APhysicsBody2D (swept kinematic) とは別の「本物の剛体」。質量を持つ動的ボディが
-// 衝突時に**運動量を交換**する (跳ね返り / 積み重ね / 押し合い)。インパルスベースの
-// 接触ソルバ + 位置補正で、落下・反発・静止を再現する。
-//
-// 範囲:
-//   ・形状は **円 / 有向ボックス (OBB) / 凸ポリゴン**、動的・静的いずれも。回転ダイナミクス対応。
-//   ・接触は円-円 / 円-凸 / 凸-凸 (SAT + 面クリッピング) を自前マニフォルド (法線 + めり込み深さ +
-//     最大 2 接触点) で解く。AABB は angle=0 の OBB、有向ボックスは SetAngle で回す。
-//   ・restitution (反発係数) + Coulomb 摩擦 + 角運動 (慣性モーメント) に対応。
-//   ・**CCD (連続衝突判定)** は SetCcd でボディ単位に opt-in。高速な動的円が薄い静的形状を
-//     すり抜けるトンネリングを、位置積分前のスウィープ (TOI クランプ) で防ぐ。既定 off。
-//
-// 使い方:
-//   CRigidWorld2D w;
-//   u32 floor = w.AddStaticAabb({0, 10}, {10, 0.5f});      // 上端 y=9.5 の床
-//   u32 ball  = w.AddCircle({0, 0}, 0.5f, /*mass=*/1.0f, /*restitution=*/0.2f);
-//   for (...) w.Step(1.0f/60.0f, FVec2{0, 10});            // +Y=下: 重力は +Y
-//   FVec2 p = w.Position(ball);                            // 落ちて床上で静止
-//
-// 規約: no-STL / no-exceptions / 全 noexcept / 固定長 TArray。
-// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"
@@ -32,15 +8,15 @@
 
 namespace acs::game {
 
+/** 凸ポリゴンコライダーの最大頂点数。 */
+inline constexpr u32 kMaxPolyVerts = 8u;
+
 /**
  * 剛体ボディ 1 つの状態 (円 or AABB、動的 or 静的)。
  *
  * @details 角運動 (angle/ang_vel/inv_inertia) はダイナミクスと transform に効く。
  * 衝突形状は回転しない (円は回転不変、AABB は軸並行のまま = 近似。OBB は今後)。
  */
-/** 凸ポリゴンコライダーの最大頂点数。 */
-inline constexpr u32 kMaxPolyVerts = 8u;
-
 struct FRigidBodyState {
     FVec2 pos{0.0f, 0.0f};       // 中心位置
     FVec2 vel{0.0f, 0.0f};       // 速度 (静的は 0 固定)
