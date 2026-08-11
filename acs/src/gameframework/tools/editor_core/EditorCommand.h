@@ -1,43 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// GameFramework editor の undo/redo command — AEditorCommand
-//
-// 役割:
-//   ACS の全エディタ (AHierarchyPanel / AInspectorPanel / ParticleEditor /
-//   SceneInspector ほか将来追加される LevelEditor / TimelineEditor 等) が共有
-//   する **undo/redo の原子単位**。Command パターンの GoF 古典に沿い、
-//   1 操作 = 1 AEditorCommand 派生インスタンスとして表現する。
-//
-// 使い方:
-//   class AMoveNodeCommand : public AEditorCommand { ... };  // header 下に inline 例
-//
-//   // editor 側:
-//   acs::TUniquePtr<AMoveNodeCommand> cmd = acs::MakeUnique<AMoveNodeCommand>(
-//       &node, old_pos, new_pos);
-//   undo_stack.Push(acs::Move(cmd));   // 確保元ごと所有権を渡す + Execute 実行
-//
-// 設計選択:
-//   ・**純粋抽象 + virtual dtor**: ベース型を `TUniquePtr<AEditorCommand>` で
-//     CUndoStack に持たせるため、polymorphic delete が必要。全 noexcept は
-//     ACS 規約。
-//   ・**非コピー / 非ムーブ**: 「実行済み command を後から複製」は意味的に怪しい
-//     (二重 Undo 等の事故源)。意図的な複製は派生クラス側で factory を用意する。
-//   ・**Description は const char***: undo history UI (ImGui MenuItem の
-//     "Undo Move Node" 表示) に直接渡す想定。動的文字列が要る派生クラスは
-//     自分で `TArray<char>` 等を抱える。
-//   ・**CanMerge / MergeWith**: 連続 slider / drag 操作 (例: position を
-//     1 フレームに 60 回いじる) を 1 件にまとめる。default は merge 拒否。
-//     merge する派生は **同じ対象 + 同じ "種類"** を確認したうえで、自身の
-//     "new 値" を `next` の "new 値" に置き換える ("old 値" は最初の cmd の
-//     ものを保つ)。これで Undo 1 回で連続 drag 全体を巻き戻せる。
-//
-// 将来拡張余地:
-//   ・transaction (BeginGroup / EndGroup): CUndoStack 側で複数 AEditorCommand
-//     を 1 件として束ねる `CommandGroup : AEditorCommand` を派生で実装する。
-//   ・branched history: undo 後に new edit が来た時に redo stack を破棄するの
-//     ではなく分岐として保存する。AEditorCommand 側に変更は不要。
-//   ・serialization: `virtual void Serialize(Writer&) const` を後付け可能。
-//     既存派生は default = no-op で問題ない。
 #include "foundation/Types.h"
 #include "gameframework/Forward.h"
 #include "gameframework/ANode.h"
@@ -49,8 +11,8 @@ namespace acs::game::editor_core {
  * 全エディタが共有する undo/redo の原子単位 (純粋抽象)。
  *
  * @details
- * Command パターンの GoF 古典に沿い、1 操作 = 1 AEditorCommand 派生インスタンス
- * として表現する。派生クラスは Execute / Undo / Description を必ず override する。
+ * 1 操作を 1 AEditorCommand 派生インスタンスとして保持し、
+ * 派生クラスは Execute / Undo / Description を必ず override する。
  * CanMerge / MergeWith は default で merge 拒否であり、連続 drag をまとめたい派生
  * のみ override する。ベース型を `TUniquePtr<AEditorCommand>` で CUndoStack に
  * 持たせるため virtual dtor を持ち、複製事故を防ぐため非コピー / 非ムーブとする。
@@ -103,12 +65,12 @@ public:
     virtual void Undo() noexcept = 0;
 
     /**
-     * undo history UI 表示用の短い人間可読ラベルを返す。
+     * 取り消し履歴 UI 表示用の短い人間可読ラベルを返す。
      *
      * @details
      * "Move Node" / "Add Component" 等。ImGui MenuItem 等にそのまま渡される想定の
      * ため、戻り値は永続文字列 (literal or 派生クラス内 char[N]) であること。
-     * @return undo history に表示する短いラベル。
+     * @return 取り消し履歴に表示する短いラベル。
      */
     virtual const char* Description() const noexcept = 0;
 
@@ -142,7 +104,7 @@ public:
  * ANode の position を変更する AEditorCommand 派生実装。
  *
  * @details
- * 教科書的な使用例で、連続 drag を 1 件にまとめる CanMerge 実装も持つ。マージ規約は、
+ * ANode の位置変更を前後値で往復し、連続 drag を 1 件にまとめる CanMerge 実装も持つ。
  * 同じ m_Target (raw pointer 一致) かつ同じ kind のとき MergeWith で m_NewPos を next の
  * m_NewPos に置き換え、m_OldPos は最初の cmd のものを保つ (= Undo 1 回で初期位置に戻る)。
  * 対象ノードが既に Destroy 済みでも pointer 比較自体は安全だが、実 Execute / Undo 時に
@@ -176,7 +138,7 @@ public:
     }
 
     /**
-     * undo history 用のラベルを返す。
+     * 取り消し履歴 UI 用のラベルを返す。
      *
      * @return 固定文字列 "Move Node"。
      */

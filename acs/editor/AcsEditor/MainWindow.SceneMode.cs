@@ -543,7 +543,7 @@ public partial class MainWindow
                 "The editor engine was lost while establishing an empty scene.");
 
         // Both compatibility payloads are cleared in one native retirement
-        // transaction so no demo/previous payload can become a fallback.
+        // transaction so no retired compatibility payload can become a fallback.
         EngineInterop.acs_editor_scene_document_new(engine);
         ConfigureSceneDocumentAdapter(
             use3D, sourcePath, keepSourcePath, initialView);

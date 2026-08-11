@@ -430,7 +430,7 @@ public partial class BlueprintEditor : UserControl
     private readonly List<Path>           _wires    = new();
     private readonly List<BpNodeTemplate> _palette  = new();
     private readonly List<BpNodeTemplate> _recent   = new();   // 最近スポーンしたテンプレ (検索の先頭に出す)
-    private int   _nextId = 100;        // 生成ノードの ID (デモの 1..4 と衝突しない起点)
+    private int   _nextId = 100;        // 読み込んだノードと衝突しにくい生成 ID の起点
     private int   _nextCommentId = 1;   // 生成コメントの ID
 
     // ----- 複数グラフ (Event Graph + Function。タブで切替。各グラフは N/I/O/V/X/C/K テキストで保持) -----

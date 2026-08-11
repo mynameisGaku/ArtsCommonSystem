@@ -10820,9 +10820,8 @@ ACS_EDITOR_API void* acs_editor_create(void) {
     if (host != nullptr) {
         host->abi_host_generation =
             NextNonZeroGeneration(g_next_editor_host_generation);
-        // Production editor hosts start with an explicit empty document.  A demo scene here
-        // used to be visible for several frames before the managed initial-scene load and
-        // also became the accidental fallback after a failed load.
+        // Production editor hosts publish an explicit empty document before the managed
+        // initial-scene load so a failed load cannot expose fallback scene content.
         ClearScene(*host);
         if (!RegisterEditorHost(host)) {
             delete host;
@@ -11782,13 +11781,13 @@ ACS_EDITOR_API int acs_editor_resize(void* handle, uint32_t width, uint32_t heig
 
 /** プロジェクト設定をエンジン状態へ反映する (ロード/変更時に呼ぶ)。 */
 /** Rendering/QualityLevel プリセット → 各描画ノブ (h.q_*) を埋める。未知文字列は High にフォールバック。
- *  knob 値表は «超最高/最高/高/中/低/最低» を DX12 Samples 流の品質階層で設定。 */
+ *  knob 値表は «超最高/最高/高/中/低/最低» の描画品質階層を設定する。 */
 static void ApplyQualityPreset(FEditorHost& h, const char* level) noexcept {
     if (level == nullptr) level = "High";
     auto eq = [&](const char* s){ return std::strcmp(level, s) == 0; };
     h.q_cloud_render_scale = 0.75f;   // High / Highest: 75% of the internal trace policy
     if (eq("Ultra")) {
-        h.q_cloud_render_scale=1.0f;  // complete internal trace policy for final/editor review
+        h.q_cloud_render_scale=1.0f;  // Ultra は内部トレースを等倍解像度で実行する
         h.q_shadow_size=4096; h.q_shadow_cascades=4; h.q_shadow_bias=0.0010f; h.q_shadow_filter=2.0f;
         h.q_ssao_on=true;  h.q_ssao_intensity=1.2f; h.q_ssao_radius=1.5f;
         h.q_ssgi_on=true;  h.q_ssgi_intensity=1.2f; h.q_ssgi_max_dist=15.0f;
@@ -15114,7 +15113,7 @@ ACS_EDITOR_API const char* acs_editor_category_label(int category) {
 }
 
 /**
- * 登録型名でシーンにノードを 1 つ追加する (レジストリ駆動のインスタンス化デモ)。
+ * 登録型名からレジストリ経由で実行時ノードを生成し、シーンへ追加する。
  *
  * @details
  * エディタが「エンジンの登録型」を選んで実 ANode ツリーへ実体化する経路。ここでは
