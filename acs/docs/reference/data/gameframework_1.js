@@ -11,7 +11,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/AccessibilityProfile.h",
       summary: "色覚補正・モーション低減・字幕・片手操作などの<b>アクセシビリティ設定を保持する箱</b>。値を持つだけで、実際の適用 (LUT 差し替え / 字幕表示など) はレンダラや UI 側が <code>Get()</code> で読んで行う。",
       when: "近代タイトル並みの配慮機能を 1 箇所で管理したい時。<code>CGame</code> に 1 個だけ持たせる想定 (非コピー・非ムーブ)。",
-      sample: "FAccessibilityProfile prof;\nprof.ApplyPreset(EPreset::Dyslexia);     // 識字困難向け一括設定\nprof.SetScreenShakeScale(0.5f);          // 画面振動を半分に\nif (prof.AreSubtitlesEnabled()) ShowSubtitles();",
       members: [
         { sig: "void Set(const FAccessibilitySettings& s)", desc: "UI から受け取ったスナップショットで全フィールドを上書きする。" },
         { sig: "const FAccessibilitySettings& Get() const", ret: "現在の設定", desc: "今の設定値一式を const 参照で取り出す。レンダラ/UI が毎フレーム pull する。" },
@@ -26,22 +25,19 @@ ACS_REF.modules.push({
       name: "FAccessibilitySettings",
       kind: "構造体", header: "gameframework/AccessibilityProfile.h",
       summary: "アクセシビリティ設定の<b>値オブジェクト</b> (<t>POD</t>)。色覚モード・文字サイズの enum と、字幕/スクリーンリーダ/片手モード等の bool、振動/フラッシュ係数をまとめて持つ。コピー可能。",
-      when: "UI 画面の入力をスナップショットとして組み立て、<code>FAccessibilityProfile::Set()</code> に渡す時。",
-      sample: "FAccessibilitySettings s;\ns.text_size         = ETextSize::Large;\ns.subtitles_enabled = true;\ns.screen_shake_scale = 0.0f;   // 振動オフ\nprofile.Set(s);"
+      when: "UI 画面の入力をスナップショットとして組み立て、<code>FAccessibilityProfile::Set()</code> に渡す時。"
     },
     {
       name: "EColorblindMode / EMotionReduction / ETextSize / EPreset",
       kind: "列挙(enum)", header: "gameframework/AccessibilityProfile.h",
       summary: "アクセシビリティ用の選択肢を表す enum 群。<b>EColorblindMode</b>=色覚補正 (None/Protanopia/Deuteranopia/Tritanopia/Achromatopsia)、<b>EMotionReduction</b>=動きの抑制 (Full/Reduced/Off)、<b>ETextSize</b>=文字サイズ (Small〜ExtraLarge)、<b>EPreset</b>=一括プリセット種別。",
-      when: "個別 setter や <code>ApplyPreset()</code> に渡す値として使う。",
-      sample: "profile.SetColorblindMode(EColorblindMode::Deuteranopia); // 緑色弱補正\nprofile.SetMotionReduction(EMotionReduction::Reduced);\nprofile.ApplyPreset(EPreset::OneHanded);"
+      when: "個別 setter や <code>ApplyPreset()</code> に渡す値として使う。"
     },
     {
       name: "CAchievementManager",
       kind: "クラス", header: "gameframework/AchievementManager.h",
       summary: "実績 (アチーブメント) の<b>定義・進捗・解除</b>を一括管理し、解除時に Steamworks 等の<t>プラットフォーム SDK</t> へ伝える高レベルマネージャ。SDK 未接続ならローカル進捗だけ追うオフラインモードで動く。",
       when: "「ボス撃破」「累計 100km 歩いた」のような実績を扱いたい時。起動時に全実績を登録し、ゲーム中に進捗を流し込む。",
-      sample: "CAchievementManager am;\nam.RegisterAchievement({ \"ACH_WALK_100KM\", \"Marathon\", \"...\", 100, false });\nam.AttachSteamworks(&bridge);             // 任意。null で detach\nam.IncrementProgress(\"ACH_WALK_100KM\", 1); // 1km 歩いた\nam.Unlock(\"ACH_BOSS_01\");                  // 即時解除",
       members: [
         { sig: "void RegisterAchievement(const FAchievementDef& def)", desc: "実績を定義として登録する (起動時に 1 度ずつ)。同 id の 2 重登録は無視。", when: "ゲーム起動時に全実績をまとめて登録する。" },
         { sig: "void SetProgress(const char* id, u32 progress)", desc: "進捗を絶対値で設定。max に達したら自動で解除 + SDK 送信。" },
@@ -59,15 +55,13 @@ ACS_REF.modules.push({
       name: "FAchievementDef / FAchievementProgress",
       kind: "構造体", header: "gameframework/AchievementManager.h",
       summary: "<b>FAchievementDef</b>=変化しない実績の定義 (id / 表示名 / 説明 / max_progress / secret)。<b>FAchievementProgress</b>=実行時に変わる状態 (現在進捗 / 解除済みフラグ / 解除時刻)。両者は同じ index で 1:1 対応する。",
-      when: "Def は <code>RegisterAchievement()</code> に渡し、Progress は <code>GetState()</code> / <code>AllStates()</code> で読む。",
-      sample: "FAchievementDef d{ \"ACH_SECRET\", \"True Ending\", \"...\", 1, /*secret*/true };\nam.RegisterAchievement(d);\nconst FAchievementProgress* p = am.GetState(\"ACH_SECRET\");\nif (p &amp;&amp; p->unlocked) { /* 解除済み */ }"
+      when: "Def は <code>RegisterAchievement()</code> に渡し、Progress は <code>GetState()</code> / <code>AllStates()</code> で読む。"
     },
     {
       name: "CAmbientDirector",
       kind: "クラス", header: "gameframework/AmbientDirector.h",
       summary: "1 日の<b>時刻 (0〜24h) に応じて空の色・環境光・太陽方向を補間する</b>時刻ドライバ (time-of-day)。レンダラは 3 つの色/ベクトルを毎フレーム pull するだけで朝昼夕夜の表情が出る。",
       when: "屋外シーンで時間経過の昼夜サイクルを出したい時。",
-      sample: "CAmbientDirector amb;\namb.SetTimeOfDay(6.5f);      // 朝焼け開始\namb.SetTimeScale(0.1f);      // リアル 1s = 0.1 game-hour\n// 毎フレーム:\namb.Tick(dt);\nrenderer.SetSkyColor(amb.SkyColor());\nrenderer.SetSunDir (amb.SunDirection());",
       members: [
         { sig: "void SetTimeOfDay(f32 hours)", desc: "現在時刻を [0,24) で設定する (範囲外は剰余で正規化)。" },
         { sig: "void AdvanceTime(f32 dt_hours)", desc: "ゲーム時間を dt_hours だけ進める (負値は 0 にクランプ)。" },
@@ -83,7 +77,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/AnimationCurve.h",
       summary: "編集できる「<b>時間 → 値</b>」の補間曲線。キーを打って、任意の <code>f32</code> 値を時間で滑らかに変化させる。Step / Linear / Hermite 補間と前後の折り返し (Clamp/Loop/PingPong) に対応。",
       when: "FOV やフェード、体力バー演出など、固定の <t>イージング</t>式では表せない自由なカーブが欲しい時。",
-      sample: "FAnimationCurve fade;\nfade.TryAddKey(0.0f, 0.0f);\nfade.TryAddKey(0.5f, 0.8f);\nfade.TryAddKey(1.0f, 1.0f, ECurveInterpolation::Hermite);\nfade.TrySetWrapModes(FAnimationCurve::EWrapMode::Clamp, FAnimationCurve::EWrapMode::Clamp);\nf32 alpha = 0.0f;\nfade.TryEvaluate(t, alpha);  // checked 評価",
       members: [
         { sig: "void AddKey(f32 time, f32 value, ECurveInterpolation interp = ECurveInterpolation::Linear)", desc: "互換追加 API。新規コードでは失敗を診断できる <code>TryAddKey</code> を推奨。" },
         { sig: "void AddKeyHermite(f32 time, f32 value, f32 in_tangent, f32 out_tangent)", desc: "Hermite 用に接線付きでキーを追加する。接線は「1 秒あたりの傾き」。" },
@@ -103,15 +96,13 @@ ACS_REF.modules.push({
       name: "FCurveKey",
       kind: "構造体", header: "gameframework/AnimationCurve.h",
       summary: "<t>FAnimationCurve</t> の 1 キーを表す値。time / value のほか、入口側・出口側それぞれの接線 (in_tangent / out_tangent) と補間方式 (in_interp / out_interp) を持つ。",
-      when: "曲線の中身を直接覗いたり、Hermite 接線を細かく作り込みたい時。",
-      sample: "const FCurveKey* k = curve.Key(0);\nif (k) f32 v = k->value;"
+      when: "曲線の中身を直接覗いたり、Hermite 接線を細かく作り込みたい時。"
     },
     {
       name: "ECurveInterpolation",
       kind: "列挙(enum)", header: "gameframework/AnimationCurve.h",
       summary: "曲線セグメントの補間方式。<b>Step</b>=直前キーの値を保持 (階段)、<b>Linear</b>=線形、<b>Hermite</b>=接線を使う 3 次補間。",
-      when: "<code>AddKey()</code> の第 3 引数として補間の種類を選ぶ時。",
-      sample: "curve.AddKey(0.2f, 1.0f, ECurveInterpolation::Step);"
+      when: "<code>AddKey()</code> の第 3 引数として補間の種類を選ぶ時。"
     },
     {
       name: "FAnimationCurve::EWrapMode",
@@ -124,7 +115,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/AnimationCurveArchive.h",
       summary: "<t>FAnimationCurve</t> を固定幅 little-endian wire record として保存・復元する bounded codec。CRC、version、exact size、全 key と wrap mode を検証し、失敗時は出力 buffer と復元先曲線を変更しない。",
       when: "曲線をエディタデータや save file に永続化し、破損・旧 version・過大入力を明示的に診断したい時。",
-      sample: "u64 size = CAnimationCurveArchive::EncodedSize(curve);\nTArray&lt;u8&gt; bytes;\nbytes.TrySetNum(static_cast&lt;usize&gt;(size));\nu64 written = 0;\nauto saved = CAnimationCurveArchive::Encode(curve, bytes.Data(), size, written);\nFAnimationCurve restored;\nauto loaded = CAnimationCurveArchive::Decode(bytes.Data(), written, restored);",
       members: [
         { sig: "u64 EncodedSize(const FAnimationCurve&amp;) noexcept", desc: "正準 wire record の必要 byte 数を返す。" },
         { sig: "FAnimationCurveArchiveResult Encode(const FAnimationCurve&amp;, void*, u64 capacity, u64&amp; out_size) noexcept", desc: "全入力を検証後に caller buffer へ正準 encoding する。容量不足でも必要量を返し、buffer は変更しない。" },
@@ -144,7 +134,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/AnimationGraph.h",
       summary: "3D スケルトンアニメ向けの<b><t>ステートマシン</t>型ブレンドグラフ</b>。「どの clip を / いつから / どの blend 比率で再生するか」を制御する。実際のボーン計算や描画は呼出側に任せ、本クラスは clip index と blend alpha を提供する。",
       when: "Idle/Walk/Run/Jump などキャラの状態に応じてアニメを切り替え、状態間を滑らかにブレンドしたい時。",
-      sample: "CAnimationGraph g;\ng.Init();\nu32 idle = g.AddClip({ \"Idle\", 2.0f, true, 1.0f });\nu32 walk = g.AddClip({ \"Walk\", 1.2f, true, 1.0f });\ng.AddStateNode({ \"Idle\", EAnimationGraphState::Idle, idle, 0.15f, 0.15f });\ng.AddStateNode({ \"Walk\", EAnimationGraphState::Walk, walk, 0.15f, 0.15f });\ng.AddTransition({ EAnimationGraphState::Idle, EAnimationGraphState::Walk, 0.1f, \"speed\", false });\n// 毎フレーム:\ng.SetParam(\"speed\", current_speed);\ng.Tick(dt);",
       members: [
         { sig: "void Init() / void Shutdown()", desc: "全 state/clip/transition/param を初期化する / 解放する (多重呼び出し可)。" },
         { sig: "u32 AddClip(const FAnimationClipBinding& clip)", ret: "clip index", desc: "再生 clip のメタ情報を登録し、index を返す。" },
@@ -163,29 +152,25 @@ ACS_REF.modules.push({
       name: "FAnimationClipBinding / FAnimationStateNode / FAnimationTransition",
       kind: "構造体", header: "gameframework/AnimationGraph.h",
       summary: "<t>CAnimationGraph</t> を組み立てる 3 つの部品。<b>FAnimationClipBinding</b>=clip メタ情報 (名前/長さ/ループ/速度)、<b>FAnimationStateNode</b>=1 状態 (ID/clip/入退場 blend 長)、<b>FAnimationTransition</b>=遷移ルール (from/to/条件 param/しきい値)。",
-      when: "<code>AddClip</code> / <code>AddStateNode</code> / <code>AddTransition</code> にそれぞれ渡す。",
-      sample: "FAnimationClipBinding jump{ \"Jump\", 0.8f, /*loop*/false, 1.0f };\nFAnimationStateNode  s{ \"Jump\", EAnimationGraphState::Jump, g.AddClip(jump), 0.1f, 0.2f };\ng.AddStateNode(s);"
+      when: "<code>AddClip</code> / <code>AddStateNode</code> / <code>AddTransition</code> にそれぞれ渡す。"
     },
     {
       name: "EAnimationGraphState",
       kind: "列挙(enum)", header: "gameframework/AnimationGraph.h",
       summary: "標準的なキャラ状態 ID の固定 enum (Idle/Walk/Run/Jump/Attack/Hit/Death/Custom1/Custom2 の 9 個)。Custom1/2 はゲーム固有状態の拡張枠。",
-      when: "状態ノードや遷移の from/to を指定する時。",
-      sample: "g.TriggerTransition(EAnimationGraphState::Attack);"
+      when: "状態ノードや遷移の from/to を指定する時。"
     },
     {
       name: "FGraphHandle",
       kind: "構造体", header: "gameframework/AnimationGraph.h",
       summary: "将来の複数グラフ管理用の <t>ハンドル</t> (24bit index + 8bit 世代を packed)。現フェーズでは未使用だが API として公開されている。",
-      when: "上半身/下半身を別レイヤで持つなど将来拡張時。今は意識しなくてよい。",
-      sample: "FGraphHandle h = FGraphHandle::Pack(0, 1);\nif (h.IsValid()) { /* ... */ }"
+      when: "上半身/下半身を別レイヤで持つなど将来拡張時。今は意識しなくてよい。"
     },
     {
       name: "FAppStateSlot",
       kind: "クラス", header: "gameframework/AppState.h",
       summary: "シーンを跨いで生き残る<b>型消去の永続状態スロット</b>。任意の型 <code>T</code> を 1 つだけ格納し、どのシーンからも取り出せる。<t>RTTI</t> 不使用で、型不一致の取得は nullptr を返す。",
       when: "ハイスコアやプレイヤープロフィールなど、シーン遷移で消えてほしくないデータを 1 箇所に置きたい時 (<code>CGame</code> が 1 個保持する)。",
-      sample: "struct FPlayerProfile { int hi_score = 0; };\nslot.Emplace<FPlayerProfile>();            // 構築\nauto* p = slot.Get<FPlayerProfile>();      // 取り出し (型違いは nullptr)\nif (p) p->hi_score = 9999;",
       members: [
         { sig: "T& Emplace<T>(Args&&... args)", ret: "構築した参照", desc: "既存を破棄して T をその場で構築し、参照を返す。", when: "起動時に永続状態を 1 度だけ作る。" },
         { sig: "T* Get<T>()", ret: "T* または nullptr", desc: "型 T として取り出す。未設定または型不一致なら nullptr。" },
@@ -198,7 +183,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/AssetBundle.h",
       summary: "シーンが使う<b>複数アセットをまとめて宣言・一括ロード</b>し、集約した進捗を見られる箱。個別の Future を散らかさず 1 つの bundle で扱える。シーン破棄で参照が drop し、決定的に解放される。",
       when: "ローディング画面付きで「このシーンに必要な N 個のアセット」をまとめて読み込みたい時。",
-      sample: "CAssetBundle bundle;\nbundle.Add(\"textures/hero.png\");\nbundle.Add(\"audio/bgm.ogg\");\nbundle.BeginLoad(registry);\n// 毎フレーム:\nif (!bundle.IsLoaded()) ShowLoading(bundle.Progress());\nelse RunGame();\n// OnExit:\nbundle.Unload();",
       members: [
         { sig: "void Add(const char* asset_path)", desc: "ロード対象のパスを追加する (実ロードはまだ走らない)。BeginLoad 後の Add は無視。" },
         { sig: "void BeginLoad(CAssetRegistry& registry)", desc: "登録済み全パスを registry 経由で実ロードする。多重呼び出しは無視。", when: "シーン入場時にロードを開始する。" },
@@ -215,7 +199,6 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/AssetPack.h",
       summary: "<code>.acpak</code> 暗号化アーカイブの<b>読み書き<t>シーム</t></b>。開発中はバラのファイル、出荷時は 1 つの不透明な pak、をゲームコードを変えずに切り替えられる。実体 (AES 暗号 + LZ4 圧縮) は別 backend モジュールが実装する。",
       when: "Reader=ランタイムで pak からファイルを読む時。Writer=パッキングツールで pak を作る時。",
-      sample: "IAssetPackReader& pack = GetDefaultAssetPackReader();\nif (pack.Mount(\"game.acpak\").IsOk()) {\n    if (auto sz = pack.FileSize(\"hero.png\"); sz.IsOk()) {\n        pack.ReadFile(\"hero.png\", buf, sz.Value());\n    }\n}",
       members: [
         { sig: "TResult<void> Mount(const char* pack_path)", desc: "[Reader] pak をマウントして以降の API を有効化する。" },
         { sig: "TResult<u64> FileSize(const char* name)", ret: "復号+解凍後のサイズ", desc: "[Reader] 仮想ファイルのオリジナルサイズを取得する (バッファ確保用)。" },
@@ -228,15 +211,13 @@ ACS_REF.modules.push({
       name: "FAssetPackInfo",
       kind: "構造体", header: "gameframework/AssetPack.h",
       summary: "現在マウント中の pak の最小情報 (ファイルパス / content hash / 暗号化フラグ / マウント中フラグ)。",
-      when: "マウント済み pak の素性や改竄検知の hash を確認したい時。",
-      sample: "FAssetPackInfo info;\nif (info.mounted &amp;&amp; info.encrypted) { /* 暗号化済み pak */ }"
+      when: "マウント済み pak の素性や改竄検知の hash を確認したい時。"
     },
     {
       name: "GetDefaultAssetPackReader / GetDefaultAssetPackWriter ほか provider 結線",
       kind: "関数", header: "gameframework/AssetPack.h",
       summary: "AssetPack 実装を backend 非依存に取得する仕組み。実 backend が <code>SetAssetPackReaderProvider()</code> で実装を登録し、ゲームコードは <code>GetDefaultAssetPackReader()</code> で取得する。未登録なら <t>スタブ</t>を返す。",
       when: "循環依存を避けつつ、実 <code>.acpak</code> backend があればそれを、無ければ no-op stub を、自動で使い分けたい時。",
-      sample: "// アプリ起動時 (backend 側が一度だけ):\nacs::assetpack::InstallAcpakReaderAsDefault();\n// 以降どこでも:\nIAssetPackReader& r = acs::game::GetDefaultAssetPackReader();",
       members: [
         { sig: "IAssetPackReader& GetReaderStub() / IAssetPackWriter& GetWriterStub()", desc: "依存ゼロの no-op stub (全 API が NotImplemented) を返す。" },
         { sig: "void SetAssetPackReaderProvider(AssetPackReaderProvider p) / void SetAssetPackWriterProvider(...)", desc: "既定実装を返す関数を登録する。nullptr で stub に戻す (後勝ち)。" },
@@ -248,7 +229,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/AssetPack.h",
       summary: "<t>IAssetPackReader</t> / IAssetPackWriter の no-op スタブ実装。全 API が <code>NotImplemented</code> を返し、依存ゼロでコンパイルを通すための fallback。",
       when: "実 AssetPack backend を未統合のビルドやユニットテストで、ポインタ DI だけ通したい時。",
-      sample: "IAssetPackReader& r = GetReaderStub();\nauto res = r.Mount(\"game.acpak\");   // 常に NotImplemented",
       members: [
         { sig: "using FAssetPackReaderStub = CAssetPackReaderStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAssetPackReaderStub</code> を使う。" },
         { sig: "using FAssetPackWriterStub = CAssetPackWriterStub", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAssetPackWriterStub</code> を使う。" }
@@ -259,7 +239,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/AudioDirector.h",
       summary: "シーンを跨いで生きる<b>音声の指揮層</b>。Master/Bgm/Sfx の 3 段ボリューム、BGM クロスフェード、SFX 連射、<t>ダッキング</t>、Pause/Resume をまとめて扱う。<code>IAudioBackend</code> を差すと実音が鳴り、無ければ無音の状態管理だけ動く。",
       when: "シーン切替で途切れない BGM や、ヒット音の連発、ボイス中の BGM 抑制などを 1 箇所で管理したい時 (<code>CGame</code> に持たせる)。",
-      sample: "CAudioDirector audio;\naudio.SetBackend(&xaudio2);\naudio.SetMasterVolume(0.8f);\naudio.PlayBgm(\"battle\", 2.0f, true);  // 2 秒かけて遷移\naudio.PlaySfx(\"hit\", 0.8f);           // 即時 one-shot\naudio.Duck(0.5f, 0.3f);               // 0.5 秒 BGM を 30% に\n// 毎フレーム:\naudio.Tick(dt);",
       members: [
         { sig: "void SetMasterVolume(f32 v) / void SetBgmVolume(f32 v) / void SetSfxVolume(f32 v)", desc: "3 段のボリュームバスを [0,1] で設定する (範囲外は警告 + clamp)。" },
         { sig: "void PlayBgm(const char* name, f32 fade_in_sec = 1.0f, bool loop = true)", desc: "BGM をクロスフェードで再生する。同名は no-op、fade<=0 で即時切替。" },
@@ -280,7 +259,6 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/BackendClient.h",
       summary: "サーバ側 (テレメトリ送信・設定取得など) への<b>汎用バックエンド窓口の<t>シーム</t></b>。具体的な通信スタック (HTTP/gRPC/Steam) は抱えず interface だけ提供し、実装はプロジェクト側で差し込む。失敗は <t>Result</t> で返す。",
       when: "プレイ統計をサーバに送る等の通信が要る時。オフラインビルドでもリンクが通るよう抽象越しに使う。",
-      sample: "IBackendClient& be = GetDefaultBackendClient();\nif (be.Connect(\"game-backend\").IsOk()) {\n    be.SendTelemetry(\"level_completed\", \"{\\\"level\\\":3}\");\n}\n// 毎フレーム:\nbe.Tick(dt);",
       members: [
         { sig: "TResult<void> Connect(const char* server_url)", desc: "指定 URL のサーバに接続する。完了/失敗を Result で返す。" },
         { sig: "void Disconnect()", desc: "接続を切る (多重/未接続呼び出しは安全に no-op)。" },
@@ -294,7 +272,6 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/BackendClient.h",
       summary: "対戦相手を探す<b>マッチメイキングの<t>シーム</t></b> (Glicko-2 / TrueSkill 等の rating ベースを想定)。StartSearch で検索開始 → PollStatus で状態確認 → AcceptMatch / CancelSearch で完了、という流れ。",
       when: "オンライン対戦のマッチ検索を実装したい時。実アルゴリズムはプロジェクト側実装に委ねる。",
-      sample: "IMatchmaker& mm = GetDefaultMatchmaker();\nauto t = mm.StartSearch(\"ranked_1v1\", /*elo*/1500);\nif (t.IsOk()) {\n    FMatchTicket ticket = t.Value();\n    if (mm.PollStatus(ticket) == EMatchStatus::Matched)\n        mm.AcceptMatch(ticket);\n}",
       members: [
         { sig: "TResult<FMatchTicket> StartSearch(const char* mode, u32 elo_hint)", ret: "検索チケット", desc: "mode (\"ranked_1v1\" 等) と rating 推定値で検索を開始する。" },
         { sig: "TResult<void> CancelSearch(FMatchTicket t)", desc: "検索をキャンセルする (無効チケットは no-op)。" },
@@ -306,15 +283,13 @@ ACS_REF.modules.push({
       name: "FMatchTicket / EMatchStatus / FBackendError",
       kind: "構造体・列挙(enum)", header: "gameframework/BackendClient.h",
       summary: "<b>FMatchTicket</b>=マッチ検索 1 件分の不透明ハンドル (u64、0 で無効)。<b>EMatchStatus</b>=検索状態 (Searching/Matched/Cancelled/Failed)。<b>FBackendError</b>=失敗サブコード (NotConnected / Timeout / NetworkFailure / NotImplemented 等)。",
-      when: "<t>IMatchmaker</t> の検索状態管理、および backend 系のエラー判別に使う。",
-      sample: "if (ticket.IsValid()) { /* StartSearch 成功 */ }\nif (status == EMatchStatus::Failed) ShowError();"
+      when: "<t>IMatchmaker</t> の検索状態管理、および backend 系のエラー判別に使う。"
     },
     {
       name: "GetDefaultBackendClient / GetDefaultMatchmaker ほか provider 結線",
       kind: "関数", header: "gameframework/BackendClient.h",
       summary: "backend 実装を backend 非依存に取得する仕組み。実 backend (TelemetryFile / CLocalMatchmaker 等) が provider を登録し、ゲームコードは <code>GetDefaultBackendClient()</code> / <code>GetDefaultMatchmaker()</code> で取得する。未登録なら<t>スタブ</t>を返す。",
       when: "通信実装の有無で挙動を切り替えつつ、ゲームコードを backend に依存させたくない時。",
-      sample: "#if WITH_ACS_TELEMETRY_FILE\n  acs::telemetryfile::InstallFileTelemetryAsDefault();\n#endif\nIBackendClient& be = acs::game::GetDefaultBackendClient();",
       members: [
         { sig: "IBackendClient& GetBackendStub() / IMatchmaker& GetMatchmakerStub()", desc: "常に NotImplemented を返す stub への参照。リンクを通す fallback。" },
         { sig: "void SetBackendClientProvider(BackendClientProvider p) / void SetMatchmakerProvider(MatchmakerProvider p)", desc: "既定実装を返す関数を登録する。nullptr で stub に戻す (後勝ち)。" },
@@ -326,7 +301,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/BeatGrid.h",
       summary: "リズムゲームの<b>タイミング判定 + 譜面再生</b>。1 譜面分の note 配列を持ち、再生時刻を進めながらプレイヤーの Tap を最近 note と突き合わせ、Perfect / Great / Good / Miss の 4 段階で判定する。コンボや精度も集計する。",
       when: "音ゲー (DDR/太鼓系) の判定ロジックを組みたい時。音の再生 (CAudioDirector) とは独立に動く軽量 state machine。",
-      sample: "CBeatGrid grid;\ngrid.Init();\ngrid.TrySetTimingWindows(25.0f, 50.0f, 100.0f); // ms\nFBeatNote notes[] = {\n    { 1.0f, EBeatLane::Left, false, 0.0f },\n    { 1.5f, EBeatLane::Down, true, 0.75f },\n};\nif (grid.TryLoadChart(notes, 2, 120.0f) == EBeatChartLoadResult::Success) grid.Start();\ngrid.Tick(dt);\ngrid.PressLane(EBeatLane::Down);   // hold head\ngrid.ReleaseLane(EBeatLane::Down); // hold tail",
       members: [
         { sig: "void Init()", desc: "統計/状態を初期化する (何度でも呼べる)。" },
         { sig: "EBeatChartLoadResult TryLoadChart(const FBeatNote* notes, u32 count, f32 bpm)", desc: "譜面・lane・有限 time/hold/BPM・上限を検証して transactional にコピーする。失敗時は既存譜面を保持する。" },
@@ -347,15 +321,13 @@ ACS_REF.modules.push({
       name: "FBeatNote / EBeatLane / EJudgement / EBeatChartLoadResult",
       kind: "構造体・列挙(enum)", header: "gameframework/BeatGrid.h",
       summary: "<b>FBeatNote</b>=譜面の 1 note (絶対秒 time_sec / lane / is_hold / hold_duration_sec)。<b>EBeatLane</b>=入力レーン (Left/Down/Up/Right + Custom1/2)。<b>EJudgement</b>=判定結果。<b>EBeatChartLoadResult</b>=null、上限超過、非有限値、不正 lane/BPM/hold、OOM を区別する checked load 結果。",
-      when: "<t>CBeatGrid</t> に譜面を渡したり、判定結果を受け取ったりする時。",
-      sample: "FBeatNote n{ 2.0f, EBeatLane::Up, /*hold*/true, 0.5f };\nif (grid.TryLoadChart(&amp;n, 1, 120.0f) == EBeatChartLoadResult::Success) grid.Start();"
+      when: "<t>CBeatGrid</t> に譜面を渡したり、判定結果を受け取ったりする時。"
     },
     {
       name: "CBehaviorTree",
       kind: "クラス", header: "gameframework/BehaviorTree.h",
       summary: "AI / 敵挙動 / 演出分岐のための最小構成の<b><t>ビヘイビアツリー</t></b>。root ノードを 1 つ持ち、毎フレーム <code>Tick(blackboard, dt)</code> で評価する。状態は型を持たない <code>void*</code> の <t>ブラックボード</t>に置く。",
       when: "「敵が見えたら追跡、見えなければパトロール」のような条件分岐 AI を組みたい時。",
-      sample: "auto root  = acs::MakeUnique<ABtSelector>();\nauto chase = acs::MakeUnique<ABtSequence>();\nchase->AddChild(acs::MakeUnique<ABtAction>(&SeesPlayer));\nchase->AddChild(acs::MakeUnique<ABtAction>(&MoveToPlayer));\nroot->AddChild(acs::Move(chase));\nroot->AddChild(acs::MakeUnique<ABtAction>(&Patrol));\nm_Bt.SetRoot(acs::Move(root));\n// 毎フレーム:\nm_Bt.Tick(&m_Bb, dt);",
       members: [
         { sig: "void SetRoot(TUniquePtr<ABtNode> root)", desc: "root ノードを差し替える (古い root は破棄)。nullptr で空にできる。" },
         { sig: "EBtStatus Tick(void* blackboard, f32 dt)", ret: "Running/Success/Failure", desc: "1 フレーム分ツリーを評価する。root 未設定なら Failure。", when: "毎フレーム呼ぶ AI の駆動点。" },
@@ -368,7 +340,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/BehaviorTree.h",
       summary: "ビヘイビアツリーのノード群。<b>ABtNode</b>=抽象基底、<b>ABtSelector</b>=OR 合成 (どれか成功で成功)、<b>ABtSequence</b>=AND 合成 (全部成功で成功)、<b>ABtAction</b>=関数ポインタを呼ぶ末端 leaf。子は <t>TUniquePtr</t> で所有する。",
       when: "<code>MakeUnique</code> で作って <code>AddChild</code> でツリーを組み立てる時。",
-      sample: "auto seq = acs::MakeUnique<ABtSequence>();\nseq->AddChild(acs::MakeUnique<ABtAction>(&CheckHp));\nseq->AddChild(acs::MakeUnique<ABtAction>(&Flee));",
       members: [
         { sig: "virtual EBtStatus Tick(void* blackboard, f32 dt)", desc: "[ABtNode] 1 フレーム分の評価。派生で実装する。" },
         { sig: "void AddChild(TUniquePtr<ABtNode> child)", desc: "[Selector/Sequence] 子の所有権を奪って末尾に追加する。nullptr は no-op。" },
@@ -384,15 +355,13 @@ ACS_REF.modules.push({
       name: "EBtStatus",
       kind: "列挙(enum)", header: "gameframework/BehaviorTree.h",
       summary: "ビヘイビアツリーのノード Tick の戻り値。<b>Running</b>=実行中 (次フレーム継続)、<b>Success</b>=達成、<b>Failure</b>=失敗。合成ノードはこの値で次へ進むか決める。",
-      when: "自作 leaf 関数の戻り値や、Tick 結果の判定に使う。",
-      sample: "static EBtStatus MoveToPlayer(void* bb, f32 dt) noexcept {\n    return reached ? EBtStatus::Success : EBtStatus::Running;\n}"
+      when: "自作 leaf 関数の戻り値や、Tick 結果の判定に使う。"
     },
     {
       name: "CBuffSystem",
       kind: "クラス", header: "gameframework/BuffSystem.h",
       summary: "<b>状態異常・バフ・デバフの管理</b>マネージャ。複数の owner (キャラ) に時間制限付きの効果を載せ、毎フレーム進行させて tick (毒ダメージ等) / 期限切れを通知する。実際のステータス計算は呼出側が <code>AllBuffsOfOwner()</code> で列挙して行う。",
       when: "RPG/アクション/ローグライクで「攻撃力アップ」「毒」「シールド」などの効果を一元管理したい時。",
-      sample: "CBuffSystem bs;\nbs.RegisterBuff({ \"poison.snake\", EBuffKind::Poison, 8.0f, 1.0f, 5.0f,\n                 EBuffStackPolicy::Stack, 5, true });\nFBuffOwnerId player = bs.CreateOwner();\nbs.SetOnTickCallback(&OnBuffTick, &ctx);\nbs.ApplyBuff(player, \"poison.snake\");\n// 毎フレーム:\nbs.Tick(dt);",
       members: [
         { sig: "void RegisterBuff(const FBuffDef& def)", desc: "バフ定義を登録する (起動時に一括)。同 id の 2 重登録は無視。" },
         { sig: "FBuffOwnerId CreateOwner()", ret: "owner ハンドル", desc: "効果を載せる対象 (キャラ) を発行する。空き slot を再利用する世代付きハンドル。" },
@@ -411,22 +380,19 @@ ACS_REF.modules.push({
       name: "FBuffDef / FBuffInstance / FBuffOwnerId",
       kind: "構造体", header: "gameframework/BuffSystem.h",
       summary: "<b>FBuffDef</b>=バフ 1 種の定義 (id/kind/持続秒/tick 間隔/効果量/StackPolicy/最大 stack/デバフフラグ)。<b>FBuffInstance</b>=今 owner に掛かっている実体 (残り秒 / 重ねがけ数)。<b>FBuffOwnerId</b>=効果対象の<t>世代付きハンドル</t> (24bit index + 8bit gen)。",
-      when: "<code>RegisterBuff</code> に Def を渡し、<code>AllBuffsOfOwner</code> で Instance を読む。owner は CreateOwner が返す。",
-      sample: "FBuffDef def{ \"atk.up\", EBuffKind::AttackUp, 10.0f, 0.0f, 1.5f,\n              EBuffStackPolicy::Refresh, 1, false };\nbs.RegisterBuff(def);"
+      when: "<code>RegisterBuff</code> に Def を渡し、<code>AllBuffsOfOwner</code> で Instance を読む。owner は CreateOwner が返す。"
     },
     {
       name: "EBuffStackPolicy / EBuffKind",
       kind: "列挙(enum)", header: "gameframework/BuffSystem.h",
       summary: "<b>EBuffStackPolicy</b>=既存バフへの再適用挙動 (Refresh=時間更新 / Stack=重ねがけ / Ignore=無視)。<b>EBuffKind</b>=大分類タグ (AttackUp/DefenseUp/SpeedUp/Regen/Poison/Burn/Freeze/Stun/Shield/Custom)。ロジック分岐は呼出側が kind を見て行う。",
-      when: "バフ定義 (<t>FBuffDef</t>) を作る時に指定する。",
-      sample: "FBuffDef d; d.kind = EBuffKind::Regen; d.stack_policy = EBuffStackPolicy::Refresh;"
+      when: "バフ定義 (<t>FBuffDef</t>) を作る時に指定する。"
     },
     {
       name: "CCamera2D",
       kind: "クラス", header: "gameframework/Camera2D.h",
       summary: "2D <b>カメラ</b>。position/zoom/rotation、target 追従 (フレームレート非依存の指数 smoothing)、画面振動 (<t>trauma</t> 方式)、world↔screen 座標変換、移動範囲の clamp を持つ。<code>CSceneServices</code> 経由で自動 Tick できる。",
       when: "2D ゲームでプレイヤー追従・ヒット時の画面振動・座標変換が欲しい時。",
-      sample: "CCamera2D cam;\ncam.SetTargetPos(player.Position());  // 追従\nif (player.JustHit()) cam.AddShake(0.5f); // 画面振動\n// 毎フレーム自動 Tick (Services 経由) or 手動:\ncam.Tick(dt);\nFVec2 world = cam.ScreenToWorld(mouse, w, h);",
       members: [
         { sig: "void SetPosition(FVec2 p) / FVec2 Position() const", desc: "カメラ位置を設定/取得する。" },
         { sig: "void SetZoom(f32 z) / void SetRotation(f32 r)", desc: "ズーム (>1 で拡大) と回転 (radians, + で CCW) を設定する。" },
@@ -448,7 +414,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/CameraStack.h",
       summary: "複数の <t>CCamera2D</t> を<b>仮想カメラのスタック</b>として持ち、最上層を active として扱う Cinemachine 風スイッチャ。Push/Pop で旧 top→新 top を線形補間でブレンドし、描画側は Effective* で「今どこを写しているか」を読む。",
       when: "平常カメラと演出カメラを滑らかに切り替えたい時 (ボス登場の寄りなど)。最大 4 層。",
-      sample: "CCameraStack stack;\nstack.PushCamera(followCam);        // 初期 top\n// ボス登場:\nstack.PushCamera(cinematicCam, 1.0f); // 1 秒で blend\n// 戻る:\nstack.PopCamera(0.5f);\n// 毎フレーム:\nstack.Tick(dt);\nrc.SetViewCenter(stack.EffectivePosition());\nrc.SetViewZoom(stack.EffectiveZoom());",
       members: [
         { sig: "void PushCamera(CCamera2D& cam, f32 blend_duration = 0.5f)", desc: "カメラを top に積み、blend_duration 秒かけて旧 top から補間する (<=0 で即時)。カメラは非所有。" },
         { sig: "void PopCamera(f32 blend_duration = 0.5f)", desc: "top をフェードアウトしてから取り除く。1 枚以下では無視 (空にしない)。" },
@@ -465,7 +430,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/CameraShakePresets.h",
       summary: "「爆発 / 地震 / 着弾」などの<b>ジャンル別 shake パラメータを 1 行で流し込む</b> preset ライブラリ。trauma/amplitude/decay を名前付きで提供し、ゲームコードに magic number を書かずに済む。trauma を吸う側は <t>IShakeTarget</t> 抽象で受ける。",
       when: "<code>CCamera2D</code> 等に「爆発っぽい振動」を即座に与えたい時。カスタム preset も名前付きで登録できる。",
-      sample: "CCameraShakePresets presets;\n// 組み込み preset:\nFCameraShakePresets::ApplyPreset(shakeTarget, EShakePreset::ExplosionLarge);\n// カスタム:\npresets.RegisterCustomPreset(\"BossSlam\", FShakeParams{0.7f,1.0f,0.8f,18.0f,1.2f});\npresets.ApplyCustomByName(shakeTarget, \"BossSlam\");",
       members: [
         { sig: "static FShakeParams GetPreset(EShakePreset preset)", ret: "shake パラメータ", desc: "組み込み preset の trauma/amplitude/decay/freq 値を返す (Custom は中立値)。" },
         { sig: "static void ApplyPreset(IShakeTarget& target, EShakePreset preset)", desc: "preset を target に流し込む (SetAmp→SetDecay→AddShake の順、trauma は加算)。" },
@@ -479,8 +443,7 @@ ACS_REF.modules.push({
       name: "FShakeParams / EShakePreset / IShakeTarget",
       kind: "構造体・列挙(enum)・インターフェース", header: "gameframework/CameraShakePresets.h",
       summary: "<b>FShakeParams</b>=preset 1 個分のパラメータ (trauma/amplitude/decay_rate/frequency/duration_hint)。<b>EShakePreset</b>=組み込み種別 (ExplosionSmall/Large, EarthquakeShort/Long, HitImpact, RocketLaunch, MeteorImpact, Custom)。<b>IShakeTarget</b>=trauma を受ける側の純粋仮想 I/F (AddShake / SetShakeAmplitude / SetShakeDecayRate)。",
-      when: "preset の値を組み立てたり、自前の振動対象を <t>CCameraShakePresets</t> に渡せるようにする時。",
-      sample: "FShakeParams p{0.9f, 1.2f, 0.6f, 20.0f, 1.5f};\nFCameraShakePresets::ApplyPreset(myTarget, EShakePreset::MeteorImpact);"
+      when: "preset の値を組み立てたり、自前の振動対象を <t>CCameraShakePresets</t> に渡せるようにする時。"
     },
     {
       name: "ABtDecorator",

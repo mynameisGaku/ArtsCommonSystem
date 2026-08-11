@@ -12,8 +12,7 @@ ACS_REF.modules.push({
       kind: "使い方",
       header: "easy/Easy.h",
       summary: "<code>OpenWindow</code> で開き、<code>while (NextFrame())</code> ループの中で入力を読んで図形を描く、が基本形。ゲームの状態は <code>main</code> の中のローカル変数でよく、すべての関数を<b>メインスレッド 1 本</b>から呼びます。座標は<b>左上が原点</b>・ピクセル単位・Y は下向き、角度は<b>度（°）</b>で正が時計回り。",
-      when: "DXLib のような感覚で、設計を気にせずまず動くゲームを書き始めたい時。本格化したくなったら <code>acs::CApplication</code> へ進めます。",
-      sample: "#include \"easy/Easy.h\"\nusing namespace acs::easy;\nint main() {\n    OpenWindow(1280, 720, \"はじめてのゲーム\");\n    float x = 600;\n    while (NextFrame()) {                 // 閉じると false\n        if (IsKeyDown(EKey::Right)) x += 5;\n        if (IsKeyDown(EKey::Left))  x -= 5;\n        DrawRect(x, 320, 80, 80, FColor::Sky);\n    }\n}"
+      when: "DXLib のような感覚で、設計を気にせずまず動くゲームを書き始めたい時。本格化したくなったら <code>acs::CApplication</code> へ進めます。"
     },
 
     {
@@ -21,7 +20,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "easy/Easy.h",
       summary: "色を表す値。各成分 <code>r,g,b,a</code> は <b>0.0〜1.0</b>。<code>a</code> は不透明度（0=透明, 1=不透明）。<code>FColor::Red</code> などの定数を使うか、<code>Rgb(255,0,0)</code> で作ります。",
       when: "すべての描画関数に色として渡す。半透明にしたい時は <code>a</code> を下げるか <code>Fade()</code> を使う。",
-      sample: "DrawRect(0, 0, 100, 100, FColor::Red);\nFColor mine = Rgb(255, 128, 0);     // 0〜255 で指定\nDrawRect(0, 0, 50, 50, Fade(mine, 0.5f)); // 半透明",
       members: [
         { sig: "f32 r, g, b, a", desc: "赤・緑・青・不透明度。すべて 0.0〜1.0。<code>a</code> の既定は 1（不透明）。" },
         { sig: "static const FColor Red, Green, Blue, Yellow, Cyan, Magenta", desc: "よく使う色の定数。" },
@@ -33,7 +31,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "<b>0〜255 の整数</b>から <code>FColor</code> を作るヘルパと、不透明度だけ変える <code>Fade</code>。",
       when: "DXLib 等で慣れた 0〜255 表記で色を作りたい時。フェードイン/アウトや半透明描画に <code>Fade</code>。",
-      sample: "FColor c  = Rgb(255, 128, 0);          // 橙\nFColor c2 = Rgba(0, 0, 0, 128);        // 半透明の黒\nFColor c3 = Fade(FColor::White, 0.3f); // 30% の白",
       members: [
         { sig: "FColor Rgb(u8 r, u8 g, u8 b)", ret: "不透明な色", desc: "0〜255 の RGB から色を作る。" },
         { sig: "FColor Rgba(u8 r, u8 g, u8 b, u8 a)", desc: "不透明度も 0〜255 で指定する版。" },
@@ -45,7 +42,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "easy/Easy.h",
       summary: "<code>LoadSprite</code> / <code>LoadSound</code> が返す、コピー可能な軽い<b>素材ハンドル</b>（中身は番号 <code>id</code> だけ）。<code>id==0</code> は無効。",
       when: "読み込んだ画像・音を持ち回って描画/再生に渡す時。失敗しても落ちず、無効ハンドルが返る（描画/再生は無視される）。",
-      sample: "FSprite player = LoadSprite(\"player.png\");\nFSound  jump   = LoadSound(\"jump.wav\");\nif (player.id != 0) DrawSprite(player, 100, 100);",
       members: [
         { sig: "u32 id", desc: "素材を指す内部番号。0 は無効（読み込み失敗など）。" }
       ]
@@ -56,7 +52,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "ゲームの<b>開始・1 フレーム進行・終了</b>。<code>OpenWindow</code> を最初に 1 回だけ呼び、<code>while (NextFrame())</code> でループします。",
       when: "すべての easy プログラムの骨格。描画・入力の関数は必ず <code>NextFrame()</code> の後（ループの中）で呼ぶ。",
-      sample: "OpenWindow(1280, 720, \"My Game\");\nwhile (NextFrame()) {\n    if (IsKeyPressed(EKey::Escape)) Quit();\n    DrawString(20, 20, \"Hello\", FColor::White);\n}",
       members: [
         { sig: "void OpenWindow(i32 width=1280, i32 height=720, const char* title=\"ACS Game\")", desc: "ウィンドウを開いて初期化。失敗時はコンソールにエラーを出し、最初の <code>NextFrame()</code> が false を返す（静かに終了）。" },
         { sig: "bool NextFrame()", ret: "続行するか", desc: "直前のフレームを画面に出し、次の準備をして true。閉じられたら後始末して false。<code>while</code> の条件に使う。" },
@@ -68,7 +63,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "ウィンドウのタイトル文字列と背景色を変える。背景色の既定は濃い紺色。",
       when: "スコア表示をタイトルに出す、ステージごとに背景色を変える、など。",
-      sample: "SetWindowTitle(\"Score: 1200\");\nSetBackground(Rgb(20, 20, 40));",
       members: [
         { sig: "void SetWindowTitle(const char* title)", desc: "タイトルバーの文字列を変える。" },
         { sig: "void SetBackground(FColor color)", desc: "毎フレームの塗りつぶし背景色（次フレームから反映）。" }
@@ -79,7 +73,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "全画面表示（ボーダーレス）の ON/OFF。次のフレームから反映されます。",
       when: "設定画面の全画面トグルや、Alt+Enter 相当の切替に。",
-      sample: "if (IsKeyPressed(EKey::F11)) ToggleFullscreen();\nif (IsFullscreen()) DrawString(20, 20, \"FULL\", FColor::White);",
       members: [
         { sig: "void SetFullscreen(bool on)", desc: "全画面の ON/OFF を直接指定。" },
         { sig: "void ToggleFullscreen()", desc: "現在の状態を反転する。" },
@@ -92,7 +85,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "四角・円・線・三角・点を描く関数群。<b>(x,y) は図形の左上</b>（円だけは中心）、回転は図形の中心まわりで角度は度。<code>Outline</code> 版は枠線だけ、<code>thickness</code> で太さを指定。",
       when: "画像を使わずに当たり判定の可視化やシンプルなゲームを作る時。<code>NextFrame()</code> の後で呼ぶ。",
-      sample: "DrawRect(100, 100, 80, 40, FColor::Sky);            // 塗り四角\nDrawRectOutline(100, 100, 80, 40, FColor::White);   // 枠だけ\nDrawCircle(400, 300, 30, FColor::Yellow);           // (x,y)=中心\nDrawLine(0, 0, 200, 200, FColor::Red, 3.0f);\nDrawRectRotated(300, 200, 60, 60, 45, FColor::Green);",
       members: [
         { sig: "void DrawRect(f32 x, f32 y, f32 w, f32 h, FColor color)", desc: "塗りつぶし長方形。(x,y) は左上。" },
         { sig: "void DrawRectOutline(f32 x, f32 y, f32 w, f32 h, FColor color, f32 thickness=2)", desc: "長方形の枠線だけ。" },
@@ -111,7 +103,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "<code>LoadSprite</code> で読んだ画像を描く関数群。元サイズ・伸縮・回転・色掛け（<t>ティント</t>）・反転・<b>一部切り出し</b>（スプライトシート）に対応。位置 (x,y) は画像の左上。",
       when: "キャラやタイルの描画。アニメーションは <code>DrawSpritePart</code> でシートのコマを切り替える。",
-      sample: "FSprite p = LoadSprite(\"hero.png\");\nDrawSprite(p, 100, 100);                       // 元サイズ\nDrawSprite(p, 100, 100, 64, 64);               // 伸縮\nDrawSpriteRotated(p, 200, 200, 30);            // 回転\nDrawSpriteFlipped(p, 300, 200, true, false);   // 左右反転\n// シートの (0,0) から 32x32 のコマだけ切り出す\nDrawSpritePart(p, 400, 200, 32, 32, 0, 0, 32, 32);",
       members: [
         { sig: "void DrawSprite(FSprite s, f32 x, f32 y)", desc: "画像を元サイズで描く。" },
         { sig: "void DrawSprite(FSprite s, f32 x, f32 y, f32 w, f32 h)", desc: "指定サイズに伸縮して描く。" },
@@ -128,7 +119,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "<b>UTF-8 の文字列</b>（日本語可、<code>\\n</code> で改行）を描く。中央そろえ版や、文字の幅・高さを測る関数もある。<code>size</code> で文字サイズを指定。",
       when: "スコア・メッセージ・メニューの表示。中央そろえはタイトルやボタンに便利。",
-      sample: "DrawString(20, 20, \"スコア: 1200\", FColor::White);\nDrawString(20, 60, \"大きい\", FColor::Yellow, 48);\nDrawStringCentered(ScreenWidth()/2, 200, \"GAME OVER\", FColor::Red, 64);\nf32 w = TextWidth(\"ボタン\");   // 中央配置の計算に",
       members: [
         { sig: "void DrawString(f32 x, f32 y, const char* text, FColor color)", desc: "(x,y) を左上に文字を描く。" },
         { sig: "void DrawString(f32 x, f32 y, const char* text, FColor color, f32 size)", desc: "文字サイズ指定版。" },
@@ -144,7 +134,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "<b>ワールド座標</b>と<b>画面</b>を分ける仕組み。<code>SetCamera</code> 後に描く図形はワールド座標として扱われ、カメラの位置・ズームに応じて画面に映る。カメラ設定は<b>毎フレーム呼ぶ</b>（呼ばなければカメラ無し）。",
       when: "プレイヤー追従のスクロールや、見下ろし/横スクロールのマップ表示。HUD を描く前に <code>ResetCamera()</code> で固定表示に戻す。",
-      sample: "SetCamera(playerX, playerY);   // プレイヤーを画面中央に\nSetCameraZoom(2.0f);            // 2 倍ズーム\nDrawSprite(map, 0, 0);         // ワールドに描く\nResetCamera();                 // 以降は画面固定（HUD 用）\nDrawString(10, 10, \"HUD\", FColor::White);",
       members: [
         { sig: "void SetCamera(f32 x, f32 y)", desc: "(x,y) のワールド座標が画面中央に映るようカメラを置く。" },
         { sig: "void SetCameraZoom(f32 zoom)", desc: "ズーム倍率（1.0 等倍、2.0 で 2 倍に拡大）。" },
@@ -158,7 +147,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "描画をある矩形の中だけに制限する<b>クリップ</b>。座標は<b>画面座標</b>（カメラの影響を受けない）。",
       when: "ミニマップ枠やメニューパネルの中だけに描きたい時。終わったら必ず解除する。",
-      sample: "SetClipRect(0, 0, 200, 200);   // 左上 200x200 の中だけに\nDrawSprite(minimap, 0, 0);\nClearClipRect();               // 全体に描けるよう戻す",
       members: [
         { sig: "void SetClipRect(f32 x, f32 y, f32 w, f32 h)", desc: "この矩形の外には描かれなくなる。" },
         { sig: "void ClearClipRect()", desc: "クリップを解除して画面全体に描けるようにする。" }
@@ -170,7 +158,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "<t>Bloom</t>（発光）・ビネット・カラーグレーディング等、<b>画面全体</b>にかかる効果。<b>Diligent バックエンドでビルドした時だけ有効</b>（DX12 raw では無視）。<code>IsPostProcessAvailable()</code> で可否を確認。既定はすべて無効。",
       when: "ネオン調の発光、シネマティックな色味、画面端の暗化などで見た目を底上げしたい時。文字も含め画面全体にかかる点に注意。",
-      sample: "if (IsPostProcessAvailable()) {\n    SetBloom(0.6f);                       // 発光\n    SetVignette(0.4f);                    // 画面端を暗く\n    SetColorGrading(1.1f, 1.0f, 0.2f);    // 彩度↑・暖色寄り\n    SetTonemap(0);                        // ACES\n}",
       members: [
         { sig: "bool IsPostProcessAvailable()", ret: "使えるか", desc: "Diligent バックエンドなら true。false なら以下は無視される。" },
         { sig: "void SetBloom(f32 intensity)", desc: "発光の強さ（0=無効、0.6 が目安）。" },
@@ -191,7 +178,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "画像・音を読み込んで<b>ハンドル</b>を返す。同じパスは読み直さず同じハンドルを返す。失敗しても落ちず、無効ハンドル（<code>id==0</code>）を返す。",
       when: "ゲーム開始時にまとめて読む（ループ内で毎回呼んでも再読込はされないが、開始時が分かりやすい）。<code>OpenWindow</code> の後で呼ぶ。",
-      sample: "FSprite hero = LoadSprite(\"assets/hero.png\");\nFSound  bgm  = LoadSound(\"assets/bgm.ogg\");\n// パスは実行時のカレントディレクトリからの相対。\n// 見つからない時は絶対パスか exe の隣に置く。",
       members: [
         { sig: "FSprite LoadSprite(const char* path)", ret: "画像ハンドル", desc: "画像ファイルを読む。失敗で <code>id==0</code>。" },
         { sig: "FSound LoadSound(const char* path)", ret: "音ハンドル", desc: "音ファイルを読む。失敗で <code>id==0</code>。" }
@@ -203,7 +189,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "効果音の 1 回再生・<t>BGM</t> のループ再生・停止・音量制御。音量はすべて 0.0〜1.0。",
       when: "ジャンプ音や爆発音は <code>Play</code>、BGM は <code>PlayLoop</code>。設定画面の音量スライダーには <code>SetMasterVolume</code>。",
-      sample: "Play(jumpSe);                 // 効果音 1 回\nPlay(hitSe, 0.5f);            // 音量半分\nPlayLoop(bgm, 0.8f);          // BGM ループ\nStopSound(bgm);               // その音を止める\nSetMasterVolume(0.3f);        // 全体音量",
       members: [
         { sig: "void Play(FSound s) / void Play(FSound s, f32 volume)", desc: "効果音を 1 回鳴らす。音量は 0.0〜1.0。" },
         { sig: "void PlayLoop(FSound s) / void PlayLoop(FSound s, f32 volume)", desc: "ループ再生（BGM 向け）。" },
@@ -219,7 +204,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "キーの状態を読む。<b>Down</b>=押されている間ずっと、<b>Pressed</b>=押した瞬間だけ、<b>Released</b>=離した瞬間だけ true。<code>TextInput()</code> は<t>IME</t>確定後の入力文字（名前入力用）。キーの種類は <code>EKey</code> 列挙。",
       when: "移動は <code>IsKeyDown</code>（押しっぱなしで動く）、ジャンプや決定は <code>IsKeyPressed</code>（1 回だけ反応）。名前入力には <code>TextInput</code>。",
-      sample: "if (IsKeyDown(EKey::Right)) x += 5;       // 押している間\nif (IsKeyPressed(EKey::Space)) Jump();    // 押した瞬間だけ\nconst char* t = TextInput();              // 入力文字（無ければ \"\"）\nif (IsKeyPressed(EKey::Backspace)) /* 一文字消す */;",
       members: [
         { sig: "bool IsKeyDown(EKey key)", ret: "押下中か", desc: "押されている間ずっと true。移動などに。" },
         { sig: "bool IsKeyPressed(EKey key)", ret: "押した瞬間か", desc: "押した瞬間のフレームだけ true。1 回限りの操作に。" },
@@ -233,7 +217,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "マウス座標（ウィンドウ内ピクセル＝画面座標）・ボタン状態・ホイール。ボタンは <code>EMouseButton</code>（省略時は左）。Down/Pressed/Released の違いはキーボードと同じ。",
       when: "クリックで撃つ・ボタンを押す、ドラッグ、ホイールでズーム/スクロール。ワールド上の対象を掴むなら <code>MouseWorldX/Y</code>（カメラ節）。",
-      sample: "if (IsMousePressed()) Shoot(MouseX(), MouseY());\nif (IsMouseDown(EMouseButton::Right)) Pan();\nf32 wheel = MouseWheel();   // 奥+ / 手前-",
       members: [
         { sig: "f32 MouseX() / f32 MouseY()", ret: "マウス座標(px)", desc: "ウィンドウ内のマウス位置（画面座標）。" },
         { sig: "bool IsMouseDown(EMouseButton button=Left)", ret: "押下中か", desc: "ボタンが押されている間ずっと true。" },
@@ -248,7 +231,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "最大 4 台（<code>player</code> 0〜3、省略時 0）のゲームパッドを読む。ボタンは <code>EGamepadButton</code>、スティックは -1.0〜+1.0、トリガーは 0.0〜1.0。",
       when: "コントローラ対応。スティックで移動、トリガーでアクセル、など。接続確認は <code>IsGamepadConnected</code>。",
-      sample: "if (IsGamepadConnected()) {\n    x += GamepadLeftX() * 5;       // スティックで移動\n    if (IsGamepadPressed(EGamepadButton::A)) Jump();\n    f32 gas = GamepadRightTrigger();\n}",
       members: [
         { sig: "bool IsGamepadConnected(i32 player=0)", ret: "接続中か", desc: "そのパッドが繋がっていれば true。" },
         { sig: "bool IsGamepadDown(EGamepadButton button, i32 player=0)", desc: "ボタンが押下中なら true。" },
@@ -263,7 +245,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "整数・小数・真偽値の乱数。<code>RandomSeed</code> で種を固定すると、毎回<b>同じ並び</b>になる（再現性が必要なテストやリプレイに）。",
       when: "敵の出現位置、ドロップ判定、ランダム挙動。デバッグで毎回同じ展開にしたい時は種を固定。",
-      sample: "i32 hp = RandomInt(1, 100);          // 1〜100\nf32 angle = RandomFloat(0, 360);     // 0〜360 未満\nif (RandomBool()) SpawnEnemy();\nRandomSeed(42);                      // 同じ種＝同じ並び",
       members: [
         { sig: "i32 RandomInt(i32 min, i32 max)", ret: "整数", desc: "min 以上 max <b>以下</b>の整数。" },
         { sig: "f32 RandomFloat(f32 min, f32 max)", ret: "小数", desc: "min 以上 max <b>未満</b>の小数。" },
@@ -277,7 +258,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "矩形どうし・円どうしの<b>重なり</b>、点が矩形/円の中にあるかを判定する。重なっていれば true。",
       when: "敵と弾の衝突、プレイヤーとアイテムの接触、ボタンのクリック判定（点 vs 矩形）。",
-      sample: "if (RectsOverlap(px,py,pw,ph, ex,ey,ew,eh)) Damage();\nif (CirclesOverlap(bx,by,br, ex,ey,er)) Hit();\nif (PointInRect(MouseX(), MouseY(), bx,by,bw,bh)) /* ボタン上 */;",
       members: [
         { sig: "bool RectsOverlap(f32 x1,f32 y1,f32 w1,f32 h1, f32 x2,f32 y2,f32 w2,f32 h2)", ret: "重なるか", desc: "2 つの矩形が重なっていれば true。(x,y) は各左上。" },
         { sig: "bool CirclesOverlap(f32 x1,f32 y1,f32 r1, f32 x2,f32 y2,f32 r2)", ret: "重なるか", desc: "2 つの円が重なっていれば true。(x,y) は各中心。" },
@@ -291,7 +271,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "範囲制限・線形補間・距離・最小最大・絶対値・平方根・三角関数・向きの角度。<b>三角関数の角度は度（°）で渡す</b>（C++ 標準の sin/cos はラジアンなので注意）。",
       when: "値を範囲に収める（HP バー等）、なめらかな移動（<t>Lerp</t>）、円運動（<code>Sin/Cos</code>）、狙い撃ち（<code>AngleTo</code>）。",
-      sample: "hp = Clamp(hp, 0, 100);                 // 0〜100 に収める\nx  = Lerp(x, targetX, 0.1f);            // なめらかに近づく\nf32 dx = Cos(angle), dy = Sin(angle);   // 角度は度\nf32 aim = AngleTo(px, py, MouseX(), MouseY());",
       members: [
         { sig: "f32 Clamp(f32 value, f32 lo, f32 hi)", ret: "範囲内の値", desc: "value を lo〜hi に収める。" },
         { sig: "f32 Lerp(f32 a, f32 b, f32 t)", ret: "補間値", desc: "a と b を t（0〜1）で<t>線形補間</t>する。" },
@@ -309,7 +288,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "実行ファイルの場所の <code>save.dat</code> に <b>key-value</b> で永続化する。整数・小数・文字列を保存／読み出し。<code>Load</code> 系は未保存ならデフォルト値を返す。<code>OpenWindow</code> の前でも後でも呼べる。",
       when: "ハイスコア・設定・進行状況の保存。文字列の値に改行（<code>\\n</code>）は使えない。",
-      sample: "SaveInt(\"highscore\", 1200);\ni32 best = LoadInt(\"highscore\", 0);   // 未保存なら 0\nSaveString(\"name\", \"あべ\");\nconst char* n = LoadString(\"name\", \"NONAME\");\nif (HasSaveKey(\"highscore\")) /* 続きから */;",
       members: [
         { sig: "void SaveInt(const char* key, i32 value)", desc: "整数を保存する。" },
         { sig: "i32 LoadInt(const char* key, i32 default_value)", ret: "値 or 既定", desc: "整数を読む。未保存なら default_value。" },
@@ -327,7 +305,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "フレーム間隔・累積時間・FPS・画面サイズを得る。<code>DeltaTime</code> を移動量に掛けると、フレームレートに依らず一定速度で動かせる。",
       when: "フレームレート非依存の移動（<code>x += speed * DeltaTime()</code>）、タイマー、画面端の判定、FPS 表示。",
-      sample: "x += 200 * DeltaTime();              // 秒速 200px\nif (x > ScreenWidth()) x = 0;\nDrawString(10, 10, \"FPS\", FColor::White);\nf32 t = ElapsedTime();               // 開始からの秒",
       members: [
         { sig: "f32 DeltaTime()", ret: "経過秒", desc: "前フレームからの経過秒。移動量に掛けて速度を一定にする。" },
         { sig: "f32 ElapsedTime()", ret: "累積秒", desc: "<code>OpenWindow</code> からの累積秒。アニメや揺れの時間入力に。" },
@@ -341,7 +318,6 @@ ACS_REF.modules.push({
       kind: "関数・列挙", header: "easy/Easy.h",
       summary: "GameFramework と同じ<t>イージング</t> catalog の評価可能な全 33 曲線を easy から型付きで利用する入口。<code>EEasingType</code> は Linear、Quad/Cubic/Quart/Quint/Sine/Expo/Circ/Back/Elastic/Bounce の In/Out/InOut と SmoothStep/SmootherStep を列挙する。<code>Count = 33</code> は末尾 sentinel で、評価可能な曲線ではない。Easy は GameFramework へ一方向に依存し、曲線の数式を重複実装しない。",
       when: "移動・UI・フェードの進行度を等速以外にしたい時。保存した canonical 名から曲線を復元したい時や、プレビューを一括生成したい時、非有限入力・無効 enum を診断したい時は checked API を使う。",
-      sample: "EEasingType type = EEasingType::SmootherStep;\nf32 progress = Ease(raw_time, type, 0.0f);\nf32 checked = previous;\nFEasingResult result = TryEase(raw_time, EEasingType::OutElastic, checked);\nif (!result.Succeeded()) { /* checked は変更されない */ }\nf32 preview[33]{};\nTrySampleEasing(type, preview, 33);\nconst char* name = nullptr;\nif (TryGetEasingName(type, name).Succeeded()) {\n    TryParseEasingNameChecked(name, type);\n}",
       members: [
         { sig: "using EEasingType / EEasingError / FEasingResult", desc: "GameFramework の型付き Easing catalog・エラー・checked 結果を easy 名前空間へ再公開する alias。" },
         { sig: "f32 Ease(f32 t, EEasingType type, f32 fallback = 0)", desc: "全 33 種を型付き評価。無効 type または非有限 t では fallback を返し、finite t は [0,1] に clamp。" },
@@ -361,7 +337,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "easy/Easy.h",
       summary: "並列処理のハンドル。<code>FJobBatch</code> は <code>RunAsync</code> で投げた非同期ジョブ群を、<code>FJobNode</code> は依存グラフの 1 ノードを指す軽量値型（<code>id==0</code> は無効）。",
       when: "<code>RunAsync</code> の戻りを <code>WaitJobs</code> に渡す、<code>Job</code> の戻りを <code>Then</code> でつなぐ、といった並列 API の受け渡しに使う。",
-      sample: "FJobBatch b = RunAsync([&]{ heavyCalc(); });\nWaitJobs(b);\nFJobNode a = Job([]{ stepA(); });\nFJobNode c = Job([]{ stepC(); });\nThen(a, c);   // a の後に c",
       members: [
         { sig: "u32 id", desc: "ジョブ群／ノードを指す内部番号。0 は無効。" }
       ]
@@ -371,7 +346,6 @@ ACS_REF.modules.push({
       kind: "関数テンプレート", header: "easy/Easy.h",
       summary: "<code>[begin,end)</code> を全コアで分担して <code>fn(i)</code> を呼び、<b>完了まで待つ</b>（同期）。内部は本格的なワークスチール<t>スレッドプール</t>。並列にできない環境では自動的に順次実行へフォールバック。",
       when: "大量の独立した計算（パーティクル更新、画像処理など）を一気に速くしたい時。<b>各 i は独立して</b>処理し、描画など他の easy 関数を中で呼ばないこと（<t>スレッド</t>はメイン専用）。",
-      sample: "// 1000 個のパーティクルを並列更新（描画はしない）\nParallelFor(0, 1000, [&](int i){\n    particles[i].x += particles[i].vx * dt;\n});\n// 描画は戻ってからメインスレッドで\nfor (int i = 0; i &lt; 1000; ++i) DrawPixel(particles[i].x, particles[i].y, FColor::White);",
       members: [
         { sig: "void ParallelFor<Fn>(i32 begin, i32 end, Fn fn)", desc: "区間を自動チャンクで分担して並列実行し、全完了まで待つ。" },
         { sig: "void ParallelFor<Fn>(i32 begin, i32 end, i32 grain, Fn fn)", desc: "<code>grain</code>（1 チャンクの要素数）を明示する版。0 で自動。" }
@@ -382,7 +356,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "1 つの処理を<b>非同期に</b>走らせて即座に戻り、<code>FJobBatch</code> を返す。後で <code>WaitJobs</code> で完了を待つか <code>JobsDone</code> で待たずに確認する。同じ batch に追加投入もできる。",
       when: "重い読み込みや計算を裏で進めつつ、ローディング画面を回したい時。中では計算だけして結果は捕捉変数に書き、描画はしないこと。",
-      sample: "FJobBatch jobs = RunAsync([&]{ loadLevel(); });\nRunAsync(jobs, [&]{ buildNav(); });   // 同じ batch に追加\nwhile (NextFrame()) {\n    if (JobsDone(jobs)) break;        // 待たずに確認\n    DrawString(20, 20, \"Loading...\", FColor::White);\n}\nWaitJobs(jobs);                       // 念のため完了を保証",
       members: [
         { sig: "FJobBatch RunAsync<Fn>(Fn fn)", ret: "ジョブハンドル", desc: "fn を非同期で 1 つ走らせ、すぐ戻る。" },
         { sig: "void RunAsync<Fn>(FJobBatch batch, Fn fn)", desc: "既存 batch に追加投入する（同じ <code>WaitJobs</code> でまとめて待てる）。" },
@@ -395,7 +368,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "<b>依存つき</b>の並列実行。<code>Job</code> でノードを作り、<code>Then</code> で「A の後に B」と順序を張り、<code>RunJobs</code> で全ノードを依存順に実行して全完了まで待つ。内部は依存グラフ。",
       when: "処理に前後関係がある時（『地形生成 → ナビ構築 → 敵配置』など）。順序を <code>Then</code> で表現すれば、独立な部分は自動で並列化される。",
-      sample: "FJobNode gen  = Job([]{ generateTerrain(); });\nFJobNode nav  = Job([]{ buildNavmesh(); });\nFJobNode spawn= Job([]{ spawnEnemies(); });\nThen(gen, nav);    // 地形 → ナビ\nThen(nav, spawn);  // ナビ → 敵\nRunJobs();         // 依存順に実行し、全完了まで待つ",
       members: [
         { sig: "FJobNode Job<Fn>(Fn fn)", ret: "ノードハンドル", desc: "実行する処理を 1 ノードとして登録する（まだ走らない）。" },
         { sig: "void Then(FJobNode before, FJobNode after)", desc: "before が終わってから after が走る、という依存を張る。" },
@@ -407,7 +379,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "並列ワーカ数と、今のコードがワーカ<t>スレッド</t>上で動いているかを返す。",
       when: "分割数の目安にしたり、ジョブの中（ワーカ上）で誤って描画関数を呼んでいないか確認したりする時。",
-      sample: "i32 n = WorkerCount();   // 1 以上\nif (IsWorker()) { /* ここで描画系を呼んではいけない */ }",
       members: [
         { sig: "i32 WorkerCount()", ret: "ワーカ数", desc: "並列ワーカの数（1 以上）。" },
         { sig: "bool IsWorker()", ret: "ワーカ上か", desc: "今このコードがワーカスレッド上で動いていれば true。" }
@@ -418,7 +389,6 @@ ACS_REF.modules.push({
       kind: "列挙", header: "platform/InputCodes.h",
       summary: "easy が再公開している入力用の列挙。<code>using acs::EKey;</code> 等で <code>acs::easy</code> 名前空間からそのまま <code>EKey::Space</code> のように書ける。実体は <t>platform</t> モジュールの <code>InputCodes.h</code> で定義され、easy 側では値一覧が見えないため、よく使う値をここにまとめる。<code>IsKeyDown</code> / <code>IsMouseDown</code> / <code>IsGamepadDown</code> などに渡す。",
       when: "キーボード・マウス・ゲームパッドの入力関数に「どのキー/ボタンか」を渡す時。先頭の <code>EKey::</code> 等を省略せず、列挙の値名で指定する。",
-      sample: "if (IsKeyDown(EKey::Right)) x += 5;          // 矢印キー\nif (IsKeyPressed(EKey::Space)) Jump();        // スペース\nif (IsMouseDown(EMouseButton::Right)) Pan();  // 右クリック\nif (IsGamepadPressed(EGamepadButton::A)) Ok(); // ゲームパッド A",
       members: [
         { sig: "EKey::A 〜 EKey::Z", desc: "文字キー(<code>A</code>〜<code>Z</code>、26 個)。" },
         { sig: "EKey::Num0 〜 EKey::Num9", desc: "最上段の数字キー(テンキーではない)。テンキーは <code>EKey::KP0</code>〜<code>EKey::KP9</code>。" },

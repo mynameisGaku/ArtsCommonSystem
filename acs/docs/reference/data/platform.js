@@ -24,7 +24,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "platform/Window.h",
       summary: "OS の<t>ウィンドウ</t>そのもの。タイトルバー付きの四角い領域を開き、× ボタンや入力などの<t>イベント</t>を受け取る。ゲームの一番外側のループはこれを中心に回す。",
       when: "ゲームを起動して最初に作るもの。1 つ作って、閉じる要求が来るまでメインループを回し続ける。",
-      sample: "FWindowConfig cfg;\ncfg.title = L&quot;MyGame&quot;; cfg.width = 1280; cfg.height = 720;\nauto wr = FWindow::Create(cfg);\nif (wr.IsErr()) return -1;\nFWindow&amp; w = wr.Value();\nwhile (!w.ShouldClose()) {\n    w.PollEvents();   // OS メッセージを処理\n    // ...ゲーム処理...\n}",
       members: [
         { sig: "static TResult&lt;FWindow&gt; Create(const FWindowConfig&amp; cfg)", ret: "ウィンドウ or エラー", desc: "設定どおりにウィンドウを生成する。失敗すると <code>Err</code> を返す（<t>Result</t> なので必ず成否を確認する）。", when: "起動時に 1 回。" },
         { sig: "void PollEvents()", desc: "OS にたまった<t>イベント</t>（入力・サイズ変更・閉じる要求など）を取り出して処理する。<b>毎フレーム必ず呼ぶ</b>。呼ばないとウィンドウが固まる。" },
@@ -32,7 +31,7 @@ ACS_REF.modules.push({
         { sig: "void Close()", desc: "ゲームのコード側から「閉じたい」と要求する（次の <code>ShouldClose()</code> が true になる）。", when: "「ゲーム終了」メニューを押した時など。" },
         { sig: "u32 Width() const / u32 Height() const", ret: "中身の幅・高さ", desc: "描画できる領域（クライアント領域）のピクセルサイズ。" },
         { sig: "void* NativeHandle() const", ret: "HWND", desc: "Windows の生のウィンドウハンドル（HWND）。<t>スワップチェーン</t>作成など描画モジュールに渡す。", when: "Render モジュールに描画先を教える時。" },
-        { sig: "void SetEventCallback(EventCallback cb, void* user)", desc: "イベントが起きた時に呼ぶ関数を登録する。<code>user</code> はそのままコールバックに渡される任意の<t>ポインタ</t>。", when: "<code>CInput</code> にイベントを橋渡しする時など。", sample: "w.SetEventCallback([](void* u, const FEvent&amp; e){ CInput::OnEvent(e); }, nullptr);" },
+        { sig: "void SetEventCallback(EventCallback cb, void* user)", desc: "イベントが起きた時に呼ぶ関数を登録する。<code>user</code> はそのままコールバックに渡される任意の<t>ポインタ</t>。", when: "<code>CInput</code> にイベントを橋渡しする時など。"},
         { sig: "void SetTitle(const wchar_t* title)", desc: "タイトルバーの文字を変える。", when: "FPS や状態をタイトルに出したい時。" },
         { sig: "void SetFullscreen(bool on)", desc: "ボーダーレス全画面の ON/OFF。元のウィンドウ位置・サイズを覚えていて、OFF にすると元に戻る。" },
         { sig: "bool IsFullscreen() const", ret: "全画面中か", desc: "今が全画面なら true。" }
@@ -43,7 +42,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "platform/Window.h",
       summary: "<t>ウィンドウ</t>を作る時の設定をまとめた小さな箱。タイトル・サイズ・全画面かどうかなどを指定する。",
       when: "<code>FWindow::Create</code> に渡す。必要な項目だけ書き換えれば、残りは無難な既定値が入る。",
-      sample: "FWindowConfig cfg;\ncfg.title      = L&quot;勇者の冒険&quot;;\ncfg.width      = 1920;\ncfg.height     = 1080;\ncfg.resizable  = false;   // 固定サイズ窓\ncfg.fullscreen = false;",
       members: [
         { sig: "const wchar_t* title", desc: "タイトルバーに出す文字（既定 <code>L&quot;ACS Window&quot;</code>）。" },
         { sig: "u32 width / u32 height", desc: "ウィンドウの中身のサイズ（既定 1280 × 720）。" },
@@ -57,7 +55,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "platform/Event.h",
       summary: "ウィンドウや入力で起きた『出来事』1 つ分を表す。種別（<code>type</code>）に応じて、中の<t>union</t>のうち対応するフィールドだけが有効になる。",
       when: "<code>SetEventCallback</code> で受け取る。<code>type</code> を見て分岐し、対応するフィールドを読む。",
-      sample: "void OnEvent(void* u, const FEvent&amp; e) {\n    if (e.type == EEventType::WindowResize) {\n        u32 w = e.resize.width, h = e.resize.height;\n    } else if (e.type == EEventType::KeyPressed) {\n        EKey k = e.key.key;\n    }\n}",
       members: [
         { sig: "EEventType type", desc: "イベントの種別。これを見てどのフィールドが有効か判断する。" },
         { sig: "{ u32 width, height; } resize", desc: "<code>WindowResize</code> 時の新しいサイズ。" },
@@ -73,7 +70,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "platform/Event.h",
       summary: "<t>FEvent</t> の種別を表す列挙。ウィンドウ系（閉じる・サイズ変更・フォーカス）と入力系（キー・マウス・文字）がある。",
       when: "受け取った <code>FEvent</code> の <code>type</code> と比較して分岐する。",
-      sample: "switch (e.type) {\n    case EEventType::WindowClose:  /* 閉じる */ break;\n    case EEventType::KeyPressed:   /* 押下   */ break;\n    case EEventType::MouseScrolled:/* ホイール*/ break;\n}",
       members: [
         { sig: "None", desc: "未設定（無効なイベント）。" },
         { sig: "WindowClose / WindowResize", desc: "× ボタン押下 / ウィンドウサイズ変更。" },
@@ -89,7 +85,6 @@ ACS_REF.modules.push({
       kind: "クラス（静的）", header: "platform/Input.h",
       summary: "キーボード・マウス・<t>ゲームパッド</t>の状態を<b>ポーリング</b>（その瞬間に問い合わせ）で読む入口。すべて静的関数なので <code>CInput::IsKeyDown(...)</code> のように呼ぶ。",
       when: "ゲームの操作処理。毎フレーム先頭で <code>Update()</code> を呼んでから状態を読む。",
-      sample: "CInput::Update();          // フレーム先頭で1回\nw.PollEvents();\nif (CInput::IsKeyDown(EKey::Space))            Jump();\nif (CInput::IsMouseButtonPressed(EMouseButton::Left)) Shoot();\nFVec2 m = CInput::MousePos();",
       members: [
         { sig: "static void Update()", desc: "フレームの先頭で 1 回呼ぶ。前フレームの状態を保存し、Pressed/Released の判定を成立させる。<b>呼び忘れると Pressed が効かない</b>。", when: "メインループの一番上。" },
         { sig: "static void OnEvent(const FEvent&amp; e)", desc: "<code>FWindow</code> から来た<t>イベント</t>を <code>CInput</code> に流し込む橋渡し。<code>SetEventCallback</code> でこれを呼ぶよう繋ぐ。" },
@@ -103,7 +98,7 @@ ACS_REF.modules.push({
         { sig: "static const char* TextInput()", ret: "入力文字列", desc: "このフレームに確定した文字列（UTF-8、IME 確定後）。無ければ空文字。", when: "名前入力欄やチャットなど、文字を打たせる時。" },
         { sig: "static bool IsGamepadConnected(u32 player_index)", ret: "接続中か", desc: "指定プレイヤー番号（0〜3）のゲームパッドが繋がっているか。" },
         { sig: "static bool IsGamepadButtonDown / Pressed(u32 idx, EGamepadButton b)", desc: "ゲームパッドのボタン状態。Down=押している間、Pressed=押した瞬間。" },
-        { sig: "static f32 GamepadAxisValue(u32 idx, EGamepadAxis axis)", ret: "軸の値", desc: "スティックは -1.0〜+1.0、トリガーは 0.0〜1.0。", sample: "f32 x = CInput::GamepadAxisValue(0, EGamepadAxis::LeftX);" },
+        { sig: "static f32 GamepadAxisValue(u32 idx, EGamepadAxis axis)", ret: "軸の値", desc: "スティックは -1.0〜+1.0、トリガーは 0.0〜1.0。"},
         { sig: "using FInput = CInput", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CInput</code> を使う。" }
       ]
     },
@@ -112,7 +107,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "platform/InputCodes.h",
       summary: "キーボードのキーを表す列挙。A〜Z、数字、ファンクション、修飾キー、矢印、記号、テンキーまで初学者にも分かりやすい名前で揃っている。",
       when: "<code>CInput::IsKeyDown</code> などにキーを指定する時。",
-      sample: "if (CInput::IsKeyDown(EKey::W))      MoveUp();\nif (CInput::IsKeyPressed(EKey::Escape)) OpenMenu();\nif (CInput::IsKeyDown(EKey::LeftShift)) Run();",
       members: [
         { sig: "A 〜 Z", desc: "文字キー。" },
         { sig: "Num0 〜 Num9", desc: "上段の数字キー。" },
@@ -131,7 +125,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "platform/InputCodes.h",
       summary: "マウスのボタンを表す列挙。左・右・中（ホイール押し込み）とサイドボタン 2 つ。",
       when: "<code>CInput::IsMouseButtonDown</code> などに渡す。",
-      sample: "if (CInput::IsMouseButtonPressed(EMouseButton::Left))   Fire();\nif (CInput::IsMouseButtonDown(EMouseButton::Right))     Aim();",
       members: [
         { sig: "Left = 0 / Right = 1 / Middle = 2", desc: "左・右・中ボタン（中はホイール押し込み）。基底型は <code>u8</code>。" },
         { sig: "X1 = 3 / X2 = 4", desc: "サイドボタン 1・2（戻る/進む等）。末尾に内部用の番兵 <code>_Count</code> がある。" }
@@ -142,7 +135,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "platform/InputCodes.h",
       summary: "<t>ゲームパッド</t>のボタンを表す列挙（XInput 互換）。フェイスボタン・十字キー・バンパー・スティック押し込み・システムボタン。",
       when: "<code>CInput::IsGamepadButtonDown / Pressed</code> に渡す。",
-      sample: "if (CInput::IsGamepadButtonPressed(0, EGamepadButton::A))     Jump();\nif (CInput::IsGamepadButtonDown(0, EGamepadButton::RightBumper)) Guard();",
       members: [
         { sig: "A / B / X / Y", desc: "フェイスボタン（XInput 配置）。" },
         { sig: "Up / Down / Left / Right", desc: "十字キー（D-Pad）。" },
@@ -156,7 +148,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "platform/InputCodes.h",
       summary: "<t>ゲームパッド</t>のアナログ軸を表す列挙。左右スティックの X/Y と、左右トリガー。",
       when: "<code>CInput::GamepadAxisValue</code> に渡す。スティックは -1.0〜+1.0、トリガーは 0.0〜1.0 が返る。",
-      sample: "f32 mx = CInput::GamepadAxisValue(0, EGamepadAxis::LeftX);\nf32 my = CInput::GamepadAxisValue(0, EGamepadAxis::LeftY);\nf32 rt = CInput::GamepadAxisValue(0, EGamepadAxis::RightTrigger);",
       members: [
         { sig: "LeftX / LeftY", desc: "左スティックの横・縦（-1.0〜+1.0）。" },
         { sig: "RightX / RightY", desc: "右スティックの横・縦（-1.0〜+1.0）。" },
@@ -168,7 +159,6 @@ ACS_REF.modules.push({
       kind: "クラス（静的）", header: "platform/Time.h",
       summary: "高精度な<t>タイマ</t>。起動からの経過時間を秒・ミリ秒・<t>ティック</t>で取得できる。すべて静的関数。",
       when: "ベンチマークや経過時間の計測。フレーム間の <code>dt</code> が欲しいだけなら <t>FFrameTimer</t> の方が便利。",
-      sample: "f64 t0 = CClock::SecondsSinceStartup();\nDoHeavyWork();\nf64 elapsed = CClock::SecondsSinceStartup() - t0;",
       members: [
         { sig: "static f64 SecondsSinceStartup()", ret: "経過秒", desc: "起動からの経過秒（高精度）。" },
         { sig: "static u64 MillisSinceStartup()", ret: "経過ミリ秒", desc: "起動からの経過ミリ秒。" },
@@ -182,7 +172,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "platform/Time.h",
       summary: "<t>フレーム</t>ごとの経過時間（<t>デルタタイム</t>）を計るタイマ。毎フレーム <code>Tick()</code> を呼ぶと前回からの経過秒を返す。平均 FPS も取れる。",
       when: "ゲームループの中で、移動量などを <code>速度 × dt</code> で計算したい時。フレームレートに依存しない動きの基本。",
-      sample: "FFrameTimer ft;\nwhile (running) {\n    f32 dt = ft.Tick();   // 前フレームからの経過秒\n    pos += velocity * dt; // フレームレート非依存\n    if (ft.FrameCount() % 60 == 0) ShowFps(ft.SmoothedFPS());\n}",
       members: [
         { sig: "f32 Tick()", ret: "経過秒(dt)", desc: "前回 <code>Tick()</code> からの経過秒を返し、内部時刻を更新する。停止後の暴走を防ぐため最大 0.25 秒に制限される。", when: "毎フレーム先頭で 1 回。" },
         { sig: "f32 SmoothedDelta() const", ret: "平均dt", desc: "直近数フレームを平滑化した <code>dt</code>。表示用に滑らかな値が欲しい時。" },
@@ -196,7 +185,6 @@ ACS_REF.modules.push({
       kind: "クラス（静的）", header: "platform/FileSystem.h",
       summary: "ファイルの読み書きとパス操作をまとめた静的クラス。ファイル全体をまるごと読む / 書く、存在確認、ディレクトリ作成などができる。結果は <t>Result</t> で返るので成否を必ず確認する。",
       when: "アセットの読み込み、ログやセーブのバイト書き出しなど、生のファイル操作が必要な時。設定/セーブの key-value 永続化なら <t>FStorage</t> が便利。",
-      sample: "auto r = CFileSystem::ReadAllBytes(L&quot;data/map.bin&quot;);\nif (r.IsErr()) return;\nTArray&lt;byte&gt; bytes = static_cast&lt;TArray&lt;byte&gt;&amp;&amp;&gt;(r.Value());\n// ...\nFFileSystem::WriteAllBytes(L&quot;data/out.bin&quot;, bytes.Data(), bytes.Size());",
       members: [
         { sig: "static TResult&lt;TArray&lt;byte&gt;&gt; ReadAllBytes(const wchar_t* path)", ret: "バイト列 or エラー", desc: "ファイル全体をバイト配列として読み込む。", when: "バイナリアセットやセーブデータを丸ごと読む時。" },
         { sig: "static TResult&lt;TArray&lt;char&gt;&gt; ReadAllText(const wchar_t* path)", ret: "文字列 or エラー", desc: "ファイル全体を文字列として読み込む（末尾に NUL を付与）。", when: "テキスト設定や JSON を読む時。" },
@@ -225,7 +213,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "platform/Storage.h",
       summary: "設定やセーブデータ用の <b>key-value ストア</b>（INI 形式）。<code>master_volume=0.8</code> のような人間が読める形でファイルに保存できる。文字列・整数・小数・真偽を型ごとに出し入れする。",
       when: "音量・解像度などの設定や、ハイスコア・進行度などのセーブを手軽に永続化したい時。",
-      sample: "FStorage cfg;\nwchar_t path[260];\nFStorage::GetAppDataPath(L&quot;MyGame&quot;, L&quot;settings.ini&quot;, path, 260);\ncfg.Load(path);\nf64 vol = cfg.GetFloat(&quot;master_volume&quot;, 0.8);\ncfg.SetInt(&quot;high_score&quot;, 12345);\ncfg.Save(path);",
       members: [
         { sig: "TResult&lt;void&gt; Load(const wchar_t* path) / Load(const char* path_utf8)", desc: "INI ファイルから読み込む。ファイルが無くても空のまま成功扱い。" },
         { sig: "TResult&lt;void&gt; LoadFromBytes(const u8* data, usize size)", desc: "メモリ上のバイト列（INI 形式 UTF-8）から読み込む。実行ファイル埋め込み用。" },
@@ -247,14 +234,13 @@ ACS_REF.modules.push({
       kind: "クラス", header: "platform/Localization.h",
       summary: "<b>多言語対応（i18n）</b>の仕組み。各言語を <t>FStorage</t>（INI 形式の翻訳辞書）として持ち、キーから現在言語の文字列を引く。見つからなければ代替言語、それも無ければキー名そのものを返す。",
       when: "メニューやセリフを日本語・英語など複数言語で出したい時。表示文字列をコードに直書きせず、言語ファイルにまとめる。",
-      sample: "FLocalization L;\nL.LoadActive(L&quot;lang/ja.lang&quot;);     // 現在言語\nL.LoadFallback(L&quot;lang/en.lang&quot;);   // 代替\n// 描画時:\nsb.DrawText(font, L.Tr(&quot;menu.start&quot;), x, y, color);",
       members: [
         { sig: "TResult&lt;void&gt; LoadActive(const wchar_t* path)", desc: "現在表示する言語をファイルから読み込む。" },
         { sig: "TResult&lt;void&gt; LoadFallback(const wchar_t* path)", desc: "キーが無い時に使う代替言語を読み込む。" },
         { sig: "TResult&lt;void&gt; LoadActiveBytes / LoadFallbackBytes(const u8* data, usize size)", desc: "メモリ上のバイト列から読み込む（埋め込み用）。" },
         { sig: "void Swap()", desc: "active と fallback を入れ替える（簡易な言語切替）。" },
         { sig: "void Clear()", desc: "両方の言語辞書を空にする。" },
-        { sig: "const char* Tr(const char* key) const", ret: "翻訳文字列", desc: "キーを翻訳して返す。active → fallback → キー自体 の順で探す。", when: "画面に出すすべての文字列をこれ経由で取る。", sample: "const char* s = L.Tr(&quot;greeting&quot;);" },
+        { sig: "const char* Tr(const char* key) const", ret: "翻訳文字列", desc: "キーを翻訳して返す。active → fallback → キー自体 の順で探す。", when: "画面に出すすべての文字列をこれ経由で取る。"},
         { sig: "bool Has(const char* key) const", ret: "存在するか", desc: "active か fallback にキーがあれば true。" },
         { sig: "FStorage&amp; Active() / Fallback()", ret: "FStorage 参照", desc: "中の翻訳辞書（<code>FStorage</code>）に直接アクセスする。独自に加工したい時用。" }
       ]
@@ -263,8 +249,7 @@ ACS_REF.modules.push({
       name: "EventCallback",
       kind: "型エイリアス", header: "platform/Window.h",
       summary: "<code>FWindow</code> が<t>イベント</t>を通知するときに呼ぶ<b>関数ポインタ型</b>。<code>void (*)(void* user, const FEvent&amp; e)</code> の別名で、<code>user</code> には <code>SetEventCallback</code> に渡した任意<t>ポインタ</t>がそのまま渡る。<code>PollEvents</code> 中に 1 フレームで複数回呼ばれうる。",
-      when: "<code>FWindow::SetEventCallback</code> に渡すコールバックの型として使う。多くは <code>CInput::OnEvent</code> へ橋渡しするために用いる。",
-      sample: "void OnEvent(void* user, const FEvent&amp; e) {\n    CInput::OnEvent(e);   // FWindow のイベントを CInput へ流す\n}\nw.SetEventCallback(OnEvent, nullptr);\n// ラムダ(キャプチャ無し)も関数ポインタに変換できる:\nw.SetEventCallback([](void* u, const FEvent&amp; e){ CInput::OnEvent(e); }, nullptr);"
+      when: "<code>FWindow::SetEventCallback</code> に渡すコールバックの型として使う。多くは <code>CInput::OnEvent</code> へ橋渡しするために用いる。"
     }
   ]
 });

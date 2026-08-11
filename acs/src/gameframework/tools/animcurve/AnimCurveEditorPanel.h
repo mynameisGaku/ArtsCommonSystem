@@ -59,9 +59,9 @@
 //     (AParticleEditorPanel が CParticleEffectSystem を参照渡しで受けるのと
 //     同じ方針)。本 panel は curve の寿命に関与せず、`m_Curve == nullptr` 時は
 //     「(No curve bound)」を表示。
-//   ・**canvas は ImGui::InvisibleButton + GetWindowDrawList()**: ImGui の
-//     標準パターン (Demo の Canvas example と同形)。ButtonBehavior で hover /
-//     held を取り、ChannelsSplit で背景→曲線→key marker の z-order を整える。
+//   ・**canvas の入力と描画を分離**: ImGui::InvisibleButton と ButtonBehavior で
+//     hover / held を取り、GetWindowDrawList と ChannelsSplit で背景→曲線→
+//     key marker の z-order を整える。
 //   ・**1024 sample 線描画**: curve は 1 ピクセル粒度なら 1024 で十分滑らか
 //     (典型の curve editor 横幅 ~1000px 想定)。それ以上は SIMD でも誤差
 //     範囲なので overkill。

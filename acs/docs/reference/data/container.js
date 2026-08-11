@@ -33,10 +33,9 @@ ACS_REF.modules.push({
       kind: "クラステンプレート", header: "container/Array.h",
       summary: "要素を連続領域へ所有する可変長配列。末尾追加と range-for に対応し、コピーは禁止、複製は <code>Clone()</code> で明示する。確保元は <code>IAllocator</code> で指定できる。",
       when: "個数が動的に変わる要素列を持ちたい時の既定の入れ物。敵リスト・頂点・コマンド列など、ほぼ全ての『複数』はこれ。",
-      sample: "TArray&lt;int&gt; xs;\nxs.Add(10);\nxs.Emplace(20);          // 直接構築\nfor (int v : xs) { /* range-for 可 */ }\nauto copy = xs.Clone();      // 複製は明示的に",
       members: [
         { sig: "void Add(const T& v) / Add(T&& v)", desc: "末尾に要素を追加する。容量が足りなければ自動で約 1.5 倍に拡張。" },
-        { sig: "T& Emplace(Args&&... args)", ret: "追加した要素の参照", desc: "末尾にその場で<b>直接構築</b>する(一時オブジェクトのコピー/ムーブを省く)。", sample: "arr.Emplace(x, y, z);  // FVec3 をその場で構築" },
+        { sig: "T& Emplace(Args&&... args)", ret: "追加した要素の参照", desc: "末尾にその場で<b>直接構築</b>する(一時オブジェクトのコピー/ムーブを省く)。"},
         { sig: "void Pop()", desc: "末尾要素を 1 つ取り除く(空の時に呼ぶと<t>アサート</t>)。" },
         { sig: "bool Remove(const T& value)", ret: "削除できれば true", desc: "最初に一致した 1 件を順序を保って削除する。見つからなければ配列を変更しない。" },
         { sig: "void RemoveAtSwap(usize i)", desc: "i 番に末尾要素をムーブして縮める。<b>順序は保たれない</b>が削除が O(1) で速い。", when: "順序を気にしないリストから素早く 1 個消したい時。" },
@@ -58,15 +57,14 @@ ACS_REF.modules.push({
       kind: "クラステンプレート", header: "container/Span.h",
       summary: "連続メモリ領域を指す<b><t>非所有ビュー</t></b>。先頭ポインタと要素数だけを持ち、<code>TArray</code>、生配列、連続バッファを同じ引数形で受け取れる。",
       when: "関数の引数で『連続した要素列をまとめて見たい』時。所有権を渡さず、配列か生配列かを問わず受けられる。参照先の寿命には注意。",
-      sample: "void Sum(TSpan&lt;const int&gt; xs) {\n    int s = 0; for (int v : xs) s += v;\n}\nint raw[3] = {1,2,3};\nSum(raw);          // C 配列から暗黙変換\nSum(myArray.AsSpan());",
       members: [
         { sig: "constexpr TSpan(T* data, usize size)", desc: "先頭ポインタと長さからビューを作る。" },
         { sig: "template<usize N> TSpan(T (&arr)[N])", desc: "C 配列から長さ N を自動推論して作る(暗黙変換)。" },
         { sig: "T* GetData() / usize Num() / bool IsEmpty()", desc: "先頭ポインタ / 要素数 / 空かどうか。" },
         { sig: "T& operator[](usize i)", desc: "添字アクセス。範囲外は<t>アサート</t>(Debug のみ)。" },
         { sig: "T* begin() / T* end()", desc: "イテレータ。range-for に対応。" },
-        { sig: "TSpan SubSpan(usize offset, usize count)", ret: "部分ビュー", desc: "一部分だけを切り出したビューを返す(コピーしない)。範囲外は<t>アサート</t>で検出する。", sample: "auto mid = sp.SubSpan(1, 2);  // 1 番目から 2 個" },
-        { sig: "bool TrySubSpan(usize offset, usize count, TSpan&amp; out)", ret: "範囲が有効なら true", desc: "外部入力向けの fail-closed 版。null と非 0 size の不正 view、範囲外、加算 overflow をアサートなしで拒否し、失敗時は <code>out</code> を変更しない。", when: "ファイルや通信など信頼できない長さから部分 view を切り出す時。", sample: "TSpan&lt;const u8&gt; part;\nif (!bytes.TrySubSpan(offset, count, part)) {\n    return InvalidRange();\n}" }
+        { sig: "TSpan SubSpan(usize offset, usize count)", ret: "部分ビュー", desc: "一部分だけを切り出したビューを返す(コピーしない)。範囲外は<t>アサート</t>で検出する。"},
+        { sig: "bool TrySubSpan(usize offset, usize count, TSpan&amp; out)", ret: "範囲が有効なら true", desc: "外部入力向けの fail-closed 版。null と非 0 size の不正 view、範囲外、加算 overflow をアサートなしで拒否し、失敗時は <code>out</code> を変更しない。", when: "ファイルや通信など信頼できない長さから部分 view を切り出す時。"}
       ]
     },
     {
@@ -74,12 +72,11 @@ ACS_REF.modules.push({
       kind: "クラス", header: "container/String.h",
       summary: "NUL 終端を維持する UTF-8 可変長文字列。22 バイト以下は本体内に保持し、超過時だけ指定 <code>IAllocator</code> から確保する。<code>FStringView</code> へ暗黙変換できる。",
       when: "中身を書き換えたり連結したりする文字列が欲しい時。名前・ログ・組み立て中のテキストなど。",
-      sample: "FString s = \"Hello\";\ns.Append(\", \");\ns.Append(FStringView(\"world\"));\ns.AppendFormat(\" (%d)\", 42);  // printf 風\nFStringView v = s;            // ビューへ暗黙変換",
       members: [
         { sig: "FString(const char* cstr, IAllocator& a = DefaultAllocator())", desc: "C 文字列から作る。<t>アロケータ</t>も指定できる。" },
         { sig: "FString(FStringView v, IAllocator& a = DefaultAllocator())", desc: "ビューから中身をコピーして作る。" },
         { sig: "void Append(FStringView v) / Append(char c)", desc: "末尾に文字列 / 1 文字を追記する。" },
-        { sig: "usize AppendFormat(const char* fmt, ...)", ret: "最終サイズ(失敗時 0)", desc: "<code>printf</code> 風の書式で末尾に整形追記する。", sample: "s.AppendFormat(\"hp=%d/%d\", cur, max);" },
+        { sig: "usize AppendFormat(const char* fmt, ...)", ret: "最終サイズ(失敗時 0)", desc: "<code>printf</code> 風の書式で末尾に整形追記する。"},
         { sig: "void Reserve(usize n)", desc: "容量を予約して追記中の再確保を減らす。" },
         { sig: "void Clear()", desc: "中身を空にし、現在の確保容量は保持する。" },
         { sig: "const char* Data() / usize Size() / bool IsEmpty()", desc: "先頭ポインタ(NUL 終端) / バイト長 / 空かどうか。" },
@@ -97,7 +94,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "container/StringView.h",
       summary: "UTF-8 バイト列を指す<b><t>非所有ビュー</t></b>。先頭ポインタとバイト長だけを持ち、確保せずに比較、検索、接頭辞・接尾辞判定を行う。",
       when: "文字列を『読むだけ』の関数引数。<code>FString</code> でも C 文字列リテラルでも同じ型で受け取れる。元の文字列より長生きさせないこと。",
-      sample: "void Greet(FStringView name) {\n    if (name.StartsWith(\"Mr.\")) { /* ... */ }\n}\nGreet(\"Alice\");      // C 文字列から暗黙変換\nGreet(myString);     // FString からも暗黙変換",
       members: [
         { sig: "constexpr FStringView(const char* data, usize size)", desc: "ポインタと長さからビューを作る。" },
         { sig: "FStringView(const char* cstr)", desc: "NUL 終端 C 文字列から長さを数えて作る(暗黙変換)。" },
@@ -115,7 +111,6 @@ ACS_REF.modules.push({
       kind: "クラステンプレート", header: "container/HashMap.h",
       summary: "キーから値を検索する<t>連想配列</t>。探索距離と指紋を持つバケット列と密な値配列を分け、削除済み目印を残さず連続イテレーションに対応する。<b>コピー禁止・<t>ムーブ</t>専用</b>。",
       when: "ID から実体、名前から設定値、のように『キーで素早く引きたい』時。",
-      sample: "THashMap&lt;u32, FString&gt; names;\nnames.Add(1, FString(\"Alice\"));\nif (FString* p = names.Find(1)) { /* 見つかった */ }\nfor (auto& kv : names) { /* kv.first, kv.second */ }\nnames.Remove(1);",
       members: [
         { sig: "void Add(const K& key, V value)", desc: "キーと値を追加する。同じキーが既にあれば<b>上書き</b>し、必要時にバケット容量を拡張する。" },
         { sig: "V* Find(const K& key)", ret: "値ポインタ or null", desc: "キーを検索する。見つかれば値への<t>ポインタ</t>、なければ <code>nullptr</code>。", when: "存在チェックと値取得を一度に済ませたい時。" },
@@ -132,7 +127,6 @@ ACS_REF.modules.push({
       kind: "構造体テンプレート", header: "container/HashMap.h",
       summary: "キーと値を <code>first</code> / <code>second</code> に保持する値型。<code>THashMap</code> の <code>EntryType</code> として密な値配列に格納される。",
       when: "<code>THashMap</code> を range-for で回した時の各要素。あるいは 2 値をまとめて返したい時。",
-      sample: "for (TPair&lt;u32, FString&gt;& kv : map) {\n    u32 key = kv.first;\n    FString& val = kv.second;\n}",
       members: [
         { sig: "K first", desc: "キー(1 つ目の値)。" },
         { sig: "V second", desc: "値(2 つ目の値)。" }
@@ -143,7 +137,6 @@ ACS_REF.modules.push({
       kind: "ハッシュ関数群", header: "container/Hash.h",
       summary: "<code>THashMap</code> 等が使う<t>ハッシュ関数</t>。整数・<t>ポインタ</t>・<code>FStringView</code> 用の <code>THasher</code> 特殊化が既定で用意され、独自キー型は <code>THasher</code> を特殊化して対応する。",
       when: "標準キー(整数 / ポインタ / 文字列ビュー)ならそのまま使える。自作のキー型をマップに入れたい時だけ <code>THasher&lt;FMyKey&gt;</code> を特殊化する。",
-      sample: "// 自作キーをマップで使う:\ntemplate&lt;&gt; struct acs::THasher&lt;FMyKey&gt; {\n    u64 operator()(const FMyKey& k) const noexcept {\n        return HashBytes(&amp;k, sizeof(k));\n    }\n};",
       members: [
         { sig: "u64 HashMix64(u64 x)", ret: "混ぜた 64bit 値", desc: "整数 / ポインタキーのビットを拡散し、<code>THashMap</code> のバケット偏りを抑える 64bit 混合関数。" },
         { sig: "u64 HashBytes(const void* data, usize len, u64 seed = ...)", ret: "ハッシュ値", desc: "任意のバイト列のハッシュ。汎用キーや自作型のハッシュ実装に使う。" },
@@ -155,7 +148,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "container/Json.h",
       summary: "JSON の値 1 ノードを表す<t>DOM</t>。配列とオブジェクトの子を <code>TArray</code> で再帰所有し、型不一致時は既定値、空ビュー、静的 Null を返す。<b>コピー禁止・<t>ムーブ</t>専用</b>。",
       when: "ACS の設定、保存データ、アセット情報を JSON 値として保持し、型確認付きで読み書きする時。",
-      sample: "auto r = acs::ParseJson(text);\nif (r.IsOk()) {\n    const FJsonValue& root = r.Value();\n    FStringView img = root.Get(\"meta\").Get(\"image\").AsString();\n    u32 n = root.Get(\"frames\").Size();\n    for (u32 i = 0; i &lt; n; ++i)\n        i32 x = root.Get(\"frames\").At(i).Get(\"x\").AsInt();\n}",
       members: [
         { sig: "EJsonType Type() const", ret: "種別", desc: "この値が Null / Bool / Number / String / Array / Object のどれか。" },
         { sig: "bool IsNull() / IsBool() / IsNumber() / IsString() / IsArray() / IsObject()", desc: "種別判定のショートカット。" },
@@ -181,7 +173,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "container/Json.h",
       summary: "JSON テキストを解析して <code>FJsonValue</code> の<t>DOM</t>を返す入口。構文・深さ・入力サイズの失敗は行・列または subcode 付きの <t>Result</t> で返す。DOM 追加時の allocator 枯渇は checked API が fail-fast で検出する。",
       when: "外部の JSON を読み込む全ての場面。結果は <code>IsOk()</code> を確かめてから <code>Value()</code> で取り出す。",
-      sample: "TResult&lt;FJsonValue&gt; r = acs::ParseJson(text, len);\nif (!r.IsOk()) { /* r.Error() に line/col 付きエラー */ }\nelse { const FJsonValue& root = r.Value(); /* ... */ }",
       members: [
         { sig: "TResult<FJsonValue> ParseJson(const char* text, usize len)", ret: "DOM or エラー", desc: "長さ指定でパースする。" },
         { sig: "TResult<FJsonValue> ParseJson(FStringView s)", ret: "DOM or エラー", desc: "文字列ビューからパースする。" },
@@ -194,7 +185,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "container/Json.h",
       summary: "<code>FJsonValue</code> を UTF-8 JSON へ書き出し、成功時だけ出力文字列を置き換える。",
       when: "ACS の JSON 値を保存用文字列へ変換し、深さと出力バイト数を制限する時。",
-      sample: "FString output;\nif (!acs::TryWriteJson(value, output)) { /* output は変更されない */ }",
       members: [
         { sig: "bool TryWriteJson(const FJsonValue& Value, FString& Output, u32 MaxDepth = 256u, usize MaxBytes = kMaxJsonInputBytes)", ret: "完全に書き出せれば true", desc: "Output の allocator で一時文字列を構築し、制御文字を escape する。非有限数、深さ超過、サイズ超過、確保失敗では false を返して Output を維持する。" }
       ]
@@ -203,15 +193,13 @@ ACS_REF.modules.push({
       name: "EJsonType",
       kind: "列挙(enum)", header: "container/Json.h",
       summary: "<code>FJsonValue</code> が保持している値の種別。<code>Null / Bool / Number / String / Array / Object</code> の 6 種。",
-      when: "<code>Type()</code> の戻り値で値の種類を分岐したい時。",
-      sample: "switch (v.Type()) {\n    case EJsonType::Number: /* ... */ break;\n    case EJsonType::Array:  /* ... */ break;\n    default: break;\n}"
+      when: "<code>Type()</code> の戻り値で値の種類を分岐したい時。"
     },
     {
   name: "Json エラー subcode (kSubJson*)",
   kind: "定数群", header: "container/Json.h",
   summary: "<code>ParseJson</code> が失敗時に <t>Result</t> へ載せる<b>エラー subcode</b>。<code>EErrCategory::Generic</code> 配下の <code>u16</code> 定数で、構文・深さ・末尾内容・途中終端・数値・エスケープ・サイズ超過を区別できる。<b>全て <code>inline constexpr u16</code></b>。",
   when: "<code>ParseJson</code> の <code>Error()</code> を受け取り、どの種類の構文エラーかで分岐・ログ出ししたい時。",
-  sample: "auto r = acs::ParseJson(text, len);\nif (!r.IsOk()) {\n    const FErrorCode&amp; e = r.Error();\n    if (e.subcode == kSubJsonDepth) { /* nesting が深すぎ */ }\n    else if (e.subcode == kSubJsonBadEscape) { /* \\u 等が不正 */ }\n}",
   members: [
     { sig: "inline constexpr u16 kSubJsonSyntax = 1400", desc: "構文エラー(予期しないトークン)。" },
     { sig: "inline constexpr u16 kSubJsonDepth = 1401", desc: "nesting が深すぎる(<code>kMaxDepth</code> 超過で DoS 防止)。" },

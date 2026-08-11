@@ -14,7 +14,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/HotReload.h",
       summary: "Windows 開発ビルドで <code>ReadDirectoryChangesW</code> を非同期駆動し、変更を bounded FIFO と安定 snapshot の<t>コールバック</t>へ配る single-thread-affine watcher/queue seam。path は UTF-8 の所有コピーで、同一 path の burst を debounce できる。アセット再 import や <code>CMessageBroker</code> publish は上位利用側の責務。",
       when: "ゲームを動かしたまま asset directory の変更を検出する時。出荷ビルド (<code>ACS_GAME_SHIPPING</code>) では互換 API を残した no-op shell となる。<code>TryWatchFile</code> は path 登録だけで native handle を作らないため、単一 file の実監視には親 directory も登録する。",
-      sample: "CHotReloadWatcher w;\nw.Init();\nif (w.TryWatchDirectory(\"Assets/Textures\", true) != EHotReloadResult::Success) return;\nw.TrySetDebounceSeconds(0.05f);\nw.TryRegisterCallback(&amp;OnReload, this);\n// 毎フレーム:\nw.TryTick(dt);\nconst FHotReloadDiagnostics d = w.CaptureDiagnostics();\nif (d.authoritative_rescan_required) {\n    RescanAssets();\n    w.ClearDiagnostics();\n}",
       members: [
         { sig: "void Init() / void Shutdown()", desc: "初期化 / 後始末。Shutdown は監視パス・コールバック・未処理イベントを全クリア。どちらも多重呼び出し可。" },
         { sig: "EHotReloadResult TryWatchDirectory(const char* dir, bool recursive = true)", desc: "UTF-8 path 検証・所有コピー・OS handle・初回 async read が全て成功した時だけ監視を登録する。" },
@@ -50,7 +49,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/HotReload.h",
       summary: "1 件のホットリロード通知。「どのファイルが」「いつ」「更新か削除か」を表す<t>POD</t>。",
       when: "<code>ConsumeNextEvent</code> やコールバックで受け取り、該当アセットを再読み込みする時。",
-      sample: "void OnReload(void* user, const FHotReloadEvent&amp; ev) noexcept {\n    static_cast&lt;Importer*&gt;(user)-&gt;Queue(ev.file_path, ev.removed);\n}",
       members: [
         { sig: "const char* file_path", desc: "watcher が所有する対象ファイルの借用パス。callback 引数ではその callback が戻るまで、<code>ConsumeNextEvent</code> の出力では次の <code>ConsumeNextEvent</code> / <code>ClearEvents</code> / <code>Shutdown</code> まで有効。" },
         { sig: "u64 modified_timestamp", desc: "変更検出時刻。" },
@@ -61,8 +59,7 @@ ACS_REF.modules.push({
       name: "FHotReloadCallback",
       kind: "関数ポインタ型", header: "gameframework/HotReload.h",
       summary: "ホットリロード通知を受け取る<t>コールバック</t>の型。<code>void(*)(void* user, const FHotReloadEvent&amp;) noexcept</code>。<code>std::function</code> は使わず関数ポインタ + user で渡す。",
-      when: "<code>RegisterCallback</code> に渡す関数を定義する時の型。",
-      sample: "using FHotReloadCallback =\n    void(*)(void* user, const FHotReloadEvent&amp; ev) noexcept;"
+      when: "<code>RegisterCallback</code> に渡す関数を定義する時の型。"
     },
     {
       name: "EHotReloadResult",
@@ -80,7 +77,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/HungerSystem.h",
       summary: "サバイバル系ゲーム向けに、複数の survivor (プレイヤー/NPC) の空腹・喉の渇き・疲労・正気度・体温などの「生存統計値」を秒単位で減らし、危険域に入ったら警告、0 で HP ダメージ通知まで行うマネージャ。",
       when: "DayZ / The Long Dark / Don't Starve のような「食べないと死ぬ」ゲームを作る時。HP 自体は持たず、危険/ダメージは<t>コールバック</t>で外部 (CHealthSystem) に橋渡しする。",
-      sample: "CHungerSystem hs;\nhs.Init();\nhs.ConfigureStat(ESurvivalStat::Hunger,\n    FStatConfig{ 100.0f, 0.5f, 20.0f, 2.0f });\nFSurvivorId p = hs.AddSurvivor();\nhs.SetOnDamageCallback(&OnDamage, &game);\nhs.RestoreStat(p, ESurvivalStat::Hunger, 30.0f); // 肉を食べた\nhs.Tick(dt);",
       members: [
         { sig: "void Init()", desc: "7 stat 分の設定を既定値で初期化。再呼び出しで全 survivor を破棄しリセット。" },
         { sig: "void ConfigureStat(ESurvivalStat stat, const FStatConfig& config)", desc: "stat ごとの減少速度 / 危険閾値 / 0 時ダメージを上書き。ゲーム起動時に一括設定する想定。" },
@@ -101,15 +97,13 @@ ACS_REF.modules.push({
       name: "ESurvivalStat",
       kind: "列挙(enum)", header: "gameframework/HungerSystem.h",
       summary: "生存統計値の種別。Hunger(空腹) / Thirst(渇き) / Energy(疲労) / Sanity(正気度) / Warmth(体温) / Custom1 / Custom2 の 7 種。",
-      when: "CHungerSystem の各 API で「どの stat か」を指定する時。Custom1/2 はゲーム固有 (放射線・酸素など) の拡張枠。",
-      sample: "hs.RestoreStat(p, ESurvivalStat::Thirst, 50.0f);\nif (hs.IsCritical(p, ESurvivalStat::Warmth)) ShowFreezingUi();"
+      when: "CHungerSystem の各 API で「どの stat か」を指定する時。Custom1/2 はゲーム固有 (放射線・酸素など) の拡張枠。"
     },
     {
       name: "FStatConfig",
       kind: "構造体", header: "gameframework/HungerSystem.h",
       summary: "stat 種別ごとの設定 (全 survivor 共通)。上限値・1 秒あたりの減少量・危険閾値・0 滞在時の毎秒ダメージ。",
       when: "<code>ConfigureStat</code> に渡す。",
-      sample: "FStatConfig cfg{ /*max*/100.0f, /*decay*/1.0f,\n                /*critical*/25.0f, /*zero_dmg*/3.0f };\nhs.ConfigureStat(ESurvivalStat::Thirst, cfg);",
       members: [
         { sig: "f32 max_value", desc: "上限値 (AddSurvivor 直後の初期値)。0 以下は 1.0 扱い。" },
         { sig: "f32 decay_per_sec", desc: "毎秒の自然減少量。0 以下なら減らない。" },
@@ -128,7 +122,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/HungerSystem.h",
       summary: "survivor を指す不透明な<t>ハンドル</t>。24bit の index + 8bit の<t>世代(generation)</t>を 1 つの u32 に詰めたもの。<code>m_Packed == 0</code> が無効。",
       when: "AddSurvivor の戻り値を保持し、以降の操作に渡す。スロット再利用後の古いハンドルは世代不一致で安全に弾かれる。",
-      sample: "FSurvivorId id = hs.AddSurvivor();\nif (id.IsValid()) hs.RestoreStat(id, ESurvivalStat::Hunger, 10.0f);",
       members: [
         { sig: "bool IsValid() const", desc: "有効なハンドルか (m_Packed != 0)。" },
         { sig: "static FSurvivorId Pack(u32 index, u8 gen)", desc: "index と世代からハンドルを作る。" },
@@ -143,7 +136,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/InputAxisOptions.h",
       summary: "1D軸の合算値へデッドゾーン、非負倍率、反転を適用する12byteの値。デッドゾーン外を連続する0..1へ再正規化してから倍率を掛ける。",
       when: "移動や視点入力へ、物理バインドとは独立した感度・反転設定を適用したい時。FInputMap::AxisValueへ値渡しする。",
-      sample: "const FInputAxisOptions look{0.12f, 1.4f, true};\nconst f32 x = input_map.AxisValue(FActionId(\"LookX\"), look);",
       members: [
         { sig: "f32 dead_zone = 0", desc: "絶対値がこの値以下なら0。有効範囲は0以上1未満。" },
         { sig: "f32 scale = 1", desc: "再正規化後の絶対値へ掛ける有限の非負倍率。" },
@@ -156,7 +148,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/InputMap.h",
       summary: "物理キー/マウス/ゲームパッドを「Jump」「MoveX」のような<b>名前付きアクション</b>に束ねるマッピング層。ゲームロジックが物理キーから切り離され、キーコンフィグ UI も後付けできる。",
       when: "「スペース or ゲームパッド A = ジャンプ」のように 1 アクションへ複数入力を割り当てたい時。状態は持たず、問い合わせ時に <code>acs::CInput</code> を poll する。",
-      sample: "FInputMap im;\nim.BindKey    (FActionId(\"Jump\"),  EKey::Space);\nim.BindGamepad(FActionId(\"Jump\"),  EGamepadButton::A);\nim.BindAxisKeys(FActionId(\"MoveX\"), EKey::A, EKey::D);\nif (im.IsPressed(FActionId(\"Jump\"))) DoJump();\nf32 mx = im.Axis(FActionId(\"MoveX\")); // -1, 0, +1",
       members: [
         { sig: "void BindKey(FActionId a, EKey key)", desc: "キーボードのキーをアクションに割り当てる。" },
         { sig: "void BindMouseButton(FActionId a, EMouseButton mb)", desc: "マウスボタンを割り当てる。" },
@@ -175,7 +166,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/InputMap.h",
       summary: "アクション識別子。<code>FActionId(\"Jump\")</code> のように文字列リテラルから<t>コンパイル時ハッシュ</t> (FNV-1a) で生成され、中身は u32。実行時の文字列比較が無い。",
       when: "FInputMap の bind / query に「アクション名」を渡す時。同じ文字列なら常に同じ値。",
-      sample: "constexpr FActionId kJump{\"Jump\"};\nim.BindKey(kJump, EKey::Space);",
       members: [
         { sig: "constexpr FActionId(const char* name)", desc: "名前から<t>コンパイル時ハッシュ</t>で生成。" },
         { sig: "constexpr bool operator==/!=(FActionId) const", desc: "u32 値の一致比較。" }
@@ -185,8 +175,7 @@ ACS_REF.modules.push({
       name: "ActionHash",
       kind: "関数", header: "gameframework/InputMap.h",
       summary: "文字列を 32bit の FNV-1a ハッシュに変換する <code>constexpr</code> 関数。FActionId の内部で使われる。",
-      when: "通常は FActionId 経由で十分。ハッシュ値を直接欲しい時のみ。",
-      sample: "constexpr u32 h = ActionHash(\"Jump\");"
+      when: "通常は FActionId 経由で十分。ハッシュ値を直接欲しい時のみ。"
     },
     // =====================================================================
     // InputRecorder.h
@@ -196,7 +185,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/InputRecorder.h",
       summary: "OS 寄りの<b>生 (raw) 入力</b> (キー変化 + マウス座標 + ボタン) を 1 tick = 1 サンプルとして録画し、後でそのまま再生できるレコーダ。<code>.acsr</code> 形式でファイル保存も可能。",
       when: "TAS / 自動テスト / バグ再現で「同じ入力列をピクセル単位で再現」したい時。ゲーム解釈済み入力を扱う CLockstep とは別レイヤ (こちらは OS 信号寄り)。",
-      sample: "CInputRecorder rec;\nrec.StartRecording(/*tick_rate_hz=*/60);\nFInputSample s; s.tick = tick; /* ...詰める... */\nrec.Capture(s);\n// 後で:\nrec.StartReplay();\nFInputSample out;\nif (rec.ConsumeSample(tick, out)) { /* out を入力の代わりに使う */ }",
       members: [
         { sig: "void StartRecording(u32 tick_rate_hz = 60) / StopRecording()", desc: "録画開始 / 停止。tick_rate は再生時の整合検証用 (ファイルに保存)。" },
         { sig: "void StartReplay() / StopReplay()", desc: "再生開始 (cursor を先頭へ) / 停止。録画済み sample は保持。" },
@@ -215,7 +203,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/InputRecordingView.h",
       summary: "caller-owned の <code>.acsr</code> バイト列を全検証し、sample 領域を<b>コピーせず借用</b>する immutable decoder。header、製品上限、厳密サイズ、CRC32、mouse の有限値を allocation 前に検査する。",
       when: "mapped file や受信バッファを所有配列へ展開せず、安全に順次参照したい時。記録を長期保持・編集する場合は <code>CInputRecorder::TryLoadFromBuffer</code> を使う。",
-      sample: "TSpan&lt;const u8&gt; bytes(fileData, fileSize); // view より長く生存し、不変に保つ\nTResult&lt;FInputRecordingView&gt; result = FInputRecordingView::Decode(bytes);\nif (result.IsOk()) {\n    FInputSample sample;\n    result.Value().DecodeSample(0u, sample);\n}",
       members: [
         { sig: "static TResult&lt;FInputRecordingView&gt; Decode(TSpan&lt;const u8&gt; bytes)", ret: "検証済み view または FErrorCode", desc: "magic/version、tick rate・件数上限、厳密サイズ、CRC32、全 sample の有限 mouse 値を検査する。null、truncation、破損、上限超過は失敗し、入力を所有しない。" },
         { sig: "bool DecodeSample(u32 index, FInputSample& out) const", ret: "範囲内なら true", desc: "固定 29 byte の ABI 非依存 layout から一件を復元する。範囲外では false を返し、out を変更しない。" },
@@ -227,7 +214,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/InputRecorder.h",
       summary: "1 tick 分の生入力サンプル (<t>POD</t>)。状態変化したキー (最大 8) + マウス座標 + マウスボタン bitmask を持つ。",
       when: "OS の raw input / SDL イベントを詰めて <code>Capture</code> に渡す時、または再生で受け取る時。",
-      sample: "FInputSample s;\ns.tick = m_Tick;\ns.mouse_pos = { mx, my };\ns.mouse_button_states = mask;",
       members: [
         { sig: "u32 tick", desc: "フレーム番号 (0 起点)。" },
         { sig: "u8 key_codes_changed[8] / u8 key_states[8]", desc: "状態変化したキーコードと、その press(1)/release(0)。未使用枠は 0。" },
@@ -249,7 +235,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/InspectorSeam.h",
       summary: "ゲーム内オブジェクトが自分のフィールドを公開する<t>プロバイダ</t>を集める「デバッグインスペクタの<t>シーム(seam)</t>」。UI レイヤ (ImGui 等) はここを回してフィールドを描画/編集する。",
       when: "実行中に Player の HP や速度を画面で覗いて書き換えたい時。本体はレジストリだけで、実際の描画は別レイヤ。出荷ビルドでは登録ごと消す前提。",
-      sample: "CInspectorSeam ins;\nins.Init();\nins.RegisterProvider(&player);\nfor (u32 p = 0; p < ins.ProviderCount(); ++p) {\n    auto* prov = ins.GetProvider(p);\n    // prov->GetObject(o) を回して描画\n}",
       members: [
         { sig: "void Init()", desc: "初期化 (将来 ImGui コンテキスト等の予約点)。多重呼び出し可。" },
         { sig: "void RegisterProvider(IInspectableProvider* p)", desc: "<t>プロバイダ</t>を登録 (非所有)。同一ポインタの二重登録・nullptr は無視。" },
@@ -268,7 +253,6 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/InspectorSeam.h",
       summary: "自分 (または管理下のオブジェクト群) をインスペクタに公開する抽象<t>インターフェース</t>。ゲーム側クラスが継承して実装する。",
       when: "Player や Camera を実行時に覗ける/編集できるようにしたい時。1 provider が N オブジェクトを公開する Manager 型にもできる。",
-      sample: "class FPlayer : public IInspectableProvider {\n    u32 ObjectCount() noexcept override { return 1; }\n    FInspectableObject GetObject(u32) noexcept override {\n        static FInspectableField f[] = {\n            { \"hp\", EFieldKind::I32, &m_Hp, 0, nullptr } };\n        return { \"Player\", \"P1\", f, 1 };\n    }\n    void OnFieldChanged(u32, u32) noexcept override {}\n};",
       members: [
         { sig: "virtual u32 ObjectCount() noexcept = 0", desc: "公開するオブジェクト数。0 なら何も描かれない。" },
         { sig: "virtual FInspectableObject GetObject(u32 index) noexcept = 0", desc: "index 番目のオブジェクト記述を返す。fields 配列は provider 所有。" },
@@ -280,7 +264,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/InspectorSeam.h",
       summary: "公開する 1 フィールドの記述。表示名 + 型タグ (<code>EFieldKind</code>) + データへのポインタ + (enum 用) ラベル配列。",
       when: "GetObject() が返す配列の 1 要素として組む時。",
-      sample: "FInspectableField fld{ \"speed\", EFieldKind::F32,\n                      &m_Speed, 0, nullptr };",
       members: [
         { sig: "const char* name", desc: "表示名 (借用)。" },
         { sig: "EFieldKind kind", desc: "データの型タグ。描画側はこれで switch してキャストする。" },
@@ -312,7 +295,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/InventorySystem.h",
       summary: "「N 個の固定スロット × スタック可能アイテム」モデルのインベントリ管理。RPG / サバイバル / クラフト系で定番の持ち物画面のロジックを直接提供する。",
       when: "拾った/報酬で得たアイテムをプレイヤーが持ち歩く状態を管理したい時。即時購入は CEconomyDirector、装着 cosmetic は CCharacterCustomizer と役割分担。",
-      sample: "CInventorySystem inv;\ninv.Init(/*slot_count=*/30);\ninv.RegisterItem({ \"potion.heal\", \"Heal Potion\",\n    EItemCategory::Consumable, 99, \"ui/potion.png\", true });\ninv.AddItem(\"potion.heal\", 5);  // 積み増し優先\ninv.MoveSlot(3, 7);             // ドラッグ&ドロップ\ninv.DropSlot(7);",
       members: [
         { sig: "void Init(u32 slot_count = 30)", desc: "スロット数を設定 (固定長)。数が変わると内容クリアして resize、同数なら no-op。" },
         { sig: "void RegisterItem(const FItemDef& def)", desc: "アイテム定義を登録 (起動時に 1 度ずつ)。同 id の二重登録は WARN で無視。" },
@@ -335,7 +317,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/InventorySystem.h",
       summary: "アイテム 1 種類の定義 (不変)。id・表示名・分類・最大スタック数・アイコンパス・落とせるか。",
       when: "<code>RegisterItem</code> に渡す。文字列はすべて非所有 (リテラル想定)。",
-      sample: "FItemDef d{ \"ore.iron\", \"Iron Ore\",\n           EItemCategory::Material, 999,\n           \"ui/ore_iron.png\", true };",
       members: [
         { sig: "const char* id / display_name / icon_path", desc: "一意キー / UI 表示名 / アイコン画像パス (すべて非所有)。" },
         { sig: "EItemCategory category", desc: "分類 (UI フィルタ用、Manager は値保存のみ)。" },
@@ -367,7 +348,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/LapTimer.h",
       summary: "レースゲームの<b>ラップ計測 + 順位算出</b>を一元管理するマネージャ。チェックポイント順序検証・ベストラップ更新・フィニッシュ判定・リアルタイム順位ソートをまとめる。",
       when: "レーシング系を作る時。トラックの collider から通過通知を投げ、UI は順位/統計を読むだけで成立する。ショートカットや逆走は順序検証で弾く。",
-      sample: "CLapTimer lt;\nlt.Init(/*total_laps=*/3, /*checkpoints_per_lap=*/4);\nFRacerId p = lt.AddRacer(\"Player\");\nlt.Start();\n// collider event:\nlt.NotifyCheckpointPassed(p, cp_index);\nlt.NotifyLapCompleted(p);\n// UI:\nu32 pos = lt.PositionOf(p); // 1 = leader",
       members: [
         { sig: "void Init(u32 total_laps, u32 checkpoints_per_lap)", desc: "周回数 / 1 周の checkpoint 数を設定。racer は維持して state を Stopped に。" },
         { sig: "FRacerId AddRacer(const char* display_name) / void RemoveRacer(FRacerId)", desc: "racer 追加 (名前は非所有) / 削除 (スロットは世代付きで再利用)。" },
@@ -422,8 +402,7 @@ ACS_REF.modules.push({
       name: "LapCallback / FinishCallback",
       kind: "関数ポインタ型", header: "gameframework/LapTimer.h",
       summary: "ラップ完了 / レース完了 (total_laps 到達) の通知<t>コールバック</t>型。どちらも <code>void* user</code> + FRacerId + 詳細を受ける。",
-      when: "<code>SetOnLapCallback</code> / <code>SetOnFinishCallback</code> に渡す関数の型。",
-      sample: "lt.SetOnLapCallback([](void*, FRacerId id, u32 lap,\n    f32 t, bool pb) noexcept { /* HUD 演出 */ }, nullptr);"
+      when: "<code>SetOnLapCallback</code> / <code>SetOnFinishCallback</code> に渡す関数の型。"
     },
     // =====================================================================
     // LlmSafetyPipeline.h
@@ -433,7 +412,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/LlmSafetyPipeline.h",
       summary: "<t>LLM</t> で喋る NPC のセリフ生成経路に対し、入力検証・jailbreak 検出・<t>PII</t>除去・コンテンツレーティング・トークン予算・refusal 強制を bit flag で束ねた安全パイプライン。",
       when: "プレイヤー入力を LLM に渡す前 (<code>ValidateInput</code>) と、LLM 応答を画面に出す前 (<code>FilterOutput</code>) に通す時。ルールベースで常に同じ判定を返すので「NPC が黙る/別セリフ」分岐を確実に書ける。",
-      sample: "CLlmSafetyPipeline pipe;\npipe.Init();\npipe.SetTokenBudget(1024, 512);\npipe.SetCharacterAnchor(\"You are a friendly shopkeeper.\");\nauto in = pipe.ValidateInput(player_text);\nif (in.verdict != ESafetyVerdict::Pass) { ShowRefusal(in.refusal_reason); return; }\nauto out = pipe.FilterOutput(llm_text);\nif (out.verdict == ESafetyVerdict::Refused) { NpcSilent(); return; }\nDisplay(out.filtered_text);",
       members: [
         { sig: "void Init(ESafetyRule rules = ESafetyRule::Default)", desc: "bit flag で有効機能を選んで初期化。既定は全機能 on。" },
         { sig: "void SetTokenBudget(u32 max_in, u32 max_out)", desc: "入出力のトークン上限 (簡易: 1 token ≒ 4 byte)。0 で当該方向のチェック無効。" },
@@ -450,8 +428,7 @@ ACS_REF.modules.push({
       name: "ESafetyRule",
       kind: "列挙(enum)", header: "gameframework/LlmSafetyPipeline.h",
       summary: "どの安全機能を有効化するかの bit flag。InputValidation / JailbreakDetection / PiiRedaction / ContentRating / TokenBudget / RefusalEnforcement と、全 on の <code>Default</code>。",
-      when: "Init や EnableRule で「PII 除去だけ外す」等、シーン別に機能を取捨選択する時。OR / AND 演算子も定義済み。",
-      sample: "pipe.Init(ESafetyRule::InputValidation\n        | ESafetyRule::JailbreakDetection);"
+      when: "Init や EnableRule で「PII 除去だけ外す」等、シーン別に機能を取捨選択する時。OR / AND 演算子も定義済み。"
     },
     {
       name: "ESafetyVerdict",
@@ -479,7 +456,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/LocalizationDirector.h",
       summary: "「ロケール + 文字列 ID」を「翻訳済みの文字列」に解決する<t>i18n</t> (多言語化) ストア。UI ラベル / セリフ / メニュー文言を言語非依存に引ける。",
       when: "ゲームを多言語対応させたい時。現 locale → Default(En) → key 自身、の 3 段フォールバックで、未翻訳箇所が画面で key として見えるので発見しやすい。",
-      sample: "CLocalizationDirector loc;\nloc.RegisterString(ELocale::En, \"ui.title\", \"Adventure\");\nloc.RegisterString(ELocale::Ja, \"ui.title\", \"クロードの冒険\");\nloc.SetLocale(ELocale::Ja);\nconst char* t = loc.Get(\"ui.title\"); // -> \"クロードの冒険\"",
       members: [
         { sig: "void SetLocale(ELocale loc) / ELocale CurrentLocale() const", desc: "取得対象ロケールの切替 / 現在値。UI 言語切替で呼ぶ。" },
         { sig: "void RegisterString(ELocale loc, const char* key, const char* value)", desc: "指定ロケールに key→value を 1 件登録。key/value とも非所有 (リテラル想定)。" },
@@ -505,7 +481,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/Lockstep.h",
       summary: "<t>lockstep</t> ネットコードの入力レイヤ。1 tick = 1 フレーム分の入力 (FInputFrame) を記録/配信し、全クライアントが同じ順序で消費することで<t>決定論</t>シミュレーションを実現する土台。入力リプレイ・同期ずれ検証も担う。",
       when: "格闘 / RTS / GGPO 系のように「結果」ではなく「入力」を配信して全員が同じ計算を回すネット対戦や、replay / TAS を作る時。",
-      sample: "CLockstep ls;\nls.Init(ENetMode::Local, /*tick_rate_hz=*/60);\nFInputFrame f{ tick, 0, buttons, stick };\nls.RecordInput(f);\n// 後で:\nls.StartReplay();\nFInputFrame out;\nif (ls.ConsumeInput(tick, 0, out)) { /* シミュに反映 */ }",
       members: [
         { sig: "void Init(ENetMode mode, u32 tick_rate_hz = 60)", desc: "モード設定 + tick/cursor リセット。既存 frames は破棄しない。" },
         { sig: "void RecordInput(const FInputFrame& frame)", desc: "入力 1 件を記録。Replay モード中は no-op。内部 tick を frame.tick+1 へ進める。" },
@@ -544,7 +519,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/MatchGrid.h",
       summary: "Bejeweled / Candy Crush 系 <t>match-3</t> パズルのコアロジックを担う 2D グリッド。隣接 swap → 3 個以上の連続検出 → 消去 (special 効果) → 重力落下 → 補充 → 連鎖、までを内包する。",
       when: "マッチ 3 パズルを作る時。盤面の状態とロジックだけを持ち、VFX/SFX/スコアは消去コールバックで外に出す。",
-      sample: "CMatchGrid g;\ng.Init(8, 8, /*color_count=*/5);\ng.FillRandom(0xC0FFEEull); // 初期マッチが残らない決定論埋め\ng.SetOnClearCallback(&MyClearFx, &fx);\nif (g.TrySwap(3, 4, 4, 4)) {        // 成立すれば自動 resolve\n    u32 chains  = g.ChainLevel();\n    u32 cleared = g.TotalClearedThisChain();\n    g.ResetChain();\n}",
       members: [
         { sig: "void Init(u32 width, u32 height, u32 color_count)", desc: "グリッドを初期化。color_count は使う色数 (色 ID は 1..color_count)。不正値は安全な既定に。" },
         { sig: "u32 Width() / u32 Height() const", desc: "盤面サイズ。" },
@@ -602,7 +576,6 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/MlRuntime.h",
       summary: "ML 推論ランタイム (ONNX Runtime / DirectML / NNAPI / CoreML / TFLite) を差し替えるための抽象<t>シーム(seam)</t>。全メソッドは<t>決定論</t>ゾーンの外で呼ばれる前提。",
       when: "AI/ML 推論をゲームに組み込みたいが、再現性が保証されない計算を sim/物理に混ぜたくない時。具象 backend は別モジュールで差し込む。",
-      sample: "IMlRuntime& ml = GetDefaultMlRuntime();\nif (ml.Init().IsOk()) {\n    auto h = ml.LoadModel(\"npc.onnx\");\n    if (h.IsOk()) ml.RunInference(h.Value(), in, n, out, m);\n}",
       members: [
         { sig: "virtual TResult<void> Init() / void Shutdown() noexcept = 0", desc: "backend 初期化 (DLL/セッション/GPU 取得) / 破棄。" },
         { sig: "virtual TResult<FMlModelHandle> LoadModel(const char* path) noexcept = 0", desc: "モデルファイルを読み込んでハンドルを返す。nullptr は失敗。" },
@@ -661,7 +634,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "gameframework/MlRuntime.h",
       summary: "ML / IUpscaler の窓口アクセサ群。プロセス内に 1 個だけある stub への参照を返すほか、実 backend を <code>SetMlRuntimeProvider</code> で結線して <code>GetDefaultMlRuntime</code> から backend 非依存に取得できる。",
       when: "ゲームコードから backend を直接 include せずに既定 ML ランタイムを取りたい時。provider 未登録なら自動で stub を返す。",
-      sample: "#if WITH_ACS_ML_ONNX\n    acs::mlonnx::InstallOnnxAsDefault(); // provider 登録\n#endif\nIMlRuntime& ml = GetDefaultMlRuntime(); // 実 or stub",
       members: [
         { sig: "IMlRuntime& GetMlRuntimeStub() / IUpscaler& GetUpscalerStub()", desc: "プロセス共有の stub への参照。" },
         { sig: "void SetMlRuntimeProvider(MlRuntimeProvider provider)", desc: "実 backend が「既定 runtime を返す関数」を登録 (後勝ち、nullptr で stub に戻す)。" },
@@ -676,7 +648,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/ModRegistry.h",
       summary: "ユーザー Mod (追加コンテンツパック) の登録・有効化・並び順を管理する薄いレジストリ。各 Mod は <code>.acpak</code> を伴い、load_order 順に重ねていく (後勝ちで同名アセットを上書き) 想定。",
       when: "Mod 対応ゲームで、Editor UI から Mod 一覧を出し、有効/無効や読み込み順を管理したい時。実際の mount は別レイヤ (本体は path を保持するだけ)。",
-      sample: "CModRegistry mr;\nFModInfo a{}; a.id=\"core\"; a.load_order=0; a.enabled=true;\na.pack_path=\"mods/core.acpak\";\nmr.Register(a);\nmr.Enable(\"weapons-ex\");\nmr.SortByLoadOrder();\nfor (u32 i=0; i<mr.Count(); ++i)\n    if (mr.All()[i].enabled) MountPack(mr.All()[i].pack_path);",
       members: [
         { sig: "void Register(const FModInfo& info)", desc: "Mod を末尾に追加 (浅いコピー、文字列の寿命は呼び出し側保証)。id==nullptr は無視。" },
         { sig: "bool Enable(const char* id) / bool Disable(const char* id)", desc: "enabled フラグを書き換え。見つかれば true。" },
@@ -709,7 +680,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/MusicDirector.h",
       summary: "ゲームプレイ状態 (戦闘/平穏/勝利...) を BGM にマッピングする上位レイヤ。state ごとに track を登録し、激しさ (intensity) で曲を選び、クロスフェードや一発もの (stinger) を扱う。実再生は CAudioDirector に委ねる。",
       when: "状況に応じて BGM を自動で切り替える「適応 BGM」を作る時。CAudioDirector が低レイヤの mixer/クロスフェードを担うのに対し、こちらは「どの track をどのゲインで鳴らすか」の state machine。",
-      sample: "CMusicDirector md;\nmd.SetAudioDirector(&audio);\nmd.RegisterTrack(EMusicState::Combat,\n    FMusicTrack{ \"bgm/combat.ogg\", 0.0f, 1.0f, true });\nmd.SetState(EMusicState::Combat, 2.0f); // 2 秒クロスフェード\nmd.SetIntensity(0.9f);                  // 高激戦\nmd.Tick(dt);",
       members: [
         { sig: "void RegisterTrack(EMusicState state, const FMusicTrack& track)", desc: "state に track を登録 (複数可、intensity range で選別)。asset_path==nullptr は無視。" },
         { sig: "void SetState(EMusicState state, f32 transition_sec = 2.0f)", desc: "現 state → 指定 state へクロスフェード開始。<=0 は即時、同 state 再要求は no-op。" },
@@ -750,7 +720,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/NetSnapshot.h",
       summary: "<b>server-authoritative</b> な<t>snapshot</t>ベースのネットコード<t>シーム(seam)</t>。server は毎 tick の世界状態を 1 つの snapshot に固めて送信し、client は受信した snapshot を貯めて少し過去の時刻で<t>補間</t>表示する。",
       when: "FPS / TPS / MMORPG のように「結果」だけを配信したい時。「入力」を配信する CLockstep と対になる、もう一つのネットコード流儀。実 socket は INetTransport で差し替える。",
-      sample: "CNetSnapshot snap;\nsnap.Init(cfg, ENetRole::Server, &transport);\n// server tick:\nfor (auto& e : world) snap.AddEntitySnapshot(e.id, e.mask, &e.data, sizeof(e.data));\nsnap.CommitSnapshot(world.tick);\n// client frame:\nsnap.Tick(dt);\nFEntitySnapshot view[256]; u32 n=0;\nif (snap.TryGetInterpolatedSnapshot(t, view, 256, n)) Draw(view, n);",
       members: [
         { sig: "void Init(const FNetSnapshotConfig& cfg, ENetRole role, INetTransport* transport)", desc: "設定・役割・transport を結線。Standalone は transport=nullptr 可、他は内部で stub に差し替え。" },
         { sig: "void Shutdown()", desc: "ring buffer / pending / 統計をリセット (transport は触らない)。" },
@@ -783,7 +752,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/NetSnapshot.h",
       summary: "<code>INetTransport</code> の<b>実 Winsock2 UDP 実装</b>。1 Send = 1 sendto = 1 datagram、1 Receive = 1 recvfrom = 1 datagram でメッセージ境界保持の契約を満たす。",
       when: "実際に UDP で snapshot を送受信したい時。loopback round-trip 検証済みの本実装 (stub ではない)。",
-      sample: "CUdpTransport server, client;\nserver.SetLocalPort(50000);\nserver.Connect(\"127.0.0.1\", 50001); // 送り先=client\nclient.SetLocalPort(50001);\nclient.Connect(\"127.0.0.1\", 50000);\nserver.Send(frame, n);\nu8 buf[2048]; auto r = client.Receive(buf, sizeof(buf));",
       members: [
         { sig: "void SetLocalPort(u16 port) / u16 LocalPort() const", desc: "bind する local port を指定 (0=OS が ephemeral)。Connect 前に呼ぶ。" },
         { sig: "TResult<void> Connect(const char* address, u16 port) noexcept override", desc: "WSAStartup → UDP socket 生成 → 非ブロッキング化 → bind → remote endpoint 保持。" },
@@ -859,7 +827,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/ANode.h",
       summary: "2D/3D 共通シーンの唯一のノードクラス。<code>AObject</code> を基底とし、親が <code>TObjectPtr&lt;ANode&gt;</code> の強参照で子を所有する。transform は <code>FTransform3D</code> 一本で、2D は Position2D/Rotation2D/Scale2D/World2D helper を使う。描画順は DrawLayer/DrawPriority/YSort をノード自身が持つ。",
       when: "ゲームのシーングラフを組む基本単位。<code>AddChild(NewObject&lt;AMyNode&gt;(...))</code> が標準パターンで、ゲームプレイ側の長期参照には stale-safe な <code>TWeakObjectPtr&lt;ANode&gt;</code> を使う。",
-      sample: "class APlayer : public ANode {\npublic:\n    void OnUpdate(f32 dt) noexcept override {\n        SetPosition2D(Position2D() + FVec2{100.0f * dt, 0.0f});\n    }\n};\nANode&amp; p = root.AddChild(NewObject&lt;APlayer&gt;());\np.SetDrawLayer(1);\np.SetYSortEnabled(true);\np.AddComponent&lt;ASprite2DComponent&gt;();\n// root から毎フレーム:\nroot.UpdateTree(dt);\nroot.DrawTreeSorted(rc);\nroot.ResolveStructuralChanges();",
       members: [
         { sig: "virtual void OnSpawn/OnUpdate(f32)/OnFixedUpdate(f32)/OnDraw(FRenderContext&amp;)/OnDespawn() noexcept", desc: "ライフサイクル<t>フック</t>。必要なものだけ override する (全 noexcept 必須)。OnFixedUpdate は固定刻みの物理/決定論ロジック用。" },
         { sig: "FTransform3D&amp; Local() / FTransform3D World() const", desc: "統一されたローカル 3D transform (真値) / 親をたどって合成した world transform。" },

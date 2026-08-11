@@ -12,16 +12,15 @@ ACS_REF.modules.push({
       kind: "クラス", header: "scripting/LuaVm.h",
       summary: "<b>Lua 5.4 の本物の<t>VM</t></b>。スクリプト文字列を読み込んで実行し、Lua の関数呼び出し / C++ 関数の登録 / グローバル変数の読み書き / <t>GC</t> ができる。<t>gameframework</t> の <t>IScriptVm</t> <t>インターフェース</t>を実装しており、<t>Pimpl</t> で <code>lua_State*</code> を隠すので Lua のヘッダを include せずに使える。",
       when: "ゲームに『プレイヤーやモッダーが書き換えられるロジック』を入れたい時。UI イベント・カットシーン・Mod フック・データ駆動のクエスト等、<b>毎フレームの決定論が要らない部分</b>に向く(物理や当たり判定など決定論が必要な所では使わない)。",
-      sample: "acs::scripting::CLuaVm vm;\nif (vm.Init().IsOk()) {\n    vm.LoadScript(\"function add(a,b) return a+b end\", 0, \"inline\");\n    acs::game::FScriptValue args[2];\n    args[0].kind = acs::game::EScriptValueKind::Number; args[0].v.num = 2;\n    args[1].kind = acs::game::EScriptValueKind::Number; args[1].v.num = 3;\n    acs::game::FScriptValue ret;\n    vm.CallFunction(\"add\", args, 2, &amp;ret);   // ret.v.num == 5\n    vm.Shutdown();\n}",
       members: [
         { sig: "CLuaVm() noexcept", desc: "VM を生成する(まだ初期化はされていない)。コピー / <t>ムーブ</t>はできない(単一所有運用)。" },
         { sig: "explicit CLuaVm(IAllocator&amp; allocator) noexcept", desc: "native関数登録簿の保存領域に使う確保器を注入してVMを生成する。VMは確保器を所有せず参照を保持するため、確保器は構築したVMより後まで生存させる。確保失敗経路の制御や所有元と同じ寿命の確保器を使う場合に選ぶ。" },
         { sig: "TResult&lt;void&gt; Init() noexcept", ret: "成否", desc: "Lua の状態(<code>lua_State</code>)を作り、標準ライブラリを開く。これを呼ぶまで <code>LoadScript</code> / <code>CallFunction</code> は失敗してよい。", when: "VM を使い始める最初に 1 回だけ呼ぶ。" },
         { sig: "void Shutdown() noexcept", desc: "Lua の状態を破棄する(<code>lua_close</code> 相当)。登録した <t>NativeFunction</t> もここで無効になる。" },
         { sig: "EScriptLanguage Language() const noexcept", ret: "言語タグ", desc: "常に <code>EScriptLanguage::Lua54</code> を返す。" },
-        { sig: "TResult&lt;void&gt; LoadScript(const char* source, u32 source_len, const char* chunk_name) noexcept", ret: "成否", desc: "スクリプト文字列を 1 つの『chunk』として読み込み、<b>即時実行</b>する(<code>luaL_dostring</code> 相当)。<code>source_len</code> に 0 を渡すと <code>source</code> の長さを自動判定。<code>chunk_name</code> はエラー表示用の名前(ファイル名等)。", sample: "vm.LoadScript(\"print('hello')\", 0, \"boot.lua\");", when: "Lua ソースを読み込んで実行したい時。文字列は所有されないので呼び出し側が寿命を保証する。" },
+        { sig: "TResult&lt;void&gt; LoadScript(const char* source, u32 source_len, const char* chunk_name) noexcept", ret: "成否", desc: "スクリプト文字列を 1 つの『chunk』として読み込み、<b>即時実行</b>する(<code>luaL_dostring</code> 相当)。<code>source_len</code> に 0 を渡すと <code>source</code> の長さを自動判定。<code>chunk_name</code> はエラー表示用の名前(ファイル名等)。", when: "Lua ソースを読み込んで実行したい時。文字列は所有されないので呼び出し側が寿命を保証する。" },
         { sig: "TResult&lt;void&gt; CallFunction(const char* function_name, const FScriptValue* args, u32 arg_count, FScriptValue* ret_out) noexcept", ret: "成否", desc: "Lua のグローバル関数を呼ぶ。<code>args</code> / <code>arg_count</code> で引数を渡し、<code>ret_out</code> に戻り値を受け取る(<code>nullptr</code> で戻り値を捨てる)。未登録関数や実行時エラーは失敗で返る。", when: "C++ から Lua 側のロジック(イベントハンドラ等)を呼びたい時。" },
-        { sig: "TResult&lt;void&gt; RegisterNativeFunction(const char* function_name, NativeFunction fn, void* user) noexcept", ret: "成否", desc: "C++ の関数を Lua のグローバル空間に登録し、Lua 側から名前で呼べるようにする。<code>user</code> は呼び出し時に <t>NativeFunction</t> の第 3 引数へそのまま渡る。同じVMへの登録再入は拒否し、失敗時はstack・登録簿・同名globalの復元を試みる。復元中にLuaのメモリ不足が再発した場合だけglobal値を保証しない。Lua側へ退避された失敗closureは登録IDで後続登録から分離される。登録簿確保失敗はIDを消費せず、最大IDの公開開始後は再初期化しても後続登録を恒久拒否する。", sample: "vm.RegisterNativeFunction(\"PlaySound\", &amp;OnPlaySound, this);", when: "Lua スクリプトから C++ のゲーム機能(音を鳴らす・スポーンする等)を呼ばせたい時。" },
+        { sig: "TResult&lt;void&gt; RegisterNativeFunction(const char* function_name, NativeFunction fn, void* user) noexcept", ret: "成否", desc: "C++ の関数を Lua のグローバル空間に登録し、Lua 側から名前で呼べるようにする。<code>user</code> は呼び出し時に <t>NativeFunction</t> の第 3 引数へそのまま渡る。同じVMへの登録再入は拒否し、失敗時はstack・登録簿・同名globalの復元を試みる。復元中にLuaのメモリ不足が再発した場合だけglobal値を保証しない。Lua側へ退避された失敗closureは登録IDで後続登録から分離される。登録簿確保失敗はIDを消費せず、最大IDの公開開始後は再初期化しても後続登録を恒久拒否する。", when: "Lua スクリプトから C++ のゲーム機能(音を鳴らす・スポーンする等)を呼ばせたい時。" },
         { sig: "void SetGlobalNumber(const char* name, f64 value) noexcept", desc: "Lua のグローバル数値変数を設定する。スクリプト側から <code>name</code> で参照できる。" },
         { sig: "f64 GetGlobalNumber(const char* name, f64 default_value) const noexcept", ret: "数値", desc: "Lua のグローバル数値変数を読む。未定義 / 型が違う時は <code>default_value</code> を返す。" },
         { sig: "void CollectGarbage() noexcept", desc: "<t>GC</t> を 1 サイクル強制実行する(<code>lua_gc(LUA_GCCOLLECT)</code> 相当)。フレーム境界で明示的に呼ぶ運用が推奨。" },
@@ -33,22 +32,19 @@ ACS_REF.modules.push({
       name: "GetDefaultLuaVm()",
       kind: "関数", header: "scripting/LuaVm.h",
       summary: "プロセスで 1 個だけ共有される既定の <code>CLuaVm</code>(<t>シングルトン</t>)への参照を返す。<code>InstallLuaAsDefault()</code> が <t>gameframework</t> の provider へ登録する実体でもある。",
-      when: "アプリ全体で 1 つの Lua VM を共有したい時。通常は直接呼ばず <code>InstallLuaAsDefault()</code> 経由で <code>acs::game::GetDefaultScriptVm()</code> から使う。",
-      sample: "acs::game::IScriptVm& vm = acs::scripting::GetDefaultLuaVm();\nvm.Init();"
+      when: "アプリ全体で 1 つの Lua VM を共有したい時。通常は直接呼ばず <code>InstallLuaAsDefault()</code> 経由で <code>acs::game::GetDefaultScriptVm()</code> から使う。"
     },
     {
       name: "InstallLuaAsDefault()",
       kind: "関数", header: "scripting/LuaVm.h",
       summary: "<t>gameframework</t> の『既定 <t>ScriptVm</t> provider』に <code>GetDefaultLuaVm</code> を登録する。これを呼ぶと、以降 <code>acs::game::GetDefaultScriptVm()</code> が <b>本物の Lua 5.4 VM</b> を返すようになる。",
-      when: "アプリ起動時に <b>一度だけ</b>呼ぶ。これにより上位コードは backend を意識せず <code>GetDefaultScriptVm()</code> だけで実 VM を取得でき、<code>#if</code> 分岐がこの 1 箇所だけで済む。",
-      sample: "// アプリ起動時 (一度だけ)\n#if WITH_ACS_SCRIPTING\n    acs::scripting::InstallLuaAsDefault();\n#endif\n// 以降どこでも:\nacs::game::IScriptVm& vm = acs::game::GetDefaultScriptVm(); // 実 Lua VM"
+      when: "アプリ起動時に <b>一度だけ</b>呼ぶ。これにより上位コードは backend を意識せず <code>GetDefaultScriptVm()</code> だけで実 VM を取得でき、<code>#if</code> 分岐がこの 1 箇所だけで済む。"
     },
     {
       name: "FScriptValue",
       kind: "構造体", header: "gameframework/ScriptHost.h",
       summary: "C++ と Lua の間で値を受け渡すための<b>タグ付き共用体風の <t>POD</t></b>。<code>kind</code> で種類を、<code>v</code> で中身を表す。種類は Nil / Bool / Number / String / Handle の 5 つ。<code>CLuaVm</code> の引数 / 戻り値はすべてこの型の配列で表現する。",
       when: "<code>CallFunction</code> に引数を渡す / 戻り値を受け取る時や、<t>NativeFunction</t> の中で値を読み書きする時に使う。",
-      sample: "acs::game::FScriptValue v;\nv.kind = acs::game::EScriptValueKind::Number;\nv.v.num = 3.14;          // Number は f64\n// 文字列は所有しない(寿命は呼び出し側が保証)\nacs::game::FScriptValue s;\ns.kind = acs::game::EScriptValueKind::String;\ns.v.str = \"hello\";",
       members: [
         { sig: "EScriptValueKind kind", desc: "値の種類(既定は <code>Nil</code>)。これを見てから <code>v</code> の正しいフィールドを読む。" },
         { sig: "union { bool b; f64 num; const char* str; u32 handle; } v", desc: "中身。<code>Number</code> は <code>num</code>(整数も <code>f64</code> に丸めて格納)、文字列は <code>str</code>(<b>所有しない</b>)、<code>Handle</code> は <code>handle</code>(エンティティ等の不透明 ID)。" }
@@ -59,7 +55,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "gameframework/ScriptHost.h",
       summary: "<t>FScriptValue</t> がどの種類の値かを表すタグ。Lua / Wren / Python の動的型の最大公約数。",
       when: "<code>FScriptValue</code> を作る / 読む時に <code>kind</code> へ設定・判定する。",
-      sample: "if (ret.kind == acs::game::EScriptValueKind::Number) {\n    f64 n = ret.v.num;\n}",
       members: [
         { sig: "Nil = 0", desc: "値なし。既定状態 / 戻り値なしを表す。" },
         { sig: "Bool = 1", desc: "真偽値(<code>v.b</code>)。" },
@@ -73,7 +68,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/ScriptHost.h",
       summary: "Lua から <t>NativeFunction</t>(登録した C++ 関数)が呼ばれた瞬間に渡される、引数と戻り値のまとめ。引数配列・件数・戻り値書き込み先だけを持つ薄い <t>POD</t>。",
       when: "<code>RegisterNativeFunction</code> で登録した C++ 関数の中で、引数を読み戻り値を書く時に使う。",
-      sample: "void OnAdd(acs::game::IScriptVm&, acs::game::FScriptCallFrame& f, void*) noexcept {\n    f64 a = f.args[0].v.num;\n    f64 b = f.args[1].v.num;\n    if (f.ret) { f.ret->kind = acs::game::EScriptValueKind::Number; f.ret->v.num = a + b; }\n}",
       members: [
         { sig: "const FScriptValue* args", desc: "引数配列(読み取り専用、長さは <code>arg_count</code>)。" },
         { sig: "u32 arg_count", desc: "<code>args</code> の長さ。0 でも有効(引数なし関数)。" },
@@ -84,15 +78,13 @@ ACS_REF.modules.push({
       name: "NativeFunction",
       kind: "関数ポインタ型", header: "gameframework/ScriptHost.h",
       summary: "Lua 側から呼べる C++ 関数の型。<code>void(*)(IScriptVm&amp; vm, FScriptCallFrame&amp; frame, void* user) noexcept</code>。<code>user</code> には登録時に渡したコンテキスト(<code>this</code> 等)がそのまま流れてくる。<b>例外を投げてはいけない</b>(Lua は C 由来で巻き戻し非対応)。",
-      when: "Lua から呼ばせたい C++ 関数を <code>RegisterNativeFunction</code> に登録する時の関数シグネチャとして使う。",
-      sample: "void OnLog(acs::game::IScriptVm&, acs::game::FScriptCallFrame& f, void* user) noexcept {\n    // f.args[0].v.str をログ出力 等\n}\nvm.RegisterNativeFunction(\"Log\", &amp;OnLog, nullptr);"
+      when: "Lua から呼ばせたい C++ 関数を <code>RegisterNativeFunction</code> に登録する時の関数シグネチャとして使う。"
     },
     {
       name: "EScriptLanguage",
       kind: "列挙(enum)", header: "gameframework/ScriptHost.h",
       summary: "VM の backend(言語)を識別するタグ。<code>CLuaVm</code> は常に <code>Lua54</code> を返す。複数 backend を併用する場合の判定に使う。",
       when: "<code>IScriptVm::Language()</code> の戻り値で、どの言語の VM かを見分けたい時。",
-      sample: "if (vm.Language() == acs::game::EScriptLanguage::Lua54) { /* Lua 用処理 */ }",
       members: [
         { sig: "Lua54 = 0", desc: "Lua 5.4(推奨 backend、<code>CLuaVm</code> が返す)。" },
         { sig: "Wren = 1", desc: "Wren(小規模・組み込み向け)。" },
@@ -105,7 +97,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/ScriptHost.h",
       summary: "<b>ゲームコードから見たスクリプトの単一窓口</b>。<t>IScriptVm</t>* を 1 つ保持し、関数呼び出し・ファイル実行・C++ 関数登録・エラー通知をまとめる(<t>DI</t> ポイントを 1 つに絞る)。<b>vm は所有しない</b>(生成/破棄は <code>CGame</code>/<code>Scene</code> 側の責任)。コピー/<t>ムーブ</t>不可。",
       when: "ゲーム側で「スクリプトを呼ぶ」窓口が欲しい時。<code>CLuaVm</code>(実)や <code>GetVmStub()</code>(未統合時)を <code>Init()</code> で差し込んで使う。",
-      sample: "acs::scripting::CLuaVm vm; vm.Init();\nacs::game::CScriptHost host;\nhost.Init(&amp;vm);                              // 実 VM(未統合なら &amp;GetVmStub())を差す\nhost.RegisterNative(\"spawn\", &amp;Spawn, &amp;world);\nif (host.LoadAndRun(L\"scripts/quest.lua\").IsErr()) { /* 失敗処理 */ }\nacs::game::FScriptValue ret;\nhost.CallGlobalFunction(\"on_start\", nullptr, 0, &amp;ret);\nhost.Shutdown();                            // vm は delete しない",
       members: [
         { sig: "void Init(IScriptVm* vm)", desc: "使う VM を差し込む。<code>nullptr</code> は Shutdown 相当。多重呼び出し可(後勝ち)。<b>vm は所有しない</b>。" },
         { sig: "void Shutdown()", desc: "vm 参照を切り、内部の native 登録リストもクリア(vm の破棄は呼び出し側)。" },
@@ -123,7 +114,6 @@ ACS_REF.modules.push({
       kind: "クラス / 関数", header: "gameframework/ScriptHost.h",
       summary: "実 backend(Lua 等)が<b>未統合のときの安全側 <t>IScriptVm</t></b>。<code>Init</code>/<code>Shutdown</code> だけ no-op 成功し、<code>LoadScript</code>/<code>CallFunction</code>/<code>RegisterNativeFunction</code> は <code>kSub_NotImplemented</code> を返す。これで上位層の「スクリプトが常に失敗する」fallback を検証できる。",
       when: "<code>ACS_BUILD_SCRIPTING</code> OFF や backend 未リンクの状態でも起動シーケンスを通したい時。",
-      sample: "acs::game::CScriptHost host;\nhost.Init(&amp;acs::game::GetVmStub());   // 未統合でも安全に動く\n// LoadAndRun / CallGlobalFunction は kSub_NotImplemented を返す",
       members: [
         { sig: "IScriptVm&amp; GetVmStub()", ret: "stub 参照", desc: "プロセス内に 1 つの静的 stub(Meyers singleton)への参照。" },
         { sig: "Init() / Shutdown()", desc: "no-op 成功(起動シーケンスを通すため)。" },
@@ -135,7 +125,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "gameframework/ScriptHost.h",
       summary: "<b>backend 非依存で既定 VM を取得する結線点</b>。<t>gameframework</t> は実 backend(<code>ACS::Scripting</code>)に依存できない(循環依存)ため、実 backend 側が <code>SetScriptVmProvider()</code> で「既定 VM を返す関数」を登録し、ゲームは <code>GetDefaultScriptVm()</code> で取得する。未登録なら <code>GetVmStub()</code> を返す。",
       when: "アプリ起動時に 1 度 backend を結線したい時。以降はどこでも backend 非依存に既定 VM を引ける。",
-      sample: "#if WITH_ACS_SCRIPTING\n    acs::scripting::InstallLuaAsDefault();   // provider を登録\n#endif\nacs::game::IScriptVm&amp; vm = acs::game::GetDefaultScriptVm();  // 実 Lua or stub\nhost.Init(&amp;vm);",
       members: [
         { sig: "using ScriptVmProvider = IScriptVm&amp; (*)() noexcept", desc: "既定 VM を返す関数ポインタ型。" },
         { sig: "void SetScriptVmProvider(ScriptVmProvider provider)", desc: "provider を登録(<code>nullptr</code> で stub に戻す。後勝ち)。実 backend の <code>Install*</code> から呼ぶ。" },
@@ -147,7 +136,6 @@ ACS_REF.modules.push({
       kind: "定数(u16)", header: "gameframework/ScriptHost.h",
       summary: "<code>TResult</code> が <t>Err</t> の時に <code>err.subcode</code> で原因を見分ける定数群(カテゴリは <code>ErrCategory::Generic</code>)。<code>TSaveSlot</code>/<code>FMlRuntime</code> と同じ流儀で番号を固定。",
       when: "<code>LoadAndRun</code>/<code>CallGlobalFunction</code> 等の失敗理由で分岐したい時に <code>r.Error().subcode == ...</code> で照合する。",
-      sample: "auto r = host.LoadAndRun(L\"a.lua\");\nif (r.IsErr() &amp;&amp; r.Error().subcode == acs::game::script_err::kSub_NotImplemented) {\n    // backend 未統合。スクリプト無しで続行\n}",
       members: [
         { sig: "kSub_NotImplemented = 99", desc: "stub / backend 未統合。" },
         { sig: "kSub_InvalidArg = 1", desc: "nullptr / 不正引数。" },

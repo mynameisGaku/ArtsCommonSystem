@@ -91,7 +91,6 @@ REFERENCE_CLASS_KINDS = frozenset(
         "クラス",
         "クラス / 関数",
         "クラス (static のみ)",
-        "クラス(AEditorCommand 派生サンプル)",
         "クラス(AEditorPanel 派生)",
         "クラス / 構造体",
         "クラス(AAsset 派生)",
@@ -1038,7 +1037,7 @@ def audit_legacy_alias_reference_tokens(
 ) -> list[FReferenceContractViolation]:
     """旧名が正規entry内のexact using以外へ再流入していないか検証する。"""
 
-    # 全reference本文を対象にし、sample、crossref、glossaryも監査する。
+    # 全reference本文とcrossref、glossaryを監査する。
     sources = {
         path: path.read_text(encoding="utf-8")
         for path in sorted(data_root.glob("*.js"), key=lambda item: item.name.casefold())
@@ -1150,7 +1149,7 @@ def run_self_test() -> int:
                 "},\n"
             )
 
-        data_path = data_root / "sample.js"
+        data_path = data_root / "reference.js"
         data_path.write_text(
             reference_entry("World", "クラス", "World.h")
             + reference_entry("CpuFeatures / Cpu()", "構造体・関数", "Cpu.h")
@@ -2072,11 +2071,11 @@ def run_self_test() -> int:
 
         for legacy_name in sorted(legacy_mutation_names):
             canonical_name = LEGACY_REFERENCE_ALIASES[legacy_name]
-            # sampleやglossary相当の本文へ旧名が再流入するmutationを固定する。
-            sample_path = data_root / "sample.js"
-            original_sample = sample_path.read_text(encoding="utf-8")
-            sample_path.write_text(
-                original_sample + f'const legacyText = "{legacy_name}";\n',
+            # reference本文やglossaryへ旧名が再流入するmutationを固定する。
+            reference_path = data_root / "reference.js"
+            original_reference = reference_path.read_text(encoding="utf-8")
+            reference_path.write_text(
+                original_reference + f'const legacyText = "{legacy_name}";\n',
                 encoding="utf-8",
             )
             actual_token_violations = tuple(
@@ -2104,7 +2103,7 @@ def run_self_test() -> int:
                     file=sys.stderr,
                 )
                 return 1
-            sample_path.write_text(original_sample, encoding="utf-8")
+            reference_path.write_text(original_reference, encoding="utf-8")
 
             # exact usingの参照先を変えた場合も互換説明として認めない。
             exact_alias = f"using {legacy_name} = {canonical_name}"

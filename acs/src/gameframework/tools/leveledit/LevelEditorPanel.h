@@ -72,8 +72,8 @@
 //   ・**snap_to_grid は表示用フラグ**: tile 単位編集なのでペイント自体は常に
 //     snap される。snap_to_grid=true の時は「マウスホバー位置の tile を強調表示」
 //     (= grid line を太く描くなど) する見た目フラグとして使う。
-//   ・**ImGui canvas は ImGui::InvisibleButton + GetWindowDrawList()**: AnimCurve
-//     AEditorPanel と同パターン (ImGui Demo の Canvas example と同形)。
+//   ・**canvas の入力と描画を分離**: ImGui::InvisibleButton が入力領域を持ち、
+//     GetWindowDrawList が tile と hover 表示を描く。
 //   ・**flood-fill の上限 sentinel**: FTilemap 全 cell 数 (= 32*32=1024 程度)
 //     を超える stack 深さは想定しないが、巨大マップでも暴走しないよう
 //     `kFloodFillMaxCells` で打ち切り (= 64*64=4096)。

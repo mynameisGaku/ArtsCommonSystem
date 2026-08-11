@@ -108,11 +108,10 @@ ACS_REF.modules.push({
       kind: "クラス", header: "event/MessageBroker.h",
       summary: "<b>型ごと</b>にイベントを配る<t>pub/sub</t>(出版/購読)バス。イベント型 <code>E</code> を購読しておくと、誰かが <code>Publish&lt;E&gt;()</code> した瞬間に登録した関数が<b>同期で</b>(その場で)呼ばれます。配信中の追加は次回から有効になり、配信中の解除と全解除も安全に処理します。",
       when: "ゲーム内で「ダメージが入った」「アイテムを拾った」等の<b>出来事</b>を、それを気にする複数の場所へ一斉に知らせたい時。1 スレッド内でのみ使う。",
-      sample: "struct FDamageEvent { FEntityId Target; f32 Amount; };\n\nstatic void OnDamage(const void* payload, void* user) {\n    const auto&amp; e = *static_cast&lt;const FDamageEvent*&gt;(payload);\n    // ... user は登録時に渡した自分の状態 ...\n}\n\nCMessageBroker bus;\nauto h = bus.Subscribe&lt;FDamageEvent&gt;(&amp;OnDamage, &amp;state);\nbus.Publish&lt;FDamageEvent&gt;(FDamageEvent{ enemy, 25.0f }); // ここで OnDamage が呼ばれる\nbus.Unsubscribe(h);",
       members: [
         { sig: "template<typename E> FSubscriptionHandle Subscribe(MessageCallback cb, void* user)", ret: "購読ハンドル", desc: "<code>E</code> 型イベントを購読する。配信中に追加した購読は、空き枠の有無にかかわらず次回の配信から呼ばれる。関数が空、型数が上限外、全解除中、世代番号の使い切り後、または保持領域を確保できない場合は無効なハンドルを返す。", when: "そのイベントに反応したい受信側で。返ったハンドルは解除に使うので保持する。" },
         { sig: "template<typename E, auto Callback> FSubscriptionHandle SubscribeTyped(void* user)", ret: "購読ハンドル", desc: "<code>void(const E&amp;, void*) noexcept</code>として呼べる関数をコンパイル時に検証し、型消去された既存配信経路へ登録する。" },
-        { sig: "template<typename E> void Publish(const E& payload)", desc: "<code>E</code> 型イベントを発行し、配信開始時点の購読者を<b>その場で順に</b>呼ぶ(同期配信)。配信中に全解除された場合は残りを呼ばない。", sample: "bus.Publish&lt;FDamageEvent&gt;(FDamageEvent{ enemy, 10.0f });", when: "出来事が起きた瞬間に全員へ知らせたい時。" },
+        { sig: "template<typename E> void Publish(const E& payload)", desc: "<code>E</code> 型イベントを発行し、配信開始時点の購読者を<b>その場で順に</b>呼ぶ(同期配信)。配信中に全解除された場合は残りを呼ばない。", when: "出来事が起きた瞬間に全員へ知らせたい時。" },
         { sig: "bool Unsubscribe(FSubscriptionHandle h)", ret: "解除できたか", desc: "購読を解除する。<b>配信(Publish)中でも直ちに無効</b>になり、まだ呼ばれていない購読ならその回から呼ばれない。購読枠の再利用だけを最外側の配信終了まで遅らせる。", when: "受信側が不要になった/破棄される時。必ず解除する。" },
         { sig: "void Clear()", desc: "全購読を直ちに無効化する。配信中は残りの処理を止め、新しい購読を拒否し、最外側の配信終了時に保持領域を解放する。" },
         { sig: "u32 SubscriberCount(FEventTypeId channel) const", ret: "購読者数", desc: "あるチャンネル(イベント型)の現在の購読者数。主にデバッグ用。" },
@@ -124,7 +123,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "event/SubscriptionHandle.h",
       summary: "<code>CMessageBroker::Subscribe</code> が返す<b>購読の控え</b>。これを <code>Unsubscribe</code> に渡して解除する。<t>世代</t>付きなので、解除済みの古いハンドルで誤って別の購読を消すことはありません。",
       when: "購読を後で解除するために保持しておく値。",
-      sample: "FSubscriptionHandle h = bus.Subscribe&lt;FDamageEvent&gt;(&amp;OnDamage, &amp;state);\nif (h.IsValid()) {\n    // ... 必要なくなったら ...\n    bus.Unsubscribe(h);\n}",
       members: [
         { sig: "bool IsValid() const", ret: "有効か", desc: "通路が範囲内で、購読番号と世代番号がともに0以外なら true。" },
         { sig: "bool operator==(const FSubscriptionHandle& o) const", desc: "チャンネル・id・世代がすべて一致するか。" },
@@ -136,22 +134,19 @@ ACS_REF.modules.push({
       name: "MessageCallback",
       kind: "型エイリアス (関数ポインタ)", header: "event/MessageBroker.h",
       summary: "<code>CMessageBroker</code> の購読コールバックの型。<code>void (*)(const void* payload, void* user)</code>。<code>payload</code> は発行されたイベントの中身、<code>user</code> は登録時に渡した任意ポインタ。STL 非依存方針のため<t>ラムダ</t>のキャプチャではなく <code>user</code> で状態を持ち回ります。",
-      when: "<code>Subscribe</code> に渡す受信関数を書く時の型。",
-      sample: "static void OnPickup(const void* payload, void* user) {\n    const auto&amp; e = *static_cast&lt;const FPickupEvent*&gt;(payload);\n    auto* self = static_cast&lt;FMyState*&gt;(user);\n    self-&gt;score += e.Value;\n}"
+      when: "<code>Subscribe</code> に渡す受信関数を書く時の型。"
     },
     {
       name: "GetEventTypeId&lt;E&gt;()",
       kind: "関数テンプレート", header: "event/MessageBroker.h",
       summary: "イベント型 <code>E</code> に対して<b>一意な番号</b>(<code>FEventTypeId</code>)を割り当てて返す。同じ型なら常に同じ番号になり、<code>CMessageBroker</code> が型ごとのチャンネルを区別するのに使います。",
-      when: "通常は <code>Subscribe</code>/<code>Publish</code> が内部で呼ぶので、直接使うことは稀。チャンネル番号が欲しい時だけ。",
-      sample: "FEventTypeId id = GetEventTypeId&lt;FDamageEvent&gt;();\nu32 n = bus.SubscriberCount(id);   // この型の購読者数"
+      when: "通常は <code>Subscribe</code>/<code>Publish</code> が内部で呼ぶので、直接使うことは稀。チャンネル番号が欲しい時だけ。"
     },
     {
       name: "FEventTypeId",
       kind: "型エイリアス", header: "event/EventTypeId.h",
       summary: "<code>CMessageBroker</code> がメッセージ型ごとの通路を識別する番号。",
       when: "購読数の確認など、型から得た通路番号を明示的に保持する時。",
-      sample: "FEventTypeId channel = GetEventTypeId&lt;FDamageEvent&gt;();\nif (IsValidEventTypeId(channel)) { /* 利用できる通路 */ }",
       members: [
         { sig: "FEventTypeId = u32", desc: "通路番号の実体は <code>u32</code>。" },
         { sig: "using EventTypeId = FEventTypeId", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>FEventTypeId</code> を使う。" },
@@ -164,7 +159,6 @@ ACS_REF.modules.push({
       kind: "クラステンプレート", header: "event/MessagePipe.h",
       summary: "<b>スレッドをまたいで</b>値を渡すための <t>MPMC</t> キュー(複数の生産者/複数の消費者)。生産側が <code>Push</code> で値を積み、消費側が別<t>スレッド</t>で <code>TryPop</code>/<code>Pop</code> で取り出します。内部は <t>ミューテックス</t>+<t>条件変数</t>でスレッド安全。",
       when: "ワーカースレッドの結果をメインスレッドで受け取る等、<b>違うスレッド間</b>でイベントや値を受け渡したい時。同一スレッド内の即時配信は <t>CMessageBroker</t> を使う。",
-      sample: "TMessagePipe&lt;FDamageEvent&gt; pipe;\n\n// 生産スレッド:\npipe.Push(FDamageEvent{ enemy, 25.0f });\n\n// 消費スレッド (毎フレーム):\nFDamageEvent e;\nwhile (pipe.TryPop(e)) {\n    ApplyDamage(e);   // 溜まっている分を全部処理\n}",
       members: [
         { sig: "bool Push(T value)", ret: "積めたか", desc: "値を末尾に積む。<code>Close()</code> 済みなら false。待っている消費者が居れば 1 人起こす。", when: "生産側スレッドからイベント/結果を送る時。" },
         { sig: "bool TryPop(T& out)", ret: "取れたか", desc: "<b>待たずに</b>1 件取り出す。空なら即 false。", when: "毎フレームのループで「来ている分だけ」処理する時。" },
@@ -179,11 +173,10 @@ ACS_REF.modules.push({
       kind: "クラス", header: "event/TimerManager.h",
       summary: "<b>時間差</b>で関数を呼ぶタイマー集。「N 秒後に 1 回」や「N 秒ごとに繰り返し」を登録し、毎フレーム <code>Tick(dt)</code> を回すと条件を満たしたタイマが発火します。実時間ではなく<b>フレームの経過時間</b>で進むので、ポーズや早送りにも自然に追従します。",
       when: "クールダウン明け、遅延スポーン、定期回復、点滅の切り替え等、「少し後で/定期的に」何かを実行したい時。",
-      sample: "static void OnFire(void* user) {\n    auto* s = static_cast&lt;FMyState*&gt;(user);\n    s-&gt;Spawn();\n}\n\nCTimerManager timers;\nauto h = timers.SetTimeout(2.5f, &amp;OnFire, &amp;st);  // 2.5 秒後に 1 回\n\n// フレームループで毎回:\ntimers.Tick(dt);",
       members: [
         { sig: "FTimerHandle SetTimeout(f32 delay_seconds, TimerCallback cb, void* user)", ret: "タイマーハンドル", desc: "<code>delay_seconds</code> 秒後に <code>cb(user)</code> を<b>1 回だけ</b>呼ぶ。世代番号の使い切り後は無効なハンドルを返す。", when: "遅延実行・ワンショットの予約に。" },
         { sig: "FTimerHandle SetTimeout(f32 delay_seconds, FSimpleDelegate delegate)", ret: "タイマーハンドル", desc: "関数と任意データをまとめたデリゲートを、指定秒数後に1回呼ぶ。" },
-        { sig: "FTimerHandle SetInterval(f32 period_seconds, TimerCallback cb, void* user)", ret: "タイマーハンドル", desc: "<code>period_seconds</code> 秒経つごとに<b>繰り返し</b> <code>cb(user)</code> を呼ぶ(発火後に自動で再カウント)。世代番号の使い切り後は無効なハンドルを返す。", when: "定期処理(秒間回復、定期スポーン等)に。", sample: "auto h = timers.SetInterval(1.0f, &amp;OnTick, &amp;st); // 毎秒" },
+        { sig: "FTimerHandle SetInterval(f32 period_seconds, TimerCallback cb, void* user)", ret: "タイマーハンドル", desc: "<code>period_seconds</code> 秒経つごとに<b>繰り返し</b> <code>cb(user)</code> を呼ぶ(発火後に自動で再カウント)。世代番号の使い切り後は無効なハンドルを返す。", when: "定期処理(秒間回復、定期スポーン等)に。"},
         { sig: "FTimerHandle SetInterval(f32 period_seconds, FSimpleDelegate delegate)", ret: "タイマーハンドル", desc: "関数と任意データをまとめたデリゲートを、指定周期で繰り返し呼ぶ。" },
         { sig: "template&lt;ETimerSchedulePolicy Policy, auto Callback, typename User&gt; FTimerHandle Schedule(f32 seconds, User* user)", ret: "タイマーハンドル", desc: "単発または周期方針と型付きコールバックをコンパイル時に検証して登録する。" },
         { sig: "bool Cancel(FTimerHandle h)", ret: "止められたか", desc: "指定タイマをキャンセルする。すでに発火/解放済みなら false。", when: "周期タイマを止める/予約を取り消す時。" },
@@ -200,7 +193,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "event/TimerHandle.h",
       summary: "<code>CTimerManager</code> が返す<b>タイマーの控え</b>。<code>Cancel</code> に渡して止める。<t>世代</t>付きなので、ID が再利用されても古いハンドルで別タイマを誤ってキャンセルすることはありません。",
       when: "登録したタイマを後で止めたい(特に周期タイマ)時に保持しておく値。",
-      sample: "FTimerHandle h = timers.SetInterval(0.5f, &amp;OnBlink, &amp;st);\n// ... 点滅をやめる ...\ntimers.Cancel(h);",
       members: [
         { sig: "bool IsValid() const", ret: "有効か", desc: "<code>id != 0 &amp;&amp; generation != 0</code> なら true。" },
         { sig: "bool operator==(const FTimerHandle& o) const", desc: "id と<t>世代</t>が一致するか。" },
@@ -212,8 +204,7 @@ ACS_REF.modules.push({
       name: "TimerCallback",
       kind: "型エイリアス (関数ポインタ)", header: "event/TimerManager.h",
       summary: "<code>CTimerManager</code> のタイマが発火した時に呼ばれる関数の型。<code>void (*)(void* user)</code>。<code>user</code> は登録時に渡した任意ポインタで、ここに自分の状態を入れて持ち回ります(<t>スレッドプール</t>のタスク関数と同じ流儀)。",
-      when: "<code>SetTimeout</code>/<code>SetInterval</code> に渡す関数を書く時の型。",
-      sample: "static void OnCooldownEnd(void* user) {\n    auto* s = static_cast&lt;FPlayer*&gt;(user);\n    s-&gt;canAttack = true;\n}"
+      when: "<code>SetTimeout</code>/<code>SetInterval</code> に渡す関数を書く時の型。"
     }
   ]
 });

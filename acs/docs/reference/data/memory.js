@@ -18,7 +18,6 @@ ACS_REF.modules.push({
       kind: "クラステンプレート", header: "memory/UniquePtr.h",
       summary: "<b>1 人だけが所有する</b><t>スマートポインタ</t>(std::unique_ptr 相当)。コピー不可・<t>ムーブ</t>のみ。スコープを抜けると自動で解放。",
       when: "あるデータの持ち主が常に 1 箇所だけ、と言い切れる時。最も軽く安全な既定の選択肢。",
-      sample: "auto p = MakeUnique&lt;FMesh&gt;(args...);  // 確保\np-&gt;Draw();                         // -&gt; でアクセス\nauto q = static_cast&lt;TUniquePtr&lt;FMesh&gt;&amp;&amp;&gt;(p); // 所有権をムーブ(p は空に)\n// スコープ脱出で自動解放",
       members: [
         { sig: "T* Get() const", ret: "生ポインタ", desc: "中身の生<t>ポインタ</t>を返す。所有権は渡さない。", when: "生ポインタを要求する API に一時的に渡す時。" },
         { sig: "T& operator*() / T* operator->()", desc: "中身にアクセスする。空の時に使うと<t>未定義動作</t>。" },
@@ -33,10 +32,9 @@ ACS_REF.modules.push({
       kind: "クラステンプレート", header: "memory/SharedPtr.h",
       summary: "<b>複数で共有</b>する<t>スマートポインタ</t>(std::shared_ptr 相当)。コピーで<t>参照カウント</t>が増え、最後の持ち主が消えた時に対象を破棄。カウントは<t>アトミック</t>でスレッド安全。",
       when: "1 つのデータを複数箇所で持ち回りたいが、誰が最後に解放するか決められない時。",
-      sample: "auto p = MakeShared&lt;FTexture&gt;();  // 参照カウント=1\nauto q = p;                       // 共有 → カウント=2\np-&gt;Bind();\n// p,q 両方が消えた時に1度だけ解放される",
       members: [
         { sig: "T* Get() const / *p / p->", desc: "中身にアクセスする。" },
-        { sig: "u32 UseCount() const", ret: "強参照数", desc: "今この対象を共有している <code>TSharedPtr</code> の数。主にデバッグ用。", sample: "if (p.UseCount() == 1) { /* 自分だけが持っている */ }" },
+        { sig: "u32 UseCount() const", ret: "強参照数", desc: "今この対象を共有している <code>TSharedPtr</code> の数。主にデバッグ用。"},
         { sig: "bool IsValid() const / explicit operator bool()", desc: "中身があるかを返す。" },
         { sig: "void Reset()", desc: "共有から抜ける(カウントを 1 減らす)。空になる。" },
         { sig: "void Swap(TSharedPtr&amp; o)", desc: "2 つの中身を入れ替える(カウント操作なしで高速)。" }
@@ -47,7 +45,6 @@ ACS_REF.modules.push({
       kind: "クラステンプレート", header: "memory/SharedPtr.h",
       summary: "<t>TSharedPtr</t> への<b><t>弱参照</t></b>(std::weak_ptr 相当)。対象の寿命を<b>延ばさない</b>。生きているか確認し、生きていれば一時的に強参照を得る。",
       when: "対象を所有したくないが生死は監視したい時。とくに<t>循環参照</t>(親子が持ち合う)を断ち切る側に使う。",
-      sample: "auto p = MakeShared&lt;FEnemy&gt;();\nTWeakPtr&lt;FEnemy&gt; w = p;        // 弱参照(寿命は延ばさない)\nif (auto s = w.Lock()) {          // 生きていれば強参照を取得\n    s-&gt;Update();\n}\np.Reset();                        // 強参照ゼロ → 破棄\n// w.Lock() は以後ずっと空を返す",
       members: [
         { sig: "TSharedPtr<T> Lock() const", ret: "強参照(空かも)", desc: "対象が生きていれば <code>TSharedPtr</code> を得る。破棄済みなら空。安全に昇格できる(<t>アトミック</t>な確認付き)。", when: "弱参照から実際に中身を触る直前に毎回呼ぶ。" },
         { sig: "bool Expired() const", ret: "期限切れか", desc: "対象がすでに破棄されていれば true。" },
@@ -60,7 +57,6 @@ ACS_REF.modules.push({
       kind: "基底クラステンプレート", header: "memory/SharedPtr.h",
       summary: "メンバ関数の中から<b>自分自身の <t>TSharedPtr</t> を作れる</b>ようにする基底(enable_shared_from_this 相当)。<code>class T : public TSharedFromThis&lt;T&gt;</code> と継承する。",
       when: "オブジェクトが『自分を共有する <code>TSharedPtr</code>』を他へ渡したい時(コールバック登録など)。必ず <code>MakeShared</code> 経由で生成すること。",
-      sample: "struct FNode : TSharedFromThis&lt;FNode&gt; {\n    TSharedPtr&lt;FNode&gt; Self() { return AsShared(); }\n};\nauto n = MakeShared&lt;FNode&gt;();\nauto same = n-&gt;Self();   // n と同じ対象を共有(カウント+1)",
       members: [
         { sig: "TSharedPtr<T> AsShared()", ret: "自分への強参照", desc: "自分自身を指す <code>TSharedPtr</code> を返す。" },
         { sig: "TWeakPtr<T> AsWeak() const", ret: "自分への弱参照", desc: "自分自身を指す <code>TWeakPtr</code> を返す。" }
@@ -71,7 +67,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "memory/AObject.h",
       summary: "<t>参照カウント</t>で管理される『オブジェクト』の基底。内部に自分の制御ブロックへの<t>ポインタ</t>を持つため、<b>生ポインタからでも</b>強/弱参照を作れる(UE の UObject 風)。",
       when: "エンジン上の実体(キャラ・アクター等)を表し、生ポインタを持ち回りつつ安全に生死を監視したい時。<code>NewObject</code> で生成する。",
-      sample: "class AEnemy : public AObject {\npublic:\n    int hp = 100;\n};\nTObjectPtr&lt;AEnemy&gt; e = NewObject&lt;AEnemy&gt;();\nAEnemy* raw = e.Get();\nTWeakObjectPtr&lt;AEnemy&gt; w(raw);  // 生ポインタから弱参照が作れる",
       members: [
         { sig: "virtual ~AObject()", desc: "<t>デストラクタ</t>は仮想。派生クラスが正しく破棄される。" },
         { sig: "using FObject = AObject", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>AObject</code> を使う。" }
@@ -82,7 +77,6 @@ ACS_REF.modules.push({
       kind: "クラステンプレート", header: "memory/ObjectPtr.h",
       summary: "<t>AObject</t> 派生への<b>強参照</b>(生かし続ける所有ポインタ)。別名 <code>TStrongObjectPtr&lt;T&gt;</code>。生ポインタ <code>T*</code> からも構築できる。",
       when: "オブジェクトを確実に生存させたい所有者側。",
-      sample: "TObjectPtr&lt;AEnemy&gt; e = NewObject&lt;AEnemy&gt;(50);\ne-&gt;hp -= 10;\nTObjectPtr&lt;AEnemy&gt; e2 = e;  // 共有(カウント+1)\ne.Reset();                  // まだ e2 が居るので生存",
       members: [
         { sig: "explicit TObjectPtr(T* obj)", desc: "生ポインタから強参照を作る(<code>NewObject</code> 由来である必要あり)。" },
         { sig: "T* Get() / *o / o->", desc: "中身にアクセスする。" },
@@ -95,7 +89,6 @@ ACS_REF.modules.push({
       kind: "クラステンプレート", header: "memory/ObjectPtr.h",
       summary: "<t>AObject</t> 派生への<b><t>弱参照</t></b>。対象が破棄されると自動的に無効になる。生ポインタからも作れる。",
       when: "『さっき掴んだ敵がもう死んでいるかもしれない』ような、所有せず生死だけ追う参照。",
-      sample: "TWeakObjectPtr&lt;AEnemy&gt; w = e;   // or  TWeakObjectPtr&lt;AEnemy&gt; w(rawPtr);\nif (w.IsValid()) w.Get()-&gt;Hit();  // 生きていれば\nif (auto s = w.Pin()) s-&gt;Hit();    // 破棄と競合しても安全に強参照化",
       members: [
         { sig: "bool IsValid() const", ret: "生存中か", desc: "対象がまだ生きていれば true。" },
         { sig: "bool IsStale() const", desc: "破棄済みなら true(<code>!IsValid()</code>)。" },
@@ -108,7 +101,6 @@ ACS_REF.modules.push({
       kind: "ファクトリ関数", header: "memory/*.h",
       summary: "スマートポインタを作る入口。既定では <t>DefaultAllocator</t> を使う。<code>...In</code> 版で<t>アロケータ</t>を指定できる。",
       when: "スマートポインタは原則これらで生成する(<code>new</code> を直接書かない)。",
-      sample: "auto u = MakeUnique&lt;FFoo&gt;(a, b);             // TUniquePtr\nauto s = MakeShared&lt;FBar&gt;();                 // TSharedPtr (制御ブロックと同居の1確保)\nauto o = NewObject&lt;AEnemy&gt;(100);             // TObjectPtr (AObject 派生)\nauto s2 = MakeSharedIn&lt;FBar&gt;(myAlloc);        // アロケータ指定",
       members: [
         { sig: "TUniquePtr<T> MakeUnique<T>(args...)", desc: "既定アロケータで <code>TUniquePtr</code> を作る。" },
         { sig: "TSharedPtr<T> MakeShared<T>(args...)", desc: "既定アロケータで <code>TSharedPtr</code> を作る(制御ブロックと中身を1回の確保にまとめる)。" },
@@ -120,15 +112,13 @@ ACS_REF.modules.push({
       name: "TRc&lt;T&gt; / MakeRc",
       kind: "非推奨エイリアス", header: "memory/Rc.h",
       summary: "<b>旧名</b>。<code>TRc</code> は <t>TSharedPtr</t> の、<code>MakeRc</code> は <code>MakeShared</code> の別名として残っている互換シム。",
-      when: "既存コード互換のためだけ。新規コードでは <code>TSharedPtr</code> / <code>MakeShared</code> を使う。",
-      sample: "// 旧: TRc<T> p = MakeRc<T>();\n// 新: TSharedPtr<T> p = MakeShared<T>();"
+      when: "既存コード互換のためだけ。新規コードでは <code>TSharedPtr</code> / <code>MakeShared</code> を使う。"
     },
     {
       name: "IAllocator",
       kind: "インターフェース", header: "memory/Allocator.h",
       summary: "メモリ確保/解放の<t>インターフェース</t>。すべての<t>アロケータ</t>はこれを実装し、差し替え可能。",
       when: "確保方法を切り替えたい/独自アロケータを差し込みたい時に、この型で受け渡す。",
-      sample: "IAllocator& a = DefaultAllocator();\nvoid* p = a.Alloc(256, 16, FSourceLoc::Current());\na.Free(p);",
       members: [
         { sig: "void* Alloc(usize size, usize alignment, FSourceLoc location)", ret: "確保した領域", desc: "指定サイズ・整列でメモリを確保。失敗時 null。" },
         { sig: "void Free(void* pointer)", desc: "<code>Alloc</code> で得た領域を解放。" },
@@ -145,14 +135,13 @@ ACS_REF.modules.push({
       name: "DefaultAllocator()",
       kind: "関数", header: "memory/Memory.h",
       summary: "既定の<t>アロケータ</t>を返す(起動時は <code>CSystemAllocator</code>)。<code>MakeShared</code> 等が指定なしの時に使う。<code>SetDefaultAllocator</code> で差し替え可能。",
-      when: "特別な事情がなければこれでよい。", sample: "IAllocator& a = DefaultAllocator();"
+      when: "特別な事情がなければこれでよい。"
     },
     {
       name: "CArenaAllocator",
       kind: "クラス", header: "memory/ArenaAllocator.h",
       summary: "確保はポインタを進めるだけ(超高速)、解放は<b>まとめて Reset</b>のみ、という使い捨て<t>アロケータ</t>。容量は固定せず、満杯になると<b>ページを足して自動で伸びる</b>(ページバック式バンプ)。同形状の領域は batch 予約でき、Reset は世代を進めて先頭 page だけを即時初期化する。",
       when: "1 フレームだけ使って次フレームに全部捨てる一時データ(描画コマンド等)。個別解放はしない。",
-      sample: "CArenaAllocator arena(64 * 1024);   // 引数は1ページのサイズ(既定 64KB)。容量上限ではない\nvoid* a = arena.Alloc(64, 16, FSourceLoc::Current());\n// ...フレーム処理...\narena.Reset();                      // 全確保を一括無効化(超高速)。ページは再利用",
       members: [
         { sig: "CArenaAllocator(usize page_size = 64*1024, IAllocator* backing_allocator = nullptr)", desc: "<b>第1引数はページサイズ</b>(全体容量ではない)。満杯時は backing_allocator から新ページを足して伸びる。" },
         { sig: "void* Alloc(usize size, usize alignment, FSourceLoc location)", ret: "確保した領域", desc: "末尾にポインタを進めて確保。alignment は 2 のべき乗かつ最大 64 KiB。不正値やサイズ計算のオーバーフローは null で拒否する。" },
@@ -180,7 +169,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "memory/LinearAllocator.h / PoolAllocator.h",
       summary: "<b>Linear</b>=前から詰める単純高速アロケータ(Arena に近い)。<b>Pool</b>=同じサイズの塊を大量に出し入れする用途に最適化したアロケータ。",
       when: "Linear: 連続確保して一括破棄。Pool: 弾・パーティクル等、同サイズを高速に取り回す時。",
-      sample: "CPoolAllocator pool(sizeof(FBullet), 1024); // 1024 個分\nvoid* b = pool.Alloc(...);\npool.Free(b);",
       members: [
         { sig: "CLinearAllocator(usize capacity, IAllocator* backing_allocator = nullptr)", desc: "<b>Linear</b>: <code>capacity</code> バイトのバッファを <code>backing_allocator</code>(null で <code>DefaultAllocator</code>)から確保。" },
         { sig: "void CLinearAllocator::Reset()", desc: "カーソルを 0 へ巻き戻す(全確保を無効化)。並行 Alloc 中に呼ぶと UB。" },
@@ -197,7 +185,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "memory/Tlsf.h / ShardedTlsf.h",
       summary: "<b>TLSF</b>=任意サイズを O(1)・低断片化で確保できる汎用<t>アロケータ</t>。確保開始位置を 16B ごとの外部ビットマップ(プール容量の約 0.78%)でも照合し、内部ポインタの偽装解放を拒否する。<b>Sharded</b>=N 個の TLSF に分けて複数<t>スレッド</t>からの同時確保でも競合しにくくした版(<code>kMaxShards=8</code>)。どちらも<b>既定構築してから <code>Init()</code> で初期化</b>する二段階(コンストラクタにサイズは渡さない)。",
       when: "汎用の高速確保が欲しい時。マルチスレッドで確保が多いなら Sharded。",
-      sample: "// TLSF: 自前のプール buffer を渡して Init する\nalignas(16) static acs::u8 pool[1u &lt;&lt; 24];   // 16MB\nFTlsfAllocator tlsf;\nif (tlsf.Init(pool, sizeof(pool)).IsErr()) { /* 失敗 */ }\nvoid* p = tlsf.Alloc(200, 16, FSourceLoc::Current());\n\n// Sharded: 予約サイズ・初期コミット量で Init(shard_count 0=コア数で自動)\nFShardedTlsfAllocator sharded;\nsharded.Init(256u &lt;&lt; 20, 8u &lt;&lt; 20);          // 256MB 予約 / 8MB コミット",
       members: [
         { sig: "TResult&lt;void&gt; CTlsfAllocator::Init(void* pool_base, usize pool_size)", ret: "成否", desc: "16B 整列のプール buffer を登録(<code>pool_size</code> は 1KB 以上推奨)。", when: "<b>サイズ引数のコンストラクタは無い</b>。必ず既定構築→Init。" },
         { sig: "TResult&lt;void&gt; CShardedTlsfAllocator::Init(usize total_reserve_bytes, usize commit_initial_bytes, u32 shard_count = 0)", ret: "成否", desc: "予約全体をシャードで分割。<code>shard_count=0</code> で論理コア数から自動(最大 8)。粒度整列の加算オーバーフローは VM 予約前に拒否する。" },
@@ -221,7 +208,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "memory/RelocatableAllocator.h",
       summary: "確保した領域を後で<b>動かして詰め直せる</b>(<t>ハンドル</t>越しにアクセス)<t>アロケータ</t>。<code>Compact()</code> で断片化を解消できる。<b>内部同期なし</b>=単一スレッドで使う。既定構築→<code>Init()</code> の二段階。",
       when: "長時間動かし続けてメモリ断片化が問題になる場面で、コンパクションしたい時。生ポインタでなくハンドルで持つ。",
-      sample: "CRelocatableAllocator ra;\nra.Init(1u &lt;&lt; 20, 4096);             // 1MB アリーナ / ハンドル最大 4096\nFRelocHandle h = ra.Alloc(128);          // 失敗時は h.IsValid()==false\nvoid* p = ra.Resolve(h);                 // 使う直前に解決(次の Compact まで有効)\nra.Compact();                            // 隙間を詰める→生ポインタは無効化、ハンドルは有効\np = ra.Resolve(h);                       // Compact 後は取り直す",
       members: [
         { sig: "TResult&lt;void&gt; Init(usize capacity_bytes, u32 max_handles, IAllocator* backing = nullptr)", ret: "成否", desc: "アリーナ容量とハンドル表サイズを確保。<code>backing=nullptr</code> で <code>DefaultAllocator</code>。" },
         { sig: "FRelocHandle Alloc(usize size, usize align = 16)", ret: "ハンドル", desc: "確保してハンドルを返す。末尾に入らなくても詰めれば入る時は自動 Compact。失敗時は無効ハンドル。" },
@@ -239,7 +225,6 @@ ACS_REF.modules.push({
       kind: "クラス(静的)", header: "memory/MemorySystem.h",
       summary: "用途別の領域(<t>セグメント</t>)・ハード予算・統計・リーク追跡を束ねる、エンジン全体のメモリ管理ファサード。通常セグメントは独立した mimalloc first-class heap、Temp は一括リセット可能な arena を使う。<code>install_as_default_allocator=true</code> なら既定確保も Default セグメントへ通す。",
       when: "メモリ使用量の可視化・上限管理・領域分割をまとめて行いたい時。",
-      sample: "FMemorySystemConfig configuration = CMemorySystem::DefaultConfig();\nconfiguration.install_as_default_allocator = true;\nif (CMemorySystem::Init(configuration).IsErr()) { /* 失敗 */ }\n\n{ FScopedMemorySegment segment(ESegment::Temp);\n  IAllocator* allocator = CMemorySystem::CurrentAllocator();\n  /* 1フレーム寿命の確保 */\n}\nFMemorySystem::ResetTemp();\n\nSegmentStats statistics[(int)ESegment::_Count];\nu32 count = CMemorySystem::GetStats(statistics, 5);\nFMemorySystem::Shutdown();",
       members: [
         { sig: "static TResult&lt;void&gt; Init(const FMemorySystemConfig&amp;)", ret: "成否", desc: "全セグメントを設定で初期化(多重 Init はエラー)。" },
         { sig: "static FMemorySystemConfig DefaultConfig()", ret: "既定設定", desc: "小規模/デフォルト用の設定を返す。" },
@@ -259,7 +244,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "memory/MimallocAllocator.h",
       summary: "mimalloc v3 の <b>first-class heap</b> を所有する汎用アロケータ。要求量の厳密なハード予算、未解放件数、ピーク、サイズ帯ヒストグラム、独立ブロック走査を提供する。malloc/new のグローバル上書きは行わない。",
       when: "独立した仮想メモリヒープ、並列確保、用途別予算、終了時のリーク照合が必要な時。通常は <code>CMemorySystem</code> 経由で使う。",
-      sample: "CMimallocAllocator allocator;\nif (allocator.Init(64u &lt;&lt; 20).IsOk()) {\n    void* memory = allocator.Alloc(4096, 64, FSourceLoc::Current());\n    allocator.Free(memory);\n    MimallocHeapInspectionStatistics inspection = allocator.InspectHeap();\n    allocator.Shutdown();\n}",
       members: [
         { sig: "TResult&lt;void&gt; Init(u64 hard_budget_bytes = 0)", ret: "成否", desc: "独立ヒープを作成する。0 は予算無制限。" },
         { sig: "void* Alloc / void Free / void* Realloc", desc: "スレッドセーフな確保・解放・再確保。再確保中は旧領域と新領域の要求量を両方予算へ含める。" },
@@ -273,7 +257,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "memory/SystemAllocator.h",
       summary: "Win32 <code>HeapAlloc</code>/<code>HeapFree</code> を使う汎用<t>アロケータ</t>。プロセスヒープは OS がロックするので<b>スレッドセーフ</b>。<b>起動時の <code>DefaultAllocator</code> はこれ</b>。",
       when: "特別なアロケータを差さない通常時の確保(<code>DefaultAllocator()</code> 経由で間接的に使われる)。数千回/フレームのホットパスでは専用プール/アリーナを別途用意する。",
-      sample: "CSystemAllocator sys;\nvoid* p = sys.Alloc(256, 16, FSourceLoc::Current());\nsys.Free(p);",
       members: [
         { sig: "void* Alloc / void Free / void* Realloc", desc: "<code>IAllocator</code> 実装。16B 超の整列はヘッダ方式で対応。" },
         { sig: "u64 BytesAllocated() const / u64 PeakBytes() const", ret: "統計", desc: "アトミックに集計した現在量/ピーク。" },
@@ -285,7 +268,6 @@ ACS_REF.modules.push({
       kind: "関数テンプレート", header: "memory/New.h",
       summary: "グローバル <code>new</code>/<code>delete</code> を使わず、<b><t>アロケータ</t>からオブジェクトを構築/破棄</b>する基本ヘルパ。確保→配置 new→デストラクタ→Free を 1 関数化。",
       when: "<code>IAllocator</code> 直下で生のオブジェクトを作りたい低レベルな場面。通常は <code>MakeUnique</code>/<code>MakeShared</code> を使う。",
-      sample: "IAllocator&amp; a = DefaultAllocator();\nMyObj* p = New&lt;MyObj&gt;(a, args...);   // 確保 + コンストラクタ\nDelete(a, p);                        // デストラクタ + Free\n\nint* arr = NewArray&lt;int&gt;(a, 64);\nDeleteArray(a, arr, 64);",
       members: [
         { sig: "T* New&lt;T&gt;(IAllocator&amp; a, Args&amp;&amp;... args)", ret: "T*", desc: "確保してコンストラクタ引数を完全転送。失敗時 null。" },
         { sig: "void Delete&lt;T&gt;(IAllocator&amp; a, T* p)", desc: "デストラクタ(トリビアルなら省略)→Free。null は no-op。" },
@@ -298,7 +280,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "memory/Memory.h",
       summary: "低レベルなバイト操作(<code>std::memcpy</code> 等の代替)。<code>SetDefaultAllocator</code> で既定<t>アロケータ</t>を差し替えられる。",
       when: "生バイト列のコピー/比較/フィル。型のある配列は通常コンテナ側に任せる。",
-      sample: "MemCopy(dst, src, n);           // 非重複コピー\nMemMove(dst, src, n);           // 重複可\nMemSet(buf, 0, n);              // 0 クリア\nint c = MemCmp(a, b, n);        // 比較(0=一致)\nSetDefaultAllocator(&amp;myAlloc); // 既定を差し替え(null で System に戻す)",
       members: [
         { sig: "void MemCopy(void* dst, const void* src, usize n)", desc: "領域<b>非重複</b>コピー。" },
         { sig: "void MemMove(void* dst, const void* src, usize n)", desc: "領域<b>重複可</b>コピー。" },
@@ -312,7 +293,6 @@ ACS_REF.modules.push({
       kind: "enum / クラス", header: "memory/Segment.h",
       summary: "メモリを目的・寿命で分ける論理ヒープの種別。<code>CMemorySystem</code> が各<t>セグメント</t>に独立予算を持つ。<code>FScopedMemorySegment</code> で<b>スコープ中の既定確保先</b>を切り替える(<t>RAII</t>)。",
       when: "確保を用途別に隔離して断片化や予算を管理したい時。",
-      sample: "{ FScopedMemorySegment seg(ESegment::Resource);  // アセット用領域へ\n  auto tex = LoadTexture(...);\n}                                               // 抜けると元へ戻る",
       members: [
         { sig: "ESegment::Default / Permanent / Temp / Resource / Develop", desc: "汎用 / 起動時常駐 / 1フレーム / アセット / エディタ・デバッグ。" },
         { sig: "enum class EAllocKind", desc: "プロファイラ分類用のタグ(Generic=0 / Engine=1 / Game=2 / Render=3 / Audio=4 / Asset=5 / UI=6 / Network=7 / Debug=8)。" },
@@ -325,7 +305,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "memory/RelocatableAllocator.h",
       summary: "<code>CRelocatableAllocator</code> の確保を指す<t>ハンドル</t>。<code>index</code>+<code>generation</code> 構成で <code>generation==0</code> が無効。<t>世代</t>で use-after-free を検出。",
       when: "再配置アロケータの確保を保持する時。中身のポインタは持たず <code>Resolve(h)</code> で都度引く。",
-      sample: "FRelocHandle h = ra.Alloc(128);\nif (h.IsValid()) { void* p = ra.Resolve(h); }",
       members: [
         { sig: "u32 index / u32 generation", desc: "エントリ番号と世代(0=無効)。" },
         { sig: "bool IsValid() const", ret: "有効か", desc: "<code>generation != 0</code>。" },
@@ -337,7 +316,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "memory/VirtualMemory.h",
       summary: "巨大な仮想アドレス空間を<b>予約(Reserve)</b>し、必要なページだけ<b>物理コミット(Commit)</b>する低レベル <t>RAII</t> ハンドル(VirtualAlloc ラッパ)。Decommit したページは内部 <b>LRU キャッシュ(16 エントリ、既定の総量上限 64 MiB)</b>に保持し、再 Commit がヒットすればシステムコールを省く。コピー不可・<t>ムーブ</t>可。",
       when: "<code>CTlsfAllocator</code> 等の土台として、上限の決まった広大なアリーナを予約だけ先に取り、使う分だけ後からコミットしたい時。通常は直接使わずアロケータ越しに使う。",
-      sample: "auto r = FVmReservation::Reserve(256u &lt;&lt; 20);   // 256MB 予約(物理はまだ)\nif (r.IsOk()) {\n    FVmReservation vm = static_cast&lt;FVmReservation&amp;&amp;&gt;(r.Value());\n    vm.Commit(0, 8u &lt;&lt; 20);                    // 先頭 8MB を物理割り当て\n    void* base = vm.Base();\n    vm.Decommit(0, 8u &lt;&lt; 20);                  // 返却(実 VirtualFree は LRU エビクト時)\n}                                                 // スコープ脱出で Release",
       members: [
         { sig: "static TResult&lt;FVmReservation&gt; Reserve(usize capacity_bytes) noexcept", ret: "予約 or エラー", desc: "<code>capacity_bytes</code> の仮想範囲を予約する(MEM_RESERVE)。物理はまだ割り当てない。", when: "アリーナの上限を先に押さえる時。" },
         { sig: "TResult&lt;void&gt; Release() noexcept", ret: "成否", desc: "予約全体を解放する。失敗時は所有状態を保持して再試行可能にし、機械可読ログを出す。デストラクタからも呼ばれる。" },
@@ -357,7 +335,6 @@ ACS_REF.modules.push({
       kind: "関数 / 定数", header: "memory/VirtualMemory.h",
       summary: "仮想メモリ層の補助関数とページサイズ定数。<b>VmZeroFastNT</b> は x64 の CPU/OS が AVX と XMM/YMM 状態保存に対応し、32B 整列かつ 256B 以上なら <t>Non-Temporal</t> ストアを使う。非対応CPU、ARM64、未整列、小領域は memset へ安全にフォールバックする。",
       when: "VM 予約の整列計算や、巨大バッファを高速にゼロクリアしたい低レベルな場面。",
-      sample: "usize ps = VmPageSize();              // OS ページサイズ\nusize gr = VmAllocGranularity();      // VirtualAlloc 予約粒度\nif (VmIsAligned((uptr)p, 4096)) { /* ... */ }\nVmZeroFastNT(buf, 4u &lt;&lt; 20);          // 4MB を非テンポラル書き込みでゼロ化",
       members: [
         { sig: "usize VmPageSize() noexcept", ret: "OS ページサイズ", desc: "OS の物理ページサイズ(通常 4KB)。" },
         { sig: "usize VmAllocGranularity() noexcept", ret: "予約粒度", desc: "VirtualAlloc の予約粒度(Windows では通常 64KB)。" },
@@ -373,7 +350,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "memory/VirtualMemory.h",
       summary: "VM 層がマップ済み領域・連続ページ群を<b>各 8 バイトに圧縮</b>して持つビットフィールド <t>POD</t>。アドレスとページ数・フラグをパックする。<code>static_assert</code> で 8 バイトを保証。",
       when: "VM 層の内部記述子。通常は直接触らないが、LRU キャッシュ等の構造を理解する際に参照する。",
-      sample: "static_assert(sizeof(FMappedT) == 8);\nstatic_assert(sizeof(FPageT)   == 8);",
       members: [
         { sig: "u64 packed_virtual_addr : 44 / page_count : 16 / sparse : 1 / misc : 3", desc: "<code>FMappedT</code>: マップ領域の仮想アドレス・ページ数・スパース/その他フラグ。" },
         { sig: "u64 continuous_page_count : 12 / misc : 4 / packed_virtual_addr : 48", desc: "<code>FPageT</code>: 連続ページ数・フラグ・ページ整列アドレス。" }
@@ -384,7 +360,6 @@ ACS_REF.modules.push({
       kind: "クラス(静的)", header: "memory/MemorySnapshot.h",
       summary: "<t>CMemorySystem</t> の現状(セグメント別の予約/使用/予算)を <b>SVG / BMP / コンソール</b>に可視化出力するユーティリティ。全メソッド static、外部依存ゼロ(自前ライタ)。各セグメントを 1 行のバーとして描画する。",
       when: "メモリ使用率を人間が読める形で書き出してデバッグ/プロファイルしたい時。SVG はブラウザで開け、BMP は外部ツールに流せる。",
-      sample: "FMemorySnapshot::WriteSvg(L\"mem.svg\");   // 人間可読・ラベル付き\nFMemorySnapshot::WriteBmp(L\"mem.bmp\");   // 24bpp 画像\nFMemorySnapshot::DumpToStdOut();          // ターミナルへテキスト",
       members: [
         { sig: "static TResult&lt;void&gt; WriteSvg(const wchar_t* path, u32 width = 800, u32 row_height = 40) noexcept", ret: "成否", desc: "SVG ファイルを出力する(ラベル付き、ブラウザで開ける)。" },
         { sig: "static TResult&lt;void&gt; WriteBmp(const wchar_t* path, u32 width = 800, u32 row_height = 30) noexcept", ret: "成否", desc: "24bpp の BMP 画像を出力する(外部依存ゼロ)。" },
@@ -396,7 +371,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "memory/MemorySystem.h",
       summary: "<t>CMemorySystem</t> の設定・統計を運ぶ <t>POD</t> 群。<b>FSegmentConfig</b> はセグメント種別・要求量ハード予算・frame arena 使用を指定する。<b>FMemorySystemConfig</b> は全セグメント設定と既定アロケータへの導入を指定する。<b>FSegmentStats</b> は要求量・ピーク・予算・未解放件数を返す。",
       when: "<code>CMemorySystem::Init</code> に渡す設定の組み立てや、<code>GetStats</code> の結果受け取りに使う。",
-      sample: "FMemorySystemConfig configuration = CMemorySystem::DefaultConfig();\nconfiguration.install_as_default_allocator = true;\nconfiguration.segments[(usize)ESegment::Resource].hard_budget_bytes = 1ull &lt;&lt; 30;\nFMemorySystem::Init(configuration);\n\nSegmentStats statistics[(int)ESegment::_Count];\nu32 count = CMemorySystem::GetStats(statistics, 5);\nfor (u32 index = 0; index &lt; count; ++index) { /* requested_bytes / hard_budget_bytes */ }",
       members: [
         { sig: "FSegmentConfig: ESegment segment; usize hard_budget_bytes; bool use_frame_allocator", desc: "通常は mimalloc、<code>use_frame_allocator=true</code> なら一括 Reset する arena を使う。ハード予算超過は確保失敗になる。" },
         { sig: "FMemorySystemConfig: FSegmentConfig segments[ESegment::_Count]; bool install_as_default_allocator = false", desc: "<code>install_as_default_allocator=true</code> なら Init 時に Default セグメントを既定アロケータへ据え、Shutdown で元へ復元する。" },
@@ -408,7 +382,6 @@ ACS_REF.modules.push({
       kind: "関数 / 定数", header: "memory/Allocator.h",
       summary: "アロケータ実装で多用する整列ヘルパ。<b>AlignUp</b>=値/ポインタを 2 のべき乗の倍数へ切り上げ。<b>IsPow2</b>=2 のべき乗判定。<b>kDefaultAlignment</b>=既定整列(SIMD 16B と一般 8B の妥協で 16)。",
       when: "独自アロケータやバッファ計算で整列を扱う時。<code>AlignUp</code> の <code>a</code> は必ず 2 のべき乗(Debug で <code>ACS_ASSERT</code>)。",
-      sample: "usize n = AlignUp(13, 16);        // 16\nvoid* q = AlignUp(p, 64);         // 64B 境界へ\nif (IsPow2(align)) { /* OK */ }\nusize a = kDefaultAlignment;      // 16",
       members: [
         { sig: "constexpr usize kDefaultAlignment", desc: "既定アライメント(<code>alignof(void*)</code> が 8 超ならそれ、でなければ 16)。実質 16。" },
         { sig: "bool IsPow2(usize v) noexcept", ret: "2 のべき乗か", desc: "<code>v != 0 &amp;&amp; (v &amp; (v-1)) == 0</code>。" },

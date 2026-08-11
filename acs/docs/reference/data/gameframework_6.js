@@ -10,10 +10,9 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/ProjectileSystem.h",
       summary: "弾・矢・ロケット・魔法弾など『飛んでいって何かに当たる』ものを<b>固定容量の<t>プール</t></b>で一括管理するシステム。発射 → 飛翔 → 命中/寿命切れ までを毎フレームの <code>Tick</code> で進める。",
       when: "シューティングや弾幕、敵の攻撃弾など、大量の投射物を出したい時。<code>CWeaponSystem</code> と組み合わせて使うのが定番。",
-      sample: "CProjectileSystem ps;\nps.Init(256);                    // 同時 256 発まで\nFProjectileDef d{};\nd.id = \"bullet\"; d.speed = 800.0f; d.lifetime_sec = 1.5f;\nps.RegisterDef(d);               // 弾種を登録\nps.Spawn(\"bullet\", pos, FVec2{800,0}, ownerId, /*damage=*/15.0f);\nps.Tick(dt);                     // 毎フレーム進める",
       members: [
         { sig: "void Init(u32 max_concurrent = 256)", desc: "<t>プール</t>の上限を確定する。0 を渡すと既定 256。再 <code>Init</code> は何もしない。", when: "システムを使い始める最初に 1 度だけ。" },
-        { sig: "void RegisterDef(const FProjectileDef& def)", desc: "弾種 (<t>FProjectileDef</t>) を名前付きで登録する。同じ id があれば上書き。", sample: "ps.RegisterDef(rocketDef);" },
+        { sig: "void RegisterDef(const FProjectileDef& def)", desc: "弾種 (<t>FProjectileDef</t>) を名前付きで登録する。同じ id があれば上書き。"},
         { sig: "FProjectileId Spawn(const char* def_id, FVec2 pos, FVec2 velocity, u32 owner_id, f32 damage)", ret: "発射した弾の<t>ハンドル</t>", desc: "登録済みの弾種を 1 発撃つ。プール満杯や未登録 id なら invalid を返す。" },
         { sig: "void Despawn(FProjectileId id)", desc: "弾を強制的に消す (寿命切れ callback は呼ばれない)。" },
         { sig: "void Tick(f32 dt)", desc: "dt 秒ぶん全弾を進める。重力・<t>ホーミング</t>・移動・命中判定・寿命チェックをまとめて行う。", when: "ゲームループから毎フレーム呼ぶ。" },
@@ -32,7 +31,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/ProjectileSystem.h",
       summary: "<b>弾種ごとの挙動パラメータ</b>。<code>RegisterDef</code> で『弾の設計図』として登録しておき、<code>Spawn</code> 時に名前で参照する。",
       when: "新しい弾の種類 (速い弾・重力で落ちる手榴弾・貫通弾・追尾弾など) を定義する時。",
-      sample: "FProjectileDef d{};\nd.id = \"arrow\";\nd.speed = 600.0f;\nd.lifetime_sec = 2.0f;\nd.gravity_y = 300.0f;      // 弧を描いて落ちる\nd.pierces = true; d.max_pierces = 2;  // 3 体目で消える",
       members: [
         { sig: "const char* id", desc: "弾種の名前 (<code>Spawn</code> のキー)。文字列リテラル推奨。" },
         { sig: "EProjectileKind kind", desc: "VFX/SE 振り分け用のヒント。挙動には影響しない。" },
@@ -47,7 +45,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/ProjectileSystem.h",
       summary: "弾 1 発を指す<b>軽量<t>ハンドル</t></b>。24bit のインデックス + 8bit の<t>世代番号</t>を u32 に詰めたもの。スロット再利用後の古い参照を検出できる。",
       when: "発射した特定の弾を後から触りたい時 (追従先の指定や強制消去など)。",
-      sample: "FProjectileId id = ps.Spawn(\"bullet\", pos, vel, owner, 10.0f);\nif (id.IsValid()) ps.SetHomingTarget(id, enemyPos);",
       members: [
         { sig: "bool IsValid() const", ret: "有効か", desc: "<code>m_Packed != 0</code> なら有効。発射失敗時は invalid。" },
         { sig: "u32 Index() const / u8 Gen() const", desc: "詰め込まれたインデックスと<t>世代番号</t>を取り出す。" }
@@ -75,7 +72,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/Random.h",
       summary: "<b>決定論的な<t>乱数生成器</t></b>(xoshiro128**)。既存の16byte状態と値列を保ち、定数時間snapshot・検査済み一括生成・偏り除去APIを提供する。",
       when: "敵の出現位置・ドロップ抽選・シャッフルなど、ゲーム中の乱数全般。再現性が欲しいなら<t>シード</t>を明示する。",
-      sample: "FRandom r(0x12345678ull);\nFRandomSnapshot saved = r.CaptureSnapshot();\nu32 selected = 0;\nconst f32 weights[] = {1.0f, 2.0f, 3.0f};\nif (r.TryWeightedIndex(weights, 3, selected)) { /* 使用 */ }\nr.TryRestoreSnapshot(saved);",
       members: [
         { sig: "explicit FRandom(u64 seed)", desc: "<t>シード</t>を指定して作る。引数なしだと起動時刻ベース。" },
         { sig: "void Seed(u64 seed)", desc: "任意の u64 で再<t>シード</t>する。" },
@@ -84,12 +80,12 @@ ACS_REF.modules.push({
         { sig: "FRandomSnapshot CaptureSnapshot() const", ret: "現在の再生位置", desc: "raw stateを改変検出付き値としてO(1)で取得する。" },
         { sig: "bool TryRestoreSnapshot(const FRandomSnapshot& snapshot)", ret: "復元したか", desc: "版・予約値・全0状態・検査値を確認してO(1)で復元する。失敗時は状態を維持する。" },
         { sig: "f32 NextF32Unit()", ret: "[0,1) の小数", desc: "0 以上 1 未満の <code>f32</code>。確率判定や補間に。" },
-        { sig: "i32 RangeInt(i32 min, i32 max)", ret: "[min,max] の整数", desc: "互換用の1回剰余方式。両端を含み、max&lt;minなら交換する。", sample: "i32 dmg = r.RangeInt(8, 12);" },
+        { sig: "i32 RangeInt(i32 min, i32 max)", ret: "[min,max] の整数", desc: "互換用の1回剰余方式。両端を含み、max&lt;minなら交換する。"},
         { sig: "f32 RangeF32(f32 min, f32 max)", ret: "[min,max) の小数", desc: "範囲内の <code>f32</code> 乱数。" },
         { sig: "bool NextBool(f32 true_probability = 0.5f)", ret: "真偽値", desc: "指定確率で true を返す。" },
         { sig: "FVec2 PointInCircle(f32 radius = 1.0f)", ret: "円板内の点", desc: "半径 radius の円の内側に一様な点を返す。" },
         { sig: "FVec2 PointOnCircle(f32 radius = 1.0f)", ret: "円周上の点", desc: "円周上に一様な点を返す。" },
-        { sig: "void Shuffle<T>(TArray<T>& values)", desc: "互換用の32bit剰余方式で配列をその場で並べ替える。", sample: "r.Shuffle(deck);" },
+        { sig: "void Shuffle<T>(TArray<T>& values)", desc: "互換用の32bit剰余方式で配列をその場で並べ替える。"},
         { sig: "u32 WeightedChoice(const f32* weights, u32 count)", ret: "選ばれた index", desc: "互換用の24bit重み抽選。新規処理は検査済み版を使う。" },
         { sig: "bool TryWeightedIndex(const f32* weights, u32 count, u32& out_index)", ret: "成功したか", desc: "最大4,096個の有限・非負重みを全検査し、最大値正規化と53bit抽選を行う。失敗時は状態と出力を維持する。" },
         { sig: "bool TryFillRangeF32(f32* values, u32 count, f32 min, f32 max)", ret: "成功したか", desc: "最大4,096個を有限な半開区間で埋める。0件はnull可、同値範囲は乱数を消費しない。" },
@@ -116,7 +112,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/RenderContext.h",
       summary: "<b>全シーン共有の描画コンテキスト</b>。今フレームの描画コマンドリスト・画面サイズ・共有<t>スプライトバッチ</t>・UI フォントなどをまとめて持ち、<code>AScene::OnRender</code> に渡される。",
       when: "シーンの描画関数の中で、画面に絵や文字を出す入口として受け取る。",
-      sample: "void OnRender(FRenderContext& rc) noexcept override {\n    if (rc.HasSprites()) {\n        rc.Sprites().DrawString(rc.GetFont(), \"SCORE\", x, y);\n    }\n    u32 w = rc.Width(), h = rc.Height();\n}",
       members: [
         { sig: "IRhiCommandList& Cmd() const", ret: "コマンドリスト", desc: "今フレームの描画コマンド発行先。素の <t>RHI</t> を直接叩く時に。" },
         { sig: "CRenderer& GetRenderer() const", ret: "レンダラ", desc: "描画システム本体への参照。" },
@@ -146,7 +141,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/ReplayDirector.h",
       summary: "<b>高レベルな<t>リプレイ</t>制御</b>。録画開始/停止・再生・一時停止・倍速・任意位置への<t>シーク</t>を、ゲーム UI の粒度で扱う。低レベルの入力記録 (<code>CInputRecorder</code>) と<t>ロックステップ</t> (<code>CLockstep</code>) をまとめる。",
       when: "プレイのリプレイを残したい、ベストプレイを後で再生したい、バグ再現用に録画したい時。",
-      sample: "CReplayDirector dir;\ndir.Init();\ndir.SetSources(&recorder, &lockstep);\nFReplayMetadata m{}; m.game_version = \"1.0.0\"; m.level_id = \"stage_01\";\ndir.StartRecording(m);\n// ...プレイ...\ndir.StopRecording();\ndir.SaveReplay(L\"user/replay_01.acsr\");",
       members: [
         { sig: "void Init()", desc: "<t>Idle</t> 状態にリセットする。再生速度 1.0・tick 0。" },
         { sig: "void SetSources(CInputRecorder* recorder, CLockstep* lockstep)", desc: "保存/復元の対象となる低レベル source を注入する (非所有)。" },
@@ -186,7 +180,6 @@ ACS_REF.modules.push({
       kind: "クラス (static のみ)", header: "gameframework/SaveArchive.h",
       summary: "<b>低レベルなセーブファイル I/O</b>。任意の <t>POD</t> バイト列を <code>.acssave</code> 形式 (24 バイトヘッダ + payload + <t>CRC32</t>) で読み書きする。<code>TSaveSlot</code> の土台。",
       when: "可変長データを扱いたい、テンプレートを介さず生バイトを保存したい時。普通は <code>TSaveSlot</code> を使えば十分。",
-      sample: "auto wr = CSaveArchive::WriteToFile(L\"profile.acssave\", 1u, &p, sizeof(p));\nif (wr.IsErr()) { /* 報告 */ }\nu64 actual = 0;\nFSaveArchive::ReadFromFile(L\"profile.acssave\", &p, sizeof(p), 1u, actual);",
       members: [
         { sig: "static TResult<void> WriteToFile(const wchar_t* path, u32 version, const void* payload, u64 size)", desc: "payload を 1 ファイルに書き出す。先頭に magic とヘッダ、末尾に <t>CRC32</t> を付ける。" },
         { sig: "static TResult<u32> ReadFromFile(const wchar_t* path, void* out, u64 cap, u32 expected_version, u64& out_size)", ret: "実 version", desc: "検証して payload を読み込む。version 不一致なら <code>kSubMigrationNeeded</code> を返す。" },
@@ -212,7 +205,6 @@ ACS_REF.modules.push({
       kind: "クラステンプレート", header: "gameframework/SaveSlot.h",
       summary: "<b>1 個の <t>POD</t> 構造体を 1 ファイルに保存/復元するセーブスロット</b>。タイトル画面の continue 判定やオプション設定、進捗データの土台。",
       when: "プレイヤープロフィールや設定など、固定レイアウトのデータを手軽に保存したい時。",
-      sample: "struct FProfile { acs::u32 hi_score; acs::f32 volume; };\nFProfile profile{};\nTSaveSlot<FProfile> slot;\nslot.Init(L\"user/profile.acssave\");\nif (slot.Exists()) { auto r = slot.Load(); if (r) profile = r.Value(); }\nslot.Save(profile);",
       members: [
         { sig: "void Init(const wchar_t* file_path)", desc: "このスロットのファイルパスを設定する (文字列は呼び出し側が寿命を保証)。" },
         { sig: "TResult<void> Save(const T& data, u32 version = 1)", desc: "<code>data</code> を保存する。<code>version</code> を上げると旧データ読み込み時に migrate を促せる。" },
@@ -226,7 +218,6 @@ ACS_REF.modules.push({
       kind: "基底クラス", header: "gameframework/Scene.h",
       summary: "<b>1 画面 / 1 状態を表す基底クラス</b>。root <code>ANode</code> と world/HUD 描画フックを持ち、<code>CGame</code> が共有する描画資源を借りて描く。タイトル・ゲーム本編・ポーズなどを派生クラスで書き、<code>CGame</code> がスタックで切り替え・更新・描画する。",
       when: "ゲームの画面 (状態) を 1 つ作る時の基本。すべての画面はこれを継承する。",
-      sample: "class ATitleScene : public acs::game::AScene {\nprotected:\n    void OnReady() noexcept override { /* ノード生成 */ }\n    void OnTick(f32 dt) noexcept override {\n        if (start) Scenes().ChangeScene(MakeUnique<AGameScene>());\n    }\n    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override { /* HUD */ }\n};",
       members: [
         { sig: "virtual void OnEnter() / OnExit()", desc: "シーンが top に来た直後 / 退場する直前に呼ばれる。アセット読み込みや後片付けに。" },
         { sig: "virtual void OnPause() / OnResume()", desc: "上に別シーンが Push された時 / Pop で戻った時に呼ばれる。" },
@@ -240,7 +231,7 @@ ACS_REF.modules.push({
         { sig: "virtual void OnReady() / OnTick(f32) / OnFixedTick(f32)", desc: "override 用フック。準備・毎フレーム・固定刻みのロジック。" },
         { sig: "virtual void OnDrawWorld(FRenderContext&, CSpriteBatch&) / OnDrawHud(...)", desc: "world (カメラ追従) と HUD (画面固定) の描画を分けて書く。" },
         { sig: "virtual void OnEvent(const FEvent& e)", desc: "ウィンドウ/入力イベントの受け取り。最上段シーンにのみ届く。" },
-        { sig: "virtual ESvc WantedServices() const", ret: "使うサービス", desc: "このシーンが使う<t>サービス</t>を bit flag で宣言する。", sample: "ESvc WantedServices() const noexcept override { return ESvc::Default2D; }" },
+        { sig: "virtual ESvc WantedServices() const", ret: "使うサービス", desc: "このシーンが使う<t>サービス</t>を bit flag で宣言する。"},
         { sig: "CSceneServices& Services() const", ret: "サービスハブ", desc: "宣言済みの <code>CSceneServices</code> を取得する (未宣言で呼ぶと停止)。" },
         { sig: "CGame& GetGame() const / CSceneManager& Scenes() const", desc: "ゲーム本体とシーン管理への参照。シーン遷移は <code>Scenes().ChangeScene(...)</code>。" },
         { sig: "bool HasServices() const", desc: "このシーンに <code>CSceneServices</code> が attach 済みか。<code>Services()</code> を呼ぶ前の安全確認に使える (未宣言で <code>Services()</code> を呼ぶと停止する)。" },
@@ -252,7 +243,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/Scene2D.h",
       summary: "<b>2D ゲーム向けの既定サービスを選ぶ空派生</b>。root・描画配線・描画フックは基底 <code>AScene</code> が持ち、この型は <code>Default2D | Camera2D | Physics2D</code> を既定要求する。",
       when: "カメラと 2D 物理を常に使う画面を作る時。サービスを個別選択する画面は <code>AScene</code> を直接継承する。",
-      sample: "class AStageScene : public acs::game::AScene2D {\nprotected:\n    void OnReady() noexcept override { /* ノード生成 */ }\n    void OnTick(f32 dt) noexcept override { /* ロジック */ }\n    void OnDrawWorld(FRenderContext& rc, CSpriteBatch& sb) noexcept override { /* world */ }\n    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override { /* HUD */ }\n};",
       members: [
         { sig: "ESvc WantedServices() const override", ret: "Default2D | Camera2D | Physics2D", desc: "2D の既定入力・カメラ・物理サービスを要求する。root と描画 API はすべて <code>AScene</code> から継承する。" },
         { sig: "using FScene2D = AScene2D", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>AScene2D</code> を使う。" }
@@ -263,7 +253,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/SceneManager.h",
       summary: "<b><code>AScene</code> のスタック管理</b>。top のシーンを毎フレーム更新/描画し、画面切替 (Change/Push/Pop) を<b>フレーム境界まで遅延</b>して安全に適用する。",
       when: "シーンを切り替える時。普通は <code>AScene::Scenes()</code> 経由でこれを触る。",
-      sample: "// シーン内から:\nScenes().ChangeScene(MakeUnique<AGameScene>());  // 切替\nScenes().PushScene(MakeUnique<APauseScene>());   // 上に重ねる (モーダル)\nScenes().PopScene();                            // 戻る",
       members: [
         { sig: "void ChangeScene(TUniquePtr<AScene> next)", desc: "今の top を pop して <code>next</code> を push (= 画面切替)。次フレーム頭で適用。" },
         { sig: "void PushScene(TUniquePtr<AScene> next)", desc: "今の top を残したまま <code>next</code> を重ねる (= ダイアログ/ポーズ)。" },
@@ -277,7 +266,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/SceneServices.h",
       summary: "<b>シーンが使うサービスの取り付けハブ</b>。<t>シーンクロック</t>・<t>トゥイーン</t>・<t>シーケンス</t>・入力マップ・カメラ・物理・トリガーを、<code>ESvc</code> で宣言した分だけ遅延確保して保持する。<code>CGame</code> が自動で更新する。",
       when: "シーンで時間スケール・補間アニメ・入力アクション・2D カメラ/物理を使いたい時。<code>AScene::Services()</code> 経由でアクセスする。",
-      sample: "ESvc WantedServices() const noexcept override { return ESvc::Default2D; }\nvoid OnEnter() noexcept override {\n    Services().Input().BindKey(FActionId(\"Jump\"), EKey::Space);\n    Services().Tweens().Tween(&m_Color, c1, c2, 2.0f, Easing::InOutSine);\n}",
       members: [
         { sig: "bool Has(ESvc s) const / ESvc Wanted() const", desc: "宣言したサービスを持っているか、何を要求したか。" },
         { sig: "CSceneClock& Clock()", desc: "時間スケールや一時停止を扱う<t>シーンクロック</t>。" },
@@ -292,15 +280,13 @@ ACS_REF.modules.push({
       name: "ESvc",
       kind: "列挙(enum)", header: "gameframework/SceneServices.h",
       summary: "シーンが要求する<t>サービス</t>の bit flag。<code>Clock</code>/<code>Tweens</code>/<code>Sequences</code>/<code>Input</code>/<code>Camera2D</code>/<code>Physics2D</code>/<code>Triggers</code>。<code>Default2D</code> は前 4 つの合成。<code>|</code> で組み合わせる。",
-      when: "<code>AScene::WantedServices()</code> の戻り値として、使うサービスを宣言する時。",
-      sample: "return ESvc::Default2D | ESvc::Camera2D | ESvc::Physics2D;"
+      when: "<code>AScene::WantedServices()</code> の戻り値として、使うサービスを宣言する時。"
     },
     {
       name: "CSceneEventBus",
       kind: "クラス", header: "gameframework/SceneEventBus.h",
       summary: "<b>シーン内の <t>pub/sub</t> メッセージング</b>。同じシーンのコンポーネント同士が、相手を直接知らずに通知をやり取りできる。イベント名は<t>コンパイル時ハッシュ</t>で u32 に畳む。",
       when: "『プレイヤーが死んだ』『敵が湧いた』などの出来事を、疎結合に複数の相手へ知らせたい時。",
-      sample: "// 購読側\nFSceneEventBus events;\nm_Sub = events.Subscribe(FEventId(\"PlayerDied\"), &OnDied, this);\n// 発行側\nFPlayerDiedPayload p{ pos, cause };\nevents.Publish(FEventId(\"PlayerDied\"), &p, sizeof(p));",
       members: [
         { sig: "u32 Subscribe(FEventId id, HandlerFn fn, void* user)", ret: "解除用ハンドル", desc: "イベントにハンドラを登録する。0 は失敗。" },
         { sig: "void Unsubscribe(u32 handle)", desc: "ハンドルで購読を解除する。発行中に呼んでも安全。" },
@@ -314,15 +300,13 @@ ACS_REF.modules.push({
       name: "FEventId",
       kind: "構造体", header: "gameframework/SceneEventBus.h",
       summary: "イベント識別子。文字列リテラルから<t>コンパイル時ハッシュ</t> (FNV-1a) で u32 を生成する。実行時の文字列比較なしで高速。",
-      when: "イベントを <code>Subscribe</code>/<code>Publish</code> する時の名前付けに。",
-      sample: "FEventId id(\"EnemySpawned\");  // コンパイル時に u32 化"
+      when: "イベントを <code>Subscribe</code>/<code>Publish</code> する時の名前付けに。"
     },
     {
       name: "CSceneCommandQueue",
       kind: "クラス", header: "gameframework/SceneCommandQueue.h",
       summary: "<b>遅延実行のコマンドキュー</b>。更新/描画の走査中に出された『ノード追加』『削除』などの要求を貯めておき、フレーム末の <code>Flush</code> でまとめて安全に実行する。エディタ連携にも使う。",
       when: "ループ走査の途中で構造を変えたい時 (走査中の削除は危険なので遅延する)。優先度や連打抑制も扱える。",
-      sample: "// 走査中に削除要求しても安全 (Flush でまとめて実行)\nm_Cmds.Enqueue(\"DeleteSelected\", &DeleteSelected, this);\nm_Cmds.EnqueueIfAbsent(\"Refresh\", &RefreshUi, this, /*priority=*/50);\n// フレーム末:\nm_Cmds.Flush();",
       members: [
         { sig: "void Enqueue(const char* label, SceneCommandFn fn, void* user, u32 priority = 100, bool one_shot = true)", desc: "コマンドを末尾に積む。<code>one_shot</code> なら 1 回で消え、false なら毎 Flush 繰り返す。" },
         { sig: "void EnqueueIfAbsent(const char* label, SceneCommandFn fn, void* user, u32 priority = 100)", desc: "同 label が既にあれば何もしない (連打/重複の畳み込み)。" },
@@ -338,7 +322,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/SceneTimer.h",
       summary: "<b>シーンスコープの遅延コールバック</b>。<code>SetTimeout</code>/<code>SetInterval</code> で『何秒後に』『何秒ごとに』関数を呼ぶ。シーンが死ぬと自動で破棄されるのがグローバルなタイマーとの違い。",
       when: "敵を一定間隔で湧かせる、数秒後にウェーブを終わらせる、など時間ベースの処理を書く時。",
-      sample: "m_SpawnTimer = m_Timers.SetInterval(2.0f, &SpawnEnemy, this);\nm_Timers.SetTimeout(10.0f, &EndWave, this);\n// OnUpdate から:\nm_Timers.Tick(dt);",
       members: [
         { sig: "FSceneTimerHandle SetTimeout(f32 delay_sec, TimerCallback cb, void* user)", ret: "シーンタイマーハンドル", desc: "delay 秒後に 1 回だけ実行する。delay&lt;=0 や cb=null は invalid。" },
         { sig: "FSceneTimerHandle SetInterval(f32 period_sec, TimerCallback cb, void* user)", ret: "シーンタイマーハンドル", desc: "period 秒ごとに繰り返し実行する (Cancel まで永続)。" },
@@ -363,7 +346,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/ScoreSystem.h",
       summary: "<b>スコア累積 + コンボ + 倍率 + マイルストン通知</b>を 1 つにまとめたマネージャ。<code>NotifyHit</code> でコンボが伸び、<code>AddScore</code> でコンボ由来の倍率を掛けて加算する。一定時間ヒットが無いとコンボはリセット。",
       when: "アーケード/アクション系で『連鎖でスコア倍率が上がる』仕組みを作る時。",
-      sample: "CScoreSystem ss;\nss.Init();\nss.RegisterMilestone(10000);\nss.SetOnMilestoneCallback(&OnMilestone, user);\n// 敵撃破時:\nss.NotifyHit();\nss.AddScore(\"enemy.normal\", 100);  // 100 × 現在倍率\nss.Tick(dt);",
       members: [
         { sig: "void Init()", desc: "スコア/コンボ/履歴/マイルストン状態をクリアする (ハイスコアは保持)。" },
         { sig: "void AddScore(const char* category, u64 base_value)", desc: "<code>base × 現在倍率</code> を加算し、履歴に記録する。マイルストン通過もここで判定。", when: "得点が入るたびに呼ぶ。" },
@@ -396,7 +378,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/ScriptHost.h",
       summary: "<b>スクリプト呼び出しの単一窓口</b>。<code>IScriptVm</code> を 1 個保持し、ファイル読み込み・グローバル関数呼び出し・<t>ネイティブ関数</t>登録をまとめる。Mod や UI ロジックの動的拡張に使う。",
       when: "Lua などのスクリプトでゲームを拡張したい時。VM 本体は別モジュールが提供し、ここはその窓口。",
-      sample: "CScriptHost host;\nhost.Init(&acs::game::GetDefaultScriptVm());\nhost.RegisterNative(\"Log\", &MyLog, this);\nhost.LoadAndRun(L\"mods/hello.lua\");\nFScriptValue ret{};\nhost.CallGlobalFunction(\"on_start\", nullptr, 0, &ret);",
       members: [
         { sig: "void Init(IScriptVm* vm)", desc: "使う VM を差し込む (所有はしない)。nullptr で切り離し。" },
         { sig: "void Shutdown()", desc: "VM 参照を切り、内部の登録リストもクリアする。" },
@@ -414,7 +395,6 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/ScriptHost.h",
       summary: "<b>スクリプト VM の純粋仮想<t>インターフェース</t></b>。Lua 5.4 / Wren / Python3 / 自前 VM などの実体を差し替えるための<t>シーム</t>。gameframework 本体は実ライブラリをリンクせず、別モジュールがこれを実装する。",
       when: "スクリプトバックエンドを実装/差し替える時。普通は <code>CScriptHost</code> 経由で間接的に使う。",
-      sample: "// 実 backend を既定にする (例):\n#if WITH_ACS_SCRIPTING\n    acs::scripting::InstallLuaAsDefault();\n#endif\nIScriptVm& vm = acs::game::GetDefaultScriptVm();",
       members: [
         { sig: "virtual TResult<void> Init() / void Shutdown()", desc: "VM の初期化と破棄。" },
         { sig: "virtual EScriptLanguage Language() const", desc: "どの言語の backend かを返す。" },
@@ -439,7 +419,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/ScriptHost.h",
       summary: "backend 中立な<b>動的型付け値</b>。<code>Nil</code>/<code>Bool</code>/<code>Number</code>(f64)/<code>FString</code>(非所有)/<code>Handle</code>(u32) のタグ付き union 風 POD。スクリプトと C++ の間で引数・戻り値を受け渡す。",
       when: "<t>ネイティブ関数</t>の引数や戻り値を読み書きする時。",
-      sample: "FScriptValue v;\nv.kind = EScriptValueKind::Number;\nv.v.num = 3.14;",
       members: [
         { sig: "EScriptValueKind kind", desc: "今どの型を保持しているか。" },
         { sig: "union { bool b; f64 num; const char* str; u32 handle; } v", desc: "値本体。<code>str</code> は所有しない (寿命は呼び出し側)。" }
@@ -466,7 +445,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "gameframework/ScriptHost.h",
       summary: "既定の <code>IScriptVm</code> を取得/差し替える結線。実 backend モジュールが <code>SetScriptVmProvider</code> で実 VM を提供し、ゲームコードは <code>GetDefaultScriptVm</code> で backend 非依存に既定 VM を得る。未登録なら <code>GetVmStub</code> のスタブが返る。",
       when: "スクリプト backend をアプリ起動時に一度だけ結線したい時。",
-      sample: "// 実 backend 側で:\nacs::game::SetScriptVmProvider(&MyLuaVmProvider);\n// ゲーム側で:\nIScriptVm& vm = acs::game::GetDefaultScriptVm();",
       members: [
         { sig: "IScriptVm& GetVmStub()", ret: "静的スタブ", desc: "常に存在する防御的スタブ VM を返す。" },
         { sig: "void SetScriptVmProvider(ScriptVmProvider provider)", desc: "既定 VM を返す関数を登録する。nullptr でスタブに戻す (後勝ち)。" },
@@ -478,7 +456,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/SeasonPass.h",
       summary: "<b>シーズン (バトルパス) の進行管理</b>。期間 (開始/終了 timestamp)・累積 XP による tier 進行・各 tier 報酬の請求状態を 1 クラスで扱う。報酬は固定 (乱数なし)・cosmetic 限定を強く推奨する倫理方針。",
       when: "期間限定シーズンや無料/プレミアムのパス報酬を実装する時。報酬 ID を吐き出すだけで、実体解放は entitlement 側に橋渡しする。",
-      sample: "CSeasonPass sp;\nFSeasonInfo info{};\ninfo.season_id = \"season.spring_2026\";\ninfo.start_timestamp = 1748736000ull;\ninfo.end_timestamp   = 1756598400ull;\nsp.StartSeason(info);\nsp.DefineTier({ 0, 100, \"cosmetic.frame_t00\", nullptr });\nsp.AwardXp(150);\nsp.Tick(dt);\nif (sp.ClaimReward(0, /*premium=*/false)) { /* 付与 */ }",
       members: [
         { sig: "void StartSeason(const FSeasonInfo& info)", desc: "シーズンを開始する (xp=0、tier 定義は破棄、現在時刻 = 開始時刻)。" },
         { sig: "void DefineTier(const FTier& t)", desc: "tier を 1 件登録する。<code>tier_index</code> 重複は無視。" },

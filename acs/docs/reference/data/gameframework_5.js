@@ -10,7 +10,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/NodeId.h",
       summary: "シーングラフの ANode を一意に指す 32bit の<t>世代付きハンドル</t>。中身は <b>24bit の index + 8bit の generation</b> を 1 個の <code>u32</code> に詰めたもの。<code>packed == 0</code> が無効値。",
       when: "ANode を生ポインタで持つと破棄後に<t>ダングリング</t>になる。代わりにこの ID で持っておき、使う直前に <code>CNodePool::Get()</code> で取り出すと、破棄済みなら安全に nullptr が返る。",
-      sample: "FNodeId id = pool.RegisterExistingNode(node);\nif (id.IsValid()) {\n    u32 slot = id.Index();       // プール配列の index\n    u8  gen  = id.Generation();  // 世代カウンタ\n}\nif (a == b) { /* 完全一致 */ }",
       members: [
         { sig: "constexpr FNodeId(u32 index, u8 gen)", desc: "index(24bit) と generation(8bit) を pack して構築。index は <code>&amp; 0x00FFFFFF</code> でマスクされ、24bit を超える上位 bit は黙って捨てられる。" },
         { sig: "constexpr u32 Index() const", ret: "0〜16,777,215", desc: "プール / SoA 配列の index を取り出す。" },
@@ -24,7 +23,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/NodePool.h",
       summary: "シーン内の <code>ANode</code> を登録して、安定した <t>FNodeId</t> を発行する<t>レジストリ</t>。ANode 本体は親が <code>TObjectPtr&lt;ANode&gt;</code> で所有し続け、この pool は<b>参照だけ</b>を持つ (<t>非所有</t>)。発行済み ID の<t>stale</t>検出も担う。",
       when: "敵やアイテムなどを ID で安全に持ち回りたい時。破棄された ANode を <code>Get()</code> しても nullptr が返るので、無効アクセスを防げる。",
-      sample: "CNodePool pool;\npool.Init(512);\nFNodeId id = pool.RegisterExistingNode(enemy_ptr);\n// 後で stale 検査付きで取り出し\nif (ANode* p = pool.Get(id)) {\n    p-&gt;SetPosition2D(p-&gt;Position2D() + FVec2{1, 0});\n}\npool.Unregister(id);   // slot 解放 + gen++ で古い ID は無効化",
       members: [
         { sig: "void Init(u32 initial_capacity = 256)", desc: "初期容量を予約 (再 alloc 回避)。複数回呼べるが縮小はしない。" },
         { sig: "FNodeId RegisterExistingNode(ANode* node)", ret: "新しい ID (失敗時 invalid)", desc: "既存の ANode を登録して新 ID を発行し、<code>node-&gt;_SetId</code> する。nullptr や 16M slot 到達時は invalid を返す。" },
@@ -42,7 +40,6 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/OpenXrBridge.h",
       summary: "VR / AR / MR (XR) ランタイムへの接続を抽象化する<t>seam</t>(差し替え点)。HMD のヘッドポーズ、左右コントローラの状態、passthrough の on/off だけを公開する最小の窓口。実 SDK (OpenXR / Oculus / SteamVR / PS VR2 等) は別モジュールで差し替える。",
       when: "VR ゲームを書くが、開発機に HMD が刺さっていなくても動くようにしたい時。未接続なら stub が「常に未トラッキング」を返すので、通常の 2D 描画への<t>フォールバック</t>を最初から書ける。",
-      sample: "IOpenXrBridge& xr = GetDefaultOpenXrBridge();\nif (xr.Init().IsOk()) {\n    FXrPose head = xr.HeadPose();\n    FXrControllerState r = xr.RightController();\n    if (r.trigger &gt; 0.5f) { /* 撃つ */ }\n}\nxr.Tick(dt);",
       members: [
         { sig: "TResult&lt;void&gt; Init(EXrPlatform platform = EXrPlatform::Unknown)", ret: "成功 / NotImplemented", desc: "backend を初期化 (XR ランタイム接続 / セッション開始)。Unknown なら利用可能な SDK を自動検出。stub は常に NotImplemented。" },
         { sig: "void Shutdown()", desc: "backend を破棄。Init 前に呼んでも安全。" },
@@ -59,29 +56,25 @@ ACS_REF.modules.push({
       name: "EXrPlatform",
       kind: "列挙(enum)", header: "gameframework/OpenXrBridge.h",
       summary: "想定する XR backend プラットフォームの種別。<code>Unknown</code> / <code>MetaQuest</code> / <code>ValveIndex</code> / <code>HtcVive</code> / <code>PicoNeo</code> / <code>AppleVisionPro</code> / <code>PsVr2</code> / <code>WindowsMR</code> / <code>SteamLink</code>。",
-      when: "<code>IOpenXrBridge::Init()</code> に「この HMD を使う」と明示したい時。Unknown を渡すと backend が自動検出する。",
-      sample: "xr.Init(EXrPlatform::MetaQuest);"
+      when: "<code>IOpenXrBridge::Init()</code> に「この HMD を使う」と明示したい時。Unknown を渡すと backend が自動検出する。"
     },
     {
       name: "FXrPose",
       kind: "構造体", header: "gameframework/OpenXrBridge.h",
       summary: "HMD / コントローラの位置と向き。<code>position</code> は world 座標 (m)、<code>orientation_euler</code> は (pitch, yaw, roll) を<b>ラジアン</b>で持つ。<code>tracked</code> が false なら原点なので使わない。",
-      when: "ヘッドの向きでカメラを回す、コントローラの位置に手を描く、といった用途。精密な向き計算が要るなら自分で euler から quaternion / 行列へ変換する。",
-      sample: "FXrPose p = xr.HeadPose();\nif (p.tracked) {\n    camera.SetPosition(p.position);\n    camera.SetYaw(p.orientation_euler.y);\n}"
+      when: "ヘッドの向きでカメラを回す、コントローラの位置に手を描く、といった用途。精密な向き計算が要るなら自分で euler から quaternion / 行列へ変換する。"
     },
     {
       name: "FXrControllerState",
       kind: "構造体", header: "gameframework/OpenXrBridge.h",
       summary: "左右コントローラ 1 フレーム分の入力 snapshot。6DoF ポーズ + トリガ <code>trigger</code> [0,1] + グリップ <code>grip</code> [0,1] + ボタン <code>button_a/b</code> + スティック <code>thumbstick</code> [-1,1]×2 という、各プラットフォーム差を吸収した最小公倍数。",
-      when: "VR コントローラの入力を読む時。Quest / Index / Vive / PS VR2 のボタン差をこの 1 構造体で統一的に扱える。",
-      sample: "FXrControllerState c = xr.RightController();\nif (c.button_a) Jump();\nFVec2 move = c.thumbstick;   // [-1,1] スティック"
+      when: "VR コントローラの入力を読む時。Quest / Index / Vive / PS VR2 のボタン差をこの 1 構造体で統一的に扱える。"
     },
     {
       name: "CParticleEffectSystem",
       kind: "クラス", header: "gameframework/ParticleEffectSystem.h",
       summary: "2D 向けの軽量 sprite <t>パーティクル</t>システム。<b>emitter</b> (放出口) を複数置いて、炎・煙・スパーク・吹き出しなどの連続演出を出す。描画はせず、<code>AllParticles()</code> で粒子データを渡すだけなので<t>headless</t>でも動く。",
       when: "ヒット時の火花、燃えるたいまつ、走った跡の砂煙など「粒子を出し続ける」演出が欲しい時。単発の Flash / Shake は別の <code>CEffectSystem</code> が担当。",
-      sample: "FParticleEmitterDef def{};\ndef.lifetime_sec      = 0.8f;\ndef.emit_rate_per_sec = 30.0f;\ndef.speed_min = 40.0f; def.speed_max = 80.0f;\ndef.gravity = {0.0f, 60.0f};\nFParticleEffectSystem fx;\nfx.Init(2048);\nauto h = fx.CreateEmitter(def, {200.0f, 300.0f});\nfx.Tick(dt);                 // 毎フレーム\nfx.Burst(h);                 // 一気に放出 (爆発)",
       members: [
         { sig: "void Init(u32 max_particles = 1024)", desc: "粒子プールの上限を確定 (再 Init は no-op)。0 を渡すと 1024 を採用。" },
         { sig: "FEmitterHandle CreateEmitter(const FParticleEmitterDef&amp; def, FVec2 pos)", ret: "emitter ハンドル", desc: "emitter を 1 個作る。pos は world 座標。slot 上限到達や lifetime &lt;= 0 の def は invalid を返す。" },
@@ -100,15 +93,13 @@ ACS_REF.modules.push({
       name: "FParticleEmitterDef",
       kind: "構造体", header: "gameframework/ParticleEffectSystem.h",
       summary: "emitter の挙動パラメータ。色 (<code>color_start/end</code>)、寿命 (<code>lifetime_sec</code>)、毎秒放出数 (<code>emit_rate_per_sec</code>)、初速 (<code>speed_min/max</code>)、サイズ (<code>scale_start/end</code>)、重力 (<code>gravity</code>)、Burst 数 (<code>burst_count</code>) を持つ。",
-      when: "<code>CreateEmitter()</code> に渡す設定の塊。色やサイズは出生時から寿命末まで線形補間される。",
-      sample: "FParticleEmitterDef fire{};\nfire.color_start = {1.0f, 0.6f, 0.1f};  // 橙\nfire.color_end   = {0.5f, 0.0f, 0.0f};  // 暗赤\nfire.scale_start = 8.0f; fire.scale_end = 0.0f;"
+      when: "<code>CreateEmitter()</code> に渡す設定の塊。色やサイズは出生時から寿命末まで線形補間される。"
     },
     {
       name: "FParticle",
       kind: "構造体", header: "gameframework/ParticleEffectSystem.h",
       summary: "個別の粒子データ。位置 / 速度 / 経過秒 (<code>age</code>) / 寿命 (<code>lifetime</code>) / 色 / サイズ / 重力を自分で持ち回る<t>self-contained</t>設計なので、emitter が消えても粒子は正しく動き続ける。",
       when: "描画側がこの構造体を直接読み、<code>age/lifetime</code> から補間係数を求めて色・サイズを決める。",
-      sample: "u32 n = 0;\nconst FParticle* p = fx.AllParticles(n);\nfor (u32 i = 0; i &lt; n; ++i) {\n    if (!p[i].IsAlive()) continue;\n    f32 t = p[i].NormalizedAge();   // 0..1\n    // 描画 (位置 p[i].position、色は補間)\n}",
       members: [
         { sig: "f32 NormalizedAge() const", ret: "0..1 の経過比", desc: "<code>age / lifetime</code> を 0..1 に clamp して返す。色・サイズ補間に使う。" },
         { sig: "bool IsAlive() const", desc: "<code>age &lt; lifetime</code> なら true (まだ生きている)。" }
@@ -118,15 +109,13 @@ ACS_REF.modules.push({
       name: "FEmitterHandle",
       kind: "構造体", header: "gameframework/ParticleEffectSystem.h",
       summary: "emitter を指す 24bit index + 8bit gen の packed <t>ハンドル</t>。<code>m_Packed == 0</code> が無効。slot 再利用後の<t>stale</t>参照は <code>IsValid()</code> + 内部の gen 一致で検出する。",
-      when: "<code>CreateEmitter()</code> の戻り値として受け取り、位置変更や Burst、破棄の対象指定に使う。",
-      sample: "FEmitterHandle h = fx.CreateEmitter(def, pos);\nif (h.IsValid()) fx.Burst(h);"
+      when: "<code>CreateEmitter()</code> の戻り値として受け取り、位置変更や Burst、破棄の対象指定に使う。"
     },
     {
       name: "CPartySystem",
       kind: "クラス", header: "gameframework/PartySystem.h",
       summary: "ローカルプレイヤーをまとめた「パーティ」の状態と、簡易フレンドリストを扱う窓口。ロビーや Co-op 入室前の集合、ストアのフレンド表示などを 1 つの API で扱う。<b>プラットフォーム非依存</b>で、実 SDK 接続は Storefront 側 (Steam/EOS/PSN 等) が橋渡しする。",
       when: "オンライン協力プレイのパーティ機能を作る時。状態遷移 (Solo → Joining → InParty → Leaving) とメンバ/フレンド管理だけをまず動かしたい時。",
-      sample: "CPartySystem ps;\nps.AddFriend({ \"steam:7656...\", \"alice\", true, true });\nif (ps.CreateParty(\"my_squad\")) {\n    ps.InviteFriend(\"steam:7656...\");\n}\nps.Tick(dt);   // Joining/Leaving の timeout 処理",
       members: [
         { sig: "TResult&lt;void&gt; CreateParty(const char* party_name)", desc: "新規パーティ作成 (Solo 状態のみ受理)。状態を Joining → InParty へ遷移。" },
         { sig: "TResult&lt;void&gt; JoinParty(const char* party_id)", desc: "招待で受け取った ID で参加 (Solo のみ)。Joining に遷移し Tick で timeout 監視。" },
@@ -146,22 +135,19 @@ ACS_REF.modules.push({
       name: "EPartyState",
       kind: "列挙(enum)", header: "gameframework/PartySystem.h",
       summary: "パーティ状態。<code>Solo</code> (非所属) / <code>InParty</code> (所属中) / <code>Joining</code> (参加要求中) / <code>Leaving</code> (離脱要求中)。Joining / Leaving は非同期 SDK 完了待ちの中間状態。",
-      when: "UI で「参加中…」の表示を出したり、状態によって操作を許可/禁止したい時。",
-      sample: "if (ps.State() == EPartyState::Joining) ShowSpinner();"
+      when: "UI で「参加中…」の表示を出したり、状態によって操作を許可/禁止したい時。"
     },
     {
       name: "FFriend / FPartyMember",
       kind: "構造体", header: "gameframework/PartySystem.h",
       summary: "<code>FFriend</code> = フレンド 1 件 (platform_id / display_name / online / playing_same_game)。<code>FPartyMember</code> = パーティメンバ 1 件 (player_id / display_name / is_leader / is_ready)。文字列はすべて<t>非所有</t> const char* (寿命は呼び出し側保証)。",
-      when: "フレンドリストやロビーのメンバ一覧を UI に出す時のデータ単位。",
-      sample: "FFriend f{ \"epic:abc\", \"bob\", true, false };\nps.AddFriend(f);\nFPartyMember m{ \"steam:7656...\", \"me\", true, true };\nps.AddMember(m);"
+      when: "フレンドリストやロビーのメンバ一覧を UI に出す時のデータ単位。"
     },
     {
       name: "CNavGrid",
       kind: "クラス", header: "gameframework/Pathfinding.h",
       summary: "2D 格子の通行可否マップ + <t>A*</t> 経路探索。マス目ごとに歩けるか否かを設定し、開始セルからゴールセルまでの最短経路を求める。タワーディフェンス、敵の追跡、クリック移動 RPG などに使える。",
       when: "グリッドベースで「ここからあそこまでどう動くか」を計算したい時。4 方向 (上下左右) のみか、対角も許可するか選べる。",
-      sample: "CNavGrid nav;\nnav.Init(32, 24);\nnav.SetWalkable(5, 10, false);   // 壁を置く\nnav.SetAllowDiagonal(true);      // 8 方向許可\n\nTArray&lt;CNavGrid::FPathPoint&gt; path;\nif (nav.FindPath(0, 0, 20, 15, path)) {\n    // path[0]=start, path.Back()=goal の連続セル列\n}",
       members: [
         { sig: "void Init(u32 width, u32 height)", desc: "全セル walkable でグリッドを初期化。width / height が 0 ならサイズ 0 として以降のクエリは no-op。" },
         { sig: "void SetWalkable(u32 x, u32 y, bool walkable)", desc: "1 マスの通行可否を設定。範囲外は静かに無視。" },
@@ -176,15 +162,13 @@ ACS_REF.modules.push({
       name: "CNavGrid::FPathPoint",
       kind: "構造体", header: "gameframework/Pathfinding.h",
       summary: "経路の 1 セルを表す座標ペア (<code>u32 x, y</code>)。<code>FindPath()</code> の出力配列の要素。",
-      when: "求めた経路をたどってキャラを動かす時、各セルの座標として読む。",
-      sample: "for (usize i = 0; i &lt; path.Size(); ++i) {\n    u32 cx = path[i].x, cy = path[i].y;\n}"
+      when: "求めた経路をたどってキャラを動かす時、各セルの座標として読む。"
     },
     {
       name: "CPerception",
       kind: "クラス", header: "gameframework/Perception.h",
       summary: "NPC が複数の target を「視覚」「聴覚」で検知できるか判定するモジュール。視覚は<b>距離 + 視野角</b>、聴覚は<b>距離のみ</b> (壁ごしも聞こえる)。<t>ビヘイビアツリー</t>の葉や blackboard の値ソースとして使う想定。",
       when: "敵 AI に「プレイヤーが見えたら追う」「物音がしたら警戒する」といった知覚を持たせたい時。",
-      sample: "CPerception perc;\nFSenseConfig cfg;\ncfg.sight_range   = 10.0f;\ncfg.sight_fov_rad = acs::kPi * 0.5f;   // 90 度\ncfg.hearing_range = 5.0f;\nperc.SetConfig(cfg);\nperc.AddTarget(1, FVec2{3.0f, 0.0f});\nperc.SetEyePos(FVec2{0,0}, FVec2{1,0});   // +X 向き\nperc.Tick(0.016f);\nif (perc.IsTargetVisible(1)) { /* 視認 */ }",
       members: [
         { sig: "void SetConfig(const FSenseConfig&amp; cfg)", desc: "感覚パラメータを差し替える。<code>cos(fov/2)</code> もここで 1 回だけ計算してキャッシュ。" },
         { sig: "void SetEyePos(FVec2 pos, FVec2 forward)", desc: "目の位置と前方向 (正規化済み前提) を更新。forward が長さ 0 なら (1,0) にフォールバック。" },
@@ -201,15 +185,13 @@ ACS_REF.modules.push({
       name: "FSenseConfig / FPerceptionTarget",
       kind: "構造体", header: "gameframework/Perception.h",
       summary: "<code>FSenseConfig</code> = 感覚パラメータ (<code>sight_range</code> 視認距離 / <code>sight_fov_rad</code> 視野角ラジアン / <code>hearing_range</code> 聴取距離)。<code>FPerceptionTarget</code> = 知覚対象 1 件 (pos / id と、Tick が更新する <code>is_visible</code> / <code>is_audible</code> 出力)。",
-      when: "<code>SetConfig()</code> に渡す設定、および <code>AllTargets()</code> で読む結果のデータ単位。",
-      sample: "FSenseConfig cfg;\ncfg.sight_range = 8.0f;\ncfg.sight_fov_rad = acs::kPi / 3.0f;  // 60 度\ncfg.hearing_range = 4.0f;"
+      when: "<code>SetConfig()</code> に渡す設定、および <code>AllTargets()</code> で読む結果のデータ単位。"
     },
     {
       name: "CPerfBudget",
       kind: "クラス", header: "gameframework/PerfBudget.h",
       summary: "フレーム時間 (ms) とメモリ確保量 (bytes) の<b>予算超過</b>を追跡する state holder。カテゴリ単位で予算を決め、毎フレーム実測値を記録 → 集計し、各カテゴリ / フレーム全体の超過を問い合わせられる。実測 (計測) と UI 描画は呼び出し側責務。",
       when: "「Render は 8ms 以内」「AI は 2ms 以内」のように予算を決めて、超えたら警告を出すパフォーマンス可視化を作りたい時。",
-      sample: "CPerfBudget budget;\nbudget.SetFrameBudget(16.67f);                  // 60fps\nbudget.DefineCategory(\"Render\", 8.0f, 64u*1024u*1024u);\n// 毎フレーム\nbudget.BeginFrame();\nbudget.RecordTimeMs(\"Render\", render_ms);\nbudget.EndFrame();\nif (budget.IsOverBudget(\"Render\")) { /* 警告 */ }",
       members: [
         { sig: "void SetFrameBudget(f32 ms)", desc: "目標フレーム時間 (60fps→16.67)。<= 0 でフレーム超過判定を無効化。" },
         { sig: "void DefineCategory(const char* category, f32 budget_ms, u32 budget_bytes)", desc: "カテゴリを新規定義 / 上書き。同名があれば予算だけ差し替え、実測値は保持。名前は呼び出し側所有 (リテラル想定)。" },
@@ -229,15 +211,13 @@ ACS_REF.modules.push({
       name: "FBudgetEntry",
       kind: "構造体", header: "gameframework/PerfBudget.h",
       summary: "1 カテゴリ分の予算 + 実測 (<code>category</code> 名 / <code>spent_ms</code> / <code>budget_ms</code> / <code>spent_bytes</code> / <code>budget_bytes</code>)。<code>CPerfBudget::AllCategories()</code> が返す要素。",
-      when: "予算ビューを自分で描画する時、各カテゴリの現状を読む単位。",
-      sample: "u32 n = 0;\nconst FBudgetEntry* e = budget.AllCategories(n);\nfor (u32 i = 0; i &lt; n; ++i)\n    Draw(e[i].category, e[i].spent_ms, e[i].budget_ms);"
+      when: "予算ビューを自分で描画する時、各カテゴリの現状を読む単位。"
     },
     {
       name: "CPhotoMode",
       kind: "クラス", header: "gameframework/PhotoMode.h",
       summary: "プレイヤーが任意の瞬間に時間を止めて景色を撮影する「フォトモード」の<t>状態 holder</t>。active フラグ、カメラの自由操作 (パン / ズーム / 回転) のオフセット、色フィルタ種別、撮影リクエストを保持する。実際の時間停止や描画は呼び出し側が行う。",
       when: "近年の AAA タイトル風の写真撮影機能を付けたい時。時間を止め、カメラを自由に動かし、セピアやモノクロのフィルタをかけて 1 枚保存する、という流れを組み立てる。",
-      sample: "CPhotoMode photo;\nphoto.Enter(game.TimeScale());          // 現在の time_scale を保存\ngame.SetTimeScale(0.0f);                 // 時間停止 (呼び出し側)\nphoto.MoveCamera({dx, dy});\nphoto.ZoomCamera(0.1f);                  // +10%\nphoto.SetFilter(CPhotoMode::Sepia);\nif (input.shutter) photo.RequestCapture();\nif (photo.ConsumeCaptureRequest()) SaveScreenshot();\nphoto.Exit();\ngame.SetTimeScale(photo.SavedTimeScale());",
       members: [
         { sig: "void Enter(f32 current_time_scale = 1.0f)", desc: "現在の time_scale を保存して active=true、カメラオフセットを初期化。実際の <code>SetTimeScale(0)</code> は呼び出し側。" },
         { sig: "void Exit()", desc: "active=false に戻す。呼び出し側が <code>SavedTimeScale()</code> を見て復元する。" },
@@ -255,15 +235,13 @@ ACS_REF.modules.push({
       name: "CPhotoMode::EFilterKind",
       kind: "列挙(enum)", header: "gameframework/PhotoMode.h",
       summary: "フォトモードの色フィルタ種別。<code>None</code> (素通し) / <code>Sepia</code> (セピア) / <code>Grayscale</code> (モノクロ) / <code>Vivid</code> (高彩度) / <code>Vignette</code> (周辺光量落とし)。実 LUT / シェーダ解決はポストプロセスパスの責務で、本 enum は「どれが選ばれているか」だけを持つ。",
-      when: "撮影画面で色味のプリセットを切り替えたい時。",
-      sample: "photo.SetFilter(CPhotoMode::Grayscale);"
+      when: "撮影画面で色味のプリセットを切り替えたい時。"
     },
     {
       name: "APhysicsBody2D",
       kind: "クラス (AComponent 派生)", header: "gameframework/PhysicsBody2D.h",
       summary: "<t>kinematic</t> な 2D 物理ボディの<t>コンポーネント</t>。velocity + acceleration + gravity を統合し、<code>CCollisionWorld2D</code> に登録された他の形状とぶつかったら止まる / 滑る (<t>collide-and-slide</t>)。剛体ソルバではなく「2D プラットフォーマー / トップダウン用の swept kinematic」。",
       when: "重力で落ちて床で止まる、壁に沿って滑る、といった素朴な 2D キャラ移動を ANode に付けたい時。形状は円 / AABB / 多角形 / OBB から選ぶ。",
-      sample: "auto ball = NewObject&lt;ANode&gt;();\nball-&gt;SetPosition2D(FVec2{0, 5});\nauto&amp; body = ball-&gt;AddComponent&lt;APhysicsBody2D&gt;(Services().Physics());\nbody.SetCircle(0.5f);\nbody.gravity  = FVec2{0, 10};   // +Y=下\nbody.velocity = FVec2{1, 0};\nroot.AddChild(Move(ball));",
       members: [
         { sig: "explicit APhysicsBody2D(CCollisionWorld2D&amp; world)", desc: "衝突ワールドへの参照を必須で受け取る (constructor)。" },
         { sig: "void SetCircle(f32 radius)", desc: "円形状に設定。<code>SetAabb</code> / <code>SetPolygon</code> / <code>SetObb</code> で AABB / 凸多角形 / 回転矩形にもできる (再設定で上書き)。" },
@@ -278,7 +256,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/PickupSystem.h",
       summary: "世界に転がっている「拾える物」(HP オーブ / コイン / ジェム / 弾薬 / パワーアップ / 鍵) を管理する小型マネージャ。プレイヤー位置との距離で<b>磁石効果 (引き寄せ)</b>・<b>拾取判定</b>・<b>寿命切れ消滅</b>を 1 つの Tick でまとめて処理する。",
       when: "Vampire Survivors や Hades のような「近づくと吸い寄せられて自動で拾う」アイテムドロップを作りたい時。拾うと callback で通知が来るので、インベントリ追加や HP 回復は呼び出し側で行う。",
-      sample: "CPickupSystem ps;\nps.Init();\nFPickupInfo info{};\ninfo.kind = EPickupKind::Coin;\ninfo.world_pos = {100, 50};\ninfo.radius = 12.0f;\ninfo.magnet_radius = 80.0f;\ninfo.value = 5;\nFPickupId id = ps.Spawn(info);\nps.SetOnPickupCallback(&amp;OnPickup, user);\n// 毎フレーム\nps.Tick(dt, player_pos, /*magnet_strength=*/200.0f);",
       members: [
         { sig: "void Init()", desc: "初期化。複数回呼べる (再 Init は ClearAll と等価)。" },
         { sig: "FPickupId Spawn(const FPickupInfo&amp; info)", ret: "新規 ID (失敗時 invalid)", desc: "pickup を世界に登録する。" },
@@ -296,29 +273,25 @@ ACS_REF.modules.push({
       name: "FPickupInfo",
       kind: "構造体", header: "gameframework/PickupSystem.h",
       summary: "pickup 1 件の定義。<code>kind</code> 種別 / <code>item_id</code> (非所有) / <code>world_pos</code> / <code>radius</code> 拾取半径 / <code>magnet_radius</code> 磁石半径 / <code>lifetime_sec</code> (0 で無期限) / <code>value</code> 価値。<code>radius &lt; magnet_radius</code> を想定。",
-      when: "<code>Spawn()</code> に渡す設定。寿命 0 にすれば明示削除まで残る永続 pickup になる。",
-      sample: "FPickupInfo hp{};\nhp.kind = EPickupKind::HealthOrb;\nhp.world_pos = {x, y};\nhp.radius = 14.0f; hp.magnet_radius = 90.0f;\nhp.lifetime_sec = 8.0f; hp.value = 25;"
+      when: "<code>Spawn()</code> に渡す設定。寿命 0 にすれば明示削除まで残る永続 pickup になる。"
     },
     {
       name: "FPickupId",
       kind: "構造体", header: "gameframework/PickupSystem.h",
       summary: "拾取アイテムを指す 24bit index + 8bit gen の packed <t>ハンドル</t>。0 = invalid。slot を再利用しても古い handle は generation 不一致で無効になる。",
-      when: "<code>Spawn()</code> の戻り値として持ち、Despawn や <code>GetPickup()</code> の対象指定に使う。",
-      sample: "FPickupId id = ps.Spawn(info);\nif (const FPickupInfo* p = ps.GetPickup(id)) { /* 生存中 */ }"
+      when: "<code>Spawn()</code> の戻り値として持ち、Despawn や <code>GetPickup()</code> の対象指定に使う。"
     },
     {
       name: "EPickupKind",
       kind: "列挙(enum)", header: "gameframework/PickupSystem.h",
       summary: "拾える物の分類。<code>HealthOrb</code> / <code>ManaOrb</code> / <code>Coin</code> / <code>Gem</code> / <code>AmmoBox</code> / <code>PowerUp</code> / <code>Key</code> / <code>Custom</code> の 8 種。数値は Save/Load で永続化される安定値 (途中に挿入しない)。",
-      when: "pickup を種別ごとに扱う / 統計する / <code>SpawnRandomAt</code> で既定値を選ぶ時。",
-      sample: "if (ps.CountOfKind(EPickupKind::Coin) == 0) SpawnWave();"
+      when: "pickup を種別ごとに扱う / 統計する / <code>SpawnRandomAt</code> で既定値を選ぶ時。"
     },
     {
       name: "TPool&lt;T&gt;",
       kind: "クラステンプレート", header: "gameframework/Pool.h",
       summary: "短命オブジェクトを毎フレーム大量に作っては捨てる用途の<t>オブジェクトプール</t>。<b>固定容量</b>で、要素 T は最初に全部 default 構築しておき、<code>m_Active[i]</code> の 0/1 で使用中かを表すだけ。<code>new</code>/<code>delete</code> を避けて<t>GC ヒッチ</t>や断片化を防ぐ。",
       when: "弾・パーティクル・一時的な敵など、生成と破棄が高頻度なものを軽く取り回したい時。Acquire / Release では T のコンストラクタ / デストラクタは走らないので、再初期化は自分で行う。",
-      sample: "struct FBullet { f32 x, y, vx, vy; bool alive; };\nTPool&lt;FBullet&gt; bullets;\nbullets.Init(1024);\nif (FBullet* b = bullets.Acquire()) {\n    b-&gt;x = px; b-&gt;y = py; b-&gt;vx = vx; b-&gt;alive = true;\n}\nbullets.ForEachActive([dt](FBullet&amp; b) {\n    b.x += b.vx * dt;\n});",
       members: [
         { sig: "void Init(u32 capacity)", desc: "固定容量を予約 (T は default 構築される)。2 度目以降は no-op (固定容量ポリシー)。" },
         { sig: "T* Acquire()", ret: "空きスロット or nullptr", desc: "空き 1 個を確保して返す。満杯なら nullptr。中身は前回値が残るので再初期化すること。返ったポインタは ResetAll / 破棄まで安定。" },
@@ -333,7 +306,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/PrefabSystem.h",
       summary: "名前付きの ANode ツリーテンプレート (<b>Prefab</b>) を<t>ファクトリ関数</t>として登録し、ID か名前から <code>TObjectPtr&lt;ANode&gt;</code> を生成 (spawn) する軽量レジストリ。組み立て済みのノード構成をファイルではなく関数で表現する。",
       when: "「敵」「コイン」「弾」などの組み立て済みオブジェクトを 1 度登録しておき、ゲーム中に何度も spawn したい時。",
-      sample: "static TObjectPtr&lt;ANode&gt; SpawnEnemy(void*) noexcept {\n    auto n = NewObject&lt;ANode&gt;();\n    // 子ノード / コンポーネントを組み立てる\n    return n;\n}\nFPrefabSystem prefabs;\nFPrefabId id = prefabs.Register(\"Enemy\", &amp;SpawnEnemy);\nauto a = prefabs.Spawn(id);\nauto b = prefabs.SpawnByName(\"Enemy\");",
       members: [
         { sig: "FPrefabId Register(const char* name, PrefabFactoryFn factory, void* user_data = nullptr)", ret: "新規 ID (失敗時 invalid)", desc: "Prefab を登録。name は永続文字列を渡す (複製しない)。nullptr / 空文字 / factory==nullptr は弾く。同名でも別 ID を作る (上書きしない)。" },
         { sig: "FPrefabId FindByName(const char* name) const", desc: "名前で検索 (登録順で最初に一致したもの)。一致しなければ invalid。" },
@@ -349,22 +321,19 @@ ACS_REF.modules.push({
       name: "FPrefabId",
       kind: "構造体", header: "gameframework/PrefabSystem.h",
       summary: "Prefab を指す 24bit index + 8bit gen の packed <t>ハンドル</t>。<code>m_Packed == 0</code> が invalid。<t>FNodeId</t> と完全に同じパターン。",
-      when: "<code>Register()</code> の戻り値として持ち、<code>Spawn()</code> / <code>Unregister()</code> の対象指定に使う。",
-      sample: "FPrefabId id = prefabs.Register(\"Coin\", &amp;SpawnCoin);\nif (id.IsValid()) auto c = prefabs.Spawn(id);"
+      when: "<code>Register()</code> の戻り値として持ち、<code>Spawn()</code> / <code>Unregister()</code> の対象指定に使う。"
     },
     {
       name: "PrefabFactoryFn",
       kind: "関数ポインタ型", header: "gameframework/PrefabSystem.h",
       summary: "Prefab を実体化するファクトリ関数の型 = <code>TObjectPtr&lt;ANode&gt;(*)(void* user_data) noexcept</code>。<code>user_data</code> は Register 時に渡したコンテキスト (<t>クロージャ</t>の代替)。失敗時は空 <code>TObjectPtr</code> を返してよい。",
-      when: "<code>Register()</code> に渡す自前の生成関数を書く時のシグネチャ。",
-      sample: "static TObjectPtr&lt;ANode&gt; Make(void* user) noexcept {\n    auto* cfg = static_cast&lt;FConfig*&gt;(user);\n    return BuildNode(cfg);\n}"
+      when: "<code>Register()</code> に渡す自前の生成関数を書く時のシグネチャ。"
     },
     {
       name: "CPrivacyDirector",
       kind: "クラス", header: "gameframework/PrivacyDirector.h",
       summary: "GDPR / CCPA / COPPA 対応で必須となる「ユーザーの同意」を一元管理する director。解析・広告・テレメトリなどカテゴリ別に同意の on/off を持ち、初回ダイアログ判定、ポリシー版の追跡、ローカル永続化を提供する。",
       when: "解析や広告 SDK を呼ぶ前に「ユーザーが同意したか」を確認する仕組みを作る時。カテゴリ別の granular consent が法的に求められる場面で使う。",
-      sample: "CPrivacyDirector privacy;\nprivacy.Init(/*current_policy_version=*/2);\nprivacy.LoadConsent(L\"user/consent.bin\");\nif (privacy.RequiresInitialConsent() || privacy.IsPolicyOutdated()) {\n    privacy.GrantConsent(EConsentCategory::Analytics);\n    privacy.MarkInitialConsentShown();\n    privacy.SaveConsent(L\"user/consent.bin\");\n}\nif (privacy.HasConsent(EConsentCategory::Analytics)) SendEvent();",
       members: [
         { sig: "void Init(u32 current_policy_version = 1)", desc: "有効なプライバシーポリシー版を設定。保存済み版がこれより小さければ <code>IsPolicyOutdated()</code> が true になる。" },
         { sig: "void GrantConsent(EConsentCategory cat)", desc: "指定カテゴリの同意 bit を立てる (複合可)。<code>RevokeConsent</code> は落とす。" },
@@ -381,22 +350,19 @@ ACS_REF.modules.push({
       name: "EConsentCategory",
       kind: "列挙(enum)", header: "gameframework/PrivacyDirector.h",
       summary: "同意カテゴリを表す<t>ビットフラグ</t>。<code>Required</code> (=0、同意不要の基本機能) / <code>Analytics</code> / <code>Marketing</code> / <code>Personalization</code> / <code>ThirdPartySharing</code> / <code>Telemetry</code> / <code>CrashReports</code>。<code>|</code> / <code>&amp;</code> 演算子で複合できる。",
-      when: "「Analytics は ON だが Marketing は OFF」のようにカテゴリ別に同意を扱う時。",
-      sample: "privacy.GrantConsent(EConsentCategory::Analytics | EConsentCategory::Telemetry);"
+      when: "「Analytics は ON だが Marketing は OFF」のようにカテゴリ別に同意を扱う時。"
     },
     {
       name: "FConsentStatus",
       kind: "構造体", header: "gameframework/PrivacyDirector.h",
       summary: "永続化単位の POD。<code>granted_mask</code> (同意 mask) / <code>consent_timestamp</code> (同意時刻) / <code>policy_version</code> (同意時のポリシー版)。<code>SaveConsent</code> / <code>LoadConsent</code> で書き出される最小構造体。",
-      when: "同意情報をファイルに保存 / 復元する時の中身。基本は <code>CPrivacyDirector</code> 越しに扱う。",
-      sample: "// SaveConsent/LoadConsent が内部で読み書きする POD。\n// 直接組み立てる必要はほぼない。"
+      when: "同意情報をファイルに保存 / 復元する時の中身。基本は <code>CPrivacyDirector</code> 越しに扱う。"
     },
     {
       name: "CPauseDirector",
       kind: "クラス", header: "gameframework/PauseDirector.h",
       summary: "ゲーム全体の pause 状態を一元管理する director。pause 理由を<t>ビットフラグ</t>(<code>EPauseReason</code>) の OR で持ち、「全部の理由が 0 になるまで pause を続ける」<t>スタック</t>的な挙動にすることで、「メニュー閉じたらフォーカス喪失中なのに動き出した」系のバグを防ぐ。",
       when: "メニュー表示・OS メニュー・フォーカス喪失・カットシーンなど複数の pause 理由が同時に起きうるゲームで、安全に pause/resume したい時。",
-      sample: "CPauseDirector pause;\npause.Pause(EPauseReason::UserMenu);\ngame.SetTimeScale(pause.EffectiveTimeScale());   // 0.0f\npause.Pause(EPauseReason::SystemMenu);\npause.Resume(EPauseReason::UserMenu);            // まだ SystemMenu が残る\ngame.SetTimeScale(pause.EffectiveTimeScale());   // まだ 0.0f\npause.Resume(EPauseReason::SystemMenu);\ngame.SetTimeScale(pause.EffectiveTimeScale());   // 1.0f に復帰",
       members: [
         { sig: "void Pause(EPauseReason reason)", desc: "指定理由の bit を立てる (OR、複合可)。新たに立った bit ごとに callback が paused=true で呼ばれる。" },
         { sig: "void Resume(EPauseReason reason)", desc: "指定理由の bit を落とす。実際に落ちた bit ごとに callback が paused=false で呼ばれる。" },
@@ -413,22 +379,19 @@ ACS_REF.modules.push({
       name: "EPauseReason",
       kind: "列挙(enum)", header: "gameframework/PauseDirector.h",
       summary: "pause 理由を表す<t>ビットフラグ</t>。<code>None</code> (=0、pause していない特異値) / <code>UserMenu</code> / <code>SystemMenu</code> / <code>FocusLost</code> / <code>Cinematic</code> / <code>PhotoMode</code> / <code>NetworkSync</code> / <code>Custom1</code> / <code>Custom2</code>。<code>|</code> / <code>&amp;</code> 演算子付き。",
-      when: "なぜ pause しているか / させたいかを表す時。複数同時に立てられる。",
-      sample: "pause.Pause(EPauseReason::FocusLost);\nif (pause.IsPausedFor(EPauseReason::Cinematic)) HideHUD();"
+      when: "なぜ pause しているか / させたいかを表す時。複数同時に立てられる。"
     },
     {
       name: "PauseEventCallback",
       kind: "関数ポインタ型", header: "gameframework/PauseDirector.h",
       summary: "pause/resume 遷移時に発火する関数ポインタ型 = <code>void(*)(void* user, EPauseReason reason, bool paused) noexcept</code>。立った / 落ちた reason の bit ごとに個別に呼ばれ、<code>paused</code> が遷移方向 (true=pause へ / false=resume へ)。",
-      when: "pause 状態の変化に合わせて UI を更新したり、音をフェードさせたりしたい時のコールバック。",
-      sample: "void OnPause(void* u, EPauseReason r, bool paused) noexcept {\n    if (paused) AudioDuck(); else AudioRestore();\n}\npause.SetCallback(&amp;OnPause, this);"
+      when: "pause 状態の変化に合わせて UI を更新したり、音をフェードさせたりしたい時のコールバック。"
     },
     {
       name: "CProgression",
       kind: "クラス", header: "gameframework/Progression.h",
       summary: "「累計 XP を加算するとレベルが上がり、所定の XP 閾値で Milestone を達成 → コンテンツが Unlock される」進行システムを 1 クラスにまとめた小型マネージャ。レベルは <code>floor(log2(xp + 1))</code> で典型的な RPG カーブを近似。プラットフォーム SDK 非依存。",
       when: "敵撃破やクエスト完了で XP が貯まり、一定値で「Lv.10 到達で新エリア解放」のようなマイルストーンを達成させたい時。達成時に callback でゲーム側へ通知する。",
-      sample: "CProgression p;\np.RegisterMilestone({ \"ms.level_5\", \"Lv.5 到達\", 31, \"content.weapon_b\" });\np.RegisterMilestone({ \"ms.level_10\", \"Lv.10 到達\", 1023, \"content.area_2\" });\np.SetOnAchievedCallback(&amp;OnMilestoneAchieved, &amp;game);\np.AwardXp(50);\nu32 lv = p.CurrentLevel();\nu32 done = p.AchievedCount();",
       members: [
         { sig: "void RegisterMilestone(const FMilestoneDef&amp; def)", desc: "起動時に 1 度ずつ登録。同 id の 2 重登録 / id==nullptr は no-op。" },
         { sig: "void AwardXp(u32 amount)", desc: "累計 XP に加算し、各 milestone の達成判定を行う。u32 超過は max にクランプ。amount=0 は no-op。" },
@@ -446,15 +409,13 @@ ACS_REF.modules.push({
       name: "FMilestoneDef / FMilestoneState",
       kind: "構造体", header: "gameframework/Progression.h",
       summary: "<code>FMilestoneDef</code> = 起動時に登録する immutable な定義 (<code>id</code> / <code>display_name</code> / <code>required_xp</code> / <code>unlock_content_id</code>)。<code>FMilestoneState</code> = 実行時の達成状態 (<code>id</code> / <code>achieved</code> / <code>achieved_timestamp</code>)。同 index で 1:1 対応する。文字列は<t>非所有</t>。",
-      when: "<code>RegisterMilestone()</code> に渡す定義、および <code>AllStates()</code> / <code>GetState()</code> で読む状態のデータ単位。",
-      sample: "FMilestoneDef d{ \"ms.veteran\", \"Veteran\", 16383, \"content.title_x\" };\np.RegisterMilestone(d);\nif (const FMilestoneState* s = p.GetState(\"ms.veteran\"))\n    if (s-&gt;achieved) ShowBadge();"
+      when: "<code>RegisterMilestone()</code> に渡す定義、および <code>AllStates()</code> / <code>GetState()</code> で読む状態のデータ単位。"
     },
     {
       name: "MilestoneCallback",
       kind: "関数ポインタ型", header: "gameframework/Progression.h",
       summary: "マイルストーン達成時に 1 回だけ呼ばれる関数ポインタ型 = <code>void(*)(void* user, const char* milestone_id) noexcept</code>。<code>milestone_id</code> は登録時の id がそのまま渡る。",
-      when: "達成の瞬間に効果音を鳴らす / トースト UI を出す / Unlock 処理に橋渡しする時。",
-      sample: "void OnAchieved(void* u, const char* id) noexcept {\n    PlaySe(\"se.unlock\");\n    ShowToast(id);\n}\np.SetOnAchievedCallback(&amp;OnAchieved, &amp;game);"
+      when: "達成の瞬間に効果音を鳴らす / トースト UI を出す / Unlock 処理に橋渡しする時。"
     },
     {
       name: "CPathFollower",

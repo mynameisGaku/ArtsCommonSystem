@@ -12,9 +12,8 @@ ACS_REF.modules.push({
       kind: "基底クラス", header: "ui/Widget.h",
       summary: "すべての UI 部品の<b>共通の親</b>。子を <t>TUniquePtr</t> で所有してツリーを作り、<t>レイアウト</t>(配置)・描画・<t>ヒットテスト</t>(クリック判定)・入力イベントの仮想メソッドを持ちます。コピー不可。",
       when: "ボタンやパネルなど具体的な部品はこれを継承して作る。直接インスタンス化するより、派生型(<code>AStackPanel</code> / <code>AButton</code> 等)を使うのが普通。",
-      sample: "AStackPanel root;\nFButton* btn = root.Add&lt;AButton&gt;(\"OK\");  // 子を追加して生ポインタを得る\n// 毎フレーム ui_renderer.Render(root, cmd, 1280, 720)\n// が Layout と描画をまとめて実行",
       members: [
-        { sig: "template&lt;W,Args...&gt; W* Add(Args&amp;&amp;... args)", ret: "追加した子の生ポインタ", desc: "子<t>ウィジェット</t>を <code>W</code> 型で作って自分の子に取り込み、その生<t>ポインタ</t>を返す。所有権は親が持つ。", sample: "ALabel* l = root.Add&lt;ALabel&gt;(\"スコア\");", when: "UI ツリーに部品を足す時の基本操作。" },
+        { sig: "template&lt;W,Args...&gt; W* Add(Args&amp;&amp;... args)", ret: "追加した子の生ポインタ", desc: "子<t>ウィジェット</t>を <code>W</code> 型で作って自分の子に取り込み、その生<t>ポインタ</t>を返す。所有権は親が持つ。", when: "UI ツリーに部品を足す時の基本操作。" },
         { sig: "AWidget* Parent() const", ret: "親 or null", desc: "自分を取り込んでいる親を返す。ルートなら null。" },
         { sig: "usize ChildCount() const", ret: "子の数", desc: "直接の子<t>ウィジェット</t>の個数。" },
         { sig: "AWidget* Child(usize i) const", ret: "i 番目の子", desc: "範囲外なら null。" },
@@ -38,7 +37,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/Widget.h",
       summary: "子<t>ウィジェット</t>を<b>縦または横に等間隔で並べる</b><t>レイアウト</t>パネル。並べる向き・間隔・余白を指定できる。",
       when: "ボタンやラベルを上から順に積みたい/横一列に並べたい時。UI の一番外側のルートとしてもよく使う。",
-      sample: "AStackPanel panel;\npanel.dir = EStackDir::Vertical;  // 縦積み\npanel.spacing = 6.0f;             // 部品の間隔\npanel.Add&lt;ALabel&gt;(\"設定\");\npanel.Add&lt;AButton&gt;(\"閉じる\");",
       members: [
         { sig: "EStackDir dir", desc: "並べる向き。<code>Vertical</code>(縦) or <code>Horizontal</code>(横)。既定は縦。" },
         { sig: "f32 spacing", desc: "部品どうしの間隔(ピクセル)。既定 4.0。" },
@@ -51,7 +49,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/Widget.h",
       summary: "<b>自分自身は何も描かず</b>、親からもらった範囲をそのまま全部の子に渡す透過パネル。重ね合わせ(同じ場所に複数を配置)に使える。",
       when: "背景は出さずに、複数の子を同じ領域に重ねたい/グループ化だけしたい時。",
-      sample: "AContainer layer;\nlayer.Add&lt;ALabel&gt;(\"背景の上に乗せる\");\nlayer.Add&lt;AButton&gt;(\"OK\");  // 同じ範囲に重なる",
       members: [
         { sig: "（継承メンバ）", desc: "独自のメンバは持たず、<code>Layout(x,y,w,h)</code> だけを上書きして全子に親と同じ矩形を渡す。<code>Add&lt;W&gt;()</code> / <code>Parent()</code> / <code>Child()</code> / <code>ChildCount()</code> / <code>HitTestRecursive()</code> や <code>visible</code> / <code>rect</code> / <code>requested</code> などはすべて基底 <t>AWidget</t> から継承する。<code>Render</code> も基底既定（子の再帰描画のみ）で、自身は何も描かない。" },
         { sig: "using FContainer = AContainer", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>AContainer</code> を使う。" }
@@ -62,7 +59,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/Widgets.h",
       summary: "<b>静的テキスト</b>を表示するだけの<t>ウィジェット</t>。文字列は <t>TObservable</t> なので、データを <t>Bind</t> すれば自動で表示が更新される。",
       when: "見出し・説明・スコア表示など、押せない文字を出したい時。",
-      sample: "ALabel* l = root.Add&lt;ALabel&gt;(\"HP\");\nl-&gt;text.Set(FString{\"HP: 100\"});  // 文字を変える\n// vm.score と Bind すれば自動更新も可",
       members: [
         { sig: "TObservable&lt;FString&gt; text", desc: "表示する文字列。<code>Set</code> で変更、<code>Bind</code> で<t>ViewModel</t>と同期できる。" },
         { sig: "using FLabel = ALabel", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>ALabel</code> を使う。" }
@@ -73,10 +69,9 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/Widgets.h",
       summary: "<b>押せるボタン</b>。クリック(同じボタン上で押して離す)が完結した瞬間に <code>clicked</code> が一瞬だけ true になり、<code>Subscribe</code> した処理が走る。",
       when: "『OK』『攻撃』などの 1 回押すと何かが起きるボタンが欲しい時。",
-      sample: "AButton* btn = root.Add&lt;AButton&gt;(\"開始\");\nbtn-&gt;clicked.Subscribe([](const bool&amp; on, void*){\n    if (on) StartGame();   // true の瞬間だけ反応\n}, nullptr);",
       members: [
         { sig: "TObservable&lt;FString&gt; text", desc: "ボタンに出すラベル文字列。" },
-        { sig: "TObservable&lt;bool&gt; clicked", desc: "クリック完了時に <code>true→false</code> と<b>パルス発火</b>する。<code>Subscribe</code> 側は true の時だけ反応する。subscriber が current button を親ツリーから同期除去した場合は、破棄後の false 書き戻しを行わず安全に終了する。", sample: "btn-&gt;clicked.Subscribe([](const bool&amp; on, void*){ if(on) DoIt(); }, nullptr);", when: "ボタンの押下を受け取る標準の方法。" },
+        { sig: "TObservable&lt;bool&gt; clicked", desc: "クリック完了時に <code>true→false</code> と<b>パルス発火</b>する。<code>Subscribe</code> 側は true の時だけ反応する。subscriber が current button を親ツリーから同期除去した場合は、破棄後の false 書き戻しを行わず安全に終了する。", when: "ボタンの押下を受け取る標準の方法。" },
         { sig: "using FButton = AButton", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>AButton</code> を使う。" }
       ]
     },
@@ -85,7 +80,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/Widgets.h",
       summary: "<b>つまみをドラッグして範囲内の数値を選ぶ</b><t>ウィジェット</t>。下限〜上限を指定し、現在値は <t>TObservable</t> で公開される。",
       when: "音量・難易度・パラメータなど連続値をマウスで調整させたい時。<code>value</code> を <t>ViewModel</t> と双方向 <t>Bind</t> すると便利。",
-      sample: "ASlider* sl = root.Add&lt;ASlider&gt;(0.0f, 100.0f);  // 0〜100\nsl-&gt;value.Subscribe([](const f32&amp; v, void*){ SetVolume(v); }, nullptr);\nauto bind = MakeTwoWayBind(vm.hp, sl-&gt;value);  // 双方向同期",
       members: [
         { sig: "TObservable&lt;f32&gt; value", desc: "現在の値。ドラッグで更新され、<code>Subscribe</code> / <code>Bind</code> で受け取れる。" },
         { sig: "f32 min_value / max_value", desc: "選べる値の下限・上限。コンストラクタ <code>ASlider(min, max)</code> で指定。" },
@@ -97,7 +91,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/Widgets.h",
       summary: "<b>オン/オフを切り替える</b>チェックボックス。クリックするたび <code>checked</code> が反転する。横にラベルを出せる。",
       when: "『フルスクリーン』『サウンド有効』などの真偽の設定項目に。",
-      sample: "ACheckbox* cb = root.Add&lt;ACheckbox&gt;(\"フルスクリーン\");\ncb-&gt;checked.Set(true);\ncb-&gt;checked.Subscribe([](const bool&amp; on, void*){ SetFullscreen(on); }, nullptr);",
       members: [
         { sig: "TObservable&lt;bool&gt; checked", desc: "オン/オフの状態。クリックで反転、<code>Subscribe</code> / <code>Bind</code> で監視できる。" },
         { sig: "TObservable&lt;FString&gt; text", desc: "チェックボックス横に出すラベル文字列。" },
@@ -109,7 +102,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/Widgets.h",
       summary: "<b>1 行の UTF-8 テキスト入力欄</b>。コードポイント境界を保つカーソル移動・選択・置換・Backspace/Delete・Home/End、Shift による選択拡張、Ctrl+A と、確保量を制限する byte 上限を持つ。クリック時のカーソルは現行 pointer API の制約から末尾へ移動する。",
       when: "プレイヤー名やチャットなど、短い文字をキーボードで入力させたい時。プログラム側から UTF-8 byte 範囲を選択して置換・削除する用途にも使える。",
-      sample: "ATextInput* in = root.Add&lt;ATextInput&gt;();\nin-&gt;TrySetMaxTextBytes(64);\nin-&gt;text.Subscribe([](const FString&amp; s, void*){\n    SetPlayerName(s);\n}, nullptr);\n// UTF-8 境界の byte 範囲だけを選択できる\nif (in-&gt;TrySetSelection(0, in-&gt;text.Get().Size())) {\n    in-&gt;TryInsertCodepoint('A'); // 選択範囲を置換\n}",
       members: [
         { sig: "TObservable&lt;FString&gt; text", desc: "入力中の UTF-8 文字列。編集成功時に更新され、<code>Subscribe</code> / <code>Bind</code> で受け取れる。" },
         { sig: "bool TryInsertCodepoint(u32 codepoint)", ret: "挿入できたか", desc: "Unicode scalar value を現在の cursor へ挿入する。選択中は範囲を置換する。無効値・上限超過・確保失敗では文字列、cursor、選択 anchor、末尾追従状態を変更せず、<code>text</code> の通知も発生させない。" },
@@ -130,7 +122,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/UiRenderer.h",
       summary: "<t>AWidget</t> ツリーを <code>CSpriteBatch</code> + <code>FFont</code> で<b>1 フレーム分まとめて描画</b>する描画役。矩形・枠線・文字・カーソル位置用の文字列計測ヘルパを持ち、各<t>ウィジェット</t>の <code>Render</code> がこれに描画を依頼する。コピー不可。",
       when: "UI を画面に出す中心。起動時に <code>Init</code> し、毎フレーム <code>Render(root, ...)</code> を呼ぶ。",
-      sample: "CUiRenderer ur;\nur.Init(*device, GetRenderer().ColorFormat(), default_font);\n// 毎フレーム (Layout も内部で実行):\nur.Render(root, *cmd, w, h);",
       members: [
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&amp; device, EFormat rt_format, FFont* default_font) noexcept", ret: "成否(<t>Result</t>)", desc: "内部の <code>CSpriteBatch</code> を初期化し、既定<t>フォント</t>と描画先フォーマットを設定する。", when: "アプリ起動時に 1 回。" },
         { sig: "void Shutdown()", desc: "確保した描画リソースを解放する。" },
@@ -139,7 +130,7 @@ ACS_REF.modules.push({
         { sig: "void DrawRectOutline(f32 x, f32 y, f32 w, f32 h, const FVec4&amp; color, f32 thickness = 1.0f)", desc: "枠線(中抜き矩形)を描く。" },
         { sig: "void DrawText(const char* utf8, f32 x, f32 y, const FVec4&amp; color) noexcept", desc: "UTF-8 文字列を描く。" },
         { sig: "f32 MeasureText(const char* utf8) const / f32 MeasureTextBytes(const char* utf8, usize byte_count) const", desc: "文字列全体または指定 byte prefix の描画幅を測る。<code>ATextInput</code> の caret 位置計算にも使う。" },
-        { sig: "const FUiColors&amp; Colors() / FUiColors&amp; Colors()", ret: "テーマ色", desc: "<t>ウィジェット</t>が参照するテーマ色一式。非 const 版で書き換えると見た目を一括変更できる。", sample: "ur.Colors().button_bg = { 0.8f, 0.2f, 0.2f, 1.0f };" },
+        { sig: "const FUiColors&amp; Colors() / FUiColors&amp; Colors()", ret: "テーマ色", desc: "<t>ウィジェット</t>が参照するテーマ色一式。非 const 版で書き換えると見た目を一括変更できる。"},
         { sig: "FFont* DefaultFont() const noexcept", ret: "既定フォント", desc: "<code>Init</code> で渡した既定<t>フォント</t>。所有はしない。" },
         { sig: "using FUiRenderer = CUiRenderer", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CUiRenderer</code> を使う。" }
       ]
@@ -149,7 +140,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "ui/Widget.h",
       summary: "UI キーイベントを配信する瞬間の<b>修飾キー押下状態</b>。左右キーをまとめた Shift / Ctrl / Alt / Super の4フラグを持つ。",
       when: "独自 widget が Shift や Ctrl を組み合わせたキー操作を実装する時。通常は <code>CUiInput</code> が構築して3引数版 <code>OnKey</code> へ渡す。",
-      sample: "void OnKey(i32 key, bool pressed,\n           const FUiKeyModifiers&amp; mods) noexcept override {\n    if (pressed &amp;&amp; mods.bShift) { /* 選択を拡張 */ }\n}",
       members: [
         { sig: "bool bShift / bControl / bAlt / bSuper", desc: "左右いずれかの対応する修飾キーが押下中なら true。既定はすべて false。" }
       ]
@@ -159,7 +149,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/UiRenderer.h",
       summary: "<code>FWindow</code> のマウス/キーイベントを取り出して、<t>ヒットテスト</t>で当たった<t>ウィジェット</t>の <code>On*</code> メソッドへ<b>配信</b>する入力ディスパッチャ。hover / 押下 / フォーカスは非所有ポインタではなく比較専用 address token + 構築時に保存した module token + 非0 module generation の3要素 identity で追跡する。別 DLL が同じ widget address / generation を同時または逐次使っても、両 module が load 中なら module token で分離する。コピー/ムーブ不可。この identity とクラスレイアウトは永続 handle / 安定 plugin ABI ではなく、更新時は関連 DLL を同じ revision からフル rebuild する。",
       when: "UI に入力を効かせたい時。毎フレーム <code>Dispatch(root)</code> を呼ぶだけで、クリックやドラッグが各<t>ウィジェット</t>に届く。",
-      sample: "CUiInput ui_input;\n// 毎フレーム:\nui_input.Dispatch(root);  // マウス/キー → 該当 widget の On* へ",
       members: [
         { sig: "void Dispatch(AWidget&amp; root) noexcept", desc: "現在のマウス位置・クリック・キー押下/解放を <t>Input</t> から取得し、ルートを<t>ヒットテスト</t>して該当<t>ウィジェット</t>へ届ける。編集キーには左右 Shift / Ctrl / Alt / Super の押下中状態を <code>FUiKeyModifiers</code> として付与し、Ctrl+A も選択コマンドとして配信する。保存した複合 identity は毎回現在の生存 subtree から解決するため、各 On* callback は current/other child を同期除去できる。呼び出し中は root 自身を破棄してはならない。", when: "毎フレーム 1 回呼ぶ。" },
         { sig: "void Reset() noexcept / void Reset(AWidget&amp; live_root) noexcept", desc: "保存中の root / hover / pressed / focus / Ctrl+A 状態を破棄する。引数なし版は widget を参照しないので root 破棄直前にも安全で、同じ live root を次に Dispatch すると新規採用時に subtree の一時入力フラグも初期化する。生存 root を渡す版は、その場で subtree の <code>hovered</code> / <code>focused</code> / <code>pressed</code> も再帰的に解除する。DLL unload/reload では module address まで再利用され得るため、host は module 所有 root が生存中なら Reset(root) の後に破棄・unloadし、既に破棄済みなら reload / 次の Dispatch より前に Reset() を必ず呼ぶ。", when: "scene 切り替え、UI ツリー再構築、module root destruction / DLL unload 境界。root 変更自体は通常 Dispatch でも自動検出するが、DLL reload 境界の Reset は必須。" },
@@ -171,7 +160,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "ui/Widget.h",
       summary: "UI 座標の<b>矩形</b>。左上原点・ピクセル単位で <code>x, y, w, h</code> を持つ。点が中に入っているか判定できる。",
       when: "<t>ウィジェット</t>の領域(<code>rect</code> / <code>requested</code>)を表す基本型。当たり判定にも使う。",
-      sample: "FUiRect r{ 10, 10, 100, 40 };\nif (r.Contains(mouse_x, mouse_y)) { /* 領域内 */ }",
       members: [
         { sig: "f32 x, y, w, h", desc: "左上座標と幅・高さ(ピクセル)。" },
         { sig: "bool Contains(f32 px, f32 py) const", ret: "内側か", desc: "点 (px,py) が矩形の内側なら true。" }
@@ -181,22 +169,19 @@ ACS_REF.modules.push({
       name: "FUiPadding",
       kind: "構造体", header: "ui/Widget.h",
       summary: "<b>四辺の余白</b>(左 <code>l</code> / 上 <code>t</code> / 右 <code>r</code> / 下 <code>b</code>)を表す小さな構造体。",
-      when: "<code>AStackPanel</code> の内側余白など、要素の周囲の空きを指定する時。",
-      sample: "FUiPadding pad{ 12, 8, 12, 8 };  // 左右12, 上下8\npanel.padding = pad;"
+      when: "<code>AStackPanel</code> の内側余白など、要素の周囲の空きを指定する時。"
     },
     {
       name: "EStackDir",
       kind: "列挙(enum)", header: "ui/Widget.h",
       summary: "<code>AStackPanel</code> が子を並べる<b>方向</b>。<code>Vertical</code>(縦) と <code>Horizontal</code>(横)。",
-      when: "パネルを縦積みにするか横並びにするか決める時。",
-      sample: "panel.dir = EStackDir::Horizontal;  // 横一列に並べる"
+      when: "パネルを縦積みにするか横並びにするか決める時。"
     },
     {
       name: "FUiColors",
       kind: "構造体", header: "ui/Widgets.h",
       summary: "UI 全体の<b>テーマ色</b>をまとめた構造体。パネル背景・ボタン・スライダー・チェック・文字・入力欄などの色を <code>FVec4</code>(RGBA) で持つ。",
       when: "アプリの配色を一括で変えたい時。<code>CUiRenderer::Colors()</code> から取得して書き換える。",
-      sample: "FUiColors&amp; c = ur.Colors();\nc.button_bg   = { 0.2f, 0.6f, 0.3f, 1.0f };\nc.button_hover = { 0.3f, 0.8f, 0.4f, 1.0f };",
       members: [
         { sig: "FVec4 panel_bg / panel_border", desc: "パネルの背景色・枠線色。" },
         { sig: "FVec4 button_bg / button_hover / button_press / button_text", desc: "ボタンの通常/ホバー/押下/文字色。" },
@@ -209,8 +194,7 @@ ACS_REF.modules.push({
       name: "DefaultUiColors()",
       kind: "関数", header: "ui/Widgets.h",
       summary: "プログラム共通の<b>既定テーマ色</b>(<code>FUiColors</code>)への参照を返す。",
-      when: "個別の <code>CUiRenderer</code> を作る前に、アプリ全体の既定色を参照/調整したい時。",
-      sample: "FUiColors&amp; c = DefaultUiColors();\nc.text = { 0.9f, 0.9f, 0.9f, 1.0f };"
+      when: "個別の <code>CUiRenderer</code> を作る前に、アプリ全体の既定色を参照/調整したい時。"
     },
     {
       name: "AAnchorPanel",

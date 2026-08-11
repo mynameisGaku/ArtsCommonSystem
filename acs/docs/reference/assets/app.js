@@ -56,52 +56,6 @@
   var SVG_CARET = '<svg class="caret" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 1.5 L7 5 L3 8.5"/></svg>';
   var SVG_SEARCH = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M11 11 L15 15"/></svg>';
 
-  // ---- コードハイライト（入力は既にHTMLエンティティ化済み。壊さない単一走査） ----
-  var KW = {};
-  ("return if else for while do switch case break continue class struct enum union const constexpr " +
-   "auto void using namespace public private protected override final noexcept template typename static " +
-   "virtual inline new delete true false nullptr sizeof this operator mutable explicit friend").split(" ")
-    .forEach(function (k) { KW[k] = 1; });
-
-  function hl(code) {
-    var s = code || "", i = 0, n = s.length, out = "";
-    while (i < n) {
-      var c = s[i];
-      if (c === "&") { // エンティティはそのまま通す
-        var em = /^&(?:lt|gt|amp|quot|apos|#\d+|[a-zA-Z]+);/.exec(s.slice(i));
-        if (em) { out += em[0]; i += em[0].length; continue; }
-        out += "&"; i++; continue;
-      }
-      if (c === "/" && s[i + 1] === "/") { out += '<span class="cm">' + s.slice(i) + "</span>"; break; }
-      if (c === '"' || c === "'") {
-        var q = c, j = i + 1, str = c;
-        while (j < n) {
-          if (s[j] === "\\") { str += s[j] + (s[j + 1] || ""); j += 2; continue; }
-          if (s[j] === "&") { var sm = /^&(?:lt|gt|amp|quot|apos|#\d+|[a-zA-Z]+);/.exec(s.slice(j)); if (sm) { str += sm[0]; j += sm[0].length; continue; } }
-          str += s[j];
-          if (s[j] === q) { j++; break; }
-          j++;
-        }
-        out += '<span class="str">' + str + "</span>"; i = j; continue;
-      }
-      if (c >= "0" && c <= "9") {
-        var nm = /^(?:0[xX][0-9a-fA-F]+|[0-9]+\.?[0-9]*)[fFuUlL]*/.exec(s.slice(i))[0];
-        out += '<span class="num">' + nm + "</span>"; i += nm.length; continue;
-      }
-      if (/[A-Za-z_]/.test(c)) {
-        var id = /^[A-Za-z_]\w*/.exec(s.slice(i))[0];
-        out += KW[id] ? '<span class="kw">' + id + "</span>" : id;
-        i += id.length; continue;
-      }
-      out += c; i++;
-    }
-    return out;
-  }
-
-  function codeBlock(text) {
-    return '<pre class="code"><button class="copy" type="button">copy</button><span class="src">' + hl(text) + "</span></pre>";
-  }
-
   // =========================================================================
   // chrome（ヘッダ / サイドバー / フッタ）
   // =========================================================================
@@ -185,7 +139,6 @@
       (mb.ret ? '<span class="ret">→ ' + esc(stripTags(mb.ret)) + "</span>" : ""));
     var body = ce("div", "m-body");
     var h = '<div class="desc">' + (mb.desc || "") + "</div>";
-    if (mb.sample) h += codeBlock(mb.sample);
     if (mb.when) h += '<div class="when"><b>使う場面:</b> ' + mb.when + "</div>";
     body.innerHTML = h;
     sig.addEventListener("click", function () { wrap.classList.toggle("open"); });
@@ -203,7 +156,6 @@
     var h = "";
     if (t.summary) h += '<div class="kv"><div class="k">概要</div><div class="vv">' + t.summary + "</div></div>";
     if (t.when) h += '<div class="kv"><div class="k">こういう時に使う</div><div class="vv">' + t.when + "</div></div>";
-    if (t.sample) h += '<div class="kv"><div class="k">サンプル</div>' + codeBlock(t.sample) + "</div>";
     body.innerHTML = h;
     if (t.members && t.members.length) {
       body.appendChild(ce("div", "mhd", "メンバー (" + t.members.length + ")"));
@@ -244,7 +196,6 @@
       if (b.h3) doc.appendChild(ce("h3", null, esc(b.h3)));
       if (b.p) doc.appendChild(ce("p", null, b.p));
       if (b.note) doc.appendChild(ce("div", "note" + (b.kind ? " " + b.kind : ""), b.note));
-      if (b.code) { var w = ce("div"); w.innerHTML = codeBlock(b.code); doc.appendChild(w.firstChild); }
       if (b.ul) { var ul = ce("ul"); b.ul.forEach(function (li) { ul.appendChild(ce("li", null, li)); }); doc.appendChild(ul); }
     });
     return doc;
@@ -365,16 +316,6 @@
   function wireInteractions() {
     document.addEventListener("mouseover", function (e) { var el = e.target.closest && e.target.closest("t,.term"); if (el) showTip(el); });
     document.addEventListener("mouseout", function (e) { if (e.target.closest && e.target.closest("t,.term")) hideTip(); });
-    document.addEventListener("click", function (e) {
-      var btn = e.target.closest && e.target.closest(".copy");
-      if (btn) {
-        var src = btn.parentNode.querySelector(".src");
-        var txt = src ? src.innerText : "";
-        navigator.clipboard && navigator.clipboard.writeText(txt);
-        btn.textContent = "copied"; btn.classList.add("done");
-        setTimeout(function () { btn.textContent = "copy"; btn.classList.remove("done"); }, 1200);
-      }
-    });
     var box = $("#searchbox");
     if (box) box.addEventListener("keydown", function (e) {
       if (e.key === "Enter") { var v = box.value.trim(); if (v) location.href = "search.html?q=" + encodeURIComponent(v); }

@@ -40,7 +40,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/TriggerComponent.h",
       summary: "<t>ノード</t>を<t>トリガ</t>(重なり検出専用の当たり判定)に繋ぐ <t>コンポーネント</t>。プレイヤー / アイテム / 罠などが「触れた・離れた」を<b>そのノードごと</b>に受け取れます。<t>レイヤ</t>と<t>マスク</t>で反応相手を絞り込めます。",
       when: "アイテム取得・ダメージ床・ゴール判定など「重なったら何か起きる」をノード単位で書きたい時。物理の押し戻しは要らず、検知だけしたい場面。",
-      sample: "class APickup : public ATriggerComponent {\npublic:\n    ACS_GAME_COMPONENT_KIND(APickup)\n    using ATriggerComponent::ATriggerComponent;\n    void OnTriggerEnter(ATriggerComponent* other) noexcept override {\n        // 取得処理\n    }\n};\nauto&amp; pk = node-&gt;AddComponent&lt;APickup&gt;(world, kPickupLayer, 0);\npk.SetCircle(0.4f);",
       members: [
         { sig: "explicit ATriggerComponent(CTriggerWorld2D& world, u32 layer = kAllLayers, u32 mask = kAllLayers)", desc: "所属する<t>トリガワールド</t>と、自分の<t>レイヤ</t>・反応したい相手の<t>マスク</t>を指定して作る。", when: "node->AddComponent の引数として渡す時。" },
         { sig: "void SetCircle(f32 radius)", desc: "当たり形状を半径 radius の円にする。" },
@@ -57,7 +56,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/TriggerWorld2D.h",
       summary: "重なりだけを監視する<b>トリガ専用のワールド</b>。物理の押し戻しはせず、毎フレーム全<t>トリガ</t>の重なりを調べ、前フレームと比べて enter(触れた) / stay(触れ続け) / exit(離れた) の<t>イベント</t>を発火します。",
       when: "ダメージ判定・センサー・ゾーン入退場など、押し戻し不要で「重なったか」だけ知りたい仕組みの土台。",
-      sample: "CTriggerWorld2D world;\nworld.Init();\nFTriggerId player = world.AddCircle({ {0,0}, 16.0f }, 0);\nworld.SetOnEnter(+[](void* u, FTriggerId a, FTriggerId b) noexcept {\n    // a と b が今フレ初めて重なった\n}, nullptr);\n// 毎フレーム:\nworld.UpdateCircle(player, { pos, 16.0f });\nworld.Tick(dt);",
       members: [
         { sig: "void Init()", desc: "初期化する。" },
         { sig: "FTriggerId AddCircle(const FCircle& c, u32 layer = 0)", ret: "トリガ ID", desc: "円トリガを登録し、識別用の<t>ハンドル</t>を返す。", when: "丸いセンサーを置きたい時。" },
@@ -65,7 +63,7 @@ ACS_REF.modules.push({
         { sig: "void UpdateCircle(FTriggerId id, const FCircle& c) / void UpdateAabb(FTriggerId id, const FAabb2& a)", desc: "トリガが動いた時に位置・形状を更新する。種類が違う / 古いハンドルなら何もしない。" },
         { sig: "void Remove(FTriggerId id)", desc: "トリガを削除する。スロットは再利用され、古いハンドルは無効になる。" },
         { sig: "void SetUserData(FTriggerId id, void* user) / void* UserData(FTriggerId id) const", desc: "トリガに任意のポインタを紐付け / 取得する。ID から元オブジェクトを逆引きするのに使う。" },
-        { sig: "void SetOnEnter(TriggerEventCallback cb, void* user)", desc: "重なり始めイベントの<t>コールバック</t>を登録する。", sample: "world.SetOnEnter(onEnter, this);" },
+        { sig: "void SetOnEnter(TriggerEventCallback cb, void* user)", desc: "重なり始めイベントの<t>コールバック</t>を登録する。"},
         { sig: "void SetOnStay(TriggerEventCallback cb, void* user) / void SetOnExit(TriggerEventCallback cb, void* user)", desc: "重なり継続中 / 離れた時のコールバックを登録する。" },
         { sig: "void Tick(f32 dt)", desc: "毎フレーム呼ぶ。全ペアの重なりを更新し、前フレと比べて enter / stay / exit を発火する。" },
         { sig: "u32 TriggerCount() const", ret: "登録数", desc: "有効なトリガの総数。" },
@@ -78,7 +76,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/TriggerWorld2D.h",
       summary: "<t>トリガ</t>を識別する 32bit の<t>ハンドル</t>(下位 24bit が index、上位 8bit が<t>世代</t>)。削除→再登録でスロットが再利用されても、古いハンドルは無効と判定できます。",
       when: "CTriggerWorld2D の登録・更新・削除でトリガを指し示す時。",
-      sample: "FTriggerId id = world.AddCircle(c);\nif (id.IsValid()) { /* 登録成功 */ }",
       members: [
         { sig: "bool IsValid() const", desc: "0(無効)でなければ true。" },
         { sig: "u32 Index() const / u8 Generation() const", desc: "index 部 / 世代部を取り出す。" },
@@ -90,7 +87,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/TurnManager.h",
       summary: "<b>ターン制</b>の進行を管理する部品。複数の陣営(side)を行動順(<t>イニシアチブ</t>)で並べ、各陣営が<t>AP</t>(行動ポイント)予算で行動する、SRPG / ローグライク / 戦略系の定番マネージャです。",
       when: "プレイヤー→敵→環境の順に手番を回し、ラウンドごとに AP を回復する、ターン制ゲームを作る時。",
-      sample: "CTurnManager tm;\ntm.Init();\nauto p = tm.AddSide(\"Player\", 3, 100, true);\nauto e = tm.AddSide(\"Enemy\",  2, 50,  false);\ntm.StartRound();          // 全 side の AP 回復 + 行動順並べ替え\nif (tm.TryConsumeAP(1)) { /* 行動した */ }\ntm.EndCurrentTurn();      // 次 side へ (最後なら次ラウンド開始)",
       members: [
         { sig: "void Init()", desc: "全 side / 行動順を捨て、phase=Setup・round=0 に戻す(コールバックは保持)。" },
         { sig: "FTurnSideId AddSide(const char* display_name, u32 max_ap, u32 initiative, bool is_player_controlled)", ret: "side ハンドル", desc: "陣営を登録する。名前・最大 AP・行動順・プレイヤー操作かを指定。", when: "戦闘開始時に参加陣営を並べる時。" },
@@ -112,7 +108,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/TurnManager.h",
       summary: "ターンの陣営(side)を識別する 32bit の<t>ハンドル</t>(24bit index + 8bit<t>世代</t>)。除外→再追加でスロットが再利用されても、古い ID を無効と検出できます。",
       when: "CTurnManager の各 API で陣営を指す時。",
-      sample: "FTurnSideId id = tm.AddSide(\"Enemy\", 2, 50, false);\nif (id.IsValid()) tm.RemoveSide(id);",
       members: [
         { sig: "bool IsValid() const", desc: "有効な ID なら true(packed != 0)。" },
         { sig: "u32 Index() const / u8 Gen() const", desc: "index 部 / 世代部を取り出す。" },
@@ -124,7 +119,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/TurnManager.h",
       summary: "陣営 1 つの<b>表示用 snapshot</b>。<code>GetSideState</code> が返す読み取り専用ビューで、UI / AI / セーブで現在の AP や行動済みかを見るのに使います。",
       when: "ターン UI に各陣営の AP や名前を出す時。",
-      sample: "if (auto* s = tm.GetSideState(id)) {\n    // s->display_name, s->current_action_points を UI に表示\n}",
       members: [
         { sig: "const char* display_name", desc: "AddSide で渡した名前(非所有、寿命は呼び出し側)。" },
         { sig: "u32 max_action_points / u32 current_action_points", desc: "最大 AP / 現在の残量。" },
@@ -137,7 +131,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "gameframework/TurnManager.h",
       summary: "ターン進行の<t>フェーズ</t>を表す列挙。値はセーブ / リプレイに書ける安定値です。",
       when: "「今はプレイヤーの番か敵の番か」で BGM / UI を分岐する時。",
-      sample: "switch (tm.CurrentPhase()) {\n    case ETurnPhase::PlayerTurn: ShowPlayerHud(); break;\n    case ETurnPhase::EnemyTurn:  PlayEnemyBgm(); break;\n    default: break;\n}",
       members: [
         { sig: "Setup = 0", desc: "Init 直後 / StartRound 前(side 登録中)。" },
         { sig: "PlayerTurn = 1", desc: "プレイヤー操作 side の番。" },
@@ -151,7 +144,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/TutorialFlow.h",
       summary: "連続する<b>チュートリアルステップ</b>を順番に表示・進行させる小さな<t>状態機械</t>。描画はせず、現在ステップへのポインタを公開するだけなので、見た目は UI 側が自由に描けます。",
       when: "「WASD で移動」「SPACE でジャンプ」のように、ユーザーが操作を達成したら次へ進むガイドを作る時。",
-      sample: "CTutorialFlow tut;\ntut.AddStep({\"move\", \"WASD で移動してみよう\", \"player\", true});\ntut.AddStep({\"jump\", \"SPACE でジャンプ\",     \"player\", true});\ntut.Start();\n// 毎フレーム:\ntut.Tick(dt);\nif (input.JustPressed(EKey::W)) tut.NotifyAction(\"move\");",
       members: [
         { sig: "void AddStep(const FTutorialStep& step)", desc: "ステップを末尾に追加する。Start 前に並べる想定。" },
         { sig: "void Start()", desc: "ステップ 0 から表示開始する。ステップが無ければ即完了。" },
@@ -171,7 +163,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/TutorialStep.h",
       summary: "チュートリアル 1 ステップ分の定義。文字列はすべて<b>非所有</b>(寿命は呼び出し側が保証)で、本クラスは保持するだけです。",
       when: "AddStep に渡す 1 件のガイド内容を組み立てる時。",
-      sample: "tut.AddStep({ \"open_map\", \"M でマップを開こう\", \"map_button\", true });",
       members: [
         { sig: "const char* id", desc: "NotifyAction で参照される識別子。" },
         { sig: "const char* message", desc: "UI が表示するテキスト。" },
@@ -184,7 +175,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/Tween.h",
       summary: "変数を<b>なめらかに変化</b>させる<t>トゥイーン</t>管理。値(<code>f32</code> / <code>FVec2</code> / <code>FVec3</code>)の<t>ポインタ</t>を渡すと、毎 Tick で from→to を<t>イージング</t>補間して書き込んでくれます。コールバック不要なのが特徴。",
       when: "色・位置・透明度などを一定時間でフワッと変えたい時(フェード、ポップアップ、カメラ寄せなど)。",
-      sample: "CTweenManager tweens;\nFVec3 color{0,0,0};\ntweens.Tween(&amp;color, FVec3{0,0,0}, FVec3{1,1,1}, 2.0f, Easing::InOutSine);\n// 毎フレーム:\ntweens.Tick(dt);\n// color が 2 秒かけて白へ補間される",
       members: [
         { sig: "FTweenHandle Tween(f32* target, f32 from, f32 to, f32 duration, Easing::EasingFn ease = Easing::Linear)", ret: "トゥイーン ハンドル", desc: "f32 変数を from→to へ duration 秒で補間する。duration<=0 は即時設定、target が null は no-op。", when: "1 つのスカラー値を時間補間したい時。" },
         { sig: "FTweenHandle Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration, Easing::EasingFn ease = Easing::Linear)", desc: "2D ベクトル(位置など)を補間する。" },
@@ -202,7 +192,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/Tween.h",
       summary: "個々の<t>トゥイーン</t>を指す<t>ハンドル</t>(index + <t>世代</t>)。古い / 完了済みのトゥイーンを誤って操作しないための識別子です。",
       when: "Tween の戻り値を保持して、後で Cancel / IsActive に渡す時。",
-      sample: "FTweenHandle h = tweens.Tween(&amp;x, 0.0f, 1.0f, 1.0f);\nif (tweens.IsActive(h)) tweens.Cancel(h);",
       members: [
         { sig: "bool IsValid() const", desc: "generation != 0 なら有効。" }
       ]
@@ -212,7 +201,6 @@ ACS_REF.modules.push({
       kind: "クラステンプレート", header: "gameframework/TypeInfo.h",
       summary: "<t>RTTI</t> を使わない最小の<t>リフレクション</t>(型情報の自己記述)。型の名前・サイズ・各フィールドの名前 / オフセット / サイズを<b>コンパイル時</b>に取り出せます。シリアライザやインスペクタの土台。",
       when: "セーブ / ロードやデバッグ表示で「この構造体にはどんなフィールドがあるか」を機械的に知りたい時。",
-      sample: "struct FPlayerState { acs::f32 x; acs::f32 y; acs::i32 hp; };\nACS_GAME_REFLECT(FPlayerState,\n    ACS_GAME_FIELD(FPlayerState, x,  \"f32\"),\n    ACS_GAME_FIELD(FPlayerState, hp, \"i32\"))\n// 取得:\nconst auto&amp; ti = acs::game::Reflect&lt;FPlayerState&gt;();\nfor (acs::u32 i = 0; i &lt; ti.field_count; ++i) { /* ti.fields[i] */ }",
       members: [
         { sig: "static const FTypeInfoBase& Get()", ret: "型情報", desc: "型 T の<t>リフレクション</t>情報を返す。未反射の型では field_count == 0 の空情報。" }
       ]
@@ -222,7 +210,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/TypeInfo.h",
       summary: "型のリフレクション情報の本体。<code>Reflect&lt;T&gt;()</code> が返す型で、型名・サイズ・整列・フィールド配列・一意な型 ID を持ちます。",
       when: "リフレクション結果を走査してフィールドを列挙する時。",
-      sample: "const auto&amp; ti = acs::game::Reflect&lt;PlayerState&gt;();\nfor (acs::u32 i = 0; i &lt; ti.field_count; ++i)\n    Log(ti.fields[i].name);",
       members: [
         { sig: "const c8* type_name", desc: "型名文字列(未反射なら nullptr)。" },
         { sig: "usize size / usize alignment", desc: "sizeof(T) / alignof(T)。" },
@@ -235,7 +222,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/TypeInfo.h",
       summary: "リフレクションされた<b>1 フィールド</b>の記述。名前・型名・型先頭からのバイトオフセット・バイトサイズを持ちます。",
       when: "型情報を走査して、各フィールドのメモリ位置やサイズを使う時(汎用シリアライザなど)。",
-      sample: "const FFieldInfo&amp; f = ti.fields[0];\n// f.name / f.type_name / f.offset / f.size",
       members: [
         { sig: "const c8* name / const c8* type_name", desc: "フィールド名 / ユーザー指定の型名文字列。" },
         { sig: "usize offset / usize size", desc: "型先頭からのバイトオフセット(offsetof) / フィールドのバイトサイズ(sizeof)。" }
@@ -246,7 +232,6 @@ ACS_REF.modules.push({
       kind: "関数テンプレート", header: "gameframework/TypeInfo.h",
       summary: "<code>TypeTag&lt;T&gt;()</code> は <t>RTTI</t> を使わず型 T の一意な ID(static 変数のアドレス)を返します。<code>Reflect&lt;T&gt;()</code> は <code>TTypeInfo&lt;T&gt;::Get()</code> の短縮形です。",
       when: "型を ID で識別したい / 型情報を簡潔に取りたい時。",
-      sample: "const void* tag = acs::game::TypeTag&lt;PlayerState&gt;();\nconst auto&amp; ti  = acs::game::Reflect&lt;PlayerState&gt;();",
       members: [
         { sig: "const void* TypeTag<T>()", ret: "一意な型 ID", desc: "型ごとに別アドレスを返す。RTTI 不使用の型識別に。" },
         { sig: "const FTypeInfoBase& Reflect<T>()", ret: "型情報", desc: "TTypeInfo&lt;T&gt;::Get() を返す短縮形。" }
@@ -257,7 +242,6 @@ ACS_REF.modules.push({
       kind: "マクロ", header: "gameframework/TypeInfo.h",
       summary: "型を<t>リフレクション</t>対象として登録する<t>マクロ</t>。<code>ACS_GAME_FIELD</code> で 1 フィールドを記述し、<code>ACS_GAME_REFLECT</code> でそれらをまとめて型に紐付けます。グローバル空間で書きます。",
       when: "自作の構造体をセーブ / インスペクタ対象にしたい時。",
-      sample: "ACS_GAME_REFLECT(PlayerState,\n    ACS_GAME_FIELD(PlayerState, x,  \"f32\"),\n    ACS_GAME_FIELD(PlayerState, y,  \"f32\"),\n    ACS_GAME_FIELD(PlayerState, hp, \"i32\"))",
       members: [
         { sig: "ACS_GAME_FIELD(T, field, type_str)", desc: "FFieldInfo の初期化子を作る。名前・型名文字列・offsetof・sizeof を埋める。" },
         { sig: "ACS_GAME_REFLECT(T, fields...)", desc: "TReflectedFields&lt;T&gt; と TTypeInfo&lt;T&gt; の特殊化を生成し、型 T を反射可能にする。" }
@@ -268,7 +252,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/UiLayer.h",
       summary: "<t>シーン</t>に数個の UI 部品(ボタン / テキスト)を貼り付けるための<b>薄い層</b>。Init / Tick / HandleInput / Draw / Shutdown という<t>シーン</t>のライフサイクルに合わせて呼ぶだけで、タイトル画面や HUD の最小 UI が作れます。",
       when: "本格的な UI ツリーを組むほどではないが、Play ボタンや簡単な HUD を手早く出したい時。",
-      sample: "CUiLayer ui;\nui.Init();\nu32 playBtn = ui.AddButton(\"Play\", {100,200}, {200,48});\nui.AddText(\"ACS Demo\", {100,100});\n// 毎フレーム:\nui.Tick(dt);\nif (ui.IsButtonPressed(playBtn)) { /* 開始 */ }",
       members: [
         { sig: "void Init() / void Shutdown()", desc: "UI 層を初期化 / 後始末する。どちらも冪等で再呼び出し安全。" },
         { sig: "void Tick(f32 dt)", desc: "AScene::OnUpdate から呼ぶ。押下フラグの伝搬などを処理する。" },
@@ -288,7 +271,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/UiLayer.h",
       summary: "<t>CUiLayer</t> が持つ widget 1 件分の状態(ハンドル・種別・位置 / サイズ・テキスト・可視 / hover / 押下フラグ)。通常は直接触らず、CUiLayer 経由で扱います。",
       when: "CUiLayer の内部状態を理解したい / 拡張する時。",
-      sample: "// CUiLayer が内部で TArray<FWidgetEntry> として保持する",
       members: [
         { sig: "u32 handle / EWidgetKind kind", desc: "不透明 ID(0 は無効) / 種別(Button / Text)。" },
         { sig: "acs::FVec2 pos / acs::FVec2 size", desc: "画面ピクセルの絶対座標 / サイズ。" },
@@ -301,7 +283,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "gameframework/UiLayer.h",
       summary: "<t>CUiLayer</t> が扱う widget の種類。現状はボタンとテキストのみ。",
       when: "FWidgetEntry の種別を判定する時。",
-      sample: "if (entry.kind == EWidgetKind::Button) { /* ボタン描画 */ }",
       members: [
         { sig: "None = 0", desc: "無効 / 未設定。" },
         { sig: "Button = 1", desc: "クリックで押下イベントを出す短形ボタン。" },
@@ -313,7 +294,6 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/VoiceChat.h",
       summary: "パーティ / チーム / 全体チャンネルの<b>ボイスチャット</b>を抽象化する<t>シーム</t>(純粋仮想<t>インターフェース</t>)。実体は Steam Voice / EOS Voice / Vivox / Discord / 自前 Opus のどれでもよく、ゲーム側はこの I/F 越しに参加者管理・ミュート・音量だけを扱います。",
       when: "オンライン対戦 / 協力プレイにボイスチャットを載せたいが、使う SDK をビルド時に差し替えたい時。",
-      sample: "IVoiceChatBackend* voice = &amp;GetVoiceStub();\n(void)voice-&gt;Init(EVoiceProvider::None);\n(void)voice-&gt;JoinChannel(EVoiceChannel::Party, \"party-1234\");\n// 毎フレーム:\nvoice-&gt;Tick(dt);",
       members: [
         { sig: "virtual TResult<void> Init(EVoiceProvider p)", desc: "使うプロバイダを選んで SDK を初期化する。", when: "ゲーム開始時に 1 回。" },
         { sig: "virtual void Shutdown()", desc: "SDK を終了する。Init 前に呼んでも安全。" },
@@ -336,7 +316,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/VoiceChat.h",
       summary: "SDK 未統合ビルド / テスト用の<b>何もしない</b>ボイスチャット実装。すべての API が「未実装」エラーを返し、<code>IsAvailable()</code> は常に false です。",
       when: "実 SDK をまだ繋いでいないが、コードはコンパイル / 動作させたい時の既定実装。",
-      sample: "IVoiceChatBackend& voice = GetVoiceStub();\nif (!voice.IsAvailable()) { /* UI でボイス無効表示 */ }",
       members: [
         { sig: "bool IsAvailable() const override", desc: "常に false。" },
         { sig: "EVoiceProvider ActiveProvider() const override", desc: "Init で受けた provider を返す。" },
@@ -348,7 +327,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/VoiceChat.h",
       summary: "外部 SDK なしで<b>実際に音声フレームを往復</b>させるボイスチャット実装。同一プロセス内で push→<t>エンコード</t>→他参加者キュー→<t>デコード</t>→音量 / ミュート→N-way ミックス→pump を成立させます。ネットを使わず<t>決定的</t>なのでユニットテスト可能。",
       when: "ボイスのミュート / 音量 / ミックスのロジックを SDK なしで検証したい / ローカルセッションを組みたい時。",
-      sample: "CVoiceChatLoopbackBackend& vb = GetVoiceLoopback();\n(void)vb.Init(EVoiceProvider::OpusSelf);\n(void)vb.AddParticipant(EVoiceChannel::Party, \"me\",   \"Me\");\n(void)vb.AddParticipant(EVoiceChannel::Party, \"ally\", \"Ally\");\nvb.PushLocalFrame(EVoiceChannel::Party, pcm, n);\nvb.PumpMixedOutput(EVoiceChannel::Party, out, cap);",
       members: [
         { sig: "TResult<void> AddParticipant(EVoiceChannel ch, const char* user_id, const char* display_name)", desc: "参加者を追加する。最初の 1 人がローカルユーザ(送信元 / 自分の声は聞かない)。同一 user_id の二重追加は成功扱い。" },
         { sig: "TResult<void> RemoveParticipant(EVoiceChannel ch, const char* user_id)", desc: "参加者を取り除く(受信キューも破棄)。未知 user はエラー。" },
@@ -367,7 +345,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/VoiceChat.h",
       summary: "ボイスチャット参加者 1 人の情報。<code>GetParticipant</code> が返し、ID / 表示名(非所有)・発話中か・ローカルミュート・音声レベルを持ちます。",
       when: "参加者リストや発話インジケータ・音量メーターを UI に描く時。",
-      sample: "if (auto r = voice->GetParticipant(EVoiceChannel::Party, 0); r.IsOk()) {\n    const FVoiceParticipant& p = r.Value();\n    // p.display_name, p.is_speaking, p.audio_level\n}",
       members: [
         { sig: "const char* user_id / const char* display_name", desc: "SDK 固有 ID / 表示名(UTF-8、非所有、次 Tick まで有効)。" },
         { sig: "bool is_speaking / bool is_muted_local", desc: "発話中か / ローカルでミュート中か。" },
@@ -379,7 +356,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/VoiceChat.h",
       summary: "ループバック backend が運ぶ PCM フレームの固定 16 byte ヘッダ(LE)。magic / シーケンス番号 / サンプル数を持ち、デコード時に破損検出に使います。",
       when: "ループバックの音声フレーム形式を理解 / 自前で組み立てる時。",
-      sample: "// EncodeFrame が FVoiceFrameHeader + payload を書き込む",
       members: [
         { sig: "u32 magic / u32 sequence", desc: "破損検知用マジック(kVoiceFrameMagic) / 送信元ごとの単調増加シーケンス。" },
         { sig: "u32 sample_count / u32 reserved", desc: "payload の int16 サンプル数 / 将来用予約(現状 0)。" }
@@ -390,7 +366,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "gameframework/VoiceChat.h",
       summary: "<code>EVoiceProvider</code> はボイスの実装プロバイダ(None / SteamVoice / EosVoice / Vivox / Discord / OpusSelf)、<code>EVoiceChannel</code> はチャンネル種別(Party / Team / Global / Custom)を表す列挙です。",
       when: "Init でプロバイダを選ぶ / JoinChannel でチャンネル種別を指定する時。",
-      sample: "voice->Init(EVoiceProvider::Vivox);\nvoice->JoinChannel(EVoiceChannel::Team, matchId);",
       members: [
         { sig: "EVoiceProvider::{None, SteamVoice, EosVoice, Vivox, Discord, OpusSelf}", desc: "未選択 / Steam Voice / EOS Voice / Vivox / Discord SDK / 自前 Opus。" },
         { sig: "EVoiceChannel::{Party, Team, Global, Custom}", desc: "パーティ / チーム / 全体 / タイトル固有の追加チャンネル。" }
@@ -401,7 +376,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/WaterVolume.h",
       summary: "<t>AABB</t> で定義した 2D の<b>水域</b>を複数登録し、点が水中かの判定と、物体に掛かる<t>浮力</t> + <t>抗力</t>を力ベクトルで返す部品。「浮く」「沈む」「水中で減速」をゲームに組み込めます。",
       when: "池・川・海などの水場を作り、入った物体を浮かせたり沈ませたりしたい時。",
-      sample: "CWaterVolume water;\nFWaterVolumeInfo pond{ {0,50}, {200,50}, 9.8f, 2.0f, 0.0f, {0.1f,0.3f,0.6f} };\nauto id = water.AddVolume(pond);\nif (water.IsUnderwater(body.position)) {\n    FVec2 f = water.ComputeBuoyancyForce(body.position, body.velocity, body.mass);\n    body.ApplyForce(f);\n}",
       members: [
         { sig: "FWaterVolumeId AddVolume(const FWaterVolumeInfo& info)", ret: "水域 ハンドル", desc: "水域を登録し、以降の参照 / 更新に使うハンドルを返す。" },
         { sig: "void RemoveVolume(FWaterVolumeId id)", desc: "水域を削除する(スロット再利用、古いハンドルは無効)。" },
@@ -420,7 +394,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/WaterVolume.h",
       summary: "水域 1 つの幾何 + パラメータ。中心 / 半サイズ・浮力強度・抗力・水面 y・水色を持ち、<code>AddVolume</code> / <code>UpdateVolume</code> に値渡しします。",
       when: "水域を 1 つ定義する時。",
-      sample: "FWaterVolumeInfo info{\n    /*center=*/{0,50}, /*half=*/{200,50},\n    /*buoyancy=*/9.8f, /*drag=*/2.0f,\n    /*surface_y=*/0.0f, /*color=*/{0.1f,0.3f,0.6f} };",
       members: [
         { sig: "FVec2 center / FVec2 half_size", desc: "AABB の中心 / 半サイズ(world)。" },
         { sig: "f32 buoyancy_strength / f32 drag", desc: "浮力強度(重力相当) / 水中抗力係数。" },
@@ -433,7 +406,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/WaterVolume.h",
       summary: "水域を識別する 32bit の<t>ハンドル</t>(24bit index + 8bit<t>世代</t>)。削除→再登録でスロット再利用されても古いハンドルは無効化されます。",
       when: "CWaterVolume の参照 / 更新 / 削除で水域を指す時。",
-      sample: "FWaterVolumeId id = water.AddVolume(info);\nif (id.IsValid()) water.RemoveVolume(id);",
       members: [
         { sig: "bool IsValid() const", desc: "0(無効)でなければ true。" },
         { sig: "u32 Index() const / u8 Generation() const", desc: "index 部 / 世代部を取り出す。" }
@@ -444,7 +416,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/WaveSpawner.h",
       summary: "敵の<b><t>ウェーブ</t></b>(波状の出現)を管理する部品。複数 wave をキューに並べ、各 wave の<t>スポーンルール</t>を時間軸で順次発火させ、残数→クリア→小休止→次 wave→全完了の<t>状態機械</t>を内蔵します。",
       when: "タワーディフェンス / アリーナ / 防衛系で、敵を波ごとに湧かせ、全滅したら次の波へ進めたい時。",
-      sample: "CWaveSpawner waves;\nwaves.Init();\nwaves.SetOnSpawnCallback(&amp;OnSpawn, this);\nwaves.AddWave(wave0);\nwaves.AddWave(wave1);\nwaves.StartWaves();\n// 毎フレーム:\nwaves.Tick(dt);\n// 敵撃破時:\nwaves.NotifyEnemyKilled(\"goblin\");",
       members: [
         { sig: "void Init() / void Reset() / void ClearAll()", desc: "進行をリセット(queue 保持) / 進行のみリセット / queue も含め全消去する。" },
         { sig: "void AddWave(const FWaveDef& def)", desc: "wave をキュー末尾に追加する。進行中の追記もできる(連続 wave モード)。" },
@@ -465,7 +436,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/WaveSpawner.h",
       summary: "1 つの<t>スポーンルール</t>。「どの敵を・何体・どの間隔で・どこに」湧かせるかを定義します。1 つの wave が任意数のルールを持てます。",
       when: "wave の中身(敵の出し方)を定義する時。",
-      sample: "FSpawnRule rule{\n    /*enemy_id=*/\"goblin\", /*count=*/5,\n    /*interval=*/0.5f, /*delay=*/1.0f,\n    /*pos=*/{100,0} };",
       members: [
         { sig: "const char* enemy_id", desc: "敵種別の識別子(リテラル推奨、非所有)。" },
         { sig: "u32 count", desc: "この rule で湧かせる総数。" },
@@ -478,7 +448,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/WaveSpawner.h",
       summary: "1 つの<t>ウェーブ</t>の定義。<t>スポーンルール</t>配列(呼び出し側所有)と、クリア後の小休止時間を持ちます。",
       when: "AddWave に渡す 1 波分を組み立てる時。",
-      sample: "FSpawnRule rules[] = { r0, r1 };\nFWaveDef wave{ \"wave1\", 2, rules, /*intermission=*/3.0f };\nwaves.AddWave(wave);",
       members: [
         { sig: "const char* wave_id", desc: "デバッグ / 表示用の識別子(nullable)。" },
         { sig: "u32 rule_count / const FSpawnRule* rules", desc: "ルール数 / ルール配列(呼び出し側所有、寿命を保証する責任あり)。rule_count==0 は即クリアの空 wave。" },
@@ -490,7 +459,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "gameframework/WaveSpawner.h",
       summary: "<t>ウェーブ</t>進行の<t>状態</t>を表す列挙。値はセーブ / リプレイに書ける安定値です。",
       when: "現在 wave がどの段階かで UI / BGM を分岐する時。",
-      sample: "if (waves.CurrentState() == EWaveState::AllComplete) ShowVictory();",
       members: [
         { sig: "Idle = 0", desc: "開始前 / Reset 後。" },
         { sig: "Spawning = 1", desc: "現 wave の rule を実行中(まだ全部湧かせていない)。" },
@@ -504,7 +472,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/WeaponSystem.h",
       summary: "1 体ぶんの<b>武器ロードアウト + 弾薬 + 連射制御</b>をまとめた小型マネージャ。<t>fire rate</t>・リロード時間・マガジン / 予備弾薬・拡散 / ペレット数を一体管理し、発射可否を判定します。実際の弾生成は<t>コールバック</t>で呼び出し側に任せます。",
       when: "FPS / TPS / シューティングで、複数武器の切替・残弾・連射クールダウンを扱いたい時(1 体につき 1 インスタンス)。",
-      sample: "CWeaponSystem ws;\nws.RegisterWeapon({ \"pistol\", \"9mm\", EWeaponKind::Pistol,\n                   6.0f, 1.4f, 12, 48, 18.0f, 1.5f, 1, \"proj.9mm\" });\nws.EquipWeapon(\"pistol\");\nws.SetOnFireCallback(&amp;OnFire, this);\n// 毎フレーム:\nws.Tick(dt);\nif (input.JustPressed(EKey::Mouse0)) ws.TryFire();\nif (input.JustPressed(EKey::R))      ws.StartReload();",
       members: [
         { sig: "void RegisterWeapon(const FWeaponDef& def)", desc: "武器を登録する。同 id の二重登録は警告して no-op。reserve スロットも 0 で初期化。" },
         { sig: "bool EquipWeapon(const char* weapon_id)", ret: "成功したか", desc: "武器を装備する。未登録 / nullptr は false。reload 中でも切替可能(元武器の reload は破棄)。", when: "武器スロット切替時。" },
@@ -526,7 +493,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/WeaponSystem.h",
       summary: "武器 1 種類の<b>不変定義</b>。id / 表示名 / 種別と、fire rate・リロード時間・マガジン容量・予備上限・ダメージ・拡散・ペレット数・弾種を持ちます。",
       when: "RegisterWeapon に渡す武器スペックを定義する時。",
-      sample: "FWeaponDef shotgun{ \"shotgun\", \"Pump\", EWeaponKind::Shotgun,\n    1.0f, 2.6f, 6, 24, 12.0f, 6.0f, 8, \"proj.pellet\" };",
       members: [
         { sig: "const char* id / const char* display_name", desc: "武器キー(Register / Equip のキー) / UI 表示名(非所有)。" },
         { sig: "EWeaponKind kind", desc: "武器ジャンル(メタ情報、機械挙動には不使用)。" },
@@ -541,7 +507,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/WeaponSystem.h",
       summary: "現在装備中武器の<b>ランタイム状態</b> snapshot。残弾・次発射可能時刻・reload 中フラグ / 残り時間を持ち、主に UI / デバッグ表示に使います。",
       when: "HUD に残弾やリロードゲージを出す時。",
-      sample: "const FWeaponState& s = ws.State();\n// s.ammo_in_mag, s.reserve_ammo, s.reloading",
       members: [
         { sig: "const char* current_def_id", desc: "装備中武器の id。" },
         { sig: "u32 ammo_in_mag / u32 reserve_ammo", desc: "マガジン内残弾 / 予備弾薬。" },
@@ -554,7 +519,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "gameframework/WeaponSystem.h",
       summary: "武器のジャンルを表す列挙。UI 表示 / アニメ分岐 / ダメージ種別判定などの<b>参考情報</b>で、機械的な発射挙動は FWeaponDef のパラメータで決まります。",
       when: "武器アイコンやアニメを種別で切り替える時。",
-      sample: "if (ws.CurrentDef()->kind == EWeaponKind::Shotgun) ShowSpreadReticle();",
       members: [
         { sig: "Pistol / Rifle / Shotgun / Sniper", desc: "単発ハンドガン / 長銃 / ペレット拡散 / 高ダメージ低 fire-rate。" },
         { sig: "RocketLauncher / Sword / Bow / Custom", desc: "爆発物 / 近接斬撃 / 弓 / それ以外。" }
@@ -565,7 +529,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/WeatherSystem.h",
       summary: "<b>天候</b>の状態を保持し、現在天候→目標天候へ線形遷移しながら、描画 / ライティング用の修飾係数(環境光倍率 / 粒子密度 / 空の色補正 / 風 / 霧密度)を提供する部品。レンダラや粒子は毎フレームこれらを pull するだけで天候表現が反映されます。",
       when: "晴れ / 雨 / 雪 / 嵐などをなめらかに切り替え、見た目と粒子・風を連動させたい時。",
-      sample: "CWeatherSystem weather;\nweather.SetWeather(EWeatherKind::Rain, 8.0f);  // 8 秒で雨へ\n// 毎フレーム:\nweather.Tick(dt);\nrenderer.SetAmbientMultiplier(weather.AmbientLightMultiplier());\nrenderer.SetFogDensityScale (weather.FogDensityMultiplier());",
       members: [
         { sig: "void SetWeather(EWeatherKind kind, f32 transition_duration = 5.0f)", desc: "目標天候を設定する。同一天候は即完了、duration<=0 は即時切替。", when: "天候を変えたい時。" },
         { sig: "EWeatherKind CurrentWeather() const / EWeatherKind TargetWeather() const", desc: "現在 / 目標の天候を返す。" },
@@ -585,7 +548,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/WeatherSystem.h",
       summary: "天候ごとの修飾パラメータ(環境光倍率 / 粒子密度 / 空色 / 風強さ / 霧密度)を 1 つにまとめた表。各 getter が内部でこの表を参照します。",
       when: "天候パラメータの内部構造を理解する時(通常は getter 経由で十分)。",
-      sample: "// 各天候の係数を LUT として .cpp に保持する",
       members: [
         { sig: "f32 ambient_mult / f32 particle_density / f32 fog_density", desc: "環境光倍率 / 粒子密度 / 霧密度。" },
         { sig: "FVec3 sky_tint / f32 wind_strength", desc: "空色補正 / 風の強さ。" }
@@ -596,7 +558,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "gameframework/WeatherSystem.h",
       summary: "天候種別を表す 8 値の列挙(晴れ / 曇り / 雨 / 豪雨 / 雪 / 嵐 / 霧 / 砂嵐)。値はセーブに書ける安定値です。",
       when: "SetWeather で天候を指定する / 現在天候で分岐する時。",
-      sample: "weather.SetWeather(EWeatherKind::Snow);",
       members: [
         { sig: "Clear / Cloudy / Rain / HeavyRain", desc: "快晴 / 曇り / 雨 / 豪雨。" },
         { sig: "Snow / Storm / Fog / Sandstorm", desc: "雪 / 嵐(強風+豪雨) / 霧 / 砂嵐(強風+視界不良)。" }
@@ -607,7 +568,6 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/WorkshopBridge.h",
       summary: "Steam Workshop / EOS UGC / mod.io などの<b>ユーザー生成コンテンツ(<t>UGC</t>)</b>プラットフォームへ橋渡しする<t>シーム</t>(純粋仮想<t>インターフェース</t>)。MOD の公開・購読・ダウンロードを、使う SDK をビルド時に差し替えながら扱えます。",
       when: "MOD やステージ共有などの UGC 機能を載せたいが、配信プラットフォームの SDK を後で差し替えたい時。",
-      sample: "IWorkshopBridge* ws = &amp;GetWorkshopStub();\n(void)ws-&gt;Init();\n// 毎フレーム:\nws-&gt;Tick(dt);\n// 購読:\n(void)ws-&gt;SubscribeItem(itemId);\n(void)ws-&gt;DownloadItem(itemId);",
       members: [
         { sig: "virtual TResult<void> Init() / virtual void Shutdown()", desc: "SDK を初期化 / 終了する。Shutdown は Init 前でも安全。" },
         { sig: "virtual bool IsAvailable() const", ret: "利用可能か", desc: "現ビルドで Workshop 機能が使えるか。Stub は常に false。", when: "UI で Workshop ボタンの表示判定に使う時。" },
@@ -626,7 +586,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/WorkshopBridge.h",
       summary: "Workshop SDK 未統合ビルド / テスト用の<b>何もしない</b>実装。<code>Init()</code> だけ成功し、公開 / 購読 / DL 系は「未実装」エラー、<code>IsAvailable()</code> は常に false です。",
       when: "実 SDK を繋ぐ前の既定実装として、コンパイルと UI 判定だけ通したい時。",
-      sample: "IWorkshopBridge& ws = GetWorkshopStub();\nif (!ws.IsAvailable()) HideWorkshopButton();",
       members: [
         { sig: "TResult<void> Init() noexcept override", desc: "常に成功(m_Initialized = true)。" },
         { sig: "bool IsAvailable() const noexcept override", desc: "常に false。" },
@@ -639,7 +598,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/WorkshopBridge.h",
       summary: "プラットフォーム共通の<t>UGC</t>アイテムのメタ情報。item_id / タイトル / 説明 / 作者(文字列は非所有)・ファイルサイズ・インストール / 購読状態を持ちます。",
       when: "MOD ブラウザ UI にアイテム一覧を表示する時。",
-      sample: "if (auto r = ws->QueryItem(itemId); r.IsOk()) {\n    const FWorkshopItem& it = r.Value();\n    // it.title, it.author, it.subscribed\n}",
       members: [
         { sig: "u64 item_id / u64 file_size", desc: "SDK 固有の opaque ID / DL 後のファイルサイズ(バイト)。" },
         { sig: "const char* title / const char* description / const char* author", desc: "表示タイトル / 説明 / 投稿者名(UTF-8、非所有、次 Tick まで有効)。" },
@@ -651,7 +609,6 @@ ACS_REF.modules.push({
       kind: "関数", header: "gameframework/VoiceChat.h, WorkshopBridge.h",
       summary: "各<t>シーム</t>の<b>既定実装</b>を返す static singleton アクセサ。実 SDK を DI する前でも、これらを使うだけでコンパイル / 動作させられます。",
       when: "ボイスチャットや Workshop を、実 SDK を繋がずにとりあえず動かしたい時。",
-      sample: "IVoiceChatBackend&amp;        v  = GetVoiceStub();       // 何もしない既定\nFVoiceChatLoopbackBackend&amp; vb = GetVoiceLoopback();   // 実際に音声往復\nIWorkshopBridge&amp;           ws = GetWorkshopStub();    // 何もしない既定",
       members: [
         { sig: "IVoiceChatBackend& GetVoiceStub()", desc: "no-op なボイス実装の singleton を返す。" },
         { sig: "CVoiceChatLoopbackBackend& GetVoiceLoopback()", desc: "実際に音声を往復させるループバック実装の singleton を返す。" },
@@ -663,7 +620,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "gameframework/audio_backend/IAudioBackend.h",
       summary: "<code>FAudioClipDesc</code> が指す PCM バッファの形式。<code>Pcm16</code>(16bit signed PCM) / <code>Pcm32Float</code>(32bit IEEE float) / <code>Wav</code>(RIFF ヘッダ込み)。",
       when: "再生する clip のサンプル形式を指定する時。",
-      sample: "FAudioClipDesc d; d.format = EAudioFormat::Pcm16;",
       members: [
         { sig: "Pcm16 = 0", desc: "16bit signed PCM (典型的な WAV PCM の raw bytes)。" },
         { sig: "Pcm32Float = 1", desc: "32bit IEEE float PCM (高品質・DSP-friendly)。" },
@@ -675,7 +631,6 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/audio_backend/IAudioBackend.h",
       summary: "<code>CAudioDirector</code> から見た「実際に音を出す層」の純粋仮想<t>シーム</t>。BGM / SFX を統一的に <code>FAudioVoiceHandle</code> で扱い、一発再生 / ループ / 停止 / 音量変更を提供する。Windows では <code>CXAudio2Backend</code>、他プラットフォームは別実装で差し替える。STL 不使用・全 <code>noexcept</code>。",
       when: "director の下に実音声バックエンドを差し込みたい時。backend を nullptr にすると無音 (no-op) で動く。",
-      sample: "CXAudio2Backend backend;\nACS_TRY(backend.Init(64));\ndirector.SetBackend(&amp;backend);\n// 一発再生:\nFAudioVoiceHandle v = backend.PlayOneShot(clip, 1.0f, 1.0f);\nbackend.Tick(dt);   // 毎フレーム: 完了 voice を回収",
       members: [
         { sig: "virtual TResult<void> Init(u32 max_voices = 64)", ret: "成否", desc: "backend を初期化。<code>max_voices</code> は同時発音数の上限 (0 は不正)。多重 Init は <code>kSubAudioAlreadyInitialized</code>。" },
         { sig: "virtual void Shutdown()", desc: "全 voice を停止して資源解放。Init 前に呼んでも安全 (no-op)。" },
@@ -694,7 +649,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/audio_backend/XAudio2Backend.h",
       summary: "<t>IAudioBackend</t> の Windows 用 concrete 実装 = Win32 <b>XAudio2</b> を叩いて実音声を出す。重い <code>&lt;xaudio2.h&gt;</code> は <t>pimpl</t> で <code>.cpp</code> に隠蔽。固定容量 voice pool + generation 付き handle で <t>use-after-free</t> を防ぐ。COM 初期化も本クラスが責任を持つ。非コピー・非ムーブ。",
       when: "Windows で <code>CAudioDirector</code> に実音声を鳴らさせたい時。<code>director.SetBackend(&amp;xaudio2)</code> で差し込む。",
-      sample: "CXAudio2Backend m_Audio;\nFAudioDirector  m_Director;\nACS_TRY(m_Audio.Init(64));        // 同時発音 64 voice\nm_Director.SetBackend(&amp;m_Audio);\n// 終了時:\nm_Director.SetBackend(nullptr);  // 先に director を切る\nm_Audio.Shutdown();",
       members: [
         { sig: "CXAudio2Backend()", desc: "backend を構築 (まだ未初期化)。Init を呼ぶまで音は出ない。" },
         { sig: "TResult<void> Init(u32 max_voices = 64) override", ret: "成否", desc: "XAudio2 / COM を起動し voice pool を確保する。再 init 不可。" },
@@ -708,7 +662,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/audio_backend/IAudioBackend.h",
       summary: "再生する音声バッファの記述子。フォーマット + データ参照を持つ。<code>pcm_data</code> は backend 側が必要な間 (一発再生終了 / Stop まで) 内部コピーする。",
       when: "<code>PlayOneShot</code> / <code>PlayLooped</code> に渡す clip を組み立てる時。",
-      sample: "FAudioClipDesc clip;\nclip.pcm_data = bytes;\nclip.pcm_size = len;\nclip.sample_rate = 44100;\nclip.channel_count = 2;\nclip.format = EAudioFormat::Pcm16;",
       members: [
         { sig: "const void* pcm_data = nullptr", desc: "raw PCM サンプル列 (Wav 形式の場合は RIFF ヘッダ込み)。" },
         { sig: "u64 pcm_size = 0", desc: "<code>pcm_data</code> の有効バイト数。" },
@@ -722,7 +675,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/audio_backend/IAudioBackend.h",
       summary: "再生中の 1 voice を指す<t>世代付きハンドル</t>。下位 24bit = index、上位 8bit = generation の packed <code>u32</code>。slot 再利用を古いハンドルで触る事故を generation で検出する。全 0 (<code>kInvalidAudioVoice</code>) が無効。backend は generation を必ず 1 以上で配る (<code>FNodeId</code> / <code>FShapeId</code> と同一規約)。",
       when: "<code>PlayOneShot</code> / <code>PlayLooped</code> の戻り値を保持して後で停止・音量変更する時。",
-      sample: "FAudioVoiceHandle v = backend.PlayLooped(clip, 1, 1);\nif (v.IsValid()) backend.SetVoiceVolume(v, 0.5f);\nbackend.StopVoice(v);",
       members: [
         { sig: "constexpr FAudioVoiceHandle()", desc: "無効ハンドル (<code>m_Packed == 0</code>) を作る。" },
         { sig: "constexpr FAudioVoiceHandle(u32 index, u8 gen)", desc: "<code>(index &amp; 0x00FFFFFF) | (gen &lt;&lt; 24)</code> に詰めて構築する。" },
@@ -737,7 +689,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/StudioWorkflow.h",
       summary: "<t>IAssetLockingBackend</t> の <code>QueryLock</code> が返すロック情報 (P4 の <code>p4 fstat</code> 相当の最小情報)。文字列は backend が所有せず、寿命は「次の Backend 呼び出しまで」を保証する。",
       when: "あるアセットが誰にいつロックされているかを問い合わせた結果を読む時。",
-      sample: "auto r = locks.QueryLock(\"assets/hero.fbx\");\nif (r.IsOk()) {\n    const FAssetLockInfo& i = r.Value();\n    Log(\"%s locked by %s\", i.asset_path, i.locker_user);\n}",
       members: [
         { sig: "const char* asset_path = nullptr", desc: "ロック対象パス (例 <code>//depot/game/foo.fbx</code>)。" },
         { sig: "const char* locker_user = nullptr", desc: "ロック保持ユーザー (例 <code>designer_a</code>)。" },

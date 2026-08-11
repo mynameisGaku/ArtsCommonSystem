@@ -12,7 +12,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "openxr/KhronosOpenXrBridge.h",
       summary: "<t>OpenXR</t> 公式ローダ(Khronos loader)を使った実<t>backend</t>。共通インターフェース <t>IOpenXrBridge</t> を実装し、<t>HMD</t> やコントローラの<t>ポーズ</t>を提供する。コピー/ムーブ不可の<t>singleton</t>運用前提。",
       when: "実機の VR ランタイムに接続して頭・手の位置を取りたい時。通常は直接 new せず、<code>GetDefaultKhronosOpenXrBridge()</code> か <code>GetDefaultOpenXrBridge()</code> 経由で使う。",
-      sample: "auto&amp; xr = acs::openxr::GetDefaultKhronosOpenXrBridge();\nif (xr.IsTracking()) {\n    auto head = xr.HeadPose();      // 頭の位置・向き\n    auto left = xr.LeftController(); // 左手の入力\n}",
       members: [
         { sig: "TResult&lt;void&gt; Init(EXrPlatform platform = Unknown)", ret: "成功 or 失敗", desc: "XR ランタイムへ接続し instance を作る。<code>platform</code> 省略時は backend が自動検出。ランタイムが無ければ失敗(<t>Result</t> でエラー)を返す。", when: "起動時に一度。失敗したら 2D 描画へ<t>フォールバック</t>する。" },
         { sig: "void Shutdown()", desc: "接続を破棄し loader を解放する。Init 前に呼んでも安全。" },
@@ -32,29 +31,25 @@ ACS_REF.modules.push({
       name: "GetDefaultKhronosOpenXrBridge()",
       kind: "関数", header: "openxr/KhronosOpenXrBridge.h",
       summary: "プロセス共有の実 Khronos bridge(<t>singleton</t>)を返す。初回アクセス時に <code>Init()</code> を 1 回だけ自動で走らせる(失敗しても参照は返る)。",
-      when: "実 OpenXR backend を直接掴みたい時。多くの場合は backend 非依存の <code>acs::game::GetDefaultOpenXrBridge()</code> を使えば十分。",
-      sample: "auto&amp; xr = acs::openxr::GetDefaultKhronosOpenXrBridge();\nxr.Tick(dt);\nif (xr.IsInitialized()) { /* 接続できた */ }"
+      when: "実 OpenXR backend を直接掴みたい時。多くの場合は backend 非依存の <code>acs::game::GetDefaultOpenXrBridge()</code> を使えば十分。"
     },
     {
       name: "InstallOpenXrAsDefault()",
       kind: "関数", header: "openxr/KhronosOpenXrBridge.h",
       summary: "gameframework の既定 provider に、この実 Khronos bridge を登録する<t>結線</t>関数。以後 <code>acs::game::GetDefaultOpenXrBridge()</code> が stub ではなく実 bridge を返すようになる。",
-      when: "アプリ起動時に一度だけ呼ぶ。これで上位ゲームコードは backend に直接依存せず、実 XR を使える(<t>循環依存</t>回避のための仕組み)。",
-      sample: "#if WITH_ACS_OPENXR\n    acs::openxr::InstallOpenXrAsDefault(); // 既定を実 bridge に差し替え\n#endif\n// 以降どこでも:\nauto&amp; xr = acs::game::GetDefaultOpenXrBridge();"
+      when: "アプリ起動時に一度だけ呼ぶ。これで上位ゲームコードは backend に直接依存せず、実 XR を使える(<t>循環依存</t>回避のための仕組み)。"
     },
     {
       name: "kSubOpenXrRuntimeUnavailable / kSubOpenXrInitFailed",
       kind: "定数(エラー subcode)", header: "openxr/KhronosOpenXrBridge.h",
       summary: "Init 失敗時に <t>Result</t> へ載るエラーの細分番号。<code>301</code>=XR ランタイムが見つからない、<code>302</code>=初期化に失敗。",
-      when: "Init() の失敗理由を分岐したい時に <t>Result</t> のエラーと突き合わせる。",
-      sample: "auto r = xr.Init();\nif (!r) {\n    // r.Error().subcode が kSubOpenXrRuntimeUnavailable なら\n    //   → ランタイム未導入。2D 描画へフォールバック。\n}"
+      when: "Init() の失敗理由を分岐したい時に <t>Result</t> のエラーと突き合わせる。"
     },
     {
       name: "IOpenXrBridge",
       kind: "インターフェース", header: "gameframework/OpenXrBridge.h",
       summary: "XR ランタイム/<t>HMD</t> を抽象化した共通<t>インターフェース</t>(<t>seam</t>)。ゲームロジックはこの型越しに頭・手のポーズや<t>パススルー</t>を叩き、具象 backend(<t>CKhronosOpenXrBridge</t> / stub 等)は差し替えで選ぶ。シングルスレッド専用・コピー/ムーブ不可。",
       when: "XR を使う側のコードはこの参照型で受け取る。これにより実機が無い CI でも <t>mock</t> に差し替えてテストできる。",
-      sample: "void UpdateVr(acs::game::IOpenXrBridge&amp; xr, float dt) {\n    xr.Tick(dt);\n    if (!xr.IsTracking()) return;     // 未追跡なら 2D へ\n    auto head = xr.HeadPose();\n    if (xr.LeftController().trigger &gt; 0.5f) Shoot();\n}",
       members: [
         { sig: "virtual TResult&lt;void&gt; Init(EXrPlatform = Unknown)", ret: "成功 or 失敗", desc: "backend を初期化。<code>Unknown</code> なら利用可能な SDK を自動検出。" },
         { sig: "virtual void Shutdown()", desc: "backend を破棄。Init 前に呼んでも安全。" },
@@ -74,7 +69,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/OpenXrBridge.h",
       summary: "<t>HMD</t> やコントローラの位置と向き。向きは <t>quaternion</t> ではなく <t>オイラー角</t>(pitch, yaw, roll)を<b>ラジアン</b>で持つ簡素な表現。",
       when: "頭や手の姿勢を読むとき。<code>tracked</code> が false の時は原点なので姿勢として使わない。",
-      sample: "acs::game::FXrPose p = xr.HeadPose();\nif (p.tracked) {\n    acs::FVec3 pos = p.position;            // world 位置 (m)\n    float yaw = p.orientation_euler.y;      // 向き(ラジアン)\n}",
       members: [
         { sig: "FVec3 position", desc: "world-space の位置(メートル)。既定は原点。" },
         { sig: "FVec3 orientation_euler", desc: "向きを (pitch, yaw, roll) のラジアンで。精密な計算が要るなら自分で <t>quaternion</t>/行列へ変換する。" },
@@ -86,7 +80,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "gameframework/OpenXrBridge.h",
       summary: "左右コントローラ 1 フレーム分の入力<t>スナップショット</t>。各プラットフォーム差を吸収した最小公倍数(ポーズ+トリガ+グリップ+2 ボタン+スティック)。",
       when: "VR コントローラの入力(撃つ・掴む・移動)を読むとき。",
-      sample: "auto c = xr.RightController();\nif (c.trigger &gt; 0.5f) Fire();             // 引き金\nif (c.button_a) Jump();\nMove(c.thumbstick.x, c.thumbstick.y);      // スティックで移動",
       members: [
         { sig: "FXrPose pose", desc: "6DoF のコントローラ位置+向き。" },
         { sig: "f32 trigger", desc: "人差し指トリガのアナログ値 [0, 1]。" },
@@ -100,7 +93,6 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "gameframework/OpenXrBridge.h",
       summary: "想定する XR <t>プラットフォーム</t>(HMD 種別)の列挙。<code>Init()</code> に渡して指定するか、<code>ActivePlatform()</code> で今どれが選ばれたかを知る。",
       when: "特定機種向けの分岐や、自動検出させたい(<code>Unknown</code>)時。",
-      sample: "using P = acs::game::EXrPlatform;\nxr.Init(P::MetaQuest);            // Quest 指定\n// or\nxr.Init(P::Unknown);              // 自動検出に任せる",
       members: [
         { sig: "Unknown = 0", desc: "未指定/検出失敗。stub の既定。Init に渡すと自動検出。" },
         { sig: "MetaQuest = 1", desc: "Meta Quest 2 / 3 / Pro。" },
@@ -117,15 +109,13 @@ ACS_REF.modules.push({
       name: "GetDefaultOpenXrBridge()",
       kind: "関数", header: "gameframework/OpenXrBridge.h",
       summary: "backend に依存せず既定の <t>IOpenXrBridge</t> を返す。実 backend が <code>InstallOpenXrAsDefault()</code> で登録済みなら実 bridge、未登録なら <code>GetXrStub()</code>(stub)を返す。",
-      when: "ゲームコードから XR を使う標準の入口。これだけ使えば実機ありでもなしでも同じコードで動く。",
-      sample: "auto&amp; xr = acs::game::GetDefaultOpenXrBridge();\nxr.Tick(dt);\nif (xr.IsTracking()) UseVrCamera(xr.HeadPose());\nelse UseFlatCamera();      // backend 未登録でも安全"
+      when: "ゲームコードから XR を使う標準の入口。これだけ使えば実機ありでもなしでも同じコードで動く。"
     },
     {
       name: "SetOpenXrBridgeProvider()",
       kind: "関数", header: "gameframework/OpenXrBridge.h",
       summary: "既定 bridge を返す関数(<t>provider</t>)を登録する。実 backend モジュールの Install* から呼ぶ。<code>nullptr</code> 登録で stub に戻す。後勝ち。",
       when: "通常は直接呼ばない。<code>InstallOpenXrAsDefault()</code> が内部でこれを使う。独自 backend を差し込みたい時のみ。",
-      sample: "using Prov = acs::game::OpenXrBridgeProvider;\nProv p = []() noexcept -&gt; acs::game::IOpenXrBridge&amp; { return MyBridge(); };\nacs::game::SetOpenXrBridgeProvider(p);",
       members: [
         { sig: "void SetOpenXrBridgeProvider(OpenXrBridgeProvider provider)", desc: "provider を登録。nullptr で stub に戻す。" }
       ]
@@ -134,15 +124,13 @@ ACS_REF.modules.push({
       name: "OpenXrBridgeProvider",
       kind: "型エイリアス", header: "gameframework/OpenXrBridge.h",
       summary: "「既定 bridge を返す関数」の型。<code>IOpenXrBridge&amp; (*)() noexcept</code> という関数<t>ポインタ</t>。",
-      when: "<code>SetOpenXrBridgeProvider()</code> に渡す関数の型として使う。",
-      sample: "acs::game::OpenXrBridgeProvider p =\n    []() noexcept -&gt; acs::game::IOpenXrBridge&amp; { return MyBridge(); };"
+      when: "<code>SetOpenXrBridgeProvider()</code> に渡す関数の型として使う。"
     },
     {
       name: "COpenXrBridgeStub",
       kind: "クラス", header: "gameframework/OpenXrBridge.h",
       summary: "「常に未初期化/原点ポーズ/パススルー非対応」を返す stub 実装。実 backend をリンクしていない状態でも、上位が<t>フォールバック</t>(2D 描画)を書けるようにする placeholder。",
       when: "HMD が無い開発機/CI での既定。直接 new せず <code>GetXrStub()</code> で得る。",
-      sample: "auto&amp; xr = acs::game::GetXrStub();\nauto r = xr.Init();   // 常に NotImplemented で失敗\n// → IsTracking() も false なので 2D 経路へ",
       members: [
         { sig: "TResult&lt;void&gt; Init(EXrPlatform = Unknown)", desc: "常に NotImplemented を返す(副作用なし)。" },
         { sig: "FXrPose HeadPose() const", desc: "常にゼロポーズ。" },
@@ -154,15 +142,13 @@ ACS_REF.modules.push({
       name: "GetXrStub()",
       kind: "関数", header: "gameframework/OpenXrBridge.h",
       summary: "プロセス内に 1 個だけ存在する静的 <t>COpenXrBridgeStub</t> への参照を返す。provider 未登録時に <code>GetDefaultOpenXrBridge()</code> が返すのもこれ。",
-      when: "明示的に stub を使いたい/テストで原点ポーズを期待する時。",
-      sample: "acs::game::IOpenXrBridge&amp; xr = acs::game::GetXrStub();"
+      when: "明示的に stub を使いたい/テストで原点ポーズを期待する時。"
     },
     {
       name: "xr_err::kSub_NotImplemented",
       kind: "定数(エラー subcode)", header: "gameframework/OpenXrBridge.h",
       summary: "「未実装」を表すエラー細分番号(<code>99</code>)。stub の <code>Init()</code> や、backend 未統合時に <t>Result</t> へ載る。他モジュール(ML 等)と番号を揃え、横断で「未実装」を一律に扱える。",
-      when: "Init 失敗が「ランタイム無し」ではなく「そもそも未実装/未リンク」なのかを判別したい時。",
-      sample: "auto r = acs::game::GetDefaultOpenXrBridge().Init();\nif (r.IsErr() &amp;&amp; r.Error().subcode == acs::game::xr_err::kSub_NotImplemented) {\n    // backend 未リンク。常に 2D で動かす。\n}"
+      when: "Init 失敗が「ランタイム無し」ではなく「そもそも未実装/未リンク」なのかを判別したい時。"
     }
   ]
 });

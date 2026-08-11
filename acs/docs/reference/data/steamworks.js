@@ -12,20 +12,19 @@ ACS_REF.modules.push({
       kind: "クラス", header: "steamworks/SteamworksBridgeImpl.h",
       summary: "<t>Steamworks SDK</t> を実際に呼ぶ<b>本物の実装</b>(<code>acs::game::ISteamworksBridge</code> を <t>Override</t>)。<code>SteamAPI_Init()</code> を起点に、実績解除・リーダーボード・統計(Stats)・DLC 所有・リッチプレゼンス・フレンド・クラウドセーブ・Workshop・ボイス・Steam Input を提供します。",
       when: "出荷ビルドで本物の Steam 機能を使いたい時。開発中で Steam クライアントを立ち上げられない時は、代わりに <code>acs::game::SteamworksBridgeStub</code> を使う(自動切り替えは <code>GetDefaultSteamworksBridge()</code> 参照)。",
-      sample: "acs::steamworks::CSteamworksBridgeImpl steam;\nif (steam.Init().IsErr()) {\n    // Steam 未起動 / AppID 不一致 → stub にフォールバック\n}\n// ボス撃破時に実績解除\n(void)steam.UnlockAchievement(\"ACH_BOSS_01\");\n// 毎フレーム必須(コールバックポンプ)\nsteam.Tick(dt);",
       members: [
         { sig: "TResult&lt;void&gt; Init()", ret: "成功 or エラー", desc: "<code>SteamAPI_Init()</code> を呼んで Steam クライアント連携を確立する。Steam 未起動 / AppID 不一致なら <t>Err</t>(<code>kSubSteamworksInitFailed</code>)。", when: "起動時に一度。失敗したら stub へフォールバックする。" },
         { sig: "void Shutdown()", desc: "SDK 終了処理。<code>Init()</code> 前に呼んでも安全(<t>no-op</t>)。" },
         { sig: "bool IsInitialized() const", ret: "初期化済みか", desc: "<code>Init()</code> 成功後かつ <code>Shutdown()</code> 前なら true。失敗時の判定に使う。" },
         { sig: "PlayerIdentity GetLocalPlayer() const", ret: "ローカルプレイヤー", desc: "自分の表示名(<code>GetPersonaName</code>)と SteamID64 を <code>acs::game::PlayerIdentity</code> で返す。未初期化なら空。文字列の寿命は「次の <code>Tick()</code> まで」。" },
-        { sig: "TResult&lt;void&gt; UnlockAchievement(const char* ach_id)", ret: "成功 or エラー", desc: "実績を解除する(<code>SetAchievement</code> + <code>StoreStats</code> を即時呼び出し)。", sample: "(void)steam.UnlockAchievement(\"ACH_FIRST_CLEAR\");" },
+        { sig: "TResult&lt;void&gt; UnlockAchievement(const char* ach_id)", ret: "成功 or エラー", desc: "実績を解除する(<code>SetAchievement</code> + <code>StoreStats</code> を即時呼び出し)。"},
         { sig: "TResult&lt;void&gt; SetLeaderboardScore(const char* board_id, i64 score)", ret: "成功 or エラー", desc: "リーダーボードへスコアを送信する。内部は <t>非同期</t>(Find → Upload の 2 段)で、<code>Tick()</code> 経由でコールバックを進めて完了を待つため数フレーム遅延する。", when: "スコア更新時に。board_id は Steam 側で定義したボード名。" },
         { sig: "TResult&lt;i64&gt; GetLeaderboardScore(const char* board_id)", ret: "自分のスコア", desc: "自分の現在スコアを取得する。こちらも <t>非同期</t>(Find → Download)。" },
         { sig: "void Tick(f32 dt)", desc: "<code>SteamAPI_RunCallbacks()</code> を呼ぶ<b>必須</b>処理。毎フレーム呼ぶこと(非同期 API の完了もここで進む)。", when: "ゲームループから毎フレーム。" },
         { sig: "TResult&lt;void&gt; SetStat(const char* stat_name, i64 value) / TResult&lt;i64&gt; GetStat(...)", desc: "整数の<t>統計値(Stat)</t>を設定/取得する。Steam 側で事前定義した key 名(\"kills\" 等)を渡す。" },
         { sig: "TResult&lt;void&gt; SetFloatStat(const char* stat_name, f32 value) / TResult&lt;f32&gt; GetFloatStat(...)", desc: "小数の<t>統計値(Stat)</t>を設定/取得する。" },
         { sig: "bool IsDlcOwned(u32 app_id) const", ret: "DLC 所有か", desc: "指定 DLC の AppID をユーザーが所有していれば true。" },
-        { sig: "TResult&lt;void&gt; SetRichPresence(const char* key, const char* value)", desc: "<t>リッチプレゼンス</t>を設定する。<code>key=\"status\"</code> の値はフレンド一覧の「今プレイ中」行に出る。", sample: "(void)steam.SetRichPresence(\"status\", \"3面ボス戦\");" },
+        { sig: "TResult&lt;void&gt; SetRichPresence(const char* key, const char* value)", desc: "<t>リッチプレゼンス</t>を設定する。<code>key=\"status\"</code> の値はフレンド一覧の「今プレイ中」行に出る。"},
         { sig: "u32 GetFriendCount() const", ret: "フレンド数", desc: "自分のフレンド数。未初期化/未取得時は 0。" },
         { sig: "PlayerIdentity GetFriendByIndex(u32 index) const", ret: "フレンド情報", desc: "<code>0 &lt;= index &lt; GetFriendCount()</code> のフレンド情報。範囲外は空。" },
         { sig: "TResult&lt;void&gt; CloudWriteFile(const char* path, const void* data, u32 size)", ret: "成功 or エラー", desc: "<t>Steam Cloud</t>(Remote Storage)へファイルを書き込み永続化する。", when: "クラウドセーブを書き出す時。" },
@@ -46,22 +45,19 @@ ACS_REF.modules.push({
       name: "GetDefaultSteamworksBridge()",
       kind: "関数", header: "steamworks/SteamworksBridgeImpl.h",
       summary: "プロセス共有の<b>実 Bridge シングルトン</b>を返す。初回アクセス時に <code>Init()</code> を 1 回だけ走らせる(Steam 未起動でも参照は返す — 成否は <code>IsInitialized()</code> で判定)。",
-      when: "「とりあえず実 Bridge が欲しい」時。自前で <code>CSteamworksBridgeImpl</code> を持ちたくない場合の手軽な入口。",
-      sample: "auto&amp; steam = acs::steamworks::GetDefaultSteamworksBridge();\nif (steam.IsInitialized()) {\n    (void)steam.UnlockAchievement(\"ACH_BOSS_01\");\n}"
+      when: "「とりあえず実 Bridge が欲しい」時。自前で <code>CSteamworksBridgeImpl</code> を持ちたくない場合の手軽な入口。"
     },
     {
       name: "InstallSteamworksAsDefault()",
       kind: "関数", header: "steamworks/SteamworksBridgeImpl.h",
       summary: "実 Bridge を <code>acs::game</code> 側の<t>既定 provider</t>として登録する。これを呼ぶと、以降ゲームコードは <t>バックエンド</t>非依存に <code>acs::game::GetDefaultSteamworksBridge()</code> で実 Bridge を取得できる(未登録なら自動で <t>Stub</t> が返る)。",
-      when: "アプリ起動時に一度だけ呼ぶ。<code>gameframework</code> はこのモジュールに直接依存できない(<t>循環依存</t>回避)ため、登録はこの関数経由で行う。",
-      sample: "// 起動時に一度だけ\n#if WITH_ACS_STEAMWORKS\n    acs::steamworks::InstallSteamworksAsDefault();\n#endif\n// 以降どこでも backend 非依存に取得\nauto&amp; s = acs::game::GetDefaultSteamworksBridge();"
+      when: "アプリ起動時に一度だけ呼ぶ。<code>gameframework</code> はこのモジュールに直接依存できない(<t>循環依存</t>回避)ため、登録はこの関数経由で行う。"
     },
     {
       name: "kSubSteamworks* (エラー subcode)",
       kind: "定数(u16)", header: "steamworks/SteamworksBridgeImpl.h",
       summary: "<code>TResult</code> が <t>Err</t> の時に <code>err.subcode</code> で原因を見分けるための定数群(カテゴリは <code>ErrCategory::Generic</code>)。実装固有の失敗理由を表します。",
       when: "<code>Init()</code> 等が失敗した時、原因別に分岐したい場合に <code>err.subcode == ...</code> で照合する。",
-      sample: "auto r = steam.Init();\nif (r.IsErr() &amp;&amp; r.Error().subcode\n        == acs::steamworks::kSubSteamworksInitFailed) {\n    // Steam クライアント未起動など\n}",
       members: [
         { sig: "kSubSteamworksInitFailed = 1003", desc: "<code>SteamAPI_Init()</code> が失敗した(Steam 未起動 / AppID 不一致 等)。" },
         { sig: "kSubSteamworksFindBoardFailed = 1004", desc: "<code>FindLeaderboard</code> に失敗した。" },

@@ -60,7 +60,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Dx12/Dx12Device.h",
       summary: "<t>DX12</t> ネイティブの<t>RHIデバイス</t>実装(<code>IRhiDevice</code> 派生)。<code>ID3D12Device</code>・コマンドキュー・<t>ディスクリプタヒープ</t>(SRV/RTV/DSV)・フレーム<t>フェンス</t>を抱える、DX12 描画の中枢です。",
       when: "DX12 バックエンドでビルドした時に <code>CreateRhiDevice()</code> が内部で生成する実体。直接 new せず、返ってきた <code>IRhiDevice</code> を使うのが基本。生の <code>ID3D12Device</code> が要る低レベル統合(ImGui バックエンド等)でだけダウンキャストして触ります。",
-      sample: "FDeviceConfig cfg;\ncfg.enable_debug_layer = true;       // Debug ビルド推奨\nauto dev = CreateRhiDevice(cfg).Value();  // 中身が CDx12Device\nprintf(\"%s / %s\\n\", dev-&gt;BackendName(), dev-&gt;AdapterName());",
       members: [
         { sig: "const char* BackendName() const", ret: "\"DX12\"", desc: "バックエンド名。常に <code>\"DX12\"</code> を返す。" },
         { sig: "const char* AdapterName() const", ret: "GPU 名", desc: "選ばれた<t>アダプタ</t>(GPU)の名前。デバッグ表示用。" },
@@ -86,7 +85,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Dx12/Dx12Swapchain.h",
       summary: "<t>DX12</t> の<t>スワップチェイン</t>(<code>IRhiSwapchain</code> 派生)。<code>IDXGISwapChain3</code> と、最大 3 枚のバックバッファ・その RTV ヒープを管理し、毎フレーム描画先を切り替えて画面に提示します。",
       when: "<code>CreateRhiSwapchain()</code> が DX12 バックエンドで生成する実体。ウィンドウへ最終結果を出すのに毎フレーム使う(取得→描画→提示)。",
-      sample: "FSwapchainConfig sc;\nsc.window = &amp;window;  sc.buffer_count = 2;  sc.vsync = true;\nauto swap = CreateRhiSwapchain(*dev, sc).Value();\nu32 idx = swap-&gt;AcquireNextImage();   // 描く先のバッファ番号\n// ...cmd で描画...\nif (!swap-&gt;Present()) { /* 描画ループを停止 */ }",
       members: [
         { sig: "u32 AcquireNextImage()", ret: "バッファ番号", desc: "次に書き込めるバックバッファをロックして取得。描画開始前に毎フレーム呼ぶ。" },
         { sig: "bool Present()", ret: "提示成功なら true", desc: "描き終えた内容を画面へ反映。<code>vsync</code> 設定に従い、device removal/backend failure は false。" },
@@ -102,7 +100,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Dx12/Dx12CommandList.h",
       summary: "<t>DX12</t> の<t>コマンドリスト</t>(<code>IRhiCommandList</code> 派生)。1 フレーム分の描画命令(クリア・パイプライン設定・バインド・Draw)を <code>ID3D12GraphicsCommandList</code> へ記録し、GPU に投入します。<t>リソース状態</t>の<t>バリア</t>も内部で面倒を見ます。",
       when: "毎フレームの描画ループの主役。<code>CreateRhiCommandList()</code> で作り、<code>Begin</code>→各種パス→<code>End</code>→<code>Submit</code> の順に回す。",
-      sample: "auto cmd = CreateRhiCommandList(*dev).Value();\ncmd-&gt;Begin();\nu32 i = swap-&gt;AcquireNextImage();\ncmd-&gt;BeginRenderToSwapchain(*swap, i, {0.1f,0.1f,0.2f,1});\ncmd-&gt;SetPipeline(*pso);\ncmd-&gt;SetVertexBuffer(*vb, sizeof(FVertex));\ncmd-&gt;Draw(3);\ncmd-&gt;EndRenderToSwapchain(*swap, i);\ncmd-&gt;End();\nif (!cmd-&gt;Submit() || !swap-&gt;Present()) { /* 描画ループを停止 */ }",
       members: [
         { sig: "void Begin() / End(); bool Submit()", desc: "記録の開始・終了・GPU 投入。1 フレームにつき 1 セット。投入/fence failure は false。" },
         { sig: "void BeginRenderToSwapchain(sc, idx, clear, depth=null, depth_clear=1)", desc: "バックバッファをレンダーターゲットにして指定色でクリア。深度も任意で同時バインド。", when: "通常の画面描画パスの開始。" },
@@ -127,7 +124,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Dx12/Dx12Buffer.h",
       summary: "<t>DX12</t> の GPU バッファ(<code>IRhiBuffer</code> 派生)。頂点・インデックス・定数バッファを <code>ID3D12Resource</code> として確保します。Uniform かつ <code>cpu_writable</code> なら自動でフレーム<t>リングバッファ</t>化され、毎フレーム安全に書き換えられます。",
       when: "<code>CreateRhiBuffer()</code> が DX12 で生成する実体。メッシュの頂点や、毎フレーム変わる行列(定数バッファ)を GPU へ載せる時。",
-      sample: "FBufferDesc d;\nd.size = sizeof(FVertex)*3;\nd.usage = EBufferUsage::Vertex;\nd.initial_data = verts;\nauto vb = CreateRhiBuffer(*dev, d).Value();\n// 定数バッファを毎フレーム更新する例:\ncb-&gt;Update(&amp;mvp, sizeof(mvp));",
       members: [
         { sig: "usize Size() const", ret: "バイト数", desc: "1 フレームスロットあたりのサイズ。" },
         { sig: "EBufferUsage Usage() const", desc: "用途(Vertex / Index16 / Index32 / Uniform 等)。" },
@@ -141,7 +137,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Dx12/Dx12Texture.h",
       summary: "<t>DX12</t> のテクスチャ(<code>IRhiTexture</code> 派生)。通常の 2D 画像のほか、レンダーターゲット・深度バッファ・cubemap・テクスチャ配列を扱い、SRV/RTV/DSV の<t>ディスクリプタ</t>を必要に応じて持ちます。",
       when: "<code>CreateRhiTexture()</code> が DX12 で生成する実体。画像を読む・オフスクリーン RT に描く・シャドウ深度を持つ、いずれの用途も <code>FTextureDesc</code> のフラグで切り替える。",
-      sample: "FTextureDesc d;\nd.width = 256; d.height = 256;\nd.format = EFormat::R8G8B8A8_UNorm;\nd.initial_data = pixels; d.initial_data_size = 256*256*4;\nauto tex = CreateRhiTexture(*dev, d).Value();\ncmd-&gt;SetTexture(0, *tex);   // パイプラインで texture_slots&gt;=1 が必要",
       members: [
         { sig: "u32 Width() / Height() / MipLevels() / ArraySize() const", desc: "解像度・mip 数・配列枚数。" },
         { sig: "EFormat PixelFormat() const", desc: "ピクセル<t>フォーマット</t>。" },
@@ -159,7 +154,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Dx12/Dx12Pipeline.h",
       summary: "<t>DX12</t> のグラフィックス<t>パイプライン</t>(<code>IRhiPipeline</code> 派生)。<code>FPipelineDesc</code>(VS+PS・頂点レイアウト・ブレンド・深度/ステンシル・ターゲットフォーマット)から <t>PSO</t> と<t>ルートシグネチャ</t>を組み立てます。",
       when: "<code>CreateRhiPipeline()</code> が DX12 で生成する実体。描画の「設定一式」を 1 つに固めたもの。初期化時に作り、描画時は <code>cmd.SetPipeline</code> で切り替える。",
-      sample: "FPipelineDesc pd;\npd.vs = vs.get(); pd.ps = ps.get();\npd.vertex_stride = sizeof(FVertex);\npd.layout[0] = {\"POSITION\",0,EFormat::R32G32B32_Float,0};\npd.layout_count = 1;\npd.cbuffer_slots = 1; pd.texture_slots = 1;\nauto pso = CreateRhiPipeline(*dev, pd).Value();",
       members: [
         { sig: "ID3D12PipelineState* Pso() const", ret: "PSO", desc: "内部用。組み上がった <code>ID3D12PipelineState</code>。" },
         { sig: "ID3D12RootSignature* RootSignature() const", ret: "ルートシグネチャ", desc: "内部用。CBV/SRV/サンプラの配置を定義する<t>ルートシグネチャ</t>。" },
@@ -172,7 +166,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Dx12/Dx12Shader.h",
       summary: "<t>DX12</t> のシェーダ(<code>IRhiShader</code> 派生)。HLSL ソース文字列を <code>D3DCompile</code> でコンパイルし、<t>バイトコード</t>を保持します。パイプライン作成時に VS/PS として参照されます。",
       when: "<code>CreateRhiShader()</code> が DX12 で生成する実体。HLSL を 1 つの文字列で渡して GPU プログラムを用意する時。",
-      sample: "FShaderDesc sd;\nsd.stage = EShaderStage::Vertex;\nsd.hlsl_source = vsCode;     // HLSL 文字列\nsd.entry_point = \"main\";\nauto vs = CreateRhiShader(*dev, sd).Value();",
       members: [
         { sig: "EShaderStage Stage() const", desc: "ステージ(Vertex / Pixel / Compute)。" },
         { sig: "const byte* Bytecode() const", ret: "DXBC バイトコード", desc: "コンパイル済みバイトコード先頭。パイプライン作成時にバックエンドが参照する。" },
@@ -184,7 +177,6 @@ ACS_REF.modules.push({
       kind: "構造体", header: "render/Dx12/Dx12Common.h",
       summary: "<t>DX12</t> 内部用の小さな結果ラッパ。<code>HRESULT</code>(Win32 のエラーコード)を保持し、ACS の <t>Result</t> 系と橋渡しします。",
       when: "DX12 バックエンドの <code>Init</code> 系が返す内部型。利用側コードでは普通 <code>TResult</code> を見るので、これを直接触ることは稀。",
-      sample: "FHrResult r = device.Init(cfg);\nif (r.IsErr()) { /* HRESULT は r.hr */ }",
       members: [
         { sig: "HRESULT hr", desc: "生の <code>HRESULT</code>(既定 <code>S_OK</code>)。" },
         { sig: "bool IsOk() const / bool IsErr() const", desc: "成功(<code>SUCCEEDED</code>) / 失敗(<code>FAILED</code>)判定。" }
@@ -195,7 +187,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Diligent/DiligentDevice.h",
       summary: "<t>Diligent</t> Engine 経由の<t>RHIデバイス</t>(<code>IRhiDevice</code> 派生)。内部に <code>IRenderDevice</code>・<code>IDeviceContext</code>・<code>EngineFactory</code> を持ち、<b>D3D12 と(ビルド次第で)Vulkan</b>を 1 つの API で扱えます。ヘッダは Diligent 依存を漏らさず前方宣言だけで完結します。",
       when: "Diligent バックエンドでビルドした時に <code>CreateRhiDevice()</code> が生成する実体。<code>FDeviceConfig::backend</code> で D3D12 / Vulkan / Auto を選べる(Vulkan は <code>ACS_DILIGENT_VULKAN=ON</code> 時のみ)。",
-      sample: "FDeviceConfig cfg;\ncfg.backend = ERhiBackendKind::Auto;   // 最良を自動選択\nauto dev = CreateRhiDevice(cfg).Value();\n// 実際に選ばれた API を見る:\n// static_cast&lt;CDiligentDevice*&gt;(dev.get())-&gt;ActualBackend();",
       members: [
         { sig: "const char* BackendName() const", ret: "\"Diligent\"", desc: "バックエンド名。" },
         { sig: "const char* AdapterName() const", ret: "GPU 名", desc: "選ばれた<t>アダプタ</t>名。" },
@@ -215,7 +206,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Diligent/DiligentSwapchain.h",
       summary: "<t>Diligent</t> の<t>スワップチェイン</t>(<code>IRhiSwapchain</code> 派生)。Diligent の <code>ISwapChain</code> を薄くラップし、取得・提示・リサイズを <code>FDx12Swapchain</code> と同じ API で提供します。",
       when: "<code>CreateRhiSwapchain()</code> が Diligent で生成する実体。使い方は DX12 版と同一(取得→描画→提示)。",
-      sample: "auto swap = CreateRhiSwapchain(*dev, sc).Value();\nu32 idx = swap-&gt;AcquireNextImage();\n// ...描画...\nif (!swap-&gt;Present()) { /* 描画ループを停止 */ }",
       members: [
         { sig: "u32 AcquireNextImage()", ret: "バッファ番号", desc: "次に描けるバックバッファを取得。" },
         { sig: "bool Present()", ret: "提示成功なら true", desc: "画面へ反映。backend/device failure は false。" },
@@ -230,7 +220,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Diligent/DiligentCommandList.h",
       summary: "<t>Diligent</t> の<t>コマンドリスト</t>(<code>IRhiCommandList</code> 派生)。Diligent は <code>IDeviceContext</code> 自体が即時 API なので、本クラスはその薄いラッパです。<code>CDx12CommandList</code> と同じインターフェイスで、加えて <b>MRT(複数 RT 同時描画)を実装</b>します。",
       when: "<code>CreateRhiCommandList()</code> が Diligent で生成する実体。描画ループの主役で、DX12 版と同じ <code>Begin</code>→パス→<code>End</code>→<code>Submit</code> で回す。",
-      sample: "auto cmd = CreateRhiCommandList(*dev).Value();\ncmd-&gt;Begin();\nu32 i = swap-&gt;AcquireNextImage();\ncmd-&gt;BeginRenderToSwapchain(*swap, i, {0,0,0,1});\ncmd-&gt;SetPipeline(*pso);\ncmd-&gt;SetConstantBuffer(0, *cb);\ncmd-&gt;SetTexture(0, *tex);\ncmd-&gt;DrawIndexed(idxCount);\ncmd-&gt;EndRenderToSwapchain(*swap, i);\ncmd-&gt;End();\nif (!cmd-&gt;Submit() || !swap-&gt;Present()) { /* 描画ループを停止 */ }",
       members: [
         { sig: "void Begin() / End(); bool Submit()", desc: "記録の開始・終了・GPU 投入。投入/fence failure は false。" },
         { sig: "void BeginRenderToSwapchain(...) / EndRenderToSwapchain(...)", desc: "バックバッファへの描画パス開始/終了。<code>CDx12CommandList</code> と同シグネチャ。" },
@@ -251,7 +240,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Diligent/DiligentBuffer.h",
       summary: "<t>Diligent</t> の GPU バッファ(<code>IRhiBuffer</code> 派生)。Diligent の <code>IBuffer</code> を頂点・インデックス・定数バッファとして確保し、<code>FDx12Buffer</code> と同じ API で更新できます。",
       when: "<code>CreateRhiBuffer()</code> が Diligent で生成する実体。",
-      sample: "FBufferDesc d;\nd.size = sizeof(CB); d.usage = EBufferUsage::Uniform;\nd.cpu_writable = true;\nauto cb = CreateRhiBuffer(*dev, d).Value();\ncb-&gt;Update(&amp;data, sizeof(data));",
       members: [
         { sig: "usize Size() const", desc: "バイト数。" },
         { sig: "EBufferUsage Usage() const", desc: "用途。" },
@@ -264,7 +252,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Diligent/DiligentTexture.h",
       summary: "<t>Diligent</t> のテクスチャ(<code>IRhiTexture</code> 派生)。<code>ITexture</code> と、その SRV/RTV/DSV <t>ビュー</t>を持ちます。cubemap・テクスチャ配列・per-slice RTV にも対応します。",
       when: "<code>CreateRhiTexture()</code> が Diligent で生成する実体。使い方は <code>FDx12Texture</code> と同じく <code>FTextureDesc</code> のフラグで切り替える。",
-      sample: "FTextureDesc d;\nd.width = 1024; d.height = 1024;\nd.format = EFormat::D32_Float;\nd.is_depth_target = true;\nd.shader_visible_depth = true;   // シャドウマップ: SRV も作る\nauto shadow = CreateRhiTexture(*dev, d).Value();",
       members: [
         { sig: "u32 Width() / Height() / MipLevels() / ArraySize() const", desc: "解像度・mip 数・配列枚数。" },
         { sig: "EFormat PixelFormat() const", desc: "ピクセル<t>フォーマット</t>。" },
@@ -280,7 +267,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Diligent/DiligentPipeline.h",
       summary: "<t>Diligent</t> のグラフィックス<t>パイプライン</t>(<code>IRhiPipeline</code> 派生)。<code>IPipelineState</code> と <t>SRB</t>(シェーダリソースバインディング)を作ります。Diligent は<b>名前で</b>リソースを引くため、<code>FPipelineDesc</code> の HLSL リソース名(<code>cbuffer_names</code>/<code>texture_names</code>)を保持します。",
       when: "<code>CreateRhiPipeline()</code> が Diligent で生成する実体。DX12 版と異なり、定数バッファ・テクスチャの<b>名前</b>を <code>FPipelineDesc</code> に与えておく必要がある(null なら <code>cb0</code>/<code>t0</code> がフォールバック)。",
-      sample: "FPipelineDesc pd;\npd.vs = vs.get(); pd.ps = ps.get();\npd.cbuffer_slots = 1; pd.cbuffer_names[0] = \"Frame\";\npd.texture_slots = 1; pd.texture_names[0] = \"albedo\";\nauto pso = CreateRhiPipeline(*dev, pd).Value();",
       members: [
         { sig: "Diligent::IPipelineState* Native() const", ret: "生 PSO", desc: "内部公開。生の <code>IPipelineState</code>。" },
         { sig: "Diligent::IShaderResourceBinding* Srb() const", ret: "SRB", desc: "内部公開。リソースを束ねる<t>SRB</t>。" },
@@ -293,7 +279,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Diligent/DiligentShader.h",
       summary: "<t>Diligent</t> のシェーダ(<code>IRhiShader</code> 派生)。HLSL を Diligent 内部で SPIR-V/MSL/GLSL へ変換するため、<code>Bytecode()</code> は便宜上 <code>nullptr</code> を返し、パイプライン作成時に生 <code>IShader*</code> を直接使います。HLSL ソースを parse して <code>register(bN/tN)</code> → 名前の対応も取得します。",
       when: "<code>CreateRhiShader()</code> が Diligent で生成する実体。HLSL の渡し方は <code>FDx12Shader</code> と同じ。",
-      sample: "FShaderDesc sd;\nsd.stage = EShaderStage::Pixel;\nsd.hlsl_source = psCode;\nauto ps = CreateRhiShader(*dev, sd).Value();",
       members: [
         { sig: "EShaderStage Stage() const", desc: "ステージ。" },
         { sig: "const byte* Bytecode() const", ret: "nullptr", desc: "Diligent は内部変換するため常に <code>nullptr</code>。" },
@@ -307,7 +292,6 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Diligent/DiligentMemoryAdapter.h",
       summary: "<t>Diligent</t> の内部 malloc を ACS の<t>アロケータ</t>(<code>IAllocator</code>)へ橋渡しするアダプタ。<code>EngineCreateInfo::pRawMemAllocator</code> にこれを渡すと、Diligent のメモリ確保が ACS のメモリ管理(<code>ESegment::RenderInternal</code> 等)を経由するようになります。",
       when: "Diligent デバイス初期化時に、エンジン内部のメモリも ACS の予算管理・可視化に乗せたい場合。<code>CDiligentDevice::Init</code> が内部で使う想定。",
-      sample: "IAllocator& a = DefaultAllocator();\nvoid* memAlloc = CDiligentMemoryAdapter::Create(&amp;a);\n// EngineCreateInfo::pRawMemAllocator = (Diligent::IMemoryAllocator*)memAlloc;",
       members: [
         { sig: "static void* Create(IAllocator* backing)", ret: "IMemoryAllocator*", desc: "<code>backing</code> を呼び出し先に使うアダプタを生成し、Diligent の <code>IMemoryAllocator*</code> として渡せる <code>void*</code> を返す(プロセス寿命)。" },
         { sig: "using FDiligentMemoryAdapter = CDiligentMemoryAdapter", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CDiligentMemoryAdapter</code> を使う。" }
@@ -318,7 +302,6 @@ ACS_REF.modules.push({
   kind: "自由関数", header: "render/Dx12/Dx12Common.h",
   summary: "<t>DX12</t> バックエンド共通の小さな変換ヘルパ群(いずれも <code>inline noexcept</code>)。ACS の論理列挙を Direct3D12 / DXGI のネイティブ列挙へ写します。<code>Dx12Common.h</code> を include する DX12 系 <code>.cpp</code> から使われます。",
   when: "<t>DX12</t> バックエンド内部で <code>EFormat</code> や <code>EResourceState</code> をネイティブ型に直す時。利用側コードは普通 <code>IRhi*</code> 越しなので直接触りません。",
-  sample: "DXGI_FORMAT fmt   = ToDxgiFormat(EFormat::R8G8B8A8_UNorm);\nD3D12_RESOURCE_STATES st = ToD3D12State(EResourceState::RenderTarget);",
   members: [
     { sig: "DXGI_FORMAT ToDxgiFormat(EFormat f) noexcept", ret: "DXGI フォーマット", desc: "<code>EFormat</code> を <code>DXGI_FORMAT</code> へ変換。未対応値は <code>DXGI_FORMAT_UNKNOWN</code>。" },
     { sig: "D3D12_RESOURCE_STATES ToD3D12State(EResourceState s) noexcept", ret: "D3D12 リソース状態", desc: "<code>EResourceState</code> を <code>D3D12_RESOURCE_STATES</code> へ変換。未対応値は <code>D3D12_RESOURCE_STATE_COMMON</code>。" }
@@ -329,7 +312,6 @@ ACS_REF.modules.push({
   kind: "マクロ", header: "render/Dx12/Dx12Common.h",
   summary: "COM ポインタを安全に解放するマクロ。非 null なら <code>Release()</code> を呼び、ポインタを <code>nullptr</code> に戻します(二重解放防止)。<t>DX12</t> バックエンドのデストラクタ・リソース破棄で多用されます。",
   when: "<code>ID3D12*</code> / <code>IDXGI*</code> など生 COM ポインタのメンバを破棄する時。",
-  sample: "ACS_SAFE_RELEASE(m_Device);   // m_Device が非 null なら Release し、nullptr 化",
   members: [
     { sig: "ACS_SAFE_RELEASE(p)", desc: "<code>if (p) { (p)->Release(); (p)=nullptr; }</code> を <code>do{...}while(0)</code> で包んだ式。<code>p</code> は左辺値である必要がある。" }
   ]

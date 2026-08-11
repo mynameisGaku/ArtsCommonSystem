@@ -30,7 +30,6 @@ ACS_REF.guide = [
 
   { h2: "エラーは Result で返す(例外を使わない)" },
   { p: "ACS は<t>例外</t>(throw/try-catch)を使いません。失敗し得る関数は <code>TResult&lt;T, E&gt;</code>(E 既定は <code>FErrorCode</code>)を返します。成功なら値(T)、失敗なら理由(E)が入っていて、呼ぶ側が必ず確認します。" },
-  { code: "TResult<FFile, EIoError> r = OpenFile(\"a.txt\");\nif (r.IsOk()) {\n    FFile f = r.Value();    // 成功: 中身を取り出す\n} else {\n    EIoError e = r.Error(); // 失敗: 理由\n}" },
   { note: "<code>Ok(value)</code> / <code>Err(code)</code> で作り、<code>IsOk()</code> で確認、<code>Value()</code> で取り出します。確認せず <code>Value()</code> を呼ぶと失敗時に<t>アサート</t>で止まります。", kind: "warn" },
 
   { h2: "STL を使わない理由と代わり" },

@@ -202,132 +202,6 @@ GLOSSARY: "OrderedDict[str, str]" = OrderedDict([
 ])
 
 
-QUICK_RECIPES: list[dict[str, object]] = [
-    {
-        "title": "一番短い 2D ゲーム",
-        "module": "easy",
-        "summary": "クラス継承なしで、関数呼び出しだけで動く入口。",
-        "code": r'''#include "easy/Easy.h"
-using namespace acs::easy;
-
-int main() {
-    OpenWindow(1280, 720, "my first ACS game");
-    float x = 600.0f;
-
-    while (NextFrame()) {
-        if (IsKeyDown(EKey::Right)) x += 240.0f * DeltaTime();
-        if (IsKeyDown(EKey::Left))  x -= 240.0f * DeltaTime();
-        DrawRect(x, 320, 80, 80, FColor::Sky);
-        DrawString(24, 24, "Arrow keys move the box", FColor::White);
-    }
-}''',
-        "apis": ["OpenWindow", "NextFrame", "IsKeyDown", "DeltaTime", "DrawRect"],
-    },
-    {
-        "title": "Application の基本形",
-        "module": "app",
-        "summary": "application の基本形。CApplication を継承して 4 つの hook を実装する。",
-        "code": r'''#include "app/Application.h"
-#include "app/EntryPoint.h"
-#include "platform/Input.h"
-
-class CMyGame : public acs::CApplication {
-public:
-    void OnStart() noexcept override {
-        SetClearColor(0.05f, 0.07f, 0.11f, 1.0f);
-    }
-
-    void OnUpdate(acs::f32 dt) noexcept override {
-        (void)dt;
-        if (acs::CInput::IsKeyPressed(acs::EKey::Escape)) Quit();
-    }
-
-    void OnRender() noexcept override {
-        // BeginFrame / EndFrame は CApplication 側が呼ぶ。
-    }
-
-    void OnShutdown() noexcept override {}
-};
-
-ACS_DEFINE_MAIN(CMyGame)''',
-        "apis": ["CApplication", "ACS_DEFINE_MAIN", "CInput"],
-    },
-    {
-        "title": "ECS で位置と速度を更新する",
-        "module": "ecs",
-        "summary": "大量の entity を component の組み合わせで処理する基本パターン。",
-        "code": r'''struct FPosition { acs::FVec2 value; };
-struct FVelocity { acs::FVec2 value; };
-
-acs::FWorld& world = GetWorld();
-acs::FEntityId player = world.Create();
-world.Add<FPosition>(player, { acs::FVec2{100.0f, 200.0f} });
-world.Add<FVelocity>(player, { acs::FVec2{60.0f, 0.0f} });
-
-world.Query<FPosition, FVelocity>().Each(
-    [dt](acs::FEntityId, FPosition& p, FVelocity& v) {
-        p.value.x += v.value.x * dt;
-        p.value.y += v.value.y * dt;
-    });''',
-        "apis": ["FWorld", "FEntityId", "TQueryView"],
-    },
-    {
-        "title": "AScene 遷移を書く",
-        "module": "gameframework",
-        "summary": "画面単位で状態を分け、CSceneManager に遷移を依頼する。",
-        "code": r'''class ATitleScene final : public acs::game::AScene {
-public:
-    void OnEnter() noexcept override {
-        // title assets を読む。
-    }
-
-    void OnUpdate(acs::f32) noexcept override {
-        if (acs::CInput::IsKeyPressed(acs::EKey::Enter)) {
-            Scenes().ChangeScene(acs::MakeUnique<AGameplayScene>());
-        }
-    }
-
-    void OnRender(acs::game::FRenderContext& rc) noexcept override {
-        rc.Sprites().DrawString(rc.GetFont(), "PRESS ENTER", 320, 240);
-    }
-};''',
-        "apis": ["AScene", "CSceneManager", "FRenderContext"],
-    },
-    {
-        "title": "FSpriteBatch で 2D を描く",
-        "module": "render",
-        "summary": "RHI の上で 2D sprite/rect/text をまとめて描く。",
-        "code": r'''acs::FSpriteBatch sprites;
-ACS_TRY(sprites.Init(*renderer.Device(), renderer.ColorFormat(), 4096));
-
-sprites.Begin(*renderer.CommandList(), window.Width(), window.Height());
-sprites.DrawRect(32, 32, 160, 48, acs::FVec4{0.1f, 0.2f, 0.4f, 0.9f});
-sprites.Draw(texture, 240, 120, 64, 64);
-sprites.DrawString(font, "score: 1000", 32, 96, acs::FVec4{1, 1, 1, 1});
-sprites.End();''',
-        "apis": ["FSpriteBatch", "IRhiCommandList", "FFont"],
-    },
-    {
-        "title": "AssetPack bridge の考え方",
-        "module": "assetpack",
-        "summary": ".acpak は IAssetPackReader 実装または登録済み provider から reader を取得し、利用側が Mount() して読む。CAssetBundle は CAssetRegistry 経由の同期 load であり、loose file と pak を自動切替しない。",
-        "code": r'''acs::assetpack::FAcpakGameReader reader;
-ACS_TRY(reader.Mount("game.acpak"));
-
-auto size = reader.FileSize("textures/player.png");
-if (size.IsErr()) {
-    ACS_LOG_ERROR("asset missing: textures/player.png");
-    return;
-}
-
-acs::TArray<acs::u8> bytes;
-bytes.Resize(static_cast<acs::usize>(size.Value()));
-ACS_TRY(reader.ReadFile("textures/player.png", bytes.Data(), size.Value()));''',
-        "apis": ["AssetPack", "FAcpakGameReader", "IAssetPackReader"],
-    },
-]
-
-
 @dataclass
 class MemberInfo:
     access: str
@@ -1010,30 +884,6 @@ def render_tools() -> str:
 """
 
 
-def render_recipes(anchor_map: dict[str, str]) -> str:
-    cards = []
-    for recipe in QUICK_RECIPES:
-        apis = " ".join(
-            f"<a class='pill' href='#{esc(anchor_map.get(a, ''))}'>{esc(a)}</a>" if a in anchor_map else f"<span class='pill'>{esc(a)}</span>"
-            for a in recipe["apis"]  # type: ignore[index]
-        )
-        cards.append(
-            "<article class='recipe'>"
-            f"<h3>{esc(recipe['title'])}</h3>"
-            f"<p>{esc(recipe['summary'])}</p>"
-            f"<p>{apis}</p>"
-            f"{render_code(str(recipe['code']))}"
-            "</article>"
-        )
-    return f"""
-<section id="recipes" class="panel">
-  <h2>コピーして使うコード例</h2>
-  <p>各コードは、対応する API カタログへ移動できます。</p>
-  {''.join(cards)}
-</section>
-"""
-
-
 def render_modules(module_order: list[str], grouped: dict[str, list[ApiDecl]], headers_by_module: dict[str, list[HeaderInfo]], cmake_meta: dict[str, dict[str, object]], anchor_map: dict[str, str]) -> str:
     cards = []
     details = []
@@ -1197,13 +1047,13 @@ button.small {
 .grid { display: grid; gap: 1rem; }
 .grid.two { grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
 .grid.modules { grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); }
-.module-card, .guide-card, .recipe, .api-card {
+.module-card, .guide-card, .api-card {
   background: rgba(24, 34, 59, .88);
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 1rem;
 }
-.module-card h3, .guide-card h3, .recipe h3 { margin-top: 0; }
+.module-card h3, .guide-card h3 { margin-top: 0; }
 .tiny { color: var(--muted); font-size: .88rem; }
 .pill, .source-chip {
   display: inline-block;
@@ -1380,7 +1230,6 @@ def build_reference() -> str:
       <a href="#setup">セットアップ</a>
       <a href="#tools">ツール</a>
       <a href="#guide">読み方</a>
-      <a href="#recipes">コード例</a>
       <a href="#module-map">機能マップ</a>
       <a href="#api">API カタログ</a>
       <a href="#glossary">用語集</a>
@@ -1402,7 +1251,6 @@ def build_reference() -> str:
     {render_setup(presets)}
     {render_tools()}
     {render_guide(anchor_map)}
-    {render_recipes(anchor_map)}
     {render_modules(module_order, grouped, headers_by_module, cmake_meta, anchor_map)}
     {render_glossary(anchor_map)}
     <section class="panel">

@@ -228,8 +228,8 @@ h1.page { font-size: 25px; font-weight: 680; letter-spacing: -.01em; margin: 4px
 .kv .vv { color: var(--text); }
 .kv .vv > t, .kv .vv .term { white-space: nowrap; }
 
-/* コードブロック */
-pre.code, pre.sig {
+/* 署名ブロック */
+pre.sig {
   position: relative;
   background: var(--code-bg);
   border: 1px solid var(--line);
@@ -240,20 +240,6 @@ pre.code, pre.sig {
   color: #d6deec;
 }
 pre.sig { margin: 0; }
-pre.code .cm { color: #5d6b80; }          /* コメント */
-pre.code .kw { color: #c79be8; }          /* キーワード */
-pre.code .ty { color: var(--green); }     /* 型 */
-pre.code .str{ color: #9fd2a0; }          /* 文字列 */
-pre.code .num{ color: #e0b15e; }          /* 数値 */
-.copy {
-  position: absolute; top: 7px; right: 7px;
-  font-family: var(--mono); font-size: 11px; color: var(--text-faint);
-  background: var(--surface-2); border: 1px solid var(--line-2);
-  padding: 2px 8px; cursor: pointer; opacity: 0; transition: opacity .12s;
-}
-pre.code:hover .copy { opacity: 1; }
-.copy:hover { color: var(--text); border-color: var(--accent-dim); }
-.copy.done { color: var(--green); border-color: var(--accent-dim); }
 
 /* ===========================================================================
    メンバ
