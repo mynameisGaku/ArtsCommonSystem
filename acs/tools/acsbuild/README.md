@@ -1,127 +1,64 @@
 # acsbuild — ACS Build Tool
 
-UE の `*.Build.cs` (ModuleRules) 風にモジュールを **C# で定義**し、そこから
-`Module.cmake` を**生成**する薄いツール。CMake はそのままビルドバックエンドとして残る。
+acsbuild は `src/<mod>/<Name>.Build.cs` を読み取り、CMake が取り込む
+`Module.cmake` を生成する ACS の build module 管理 tool です。
 
-UE の UnrealBuildTool が `*.Build.cs` を集めて評価するのと同じ役割を、最小構成で果たす。
+## 責務
 
-## なぜ
+- `AcsModule` 派生型を検出し、module ごとの依存、feature、guard を読み取ります。
+- module directory を再帰走査し、source と header を収集します。
+- 収集結果を `acs_module()` 形式の `Module.cmake` へ出力します。
+- 生成予定内容と tracked `Module.cmake` の差を、file を変更せずに検査します。
 
-従来は各モジュールを `src/<mod>/Module.cmake` の `acs_module(...)` で手書きしていた。
-これは UE 風のモジュール分割そのものだが、**ソース一覧を手で維持する**必要があった
-(新しい `.cpp` を足すたびに `Module.cmake` の `SOURCES` に追記)。
+source 一覧は生成時に収集されるため、`Build.cs` は module の依存関係と build 条件を
+所有します。自動収集から除外する file と追加する file は module 定義が明示します。
 
-acsbuild は UE と同様に **ソース/ヘッダをディレクトリ走査で自動収集**するので、
-`.Build.cs` には依存と feature だけ書けばよい。新しいファイルは再生成で自動的に拾われる。
+## Module 定義契約
 
-## モジュールの書き方
+各 `src/<mod>/<Name>.Build.cs` は、module 名と一致する `AcsModule` 派生型を1つ定義します。
+module directory 名は module 名の小文字表記です。入力 property と生成先の対応は次の通りです。
 
-`src/<mod>/<Name>.Build.cs` (クラス名 = モジュール名、その小文字 = ディレクトリ名):
+| `AcsModule` 入力 | `Module.cmake` 出力 | 責務 |
+|-------------------|----------------------|------|
+| `Type` | `TYPE` | module の runtime/developer 区分 |
+| 自動収集結果 | `SOURCES` / `HEADERS` | module directory 内の build 対象 |
+| `PublicDeps` | `PUBLIC_DEPS` | consumer へ公開する module 依存 |
+| `PrivateDeps` | `PRIVATE_DEPS` | module 内部だけで使う依存 |
+| `PublicLibs` | `LINK_PUBLIC` | consumer へ伝播する library |
+| `PrivateLibs` | `LINK_PRIVATE` | module 内部だけで link する library |
+| `Feature` | `acs_module_feature` | build option と compile definition の対応 |
 
-```csharp
-using Acs.Build;
-namespace Acs.Modules;
+## CLI 契約
 
-public sealed class Event : AcsModule
-{
-    public Event()
-    {
-        Type = ModuleType.Runtime;
-        PublicDeps.AddRange(new[] { "Foundation", "Container", "Threading" });
-        // ソース/ヘッダは src/event を走査して自動収集される (手書き不要)。
-    }
-}
-```
+- `gen` は検出した全 module の `Module.cmake` を更新します。
+- `--module <name>` は処理対象を1 module に限定します。
+- `--root <path>` は ACS root を明示し、省略時は `src` と `engine` を持つ親 directory を探索します。
+- `--check` は file を更新せず生成予定内容と tracked file を比較し、差があれば exit code 1 を返します。
+- root または module 定義を解決できない場合は診断を stderr へ出し、exit code 2 を返します。
 
-feature 付き・外部ライブラリ付きの例:
+`acs_buildcs_check` は `Build.cs` と `Module.cmake` の一致を検査する CMake target です。
+dotnet が利用可能な場合だけ登録され、通常 build の既定 target には含まれません。
 
-```csharp
-public sealed class Math : AcsModule
-{
-    public Math()
-    {
-        PublicDeps.AddRange(new[] { "Foundation", "Threading" });
-        Feature("AVX2", "MATH_AVX2", def: true, desc: "Compile AVX2 fast paths");
-        // PublicLibs / PrivateLibs で LINK_PUBLIC / LINK_PRIVATE を宣言。
-        // ExcludeFiles / ExtraFiles で自動収集の調整 (条件付きソース等)。
-    }
-}
-```
+`acs_module_sources_check` は assembled module の条件付き source を含め、全 `.cpp` が
+module manifest に登録されていることを検査します。source 監査の self-test は正常入力と
+異常入力を source tree の変更なしで検証します。`editor_abi` は engine CMake と editor の
+project generator が明示管理し、header の internal/public 区分は別の公開契約が所有します。
 
-`AcsModule` のプロパティ ↔ `acs_module()` 対応:
+## 生成処理
 
-| C# (`AcsModule`)         | `Module.cmake`        | UE (`ModuleRules`)                 |
-|--------------------------|-----------------------|------------------------------------|
-| `Type`                   | `TYPE`                | `Type`                             |
-| (自動収集)               | `SOURCES` / `HEADERS` | (UBT が自動収集)                   |
-| `PublicDeps`             | `PUBLIC_DEPS`         | `PublicDependencyModuleNames`      |
-| `PrivateDeps`            | `PRIVATE_DEPS`        | `PrivateDependencyModuleNames`     |
-| `PublicLibs`             | `LINK_PUBLIC`         | `PublicAdditionalLibraries`        |
-| `PrivateLibs`            | `LINK_PRIVATE`        | `PrivateAdditionalLibraries`       |
-| `Feature(...)`           | `acs_module_feature`  | `bWithX` 等のビルドフラグ          |
+`AcsBuild.csproj` は `src/**/*.Build.cs` を tool へ取り込み、C# runtime の型列挙機能で
+全 `AcsModule` 派生型を検出します。各 module directory の `*.cpp` と `*.h` を収集し、`acs_module()` が
+受け取る `Module.cmake` を出力します。CMake 側の module 解決は
+`engine/cmake/ACSModuleSystem.cmake` が担当します。
 
-## 使い方
+単純な directory 走査では表せない build 条件は、次の入力が所有します。
 
-```bash
-# 全モジュールの Module.cmake を生成 (上書き)
-dotnet run --project tools/acsbuild -- gen
+- `Guard` は module 全体を有効化する CMake 条件を出力します。
+- `Preamble` は `acs_module()` より前に必要な CMake 宣言を出力します。
+- 条件付き group は条件ごとの subdirectory source と link 依存を出力します。
+- `ExcludeFiles` と `ExtraFiles` は自動収集対象を補正します。
 
-# 1 モジュールだけ
-dotnet run --project tools/acsbuild -- gen --module Event
+## 整合契約
 
-# 生成結果と既存 Module.cmake を突き合わせ (上書きしない。CI 向け、差分があれば exit 1)
-dotnet run --project tools/acsbuild -- --check
-
-# リポジトリルートを明示する場合
-dotnet run --project tools/acsbuild -- gen --root C:\path\to\acs
-```
-
-CMake からも検証だけ回せる (dotnet がある環境で `acs_buildcs_check` ターゲットが生える。
-ALL_BUILD には含まれないので通常ビルドには影響しない):
-
-```bash
-cmake --build <build> --target acs_buildcs_check
-```
-
-条件付き `list(APPEND ...)` を使う assembled module も含め、全 `.cpp` が manifest に
-登録されていることは追加の軽量 gate で検証する。`editor_abi` は
-`engine/CMakeLists.txt` とエディタの project generator が管理する明示的な例外である。
-header は internal / public の分類が別契約なので、この gate では対象にしない。
-
-```bash
-python scripts/audit_module_sources.py --self-test
-python scripts/audit_module_sources.py --root .
-cmake --build <build> --target acs_module_sources_check
-```
-
-ワークフロー: `.Build.cs` を編集 → `acsbuild gen` → `Module.cmake` 再生成 →
-CMake 構成 → ビルド。`--check` を CI に置けば「`.Build.cs` と `Module.cmake` の
-ズレ」を検出できる。
-
-## 仕組み
-
-`AcsBuild.csproj` が `src/**/*.Build.cs` を本ツールへコンパイル取り込みし、reflection で
-`AcsModule` 派生をすべて発見する (UE の UBT が Build.cs を集めるのと同じ)。各モジュールの
-ディレクトリを再帰走査して `*.cpp` / `*.h` を集め、`acs_module(...)` 形式の `Module.cmake`
-を出力する。CMake 側 (`engine/cmake/ACSModuleSystem.cmake`) は一切変更不要。
-
-## 条件付き・ゲート・preamble
-
-UE と違い単純グロブで表現できないものは以下で対応する:
-
-- **Guard** (`Guard = "ACS_BUILD_XXX"`) — 先頭に `if(NOT XXX) return() endif()` を出力
-  (gated module: CrashWin / Scripting / Steamworks / OpenXr / MlOnnx / LocalMatch / TelemetryFile)。
-- **Preamble** (`Preamble = @"..."`) — `acs_module()` の前に生 CMake を出力
-  (third_party fetch: Asset / Render、外部 target 構築: Imgui)。
-- **条件付きグループ** (`When("COND").SubdirSrc("Dx12").LinkPrivate(...)` 等) — CMake の
-  `if(COND) list(APPEND ...) endif()` を生成し、`acs_module(SOURCES ${var} ...)` で組み立てる
-  (バックエンド分岐: Render の Dx12/Diligent、Mvvm の ImguiBindings)。
-- **ExcludeFiles / ExtraFiles** — 自動収集の調整。
-
-## 現状
-
-**全 28 モジュールが `.Build.cs` 化済み** (engine 全体)。`--check` で既存と突き合わせ、
-ソース・依存・リンクは全モジュール一致 (Foundation の `Cast.h` と GameFramework の btedit
-3 ヘッダはグロブが拾った「手書き一覧の漏れ」= ドリフト修正)。Diligent backend ON を含む
-フルビルド + 150 テスト緑。以後モジュールを足す/ファイルを足すときは `.Build.cs` を編集して
-`acsbuild gen` を回す (新規 `.cpp` は再生成で自動収集される)。
+tracked `Build.cs` が module 定義の唯一の定義元です。tracked `Module.cmake` はその生成結果と
+一致する必要があり、`--check` と CMake の検査 target が不一致を失敗として報告します。

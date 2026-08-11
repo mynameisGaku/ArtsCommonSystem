@@ -698,7 +698,7 @@ ACS project operations
   cmd.exe    acs.cmd
   PowerShell .\acs.ps1
 
-使い方:
+文法:
   $LauncherCommand <command> [option] [$PassThroughSeparator 実体へ渡す引数]
 
 command:
@@ -730,16 +730,6 @@ IDE互換:
   --yes, -y                clean-up.ps1の確認を省略
   --tests --tools --scripting --diligent --all-backends
   --startup-project <name> --name <solution> --open --clean
-
-現在のshellへ貼れる例:
-  $LauncherCommand configure --tests --scripting
-  $LauncherCommand build --config Debug --target acs_unit_tests
-  $LauncherCommand test --config Debug --filter "^ACS.UnitTests$"
-  $LauncherCommand all --config Release --target acs_unit_tests --filter "^ACS.UnitTests$"
-  $LauncherCommand dist --deploy "C:\ACS SDK"
-  $LauncherCommand clean
-  $LauncherCommand open --scripting
-  $LauncherCommand configure $PassThroughSeparator "-DACS_BUILD_SCRIPTING=ON" "-DUSER_PATH=C:\Path With Spaces"
 
 PowerShellは .\acs.ps1、cmd.exeは acs.cmd を使う。両launcherは同じ操作実体を呼ぶ。
 PowerShellでは追加argumentのseparatorを '--' と引用する。cmd.exeでは -- のまま指定する。
@@ -805,7 +795,7 @@ try {
     exit ([int]$result)
 } catch [System.ArgumentException] {
     Write-Host "[acs] $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "[acs] $LauncherCommand help で使用例を確認できます" -ForegroundColor Yellow
+    Write-Host "[acs] $LauncherCommand help でcommandとoptionの形式を確認できます" -ForegroundColor Yellow
     exit 2
 } catch [System.InvalidOperationException] {
     Write-Host "[acs] $($_.Exception.Message)" -ForegroundColor Red
