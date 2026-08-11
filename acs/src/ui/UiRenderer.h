@@ -1,21 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// CUiRenderer — AWidget tree を CSpriteBatch + FFont で描画する
-//
-// 使い方:
-//   CUiRenderer ur;
-//   ur.Init(*dev, GetRenderer().ColorFormat(), default_font);
-//
-//   // 毎フレーム:
-//   AStackPanel root;
-//   /* root.Add<...>() で子を構築 */
-//   ur.Render(root, *cmd, screen_w, screen_h);
-//
-// 仕組み:
-//   ・CSpriteBatch で矩形 + テクスチャ + 文字を発行
-//   ・FFont は ACS FFont (TTrueType + atlas)
-//   ・AWidget::Render(*this) を再帰的に呼ぶ
-//   ・各 widget は描画ヘルパ (DrawRect / DrawText 等) で CUiRenderer に依頼
-//   ・root.visible=false のフレームは Layout と描画をともに省略
 #pragma once
 
 #include "foundation/Result.h"

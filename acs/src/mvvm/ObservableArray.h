@@ -1,30 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// TObservableArray<T> — 要素の追加・削除・変更を通知する配列
-//
-// 使い方:
-//   TObservableArray<int> inv;
-//
-//   inv.Subscribe([](EArrayChange kind, usize idx, const int* v, void*){
-//       switch (kind) {
-//           case EArrayChange::Inserted: ACS_LOG_INFO("Add[%zu] = %d", idx, *v); break;
-//           case EArrayChange::Removed:  ACS_LOG_INFO("Remove[%zu]", idx);       break;
-//           case EArrayChange::Changed:  ACS_LOG_INFO("Set[%zu] = %d", idx, *v); break;
-//           case EArrayChange::Cleared:  ACS_LOG_INFO("Cleared all");            break;
-//       }
-//   }, nullptr);
-//
-//   inv.Add(7);     // → Inserted, idx=0, v=7
-//   inv.SetAt(0, 99);    // → Changed,  idx=0, v=99
-//   inv.RemoveAt(0);     // → Removed,  idx=0
-//   inv.Reset();         // → Cleared
-//
-// 設計:
-//   ・通知は 1 種類の callback で kind を分岐する
-//   ・listener 中は Add/Pop/Remove/RemoveAt/SetAt/Clear による全変更を禁止する
-//     (Debug は assert 検出。assert 無効の Release では検出されず処理が実行されるため、
-//      呼び出した時点で caller の契約違反)
-//     → どうしても要るなら listener が処理キューに積んで後で実行
-//   ・要素の T は同値判定 (operator==) を持つこと推奨 (Set で同値スキップ)
 #pragma once
 
 #include "foundation/Types.h"

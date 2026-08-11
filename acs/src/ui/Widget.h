@@ -1,22 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// AWidget — ACS UI フレームワークの基底クラス
-//
-// 設計:
-//   ・retained-mode UI (ImGui のような毎フレーム再構築でなく、ツリーを保持)
-//   ・MVVM 駆動: 各 AWidget は TObservable<T> プロパティを公開し、CViewModel と Bind 可能
-//   ・CSpriteBatch + FFont で描画 (Diligent / Dx12 を意識しない)
-//   ・親 → 子の所有を TUniquePtr<AWidget> で表現、Add で子を取り込む
-//   ・Layout は親の Layout モードに応じて子に再帰的に配置
-//
-// 使い方:
-//   AStackPanel root;
-//   root.SetPadding(8);
-//   auto* btn = root.Add<AButton>("OK");
-//   btn->on_clicked.Subscribe(...);
-//
-//   // 毎フレーム:
-//   ui_renderer.Render(root, *cmd, screen_w, screen_h);
-//   ui_input.Dispatch(root);
 #pragma once
 
 #include "foundation/Types.h"
@@ -719,13 +701,6 @@ using FContainer = AContainer;
  * ComputeAnchoredRect で解決して個別配置する。パネルの rect が変わる (画面リサイズ等)
  * と全子が追従するため、HUD やオーバーレイの解像度非依存レイアウトに使う。
  *
- * 使い方:
- *   AAnchorPanel hud;
- *   auto* score = hud.Add<ALabel>("0");
- *   score->anchor = FUiAnchor::Point({1,0}, 120, 32, -128, 8);  // 右上に固定サイズ
- *   auto* bar = hud.Add<AContainer>();
- *   bar->anchor = FUiAnchor::Stretch(16, 0, 16, 8);             // 下端を左右いっぱい
- *   hud.Layout(0, 0, screen_w, screen_h);
  */
 class AAnchorPanel : public AWidget {
 public:

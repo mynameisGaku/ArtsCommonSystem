@@ -1,19 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// TTwoWayBinder<T> — 2 つの TObservable<T> を双方向同期させる
-//
-// 使い方:
-//   TObservable<f32> view_hp;
-//   TObservable<f32> model_hp { 100.0f };
-//
-//   TTwoWayBinder<f32> bind(view_hp, model_hp);  // 両方が同期
-//   model_hp.Set(50.0f);   // → view_hp も 50 になる
-//   view_hp.Set(0.0f);     // → model_hp も 0 になる
-//
-//   // bind が破棄されたら同期解除
-//
-// 設計:
-//   ・Set() はループしないように、現在更新中フラグで再帰防止
-//   ・TOneWayBinder<T>(src, dst) で片方向版もアリ
 #pragma once
 
 #include "mvvm/Observable.h"

@@ -1,29 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// TObservable<T> — 監視可能な値 (MVVM の中核)
-//
-// 使い方:
-//   TObservable<f32> hp { 100.0f };
-//
-//   // 監視
-//   struct FCtx { ... };
-//   FCtx c;
-//   auto h = hp.Subscribe([](const f32& v, void* user){
-//       // (関数ポインタ用法。lambda は捕獲なしのもの限定)
-//       ACS_LOG_INFO("HP changed: %.1f", v);
-//   }, &c);
-//
-//   // 値変更 → 全監視者に通知
-//   hp.Set(75.0f);
-//
-//   // 監視解除
-//   hp.Unsubscribe(h);
-//
-// 設計:
-//   ・コールバックは関数ポインタ + void* user (STL 不依存方針)
-//   ・Set 時のみ通知、同値設定では発火しない (T::operator==)
-//   ・Subscribe / Unsubscribe は通知中でも安全 (遅延キャンセル)
-//   ・listener が所有 object ごと自身を同期破棄しても Notify は即時停止
-//   ・スレッドセーフではない (UI スレッドのみ前提、他スレッドからは TMessagePipe 経由)
 #pragma once
 
 #include "foundation/Types.h"
@@ -147,7 +122,7 @@ private:
  *
  * @details
  * Set で値を書き換えると、前回と異なる場合のみ登録済みリスナへ通知が走る
- * (T::operator== で同値判定)。リスナは関数ポインタ + void* user の形式 (STL 非依存)。
+ * (T::operator== で同値判定)。リスナは関数ポインタ + void* user の形式で保持する。
  * Subscribe/Unsubscribe は通知中でも安全で、通知中の解除はスロットを inactive 化し
  * 通知ループ終了後に遅延回収する。listener が所有 object ごとこの TObservable を同期破棄
  * した場合は通知を即時停止し、残りの listener を呼ばない。UI スレッド専用

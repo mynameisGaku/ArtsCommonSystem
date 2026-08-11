@@ -1,32 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 組込み暗黙変換 — i32/u32/f32/f64/bool/FString の主要ペアを Bind 一発で
-//
-// 使い方:
-//   TObservable<f32> hp{100.0f};
-//   TObservable<FString> hp_text;
-//
-//   auto bind = Bind(hp, hp_text);   // 自動で f32 → FString 変換 (例: "100.0")
-//
-//   TObservable<i32> level{42};
-//   TObservable<f32> level_f;
-//   auto bind2 = Bind(level, level_f);   // 自動で i32 → f32 (42.0)
-//
-//   // 同じ型なら TOneWayBinder にフォールバック
-//   TObservable<f32> a{1.0f}, b;
-//   auto bind3 = Bind(a, b);   // TOneWayBinder<f32>
-//
-// サポート対象の変換マトリクス:
-//   i32  ↔ u32 / f32 / f64 / bool / FString
-//   u32  ↔ i32 / f32 / f64 / bool / FString
-//   f32  ↔ i32 / u32 / f64 / bool / FString
-//   f64  ↔ i32 / u32 / f32 / bool / FString
-//   bool ↔ i32 / u32 / f32 / f64 / FString
-//   FString ↔ 上記すべて (パース失敗時は T{} = 0/false/空文字)
-//
-// 設計:
-//   ・TDefaultConverter<Src, Dst>::Convert(const Src&, void*) → Dst で実装
-//   ・特殊化が無いペアは static_assert で「Bind: 既定変換が無い」と教える
-//   ・FString 変換のみ .cpp に実装 (Container<FString> 依存)
 #pragma once
 
 #include "foundation/Types.h"

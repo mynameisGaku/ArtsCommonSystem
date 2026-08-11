@@ -1,31 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// TDerived<T, D> — 同じ要素型の複数 TObservable から派生する読み取り専用 TObservable
-//
-// 使い方:
-//   TObservable<f32> hp     { 100.0f };
-//   TObservable<f32> max_hp { 100.0f };
-//
-//   // hp / max_hp が変わるたびに ratio も即時再計算
-//   TDerived<f32, f32> ratio(
-//       [](const f32& h, const f32& m) { return h / (m > 0 ? m : 1.0f); },
-//       hp, max_hp);
-//
-//   // 取得は通常の TObservable と同じ:
-//   ratio.Get();                        // 1.0
-//   hp.Set(50.0f);                      // 依存通知中に ratio も 0.5 へ更新
-//   ratio.Get();                        // 0.5
-//
-//   // Subscribe も普通に使える:
-//   ratio.Subscribe([](const f32& v, void*){ /*...*/ }, nullptr);
-//
-// 設計:
-//   ・dep が変わるとその通知中に再計算し、結果が変わった場合だけ Subscriber へ通知する。
-//   ・菱形依存 (A → B,C → D) では D が中間状態と最終状態を複数回観測し得る。
-//     原子的な一括更新が必要な処理は、呼び出し側で batch 化する。
-//   ・すべての dep は同じ要素型 D とし、1〜4 個まで受け付ける。
-//   ・Get() は通常、通知時に更新済みの値を返す。dirty が残る経路では再計算して補完する。
-//   ・dep より先に TDerived が破棄されることが安全 (RAII で自動 Unsubscribe)。
-//     dep の方が先に死ぬとダングリング購読 → assert で検出 (Debug)。
 #pragma once
 
 #include "mvvm/Observable.h"

@@ -1,22 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// Mvvm ↔ ImGui ヘルパ — TObservable<T> をフレーム描画にバインドする
-//
-// 使い方:
-//   FPlayerViewModel vm;
-//   // 毎フレーム ImGui::Begin/End の中で:
-//   acs::mvvm::imgui::Bind("HP",     vm.hp,   0.0f, 100.0f);
-//   acs::mvvm::imgui::Bind("Mana",   vm.mana, 0.0f, 100.0f);
-//   acs::mvvm::imgui::Bind("Lv",     vm.level, 1, 99);
-//   acs::mvvm::imgui::Bind("無敵",    vm.invincible);
-//   acs::mvvm::imgui::BindReadOnly("デバッグ表示", vm.hp);
-//
-// 各 Bind は:
-//   ・TObservable から現在値を取得して ImGui ウィジェット描画
-//   ・ユーザーが操作したら TObservable.Set() で書き戻す (= 全監視者に通知)
-//
-// 設計:
-//   ・ImGui の即時 mode に合わせ、毎フレーム呼ぶ前提
-//   ・TObservable.Set は値が変わったときだけ通知するので、毎フレーム呼んでも安全
 #pragma once
 
 #include "mvvm/Observable.h"

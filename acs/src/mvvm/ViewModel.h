@@ -1,30 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// CViewModel — MVVM の M-V-VM のうち中央の VM 基底クラス
-//
-// MVVM は UI の状態と表示を分離し、ACS では次の 3 層で構成する:
-//   Model     = ゲームロジック / アセット / ECS 内のデータ
-//   View      = src/ui/ の AWidget tree (ALabel / AButton / ASlider 等)、または
-//               src/imgui/ の ImGui (ad-hoc デバッグ用、本番 UI は src/ui/ 推奨)
-//   CViewModel = この基底を継承して TObservable<T> プロパティを公開するクラス
-//
-// 使い方:
-//   class FPlayerViewModel : public CViewModel {
-//   public:
-//       TObservable<f32>     hp     { 100.0f };
-//       TObservable<f32>     mana   { 50.0f };
-//       TObservable<i32>     level  { 1 };
-//       TObservable<bool>    invincible { false };
-//   };
-//
-//   // モデル (実データ) からの反映:
-//   void OnDamage(FPlayerViewModel& vm, f32 dmg) {
-//       vm.hp.Set(vm.hp.Get() - dmg);    // 自動的に View 側へ propagate
-//   }
-//
-// 設計:
-//   ・基底はあえて空 (RTTI なしでも識別不要)。命名と意図のみ提供。
-//   ・派生クラスが TObservable<T> をメンバに持って公開する
-//   ・View 側は Subscribe / Bind で監視する
 #pragma once
 
 #include "mvvm/Observable.h"

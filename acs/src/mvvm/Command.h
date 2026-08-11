@@ -1,31 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// FCommand — VM のアクション (ボタン等) を CViewModel 側に置くためのヘルパ
-//
-// 使い方:
-//   class FPlayerVm : public CViewModel {
-//   public:
-//       TObservable<f32> hp { 100.0f };
-//
-//       FCommand attack {
-//           [](void* user){ static_cast<FPlayerVm*>(user)->hp.Set(0); },
-//           this
-//       };
-//
-//       // can_execute を TObservable<bool> で外から差し替えるなら 3 引数版:
-//       FCommand revive {
-//           [](void* u){ static_cast<FPlayerVm*>(u)->hp.Set(100); },
-//           this,
-//           &is_dead   // この TObservable<bool> が true のときだけ実行可能
-//       };
-//
-//       TObservable<bool> is_dead { false };
-//   };
-//
-// 設計:
-//   ・can_execute はオプション (常時実行可能がデフォルト)
-//   ・can_execute は TObservable<bool>* を取る (生存期間は呼び出し元責任)
-//   ・Execute は can_execute=false なら no-op
-//   ・ImGui アダプタの BindCommand(label, cmd) でボタン化 + 自動 grayout
 #pragma once
 
 #include "foundation/Types.h"
