@@ -10,9 +10,7 @@
     <RootNamespace>Acs.Build</RootNamespace>
   </PropertyGroup>
 
-  <!-- 各モジュールの *.Build.cs を本ツールへコンパイル取り込み
-       (UE の UnrealBuildTool が *.Build.cs を集めて評価するのと同じ役割)。
-       新しいモジュールの Build.cs を足したら再ビルドで自動的に拾われる。 -->
+  <!-- src/**/*.Build.cs を tool の compile input へ取り込み、実行時の型列挙で AcsModule 定義を検出する。 -->
   <ItemGroup>
     <Compile Include="$(MSBuildThisFileDirectory)..\..\src\**\*.Build.cs">
       <Link>Modules\%(RecursiveDir)%(Filename)%(Extension)</Link>

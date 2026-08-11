@@ -1,16 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// acsbuild — ACS Build Tool (UE の UnrealBuildTool 相当の薄い版)
-// -----------------------------------------------------------------------------
-// 各 src/<mod>/<Name>.Build.cs (AcsModule 派生) を本ツールへコンパイル取り込みし、
-// reflection で全モジュールを発見 → ディレクトリを走査してソース/ヘッダを自動収集 →
-// CMake の Module.cmake を生成する。CMake はそのまま裏方のビルドバックエンドとして残す。
-//
-//   dotnet run --project tools/acsbuild -- gen            … 全モジュールの Module.cmake を生成
-//   dotnet run --project tools/acsbuild -- gen --module Event
-//   dotnet run --project tools/acsbuild -- --check        … 生成結果と既存を突き合わせ (上書きしない)
-//   オプション: --root <repo>  (既定: src/ と engine/ を持つ親を自動探索)
-// =============================================================================
+// AcsModule 定義と module directory の source/header を収集し、依存と feature を含む Module.cmake を生成する。
+// --check は生成予定内容と tracked file を比較し、不一致時は上書きせず失敗を返す。
 using System.Reflection;
 using System.Text;
 using Acs.Build;
@@ -46,7 +36,7 @@ foreach (var m in modules)
     {
         if (m.Conditionals.Count > 0)
         {
-            // 組み立て形式は既存も ${var} を使うため厳密比較は省略 (ビルドで検証)。
+            // ${var} を含む組み立て形式は文字列の厳密比較対象外とし、CMake build が有効性を検証する。
             Console.WriteLine($"  ASM  {m.Name,-16} (assembled: {r.Conds.Count} conditional group(s) — validated by build)");
         }
         else

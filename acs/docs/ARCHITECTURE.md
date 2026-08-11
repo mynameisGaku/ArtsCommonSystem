@@ -116,33 +116,16 @@ acs/
 | FString | 24 バイトの SSO union（22 バイトをインライン）+ 8 バイトの allocator 所有参照 | 全体は Win64 で 32 バイト。短い文字列は確保せず、長い文字列だけヒープへ移す。 |
 | Test | `ACS_TEST(Suite, Name)` マクロ、`EXPECT_*`、`FMutex` 保護の registry | test ごとの失敗数を集計し、同一 binary 内の module test を一つの runner から実行する。 |
 
-## 新しいモジュールの追加
+## モジュール定義契約
 
-1. `src/mymod/MyMod.Build.cs` を作る：
-    ```csharp
-    using Acs.Build;
-    namespace Acs.Modules;
+`src/<mod>/<Name>.Build.cs` は一つの module を定義する正規入力です。`AcsModule` 派生型の
+class 名を module 名とし、その小文字表記を `src` 配下の directory 名に使います。
+コンストラクタは module 種別、公開・非公開依存、link library、feature、guard、条件付き入力を
+所有します。acsbuild は同じ directory の source/header を収集し、`Module.cmake` を生成します。
 
-    public sealed class MyMod : AcsModule
-    {
-        public MyMod()
-        {
-            Type = ModuleType.Runtime;
-            PublicDeps.AddRange(new[] { "Foundation", "Container" });
-            Feature("FANCY", "MYMOD_FANCY", def: false,
-                desc: "Enable the MyMod fancy feature");
-        }
-    }
-    ```
-2. ソース/ヘッダファイルを同じディレクトリに置く。
-3. `dotnet run --project tools/acsbuild -- gen` で `Module.cmake` を生成する。
-4. `modules.cmake` で有効化する：
-    ```cmake
-    acs_enable_module(MyMod FEATURES FANCY)
-    ```
-5. CMake を再構成する — 新しい `ACS::MyMod` ターゲットが現れ、モジュール
-   define `WITH_ACS_MYMOD=1` と機能 define `WITH_MYMOD_FANCY=1` が PUBLIC
-   利用者から見えるようになる。
+`modules.cmake` は有効な module と feature を選択します。module system は選択結果から
+`ACS::<Name>` target、module compile definition、feature compile definition を公開します。
+tracked `Module.cmake` は `Build.cs` の生成結果と一致しなければなりません。
 
 ## レンダラバックエンド
 
@@ -157,8 +140,7 @@ acs/
 `CreateRhiDevice()` がリンクされたバックエンドへディスパッチします。ECS は
 ACS の公開所有型契約を守り、`TArray<T>` 上の sparse-set 設計を用います。
 アセット（画像・glTF/FBX メッシュ・音声）は `FAssetRegistry` 経由で読み込まれ、
-非同期ロードも選べます。ImGui 統合は現状 raw DX12 バックエンドのみを対象と
-しています。
+非同期ロードも選べます。ImGui 統合は raw DX12 バックエンドだけを対象とします。
 
 ### ボリュメトリック雲の workload 診断
 
@@ -185,8 +167,8 @@ reprojection で既に求めた center ray の elevation も再利用し、未�
 unproject します。この最適化は dispatch 数、trace 解像度、march/light step 数を
 変えないため、効果量は profiler の cloud GPU timestamp で実測してください。
 
-密な上向き視点では、同じ world wind、shape frequency、layer-height reciprocal が
-view sample と最大 8 個の light-cone probe で再評価されていました。これらは
+密な上向き視点では、同じ world wind、shape frequency、layer-height reciprocal を
+view sample と最大 8 個の light-cone probe で共有します。これらは
 `CloudCB` c21 へ frame ごとに一度だけ格納し、density/weather/curl/detail の
 world-space 座標は変更せずに再利用します。正規化済み sun と連続な正規直交基底も
 c22-c23 へ CPU で構築し、各 trace invocation の重複 normalize / basis 構築を除きます。

@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 namespace Acs.Build;
 
-/// <summary>モジュール種別 (UE の ModuleType 相当)。acs_module の TYPE に対応。</summary>
+/// <summary>モジュールの build 区分。Module.cmake の TYPE へ出力する。</summary>
 public enum ModuleType { Runtime, Editor, Test }
 
 /// <summary>1 つのコンパイル時 feature (acs_module_feature 相当)。</summary>
-/// <param name="DefaultExpr">非 null なら DEFAULT に生の式を出力 (例: "${ACS_RENDER_DX12_RAW}")。</param>
+/// <param name="DefaultExpr">非 null なら DEFAULT へ出力する CMake 式。</param>
 public sealed record ModuleFeature(string Name, string Define, bool Default, string Description = "", string? DefaultExpr = null);
 
 /// <summary>
 /// CMake 条件 (<c>if(&lt;Condition&gt;)</c>) で有効になる追加内容のグループ。
-/// 条件付きソース/ヘッダ/依存/リンクをまとめて宣言する (例: Render の Dx12 バックエンド)。
+/// 条件が有効なとき追加する source/header/dependency/link を一つの group として保持する。
 /// </summary>
 public sealed class ConditionalGroup
 {
-    /// <summary>CMake の条件式 (例: "ACS_RENDER_DX12_RAW")。</summary>
+    /// <summary>group を有効にする CMake 条件式。</summary>
     public string Condition { get; }
 
     /// <summary>このサブディレクトリを走査して *.cpp をソースに追加 (ヘッダは追加しない)。</summary>
@@ -37,11 +37,11 @@ public sealed class ConditionalGroup
 }
 
 /// <summary>
-/// 1 エンジンモジュールの定義 (UE の ModuleRules / *.Build.cs 相当)。
+/// 1 つの engine module の build 定義。
 ///
 /// 各 <c>src/&lt;mod&gt;/&lt;Name&gt;.Build.cs</c> が本クラスを継承し、コンストラクタで
 /// 依存モジュール・外部ライブラリ・feature を宣言する。ソース/ヘッダは acsbuild が
-/// モジュールディレクトリを再帰走査して自動収集する (UE と同じ。手書きの SOURCES 列挙は不要)。
+/// module directory を再帰走査して収集する。
 ///
 /// クラス名がモジュール名 (= acs_module の NAME)、その小文字が src 配下のディレクトリ名。
 /// </summary>
@@ -50,16 +50,16 @@ public abstract class AcsModule
     /// <summary>モジュール種別 (既定 Runtime)。</summary>
     public ModuleType Type { get; protected set; } = ModuleType.Runtime;
 
-    /// <summary>公開依存モジュール (PUBLIC_DEPS / UE の PublicDependencyModuleNames)。</summary>
+    /// <summary>利用側へ公開する module 依存。Module.cmake の PUBLIC_DEPS へ出力する。</summary>
     public List<string> PublicDeps { get; } = new();
 
-    /// <summary>非公開依存モジュール (PRIVATE_DEPS / PrivateDependencyModuleNames)。</summary>
+    /// <summary>モジュール内だけで使う依存を Module.cmake の PRIVATE_DEPS へ出力する。</summary>
     public List<string> PrivateDeps { get; } = new();
 
-    /// <summary>公開リンクする外部ライブラリ (LINK_PUBLIC、例: xaudio2 / ws2_32)。</summary>
+    /// <summary>利用側へ伝播する外部 library。Module.cmake の LINK_PUBLIC へ出力する。</summary>
     public List<string> PublicLibs { get; } = new();
 
-    /// <summary>非公開リンクする外部ライブラリ (LINK_PRIVATE、例: d3d12)。</summary>
+    /// <summary>module 内部だけで link する外部 library。Module.cmake の LINK_PRIVATE へ出力する。</summary>
     public List<string> PrivateLibs { get; } = new();
 
     /// <summary>コンパイル時 feature 群 (acs_module_feature)。</summary>
@@ -84,7 +84,7 @@ public abstract class AcsModule
     public virtual string Name => GetType().Name;
 
     /// <summary>feature を 1 行で宣言する簡易ヘルパ。</summary>
-    /// <param name="defaultExpr">非 null なら DEFAULT に生の CMake 式を出力 (例: "${ACS_RENDER_DX12_RAW}")。</param>
+    /// <param name="defaultExpr">非 null なら DEFAULT へ出力する CMake 式。</param>
     protected void Feature(string name, string define, bool def = true, string desc = "", string? defaultExpr = null)
         => Features.Add(new ModuleFeature(name, define, def, desc, defaultExpr));
 
