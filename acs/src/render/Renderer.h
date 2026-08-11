@@ -1,30 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// 高レベル CRenderer（ウィンドウへの描画ループを統括する司令塔）
-//
-// 使い方 (典型的):
-//   CRenderer rdr;
-//   rdr.Init(window);
-//   while (!window.ShouldClose()) {
-//       window.PollEvents();
-//       rdr.BeginFrame({0.1f, 0.2f, 0.3f, 1.0f});
-//       // BeginFrame 後は GetCommandList() でコマンドを積める。
-//       // 高レベルヘルパ:
-//       //   CStandardShader  — Lambert+Blinn-Phong + シャドウマップ
-//       //   CSkinnedShader   — GPU スキニング (BoneCB + BLENDINDICES/WEIGHT)
-//       //   CSky             — 手続き生成スカイ (Day/Sunset/Night プリセット)
-//       //   CSpriteBatch     — 2D スプライト + フォント
-//       //   FFont            — TTrueType -> アトラス -> CSpriteBatch
-//       //   CParticleSystem  — 簡易 GPU パーティクル
-//       //   CShadowMap       — depth-only パス
-//       //   CPostProcess     — HDR、Bloom、ACES 色変換 (raw-DX12 / Diligent)
-//       if (!rdr.EndFrame()) break;
-//   }
-//   rdr.Shutdown();
-//
-// HDR ポストプロセス経路を組むときは CApplication::OnCustomFrame() を override
-// して、自分で BeginRenderToTexture(HDR_RT) → 描画 → CPostProcess.Render() →
-// Present までを直接制御する。
 #include "foundation/Result.h"
 #include "memory/UniquePtr.h"
 #include "render/IRhiDevice.h"

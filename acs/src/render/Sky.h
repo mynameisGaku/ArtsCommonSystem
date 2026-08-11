@@ -1,18 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 手続き生成スカイ（グラデーション + 太陽）
-//
-// 用途: 3D シーンの背景に「空」を描く。シーン描画より先に呼ぶ。
-//       テクスチャ（キューブマップ）不要、ピクセルシェーダで天頂・地平線・
-//       地面の色を補間して描画する。
-//
-// 使い方:
-//   CSky sky;
-//   sky.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
-//   sky.PresetDay();
-//
-//   // 描画フレーム中、シーンの最初に
-//   sky.Render(*cl, camera);
-//   // ... CStandardShader でメッシュを描く ...
 #pragma once
 
 #include "foundation/Result.h"

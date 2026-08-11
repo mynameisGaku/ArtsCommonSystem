@@ -1,21 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 2D スプライト描画ヘルパ（バッチ式）
-//
-// 用途: ピクセル座標で 2D スプライト・矩形を描く。一般的な「ゲーム HUD」や
-//       2D ゲームの絵描き用。同じテクスチャの連続スプライトは自動でバッチされる。
-//
-// 使い方:
-//   CSpriteBatch sb;
-//   sb.Init(*renderer.Device(), renderer.ColorFormat(), max_sprites=4096);
-//
-//   // 描画フレーム中
-//   auto* cl = renderer.CommandList();
-//   sb.Begin(*cl, screen_w, screen_h);
-//   sb.Draw(my_tex, 100, 200, 64, 64);                 // 64×64 を (100,200) に
-//   sb.DrawRect(0, 0, screen_w, 32, FVec4{0,0,0,0.5f}); // 上部に半透明バー
-//   sb.End();
-//
-// 座標系: 左上原点、ピクセル単位。Y が下方向。
 #pragma once
 
 #include "foundation/Result.h"

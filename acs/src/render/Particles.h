@@ -1,35 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 2D パーティクルシステム（CPU プール + CSpriteBatch 描画）
-//
-// 用途: 火花・煙・爆発・魔法効果など、ゲームの視覚エフェクト全般。
-//
-// 使い方:
-//   CParticleSystem ps;
-//   ps.Init(2048);                           // 最大パーティクル数
-//   ps.SetTexture(my_circle_tex);            // null なら 1×1 白
-//
-//   FEmitterDesc d;
-//   d.position = FVec2{400, 300};
-//   d.velocity = FVec2{0, -120};
-//   d.velocity_variance = FVec2{60, 30};
-//   d.gravity = FVec2{0, 200};
-//   d.size_start = 32; d.size_end = 0;
-//   d.color_start = FVec4{1, 0.7f, 0.2f, 1};
-//   d.color_end   = FVec4{1, 0.1f, 0.0f, 0};
-//   d.life_seconds = 1.0f;
-//   d.rate_per_sec = 200;
-//   ps.SetEmitter(d);
-//
-//   // 毎フレーム
-//   ps.Update(dt);
-//   sb.Begin(*cl, sw, sh);
-//   ps.Render(sb);                           // バッチ内に追加描画
-//   sb.End();
-//
-// プリセット:
-//   ps.SetEmitter(FEmitterDesc::Fire(pos));
-//   ps.SetEmitter(FEmitterDesc::Sparks(pos));
-//   ps.SetEmitter(FEmitterDesc::Fountain(pos));
 #pragma once
 
 #include "foundation/Types.h"

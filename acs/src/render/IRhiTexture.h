@@ -1,16 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 2D テクスチャ抽象（GPU 上の画像。シェーダから読める SRV を持つ）
-//
-// 使い方:
-//   FTextureDesc d{};
-//   d.width = 256; d.height = 256;
-//   d.format = EFormat::R8G8B8A8_UNorm;
-//   d.initial_data = pixels;          // RGBA 8bit、上から下、左から右の順
-//   d.initial_data_size = 256*256*4;
-//   auto tex = CreateRhiTexture(device, d).Value();
-//
-// 描画時:
-//   cmd.SetTexture(0, *tex);          // パイプラインで texture_slots>=1 が必要
 #pragma once
 
 #include "foundation/Types.h"

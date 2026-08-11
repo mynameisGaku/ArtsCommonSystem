@@ -1,16 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// FXAA (Fast Approximate Anti-Aliasing) フルスクリーンパス
-//
-// 用途: ジオメトリ AA (MSAA) を持たないパスの後段で、輝度ベースのエッジ平滑化を
-//       1 パスで掛ける。2D スプライト/ポリゴン描画 (エディタビューポート等) の
-//       ジャギー低減が主目的。
-//
-// 使い方:
-//   CFxaa fxaa;
-//   fxaa.Init(*device, backbuffer_format);             // 1 度だけ
-//   // フレーム中: シーンをオフスクリーン RT に描いた後、出力先 (backbuffer 等) を
-//   // bind した状態で:
-//   fxaa.Apply(*cl, *scene_rt);                        // FXAA 解決しつつ全画面描画
 #pragma once
 
 #include "foundation/Result.h"

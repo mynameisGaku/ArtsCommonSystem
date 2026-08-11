@@ -1,25 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// フォント（TTF を GPU テクスチャアトラスに焼いて、文字描画に使う）
-//
-// 使い方:
-//   FFont font;
-//   font.LoadFromFile(*renderer.Device(), L"C:/Windows/Fonts/meiryo.ttc", 32.0f);
-//
-//   // 描画フレーム中
-//   sb.Begin(*cl, sw, sh);
-//   sb.DrawText(font, "ハロー、ワールド！", 100, 100, FVec4{1,1,1,1});
-//   sb.End();
-//
-// 対応コードポイント (デフォルト):
-//   - ASCII (U+0020 .. U+007E)
-//   - Latin-1 補足 (U+00A0 .. U+00FF)
-//   - 平仮名 (U+3040 .. U+309F)
-//   - 片仮名 (U+30A0 .. U+30FF)
-//   - 全角英数 (U+FF01 .. U+FF5E)
-//   - 全角句読点・記号 (U+3000 .. U+303F)
-//
-// 漢字を使う場合は include_cjk=true を指定（CJK 統合漢字 U+4E00..U+9FAF）。
-// アトラスサイズは自動で 2048×2048 に拡張される。
 #pragma once
 
 #include "foundation/Result.h"

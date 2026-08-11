@@ -1,57 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// シャドウマップ（有向光源用、orthographic）
-//
-// 2 つのモード:
-//   1. Single cascade (既定、cascade_count=1): 1 つの 2D 深度テクスチャに
-//      シーン全体を 1 つの ortho 投影で描く。CStandardShader と IBL 描画で
-//      単一のライト空間を共有する方式。
-//   2. Cascaded Shadow Map (CSM、cascade_count >= 2): カメラ frustum を
-//      距離で 2-4 個に分割し、近景は高解像度・遠景は広範囲を 1 枚の atlas
-//      テクスチャ (width = cascade_count * size、height = size) に並べる。
-//      ピクセルの view-space z で cascade を選択するため遠景まで鮮鋭な影を
-//      保てるため、広い屋外シーンに適する。
-//
-// 使い方 (single cascade、後方互換):
-//   CShadowMap sm;
-//   sm.Init(*dev, /*size=*/2048);                    // cascade_count=1 既定
-//   sm.SetDirectionalLight(light_dir, scene_center, 15.0f);
-//   if (!sm.BeginFrame(/* casters */ 1)) return;
-//   cl->BeginShadowPass(*sm.DepthTexture(), 1.0f);
-//   cl->SetPipeline(*sm.CasterPipeline());
-//   cl->SetConstantBuffer(0, *sm.LightCB());
-//   for (each caster) {
-//       if (!sm.TrySetCaster(model)) continue;
-//       cl->SetConstantBuffer(1, *sm.CasterObjectCB());
-//       /* draw */
-//   }
-//   cl->EndShadowPass(*sm.DepthTexture());
-//
-// 使い方 (CSM、3 cascade):
-//   CShadowMap sm;
-//   sm.Init(*dev, 2048, /*cascade_count=*/3);
-//   sm.SetDirectionalLightCascades(light_dir, view, proj, 0.1f, 100.0f);
-//   if (!sm.BeginFrame(/* casters per cascade */ 1)) return;
-//   cl->BeginShadowPass(*sm.DepthTexture(), 1.0f);        // atlas 全体 clear
-//   cl->SetPipeline(*sm.CasterPipeline());
-//   for (u32 c = 0; c < sm.CascadeCount(); ++c) {
-//       cl->SetViewport(sm.CascadeViewport(c));
-//       cl->SetScissor(sm.CascadeScissor(c));
-//       sm.SetCurrentCascade(c);
-//       cl->SetConstantBuffer(0, *sm.LightCB());
-//       for (each caster) {
-//           if (!sm.TrySetCaster(model)) continue;
-//           cl->SetConstantBuffer(1, *sm.CasterObjectCB());
-//           /* draw */
-//       }
-//   }
-//   cl->EndShadowPass(*sm.DepthTexture());
-//
-// 主パスでの使用 (CPbrShader 統合):
-//   単一カスケード: pbr.SetShadowMap(sm.DepthTexture(), sm.LightViewProjection(), ...);
-//   複数カスケード: FMat4 vps[3] = { sm.LightViewProjection(0), sm.LightViewProjection(1), sm.LightViewProjection(2) };
-//                f32  spl[3] = { sm.CascadeSplit(0), sm.CascadeSplit(1), sm.CascadeSplit(2) };
-//   複数カスケードを設定: pbr.SetShadowMapCascades(sm.DepthTexture(), vps, spl, sm.CascadeCount(), ...);
 #include "foundation/Result.h"
 #include "container/Array.h"
 #include "memory/UniquePtr.h"

@@ -1,37 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// motion + normal G-buffer の geometry pass
-//
-// シーンの全 mesh を再ラスタライズし、MRT 2 枚を書き出す:
-//   - motion (RG16F)  : screen-space motion vector (prev_uv - curr_uv)。camera
-//                       動きと object 動きの両方を含む (前フレームの model + VP)。
-//                       TAA が history を正確に reproject し ghost / trail を消す。
-//   - normal (RGBA16F): world-space normal。頂点法線をピクセル補間したもので、
-//                       depth-derivative の cross(ddx,ddy) と違い曲面でも段差が
-//                       出ない。SSR/SSGI/SSAO がこれを sample し、faceted な
-//                       反射ベクトル由来のジャギーを根本解消する。
-//
-// depth からの camera reprojection のみでは動く mesh が ghost するため、
-// 本モジュールがその穴を埋める。
-//
-// 設計:
-//   - CShadowMap と同じ Begin/DrawMesh/End パターン (caller がシーンを描く)
-//   - 全 mesh を描く前提 (静的 mesh は prev_model == model)。motion texture は
-//     画面全体で authoritative になり、TAA は depth を併用せず済む
-//     (→ TAA resolve PSO の texture slot を増やさず slot binding 問題を回避)
-//   - occlusion 用に専用 depth buffer を内部に持つ (scene depth は共有しない)
-//
-// 使い方:
-//   CMotionVector mv;
-//   mv.Init(*dev, w, h);
-//   ...毎フレーム (シーン color pass のあと):
-//   if (mv.BeginFrame(visible_mesh_count) &&
-//       mv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter)) {
-//       for (each mesh) {
-//           if (!mv.DrawMesh(*cl, gm, curr_model, prev_model)) abort_output;
-//       }
-//       mv.End(*cl);
-//       post_params.taa_motion_texture = mv.OutputTexture();
-//   }
 #pragma once
 
 #include "foundation/Result.h"

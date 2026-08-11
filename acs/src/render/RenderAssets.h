@@ -1,16 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// AAsset → GPU リソース変換ヘルパ
-//
-// AImageAsset を GPU テクスチャに、AMeshAsset を頂点+インデックスバッファに変換する
-// 高レベル関数群。ゲーム側コードはこの関数を呼ぶだけで描画できる。
-//
-// 使い方:
-//   auto img = registry.Load(L"hero.png").Value();
-//   auto tex = UploadTexture(*device, *img).Value();
-//
-//   auto m   = registry.Load(L"cube.gltf").Value();
-//   FGpuMesh gm;
-//   UploadMesh(*device, *m, gm);
 #pragma once
 
 #include "foundation/Result.h"

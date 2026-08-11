@@ -1,34 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// スキンメッシュ用ライティングシェーダ（GPU スキニング）
-//
-// CStandardShader の上位互換: PerFrame (b0) / PerObject (b1) は同じレイアウト。
-// 加えて Bones (b2) を持ち、最大 64 ボーンのパレット行列をシェーダに送る。
-//
-// 使い方:
-//   CSkinnedShader shd;
-//   shd.Init(*dev, color_fmt, depth_fmt);
-//   if (!shd.BeginFrame(/* expected draws */ 1)) return;
-//
-//   // フレーム共通（CStandardShader と同じ呼び方）
-//   shd.SetLights(camera.ViewProjection(), camera.Eye(),
-//                 lights, count, ambient);
-//
-//   // オブジェクト
-//   if (!shd.SetObject(model_mat, base_color, specular, shininess)) return;
-//
-//   // ボーンパレット（毎フレーム）
-//   FMat4 palette[64];
-//   u32 nb = anim_player.WritePalette(palette, 64);
-//   if (!shd.SetBonePalette(palette, nb)) return;
-//
-//   cl->SetPipeline(*shd.Pipeline());
-//   cl->SetConstantBuffer(0, *shd.PerFrameCB());
-//   cl->SetConstantBuffer(1, *shd.PerObjectCB());
-//   cl->SetConstantBuffer(2, *shd.BonesCB());
-//   cl->SetTexture(0, *shd.DefaultWhiteTexture());
-//   cl->SetVertexBuffer(*gm.vertex_buffer, gm.vertex_stride);
-//   cl->SetIndexBuffer (*gm.index_buffer);
-//   cl->DrawIndexed(gm.index_count);
 #pragma once
 
 #include "foundation/Result.h"

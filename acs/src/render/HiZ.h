@@ -1,33 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// Hi-Z (Hierarchical-Z) min-depth pyramid
-//
-// level 0 は scene_depth の 8x8 ブロックごとの最近接 NDC depth、level N は
-// level N-1 の厳密な 2x2 min 縮約で、最終 level は 1x1 になる。SSR 等の
-// screen-space ray march が空の大領域を粗い level からスキップするために使う。
-//
-// 設計上の選択:
-//   ・同じ mip chain を持つ physical texture を 2 本確保し、even level と odd
-//     level を交互に書く。同一 resource 内の mip を SRV/RTV 同時利用しないため、
-//     whole-resource transition の Raw DX12 / Diligent 双方で安全。
-//   ・physical base size は logical 1/8 size を各軸 NextPowerOfTwo に padding。
-//     padding depth=1.0 とすることで、全 level の cell が 8<<level pixel の
-//     一様な領域に対応し、odd resolution の可変幅 cell を作らない。
-//   ・EFormat は R32G32_Float。.r に min depth、.g は未使用。多段縮約で half の
-//     round-up が累積して min depth を過大評価することを避け、skip を保守的に保つ。
-//   ・sky pixel (depth >= 0.9999) は無視 — 屋外シーンで「ground - sky」の
-//     skip が大きく走るのは安全 (空には反射先が無い)
-//
-// 使い方 (SSR 統合):
-//   CHiZ hiz;
-//   hiz.Init(*dev, w, h);
-//   // 毎フレーム main pass の depth が完成したあと、SSR 前に:
-//   hiz.Build(*dev, *cl, scene_depth);
-//   ssr.Render(..., hiz.Texture());     // 旧 1/8 coarse path (level 0)
-//   // hierarchical path は EvenTexture/OddTexture を両方 bind し、
-//   // even level を EvenTexture、odd level を OddTexture の同じ mip から読む。
-//
-// 上位の SSR shader 側で skip-ahead する具体実装 (CSsr.cpp) と一体で機能する。
-// Hi-Z を渡さない場合も CSsr で OK (nullptr fallback)。
 #pragma once
 
 #include "foundation/Result.h"

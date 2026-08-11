@@ -1,19 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// フルスクリーン texture コピー (ブリット) ユーティリティ
-//
-// 用途: 1 つの Texture2D (通常は描画済みの RT) をもう 1 つの Texture2D
-//       (is_render_target=true で作成済) へ pixel-perfect にコピーする。
-//       直接 GPU copy が RHI に無いため、フルスクリーン三角形 + テクスチャ
-//       sample で代替する標準テクニック。
-//
-// 想定ユースケース: スクリーンスペース屈折のための background capture
-// (HDR scene color → 屈折オブジェクトが sample する複製テクスチャ)。
-//
-// 使い方:
-//   CBlit blit;
-//   blit.Init(*device, hdr_format);                    // 1 度だけ
-//   // フレーム中、コピーしたい時点で:
-//   blit.Copy(*cl, *src_hdr, *dst_bg);                 // dst の format == hdr_format
 #pragma once
 
 #include "foundation/Result.h"
