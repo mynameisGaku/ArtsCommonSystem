@@ -1,27 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
-"""MSVC の C2039 (メンバーではありません) を読んで、特定の型の呼び出しだけを改名する。
+"""MSVCのC2039 logを読み、対応表にある型とmemberの参照だけを改名する。
 
-`Size` / `Data` / `Clear` のように **他の型にも同じ名前がある** メソッドを一括置換すると
-無関係な API まで壊れる。このスクリプトは「まず型定義側だけ改名 → build → コンパイラが
-出す C2039 は必ずその型の呼び出しである」という性質を使い、エラーが指す
-``(file, line, col)`` と **エラー文中の型名** を突き合わせて、その 1 箇所だけを置換する。
+複数型に存在するmember名を一括置換すると無関係なAPIまで壊れる。
+file/line/columnとerror内の型名を突き合わせ、対象が一意な箇所だけを置換する。
 
-使い方 (収束するまで build と交互に回す):
+最初の位置引数はbuild log、``--dry``は書込み抑止、``--map``は型別member対応表JSONを受け取る。
+対応表は型名をkeyとし、旧member名から新member名へのobjectをvalueに持つ。
 
-    cmake --build Intermediate/vs --config Debug -- -m -v:quiet -nologo > build.log 2>&1
-    python -B scripts/rename_calls_from_msvc_log.py build.log
-    # → 0 件になるか BUILD が通るまで繰り返す
-
-``--dry`` を付けると書き込まずに件数だけ出す。``--map`` で対応表 JSON を差し替えられる
-(既定は 2026-08-03 の container UE 改名で使ったもの。履歴として残してある)。
-
-対応表の形式:
-
-    {"TArray": {"Size": "Num", "Data": "GetData"}, "THashMap": {"Insert": "Add"}}
-
-注意: ACS_LOG_* のようなマクロ引数では、エラーの行番号が実際の呼び出し行とずれる。
-その場合は報告行から数行の窓を見て、窓内に対象名が 1 回だけならそこを置換する。
-それでも決められない箇所は skipped として残るので手で直す。
+macro展開で報告行がずれた場合は周辺行を検索し、対象名が一意なときだけ置換する。
+一意に解決できない箇所はskippedとして変更しない。
 """
 import collections
 import json
@@ -29,7 +16,7 @@ import re
 import sys
 from pathlib import Path
 
-# 2026-08-03 の container 改名で使った既定の対応表。
+# --map未指定時に使う型別member対応表。
 DEFAULT_ARRAY_MAP = {
     "Size": "Num", "Capacity": "Max", "Data": "GetData", "Back": "Last",
     "Clear": "Reset", "ReleaseStorage": "Empty", "Resize": "SetNum",
@@ -44,7 +31,7 @@ DEFAULT_MAP_BY_TYPE = {
     "TObservableArray": {"Size": "Num", "Data": "GetData", "Clear": "Reset"},
 }
 
-# 例: C:\path\file.cpp(123,45): error C2039: 'Size': 'acs::TArray<...>' のメンバーではありません
+# drive-absolute file、line、columnを含むMSVC C2039行を抽出する。
 LINE_RE = re.compile(
     r"^(?P<file>[A-Za-z]:[\\/][^()]+)\((?P<line>\d+),(?P<col>\d+)\):"
     r"\s*(?:fatal\s+)?error\s+C2039:\s*(?P<rest>.*)$"

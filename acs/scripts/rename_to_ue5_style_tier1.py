@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-ACS v1 -> v2 命名規則移行: Tier 1 (canonical types).
+ACSのcanonical type名を固定Tier 1対応表で変換する。
 
 対象 (高信頼度・name collision リスク最小):
   - 数学 POD:   Vec2/3/4, Mat3/4, Quat, Aabb, Plane, Ray, Sphere, Frustum
@@ -18,8 +18,7 @@ ACS v1 -> v2 命名規則移行: Tier 1 (canonical types).
   src/**, tests/**, docs/**.md
   cmake-build-*/_deps/ は除外。
 
-使い方:
-  python scripts/rename_to_ue5_style_tier1.py [--dry-run]
+``--dry-run``はfileを書かず、対象fileと置換件数だけを報告する。
 """
 from __future__ import annotations
 import argparse
@@ -115,14 +114,12 @@ def collect_files(repo_root: Path) -> list[Path]:
 def build_patterns(mapping: list[tuple[str, str]]) -> list[tuple[re.Pattern, str]]:
     """
     word-boundary regex を構築。
-    method 呼び出し (.Foo() / ->Foo()) と member 名 (.x.Vec2 みたいなパターン)
-    は意図的に rename しない (negative lookbehind で '.', '->' を除外)。
+    member access式はnegative lookbehindで除外し、型名だけをrenameする。
     """
     patterns: list[tuple[re.Pattern, str]] = []
     for old, new in mapping:
-        # negative lookbehind で '.' (member 経由) と '>' (-> の > 経由) を除外。
-        # ':' は除外しない (acs::Array<T> や Foo::Result のような namespace 修飾
-        # は rename 対象に含めるため)。\w lookbehind は word boundary と重なるが、
+        # negative lookbehindでmember accessに使う'.'と'>'を除外する。
+        # ':'はnamespace修飾された型名も対象にするため許可する。\w lookbehindはword boundaryと重なるが、
         # 識別子内部の一致を明示的に拒否するため残す。
         pat = re.compile(rf"(?<![\w.>])\b{re.escape(old)}\b(?![\w])")
         patterns.append((pat, new))

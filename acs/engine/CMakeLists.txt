@@ -118,8 +118,7 @@ option(ACS_MVVM_IMGUI_BINDINGS "Build MVVM ImGui binding adapter (requires Imgui
 
 # Steamworks SDK を使う実バックエンド。
 # OFF (default) なら src/gameframework/SteamworksBridge.h の Stub のみ利用可能。
-# ON にする場合は cmake/ACSThirdParty.cmake の acs_third_party_steamworks() の
-# コメントに従い、ACS_STEAMWORKS_SDK_DIR (推奨) か ACS_STEAMWORKS_SDK_URL を指定。
+# ONではacs_third_party_steamworks()がDIR、URL、Gitの順でSDK入力を解決する。
 option(ACS_BUILD_STEAMWORKS "Build real Steamworks SDK backend (acs_steamworks module)" OFF)
 
 # Lua 5.4 を使う scripting 実バックエンド。
@@ -148,7 +147,7 @@ option(ACS_BUILD_CRASH_REPORTER "Build real Windows crash reporter backend (acs_
 option(ACS_BUILD_TELEMETRY_FILE "Build real file telemetry backend (acs_telemetryfile module)" OFF)
 
 # acs::game::IMatchmaker 用の実 deterministic local matchmaker backend。
-# backend service を使わない gameplay test と offline 開発に利用する。
+# 外部serviceなしで同じ入力から同じmatching結果を返す。
 option(ACS_BUILD_LOCAL_MATCHMAKER "Build real local matchmaker backend (acs_localmatch module)" OFF)
 
 set(ACS_SOURCE_ROOT "${ACS_TREE_ROOT}/src")
@@ -156,7 +155,7 @@ set(ACS_SOURCE_ROOT "${ACS_TREE_ROOT}/src")
 # ---- 1. src/<mod>/Module.cmake から利用可能なモジュールを発見する ---------
 acs_discover_modules("${ACS_SOURCE_ROOT}")
 
-# ---- 2. ユーザーが modules.cmake で有効化する -----------------------------
+# ---- 2. modules.cmake が有効moduleを選択する -------------------------------
 include("${CMAKE_CURRENT_SOURCE_DIR}/modules.cmake")
 
 # ---- 3. 依存関係を検証して target を生成、WITH_ACS_* define を付与 -------
@@ -164,9 +163,7 @@ acs_finalize_modules()
 
 # ---- 4. ゲーム向けの集約ターゲット ACS::Game ------------------------------
 # 標準的なゲームに必要な 10 モジュールを 1 つにまとめた INTERFACE ターゲット。
-# 利用側の CMakeLists は target_link_libraries(mygame PRIVATE
-# ACS::Game) の 1 行で済む。音声 / ネットワーク / ImGui / MVVM / UI などの
-# 追加モジュールは ACS::Audio などを個別に足す。
+# 音声、network、ImGui、MVVM、UIは用途ごとの追加targetとして分離する。
 add_library(acs_game INTERFACE)
 add_library(ACS::Game ALIAS acs_game)
 set_target_properties(acs_game PROPERTIES FOLDER "Game")
@@ -190,21 +187,16 @@ if(ACS_RENDER_DX12_RAW AND EXISTS "${ACS_SOURCE_ROOT}/editor_abi/EditorAbi.cpp")
     set_target_properties(acs_editor_abi PROPERTIES FOLDER "Game")
 endif()
 
-# ---- 4c. 外部ユーザープロジェクト (エディタが生成したゲーム) の取り込み ---------
-# エディタの Build アクションが -DACS_EXTERNAL_PROJECT_DIR=<project>/Source を渡して
-# 再 configure すると、その CMakeLists が add_subdirectory され、ゲームが既存の
-# エンジン静的 lib (ACS::GameFramework 等) をリンクする追加ターゲットになる。
-# → エンジンを再ビルドせずインクリメンタルに 1 つのゲーム exe を作れる。
+# ---- 4c. 外部projectの取り込み ---------------------------------------------
+# ACS_EXTERNAL_PROJECT_DIRのCMakeListsを追加し、既存engine libraryへlinkするtargetを構築する。
 if(ACS_EXTERNAL_PROJECT_DIR AND EXISTS "${ACS_EXTERNAL_PROJECT_DIR}/CMakeLists.txt")
     add_subdirectory("${ACS_EXTERNAL_PROJECT_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/_extproj")
     message(STATUS "ACS: 外部プロジェクトを取り込み: ${ACS_EXTERNAL_PROJECT_DIR}")
 endif()
 
 # ---- acsbuild: .Build.cs ↔ Module.cmake のドリフト検証ターゲット (dev 用・任意) -----
-# 各 src/<mod>/<Name>.Build.cs が生成すべき Module.cmake と、実際にコミットされている
-# Module.cmake がズレていないか検証する (手編集 / 新規 .cpp の再生成忘れを検出)。
+# 各src/<mod>/<Name>.Build.csの生成内容とtracked Module.cmakeのdriftを検出する。
 # ALL_BUILD には含めない明示ターゲット。dotnet がある環境だけ登録する。
-#   cmake --build <build> --target acs_buildcs_check
 find_program(ACS_DOTNET_EXE dotnet)
 if(ACS_DOTNET_EXE)
     add_custom_target(acs_buildcs_check
@@ -239,16 +231,8 @@ if(ACS_STARTUP_PROJECT AND TARGET ${ACS_STARTUP_PROJECT})
         VS_STARTUP_PROJECT ${ACS_STARTUP_PROJECT})
 endif()
 
-# ============================================================================
-# acs_lint — clang-tidy リントターゲット
-# ----------------------------------------------------------------------------
-# 使い方:  cmake --build <build-dir> --target acs_lint
-# 役割:    .clang-tidy + compile_commands.json で src/ tests/ を走査
-# 範囲:    PR で変更されたファイルのみリントしたい場合は run-clang-tidy.py に
-#          -files <regex> を渡して呼び出す。WarningsAsErrors は .clang-tidy 側
-#          で narrow に絞ってあるため、初回でも CI ゲートが破綻しない。
-# 詳細:    docs/StyleGuide.md §12.6
-# ============================================================================
+# acs_lintは.clang-tidyとcompile_commands.jsonを使い、src/testsを明示targetで走査する。
+# WarningsAsErrorsの対象は.clang-tidyが所有し、未検出clang-tidyではtargetを登録しない。
 find_program(ACS_CLANG_TIDY_EXE
     NAMES clang-tidy clang-tidy-18 clang-tidy-17 clang-tidy-16
     HINTS "$ENV{ProgramFiles}/Microsoft Visual Studio/18/Community/VC/Tools/Llvm/x64/bin"
@@ -284,11 +268,5 @@ else()
     message(STATUS "       インストール後 cmake を再 configure すれば有効になる。")
 endif()
 
-# ============================================================================
-# 配布パッケージング
-# ----------------------------------------------------------------------------
-# acs_package_game() を呼んだ実行ファイルを `cmake --build <build> --target package`
-# で ZIP 化する。詳細は
-# cmake/ACSPackage.cmake のヘッダコメント。
-# ============================================================================
+# acs_enable_packagingはacs_package_game登録targetとruntime payloadをZIPへまとめる。
 acs_enable_packaging()

@@ -160,26 +160,10 @@ function(acs_third_party_mimalloc)
 endfunction()
 
 # ---- Steamworks SDK (実バックエンド) --------------------------------------
-# Valve の SDK は partner.steamgames.com (要パートナー登録) からのみ入手可能で
-# 公開ミラー URL は存在しない。よって以下のいずれかで SDK を確保する:
-#
-#   方式 A (推奨): user が SDK を local download し、CMake var を渡す
-#       cmake -DACS_STEAMWORKS_SDK_DIR=C:/path/to/steamworks_sdk_162
-#
-#   方式 B: ZIP URL を渡して FetchContent で取得 (CI 用、user の責任で URL 用意)
-#       cmake -DACS_STEAMWORKS_SDK_URL=file:///C:/sdk.zip
-#       (例: 自前 S3 / GitHub Release の private mirror。要 Valve への確認)
-#
-# 方式 A / B いずれかが ACS_BUILD_STEAMWORKS=ON 時に必須。両方未指定なら
-# WARNING + 自動 OFF。
-#
-# 期待される SDK レイアウト (Steamworks SDK 1.62 確認):
-#   <SDK>/public/steam/steam_api.h            ← C++ ヘッダ群
-#   <SDK>/public/steam/*.h                     ← isteamuser, isteamuserstats, etc.
-#   <SDK>/redistributable_bin/win64/steam_api64.lib  ← import lib
-#   <SDK>/redistributable_bin/win64/steam_api64.dll  ← runtime DLL
-# SDK root (= public/ と redistributable_bin/ を含む dir) を search_dir 以下から探す。
-# ミラーによっては SDK が `sdk/` サブディレクトリに入っているので再帰探索する。
+# SDK入力はACS_STEAMWORKS_SDK_DIR、ACS_STEAMWORKS_SDK_URL、
+# ACS_STEAMWORKS_SDK_GIT/_TAGの順で解決する。
+# SDK rootにはpublic/steam/steam_api.hとWin64 import library/runtime DLLが必要。
+# archiveまたはGit入力は展開root以下を再帰検索し、必要fileが無ければconfigureを失敗させる。
 function(_acs_find_steamworks_root search_dir out_var)
     set(${out_var} "" PARENT_SCOPE)
     file(GLOB_RECURSE _hits "${search_dir}/*steam_api.h")
@@ -201,7 +185,7 @@ function(acs_third_party_steamworks)
 
     set(_sdk_dir "")
     if(DEFINED ACS_STEAMWORKS_SDK_DIR AND NOT "${ACS_STEAMWORKS_SDK_DIR}" STREQUAL "")
-        # 方式 A: ローカル SDK ディレクトリ
+        # 明示されたlocal SDK directoryを優先する。
         if(EXISTS "${ACS_STEAMWORKS_SDK_DIR}/public/steam/steam_api.h")
             set(_sdk_dir "${ACS_STEAMWORKS_SDK_DIR}")
             message(STATUS "ACS: Steamworks SDK (local) = ${_sdk_dir}")
@@ -212,7 +196,7 @@ function(acs_third_party_steamworks)
                 "ZIP を展開した directory を指定すること。")
         endif()
     elseif(DEFINED ACS_STEAMWORKS_SDK_URL AND NOT "${ACS_STEAMWORKS_SDK_URL}" STREQUAL "")
-        # 方式 B: ZIP URL から FetchContent
+        # archive URL入力はFetchContentで展開する。
         FetchContent_Declare(
             acs_steamworks
             URL "${ACS_STEAMWORKS_SDK_URL}"
@@ -227,14 +211,13 @@ function(acs_third_party_steamworks)
                 "public/steam/steam_api.h が見つからない。ZIP の中身を確認。")
         endif()
     else()
-        # 方式 C (default): 公開 git ミラーから取得。
-        # Valve 公式 SDK は partner gating されるが、CI 用に SDK を再配布する
-        # 公開 repo がある。ACS_STEAMWORKS_SDK_GIT / _TAG で差し替え可能。
+        # DIR/URL未指定時はACS_STEAMWORKS_SDK_GIT/_TAGを使う。
+        # 未指定変数には固定repositoryとrevisionを設定する。
         if(NOT DEFINED ACS_STEAMWORKS_SDK_GIT OR "${ACS_STEAMWORKS_SDK_GIT}" STREQUAL "")
             set(ACS_STEAMWORKS_SDK_GIT "https://github.com/julianxhokaxhiu/SteamworksSDKCI.git")
         endif()
         if(NOT DEFINED ACS_STEAMWORKS_SDK_GIT_TAG OR "${ACS_STEAMWORKS_SDK_GIT_TAG}" STREQUAL "")
-            set(ACS_STEAMWORKS_SDK_GIT_TAG "1.62")  # Steamworks SDK 1.62 (julianxhokaxhiu mirror tag)
+            set(ACS_STEAMWORKS_SDK_GIT_TAG "1.62")  # SDK revision
         endif()
         message(STATUS "ACS: Steamworks SDK を git ミラーから取得: "
                        "${ACS_STEAMWORKS_SDK_GIT} @ ${ACS_STEAMWORKS_SDK_GIT_TAG}")
@@ -259,28 +242,18 @@ function(acs_third_party_steamworks)
     add_library(acs_third_party_steamworks INTERFACE)
     target_include_directories(acs_third_party_steamworks INTERFACE
         "${_sdk_dir}/public")
-    # Win64 用 import lib (lib + DLL の両方が必要、runtime DLL は別途 install)
+    # Win64 import libraryをlinkし、runtime DLL pathは配備helperへ渡す。
     target_link_libraries(acs_third_party_steamworks INTERFACE
         "${_sdk_dir}/redistributable_bin/win64/steam_api64.lib")
-    # 配布時用に DLL のパスを GLOBAL property で保存 (acs_steamworks_runtime で使う)
+    # 配備helperが参照するruntime DLL pathを保持する。
     set_property(GLOBAL PROPERTY ACS_STEAMWORKS_DLL_PATH
         "${_sdk_dir}/redistributable_bin/win64/steam_api64.dll")
     add_library(acs_third_party::steamworks ALIAS acs_third_party_steamworks)
 endfunction()
 
-# ---- Steamworks runtime 配備ヘルパ ----------------------------------------
-# acs_steamworks_runtime(<target> [APPID <id>])
-#   <target> の出力ディレクトリに:
-#     1) steam_api64.dll をコピー (post-build)
-#     2) steam_appid.txt を生成 (APPID 未指定なら 480 = Spacewar)
-#   かつ install ルールにも DLL を登録 (配布 ZIP に同梱)。
-#
-# ACS_BUILD_STEAMWORKS=OFF のときは no-op (= stub ビルドでは何もしない)。
-#
-# 使い方 (利用者の CMakeLists.txt):
-#   add_executable(my_game main.cpp)
-#   target_link_libraries(my_game PRIVATE ACS::Game ACS::Steamworks)
-#   acs_steamworks_runtime(my_game APPID 480)
+# ---- Steamworks runtime 配備helper -----------------------------------------
+# acs_steamworks_runtime(<target> [APPID <id>])はruntime DLLとsteam_appid.txtを
+# target出力およびinstall payloadへ登録する。ACS_BUILD_STEAMWORKS=OFFではno-op。
 function(acs_steamworks_runtime target)
     if(NOT ACS_BUILD_STEAMWORKS)
         return()
@@ -470,7 +443,7 @@ function(acs_third_party_lua)
     FetchContent_MakeAvailable(acs_lua)
 
     # Lua core ソース (lua.c / luac.c / onelua.c を除く全 .c)。
-    # 明示列挙して将来の repo 構成変更に強くする (Lua 5.4 の固定セット)。
+    # Lua 5.4の固定source集合だけを明示的にcompileする。
     set(_lua_src
         lapi.c lauxlib.c lbaselib.c lcode.c lcorolib.c lctype.c ldblib.c
         ldebug.c ldo.c ldump.c lfunc.c lgc.c linit.c liolib.c llex.c

@@ -1,18 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# enum class XxxYyy を EXxxYyy へ変換する。
-#
-# 使い方:
-#   python scripts/rename_enums_to_e_prefix.py --dry-run    # 影響範囲確認
-#   python scripts/rename_enums_to_e_prefix.py              # 実適用
-#
-# 設計:
-# - word boundary `\b<Name>\b` で partial match を完全回避
-#   - `ShakePreset` を rename しても `Preset` の rename には引っかからない
-#   - `MyKeyClass` の中の `Key` は引っかからない (between letters 境界なし)
-# - .h / .cpp / .md / .hlsl / CMakeLists.txt 対象
-# - 既に E prefix の enum は除外
-# - DXLib / Diligent / Imgui 等の third_party は除外
+# enum classの固定対象名をE prefix付きの名前へ変換する。
+# --dry-runは変更予定件数だけを表示し、指定なしでは対象fileを書き換える。
+# word boundaryは識別子内部の部分一致を拒否する。
+# .h/.cpp/.md/.hlsl/CMakeLists.txtを走査し、既存E prefix名とthird_partyを除外する。
 
 import os
 import re
@@ -21,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(r"C:\Users\g0190\OneDrive\Desktop\acs_github\acs")
 
-# Rename 対象 enum 一覧 (`enum class <Name>` で grep 抽出した 80 個)
+# 変換対象として固定するenum名。
 ENUM_NAMES = [
     "AllocKind", "ArrayChange", "AssetState", "AttenuationCurve",
     "BeatLane", "BlendMode", "BtStatus", "BuffKind", "BuffStackPolicy",

@@ -3,14 +3,6 @@
 #
 # acs_assetpack CLI (acs/tools/acs_assetpack) を driver にして、assets/ を再帰
 # スキャンし game.acpak にまとめる。CLI が未ビルドなら自動でビルドする。
-#
-# 使い方 (pack-assets.bat 経由 or 直接):
-#   .\pack-assets.ps1                       assets/ -> game.acpak (LZ4 圧縮)
-#   .\pack-assets.ps1 -In art -Out art.acpak
-#   .\pack-assets.ps1 -Encrypt              AES-256-GCM 暗号化 (鍵は assets.key、無ければ生成)
-#   .\pack-assets.ps1 -Encrypt -KeyFile my.key
-#   .\pack-assets.ps1 -NoCompress           圧縮なしで生格納
-#   .\pack-assets.ps1 -NoVerify             pack 後の verify を省略
 [CmdletBinding()]
 param(
     [string]$In        = 'assets',

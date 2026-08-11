@@ -3,16 +3,9 @@
 #   - dist/acs.h（amalgamate.py で生成）
 #   - dist/lib/x64/Debug/acs.lib と dist/lib/x64/Release/acs.lib
 #   - dist/acs-distribution.sha256（consumer が全 library を照合）
-#
-# 前提: 対象構成の engine を先に build しておく。例:
-#   cmake --build acs/Intermediate/vs --config Debug   -j
-#   cmake --build acs/Intermediate/vs --config Release -j
-#
-# 使い方:
-#   powershell -ExecutionPolicy Bypass -File acs/scripts/build_single_header.ps1
-#   ... -Configs Debug          # 未署名のlocal stagingとして1構成だけ生成
-#   ... -Deploy C:\acs          # 両構成をconsumer用の場所へmirror
-#   ... -SelfTest               # path/原子的公開の安全機構だけを自己検証
+# Configsは生成済みDebug/Release engineを選び、単一構成はlocal stagingだけを更新する。
+# Deployとnamed manifest公開は両構成を要求し、payload集合・size・SHA-256を照合する。
+# SelfTestはpath固定と原子的公開の安全契約を配布物生成なしで検証する。
 param(
     [string[]]$Configs = @('Debug','Release'),
     [string]$Deploy = '',
@@ -2450,7 +2443,7 @@ if ($isCompleteDistribution) {
     Write-Host "==> 単一構成のlocal staging完了（named manifestは未公開）"
 }
 
-# 4) 任意で dist/ を consumer 用の場所へ mirror する（例: C:\acs）。
+# 4) Deploy指定時は検証済みdistを指定先へmirrorする。
 if ($Deploy) {
     Write-Host "==> dist/ を配置 -> $Deploy"
     Publish-MirroredDistribution $dist $Deploy

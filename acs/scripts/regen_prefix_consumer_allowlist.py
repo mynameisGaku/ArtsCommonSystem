@@ -8,17 +8,12 @@ entry が全て無効化されて監査が落ちる。
 
 このスクリプトは監査本体を import し、同じ ``_capture_repository_snapshot`` →
 ``_scan_snapshot`` の観測をそのまま allowlist として書き出す。reason は
-``(path, legacy, construct)`` をキーに旧 allowlist から引き継ぎ、対応が無い新規 site は
+``(path, legacy, construct)`` をキーに既存allowlistから引き継ぎ、対応が無いsiteは
 監査本体と同じ構文・path 規則から理由を決める。
 
-使い方:
-
-    python -B scripts/regen_prefix_consumer_allowlist.py            # acs/ を推定
-    python -B scripts/regen_prefix_consumer_allowlist.py C:\\acsw\\p2\\acs
-    python -B scripts/regen_prefix_consumer_allowlist.py --dry      # 書かずに差分だけ見る
-
-書き出した後、表示される ``EXPECTED_ALLOWLIST_SHA256`` を
-``scripts/audit_cpp_prefix_consumers.py`` の同名定数へ **同じ commit で** 反映すること。
+最初の位置引数はACS rootを上書きし、省略時はsource配置からrootを解決する。
+``--dry``はfileを書かず、生成内容と既存内容の差だけを報告する。
+出力には監査側が固定する``EXPECTED_ALLOWLIST_SHA256``を含める。
 JSON は BOM 無し LF で書く (loader が CRLF を拒否するため)。
 """
 import collections

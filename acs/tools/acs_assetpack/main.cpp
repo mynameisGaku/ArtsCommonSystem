@@ -2,17 +2,6 @@
 // =============================================================================
 // acs_assetpack — `.acpak` v1 アーカイブ操作 CLI ツール
 // -----------------------------------------------------------------------------
-// 使い方 (examples):
-//   acs_assetpack pack ./assets game.acpak --compress
-//   acs_assetpack list game.acpak
-//   acs_assetpack unpack game.acpak ./extracted
-//   acs_assetpack pack ./assets game_secret.acpak --compress --encrypt \
-//                 --key-file game.key
-//   acs_assetpack unpack game_secret.acpak ./extracted --key-file game.key
-//   acs_assetpack verify game_secret.acpak --key-file game.key
-//   acs_assetpack info game.acpak
-//   acs_assetpack help [subcommand]
-//
 // exit code:
 //   0 — success
 //   1 — usage error (引数不足 / 未知 subcommand / parse 失敗)
@@ -30,8 +19,6 @@
 //   ・--compress は LZ4 (block)、--encrypt は AES-256-GCM (Windows CNG/BCrypt)。
 //     どちらもライブラリ (FAcpakLz4 / FAcpakCrypto) で実装済。CLI は --key-file /
 //     --key で 256-bit 鍵を読み、Writer/Reader::SetKey() に渡す。
-//   ・鍵は --key-file 推奨 (生鍵を CLI 引数に書くとシェル履歴 / CI ログに残るため。
-//     docs/AssetPack.md §4.4)。鍵ファイルはバージョン管理にコミットしないこと。
 // =============================================================================
 
 #include "assetpack/AcpakFormat.h"
@@ -167,8 +154,6 @@ bool ParseHex256(const wchar_t* hex, u8 out_key[32]) noexcept {
 
 // 鍵ファイルを読んで 32-byte key にする。ファイルは 64 hex 文字を含む
 // (前後の空白 / 改行は許容、それ以外の非 hex 文字があれば失敗)。
-// 設計方針 (docs/AssetPack.md §4.4): 生鍵を CLI 引数で渡すとシェル履歴 / CI ログに
-// 残るため、鍵はファイルから読む。鍵ファイルはバージョン管理にコミットしない。
 // 成功時 true、失敗時 false (理由は err_out に英語で書く。out_size は char 数)。
 bool ReadKeyFile(const wchar_t* path, u8 out_key[32],
                  char* err_out, int err_size) noexcept {
@@ -472,7 +457,7 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
     bool           opt_encrypt  = false;
     bool           opt_compress = false;
     const wchar_t* opt_key      = nullptr;   // --key <hex64>      (生鍵)
-    const wchar_t* opt_key_file = nullptr;   // --key-file <path>  (推奨)
+    const wchar_t* opt_key_file = nullptr;   // --key-fileで受け取る鍵file path
 
     for (usize i = 4; i < argv.Num(); ++i) {
         const wchar_t* a = argv[i];

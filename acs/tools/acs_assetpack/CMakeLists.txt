@@ -6,11 +6,6 @@
 #
 # raw bytes + CRC32 を扱う。--compress は LZ4、--encrypt は AES-256-GCM。
 # --encrypt には --key-file または --key の指定が必要。
-#
-# 使い方:
-#   acs_assetpack pack ./assets game.acpak --compress
-#   acs_assetpack list game.acpak
-#   acs_assetpack unpack game.acpak ./extracted
 # acs_module(NAME AssetPack) が lib target `acs_assetpack` (lowercase) を作るため、
 # CLI 側は internal target 名を `acs_assetpack_cli` にして衝突回避。
 # OUTPUT_NAME で実行ファイル名は意図通り `acs_assetpack.exe` のまま。

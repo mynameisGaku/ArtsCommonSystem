@@ -1,33 +1,7 @@
-# ACS::Easy / ACS::Game で作ったゲームの配布パッケージング。
-#
-# 「ZIP 1 個を相手に渡せば動く」が目標。依存 DLL (Diligent / d3dcompiler 等) と
-# アセットと exe を CPack ZIP に詰める。
-#
-# 使い方 (利用者の CMakeLists.txt):
-#   add_executable(my_game main.cpp)
-#   target_link_libraries(my_game PRIVATE ACS::Easy)
-#   acs_package_game(my_game ASSETS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assets)
-#
-# パッケージ生成:
-#   cmake -B build -S .
-#   cmake --build build --config Release
-#   cmake --build build --target package    # → build/<project>-<ver>-win64.zip
-#
-# 生成物の内部構造:
-#   my_game-0.1.0-win64.zip
-#       my_game/
-#           my_game.exe
-#           <runtime DLLs>           # CMake 3.21+ TARGET_RUNTIME_DLLS で自動収集
-#           my_game.pdb              # (RelWithDebInfo / Debug 時のみ)
-#           assets/
-#               <user assets>
-#
-# 注意:
-#   ・install(TARGETS) を使うので「ZIP の中身」と「`cmake --install` する場合の
-#     インストール先」が共通の DESTINATION ツリーになる。CMAKE_INSTALL_PREFIX で
-#     ローカルインストール先も変更可。
-#   ・ASSETS_DIR が存在しないとき (空 / 未指定) は黙ってスキップ。
-#   ・win64 ZIP を生成する。CPACK_GENERATOR の上書きで他形式も選択できる。
+# acs_package_gameは実行file、runtime DLL、任意PDB、assetを同じDESTINATION treeへ登録する。
+# TARGET_RUNTIME_DLLSはPRIVATE link由来のruntime dependencyも収集する。
+# ASSETS_DIRが空または不存在ならasset登録を省略し、DEST_PREFIXはtarget名を既定値にする。
+# acs_enable_packagingは登録済みtargetをCPack ZIPへ束縛する。
 
 include_guard(GLOBAL)
 
@@ -72,9 +46,8 @@ function(acs_package_game target)
 endfunction()
 
 
-# プロジェクト直下で 1 度呼ぶ。CPack の既定値を ACS 流に設定し、ZIP を生成。
-# CPACK_GENERATOR 等を上書きしたい場合は本関数呼び出し前に set(CPACK_* ...) する。
-# include(CPack) は本関数内で実行するので、利用者は呼ばなくてよい。
+# CPack変数はこの関数のinclude(CPack)時に確定するため、呼出し前の値を入力とする。
+# 関数はACS既定値と登録済みtargetからZIP生成ruleを構築する。
 function(acs_enable_packaging)
     if(NOT EXISTS "${ACS_TREE_ROOT}/LICENSE")
         message(FATAL_ERROR "ACS: product license not found: ${ACS_TREE_ROOT}/LICENSE")

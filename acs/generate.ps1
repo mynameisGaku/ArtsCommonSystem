@@ -10,22 +10,12 @@
 #     Intermediate/ … CMake cache / .vcxproj / obj / .lib / FetchContent の _deps
 #     Saved/        … このスクリプトのログ
 #
-# ビルドに必須の外部ライブラリ (ImGui / stb / cgltf / ufbx / dr_libs 等) は
-# 初回 configure 時に FetchContent が自動ダウンロード + リンクする。
+# ビルドに必須の外部libraryはconfigure中にFetchContentが解決してlinkする。
 #
-# 使い方:
-#   .\generate.ps1                 # 標準Engine構成を生成
-#   .\generate.ps1 -Name MyGame    # MyGame.slnx を表層に生成
-#   .\generate.ps1 -Open           # 生成して VS で開く
-#   .\generate.ps1 -Clean          # Intermediate を消してから生成
-#   .\generate.ps1 -Tests -Tools   # tests/tools も Engine 配下に追加
-#   .\generate.ps1 -DistributionSmoke -DistributionRoot C:\acs
-#                                  生成済み配布SDKの実link/run gateを追加
-#   .\generate.ps1 -AllBackends    # 任意 backend (Lua/Steamworks/ONNX/OpenXR/…) も全部 ON
-#   .\generate.ps1 -Onnx -OpenXr   # 個別に backend を ON
-#   .\generate.ps1 -Diligent       # Diligent RHI backend も追加
-#
-# ※ generate.bat をダブルクリックすると -Open 付きで本スクリプトを呼ぶ。
+# -Openは生成後にsolutionを開き、-CleanはIntermediateを再生成前に除去する。
+# -Tests/-Toolsは追加targetを登録し、backend switchは対応moduleを有効化する。
+# -DistributionSmokeは物理DistributionRootのlink/run gateをsolutionへ追加する。
+# generate.batは-Openを付けてこの処理へ委譲する。
 [CmdletBinding()]
 param(
     [switch]$Open,
