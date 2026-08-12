@@ -2365,7 +2365,8 @@ char* DupSnapshot(FEditorHost& h) noexcept {
         capacity3d = std::max(doubled, required);
     }
     const size_t l3d = static_cast<size_t>(written3d);
-    char* copy = new (std::nothrow) char[static_cast<size_t>(lh) + l2d + l3d + 1];   // 実サイズで確保 (固定 64KB の無駄/切詰を回避)
+    // ヘッダー、2D、3D本文と終端に必要な領域を確保する。
+    char* copy = new (std::nothrow) char[static_cast<size_t>(lh) + l2d + l3d + 1];
     if (copy == nullptr) { delete[] tmp3d; return nullptr; }
     std::memcpy(copy, hdr, static_cast<size_t>(lh));                                 // ヘッダ (2D 長)
     std::memcpy(copy + lh, s2d, l2d);                                                // 2D 部
