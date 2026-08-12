@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — CSceneEventBus 実装
+// scene event handlerの登録、解除、再入可能な即時配信を実装する。
 #include "gameframework/SceneEventBus.h"
 
 namespace acs::game {
