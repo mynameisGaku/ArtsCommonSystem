@@ -1,13 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FRenderContext
-//
-// 全シーン共有の描画コンテキスト。「現フレームの IRhiCommandList と画面サイズ」
-// を保持する軽量参照ホルダに、CSpriteBatch / FFont / 共通シェーダを足して
-// 「シーン切替でパイプライン再構築しない」を実現する。
-//
-// AScene 側はこれを OnRender(rc) で受け取り、必要なら rc.Cmd()/Width()/Height()
-// から描画コマンドを発行する。素の RHI を直接叩いてもよいし、ユーザーが自分の
-// CSpriteBatch を持ってもよい。
 #pragma once
 
 #include "foundation/Types.h"
