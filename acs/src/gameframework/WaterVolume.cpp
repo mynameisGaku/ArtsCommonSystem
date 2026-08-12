@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — CWaterVolume 実装
+// generation付きhandleでAABB水域を管理し、水中判定・水深・浮力を計算する。
 //
 // AABB ベースの水域管理 + 浮力計算。slot+generation handle pattern は
 // CCollisionWorld2D / CTriggerWorld2D と同等。線形走査 (典型 N ≤ 数十)。
