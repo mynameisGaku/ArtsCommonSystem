@@ -1,18 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — FTransform2D
-//
-// 2D ノードの位置/回転/スケールを 20 byte の値型で表す。`FMat4` 直接保持より
-// 小さく合成が速い、かつ分解が非可逆でない (= 親 transform の rotation/scale を
-// 取り出して使える)。
-//
-// 合成規約:
-//   `world = parent.Compose(local)` で「親の座標系に local を載せる」。
-//   ・world.scale    = parent.scale * local.scale  (component-wise)
-//   ・world.rotation = parent.rotation + local.rotation
-//   ・world.position = parent.position + Rotate(parent.scale * local.position, parent.rotation)
-//
-// ToMat4() は CSpriteBatch::SetView や 4x4 行列が必要な場面でだけ使う (合成内では
-// 使わない、誤差/コストを避けるため)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -82,13 +68,13 @@ struct FTransform2D {
     /**
      * 4x4 行列に変換する (CSpriteBatch::SetView 等で 4x4 が必要なとき用)。
      *
-     * @details Z=0 平面で T * R * S を row-major (acs/Math 規約) で展開する。合成内では誤差/コストを避けるため使わない。
+     * @details Z=0 平面で S * R * T を row-major (acs/Math の行ベクトル規約) で展開する。合成内では誤差/コストを避けるため使わない。
      * @return この transform を表す 4x4 行列。
      */
     FMat4 ToMat4() const noexcept {
         const f32 c = Cos(rotation);
         const f32 s = Sin(rotation);
-        // T * R * S を row-major で展開 (acs/Math 規約)
+        // S * R * T を row-major で展開 (acs/Math の行ベクトル規約)
         FMat4 m{};
         m.m[0][0] = scale.x * c;   m.m[0][1] = scale.x * s;   m.m[0][2] = 0.0f; m.m[0][3] = 0.0f;
         m.m[1][0] = -scale.y * s;  m.m[1][1] = scale.y * c;   m.m[1][2] = 0.0f; m.m[1][3] = 0.0f;
