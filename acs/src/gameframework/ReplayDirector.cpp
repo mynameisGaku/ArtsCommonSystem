@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CReplayDirector 実装
-//
-// Init / StartRecording / StopRecording / StartPlayback /
-// PausePlayback / ResumePlayback / StopPlayback /
-// SetPlaybackSpeed / SeekToTick / Tick / ProgressNormalized / SaveReplay /
-// LoadReplay をすべて本実装する。SaveReplay / LoadReplay は CInputRecorder /
-// CLockstep の SaveToBuffer / LoadFromBuffer を束ねた container を扱う。
+// replayの録画・再生状態、速度、seek位置、進捗を管理する。
+// 保存・読込ではCInputRecorderとCLockstepのbufferを1つのcontainerへ束ねる。
 //
 // 設計メモ:
 //   ・Mode 遷移は明示的: Idle → (StartRecording) → Recording → (StopRecording) → Idle
@@ -29,7 +24,7 @@
 //   ・ProgressNormalized は duration_ticks == 0 のとき 0.0 を返す (録画開始
 //     直後 / metadata 未設定の安全側)。
 //
-// SaveReplay / LoadReplay (本実装):
+// SaveReplay / LoadReplay:
 //   ・単一 container ファイル (.acsr 拡張子想定) に metadata + CInputRecorder の
 //     .acsr blob + CLockstep の .acsl blob をまとめて書き出す。低レベル blob 自体は
 //     CInputRecorder::SaveToBuffer / CLockstep::SaveToBuffer の real な直列化を
