@@ -110,19 +110,9 @@ void CKhronosOpenXrBridge::Shutdown() noexcept {
 
 void CKhronosOpenXrBridge::Tick(f32 dt) noexcept {
     (void)dt;
-    // 正直化: 実セッションループ (xrCreateSession → xrWaitFrame / xrBeginFrame /
-    // xrLocateViews / xrSyncActions / xrLocateSpace) は graphics binding (D3D12/Vulkan)
-    // と HMD ランタイムを要求し、本 module は renderer に依存しないため未実装。
-    //
-    // 旧実装は no-op でありながら IsInitialized()==true を返していたため、消費側は
-    // トラッキングが生きていると誤認し、ゼロ初期化された HeadPose / Controller を
-    // 「有効なポーズ」として使う偽成功スタブだった。これを除去する:
-    //   ・session が無いので m_bSessionTracking は false のまま (IsTracking()
-    //     が共有 IF 越しに正直に「未トラッキング」を返す)。
-    //   ・ポーズは更新しようがないので、フレームをまたいで古い値が残らないよう
-    //     明示的に zero pose (= 未トラッキングを表す原点) へ保つ。
-    //   ・session loop 未実装である旨を一度だけ警告し、サイレントに偽ポーズを
-    //     供給していた挙動を是正する。
+    // renderer 非依存のため graphics binding を持たず、session loop は実行しない。
+    // session が無い間は tracking を false とし、pose と controller を zero state へ保つ。
+    // instance 初期化後に session が無い状態を一度だけ警告する。
     if (m_bInitialized && !m_bSessionTracking && !m_bTickWarned) {
         ACS_LOG_WARN("CKhronosOpenXrBridge::Tick: OpenXR session loop is not implemented "
                      "(graphics binding + HMD runtime required). HeadPose/Controller "
