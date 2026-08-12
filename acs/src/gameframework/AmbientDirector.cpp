@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — CAmbientDirector 実装
+// 時刻進行とtime-of-day配色の補間を実装する。
 //
 // キーフレーム間を線形補間する time-of-day ドライバの実装。
 // stop 表は雰囲気重視の「ゲームらしい」配色 (写実色温度ではない):
