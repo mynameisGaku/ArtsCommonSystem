@@ -70,7 +70,7 @@ void SaturatingIncrement(u64& value) noexcept {
 //
 // HANDLE + OVERLAPPED + 受信バッファ + recursive フラグを束ねる。OVERLAPPED と m_Buffer
 // のアドレスは I/O 発行から完了通知まで安定している必要があるため、この struct は
-// TUniquePtr で個別 heap 確保される (ヘッダ参照)。
+// TUniquePtr で個別 heap 確保される。
 struct FWatchEntry {
     // ReadDirectoryChangesW の受信バッファのバイト数。
     //
