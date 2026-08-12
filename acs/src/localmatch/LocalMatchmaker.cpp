@@ -196,8 +196,7 @@ acs::TResult<void> CLocalMatchmaker::AcceptMatch(acs::game::FMatchTicket ticket)
                        "CLocalMatchmaker::AcceptMatch requires Matched status");
     }
     entry->bAccepted = true;
-    // 双方が Accept したらマッチ確定 = 終端。両スロットを退役させて再利用可能に
-    // する (旧実装は完了パスが一切無く、Matched ticket が永久リークしていた)。
+    // 双方が Accept したらマッチ確定 = 終端。両スロットを退役させて再利用可能にする。
     // Status は Matched のまま残すので PollStatus は確定済みを返し続ける。
     if (entry->PartnerTicket != 0) {
         acs::game::FMatchTicket partner_handle{};
