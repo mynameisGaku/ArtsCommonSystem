@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Genre Kit (Platformer) — CCheckpointSystem 実装
 //
 // slot+gen pattern で配置済み checkpoint を管理し、現在 active な 1 つを
 // 保持する。one_way / requires_unlock のフラグを Activate 時に評価し、
