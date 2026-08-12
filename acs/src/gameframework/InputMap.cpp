@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar D — FInputMap 実装
+// actionと各入力deviceのbinding登録、状態照会、axis合成を実装する。
 #include "gameframework/InputMap.h"
 #include "platform/Input.h"
 
