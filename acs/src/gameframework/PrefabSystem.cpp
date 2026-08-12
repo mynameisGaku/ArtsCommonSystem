@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J — CPrefabSystem 実装
+// 名前付きprefab factoryをgeneration付きhandleで登録し、ANodeを生成する。
 //
 // name lookup は const char* 同士の per-byte 比較で行う (STL/<cstring> 禁止)。
 // 登録件数は通常 1 セッションで数百件以下なので、線形走査でも実用上問題なし。
