@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O/G — CInventorySystem 実装
+// item定義とslot stackを管理し、追加・削除・移動ごとの変更をcallbackへ通知する。
 //
 // 設計上のポイント (ヘッダの設計コメントと対応):
 //   ・item_id は const char* per-byte 線形検索 (FEntitlement / CEconomyDirector と同設計)。
