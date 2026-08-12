@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — CCharacterCustomizer 実装
+// cosmeticの登録・unlock・slot装着を管理し、装着変更をcallbackへ通知する。
 //
 // 設計上のポイント:
 //   ・id 比較は const char* per-byte 比較。STL <string> / <cstring> 不使用。
