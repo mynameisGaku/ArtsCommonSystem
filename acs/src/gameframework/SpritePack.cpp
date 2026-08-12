@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G / Q — sprite atlas data と検証付き JSON 読み込み。
+// atlas metadataとframeを保持し、失敗時に既存状態を保つ検証付きJSON読込を担う。
 #include "gameframework/SpritePack.h"
 
 #include "container/Json.h"
