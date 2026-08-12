@@ -171,7 +171,7 @@ acs::TResult<void> CLocalMatchmaker::CancelSearch(acs::game::FMatchTicket ticket
     }
     entry->Status = acs::game::EMatchStatus::Cancelled;
     entry->PartnerTicket = 0;
-    // 終端状態なのでスロットを退役させて再利用可能にする (リーク防止)。
+    // 終端状態なのでスロットを退役させて再利用可能にする。
     // bActive は true のまま残すので、後続スロットが満杯になるまでは PollStatus が
     // この Cancelled を返し続けられる。
     RetireEntry(*entry);
