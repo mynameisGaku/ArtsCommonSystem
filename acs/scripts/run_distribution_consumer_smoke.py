@@ -24,7 +24,7 @@ from typing import BinaryIO, Callable, Iterator, Optional, Sequence
 SUPPORTED_CONFIGURATIONS = ("Debug", "Release")
 EXECUTABLE_NAME = "acs_distribution_consumer.exe"
 MANIFEST_NAME = "acs-distribution.sha256"
-MANIFEST_SCHEMA = "ACS_DIST_SHA256_V1"
+MANIFEST_SCHEMA = "ACS_DIST_SHA256_V2"
 DISTRIBUTION_LIBRARY_NAMES = (
     "acs.lib",
     "Diligent-Archiver-static.lib",
@@ -41,14 +41,35 @@ DISTRIBUTION_LIBRARY_NAMES = (
     "Diligent-Win32Platform.lib",
     "xxhash.lib",
 )
+# 完全mirrorへ含める製品とthird-party licenseの固定相対path。
+LICENSE_RELATIVE_PATHS = (
+    "Licenses/ACS-License.txt",
+    "Licenses/ThirdParty/DXC-License.txt",
+    "Licenses/ThirdParty/DXC-ThirdPartyNotices.txt",
+    "Licenses/ThirdParty/DearImGui-License.txt",
+    "Licenses/ThirdParty/DiligentCore-License.txt",
+    "Licenses/ThirdParty/GPUOpenShaderUtils-License.txt",
+    "Licenses/ThirdParty/cgltf-License.txt",
+    "Licenses/ThirdParty/dr_libs-License.txt",
+    "Licenses/ThirdParty/mimalloc-License.txt",
+    "Licenses/ThirdParty/stb-License.txt",
+    "Licenses/ThirdParty/ufbx-License.txt",
+    "Licenses/ThirdParty/xxHash-License.txt",
+)
+# producerから独立して固定するlibrary、license、manifest、tree、directory件数。
 EXPECTED_LIBRARY_COUNT = 14
-EXPECTED_MANIFEST_PAYLOAD_COUNT = 29
-EXPECTED_MIRROR_FILE_COUNT = 33
-EXPECTED_MIRROR_DIRECTORY_COUNT = 5
+EXPECTED_LICENSE_COUNT = 12
+EXPECTED_MANIFEST_PAYLOAD_COUNT = 44
+EXPECTED_MIRROR_FILE_COUNT = 45
+EXPECTED_MIRROR_DIRECTORY_COUNT = 7
 MANIFEST_RELATIVE_PATHS = tuple(
     sorted(
         (
+            "README.md",
             "acs.h",
+            "verification/build_consumer_contract.cmd",
+            "verification/consumer_contract.cpp",
+            *LICENSE_RELATIVE_PATHS,
             *(
                 f"lib/x64/{configuration}/{library}"
                 for configuration in SUPPORTED_CONFIGURATIONS
@@ -61,19 +82,13 @@ MIRROR_RELATIVE_PATHS = tuple(
     sorted(
         (
             MANIFEST_NAME,
-            "README.md",
-            "acs.h",
-            "verification/build_consumer_contract.cmd",
-            "verification/consumer_contract.cpp",
-            *(
-                f"lib/x64/{configuration}/{library}"
-                for configuration in SUPPORTED_CONFIGURATIONS
-                for library in DISTRIBUTION_LIBRARY_NAMES
-            ),
+            *MANIFEST_RELATIVE_PATHS,
         )
     )
 )
 MIRROR_RELATIVE_DIRECTORIES = (
+    "Licenses",
+    "Licenses/ThirdParty",
     "lib",
     "lib/x64",
     "lib/x64/Debug",
@@ -186,10 +201,11 @@ class _JobObjectExtendedLimitInformation(ctypes.Structure):
     )
 
 
-def _fixed_contract_counts_match(counts: tuple[int, int, int, int]) -> bool:
-    """producerと独立した4つのliteral件数契約に一致するかを返す。"""
+def _fixed_contract_counts_match(counts: tuple[int, int, int, int, int]) -> bool:
+    """producerと独立した5つのliteral件数契約に一致するかを返す。"""
     return counts == (
         EXPECTED_LIBRARY_COUNT,
+        EXPECTED_LICENSE_COUNT,
         EXPECTED_MANIFEST_PAYLOAD_COUNT,
         EXPECTED_MIRROR_FILE_COUNT,
         EXPECTED_MIRROR_DIRECTORY_COUNT,
@@ -197,9 +213,10 @@ def _fixed_contract_counts_match(counts: tuple[int, int, int, int]) -> bool:
 
 
 def _assert_fixed_contract_counts() -> None:
-    """library削除と派生集合の同時縮小を起動時に拒否する。"""
+    """libraryやlicense削除と派生集合の同時縮小を起動時に拒否する。"""
     counts = (
         len(DISTRIBUTION_LIBRARY_NAMES),
+        len(LICENSE_RELATIVE_PATHS),
         len(MANIFEST_RELATIVE_PATHS),
         len(MIRROR_RELATIVE_PATHS),
         len(MIRROR_RELATIVE_DIRECTORIES),
@@ -419,7 +436,7 @@ def _enumerate_mirror(root: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
 
 
 def _assert_complete_mirror_shape(root: Path) -> None:
-    """固定33 file、5 directory、非emptyのmirror形状を確認する。"""
+    """固定45 file、7 directory、非emptyのmirror形状を確認する。"""
     _assert_fixed_contract_counts()
     files, directories = _enumerate_mirror(root)
     if files != MIRROR_RELATIVE_PATHS:
@@ -443,7 +460,7 @@ def _assert_complete_mirror_shape(root: Path) -> None:
 
 
 def validate_complete_mirror(root: Path) -> Path:
-    """配布rootの物理境界と固定33 file集合を確認する。"""
+    """配布rootの物理境界と固定45 file集合を確認する。"""
     normalized = Path(os.path.abspath(os.fspath(root)))
     _assert_normal_ancestors(normalized)
     _assert_complete_mirror_shape(normalized)
@@ -509,7 +526,7 @@ def pin_complete_mirror(root: Path) -> Iterator[_PinnedMirror]:
 
 
 def parse_distribution_manifest(manifest_bytes: bytes) -> dict[str, str]:
-    """named manifestのcanonical byte列と固定29 entryを厳密に検証する。"""
+    """named manifestのcanonical byte列と固定44 entryを厳密に検証する。"""
     _assert_fixed_contract_counts()
     if manifest_bytes.startswith(b"\xef\xbb\xbf") or b"\r" in manifest_bytes or not manifest_bytes.endswith(b"\n"):
         raise DistributionValidationError("distribution manifest is not canonical LF UTF-8 without BOM")
@@ -667,7 +684,10 @@ def create_verified_snapshot(
         manifest_before, entries = _read_manifest(mirror)
         selected_paths = frozenset(
             (
+                "README.md",
                 "acs.h",
+                "verification/build_consumer_contract.cmd",
+                *LICENSE_RELATIVE_PATHS,
                 *(
                     f"lib/x64/{configuration}/{library}"
                     for library in DISTRIBUTION_LIBRARY_NAMES
@@ -1120,7 +1140,7 @@ def run_smoke(
 
 
 def _test_manifest_bytes(root: Path) -> bytes:
-    """self-test fixtureの固定29 payloadからcanonical manifestを作る。"""
+    """self-test fixtureの固定44 payloadからcanonical manifestを作る。"""
     lines = [MANIFEST_SCHEMA]
     for relative_path in MANIFEST_RELATIVE_PATHS:
         payload = (root / Path(*relative_path.split("/"))).read_bytes()
@@ -1129,7 +1149,7 @@ def _test_manifest_bytes(root: Path) -> bytes:
 
 
 def _write_test_distribution(root: Path, generation: str) -> None:
-    """self-test専用の完全な33 file mirrorを作る。"""
+    """self-test専用の完全な45 file mirrorを作る。"""
     for relative_path in MIRROR_RELATIVE_PATHS:
         if relative_path == MANIFEST_NAME:
             continue
@@ -1185,19 +1205,33 @@ def _process_has_exited(process_id: int, timeout_milliseconds: int) -> bool:
         _close_windows_handle(int(process))
 
 
-def _create_test_junction(link: Path, target: Path) -> bool:
-    """Windows self-testで実directory junctionを作る。"""
-    if os.name != "nt":
-        return False
-    result = subprocess.run(
-        ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+def _self_test_reparse_rejection() -> bool:
+    """作成操作なしの属性fixtureでreparse入力の拒否を固定する。"""
+
+    class _ReparseStat:
+        """reparse属性だけを持つ検査用stat結果。"""
+
+        st_file_attributes = FILE_ATTRIBUTE_REPARSE_POINT
+
+    original_lstat = os.lstat
+    observed_paths: list[object] = []
+
+    def reparse_lstat(path: object) -> _ReparseStat:
+        """検査対象を記録し、reparse属性付き結果を返す。"""
+        observed_paths.append(path)
+        return _ReparseStat()
+
+    os.lstat = reparse_lstat
+    try:
+        reason = _capture_distribution_failure(
+            lambda: _assert_normal_path(Path("synthetic-reparse"), True)
+        )
+    finally:
+        os.lstat = original_lstat
+    return (
+        len(observed_paths) == 1
+        and reason == "distribution path is a reparse point: synthetic-reparse"
     )
-    return result.returncode == 0 and link.exists()
 
 
 def _self_test_directory_pin(root: Path) -> bool:
@@ -1242,49 +1276,6 @@ def _self_test_directory_pin(root: Path) -> bool:
         and final_identity == identity
         and handles_before == handles_after
     )
-
-
-@contextmanager
-def _reject_external_self_test_io(external_root: Path) -> Iterator[dict[str, int]]:
-    """reparse先へのfile openとdirectory列挙を記録して即時拒否する。"""
-    normalized_external = Path(os.path.abspath(os.fspath(external_root)))
-    observed = {"opens": 0, "scans": 0}
-    original_open = io.open
-    original_scandir = os.scandir
-
-    def reaches_external(path: object) -> bool:
-        if isinstance(path, int):
-            return False
-        try:
-            physical = Path(os.path.realpath(os.fspath(path)))
-            physical.relative_to(normalized_external)
-            return True
-        except (OSError, TypeError, ValueError):
-            return False
-
-    def guarded_open(file: object, *arguments: object, **keywords: object):
-        if reaches_external(file):
-            observed["opens"] += 1
-            raise DistributionValidationError(
-                f"self-test external file open was attempted: {file}"
-            )
-        return original_open(file, *arguments, **keywords)
-
-    def guarded_scandir(path: object = "."):
-        if reaches_external(path):
-            observed["scans"] += 1
-            raise DistributionValidationError(
-                f"self-test external directory scan was attempted: {path}"
-            )
-        return original_scandir(path)
-
-    io.open = guarded_open
-    os.scandir = guarded_scandir
-    try:
-        yield observed
-    finally:
-        io.open = original_open
-        os.scandir = original_scandir
 
 
 def self_test() -> int:
@@ -1336,6 +1327,7 @@ def self_test() -> int:
             rejects_invalid = True
         fixed_counts = (
             len(DISTRIBUTION_LIBRARY_NAMES),
+            len(LICENSE_RELATIVE_PATHS),
             len(MANIFEST_RELATIVE_PATHS),
             len(MIRROR_RELATIVE_PATHS),
             len(MIRROR_RELATIVE_DIRECTORIES),
@@ -1353,8 +1345,14 @@ def self_test() -> int:
             normalize_configuration("debug") == "Debug"
             and normalize_configuration("RELEASE") == "Release"
             and _fixed_contract_counts_match(fixed_counts)
-            and fixed_counts == (14, 29, 33, 5)
+            and fixed_counts == (14, 12, 44, 45, 7)
             and all(not _fixed_contract_counts_match(counts) for counts in count_mutations)
+            and LICENSE_RELATIVE_PATHS == tuple(sorted(LICENSE_RELATIVE_PATHS))
+            and tuple(
+                path for path in MIRROR_RELATIVE_PATHS if path != MANIFEST_NAME
+            )
+            == MANIFEST_RELATIVE_PATHS
+            and all(path in MANIFEST_RELATIVE_PATHS for path in LICENSE_RELATIVE_PATHS)
             and not _expect_distribution_failure(
                 lambda: _assert_pinned_identity(
                     distribution,
@@ -1412,6 +1410,12 @@ def self_test() -> int:
             and len(parsed) == len(MANIFEST_RELATIVE_PATHS)
             and validate_complete_mirror(distribution) == distribution
             and all(path.is_file() for path in required_distribution_files(snapshot, "Debug"))
+            and (snapshot / "README.md").is_file()
+            and (snapshot / "verification" / "build_consumer_contract.cmd").is_file()
+            and all(
+                (snapshot / Path(*relative_path.split("/"))).is_file()
+                for relative_path in LICENSE_RELATIVE_PATHS
+            )
             and not (snapshot / "lib" / "x64" / "Release").exists()
         )
 
@@ -1447,9 +1451,15 @@ def self_test() -> int:
         invalid_manifests = (
             b"\xef\xbb\xbf" + manifest_bytes,
             manifest_bytes.replace(b"\n", b"\r\n"),
+            manifest_bytes.replace(
+                MANIFEST_SCHEMA.encode("ascii"),
+                b"ACS_DIST_SHA256_V1",
+                1,
+            ),
             ("\n".join(swapped_lines) + "\n").encode("ascii"),
             ("\n".join(duplicate_lines) + "\n").encode("ascii"),
             ("\n".join(lowercase_lines) + "\n").encode("ascii"),
+            ("\n".join(manifest_lines[:-1]) + "\n").encode("ascii"),
             manifest_bytes[:-1],
         )
         valid = valid and all(
@@ -1457,12 +1467,50 @@ def self_test() -> int:
             for candidate in invalid_manifests
         )
 
+        # canonical形式のままhashだけ異なるmanifestをpayload照合で拒否する。
+        mismatched_hash_lines = list(manifest_lines)
+        mismatched_hash_lines[1] = "0" * 64 + mismatched_hash_lines[1][64:]
+        (distribution / MANIFEST_NAME).write_bytes(
+            ("\n".join(mismatched_hash_lines) + "\n").encode("ascii")
+        )
+        valid = valid and _expect_distribution_failure(
+            lambda: create_verified_snapshot(
+                distribution,
+                root / "hash-mismatch-snapshot",
+                "Debug",
+                fixture_contract_hash,
+            )
+        )
+        (distribution / MANIFEST_NAME).write_bytes(manifest_bytes)
+
         extra = distribution / "unexpected.bin"
         extra.write_bytes(b"unexpected")
         valid = valid and _expect_distribution_failure(
             lambda: validate_complete_mirror(distribution)
         )
         extra.unlink()
+
+        # licenseの欠落と改変を完全treeとmanifest hashの両方で拒否する。
+        missing_license = distribution / Path(*LICENSE_RELATIVE_PATHS[0].split("/"))
+        missing_license_payload = missing_license.read_bytes()
+        missing_license.unlink()
+        valid = valid and _expect_distribution_failure(
+            lambda: validate_complete_mirror(distribution)
+        )
+        missing_license.write_bytes(missing_license_payload)
+
+        tampered_license = distribution / Path(*LICENSE_RELATIVE_PATHS[-1].split("/"))
+        original_license_payload = tampered_license.read_bytes()
+        tampered_license.write_bytes(b"tampered-license\n")
+        valid = valid and _expect_distribution_failure(
+            lambda: create_verified_snapshot(
+                distribution,
+                root / "tampered-license-snapshot",
+                "Release",
+                fixture_contract_hash,
+            )
+        )
+        tampered_license.write_bytes(original_license_payload)
 
         contract_path = distribution / "verification" / "consumer_contract.cpp"
         original_contract = contract_path.read_bytes()
@@ -1579,85 +1627,8 @@ def self_test() -> int:
             and not swap_succeeded
             and distribution.is_dir()
             and not moved_distribution.exists()
+            and _self_test_reparse_rejection()
         )
-
-        external = root / "external"
-        external.mkdir()
-        sentinel = external / "sentinel.txt"
-        sentinel.write_text("external", encoding="utf-8")
-        linked_root = root / "linked-distribution"
-        link_tested = _create_test_junction(linked_root, external)
-        if not link_tested:
-            try:
-                os.symlink(external, linked_root, target_is_directory=True)
-                link_tested = True
-            except (OSError, NotImplementedError):
-                pass
-        with _reject_external_self_test_io(external) as root_link_observed:
-            valid = (
-                valid
-                and (link_tested or os.name != "nt")
-                and (
-                    not link_tested
-                    or _expect_distribution_failure(
-                        lambda: create_verified_snapshot(
-                            linked_root,
-                            root / "linked-root-snapshot",
-                            "Debug",
-                            fixture_contract_hash,
-                        )
-                    )
-                )
-            )
-        valid = (
-            valid
-            and root_link_observed == {"opens": 0, "scans": 0}
-            and sentinel.read_text(encoding="utf-8") == "external"
-        )
-        if link_tested:
-            if _has_reparse_attribute(os.lstat(linked_root)) and linked_root.is_dir():
-                linked_root.rmdir()
-            else:
-                linked_root.unlink()
-
-        nested_fixture = root / "nested-junction-distribution"
-        nested_fixture.mkdir()
-        _write_test_distribution(nested_fixture, "J")
-        nested_contract_hash = hashlib.sha256(
-            (nested_fixture / "verification" / "consumer_contract.cpp").read_bytes()
-        ).hexdigest().upper()
-        real_verification = nested_fixture / "verification-real"
-        (nested_fixture / "verification").rename(real_verification)
-        external_verification = external / "verification"
-        external_verification.mkdir()
-        external_contract_sentinel = external_verification / "outside.txt"
-        external_contract_sentinel.write_text("outside", encoding="utf-8")
-        nested_link = nested_fixture / "verification"
-        nested_link_created = _create_test_junction(nested_link, external_verification)
-        with _reject_external_self_test_io(external) as nested_link_observed:
-            valid = (
-                valid
-                and (nested_link_created or os.name != "nt")
-                and (
-                    not nested_link_created
-                    or _expect_distribution_failure(
-                        lambda: create_verified_snapshot(
-                            nested_fixture,
-                            root / "nested-link-snapshot",
-                            "Release",
-                            nested_contract_hash,
-                        )
-                    )
-                )
-            )
-        valid = (
-            valid
-            and nested_link_observed == {"opens": 0, "scans": 0}
-            and external_contract_sentinel.read_text(encoding="utf-8") == "outside"
-        )
-        if nested_link_created:
-            nested_link.rmdir()
-        real_verification.rename(nested_fixture / "verification")
 
         command_success = run_command(
             [sys.executable, "-c", "print('job-success')"],

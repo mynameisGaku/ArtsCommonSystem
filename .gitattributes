@@ -113,3 +113,6 @@ CMakeLists.txt   text eol=lf
 # ---- linguist hints for GitHub display -------------------------------------
 cmake-build-*/**    linguist-generated=true
 docs/**             linguist-documentation=true
+
+# 配布ライセンスは原本byte列をcheckoutとGit objectで同一に保つ。
+dist/Licenses/** -text -diff

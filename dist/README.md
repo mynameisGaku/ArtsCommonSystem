@@ -11,7 +11,10 @@ This folder is self-contained. You do **not** need the ACS source tree.
 ```
 dist/
 ├─ acs.h                     ← single amalgamated header (all public API)
-├─ acs-distribution.sha256   ← exact header/library content manifest
+├─ acs-distribution.sha256   ← exact non-manifest file content manifest
+├─ Licenses/
+│  ├─ ACS-License.txt
+│  └─ ThirdParty/            ← exact dependency license and notice files
 ├─ lib/x64/
 │  ├─ Debug/                 ← acs.lib + adjacent Diligent/xxhash libs (/MDd)
 │  └─ Release/               ← acs.lib + adjacent Diligent/xxhash libs (/MD)
@@ -138,26 +141,54 @@ Steamworks, ONNX (ML), OpenXR and Lua scripting are present as **interfaces** in
 DLLs. The core graphics / audio / gameplay / `easy` stack needs nothing beyond
 the complete configuration directory + the Windows SDK libraries above.
 
+### License payload
+
+Redistribute the complete `Licenses` directory with `acs.h` and both library
+configuration directories. `Licenses/ACS-License.txt` contains the ACS product
+license. `Licenses/ThirdParty` contains these exact 11 files:
+
+`DXC-License.txt`, `DXC-ThirdPartyNotices.txt`, `DearImGui-License.txt`,
+`DiligentCore-License.txt`, `GPUOpenShaderUtils-License.txt`,
+`cgltf-License.txt`, `dr_libs-License.txt`, `mimalloc-License.txt`,
+`stb-License.txt`, `ufbx-License.txt`, and `xxHash-License.txt`.
+
+The generator copies all 12 files byte-for-byte from the fixed source mapping;
+the V2 manifest authenticates them together with all other distribution files.
+Runtime install/package output uses the same relative paths and canonical bytes,
+so package and single-header distribution license inventories can be compared
+directly by size and SHA-256. The repository marks `dist/Licenses/**` as
+non-text so Git checkout and clean filtering preserve the canonical bytes
+without newline conversion.
+
 ---
 
 ## Regenerating the distribution
 
-After changing the engine, rebuild and re-amalgamate:
+After changing the engine, configure the x64 build with the exact RAW DX12 and
+Diligent contract, then rebuild and re-amalgamate. The optional scripting,
+Steamworks, ML ONNX, OpenXR, and Vulkan backends must remain disabled because
+their runtime and license payloads are outside this distribution:
 
 ```powershell
-# 1) build the engine (Debug and/or Release)
+# 1) configure the exact distribution build
+cmake -S acs/engine -B acs/Intermediate/vs -G "Visual Studio 18 2026" -A x64 `
+  -DACS_RENDER_DX12_RAW=ON -DACS_RENDER_DILIGENT=ON `
+  -DACS_Render_DX12_RAW=ON -DACS_Render_DILIGENT=ON `
+  -DACS_BUILD_SCRIPTING=OFF -DACS_BUILD_STEAMWORKS=OFF `
+  -DACS_BUILD_ML_ONNX=OFF -DACS_BUILD_OPENXR=OFF -DACS_DILIGENT_VULKAN=OFF
+# 2) build the engine (Debug and Release)
 cmake --build acs/Intermediate/vs --config Debug   -j
 cmake --build acs/Intermediate/vs --config Release -j
-# 2) regenerate acs.h + merge libs into dist/
+# 3) regenerate acs.h + merge libs into dist/
 powershell -ExecutionPolicy Bypass -File acs/scripts/build_single_header.ps1 -SelfTest
 powershell -ExecutionPolicy Bypass -File acs/scripts/build_single_header.ps1
-# 3) verify tracked header drift and naming/node conventions
+# 4) verify tracked header drift and naming/node conventions
 python acs/scripts/amalgamate.py --self-test
 python acs/scripts/amalgamate.py --check
 python acs/scripts/audit_cpp_conventions.py --root dist --scope .
-# 4) syntax-check the consumer
+# 5) syntax-check the consumer
 cl /nologo /Zs /std:c++20 /utf-8 /permissive- /Zc:__cplusplus /Zc:preprocessor /EHsc /GR- /D_HAS_EXCEPTIONS=1 /I dist dist/verification/consumer_contract.cpp
-# 5) configure, link, and execute a temporary Debug/Release consumer
+# 6) configure, link, and execute a temporary Debug/Release consumer
 python acs/scripts/run_distribution_consumer_smoke.py --distribution-root dist --configuration Debug --generator "Visual Studio 18 2026" --generator-platform x64
 python acs/scripts/run_distribution_consumer_smoke.py --distribution-root dist --configuration Release --generator "Visual Studio 18 2026" --generator-platform x64
 ```
@@ -170,14 +201,18 @@ normalizes drive roots, and the traversal identifies source files by filesystem
 identity, so a `subst` drive or another path alias cannot inline one header
 twice. `--self-test` covers this alias contract together with atomic replacement
 and symbolic-link/reparse-point rejection.
-`acs/scripts/build_single_header.ps1` runs it and merges the per-module
-`acs_*.lib` (+ bundled `imgui`/`lua`/`ufbx`/`mimalloc`) into one `acs.lib` per
-config, then requires and copies the adjacent Diligent/xxHash libraries.
+`acs/scripts/build_single_header.ps1` runs it and merges the fixed ACS module
+allowlist together with `imgui` and `mimalloc` into one `acs.lib` per config,
+then requires and copies the adjacent Diligent/xxHash libraries. The generator
+rejects a cache that enables an excluded backend and never discovers merge
+inputs through a wildcard, so stale optional module archives cannot enter the
+distribution.
 The merge uses a unique response file and a same-directory temporary library,
 publishing `acs.lib` only after `lib.exe` succeeds and the output is non-empty.
-その後、`ACS_DIST_SHA256_V1`形式の`acs-distribution.sha256`を、UTF-8 BOMなし、
-LF、相対path昇順、uppercase SHA-256で原子的に公開する。対象は`acs.h`と
-Debug/Releaseの全libraryであり、consumerは構成directory全体の同一性を検証できる。
+その後、`ACS_DIST_SHA256_V2`形式の`acs-distribution.sha256`を、UTF-8 BOMなし、
+LF、相対path昇順、uppercase SHA-256で原子的に公開する。manifest自身を除く
+README、`acs.h`、verification 2件、Debug/Releaseの全library、license 12件の
+exact44 fileが対象である。V1はlicenseを含む完全な同一性を証明できないため拒否する。
 単一構成だけを再生成した場合は既存manifestを失効させ、local stagingとして扱う。
 Debug/Releaseを同じ実行で再生成するまで`-Deploy`とnamed manifest公開は行えない。
 `-Deploy`はsource配布物を変更する前にdrive root、source/build/distとの物理的な重複、
@@ -190,11 +225,11 @@ SHA-256の完全一致を確認した後だけmanifestを原子的に置換し�
 再検証する。したがって、同size・同timestampの破損fileをrobocopyがskipした場合や
 junctionがある場合は旧manifestを変更せず失敗する。配布tree全体に`.exe`、`.obj`、
 `.pdb`、`.ilk`、一時file、正規28件以外の`.lib`など、正規file一覧にないものが
-残る場合も拒否する。`-SelfTest`はcanonical形式、改ざん、物理alias overlap、
+残る場合も拒否する。`-SelfTest`はcanonical形式、V1、改ざん、licenseの欠落・追加、物理alias overlap、
 drive・UNC・extended・volume GUID rootのparent停止点、actual volume root直下、
 repositoryがdrive rootまたはその直下にある場合の利用可能なparent chainと
 canonical/alias root拒否、欠落、stale file、build成果物、reader lock、skip、
-junction、mirrorの拒否契約も確認する。SUBST drive rootのcheckoutではdirectory pinの
+reparse入力、mirrorの拒否契約も確認する。SUBST drive rootのcheckoutではdirectory pinの
 物理final pathから実volumeを特定し、actual volume GUID root testを同じく完走させる。
 同じsource配布生成と同じdeploy先への並行writerは、親directoryとrootのvolume serial・
 file IDに基づくWindows global named mutexで待機せず拒否し、拒否時はpayloadとmanifestを
@@ -220,10 +255,11 @@ verified consumers reject it, and the next successful deployment repairs it.
 `run_distribution_consumer_smoke.py` creates a verified distribution snapshot,
 its CMake source, and its build tree only under the operating-system temporary
 directory. Before copying, it rejects reparse points and any file outside the
-fixed 33-file mirror. It then pins the root, all directories, and all files
-against rename or write, strictly parses the canonical 29-entry named manifest,
-and verifies every header/library hash. The selected configuration, `acs.h`,
-and the canonical `verification/consumer_contract.cpp` are copied into the snapshot. Configure,
+fixed 45-file and 7-directory mirror. It then pins the root, all directories,
+and all files against rename or write, strictly parses the canonical 44-entry
+V2 manifest, and verifies every non-manifest file hash. The selected
+configuration, `acs.h`, the canonical `verification/consumer_contract.cpp`,
+and all license files are copied into the snapshot. Configure,
 link, and execution use only that snapshot; the live SDK root is not read after
 snapshot creation. The three commands share one overall deadline. Each command
 runs below a Windows Job Object, so a timeout stops CMake/MSBuild and every

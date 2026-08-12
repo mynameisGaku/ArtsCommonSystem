@@ -2,7 +2,8 @@
 # 単一 header 版 ACS 配布物を dist/ へ再生成する:
 #   - dist/acs.h（amalgamate.py で生成）
 #   - dist/lib/x64/Debug/acs.lib と dist/lib/x64/Release/acs.lib
-#   - dist/acs-distribution.sha256（consumer が全 library を照合）
+#   - dist/Licenses/（productと依存のlicense/notice exact12）
+#   - dist/acs-distribution.sha256（consumer が全non-manifest fileを照合）
 # Configsは生成済みDebug/Release engineを選び、単一構成はlocal stagingだけを更新する。
 # Deployとnamed manifest公開は両構成を要求し、payload集合・size・SHA-256を照合する。
 # SelfTestはpath固定と原子的公開の安全契約を配布物生成なしで検証する。
@@ -17,7 +18,7 @@ $repo  = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $build = Join-Path $repo 'acs\Intermediate\vs'
 $dist  = Join-Path $repo 'dist'
 $distributionManifestName = 'acs-distribution.sha256'
-$distributionManifestSchema = 'ACS_DIST_SHA256_V1'
+$distributionManifestSchema = 'ACS_DIST_SHA256_V2'
 $distributionAdjacentLibraryNames = @(
     'Diligent-Archiver-static',
     'Diligent-BasicPlatform',
@@ -35,9 +36,56 @@ $distributionAdjacentLibraryNames = @(
 )
 $distributionLibraryNames = @('acs.lib') + @($distributionAdjacentLibraryNames | ForEach-Object { "$_.lib" })
 $distributionLibraryCountPerConfiguration = 14
-$distributionContractFileCount = 29
-$distributionStaticRelativePaths = @('README.md', 'acs.h', 'verification/build_consumer_contract.cmd', 'verification/consumer_contract.cpp')
-if ($distributionLibraryNames.Count -ne $distributionLibraryCountPerConfiguration -or 1 + (2 * $distributionLibraryNames.Count) -ne $distributionContractFileCount) {
+# 配布acs.libへ統合するACS module libraryの固定集合です。
+$distributionRequiredAcsLibraryNames = @(
+    'acs_foundation.lib', 'acs_threading.lib', 'acs_memory.lib',
+    'acs_subsystem.lib',
+    'acs_container.lib', 'acs_math.lib', 'acs_timing.lib', 'acs_platform.lib',
+    'acs_ecs.lib', 'acs_event.lib', 'acs_asset.lib', 'acs_render.lib',
+    'acs_app.lib', 'acs_audio.lib', 'acs_network.lib', 'acs_mvvm.lib',
+    'acs_ui.lib', 'acs_easy.lib', 'acs_assetpack.lib',
+    'acs_gameframework.lib', 'acs_collision.lib',
+    'acs_third_party_ufbx.lib', 'acs_imgui.lib'
+)
+# 配布対象外のbackendが残したarchiveを拒否する固定集合です。
+$distributionExcludedLibraryNames = @(
+    'acs_scripting.lib',
+    'acs_steamworks.lib',
+    'acs_mlonnx.lib',
+    'acs_openxr.lib'
+)
+$distributionLicenseRelativePaths = @(
+    'Licenses/ACS-License.txt',
+    'Licenses/ThirdParty/DXC-License.txt',
+    'Licenses/ThirdParty/DXC-ThirdPartyNotices.txt',
+    'Licenses/ThirdParty/DearImGui-License.txt',
+    'Licenses/ThirdParty/DiligentCore-License.txt',
+    'Licenses/ThirdParty/GPUOpenShaderUtils-License.txt',
+    'Licenses/ThirdParty/cgltf-License.txt',
+    'Licenses/ThirdParty/dr_libs-License.txt',
+    'Licenses/ThirdParty/mimalloc-License.txt',
+    'Licenses/ThirdParty/stb-License.txt',
+    'Licenses/ThirdParty/ufbx-License.txt',
+    'Licenses/ThirdParty/xxHash-License.txt'
+)
+$distributionStaticRelativePaths = @(
+    'README.md',
+    'acs.h',
+    'verification/build_consumer_contract.cmd',
+    'verification/consumer_contract.cpp'
+) + $distributionLicenseRelativePaths
+$distributionRelativeDirectories = @(
+    'Licenses',
+    'Licenses/ThirdParty',
+    'lib',
+    'lib/x64',
+    'lib/x64/Debug',
+    'lib/x64/Release',
+    'verification'
+)
+$distributionContractFileCount = 44
+$distributionTreeFileCount = 45
+if ($distributionLibraryNames.Count -ne $distributionLibraryCountPerConfiguration -or $distributionStaticRelativePaths.Count + (2 * $distributionLibraryNames.Count) -ne $distributionContractFileCount -or 1 + $distributionContractFileCount -ne $distributionTreeFileCount) {
     throw "配布libraryまたはmanifestの固定file数が一致しません"
 }
 
@@ -790,25 +838,43 @@ function Assert-NoReparseSubtree([string]$Root) {
 # dist全体を走査し、正規file以外が配布へ混入することを拒否する。
 function Assert-DistributionTreeAllowlist([string]$Root) {
     $normalizedRoot = Get-NormalizedFullPath $Root
-    $allowedPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $allowedRelativePaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $allowedRelativeDirectories = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($relativeDirectory in $distributionRelativeDirectories) {
+        $directoryPath = [System.IO.Path]::GetFullPath((Join-Path $normalizedRoot $relativeDirectory))
+        if (-not (Test-Path -LiteralPath $directoryPath -PathType Container)) {
+            throw "ACS配布treeの必須directoryがありません: $directoryPath"
+        }
+        $allowedRelativeDirectories.Add($relativeDirectory) | Out-Null
+    }
     foreach ($staticRelativePath in $distributionStaticRelativePaths) {
         $staticPath = [System.IO.Path]::GetFullPath((Join-Path $normalizedRoot $staticRelativePath))
         if (-not (Test-Path -LiteralPath $staticPath -PathType Leaf) -or (Get-Item -LiteralPath $staticPath).Length -le 0) {
             throw "ACS配布treeの必須fileがありません: $staticPath"
         }
-        $allowedPaths.Add($staticPath) | Out-Null
+        $allowedRelativePaths.Add($staticRelativePath) | Out-Null
     }
-    $allowedPaths.Add([System.IO.Path]::GetFullPath((Join-Path $normalizedRoot $distributionManifestName))) | Out-Null
+    $allowedRelativePaths.Add($distributionManifestName) | Out-Null
     foreach ($configurationName in @('Debug', 'Release')) {
         foreach ($libraryName in $distributionLibraryNames) {
-            $allowedLibraryPath = Join-Path $normalizedRoot "lib\x64\$configurationName\$libraryName"
-            $allowedPaths.Add([System.IO.Path]::GetFullPath($allowedLibraryPath)) | Out-Null
+            $allowedRelativePaths.Add("lib/x64/$configurationName/$libraryName") | Out-Null
         }
     }
     foreach ($filePath in Get-RegularFilesWithoutReparse $normalizedRoot) {
-        if (-not $allowedPaths.Contains([System.IO.Path]::GetFullPath($filePath))) {
+        $relativePath = Get-AcsDistributionRelativePath $normalizedRoot $filePath
+        if (-not $allowedRelativePaths.Contains($relativePath)) {
             throw "ACS配布treeへ正規file以外が混入しています: $filePath"
         }
+    }
+    $actualDirectories = @(Get-ChildItem -LiteralPath $normalizedRoot -Directory -Recurse -Force)
+    foreach ($directoryItem in $actualDirectories) {
+        $relativeDirectory = Get-AcsDistributionRelativePath $normalizedRoot $directoryItem.FullName
+        if (-not $allowedRelativeDirectories.Contains($relativeDirectory)) {
+            throw "ACS配布treeへ正規directory以外が混入しています: $($directoryItem.FullName)"
+        }
+    }
+    if ($actualDirectories.Count -ne $distributionRelativeDirectories.Count) {
+        throw "ACS配布treeのdirectory数が正規7件と一致しません"
     }
 }
 
@@ -834,6 +900,105 @@ function Publish-FileAtomically([string]$TemporaryPath, [string]$DestinationPath
     }
 }
 
+# productと依存7 rootから、配布するlicense原本exact12を固定順で返す。
+function Get-AcsDistributionLicenseSources {
+    $dependencyRoot = Join-Path $build '_deps'
+    $productRoot = Join-Path $repo 'acs'
+    $specifications = @(
+        [pscustomobject]@{ RelativePath = 'Licenses/ACS-License.txt'; AcceptedRoot = $productRoot; SourcePath = (Join-Path $productRoot 'LICENSE'); ExpectedBytes = 11327; ExpectedSha256 = '5BECCD5119B611230B171652C6BC397B763BE034006355E87885525C3523C97F' }
+        [pscustomobject]@{ RelativePath = 'Licenses/ThirdParty/DXC-License.txt'; AcceptedRoot = (Join-Path $dependencyRoot 'acs_diligent_core-src'); SourcePath = (Join-Path $dependencyRoot 'acs_diligent_core-src\ThirdParty\DirectXShaderCompiler\LICENSE.TXT'); ExpectedBytes = 3351; ExpectedSha256 = '49D19A136A77BC5802A366B94120CAAB58A0E4BE587C3530CF3D57AA587AA528' }
+        [pscustomobject]@{ RelativePath = 'Licenses/ThirdParty/DXC-ThirdPartyNotices.txt'; AcceptedRoot = (Join-Path $dependencyRoot 'acs_diligent_core-src'); SourcePath = (Join-Path $dependencyRoot 'acs_diligent_core-src\ThirdParty\DirectXShaderCompiler\ThirdPartyNotices.txt'); ExpectedBytes = 11504; ExpectedSha256 = '87539FDC00B6350520942DBB0683C56ACBA5E38F5DDBCDED046A6958A1386188' }
+        [pscustomobject]@{ RelativePath = 'Licenses/ThirdParty/DearImGui-License.txt'; AcceptedRoot = (Join-Path $dependencyRoot 'imgui_src-src'); SourcePath = (Join-Path $dependencyRoot 'imgui_src-src\LICENSE.txt'); ExpectedBytes = 1104; ExpectedSha256 = '44ABF9B2498D127928ABB6E23B4CDA06F6EC3577B34B0C9D4D0672F38B3D6293' }
+        [pscustomobject]@{ RelativePath = 'Licenses/ThirdParty/DiligentCore-License.txt'; AcceptedRoot = (Join-Path $dependencyRoot 'acs_diligent_core-src'); SourcePath = (Join-Path $dependencyRoot 'acs_diligent_core-src\License.txt'); ExpectedBytes = 10349; ExpectedSha256 = '6D1D968FB225ECA367CB7F0B8831AB012A35D92B547E945E17EF8E7B05C3E5CC' }
+        [pscustomobject]@{ RelativePath = 'Licenses/ThirdParty/GPUOpenShaderUtils-License.txt'; AcceptedRoot = (Join-Path $dependencyRoot 'acs_diligent_core-src'); SourcePath = (Join-Path $dependencyRoot 'acs_diligent_core-src\ThirdParty\GPUOpenShaderUtils\License.txt'); ExpectedBytes = 1116; ExpectedSha256 = 'F7367EBB0B4CC04B8102F0CA95F55ADCA7329B9AC2FCFB221339A45A5272EF86' }
+        [pscustomobject]@{ RelativePath = 'Licenses/ThirdParty/cgltf-License.txt'; AcceptedRoot = (Join-Path $dependencyRoot 'acs_cgltf-src'); SourcePath = (Join-Path $dependencyRoot 'acs_cgltf-src\LICENSE'); ExpectedBytes = 1073; ExpectedSha256 = '49AA274374181A398D96848BE001E1773B6929119E4DD9600C4A281012171154' }
+        [pscustomobject]@{ RelativePath = 'Licenses/ThirdParty/dr_libs-License.txt'; AcceptedRoot = (Join-Path $dependencyRoot 'acs_drlibs-src'); SourcePath = (Join-Path $dependencyRoot 'acs_drlibs-src\LICENSE'); ExpectedBytes = 2645; ExpectedSha256 = 'A13603628866863F196C0201891A6DCC8062481E83B5D686F34CF9E45CEEC899' }
+        [pscustomobject]@{ RelativePath = 'Licenses/ThirdParty/mimalloc-License.txt'; AcceptedRoot = (Join-Path $dependencyRoot 'acs_mimalloc-src'); SourcePath = (Join-Path $dependencyRoot 'acs_mimalloc-src\LICENSE'); ExpectedBytes = 1096; ExpectedSha256 = '82ADE5D7D9B029044B5FBBC326207FC47C2D44EE4DD71E8A559C36D728217DE9' }
+        [pscustomobject]@{ RelativePath = 'Licenses/ThirdParty/stb-License.txt'; AcceptedRoot = (Join-Path $dependencyRoot 'acs_stb-src'); SourcePath = (Join-Path $dependencyRoot 'acs_stb-src\LICENSE'); ExpectedBytes = 2547; ExpectedSha256 = '11DD149DBC50748419A22FCEC275B5BCFB4C2D86D9FBA8802E5C4FFD40C94609' }
+        [pscustomobject]@{ RelativePath = 'Licenses/ThirdParty/ufbx-License.txt'; AcceptedRoot = (Join-Path $dependencyRoot 'acs_ufbx-src'); SourcePath = (Join-Path $dependencyRoot 'acs_ufbx-src\LICENSE'); ExpectedBytes = 2670; ExpectedSha256 = 'E52669716973273FB77033552CF6D8DBB88D3DAD8600FA4D78088A5F92B3FD65' }
+        [pscustomobject]@{ RelativePath = 'Licenses/ThirdParty/xxHash-License.txt'; AcceptedRoot = (Join-Path $dependencyRoot 'acs_diligent_core-src'); SourcePath = (Join-Path $dependencyRoot 'acs_diligent_core-src\ThirdParty\xxHash\LICENSE'); ExpectedBytes = 1389; ExpectedSha256 = '6FFEDBC0F7878612D2B23589F1FF2AB15633E1DF7963A5D9FC750EC5500C7E7A' }
+    )
+    if ($specifications.Count -ne $distributionLicenseRelativePaths.Count) {
+        throw "license原本の固定件数が一致しません"
+    }
+
+    $records = [System.Collections.Generic.List[object]]::new()
+    for ($licenseIndex = 0; $licenseIndex -lt $specifications.Count; ++$licenseIndex) {
+        $specification = $specifications[$licenseIndex]
+        if ($specification.RelativePath -cne $distributionLicenseRelativePaths[$licenseIndex]) {
+            throw "license出力pathの固定順が一致しません: $($specification.RelativePath)"
+        }
+        $acceptedRoot = Get-NormalizedFullPath $specification.AcceptedRoot
+        $sourcePath = Get-NormalizedFullPath $specification.SourcePath
+        $acceptedPrefix = $acceptedRoot + [System.IO.Path]::DirectorySeparatorChar
+        if (-not $sourcePath.StartsWith($acceptedPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "license原本が受理済みrootの外です: $sourcePath"
+        }
+        Assert-NoReparseAncestor $acceptedRoot
+        Assert-NoReparseAncestor $sourcePath
+        if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+            throw "license原本がありません: $sourcePath"
+        }
+        $sourceItem = Get-Item -LiteralPath $sourcePath -Force
+        if (($sourceItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 -or $sourceItem.Length -le 0) {
+            throw "license原本が通常の非空fileではありません: $sourcePath"
+        }
+        $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToUpperInvariant()
+        $sourceBytes = [System.IO.File]::ReadAllBytes($sourcePath)
+        if ($sourceItem.Length -ne $specification.ExpectedBytes -or $sourceHash -cne $specification.ExpectedSha256) {
+            throw "license原本が固定byte契約と一致しません: $sourcePath"
+        }
+        if ($sourceBytes.Length -ne $sourceItem.Length -or (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToUpperInvariant() -cne $sourceHash) {
+            throw "license原本が検証中に変化しました: $sourcePath"
+        }
+        $records.Add([pscustomobject]@{ RelativePath = $specification.RelativePath; SourcePath = $sourcePath; Bytes = $sourceBytes; Sha256 = $sourceHash })
+    }
+    return @($records)
+}
+
+# 検証済みlicense原本をbyte列のまま公開し、出力hashを原本と照合する。
+function Publish-AcsDistributionLicenses([string]$Root) {
+    $normalizedRoot = Get-NormalizedFullPath $Root
+    $sourceRecords = @(Get-AcsDistributionLicenseSources)
+    foreach ($licenseDirectory in @('Licenses', 'Licenses/ThirdParty')) {
+        $directoryPath = Join-Path $normalizedRoot $licenseDirectory
+        Assert-NoReparseAncestor $directoryPath
+        [System.IO.Directory]::CreateDirectory($directoryPath) | Out-Null
+        Assert-NoReparseAncestor $directoryPath
+    }
+    foreach ($sourceRecord in $sourceRecords) {
+        $destinationPath = Join-Path $normalizedRoot $sourceRecord.RelativePath
+        $temporaryPath = Join-Path (Get-AcsParentPath $destinationPath) ('.acs.license.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+        try {
+            [System.IO.File]::WriteAllBytes($temporaryPath, $sourceRecord.Bytes)
+            Publish-FileAtomically $temporaryPath $destinationPath
+            $temporaryPath = ''
+        } finally {
+            if ($temporaryPath -and (Test-Path -LiteralPath $temporaryPath -PathType Leaf)) {
+                Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+            }
+        }
+        if ((Get-Item -LiteralPath $destinationPath).Length -ne $sourceRecord.Bytes.Length -or (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash.ToUpperInvariant() -cne $sourceRecord.Sha256) {
+            throw "license出力が原本byte列と一致しません: $($sourceRecord.RelativePath)"
+        }
+    }
+    Write-Host "    license原本 $($sourceRecords.Count)/$($sourceRecords.Count) 件をbyte単位で同梱"
+}
+
+# Git checkoutがライセンス原本を改行変換しない属性契約を確認する。
+function Assert-AcsDistributionLicenseGitAttributeContract {
+    $attributePath = Join-Path $repo '.gitattributes'
+    if (-not (Test-Path -LiteralPath $attributePath -PathType Leaf)) {
+        throw "Git属性fileがありません: $attributePath"
+    }
+    $attributeText = [System.IO.File]::ReadAllText($attributePath, [System.Text.UTF8Encoding]::new($false)).Replace("`r`n", "`n")
+    $activeLines = @($attributeText -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
+    $licenseAttributeLines = @($activeLines | Where-Object { $_ -ceq 'dist/Licenses/** -text -diff' })
+    if ($licenseAttributeLines.Count -ne 1) {
+        throw "配布ライセンスのGit byte保持属性がexact1ではありません"
+    }
+}
+
 # 配布root配下の絶対pathを、manifest用のスラッシュ区切り相対pathへ変換する。
 function Get-AcsDistributionRelativePath([string]$Root, [string]$Path) {
     $normalizedRoot = Get-NormalizedFullPath $Root
@@ -845,21 +1010,23 @@ function Get-AcsDistributionRelativePath([string]$Root, [string]$Path) {
     return $normalizedPath.Substring($rootPrefix.Length).Replace('\', '/')
 }
 
-# CardGame verifierと同じheaderおよびDebug/Release library全件を列挙する。
+# manifest対象の非manifest file exact44を列挙する。
 function Get-AcsDistributionContractFiles([string]$Root) {
     $normalizedRoot = Get-NormalizedFullPath $Root
     Assert-NoReparseSubtree $normalizedRoot
     Assert-DistributionTreeAllowlist $normalizedRoot
 
-    $headerPath = Join-Path $normalizedRoot 'acs.h'
     $debugLibraryDirectory = Join-Path $normalizedRoot 'lib\x64\Debug'
     $releaseLibraryDirectory = Join-Path $normalizedRoot 'lib\x64\Release'
     $filesByRelativePath = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    if (-not (Test-Path -LiteralPath $headerPath -PathType Leaf) -or (Get-Item -LiteralPath $headerPath).Length -le 0) {
-        throw "ACS配布manifestの必須fileがありません: $headerPath"
-    }
     $candidateFiles = [System.Collections.Generic.List[string]]::new()
-    $candidateFiles.Add($headerPath)
+    foreach ($staticRelativePath in $distributionStaticRelativePaths) {
+        $staticPath = Join-Path $normalizedRoot $staticRelativePath
+        if (-not (Test-Path -LiteralPath $staticPath -PathType Leaf) -or (Get-Item -LiteralPath $staticPath).Length -le 0) {
+            throw "ACS配布manifestの必須fileがありません: $staticPath"
+        }
+        $candidateFiles.Add($staticPath)
+    }
     foreach ($libraryDirectory in @($debugLibraryDirectory, $releaseLibraryDirectory)) {
         if (-not (Test-Path -LiteralPath $libraryDirectory -PathType Container)) {
             throw "ACS配布manifestの必須directoryがありません: $libraryDirectory"
@@ -892,7 +1059,7 @@ function Get-AcsDistributionContractFiles([string]$Root) {
         $filesByRelativePath.Add($relativePath, [System.IO.Path]::GetFullPath($candidatePath))
     }
     if ($filesByRelativePath.Count -ne $distributionContractFileCount) {
-        throw "ACS配布manifestのfile数が正規29件と一致しません: $($filesByRelativePath.Count)"
+        throw "ACS配布manifestのfile数が正規44件と一致しません: $($filesByRelativePath.Count)"
     }
 
     $relativePaths = [string[]]@($filesByRelativePath.Keys)
@@ -1343,6 +1510,67 @@ function Resolve-AcsExistingPhysicalAlias([string]$Path, [string]$DriveRoot, [st
     throw "self-testの既存physical alias providerを確保できません: $normalizedPath"
 }
 
+# 配布へ含める描画backendを有効化するCMakeCacheの項目です。
+$distributionRequiredOnCacheFlags = @(
+    'ACS_RENDER_DX12_RAW',
+    'ACS_RENDER_DILIGENT',
+    'ACS_Render_DX12_RAW',
+    'ACS_Render_DILIGENT'
+)
+# 配布対象外の追加backendを無効化するCMakeCacheの項目です。
+$distributionRequiredOffCacheFlags = @(
+    'ACS_BUILD_SCRIPTING',
+    'ACS_BUILD_STEAMWORKS',
+    'ACS_BUILD_ML_ONNX',
+    'ACS_BUILD_OPENXR',
+    'ACS_DILIGENT_VULKAN'
+)
+
+# CMakeCacheの配布対象backendをexact1かつ所定値で要求する。
+function Assert-AcsDistributionBuildConfiguration([string]$CachePath) {
+    Assert-NoReparseAncestor $CachePath
+    if (-not (Test-Path -LiteralPath $CachePath -PathType Leaf)) {
+        throw "配布生成元のCMakeCacheがありません: $CachePath"
+    }
+    $cacheLines = [System.IO.File]::ReadAllLines($CachePath)
+    foreach ($requiredFlag in $distributionRequiredOnCacheFlags) {
+        $flagPrefix = "$requiredFlag`:BOOL="
+        $flagLines = @($cacheLines | Where-Object { $_.StartsWith($flagPrefix, [System.StringComparison]::Ordinal) })
+        if ($flagLines.Count -ne 1 -or $flagLines[0] -cne "${requiredFlag}:BOOL=ON") {
+            throw "配布生成にはRAW DX12とDiligentを同時に有効化したexact cacheが必要です: $requiredFlag"
+        }
+    }
+    foreach ($requiredFlag in $distributionRequiredOffCacheFlags) {
+        $flagPrefix = "$requiredFlag`:BOOL="
+        $flagLines = @($cacheLines | Where-Object { $_.StartsWith($flagPrefix, [System.StringComparison]::Ordinal) })
+        if ($flagLines.Count -ne 1 -or $flagLines[0] -cne "${requiredFlag}:BOOL=OFF") {
+            throw "配布対象外のbackendを無効化したexact cacheが必要です: $requiredFlag"
+        }
+    }
+}
+
+# 各構成でACSのImGui adapterと上流ImGui libraryを必須入力として検証する。
+function Assert-AcsRawImguiLibraries([string]$LibraryDirectory) {
+    foreach ($requiredLibraryName in @('acs_imgui.lib', 'imgui.lib')) {
+        $requiredLibraryPath = Join-Path $LibraryDirectory $requiredLibraryName
+        Assert-NoReparseAncestor $requiredLibraryPath
+        if (-not (Test-Path -LiteralPath $requiredLibraryPath -PathType Leaf) -or (Get-Item -LiteralPath $requiredLibraryPath).Length -le 0) {
+            throw "RAW DX12配布の必須libraryがありません: $requiredLibraryPath"
+        }
+    }
+}
+
+# 無効化したbackendのstale archiveが構成出力に残っていないことを検証する。
+function Assert-AcsExcludedDistributionLibraries([string]$LibraryDirectory) {
+    foreach ($excludedLibraryName in $distributionExcludedLibraryNames) {
+        $excludedLibraryPath = Join-Path $LibraryDirectory $excludedLibraryName
+        Assert-NoReparseAncestor $excludedLibraryPath
+        if (Test-Path -LiteralPath $excludedLibraryPath) {
+            throw "配布対象外backendのstale libraryがあります: $excludedLibraryPath"
+        }
+    }
+}
+
 function Invoke-PipelineSelfTest {
     $driveRoot = Get-AcsPathRoot (Get-NormalizedFullPath $repo)
     if ($driveRoot -notmatch '^([A-Za-z]):\\$') {
@@ -1611,6 +1839,63 @@ function Invoke-PipelineSelfTest {
     }
     New-Item -ItemType Directory -Force -Path $testDirectory | Out-Null
     try {
+        $cacheFixture = Join-Path $testDirectory 'CMakeCache.txt'
+        $validCacheLines = @($distributionRequiredOnCacheFlags | ForEach-Object { "${_}:BOOL=ON" }) + @($distributionRequiredOffCacheFlags | ForEach-Object { "${_}:BOOL=OFF" })
+        [System.IO.File]::WriteAllLines($cacheFixture, $validCacheLines, [System.Text.UTF8Encoding]::new($false))
+        Assert-AcsDistributionBuildConfiguration $cacheFixture
+        foreach ($requiredFlag in $distributionRequiredOnCacheFlags) {
+            $invalidCacheLines = @($validCacheLines | ForEach-Object { if ($_.StartsWith("$requiredFlag`:", [System.StringComparison]::Ordinal)) { "${requiredFlag}:BOOL=OFF" } else { $_ } })
+            [System.IO.File]::WriteAllLines($cacheFixture, $invalidCacheLines, [System.Text.UTF8Encoding]::new($false))
+            Assert-ExpectedFailure {
+                Assert-AcsDistributionBuildConfiguration $cacheFixture
+            } "disabled distribution build flag $requiredFlag"
+        }
+        foreach ($requiredFlag in $distributionRequiredOffCacheFlags) {
+            $invalidCacheLines = @($validCacheLines | ForEach-Object { if ($_.StartsWith("$requiredFlag`:", [System.StringComparison]::Ordinal)) { "${requiredFlag}:BOOL=ON" } else { $_ } })
+            [System.IO.File]::WriteAllLines($cacheFixture, $invalidCacheLines, [System.Text.UTF8Encoding]::new($false))
+            Assert-ExpectedFailure {
+                Assert-AcsDistributionBuildConfiguration $cacheFixture
+            } "enabled excluded build flag $requiredFlag"
+        }
+        foreach ($requiredFlag in @($distributionRequiredOnCacheFlags) + @($distributionRequiredOffCacheFlags)) {
+            $missingCacheLines = @($validCacheLines | Where-Object { -not $_.StartsWith("$requiredFlag`:", [System.StringComparison]::Ordinal) })
+            [System.IO.File]::WriteAllLines($cacheFixture, $missingCacheLines, [System.Text.UTF8Encoding]::new($false))
+            Assert-ExpectedFailure {
+                Assert-AcsDistributionBuildConfiguration $cacheFixture
+            } "missing distribution build flag $requiredFlag"
+            $invalidCacheLines = @($validCacheLines | ForEach-Object { if ($_.StartsWith("$requiredFlag`:", [System.StringComparison]::Ordinal)) { "${requiredFlag}:BOOL=INVALID" } else { $_ } })
+            [System.IO.File]::WriteAllLines($cacheFixture, $invalidCacheLines, [System.Text.UTF8Encoding]::new($false))
+            Assert-ExpectedFailure {
+                Assert-AcsDistributionBuildConfiguration $cacheFixture
+            } "invalid distribution build flag $requiredFlag"
+        }
+        [System.IO.File]::WriteAllLines($cacheFixture, $validCacheLines, [System.Text.UTF8Encoding]::new($false))
+
+        $imguiLibraryFixture = Join-Path $testDirectory 'imgui-libraries'
+        New-Item -ItemType Directory -Path $imguiLibraryFixture | Out-Null
+        foreach ($requiredLibraryName in @('acs_imgui.lib', 'imgui.lib')) {
+            [System.IO.File]::WriteAllText((Join-Path $imguiLibraryFixture $requiredLibraryName), "fixture-$requiredLibraryName")
+        }
+        Assert-AcsRawImguiLibraries $imguiLibraryFixture
+        foreach ($missingLibraryName in @('acs_imgui.lib', 'imgui.lib')) {
+            $missingLibraryPath = Join-Path $imguiLibraryFixture $missingLibraryName
+            $missingLibraryBytes = [System.IO.File]::ReadAllBytes($missingLibraryPath)
+            [System.IO.File]::Delete($missingLibraryPath)
+            Assert-ExpectedFailure {
+                Assert-AcsRawImguiLibraries $imguiLibraryFixture
+            } "missing RAW DX12 library $missingLibraryName"
+            [System.IO.File]::WriteAllBytes($missingLibraryPath, $missingLibraryBytes)
+        }
+        Assert-AcsExcludedDistributionLibraries $imguiLibraryFixture
+        foreach ($excludedLibraryName in $distributionExcludedLibraryNames) {
+            $excludedLibraryPath = Join-Path $imguiLibraryFixture $excludedLibraryName
+            [System.IO.File]::WriteAllText($excludedLibraryPath, "stale-$excludedLibraryName")
+            Assert-ExpectedFailure {
+                Assert-AcsExcludedDistributionLibraries $imguiLibraryFixture
+            } "stale excluded library $excludedLibraryName"
+            [System.IO.File]::Delete($excludedLibraryPath)
+        }
+
         $destination = Join-Path $testDirectory 'acs.lib'
         $temporary = Join-Path $testDirectory '.new.lib'
         [System.IO.File]::WriteAllText($destination, 'old')
@@ -1694,13 +1979,18 @@ function Invoke-PipelineSelfTest {
         $debugManifestDirectory = Join-Path $manifestSource 'lib\x64\Debug'
         $releaseManifestDirectory = Join-Path $manifestSource 'lib\x64\Release'
         $manifestVerificationDirectory = Join-Path $manifestSource 'verification'
+        $manifestLicenseDirectory = Join-Path $manifestSource 'Licenses\ThirdParty'
         New-Item -ItemType Directory -Force -Path $debugManifestDirectory | Out-Null
         New-Item -ItemType Directory -Force -Path $releaseManifestDirectory | Out-Null
         New-Item -ItemType Directory -Force -Path $manifestVerificationDirectory | Out-Null
+        New-Item -ItemType Directory -Force -Path $manifestLicenseDirectory | Out-Null
         [System.IO.File]::WriteAllText((Join-Path $manifestSource 'README.md'), 'fixture-readme')
         [System.IO.File]::WriteAllText((Join-Path $manifestSource 'acs.h'), 'fixture-header')
         [System.IO.File]::WriteAllText((Join-Path $manifestVerificationDirectory 'build_consumer_contract.cmd'), 'fixture-build')
         [System.IO.File]::WriteAllText((Join-Path $manifestVerificationDirectory 'consumer_contract.cpp'), 'fixture-source')
+        foreach ($licenseRelativePath in $distributionLicenseRelativePaths) {
+            [System.IO.File]::WriteAllText((Join-Path $manifestSource $licenseRelativePath), "fixture-$licenseRelativePath")
+        }
         $configurationFixtures = @(
             [pscustomobject]@{ Name = 'Debug'; Directory = $debugManifestDirectory }
             [pscustomobject]@{ Name = 'Release'; Directory = $releaseManifestDirectory }
@@ -1717,6 +2007,28 @@ function Invoke-PipelineSelfTest {
 
         Publish-AcsDistributionManifest $manifestSource
         Assert-AcsDistributionManifest $manifestSource
+
+        $canonicalLicenseDirectory = Join-Path $manifestSource 'Licenses'
+        $temporaryLicenseDirectory = Join-Path $manifestSource 'Licenses-case-temporary'
+        $caseVariantLicenseDirectory = Join-Path $manifestSource 'licenses'
+        [System.IO.Directory]::Move($canonicalLicenseDirectory, $temporaryLicenseDirectory)
+        [System.IO.Directory]::Move($temporaryLicenseDirectory, $caseVariantLicenseDirectory)
+        Assert-ExpectedFailure {
+            Assert-AcsDistributionManifest $manifestSource
+        } 'case-variant distribution directory'
+        [System.IO.Directory]::Move($caseVariantLicenseDirectory, $temporaryLicenseDirectory)
+        [System.IO.Directory]::Move($temporaryLicenseDirectory, $canonicalLicenseDirectory)
+
+        $canonicalLicensePath = Join-Path $manifestSource 'Licenses\ACS-License.txt'
+        $temporaryLicensePath = Join-Path $manifestSource 'Licenses\ACS-License-case-temporary.txt'
+        $caseVariantLicensePath = Join-Path $manifestSource 'Licenses\acs-license.txt'
+        [System.IO.File]::Move($canonicalLicensePath, $temporaryLicensePath)
+        [System.IO.File]::Move($temporaryLicensePath, $caseVariantLicensePath)
+        Assert-ExpectedFailure {
+            Assert-AcsDistributionManifest $manifestSource
+        } 'case-variant distribution file'
+        [System.IO.File]::Move($caseVariantLicensePath, $temporaryLicensePath)
+        [System.IO.File]::Move($temporaryLicensePath, $canonicalLicensePath)
 
         # Enter後にmutex非協調processがrootを作った場合も、ensure後にidentity lockを必ず重ねる。
         $externalCreationRoot = Join-Path $testDirectory 'external-root'
@@ -2048,7 +2360,9 @@ function Invoke-PipelineSelfTest {
             $actualManifestPaths.Add($manifestMatch.Groups[1].Value)
         }
         $expectedManifestPaths = [System.Collections.Generic.List[string]]::new()
-        $expectedManifestPaths.Add('acs.h')
+        foreach ($staticRelativePath in $distributionStaticRelativePaths) {
+            $expectedManifestPaths.Add($staticRelativePath)
+        }
         foreach ($configurationName in @('Debug', 'Release')) {
             foreach ($libraryName in $distributionLibraryNames) {
                 $expectedManifestPaths.Add("lib/x64/$configurationName/$libraryName")
@@ -2056,7 +2370,7 @@ function Invoke-PipelineSelfTest {
         }
         $expectedManifestPaths.Sort([System.StringComparer]::Ordinal)
         if ($actualManifestPaths.Count -ne $distributionContractFileCount) {
-            throw "self-testのmanifest entry数が29件ではありません"
+            throw "self-testのmanifest entry数が44件ではありません"
         }
         if ([string]::Join("`n", [string[]]$actualManifestPaths) -cne [string]::Join("`n", [string[]]$expectedManifestPaths)) {
             throw "self-testのmanifest path順序が一致しません"
@@ -2067,6 +2381,12 @@ function Invoke-PipelineSelfTest {
         Assert-ExpectedFailure {
             Assert-AcsDistributionManifest $manifestSource
         } 'tampered distribution manifest'
+        [System.IO.File]::WriteAllBytes($manifestPath, $validManifestBytes)
+
+        [System.IO.File]::WriteAllText($manifestPath, "ACS_DIST_SHA256_V1`n" + [string]::Join("`n", $manifestLines[1..($manifestLines.Count - 2)]) + "`n", [System.Text.UTF8Encoding]::new($false))
+        Assert-ExpectedFailure {
+            Assert-AcsDistributionManifest $manifestSource
+        } 'V1 distribution manifest'
         [System.IO.File]::WriteAllBytes($manifestPath, $validManifestBytes)
 
         Remove-Item -LiteralPath $manifestPath -Force
@@ -2102,6 +2422,13 @@ function Invoke-PipelineSelfTest {
         } 'unexpected ignored distribution artifact outside libraries'
         Remove-Item -LiteralPath $ignoredArtifactPath -Force
 
+        $unexpectedDirectoryPath = Join-Path $manifestSource 'unexpected-directory'
+        New-Item -ItemType Directory -Path $unexpectedDirectoryPath | Out-Null
+        Assert-ExpectedFailure {
+            Publish-AcsDistributionManifest $manifestSource
+        } 'unexpected distribution directory'
+        Remove-Item -LiteralPath $unexpectedDirectoryPath -Force
+
         $requiredContractPath = Join-Path $manifestVerificationDirectory 'consumer_contract.cpp'
         $requiredContractBytes = [System.IO.File]::ReadAllBytes($requiredContractPath)
         Remove-Item -LiteralPath $requiredContractPath -Force
@@ -2109,6 +2436,28 @@ function Invoke-PipelineSelfTest {
             Publish-AcsDistributionManifest $manifestSource
         } 'missing required distribution consumer contract'
         [System.IO.File]::WriteAllBytes($requiredContractPath, $requiredContractBytes)
+
+        foreach ($licenseRelativePath in $distributionLicenseRelativePaths) {
+            $licensePath = Join-Path $manifestSource $licenseRelativePath
+            $licenseBytes = [System.IO.File]::ReadAllBytes($licensePath)
+            Remove-Item -LiteralPath $licensePath -Force
+            Assert-ExpectedFailure {
+                Publish-AcsDistributionManifest $manifestSource
+            } "missing required distribution license $licenseRelativePath"
+            [System.IO.File]::WriteAllBytes($licensePath, $licenseBytes)
+
+            [System.IO.File]::WriteAllText($licensePath, 'tampered-license')
+            Assert-ExpectedFailure {
+                Assert-AcsDistributionManifest $manifestSource
+            } "tampered required distribution license $licenseRelativePath"
+            [System.IO.File]::WriteAllBytes($licensePath, $licenseBytes)
+        }
+        $renamedLicensePath = Join-Path $manifestLicenseDirectory 'renamed-License.txt'
+        [System.IO.File]::WriteAllText($renamedLicensePath, 'renamed-license')
+        Assert-ExpectedFailure {
+            Publish-AcsDistributionManifest $manifestSource
+        } 'renamed distribution license'
+        Remove-Item -LiteralPath $renamedLicensePath -Force
 
         $missingAdjacentLibraryPath = Join-Path $releaseManifestDirectory 'Diligent-Common.lib'
         $missingAdjacentLibraryBytes = [System.IO.File]::ReadAllBytes($missingAdjacentLibraryPath)
@@ -2241,7 +2590,7 @@ function Invoke-PipelineSelfTest {
         if ($remainingManifestTemporaries.Count -ne 0) {
             throw "self-testのmanifest一時fileが残っています"
         }
-        Write-Host 'acs_distribution_manifest_self_test=ok cases=canonical,tamper,missing,stale,extra,partial,source_lock,destination_lock,alias_lock,self_deploy,physical_overlap,nested_transition,external_create,migration_rollback,root_normalization,root_parent,direct_root,volume_root,abandoned,cleanup,permission,root_identity,skip,reader_lock,native_final_path,mirror'
+        Write-Host 'acs_distribution_manifest_self_test=ok cases=canonical,case,tamper,missing,stale,extra,partial,source_lock,destination_lock,alias_lock,self_deploy,physical_overlap,nested_transition,external_create,migration_rollback,root_normalization,root_parent,direct_root,volume_root,abandoned,cleanup,permission,root_identity,skip,reader_lock,native_final_path,mirror'
     } finally {
         Stop-AcsOperationLockHolder $sourceLockHolder
         Stop-AcsOperationLockHolder $destinationLockHolder
@@ -2250,9 +2599,21 @@ function Invoke-PipelineSelfTest {
     Write-Host "単一 header 配布 pipeline self-test passed"
 }
 
+Assert-AcsDistributionLicenseGitAttributeContract
 if ($SelfTest) {
     Invoke-PipelineSelfTest
     return
+}
+
+# 配布元を変更する前に、RAW DX12とDiligentを同時に含むbuildだけを受け入れる。
+Assert-AcsDistributionBuildConfiguration (Join-Path $build 'CMakeCache.txt')
+foreach ($configToValidate in $Configs) {
+    $libraryDirectoryToValidate = Join-Path $build $configToValidate
+    if (-not (Test-Path -LiteralPath $libraryDirectoryToValidate -PathType Container)) {
+        throw "要求された構成 $configToValidate は未ビルドです: $libraryDirectoryToValidate"
+    }
+    Assert-AcsRawImguiLibraries $libraryDirectoryToValidate
+    Assert-AcsExcludedDistributionLibraries $libraryDirectoryToValidate
 }
 
 # 危険なdeploy先はsource distを含む任意の配布物を変更する前に拒否する。
@@ -2303,31 +2664,21 @@ if ($LASTEXITCODE -ne 0) {
     throw "dist/acs.h の生成に失敗しました (exit=$LASTEXITCODE)"
 }
 
-# 2) 構成ごとに library を統合する。
-$requiredAcsLibraries = @(
-    'acs_foundation.lib', 'acs_threading.lib', 'acs_memory.lib',
-    'acs_subsystem.lib',
-    'acs_container.lib', 'acs_math.lib', 'acs_timing.lib', 'acs_platform.lib',
-    'acs_ecs.lib', 'acs_event.lib', 'acs_asset.lib', 'acs_render.lib',
-    'acs_app.lib', 'acs_audio.lib', 'acs_network.lib', 'acs_mvvm.lib',
-    'acs_ui.lib', 'acs_easy.lib', 'acs_assetpack.lib',
-    'acs_gameframework.lib', 'acs_collision.lib',
-    'acs_third_party_ufbx.lib'
-)
+# 2) productと依存7 rootのlicense exact12をbyte単位で同梱する。
+Write-Host "==> dist/Licenses を生成"
+Publish-AcsDistributionLicenses $dist
+
+# 3) 構成ごとに library を統合する。
 foreach ($cfg in $Configs) {
     $libdir = Join-Path $build $cfg
     if (-not (Test-Path $libdir)) {
         throw "要求された構成 $cfg は未ビルドです: $libdir"
     }
-    $libs = @(
-        Get-ChildItem (Join-Path $libdir 'acs_*.lib') -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -ne 'acs_test.lib' } |
-            ForEach-Object { $_.FullName }
-    )
+    $libs = @($distributionRequiredAcsLibraryNames | ForEach-Object { Join-Path $libdir $_ })
     if ($libs.Count -eq 0) {
         throw "要求された構成 $cfg の ACS module library がありません: $libdir"
     }
-    foreach ($requiredLibrary in $requiredAcsLibraries) {
+    foreach ($requiredLibrary in $distributionRequiredAcsLibraryNames) {
         $requiredPath = Join-Path $libdir $requiredLibrary
         if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf) -or
             (Get-Item -LiteralPath $requiredPath).Length -le 0) {
@@ -2341,21 +2692,7 @@ foreach ($cfg in $Configs) {
     }
 
     $imgui = Join-Path $libdir 'imgui.lib'
-    $acsImgui = Join-Path $libdir 'acs_imgui.lib'
-    if (Test-Path -LiteralPath $acsImgui -PathType Leaf) {
-        if (-not (Test-Path -LiteralPath $imgui -PathType Leaf) -or
-            (Get-Item -LiteralPath $imgui).Length -le 0) {
-            throw "要求された構成 $cfg の imgui library がありません"
-        }
-        $libs += $imgui
-    }
-    $acsScripting = Join-Path $libdir 'acs_scripting.lib'
-    $lua = Join-Path $libdir 'acs_third_party_lua.lib'
-    if ((Test-Path -LiteralPath $acsScripting -PathType Leaf) -and
-        (-not (Test-Path -LiteralPath $lua -PathType Leaf) -or
-         (Get-Item -LiteralPath $lua).Length -le 0)) {
-        throw "要求された構成 $cfg の Lua library がありません"
-    }
+    $libs += $imgui
     # mimalloc-static は _deps 配下に独自名 (mimalloc-debug.lib 等) で出力される。
     # acs_memory が mi_* を参照するため、acs.lib へ統合して consumer 側の
     # 個別library入力を増やさずに解決させる。Windows token API は生成した
@@ -2435,7 +2772,7 @@ foreach ($cfg in $Configs) {
     Write-Host "    Diligent/xxhash library $($diligentNames.Count)/$($diligentNames.Count) 件を同梱"
 }
 
-# 3) 両構成を同時生成した場合だけnamed manifestを原子的に公開する。
+# 4) 両構成を同時生成した場合だけnamed manifestを原子的に公開する。
 if ($isCompleteDistribution) {
     Write-Host "==> dist/$distributionManifestName を生成"
     Publish-AcsDistributionManifest $dist
@@ -2443,7 +2780,7 @@ if ($isCompleteDistribution) {
     Write-Host "==> 単一構成のlocal staging完了（named manifestは未公開）"
 }
 
-# 4) Deploy指定時は検証済みdistを指定先へmirrorする。
+# 5) Deploy指定時は検証済みdistを指定先へmirrorする。
 if ($Deploy) {
     Write-Host "==> dist/ を配置 -> $Deploy"
     Publish-MirroredDistribution $dist $Deploy
