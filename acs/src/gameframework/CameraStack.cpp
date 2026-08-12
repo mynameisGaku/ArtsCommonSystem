@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — CCameraStack 実装
+// 2D cameraのstack切替と位置・回転・zoomの補間を管理する。
 #include "gameframework/CameraStack.h"
 
 #include "foundation/Log.h"
