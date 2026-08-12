@@ -72,8 +72,6 @@ CLocalMatchmaker::FEntry* CLocalMatchmaker::FindFreeEntry() noexcept {
         }
     }
     // 空きが無ければ、終端状態で退役済み (RetireSeq != 0) のスロットを再利用する。
-    // ここが ticket リーク対策の要: 旧実装は Cancel/完了後もスロットを bActive の
-    // まま握りっぱなしで、kMaxTickets 回の StartSearch 後に永久に満杯になっていた。
     // 退役済みのうち最古 (RetireSeq 最小) を選び、新しい終端 ticket の照会期間を
     // できるだけ長く保つ (=PollStatus が直近の Cancelled 等を返せる時間を延ばす)。
     FEntry* oldest = nullptr;
