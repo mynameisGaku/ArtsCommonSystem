@@ -2015,8 +2015,7 @@ bool CPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf
     cmd.SetConstantBuffer(0, *post_cb);
     cmd.SetTexture(0, *tonemap_src);
     cmd.SetTexture(1, *bloom_input);
-    // 未指定 slot には必ず黒を bind。旧実装の最深 bloom mip 代用は広域 bloom を
-    // SSR として二重加算し、bloom off 時には前フレーム内容も残していた。
+    // SSR texture 未指定時は黒 texture を bind する。
     cmd.SetTexture(2, *ssr_input);
     // The mode bit keeps the fallback neutral; no t3 sample is issued on the
     // disabled shader branch even though the strict binding is present.
