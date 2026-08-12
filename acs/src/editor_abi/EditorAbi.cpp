@@ -10078,7 +10078,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         dl[2].direction = FVec3{  0.05f,  0.35f, -0.95f }; dl[2].color = FVec3{ 0.45f, 0.45f, 0.50f };  // rim (背面、輪郭)
         h.pbr3d.SetLights(vp, camPos, dl, 3, FVec3{ 0.22f, 0.24f, 0.30f });   // ambient はやや控えめ(陰のコントラスト確保)
         if (sh.shadowOn) {
-            // 品質ノブを配線 (従来は bias 0.0015 固定 + texel_size に 1.0 を渡す «バグ» で PCF が機能不全だった)。
+            // shadow map size から texel 幅を求め、bias と filter 設定を各 shadow path へ渡す。
             const u32 ssz = (h.shadow.Size() > 0) ? h.shadow.Size() : 2048u;
             const f32 texel = 1.0f / static_cast<f32>(ssz);
             if (sh.csmActive)   // CSM: 各 cascade の VP + 分割閾値で。HLSL が view-space z で cascade を選択。
