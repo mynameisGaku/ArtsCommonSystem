@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — ANode 実装 (旧 FNode2D/FNode3D 統一、docs/NodeUnification.md)
+// scene nodeの階層、transform、component、描画順を実装する。
 #include "gameframework/ANode.h"
 #include "gameframework/Material2D.h"      // FMaterial2D / MaterialClock
 #include "gameframework/RenderContext.h"   // rc.Sprites() (マテリアル効果の適用先)
