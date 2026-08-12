@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — APhysicsBody2D 実装 (collide-and-slide)
+// kinematic body形状をCollisionWorldへ同期し、速度・加速度・重力から移動とslideを更新する。
 #include "gameframework/PhysicsBody2D.h"
 #include "math/Math.h"
 
