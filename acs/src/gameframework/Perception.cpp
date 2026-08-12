@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — CPerception 実装
+// 視点、感覚設定、2D targetを保持し、距離と視野角から可視・可聴状態を更新する。
 //
 // 視覚判定の数学的要点:
 //   ・距離フィルタ:   |target - eye| <= sight_range
