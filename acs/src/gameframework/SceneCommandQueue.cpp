@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — CSceneCommandQueue 実装 (deferred command queue)
+// one-shot・継続commandを保留し、callbackをpriority順に遅延実行する。
 //
 // 設計メモ:
 //  ・label 比較は pointer 一致 → 不一致なら strcmp で fallback。文字列リテラル前提
