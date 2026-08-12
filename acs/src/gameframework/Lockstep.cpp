@@ -1,16 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M — CLockstep 実装
-//
-// 設計メモ:
-//   ・ConsumeInput は m_ReplayCursor から線形走査する。記録順 = tick 昇順を
-//     仮定すれば、cursor を前進させることで amortised O(1)。同 tick 内の
-//     player_id 順は問わない (4 人対戦なら 4 frame だけ走査する)。
-//   ・ComputeChecksum は FNV-1a-like u64。OFFSET_BASIS = 0xCBF29CE484222325,
-//     PRIME = 0x100000001B3。各 InputFrame の bit パターンを 8 バイト境界で
-//     消費する単純実装。FVec2 の f32 ビットは memcpy 経由で u32 に読み替え
-//     (strict aliasing 違反回避)。
-//   ・FNV を選んだ理由: STL 不使用 + ヘッダ追加なしで 5 行で書ける。
-//     replay 同期ずれ検知 (1〜2 bit 差分が大半) には十分な avalanche を持つ。
+// ConsumeInputは記録順のm_ReplayCursor以降を走査し、取得したframeの次へcursorを進める。
+// ComputeChecksumは各frameのtick、player_id、buttons、axis bit列をFNV-1a-like u64へbyte単位で畳み込む。
 #include "gameframework/Lockstep.h"
 
 #include "foundation/Move.h"
