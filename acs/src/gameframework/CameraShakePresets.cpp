@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — CCameraShakePresets 実装
+// 組み込み・名前付きshake presetを提供し、amplitude、decay、traumaをtargetへ適用する。
 //
 // 設計上のポイント:
 //   ・組み込み preset の数値は「small/large + duration」感が一聴で伝わる
