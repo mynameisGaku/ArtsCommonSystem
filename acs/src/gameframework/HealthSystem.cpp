@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — CHealthSystem 実装
+// entityのHP状態を登録・更新・照会し、死亡通知と無敵時間を管理する。
 //
 // slot+gen パターンで複数 entity の HP / 死亡 / 復活 / 無敵時間を管理する。
 // DeathCallback は is_alive=false の確定後に発火するため、callback 内で同
