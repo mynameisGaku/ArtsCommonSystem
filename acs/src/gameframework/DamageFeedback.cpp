@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CDamageFeedback 実装
+// 被damage表示とdeath camのstateを更新し、描画・UI・cameraへ現在値を提供する。
 //
 // 仕様の意図は CDamageFeedback.h を参照。本ファイルは純粋 state machine としての
 // 加算 / clamp / decay / death cam timer の実装に徹する。
