@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — Pathfinding 実装
+// 2D 格子の通行可否を保持し、4 方向または 8 方向の A* 経路を探索する。
 //
 // A* の流れ (標準形):
 //   1. start を open set に追加、g_score[start] = 0、f_score[start] = h(start, goal)
