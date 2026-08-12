@@ -197,8 +197,7 @@ void CNodePool::ClearAll() noexcept {
         }
     }
     if (can_rebuild_free_list) {
-        // 全物理 slot をちょうど1回ずつ再利用可能にする。従来は Clear 後に空き slot が
-        // free list へ戻らず、再登録のたび slot 配列だけが増える状態だった。
+        // 全物理 slot をちょうど1回ずつ free list へ戻す。
         m_FreeIndices.Reset();
         for (u32 i = 1u; i < m_Slots.Num(); ++i) {
             (void)m_FreeIndices.TryAdd(i); // 事前 Reserve 済みなので失敗しない
