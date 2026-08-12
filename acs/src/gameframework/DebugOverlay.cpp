@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CDebugOverlay 実装
-//
-// state holder のみ。実描画は呼出し側の責務。詳細は CDebugOverlay.h 参照。
+// FPS履歴、scene名、watch値と表示状態を保持・更新する。
+// 描画は呼出し側が読み取った状態を使って行う。
 #include "gameframework/DebugOverlay.h"
 
 #include <cstring>   // strcmp
