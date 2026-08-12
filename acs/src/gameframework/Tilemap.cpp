@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — FTilemap 実装と Tiled JSON 境界。
+// layer付きtile gridを保持し、失敗時に既存状態を保つ検証付きTiled JSON読込を担う。
 #include "gameframework/Tilemap.h"
 
 #include "container/Json.h"
