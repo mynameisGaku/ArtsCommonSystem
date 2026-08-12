@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FTween / CTweenManager 実装
+// f32 / FVec2 / FVec3の値を時間補間し、対象へ書き戻す。
 #include "gameframework/Tween.h"
 
 #include <cmath>
