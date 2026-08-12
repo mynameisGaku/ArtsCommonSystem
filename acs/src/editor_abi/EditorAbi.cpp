@@ -9966,8 +9966,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     //     遅延し、完成した scene depth で実ジオメトリを除外する。
     if (cloudsActive && hdrRt != nullptr) {
         cl->EndRenderToTexture(*hdrRt);
-        // acs_editor_render() が実測 dt を積算した host time を使う。
-        // 固定 1/60 加算だと 30/120 Hz で雲の移流速度が半分/2倍になる。
+        // フレーム時間を積算した時刻を雲の移流へ渡す。
         h.vclouds_time = h.time;
         h.vclouds3d.SetLayer(acs::FVolumetricCloudLayer{
             h.q_cloud_base, h.q_cloud_top, h.q_cloud_noise_scale
