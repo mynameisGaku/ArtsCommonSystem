@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — CSceneManager 実装
+// scene遷移をstackへ遅延適用し、top sceneの更新・描画・event配送を駆動する。
 #include "gameframework/SceneManager.h"
 #include "gameframework/Scene.h"
 #include "gameframework/Game.h"
