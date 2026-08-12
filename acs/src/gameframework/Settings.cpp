@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — CSettings 実装と永続化境界。
+// 型付きkey-value設定を保持し、検証付きの保存・読込を担う。
 #include "gameframework/Settings.h"
 
 #include "foundation/Platform.h"
