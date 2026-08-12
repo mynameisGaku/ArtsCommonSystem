@@ -1008,9 +1008,7 @@ CLocalBuildRunner::PollBuild(u64 build_id) noexcept {
             const BOOL got_code = ::GetExitCodeProcess(h, &code);
             const DWORD code_error = got_code ? 0u : ::GetLastError();
 
-            // 終了済みプロセスの HANDLE は結果ラッチ後に不要。以前は runner の
-            // デストラクタまで保持していたため、完了ジョブ数に比例して HANDLE
-            // が増え続けた。結果と artifact は Job 内へコピー済みなので即時に閉じる。
+            // 終了済みプロセスの exit code 取得を試みた後、不要な HANDLE を閉じる。
             ::CloseHandle(h);
             job->m_Process = nullptr;
             if (got_code) {
