@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FAnimationCurve 実装
+// animation curveのkey管理と補間評価を実装する。
 //
 // アルゴリズム:
 //   ・AddKey:  内部 TArray を time 昇順に保つよう、二分探索で挿入位置を決める。
