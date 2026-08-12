@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I — CEffectSystem 実装
-//
-// 仕様の意図は CEffectSystem.h を参照。本ファイルは純粋 state machine としての
-// timer 更新 / clamp / 上書き規則の実装に徹する。
+// flash、hit stop、camera shakeの状態とtimerを更新し、描画・game loop・cameraへ現在値を提供する。
 #include "gameframework/EffectSystem.h"
 
 namespace acs::game {
