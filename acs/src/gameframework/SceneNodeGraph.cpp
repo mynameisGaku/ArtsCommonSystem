@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — CSceneNodeGraph 実装
+// root node treeとgeneration付きpoolを所有し、構造更新・検索・raycastを提供する。
 #include "gameframework/SceneNodeGraph.h"
 #include "gameframework/MeshComponent3D.h"   // AMeshComponent3D (Raycast の bounds)
 #include "asset/MeshAsset.h"                 // AMeshAsset (Mesh 種別の頂点 AABB)
