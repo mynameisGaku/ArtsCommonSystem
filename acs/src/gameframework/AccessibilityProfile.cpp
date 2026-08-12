@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FAccessibilityProfile 実装
+// ユーザー補助設定を保持し、用途別プリセットの既定値を適用する。
 //
 // 本ファイルは状態保持と preset 適用ロジックのみを持つ。「実際に色覚補正を
 // LUT で適用する」「実際に字幕を表示する」「実際にスクリーンリーダに発話
