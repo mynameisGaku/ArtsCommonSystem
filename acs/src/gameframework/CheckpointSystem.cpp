@@ -11,7 +11,7 @@
 //     する想定で十分高速 (典型 N <= 数十)。
 //   ・AllCheckpoints は穴を詰めるため m_Scratch を再構築して返す。
 //     呼出側は次の Register/Unregister/AllCheckpoints/ClearAll で無効化される
-//     ことを了解する契約 (ヘッダにも明記)。
+//     返却バッファとして扱う。
 #include "gameframework/CheckpointSystem.h"
 
 namespace acs::game {
