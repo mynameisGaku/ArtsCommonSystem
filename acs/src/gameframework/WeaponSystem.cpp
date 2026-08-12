@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I/R — CWeaponSystem 実装
+// 武器定義と装備中の弾薬・連射・reload状態を管理する。
 //
 // 設計上のポイント (ヘッダの設計コメントと対応):
 //   ・武器定義は const char* 線形検索 (CEconomyDirector / FEntitlement と同設計)。
