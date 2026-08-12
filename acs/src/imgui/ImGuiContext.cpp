@@ -133,9 +133,8 @@ void FImGuiCtx::Render() noexcept {
     ImGui::Render();
 
     // 現在のコマンドリストに ImGui の描画コマンドを発行。
-    // CommandList() は BeginFrame 前や未初期化時に null を返しうる（m_Cmd.Get()）。
-    // 旧コードは戻り値を直接 ->NativeHandle() で deref しており null 参照になるため、
-    // ポインタ自体を先にガードしてから native handle を取得する。
+    // CommandList() は renderer が未初期化・初期化失敗・Shutdown 済みなら null を返す。
+    // null を先に検査し、有効な command list からだけ native handle を取得する。
     IRhiCommandList* rhi_cmd = m_Renderer->CommandList();
     if (!rhi_cmd) return;
     auto* cmd_list = static_cast<ID3D12GraphicsCommandList*>(rhi_cmd->NativeHandle());
