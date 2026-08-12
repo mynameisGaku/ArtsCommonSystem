@@ -1413,43 +1413,10 @@ using FLogger = CLogger;
 
 // ===================== foundation/Result.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Foundation — TResult<T, E> 型（例外なしエラー伝搬）
-// -----------------------------------------------------------------------------
-// std::expected / Rust TResult と同じ役割を持つ「成功値 or エラー値」型。
-// 例外を使わずにエラーを伝搬するのが ACS 全体の方針。
-//
-// 特徴:
-//   - STL 不使用
-//   - トリビアル破棄可能型 (T / E) ではゼロコスト
-//   - ムーブ専用型 (TUniquePtr 等) でも動作
-//   - E のデフォルトは FErrorCode（任意の型でも可）
-//   - TResult<void, E> 特殊化を提供（成功 / エラーのみを返す関数用）
-//
-// 典型的な使用例:
-//   TResult<FFile, FErrorCode> r = OpenFile("foo");
-//   if (!r) {
-//       CLogger::Error("open failed: %s", r.Error().message);
-//       return;
-//   }
-//   FFile& f = r.Value();
-// =============================================================================
 
 
 // ===================== foundation/Error.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Foundation — エラーコード型 (TResult<T,E> の E パラメータ)
-// -----------------------------------------------------------------------------
-// 例外を使わない方針のため、エラーは戻り値として伝搬する。FErrorCode は
-// カテゴリ + サブコード + 任意の OS エラー値 + メッセージ + 発生位置 を
-// まとめて持つ POD 構造体である。
-//
-// 設計の意図:
-//   - カテゴリで大まかに分類し、ロガー側でフィルタしやすくする
-//   - サブコードはモジュール固有の細分化に使う
-//   - FSourceLoc を埋めることで「どこで失敗したか」を常時追跡できる
-// =============================================================================
 
 
 namespace acs {
@@ -1579,9 +1546,6 @@ constexpr const char* ToString(EErrCategory c) noexcept {
 
 // 呼び出し元の FSourceLoc を自動的にキャプチャしつつ FErrorCode を生成する。
 //
-// 使い方:
-//   return ACS_ERR(IO, 1, "ファイルが開けません");
-//   return ACS_ERR_OS(OS, 5, "CreateFile failed", GetLastError());
 #define ACS_ERR(cat, sub, msg) \
     ::acs::FErrorCode(::acs::EErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::FSourceLoc::Current())
 
@@ -1804,7 +1768,7 @@ inline constexpr detail::FErrTag   ErrInit{};
  * 成功値 T またはエラー値 E のいずれかを保持する例外なしの結果型。
  *
  * @details
- * std::expected / Rust の Result 相当。STL 不使用で、トリビアル破棄可能型では
+ * 成功値 T またはエラー値 E の一方だけを保持する。STL 不使用で、トリビアル破棄可能型では
  * ゼロコスト、ムーブ専用型でも動作する。内部は union で T と E を排他的に保持し、
  * どちらが有効かを m_HasValue で判別する。
  * @tparam T 成功時に保持する値の型。
@@ -2220,7 +2184,7 @@ inline TResult<void> Ok() noexcept { return TResult<void>(OkInit); }
 template<typename T = void>
 TResult<T> Err(FErrorCode e) noexcept { return TResult<T>(e); }
 
-// 早期リターンマクロ（Rust の ? 演算子 相当）
+// 失敗時に呼び出し元へエラーを早期 return するマクロ。
 // ACS_TRY(expr) — TResult<void> 用。エラーなら関数から FErrorCode を返す。
 // ACS_TRY_ASSIGN(name, expr) — TResult<T> 用。成功なら値を name に束縛。
 #define ACS_TRY(expr)                                                         \
@@ -2928,23 +2892,6 @@ struct FAppConfig {
 // SPDX-License-Identifier: Apache-2.0
 // CApplication 基底（継承して OnStart / OnUpdate / OnRender / OnShutdown を実装）
 //
-// 使い方:
-//   class FMyGame : public CApplication {
-//   public:
-//       // フックは必ず noexcept override で宣言する
-//       // （基底のフックが noexcept のため。noexcept を省くとコンパイルエラー）
-//       void OnStart() noexcept override {
-//           ACS_LOG_INFO("ゲーム開始");
-//       }
-//       void OnUpdate(f32 delta_time) noexcept override {
-//           if (CInput::IsKeyPressed(EKey::Escape)) Quit();
-//       }
-//       void OnRender() noexcept override {
-//           // 描画コマンド (BeginFrame / EndFrame は基底が呼ぶ)
-//       }
-//   };
-//
-//   ACS_DEFINE_MAIN(FMyGame)   // エントリポイントを自動生成 (app/EntryPoint.h)
 
 // ===================== platform/Window.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -3617,15 +3564,6 @@ private:
 
 // ===================== platform/Time.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 時間計測（高精度タイマ + フレーム時間管理）
-//
-// 使い方:
-//   FFrameTimer ft;
-//   while (running) {
-//       f32 dt = ft.Tick();   // 経過秒（前フレームから今フレームまで）
-//       Update(dt);
-//       Render();
-//   }
 
 
 namespace acs {
@@ -3634,8 +3572,7 @@ namespace acs {
  * 高精度な時刻取得ユーティリティ (全メソッド static)。
  *
  * @details
- * 実装は std::chrono::steady_clock ベースで、初回参照時を起点とする単調増加時刻を返す。
- * Windows では内部的に QPC、Linux/macOS では CLOCK_MONOTONIC 相当。
+ * 初回参照時を起点とする単調増加時刻を返し、フレーム間の経過時間計測に使う。
  */
 class CClock {
 public:
@@ -3739,22 +3676,6 @@ private:
 
 // ===================== ecs/World.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ECS の CWorld（エンティティとコンポーネントを管理する中心）
-//
-// 使い方:
-//   CWorld w;
-//   FEntityId e = w.Create();
-//   w.Add<FPosition>(e, {0, 0, 0});
-//   w.Add<FVelocity>(e, {1, 0, 0});
-//
-//   if (FPosition* p = w.Get<FPosition>(e)) p->x += 1.0f;
-//
-//   w.Query<FPosition, FVelocity>().Each([](FEntityId id, FPosition& p, FVelocity& v) {
-//       p.x += v.x; p.y += v.y; p.z += v.z;
-//   });
-//
-//   w.Remove<FVelocity>(e);
-//   w.Destroy(e);
 
 
 // ===================== memory/New.h =====================
@@ -7991,17 +7912,6 @@ public:
 
 // ===================== asset/AssetFuture.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 非同期アセットロードの結果ハンドル
-//
-// 使い方:
-//   FAssetFuture fut = registry.LoadAsync(L"big_mesh.glb");
-//   ...
-//   if (fut.IsReady()) {
-//       auto r = fut.Get();
-//       if (r.IsOk()) TSharedPtr<AAsset> a = r.Value();
-//   }
-//   // または同期待ち（ワーカースチール参加付き）
-//   auto r = fut.Wait();
 
 
 // ===================== threading/ThreadPool.h =====================
@@ -8844,31 +8754,6 @@ using FAssetRegistry = CAssetRegistry;
 
 // ===================== render/Renderer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 高レベル CRenderer（ウィンドウへの描画ループを統括する司令塔）
-//
-// 使い方 (典型的):
-//   CRenderer rdr;
-//   rdr.Init(window);
-//   while (!window.ShouldClose()) {
-//       window.PollEvents();
-//       rdr.BeginFrame({0.1f, 0.2f, 0.3f, 1.0f});
-//       // BeginFrame 後は GetCommandList() でコマンドを積める。
-//       // 高レベルヘルパ:
-//       //   CStandardShader  — Lambert+Blinn-Phong + シャドウマップ
-//       //   CSkinnedShader   — GPU スキニング (BoneCB + BLENDINDICES/WEIGHT)
-//       //   CSky             — 手続き生成スカイ (Day/Sunset/Night プリセット)
-//       //   CSpriteBatch     — 2D スプライト + フォント
-//       //   FFont            — TTrueType -> アトラス -> CSpriteBatch
-//       //   CParticleSystem  — 簡易 GPU パーティクル
-//       //   CShadowMap       — depth-only パス
-//       //   CPostProcess     — HDR、Bloom、ACES 色変換 (raw-DX12 / Diligent)
-//       if (!rdr.EndFrame()) break;
-//   }
-//   rdr.Shutdown();
-//
-// HDR ポストプロセス経路を組むときは CApplication::OnCustomFrame() を override
-// して、自分で BeginRenderToTexture(HDR_RT) → 描画 → CPostProcess.Render() →
-// Present までを直接制御する。
 
 // ===================== memory/UniquePtr.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -10385,18 +10270,6 @@ TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
 
 // ===================== render/IRhiTexture.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 2D テクスチャ抽象（GPU 上の画像。シェーダから読める SRV を持つ）
-//
-// 使い方:
-//   FTextureDesc d{};
-//   d.width = 256; d.height = 256;
-//   d.format = EFormat::R8G8B8A8_UNorm;
-//   d.initial_data = pixels;          // RGBA 8bit、上から下、左から右の順
-//   d.initial_data_size = 256*256*4;
-//   auto tex = CreateRhiTexture(device, d).Value();
-//
-// 描画時:
-//   cmd.SetTexture(0, *tex);          // パイプラインで texture_slots>=1 が必要
 
 
 namespace acs {
@@ -13132,14 +13005,6 @@ private:
 
 // ===================== app/EntryPoint.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 共通エントリポイントマクロ
-//
-// 使い方:
-//   class FMyGame : public acs::CApplication { ... };
-//   ACS_DEFINE_MAIN(FMyGame)
-//
-// 効果: int main() を自動生成する。FAppConfig はデフォルト値を使用。
-//       細かく制御したい場合は ACS_DEFINE_MAIN を使わず main を自前で書く。
 
 
 // Win32 サブシステムでビルドされた exe (CMake の `add_executable(... WIN32 ...)`)
@@ -17642,16 +17507,6 @@ TResult<void> BuildConvexHull3(const FVec3* points, u32 count,
 
 // ===================== math/Collision3D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 3D 衝突判定プリミティブ（AABB / 球 / 平面 / レイ）
-//
-// 使い方:
-//   FAabb3 box = FAabb3::FromCenterExtents({0,0,0}, {1,1,1});
-//   FSphere s{ {3,0,0}, 0.5f };
-//   if (Intersect(box, s)) { /* 重なっている */ }
-//
-//   FRay3 ray{ camera.Eye(), forward };
-//   FRayHit3 h = RaycastAabb(ray, box);
-//   if (h.hit) { /* h.point, h.normal, h.t */ }
 
 
 namespace acs {
@@ -18210,23 +18065,6 @@ using FMeshCollider = CMeshCollider;
 
 // ===================== math/Collision2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 2D 衝突判定プリミティブ（AABB / 円 / 線分 / 点）
-//
-// ヘッダオンリー、ゲーム実装に直結する最小集合：
-//   - 形状定義: FAabb2, FCircle
-//   - 重なり判定: Intersect(A, B)
-//   - 押し出しベクトル: Resolve(A, B)
-//   - レイキャスト: RaycastAabb / RaycastCircle
-//
-// 使い方:
-//   FAabb2 player{ {x, y}, {w, h} };
-//   FAabb2 wall  { {0, 0}, {100, 8} };
-//   if (Intersect(player, wall)) { /* 衝突 */ }
-//
-//   FCircle a{{px, py}, 16};
-//   FCircle b{{ex, ey}, 12};
-//   FVec2 push;
-//   if (Resolve(a, b, push)) { player.center += push; }
 
 
 namespace acs {
@@ -20677,50 +20515,6 @@ void InstallWindowsCrashReporterAsDefault() noexcept;
 
 // ===================== easy/Easy.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ============================================================================
-// ACS Easy — 初学者向けの「簡単モード」
-// ----------------------------------------------------------------------------
-// クラスや継承を意識せずに 2D ゲームを書くための API レイヤ。基本 API は
-// 手続き的に「関数を呼ぶだけ」でウィンドウ・図形・画像・文字・音・入力・乱数・
-// 当たり判定・カメラ・セーブを扱える。入力エラーを診断したい高度な checked API
-// は、失敗時の状態不変を保証する小さな結果型を返す。
-//
-// 最小のプログラム:
-//
-//   #include "easy/Easy.h"
-//   using namespace acs::easy;
-//
-//   int main() {
-//       OpenWindow(1280, 720, "はじめてのゲーム");
-//       float x = 600;
-//       while (NextFrame()) {                 // ウィンドウを閉じると false
-//           if (IsKeyDown(EKey::Right)) x += 5;
-//           if (IsKeyDown(EKey::Left))  x -= 5;
-//           DrawRect(x, 320, 80, 80, FColor::Sky);
-//       }
-//   }
-//
-// 使い方のルール:
-//   ・ゲームの状態は main の中のローカル変数でよい（グローバル変数は不要）。
-//   ・描画関数は while ループの中（NextFrame() を呼んだ後）で呼ぶこと。
-//   ・すべての関数を 1 本のスレッド（メインスレッド）から呼ぶこと。
-//
-// 座標と角度の約束:
-//   ・座標は左上が原点、ピクセル単位、Y は下向き。
-//   ・**位置 (x,y) はすべて図形・画像の「左上」**。回転する描画も left-top で
-//     位置を指定し、回転は図形自身の中心まわりに行われる。
-//   ・円だけは例外で (x,y) は中心。
-//   ・回転角はすべて度（°）。正の値は時計回り。
-//
-// 補足:
-//   ・型名 f32 は float、i32 は int、u8 は 0〜255 の整数の別名。引数には
-//     ふつうに float や int を渡せばよい。
-//   ・実行するとゲーム画面とは別に黒いコンソール窓が出る。これはログ表示用で
-//     正常。ゲーム画面を閉じれば一緒に終了する。
-//
-// もっと本格的に作りたくなったら、acs::CApplication を直接使う方法へ進める
-// （docs/QUICKSTART.md 参照）。easy はその入口に過ぎない。
-// ============================================================================
 
 
 // ===================== gameframework/Easing.h =====================
@@ -24643,51 +24437,6 @@ auto CWorld::Query() noexcept
 
 // ===================== ecs/RollbackBuffer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ECS の FRollbackBuffer（CWorld スナップショットのリングバッファ / rollback netcode の状態履歴）
-//
-// 役割:
-//   CWorld::CopyFrom (snapshot/rollback 基盤) の上に「直近 N tick 分の状態履歴」を
-//   提供する。GGPO 風 rollback netcode の状態レイヤで、入力レイヤの
-//   acs::game::CLockstep と対になる:
-//     ・CLockstep      … どの tick に誰が何を入力したか (入力履歴)
-//     ・FRollbackBuffer … 各 tick 開始時点の CWorld 状態 (状態履歴)
-//
-// 使い方 (rollback netcode の典型ループ):
-//   FRollbackBuffer history;
-//   history.Init(/*capacity=*/8);              // 直近 8 tick 分を保持
-//
-//   // 毎 tick、シミュレーション前に状態を退避してから進める:
-//   history.SaveFrame(tick, world);
-//   Simulate(world, PredictedInput(tick));
-//   ++tick;
-//
-//   // 遅れて権威入力が tick T (< tick) に届いたら、T へ巻き戻して再シミュレーション:
-//   if (history.RestoreFrame(T, world)) {
-//       for (u32 t = T; t < tick; ++t) {
-//           history.SaveFrame(t, world);       // 履歴も正しい系列で上書きする
-//           Simulate(world, AuthoritativeInput(t));
-//       }
-//   }
-//
-// 設計選択:
-//   ・**tick % capacity の直接添字リング**: 検索無しで O(1) に slot が決まる。
-//     slot には保存時の tick を記録し、Restore 時に一致検証する (容量を超えて
-//     進んだ後の古い tick は自然に上書き済み = 復元不可と判定される)。
-//   ・**CWorld は slot ごとに 1 個を Init で確保して使い回す**: SaveFrame のたびに
-//     CWorld を作り直さず CopyFrom で中身だけ入れ替えるため、TSparseSet の器の
-//     再確保が抑えられ、定常状態の確保回数が安定する。
-//   ・**部分状態を残さない**: Init の途中 OOM は確保済み分を解放して false。
-//     SaveFrame で CopyFrom が失敗した slot は invalid 化し、後の Restore が
-//     壊れた状態を返さない。
-//   ・**コピー / ムーブ禁止**: CWorld の履歴という重い状態の誤複製を防ぐ
-//     (CLockstep と同じ規約)。
-//   ・**全 noexcept / 失敗は bool**: ACS 全体方針。CWorld::CopyFrom の契約
-//     (非コピー型コンポーネントを含む CWorld は複製不可) をそのまま伝搬する。
-//
-// 範囲外:
-//   ・入力履歴 / desync 検出 (CLockstep::ComputeChecksum を使う)
-//   ・差分 snapshot / 圧縮 (全量コピー。まず正しさを取る)
-//   ・スレッド安全性 (シミュレーションスレッド専有を想定)
 
 
 namespace acs {
@@ -24868,18 +24617,6 @@ private:
 
 // ===================== ecs/System.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// システム関数の登録と実行（World に対して毎フレーム呼ばれる関数の登録機構）
-//
-// 使い方:
-//   void MovementSystem(CWorld& w, f32 dt) {
-//       w.Query<FPosition, FVelocity>().Each([dt](FEntityId, FPosition& p, FVelocity& v) {
-//           p.x += v.x * dt;
-//       });
-//   }
-//
-//   CSystemScheduler s;
-//   s.Add(&MovementSystem);
-//   while (running) { s.Tick(world, dt); }
 
 
 namespace acs {
@@ -26594,21 +26331,12 @@ inline constexpr bool kIsValidMessagePipeCapacity = Capacity >= 2 && (Capacity &
 
 // ===================== threading/ScopedLock.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ACS Threading — RAII ロックガード（<mutex> の lock_guard / shared_lock 代替）
-//
-// スコープ脱出時に自動的にロックを解放するヘルパ。
-// 関数の早期 return / 例外なしパス / FPanic 経路でも確実に解放される。
-//
-// 使い方:
-//   { FScopedLock lk(mutex); ... }                  // FMutex 排他
-//   { FScopedSharedLock lk(rwlock); ... }            // FRwLock 共有
-//   { FScopedExclusiveLock lk(rwlock); ... }         // FRwLock 排他
 
 
 namespace acs {
 
 /**
- * FMutex を排他ロックする RAII ガード (lock_guard 代替)。
+ * FMutex を排他ロックし、スコープを抜けると自動で解放する。
  *
  * @details 構築時に Lock し、スコープ脱出時に Unlock する。コピー / ムーブ不可。
  */
@@ -26635,7 +26363,7 @@ private:
 };
 
 /**
- * FRwLock を共有 (読み取り) ロックする RAII ガード (shared_lock 代替)。
+ * FRwLock を共有 (読み取り) ロックし、スコープを抜けると自動で解放する。
  *
  * @details 構築時に LockShared し、スコープ脱出時に UnlockShared する。コピー / ムーブ不可。
  */
@@ -26692,21 +26420,12 @@ private:
 
 // ===================== threading/ConditionVar.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ACS Threading — 条件変数（Win32 CONDITION_VARIABLE ベース）
-//
-// std::condition_variable 相当。FMutex と組み合わせて「条件が満たされるまで
-// スレッドを停止し、別スレッドからの NotifyOne / NotifyAll で起こす」。
-//
-// 典型的な使用例（生産者・消費者）:
-//   FScopedLock lk(m);
-//   while (queue.IsEmpty()) cv.Wait(m);
-//   auto item = queue.Pop();
 
 
 namespace acs {
 
 /**
- * Win32 CONDITION_VARIABLE による条件変数 (std::condition_variable 代替)。
+ * FMutex と組み合わせて待機と通知を制御する Win32 条件変数。
  *
  * @details
  * FMutex と組み合わせ、条件が満たされるまでスレッドを停止し、別スレッドからの
@@ -27946,44 +27665,6 @@ using FSimpleMulticastDelegate = TMulticastDelegate<void()>;
 
 // ===================== foundation/Cast.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Foundation — Cast<T> / CastChecked<T> (RTTI 不使用の安全ダウンキャスト)
-// -----------------------------------------------------------------------------
-// ACS は RTTI 無効 (dynamic_cast 不可) なので、`Cast<T>` / `CastChecked<T>` を
-// 「軽量な侵入型 (intrusive) RTTI」で提供する。階層側が
-// マクロで型 ID と IsA を opt-in 宣言し、Cast はそれを使って実行時に安全な
-// ダウンキャストを行う。
-//
-//   提供物:
-//     Cast<To>(From* p)        — p が To (またはその派生) なら To*、違えば nullptr
-//     CastChecked<To>(From* p) — 同上だが、失敗時は ACS_CHECKF で panic (非 null 前提)
-//     IsA<To>(const From* p)   — p が To 互換かを bool で返す
-//     ACS_RTTI_ROOT(Type)      — 階層のルートクラスに置く (virtual な型 ID を導入)
-//     ACS_RTTI(Type, Parent)   — 派生クラスに置く (IsA を親へ連鎖)
-//
-// 使い方:
-//   class FShape { public: virtual ~FShape() = default; ACS_RTTI_ROOT(FShape) };
-//   class FCircle : public FShape { public: ACS_RTTI(FCircle, FShape) };
-//   FShape* s = ...;
-//   if (FCircle* c = acs::Cast<FCircle>(s)) { ... }   // 安全 (違えば nullptr)
-//   FCircle* c2 = acs::CastChecked<FCircle>(s);        // 確信があるとき (違えば panic)
-//
-// 仕組み:
-//   ・型 ID は「型ごとに一意な static 変数のアドレス」(FClassId = const void*)。
-//     RTTI / typeid 不使用。TypeTag<T>() (gameframework) と同じ手法。
-//   ・各クラスは StaticClassId() (= 自分の ID) と、virtual IsA(id) を持つ。IsA は
-//     「自分の ID か?」を見て、違えば親の IsA に委譲する。これで単一継承チェーンの
-//     祖先判定 (= dynamic_cast 相当の多態ダウンキャスト) ができる。
-//   ・Cast は p->IsA(To::StaticClassId()) が真のときだけ static_cast する。To が From
-//     の派生でない (= static_cast 不可能) 組み合わせはコンパイルエラーになる
-//     (単一継承チェーン内の up/down cast を対象とする)。
-//
-// 制約:
-//   ・対象階層は ACS_RTTI_ROOT / ACS_RTTI で opt-in する必要がある (侵入型)。
-//   ・多重継承の sibling cast は非対応 (static_cast が成立する単一チェーン用)。
-//   ・スマートポインタは raw を取り出して使う: Cast<T>(ptr.Get())
-//     (foundation は memory に依存しないため、ここでは raw ポインタのみ対応)。
-// =============================================================================
 
 
 namespace acs {
@@ -28292,15 +27973,6 @@ private:
 // constexpr で切り出すため、列挙子を二度書く必要が無く、型を指定するだけで名前が引ける。
 // 名前表はコンパイル時に確定し、実行時の確保も RTTI も要らない。
 //
-// 使い方:
-//   ACS_ENUM()
-//   enum class EMyColor : u8 { Red, Green, Blue };
-//
-//   TEnumTraits<EMyColor>::kCount;                  // 3
-//   TEnumTraits<EMyColor>::Name(EMyColor::Green);   // "Green" (FEnumName)
-//   TEnumTraits<EMyColor>::FromIndex(2);            // EMyColor::Blue
-//   TEnumTraits<EMyColor>::TryParse("Blue", out);   // true
-//
 // 制約:
 //   ・列挙子の値は 0 以上 kEnumScanMax 未満であること (既定 64)。範囲外の値を持つ列挙や
 //     ビットフラグ列挙は TEnumTraits を明示特殊化して上書きする。
@@ -28345,7 +28017,7 @@ namespace detail {
 /** 自動で走査する列挙子の上限 (0 .. kEnumScanMax-1 を見る)。 */
 inline constexpr usize kEnumScanMax = 64;
 
-/** コンパイル時に添字を展開するための列 (std::index_sequence 相当)。 */
+/** コンパイル時に添字を展開するための列。 */
 template<usize... Indices>
 struct TIndexSeq {};
 
@@ -30581,42 +30253,6 @@ struct FTransform3D {
 
 // ===================== gameframework/NodeId.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — FNodeId (シーングラフ用 generational handle)
-//
-// シーングラフ内の ANode を一意に識別する 32bit パック handle。
-// 1 個の `u32` に **24bit index + 8bit generation** を pack する設計で、
-// `FShapeId` (CollisionWorld2D.h) と完全に同じパターンを採用している。
-//
-// 使い方:
-//   FNodeId id = scene.CreateNode();          // 何らかのファクトリ経由で取得
-//   if (id.IsValid()) {
-//       u32 slot = id.Index();               // SoA / プール配列の index
-//       u8  gen  = id.Generation();          // 世代カウンタで stale handle 検出
-//   }
-//   if (a == b) { ... }                       // 比較も constexpr noexcept
-//
-// 設計選択 (なぜこの形か):
-//   ・**RTTI / dynamic_cast 不使用**: ACS は STL / 例外 / RTTI 禁止。型情報は
-//     呼び出し側 (AScene 等) が別 array で持つ責務。FNodeId は純粋に「どの slot
-//     のどの世代か」だけを表現する POD handle。
-//   ・**24bit index = 約 16M slot で十分**: 2D ゲームのシーングラフで同時存在
-//     する ANode 数は実用上 10K 〜 100K オーダー。16M (= 16,777,216) なら数桁
-//     余裕があり、将来 ECS-lite に拡張しても枯渇しない。
-//   ・**8bit generation = 256 世代**: slot を recycle してもラップアラウンドで
-//     stale handle と区別できる確率が 1/256 と十分高い。**generation == 0 は
-//     "初期状態 / 未使用 slot"** を意味し、`packed == 0` がそのまま invalid を
-//     表すよう設計されている (`FNodeId()` のデフォルトと一致)。
-//   ・**ヘッダオンリ + 全関数 constexpr noexcept**: コンパイル時計算 / 例外
-//     伝播ゼロ。`.cpp` 不要なので Module.cmake 改変ゼロでドロップイン可能。
-//   ・**operator==/!= のみ**: ハンドルの順序付け (< 等) は仕様として持たない。
-//     必要なら呼び出し側が `Index()` を取り出して比較すべき。
-//   ・**STL / `<cstdint>` 不使用**: `foundation/Types.h` の `u32 / u8` のみ。
-//     ACS 全体の規約に準拠。
-//
-// 注意:
-//   ・index が 24bit を超える値で構築された場合、上位 bit は黙って捨てられる
-//     (`& 0x00FFFFFFu`)。これは FShapeId と完全に同じ挙動。生成側 (CNodePool 等)
-//     で assert / TResult<E> を入れて 16M 越えを検出する責務。
 
 
 namespace acs::game {
@@ -32006,67 +31642,6 @@ private:
 
 // ===================== gameframework/AchievementManager.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — CAchievementManager (実績の定義 + 進捗 + Storefront 統合)
-//
-// ゲームロジック側から「ボス撃破、隠しエンディング到達、累計 100km 歩いた」等の
-// 進捗を Achievement に流し込み、max_progress に達したら自動 unlock + プラット
-// フォーム SDK (Steamworks / EOS / 各家庭機) へ伝搬する高レベルマネージャ。
-// 低レイヤの ISteamworksBridge (純粋仮想 I/F) を seam として注入し、SDK 統合は
-// ビルド時に差し替え可能 — Bridge 未 attach なら ローカル進捗だけ追跡する
-// オフラインモードで動作する (テスト / Demo build 用)。
-//
-// 使い方:
-//   CAchievementManager am;
-//
-//   // ゲーム起動時に全実績を 1 度だけ登録 (= 定義)。
-//   am.RegisterAchievement({ "ACH_BOSS_01",       "First Boss",   "...", 1,    false });
-//   am.RegisterAchievement({ "ACH_WALK_100KM",    "Marathon",     "...", 100,  false });
-//   am.RegisterAchievement({ "ACH_SECRET_ENDING", "True Ending",  "...", 1,    true  });
-//
-//   // (任意) Storefront SDK を attach。null で detach 可。
-//   am.AttachSteamworks(&acs::game::CSteamworksBridgeStub::GetStub());
-//
-//   // ゲームロジック内で進捗更新。
-//   am.IncrementProgress("ACH_WALK_100KM", 1);     // 1km 歩いた
-//   am.Unlock("ACH_BOSS_01");                      // ボス撃破 (即時 unlock)
-//
-//   // UI / Pause 画面で一覧表示。
-//   u32 n = 0;
-//   const FAchievementProgress* states = am.AllStates(n);
-//   for (u32 i = 0; i < n; ++i) { /* secret は別扱いで表示 */ }
-//
-// 設計選択 (Pillar S):
-//   ・**定義 / 進捗を別配列で持つ**: FAchievementDef はゲーム起動時に固定で登録
-//     される immutable な定義 (id / 表示名 / max_progress / secret)。
-//     FAchievementProgress は実行時に変化する状態 (current_progress / unlocked /
-//     unlock_timestamp)。両者を別 TArray に分けることで「定義は const、状態は
-//     mutable」が型レベルで明確になる。1:1 対応で同じ index を共有する。
-//   ・**所有しない const char***: id / display_name / description は呼び出し側
-//     (ゲームコード or リソースバンドル) が保証する static lifetime の文字列
-//     リテラルを想定。Manager 側ではコピーしない (STL <string> 禁止)。
-//   ・**線形検索**: 実績件数は AAA タイトルでも通常 50〜300 程度のため、
-//     TArray<T> の per-byte 文字列比較 + 線形走査で十分。ハッシュテーブル化は
-//     プロファイラで実測されたら検討。
-//   ・**ISteamworksBridge は seam 注入**: AttachSteamworks(nullptr) で detach。
-//     attach 中は Unlock() が成功したら自動で Bridge::UnlockAchievement() を呼ぶ。
-//     Bridge 戻り値の失敗 (= 未初期化 / 未実装) は ACS_LOG_WARN で記録し、
-//     ローカル進捗は影響を受けない。
-//   ・**max_progress に達したら自動 unlock**: SetProgress / IncrementProgress 経由
-//     で current_progress が max に達した瞬間に unlocked = true、Bridge へ送信、
-//     unlock_timestamp を CClock::MillisSinceStartup() で記録。Unlock() を直接
-//     呼んだ場合は current_progress を max_progress に固定する。
-//   ・**unlock_timestamp は起動からの ms**: 永続化 (Pillar J Serialize) と合わせ
-//     て使う想定だが、「起動以降のみ意味を持つ」相対時間で十分。
-//   ・**重複登録は黙って弾く**: 同 id を 2 度 RegisterAchievement しても 2 回目は
-//     no-op。アセット二重ロード時の安全側挙動 (CModRegistry と揃える)。
-//   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
-//
-// 範囲外:
-//   ・実績の永続化 (= ローカルセーブと合算)。現状は起動毎にリセットされる。
-//   ・統計 (Steamworks Stats) との連携。
-//   ・Notification UI (右下からのトースト)。
-//   ・実績進捗の自動同期 (Bridge → ローカル)。今は片方向 (ローカル → Bridge)。
-//   ・Tick で実時間タイマー実績 ("起動 1 時間で unlock" 等)。dt 蓄積は呼出側責務。
 
 
 namespace acs::game {
@@ -32300,77 +31875,18 @@ using FAchievementManager = CAchievementManager;
 
 // ===================== gameframework/AcsClass.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ACS_CLASS / ACS_PROPERTY — ACS のリフレクションマーカー。
-//
-// 使い方:
-//   ACS_CLASS()
-//   class MYGAME_API AMover : public acs::game::AComponent {
-//   public:
-//       ACS_GAME_COMPONENT_KIND(AMover)
-//       ACS_PROPERTY() float speed = 3.0f;     // インスペクタに出すプロパティ
-//       void OnUpdate(acs::f32 dt) noexcept override {}
-//   };
-//
-// これらのマクロ自体は «何も生成しない»。エディタの
-// リフレクション・コードジェネレータが Source/*.h を走査してこのマーカーを見つけ、
-// ACS_REGISTER_COMPONENT(AMover, ACS_RPROP_F("speed", 3.0f)) 相当の登録コードを自動生成する。
-// 従来の手書き ACS_REGISTER_COMPONENT も引き続き使える (併用可)。
 
+/** codegen が反射対象の型を識別するための無処理マクロ。 */
 #define ACS_CLASS(...)
+
+/** codegen が反射対象の field を識別するための無処理マクロ。 */
 #define ACS_PROPERTY(...)
-// ACS_FUNCTION(...) は反射対象メソッドと公開指定子を示す無処理マクロ。
-// ゲーム側の ACS_CLASS 内にある引数なし void メソッドは codegen が登録コードを生成し、Engine 組込み型は ReflectCatalog で登録する。
-// 登録後は指定子に応じてエディタのボタンや Blueprint グラフから呼び出せる。
+
+/** codegen が反射対象の関数と公開指定子を識別するための無処理マクロ。 */
 #define ACS_FUNCTION(...)
 
 // ===================== gameframework/AmbientDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — CAmbientDirector (Time-of-Day)
-//
-// 1 日の時刻 (0..24h) に応じて sky color / ambient color / sun direction を
-// キーフレーム間で線形補間する time-of-day ドライバ。レンダラ側 (CPbrShader /
-// SkyShader / 環境光ステージ) は本クラスの 3 つの色 / 方向ベクトルを毎フレーム
-// pull するだけで一日の表情が出る。
-//
-// 使い方:
-//   class AWorldScene : public AScene {
-//       acs::game::CAmbientDirector m_Ambient;
-//
-//       void OnEnter() noexcept override {
-//           m_Ambient.SetTimeOfDay(6.5f);     // 朝焼け開始
-//           m_Ambient.SetTimeScale(0.1f);     // リアル 1s = 0.1 game-hour
-//                                            // → 1 game 日 = リアル 240s
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Ambient.Tick(dt);
-//           CRenderer().SetSkyColor    (m_Ambient.SkyColor());
-//           CRenderer().SetAmbientColor(m_Ambient.AmbientColor());
-//           CRenderer().SetSunDir      (m_Ambient.SunDirection());
-//       }
-//   };
-//
-// 設計選択 (Pillar Q):
-//   ・**キーフレーム = const static**: 6 個の {hour, sky, ambient} stop を
-//     クラス内 static 配列で保持。利用者が改変するのは「現在時刻」と
-//     「タイムスケール」のみ。色彩設計はライブラリ側のデフォルトで
-//     「とりあえず動く」状態に。カスタム stop API は将来追加予定。
-//   ・**線形補間** (Lerp): Hermite / Catmull-Rom 補間は将来対応。線形でも
-//     6 stop なら継ぎ目の不連続は許容範囲。
-//   ・**夜の wrap**: 22h と 翌 4h の stop を「22..24, 0..4」両方に置く形で
-//     ラップ。`SetTimeOfDay(23.5f)` でも `(2.5f)` でも自然な夜色になる。
-//   ・**SunDirection**: hour_angle = (hour - 6) / 12 * π。
-//     6:00 → angle=0 (東 = +X)、12:00 → π/2 (天頂 = +Y)、18:00 → π (西 = -X)。
-//     夜間 (0..6 と 18..24) は y < 0 となり「地平線下」を素直に表現。
-//     方位 (Z) は固定 0 (= 真東西軌道)、将来 季節 / 緯度オフセット予定。
-//   ・**Tick(dt) と AdvanceTime(dh)**: 前者はリアル秒、後者はゲーム時間。
-//     SetTimeScale(game_h_per_real_sec) で換算。デフォルト 1/60 = リアル 1 分
-//     でゲーム 1 時間。
-//
-// 範囲外:
-//   ・カスタム FTimeStop の動的追加 (= 季節 / 天候モードによる切替)
-//   ・Hermite / spline 補間で滑らかな黄昏遷移
-//   ・SH9 / ambient cube による方向性 ambient
-//   ・月の方向 / 月相
 
 
 namespace acs::game {
@@ -32527,43 +32043,6 @@ using FAmbientDirector = CAmbientDirector;
 
 // ===================== gameframework/AnimationCurve.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FAnimationCurve
-//
-// 編集可能な「時間→値」補間曲線。
-// CSpriteAnimator が「frame index 計算」だけを担うのと違い、FAnimationCurve は
-// 任意の f32 を時間で滑らかに変化させる汎用パスを提供する。
-//
-// 用途:
-//   ・カメラ FOV / 露出のキー打ち
-//   ・カスタム easing (Easing 関数群で表現できない自由曲線)
-//   ・体力バー演出やフェード等のスクリプト連動 (FSequence に渡す値生成器として)
-//
-// 使い方:
-//   FAnimationCurve fade;
-//   fade.AddKey(0.0f, 0.0f, ECurveInterpolation::Linear);
-//   fade.AddKey(0.5f, 0.8f, ECurveInterpolation::Linear);
-//   fade.AddKey(1.0f, 1.0f, ECurveInterpolation::Hermite); // 出口を滑らか
-//   fade.SetPostWrap(FAnimationCurve::EWrapMode::Clamp);
-//   // 毎フレーム:
-//   f32 alpha = fade.Evaluate(t);
-//
-// 設計判断:
-//   ・Easing.h は標準 easing の型付きカタログとして十分軽量だが、デザイナが任意の曲線を
-//     差し込みたい局面 (ボス演出曲線, カスタム UI スライドカーブ) に対応するため
-//     キー打ち式の曲線を別途用意する。
-//   ・key は time 昇順で内部 TArray に保持。AddKey は二分探索で適切位置に挿入する
-//     ことで Evaluate を O(log N) に保つ (FSequence の sorted insert と同方針)。
-//   ・各 key は in_interp / out_interp を持ち、segment [k_i, k_{i+1}] の補間方式は
-//     k_i.out_interp で決定。Step → 左 value 保持。Linear → 線形。Hermite →
-//     k_i.out_tangent と k_{i+1}.in_tangent を使う 3 次 Hermite。
-//   ・Hermite のタンジェントは「単位 1.0 秒あたりの傾き」として保存。Evaluate
-//     時に segment 長 dt で乗算してスケールするので、key 間隔を変えても曲線形が
-//     直感的に保てる。
-//   ・EWrapMode = {Clamp, Loop, PingPong} の前後別指定。Loop / PingPong は
-//     CSpriteAnimator と同じ折り返し方式で実装し、長時間呼び出しでも f32 精度を
-//     失わないよう time → 内部正規化 time の段階で fold する。
-//   ・CSpriteAnimator と同様に「ランタイム状態を不意に複製しないため非コピー・
-//     非ムーブ」。曲線を共有したい場合は FAnimationCurve を 1 つ作って参照渡しする。
 
 
 namespace acs::game {
@@ -32615,24 +32094,39 @@ struct FCurveKey {
 
 /** FAnimationCurve の checked 更新・評価 API が返す安定したエラー分類。 */
 enum class EAnimationCurveError : u8 {
+    /** エラーなし。 */
     None = 0,
+    /** key 数が 0 以外なのに入力配列が null。 */
     NullKeys,
+    /** key 数が許容上限を超過。 */
     TooManyKeys,
+    /** time、value、tangent のいずれかが有限値ではない。 */
     NonFiniteValue,
+    /** 補間方式が定義済み列挙値ではない。 */
     InvalidInterpolation,
+    /** easing 種別に対応する評価関数がない。 */
     InvalidEasingType,
+    /** easing 曲線を生成する点数が許容範囲外。 */
     InvalidSampleCount,
+    /** 定義域外の折り返し方式が不正。 */
     InvalidWrapMode,
+    /** 入力 key が time 昇順ではない。 */
     UnsortedKeys,
+    /** 同じ time の入力 key が重複。 */
     DuplicateKeyTime,
+    /** key の保持領域を確保できない。 */
     AllocationFailure,
+    /** 評価結果を有限な f32 値として返せない。 */
     ResultOutOfRange,
 };
 
 /** checked 更新・評価の結果。 */
 struct FAnimationCurveResult {
+    /** checked API が返したエラー。 */
     EAnimationCurveError error = EAnimationCurveError::None;
+    /** 処理対象またはエラーを検出した key の位置。 */
     u32 key_index = 0u;
+    /** API が検証または保持した key 数。 */
     u32 key_count = 0u;
 
     bool Succeeded() const noexcept {
@@ -33006,79 +32500,6 @@ using FAnimationCurveArchive = CAnimationCurveArchive;
 
 // ===================== gameframework/AnimationGraph.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — CAnimationGraph
-//
-// 3D skeleton-anim 向けの state machine ベース blend graph。
-// CSpriteAnimator (= sprite frame index 計算) と FAnimationCurve (= 任意 f32 補間)
-// を補完する、「現在再生中の clip + 遷移ブレンド」を担う高次抽象。
-//
-// 役割分担:
-//   ・CSpriteAnimator  : sprite シートの frame index (2D 用)
-//   ・FAnimationCurve  : 任意 f32 を時間で滑らかに動かす汎用パス
-//   ・TStateMachine<T> : 汎用 FSM (関数ポインタ駆動)
-//   ・CAnimationGraph  : 本ファイル — 3D skeleton clip の選択 + 状態間 blend
-//
-// 役割の境界:
-//   ・本クラスは「どの clip を / いつから / どの blend alpha で再生するか」
-//     という meta 制御のみ。bone palette 計算 / GPU upload / final pose 算出は
-//     呼出側 renderer + CAnimationPlayer (gameframework_anim 等の別レイヤ) に
-//     委譲する。本クラスは clip_index と blend_alpha を提供するだけ。
-//   ・clip データ (key 列 / bone curve) は外部 (model loader) が所有。本クラスは
-//     `FAnimationClipBinding` (name / duration / looping / default speed) という
-//     メタ情報配列を値コピーで保持する。
-//
-// 使い方 (典型):
-//   CAnimationGraph g;
-//   g.Init();
-//   const u32 idle_clip = g.AddClip({ "Idle", 2.0f, true,  1.0f });
-//   const u32 walk_clip = g.AddClip({ "Walk", 1.2f, true,  1.0f });
-//   const u32 jump_clip = g.AddClip({ "Jump", 0.8f, false, 1.0f });
-//
-//   g.AddStateNode({ "Idle", EAnimationGraphState::Idle, idle_clip, 0.15f, 0.15f });
-//   g.AddStateNode({ "Walk", EAnimationGraphState::Walk, walk_clip, 0.15f, 0.15f });
-//   g.AddStateNode({ "Jump", EAnimationGraphState::Jump, jump_clip, 0.10f, 0.20f });
-//
-//   // Idle → Walk: speed > 0.1 で遷移
-//   g.AddTransition({ EAnimationGraphState::Idle, EAnimationGraphState::Walk,
-//                     0.1f, "speed", false });
-//   // Walk → Idle: speed < 0.05 で遷移 (= threshold を下回ったとき)
-//   // (条件は「>= threshold」なので、逆方向は別途設計; ここではゲーム側で
-//   //  TriggerTransition を使うか speed の正負を反転するかで対応)
-//
-//   // 毎フレーム:
-//   g.SetParam("speed", current_speed);
-//   g.Tick(dt);
-//
-//   const EAnimationGraphState cur = g.CurrentState();
-//   const f32                  alpha = g.CurrentBlendAlpha();
-//   const f32                  t_cur = g.CurrentLocalTime();
-//   // → renderer に (current_clip, t_cur, alpha, prev_clip, t_prev) を渡して
-//   //    bone palette を blend する
-//
-// 設計判断:
-//   ・**enum 駆動の固定状態 ID** (EAnimationGraphState): ACS は「状態が極端に多くない 3D
-//     キャラ」を想定して 9 個のプリセット (Idle/Walk/Run/Jump/Attack/Hit/Death/
-//     Custom1/Custom2) に固定。将来必要なら EAnimationGraphState を拡張。
-//   ・**clip と state を分離**: 1 clip を複数 state から参照する余地を残す (= 例
-//     えば Attack で Walk の clip を流用、Custom1 で Idle clip を流用する等)。
-//   ・**遷移条件は (param_name, threshold)**: param 値 >= threshold で発火。
-//     より複雑な条件 (== / <= / && / ||) は持たず、単純化優先。
-//   ・**TriggerTransition** で明示的遷移も可能 (= 攻撃ボタン入力等を直接遷移に
-//     使うケース; 条件式で表現するのは煩雑なため)。
-//   ・**enter/exit blend duration を state ごとに保持**: 「Idle → Walk」のとき
-//     使う duration は **新状態 (Walk) の enter_blend_sec**。これにより遷移先に
-//     応じた blend 長を state 入口側の 1 箇所で管理できる。
-//   ・**blend 中は previous_state / blend_alpha を出力**: alpha は 0→1 で「新状態
-//     の比率」。blend 完了で alpha=1.0、previous_state は last_state として
-//     残す (= 履歴照会用)。
-//   ・**Tick 中の callback**: state enter / clip end の 2 種類を関数ポインタで
-//     提供 (std::function 不使用、ACS 規約)。
-//   ・**param 比較**: char* literal をポインタ + strcmp 両方で照合 (= literal
-//     共有の場合はポインタ一致 fast path, 異なるバッファでも strcmp で機能)。
-//   ・**非コピー・非ムーブ**, 全 noexcept, STL 不使用, `<string>` 禁止。
-//
-// 関連実装: CSpriteAnimator (frame anim), FAnimationCurve (curve), TStateMachine<T> (FSM 基盤),
-//      AModelAnimationPanel (UI 連動可能)
 
 
 namespace acs::game {
@@ -33594,27 +33015,6 @@ using FAnimationGraph = CAnimationGraph;
 
 // ===================== gameframework/AppState.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — AppState
-//
-// シーン跨ぎで生存する型消去の永続状態スロット。CGame が 1 つ保持し、
-// 任意のシーンから `GetGame().AppState<T>()` で取り出せる。
-//
-// 使い方:
-//   struct FPlayerProfile { int hi_score = 0; };
-//
-//   // 起動時 (OnStart や InitialScene::OnEnter で):
-//   GetGame().EmplaceAppState<FPlayerProfile>();
-//
-//   // 任意のシーンで:
-//   auto* prof = GetGame().AppState<FPlayerProfile>();
-//   if (prof) prof->hi_score = 9999;
-//
-// 設計:
-//   ・RTTI 不使用。型 ID は `template static const int` のアドレスを使う
-//     (各 T インスタンス化で別アドレス = 一意 ID)。
-//   ・IAllocator はデフォルト固定。ACS の New/Delete を使う。
-//   ・1 CGame あたり 1 個。複数の独立した状態が欲しい場合は struct にまとめる。
-//   ・wrong-type Get は nullptr を返す (例外なし、ACS 流)。
 
 
 namespace acs::game {
@@ -33725,40 +33125,6 @@ private:
 
 // ===================== gameframework/AssetBundle.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — CAssetBundle (シーンスコープのアセット集合非同期ロード)
-//
-// 役割:
-//   シーンが「このシーンで使う N 個のアセット」をまとめて宣言し、BeginLoad() で
-//   一括非同期ロード → 集約進捗 (Progress / IsLoaded / HasFailed) を確認する。
-//   個別 path の FAssetFuture を散在管理する代わりに 1 つの bundle で扱える。
-//
-// 使い方 (典型例):
-//   class AGameplayScene : public AScene {
-//       acs::game::CAssetBundle m_Bundle;
-//       void OnEnter() noexcept override {
-//           m_Bundle.Add("textures/hero.png");
-//           m_Bundle.Add("audio/bgm.ogg");
-//           m_Bundle.Add("meshes/level.glb");
-//           m_Bundle.BeginLoad();
-//       }
-//       void OnUpdate(f32) noexcept override {
-//           if (!m_Bundle.IsLoaded()) {
-//               // ローディング画面: m_Bundle.Progress() を表示
-//               return;
-//           }
-//           // 通常ゲームループ
-//       }
-//       void OnExit() noexcept override { m_Bundle.Unload(); }
-//   };
-//
-// 設計方針:
-//   ・シーン死亡で bundle 廃棄 → 内部 TSharedPtr<AAsset> が drop → CAssetRegistry の refcount
-//     が下がり、他参照がなければ実体メモリも解放される (GC 不要 / 決定的解放)。
-//   ・path 文字列は呼び出し側が寿命を保証する (string literal / 永続バッファ前提)。
-//     ACS 規約により <string> は使わない (const char* を TArray に保持)。
-//   ・BeginLoad(registry) は CAssetRegistry::Load を使った同期ロード。戻った時点で
-//     各 entry は Loaded / Failed 確定 (非同期分割は本 bundle の対象外)。
-//   ・全 API noexcept (例外は使わない / TResult も bundle 表層では露出しない)。
 
 
 namespace acs { class CAssetRegistry; }
@@ -33909,51 +33275,6 @@ private:
 
 // ===================== gameframework/AudioDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CAudioDirector
-//
-// シーン跨ぎで生存する「音声指揮層」。CSceneServices ではなく CGame (or app)
-// に持たせる前提 (BGM はシーン切替で途切れないため、シーン局所では困る)。
-//
-// 機能:
-//   ・3 段ボリュームバス: Master / Bgm / Sfx (各 f32 [0, 1])
-//   ・BGM クロスフェード: `PlayBgm("battle", 2.0f, true)` で 2 秒掛けて遷移
-//   ・SFX one-shot: `PlaySfx("hit", 0.8f)` で即時再生 (混ぜて並列発火)
-//   ・ダッキング: 短期間だけ BGM 音量を一時的に下げる (ボイス再生中など)
-//   ・Pause / Resume / StopAll
-//   ・Tick(dt) で内部 timer (クロスフェード / ダッキング) を進行
-//   ・**IAudioBackend 接続**: `SetBackend(IAudioBackend*)` で
-//     `CXAudio2Backend` 等の concrete backend を差し込むと、実音再生 + master /
-//     pause / stop / Tick を backend に delegate する。backend == nullptr のとき
-//     は state-only 動作 (= 無音、ログ警告も出さない)。
-//   ・**clip 直接再生 API**: `PlayBgmClip(const FAudioClipDesc&,
-//     fade, loop)` / `PlaySfxClip(const FAudioClipDesc&, vol, pitch)` で raw PCM
-//     データから直接再生できる。名前ベース API (PlayBgm / PlaySfx) は state 管理
-//     のみ (将来 name→clip resolver を導入予定)。
-//
-// 設計選択:
-//   ・**TResult<void> は使わない**: この層は失敗を返さない (ログ警告のみ)。
-//     不正引数 (null name / 負の duration 等) は警告ログ + 既定値で続行。
-//   ・**SoA cross-fade state**: 同時に鳴る BGM は最大 2 本 (current + next)。
-//     `m_Bgm[0]` が現行、`m_Bgm[1]` が遷移中の新 BGM。遷移完了で swap。
-//   ・**Ducking は単一 timer**: スタックしない (新 Duck が来たら上書き)。
-//     fade-in/fade-out は単純な線形 (depth → 1.0 まで 0.1 秒で復帰の固定窓)。
-//   ・**SFX は ring 風に固定容量**: 容量 32 (典型的同時発音数を踏まえた目安)。
-//     満杯なら最古を上書き (シューティング的に許容)。
-//   ・**name は所有しない**: `const char*` を保持 = ROM の文字列リテラル前提。
-//     将来 FStringView / Asset Handle に置き換える。
-//   ・**backend は所有しない**: `IAudioBackend*` は raw ptr。呼び出し側が
-//     `CXAudio2Backend` 等を所有し、SetBackend(nullptr) で先に切ってから
-//     backend の Shutdown を呼ぶ責任を負う (二重解放回避)。
-//   ・**Pause/Resume/StopAll/SetMasterVolume は backend に forward**: backend
-//     が存在すれば実音にも反映される。volume バス変更 (SetBgmVolume 等) は
-//     Tick() で BGM voice の `SetVoiceVolume` に反映する (EffectiveBgmVolume
-//     を毎フレ算出して backend へ流す)。
-//
-// 範囲外:
-//   ・name → FAudioClipDesc resolver (CAssetRegistry 統合)
-//   ・3D positional / spatial / submix bus / DSP chain
-//   ・スナップショット (mixer state を hot-swap)
-//   ・wav/ogg/mp3 decode (本層は raw PCM 前提)
 
 
 // ===================== gameframework/audio_backend/IAudioBackend.h =====================
@@ -35136,73 +34457,6 @@ using FBeatGrid = CBeatGrid;
 
 // ===================== gameframework/BehaviorTree.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — CBehaviorTree (selector / sequence / action)
-//
-// AI / 敵挙動 / cutscene 分岐 などのために最小構成の Behavior Tree を提供する。
-// root が 1 つの ABtNode を持ち、毎フレーム Tick(blackboard, dt) で評価する。
-//
-// 戻り値セマンティクス:
-//
-//   ┌─────────────┬──────────────────────────┬──────────────────────────┐
-//   │ Composite   │ 子の結果                 │ 自分の結果               │
-//   ├─────────────┼──────────────────────────┼──────────────────────────┤
-//   │ ABtSelector │ Success が出るまで進む   │ いずれかが Success       │
-//   │  (OR)       │   どれか Running         │   → Success              │
-//   │             │   全て Failure           │   Running が出た時点で   │
-//   │             │                          │   → Running              │
-//   │             │                          │   全て Failure           │
-//   │             │                          │   → Failure              │
-//   ├─────────────┼──────────────────────────┼──────────────────────────┤
-//   │ ABtSequence │ Failure が出るまで進む   │ いずれかが Failure       │
-//   │  (AND)      │   どれか Running         │   → Failure              │
-//   │             │   全て Success           │   Running が出た時点で   │
-//   │             │                          │   → Running              │
-//   │             │                          │   全て Success           │
-//   │             │                          │   → Success              │
-//   └─────────────┴──────────────────────────┴──────────────────────────┘
-//
-//   ※ ABtSelector / ABtSequence は **stateless tick** (毎呼び出しで先頭から再評価)。
-//     "1 フレームに 1 ステップだけ進める" 等の中断保持が必要になった段階で
-//     PartialTick 派生を追加する想定だが、本最小実装ではスコープ外。
-//
-// 設計選択:
-//   ・leaf アクションは **関数ポインタ** `EBtStatus(*)(void* bb, f32 dt) noexcept`。
-//     `std::function` 不使用 (ACS 規約)。型消去のヒープ確保 / 例外を避けるため。
-//     必要なキャプチャは blackboard 経由か `bb` を `Self*` にキャストして取り回す。
-//   ・blackboard は `void*` (user 定義の任意構造体)。BT 側で型を持たないことで
-//     どのモジュール (Pillar L AI / cutscene / UI 等) からも汎用に使える。
-//   ・子ノードは `acs::TUniquePtr<ABtNode>` で所有 (= move-only)。
-//     子の所有権は composite が握り、tree の寿命と一体化する。
-//   ・CBehaviorTree / 各 ABtNode は **非コピー・非ムーブ**。tree は普通フィールドとして
-//     抱えられて Tick されるだけなので、所有権を動かす運用は想定しない。
-//     構築は `ABtSelector` を `MakeUnique` で作って `AddChild` で組み立てる。
-//
-// 使い方:
-//   struct FEnemyBb { FVec3 pos; bool sees_player; };
-//
-//   static EBtStatus MoveToPlayer(void* bb, f32 dt) noexcept {
-//       auto* e = static_cast<FEnemyBb*>(bb);
-//       // ... move toward player ...
-//       return reached ? EBtStatus::Success : EBtStatus::Running;
-//   }
-//   static EBtStatus Patrol(void* bb, f32 dt) noexcept { ... }
-//
-//   class FEnemy {
-//       acs::game::CBehaviorTree m_Bt;
-//       FEnemyBb                m_Bb;
-//
-//       FEnemy() noexcept {
-//           // Selector: 「敵が見えたら追跡、見えなければパトロール」
-//           auto root  = acs::MakeUnique<acs::game::ABtSelector>();
-//           auto chase = acs::MakeUnique<acs::game::ABtSequence>();
-//           chase->AddChild(acs::MakeUnique<acs::game::ABtAction>(&SeesPlayer));
-//           chase->AddChild(acs::MakeUnique<acs::game::ABtAction>(&MoveToPlayer));
-//           root->AddChild(acs::Move(chase));
-//           root->AddChild(acs::MakeUnique<acs::game::ABtAction>(&Patrol));
-//           m_Bt.SetRoot(acs::Move(root));
-//       }
-//       void Tick(f32 dt) noexcept { m_Bt.Tick(&m_Bb, dt); }
-//   };
 
 
 namespace acs::game {
@@ -36054,39 +35308,6 @@ using FBuffSystem = CBuffSystem;
 
 // ===================== gameframework/Camera2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — CCamera2D
-//
-// 2D カメラ: position / zoom / rotation、target 追従 (指数 smoothing)、
-// screen shake (trauma 方式)、world↔screen 座標変換、world boundary clamping。
-// CSceneServices 経由で自動 tick (`ESvc::Camera2D` を WantedServices に含める)。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//   public:
-//       ESvc WantedServices() const noexcept override {
-//           return ESvc::Default2D | ESvc::Camera2D;
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           // player の位置にカメラを追従
-//           Services().Camera().SetTargetPos(player.Position());
-//           // 攻撃ヒットで画面振動
-//           if (player.JustHit()) Services().Camera().AddShake(0.5f);
-//       }
-//   };
-//
-// 設計選択:
-//   ・**framerate independent smoothing**: `1 - exp(-smoothing * dt)` で
-//     dt 不変な指数追従。`smoothing = 5.0` で約 0.2 秒で 63% 詰める典型値。
-//   ・**Eiserloh trauma shake** (Squirrel Eiserloh GDC 2016):
-//     `trauma += amount` で累積 (clamped [0,1])、毎フレーム `trauma -= decay*dt`
-//     で減衰。実 shake 量 = trauma² * amplitude * noise → 「弱 trauma で控えめ、
-//     強 trauma で派手」が自然に出る。noise は sin/cos 直流回避。
-//   ・**bounds clamp**: SetBounds(min, max) で position を rect 内に clamp。
-//     未設定なら無制限。
-//   ・**EffectiveViewCenter()** = position + shake_offset。レンダラーが
-//     実際に view 設定に使う値。
-//   ・**World↔Screen**: 画面中心 = view center、zoom > 1 で拡大表示。
-//     rotation は radians、+ で CCW。
 
 
 namespace acs::game {
@@ -36729,56 +35950,6 @@ private:
 
 // ===================== gameframework/CameraShakePresets.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// CCameraShakePresets
-//
-// CCamera2D (= IShakeTarget) に対して「爆発 / 地震 / 着弾」等のジャンル別
-// shake パラメータを 1 行で流し込む薄い preset ライブラリ。Eiserloh trauma
-// 方式 (Camera2D.h を参照) の amplitude / decay_rate / frequency / 適正
-// duration を、ゲームコードに magic number を書かずに済むよう名前付きで
-// 提供する。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//       void OnEnter() noexcept override {
-//           // CCamera2D が IShakeTarget を派生していれば直接渡せる:
-//           // CCameraShakePresets::ApplyPreset(Services().Camera(),
-//           //                                 EShakePreset::ExplosionLarge);
-//       }
-//   };
-//
-//   // カスタム preset 登録:
-//   CCameraShakePresets presets;
-//   presets.RegisterCustomPreset("BossSlam",
-//       FShakeParams{0.7f, 1.0f, 0.8f, 18.0f, 1.2f});
-//   presets.ApplyCustomByName(target, "BossSlam");
-//
-// 設計選択:
-//   ・**IShakeTarget seam**: CCameraShakePresets は CCamera2D に直接依存しない。
-//     trauma を吸う側を `IShakeTarget` 抽象で受けることで、CCamera2D が
-//     IShakeTarget を派生していなくても spec として正しい形を維持できる。
-//     テスト用の MockShakeTarget でユニットテストも書ける。
-//   ・**preset 値は static const 関数で配る**: 単純な定数なので constexpr
-//     にしたい所だが、Custom enum case + 拡張 (EShakePreset を増やす)
-//     を見越して関数経由に統一。コンパイラは余裕で fold する。
-//   ・**Custom preset は名前 + FShakeParams を TArray に保持**: 件数は典型 0〜
-//     20 程度なので線形検索。const char* は呼び出し側が保証する static
-//     lifetime 想定 (CAchievementManager / CEntitlementRegistry と同設計、STL <string>
-//     不使用)。
-//   ・**ApplyPreset は trauma を AddShake で「加算」する**: SetShake* で
-//     amplitude / decay を上書きしたあと、trauma を AddShake で累積する。
-//     これによりトリガーが重なった時 (= 連続ヒット) trauma 蓄積で派手になる
-//     Eiserloh 流の挙動を維持する。
-//   ・**duration_hint は CCameraShakePresets 自身は使わない**: 単なる "この
-//     trauma + decay だと約何秒で減衰しきる" の参考値。caller が UI 演出や
-//     SFX と尺合わせするためのヒント。decay の逆算式は trauma / decay_rate
-//     (秒)。
-//   ・**全 noexcept、非コピー・非ムーブ**: 他 preset/manager 系と統一。
-//
-// 範囲外:
-//   ・preset 間 blending (爆発中に地震が来た時、別軸で合成する等)
-//   ・directional shake (現状は等方ノイズ、方向ベクトルは CCamera2D 拡張で)
-//   ・perlin/curl-noise ベース shake (現状は sin/cos 直流回避 noise)
-//   ・preset の JSON 等からの読み込み (現状は C++ 即値ベース)
 
 
 namespace acs::game {
@@ -36992,62 +36163,6 @@ using FCameraShakePresets = CCameraShakePresets;
 
 // ===================== gameframework/CameraStack.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — CCameraStack
-//
-// 複数 `CCamera2D` を **virtual camera スタック**として保持し、最上層 (= top) を
-// active として扱う Cinemachine 風スイッチャ。Push/Pop の遷移は **線形補間**で
-// 古 top → 新 top の position/zoom/rotation をブレンドし、描画側は Effective*
-// アクセサで「いまフレームでカメラがどこを写しているか」を取得する。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//       acs::game::CCamera2D  m_FollowCam;     // プレイヤー追従カメラ
-//       acs::game::CCamera2D  m_CinematicCam;  // 演出用カメラ (固定 or 別追従)
-//       acs::game::CCameraStack m_Stack;
-//       void OnEnter() noexcept override {
-//           m_Stack.PushCamera(m_FollowCam);                // 初期 top
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_FollowCam.SetTargetPos(player.Position());
-//           m_Stack.Tick(dt);  // blend + active camera tick
-//           if (BossIntroStarted()) {
-//               m_Stack.PushCamera(m_CinematicCam, 1.0f);   // 1 秒で blend
-//           } else if (BossIntroEnded()) {
-//               m_Stack.PopCamera(0.5f);                    // 戻る
-//           }
-//       }
-//       void OnRender(FRenderContext& rc) noexcept override {
-//           rc.SetViewCenter(m_Stack.EffectivePosition());
-//           rc.SetViewZoom(m_Stack.EffectiveZoom());
-//           rc.SetViewRotation(m_Stack.EffectiveRotation());
-//           // ... draw ...
-//       }
-//   };
-//
-// 設計選択 (Pillar E):
-//   ・**virtual camera スタック**: CCamera2D は user が own。CCameraStack は
-//     **non-owning pointer** だけを持つ。寿命管理は呼び出し側責任 (= AScene 内
-//     のメンバ変数として持つのが典型)。
-//   ・**最大 4 layer**: 想定用途は「平常 / 演出 / カットイン / メニュー」程度。
-//     深く積む必要はないので static 上限 4。超えたら警告して無視。
-//   ・**Push 中の補間**: 直近 2 層 (旧 top と新 top) を線形補間する。Pop の
-//     場合は「下層 (= 残るカメラ)」と「現 top (= これから消えるカメラ)」を
-//     補間し、blend 終了時に top を実際に pop する。途中で更に Push/Pop が
-//     来た場合は新しい blend に切り替わる (後勝ち)。
-//   ・**blend_t は entry 単位で保持**: 各 FCameraEntry が自身の blend 状態
-//     (`blend_t` の経過進捗 / `is_in` = フェードイン中か否か / 補間 duration)
-//     を持つ。top の `is_in == true && blend_t < 1` の間が「blending」。
-//   ・**zoom は対数補間**: 1.0 → 4.0 の blend で線形だと「2.5 → 中点」が
-//     不自然 (光学的には 2.0 が中点)。`exp(lerp(log(a), log(b), t))` で
-//     人間が「ちょうど中間」と感じる補間にする。zoom <= 0 は 0.001 にクランプ。
-//   ・**rotation は最短角補間**: ±π を跨ぐ場合に最短経路で回るよう、差分を
-//     [-π, π] に正規化してから lerp。
-//   ・**Tick**: 上から順に **active な 2 層**だけ CCamera2D::Tick を呼ぶ
-//     (= スタックに積まれているが blend に絡まない下層は止めておく)。これに
-//     より「下層カメラがプレイヤーを追ってずれていく」事故を防ぐ。下層を
-//     生かしておきたいケースは呼び出し側で個別 Tick すれば良い。
-//   ・**非コピー・非ムーブ**: 内部 TArray が non-owning ptr を持つだけだが、
-//     CSceneManager と同じく「state holder は move されない」方針で統一。
 
 
 namespace acs::game {
@@ -37226,74 +36341,6 @@ using FCameraStack = CCameraStack;
 
 // ===================== gameframework/CharacterCustomizer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — CCharacterCustomizer (cosmetic 装備管理)
-//
-// プレイヤーキャラの「見た目」を装備する高レベルマネージャ。帽子・服・靴・武器の
-// 見た目 (=  cosmetic) 等を slot 単位で 1 つずつ装着する。実装的には id ベースの
-// 軽量レジストリで、メッシュ / マテリアル差し替えの実体は呼出側 (レンダラ / Skeletal
-// Mesh コンポーネント側) が EquipCallback を購読して反応する責務分離設計。
-//
-// 倫理方針 (Entitlement.h / SeasonPass.h と一貫):
-//   ・本クラスが扱うのは **見た目のみ (cosmetic)**。装備性能 / 戦闘パラメータの
-//     書き換えは行わない。pay-to-win 設計を構造的に避けるための型レベル分離。
-//   ・装備性能の変動が必要な場合はゲーム側で別レジストリ (e.g. 装備ステータス
-//     マネージャ) を用意し、本クラスとは独立に動かす。
-//
-// 使い方:
-//   CCharacterCustomizer cc;
-//
-//   // 起動時にゲーム or アセットバンドル側で全 cosmetic を登録。
-//   cc.RegisterCosmetic({ "hat.red_cap",   "Red Cap",   ECosmeticSlot::Head,
-//                         "art/cosmetic/hat_red.fbx", false, "common" });
-//   cc.RegisterCosmetic({ "skin.gold",     "Gold Skin", ECosmeticSlot::Body,
-//                         "art/cosmetic/skin_gold.fbx", true,  "rare"   });
-//   // ...
-//
-//   // ストア / クエスト報酬経由で unlock。実 entitlement 検証は呼出側 (Pillar O
-//   // CEntitlementRegistry / Pillar S Storefront) で済ませてから本 API に通知。
-//   cc.UnlockCosmetic("hat.red_cap");
-//
-//   // 装着 callback を購読 (レンダラ側で見た目差し替えを反映する用)。
-//   cc.SetOnEquipCallback(&OnEquipChanged, /*user*/ &renderer);
-//
-//   // UI からプレイヤーが選択。
-//   if (cc.EquipCosmetic("hat.red_cap")) {
-//       // renderer 側で対応 mesh をロード済みなら自動で見た目反映される。
-//   }
-//
-// 設計選択 (Pillar O):
-//   ・**id は const char* 非所有**: ACS の STL 禁止方針 + CEntitlementRegistry / Achievement
-//     と一貫。文字列リテラル or 長寿命バッファ前提 (呼出側保証)。
-//   ・**slot は固定 enum**: ECosmeticSlot は 11 種類で固定。slot ごとに最大 1 つの
-//     cosmetic が装着可能 (装着すると同 slot の既存装着は自動で外れる)。
-//     ColorPalette は色変更用の特殊 slot (UI のカラー選択を保持)。
-//   ・**Def + Unlocked 状態を並行 TArray で持つ**: CAchievementManager と同じ Def/State
-//     分離。FCosmeticItem は immutable な定義、unlocked は実行時 bool。1:1 対応で
-//     同 index を共有 (TArray<FCosmeticItem> + TArray<bool>)。
-//   ・**装着状態は slot indexed const char* 配列**: 線形検索を避けるため、slot を
-//     index にした固定長 const char*[kSlotCount] を持つ。各エントリは「現在装着
-//     されている cosmetic の id」(未装着なら nullptr)。 EquipCosmetic / UnequipSlot
-//     で O(1) 更新できる。
-//   ・**EquipCallback は単一購読**: レンダラ側の差し替え駆動用に raw 関数ポインタ
-//     + user data。複数購読は扱わない。装着 / 解除いずれも同 callback を呼び、
-//     item_id == nullptr で「解除」を表現する。
-//   ・**Unlock は冪等 + bool 返し**: 既 unlock 済 id に再 Unlock は false (新規でない)。
-//     未登録 id への Unlock も false。新規 unlock 成功時のみ true。
-//   ・**Equip は unlock 必須**: IsUnlocked(id) == false の cosmetic は装着拒否。
-//     UI 側で「グレーアウト + locked 表示」を実装する前提。
-//   ・**線形検索**: cosmetic 件数は AAA タイトルでも通常 200〜1000 のオーダー。
-//     per-byte 文字列比較で十分 (CEntitlementRegistry / CAchievementManager と同じ判断)。
-//   ・**ClearAll は登録も装着も両方リセット**: Save/Load 復元前のクリーンスタート用。
-//     callback は呼ばない (loop / ノイズ防止)。
-//   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
-//   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
-//
-// 範囲外:
-//   ・永続化 (Save/Load) — Pillar J Serialize と統合
-//   ・複数装着 (e.g. アクセサリ slot に同時 3 つ) — 現状は slot あたり最大 1
-//   ・cosmetic の合成・染色 (ColorPalette と base アイテムの合算)
-//   ・サーバ側 unlock 検証 — Pillar V Backend Services に委譲
-//   ・ストア連携 (購入トランザクション) — Pillar S Storefront に委譲
 
 
 namespace acs::game {
@@ -37561,105 +36608,6 @@ using FCharacterCustomizer = CCharacterCustomizer;
 
 // ===================== gameframework/CheckpointSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Genre Kit (Platformer) — CCheckpointSystem
-//
-// プラットフォーマー (and 派生ジャンル) の心臓部である「チェックポイント =
-// 死亡時に戻る復活ポイント」を 1 クラスにまとめた小型マネージャ。
-// 配置済み checkpoint を string id で識別し、現在 active な checkpoint を
-// 1 つ保持して TriggerRespawn() で復活先座標 + level index を引き出す。
-//
-// 想定する位置付け:
-//   ・Pillar R/I (CHealthSystem) との連携:
-//     - CHealthSystem の DeathCallback で「死亡 → CCheckpointSystem.TriggerRespawn」
-//       を叩くのが定型パターン。CCheckpointSystem 自体は HP の状態は持たず、
-//       「どこに復活させるか」だけを管理する責務に絞っている。
-//   ・Pillar S (TSaveSlot) との連携:
-//     - 「現在 active な checkpoint id + unlocked id 群」をセーブする想定。
-//       本クラス自体は I/O を持たず、外部から照会される。
-//   ・CProgression / CEconomyDirector との違い:
-//     - 進行系の累計値 (XP / 通貨) ではなく、ステージ内の「リスポーン拠点」を
-//       1 つだけ active に保つ単純な座標マネージャ。
-//
-// 使い方:
-//   CCheckpointSystem cps;
-//
-//   // レベルロード時に 1 度ずつ配置を登録。
-//   FCheckpointInfo cp1{};
-//   cp1.id           = "cp.stage1.start";
-//   cp1.spawn_pos    = { 100.0f, 200.0f };
-//   cp1.level_index  = 0;
-//   cp1.sort_order   = 0;
-//   cp1.one_way      = false;
-//   cp1.requires_unlock = false;
-//   cps.Register(cp1);
-//
-//   FCheckpointInfo cp2{};
-//   cp2.id           = "cp.stage1.mid";
-//   cp2.spawn_pos    = { 500.0f, 200.0f };
-//   cp2.level_index  = 0;
-//   cp2.sort_order   = 1;
-//   cp2.one_way      = true;     // ここまで来たら戻れない
-//   cp2.requires_unlock = false;
-//   cps.Register(cp2);
-//
-//   FCheckpointInfo cp_secret{};
-//   cp_secret.id     = "cp.stage1.secret";
-//   cp_secret.spawn_pos = { 900.0f, 100.0f };
-//   cp_secret.level_index = 0;
-//   cp_secret.sort_order = 2;
-//   cp_secret.one_way = false;
-//   cp_secret.requires_unlock = true;   // 隠しスイッチで Unlock 必要
-//   cps.Register(cp_secret);
-//
-//   // 通常進行: トリガに触れたら ActivateCheckpoint("cp.stage1.mid") を呼ぶ
-//   cps.ActivateCheckpoint("cp.stage1.start");
-//   cps.ActivateCheckpoint("cp.stage1.mid");
-//
-//   // 隠し: スイッチを踏んだら Unlock してから Activate
-//   cps.UnlockCheckpoint("cp.stage1.secret");
-//   cps.ActivateCheckpoint("cp.stage1.secret");
-//
-//   // 死亡時 (CHealthSystem の DeathCallback 内)
-//   acs::FVec2 pos; u32 lv;
-//   if (cps.TriggerRespawn(pos, lv)) {
-//       // pos に player を移動、lv のレベルをロードし直す
-//   }
-//
-// 設計選択:
-//   ・**FCheckpointId は 24bit idx + 8bit gen の packed u32**: FHealthId / FPickupId
-//     / FShapeId / FNodeId と同パターン。Unregister 後の slot 再利用でも古い
-//     handle は generation 不一致で弾かれる。0 は invalid 予約 (index 0 dummy)。
-//   ・**string id を主キーに**: gameplay 設計者が触る Trigger アクタは「Activate
-//     先 checkpoint id」を文字列で指定する。handle 経由の Activate も提供して両対応。
-//   ・**所有しない const char***: id は呼出側 (リソースバンドル or ステージ
-//     データ) が保証する static lifetime の文字列リテラルを想定。STL <string>
-//     禁止方針で、Manager 内ではコピーしない。
-//   ・**one_way フラグ**: 一度通った後の back-trigger を無効化する用途。
-//     現在 active な checkpoint の sort_order より小さい checkpoint への
-//     Activate を弾く。「ボス前で戻れなくする」「リバースワープ封じ」等。
-//     sort_order は同レベル内で一意に振る前提 (重複は順序未定義)。
-//   ・**requires_unlock フラグ**: 隠し checkpoint / DLC 後アンロックを表現。
-//     UnlockCheckpoint で unlocked リストに id を追加するまで ActivateCheckpoint
-//     は false 返却で no-op。Unlock 状態は別 TArray<const char*> で保持し、
-//     ClearAll で初期化される (Save/Load 連携は外部から照会可能)。
-//   ・**active checkpoint は 1 つだけ**: 「複数同時 active」は本クラスの責務外
-//     (= ジャンルキットを超える概念)。最新の Activate が常に勝つ。
-//   ・**callback は関数ポインタ + user**: CProgression / CHealthSystem と同パターン。
-//     Activate / Respawn の 2 系統を用意し、UI トースト演出と sound trigger を
-//     ゲーム側で素直に分離できるようにする。
-//   ・**LastSpawnLevelIndex**: TriggerRespawn の後でも level_index を取れる
-//     ように getter を分離。レベルロード中に out_param が消えるエッジで使う。
-//   ・**全 noexcept、非コピー・非ムーブ**: CGame / AScene 単位で 1 個保持される
-//     想定。Save/Load も id ベースで再現するので所有権移動は要らない。
-//   ・**STL 不使用、<string> 禁止**: ACS 全体方針。文字列は const char* 非所有のみ。
-//
-// 範囲外 (将来 Phase で):
-//   ・ボス挑戦専用 checkpoint (HP 回復 + 敵リセット) は CGameFlow と組み合わせて
-//     ゲーム側で表現する。本クラスは座標 + level index のみ。
-//   ・TSaveSlot 経由の永続化は外部 (TSaveSlot<PlatformerSaveData>) で実装。
-//     本クラスからは CurrentCheckpoint() / IsUnlocked() で id を引き出すだけ。
-//   ・自動 checkpoint (移動量で勝手に発火) は Trigger 側の設計問題なので
-//     CCinematicsDirector / CTriggerWorld2D 側で組む。
 
 
 namespace acs::game {
@@ -38051,80 +36999,6 @@ using FCheckpointSystem = CCheckpointSystem;
 
 // ===================== gameframework/CinematicsDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CCinematicsDirector (timeline-based cutscene)
-//
-// タイムライン上に並べた keyframe を時間順に発火していく cutscene driver。
-// ストーリーシーン / オープニング / ボス導入演出 / イベントムービー等で
-// 「○秒で カメラ移動」「△秒でセリフ」「□秒で BGM フェードイン」を
-// 1 つのタイムラインとして宣言的に組み立てるための薄い state holder。
-//
-// 設計選択 (Pillar R):
-//   ・**CCinematicsDirector 自身は描画 / カメラ / 音 を直接いじらない**:
-//      CDamageFeedback と同じ「副作用ゼロ / pull or callback」方針。発火は
-//      関数ポインタ + void* user で type-erase した callback 経由で行い、
-//      実際のカメラ移動 / ダイアログ起動 / BGM 切替は caller (AScene / UI 層 /
-//      CAudioDirector) の責任。これで GameFramework から CRenderer / CCamera /
-//      Audio / Dialogue への直接依存を切る。
-//   ・**FTimelineKeyframe は POD union**: STL の variant は使えないので、
-//      payload を C 風 union で持つ。各 track kind が必要なフィールドだけを
-//      触る。Wait は payload を触らない (時間進行のみ)。
-//   ・**time 順に内部で sort**: AddKeyframe は時系列で挿入順を強制しない —
-//      シナリオ作成側が宣言順に書きやすいよう、内部で stable な挿入 sort を
-//      維持する (要素数 N は典型的に < 100 なので O(N) で十分)。
-//   ・**発火は一度のみ**: m_LastFiredIndex で「次に発火する keyframe」を
-//      追跡し、time >= kf.time_sec になった時点で 1 度だけ callback を呼ぶ。
-//      Skip() は残り全部を一気に発火 + m_Time を末尾に進める。
-//   ・**callback は kind ごとに型を分ける**: 全 kind を 1 つの汎用 callback
-//      で受けると caller 側が分岐 + cast を書くことになり typo の温床。
-//      kind 別に signature を分けて「カメラ用」「ダイアログ用」「音楽用」
-//      「汎用イベント用」の 4 種を提供する。
-//   ・**Wait は時間進行のみ**: payload も callback も無い。タイムライン上の
-//      「次の発火まで間を空ける」マーカーとして機能する (= 視覚的に gap を
-//      表現するための便宜キーフレーム)。任意順で呼び出される普通の keyframe
-//      は単に time_sec が大きいので発火が遅れるだけだが、Wait は明示的な
-//      「ここは何もしない」を表現することで debug 時の意図伝達を助ける。
-//   ・**TotalDuration() は最大 time_sec**: 何秒で終わるかを caller が知るため
-//      の純粋なヘルパ。発火順とは独立に max を取るだけなので O(N)。
-//   ・**Pause / Resume は m_Playing フラグのみ**: Tick は m_Playing == false で
-//      no-op。m_Time は保存。Stop は m_Playing=false + m_Time=0 + m_LastFired=0。
-//   ・**Skip 中の callback 発火**: Skip は「残り全 keyframe を即座に発火」を
-//      意味するので、Skip 内で callback を呼ぶ。発火順は time 昇順を維持。
-//   ・**非コピー・非ムーブ**: state の唯一性 (現在 m_Time / m_LastFiredIndex)
-//      を担保するため機械的に禁止。AScene にメンバとして 1 個埋め込む想定。
-//
-// 使い方:
-//   class AOpeningScene : public AScene {
-//       CCinematicsDirector m_Cine;
-//       void OnEnter() noexcept override {
-//           FTimelineKeyframe kf;
-//           kf.time_sec = 0.0f;
-//           kf.kind     = ETimelineTrackKind::PlayMusic;
-//           kf.payload.music = {"opening_theme", 1.5f};
-//           m_Cine.AddKeyframe(kf);
-//
-//           kf.time_sec = 2.0f;
-//           kf.kind     = ETimelineTrackKind::MoveCamera;
-//           kf.payload.camera = {FVec2{100, 200}, 1.5f, 3.0f};
-//           m_Cine.AddKeyframe(kf);
-//
-//           kf.time_sec = 3.0f;
-//           kf.kind     = ETimelineTrackKind::ShowDialogue;
-//           kf.payload.dialogue = {"line_intro_001"};
-//           m_Cine.AddKeyframe(kf);
-//
-//           m_Cine.SetCameraCallback(&AOpeningScene::DoMoveCamera, this);
-//           m_Cine.SetDialogueCallback(&AOpeningScene::DoShowDialogue, this);
-//           m_Cine.SetMusicCallback(&AOpeningScene::DoPlayMusic, this);
-//           m_Cine.Play();
-//       }
-//       void OnUpdate(f32 dt) noexcept override { m_Cine.Tick(dt); }
-//   };
-//
-// 範囲外:
-//   ・並列タイムライン (現状は単一タイムラインのみ、複数を別 Director で運用)
-//   ・keyframe の補間 / カーブ (現状は単発発火、補間は callback 側で CTweenManager に任せる)
-//   ・タイムラインの巻き戻し / scrub (オーサリング用、ランタイムには不要)
-//   ・条件分岐タイムライン (CDialogueSystem の choices で代用)
 
 
 namespace acs::game {
@@ -38472,30 +37346,6 @@ private:
 
 // ===================== gameframework/Clock.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — CSceneClock
-//
-// AScene 単位の時間トラッカ。scaled / unscaled 時間、frame count、pause/resume、
-// per-clock time_scale を持つ軽量値型 (40 byte 程度)。CTweenManager/FSequence/カスタム
-// タイマー等が共通の時間軸として参照する。
-//
-// 命名: `acs::CClock` (platform/Time.h、ハイレベル時間 API) との衝突を避けるため
-// `CSceneClock`。役割は「シーンの感じる時間 = pause/slow-mo を反映する論理時間」。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//   public:
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Clock.Tick(dt);
-//           // m_Clock.Dt() を CTweenManager 等の更新に渡す
-//       }
-//       void OnPause()  noexcept override { m_Clock.Pause();  }
-//       void OnResume() noexcept override { m_Clock.Resume(); }
-//   private:
-//       acs::game::CSceneClock m_Clock;
-//   };
-//
-// CGame の CApplication::DeltaTime() は常にリアル時間。シーンの感じる「時間」
-// (slow-mo・pause・スピードランナーの倍速モード等) は CSceneClock を経由する。
 
 
 namespace acs::game {
@@ -38637,41 +37487,6 @@ using FSceneClock = CSceneClock;
 
 // ===================== gameframework/CollisionWorld2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — CCollisionWorld2D + SpatialGrid
-//
-// 2D 衝突判定の高レベル API。形状 (FAabb2 / FCircle) を `FShapeId` で管理し、
-// 内部の SpatialGrid (一様グリッド broad-phase) で O(N + K) クエリ
-// (K = 結果数) を提供する。narrow phase は `math/Collision2D.h` の
-// 既存関数 (Intersect / Resolve / RaycastAabb / RaycastCircle) を再利用。
-//
-// 使い方:
-//   CCollisionWorld2D world;
-//   world.Init(/*cell_size=*/64.0f);
-//
-//   FShapeId player = world.AddCircle({ {0,0}, 16.0f });
-//   FShapeId wall   = world.AddAabb({ {100,0}, {16,32} });
-//
-//   // 毎フレーム移動した形状を Update
-//   world.UpdateCircle(player, { player_pos, 16.0f });
-//
-//   // クエリ
-//   TArray<FShapeId> hits;
-//   world.OverlapCircle({ player_pos, 32.0f }, hits);  // 32 範囲のもの全部
-//
-//   FRayHit2 rh;
-//   FShapeId hit_id;
-//   if (world.Raycast({ origin, dir }, /*max_t=*/100.0f, rh, hit_id)) {
-//       // rh.point/normal/t、hit_id でどの形状か分かる
-//   }
-//
-// 設計 (Pillar F):
-//   ・**FShapeId**: 32bit packed = 24bit index + 8bit generation。removed slot
-//     を再利用しても古い handle は無効化される (FNodeId と同パターン)。
-//   ・**一様グリッド**: `cell_size` で固定、shape は overlapping cells に
-//     全部登録 (= shape は複数 cell に存在し得る)。クエリ時は cell 走査して
-//     候補集合を作り、narrow phase で実際の交差判定。
-//   ・**dirty flag + lazy rebuild**: Add/Update/Remove で `m_Dirty = true`、
-//     query 直前にグリッド再構築。per-frame full rebuild。
 
 
 namespace acs::game {
@@ -39765,50 +38580,6 @@ using FContentModeratorStub = CContentModeratorStub;
 
 // ===================== gameframework/CooldownTimer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CCooldownTimer (スキル/アビリティ cooldown 管理)
-//
-// 複数の cooldown (スキル / アビリティ / 弾薬リロード等) を同時追跡する軽量
-// マネージャ。各 cooldown は `label` (デバッグ / UI 表示用) と `duration_sec`
-// を持ち、Tick で remaining を減算、0 到達で charged 状態になる。TryUse は
-// charged のときだけ true を返して即時 reload を開始する (= remaining=duration)。
-//
-// 使い方:
-//   class APlayer : public ANode {
-//       acs::game::CCooldownTimer m_Cd;
-//       acs::game::FCooldownId   m_Fireball;
-//       acs::game::FCooldownId   m_Dash;
-//
-//       void OnEnter() noexcept override {
-//           m_Fireball = m_Cd.Register("fireball", 3.0f);
-//           m_Dash     = m_Cd.Register("dash",     0.8f);
-//           m_Cd.SetOnReadyCallback(&APlayer::OnReady, this);
-//           m_Cd.ForceReady(m_Fireball); // 初期は即撃てる
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Cd.Tick(dt);
-//           if (input.JustPressed(EKey::Z) && m_Cd.TryUse(m_Fireball)) {
-//               SpawnFireball();
-//           }
-//       }
-//       static void OnReady(void* self, acs::game::FCooldownId id,
-//                           const char* label) noexcept {
-//           // HUD に "Ready!" を点滅させる等
-//       }
-//   };
-//
-// 設計:
-//   ・**FCooldownId**: 24bit index + 8bit generation (CSceneTimer / CCollisionWorld2D
-//     と同じパターン)。Unregister 後の slot 再利用で stale 検出可能。
-//   ・**charged 状態**: `remaining <= 0` かつ `charged == true`。Tick 内で
-//     `remaining` が 0 を跨いだ瞬間に `charged` が false→true に遷移し、
-//     ReadyCallback が発火する。1 回の Tick 内で 1 回だけ。
-//   ・**TryUse**: charged のとき remaining=duration、charged=false を立てて
-//     true を返す。reload 中 (charged=false) は何もせず false。
-//   ・**Register 直後**: charged=false、remaining=duration (= reload 中扱い)。
-//     即時使用したい場合は ForceReady で明示。
-//   ・**ReadyCallback**: 関数ポインタ (std::function 不使用)。設定は単一スロット。
-//   ・**非コピー・非ムーブ**、全 noexcept、STL 不使用。
-//   ・Tick 中に Register / Unregister が呼ばれても安全 (slot index アクセスで回す)。
 
 
 namespace acs::game {
@@ -40119,88 +38890,6 @@ using FCooldownTimer = CCooldownTimer;
 
 // ===================== gameframework/CraftingSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット — CCraftingSystem (レシピ + 素材消費 + 成果物生成)
-//
-// サバイバル / クラフト系ジャンル (Minecraft, Valheim, Subnautica, Terraria 等) の中核を
-// なす「素材を消費して時間経過後に成果物を得る」クラフト挙動を、レシピ登録 + 進行タイマ +
-// インベントリ adapter callback だけで扱う小型マネージャ。
-//
-// 想定する位置付け:
-//   ・Pillar O CInventorySystem との違い:
-//     - CInventorySystem は「持っているアイテムの slot 在庫」を保持する。
-//     - CCraftingSystem は「レシピ定義 + 現在クラフト中の進行状態」を保持し、
-//       素材の消費 / 成果物の付与は CInventorySystem 等への callback 経由で行う
-//       (= 在庫表現に非依存。テストでは fake adapter を差し込める)。
-//   ・Pillar O CEconomyDirector との違い:
-//     - CEconomyDirector は「通貨で即座に商品を購入」する取引マネージャ。
-//     - CCraftingSystem は「素材で時間をかけて成果物を生成」する production マネージャ。
-//       時間 (craft_duration_sec) と前提条件 (workbench / level) を持つ点が決定的に違う。
-//   ・Pillar G CHealthSystem / CBuffSystem との関係:
-//     - 直接の依存はないが、料理レシピが CBuffSystem の食事バフを与える等の連携は、
-//       CompleteCallback 経由で呼出側が組む想定 (本クラスは何も知らない)。
-//
-// 使い方:
-//   CCraftingSystem cs;
-//
-//   // レシピ定義 (素材配列は呼出側が長寿命を保証する static / global 想定)。
-//   static const FIngredient kIronAxeIngredients[] = {
-//       { "wood",     3 },
-//       { "iron_ore", 2 },
-//   };
-//   cs.RegisterRecipe({
-//       /* recipe_id        */ "craft.iron_axe",
-//       /* display_name     */ "Iron Axe",
-//       /* result_item_id   */ "tool.iron_axe",
-//       /* result_count     */ 1,
-//       /* ingredient_count */ 2,
-//       /* ingredients      */ kIronAxeIngredients,
-//       /* craft_duration   */ 4.0f,
-//       /* required_workbench*/ "workbench.forge",
-//       /* unlock_level     */ 3,
-//   });
-//
-//   // インベントリ adapter (素材数 query / 消費 / 成果物付与) を差し込む。
-//   cs.SetInventoryAdapter(&QueryInv, &ConsumeInv, &GrantInv, &inv);
-//
-//   // (任意) 完了コールバック (SFX / トースト等)。
-//   cs.SetOnCompleteCallback(&OnCraftDone, &ui);
-//
-//   // クラフト開始 → Tick で進行 → 完了で result_item が grant される。
-//   if (cs.CanCraft("craft.iron_axe", "workbench.forge", player_level)) {
-//       cs.StartCraft("craft.iron_axe", "workbench.forge", player_level);
-//   }
-//   // ゲームループ毎:
-//   cs.Tick(dt);
-//
-// 設計選択 (ジャンルキット survival / crafting):
-//   ・**レシピは単一 TArray<FCraftRecipe>**: ジャンルキット規模 (200〜500 recipe) で
-//     線形検索で十分。CEconomyDirector / CInventorySystem と同じ判断。
-//   ・**FIngredient 配列は非所有**: FCraftRecipe::ingredients は呼出側が長寿命を保証する
-//     生バッファ (static / global 配列、リソースバンドル) を指す。文字列 id も同様
-//     (Manager は何もコピーしない。STL <string> 禁止 / <vector> 禁止)。
-//   ・**Inventory adapter は C 関数ポインタ + user**: STL <functional> 禁止のため。
-//     在庫表現に依存しない設計 (CInventorySystem を直接保持しないので、テストで
-//     fake adapter を差し込める / 別 inventory システムにも繋げる)。
-//   ・**同時クラフトは 1 件のみ**: 「ワークベンチに 1 つ載せて待つ」スタイルに統一。
-//     並列クラフトキューが必要なゲームは、CCraftingSystem を複数インスタンス保持する
-//     (= ベンチ毎 / プレイヤー毎)。Manager が queue を内蔵すると複雑化するため意図的に省く。
-//   ・**ingredient 消費はクラフト「開始」時**: 中断時の返却を容易にするため、StartCraft
-//     時点で全 ingredient を一括消費し、CancelCraft で同じ量を grant し戻す
-//     (素材が「在庫から失われた = クラフト中」の状態を明示化する)。
-//   ・**完了時の成果物 grant は Tick 内で**: Tick(dt) のフレームで完了判定が真になったら
-//     即座に grant + CompleteCallback を発火。Status() は Tick の直後に Completed を
-//     返し、次の StartCraft (or ClearAll) まで保持する。これにより UI が完了を 1 フレーム
-//     確実に観測できる (callback だけだとフレームを逃すと取り逃す)。
-//   ・**CanCraft は side effect なし const**: ingredient + workbench + level チェックの
-//     pure な事前判定。CanCraft() が true なら StartCraft() も成功する不変条件を保つ。
-//   ・**adapter 未設定でも CanCraft は workbench + level のみで判定**: query == nullptr
-//     のケースは「在庫無制限 (デバッグ / テスト用)」と解釈し、ingredient チェックを
-//     スキップする (= 同 Manager をプロトタイピング段階で使いやすくする)。
-//     StartCraft の consume は adapter があるときだけ呼ぶ。
-//   ・**required_workbench は nullptr / "" で「不要」**: 素手で作れる recipe を表現可能。
-//   ・**重複登録は黙って弾く + WARN**: CEconomyDirector / CInventorySystem と同パターン。
-//   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
-//   ・**STL 不使用、`<string>` 禁止**: const char* 非所有 + acs::TArray のみ。
 
 
 namespace acs::game {
@@ -40533,64 +39222,6 @@ using FCraftingSystem = CCraftingSystem;
 
 // ===================== gameframework/DamageFeedback.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CDamageFeedback (Polish & GameFeel)
-//
-// プレイヤーがダメージを受けたときの視覚フィードバックを集中管理する
-// state holder。FPS / アクション系で必須の 3 要素を一箇所で扱う:
-//   1) 画面エッジが赤くなる被弾オーバーレイ (vignette red)
-//   2) 攻撃源を指す方向矢印 (off-screen damage indicator)
-//   3) death cam (致命傷 → killer をズームアウトで映す演出)
-//
-// 設計選択:
-//   ・**CDamageFeedback 自身は描画しない / カメラを動かさない**:
-//      CEffectSystem と同じ「副作用ゼロ / 純粋 state machine」方針。
-//      ・赤エッジ → 描画パイプ末尾の overlay が ScreenEdgeRedIntensity() を
-//                  vignette mask に掛けて加算 blend。
-//      ・方向矢印 → UI 層が HasDirectionalIndicator() / DirectionalIndicator()
-//                   / DirectionalIndicatorAlpha() を pull して描く。
-//      ・death cam → カメラ制御コードが IsDeathCamActive() / DeathCamTarget()
-//                    / DeathCamProgress() を見て自前で zoom + LookAt する。
-//      これにより GameFramework から CRenderer / CCamera への依存を切る。
-//   ・**赤エッジは累積 → 指数 decay**: TakeDamage で `intensity += amount * 0.1`
-//      を加算 [0,1] clamp、Tick で `-= 2.0 * dt` の線形 decay (~0.5 秒で消える)。
-//      累積式にすることで「連続被弾で画面が真っ赤に染まる」自然な挙動が出る。
-//   ・**方向矢印は最後の被弾源を上書き**: source_direction が指定されたとき
-//      のみ更新。指定なし (= FVec2{}) なら矢印は触らない (例: 環境ダメージ /
-//      毒ダメージなど方向の無いダメージ)。alpha も累積でなく 1.0 リセットで、
-//      decay は赤エッジと同様 2.0/s。
-//   ・**source_direction の向き規約**: caller は「ダメージを与えた相手 →
-//      プレイヤー」ベクトルを渡す (= 矢印が指す向き、画面外から自分を狙う方向)。
-//      正規化は内部で行うので caller は正規化不要。
-//   ・**death cam は明示的 trigger / exit**: HP <= 0 を検知したゲームコードが
-//      `TriggerDeathCam(killer_pos)` を呼ぶ。`Progress()` は Tick で 0 → 1 へ
-//      2 秒で進む dramatic zoom 用パラメータ。完全に進んでも自動で抜けない
-//      (リスポーン UI を出すまで止めておきたいので)。
-//   ・**Reset() でゲーム再開時に全状態を初期化**: シーン切替や respawn で
-//      赤フェード残骸 / 矢印 / death cam を一括クリア。
-//
-// 非コピー・非ムーブ:
-//   CGame / AScene のメンバとして 1 インスタンスだけ存在する想定。state が
-//   重複すると death cam の trigger 整合性が壊れるので機械的に禁止。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//       CDamageFeedback m_Dmg;
-//       void OnPlayerHit(f32 amount, FVec2 attacker_pos) noexcept {
-//           const FVec2 to_player = player.Position() - attacker_pos;
-//           m_Dmg.TakeDamage(amount, to_player);
-//           if (player.HP() <= 0.0f) {
-//               m_Dmg.TriggerDeathCam(FVec3{attacker_pos.x, 0, attacker_pos.y});
-//           }
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Dmg.Tick(dt);
-//       }
-//   };
-//
-// 範囲外:
-//   ・血しぶき・画面割れ等の SFX 連携
-//   ・low HP 時の心拍音 / 視野狭窄 (CAudioDirector / 別 overlay と連携)
-//   ・death cam の cinematic curve (今は線形)
 
 
 namespace acs::game {
@@ -40915,59 +39546,6 @@ private:
 
 // ===================== gameframework/DebugOverlay.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CDebugOverlay (state holder)
-//
-// FPS / メモリ / シーン名 / カスタム watch をテキストで表示するための **状態保持
-// クラス**。実描画 (CSpriteBatch / ImGui / `acs::easy::DrawString` 等) は呼出し側の
-// 責務。本クラスは「何を出すべきか」を保持・更新するだけで、グラフィック層に依存
-// しない (テスト / Headless 環境でも動作)。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//       acs::game::CDebugOverlay m_Overlay;
-//       void OnEnter() noexcept override {
-//           m_Overlay.Init();
-//           m_Overlay.SetSceneName("Gameplay");
-//           m_Overlay.AddWatch("Player.HP", m_HpText);     // 値文字列は caller 所有
-//           m_Overlay.Show();
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Overlay.Tick(dt);
-//           if (CInput::IsKeyPressed(EKey::F3)) m_Overlay.Toggle();
-//       }
-//       void OnDraw() noexcept override {
-//           if (!m_Overlay.IsVisible()) return;
-//           char line[128];
-//           Format(line, "FPS %.1f (avg %.1f)", m_Overlay.CurrentFps(),
-//                                                m_Overlay.AverageFps());
-//           DrawString(8, 8, line);
-//           // ...etc, watches を順に描画
-//       }
-//   };
-//
-// 設計選択 (GameFramework Pillar H):
-//   ・**state holder のみ**: 描画 API を持ち込むと Diligent / DX12 raw / Headless で
-//     スキニングが分かれてしまうので、ここでは値の保持と算出だけに留める。
-//   ・**60 frame moving average**: dt から fps = 1/dt を算出し、循環バッファ 60 個を
-//     保持。AverageFps() は履歴の算術平均、Min/Max も履歴から線形走査で取る。
-//     最初の数フレームは履歴が満たない (size < cap) なので、有効分だけで平均する。
-//   ・**dt <= 0 guard**: dt == 0 (一時停止) や負値は履歴に push しない (発散防止)。
-//   ・**watches: pointer-only storage**: label / value はいずれも caller 所有
-//     (typically 文字列リテラル or 別所有のバッファ)。本クラスは複製しない。caller が
-//     value 用バッファを毎フレーム更新する想定 (snprintf 等)。pointer aliasing は
-//     許容、label 重複は後勝ち上書き (重複検出ロジックは strcmp 線形走査)。
-//   ・**RemoveWatch / WatchCount**: label を strcmp で検索して swap-remove。順序は
-//     保証しない (描画レイアウトは caller が安定化する責務)。
-//   ・**非コピー・非ムーブ**: 履歴バッファと watches 列の所有権を曖昧にしないため。
-//   ・**STL 不使用**: `acs::TArray<f32>` / `acs::TArray<FWatch>` を使用、`<string>` 禁止。
-//     実装側で `<cstring>` (strcmp / strlen) のみ許可。
-//
-// 範囲外 (本クラスでは持たない):
-//   ・グラフ表示 (frame time 棒グラフ / 履歴折れ線)
-//   ・メモリ使用量の自動取得 (現状は SceneName と並ぶ任意ラベルとして caller が watch
-//     に流し込む)
-//   ・国際化 (現状は ASCII / UTF-8 の生 char*、フォントレンダラ側で対応)
-//   ・スレッドセーフ (Tick / Add 等は同一スレッド前提)
 
 
 namespace acs::game {
@@ -41170,90 +39748,6 @@ using FDebugOverlay = CDebugOverlay;
 
 // ===================== gameframework/DeckSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (Card CGame) — CDeckSystem (デッキ / 手札 / 捨札 / 除外 / シャッフル)
-//
-// 1 プレイヤーぶんのカードゲーム状態を「デッキ + 手札 + 捨札 + 除外 (exile)」の 4 ゾーン
-// モデルで保持する小型マネージャ。Magic: the Gathering / Hearthstone / Slay the Spire 等
-// のデッキ構築系ジャンルが共通して持つコア状態のみを汎用的に扱う。
-//
-// 想定する位置付け:
-//   ・**1 プレイヤー = 1 instance**: 対戦相手や複数 AI プレイヤーが居る場合は
-//     `CDeckSystem` を人数分作って並べる (本クラス自体は 1 人分のローカル状態のみ)。
-//   ・**カード定義 (FCardDef) と場の identity (FCardId) を分離**:
-//     - `FCardDef` = 「Lightning Bolt とはどんなカードか」(コスト / レアリティ / 説明文)。
-//        起動時に RegisterCard() で 1 回だけ登録、以後 immutable。
-//     - `FCardId`  = 「場に存在する各カードの 1 枚 1 枚」を識別する 24bit idx + 8bit gen の
-//        packed handle。FCardDef* を直接持たず、ID 経由で参照するパターン。
-//        将来的に「同名カードでも各個に付与効果を持つ」(MtG の +1/+1 カウンタ等) 拡張への
-//        ベースになる。現状は gen は常に 0、idx は FCardDef の登録 index
-//        を入れる単純な実装としつつ、struct のレイアウトは確定させておく。
-//   ・**ゾーン間遷移はメソッドで明示**: Draw / Discard / Exile / Play / DiscardAllHand 等、
-//     カードがどのゾーンを通るかを API レベルで明示する (= ステートマシン的に追跡可能)。
-//   ・**Shuffle は決定論再現**: `gameframework/Random.h` (xoshiro128**) を使い、seed 指定で
-//     リプレイ / テストを再現可能にする。seed=0 のときは FRandom::Global() で時刻ベース seed。
-//
-// 使い方:
-//   CDeckSystem deck;
-//
-//   // 起動時にカード定義を登録。
-//   deck.RegisterCard({ "card.bolt",  "Lightning Bolt", /*cost*/1, /*rarity*/2,
-//                       "spell", "Deal 3 damage to any target.", "ui/card/bolt.png" });
-//   deck.RegisterCard({ "card.bear",  "Grizzly Bears",  2, 1, "creature",
-//                       "A 2/2 bear.", "ui/card/bears.png" });
-//
-//   // デッキ構築 (40 枚)。
-//   deck.AddToDeck("card.bolt", 4);
-//   deck.AddToDeck("card.bear", 8);
-//   // ... 他のカードも追加 ...
-//
-//   // (任意) プレイ時の callback (アニメ起動 / 効果発動 / SE 等)。
-//   deck.SetOnPlayCallback(&OnCardPlayed, &game);
-//
-//   // 試合開始。
-//   deck.Shuffle();               // seed=0 = ランダム
-//   deck.DrawN(7);                // 初手 7 枚
-//
-//   // ターン中。
-//   deck.PlayCard(2);             // 手札 index 2 を場に出す → callback → discard へ
-//   deck.DiscardFromHand(0);      // 手札 index 0 を強制捨札
-//   deck.Draw();                  // 1 枚ドロー (デッキが空なら discard を shuffle して reuse)
-//
-// 設計選択 (card game kit ベース):
-//   ・**FCardDef 登録は単一 TArray<FCardDef>**: カード種別は AAA でも 500〜2000 枚オーダー、
-//     線形走査で十分 (Inventory / CEconomyDirector と同じ判断)。重複登録は WARN で no-op。
-//   ・**所有しない const char***: id / display_name / description / art_path / card_type すべて
-//     呼出側 (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
-//     deck / hand / discard / exile の `const char*` 要素は `m_Cards[].id` を直接指す (= リテラル参照、非所有)。
-//   ・**4 ゾーン (deck / hand / discard / exile) は別 TArray<const char*>**:
-//     - `deck`    : 山札。末尾が「次に引くトップ」(Pop で O(1) ドロー)。
-//     - `hand`    : 手札。順序は登録順 (= 引いた順)、UI の表示位置に対応。
-//     - `discard` : 捨札。プレイ済み or 強制捨札されたカード。Reshuffle で deck に戻る。
-//     - `exile`   : 完全除外。MtG の "Exile" / Slay the Spire の "Exhaust" 相当、戻らない。
-//   ・**Draw は「デッキ末尾」を取る**: 直感に反するように見えるが、`Add/Pop` を使うと
-//     O(1) で済む。Shuffle で順序がランダムになるので、どちらの端をトップと呼んでも UX 的に
-//     違いはない (= デッキトップは末尾、デッキボトムは先頭、と内部約束)。
-//   ・**Draw 自動 reshuffle**: デッキ空時に discard が残っていれば、discard を shuffle して
-//     deck に戻し、もう一度 Draw する (Magic / Hearthstone の "fatigue" ではなく、Slay the
-//     Spire 等のデッキ循環モデル)。両方とも空なら false。本仕様で「fatigue / Mill 敗北」が
-//     必要なゲームは callback 側で `DiscardSize() == 0 && DeckSize() == 0` を検知して別途処理。
-//   ・**Play = hand → callback → discard**: PlayCard() は登録された callback を呼んでから
-//     discard へ送る。callback は同期実行 (= callback 内で「コストを払う」「effect を起動する」
-//     等を完了させてから戻る前提)。失敗 (= 「コスト不足でプレイ不可」) は callback 側で
-//     状態を巻き戻す責務とする (Manager 側は「とにかく hand → discard」)。
-//   ・**Shuffle は Fisher-Yates (FRandom::Shuffle)**: `gameframework/Random.h` の汎用 template に
-//     委譲する。seed=0 のときは `FRandom::Global()` を使うので、決定論再現が不要な場合は何も
-//     渡さなくて OK。seed != 0 のときはローカル FRandom instance を作って使う (Global を汚さない)。
-//   ・**PlayCallback は単一購読**: STL <functional> 禁止のため C 関数ポインタ + void* user。
-//     複数 listener が必要なら呼出側で fan-out。Inventory / Economy と同じパターン。
-//   ・**非コピー・非ムーブ + 全 noexcept**: 他 Manager 系と統一。
-//   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
-//
-// 範囲外:
-//   ・「同じカードが場で個別効果を持つ」(MtG カウンタ等) — FCardId の gen を使う拡張で対応予定。
-//   ・サーチ / scry / look-at-top-N 等の peek 系操作 — 別 API として追加可能。
-//   ・複数プレイヤーをまたぐ効果 — CGameFlow / 対戦 Manager の責務。
-//   ・MtG 形式の「ライブラリ枚数を見せる UI」以外の高度 API — 必要に応じて拡張。
-//   ・永続化 (Save/Load) — Pillar J Serialize と統合。
 
 
 namespace acs::game {
@@ -41565,50 +40059,6 @@ using FDeckSystem = CDeckSystem;
 
 // ===================== gameframework/DevConsole.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 開発コンソール state — CDevConsole
-//
-// `~` (チルダ) で開く開発用テキストコマンドコンソールの **state コンテナ**。
-// 描画 / 入力ハンドリング (ImGui ウィンドウ、IME、オートコンプリート UI 等) は
-// 上位レイヤ (Tools / Editor / game UI) の責務で、本クラスは:
-//   1. コマンド名 → 関数ポインタの登録 / 検索 / 実行
-//   2. 入力履歴 (上下キーで再呼び出しする想定の生バッファ)
-//   3. ログ出力バッファ (描画側がスクロールバックに表示する想定)
-//   4. 開閉トグル状態
-// だけを提供する。Ship build では namespace ごと丸ごと #ifdef で除外する想定。
-//
-// 設計選択:
-//   ・**std::function 不使用**: コマンドは C 関数ポインタ + void* user の組。
-//     クラスメンバを束ねたいときは静的 trampoline + this を user に渡す。
-//   ・**const char* 引数**: raw token をそのまま渡し、呼び出し側がパースする。
-//   ・**履歴 / ログは内部所有のバッファに copy**: 呼び出し側で形成した文字列が
-//     スタック消滅しても保持できるよう、Push 時に DefaultAllocator から長さ +1
-//     を取って memcpy する。drop 時に Free。TArray<const char*> 自体は所有ポインタを
-//     保持するだけのため、エントリ追加 / 削除のたびに自前で Alloc/Free 管理。
-//   ・**固定キャップ 100 行**: 上限到達後に push すると最古 (index 0) を Free して
-//     shift left。100 行 × O(memmove(99 ptrs)) なので push 自体は十分軽い。
-//   ・**コマンド検索は線形**: 数十〜数百規模を想定。
-//   ・**tokenize 最大 8 args**: 上限超過時は余剰トークンを無視 (warning ログのみ)。
-//     args 用一時バッファは Execute スタック上に置く (heap 触らない)。
-//
-// 範囲外:
-//   ・argument type (i32 / f32 / bool) の自動パース
-//   ・コマンド補完 (prefix → 候補列挙)
-//   ・variadic args / quoted string ("hello world" を 1 トークンに)
-//   ・UI レンダリング (ImGui ウィジェット)
-//   ・コマンドツリー (set graphics.shadow_quality 2 のような階層名)
-//   ・cvar (別クラス)
-//
-// 使い方:
-//   CDevConsole con;
-//   con.RegisterCommand("quit", &FMyApp::QuitCmd, this, "exit the application");
-//   con.RegisterCommand("help", &FMyApp::HelpCmd, this, "list commands");
-//   ...
-//   if (CInput::IsKeyPressed(EKey::Tilde)) con.Toggle();
-//   if (con.IsOpen() && enter_pressed) {
-//       con.PushHistory(input_buf);
-//       con.Execute(input_buf);
-//   }
-//   for (u32 i = 0; i < con.LogCount(); ++i) DrawLine(con.LogLine(i));
 
 namespace acs::game {
 
@@ -41845,60 +40295,6 @@ using FDevConsole = CDevConsole;
 
 // ===================== gameframework/DialogueLocalizer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム — CDialogueLocalizer (Dialogue × Localization 橋渡し)
-//
-// CDialogueSystem は本文 (`FDialogueLine::text`) を const char* で参照のみ持つ。
-// 多言語タイトルでは「同じシナリオ行を locale ごとに別文字列で出したい」
-// = ロケール切替で本文 / 選択肢の表示を差し替えたい、という要件が必ず出る。
-//
-// CLocalizationDirector は (locale, key) → 翻訳済み const char* の単純な辞書で、
-// 一方 CDialogueSystem は (line_index, speaker, text, cps) の state holder。
-// この二者を直接結合すると CDialogueSystem に locale の概念が漏れて
-// 設計が崩れる (= CDialogueSystem の単一責務原則違反)。
-//
-// CDialogueLocalizer は両者を**疎結合**で繋ぐ橋渡し helper:
-//   ・「行 index → speaker_id + line_key + cps」を保持 (本文は持たない)
-//   ・「行 index → 選択肢 (text_key + 次行 index) 群」を保持
-//   ・StartFromLine(i, cb) で現 locale の翻訳テキストを解決し callback 発火
-//   ・callback の受け手 (= UI 層 or CDialogueSystem の AddLine ラッパ) で
-//     実際の本文反映を行う
-//
-// 設計選択:
-//   ・**Director を所有しない**: SetLocalizer で外部参照を差し込み、null で detach。
-//     CLocalizationDirector は通常 1 セッション 1 インスタンスで他システムと共有
-//     される (Pillar S i18n の中心)。ここで所有すると共有が壊れる。
-//   ・**選択肢は line_index に紐づくフラット配列**: CDialogueSystem の choices
-//     データ構造と同じ形 (FChoicesAt の (start, count) スライス) を踏襲。
-//     線形検索だが典型シナリオで N < 数百のため十分。
-//   ・**callback 方式 (関数ポインタ + void* user)**: std::function 禁止方針に
-//     従う既存 GameFramework 規約 (CCinematicsDirector / CPauseDirector 等で
-//     既に同形 callback を採用)。
-//   ・**speaker_id も localization key 扱い**: 発話者名も翻訳対象 (例: "char.alice"
-//     → "アリス" / "Alice")。CLocalizationDirector::Get の 3 段フォールバックで
-//     未翻訳時は key 自身が返るので空欄事故は起きない。
-//   ・**StartFromLine は state を持たない**: 「指定行を 1 回解決して cb を呼ぶ」
-//     だけ。進行状態は CDialogueSystem 側が持つ責務分離 (= 二重 state を作らない)。
-//   ・**非コピー・非ムーブ + 全 noexcept**: GameFramework 規約に整合。
-//
-// 想定使い方:
-//   CDialogueLocalizer dl;
-//   FLocalizedDialogueLine l0{"char.alice", "scene1.line0", 30.0f};
-//   dl.RegisterLine(l0);
-//   FLocalizedDialogueChoice ch[2] = { {"scene1.choice0", 1}, {"scene1.choice1", 2} };
-//   dl.RegisterChoice(0, ch, 2);
-//
-//   dl.SetLocalizer(&loc);
-//   dl.StartFromLine(0, [](void*, const char* sp, const char* tx, f32 cps) noexcept {
-//       // sp = "アリス", tx = "こんにちは、勇者よ。", cps = 30.0f
-//       // → caller 側で CDialogueSystem::AddLine 等に流す
-//   }, nullptr);
-//
-// 範囲外:
-//   ・format 引数展開 ("{0} HP" の {0} 置換) → CLocalizationDirector 側の範疇
-//   ・スクリプト / JSON からの自動取り込み → ツール側で Register* 列に変換する想定
-//   ・フォントフォールバック / RTL → Pillar Q Polish 側の UI 描画責務
-//
-// 関連実装: gameframework/DialogueSystem.h, gameframework/LocalizationDirector.h
 
 
 namespace acs::game {
@@ -43156,60 +41552,6 @@ using game::DrawString;
 
 // ===================== gameframework/DungeonGenerator.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar (Genre Kit: Roguelike) — BSP ベース ランダムダンジョン生成
-//
-// 2D グリッド上に部屋 (FRoom) と廊下 (Corridor) を配置する古典的な
-// **BSP (Binary Space Partitioning) ダンジョン生成** の実装。
-// 全体領域を再帰的に 2 分割してリーフごとに 1 部屋を置き、兄弟リーフ間を
-// L 字廊下で接続する。Roguelike の「毎フロア違うレイアウト」をシード再現可能に。
-//
-// 使い方:
-//   FDungeonGenConfig cfg{};
-//   cfg.width             = 80;
-//   cfg.height            = 50;
-//   cfg.min_room_size     = 4;
-//   cfg.max_room_size     = 10;
-//   cfg.min_partition_size = 8;
-//   cfg.seed              = 0xDEADBEEFu;
-//   cfg.max_depth         = 5;
-//
-//   CDungeonGenerator gen;
-//   gen.Generate(cfg);
-//
-//   // 描画ループ
-//   for (u32 y = 0; y < gen.Height(); ++y) {
-//       for (u32 x = 0; x < gen.Width(); ++x) {
-//           switch (gen.At(x, y)) {
-//               case ETileKind::Wall:     DrawSprite(wall, x, y); break;
-//               case ETileKind::Floor:    DrawSprite(floor, x, y); break;
-//               case ETileKind::Door:     DrawSprite(door, x, y); break;
-//               case ETileKind::Corridor: DrawSprite(floor, x, y); break;
-//               case ETileKind::Stairs:   DrawSprite(stairs, x, y); break;
-//           }
-//       }
-//   }
-//
-//   // プレイヤースポーン位置 = 最初の部屋の中心
-//   u32 px, py;
-//   gen.GetRoomCenter(0, px, py);
-//
-// 設計選択:
-//   ・**ETileKind = u8**: 5 種類しか無いので u8 で十分。row-major 1D の
-//     acs::TArray<ETileKind> に格納 (FTilemap と異なる layered 構造は不要)。
-//   ・**FRoom = 矩形 + id**: id は生成順 0..N-1。重複しない部屋を保証。
-//   ・**BSP partition tree は temp**: 生成中だけ必要なので TArray<FBspNode>
-//     を ローカル変数 として持ち、Generate 終了で破棄する。永続データは
-//     grid + rooms のみ。
-//   ・**廊下は L 字**: 2 部屋の中心を結ぶ (横→縦 もしくは 縦→横)。
-//     ランダムにどちらかを選ぶことで分岐感を出す。
-//   ・**Stairs**: 最後の部屋にランダム配置 (典型的に始点≠終点で
-//     プレイヤーが進む動機になる)。
-//   ・**STL 不使用 / 全 noexcept / 非コピー・非ムーブ**: 規約準拠。
-//
-// 制限 (今 Phase):
-//   ・部屋の形は矩形のみ (円形 / 多角形は未対応)。
-//   ・廊下の幅は 1 セル固定。
-//   ・モンスター / アイテム配置は呼び出し側責務 (このクラスは「地形」のみ)。
 
 
 namespace acs::game {
@@ -43434,80 +41776,6 @@ using FDungeonGenerator = CDungeonGenerator;
 
 // ===================== gameframework/DynamicDifficulty.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U — CDynamicDifficulty (DDA: Dynamic Difficulty Adjustment)
-//
-// プレイヤーの実プレイスタッツ (死亡 / 撃破 / リトライ / クリア時間 / パワー
-// アップ取得) を追跡し、それを元に「Easy / Normal / Hard / VeryHard / Adaptive」
-// の 5 モードで難易度を切り替える。Adaptive モードでは skill 推定値から
-// 連続値 [0, 1] の難易度を smooth lerp で目標へ寄せ、各種乗数 (敵 HP / ダメージ
-// / 速度 / プレイヤー HP) を返す。
-//
-// 想定する位置付け (Pillar U):
-//   ・本クラスは ML を使わない **純内製の決定論的 DDA**。
-//   ・**決定論ゾーンの外**: Adaptive の skill 推定 / smooth lerp は浮動小数の
-//     非可換性を含むため、固定タイムステップでの再現性は保証しない。replay /
-//     netcode 同期に乗せるなら `Adaptive` 以外 (Easy/Normal/Hard/VeryHard) を
-//     使うか、難易度値そのものを replay に記録する運用を取ること。
-//   ・CDamageFeedback / CProgression と独立: DDA は「乗数を提供する純粋 state
-//     holder」で、ゲーム側の戦闘ロジックが乗数を pull して使う構造。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//       acs::game::CDynamicDifficulty m_Dda;
-//       void OnEnter() noexcept override {
-//           m_Dda.Init(acs::game::EDifficultyLevel::Adaptive);
-//       }
-//       void OnPlayerDeath() noexcept {
-//           m_Dda.RecordDeath();
-//           m_Dda.RecordRetry();
-//       }
-//       void OnEnemyKilled() noexcept { m_Dda.RecordKill(); }
-//       void OnLevelCleared(f32 time) noexcept { m_Dda.RecordLevelComplete(time); }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Dda.Tick(dt);
-//           // 戦闘ロジックは乗数を pull して使う
-//           f32 enemy_hp_mul = m_Dda.EnemyHealthMultiplier();
-//           f32 enemy_dmg    = m_Dda.EnemyDamageMultiplier();
-//           // ...
-//       }
-//   };
-//
-// 設計選択 (Pillar U):
-//   ・**5 モード固定 + Adaptive**: ユーザーが UI で選ぶ離散モードと、自動調整の
-//     Adaptive モードを enum 1 つに混ぜる。離散モード時は乗数も離散値を即返し、
-//     `Tick()` は no-op に近い (Adaptive 時だけ smooth lerp を進める)。
-//   ・**Adaptive の skill 推定**:
-//      skill = saturate( kill_rate * w_k + clear_speed * w_c
-//                      - retry_density * w_r - death_density * w_d )
-//      target_difficulty = 1.0 - skill
-//      → skill が高いほど高難易度に寄せる。
-//      重み (w_k / w_c / w_r / w_d) は内部で固定。
-//   ・**smooth lerp は CCamera2D と同じ framerate-independent**:
-//      `t = 1 - exp(-rate * dt)` で dt 不変。rate = 0.5 で約 1.4 秒で 50% 詰める
-//      ゆっくり追従。プレイヤーが「急にゲームが楽になった/難しくなった」と
-//      感じない速度に意図的に抑える。
-//   ・**乗数テーブル**:
-//      離散モード: { Easy, Normal, Hard, VeryHard } 4 段階を表で持つ。
-//      Adaptive: [0,1] の連続値を Easy(0.0) ↔ VeryHard(1.0) の 4 段表で
-//         3 区間 (Easy-Normal / Normal-Hard / Hard-VeryHard) 線形補間。
-//      これにより離散モードと Adaptive で乗数体系を揃え、ゲームコード側は
-//      モード差を意識せずに `EnemyHealthMultiplier()` を pull すれば良い。
-//   ・**PlayerHealthMultiplier は逆相関**: 難易度が高いほど player HP 倍率を
-//     **下げる** (Easy で 1.5x / VeryHard で 0.75x) のが業界慣習。攻撃側の
-//     乗数 3 種 (敵 HP / 敵ダメ / 敵速度) と組合せて全体の感触を作る。
-//   ・**統計は単純加算 + average の incremental 計算**:
-//     deaths / kills / retries / powerups は u32 加算。average_completion_time
-//     は exponential moving average (EMA) で「直近のクリア時間」を反映。
-//     全レベル全平均ではなく直近に重み付け、で skill 変動に追従しやすく。
-//   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。インスタンス
-//     1 個前提 (AScene のメンバ持ち回り)。
-//   ・**STL 不使用 / `<string>` 不使用**: ACS 規約。
-//
-// 範囲外:
-//   ・skill 重みの外部設定 API
-//   ・per-encounter difficulty (戦闘単位での個別調整)
-//   ・persistence (TSaveSlot 経由で stats を残す)
-//   ・ML 推論ベースの skill 推定
 
 
 namespace acs::game {
@@ -43746,96 +42014,6 @@ using FDynamicDifficulty = CDynamicDifficulty;
 
 // ===================== gameframework/EconomyDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — CEconomyDirector (in-game 通貨 + shop 管理)
-//
-// 通貨残高 (soft / premium) + 固定価格 shop アイテム + 取引履歴 (callback) を
-// まとめた小型マネージャ。CEntitlementRegistry / CSeasonPass と一緒に Pillar O の
-// 「ストア / LiveOps 系」三兄弟を構成する。CEntitlementRegistry は「持っているか」、
-// CSeasonPass は「期間内に xp で進行」、CEconomyDirector は「通貨でアイテムを
-// 直接購入する」を担当する。
-//
-// 倫理方針 (重要):
-//   ・本クラスは **cosmetic only** を強く推奨する。装備性能 / ダメージ倍率 /
-//     獲得経験値ブースター等、コア体験に影響するアイテムを通貨で売る設計は
-//     pay-to-win に直結するため、ACS としては明示的に反対する立場
-//     (CEntitlementRegistry / CSeasonPass の方針を継承)。FShopItem::cosmetic_only は
-//     「この商品が cosmetic に閉じている」ことを開発者が宣言するフラグであり、
-//     強制機構ではない (Manager は値を保存して照会できるようにするだけ)。
-//   ・**loot box (中身がランダムで対価が確率に依存する仕組み) は明示的に拒絶**:
-//     本 API には乱数要素を一切持たせず、すべて「払うと必ず指定の cosmetic が
-//     得られる、固定価格方式」に限定する。在庫 (stock_remaining) は限定販売の
-//     在庫管理であり、確率ガチャではない。
-//   ・**premium 通貨でゲームプレイ加速を売らない**: FCurrencyDef::is_premium は
-//     「リアル課金で得られる通貨か」のメタ情報 (UI で 「¥」 アイコン表示等の
-//     判定に使う) であり、premium 通貨で買えるアイテムも cosmetic_only に
-//     閉じることを推奨する。
-//
-// 想定する位置付け:
-//   ・Pillar O (CEntitlementRegistry) との違い:
-//     - CEntitlementRegistry は「DLC / CSeasonPass / 引換コード」等の永続権利フラグ。
-//     - CEconomyDirector は「ゲーム内通貨で売買される消費財 / cosmetic」を扱う。
-//       購入結果として cosmetic を解放する場合は、PurchaseCallback で
-//       CEntitlementRegistry::Add() を呼ぶ橋渡しを呼出側で実装する想定。
-//   ・Pillar O (CSeasonPass) との違い:
-//     - CSeasonPass は xp ベースの tier 進行 (時間と遊びで貯まる)。
-//     - CEconomyDirector は通貨ベースの即時購入 (払えば即時取得)。
-//   ・Pillar S (Storefront) との違い:
-//     - Storefront はリアル課金プラットフォーム (Steam / EOS / 家庭機 SDK) の
-//       購入トランザクション。
-//     - CEconomyDirector はゲーム内通貨での売買のみを扱う。premium 通貨を
-//       リアル課金で得るフローは Pillar S 側で実装し、AddToBalance() で
-//       残高を増やしてもらう想定 (本クラスはストア非依存)。
-//
-// 使い方:
-//   CEconomyDirector ed;
-//
-//   // 通貨定義。
-//   ed.RegisterCurrency({ "gold",    "Gold",    false });  // soft (ゲーム内獲得)
-//   ed.RegisterCurrency({ "gems",    "Gems",    true  });  // premium (リアル課金で増える)
-//   ed.SetBalance("gold", 1000);
-//
-//   // shop アイテム定義。
-//   ed.RegisterItem({ "skin.knight_red",  "Red Knight Skin",  "gold", 500,  ~0u, true });
-//   ed.RegisterItem({ "frame.gold_star",  "Gold Star Frame",  "gems", 50,   100, true });
-//
-//   // 購入。
-//   if (ed.PurchaseItem("skin.knight_red")) {
-//       // 成功 → cosmetic 解放 (CEntitlementRegistry 側へ橋渡し)
-//   }
-//
-//   // (任意) 購入結果コールバック。
-//   ed.SetOnPurchaseCallback(&OnPurchase, user_data);
-//
-// 設計選択 (Pillar O):
-//   ・**通貨と残高は並行 TArray**: FCurrencyDef を TArray<FCurrencyDef> に、残高を
-//     TArray<u32> に同 index で 1:1 で持つ。CEntitlementRegistry の id 比較と同じく
-//     const char* per-byte 線形検索。通貨種別はゲーム 1 セッションで通常 2〜5、
-//     多くても 10 を超えない想定なので線形で十分。
-//   ・**FShopItem は単一 TArray**: 商品数は AAA でも 100〜500 程度のオーダー、
-//     線形走査で十分。検索はすべて item_id 文字列。
-//   ・**所有しない const char***: id / display_name / currency_id すべて呼出側
-//     (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
-//     CEconomyDirector はコピーしない (STL <string> 禁止)。
-//   ・**price は u32**: 通貨残高も u32。AAA 級でも通常範囲を超えない。
-//     不足チェックは u32 同士の単純比較。
-//   ・**stock_remaining は u32**: ~0u (= 0xFFFFFFFF) を「無制限」の哨兵値として
-//     扱う。RegisterItem 時に ~0u を渡すと「在庫無制限」、それ以外の値は購入毎に
-//     1 ずつ減算する。stock_remaining == 0 は「売り切れ」(購入失敗)。
-//   ・**PurchaseItem は冪等ではない**: 残高 + 在庫を消費するため、毎回 side effect が
-//     生じる。失敗時 (残高不足 / 在庫切れ / 不明 id / 通貨不明) は false を返し
-//     side effect は発生させない (= atomic に成功 or 全て不変)。
-//   ・**PurchaseCallback は 1 個固定 + user pointer**: STL <functional> 禁止のため、
-//     C 関数ポインタ + void* user. 複数 listener が必要なら呼出側で fan-out。
-//     成功・失敗両方 (bool success) で通知し、UI の「購入失敗トースト」も
-//     コールバック側で出せるようにする。
-//   ・**重複登録は黙って弾く + WARN**: 同 id の 2 重 RegisterCurrency /
-//     RegisterItem は no-op (アセット二重ロード保護)。CEntitlementRegistry / CSeasonPass /
-//     CAchievementManager と同じパターン。
-//   ・**取引履歴は callback 経由のみ**: 履歴 TArray を内蔵してメモリを増やすより、
-//     呼出側 (= Analytics / Pillar T Community) でログ収集する設計。
-//     コア API は「現在の残高と在庫」だけを真実とし、過去ログは外部責務。
-//   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
-//   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
 
 
 namespace acs::game {
@@ -44063,55 +42241,6 @@ using FEconomyDirector = CEconomyDirector;
 
 // ===================== gameframework/EffectSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I — CEffectSystem (画面演出指揮)
-//
-// 画面エフェクトの中央指揮塔: Flash (全画面色被せ) / HitStop (一時停止) /
-// CCamera Shake (CCamera2D 連携) をひとまとめにし、描画側 / CGame ループ /
-// CCamera2D が「pull する側」になる単純なバスとして振る舞う。
-//
-// 設計選択 (Pillar I):
-//   ・**CEffectSystem 自身は何も描画しない / 何も時間を止めない**:
-//      Flash → 描画パイプ末尾の overlay が `FlashColor() * FlashIntensity()`
-//             を加算 (alpha blend) して画面に被せる。
-//      HitStop → CGame ループが `IsHitStop()` を見て `time_scale = 0` を選ぶ。
-//                CEffectSystem 自体は real-time dt で Tick され続ける
-//                (= hit stop が真の場合でも残時間が減る)。
-//      Shake → CCamera2D が `PendingShakeTrauma()` を pull → `AddShake` →
-//              `ConsumeShake()` で 0 リセット。
-//      これにより CEffectSystem は **副作用ゼロ / 純粋 state machine**。
-//      テスト容易 + CCamera2D / CGame との結合が最小限。
-//   ・**Flash は線形減衰**: `intensity(t) = m_FlashMax * (m_FlashT / m_FlashTotal)`
-//      で 1 → 0 へ落ちる。fade out 寄りで「閃光が引いていく」感が出る。
-//      Flash() を再呼出すれば常に新しい flash で上書き (累積しない)。
-//   ・**HitStop は単純な timer**: 重ねがけしたとき、残時間と新時間の max を採用
-//      (= 強い hit stop が来たら短い hit stop で打ち消されない)。
-//   ・**Shake pending は overwrite**: 1 フレームで複数 hit が起きたら最大値を保つ
-//      (max-of-frame)。CCamera2D が次フレーム頭で consume するので、
-//      ゲームコード側が consume 順序を意識する必要は無い。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//       CEffectSystem m_Fx;
-//       void OnHit() noexcept {
-//           m_Fx.Flash({1,1,1}, 0.8f, 0.15f);   // 白フラッシュ 150ms
-//           m_Fx.HitStop(0.08f);                 // 80ms 停止
-//           m_Fx.TriggerShake(0.5f);             // trauma 0.5 を CCamera2D に流す
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           const f32 ts = m_Fx.IsHitStop() ? 0.0f : 1.0f;
-//           // ... game update with (dt * ts) ...
-//           m_Fx.Tick(dt);                       // CEffectSystem は real dt で進む
-//           if (m_Fx.PendingShakeTrauma() > 0.0f) {
-//               Services().Camera().AddShake(m_Fx.PendingShakeTrauma());
-//               m_Fx.ConsumeShake();
-//           }
-//       }
-//   };
-//
-// 範囲外:
-//   ・color grading / chromatic aberration / vignette / radial blur のレシピ
-//   ・複数 channel (UI / world / cinematic) で独立 mute
-//   ・curve-based intensity (Easing 連携)
 
 
 namespace acs::game {
@@ -45241,46 +43370,6 @@ private:
 
 // ===================== gameframework/Entitlement.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// CEntitlementRegistry — DLC / シーズンパス / コスメティック等の権利チェック
-//
-// プレイヤーが「持っているかどうか」をゲームロジック側から問い合わせる窓口。
-// DLC、シーズンパス、バトルパス、コスメティックパック、グッズ同梱の引換コード等の
-// **権利情報** (entitlement) をローカルに保持し、ストアからの取得結果や
-// プラットフォーム SDK (Pillar S = Steamworks / EOS / 各家庭機 SDK) の問い合わせ結果を
-// Add() で流し込んでもらう想定。CEntitlementRegistry 自体は **ストア非依存** であり、
-// 配信プラットフォームに紐付かない (Pillar S 側がアダプタ層になる)。
-//
-// 設計上の倫理方針 (LiveOps と pay-to-win の境界):
-//   ・本レジストリは **cosmetic 中心** で運用することを推奨する。装備性能や
-//     ゲームプレイのコア体験を金銭で買わせる pay-to-win 設計は、開発者の責任で
-//     避けるべきという立場 (ACS の出荷フィルタ層には強制機構を置かないが、
-//     IsActive() を見て「攻撃力 +10」のようなコードを書くと簡単に踏み外せる)。
-//   ・GoodsRedeemCode は物販同梱のリアル商品コード等を想定。再現性ある安全な
-//     redeem フローは Pillar S 側で実装し、ここには結果だけが流れてくる。
-//
-// 使い方:
-//   CEntitlementRegistry reg;
-//   reg.Add({ "dlc.expansion_1",  EEntitlementKind::Dlc,           true  });
-//   reg.Add({ "cosmetic.hat_red", EEntitlementKind::CosmeticPack,  true  });
-//
-//   if (reg.IsActive("dlc.expansion_1")) UnlockExpansionMap();
-//   if (reg.HasAny(EEntitlementKind::SeasonPass)) ShowSeasonPassBadge();
-//
-// 設計選択:
-//   ・id は **const char* 非所有**: ACS の STL 禁止方針 + 寿命管理単純化のため、
-//     呼び出し側が文字列リテラル or 長寿命バッファを保証する。短命バッファを
-//     渡すと dangling になる点は API ドキュメントで明示。
-//   ・コピー / ムーブ禁止: registry は通常 1 つの長寿命オブジェクトで運用される。
-//     誤って値渡しされた結果として entitlement が分裂すると検知しづらいため、
-//     最初から非コピー・非ムーブで固定する。
-//   ・全 noexcept: 例外不使用方針 (TResult<T,E> + bool 戻り値)。
-//
-// 範囲外:
-//   ・永続化 / シリアライズ (Pillar J Serialize 側で扱う)
-//   ・プラットフォーム SDK 連携の具象 (Pillar S Storefront 側で実装、こちらは依存しない)
-//   ・期限付き entitlement (期限切れ判定や残時間照会) — `active` フラグの更新を
-//     ストア側で行う前提とし、本レジストリは時間概念を持たない
-//   ・サーバ検証 (Pillar V Backend Services 側で実装)
 
 
 namespace acs::game {
@@ -45419,15 +43508,6 @@ using FEntitlementRegistry = CEntitlementRegistry;
 
 // ===================== gameframework/EntryPoint.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// エントリポイント生成マクロ (ACS_GAME_MAIN)
-//
-// 使い方:
-//   class CMyGame : public acs::game::CGame { ... };
-//   ACS_GAME_MAIN(CMyGame)
-//
-// 中身は acs/app/EntryPoint.h の ACS_DEFINE_MAIN を CGame 派生向けに薄く
-// ラップしたもの。将来 AppState の自動初期化や
-// shipping/dev フラグの分岐を入れる余地に備えてこの層を作っておく。
 
 
 /**
@@ -45442,130 +43522,14 @@ using FEntitlementRegistry = CEntitlementRegistry;
 
 // ===================== gameframework/EventBus.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — AEventBus (ワールド内オブジェクト間の疎結合な通信)
-//
-// 「名前付きイベントの pub/sub」を提供する World サブシステム。発火側と購読側が
-// «互いを知らずに» やり取りできる(プレイヤー死亡・スコア加算・ドア開放 等)。
-// 直接参照(ObjectRef)が «1対1の固い結線» なのに対し、こちらは «1対多の緩い通知»。
-//
-// ACS 規約: std::function / std::string 不使用。イベントはコンパイル時ハッシュ ID、
-// ハンドラは «関数ポインタ + listener コンテキスト»(captureless ラムダ or 静的関数)。
-//
-// 使い方:
-//   // 購読 (例: コンポーネントの OnAttach で)
-//   auto* bus = GetSubsystem<acs::game::AEventBus>();
-//   m_Sub = bus->Subscribe(acs::game::AEventBus::Id("PlayerDied"),
-//       [](void* self, const void* payload) noexcept {
-//           static_cast<MyComp*>(self)->OnPlayerDied();
-//       }, this);
-//   // 発火 (どこからでも)
-//   bus->Publish(acs::game::AEventBus::Id("PlayerDied"));
-//   // 解除 (OnDetach 等で)
-//   bus->Unsubscribe(m_Sub);
 
 
 // ===================== gameframework/Reflect.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// GameFramework — 統一リフレクション / 型レジストリ (Reflect)
-// -----------------------------------------------------------------------------
-// 「エンジンの型 (Object / Component / Node / Scene / Asset / System / Enum /
-// Interface / Event / Command …) をマーク + 反射 (名前・サイズ・フィールド・列挙値・
-// ファクトリ・カテゴリ・能力) して、エンジン全体から 1 つのレジストリで列挙・
-// 名前/ID 検索・生成できる」土台。
-//
-// 設計の要点 (ACS の型は Object/Component に留まらない — 実コードから網羅):
-//   ・**カテゴリ** ETypeCategory … 何の種類か。Struct/Enum/Object/Component/Node/
-//     Scene/Asset/System/Prefab/Interface/Event/Command/Resource/Service/Custom。
-//     新種は Custom + category_name で拡張できる (将来の種類に耐える)。
-//   ・**能力トレイト** ETypeTraits … 何ができるか (直交)。Serializable/Networked/
-//     EditorVisible/Scriptable/Abstract/Instantiable のビット OR。
-//   ・**Enum 反射** … 列挙体は value↔name を持つ (editor コンボ/シリアライズ/スクリプト)。
-//   ・既存の TypeInfo.h (TU ローカル・コンパイル時のみ) を補完し、グローバル自動登録の
-//     CTypeRegistry を提供。フィールド種別は InspectorSeam.h の EFieldKind を共通利用。
-//
-// 使い方:
-//   struct FHealth { acs::f32 hp; acs::f32 max_hp; bool alive; };
-//   ACS_COMPONENT(FHealth,
-//       ACS_RFIELD(FHealth, hp,     acs::game::EFieldKind::F32),
-//       ACS_RFIELD(FHealth, max_hp, acs::game::EFieldKind::F32),
-//       ACS_RFIELD(FHealth, alive,  acs::game::EFieldKind::Bool))
-//
-//   enum class EWeapon : acs::u8 { Sword, Bow, Staff };
-//   ACS_REFLECT_ENUM(EWeapon,
-//       ACS_EVAL(EWeapon, Sword), ACS_EVAL(EWeapon, Bow), ACS_EVAL(EWeapon, Staff))
-//
-//   auto& reg = acs::game::CTypeRegistry::Get();
-//   const auto* d = reg.FindByName("FHealth");      // 名前で型
-//   void* obj     = reg.Create("FHealth");          // factory 生成
-//   reg.Destroy(d->id, obj);
-//
-// 規約: no-STL / no-exceptions / 固定長 / 全 noexcept。型 ID は型名の FNV-1a (u32)。
-// マクロは C++20 inline 変数で生成し、生成シンボルは __LINE__ ではなく「型名」でキー付け
-// する → 別ヘッダで同名・同種別の型を反射しても全 TU 単一実体 = 1 度だけ登録 (同名衝突や
-// ODR 違反が起きない。同じ型を 2 ヘッダで反射した場合も token 一致で inline マージされる)。
-// =============================================================================
 
 
 // ===================== gameframework/InspectorSeam.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — CInspectorSeam
-//
-// reflection-driven debug inspector の「シーム (seam)」インターフェース。
-// ゲーム内の任意のオブジェクト (FPlayer / FEnemy / CCamera / CSettings 等) が
-// 自身のフィールドを `IInspectableProvider` 経由で公開し、上位レイヤ
-// (ImGui / ACS::Ui / 外部 DevTool) がそれを描画 / 編集する形を取る。
-//
-// 使い方:
-//   class FPlayer : public acs::game::IInspectableProvider {
-//       f32  m_Speed = 5.0f;
-//       i32  m_Hp    = 100;
-//       bool m_bInvincible = false;
-//
-//       u32 ObjectCount() noexcept override { return 1; }
-//       FInspectableObject GetObject(u32) noexcept override {
-//           static FInspectableField fields[] = {
-//               { "speed",      EFieldKind::F32,  &m_Speed,      0, nullptr },
-//               { "hp",         EFieldKind::I32,  &m_Hp,         0, nullptr },
-//               { "invincible", EFieldKind::Bool, &m_bInvincible, 0, nullptr },
-//           };
-//           return { "Player", "P1", fields, 3 };
-//       }
-//       void OnFieldChanged(u32, u32) noexcept override { /* re-validate */ }
-//   };
-//
-//   // 起動時:
-//   CInspectorSeam inspector;
-//   inspector.Init();
-//   inspector.RegisterProvider(&player);
-//
-//   // UI レイヤ:
-//   for (u32 p = 0; p < inspector.ProviderCount(); ++p) {
-//       auto* prov = inspector.GetProvider(p);
-//       for (u32 o = 0; o < prov->ObjectCount(); ++o) {
-//           auto obj = prov->GetObject(o);
-//           // ImGui::Text("[%s] %s", obj.type_name, obj.instance_name);
-//           // for (u32 f = 0; f < obj.field_count; ++f) ...
-//       }
-//   }
-//
-// 設計選択:
-//   ・**シーム化 (= I/F + 集中点) で UI と切り離す**: `CInspectorSeam` 本体は
-//     Provider レジストリだけを持ち、ImGui / Ui 描画は別レイヤから
-//     呼ぶ。Ship build では Provider 登録自体を #ifdef で消す前提。
-//   ・**Provider は non-owning**: ゲーム側の生存期間に従う。RegisterProvider 後に
-//     Provider を destruct する場合は呼び出し側で必ず Unregister すること。
-//     `CInspectorSeam::ClearAll()` でも Provider は破棄しない。
-//   ・**field は POD 4-tuple**: name + kind + data ポインタ + (enum 専用) ラベル配列。
-//     描画側は kind で switch し、data を該当型にキャストして表示 / 編集する。
-//   ・**fields 配列は Provider 所有**: `GetObject()` の戻り値が指す `fields` は
-//     Provider が永続所有する (static 配列 / メンバ配列 を想定)。CInspectorSeam は
-//     コピーしない。
-//   ・**OnFieldChanged は通知のみ**: UI 側で値を書き換えた後に呼ばれる。Provider は
-//     再バリデーション (clamp / 派生値の再計算 / dirty flag) をここで行う。
-//   ・**non-copy / non-move**: 内部の TArray<Provider*> 所有を曖昧にしない。
-//   ・**全 noexcept**: ACS 規約。エラーは現状なし (登録 / 取得のみ)。
-//   ・**STL 不使用**: `acs::TArray<IInspectableProvider*>` で保持。
 
 
 namespace acs::game {
@@ -46411,63 +44375,6 @@ private:
 
 // ===================== gameframework/FadeTransition.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// CFadeTransition — シーン切替フェード演出の state holder
-//
-// シーン切替時のフェード演出を司る **state holder**。描画自体は行わず、
-// 現在の overlay alpha / color と phase だけを提供する。ユーザー側で
-// CSpriteBatch を使い fullscreen quad を「色 = OverlayColor()、alpha =
-// OverlayAlpha()」で描くだけで、典型的なフェードイン・アウト・ブラック
-// フラッシュ・クロスフェードが成立する。
-//
-// 使い方:
-//   class ATitleScene : public AScene {
-//       acs::game::CFadeTransition m_Fade;
-//       void OnEnter() noexcept override {
-//           // 画面が黒から徐々に明けるフェードイン
-//           m_Fade.StartFade(EFadeKind::FadeIn, /*out=*/0.0f, /*in=*/0.5f);
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Fade.Tick(dt);
-//           if (m_Fade.IsMidPause()) {
-//               // FadeInOut の暗転中: ここでシーン切替
-//               Manager().ChangeScene<AGameplayScene>();
-//           }
-//       }
-//       void OnRender() noexcept override {
-//           // ... 通常描画 ...
-//           if (m_Fade.IsActive()) {
-//               const acs::FVec3 c = m_Fade.OverlayColor();
-//               const f32       a = m_Fade.OverlayAlpha();
-//               CSpriteBatch().FillFullScreen(c.x, c.y, c.z, a);
-//           }
-//       }
-//   };
-//
-// 設計選択:
-//   ・**state-only**: ACS は描画 API を gameframework から直接叩かない方針
-//     (Pillar Q/R が独立しているため)。fade は単に「いま画面上に黒幕が何 %
-//     被さっているか」だけ返し、描画はユーザー責任。
-//   ・**4 種類の Kind**:
-//       - FadeIn   : alpha 1 → 0 (画面が暗黒から明けて見える)
-//       - FadeOut  : alpha 0 → 1 (画面が暗黒に閉じる)
-//       - FadeInOut: 0 → 1 → (mid pause) → 0 (定番の暗転シーン切替)
-//       - CrossFade: 0 → 0.5 → 0 (alpha が 50% まで上がって戻る軽い演出。
-//                    本格的なクロスフェードは 2 枚バッファ前提なので
-//                    ここでは「軽量代用」と割り切る)
-//   ・**phase**: Idle → FadingOut → MidPause → FadingIn → Idle で進行。
-//     FadeIn のみ FadingOut/MidPause をスキップ、FadeOut のみ FadingIn を
-//     スキップ、CrossFade は FadingOut+FadingIn のみ (mid_pause=0)。
-//   ・**IsMidPause()** が true な間にシーン切替を行うのが想定タイミング。
-//     mid_pause=0 でも 1 Tick だけ true を返すよう保証 (= 必ず捕まえられる)。
-//   ・**duration=0** は「即時 phase 遷移」。0 除算を避けるため alpha 補間時に
-//     0 ガードを入れる。
-//   ・非コピー・非ムーブ。state holder なので所有権移転を許す意味がない。
-//
-// 範囲外:
-//   ・実描画 (CSpriteBatch 呼び出し)
-//   ・easing 曲線指定 (linear 固定。必要なら user 側で OverlayAlpha() を
-//      Easing::InOutSine 等に通す)
-//   ・複数 overlay の重ね合わせ
 
 
 namespace acs::game {
@@ -46657,10 +44564,10 @@ using FFadeTransition = CFadeTransition;
 
 // ===================== gameframework/Follow2DComponent.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — AFollow2DComponent (オブジェクト参照プロパティのデモ + 実用コンポーネント)
+// GameFramework — AFollow2DComponent
 //
 // 「別のノードを参照して、そこへ向かって追従する」コンポーネント。インスペクタの
-// 他オブジェクトを安定 ID で参照する ACS_PROPERTY の実例。
+// 他オブジェクトを安定 ID で参照する ACS_PROPERTY を持つ。
 // target は参照先ノードの «安定 ID»(SerialId = エディタ id)を保持する。実行時に
 // id → 生きた ANode* へ解決して追従する(解決は FindBySerialId、結果はキャッシュ)。
 
@@ -46670,7 +44577,7 @@ using FFadeTransition = CFadeTransition;
 namespace acs::game {
 
 /**
- * 参照したノードへ追従する 2D コンポーネント(オブジェクト参照プロパティのデモ)。
+ * 参照したノードへ追従する 2D コンポーネント。
  *
  * @details
  * public メンバ + 単一継承なので ACS_RFIELD_REF / ACS_RFIELD_D で offset 反射でき、
@@ -46687,7 +44594,7 @@ public:
     /** 追従速度(units/sec)。 */
     f32 speed  = 3.0f;
 
-    /** target に到達したか(実行時の «読み取り専用» ステータス = VisibleAnywhere のデモ)。 */
+    /** target に到達したかを示す実行時の読み取り専用ステータス。 */
     bool arrived = false;
 
     void OnUpdate(f32 dt) noexcept override {
@@ -46709,12 +44616,6 @@ public:
                                            cur.y + d.y / len * step }); arrived = false; }
     }
 
-    /** 現在の参照/速度をログ出力する(BlueprintCallable + CallInEditor のデモ関数)。 */
-    ACS_FUNCTION(BlueprintCallable, CallInEditor)
-    void Ping() noexcept {
-        ACS_LOG_INFO("[Follow] Ping! target=%d speed=%.1f arrived=%d", target, static_cast<double>(speed), arrived ? 1 : 0);
-    }
-
 private:
     /** target ID を root から解決して返す(結果は target 変化までキャッシュ)。 */
     ANode* ResolveTarget(ANode* owner) noexcept {
@@ -46734,48 +44635,10 @@ private:
 
 // ===================== gameframework/Game.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// CGame — CSceneManager を駆動するゲーム基底クラス
-//
-// CApplication を継承し、CSceneManager を駆動する基底。利用者は派生クラスで
-// InitialScene() を override して最初の AScene を返すだけでよい。
-//
-// 使い方:
-//   class CMyGame : public acs::CGame {
-//   protected:
-//       acs::TUniquePtr<acs::AScene> InitialScene() noexcept override {
-//           return acs::MakeUnique<ATitleScene>();
-//       }
-//   };
-//   ACS_GAME_MAIN(CMyGame)
-//
-// CSceneManager 駆動 + FRenderContext 配線。固定タイムステップ accumulator +
-// AppState 型消去永続状態 + AScene への dt は time_scale 乗算済を渡す。
-// OnPause/OnResume は CSceneManager 側で配線済 (Push/Pop 時)。
 
 
 // ===================== render/Font.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// フォント（TTF を GPU テクスチャアトラスに焼いて、文字描画に使う）
-//
-// 使い方:
-//   FFont font;
-//   font.LoadFromFile(*renderer.Device(), L"C:/Windows/Fonts/meiryo.ttc", 32.0f);
-//
-//   // 描画フレーム中
-//   sb.Begin(*cl, sw, sh);
-//   sb.DrawText(font, "ハロー、ワールド！", 100, 100, FVec4{1,1,1,1});
-//   sb.End();
-//
-// 対応コードポイント (デフォルト):
-//   - ASCII (U+0020 .. U+007E)
-//   - Latin-1 補足 (U+00A0 .. U+00FF)
-//   - 平仮名 (U+3040 .. U+309F)
-//   - 片仮名 (U+30A0 .. U+30FF)
-//   - 全角英数 (U+FF01 .. U+FF5E)
-//   - 全角句読点・記号 (U+3000 .. U+303F)
-//
-// 漢字を使う場合は include_cjk=true を指定（CJK 統合漢字 U+4E00..U+9FAF）。
-// アトラスサイズは自動で 2048×2048 に拡張される。
 
 
 namespace acs {
@@ -46999,23 +44862,6 @@ u32 DecodeUtf8(const char** p) noexcept;
 
 // ===================== render/SpriteBatch.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 2D スプライト描画ヘルパ（バッチ式）
-//
-// 用途: ピクセル座標で 2D スプライト・矩形を描く。一般的な「ゲーム HUD」や
-//       2D ゲームの絵描き用。同じテクスチャの連続スプライトは自動でバッチされる。
-//
-// 使い方:
-//   CSpriteBatch sb;
-//   sb.Init(*renderer.Device(), renderer.ColorFormat(), max_sprites=4096);
-//
-//   // 描画フレーム中
-//   auto* cl = renderer.CommandList();
-//   sb.Begin(*cl, screen_w, screen_h);
-//   sb.Draw(my_tex, 100, 200, 64, 64);                 // 64×64 を (100,200) に
-//   sb.DrawRect(0, 0, screen_w, 32, FVec4{0,0,0,0.5f}); // 上部に半透明バー
-//   sb.End();
-//
-// 座標系: 左上原点、ピクセル単位。Y が下方向。
 
 
 // ===================== render/IRhiShader.h =====================
@@ -48497,77 +46343,10 @@ using FSpriteBatch = CSpriteBatch;
 
 // ===================== gameframework/SceneServices.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — CSceneServices
-//
-// シーンが必要なサービス (CSceneClock / CTweenManager / CSequenceRunner / FInputMap)
-// を bit flag (`ESvc`) で宣言、CSceneServices が遅延 alloc して保持する取り付けハブ。
-// CGame/CSceneManager が自動で tick + scene 切替に追従。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//   public:
-//       ESvc WantedServices() const noexcept override {
-//           return ESvc::Default2D;  // Clock | Tweens | Sequences | Input
-//       }
-//       void OnEnter() noexcept override {
-//           Services().Input().BindKey(FActionId("Jump"), EKey::Space);
-//           Services().Tweens().Tween(&m_Color, c1, c2, 2.0f, Easing::InOutSine);
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           // dt は Clock 経由 scaled (services 有効時)。Tweens/Sequences は
-//           // この OnUpdate の **後** に自動 tick されるので、ここで新規スケジュール
-//           // した tween は次フレームから進行する。
-//           if (Services().Input().IsPressed(FActionId("Jump"))) DoJump();
-//       }
-//   };
-//
-// 設計選択:
-//   ・**bit flag 宣言**: `WantedServices()` で宣言したサービスだけ alloc。
-//     使わないシーン (例: メニュー) は Physics/Tweens のコストを払わない。
-//   ・**遅延 alloc**: constructor 内で wanted bit を見て TUniquePtr<T> を作る。
-//     未要求のサービスは TUniquePtr が null、accessor 呼出は assert で検出。
-//   ・**2 phase tick**: PreUpdate (Clock 進行) → scene.OnUpdate → PostUpdate
-//     (Tweens/Sequences tick)。新規スケジュールは次フレーム頭から進行 (predictable)。
-//   ・**自動 pause**: シーンが下位に追いやられた間は OnUpdate が呼ばれず、
-//     Clock も tick されないので tween/seq は自然に止まる。明示的 Pause 不要。
-//
-// 範囲外 (本クラスでは持たない):
-//   ・Audio / Events / Debug / Timers / Ui の各サービス
-//     (該当 Pillar 実装時に ESvc enum と CSceneServices に追加)。
 
 
 // ===================== gameframework/Tween.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — CTweenManager
-//
-// 値書き戻し型 tween manager: 利用者の f32/FVec2/FVec3 変数のポインタを渡し、
-// CTweenManager が毎 Tick で補間して書き込む。コールバック不要 (= ACS の
-// std::function 非使用方針と整合)。Easing は関数ポインタで指定。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//       acs::game::CTweenManager m_Tweens;
-//       acs::FVec3 m_Color{0, 0, 0};
-//
-//       void OnEnter() noexcept override {
-//           m_Tweens.Tween(&m_Color,
-//                          acs::FVec3{0.05f, 0.20f, 0.10f},
-//                          acs::FVec3{0.10f, 0.30f, 0.20f},
-//                          /*duration=*/2.0f,
-//                          Easing::InOutSine);
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Tweens.Tick(dt);
-//           GetGame().SetClearColor(m_Color.x, m_Color.y, m_Color.z);
-//       }
-//   };
-//
-// 安全性:
-//   ・Handle は (index, generation) で stale 参照を検出。Cancel(h) は
-//     完了済 or 別 tween に再利用された slot を弄らない。
-//   ・duration <= 0 を渡すと「即時設定」(target に to を書いて Handle=invalid 返す)。
-//   ・target が null なら no-op + invalid handle 返却。
-//   ・tween 完了時は target に正確に `to` を書く (浮動小数誤差を 1 frame 残さない)。
 
 
 namespace acs::game {
@@ -48819,36 +46598,6 @@ using FTweenManager = CTweenManager;
 
 // ===================== gameframework/Sequence.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FSequence / CSequenceRunner
-//
-// 時間付きアクションの連鎖 (cutscene / 出現ウェーブ / scripted UI 等)。
-//   `seq.Wait(0.5f).Call(my_fn, user).Tween(&x, 0, 100, 1.0f).Loop(0)`
-// のようなビルダーで定義し、CSequenceRunner::Start(Move(seq)) で実行開始。
-//
-// 設計選択:
-//   ・パラレル合成 (`Parallel(sub)`) は未実装。複数 FSequence を Runner に
-//     並列で Start すれば事実上のパラレルになる。
-//   ・コールバックは `void(*)(void*)` 関数ポインタ。ACS 規約 (std::function 不使用)。
-//   ・tween 処理は FSequence 内蔵 (CTweenManager に委譲しない) — sequence の進行
-//     時間と一体化させたいため。完了時は最終値を正確に書く。
-//
-// 使い方:
-//   class ATitleScene : public AScene {
-//       CSequenceRunner m_Seqs;
-//       FVec3 m_LogoColor;
-//       void OnEnter() noexcept override {
-//           FSequence s;
-//           s.Wait(0.3f)
-//            .Tween(&m_LogoColor, FVec3{0,0,0}, FVec3{1,1,1}, 0.5f, Easing::OutCubic)
-//            .Wait(1.0f)
-//            .Call(&ATitleScene::FadeOutBegin, this);
-//           m_Seqs.Start(Move(s));
-//       }
-//       void OnUpdate(f32 dt) noexcept override { m_Seqs.Tick(dt); }
-//       static void FadeOutBegin(void* self) noexcept {
-//           static_cast<ATitleScene*>(self)->_ready_to_quit = true;
-//       }
-//   };
 
 
 namespace acs::game {
@@ -49157,7 +46906,7 @@ public:
     /**
      * 全シーケンスを 1 フレーム進める。
      *
-     * @details AScene::OnUpdate から CSceneClock::Dt() を渡して毎フレーム呼ぶ想定。
+     * @details 更新 owner が前フレームからの経過秒を渡し、1 フレームに 1 回呼ぶ。
      * @param dt 前フレームからの経過秒。
      * @note 非有限の dt は無視し、easing の非有限な戻り値は Linear にフォールバックする。
      * 補間演算が非有限になったフレームは target を変更しない。
@@ -49486,47 +47235,6 @@ private:
 
 // ===================== gameframework/TriggerWorld2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — CTriggerWorld2D (overlap tracking + events)
-//
-// CCollisionWorld2D とは独立に「重なりだけを監視するトリガ専用ワールド」。
-// 物理応答や押し戻し (Resolve) は行わず、毎フレーム全 trigger pair の重なり
-// 状態を更新し、前フレと比較して以下の 3 種類のイベントを発火する:
-//
-//   ・OnEnter : 前フレ非重なり → 今フレ重なり (新規 overlap pair)
-//   ・OnStay  : 前フレ重なり   → 今フレ重なり (継続中の overlap pair)
-//   ・OnExit  : 前フレ重なり   → 今フレ非重なり (離れた overlap pair)
-//
-// 使い方:
-//   CTriggerWorld2D world;
-//   world.Init();
-//
-//   FTriggerId player = world.AddCircle({ {0,0}, 16.0f }, /*layer=*/0);
-//   FTriggerId pickup = world.AddAabb  ({ {100,0}, {8,8} }, /*layer=*/1);
-//
-//   world.SetOnEnter(+[](void* /*user*/, FTriggerId self, FTriggerId other) noexcept {
-//       // self と other が今フレ初めて重なった
-//   }, /*user=*/nullptr);
-//
-//   // 毎フレーム:
-//   world.UpdateCircle(player, { player_pos, 16.0f });
-//   world.Tick(dt);    // overlap 比較 → OnEnter / OnStay / OnExit 発火
-//
-// 設計:
-//   ・**broad phase は O(N^2)**: 全 pair を直接比較。将来
-//     CCollisionWorld2D と同じ SpatialGrid に置換し O(N + K) に下げる予定。
-//   ・**FTriggerId は FShapeId と同じ generational handle** (24bit index + 8bit gen)。
-//     remove → re-add で slot 再利用しても旧 handle は無効化される。
-//   ・**overlap pair は array で保持**: 前フレの状態は `TArray<FOverlapPair>` に
-//     `was_overlapping` 付きで保存。次フレで再計算し、(was, now) の組合せで
-//     どのイベントを発火するか決める。
-//   ・**layer はメタデータとして格納のみ**: event 側で参照する。
-//     mask による絞り込みは将来導入。
-//   ・**コールバックは関数ポインタ + void* user**: STL 不使用のため std::function
-//     ではなく C-style コールバックを採用。各イベントは独立に設定可能で、
-//     未設定なら発火スキップ。
-//   ・**非コピー・非ムーブ**: 内部の overlap state がポインタ的セマンティクスを
-//     持つわけではないが、ハンドルの安定性を保証するため複製を禁止。
-//   ・**全関数 noexcept**: ACS 全体の規約に従い例外伝播ゼロ。
 
 
 namespace acs::game {
@@ -49634,7 +47342,7 @@ public:
     /** ムーブ代入も禁止。 */
     CTriggerWorld2D& operator=(CTriggerWorld2D&&)      = delete;
 
-    /** 初期化する (現状は状態を持たないが、将来の SpatialGrid 等のため API を予約)。 */
+    /** 内部状態を初期化する。保持状態を持たないため安全な no-op。 */
     void Init() noexcept;
 
     /**
@@ -49728,9 +47436,9 @@ public:
      * 毎フレ呼び、全 pair の overlap 状態を更新してイベントを発火する。
      *
      * @details
-     * 前フレと比較して OnEnter / OnStay / OnExit を発火する。dt は現状未使用だが、
-     * 将来 OnStay の経過時間通知などで利用予定。
-     * @param dt 前フレームからの経過秒 (現状未使用)。
+     * 前フレと比較して OnEnter / OnStay / OnExit を発火する。dt は更新契約として
+     * 受け取るが、overlap 判定では参照しない。
+     * @param dt 前フレームからの経過秒。
      */
     void Tick(f32 dt) noexcept;
 
@@ -50096,49 +47804,6 @@ using game::ESvc;
 
 // ===================== gameframework/NodePool.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — CNodePool (ANode の generational pool)
-//
-// シーン全体で唯一の `ANode*` レジストリ。`ANode` インスタンス自体は親の
-// `m_Children` (TObjectPtr<ANode>) が所有し続け、本 pool は **参照のみ** を
-// 保持して安定した `FNodeId` を発行する。同時に発行済 `FNodeId` の **stale 検出**
-// (= 既に Unregister されたハンドル) を提供する。
-//
-// 使い方:
-//   CNodePool pool;
-//   pool.Init(/*initial_capacity=*/512);
-//
-//   // ANode を新規生成して scene tree に attach した直後に登録:
-//   ANode& enemy = scene.Root().AddChild(NewObject<EnemyNode>());
-//   FNodeId enemy_id = pool.RegisterExistingNode(&enemy);
-//   // enemy.Id() == enemy_id が成立する (RegisterExistingNode 内で _SetId 済)
-//
-//   // 後で stale 検査付きで取り出し:
-//   if (ANode* p = pool.Get(enemy_id)) {
-//       p->SetPosition2D(p->Position2D() + FVec2{1, 0});
-//   }
-//
-//   // 破棄時:
-//   pool.Unregister(enemy_id);   // slot 解放 + gen++ → 古い handle は invalid 化
-//   enemy.Destroy();              // scene tree からは別途 reap される
-//
-// 設計選択 (Pillar B):
-//   ・**non-owning**: 所有権は ANode の親 (=TObjectPtr<ANode>) 側にあり、本 pool
-//     は raw ポインタだけ持つ。TPool の破棄や ClearAll は ANode を delete しない。
-//   ・**FSlot = {ptr, gen, active}**: CCollisionWorld2D::FSlot と同じパターン。
-//     index 0 は予約 (= invalid handle と一致させる)、有効 slot は 1..N。
-//   ・**free_indices stack**: 空き slot を O(1) で再利用。Unregister 時 push、
-//     TryRegisterExistingNode 時 pop。stack が空なら slot を新規 TryAdd。
-//   ・**generation 0 はスキップ**: gen++ がラップアラウンドで 0 に戻った場合、
-//     FNodeId(idx, 0) は IsValid() == false になってしまうため、ラップ時は 1 に
-//     強制する (CCollisionWorld2D と完全に同じ挙動)。
-//   ・**24bit index = 16,777,216 slot 上限**: FNodeId の pack 仕様に従い、これを
-//     超える RegisterExistingNode は invalid FNodeId を返す (拒否)。実用上 1 シーン
-//     で 16M ANode を生成することはまずあり得ないが安全策として明示拒否。
-//   ・**IdOf は線形探索**: ポインタ → FNodeId の逆引きは利用頻度が低い (基本は
-//     RegisterExistingNode の戻り値を保持する) ため、専用 hash は持たない。
-//     真に必要なら呼び出し側で THashMap<ANode*, FNodeId> を別途持てば良い。
-//   ・**非コピー・非ムーブ**: pool 自体は固定オブジェクトとして scene が所有する想定。
-//   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約に厳格準拠。
 
 
 namespace acs::game {
@@ -50147,17 +47812,25 @@ class ANode;   // forward decl — full include は .cpp 側 (ANode::_SetId 呼�
 
 /** CNodePool への checked 登録が返す状態。 */
 enum class ENodePoolRegisterError : u8 {
+    /** 登録に成功。 */
     None = 0,
+    /** 入力ノードが null。 */
     NullNode,
+    /** 同じ pool に登録済み。 */
     AlreadyRegistered,
+    /** 別の pool が発行した有効 Id を保持中。 */
     RegisteredByAnotherPool,
+    /** FNodeId が表現できる index 上限を超過。 */
     IndexLimitExceeded,
+    /** slot または空き index の保持領域を確保できない。 */
     AllocationFailure,
 };
 
 /** checked ノード登録結果。AlreadyRegistered の場合も既存 Id を返す。 */
 struct FNodePoolRegisterResult {
+    /** 登録済みまたは新規発行したノード Id。 */
     FNodeId Id{};
+    /** 登録処理の状態。 */
     ENodePoolRegisterError Error = ENodePoolRegisterError::None;
 
     bool Succeeded() const noexcept {
@@ -52240,57 +49913,6 @@ private:
 
 // ===================== gameframework/GameFlow.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — CGameFlow (高レベルゲームフロー state machine)
-//
-// 役割:
-//   タイトル / メインメニュー / ゲームプレイ / ポーズ / 設定 / GameOver 等、ゲーム
-//   全体のフロー状態を保持する 1 シングルトン的 state machine。CSceneManager より
-//   1 段上のレイヤで、「いまユーザーがゲームのどの段階に居るか」を識別する。
-//
-// CSceneManager との棲み分け:
-//   ・CSceneManager は描画用 AScene のスタックを管理する低レベル機構
-//     (push / pop / change + 退場 ring buffer + fixed_dt)。
-//   ・CGameFlow は「ゲームとしての論理状態」を管理する高レベル state machine。
-//     状態ごとの enter / exit コールバックでサウンド切替や Save 書き出し等の
-//     副作用を発火し、実描画はコールバックの中で CSceneManager を呼び分ける。
-//   ・両者は独立。CGameFlow は CSceneManager に依存しない (テスト容易性のため)。
-//
-// 設計選択:
-//   ・**enum EFlowState (10 状態固定)**: ゲームの抽象状態を列挙。動的追加なし。
-//   ・**遷移は要求 + Tick 適用**: RequestTransition で要求 → Tick が fade_out 中
-//     はカウントダウン → 完了したら _OnExit → state 切替 → _OnEnter → fade_in。
-//     これにより「現在 / 次の state が両方分かる」期間を作り、UI 側で overlay
-//     を被せられる。fade_sec=0 の場合は同フレーム内で即時遷移 (Tick での fade
-//     経過なし)。
-//   ・**遷移テーブル**: 不正遷移 (例: Gameplay → Splash) を防ぐため、from →
-//     to の可否を 10x10 の bool テーブルで持つ。Init() 時に組み立てる。
-//   ・**コールバックは関数ポインタ + void* user**: ACS 規約に従い std::function
-//     不使用。Pillar Q CCinematicsDirector / CHotReloadWatcher と同形。1 state につき
-//     最大 enter / exit 1 個ずつ。
-//   ・**fade 量は state holder のみ**: FadeProgress() を [0, 1] で返す。描画は
-//     呼び出し側が CSpriteBatch で fullscreen overlay を被せる責任。
-//     CFadeTransition と独立 (シーン内 fade と画面間 fade を別レイヤで扱える)。
-//   ・**非コピー・非ムーブ**: CGame に 1 個持つ長寿命オブジェクト。state 分裂
-//     を避けるため最初から禁止。
-//
-// 範囲外 (将来拡張):
-//   ・state ごとの transient state (例: Loading の進捗値) — 必要なら呼び出し側
-//     が AppState で別途持つ
-//   ・遷移履歴の back stack — Pop 系 API は持たず、要求は常に「to 指定」
-//   ・並列 fade (画面内 fade) — AScene 単位の CFadeTransition が独立して動く
-//
-// 使い方:
-//   acs::game::CGameFlow flow;
-//   flow.SetOnEnterCallback(EFlowState::Gameplay, &FMyApp::OnGameplayEnter, this);
-//   flow.Init(EFlowState::Splash);
-//   // ... 毎フレーム:
-//   flow.Tick(dt);
-//   if (input.JustPressed(EKey::Enter) && flow.CurrentState() == EFlowState::MainTitle) {
-//       flow.RequestTransition(EFlowState::MainMenu, 0.5f);
-//   }
-//   if (flow.IsTransitioning()) {
-//       // fade overlay を FadeProgress() の alpha で描く
-//   }
 
 
 namespace acs::game {
@@ -52687,21 +50309,6 @@ using FCamera = CCamera;
 
 // ===================== render/Blit.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// フルスクリーン texture コピー (ブリット) ユーティリティ
-//
-// 用途: 1 つの Texture2D (通常は描画済みの RT) をもう 1 つの Texture2D
-//       (is_render_target=true で作成済) へ pixel-perfect にコピーする。
-//       直接 GPU copy が RHI に無いため、フルスクリーン三角形 + テクスチャ
-//       sample で代替する標準テクニック。
-//
-// 想定ユースケース: スクリーンスペース屈折のための background capture
-// (HDR scene color → 屈折オブジェクトが sample する複製テクスチャ)。
-//
-// 使い方:
-//   CBlit blit;
-//   blit.Init(*device, hdr_format);                    // 1 度だけ
-//   // フレーム中、コピーしたい時点で:
-//   blit.Copy(*cl, *src_hdr, *dst_bg);                 // dst の format == hdr_format
 
 
 namespace acs {
@@ -52808,18 +50415,6 @@ using FBlit = CBlit;
 
 // ===================== render/RenderAssets.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// AAsset → GPU リソース変換ヘルパ
-//
-// AImageAsset を GPU テクスチャに、AMeshAsset を頂点+インデックスバッファに変換する
-// 高レベル関数群。ゲーム側コードはこの関数を呼ぶだけで描画できる。
-//
-// 使い方:
-//   auto img = registry.Load(L"hero.png").Value();
-//   auto tex = UploadTexture(*device, *img).Value();
-//
-//   auto m   = registry.Load(L"cube.gltf").Value();
-//   FGpuMesh gm;
-//   UploadMesh(*device, *m, gm);
 
 
 namespace acs {
@@ -55596,20 +53191,6 @@ using FPostProcess = CPostProcess;
 
 // ===================== render/Sky.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 手続き生成スカイ（グラデーション + 太陽）
-//
-// 用途: 3D シーンの背景に「空」を描く。シーン描画より先に呼ぶ。
-//       テクスチャ（キューブマップ）不要、ピクセルシェーダで天頂・地平線・
-//       地面の色を補間して描画する。
-//
-// 使い方:
-//   CSky sky;
-//   sky.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
-//   sky.PresetDay();
-//
-//   // 描画フレーム中、シーンの最初に
-//   sky.Render(*cl, camera);
-//   // ... CStandardShader でメッシュを描く ...
 
 
 namespace acs {
@@ -57761,40 +55342,6 @@ using FLegacyKitEaseIdCodec = CLegacyKitEaseIdCodec;
 
 // ===================== gameframework/StateMachine.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — TStateMachine<Owner>
-//
-// 小さな汎用 FSM (有限状態機械)。AI / ゲームフロー / アニメーション制御等に。
-//   ・状態は u32 ID で識別 (連続値を想定、最大 kMaxStates=16)
-//   ・状態ごとに `on_enter` / `on_update(dt)` / `on_exit` を関数ポインタで登録
-//     (`std::function` 不使用、ACS 規約)
-//   ・テンプレート `<Owner>` で「所有者」型を持つ → 関数は `Owner&` を受け取る
-//     (= scene/actor/component が自分自身を渡す典型パターン)
-//
-// 使い方:
-//   class FEnemy {
-//   public:
-//       enum EStates { Idle = 0, Chase, Attack };
-//       acs::game::TStateMachine<FEnemy> sm;
-//
-//       FEnemy() noexcept {
-//           sm.Configure(Idle,  { &FEnemy::EnterIdle, &FEnemy::UpdateIdle, nullptr });
-//           sm.Configure(Chase, { nullptr, &FEnemy::UpdateChase, nullptr });
-//           sm.Start(Idle, *this);
-//       }
-//
-//       void Tick(f32 dt) noexcept { sm.Update(*this, dt); }
-//
-//       static void EnterIdle (FEnemy& e) noexcept            { ... }
-//       static void UpdateIdle(FEnemy& e, f32 dt) noexcept    { if (...) e.sm.ChangeState(Chase, e); }
-//       static void UpdateChase(FEnemy& e, f32 dt) noexcept   { ... }
-//   };
-//
-// 注意:
-//   ・`ChangeState` は **即時遷移** (OnExit 旧 → OnEnter 新 を同期で呼ぶ)。
-//     OnUpdate 内から ChangeState すれば、その時点で旧の OnExit + 新の OnEnter
-//     が走る。同フレーム中の再 ChangeState は許容するが、循環遷移には注意。
-//   ・状態 ID が `kMaxStates` を超える / `Configure` していない ID で `Start` /
-//     `ChangeState` した場合は静かに skip (assert なしのソフトフェイル)。
 
 
 namespace acs::game {
@@ -57805,7 +55352,7 @@ namespace acs::game {
  * @details
  * 状態は u32 ID で識別し (最大 kMaxStates=16)、状態ごとに on_enter / on_update /
  * on_exit を関数ポインタ (std::function 不使用) で登録する。各コールバックは
- * Owner& を受け取るため、scene/actor/component が自分自身を渡す使い方を想定する。
+ * Owner& を受け取り、呼び出し側は Owner 型に一致する所有者 object を渡す。
  * ChangeState は即時遷移 (旧 on_exit → 新 on_enter を同期で呼ぶ)。範囲外 ID や
  * 未 Configure の ID は静かに skip するソフトフェイル設計。non-copy。
  * @tparam Owner コールバックに渡される所有者型。
@@ -57933,32 +55480,6 @@ private:
 
 // ===================== gameframework/PhysicsBody2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — APhysicsBody2D
-//
-// kinematic 物理 body の AComponent。velocity + acceleration + gravity を
-// 統合し、CCollisionWorld2D に登録された他の shape と衝突したら **軸独立で**
-// blocking する (X 軸試行 → overlap なら velocity.x=0 / x 移動キャンセル、
-// 同様に Y 軸)。剛体ソルバではなく「2D プラットフォーマー / トップダウン用の
-// swept kinematic」。
-//
-// 使い方:
-//   auto ball = NewObject<ANode>();
-//   ball->SetPosition2D(FVec2{0, 5});
-//   auto& body = ball->AddComponent<APhysicsBody2D>(Services().Physics());
-//   body.SetCircle(0.5f);
-//   body.gravity = FVec2{0, 10};   // +Y=画面下: 重力は下向き = 正の Y
-//   body.velocity = FVec2{1, 0};
-//   root.AddChild(Move(ball));
-//
-// 設計選択:
-//   ・**AComponent 派生**: AddComponent<APhysicsBody2D>(world) で attach。
-//     CollisionWorld への参照は constructor で受け取る。
-//   ・**axis-separated movement**: X / Y を独立に試して overlap なら止める。
-//   ・**自己除外**: OverlapAabb/Circle の `exclude` 引数で m_Handle を渡し、
-//     自分との衝突を無視。
-//   ・**OnUpdate で統合**: dt は scene の (scaled) dt。fixed timestep が
-//     必要なら scene 側で `OnFixedUpdate` から body.Step(fixed_dt) を呼ぶ
-//     形式に拡張可。
 
 
 namespace acs::game {
@@ -58263,16 +55784,6 @@ public:
      */
     void OnDraw(FRenderContext& rc) noexcept override;
 
-    /** 現在のサイズ/tint をログ出力する(BlueprintCallable + CallInEditor のデモ関数)。
-     *  Blueprint グラフの «関数» ノードから実ノードへ作用させる検証に使う。 */
-    ACS_FUNCTION(BlueprintCallable, CallInEditor)
-    void LogState() noexcept {
-        ACS_LOG_INFO("[Sprite] LogState size=(%.2f,%.2f) tint=(%.2f,%.2f,%.2f,%.2f)",
-            static_cast<double>(m_Size.x), static_cast<double>(m_Size.y),
-            static_cast<double>(m_Tint.x), static_cast<double>(m_Tint.y),
-            static_cast<double>(m_Tint.z), static_cast<double>(m_Tint.w));
-    }
-
 private:
     /** 描画するテクスチャ (非所有。nullptr なら塗り潰し矩形)。 */
     IRhiTexture* m_Texture = nullptr;
@@ -58297,69 +55808,10 @@ private:
 
 // ===================== gameframework/SpriteAnimComponent.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ASpriteAnimComponent — CSpriteAnimator (時間→frame index) を ASprite2DComponent
-// (UV サブ矩形) に橋渡しする AComponent。同じ ANode に付いた ASprite2DComponent
-// の UV を毎フレーム書き換えてスプライトシートアニメを再生する。
-//
-// 使い方 (グリッドシート: 1 枚のテクスチャを cols×rows に等分):
-//   auto node = NewObject<ANode>();
-//   auto& spr = node->AddComponent<ASprite2DComponent>(FVec2{1,1});
-//   spr.SetTexture(sheet_tex);
-//   auto& anim = node->AddComponent<ASpriteAnimComponent>();
-//   anim.InitGrid(/*cols=*/4, /*rows=*/1, /*frame_count=*/4, /*fps=*/8.0f);
-//   anim.Play();
-//
-// 使い方 (FSpritePack の名前付き frame からアニメ列を作る):
-//   anim.BeginFrames(/*fps=*/12.0f, EPlayMode::Loop);
-//   anim.AddFrameUv(pack.ComputeUv(*pack.FindFrame("Run_00")));
-//   anim.AddFrameUv(pack.ComputeUv(*pack.FindFrame("Run_01")));
-//   anim.EndFrames();
-//   anim.Play();
-//
-// 設計:
-//   ・sibling の ASprite2DComponent は OnAttach 時点では未登録のことがある
-//     (add 順依存) ため、最初の OnUpdate で遅延 lookup する (add 順非依存)。
-//   ・frame index → UV は m_FrameUvs に事前計算して持つ。InitGrid はグリッドを
-//     計算、BeginFrames/AddFrameUv/EndFrames は任意 UV 列を積む。
-//   ・CSpriteAnimator が時間管理 (Loop/PingPong/Once、frame event) を担う。
 
 
 // ===================== gameframework/SpriteAnimator.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — CSpriteAnimator
-//
-// 「現在フレーム index を時間から算出する」ロジックだけを担うコンポーネント。
-// 画像 asset / 描画 API には一切触れず、利用者が CurrentFrame() を取り出して
-// 自分の Sprite/Quad に適用する責務分離 = テスタブルかつ asset 層と独立にビルド可能。
-//
-// 機能:
-//   ・EPlayMode = Loop / PingPong / Once
-//   ・Play / Pause / Stop / Tick / SetCurrentFrame / SetFps
-//   ・PingPong は端で折り返す (例: 4 frame → 0,1,2,3,2,1,0,1,2,3,…)
-//   ・Once は末尾で停止し IsFinished() = true
-//   ・フレームイベント: 指定 frame に入った瞬間 1 度だけ関数ポインタを呼ぶ
-//     (Loop の周回毎に再発火、std::function は使わない)
-//
-// 使い方:
-//   CSpriteAnimator anim;
-//   anim.Init(/*frame_count=*/8, /*fps=*/12.0f, EPlayMode::Loop);
-//   anim.AddFrameEvent(4, [](void* ud) noexcept {
-//       static_cast<MyActor*>(ud)->OnFootstep();
-//   }, this);
-//   anim.Play();
-//   // 毎フレーム:
-//   anim.Tick(dt);
-//   u32 idx = anim.CurrentFrame(); // ← Sprite/Quad の UV 切替に使う
-//
-// 設計判断:
-//   ・asset 非依存にすることで Pillar C (フレーム時間管理) と Pillar Q (視覚世界,
-//     スプライトシート) の関心を分離。CSpriteAnimator は時間→index 関数として
-//     ユニットテスト可能。
-//   ・std::function を避けるため frame event のコールバックは関数ポインタ + user 引数。
-//     Lambda は capture 無しに限る (= ACS の関数ポインタ規約と整合)。
-//   ・dt 駆動でラップアラウンドを正しく扱うため m_Elapsed は周期長を超えないよう
-//     wrap (Loop/PingPong) または末尾に固定 (Once)。長時間プレイで m_Elapsed が
-//     f32 精度を失う事故を防ぐ。
 
 
 namespace acs::game {
@@ -58734,36 +56186,6 @@ private:
 
 // ===================== gameframework/TriggerComponent.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ATriggerComponent — ANode を CTriggerWorld2D に橋渡しし、overlap の
-// enter / exit を「コンポーネント単位」で受け取れるようにする AComponent。
-//
-// CTriggerWorld2D 自体は world 全体で 1 組のコールバックしか持たないため、本
-// コンポーネントは各 trigger に自分自身 (this) を user data として紐付け、world の
-// global コールバックを静的ディスパッチャに差し替えて id→component を逆引きする。
-// これにより player / pickup / hazard などを各ノードのハンドラで個別に処理できる。
-//
-// 使い方 (サブクラスで override):
-//   class APickup : public ATriggerComponent {
-//   public:
-//       ACS_GAME_COMPONENT_KIND(APickup)
-//       using ATriggerComponent::ATriggerComponent;
-//       void OnTriggerEnter(ATriggerComponent* other) noexcept override { /* 取得処理 */ }
-//   };
-//   auto& pk = node->AddComponent<APickup>(Services().Triggers(),
-//                                          /*layer=*/kPickupLayer, /*mask=*/0);
-//   pk.SetCircle(0.4f);
-//
-// 使い方 (関数ポインタ):
-//   auto& tg = node->AddComponent<ATriggerComponent>(world, kPlayerLayer, kPickupLayer);
-//   tg.SetCircle(0.45f);
-//   tg.SetOnEnter(+[](ATriggerComponent& self, ATriggerComponent* other, void* user) noexcept {
-//       // self が mask に合致する other に触れた
-//   }, this);
-//
-// layer / mask 規約 (CCollisionWorld2D と同じ bitmask):
-//   ・layer = 自分が属するレイヤ。mask = 自分が反応したいレイヤ。
-//   ・this は「other.layer & this.mask != 0」のときだけ自分のハンドラが発火する。
-//     (幾何 overlap 判定自体は CTriggerWorld2D が全 pair で行い、フィルタは本層で適用)
 
 
 namespace acs::game {
@@ -58989,78 +56411,10 @@ private:
 
 // ===================== gameframework/TilemapComponent.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ATilemapComponent — FTilemap (data) を ANode 上で描画する AComponent。
-//
-// グリッドアトラス (cols×rows のタイル) テクスチャを持ち、各レイヤの非空タイルを
-// その atlas セルの UV で CSpriteBatch に描く。タイル ID v (1-based、0=空) は
-// セル index (v-1) に対応する。owner ノードの world 位置がマップ原点になるので、
-// タイルマップを丸ごと移動/配置できる。
-//
-// 使い方:
-//   auto& tm = node->AddComponent<ATilemapComponent>();
-//   tm.Map().Init(/*w=*/16, /*h=*/12, /*layers=*/1, /*tile_size=*/1.0f);  // world 単位
-//   tm.Map().FillRect(0, 0, 15, 0, FTileId{1});   // 上端を tile 1 で
-//   tm.SetTexture(atlas_tex);
-//   tm.SetAtlasGrid(/*cols=*/4, /*rows=*/4);
-//   // ソリッドにしたいレイヤを物理ワールドへ:
-//   tm.BuildCollision(Services().Physics(), /*layer=*/0, /*collision_layer_bit=*/kWall);
 
 
 // ===================== gameframework/Tilemap.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — FTilemap (2D タイルマップ data structure)
-//
-// 2D グリッド上に `FTileId` を並べる data-only コンテナ。レイヤー対応
-// (背景 / フォアグラウンド / コリジョン用などをそれぞれ別 grid として
-// 持てる)、tile↔world 座標変換、Fill / FillRect ユーティリティを提供する。
-//
-// 使い方:
-//   FTilemap map;
-//   map.Init(/*width=*/64, /*height=*/48, /*layer_count=*/2, /*tile_size=*/16.0f);
-//
-//   map.Fill(FTileId{1}, /*layer=*/0);          // layer 0 を tile 1 で埋める
-//   map.SetTile(10, 5, FTileId{2}, /*layer=*/0); // 個別タイル設定
-//   map.FillRect(0, 0, 4, 4, FTileId{3}, 1);     // layer 1 に 4x4 矩形塗り
-//
-//   // 描画ループ
-//   const FTileId* layer0 = map.LayerData(0);
-//   for (u32 y = 0; y < map.Height(); ++y) {
-//       for (u32 x = 0; x < map.Width(); ++x) {
-//           FTileId t = layer0[y * map.Width() + x];
-//           if (t.IsEmpty()) continue;
-//           FVec2 wpos = map.TileToWorld(x, y);
-//           // DrawSprite(t, wpos)...
-//       }
-//   }
-//
-//   // hit-test (例: マウス座標が tile のどれを指しているか)
-//   u32 tx, ty;
-//   if (map.WorldToTile(mouse_world, tx, ty)) {
-//       FTileId hovered = map.GetTile(tx, ty, 0);
-//   }
-//
-// 設計 (Pillar Q):
-//   ・**FTileId = u16**: 65535 種類のタイル ID を許容。0 = 空 (背景透過扱い)。
-//     描画側が atlas index として解釈するか辞書 lookup するかは利用者責任。
-//   ・**レイヤー = 独立した TArray<FTileId>**: layer 数 N に対して N 本の
-//     row-major (`y * width + x`) フラット配列。layer 0 が最背面、
-//     layer_count-1 が最前面という慣習だが順序は描画側で自由に決めて良い。
-//     `LayerData(L)` で生ポインタを返すので GPU upload / tile renderer
-//     から直接舐められる。
-//   ・**tile_size**: world unit / tile (典型的に px = world unit のとき 16, 32)。
-//     座標変換は `TileToWorld` が tile (x,y) の **中心** world 位置 (一致しやすい
-//     スプライト描画基準)。
-//   ・**WorldToTile**: world.x / tile_size を floor。範囲外 (負値含む) は
-//     false を返す。usize→u32 cast の安全性のため負値は早期 reject。
-//   ・**非コピー・非ムーブ**: シーン所有 / TPool 経由想定。複製したい場合は
-//     利用者側で明示的に Clone (今は提供しない)。
-//   ・**全 noexcept / STL 不使用 / acs::TArray のみ**: 規約準拠。
-//
-// 範囲外 (将来拡張):
-//   ・auto-tiling / wang tiles の lookup table。
-//   ・per-tile flags (flip x/y, rotate90, collision-type) ─ 必要なら別配列で
-//     追加して FTileId 自体は純粋 ID のままにする方針。
-//   ・スパース / chunk 化 (巨大マップ向け)。
 
 
 namespace acs::game {
@@ -59112,35 +56466,85 @@ struct FTileId {
 
 /** 検証付き tilemap 構築・読み込みが返す安定した失敗理由。 */
 enum class ETilemapLoadError : u16 {
+    /** 失敗なし。 */
     None = 0,
+
+    /** 入力ポインタが null。 */
     NullInput = 1420,
+
+    /** 入力バイト列が空。 */
     EmptyInput = 1421,
+
+    /** 入力バイト数が上限を超えた。 */
     InputTooLarge = 1422,
+
+    /** JSON 入力に埋め込み NUL が含まれる。 */
     EmbeddedNul = 1423,
+
+    /** JSON 階層の深さが上限を超えた。 */
     JsonDepthExceeded = 1424,
+
+    /** JSON 文字列のバイト数が上限を超えた。 */
     JsonStringTooLong = 1425,
+
+    /** JSON ノード数が上限を超えた。 */
     JsonNodeLimitExceeded = 1426,
+
+    /** JSON 構文を解析できない。 */
     JsonSyntaxError = 1427,
+
+    /** JSON ルートが object ではない。 */
     RootTypeMismatch = 1428,
+
+    /** 同じ object 内に同名 member が重複した。 */
     DuplicateMember = 1429,
+
+    /** 必須 member が存在しない。 */
     MissingMember = 1430,
+
+    /** 既知 member の型が契約と異なる。 */
     MemberTypeMismatch = 1431,
+
+    /** 整数 member が範囲外または整数形式ではない。 */
     InvalidInteger = 1432,
+
+    /** 数値 member が有限値ではない。 */
     NonFiniteNumber = 1433,
+
+    /** 幅、高さ、レイヤー数、または tile size が無効。 */
     InvalidDimensions = 1434,
+
+    /** 幅または高さが上限を超えた。 */
     DimensionLimitExceeded = 1435,
+
+    /** セル数の積が表現範囲を超えた。 */
     CellCountOverflow = 1436,
+
+    /** レイヤー数が上限を超えた。 */
     LayerLimitExceeded = 1437,
+
+    /** tilelayer が 1 件も存在しない。 */
     MissingTileLayer = 1438,
+
+    /** tilelayer の data 件数がセル数と一致しない。 */
     DataLengthMismatch = 1439,
+
+    /** 読み込み用領域を確保できない。 */
     AllocationFailure = 1440,
 };
 
 /** TryInit と TryLoadTiledJson が返す allocation-free の結果。 */
 struct FTilemapLoadResult {
+    /** 失敗理由。None なら成功。 */
     ETilemapLoadError Error = ETilemapLoadError::None;
+
+    /** JSON parser の詳細診断 subcode。該当しなければ 0。 */
     u16 JsonSubcode = 0u;
+
+    /** 失敗したレイヤー index。特定できなければ 0。 */
     u32 Layer = 0u;
+
+    /** 失敗した要素 index。特定できなければ 0。 */
     u32 Element = 0u;
 
     bool Succeeded() const noexcept { return Error == ETilemapLoadError::None; }
@@ -59161,15 +56565,34 @@ const char* TilemapLoadErrorName(ETilemapLoadError error) noexcept;
  */
 class FTilemap {
 public:
+    /** 受理する Tiled JSON の最大バイト数。 */
     static constexpr usize kMaxTiledJsonBytes = 8u * 1024u * 1024u;
+
+    /** 受理する JSON 階層の最大深さ。 */
     static constexpr u32 kMaxJsonDepth = 64u;
+
+    /** 受理する JSON 文字列 1 件の最大バイト数。 */
     static constexpr usize kMaxJsonStringBytes = 4096u;
+
+    /** 受理する JSON ノードの最大総数。 */
     static constexpr u32 kMaxJsonNodes = 1100000u;
+
+    /** JSON object 1 件で受理する member の最大数。 */
     static constexpr u32 kMaxJsonObjectMembers = 4096u;
+
+    /** 読み込み中に保持する layer record の最大数。 */
     static constexpr u32 kMaxLayerRecords = 256u;
+
+    /** map の幅または高さとして受理する最大セル数。 */
     static constexpr u32 kMaxMapDimension = 2048u;
+
+    /** 1 レイヤーで受理する最大セル数。 */
     static constexpr usize kMaxCellsPerLayer = 262144u;
+
+    /** tilelayer として保持する最大レイヤー数。 */
     static constexpr u32 kMaxTileLayers = 32u;
+
+    /** 全 tilelayer を合わせて受理する最大セル数。 */
     static constexpr usize kMaxTotalCells = 1048576u;
 
     /** 空のタイルマップを構築する (グリッドは Init で確保)。 */
@@ -59561,53 +56984,6 @@ public:
 
 // ===================== gameframework/Pool.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — TPool<T> (再利用プール)
-//
-// 弾 / パーティクル / 一時敵など、「短命オブジェクトを毎フレーム大量に生成・破棄
-// する」用途のためのオブジェクトプール。new/delete を避けて GC ヒッチ・アロケータ
-// 断片化・キャッシュミスを抑える。
-//
-// 設計方針:
-//   ・固定容量。Init(capacity) 後はリサイズしない (確定的なメモリ使用量)。
-//     → リアルタイムゲームは「最悪ケース」を見積もり、それを上限として動くのが
-//        安全。実行時に勝手に伸びるとフレーム落ちの原因になる。
-//   ・要素 T は default 構築で「全分」事前に作る。実体は常に存在し、
-//     m_Active[i] = 0/1 で「使用中か否か」を表すだけ。
-//     → Acquire / Release で T のコンストラクタ / デストラクタは走らない。
-//        Reset 等の「再初期化」はユーザー側責任 (典型的には Spawn 関数を別に持つ)。
-//   ・Acquire は線形探索 (O(N))。理由:
-//      1) 大半のゲーム用途では capacity ≤ 数千、毎フレーム数十回の Acquire 程度
-//         なので、N×回数 が L1 で完結する。
-//      2) フラグ配列が u8 の連続メモリなので、SIMD/プリフェッチが最大限効く。
-//      3) free-list 化は次穴を O(1) で取れるが、ポインタの追跡でキャッシュが汚れる。
-//         プロファイル次第で free-list 化を検討 (TODO)。
-//   ・ForEachActive は内部ループで m_Active==1 のものだけに fn を呼ぶ。
-//     update / draw を呼ぶ典型用途を想定。
-//   ・非コピー / 非ムーブ (所有権の事故防止 + ポインタを Acquire で配るため
-//     ムーブで m_Data アドレスが変わると外部の T* が無効化される)。
-//
-// 使い方:
-//   struct FBullet { f32 x, y, vx, vy; bool alive; };
-//   acs::game::TPool<FBullet> bullets;
-//   bullets.Init(1024);
-//
-//   if (FBullet* b = bullets.Acquire()) {
-//       b->x = px; b->y = py; b->vx = vx; b->vy = vy; b->alive = true;
-//   }
-//
-//   bullets.ForEachActive([dt](FBullet& b) {
-//       b.x += b.vx * dt;
-//       b.y += b.vy * dt;
-//   });
-//
-//   // 帰還条件を満たした弾を返す:
-//   //   bullets.Release(&b);  // ForEachActive 内では index が必要、別 API 予定
-//
-// 注意:
-//   ・Release(nullptr) や、このプールが管理していないポインタを渡すと no-op
-//     (= ポインタ範囲チェックで弾く)。
-//   ・Acquire が返した T* は次の ResetAll() / TPool 破棄まで安定 (固定容量なので
-//     再配置されない)。
 
 
 namespace acs::game {
@@ -60253,101 +57629,11 @@ using FPhotoMode = CPhotoMode;
 
 // ===================== gameframework/SaveSlot.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J — TSaveSlot<T> (`.acssave` 経由の単一 POD 永続化)
-//
-// 役割:
-//   ユーザー定義の trivially-copyable な POD/struct T を 1 個のファイルに保存し、
-//   後で復元する「セーブスロット」抽象。タイトル画面の continue/new game 判定、
-//   オプション設定、進捗データ等、いわゆる "save data" 全般の土台となる。
-//
-// 使い方 (典型例):
-//   struct FPlayerProfile {
-//       acs::u32 hi_score;
-//       acs::u32 play_count;
-//       acs::f32 master_volume;
-//   };
-//   static_assert(__is_trivially_copyable(FPlayerProfile));
-//
-//   acs::game::TSaveSlot<FPlayerProfile> slot;
-//   slot.Init(L"user/profile.acssave");
-//   if (slot.Exists()) {
-//       auto r = slot.Load();
-//       if (r) profile = r.Value();
-//   }
-//   slot.Save(profile);
-//
-// 設計方針:
-//   ・**バイナリ format**: CSaveArchive (`.acssave`、24B header + payload + crc) に
-//     委譲する。詳細は gameframework/SaveArchive.h を参照。
-//   ・**スキーマ進化耐性**: T を直接 memcpy で書く current design は schema 固定
-//     な T 専用。CSaveArchive の version パラメータを使って schema 変更を検知できる
-//     (デフォルト version=1)。version 不一致時は FErrorCode.subcode に
-//     ESaveArchiveSubCode::kSubMigrationNeeded が入る。
-//   ・**例外なし**: 全 noexcept、エラーは TResult<T, FErrorCode> で伝搬する。
-//   ・**STL 不使用**: container 依存も無し。ファイル I/O は CSaveArchive 経由
-//     (Win32 直叩き) に委譲。
 
 
 
 // ===================== gameframework/SaveArchive.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// GameFramework Pillar J — CSaveArchive (低レベル `.acssave` バイナリ I/O)
-// -----------------------------------------------------------------------------
-// 役割:
-//   ユーザー定義 POD を 1 つのファイル (`.acssave`) に「タグ付きバイナリ」で
-//   読み書きする low-level クラス。`TSaveSlot<T>` の実装基盤として使う一方、
-//   テンプレートに依存したくない呼び出し側 (CRT を呼ばないツール、可変長
-//   payload を扱いたい未来の SaveSlotV2 など) からも直接利用できる。
-//
-//   ファイルフォーマット (`.acssave`、binary only、すべて little-endian):
-//
-//     offset  size  field           説明
-//     ------  ----  -------------   --------------------------------------------
-//     0x00    8     magic           ASCII "ACSSAVE\0" (NUL 終端含む 8 バイト)。
-//                                   先頭 8 バイトで他フォーマットと識別する。
-//     0x08    4     version         u32。schema 進化に使う。呼び出し側が定義。
-//     0x0C    8     payload_size    u64。後続 payload 部のバイト数 (uncompressed)。
-//     0x14    4     crc32           u32。payload 部 (offset 0x18..) のみを
-//                                   CRC-32 (poly 0xEDB88320, init/xorout
-//                                   0xFFFFFFFF) で計算した値。改竄/破損検知用。
-//     0x18    N     payload_bytes   sizeof(T) のバイト列 (= N = payload_size)。
-//
-//   header 部 (24 バイト) は固定サイズで `kHeaderSize` として公開する。
-//
-// 設計方針:
-//   ・**例外なし**: 全 API noexcept、エラーは TResult<T, FErrorCode> で伝搬。
-//   ・**STL 不使用**: <string> / <vector> / <fstream> 等は include しない。
-//     <cstdint>, <cstddef> 経由 (foundation/Types.h) のみ。
-//   ・**static のみ・非インスタンス**: 状態を持たない無名関数の集合体として
-//     振る舞う。コピー / ムーブともに明示的に削除する。
-//   ・**Win32 直叩き**: `CreateFileW / ReadFile / WriteFile / SetFilePointerEx /
-//     GetFileSizeEx / CloseHandle` を .cpp 内で直接呼ぶ (CFileSystem を経由
-//     しない — このレイヤは整合性検証 + I/O を 1 つの atomic 単位に閉じたい
-//     ため、薄い直接呼び出しが目的に合う)。
-//
-// 使い方:
-//   // 書き込み
-//   FPlayerProfile p = MakeProfile();
-//   auto wr = CSaveArchive::WriteToFile(L"profile.acssave", 1u, &p, sizeof(p));
-//   if (wr.IsErr()) { /* 報告 */ }
-//
-//   // 読み込み
-//   FPlayerProfile p{};
-//   u64 actual_size = 0;
-//   auto rd = CSaveArchive::ReadFromFile(L"profile.acssave", &p, sizeof(p), 1u,
-//                                       actual_size);
-//   if (rd.IsErr()) {
-//       if (rd.Error().subcode ==
-//           static_cast<u16>(ESaveArchiveSubCode::kSubMigrationNeeded)) {
-//           // 旧 version のファイル — migration 処理に分岐
-//       }
-//   }
-//
-// エラー subcode (FErrorCode.subcode に入る):
-//   ESaveArchiveSubCode を参照。kSubMigrationNeeded は「読めたが version が
-//   違う」を示し、呼び出し側が migrate しやすいよう non-fatal な扱いを意図する。
-// =============================================================================
 
 
 namespace acs::game {
@@ -60790,68 +58076,6 @@ TResult<void> TSaveSlot<T>::Delete() noexcept {
 
 // ===================== gameframework/ModRegistry.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — CModRegistry (Mod 読み込み順管理)
-//
-// ユーザー Mod (= 追加コンテンツパック) の登録・有効化・並び順管理を行う薄い
-// レジストリ。各 Mod は `.acpak` (Pillar G AssetPack 形式) を 1 つ伴うことが
-// 期待され、ロード順に従って top-level の VirtualFileSystem に重ねていく
-// (後勝ち = load_order 大きい方が前段の同名アセットを上書き) 想定。
-//
-// 使い方:
-//   CModRegistry mr;
-//   FModInfo a{};
-//   a.id         = "core";
-//   a.name       = "Core Pack";
-//   a.version    = 0x00010000u;  // 1.0.0
-//   a.load_order = 0;
-//   a.enabled    = true;
-//   a.pack_path  = "mods/core.acpak";
-//   mr.Register(a);
-//
-//   FModInfo b{};
-//   b.id         = "weapons-ex";
-//   b.name       = "Weapons EX";
-//   b.version    = 0x00000200u;  // 0.2.0
-//   b.load_order = 10;
-//   b.enabled    = false;
-//   b.pack_path  = "mods/weapons_ex.acpak";
-//   mr.Register(b);
-//
-//   mr.Enable("weapons-ex");
-//   mr.SortByLoadOrder();
-//   for (u32 i = 0; i < mr.Count(); ++i) {
-//       const FModInfo& m = mr.All()[i];
-//       if (m.enabled) MountPack(m.pack_path);  // AssetPack 統合は別途
-//   }
-//
-// 設計選択:
-//   ・**所有しない const char***: id / name / pack_path は外部所有の文字列を
-//     借りるだけ (`<string>` 禁止)。呼び出し側 (= Mod manifest loader) が
-//     寿命を持ち、Registry の寿命を超えるまで生かす責務を負う。manifest を
-//     パースしたバッファをそのまま指す前提。
-//   ・**load_order = i32 昇順**: 数値が小さい方を先に load、大きい方が後で
-//     上書きする。負値は core 系 (= 必須前段)
-//     のため確保。
-//   ・**並び替えは明示**: `Register` 時には末尾追加するだけで、`SortByLoadOrder`
-//     を呼ぶまでは登録順を保つ。Editor 側 UI で一覧表示 → ユーザーが順序を
-//     変えてから sort という流れを想定。
-//   ・**簡素 insertion sort**: N (= Mod 数) は実用上 < 64 と想定 (steam workshop の
-//     1 ゲーム平均 ~30)。比較関数を渡す sort utility をまだ持っていないため、
-//     in-place の insertion sort で十分。安定 sort なので同 load_order の
-//     先着優先も保たれる。
-//   ・**非コピー・非ムーブ**: Mod 管理はゲーム寿命に 1 インスタンスのみ。複製を
-//     許すと "どの Registry が active か" が曖昧になるので禁止 (FInputMap と同じ)。
-//
-// 範囲外:
-//   ・実際の `.acpak` mount (Pillar G AssetPack 統合) — Mount API 自体が
-//     未確定のため、Registry は path を保持するだけ。
-//   ・Mod 間依存解決 (dependency graph、循環検出、欠落警告)。
-//   ・Mod manifest (.toml / .json) のパース — 外部 loader が FModInfo を組み立てる。
-//   ・hook 適用 (Pillar N の核となる script / DLL ロード)。Lua 5.4 統合や
-//     C++ plugin 動的 load は別レイヤで、Registry は「enabled かどうか」を
-//     公開するだけ。
-//   ・ホットリロード / 実行中の load_order 並び替え反映。
-//   ・Workshop / CurseForge 等の外部配布チャネル統合 (= Pillar S Storefront 側)。
 
 
 namespace acs::game {
@@ -61002,57 +58226,6 @@ using FModRegistry = CModRegistry;
 
 // ===================== gameframework/SteamworksBridge.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — ISteamworksBridge (Achievements / Leaderboards / FPlayerIdentity)
-//
-// Steam / EOS / PS / Xbox / Switch といったプラットフォーム固有 SDK へ橋渡しする
-// 「シーム (seam)」インターフェース。ゲーム側コードは ISteamworksBridge 経由でのみ
-// 実績解除 / リーダーボード / ローカルプレイヤー情報を取得し、実 SDK (Steamworks
-// SDK 等) との結合はビルド時の選択で差し替える。
-//
-// 使い方:
-//   class CGame {
-//       acs::game::ISteamworksBridge* m_Social = nullptr;
-//
-//       void OnStart() noexcept override {
-//           // 出荷ビルドでは GoldenSteamworksBridge を DI、開発ビルドでは Stub。
-//           m_Social = &acs::game::CSteamworksBridgeStub::GetStub();
-//           (void)m_Social->Init();
-//       }
-//       void OnTick(f32 dt) noexcept override {
-//           m_Social->Tick(dt);  // callback pump
-//       }
-//       void OnBossKilled() noexcept {
-//           (void)m_Social->UnlockAchievement("ACH_BOSS_01");
-//       }
-//   };
-//
-// 設計選択 (Pillar S):
-//   ・**シーム (= 純粋仮想 I/F) として抽象化**: Steamworks SDK は static lib 配布で
-//     依存追加が重い (~30MB / Win+Linux 別ライブラリ)。本体は SDK 非依存のままで
-//     ビルドできるよう、ヘッダだけは常に提供し、実装は別モジュール (将来の
-//     `acs_steamworks` 等) で `ISteamworksBridge` を override する形を取る。
-//   ・**cross-platform で同じ I/F**: Steam / EOS / PS / Xbox のいずれを後ろで使っても
-//     ゲーム側コードを書き換えない。プラットフォーム固有 ID は `const char*
-//     platform_id` の opaque な文字列として渡す (例: SteamID64 を "76561198..." の
-//     decimal 文字列で)。
-//   ・**所有しない const char*** : 文字列は呼び出し側 / プラットフォーム SDK の
-//     ライフタイムに従う。Bridge はコピーしない (STL <string> 不使用方針)。
-//     利用側は GetLocalPlayer() の戻り値を「ティック内のみ有効」と扱うこと。
-//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は Init() のみ
-//     成功を返し、他は ACS_ERR(Generic, kSubNotImplemented, "...") を返す。
-//   ・**Tick(dt) は必須**: Steamworks の `SteamAPI_RunCallbacks()` 相当を Bridge 側に
-//     畳み込む。ゲーム側は dt を毎フレーム渡すだけで、コールバックポンプの存在を
-//     意識しなくて良い。
-//   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
-//     `CSteamworksBridgeStub::GetStub()` を提供。実 SDK 未統合のビルドでも
-//     `m_Social = &CSteamworksBridgeStub::GetStub();` だけでコンパイル可能。
-//   ・**実 SDK 実装はここでは作らない**: GoldenSteamworksBridge 等は Steamworks SDK
-//     ヘッダ / ライブラリへの依存を伴うため、本ファイルでは I/F + Stub のみ。
-//
-// 範囲外:
-//   ・マルチプレイ招待。
-//   ・非同期 result の Future / コールバック登録。今は同期 API 前提 (Leaderboard
-//     get は SDK 側でキャッシュされた値を即返す形を想定)。
 
 
 namespace acs::game {
@@ -61061,8 +58234,7 @@ namespace acs::game {
  * Stub が未実装機能で返すエラーサブコード (EErrCategory::Generic 配下)。
  *
  * @details
- * 本来は EErrCategory に NotImplemented を足したいが Foundation の enum 変更は影響が
- * 広いため、Generic + 安定 subcode で表現する。利用側は
+ * 未実装状態は Generic category と安定 subcode の組で表現する。利用側は
  * `err.subcode == kSubSteamworksNotImplemented` でフィルタできる。
  */
 inline constexpr u16 kSubSteamworksNotImplemented = 1001;
@@ -62069,53 +59241,6 @@ using FUpscalerStub = CUpscalerStub;
 
 // ===================== gameframework/Settings.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — CSettings (型付きゲーム設定)
-//
-// 音量・解像度・キーバインド等の「ゲームを跨いで永続化したい設定値」を
-// 型付き key-value で保持する小型ストア。FInputMap (Pillar D) のキーコンフィグや
-// AudioMixer の音量、Display の解像度・ウィンドウモード等の永続化先として使う。
-//
-// 使い方:
-//   CSettings s;
-//   s.SetF32 ("audio.master",   0.8f);
-//   s.SetI32 ("display.width",  1920);
-//   s.SetBool("display.vsync",  true);
-//   s.SetString("locale",       "ja");
-//
-//   f32  master = s.GetF32 ("audio.master",  1.0f);
-//   bool vsync  = s.GetBool("display.vsync", false);
-//
-//   s.Save(L"settings.ini");  // 次回起動時に Load() で復元
-//
-// 設計選択 (Pillar G):
-//   ・**flat key-value**: key は `audio.master` のようなドット階層を文字列で表現する
-//     だけで、ツリー構造は持たない。深いネストが必要になったら `Section`
-//     型を上にかぶせる方が安全 (今は YAGNI)。
-//   ・**4 型タグ付き union**: f32 / i32 / bool / const char*。FVec2/FVec3 等の複合型は
-//     呼び出し側で複数 key (`pos.x`, `pos.y`) に分割するか、将来 配列型を追加。
-//   ・**key / string 値は非所有 const char***: ACS の STL 禁止方針 + 文字列ストア
-//     導入を避けるため、key と string 値の寿命は呼び出し側が保証する (リテラル or
-//     長寿命バッファ前提)。短命バッファ渡しが dangling になる点は要注意。
-//   ・**同 key の SetX は上書き**: 同名 key が既に存在すれば値と kind を上書きする。
-//     ユーザーが UI で「音量」を動かす度に SetF32() が呼ばれる典型ケースに合わせる。
-//   ・**線形検索**: settings 件数は通常 10〜200 程度なので TArray<FEntry> の線形走査で
-//     十分。ハッシュテーブル化は計測してから検討。
-//   ・**コピー / ムーブ禁止**: settings は通常 1 セッションに 1 オブジェクト
-//     (グローバル所有) で運用される。誤って値渡しされて分裂すると同期ずれを
-//     検知しづらいため、最初から非コピー・非ムーブで固定する。
-//   ・**全 noexcept**: 例外不使用方針 (TResult<T,E> + bool 戻り値)。
-//
-// Save / Load (実装済み、round-trip 検証済み):
-//   ・INI 風 `<tag>:<key>=<value>` テキスト (UTF-8 + LF) で読み書きする。Save は
-//     CREATE_NEW の一意な一時ファイルから atomic replace して破損を防ぐ。
-//   ・型は **prefix tag** (`f:`, `i:`, `b:`, `s:`) でディスクに残し、Load 時に復元する。
-//
-// 範囲外:
-//   ・配列値 / FVec2 / FVec3 / FColor 等の複合型 (現状は 4 プリミティブのみ)
-//   ・change notification (オブザーバ pattern / callback)
-//   ・section / namespace ツリー
-//   ・暗号化 / 改竄検知 (Pillar S Storefront / AssetPack 側で扱う)
-//   ・schema migration (バージョン番号の埋め込みと変換)
 
 
 namespace acs::game {
@@ -62150,34 +59275,63 @@ enum class ESettingKind : u8 {
  * 数値は診断契約の一部である。既存値を再利用せず、新しい値は末尾へ追加する。
  */
 enum class ESettingsPersistenceError : u16 {
+    /** 永続化処理が成功した。 */
     None = 0,
+    /** 設定ファイルを開けなかった。 */
     FileOpenFailed = 10,
+    /** 入力ファイルが読み込み上限を超えた。 */
     FileTooLarge = 11,
+    /** 入力 path が null だった。 */
     NullPath = 12,
+    /** 永続化用メモリを確保できなかった。 */
     AllocationFailure = 13,
+    /** 設定ファイルのサイズを取得できなかった。 */
     FileSizeFailed = 14,
+    /** 設定ファイルの全内容を読み取れなかった。 */
     FileReadFailed = 15,
+    /** 設定ファイルを閉じられなかった。 */
     FileCloseFailed = 16,
+    /** 入力 text 内に埋め込み NUL があった。 */
     EmbeddedNul = 17,
+    /** 1 行のバイト数が上限を超えた。 */
     LineTooLong = 18,
+    /** 設定 entry 件数が安全上限を超えた。 */
     EntryLimitExceeded = 19,
+    /** 設定 record の区切りまたは項目数が不正だった。 */
     MalformedRecord = 20,
+    /** 設定値の型名を解釈できなかった。 */
     UnknownType = 21,
+    /** 設定 key が空だった。 */
     EmptyKey = 22,
+    /** 設定 key のバイト数が上限を超えた。 */
     KeyTooLong = 23,
+    /** 設定 value のバイト数が上限を超えた。 */
     ValueTooLong = 24,
+    /** 整数 value を全体として解釈できなかった。 */
     InvalidInteger = 25,
+    /** 浮動小数 value を全体として解釈できなかった。 */
     InvalidFloat = 26,
+    /** 浮動小数 value が有限値ではなかった。 */
     NonFiniteFloat = 27,
+    /** bool value が許可された表記ではなかった。 */
     InvalidBool = 28,
+    /** 同じ設定 key が複数回現れた。 */
     DuplicateKey = 29,
+    /** 保存対象のメモリ上 entry が型契約を満たさなかった。 */
     InvalidInMemoryEntry = 30,
+    /** 保存対象文字列を設定ファイル形式で表現できなかった。 */
     UnrepresentableText = 31,
+    /** 生成する設定 text が出力上限を超えた。 */
     OutputTooLarge = 32,
+    /** 設定ファイル path のバイト数が上限を超えた。 */
     PathTooLong = 33,
+    /** 利用可能な一時ファイル名を確保できなかった。 */
     TemporaryFileExhausted = 34,
+    /** 一時設定ファイルへ全内容を書き込めなかった。 */
     FileWriteFailed = 35,
+    /** 一時設定ファイルを永続記憶へ反映できなかった。 */
     FileFlushFailed = 36,
+    /** 一時ファイルを設定ファイルへ置き換えられなかった。 */
     AtomicReplaceFailed = 37,
 };
 
@@ -62457,59 +59611,6 @@ using FSettings = CSettings;
 
 // ===================== gameframework/PartySystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — CPartySystem (パーティ state machine + フレンドリスト seam)
-//
-// 役割:
-//   1〜N 人のローカルプレイヤーをまとめた「パーティ」状態と、簡易フレンドリストを
-//   ゲームロジック側から扱う窓口。マッチング前のロビー、Co-op 入室前の集合場所、
-//   ストアでのフレンド表示などを単一の API で扱う。実プラットフォーム接続は
-//   Pillar S = Storefront 側 (`ISteamworksBridge` / EOS / PSN / Xbox / NSO) が
-//   アダプタとなり、結果を本 system に流し込む。CPartySystem 自体は **プラット
-//   フォーム非依存**。
-//
-// 設計上の倫理方針 (cross-platform party + 児童保護):
-//   ・cross-play party は **プラットフォームごとの規約** に従う前提。例えば iOS と
-//     Switch 同士の文字チャットは双方プラットフォームの審査次第。本 system は
-//     state machine とメンバ管理だけを担い、チャット / モデレーションは別レイヤ。
-//   ・**moderation / blocking は別モジュール** (将来 `Moderation` / `BlockList` を
-//     新設)。本 system は誰でも招待可能な原始 API を提供し、ブロック判定は
-//     上位レイヤで InviteFriend の戻り値に乗せる責任分離。
-//   ・**under-18 デフォルト**: 未成年アカウントが既知の場合 (Pillar S 経由で取得)、
-//     呼び出し側が「招待を受け付けない / 文字チャット無効」等のポリシーをかぶせる
-//     ことを想定。本 system はフラグを持たず、強制機構も入れない (各プラットフォーム
-//     ごとに年齢推定 API が異なるため一律ルール化が危険)。
-//
-// 使い方 (典型例):
-//   CPartySystem ps;
-//   ps.AddFriend({ "steam:76561198000000001", "alice",  true,  true  });
-//   ps.AddFriend({ "epic:abc123",              "bob",    false, false });
-//
-//   auto r = ps.CreateParty("my_squad");
-//   if (r) {
-//       ps.InviteFriend("steam:76561198000000001");
-//       // ... Pillar S 側で invite 送信、相手が accept すると外部から
-//       //     メンバ追加を流し込む API が呼ばれる
-//   }
-//   // each frame:
-//   ps.Tick(dt);  // joining / leaving の timeout 処理
-//
-// 設計選択:
-//   ・**ローカル state は完全実装**: Solo / InParty / Joining / Leaving の遷移、
-//     メンバ追加・削除、リーダー / ready flag、フレンドリスト管理はすべて動く。
-//   ・**プラットフォーム接続は seam 経由**: ISteamworksBridge 等を介した実 invite
-//     送信、PSN cross-gen party、Xbox party、Nintendo Switch friend code の解決は
-//     bridge 側が行う。本 system は seam として const char* (platform id) を
-//     受けるだけで、解釈は bridge 側が行う。
-//   ・**const char* 非所有**: 規約通り <string> 不使用。party_name / party_id /
-//     friend_id / display_name の寿命は呼び出し側 (文字列リテラル or 長寿命
-//     バッファ) が保証する。SDK 側で動的取得した名前は呼び出し側で永続バッファに
-//     コピーして渡す責任を負う。
-//   ・**最大メンバ数は固定無し**: TArray で動的拡張、現実的に 2〜8 人が大半なので
-//     線形走査で十分。Pillar S の plat 制約 (例 PSN は 100 人 group 等) は bridge
-//     側で弾く。
-//   ・**コピー / ムーブ禁止**: party system は通常 1 つの長寿命オブジェクトで運用。
-//     誤って値渡しされて state が分裂すると詰むため、最初から非コピー・非ムーブ。
-//   ・**全 noexcept**: ACS 全体方針 (TResult<T, FErrorCode> + bool 戻り値)。
 
 
 namespace acs::game {
@@ -62784,57 +59885,6 @@ using FPartySystem = CPartySystem;
 
 // ===================== gameframework/SceneEventBus.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — CSceneEventBus
-//
-// シーン内 component / system 間の type-erased pub/sub。同一 AScene に居る
-// オブジェクト同士が「相手の存在」を知らずに通知をやり取りするための薄い
-// メッセージング層。FActionId と同じ compile-time FNV-1a hash で event 名を
-// u32 に畳み、ハンドラは関数ポインタ + void* user で type-erase する
-// (`std::function` 不使用、STL 不使用)。
-//
-// 使い方:
-//   class AEnemySpawner : public AComponent {
-//   public:
-//       void BindEvents(CSceneEventBus& events) noexcept {
-//           m_Events = &events;
-//           m_Sub = events.Subscribe(
-//               FEventId("PlayerDied"), &OnPlayerDied, this);
-//       }
-//       void OnDetach() noexcept override {
-//           if (m_Events != nullptr) m_Events->Unsubscribe(m_Sub);
-//           m_Events = nullptr;
-//           m_Sub = 0;
-//       }
-//   private:
-//       static void OnPlayerDied(void* user,
-//                                const void* /*payload*/, u32 /*size*/) noexcept {
-//           static_cast<AEnemySpawner*>(user)->FreezeSpawning();
-//       }
-//       CSceneEventBus* m_Events = nullptr;
-//       u32 m_Sub = 0;
-//   };
-//
-//   // AScene 等が所有する bus を BindEvents で明示注入し、別 component から publish:
-//   FPlayerDiedPayload p{ pos, cause };
-//   events.Publish(FEventId("PlayerDied"), &p, sizeof(p));
-//
-// 設計選択:
-//   ・**compile-time hash**: FEventId は `constexpr` FNV-1a で生成、`FEventId("name")`
-//     は配置で完結 (実行時 string compare なし)。FInputMap::ActionHash と同一の
-//     FNV-1a を採用し、行儀よく u32 衝突は実用上無視。
-//   ・**function pointer + void* user**: FSequence::Call と同じ ACS 規約。
-//     `std::function` を持ち込むと heap allocation / RTTI / 例外の連鎖が起きる
-//     ためフレームワーク層では一切採用しない。
-//   ・**handle ベースの Unsubscribe**: Subscribe 毎にユニークな u32 handle を
-//     払い出し、削除は FEntry を mark-inactive。Publish 走査時に inactive を
-//     スキップ。Publish 中の Unsubscribe / Subscribe を安全にするため
-//     **vector の物理削除はしない** (再エントランシ安全)。
-//   ・**Publish 中の Subscribe 安全性**: Add で再 alloc が起きると
-//     走査中の参照が無効化されるため、Publish の走査は size を最初に
-//     キャプチャしてその範囲のみ呼ぶ。Publish 中に追加された subscriber は
-//     次回以降の Publish で初めて呼ばれる (一般的な pub/sub セマンティクス)。
-//   ・**非コピー / 非ムーブ**: AScene にメンバとして埋め込む前提、所有権の
-//     ambiguity を持ち込まない。
 
 
 namespace acs::game {
@@ -63020,39 +60070,6 @@ using FSceneEventBus = CSceneEventBus;
 
 // ===================== gameframework/StreamingDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar P (Scale-Stream) — CStreamingDirector (大規模シーン chunk streaming)
-//
-// 役割:
-//   オープンワールド / 広大なステージで全アセットを常駐させられない場合に、
-//   ビューア (カメラ) 位置を中心とした矩形範囲のチャンク (cx, cy) だけを
-//   load 状態に保ち、範囲外を unload する。CCollisionWorld2D の SpatialGrid と
-//   思想は似ているが、こちらは「アセットの load/unload」を扱う上位レイヤ。
-//
-// 使い方 (典型例):
-//   acs::game::CStreamingDirector dir;
-//   dir.Init(/*chunk_size=*/100.0f, /*view_radius=*/2);
-//   dir.SetMaxConcurrentLoads(4);
-//   // 毎フレーム:
-//   dir.SetViewerPos({ camera.x, camera.y });
-//   dir.Tick(dt);
-//   // ロード状況を UI 等で確認:
-//   const u32 loading = dir.LoadingCount();
-//   const u32 loaded  = dir.LoadedCount();
-//
-// 設計方針:
-//   ・チャンクは 2D 整数座標 (cx, cy) で識別。world (x, y) → cx = floor(x / chunk_size)。
-//   ・view_radius_chunks=2 は ビューアチャンクを中心に 5x5 (= (2*2+1)^2 = 25 個)。
-//   ・状態遷移: Unloaded → Queued → Loading → Loaded → Unloading → Unloaded。
-//     Tick() で「同時 Loading 数 ≤ max_concurrent_loads」を保ちつつキューを進める。
-//   ・実アセットロード: 1 chunk = 1 CAssetBundle。SetAssetRegistry() で app 所有の
-//     CAssetRegistry を差し込むと、Loading 遷移時に bundle.BeginLoad(registry) を発行し、
-//     bundle.Progress()/IsLoaded() で実完了を判定、Unloading で bundle.Unload() する。
-//     registry が未設定 (nullptr) のときは simulated load time = 0.5s/chunk の
-//     フォールバックで進行する (ヘッドレステスト / registry を持たない用途向け)。
-//   ・Pillar G の CAssetBundle と二段構え: CStreamingDirector が各チャンクの CAssetBundle
-//     を保有し、チャンクごとのアセット集合 (パス) を SetChunkPathFormat() で決める。
-//   ・非コピー・非ムーブ (内部 TArray 規約 / 単一所有を強制)。
-//   ・全 API noexcept、STL 不使用 (acs::TArray<FChunkInfo> で管理)。
 
 
 namespace acs { class CAssetRegistry; }
@@ -63794,78 +60811,6 @@ using FOpenXrBridgeStub = COpenXrBridgeStub;
 
 // ===================== gameframework/StudioWorkflow.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar W — StudioWorkflow seam (IAssetLockingBackend / IBuildFarmBackend)
-//
-// 役割:
-//   スタジオ運用 (チーム開発 / CI/CD) のために必要な 2 つの外部システムへ橋渡しする
-//   **シーム (seam) インターフェース** を提供する。
-//   ・**AssetLocking**: Perforce (P4) / Plastic SCM / Helix Core / Unity Accelerator
-//     等の「アセット排他ロック」を抽象化。バイナリアセット (.fbx / .psd / .wav 等) を
-//     複数人で同時編集して conflict を起こさないため、編集前にサーバ側で排他ロックを
-//     取得する運用が AAA / 中規模スタジオで一般的。
-//   ・**BuildFarm**: Jenkins / TeamCity / GitHub Actions self-hosted / Incredibuild /
-//     Unreal Build Service / Unity Cloud Build 等の「ビルドファーム」を抽象化。
-//     プリセット + branch + commit を指定して非同期にビルドジョブを投入し、artifact
-//     の URL を受け取る運用を seam として固定する。
-//
-// 使い方:
-//   class FStudioEditor {
-//       acs::game::IAssetLockingBackend* m_Locks = nullptr;
-//       acs::game::IBuildFarmBackend*    m_Farm  = nullptr;
-//
-//       void OnStart() noexcept override {
-//           // 出荷ビルドでは PerforceAssetLocking / JenkinsBuildFarm を DI、
-//           // 開発ビルドでは Stub。
-//           m_Locks = &acs::game::GetAssetLockingStub();
-//           m_Farm  = &acs::game::GetBuildFarmStub();
-//       }
-//       void OnOpenAsset(const char* path) noexcept {
-//           (void)m_Locks->LockAsset(path, "designer_a");
-//       }
-//       void OnRequestNightlyBuild() noexcept {
-//           acs::game::IBuildFarmBackend::FBuildRequest req{
-//               "Shipping_Win64", "main", "1e6c12b"};
-//           (void)m_Farm->SubmitBuild(req);
-//       }
-//   };
-//
-// 設計選択:
-//   ・**シーム (= 純粋仮想 I/F) として抽象化**: Perforce / Plastic / Jenkins SDK は
-//     プラットフォーム別 lib 配布 (libp4api.a など) で依存追加が重い。本体は SDK
-//     非依存のままビルドできるよう、ヘッダだけは常に提供し、実装は別モジュール
-//     (将来の `acs_perforce` / `acs_jenkins` 等) で override する形を取る。
-//   ・**cross-backend で同じ I/F**: Perforce / Plastic / Helix / Git LFS のいずれを
-//     後ろで使ってもエディタ側コードを書き換えない。アセットパスは `const char*
-//     asset_path` の opaque な depot/relative path 文字列として渡す (例:
-//     "//depot/Game/Art/Characters/hero.fbx")。
-//   ・**所有しない const char*** : 文字列は呼び出し側 / 外部 SDK のライフタイムに
-//     従う。Backend はコピーしない (STL <string> 不使用方針)。利用側は
-//     `QueryLock()` の戻り値を「ティック内のみ有効」と扱うこと。
-//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は IsConnected
-//     が常に false で、各操作は `ACS_ERR(Generic, kSub_NotImplemented, "...")` を
-//     返す (IBackendClient / ISteamworksBridge と同じ defensive pattern)。
-//   ・**Build ID は不透明 u64**: SubmitBuild の戻り値 / PollBuild の入力。実装側で
-//     ジョブ番号 (連番) / hash / pointer-as-u64 等の意味を持たせてよいが、呼出側は
-//     opaque ID として扱う。`0` は「無効な ID」予約 (StartSearch ticket と同じ約束)。
-//   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
-//     `GetAssetLockingStub()` / `GetBuildFarmStub()` を提供。実 SDK 未統合の
-//     ビルドでも `m_Locks = &GetAssetLockingStub();` だけでコンパイル可能。
-//   ・**実 (ローカル) 実装を同梱**: 外部 SDK (P4 / Jenkins) を必要としない
-//     ローカル本実装を 2 つ提供する。`CLocalFileAssetLocking` = オンディスクの
-//     サイドカー lock ファイル (CreateFileW CREATE_NEW の原子性で協調ロック) を
-//     使う実ロック、`CLocalBuildRunner` = CreateProcessW で実際にローカルの
-//     ビルドコマンドを起動し終了コードを回収する「サイズ 1 の実ビルドファーム」。
-//     `GetLocalFileAssetLocking()` / `GetLocalBuildRunner()` で取得する。
-//     これらは stub ではなく、実際に動作する本実装である。
-//   ・**実 SDK 実装はここでは作らない**: PerforceAssetLocking / JenkinsBuildFarm 等
-//     「ネットワーク越しの SCM / ビルドファーム」連携は外部 SDK 依存を伴うため、
-//     本ファイルでは I/F + Stub + ローカル本実装まで。SDK 連携は別モジュールで。
-//
-// 範囲外:
-//   ・ロック取得のリトライ / 自動再接続 / 切断検知の callback。
-//   ・ビルドログのストリーミング (artifact url 経由で取得する想定)。
-//   ・コードレビュー / PR 連携 (別 seam で扱う候補)。
-//   ・アーティスト向け P4V/PlasticGUI 連携 (本 seam ではプログラム API のみ)。
 
 
 namespace acs::game {
@@ -63875,9 +60820,8 @@ namespace acs::game {
  *
  * @details
  * IBackendClient / TSaveSlot 等と同じく「stub = NotImplemented」を
- * kSub_NotImplemented (= 99) で表現する。EErrCategory には Generic を使う (P4 /
- * Jenkins は I/O だが、本 seam は API 抽象であって特定の通信路を仮定しないため
- * Generic が妥当)。
+ * kSub_NotImplemented (= 99) で表現する。backend は file、network、process のいずれも
+ * 使用でき、interface は通信路を固定しないため EErrCategory には Generic を使う。
  */
 struct FStudioWorkflowError {
     /** 各種失敗を表すサブコード。 */
@@ -63903,7 +60847,7 @@ struct FStudioWorkflowError {
 };
 
 /**
- * QueryLock の戻り値 (P4 の `p4 fstat` 相当の最小情報)。
+ * アセットのロック状態と保持者を返す QueryLock の結果。
  *
  * @details
  * Backend は文字列を所有しない。asset_path / locker_user は外部 SDK 側 (または Stub
@@ -63911,10 +60855,10 @@ struct FStudioWorkflowError {
  * 「次の Tick / 次の Backend 呼び出しまで」を保証する (実装によってはより長い)。
  */
 struct FAssetLockInfo {
-    /** ロック対象パス (例: "//depot/Game/foo.fbx")。Backend が所有しない借用文字列。 */
+    /** ロック対象パス。Backend が所有しない借用文字列。 */
     const char* asset_path  = nullptr;
 
-    /** ロック保持ユーザー (例: "designer_a")。Backend が所有しない借用文字列。 */
+    /** ロック保持ユーザー。Backend が所有しない借用文字列。 */
     const char* locker_user = nullptr;
 
     /** ロック取得時刻 (実装依存; UNIX epoch 推奨)。 */
@@ -63922,7 +60866,7 @@ struct FAssetLockInfo {
 };
 
 /**
- * P4 / Plastic / Helix Core 等への抽象シーム (アセット排他ロック)。
+ * アセット排他 lock backend へ接続する抽象インターフェース。
  *
  * @details
  * ロックの粒度は「アセットパス 1 本につき 1 ロック」を想定。フォルダロックや階層
@@ -63965,7 +60909,7 @@ public:
      *
      * @details
      * asset_path が未ロック状態なら kSub_NotFound。他ユーザーのロックを解除する権限は
-     * 実装依存 (P4 では admin 権限が要る)。
+     * backend の管理権限規則に従い、権限がなければエラーを返す。
      * @param asset_path ロック解除するアセットパス。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
@@ -63989,7 +60933,7 @@ public:
 };
 
 /**
- * Jenkins / TeamCity / Unity Cloud Build 等への抽象シーム (ビルドファーム)。
+ * ACS の外部ビルド実行先へ接続する抽象インターフェース。
  *
  * @details
  * 「ビルドを投入 → ポーリングで完了確認 → artifact URL を受け取る」フローのみを抽象化
@@ -64001,19 +60945,18 @@ public:
      * ビルド投入リクエスト。
      *
      * @details
-     * フィールドはすべて呼出側が寿命保証する const char*。preset は farm 側で予め登録
-     * されたビルド構成名 (例: "Shipping_Win64")、branch は git/p4 のブランチ/ストリーム
-     * 名、commit_sha はピンポイントのリビジョン識別子 (git sha / p4 changelist 番号
-     * 文字列 等)。
+     * フィールドはすべて呼出側が寿命保証する const char*。preset は build provider に
+     * 登録された構成名、branch は source control の branch または
+     * stream 名、commit_sha は hash や変更番号を表す正確な revision 識別子。
      */
     struct FBuildRequest {
-        /** farm 側で予め登録されたビルド構成名 (例: "Shipping_Win64")。 */
+        /** build provider に登録されたビルド構成名。 */
         const char* preset     = nullptr;
 
-        /** git/p4 のブランチ/ストリーム名。 */
+        /** source control の branch または stream 名。 */
         const char* branch     = nullptr;
 
-        /** ピンポイントのリビジョン識別子 (git sha / p4 changelist 番号文字列 等)。 */
+        /** hash または変更番号を表す正確な revision 識別子。 */
         const char* commit_sha = nullptr;
     };
 
@@ -64100,7 +61043,7 @@ public:
  * IAssetLockingBackend の null-object stub 実装。
  *
  * @details
- * 外部 SDK (P4 / Plastic 等) 未統合ビルド / ユニットテスト用の no-op 実装。
+ * アセット lock backend 未接続ビルドとユニットテスト用の no-op 実装。
  * IsConnected() は常に false、各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を
  * 返す。コピー/ムーブは基底 I/F で delete 済みのため本クラスも自然に non-copy。
  */
@@ -64149,7 +61092,7 @@ public:
  * IBuildFarmBackend の null-object stub 実装。
  *
  * @details
- * 外部 SDK (Jenkins / TeamCity 等) 未統合ビルド / ユニットテスト用の no-op 実装。
+ * build provider 未接続ビルドとユニットテスト用の no-op 実装。
  * IsConnected() は常に false、各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を
  * 返す。
  */
@@ -64193,44 +61136,49 @@ public:
     bool                 IsConnected() const noexcept override { return false; }
 };
 
-/**
- * オンディスク lock ファイルによる IAssetLockingBackend の実ロック実装。
- *
- * @details
- * Perforce / Plastic 等の外部 SCM サーバを使わず、ローカルファイルシステム上の
- * サイドカー lock ファイルで本実装する (「実 (non-Perforce) 実装」であり stub では
- * ない)。LockAsset は `<asset_path>.lock` を Win32 CreateFileW(CREATE_NEW) で生成する
- * (CREATE_NEW は「既に存在したら ERROR_FILE_EXISTS で失敗」する原子的フラグで、OS
- * カーネルが排他を保証するため 2 プロセス/スレッドが同時にロックしても片方だけが成功
- * する)。成功側は version / owner / 128-bit token / 取得時刻を含む厳密なレコードを書き、
- * FlushFileBuffers + CloseHandle が完了してから取得成功を公開する。解除時は同じファイル
- * handle 上でレコードを検証して delete-pending にするため、「検証後に別プロセスが lock
- * を取り直し、その新しい lock をパス名で削除する」TOCTOU を許さない。破損・旧形式・
- * trailing data・期限切れらしき lock は安全側に倒して自動削除しない。
- */
-
 /** CLocalFileAssetLocking の機械判定可能な安定エラー。値は永続ログ/API 用に固定する。 */
 enum class ELocalAssetLockError : u16 {
+    /** lock 操作が成功した。 */
     None              = 0,
+    /** path、owner、または出力先の引数が不正だった。 */
     BadArgument       = 1500,
+    /** asset path のバイト数が上限を超えた。 */
     PathTooLong       = 1501,
+    /** owner 名のバイト数が上限を超えた。 */
     OwnerTooLong      = 1502,
+    /** path または owner が正しい UTF-8 ではなかった。 */
     InvalidUtf8       = 1503,
+    /** owner 名が lock record の条件を満たさなかった。 */
     InvalidOwner      = 1504,
+    /** 対象 asset は既に lock されていた。 */
     AlreadyLocked     = 1505,
+    /** 対象の lock file が存在しなかった。 */
     NotFound          = 1506,
+    /** lock record が読み取り上限を超えた。 */
     RecordTooLarge    = 1507,
+    /** lock record の形式または値が不正だった。 */
     CorruptRecord     = 1508,
+    /** lock file を開けなかった。 */
     OpenFailed        = 1509,
+    /** lock file のサイズを取得できなかった。 */
     SizeFailed        = 1510,
+    /** lock record の全内容を読み取れなかった。 */
     ReadFailed        = 1511,
+    /** lock record の全内容を書き込めなかった。 */
     WriteFailed       = 1512,
+    /** lock record を永続記憶へ反映できなかった。 */
     FlushFailed       = 1513,
+    /** lock file handle を閉じられなかった。 */
     CloseFailed       = 1514,
+    /** 指定 owner が記録された保持者と一致しなかった。 */
     OwnerMismatch     = 1515,
+    /** 指定 token が現在の取得世代と一致しなかった。 */
     TokenMismatch     = 1516,
+    /** 現在の instance が対象 lock を所有していなかった。 */
     NotOwned          = 1517,
+    /** 検証済み lock file を削除できなかった。 */
     DeleteFailed      = 1518,
+    /** instance の lock 保持 table に空きがなかった。 */
     CapacityExceeded  = 1519,
 };
 
@@ -64256,6 +61204,14 @@ struct FLocalAssetLockResult {
 /** ログ/telemetry 用の安定した ASCII error 名を返す。 */
 const char* LocalAssetLockErrorName(ELocalAssetLockError error) noexcept;
 
+/**
+ * 対象アセットの隣に置く管理用 lock ファイルで排他編集を管理するローカル実装。
+ *
+ * @details 取得時は CreateFileW(CREATE_NEW) で競合を排除し、所有者、128-bit token、
+ * 取得時刻を書き終えてから成功を返す。解除時は同じファイル handle 上で所有権を検証し、
+ * 別の取得世代を誤って削除しない。破損、旧形式、余分なデータ、期限切れらしき lock は
+ * 自動削除せず失敗として返す。
+ */
 class CLocalFileAssetLocking final : public IAssetLockingBackend {
 public:
     /** path バッファの最大長 (NUL 含む)。MAX_PATH 級 + 余裕。 */
@@ -64379,9 +61335,8 @@ private:
  * Win32 CreateProcessW によるローカルビルド実行で IBuildFarmBackend を本実装する。
  *
  * @details
- * Jenkins / TeamCity 等の外部ビルドファームを使わず、ローカルマシン上で実際にビルド
- * コマンド (バッチ / exe) を起動して終了コードを回収する「サイズ 1 の実ビルドファーム」
- * (「実 (non-Jenkins) 実装」であり stub ではない)。2 系統の API を提供する: (A)
+ * ローカルマシン上でビルドコマンド (バッチ / exe) を起動し、終了コードを回収する
+ * 単一実行環境の IBuildFarmBackend 実装。stub ではなく、2 系統の API を提供する: (A)
  * RunBuild(command_line, &out_exit_code) は同期実行ヘルパで、CreateProcessW で起動し
  * WaitForSingleObject で完了を待ち GetExitCodeProcess で終了コードを回収する (プロセス
  * 起動自体に成功すれば終了コードが何であれ IsOk)。(B) IBuildFarmBackend seam
@@ -64519,7 +61474,7 @@ private:
  * @details
  * 依存ゼロのデフォルト実装で、常に NotImplemented を返す。本体側 (タイトル / エディタ)
  * はまずこれを使ってリンクを通し、具象実装に切り替える際は IAssetLockingBackend* を持つ
- * メンバ変数に PerforceAssetLocking 等を差し替える。
+ * メンバ変数に接続済みの具象 backend を差し替える。
  * @return プロセス共有の CAssetLockingStub への参照。
  */
 IAssetLockingBackend& GetAssetLockingStub() noexcept;
@@ -64566,75 +61521,6 @@ using FLocalFileAssetLocking = CLocalFileAssetLocking;
 
 // ===================== gameframework/Lockstep.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M — CLockstep (deterministic input replay)
-//
-// 役割:
-//   1) **CLockstep ネットコード** の入力レイヤ: 1 tick = 1 フレーム分の入力を
-//      `FInputFrame` として記録 / 配信し、全クライアントが同一順序で入力を消費
-//      することで決定論的なシミュレーションを実現する土台。
-//   2) **入力リプレイ**: Local 中に記録した入力列をそのまま Replay モードで
-//      再生し、replay ファイル / TAS / 自動テスト / バグ再現に使う。
-//   3) **デターミニズム検証**: `ComputeChecksum()` で全 input frame の FNV-1a-like
-//      hash を返し、replay 同期ずれ / 通信改竄 / プラットフォーム間 ABI ズレを
-//      bit 単位で検出する。
-//
-// 使い方 (想定):
-//   CLockstep ls;
-//   ls.Init(ENetMode::Local, /*tick_rate_hz=*/60);
-//
-//   // ゲームループ (Local 中):
-//   FInputFrame f{ m_Tick, /*player_id=*/0, m_Buttons, m_Stick };
-//   ls.RecordInput(f);
-//   // ... シミュレーションに f を反映 ...
-//   ++m_Tick;
-//
-//   // 後で Replay:
-//   ls.StartReplay();
-//   while (running) {
-//       FInputFrame f;
-//       if (ls.ConsumeInput(m_Tick, 0, f)) {
-//           // f.buttons / f.axis をシミュレーションに反映
-//       }
-//       ++m_Tick;
-//   }
-//
-// 設計選択:
-//   ・**FInputFrame は trivially-copyable POD**: `u32 tick + u32 player_id +
-//     u8 buttons + FVec2 axis` の小さな struct。padding 込みで 16〜20 B、TArray
-//     にぎっしり詰める想定。
-//   ・**TArray<FInputFrame> による線形ストレージ**: 1 セッション分の入力は
-//     60 Hz × 4 players × 30 min = 432,000 件 × ~20 B = ~8.6 MB 程度。
-//     大規模 MMO ではなく対戦ゲーム / リプレイ用なのでこの容量で十分。
-//   ・**ConsumeInput は線形検索**: `m_ReplayCursor` から
-//     順に走査して `tick == requested_tick && player_id == requested_player_id`
-//     を探す。記録順 = tick 昇順を仮定し、cursor を前進させることで amortised
-//     O(1)。同 tick 内の player 順は問わない。
-//   ・**ComputeChecksum は FNV-1a-like u64 hash**: 各 frame の (tick, player_id,
-//     buttons, axis.x bits, axis.y bits) を u64 に畳み込む。決定論検証 + replay
-//     hash として使う。FNV-1a は STL 不使用で実装が 5 行、衝突は同期ずれ検知用途
-//     としては十分。
-//   ・**コピー / ムーブ禁止**: CLockstep は通常 1 セッションに 1 個 (グローバル所有)
-//     の長寿命オブジェクト。誤って値渡しされて state が分裂すると replay の
-//     同期ずれが起きるため、CSettings / CPartySystem と同じく最初から非コピー・
-//     非ムーブで固定する。
-//   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
-//
-// File layout (SaveToBuffer / LoadFromBuffer):
-//   offset  size  field          説明
-//   ------  ----  ------------   ---------------------------------------------
-//   0x00    4     magic          'ACSL' = 0x4C534341 (little-endian)
-//   0x04    4     version        u32。現状 = 1。
-//   0x08    4     tick_rate_hz   u32。再生側との sample rate 整合検証用。
-//   0x0C    4     frame_count    u32。続く FInputFrame の個数。
-//   0x10    N     frames         FInputFrame[frame_count] (各 16〜20 B)。
-//   0x10+N  4     crc32_footer   u32。frames 部の CRC-32 (改竄/破損検知用)。
-//
-// 範囲外:
-//   ・per-player ring buffer / 差分圧縮 / delta encoding
-//   ・rollback netcode (GGPO 風) — 本クラスは「全 input が確定済み」前提
-//   ・loss compensation / desync recovery
-//   ・複数 replay 同時再生 / 早送り / 巻き戻し
-//   ・ネットワーク送受信 (INetTransport seam は別モジュールで切る)
 
 
 namespace acs::game {
@@ -64886,62 +61772,6 @@ private:
 
 // ===================== gameframework/UiLayer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CUiLayer (acs::AWidget tree を AScene に繋ぐ glue)
-//
-// 役割:
-//   既存の `acs::ui` AWidget システム (Widget.h / Widgets.h / UiRenderer.h) は
-//   retained-mode UI として強力だが、ゲームコード側 (AScene) から直接触るには
-//   ボイラープレートが多い。CUiLayer は **AScene のライフサイクル (Init / Tick /
-//   HandleInput / Shutdown) と AWidget tree を結ぶ薄い層** で、典型的なゲーム UI
-//   (ボタン / テキスト表示) を最小 API で扱えるようにする。
-//
-//   Pillar H 上のリッチな UI 構築 (AStackPanel / ASlider / ATextInput etc.) は
-//   引き続き `acs::ui` を直接使う想定で、本 layer は **「シーンに数個の UI
-//   要素を貼り付けるだけのゲーム」** の DX (タイトル画面、HUD、ポーズメニュー
-//   など) を改善する位置付け。
-//
-// 使い方 (典型例):
-//   class ATitleScene : public AScene {
-//       CUiLayer m_Ui;
-//       u32     m_PlayBtn = 0;
-//       void OnEnter() noexcept override {
-//           m_Ui.Init();
-//           m_PlayBtn = m_Ui.AddButton("Play", {100, 200}, {200, 48});
-//           m_Ui.AddText("ACS Demo", {100, 100});
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Ui.Tick(dt);
-//           if (m_Ui.IsButtonPressed(m_PlayBtn)) {
-//               Scenes().ChangeScene(MakeUnique<GameScene>());
-//           }
-//       }
-//       void OnEvent(const FEvent& e) noexcept override { m_Ui.HandleInput(e); }
-//       void OnExit() noexcept override { m_Ui.Shutdown(); }
-//   };
-//
-// 設計選択:
-//   ・**自前の軽量実装**: acs::ui の AWidget tree は使わず、ハンドル付きの
-//     FWidgetEntry を TArray で保持して button/text の追加・削除・可視性・
-//     ヒットテスト・押下クエリ・即時描画 (Draw) まで完全動作させる。ASlider /
-//     ACheckbox / ATextInput 等のリッチ widget が要るときは `acs::ui` を直接使う。
-//   ・**ハンドルは u32 単調増加**: 削除後の再利用は行わない (世代カウンタ不要、
-//     現実的に 1 シーンで数千 widget を超えることはまずないため uint32 で十分)。
-//     0 は invalid handle 予約。
-//   ・**const char* 非所有**: 規約通り <string> 不使用。label / text の寿命は
-//     呼び出し側 (文字列リテラル or 長寿命バッファ) が保証する。Pillar T
-//     CPartySystem / Pillar O CEntitlementRegistry と同方針。
-//   ・**コピー / ムーブ禁止**: UI 状態を持つ長寿命オブジェクト。誤コピーで state
-//     が分裂すると詰むため非コピー・非ムーブ。
-//   ・**全 noexcept**: ACS 全体方針。Init / Shutdown は冪等で再呼び出し安全。
-//
-// 範囲外:
-//   ・実 `acs::AWidget` ツリー構築 (AStackPanel / AButton / ALabel の生成)
-//   ・`CUiRenderer` による描画 (FRenderContext から CSpriteBatch / FFont を受ける)
-//   ・`FEvent` → hit-test → AWidget::OnPointerDown 等の配送
-//   ・focus / keyboard navigation (Tab 移動 / Enter 確定)
-//   ・MVVM TObservable<T> との bind (現状はポーリング型 IsButtonPressed)
-//   ・slider / checkbox / text input / radio などの追加 widget kind
-//   ・layout 自動配置 (現状は呼び出し側が pos / size を絶対指定)
 
 
 namespace acs {
@@ -65181,35 +62011,6 @@ using FUiLayer = CUiLayer;
 
 // ===================== gameframework/Pathfinding.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — Pathfinding (grid A*)
-//
-// 2D 格子状の通行可否マップ + A* 経路探索。タワーディフェンス / 敵の追跡 /
-// クリック移動 RPG など、グリッドベースの AI 動作に汎用に使える。
-//
-// 使い方:
-//   CNavGrid nav;
-//   nav.Init(32, 24);
-//   nav.SetWalkable(5, 10, false);                // 壁を 1 マス置く
-//   nav.SetAllowDiagonal(true);                   // 8 方向許可 (既定は 4 方向)
-//
-//   TArray<CNavGrid::FPathPoint> path;
-//   if (nav.FindPath(/*start=*/0, 0, /*goal=*/20, 15, path)) {
-//       // path[0] = start, path[Size()-1] = goal の連続セル列
-//   }
-//
-// 設計選択:
-//   ・cost = 4 方向移動 1.0 / 対角 sqrt(2) ≈ 1.414。SetAllowDiagonal(true) で
-//     対角を許可、その時は heuristic も Euclidean (より admissible) に切替。
-//     4 方向のみの場合は Manhattan が optimal な heuristic。
-//   ・open set は **priority queue 代わりの線形最小値走査**。
-//     N=width*height が大きくなったら binary heap へ置換する。
-//   ・closed flag は `acs::TArray<u8>` (size = width*height) で O(1) lookup。
-//   ・came_from / g_score も 1D 配列で持つ (index = y*width + x)。
-//   ・STL 不使用 (<algorithm> 含む)、`acs::TArray` のみ。
-//
-// 制限:
-//   ・cost は固定 (terrain weight 未対応)。
-//   ・対角通過時の "壁すり抜け" は許可 (両隣が壁でも対角通れる)。
 
 
 namespace acs::game {
@@ -65405,53 +62206,6 @@ private:
 
 // ===================== gameframework/WeatherSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — CWeatherSystem (天候モード)
-//
-// 役割:
-//   CAmbientDirector (時刻補間) と直交する「天候」状態を保持し、現在天候 →
-//   ターゲット天候への線形遷移と、各天候に対応する描画 / lighting 修飾係数
-//   (ambient 倍率 / 粒子密度 / sky tint / 風 / 霧密度) を提供する。
-//   レンダラ / CEffectSystem / CParticleSystem 側は毎フレーム本クラスから係数を
-//   pull するだけで天候表情を反映できる。
-//
-// 使い方:
-//   class AWorldScene : public AScene {
-//       acs::game::CWeatherSystem m_Weather;
-//
-//       void OnEnter() noexcept override {
-//           m_Weather.SetWeather(acs::game::EWeatherKind::Clear);
-//           m_Weather.SetWindDirection(acs::FVec2{1.0f, 0.0f});
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Weather.Tick(dt);
-//           // 雨へ 8 秒掛けて遷移
-//           if (player.EnteredRainZone()) m_Weather.SetWeather(
-//               acs::game::EWeatherKind::Rain, 8.0f);
-//
-//           CRenderer().SetAmbientMultiplier(m_Weather.AmbientLightMultiplier());
-//           CRenderer().SetSkyTint          (m_Weather.SkyTintMultiplier());
-//           CRenderer().SetFogDensityScale  (m_Weather.FogDensityMultiplier());
-//           Particles().SetGlobalDensity    (m_Weather.ParticleDensity());
-//           Wind().SetVector(m_Weather.WindDirection() * m_Weather.WindStrength());
-//       }
-//   };
-//
-// 設計選択 (Pillar Q):
-//   ・8 種の固定 enum: Clear / Cloudy / Rain / HeavyRain / Snow / Storm /
-//     Fog / Sandstorm。表現の幅を確保しつつ、各描画モディファイアを 1 テーブルで
-//     LUT 引きできる粒度 (FKindParams)。利用者は「現在 / 目標 / 遷移時間」だけ
-//     意識すれば良い。
-//   ・線形遷移: SetWeather(target, duration) → transition_t を 0→1 で線形に
-//     進める。current/target の全モディファイア値を t で Lerp。
-//   ・遷移完了で snap: transition_t == 1.0 で current = target に書き換え、
-//     transition_t を 1.0f に固定。次に SetWeather を呼ぶまで「完了状態」に
-//     とどまる。これにより current/target の lerp は常に t∈[0,1] の閉区間で済む。
-//   ・WindDirection は天候とは独立: 「南風が雨を運ぶ」「無風の雪」など表現が
-//     衝突するため、wind 方向はユーザーが任意に設定可能 (天候は強さのみ決める)。
-//     デフォルトは (1, 0) = 東向き。
-//   ・ambient/sky 修飾は乗算: CAmbientDirector の出力に「天候による調整」を
-//     掛けるだけで時刻 × 天候の合成が完了する設計。Storm/Sandstorm 時は
-//     ambient を 0.5 倍に暗くするなど。
 
 
 namespace acs::game {
@@ -65460,8 +62214,8 @@ namespace acs::game {
  * 天候種別。
  *
  * @details
- * レンダラ / 粒子 / 音響側で参照する。値は安定なので save に書ける
- * (将来 enum 追加時は末尾追加のみ、既存値の意味は不変とする規約)。
+ * レンダラ / 粒子 / 音響側で参照する。save 互換性のため新しい値は末尾に追加し、
+ * 既存値の数値と意味は変更しない。
  */
 enum class EWeatherKind : u8 {
     /** 快晴 / 通常。 */
@@ -65669,48 +62423,6 @@ using FWeatherSystem = CWeatherSystem;
 
 // ===================== gameframework/WorkshopBridge.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — IWorkshopBridge (Steam Workshop / UGC seam)
-//
-// Steam Workshop / EOS UGC / mod.io といったプラットフォーム固有 UGC SDK へ橋渡し
-// するシーム (seam) インターフェース。ゲーム側コードは IWorkshopBridge 経由でのみ
-// ユーザー生成コンテンツ (UGC) の publish / subscribe / download を行い、実 SDK
-// (Steamworks UGC API 等) との結合はビルド時の選択で差し替える。
-//
-// 使い方:
-//   class FModBrowserUi {
-//       acs::game::IWorkshopBridge* m_Workshop = nullptr;
-//
-//       void OnStart() noexcept override {
-//           m_Workshop = &acs::game::GetWorkshopStub();
-//           (void)m_Workshop->Init();
-//       }
-//       void OnTick(f32 dt) noexcept override {
-//           m_Workshop->Tick(dt);  // callback pump
-//       }
-//       void OnSubscribeClicked(acs::u64 item_id) noexcept {
-//           (void)m_Workshop->SubscribeItem(item_id);
-//           (void)m_Workshop->DownloadItem(item_id);
-//       }
-//   };
-//
-// 設計選択:
-//   ・**ISteamworksBridge とは別 I/F**: Workshop は publish ワークフロー (CreateItem /
-//     UpdateItem) を持ち、API 面が Achievement / Leaderboard とは別領域。一緒くたに
-//     すると Bridge が肥大化するため、別ファイルで隔離する。
-//   ・**`u64 item_id` を opaque key として扱う**: Steamworks では PublishedFileId_t
-//     (= u64)、mod.io では mod ID (= u32 だが u64 上位ビット 0 で表現可) を共通化。
-//   ・**所有しない const char***: 文字列は ISteamworksBridge と同じく呼び出し側 /
-//     プラットフォーム SDK のライフタイムに従い、Bridge はコピーしない。
-//     QueryItem() の戻り値は「次の Tick() を呼ぶまで有効」と扱うこと。
-//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は Init() のみ
-//     成功、その他は ACS_ERR(Generic, kSubWorkshopNotImplemented, ...) を返す。
-//   ・**ダウンロード進捗は同期 poll**: GetDownloadProgress(item_id) を毎フレーム
-//     呼んで [0, 1] を取得。-1 は「現在ダウンロード中ではない / 不明」を表す。
-//   ・**Stub は static singleton で取得**: ISteamworksBridge と同じく
-//     `GetWorkshopStub()` を提供。`CWorkshopBridgeStub::IsAvailable()` は
-//     常に false を返し、UI 側で「Workshop 機能無効」表示の判定に使える。
-//   ・**実 SDK 実装はここでは作らない**: GoldenWorkshopBridge 等は Steamworks UGC
-//     API への依存を伴うため、本ファイルでは I/F + Stub のみ。
 
 
 namespace acs::game {
@@ -65718,7 +62430,7 @@ namespace acs::game {
 /**
  * Stub が未実装 API で返す subcode (EErrCategory::Generic 配下)。
  *
- * @details ISteamworksBridge と subcode 空間が重ならないよう 1100 番台を使う。
+ * @details UGC bridge の未実装状態を Generic category の 1100 番台で識別する。
  */
 inline constexpr u16 kSubWorkshopNotImplemented = 1101;
 
@@ -65732,12 +62444,12 @@ inline constexpr u16 kSubWorkshopUnavailable    = 1103;
  * cross-platform 共通の UGC アイテムメタ情報。
  *
  * @details
- * Bridge は文字列を所有しない。title / description / author は実 SDK 側
+ * Bridge は文字列を所有しない。title / description / author は具象 backend 側
  * (または Stub 内 static literal) のメモリを参照し、寿命は「次の Tick() を
  * 呼ぶまで」を保証する (実装によってはそれより長い)。
  */
 struct FWorkshopItem {
-    /** SDK 固有の opaque ID (Steam PublishedFileId_t 等)。 */
+    /** UGC backend が発行する opaque ID。 */
     u64         item_id     = 0;
 
     /** ユーザー表示タイトル (UTF-8、所有しない)。 */
@@ -65760,12 +62472,12 @@ struct FWorkshopItem {
 };
 
 /**
- * Steam Workshop / EOS UGC / mod.io への橋渡しシーム (純粋仮想 I/F)。
+ * UGC の publish / subscribe / download を抽象化する純粋仮想インターフェース。
  *
  * @details
- * プラットフォーム固有 UGC SDK の差を吸収し、ゲーム側は本 I/F 経由でのみ UGC の
- * publish / subscribe / download を行う。実装は本体外モジュール (or テスト) で
- * Override する。u64 item_id は SDK 固有 ID を表す opaque key として扱う。
+ * 具象 UGC backend の差を吸収し、ゲーム側は本インターフェース経由で UGC の
+ * publish / subscribe / download を行う。u64 item_id は backend 固有 ID を表す
+ * opaque key として扱う。
  */
 class IWorkshopBridge {
 public:
@@ -65847,7 +62559,7 @@ public:
     /**
      * アイテムを subscribe する。
      *
-     * @details SDK 側で自動的にダウンロードが始まる場合もある (Steam の標準挙動)。
+     * @details subscribe 後の自動 download 開始有無は具象 backend が決定する。
      * @param item_id subscribe するアイテムの opaque ID。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
@@ -65879,16 +62591,16 @@ public:
     virtual f32 GetDownloadProgress(u64 item_id) noexcept = 0;
 
     /**
-     * コールバックポンプを回す (ゲームループから毎フレーム呼ぶ)。
+     * 1 frame 分の callback と provider 状態を更新する。
      *
-     * @details SteamAPI_RunCallbacks() 相当を Bridge 側に畳み込む。
+     * @details provider 固有の callback と状態更新を Bridge 側にまとめる。
      * @param dt 前フレームからの経過秒。
      */
     virtual void Tick(f32 dt) noexcept = 0;
 };
 
 /**
- * Steamworks UGC SDK 未統合ビルド / ユニットテスト用の no-op 実装。
+ * 具象 UGC backend 未接続時に使用する no-op 実装。
  *
  * @details
  * Init() のみ常に成功 (m_Initialized = true)、IsAvailable() は常に false
@@ -66003,9 +62715,8 @@ private:
  * 全コードで共有できる Stub の static singleton を返す。
  *
  * @details
- * 実 SDK 実装が DI される前のデフォルト。Meyer's singleton で構築するため
- * thread-safe。ISteamworksBridge は静的メンバ関数を使うが、Workshop 側は仕様に
- * 合わせて自由関数で公開する。
+ * 具象 backend が登録される前の既定値として、thread-safe に初期化される
+ * process 共有 Stub を自由関数で公開する。
  * @return プロセス内で唯一の CWorkshopBridgeStub への参照。
  */
 IWorkshopBridge& GetWorkshopStub() noexcept;
@@ -66316,193 +63027,116 @@ using FLlmSafetyPipeline = CLlmSafetyPipeline;
 
 } // namespace acs::game
 
+// ===================== gameframework/TutorialStep.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+namespace acs::game {
+
+/**
+ * チュートリアル表示と進行条件を表す 1 ステップ分の値。
+ *
+ * 文字列は所有せず、呼び出し側がフロー利用中の寿命を保証する。
+ */
+struct FTutorialStep {
+    /** NotifyAction が照合する識別子。nullptr の場合は操作通知で完了しない。 */
+    const char* id                  = nullptr;
+
+    /** 呼び出し側の UI が表示する文字列。nullptr を許容する。 */
+    const char* message             = nullptr;
+
+    /** 呼び出し側が解釈する強調対象の識別子。nullptr を許容する。 */
+    const char* highlight_target    = nullptr;
+
+    /** true の場合は一致する操作通知または明示前進を待つ。 */
+    bool        require_user_action = false;
+};
+
+} // namespace acs::game
+
 // ===================== gameframework/TutorialFlow.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CTutorialFlow
-//
-// 役割:
-//   連続する「チュートリアルステップ」を順序付きで表示・完了判定し、ユーザー操作
-//   または明示的な前進指示に応じて次ステップへ進めるシンプルな state machine。
-//   描画は行わず、現在ステップへの const ポインタを公開するだけ。表示は呼び出し側
-//   (UI レイヤ / AScene) が CurrentStep() を見て自前で描く。
-//
-// 設計上の方針:
-//   ・**FSequence との棲み分け**: FSequence は時間ベースの自動進行 (cutscene 等)。
-//     CTutorialFlow は「ユーザーが action を達成したら進む」という能動的進行で、
-//     timer ベースではない (require_user_action=true の間は dt をいくら積んでも
-//     自動 advance しない)。require_user_action=false なら表示後に AdvanceStep
-//     を呼ぶだけで素直に次へ進む (ガイダンス表示 → OK ボタンなど)。
-//   ・**所有しない const char***: ACS 規約通り <string> 禁止。id / message /
-//     highlight_target は文字列リテラル or 長寿命バッファを想定し、寿命は呼び
-//     出し側が保証する。
-//   ・**非コピー・非ムーブ**: チュートリアルは通常 AScene につき 1 個の長寿命
-//     オブジェクトで、誤コピーで state 分裂すると詰むため最初から禁止。
-//   ・**Skip は不可逆**: Skip() を呼ぶと m_Completed=true / m_Active=false に
-//     遷移し、Reset() しない限りどの query も終了扱い。誤って 2 度目を呼ばれ
-//     ても no-op になるよう冪等。
-//
-// 使い方:
-//   class ATutorialScene : public AScene {
-//       CTutorialFlow m_Tut;
-//       void OnEnter() noexcept override {
-//           m_Tut.AddStep({"move",  "WASD で移動してみよう", "player", true});
-//           m_Tut.AddStep({"jump",  "SPACE でジャンプ",       "player", true});
-//           m_Tut.AddStep({"done",  "チュートリアル完了！",  nullptr,  false});
-//           m_Tut.Start();
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Tut.Tick(dt);
-//           if (input.JustPressed(EKey::W)) m_Tut.NotifyAction("move");
-//           if (input.JustPressed(EKey::Space)) m_Tut.NotifyAction("jump");
-//       }
-//   };
 
 
 namespace acs::game {
 
 /**
- * チュートリアルステップ 1 件分。
+ * ユーザー操作または明示前進で進む順序付きチュートリアルを管理する。
  *
- * @details 全フィールドは非所有の const char* で、寿命は呼び出し側が保証する。
- */
-struct FTutorialStep {
-    /** NotifyAction で参照される識別子 (一意でなくてよいが、重複時は最初のマッチが採用される)。 */
-    const char* id                  = nullptr;
-
-    /** 表示用テキスト (UI 側が描画)。 */
-    const char* message             = nullptr;
-
-    /** UI ハイライト対象 (例: "player" / "inventory_button")。nullptr 可。本クラスは保持するだけで解釈はしない。 */
-    const char* highlight_target    = nullptr;
-
-    /**
-     * ユーザー操作の達成を待つかのフラグ。
-     *
-     * @details
-     * true の場合、NotifyAction で id と一致する action_id が来るか AdvanceStep が明示的に
-     * 呼ばれるまで自動進行しない。false の場合は AdvanceStep 呼び出しのみで進む
-     * (timer 等は Tick で扱わない、明示前進のみ)。
-     */
-    bool        require_user_action = false;
-};
-
-/**
- * 順序付きチュートリアルステップを表示・前進させる軽量 state machine。
- *
- * @details
- * 描画は行わず、現在ステップへの const ポインタを公開するだけ。表示は呼び出し側
- * (UI レイヤ / AScene) が CurrentStep() を見て自前で描く。時間ベースで自動進行する
- * FSequence と異なり「ユーザーが action を達成したら進む」能動的進行で、
- * require_user_action=true の間は dt をいくら積んでも自動 advance しない。
- * 全フィールドは非所有 const char* (寿命は呼び出し側保証)。非コピー・非ムーブ。
- * Skip は不可逆で冪等。
+ * 描画は行わず、現在ステップだけを公開する。無効な状態での前進や通知は何も行わない。
  */
 class CTutorialFlow {
 public:
-    /** 空のチュートリアルフローを構築する (ステップ未登録)。 */
+    /** ステップ未登録の空フローを構築する。 */
     CTutorialFlow()  noexcept = default;
 
-    /** 破棄する。 */
+    /** フローと登録済みステップを破棄する。 */
     ~CTutorialFlow() noexcept = default;
 
-    /** コピー禁止 (state 分裂を避けるため。通常は AScene につき 1 個の長寿命オブジェクト)。 */
+    /** 進行状態の分裂を防ぐためコピー構築を禁止する。 */
     CTutorialFlow(const CTutorialFlow&)            = delete;
 
-    /** コピー代入も禁止。 */
+    /** 進行状態の分裂を防ぐためコピー代入を禁止する。 */
     CTutorialFlow& operator=(const CTutorialFlow&) = delete;
 
-    /** ムーブ禁止 (state 分裂を避けるため)。 */
+    /** 進行状態の参照先を固定するためムーブ構築を禁止する。 */
     CTutorialFlow(CTutorialFlow&&)                 = delete;
 
-    /** ムーブ代入も禁止。 */
+    /** 進行状態の参照先を固定するためムーブ代入を禁止する。 */
     CTutorialFlow& operator=(CTutorialFlow&&)      = delete;
 
     /**
-     * ステップを末尾に追加する。
+     * 指定ステップを末尾へ追加する。
      *
-     * @details
-     * Start 前のみ呼ぶ想定だが、走行中に追加されても末尾に積まれるだけで現在進行には影響しない。
-     * @param step 追加するチュートリアルステップ。
+     * 実行中に追加しても現在位置は変更しない。
      */
     void AddStep(const FTutorialStep& step) noexcept;
 
     /**
-     * ステップ 0 から表示を開始する。
+     * 先頭ステップから進行を開始する。
      *
-     * @details
-     * ステップが 1 件も無い場合は m_Completed=true に遷移して即終了する (空チュートリアルの no-op)。
-     * 複数回呼ばれた場合は Reset 相当の再初期化を行う。
+     * ステップが無い場合は即座に完了状態へ移る。
      */
     void Start() noexcept;
 
     /**
-     * 次のステップへ手動で前進する。
+     * 現在ステップを完了して次へ進める。
      *
-     * @details
-     * require_user_action のステップで条件達成後、または require_user_action=false のステップで
-     * ガイダンス確認後に呼ぶ。最終ステップで呼ばれた場合は m_Completed=true に遷移する。
-     * inactive 状態 (Start 前 / Skip 後 / 完了後) の呼び出しは no-op。
+     * 開始前、完了後、またはスキップ後は何も行わない。
      */
     void AdvanceStep() noexcept;
 
     /**
-     * ユーザーが action を実行したことを通知する。
+     * 実行された操作を現在ステップへ通知する。
      *
-     * @details
-     * 現在ステップの id と一致し require_user_action=true なら自動的に AdvanceStep を呼ぶ。
-     * action_id == nullptr / inactive 状態 / 不一致は no-op。
-     * @param action_id 実行された action の識別子。
+     * action_id が nullptr、待機中でない、または識別子が不一致の場合は何も行わない。
      */
     void NotifyAction(const char* action_id) noexcept;
 
-    /** ステップ定義を保持したまま走行 state を初期化する (Start 前と同じ状態)。 */
+    /** 登録済みステップを保ったまま開始前の状態へ戻す。 */
     void Reset() noexcept;
 
-    /** チュートリアル全体を skip して完了扱いにする (冪等、2 度目以降 no-op)。 */
+    /** フローをスキップして完了状態へ移す。完了後の呼び出しは何も行わない。 */
     void Skip() noexcept;
 
-    /**
-     * 走行中かを返す。
-     *
-     * @return Start 後・Skip / 完了前なら true。
-     */
+    /** 開始後かつ未完了の場合に true を返す。 */
     bool IsActive() const noexcept { return m_Active; }
 
-    /**
-     * 完了済みかを返す。
-     *
-     * @return 全ステップを通過 or Skip 済みなら true。
-     */
+    /** 全ステップ通過後またはスキップ後に true を返す。 */
     bool IsCompleted() const noexcept { return m_Completed; }
 
-    /**
-     * 現在のステップ番号を返す。
-     *
-     * @return 現在のステップインデックス (Start 前は 0)。
-     */
+    /** 現在のステップ番号を返す。開始前は 0 を返す。 */
     u32 CurrentStepIndex() const noexcept { return m_CurrentStep; }
 
-    /**
-     * 描画 / 表示用に現在ステップへのポインタを返す。
-     *
-     * @return 現在ステップへのポインタ。Start 前・Skip 後・完了後は nullptr。
-     */
+    /** 進行中のステップを返す。開始前、完了後、スキップ後は nullptr を返す。 */
     const FTutorialStep* CurrentStep() const noexcept;
 
-    /**
-     * 登録済みステップ数を返す。
-     *
-     * @return 登録済みステップ数。
-     */
+    /** 登録済みステップ数を返す。 */
     u32 StepCount() const noexcept;
 
     /**
-     * 毎フレーム呼ぶ state 確認用 hook。
+     * 毎フレームの経過秒を受け取る。
      *
-     * @details
-     * 現状は内部 timer を持たないが、将来の auto-advance ステップ / hint 出現遅延等のために
-     * dt を受け取る noexcept fn として予約している。
-     * @param dt 前フレームからの経過秒。
+     * 現在は時間経過による自動遷移を行わない。
      */
     void Tick(f32 dt) noexcept;
 
@@ -66510,17 +63144,17 @@ private:
     /** 登録済みステップ列。 */
     TArray<FTutorialStep> m_Steps;
 
-    /** 現在のステップインデックス。 */
+    /** 現在のステップ番号。 */
     u32                 m_CurrentStep = 0;
 
-    /** 走行中フラグ。 */
+    /** 進行中なら true。 */
     bool                m_Active       = false;
 
-    /** 完了済みフラグ。 */
+    /** 完了済みなら true。 */
     bool                m_Completed    = false;
 };
 
-/** 旧名を使う既存コード向けの一時的な互換別名。 */
+/** 旧公開名を維持する互換別名。 */
 using FTutorialFlow = CTutorialFlow;
 
 } // namespace acs::game
@@ -66755,49 +63389,6 @@ using FSceneTimer = CSceneTimer;
 
 // ===================== gameframework/PrefabSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J — CPrefabSystem
-//
-// 名前付きの ANode ツリーテンプレート (= 「Prefab」) を関数ポインタファクトリ
-// として登録し、ID または名前から `acs::TObjectPtr<ANode>` を spawn する軽量
-// レジストリ。「アセットファイル」ではなく「ファクトリ関数」で表現する設計。
-//
-// 使い方:
-//   // 1) ファクトリ関数を書く (cpp 側で ANode の full type を include する)
-//   static acs::TObjectPtr<acs::game::ANode> SpawnEnemy(void* /*user*/) noexcept {
-//       auto n = acs::NewObject<acs::game::ANode>();
-//       // 子ノード / コンポーネント / 初期値 ... を組み立てる
-//       return n;
-//   }
-//
-//   // 2) 登録
-//   CPrefabSystem prefabs;
-//   FPrefabId enemy_id = prefabs.Register("Enemy", &SpawnEnemy);
-//
-//   // 3) spawn (AScene 側からは ID 経由 / Mod 側からは名前経由 が想定)
-//   auto a = prefabs.Spawn(enemy_id);
-//   auto b = prefabs.SpawnByName("Enemy");
-//
-// 設計選択 (Pillar J):
-//   ・**`std::function` 不使用 / 関数ポインタ + `void* user_data`**: ACS 規約
-//     (STL 不使用、heap 割り当てなしの callback)。closure を渡したい場合は
-//     呼び出し側が context 構造体を `user_data` 経由で寄越す。
-//   ・**`<string>` 禁止 / `const char*` で受ける**: 文字列の所有権はクライアント
-//     側 (string literal か、別途寿命管理された永続バッファ)。CPrefabSystem は
-//     ポインタを保管するだけで複製しない。これを忘れた使用は文字列が dangling
-//     になり得るので、コメントで強く注意する。
-//   ・**24bit idx + 8bit gen の packed handle**: `FNodeId` / `FShapeId` と完全に
-//     同パターン。Unregister 後の slot 再利用で生まれる stale handle 検出に
-//     generation を 1〜255 で循環させる (0 は「未使用 slot」予約)。
-//   ・**slot 0 を invalid 予約**: `FPrefabId{}` (= packed == 0) がそのまま
-//     IsValid() == false になる。Register 時に必ず index >= 1 を返す。
-//   ・**線形走査の `TArray<FPrefabEntry>`**: 想定登録件数は数十〜数百 (1 タイトル
-//     の prefab 数)、Register/Find は load 時に集中して走るので O(N) で十分。
-//     ハッシュ化は実用上ボトルネックになった時点で検討。
-//   ・**ANode は forward declare**: `TObjectPtr<ANode>` のメンバ宣言には full
-//     type は不要 (TObjectPtr の宣言上の forward 互換、`.cpp` 側は触らない)。
-//     factory 関数の中身は呼び出し側 cpp が `ANode.h` を include する責務。
-//   ・**非コピー / 非ムーブ**: 登録された factory ポインタを別所有者に渡す事故
-//     を排除。プロジェクト中 CPrefabSystem は通常 AScene/CGame に 1 個。
 
 
 namespace acs::game {
@@ -67025,51 +63616,6 @@ using FPrefabSystem = CPrefabSystem;
 
 // ===================== gameframework/LocalizationDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework localization — CLocalizationDirector (i18n 文字列辞書)
-//
-// 「ロケール + 文字列 ID」を「翻訳済みの const char*」に解決する小型ストア。
-// UI ラベル / セリフ / メニュー文言 / エラーメッセージ等を、ゲームロジックから
-// 言語非依存に引けるようにする。出荷タイトルの多言語対応で必要になる完成度
-// パーツの 1 つ。
-//
-// 使い方:
-//   CLocalizationDirector loc;
-//   英語のタイトルを登録: loc.RegisterString(ELocale::En, "ui.title", "Star Adventure");
-//   loc.RegisterString(ELocale::Ja, "ui.title",      "星の冒険");
-//   loc.RegisterString(ELocale::En, "ui.start",      "Start");
-//   loc.RegisterString(ELocale::Ja, "ui.start",      "はじめる");
-//
-//   loc.SetLocale(ELocale::Ja);
-//   const char* title = loc.Get("ui.title");   // -> "星の冒険"
-//   const char* miss  = loc.Get("ui.missing"); // -> "ui.missing" (key 自身)
-//
-// 設計選択 (簡素優先):
-//   ・**ロケール固定セット**: enum で 11 言語 + Default(=En) を最初から並べておく。
-//     市場想定 (日本インディーが世界に出すとき) で英・日・繁中・簡中・韓・仏・独・
-//     西・葡・露・伊 が現実的なカバレッジ。将来言語追加は enum 末尾に append、
-//     Default = En はそのまま (バイナリ互換目的)。
-//   ・**key / value とも const char* 非所有**: ACS の STL 禁止方針 + 文字列ストア
-//     導入を避けるため、key と value の寿命は呼び出し側が保証する (リテラル or
-//     長寿命バッファ前提)。短命バッファ渡しが dangling になる点は要注意。
-//   ・**3 段フォールバック**: Get(key) は
-//        現 locale で検索 → 無ければ Default(En) で検索 → それでも無ければ key 自身を返す
-//     最後の「key 自身を返す」は開発中に未翻訳箇所を画面で発見しやすくするための
-//     ガード (空文字や nullptr を返すと UI 側で別の null チェックが必要になる)。
-//   ・**線形探索**: 文字列 ID は通常 100〜2000 のオーダー、locale 切替は起動時 +
-//     設定変更時のみで頻発しないため、線形走査で十分。数千 key 規模になったら
-//     THashMap 化を検討する。
-//   ・**コピー / ムーブ禁止**: localization は通常 1 セッション 1 オブジェクトで
-//     運用される。誤って値渡しされて分裂すると翻訳ずれを検知しづらいため、
-//     最初から非コピー・非ムーブで固定する。
-//   ・**全 noexcept**: 例外不使用方針 (TResult<T,E> + bool 戻り値)。
-//
-// 範囲外:
-//   ・format 引数展開 ("Score: {0}" の {0} 置換)。`Sprintf`/`Format` 層を別途用意する想定。
-//   ・複数形 (plural rules) / 性別 (gender) / ICU MessageFormat 相当
-//   ・右から左 (RTL) レイアウト判定 (UI 描画層の責務)
-//   ・フォントフォールバック (CJK / Cyrillic / Arabic 等のグリフセット切替)
-//   ・永続化 / シリアライズ (保存 adapter から loc.json 等を流し込む)
-//   ・PO/MO/CSV からの自動取り込み (ツール側で RegisterString 列に変換する想定)
 
 namespace acs::game {
 
@@ -68385,84 +64931,6 @@ private:
 
 // ===================== gameframework/Progression.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — CProgression (XP / Level / Milestones / Unlocks)
-//
-// 「累計 XP を加算するとレベルが上がり、所定の XP 閾値を越えると Milestone を
-// 達成 → コンテンツが Unlock される」というジャンルを問わず広く使われる進行
-// システムを 1 クラスにまとめた小型マネージャ。
-//
-// 想定する位置付け:
-//   ・Pillar S (CAchievementManager) との違い:
-//     - Achievement は「最終的に解除/未解除の 2 値フラグ」を管理する SDK 連動装置。
-//       Storefront 配信プラットフォームへ片方向送信する責務まで含む。
-//     - CProgression は「累積 XP に対してレベルとマイルストーンが線形に増える」
-//       純粋にゲーム内で完結する進行カウンタ。プラットフォーム SDK には依存しない。
-//   ・Unlock 連携:
-//     - 各 FMilestoneDef に `unlock_content_id` を持たせる。CProgression 自身は
-//       コンテンツ解放の実体を持たず、達成時に MilestoneCallback でゲーム側へ通知する。
-//       受け取った側が CEntitlementRegistry / ContentManager / CAchievementManager
-//       に橋渡しする責務。
-//
-// 使い方:
-//   CProgression p;
-//
-//   // 起動時にゲーム側でマイルストーンを 1 度ずつ登録。
-//   p.RegisterMilestone({ "ms.level_5",  "Lv.5 到達",   31,   "content.weapon_b" });
-//   p.RegisterMilestone({ "ms.level_10", "Lv.10 到達",  1023, "content.area_2"   });
-//   p.RegisterMilestone({ "ms.veteran",  "Veteran",     16383,"content.title_x"  });
-//
-//   // (任意) 達成時 callback を登録。ゲーム側で SE 再生・トースト UI 等。
-//   p.SetOnAchievedCallback(&OnMilestoneAchieved, /*user*/ &game);
-//
-//   // ゲームプレイ中の XP 加算 (敵撃破・クエスト完了・収集物等で呼ぶ)。
-//   p.AwardXp(50);
-//   p.AwardXp(20);
-//
-//   // UI 表示。
-//   u32 lv  = p.CurrentLevel();
-//   u32 xp  = p.CurrentXp();
-//   u32 cur = p.AchievedCount();
-//   u32 tot = p.MilestoneCount();
-//
-// 設計選択:
-//   ・**累計 XP は u32**:
-//     - 64bit にする必要があるほど一回のセッションで XP を稼ぐタイトルは稀。
-//       u32 max = 約 42 億で実用上の上限を遥かに超える。オーバーフロー時は
-//       max にクランプする (足し算サイレントラップを避ける)。
-//   ・**レベル計算は floor(log2(xp + 1))**:
-//     - 単純な log2 ベース計算なので、初期は急成長 → 中盤以降は緩やかに、という
-//       典型的な RPG 風カーブを近似できる。+1 補正で xp=0 のとき level=0 になる。
-//     - 浮動小数 log2 を使わず、整数ビット走査で算出 (.cpp 側のループ実装で
-//       プラットフォーム非依存)。
-//     - XP <= 0 → Level 0、XP=1 → Level 1、XP=3 → 2、XP=7 → 3、XP=15 → 4、…
-//     - 必要なら将来 `SetLevelCurve(callback)` で差し替え可能だが、今は YAGNI。
-//   ・**FMilestoneDef / FMilestoneState を別配列で持つ**:
-//     - CAchievementManager と同じ pattern。Def は immutable な定義 (id /
-//       display_name / required_xp / unlock_content_id)、FMilestoneState は実行時の
-//       達成状態 (id / achieved / achieved_timestamp)。1:1 対応で同 index を共有。
-//   ・**所有しない const char***:
-//     - id / display_name / unlock_content_id は呼出側 (ゲームコード or リソース
-//       バンドル) が保証する static lifetime の文字列リテラルを想定。
-//       CProgression 側ではコピーしない (STL <string> 禁止方針)。
-//   ・**重複登録は黙って弾く**:
-//     - 同 id を 2 度 RegisterMilestone しても 2 回目は no-op。
-//       他 Manager 系 (CEntitlementRegistry / Achievement) と同じ防御方針。
-//   ・**線形検索**:
-//     - Milestone 件数は 1 タイトルで通常 10〜100 程度。TArray<T> の per-byte
-//       文字列比較 + 線形走査で十分。
-//   ・**MilestoneCallback は関数ポインタ + user data**:
-//     - CTriggerWorld2D / CSceneTimer と同じ pattern。`std::function` は STL 禁止
-//       方針で使えないので、`void(*)(void*,...)` で固定。1 種類のみ (達成時)
-//       なので命名は `MilestoneCallback`。
-//   ・**全 noexcept、非コピー・非ムーブ**:
-//     - 他 Manager 系と統一。誤って値渡しされて進捗が分裂すると検知し辛い。
-//   ・**STL 不使用、`<string>` 禁止**:
-//     - ACS 全体方針。文字列は const char* 非所有のみ。
-//
-// 範囲外:
-//   ・XP 倍率・経験値テーブル差し替え (今はハードコード log2 ベース)
-//   ・SDK 統合 (Steamworks 等は CAchievementManager 側で扱う)
-//   ・seasonal reset / prestige system (別 API として追加検討)
 
 
 namespace acs::game {
@@ -68974,51 +65442,6 @@ private:
 
 // ===================== gameframework/Perception.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — CPerception (NPC sight / hearing sense)
-//
-// NPC が複数 target (player / 他の NPC / 音源等) を「視覚」「聴覚」で
-// 検知できるかを判定するための最小モジュール。CBehaviorTree の leaf や
-// blackboard の値ソースとして使う想定で、本体は単純な幾何判定の集約。
-//
-// 視覚判定 (sight):
-//     distance(eye, target) <= sight_range
-//     AND  dot(forward, normalize(target - eye)) >= cos(sight_fov_rad / 2)
-//
-//   ・前者が距離フィルタ、後者が "視野角内" フィルタ。両方満たした時のみ visible。
-//   ・forward は SetEyePos で渡された正規化済み向きを保持。
-//   ・target が eye と完全同位置 (距離 0) の場合は方向が定義できないため
-//     visible 扱いとする (= 自分の足下に target がいるケースをロストしない)。
-//
-// 聴覚判定 (hearing):
-//     distance(eye, target) <= hearing_range
-//
-//   ・障害物無視 (壁ごしも聞こえる)。raycast による occlusion は未対応。
-//   ・視野角に依存しない 360 度判定。
-//
-// 設計選択:
-//   ・target は `acs::TArray<FPerceptionTarget>` で線形管理。
-//     N が小さい想定 (1 NPC あたり数〜数十 target) なので hash map 不要。
-//     RemoveAtSwap で順序非保証の高速削除。
-//   ・cos(fov/2) は SetConfig 呼び出し時に 1 回だけ計算してキャッシュ。
-//     Tick の hot path に Cos を入れない。
-//   ・visible / audible は Tick 内でまとめて更新し、結果を FPerceptionTarget に
-//     書き戻す。これにより IsTargetVisible / IsTargetAudible は O(N) lookup。
-//   ・非コピー・非ムーブ — AScene / Actor のメンバとして固定の場所に置く想定。
-//   ・全 noexcept、STL 不使用。
-//
-// 使い方:
-//   acs::game::CPerception perc;
-//   acs::game::FSenseConfig cfg;
-//   cfg.sight_range   = 10.0f;
-//   cfg.sight_fov_rad = acs::kPi * 0.5f;   // 90 度
-//   cfg.hearing_range = 5.0f;
-//   perc.SetConfig(cfg);
-//
-//   perc.AddTarget(/*id=*/1, acs::FVec2{ 3.0f, 0.0f });
-//   perc.SetEyePos(acs::FVec2{ 0.0f, 0.0f }, acs::FVec2{ 1.0f, 0.0f });   // +X 向き
-//   perc.Tick(/*dt=*/0.016f);
-//
-//   if (perc.IsTargetVisible(1)) { /* 視認した */ }
 
 
 namespace acs::game {
@@ -69214,108 +65637,6 @@ using FPerception = CPerception;
 
 // ===================== gameframework/SeasonPass.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — CSeasonPass (Battle Pass / Season tracker)
-//
-// 期間限定シーズン (Battle Pass) の定義 + 累積 XP に対する tier 進行 + tier 報酬の
-// 請求状態を 1 クラスにまとめた小型マネージャ。シーズン開始 / 終了は wall-clock
-// timestamp で持ち、Tick(dt) によって `Active → Ended` の自動遷移を行う。
-//
-// 倫理方針 (重要):
-//   ・本クラスが扱う報酬は **cosmetic のみ** を強く推奨する。装備性能・ダメージ
-//     倍率等、ゲームプレイ核心に影響する報酬を Premium tier に置く設計は
-//     pay-to-win に直結し、ACS としては明示的に反対する立場 (Entitlement.h の
-//     方針を継承)。loot box (中身がランダムで対価が確率に依存する仕組み) も
-//     倫理的に拒絶しており、本 API には乱数要素を一切持たせない (= 払うと
-//     必ず指定の cosmetic が得られる、固定 tier 方式に限定)。
-//   ・CSeasonPass 自体には強制機構を置かないが、`reward_id_*` は cosmetic 系
-//     entitlement / unlock を指すよう設計時に揃えること。
-//
-// 想定する位置付け:
-//   ・Pillar O (CEntitlementRegistry) との違い:
-//     - CEntitlementRegistry は「持っているかどうか」の権利フラグを保持する受動レジストリ。
-//     - CSeasonPass は「期間内に xp を稼ぐと tier が上がり、各 tier の報酬を請求
-//       できる」進行 + claim 状態の能動マネージャ。報酬 ID は entitlement 側に
-//       橋渡しする想定 (本クラスは ID を吐き出すだけ)。
-//   ・Pillar O (CProgression / CAchievementManager) との違い:
-//     - CProgression は「永続レベル / 累積 milestone」を扱う、シーズンを跨いだ進行。
-//     - CAchievementManager は「永続実績」を扱い、SDK と双方向。
-//     - CSeasonPass は「シーズン (start/end timestamp) で区切られたリセット可能な
-//       進行」を扱う。シーズン切替で完全リセットされる想定。
-//
-// 使い方:
-//   CSeasonPass sp;
-//
-//   FSeasonInfo info;
-//   info.season_id        = "season.spring_2026";
-//   info.display_name     = "Spring 2026";
-//   info.start_timestamp  = 1'748'736'000ull;        // 2026-06-01 (Unix seconds)
-//   info.end_timestamp    = 1'756'598'400ull;        // 2026-08-31
-//   info.max_tier         = 50;
-//   sp.StartSeason(info);
-//
-//   // 起動時にゲーム側で tier を定義 (xp 閾値で並び、tier_index は 0..max_tier-1)。
-//   sp.DefineTier({ 0, 100,  "cosmetic.frame_basic_t00", "cosmetic.skin_premium_t00" });
-//   sp.DefineTier({ 1, 250,  "cosmetic.frame_basic_t01", "cosmetic.skin_premium_t01" });
-//   // ...
-//
-//   // (任意) プレミアムパス購入が確定したら通知。CEntitlementRegistry 側で課金検証する。
-//   sp.SetPremiumPass(true);
-//
-//   // ゲームプレイ中の xp 加算 + 毎フレームの時刻更新。
-//   sp.AwardXp(50);
-//   sp.Tick(dt_seconds);
-//
-//   // UI で claimable を表示。
-//   if (sp.ClaimableCount() > 0) ShowSeasonRewardBadge();
-//
-//   // プレイヤーが UI から請求。
-//   if (sp.ClaimReward(/*tier_index*/ 0, /*premium*/ false)) {
-//       // 新規 claim 成功 → entitlement 側に reward_id を追加
-//       entitlement.Add({ sp.GetRewardId(0, false), EEntitlementKind::CosmeticPack, true });
-//   }
-//
-// 設計選択:
-//   ・**FTier は事前定義型 (固定 reward_id)**: 乱数 / loot box を避けるため、tier
-//     ごとに free 報酬 ID と premium 報酬 ID を 1 つずつ静的に持つ。両方とも
-//     nullptr 可 (= その tier には該当ストリームの報酬がない、例: free のみ tier)。
-//   ・**tier_index は 0-origin で連続**: DefineTier(t) は t.tier_index を一意な
-//     インデックスとして扱う。重複 index は黙って弾く (no-op + WARN)。
-//     xp_threshold は単調増加であることが期待されるが、本クラスは強制しない
-//     (呼出側の責務)。
-//   ・**xp は u32 累積**: CProgression と同じ pattern。オーバーフロー時は max クランプ。
-//   ・**CurrentTier() は xp_threshold ベースの線形走査**: tier 件数は通常 50〜100
-//     のオーダーなので二分探索化は不要。`xp >= threshold` を満たす最大 tier_index
-//     を返す (どれも満たさなければ ~0u = 「未到達」)。
-//   ・**claim 状態は Def と並行 TArray**: FClaimState{ tier_index; free_claimed;
-//     premium_claimed } を FTier 定義と 1:1 で持つ。`bool` 2 つで Pillar S
-//     FAchievementProgress と同じ Def/State 分離設計を踏襲。
-//   ・**status は (start/end timestamp) と現在時刻の比較**:
-//       NotStarted: now < start_timestamp
-//       Active:     start_timestamp <= now < end_timestamp
-//       Ended:      now >= end_timestamp
-//     現在時刻は内部カウンタ `m_CurrentTime` で保持し、Tick(dt) で増分。
-//     StartSeason 時に `m_CurrentTime = start_timestamp` で初期化する設計 (Tick
-//     呼出が始まる前は「ちょうど開始時刻」と仮定)。f32 dt は秒として扱い、
-//     timestamp 単位も「秒」として一貫させる (呼出側責務 — UTC seconds since epoch
-//     を渡すのが典型)。
-//   ・**ClaimReward は冪等 + bool 返し**: 既請求 tier に再 claim しても false (新規でない)。
-//     未到達 tier への claim も false。新規請求が成功したときだけ true。
-//   ・**ClaimableCount は未請求の解放済 reward の合算**: free / premium 両方を
-//     カウント (premium pass 未所持なら premium 分は除外)。シーズン UI で
-//     「赤バッジ何個」表示に使う。
-//   ・**EndSeason は手動終了用**: timestamp 経過を待たずにシーズン完了させたい
-//     管理者操作 / デバッグ用。`m_CurrentTime = end_timestamp` を強制する。
-//   ・**永続化は範囲外**: CProgression と同じく、Save/Load は現状
-//     未実装。Pillar J Serialize 統合後に追加する。
-//   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
-//   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
-//
-// 範囲外:
-//   ・永続化 (Save/Load) — Pillar J Serialize と統合
-//   ・サーバ側 claim 検証 — Pillar V Backend Services に委譲
-//   ・ストア連携 (premium pass 購入トランザクション) — Pillar S Storefront に委譲
-//   ・複数シーズンの同時進行 / 履歴保持 — シーズンは「現在の 1 つ」のみを扱う
-//   ・wall-clock の自動取得 — 現在時刻は呼出側が timestamp で渡し、Tick で増分させる
 
 
 namespace acs::game {
@@ -69593,69 +65914,6 @@ using FSeasonPass = CSeasonPass;
 
 // ===================== gameframework/VoiceChat.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — VoiceChat (Steam Voice / EOS Voice / Vivox / Discord / Opus seam)
-//
-// 役割:
-//   パーティ / チーム / 全体チャンネルに対するボイスチャットの「シーム」インター
-//   フェース。実プロバイダは Steam Voice / EOS Voice / Unity Vivox / Discord
-//   CGame SDK / Opus self-host のいずれでも良く、ゲーム側コードは `IVoiceChatBackend`
-//   経由でのみ参加者管理 / ミュート / 音量を扱う。SDK 統合はビルド時の選択で
-//   差し替える。
-//
-// 使い方 (典型例):
-//   class CGame {
-//       acs::game::IVoiceChatBackend* m_Voice = nullptr;
-//
-//       void OnStart() noexcept override {
-//           // 出荷ビルドでは Vivox/Discord/Steam Voice 実装を DI、開発ビルドは Stub。
-//           m_Voice = &acs::game::GetVoiceStub();
-//           (void)m_Voice->Init(acs::game::EVoiceProvider::None);
-//       }
-//       void OnPartyJoined() noexcept {
-//           (void)m_Voice->JoinChannel(acs::game::EVoiceChannel::Party, "party-1234");
-//       }
-//       void OnTick(f32 dt) noexcept override {
-//           m_Voice->Tick(dt);  // audio level 取得 / 発言検出 pump
-//       }
-//   };
-//
-// 設計選択 (Pillar T):
-//   ・**シーム (= 純粋仮想 I/F) として抽象化**: Vivox / Discord / Steam Voice 各 SDK
-//     はライセンスもバイナリサイズも大きく、本体に直接リンクできない。ヘッダだけは
-//     常に提供し、実装は別モジュール (将来の `acs_voice_vivox` / `acs_voice_discord`
-//     等) で `IVoiceChatBackend` を override する形を取る。
-//   ・**プロバイダは enum で表現**: 同時に複数バックエンドが共存する稀ケース
-//     (Steam Voice + Discord overlay) は扱わず、`Init(EVoiceProvider)`
-//     で 1 個を選んで初期化する。`ActiveProvider()` で取得可能。
-//   ・**チャンネルは 4 種類固定**: Party / Team / Global / Custom。最初の 3 つは
-//     ゲームロジック共通の意味論を持たせ、Custom は SDK 固有の追加チャンネル用
-//     (raid voice / region voice / dev チャット等)。
-//   ・**所有しない const char***: 文字列 (user_id / display_name / channel_id) は
-//     呼び出し側 / SDK のライフタイムに従い、Bridge はコピーしない (STL <string>
-//     不使用方針)。`GetParticipant` の戻り値は「次の Tick まで有効」と扱うこと。
-//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は全 API で
-//     `ACS_ERR(Generic, kSubVoiceNotImplemented, ...)` を返す。
-//   ・**コピー / ムーブ禁止**: backend は通常 1 個の長寿命オブジェクトで運用。
-//     誤コピーで SDK ハンドルが二重解放されると詰むため最初から非コピー・非ムーブ。
-//   ・**Tick(dt) は必須**: Vivox の `Update3DPosition()` 相当 / Discord の event pump
-//     を Backend 側に畳み込む。ゲーム側は dt を毎フレーム渡すだけで、コールバック
-//     ポンプの存在を意識しなくて良い。
-//   ・**Stub は static singleton**: 依存ゼロのデフォルト実装として `GetVoiceStub()`
-//     を提供。実 SDK 未統合のビルドでも `m_Voice = &GetVoiceStub();` だけでコンパイル可能。
-//
-// 倫理 / 安全方針:
-//   ・**moderation は別モジュール**: 文字起こしによる NG ワード判定 / 通報導線は
-//     `CSocialModeration` (別 Pillar) が担当。本 system は技術的な mute/volume 管理のみ。
-//   ・**under-18 のデフォルト**: 未成年アカウントが既知の場合、呼び出し側で
-//     `SetLocalMute(true)` をかぶせる想定。本 system はフラグを持たず強制機構なし
-//     (プラットフォームごとに年齢推定 API が異なるため一律ルール化が危険)。
-//
-// 範囲外:
-//   ・push-to-talk / VAD threshold 設定 / 3D ポジショナルボイス座標更新 API。
-//   ・録音 / 文字起こし (Pillar U AI 経由 STT)。
-//   ・音声エフェクト (ボイスチェンジャー / ノイズリダクション設定)。
-//   ・テキストチャット (別モジュール)。
-//   ・各 SDK 固有の advanced API (Vivox の transmit policy 等)。
 
 
 namespace acs::game {
@@ -69664,9 +65922,8 @@ namespace acs::game {
  * Stub による未実装 (仕様準拠) を表す FErrorCode subcode。
  *
  * @details
- * ISteamworksBridge と同様、Foundation の EErrCategory enum を増やさず Generic +
- * 安定 subcode で表現する。呼び出し側は `err.subcode == kSubVoiceNotImplemented`
- * でフィルタ可能。
+ * 未実装状態は Generic category と安定 subcode の組で表現する。呼び出し側は
+ * err.subcode == kSubVoiceNotImplemented で判別できる。
  */
 inline constexpr u16 kSubVoiceNotImplemented = 99;
 
@@ -69792,16 +66049,16 @@ struct FVoiceFrameHeader {
     /** payload の int16 サンプル数。 */
     u32 sample_count = 0;
 
-    /** codec id / channel 用の予約フィールド (現状 0)。 */
+    /** codec id / channel 用の予約フィールド。値は 0 で保持する。 */
     u32 reserved     = 0;
 };
 
 /**
- * 各 SDK の差を吸収するボイスチャット backend の純粋仮想インターフェース。
+ * EVoiceProvider で選択した音声 backend の純粋仮想インターフェース。
  *
  * @details
- * Steam Voice / EOS Voice / Vivox / Discord / OpusSelf の差を吸収する。実装は
- * 本体外モジュール (or テスト) で override する。
+ * EVoiceProvider で選択した音声 backend の差を吸収する。具象実装は本体外モジュールで
+ * 提供する。
  */
 class IVoiceChatBackend {
 public:
@@ -69870,7 +66127,7 @@ public:
     /**
      * 自分のマイクをローカル側でミュート / 解除する。
      *
-     * @details 送信を止めるかどうかは実装依存 (Vivox はミュート時も local capture を続けるが送信を停止)。
+     * @details 送信停止と local capture 継続の組み合わせは具象 backend が決定する。
      * @param muted true でミュート、false で解除。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
@@ -69914,15 +66171,15 @@ public:
     virtual TResult<FVoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index) noexcept = 0;
 
     /**
-     * コールバック / 状態更新ポンプ (ゲームループから毎フレーム呼ぶ)。
+     * 1 frame 分の callback と provider 状態を更新する。
      *
-     * @details Vivox の Update3DPosition / Discord の event pump / VAD threshold 監視を Backend 側に畳み込む。
+     * @details provider 固有の 3D 位置更新、event 処理、発話検出を backend 側にまとめる。
      * @param dt 実時間秒 (実装によっては使わない)。
      */
     virtual void Tick(f32 dt) noexcept = 0;
 
     /**
-     * ローカルマイク相当の int16 PCM フレームを 1 つ push する (push 型 capture)。
+     * ローカルマイクから得た int16 PCM フレームを 1 つ push する (push 型 capture)。
      *
      * @details
      * 実 SDK backend はマイク捕捉/再生を SDK 内部で行うため override せず、既定実装は
@@ -69978,12 +66235,12 @@ public:
 };
 
 /**
- * SDK 未統合ビルド / ユニットテスト用の no-op backend 実装。
+ * 外部 backend 未接続時に使用する no-op backend 実装。
  *
  * @details
  * Init() は受け取った provider を記録するが操作系 API は全て
  * ACS_ERR(Generic, kSubVoiceNotImplemented, ...) を返し、IsAvailable() は常に false。
- * Shutdown() / Tick() は副作用なし。ISteamworksBridge と違い「未実装」を強調する。
+ * Shutdown() / Tick() は副作用を持たない。
  */
 class CVoiceChatBackendStub final : public IVoiceChatBackend {
 public:
@@ -70094,10 +66351,10 @@ private:
 };
 
 /**
- * Stub backend の static singleton アクセサ (Meyer's singleton)。
+ * process 共有 Stub backend の accessor。
  *
  * @details
- * 実 SDK 実装が DI される前のデフォルト。ISteamworksBridge::GetStub() と同じパターン。
+ * 具象 backend が登録される前の既定値として共有 Stub を返す。
  * @return 共有 Stub backend への参照。
  */
 IVoiceChatBackend& GetVoiceStub() noexcept;
@@ -70106,10 +66363,10 @@ IVoiceChatBackend& GetVoiceStub() noexcept;
  * SDK 非依存で実際に音声フレームを往復させる in-process ループバック backend。
  *
  * @details
- * Vivox 等の外部 SDK をリンクできない / したくないビルドでも、同一プロセス内で
+ * 外部 backend を接続しない構成でも、同一プロセス内で
  * PushLocalFrame(A) → encode(framing) → A 以外の全参加者の受信キュー → decode
  * → per-participant gain/mute → N-way mix(sum+clamp) → PumpMixedOutput(B) を
- * 成立させる。ネットワークは使わず純粋に in-process なので決定的でユニットテスト可能。
+ * 成立させる。ネットワークを使わないため処理結果は決定的になる。
  * 各チャンネル (Party/Team/Global/Custom) は独立した参加者テーブル + per-user 受信
  * キューを持ち、index 0 の participant をローカルユーザ (= 自分) として扱う。
  */
@@ -70296,7 +66553,7 @@ public:
     f32 LocalAudioPeak() const noexcept { return m_LastLocalPeak; }
 
     /**
-     * 指定参加者の受信キューに溜まっているフレーム数を返す (テスト検証用)。
+     * 指定参加者の受信 queue に保持する未処理 frame 数を返す。
      *
      * @param ch 対象チャンネル種別。
      * @param user_id 対象 user_id。
@@ -70305,7 +66562,7 @@ public:
     u32 PendingFrameCount(EVoiceChannel ch, const char* user_id) noexcept;
 
     /**
-     * int16 PCM を framed バイト列に encode する (ユニットテストから直接叩ける)。
+     * int16 PCM を検証済み header 付き framed バイト列へ encode する。
      *
      * @details out は header(16B) + sample_count*2 byte 必要。
      * @param pcm 入力 int16 PCM (sample_count 個、非所有)。
@@ -70464,39 +66721,6 @@ using FVoiceChatLoopbackBackend = CVoiceChatLoopbackBackend;
 
 // ===================== gameframework/TypeInfo.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J — TTypeInfo
-//
-// RTTI 不使用の最小反射 (reflection)。シリアライザ / インスペクタ / デバッガ
-// などが「フィールド名 / 型名 / オフセット / サイズ」を知るための最小限の
-// メタ情報を、コンパイル時に生成する。
-//
-// 使い方:
-//   struct FPlayerState {
-//       acs::f32 x;
-//       acs::f32 y;
-//       acs::i32 hp;
-//   };
-//
-//   // (ヘッダ末尾、グローバル空間で)
-//   ACS_GAME_REFLECT(FPlayerState,
-//       ACS_GAME_FIELD(FPlayerState, x,  "f32"),
-//       ACS_GAME_FIELD(FPlayerState, y,  "f32"),
-//       ACS_GAME_FIELD(FPlayerState, hp, "i32"))
-//
-//   // 取得:
-//   const auto& ti = acs::game::Reflect<FPlayerState>();
-//   for (acs::u32 i = 0; i < ti.field_count; ++i) {
-//       const auto& f = ti.fields[i];
-//       // f.name / f.type_name / f.offset / f.size を使う
-//   }
-//
-// 設計選択:
-//   ・RTTI / <typeinfo> 不使用。型 ID は AppState / AComponent と同じ
-//     「template static int のアドレス」パターン (`TypeTag<T>()`)。
-//   ・ヘッダオンリ。`TTypeInfo<T>` の特殊化に static const FFieldInfo[] を持ち、
-//     `Reflect<T>()` から FTypeInfoBase の static 参照を返す。
-//   ・default `TTypeInfo<T>` は「未反射」を表す空特殊化 (field_count == 0)。
-//   ・依存は foundation/Types.h + <cstddef> (offsetof) のみ。STL 不使用。
 
 
 #include <cstddef>   // offsetof
@@ -70547,8 +66771,7 @@ struct FTypeInfoBase {
  * 型 T の一意 ID (static int のアドレス) を返す。
  *
  * @details
- * AppState / AComponent と同じパターン。RTTI 不使用で、各 T のインスタンス化ごとに
- * 別 instantiation = 別アドレスになる。
+ * RTTI を使わず、各 T のインスタンス化ごとに異なる static object のアドレスを返す。
  * @tparam T ID を取得する型。
  * @return 型 T を一意に識別する不透明ポインタ。
  */
@@ -70643,8 +66866,8 @@ inline const FTypeInfoBase& Reflect() noexcept {
  * 型 T を反射するマクロ。
  *
  * @details
- * TReflectedFields<T> と TTypeInfo<T> の特殊化を生成する。template 特殊化のため
- * グローバル名前空間で呼ぶこと。
+ * TReflectedFields<T> と TTypeInfo<T> の特殊化を生成する。グローバル名前空間
+ * 以外で展開すると、正しい template 特殊化を生成できない。
  * @param T 反射する型。
  * @param ... ACS_GAME_FIELD で生成した FFieldInfo 初期化子の可変長リスト。
  */
@@ -71313,57 +67536,6 @@ using FHotReloadWatcher = CHotReloadWatcher;
 
 // ===================== gameframework/PerfBudget.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework meta — CPerfBudget (CPU/メモリ予算追跡)
-//
-// フレーム時間 (ms) とメモリ確保量 (bytes) の **予算超過追跡**を行う state holder。
-// カテゴリ単位で予算を定義し、毎フレーム実測値を記録 → 集計し、各カテゴリ・フレーム
-// 全体の超過状態を問い合わせ可能にする。実 UI 描画 (CDebugOverlay / ImGui /
-// `acs::easy::DrawString` 等) は呼出し側責務。
-//
-// 使い方:
-//   acs::game::CPerfBudget m_Budget;
-//   void OnInit() noexcept {
-//       m_Budget.SetFrameBudget(16.67f);                // 60fps
-//       m_Budget.DefineCategory("Render", 8.0f, 64u*1024u*1024u);
-//       m_Budget.DefineCategory("AI",     2.0f, 16u*1024u*1024u);
-//       m_Budget.DefineCategory("Audio",  1.0f,  8u*1024u*1024u);
-//   }
-//   void OnFrame(f32 dt) noexcept {
-//       m_Budget.BeginFrame();
-//       // ... 各システムが計測スコープ末尾で RecordTimeMs / RecordMemoryAlloc を呼ぶ
-//       m_Budget.RecordTimeMs("Render", render_elapsed_ms);
-//       m_Budget.RecordMemoryAlloc("Render", bytes_allocated_this_frame);
-//       m_Budget.EndFrame();
-//       if (m_Budget.IsOverBudget("Render")) { /* 警告表示 */ }
-//   }
-//
-// 設計選択 (GameFramework meta):
-//   ・**state holder のみ**: 計測 (QueryPerformanceCounter / IAllocator hook 等) は
-//     呼出し側責務。本クラスは値の保持・集計・予算判定だけを行う。
-//   ・**category は line-key 検索**: `const char*` を pointer 同一 → strcmp の順で
-//     線形走査。CDebugOverlay watches と同じ規約。category 数は通常 10〜50 程度を想定
-//     し、O(N) 走査で十分高速。
-//   ・**frame 履歴**: 直近 60 frame の合計 ms 値を循環バッファで保持。AverageFrameMs
-//     は履歴の算術平均、LastFrameMs は最新値。CDebugOverlay と同じパターン。
-//   ・**spent_ms は BeginFrame でリセット、spent_bytes は累積**:
-//     - spent_ms は per-frame 時間なので 1 frame 単位で 0 リセット。
-//     - spent_bytes は (alloc / free) の差分累積 (現在保持中の合計)。EndFrame でも
-//       リセットしない。Free を呼ばないと永久に増え続ける = 想定通り (リーク検出に
-//       使う想定)。
-//   ・**フレーム合計超過判定**: EndFrame で 全 category の spent_ms 合計を取り、
-//     frame_budget_ms と比較。IsFrameOverBudget() で取得。frame_budget_ms <= 0 の
-//     場合 (未設定) は常に false。
-//   ・**Reset**: 全 category を削除し、frame 履歴もクリア。SetFrameBudget で設定
-//     した frame_budget_ms はリセットされない (頻繁に再定義する想定がない)。
-//   ・**非コピー・非ムーブ**: 履歴 / category 配列の所有権を曖昧にしないため。
-//   ・**STL 不使用**: `acs::TArray<FBudgetEntry>` / `acs::TArray<f32>` を使用。
-//     `<string>` 禁止。実装側で `<cstring>` (strcmp) のみ許可。
-//
-// 範囲外:
-//   ・スレッドセーフ (Record 系は 1 thread 前提。MT 計測は外側で集計してから注入)
-//   ・スコープガード `BudgetScope` (RAII で auto record)
-//   ・自動メモリトラッキング (Pillar A `IAllocator` hook 経由で alloc/free を自動記録)
-//   ・カテゴリ階層 ("Render/Shadow" "Render/Post" 等)
 
 
 namespace acs::game {
@@ -71576,68 +67748,6 @@ using FPerfBudget = CPerfBudget;
 
 // ===================== gameframework/SceneCommandQueue.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — CSceneCommandQueue (deferred command queue / editor 連携)
-//
-// 走査中 (OnUpdate / OnDraw) に発火された「シーン構造変更」等の要求をフレーム末
-// で順次実行するための遅延実行キュー。`CSceneManager` の `_ApplyPending` と同じ
-// 哲学 (= 走査中の構造変更を避け、安全なフレーム境界で適用する) を、より粒度の
-// 細かいコマンド単位に拡張したもの。editor から「ノード追加」「コンポーネント
-// 差し替え」等を OnUpdate のループ走査中に呼んでも、Flush 時に integrity を
-// 保ったまま適用される。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//       CSceneCommandQueue m_Cmds;
-//
-//       void OnUpdate(f32 dt) noexcept override {
-//           // 走査中に node 削除を要求しても安全 (Flush でまとめて実行)
-//           if (CInput::IsKeyPressed(EKey::Delete)) {
-//               m_Cmds.Enqueue("DeleteSelected", &AGameplayScene::DeleteSelected, this);
-//           }
-//           // 同 label が既にキュー上に居れば denounce (連打抑制)
-//           if (held) {
-//               m_Cmds.EnqueueIfAbsent("Refresh", &AGameplayScene::RefreshUi, this, /*priority=*/50);
-//           }
-//       }
-//       void OnDraw() noexcept override {
-//           // ImGui ボタン処理中などからも安全に enqueue できる
-//       }
-//
-//       // フレーム末に CGame / AScene 側で 1 回 Flush する。
-//       static void DeleteSelected(void* self) noexcept { /* ... */ }
-//       static void RefreshUi    (void* self) noexcept { /* ... */ }
-//   };
-//
-// 設計選択 (Pillar A polish):
-//   ・**deferred 実行**: 走査中の構造変更を避けるため、Flush までは実行しない。
-//     `CSceneManager` の pending op (1 個) と違い、複数 command を保持・優先度
-//     付きで順序付け実行する。
-//   ・**function pointer + void* user**: ACS 規約 (std::function 不使用、heap
-//     allocation / RTTI / 例外を持ち込まない)。
-//   ・**const char* label**: 文字列リテラル前提、本クラスは複製しない (CDebugOverlay
-//     の watch 列と同じ方針)。同一性比較は pointer 一致 → fallback で strcmp。
-//     `<string>` 禁止 (STL 不使用)。
-//   ・**priority 昇順実行**: 同 priority 内では Enqueue 順 (= 安定ソート)。
-//     editor からの "削除" → "再構築" のような順序依存を表現可能。
-//   ・**one_shot vs repeating**: Flush 後に one_shot は削除、repeating は残す。
-//     debug overlay の定期チェックや editor の continuous validation で使用。
-//   ・**EnqueueIfAbsent (denounce)**: 同 label の既存 command があれば no-op。
-//     入力連打 / リサイズイベント連発で同じ作業が積み上がるのを防ぐ。
-//   ・**Cancel**: label 一致の全 command を削除 (one_shot/repeating 両方)。
-//   ・**Flush 中の Enqueue 安全性**: CSceneEventBus と同じく、走査 size を最初に
-//     スナップショットして固定範囲のみ実行する。Flush 中に追加された command は
-//     次回 Flush で初めて実行される。Flush 中に同 slot が Add で再 alloc を
-//     起こしても、fn / user / one_shot を local にコピーしてから呼ぶことで安全。
-//   ・**非コピー・非ムーブ**: AScene にメンバとして埋め込む前提、所有権の
-//     ambiguity を持ち込まない。
-//   ・**STL 不使用 / 全 noexcept**: ACS 規約。`acs::TArray<FCommandRecord>` で持つ。
-//
-// 範囲外:
-//   ・スレッドセーフ (現状は同一スレッド前提、editor が別スレッドから enqueue する
-//     なら mutex を内蔵するか SPSC ring に置き換える必要あり)
-//   ・command 履歴 / undo (editor の undo stack は別レイヤで持つべき)
-//   ・cross-scene broadcast (CSceneEventBus と同じく AScene を越えるのは将来課題)
-
 
 namespace acs::game {
 
@@ -71789,81 +67899,6 @@ using FSceneCommandQueue = CSceneCommandQueue;
 
 // ===================== gameframework/SocialModeration.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — CSocialModeration (blocking / reporting / 通報管理)
-//
-// 役割:
-//   ローカルブロックリストと通報 (報告) キューを管理する。実プラットフォームの
-//   モデレーション SDK (Steam ISteamUser::ReportPlayer / EOS ReportPlayer /
-//   PSN Communication Block / Xbox Reputation / NSO 通報 API) への送信は seam
-//   として未接続で、`ISteamworksBridge` 等を経由して接続する。
-//
-//   PartySystem.h で「moderation / blocking は別モジュール」と明記した通り、
-//   本 system が「上位レイヤから呼ばれる単一窓口」を担う。InviteFriend で
-//   ブロック相手かどうかを判定したい場合は、呼び出し側で IsBlocked() を
-//   先に問い合わせる責任分離 (CPartySystem 自身は moderation を意識しない)。
-//
-// 設計上の倫理方針 (通報 / ブロック + 児童保護):
-//   ・**ブロックはローカル即時反映**: BlockUser はネットワーク往復を伴わず、
-//     UI 上「ブロックしました」を即座に確定できる。SDK 連携 (相互通信遮断)
-//     は seam 経由で後追い同期する想定。これにより通信障害時でもユーザーが
-//     「ブロックしたつもりで通信が続く」事故を防ぐ。
-//   ・**通報は category 必須**: 自由記述だけだと審査側で分類困難。プラット
-//     フォーム規約 (Steam / PSN / Xbox / NSO のすべて) で「種別選択」が
-//     共通要件となっており、enum で型安全に強制する。
-//   ・**通報送信失敗時は queue に残す**: ネットワーク不安定環境 (モバイル
-//     ゲーム / 機内 Wi-Fi) で「通報したつもりが消えた」を防ぐため、送信
-//     失敗時は pending queue に保持し FlushReports() で再送する設計。
-//   ・**under-18 デフォルト**: 未成年アカウントの場合は呼び出し側で
-//     「全ユーザーをデフォルトブロック / フレンドのみ可」等のポリシーを
-//     かぶせる想定。本 system はフラグを持たず、強制機構も入れない
-//     (プラットフォームごとの年齢推定 API 差を吸収するため、上位レイヤで
-//     判断する責任分離)。
-//   ・**自分自身のブロックは防御的に弾かない**: 文字列比較で「自分の
-//     user_id」を知らないため、上位レイヤで弾く責任。本 system は受け取った
-//     文字列をそのままリストに入れる (CPartySystem と同じ哲学)。
-//
-// 使い方 (典型例):
-//   CSocialModeration mod;
-//   mod.Init();
-//
-//   // toxic プレイヤーを即時ブロック
-//   mod.BlockUser("steam:76561198000000999");
-//
-//   // 通報送信
-//   FReportRecord rep{};
-//   rep.reported_user_id = "steam:76561198000000999";
-//   rep.reporter_user_id = "steam:76561198000000001";  // local player
-//   rep.category         = EReportCategory::Harassment;
-//   rep.note             = "voice chat で継続的に侮辱発言";
-//   rep.timestamp        = NowUnixSec();
-//   (void)mod.SubmitReport(rep);  // 失敗時は pending queue へ
-//
-//   // 後で再送 (オンライン復帰時など)
-//   (void)mod.FlushReports();
-//
-// 設計選択:
-//   ・**ローカル state は完全実装**: ブロックリストの追加/解除/検索、通報
-//     キューへの追加/フラッシュはすべて動く。
-//   ・**SDK 接続は TODO**: 実 ReportPlayer 送信 / Steam Block 同期 / PSN
-//     CommunicationRestriction 反映は seam 経由で接続する。本 system は
-//     seam として const char* (user_id) を受けるだけ。
-//   ・**const char* 非所有**: 規約通り <string> 不使用。user_id / note の
-//     寿命は呼び出し側 (文字列リテラル or 長寿命バッファ) が保証する。
-//     SDK 側で動的取得した名前は呼び出し側で永続バッファにコピーして渡す。
-//   ・**重複ブロックは no-op**: 既にブロック済みの user_id を再度 BlockUser
-//     しても list が肥大化しない (検索 → 早期 return)。
-//   ・**コピー / ムーブ禁止**: モデレーション state は通常 1 つの長寿命
-//     オブジェクトで運用。誤コピーで block list が分裂すると安全性が
-//     損なわれるため非コピー・非ムーブ。
-//   ・**全 noexcept**: ACS 全体方針 (TResult<T, FErrorCode> + bool 戻り値)。
-//
-// 範囲外:
-//   ・実 SDK 接続 (Steam ReportPlayer / EOS / PSN / Xbox Reputation / NSO)
-//   ・ブロック list の永続化 (Pillar J Serialize 経由 / クラウド同期)
-//   ・自動モデレーション (toxic 検出 ML、Pillar U AI 側に分離)
-//   ・voice / text chat の透過フィルタ (別モジュール)
-//   ・shadow-ban / mute 区別 (今は block のみ)
-//   ・freezing period / クールダウン (連続通報の rate limit)
 
 
 namespace acs::game {
@@ -71874,7 +67909,7 @@ namespace acs::game {
  * @details
  * プラットフォーム規約 (Steam / PSN / Xbox / NSO) で共通的に求められる種別を
  * 最小公倍数として定義する。プラットフォーム固有の細分カテゴリ (Steam の
- * 「不正な広告」等) は将来 OtherToxicity 内の note で表現する想定。
+ * 「不正な広告」等) は OtherToxicity の note に記録する。
  */
 enum class EReportCategory : u8 {
     /** 嫌がらせ / 暴言 / つきまとい。 */
@@ -71900,8 +67935,8 @@ enum class EReportCategory : u8 {
  * 通報 1 件分のレコード。
  *
  * @details
- * `reported_user_id` / `reporter_user_id` / `note` はすべて const char* 非所有
- * (CPartySystem と同じポリシー)。timestamp は Unix 秒など呼び出し側が決めた
+ * `reported_user_id` / `reporter_user_id` / `note` はすべて const char* 非所有で、
+ * 呼び出し側が操作中の寿命を保証する。timestamp は Unix 秒など呼び出し側が決めた
  * 単調増加値で、本 system は比較せず保存のみ行う。
  */
 struct FReportRecord {
@@ -71968,14 +68003,14 @@ public:
     /**
      * 内部 state を初期化する。
      *
-     * @details 現状は no-op。将来 SDK ハンドルや永続化ロードを行う想定の seam で、多重呼び出し可。
+     * @details 内部状態を持たない no-op で、多重呼び出しできる。
      */
     void Init() noexcept;
 
     /**
      * user_id をローカルブロックリストに追加する。
      *
-     * @details 既に登録済み、または user_id == nullptr なら no-op (CPartySystem.AddFriend と同じ防御)。
+     * @details 既に登録済み、または user_id == nullptr なら no-op。
      * @param user_id ブロックする相手の user_id (非所有)。
      */
     void BlockUser(const char* user_id) noexcept;
@@ -71991,7 +68026,7 @@ public:
     /**
      * user_id がブロック済みかを返す。
      *
-     * @details CPartySystem.InviteFriend() の前段ガードとしての呼び出しを想定。
+     * @details ブロック済みユーザーへの処理可否を判断する。
      * @param user_id 判定する相手の user_id (nullptr は常に false)。
      * @return ブロック済みなら true。
      */
@@ -72017,8 +68052,7 @@ public:
      * 通報を送信する。
      *
      * @details
-     * 現状は SDK 未接続のため常に pending queue に追加して Ok() を返す
-     * (将来 backend 接続後は同期送信を試み、失敗時のみ queue に残す挙動になる)。
+     * 通報を pending queue に追加して Ok() を返す。
      * reported_user_id == nullptr は弾く。
      * @param rep 送信する通報レコード。
      * @return 受理または queue 追加に成功すれば Ok、不正入力ならエラー。
@@ -72089,8 +68123,7 @@ private:
      * 1 件の通報を backend へ送信する seam。
      *
      * @details
-     * 実 SDK (Steam ReportPlayer / EOS / PSN / Xbox / NSO もしくはクラウドフィルタ)
-     * へのネットワーク送信本体はここで実装する。現状は m_BackendConnected が false の間は
+     * 接続済み backend へのネットワーク送信本体を実装する。m_BackendConnected が false の間は
      * 常に false を返す (1 件も受理せず queue に残す)。local state machine はこの戻り値だけを
      * 見て bookkeeping し、SDK の有無を意識しない。
      * @param rep 送信する通報レコード。
@@ -72118,77 +68151,6 @@ using FSocialModeration = CSocialModeration;
 
 // ===================== gameframework/SpatialAudio.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CSpatialAudio (3D positional + HRTF binaural seam)
-//
-// 3D 位置情報を持つ FAudioSource3D と単一の FAudioListener (= プレイヤ耳位置) から
-// 距離減衰 (attenuation) / 左右パン (stereo pan) を算出する音声空間化レイヤ。
-// HRTF (Head-Related Transfer Function) によるバイノーラル化は `IHrtfRenderer`
-// interface seam として隔離する。`CHrtfRendererStub` は constant-power stereo
-// panning + 距離減衰を**実数学** (in-repo 完結) で行い、真のバイノーラル化
-// (KEMAR 256-tap convolution、~140KB の埋め込み impulse response) のみが seam
-// として残る (外部 IR データ必須のため別モジュールとして差し込む)。
-//
-// CAudioDirector との関係:
-//   CAudioDirector = master / bgm / sfx の音量バスと BGM クロスフェードのみを扱う
-//   「2D 混音層」。本 CSpatialAudio は CAudioDirector の上に乗る「3D 空間化前段」で、
-//   listener / source を保持し、毎フレーム attenuation と pan を算出する。
-//   CAudioEngine と接続したとき、各 source を CAudioEngine voice に
-//   バインドして、CSpatialAudio が計算した volume * pan を per-voice に書き込む。
-//
-// 使い方:
-//   class AWorldScene : public AScene {
-//       acs::game::CSpatialAudio m_Spatial;
-//
-//       void OnEnter() noexcept override {
-//           // プレイヤ耳位置を listener として登録
-//           m_Spatial.SetListener({{0,0,0}, {0,0,1}, {0,1,0}});
-//           // 敵から鳴る連続音 (max 20m 圏内で減衰、線形カーブ)
-//           u32 src = m_Spatial.RegisterSource({5,0,3}, 20.0f,
-//                                             acs::game::EAttenuationCurve::Linear);
-//           m_SrcEnemy = src;
-//       }
-//       void OnUpdate(f32 dt) noexcept override {
-//           m_Spatial.UpdateSource(m_SrcEnemy, enemy.WorldPos(), enemy.Velocity());
-//           m_Spatial.Tick(dt);
-//           // CAudioEngine voice に volume/pan を書き込む。
-//           // f32 vol = m_Spatial.ComputeAttenuatedVolume(m_SrcEnemy);
-//           // f32 pan = m_Spatial.ComputePan(m_SrcEnemy);
-//       }
-//   };
-//
-// 設計選択:
-//   ・**listener は 1 個** (プレイヤ耳位置 = カメラに同期するのが典型)。
-//     スプリットスクリーンで複数 listener が必要になったら配列化する。
-//   ・**source は AoS (TArray of Structures)**: SoA は CAudioEngine voice
-//     バインドより後段で検討。現状は ~32 source 規模の想定。
-//   ・**source_id は単調増加 u32** (1..): 0 = 無効 ID。再利用しない (re-use しない)
-//     ので update/remove に対する stale ID 検出が単純化する。
-//   ・**Attenuation 3 curve**:
-//       Linear:      vol = 1 - (d / max_d)                  (素朴な線形減衰)
-//       Inverse:     vol = 1 / (1 + d / ref_d)              (距離 1 倍で 0.5、自然)
-//       Exponential: vol = max(0, e^(-d * rolloff))         (急峻に落ちる)
-//     d > max_distance は強制 0 (= culling)。
-//   ・**Pan 計算**: listener の right = up × forward。
-//     dir = normalize(source.pos - listener.pos)。
-//     dot(dir, right) ∈ [-1, +1] をそのまま pan として返す。
-//     左手系 / 右手系どちらでも Y+up 慣習なら X+ が右になり符号一貫。
-//     listener の真後ろも +0 ± で連続 (head-shadow なしの単純化)。
-//   ・**Pan→ゲイン変換**: constant-power (等パワー) パン則。
-//     θ = (pan+1)·π/4、left = cos θ、right = sin θ。中央でも left²+right² = 1 を
-//     満たし、左右に振っても知覚音量が一定 (linear pan の中央ディップを回避)。
-//   ・**HRTF seam**: `IHrtfRenderer` 経由で convolution を差し替え可能に。
-//     stub は constant-power パン + 距離減衰を実数学で行う (= 実空間化)。
-//     真のバイノーラル化 (KEMAR IR convolution、外部データ必須) のみ
-//     別モジュールとして差し込む。
-//   ・**非コピー・非ムーブ**: シーン局所 instance としての所有が前提。
-//
-// 範囲外:
-//   ・実 HRTF convolution (KEMAR 256-tap、~140KB embedded IR)
-//   ・Doppler shift (velocity 比率から pitch 計算)
-//   ・Occlusion / obstruction (壁越し減衰、レイキャスト)
-//   ・複数 listener (split-screen)
-//   ・3D reverb (リバーブゾーン)
-//   ・CAudioEngine voice バインド (CAudioDirector と統合)
 
 
 namespace acs::game {
@@ -72219,7 +68181,7 @@ struct FAudioSource3D {
     /** 世界座標での位置。 */
     FVec3               position     = FVec3::Zero();
 
-    /** 速度 (Doppler 用、現状は未使用で保持のみ)。 */
+    /** Doppler 計算用の速度。距離減衰と pan 計算では参照しない。 */
     FVec3               velocity     = FVec3::Zero();
 
     /** 基準ゲイン [0, 1] (距離減衰前の素の音量)。 */
@@ -72329,7 +68291,7 @@ protected:
  * 真のバイノーラル化 (HRTF convolution) のみ stub で、stereo 空間化は本物:
  * pan = 右ベクトル投影 (dot(dir, right))、L = mono·cos((pan+1)·π/4)·volume·atten、
  * R = mono·sin((pan+1)·π/4)·volume·atten (constant-power パン則)、atten は
- * source.curve に応じた距離減衰 (ComputeAttenuatedVolume と同式)。現状これが唯一の
+ * source.curve に応じた距離減衰 (ComputeAttenuatedVolume と同式)。この型が唯一の
  * IHrtfRenderer 実装で、IsHrtfEnabled() は false を返す (真の HRTF 効果のみ無い)。
  */
 class CHrtfRendererStub final : public IHrtfRenderer {
@@ -72493,7 +68455,7 @@ public:
     /**
      * state を 1 フレーム進める。
      *
-     * @details 現状は no-op (将来 Doppler shift / inactive source の GC 等を追加予定)。
+     * @details dt は更新契約として受け取るが、内部 state を変更しない no-op。
      * @param dt 前フレームからの経過秒。
      */
     void Tick(f32 dt) noexcept;
@@ -72531,51 +68493,6 @@ using FSpatialAudio = CSpatialAudio;
 
 // ===================== gameframework/WaterVolume.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — CWaterVolume (浮力 + 水域判定)
-//
-// AABB で定義された 2D 水域を複数登録し、点が水中に居るかの query と、
-// 物体に掛かる浮力 + drag を世界座標 force ベクトルとして返す。
-// APhysicsBody2D / CEffectSystem 側は本クラスを参照することで「浮く」「沈む」「水流
-// 抵抗」といった水中挙動を組み立てられる。水面演出 (波 / splash 粒子) はレンダラ
-// 側で `FWaterVolumeInfo::surface_y` と `water_color` を pull して描画する想定。
-//
-// 使い方:
-//   acs::game::CWaterVolume water;
-//
-//   // 池を 1 つ登録
-//   acs::game::FWaterVolumeInfo pond{
-//       /*center=*/      {0.0f, 50.0f},
-//       /*half_size=*/   {200.0f, 50.0f},
-//       /*buoyancy=*/    9.8f,        // 重力と同程度の浮力強度
-//       /*drag=*/        2.0f,        // 水中減衰係数
-//       /*surface_y=*/    0.0f,        // 水面 y 座標 (= center.y - half_size.y、+Y=画面下なので水面=最小 y)
-//       /*water_color=*/ {0.1f, 0.3f, 0.6f},
-//   };
-//   auto id = water.AddVolume(pond);
-//
-//   // 毎フレーム、APhysicsBody2D に浮力を適用
-//   if (water.IsUnderwater(body.position)) {
-//       FVec2 f = water.ComputeBuoyancyForce(body.position, body.velocity, body.mass);
-//       body.ApplyForce(f);
-//   }
-//
-// 設計選択 (Pillar Q):
-//   ・**FWaterVolumeId は FShapeId / FNodeId と同パターン**: 24bit index + 8bit
-//     generation。remove → re-add で slot 再利用しても旧 handle は無効化される。
-//   ・**broad phase は線形走査**: 全 volume を直接走査 (典型 N ≤ 数十)。
-//   ・**浮力モデル = 単純な「水深×強さ×質量」の上向き力**: depth = pos.y -
-//     surface_y (+Y=画面下: 水面=最小y、沈むほど y 大)。depth が大きいほど浮力大きい。実 Archimedes の「排除体積」ではなく
-//     ゲーム向けの簡易モデル。volume 毎に `buoyancy_strength` で調整可。
-//   ・**drag**: velocity に対し `-velocity * drag` を加算。水中での運動減衰を
-//     表現。`drag` は加速度ではなく力係数 (kg / s 単位の粘性的減衰) として扱う。
-//   ・**surface_y は info に明示保持**: center.y + half_size.y で算出も可能だが、
-//     利用者が「center 中央ではなく水面が y=0」のような幾何を作る場合に便利な
-//     よう冗長保持。AddVolume 時に整合しないと判定がズレる可能性がある点を
-//     コメントで注意。
-//   ・**non-overlap な volume 前提**: 複数 volume が空間的に重なる場合、IsUnderwater
-//     は最初に当たった volume だけを採用 (短絡)。浮力は重なる全 volume の合計。
-//   ・**非コピー・非ムーブ**: handle 安定性のため複製禁止。
-//   ・**全関数 noexcept、STL 不使用**: ACS 全体規約。
 
 
 namespace acs::game {
@@ -72592,7 +68509,7 @@ struct FWaterVolumeInfo {
     /** AABB 半サイズ (world、両軸 > 0 想定)。 */
     FVec2 half_size          {1.0f, 1.0f};
 
-    /** 浮力強度 (重力相当)。 */
+    /** 浮力計算に使う加速度強度。 */
     f32  buoyancy_strength  = 9.8f;
 
     /** 水中 drag 係数 (kg/s 粘性)。 */
@@ -72766,7 +68683,8 @@ public:
      * active な全 volume を packed array で返す (内部表現とは別の連続配列)。
      *
      * @details
-     * 内部 cache を返すので Add/Remove/Update で無効化される。Add 等の直後に呼ぶこと。
+     * 内部 cache を返す。返却 pointer は次の Add/Remove/Update まで有効で、
+     * いずれかの操作で無効になる。
      * @param out_count 書き込んだ要素数の出力先。
      * @return 先頭ポインタ。VolumeCount() == 0 なら nullptr (out_count=0)。
      */
@@ -72818,74 +68736,6 @@ using FWaterVolume = CWaterVolume;
 
 // ===================== gameframework/TelemetryDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar V — CTelemetryDirector (game analytics event 集約)
-//
-// 役割:
-//   ゲームロジック側から「level_completed」「player_died」「item_purchased」等の
-//   解析イベントを TrackEvent() で投入し、内部 pending queue に積んだ上で、
-//   一定間隔 (既定 5 秒) または明示 Flush() のタイミングで IBackendClient::
-//   SendTelemetry() を経由してサーバへまとめて送出する高レベル director。
-//
-//   CAchievementManager と同様に、低レイヤの IBackendClient は seam 注入で
-//   差し替え可能 (実装は HTTP/gRPC/Steam 等プロジェクト個別)。Backend 未 attach
-//   なら local pending queue に積むだけのオフラインモードで動作する
-//   (デバッグ / Demo build / 単体テスト用)。
-//
-//   GDPR / CCPA 要件: CPrivacyDirector の EConsentCategory::Telemetry が無ければ
-//   TrackEvent() / Flush() はすべて no-op。consent 未取得状態で TrackEvent 経由
-//   の暗黙 opt-in を発生させない (consent dialogue 表示前の起動シーケンスでも
-//   安全に呼べる)。
-//
-// 使い方:
-//   CTelemetryDirector td;
-//   td.Init(&my_backend, &my_privacy);
-//   td.EnableCategory("ui", false);                  // UI 系イベントは送らない
-//
-//   td.TrackEvent("level_started",
-//                 R"({"level":3,"difficulty":"hard"})",
-//                 EEventPriority::Important,
-//                 "gameplay");
-//
-//   // 毎フレーム
-//   td.Tick(dt);
-//
-//   // タイトル終了時
-//   td.Flush();
-//   td.Shutdown();
-//
-// 設計選択:
-//   ・**pending queue 上限 100 件 + 古いものから drop**: メモリ枯渇防止と、
-//     オフライン中に hammer された場合でも RSS を予測可能に保つため。
-//     上限到達時は ACS_LOG_WARN を 1 件出してから RemoveAtSwap(0) で
-//     最古を捨てる (順序は保証しない、ただし「送信成功側 vs drop 側」の
-//     カウンタは独立に進む)。
-//   ・**send は thin pump**: 実 backend protocol が確定するまでは Flush()
-//     内で `m_Backend->SendTelemetry()` を呼ぶだけにとどめる。
-//     Stub backend は必ず Err を返すので、m_FailedCount が上がり pending は
-//     残る。具象 backend が attach されたら自然に sent_count が進む。
-//   ・**const char* 非所有**: event_name / category / json_payload は呼び出し
-//     側 (ゲームコード or リテラル) が保証する static / member lifetime の
-//     文字列。Director 側ではコピーしない (STL <string> 禁止方針)。これは
-//     特に json_payload が「呼出後すぐに無効化されるスタックバッファ」だと
-//     危険なので、利用側で寿命設計を要する (典型的にはリテラル or thread-local
-//     static char[N] 等)。
-//   ・**category enable/disable**: "ui" や "debug" など、ビルドや A/B テストで
-//     送りたくないカテゴリを runtime で間引けるよう、許可リスト方式の bit に
-//     せず可変 TArray<FCategoryFilter> で持つ。件数は通常 10〜30 程度なので
-//     線形検索で十分。default は「未登録 = enabled」とし、明示的に false を
-//     設定したカテゴリだけ落とす (= explicit deny list)。
-//   ・**CPrivacyDirector attach optional**: nullptr 注入時は consent ガードを
-//     スキップ (= 全イベント許可)。テスト / オフラインビルド用の逃げ道。
-//     production では必ず privacy を渡すこと。
-//   ・**非コピー・非ムーブ、全 noexcept**: 他 Director 系と統一。
-//
-// 範囲外:
-//   ・実 backend protocol (REST JSON / gRPC streaming / Steam ISteamUserStats)
-//   ・event の永続化 (オフライン → オンライン復帰時の再送 backlog)
-//   ・event sampling / rate limiting (server 側 schema と合わせて実装)
-//   ・bind-able callback (event 1 件送信成功 / 失敗時の subscribe)
-//   ・session id / user id の自動付与 (Pillar S Storefront のセッション統合)
-//   ・event のローカルバッファ (SQLite / 自前 binary log)
 
 
 namespace acs::game {
@@ -73138,93 +68988,6 @@ using FTelemetryDirector = CTelemetryDirector;
 
 // ===================== gameframework/ReplayDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CReplayDirector (高レベル replay 再生システム)
-//
-// 役割:
-//   1) **ハイレベル replay コントローラ**: 低レベルの `CInputRecorder` (raw 入力)
-//      と `CLockstep` (deterministic input frame) を統合し、「録画開始 / 停止 /
-//      再生 / 一時停止 / 早送り / 巻き戻し」という CGame UI レベルの粒度で
-//      replay を扱う。アプリ側は本 director だけを通じて record/playback の
-//      ライフサイクルを管理し、低レベル詳細 (sample / frame の bit-precise
-//      layout や cursor 管理) に立ち入らない。
-//   2) **メタデータ管理**: ゲームバージョン / レベル ID / RNG seed / 録画日時 /
-//      録画時間 / プレイヤー名 / checksum を 1 録画ごとに保持し、replay
-//      ファイル (.acsr / .acsl) と並走して保存する。version mismatch 検出や
-//      "title-screen の continue で replay を選ぶ" UI でリスト表示する用途。
-//   3) **再生速度コントロール**: 0.25x / 0.5x / 1x / 2x / 4x の任意倍速で
-//      replay を再生する。アプリ側ループは `Tick(dt)` を毎フレーム呼ぶだけで
-//      内部で `dt * speed` ぶんの tick を進める。一時停止は speed = 0 とは
-//      別状態として扱い、停止中の Tick は no-op。
-//   4) **任意位置への Seek**: スクラブバー UI / バグ再現用ジャンプを想定し、
-//      `SeekToTick(t)` で current_tick を任意位置に飛ばす。低レベル側の
-//      cursor は実統合時に同期させる。
-//
-// 使い方 (想定):
-//   CReplayDirector dir;
-//   dir.Init();
-//
-//   // 録画開始
-//   FReplayMetadata meta{
-//       .game_version = "1.0.0",
-//       .level_id     = "stage_01",
-//       .seed         = 0xDEADBEEFu,
-//       .timestamp    = TimeNowUnix(),
-//       .duration_ticks = 0,                    // Stop 時に更新
-//       .player_name  = "Player1",
-//       .checksum_hex = "",                     // Stop 時に更新
-//   };
-//   dir.StartRecording(meta);
-//
-//   // ゲームループ (録画中):
-//   dir.Tick(dt);  // 内部で m_CurrentTick を進めるだけ。
-//                  // 入力 capture は CInputRecorder/CLockstep 側で別途行う想定。
-//
-//   // 録画停止
-//   dir.StopRecording();
-//   dir.SaveReplay(L"user/replay_01.acsr");
-//
-//   // 後で再生
-//   dir.LoadReplay(L"user/replay_01.acsr");
-//   dir.StartPlayback();
-//   dir.SetPlaybackSpeed(2.0f);
-//   while (running) {
-//       dir.Tick(dt);
-//       float progress = dir.ProgressNormalized();  // [0, 1]
-//       // ... シミュレーションは CLockstep::ConsumeInput 経由で進める ...
-//   }
-//
-// 設計選択:
-//   ・**CInputRecorder / CLockstep は forward decl**: 「ハイレベル
-//      API シェイプ + state machine + tick 進行」を確定する。実際の
-//      sample/frame 連動 (Capture/ConsumeSample の自動呼び出し) は「CReplayDirector
-//      が両者を所有」or「seam 経由で参照する」かを決めた上で接続する。本 header
-//      では .cpp 内で完結する forward decl のみ。
-//   ・**EReplayMode の 4 状態**: Idle / Recording / Playback / Paused。
-//      CInputRecorder の ERecorderMode と CLockstep の ENetMode と異なり、UI が
-//      Pause/Resume を必要とするので Paused を専用状態として持つ。Paused
-//      からの遷移は Resume (→ Playback) と Stop (→ Idle) のみ。
-//   ・**FReplayMetadata は trivially-copyable POD**: `const char*` 文字列は
-//      呼び出し側が寿命を保証する static / 長寿命 buffer を渡す規約
-//      (CSettings / FAccessibilityProfile と同じ STL 不使用方針)。
-//      acs::FString への置換は検討するが、現状は raw pointer。
-//   ・**SetPlaybackSpeed は範囲 clamp**: 0 < speed <= 16 の範囲外は最寄りの
-//      有効値に丸める。負値や 0 は Paused を別 API で扱うため認めない。
-//   ・**SeekToTick は duration を超えたら末尾に clamp**: replay 終了後に進む
-//      意味がないので duration_ticks を上限とする。0 未満は 0 に clamp。
-//   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
-//   ・**コピー / ムーブ禁止**: 1 セッション 1 director の長寿命オブジェクト。
-//      録画中の state が分裂すると replay のメタデータ整合が崩れるため、
-//      CLockstep / CInputRecorder / CSettings と同じ方針で最初から非コピー・
-//      非ムーブで固定する。
-//
-// 範囲外:
-//   ・実 CInputRecorder / CLockstep の自動連動 (現状は state machine のみ)
-//   ・SaveReplay / LoadReplay の実 I/O (現状は stub。.acsr + sidecar
-//      metadata .json or .meta file の bit-precise layout は別途確定)
-//   ・複数 replay の同時ロード / 並列再生
-//   ・スクラブバー UI コンポーネント (本クラスは progress 値を返すのみ)
-//   ・録画中のサムネイル自動撮影 (CPhotoMode 経由で別途)
-//   ・ネットワーク replay 共有 (StorefrontBridge 経由で別途)
 
 
 namespace acs::game {
@@ -73589,46 +69352,6 @@ private:
 
 // ===================== gameframework/SpritePack.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G / Q — FSpritePack (sprite atlas data + 名前付き frame lookup)
-//
-// 「1 枚の atlas テクスチャ + その中に並ぶ複数 frame の矩形」を持つだけのデータ層。
-// 描画 API・asset loader には触れない。利用者は AtlasTexturePath() で texture を
-// 自前ロードし、FindFrame("Idle_03") で矩形と pivot を取り出し、ComputeUv で
-// [0, 1] UV を得る。CSpriteAnimator (時間→index) と組み合わせて animation を再生する。
-//
-// 使い方:
-//   FSpritePack pack;
-//   FSpritePackInfo info;
-//   info.atlas_texture_path = "assets/hero_atlas.png";
-//   info.atlas_width        = 1024;
-//   info.atlas_height       = 1024;
-//   pack.Init(info);
-//
-//   FSpriteFrame f;
-//   f.name = "Idle_00";
-//   f.x = 0;   f.y = 0;   f.w = 64; f.h = 64;
-//   f.pivot_x = 0.5f; f.pivot_y = 0.5f;
-//   pack.AddFrame(f);
-//   // ...
-//
-//   if (const FSpriteFrame* frame = pack.FindFrame("Idle_00"); frame != nullptr) {
-//       acs::FVec4 uv = pack.ComputeUv(*frame); // {u0, v0, u1, v1}
-//       // → DrawSprite(uv, ...)
-//   }
-//
-// 設計判断:
-//   ・Pillar G (asset/IO の data layout) と Pillar Q (視覚世界, atlas) の交差点に
-//     位置するモジュール。テクスチャの所有 / ロードは責務外 (Pillar G の CAssetBundle
-//     / AssetPack 側) で、FSpritePack は「矩形と名前の辞書」に徹する。
-//   ・name は `const char*` 借用 (caller 所有 = 文字列リテラルまたは別所有の
-//     永続バッファ前提)。`<string>` 禁止に従い ACS 規約と整合。比較は pointer
-//     同一 → strcmp の順で評価し、リテラル運用なら pointer 一致の高速 path を抜ける。
-//   ・非コピー・非ムーブ: frame 配列を不意に複製しないため。所有権を明示したい
-//     場合は Init/AddFrame を再呼出しすることで上書き or 別 instance を作る。
-//   ・ComputeUv は atlas_width/atlas_height が 0 の場合に 0 除算を避け {0,0,0,0}
-//     を返す。CSpriteAnimator と同様、不正状態でも crash しないことを優先。
-//   ・RemoveFrame は順序非保持の swap remove (= 内部 TArray::RemoveAtSwap 相当)。
-//     animation はインデックスではなく名前で参照する前提なので順序破壊は許容。
 
 
 namespace acs::game {
@@ -73681,28 +69404,51 @@ struct FSpritePackInfo {
 
 /** 検証付き atlas JSON loader が返す安定した失敗理由。 */
 enum class ESpritePackLoadError : u16 {
+    /** atlas JSON の読み込みが成功した。 */
     None = 0,
+    /** 入力 JSON pointer が null だった。 */
     NullInput = 1450,
+    /** 入力 JSON が空だった。 */
     EmptyInput = 1451,
+    /** 入力 JSON が読み込み上限を超えた。 */
     InputTooLarge = 1452,
+    /** 入力 JSON 内に埋め込み NUL があった。 */
     EmbeddedNul = 1453,
+    /** JSON の入れ子が安全上限を超えた。 */
     JsonDepthExceeded = 1454,
+    /** JSON string のバイト数が上限を超えた。 */
     JsonStringTooLong = 1455,
+    /** JSON node 件数が安全上限を超えた。 */
     JsonNodeLimitExceeded = 1456,
+    /** JSON の構文を解釈できなかった。 */
     JsonSyntaxError = 1457,
+    /** JSON root が要求された object ではなかった。 */
     RootTypeMismatch = 1458,
+    /** 同じ JSON member が複数回現れた。 */
     DuplicateMember = 1459,
+    /** 必須 JSON member がなかった。 */
     MissingMember = 1460,
+    /** JSON member の型が atlas 契約と一致しなかった。 */
     MemberTypeMismatch = 1461,
+    /** 整数 member を範囲内の整数として解釈できなかった。 */
     InvalidInteger = 1462,
+    /** 数値 member が有限値ではなかった。 */
     NonFiniteNumber = 1463,
+    /** frame 件数が安全上限を超えた。 */
     FrameLimitExceeded = 1464,
+    /** frame 名のバイト数が上限を超えた。 */
     NameTooLong = 1465,
+    /** 同じ frame 名が複数回現れた。 */
     DuplicateFrameName = 1466,
+    /** atlas の幅または高さが有効範囲外だった。 */
     InvalidAtlasSize = 1467,
+    /** frame rectangle が atlas 範囲内に収まらなかった。 */
     InvalidFrameRect = 1468,
+    /** frame pivot が許可範囲外だった。 */
     InvalidPivot = 1469,
+    /** atlas image path のバイト数が上限を超えた。 */
     ImagePathTooLong = 1470,
+    /** frame table 用メモリを確保できなかった。 */
     AllocationFailure = 1471,
 };
 
@@ -73889,58 +69635,6 @@ private:
 
 // ===================== gameframework/HealthSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — CHealthSystem (HP / damage / death / respawn 管理)
-//
-// 複数 entity (敵 / プレイヤー / 破壊可能オブジェクト) の HP を一元管理する
-// 高レベル API。slot+generation パターンの `FHealthId` で entity を識別し、
-// ApplyDamage / Heal / Revive / SetInvulnerable などの操作を提供する。
-//
-// 使い方:
-//   CHealthSystem hp;
-//   FHealthId player = hp.Spawn(/*max_hp=*/100.0f);
-//   FHealthId enemy  = hp.Spawn(50.0f);
-//
-//   // ダメージ適用 (戻り値 true = 致死)
-//   if (hp.ApplyDamage(enemy, 30.0f, EDamageType::Fire)) {
-//       // 死亡処理 (callback 経由でも通知)
-//   }
-//
-//   // 無敵時間付与 (例: 被弾後の i-frame)
-//   hp.SetInvulnerable(player, 0.5f);
-//
-//   // 毎フレーム invuln_timer を進める
-//   hp.Tick(dt);
-//
-//   // 復活 (HP 半分で蘇生など)
-//   hp.Revive(player, 0.5f);
-//
-// 設計選択 (Pillar R/I):
-//   ・**FHealthId は 24bit idx + 8bit gen の packed u32**: CCollisionWorld2D の
-//     FShapeId / ANode の FNodeId と同パターン。removed slot を再利用しても古い
-//     handle は無効化される。0 は invalid 予約 (index 0 dummy)。
-//   ・**slot 配列 + active フラグ**: AcquireSlot で空きを線形検索、無ければ末尾
-//     拡張。Despawn では generation を進めて handle 無効化。
-//   ・**DeathCallback fire は state 確定後**: ApplyDamage 内で hp<=0 にしてから
-//     is_alive=false を確定し、その後 callback を発火。callback 内で同 entity
-//     を Revive することも可能 (再入安全)。
-//   ・**invuln 中の ApplyDamage は no-op で false 返却**: 即死扱いではなく
-//     「ダメージ無し」を返す。caller がフィードバック (sound/spark) を出すなら
-//     IsInvulnerable() で先に確認する。
-//   ・**Heal は max_hp で clamp**: 死亡中 (is_alive=false) でも回復は受け付けるが、
-//     is_alive は自動で true にならない (Revive 経由を強制)。
-//   ・**Revive は is_alive=false 専用**: 生存中の Revive は no-op。hp_fraction で
-//     復活時 HP 割合を指定 (0.0 = 1 HP に clamp、1.0 = full)。
-//   ・**EDamageType は enum**: 属性 (Fire / Ice 等) は将来の耐性計算 / VFX 振り分け
-//     用。本クラスでは値をそのまま受け取り callback に伝えるだけで、ダメージ倍率は
-//     掛けない (caller が Resistance を考慮した最終量を渡す方針)。
-//   ・**非コピー・非ムーブ**: CGame / AScene 単位で 1 個保持される想定で、所有権
-//     移動は不要。
-//
-// 範囲外 (将来 Phase で):
-//   ・自然回復 (regen) は本クラスでは扱わない (Tick 内で全 entity を回す方式は
-//     pillar 越境になるため、caller が Heal を毎フレ呼ぶ方が柔軟)
-//   ・DoT (継続ダメージ) 管理 — Status Effect モジュールで別途
-//   ・ResistanceTable (EDamageType → 倍率) — 戦闘パラメータレイヤで別途
 
 
 namespace acs::game {
@@ -74312,84 +70006,6 @@ using FHealthSystem = CHealthSystem;
 
 // ===================== gameframework/InventorySystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O/G — CInventorySystem (アイテムスロット + stack 管理)
-//
-// プレイヤーのアイテムインベントリを「固定 slot 数 × stack 可能アイテム」モデルで
-// 表現する小型マネージャ。RPG / サバイバル / クラフト系で広く使われる「N 個の
-// スロットがあって、消費アイテムは max_stack まで重ねられる」スタイルを直接
-// サポートする。CEconomyDirector が「通貨で買って消える」即時取引を担うのに対し、
-// CInventorySystem は「拾った / 報酬で得たアイテムを、プレイヤーが持ち歩く」状態を
-// 保持する責務を持つ。
-//
-// 想定する位置付け:
-//   ・Pillar O CEconomyDirector との違い:
-//     - CEconomyDirector は「ゲーム内通貨 ↔ shop 商品」の即時購入トランザクション。
-//     - CInventorySystem は「プレイヤーが保持するアイテム」の slot ベース在庫。
-//       購入完了後に AddItem() を呼んでもらう橋渡し設計 (本クラスはストア非依存)。
-//   ・Pillar O CCharacterCustomizer との違い:
-//     - CCharacterCustomizer は cosmetic (見た目装着) — slot 単位で最大 1 つ、stack なし。
-//     - CInventorySystem は使用アイテム / 素材 / クエスト系 — stack あり、slot 数固定。
-//   ・Pillar O CEntitlementRegistry との違い:
-//     - CEntitlementRegistry は「DLC / CSeasonPass 等の永続権利フラグ」(持っているかの真偽)。
-//     - CInventorySystem は「個数を持つ消費可能アイテム」(stack 数を持つ)。
-//
-// 使い方:
-//   CInventorySystem inv;
-//   inv.Init(/*slot_count=*/ 30);
-//
-//   // 起動時にアイテム定義を一度ずつ登録。
-//   inv.RegisterItem({ "potion.heal",     "Heal Potion",   EItemCategory::Consumable, 99,
-//                      "ui/icon/potion_heal.png", true });
-//   inv.RegisterItem({ "ore.iron",        "Iron Ore",      EItemCategory::Material,   999,
-//                      "ui/icon/ore_iron.png",    true });
-//   inv.RegisterItem({ "quest.key.ruins", "Ruins EKey",     EItemCategory::Quest,      1,
-//                      "ui/icon/key_ruins.png",   false });
-//
-//   // (任意) 変更通知 callback (UI 反映 / SFX 等)。
-//   inv.SetOnChangeCallback(&OnSlotChanged, &ui);
-//
-//   // ゲーム中に追加 / 削除。
-//   const u32 added = inv.AddItem("potion.heal", 5);    // 既存 stack に積む or 空 slot を使う
-//   inv.RemoveItem("potion.heal", 1);
-//   inv.MoveSlot(3, 7);                                  // UI ドラッグ&ドロップ
-//   inv.DropSlot(7);                                     // can_drop=true のときのみ
-//
-// 設計選択 (Pillar O/G):
-//   ・**Item 定義は単一 TArray<FItemDef>**: アイテム数は AAA でも 500〜2000 のオーダー、
-//     線形走査で十分 (CEntitlementRegistry / CEconomyDirector と同じ判断)。
-//   ・**FInventorySlot data は固定長 TArray<FInventorySlot>**: Init(slot_count) で Resize し、
-//     以降は伸縮しない (= UI が想定する slot grid と一致)。slot 内 item_id == nullptr
-//     を「空 slot」として表す。
-//   ・**所有しない const char***: id / display_name / icon_path すべて呼出側
-//     (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
-//     slot.item_id も m_Items[].id を直接指す (= リテラル参照、非所有)。
-//   ・**AddItem は積み増し優先**: 同 id の既存 stack が max_stack 未満なら先にそちらに
-//     積み、それでも残ったら空 slot を埋める。これにより inventory の fragmentation が
-//     最小化される (= UI のスロットが連続して埋まる / 散らばらない)。
-//   ・**RemoveItem は前方優先**: 低 index から走査して削除。これも UI の慣習
-//     (前から減る方が見やすい) に合わせる。
-//   ・**MoveSlot は merge or swap**: 同 item で max_stack に届かない範囲なら merge、
-//     満杯 or 別 item なら swap。UI ドラッグ&ドロップ操作の自然な挙動。
-//   ・**DropSlot は can_drop チェック**: quest アイテム / key アイテム等の落とせないものを
-//     構造的に守る (FItemDef::can_drop = false なら DropSlot は失敗 false 返し)。
-//   ・**ChangeCallback は単一購読**: STL <functional> 禁止のため C 関数ポインタ + void*
-//     user. 複数 listener が必要なら呼出側で fan-out。slot 内容が変わるたびに呼ぶ
-//     (Add / Remove / Move / Drop / ClearAll すべて。ClearAll は loop 防止のため呼ばない)。
-//   ・**重複登録は黙って弾く + WARN**: 同 id の 2 重 RegisterItem は no-op
-//     (アセット二重ロード保護)。CEconomyDirector / CEntitlementRegistry と同じパターン。
-//   ・**Init は冪等に再構築**: 既に Init 済みでも slot_count を変更して呼べる
-//     (slot 数が違う場合は内容クリアして resize)。同じ slot_count なら no-op。
-//   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
-//   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
-//
-// 範囲外:
-//   ・永続化 (Save/Load) — Pillar J Serialize と統合。slot 内容は起動毎にリセット。
-//   ・装備品の性能 / バフ — 本クラスは「持ってる個数」だけを真実とし、性能は別 Manager。
-//   ・アイテムカテゴリでのフィルタリング — UI 側で実装 (本クラスは AllSlots を提供)。
-//   ・craft / 合成 / 消費レシピ — 別 Manager (CCraftingSystem 等)。
-//   ・サーバ側の在庫検証 — Pillar V Backend Services に委譲。
-//   ・重量制限 / encumbrance — 本クラスは slot 数固定のみ。重量制は別 Manager。
-//   ・並べ替え / 自動ソート — UI 側で MoveSlot を連打して実装可能。
 
 
 namespace acs::game {
@@ -74658,80 +70274,6 @@ using FInventorySystem = CInventorySystem;
 
 // ===================== gameframework/ScoreSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/O — CScoreSystem (スコア累積 + コンボ + マルチプライヤ)
-//
-// アーケード / 高速アクション系で必要になる「スコア + コンボ計算 + マイル
-// ストン通知」を 1 か所にまとめた高レベルマネージャ。ヒット連鎖 (NotifyHit)
-// でコンボがインクリメントされ、AddScore() 時にコンボから算出した倍率を
-// 掛けてスコアに加算する。NotifyMiss() / 一定時間 (combo_duration) 内に
-// 次のヒットが無ければコンボはリセットされる。
-//
-// 設計位置付け:
-//   ・Pillar R/O のスコア / 進行系。CAchievementManager (実績) や
-//     CEconomyDirector (通貨) と並列のレイヤで、これら 3 つは
-//     「ゲームプレイの数値報酬」を担当する。
-//   ・スコア値 (u64) は AAA でも 4e18 を超えない想定で十分。
-//     score * multiplier_x100 の中間計算で wrap しないよう、加算時に
-//     u64 オーバーフロークランプ (~0ull) を入れる。
-//   ・コンボ→倍率は SetMultiplierFn() で完全に差し替え可能。Manager は
-//     ロジックの強制をせず、デフォルトは `1.0 + combo*0.1` を [1.0, 10.0]
-//     にクランプした関数を採用 (アーケード系で広く使われる線形上昇)。
-//
-// 使い方:
-//   CScoreSystem ss;
-//   ss.Init();
-//   ss.SetComboDuration(2.5f);                        // 任意
-//   ss.RegisterMilestone(10000);                      // スコア 10k 通過で通知
-//   ss.RegisterMilestone(100000);
-//   ss.SetOnMilestoneCallback(&OnMilestone, user);
-//
-//   // 毎フレ
-//   ss.Tick(dt);
-//
-//   // ヒット時 (敵撃破等)
-//   ss.NotifyHit();
-//   ss.AddScore("enemy.normal", 100);                 // base × current_multiplier
-//
-//   // 失敗時 (被弾 / ミス)
-//   ss.NotifyMiss();
-//
-//   // UI 表示
-//   u64 cur  = ss.CurrentScore();
-//   u32 cmb  = ss.ComboCount();
-//   f32 left = ss.ComboTimeRemaining();
-//   f32 mul  = ss.ComboMultiplier();
-//
-// 設計選択 (Pillar R/O):
-//   ・**multiplier は ×100 整数で entry に記録**: FScoreEntry.multiplier_x100 は
-//     例えば 250 = 2.5x。倍率を f32 で持つと bit 完全一致が取れず、Replay /
-//     Telemetry での比較で偽差分が出るため整数化する。
-//   ・**所有しない const char* category**: CAchievementManager と同設計で
-//     呼出側 (= ゲームコード or リソースバンドル) が long lifetime を保証する
-//     文字列リテラルを想定。Manager 側はコピーしない (STL <string> 禁止)。
-//   ・**entry log は capped append (max 100)**: CScoreSystem は履歴を内蔵保持
-//     するが、メモリを線形に増やさないため上限 100。100 件超は最古を捨てる
-//     (= 末尾ベースの簡易リング)。詳細な分析が必要なら呼出側で Analytics に
-//     流す責務 (= CEconomyDirector の callback 設計と思想を合わせる)。
-//   ・**HighScore は Reset() で保持 / ClearAll() で破棄**: ゲームセッション
-//     終了時に Reset で「累積スコアと combo は消すが best record は残す」と
-//     いう典型挙動を表現。ClearAll はテスト / セーブデータリセット用。
-//   ・**Milestone は「現在スコアが値を超えた瞬間に 1 度だけ通知」**: 既に
-//     クリア済の milestone は再通知しない (Reset で再武装される)。milestone
-//     値は登録順序非依存で AddScore のたびに全件 (= 線形) チェックする。
-//     件数は通常 5〜20 なので線形で十分。
-//   ・**MultiplierFn は C 関数ポインタ + noexcept**: STL <functional> 禁止。
-//     nullptr 指定で内部デフォルトに戻す。combo を入力に f32 倍率を返す。
-//   ・**MilestoneCallback は単一登録 + user pointer**: CEconomyDirector の
-//     PurchaseCallback と同じ規約。複数 listener は呼出側で fan-out。
-//   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
-//   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
-//
-// 範囲外:
-//   ・永続化 (HighScore Save/Load) — Pillar J Serialize と統合予定。
-//     現状は SetHighScore() で外部から注入する手動 wiring。
-//   ・難易度補正 / グレード判定 — CDynamicDifficulty / CGameFlow と連携想定。
-//   ・コンボ chain 種別 (perfect / good 等の品質スケール) — 必要になったら
-//     NotifyHit(quality) 引数を追加して倍率ファンクションに渡す形に拡張。
 
 
 namespace acs::game {
@@ -75029,57 +70571,6 @@ using FScoreSystem = CScoreSystem;
 
 // ===================== gameframework/WaveSpawner.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L/R — CWaveSpawner (敵 wave スポーン管理)
-//
-// 連続する複数の wave をキュー管理し、各 wave に紐づく複数の FSpawnRule を
-// 時間軸上で順次発火させる。残数管理 → wave clear → intermission → 次 wave →
-// 全 wave 完了の state machine を内包する。
-//
-// 使い方:
-//   class AGameplayScene : public AScene {
-//       acs::game::CWaveSpawner m_Waves;
-//
-//       static void OnSpawn(void* self, const char* enemy_id, acs::FVec2 pos) noexcept {
-//           auto* s = static_cast<AGameplayScene*>(self);
-//           s->SpawnEnemyAt(enemy_id, pos);
-//       }
-//       static void OnWaveState(void* self, u32 idx,
-//                               acs::game::EWaveState from,
-//                               acs::game::EWaveState to) noexcept {
-//           // BGM / UI / カメラ演出をここで連動
-//       }
-//
-//       void OnEnter() noexcept override {
-//           m_Waves.Init();
-//           m_Waves.SetOnSpawnCallback(&OnSpawn, this);
-//           m_Waves.SetOnWaveStateChangeCallback(&OnWaveState, this);
-//           m_Waves.AddWave(wave0_def);
-//           m_Waves.AddWave(wave1_def);
-//           m_Waves.StartWaves();
-//       }
-//       void OnUpdate(f32 dt) noexcept override { m_Waves.Tick(dt); }
-//       void OnEnemyDefeated(const char* id) noexcept { m_Waves.NotifyEnemyKilled(id); }
-//   };
-//
-// 設計選択:
-//   ・state machine は線形: Idle → Spawning → WaitingClear → Cleared →
-//     (intermission) → Spawning (次 wave) → … → AllComplete。逆遷移は Reset でのみ。
-//   ・FSpawnRule は POD + ポインタ参照: FWaveDef の rules は caller 所有の
-//     FSpawnRule 配列を指す軽量ハンドル。caller は wave が終わるまで配列の
-//     寿命を保証する責任を持つ (= literal / 静的定義を想定)。
-//   ・spawned_per_rule は wave ごとに別 TArray: 各 wave が任意数の rule を
-//     持つので TArray<TArray<u32>> で 2 段ネスト。これは Move 可能で TArray 同士の
-//     コピー禁止に抵触しない (Add(Move(inner)) で挿入)。
-//   ・初期遅延 + spawn interval: 各 rule は initial_delay_sec 経過後に count 個を
-//     spawn_interval_sec 間隔で発火。複数 rule は並列に評価する (= 同 wave 内で
-//     異なる enemy 種が同時湧きできる)。
-//   ・alive_count の正値性保証: NotifyEnemyKilled は alive_count を 0 未満にしない
-//     (= 過剰 kill 通知は no-op)。
-//   ・Pause / Resume は単純フラグ: タイマー進行のみ止め、state は据置。Resume
-//     後は中断時の進捗から再開する。
-//   ・callback は state 更新後: 内部状態を反映してから呼ぶ (= callback 内で
-//     CurrentState() / EnemiesRemainingInWave() を問い合わせて OK)。callback 内で
-//     StopWaves / Reset を呼んでも安全。
 
 
 namespace acs::game {
@@ -75153,7 +70644,7 @@ struct FWaveDef {
  * 敵 1 体出現時の callback 型。
  *
  * @details
- * caller (= AScene 側) が実 entity を生成して NodeGraph に放り込む想定。
+ * 出現が確定した敵の識別子と位置を渡し、owner に実 entity の生成を要求する。
  * enemy_id は FSpawnRule の literal そのものをそのまま渡す。
  * @param user SetOnSpawnCallback で登録した user ポインタ。
  * @param enemy_id 出現させる敵の識別子。
@@ -75178,7 +70669,7 @@ using WaveStateChangeCallback = void(*)(void* user, u32 wave_index, EWaveState f
  * @details
  * 各 wave に紐づく複数の FSpawnRule を並列評価し、残数管理 → wave clear →
  * intermission → 次 wave → 全 wave 完了を線形に進める。non-copy / non-move で
- * AScene 等に値メンバとして持たせる想定。Tick(dt) で駆動し、敵撃破は
+ * 単一 owner が寿命を管理する。Tick(dt) で駆動し、敵撃破は
  * NotifyEnemyKilled で通知する。
  */
 class CWaveSpawner {
@@ -75401,7 +70892,7 @@ private:
      *
      * @details spawn callback はユーザーコードで、再入 (AddWave の realloc /
      * Init / Clear) で m_Waves への参照を無効化し得る。走査中は本リストに積み、
- * 参照を手放してからまとめて発火する (CBuffSystem と同じ規約)。
+     * 参照を手放してから callback をまとめて発火する。
      */
     struct FPendingSpawn {
         /** 発火する敵 id (rule 由来、caller 所有文字列)。 */
@@ -75434,77 +70925,6 @@ using FWaveSpawner = CWaveSpawner;
 
 // ===================== gameframework/PickupSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — CPickupSystem (ドロップアイテム = Health/Coin/Powerup 等)
-//
-// 世界に配置された「拾える物」を管理する小型マネージャ。HP オーブ / 通貨 / ジェム /
-// 弾薬箱 / パワーアップ / 鍵などを統一的に扱い、プレイヤー位置との距離による
-// 「磁石効果 (magnet)」「拾取 (pickup) 判定」「lifetime 切れによる消滅」を
-// 1 つの Tick() でまとめて処理する。
-//
-// 想定する位置付け:
-//   ・Pillar R (Items / Inventory) 系と Pillar I (Interaction) 系の橋渡し:
-//     - 「持ち物」(Inventory) は別 Manager。本クラスは「世界に転がっている拾取」を
-//       Pickup として表現し、拾うと PickupCallback で呼出側へ通知する。
-//     - 呼出側はコールバックを受けて Inventory に AddItem する / HP を回復する /
-//       通貨残高 (CEconomyDirector::AddToBalance) を増やす等を行う。
-//   ・Pillar F (Collision) との違い:
-//     - CCollisionWorld2D は汎用 broad-phase shape クエリ。
-//     - CPickupSystem は「Circle 形状の pickup を専用に高速処理する」軽量サブセット。
-//       broad-phase は持たず O(N) で player との距離判定 (典型 N=10〜100)。
-//
-// 使い方:
-//   CPickupSystem ps;
-//   ps.Init();
-//
-//   FPickupInfo info{};
-//   info.kind          = EPickupKind::Coin;
-//   info.item_id       = "coin.gold";
-//   info.world_pos     = { 100.0f, 50.0f };
-//   info.radius        = 12.0f;    // 拾取半径
-//   info.magnet_radius = 80.0f;    // 磁石半径
-//   info.lifetime_sec  = 10.0f;    // 10 秒で消滅
-//   info.value         = 5;        // 通貨価値 / 回復量等
-//   FPickupId id = ps.Spawn(info);
-//
-//   ps.SetOnPickupCallback(&OnPickup, user);
-//   ps.SetOnExpireCallback(&OnExpire, user);
-//
-//   // 毎フレーム
-//   ps.Tick(dt, player_pos, /*magnet_strength=*/200.0f);
-//
-// 設計選択:
-//   ・**FPickupId**: 32bit packed = 24bit index + 8bit generation。CCollisionWorld2D の
-//     FShapeId / FNodeId と同じパターン。slot 再利用しても古い handle は無効化される。
-//   ・**FSlot TArray**: 内部 `TArray<FSlot>` に固定。index 0 は予約 (= invalid)。
-//     Spawn 時に inactive slot を線形検索 (典型 N が小さいので十分)、無ければ
-//     末尾に Add。Despawn は active=false、slot は再利用。
-//   ・**磁石効果は equal-step**: `|player - pickup| < magnet_radius` のとき
-//     `pickup_pos += normalize(player - pickup) * magnet_strength * dt`。
-//     物理的な近似 (加速度ベース) ではなく、「シンプルで予測可能な吸引」を採用。
-//     これが Vampire Survivors / Hades / 90% のローグライクの標準的挙動。
-//   ・**拾取判定**: 磁石移動後の pickup_pos と player の距離が `radius` 未満で発火。
-//     近接条件は LengthSq で比較 (sqrt 不要)。
-//   ・**lifetime**: 0.0f より大きいとき毎フレーム dt 減算。0 以下に落ちたら
-//     ExpireCallback 発火 + Despawn。lifetime_sec == 0.0f は「無期限」として扱う
-//     (= 永続 pickup、明示 Despawn / ClearAll() まで残る)。
-//   ・**コールバックは 1 個固定 + user pointer**: STL <functional> 禁止のため。
-//     PickupCallback / ExpireCallback はそれぞれ独立に設定可能 (片方だけ使う
-//     ユースケースが多い)。
-//   ・**SpawnRandomAt**: 円内ランダムスポーン。`FRandom::Global()` を使って
-//     `center + PointInCircle(spread_radius)` で位置を決定。デフォルト radius /
-//     magnet_radius / lifetime_sec / value は kind 別に内部で設定する (適当な
-//     既定値を割り当てる)。具体的な数値は cpp で定義。
-//   ・**DespawnAllOfKind / CountOfKind**: kind 別の bulk 操作 / 統計用。線形走査。
-//   ・**非コピー・非ムーブ、全 noexcept、STL 不使用、`<string>` 禁止**:
-//     ACS 規約に従う。item_id は所有しない const char* (= 文字列リテラル想定)。
-//
-// 範囲外:
-//   ・broad-phase / 空間分割: pickup 数は小規模想定 (10〜100)。万を超える場合は
-//     CCollisionWorld2D 側に shape を登録して overlap クエリする設計を検討。
-//   ・物理ベース吸引 (加速度 / 速度減衰): 必要なら呼出側で magnet_strength を
-//     pickup 毎に変えるラッパを作る。
-//   ・kind の拡張: enum に新しい値を追加する場合、SpawnRandomAt の既定値テーブルも
-//     更新すること。
 
 
 namespace acs::game {
@@ -75818,74 +71238,6 @@ using FPickupSystem = CPickupSystem;
 
 // ===================== gameframework/WeaponSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I/R — CWeaponSystem (武器切替 + 弾薬 + 連射制御)
-//
-// 1 entity (= 1 player or 1 NPC) ぶんの武器ロードアウト / 弾薬 / 発射制御を
-// まとめた小型マネージャ。`Tick(dt)` で内部時計を進め、`fire_rate_per_sec` /
-// `reload_sec` に基づいて発射 / リロードの可否を判定する。複数 entity 同時
-// 管理は外側で複数 instance を持つ設計 (= manager 自体は per-entity)。
-//
-// 想定する位置付け:
-//   ・Pillar I (Combat) と Pillar R (Skills/Cooldowns) の橋渡し。武器毎の
-//     fire rate は CCooldownTimer と同等の役目だが、武器切替 / マガジン /
-//     reserve ammo / スプレッド / ペレット数 を一体で持つため、CCooldownTimer
-//     とは別 API として独立させる。
-//   ・FireCallback で「弾を出せ」のイベントだけを通知し、実際の projectile
-//     spawn / damage 適用は呼出側 (= Pillar I CCombatStateMachine や独自
-//     Projectile manager) で行う設計。CWeaponSystem は時系列と弾薬数の管理に
-//     責務を限定する。
-//
-// 使い方:
-//   acs::game::CWeaponSystem ws;
-//
-//   // 武器定義 (文字列リテラルは caller 側で長寿命を保証)。
-//   ws.RegisterWeapon({ "pistol", "9mm Pistol",
-//                       acs::game::EWeaponKind::Pistol,
-//                       /*fire_rate*/ 6.0f, /*reload*/ 1.4f,
-//                       /*mag*/ 12, /*reserve*/ 48,
-//                       /*dmg*/ 18.0f, /*spread*/ 1.5f,
-//                       /*pellets*/ 1, "proj.bullet_9mm" });
-//   ws.RegisterWeapon({ "shotgun", "Pump Shotgun",
-//                       acs::game::EWeaponKind::Shotgun,
-//                       1.0f, 2.6f, 6, 24,
-//                       12.0f, 6.0f, 8, "proj.pellet_12g" });
-//
-//   ws.AddReserveAmmo("pistol",  48);
-//   ws.AddReserveAmmo("shotgun", 24);
-//   ws.EquipWeapon("pistol");
-//   ws.SetOnFireCallback(&OnFire, user);
-//   ws.SetOnReloadCompleteCallback(&OnReload, user);
-//
-//   void Update(f32 dt) {
-//       ws.Tick(dt);
-//       if (input.JustPressed(EKey::Mouse0)) ws.TryFire();
-//       if (input.JustPressed(EKey::R))      ws.StartReload();
-//       if (input.JustPressed(EKey::Num1))   ws.EquipWeapon("pistol");
-//       if (input.JustPressed(EKey::Num2))   ws.EquipWeapon("shotgun");
-//   }
-//
-// 設計選択:
-//   ・Registry は TArray<FWeaponDef>: 武器数は per-entity でせいぜい 5〜10、
-//     線形検索で十分。const char* per-byte 比較。重複登録は WARN + no-op。
-//   ・reserve は並行 TArray で per-weapon 管理: 弾薬は武器毎に independent な
-//     ため、weapon_id をキーに { weapon_id, reserve_ammo, ammo_in_mag } を保持
-//     する。EquipWeapon で current_def に切り替えた後、ammo_in_mag / reserve_ammo
-//     をその武器の slot から復元する設計。
-//   ・装填中の武器切替は遮らずに許可: reload 中でも別武器に切り替えられ、切替の
-//     瞬間に元武器の reload はキャンセルされる。ammo_in_mag は reload 開始前の値
-//     のまま保持される (= reload は途中なので無効化)。
-//   ・fire_rate_per_sec: 1 秒間の発射回数。連射間隔 = 1.0 / fire_rate。0 以下は
-//     1.0 sec/発 のフォールバックを使う (NaN / 0 除算回避)。
-//   ・reload_sec: reload に要する時間。0 以下は「即時 reload」扱い。StartReload は
-//     reserve から min(mag_size - mag, reserve) を予約し、reload_remaining_sec を
-//     進めて 0 で実際に ammo_in_mag に加算する設計。
-//   ・コールバック: FireCallback (= 1 発分の damage / spread / pellets を通知) と
-//     ReloadCallback (= reload 完了通知) の 2 種類。C 関数ポインタ + void* user。
-//     複数 listener が必要なら呼出側で fan-out。
-//   ・spread / pellets: FWeaponDef で固定値を持ち、TryFire 時に FireCallback へ
-//     そのまま渡す (= 武器側の仕様)。実際の乱数 spread 適用は呼出側で行う。
-//   ・全 noexcept、非コピー・非ムーブ: 他 Manager 系と統一。
-//   ・STL 不使用、`<string>` 禁止: const char* 非所有のみ。
 
 
 namespace acs::game {
@@ -76245,96 +71597,6 @@ using FWeaponSystem = CWeaponSystem;
 
 // ===================== gameframework/ProjectileSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I — CProjectileSystem (弾丸 / 投射物 プール + 衝突判定)
-//
-// 弾丸 / ロケット / 矢 / 魔法弾 / 手榴弾 などの「飛んでいって何かに当たる」系
-// オブジェクトを固定容量プールで管理する。CWeaponSystem.FireCallback と組み合わせ
-// て発射 → 飛翔 → 命中 / 寿命切れ までを一元的に扱えるよう設計してある。
-//
-// 設計選択:
-//   ・**FProjectileId は 24bit idx + 8bit gen の packed u32**: FHealthId / FNodeId /
-//     FEmitterHandle と同じ規約。slot 再利用後の stale 参照は IsValid + 内部 gen
-//     一致で検出する。m_Packed == 0 を invalid と定義 (gen は常に 1 以上で配る)。
-//   ・**pool は固定容量**: Init(max_concurrent) で確保した後はリサイズしない。
-//     Spawn は inactive な slot を線形探索し、満杯なら invalid を返す。これに
-//     より realtime ループでのフレーム落ちを防ぐ (= 最悪ケース上限を制限する
-//     保守的ポリシー)。一般的に max_concurrent は 256〜512 で十分。
-//   ・**def は名前で登録 → Spawn で参照**: FParticleEmitterDef のように個別に値
-//     をコピーするのではなく、FProjectileDef を「弾種」として事前 RegisterDef、
-//     Spawn 時に def_id (const char*) で名前引きする。これにより
-//       - 多数の弾を発射しても per-instance memory が小さい (def はポインタで参照)
-//       - 同種の弾の挙動を一括変更できる (テスト / バランス調整時に有利)
-//       - CWeaponSystem / EnemyAI / Player を疎結合に保てる (def_id 文字列のみで連携)
-//     名前比較は ConstStringPointerEquals (アドレス一致優先) を使うが、同一文字
-//     リテラルなら基本同アドレスにマージされるためコストは O(1) 期待。
-//   ・**HitTest は callback で外部委譲**: CProjectileSystem 自身は CCollisionWorld2D /
-//     CTriggerWorld2D / 独自空間検索のどれを使うかを知らない。HitTestFn を登録し、
-//     Tick 内で各 alive projectile に対して呼び出す。true 返却で「命中した」と判
-//     定し、hit_count を進める。これにより:
-//       - テスト時は dummy fn で常に false を返せる (= headless 動作可)
-//       - 異なるシーン / ステージで異なる衝突空間を使い分けられる
-//   ・**hit_count >= max_pierces+1 で despawn**: pierces=false なら max_pierces は
-//     強制的に 0 として扱い、最初の命中で消滅。pierces=true なら max_pierces 個
-//     まで貫通し、+1 個目の命中で消滅 (= max_pierces=2 → 3 体目で消える)。
-//   ・**homing は単純な向き補正**: Tick 内で homing_target 方向の単位ベクトルと
-//     現在 velocity の単位ベクトルを homing_strength で線形補間。物理的には正確で
-//     ないが、見た目には十分な追従感が出る。複雑な誘導 (proportional navigation)
-//     は別レイヤに分離する。
-//   ・**owner_id / damage は instance に持つ**: def には共通パラメータのみを置き、
-//     誰が撃ったか / どれだけのダメージか は spawn 毎に変化する値として instance
-//     側に保持する。HitCallback でこれらを取り出し CHealthSystem.ApplyDamage に
-//     繋ぐ想定。
-//   ・**非コピー・非ムーブ**: 固定 pool の生ポインタを AllAlive で外部に返すため、
-//     ムーブで実体アドレスが変わると外部参照が破綻する。明示的に削除。
-//   ・**全 noexcept / STL 不使用 / <string> 禁止**: ACS 規約。失敗は invalid id /
-//     no-op で表現。文字列は const char* + アドレス一致比較で扱う。
-//
-// 使い方:
-//   CProjectileSystem ps;
-//   ps.Init(256);
-//
-//   FProjectileDef bullet{};
-//   bullet.id            = "bullet_9mm";
-//   bullet.kind          = EProjectileKind::Bullet;
-//   bullet.speed         = 800.0f;
-//   bullet.lifetime_sec  = 1.5f;
-//   bullet.radius        = 2.0f;
-//   bullet.gravity_y     = 0.0f;
-//   bullet.pierces       = false;
-//   bullet.max_pierces   = 0;
-//   bullet.homing        = false;
-//   ps.RegisterDef(bullet);
-//
-//   // 発射:
-//   FProjectileId pid = ps.Spawn("bullet_9mm",
-//                                /*pos=*/player_pos,
-//                                /*vel=*/FVec2{800.0f, 0.0f},
-//                                /*owner=*/player_node_id,
-//                                /*damage=*/15.0f);
-//
-//   // hit test を登録 (CCollisionWorld2D 経由など):
-//   ps.SetHitTestFn([](void* user, const FProjectileInstance& p,
-//                      u32& out_target, f32& out_dmg) noexcept -> bool {
-//       auto* cw = static_cast<CCollisionWorld2D*>(user);
-//       // ... overlap check ... out_target = enemy_node_id; out_dmg = p.damage;
-//       return hit_found;
-//   }, &collision_world);
-//
-//   // hit / expire コールバック:
-//   ps.SetOnHitCallback([](void* user, FProjectileId id, const char* def_id,
-//                          u32 target, f32 dmg) noexcept {
-//       // ApplyDamage / VFX / SE
-//   }, &my_game);
-//
-//   // 毎フレーム:
-//   ps.Tick(dt);
-//
-// 範囲外:
-//   ・チャージ shot / spread (n-way) - CWeaponSystem 側が複数 Spawn する形で対応
-//   ・3D 弾道 (現状 FVec2 のみ)
-//   ・反射 / 跳弾 (壁衝突で velocity 反転) - HitCallback 内で manual に再 Spawn
-//   ・複雑な誘導 (proportional navigation など)
-//   ・テクスチャ参照 / アニメーション - 描画は user 側、本クラスは姿勢だけ管理
 
 
 namespace acs::game {
@@ -76776,74 +72038,6 @@ using FProjectileSystem = CProjectileSystem;
 
 // ===================== gameframework/LapTimer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar (ジャンルキット: Racing) — CLapTimer
-//
-// 複数 racer のラップ時間計測 + 順位算出を一元管理する高レベル API。
-// チェックポイント順序検証、ベストラップ更新、フィニッシュ判定 (= total_laps
-// 到達)、リアルタイム順位ソートをまとめる。タイトル側はトラック側 collider
-// から `NotifyCheckpointPassed` / `NotifyLapCompleted` を投げ、UI 側は
-// `GetStats` / `PositionOf` / `GetLeader` を読むだけで成立する。
-//
-// 使い方:
-//   CLapTimer lt;
-//   lt.Init(/*total_laps=*/3, /*checkpoints_per_lap=*/4);
-//   FRacerId player = lt.AddRacer("Player");
-//   FRacerId rival  = lt.AddRacer("Rival");
-//
-//   lt.SetOnLapCallback([](void*, FRacerId id, u32 lap, f32 t, bool pb) noexcept {
-//       // HUD でラップタイム表示 / ベスト更新の演出
-//   }, nullptr);
-//   lt.SetOnFinishCallback([](void*, FRacerId id, f32 total, u32 pos) noexcept {
-//       // リザルト画面遷移
-//   }, nullptr);
-//
-//   lt.Start();
-//
-//   // 毎フレーム:
-//   lt.Tick(dt);
-//
-//   // collider event:
-//   lt.NotifyCheckpointPassed(player, checkpoint_index);
-//   lt.NotifyLapCompleted(player);
-//
-//   // UI:
-//   u32 pos       = lt.PositionOf(player);   // 1 = leader
-//   const auto* s = lt.GetStats(player);
-//
-// 設計選択:
-//   ・**FRacerId は 24bit idx + 8bit gen の packed u32**: CHealthSystem / ANode
-//     と同パターン。AddRacer → RemoveRacer → AddRacer で slot 再利用しても
-//     古い handle は generation 不一致で弾かれる。0 は invalid 予約 (index 0
-//     dummy slot)。
-//   ・**race state は 3 値マシン**: Stopped / Running / Paused。Start で
-//     reset + Running 開始、Pause で時刻凍結、Resume で再開、Stop で
-//     確定 (Tick が進まなくなる)。Init / ClearAll で Stopped に戻る。
-//   ・**checkpoint 順序検証**: NotifyCheckpointPassed は `expected_checkpoint`
-//     と一致した index のみ受理 (= ショートカット防止)。違う index は黙って
-//     棄却 (誤発火に強い)。`checkpoints_per_lap` 到達後は次の
-//     NotifyLapCompleted を待つ。
-//   ・**ラップ完了は順序検証通過後のみ**: フィニッシュライン collider を踏むと
-//     `NotifyLapCompleted` が呼ばれるが、checkpoint をすべて踏み切っていない
-//     racer は同じく棄却 (= 逆走防止)。
-//   ・**ベストラップ判定**: lap_time が現在の best_lap_time_sec より短い、もしくは
-//     初回ラップなら is_personal_best=true で FLapRecord に記録 + callback フラグ
-//     も true で発火。最終 lap でも同様に判定する。
-//   ・**順位計算は要求時に算出**: 内部に sorted index buffer は持たず、
-//     `PositionOf` / `GetLeader` 呼び出しの度に全 active racer を線形比較。
-//     racer 数は最大でも 32 想定なので O(N) で十分 (N=32 で命令数 < 1000)。
-//   ・**最終順位の確定はゴール到達順**: total_laps を満たしたタイミングで
-//     `racer_position` を 1 から順に確定。後続の Tick / NotifyCheckpointPassed
-//     はこの racer に対して no-op になり、`stats->racer_position` は固定値を
-//     保持する (= フィニッシュ後にゴール待機中の racer に順位が抜かれない)。
-//   ・**全 noexcept、非コピー・非ムーブ**: 他 Pillar Manager 系と統一。
-//
-// 範囲外 (将来 Phase で):
-//   ・周回別 split (各 checkpoint 通過時刻の累積差分) — 現状は 1 lap 単位の time
-//     だけ記録する。UI 上で詳細 split を出したくなったら `FLapRecord` に
-//     TArray<f32> sector_times を追加する。
-//   ・rubberband AI / handicap — CDynamicDifficulty 側で別途。
-//   ・順位変動の onPositionChanged callback — UI 側で前フレームを保持して
-//     差分検出する方が柔軟と判断 (Manager 内蔵しない)。
 
 
 namespace acs::game {
@@ -77276,56 +72470,6 @@ using FLapTimer = CLapTimer;
 
 // ===================== gameframework/MatchGrid.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (puzzle / match-3) — CMatchGrid
-//
-// `Bejeweled` / `Candy Crush` 系 match-3 パズルのコアロジックを担う 2D グリッド。
-// セルは「色 (1..color_count)」「special 種別 (Normal / Bomb / Lightning /
-// Rainbow)」「空フラグ」の 3 値を持ち、以下のサイクルを内包する:
-//   1) 隣接 swap (TrySwap) → match が発生したら確定、無ければ戻す。
-//   2) 3 個以上の縦横連続を検出 (DetectMatches) → FMatchInfo の列を吐く。
-//   3) ResolveAllMatches でマッチを順次消化:
-//        - ESpecialKind 効果 (Bomb=3x3 / Lightning=行+列 / Rainbow=同色全消し) を適用
-//        - 空になった cell に対し ApplyGravity / RefillFromTop で重力 + 補充
-//        - 再度マッチが発生するか走査 (cascade) → stable まで反復
-//      返却値は除去総数。chain level も内部カウンタで保持し連鎖判定に使える。
-//
-// 使い方:
-//   CMatchGrid g;
-//   g.Init(8, 8, /*color_count=*/5);
-//   g.FillRandom(0xC0FFEEULL);            // 初期マッチが残らない決定論埋め
-//   g.SetOnClearCallback(&MyClearFx, &fx); // VFX / SFX hook
-//   if (g.TrySwap(3, 4, 4, 4)) {           // 隣接 swap → 成立すれば自動 resolve
-//       const u32 chains = g.ChainLevel();
-//       const u32 cleared = g.TotalClearedThisChain();
-//       // score 加算 ...
-//       g.ResetChain();                    // 新ターン
-//   }
-//
-// 設計 (Pillar ジャンルキット v1):
-//   ・**1D 連続配列**: row-major (`y * width + x`)、`acs::TArray<FGridCell>` 1 本。
-//     範囲外 Get は内部 static の dummy empty cell を const-ref 返却 (安全)。
-//   ・**マッチ検出**: O(w*h) の水平 / 垂直 2 パス走査。3 個以上の連続を 1 個の
-//     `FMatchInfo` として吐く (length>=3, horizontal フラグ)。出力バッファ満杯
-//     なら検出継続 (count は上限まで)。重複検出は走査構造上発生しない。
-//   ・**ESpecialKind 効果**: 消去時に Bomb→周囲 3x3 / Lightning→同行 + 同列 /
-//     Rainbow→同色全消去。波及で他の Special を巻き込んだ場合は recursive に
-//     チェーン (visited 配列で再入防止)。
-//   ・**重力**: 列ごとに「下から上に空を吸い上げる」1-step ApplyGravity と、
-//     上端に空が残った場合の RefillFromTop を分離。ResolveAllMatches では
-//     両者を fix-point 反復し、再 detect → 連鎖を回す。
-//   ・**chain counter**: ResolveAllMatches の各 cascade ループで +1。
-//     呼び出し側が ResetChain() しない限り `ChainLevel()` は累積する
-//     (1 swap = 1 ターン想定でユーザが明示 reset)。
-//   ・**FillRandom の no-match invariant**: 各 cell をランダムに埋めつつ、
-//     左 2 個と上 2 個が同色のときは色を 1 個ずらす (色数 >= 2 を要求)。
-//     これにより初期 3-連続が出ない決定論的埋め。
-//   ・**非コピー・非ムーブ / 全 noexcept / STL 不使用 / acs::TArray のみ**: 規約準拠。
-//
-// 範囲外 (将来拡張):
-//   ・5-連続による Lightning 生成 / T 字 L 字による Bomb 生成などの
-//     `combo creation rule` (現状は Special を SetCell 経由で外部から仕込む)。
-//   ・hint / no-move 検出 (詰み判定)。
-//   ・animation step (ResolveAllMatches を 1 step ずつ進める coroutine API)。
 
 
 namespace acs::game {
@@ -78101,85 +73245,6 @@ using FTurnManager = CTurnManager;
 
 // ===================== gameframework/HungerSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — CHungerSystem (Survival ジャンルキット: 空腹/喉/疲労/睡眠)
-//
-// サバイバル系ゲーム (DayZ / The Long Dark / Don't Starve 等) で頻出する
-// 「複数 survivor (= プレイヤー / NPC) に対して、空腹・喉の渇き・疲労・正気度・
-// 体温などの生存統計値を秒単位で decay させ、critical 閾値を切ったら警告し、
-// 0 に達したら HP ダメージを CHealthSystem 経由で与える」マネージャ。
-//
-// CHealthSystem との関係:
-//   ・本クラスは HP を直接管理しない。0 到達時の zero_damage_per_sec を
-//     DamageCallback で外部へ通知し、上位 (= GameDirector / SurvivalDirector)
-//     が CHealthSystem::ApplyDamage を呼ぶ「弱結合 bridge」を取る。
-//   ・IsAlive(FSurvivorId) は本クラスの世界での生死判定 = 全 stat の何れかが
-//     0 ではない & HealthBridge が「HP > 0」を返すか否か。HealthBridge を
-//     セットしない場合は stat 部分だけで判定する。
-//
-// 設計選択 (Pillar R/I — CHungerSystem):
-//   ・**FSurvivorId は 24bit index + 8bit gen の packed handle**: FHealthId /
-//     FBuffOwnerId / FNodeId と同規約。`m_Packed == 0` を invalid とし gen は
-//     常に 1 以上で配る。AddSurvivor 後に RemoveSurvivor された slot を再利用
-//     しても古い handle は gen 不一致で確実に弾ける。
-//   ・**stat enum は固定 7 値 (Hunger / Thirst / Energy / Sanity / Warmth /
-//     Custom1 / Custom2)**: array index として直接使う。Custom1/2 はゲーム
-//     固有 (例: Radiation, Oxygen) を載せる拡張枠。
-//   ・**各 survivor は固定 7 stat の TArray を保持**: SoA にする旨味は少ない
-//     (1 survivor あたり stat は 7 個固定で、横断クエリは Tick だけなので
-//     dense layout で十分)。AddSurvivor で 7 個ぶん push して以後固定。
-//   ・**FStatConfig は stat 種別ごとに 1 個固定** (= 全 survivor で共通): 個体差
-//     (= 強キャラは空腹に強い等) は将来 Modifier レイヤで載せる想定で、今は
-//     共通 config + per-survivor FStatState の単純構造を採る。
-//   ・**Tick の流れ**: 全 survivor × 全 stat を 1 重ループで回し、
-//       1) stat.current -= config.decay_per_sec * dt
-//       2) clamp(0, max)
-//       3) critical_threshold を新たに跨いだら CriticalCallback 発火 (entered)
-//       4) 復帰した (threshold より上に戻った) ら CriticalCallback 発火 (exited)
-//       5) stat.current == 0 の場合は zero_damage_per_sec * dt を DamageCallback
-//          経由で通知 (= 1 フレで複数 stat が同時に発火する可能性あり)
-//   ・**RestoreStat / DrainStat / SetStat は clamp(0, max) を強制**: 上位の
-//     ロジックバグで負値や max 超過が乗らない安全側設計。
-//   ・**callback は C 関数ポインタ + void* user** (`<functional>` 禁止)。複数
-//     リスナーが必要なら呼出側で fan-out。critical / damage は別 callback で
-//     独立に attach/detach 可能。
-//   ・**OverallSurvivalHealth(id)** : 全 stat の (current / max) の平均を [0,1]
-//     で返す。UI のキャラ状態バー (= 「生存度メータ」) 表示用。
-//   ・**非コピー・非ムーブ**: 内部 TArray<FSurvivorSlot> がさらに TArray<FStatState>
-//     を持つ二段ネスト構造で、callback の発火タイミングで外部参照が破綻する
-//     可能性があるため。CGame / AScene 単位で 1 個保持の想定。
-//   ・**全 noexcept、STL 不使用、`<string>` 禁止**: ACS 規約。失敗は bool / 哨兵で表現。
-//
-// 使い方:
-//   CHungerSystem hs;
-//   hs.Init();
-//
-//   // 1) stat ごとに decay/critical/damage を config
-//   hs.ConfigureStat(ESurvivalStat::Hunger,
-//       FStatConfig{ /*max*/100.0f, /*decay*/0.5f, /*critical*/20.0f, /*zero_dmg*/2.0f });
-//   hs.ConfigureStat(ESurvivalStat::Thirst,
-//       FStatConfig{ 100.0f, 1.0f, 25.0f, 3.0f });   // 喉は空腹より速い
-//
-//   // 2) survivor を追加 (= 全 stat が max でスタート)
-//   FSurvivorId player = hs.AddSurvivor();
-//
-//   // 3) コールバックを attach (CHealthSystem への bridge)
-//   hs.SetOnCriticalCallback(&MyOnCritical, &game_ctx);
-//   hs.SetOnDamageCallback(&MyOnDamage, &game_ctx);
-//
-//   // 4) ゲーム中: アイテム使用で stat 回復
-//   hs.RestoreStat(player, ESurvivalStat::Hunger, 30.0f);   // 肉を食べた
-//
-//   // 5) 毎フレ
-//   hs.Tick(dt);
-//
-//   // 6) UI 表示
-//   const f32 hp = hs.OverallSurvivalHealth(player);   // [0,1]
-//
-// 範囲外 (将来 Phase で):
-//   ・stat 間の連鎖 (空腹 → 疲労増加) → 上位ロジックが Tick 後に DrainStat で実装
-//   ・天候 / 環境による decay 倍率 → Modifier レイヤで別途
-//   ・永続化 → Pillar J Serialize に委譲
-//   ・stat の表示名 / 説明文 / アイコン → 呼出側の UI 層で別 table を引く
 
 
 namespace acs::game {
@@ -79454,91 +74519,6 @@ private:
 
 // ===================== gameframework/NetSnapshot.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework のサーバー権威 snapshot — CNetSnapshot
-//   server-authoritative snapshot ベースのネットコード seam
-//
-// 役割:
-//   1) **Server 側 snapshot 書出**: 毎 tick のゲーム状態 (entity ごとの位置 /
-//      速度 / 姿勢 / health 等) を 1 つの FSnapshotHeader + payload に固めて
-//      INetTransport.Send で配信する。1 snapshot = 「ある tick の世界全体の
-//      authoritative state」を意味する。
-//   2) **Client 側 snapshot 補間**: server から到着した複数 snapshot を ring
-//      buffer に貯め、client 時刻に対して「interpolation_delay_sec 前」の
-//      snapshot を 2 つ (基準 / 次) 取り出して補間する (= snapshot interpolation,
-//      Source / Halo / Valorant 等で採用されている定石)。
-//   3) **transport の差し替え**: 実 socket / Steam Datagram Relay / loopback
-//      テスト fake のいずれを使うかは INetTransport seam で抽象化し、本クラスは
-//      send/recv バイト列だけを扱う。CLockstep (deterministic input replay) と
-//      並ぶもう一つの netcode 流儀を提供する。
-//
-// CLockstep との対比:
-//   ・**CLockstep**: 全プレイヤーが同じ入力を受信し、同じ deterministic
-//     simulation を回す (=「結果」ではなく「入力」を配信する)。
-//     格闘ゲーム / RTS / GGPO 系で標準。
-//   ・**CNetSnapshot**: server が 1 体の authoritative simulation を回し、
-//     client は受け取った snapshot を補間表示するだけ (=「結果」だけを配信)。
-//     FPS / TPS / MMORPG 系で標準。
-//   どちらを採用するかはジャンル次第。両方を seam として提供し、タイトル
-//   側が用途に応じて選べるようにする。
-//
-// 使い方 (server 側):
-//   FNetSnapshotConfig cfg{ /*snapshot_rate_hz=*/30, /*buffer_capacity=*/64,
-//                          /*interpolation_delay_sec=*/0.1f,
-//                          /*max_payload_bytes=*/8192 };
-//   CNetSnapshot snap;
-//   snap.Init(cfg, ENetRole::Server, &transport);
-//
-//   // 毎 simulation tick:
-//   for (auto& e : world.Entities()) {
-//       snap.AddEntitySnapshot(e.id, e.mask, &e.data, sizeof(e.data));
-//   }
-//   snap.CommitSnapshot(world.CurrentTick());  // ← Send まで実行
-//
-// 使い方 (client 側):
-//   CNetSnapshot snap;
-//   snap.Init(cfg, ENetRole::Client, &transport);
-//
-//   // 毎フレーム:
-//   snap.Tick(dt);  // ← Receive + ring buffer 維持
-//   FEntitySnapshot view_buf[256];
-//   u32 view_n = 0;
-//   if (snap.TryGetInterpolatedSnapshot(client_time, view_buf, 256, view_n)) {
-//       // view_buf[0..view_n] を描画用 state に流し込む (補間後の世界状態)
-//   }
-//
-// 設計選択:
-//   ・**INetTransport seam**: 実 socket は持たない。Connect/Send/Receive/
-//     PendingBytesIn/PendingBytesOut の最小 API だけを切り、TCP / UDP / Steam
-//     Datagram / loopback テスト fake は派生クラスで差し込む。IBackendClient
-//     の seam パターンを踏襲。
-//   ・**ENetRole 4 種**: Standalone (シングル) / Client (受信のみ) / Server
-//     (送信のみ) / ServerListener (listen-server 兼任) の 4 状態。listen-server
-//     は内部的に Server + Client を同居させる役割で、host プレイヤーが自機の
-//     simulation を server として回しつつ自分の画面用に snapshot 補間も使う
-//     ケースに使う。
-//   ・**FSnapshotHeader fixed 24B**: tick(4) + sequence(4) + timestamp(8) +
-//     payload_size(4) + crc32(4) = 24 byte。LE 固定。CRC32 は magic 直後 〜
-//     payload 末尾 (= version + FSnapshotHeader 本体 + payload) に対する Zlib /
-//     PNG 規約 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) で、wire format の
-//     改竄 / 破損検知に使う。EncodeSnapshot で計算し DecodeSnapshot で検証する。
-//     なお FSnapshotHeader::crc32 フィールドは header を CRC 対象に含めるため
-//     計算時に 0 として扱い (= header の他フィールドのみが寄与)、実際の値は
-//     frame 末尾 4 byte の footer に格納される。
-//   ・**FEntitySnapshot は非所有 view**: `const void*` + size の pair。Server 側
-//     は AddEntitySnapshot で m_PendingEntities にコピーを積み、CommitSnapshot
-//     で payload に bulk concat する。Client 側は TryGetInterpolatedSnapshot
-//     で ring buffer の中の payload を指す view として返す (寿命は次の Tick
-//     呼び出しまで)。
-//   ・**delta compression は範囲外**: 前 snapshot との XOR 差分のみを送る最適化は
-//     本クラスでは扱わず、full snapshot を毎回 encode/送信する。各 frame は
-//     EncodeSnapshot / DecodeSnapshot で magic+version+payload+crc32 を伴う
-//     real な byte serialization として完結している (round-trip 検証済み)。
-//   ・**ring buffer = TArray<{header, payload}> 固定容量**: snapshot は時系列順
-//     に追加され、capacity を超えたら最古を上書きする FIFO。線形検索でも
-//     buffer_capacity (= 数十) なので O(N) で十分。
-//   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 全体方針。
-//   ・**コピー / ムーブ禁止**: 1 セッション 1 オブジェクトの長寿命 (transport
-//     との結合関係を分裂させないため CLockstep / IBackendClient と同じ方針)。
 
 namespace acs::game {
 
@@ -80082,9 +75062,13 @@ public:
 private:
     /** socket の利用可否と解放保留を区別する内部状態。 */
     enum class EState : u8 {
+        /** socket と WSA 参照を保持していない。 */
         Disconnected,
+        /** socket の生成と接続設定を実行中。 */
         Configuring,
+        /** UDP 送受信が可能。 */
         Established,
+        /** 接続失敗または切断後の資源回収が未完了。 */
         CleanupPending,
     };
 
@@ -80588,26 +75572,6 @@ public:
         half_size = FVec2{ m_Size.x * 0.5f, m_Size.y * 0.5f };
         return true;
     }
-
-    /** 現在の形状/サイズ/色をログ出力する(BlueprintCallable + CallInEditor のデモ関数)。
-     *  Blueprint グラフの «関数» ノード→実ノード作用の実例。 */
-    ACS_FUNCTION(BlueprintCallable, CallInEditor)
-    void LogState() noexcept {
-        ACS_LOG_INFO("[Prim] LogState shape=%d size=(%.2f,%.2f) color=(%.2f,%.2f,%.2f,%.2f)",
-            static_cast<int>(m_Shape), static_cast<double>(m_Size.x), static_cast<double>(m_Size.y),
-            static_cast<double>(m_Color.x), static_cast<double>(m_Color.y),
-            static_cast<double>(m_Color.z), static_cast<double>(m_Color.w));
-    }
-
-    /** f32 引数を 1 個取りログ出力する(BlueprintCallable + 引数ありメソッドのデモ)。 */
-    ACS_FUNCTION(BlueprintCallable, CallInEditor)
-    void LogValue(f32 v) noexcept {
-        ACS_LOG_INFO("[Prim] LogValue v=%.3f", static_cast<double>(v));
-    }
-
-    /** 形状の面積 (size.x*size.y) を返す(BlueprintCallable + 戻り値ありメソッドのデモ)。 */
-    ACS_FUNCTION(BlueprintCallable)
-    f32 GetArea() const noexcept { return m_Size.x * m_Size.y; }
 
     /** owner の world transform で形状を CSpriteBatch へ積む。 */
     void OnDraw(FRenderContext& rc) noexcept override {
@@ -81776,63 +76740,16 @@ void* CreateFromBytes(const u8* data, u32 size, FTypeId* out_type_id) noexcept;
 
 // ===================== gameframework/RigidBody2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// GameFramework Pillar F — ARigidBody2D (剛体ボディ・コンポーネント)
-// -----------------------------------------------------------------------------
-// CRigidWorld2D の剛体を ANode に結びつける AComponent。owner ノードに attach
-// すると共有ワールドへ円/箱ボディを登録し、物理ステップ後にボディ位置を owner の
-// Local 位置へ書き戻す。これで「ノードに付けたら落ちて衝突する」がゲームから書ける。
-//
-// 使い方:
-//   CRigidWorld2D world;
-//   world.AddStaticAabb({0, 12}, {20, 0.5f});             // 床
-//   auto crate = NewObject<ANode>();
-//   crate->SetPosition2D(FVec2{0, 0});
-//   auto& rb = crate->AddComponent<ARigidBody2D>(world);   // 共有ワールドを渡す
-//   rb.SetBox({0.5f, 0.5f}, /*mass=*/1.0f);
-//   root.AddChild(Move(crate));
-//   // 毎フレーム:
-//   StepRigidBodies(world, root, dt, FVec2{0, 10});        // step + ノード同期
-//
-// 注意:
-//   ・ボディ位置は world 座標。owner の Local へ書き戻すため、物理ノードは identity
-//     transform の親 (シーン root 等) 直下に置くこと (親に回転/スケールがあると
-//     Local==World が崩れる。world→local 逆変換は今後の拡張点)。
-//   ・1 ノードにつき ARigidBody2D は 1 つ (複数付けると同じ Local 位置を奪い合う)。
-//   ・SetCircle/SetBox を再呼び出しすると古いボディを置き換える (ghost を残さない)。
-//   ・owner ノード破棄時に OnDetach でボディをワールドから除去する (ghost/leak 防止)。
-// =============================================================================
 
 
 // ===================== gameframework/RigidWorld2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// GameFramework Pillar F — CRigidWorld2D (2D 剛体ダイナミクス、線形インパルス)
-// -----------------------------------------------------------------------------
-// APhysicsBody2D (swept kinematic) とは別の「本物の剛体」。質量を持つ動的ボディが
-// 衝突時に**運動量を交換**する (跳ね返り / 積み重ね / 押し合い)。インパルスベースの
-// 接触ソルバ + 位置補正で、落下・反発・静止を再現する。
-//
-// 範囲:
-//   ・形状は **円 / 有向ボックス (OBB) / 凸ポリゴン**、動的・静的いずれも。回転ダイナミクス対応。
-//   ・接触は円-円 / 円-凸 / 凸-凸 (SAT + 面クリッピング) を自前マニフォルド (法線 + めり込み深さ +
-//     最大 2 接触点) で解く。AABB は angle=0 の OBB、有向ボックスは SetAngle で回す。
-//   ・restitution (反発係数) + Coulomb 摩擦 + 角運動 (慣性モーメント) に対応。
-//   ・**CCD (連続衝突判定)** は SetCcd でボディ単位に opt-in。高速な動的円が薄い静的形状を
-//     すり抜けるトンネリングを、位置積分前のスウィープ (TOI クランプ) で防ぐ。既定 off。
-//
-// 使い方:
-//   CRigidWorld2D w;
-//   u32 floor = w.AddStaticAabb({0, 10}, {10, 0.5f});      // 上端 y=9.5 の床
-//   u32 ball  = w.AddCircle({0, 0}, 0.5f, /*mass=*/1.0f, /*restitution=*/0.2f);
-//   for (...) w.Step(1.0f/60.0f, FVec2{0, 10});            // +Y=下: 重力は +Y
-//   FVec2 p = w.Position(ball);                            // 落ちて床上で静止
-//
-// 規約: no-STL / no-exceptions / 全 noexcept / 固定長 TArray。
-// =============================================================================
 
 
 namespace acs::game {
+
+/** 凸ポリゴンコライダーの最大頂点数。 */
+inline constexpr u32 kMaxPolyVerts = 8u;
 
 /**
  * 剛体ボディ 1 つの状態 (円 or AABB、動的 or 静的)。
@@ -81840,9 +76757,6 @@ namespace acs::game {
  * @details 角運動 (angle/ang_vel/inv_inertia) はダイナミクスと transform に効く。
  * 衝突形状は回転しない (円は回転不変、AABB は軸並行のまま = 近似。OBB は今後)。
  */
-/** 凸ポリゴンコライダーの最大頂点数。 */
-inline constexpr u32 kMaxPolyVerts = 8u;
-
 struct FRigidBodyState {
     FVec2 pos{0.0f, 0.0f};       // 中心位置
     FVec2 vel{0.0f, 0.0f};       // 速度 (静的は 0 固定)
@@ -82185,53 +77099,6 @@ void DebugDrawRigidWorld(const CRigidWorld2D& world, CDebugDraw& dd,
 
 // ===================== gameframework/RollbackSession.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — CRollbackSession (rollback netcode の統合層)
-//
-// 役割:
-//   ecs::FRollbackBuffer (状態履歴) と自前の入力台帳を束ね、GGPO 風の
-//   「予測実行 → 遅延して届いた確定入力 → 自動巻き戻し + 再シミュレーション」
-//   ループを 1 クラスで回せるようにする。レイヤ関係:
-//     ・CWorld::CopyFrom     … 状態の複製プリミティブ (ecs)
-//     ・FRollbackBuffer      … 直近 N tick の状態履歴リング (ecs)
-//     ・CRollbackSession     … 入力台帳 + 予測 + 再シミュレーション制御 (本クラス)
-//   CLockstep は「全入力確定済み」前提の入力リプレイ層で、本クラスとは別物
-//   (決定論検証の ComputeChecksum は併用できる)。
-//
-// 使い方 (2P 対戦の典型):
-//   CRollbackSession session;
-//   FRollbackSessionConfig cfg;
-//   cfg.player_count   = 2;
-//   cfg.history_length = 8;      // 8 tick まで巻き戻せる
-//   session.Init(&world, cfg);
-//   session.SetSimCallback(&CMyGame::SimTick, this);
-//
-//   // 毎 tick:
-//   session.SubmitInput(local_input);            // 自分の入力 (確定)
-//   while (RemoteInputAvailable())
-//       session.SubmitInput(PopRemoteInput());   // 相手の入力 (遅れて届く)
-//   session.AdvanceTick();                       // 必要なら自動で巻き戻し→再実行
-//
-// 設計選択:
-//   ・**入力は tick % history のリング台帳**: 確定値 (ledger) と「実際に sim へ
-//     渡した値」(used) を分けて持つ。遅延到着した確定入力が予測と bit 一致なら
-//     再シミュレーションを省略できる (GGPO と同じ最適化)。
-//   ・**予測 = 直前 tick で使った入力の繰り返し**: 格闘/アクションで最も外れにくい
-//     標準予測。tick 0 or 履歴切れはニュートラル (ゼロ入力)。
-//   ・**再シミュレーションは AdvanceTick 冒頭で自動実行**: 呼び出し側は dirty 管理を
-//     意識しない。RestoreFrame 失敗 (= 追い出し済み tick への巻き戻し要求) は
-//     SubmitInput 側で先に弾くため通常起こらない。
-//   ・**max_prediction**: 未確定のまま先行できる tick 数の上限。超えると
-//     AdvanceTick が false を返して停止する (入力が届くまで待つ = 実質 lockstep
-//     に退化する GGPO の標準挙動)。0 = 無制限。
-//   ・**sim コールバックは C 関数ポインタ + user データ**: STL 不使用方針のため
-//     TFunction は使わない (CJobGraph 等と同じ規約)。コールバックは決定論であること
-//     (同じ world 状態 + 同じ入力列 → 同じ結果) が正しさの前提。
-//   ・**コピー / ムーブ禁止**: CWorld* と履歴を抱える長寿命オブジェクト。
-//
-// 範囲外:
-//   ・ネットワーク送受信 / シリアライズ (FInputFrame の I/O は CLockstep 参照)
-//   ・desync 検出 (CLockstep::ComputeChecksum や CWorld 側 checksum を併用)
-//   ・可変 tick rate / フレームスキップ制御
 
 
 namespace acs::game {
@@ -82617,23 +77484,6 @@ TObjectPtr<ANode> LoadNodeTree(const u8* data, u32 size) noexcept;
 
 // ===================== gameframework/SceneTextLoader.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — エディタの ACSCENE テキスト形式をランタイムで読み込むローダ
-//
-// エディタ (editor_abi の SerializeScene) が保存する `*.acscene` (ACSCENE v1 テキスト) を
-// «スタンドアロン実行ファイル» 側で読み込み、ANode ツリー + コンポーネント (反射 factory)
-// として復元する。これで「エディタで編集したシーン」と「Build & Run で立ち上がるシーン」が
-// 一致する。座標は editor が world=pixel で扱うので、読込側は PixelsPerUnit=1 を想定。
-//
-// 対応行: ノード行 (id parent x y rot sx sy base r g b a name) / COMP <id> <type> /
-//         CPROP <id> <slot> <prop> <x y z w> / POLY <id> <count> <x y ...> /
-//         RPLY <id> <count> <x y ...> (描画用滑らか頂点) /
-//         NFLG <id> <visible> <enabled> <sortLayer> /
-//         SPRT <id> <path> / MAT <id> <path>。
-//
-// 使い方 (AScene 派生の OnReady から):
-//   SetPixelsPerUnit(1.0f);
-//   FSceneBounds b = LoadAcsceneFile("main.acscene", Root());
-//   if (b.valid) { Services().Camera().SetPosition(b.Center()); /* zoom はフレーム後合わせる */ }
 
 
 namespace acs { class IRhiDevice; class IRhiTexture; }
@@ -82707,31 +77557,57 @@ inline constexpr u32 kSceneTextMaxPathBytes = 259u;
 
 /** 検証付き ACSCENE loader が返す詳細な失敗理由。 */
 enum class ESceneTextLoadError : u8 {
+    /** 読み込みが成功した。 */
     None = 0,
+    /** 入力 text が null だった。 */
     NullText,
+    /** ファイル入力の path が null だった。 */
     NullPath,
+    /** 入力 text が許容バイト数を超えた。 */
     TextTooLarge,
+    /** 1 行のバイト数が上限を超えた。 */
     LineTooLong,
+    /** ACSCENE header の形式が不正だった。 */
     InvalidHeader,
+    /** node 件数の宣言がなかった。 */
     MissingNodeCount,
+    /** node 件数が安全上限を超えた。 */
     NodeLimitExceeded,
+    /** 宣言件数より前に node list が終端した。 */
     TruncatedNodeList,
+    /** node record の構文または値が不正だった。 */
     InvalidNodeRecord,
+    /** 同じ node id が複数回現れた。 */
     DuplicateNodeId,
+    /** node が存在しない node id を参照した。 */
     InvalidNodeReference,
+    /** node の親子関係に循環があった。 */
     HierarchyCycle,
+    /** node tree の深さが安全上限を超えた。 */
     TreeDepthLimitExceeded,
+    /** directive 件数が安全上限を超えた。 */
     DirectiveLimitExceeded,
+    /** 1 node の component 件数が上限を超えた。 */
     ComponentLimitExceeded,
+    /** directive の種類または引数が不正だった。 */
     InvalidDirective,
+    /** 入力 path のバイト数が上限を超えた。 */
     PathTooLong,
+    /** 書き込み先 node が破棄待ちだった。 */
     TargetPendingDestroy,
+    /** 読み込み用メモリを確保できなかった。 */
     AllocationFailure,
+    /** 検証済み scene を出力先へ確定できなかった。 */
     CommitFailed,
+    /** scene file を開けなかった。 */
     FileOpenFailed,
+    /** scene file の読み取り位置を移動できなかった。 */
     FileSeekFailed,
+    /** scene file のサイズが安全上限を超えた。 */
     FileSizeLimitExceeded,
+    /** scene file の全内容を読み取れなかった。 */
     FileReadFailed,
+    /** text 内に埋め込み NUL があった。 */
     EmbeddedNul,
 };
 
@@ -83633,40 +78509,6 @@ using FScriptVmStub = CScriptVmStub;
 
 // ===================== gameframework/SpatialAudio2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CSpatialAudio2D (2D 平面向け位置情報オーディオ)
-//
-// CSpatialAudio (3D) の 2D ゲーム特化版。3D の up/forward 三次元姿勢の代わりに
-// 「位置 (FVec2) + 向き角 (ラジアン)」だけで距離減衰 / 左右パンを算出する。
-// 計算は **純数学** で in-repo 完結し、外部依存 (HRTF IR 等) は持たない。
-//
-// 3D 版との関係:
-//   ・距離減衰カーブ (EAttenuationCurve) と各式は SpatialAudio.h と**完全に共有**する
-//     (Linear / Inverse(ref_d = max/8 + tail blend) / Exponential(k = 4/max + tail))。
-//     3D の ComputeAttenuationGain と同一の数値を返す。
-//   ・パンは 3D が「right = up × forward への射影」だったのを、2D では
-//     「listener の右手ベクトル (= forward を時計回り 90° 回転) への射影」に縮約する。
-//   ・constant-power (等パワー / -3dB) パン則も 3D 版と同式。
-//
-// 座標系: **Y+ が上 (math 慣習)**。向き角 θ の forward = (cosθ, sinθ)。
-//   listener の右手ベクトル right = (forward.y, -forward.x) (forward を CW 90°)。
-//   → 東 (+X) を向くと北 (+Y) は左 (pan<0)、南 (-Y) は右 (pan>0)。
-//   Y+ が下のスクリーン座標系を使う場合は angle の符号を反転して渡す。
-//
-// 使い方 (free function 直叩き — AScene が独自に source を持つ場合):
-//   const f32 d   = ComputeDistance2D(ear_pos, enemy_pos);
-//   const f32 vol = ComputeVolume2D(d, 20.0f, EAttenuationCurve::Linear);
-//   const f32 pan = ComputePan2D(ear_pos, ear_angle, enemy_pos);
-//   f32 l, r; ComputeConstantPowerStereo2D(pan, l, r);
-//
-// 使い方 (CSpatialAudio2D マネージャ — listener 1 + source N を集中管理):
-//   acs::game::CSpatialAudio2D spatial;
-//   spatial.SetListener({{0,0}, 0.0f});
-//   u32 s = spatial.RegisterSource({5, 3}, 20.0f, EAttenuationCurve::Linear);
-//   spatial.UpdateSource(s, enemy.Pos());
-//   f32 vol = spatial.ComputeAttenuatedVolume(s);
-//   f32 pan = spatial.ComputePan(s);
-//
-// 範囲外: Doppler / occlusion / 複数 listener / reverb (3D 版と同様)。
 
 
 namespace acs::game {
@@ -83694,7 +78536,7 @@ struct FAudioSource2D {
     /** 世界座標。 */
     FVec2 position     = FVec2::Zero();
 
-    /** 速度 (Doppler 用に保持のみ、現状未使用)。 */
+    /** Doppler 計算用の速度。距離減衰と pan 計算では参照しない。 */
     FVec2 velocity     = FVec2::Zero();
 
     /** 基準ゲイン [0, 1] (距離減衰前の素の音量)。 */
@@ -84041,18 +78883,6 @@ using game::FSpawn2DSubsystem;
 
 // ===================== gameframework/Steering2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// GameFramework — 2D 操舵ビヘイビア (Steering2D)
-// -----------------------------------------------------------------------------
-// エージェントの「目標へ向かう/止まる/逃げる/経路を辿る」操舵力を計算する純関数群。
-// 利用側が pos/vel を保持し、戻りの操舵力で速度を更新する (本モジュールは状態を持たない)。
-// CNavGrid/TilemapNav の waypoint 列と組み合わせて敵 AI の移動を駆動する。
-//
-// 使い方:
-//   FSteerParams sp{ .max_speed = 4.0f, .max_force = 8.0f };
-//   FVec2 steer = SteerArrive(pos, vel, target, sp, /*slow_radius=*/2.0f);
-//   vel += steer * dt; clamp(|vel|, max_speed); pos += vel * dt;
-// =============================================================================
 
 
 namespace acs::game {
@@ -84390,51 +79220,6 @@ using game::FWorldClockSubsystem;
 
 // ===================== gameframework/audio_backend/XAudio2Backend.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CXAudio2Backend (Windows 用 IAudioBackend 実装)
-//
-// 役割:
-//   `IAudioBackend` の concrete 実装 = Win32 XAudio2 (Windows SDK 同梱) を
-//   叩いて実音声を出す。`CAudioDirector::SetBackend(&xaudio2)` で差し込んで
-//   使う。
-//
-// 使い方 (典型例):
-//   class CGame {
-//       acs::game::CXAudio2Backend m_Audio;
-//       acs::game::CAudioDirector  m_Director;
-//
-//       TResult<void> OnStart() noexcept override {
-//           ACS_TRY(m_Audio.Init(64));      // 同時発音 64 voice
-//           m_Director.SetBackend(&m_Audio);
-//           return Ok();
-//       }
-//       void OnShutdown() noexcept override {
-//           m_Director.SetBackend(nullptr);  // 先に director を切る (delegate 停止)
-//           m_Audio.Shutdown();
-//       }
-//   };
-//
-// 設計選択:
-//   ・**pimpl で XAudio2 ヘッダ隠蔽**: `<xaudio2.h>` は <windows.h> + COM を
-//     引っ張る重いヘッダなので .cpp に閉じ込め、.h ではポインタ前方宣言だけ
-//     公開する (ACS の `acs::CAudioEngine` と同じパターン)。
-//   ・**固定容量 voice pool**: `Init(max_voices)` 時に確保。再 init 不可。
-//     PlayOneShot / PlayLooped で空きを線形探索 (max_voices は通常 ≦ 128 で、
-//     ホットパス影響は無視できる)。
-//   ・**一意 handle**: slot 再利用時に古いハンドルで操作されても不一致で
-//     no-op 化し、use-after-free を防ぐ。
-//   ・**COM MTA 寿命は本 backend が責任を持つ**: `CoIncrementMTAUsage` の
-//     cookie を保持し、Shutdown で `CoDecrementMTAUsage` を呼ぶ。cookie は
-//     スレッドに属さないため、Init と異なるスレッドからも安全に終了できる。
-//   ・**Pcm32Float / Pcm16 のみ実音再生対応**: Wav 形式は asset layer
-//     側で事前デコードしてから raw PCM として渡す前提 (本 backend 内に
-//     wav parser を追加するなら拡張可)。
-//   ・**Tick で完了 voice 回収**: 一発再生は `BuffersQueued == 0` を見て
-//     自然回収する。回収しないと kMaxVoices 回再生でスロット枯渇する。
-//
-// 範囲外:
-//   ・3D positional / spatial (Pillar CSpatialAudio 担当、別 backend)
-//   ・stream 再生 / 動的バッファ供給
-//   ・wav/ogg/mp3 デコード (raw PCM を渡す前提)
 
 
 namespace acs::game {
@@ -84751,190 +79536,10 @@ private:
 
 // ===================== gameframework/tools/animcurve/AnimCurveEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — animcurve / AAnimCurveEditorPanel
-//
-// `acs::game::FAnimationCurve` (Hermite/Linear/Step + EWrapMode) を ImGui で
-// **対話的に編集する curve editor panel**。キー追加とタンジェントドラッグを扱う。
-// `editor_core::AEditorPanel` 基底に
-// 載せ、`CEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
-// 統合できる形にしている。
-//
-// 役割:
-//   ・ImGui canvas 上に curve の波形を 1024 sample で描画 (= 連続線)
-//   ・各 key を丸 marker で描画 + drag で time / value を編集
-//   ・Hermite key の場合は in / out tangent を小さい handle として描画
-//     し、これも drag で編集可能 (= 接線方向の調整)
-//   ・右クリックで context menu (Add key here / Delete selected key)
-//   ・上部 toolbar:
-//       - Interpolation Combo (Step / Linear / Hermite) — 選択中 key に適用
-//       - EWrapMode Combo (Pre / Post 個別) — curve 全体に適用
-//       - Add Key ボタン (= time=0.5 / value=0 の標準キーを 1 個追加)
-//       - Clear ボタン (= 全 key 削除)
-//       - Eval preview slider (= 現在時刻 [0, Duration] で曲線を sample し、
-//         結果値を表示。アニメ確認用)
-//   ・「キー変更があった」フラグ `m_Dirty` を内部に保持し、`CurveChangeCallback`
-//     経由で外部 (= caller) に通知 (例: 保存ボタンの有効化 / 自動再描画)
-//
-// 役割分担:
-//   ・本 panel は「**curve の編集 UI** だけ」を担当。実際の FAnimationCurve
-//     データは caller 所有 (= `SetCurve(&curve)` で raw 参照を渡す、寿命は
-//     caller 責任)。本 panel が curve を生成 / 破棄しない。
-//   ・curve の使い道 (= camera FOV カーブ / fade alpha / 任意 easing 等) は
-//     呼出側責任。本 panel は curve に対して `AddKey / RemoveKey / Evaluate`
-//     等の API を呼ぶだけで、curve の利用文脈には関与しない。
-//
-// 使い方 (典型):
-//   AAnimCurveEditorPanel panel;
-//   panel.Init();
-//   workspace.RegisterPanel(&panel);   // AEditorPanel として登録
-//
-//   FAnimationCurve my_curve;
-//   my_curve.AddKeyHermite(0.0f, 0.0f, 0.0f, 1.0f);
-//   my_curve.AddKeyHermite(0.5f, 1.0f, 0.0f, 0.0f);
-//   my_curve.AddKeyHermite(1.0f, 0.0f, -1.0f, 0.0f);
-//   panel.SetCurve(&my_curve);
-//
-//   panel.SetOnChangeCallback([](void* user, FAnimationCurve* c) noexcept {
-//       // ファイルを autosave、再生中なら再 evaluate、等
-//       (void)user; (void)c;
-//   }, nullptr);
-//
-//   // 毎フレーム TickAllPanels(dt) の中で OnFrameBegin + DrawUI が呼ばれる。
-//
-//   // 終了時:
-//   workspace.UnregisterPanel(&panel);
-//   panel.Shutdown();
-//
-// 設計選択:
-//   ・**AEditorPanel 継承**: 共通基盤を利用する。Title = "Animation Curve Editor"、DrawUI override。
-//   ・**curve は raw pointer の非所有保持**: caller が own する設計
-//     (AParticleEditorPanel が CParticleEffectSystem を参照渡しで受けるのと
-//     同じ方針)。本 panel は curve の寿命に関与せず、`m_Curve == nullptr` 時は
-//     「(No curve bound)」を表示。
-//   ・**canvas は ImGui::InvisibleButton + GetWindowDrawList()**: ImGui の
-//     標準パターン (Demo の Canvas example と同形)。ButtonBehavior で hover /
-//     held を取り、ChannelsSplit で背景→曲線→key marker の z-order を整える。
-//   ・**1024 sample 線描画**: curve は 1 ピクセル粒度なら 1024 で十分滑らか
-//     (典型の curve editor 横幅 ~1000px 想定)。それ以上は SIMD でも誤差
-//     範囲なので overkill。
-//   ・**選択中 key index は i32 (-1 = 未選択)**: `kNoKeySelected` を sentinel に
-//     する (AModelAnimationPanel の `kNoClipSelected` と同形)。
-//   ・**Tangent handle の長さは固定 px (= 約 30px)**: curve 形状で接線が
-//     画面外に飛ぶ事故を避けるため。実際の tangent 値 (= dy/dx) は curve に
-//     書き込むが、handle 描画位置だけは固定スケールで「短い棒」として出す。
-//   ・**右クリック menu は ImGui::OpenPopup + BeginPopup**: ImGui 標準。
-//     "Add Key Here" は click 位置の (time, value) を decode してそこに key
-//     追加。"Delete Selected" は `m_SelectedKeyIdx` が有効なら RemoveKey。
-//   ・**CurveChangeCallback は raw 関数ポインタ + void* user**: ACS は
-//     std::function 禁止。AParticleEditorPanel / CAssetBrowser と同形の C-style
-//     callback 規約 (AModelAnimationPanel の AnimationFrameCallback と同形)。
-//     キー操作の都度発火する設計だが、drag 中は連続発火を避けるため
-//     「drag end (= マウス release)」のタイミングで 1 度だけ呼ぶ。
-//   ・**Toolbar の EWrapMode Combo は Pre / Post 個別**: FAnimationCurve API も
-//     SetPreWrap / SetPostWrap が分かれているので、UI もそれに合わせる。
-//   ・**Eval preview slider [0, Duration]**: 単純な可視化用 read-only 数値表示。
-//     curve.Duration() == 0 の場合は slider を disable して 0 表示。
-//   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
-//     ACS 規約。
-//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (AParticleEditorPanel /
-//     AModelViewerPanel / AModelInspectorPanel) と同形。
-//
-// 範囲外:
-//   ・複数 curve の同時編集 / レイヤ重ね (= timeline editor の役割)
-//   ・undo / redo 統合
-//   ・curve のシリアライズ (= 現状は caller が独自に保存する想定)
-//   ・key 複数選択 + 一括 drag (= 現状は単一選択のみ)
-//   ・スナップグリッド / 等間隔配置 (= 現状は自由配置のみ)
-//   ・curve loop preview の auto-play (= ボタン押下で AnimCurve 再生)
-//   ・per-segment curvature 表示 (= Hermite の `s` パラメータ等)
 
 
 // ===================== gameframework/tools/editor_core/EditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — editor_core / AEditorPanel
-//
-// 全エディタパネルの共通基底クラス。各 panel
-// (AHierarchyPanel / AInspectorPanel / AEditorToolbar 等) と複数の editor 群
-// (ModelViewer / AnimCurveEditor / BehaviorTreeEditor / LevelEditor /
-//  SpriteAtlasEditor / FontEditor / CinematicsTimelineEditor) を統一的に
-// 配線するため、ライフサイクル + 選択通知 + レイアウト永続化を共通化する。
-//
-// 使い方 (派生側の典型):
-//   class AModelViewerPanel : public acs::game::editor_core::AEditorPanel {
-//   public:
-//       const char* Title() const noexcept override { return "Model Viewer"; }
-//       void DrawUI() noexcept override {
-//           if (!IsVisible()) return;
-//           if (ImGui::Begin(Title(), &m_Visible)) {
-//               // ... viewer 描画 ...
-//           }
-//           ImGui::End();
-//       }
-//       void OnAssetSelected(const char* asset_path) noexcept override {
-//           // asset_path が .acs_model 拡張子なら load する等
-//       }
-//   };
-//
-//   // ホスト側 (CEditorWorkspace) からの呼び出し:
-//   AModelViewerPanel viewer;
-//   viewer.OnInit(workspace);
-//   // 毎フレーム:
-//   viewer.OnFrameBegin(dt);
-//   viewer.DrawUI();
-//   // 終了時:
-//   viewer.OnShutdown();
-//
-// 設計選択 (Pillar editor_core):
-//   ・**抽象基底 + デフォルト stub**: `Title()` と `DrawUI()` は純粋仮想 (= 各
-//     panel に必須)。それ以外の hook (OnInit / OnFrameBegin / OnSelectionChanged
-//     / OnAssetSelected / OnSaveLayout / OnLoadLayout) は no-op default 実装で、
-//     必要な panel だけ override する形。
-//   ・**ImGui::Begin/End は派生クラス側責務**: 基底で wrap する案も検討したが、
-//     panel ごとに ImGuiWindowFlags / dock target / MenuBar の有無が異なるため、
-//     強制 wrap せず派生側で完全制御させる方針。`m_Visible` は派生側で
-//     `ImGui::Begin(Title(), &m_Visible)`
-//     の close ボタンに直接渡せる public-ish state。
-//   ・**CEditorWorkspace は forward-decl のみ**: ヘッダ依存を最小化。具体的な
-//     workspace 型 (CSelectionService / CAssetBrowser / DockSpace 等の集約 hub) は
-//     同 editor_core 配下に実装され、本基底は型を
-//     知らなくても OnInit で参照を保存できればよい。Workspace ポインタは
-//     non-owning (workspace の生存期間 ≧ panel の生存期間)。
-//   ・**OnSelectionChanged / OnAssetSelected の二系統**:
-//       - OnSelectionChanged: AScene 内の ANode 選択 (CSelectionService 経由)
-//       - OnAssetSelected   : CAssetBrowser からのファイル選択 (asset path string)
-//     2 つを独立 hook にしておくことで、ModelViewer のように "asset 系のみ反応"
-//     する panel と、Inspector のように "node 系のみ反応" する panel が綺麗に
-//     書き分けられる。
-//   ・**OnSaveLayout / OnLoadLayout は stub**: FEditorLayoutSerializer の型は
-//     forward-decl で受け、派生 panel が
-//     window 位置 / size / dock state を後付けで永続化できる「予約点」として
-//     用意。
-//   ・**WantsFocus = false default**: 起動時に Focus を奪う panel は限定的
-//     (例: SceneView を初期 Focus にしたい等) なので opt-in。
-//   ・**非コピー / 非ムーブ**: panel は workspace と紐づく lifecycle を持つため
-//     所有を曖昧にしない (ACS 規約)。
-//   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。文字列は
-//     `const char*` リテラル想定 (Title は静的文字列、asset_path は CAssetBrowser
-//     所有バッファ)。
-//   ・**ImGui ヘッダは含めない**: 派生クラスの .cpp で <imgui.h> を include する
-//     パターン (AParticleEditorPanel / AInspectorPanel と同形)。
-//
-// 将来拡張余地:
-//   ・`OnKeyShortcut(KeyCombo combo) noexcept` — panel ごとのキーバインド
-//     (例: ModelViewer の F でフレーミング、AnimCurveEditor の Space で再生切替)。
-//   ・`OnUndo() / OnRedo() noexcept` — panel 内 undo stack 統合
-//     (Inspector の field 編集、CurveEditor のキー操作、LevelEditor の配置等を
-//      Workspace 共通 undo stack に流す)。
-//   ・`virtual u32 GetDependencyMask() const noexcept` — panel 間の依存を bit flag
-//     で宣言 (例: ModelViewer は CAssetBrowser に依存)。Workspace が dependency 順に
-//     OnFrameBegin / DrawUI を呼ぶ schedule を組むため。
-//   ・`OnDockStateChanged()` — ImGui dock の attach/detach 通知。
-//
-// 範囲外 (本基底では持たない):
-//   ・ImGui::Begin/End の自動 wrap (= 派生側責務)
-//   ・panel ごとの ToolStrip / MenuBar (= 派生側で DrawUI 内で実装)
-//   ・Localization (Title 文字列は当面英語固定)
-//   ・viewport / render target の確保 (= ModelViewer 等の派生側で個別管理)
 
 
 namespace acs::game::editor_core {
@@ -86945,73 +81550,6 @@ using FCinematicsTimelineEditorPanel = ACinematicsTimelineEditorPanel;
 
 // ===================== gameframework/tools/editor_core/AssetBrowser.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K (editor_core) — CAssetBrowser (editor 共通基盤)
-//
-// プロジェクト `assets/` 配下のファイルツリーを ImGui で参照 + 各種 panel
-// (ModelViewer / TilemapEditor / ParticleEditor 等) に Drag & Drop 経由で
-// 「アセットパス」を供給する基盤パネル。
-//
-// 役割:
-//   ・assets/ ルートを起点にディレクトリを再帰列挙し、左ペインに tree、
-//     右ペインに current directory のエントリ一覧を表示する。
-//   ・各エントリは ImGui の Drag Source として「ASSET_PATH」 payload を提供。
-//     受け取り側 (= ModelViewer 等の panel) は BeginDragDropTarget で
-//     `AcceptDragDropPayload("ASSET_PATH")` するだけで wchar_t* を取り出せる。
-//   ・拡張子からアセット種別 (EAssetKind) を判定し、kind フィルタ + アイコン
-//     表示の足がかりにする。
-//
-// 使い方:
-//   CAssetBrowser browser;
-//   browser.Init(L"assets");
-//   // 毎フレーム
-//   browser.DrawUI();
-//   // 他 panel 側:
-//   //   if (ImGui::BeginDragDropTarget()) {
-//   //       const ImGuiPayload* p =
-//   //           ImGui::AcceptDragDropPayload("ASSET_PATH");
-//   //       if (p) {
-//   //           const wchar_t* path = *static_cast<const wchar_t* const*>(p->Data);
-//   //           ...
-//   //       }
-//   //       ImGui::EndDragDropTarget();
-//   //   }
-//
-// 設計選択:
-//   ・**非コピー / 非ムーブ**: 内部 TArray<FAssetEntry> + 文字列バッファ pool の
-//     所有を曖昧にしない (AHierarchyPanel / AInspectorPanel と同じ規約)。
-//   ・**全 noexcept**: ACS 規約。エラーは index out-of-range / 列挙失敗を
-//     no-op (= 空ツリー) で表現する。
-//   ・**STL 不使用**: ファイル列挙結果は `acs::TArray<FAssetEntry>`、文字列は
-//     TArray<wchar_t> + TArray<char> の linear pool に積む方式 (= path / short_name
-//     の生存期間を TPool の clear/再生成で揃え、FAssetEntry はオフセットではなく
-//     stabilize された pointer をそのまま持つ。再 Refresh で全部使い直す)。
-//   ・**ImGui ヘッダは .cpp 側のみ**: ヘッダから imgui 依存を漏らさない方針
-//     (AParticleEditorPanel / AHierarchyPanel と同じ)。
-//   ・**CFileSystem 経由ではなく FindFirstFileW を .cpp 内で直接使う**: 現状
-//     `platform/FileSystem.h` にはディレクトリ列挙 API が無い (ReadAllBytes /
-//     FileSize / Exists のみ)。将来 CFileSystem に `EnumerateDirectory` が
-//     追加されたらここを差し替える。
-//   ・**Drag payload は wchar_t* 直渡し**: payload identifier は
-//     `"ASSET_PATH"` (ImGui 仕様: 32 文字以内)。payload data は wchar_t*
-//     1 個 (= `sizeof(wchar_t*)` 8 bytes)。受け側は memcpy で取り出すこと
-//     推奨 (Hierarchy の ANode* 受け渡しと同じパターン)。pointer 寿命は
-//     「次の Refresh まで」(= 文字列 pool が再生成されない間) を保証する。
-//   ・**callback は raw 関数ポインタ + void* user**: ACS は std::function を
-//     使えないため、AParticleEditorPanel / AInspectorPanel と同形の C スタイル
-//     callback を提供。
-//   ・**EAssetKind は拡張子 lookup の 1 階層**: `.png/.jpg/.tga` → Texture、
-//     `.mdl/.fbx/.gltf/.glb` → Mesh、`.ttf/.otf` → Font、`.wav/.ogg/.mp3` →
-//     Audio、`.mat`/`.material` → Material、`.fx`/`.particle` → Particle、
-//     `.anim` → Animation、`.bt` → BehaviorTree、`.tilemap`/`.tmx` → Tilemap、
-//     `.prefab` → Prefab、`.cine` → Cinematic、`.scene` → Scene、未知は Other。
-//     大文字小文字無視。
-//
-// 範囲外 (将来):
-//   ・Thumbnail プレビュー (Texture / Mesh 用 preview image 表示)
-//   ・Favorites / pin
-//   ・Search box (substring match)
-//   ・New folder / rename / delete (in-place editing)
-//   ・AssetPack (.acpak) overlay 表示 (Pillar G AssetPack 統合時)
 
 
 namespace acs::game::editor_core {
@@ -87373,58 +81911,6 @@ using FAssetBrowser = CAssetBrowser;
 
 // ===================== gameframework/tools/editor_core/EditorCamera.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — CEditorCamera (editor_core 共通基盤)
-//
-// ModelViewer (3D) / LevelEditor (2D top-down) / TilemapEditor (2D) / 各種
-// viewport editor が共有する **camera コントローラ**。1 個のクラスで 2D と 3D
-// 双方の操作モデルをハンドルし、editor 側はマウス入力をそのまま流し込むだけで
-// 3D orbit / 2D pan-zoom が成立するようにする。
-//
-// 使い方:
-//   acs::game::editor_core::CEditorCamera cam;
-//   cam.Init(EEditorCameraMode::Mode3D);
-//
-//   // 毎フレームの editor tick:
-//   cam.HandleMouseInput(mouse_delta, lmb, rmb, mmb, wheel);
-//   cam.Tick(dt);
-//   FMat4 view = cam.ViewMatrix();
-//   FMat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 1000.0f);
-//
-//   // 選択へ寄せる (将来 CSelectionService + bounds 計算経由):
-//   cam.FrameToBoundingSphere(node_center, node_radius);
-//
-// 設計選択 (editor_core):
-//   ・**2 モード 1 クラス**: 2D / 3D を別 class にすると panel 側で switch
-//     文が増え、共通の "Frame to selection" や "Tick smoothing" を 2 回
-//     書くハメになる。1 クラス内 mode フラグで管理し、API は両モード共通形に
-//     揃える (Pan / Dolly は意味を mode で読み替え)。
-//   ・**3D orbit = yaw + pitch + distance + target**: eye 位置は
-//     (target + spherical(yaw,pitch)
-//     * distance) で算出。pitch は ±89° にクランプして極点で gimbal flip
-//     しないようにする。
-//   ・**2D = position + zoom_2d**: CCamera2D と同じ pan/zoom モデル。orthographic
-//     投影で width = base_ortho_size / zoom_2d とすれば「ズームイン = 拡大」
-//     が直感通り。CCamera2D の rotation までは持たない (editor は通常 axis-aligned)。
-//   ・**HandleMouseInput で操作系を集約**: panel 側は ImGui の IO から取った
-//     delta / button / wheel をそのまま渡せばよい。マウス操作の規約:
-//       - 3D: LMB drag = orbit, MMB drag = pan, RMB drag = orbit,
-//             wheel = dolly
-//       - 2D: LMB drag = pan, MMB drag = pan, wheel = zoom
-//     この規約は editor 全体で統一すべきもの。
-//   ・**Tick で smoothing**: CCamera2D と同じ `1 - exp(-rate*dt)` の framerate
-//     independent な指数補間で「狙った target / zoom」へ追従させる。マウス
-//     入力は raw target を直接書き換え、Tick が actual state を寄せる構造。
-//     rate = 0 で即時、5.0 で約 0.2s で 63% 詰める典型。
-//   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用**: ACS 規約。内部 state
-//     は POD のみ。Init / Reset で完全に初期化可能。
-//
-// 将来拡張余地:
-//   ・preset (Top/Front/Side/3-quarter 等の標準視点を 1 ボタン)
-//   ・camera lock (Y 軸固定で yaw のみ自由 = ARPG style)
-//   ・focus to selection (現選択 FNodeId にカメラを向ける、CSelectionService 経由)
-//   ・camera shake disable (CPhotoMode 同様、editor では shake 抑止)
-//   ・rotation 2D (CCamera2D と等価の axis 回転)
-//   ・FPS フリールック (orbit ではなく eye 中心の look-around)
 
 
 namespace acs::game::editor_core {
@@ -87747,44 +82233,6 @@ using FEditorCamera = CEditorCamera;
 
 // ===================== gameframework/tools/editor_core/EditorCommand.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework editor の undo/redo command — AEditorCommand
-//
-// 役割:
-//   ACS の全エディタ (AHierarchyPanel / AInspectorPanel / ParticleEditor /
-//   SceneInspector ほか将来追加される LevelEditor / TimelineEditor 等) が共有
-//   する **undo/redo の原子単位**。Command パターンの GoF 古典に沿い、
-//   1 操作 = 1 AEditorCommand 派生インスタンスとして表現する。
-//
-// 使い方:
-//   class AMoveNodeCommand : public AEditorCommand { ... };  // header 下に inline 例
-//
-//   // editor 側:
-//   acs::TUniquePtr<AMoveNodeCommand> cmd = acs::MakeUnique<AMoveNodeCommand>(
-//       &node, old_pos, new_pos);
-//   undo_stack.Push(acs::Move(cmd));   // 確保元ごと所有権を渡す + Execute 実行
-//
-// 設計選択:
-//   ・**純粋抽象 + virtual dtor**: ベース型を `TUniquePtr<AEditorCommand>` で
-//     CUndoStack に持たせるため、polymorphic delete が必要。全 noexcept は
-//     ACS 規約。
-//   ・**非コピー / 非ムーブ**: 「実行済み command を後から複製」は意味的に怪しい
-//     (二重 Undo 等の事故源)。意図的な複製は派生クラス側で factory を用意する。
-//   ・**Description は const char***: undo history UI (ImGui MenuItem の
-//     "Undo Move Node" 表示) に直接渡す想定。動的文字列が要る派生クラスは
-//     自分で `TArray<char>` 等を抱える。
-//   ・**CanMerge / MergeWith**: 連続 slider / drag 操作 (例: position を
-//     1 フレームに 60 回いじる) を 1 件にまとめる。default は merge 拒否。
-//     merge する派生は **同じ対象 + 同じ "種類"** を確認したうえで、自身の
-//     "new 値" を `next` の "new 値" に置き換える ("old 値" は最初の cmd の
-//     ものを保つ)。これで Undo 1 回で連続 drag 全体を巻き戻せる。
-//
-// 将来拡張余地:
-//   ・transaction (BeginGroup / EndGroup): CUndoStack 側で複数 AEditorCommand
-//     を 1 件として束ねる `CommandGroup : AEditorCommand` を派生で実装する。
-//   ・branched history: undo 後に new edit が来た時に redo stack を破棄するの
-//     ではなく分岐として保存する。AEditorCommand 側に変更は不要。
-//   ・serialization: `virtual void Serialize(Writer&) const` を後付け可能。
-//     既存派生は default = no-op で問題ない。
 
 namespace acs::game::editor_core {
 
@@ -87792,8 +82240,8 @@ namespace acs::game::editor_core {
  * 全エディタが共有する undo/redo の原子単位 (純粋抽象)。
  *
  * @details
- * Command パターンの GoF 古典に沿い、1 操作 = 1 AEditorCommand 派生インスタンス
- * として表現する。派生クラスは Execute / Undo / Description を必ず override する。
+ * 1 操作を 1 AEditorCommand 派生インスタンスとして保持し、
+ * 派生クラスは Execute / Undo / Description を必ず override する。
  * CanMerge / MergeWith は default で merge 拒否であり、連続 drag をまとめたい派生
  * のみ override する。ベース型を `TUniquePtr<AEditorCommand>` で CUndoStack に
  * 持たせるため virtual dtor を持ち、複製事故を防ぐため非コピー / 非ムーブとする。
@@ -87846,12 +82294,12 @@ public:
     virtual void Undo() noexcept = 0;
 
     /**
-     * undo history UI 表示用の短い人間可読ラベルを返す。
+     * 取り消し履歴 UI 表示用の短い人間可読ラベルを返す。
      *
      * @details
      * "Move Node" / "Add Component" 等。ImGui MenuItem 等にそのまま渡される想定の
      * ため、戻り値は永続文字列 (literal or 派生クラス内 char[N]) であること。
-     * @return undo history に表示する短いラベル。
+     * @return 取り消し履歴に表示する短いラベル。
      */
     virtual const char* Description() const noexcept = 0;
 
@@ -87885,7 +82333,7 @@ public:
  * ANode の position を変更する AEditorCommand 派生実装。
  *
  * @details
- * 教科書的な使用例で、連続 drag を 1 件にまとめる CanMerge 実装も持つ。マージ規約は、
+ * ANode の位置変更を前後値で往復し、連続 drag を 1 件にまとめる CanMerge 実装も持つ。
  * 同じ m_Target (raw pointer 一致) かつ同じ kind のとき MergeWith で m_NewPos を next の
  * m_NewPos に置き換え、m_OldPos は最初の cmd のものを保つ (= Undo 1 回で初期位置に戻る)。
  * 対象ノードが既に Destroy 済みでも pointer 比較自体は安全だが、実 Execute / Undo 時に
@@ -87919,7 +82367,7 @@ public:
     }
 
     /**
-     * undo history 用のラベルを返す。
+     * 取り消し履歴 UI 用のラベルを返す。
      *
      * @return 固定文字列 "Move Node"。
      */
@@ -88020,96 +82468,6 @@ using FMoveNodeCommand = AMoveNodeCommand;
 
 // ===================== gameframework/tools/editor_core/EditorGizmo.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — editor_core / CEditorGizmo
-//
-// 役割:
-//   選択中の ANode の FTransform3D を viewport 上で直接ドラッグ操作する
-//   「ハンドル」。translate (移動) / rotate (回転) / scale (拡縮) の 3 モードを
-//   持ち、各モードで X / Y / Z 軸ハンドル + 平面 (XY/XZ/YZ) ハンドル + 画面
-//   並列ハンドル (rotate のみ) を提供するエディタ操作系。
-//
-// 使い方 (典型):
-//   acs::game::editor_core::CEditorGizmo gizmo;
-//   gizmo.Init();
-//   gizmo.SetMode(EGizmoMode::Translate);
-//   gizmo.SetSpace(EGizmoSpace::World);
-//   gizmo.SetSnapTranslate(0.5f);   // Shift キー押下中に 0.5 単位スナップ
-//
-//   // ---- 毎フレーム ----
-//   // 1) ProcessInput: マウス ray と LMB 状態を渡す。hot axis 判定 / drag 開始/終了
-//   //    の遷移を内部で管理する。
-//   gizmo.ProcessInput(mouse_ray_origin, mouse_ray_direction,
-//                      input.LmbDown(), input.LmbHeld(), input.LmbUp());
-//
-//   // 2) Manipulate: 選択中の ANode の transform を渡して、drag 中なら値を
-//   //    in-place で更新する。true 戻りなら何か変更があった (= UndoCommand 発火
-//   //    タイミング判定にも使える)。
-//   acs::FVec3 pos = node.WorldPosition();
-//   acs::FVec3 rot = node.EulerRotation();
-//   acs::FVec3 scl = node.WorldScale();
-//   if (gizmo.Manipulate(pos, rot, scl)) {
-//       node.SetWorldPosition(pos);
-//       node.SetEulerRotation(rot);
-//       node.SetWorldScale(scl);
-//   }
-//
-//   // 3) DrawGizmo: CDebugDraw 経由で軸 / 平面 / ハンドルを描く (描画は外部の
-//   //    CDebugDraw 消費側が ImGui / 自前 LineRenderer 等に転写する)。
-//   gizmo.DrawGizmo(debug_draw, pos, rot, scl);
-//
-//   // 4) drag 終了時に CUndoStack へ push したい場合:
-//   gizmo.SetOnManipulateCallback(&MyEditor::OnGizmoDelta, &editor);
-//
-// 設計選択:
-//   ・**EGizmoMode / EGizmoSpace / EGizmoAxis の 3 enum**: ACS 規約の E prefix
-//     enum、`u8` 基底で表のレイアウトに優しい。`None_` は EGizmoAxis 側で
-//     キーワード衝突回避のためアンダースコア付き (foundation/Limits.h 等で
-//     既に確立した方針)。
-//   ・**FGizmoState を struct として公開**: テストや editor 上の inspector で
-//     「今 drag 中か」「どの軸が hot か」を読み取れるよう公開する。書き換えは
-//     CEditorGizmo 内部からのみ行うが、struct 全体を public にしておけば
-//     外部から ImGui::Text で覗くのが楽 (= debug / replay 性が高い)。
-//   ・**ProcessInput → Manipulate → DrawGizmo の 3 段**: input 取得 / 値更新 /
-//     描画を完全に分離する。これにより:
-//       - headless test で ProcessInput + Manipulate だけ走らせて drag 結果を検証
-//       - DrawGizmo 単体で「ハンドルだけ表示して操作はさせない」モード (replay /
-//         動画キャプチャ) が可能
-//   ・**raw 関数ポインタ callback**: ACS は std::function を使えないため、
-//     ManipulateCallback は C スタイル `void(*)(void*, ...) noexcept` で揃える
-//     (Input.h / AInspectorPanel と同形)。
-//   ・**snap は Shift モディファイア前提**: SetSnap*(step) で step > 0 を渡すと
-//     drag 中の Shift で snap が有効になる。step == 0 で snap 無効 (default)。
-//     Shift キー検出は ProcessInput の呼び出し側で行い、本クラスは「snap step が
-//     正 ≠ snap 有効」とだけ判定する (= 入力依存を抽象化)。
-//   ・**ray-axis hit test**: 各軸ハンドル = 始点中心の細い円柱とみなし、ray と
-//     円柱の最小距離が threshold 以下なら hit。閾値は world unit (= camera 距離
-//     スケーリングは外側責務、本クラスは固定の `m_HandleRadius` を持つ)。
-//   ・**ray-plane hit test**: 平面ハンドル = 中央付近の小正方形。ray-plane 交差
-//     → 矩形内判定。サイズは `m_PlaneHandleSize`。
-//   ・**hot axis 永続性**: drag 中は hot axis を新しい hit に書き換えない
-//     (= 一度掴んだ軸を離すまで保持)。drag 中でない時のみ毎フレーム判定する。
-//   ・**Manipulate は delta ベースで動く**: drag 開始時の world-space 座標
-//     (`drag_start_world`) を覚え、現フレームの mouse ray と軸/平面の交点との
-//     差分から delta を計算する。これにより「クリック位置とハンドル中心がずれて
-//     いても」drag が滑らかになる。
-//   ・**rotate モードは euler 角度差分**: quat 補間は使わず、
-//     軸ごとに「現マウス角度 - 開始マウス角度」を計算して inout_rotation_euler の
-//     対応軸に加算する単純実装。Gimbal lock の心配があるが、editor 上の手動
-//     編集なので許容範囲。
-//   ・**scale モードは axis-aligned**: 軸ハンドルで「その軸方向の uniform scale
-//     倍率」を計算。XY/XZ/YZ 平面 + ScreenAlign は scale モードでは hit を取らない
-//     (= 各軸ごとの非一様 scale を意図的に強制する)。
-//   ・**DrawGizmo は CDebugDraw (FVec2 ベース) に出力**: CDebugDraw は 2D
-//     ラインバッファ。本ヘッダでは「Z 軸を捨てて XY 平面に
-//     射影する」simple projection を採用する (= 2D top-down view を想定)。
-//   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
-//     ACS 規約。state は POD FGizmoState + パラメータ群のみ。
-//
-// 範囲外:
-//   ・vertex / face 編集 (mesh edit gizmo)
-//   ・animation キーフレーム上のドラッグ操作 (TimelineEditor 側責務)
-//   ・collider shape edit
-//   ・camera viewport 操作 (= Pan / Orbit / Zoom は別 input handler)
 
 
 namespace acs::game::editor_core {
@@ -88582,92 +82940,6 @@ using FEditorGizmo = CEditorGizmo;
 
 // ===================== gameframework/tools/editor_core/EditorTheme.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / CEditorTheme  (ImGui スタイル統一テーマ)
-//
-// 役割:
-//   ACS の全エディタ panel (AHierarchyPanel / AInspectorPanel / AEditorToolbar /
-//   AParticleEditorPanel / ModelViewer / LevelEditor / AnimCurveEditor /
-//   BehaviorTreeEditor 等) が共通で参照する **ImGui スタイル統一テーマ**。
-//   色パレット / spacing / font scale / corner radius を 1 ヶ所で管理し、
-//   起動時に `Init()` を呼ぶだけで全エディタが統一見た目になる。
-//
-// 使い方 (editor 起動コード):
-//   CEditorTheme theme;
-//   theme.Init();                              // default = Dark を ImGui に流す
-//   theme.ApplyPreset(EEditorThemePreset::DarkBlue);
-//   theme.SetFontScale(1.25f);                 // 高 DPI 対応
-//   theme.SetRoundedCorners(4.0f);
-//   // ... 毎フレーム panel.DrawUI() ...
-//   theme.DrawThemeSettingsUI();               // Theme Settings window を出す
-//   // 終了時:
-//   theme.SaveTheme(L"data/editor/theme.acstheme");
-//
-// 設計選択:
-//   ・**ACS::FVec4 ベース、ImVec4 は .cpp 内変換のみ**: ヘッダから <imgui.h> を
-//     漏らさないことで、本ヘッダを include しても include order が壊れない
-//     (AInspectorPanel / AParticleEditorPanel と同パターン)。
-//   ・**preset = 「色パレット定数 + spacing + corner」のスナップショット**:
-//     ApplyPreset は内部 `m_Colors` を上書きしたあと、`ApplyToImGui()` で
-//     ImGui::GetStyle() に流す。Custom はユーザが SetCustomColors した状態を
-//     哨兵とする (= 既定の Custom 値は Dark と同等)。
-//   ・**font scale は ImGuiIO::FontGlobalScale に流す**: フォント atlas 自体は
-//     再構築せず、グローバルスケール変更で済ませる (高 DPI で軽い)。本格的な
-//     atlas 再構築 (= 異なる px サイズの bake) は本クラスでは扱わない。
-//   ・**SetRoundedCorners は Frame/Window/Popup/Grab/Tab/Scrollbar すべてに
-//     同 radius を流す**: 統一感のため。違う値を当てたい派生 panel は ImGui の
-//     `ImGui::PushStyleVar` で局所上書きすればよい。
-//   ・**SetSpacing は ItemSpacing.y のみを操作する**: 縦詰めは「情報密度」を
-//     決める主軸。横 spacing は ItemSpacing.y * 0.5 比例で連動 (見た目バランス
-//     のための経験則、後述の ApplyToImGui で計算)。
-//   ・**SaveTheme/LoadTheme は人間可読テキスト (`.acstheme`)**: `CFxeditSerializer`
-//     と同設計 (1 行 1 key=value、git diff 可能、magic + version)。バイナリで
-//     ない理由は「アーティストが直接編集してチームに共有」できることを優先。
-//     エラーは ACS_LOG_WARN で握る (戻り値 void = 「ベストエフォート」)。
-//   ・**DrawThemeSettingsUI は ImGui::Begin/End を自前で包む**: editor 設定 UI
-//     なので独立 window として出す。AEditorPanel 継承はせず、調整 UI 限定の
-//     シンプル window として動く (= AEditorPanel として workspace 登録するなら
-//     派生ラッパを別途用意する)。
-//   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用**: ACS 規約 + 他
-//     editor_core 系コンポーネントと統一。`<string>` 禁止のためファイルパスは
-//     `wchar_t*`、preset 名は const char* リテラル。
-//
-// preset カラー設計指針:
-//   Dark         : 標準 dark grey (ImGui 既定の StyleColorsDark に近い + 若干
-//                  暖色寄りの中間グレーで目疲れ低減)。
-//   DarkBlue     : Window/Frame に青みのある #1F232C 系。
-//                  accent は #007ACC 系。
-//   Light        : 明るい背景 (ImGui StyleColorsLight 相当)。長時間屋外作業や
-//                  プロジェクタ表示向け。
-//   HighContrast : 黒 / 白 / 黄 (#FFD700) の三色設計。AccessibilityProfile.h の
-//                  `high_contrast_ui` フラグと連動する想定。
-//   Sepia        : 焼け紙のような暖色基調 (#3A2E22 系背景、#F4E8D8 系 text)。
-//                  長時間作業時の眼精疲労低減 (e-reader 系から着想)。
-//   Custom       : SetCustomColors() で渡された値をそのまま使う。
-//
-// 将来拡張余地:
-//   ・per-panel custom theme: ParticleEditor は赤系、ModelViewer は青系等、
-//     panel ごとに別色を適用する (panel_name → FEditorThemeColors map を持ち、
-//     panel.DrawUI() の前後で Push/PopStyleColor する仕組み)。
-//   ・automatic dark/light mode 切替: OS のテーマ設定 (Windows 10+ の
-//     `AppsUseLightTheme` レジストリ) を参照して起動時 / 切替時に自動追従。
-//   ・FAccessibilityProfile 連動: Colorblind モード時に HighContrast を強制、
-//     ColorMode::Protanopia 時に accent を青系に切り替える等の自動マッピング。
-//   ・syntax highlighting palette: BehaviorTree editor の AST node 種別、
-//     CDialogueScript の語彙ハイライト、CCombatStateMachine の遷移条件等を
-//     色分けするための拡張カラーパレット (FEditorThemeColors を継承する派生
-//     SyntaxColors 構造体)。
-//   ・color picker のリアルタイムプレビュー: 現状は SetCustomColors 経由で
-//     パレット差し替え時のみ反映。DrawThemeSettingsUI 内で個別 ColorEdit4 を
-//     drag 中にも即時反映する slim pipeline。
-//
-// 範囲外 (本クラスでは持たない):
-//   ・font atlas 再構築 (= 異なる px サイズの bake)。SetFontScale は
-//     ImGuiIO::FontGlobalScale を変えるのみで、低 dpi → 高 dpi で文字が
-//     ボケる課題は別途解決する。
-//   ・カラーピッカーの HSV / LCh 等の高度な色空間。現状は ImGui::ColorEdit4
-//     (RGB + α) のみ。
-//   ・theme アニメーション (起動時に Dark → DarkBlue へフェード等)。
-//   ・theme の zip 化 / アセットパック化 (将来 AssetPack 経由で配布する場合)。
 
 
 namespace acs::game::editor_core {
@@ -88749,39 +83021,69 @@ struct FEditorThemeColors {
 
 /** `.acstheme` checked persistence の安定したエラー種別。 */
 enum class EEditorThemePersistenceError : u8 {
+    /** エラーなし。 */
     None = 0,
+    /** 必須引数が null。 */
     NullArgument,
+    /** 指定パスが上限を超過。 */
     PathTooLong,
+    /** 入力全体が上限を超過。 */
     InputTooLarge,
+    /** 入力に埋め込み NUL を検出。 */
     EmbeddedNul,
+    /** 行数が上限を超過。 */
     TooManyLines,
+    /** 1 行の長さが上限を超過。 */
     LineTooLong,
+    /** ファイル識別子が不正。 */
     BadMagic,
+    /** 形式バージョンが未対応。 */
     UnsupportedVersion,
+    /** 構文が不正。 */
     InvalidSyntax,
+    /** 未知の設定キーを検出。 */
     UnknownKey,
+    /** 同じ設定キーが重複。 */
     DuplicateKey,
+    /** 必須の設定キーが不足。 */
     MissingKey,
+    /** 設定値の型が不一致。 */
     InvalidType,
+    /** 設定値の表現が不正。 */
     InvalidValue,
+    /** 設定値が許容範囲を超過。 */
     ValueOutOfRange,
+    /** 必要なメモリを確保できない。 */
     AllocationFailure,
+    /** 対象ファイルが存在しない。 */
     FileNotFound,
+    /** 対象ファイルを開けない。 */
     FileOpenFailed,
+    /** ファイルサイズを取得できない。 */
     FileSizeFailed,
+    /** 読み取り中にファイルが変更された。 */
     FileChanged,
+    /** ファイル読み取りに失敗。 */
     FileReadFailed,
+    /** ファイル書き込みに失敗。 */
     FileWriteFailed,
+    /** ファイル内容の同期に失敗。 */
     FileFlushFailed,
+    /** ファイルを正常に閉じられない。 */
     FileCloseFailed,
+    /** 一時ファイルからの置換に失敗。 */
     AtomicReplaceFailed,
 };
 
 /** `.acstheme` checked load/save の結果。 */
 struct FEditorThemePersistenceResult {
+    /** 永続化処理が返したエラー。 */
     EEditorThemePersistenceError error = EEditorThemePersistenceError::None;
+    /** 構文エラーを検出した行。該当しない場合は 0。 */
     u32 line = 0u;
+    /** 正常に処理できたバイト数。 */
     u64 bytes_processed = 0u;
+    /** OS が返したエラーコード。該当しない場合は 0。 */
     u32 os_error = 0u;
 
     bool Succeeded() const noexcept {
@@ -89007,122 +83309,84 @@ using FEditorTheme = CEditorTheme;
 
 // ===================== gameframework/tools/editor_core/EditorWorkspace.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / CEditorWorkspace
-//
-// 複数の `AEditorPanel` (ModelViewer / AnimCurveEditor / BehaviorTreeEditor /
-// LevelEditor / SpriteAtlasEditor / FontEditor / CinematicsTimelineEditor 等) を
-// 統括する **ワークスペース**。panel 群を 1 つの editor アプリケーションとして
-// まとめて配線するための中央 hub。
-//
-// 役割:
-//   ・登録 panel のリスト管理 (Add / Find / Remove)
-//   ・毎フレームの main loop coordination
-//       (OnFrameBegin → DockSpace 描画 → DrawUI → MenuBar)
-//   ・ImGui DockSpace の作成 + Window メニュー (panel toggle list)
-//   ・レイアウト永続化 (ImGui ini + per-panel state を `.acslayout` 1 ファイル)
-//   ・選択 / asset 選択イベントの全 panel への broadcast
-//   ・CSelectionService の保管点 (非所有)
-//
-// 使い方 (典型):
-//   acs::game::editor_core::CEditorWorkspace ws;
-//   ws.Init();
-//
-//   ws.SetSelectionService(&selection);   // CSelectionService を注入
-//   ws.RegisterPanel(&hierarchy_panel);    // 各 panel は caller 所有
-//   ws.RegisterPanel(&inspector_panel);
-//   ws.RegisterPanel(&model_viewer);
-//
-//   // 必要なら起動時にレイアウト復元:
-//   ws.LoadLayout(L"data/editor/last.acslayout");
-//
-//   // 毎フレーム:
-//   ws.TickAllPanels(dt);
-//
-//   // 終了時:
-//   ws.SaveLayout(L"data/editor/last.acslayout");
-//   ws.Shutdown();
-//
-// 設計選択:
-//   ・**panel は raw pointer の非所有保持**: caller が own する (= caller が
-//     panel の lifetime を制御する) ことで、panel の動的生成 / scope-stack 配置
-//     の両方を許容する。AParticleEditorPanel / AEditorToolbar と同形。
-//   ・**`acs::TArray<AEditorPanel*>` で順序保持**: dispatch 順 / Window メニュー
-//     の表示順 = 登録順。登録順以外のソートはしない。
-//   ・**`UnregisterPanel` は順序保存削除**: Window メニューの並びがフレーム間で
-//     ぶれないよう、swap-remove ではなく shift 削除。CSelectionService の
-//     RemoveAtSwap とは方針を変える (UI 表示順の体験を優先)。
-//   ・**Title はリテラル文字列を期待**: `AEditorPanel::Title()` の規約 (リテラル /
-//     静的領域) に依存する。`FindPanelByTitle` は strcmp 比較。
-//   ・**ImGui::DockSpaceOverViewport**: 「メインビューポート全体に central dock
-//     node を持つ」最小構成。central node 内で float window 動作させたい panel は
-//     `SetDockTarget(false)` でヒントを出せるが、現状は dock_target hint を
-//     DockSpace に強制反映する仕組みは持たない。
-//   ・**Window メニュー / Layout メニュー は `DrawMenuBar()` 内で MainMenuBar に
-//     直接 push**: 派生コードからは TickAllPanels を呼ぶだけで自動描画される。
-//     MenuBar の有無は `m_EnableMenuBar` で制御可能 (= 既存 MainMenuBar に
-//     共存させたい host は disable できる)。
-//   ・**SaveLayout / LoadLayout のファイル形式**: 自前テキストフォーマット
-//     `ACS_EDLAYOUT 1`。
-//       1) ヘッダ行  : `ACS_EDLAYOUT <version>`
-//       2) ImGui ini : `IMGUI_INI <byte_size>\n<raw ini bytes>\n`
-//       3) panel state: `PANEL <title> <visible:0/1> <dock_target:0/1>\n` (1 行 1 panel)
-//     PANEL 行は右端 2 token を flag として解析するため、title 内部の ASCII space
-//     (0x20) を保持できる。空 title、先頭/末尾 space、制御文字、非 ASCII は拒否する。
-//     ImGui ini は ImGui::SaveIniSettingsToMemory() で取得した raw 文字列を
-//     生埋め込み。LoadLayout 側で同じく LoadIniSettingsFromMemory に渡す。
-//   ・**BroadcastSelectionChanged / BroadcastAssetSelected** は全 panel への
-//     fan-out: 戻り値は無く、panel 側で必要に応じて自身に反映する。null safe。
-//   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用**: ACS 規約。
-//   ・**ImGui ヘッダは .cpp 側のみ include**: header からは imgui 依存を漏らさず、
-//     AParticleEditorPanel / AInspectorPanel と同方針。
-//
-// 範囲外 (本クラスでは持たない):
-//   ・panel の生成 / 破棄 (= caller 責務)
-//   ・ImGui Context / GPU resource 管理 (= 外側の ImGuiBackend が持つ)
 
 
 namespace acs::game::editor_core {
 
 /** `.acslayout` checked persistence の安定したエラー種別。 */
 enum class EEditorWorkspacePersistenceError : u8 {
+    /** エラーなし。 */
     None = 0,
+    /** 必須引数が null。 */
     NullArgument,
+    /** 指定パスが上限を超過。 */
     PathTooLong,
+    /** 入力全体が上限を超過。 */
     InputTooLarge,
+    /** 入力に埋め込み NUL を検出。 */
     EmbeddedNul,
+    /** 行数が上限を超過。 */
     TooManyLines,
+    /** 1 行の長さが上限を超過。 */
     LineTooLong,
+    /** ファイル識別子が不正。 */
     BadMagic,
+    /** 形式バージョンが未対応。 */
     UnsupportedVersion,
+    /** 構文が不正。 */
     InvalidSyntax,
+    /** 同じ section が重複。 */
     DuplicateSection,
+    /** 同じ panel が重複。 */
     DuplicatePanel,
+    /** panel 数が上限を超過。 */
     TooManyPanels,
+    /** panel 名の長さが上限を超過。 */
     TitleTooLong,
+    /** panel 名が不正。 */
     InvalidTitle,
+    /** ImGui レイアウトデータが上限を超過。 */
     IniTooLarge,
+    /** ImGui レイアウトデータが途中で終了。 */
     TruncatedIni,
+    /** 形式末尾に不要なデータを検出。 */
     TrailingData,
+    /** ImGui context が未設定。 */
     ImGuiContextMissing,
+    /** 必要なメモリを確保できない。 */
     AllocationFailure,
+    /** 対象ファイルが存在しない。 */
     FileNotFound,
+    /** 対象ファイルを開けない。 */
     FileOpenFailed,
+    /** ファイルサイズを取得できない。 */
     FileSizeFailed,
+    /** 読み取り中にファイルが変更された。 */
     FileChanged,
+    /** ファイル読み取りに失敗。 */
     FileReadFailed,
+    /** ファイル書き込みに失敗。 */
     FileWriteFailed,
+    /** ファイル内容の同期に失敗。 */
     FileFlushFailed,
+    /** ファイルを正常に閉じられない。 */
     FileCloseFailed,
+    /** 一時ファイルからの置換に失敗。 */
     AtomicReplaceFailed,
 };
 
 /** `.acslayout` checked load/save の結果。 */
 struct FEditorWorkspacePersistenceResult {
+    /** 永続化処理が返したエラー。 */
     EEditorWorkspacePersistenceError error =
         EEditorWorkspacePersistenceError::None;
+    /** 構文エラーを検出した行。該当しない場合は 0。 */
     u32 line = 0u;
+    /** 読み書きできた panel entry 数。 */
     u32 panel_entries = 0u;
+    /** 正常に処理できたバイト数。 */
     u64 bytes_processed = 0u;
+    /** OS が返したエラーコード。該当しない場合は 0。 */
     u32 os_error = 0u;
 
     bool Succeeded() const noexcept {
@@ -89424,68 +83688,6 @@ private:
 
 // ===================== gameframework/tools/editor_core/PropertyDrawer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / PropertyDrawer
-//
-// **カスタム field drawer の登録レジストリ**。AInspectorPanel は EFieldKind
-// 9 種を hardcode の `switch` で扱っているが、それを超える「ゲーム固有 /
-// エディタ拡張型」の field 表示 (`Curve`, `Gradient`, `AssetPath`,
-// `NodeIdSelector`, `KeyCombo`, ...) を後付けで追加できるようにするための拡張点。
-//
-// 使い方 (典型):
-//   // 起動時にカスタム drawer を登録する:
-//   static void DrawHealth(const FPropertyContext& ctx) noexcept {
-//       auto* hp = static_cast<FHealth*>(ctx.data_ptr);
-//       ImGui::ProgressBar(hp->Ratio(), ImVec2(-1, 0));
-//       if (ctx.out_changed) *ctx.out_changed = false;
-//   }
-//   CPropertyDrawerRegistry reg;
-//   reg.Init();                                   // bundled drawer も含めて初期化
-//   reg.RegisterDrawer("Health", &DrawHealth);
-//
-//   // AInspectorPanel や任意の editor panel から:
-//   FPropertyContext ctx { /* data_ptr / label / tooltip / min/max / ... */ };
-//   if (!reg.DrawProperty(field_type_name, ctx)) {
-//       // 未登録 type → 既存 EFieldKind switch のフォールバックへ
-//   }
-//
-// 設計選択:
-//   ・**type_name は const char* literal 前提**: drawer name は登録元が永続所有する
-//     リテラル文字列を想定。本 registry はコピー所有しない (= STL `std::string` 不使用)。
-//     比較は per-byte ループ (CSettings / CEntitlementRegistry と同じ StrEq pattern)。
-//   ・**`DrawerFn` は raw 関数ポインタ + `FPropertyContext`**: ACS は std::function 禁止。
-//     `FPropertyContext` は POD 構造体で、必要な情報 (data ポインタ / 表示名 / tooltip /
-//     min/max / enum labels / out_changed) を 1 つにまとめて渡す。引数増減で
-//     `DrawerFn` シグネチャが変わらないように構造体束ねを採用。
-//   ・**bundled drawer 群を `Init()` で自動登録**: "F32Slider" / "Vec2Drag" /
-//     "Vec3Drag" / "Vec4Drag" / "ColorRGB" / "ColorRGBA" / "AssetPath" /
-//     "EnumCombo" / "TextInput" の 9 種。AInspectorPanel の hardcode switch と
-//     重複するが、こちらは registry 経由で書き換え / 拡張可能。
-//   ・**`AssetPath` の drag-drop payload id は "ASSET_PATH"** (リテラル定数)。
-//     CAssetBrowser panel が drag-source 側で同 id の payload を SetDragDrop
-//     することで、textbox に drop すると path が書き戻される。
-//   ・**非コピー / 非ムーブ**: 内部 `TArray<FEntry>` の所有を曖昧にしない (ACS 規約)。
-//   ・**全 noexcept / STL 不使用 / ImGui include 可**: ACS 規約に準拠。
-//     ヘッダから ImGui は include しない (.cpp 内で <imgui.h> を読む)。
-//
-// 将来拡張余地:
-//   ・**field metadata 拡張**: per-property tooltip / validation rule / step /
-//     readonly / hide 属性などを `FPropertyContext` に積み上げる (今は最低限)。
-//   ・**composite drawer (struct 再帰)**: drawer 内から `DrawProperty()` を再帰呼出して
-//     ネスト struct (例: `FTransform2D` = FVec2 + f32 + FVec2) を 1 個の drawer として
-//     扱う。本 registry はそのまま使える。
-//   ・**per-game カスタム drawer**: ゲーム固有型 (`class FHealth`, `class FWeaponSlot`,
-//     `class FStatBlock`) を inspector 上で美麗表示する目的。ゲーム側コードが
-//     `RegisterDrawer("Health", ...)` を起動時に呼ぶだけで反映される。
-//   ・**`NodeIdSelector`**: AHierarchyPanel と連動して "現在の選択を取得" or
-//     "Selectable な node 一覧から Combo で選択" する drawer。CSelectionService
-//     を参照するため drawer 側 closure (= `FPropertyContext` に user_data を
-//     拡張) が必要になる予定。
-//
-// 範囲外:
-//   ・AInspectorPanel との実統合 (= EFieldKind hardcode switch の置き換え)。
-//   ・drawer の優先度 / 上書きルール (現状は **後勝ち**: 同 name を Register
-//     したら旧 fn を置き換える)。
-//   ・drawer 描画失敗時の例外伝播 (ACS は no-exception、drawer 内で完結)。
 
 
 namespace acs::game::editor_core {
@@ -89674,70 +83876,6 @@ using FPropertyDrawerRegistry = CPropertyDrawerRegistry;
 
 // ===================== gameframework/tools/editor_core/UndoStack.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / CUndoStack
-//
-// 役割:
-//   全エディタが共有する undo / redo の中央ハブ。AEditorCommand 派生インスタンス
-//   を所有して、Push で 1 操作分を実行・登録し、Undo / Redo でユーザ操作を巻き
-//   戻し / やり直しする。連続 drag 等の merge も Push 時にこちらで判定する。
-//
-// 使い方:
-//   acs::game::editor_core::CUndoStack stack;
-//   stack.Init(64);
-//
-//   // 1 操作: Push に所有権を渡す
-//   auto command =
-//       acs::MakeUnique<acs::game::editor_core::AMoveNodeCommand>(
-//           &node, old_pos, new_pos);
-//   stack.Push(acs::Move(command));
-//
-//   if (ImGui::MenuItem("Undo", "Ctrl+Z", false, stack.CanUndo())) {
-//       stack.Undo();
-//   }
-//
-// 設計選択:
-//   ・**TUniquePtr<AEditorCommand> を 2 本の TArray に積む**: undo / redo の
-//     LIFO スタック。基底ポインタなので polymorphic dispatch (virtual Execute /
-//     Undo / Description) で派生型を意識せず巻き戻せる。
-//   ・**Push で所有権を奪う**: TUniquePtr の確保元を保ったまま Move する経路を
-//     標準とし、既定アロケータ由来の既存コード向けに raw pointer 経路も残す。
-//     m_UndoStack に TUniquePtr のまま積むため、代入 / pop でも生成時の確保元へ
-//     自動的に返される。
-//   ・**Push 内で Execute も実行**: GUI コードが「new AEditorCommand → Push」
-//     しか書かなくて済む (= Execute 忘れを構造的に防ぐ)。Redo 経路でも
-//     AEditorCommand::Execute() を呼ぶので、Execute は何度呼ばれても idempotent
-//     な実装にしておく必要がある (Undo を挟まずに連続 Execute は CUndoStack 側
-//     で排除済み)。
-//   ・**Push は redo stack をクリア**: Undo 後に new edit が来た時点で
-//     "redo の未来" は破棄される (Git の reset --hard 相当)。branched history
-//     は将来拡張で別レイヤに分離する。
-//   ・**max_history 上限 + oldest drop**: 古い undo を 1 件 (FIFO 的に) 落として
-//     上限を守る。下端 drop なので TUniquePtr の delete が自動走り、メモリリーク
-//     しない。TArray に LIFO + 上限管理しか要らない用途で circular buffer は不要
-//     (上限超は希なはず、上限超時に O(N) shift しても害は少ない)。
-//   ・**CanMerge / MergeWith**: Push 時に「直前の m_UndoStack.Back() が merge
-//     可能か」を判定し、可能なら新 cmd を merge してそのまま破棄する (= スタッ
-//     ク件数は増えない)。連続 drag が爆発しない用の最重要機能。
-//   ・**callback (CommandExecutedCallback)**: editor が「Undo されたから
-//     hierarchy を再描画」「Redo されたから dirty フラグ立て直し」等の副反応を
-//     書けるようにする。引数は (user, cmd, is_redo) で、Push / Redo 経路は
-//     is_redo = true、Undo 経路は cb 呼ばずに済ませる? いや、Undo も通知する
-//     のが正しい (= dirty 状態 → clean に戻すケースが要る)。ここでは Push 経路
-//     のみ「初回 Execute だから is_redo=false」、Redo 経路は「is_redo=true」、
-//     Undo 経路は callback 呼出 (is_redo=false) で表現する。is_redo の意味は
-//     「Redo 由来の execution か?」であり、Push と Undo は 0 で同じだが、
-//     callback 側で必要なら Description で識別する。
-//
-// 将来拡張余地:
-//   ・transaction (BeginGroup / EndGroup): Push を一時的に Group に転送して
-//     EndGroup で 1 個の CommandGroup 派生にまとめる。
-//   ・branched history (git のような分岐 undo): Push で redo stack を破棄せず
-//     branch ツリーに移し替える。
-//   ・serialization (.acsundo): undo stack 内容をテキスト or バイナリで save。
-//     AEditorCommand 派生に virtual Serialize / Deserialize を追加することで
-//     対応する。
-//   ・"Undo to here" (history list で n 個まとめて undo): n 個 pop を 1 個ずつ
-//     回せば実現できるので公開 API 不要。
 
 
 namespace acs::game::editor_core {
@@ -89939,101 +84077,6 @@ using FUndoStack = CUndoStack;
 
 // ===================== gameframework/tools/fontedit/FontEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — fontedit / AFontEditorPanel
-//
-// 複数 font face の **fallback chain** (= プライマリ + ラテン補助 + CJK 補助 +
-// emoji/symbol 補助 …) を ImGui ベースで対話的に編集 + プレビューする
-// **エディタパネル**。`editor_core::AEditorPanel` 基底に載せ、
-// `CEditorWorkspace::RegisterPanel(&panel)` 1 行で workspace に統合できる形にする。
-//
-// 役割:
-//   ・font face リスト (= fallback 優先順位付き) の add / remove / reorder
-//   ・各 face の family / file path / base size / char range / MSDF フラグ
-//     等のメタ情報を表示 + 一部編集
-//   ・任意テキスト (utf-8) を各 face で「擬似的に」 preview canvas に描画
-//     (= 実 atlas を持たない panel なので、ImGui のデフォルト font で代用して
-//      レイアウト感だけ確認できれば十分)
-//   ・full char range (0x20〜0xFF) を下部に一覧描画 (= ASCII + Latin-1 補助の
-//     全文字を確認するペイン)
-//
-// 役割分担:
-//   ・本 panel は「**font face リストの編集 UI + プレビュー**」だけを担当。
-//     実際の `FFont` (= render/Font.h) ロードや MSDF atlas 生成は責務外。
-//     caller が `FFontFaceInfo` (= path + family + size + range + flag) のリスト
-//     を本 panel に登録し、編集結果を取り戻して別途 FFont::LoadFromFile 等を
-//     呼ぶ想定 (= panel は「設定エディタ」、loader は外部)。
-//   ・実 atlas 描画を panel viewport に出すには ImGui::Image + DescriptorTable
-//     統合が必要なため、本 panel では
-//     "ImGui デフォルトフォントで代用して、size slider と utf-8 入力の感触
-//      だけ確認できる" 簡易プレビューに留める。
-//
-// 使い方 (典型):
-//   AFontEditorPanel panel;
-//   panel.Init();
-//   workspace.RegisterPanel(&panel);   // AEditorPanel として登録
-//
-//   FFontFaceInfo primary{};
-//   primary.file_path      = L"assets/fonts/NotoSansJP-Regular.otf";
-//   primary.family_name    = "Noto Sans JP";
-//   primary.base_size_px   = 24.0f;
-//   primary.char_range_min = 0x0020u;
-//   primary.char_range_max = 0xFFFFu;
-//   primary.fallback_index = 0u;   // chain の最初
-//   primary.is_msdf        = true;
-//   panel.AddFontFace(primary);
-//
-//   panel.SetPreviewText("Hello, ACS Font! 日本語 αβγ");
-//   panel.SetPreviewFontSize(28.0f);
-//
-//   // 毎フレーム TickAllPanels(dt) の中で DrawUI が呼ばれる。
-//
-//   // 終了時:
-//   workspace.UnregisterPanel(&panel);
-//   panel.Shutdown();
-//
-// 設計選択 (FontEditor):
-//   ・**AEditorPanel 継承**: 共通基盤を dogfood (ASpriteAtlasEditorPanel と
-//     同形)。Title = "Font Editor"、
-//     DrawUI / OnInit を override。OnInit では基底実装を必ず呼ぶ。
-//   ・**FFontFaceInfo は POD**: `wchar_t* file_path` (Windows API 由来 path、
-//     CreateFile / WIC 等で wide が必須) + `char* family_name` (UI 表示用、
-//     UTF-8 リテラル) + 数値メタ。文字列は caller 所有のリテラル前提
-//     (ACS 規約: STL/`<string>` 禁止)。本 panel は const char* / const wchar_t*
-//     を非所有で参照保持。
-//   ・**`acs::TArray<FFontFaceInfo>` で順序保持**: 「fallback 優先順位」が UI 上
-//     の表示順 = chain 順なので、順序保持配列が自然 (= 重要、FSpritePack の
-//     swap remove では順序がブレるので不向き)。RemoveAt / MoveUp / MoveDown は
-//     順序保持の swap で実装する。
-//   ・**fallback_index は struct メンバとして冗長保持**: chain 順は TArray 内
-//     index で決まるが、caller が「この face を chain の k 番目に置きたい」と
-//     いう意図情報を別途持ちたいケース (= 永続化、UI 表示) があるので、struct
-//     に索引フィールドを残す。Add/Move のたびに本 panel が `fallback_index = i`
-//     を再書き込みする (= TArray index と同期)。
-//   ・**選択 face は単一 (i32)**、-1 = 未選択。ASpriteAtlasEditorPanel と同形。
-//   ・**Preview text は `char[256]`**: ImGui::InputText に渡す固定バッファ。
-//     256 byte ≒ 85 utf-8 漢字相当 (3 byte/char) で、preview 用途には十分。
-//     ヘッダ末尾の kPreviewTextCapacity で定義。
-//   ・**Preview font size は f32 + slider**: range [8, 96] (= 一般的な editor の
-//     font size editor が 8〜72 程度をカバー)。kMin/kMaxPreviewFontSize で定義。
-//   ・**Char range preview は 0x20〜0xFF 固定**: ASCII (0x20-0x7E) + Latin-1
-//     補助 (0xA0-0xFF) を 16 列グリッドで表示。CJK 領域 (0x3000+) は 65k 文字
-//     を超えるためグリッド描画は range が広い face では別途 zoom が必要。
-//     kCharRangePreviewMin/Max で定義。
-//   ・**face 上限は固定**: 過剰に巨大な fallback chain は font matcher 側で
-//     負荷になるため、UI 上 32 face を上限とする (= 一般ゲーム 10〜15 chain で
-//     十分)。kMaxFontFaces で定義。
-//   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用 / `<string>` 禁止**:
-//     ACS 規約。
-//   ・**ImGui ヘッダは .cpp 限定**: AParticleEditorPanel / ASpriteAtlasEditorPanel
-//     と同形 (header から imgui.h を出さない)。
-//
-// 範囲外:
-//   ・実 MSDF atlas 生成 / 表示
-//   ・font hinting / kerning preview
-//   ・Unicode range の visual editor (= 現状は SliderU32 で 2 端点入力)
-//   ・複数 face のマージ atlas preview
-//   ・undo / redo
-//   ・font 設定の .acsfont serializer
 
 
 namespace acs::game::fontedit {
@@ -90271,83 +84314,6 @@ using FFontEditorPanel = AFontEditorPanel;
 
 // ===================== gameframework/tools/fxedit/FxeditSerializer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — ParticleEditor `.fxedit` テキスト I/O
-//
-// 役割:
-//   ParticleEditor (in-engine particle authoring tool) が編集中の emitter 群を
-//   人間可読 / git diff 可能なテキスト形式で保存・復元するためのシリアライザ。
-//   バイナリ形式の `TSaveSlot<T>` (Pillar J) と違い、**作業中アセットを版管理に
-//   そのまま乗せられる** ことを最優先する。
-//
-// 使い方:
-//   acs::game::FParticleEmitterDef defs[8] = {};
-//   defs[0].lifetime_sec      = 2.0f;
-//   defs[0].emit_rate_per_sec = 50.0f;
-//   defs[0].color_start       = {1.0f, 0.8f, 0.2f};
-//   defs[0].color_end         = {1.0f, 0.2f, 0.0f};
-//   const char* names[]       = {"fire", "smoke"};
-//
-//   acs::game::fxedit::CFxeditSerializer::Save(L"data/effects/fireball.fxedit",
-//                                              defs, names, 2);
-//
-//   // ロード側:
-//   acs::game::FParticleEmitterDef loaded[16] = {};
-//   char                          name_buf[16 * 32] = {};
-//   auto r = acs::game::fxedit::CFxeditSerializer::Load(
-//       L"data/effects/fireball.fxedit", loaded, name_buf, sizeof(name_buf), 16);
-//   if (r.IsOk()) { u32 n = r.Value(); /* n 個ロード成功 */ }
-//
-// テキストフォーマット (`ACS_FXEDIT` v1):
-//   ACS_FXEDIT 1
-//   EMITTER count 2
-//   E0 name "fire"
-//   E0 emit_rate 50.0
-//   E0 lifetime_sec 2.0
-//   E0 burst_count 0
-//   E0 speed_min 0.5
-//   E0 speed_max 2.0
-//   E0 scale_start 1.0
-//   E0 scale_end 0.2
-//   E0 gravity 0.0 -1.0 0.0
-//   E0 color_start 1.0 0.8 0.2 1.0
-//   E0 color_end 1.0 0.2 0.0 0.0
-//   E0 spread_radians 3.14
-//   E1 name "smoke"
-//   ...
-//
-//   ・1 行 1 key=value、key 行頭は emitter index (E0, E1, ..., E<N-1>)。
-//   ・数値は `%g` フォーマット (シリアライズ側) / `strtof` (デシリアライズ側)。
-//   ・`name "..."` は二重引用符で囲んだ ASCII (現状エスケープ無し、簡素化)。
-//   ・`#` 始まりはコメント (parse 時にスキップ)。
-//   ・空行スキップ。
-//   ・未知 key は無視 (前方互換: 将来 key を増やしても旧ローダで読める)。
-//   ・実 `FParticleEmitterDef` 構造体は color が FVec3、gravity が FVec2 であり、
-//     テキスト形式の 4 番目 (alpha) / 3 番目 (z) 成分はシリアライズ側で 1.0/0.0
-//     を埋め、デシリアライズ側で破棄する。`spread_radians` は emitter def の
-//     正式メンバではないため将来拡張用の予約 key として読み込みのみサポート
-//     (現状は値を保持する場所が無いので捨てる)。
-//
-// 設計選択:
-//   ・**Text + 1 行 = 1 key**: git diff で 1 パラメータ変更が 1 行 diff になる。
-//   ・**emitter index prefix (E0, E1, ...)**: 順序が壊れても再構築可能、
-//     かつ多重 emitter ファイル (1 ファイル = N emitters) を素直に扱える。
-//   ・**Magic + Version**: 先頭行で `ACS_FXEDIT 1` を要求。schema が変わったら
-//     version をインクリメントし、後方互換ローダが分岐する。
-//   ・**非コピー・非ムーブ static class**: state を持たないため。
-//   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 規約。
-//   ・**file I/O は acs::CFileSystem に委譲**: `<stdio.h>` 等の C 標準 I/O を
-//     直接呼ばず、Win32 CreateFileW ベースの platform/FileSystem を使うことで
-//     wchar_t パスや GetLastError 由来エラーが一貫して扱える。
-//   ・**name buffer は呼び出し側持ち**: 内部に `TArray<char>` を持つ設計も
-//     可能だが、ロード結果を ParticleEditor 側に流し込む際にコピーが必要に
-//     なるため、最初から呼び出し側 buffer に書き込む方式にして余計な
-//     allocation を省く。format は `name0\0name1\0name2\0...` 連結。
-//
-// 注意:
-//   ・本クラスは FParticleEmitterDef の型を不完全宣言 (forward decl) のみで
-//     参照する (.h では `struct FParticleEmitterDef;`)。実体は .cpp 側で
-//     `ParticleEffectSystem.h` を include する。これにより本ヘッダのインクルードコストを
-//     最小に保つ。
 
 
 namespace acs::game {
@@ -90359,46 +84325,83 @@ namespace fxedit {
 
 /** `.fxedit` の checked parse/load/save が返す安定したエラー種別。 */
 enum class EFxeditSerializeError : u8 {
+    /** エラーなし。 */
     None = 0,
+    /** 必須引数が null。 */
     NullArgument,
+    /** 指定パスが上限を超過。 */
     PathTooLong,
+    /** 入力全体が上限を超過。 */
     InputTooLarge,
+    /** 入力に埋め込み NUL を検出。 */
     EmbeddedNul,
+    /** 行数が上限を超過。 */
     TooManyLines,
+    /** 1 行の長さが上限を超過。 */
     LineTooLong,
+    /** ファイル識別子が不正。 */
     BadMagic,
+    /** 形式バージョンが未対応。 */
     UnsupportedVersion,
+    /** emitter 数の宣言が不足。 */
     MissingEmitterCount,
+    /** emitter 数の宣言が重複。 */
     DuplicateEmitterCount,
+    /** emitter 数が上限を超過。 */
     TooManyEmitters,
+    /** 出力領域が不足。 */
     BufferTooSmall,
+    /** 構文が不正。 */
     InvalidSyntax,
+    /** emitter index が不正。 */
     InvalidEmitterIndex,
+    /** 同じ property key が重複。 */
     DuplicateKey,
+    /** property 値の表現が不正。 */
     InvalidValue,
+    /** property 値が許容範囲を超過。 */
     ValueOutOfRange,
+    /** emitter 名の長さが上限を超過。 */
     NameTooLong,
+    /** emitter 名が不正。 */
     InvalidName,
+    /** curve 数が上限を超過。 */
     TooManyCurves,
+    /** keyframe 数が上限を超過。 */
     TooManyKeyframes,
+    /** 必要なメモリを確保できない。 */
     AllocationFailure,
+    /** 対象ファイルが存在しない。 */
     FileNotFound,
+    /** 対象ファイルを開けない。 */
     FileOpenFailed,
+    /** ファイルサイズを取得できない。 */
     FileSizeFailed,
+    /** 読み取り中にファイルが変更された。 */
     FileChanged,
+    /** ファイル読み取りに失敗。 */
     FileReadFailed,
+    /** ファイル書き込みに失敗。 */
     FileWriteFailed,
+    /** ファイル内容の同期に失敗。 */
     FileFlushFailed,
+    /** ファイルを正常に閉じられない。 */
     FileCloseFailed,
+    /** 一時ファイルからの置換に失敗。 */
     AtomicReplaceFailed,
 };
 
 /** `.fxedit` の checked operation 結果。 */
 struct FFxeditSerializeResult {
+    /** serialize 処理が返したエラー。 */
     EFxeditSerializeError error = EFxeditSerializeError::None;
+    /** 構文エラーを検出した行。該当しない場合は 0。 */
     u32 line = 0u;
+    /** 正常に処理できた emitter 数。 */
     u32 emitter_count = 0u;
+    /** 正常に処理できたバイト数。 */
     u64 bytes_processed = 0u;
+    /** OS が返したエラーコード。該当しない場合は 0。 */
     u32 os_error = 0u;
 
     bool Succeeded() const noexcept { return error == EFxeditSerializeError::None; }
@@ -90411,7 +84414,7 @@ struct FFxeditSerializeResult {
  * @details
  * すべてのメンバは static。state を持たない utility class なので、コンストラクタ・
  * コピー・ムーブを禁止しておく (誤って実体化されるのを防ぐ)。emitter 群を人間可読 /
- * git diff 可能なテキスト (`ACS_FXEDIT` v1) で書き出し・復元する。
+ * 差分を確認しやすいテキスト (`ACS_FXEDIT` v1) で書き出し・復元する。
  */
 class CFxeditSerializer {
 public:
@@ -91180,52 +85183,6 @@ using FParticleEditorPreview = CParticleEditorPreview;
 
 // ===================== gameframework/tools/inspector/EditorToolbar.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — SceneInspector / AEditorToolbar
-//
-// editor ウィンドウ上端に表示するツールバー。再生制御 (Play / Pause / Step)、
-// Scene 保存、CDebugOverlay 表示切替を 1 行に並べる。CSelectionService と並ぶ
-// 「editor の中央 UI 部品」で、AHierarchyPanel / AInspectorPanel と同じ親
-// ウィンドウから DrawUI を呼ばれる想定。
-//
-// 使い方:
-//   AEditorToolbar toolbar;
-//   toolbar.Init();
-//   toolbar.SetOnSaveSceneCallback(&SaveSceneToDisk, &my_editor);
-//
-//   // 毎フレーム:
-//   toolbar.DrawUI(game);
-//   // toolbar が内部で CGame::SetTimeScale(0/1) を切り替えている。
-//
-// 設計選択 (Pillar SceneInspector):
-//   ・**Play / Pause / Step / Save / CDebugOverlay の 5 アクション**: 最低限の
-//     editor インタラクション集合。再生制御、保存、デバッグ表示をまとめる。
-//   ・**状態は EEditorState で 1 個保持**: Playing / Paused / Stepping の 3 値。
-//     Stepping は「1 fixed step 進めたら自動で Paused に戻る」一時状態として
-//     扱い、外側の CGame ループは TimeScale=1 で 1 フレーム走らせた後に
-//     再度 SetTimeScale(0) する責任を持つ (本クラスは状態保持と遷移のみ)。
-//   ・**CGame への time_scale 反映は本クラスが行う**: CPauseDirector のように
-//     「caller に値だけ返す」設計も検討したが、editor はゲームコードを
-//     触らずに使われる前提なので、本クラスが直接 `CGame::SetTimeScale(...)` を
-//     呼ぶ。Play 時に戻す scale は `m_NormalTimeScale` (= Pause 直前の値) を
-//     記憶しておく。
-//   ・**Save callback は外部委譲**: scene の serialize 形式 (JSON / binary /
-//     ACS Pak) は editor 統合層が決める。本クラスは「Save ボタンが押された」
-//     という通知だけを発火する。
-//   ・**CDebugOverlay の所有は外側**: ここでは bool flag (`m_ShowDebugOverlay`)
-//     だけを保持する。実描画は外側コードが flag を見て OverlayDirector を
-//     呼ぶ責務。これで CDebugOverlay 本体への依存を回避し、ship build で
-//     editor だけ消したいケースをサポートする。
-//   ・**E prefix enum (E + 形容詞)**: ACS 規約。
-//   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用**: ACS 規約。
-//   ・**ImGui include 可 (.cpp 側)**: ヘッダには imgui.h を出さない方針は
-//     AParticleEditorPanel と同じ。
-//
-// 範囲外:
-//   ・Undo / Redo (Ctrl+Z 等のキーバインドも本クラス外)
-//   ・Scene Load ボタン (現状は Save のみ)
-//   ・複数 Step (N frame まとめて) — 現状は 1 step のみ
-//   ・カメラ操作モード切替 (Pan / Orbit) — SceneView 側の責務
-//   ・time scale slider (倍速プレイ) — 現状は 0/1 切替のみ
 
 
 namespace acs::game::inspector {
@@ -91902,49 +85859,6 @@ using FInspectorPanel = AInspectorPanel;
 
 // ===================== gameframework/tools/inspector/SelectionService.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — SceneInspector / CSelectionService
-//
-// 現在「選択されている FNodeId」を全 editor panel (AHierarchyPanel /
-// AInspectorPanel / AEditorToolbar / SceneView 等) で共有するための **ハブ**。
-// 1 個のシングルなインスタンスを editor 起動コードが所有し、各 panel が
-// `RegisterCallback` で選択変更を購読する形を取る。
-//
-// 使い方:
-//   acs::game::inspector::CSelectionService sel;
-//   sel.Init();
-//
-//   // panel A: コールバックで自分の描画状態を更新
-//   static void OnSelChanged(void* user, FNodeId from, FNodeId to) noexcept {
-//       auto* self = static_cast<AHierarchyPanel*>(user);
-//       self->ScrollTo(to);
-//   }
-//   sel.RegisterCallback(&OnSelChanged, &hierarchy);
-//
-//   // panel B: ユーザクリックで選択を切り替える
-//   if (ImGui::Selectable(label, sel.IsSelected(node_id))) {
-//       sel.SelectNode(node_id);   // 登録済み callback が一斉に呼ばれる
-//   }
-//
-// 設計選択 (Pillar SceneInspector):
-//   ・**1 個の "選択" だけを持つ最小ハブ**: 単一ノードだけを選択状態として保持する。
-//     複数選択は別 API (`SelectionSet`) で分離する。
-//   ・**callback は複数登録 (CHotReloadWatcher と同形)**: (cb, user) ペアで
-//     重複弾き、Unregister で 1 件除去。dispatch 順は登録順。
-//   ・**from / to を渡す**: 単純な「to」だけだと、購読側で前回値を覚えて
-//     diff を取る必要が出る。差分通知の典型形は (from, to) なのでハブ側で
-//     渡す。`ClearSelection()` は `to = FNodeId{}` (invalid) として通知される。
-//   ・**STL 不使用**: 登録 list は `acs::TArray<FCallbackEntry>`。
-//   ・**全 noexcept**: ACS 規約。エラーは null/重複弾きで安全 no-op。
-//   ・**非コピー / 非ムーブ**: 内部 TArray<FCallbackEntry> の所有を曖昧にしない。
-//   ・**CGame / CSceneManager への依存なし**: FNodeId だけを扱うため、選択対象が
-//     生きているか / どの AScene に属するかの検証は購読側責務。これで
-//     editor の "選択は残るが対象は破棄済み" のケースも素直に表現できる。
-//
-// 範囲外:
-//   ・Multi-select (Ctrl+クリックでの加算選択など)
-//   ・Selection History (Back/Forward ボタン)
-//   ・Asset / Component 選択 (現状は ANode のみ)
-//   ・hover (= pre-selection) 通知
 
 
 namespace acs::game::inspector {
@@ -92099,100 +86013,7 @@ private:
 
 // ===================== gameframework/tools/leveledit/LevelEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework の tilemap level editor — ALevelEditorPanel
-//
-// `acs::game::FTilemap` (multi-layer u16 FTileId grid) を **対話的に編集する
-// tilemap painter panel**。「ペイント / 消し / 塗りつぶし / スポイト」 4 ブラシ +
-// アクティブレイヤ切替 + tile id
-// picker + grid show/hide + snap-to-grid を提供する。`editor_core::AEditorPanel`
-// 基底に載せ、`CEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
-// 統合できる形にしている。
-//
-// 役割:
-//   ・ImGui canvas 上に FTilemap を矩形描画 (= ImDrawList::AddRectFilled の
-//     row-major スイープ、本物テクスチャは未対応で色付き矩形 placeholder)
-//   ・上部 toolbar:
-//       - Brush kind 選択 (Paint / Erase / Fill / Pick)
-//       - Active layer dropdown (LayerCount 個の選択肢)
-//       - Tile id picker (DragInt 0〜1023; Erase 時は disable)
-//       - Show grid toggle
-//       - Snap-to-grid toggle (= マウスホバー / クリック位置を tile 単位に
-//         スナップ表示するか。ペイント自体は常に tile 単位)
-//   ・中央 viewport: 2D camera (`CEditorCamera` Mode2D 内包) で pan / zoom
-//   ・マウス操作:
-//       - LMB drag (Paint)  : `FTilemap::SetTile(x, y, current_tile_id, layer)`
-//       - LMB click (Erase) : `FTilemap::SetTile(x, y, FTileId{0}, layer)`
-//       - LMB click (Fill)  : flood-fill (同じ tile id の連結成分を current_tile_id
-//                              で塗替え)
-//       - LMB click (Pick)  : クリック位置の tile id を current_tile_id にコピー
-//   ・右側 inspector: 現在 selected tile coord (x, y, layer, current_tile_id)
-//
-// 役割分担:
-//   ・本 panel は「**tilemap の編集 UI** だけ」を担当。実際の FTilemap データは
-//     caller 所有 (= `SetTilemap(&tm)` で raw 参照を渡す、寿命は caller 責任)。
-//     本 panel が tilemap を生成 / 破棄しない (AAnimCurveEditorPanel が
-//     FAnimationCurve を non-owning で受けるのと同形)。
-//   ・FTilemap の描画は「ImDrawList で色付き矩形を描く placeholder」のみ
-//     (本物テクスチャ atlas は未対応)。tile id を疑似乱数ハッシュで色に変換する
-//     `TileIdToColor` を内部実装する。
-//   ・Save / Load tilemap は呼び出し側が担当する。本 panel 自身は永続化 API を
-//     持たず、JSON / binary / pak 等の保存形式を扱わない。
-//
-// 使い方 (典型):
-//   ALevelEditorPanel panel;
-//   panel.Init();
-//   workspace.RegisterPanel(&panel);   // AEditorPanel として登録
-//
-//   FTilemap map;
-//   map.Init(32, 32, /*layer_count=*/2, /*tile_size=*/16.0f);
-//   map.FillRect(0, 0, 31, 0, FTileId{1}, 0);  // 床
-//   panel.SetTilemap(&map);
-//
-//   // 毎フレーム TickAllPanels(dt) の中で OnFrameBegin + DrawUI が呼ばれる。
-//
-//   // 終了時:
-//   workspace.UnregisterPanel(&panel);
-//   panel.Shutdown();
-//
-// 設計選択 (LevelEditor):
-//   ・**AEditorPanel 継承**: 共通基盤に載せる。Title = "Level Editor"、
-//     DrawUI override。
-//   ・**tilemap は raw pointer の非所有保持**: caller 所有 (AAnimCurveEditorPanel
-//     が FAnimationCurve を non-owning で受けるのと同方針)。本 panel は tilemap
-//     の寿命に関与せず、`m_Tilemap == nullptr` 時は "(No tilemap bound)" を表示。
-//   ・**CEditorCamera Mode2D を内包**: 各 panel が独自 camera を持つ。
-//     Camera() アクセサで参照を
-//     返し、外部は HandleMouseInput / Tick を呼ぶ。本 panel 内部の
-//     viewport drawing でも `m_Camera.State().zoom_2d` と `m_Camera.State().position`
-//     を使って world → screen 変換する。
-//   ・**EBrushKind は u8 enum**: ACS の E prefix enum 規約。Paint=塗り (drag 対応)、
-//     Erase=消し (FTileId{0} 強制)、Fill=flood-fill (連結成分塗替)、Pick=スポイト
-//     (クリック位置の tile id をコピー)。
-//   ・**snap_to_grid は表示用フラグ**: tile 単位編集なのでペイント自体は常に
-//     snap される。snap_to_grid=true の時は「マウスホバー位置の tile を強調表示」
-//     (= grid line を太く描くなど) する見た目フラグとして使う。
-//   ・**ImGui canvas は ImGui::InvisibleButton + GetWindowDrawList()**: AnimCurve
-//     AEditorPanel と同パターン (ImGui Demo の Canvas example と同形)。
-//   ・**flood-fill の上限 sentinel**: FTilemap 全 cell 数 (= 32*32=1024 程度)
-//     を超える stack 深さは想定しないが、巨大マップでも暴走しないよう
-//     `kFloodFillMaxCells` で打ち切り (= 64*64=4096)。
-//   ・**Tile id 範囲は 0〜1023 (u16 だが UI 上で打ち切り)**: 本物 atlas が
-//     出来たら index 上限は atlas size に合わせて拡張する。
-//     `kTileIdMax = 1023` を公開定数として出す。
-//   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
-//     ACS 規約。
-//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (AParticleEditorPanel /
-//     AModelViewerPanel / AInspectorPanel) と同形。
-//
-// 範囲外 (本 panel では持たない):
-//   ・本物テクスチャ atlas でのタイル描画 (= 現状は色付き矩形 placeholder)
-//   ・複数 tilemap の同時編集 / レイヤ重ね表示の z-order 操作
-//   ・undo / redo 統合
-//   ・tilemap のシリアライズ
-//   ・矩形選択 / コピー&ペースト / 移動 / 回転
-//   ・auto-tiling (= Wang tiles / 4-bit neighbor mask)
-//   ・collision layer の特別扱い (= 現状はただの layer)
-//   ・タイル単位 flip / rotate (= FTileId 自体は純粋 id のまま、flag は別配列が必要)
+
 
 namespace acs::game {
 // 編集対象の FTilemap は本ヘッダから forward-decl のみで受ける。
@@ -92448,100 +86269,7 @@ using FLevelEditorPanel = ALevelEditorPanel;
 
 // ===================== gameframework/tools/modelview/ModelAnimationPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework の model animation 制御 — AModelAnimationPanel
-//
-// ModelViewer 内で、ロード済みモデルに含まれる **animation clip の再生制御 +
-// timeline 表示** を行う panel。共通基盤の `editor_core::AEditorPanel`
-// を継承し、ImGui ベースの control 群 (clip dropdown / Play / Pause / Stop /
-// time slider / Loop checkbox / Speed slider / BlendWeight slider) を提供する。
-//
-// 役割分担 (ModelViewer 全体):
-//   ・AModelViewerPanel    : 3D viewport + Lighting / Background / Grid / FBone toggle
-//   ・AModelInspectorPanel : mesh 統計 (vertex/index/material/bone count)
-//   ・AModelMaterialPanel  : material slot 編集 (basecolor / metallic / roughness)
-//   ・AModelAnimationPanel : 本 panel — animation clip の再生制御 + timeline
-//
-// 役割:
-//   ・ロード済みモデルが持つ animation clip 一覧を保持 (`SetClips`)
-//   ・clip 切替 (dropdown) + Play / Pause / Stop + Loop toggle + Speed slider
-//     + Time slider (現フレームの時刻 [0, duration]) + Blend weight slider
-//   ・`Tick(dt)` で Playing 状態の場合 `m_CurrentTime += dt * m_Speed` を進める
-//   ・duration 到達時、looping ならラップ、そうでなければ Stopped に遷移
-//   ・毎 Tick 終端で `m_OnFrameCb(user, clip_index, time_sec)` を発火し、
-//     呼出側 (ModelViewportRenderer 等) が CAnimationPlayer に時刻を反映する
-//
-// 役割分担 (本 panel と外部):
-//   ・本 panel は **時刻の進行 + clip 選択 + UI control** だけを持つ。
-//     実際の bone palette 計算 / GPU 反映 / mesh 描画は呼出側 (renderer +
-//     CAnimationPlayer) に委譲する。`OnFrameCallback` がその橋渡し点。
-//   ・clip メタ情報 (name / duration / looping / clip_index) は外部 (model
-//     loader) が確定済みの値を `SetClips` で push する。本 panel は中身を
-//     コピー所有 (= FAnimationClipBinding 配列を TArray<>); pointer は持たない。
-//
-// 使い方 (典型):
-//   AModelAnimationPanel anim;
-//   anim.Init();
-//   workspace.RegisterPanel(&anim);
-//
-//   // モデル load 時:
-//   FAnimationClipBinding clips[] = {
-//       { "Idle",  2.0f, true,  0 },
-//       { "Walk",  1.2f, true,  1 },
-//       { "Jump",  0.8f, false, 2 },
-//   };
-//   anim.SetClips(clips, 3);
-//   anim.SelectClip(0);     // Idle を選択
-//   anim.Play();
-//
-//   // 毎フレーム:
-//   anim.Tick(dt);          // m_CurrentTime += dt * speed (Playing 中のみ)
-//   // → callback 内で CAnimationPlayer::SetTime(clip_index, time_sec) を呼ぶ
-//
-// 設計選択 (AModelAnimationPanel):
-//   ・**AEditorPanel 継承**: Title / DrawUI を override。
-//     OnInit は基底実装 (`Workspace()` ポインタ保持) のみで十分 (= 本 panel は
-//     workspace に直接問い合わせる対象が無いため override 不要)。
-//   ・**clip リストは値コピーで保持**: `SetClips` 渡しの `FAnimationClipBinding`
-//     を内部 `TArray<FAnimationClipBinding>` に push_back。`name` は const char*
-//     リテラル想定 (model loader が静的領域 or 永続バッファに保持) — STL
-//     `std::string` を使えないため、ポインタ寿命は呼出側責任。
-//   ・**Playing 状態は enum** (`EAnimationPlayState`): Stopped / Playing /
-//     Paused の三状態。E-prefix 規約 (`enum class E*` + 基底 u8)。
-//   ・**Tick (dt) を panel 内に持つ**: CSpriteAnimator と同設計 — DrawUI は
-//     ImGui 描画専任、時刻進行は別 hook (= Workspace の OnFrameBegin 経由 or
-//     呼び出し側が明示的に Tick) に分離してテスト容易性を確保。本 panel の
-//     AEditorPanel::OnFrameBegin は override せず、呼出側が Tick(dt) を直接
-//     呼ぶ規約 (= Workspace の dt と animation の dt は分離したい場面用)。
-//   ・**duration 到達時の挙動**: clip の `is_looping` または `m_LoopOverride`
-//     が true なら wrap (= `m_CurrentTime = fmodf(t, dur)`)、そうでなければ
-//     `_state = Stopped` + `m_CurrentTime = dur` で末尾に固定。
-//     `m_LoopOverride = true` で clip 側 is_looping を強制 true 化 (= UI の
-//     "Loop" checkbox に bind)。override は単方向 (= ON
-//     にすると loop、OFF だと clip 既定に従う) で運用。
-//   ・**Speed slider [0.1, 4.0]**: 仕様通り。逆再生 (= 負値) は範囲外で
-//     未対応。0 は実質
-//     一時停止と同義だが、UX を明確にするため 0 ではなく 0.1 を下限にする。
-//   ・**BlendWeight slider [0, 1]**: 現状は **単一 clip 再生** のため
-//     表示のみで再生にはほぼ影響しない (= renderer 側が CAnimationPlayer に
-//     渡して final pose に blend する想定)。複数 clip blending を
-//     入れる際に「複数 layer の weight」を扱う primary slot として再利用する。
-//   ・**AnimationFrameCallback は raw 関数ポインタ + void* user**: ACS は
-//     std::function 禁止。AParticleEditorPanel / CAssetBrowser と同形の C-style
-//     callback 規約。Tick 終端で 1 度発火、引数は (user, clip_index, time_sec)。
-//     未設定 (nullptr) なら no-op。
-//   ・**非コピー / 非ムーブ**: 基底 AEditorPanel と同じ規約 + 内部
-//     `TArray<FAnimationClipBinding>` の所有を曖昧にしない。
-//   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。
-//   ・**ImGui ヘッダは .cpp 限定**: AParticleEditorPanel / AModelViewerPanel と
-//     同形 (= ヘッダから ImGui 依存を漏らさない)。
-//
-// 範囲外 (別 panel):
-//   ・複数 clip の同時 blending (= 全身 vs 上半身レイヤ等)。
-//     本 panel は primary slot のみ。
-//   ・タイムライン上のキー打ち / イベントマーカー (= AnimCurveEditor の役割)。
-//   ・root motion 抽出 / カメラ追従 (= CCinematicsDirector との連携範疇)。
-//   ・clip 圧縮設定 / curve 編集 (= model importer の役割)。
-//   ・retargeting (= bone mapping エディタの役割)。
+
 
 namespace acs::game::modelview {
 
@@ -93557,95 +87285,6 @@ using FModelMaterialPanel = AModelMaterialPanel;
 
 // ===================== gameframework/tools/modelview/ModelViewerPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — ModelViewer / AModelViewerPanel
-//
-// 3D model の表示と asset 切替を行う **メインビューポート**。editor 共通基盤
-// (`editor_core::AEditorPanel` / `CEditorCamera` / `CEditorWorkspace` /
-// `CAssetBrowser`) を継承する panel。
-//
-// 役割:
-//   ・3D model viewport の host (ImGui::Begin "Model Viewport" 1 window)
-//   ・カレント asset path の保持 + 切替 (`LoadModelAsset` / `ClearModel`)
-//   ・CEditorCamera (3D orbit) を内包し、panel 内で操作 / Reset / Frame
-//   ・Lighting (sun dir + sun color + IBL toggle + tonemap mode) パラメータの
-//     設定 ImGui controls
-//   ・Background color / Grid / FBone skeleton 表示の切替
-//   ・CAssetBrowser からのファイル選択通知 (`OnAssetSelected`) を受けて
-//     mesh / model 拡張子なら自動 LoadModelAsset
-//
-// 役割分担 (ModelViewer 全体):
-//   ・本 panel (AModelViewerPanel)         : 3D viewport + 表示パラメータ UI
-//   ・AModelInspectorPanel                  : モデルのメタ情報 (vertex/index 数,
-//                                            material list, bone count 等)
-//   ・AModelMaterialPanel                   : material slot 編集 (basecolor /
-//                                            metallic / roughness 等)
-//   ・AModelAnimationPanel                  : animation clip 切替 + 再生 / pause
-//   ・ModelViewportRenderer                 : 実際の 3D 描画 (CPbrShader + CShadowMap +
-//                                            IBL + Tonemap) を持つ別クラス。本 panel
-//                                            は描画パラメータの保管だけを担う。
-//
-// 使い方 (典型):
-//   AModelViewerPanel viewer;
-//   viewer.Init();
-//   workspace.RegisterPanel(&viewer);  // AEditorPanel として登録
-//
-//   // 毎フレーム TickAllPanels(dt) の中で OnFrameBegin + DrawUI が呼ばれる。
-//
-//   // CAssetBrowser からファイル選択時:
-//   workspace.BroadcastAssetSelected("models/hero.mdl");
-//   // → AModelViewerPanel::OnAssetSelected が呼ばれ、自動 LoadModelAsset。
-//
-//   // 終了時:
-//   workspace.UnregisterPanel(&viewer);
-//   viewer.Shutdown();
-//
-// 設計選択 (ModelViewer):
-//   ・**AEditorPanel 継承**: Title / DrawUI /
-//     OnInit / OnAssetSelected を override。OnInit では基底実装 (`Workspace()`
-//     ポインタ保持) を必ず呼ぶ。
-//   ・**3D viewport を「数値パラメータ + ImGui controls」だけにする**:
-//     実際の 3D 描画 (CPbrShader / CShadowMap / IBL) は
-//     `ModelViewportRenderer` が担当する。本 panel は
-//     「CCamera state + light params + background + toggle 群」の保管 + UI のみ。
-//     こうしておけば panel 単体テストや、別の renderer (= raymarched preview /
-//     OBJ thumbnail) への差し替えが容易。
-//   ・**CEditorCamera を内包 (値メンバ)**: 各 panel が独自 camera を持つ。
-//     Camera() アクセサで参照を返し、renderer が
-//     ViewMatrix / ProjectionMatrix を取り出して使う。
-//   ・**asset path は wchar_t バッファ (kMaxPathChars = 512)**: CAssetBrowser
-//     と同じ規約。STL の std::wstring は使えないため、固定長で保持。
-//     寿命管理を panel 側で完結させるため、コピー保存する (= CAssetBrowser の
-//     pointer 寿命 = 次の Refresh まで、には依存しない)。
-//   ・**OnAssetSelected で拡張子フィルタ**: `.mdl` / `.fbx` / `.gltf` / `.glb` /
-//     `.obj` が Mesh asset とみなされる (CAssetBrowser::ClassifyByExtension の
-//     Mesh 分類と一致)。それ以外の拡張子は無視 (= asset path は ASCII UTF-8 だが
-//     panel 内では wchar_t に正規化して持つ)。
-//   ・**ImGui controls の DrawUI 配置**: 単一 "Model Viewport" window 内に
-//       - viewport 領域 (大半の面積、将来 renderer が描画 / 現状は dummy)
-//       - 下部 control bar: Light dir / color / IBL / Tonemap / Background /
-//         Grid / FBone skeleton toggle
-//     を出す。各 widget の戻り値で「ユーザが変更したか」を判定する。本 panel は
-//     値を保持するだけ。
-//   ・**Tonemap mode は u32 enum 風 (0=ACES / 1=Reinhard / 2=Linear)**:
-//     CPbrShader / Tonemap の既存 enum (`render/PostProcess.h` 等) との連携は
-//     renderer 側で行う (本 panel は u32 で受け流し)。
-//   ・**Background color は FVec4** (RGBA): renderer の clear color 用。alpha は
-//     通常 1.0 だが、screenshot 用に alpha 0 もあり得る。
-//   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用 / `<string>` 禁止**:
-//     ACS 規約。文字列は wchar_t 固定長バッファのみ。
-//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (AHierarchyPanel / AInspectorPanel /
-//     AParticleEditorPanel) と同形。
-//   ・本 panel から forward decl で他 panel を受ける必要はない
-//     (Workspace 経由で疎結合)。
-//
-// 範囲外 (別 panel):
-//   ・PBR 描画 (CPbrShader / CShadowMap / IBL) の実呼出 = ModelViewportRenderer
-//   ・material slot 編集 = AModelMaterialPanel
-//   ・bone hierarchy 表示 = AModelInspectorPanel
-//   ・animation timeline = AModelAnimationPanel
-//   ・grid / gizmo の実描画 = CEditorGizmo
-//   ・camera preset (Front / Top / Side) = CEditorCamera
-//   ・undo / redo = CUndoStack 統合 (OnUndo / OnRedo hook)
 
 
 namespace acs::game::modelview {
@@ -93934,94 +87573,7 @@ using FModelViewerPanel = AModelViewerPanel;
 
 // ===================== gameframework/tools/spriteatlas/SpriteAtlasEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework の sprite atlas editor — ASpriteAtlasEditorPanel
-//
-// `acs::game::FSpritePack` (gameframework/SpritePack.h) が保持する atlas メタ情報
-// と名前付き frame 矩形のリストを、ImGui ベースで対話的に編集する **エディタ
-// パネル**。editor 共通基盤
-// (`editor_core::AEditorPanel` / `CEditorWorkspace`) を継承し、ModelViewer
-// と同形の組立方を持つ。
-//
-// 役割:
-//   ・atlas texture path + 名前付き FSpriteFrame 列の **編集** のみを担う。
-//     atlas texture そのものの読込 / 描画は呼び出し側の責務。
-//   ・toolbar (New Frame / Delete Selected / Pivot プリセット切替) + 中央 viewport
-//     (atlas placeholder + 矩形 overlay) + 左 frame list + 右 inspector の
-//     3 カラム + toolbar の 1 window レイアウト。
-//   ・mouse drag による frame rect の resize (4 corner + 4 edge の 8 handle)。
-//   ・FSpritePack そのものの所有はしない (= caller 所有、本 panel は raw pointer
-//     を非所有で保持する。FSpritePack は非コピー / 非ムーブなので、参照保持しか
-//     できない設計とも整合)。
-//
-// 役割分担 (SpriteAtlasEditor 全体):
-//   ・本 panel (ASpriteAtlasEditorPanel) : ImGui UI + frame rect 編集
-//   ・呼び出し側 : Workspace への登録と編集結果の永続化
-//
-// 使い方 (典型):
-//   acs::game::FSpritePack pack;
-//   FSpritePackInfo info;
-//   info.atlas_texture_path = "assets/hero_atlas.png";
-//   info.atlas_width  = 256;
-//   info.atlas_height = 256;
-//   pack.Init(info);
-//   // ... 既存 frame を AddFrame ...
-//
-//   spriteatlas::ASpriteAtlasEditorPanel panel;
-//   panel.Init();
-//   panel.SetSpritePack(&pack);
-//   workspace.RegisterPanel(&panel);   // AEditorPanel として登録
-//
-//   // 毎フレーム TickAllPanels(dt) の中で DrawUI が呼ばれる。
-//
-//   // 終了時:
-//   workspace.UnregisterPanel(&panel); // → OnShutdown が呼ばれる
-//   panel.Shutdown();
-//
-// 設計選択:
-//   ・**AEditorPanel 継承**: editor 共通基盤を dogfood。Title / DrawUI /
-//     OnInit を override。OnInit では基底実装を必ず呼ぶ。AModelViewerPanel と
-//     同形。
-//   ・**FSpritePack は raw pointer 非所有保持**: FSpritePack は非コピー / 非ムーブ
-//     なので参照保持しか選択肢が無く、それを noexcept ABI に乗せるため
-//     `class FSpritePack*` (forward decl + .h からは触らない実装)。caller が
-//     `panel.SetSpritePack(&pack)` で注入し、`panel.CurrentPack()` で取り出す。
-//     `nullptr` を渡されたら "no pack attached" として UI を gracefully 退化
-//     (ボタンを disabled 化 + 説明文表示)。
-//   ・**選択は単一 frame index (i32)**: -1 = 未選択。AParticleEditorPanel と
-//     同形の規約 (`SelectedFrameIndex()` / `SelectFrame(i32)`)。
-//   ・**Pivot toggle = EPivotPreset enum** (Center / TopLeft / Custom):
-//     Custom は inspector で pivot_x/pivot_y を slider で直接編集する。
-//     Center / TopLeft は AddFrame / 「Pivot 適用」ボタンで selected frame に
-//     pivot 値を流し込む。E-prefix enum (ACS 規約)。
-//   ・**Zoom level (f32)**: atlas placeholder の表示倍率。1.0 = 1 atlas-pixel が
-//     1 screen-pixel。`SetZoomLevel(f32)` で範囲 [kMinZoom, kMaxZoom] にクランプ。
-//   ・**frame rect 編集は inspector の SliderInt で代替可能**: mouse drag による
-//     handle resize は ImGui Item ID + InvisibleButton + GetMouseDragDelta で
-//     実装するが、編集精度を担保するため inspector 側に SliderInt(x/y/w/h) を
-//     必ず置く (= mouse drag は粗調整、slider は精密入力)。
-//   ・**Drag handle 数 = 8** (4 corner + 4 edge): typedef EFrameHandle で
-//     列挙。Hit-test は viewport 座標系で行い、現在は最も近い handle 1 個に
-//     hover フォーカスを当てる。現状は handle 描画と drag 計算のみ提供。
-//   ・**v1 では atlas texture を実描画しない**: 上位仕様の「実 texture 描画は
-//     v1 では省略可」を採用。背景は ImGui::ChildBackground + 自前 grid 線
-//     (DrawList::AddLine) で誤魔化す。texture 描画は ImTextureID + DX12
-//     descriptor heap 接続が必要なため対象外。
-//   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用 / `<string>` 禁止**:
-//     ACS 規約。frame name は FSpritePack 側 (= caller 所有) のリテラル前提。
-//     panel 内で新規 frame を AddFrame するときの name は静的バッファ
-//     (`m_DefaultFrameNamePool[]`) に書き込み、FSpritePack に const char*
-//     ポインタを渡す。TPool は kMaxOwnedFrames * 32 byte 固定。
-//   ・**ImGui ヘッダは .cpp 限定**: AParticleEditorPanel / AModelViewerPanel と
-//     同形 (header から imgui.h を出さない)。
-//
-// 範囲外:
-//   ・atlas texture の実 GPU 描画 (= ImGui::Image + descriptor heap 統合)
-//   ・undo / redo (= CUndoStack 統合は OnUndo / OnRedo hook で)
-//   ・自動矩形検出 (Aseprite 風 trimming / connected component 解析)
-//   ・複数 frame の box-select / 一括操作
-//   ・カスタム pivot guide 線描画 (現状は数値表示のみ)
-//   ・animation timeline 連携 (CSpriteAnimator との結合は別 panel)
-//   ・atlas データの保存形式と読み書き
+
 
 namespace acs::game {
 // FSpritePack の forward-decl。SpritePack.h は .cpp 側でのみ include する
@@ -94255,23 +87807,6 @@ using FSpriteAtlasEditorPanel = ASpriteAtlasEditorPanel;
 
 // ===================== imgui/ImGuiContext.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ImGui を ACS FWindow + CRenderer に統合する薄いラッパ
-//
-// 使い方:
-//   ImGuiCtx imgui;
-//   imgui.Init(window, renderer);
-//
-//   while (!window.ShouldClose()) {
-//       ...
-//       renderer.BeginFrame(...);
-//       imgui.NewFrame();
-//       ImGui::Begin("Hello");
-//       ImGui::Text("Hello, world!");
-//       ImGui::End();
-//       imgui.Render();           // 描画コマンドをコマンドリストに発行
-//       if (!renderer.EndFrame()) break;
-//   }
-//   imgui.Shutdown();
 
 
 namespace acs {
@@ -98085,70 +91620,14 @@ void InstallOnnxAsDefault() noexcept;
 
 // ===================== mvvm/Binder.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// TTwoWayBinder<T> — 2 つの TObservable<T> を双方向同期させる
-//
-// 使い方:
-//   TObservable<f32> view_hp;
-//   TObservable<f32> model_hp { 100.0f };
-//
-//   TTwoWayBinder<f32> bind(view_hp, model_hp);  // 両方が同期
-//   model_hp.Set(50.0f);   // → view_hp も 50 になる
-//   view_hp.Set(0.0f);     // → model_hp も 0 になる
-//
-//   // bind が破棄されたら同期解除
-//
-// 設計:
-//   ・Set() はループしないように、現在更新中フラグで再帰防止
-//   ・TOneWayBinder<T>(src, dst) で片方向版もアリ
 
 
 // ===================== mvvm/Observable.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// TObservable<T> — 監視可能な値 (MVVM の中核)
-//
-// 使い方:
-//   TObservable<f32> hp { 100.0f };
-//
-//   // 監視
-//   struct FCtx { ... };
-//   FCtx c;
-//   auto h = hp.Subscribe([](const f32& v, void* user){
-//       // (関数ポインタ用法。lambda は捕獲なしのもの限定)
-//       ACS_LOG_INFO("HP changed: %.1f", v);
-//   }, &c);
-//
-//   // 値変更 → 全監視者に通知
-//   hp.Set(75.0f);
-//
-//   // 監視解除
-//   hp.Unsubscribe(h);
-//
-// 設計:
-//   ・コールバックは関数ポインタ + void* user (STL 不依存方針)
-//   ・Set 時のみ通知、同値設定では発火しない (T::operator==)
-//   ・Subscribe / Unsubscribe は通知中でも安全 (遅延キャンセル)
-//   ・listener が所有 object ごと自身を同期破棄しても Notify は即時停止
-//   ・スレッドセーフではない (UI スレッドのみ前提、他スレッドからは TMessagePipe 経由)
 
 
 // ===================== threading/ThreadAffinity.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ThreadAffinity — クラスごとに「どのスレッドから呼べるか」を Debug ビルドで検証する
-//
-// 使い方:
-//   class FMyView {
-//       ACS_THREAD_AFFINITY_FIELD();
-//   public:
-//       void Set(int v) noexcept {
-//           ACS_THREAD_AFFINITY_CHECK();   // 最初の呼び出し時のスレッドに固定
-//           // ...
-//       }
-//   };
-//
-// ACS_THREAD_AFFINITY_FIELD: クラス内に検査用メンバを生やす (Debug only、Release で 0 byte)
-// ACS_THREAD_AFFINITY_CHECK: 現在のスレッドが初回スレッドと違ったら panic
-//
-// Release ビルドでは全部 no-op。
 
 
 #if ACS_ASSERTS_ENABLED
@@ -98339,7 +91818,7 @@ private:
  *
  * @details
  * Set で値を書き換えると、前回と異なる場合のみ登録済みリスナへ通知が走る
- * (T::operator== で同値判定)。リスナは関数ポインタ + void* user の形式 (STL 非依存)。
+ * (T::operator== で同値判定)。リスナは関数ポインタ + void* user の形式で保持する。
  * Subscribe/Unsubscribe は通知中でも安全で、通知中の解除はスロットを inactive 化し
  * 通知ループ終了後に遅延回収する。listener が所有 object ごとこの TObservable を同期破棄
  * した場合は通知を即時停止し、残りの listener を呼ばない。UI スレッド専用
@@ -98583,34 +92062,6 @@ private:
 
 // ===================== mvvm/Convert.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 組込み暗黙変換 — i32/u32/f32/f64/bool/FString の主要ペアを Bind 一発で
-//
-// 使い方:
-//   TObservable<f32> hp{100.0f};
-//   TObservable<FString> hp_text;
-//
-//   auto bind = Bind(hp, hp_text);   // 自動で f32 → FString 変換 (例: "100.0")
-//
-//   TObservable<i32> level{42};
-//   TObservable<f32> level_f;
-//   auto bind2 = Bind(level, level_f);   // 自動で i32 → f32 (42.0)
-//
-//   // 同じ型なら TOneWayBinder にフォールバック
-//   TObservable<f32> a{1.0f}, b;
-//   auto bind3 = Bind(a, b);   // TOneWayBinder<f32>
-//
-// サポート対象の変換マトリクス:
-//   i32  ↔ u32 / f32 / f64 / bool / FString
-//   u32  ↔ i32 / f32 / f64 / bool / FString
-//   f32  ↔ i32 / u32 / f64 / bool / FString
-//   f64  ↔ i32 / u32 / f32 / bool / FString
-//   bool ↔ i32 / u32 / f32 / f64 / FString
-//   FString ↔ 上記すべて (パース失敗時は T{} = 0/false/空文字)
-//
-// 設計:
-//   ・TDefaultConverter<Src, Dst>::Convert(const Src&, void*) → Dst で実装
-//   ・特殊化が無いペアは static_assert で「Bind: 既定変換が無い」と教える
-//   ・FString 変換のみ .cpp に実装 (Container<FString> 依存)
 
 
 namespace acs { class FString; }
@@ -99318,33 +92769,6 @@ MakeBindConvert(TObservable<Src>& src, TObservable<Dst>& dst,
 
 // ===================== mvvm/Command.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FCommand — VM のアクション (ボタン等) を CViewModel 側に置くためのヘルパ
-//
-// 使い方:
-//   class FPlayerVm : public CViewModel {
-//   public:
-//       TObservable<f32> hp { 100.0f };
-//
-//       FCommand attack {
-//           [](void* user){ static_cast<FPlayerVm*>(user)->hp.Set(0); },
-//           this
-//       };
-//
-//       // can_execute を TObservable<bool> で外から差し替えるなら 3 引数版:
-//       FCommand revive {
-//           [](void* u){ static_cast<FPlayerVm*>(u)->hp.Set(100); },
-//           this,
-//           &is_dead   // この TObservable<bool> が true のときだけ実行可能
-//       };
-//
-//       TObservable<bool> is_dead { false };
-//   };
-//
-// 設計:
-//   ・can_execute はオプション (常時実行可能がデフォルト)
-//   ・can_execute は TObservable<bool>* を取る (生存期間は呼び出し元責任)
-//   ・Execute は can_execute=false なら no-op
-//   ・ImGui アダプタの BindCommand(label, cmd) でボタン化 + 自動 grayout
 
 
 namespace acs {
@@ -99429,33 +92853,6 @@ private:
 
 // ===================== mvvm/Derived.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// TDerived<T, D> — 同じ要素型の複数 TObservable から派生する読み取り専用 TObservable
-//
-// 使い方:
-//   TObservable<f32> hp     { 100.0f };
-//   TObservable<f32> max_hp { 100.0f };
-//
-//   // hp / max_hp が変わるたびに ratio も即時再計算
-//   TDerived<f32, f32> ratio(
-//       [](const f32& h, const f32& m) { return h / (m > 0 ? m : 1.0f); },
-//       hp, max_hp);
-//
-//   // 取得は通常の TObservable と同じ:
-//   ratio.Get();                        // 1.0
-//   hp.Set(50.0f);                      // 依存通知中に ratio も 0.5 へ更新
-//   ratio.Get();                        // 0.5
-//
-//   // Subscribe も普通に使える:
-//   ratio.Subscribe([](const f32& v, void*){ /*...*/ }, nullptr);
-//
-// 設計:
-//   ・dep が変わるとその通知中に再計算し、結果が変わった場合だけ Subscriber へ通知する。
-//   ・菱形依存 (A → B,C → D) では D が中間状態と最終状態を複数回観測し得る。
-//     原子的な一括更新が必要な処理は、呼び出し側で batch 化する。
-//   ・すべての dep は同じ要素型 D とし、1〜4 個まで受け付ける。
-//   ・Get() は通常、通知時に更新済みの値を返す。dirty が残る経路では再計算して補完する。
-//   ・dep より先に TDerived が破棄されることが安全 (RAII で自動 Unsubscribe)。
-//     dep の方が先に死ぬとダングリング購読 → assert で検出 (Debug)。
 
 
 namespace acs {
@@ -99664,24 +93061,6 @@ private:
 
 // ===================== mvvm/ImguiBindings.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// Mvvm ↔ ImGui ヘルパ — TObservable<T> をフレーム描画にバインドする
-//
-// 使い方:
-//   FPlayerViewModel vm;
-//   // 毎フレーム ImGui::Begin/End の中で:
-//   acs::mvvm::imgui::Bind("HP",     vm.hp,   0.0f, 100.0f);
-//   acs::mvvm::imgui::Bind("Mana",   vm.mana, 0.0f, 100.0f);
-//   acs::mvvm::imgui::Bind("Lv",     vm.level, 1, 99);
-//   acs::mvvm::imgui::Bind("無敵",    vm.invincible);
-//   acs::mvvm::imgui::BindReadOnly("デバッグ表示", vm.hp);
-//
-// 各 Bind は:
-//   ・TObservable から現在値を取得して ImGui ウィジェット描画
-//   ・ユーザーが操作したら TObservable.Set() で書き戻す (= 全監視者に通知)
-//
-// 設計:
-//   ・ImGui の即時 mode に合わせ、毎フレーム呼ぶ前提
-//   ・TObservable.Set は値が変わったときだけ通知するので、毎フレーム呼んでも安全
 
 
 namespace acs { class FString; }
@@ -99885,32 +93264,6 @@ void BindProgress(const char* label, const TObservable<f32>& v, f32 v_min, f32 v
 
 // ===================== mvvm/ObservableArray.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// TObservableArray<T> — 要素の追加・削除・変更を通知する配列
-//
-// 使い方:
-//   TObservableArray<int> inv;
-//
-//   inv.Subscribe([](EArrayChange kind, usize idx, const int* v, void*){
-//       switch (kind) {
-//           case EArrayChange::Inserted: ACS_LOG_INFO("Add[%zu] = %d", idx, *v); break;
-//           case EArrayChange::Removed:  ACS_LOG_INFO("Remove[%zu]", idx);       break;
-//           case EArrayChange::Changed:  ACS_LOG_INFO("Set[%zu] = %d", idx, *v); break;
-//           case EArrayChange::Cleared:  ACS_LOG_INFO("Cleared all");            break;
-//       }
-//   }, nullptr);
-//
-//   inv.Add(7);     // → Inserted, idx=0, v=7
-//   inv.SetAt(0, 99);    // → Changed,  idx=0, v=99
-//   inv.RemoveAt(0);     // → Removed,  idx=0
-//   inv.Reset();         // → Cleared
-//
-// 設計:
-//   ・通知は 1 種類の callback で kind を分岐する
-//   ・listener 中は Add/Pop/Remove/RemoveAt/SetAt/Clear による全変更を禁止する
-//     (Debug は assert 検出。assert 無効の Release では検出されず処理が実行されるため、
-//      呼び出した時点で caller の契約違反)
-//     → どうしても要るなら listener が処理キューに積んで後で実行
-//   ・要素の T は同値判定 (operator==) を持つこと推奨 (Set で同値スキップ)
 
 
 namespace acs {
@@ -100352,32 +93705,6 @@ private:
 
 // ===================== mvvm/ViewModel.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// CViewModel — MVVM の M-V-VM のうち中央の VM 基底クラス
-//
-// MVVM は UI の状態と表示を分離し、ACS では次の 3 層で構成する:
-//   Model     = ゲームロジック / アセット / ECS 内のデータ
-//   View      = src/ui/ の AWidget tree (ALabel / AButton / ASlider 等)、または
-//               src/imgui/ の ImGui (ad-hoc デバッグ用、本番 UI は src/ui/ 推奨)
-//   CViewModel = この基底を継承して TObservable<T> プロパティを公開するクラス
-//
-// 使い方:
-//   class FPlayerViewModel : public CViewModel {
-//   public:
-//       TObservable<f32>     hp     { 100.0f };
-//       TObservable<f32>     mana   { 50.0f };
-//       TObservable<i32>     level  { 1 };
-//       TObservable<bool>    invincible { false };
-//   };
-//
-//   // モデル (実データ) からの反映:
-//   void OnDamage(FPlayerViewModel& vm, f32 dmg) {
-//       vm.hp.Set(vm.hp.Get() - dmg);    // 自動的に View 側へ propagate
-//   }
-//
-// 設計:
-//   ・基底はあえて空 (RTTI なしでも識別不要)。命名と意図のみ提供。
-//   ・派生クラスが TObservable<T> をメンバに持って公開する
-//   ・View 側は Subscribe / Bind で監視する
 
 
 namespace acs {
@@ -100412,13 +93739,6 @@ using FViewModel = CViewModel;
 
 // ===================== network/IpAddress.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// IPv4 アドレス（v1 では v6 は未対応）
-//
-// 使い方:
-//   FIpAddress addr = FIpAddress::FromString("127.0.0.1");
-//   FIpAddress any  = FIpAddress::Any();
-//   FIpAddress lo   = FIpAddress::Loopback();
-//   addr.port = 8080;
 
 
 namespace acs {
@@ -100472,10 +93792,6 @@ struct FIpAddress {
 
 // ===================== network/Network.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ネットワークサブシステム初期化（WSAStartup ラッパ）
-//
-// 使い方: アプリ起動時に一度 CNetwork::Init() を呼ぶ。CApplication が
-//         Audio/Network 系を自動初期化することは無いので、明示的に呼ぶこと。
 
 
 namespace acs {
@@ -101764,21 +95080,6 @@ private:
 
 // ===================== platform/Input.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 入力ポーリング API（キーボード / マウス / ゲームパッド）
-//
-// 使い方:
-//   while (!w.ShouldClose()) {
-//       CInput::Update();           // フレーム先頭で呼ぶ
-//       w.PollEvents();
-//
-//       if (CInput::IsKeyDown(EKey::Space)) Jump();
-//       if (CInput::IsMouseButtonPressed(EMouseButton::Left)) Shoot();
-//       FVec2 m = CInput::MousePos();
-//   }
-//
-// ・「Down」 = 現在押されている
-// ・「Pressed」 = このフレームで押された (前フレームは Down ではなかった)
-// ・「Released」 = このフレームで離された
 
 
 namespace acs {
@@ -101979,34 +95280,6 @@ using FInput = CInput;
 
 // ===================== platform/Localization.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 多言語対応（i18n）
-//
-// 設計:
-//   - 各言語は INI 形式の FStorage（key=value、UTF-8）
-//   - active = 現在表示中の言語、fallback = キーが無い時の代替
-//   - FStorage を直接利用するので、ファイル形式 / 内部構造を学び直す必要なし
-//
-// 使い方:
-//   FLocalization L;
-//   L.LoadActive(L"lang/ja.lang");
-//   L.LoadFallback(L"lang/en.lang");
-//
-//   CRenderer 内:
-//     sb.DrawText(font, L.Tr("greeting"), 100, 100, color);
-//
-//   ja.lang 内容例:
-//     # コメント
-//     greeting=ハロー、世界！
-//     menu.start=ゲーム開始
-//     menu.exit=終了
-//
-//   en.lang 内容例:
-//     greeting=Hello, World!
-//     menu.start=Start Game
-//     menu.exit=Quit
-//
-// 言語切替:
-//   L.LoadActive(L"lang/de.lang");   // 別言語に切替（fallback はそのまま）
 
 
 // ===================== platform/Storage.h =====================
@@ -103270,18 +96543,6 @@ constexpr bool IsFormatUsageLegal(EFormat format, bool depth_target) noexcept {
 
 // ===================== render/Fxaa.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FXAA (Fast Approximate Anti-Aliasing) フルスクリーンパス
-//
-// 用途: ジオメトリ AA (MSAA) を持たないパスの後段で、輝度ベースのエッジ平滑化を
-//       1 パスで掛ける。2D スプライト/ポリゴン描画 (エディタビューポート等) の
-//       ジャギー低減が主目的。
-//
-// 使い方:
-//   CFxaa fxaa;
-//   fxaa.Init(*device, backbuffer_format);             // 1 度だけ
-//   // フレーム中: シーンをオフスクリーン RT に描いた後、出力先 (backbuffer 等) を
-//   // bind した状態で:
-//   fxaa.Apply(*cl, *scene_rt);                        // FXAA 解決しつつ全画面描画
 
 
 namespace acs {
@@ -103351,35 +96612,6 @@ using FFxaa = CFxaa;
 
 // ===================== render/HiZ.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// Hi-Z (Hierarchical-Z) min-depth pyramid
-//
-// level 0 は scene_depth の 8x8 ブロックごとの最近接 NDC depth、level N は
-// level N-1 の厳密な 2x2 min 縮約で、最終 level は 1x1 になる。SSR 等の
-// screen-space ray march が空の大領域を粗い level からスキップするために使う。
-//
-// 設計上の選択:
-//   ・同じ mip chain を持つ physical texture を 2 本確保し、even level と odd
-//     level を交互に書く。同一 resource 内の mip を SRV/RTV 同時利用しないため、
-//     whole-resource transition の Raw DX12 / Diligent 双方で安全。
-//   ・physical base size は logical 1/8 size を各軸 NextPowerOfTwo に padding。
-//     padding depth=1.0 とすることで、全 level の cell が 8<<level pixel の
-//     一様な領域に対応し、odd resolution の可変幅 cell を作らない。
-//   ・EFormat は R32G32_Float。.r に min depth、.g は未使用。多段縮約で half の
-//     round-up が累積して min depth を過大評価することを避け、skip を保守的に保つ。
-//   ・sky pixel (depth >= 0.9999) は無視 — 屋外シーンで「ground - sky」の
-//     skip が大きく走るのは安全 (空には反射先が無い)
-//
-// 使い方 (SSR 統合):
-//   CHiZ hiz;
-//   hiz.Init(*dev, w, h);
-//   // 毎フレーム main pass の depth が完成したあと、SSR 前に:
-//   hiz.Build(*dev, *cl, scene_depth);
-//   ssr.Render(..., hiz.Texture());     // 旧 1/8 coarse path (level 0)
-//   // hierarchical path は EvenTexture/OddTexture を両方 bind し、
-//   // even level を EvenTexture、odd level を OddTexture の同じ mip から読む。
-//
-// 上位の SSR shader 側で skip-ahead する具体実装 (CSsr.cpp) と一体で機能する。
-// Hi-Z を渡さない場合も CSsr で OK (nullptr fallback)。
 
 
 namespace acs {
@@ -103603,28 +96835,7 @@ using FHiZ = CHiZ;
 
 // ===================== render/Ibl.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 画像ベース照明 (Image-Based Lighting)
-//
-// PBR の ambient 項を「環境マップから事前積分した光」で置き換える。
-// 構成要素:
-//   ・BRDF LUT       — 2D 256x256 RG16F。GGX split-sum approximation の scale+bias
-//   ・環境 cubemap   — シーンの背景 (CSky 等から captured)。1024x1024x6、R11G11B10_Float
-//   ・拡散 irradiance cubemap — 64x64x6、半球積分された diffuse 反射
-//   ・specular prefilter cubemap — 512x512x6 (7 mip)、roughness 段階別 GGX 反射
-//
-// 初期化と更新の使用例:
-//   CImageBasedLighting ibl;
-//   ibl.EnsureBrdfLut(*dev, *cl);              // 初回のみ LUT 生成 (256x256)
-//   ibl.EnsureEnvCubemap(*dev, *cl, sky);       // 初回のみ env cubemap キャプチャ
-//   // (irradiance / prefilter を生成してから:)
-//   // ibl.EnsureIrradiance(*dev, *cl);           // 環境 → irradiance
-//   // ibl.EnsurePrefilter(*dev, *cl);            // 環境 → prefilter (mip)
-//   // IBL を設定: pbr.SetIbl(ibl.IrradianceMap(), ibl.PrefilterMap(), ibl.BrdfLut(), ibl.PrefilterMips());
-//
-// 注意: CImageBasedLighting の生成・描画経路は現在 Diligent backend 専用。
-//       raw-DX12 backend では各 Build/Ensure が ACS_ERR(Render, 88) を返す
-//       (fake-success しない)。高度3D を使うには -DACS_RENDER_DILIGENT=ON でビルドする。
-//       (raw-DX12 = 軽量 2D/基本3D backend、Diligent = 公式の高度3D backend)
+
 
 namespace acs {
 
@@ -104326,39 +97537,6 @@ using FBlobShadow = CBlobShadow;
 
 // ===================== render/MotionVector.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// motion + normal G-buffer の geometry pass
-//
-// シーンの全 mesh を再ラスタライズし、MRT 2 枚を書き出す:
-//   - motion (RG16F)  : screen-space motion vector (prev_uv - curr_uv)。camera
-//                       動きと object 動きの両方を含む (前フレームの model + VP)。
-//                       TAA が history を正確に reproject し ghost / trail を消す。
-//   - normal (RGBA16F): world-space normal。頂点法線をピクセル補間したもので、
-//                       depth-derivative の cross(ddx,ddy) と違い曲面でも段差が
-//                       出ない。SSR/SSGI/SSAO がこれを sample し、faceted な
-//                       反射ベクトル由来のジャギーを根本解消する。
-//
-// depth からの camera reprojection のみでは動く mesh が ghost するため、
-// 本モジュールがその穴を埋める。
-//
-// 設計:
-//   - CShadowMap と同じ Begin/DrawMesh/End パターン (caller がシーンを描く)
-//   - 全 mesh を描く前提 (静的 mesh は prev_model == model)。motion texture は
-//     画面全体で authoritative になり、TAA は depth を併用せず済む
-//     (→ TAA resolve PSO の texture slot を増やさず slot binding 問題を回避)
-//   - occlusion 用に専用 depth buffer を内部に持つ (scene depth は共有しない)
-//
-// 使い方:
-//   CMotionVector mv;
-//   mv.Init(*dev, w, h);
-//   ...毎フレーム (シーン color pass のあと):
-//   if (mv.BeginFrame(visible_mesh_count) &&
-//       mv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter)) {
-//       for (each mesh) {
-//           if (!mv.DrawMesh(*cl, gm, curr_model, prev_model)) abort_output;
-//       }
-//       mv.End(*cl);
-//       post_params.taa_motion_texture = mv.OutputTexture();
-//   }
 
 
 namespace acs {
@@ -104628,37 +97806,6 @@ inline FMat4 MakeSafeNormalMatrix(const FMat4& model) noexcept {
 
 // ===================== render/Particles.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 2D パーティクルシステム（CPU プール + CSpriteBatch 描画）
-//
-// 用途: 火花・煙・爆発・魔法効果など、ゲームの視覚エフェクト全般。
-//
-// 使い方:
-//   CParticleSystem ps;
-//   ps.Init(2048);                           // 最大パーティクル数
-//   ps.SetTexture(my_circle_tex);            // null なら 1×1 白
-//
-//   FEmitterDesc d;
-//   d.position = FVec2{400, 300};
-//   d.velocity = FVec2{0, -120};
-//   d.velocity_variance = FVec2{60, 30};
-//   d.gravity = FVec2{0, 200};
-//   d.size_start = 32; d.size_end = 0;
-//   d.color_start = FVec4{1, 0.7f, 0.2f, 1};
-//   d.color_end   = FVec4{1, 0.1f, 0.0f, 0};
-//   d.life_seconds = 1.0f;
-//   d.rate_per_sec = 200;
-//   ps.SetEmitter(d);
-//
-//   // 毎フレーム
-//   ps.Update(dt);
-//   sb.Begin(*cl, sw, sh);
-//   ps.Render(sb);                           // バッチ内に追加描画
-//   sb.End();
-//
-// プリセット:
-//   ps.SetEmitter(FEmitterDesc::Fire(pos));
-//   ps.SetEmitter(FEmitterDesc::Sparks(pos));
-//   ps.SetEmitter(FEmitterDesc::Fountain(pos));
 
 
 namespace acs {
@@ -105221,28 +98368,6 @@ private:
 
 // ===================== render/RefractionShader.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// スクリーンスペース屈折シェーダ
-//
-// 用途: ガラス・水・氷のような透明屈折オブジェクトを描画する。屈折は
-//       「描画済みの opaque シーン (background) を、屈折方向にずらして
-//       sample する」スクリーンスペース手法で表現する。
-//
-// 前提となるフレーム構成 (呼び出し側が用意する):
-//   1. opaque ジオメトリを HDR RT へ描画する
-//   2. HDR RT を background テクスチャへ複製する (屈折オブジェクトが読むため。
-//      同一 RT の read+write は不可なので複製が要る)
-//   3. CRefractionShader で屈折オブジェクトを HDR RT へ描画する (background を sample)
-//
-// 使い方:
-//   CRefractionShader refr;
-//   refr.Init(*device, hdr_format, depth_format);
-//   refr.SetFrame(camera.ViewProjection(), camera.Eye(),
-//                 background_tex.Width(), background_tex.Height());
-//   refr.DrawMesh(*cl, glass_mesh, model, background_tex, env_cubemap,
-//                 /*ior=*/1.5f, /*thickness=*/0.5f, /*tint=*/FVec3{1,1,1});
-//
-// blend は Opaque。屈折オブジェクトは「背景を曲げた色」を不透明に書き込むため
-// alpha blend は不要 (深度も書き、後続の描画を正しく遮蔽する)。
 
 
 namespace acs {
@@ -105682,58 +98807,6 @@ constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FComputePipe
 
 // ===================== render/ShadowMap.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// シャドウマップ（有向光源用、orthographic）
-//
-// 2 つのモード:
-//   1. Single cascade (既定、cascade_count=1): 1 つの 2D 深度テクスチャに
-//      シーン全体を 1 つの ortho 投影で描く。CStandardShader と IBL 描画で
-//      単一のライト空間を共有する方式。
-//   2. Cascaded Shadow Map (CSM、cascade_count >= 2): カメラ frustum を
-//      距離で 2-4 個に分割し、近景は高解像度・遠景は広範囲を 1 枚の atlas
-//      テクスチャ (width = cascade_count * size、height = size) に並べる。
-//      ピクセルの view-space z で cascade を選択するため遠景まで鮮鋭な影を
-//      保てるため、広い屋外シーンに適する。
-//
-// 使い方 (single cascade、後方互換):
-//   CShadowMap sm;
-//   sm.Init(*dev, /*size=*/2048);                    // cascade_count=1 既定
-//   sm.SetDirectionalLight(light_dir, scene_center, 15.0f);
-//   if (!sm.BeginFrame(/* casters */ 1)) return;
-//   cl->BeginShadowPass(*sm.DepthTexture(), 1.0f);
-//   cl->SetPipeline(*sm.CasterPipeline());
-//   cl->SetConstantBuffer(0, *sm.LightCB());
-//   for (each caster) {
-//       if (!sm.TrySetCaster(model)) continue;
-//       cl->SetConstantBuffer(1, *sm.CasterObjectCB());
-//       /* draw */
-//   }
-//   cl->EndShadowPass(*sm.DepthTexture());
-//
-// 使い方 (CSM、3 cascade):
-//   CShadowMap sm;
-//   sm.Init(*dev, 2048, /*cascade_count=*/3);
-//   sm.SetDirectionalLightCascades(light_dir, view, proj, 0.1f, 100.0f);
-//   if (!sm.BeginFrame(/* casters per cascade */ 1)) return;
-//   cl->BeginShadowPass(*sm.DepthTexture(), 1.0f);        // atlas 全体 clear
-//   cl->SetPipeline(*sm.CasterPipeline());
-//   for (u32 c = 0; c < sm.CascadeCount(); ++c) {
-//       cl->SetViewport(sm.CascadeViewport(c));
-//       cl->SetScissor(sm.CascadeScissor(c));
-//       sm.SetCurrentCascade(c);
-//       cl->SetConstantBuffer(0, *sm.LightCB());
-//       for (each caster) {
-//           if (!sm.TrySetCaster(model)) continue;
-//           cl->SetConstantBuffer(1, *sm.CasterObjectCB());
-//           /* draw */
-//       }
-//   }
-//   cl->EndShadowPass(*sm.DepthTexture());
-//
-// 主パスでの使用 (CPbrShader 統合):
-//   単一カスケード: pbr.SetShadowMap(sm.DepthTexture(), sm.LightViewProjection(), ...);
-//   複数カスケード: FMat4 vps[3] = { sm.LightViewProjection(0), sm.LightViewProjection(1), sm.LightViewProjection(2) };
-//                f32  spl[3] = { sm.CascadeSplit(0), sm.CascadeSplit(1), sm.CascadeSplit(2) };
-//   複数カスケードを設定: pbr.SetShadowMapCascades(sm.DepthTexture(), vps, spl, sm.CascadeCount(), ...);
 
 namespace acs {
 
@@ -106025,36 +99098,6 @@ using FShadowMap = CShadowMap;
 
 // ===================== render/SkinnedShader.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// スキンメッシュ用ライティングシェーダ（GPU スキニング）
-//
-// CStandardShader の上位互換: PerFrame (b0) / PerObject (b1) は同じレイアウト。
-// 加えて Bones (b2) を持ち、最大 64 ボーンのパレット行列をシェーダに送る。
-//
-// 使い方:
-//   CSkinnedShader shd;
-//   shd.Init(*dev, color_fmt, depth_fmt);
-//   if (!shd.BeginFrame(/* expected draws */ 1)) return;
-//
-//   // フレーム共通（CStandardShader と同じ呼び方）
-//   shd.SetLights(camera.ViewProjection(), camera.Eye(),
-//                 lights, count, ambient);
-//
-//   // オブジェクト
-//   if (!shd.SetObject(model_mat, base_color, specular, shininess)) return;
-//
-//   // ボーンパレット（毎フレーム）
-//   FMat4 palette[64];
-//   u32 nb = anim_player.WritePalette(palette, 64);
-//   if (!shd.SetBonePalette(palette, nb)) return;
-//
-//   cl->SetPipeline(*shd.Pipeline());
-//   cl->SetConstantBuffer(0, *shd.PerFrameCB());
-//   cl->SetConstantBuffer(1, *shd.PerObjectCB());
-//   cl->SetConstantBuffer(2, *shd.BonesCB());
-//   cl->SetTexture(0, *shd.DefaultWhiteTexture());
-//   cl->SetVertexBuffer(*gm.vertex_buffer, gm.vertex_stride);
-//   cl->SetIndexBuffer (*gm.index_buffer);
-//   cl->DrawIndexed(gm.index_count);
 
 
 namespace acs {
@@ -108220,23 +101263,6 @@ bool TryRestoreFixedStepClockSnapshots(CFixedStepClock* clocks, const FFixedStep
 
 // ===================== ui/UiRenderer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// CUiRenderer — AWidget tree を CSpriteBatch + FFont で描画する
-//
-// 使い方:
-//   CUiRenderer ur;
-//   ur.Init(*dev, GetRenderer().ColorFormat(), default_font);
-//
-//   // 毎フレーム:
-//   AStackPanel root;
-//   /* root.Add<...>() で子を構築 */
-//   ur.Render(root, *cmd, screen_w, screen_h);
-//
-// 仕組み:
-//   ・CSpriteBatch で矩形 + テクスチャ + 文字を発行
-//   ・FFont は ACS FFont (TTrueType + atlas)
-//   ・AWidget::Render(*this) を再帰的に呼ぶ
-//   ・各 widget は描画ヘルパ (DrawRect / DrawText 等) で CUiRenderer に依頼
-//   ・root.visible=false のフレームは Layout と描画をともに省略
 
 
 // ===================== ui/Widgets.h =====================
@@ -108255,24 +101281,6 @@ bool TryRestoreFixedStepClockSnapshots(CFixedStepClock* clocks, const FFixedStep
 
 // ===================== ui/Widget.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// AWidget — ACS UI フレームワークの基底クラス
-//
-// 設計:
-//   ・retained-mode UI (ImGui のような毎フレーム再構築でなく、ツリーを保持)
-//   ・MVVM 駆動: 各 AWidget は TObservable<T> プロパティを公開し、CViewModel と Bind 可能
-//   ・CSpriteBatch + FFont で描画 (Diligent / Dx12 を意識しない)
-//   ・親 → 子の所有を TUniquePtr<AWidget> で表現、Add で子を取り込む
-//   ・Layout は親の Layout モードに応じて子に再帰的に配置
-//
-// 使い方:
-//   AStackPanel root;
-//   root.SetPadding(8);
-//   auto* btn = root.Add<AButton>("OK");
-//   btn->on_clicked.Subscribe(...);
-//
-//   // 毎フレーム:
-//   ui_renderer.Render(root, *cmd, screen_w, screen_h);
-//   ui_input.Dispatch(root);
 
 
 namespace acs {
@@ -108969,13 +101977,6 @@ using FContainer = AContainer;
  * ComputeAnchoredRect で解決して個別配置する。パネルの rect が変わる (画面リサイズ等)
  * と全子が追従するため、HUD やオーバーレイの解像度非依存レイアウトに使う。
  *
- * 使い方:
- *   AAnchorPanel hud;
- *   auto* score = hud.Add<ALabel>("0");
- *   score->anchor = FUiAnchor::Point({1,0}, 120, 32, -128, 8);  // 右上に固定サイズ
- *   auto* bar = hud.Add<AContainer>();
- *   bar->anchor = FUiAnchor::Stretch(16, 0, 16, 8);             // 下端を左右いっぱい
- *   hud.Layout(0, 0, screen_w, screen_h);
  */
 class AAnchorPanel : public AWidget {
 public:
