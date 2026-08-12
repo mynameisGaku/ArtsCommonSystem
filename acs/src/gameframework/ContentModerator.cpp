@@ -198,13 +198,9 @@ void NormalizeInto(const char* src, char* dst, u64 cap) noexcept {
 /**
  * text の «正規化形» に needle_norm が出現するかを、正規化を実体化せず判定する。
  *
- * @details
- * 以前は入力を固定長バッファへ正規化してから contain していたが、その方式は
- * 「バッファ長を超えた位置に leet/spaced 変種を置くと照合されない」検閲バイパスを
- * 許してしまう (ハードコード Block 辞書のガードレールも同様に素通り)。そこで
- * 正規化文字列を作らず、生 text 上を「区切りを飛ばし leet 置換 + 小文字化しながら」
- * 直接照合するストリーミング方式にする。入力長の上限が無くなり、切り捨てによる
- * 取りこぼしが構造的に起きない。素朴 O(n*m) は従来と同じ。
+ * @details 生 text 上で区切りを飛ばし、leet 置換と ASCII 小文字化を適用しながら
+ * needle_norm を直接照合する。入力用の正規化バッファを作らないため、text を長さで
+ * 切り捨てない。計算量は O(n*m)。
  * @param text 生入力テキスト (nullptr は常に false)。
  * @param needle_norm 正規化済みの辞書エントリ (空 "" は常に false)。
  * @return 正規化形に needle_norm が含まれれば true。
