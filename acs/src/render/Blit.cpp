@@ -193,7 +193,6 @@ void CBlit::Shutdown() noexcept {
 void CBlit::Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept {
     if (!m_Pipeline) return;
     // 全 pixel が src で上書きされるので clear 不要 → load 版で開始する。
-    // (本コミットで追加した BeginRenderToTextureLoad の自然な利用例)。
     cmd.BeginRenderToTextureLoad(dst, nullptr);
     cmd.SetPipeline(*m_Pipeline);
     cmd.SetTexture(0, src);
