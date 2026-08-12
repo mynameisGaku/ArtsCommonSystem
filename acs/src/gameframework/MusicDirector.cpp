@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CMusicDirector 実装
+// BGM state・intensity・stingerを管理し、結線済みaudio directorへ再生命令を渡す。
 //
 // state machine + transition / stinger pending 管理を完全実装し、
 // SetAudioDirector で結線された実 CAudioDirector へ BGM/SFX を delegate する。
