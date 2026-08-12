@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — CBehaviorTree 実装
+// composite、action、decoratorの評価規則を実装し、behavior treeのrootを駆動する。
 //
 // Selector / FSequence のループはどちらも「子を順に Tick し、ある条件で
 // 早期 return、最後まで通り抜けたら反対の結論を返す」という対称形をしている。
