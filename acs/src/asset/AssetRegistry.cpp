@@ -431,8 +431,8 @@ FAssetFuture CAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
         return FAssetFuture(Move(state));
     }
 
-    // cache / in-flight hit には所有コピーを追加しない。新規ジョブだけが
-    // 長さ比例の共有パスを確保し、従来の固定長 job buffer を置き換える。
+    // cache / in-flight hit ではワーカー用 path を保持しない。新規ジョブだけが
+    // path の長さに合わせた共有領域を取得する。
     /** intern 対象 path の NUL を除く長さ。 */
     usize PathLength = 0u;
     while (path[PathLength] != L'\0') ++PathLength;
