@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — CHungerSystem 実装
+// survivorの生存統計値を登録・更新・照会し、閾値遷移とHPダメージを通知する。
 //
 // slot+gen パターンで複数 survivor の生存統計値 (空腹/喉/疲労/正気/体温/Custom1/2)
 // を管理する。Tick で decay + critical 跨ぎ検出 + zero 到達時の HP ダメージ通知を
