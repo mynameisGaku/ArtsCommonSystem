@@ -178,7 +178,7 @@ public:
         const FComponentTypeId id = GetComponentTypeId<T>();
         if (id >= m_Sets.Num()) m_Sets.SetNum(id + 1);
         if (!m_Sets[id]) {
-            // 生 new を避け、MemorySystem 追跡下で確保する (R018 / リーク検出)。ASparseSetBase の
+            // m_Sets の allocator で sparse set を確保する。ASparseSetBase の
             // 仮想デストラクタで型ごとの破棄が走るため、解放は CWorld::Clear の Delete で型消去できる。
             TSparseSet<T>* const set = New<TSparseSet<T>>(*m_Sets.GetAllocator());
             ACS_CHECKF(set != nullptr, "World::GetOrCreateSet: SparseSet 確保失敗 (id=%u)", id);
