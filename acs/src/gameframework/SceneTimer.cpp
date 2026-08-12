@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CSceneTimer 実装
+// generation付きhandleでone-shot・interval timerを管理し、経過時間に応じてcallbackを発火する。
 //
 // 設計メモ:
 //  ・slot 再利用は線形走査 (FTween/CSequenceRunner と同じ方針)。Scene あたりの
