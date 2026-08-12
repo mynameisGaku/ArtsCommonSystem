@@ -238,8 +238,6 @@ FWindow::FWindow(FWindow&& o) noexcept
       m_ShouldClose(o.m_ShouldClose), m_Minimized(o.m_Minimized),
       m_Callback(o.m_Callback), m_CallbackUser(o.m_CallbackUser),
       // フルスクリーン状態 (現在値 + 復元用の保存矩形/スタイル) も漏れなくムーブする。
-      // 以前はこれらを取りこぼし、フルスクリーン中の窓をムーブすると IsFullscreen() が
-      // 偽になり SetFullscreen(false) で元の矩形へ戻せなくなっていた。
       m_Fullscreen(o.m_Fullscreen), m_SavedStyle(o.m_SavedStyle) {
     m_SavedRect[0] = o.m_SavedRect[0]; m_SavedRect[1] = o.m_SavedRect[1];
     m_SavedRect[2] = o.m_SavedRect[2]; m_SavedRect[3] = o.m_SavedRect[3];
