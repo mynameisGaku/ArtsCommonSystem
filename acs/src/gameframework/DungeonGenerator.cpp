@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar (Genre Kit: Roguelike) — BSP ダンジョン生成 実装
 //
 // アルゴリズム (古典 BSP roguelike):
 //   1. 全領域を Wall で塗る。
