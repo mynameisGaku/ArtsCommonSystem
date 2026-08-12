@@ -327,7 +327,7 @@ acs::TResult<acs::i64> CSteamworksBridgeImpl::GetLeaderboardScore(const char* bo
     m_Impl->m_FindResult.Set(hCall, m_Impl, &FImpl::OnLeaderboardFindResult);
     // 同期 wait はしない (async)。Find→Download 完了後に再度本関数を呼べば、上の
     // 相関ループが完了 op を拾って正しいスコアを返す。初回呼び出しでは結果が無い
-    // ため、誤った成功 (旧実装の OkInit, 0) ではなく Timeout/Pending を返す。
+    // ため、結果が無い場合は Timeout/Pending を返す。
     return acs::TResult<acs::i64>(
         ACS_ERR(Generic, kSubSteamworksTimeout,
                 "GetLeaderboardScore: request issued, result pending (call Tick then retry)"));
