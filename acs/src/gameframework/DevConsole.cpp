@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — CDevConsole 実装
-//
-// state コンテナのみ。UI / 入力ハンドラは別レイヤ。詳細は CDevConsole.h 参照。
+// commandの登録・実行、開閉状態、入力履歴、出力行を保持する。
+// UIと入力eventの取得は呼出し側が担う。
 #include "gameframework/DevConsole.h"
 
 #include "memory/Allocator.h"
