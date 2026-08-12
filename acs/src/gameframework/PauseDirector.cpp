@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — CPauseDirector 実装
+// pause理由のbit管理、遷移通知、実効time scaleの算出を実装する。
 //
 // pause 状態は bit flag (EPauseReason) を 1 個の u32 にまとめて持つ。
 // Pause/Resume は単純な OR / AND-NOT で、複合 reason (UserMenu | SystemMenu)
