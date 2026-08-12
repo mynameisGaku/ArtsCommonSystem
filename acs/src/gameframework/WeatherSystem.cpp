@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — CWeatherSystem 実装
+// weather preset、遷移、風向きを管理し、補間した描画parameterを提供する。
 //
 // 8 種の天候を 1 つの LUT (KindParams テーブル) で表現し、current/target を
 // 線形補間する。Tick で transition_t を進行し、1.0 到達時に current = target に
