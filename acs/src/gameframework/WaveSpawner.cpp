@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L/R — CWaveSpawner 実装
 //
 // state machine + 複数 rule 並列 spawn + intermission timer の合成。
 // FSpawnRule.spawn_interval_sec が小さい / dt が大きいケースでは 1 Tick 内で
