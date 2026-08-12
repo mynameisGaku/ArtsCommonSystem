@@ -138,7 +138,6 @@ FHrResult FDx12Buffer::Init(CDx12Device& device, const FBufferDesc& desc) noexce
 
     // 静的 (DEFAULT ヒープ、cpu_writable=false) + initial_data: DEFAULT ヒープは map できないため、
     // ステージング UPLOAD バッファへコピー → CopyBufferRegion で DEFAULT へ転送 → GPU 完了待ち。
-    // これが無いと静的バッファは «空» のままで描画されない (旧バグ。static mesh が全て不可視だった)。
     if (!desc.cpu_writable && desc.initial_data && desc.size > 0 && m_Resource) {
         ID3D12Resource* staging = nullptr;
         D3D12_HEAP_PROPERTIES uh{}; uh.Type = D3D12_HEAP_TYPE_UPLOAD;
