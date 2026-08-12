@@ -516,8 +516,7 @@ TResult<TSharedPtr<AAsset>> CFbxAssetLoader::LoadFromBytes(FAssetId id, const TA
             if (static_cast<usize>(added) != static_cast<usize>(face.num_indices) - 2u) return ACS_ERR(Asset, kFbxSubTriangulationFailed, "FBX face triangle count changed after preflight");
             if (source_write > mesh_element_end || static_cast<usize>(added) > mesh_element_end - source_write) return ACS_ERR(Asset, kFbxSubCountOutOfRange, "FBX triangle count exceeds preflight count");
 
-            // ufbxは3倍のindexを書いてtriangle数を返す。現行loaderは戻り値個だけ
-            // 採用していたため、そのobservable列はこの安全化waveでは維持する。
+            // ufbxは3倍のindexを書いてtriangle数を返す。公開meshの頂点列を保つため戻り値個だけをsource index列へ採用する。
             for (usize triangle = 0u; triangle < static_cast<usize>(added); ++triangle) source_indices[source_write++] = local_indices[triangle];
         }
 
