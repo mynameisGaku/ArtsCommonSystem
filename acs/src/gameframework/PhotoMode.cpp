@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CPhotoMode 実装
+// 撮影状態、camera操作値、filter、capture要求とtime scale復元値を保持する。
 //
 // 本ファイルは状態遷移ロジックのみを持つ。「実際に time scale を 0 にする」
 // 「実際にカメラを動かす」「実際にフィルタを LUT で適用する」のは
