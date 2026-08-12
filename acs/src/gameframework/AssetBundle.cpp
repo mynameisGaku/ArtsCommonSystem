@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — CAssetBundle 実装 (CAssetRegistry 実接続)
+// asset path集合をregistryから同期loadし、進捗と共有所有をUnloadまで管理する。
 //
 // BeginLoad(registry) で各 path を registry 経由で実ロードし、TSharedPtr<Asset> を Entry に
 // 保持する (同期 Load)。bundle が TSharedPtr を持つことで Unload まで生存を保証し、Unload /
