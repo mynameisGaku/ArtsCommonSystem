@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — CSpriteAnimator 実装
+// 経過時間からLoop・PingPong・Onceのframeを進め、frame進入eventを通知する。
 //
 // ・時間→frame index 計算: floor(m_Elapsed * m_Fps)
 // ・Loop:     N で mod
