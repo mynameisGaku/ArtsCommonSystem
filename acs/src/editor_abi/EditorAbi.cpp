@@ -10503,8 +10503,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                         }
                         const game::FPbrParams2D& p = mc->Material().pbr;
                         const FVec3 tint{ p.baseColor.x, p.baseColor.y, p.baseColor.z };
-                        // thickness は «屈折先までの world 距離» = レンズ歪みの強さ。固定 0.5 だと小さく
-                        // 背景がほぼ曲がらず «ガラスに見えない» → オブジェクトサイズ(world scale)に比例させる。
+                        // 屈折先までのworld距離として、ノードのworld scale三軸平均に1.4を掛ける。
                         const game::FTransform3D world = SceneMeshWorldTransform(h, i, nn);
                         const FVec3 ws = world.scale;
                         const f32 thick = ((ws.x + ws.y + ws.z) / 3.0f) * 1.4f;
