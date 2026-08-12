@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CCombatStateMachine 実装
+// combat state、enemy awareness、threat levelを更新し、state遷移をcallbackへ通知する。
 //
 // state machine + threat level smoothing + enemy awareness tracking を完全実装。
 // 外部ディレクタ (Music / Ambient / UI) との結線は OnStateChange callback で
