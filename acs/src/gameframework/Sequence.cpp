@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FSequence / CSequenceRunner 実装
+// wait・callback・tween action列を構築し、generation付きhandleで登録順に実行する。
 #include "gameframework/Sequence.h"
 #include "foundation/Move.h"
 
