@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FHotReload 実装 (dev build = 実 FS watcher)
-//
-// 設計のポイント (詳細はヘッダ参照):
+// 現在の監視設計:
 //   ・watched paths / callbacks / pending events の TArray に加え、監視ディレクトリ
 //     ごとの OS watcher 状態 (FWatchEntry) を持つレジストリ。
 //   ・Windows: WatchDirectory で CreateFileW(FILE_LIST_DIRECTORY,
