@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット — CTurnManager 実装
-//
-// マルチサイドターン制マネージャの完全実装。
+// generation付きhandleでsideを管理し、initiative順にturnとroundを進行する。
 //
 // 実装メモ:
 //  ・slot 再利用は線形走査 (CCooldownTimer と同方針)。side 数はせいぜい数〜十数
