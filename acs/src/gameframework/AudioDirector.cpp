@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CAudioDirector 実装
+// BGM/SFXの再生状態、音量、fade、duckingを管理し、backendへ反映する。
 //
 // state machine + volume 計算 + `IAudioBackend*` delegate を完全実装。
 // backend == nullptr のときは state-only で動く。
