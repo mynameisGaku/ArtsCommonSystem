@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar D — CInputRecorder 実装
+// tick単位のinput sampleを録画・再生し、`.acsr`形式のbufferへ保存・読込する。
 //
 // StartRecording / StopRecording / StartReplay / StopReplay /
 // Capture / ConsumeSample / SampleCount / Clear / SaveToBuffer / LoadFromBuffer
