@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CCooldownTimer 実装
+// cooldown を generation 付き handle で管理し、時間進行と使用可能遷移を通知する。
 //
 // 設計メモ:
 //  ・slot 再利用は線形走査 (CSceneTimer / CCollisionWorld2D と同方針)。アクター 1
