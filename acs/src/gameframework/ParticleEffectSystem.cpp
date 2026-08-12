@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I — CParticleEffectSystem 実装
+// generation付きhandleでemitterを管理し、particle poolからburst・連続生成して時間更新する。
 //
 // 仕様の意図は CParticleEffectSystem.h を参照。本ファイルでは:
 //   ・generational emitter slot の Acquire / Release
