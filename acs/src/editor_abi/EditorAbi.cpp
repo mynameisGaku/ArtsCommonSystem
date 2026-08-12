@@ -10994,9 +10994,8 @@ static bool EnsureSceneRt(FEditorHost& h, u32 w, u32 hgt) noexcept {
     if (h.scene_rt && h.scene_rt_w == w && h.scene_rt_h == hgt) return true;
     IRhiDevice* dev = h.renderer.Device();
     if (dev == nullptr) return false;
-    if (h.scene_rt) dev->WaitIdle();        // 旧 RT を安全に解放するため (リサイズ/MSAA変更時のみ)。初回生成は
-                                            // 旧 RT が無く WaitIdle 不要 — 描画ループ初フレームでの不要な WaitIdle が
-                                            // フレームペーシングと競合して間欠クラッシュするのを避ける。
+    // 既存のscene RTを置き換える場合だけGPU完了を待ち、安全に解放する。
+    if (h.scene_rt) dev->WaitIdle();
     FTextureDesc td{};
     td.width  = w;
     td.height = hgt;
