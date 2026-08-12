@@ -1,21 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// AcpakDefault — CAcpakGameReader / CAcpakGameWriter を gameframework の既定
-// AssetPack provider へ結線する
-// -----------------------------------------------------------------------------
-// gameframework は ACS::AssetPack に依存できない (循環依存) ため、結線は backend
-// 側 (本 TU) から `acs::game::SetAssetPackReaderProvider()` /
-// `SetAssetPackWriterProvider()` を呼んで行う。アプリは起動時に一度
-// `acs::assetpack::InstallAcpakReaderAsDefault()` /
-// `InstallAcpakWriterAsDefault()` を呼ぶだけで、以降は backend 非依存に
-// `acs::game::GetDefaultAssetPackReader()` / `GetDefaultAssetPackWriter()` で
-// 実 `.acpak` Reader/Writer を取得できる。
-//
-// provider が返す Reader/Writer はプロセス共有 singleton。CAcpakGameReader /
-// CAcpakGameWriter は default 構築でき、別途 Init() を要さない (利用側が
-// Mount()/BeginPack() でライフサイクルを開始する) ため、Lua backend のような
-// lazy-init は不要。function-local static の構築自体が thread-safe。
-// =============================================================================
 #include "assetpack/AcpakGameBridge.h"
 #include "memory/SystemAllocator.h"
 
@@ -43,10 +26,9 @@ FDefaultAcpakState& GetDefaultAcpakState() noexcept
 
 } // namespace
 
-/** プロセス共有の既定 Acpak Reader を返す (Meyers singleton)。 */
+/** プロセス共有 state が所有する既定 Acpak Reader を返す。 */
 acs::game::IAssetPackReader& GetDefaultAcpakReader() noexcept {
-    // Meyers singleton。プロセス内 1 個の Reader を既定として共有する。
-    // 利用側が Mount()/Unmount() でマウント状態を管理する。
+    // マウント状態は同じ Reader instance に保持される。
     return GetDefaultAcpakState().reader;
 }
 
@@ -55,10 +37,9 @@ void InstallAcpakReaderAsDefault() noexcept {
     acs::game::SetAssetPackReaderProvider(&GetDefaultAcpakReader);
 }
 
-/** プロセス共有の既定 Acpak Writer を返す (Meyers singleton)。 */
+/** プロセス共有 state が所有する既定 Acpak Writer を返す。 */
 acs::game::IAssetPackWriter& GetDefaultAcpakWriter() noexcept {
-    // Meyers singleton。プロセス内 1 個の Writer を既定として共有する。
-    // 利用側が BeginPack()/FinishPack() で書き込みライフサイクルを管理する。
+    // 書き込み状態は同じ Writer instance に保持される。
     return GetDefaultAcpakState().writer;
 }
 
