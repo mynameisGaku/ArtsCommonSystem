@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — CInspectorSeam 実装
+// inspectable providerを非所有で登録・列挙し、node逆引きとfield変更通知を中継する。
 //
 // 設計のポイント:
 //   ・Provider レジストリは線形 `TArray<Provider*>`。想定の登録数は
