@@ -342,7 +342,7 @@ FHrResult FDx12Pipeline::Init(CDx12Device& device, const FPipelineDesc& desc) no
         p.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     }
 
-    // 静的サンプラ (FPipelineDesc.static_samplers は容量 16。CPbrShader は 10 個使うため 4 では不足だった)
+    // pipeline 記述の静的 sampler を最大 16 件の D3D12 記述へ変換する。
     D3D12_STATIC_SAMPLER_DESC samplers[16]{};
     const u32 sampler_count = desc.static_sampler_count;
     for (u32 i = 0; i < sampler_count; ++i) {
