@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar P (Scale-Stream) — CStreamingDirector 実装 (CAssetBundle 実接続)
 //
 // chunk state machine + 範囲内/外判定 + Loading 上限 に加え、実 asset load を
 // チャンクごとの CAssetBundle で行う。SetAssetRegistry() で app 所有の CAssetRegistry を
-// 差し込むと、Loading 遷移時に bundle.BeginLoad(registry) を発行し、bundle.Progress() /
-// IsLoaded() で完了を判定、Unloading で bundle.Unload() する。registry 未設定 (nullptr)
+// 差し込むと、Loading 遷移時に bundle.BeginLoad(registry) を発行し、bundle.IsLoaded() で
+// 完了を判定、Unloading で bundle.Unload() する。registry 未設定 (nullptr)
 // のときは simulated load time = 0.5s/chunk のフォールバックで動作する。
 //
 // 設計メモ:
@@ -18,7 +17,7 @@
 //   ・FChunkInfo は FString / TUniquePtr<CAssetBundle> を持つためムーブのみ可。TArray の
 //     swap-erase は RemoveAtSwap (内部 Move 代入) を使い、コピー代入を避ける。
 #include "gameframework/StreamingDirector.h"
-#include "gameframework/AssetBundle.h"   // 実 asset load 単位 (BeginLoad/Progress/IsLoaded/Unload)
+#include "gameframework/AssetBundle.h"
 #include "foundation/Log.h"
 #include "math/Math.h"  // Floor
 
