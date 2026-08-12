@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — CTriggerWorld2D 実装
+// circle・AABB triggerをgeneration付きhandleで管理し、重なりの開始・継続・終了を通知する。
 #include "gameframework/TriggerWorld2D.h"
 #include "foundation/Move.h"
 
