@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/O — CScoreSystem 実装
+// combo倍率を適用してscoreと履歴を更新し、milestone初回通過を通知する。
 //
 // 設計上のポイント (ヘッダの設計コメントと対応):
 //   ・combo→倍率は f32 で計算するが、ScoreEntry には ×100 整数化して記録する
