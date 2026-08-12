@@ -4385,17 +4385,12 @@ public partial class AssetBrowserPanel : UserControl
     // .acsmat のサムネイル (一覧=56)。
     private ImageSource? TryMaterialThumb(string path) => TryMaterialPreview(path, 56);
 
-    // .acsmat を N×N にレンダリング (一覧サムネ=56 / プレビュー=大)。エンジンがあれば実シェーダ GPU、無ければ CPU。
+    // エンジン側の読み込み関数から .acsmat の値を読み、MaterialPreview で N×N の CPU 画像を生成する。
     private ImageSource? TryMaterialPreview(string path, int N)
     {
         try
         {
-            // 重要(安定性): GPU プレビュー (acs_editor_render_preview_material = preview_cl の Submit+WaitIdle) が
-            // メインレンダーループと競合し、«操作不要で起動後数秒に約70%» エディタを間欠クラッシュさせていた
-            // (実測: GPU 経路あり 0〜1/3 安定 → 切ると 4/4 安定)。これがメッシュプレビュー/SSAO/アセット選択の
-            // 不安定の正体。よってサムネ/プレビューは «CPU 数式 (MaterialPreview)» で生成する (十分な品質・完全安定)。
-            // GPU プレビュー再導入は «preview の submit をメインフレームと安全に直列化» してから (描画オーバーホール)。
-            // CPU で生成:
+            // CPU 画像に限定し、GPU のsubmit（描画命令の送信）をメインレンダーループへ追加しない。
             int kind = EngineInterop.acs_editor_material_kind(path);
             if (kind == 0)
             {

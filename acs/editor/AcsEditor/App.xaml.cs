@@ -45,9 +45,8 @@ public partial class App : Application
     public static bool IsInitialActivationSuppressed { get; private set; }
 
     /// <summary>
-    /// Reliability-only escape hatch: the normal-start soak remains
-    /// non-activating, but may present its owned modeless recovery fixture so
-    /// that the original startup-freeze path is actually exercised.
+    /// 非アクティブ状態の対話確認で、アプリが所有するモードレス（他操作を妨げない）
+    /// recovery prompt の表示可否を保持する。明示許可がない場合は false とする。
     /// </summary>
     internal static bool IsInactiveRecoveryPromptAllowed { get; private set; }
 

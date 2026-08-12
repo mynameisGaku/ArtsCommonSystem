@@ -2278,10 +2278,8 @@ void ALegacyScene3DAdapter::EnsureSubsurfaceAuxTargets(
         return;
     }
 
-    // Resize has a strong guarantee across all five full-resolution targets:
-    // build the three external candidates in an earlier bounded commit, then
-    // resize the compositor's internal pair and publish the candidates only
-    // when that second operation succeeds.
+    // 全解像度の外部描画先3個を準備してから内部描画先2個のサイズを変更し、
+    // 成功時だけ5個を公開する。途中で失敗した場合は公開済みの5個を変更しない。
     if (m_SsssResizeAttemptWidth == width
         && m_SsssResizeAttemptHeight == height) {
         return;
