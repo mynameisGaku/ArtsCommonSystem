@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — 実装
+// 2D shapeをgeneration付きhandleと一様gridで管理し、overlap・raycast・押し出しqueryを提供する。
 #include "gameframework/CollisionWorld2D.h"
 #include "foundation/Move.h"
 #include "math/Math.h"
