@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — CEconomyDirector 実装
+// 通貨残高と商品在庫を管理し、価格検証後の購入結果をcallbackへ通知する。
 //
 // 設計上のポイント (ヘッダの設計コメントと対応):
 //   ・通貨 id / item_id は const char* per-byte 線形検索 (FEntitlement と同設計)。
