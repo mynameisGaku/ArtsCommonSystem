@@ -322,9 +322,6 @@ TResult<FWindow> FWindow::Create(const FWindowConfig& cfg) noexcept {
 
     // 結果オブジェクトを構築。ここで FWindow のムーブコンストラクタが走り、
     // HWND の prop が最終的な格納先 (result の実体) を指すよう再登録される。
-    // 以前はローカル w の後にもう一段ローカル result を作り、その &result
-    // (ムーブで抜け殻になる一時オブジェクトのアドレス) を prop に登録していたが、
-    // これは寿命を超えて生きないアドレスを保持する危険な実装だった。
     TResult<FWindow> result(OkInit, Move(w));
     // prop は result.Value() の実体を指している。ShowWindow が同期的に発する
     // WM_SIZE / WM_PAINT 等が正しい FWindow* へ届くよう、表示はムーブ確定後に行う。
