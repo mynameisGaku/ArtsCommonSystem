@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — CSceneServices 実装
+// sceneが要求したserviceを生成・公開し、clockと更新対象をframe順序に沿って進める。
 #include "gameframework/SceneServices.h"
 #include "foundation/Assert.h"
 #include "foundation/Move.h"
