@@ -1,15 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I — CProjectileSystem 実装
-//
-// 仕様の意図は CProjectileSystem.h のヘッダコメントを参照。本ファイルでは:
-//   ・固定容量 Slot pool の Acquire / Release (generational handle)
-//   ・def_id 名前引きでの ProjectileDef 取得
-//   ・Tick 内での物理積分 (semi-implicit Euler) + homing 向き補正
-//   ・HitTestFn → HitCallback → 貫通カウント → 必要なら despawn
-//   ・lifetime 超過 → ExpireCallback → despawn
-//   ・AllAlive 用の連続スナップショット buffer の再構築
-// を実装する。すべて noexcept、STL 不使用、<string> 不使用 (アドレス + 文字列
-// 一致で id 比較)。
+// projectile定義とgeneration付きslotを管理する。
+// Tickは運動積分とhoming補正後に命中・貫通・lifetimeを評価し、callbackとdespawnを処理する。
+// AllAliveは生存projectileの連続snapshotを返す。
 #include "gameframework/ProjectileSystem.h"
 
 #include "math/Math.h"   // Sqrt
