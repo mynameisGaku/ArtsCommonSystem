@@ -1,22 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar V — CTelemetryDirector 実装
-//
-// 設計上のポイント:
-//   ・category 比較は const char* per-byte 比較。STL <string> / <cstring> 不使用。
-//     CAchievementManager / FEntitlement と同じ StrEq を anonymous namespace に
-//     再掲する (cross-file の inline helper を増やすよりピラー単位で独立して
-//     いるほうが読みやすい)。
-//   ・pending queue 上限 100。到達したら RemoveAtSwap(0) で最古 (= index 0) を
-//     drop して末尾に新規を積む。FIFO 順序は保証しないが、各 event は
-//     timestamp を持つので利用側でソート可能。
-//   ・Flush は backend->SendTelemetry() に 1 件ずつ流し、Err なら pending に
-//     残す = 次回 Flush で再送される。stub backend は必ず Err を
-//     返すため、実機テストでは m_FailedCount が増える挙動が観察される。
-//   ・consent ガード: CPrivacyDirector が attach されていれば
-//     HasConsent(EConsentCategory::Telemetry) を毎 TrackEvent / Flush で確認。
-//     nullptr 注入時はガードスキップ (テスト用)。
-//   ・timestamp は Clock::MillisSinceStartup()。Pillar S の Achievement と同じ
-//     起動相対 ms 設計 (将来 wall clock 切替予定)。
+// category filterとprivacy consentを通過したeventを上限付きpending queueへ追加する。
+// privacy未接続時はconsent検査を省略し、queue上限時はindex 0をdropする。
+// Flushはbackend送信に成功したeventだけを除去し、失敗分を次回送信まで保持する。
+// timestampにはprocess起動からの経過msを記録する。
 #include "gameframework/TelemetryDirector.h"
 
 #include "gameframework/BackendClient.h"      // IBackendClient::SendTelemetry()
