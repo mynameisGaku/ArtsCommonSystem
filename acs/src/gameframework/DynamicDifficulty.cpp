@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U — CDynamicDifficulty 実装
-//
-// 仕様意図は CDynamicDifficulty.h を参照。本ファイルは「離散モード時は乗数を
-// 即返し / Adaptive 時は skill 推定 + smooth lerp」の純粋 state machine。
+// 離散難易度とplayer統計によるadaptive値から、敵とplayerの能力値乗数を決める。
 #include "gameframework/DynamicDifficulty.h"
 
 namespace acs::game {
