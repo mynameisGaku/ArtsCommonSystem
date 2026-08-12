@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar (ジャンルキット: Racing) — CLapTimer 実装
 //
 // slot+gen で racer を管理し、Tick で race clock を進めつつ、collider 側からの
 // NotifyCheckpointPassed / NotifyLapCompleted で進捗を蓄積する。順位算出は
