@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R / I — CBuffSystem 実装
+// ownerごとにbuffを保持し、stack方針、周期tick、期限切れを管理する。
 //
 // 仕様の意図は CBuffSystem.h を参照。本ファイルでは:
 //   ・const char* per-byte 比較で FBuffDef registry / OwnerSlot 内 buff を検索
