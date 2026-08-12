@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — CAnimationGraph 実装
+// animation state、clip時刻、trigger、blend遷移を管理する。
 //
 // アルゴリズム概要:
 //   Tick(dt):
