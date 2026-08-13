@@ -12,13 +12,13 @@ namespace acs::game {
  *
  * @details
  * 文字列フィールドは「呼び出し側が所有する」前提で nullptr 許容にしている
- * (id は Mod 一意キーで空文字や nullptr は Register 時にスキップ、name は表示用、
- * pack_path は .acpak のパスで nullptr なら path 未指定)。version は
+ * (id は Mod 一意キーで nullptr は Register 時にスキップし、空文字は値として受理する。
+ * name は表示用、pack_path は .acpak のパスで nullptr なら path 未指定)。version は
  * (major << 24) | (minor << 16) | patch エンコーディングを想定するが、Registry
  * 側は不透明に扱う (比較のみ)。
  */
 struct FModInfo {
-    /** Mod 一意キー (外部所有。空文字や nullptr は Register 時にスキップ)。 */
+    /** Mod 一意キー (外部所有。nullptr は Register で拒否し、空文字は有効なキー)。 */
     const char* id         = nullptr;
 
     /** 表示用の名前 (外部所有。UI が pull する。nullptr 可)。 */
@@ -70,7 +70,8 @@ public:
      *
      * @details
      * info を内部 TArray に浅くコピーして追加する (指す文字列バッファの寿命は
-     * 呼び出し側が保証する)。id == nullptr のエントリは無視する (警告ログのみ)。
+     * 呼び出し側が保証する)。id == nullptr は警告して無視する。同一 id の重複も警告し、
+     * 既存エントリを保持する。
      * @param info 登録する Mod のメタデータ。
      */
     void Register(const FModInfo& info) noexcept;
