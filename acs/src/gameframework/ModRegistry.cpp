@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — CModRegistry 実装
-//
-// 「メタデータの登録・列挙・並び替え」だけを担う。実際の `.acpak` mount /
-// hook 適用は AssetPack 統合と Lua 5.4 統合で埋める予定で、本ファイルは未実装。
+// Modのmetadata、有効状態、load順を登録・照会・並べ替える。
+// .acpakのmount / unmountとhook適用 / 解除は行わない。
 #include "gameframework/ModRegistry.h"
 
 #include <cstring>  // strcmp
@@ -36,8 +34,7 @@ void CModRegistry::Register(const FModInfo& info) noexcept {
 
     m_Mods.Add(info);
 
-    // AssetPack 統合後は、info.pack_path が非 nullptr なら VirtualFileSystem に
-    // mount 予約する (enable=true のときだけ実 mount)。現状は path を持つだけ。
+    // pack_pathの非所有pointerをmount処理用metadataとして保持し、mount自体は行わない。
 }
 
 /** mod_id に一致する Mod の enabled を true にする。見つかれば true。 */
@@ -45,7 +42,7 @@ bool CModRegistry::Enable(const char* mod_id) noexcept {
     for (u32 i = 0; i < m_Mods.Num(); ++i) {
         if (IdEquals(m_Mods[i].id, mod_id)) {
             m_Mods[i].enabled = true;
-            // 実 mount + hook 適用 (Lua 5.4 / C++ plugin) は未実装。flag だけ立てる。
+            // enabled flagだけをtrueにし、mountやhookは操作しない。
             return true;
         }
     }
@@ -57,7 +54,7 @@ bool CModRegistry::Disable(const char* mod_id) noexcept {
     for (u32 i = 0; i < m_Mods.Num(); ++i) {
         if (IdEquals(m_Mods[i].id, mod_id)) {
             m_Mods[i].enabled = false;
-            // unmount + hook 解除は未実装。flag だけ下げる。
+            // enabled flagだけをfalseにし、unmountやhookは操作しない。
             return true;
         }
     }
@@ -111,7 +108,7 @@ void CModRegistry::SortByLoadOrder() noexcept {
 
 /** 全 Mod を削除する。 */
 void CModRegistry::Clear() noexcept {
-    // enabled な Mod に対する Disable 相当の hook 解除は未実装。現状は単純クリア。
+    // unmountやhook解除は行わず、registry entryだけをclearする。
     m_Mods.Reset();
 }
 
