@@ -15,17 +15,19 @@ class IRhiTexture;
 namespace acs::game {
 
 /**
- * 全シーン共有の描画コンテキスト。
+ * 描画先への非所有参照と frame・pass 状態を受け渡す context。
  *
  * @details
- * 現フレームの IRhiCommandList と画面サイズを保持する軽量参照ホルダ。CSpriteBatch /
- * FFont / 反射テクスチャ / world→screen 変換などをまとめ、シーン切替でパイプラインを
- * 再構築せずに描画できるようにする。AScene 側は OnRender(rc) でこれを受け取り、
- * rc.Cmd()/Width()/Height() から描画コマンドを発行する。
+ * CGame 経路は _BeginFrame で renderer、command list、画面サイズを配線し、font と view は
+ * 必要時、sprite batch、texture、flag は各 pass で対応する setter から配線する。editor などの
+ * 独自描画経路は必要な setter だけで部分的に構成でき、参照を返す accessor は対応する参照の
+ * 配線中だけ使用する。
+ * resource と pipeline の所有・生成は行わない。_EndFrame は command list、sprite / font /
+ * texture 参照と pass flag を解除し、renderer、画面サイズ、view 値は次の配線まで保持する。
  */
 class FRenderContext {
 public:
-    /** 空状態で構築する (各参照は _BeginFrame で配線)。 */
+    /** 参照未配線の既定状態で構築する (利用経路に必要な _BeginFrame / 各 setter で配線)。 */
     FRenderContext() noexcept = default;
 
     /** 破棄する (参照のみ保持するため何もしない)。 */
@@ -38,9 +40,10 @@ public:
     FRenderContext& operator=(const FRenderContext&) = delete;
 
     /**
-     * フレーム冒頭で CGame が呼び、描画リソースを配線する。
+     * フレーム冒頭で CGame が呼び、renderer、command list、画面サイズを配線する。
      *
-     * @details m_Font はこの後 CGame が _SetFont で配線する (game 寿命で共有)。
+     * @details sprite batch と texture の参照、pass flag を初期化する。font はこの後 CGame が
+     * _SetFont、view は描画経路が _SetView2D で配線する。
      * @param r 描画に使う CRenderer。
      * @param cl 現フレームのコマンドリスト。
      * @param w 画面の幅 (px)。
@@ -58,10 +61,10 @@ public:
         m_SceneColorCapturePass = false;
         m_WaterDepthCapturePass = false;
         m_StencilMaskActive = false;
-        // m_Font は CGame が _BeginFrame 後に _SetFont で配線する (game 寿命で共有)。
+        // m_Font は CGame が _BeginFrame 後に _SetFont で frame 中だけ配線する。
     }
 
-    /** フレーム終端で per-frame 参照をクリアする (コマンドリスト等を無効化)。 */
+    /** フレーム終端で command list、sprite / font / texture 参照と pass flag を解除する。 */
     void _EndFrame() noexcept {
         m_Cmd = nullptr;
         m_Sprites = nullptr;
