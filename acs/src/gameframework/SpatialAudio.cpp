@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — CSpatialAudio 実装
-//
-// 3D listener + source の集中管理、距離減衰 / constant-power stereo panning。
-// stereo パン + 距離減衰は実数学 (in-repo 完結) で、真のバイノーラル化
-// (HRTF / KEMAR 256-tap convolution、外部 IR データ必須) のみが seam として残る。
-// 実 CAudioEngine voice バインドは CAudioDirector と統合予定。
+// CSpatialAudio は scene-local な listener/source 状態から距離減衰と
+// constant-power stereo pan を計算し、CAudioDirector が再生中 voice へ反映する。
 #include "gameframework/SpatialAudio.h"
 #include "math/Math.h"
 #include "foundation/Log.h"
@@ -12,6 +8,14 @@
 namespace acs::game {
 
 namespace {
+
+/** 非有限の各成分を 0 に置き換えた決定論的な位置・方向を返す。 */
+FVec3 MakeFiniteVector(FVec3 value) noexcept {
+    if (!std::isfinite(value.x)) value.x = 0.0f;
+    if (!std::isfinite(value.y)) value.y = 0.0f;
+    if (!std::isfinite(value.z)) value.z = 0.0f;
+    return value;
+}
 
 /**
  * curve 種別に応じて距離 d を距離減衰ゲイン [0, 1] に写像する。
@@ -26,7 +30,7 @@ namespace {
  * @return [0, 1] の減衰ゲイン。
  */
 f32 ComputeAttenuationGain(f32 d, f32 max_distance, EAttenuationCurve curve) noexcept {
-    if (max_distance <= 0.0f) return 0.0f;
+    if (!std::isfinite(d) || !std::isfinite(max_distance) || max_distance <= 0.0f) return 0.0f;
     if (d <= 0.0f)            return 1.0f;
     if (d >= max_distance)    return 0.0f;  // culling
 
@@ -81,12 +85,11 @@ void ComputeConstantPowerGains(f32 pan, f32& left, f32& right) noexcept {
 
 } // namespace
 
-/** stub renderer を初期化する (真の HRTF は seam、パン + 減衰は実数学)。 */
+/** stub renderer を初期化する (constant-power パン + 距離減衰を使う)。 */
 TResult<void> CHrtfRendererStub::Init() noexcept {
     m_Initialized = true;
-    // 真の HRTF (KEMAR 256-tap convolution) は外部 IR データを要するため
-    // seam として保留。本 stub は constant-power パン + 距離減衰を実数学で行う。
-    // 一度きりログで「HRTF off (panning は実装済)」を明示。
+    // 外部 IR は読み込まず、constant-power パン + 距離減衰を実数学で適用する。
+    // 初期化時に現在の出力モードを一度ログへ通知する。
     // C++ のローカル static 初期化保証を使い、並行 Init でもログを一度だけ出す。
     static const bool bLogged = []() noexcept
     {
@@ -105,7 +108,9 @@ void CHrtfRendererStub::Shutdown() noexcept {
 
 /** パン / 減衰計算の基準となる listener を設定する。 */
 void CHrtfRendererStub::SetListener(const FAudioListener& listener) noexcept {
-    m_Listener = listener;
+    m_Listener.position = MakeFiniteVector(listener.position);
+    m_Listener.forward = MakeFiniteVector(listener.forward);
+    m_Listener.up = MakeFiniteVector(listener.up);
 }
 
 /** mono 入力に pan + 距離減衰を適用し interleaved stereo 出力へ書き込む。 */
@@ -128,13 +133,15 @@ void CHrtfRendererStub::ProcessSource(const FAudioSource3D& source,
     // right = up × forward。標準姿勢 (forward=Z+, up=Y+) で右ベクトル X+ を
     // 返す式で、左手系 / 右手系どちらでも符号一貫 (Y+up を共通慣習にしている)。
     const FVec3 right  = Cross(m_Listener.up, m_Listener.forward);
-    const FVec3 to_src = source.position - m_Listener.position;
+    const FVec3 to_src = MakeFiniteVector(source.position) - m_Listener.position;
     const f32   d      = Length(to_src);
     f32 pan = 0.0f;
-    if (d > kEpsilon && LengthSq(right) > kEpsilon) {
+    const f32 right_len_sq = LengthSq(right);
+    if (std::isfinite(d) && d > kEpsilon && std::isfinite(right_len_sq) && right_len_sq > kEpsilon) {
         const FVec3 dir     = Normalize(to_src);
         const FVec3 right_n = Normalize(right);
         pan = Dot(dir, right_n);
+        if (!std::isfinite(pan)) pan = 0.0f;
         // 数値誤差で [-1,1] を越えうるので clamp。
         if (pan < -1.0f) pan = -1.0f;
         if (pan >  1.0f) pan =  1.0f;
@@ -149,12 +156,21 @@ void CHrtfRendererStub::ProcessSource(const FAudioSource3D& source,
     f32 pan_l = 0.0f;
     f32 pan_r = 0.0f;
     ComputeConstantPowerGains(pan, pan_l, pan_r);
-    const f32 gain_l = pan_l * source.volume * atten;
-    const f32 gain_r = pan_r * source.volume * atten;
+    f32 source_volume = source.volume;
+    if (!std::isfinite(source_volume)) source_volume = 0.0f;
+    source_volume = Saturate(source_volume);
+    f32 gain_l = pan_l * source_volume * atten;
+    f32 gain_r = pan_r * source_volume * atten;
+    if (!std::isfinite(gain_l)) gain_l = 0.0f;
+    if (!std::isfinite(gain_r)) gain_r = 0.0f;
     for (u32 i = 0; i < sample_count; ++i) {
-        const f32 s = mono_input[i];
-        stereo_output[i * 2 + 0] = s * gain_l;
-        stereo_output[i * 2 + 1] = s * gain_r;
+        const f32 s = std::isfinite(mono_input[i]) ? mono_input[i] : 0.0f;
+        f32 output_l = s * gain_l;
+        f32 output_r = s * gain_r;
+        if (!std::isfinite(output_l)) output_l = 0.0f;
+        if (!std::isfinite(output_r)) output_r = 0.0f;
+        stereo_output[i * 2 + 0] = output_l;
+        stereo_output[i * 2 + 1] = output_r;
     }
 }
 
@@ -165,24 +181,37 @@ CSpatialAudio::CSpatialAudio() noexcept {
 
 /** 計算基準となる listener (位置・姿勢) を設定する。 */
 void CSpatialAudio::SetListener(const FAudioListener& l) noexcept {
-    m_Listener = l;
+    m_Listener.position = MakeFiniteVector(l.position);
+    m_Listener.forward = MakeFiniteVector(l.forward);
+    m_Listener.up = MakeFiniteVector(l.up);
 }
 
 /** 3D source を登録して割り当てた id を返す (不正 max_distance は 20m に既定)。 */
 u32 CSpatialAudio::RegisterSource(FVec3 pos, f32 max_distance,
                                   EAttenuationCurve curve) noexcept {
+    if (m_NextSourceId == 0u) {
+        ACS_LOG_WARN("CSpatialAudio::RegisterSource: source ID space exhausted → ignored");
+        return 0u;
+    }
     FAudioSource3D s {};
     s.source_id    = m_NextSourceId++;
-    s.position     = pos;
+    s.position     = MakeFiniteVector(pos);
     s.velocity     = FVec3::Zero();
     s.volume       = 1.0f;
     // 不正値は既定 20m。負 / 0 では culling が即発火して常に無音になり混乱。
-    s.max_distance = (max_distance > 0.0f) ? max_distance : 20.0f;
+    s.max_distance = (std::isfinite(max_distance) && max_distance > 0.0f) ? max_distance : 20.0f;
     s.active       = true;
     s.curve        = static_cast<u8>(curve);
     m_Sources.Add(s);
     return s.source_id;
 }
+
+#if defined(ACS_GAMEFRAMEWORK_TEST_HOOKS)
+/** 次に払い出す source ID を境界値に設定するテスト専用 hook。 */
+void CSpatialAudio::SetNextSourceIdForTesting(u32 next_source_id) noexcept {
+    m_NextSourceId = next_source_id;
+}
+#endif
 
 /** source の位置と速度を更新する (stale id は警告して無視)。 */
 void CSpatialAudio::UpdateSource(u32 id, FVec3 pos, FVec3 vel) noexcept {
@@ -191,8 +220,8 @@ void CSpatialAudio::UpdateSource(u32 id, FVec3 pos, FVec3 vel) noexcept {
         ACS_LOG_WARN("CSpatialAudio::UpdateSource: stale id=%u → ignored", id);
         return;
     }
-    m_Sources[idx].position = pos;
-    m_Sources[idx].velocity = vel;
+    m_Sources[idx].position = MakeFiniteVector(pos);
+    m_Sources[idx].velocity = MakeFiniteVector(vel);
 }
 
 /** source の基準音量を設定する ([0,1] に clamp、stale id は警告して無視)。 */
@@ -202,7 +231,7 @@ void CSpatialAudio::SetSourceVolume(u32 id, f32 v) noexcept {
         ACS_LOG_WARN("CSpatialAudio::SetSourceVolume: stale id=%u → ignored", id);
         return;
     }
-    const f32 c = Saturate(v);
+    const f32 c = std::isfinite(v) ? Saturate(v) : 0.0f;
     if (c != v) {
         ACS_LOG_WARN("CSpatialAudio::SetSourceVolume: out-of-range %.3f → clamped to %.3f", v, c);
     }
@@ -216,8 +245,7 @@ void CSpatialAudio::RemoveSource(u32 id) noexcept {
         // 既に削除済みは静かに無視 (典型: クロスフェード後の cleanup)。
         return;
     }
-    // active=false のままにして、Tick で物理的に圧縮するのが理想だが、
-    // 現状は素朴に末尾と swap して削除 (順序不問)。
+    // 順序を維持せず末尾要素と入れ替えて即時削除する。
     m_Sources.RemoveAtSwap(idx);
 }
 
@@ -234,7 +262,8 @@ f32 CSpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
     // (d >= max_distance の culling、d=0 → 1, d=max → 0 を満たす)。
     const EAttenuationCurve curve = static_cast<EAttenuationCurve>(s.curve);
     const f32 atten = ComputeAttenuationGain(d, s.max_distance, curve);
-    return s.volume * atten;
+    const f32 volume = s.volume * atten;
+    return std::isfinite(volume) ? Saturate(volume) : 0.0f;
 }
 
 /** source の pan [-1,+1] を listener 基準で返す (未登録 / 縮退姿勢は 0=中央)。 */
@@ -259,6 +288,7 @@ f32 CSpatialAudio::ComputePan(u32 id) const noexcept {
     const FVec3 dir     = Normalize(to_src);
     const FVec3 right_n = Normalize(right);
     f32 pan = Dot(dir, right_n);
+    if (!std::isfinite(pan)) return 0.0f;
     // 数値誤差で [-1,1] を越えうる (Normalize 後でも丸め誤差で +-1.00001 等)。
     if (pan < -1.0f) pan = -1.0f;
     if (pan >  1.0f) pan =  1.0f;
@@ -274,14 +304,8 @@ u32 CSpatialAudio::SourceCount() const noexcept {
     return n;
 }
 
-/** 毎フレームの更新フック (現状は state を進めない no-op)。 */
+/** listener/source は外部更新のため state を変更しない。 */
 void CSpatialAudio::Tick(f32 /*dt*/) noexcept {
-    // 現状は state を進めない (listener / source は外から push)。
-    // 将来:
-    //   ・Doppler shift 計算 (velocity 比率 → pitch)
-    //   ・古い inactive source の物理 GC
-    //   ・streaming CAudioEngine voice の更新
-    // を追加予定。
 }
 
 /** 全 source を削除する (m_NextSourceId はリセットしない)。 */
@@ -298,6 +322,12 @@ usize CSpatialAudio::FindIndex(u32 id) const noexcept {
         if (m_Sources[i].source_id == id) return i;
     }
     return m_Sources.Num();
+}
+
+/** source ID が現在登録されているかを返す。 */
+bool CSpatialAudio::HasSource(u32 id) const noexcept {
+    const usize idx = FindIndex(id);
+    return idx < m_Sources.Num() && m_Sources[idx].active;
 }
 
 } // namespace acs::game

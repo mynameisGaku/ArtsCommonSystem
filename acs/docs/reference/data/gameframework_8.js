@@ -629,7 +629,7 @@ ACS_REF.modules.push({
     {
       name: "IAudioBackend",
       kind: "インターフェース", header: "gameframework/audio_backend/IAudioBackend.h",
-      summary: "<code>CAudioDirector</code> から見た「実際に音を出す層」の純粋仮想<t>シーム</t>。BGM / SFX を統一的に <code>FAudioVoiceHandle</code> で扱い、一発再生 / ループ / 停止 / 音量変更を提供する。Windows では <code>CXAudio2Backend</code>、他プラットフォームは別実装で差し替える。STL 不使用・全 <code>noexcept</code>。",
+      summary: "<code>CAudioDirector</code> から見た「実際に音を出す層」の<t>インターフェース</t>。BGM / SFX を <code>FAudioVoiceHandle</code> で扱い、一発再生 / ループ / 停止に加えて再生中 voice の音量・左右パン・pitch 更新を提供する。Windows では <code>CXAudio2Backend</code>、他プラットフォームは別実装で差し替える。",
       when: "director の下に実音声バックエンドを差し込みたい時。backend を nullptr にすると無音 (no-op) で動く。",
       members: [
         { sig: "virtual TResult<void> Init(u32 max_voices = 64)", ret: "成否", desc: "backend を初期化。<code>max_voices</code> は同時発音数の上限 (0 は不正)。多重 Init は <code>kSubAudioAlreadyInitialized</code>。" },
@@ -641,17 +641,19 @@ ACS_REF.modules.push({
         { sig: "virtual void SetVoiceVolume(FAudioVoiceHandle voice, f32 volume)", desc: "指定 voice の音量を変更。無効 / 解放済は no-op。範囲外は clamp 推奨。" },
         { sig: "virtual void StopAllVoices()", desc: "全 voice を停止して slot 解放。Init 前は no-op。" },
         { sig: "virtual u32 ActiveVoiceCount() const", desc: "現在再生中 (slot active) の voice 数。デバッグ / UI メーター用。" },
-        { sig: "virtual void Tick(f32 dt)", desc: "完了した一発再生 voice の slot 解放等、内部状態を進める。<code>dt</code> は実時間秒。", when: "ゲームループから毎フレーム呼ぶ。" }
+        { sig: "virtual void Tick(f32 dt)", desc: "完了した一発再生 voice の slot 解放等、内部状態を進める。<code>dt</code> は実時間秒。", when: "ゲームループから毎フレーム呼ぶ。" },
+        { sig: "virtual void SetVoiceParameters(FAudioVoiceHandle voice, f32 volume, f32 pan, f32 pitch)", desc: "再生中 voice の音量・左右パン・pitch を 1 回の backend 呼び出しで更新する。既定実装は volume だけを <code>SetVoiceVolume</code> へ渡す。無効 / 解放済 handle は no-op。" }
       ]
     },
     {
       name: "CXAudio2Backend",
       kind: "クラス", header: "gameframework/audio_backend/XAudio2Backend.h",
-      summary: "<t>IAudioBackend</t> の Windows 用 concrete 実装 = Win32 <b>XAudio2</b> を叩いて実音声を出す。重い <code>&lt;xaudio2.h&gt;</code> は <t>pimpl</t> で <code>.cpp</code> に隠蔽。固定容量 voice pool + generation 付き handle で <t>use-after-free</t> を防ぐ。COM 初期化も本クラスが責任を持つ。非コピー・非ムーブ。",
+      summary: "<t>IAudioBackend</t> の Windows 用 concrete 実装 = Win32 <b>XAudio2</b> を叩いて実音声を出す。固定容量 voice pool と不透明 handle で解放済み voice を拒否し、mono source は出力 speaker mask の front-left / front-right へ constant-power pan を適用する。stereo / 多 channel source は既存 matrix を保つ。",
       when: "Windows で <code>CAudioDirector</code> に実音声を鳴らさせたい時。<code>director.SetBackend(&amp;xaudio2)</code> で差し込む。",
       members: [
         { sig: "CXAudio2Backend()", desc: "backend を構築 (まだ未初期化)。Init を呼ぶまで音は出ない。" },
         { sig: "TResult<void> Init(u32 max_voices = 64) override", ret: "成否", desc: "XAudio2 / COM を起動し voice pool を確保する。再 init 不可。" },
+        { sig: "void SetVoiceParameters(FAudioVoiceHandle voice, f32 volume, f32 pan, f32 pitch) override", desc: "1 回の backend 操作で volume と pitch を更新し、mono source と有効な左右 speaker 出力にだけ pan matrix を適用する。個別の XAudio2 更新失敗は警告し、次 frame の更新で再試行できる。" },
         { sig: "void SetMasterVolume(f32 volume)", desc: "マスタリングボイス音量 (最終出力の master volume)。0.0〜1.0 推奨 (>1.0 は歪む)。", when: "全体音量をまとめて下げたい時。" },
         { sig: "struct FImpl", desc: "XAudio2 / COM の重ヘッダを <code>.cpp</code> に閉じ込める <t>pimpl</t> の前方宣言 (実体は <code>.cpp</code>)。" },
         { sig: "using FXAudio2Backend = CXAudio2Backend", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CXAudio2Backend</code> を使う。" }
@@ -673,14 +675,16 @@ ACS_REF.modules.push({
     {
       name: "FAudioVoiceHandle / kInvalidAudioVoice",
       kind: "構造体", header: "gameframework/audio_backend/IAudioBackend.h",
-      summary: "再生中の 1 voice を指す<t>世代付きハンドル</t>。下位 24bit = index、上位 8bit = generation の packed <code>u32</code>。slot 再利用を古いハンドルで触る事故を generation で検出する。全 0 (<code>kInvalidAudioVoice</code>) が無効。backend は generation を必ず 1 以上で配る (<code>FNodeId</code> / <code>FShapeId</code> と同一規約)。",
+      summary: "再生中の 1 voice を指す 32bit ABI の不透明な packed <t>ハンドル</t>。全 0 (<code>kInvalidAudioVoice</code>) は無効。<code>Index</code> / <code>Generation</code> と 2 引数 constructor は index + generation 形式を使う backend 向けの互換表現であり、すべての backend にその内訳を要求しない。<code>CXAudio2Backend</code> は 32bit 全体をプロセス通算の不透明チケットとして発行するため、呼び出し側は値を分解せず保持して返す。",
       when: "<code>PlayOneShot</code> / <code>PlayLooped</code> の戻り値を保持して後で停止・音量変更する時。",
       members: [
         { sig: "constexpr FAudioVoiceHandle()", desc: "無効ハンドル (<code>m_Packed == 0</code>) を作る。" },
-        { sig: "constexpr FAudioVoiceHandle(u32 index, u8 gen)", desc: "<code>(index &amp; 0x00FFFFFF) | (gen &lt;&lt; 24)</code> に詰めて構築する。" },
+        { sig: "constexpr FAudioVoiceHandle(u32 index, u8 gen)", desc: "互換形式として <code>(index &amp; 0x00FFFFFF) | (gen &lt;&lt; 24)</code> に詰めて構築する。" },
+        { sig: "static constexpr FAudioVoiceHandle FromPackedValue(u32 packed_value)", ret: "voice handle", desc: "backend が発行した 0 以外の 32bit 不透明値をそのまま保持するハンドルを構築する。" },
         { sig: "bool IsValid() const", desc: "<code>m_Packed != 0</code> か。確保失敗を弾く。" },
-        { sig: "u32 Index() const", desc: "下位 24bit の voice index。" },
-        { sig: "u8 Generation() const", desc: "上位 8bit の generation。" },
+        { sig: "u32 Index() const", desc: "互換形式における下位 24bit。不透明チケットの slot index を保証しない。" },
+        { sig: "u8 Generation() const", desc: "互換形式における上位 8bit。不透明チケットの generation を保証しない。" },
+        { sig: "u32 PackedValue() const", desc: "backend 間の受け渡しに使う 32bit の不透明値を返す。" },
         { sig: "inline constexpr FAudioVoiceHandle kInvalidAudioVoice{}", ret: "無効値", desc: "全 0 の無効ハンドル定数。" }
       ]
     },

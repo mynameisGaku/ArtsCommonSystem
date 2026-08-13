@@ -202,7 +202,7 @@ Object.assign(ACS_REF.glossary, {
   "FrameTimer": "<t>フレーム</t>ごとの経過秒(<t>デルタタイム</t>)を計るタイマ。毎フレーム <code>Tick()</code> を呼ぶと前回からの経過秒を返す。",
   "GetDefaultWindowsCrashReporter": "プロセス全体で共有される既定の <t>CWindowsCrashReporter</t> <t>シングルトン</t>を返す関数。",
   "IAssetPackReader": "アセットパック(<code>.acpak</code> 等)からファイルを読み出す共通<t>インターフェース</t>。Mount してパス指定で中身を取り出す。",
-  "IAudioBackend": "<code>CAudioDirector</code> から見た「実際に音を出す層」の純粋仮想<t>インターフェース</t>。Windows では XAudio2 実装が差し込まれる。",
+  "IAudioBackend": "<code>CAudioDirector</code> から見た「実際に音を出す層」の抽象<t>インターフェース</t>。Windows では XAudio2 実装が差し込まれ、<code>SetVoiceParameters</code> を override しない backend は既定動作で volume だけを更新する。",
   "IMatchmaker": "オンライン対戦の相手を探すマッチメイキングの<t>インターフェース</t>。検索開始→状態確認→受諾/取消の流れで使う。",
   "IOpenXrBridge": "XR ランタイムや <t>HMD</t> を抽象化した共通<t>インターフェース</t>。頭・手のポーズなどをこの型越しに叩き、具象 backend を差し替えて選ぶ。",
   "IShakeTarget": "画面ゆれ(shake)の trauma を受け取る側の純粋仮想<t>インターフェース</t>。<code>AddShake</code> など揺れ量の設定 API を持つ。",

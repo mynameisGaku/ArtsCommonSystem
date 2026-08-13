@@ -10,6 +10,8 @@ namespace acs { class CAssetRegistry; }
 
 namespace acs::game {
 
+class CSpatialAudio;
+
 /**
  * シーン跨ぎで生存する音声指揮層 (BGM クロスフェード / SFX / ダッキング)。
  *
@@ -90,7 +92,7 @@ public:
      * (current は強制停止)。backend + registry があれば name を実ロードして実音再生、
      * 無ければ state-only。
      * @param name 再生する BGM 名 (= asset path、所有しない literal 前提)。
-     * @param fade_in_sec フェードイン秒 (<= 0 で即時切替)。
+     * @param fade_in_sec フェードイン秒 (非有限、<= 0、または変化率を有限にできない値で即時切替)。
      * @param loop ループ再生するか。
      */
     void PlayBgm(const char* name, f32 fade_in_sec = 1.0f, bool loop = true) noexcept;
@@ -98,7 +100,7 @@ public:
     /**
      * 再生中の BGM を fade out して停止する。
      *
-     * @param fade_out_sec フェードアウト秒 (<= 0 で即時停止)。
+     * @param fade_out_sec フェードアウト秒 (非有限、<= 0、または変化率を有限にできない値で即時停止)。
      */
     void StopBgm(f32 fade_out_sec = 0.5f) noexcept;
 
@@ -115,7 +117,7 @@ public:
      * @details ring 満杯なら最古を上書きする (ゲームプレイ妨害なし)。backend + registry が
      * あれば実音再生、無ければ state ring に積む。
      * @param name 再生する SFX 名 (= asset path、所有しない literal 前提)。
-     * @param volume_scale この one-shot の追加ゲイン [0, ~] (0.0 で no-op)。
+     * @param volume_scale この one-shot の追加ゲイン [0, ~] (非有限または 0.0 以下で no-op)。
      */
     void PlaySfx(const char* name, f32 volume_scale = 1.0f) noexcept;
 
@@ -124,7 +126,7 @@ public:
      *
      * @details 前後 kDuckFadeWindow 秒で線形 fade in/out が掛かる。新たな Duck() で既存
      * state を上書きする (スタックしない)。
-     * @param duration_sec 谷の幅 (この時間だけ depth で抑える)。
+     * @param duration_sec 谷の幅 (非有限または <= 0 は無視)。
      * @param depth 谷底ゲイン 0.0 (完全消音) ～ 1.0 (抑制なし)。例: 0.3 で 30% に下げる。
      */
     void Duck(f32 duration_sec, f32 depth) noexcept;
@@ -152,7 +154,7 @@ public:
     /**
      * 毎フレーム呼んで内部タイマ (クロスフェード / ダッキング) を進行させる。
      *
-     * @details Pause 中は dt を消費しない (state 凍結)。CGame / CSceneManager から呼ぶ。
+     * @details Pause 中は dt を消費しない (state 凍結)。非有限または負の dt は 0 として扱う。
      * @param dt 前フレームからの経過秒。
      */
     void Tick(f32 dt) noexcept;
@@ -175,8 +177,10 @@ public:
      * concrete backend (CXAudio2Backend 等) を差し込む。
      *
      * @details
-     * nullptr で切断。切断時に既存 BGM/SFX voice を backend->StopAllVoices で停止する責任は
-     * 呼び出し側に委ねる (本層は raw ptr 入替のみ)。
+     * nullptr で切断。本層は raw ptr を入れ替えるだけで、既存 BGM/SFX voice を停止しない。
+     * backend は本層からの最終利用まで生存させる。切断または破棄時は scene が保持する voice を
+     * StopVoice で停止し、残る voice を StopAllVoices で停止してから SetBackend(nullptr) を呼び、
+     * その後に backend を Shutdown / 破棄する。破棄済み backend を指す状態にしてはならない。
      * @param backend 差し込む backend (非所有、nullptr で切断)。
      */
     void           SetBackend(IAudioBackend* backend) noexcept { m_Backend = backend; }
@@ -214,7 +218,7 @@ public:
      * が EffectiveBgmVolume を毎フレ backend->SetVoiceVolume に反映するので初期 volume=0)。
      * loop=false の使用は稀 (BGM は基本 loop) で stinger 演出用に許可する。
      * @param clip 再生する PCM クリップ記述子。
-     * @param fade_in_sec フェードイン秒 (<= 0 で即時切替)。
+     * @param fade_in_sec フェードイン秒 (非有限、<= 0、または変化率を有限にできない値で即時切替)。
      * @param loop ループ再生するか。
      * @return 再生 voice ハンドル (backend 未設定 / 不正 clip は kInvalidAudioVoice)。
      */
@@ -225,15 +229,39 @@ public:
     /**
      * raw PCM の FAudioClipDesc を SFX one-shot として直接再生する。
      *
-     * @details volume は EffectiveSfxVolume * volume_scale で合成済 (duck は掛けない)。
+     * @details volume は EffectiveSfxVolume * volume_scale を [0, 1] に制限して合成する (duck は掛けない)。
      * @param clip 再生する PCM クリップ記述子。
-     * @param volume_scale この one-shot の追加ゲイン [0, ~] (0.0 以下で no-op)。
-     * @param pitch 再生ピッチ (1.0 が等倍)。
+     * @param volume_scale この one-shot の追加ゲイン [0, ~] (非有限または 0.0 以下で no-op)。
+     * @param pitch 再生ピッチ。非有限値は 1.0、範囲外は [0.25, 4] に制限する。
      * @return 再生 voice ハンドル (backend 未設定 / 不正 clip は kInvalidAudioVoice)。
      */
     FAudioVoiceHandle PlaySfxClip(const FAudioClipDesc& clip,
                                  f32 volume_scale = 1.0f,
                                  f32 pitch = 1.0f) noexcept;
+
+    /**
+     * 再生中 SFX voice へ 3D source の距離減衰、左右 pan、pitch を反映する。
+     *
+     * @details
+     * `EffectiveSfxVolume() * spatial.ComputeAttenuatedVolume(source_id)` を音量として
+     * backend へ一回だけ渡す。Pause 中も呼び続けると音量 0 を反映し、Resume 後の
+     * 次回呼び出しで復元する。本関数は spatial を保持しない。scene 終了時は backend の
+     * StopVoice を先に呼び、その後に
+     * RemoveSource / Clear / scene 破棄を行う。backend 未設定、無効 voice、削除済 source は
+     * no-op で、source の削除だけでは voice を自動停止しない。特に looped voice は source を
+     * 先に削除すると、最後に反映した parameter のまま StopVoice まで再生が続き得る。
+     * valid-looking な解放済み voice は backend 側で安全な no-op として扱う。
+     * CSpatialAudio の登録・更新・削除と本関数の読出しは scene/update thread で直列化する。
+     * backend 呼び出し以降だけを backend 内部で同期し、本関数は thread-safe ではない。
+     * @param voice `PlaySfxClip` 等で開始した SFX voice。
+     * @param spatial listener と 3D source を保持する scene 局所状態。
+     * @param source_id `spatial` が払い出した source ID。
+     * @param pitch 再生比率。非有限値は 1、範囲外は [0.25, 4] に制限する。
+     */
+    void UpdateSpatialSfxVoice(FAudioVoiceHandle voice,
+                               const CSpatialAudio& spatial,
+                               u32 source_id,
+                               f32 pitch = 1.0f) noexcept;
 
 private:
     /** BGM スロット 1 本の state (m_Bgm[0] = current、m_Bgm[1] = 遷移中の new)。 */

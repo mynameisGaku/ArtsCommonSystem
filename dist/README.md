@@ -58,6 +58,12 @@ RTTI mismatches, so you get a clear message instead of cryptic link errors.
 > Debug and Release have **separate** `acs.lib` files (different CRT). Point the
 > library path at the one matching your configuration.
 
+`IAudioBackend` includes a virtual `SetVoiceParameters` slot for live 3D SFX
+updates. Do not mix an older backend or consumer binary with a newer `acs.h` or
+`acs.lib`. Rebuild every translation unit that defines or uses an
+`IAudioBackend`-derived class, then publish `acs.h` and both Debug/Release
+libraries from the same revision as one distribution.
+
 ### Auto-linked libraries
 
 `acs.h` emits these via pragma — you don't list them manually:

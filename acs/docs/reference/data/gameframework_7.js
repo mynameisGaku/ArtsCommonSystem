@@ -123,8 +123,8 @@ ACS_REF.modules.push({
     {
       name: "CSpatialAudio",
       kind: "クラス", header: "gameframework/SpatialAudio.h",
-      summary: "3D 音源 (<t>FAudioSource3D</t>) と聞き手 1 つ (<t>FAudioListener</t>) から、<b>距離減衰</b>と<b>左右パン</b>を計算する音の空間化レイヤ。<t>HRTF</t> 本格化は <t>IHrtfRenderer</t> として差し替え可能。",
-      when: "敵や環境音を「位置によって遠近・左右に聞こえる」ようにしたい時。各フレームに音量とパンを取り出してミキサに渡す。",
+      summary: "scene が所有する 3D 音源 (<t>FAudioSource3D</t>) と聞き手 1 つ (<t>FAudioListener</t>) から、<b>距離減衰</b>と<b>左右パン</b>を計算する音の空間化レイヤ。登録・更新・削除・読出しは scene/update thread で呼び出し側が直列化し、算出値は <code>CAudioDirector::UpdateSpatialSfxVoice()</code> から再生中 voice へ反映できる。",
+      when: "敵や環境音を「位置によって遠近・左右に聞こえる」ようにしたい時。scene が source ID と voice handle の対応を持ち、再生開始と同じ frame から毎 frame Director へ渡す。終了時は <code>StopVoice(handle)</code> の後に <code>RemoveSource()</code> / <code>Clear()</code> を行う。",
       members: [
         { sig: "void SetListener(const FAudioListener& l)", desc: "聞き手 (プレイヤーの耳) の位置と向きを設定する。" },
         { sig: "const FAudioListener& GetListener() const", desc: "現在の聞き手情報を返す。" },

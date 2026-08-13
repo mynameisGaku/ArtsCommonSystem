@@ -237,8 +237,8 @@ ACS_REF.modules.push({
     {
       name: "CAudioDirector",
       kind: "クラス", header: "gameframework/AudioDirector.h",
-      summary: "シーンを跨いで生きる<b>音声の指揮層</b>。Master/Bgm/Sfx の 3 段ボリューム、BGM クロスフェード、SFX 連射、<t>ダッキング</t>、Pause/Resume をまとめて扱う。<code>IAudioBackend</code> を差すと実音が鳴り、無ければ無音の状態管理だけ動く。",
-      when: "シーン切替で途切れない BGM や、ヒット音の連発、ボイス中の BGM 抑制などを 1 箇所で管理したい時 (<code>CGame</code> に持たせる)。",
+      summary: "シーンを跨いで生きる<b>音声の指揮層</b>。Master/Bgm/Sfx の 3 段ボリューム、BGM クロスフェード、SFX 連射、<t>ダッキング</t>、Pause/Resume をまとめて扱う。<code>IAudioBackend</code> を差すと実音が鳴り、<code>CSpatialAudio</code> の距離減衰と左右パンを再生中 SFX voice へ反映できる。",
+      when: "シーン切替で途切れない BGM や、位置に応じて遠近・左右が変わる SFX を 1 箇所で管理したい時 (<code>CGame</code> に持たせる)。",
       members: [
         { sig: "void SetMasterVolume(f32 v) / void SetBgmVolume(f32 v) / void SetSfxVolume(f32 v)", desc: "3 段のボリュームバスを [0,1] で設定する (範囲外は警告 + clamp)。" },
         { sig: "void PlayBgm(const char* name, f32 fade_in_sec = 1.0f, bool loop = true)", desc: "BGM をクロスフェードで再生する。同名は no-op、fade<=0 で即時切替。" },
@@ -247,9 +247,10 @@ ACS_REF.modules.push({
         { sig: "void Duck(f32 duration_sec, f32 depth)", desc: "短時間だけ BGM 音量を下げる (ボイス再生中など)。前後に短い線形 fade。" },
         { sig: "void Pause() / void Resume() / void StopAll()", desc: "全体の一時停止 / 再開 / 停止+リセット。" },
         { sig: "void Tick(f32 dt)", desc: "クロスフェード/ダッキングの内部タイマーを進める。毎フレーム呼ぶ (Pause 中は凍結)。" },
-        { sig: "void SetBackend(IAudioBackend* backend)", desc: "実音再生 backend (CXAudio2Backend 等) を差し込む。nullptr で無音の状態管理のみ。" },
+        { sig: "void SetBackend(IAudioBackend* backend)", desc: "実音再生 backend (CXAudio2Backend 等) の raw 非所有 pointer を差し込む。nullptr は結線だけを外し、既存 BGM/SFX voice は停止しない。backend は Director からの最終利用まで生存させる。破棄時は scene の voice を StopVoice、残りを StopAllVoices で停止してから SetBackend(nullptr) を呼び、その後に Shutdown / 破棄して dangling pointer を残さない。" },
         { sig: "void SetAssetRegistry(CAssetRegistry* registry)", desc: "name→clip 解決用の registry を差すと、name から実ロードして実音を鳴らせる。" },
         { sig: "FAudioVoiceHandle PlayBgmClip(const FAudioClipDesc&, f32 fade=1, bool loop=true) / FAudioVoiceHandle PlaySfxClip(const FAudioClipDesc&, f32 vol=1, f32 pitch=1)", desc: "raw PCM clip から直接 BGM/SFX を再生する。backend 未設定時は無効ハンドル。" },
+        { sig: "void UpdateSpatialSfxVoice(FAudioVoiceHandle voice, const CSpatialAudio&amp; spatial, u32 source_id, f32 pitch = 1)", desc: "再生中 SFX へ Master×Sfx×source 音量×距離減衰と左右パンを 1 回の backend 更新で反映する。再生開始と同じ frame から毎 frame 呼ぶ。" },
         { sig: "f32 EffectiveBgmVolume() const / f32 EffectiveSfxVolume() const", desc: "master×バス×ダッキングを合成した実際の出力ボリュームを返す (デバッグ/backend 用)。" },
         { sig: "using FAudioDirector = CAudioDirector", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAudioDirector</code> を使う。" }
       ]

@@ -5,10 +5,13 @@
 // backend == nullptr のときは state-only で動く。
 #include "gameframework/AudioDirector.h"
 #include "foundation/Log.h"
+#include "gameframework/SpatialAudio.h"
 #include "gameframework/audio_backend/IAudioBackend.h"
 #include "asset/AssetRegistry.h"
 #include "asset/AudioAsset.h"
 #include "memory/SharedPtr.h"
+
+#include <cmath>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
@@ -18,6 +21,41 @@
 namespace acs::game {
 
 namespace {
+
+/** 非有限、非正、または有限な変化率を作れない fade 秒を即時値 0 に正規化する。 */
+f32 NormalizeFadeSeconds(f32 value) noexcept
+{
+    if (!std::isfinite(value) || value <= 0.0f) return 0.0f;
+    return std::isfinite(1.0f / value) ? value : 0.0f;
+}
+
+/** spatial SFX の音量を backend 契約の有限な [0, 1] へ正規化する。 */
+f32 NormalizeSpatialVolume(f32 value) noexcept
+{
+    if (!std::isfinite(value)) return 0.0f;
+    if (value < 0.0f) return 0.0f;
+    if (value > 1.0f) return 1.0f;
+    return value;
+}
+
+/** spatial SFX の pan を有限な [-1, 1] へ正規化する。 */
+f32 NormalizeSpatialPan(f32 value) noexcept
+{
+    if (!std::isfinite(value)) return 0.0f;
+    if (value < -1.0f) return -1.0f;
+    if (value > 1.0f) return 1.0f;
+    return value;
+}
+
+/** spatial SFX の pitch を有限な [0.25, 4] へ正規化する。 */
+f32 NormalizeSpatialPitch(f32 value) noexcept
+{
+    if (!std::isfinite(value)) return 1.0f;
+    if (value < 0.25f) return 0.25f;
+    if (value > 4.0f) return 4.0f;
+    return value;
+}
+
 /**
  * 2 つの文字列を内容で比較する (STL 非依存の自前実装)。
  *
@@ -70,6 +108,7 @@ bool ResolveAudioClip(CAssetRegistry* reg, const char* name, FAudioClipDesc& out
 /** 値を [0, 1] にクランプする。 */
 f32 CAudioDirector::Clamp01(f32 v) noexcept
 {
+    if (!std::isfinite(v)) return 0.0f;
     if (v < 0.0f) return 0.0f;
     if (v > 1.0f) return 1.0f;
     return v;
@@ -124,6 +163,7 @@ void CAudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexc
         ACS_LOG_WARN("CAudioDirector::PlayBgm: name=nullptr → ignored");
         return;
     }
+    fade_in_sec = NormalizeFadeSeconds(fade_in_sec);
     // 同一 BGM 再要求は no-op (current の loop / target を尊重)。内容比較。
     if (m_Bgm[0].active && StrEq(m_Bgm[0].name, name)) {
         return;
@@ -190,9 +230,22 @@ void CAudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexc
 /** 再生中の BGM を fade out して停止する (<= 0 で即時)。 */
 void CAudioDirector::StopBgm(f32 fade_out_sec) noexcept
 {
+    fade_out_sec = NormalizeFadeSeconds(fade_out_sec);
     if (!m_Bgm[0].active && !m_Bgm[1].active) return;
 
     if (fade_out_sec <= 0.0f) {
+        const FAudioVoiceHandle current_voice = m_Bgm[0].voice;
+        const FAudioVoiceHandle fading_voice = m_Bgm[1].voice;
+        const bool current_has_voice = m_Bgm[0].active && current_voice.IsValid();
+        const bool fading_has_voice = m_Bgm[1].active && fading_voice.IsValid();
+        if (m_Backend != nullptr) {
+            if (current_has_voice) {
+                m_Backend->StopVoice(current_voice);
+            }
+            if (fading_has_voice && (!current_has_voice || !(fading_voice == current_voice))) {
+                m_Backend->StopVoice(fading_voice);
+            }
+        }
         m_Bgm[0] = FBgmSlot{};
         m_Bgm[1] = FBgmSlot{};
         return;
@@ -212,7 +265,7 @@ void CAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept
         ACS_LOG_WARN("CAudioDirector::PlaySfx: name=nullptr → ignored");
         return;
     }
-    if (volume_scale <= 0.0f) {
+    if (!std::isfinite(volume_scale) || volume_scale <= 0.0f) {
         // 0 ゲインは「鳴らさない」明示要求とみなし no-op (警告も出さない)。
         return;
     }
@@ -250,8 +303,8 @@ void CAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept
 /** ダッキング state を設定する (既存を上書き、depth>=0.999 は実質 no-op)。 */
 void CAudioDirector::Duck(f32 duration_sec, f32 depth) noexcept
 {
-    if (duration_sec <= 0.0f) {
-        ACS_LOG_WARN("CAudioDirector::Duck: duration_sec=%.3f <= 0 → ignored", duration_sec);
+    if (!std::isfinite(duration_sec) || duration_sec <= 0.0f) {
+        ACS_LOG_WARN("CAudioDirector::Duck: duration_sec=%.3f is non-finite or <= 0 → ignored", duration_sec);
         return;
     }
     const f32 clamped_depth = Clamp01(depth);
@@ -329,13 +382,13 @@ void CAudioDirector::StopAll() noexcept
 /** クロスフェード / swap / ダッキング timer を進め、BGM voice の実 volume を反映する。 */
 void CAudioDirector::Tick(f32 dt) noexcept
 {
+    if (!std::isfinite(dt) || dt < 0.0f) dt = 0.0f;
     // backend tick は pause 中でも呼ぶ (完了 voice の slot 回収を止めると
     // 復帰時に古い voice が残るため)。
     if (m_Backend != nullptr) {
-        m_Backend->Tick(dt < 0.0f ? 0.0f : dt);
+        m_Backend->Tick(dt);
     }
     if (m_Paused) return;
-    if (dt < 0.0f) dt = 0.0f;
 
     // 1) BGM クロスフェード進行
     for (u32 i = 0; i < 2; ++i) {
@@ -412,6 +465,7 @@ f32 CAudioDirector::EffectiveSfxVolume() const noexcept
 /** PCM clip を backend で BGM 再生し、fade/loop に応じて slot state を更新する。 */
 FAudioVoiceHandle CAudioDirector::PlayBgmClip(const FAudioClipDesc& clip, f32 fade_in_sec, bool loop) noexcept
 {
+    fade_in_sec = NormalizeFadeSeconds(fade_in_sec);
     if (m_Backend == nullptr) {
         // backend 未設定: state 更新もスキップ (clip API は backend 必須の契約)。
         return kInvalidAudioVoice;
@@ -506,11 +560,25 @@ FAudioVoiceHandle CAudioDirector::PlayBgmClip(const FAudioClipDesc& clip, f32 fa
 FAudioVoiceHandle CAudioDirector::PlaySfxClip(const FAudioClipDesc& clip, f32 volume_scale, f32 pitch) noexcept
 {
     if (m_Backend == nullptr) return kInvalidAudioVoice;
-    if (volume_scale <= 0.0f) return kInvalidAudioVoice;
+    if (!std::isfinite(volume_scale) || volume_scale <= 0.0f) return kInvalidAudioVoice;
 
     // SFX の最終 volume = master * sfx_bus * volume_scale (duck は SFX には掛けない)。
-    const f32 final_vol = m_MasterVolume * m_SfxVolume * volume_scale;
-    return m_Backend->PlayOneShot(clip, final_vol, pitch);
+    const f32 final_vol = Clamp01(EffectiveSfxVolume() * volume_scale);
+    return m_Backend->PlayOneShot(clip, final_vol, NormalizeSpatialPitch(pitch));
+}
+
+/** 再生中 SFX voice へ scene 局所の距離減衰、pan、pitch を一回の backend 更新で反映する。 */
+void CAudioDirector::UpdateSpatialSfxVoice(FAudioVoiceHandle voice,
+                                           const CSpatialAudio& spatial,
+                                           u32 source_id,
+                                           f32 pitch) noexcept
+{
+    if (m_Backend == nullptr || !voice.IsValid() || !spatial.HasSource(source_id)) return;
+
+    const f32 volume = NormalizeSpatialVolume(
+        EffectiveSfxVolume() * spatial.ComputeAttenuatedVolume(source_id));
+    const f32 pan = NormalizeSpatialPan(spatial.ComputePan(source_id));
+    m_Backend->SetVoiceParameters(voice, volume, pan, NormalizeSpatialPitch(pitch));
 }
 
 } // namespace acs::game

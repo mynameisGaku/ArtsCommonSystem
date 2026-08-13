@@ -6933,7 +6933,7 @@ public:
         const FComponentTypeId id = GetComponentTypeId<T>();
         if (id >= m_Sets.Num()) m_Sets.SetNum(id + 1);
         if (!m_Sets[id]) {
-            // 生 new を避け、MemorySystem 追跡下で確保する (R018 / リーク検出)。ASparseSetBase の
+            // m_Sets の allocator で sparse set を確保する。ASparseSetBase の
             // 仮想デストラクタで型ごとの破棄が走るため、解放は CWorld::Clear の Delete で型消去できる。
             TSparseSet<T>* const set = New<TSparseSet<T>>(*m_Sets.GetAllocator());
             ACS_CHECKF(set != nullptr, "World::GetOrCreateSet: SparseSet 確保失敗 (id=%u)", id);
@@ -29995,20 +29995,6 @@ using game::AComponent;
 
 // ===================== gameframework/Transform2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — FTransform2D
-//
-// 2D ノードの位置/回転/スケールを 20 byte の値型で表す。`FMat4` 直接保持より
-// 小さく合成が速い、かつ分解が非可逆でない (= 親 transform の rotation/scale を
-// 取り出して使える)。
-//
-// 合成規約:
-//   `world = parent.Compose(local)` で「親の座標系に local を載せる」。
-//   ・world.scale    = parent.scale * local.scale  (component-wise)
-//   ・world.rotation = parent.rotation + local.rotation
-//   ・world.position = parent.position + Rotate(parent.scale * local.position, parent.rotation)
-//
-// ToMat4() は CSpriteBatch::SetView や 4x4 行列が必要な場面でだけ使う (合成内では
-// 使わない、誤差/コストを避けるため)。
 
 
 namespace acs::game {
@@ -30073,13 +30059,13 @@ struct FTransform2D {
     /**
      * 4x4 行列に変換する (CSpriteBatch::SetView 等で 4x4 が必要なとき用)。
      *
-     * @details Z=0 平面で T * R * S を row-major (acs/Math 規約) で展開する。合成内では誤差/コストを避けるため使わない。
+     * @details Z=0 平面で S * R * T を row-major (acs/Math の行ベクトル規約) で展開する。合成内では誤差/コストを避けるため使わない。
      * @return この transform を表す 4x4 行列。
      */
     FMat4 ToMat4() const noexcept {
         const f32 c = Cos(rotation);
         const f32 s = Sin(rotation);
-        // T * R * S を row-major で展開 (acs/Math 規約)
+        // S * R * T を row-major で展開 (acs/Math の行ベクトル規約)
         FMat4 m{};
         m.m[0][0] = scale.x * c;   m.m[0][1] = scale.x * s;   m.m[0][2] = 0.0f; m.m[0][3] = 0.0f;
         m.m[1][0] = -scale.y * s;  m.m[1][1] = scale.y * c;   m.m[1][2] = 0.0f; m.m[1][3] = 0.0f;
@@ -33279,36 +33265,9 @@ private:
 
 // ===================== gameframework/audio_backend/IAudioBackend.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — IAudioBackend (実音声再生 seam)
-//
-// 役割:
-//   `CAudioDirector` から見た「実際に音を出す層」の純粋仮想インターフェース。
-//   Windows では `CXAudio2Backend`、それ以外プラットフォーム (将来) では別実装
-//   (CoreAudio / ALSA / OpenAL / WebAudio …) で差し替える。
-//
-// 設計選択:
-//   ・**voice handle 方式**: BGM / SFX を統一的に「voice」として扱い、32bit の
-//     不透明値で一意化する。0 は無効値として予約する。
-//   ・**TResult<void, FErrorCode> for Init**: backend 初期化のみ失敗ありえる
-//     (COM init / device 取得失敗等)。Play 系は noexcept で「鳴らせなければ
-//     InvalidHandle を返す」設計 (1 フレで何度も呼ぶ hot path なので TResult
-//     を回避)。
-//   ・**Tick(dt)**: 再生完了済 voice の slot 解放を backend 側に畳み込む。
-//     ゲーム側は dt を渡すだけで一発再生の自然回収を任せられる。
-//   ・**所有しない pcm_data**: clip データは CAudioDirector / asset layer 側で
-//     管理。backend は PlayOneShot 中に内部コピー (XAudio2 はバッファを保持
-//     しないと一発再生中に消えると爆ぜる)。
-//   ・**コピー / ムーブ禁止**: backend は 1 個の長寿命オブジェクト。誤コピー
-//     で COM ハンドル二重解放を避けるため最初から非コピー・非ムーブ。
-//   ・**STL 不使用 / 全 noexcept**: ACS 全体方針。
-//
-// 範囲外:
-//   ・3D positional / spatial / HRTF (Pillar CSpatialAudio 担当)
-//   ・submix bus / DSP chain / reverb
-//   ・wav/ogg/mp3 デコード (今回は Pcm16 raw bytes 入力前提、Wav 形式は
-//     別 loader と組合せる)
-//   ・streaming (大型 BGM をオンメモリせず逐次デコード)
 
+
+#include <cmath>
 
 namespace acs::game {
 
@@ -33316,22 +33275,22 @@ namespace acs::game {
 inline constexpr u16 kSubAudioAlreadyInitialized = 1200;
 
 /** Init() より前に API を呼び出した。 */
-inline constexpr u16 kSubAudioNotInitialized     = 1201;
+inline constexpr u16 kSubAudioNotInitialized = 1201;
 
 /** COM MTA 利用参照の取得に失敗した。 */
-inline constexpr u16 kSubAudioComInitFailed      = 1202;
+inline constexpr u16 kSubAudioComInitFailed = 1202;
 
 /** XAudio2Create または同等の生成呼び出しに失敗した。 */
-inline constexpr u16 kSubAudioCreateFailed       = 1203;
+inline constexpr u16 kSubAudioCreateFailed = 1203;
 
 /** CreateMasteringVoice に失敗した。 */
-inline constexpr u16 kSubAudioMasterVoiceFailed  = 1204;
+inline constexpr u16 kSubAudioMasterVoiceFailed = 1204;
 
 /** 引数が不正 (Init(max_voices=0) など)。 */
-inline constexpr u16 kSubAudioInvalidArgs        = 1205;
+inline constexpr u16 kSubAudioInvalidArgs = 1205;
 
 /** backend 内部状態または再生 pool のメモリ確保に失敗した。 */
-inline constexpr u16 kSubAudioOutOfMemory        = 1206;
+inline constexpr u16 kSubAudioOutOfMemory = 1206;
 
 /**
  * PlayOneShot / PlayLooped に渡す clip の音声フォーマット種別。
@@ -33342,13 +33301,13 @@ inline constexpr u16 kSubAudioOutOfMemory        = 1206;
  */
 enum class EAudioFormat : u8 {
     /** 16bit signed PCM (典型的な WAV PCM 形式の raw bytes)。 */
-    Pcm16      = 0,
+    Pcm16 = 0,
 
     /** 32bit IEEE float PCM (高品質、DSP-friendly)。 */
     Pcm32Float = 1,
 
     /** ファイルからロード済の WAV 形式 (パーサ別途)。 */
-    Wav        = 2,
+    Wav = 2,
 };
 
 /**
@@ -33360,19 +33319,19 @@ enum class EAudioFormat : u8 {
  */
 struct FAudioClipDesc {
     /** raw PCM サンプル列 (Wav 形式の場合は RIFF ヘッダ込み)。 */
-    const void*  pcm_data      = nullptr;
+    const void* pcm_data = nullptr;
 
     /** pcm_data の有効バイト数。 */
-    u64          pcm_size      = 0;
+    u64 pcm_size = 0;
 
     /** 1 チャネルあたりサンプル/秒 (例: 44100 / 48000)。 */
-    u32          sample_rate   = 0;
+    u32 sample_rate = 0;
 
     /** チャネル数 (1=mono / 2=stereo)。 */
-    u32          channel_count = 0;
+    u32 channel_count = 0;
 
     /** pcm_data のフォーマット種別。 */
-    EAudioFormat format        = EAudioFormat::Pcm16;
+    EAudioFormat format = EAudioFormat::Pcm16;
 };
 
 /**
@@ -33398,7 +33357,9 @@ struct FAudioVoiceHandle {
      * @param gen slot の世代カウンタ (上位 8bit、有効ハンドルでは 1 以上)。
      */
     constexpr FAudioVoiceHandle(u32 index, u8 gen) noexcept
-        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24))
+    {
+    }
 
     /**
      * backend が生成した 32bit の不透明値からハンドルを構築する。
@@ -33421,21 +33382,30 @@ struct FAudioVoiceHandle {
      *
      * @return packed 値が非 0 (= 有効) なら true。
      */
-    bool IsValid() const noexcept { return m_Packed != 0u; }
+    bool IsValid() const noexcept
+    {
+        return m_Packed != 0u;
+    }
 
     /**
      * 互換形式における下位 24bit を返す。
      *
      * @return packed 値の下位 24bit。
      */
-    u32 Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
+    u32 Index() const noexcept
+    {
+        return m_Packed & 0x00FFFFFFu;
+    }
 
     /**
      * 互換形式における上位 8bit を返す。
      *
      * @return packed 値の上位 8bit。
      */
-    u8  Generation() const noexcept { return static_cast<u8>(m_Packed >> 24); }
+    u8 Generation() const noexcept
+    {
+        return static_cast<u8>(m_Packed >> 24);
+    }
 
     /** backend 間の受け渡しに使う 32bit の不透明値を返す。 */
     u32 PackedValue() const noexcept
@@ -33453,15 +33423,15 @@ struct FAudioVoiceHandle {
 static_assert(sizeof(FAudioVoiceHandle) == sizeof(u32), "AudioVoiceHandle must retain its 32-bit ABI");
 
 /** 無効を表す voice ハンドル定数 (m_Packed=0)。 */
-inline constexpr FAudioVoiceHandle kInvalidAudioVoice {};
+inline constexpr FAudioVoiceHandle kInvalidAudioVoice{};
 
 /**
- * CAudioDirector から見た「実際に音を出す層」の純粋仮想インターフェース。
+ * CAudioDirector から見た「実際に音を出す層」の抽象インターフェース。
  *
  * @details
- * CXAudio2Backend / 将来の CoreAudioBackend / NullAudioBackend (テスト用) 等の差を
- * 吸収する。`CAudioDirector::SetBackend(IAudioBackend*)` で差し込み、CAudioDirector は
- * backend が nullptr のとき無音 (no-op) で動作する。
+ * CXAudio2Backend 等の実装 backend とテスト用 backend の差を吸収する。
+ * `CAudioDirector::SetBackend(IAudioBackend*)` で差し込み、backend が nullptr のとき
+ * CAudioDirector は backend 呼び出しを行わない。
  */
 class IAudioBackend {
 public:
@@ -33472,16 +33442,16 @@ public:
     virtual ~IAudioBackend() noexcept = default;
 
     /** コピー禁止 (backend は 1 個の長寿命オブジェクト、COM ハンドル二重解放を防ぐ)。 */
-    IAudioBackend(const IAudioBackend&)            = delete;
+    IAudioBackend(const IAudioBackend&) = delete;
 
     /** コピー代入も禁止。 */
     IAudioBackend& operator=(const IAudioBackend&) = delete;
 
     /** ムーブ禁止。 */
-    IAudioBackend(IAudioBackend&&)                 = delete;
+    IAudioBackend(IAudioBackend&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    IAudioBackend& operator=(IAudioBackend&&)      = delete;
+    IAudioBackend& operator=(IAudioBackend&&) = delete;
 
     /**
      * backend を初期化する。
@@ -33511,9 +33481,7 @@ public:
      * @param pitch 再生ピッチ (1.0=等倍、0.5=1 オクターブ低い、2.0=1 オクターブ高い)。
      * @return 再生 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    virtual FAudioVoiceHandle PlayOneShot(const FAudioClipDesc& clip,
-                                         f32 volume,
-                                         f32 pitch) noexcept = 0;
+    virtual FAudioVoiceHandle PlayOneShot(const FAudioClipDesc& clip, f32 volume, f32 pitch) noexcept = 0;
 
     /**
      * ループ再生する (StopVoice まで鳴り続ける)。
@@ -33524,9 +33492,7 @@ public:
      * @param pitch 再生ピッチ (1.0=等倍、0.5=1 オクターブ低い、2.0=1 オクターブ高い)。
      * @return 再生 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    virtual FAudioVoiceHandle PlayLooped(const FAudioClipDesc& clip,
-                                        f32 volume,
-                                        f32 pitch) noexcept = 0;
+    virtual FAudioVoiceHandle PlayLooped(const FAudioClipDesc& clip, f32 volume, f32 pitch) noexcept = 0;
 
     /**
      * 指定 voice を停止し slot を解放する。
@@ -33559,8 +33525,35 @@ public:
      *
      * @details ゲームループから毎フレーム呼ぶ。
      * @param dt 実時間の経過秒 (実装によっては使わない)。
-     */
+    */
     virtual void Tick(f32 dt) noexcept = 0;
+
+    /**
+     * 指定 voice の音量、左右パン、ピッチを同じ更新要求で渡す。
+     *
+     * @details
+     * 既定実装は有限な volume を [0, 1] に収めて SetVoiceVolume へ渡し、pan と
+     * pitch は無視する。有限でない volume は 0 として扱うため、既存 backend は
+     * 本関数を実装しなくても安全な音量更新へフォールバックできる。無効または解放済みの
+     * voice に対する挙動は SetVoiceVolume の失敗条件を引き継ぐ。
+     * @param voice 更新対象の voice ハンドル。
+     * @param volume 新しい音量。有限値は [0, 1] に補正し、有限でない値は 0 にする。
+     * @param pan 左右パン [-1, 1]。既定実装では使用しない。
+     * @param pitch 再生ピッチ。既定実装では使用しない。
+     */
+    virtual void SetVoiceParameters(FAudioVoiceHandle voice, f32 volume, f32 pan, f32 pitch) noexcept
+    {
+        if (!std::isfinite(volume)) {
+            volume = 0.0f;
+        } else if (volume < 0.0f) {
+            volume = 0.0f;
+        } else if (volume > 1.0f) {
+            volume = 1.0f;
+        }
+        (void)pan;
+        (void)pitch;
+        SetVoiceVolume(voice, volume);
+    }
 };
 
 } // namespace acs::game
@@ -33568,6 +33561,8 @@ public:
 namespace acs { class CAssetRegistry; }
 
 namespace acs::game {
+
+class CSpatialAudio;
 
 /**
  * シーン跨ぎで生存する音声指揮層 (BGM クロスフェード / SFX / ダッキング)。
@@ -33649,7 +33644,7 @@ public:
      * (current は強制停止)。backend + registry があれば name を実ロードして実音再生、
      * 無ければ state-only。
      * @param name 再生する BGM 名 (= asset path、所有しない literal 前提)。
-     * @param fade_in_sec フェードイン秒 (<= 0 で即時切替)。
+     * @param fade_in_sec フェードイン秒 (非有限、<= 0、または変化率を有限にできない値で即時切替)。
      * @param loop ループ再生するか。
      */
     void PlayBgm(const char* name, f32 fade_in_sec = 1.0f, bool loop = true) noexcept;
@@ -33657,7 +33652,7 @@ public:
     /**
      * 再生中の BGM を fade out して停止する。
      *
-     * @param fade_out_sec フェードアウト秒 (<= 0 で即時停止)。
+     * @param fade_out_sec フェードアウト秒 (非有限、<= 0、または変化率を有限にできない値で即時停止)。
      */
     void StopBgm(f32 fade_out_sec = 0.5f) noexcept;
 
@@ -33674,7 +33669,7 @@ public:
      * @details ring 満杯なら最古を上書きする (ゲームプレイ妨害なし)。backend + registry が
      * あれば実音再生、無ければ state ring に積む。
      * @param name 再生する SFX 名 (= asset path、所有しない literal 前提)。
-     * @param volume_scale この one-shot の追加ゲイン [0, ~] (0.0 で no-op)。
+     * @param volume_scale この one-shot の追加ゲイン [0, ~] (非有限または 0.0 以下で no-op)。
      */
     void PlaySfx(const char* name, f32 volume_scale = 1.0f) noexcept;
 
@@ -33683,7 +33678,7 @@ public:
      *
      * @details 前後 kDuckFadeWindow 秒で線形 fade in/out が掛かる。新たな Duck() で既存
      * state を上書きする (スタックしない)。
-     * @param duration_sec 谷の幅 (この時間だけ depth で抑える)。
+     * @param duration_sec 谷の幅 (非有限または <= 0 は無視)。
      * @param depth 谷底ゲイン 0.0 (完全消音) ～ 1.0 (抑制なし)。例: 0.3 で 30% に下げる。
      */
     void Duck(f32 duration_sec, f32 depth) noexcept;
@@ -33711,7 +33706,7 @@ public:
     /**
      * 毎フレーム呼んで内部タイマ (クロスフェード / ダッキング) を進行させる。
      *
-     * @details Pause 中は dt を消費しない (state 凍結)。CGame / CSceneManager から呼ぶ。
+     * @details Pause 中は dt を消費しない (state 凍結)。非有限または負の dt は 0 として扱う。
      * @param dt 前フレームからの経過秒。
      */
     void Tick(f32 dt) noexcept;
@@ -33734,8 +33729,10 @@ public:
      * concrete backend (CXAudio2Backend 等) を差し込む。
      *
      * @details
-     * nullptr で切断。切断時に既存 BGM/SFX voice を backend->StopAllVoices で停止する責任は
-     * 呼び出し側に委ねる (本層は raw ptr 入替のみ)。
+     * nullptr で切断。本層は raw ptr を入れ替えるだけで、既存 BGM/SFX voice を停止しない。
+     * backend は本層からの最終利用まで生存させる。切断または破棄時は scene が保持する voice を
+     * StopVoice で停止し、残る voice を StopAllVoices で停止してから SetBackend(nullptr) を呼び、
+     * その後に backend を Shutdown / 破棄する。破棄済み backend を指す状態にしてはならない。
      * @param backend 差し込む backend (非所有、nullptr で切断)。
      */
     void           SetBackend(IAudioBackend* backend) noexcept { m_Backend = backend; }
@@ -33773,7 +33770,7 @@ public:
      * が EffectiveBgmVolume を毎フレ backend->SetVoiceVolume に反映するので初期 volume=0)。
      * loop=false の使用は稀 (BGM は基本 loop) で stinger 演出用に許可する。
      * @param clip 再生する PCM クリップ記述子。
-     * @param fade_in_sec フェードイン秒 (<= 0 で即時切替)。
+     * @param fade_in_sec フェードイン秒 (非有限、<= 0、または変化率を有限にできない値で即時切替)。
      * @param loop ループ再生するか。
      * @return 再生 voice ハンドル (backend 未設定 / 不正 clip は kInvalidAudioVoice)。
      */
@@ -33784,15 +33781,39 @@ public:
     /**
      * raw PCM の FAudioClipDesc を SFX one-shot として直接再生する。
      *
-     * @details volume は EffectiveSfxVolume * volume_scale で合成済 (duck は掛けない)。
+     * @details volume は EffectiveSfxVolume * volume_scale を [0, 1] に制限して合成する (duck は掛けない)。
      * @param clip 再生する PCM クリップ記述子。
-     * @param volume_scale この one-shot の追加ゲイン [0, ~] (0.0 以下で no-op)。
-     * @param pitch 再生ピッチ (1.0 が等倍)。
+     * @param volume_scale この one-shot の追加ゲイン [0, ~] (非有限または 0.0 以下で no-op)。
+     * @param pitch 再生ピッチ。非有限値は 1.0、範囲外は [0.25, 4] に制限する。
      * @return 再生 voice ハンドル (backend 未設定 / 不正 clip は kInvalidAudioVoice)。
      */
     FAudioVoiceHandle PlaySfxClip(const FAudioClipDesc& clip,
                                  f32 volume_scale = 1.0f,
                                  f32 pitch = 1.0f) noexcept;
+
+    /**
+     * 再生中 SFX voice へ 3D source の距離減衰、左右 pan、pitch を反映する。
+     *
+     * @details
+     * `EffectiveSfxVolume() * spatial.ComputeAttenuatedVolume(source_id)` を音量として
+     * backend へ一回だけ渡す。Pause 中も呼び続けると音量 0 を反映し、Resume 後の
+     * 次回呼び出しで復元する。本関数は spatial を保持しない。scene 終了時は backend の
+     * StopVoice を先に呼び、その後に
+     * RemoveSource / Clear / scene 破棄を行う。backend 未設定、無効 voice、削除済 source は
+     * no-op で、source の削除だけでは voice を自動停止しない。特に looped voice は source を
+     * 先に削除すると、最後に反映した parameter のまま StopVoice まで再生が続き得る。
+     * valid-looking な解放済み voice は backend 側で安全な no-op として扱う。
+     * CSpatialAudio の登録・更新・削除と本関数の読出しは scene/update thread で直列化する。
+     * backend 呼び出し以降だけを backend 内部で同期し、本関数は thread-safe ではない。
+     * @param voice `PlaySfxClip` 等で開始した SFX voice。
+     * @param spatial listener と 3D source を保持する scene 局所状態。
+     * @param source_id `spatial` が払い出した source ID。
+     * @param pitch 再生比率。非有限値は 1、範囲外は [0.25, 4] に制限する。
+     */
+    void UpdateSpatialSfxVoice(FAudioVoiceHandle voice,
+                               const CSpatialAudio& spatial,
+                               u32 source_id,
+                               f32 pitch = 1.0f) noexcept;
 
 private:
     /** BGM スロット 1 本の state (m_Bgm[0] = current、m_Bgm[1] = 遷移中の new)。 */
@@ -49305,15 +49326,6 @@ private:
 
 // ===================== gameframework/RenderContext.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FRenderContext
-//
-// 全シーン共有の描画コンテキスト。「現フレームの IRhiCommandList と画面サイズ」
-// を保持する軽量参照ホルダに、CSpriteBatch / FFont / 共通シェーダを足して
-// 「シーン切替でパイプライン再構築しない」を実現する。
-//
-// AScene 側はこれを OnRender(rc) で受け取り、必要なら rc.Cmd()/Width()/Height()
-// から描画コマンドを発行する。素の RHI を直接叩いてもよいし、ユーザーが自分の
-// CSpriteBatch を持ってもよい。
 
 
 namespace acs {
@@ -49327,17 +49339,19 @@ class IRhiTexture;
 namespace acs::game {
 
 /**
- * 全シーン共有の描画コンテキスト。
+ * 描画先への非所有参照と frame・pass 状態を受け渡す context。
  *
  * @details
- * 現フレームの IRhiCommandList と画面サイズを保持する軽量参照ホルダ。CSpriteBatch /
- * FFont / 反射テクスチャ / world→screen 変換などをまとめ、シーン切替でパイプラインを
- * 再構築せずに描画できるようにする。AScene 側は OnRender(rc) でこれを受け取り、
- * rc.Cmd()/Width()/Height() から描画コマンドを発行する。
+ * CGame 経路は _BeginFrame で renderer、command list、画面サイズを配線し、font と view は
+ * 必要時、sprite batch、texture、flag は各 pass で対応する setter から配線する。editor などの
+ * 独自描画経路は必要な setter だけで部分的に構成でき、参照を返す accessor は対応する参照の
+ * 配線中だけ使用する。
+ * resource と pipeline の所有・生成は行わない。_EndFrame は command list、sprite / font /
+ * texture 参照と pass flag を解除し、renderer、画面サイズ、view 値は次の配線まで保持する。
  */
 class FRenderContext {
 public:
-    /** 空状態で構築する (各参照は _BeginFrame で配線)。 */
+    /** 参照未配線の既定状態で構築する (利用経路に必要な _BeginFrame / 各 setter で配線)。 */
     FRenderContext() noexcept = default;
 
     /** 破棄する (参照のみ保持するため何もしない)。 */
@@ -49350,9 +49364,10 @@ public:
     FRenderContext& operator=(const FRenderContext&) = delete;
 
     /**
-     * フレーム冒頭で CGame が呼び、描画リソースを配線する。
+     * フレーム冒頭で CGame が呼び、renderer、command list、画面サイズを配線する。
      *
-     * @details m_Font はこの後 CGame が _SetFont で配線する (game 寿命で共有)。
+     * @details sprite batch と texture の参照、pass flag を初期化する。font はこの後 CGame が
+     * _SetFont、view は描画経路が _SetView2D で配線する。
      * @param r 描画に使う CRenderer。
      * @param cl 現フレームのコマンドリスト。
      * @param w 画面の幅 (px)。
@@ -49370,10 +49385,10 @@ public:
         m_SceneColorCapturePass = false;
         m_WaterDepthCapturePass = false;
         m_StencilMaskActive = false;
-        // m_Font は CGame が _BeginFrame 後に _SetFont で配線する (game 寿命で共有)。
+        // m_Font は CGame が _BeginFrame 後に _SetFont で frame 中だけ配線する。
     }
 
-    /** フレーム終端で per-frame 参照をクリアする (コマンドリスト等を無効化)。 */
+    /** フレーム終端で command list、sprite / font / texture 参照と pass flag を解除する。 */
     void _EndFrame() noexcept {
         m_Cmd = nullptr;
         m_Sprites = nullptr;
@@ -58085,13 +58100,13 @@ namespace acs::game {
  *
  * @details
  * 文字列フィールドは「呼び出し側が所有する」前提で nullptr 許容にしている
- * (id は Mod 一意キーで空文字や nullptr は Register 時にスキップ、name は表示用、
- * pack_path は .acpak のパスで nullptr なら path 未指定)。version は
+ * (id は Mod 一意キーで nullptr は Register 時にスキップし、空文字は値として受理する。
+ * name は表示用、pack_path は .acpak のパスで nullptr なら path 未指定)。version は
  * (major << 24) | (minor << 16) | patch エンコーディングを想定するが、Registry
  * 側は不透明に扱う (比較のみ)。
  */
 struct FModInfo {
-    /** Mod 一意キー (外部所有。空文字や nullptr は Register 時にスキップ)。 */
+    /** Mod 一意キー (外部所有。nullptr は Register で拒否し、空文字は有効なキー)。 */
     const char* id         = nullptr;
 
     /** 表示用の名前 (外部所有。UI が pull する。nullptr 可)。 */
@@ -58143,7 +58158,8 @@ public:
      *
      * @details
      * info を内部 TArray に浅くコピーして追加する (指す文字列バッファの寿命は
-     * 呼び出し側が保証する)。id == nullptr のエントリは無視する (警告ログのみ)。
+     * 呼び出し側が保証する)。id == nullptr は警告して無視する。同一 id の重複も警告し、
+     * 既存エントリを保持する。
      * @param info 登録する Mod のメタデータ。
      */
     void Register(const FModInfo& info) noexcept;
@@ -68322,6 +68338,7 @@ public:
     /**
      * listener 状態を保持する (pan 算出に使う)。
      *
+     * @details position / forward / up の非有限成分は 0 に置き換える。
      * @param listener 現在の listener 状態。
      */
     void         SetListener(const FAudioListener& listener) noexcept override;
@@ -68329,10 +68346,12 @@ public:
     /**
      * mono 入力に constant-power パン + 距離減衰を掛けて stereo 出力する。
      *
+     * @details source 座標の非有限成分は 0、volume の非有限値は 0 に置き換えて [0, 1] に制限する。
+     * mono 入力の非有限サンプルは 0 とし、出力は常に有限値にする。
      * @param source 処理対象の 3D 音源 (active==false なら 0 埋め)。
-     * @param mono_input mono 入力サンプル (sample_count 要素)。
+     * @param mono_input mono 入力サンプル (sample_count 要素、nullptr なら出力を変更しない)。
      * @param stereo_output 出力先 (interleaved、sample_count * 2 要素書き込む)。
-     * @param sample_count 入力サンプル数。
+     * @param sample_count 入力サンプル数 (0 なら出力を変更しない)。
      */
     void         ProcessSource(const FAudioSource3D& source,
                                const f32* mono_input,
@@ -68380,6 +68399,7 @@ public:
     /**
      * listener (耳位置と向き) を設定する。
      *
+     * @details position / forward / up の非有限成分は 0 に置き換える。
      * @param l 新しい listener 状態。
      */
     void                 SetListener(const FAudioListener& l) noexcept;
@@ -68394,10 +68414,11 @@ public:
     /**
      * 新規 source を登録する。
      *
-     * @param pos source の初期世界座標。
-     * @param max_distance culling 距離 (<= 0 は既定 20m にクランプ)。
+     * @param pos source の初期世界座標 (非有限成分は 0)。
+     * @param max_distance culling 距離 (非有限または <= 0 は既定 20m)。
      * @param curve 距離減衰カーブ種別。
-     * @return 払い出した source_id (1.. の単調増加)。
+     * @return 払い出した source_id (1..UINT32_MAX の単調増加)。
+     * UINT32_MAX 払い出し後は ID 空間を永久に枯渇扱いとし、0 を返して追加しない。
      */
     u32  RegisterSource(FVec3 pos, f32 max_distance,
                         EAttenuationCurve curve) noexcept;
@@ -68405,7 +68426,7 @@ public:
     /**
      * source の位置 / 速度を更新する。
      *
-     * @details stale ID は no-op (警告ログのみ)。
+     * @details position / velocity の非有限成分は 0 に置き換える。stale ID は no-op (警告ログのみ)。
      * @param id 更新対象の source_id。
      * @param pos 新しい世界座標。
      * @param vel 新しい速度 (既定はゼロ)。
@@ -68415,7 +68436,7 @@ public:
     /**
      * source の基準ゲインを変更する。
      *
-     * @details 範囲外は [0, 1] に clamp し警告ログを出す。stale ID は no-op。
+     * @details 非有限値は 0、範囲外は [0, 1] に clamp し警告ログを出す。stale ID は no-op。
      * @param id 対象の source_id。
      * @param v 新しい基準ゲイン [0, 1]。
      */
@@ -68433,7 +68454,7 @@ public:
      * listener との距離と curve から算出した最終 volume を返す。
      *
      * @param id 対象の source_id。
-     * @return 最終 volume [0, 1]。無効 ID / inactive / dist >= max_distance では 0。
+     * @return 有限な最終 volume [0, 1]。無効 ID / inactive / dist >= max_distance では 0。
      */
     f32  ComputeAttenuatedVolume(u32 id) const noexcept;
 
@@ -68441,7 +68462,7 @@ public:
      * listener 基準の左右パンを返す。
      *
      * @param id 対象の source_id。
-     * @return パン値 (-1 = 完全左、0 = 正面 / 真後ろ、+1 = 完全右)。無効 ID / inactive で 0。
+     * @return 有限なパン値 [-1, 1] (-1 = 完全左、0 = 正面 / 真後ろ、+1 = 完全右)。無効 ID / inactive で 0。
      */
     f32  ComputePan(u32 id) const noexcept;
 
@@ -68463,7 +68484,18 @@ public:
     /** 全 source を空にする (listener は保持、source_id カウンタは継続)。 */
     void Clear() noexcept;
 
+
 private:
+    friend class CAudioDirector;
+
+    /**
+     * source ID が現在登録されているかを返す。
+     *
+     * @param id 確認する source ID。
+     * @return active な登録があれば true。0、削除済み、未登録なら false。
+     */
+    bool HasSource(u32 id) const noexcept;
+
     /**
      * source_id を index に線形検索で変換する。
      *
@@ -79250,16 +79282,16 @@ public:
     ~CXAudio2Backend() noexcept override;
 
     /** コピー禁止 (COM ハンドルの二重解放を避けるため)。 */
-    CXAudio2Backend(const CXAudio2Backend&)            = delete;
+    CXAudio2Backend(const CXAudio2Backend&) = delete;
 
     /** コピー代入も禁止。 */
     CXAudio2Backend& operator=(const CXAudio2Backend&) = delete;
 
     /** ムーブ禁止 (長寿命オブジェクトとして単独所有するため)。 */
-    CXAudio2Backend(CXAudio2Backend&&)                 = delete;
+    CXAudio2Backend(CXAudio2Backend&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    CXAudio2Backend& operator=(CXAudio2Backend&&)      = delete;
+    CXAudio2Backend& operator=(CXAudio2Backend&&) = delete;
 
     /**
      * COM・XAudio2 エンジン・マスタリングボイス・voice pool を確保する。
@@ -79275,14 +79307,14 @@ public:
     TResult<void> Init(u32 MaxVoices = 64) noexcept override;
 
     /** 全 voice と MTA cookie と pimpl を解放する。任意スレッドからの多重呼び出しに対応する。 */
-    void         Shutdown() noexcept override;
+    void Shutdown() noexcept override;
 
     /**
      * Init 済かつ正常起動した状態かを返す。
      *
      * @return 初期化済みなら true。
      */
-    bool         IsInitialized() const noexcept override;
+    bool IsInitialized() const noexcept override;
 
     /**
      * 一発再生する (loop なし、終端で Tick が自然回収)。
@@ -79295,9 +79327,7 @@ public:
      * @param Pitch 周波数比 (1.0=等倍、範囲外は [0.25, 4.0] に clamp)。
      * @return 再生中 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    FAudioVoiceHandle PlayOneShot(const FAudioClipDesc& Clip,
-                                 f32 Volume,
-                                 f32 Pitch) noexcept override;
+    FAudioVoiceHandle PlayOneShot(const FAudioClipDesc& Clip, f32 Volume, f32 Pitch) noexcept override;
 
     /**
      * ループ再生する (StopVoice まで鳴り続ける)。
@@ -79308,9 +79338,7 @@ public:
      * @param Pitch 周波数比 (1.0=等倍、範囲外は [0.25, 4.0] に clamp)。
      * @return 再生中 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    FAudioVoiceHandle PlayLooped(const FAudioClipDesc& Clip,
-                                f32 Volume,
-                                f32 Pitch) noexcept override;
+    FAudioVoiceHandle PlayLooped(const FAudioClipDesc& Clip, f32 Volume, f32 Pitch) noexcept override;
 
     /**
      * 指定 voice を停止して slot を解放する。
@@ -79337,15 +79365,30 @@ public:
      *
      * @return アクティブな voice 数 (未 init なら 0)。
      */
-    u32  ActiveVoiceCount() const noexcept override;
+    u32 ActiveVoiceCount() const noexcept override;
 
     /**
      * 内部状態を進める (毎フレーム呼ぶ)。
      *
      * @details 完了した一発再生 voice (BuffersQueued == 0) の slot を回収する。
      * @param DeltaSeconds 実時間の経過秒 (本実装では未使用)。
-     */
+    */
     void Tick(f32 DeltaSeconds) noexcept override;
+
+    /**
+     * 指定 voice の音量、左右パン、ピッチを更新する。
+     *
+     * @details
+     * 音量とピッチは有限値へ補正して常に更新を試みる。mono voice かつ mastering
+     * voice の左右 speaker 配置を確認できた場合だけ左右パンも出力 matrix へ反映する。
+     * 無効、解放済み、古い voice は no-op。各 XAudio2 更新が失敗した場合は警告し、
+     * 残りの更新を続ける。
+     * @param Voice 更新対象の voice ハンドル。
+     * @param Volume 音量。有限値は [0, 1] に補正し、有限でない値は 0 にする。
+     * @param Pan 左右パン。有限値は [-1, 1] に補正し、有限でない値は中央にする。
+     * @param Pitch 周波数比。有限値は [0.25, 4.0] に補正し、有限でない値は 1.0 にする。
+     */
+    void SetVoiceParameters(FAudioVoiceHandle Voice, f32 Volume, f32 Pan, f32 Pitch) noexcept override;
 
     /**
      * マスタリングボイス音量 (= 最終出力の master volume) を設定する。
@@ -79359,9 +79402,38 @@ public:
     /** 実デバイスなしで lifecycle と MTA cookie 契約を検証する疑似状態を作る。 */
     TResult<void> InitializeLifecycleTestState() noexcept;
 
+    /**
+     * mastering voice の配置から mono voice 用の左右パン matrix を作る。
+     *
+     * @param SourceChannels source voice の入力 channel 数。1 以外は未対応。
+     * @param DestinationChannels mastering voice の入力 channel 数。
+     * @param DestinationChannelMask speaker の配置 mask。
+     * @param Pan 左右パン。有限値は [-1, 1] に補正し、有限でない値は中央にする。
+     * @param OutMatrix DestinationChannels 要素以上を持つ書き込み先。
+     * @param MatrixCapacity OutMatrix の要素数。
+     * @return 左右 speaker を一意に特定して matrix を作れた場合は true。不正な配置または出力先では false。
+     */
+    static bool BuildMonoPanMatrixForTesting(u32 SourceChannels, u32 DestinationChannels, u32 DestinationChannelMask,
+                                             f32 Pan, f32* OutMatrix, u32 MatrixCapacity) noexcept;
+
+    /**
+     * 公開 voice parameter と同じ規則で有限化と範囲補正を行う。
+     *
+     * @param Volume 入力音量。
+     * @param Pan 入力パン。
+     * @param Pitch 入力ピッチ。
+     * @param OutVolume [0, 1] の音量を書き込む先。
+     * @param OutPan [-1, 1] のパンを書き込む先。
+     * @param OutPitch [0.25, 4.0] のピッチを書き込む先。
+     */
+    static void NormalizeVoiceParametersForTesting(f32 Volume, f32 Pan, f32 Pitch, f32& OutVolume, f32& OutPan,
+                                                   f32& OutPitch) noexcept;
+
+    /** DestroySlot が source channel metadata を空状態へ戻すか検証する。 */
+    static bool DestroySlotResetsSourceChannelsForTesting() noexcept;
+
     /** lifecycle 共有操作を決定的に停止させる専用テスト hook。 */
-    static void ConfigureLifecycleOperationTestGate(TAtomic<u32>* Entered,
-                                                    TAtomic<u32>* Release) noexcept;
+    static void ConfigureLifecycleOperationTestGate(TAtomic<u32>* Entered, TAtomic<u32>* Release) noexcept;
 
     /** Shutdown 要求が新規共有操作を閉じているかを返す。 */
     bool IsShutdownRequestedForTesting() const noexcept;

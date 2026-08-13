@@ -1,37 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — IAudioBackend (実音声再生 seam)
-//
-// 役割:
-//   `CAudioDirector` から見た「実際に音を出す層」の純粋仮想インターフェース。
-//   Windows では `CXAudio2Backend`、それ以外プラットフォーム (将来) では別実装
-//   (CoreAudio / ALSA / OpenAL / WebAudio …) で差し替える。
-//
-// 設計選択:
-//   ・**voice handle 方式**: BGM / SFX を統一的に「voice」として扱い、32bit の
-//     不透明値で一意化する。0 は無効値として予約する。
-//   ・**TResult<void, FErrorCode> for Init**: backend 初期化のみ失敗ありえる
-//     (COM init / device 取得失敗等)。Play 系は noexcept で「鳴らせなければ
-//     InvalidHandle を返す」設計 (1 フレで何度も呼ぶ hot path なので TResult
-//     を回避)。
-//   ・**Tick(dt)**: 再生完了済 voice の slot 解放を backend 側に畳み込む。
-//     ゲーム側は dt を渡すだけで一発再生の自然回収を任せられる。
-//   ・**所有しない pcm_data**: clip データは CAudioDirector / asset layer 側で
-//     管理。backend は PlayOneShot 中に内部コピー (XAudio2 はバッファを保持
-//     しないと一発再生中に消えると爆ぜる)。
-//   ・**コピー / ムーブ禁止**: backend は 1 個の長寿命オブジェクト。誤コピー
-//     で COM ハンドル二重解放を避けるため最初から非コピー・非ムーブ。
-//   ・**STL 不使用 / 全 noexcept**: ACS 全体方針。
-//
-// 範囲外:
-//   ・3D positional / spatial / HRTF (Pillar CSpatialAudio 担当)
-//   ・submix bus / DSP chain / reverb
-//   ・wav/ogg/mp3 デコード (今回は Pcm16 raw bytes 入力前提、Wav 形式は
-//     別 loader と組合せる)
-//   ・streaming (大型 BGM をオンメモリせず逐次デコード)
 #pragma once
 
 #include "foundation/Result.h"
 #include "foundation/Types.h"
+
+#include <cmath>
 
 namespace acs::game {
 
@@ -39,22 +12,22 @@ namespace acs::game {
 inline constexpr u16 kSubAudioAlreadyInitialized = 1200;
 
 /** Init() より前に API を呼び出した。 */
-inline constexpr u16 kSubAudioNotInitialized     = 1201;
+inline constexpr u16 kSubAudioNotInitialized = 1201;
 
 /** COM MTA 利用参照の取得に失敗した。 */
-inline constexpr u16 kSubAudioComInitFailed      = 1202;
+inline constexpr u16 kSubAudioComInitFailed = 1202;
 
 /** XAudio2Create または同等の生成呼び出しに失敗した。 */
-inline constexpr u16 kSubAudioCreateFailed       = 1203;
+inline constexpr u16 kSubAudioCreateFailed = 1203;
 
 /** CreateMasteringVoice に失敗した。 */
-inline constexpr u16 kSubAudioMasterVoiceFailed  = 1204;
+inline constexpr u16 kSubAudioMasterVoiceFailed = 1204;
 
 /** 引数が不正 (Init(max_voices=0) など)。 */
-inline constexpr u16 kSubAudioInvalidArgs        = 1205;
+inline constexpr u16 kSubAudioInvalidArgs = 1205;
 
 /** backend 内部状態または再生 pool のメモリ確保に失敗した。 */
-inline constexpr u16 kSubAudioOutOfMemory        = 1206;
+inline constexpr u16 kSubAudioOutOfMemory = 1206;
 
 /**
  * PlayOneShot / PlayLooped に渡す clip の音声フォーマット種別。
@@ -65,13 +38,13 @@ inline constexpr u16 kSubAudioOutOfMemory        = 1206;
  */
 enum class EAudioFormat : u8 {
     /** 16bit signed PCM (典型的な WAV PCM 形式の raw bytes)。 */
-    Pcm16      = 0,
+    Pcm16 = 0,
 
     /** 32bit IEEE float PCM (高品質、DSP-friendly)。 */
     Pcm32Float = 1,
 
     /** ファイルからロード済の WAV 形式 (パーサ別途)。 */
-    Wav        = 2,
+    Wav = 2,
 };
 
 /**
@@ -83,19 +56,19 @@ enum class EAudioFormat : u8 {
  */
 struct FAudioClipDesc {
     /** raw PCM サンプル列 (Wav 形式の場合は RIFF ヘッダ込み)。 */
-    const void*  pcm_data      = nullptr;
+    const void* pcm_data = nullptr;
 
     /** pcm_data の有効バイト数。 */
-    u64          pcm_size      = 0;
+    u64 pcm_size = 0;
 
     /** 1 チャネルあたりサンプル/秒 (例: 44100 / 48000)。 */
-    u32          sample_rate   = 0;
+    u32 sample_rate = 0;
 
     /** チャネル数 (1=mono / 2=stereo)。 */
-    u32          channel_count = 0;
+    u32 channel_count = 0;
 
     /** pcm_data のフォーマット種別。 */
-    EAudioFormat format        = EAudioFormat::Pcm16;
+    EAudioFormat format = EAudioFormat::Pcm16;
 };
 
 /**
@@ -121,7 +94,9 @@ struct FAudioVoiceHandle {
      * @param gen slot の世代カウンタ (上位 8bit、有効ハンドルでは 1 以上)。
      */
     constexpr FAudioVoiceHandle(u32 index, u8 gen) noexcept
-        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24))
+    {
+    }
 
     /**
      * backend が生成した 32bit の不透明値からハンドルを構築する。
@@ -144,21 +119,30 @@ struct FAudioVoiceHandle {
      *
      * @return packed 値が非 0 (= 有効) なら true。
      */
-    bool IsValid() const noexcept { return m_Packed != 0u; }
+    bool IsValid() const noexcept
+    {
+        return m_Packed != 0u;
+    }
 
     /**
      * 互換形式における下位 24bit を返す。
      *
      * @return packed 値の下位 24bit。
      */
-    u32 Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
+    u32 Index() const noexcept
+    {
+        return m_Packed & 0x00FFFFFFu;
+    }
 
     /**
      * 互換形式における上位 8bit を返す。
      *
      * @return packed 値の上位 8bit。
      */
-    u8  Generation() const noexcept { return static_cast<u8>(m_Packed >> 24); }
+    u8 Generation() const noexcept
+    {
+        return static_cast<u8>(m_Packed >> 24);
+    }
 
     /** backend 間の受け渡しに使う 32bit の不透明値を返す。 */
     u32 PackedValue() const noexcept
@@ -176,15 +160,15 @@ struct FAudioVoiceHandle {
 static_assert(sizeof(FAudioVoiceHandle) == sizeof(u32), "AudioVoiceHandle must retain its 32-bit ABI");
 
 /** 無効を表す voice ハンドル定数 (m_Packed=0)。 */
-inline constexpr FAudioVoiceHandle kInvalidAudioVoice {};
+inline constexpr FAudioVoiceHandle kInvalidAudioVoice{};
 
 /**
- * CAudioDirector から見た「実際に音を出す層」の純粋仮想インターフェース。
+ * CAudioDirector から見た「実際に音を出す層」の抽象インターフェース。
  *
  * @details
- * CXAudio2Backend / 将来の CoreAudioBackend / NullAudioBackend (テスト用) 等の差を
- * 吸収する。`CAudioDirector::SetBackend(IAudioBackend*)` で差し込み、CAudioDirector は
- * backend が nullptr のとき無音 (no-op) で動作する。
+ * CXAudio2Backend 等の実装 backend とテスト用 backend の差を吸収する。
+ * `CAudioDirector::SetBackend(IAudioBackend*)` で差し込み、backend が nullptr のとき
+ * CAudioDirector は backend 呼び出しを行わない。
  */
 class IAudioBackend {
 public:
@@ -195,16 +179,16 @@ public:
     virtual ~IAudioBackend() noexcept = default;
 
     /** コピー禁止 (backend は 1 個の長寿命オブジェクト、COM ハンドル二重解放を防ぐ)。 */
-    IAudioBackend(const IAudioBackend&)            = delete;
+    IAudioBackend(const IAudioBackend&) = delete;
 
     /** コピー代入も禁止。 */
     IAudioBackend& operator=(const IAudioBackend&) = delete;
 
     /** ムーブ禁止。 */
-    IAudioBackend(IAudioBackend&&)                 = delete;
+    IAudioBackend(IAudioBackend&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    IAudioBackend& operator=(IAudioBackend&&)      = delete;
+    IAudioBackend& operator=(IAudioBackend&&) = delete;
 
     /**
      * backend を初期化する。
@@ -234,9 +218,7 @@ public:
      * @param pitch 再生ピッチ (1.0=等倍、0.5=1 オクターブ低い、2.0=1 オクターブ高い)。
      * @return 再生 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    virtual FAudioVoiceHandle PlayOneShot(const FAudioClipDesc& clip,
-                                         f32 volume,
-                                         f32 pitch) noexcept = 0;
+    virtual FAudioVoiceHandle PlayOneShot(const FAudioClipDesc& clip, f32 volume, f32 pitch) noexcept = 0;
 
     /**
      * ループ再生する (StopVoice まで鳴り続ける)。
@@ -247,9 +229,7 @@ public:
      * @param pitch 再生ピッチ (1.0=等倍、0.5=1 オクターブ低い、2.0=1 オクターブ高い)。
      * @return 再生 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    virtual FAudioVoiceHandle PlayLooped(const FAudioClipDesc& clip,
-                                        f32 volume,
-                                        f32 pitch) noexcept = 0;
+    virtual FAudioVoiceHandle PlayLooped(const FAudioClipDesc& clip, f32 volume, f32 pitch) noexcept = 0;
 
     /**
      * 指定 voice を停止し slot を解放する。
@@ -282,8 +262,35 @@ public:
      *
      * @details ゲームループから毎フレーム呼ぶ。
      * @param dt 実時間の経過秒 (実装によっては使わない)。
-     */
+    */
     virtual void Tick(f32 dt) noexcept = 0;
+
+    /**
+     * 指定 voice の音量、左右パン、ピッチを同じ更新要求で渡す。
+     *
+     * @details
+     * 既定実装は有限な volume を [0, 1] に収めて SetVoiceVolume へ渡し、pan と
+     * pitch は無視する。有限でない volume は 0 として扱うため、既存 backend は
+     * 本関数を実装しなくても安全な音量更新へフォールバックできる。無効または解放済みの
+     * voice に対する挙動は SetVoiceVolume の失敗条件を引き継ぐ。
+     * @param voice 更新対象の voice ハンドル。
+     * @param volume 新しい音量。有限値は [0, 1] に補正し、有限でない値は 0 にする。
+     * @param pan 左右パン [-1, 1]。既定実装では使用しない。
+     * @param pitch 再生ピッチ。既定実装では使用しない。
+     */
+    virtual void SetVoiceParameters(FAudioVoiceHandle voice, f32 volume, f32 pan, f32 pitch) noexcept
+    {
+        if (!std::isfinite(volume)) {
+            volume = 0.0f;
+        } else if (volume < 0.0f) {
+            volume = 0.0f;
+        } else if (volume > 1.0f) {
+            volume = 1.0f;
+        }
+        (void)pan;
+        (void)pitch;
+        SetVoiceVolume(voice, volume);
+    }
 };
 
 } // namespace acs::game

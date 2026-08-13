@@ -2,6 +2,7 @@
 // 配布先だけを include/link して header と実装 library の整合を確認する。
 #include <acs.h>
 #include <cstdio>
+#include <limits>
 #include <type_traits>
 
 static_assert(sizeof(acs::FTimerHandle) == 8u, "event タイマーハンドルは 8byte の独立型です");
@@ -86,6 +87,49 @@ struct FDistributionEventProbe {};
 
 /** 配布物のコンポーネント番号と署名を割り当てる検査型。 */
 struct FDistributionComponentProbe {};
+
+/** 配布headerから継承し、新virtualをoverrideしない外部audio backendの互換性を検証する。 */
+class CDistributionAudioBackend final : public acs::game::IAudioBackend {
+public:
+    acs::TResult<void> Init(acs::u32) noexcept override { return acs::Ok(); }
+    void Shutdown() noexcept override {}
+    bool IsInitialized() const noexcept override { return true; }
+    acs::game::FAudioVoiceHandle PlayOneShot(const acs::game::FAudioClipDesc&,
+                                              acs::f32,
+                                              acs::f32) noexcept override
+    {
+        return acs::game::kInvalidAudioVoice;
+    }
+    acs::game::FAudioVoiceHandle PlayLooped(const acs::game::FAudioClipDesc&,
+                                            acs::f32,
+                                            acs::f32) noexcept override
+    {
+        return acs::game::kInvalidAudioVoice;
+    }
+    void StopVoice(acs::game::FAudioVoiceHandle) noexcept override {}
+    void SetVoiceVolume(acs::game::FAudioVoiceHandle voice, acs::f32 volume) noexcept override
+    {
+        LastVoice = voice;
+        LastVolume = volume;
+        ++VolumeUpdateCount;
+    }
+    void StopAllVoices() noexcept override {}
+    acs::u32 ActiveVoiceCount() const noexcept override { return 0u; }
+    void Tick(acs::f32) noexcept override {}
+
+    acs::game::FAudioVoiceHandle LastVoice{};
+    acs::f32 LastVolume = -1.0f;
+    acs::u32 VolumeUpdateCount = 0u;
+};
+
+using FAudioVoiceParametersSignature = void (acs::game::IAudioBackend::*)(
+    acs::game::FAudioVoiceHandle,
+    acs::f32,
+    acs::f32,
+    acs::f32) noexcept;
+
+static_assert(std::is_same_v<decltype(&acs::game::IAudioBackend::SetVoiceParameters),
+                             FAudioVoiceParametersSignature>);
 
 /**
  * 配布ライブラリを経由したシーンタイマー発火を記録する。
@@ -286,6 +330,17 @@ int main()
     const bool log_sink_ok = log_subscription.IsValid() && log_notification_count == 1u;
     CLogger::Shutdown();
 
-    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u scene_timer=%u log_sink=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, scene_timer_fire_count, log_notification_count);
-    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && scene_timer_ok && log_sink_ok) ? 0 : 1;
+    // 新virtualをoverrideしない外部backendが既定の有限化された音量更新を受け取るか。
+    CDistributionAudioBackend audio_backend;
+    const game::FAudioVoiceHandle audio_voice = game::FAudioVoiceHandle::FromPackedValue(1u);
+    audio_backend.SetVoiceParameters(audio_voice,
+                                     std::numeric_limits<f32>::quiet_NaN(),
+                                     std::numeric_limits<f32>::quiet_NaN(),
+                                     std::numeric_limits<f32>::quiet_NaN());
+    const bool audio_backend_contract_ok = audio_backend.VolumeUpdateCount == 1u &&
+                                           audio_backend.LastVoice == audio_voice &&
+                                           audio_backend.LastVolume == 0.0f;
+
+    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u scene_timer=%u log_sink=%u audio_backend=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, scene_timer_fire_count, log_notification_count, audio_backend_contract_ok ? 1u : 0u);
+    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && scene_timer_ok && log_sink_ok && audio_backend_contract_ok) ? 0 : 1;
 }

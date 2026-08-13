@@ -280,6 +280,7 @@ ACS_REF.modules.push({
       members: [
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)", desc: "VS+PS・パイプライン・定数バッファ・既定白テクスチャを作る。" },
         { sig: "bool BeginFrame(u32 required_object_draws = 0)", desc: "毎フレームの描画記録前に呼び、実際に記録する Standard draw 数を正確に渡す。共有upload arenaの必要sliceを確保できなければfalse。" },
+        { sig: "if (!shd.BeginFrame(/* exact standard draws this frame */ 1u)) return;", desc: "Standard の描画予定数を先に渡し、予約に失敗したフレームは描画を記録しない。" },
         { sig: "u32 ObjectBufferCapacity() / ObjectDrawCount() / ObjectBufferPageCount()", desc: "論理object slot容量、frame使用数、全slotを保持する実GPU buffer数。" },
         { sig: "[[deprecated]] kMaxObjectDrawsPerFrame = 256", desc: "旧固定リングとのソース互換用の目安値。プールは必要数まで増えるため、ハード上限ではない。" },
         { sig: "void SetFrame(view_projection, camera_pos, light_dir, light_color, ambient_color)", desc: "毎フレーム。カメラ + 1 灯の有向光源 + 環境光の簡易版。" },
@@ -345,10 +346,12 @@ ACS_REF.modules.push({
         { sig: "static constexpr u32 kMaxBones = 64", desc: "ボーンパレットの上限。" },
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)", desc: "初期化。Bones 用の定数バッファ(b2)を追加で持つ。" },
         { sig: "bool BeginFrame(u32 required_object_draws = 0)", desc: "毎フレームの描画記録前に呼び、実際に記録する skinned draw 数を正確に渡す。Object/Bones の CB ペアを先に確保できなければ false。" },
+        { sig: "if (!shd.BeginFrame(/* exact skinned draws this frame */ 1u)) return;", desc: "Skinned の描画予定数を先に渡し、予約に失敗したフレームは描画を記録しない。" },
         { sig: "[[deprecated]] kMaxObjectDrawsPerFrame = 256", desc: "旧固定リングとのソース互換用の目安値。Object/Bones ペアのプールは必要数まで増えるため、ハード上限ではない。" },
         { sig: "void SetFrame(...) / SetLights(...) / SetPointLights(...)", desc: "CStandardShader と同じ形式のライト設定。" },
         { sig: "bool SetObject(...)", desc: "Object/Bones の draw 専用 CB ペアを選択して材質を設定。失敗時は false なので、その draw を記録しない。" },
         { sig: "bool SetBonePalette(const FMat4* palette, u32 count)", desc: "ボーン行列パレット(最大 64)を直前の SetObject と同じ draw 専用 CB へ設定。失敗時は false。残りは単位行列で埋める。" },
+        { sig: "if (!shd.SetBonePalette(palette, nb)) return;", desc: "SetObject の直後にボーンパレットを書き込み、失敗した draw は記録しない。" },
         { sig: "IRhiBuffer* BonesCB() / PerFrameCB() / PerObjectCB() / IRhiPipeline* Pipeline()", desc: "手描き用アクセサ。<code>BonesCB()</code> は b2 にバインドする。" },
         { sig: "using FSkinnedShader = CSkinnedShader", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSkinnedShader</code> を使う。" }
       ]
@@ -494,6 +497,7 @@ ACS_REF.modules.push({
         { sig: "static constexpr u32 kMaxCascades = 4", desc: "カスケード上限。" },
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, u32 size = 2048, u32 cascade_count = 1)", desc: "cascade_count=1 で単一 2D depth、2 以上で CSM atlas。" },
         { sig: "bool BeginFrame(u32 required_casters_per_cascade = 0)", desc: "毎フレームの shadow pass 記録前に呼び、各 cascade の正確な caster 数を渡す。Init で予約した全 cascade を先行確保できなければ false。" },
+        { sig: "if (!sm.BeginFrame(static_cast&lt;u32&gt;(casters.Size()))) return;", desc: "shadow pass に記録する caster 数を先に渡し、予約に失敗したフレームは描画を記録しない。" },
         { sig: "[[deprecated]] kMaxCasterDrawsPerCascade = 256 / kMaxCasterDrawsPerFrame", desc: "旧固定リングとのソース互換用の目安値。caster プールは必要数まで増えるため、どちらもハード上限ではない。" },
         { sig: "void SetDirectionalLight(FVec3 light_dir, FVec3 scene_center, f32 scene_radius)", desc: "単一カスケード用に光源 ortho を設定。" },
         { sig: "void SetDirectionalLightCascades(FVec3 light_dir, const FMat4& view, const FMat4& proj, f32 near_z, f32 far_z, f32 lambda = 0.5f)", desc: "CSM 用に frustum を near→far で実用分割し各 ortho を計算。lambda は uniform↔log のブレンド。" },

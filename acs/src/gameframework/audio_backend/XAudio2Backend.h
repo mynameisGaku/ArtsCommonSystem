@@ -36,16 +36,16 @@ public:
     ~CXAudio2Backend() noexcept override;
 
     /** コピー禁止 (COM ハンドルの二重解放を避けるため)。 */
-    CXAudio2Backend(const CXAudio2Backend&)            = delete;
+    CXAudio2Backend(const CXAudio2Backend&) = delete;
 
     /** コピー代入も禁止。 */
     CXAudio2Backend& operator=(const CXAudio2Backend&) = delete;
 
     /** ムーブ禁止 (長寿命オブジェクトとして単独所有するため)。 */
-    CXAudio2Backend(CXAudio2Backend&&)                 = delete;
+    CXAudio2Backend(CXAudio2Backend&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    CXAudio2Backend& operator=(CXAudio2Backend&&)      = delete;
+    CXAudio2Backend& operator=(CXAudio2Backend&&) = delete;
 
     /**
      * COM・XAudio2 エンジン・マスタリングボイス・voice pool を確保する。
@@ -61,14 +61,14 @@ public:
     TResult<void> Init(u32 MaxVoices = 64) noexcept override;
 
     /** 全 voice と MTA cookie と pimpl を解放する。任意スレッドからの多重呼び出しに対応する。 */
-    void         Shutdown() noexcept override;
+    void Shutdown() noexcept override;
 
     /**
      * Init 済かつ正常起動した状態かを返す。
      *
      * @return 初期化済みなら true。
      */
-    bool         IsInitialized() const noexcept override;
+    bool IsInitialized() const noexcept override;
 
     /**
      * 一発再生する (loop なし、終端で Tick が自然回収)。
@@ -81,9 +81,7 @@ public:
      * @param Pitch 周波数比 (1.0=等倍、範囲外は [0.25, 4.0] に clamp)。
      * @return 再生中 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    FAudioVoiceHandle PlayOneShot(const FAudioClipDesc& Clip,
-                                 f32 Volume,
-                                 f32 Pitch) noexcept override;
+    FAudioVoiceHandle PlayOneShot(const FAudioClipDesc& Clip, f32 Volume, f32 Pitch) noexcept override;
 
     /**
      * ループ再生する (StopVoice まで鳴り続ける)。
@@ -94,9 +92,7 @@ public:
      * @param Pitch 周波数比 (1.0=等倍、範囲外は [0.25, 4.0] に clamp)。
      * @return 再生中 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    FAudioVoiceHandle PlayLooped(const FAudioClipDesc& Clip,
-                                f32 Volume,
-                                f32 Pitch) noexcept override;
+    FAudioVoiceHandle PlayLooped(const FAudioClipDesc& Clip, f32 Volume, f32 Pitch) noexcept override;
 
     /**
      * 指定 voice を停止して slot を解放する。
@@ -123,15 +119,30 @@ public:
      *
      * @return アクティブな voice 数 (未 init なら 0)。
      */
-    u32  ActiveVoiceCount() const noexcept override;
+    u32 ActiveVoiceCount() const noexcept override;
 
     /**
      * 内部状態を進める (毎フレーム呼ぶ)。
      *
      * @details 完了した一発再生 voice (BuffersQueued == 0) の slot を回収する。
      * @param DeltaSeconds 実時間の経過秒 (本実装では未使用)。
-     */
+    */
     void Tick(f32 DeltaSeconds) noexcept override;
+
+    /**
+     * 指定 voice の音量、左右パン、ピッチを更新する。
+     *
+     * @details
+     * 音量とピッチは有限値へ補正して常に更新を試みる。mono voice かつ mastering
+     * voice の左右 speaker 配置を確認できた場合だけ左右パンも出力 matrix へ反映する。
+     * 無効、解放済み、古い voice は no-op。各 XAudio2 更新が失敗した場合は警告し、
+     * 残りの更新を続ける。
+     * @param Voice 更新対象の voice ハンドル。
+     * @param Volume 音量。有限値は [0, 1] に補正し、有限でない値は 0 にする。
+     * @param Pan 左右パン。有限値は [-1, 1] に補正し、有限でない値は中央にする。
+     * @param Pitch 周波数比。有限値は [0.25, 4.0] に補正し、有限でない値は 1.0 にする。
+     */
+    void SetVoiceParameters(FAudioVoiceHandle Voice, f32 Volume, f32 Pan, f32 Pitch) noexcept override;
 
     /**
      * マスタリングボイス音量 (= 最終出力の master volume) を設定する。
@@ -145,9 +156,38 @@ public:
     /** 実デバイスなしで lifecycle と MTA cookie 契約を検証する疑似状態を作る。 */
     TResult<void> InitializeLifecycleTestState() noexcept;
 
+    /**
+     * mastering voice の配置から mono voice 用の左右パン matrix を作る。
+     *
+     * @param SourceChannels source voice の入力 channel 数。1 以外は未対応。
+     * @param DestinationChannels mastering voice の入力 channel 数。
+     * @param DestinationChannelMask speaker の配置 mask。
+     * @param Pan 左右パン。有限値は [-1, 1] に補正し、有限でない値は中央にする。
+     * @param OutMatrix DestinationChannels 要素以上を持つ書き込み先。
+     * @param MatrixCapacity OutMatrix の要素数。
+     * @return 左右 speaker を一意に特定して matrix を作れた場合は true。不正な配置または出力先では false。
+     */
+    static bool BuildMonoPanMatrixForTesting(u32 SourceChannels, u32 DestinationChannels, u32 DestinationChannelMask,
+                                             f32 Pan, f32* OutMatrix, u32 MatrixCapacity) noexcept;
+
+    /**
+     * 公開 voice parameter と同じ規則で有限化と範囲補正を行う。
+     *
+     * @param Volume 入力音量。
+     * @param Pan 入力パン。
+     * @param Pitch 入力ピッチ。
+     * @param OutVolume [0, 1] の音量を書き込む先。
+     * @param OutPan [-1, 1] のパンを書き込む先。
+     * @param OutPitch [0.25, 4.0] のピッチを書き込む先。
+     */
+    static void NormalizeVoiceParametersForTesting(f32 Volume, f32 Pan, f32 Pitch, f32& OutVolume, f32& OutPan,
+                                                   f32& OutPitch) noexcept;
+
+    /** DestroySlot が source channel metadata を空状態へ戻すか検証する。 */
+    static bool DestroySlotResetsSourceChannelsForTesting() noexcept;
+
     /** lifecycle 共有操作を決定的に停止させる専用テスト hook。 */
-    static void ConfigureLifecycleOperationTestGate(TAtomic<u32>* Entered,
-                                                    TAtomic<u32>* Release) noexcept;
+    static void ConfigureLifecycleOperationTestGate(TAtomic<u32>* Entered, TAtomic<u32>* Release) noexcept;
 
     /** Shutdown 要求が新規共有操作を閉じているかを返す。 */
     bool IsShutdownRequestedForTesting() const noexcept;

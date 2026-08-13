@@ -82,6 +82,10 @@ scripting_test_macro_directive_re = re.compile(
 # 製品配布から除くScripting境界をfileとmacroの一組に固定する。
 DISTRIBUTION_TEST_ONLY_PATH = "scripting/LuaVm.h"
 DISTRIBUTION_TEST_ONLY_MACRO = "ACS_SCRIPTING_TEST_HOOKS"
+DISTRIBUTION_TEST_ONLY_BOUNDARIES = {
+    DISTRIBUTION_TEST_ONLY_PATH: DISTRIBUTION_TEST_ONLY_MACRO,
+    "gameframework/SpatialAudio.h": "ACS_GAMEFRAMEWORK_TEST_HOOKS",
+}
 
 # 単一header利用者がWindows SDKから自動linkするsystem library契約。
 WINDOWS_SYSTEM_LIBRARIES = (
@@ -197,11 +201,7 @@ def classify_quoted_include(source_rel, requested, resolved_target):
 def strip_distribution_test_only_blocks(source_rel, lines):
     """許可したtest専用blockだけを配布入力から厳密に除く。"""
 
-    expected_macro = (
-        DISTRIBUTION_TEST_ONLY_MACRO
-        if source_rel == DISTRIBUTION_TEST_ONLY_PATH
-        else None
-    )
+    expected_macro = DISTRIBUTION_TEST_ONLY_BOUNDARIES.get(source_rel)
     seen_count = 0
     output = []
     active_macro = None
@@ -584,6 +584,10 @@ def run_self_test():
         test_macro not in rendered_source
         and "SetNextNativeRegistrationIdToMaximumForTest" not in rendered_source,
         "Scripting test-only boundary entered the generated source",
+    )
+    require_self_test(
+        "SetNextSourceIdForTesting" not in rendered_source,
+        "SpatialAudio test-only boundary entered the generated source",
     )
     for private_header in EXCLUDE_PATHS:
         require_self_test(

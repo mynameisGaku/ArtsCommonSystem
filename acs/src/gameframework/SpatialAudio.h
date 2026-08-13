@@ -175,6 +175,7 @@ public:
     /**
      * listener 状態を保持する (pan 算出に使う)。
      *
+     * @details position / forward / up の非有限成分は 0 に置き換える。
      * @param listener 現在の listener 状態。
      */
     void         SetListener(const FAudioListener& listener) noexcept override;
@@ -182,10 +183,12 @@ public:
     /**
      * mono 入力に constant-power パン + 距離減衰を掛けて stereo 出力する。
      *
+     * @details source 座標の非有限成分は 0、volume の非有限値は 0 に置き換えて [0, 1] に制限する。
+     * mono 入力の非有限サンプルは 0 とし、出力は常に有限値にする。
      * @param source 処理対象の 3D 音源 (active==false なら 0 埋め)。
-     * @param mono_input mono 入力サンプル (sample_count 要素)。
+     * @param mono_input mono 入力サンプル (sample_count 要素、nullptr なら出力を変更しない)。
      * @param stereo_output 出力先 (interleaved、sample_count * 2 要素書き込む)。
-     * @param sample_count 入力サンプル数。
+     * @param sample_count 入力サンプル数 (0 なら出力を変更しない)。
      */
     void         ProcessSource(const FAudioSource3D& source,
                                const f32* mono_input,
@@ -233,6 +236,7 @@ public:
     /**
      * listener (耳位置と向き) を設定する。
      *
+     * @details position / forward / up の非有限成分は 0 に置き換える。
      * @param l 新しい listener 状態。
      */
     void                 SetListener(const FAudioListener& l) noexcept;
@@ -247,10 +251,11 @@ public:
     /**
      * 新規 source を登録する。
      *
-     * @param pos source の初期世界座標。
-     * @param max_distance culling 距離 (<= 0 は既定 20m にクランプ)。
+     * @param pos source の初期世界座標 (非有限成分は 0)。
+     * @param max_distance culling 距離 (非有限または <= 0 は既定 20m)。
      * @param curve 距離減衰カーブ種別。
-     * @return 払い出した source_id (1.. の単調増加)。
+     * @return 払い出した source_id (1..UINT32_MAX の単調増加)。
+     * UINT32_MAX 払い出し後は ID 空間を永久に枯渇扱いとし、0 を返して追加しない。
      */
     u32  RegisterSource(FVec3 pos, f32 max_distance,
                         EAttenuationCurve curve) noexcept;
@@ -258,7 +263,7 @@ public:
     /**
      * source の位置 / 速度を更新する。
      *
-     * @details stale ID は no-op (警告ログのみ)。
+     * @details position / velocity の非有限成分は 0 に置き換える。stale ID は no-op (警告ログのみ)。
      * @param id 更新対象の source_id。
      * @param pos 新しい世界座標。
      * @param vel 新しい速度 (既定はゼロ)。
@@ -268,7 +273,7 @@ public:
     /**
      * source の基準ゲインを変更する。
      *
-     * @details 範囲外は [0, 1] に clamp し警告ログを出す。stale ID は no-op。
+     * @details 非有限値は 0、範囲外は [0, 1] に clamp し警告ログを出す。stale ID は no-op。
      * @param id 対象の source_id。
      * @param v 新しい基準ゲイン [0, 1]。
      */
@@ -286,7 +291,7 @@ public:
      * listener との距離と curve から算出した最終 volume を返す。
      *
      * @param id 対象の source_id。
-     * @return 最終 volume [0, 1]。無効 ID / inactive / dist >= max_distance では 0。
+     * @return 有限な最終 volume [0, 1]。無効 ID / inactive / dist >= max_distance では 0。
      */
     f32  ComputeAttenuatedVolume(u32 id) const noexcept;
 
@@ -294,7 +299,7 @@ public:
      * listener 基準の左右パンを返す。
      *
      * @param id 対象の source_id。
-     * @return パン値 (-1 = 完全左、0 = 正面 / 真後ろ、+1 = 完全右)。無効 ID / inactive で 0。
+     * @return 有限なパン値 [-1, 1] (-1 = 完全左、0 = 正面 / 真後ろ、+1 = 完全右)。無効 ID / inactive で 0。
      */
     f32  ComputePan(u32 id) const noexcept;
 
@@ -316,7 +321,22 @@ public:
     /** 全 source を空にする (listener は保持、source_id カウンタは継続)。 */
     void Clear() noexcept;
 
+#if defined(ACS_GAMEFRAMEWORK_TEST_HOOKS)
+    /** 次に払い出す source ID を境界値に設定するテスト専用 hook。 */
+    void SetNextSourceIdForTesting(u32 next_source_id) noexcept;
+#endif
+
 private:
+    friend class CAudioDirector;
+
+    /**
+     * source ID が現在登録されているかを返す。
+     *
+     * @param id 確認する source ID。
+     * @return active な登録があれば true。0、削除済み、未登録なら false。
+     */
+    bool HasSource(u32 id) const noexcept;
+
     /**
      * source_id を index に線形検索で変換する。
      *

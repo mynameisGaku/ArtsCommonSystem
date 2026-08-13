@@ -75,6 +75,7 @@ add_executable(acs_unit_tests
     reflect_apply_tests.cpp
     spatialaudio2d_tests.cpp
     audio_backend_tests.cpp
+    spatial_audio_voice_tests.cpp
     scene_serialize_tests.cpp
     scene_timer_handle_tests.cpp
     component_factory_tests.cpp

@@ -142,6 +142,31 @@ scene では原点・等倍を使う。
 pixels-per-unit だけである。`CCamera2D` が保持する rotation はこの scene 描画と
 scene picking 経路には反映されない。
 
+### 3D SFX と音声 backend
+
+app が `IAudioBackend` を所有し、backend は voice resources と内部コピーした PCM を所有する。
+`CAudioDirector` は backend を非所有参照する。scene は `CSpatialAudio`、source ID、
+`FAudioVoiceHandle` の対応を所有する。scene 終了時は `StopVoice(handle)` を先に呼び、その後に
+`RemoveSource()` / `Clear()` / scene 破棄を行う。
+backend は Director からの最終利用まで生存させる。backend の切断または破棄時は scene の voice を
+`StopVoice()` で停止し、残る voice を `StopAllVoices()` で停止してから `SetBackend(nullptr)` を呼ぶ。
+その後に backend を `Shutdown()` / 破棄し、Director に破棄済み backend の参照を残さない。
+
+`CSpatialAudio` の登録・更新・削除と voice parameter の読出しは scene/update thread で
+呼び出し側が直列化する。backend 呼び出し以降だけを backend 内部で同期し、この結線を
+thread-safe とは扱わない。
+
+- `PlaySfxClip()` で voice を開始した同じ frame に `UpdateSpatialSfxVoice()` を呼び、その後も
+  listener または source の移動後に毎 frame 呼ぶ。`Pause()` 中も呼ぶことで音量 0 を反映し、
+  `Resume()` 後の次回更新で距離減衰後の音量へ戻す。
+- 更新音量は Master、Sfx、source の基準音量、距離減衰を合成する。削除済み source と無効 voice
+  は Director から backend へ渡さず、解放済み voice は backend が安全な no-op として扱う。
+  source の解除だけでは対応 voice を自動停止しない。
+- XAudio2 backend の左右 pan は mono source と、左右 front speaker を識別できる出力だけに
+  適用する。stereo または多 channel source、出力 channel mask を取得できない環境では既存の
+  matrix を保ち、音量と pitch だけを更新する。
+- この更新は Doppler pitch を計算しない。呼び出し側が渡した有限な pitch だけを反映する。
+
 ### 2D collision
 
 `CCollisionWorld2D` は既存の math collision primitive と一様 grid を組み合わせる。
