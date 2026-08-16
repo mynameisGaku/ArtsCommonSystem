@@ -178,6 +178,7 @@ add_executable(acs_unit_tests
     projectile_reentrancy_tests.cpp
     anode_tests.cpp
     camera3d_tests.cpp
+    light_component3d_tests.cpp
     camerastack_tests.cpp
     collisionworld2d_tests.cpp
     particleeffect_tests.cpp
