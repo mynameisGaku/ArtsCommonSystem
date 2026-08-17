@@ -758,8 +758,10 @@ bool ALegacyScene3DAdapter::AddWaterWake(
 void ALegacyScene3DAdapter::OnEnter() noexcept {
     GetGame().SetClearColor(0.025f, 0.035f, 0.055f, 1.0f);
     // Keep lighting, visible sky, fog and water reflection on one authored
-    // environment. The simple CSky cloud layer stays disabled here: the
-    // production volumetric-cloud system is a separate scene feature.
+    // environment. 太陽の向きと色は毎フレーム UpdateSkyFromSun() が上書きするので、
+    // ここで設定するのは «光が 1 灯も無いときの見え方» の初期値にあたる。
+    // 雲は既定で切ってある。使いたい場面が Sky().SetCloudsEnabled(true) で入れる
+    // (本格的なボリューメトリック雲は別機能)。
     m_Sky.PresetDay();
     m_Sky.SetSunDirection(Normalize(kDefaultSunDirection));
     m_Sky.SetSunColor(kDefaultSkySunColor);
@@ -838,6 +840,7 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     UpdateCameraProjection(context.Width(), context.Height());
     UpdateCameraView();
     CollectSceneLights();
+    UpdateSkyFromSun();
 
     CRenderer& renderer = context.GetRenderer();
     IRhiDevice* device = renderer.Device();
@@ -1020,6 +1023,28 @@ void ALegacyScene3DAdapter::CollectSceneLights() noexcept {
         ACS_LOG_WARN("Scene3D: %u lights exceeded the shader limit and were dropped",
                      m_Lights.DroppedCount());
     }
+}
+
+void ALegacyScene3DAdapter::UpdateSkyFromSun() noexcept {
+    m_Sky.SetSunDirection(SunDirection());
+
+    // 空に描く太陽の色は «明るさ» ではなく «色味»。光の色は強さが掛かっているので、
+    // 一番大きい成分を 1 に揃えてから渡す。そうしないと強い光で太陽が白く飛ぶ。
+    if (m_Lights.DirectionalCount() == 0u) {
+        m_Sky.SetSunColor(kDefaultSkySunColor);
+        return;
+    }
+
+    const FVec3 color = m_Lights.DirectionalLights()[0].color;
+    f32 peak = color.x > color.y ? color.x : color.y;
+    if (color.z > peak) peak = color.z;
+    if (peak <= 0.0f) {
+        m_Sky.SetSunColor(kDefaultSkySunColor);
+        return;
+    }
+
+    const f32 scale = 1.0f / peak;
+    m_Sky.SetSunColor(FVec3{color.x * scale, color.y * scale, color.z * scale});
 }
 
 FVec3 ALegacyScene3DAdapter::SunDirection() const noexcept {

@@ -92,6 +92,26 @@ public:
     /** Active camera projection. */
     ESceneProjectionMode ProjectionMode() const noexcept { return m_Projection; }
 
+    /**
+     * 空の設定を触る (雲・色・太陽の見た目・時刻)。
+     *
+     * @details
+     * **太陽の向きと色は毎フレーム上書きされる。** シーンに平行光源があればそれに、
+     * 無ければ既定の太陽に合わせる。空だけ別の方角に太陽を描くと、物の陰りと
+     * 食い違って «何かおかしい» 画になるため。
+     *
+     * それ以外 (雲の量・風・地平の色・時刻) は好きに設定してよい。
+     * @return 空。
+     */
+    CSky& Sky() noexcept { return m_Sky; }
+
+    /**
+     * 空の設定を読む。
+     *
+     * @return 空。
+     */
+    const CSky& Sky() const noexcept { return m_Sky; }
+
     /** Camera used for standalone preview/gameplay. */
     CCamera& Camera() noexcept { return m_Camera; }
 
@@ -293,6 +313,15 @@ private:
 
     /** シーンに置かれた光を集め直す (毎フレーム、描画の前に呼ぶ)。 */
     void CollectSceneLights() noexcept;
+
+    /**
+     * 空の太陽を、いま使っている光へ合わせる (毎フレーム)。
+     *
+     * @details
+     * 空に描かれる太陽の位置と、物の陰りを作る光は同じものでなければならない。
+     * 別々に持つと、太陽が右にあるのに影が右へ伸びる、といった画になる。
+     */
+    void UpdateSkyFromSun() noexcept;
 
     /**
      * いま使っている太陽の向きを返す。
