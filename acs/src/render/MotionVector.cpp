@@ -182,12 +182,17 @@ TResult<void> CMotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noe
     if (nr.IsErr()) return Err<void>(nr.Error());
     m_Normal = Move(nr.Value());
 
-    // 内部 depth: occlusion 判定用 (SRV は不要)。
+    // 内部 depth: occlusion 判定用。SRV も張る。
+    //
+    // このパスは normal と «同じ幾何・同じ VP (jitter なし)» で深度を書くので、
+    // **SSAO/GTAO が要求する深度そのもの**になっている。読めないと、SSAO を使う側が
+    // 深度だけのために同じ幾何をもう一度描く羽目になる。
     FTextureDesc dd{};
     dd.width  = w;
     dd.height = h;
     dd.format = EFormat::D32_Float;
     dd.is_depth_target = true;
+    dd.shader_visible_depth = true;
     auto dr = CreateRhiTexture(device, dd);
     if (dr.IsErr()) return Err<void>(dr.Error());
     m_Depth = Move(dr.Value());

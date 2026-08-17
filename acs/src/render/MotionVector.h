@@ -142,6 +142,18 @@ public:
      */
     IRhiTexture* OutputNormalTexture() const noexcept { return m_Normal.Get(); }
 
+    /**
+     * このパスが書いた深度を返す。
+     *
+     * @details
+     * normal と同じ幾何・同じ VP (jitter なし) で書いた深度なので、**`CSsao::Render` が
+     * 要求する深度と normal が対で揃う。** 読めないと、SSAO を使う側が深度のためだけに
+     * 同じ幾何をもう一度描くことになる。
+     *
+     * @return 深度 RT (D32_Float、SRV あり)。Init 前は nullptr。
+     */
+    IRhiTexture* DepthTexture() const noexcept { return m_Depth.Get(); }
+
 private:
     /**
      * 出力 RT (motion + normal) と内部 depth を生成する。

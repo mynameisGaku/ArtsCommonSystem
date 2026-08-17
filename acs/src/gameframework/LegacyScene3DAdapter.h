@@ -8,6 +8,8 @@
 #include "gameframework/LightCollector3D.h"
 #include "render/ShadowMap.h"
 #include "render/Ibl.h"
+#include "render/MotionVector.h"
+#include "render/Ssao.h"
 #include "render/Atmosphere.h"
 #include "gameframework/SceneNodeGraph.h"
 #include "gameframework/Scene3DSerialize.h"
@@ -74,6 +76,34 @@ enum class ESceneProjectionMode : u8 {
  * 濃さ 1 つで画の締まりが大きく変わる。既定はうっすら掛かる程度。
  * 高さの効き方は「基準の高さより上ほど薄い」。
  */
+/**
+ * 画面空間の遮蔽 (SSAO / GTAO) の設定。
+ *
+ * @details
+ * **物が «床に乗っている» ように見えるかは、ほぼこれで決まる。** 平行光源と環境光だけでは、
+ * 物と床が接するところに何も落ちない。影の地図は解像度の都合で接地点まで届かず、
+ * 置いてあるのか浮いているのかが読めなくなる。
+ *
+ * 同じパスで contact shadow (太陽方向への短い march) も出る。
+ */
+struct FScene3DAmbientOcclusion {
+    /**
+     * 遮蔽の強さ。0 で切る。
+     *
+     * @details 1.0 が素直な強さ。上げると «汚れ» に見え始める。
+     */
+    f32 Intensity = 1.0f;
+
+    /**
+     * 遮蔽を探す最大の半径 (世界の単位)。
+     *
+     * @details
+     * **場面の大きさに合わせる。** 人が立つ場面なら 0.5 前後、机の上なら 0.1、
+     * 街なら数メートル。大きすぎると陰が広く薄くのび、小さすぎると何も出ない。
+     */
+    f32 Radius = 0.5f;
+};
+
 /**
  * 下層の上に重ねる、もう 1 枚の高い雲。
  *
@@ -254,6 +284,26 @@ public:
      * @return 雲の設定 (次のフレームから効く)。
      */
     FScene3DClouds& Clouds() noexcept { return m_CloudParams; }
+
+    /**
+     * 遮蔽 (SSAO) の設定を触る。
+     *
+     * @details
+     * **物が «床に乗っている» ように見えるかは、ほぼここで決まる。** 平行光源と環境光だけだと、
+     * 物と床の接するところに何も落ちず、置いてあるのか浮いているのか読めない。
+     *
+     * @return 遮蔽の設定 (次のフレームから効く)。
+     */
+    FScene3DAmbientOcclusion& AmbientOcclusion() noexcept { return m_SsaoParams; }
+
+    /**
+     * 遮蔽の設定を読む。
+     *
+     * @return 現在の設定。
+     */
+    const FScene3DAmbientOcclusion& AmbientOcclusion() const noexcept {
+        return m_SsaoParams;
+    }
 
     /**
      * 雲の設定を読む。
@@ -588,6 +638,37 @@ private:
     bool EnsureShadowMap(IRhiDevice& device) noexcept;
 
     /**
+     * 遮蔽 (SSAO) の描き込み先を用意する。画面の大きさが変わったら作り直す。
+     *
+     * @param device 生成に使うデバイス。
+     * @param width 画面の幅。
+     * @param height 画面の高さ。
+     * @return 使える状態なら true。
+     */
+    bool EnsureAmbientOcclusion(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * 遮蔽を計算する前段として、法線と深度を先に描く。
+     *
+     * @details
+     * `CSsao` は «同じ幾何の法線と深度» を要求する。`CMotionVector` のパスが
+     * その 2 つを 1 度で書くので、それを使う。
+     *
+     * @param context 描画文脈。
+     * @return 全部描けたら true。1 つでも欠けたら false (欠けた遮蔽は使わない)。
+     */
+    bool RenderNormalDepthPrepass(FRenderContext& context) noexcept;
+
+    /**
+     * 前段の法線と深度から遮蔽を計算する。
+     *
+     * @param device 描画に使うデバイス。
+     * @param context 描画文脈。
+     * @return 遮蔽が使える状態になったら true。
+     */
+    bool RenderAmbientOcclusionPass(IRhiDevice& device, FRenderContext& context) noexcept;
+
+    /**
      * 空から環境光を焼く (必要なときだけ)。
      *
      * @details
@@ -794,6 +875,7 @@ private:
 
     /** 雲の設定。 */
     FScene3DClouds m_CloudParams{};
+    FScene3DAmbientOcclusion m_SsaoParams{};
 
     /** 雲を使える状態にできたか。 */
     bool m_CloudsReady = false;
@@ -833,6 +915,24 @@ private:
 
     /** このフレームで影を描けたか (描けなければ PBR 側も影を切る)。 */
     bool m_ShadowDrawn = false;
+
+    /** 法線と深度を先に描くパス。遮蔽の材料になる。 */
+    CMotionVector m_NormalDepth;
+
+    /** 画面空間の遮蔽 (GTAO + contact shadow)。 */
+    CSsao m_Ssao;
+
+    /** 遮蔽の描き込み先を用意できたか。 */
+    bool m_SsaoReady = false;
+
+    /** このフレームで遮蔽を計算できたか。 */
+    bool m_SsaoDrawn = false;
+
+    /** 用意してある遮蔽の大きさ。画面がこれと違ったら作り直す。 */
+    u32 m_SsaoWidth = 0u;
+
+    /** 用意してある遮蔽の大きさ。 */
+    u32 m_SsaoHeight = 0u;
 
     CCamera m_Camera;
     FScene3DCameraState m_AuthoredCamera{};

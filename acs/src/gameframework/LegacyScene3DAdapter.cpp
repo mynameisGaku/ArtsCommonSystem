@@ -887,6 +887,9 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     if (EnsureShadowMap(*device)) (void)RenderShadowPass(context);
     else m_ShadowDrawn = false;
 
+    // 法線と深度を先に描いて遮蔽を出す。PBR パスがこれを読むので、必ずその «前» に。
+    (void)RenderAmbientOcclusionPass(*device, context);
+
     // 雲を計算する。描画パスの外で回す (結果は雲自身のテクスチャへ書かれる)。
     RenderClouds(*device, context.Cmd(), context.Width(), context.Height());
 
@@ -1307,6 +1310,121 @@ bool ALegacyScene3DAdapter::EnsureShadowMap(IRhiDevice& device) noexcept {
     return true;
 }
 
+bool ALegacyScene3DAdapter::EnsureAmbientOcclusion(
+    IRhiDevice& device, u32 width, u32 height) noexcept {
+    if (width == 0u || height == 0u) return false;
+    if (m_SsaoReady && m_SsaoWidth == width && m_SsaoHeight == height) return true;
+
+    if (!m_SsaoReady) {
+        if (m_NormalDepth.Init(device, width, height).IsErr()) {
+            ACS_LOG_WARN("Scene3D: normal/depth prepass init failed; SSAO stays off");
+            return false;
+        }
+        if (m_Ssao.Init(device, width, height).IsErr()) {
+            ACS_LOG_WARN("Scene3D: SSAO init failed; SSAO stays off");
+            m_NormalDepth.Shutdown();
+            return false;
+        }
+        m_SsaoReady = true;
+    } else {
+        // 画面の大きさが変わった。作り直せなかったら切る。古い大きさのまま読むと
+        // 遮蔽が画面とずれて «物と関係の無い位置に汚れ» が出る。
+        if (m_NormalDepth.Resize(width, height).IsErr() ||
+            m_Ssao.Resize(width, height).IsErr()) {
+            ACS_LOG_WARN("Scene3D: SSAO resize failed; SSAO stays off");
+            m_SsaoReady = false;
+            m_Ssao.Shutdown();
+            m_NormalDepth.Shutdown();
+            return false;
+        }
+    }
+
+    m_SsaoWidth = width;
+    m_SsaoHeight = height;
+    return true;
+}
+
+bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(
+    FRenderContext& context) noexcept {
+    if (!m_SsaoReady) return false;
+
+    // 描く数を先に数える。object CB の入れ物は使い回しなので、足りないまま描くと
+    // 後ろのメッシュの法線が黙って抜け、そこだけ遮蔽が付かない。
+    u32 mesh_count = 0u;
+    TArray<const ANode*> count_stack;
+    if (!count_stack.TryAdd(&Graph().Root())) return false;
+    while (!count_stack.IsEmpty()) {
+        const ANode* node = count_stack.Last();
+        count_stack.Pop();
+        if (node == nullptr) continue;
+        if (const AMeshComponent3D* component = FindMesh(*node)) {
+            if (GpuMeshFor(*component) != nullptr) ++mesh_count;
+        }
+        for (u32 index = 0u; index < node->ChildCount(); ++index)
+            if (!count_stack.TryAdd(node->Child(index))) return false;
+    }
+    if (mesh_count == 0u) return false;
+    if (!m_NormalDepth.BeginFrame(mesh_count)) return false;
+
+    IRhiCommandList& command_list = context.Cmd();
+    // 動きは使わない (遮蔽が要るのは法線と深度だけ)。前フレームの行列に現フレームの
+    // ものを渡して、動き量を 0 にしておく。
+    const FMat4 view_projection = m_Camera.ViewProjection();
+    if (!m_NormalDepth.Begin(command_list, view_projection, view_projection))
+        return false;
+
+    bool complete = true;
+    TArray<const ANode*> stack;
+    if (!stack.TryAdd(&Graph().Root())) {
+        m_NormalDepth.End(command_list);
+        return false;
+    }
+    while (!stack.IsEmpty()) {
+        const ANode* node = stack.Last();
+        stack.Pop();
+        if (node == nullptr) continue;
+
+        for (u32 index = 0u; index < node->ChildCount(); ++index)
+            if (!stack.TryAdd(node->Child(index))) { complete = false; break; }
+
+        const AMeshComponent3D* const component = FindMesh(*node);
+        if (component == nullptr) continue;
+
+        const FGpuMesh* const gpu = GpuMeshFor(*component);
+        if (gpu == nullptr || !gpu->vertex_buffer || !gpu->index_buffer) continue;
+
+        const FMat4 model = node->World().ToMat4();
+        if (!m_NormalDepth.DrawMesh(command_list, *gpu, model, model))
+            complete = false;
+    }
+    m_NormalDepth.End(command_list);
+    return complete;
+}
+
+bool ALegacyScene3DAdapter::RenderAmbientOcclusionPass(
+    IRhiDevice& device, FRenderContext& context) noexcept {
+    m_SsaoDrawn = false;
+    if (m_SsaoParams.Intensity <= 0.0f) return false;
+    if (!EnsureAmbientOcclusion(device, context.Width(), context.Height()))
+        return false;
+    if (!RenderNormalDepthPrepass(context)) return false;
+
+    IRhiTexture* const prepass_depth = m_NormalDepth.DepthTexture();
+    IRhiTexture* const prepass_normal = m_NormalDepth.OutputNormalTexture();
+    if (prepass_depth == nullptr || prepass_normal == nullptr) return false;
+
+    const FMat4 view_projection = m_Camera.ViewProjection();
+    m_Ssao.Render(
+        device, context.Cmd(), *prepass_depth, *prepass_normal,
+        view_projection, Inverse(view_projection), m_Camera.View(),
+        m_Camera.Eye(), SunDirection(),
+        m_SsaoParams.Intensity,
+        m_SsaoParams.Radius > 0.0f ? m_SsaoParams.Radius : 0.5f);
+
+    m_SsaoDrawn = m_Ssao.OutputTexture() != nullptr;
+    return m_SsaoDrawn;
+}
+
 bool ALegacyScene3DAdapter::RenderShadowPass(FRenderContext& context) noexcept {
     m_ShadowDrawn = false;
     if (!m_ShadowReady) return false;
@@ -1454,6 +1572,16 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
                             kShadowDepthBias, 1.0f / static_cast<f32>(kShadowMapSize));
     } else {
         shader.SetShadowMap(nullptr, FMat4{});
+    }
+
+    // 遮蔽。物と床が接するところを締める。影の地図は解像度の都合でそこまで届かず、
+    // これが無いと «置いてあるのか浮いているのか» が読めない。
+    // 影と同じく、描けなかったフレームは切る (前のフレームの遮蔽は画面とずれている)。
+    if (m_SsaoDrawn) {
+        shader.SetSsao(m_Ssao.OutputTexture(), m_SsaoParams.Intensity,
+                       m_SsaoWidth, m_SsaoHeight);
+    } else {
+        shader.SetSsao(nullptr, 0.0f, 1u, 1u);
     }
     // 霧。場面から触れる (Fog())。高さの基準を決めていなければシーンの位置から自動で。
     const f32 fog_base = m_Fog.HeightBase == FLT_MAX

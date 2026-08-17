@@ -52366,6 +52366,438 @@ using FImageBasedLighting = CImageBasedLighting;
 
 } // namespace acs
 
+// ===================== render/MotionVector.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * motion vector + world-space normal の G-buffer geometry pass。
+ *
+ * @details
+ * シーンの全 mesh を再ラスタライズし、MRT 2 枚 (motion RG16F + normal RGBA16F) を
+ * 書き出す。motion は screen-space motion vector (prev_uv - curr_uv) で camera 動きと
+ * object 動きの両方を含み、TAA が history を正確に reproject して ghost/trail を消す。
+ * normal は頂点法線をピクセル補間した world-space 法線で、SSR/SSGI/SSAO が sample する。
+ * CShadowMap と同じ Begin/DrawMesh/End パターンで、occlusion 用 depth を内部に持つ。
+ */
+class CMotionVector {
+public:
+    /**
+     * 空状態で構築する (GPU リソースは Init で確保)。
+     *
+     * @param object_pool_allocator 可変長 object-CB 所有配列の allocator。
+     *        通常は既定値を使い、failure-injection tests だけ差し替える。
+     */
+    explicit CMotionVector(
+        IAllocator& object_pool_allocator = DefaultAllocator()) noexcept
+        : m_Cbs(object_pool_allocator) {}
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~CMotionVector() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    CMotionVector(const CMotionVector&)            = delete;
+
+    /** コピー代入も禁止。 */
+    CMotionVector& operator=(const CMotionVector&) = delete;
+
+    /**
+     * GPU リソース (RT 2 枚 + depth + パイプライン) を確保する。
+     *
+     * @param device RT・パイプライン生成に使う RHI デバイス。
+     * @param width 出力 G-buffer の幅。
+     * @param height 出力 G-buffer の高さ。
+     * @return 成功なら空の TResult、確保失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
+    void Shutdown() noexcept;
+
+    /**
+     * 解像度変更時に内部 RT を作り直す (ウィンドウリサイズで呼ぶ)。
+     *
+     * @param width 新しい出力 G-buffer の幅。
+     * @param height 新しい出力 G-buffer の高さ。
+     * @return 成功なら空の TResult、再確保失敗ならエラー。
+     */
+    TResult<void> Resize(u32 width, u32 height) noexcept;
+
+    /**
+     * Start one logical command-list frame and reserve immutable object CBs.
+     *
+     * @details The retained pool grows geometrically and never shrinks between
+     * frames. Reserve before Begin() so large scenes do not allocate from
+     * inside an active render pass. A failed growth leaves every existing
+     * buffer usable and the caller must skip publishing this frame's motion
+     * output; a later BeginFrame() can retry.
+     *
+     * @param required_draws Exact number of eligible motion meshes, or a safe
+     *        upper bound when exact counting is more expensive. UINT32_MAX is
+     *        reserved as the invalid cursor sentinel and is rejected.
+     * @return true when the complete requested pool is available.
+     */
+    bool BeginFrame(u32 required_draws = 0u) noexcept;
+
+    /** Number of persistent per-object buffers currently retained. */
+    u32 ObjectBufferCapacity() const noexcept {
+        return static_cast<u32>(m_Cbs.Num());
+    }
+
+    /** Successfully recorded object draws since the latest BeginFrame/Begin. */
+    u32 ObjectDrawCount() const noexcept { return m_DrawCursor; }
+
+    /**
+     * モーションパスを開始する (motion RT を 0 クリア + 内部 depth を bind してパイプライン設定)。
+     *
+     * @details motion vector は jitter なしの VP で計算する (TAA jitter は color pass 専用)。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param view_proj 現フレームの jitter なし VP。
+     * @param prev_view_proj 前フレームの jitter なし VP。
+     * @return true only when both MRT attachments and depth were bound. A
+     *         false result leaves the pass inactive; DrawMesh() and End()
+     *         become no-ops until a later successful Begin().
+     */
+    bool Begin(IRhiCommandList& cl,
+               const FMat4& view_proj, const FMat4& prev_view_proj) noexcept;
+
+    /**
+     * 1 mesh の motion vector を描画する。
+     *
+     * @details 静的 mesh は prev_model に model と同値を渡す。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param mesh 描画する GPU mesh。
+     * @param model 現フレームの model 行列。
+     * @param prev_model 前フレームの model 行列。
+     * @return true only when a complete indexed draw was recorded. false
+     *         means the frame's motion output is incomplete and must not be
+     *         consumed as authoritative TAA/SSR/SSGI history.
+     */
+    bool DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
+                  const FMat4& model, const FMat4& prev_model) noexcept;
+
+    /**
+     * モーションパスを終了する (main pass の RT へ復帰)。
+     *
+     * @param cl コマンドを積むコマンドリスト。
+     */
+    void End(IRhiCommandList& cl) noexcept;
+
+    /**
+     * 出力 motion vector テクスチャを返す。
+     *
+     * @return motion RT (RG16F、.rg = prev_uv - curr_uv)。
+     */
+    IRhiTexture* OutputTexture() const noexcept { return m_Motion.Get(); }
+
+    /**
+     * 出力 world-space normal テクスチャを返す。
+     *
+     * @return normal RT (RGBA16F、.xyz = normalized world normal)。
+     */
+    IRhiTexture* OutputNormalTexture() const noexcept { return m_Normal.Get(); }
+
+    /**
+     * このパスが書いた深度を返す。
+     *
+     * @details
+     * normal と同じ幾何・同じ VP (jitter なし) で書いた深度なので、**`CSsao::Render` が
+     * 要求する深度と normal が対で揃う。** 読めないと、SSAO を使う側が深度のためだけに
+     * 同じ幾何をもう一度描くことになる。
+     *
+     * @return 深度 RT (D32_Float、SRV あり)。Init 前は nullptr。
+     */
+    IRhiTexture* DepthTexture() const noexcept { return m_Depth.Get(); }
+
+private:
+    /**
+     * 出力 RT (motion + normal) と内部 depth を生成する。
+     *
+     * @param device RT 生成に使う RHI デバイス。
+     * @param w 出力幅。
+     * @param h 出力高さ。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept;
+
+    /**
+     * G-buffer 描画用の VS/PS/PSO を生成する。
+     *
+     * @param device パイプライン生成に使う RHI デバイス。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
+
+    /** Grow the persistent object-CB pool without invalidating old entries. */
+    bool EnsureObjectCapacity(u32 required_draws) noexcept;
+
+    /** Init で受け取った device (Resize で再利用)。 */
+    IRhiDevice*             m_Device = nullptr;
+
+    /** 出力 G-buffer の幅。 */
+    u32                     m_Width  = 0;
+
+    /** 出力 G-buffer の高さ。 */
+    u32                     m_Height = 0;
+
+    /** Begin で渡された現フレーム VP。 */
+    FMat4                    m_Vp{};
+
+    /** Begin で渡された前フレーム VP。 */
+    FMat4                    m_PrevVp{};
+
+    /** 出力 motion RT (RG16F、screen-space motion = prev_uv - curr_uv)。 */
+    TUniquePtr<IRhiTexture>  m_Motion;
+
+    /** 出力 normal RT (RGBA16F、world-space normal の .xyz)。 */
+    TUniquePtr<IRhiTexture>  m_Normal;
+
+    /** occlusion 用の内部 depth (D32、scene depth とは共有しない)。 */
+    TUniquePtr<IRhiTexture>  m_Depth;
+
+    /** G-buffer 描画の頂点シェーダ。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** motion vector と world normal を書き出すピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_Ps;
+
+    /** G-buffer 描画のパイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+
+    /**
+     * Persistent growable per-draw constant-buffer pool.
+     *
+     * A single mapped upload CB cannot be overwritten between draws in one
+     * command list: raw DX12 consumes it later on the GPU and every draw would
+     * otherwise observe the final object's matrices. The old fixed 256-entry
+     * ring silently lost motion for the rest of a large scene; this pool is
+     * reserved before the pass and grows geometrically when needed.
+     */
+    static constexpr u32     kInitialObjectBufferCapacity = 64u;
+    static constexpr u32     kInvalidObjectBuffer = ~u32{0};
+    TArray<TUniquePtr<IRhiBuffer>> m_Cbs;
+    u32                      m_DrawCursor = 0;
+    bool                     m_CapacityFailureLogged = false;
+
+    /**
+     * True only between a successful MRT Begin and its matching End.
+     *
+     * The RHI can reject an attachment set without changing backend state.
+     * Keeping that result here prevents stale-target draws and prevents End
+     * from unbinding or transitioning resources that were never bound.
+     */
+    bool                     m_PassActive = false;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FMotionVector = CMotionVector;
+
+
+} // namespace acs
+
+// ===================== render/Ssao.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// Screen-Space Ambient Occlusion
+//
+// HBAO-lite: depth-only horizon-based AO。各 pixel から N 方向に screen-space で
+// march して horizon angle を求め、ambient occlusion を出す。
+//
+// 出力は R8G8B8A8_UNorm の RT。.r = AO visibility、.g = contact shadow
+// (ともに 1=照明 / 0=遮蔽)。CPbrShader が .r を ambient、.g を direct light に乗算する。
+//
+// 制限:
+//   - 法線は CMotionVector の normal G-buffer (world normal) を view 空間へ変換して
+//     使う (depth 微分 cross(ddx,ddy) は faceted で AO がブロック状になる)
+//   - 単純な uniform random direction、Halton 等の low-discrepancy 未使用
+//   - 6 direction × 6 step = 36 sample / pixel
+//   - depth-aware bilateral blur pass で raw → blurred を生成。
+//     OutputTexture() は blur 後を返す。
+
+
+namespace acs {
+
+/**
+ * depth ベースの Screen-Space Ambient Occlusion (GTAO + contact shadow)。
+ *
+ * @details
+ * 各 pixel で view ベクトルに対する両側の horizon angle を screen-march で求め、
+ * 法線を slice 平面に射影した角度を使って cosine-weighted visibility を analytical に
+ * 積分する (GTAO)。同時に dir light 0 方向へ短距離 ray march して接地影 (contact shadow)
+ * を求める。出力は R8G8B8A8_UNorm で .r=AO visibility、.g=contact shadow (ともに 1=照明 /
+ * 0=遮蔽)。raw → depth-aware bilateral blur の 2 pass で生成し、OutputTexture() は blur 後を返す。
+ */
+class CSsao {
+public:
+    /** Backend-compiled shader handles awaiting owner-thread PSO creation. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> pixel;
+        TUniquePtr<IRhiShader> blur_pixel;
+
+        /** Aggregate a backend-managed asynchronous compile without waiting. */
+        EShaderStatus Status() const noexcept;
+    };
+
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    CSsao() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~CSsao() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    CSsao(const CSsao&) = delete;
+
+    /** コピー代入も禁止。 */
+    CSsao& operator=(const CSsao&) = delete;
+
+    /**
+     * 出力 RT・パイプライン・定数バッファを生成する。
+     *
+     * @param device リソース生成に使う RHI デバイス。
+     * @param width 出力解像度の幅。
+     * @param height 出力解像度の高さ。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * Submit all SSAO shader stages to a supporting asynchronous backend.
+     *
+     * @details The returned handles must be polled with FCompiledShaders::Status
+     * and committed with InitWithCompiledShaders on the render-owner thread.
+     */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /**
+     * Create render targets, PSOs and the constant buffer from ready shaders.
+     *
+     * @param device Render-owner RHI device.
+     * @param shaders Ready vertex, GTAO pixel and blur pixel shaders.
+     * @param width Output width.
+     * @param height Output height.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        u32 width,
+        u32 height) noexcept;
+
+    /** 確保した GPU リソースを解放する。 */
+    void Shutdown() noexcept;
+
+    /**
+     * 解像度変更時に内部 RT を作り直す (ウィンドウリサイズで呼ぶ)。
+     *
+     * @param width 新しい出力幅。
+     * @param height 新しい出力高さ。
+     * @return 成功なら空の TResult、Init 前の呼び出しや再確保失敗ならエラー。
+     */
+    TResult<void> Resize(u32 width, u32 height) noexcept;
+
+    /**
+     * SSAO (GTAO) と contact shadow を計算して内部 RT に書く。
+     *
+     * @details raw pass で m_Output に焼き、depth-aware bilateral blur pass で m_BlurOutput に平滑化する。
+     * @param device 描画に使う RHI デバイス (現状未使用)。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param scene_depth shader_visible_depth=true な depth buffer。
+     * @param normal_gbuffer CMotionVector の world-space normal G-buffer (RGBA16F)。
+     * @param view_proj 現フレームの view * projection (contact shadow の投影に使う)。
+     * @param inv_view_proj 現フレーム VP の逆 (depth+uv → world)。
+     * @param view world → view 変換 (GTAO の slice 計算は view 空間で行う)。
+     * @param eye カメラの world pos。
+     * @param light_dir dir light 0 への方向 (world、surface→light)。contact shadow の march 方向。
+     * @param intensity 遮蔽強度 (0=AO 無効、1=neutral、>1=過度に暗く)。
+     * @param radius AO の最大半径 (world units、0.5 ~ 2.0 が典型)。
+     */
+    void Render(IRhiDevice& device, IRhiCommandList& cl,
+                IRhiTexture& scene_depth,
+                IRhiTexture& normal_gbuffer,
+                const FMat4& view_proj,
+                const FMat4& inv_view_proj,
+                const FMat4& view,
+                FVec3 eye, FVec3 light_dir,
+                f32 intensity = 1.0f,
+                f32 radius    = 0.5f) noexcept;
+
+    /**
+     * blur 後の RT を返す (CPbrShader / overlay はこちらを読む)。
+     *
+     * @return depth-aware bilateral blur 後の AO/contact RT。
+     */
+    IRhiTexture* OutputTexture() const noexcept { return m_BlurOutput.Get(); }
+
+    /**
+     * raw (blur 前) の RT を返す (デバッグ用途向け)。
+     *
+     * @return blur 前の AO/contact raw RT。
+     */
+    IRhiTexture* RawTexture() const noexcept { return m_Output.Get(); }
+
+private:
+    /**
+     * 出力 RT (raw と blur 後) を生成する。
+     *
+     * @param device RT 生成に使う RHI デバイス。
+     * @param w 出力幅。
+     * @param h 出力高さ。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
+
+    /**
+     * SSAO 本体と blur のシェーダ・パイプラインを生成する。
+     *
+     * @param device パイプライン生成に使う RHI デバイス。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreatePipeline(
+        IRhiDevice& device,
+        FCompiledShaders& shaders) noexcept;
+
+    /** Init で受け取った device (Resize で再利用)。 */
+    IRhiDevice*             m_Device = nullptr;
+
+    /** 出力 RT の幅。 */
+    u32                     m_Width  = 0;
+
+    /** 出力 RT の高さ。 */
+    u32                     m_Height = 0;
+
+    /** SSAO raw 出力 RT (.r=AO、.g=contact shadow)。 */
+    TUniquePtr<IRhiTexture>  m_Output;
+
+    /** depth-aware bilateral blur 後の出力 RT。 */
+    TUniquePtr<IRhiTexture>  m_BlurOutput;
+
+    /** フルスクリーン三角形の頂点シェーダ (本体・blur 共用)。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** GTAO + contact shadow を計算するピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_Ps;
+
+    /** depth-aware bilateral blur のピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_BlurPs;
+
+    /** SSAO 本体の描画パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+
+    /** blur の描画パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_BlurPipeline;
+
+    /** SSAO パラメータの定数バッファ。 */
+    TUniquePtr<IRhiBuffer>   m_Cb;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSsao = CSsao;
+
+
+} // namespace acs
+
 // ===================== render/Atmosphere.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // CPU / GPU で評価する物理大気散乱。
@@ -57038,6 +57470,34 @@ enum class ESceneProjectionMode : u8 {
  * 高さの効き方は「基準の高さより上ほど薄い」。
  */
 /**
+ * 画面空間の遮蔽 (SSAO / GTAO) の設定。
+ *
+ * @details
+ * **物が «床に乗っている» ように見えるかは、ほぼこれで決まる。** 平行光源と環境光だけでは、
+ * 物と床が接するところに何も落ちない。影の地図は解像度の都合で接地点まで届かず、
+ * 置いてあるのか浮いているのかが読めなくなる。
+ *
+ * 同じパスで contact shadow (太陽方向への短い march) も出る。
+ */
+struct FScene3DAmbientOcclusion {
+    /**
+     * 遮蔽の強さ。0 で切る。
+     *
+     * @details 1.0 が素直な強さ。上げると «汚れ» に見え始める。
+     */
+    f32 Intensity = 1.0f;
+
+    /**
+     * 遮蔽を探す最大の半径 (世界の単位)。
+     *
+     * @details
+     * **場面の大きさに合わせる。** 人が立つ場面なら 0.5 前後、机の上なら 0.1、
+     * 街なら数メートル。大きすぎると陰が広く薄くのび、小さすぎると何も出ない。
+     */
+    f32 Radius = 0.5f;
+};
+
+/**
  * 下層の上に重ねる、もう 1 枚の高い雲。
  *
  * @details
@@ -57217,6 +57677,26 @@ public:
      * @return 雲の設定 (次のフレームから効く)。
      */
     FScene3DClouds& Clouds() noexcept { return m_CloudParams; }
+
+    /**
+     * 遮蔽 (SSAO) の設定を触る。
+     *
+     * @details
+     * **物が «床に乗っている» ように見えるかは、ほぼここで決まる。** 平行光源と環境光だけだと、
+     * 物と床の接するところに何も落ちず、置いてあるのか浮いているのか読めない。
+     *
+     * @return 遮蔽の設定 (次のフレームから効く)。
+     */
+    FScene3DAmbientOcclusion& AmbientOcclusion() noexcept { return m_SsaoParams; }
+
+    /**
+     * 遮蔽の設定を読む。
+     *
+     * @return 現在の設定。
+     */
+    const FScene3DAmbientOcclusion& AmbientOcclusion() const noexcept {
+        return m_SsaoParams;
+    }
 
     /**
      * 雲の設定を読む。
@@ -57551,6 +58031,37 @@ private:
     bool EnsureShadowMap(IRhiDevice& device) noexcept;
 
     /**
+     * 遮蔽 (SSAO) の描き込み先を用意する。画面の大きさが変わったら作り直す。
+     *
+     * @param device 生成に使うデバイス。
+     * @param width 画面の幅。
+     * @param height 画面の高さ。
+     * @return 使える状態なら true。
+     */
+    bool EnsureAmbientOcclusion(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * 遮蔽を計算する前段として、法線と深度を先に描く。
+     *
+     * @details
+     * `CSsao` は «同じ幾何の法線と深度» を要求する。`CMotionVector` のパスが
+     * その 2 つを 1 度で書くので、それを使う。
+     *
+     * @param context 描画文脈。
+     * @return 全部描けたら true。1 つでも欠けたら false (欠けた遮蔽は使わない)。
+     */
+    bool RenderNormalDepthPrepass(FRenderContext& context) noexcept;
+
+    /**
+     * 前段の法線と深度から遮蔽を計算する。
+     *
+     * @param device 描画に使うデバイス。
+     * @param context 描画文脈。
+     * @return 遮蔽が使える状態になったら true。
+     */
+    bool RenderAmbientOcclusionPass(IRhiDevice& device, FRenderContext& context) noexcept;
+
+    /**
      * 空から環境光を焼く (必要なときだけ)。
      *
      * @details
@@ -57757,6 +58268,7 @@ private:
 
     /** 雲の設定。 */
     FScene3DClouds m_CloudParams{};
+    FScene3DAmbientOcclusion m_SsaoParams{};
 
     /** 雲を使える状態にできたか。 */
     bool m_CloudsReady = false;
@@ -57796,6 +58308,24 @@ private:
 
     /** このフレームで影を描けたか (描けなければ PBR 側も影を切る)。 */
     bool m_ShadowDrawn = false;
+
+    /** 法線と深度を先に描くパス。遮蔽の材料になる。 */
+    CMotionVector m_NormalDepth;
+
+    /** 画面空間の遮蔽 (GTAO + contact shadow)。 */
+    CSsao m_Ssao;
+
+    /** 遮蔽の描き込み先を用意できたか。 */
+    bool m_SsaoReady = false;
+
+    /** このフレームで遮蔽を計算できたか。 */
+    bool m_SsaoDrawn = false;
+
+    /** 用意してある遮蔽の大きさ。画面がこれと違ったら作り直す。 */
+    u32 m_SsaoWidth = 0u;
+
+    /** 用意してある遮蔽の大きさ。 */
+    u32 m_SsaoHeight = 0u;
 
     CCamera m_Camera;
     FScene3DCameraState m_AuthoredCamera{};
@@ -99473,225 +100003,6 @@ using FBlobShadow = CBlobShadow;
 
 } // namespace acs
 
-// ===================== render/MotionVector.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-namespace acs {
-
-/**
- * motion vector + world-space normal の G-buffer geometry pass。
- *
- * @details
- * シーンの全 mesh を再ラスタライズし、MRT 2 枚 (motion RG16F + normal RGBA16F) を
- * 書き出す。motion は screen-space motion vector (prev_uv - curr_uv) で camera 動きと
- * object 動きの両方を含み、TAA が history を正確に reproject して ghost/trail を消す。
- * normal は頂点法線をピクセル補間した world-space 法線で、SSR/SSGI/SSAO が sample する。
- * CShadowMap と同じ Begin/DrawMesh/End パターンで、occlusion 用 depth を内部に持つ。
- */
-class CMotionVector {
-public:
-    /**
-     * 空状態で構築する (GPU リソースは Init で確保)。
-     *
-     * @param object_pool_allocator 可変長 object-CB 所有配列の allocator。
-     *        通常は既定値を使い、failure-injection tests だけ差し替える。
-     */
-    explicit CMotionVector(
-        IAllocator& object_pool_allocator = DefaultAllocator()) noexcept
-        : m_Cbs(object_pool_allocator) {}
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~CMotionVector() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CMotionVector(const CMotionVector&)            = delete;
-
-    /** コピー代入も禁止。 */
-    CMotionVector& operator=(const CMotionVector&) = delete;
-
-    /**
-     * GPU リソース (RT 2 枚 + depth + パイプライン) を確保する。
-     *
-     * @param device RT・パイプライン生成に使う RHI デバイス。
-     * @param width 出力 G-buffer の幅。
-     * @param height 出力 G-buffer の高さ。
-     * @return 成功なら空の TResult、確保失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
-
-    /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
-    void Shutdown() noexcept;
-
-    /**
-     * 解像度変更時に内部 RT を作り直す (ウィンドウリサイズで呼ぶ)。
-     *
-     * @param width 新しい出力 G-buffer の幅。
-     * @param height 新しい出力 G-buffer の高さ。
-     * @return 成功なら空の TResult、再確保失敗ならエラー。
-     */
-    TResult<void> Resize(u32 width, u32 height) noexcept;
-
-    /**
-     * Start one logical command-list frame and reserve immutable object CBs.
-     *
-     * @details The retained pool grows geometrically and never shrinks between
-     * frames. Reserve before Begin() so large scenes do not allocate from
-     * inside an active render pass. A failed growth leaves every existing
-     * buffer usable and the caller must skip publishing this frame's motion
-     * output; a later BeginFrame() can retry.
-     *
-     * @param required_draws Exact number of eligible motion meshes, or a safe
-     *        upper bound when exact counting is more expensive. UINT32_MAX is
-     *        reserved as the invalid cursor sentinel and is rejected.
-     * @return true when the complete requested pool is available.
-     */
-    bool BeginFrame(u32 required_draws = 0u) noexcept;
-
-    /** Number of persistent per-object buffers currently retained. */
-    u32 ObjectBufferCapacity() const noexcept {
-        return static_cast<u32>(m_Cbs.Num());
-    }
-
-    /** Successfully recorded object draws since the latest BeginFrame/Begin. */
-    u32 ObjectDrawCount() const noexcept { return m_DrawCursor; }
-
-    /**
-     * モーションパスを開始する (motion RT を 0 クリア + 内部 depth を bind してパイプライン設定)。
-     *
-     * @details motion vector は jitter なしの VP で計算する (TAA jitter は color pass 専用)。
-     * @param cl コマンドを積むコマンドリスト。
-     * @param view_proj 現フレームの jitter なし VP。
-     * @param prev_view_proj 前フレームの jitter なし VP。
-     * @return true only when both MRT attachments and depth were bound. A
-     *         false result leaves the pass inactive; DrawMesh() and End()
-     *         become no-ops until a later successful Begin().
-     */
-    bool Begin(IRhiCommandList& cl,
-               const FMat4& view_proj, const FMat4& prev_view_proj) noexcept;
-
-    /**
-     * 1 mesh の motion vector を描画する。
-     *
-     * @details 静的 mesh は prev_model に model と同値を渡す。
-     * @param cl コマンドを積むコマンドリスト。
-     * @param mesh 描画する GPU mesh。
-     * @param model 現フレームの model 行列。
-     * @param prev_model 前フレームの model 行列。
-     * @return true only when a complete indexed draw was recorded. false
-     *         means the frame's motion output is incomplete and must not be
-     *         consumed as authoritative TAA/SSR/SSGI history.
-     */
-    bool DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
-                  const FMat4& model, const FMat4& prev_model) noexcept;
-
-    /**
-     * モーションパスを終了する (main pass の RT へ復帰)。
-     *
-     * @param cl コマンドを積むコマンドリスト。
-     */
-    void End(IRhiCommandList& cl) noexcept;
-
-    /**
-     * 出力 motion vector テクスチャを返す。
-     *
-     * @return motion RT (RG16F、.rg = prev_uv - curr_uv)。
-     */
-    IRhiTexture* OutputTexture() const noexcept { return m_Motion.Get(); }
-
-    /**
-     * 出力 world-space normal テクスチャを返す。
-     *
-     * @return normal RT (RGBA16F、.xyz = normalized world normal)。
-     */
-    IRhiTexture* OutputNormalTexture() const noexcept { return m_Normal.Get(); }
-
-private:
-    /**
-     * 出力 RT (motion + normal) と内部 depth を生成する。
-     *
-     * @param device RT 生成に使う RHI デバイス。
-     * @param w 出力幅。
-     * @param h 出力高さ。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept;
-
-    /**
-     * G-buffer 描画用の VS/PS/PSO を生成する。
-     *
-     * @param device パイプライン生成に使う RHI デバイス。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
-
-    /** Grow the persistent object-CB pool without invalidating old entries. */
-    bool EnsureObjectCapacity(u32 required_draws) noexcept;
-
-    /** Init で受け取った device (Resize で再利用)。 */
-    IRhiDevice*             m_Device = nullptr;
-
-    /** 出力 G-buffer の幅。 */
-    u32                     m_Width  = 0;
-
-    /** 出力 G-buffer の高さ。 */
-    u32                     m_Height = 0;
-
-    /** Begin で渡された現フレーム VP。 */
-    FMat4                    m_Vp{};
-
-    /** Begin で渡された前フレーム VP。 */
-    FMat4                    m_PrevVp{};
-
-    /** 出力 motion RT (RG16F、screen-space motion = prev_uv - curr_uv)。 */
-    TUniquePtr<IRhiTexture>  m_Motion;
-
-    /** 出力 normal RT (RGBA16F、world-space normal の .xyz)。 */
-    TUniquePtr<IRhiTexture>  m_Normal;
-
-    /** occlusion 用の内部 depth (D32、scene depth とは共有しない)。 */
-    TUniquePtr<IRhiTexture>  m_Depth;
-
-    /** G-buffer 描画の頂点シェーダ。 */
-    TUniquePtr<IRhiShader>   m_Vs;
-
-    /** motion vector と world normal を書き出すピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_Ps;
-
-    /** G-buffer 描画のパイプライン。 */
-    TUniquePtr<IRhiPipeline> m_Pipeline;
-
-    /**
-     * Persistent growable per-draw constant-buffer pool.
-     *
-     * A single mapped upload CB cannot be overwritten between draws in one
-     * command list: raw DX12 consumes it later on the GPU and every draw would
-     * otherwise observe the final object's matrices. The old fixed 256-entry
-     * ring silently lost motion for the rest of a large scene; this pool is
-     * reserved before the pass and grows geometrically when needed.
-     */
-    static constexpr u32     kInitialObjectBufferCapacity = 64u;
-    static constexpr u32     kInvalidObjectBuffer = ~u32{0};
-    TArray<TUniquePtr<IRhiBuffer>> m_Cbs;
-    u32                      m_DrawCursor = 0;
-    bool                     m_CapacityFailureLogged = false;
-
-    /**
-     * True only between a successful MRT Begin and its matching End.
-     *
-     * The RHI can reject an attachment set without changing backend state.
-     * Keeping that result here prevents stale-target draws and prevents End
-     * from unbinding or transitioning resources that were never bound.
-     */
-    bool                     m_PassActive = false;
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FMotionVector = CMotionVector;
-
-
-} // namespace acs
-
 // ===================== render/NormalMatrix.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -101237,207 +101548,6 @@ private:
     /** 直前のSortが走査したitem数。 */
     u64                m_LastSortItemVisits = 0u;
 };
-
-} // namespace acs
-
-// ===================== render/Ssao.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// Screen-Space Ambient Occlusion
-//
-// HBAO-lite: depth-only horizon-based AO。各 pixel から N 方向に screen-space で
-// march して horizon angle を求め、ambient occlusion を出す。
-//
-// 出力は R8G8B8A8_UNorm の RT。.r = AO visibility、.g = contact shadow
-// (ともに 1=照明 / 0=遮蔽)。CPbrShader が .r を ambient、.g を direct light に乗算する。
-//
-// 制限:
-//   - 法線は CMotionVector の normal G-buffer (world normal) を view 空間へ変換して
-//     使う (depth 微分 cross(ddx,ddy) は faceted で AO がブロック状になる)
-//   - 単純な uniform random direction、Halton 等の low-discrepancy 未使用
-//   - 6 direction × 6 step = 36 sample / pixel
-//   - depth-aware bilateral blur pass で raw → blurred を生成。
-//     OutputTexture() は blur 後を返す。
-
-
-namespace acs {
-
-/**
- * depth ベースの Screen-Space Ambient Occlusion (GTAO + contact shadow)。
- *
- * @details
- * 各 pixel で view ベクトルに対する両側の horizon angle を screen-march で求め、
- * 法線を slice 平面に射影した角度を使って cosine-weighted visibility を analytical に
- * 積分する (GTAO)。同時に dir light 0 方向へ短距離 ray march して接地影 (contact shadow)
- * を求める。出力は R8G8B8A8_UNorm で .r=AO visibility、.g=contact shadow (ともに 1=照明 /
- * 0=遮蔽)。raw → depth-aware bilateral blur の 2 pass で生成し、OutputTexture() は blur 後を返す。
- */
-class CSsao {
-public:
-    /** Backend-compiled shader handles awaiting owner-thread PSO creation. */
-    struct FCompiledShaders {
-        TUniquePtr<IRhiShader> vertex;
-        TUniquePtr<IRhiShader> pixel;
-        TUniquePtr<IRhiShader> blur_pixel;
-
-        /** Aggregate a backend-managed asynchronous compile without waiting. */
-        EShaderStatus Status() const noexcept;
-    };
-
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    CSsao() noexcept = default;
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~CSsao() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CSsao(const CSsao&) = delete;
-
-    /** コピー代入も禁止。 */
-    CSsao& operator=(const CSsao&) = delete;
-
-    /**
-     * 出力 RT・パイプライン・定数バッファを生成する。
-     *
-     * @param device リソース生成に使う RHI デバイス。
-     * @param width 出力解像度の幅。
-     * @param height 出力解像度の高さ。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
-
-    /**
-     * Submit all SSAO shader stages to a supporting asynchronous backend.
-     *
-     * @details The returned handles must be polled with FCompiledShaders::Status
-     * and committed with InitWithCompiledShaders on the render-owner thread.
-     */
-    static TResult<FCompiledShaders> BeginCompileShadersAsync(
-        IRhiDevice& device) noexcept;
-
-    /**
-     * Create render targets, PSOs and the constant buffer from ready shaders.
-     *
-     * @param device Render-owner RHI device.
-     * @param shaders Ready vertex, GTAO pixel and blur pixel shaders.
-     * @param width Output width.
-     * @param height Output height.
-     */
-    TResult<void> InitWithCompiledShaders(
-        IRhiDevice& device,
-        FCompiledShaders&& shaders,
-        u32 width,
-        u32 height) noexcept;
-
-    /** 確保した GPU リソースを解放する。 */
-    void Shutdown() noexcept;
-
-    /**
-     * 解像度変更時に内部 RT を作り直す (ウィンドウリサイズで呼ぶ)。
-     *
-     * @param width 新しい出力幅。
-     * @param height 新しい出力高さ。
-     * @return 成功なら空の TResult、Init 前の呼び出しや再確保失敗ならエラー。
-     */
-    TResult<void> Resize(u32 width, u32 height) noexcept;
-
-    /**
-     * SSAO (GTAO) と contact shadow を計算して内部 RT に書く。
-     *
-     * @details raw pass で m_Output に焼き、depth-aware bilateral blur pass で m_BlurOutput に平滑化する。
-     * @param device 描画に使う RHI デバイス (現状未使用)。
-     * @param cl コマンドを積むコマンドリスト。
-     * @param scene_depth shader_visible_depth=true な depth buffer。
-     * @param normal_gbuffer CMotionVector の world-space normal G-buffer (RGBA16F)。
-     * @param view_proj 現フレームの view * projection (contact shadow の投影に使う)。
-     * @param inv_view_proj 現フレーム VP の逆 (depth+uv → world)。
-     * @param view world → view 変換 (GTAO の slice 計算は view 空間で行う)。
-     * @param eye カメラの world pos。
-     * @param light_dir dir light 0 への方向 (world、surface→light)。contact shadow の march 方向。
-     * @param intensity 遮蔽強度 (0=AO 無効、1=neutral、>1=過度に暗く)。
-     * @param radius AO の最大半径 (world units、0.5 ~ 2.0 が典型)。
-     */
-    void Render(IRhiDevice& device, IRhiCommandList& cl,
-                IRhiTexture& scene_depth,
-                IRhiTexture& normal_gbuffer,
-                const FMat4& view_proj,
-                const FMat4& inv_view_proj,
-                const FMat4& view,
-                FVec3 eye, FVec3 light_dir,
-                f32 intensity = 1.0f,
-                f32 radius    = 0.5f) noexcept;
-
-    /**
-     * blur 後の RT を返す (CPbrShader / overlay はこちらを読む)。
-     *
-     * @return depth-aware bilateral blur 後の AO/contact RT。
-     */
-    IRhiTexture* OutputTexture() const noexcept { return m_BlurOutput.Get(); }
-
-    /**
-     * raw (blur 前) の RT を返す (デバッグ用途向け)。
-     *
-     * @return blur 前の AO/contact raw RT。
-     */
-    IRhiTexture* RawTexture() const noexcept { return m_Output.Get(); }
-
-private:
-    /**
-     * 出力 RT (raw と blur 後) を生成する。
-     *
-     * @param device RT 生成に使う RHI デバイス。
-     * @param w 出力幅。
-     * @param h 出力高さ。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
-
-    /**
-     * SSAO 本体と blur のシェーダ・パイプラインを生成する。
-     *
-     * @param device パイプライン生成に使う RHI デバイス。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreatePipeline(
-        IRhiDevice& device,
-        FCompiledShaders& shaders) noexcept;
-
-    /** Init で受け取った device (Resize で再利用)。 */
-    IRhiDevice*             m_Device = nullptr;
-
-    /** 出力 RT の幅。 */
-    u32                     m_Width  = 0;
-
-    /** 出力 RT の高さ。 */
-    u32                     m_Height = 0;
-
-    /** SSAO raw 出力 RT (.r=AO、.g=contact shadow)。 */
-    TUniquePtr<IRhiTexture>  m_Output;
-
-    /** depth-aware bilateral blur 後の出力 RT。 */
-    TUniquePtr<IRhiTexture>  m_BlurOutput;
-
-    /** フルスクリーン三角形の頂点シェーダ (本体・blur 共用)。 */
-    TUniquePtr<IRhiShader>   m_Vs;
-
-    /** GTAO + contact shadow を計算するピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_Ps;
-
-    /** depth-aware bilateral blur のピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_BlurPs;
-
-    /** SSAO 本体の描画パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_Pipeline;
-
-    /** blur の描画パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_BlurPipeline;
-
-    /** SSAO パラメータの定数バッファ。 */
-    TUniquePtr<IRhiBuffer>   m_Cb;
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FSsao = CSsao;
-
 
 } // namespace acs
 
