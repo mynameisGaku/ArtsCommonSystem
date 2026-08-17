@@ -795,7 +795,11 @@ void ALegacyScene3DAdapter::OnEnter() noexcept {
     m_PostParams.bloom_intensity = 0.32f;
     m_PostParams.bloom_radius = 0.82f;
     m_PostParams.bloom_scatter = 0.64f;
-    m_PostParams.exposure = 0.92f;
+    // 環境光は物理ベースの大気から来るので、明るさは «太陽の強さ» と «空の状態» で
+    // 大きく動く。固定の露出だと、太陽を強くしただけで白く飛び、夕暮れでは潰れる。
+    // 自動露出にして、シーンの明るさへ合わせる (手で調整させない)。
+    m_PostParams.exposure = 0.92f;            // 自動露出への手動補正 (EV) として働く
+    m_PostParams.auto_exposure_enabled = true;
     m_PostParams.tonemap_kind = 0;
     m_PostParams.vignette_intensity = 0.075f;
     m_PostParams.vignette_radius = 0.84f;
