@@ -1136,13 +1136,24 @@ void ALegacyScene3DAdapter::RenderClouds(
         m_CloudsReady = true;
     }
 
-    if (width != m_CloudsWidth || height != m_CloudsHeight) {
-        if (!m_Clouds.EnsureSize(device, width, height, m_CloudParams.RenderScale)) {
+    // 参照描画の切り替えは内部の解像度が変わるので、作り直しが要る。
+    m_Clouds.SetReferenceMode(m_CloudParams.bReferenceMode);
+
+    if (width != m_CloudsWidth || height != m_CloudsHeight
+        || m_CloudParams.bReferenceMode != m_CloudsSizedForReference) {
+        if (!m_Clouds.EnsureSize(device, width, height, m_CloudParams.RenderScale,
+                                 m_CloudParams.bReferenceMode)) {
             ACS_LOG_WARN("Scene3D: volumetric cloud sizing failed");
             return;
         }
         m_CloudsWidth = width;
         m_CloudsHeight = height;
+        m_CloudsSizedForReference = m_CloudParams.bReferenceMode;
+
+        if (m_CloudParams.bReferenceMode) {
+            ACS_LOG_WARN("Scene3D: clouds are in reference mode (full resolution, no temporal); "
+                         "this is for comparison only and is very slow");
+        }
     }
 
     m_Clouds.SetLayer(FVolumetricCloudLayer{

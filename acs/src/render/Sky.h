@@ -440,6 +440,16 @@ inline constexpr f32 kVolumetricCloudMaxDistance = 250000.0f;
  * image recovers native detail without increasing the quarter-size workload.
  */
 inline constexpr u32 kVolumetricCloudUltraTraceDivisor = 4u;
+
+/** 通常描画で 1 本のレイに使う刻みの上限。 */
+inline constexpr u32 kVolumetricCloudViewSteps = 192u;
+
+/**
+ * 参照描画で 1 本のレイに使う刻みの上限。
+ *
+ * @details 正解画像を作るためのもので、速度は捨てている。
+ */
+inline constexpr u32 kVolumetricCloudReferenceViewSteps = 512u;
 inline constexpr u32 kVolumetricCloudMaxViewMarchSamples = 192u;
 inline constexpr u32 kVolumetricCloudMaxLightMarchSamples = 8u;
 
@@ -458,9 +468,14 @@ struct FVolumetricCloudTraceResolution {
  * quarter-dimension trace: authored 1.0 uses quarter dimensions, 0.75 uses
  * 0.1875 dimensions, and 0.5 or below uses the 0.125 lower bound. The resolved
  * output and temporal history remain full resolution.
+ *
+ * `reference_mode` bypasses the policy entirely and traces at full dimensions.
+ * It exists to tell «the lighting is wrong» apart from «the reconstruction is wrong»,
+ * and is far too slow for gameplay.
  */
 FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
-    u32 full_width, u32 full_height, f32 requested_render_scale) noexcept;
+    u32 full_width, u32 full_height, f32 requested_render_scale,
+    bool reference_mode = false) noexcept;
 
 /**
  * Inputs used to account for the exact compute work submitted by one cloud
@@ -778,10 +793,33 @@ public:
      * 0.5..1.0 の品質倍率として扱い、resolved output は常に full-resolution。
      */
     bool EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
-                    f32 render_scale = 0.5f) noexcept;
+                    f32 render_scale = 0.5f, bool reference_mode = false) noexcept;
 
     /** Set the fixed world-space cloud altitude band and invalidate history. */
     void SetLayer(const FVolumetricCloudLayer& layer) noexcept;
+
+    /**
+     * 正解画像を作るための «参照» 描画に切り替える。
+     *
+     * @details
+     * 通常は 1/4 の寸法でレイマーチし、時間方向の再構成で埋めている。そのため «汚い» ときに
+     * 原因がライティングなのか再構成なのか分からない。参照描画では**等倍でレイマーチし、
+     * 時間方向の再構成を切り、刻みを細かくする**。
+     *
+     * - 参照でも汚い → 密度かライティングか大気の側
+     * - 参照だけ綺麗 → 低解像度か再構成か履歴の側
+     *
+     * **遊ぶには重すぎる。** 見比べるためだけのもの。
+     * @param enabled 参照描画にするなら true。
+     */
+    void SetReferenceMode(bool enabled) noexcept { m_ReferenceMode = enabled; }
+
+    /**
+     * 参照描画かどうかを返す。
+     *
+     * @return 参照描画なら true。
+     */
+    bool ReferenceMode() const noexcept { return m_ReferenceMode; }
 
     /**
      * 照らし方の係数を設定する。
@@ -864,6 +902,9 @@ private:
         IRhiDevice& device,
         FCompiledShaders&& shaders,
         EFormat hdr_format) noexcept;
+
+    /** 参照描画 (等倍・再構成なし) か。 */
+    bool m_ReferenceMode = false;
 
     /** 照らし方の係数。 */
     FVolumetricCloudLighting m_Lighting{};

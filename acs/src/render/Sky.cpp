@@ -1664,7 +1664,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     // Keep samples in world-distance space.  The previous fixed-count
     // (t1-t0)/N step sampled identical height fractions in every pixel and
     // produced the view-centred starburst visible in the editor.
-    const int MAX_STEPS=192;
+    // 刻み数。参照描画では大きくする (cloudLightingAmbient.z に入っている)。
+    int MAX_STEPS=(int)cloudLightingAmbient.z;
+    if(MAX_STEPS<32) MAX_STEPS=32;
     float span=t1-t0;
     float baseFineStep=cloudCoverageReciprocals.z;
     // A dense oblique ray must still reach the far end of the shell. Keep
@@ -2666,7 +2668,8 @@ FVec3 SanitizeCloudRadiance(FVec3 value, FVec3 fallback) noexcept {
 
 FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
     u32 full_width, u32 full_height,
-    f32 requested_render_scale) noexcept {
+    f32 requested_render_scale,
+    bool reference_mode) noexcept {
     const u32 fullWidth = full_width > 0u ? full_width : 1u;
     const u32 fullHeight = full_height > 0u ? full_height : 1u;
     f32 qualityMultiplier = std::isfinite(requested_render_scale)
@@ -2677,6 +2680,14 @@ FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
 
     FVolumetricCloudTraceResolution resolution{};
     static_assert(kVolumetricCloudUltraTraceDivisor > 0u);
+    if (reference_mode) {
+        // 参照描画は方策を通さず等倍で刻む。見比べるためだけなので速度は捨てる。
+        resolution.quality_multiplier = 1.0f;
+        resolution.effective_dimension_scale = 1.0f;
+        resolution.width = fullWidth > 0u ? fullWidth : 1u;
+        resolution.height = fullHeight > 0u ? fullHeight : 1u;
+        return resolution;
+    }
     resolution.quality_multiplier = qualityMultiplier;
     resolution.effective_dimension_scale =
         qualityMultiplier /
@@ -3878,12 +3889,13 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
 }
 
 bool CVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
-                                   f32 render_scale) noexcept {
+                                   f32 render_scale,
+                                   bool reference_mode) noexcept {
     if (!m_Ready) return false;
     const u32 fw = scW > 0 ? scW : 1;
     const u32 fh = scH > 0 ? scH : 1;
     const FVolumetricCloudTraceResolution traceResolution =
-        ResolveVolumetricCloudTraceResolution(fw, fh, render_scale);
+        ResolveVolumetricCloudTraceResolution(fw, fh, render_scale, reference_mode);
     const u32 hw = traceResolution.width;
     const u32 hh = traceResolution.height;
     if (m_CloudTex && m_CloudDepth && m_HistoryColor[0] && m_HistoryColor[1] &&
@@ -4220,12 +4232,14 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     // ray-march dispatch dimensions.
     const u32 temporalFrame =
         (m_FrameIndex & 4080u) | (m_TemporalPhase & 15u);
-    cb.temporal = FVec4{ historyValid ? 1.0f : 0.0f, m_PrevWindOffset,
-                         static_cast<f32>(temporalFrame),
-                         temporalSuperResolution
-                             ? static_cast<f32>(
-                                   kVolumetricCloudUltraTraceDivisor)
-                             : 0.0f };
+    // 参照描画では履歴も時間方向の再構成も使わない。そのフレームだけで完結させる
+    // (再構成の影響を混ぜたままだと、ライティングの良し悪しを判断できない)。
+    cb.temporal = FVec4{
+        (historyValid && !m_ReferenceMode) ? 1.0f : 0.0f, m_PrevWindOffset,
+        static_cast<f32>(temporalFrame),
+        (temporalSuperResolution && !m_ReferenceMode)
+            ? static_cast<f32>(kVolumetricCloudUltraTraceDivisor)
+            : 0.0f };
     const f32 layerThickness = m_Layer.top_height - m_Layer.base_height;
     const f32 layerCanonicalScale = 1.6f / layerThickness;
     cb.layer = FVec4{m_Layer.base_height, m_Layer.top_height,
@@ -4335,7 +4349,11 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         m_Lighting.MultiScatterOcclusion, m_Lighting.PhaseMin,
         m_Lighting.PhaseMax, m_Lighting.GroundContribution};
     cb.cloudLightingAmbient = FVec4{
-        m_Lighting.AmbientAtBase, m_Lighting.AmbientAtTop, 0.0f, 0.0f};
+        m_Lighting.AmbientAtBase, m_Lighting.AmbientAtTop,
+        static_cast<f32>(m_ReferenceMode
+            ? kVolumetricCloudReferenceViewSteps
+            : kVolumetricCloudViewSteps),
+        m_ReferenceMode ? 1.0f : 0.0f};
     cb.cloudLightingGround = FVec4{
         m_Lighting.GroundColor.x, m_Lighting.GroundColor.y,
         m_Lighting.GroundColor.z, 0.0f};
