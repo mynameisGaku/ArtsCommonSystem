@@ -35650,6 +35650,732 @@ using FCamera2D = CCamera2D;
 
 } // namespace acs::game
 
+// ===================== gameframework/Camera3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== math/Camera.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * ビュー行列とプロジェクション行列を保持するカメラヘルパ。
+ *
+ * @details
+ * 左手系 (Z+ が画面奥) で透視/正射影を設定し、注視点指定でビュー行列を作る。
+ * ViewProjection() で GPU 送信用の合成行列を取得する。
+ */
+class CCamera {
+public:
+    /** 単位ビュー・単位プロジェクションで構築する。 */
+    CCamera() noexcept = default;
+
+    /**
+     * 透視投影行列を設定する (左手系: Z+ が画面奥)。
+     *
+     * @param fov_y_rad 垂直視野角 (ラジアン)。
+     * @param aspect アスペクト比 (幅/高さ)。
+     * @param near_z 近クリップ面距離。
+     * @param far_z 遠クリップ面距離。
+     */
+    void SetPerspective(f32 fov_y_rad, f32 aspect, f32 near_z, f32 far_z) noexcept {
+        m_Projection = FMat4::PerspectiveFovLH(fov_y_rad, aspect, near_z, far_z);
+    }
+
+    /**
+     * 正射影投影行列を設定する。
+     *
+     * @param width ビュー幅。
+     * @param height ビュー高さ。
+     * @param near_z 近クリップ面距離。
+     * @param far_z 遠クリップ面距離。
+     */
+    void SetOrthographic(f32 width, f32 height, f32 near_z, f32 far_z) noexcept {
+        m_Projection = FMat4::OrthoLH(width, height, near_z, far_z);
+    }
+
+    /**
+     * 注視点を指定してビュー行列を設定する。
+     *
+     * @param eye カメラ位置。
+     * @param target 注視点。
+     * @param up 上方向ベクトル (既定は +Y)。
+     */
+    void SetLookAt(FVec3 eye, FVec3 target, FVec3 up = FVec3::Up()) noexcept {
+        m_Eye = eye;
+        m_View = FMat4::LookAtLH(eye, target, up);
+    }
+
+    /**
+     * ビュー行列を返す。
+     *
+     * @return 現在のビュー行列への const 参照。
+     */
+    const FMat4& View()           const noexcept { return m_View; }
+
+    /**
+     * プロジェクション行列を返す。
+     *
+     * @return 現在のプロジェクション行列への const 参照。
+     */
+    const FMat4& Projection()     const noexcept { return m_Projection; }
+
+    /**
+     * ビュー × プロジェクションの合成行列を返す。
+     *
+     * @return GPU 送信用の view-projection 行列。
+     */
+    FMat4        ViewProjection() const noexcept { return m_View * m_Projection; }
+
+    /**
+     * カメラ位置を返す。
+     *
+     * @return SetLookAt で設定した eye 位置。
+     */
+    FVec3        Eye()            const noexcept { return m_Eye; }
+
+    /**
+     * アスペクト比変更時に透視投影を作り直す (ウィンドウリサイズ用)。
+     *
+     * @param fov_y_rad 垂直視野角 (ラジアン)。
+     * @param aspect 新しいアスペクト比 (幅/高さ)。
+     * @param near_z 近クリップ面距離。
+     * @param far_z 遠クリップ面距離。
+     */
+    void UpdateAspect(f32 fov_y_rad, f32 aspect, f32 near_z, f32 far_z) noexcept {
+        SetPerspective(fov_y_rad, aspect, near_z, far_z);
+    }
+
+private:
+    /** ビュー行列。 */
+    FMat4 m_View;
+
+    /** プロジェクション行列。 */
+    FMat4 m_Projection;
+
+    /** カメラ位置 (SetLookAt で更新)。 */
+    FVec3 m_Eye{0, 0, 0};
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FCamera = CCamera;
+
+} // namespace acs
+
+// ===================== gameframework/CameraShakePresets.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/**
+ * shake プリセットの種別。
+ *
+ * @details
+ * trauma 加算 + amp/decay 上書きで「爆発っぽい」「地震っぽい」を一発で出すための
+ * プリセット種別。Custom は名前付きカスタムを表す哨兵 (GetPreset では中立値を返す)。
+ */
+enum class EShakePreset : u8 {
+    /** 手榴弾 / 小爆弾。短く激しく。 */
+    ExplosionSmall = 0,
+
+    /** 大爆発 / ロケット直撃。長く強く。 */
+    ExplosionLarge,
+
+    /** ステージギミック型短震動。 */
+    EarthquakeShort,
+
+    /** 環境演出型長震動 (周波数低)。 */
+    EarthquakeLong,
+
+    /** 攻撃ヒット / 被弾。ごく短い punch。 */
+    HitImpact,
+
+    /** 連続発射型の継続震動 (高周波、低 amp、低 decay)。 */
+    RocketLaunch,
+
+    /** 隕石着弾 / ボス登場。最強クラス。 */
+    MeteorImpact,
+
+    /** RegisterCustomPreset 経由で登録された名前付き (哨兵)。 */
+    Custom,
+};
+
+/**
+ * shake プリセット 1 個分のパラメータ。
+ *
+ * @details
+ * trauma を AddShake、amplitude を SetShakeAmplitude、decay_rate を SetShakeDecayRate に流す。
+ * frequency と duration_hint は CCamera2D 側 API には現状反映されない (frequency は将来の
+ * SetShakeFrequency 化のための予約、duration_hint は caller のヒント)。
+ */
+struct FShakeParams {
+    /** AddShake に渡す trauma 量 (0..1 想定、preset では 0.3..0.9)。 */
+    f32 trauma         = 0.0f;
+
+    /** SetShakeAmplitude に渡す振幅 (world units max @ trauma=1)。 */
+    f32 amplitude      = 0.5f;
+
+    /** SetShakeDecayRate に渡す減衰量 (trauma を 1 秒で 1.0 → 0.0 にする値)。 */
+    f32 decay_rate     = 1.0f;
+
+    /** 主要振動周波数 (CCamera2D 拡張予約。現状 API には反映されない)。 */
+    f32 frequency      = 25.0f;
+
+    /** 約何秒で減衰しきるかの目安 (= trauma / decay_rate)。caller のヒント。 */
+    f32 duration_hint  = 1.0f;
+};
+
+/**
+ * shake パラメータの流し込み先となる純粋仮想インターフェース。
+ *
+ * @details
+ * CCamera2D がこれを派生する (AddShake / SetShakeAmplitude / SetShakeDecayRate と同シグネチャ)。
+ * テスト用 mock も同じ I/F を実装することで CCameraShakePresets を CCamera2D に直接依存させない。
+ */
+class IShakeTarget {
+public:
+    /** 空状態で構築する。 */
+    IShakeTarget() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
+    virtual ~IShakeTarget() noexcept = default;
+
+    /** コピー禁止。 */
+    IShakeTarget(const IShakeTarget&)            = delete;
+
+    /** コピー代入も禁止。 */
+    IShakeTarget& operator=(const IShakeTarget&) = delete;
+
+    /** ムーブ禁止。 */
+    IShakeTarget(IShakeTarget&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
+    IShakeTarget& operator=(IShakeTarget&&)      = delete;
+
+    /**
+     * trauma を加算する (clamp [0,1] は実装側責務)。
+     *
+     * @param trauma 加算する trauma 量。
+     */
+    virtual void AddShake(f32 trauma) noexcept = 0;
+
+    /**
+     * 振幅を上書きする。
+     *
+     * @param a 振幅 (world units max @ trauma=1)。
+     */
+    virtual void SetShakeAmplitude(f32 a) noexcept = 0;
+
+    /**
+     * trauma 減衰レートを上書きする。
+     *
+     * @param r 減衰量 (trauma を 1 秒で 1.0 → 0.0 にする値)。
+     */
+    virtual void SetShakeDecayRate(f32 r) noexcept = 0;
+};
+
+/**
+ * ジャンル別 shake パラメータを IShakeTarget に 1 行で流し込む薄い preset ライブラリ。
+ *
+ * @details
+ * Eiserloh trauma 方式の amplitude / decay_rate / frequency / 適正 duration を名前付きで
+ * 提供する。組み込み preset は static 関数で配り、カスタム preset は名前 + FShakeParams を
+ * TArray に保持して線形検索する (名前は caller の static lifetime 想定)。非コピー・非ムーブ。
+ */
+class CCameraShakePresets {
+public:
+    /** 空のプリセットライブラリを構築する。 */
+    CCameraShakePresets()  noexcept = default;
+
+    /** 破棄する。 */
+    ~CCameraShakePresets() noexcept = default;
+
+    /** コピー禁止 (他 preset/manager 系と統一)。 */
+    CCameraShakePresets(const CCameraShakePresets&)            = delete;
+
+    /** コピー代入も禁止。 */
+    CCameraShakePresets& operator=(const CCameraShakePresets&) = delete;
+
+    /** ムーブ禁止。 */
+    CCameraShakePresets(CCameraShakePresets&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
+    CCameraShakePresets& operator=(CCameraShakePresets&&)      = delete;
+
+    /**
+     * 組み込み preset の FShakeParams を返す。
+     *
+     * @param preset 取得するプリセット種別。
+     * @return 対応する FShakeParams。Custom は中立値 (= 適用しても見た目に影響しない値)。
+     */
+    static FShakeParams GetPreset(EShakePreset preset) noexcept;
+
+    /**
+     * 組み込み preset を target に流し込む。
+     *
+     * @details SetShakeAmplitude → SetShakeDecayRate → AddShake (加算累積) の順で適用する。
+     * @param target 流し込み先の shake ターゲット。
+     * @param preset 適用するプリセット種別。Custom は no-op (caller は ApplyCustomByName を使う)。
+     */
+    static void ApplyPreset(IShakeTarget& target, EShakePreset preset) noexcept;
+
+    /**
+     * カスタム preset を登録する。
+     *
+     * @details 同 name の 2 重登録は黙って上書きする (アセット二重ロード時に直近が勝つ)。
+     * @param name プリセット名。caller が保証する static lifetime の文字列 (リテラル想定)。nullptr は no-op。
+     * @param params 登録する shake パラメータ。
+     */
+    void RegisterCustomPreset(const char* name, const FShakeParams& params) noexcept;
+
+    /**
+     * 名前で引いたカスタム preset を target に流し込む。
+     *
+     * @details ApplyPreset と同じ順序 (SetAmp → SetDecay → AddShake) で適用する。
+     * @param target 流し込み先の shake ターゲット。
+     * @param name 適用するカスタムプリセット名。
+     * @return 発見 + 適用できれば true。未登録 / name == nullptr は false。
+     */
+    bool ApplyCustomByName(IShakeTarget& target, const char* name) noexcept;
+
+    /**
+     * 登録済みカスタムプリセット数を返す。
+     *
+     * @return カスタムプリセットの件数。
+     */
+    u32 CustomCount() const noexcept;
+
+private:
+    /**
+     * 登録済みカスタムプリセット 1 件分のエントリ。
+     */
+    struct FCustomEntry {
+        /** プリセット名 (所有しない。caller の static lifetime)。 */
+        const char* name = nullptr;
+
+        /** 紐付く shake パラメータ。 */
+        FShakeParams params{};
+    };
+
+    /**
+     * 名前でカスタムプリセットのインデックスを線形検索する (件数は典型 < 20)。
+     *
+     * @param name 検索するプリセット名。
+     * @return m_Customs 内のインデックス (見つからなければ ~0u)。
+     */
+    u32 FindCustomIndex(const char* name) const noexcept;
+
+    /** 登録済みカスタムプリセットの配列。 */
+    TArray<FCustomEntry> m_Customs;
+};
+
+/** 旧名を使う既存ソースとの互換alias。 */
+using FCameraShakePresets = CCameraShakePresets;
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/**
+ * 3D カメラ (eye / 注視点、target 追従、screen shake、CCamera への書き出し)。
+ *
+ * @details
+ * `CCamera2D` の 3D 版。math/Camera.h の `CCamera` は
+ * view/projection 行列を持つだけで、
+ * 「どこから・どこを見て」を毎フレーム決める仕組みは持たない。ここがその状態を持つ。
+ *
+ * target 追従は framerate independent な指数 smoothing (1 - exp(-smoothing * dt))、
+ * screen shake は 2D と同じ Eiserloh trauma 方式 (trauma² * amplitude * noise)。
+ * `EffectiveEye()` / `EffectiveLookAt()` = 追従結果 + shake offset をレンダラーが使う。
+ *
+ * `IShakeTarget` を実装しているので `FCameraShakePresets::ApplyPreset` をそのまま渡せる。
+ *
+ * 軌道カメラ (yaw/pitch/距離) が要るだけなら math/CameraRig.h の `MakeOrbitCamera` を使う。
+ * こちらは**時間で変化する状態**を持つ場合のもの。
+ *
+ * @code
+ * CCamera3D cam;
+ * cam.SetFollowOffset(FVec3{0.0f, 3.0f, -6.0f});
+ * cam.SetTargetPos(player_pos);
+ * cam.SnapToTarget();                       // 場面の始めは遅れなしで合わせる
+ *
+ * // 毎フレーム
+ * cam.SetTargetPos(player_pos);
+ * cam.Tick(dt);
+ * cam.ApplyTo(render_camera, aspect);
+ *
+ * // 爆発したとき
+ * FCameraShakePresets::ApplyPreset(cam, EShakePreset::ExplosionLarge);
+ * @endcode
+ */
+class CCamera3D : public IShakeTarget {
+public:
+    /** 既定値 (原点の少し後ろから原点を見る、追従なし) で構築する。 */
+    CCamera3D() noexcept = default;
+
+    /** 破棄する。 */
+    ~CCamera3D() noexcept override = default;
+
+    /** コピー禁止 (2D 版と揃える)。 */
+    CCamera3D(const CCamera3D&)            = delete;
+
+    /** コピー代入も禁止。 */
+    CCamera3D& operator=(const CCamera3D&) = delete;
+
+    /**
+     * shake 前の eye 位置を返す。
+     *
+     * @return world 座標での eye 位置。
+     */
+    FVec3 Position() const noexcept { return m_Position; }
+
+    /**
+     * eye 位置を直接設定する (追従を使わない場合)。
+     *
+     * @param p 設定する world 座標。
+     */
+    void SetPosition(FVec3 p) noexcept { m_Position = p; }
+
+    /**
+     * shake 前の注視点を返す。
+     *
+     * @return world 座標での注視点。
+     */
+    FVec3 LookAt() const noexcept { return m_LookAt; }
+
+    /**
+     * 注視点を直接設定する (追従を使わない場合)。
+     *
+     * @param p 設定する world 座標。
+     */
+    void SetLookAt(FVec3 p) noexcept { m_LookAt = p; }
+
+    /**
+     * 追従先を設定する。
+     *
+     * @details 追従先そのものではなく、そこから `FollowOffset()` ずらした位置を eye が狙う。
+     * @param target_pos 追う対象の world 座標。
+     * @param smoothing 追従の鋭さ (大きいほど snappier、typical 3..10)。0 以下で即座にスナップ。
+     */
+    void SetTargetPos(FVec3 target_pos, f32 smoothing = 5.0f) noexcept {
+        m_TargetPos = target_pos;
+        m_Smoothing = smoothing;
+        m_HasTarget = true;
+    }
+
+    /** 追従を止める (現在位置に留まる)。 */
+    void ClearTarget() noexcept { m_HasTarget = false; }
+
+    /**
+     * 追従先が設定されているかを返す。
+     *
+     * @return 追従中なら true。
+     */
+    bool HasTarget() const noexcept { return m_HasTarget; }
+
+    /**
+     * 追従先から見た eye の相対位置を設定する。
+     *
+     * @param offset X 右 / Y 上 / Z 前 のずらし量。
+     */
+    void SetFollowOffset(FVec3 offset) noexcept { m_FollowOffset = offset; }
+
+    /**
+     * 追従先から見た eye の相対位置を返す。
+     *
+     * @return 現在のずらし量。
+     */
+    FVec3 FollowOffset() const noexcept { return m_FollowOffset; }
+
+    /**
+     * 追従先のどこを見るかを設定する。
+     *
+     * @details 足元を見ると画面が下に寄るので、既定では少し上を見る。
+     * @param offset 追従先から見た注視点のずらし量。
+     */
+    void SetLookAtOffset(FVec3 offset) noexcept { m_LookAtOffset = offset; }
+
+    /**
+     * 追従先から見た注視点の相対位置を返す。
+     *
+     * @return 現在のずらし量。
+     */
+    FVec3 LookAtOffset() const noexcept { return m_LookAtOffset; }
+
+    /**
+     * 遅れなしで追従先へ合わせる。
+     *
+     * @details
+     * 場面の開始時や対象をワープさせた直後に呼ぶ。呼ばないと前の位置から新しい位置まで
+     * カメラが延々と飛んでいく画になる。追従先が未設定なら何もしない。
+     */
+    void SnapToTarget() noexcept {
+        if (!m_HasTarget) return;
+        m_Position = FVec3{ m_TargetPos.x + m_FollowOffset.x,
+                            m_TargetPos.y + m_FollowOffset.y,
+                            m_TargetPos.z + m_FollowOffset.z };
+        m_LookAt   = FVec3{ m_TargetPos.x + m_LookAtOffset.x,
+                            m_TargetPos.y + m_LookAtOffset.y,
+                            m_TargetPos.z + m_LookAtOffset.z };
+        m_Placed   = true;
+    }
+
+    /**
+     * trauma を加算する (0..1 にクランプ)。
+     *
+     * @param amount 加算する trauma。負値は無視する。
+     */
+    void AddShake(f32 amount) noexcept override {
+        if (amount <= 0.0f) return;
+        m_Trauma += amount;
+        if (m_Trauma > 1.0f) m_Trauma = 1.0f;
+    }
+
+    /**
+     * shake の振幅を設定する。
+     *
+     * @param a trauma=1 のときに動く world 距離。
+     */
+    void SetShakeAmplitude(f32 a) noexcept override { if (a >= 0.0f) m_ShakeAmplitude = a; }
+
+    /**
+     * shake の減衰速度を設定する。
+     *
+     * @param r 1 秒あたりに減る trauma 量。
+     */
+    void SetShakeDecayRate(f32 r) noexcept override { if (r > 0.0f) m_ShakeDecay = r; }
+
+    /**
+     * shake のノイズ周波数を設定する。
+     *
+     * @param f 大きいほど細かく震える。
+     */
+    void SetShakeFrequency(f32 f) noexcept { if (f > 0.0f) m_ShakeFrequency = f; }
+
+    /**
+     * 現在の trauma を返す。
+     *
+     * @return 0..1 の trauma。
+     */
+    f32 TraumaLevel() const noexcept { return m_Trauma; }
+
+    /** shake を即座に止め、offset を 0 に戻す。 */
+    void StopShake() noexcept {
+        m_Trauma      = 0.0f;
+        m_ShakeOffset = FVec3{ 0.0f, 0.0f, 0.0f };
+    }
+
+    /**
+     * 垂直視野角 (度) を返す。
+     *
+     * @return 視野角。
+     */
+    f32 FovYDegrees() const noexcept { return m_FovYDegrees; }
+
+    /**
+     * 垂直視野角 (度) を設定する (0 < fov < 180 のみ受け付ける)。
+     *
+     * @param deg 設定する視野角。
+     */
+    void SetFovYDegrees(f32 deg) noexcept { if (deg > 0.0f && deg < 180.0f) m_FovYDegrees = deg; }
+
+    /**
+     * 近クリップ面を返す。
+     *
+     * @return 近クリップ距離。
+     */
+    f32 NearPlane() const noexcept { return m_NearPlane; }
+
+    /**
+     * 近クリップ面を設定する (正の値のみ受け付ける)。
+     *
+     * @param z 設定する近クリップ距離。
+     */
+    void SetNearPlane(f32 z) noexcept { if (z > 0.0f) m_NearPlane = z; }
+
+    /**
+     * 遠クリップ面を返す。
+     *
+     * @return 遠クリップ距離。
+     */
+    f32 FarPlane() const noexcept { return m_FarPlane; }
+
+    /**
+     * 遠クリップ面を設定する (正の値のみ受け付ける)。
+     *
+     * @param z 設定する遠クリップ距離。
+     */
+    void SetFarPlane(f32 z) noexcept { if (z > 0.0f) m_FarPlane = z; }
+
+    /**
+     * shake を加えた eye 位置を返す。
+     *
+     * @return レンダラーが使う eye 位置。
+     */
+    FVec3 EffectiveEye() const noexcept {
+        return FVec3{ m_Position.x + m_ShakeOffset.x,
+                      m_Position.y + m_ShakeOffset.y,
+                      m_Position.z + m_ShakeOffset.z };
+    }
+
+    /**
+     * shake を加えた注視点を返す。
+     *
+     * @details
+     * eye と同じ量だけずらす。片方だけ揺らすと画面が回って見えるため。
+     * @return レンダラーが使う注視点。
+     */
+    FVec3 EffectiveLookAt() const noexcept {
+        return FVec3{ m_LookAt.x + m_ShakeOffset.x,
+                      m_LookAt.y + m_ShakeOffset.y,
+                      m_LookAt.z + m_ShakeOffset.z };
+    }
+
+    /**
+     * 1 フレーム更新する。
+     *
+     * @details
+     * target follow (framerate-independent な指数 smoothing) → trauma 減衰 + shake offset
+     * (trauma² * amplitude * noise) の順で更新する。2D 版の Tick と同じ順序。
+     * @param dt 経過秒 (負値は 0 にクランプ)。
+     */
+    void Tick(f32 dt) noexcept {
+        if (dt < 0.0f) dt = 0.0f;
+
+        // 1) target follow (framerate-independent exponential smoothing)
+        if (m_HasTarget) {
+            const FVec3 want_eye{ m_TargetPos.x + m_FollowOffset.x,
+                                  m_TargetPos.y + m_FollowOffset.y,
+                                  m_TargetPos.z + m_FollowOffset.z };
+            const FVec3 want_at { m_TargetPos.x + m_LookAtOffset.x,
+                                  m_TargetPos.y + m_LookAtOffset.y,
+                                  m_TargetPos.z + m_LookAtOffset.z };
+
+            // 初回は遅れなしで置く。原点から対象まで飛んでいく画を避ける。
+            if (!m_Placed || m_Smoothing <= 0.0f) {
+                m_Position = want_eye;
+                m_LookAt   = want_at;
+                m_Placed   = true;
+            } else {
+                const f32 t = 1.0f - Exp(-m_Smoothing * dt); // 今回近づく比率。
+                m_Position.x = Lerp(m_Position.x, want_eye.x, t);
+                m_Position.y = Lerp(m_Position.y, want_eye.y, t);
+                m_Position.z = Lerp(m_Position.z, want_eye.z, t);
+                m_LookAt.x   = Lerp(m_LookAt.x,   want_at.x,  t);
+                m_LookAt.y   = Lerp(m_LookAt.y,   want_at.y,  t);
+                m_LookAt.z   = Lerp(m_LookAt.z,   want_at.z,  t);
+            }
+        }
+
+        // 2) trauma 減衰 + shake offset
+        if (m_Trauma <= 0.0f) {
+            m_ShakeOffset = FVec3{ 0.0f, 0.0f, 0.0f };
+            return;
+        }
+
+        m_Trauma -= m_ShakeDecay * dt;
+        if (m_Trauma <= 0.0f) {
+            // 止まるときは必ず 0 に戻す。ずれたまま固まると画面が微妙にずれて見える。
+            m_Trauma      = 0.0f;
+            m_ShakeOffset = FVec3{ 0.0f, 0.0f, 0.0f };
+            return;
+        }
+
+        const f32 power = m_Trauma * m_Trauma * m_ShakeAmplitude; // 強さは trauma の 2 乗。
+        m_ShakeSeed += m_ShakeFrequency * dt;
+
+        // 3 軸を割り切れない比でずらし、往復に見えないようにする。
+        m_ShakeOffset.x = Sin(m_ShakeSeed)          * power;
+        m_ShakeOffset.y = Sin(m_ShakeSeed * 1.37f)  * power * 0.7f;  // 縦は控えめ。
+        m_ShakeOffset.z = Sin(m_ShakeSeed * 0.71f)  * power * 0.4f;  // 前後はさらに控えめ。
+    }
+
+    /**
+     * レンダリング用カメラへ view/projection を書き出す。
+     *
+     * @details
+     * eye と注視点が同じ、視野角や near/far が不正、aspect が 0 以下の場合は
+     * **何も書かずに false を返す** (行列が壊れて画面が真っ暗になるのを防ぐ)。
+     * @param out 書き出し先。
+     * @param aspect アスペクト比 (幅/高さ)。
+     * @return 書き出せたら true。
+     */
+    bool ApplyTo(CCamera& out, f32 aspect) const noexcept {
+        if (aspect <= 0.0f) return false;
+        if (m_NearPlane <= 0.0f || m_FarPlane <= m_NearPlane) return false;
+        if (m_FovYDegrees <= 0.0f || m_FovYDegrees >= 180.0f) return false;
+
+        const FVec3 eye = EffectiveEye();
+        const FVec3 at  = EffectiveLookAt();
+        const f32 dx = eye.x - at.x, dy = eye.y - at.y, dz = eye.z - at.z;
+        if (dx * dx + dy * dy + dz * dz <= 1.0e-8f) return false; // 向きが決まらない。
+
+        out.SetLookAt(eye, at);
+        out.SetPerspective(m_FovYDegrees * kDegToRad, aspect, m_NearPlane, m_FarPlane);
+        return true;
+    }
+
+private:
+    /** 度をラジアンへ直す係数。 */
+    static constexpr f32 kDegToRad = 3.14159265358979323846f / 180.0f;
+
+    /** shake 前の eye 位置。 */
+    FVec3 m_Position{ 0.0f, 0.0f, -5.0f };
+
+    /** shake 前の注視点。 */
+    FVec3 m_LookAt{ 0.0f, 0.0f, 0.0f };
+
+    /** 追従先の world 座標。 */
+    FVec3 m_TargetPos{ 0.0f, 0.0f, 0.0f };
+
+    /** 追従先から見た eye のずらし量。 */
+    FVec3 m_FollowOffset{ 0.0f, 3.0f, -6.0f };
+
+    /** 追従先から見た注視点のずらし量。 */
+    FVec3 m_LookAtOffset{ 0.0f, 1.0f, 0.0f };
+
+    /** shake による現在のずれ。 */
+    FVec3 m_ShakeOffset{ 0.0f, 0.0f, 0.0f };
+
+    /** 追従の鋭さ。 */
+    f32 m_Smoothing = 5.0f;
+
+    /** 現在の trauma (0..1)。 */
+    f32 m_Trauma = 0.0f;
+
+    /** trauma=1 のときの振幅。 */
+    f32 m_ShakeAmplitude = 0.5f;
+
+    /** 1 秒あたりの trauma 減衰量。 */
+    f32 m_ShakeDecay = 1.0f;
+
+    /** shake のノイズ周波数。 */
+    f32 m_ShakeFrequency = 25.0f;
+
+    /** shake のノイズ位相。 */
+    f32 m_ShakeSeed = 0.0f;
+
+    /** 垂直視野角 (度)。 */
+    f32 m_FovYDegrees = 60.0f;
+
+    /** 近クリップ距離。 */
+    f32 m_NearPlane = 0.1f;
+
+    /** 遠クリップ距離。 */
+    f32 m_FarPlane = 1000.0f;
+
+    /** 追従先が設定されているか。 */
+    bool m_HasTarget = false;
+
+    /** 一度でも追従先へ置かれたか (初回スナップの判定)。 */
+    bool m_Placed = false;
+};
+
+} // namespace acs::game
+
 // ===================== gameframework/CameraComponent3D.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -35966,219 +36692,6 @@ private:
     f32 m_NearPlane = 0.05f;
     f32 m_FarPlane = 1000.0f;
 };
-
-} // namespace acs::game
-
-// ===================== gameframework/CameraShakePresets.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-namespace acs::game {
-
-/**
- * shake プリセットの種別。
- *
- * @details
- * trauma 加算 + amp/decay 上書きで「爆発っぽい」「地震っぽい」を一発で出すための
- * プリセット種別。Custom は名前付きカスタムを表す哨兵 (GetPreset では中立値を返す)。
- */
-enum class EShakePreset : u8 {
-    /** 手榴弾 / 小爆弾。短く激しく。 */
-    ExplosionSmall = 0,
-
-    /** 大爆発 / ロケット直撃。長く強く。 */
-    ExplosionLarge,
-
-    /** ステージギミック型短震動。 */
-    EarthquakeShort,
-
-    /** 環境演出型長震動 (周波数低)。 */
-    EarthquakeLong,
-
-    /** 攻撃ヒット / 被弾。ごく短い punch。 */
-    HitImpact,
-
-    /** 連続発射型の継続震動 (高周波、低 amp、低 decay)。 */
-    RocketLaunch,
-
-    /** 隕石着弾 / ボス登場。最強クラス。 */
-    MeteorImpact,
-
-    /** RegisterCustomPreset 経由で登録された名前付き (哨兵)。 */
-    Custom,
-};
-
-/**
- * shake プリセット 1 個分のパラメータ。
- *
- * @details
- * trauma を AddShake、amplitude を SetShakeAmplitude、decay_rate を SetShakeDecayRate に流す。
- * frequency と duration_hint は CCamera2D 側 API には現状反映されない (frequency は将来の
- * SetShakeFrequency 化のための予約、duration_hint は caller のヒント)。
- */
-struct FShakeParams {
-    /** AddShake に渡す trauma 量 (0..1 想定、preset では 0.3..0.9)。 */
-    f32 trauma         = 0.0f;
-
-    /** SetShakeAmplitude に渡す振幅 (world units max @ trauma=1)。 */
-    f32 amplitude      = 0.5f;
-
-    /** SetShakeDecayRate に渡す減衰量 (trauma を 1 秒で 1.0 → 0.0 にする値)。 */
-    f32 decay_rate     = 1.0f;
-
-    /** 主要振動周波数 (CCamera2D 拡張予約。現状 API には反映されない)。 */
-    f32 frequency      = 25.0f;
-
-    /** 約何秒で減衰しきるかの目安 (= trauma / decay_rate)。caller のヒント。 */
-    f32 duration_hint  = 1.0f;
-};
-
-/**
- * shake パラメータの流し込み先となる純粋仮想インターフェース。
- *
- * @details
- * CCamera2D がこれを派生する (AddShake / SetShakeAmplitude / SetShakeDecayRate と同シグネチャ)。
- * テスト用 mock も同じ I/F を実装することで CCameraShakePresets を CCamera2D に直接依存させない。
- */
-class IShakeTarget {
-public:
-    /** 空状態で構築する。 */
-    IShakeTarget() noexcept = default;
-
-    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
-    virtual ~IShakeTarget() noexcept = default;
-
-    /** コピー禁止。 */
-    IShakeTarget(const IShakeTarget&)            = delete;
-
-    /** コピー代入も禁止。 */
-    IShakeTarget& operator=(const IShakeTarget&) = delete;
-
-    /** ムーブ禁止。 */
-    IShakeTarget(IShakeTarget&&)                 = delete;
-
-    /** ムーブ代入も禁止。 */
-    IShakeTarget& operator=(IShakeTarget&&)      = delete;
-
-    /**
-     * trauma を加算する (clamp [0,1] は実装側責務)。
-     *
-     * @param trauma 加算する trauma 量。
-     */
-    virtual void AddShake(f32 trauma) noexcept = 0;
-
-    /**
-     * 振幅を上書きする。
-     *
-     * @param a 振幅 (world units max @ trauma=1)。
-     */
-    virtual void SetShakeAmplitude(f32 a) noexcept = 0;
-
-    /**
-     * trauma 減衰レートを上書きする。
-     *
-     * @param r 減衰量 (trauma を 1 秒で 1.0 → 0.0 にする値)。
-     */
-    virtual void SetShakeDecayRate(f32 r) noexcept = 0;
-};
-
-/**
- * ジャンル別 shake パラメータを IShakeTarget に 1 行で流し込む薄い preset ライブラリ。
- *
- * @details
- * Eiserloh trauma 方式の amplitude / decay_rate / frequency / 適正 duration を名前付きで
- * 提供する。組み込み preset は static 関数で配り、カスタム preset は名前 + FShakeParams を
- * TArray に保持して線形検索する (名前は caller の static lifetime 想定)。非コピー・非ムーブ。
- */
-class CCameraShakePresets {
-public:
-    /** 空のプリセットライブラリを構築する。 */
-    CCameraShakePresets()  noexcept = default;
-
-    /** 破棄する。 */
-    ~CCameraShakePresets() noexcept = default;
-
-    /** コピー禁止 (他 preset/manager 系と統一)。 */
-    CCameraShakePresets(const CCameraShakePresets&)            = delete;
-
-    /** コピー代入も禁止。 */
-    CCameraShakePresets& operator=(const CCameraShakePresets&) = delete;
-
-    /** ムーブ禁止。 */
-    CCameraShakePresets(CCameraShakePresets&&)                 = delete;
-
-    /** ムーブ代入も禁止。 */
-    CCameraShakePresets& operator=(CCameraShakePresets&&)      = delete;
-
-    /**
-     * 組み込み preset の FShakeParams を返す。
-     *
-     * @param preset 取得するプリセット種別。
-     * @return 対応する FShakeParams。Custom は中立値 (= 適用しても見た目に影響しない値)。
-     */
-    static FShakeParams GetPreset(EShakePreset preset) noexcept;
-
-    /**
-     * 組み込み preset を target に流し込む。
-     *
-     * @details SetShakeAmplitude → SetShakeDecayRate → AddShake (加算累積) の順で適用する。
-     * @param target 流し込み先の shake ターゲット。
-     * @param preset 適用するプリセット種別。Custom は no-op (caller は ApplyCustomByName を使う)。
-     */
-    static void ApplyPreset(IShakeTarget& target, EShakePreset preset) noexcept;
-
-    /**
-     * カスタム preset を登録する。
-     *
-     * @details 同 name の 2 重登録は黙って上書きする (アセット二重ロード時に直近が勝つ)。
-     * @param name プリセット名。caller が保証する static lifetime の文字列 (リテラル想定)。nullptr は no-op。
-     * @param params 登録する shake パラメータ。
-     */
-    void RegisterCustomPreset(const char* name, const FShakeParams& params) noexcept;
-
-    /**
-     * 名前で引いたカスタム preset を target に流し込む。
-     *
-     * @details ApplyPreset と同じ順序 (SetAmp → SetDecay → AddShake) で適用する。
-     * @param target 流し込み先の shake ターゲット。
-     * @param name 適用するカスタムプリセット名。
-     * @return 発見 + 適用できれば true。未登録 / name == nullptr は false。
-     */
-    bool ApplyCustomByName(IShakeTarget& target, const char* name) noexcept;
-
-    /**
-     * 登録済みカスタムプリセット数を返す。
-     *
-     * @return カスタムプリセットの件数。
-     */
-    u32 CustomCount() const noexcept;
-
-private:
-    /**
-     * 登録済みカスタムプリセット 1 件分のエントリ。
-     */
-    struct FCustomEntry {
-        /** プリセット名 (所有しない。caller の static lifetime)。 */
-        const char* name = nullptr;
-
-        /** 紐付く shake パラメータ。 */
-        FShakeParams params{};
-    };
-
-    /**
-     * 名前でカスタムプリセットのインデックスを線形検索する (件数は典型 < 20)。
-     *
-     * @param name 検索するプリセット名。
-     * @return m_Customs 内のインデックス (見つからなければ ~0u)。
-     */
-    u32 FindCustomIndex(const char* name) const noexcept;
-
-    /** 登録済みカスタムプリセットの配列。 */
-    TArray<FCustomEntry> m_Customs;
-};
-
-/** 旧名を使う既存ソースとの互換alias。 */
-using FCameraShakePresets = CCameraShakePresets;
 
 } // namespace acs::game
 
@@ -50212,219 +50725,15 @@ using FGameFlow = CGameFlow;
 // Reversible AScene host for legacy ACS3D editor documents.
 
 
-// ===================== math/Camera.h =====================
+// ===================== gameframework/LightCollector3D.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
 
-namespace acs {
-
-/**
- * ビュー行列とプロジェクション行列を保持するカメラヘルパ。
- *
- * @details
- * 左手系 (Z+ が画面奥) で透視/正射影を設定し、注視点指定でビュー行列を作る。
- * ViewProjection() で GPU 送信用の合成行列を取得する。
- */
-class CCamera {
-public:
-    /** 単位ビュー・単位プロジェクションで構築する。 */
-    CCamera() noexcept = default;
-
-    /**
-     * 透視投影行列を設定する (左手系: Z+ が画面奥)。
-     *
-     * @param fov_y_rad 垂直視野角 (ラジアン)。
-     * @param aspect アスペクト比 (幅/高さ)。
-     * @param near_z 近クリップ面距離。
-     * @param far_z 遠クリップ面距離。
-     */
-    void SetPerspective(f32 fov_y_rad, f32 aspect, f32 near_z, f32 far_z) noexcept {
-        m_Projection = FMat4::PerspectiveFovLH(fov_y_rad, aspect, near_z, far_z);
-    }
-
-    /**
-     * 正射影投影行列を設定する。
-     *
-     * @param width ビュー幅。
-     * @param height ビュー高さ。
-     * @param near_z 近クリップ面距離。
-     * @param far_z 遠クリップ面距離。
-     */
-    void SetOrthographic(f32 width, f32 height, f32 near_z, f32 far_z) noexcept {
-        m_Projection = FMat4::OrthoLH(width, height, near_z, far_z);
-    }
-
-    /**
-     * 注視点を指定してビュー行列を設定する。
-     *
-     * @param eye カメラ位置。
-     * @param target 注視点。
-     * @param up 上方向ベクトル (既定は +Y)。
-     */
-    void SetLookAt(FVec3 eye, FVec3 target, FVec3 up = FVec3::Up()) noexcept {
-        m_Eye = eye;
-        m_View = FMat4::LookAtLH(eye, target, up);
-    }
-
-    /**
-     * ビュー行列を返す。
-     *
-     * @return 現在のビュー行列への const 参照。
-     */
-    const FMat4& View()           const noexcept { return m_View; }
-
-    /**
-     * プロジェクション行列を返す。
-     *
-     * @return 現在のプロジェクション行列への const 参照。
-     */
-    const FMat4& Projection()     const noexcept { return m_Projection; }
-
-    /**
-     * ビュー × プロジェクションの合成行列を返す。
-     *
-     * @return GPU 送信用の view-projection 行列。
-     */
-    FMat4        ViewProjection() const noexcept { return m_View * m_Projection; }
-
-    /**
-     * カメラ位置を返す。
-     *
-     * @return SetLookAt で設定した eye 位置。
-     */
-    FVec3        Eye()            const noexcept { return m_Eye; }
-
-    /**
-     * アスペクト比変更時に透視投影を作り直す (ウィンドウリサイズ用)。
-     *
-     * @param fov_y_rad 垂直視野角 (ラジアン)。
-     * @param aspect 新しいアスペクト比 (幅/高さ)。
-     * @param near_z 近クリップ面距離。
-     * @param far_z 遠クリップ面距離。
-     */
-    void UpdateAspect(f32 fov_y_rad, f32 aspect, f32 near_z, f32 far_z) noexcept {
-        SetPerspective(fov_y_rad, aspect, near_z, far_z);
-    }
-
-private:
-    /** ビュー行列。 */
-    FMat4 m_View;
-
-    /** プロジェクション行列。 */
-    FMat4 m_Projection;
-
-    /** カメラ位置 (SetLookAt で更新)。 */
-    FVec3 m_Eye{0, 0, 0};
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FCamera = CCamera;
-
-} // namespace acs
-
-// ===================== render/Blit.h =====================
+// ===================== gameframework/LightComponent3D.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
 
-namespace acs {
-
-/**
- * フルスクリーン三角形で 1 つのテクスチャを別のテクスチャへコピーするブリット。
- *
- * @details
- * 直接 GPU copy が RHI に無いため、フルスクリーン三角形 + テクスチャ sample で
- * pixel-perfect コピーを行う標準テクニック。出力 RT のフォーマットは Init 時に
- * PSO へ焼き込むため、別フォーマットへコピーしたい場合は別インスタンスを使う。
- */
-class CBlit {
-public:
-    /** Compiled shader handles awaiting owner-thread PSO creation. */
-    struct FCompiledShaders {
-        TUniquePtr<IRhiShader> vertex;
-        TUniquePtr<IRhiShader> pixel;
-
-        EShaderStatus Status() const noexcept;
-    };
-
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    CBlit() noexcept = default;
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~CBlit() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CBlit(const CBlit&)            = delete;
-
-    /** コピー代入も禁止。 */
-    CBlit& operator=(const CBlit&) = delete;
-
-    /**
-     * シェーダとパイプラインを生成して初期化する。
-     *
-     * @details
-     * rt_format は Copy の出力 RT のフォーマットで、PSO に焼き込まれる。出力 RT を
-     * 別フォーマットに切り替えたい場合は別の CBlit インスタンスを使うこと。
-     * @param device シェーダ・パイプライン生成に使う RHI デバイス。
-     * @param rt_format 出力 RT のフォーマット (PSO に焼き込む)。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
-
-    /** Compile raw-DX12 shader bytecode without touching an RHI device. */
-    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
-
-    /** Submit both shaders to a backend-managed compiler pool. */
-    static TResult<FCompiledShaders> BeginCompileShadersAsync(
-        IRhiDevice& device) noexcept;
-
-    /** Create and atomically publish the PSO from ready shader handles. */
-    TResult<void> InitWithCompiledShaders(
-        IRhiDevice& device,
-        FCompiledShaders&& shaders,
-        EFormat rt_format) noexcept;
-
-    /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
-    void Shutdown() noexcept;
-
-    /**
-     * src を dst へフルスクリーン pass でコピーする。
-     *
-     * @details
-     * dst は is_render_target=true で Init 時の rt_format と一致すること。内部で
-     * BeginRenderToTextureLoad(dst) → SetPipeline → SetTexture → Draw(3) →
-     * EndRenderToTexture(dst) を行う。全 pixel を上書きするので clear 不要、
-     * viewport は dst のサイズに自動設定される。
-     * @param cmd コマンドを積むコマンドリスト。
-     * @param src コピー元テクスチャ。
-     * @param dst コピー先 RT (rt_format に一致すること)。
-     */
-    void Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept;
-
-    /**
-     * 内部のブリット用パイプラインを返す。
-     *
-     * @return ブリット用パイプライン (未初期化なら nullptr)。
-     */
-    IRhiPipeline* Pipeline() const noexcept { return m_Pipeline.Get(); }
-
-private:
-    /** フルスクリーン三角形の頂点シェーダ。 */
-    TUniquePtr<IRhiShader>   m_Vs;
-
-    /** source texture を素 sample するピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_Ps;
-
-    /** ブリット描画のパイプライン。 */
-    TUniquePtr<IRhiPipeline> m_Pipeline;
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FBlit = CBlit;
-
-
-} // namespace acs
-
-// ===================== render/PbrShader.h =====================
+// ===================== render/StandardShader.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
 
@@ -50510,10 +50819,6 @@ TResult<void> UploadSkinnedMesh(IRhiDevice& device,
                                 FSkinnedGpuMesh& out) noexcept;
 
 } // namespace acs
-
-// ===================== render/StandardShader.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
 
 
 // ===================== render/TransientUploadArena.h =====================
@@ -50702,8 +51007,15 @@ namespace acs {
  * シェーダ側で normalize されるため問題ない。
  */
 struct FDirLight {
-    /** 光が向かう方向 (ワールド空間、シェーダ側で正規化される)。 */
-    FVec3 direction = FVec3{0, -1, 0};
+    /**
+     * **面から光源へ向かう**方向 (ワールド空間、シェーダ側で正規化される)。
+     *
+     * @details
+     * 光が進む方向ではない。真上に太陽があるなら (0, +1, 0)。逆向きを入れると
+     * 地面の下から照らすことになり、**上を向いた面がすべて陰る**。
+     * shader 側は `float3 L = normalize(light_dir[i].xyz)` として使う。
+     */
+    FVec3 direction = FVec3{0, 1, 0};
 
     /** 光の色 (例 (1,1,1))。 */
     FVec3 color     = FVec3{1, 1, 1};
@@ -51012,6 +51324,1464 @@ using FStandardShader = CStandardShader;
 
 
 } // namespace acs
+
+namespace acs::game {
+
+/** 光の種類。 */
+enum class ELight3DKind : u8 {
+    /** 平行光源 (太陽)。位置は無視され、ノードの向きだけを使う。 */
+    Directional = 0,
+
+    /** 点光源。ノードの位置から全方向へ届く。 */
+    Point       = 1,
+};
+
+/**
+ * シーンに置ける 3D の光 (ALight2DComponent の 3D 版)。
+ *
+ * @details
+ * `FDirLight` / `FPointLight` はシェーダへ渡す値そのもので、ノード階層とは結び付いていない。
+ * このコンポーネントはノードに付き、**ワールド変換から向きと位置を導いて**その値を作る。
+ * ノードを動かせば光も動き、親に付ければ一緒に動く。
+ *
+ * 向きはノードの回転を **+Y (真上)** に適用したもの。無回転なら**真上に太陽がある**状態。
+ * `FDirLight::direction` は «面から光源へ向かう» 向きなので、これと同じ約束にしてある。
+ * 逆向きにすると地面の下から照らすことになり、上を向いた面がすべて陰る。
+ *
+ * @code
+ * ANode& sun = root.AddChild(NewObject<ANode>());
+ * ALightComponent3D& light = sun.AddComponent<ALightComponent3D>();
+ * light.SetLightKind(ELight3DKind::Directional);
+ * light.SetColor(FVec3{1.0f, 0.96f, 0.9f});
+ * light.SetIntensity(3.0f);
+ *
+ * FDirLight out{};
+ * if (light.FillDirectional(out)) { shader.SetLights(vp, ..., &out, 1, ...); }
+ * @endcode
+ */
+class ALightComponent3D : public AComponent {
+public:
+    ACS_GAME_COMPONENT_KIND(ALightComponent3D)
+
+    /** 既定値 (やや暖かい白の平行光源) で構築する。 */
+    ALightComponent3D() noexcept = default;
+
+    /**
+     * 種類を指定して構築する。
+     *
+     * @param kind 光の種類。
+     */
+    explicit ALightComponent3D(ELight3DKind kind) noexcept : m_Kind(kind) {}
+
+    /**
+     * 光の種類を返す。
+     *
+     * @return 現在の種類。
+     */
+    ELight3DKind LightKind() const noexcept { return m_Kind; }
+
+    /**
+     * 光の種類を設定する。
+     *
+     * @param kind 設定する種類。
+     */
+    void SetLightKind(ELight3DKind kind) noexcept { m_Kind = kind; }
+
+    /**
+     * 光の色を返す。
+     *
+     * @return 線形空間の RGB。
+     */
+    FVec3 Color() const noexcept { return m_Color; }
+
+    /**
+     * 光の色を設定する。
+     *
+     * @param c 線形空間の RGB。
+     */
+    void SetColor(FVec3 c) noexcept { m_Color = c; }
+
+    /**
+     * 強さを返す。
+     *
+     * @return 色に掛ける倍率。
+     */
+    f32 Intensity() const noexcept { return m_Intensity; }
+
+    /**
+     * 強さを設定する (負値は 0 に丸める)。
+     *
+     * @param i 色に掛ける倍率。
+     */
+    void SetIntensity(f32 i) noexcept { m_Intensity = i > 0.0f ? i : 0.0f; }
+
+    /**
+     * 点光源の到達距離を返す。
+     *
+     * @return 到達距離。
+     */
+    f32 Range() const noexcept { return m_Range; }
+
+    /**
+     * 点光源の到達距離を設定する (0 以下は無視する)。
+     *
+     * @details 0 にすると光がまったく届かなくなり、消えているのと区別が付かない。
+     * @param r 到達距離。
+     */
+    void SetRange(f32 r) noexcept { if (r > 0.0f) m_Range = r; }
+
+    /**
+     * 影を落とすかを返す。
+     *
+     * @return 落とすなら true。
+     */
+    bool CastsShadow() const noexcept { return m_CastShadow; }
+
+    /**
+     * 影を落とすかを設定する。
+     *
+     * @param b 落とすなら true。
+     */
+    void SetCastsShadow(bool b) noexcept { m_CastShadow = b; }
+
+    /**
+     * 光っているかを返す。
+     *
+     * @details 強さが 0 なら、計算しても何も足されない。集める側が飛ばすために使う。
+     * @return 強さが正なら true。
+     */
+    bool IsEmitting() const noexcept { return m_Intensity > 0.0f; }
+
+    /**
+     * ノードの向きから、**面から光源へ向かう**方向を返す。
+     *
+     * @details
+     * 光が進む方向ではない (`FDirLight::direction` と同じ約束)。無回転なら (0, +1, 0) で、
+     * 真上に太陽がある状態。ノードに付いていない場合もその既定を返す。
+     * @return ワールド空間の方向 (正規化済み)。
+     */
+    FVec3 WorldDirection() const noexcept {
+        if (!HasOwner()) return FVec3{ 0.0f, 1.0f, 0.0f };
+
+        return Rotate(Owner().World().rotation, FVec3{ 0.0f, 1.0f, 0.0f });
+    }
+
+    /**
+     * 平行光源としての値を書き出す。
+     *
+     * @details 種類が違う、または光っていない場合は **out を触らずに false を返す**。
+     * @param out 書き出し先。
+     * @return 書き出したら true。
+     */
+    bool FillDirectional(FDirLight& out) const noexcept {
+        if (m_Kind != ELight3DKind::Directional || !IsEmitting()) return false;
+
+        out.direction = WorldDirection();
+        out.color     = FVec3{ m_Color.x * m_Intensity,
+                               m_Color.y * m_Intensity,
+                               m_Color.z * m_Intensity };
+        return true;
+    }
+
+    /**
+     * 点光源としての値を書き出す。
+     *
+     * @details 種類が違う、または光っていない場合は **out を触らずに false を返す**。
+     * @param out 書き出し先。
+     * @return 書き出したら true。
+     */
+    bool FillPoint(FPointLight& out) const noexcept {
+        if (m_Kind != ELight3DKind::Point || !IsEmitting()) return false;
+
+        out.position = HasOwner() ? Owner().World().position : FVec3{ 0.0f, 0.0f, 0.0f };
+        out.range    = m_Range;
+        out.color    = FVec3{ m_Color.x * m_Intensity,
+                              m_Color.y * m_Intensity,
+                              m_Color.z * m_Intensity };
+        return true;
+    }
+
+private:
+    /** 光の色 (線形空間、強さは別に持つ)。 */
+    FVec3 m_Color{ 1.0f, 0.96f, 0.9f };
+
+    /** 色に掛ける倍率。 */
+    f32 m_Intensity = 1.0f;
+
+    /** 点光源の到達距離。 */
+    f32 m_Range = 10.0f;
+
+    /** 光の種類。 */
+    ELight3DKind m_Kind = ELight3DKind::Directional;
+
+    /** 影を落とすか。 */
+    bool m_CastShadow = true;
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/**
+ * ノードの木から光を集めて、shader へ渡せる配列にする。
+ *
+ * @details
+ * `ALightComponent3D` はノードに付いた 1 灯を表すだけで、shader は配列で受け取る。
+ * その間を埋める。**確保はしない** (shader 側の上限ぶんを内側に持つ)。
+ *
+ * shader が受け取れるのは平行光源 4 灯 + 点光源 4 灯まで。**越えたぶんは捨てる**が、
+ * 捨てた数を `DroppedCount()` で返す。黙って消すと「置いたのに光らない」の原因が
+ * 分からなくなるため。
+ *
+ * 点光源が上限を越えるときは、**視点に近いものを残す**。遠くの光は画面への寄与が小さく、
+ * 宣言順で切ると「近くの光が消えて遠くの光が残る」という一番おかしな見え方になる。
+ *
+ * @code
+ * CLightCollector3D lights;
+ * lights.CollectFrom(scene.Root(), camera.EffectiveEye());
+ *
+ * shader.SetLights(view_projection, eye, lights.DirectionalLights(), lights.DirectionalCount(), ambient);
+ * shader.SetPointLights(lights.PointLights(), lights.PointCount());
+ * @endcode
+ */
+class CLightCollector3D {
+public:
+    /** shader が受け取れる平行光源の数。 */
+    static constexpr u32 kMaxDirectional = 4u;
+
+    /** shader が受け取れる点光源の数。 */
+    static constexpr u32 kMaxPoint = 4u;
+
+    /** これより深い階層は辿らない (壊れた木で戻ってこなくなるのを防ぐ)。 */
+    static constexpr u32 kMaxDepth = 512u;
+
+    /** 空の状態で構築する。 */
+    CLightCollector3D() noexcept = default;
+
+    /** 集めた結果を捨てる。 */
+    void Clear() noexcept {
+        m_DirectionalCount = 0u;
+        m_PointCount       = 0u;
+        m_Dropped          = 0u;
+    }
+
+    /**
+     * 木を辿って光を集める。
+     *
+     * @details
+     * 先に `Clear()` するので、毎フレーム呼んでよい。光っていない灯 (強さ 0) は飛ばす。
+     * @param root 辿り始めるノード。root 自身も対象。
+     * @param view_position 視点のワールド位置。点光源が上限を越えたとき、ここに近いものを残す。
+     */
+    void CollectFrom(const ANode& root, FVec3 view_position = FVec3{ 0.0f, 0.0f, 0.0f }) noexcept {
+        Clear();
+        Visit(root, view_position, 0u);
+    }
+
+    /**
+     * 平行光源の配列を返す。
+     *
+     * @return 先頭。個数は `DirectionalCount()`。
+     */
+    const FDirLight* DirectionalLights() const noexcept { return m_Directional; }
+
+    /**
+     * 集まった平行光源の数を返す。
+     *
+     * @return 0 から `kMaxDirectional` まで。
+     */
+    u32 DirectionalCount() const noexcept { return m_DirectionalCount; }
+
+    /**
+     * 点光源の配列を返す。
+     *
+     * @return 先頭。個数は `PointCount()`。
+     */
+    const FPointLight* PointLights() const noexcept { return m_Point; }
+
+    /**
+     * 集まった点光源の数を返す。
+     *
+     * @return 0 から `kMaxPoint` まで。
+     */
+    u32 PointCount() const noexcept { return m_PointCount; }
+
+    /**
+     * 上限を越えて捨てた灯の数を返す。
+     *
+     * @details
+     * 0 でなければ、置いたのに反映されていない光がある。診断に出すこと。
+     * @return 捨てた数。
+     */
+    u32 DroppedCount() const noexcept { return m_Dropped; }
+
+private:
+    /**
+     * ノード 1 つとその子を辿る。
+     *
+     * @param node 見るノード。
+     * @param view_position 視点のワールド位置。
+     * @param depth いまの深さ。
+     */
+    void Visit(const ANode& node, FVec3 view_position, u32 depth) noexcept {
+        if (depth >= kMaxDepth) return;
+
+        if (const ALightComponent3D* const light = const_cast<ANode&>(node).GetComponent<ALightComponent3D>()) {
+            Add(*light, view_position);
+        }
+
+        const u32 count = node.ChildCount();
+        for (u32 i = 0u; i < count; ++i) {
+            const ANode* const child = node.Child(i);
+            if (child != nullptr) Visit(*child, view_position, depth + 1u);
+        }
+    }
+
+    /**
+     * 光 1 灯を配列へ入れる。
+     *
+     * @param light 入れる灯。
+     * @param view_position 視点のワールド位置。
+     */
+    void Add(const ALightComponent3D& light, FVec3 view_position) noexcept {
+        if (!light.IsEmitting()) return;
+
+        if (light.LightKind() == ELight3DKind::Directional) {
+            FDirLight out{};
+            if (!light.FillDirectional(out)) return;
+
+            // 太陽はまず 1 灯なので、越えたら宣言順で切る。
+            if (m_DirectionalCount >= kMaxDirectional) { ++m_Dropped; return; }
+            m_Directional[m_DirectionalCount] = out;
+            ++m_DirectionalCount;
+            return;
+        }
+
+        FPointLight out{};
+        if (!light.FillPoint(out)) return;
+
+        if (m_PointCount < kMaxPoint) {
+            m_Point[m_PointCount]         = out;
+            m_PointDistance[m_PointCount] = DistanceSquared(out.position, view_position);
+            ++m_PointCount;
+            return;
+        }
+
+        // 満杯。いちばん遠いものより近ければ入れ替える。遠い光を残すと、
+        // 近くの光が消えて «一番おかしな見え方» になる。
+        u32 farthest = 0u;
+        for (u32 i = 1u; i < m_PointCount; ++i) {
+            if (m_PointDistance[i] > m_PointDistance[farthest]) farthest = i;
+        }
+
+        const f32 distance = DistanceSquared(out.position, view_position);
+        if (distance < m_PointDistance[farthest]) {
+            m_Point[farthest]         = out;
+            m_PointDistance[farthest] = distance;
+        }
+
+        ++m_Dropped;
+    }
+
+    /** 2 点の距離の 2 乗を返す。 */
+    static f32 DistanceSquared(FVec3 a, FVec3 b) noexcept {
+        const f32 dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z; // 各軸の差。
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    /** 集まった平行光源。 */
+    FDirLight m_Directional[kMaxDirectional] = {};
+
+    /** 集まった点光源。 */
+    FPointLight m_Point[kMaxPoint] = {};
+
+    /** 点光源それぞれの視点からの距離 (2 乗)。入れ替えの判断に使う。 */
+    f32 m_PointDistance[kMaxPoint] = {};
+
+    /** 集まった平行光源の数。 */
+    u32 m_DirectionalCount = 0u;
+
+    /** 集まった点光源の数。 */
+    u32 m_PointCount = 0u;
+
+    /** 上限を越えて捨てた数。 */
+    u32 m_Dropped = 0u;
+};
+
+} // namespace acs::game
+
+// ===================== render/ShadowMap.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+namespace acs {
+
+/**
+ * 有向光源用の直交シャドウマップ (single cascade / CSM atlas)。
+ *
+ * @details
+ * cascade_count=1 では 1 枚の 2D 深度テクスチャにシーン全体を 1 つの ortho 投影で描く
+ * (伝統的な single cascade)。cascade_count>=2 ではカメラ frustum を距離で 2-4 個に分割し、
+ * 近景は高解像度・遠景は広範囲を 1 枚の atlas (width = cascade_count * size、height = size)
+ * に並べる (CSM)。GPU リソースを単独所有する non-copy 型。
+ */
+class CShadowMap {
+public:
+    /** サポートする cascade の最大数。 */
+    static constexpr u32 kMaxCascades = 4;
+
+    /**
+     * Source-compatibility estimates from the former fixed caster ring.
+     * The per-cascade pools are growable; neither value is a hard draw limit.
+     */
+    [[deprecated("growable pool; not a hard limit")]]
+    static constexpr u32 kMaxCasterDrawsPerCascade = 256u;
+    [[deprecated("growable pool; not a hard limit")]]
+    static constexpr u32 kMaxCasterDrawsPerFrame =
+        kMaxCascades * 256u;
+
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    CShadowMap() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~CShadowMap() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    CShadowMap(const CShadowMap&)            = delete;
+
+    /** コピー代入も禁止。 */
+    CShadowMap& operator=(const CShadowMap&) = delete;
+
+    /**
+     * 深度テクスチャとキャスター用パイプラインを生成する。
+     *
+     * @details
+     * cascade_count=1 (既定) は size × size の single 2D depth texture、cascade_count>=2 は
+     * (size * cascade_count) × size の CSM atlas を確保する。cascade_count は kMaxCascades に
+     * クランプされる。
+     * @param device リソース・パイプライン生成に使う RHI デバイス。
+     * @param size 1 cascade あたりの一辺サイズ (0 のとき 2048)。
+     * @param cascade_count cascade 数 (0 のとき 1、kMaxCascades 超はクランプ)。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, u32 size = 2048,
+                      u32 cascade_count = 1) noexcept;
+
+    /** 確保した GPU リソースを解放する。 */
+    void Shutdown() noexcept;
+
+    /** shadow pass の記録前に per-draw caster CB cursor をリセットする。 */
+    /**
+     * Pre-grow every cascade reserved by Init before recording a complete
+     * shadow pass. This also keeps a same-frame single-volume fallback followed
+     * by CSM restoration allocation-free while commands are being recorded.
+     * UINT32_MAX is rejected because it is the invalid cursor sentinel.
+     */
+    bool BeginFrame(u32 required_casters_per_cascade = 0u) noexcept;
+
+    /**
+     * single cascade 用に有向光源の ortho 投影を計算する (後方互換)。
+     *
+     * @details cascade_count=1 でのみ意味を持つ。CSM mode では SetDirectionalLightCascades を使う。
+     * @param light_dir 光の向き (正規化されていなくてよい)。
+     * @param scene_center シーンの中心 (ortho 投影が見る点)。
+     * @param scene_radius シーンを覆う半径 (ortho 幅・near/far の基準)。
+     */
+    void SetDirectionalLight(FVec3 light_dir,
+                              FVec3 scene_center,
+                              f32 scene_radius) noexcept;
+
+    /**
+     * CSM 用にカメラ frustum を分割して各 cascade の light VP を計算する。
+     *
+     * @details
+     * near→far を 2-4 個に Zhang practical split で分割し、各 sub-frustum を bounding sphere で
+     * 囲って ortho 投影を求める。
+     * @param light_dir 光の向き (正規化されていなくてよい)。
+     * @param view カメラの view 行列。
+     * @param proj カメラの projection 行列。
+     * @param near_z カメラの near 平面距離。
+     * @param far_z カメラの far 平面距離。
+     * @param lambda 分割の混合比 (0=uniform split で近景密・線形、1=log split で遠景均等、既定 0.5 は両者のブレンド)。
+     */
+    void SetDirectionalLightCascades(FVec3 light_dir,
+                                      const FMat4& view, const FMat4& proj,
+                                      f32 near_z, f32 far_z,
+                                      f32 lambda = 0.5f) noexcept;
+
+    /**
+     * 現在描画する cascade を選択する (CSM mode、BeginShadowPass の後に呼ぶ)。
+     *
+     * @details LightCB() が返す cascade 専用 CB を選択する。GPU 内容は更新しない。
+     * @param cascade 選択する cascade index (範囲外なら 0)。
+     */
+    void SetCurrentCascade(u32 cascade) noexcept;
+
+    /**
+     * キャスター描画ごとのモデル行列を設定する。
+     *
+     * @param model キャスターの world 変換行列。
+     */
+    void SetCaster(const FMat4& model) noexcept;
+
+    /**
+     * draw 専用 CB を確保してキャスターのモデル行列を設定する。
+     *
+     * @return 設定できた場合 true。frame 上限または確保失敗時は false で、draw を省略する。
+     */
+    bool TrySetCaster(const FMat4& model) noexcept;
+
+    /**
+     * 深度テクスチャ (single または CSM atlas) を返す。
+     *
+     * @return シャドウ深度テクスチャ。
+     */
+    IRhiTexture*  DepthTexture()   const noexcept { return m_Depth.Get(); }
+
+    /**
+     * キャスター描画用の depth-only パイプラインを返す。
+     *
+     * @return キャスター描画パイプライン。
+     */
+    IRhiPipeline* CasterPipeline() const noexcept { return m_Pipeline.Get(); }
+
+    /**
+     * 光源の view-projection を格納する定数バッファ (b0) を返す。
+     *
+     * @return light_vp を格納する CB。
+     */
+    IRhiBuffer*   LightCB()        const noexcept {
+        return m_LightCbs[m_CurrentCascade].Get();
+    }
+
+    /**
+     * キャスターの model 行列を格納する定数バッファ (b1) を返す。
+     *
+     * @return model を格納する CB。
+     */
+    IRhiBuffer*   CasterObjectCB() const noexcept {
+        const u32 slot = m_CurrentCasters[m_CurrentCascade];
+        return slot < m_ObjectCbs[m_CurrentCascade].Num()
+             ? m_ObjectCbs[m_CurrentCascade][slot].Get()
+             : nullptr;
+    }
+
+    u32 CasterBufferCapacity(u32 cascade = 0u) const noexcept {
+        return cascade < m_CascadeCapacity
+             ? static_cast<u32>(m_ObjectCbs[cascade].Num()) : 0u;
+    }
+
+    /** BeginFrame() 以降に消費した per-draw caster CB slot 数。 */
+    u32 CasterDrawCount() const noexcept { return m_TotalCasterDrawCount; }
+
+    /** 指定 cascade が消費した per-draw caster CB slot 数。 */
+    u32 CasterDrawCount(u32 cascade) const noexcept {
+        return cascade < m_CascadeCount ? m_CasterDrawCounts[cascade] : 0;
+    }
+
+    /** 現 frame で ring 上限または slot 確保失敗が発生したか。 */
+    bool CasterOverflowed() const noexcept {
+        for (u32 cascade = 0; cascade < m_CascadeCount; ++cascade) {
+            if (m_CasterOverflowed[cascade]) return true;
+        }
+        return false;
+    }
+
+    /** 指定 cascade で ring 上限または slot 確保失敗が発生したか。 */
+    bool CasterOverflowed(u32 cascade) const noexcept {
+        return cascade < m_CascadeCount && m_CasterOverflowed[cascade];
+    }
+
+    /**
+     * cascade 0 の light view-projection を返す (single cascade 用、後方互換)。
+     *
+     * @return cascade 0 の light view-projection 行列。
+     */
+    FMat4 LightViewProjection() const noexcept { return m_LightVp[0]; }
+
+    /**
+     * 指定 cascade の light view-projection を返す (CSM 用)。
+     *
+     * @param cascade cascade index (範囲外なら 0)。
+     * @return 当該 cascade の light view-projection 行列。
+     */
+    FMat4 LightViewProjection(u32 cascade) const noexcept {
+        return m_LightVp[cascade < m_CascadeCount ? cascade : 0];
+    }
+
+    /**
+     * 指定 cascade の分割閾値 (view-space z far) を返す。
+     *
+     * @param cascade cascade index (範囲外なら 0)。
+     * @return 当該 cascade の分割閾値。
+     */
+    f32 CascadeSplit(u32 cascade) const noexcept {
+        return m_CascadeSplits[cascade < m_CascadeCount ? cascade : 0];
+    }
+
+    /**
+     * cascade 数を返す。
+     *
+     * @return 確保済みの cascade 数。
+     */
+    u32 CascadeCount() const noexcept { return m_CascadeCount; }
+
+    /**
+     * atlas 内の cascade 領域に対する viewport を返す。
+     *
+     * @details BeginShadowPass の後・各 caster 群描画の前に SetViewport へ渡す。
+     * @param cascade cascade index (範囲外なら 0)。
+     * @return 当該 cascade の atlas viewport。
+     */
+    FViewport    CascadeViewport(u32 cascade) const noexcept;
+
+    /**
+     * atlas 内の cascade 領域に対する scissor を返す。
+     *
+     * @details BeginShadowPass の後・各 caster 群描画の前に SetScissor へ渡す。
+     * @param cascade cascade index (範囲外なら 0)。
+     * @return 当該 cascade の atlas scissor。
+     */
+    FScissorRect CascadeScissor (u32 cascade) const noexcept;
+
+    /**
+     * 1 cascade あたりの一辺サイズを返す。
+     *
+     * @return cascade の一辺サイズ。
+     */
+    u32 Size() const noexcept { return m_Size; }
+
+private:
+    bool EnsureCasterCapacity(u32 cascade, u32 required_casters) noexcept;
+
+    /** シャドウ深度テクスチャ (single または CSM atlas)。 */
+    TUniquePtr<IRhiTexture>  m_Depth;
+
+    /** キャスター描画の頂点シェーダ。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** キャスター描画の depth-only パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+
+    /** 光源の view-projection を渡す定数バッファ (b0)。 */
+    TUniquePtr<IRhiBuffer>   m_LightCbs[kMaxCascades];
+
+    /** キャスターの model 行列を渡す定数バッファ (b1)。 */
+    TArray<TUniquePtr<IRhiBuffer>> m_ObjectCbs[kMaxCascades];
+
+    IRhiDevice*              m_Device = nullptr;
+
+    /** 各 cascade の light view-projection 行列。 */
+    FMat4                    m_LightVp      [kMaxCascades] = {};
+
+    /** 各 cascade の分割閾値 (view-space z far)。 */
+    f32                     m_CascadeSplits[kMaxCascades] = {};
+
+    /** 1 cascade あたりの一辺サイズ。 */
+    u32                     m_Size          = 0;
+
+    /** 現在有効な cascade 数。single-volume fallback 中は 1。 */
+    u32                     m_CascadeCount = 1;
+
+    /** Init 時に確保した atlas/CB の cascade 容量。single fallback 後の CSM 復帰に使う。 */
+    u32                     m_CascadeCapacity = 1;
+
+    u32                     m_CurrentCascade = 0;
+    u32                     m_CurrentCasters[kMaxCascades] = {};
+    u32                     m_CasterDrawCounts[kMaxCascades] = {};
+    u32                     m_TotalCasterDrawCount = 0;
+    static constexpr u32    kInvalidCasterBuffer = ~u32{0};
+    bool                    m_FrameCapacityReady = false;
+    bool                    m_CasterOverflowed[kMaxCascades] = {};
+    bool                    m_CasterWarningIssued[kMaxCascades] = {};
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FShadowMap = CShadowMap;
+
+
+} // namespace acs
+
+// ===================== render/Ibl.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+class CSky;
+
+/**
+ * Image-Based Lighting。PBR の ambient 項を環境マップから事前積分した光で置き換える。
+ *
+ * @details
+ * 構成要素は BRDF LUT (256x256 RG16F、GGX split-sum の scale+bias)、環境 cubemap
+ * (1024x1024x6 R11G11B10_Float)、拡散 irradiance cubemap (64x64x6)、specular prefilter
+ * cubemap (512x512x6, 7 mip)。Diligent backend 専用の本実装で、raw-DX12 backend では
+ * 各 Build/Ensure が ACS_ERR(Render, 88) を返す (fake-success しない)。
+ */
+class CImageBasedLighting {
+public:
+    /** 空状態で構築する (各 GPU リソースは Ensure 系で遅延生成)。 */
+    CImageBasedLighting() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~CImageBasedLighting() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    CImageBasedLighting(const CImageBasedLighting&)            = delete;
+
+    /** コピー代入も禁止。 */
+    CImageBasedLighting& operator=(const CImageBasedLighting&) = delete;
+
+    /**
+     * 初回呼び出しで BRDF LUT を 1 回だけ生成する (以降は no-op)。
+     *
+     * @details cl は frame 内 (BeginFrame と EndFrame の間) で記録中である必要がある。
+     * @param device リソース生成に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> EnsureBrdfLut(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+
+    /**
+     * 初回呼び出しで env cubemap を CSky 手続き式からキャプチャする。
+     *
+     * @details
+     * 1024x1024x6 / R11G11B10_Float を各 face 6 回の per-slice draw で塗る。sky の現在の
+     * パラメータ (sun_dir / colors 等) がスナップショットされる。再キャプチャするには
+     * Shutdown() で全 reset するか ResetEnvCubemap() を使う。
+     * @param device リソース生成に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param sky キャプチャ元の手続き式空。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> EnsureEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
+                                  const CSky& sky) noexcept;
+
+    /**
+     * 既存 env cubemap を破棄し equirectangular HDR 画像から新しい env cubemap を作る。
+     *
+     * @details
+     * 内部で R32G32B32A32_Float の Texture2D に upload し、6 face をピクセルシェーダで
+     * 塗り直す。irradiance / prefilter は呼び出し側で再 Ensure する必要がある。
+     * @param device リソース生成に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param rgba_float width × height × 4 個の float (row-major / top-down、v=0 が天頂 +Y、v=1 が天底 -Y)。
+     * @param width 画像の幅 (px)。
+     * @param height 画像の高さ (px)。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> LoadEquirectHdrFromMemory(IRhiDevice& device, IRhiCommandList& cl,
+                                            const f32* rgba_float, u32 width, u32 height) noexcept;
+
+    /**
+     * Excludes an analytic direct-light disc from diffuse/specular IBL
+     * convolution while keeping that disc visible in the environment skybox.
+     *
+     * Finite convolution sequences sample a sub-pixel HDR sun disc as
+     * structured fireflies, and CPbrShader already evaluates the same sun via
+     * its directional-light BRDF.  Set cosine_half_angle > 1 to disable.
+     * Call this before EnsureIrradiance/EnsurePrefilter during an environment
+     * rebuild.  It does not destroy already-built GPU products; changing it
+     * after a build requires the existing safe sequence: wait for GPU idle,
+     * ResetEnvCubemap(), then rebuild.
+     */
+    void SetDirectLightExclusion(FVec3 direction,
+                                 f32 cosine_half_angle) noexcept;
+
+    /**
+     * equirect 画像から SH 9 light probe を CPU 側で計算する。
+     *
+     * @details
+     * Ramamoorthi-Hanrahan の L_l,m 球面調和係数 9 個を求めて out_sh_rgb に書き出す。
+     * 各 out_sh_rgb[i].xyz が RGB 係数で .w は不使用 (CB layout の便宜上 FVec4)。後段
+     * CPbrShader で SH 9 ambient mode に切替でき、irradiance cubemap の圧縮版 (144B のみ)
+     * として diffuse irradiance を近似する。規約: v=0 が +Y、v=1 が -Y、u=0 が phi=-π。
+     * @param rgba_float equirect 画像の RGBA float ピクセル列。
+     * @param width 画像の幅 (px)。
+     * @param height 画像の高さ (px)。
+     * @param out_sh_rgb 計算した SH 係数 9 個の書き出し先。
+     */
+    static void ComputeSh9FromEquirect(const f32* rgba_float,
+                                        u32 width, u32 height,
+                                        FVec4 out_sh_rgb[9]) noexcept;
+
+    /**
+     * 初回呼び出しで diffuse irradiance cubemap を env cubemap の半球積分から作る。
+     *
+     * @details
+     * 64x64x6 / R11G11B10_Float。EnsureEnvCubemap が完了していないと失敗する。出力は
+     * (1/π) ∫_Ω L_env(ω) (N·ω) dω で、Lambert diffuse の ambient 項として
+     * diffuse = albedo * irradiance_cube.Sample(N) で使う。
+     * @param device リソース生成に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> EnsureIrradiance(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+
+    /**
+     * 初回呼び出しで specular prefilter cubemap を env cubemap の GGX 積分から作る。
+     *
+     * @details
+     * 512x512x6 / R11G11B10_Float / 7 mips。各 mip が roughness 段階に対応する
+     * (mip 0 = roughness 0 / 鏡面、mip 6 = roughness 1)。実行時 PBR specular は
+     * F = F0 * lut.r + lut.g、specular = prefilter.SampleLevel(R, roughness*(mips-1)).rgb * F。
+     * @param device リソース生成に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> EnsurePrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+
+    /**
+     * デバッグ用に任意の cubemap を fullscreen quad の skybox として現在の RT へ描く。
+     *
+     * @details
+     * rt_format / depth_format は現在 bind 中の swapchain と一致させること。depth_test /
+     * write は無効 (背景描画)。初回呼び出しで PSO/CB を lazy init し、env_cube / irradiance
+     * / prefilter で同じ pipeline を共有する。
+     * @param device リソース生成・描画に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param cube 描画する cubemap テクスチャ。
+     * @param view_proj 適用する view-projection 行列。
+     * @param eye カメラ位置 (視線方向の算出に使う)。
+     * @param rt_format 現在 bind 中の RT の色フォーマット。
+     * @param depth_format 現在 bind 中の depth フォーマット。
+     * @param mip_level サンプルする mip 段階 (prefilter で roughness 段階を選ぶとき 0..prefilter_mips-1、env/irradiance では 0)。
+     */
+    void DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
+                    IRhiTexture& cube,
+                    const FMat4& view_proj, FVec3 eye,
+                    EFormat rt_format, EFormat depth_format,
+                    f32 mip_level = 0.0f,
+                    FVec3 sun_direction = FVec3{0.0f, 1.0f, 0.0f},
+                    FVec3 sun_radiance = FVec3{},
+                    f32 sun_angular_radius = 0.0f) noexcept;
+
+    /**
+     * env_cube を skybox として現在の RT へ描く利便ラッパ。
+     *
+     * @param device リソース生成・描画に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param view_proj 適用する view-projection 行列。
+     * @param eye カメラ位置。
+     * @param rt_format 現在 bind 中の RT の色フォーマット。
+     * @param depth_format 現在 bind 中の depth フォーマット。
+     * @param sun_direction 解析的に描く太陽への方向。正規化は内部で行う。
+     * @param sun_radiance 太陽ディスクの線形 HDR 放射輝度。0 ならディスクを描かない。
+     * @param sun_angular_radius 太陽の角半径 (rad)。0 ならディスクを描かない。
+     *
+     * @details
+     * 太陽ディスクは env cubemap へ焼き込まず、最終ビューポート解像度で解析的に
+     * 描画する。これにより低解像度 equirect のテクセル形状が四角く拡大されず、
+     * 後段の volumetric cloud composite が自然にディスクを遮蔽できる。
+     */
+    void DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
+                       const FMat4& view_proj, FVec3 eye,
+                       EFormat rt_format, EFormat depth_format,
+                       FVec3 sun_direction = FVec3{0.0f, 1.0f, 0.0f},
+                       FVec3 sun_radiance = FVec3{},
+                       f32 sun_angular_radius = 0.0f) noexcept;
+
+    /**
+     * 環境 cubemap (とそれに依存する irradiance / prefilter) だけを reset する。
+     *
+     * @details
+     * CSky preset 切替などで env を作り直したいときに使い、BRDF LUT (sky 非依存) は残せる。
+     * 呼び出し前にデバイスの WaitIdle() を呼ぶこと: 前フレームの GPU 描画がまだこのテクスチャ
+     * を参照中だと UB になる。
+     */
+    void ResetEnvCubemap() noexcept;
+
+    /** 確保した全 GPU リソース (LUT・各 cubemap・skybox パイプライン) を解放する。 */
+    void Shutdown() noexcept;
+
+    /**
+     * BRDF LUT を返す。
+     *
+     * @return BRDF LUT (256x256 RG16F)。EnsureBrdfLut 完了前は nullptr。
+     */
+    IRhiTexture* BrdfLut()    const noexcept { return m_BrdfLut.Get(); }
+
+    /**
+     * BRDF LUT が生成済みかを返す。
+     *
+     * @return 生成済みなら true。
+     */
+    bool         HasBrdfLut() const noexcept { return static_cast<bool>(m_BrdfLut); }
+
+    /**
+     * 環境 cubemap を返す。
+     *
+     * @return 環境 cubemap (1024x1024x6 R11G11B10_Float)。EnsureEnvCubemap 完了前は nullptr。
+     */
+    IRhiTexture* EnvCubemap()    const noexcept { return m_EnvCube.Get(); }
+
+    /**
+     * 環境 cubemap が生成済みかを返す。
+     *
+     * @return 生成済みなら true。
+     */
+    bool         HasEnvCubemap() const noexcept { return static_cast<bool>(m_EnvCube); }
+
+    /**
+     * 拡散 irradiance cubemap を返す。
+     *
+     * @return irradiance cubemap (64x64x6 R11G11B10_Float)。EnsureIrradiance 完了前は nullptr。
+     */
+    IRhiTexture* IrradianceMap()    const noexcept { return m_IrradianceCube.Get(); }
+
+    /**
+     * 拡散 irradiance cubemap が生成済みかを返す。
+     *
+     * @return 生成済みなら true。
+     */
+    bool         HasIrradianceMap() const noexcept { return static_cast<bool>(m_IrradianceCube); }
+
+    /**
+     * specular prefilter cubemap を返す。
+     *
+     * @return prefilter cubemap (512x512x6 R11G11B10_Float, 7 mips)。EnsurePrefilter 完了前は nullptr。
+     */
+    IRhiTexture* PrefilterMap()    const noexcept { return m_PrefilterCube.Get(); }
+
+    /**
+     * specular prefilter cubemap が生成済みかを返す。
+     *
+     * @return 生成済みなら true。
+     */
+    bool         HasPrefilterMap() const noexcept { return static_cast<bool>(m_PrefilterCube); }
+
+    /**
+     * prefilter cubemap の mip 数を返す。
+     *
+     * @return prefilter の mip 数 (未生成なら 0)。
+     */
+    u32          PrefilterMips()   const noexcept { return m_PrefilterMips; }
+
+private:
+    /**
+     * BRDF LUT を実際に生成する。
+     *
+     * @param device リソース生成に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> BuildBrdfLut(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+
+    /**
+     * env cubemap を実際に生成する。
+     *
+     * @param device リソース生成に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param sky キャプチャ元の手続き式空。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> BuildEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
+                                 const CSky& sky) noexcept;
+
+    /**
+     * irradiance cubemap を実際に生成する。
+     *
+     * @param device リソース生成に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> BuildIrradiance(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+
+    /**
+     * prefilter cubemap を実際に生成する。
+     *
+     * @param device リソース生成に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> BuildPrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+
+    /**
+     * skybox 描画用の PSO/CB を必要なら lazy init する。
+     *
+     * @param device パイプライン生成に使う RHI デバイス。
+     * @param rt_format 描画先 RT の色フォーマット。
+     * @param depth_format 描画先 depth フォーマット。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> EnsureSkyboxPipeline(IRhiDevice& device,
+                                      EFormat rt_format, EFormat depth_format) noexcept;
+
+    /** BRDF LUT (256x256 RG16F)。 */
+    TUniquePtr<IRhiTexture>  m_BrdfLut;
+
+    /** 環境 cubemap (1024x1024x6 R11G11B10_Float)。 */
+    TUniquePtr<IRhiTexture>  m_EnvCube;
+
+    /** 拡散 irradiance cubemap (64x64x6 R11G11B10_Float)。 */
+    TUniquePtr<IRhiTexture>  m_IrradianceCube;
+
+    /** specular prefilter cubemap (512x512x6 R11G11B10_Float, 7 mips)。 */
+    TUniquePtr<IRhiTexture>  m_PrefilterCube;
+
+    /** prefilter cubemap の mip 数。 */
+    u32                     m_PrefilterMips = 0;
+
+    /**
+     * xyz = normalized direction toward the analytic direct light;
+     * w = cosine of its exclusion half-angle.  w > 1 disables exclusion.
+     */
+    FVec4                    m_DirectLightExclusion =
+        FVec4{0.0f, 1.0f, 0.0f, 2.0f};
+
+    /** skybox preview の頂点シェーダ (lazy init)。 */
+    TUniquePtr<IRhiShader>   m_SkyVs;
+
+    /** skybox preview のピクセルシェーダ (lazy init)。 */
+    TUniquePtr<IRhiShader>   m_SkyPs;
+
+    /** skybox preview のパイプライン (lazy init)。 */
+    TUniquePtr<IRhiPipeline> m_SkyPipeline;
+
+    /** skybox preview の定数バッファ。 */
+    TUniquePtr<IRhiBuffer>   m_SkyCb;
+
+    /** skybox パイプライン生成時の RT フォーマット (再生成判定用)。 */
+    EFormat                  m_SkyRtFormat    = EFormat::Unknown;
+
+    /** skybox パイプライン生成時の depth フォーマット (再生成判定用)。 */
+    EFormat                  m_SkyDepthFormat = EFormat::Unknown;
+
+    /** BRDF LUT 生成済みフラグ。 */
+    bool m_bBrdfBuilt       = false;
+
+    /** env cubemap 生成済みフラグ。 */
+    bool m_bEnvBuilt        = false;
+
+    /** irradiance cubemap 生成済みフラグ。 */
+    bool m_bIrradianceBuilt = false;
+
+    /** prefilter cubemap 生成済みフラグ。 */
+    bool m_bPrefilterBuilt  = false;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FImageBasedLighting = CImageBasedLighting;
+
+
+} // namespace acs
+
+// ===================== render/Atmosphere.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// CPU / GPU で評価する物理大気散乱。
+//
+// Rayleigh + Mie 単散乱を per-direction で CPU 評価し equirect 画像に焼く。
+// `CImageBasedLighting::LoadEquirectHdrFromMemory` に通せば env cubemap →
+// irradiance → prefilter の IBL chain が一気に物理ベースの sky で構築される。
+//
+// 地球規模の既定物理パラメータ:
+//   - 地表半径 6360 km、大気上端 6420 km (厚さ 60 km)
+//   - Rayleigh: β = (5.802, 13.558, 33.1) ×10⁻⁶ m⁻¹、scale height 8 km
+//   - Mie:      β = 3.996 ×10⁻⁶ m⁻¹、absorption 4.4 ×10⁻⁶ m⁻¹、scale height 1.2 km、g=0.8
+//
+// 簡易: 単散乱のみ (multi-scatter / aerial perspective / ozone は未含)。
+
+
+namespace acs {
+
+/** Camera-volume quality contract shared by allocation and validation. */
+inline constexpr u32 kSkyAtmosphereFroxelXyResolution = 48u;
+inline constexpr u32 kSkyAtmosphereFroxelZResolution = 96u;
+inline constexpr u32 kSkyAtmosphereFroxelIntegrationSteps = 24u;
+/** Near-field range reserved for the dedicated local-fog froxel volume. */
+inline constexpr f32 kLocalVolumetricFogMaxDistance = 2500.0f;
+
+/**
+ * 大気散乱 bake の入力パラメータ (太陽方向・強度とサンプル数)。
+ *
+ * @details
+ * sun_dir は天頂方向 +Y を基準とした太陽方角で、正規化されていなくてもよい
+ * (BakeEquirect 内で正規化される)。ray_steps / sun_steps は単散乱積分の精度と
+ * コストのトレードオフを決める。
+ */
+struct FAtmosphereParams {
+    /** 太陽方角 (天頂方向 +Y、正規化前提だが内部で再正規化される)。 */
+    FVec3 sun_dir       = FVec3{0.4f, 0.7f, 0.4f};
+
+    /** 太陽のピーク輝度 (W/m²/sr 相当)。 */
+    FVec3 sun_intensity = FVec3{22.0f, 22.0f, 22.0f};
+
+    /** Lambert ground と ground bounce に使う RGB アルベド。 */
+    FVec3 ground_albedo = FVec3{0.10f, 0.12f, 0.10f};
+
+    /** view ray 沿いのサンプル数。 */
+    u32  ray_steps     = 32;
+
+    /** 各 sample から sun への光線 (透過率) でのサンプル数。 */
+    u32  sun_steps     = 8;
+};
+
+/**
+ * camera-volume LUT に統合するローカル height fog。
+ *
+ * @details density=0 ならローカル fog は無効で、大気の aerial perspective のみを積分する。
+ * density は scene 単位あたりの extinction。色は単散乱 albedo、anisotropy は
+ * Henyey-Greenstein 位相関数の g。
+ */
+struct FVolumetricFogParams {
+    FVec3 color          = FVec3{0.62f, 0.70f, 0.82f};
+    f32   density        = 0.0f;
+    f32   height_falloff = 0.10f;
+    f32   height_base    = 0.0f;
+    f32   anisotropy     = 0.40f;
+    f32   sun_scatter    = 0.18f;
+};
+
+/**
+ * 物理大気散乱を CPU で評価し equirect 画像へ焼くユーティリティ。
+ *
+ * @details
+ * Rayleigh + Mie 単散乱を per-direction で評価し、
+ * 焼いた equirect 画像を CImageBasedLighting に渡すと env cubemap → irradiance →
+ * prefilter の IBL chain が物理ベースの sky で構築できる。
+ */
+/**
+ * 指定した高度で、太陽方向へ抜ける大気透過率を返す (CPU、LUT 不要)。
+ *
+ * @details
+ * 雲や遠景を照らす太陽の «色» に使う。低い太陽ほど青が削られて赤くなるので、これを
+ * 掛けないと夕方でも雲が昼の白さのままになる。水平位置には依らないものとして扱う。
+ * @param altitude 地表からの高さ (world 単位)。
+ * @param sun_dir 太陽へ向かう方向 (上が +Y、正規化は内部で行う)。
+ * @return RGB 透過率。地面に隠れる向きなら 0。
+ */
+FVec3 SunTransmittanceAtAltitude(f32 altitude, FVec3 sun_dir) noexcept;
+
+class CAtmosphere {
+public:
+    /**
+     * CPU で equirect 画像を焼いて RGBA float 配列を返す。
+     *
+     * @details
+     * 出力は w*h*4 個の float で上から下へ並び、v=0 が +Y 天頂、v=1 が -Y 天底
+     * (sIBL Archive 規約と一致)。解析的な太陽ディスクは低解像度の環境テクスチャへ
+     * 焼き込まず、最終 skybox pass で描画する。戻り値の TArray は move で呼び出し側に渡される。
+     * @param width 焼く equirect 画像の幅 (ピクセル)。
+     * @param height 焼く equirect 画像の高さ (ピクセル)。
+     * @param params 太陽方向・強度とサンプル数を含む bake パラメータ。
+     * @return RGBA float を格納した TArray (w*h*4 要素)。
+     */
+    static TArray<f32> BakeEquirect(u32 width, u32 height,
+                                    const FAtmosphereParams& params) noexcept;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FAtmosphere = CAtmosphere;
+
+
+/**
+ * GPU の計算処理で参照表を構築する物理大気。
+ *
+ * @details 透過率表 (256x64) を計算処理で焼き、正距円筒画像の生成処理がそれを使って
+ * Rayleigh+Mie+ozone の単散乱 + 等方多重散乱を per-direction で評価して equirect texture
+ * (RGBA32F、解析的な太陽ディスクを含まない) に書く。ReadTexture で CPU へ読み戻し、
+ * 結果を CImageBasedLighting::LoadEquirectHdrFromMemory に通せば既存の
+ * env cubemap → irradiance → prefilter の IBL chain と背景描画がそのまま動く。
+ * CPU 版 CAtmosphere::BakeEquirect の置き換え (GPU で高速 + ozone/multiscatter で物理的に正しい空)。
+ * compute コア + CDiligentDevice::ReadTexture が必要。Diligent backend 専用。
+ */
+class CSkyAtmosphere {
+public:
+    /** compute パイプライン (transmittance / equirect bake) と Transmittance LUT・CB を生成。 */
+    TResult<void> Init(IRhiDevice& device,
+                       EFormat hdr_format = EFormat::R16G16B16A16_Float) noexcept;
+
+    /** 初期化済みか。 */
+    bool Ready() const noexcept { return m_Ready; }
+
+    /**
+     * GPU で大気 equirect を焼き CPU の RGBA float 配列へ読み戻す (LoadEquirectHdrFromMemory 互換)。
+     *
+     * @param device RHI デバイス。
+     * @param cl コマンドリスト。
+     * @param params 太陽方向・強度。
+     * @param width  equirect 幅。
+     * @param height equirect 高さ。
+     * @param out    出力 (width*height*4 個の f32、move せず resize して埋める)。
+     * @return 成功で true (失敗時 out は不定、呼び出し側で CPU fallback)。
+     */
+    bool BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
+                      const FAtmosphereParams& params,
+                      u32 width, u32 height, TArray<f32>& out) noexcept;
+
+    /**
+     * Aerial perspective の camera-volume LUT を焼いて返す。
+     *
+     * @details
+     * 48x48x96 froxel の各セルに camera→距離までの大気を積分する。
+     * m_ApVol は premultiplied in-scatter、m_ApTransVol は RGB transmittance を保持し、
+     * screen uv + 深度→スライスで scene.rgb = scene.rgb*T.rgb + L.rgb として適用する。
+     * 3D LUT を物理積分するため滑らか (cubemap サンプルのような «斜めの段» が出ない)。
+     * @param inv_view_proj 逆 view-projection (froxel の world ray 復元用)。
+     * @param cam_pos カメラ world position (scene 単位)。
+     * @param sun_dir 太陽方角 (+Y up)。
+     * @param sun_intensity 太陽ピーク輝度。
+     * @param max_dist_scene volume がカバーする最大距離 (scene 単位)。
+     * @param scene_to_km scene 単位 → 大気 km の換算 (見た目調整。小さいシーンで霞を可視化)。
+     * @param cam_alt_km カメラの大気高度 (km、地表 ≈ 0)。
+     * @return AP volume (失敗時または scene_to_km<=0 の無効時は nullptr、非所有)。
+     */
+    IRhiTexture* BuildAerialPerspective(IRhiDevice& device, IRhiCommandList& cl,
+                                        const FMat4& inv_view_proj, FVec3 cam_pos,
+                                        FVec3 sun_dir, FVec3 sun_intensity,
+                                        f32 max_dist_scene, f32 scene_to_km,
+                                        f32 cam_alt_km) noexcept;
+
+    /**
+     * ローカル volumetric fog を同じ camera-volume に統合するオーバーロード。
+     *
+     * @param fog ローカル volumetric height fog (density=0 で無効)。
+     */
+    IRhiTexture* BuildAerialPerspective(IRhiDevice& device, IRhiCommandList& cl,
+                                        const FMat4& inv_view_proj, FVec3 cam_pos,
+                                        FVec3 sun_dir, FVec3 sun_intensity,
+                                        f32 max_dist_scene, f32 scene_to_km,
+                                        f32 cam_alt_km,
+                                        const FVolumetricFogParams& fog) noexcept;
+
+    /** 直近に焼いた AP volume (BuildAerialPerspective 後に有効、非所有)。 */
+    IRhiTexture* ApVolume() const noexcept { return m_ApVol.Get(); }
+
+    /** 直近に焼いた wavelength-dependent AP transmittance volume。 */
+    IRhiTexture* ApTransmittanceVolume() const noexcept {
+        return m_ApTransVol.Get();
+    }
+
+    /**
+     * 直近に焼いた local-fog-only volume。
+     *
+     * @details BuildAerialPerspective に density>0 の fog を渡したフレームだけ有効。
+     * Rayleigh/Mie は含まないため、既に物理大気を積分済みの clear sky に安全に使える。
+     */
+    IRhiTexture* LocalFogVolume() const noexcept {
+        return m_LocalFogVolumeValid ? m_LocalFogVol.Get() : nullptr;
+    }
+
+    /** Scene-space range represented by LocalFogVolume(). */
+    f32 LocalFogMaxDistance() const noexcept {
+        return m_LocalFogMaxDistance;
+    }
+
+    /** Init 後に physical aerial-perspective volume を再焼成した累積回数。 */
+    u64 PhysicalApDispatchCount() const noexcept {
+        return m_PhysicalApDispatchCount;
+    }
+
+    /** Init 後に local-fog-only volume を再焼成した累積回数。 */
+    u64 LocalFogDispatchCount() const noexcept {
+        return m_LocalFogDispatchCount;
+    }
+
+    /**
+     * 深度で camera-volume を終端し、現在の HDR render target へ一度だけ合成する。
+     *
+     * @details 呼び出し側は depth を DSV に bind せず、描画先だけを load した render pass
+     * を開始しておくこと。RGB transmittance の乗算後に premultiplied in-scatter を
+     * alpha を壊さない加算 pass で重ね、scene*T+in-scatter を再現する。
+     */
+    void CompositeAerialPerspective(IRhiCommandList& cl,
+                                    IRhiTexture& depth,
+                                    IRhiTexture& ap_volume,
+                                    IRhiTexture& transmittance_volume,
+                                    const FMat4& inv_view_proj,
+                                    FVec3 cam_pos,
+                                    f32 max_dist_scene,
+                                    u32 screen_width,
+                                    u32 screen_height) noexcept;
+
+    /**
+     * Geometry と cleared-depth 背景へ local-fog-only volume を一度だけ合成する。
+     *
+     * @details Geometry は再構築した surface 距離で終端する。cloud_depth が有効なら
+     * cleared-depth pixel も雲の実距離で終端し、純粋な sky のみ far slice を使う。
+     * 物理大気は含まないため、空や雲へ重ねても二重散乱にならない。
+     */
+    void CompositeLocalFog(IRhiCommandList& cl,
+                           IRhiTexture& depth,
+                           IRhiTexture& local_fog_volume,
+                           IRhiTexture* cloud_depth,
+                           const FMat4& inv_view_proj,
+                           FVec3 cam_pos,
+                           f32 max_dist_scene,
+                           u32 screen_width,
+                           u32 screen_height) noexcept;
+
+    /** 全 GPU リソースを解放 (acs_editor_destroy から呼ぶ。UAF 防止)。 */
+    void Shutdown() noexcept;
+
+private:
+    struct FVolumeCacheKey {
+        FMat4 invViewProj{};
+        FVec4 camPos{};
+        FVec4 sunDir{};
+        FVec4 sunInt{};
+        FVec4 apParams{};
+        FVec4 fogColorDensity{};
+        FVec4 fogParams{};
+    };
+    static_assert(sizeof(FVolumeCacheKey) == 160u,
+                  "volume cache keys must not contain implicit padding");
+
+    static bool SameVolumeCacheKey(const FVolumeCacheKey& lhs,
+                                   const FVolumeCacheKey& rhs) noexcept;
+
+    bool                     m_Ready = false;
+    bool                     m_LutsReady = false;      // transmittance + multi-scattering は一度だけ焼く
+    TUniquePtr<IRhiShader>   m_TransCs;
+    TUniquePtr<IRhiShader>   m_BakeCs;
+    TUniquePtr<IRhiPipeline> m_TransPipe;
+    TUniquePtr<IRhiPipeline> m_BakePipe;
+    TUniquePtr<IRhiTexture>  m_TransLut;    // 256x64 RGBA16F UAV/SRV
+    TUniquePtr<IRhiShader>   m_MultiCs;     // 多重散乱 LUT CS (WE multiScatteredLuminanceLut)
+    TUniquePtr<IRhiPipeline> m_MultiPipe;
+    TUniquePtr<IRhiTexture>  m_MultiLut;    // 32x32 RGBA16F UAV/SRV (Fms)
+    TUniquePtr<IRhiTexture>  m_Equirect;    // width x height RGBA32F UAV (readback source)
+    TUniquePtr<IRhiBuffer>   m_Cb;          // sun dir + intensity + ground albedo
+    TUniquePtr<IRhiShader>   m_ApCs;        // aerial perspective froxel CS
+    TUniquePtr<IRhiPipeline> m_ApPipe;
+    TUniquePtr<IRhiShader>   m_LocalFogCs;  // scalar local-fog-only froxel CS
+    TUniquePtr<IRhiPipeline> m_LocalFogPipe;
+    TUniquePtr<IRhiTexture>  m_ApVol;       // 48x48x96 RGBA16F premultiplied in-scatter
+    TUniquePtr<IRhiTexture>  m_ApTransVol;  // 48x48x96 RGBA16F RGB transmittance
+    TUniquePtr<IRhiBuffer>   m_ApCb;        // AP cbuffer (invVP/cam/sun/params)
+    TUniquePtr<IRhiTexture>  m_LocalFogVol; // 同解像度の local-fog-only volume
+    TUniquePtr<IRhiBuffer>   m_LocalFogCb;  // AP dispatch と同フレームに安全に使う専用 CB
+    bool                     m_LocalFogVolumeValid = false;
+    f32                      m_LocalFogMaxDistance = kLocalVolumetricFogMaxDistance;
+    FVolumeCacheKey          m_PhysicalApCacheKey{};
+    FVolumeCacheKey          m_LocalFogCacheKey{};
+    bool                     m_PhysicalApCacheValid = false;
+    bool                     m_LocalFogCacheValid = false;
+    u64                      m_PhysicalApDispatchCount = 0;
+    u64                      m_LocalFogDispatchCount = 0;
+    TUniquePtr<IRhiShader>   m_ApCompositeVs;
+    TUniquePtr<IRhiShader>   m_ApCompositePs;
+    TUniquePtr<IRhiPipeline> m_ApCompositePipe;
+    TUniquePtr<IRhiShader>   m_ApMultiplyPs;
+    TUniquePtr<IRhiPipeline> m_ApMultiplyPipe;
+    TUniquePtr<IRhiShader>   m_ApAddPs;
+    TUniquePtr<IRhiPipeline> m_ApAddPipe;
+    TUniquePtr<IRhiBuffer>   m_ApCompositeCb;       // physical AP draws only
+    TUniquePtr<IRhiBuffer>   m_LocalFogCompositeCb; // later local-fog draw only
+    u32                      m_EqW = 0, m_EqH = 0;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSkyAtmosphere = CSkyAtmosphere;
+
+
+} // namespace acs
+
+// ===================== render/Blit.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * フルスクリーン三角形で 1 つのテクスチャを別のテクスチャへコピーするブリット。
+ *
+ * @details
+ * 直接 GPU copy が RHI に無いため、フルスクリーン三角形 + テクスチャ sample で
+ * pixel-perfect コピーを行う標準テクニック。出力 RT のフォーマットは Init 時に
+ * PSO へ焼き込むため、別フォーマットへコピーしたい場合は別インスタンスを使う。
+ */
+class CBlit {
+public:
+    /** Compiled shader handles awaiting owner-thread PSO creation. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> pixel;
+
+        EShaderStatus Status() const noexcept;
+    };
+
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    CBlit() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~CBlit() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    CBlit(const CBlit&)            = delete;
+
+    /** コピー代入も禁止。 */
+    CBlit& operator=(const CBlit&) = delete;
+
+    /**
+     * シェーダとパイプラインを生成して初期化する。
+     *
+     * @details
+     * rt_format は Copy の出力 RT のフォーマットで、PSO に焼き込まれる。出力 RT を
+     * 別フォーマットに切り替えたい場合は別の CBlit インスタンスを使うこと。
+     * @param device シェーダ・パイプライン生成に使う RHI デバイス。
+     * @param rt_format 出力 RT のフォーマット (PSO に焼き込む)。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
+
+    /** Compile raw-DX12 shader bytecode without touching an RHI device. */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /** Submit both shaders to a backend-managed compiler pool. */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /** Create and atomically publish the PSO from ready shader handles. */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat rt_format) noexcept;
+
+    /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
+    void Shutdown() noexcept;
+
+    /**
+     * src を dst へフルスクリーン pass でコピーする。
+     *
+     * @details
+     * dst は is_render_target=true で Init 時の rt_format と一致すること。内部で
+     * BeginRenderToTextureLoad(dst) → SetPipeline → SetTexture → Draw(3) →
+     * EndRenderToTexture(dst) を行う。全 pixel を上書きするので clear 不要、
+     * viewport は dst のサイズに自動設定される。
+     * @param cmd コマンドを積むコマンドリスト。
+     * @param src コピー元テクスチャ。
+     * @param dst コピー先 RT (rt_format に一致すること)。
+     */
+    void Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept;
+
+    /**
+     * 内部のブリット用パイプラインを返す。
+     *
+     * @return ブリット用パイプライン (未初期化なら nullptr)。
+     */
+    IRhiPipeline* Pipeline() const noexcept { return m_Pipeline.Get(); }
+
+private:
+    /** フルスクリーン三角形の頂点シェーダ。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** source texture を素 sample するピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_Ps;
+
+    /** ブリット描画のパイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FBlit = CBlit;
+
+
+} // namespace acs
+
+// ===================== render/PbrShader.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
 
 
 // ===================== render/SubstrateMaterial.h =====================
@@ -53517,10 +55287,208 @@ using FSky = CSky;
  * these heights in world space makes translation, orbit and temporal
  * reprojection observe the same density field.
  */
+/**
+ * 雲を «光を散らす媒質» として照らすための係数。
+ *
+ * @details
+ * これまで shader 内に即値で埋まっていたものを外へ出したもの。既定値は**以前の見え方を
+ * そのまま再現する**ので、まず配線だけを確かめられる。
+ *
+ * 消散 (extinction) を見た目調整の摘みとして使いすぎないこと。同じ雲なのに見る方向と
+ * 光の方向で消散が違うと、カメラからはすぐ不透明なのに太陽光だけ内部へ届く、という
+ * «気体でない» 見え方になる。明るさを変えたいなら `SunScatter` や散乱側で調整する。
+ */
+/**
+ * どこまで雲を描くか。
+ *
+ * @details
+ * 雲の値段は **画面のうち雲に当たる画素の数 × 1 本のレイの刻み数** で決まる。上を向くと
+ * 画面全部が雲になり、地平線を見ると 1 本が数十 km を貫く。どちらもここで抑える。
+ *
+ * 見え方の理由もある。**遠くの雲は 1 画素に何 km も詰め込まれるので、まともに積分できない。**
+ * 描くほど «ちらつく細かいゴミ» になる。消した方が綺麗に見える。
+ */
+struct FVolumetricCloudRange {
+    /**
+     * ここより遠いレイは追わない (メートル)。
+     *
+     * @details
+     * 既定の 250 km は «地平線の果てまで» を意味する。**ゲームには広すぎる。**
+     * 地上を歩くなら 40〜80 km で足りる (雲底 2.6 km なら地平線は約 180 km 先だが、
+     * そこまでの雲は 1 画素未満にしかならない)。飛ぶなら広げる。
+     */
+    f32 MaxDistance = 250000.0f;
+
+    /**
+     * 打ち切りの手前、どれだけの割合を使って消していくか。
+     *
+     * @details
+     * 0.28 なら `MaxDistance` の 72 % 地点から薄くなり始める。**0 にすると境界で
+     * ぱっつり切れて «壁» が見える。** 遠いほど大気の霞に紛れるので、広めに取ってよい。
+     */
+    f32 FadeFraction = 0.28f;
+
+    /**
+     * 遠くから始まるレイの刻みを、どれだけ広げるか。
+     *
+     * @details
+     * 0 で一定 (これまでと同じ)。1.0 なら `MaxDistance` から入るレイの刻みが 2 倍になる。
+     * 地平線へ向かうレイほど長く、かつ 1 画素の担当範囲が広いので、細かく刻んでも
+     * 結果に出ない。**上を向いたときのレイは近くから始まるので、ここを上げても粗くならない。**
+     */
+    f32 StepGrowth = 0.0f;
+
+    /**
+     * 1 本のレイに使う刻みの上限。
+     *
+     * @details
+     * 0 なら既定 (通常 192 / 参照 512)。**「重い」ときにいちばん効く摘み。**
+     * 下げると厚い雲の内部が粗くなり、縞が出る。
+     */
+    u32 ViewSteps = 0u;
+};
+
+struct FVolumetricCloudLighting {
+    /**
+     * 見る方向の消散。
+     *
+     * @details
+     * 光の方向と**同じ値**にしてある。以前は 7.0 対 4.2 で、同じ雲なのに向きで消散が違い、
+     * カメラからはすぐ不透明なのに太陽光だけ内部へ届く «半透明の白い物体» に見えていた。
+     */
+    f32 ViewExtinction = 5.0f;
+
+    /** 光の方向の消散。見る方向と揃える。 */
+    f32 LightExtinction = 5.0f;
+
+    /** 太陽光のうち散乱に回る割合。 */
+    f32 SunScatter = 0.14f;
+
+    /** powder 効果 (雲の縁が暗く落ちるのを抑える) の強さ。 */
+    f32 PowderStrength = 2.4f;
+
+    /** 前方散乱の鋭さ (Henyey-Greenstein の g)。 */
+    f32 PhaseForward = 0.60f;
+
+    /** 後方散乱の鋭さ。負で後ろ向き。 */
+    f32 PhaseBackward = -0.20f;
+
+    /** 前方の混ぜ率 (残りが後方)。 */
+    f32 PhaseBlend = 0.85f;
+
+    /**
+     * 位相の下限。
+     *
+     * @details
+     * **0 が本来。** 下限を上げると、本来暗くなる方向まで明るくなり、光の向きによる
+     * 明暗差が消えて «綿菓子» に見える。以前は 0.25 で潰していた。
+     */
+    f32 PhaseMin = 0.0f;
+
+    /**
+     * 位相の上限。
+     *
+     * @details
+     * 太陽方向の強い前方散乱をどこで止めるか。以前は 2.4 で、縁の光 (silver lining) まで
+     * 潰れていた。
+     */
+    f32 PhaseMax = 8.0f;
+
+    /** 多重散乱の寄与 (0 で単散乱のみ)。 */
+    f32 MultiScatterContribution = 0.28f;
+
+    /** 多重散乱の消散の弱め方 (小さいほど内部まで光が回る)。 */
+    f32 MultiScatterOcclusion = 0.28f;
+
+    /**
+     * 天頂の空の色 (放射輝度)。
+     *
+     * @details
+     * **雲頂は天頂の空を、雲底は地平の空を受ける。** これを分けないと、上面と側面と底で
+     * 空から受ける光が同じになり、立体感が出ない。
+     *
+     * 既定の (0,0,0) は «分けない» 意味で、`RenderCompute` に渡した空の色を上下とも使う
+     * (これまでと同じ)。地平の色はそちらの引数がそのまま担う。
+     */
+    FVec3 SkyZenithColor{0.0f, 0.0f, 0.0f};
+
+    /**
+     * 多重散乱に使う位相の鋭さ。
+     *
+     * @details
+     * **何度も散乱した光は向きを失う**ので、単散乱より等方に近い。既定の 0 は完全な等方。
+     * ここに単散乱と同じ鋭さを入れると、内部で回った光まで太陽方向へ偏り、雲が薄く見える。
+     */
+    f32 MultiScatterEccentricity = 0.0f;
+
+    /** 雲底が空から受ける割合。 */
+    f32 AmbientAtBase = 0.26f;
+
+    /** 雲頂が空から受ける割合。 */
+    f32 AmbientAtTop = 0.52f;
+
+    /**
+     * 地面からの照り返しの強さ。
+     *
+     * @details
+     * 地面や海が太陽光と空の光を跳ね返して雲底を照らす。無いと雲底が真っ黒で平坦になる。
+     * 海や雪原の上ではもっと上げてよい。
+     */
+    f32 GroundContribution = 0.15f;
+
+    /**
+     * 太陽光が雲へ届くまでの大気透過率。
+     *
+     * @details
+     * 低い太陽ほど青が削られて赤くなる。これを掛けないと**夕方でも雲が昼の白さのまま**になる。
+     * `SunTransmittanceAtAltitude` (Atmosphere.h) で雲の高さぶんを求めて渡すとよい。
+     * 既定の (1,1,1) は «大気を通らない» = これまでと同じ。
+     */
+    FVec3 SunTransmittance{1.0f, 1.0f, 1.0f};
+
+    /** 照り返しの色。地面や海の色を入れる。 */
+    FVec3 GroundColor{0.20f, 0.19f, 0.21f};
+};
+
 struct FVolumetricCloudLayer {
     f32 base_height = 1500.0f;
     f32 top_height = 4000.0f;
     f32 horizontal_noise_scale = 0.035f;
+};
+
+/**
+ * 下層の上に重ねる、もう 1 枚の高い雲。
+ *
+ * @details
+ * 空が 1 枚しか無いと «高さ» が読めない。**遠近感は «上に何かある» ことで出る。**
+ * 積雲の上に薄い巻雲を敷くと、同じ雲でも高度差が見えるようになる。
+ *
+ * トレースは 1 本のままで、殻の外側を上層の天井まで伸ばす。あいだの隙間は密度 0 なので、
+ * レイは粗い刻みで素通りする。**2 回描くわけではない。**
+ *
+ * `top_height <= base_height` なら無効 (既定)。無効のときの見え方はこの層を足す前と
+ * 完全に同じ。
+ */
+struct FVolumetricCloudUpperLayer {
+    /** 上層の底 (メートル)。下層の天井より上に置くこと。 */
+    f32 base_height = 0.0f;
+
+    /** 上層の天井 (メートル)。`base_height` 以下なら無効。 */
+    f32 top_height = 0.0f;
+
+    /**
+     * 下層の被覆に対する割合。
+     *
+     * @details 1.0 だと «積乱雲を 2 枚» になって空が閉じる。薄く敷くもの。
+     */
+    f32 coverage_scale = 0.55f;
+
+    /**
+     * 下層の濃さに対する割合。
+     *
+     * @details 巻雲は光を通す。低くするほど «透ける薄い雲» になる。
+     */
+    f32 density_scale = 0.30f;
 };
 
 /** Ray interval through a horizontal world-space cloud layer. */
@@ -53554,6 +55522,16 @@ inline constexpr f32 kVolumetricCloudMaxDistance = 250000.0f;
  * image recovers native detail without increasing the quarter-size workload.
  */
 inline constexpr u32 kVolumetricCloudUltraTraceDivisor = 4u;
+
+/** 通常描画で 1 本のレイに使う刻みの上限。 */
+inline constexpr u32 kVolumetricCloudViewSteps = 192u;
+
+/**
+ * 参照描画で 1 本のレイに使う刻みの上限。
+ *
+ * @details 正解画像を作るためのもので、速度は捨てている。
+ */
+inline constexpr u32 kVolumetricCloudReferenceViewSteps = 512u;
 inline constexpr u32 kVolumetricCloudMaxViewMarchSamples = 192u;
 inline constexpr u32 kVolumetricCloudMaxLightMarchSamples = 8u;
 
@@ -53572,9 +55550,18 @@ struct FVolumetricCloudTraceResolution {
  * quarter-dimension trace: authored 1.0 uses quarter dimensions, 0.75 uses
  * 0.1875 dimensions, and 0.5 or below uses the 0.125 lower bound. The resolved
  * output and temporal history remain full resolution.
+ *
+ * Values above 1.0 trace finer than the policy: 2.0 halves the full dimensions and
+ * 4.0 matches them. The cap used to be 1.0, which left the visible dot pattern of a
+ * quarter-resolution trace unfixable outside reference mode.
+ *
+ * `reference_mode` bypasses the policy entirely and traces at full dimensions.
+ * It exists to tell «the lighting is wrong» apart from «the reconstruction is wrong»,
+ * and is far too slow for gameplay.
  */
 FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
-    u32 full_width, u32 full_height, f32 requested_render_scale) noexcept;
+    u32 full_width, u32 full_height, f32 requested_render_scale,
+    bool reference_mode = false) noexcept;
 
 /**
  * Inputs used to account for the exact compute work submitted by one cloud
@@ -53892,10 +55879,79 @@ public:
      * 0.5..1.0 の品質倍率として扱い、resolved output は常に full-resolution。
      */
     bool EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
-                    f32 render_scale = 0.5f) noexcept;
+                    f32 render_scale = 0.5f, bool reference_mode = false) noexcept;
 
     /** Set the fixed world-space cloud altitude band and invalidate history. */
     void SetLayer(const FVolumetricCloudLayer& layer) noexcept;
+
+    /**
+     * 正解画像を作るための «参照» 描画に切り替える。
+     *
+     * @details
+     * 通常は 1/4 の寸法でレイマーチし、時間方向の再構成で埋めている。そのため «汚い» ときに
+     * 原因がライティングなのか再構成なのか分からない。参照描画では**等倍でレイマーチし、
+     * 時間方向の再構成を切り、刻みを細かくする**。
+     *
+     * - 参照でも汚い → 密度かライティングか大気の側
+     * - 参照だけ綺麗 → 低解像度か再構成か履歴の側
+     *
+     * **遊ぶには重すぎる。** 見比べるためだけのもの。
+     * @param enabled 参照描画にするなら true。
+     */
+    void SetReferenceMode(bool enabled) noexcept { m_ReferenceMode = enabled; }
+
+    /**
+     * 参照描画かどうかを返す。
+     *
+     * @return 参照描画なら true。
+     */
+    bool ReferenceMode() const noexcept { return m_ReferenceMode; }
+
+    /**
+     * 照らし方の係数を設定する。
+     *
+     * @param lighting 新しい係数。次のフレームから効く。
+     */
+    void SetLighting(const FVolumetricCloudLighting& lighting) noexcept { m_Lighting = lighting; }
+
+    /**
+     * 照らし方の係数を返す。
+     *
+     * @return 現在の係数。
+     */
+    const FVolumetricCloudLighting& Lighting() const noexcept { return m_Lighting; }
+
+    /**
+     * どこまで雲を描くかを設定する。
+     *
+     * @param range 新しい設定。次のフレームから効く。
+     */
+    void SetRange(const FVolumetricCloudRange& range) noexcept { m_Range = range; }
+
+    /**
+     * どこまで雲を描くかを返す。
+     *
+     * @return 現在の設定。
+     */
+    const FVolumetricCloudRange& Range() const noexcept { return m_Range; }
+
+    /**
+     * 上に重ねる高い雲を設定する。
+     *
+     * @param layer 新しい設定。`top_height <= base_height` で無効。
+     */
+    void SetUpperLayer(const FVolumetricCloudUpperLayer& layer) noexcept {
+        m_UpperLayer = layer;
+    }
+
+    /**
+     * 上に重ねる高い雲の設定を返す。
+     *
+     * @return 現在の設定。
+     */
+    const FVolumetricCloudUpperLayer& UpperLayer() const noexcept {
+        return m_UpperLayer;
+    }
 
     /** Current sanitized world-space cloud altitude band. */
     const FVolumetricCloudLayer& Layer() const noexcept { return m_Layer; }
@@ -53964,6 +56020,18 @@ private:
         IRhiDevice& device,
         FCompiledShaders&& shaders,
         EFormat hdr_format) noexcept;
+
+    /** 参照描画 (等倍・再構成なし) か。 */
+    bool m_ReferenceMode = false;
+
+    /** 照らし方の係数。 */
+    FVolumetricCloudLighting m_Lighting{};
+
+    /** どこまで描くか。 */
+    FVolumetricCloudRange    m_Range{};
+
+    /** 上に重ねる高い雲。 */
+    FVolumetricCloudUpperLayer m_UpperLayer{};
 
     bool                     m_Ready = false;
     /** 形状ノイズを生成済みか。 */
@@ -54962,6 +57030,156 @@ enum class ESceneProjectionMode : u8 {
  * `main.acscene` bootstrap entry を公開し、検証済み header から旧 .acscene/.acs3d reader を
  * 選ぶ。Sprite batching、Canvas/UI、2D physics は専用 runtime path に残す。
  */
+/**
+ * 距離で霞ませる霧の設定。
+ *
+ * @details
+ * 濃さ 1 つで画の締まりが大きく変わる。既定はうっすら掛かる程度。
+ * 高さの効き方は「基準の高さより上ほど薄い」。
+ */
+/**
+ * 下層の上に重ねる、もう 1 枚の高い雲。
+ *
+ * @details
+ * 雲が 1 枚だけだと、空の «高さ» が読めない。上に薄い雲を敷くと、同じ雲でも
+ * 高度差が見えるようになる。
+ *
+ * `TopAltitude <= BaseAltitude` なら無効 (既定)。
+ */
+struct FScene3DUpperClouds {
+    /** 上層の底。下層の `TopAltitude` より上に置くこと。 */
+    f32 BaseAltitude = 0.0f;
+
+    /** 上層の天井。`BaseAltitude` 以下なら出ない。 */
+    f32 TopAltitude = 0.0f;
+
+    /** 下層の被覆に対する割合。1.0 にすると空が閉じる。 */
+    f32 CoverageScale = 0.55f;
+
+    /** 下層の濃さに対する割合。低いほど透ける。 */
+    f32 DensityScale = 0.30f;
+};
+
+/**
+ * 空に浮かべる雲の設定。
+ *
+ * @details
+ * `Coverage` が 0 なら出ない。厚みは `BaseAltitude` と `TopAltitude` の差で、
+ * 世界の単位で指定する。
+ */
+struct FScene3DClouds {
+    /** 空をどれだけ覆うか (0 で出ない、1 で一面)。 */
+    f32 Coverage = 0.0f;
+
+    /** 濃さ。大きいほど光を通さず、輪郭がはっきりする (エディタと同じ既定)。 */
+    f32 Density = 1.6f;
+
+    /** 流れる速さ (エディタと同じ既定)。 */
+    f32 Wind = 1.0f;
+
+    /** 雲の底の高さ。 */
+    f32 BaseAltitude = 1500.0f;
+
+    /** 雲の上端の高さ。 */
+    f32 TopAltitude = 4000.0f;
+
+    /**
+     * 形の細かさ。
+     *
+     * @details
+     * **既定はエンジンの `FVolumetricCloudLayer` と同じ値。** 大きくすると細かくなりすぎて、
+     * 雲の塊にならず «何も出ていない» ように見える。
+     */
+    f32 NoiseScale = 0.035f;
+
+    /**
+     * 描く大きさの割合。
+     *
+     * @details
+     * 雲は画面より小さい寸法でレイマーチし、時間方向の再構成で埋める。この値はその倍率で、
+     * **1.0 で画面の 1/4、2.0 で 1/2、4.0 で等倍**。
+     *
+     * **ドット感の正体はここ。** 参照描画 (`bReferenceMode`) と見比べて、ドットが消えるなら
+     * 原因はライティングではなくこの解像度。
+     *
+     * 既定の 3.0 は、目視でドットが見えなくなった値。軽くしたいなら下げてよいが、
+     * 1.0 (1/4) まで落とすと目に見えて粗くなる。
+     */
+    f32 RenderScale = 3.0f;
+
+    /**
+     * 正解画像を作るための参照描画にするか。
+     *
+     * @details
+     * 等倍でレイマーチし、時間方向の再構成を切り、刻みを細かくする。**遊ぶには重すぎる。**
+     *
+     * 雲が汚いときに、原因がライティングなのか再構成なのかを切り分けるためのもの。
+     * - 参照でも汚い → 密度かライティングか大気の側
+     * - 参照だけ綺麗 → 低解像度か再構成か履歴の側
+     */
+    bool bReferenceMode = false;
+
+    /**
+     * 雲の照らし方。位相・消散・多重散乱・環境光・地面からの照り返し。
+     *
+     * @details
+     * 既定のままでよい。触るのは、時間帯や作品の雰囲気に雲の質感を寄せたいときだけ。
+     *
+     * `SunTransmittance` と `SkyZenithColor` の 2 つは**毎フレーム上書きされる**。前者は
+     * 太陽光が雲へ届くまでに大気で失う分、後者は空の天頂色で、どちらも場面の状態から
+     * 決まるため。ここへ書いても残らない。
+     */
+    FVolumetricCloudLighting Lighting{};
+
+    /**
+     * どこまで雲を描くか。**「雲が重い」ときに最初に触るところ。**
+     *
+     * @details
+     * 既定は «地平線の果てまで» (250 km) で、ゲームには広すぎる。地上の場面なら
+     * `MaxDistance` を 40〜80 km に落とすと、遠くのちらつく細かい雲が消えて軽くもなる。
+     *
+     * それでも足りなければ `StepGrowth` を 1.0 前後、最後に `ViewSteps` を下げる。
+     */
+    FVolumetricCloudRange Range{
+        /*MaxDistance =*/ 60000.0f,
+        /*FadeFraction =*/ 0.35f,
+        /*StepGrowth =*/ 1.0f,
+        /*ViewSteps =*/ 0u};
+
+    /**
+     * 上に重ねる高い雲。**空に高さを出すのはこれ。**
+     *
+     * @details
+     * 既定は無効。使うなら `BaseAltitude`/`TopAltitude` より上に置く。
+     *
+     * ```cpp
+     * Clouds().UpperLayer.BaseAltitude = 7000.0f;
+     * Clouds().UpperLayer.TopAltitude  = 9000.0f;
+     * ```
+     *
+     * 1 本のレイで両方を通るので、2 倍にはならない。
+     */
+    FScene3DUpperClouds UpperLayer{};
+};
+
+struct FScene3DFog {
+    /** 霧の色 (線形)。遠くのものがこの色へ寄っていく。 */
+    FVec3 Color{0.08f, 0.11f, 0.16f};
+
+    /** 濃さ。0 で切れる。大きいほど近くから霞む。 */
+    f32 Density = 0.0035f;
+
+    /** 高さによる減り方。大きいほど上空で薄くなる。 */
+    f32 HeightFalloff = 0.12f;
+
+    /**
+     * 高さの基準。
+     *
+     * @details 既定 (`FLT_MAX`) のときは、シーンの位置から自動で決める。
+     */
+    f32 HeightBase = FLT_MAX;
+};
+
 class ALegacyScene3DAdapter : public AScene {
 public:
     ALegacyScene3DAdapter() noexcept = default;
@@ -54990,7 +57208,130 @@ public:
     /** Active camera projection. */
     ESceneProjectionMode ProjectionMode() const noexcept { return m_Projection; }
 
+    /**
+     * 雲の設定を触る。
+     *
+     * @details
+     * `Coverage` を 0 にすると出ない (既定)。出すと、太陽の側が明るく縁が光る本物の雲になる。
+     * 空を焼いた cubemap には雲が入らないので、**雲は環境光には効かない** (影も落とさない)。
+     * @return 雲の設定 (次のフレームから効く)。
+     */
+    FScene3DClouds& Clouds() noexcept { return m_CloudParams; }
+
+    /**
+     * 雲の設定を読む。
+     *
+     * @return 雲の設定。
+     */
+    const FScene3DClouds& Clouds() const noexcept { return m_CloudParams; }
+
+    /**
+     * 大気の設定を触る (地面の色、散乱の細かさ)。
+     *
+     * @details
+     * **太陽の向きと強さは毎フレーム上書きされる** (シーンの光から取る)。触れるのは残り。
+     *
+     * いちばん効くのは `ground_albedo`。大気は「地面で跳ね返った光」も計算するので、
+     * ここが実際の地面と違う色だと、**地平線から下が別の場所の色になる**。
+     * 草地なら緑寄り、砂漠なら黄寄り、雪原なら白に近く。
+     * @return 大気の設定 (次に焼き直すときから効く)。
+     */
+    FAtmosphereParams& Atmosphere() noexcept { return m_AtmosphereParams; }
+
+    /**
+     * 大気の設定を読む。
+     *
+     * @return 大気の設定。
+     */
+    const FAtmosphereParams& Atmosphere() const noexcept { return m_AtmosphereParams; }
+
+    /**
+     * 距離で霞ませる霧の設定。
+     *
+     * @details
+     * **見え方への影響が大きい割に、これまで場面から触れなかった。** 濃さ 1 つで画の締まりが
+     * 決まる。遠景を隠したいなら濃く、物の質感を見せたいなら薄く。
+     *
+     * `Density` を 0 にすると霧が切れる。
+     * @return 霧の設定 (次のフレームから効く)。
+     */
+    FScene3DFog& Fog() noexcept { return m_Fog; }
+
+    /**
+     * 霧の設定を読む。
+     *
+     * @return 霧の設定。
+     */
+    const FScene3DFog& Fog() const noexcept { return m_Fog; }
+
+    /**
+     * 仕上げ (露出・bloom・tonemap・vignette) の設定を触る。
+     *
+     * @details
+     * 既定では自動露出が入っている。物理ベースの明るさをそのまま出すと画面が飛ぶため。
+     * `exposure` はそこへの手動補正 (EV) として働く。
+     * @return 仕上げの設定 (次のフレームから効く)。
+     */
+    FPostProcessParams& PostParams() noexcept { return m_PostParams; }
+
+    /**
+     * 仕上げの設定を読む。
+     *
+     * @return 仕上げの設定。
+     */
+    const FPostProcessParams& PostParams() const noexcept { return m_PostParams; }
+
+    /**
+     * 空の設定を触る (雲・色・太陽の見た目・時刻)。
+     *
+     * @details
+     * **太陽の向きと色は毎フレーム上書きされる。** シーンに平行光源があればそれに、
+     * 無ければ既定の太陽に合わせる。空だけ別の方角に太陽を描くと、物の陰りと
+     * 食い違って «何かおかしい» 画になるため。
+     *
+     * それ以外 (雲の量・風・地平の色・時刻) は好きに設定してよい。
+     * @return 空。
+     */
+    CSky& Sky() noexcept { return m_Sky; }
+
+    /**
+     * 空の設定を読む。
+     *
+     * @return 空。
+     */
+    const CSky& Sky() const noexcept { return m_Sky; }
+
     /** Camera used for standalone preview/gameplay. */
+    /**
+     * 自由カメラのキー操作 (矢印・WASD・Escape) を受け付けるか決める。
+     *
+     * @details
+     * **既定は受け付ける。** ただしこれは編集中に見回すためのもので、入れたままだと
+     * **矢印キーと Escape をゲームから奪う。** 自分でカメラを動かすなら切ること。
+     *
+     * 撮り比べのときも切る。キーが押されているだけで画角が変わり、比較にならない。
+     * @param enabled 受け付けるなら true。
+     */
+    void SetFreeCameraEnabled(bool enabled) noexcept { m_FreeCameraEnabled = enabled; }
+
+    /**
+     * 自由カメラのキー操作を受け付けるかを返す。
+     *
+     * @return 受け付けるなら true。
+     */
+    bool FreeCameraEnabled() const noexcept { return m_FreeCameraEnabled; }
+
+    /**
+     * 見る向きと距離を決める。
+     *
+     * @details 自由カメラが有効なままだと、次のキー操作で上書きされる。
+     * @param target 見る点。
+     * @param yaw 水平の向き (ラジアン)。
+     * @param pitch 上下の向き (ラジアン、正で見下ろし)。
+     * @param distance 見る点からの距離。
+     */
+    void SetOrbit(FVec3 target, f32 yaw, f32 pitch, f32 distance) noexcept;
+
     CCamera& Camera() noexcept { return m_Camera; }
 
     /** Read-only standalone camera. */
@@ -55188,6 +57529,138 @@ private:
     void ReleaseGpu() noexcept;
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
     void UpdateCameraView() noexcept;
+
+    /** シーンに置かれた光を集め直す (毎フレーム、描画の前に呼ぶ)。 */
+    void CollectSceneLights() noexcept;
+
+    /**
+     * 空の太陽を、いま使っている光へ合わせる (毎フレーム)。
+     *
+     * @details
+     * 空に描かれる太陽の位置と、物の陰りを作る光は同じものでなければならない。
+     * 別々に持つと、太陽が右にあるのに影が右へ伸びる、といった画になる。
+     */
+    void UpdateSkyFromSun() noexcept;
+
+    /**
+     * 影の描き込み先を用意する (一度だけ)。
+     *
+     * @param device 生成に使うデバイス。
+     * @return 使える状態なら true。
+     */
+    bool EnsureShadowMap(IRhiDevice& device) noexcept;
+
+    /**
+     * 空から環境光を焼く (必要なときだけ)。
+     *
+     * @details
+     * IBL が無いと環境光が «一定の暗い色» になり、陰の側がのっぺり潰れる。空を映した
+     * 環境光を入れると、上を向いた面は空の色を、下を向いた面は地面の色を受ける。
+     *
+     * 焼き直しは重いので、**太陽が十分に動いたときだけ**やり直す。
+     * @param device 生成に使うデバイス。
+     * @param command_list 焼き込みに使うコマンドリスト。
+     * @return 使える状態なら true。
+     */
+    bool EnsureEnvironmentLighting(IRhiDevice& device, IRhiCommandList& command_list) noexcept;
+
+    /**
+     * 空を描く。
+     *
+     * @details
+     * 環境光を焼けていれば、**それと同じ cubemap** を空として描く。見えている空と
+     * 物を照らす光が完全に一致するので、«空は晴れているのに陰りが曇り» のような
+     * ちぐはぐが起きない。焼けていないときだけ解析的な空 (`CSky`) へ落ちる。
+     *
+     * 太陽そのものは cubemap に焼かず、画面の解像度で描く (焼くと低解像度の
+     * テクセルが四角く拡大されて見える)。
+     * @param device 描画に使うデバイス。
+     * @param command_list コマンドを積む先。
+     * @param color_format 描画先の色形式。
+     * @param depth_format 描画先の深度形式。
+     */
+    /**
+     * 雲を計算する (描画パスの外で呼ぶ)。
+     *
+     * @details
+     * 結果は雲自身のテクスチャへ書かれる。画面へ乗せるのは `CompositeClouds`。
+     * 分かれているのは、**手前にある物で雲を隠す**のに完成したシーンの深度が要るため。
+     * @param device 生成に使うデバイス。
+     * @param command_list コマンドを積む先。
+     * @param width 画面の幅。
+     * @param height 画面の高さ。
+     */
+    void RenderClouds(IRhiDevice& device, IRhiCommandList& command_list,
+                      u32 width, u32 height) noexcept;
+
+    /**
+     * 計算した雲を画面へ乗せる。
+     *
+     * @param command_list コマンドを積む先。
+     * @param target 乗せる先。
+     * @param scene_depth 完成したシーンの深度 (手前の物で雲を隠すのに使う)。
+     * @param width 画面の幅。
+     * @param height 画面の高さ。
+     */
+    void CompositeClouds(IRhiCommandList& command_list, IRhiTexture& target,
+                         IRhiTexture& scene_depth, u32 width, u32 height) noexcept;
+
+    void RenderSky(IRhiDevice& device, IRhiCommandList& command_list,
+                   EFormat color_format, EFormat depth_format) noexcept;
+
+    /**
+     * 大気へ渡す太陽の色を返す。
+     *
+     * @return シーンの光の色 (強さが掛かったまま)。光が無ければ既定。
+     */
+    FVec3 SunColorForAtmosphere() const noexcept;
+
+    /**
+     * 太陽の色を大気の放射輝度へ直す。
+     *
+     * @details 一番大きい成分を «設定した強さ» とみなし、残りを色味として扱う。
+     * @param sun_color 強さの掛かった色。
+     * @return 大気へ渡す放射輝度。
+     */
+    static FVec3 PhysicalSunIntensity(FVec3 sun_color) noexcept;
+
+    /**
+     * 太陽から見た深度を描く (影のもと)。
+     *
+     * @details
+     * 影を落とす設定のメッシュだけを、太陽の側から描く。ここで描いた深度を PBR パスが
+     * 参照して «その点が太陽から見えるか» を判定する。
+     * @param context 描画文脈。
+     * @return 描けたら true。
+     */
+    bool RenderShadowPass(FRenderContext& context) noexcept;
+
+    /**
+     * シーン全体を包む球を求める。
+     *
+     * @details 影の投影範囲を決めるのに使う。広すぎると影が粗く、狭いと端が切れる。
+     * @param out_center 中心の入れ先。
+     * @param out_radius 半径の入れ先。
+     * @return メッシュが 1 つでもあれば true。
+     */
+    bool ComputeSceneBounds(FVec3& out_center, f32& out_radius) const noexcept;
+
+    /**
+     * いま使っている太陽の向きを返す。
+     *
+     * @details シーンに平行光源があればその 1 灯目、無ければ既定の向き。
+     * 物の陰り・水面・空がすべてこれを使う。
+     * @return 正規化済みの向き。
+     */
+    FVec3 SunDirection() const noexcept;
+
+    /**
+     * 水面へ渡す太陽の色を返す。
+     *
+     * @details 水面は同じ太陽をより強く受けるので、倍率を掛けた色を渡す。
+     * @return 水面用の色。
+     */
+    FVec3 SunColorForWater() const noexcept;
     void AdoptLoadedCamera() noexcept;
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
@@ -55270,6 +57743,60 @@ private:
     FGpuMesh m_Sphere;
     FGpuMesh m_Plane;
     TArray<FCustomGpuMesh> m_CustomMeshes;
+    /** シーンに置かれた光。毎フレーム集め直す。1 灯も無ければ既定の太陽を使う。 */
+    CLightCollector3D m_Lights;
+
+    /** 物理ベースの大気。環境光の焼き元にする。 */
+    CSkyAtmosphere m_Atmosphere;
+
+    /** 本物の雲。空 pass の外で compute を回し、最後に合成する。 */
+    /** 自由カメラのキー操作を受け付けるか。 */
+    bool m_FreeCameraEnabled = true;
+
+    CVolumetricClouds m_Clouds;
+
+    /** 雲の設定。 */
+    FScene3DClouds m_CloudParams{};
+
+    /** 雲を使える状態にできたか。 */
+    bool m_CloudsReady = false;
+
+    /** このフレームで雲を描いたか (描いていなければ合成もしない)。 */
+    bool m_CloudsDrawn = false;
+
+    /** 雲を用意した画面の大きさ。変わったら作り直す。 */
+    u32 m_CloudsWidth = 0u;
+
+    /** 雲を用意したときが参照描画だったか。切り替わったら作り直す。 */
+    bool m_CloudsSizedForReference = false;
+
+    /** 雲を用意した画面の高さ。 */
+    u32 m_CloudsHeight = 0u;
+
+    /** 大気の設定 (太陽以外)。 */
+    FAtmosphereParams m_AtmosphereParams{};
+
+    /** 大気の初期化を一度試したか (失敗しても毎フレーム試さない)。 */
+    bool m_AtmosphereTried = false;
+
+    /** 空を映した環境光 (irradiance / prefilter / BRDF LUT)。 */
+    CImageBasedLighting m_Ibl;
+
+    /** 環境光を焼けたか。 */
+    bool m_IblReady = false;
+
+    /** 焼いたときの太陽の向き。ここから十分に動いたら焼き直す。 */
+    FVec3 m_IblBakedSunDirection{0.0f, 0.0f, 0.0f};
+
+    /** 太陽から見た深度。影の判定に使う。 */
+    CShadowMap m_Shadow;
+
+    /** 影の描き込み先を用意できたか。 */
+    bool m_ShadowReady = false;
+
+    /** このフレームで影を描けたか (描けなければ PBR 側も影を切る)。 */
+    bool m_ShadowDrawn = false;
+
     CCamera m_Camera;
     FScene3DCameraState m_AuthoredCamera{};
     bool m_UseAuthoredCamera = false;
@@ -55280,6 +57807,9 @@ private:
     f32 m_Yaw = 0.0f;
     f32 m_Pitch = 0.22f;
     f32 m_Time = 0.0f;
+    /** 距離で霞ませる霧。 */
+    FScene3DFog m_Fog{};
+
     FPostProcessParams m_PostParams{};
     ESceneProjectionMode m_Projection = ESceneProjectionMode::Perspective;
     EShaderGpuState m_HdrShaderGpuState = EShaderGpuState::Unavailable;
@@ -95829,305 +98359,6 @@ private:
 
 } // namespace acs
 
-// ===================== render/Atmosphere.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// CPU / GPU で評価する物理大気散乱。
-//
-// Rayleigh + Mie 単散乱を per-direction で CPU 評価し equirect 画像に焼く。
-// `CImageBasedLighting::LoadEquirectHdrFromMemory` に通せば env cubemap →
-// irradiance → prefilter の IBL chain が一気に物理ベースの sky で構築される。
-//
-// 地球規模の既定物理パラメータ:
-//   - 地表半径 6360 km、大気上端 6420 km (厚さ 60 km)
-//   - Rayleigh: β = (5.802, 13.558, 33.1) ×10⁻⁶ m⁻¹、scale height 8 km
-//   - Mie:      β = 3.996 ×10⁻⁶ m⁻¹、absorption 4.4 ×10⁻⁶ m⁻¹、scale height 1.2 km、g=0.8
-//
-// 簡易: 単散乱のみ (multi-scatter / aerial perspective / ozone は未含)。
-
-
-namespace acs {
-
-/** Camera-volume quality contract shared by allocation and validation. */
-inline constexpr u32 kSkyAtmosphereFroxelXyResolution = 48u;
-inline constexpr u32 kSkyAtmosphereFroxelZResolution = 96u;
-inline constexpr u32 kSkyAtmosphereFroxelIntegrationSteps = 24u;
-/** Near-field range reserved for the dedicated local-fog froxel volume. */
-inline constexpr f32 kLocalVolumetricFogMaxDistance = 2500.0f;
-
-/**
- * 大気散乱 bake の入力パラメータ (太陽方向・強度とサンプル数)。
- *
- * @details
- * sun_dir は天頂方向 +Y を基準とした太陽方角で、正規化されていなくてもよい
- * (BakeEquirect 内で正規化される)。ray_steps / sun_steps は単散乱積分の精度と
- * コストのトレードオフを決める。
- */
-struct FAtmosphereParams {
-    /** 太陽方角 (天頂方向 +Y、正規化前提だが内部で再正規化される)。 */
-    FVec3 sun_dir       = FVec3{0.4f, 0.7f, 0.4f};
-
-    /** 太陽のピーク輝度 (W/m²/sr 相当)。 */
-    FVec3 sun_intensity = FVec3{22.0f, 22.0f, 22.0f};
-
-    /** Lambert ground と ground bounce に使う RGB アルベド。 */
-    FVec3 ground_albedo = FVec3{0.10f, 0.12f, 0.10f};
-
-    /** view ray 沿いのサンプル数。 */
-    u32  ray_steps     = 32;
-
-    /** 各 sample から sun への光線 (透過率) でのサンプル数。 */
-    u32  sun_steps     = 8;
-};
-
-/**
- * camera-volume LUT に統合するローカル height fog。
- *
- * @details density=0 ならローカル fog は無効で、大気の aerial perspective のみを積分する。
- * density は scene 単位あたりの extinction。色は単散乱 albedo、anisotropy は
- * Henyey-Greenstein 位相関数の g。
- */
-struct FVolumetricFogParams {
-    FVec3 color          = FVec3{0.62f, 0.70f, 0.82f};
-    f32   density        = 0.0f;
-    f32   height_falloff = 0.10f;
-    f32   height_base    = 0.0f;
-    f32   anisotropy     = 0.40f;
-    f32   sun_scatter    = 0.18f;
-};
-
-/**
- * 物理大気散乱を CPU で評価し equirect 画像へ焼くユーティリティ。
- *
- * @details
- * Rayleigh + Mie 単散乱を per-direction で評価し、
- * 焼いた equirect 画像を CImageBasedLighting に渡すと env cubemap → irradiance →
- * prefilter の IBL chain が物理ベースの sky で構築できる。
- */
-class CAtmosphere {
-public:
-    /**
-     * CPU で equirect 画像を焼いて RGBA float 配列を返す。
-     *
-     * @details
-     * 出力は w*h*4 個の float で上から下へ並び、v=0 が +Y 天頂、v=1 が -Y 天底
-     * (sIBL Archive 規約と一致)。解析的な太陽ディスクは低解像度の環境テクスチャへ
-     * 焼き込まず、最終 skybox pass で描画する。戻り値の TArray は move で呼び出し側に渡される。
-     * @param width 焼く equirect 画像の幅 (ピクセル)。
-     * @param height 焼く equirect 画像の高さ (ピクセル)。
-     * @param params 太陽方向・強度とサンプル数を含む bake パラメータ。
-     * @return RGBA float を格納した TArray (w*h*4 要素)。
-     */
-    static TArray<f32> BakeEquirect(u32 width, u32 height,
-                                    const FAtmosphereParams& params) noexcept;
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FAtmosphere = CAtmosphere;
-
-
-/**
- * GPU の計算処理で参照表を構築する物理大気。
- *
- * @details 透過率表 (256x64) を計算処理で焼き、正距円筒画像の生成処理がそれを使って
- * Rayleigh+Mie+ozone の単散乱 + 等方多重散乱を per-direction で評価して equirect texture
- * (RGBA32F、解析的な太陽ディスクを含まない) に書く。ReadTexture で CPU へ読み戻し、
- * 結果を CImageBasedLighting::LoadEquirectHdrFromMemory に通せば既存の
- * env cubemap → irradiance → prefilter の IBL chain と背景描画がそのまま動く。
- * CPU 版 CAtmosphere::BakeEquirect の置き換え (GPU で高速 + ozone/multiscatter で物理的に正しい空)。
- * compute コア + CDiligentDevice::ReadTexture が必要。Diligent backend 専用。
- */
-class CSkyAtmosphere {
-public:
-    /** compute パイプライン (transmittance / equirect bake) と Transmittance LUT・CB を生成。 */
-    TResult<void> Init(IRhiDevice& device,
-                       EFormat hdr_format = EFormat::R16G16B16A16_Float) noexcept;
-
-    /** 初期化済みか。 */
-    bool Ready() const noexcept { return m_Ready; }
-
-    /**
-     * GPU で大気 equirect を焼き CPU の RGBA float 配列へ読み戻す (LoadEquirectHdrFromMemory 互換)。
-     *
-     * @param device RHI デバイス。
-     * @param cl コマンドリスト。
-     * @param params 太陽方向・強度。
-     * @param width  equirect 幅。
-     * @param height equirect 高さ。
-     * @param out    出力 (width*height*4 個の f32、move せず resize して埋める)。
-     * @return 成功で true (失敗時 out は不定、呼び出し側で CPU fallback)。
-     */
-    bool BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
-                      const FAtmosphereParams& params,
-                      u32 width, u32 height, TArray<f32>& out) noexcept;
-
-    /**
-     * Aerial perspective の camera-volume LUT を焼いて返す。
-     *
-     * @details
-     * 48x48x96 froxel の各セルに camera→距離までの大気を積分する。
-     * m_ApVol は premultiplied in-scatter、m_ApTransVol は RGB transmittance を保持し、
-     * screen uv + 深度→スライスで scene.rgb = scene.rgb*T.rgb + L.rgb として適用する。
-     * 3D LUT を物理積分するため滑らか (cubemap サンプルのような «斜めの段» が出ない)。
-     * @param inv_view_proj 逆 view-projection (froxel の world ray 復元用)。
-     * @param cam_pos カメラ world position (scene 単位)。
-     * @param sun_dir 太陽方角 (+Y up)。
-     * @param sun_intensity 太陽ピーク輝度。
-     * @param max_dist_scene volume がカバーする最大距離 (scene 単位)。
-     * @param scene_to_km scene 単位 → 大気 km の換算 (見た目調整。小さいシーンで霞を可視化)。
-     * @param cam_alt_km カメラの大気高度 (km、地表 ≈ 0)。
-     * @return AP volume (失敗時または scene_to_km<=0 の無効時は nullptr、非所有)。
-     */
-    IRhiTexture* BuildAerialPerspective(IRhiDevice& device, IRhiCommandList& cl,
-                                        const FMat4& inv_view_proj, FVec3 cam_pos,
-                                        FVec3 sun_dir, FVec3 sun_intensity,
-                                        f32 max_dist_scene, f32 scene_to_km,
-                                        f32 cam_alt_km) noexcept;
-
-    /**
-     * ローカル volumetric fog を同じ camera-volume に統合するオーバーロード。
-     *
-     * @param fog ローカル volumetric height fog (density=0 で無効)。
-     */
-    IRhiTexture* BuildAerialPerspective(IRhiDevice& device, IRhiCommandList& cl,
-                                        const FMat4& inv_view_proj, FVec3 cam_pos,
-                                        FVec3 sun_dir, FVec3 sun_intensity,
-                                        f32 max_dist_scene, f32 scene_to_km,
-                                        f32 cam_alt_km,
-                                        const FVolumetricFogParams& fog) noexcept;
-
-    /** 直近に焼いた AP volume (BuildAerialPerspective 後に有効、非所有)。 */
-    IRhiTexture* ApVolume() const noexcept { return m_ApVol.Get(); }
-
-    /** 直近に焼いた wavelength-dependent AP transmittance volume。 */
-    IRhiTexture* ApTransmittanceVolume() const noexcept {
-        return m_ApTransVol.Get();
-    }
-
-    /**
-     * 直近に焼いた local-fog-only volume。
-     *
-     * @details BuildAerialPerspective に density>0 の fog を渡したフレームだけ有効。
-     * Rayleigh/Mie は含まないため、既に物理大気を積分済みの clear sky に安全に使える。
-     */
-    IRhiTexture* LocalFogVolume() const noexcept {
-        return m_LocalFogVolumeValid ? m_LocalFogVol.Get() : nullptr;
-    }
-
-    /** Scene-space range represented by LocalFogVolume(). */
-    f32 LocalFogMaxDistance() const noexcept {
-        return m_LocalFogMaxDistance;
-    }
-
-    /** Init 後に physical aerial-perspective volume を再焼成した累積回数。 */
-    u64 PhysicalApDispatchCount() const noexcept {
-        return m_PhysicalApDispatchCount;
-    }
-
-    /** Init 後に local-fog-only volume を再焼成した累積回数。 */
-    u64 LocalFogDispatchCount() const noexcept {
-        return m_LocalFogDispatchCount;
-    }
-
-    /**
-     * 深度で camera-volume を終端し、現在の HDR render target へ一度だけ合成する。
-     *
-     * @details 呼び出し側は depth を DSV に bind せず、描画先だけを load した render pass
-     * を開始しておくこと。RGB transmittance の乗算後に premultiplied in-scatter を
-     * alpha を壊さない加算 pass で重ね、scene*T+in-scatter を再現する。
-     */
-    void CompositeAerialPerspective(IRhiCommandList& cl,
-                                    IRhiTexture& depth,
-                                    IRhiTexture& ap_volume,
-                                    IRhiTexture& transmittance_volume,
-                                    const FMat4& inv_view_proj,
-                                    FVec3 cam_pos,
-                                    f32 max_dist_scene,
-                                    u32 screen_width,
-                                    u32 screen_height) noexcept;
-
-    /**
-     * Geometry と cleared-depth 背景へ local-fog-only volume を一度だけ合成する。
-     *
-     * @details Geometry は再構築した surface 距離で終端する。cloud_depth が有効なら
-     * cleared-depth pixel も雲の実距離で終端し、純粋な sky のみ far slice を使う。
-     * 物理大気は含まないため、空や雲へ重ねても二重散乱にならない。
-     */
-    void CompositeLocalFog(IRhiCommandList& cl,
-                           IRhiTexture& depth,
-                           IRhiTexture& local_fog_volume,
-                           IRhiTexture* cloud_depth,
-                           const FMat4& inv_view_proj,
-                           FVec3 cam_pos,
-                           f32 max_dist_scene,
-                           u32 screen_width,
-                           u32 screen_height) noexcept;
-
-    /** 全 GPU リソースを解放 (acs_editor_destroy から呼ぶ。UAF 防止)。 */
-    void Shutdown() noexcept;
-
-private:
-    struct FVolumeCacheKey {
-        FMat4 invViewProj{};
-        FVec4 camPos{};
-        FVec4 sunDir{};
-        FVec4 sunInt{};
-        FVec4 apParams{};
-        FVec4 fogColorDensity{};
-        FVec4 fogParams{};
-    };
-    static_assert(sizeof(FVolumeCacheKey) == 160u,
-                  "volume cache keys must not contain implicit padding");
-
-    static bool SameVolumeCacheKey(const FVolumeCacheKey& lhs,
-                                   const FVolumeCacheKey& rhs) noexcept;
-
-    bool                     m_Ready = false;
-    bool                     m_LutsReady = false;      // transmittance + multi-scattering は一度だけ焼く
-    TUniquePtr<IRhiShader>   m_TransCs;
-    TUniquePtr<IRhiShader>   m_BakeCs;
-    TUniquePtr<IRhiPipeline> m_TransPipe;
-    TUniquePtr<IRhiPipeline> m_BakePipe;
-    TUniquePtr<IRhiTexture>  m_TransLut;    // 256x64 RGBA16F UAV/SRV
-    TUniquePtr<IRhiShader>   m_MultiCs;     // 多重散乱 LUT CS (WE multiScatteredLuminanceLut)
-    TUniquePtr<IRhiPipeline> m_MultiPipe;
-    TUniquePtr<IRhiTexture>  m_MultiLut;    // 32x32 RGBA16F UAV/SRV (Fms)
-    TUniquePtr<IRhiTexture>  m_Equirect;    // width x height RGBA32F UAV (readback source)
-    TUniquePtr<IRhiBuffer>   m_Cb;          // sun dir + intensity + ground albedo
-    TUniquePtr<IRhiShader>   m_ApCs;        // aerial perspective froxel CS
-    TUniquePtr<IRhiPipeline> m_ApPipe;
-    TUniquePtr<IRhiShader>   m_LocalFogCs;  // scalar local-fog-only froxel CS
-    TUniquePtr<IRhiPipeline> m_LocalFogPipe;
-    TUniquePtr<IRhiTexture>  m_ApVol;       // 48x48x96 RGBA16F premultiplied in-scatter
-    TUniquePtr<IRhiTexture>  m_ApTransVol;  // 48x48x96 RGBA16F RGB transmittance
-    TUniquePtr<IRhiBuffer>   m_ApCb;        // AP cbuffer (invVP/cam/sun/params)
-    TUniquePtr<IRhiTexture>  m_LocalFogVol; // 同解像度の local-fog-only volume
-    TUniquePtr<IRhiBuffer>   m_LocalFogCb;  // AP dispatch と同フレームに安全に使う専用 CB
-    bool                     m_LocalFogVolumeValid = false;
-    f32                      m_LocalFogMaxDistance = kLocalVolumetricFogMaxDistance;
-    FVolumeCacheKey          m_PhysicalApCacheKey{};
-    FVolumeCacheKey          m_LocalFogCacheKey{};
-    bool                     m_PhysicalApCacheValid = false;
-    bool                     m_LocalFogCacheValid = false;
-    u64                      m_PhysicalApDispatchCount = 0;
-    u64                      m_LocalFogDispatchCount = 0;
-    TUniquePtr<IRhiShader>   m_ApCompositeVs;
-    TUniquePtr<IRhiShader>   m_ApCompositePs;
-    TUniquePtr<IRhiPipeline> m_ApCompositePipe;
-    TUniquePtr<IRhiShader>   m_ApMultiplyPs;
-    TUniquePtr<IRhiPipeline> m_ApMultiplyPipe;
-    TUniquePtr<IRhiShader>   m_ApAddPs;
-    TUniquePtr<IRhiPipeline> m_ApAddPipe;
-    TUniquePtr<IRhiBuffer>   m_ApCompositeCb;       // physical AP draws only
-    TUniquePtr<IRhiBuffer>   m_LocalFogCompositeCb; // later local-fog draw only
-    u32                      m_EqW = 0, m_EqH = 0;
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FSkyAtmosphere = CSkyAtmosphere;
-
-
-} // namespace acs
-
 // ===================== render/BurnEffect.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // 紙が燃えて消える per-pixel ディゾルブ (2D オーバーレイ用シェーダ効果)
@@ -96901,371 +99132,6 @@ private:
 
 /** 旧名を使う既存コード向けの互換別名。 */
 using FHiZ = CHiZ;
-
-
-} // namespace acs
-
-// ===================== render/Ibl.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-namespace acs {
-
-class CSky;
-
-/**
- * Image-Based Lighting。PBR の ambient 項を環境マップから事前積分した光で置き換える。
- *
- * @details
- * 構成要素は BRDF LUT (256x256 RG16F、GGX split-sum の scale+bias)、環境 cubemap
- * (1024x1024x6 R11G11B10_Float)、拡散 irradiance cubemap (64x64x6)、specular prefilter
- * cubemap (512x512x6, 7 mip)。Diligent backend 専用の本実装で、raw-DX12 backend では
- * 各 Build/Ensure が ACS_ERR(Render, 88) を返す (fake-success しない)。
- */
-class CImageBasedLighting {
-public:
-    /** 空状態で構築する (各 GPU リソースは Ensure 系で遅延生成)。 */
-    CImageBasedLighting() noexcept = default;
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~CImageBasedLighting() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CImageBasedLighting(const CImageBasedLighting&)            = delete;
-
-    /** コピー代入も禁止。 */
-    CImageBasedLighting& operator=(const CImageBasedLighting&) = delete;
-
-    /**
-     * 初回呼び出しで BRDF LUT を 1 回だけ生成する (以降は no-op)。
-     *
-     * @details cl は frame 内 (BeginFrame と EndFrame の間) で記録中である必要がある。
-     * @param device リソース生成に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> EnsureBrdfLut(IRhiDevice& device, IRhiCommandList& cl) noexcept;
-
-    /**
-     * 初回呼び出しで env cubemap を CSky 手続き式からキャプチャする。
-     *
-     * @details
-     * 1024x1024x6 / R11G11B10_Float を各 face 6 回の per-slice draw で塗る。sky の現在の
-     * パラメータ (sun_dir / colors 等) がスナップショットされる。再キャプチャするには
-     * Shutdown() で全 reset するか ResetEnvCubemap() を使う。
-     * @param device リソース生成に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @param sky キャプチャ元の手続き式空。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> EnsureEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
-                                  const CSky& sky) noexcept;
-
-    /**
-     * 既存 env cubemap を破棄し equirectangular HDR 画像から新しい env cubemap を作る。
-     *
-     * @details
-     * 内部で R32G32B32A32_Float の Texture2D に upload し、6 face をピクセルシェーダで
-     * 塗り直す。irradiance / prefilter は呼び出し側で再 Ensure する必要がある。
-     * @param device リソース生成に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @param rgba_float width × height × 4 個の float (row-major / top-down、v=0 が天頂 +Y、v=1 が天底 -Y)。
-     * @param width 画像の幅 (px)。
-     * @param height 画像の高さ (px)。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> LoadEquirectHdrFromMemory(IRhiDevice& device, IRhiCommandList& cl,
-                                            const f32* rgba_float, u32 width, u32 height) noexcept;
-
-    /**
-     * Excludes an analytic direct-light disc from diffuse/specular IBL
-     * convolution while keeping that disc visible in the environment skybox.
-     *
-     * Finite convolution sequences sample a sub-pixel HDR sun disc as
-     * structured fireflies, and CPbrShader already evaluates the same sun via
-     * its directional-light BRDF.  Set cosine_half_angle > 1 to disable.
-     * Call this before EnsureIrradiance/EnsurePrefilter during an environment
-     * rebuild.  It does not destroy already-built GPU products; changing it
-     * after a build requires the existing safe sequence: wait for GPU idle,
-     * ResetEnvCubemap(), then rebuild.
-     */
-    void SetDirectLightExclusion(FVec3 direction,
-                                 f32 cosine_half_angle) noexcept;
-
-    /**
-     * equirect 画像から SH 9 light probe を CPU 側で計算する。
-     *
-     * @details
-     * Ramamoorthi-Hanrahan の L_l,m 球面調和係数 9 個を求めて out_sh_rgb に書き出す。
-     * 各 out_sh_rgb[i].xyz が RGB 係数で .w は不使用 (CB layout の便宜上 FVec4)。後段
-     * CPbrShader で SH 9 ambient mode に切替でき、irradiance cubemap の圧縮版 (144B のみ)
-     * として diffuse irradiance を近似する。規約: v=0 が +Y、v=1 が -Y、u=0 が phi=-π。
-     * @param rgba_float equirect 画像の RGBA float ピクセル列。
-     * @param width 画像の幅 (px)。
-     * @param height 画像の高さ (px)。
-     * @param out_sh_rgb 計算した SH 係数 9 個の書き出し先。
-     */
-    static void ComputeSh9FromEquirect(const f32* rgba_float,
-                                        u32 width, u32 height,
-                                        FVec4 out_sh_rgb[9]) noexcept;
-
-    /**
-     * 初回呼び出しで diffuse irradiance cubemap を env cubemap の半球積分から作る。
-     *
-     * @details
-     * 64x64x6 / R11G11B10_Float。EnsureEnvCubemap が完了していないと失敗する。出力は
-     * (1/π) ∫_Ω L_env(ω) (N·ω) dω で、Lambert diffuse の ambient 項として
-     * diffuse = albedo * irradiance_cube.Sample(N) で使う。
-     * @param device リソース生成に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> EnsureIrradiance(IRhiDevice& device, IRhiCommandList& cl) noexcept;
-
-    /**
-     * 初回呼び出しで specular prefilter cubemap を env cubemap の GGX 積分から作る。
-     *
-     * @details
-     * 512x512x6 / R11G11B10_Float / 7 mips。各 mip が roughness 段階に対応する
-     * (mip 0 = roughness 0 / 鏡面、mip 6 = roughness 1)。実行時 PBR specular は
-     * F = F0 * lut.r + lut.g、specular = prefilter.SampleLevel(R, roughness*(mips-1)).rgb * F。
-     * @param device リソース生成に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> EnsurePrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
-
-    /**
-     * デバッグ用に任意の cubemap を fullscreen quad の skybox として現在の RT へ描く。
-     *
-     * @details
-     * rt_format / depth_format は現在 bind 中の swapchain と一致させること。depth_test /
-     * write は無効 (背景描画)。初回呼び出しで PSO/CB を lazy init し、env_cube / irradiance
-     * / prefilter で同じ pipeline を共有する。
-     * @param device リソース生成・描画に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @param cube 描画する cubemap テクスチャ。
-     * @param view_proj 適用する view-projection 行列。
-     * @param eye カメラ位置 (視線方向の算出に使う)。
-     * @param rt_format 現在 bind 中の RT の色フォーマット。
-     * @param depth_format 現在 bind 中の depth フォーマット。
-     * @param mip_level サンプルする mip 段階 (prefilter で roughness 段階を選ぶとき 0..prefilter_mips-1、env/irradiance では 0)。
-     */
-    void DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
-                    IRhiTexture& cube,
-                    const FMat4& view_proj, FVec3 eye,
-                    EFormat rt_format, EFormat depth_format,
-                    f32 mip_level = 0.0f,
-                    FVec3 sun_direction = FVec3{0.0f, 1.0f, 0.0f},
-                    FVec3 sun_radiance = FVec3{},
-                    f32 sun_angular_radius = 0.0f) noexcept;
-
-    /**
-     * env_cube を skybox として現在の RT へ描く利便ラッパ。
-     *
-     * @param device リソース生成・描画に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @param view_proj 適用する view-projection 行列。
-     * @param eye カメラ位置。
-     * @param rt_format 現在 bind 中の RT の色フォーマット。
-     * @param depth_format 現在 bind 中の depth フォーマット。
-     * @param sun_direction 解析的に描く太陽への方向。正規化は内部で行う。
-     * @param sun_radiance 太陽ディスクの線形 HDR 放射輝度。0 ならディスクを描かない。
-     * @param sun_angular_radius 太陽の角半径 (rad)。0 ならディスクを描かない。
-     *
-     * @details
-     * 太陽ディスクは env cubemap へ焼き込まず、最終ビューポート解像度で解析的に
-     * 描画する。これにより低解像度 equirect のテクセル形状が四角く拡大されず、
-     * 後段の volumetric cloud composite が自然にディスクを遮蔽できる。
-     */
-    void DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
-                       const FMat4& view_proj, FVec3 eye,
-                       EFormat rt_format, EFormat depth_format,
-                       FVec3 sun_direction = FVec3{0.0f, 1.0f, 0.0f},
-                       FVec3 sun_radiance = FVec3{},
-                       f32 sun_angular_radius = 0.0f) noexcept;
-
-    /**
-     * 環境 cubemap (とそれに依存する irradiance / prefilter) だけを reset する。
-     *
-     * @details
-     * CSky preset 切替などで env を作り直したいときに使い、BRDF LUT (sky 非依存) は残せる。
-     * 呼び出し前にデバイスの WaitIdle() を呼ぶこと: 前フレームの GPU 描画がまだこのテクスチャ
-     * を参照中だと UB になる。
-     */
-    void ResetEnvCubemap() noexcept;
-
-    /** 確保した全 GPU リソース (LUT・各 cubemap・skybox パイプライン) を解放する。 */
-    void Shutdown() noexcept;
-
-    /**
-     * BRDF LUT を返す。
-     *
-     * @return BRDF LUT (256x256 RG16F)。EnsureBrdfLut 完了前は nullptr。
-     */
-    IRhiTexture* BrdfLut()    const noexcept { return m_BrdfLut.Get(); }
-
-    /**
-     * BRDF LUT が生成済みかを返す。
-     *
-     * @return 生成済みなら true。
-     */
-    bool         HasBrdfLut() const noexcept { return static_cast<bool>(m_BrdfLut); }
-
-    /**
-     * 環境 cubemap を返す。
-     *
-     * @return 環境 cubemap (1024x1024x6 R11G11B10_Float)。EnsureEnvCubemap 完了前は nullptr。
-     */
-    IRhiTexture* EnvCubemap()    const noexcept { return m_EnvCube.Get(); }
-
-    /**
-     * 環境 cubemap が生成済みかを返す。
-     *
-     * @return 生成済みなら true。
-     */
-    bool         HasEnvCubemap() const noexcept { return static_cast<bool>(m_EnvCube); }
-
-    /**
-     * 拡散 irradiance cubemap を返す。
-     *
-     * @return irradiance cubemap (64x64x6 R11G11B10_Float)。EnsureIrradiance 完了前は nullptr。
-     */
-    IRhiTexture* IrradianceMap()    const noexcept { return m_IrradianceCube.Get(); }
-
-    /**
-     * 拡散 irradiance cubemap が生成済みかを返す。
-     *
-     * @return 生成済みなら true。
-     */
-    bool         HasIrradianceMap() const noexcept { return static_cast<bool>(m_IrradianceCube); }
-
-    /**
-     * specular prefilter cubemap を返す。
-     *
-     * @return prefilter cubemap (512x512x6 R11G11B10_Float, 7 mips)。EnsurePrefilter 完了前は nullptr。
-     */
-    IRhiTexture* PrefilterMap()    const noexcept { return m_PrefilterCube.Get(); }
-
-    /**
-     * specular prefilter cubemap が生成済みかを返す。
-     *
-     * @return 生成済みなら true。
-     */
-    bool         HasPrefilterMap() const noexcept { return static_cast<bool>(m_PrefilterCube); }
-
-    /**
-     * prefilter cubemap の mip 数を返す。
-     *
-     * @return prefilter の mip 数 (未生成なら 0)。
-     */
-    u32          PrefilterMips()   const noexcept { return m_PrefilterMips; }
-
-private:
-    /**
-     * BRDF LUT を実際に生成する。
-     *
-     * @param device リソース生成に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> BuildBrdfLut(IRhiDevice& device, IRhiCommandList& cl) noexcept;
-
-    /**
-     * env cubemap を実際に生成する。
-     *
-     * @param device リソース生成に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @param sky キャプチャ元の手続き式空。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> BuildEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
-                                 const CSky& sky) noexcept;
-
-    /**
-     * irradiance cubemap を実際に生成する。
-     *
-     * @param device リソース生成に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> BuildIrradiance(IRhiDevice& device, IRhiCommandList& cl) noexcept;
-
-    /**
-     * prefilter cubemap を実際に生成する。
-     *
-     * @param device リソース生成に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> BuildPrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
-
-    /**
-     * skybox 描画用の PSO/CB を必要なら lazy init する。
-     *
-     * @param device パイプライン生成に使う RHI デバイス。
-     * @param rt_format 描画先 RT の色フォーマット。
-     * @param depth_format 描画先 depth フォーマット。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> EnsureSkyboxPipeline(IRhiDevice& device,
-                                      EFormat rt_format, EFormat depth_format) noexcept;
-
-    /** BRDF LUT (256x256 RG16F)。 */
-    TUniquePtr<IRhiTexture>  m_BrdfLut;
-
-    /** 環境 cubemap (1024x1024x6 R11G11B10_Float)。 */
-    TUniquePtr<IRhiTexture>  m_EnvCube;
-
-    /** 拡散 irradiance cubemap (64x64x6 R11G11B10_Float)。 */
-    TUniquePtr<IRhiTexture>  m_IrradianceCube;
-
-    /** specular prefilter cubemap (512x512x6 R11G11B10_Float, 7 mips)。 */
-    TUniquePtr<IRhiTexture>  m_PrefilterCube;
-
-    /** prefilter cubemap の mip 数。 */
-    u32                     m_PrefilterMips = 0;
-
-    /**
-     * xyz = normalized direction toward the analytic direct light;
-     * w = cosine of its exclusion half-angle.  w > 1 disables exclusion.
-     */
-    FVec4                    m_DirectLightExclusion =
-        FVec4{0.0f, 1.0f, 0.0f, 2.0f};
-
-    /** skybox preview の頂点シェーダ (lazy init)。 */
-    TUniquePtr<IRhiShader>   m_SkyVs;
-
-    /** skybox preview のピクセルシェーダ (lazy init)。 */
-    TUniquePtr<IRhiShader>   m_SkyPs;
-
-    /** skybox preview のパイプライン (lazy init)。 */
-    TUniquePtr<IRhiPipeline> m_SkyPipeline;
-
-    /** skybox preview の定数バッファ。 */
-    TUniquePtr<IRhiBuffer>   m_SkyCb;
-
-    /** skybox パイプライン生成時の RT フォーマット (再生成判定用)。 */
-    EFormat                  m_SkyRtFormat    = EFormat::Unknown;
-
-    /** skybox パイプライン生成時の depth フォーマット (再生成判定用)。 */
-    EFormat                  m_SkyDepthFormat = EFormat::Unknown;
-
-    /** BRDF LUT 生成済みフラグ。 */
-    bool m_bBrdfBuilt       = false;
-
-    /** env cubemap 生成済みフラグ。 */
-    bool m_bEnvBuilt        = false;
-
-    /** irradiance cubemap 生成済みフラグ。 */
-    bool m_bIrradianceBuilt = false;
-
-    /** prefilter cubemap 生成済みフラグ。 */
-    bool m_bPrefilterBuilt  = false;
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FImageBasedLighting = CImageBasedLighting;
 
 
 } // namespace acs
@@ -98874,297 +100740,6 @@ constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FPipelineDes
 constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FComputePipelineDesc& desc) noexcept {
     return {desc.cbuffer_slots, desc.srv_slots, desc.static_sampler_count, 0u};
 }
-
-} // namespace acs
-
-// ===================== render/ShadowMap.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-namespace acs {
-
-/**
- * 有向光源用の直交シャドウマップ (single cascade / CSM atlas)。
- *
- * @details
- * cascade_count=1 では 1 枚の 2D 深度テクスチャにシーン全体を 1 つの ortho 投影で描く
- * (伝統的な single cascade)。cascade_count>=2 ではカメラ frustum を距離で 2-4 個に分割し、
- * 近景は高解像度・遠景は広範囲を 1 枚の atlas (width = cascade_count * size、height = size)
- * に並べる (CSM)。GPU リソースを単独所有する non-copy 型。
- */
-class CShadowMap {
-public:
-    /** サポートする cascade の最大数。 */
-    static constexpr u32 kMaxCascades = 4;
-
-    /**
-     * Source-compatibility estimates from the former fixed caster ring.
-     * The per-cascade pools are growable; neither value is a hard draw limit.
-     */
-    [[deprecated("growable pool; not a hard limit")]]
-    static constexpr u32 kMaxCasterDrawsPerCascade = 256u;
-    [[deprecated("growable pool; not a hard limit")]]
-    static constexpr u32 kMaxCasterDrawsPerFrame =
-        kMaxCascades * 256u;
-
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    CShadowMap() noexcept = default;
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~CShadowMap() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CShadowMap(const CShadowMap&)            = delete;
-
-    /** コピー代入も禁止。 */
-    CShadowMap& operator=(const CShadowMap&) = delete;
-
-    /**
-     * 深度テクスチャとキャスター用パイプラインを生成する。
-     *
-     * @details
-     * cascade_count=1 (既定) は size × size の single 2D depth texture、cascade_count>=2 は
-     * (size * cascade_count) × size の CSM atlas を確保する。cascade_count は kMaxCascades に
-     * クランプされる。
-     * @param device リソース・パイプライン生成に使う RHI デバイス。
-     * @param size 1 cascade あたりの一辺サイズ (0 のとき 2048)。
-     * @param cascade_count cascade 数 (0 のとき 1、kMaxCascades 超はクランプ)。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device, u32 size = 2048,
-                      u32 cascade_count = 1) noexcept;
-
-    /** 確保した GPU リソースを解放する。 */
-    void Shutdown() noexcept;
-
-    /** shadow pass の記録前に per-draw caster CB cursor をリセットする。 */
-    /**
-     * Pre-grow every cascade reserved by Init before recording a complete
-     * shadow pass. This also keeps a same-frame single-volume fallback followed
-     * by CSM restoration allocation-free while commands are being recorded.
-     * UINT32_MAX is rejected because it is the invalid cursor sentinel.
-     */
-    bool BeginFrame(u32 required_casters_per_cascade = 0u) noexcept;
-
-    /**
-     * single cascade 用に有向光源の ortho 投影を計算する (後方互換)。
-     *
-     * @details cascade_count=1 でのみ意味を持つ。CSM mode では SetDirectionalLightCascades を使う。
-     * @param light_dir 光の向き (正規化されていなくてよい)。
-     * @param scene_center シーンの中心 (ortho 投影が見る点)。
-     * @param scene_radius シーンを覆う半径 (ortho 幅・near/far の基準)。
-     */
-    void SetDirectionalLight(FVec3 light_dir,
-                              FVec3 scene_center,
-                              f32 scene_radius) noexcept;
-
-    /**
-     * CSM 用にカメラ frustum を分割して各 cascade の light VP を計算する。
-     *
-     * @details
-     * near→far を 2-4 個に Zhang practical split で分割し、各 sub-frustum を bounding sphere で
-     * 囲って ortho 投影を求める。
-     * @param light_dir 光の向き (正規化されていなくてよい)。
-     * @param view カメラの view 行列。
-     * @param proj カメラの projection 行列。
-     * @param near_z カメラの near 平面距離。
-     * @param far_z カメラの far 平面距離。
-     * @param lambda 分割の混合比 (0=uniform split で近景密・線形、1=log split で遠景均等、既定 0.5 は両者のブレンド)。
-     */
-    void SetDirectionalLightCascades(FVec3 light_dir,
-                                      const FMat4& view, const FMat4& proj,
-                                      f32 near_z, f32 far_z,
-                                      f32 lambda = 0.5f) noexcept;
-
-    /**
-     * 現在描画する cascade を選択する (CSM mode、BeginShadowPass の後に呼ぶ)。
-     *
-     * @details LightCB() が返す cascade 専用 CB を選択する。GPU 内容は更新しない。
-     * @param cascade 選択する cascade index (範囲外なら 0)。
-     */
-    void SetCurrentCascade(u32 cascade) noexcept;
-
-    /**
-     * キャスター描画ごとのモデル行列を設定する。
-     *
-     * @param model キャスターの world 変換行列。
-     */
-    void SetCaster(const FMat4& model) noexcept;
-
-    /**
-     * draw 専用 CB を確保してキャスターのモデル行列を設定する。
-     *
-     * @return 設定できた場合 true。frame 上限または確保失敗時は false で、draw を省略する。
-     */
-    bool TrySetCaster(const FMat4& model) noexcept;
-
-    /**
-     * 深度テクスチャ (single または CSM atlas) を返す。
-     *
-     * @return シャドウ深度テクスチャ。
-     */
-    IRhiTexture*  DepthTexture()   const noexcept { return m_Depth.Get(); }
-
-    /**
-     * キャスター描画用の depth-only パイプラインを返す。
-     *
-     * @return キャスター描画パイプライン。
-     */
-    IRhiPipeline* CasterPipeline() const noexcept { return m_Pipeline.Get(); }
-
-    /**
-     * 光源の view-projection を格納する定数バッファ (b0) を返す。
-     *
-     * @return light_vp を格納する CB。
-     */
-    IRhiBuffer*   LightCB()        const noexcept {
-        return m_LightCbs[m_CurrentCascade].Get();
-    }
-
-    /**
-     * キャスターの model 行列を格納する定数バッファ (b1) を返す。
-     *
-     * @return model を格納する CB。
-     */
-    IRhiBuffer*   CasterObjectCB() const noexcept {
-        const u32 slot = m_CurrentCasters[m_CurrentCascade];
-        return slot < m_ObjectCbs[m_CurrentCascade].Num()
-             ? m_ObjectCbs[m_CurrentCascade][slot].Get()
-             : nullptr;
-    }
-
-    u32 CasterBufferCapacity(u32 cascade = 0u) const noexcept {
-        return cascade < m_CascadeCapacity
-             ? static_cast<u32>(m_ObjectCbs[cascade].Num()) : 0u;
-    }
-
-    /** BeginFrame() 以降に消費した per-draw caster CB slot 数。 */
-    u32 CasterDrawCount() const noexcept { return m_TotalCasterDrawCount; }
-
-    /** 指定 cascade が消費した per-draw caster CB slot 数。 */
-    u32 CasterDrawCount(u32 cascade) const noexcept {
-        return cascade < m_CascadeCount ? m_CasterDrawCounts[cascade] : 0;
-    }
-
-    /** 現 frame で ring 上限または slot 確保失敗が発生したか。 */
-    bool CasterOverflowed() const noexcept {
-        for (u32 cascade = 0; cascade < m_CascadeCount; ++cascade) {
-            if (m_CasterOverflowed[cascade]) return true;
-        }
-        return false;
-    }
-
-    /** 指定 cascade で ring 上限または slot 確保失敗が発生したか。 */
-    bool CasterOverflowed(u32 cascade) const noexcept {
-        return cascade < m_CascadeCount && m_CasterOverflowed[cascade];
-    }
-
-    /**
-     * cascade 0 の light view-projection を返す (single cascade 用、後方互換)。
-     *
-     * @return cascade 0 の light view-projection 行列。
-     */
-    FMat4 LightViewProjection() const noexcept { return m_LightVp[0]; }
-
-    /**
-     * 指定 cascade の light view-projection を返す (CSM 用)。
-     *
-     * @param cascade cascade index (範囲外なら 0)。
-     * @return 当該 cascade の light view-projection 行列。
-     */
-    FMat4 LightViewProjection(u32 cascade) const noexcept {
-        return m_LightVp[cascade < m_CascadeCount ? cascade : 0];
-    }
-
-    /**
-     * 指定 cascade の分割閾値 (view-space z far) を返す。
-     *
-     * @param cascade cascade index (範囲外なら 0)。
-     * @return 当該 cascade の分割閾値。
-     */
-    f32 CascadeSplit(u32 cascade) const noexcept {
-        return m_CascadeSplits[cascade < m_CascadeCount ? cascade : 0];
-    }
-
-    /**
-     * cascade 数を返す。
-     *
-     * @return 確保済みの cascade 数。
-     */
-    u32 CascadeCount() const noexcept { return m_CascadeCount; }
-
-    /**
-     * atlas 内の cascade 領域に対する viewport を返す。
-     *
-     * @details BeginShadowPass の後・各 caster 群描画の前に SetViewport へ渡す。
-     * @param cascade cascade index (範囲外なら 0)。
-     * @return 当該 cascade の atlas viewport。
-     */
-    FViewport    CascadeViewport(u32 cascade) const noexcept;
-
-    /**
-     * atlas 内の cascade 領域に対する scissor を返す。
-     *
-     * @details BeginShadowPass の後・各 caster 群描画の前に SetScissor へ渡す。
-     * @param cascade cascade index (範囲外なら 0)。
-     * @return 当該 cascade の atlas scissor。
-     */
-    FScissorRect CascadeScissor (u32 cascade) const noexcept;
-
-    /**
-     * 1 cascade あたりの一辺サイズを返す。
-     *
-     * @return cascade の一辺サイズ。
-     */
-    u32 Size() const noexcept { return m_Size; }
-
-private:
-    bool EnsureCasterCapacity(u32 cascade, u32 required_casters) noexcept;
-
-    /** シャドウ深度テクスチャ (single または CSM atlas)。 */
-    TUniquePtr<IRhiTexture>  m_Depth;
-
-    /** キャスター描画の頂点シェーダ。 */
-    TUniquePtr<IRhiShader>   m_Vs;
-
-    /** キャスター描画の depth-only パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_Pipeline;
-
-    /** 光源の view-projection を渡す定数バッファ (b0)。 */
-    TUniquePtr<IRhiBuffer>   m_LightCbs[kMaxCascades];
-
-    /** キャスターの model 行列を渡す定数バッファ (b1)。 */
-    TArray<TUniquePtr<IRhiBuffer>> m_ObjectCbs[kMaxCascades];
-
-    IRhiDevice*              m_Device = nullptr;
-
-    /** 各 cascade の light view-projection 行列。 */
-    FMat4                    m_LightVp      [kMaxCascades] = {};
-
-    /** 各 cascade の分割閾値 (view-space z far)。 */
-    f32                     m_CascadeSplits[kMaxCascades] = {};
-
-    /** 1 cascade あたりの一辺サイズ。 */
-    u32                     m_Size          = 0;
-
-    /** 現在有効な cascade 数。single-volume fallback 中は 1。 */
-    u32                     m_CascadeCount = 1;
-
-    /** Init 時に確保した atlas/CB の cascade 容量。single fallback 後の CSM 復帰に使う。 */
-    u32                     m_CascadeCapacity = 1;
-
-    u32                     m_CurrentCascade = 0;
-    u32                     m_CurrentCasters[kMaxCascades] = {};
-    u32                     m_CasterDrawCounts[kMaxCascades] = {};
-    u32                     m_TotalCasterDrawCount = 0;
-    static constexpr u32    kInvalidCasterBuffer = ~u32{0};
-    bool                    m_FrameCapacityReady = false;
-    bool                    m_CasterOverflowed[kMaxCascades] = {};
-    bool                    m_CasterWarningIssued[kMaxCascades] = {};
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FShadowMap = CShadowMap;
-
 
 } // namespace acs
 
