@@ -781,6 +781,12 @@ cbuffer CloudCB : register(b0) {
     float4 cloudSkyZenith;
     // x=多重散乱に使う位相の鋭さ (0 で等方)
     float4 cloudMultiPhase;
+    // x=最大距離, y=薄め始める距離, z=遠いレイの刻みを広げる度合い
+    float4 cloudRange;
+    // x=上層の底, y=上層の天井, z=1/(天井-底), w=1 なら上層あり
+    float4 cloudUpperLayer;
+    // x=上層の被覆の割合, y=上層の濃さの割合
+    float4 cloudUpperTerms;
 };
 RWTexture2D<float4> cloudOut : register(u0);
 RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒット距離, y=アルファ信頼度
@@ -845,7 +851,17 @@ float cloudAltitude(float3 p){
     float q=radialXz2*inverseRadialY;
     return local.y+q*(0.5-q*inverseRadialY*0.125);
 }
+// 上層に居るか。高さだけで決まるので、視線側と光側で同じ判定になる。
+bool inUpperCloudBand(float3 p){
+    return cloudUpperLayer.w>0.5 && cloudAltitude(p)>=cloudUpperLayer.x;
+}
+// 層の中での高さ (0=底, 1=天井)。上層に居るなら上層の中で測る。
+//
+// 2 層のあいだの隙間は下層の 1.0 に貼り付くので、cloudProfile がそこで 0 を返し、
+// 密度も 0 になる。**隙間を別に扱う必要は無い。**
 float heightFraction(float3 p){
+    if(inUpperCloudBand(p))
+        return saturate((cloudAltitude(p)-cloudUpperLayer.x)*cloudUpperLayer.z);
     return saturate((cloudAltitude(p)-layer.x)*cloudFrameTerms.w);
 }
 
@@ -1132,6 +1148,8 @@ CloudMacroSample sampleCloudMacro(
     macro.weather=cloudWeatherData(p);
     macro.weatherMask=cloudWeatherMaskFromTerms(
         macro.weather,coverageTerms.x,cloudCoverageReciprocals.x);
+    // 上層は下層より疎らに敷く。同じ被覆だと空が閉じる。
+    if(inUpperCloudBand(p)) macro.weatherMask*=cloudUpperTerms.x;
     if(macro.weatherMask>0.001){
         macro.height=heightFraction(p);
         float sampledProfile=cloudProfile(
@@ -1166,6 +1184,7 @@ CloudMacroSample sampleCloudMacroLighting(
     macro.weather=cloudWeatherData(p);
     macro.weatherMask=cloudWeatherMask(
         macro.weather,weatherCoverage);
+    if(inUpperCloudBand(p)) macro.weatherMask*=cloudUpperTerms.x;
     if(macro.weatherMask>0.001){
         macro.height=heightFraction(p);
         float sampledProfile=cloudProfile(
@@ -1363,6 +1382,10 @@ float cloudDensityFromMacro(
     if(weatherMask>0.001){
         densityResult=cloudDensityFromPositiveWeatherMacro(
             p,macro,heightThreshold,weatherMask,detailWeight);
+        // 上層は薄い高い雲として扱う。下層と同じ濃さで敷くと «積乱雲を 2 枚» になり、
+        // 空が閉じて高度差がかえって読めなくなる。
+        // 視線側も光側もここを通るので、1 箇所で足りる。
+        if(inUpperCloudBand(p)) densityResult*=cloudUpperTerms.y;
     }
     return densityResult;
 }
@@ -1650,9 +1673,11 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         cloudDepthOut[pixelQ]=float2(250001.0,0.0);
         return;
     }
-    const float MAX_DISTANCE=250000.0;
+    // どこまで追うか。遠い雲は 1 画素に何 km も入るので積分が成立せず、描くほど
+    // «ちらつく細かいゴミ» になる。打ち切りの手前で薄くして、境界の «壁» を出さない。
+    float MAX_DISTANCE=cloudRange.x;
     t1=min(t1,MAX_DISTANCE);
-    float rangeFade=1.0-smoothstep(MAX_DISTANCE*0.72,MAX_DISTANCE,t0);
+    float rangeFade=1.0-smoothstep(cloudRange.y,MAX_DISTANCE,t0);
     // The curved shell has a finite, valid horizon interval.  Keep that far
     // layer visible and let atmospheric perspective soften it instead of
     // cutting away the lowest twelve degrees of the sky.
@@ -1680,6 +1705,12 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     // only enough to reserve sixteen probes for coarse-to-fine transitions.
     float fineStep=max(baseFineStep,span/168.0);
     float coarseStep=max(fineStep*2.0,span/84.0);
+    // 遠くから始まるレイほど刻みを広げる。地平線へ向かうレイは 1 画素の担当する
+    // 立体角が広く、細かく刻んでも結果に出ない。上向きのレイは t0 が小さいので
+    // ここでは粗くならない。レイごとに一定の倍率にして、粗密の往復を乱さない。
+    float distanceLod=1.0+cloudRange.z*saturate(t0/max(MAX_DISTANCE,1.0));
+    fineStep*=distanceLod;
+    coarseStep*=distanceLod;
     // Ultra revisits an exact full-resolution pixel once every sixteen frames.
     // Give that pixel one deterministic ray/cone jitter so its refresh compares
     // the same integral with the reprojected history. Advancing the jitter on
@@ -2573,8 +2604,11 @@ struct FCloudCb {
     FVec4 cloudSunTransmittance;
     FVec4 cloudSkyZenith;
     FVec4 cloudMultiPhase;
+    FVec4 cloudRange;
+    FVec4 cloudUpperLayer;
+    FVec4 cloudUpperTerms;
 };
-static_assert(sizeof(FCloudCb) == 576, "CloudCB must match the HLSL layout");
+static_assert(sizeof(FCloudCb) == 624, "CloudCB must match the HLSL layout");
 static_assert(
     offsetof(FCloudCb, groundHorizon) == 320u,
     "CloudCB ground horizon must remain at HLSL register c20");
@@ -4361,8 +4395,24 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         shellLocalOrigin.y + kVolumetricCloudPlanetRadius,
         shellLocalOrigin.z,
         shellC(m_Layer.base_height)};
+    // 上層があるなら殻の外側をそこまで伸ばす。伸ばさないとレイが下層の天井で止まり、
+    // 上層はいつまでも見えない。あいだの隙間は密度 0 なので粗い刻みで素通りする。
+    const bool hasUpperLayer =
+        m_UpperLayer.top_height > m_UpperLayer.base_height &&
+        m_UpperLayer.base_height >= m_Layer.top_height;
+    const f32 shellTopHeight =
+        hasUpperLayer ? m_UpperLayer.top_height : m_Layer.top_height;
     cb.cloudShellTerms = FVec4{
-        shellC(m_Layer.top_height), 0.0f, 0.0f, 0.0f};
+        shellC(shellTopHeight), 0.0f, 0.0f, 0.0f};
+    cb.cloudUpperLayer = hasUpperLayer
+        ? FVec4{m_UpperLayer.base_height, m_UpperLayer.top_height,
+                1.0f / (m_UpperLayer.top_height - m_UpperLayer.base_height),
+                1.0f}
+        : FVec4{0.0f, 0.0f, 0.0f, 0.0f};
+    cb.cloudUpperTerms = FVec4{
+        Clamp(m_UpperLayer.coverage_scale, 0.0f, 1.0f),
+        Clamp(m_UpperLayer.density_scale, 0.0f, 1.0f),
+        0.0f, 0.0f};
     cb.cloudLightingExtinction = FVec4{
         m_Lighting.ViewExtinction, m_Lighting.LightExtinction,
         m_Lighting.SunScatter, m_Lighting.PowderStrength};
@@ -4372,11 +4422,16 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     cb.cloudLightingMulti = FVec4{
         m_Lighting.MultiScatterOcclusion, m_Lighting.PhaseMin,
         m_Lighting.PhaseMax, m_Lighting.GroundContribution};
+    // 刻み数。指定が無ければ既定 (通常 192 / 参照 512)。参照描画は «正解» を出すためのもの
+    // なので、そちらでは指定を無視して最大のまま走らせる。
+    const u32 viewSteps =
+        m_ReferenceMode
+            ? kVolumetricCloudReferenceViewSteps
+            : (m_Range.ViewSteps > 0u ? m_Range.ViewSteps
+                                      : kVolumetricCloudViewSteps);
     cb.cloudLightingAmbient = FVec4{
         m_Lighting.AmbientAtBase, m_Lighting.AmbientAtTop,
-        static_cast<f32>(m_ReferenceMode
-            ? kVolumetricCloudReferenceViewSteps
-            : kVolumetricCloudViewSteps),
+        static_cast<f32>(viewSteps),
         m_ReferenceMode ? 1.0f : 0.0f};
     cb.cloudLightingGround = FVec4{
         m_Lighting.GroundColor.x, m_Lighting.GroundColor.y,
@@ -4392,6 +4447,15 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         m_Lighting.SkyZenithColor.z, splitSkyAmbient ? 1.0f : 0.0f};
     cb.cloudMultiPhase = FVec4{
         m_Lighting.MultiScatterEccentricity, 0.0f, 0.0f, 0.0f};
+    // 距離。0 以下や逆転した指定でレイマーチが破綻しないよう、ここで丸める。
+    const f32 maxDistance =
+        m_Range.MaxDistance > 1000.0f ? m_Range.MaxDistance : 1000.0f;
+    const f32 fadeFraction = Clamp(m_Range.FadeFraction, 0.0f, 0.95f);
+    cb.cloudRange = FVec4{
+        maxDistance,
+        maxDistance * (1.0f - fadeFraction),
+        m_Range.StepGrowth > 0.0f ? m_Range.StepGrowth : 0.0f,
+        0.0f};
     m_Cb->Update(&cb, sizeof(cb));
     // 初回に Perlin-Worley shape noise (128^3) を焼く (1 回のみ、以降 SRV で sample)。
     if (bakeShapeNoiseThisFrame) {

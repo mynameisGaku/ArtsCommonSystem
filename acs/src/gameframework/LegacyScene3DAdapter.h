@@ -75,6 +75,29 @@ enum class ESceneProjectionMode : u8 {
  * 高さの効き方は「基準の高さより上ほど薄い」。
  */
 /**
+ * 下層の上に重ねる、もう 1 枚の高い雲。
+ *
+ * @details
+ * 雲が 1 枚だけだと、空の «高さ» が読めない。上に薄い雲を敷くと、同じ雲でも
+ * 高度差が見えるようになる。
+ *
+ * `TopAltitude <= BaseAltitude` なら無効 (既定)。
+ */
+struct FScene3DUpperClouds {
+    /** 上層の底。下層の `TopAltitude` より上に置くこと。 */
+    f32 BaseAltitude = 0.0f;
+
+    /** 上層の天井。`BaseAltitude` 以下なら出ない。 */
+    f32 TopAltitude = 0.0f;
+
+    /** 下層の被覆に対する割合。1.0 にすると空が閉じる。 */
+    f32 CoverageScale = 0.55f;
+
+    /** 下層の濃さに対する割合。低いほど透ける。 */
+    f32 DensityScale = 0.30f;
+};
+
+/**
  * 空に浮かべる雲の設定。
  *
  * @details
@@ -144,6 +167,36 @@ struct FScene3DClouds {
      * 決まるため。ここへ書いても残らない。
      */
     FVolumetricCloudLighting Lighting{};
+
+    /**
+     * どこまで雲を描くか。**「雲が重い」ときに最初に触るところ。**
+     *
+     * @details
+     * 既定は «地平線の果てまで» (250 km) で、ゲームには広すぎる。地上の場面なら
+     * `MaxDistance` を 40〜80 km に落とすと、遠くのちらつく細かい雲が消えて軽くもなる。
+     *
+     * それでも足りなければ `StepGrowth` を 1.0 前後、最後に `ViewSteps` を下げる。
+     */
+    FVolumetricCloudRange Range{
+        /*MaxDistance =*/ 60000.0f,
+        /*FadeFraction =*/ 0.35f,
+        /*StepGrowth =*/ 1.0f,
+        /*ViewSteps =*/ 0u};
+
+    /**
+     * 上に重ねる高い雲。**空に高さを出すのはこれ。**
+     *
+     * @details
+     * 既定は無効。使うなら `BaseAltitude`/`TopAltitude` より上に置く。
+     *
+     * ```cpp
+     * Clouds().UpperLayer.BaseAltitude = 7000.0f;
+     * Clouds().UpperLayer.TopAltitude  = 9000.0f;
+     * ```
+     *
+     * 1 本のレイで両方を通るので、2 倍にはならない。
+     */
+    FScene3DUpperClouds UpperLayer{};
 };
 
 struct FScene3DFog {

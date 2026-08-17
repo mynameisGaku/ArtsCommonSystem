@@ -332,6 +332,56 @@ using FSky = CSky;
  * 光の方向で消散が違うと、カメラからはすぐ不透明なのに太陽光だけ内部へ届く、という
  * «気体でない» 見え方になる。明るさを変えたいなら `SunScatter` や散乱側で調整する。
  */
+/**
+ * どこまで雲を描くか。
+ *
+ * @details
+ * 雲の値段は **画面のうち雲に当たる画素の数 × 1 本のレイの刻み数** で決まる。上を向くと
+ * 画面全部が雲になり、地平線を見ると 1 本が数十 km を貫く。どちらもここで抑える。
+ *
+ * 見え方の理由もある。**遠くの雲は 1 画素に何 km も詰め込まれるので、まともに積分できない。**
+ * 描くほど «ちらつく細かいゴミ» になる。消した方が綺麗に見える。
+ */
+struct FVolumetricCloudRange {
+    /**
+     * ここより遠いレイは追わない (メートル)。
+     *
+     * @details
+     * 既定の 250 km は «地平線の果てまで» を意味する。**ゲームには広すぎる。**
+     * 地上を歩くなら 40〜80 km で足りる (雲底 2.6 km なら地平線は約 180 km 先だが、
+     * そこまでの雲は 1 画素未満にしかならない)。飛ぶなら広げる。
+     */
+    f32 MaxDistance = 250000.0f;
+
+    /**
+     * 打ち切りの手前、どれだけの割合を使って消していくか。
+     *
+     * @details
+     * 0.28 なら `MaxDistance` の 72 % 地点から薄くなり始める。**0 にすると境界で
+     * ぱっつり切れて «壁» が見える。** 遠いほど大気の霞に紛れるので、広めに取ってよい。
+     */
+    f32 FadeFraction = 0.28f;
+
+    /**
+     * 遠くから始まるレイの刻みを、どれだけ広げるか。
+     *
+     * @details
+     * 0 で一定 (これまでと同じ)。1.0 なら `MaxDistance` から入るレイの刻みが 2 倍になる。
+     * 地平線へ向かうレイほど長く、かつ 1 画素の担当範囲が広いので、細かく刻んでも
+     * 結果に出ない。**上を向いたときのレイは近くから始まるので、ここを上げても粗くならない。**
+     */
+    f32 StepGrowth = 0.0f;
+
+    /**
+     * 1 本のレイに使う刻みの上限。
+     *
+     * @details
+     * 0 なら既定 (通常 192 / 参照 512)。**「重い」ときにいちばん効く摘み。**
+     * 下げると厚い雲の内部が粗くなり、縞が出る。
+     */
+    u32 ViewSteps = 0u;
+};
+
 struct FVolumetricCloudLighting {
     /**
      * 見る方向の消散。
@@ -438,6 +488,41 @@ struct FVolumetricCloudLayer {
     f32 base_height = 1500.0f;
     f32 top_height = 4000.0f;
     f32 horizontal_noise_scale = 0.035f;
+};
+
+/**
+ * 下層の上に重ねる、もう 1 枚の高い雲。
+ *
+ * @details
+ * 空が 1 枚しか無いと «高さ» が読めない。**遠近感は «上に何かある» ことで出る。**
+ * 積雲の上に薄い巻雲を敷くと、同じ雲でも高度差が見えるようになる。
+ *
+ * トレースは 1 本のままで、殻の外側を上層の天井まで伸ばす。あいだの隙間は密度 0 なので、
+ * レイは粗い刻みで素通りする。**2 回描くわけではない。**
+ *
+ * `top_height <= base_height` なら無効 (既定)。無効のときの見え方はこの層を足す前と
+ * 完全に同じ。
+ */
+struct FVolumetricCloudUpperLayer {
+    /** 上層の底 (メートル)。下層の天井より上に置くこと。 */
+    f32 base_height = 0.0f;
+
+    /** 上層の天井 (メートル)。`base_height` 以下なら無効。 */
+    f32 top_height = 0.0f;
+
+    /**
+     * 下層の被覆に対する割合。
+     *
+     * @details 1.0 だと «積乱雲を 2 枚» になって空が閉じる。薄く敷くもの。
+     */
+    f32 coverage_scale = 0.55f;
+
+    /**
+     * 下層の濃さに対する割合。
+     *
+     * @details 巻雲は光を通す。低くするほど «透ける薄い雲» になる。
+     */
+    f32 density_scale = 0.30f;
 };
 
 /** Ray interval through a horizontal world-space cloud layer. */
@@ -870,6 +955,38 @@ public:
      */
     const FVolumetricCloudLighting& Lighting() const noexcept { return m_Lighting; }
 
+    /**
+     * どこまで雲を描くかを設定する。
+     *
+     * @param range 新しい設定。次のフレームから効く。
+     */
+    void SetRange(const FVolumetricCloudRange& range) noexcept { m_Range = range; }
+
+    /**
+     * どこまで雲を描くかを返す。
+     *
+     * @return 現在の設定。
+     */
+    const FVolumetricCloudRange& Range() const noexcept { return m_Range; }
+
+    /**
+     * 上に重ねる高い雲を設定する。
+     *
+     * @param layer 新しい設定。`top_height <= base_height` で無効。
+     */
+    void SetUpperLayer(const FVolumetricCloudUpperLayer& layer) noexcept {
+        m_UpperLayer = layer;
+    }
+
+    /**
+     * 上に重ねる高い雲の設定を返す。
+     *
+     * @return 現在の設定。
+     */
+    const FVolumetricCloudUpperLayer& UpperLayer() const noexcept {
+        return m_UpperLayer;
+    }
+
     /** Current sanitized world-space cloud altitude band. */
     const FVolumetricCloudLayer& Layer() const noexcept { return m_Layer; }
 
@@ -943,6 +1060,12 @@ private:
 
     /** 照らし方の係数。 */
     FVolumetricCloudLighting m_Lighting{};
+
+    /** どこまで描くか。 */
+    FVolumetricCloudRange    m_Range{};
+
+    /** 上に重ねる高い雲。 */
+    FVolumetricCloudUpperLayer m_UpperLayer{};
 
     bool                     m_Ready = false;
     /** 形状ノイズを生成済みか。 */
