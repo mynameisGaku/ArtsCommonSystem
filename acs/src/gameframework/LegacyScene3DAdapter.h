@@ -132,6 +132,18 @@ struct FScene3DClouds {
      * - 参照だけ綺麗 → 低解像度か再構成か履歴の側
      */
     bool bReferenceMode = false;
+
+    /**
+     * 雲の照らし方。位相・消散・多重散乱・環境光・地面からの照り返し。
+     *
+     * @details
+     * 既定のままでよい。触るのは、時間帯や作品の雰囲気に雲の質感を寄せたいときだけ。
+     *
+     * `SunTransmittance` と `SkyZenithColor` の 2 つは**毎フレーム上書きされる**。前者は
+     * 太陽光が雲へ届くまでに大気で失う分、後者は空の天頂色で、どちらも場面の状態から
+     * 決まるため。ここへ書いても残らない。
+     */
+    FVolumetricCloudLighting Lighting{};
 };
 
 struct FScene3DFog {

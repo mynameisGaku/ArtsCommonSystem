@@ -1163,7 +1163,7 @@ void ALegacyScene3DAdapter::RenderClouds(
 
     // 太陽光が雲へ届くまでに大気で失う分を掛ける。これが無いと夕方でも雲が昼の白さのまま。
     // 雲の層は薄いので、真ん中の高さで代表させる。
-    FVolumetricCloudLighting lighting = m_Clouds.Lighting();
+    FVolumetricCloudLighting lighting = m_CloudParams.Lighting;
     const f32 midAltitude =
         (m_CloudParams.BaseAltitude + m_CloudParams.TopAltitude) * 0.5f;
     lighting.SunTransmittance = SunTransmittanceAtAltitude(midAltitude, SunDirection());
