@@ -274,6 +274,36 @@ public:
     const CSky& Sky() const noexcept { return m_Sky; }
 
     /** Camera used for standalone preview/gameplay. */
+    /**
+     * 自由カメラのキー操作 (矢印・WASD・Escape) を受け付けるか決める。
+     *
+     * @details
+     * **既定は受け付ける。** ただしこれは編集中に見回すためのもので、入れたままだと
+     * **矢印キーと Escape をゲームから奪う。** 自分でカメラを動かすなら切ること。
+     *
+     * 撮り比べのときも切る。キーが押されているだけで画角が変わり、比較にならない。
+     * @param enabled 受け付けるなら true。
+     */
+    void SetFreeCameraEnabled(bool enabled) noexcept { m_FreeCameraEnabled = enabled; }
+
+    /**
+     * 自由カメラのキー操作を受け付けるかを返す。
+     *
+     * @return 受け付けるなら true。
+     */
+    bool FreeCameraEnabled() const noexcept { return m_FreeCameraEnabled; }
+
+    /**
+     * 見る向きと距離を決める。
+     *
+     * @details 自由カメラが有効なままだと、次のキー操作で上書きされる。
+     * @param target 見る点。
+     * @param yaw 水平の向き (ラジアン)。
+     * @param pitch 上下の向き (ラジアン、正で見下ろし)。
+     * @param distance 見る点からの距離。
+     */
+    void SetOrbit(FVec3 target, f32 yaw, f32 pitch, f32 distance) noexcept;
+
     CCamera& Camera() noexcept { return m_Camera; }
 
     /** Read-only standalone camera. */
@@ -692,6 +722,9 @@ private:
     CSkyAtmosphere m_Atmosphere;
 
     /** 本物の雲。空 pass の外で compute を回し、最後に合成する。 */
+    /** 自由カメラのキー操作を受け付けるか。 */
+    bool m_FreeCameraEnabled = true;
+
     CVolumetricClouds m_Clouds;
 
     /** 雲の設定。 */

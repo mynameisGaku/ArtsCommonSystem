@@ -832,12 +832,14 @@ void ALegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
     // graph の tick は基底 AScene::_Update が OnUpdate 後に必ず実行する。
     // ここで手動 tick すると二重更新になる。
     RefreshAuthoredCameraPose();
-    if (CInput::IsKeyPressed(EKey::Escape)) {
+    // 自由カメラは «編集中に見回す» ためのもの。入れたままだと矢印キーと Escape を
+    // ゲームから奪う。SetFreeCameraEnabled(false) で切れる。
+    if (m_FreeCameraEnabled && CInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
 
-    if (!m_UseAuthoredCamera) {
+    if (m_FreeCameraEnabled && !m_UseAuthoredCamera) {
         const f32 turn = 1.45f * dt;
         if (CInput::IsKeyDown(EKey::Left)) m_Yaw -= turn;
         if (CInput::IsKeyDown(EKey::Right)) m_Yaw += turn;
@@ -3276,6 +3278,15 @@ void ALegacyScene3DAdapter::UpdateCameraProjection(
         m_Camera.SetPerspective(
             55.0f * kDeg2Rad, aspect, 0.05f, far_plane);
     }
+}
+
+void ALegacyScene3DAdapter::SetOrbit(
+    FVec3 target, f32 yaw, f32 pitch, f32 distance) noexcept {
+    m_Target = target;
+    m_Yaw = yaw;
+    m_Pitch = pitch;
+    m_Distance = distance > 0.01f ? distance : 0.01f;
+    UpdateCameraView();
 }
 
 void ALegacyScene3DAdapter::UpdateCameraView() noexcept {
