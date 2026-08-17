@@ -777,6 +777,10 @@ cbuffer CloudCB : register(b0) {
     float4 cloudLightingGround;
     // xyz=太陽光が雲へ届くまでの大気透過率 (低い太陽で赤くなる)
     float4 cloudSunTransmittance;
+    // xyz=天頂の空の色, w=1 なら «雲頂は天頂・雲底は地平» で分ける
+    float4 cloudSkyZenith;
+    // x=多重散乱に使う位相の鋭さ (0 で等方)
+    float4 cloudMultiPhase;
 };
 RWTexture2D<float4> cloudOut : register(u0);
 RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒット距離, y=アルファ信頼度
@@ -1866,7 +1870,11 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float beer=exp(-tauL);
             float multi=exp(-tauL*cloudLightingMulti.x);
             float multiWeight=cloudLightingPhase.w;
-            float lightT=beer*(1.0-multiWeight)+multi*multiWeight;
+            // 何度も散乱した光は向きを失うので、単散乱より等方に近い位相を使う。
+            // 同じ位相を使うと、内部で回った光まで太陽方向へ偏って雲が薄く見える。
+            float phaseMulti=12.566370*hg(cosA,cloudMultiPhase.x);
+            float scatterTerm=beer*(1.0-multiWeight)*phase
+                             +multi*multiWeight*phaseMulti;
             float powder=1.0-exp(-dens*cloudLightingExtinction.w);
             // sunCol is the scene's direct-light radiance. Clouds scatter only
             // a calibrated fraction of it; using the full value here made the
@@ -1875,12 +1883,17 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 1.08,0.78,smoothstep(0.04,0.52,nearLightDensity*density));
             // 太陽光は雲へ届く前に大気を通る。低い太陽ほど青が削られて赤くなる。
             float3 sunAtCloud=sunCol.rgb*cloudSunTransmittance.rgb;
-            float3 sunL=sunAtCloud*cloudLightingExtinction.z*lightT*phase
+            float3 sunL=sunAtCloud*cloudLightingExtinction.z*scatterTerm
                        *lerp(0.70,1.0,powder)*edgeBoost;
             float h=macro.height;
             float viewDepth=1.0-transmit;
             float ambientOcclusion=lerp(1.0,0.55,saturate(viewDepth+dens*0.22));
-            float3 ambL=skyCol.rgb
+            // 雲頂は天頂の空を、雲底は地平の空を受ける。分けないと上下で同じ色になり
+            // «どちらが上か» が光から読み取れなくなる。
+            float3 skyAmbient=cloudSkyZenith.w>0.5
+                             ?lerp(skyCol.rgb,cloudSkyZenith.rgb,h)
+                             :skyCol.rgb;
+            float3 ambL=skyAmbient
                        *lerp(cloudLightingAmbient.x,cloudLightingAmbient.y,h)
                        *ambientOcclusion;
             // 地面からの照り返し。雲底ほど強く受ける。0 なら足さない。
@@ -2558,8 +2571,10 @@ struct FCloudCb {
     FVec4 cloudLightingAmbient;
     FVec4 cloudLightingGround;
     FVec4 cloudSunTransmittance;
+    FVec4 cloudSkyZenith;
+    FVec4 cloudMultiPhase;
 };
-static_assert(sizeof(FCloudCb) == 544, "CloudCB must match the HLSL layout");
+static_assert(sizeof(FCloudCb) == 576, "CloudCB must match the HLSL layout");
 static_assert(
     offsetof(FCloudCb, groundHorizon) == 320u,
     "CloudCB ground horizon must remain at HLSL register c20");
@@ -4369,6 +4384,14 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     cb.cloudSunTransmittance = FVec4{
         m_Lighting.SunTransmittance.x, m_Lighting.SunTransmittance.y,
         m_Lighting.SunTransmittance.z, 0.0f};
+    const bool splitSkyAmbient =
+        m_Lighting.SkyZenithColor.x > 0.0f || m_Lighting.SkyZenithColor.y > 0.0f
+        || m_Lighting.SkyZenithColor.z > 0.0f;
+    cb.cloudSkyZenith = FVec4{
+        m_Lighting.SkyZenithColor.x, m_Lighting.SkyZenithColor.y,
+        m_Lighting.SkyZenithColor.z, splitSkyAmbient ? 1.0f : 0.0f};
+    cb.cloudMultiPhase = FVec4{
+        m_Lighting.MultiScatterEccentricity, 0.0f, 0.0f, 0.0f};
     m_Cb->Update(&cb, sizeof(cb));
     // 初回に Perlin-Worley shape noise (128^3) を焼く (1 回のみ、以降 SRV で sample)。
     if (bakeShapeNoiseThisFrame) {
