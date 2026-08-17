@@ -30,6 +30,19 @@ namespace acs::game {
 
 namespace {
 
+// 太陽の既定値。シーンに ALightComponent3D が 1 灯も無いときに使う。
+// **向きは PBR パス・水面・空で必ず同じものを使う。** 別々に書くと、物の陰り・水面の
+// きらめき・空の太陽の位置がばらばらを向き、原因の分かりにくい違和感になる。
+constexpr FVec3 kDefaultSunDirection{0.45f, 0.82f, -0.38f};
+constexpr FVec3 kDefaultSunColor{1.55f, 1.48f, 1.36f};
+constexpr FVec3 kDefaultSkySunColor{1.0f, 0.95f, 0.85f};
+constexpr FVec3 kDefaultWaterSunColor{4.8f, 4.35f, 3.9f};
+constexpr FVec3 kDefaultAmbient{0.055f, 0.075f, 0.11f};
+
+// 水面は同じ太陽をより強く受ける。シーンの光を使うときはこの倍率を掛ける
+// (既定値どうしの比がおよそこの値)。
+constexpr f32 kWaterSunBoost = 3.1f;
+
 AMeshComponent3D* FindMesh(ANode& node) noexcept {
     const void* kind = ComponentKindOf<AMeshComponent3D>();
     for (u32 index = 0u; index < node.ComponentCount(); ++index) {
@@ -748,8 +761,8 @@ void ALegacyScene3DAdapter::OnEnter() noexcept {
     // environment. The simple CSky cloud layer stays disabled here: the
     // production volumetric-cloud system is a separate scene feature.
     m_Sky.PresetDay();
-    m_Sky.SetSunDirection(Normalize(FVec3{0.45f, 0.82f, -0.38f}));
-    m_Sky.SetSunColor(FVec3{1.0f, 0.95f, 0.85f});
+    m_Sky.SetSunDirection(Normalize(kDefaultSunDirection));
+    m_Sky.SetSunColor(kDefaultSkySunColor);
     m_Sky.SetZenithColor(FVec3{0.16f, 0.33f, 0.62f});
     m_Sky.SetHorizonColor(FVec3{0.62f, 0.70f, 0.80f});
     m_Sky.SetGroundColor(FVec3{0.20f, 0.19f, 0.21f});
@@ -824,6 +837,7 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     if (!EnsureGpu(context)) return;
     UpdateCameraProjection(context.Width(), context.Height());
     UpdateCameraView();
+    CollectSceneLights();
 
     CRenderer& renderer = context.GetRenderer();
     IRhiDevice* device = renderer.Device();
@@ -998,21 +1012,48 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams);
 }
 
+void ALegacyScene3DAdapter::CollectSceneLights() noexcept {
+    // 視点を渡すのは、点光源が上限を越えたときに近いものを残させるため。
+    m_Lights.CollectFrom(Root(), m_Camera.Eye());
+    if (m_Lights.DroppedCount() != 0u) {
+        // 黙って消えると «置いたのに光らない» の原因が分からなくなる。
+        ACS_LOG_WARN("Scene3D: %u lights exceeded the shader limit and were dropped",
+                     m_Lights.DroppedCount());
+    }
+}
+
+FVec3 ALegacyScene3DAdapter::SunDirection() const noexcept {
+    if (m_Lights.DirectionalCount() > 0u) return m_Lights.DirectionalLights()[0].direction;
+    return Normalize(kDefaultSunDirection);
+}
+
+FVec3 ALegacyScene3DAdapter::SunColorForWater() const noexcept {
+    if (m_Lights.DirectionalCount() == 0u) return kDefaultWaterSunColor;
+
+    const FVec3 color = m_Lights.DirectionalLights()[0].color;
+    return FVec3{color.x * kWaterSunBoost, color.y * kWaterSunBoost, color.z * kWaterSunBoost};
+}
+
 bool ALegacyScene3DAdapter::DrawPbrScene(
     FRenderContext& context,
     CPbrShader& shader,
     const FWaterDraw* excluded_water,
     u32 excluded_count,
     bool subsurface_mrt) noexcept {
-    FDirLight lights[1];
-    lights[0].direction = Normalize(FVec3{0.45f, 0.82f, -0.38f});
-    lights[0].color = FVec3{1.55f, 1.48f, 1.36f};
+    // シーンに置かれた光を使う。1 灯も無いときだけ既定の太陽へ落とす
+    // (既存の authored scene は光を持たないので、見え方を変えないため)。
+    FDirLight fallback[1];
+    fallback[0].direction = Normalize(kDefaultSunDirection);
+    fallback[0].color = kDefaultSunColor;
+
+    const bool use_scene_lights = m_Lights.DirectionalCount() > 0u;
     shader.SetLights(
         m_Camera.ViewProjection(),
         m_Camera.Eye(),
-        lights,
-        1u,
-        FVec3{0.055f, 0.075f, 0.11f});
+        use_scene_lights ? m_Lights.DirectionalLights() : fallback,
+        use_scene_lights ? m_Lights.DirectionalCount() : 1u,
+        kDefaultAmbient);
+    shader.SetPointLights(m_Lights.PointLights(), m_Lights.PointCount());
     shader.SetFog(
         FVec3{0.08f, 0.11f, 0.16f},
         0.0035f,
@@ -2634,12 +2675,13 @@ void ALegacyScene3DAdapter::DrawWaterScene(
     IRhiTexture& background,
     IRhiTexture& opaque_depth_snapshot) noexcept {
     if (water_draws == nullptr || water_count == 0u) return;
-    const FVec3 sun_direction =
-        Normalize(FVec3{0.45f, 0.82f, -0.38f});
+    // 物の陰りと同じ太陽を使う。ここだけ別の向きにすると、水面のきらめきが
+    // 陰りと逆を向いて «何かおかしい» 画になる。
+    const FVec3 sun_direction = SunDirection();
     m_Water.SetFrame(
         m_Camera.ViewProjection(), m_Camera.Eye(),
         context.Width(), context.Height(),
-        sun_direction, FVec3{4.8f, 4.35f, 3.9f});
+        sun_direction, SunColorForWater());
     m_Water.SetEnvironment(
         m_Sky.ZenithColor(),
         m_Sky.HorizonColor(),

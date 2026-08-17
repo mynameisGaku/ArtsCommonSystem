@@ -5,6 +5,7 @@
 #include "foundation/Types.h"
 #include "container/Array.h"
 #include "gameframework/Scene.h"
+#include "gameframework/LightCollector3D.h"
 #include "gameframework/SceneNodeGraph.h"
 #include "gameframework/Scene3DSerialize.h"
 #include "math/Camera.h"
@@ -289,6 +290,26 @@ private:
     void ReleaseGpu() noexcept;
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
     void UpdateCameraView() noexcept;
+
+    /** シーンに置かれた光を集め直す (毎フレーム、描画の前に呼ぶ)。 */
+    void CollectSceneLights() noexcept;
+
+    /**
+     * いま使っている太陽の向きを返す。
+     *
+     * @details シーンに平行光源があればその 1 灯目、無ければ既定の向き。
+     * 物の陰り・水面・空がすべてこれを使う。
+     * @return 正規化済みの向き。
+     */
+    FVec3 SunDirection() const noexcept;
+
+    /**
+     * 水面へ渡す太陽の色を返す。
+     *
+     * @details 水面は同じ太陽をより強く受けるので、倍率を掛けた色を渡す。
+     * @return 水面用の色。
+     */
+    FVec3 SunColorForWater() const noexcept;
     void AdoptLoadedCamera() noexcept;
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
@@ -371,6 +392,9 @@ private:
     FGpuMesh m_Sphere;
     FGpuMesh m_Plane;
     TArray<FCustomGpuMesh> m_CustomMeshes;
+    /** シーンに置かれた光。毎フレーム集め直す。1 灯も無ければ既定の太陽を使う。 */
+    CLightCollector3D m_Lights;
+
     CCamera m_Camera;
     FScene3DCameraState m_AuthoredCamera{};
     bool m_UseAuthoredCamera = false;
