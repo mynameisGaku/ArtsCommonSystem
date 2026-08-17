@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// FCamera3D (3D カメラ) の動作確認テスト
+// CCamera3D (3D カメラ) の動作確認テスト
 //
 // target 追従が framerate independent であること、shake が trauma² で減衰して
-// 必ず 0 へ戻ること、そして壊れた設定で FCamera へ書き出さないことを検証する。
+// 必ず 0 へ戻ること、そして壊れた設定で CCamera へ書き出さないことを検証する。
 // 描画を伴わないのでヘッドレスで走る。
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -25,8 +25,8 @@ f32 Magnitude(FVec3 v) noexcept { return Distance(v, FVec3{0.0f, 0.0f, 0.0f}); }
 
 } // namespace
 
-ACS_TEST(FCamera3D, SnapToTargetPlacesEyeAndLookAtWithoutLag) {
-    FCamera3D cam;
+ACS_TEST(CCamera3D, SnapToTargetPlacesEyeAndLookAtWithoutLag) {
+    CCamera3D cam;
     cam.SetFollowOffset(FVec3{0.0f, 2.0f, -5.0f});
     cam.SetLookAtOffset(FVec3{0.0f, 1.0f, 0.0f});
 
@@ -41,9 +41,9 @@ ACS_TEST(FCamera3D, SnapToTargetPlacesEyeAndLookAtWithoutLag) {
     EXPECT_NEAR(cam.LookAt().y, 1.0f, 1.0e-4f);
 }
 
-ACS_TEST(FCamera3D, FirstTickSnapsInsteadOfFlyingFromOrigin) {
+ACS_TEST(CCamera3D, FirstTickSnapsInsteadOfFlyingFromOrigin) {
     // 初回に補間すると、原点から対象まで延々と飛んでいく画になる。
-    FCamera3D cam;
+    CCamera3D cam;
     cam.SetFollowOffset(FVec3{0.0f, 0.0f, 0.0f});
     cam.SetLookAtOffset(FVec3{0.0f, 0.0f, 0.0f});
     cam.SetTargetPos(FVec3{100.0f, 0.0f, 0.0f});
@@ -52,12 +52,12 @@ ACS_TEST(FCamera3D, FirstTickSnapsInsteadOfFlyingFromOrigin) {
     EXPECT_NEAR(cam.Position().x, 100.0f, 1.0e-3f);
 }
 
-ACS_TEST(FCamera3D, FollowIsFramerateIndependent) {
+ACS_TEST(CCamera3D, FollowIsFramerateIndependent) {
     // 「毎フレーム一定割合」で書くと 30fps と 240fps で挙動が変わる。
     // 同じ 1 秒を刻み方だけ変えて回し、到達点が一致することを確かめる。
     const FVec3 target{100.0f, 0.0f, 0.0f};
 
-    FCamera3D slow;
+    CCamera3D slow;
     slow.SetFollowOffset(FVec3{0.0f, 0.0f, 0.0f});
     slow.SetLookAtOffset(FVec3{0.0f, 0.0f, 0.0f});
     slow.SetTargetPos(FVec3{0.0f, 0.0f, 0.0f}, 5.0f);
@@ -65,7 +65,7 @@ ACS_TEST(FCamera3D, FollowIsFramerateIndependent) {
     slow.SetTargetPos(target, 5.0f);
     for (i32 i = 0; i < 30; ++i) slow.Tick(1.0f / 30.0f);
 
-    FCamera3D fast;
+    CCamera3D fast;
     fast.SetFollowOffset(FVec3{0.0f, 0.0f, 0.0f});
     fast.SetLookAtOffset(FVec3{0.0f, 0.0f, 0.0f});
     fast.SetTargetPos(FVec3{0.0f, 0.0f, 0.0f}, 5.0f);
@@ -78,8 +78,8 @@ ACS_TEST(FCamera3D, FollowIsFramerateIndependent) {
     EXPECT_TRUE(fast.Position().x > 90.0f);
 }
 
-ACS_TEST(FCamera3D, ZeroSmoothingSnapsEveryTick) {
-    FCamera3D cam;
+ACS_TEST(CCamera3D, ZeroSmoothingSnapsEveryTick) {
+    CCamera3D cam;
     cam.SetFollowOffset(FVec3{0.0f, 0.0f, 0.0f});
     cam.SetLookAtOffset(FVec3{0.0f, 0.0f, 0.0f});
     cam.SetTargetPos(FVec3{0.0f, 0.0f, 0.0f}, 0.0f);
@@ -90,8 +90,8 @@ ACS_TEST(FCamera3D, ZeroSmoothingSnapsEveryTick) {
     EXPECT_NEAR(cam.Position().x, 7.0f, 1.0e-4f);
 }
 
-ACS_TEST(FCamera3D, ClearTargetStopsFollowing) {
-    FCamera3D cam;
+ACS_TEST(CCamera3D, ClearTargetStopsFollowing) {
+    CCamera3D cam;
     cam.SetFollowOffset(FVec3{0.0f, 0.0f, 0.0f});
     cam.SetTargetPos(FVec3{0.0f, 0.0f, 0.0f});
     cam.SnapToTarget();
@@ -104,8 +104,8 @@ ACS_TEST(FCamera3D, ClearTargetStopsFollowing) {
     EXPECT_NEAR(cam.Position().x, 0.0f, 1.0e-4f);
 }
 
-ACS_TEST(FCamera3D, ShakeDecaysToExactlyZero) {
-    FCamera3D cam;
+ACS_TEST(CCamera3D, ShakeDecaysToExactlyZero) {
+    CCamera3D cam;
     cam.SetShakeAmplitude(1.0f);
     cam.SetShakeDecayRate(1.0f);
     cam.AddShake(1.0f);
@@ -121,8 +121,8 @@ ACS_TEST(FCamera3D, ShakeDecaysToExactlyZero) {
     EXPECT_NEAR(Distance(cam.EffectiveEye(), cam.Position()), 0.0f, 1.0e-6f);
 }
 
-ACS_TEST(FCamera3D, TraumaIsClampedAndNegativeIgnored) {
-    FCamera3D cam;
+ACS_TEST(CCamera3D, TraumaIsClampedAndNegativeIgnored) {
+    CCamera3D cam;
     for (i32 i = 0; i < 20; ++i) cam.AddShake(0.5f);
     EXPECT_TRUE(cam.TraumaLevel() <= 1.0f);
 
@@ -134,9 +134,9 @@ ACS_TEST(FCamera3D, TraumaIsClampedAndNegativeIgnored) {
     EXPECT_NEAR(cam.TraumaLevel(), 0.0f, 1.0e-6f);
 }
 
-ACS_TEST(FCamera3D, ShakeMovesEyeAndLookAtTogether) {
+ACS_TEST(CCamera3D, ShakeMovesEyeAndLookAtTogether) {
     // 片方だけ揺らすと画面が回って見える。
-    FCamera3D cam;
+    CCamera3D cam;
     cam.SetShakeAmplitude(1.0f);
     cam.AddShake(1.0f);
     cam.Tick(1.0f / 60.0f);
@@ -146,12 +146,12 @@ ACS_TEST(FCamera3D, ShakeMovesEyeAndLookAtTogether) {
     EXPECT_NEAR(eye_shift, at_shift, 1.0e-6f);
 }
 
-ACS_TEST(FCamera3D, AcceptsShakePresetsThroughIShakeTarget) {
-    FCamera3D big;
+ACS_TEST(CCamera3D, AcceptsShakePresetsThroughIShakeTarget) {
+    CCamera3D big;
     FCameraShakePresets::ApplyPreset(big, EShakePreset::ExplosionLarge);
     EXPECT_TRUE(big.TraumaLevel() > 0.0f);
 
-    FCamera3D small;
+    CCamera3D small;
     FCameraShakePresets::ApplyPreset(small, EShakePreset::HitImpact);
     EXPECT_TRUE(small.TraumaLevel() > 0.0f);
 
@@ -159,12 +159,12 @@ ACS_TEST(FCamera3D, AcceptsShakePresetsThroughIShakeTarget) {
     EXPECT_TRUE(big.TraumaLevel() != small.TraumaLevel());
 }
 
-ACS_TEST(FCamera3D, ApplyToRejectsBrokenSetupsWithoutTouchingCamera) {
-    FCamera3D cam;
+ACS_TEST(CCamera3D, ApplyToRejectsBrokenSetupsWithoutTouchingCamera) {
+    CCamera3D cam;
     cam.SetTargetPos(FVec3{0.0f, 0.0f, 0.0f});
     cam.SnapToTarget();
 
-    FCamera out;
+    CCamera out;
     EXPECT_TRUE(cam.ApplyTo(out, 16.0f / 9.0f));
 
     const FVec3 kept = out.Eye();
@@ -174,21 +174,21 @@ ACS_TEST(FCamera3D, ApplyToRejectsBrokenSetupsWithoutTouchingCamera) {
     EXPECT_NEAR(out.Eye().y, kept.y, 1.0e-6f);
 
     // eye と注視点が同じだと向きが決まらず、行列が壊れて真っ暗になる。
-    FCamera3D degenerate;
+    CCamera3D degenerate;
     degenerate.ClearTarget();
     degenerate.SetPosition(FVec3{1.0f, 1.0f, 1.0f});
     degenerate.SetLookAt(FVec3{1.0f, 1.0f, 1.0f});
     EXPECT_TRUE(!degenerate.ApplyTo(out, 1.0f));
 
     // near/far と視野角の異常も同様に弾く。
-    FCamera3D bad_planes;
+    CCamera3D bad_planes;
     bad_planes.SetNearPlane(10.0f);
     bad_planes.SetFarPlane(1.0f);
     EXPECT_TRUE(!bad_planes.ApplyTo(out, 1.0f));
 }
 
-ACS_TEST(FCamera3D, RejectsInvalidProjectionSettings) {
-    FCamera3D cam;
+ACS_TEST(CCamera3D, RejectsInvalidProjectionSettings) {
+    CCamera3D cam;
 
     cam.SetFovYDegrees(0.0f);
     EXPECT_NEAR(cam.FovYDegrees(), 60.0f, 1.0e-6f);   // 既定のまま。

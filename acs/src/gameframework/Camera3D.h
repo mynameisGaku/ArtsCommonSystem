@@ -10,10 +10,11 @@
 namespace acs::game {
 
 /**
- * 3D カメラ (eye / 注視点、target 追従、screen shake、FCamera への書き出し)。
+ * 3D カメラ (eye / 注視点、target 追従、screen shake、CCamera への書き出し)。
  *
  * @details
- * `FCamera2D` の 3D 版。math/Camera.h の `FCamera` は view/projection 行列を持つだけで、
+ * `CCamera2D` の 3D 版。math/Camera.h の `CCamera` は
+ * view/projection 行列を持つだけで、
  * 「どこから・どこを見て」を毎フレーム決める仕組みは持たない。ここがその状態を持つ。
  *
  * target 追従は framerate independent な指数 smoothing (1 - exp(-smoothing * dt))、
@@ -26,7 +27,7 @@ namespace acs::game {
  * こちらは**時間で変化する状態**を持つ場合のもの。
  *
  * @code
- * FCamera3D cam;
+ * CCamera3D cam;
  * cam.SetFollowOffset(FVec3{0.0f, 3.0f, -6.0f});
  * cam.SetTargetPos(player_pos);
  * cam.SnapToTarget();                       // 場面の始めは遅れなしで合わせる
@@ -40,19 +41,19 @@ namespace acs::game {
  * FCameraShakePresets::ApplyPreset(cam, EShakePreset::ExplosionLarge);
  * @endcode
  */
-class FCamera3D : public IShakeTarget {
+class CCamera3D : public IShakeTarget {
 public:
     /** 既定値 (原点の少し後ろから原点を見る、追従なし) で構築する。 */
-    FCamera3D() noexcept = default;
+    CCamera3D() noexcept = default;
 
     /** 破棄する。 */
-    ~FCamera3D() noexcept override = default;
+    ~CCamera3D() noexcept override = default;
 
-    /** コピー禁止 (FCamera2D と揃える)。 */
-    FCamera3D(const FCamera3D&)            = delete;
+    /** コピー禁止 (2D 版と揃える)。 */
+    CCamera3D(const CCamera3D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCamera3D& operator=(const FCamera3D&) = delete;
+    CCamera3D& operator=(const CCamera3D&) = delete;
 
     /**
      * shake 前の eye 位置を返す。
@@ -268,7 +269,7 @@ public:
      *
      * @details
      * target follow (framerate-independent な指数 smoothing) → trauma 減衰 + shake offset
-     * (trauma² * amplitude * noise) の順で更新する。FCamera2D::Tick と同じ順序。
+     * (trauma² * amplitude * noise) の順で更新する。2D 版の Tick と同じ順序。
      * @param dt 経過秒 (負値は 0 にクランプ)。
      */
     void Tick(f32 dt) noexcept {
@@ -332,7 +333,7 @@ public:
      * @param aspect アスペクト比 (幅/高さ)。
      * @return 書き出せたら true。
      */
-    bool ApplyTo(FCamera& out, f32 aspect) const noexcept {
+    bool ApplyTo(CCamera& out, f32 aspect) const noexcept {
         if (aspect <= 0.0f) return false;
         if (m_NearPlane <= 0.0f || m_FarPlane <= m_NearPlane) return false;
         if (m_FovYDegrees <= 0.0f || m_FovYDegrees >= 180.0f) return false;
