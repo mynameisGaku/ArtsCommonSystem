@@ -764,6 +764,17 @@ cbuffer CloudCB : register(b0) {
     // CPU-hoisted camera/layer terms for the two curved-shell quadratics.
     float4 cloudShellRayOrigin;// xyz=camera from planet centre, w=inner c
     float4 cloudShellTerms;// x=outer c
+    // 雲を «光を散らす媒質» として扱うための係数。これまでは shader 内の即値だった。
+    // x=見る側の消散, y=光の側の消散, z=太陽光のうち散乱に回る割合, w=powder の強さ
+    float4 cloudLightingExtinction;
+    // x=前方散乱の鋭さ, y=後方散乱, z=前方の混ぜ率, w=多重散乱の寄与
+    float4 cloudLightingPhase;
+    // x=多重散乱の消散の弱め方, y=位相の下限, z=位相の上限, w=地面からの照り返し
+    float4 cloudLightingMulti;
+    // x=雲底が空から受ける割合, y=雲頂が受ける割合
+    float4 cloudLightingAmbient;
+    // xyz=地面の色 (照り返しに使う)
+    float4 cloudLightingGround;
 };
 RWTexture2D<float4> cloudOut : register(u0);
 RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒット距離, y=アルファ信頼度
@@ -1681,8 +1692,10 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float jit=frac(pixelJitter+float(jitterSequence)*0.754877666);
     float3 sun=sunDir.xyz;
     float cosA=clamp(dot(dir,sun),-1.0,1.0);
-    float phase=12.566370*(hg(cosA,0.60)*0.85+hg(cosA,-0.20)*0.15);
-    phase=clamp(phase,0.25,2.4);
+    float phaseBlend=cloudLightingPhase.z;
+    float phase=12.566370*(hg(cosA,cloudLightingPhase.x)*phaseBlend
+               +hg(cosA,cloudLightingPhase.y)*(1.0-phaseBlend));
+    phase=clamp(phase,cloudLightingMulti.y,cloudLightingMulti.z);
     float3 lightTangent=cloudLightTangent.xyz;
     float3 lightBitangent=cloudLightBitangent.xyz;
     float baseLightStep=cloudCoverageReciprocals.w;
@@ -1831,7 +1844,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                             sharedLightPrecipitation,
                             p,viewMacroUvw,macro.height,sharedShapeScale);
                     lightDepth+=lightDensity*lightStep*layer.w;
-                    if(lightDepth*density*4.2>18.0) break;
+                    if(lightDepth*density*cloudLightingExtinction.y>18.0) break;
                     float previousConeCos=coneCos;
                     coneCos=previousConeCos*(-0.737368878)
                            -coneSin*(-0.675490294);
@@ -1845,25 +1858,32 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 lightDepth=exactFarStart+lerp(
                     exactTail,cachedTailForBlend,cacheBlendWeight);
             }
-            float tauL=lightDepth*density*4.2;
+            float tauL=lightDepth*density*cloudLightingExtinction.y;
             float beer=exp(-tauL);
-            float multi=exp(-tauL*0.28);
-            float lightT=beer*0.72+multi*0.28;
-            float powder=1.0-exp(-dens*2.4);
+            float multi=exp(-tauL*cloudLightingMulti.x);
+            float multiWeight=cloudLightingPhase.w;
+            float lightT=beer*(1.0-multiWeight)+multi*multiWeight;
+            float powder=1.0-exp(-dens*cloudLightingExtinction.w);
             // sunCol is the scene's direct-light radiance. Clouds scatter only
             // a calibrated fraction of it; using the full value here made the
             // forward lobe clip into a featureless white sheet.
             float edgeBoost=lerp(
                 1.08,0.78,smoothstep(0.04,0.52,nearLightDensity*density));
-            float3 sunL=sunCol.rgb*0.14*lightT*phase
+            float3 sunL=sunCol.rgb*cloudLightingExtinction.z*lightT*phase
                        *lerp(0.70,1.0,powder)*edgeBoost;
             float h=macro.height;
             float viewDepth=1.0-transmit;
             float ambientOcclusion=lerp(1.0,0.55,saturate(viewDepth+dens*0.22));
-            float3 ambL=skyCol.rgb*lerp(0.26,0.52,h)*ambientOcclusion;
-            float a=1.0-exp(-dens*stepLength*layer.w*7.0);
+            float3 ambL=skyCol.rgb
+                       *lerp(cloudLightingAmbient.x,cloudLightingAmbient.y,h)
+                       *ambientOcclusion;
+            // 地面からの照り返し。雲底ほど強く受ける。0 なら足さない。
+            float bottomWeight=1.0-smoothstep(0.15,0.65,h);
+            float3 groundL=cloudLightingGround.rgb*cloudLightingMulti.w
+                          *bottomWeight*ambientOcclusion;
+            float a=1.0-exp(-dens*stepLength*layer.w*cloudLightingExtinction.x);
             float sampleWeight=transmit*a;
-            scatter += sampleWeight*(sunL+ambL);
+            scatter += sampleWeight*(sunL+ambL+groundL);
             depthMoment += sampleWeight*(t+stepLength*0.5);
             transmit *= (1.0-a);
             if(transmit<0.012) break;
@@ -2526,8 +2546,13 @@ struct FCloudCb {
     FVec4 cloudCoverageReciprocals;
     FVec4 cloudShellRayOrigin;
     FVec4 cloudShellTerms;
+    FVec4 cloudLightingExtinction;
+    FVec4 cloudLightingPhase;
+    FVec4 cloudLightingMulti;
+    FVec4 cloudLightingAmbient;
+    FVec4 cloudLightingGround;
 };
-static_assert(sizeof(FCloudCb) == 448, "CloudCB must match the HLSL layout");
+static_assert(sizeof(FCloudCb) == 528, "CloudCB must match the HLSL layout");
 static_assert(
     offsetof(FCloudCb, groundHorizon) == 320u,
     "CloudCB ground horizon must remain at HLSL register c20");
@@ -2554,7 +2579,10 @@ static_assert(
     offsetof(FCloudCb, cloudShellTerms) == 432u,
     "CloudCB shell terms must remain at HLSL register c27");
 static_assert(
-    CBSize<FCloudCb>() == 512u,
+    offsetof(FCloudCb, cloudLightingExtinction) == 448u,
+    "CloudCB lighting terms must remain at HLSL register c28");
+static_assert(
+    CBSize<FCloudCb>() == 768u,
     "CloudCB allocation must preserve DX12's 256-byte alignment");
 
 struct FCloudAtmosphereCb {
@@ -4297,6 +4325,20 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         shellC(m_Layer.base_height)};
     cb.cloudShellTerms = FVec4{
         shellC(m_Layer.top_height), 0.0f, 0.0f, 0.0f};
+    cb.cloudLightingExtinction = FVec4{
+        m_Lighting.ViewExtinction, m_Lighting.LightExtinction,
+        m_Lighting.SunScatter, m_Lighting.PowderStrength};
+    cb.cloudLightingPhase = FVec4{
+        m_Lighting.PhaseForward, m_Lighting.PhaseBackward,
+        m_Lighting.PhaseBlend, m_Lighting.MultiScatterContribution};
+    cb.cloudLightingMulti = FVec4{
+        m_Lighting.MultiScatterOcclusion, m_Lighting.PhaseMin,
+        m_Lighting.PhaseMax, m_Lighting.GroundContribution};
+    cb.cloudLightingAmbient = FVec4{
+        m_Lighting.AmbientAtBase, m_Lighting.AmbientAtTop, 0.0f, 0.0f};
+    cb.cloudLightingGround = FVec4{
+        m_Lighting.GroundColor.x, m_Lighting.GroundColor.y,
+        m_Lighting.GroundColor.z, 0.0f};
     m_Cb->Update(&cb, sizeof(cb));
     // 初回に Perlin-Worley shape noise (128^3) を焼く (1 回のみ、以降 SRV で sample)。
     if (bakeShapeNoiseThisFrame) {

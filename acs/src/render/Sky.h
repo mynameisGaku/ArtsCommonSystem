@@ -321,6 +321,88 @@ using FSky = CSky;
  * these heights in world space makes translation, orbit and temporal
  * reprojection observe the same density field.
  */
+/**
+ * 雲を «光を散らす媒質» として照らすための係数。
+ *
+ * @details
+ * これまで shader 内に即値で埋まっていたものを外へ出したもの。既定値は**以前の見え方を
+ * そのまま再現する**ので、まず配線だけを確かめられる。
+ *
+ * 消散 (extinction) を見た目調整の摘みとして使いすぎないこと。同じ雲なのに見る方向と
+ * 光の方向で消散が違うと、カメラからはすぐ不透明なのに太陽光だけ内部へ届く、という
+ * «気体でない» 見え方になる。明るさを変えたいなら `SunScatter` や散乱側で調整する。
+ */
+struct FVolumetricCloudLighting {
+    /**
+     * 見る方向の消散。
+     *
+     * @details
+     * 光の方向と**同じ値**にしてある。以前は 7.0 対 4.2 で、同じ雲なのに向きで消散が違い、
+     * カメラからはすぐ不透明なのに太陽光だけ内部へ届く «半透明の白い物体» に見えていた。
+     */
+    f32 ViewExtinction = 5.0f;
+
+    /** 光の方向の消散。見る方向と揃える。 */
+    f32 LightExtinction = 5.0f;
+
+    /** 太陽光のうち散乱に回る割合。 */
+    f32 SunScatter = 0.14f;
+
+    /** powder 効果 (雲の縁が暗く落ちるのを抑える) の強さ。 */
+    f32 PowderStrength = 2.4f;
+
+    /** 前方散乱の鋭さ (Henyey-Greenstein の g)。 */
+    f32 PhaseForward = 0.60f;
+
+    /** 後方散乱の鋭さ。負で後ろ向き。 */
+    f32 PhaseBackward = -0.20f;
+
+    /** 前方の混ぜ率 (残りが後方)。 */
+    f32 PhaseBlend = 0.85f;
+
+    /**
+     * 位相の下限。
+     *
+     * @details
+     * **0 が本来。** 下限を上げると、本来暗くなる方向まで明るくなり、光の向きによる
+     * 明暗差が消えて «綿菓子» に見える。以前は 0.25 で潰していた。
+     */
+    f32 PhaseMin = 0.0f;
+
+    /**
+     * 位相の上限。
+     *
+     * @details
+     * 太陽方向の強い前方散乱をどこで止めるか。以前は 2.4 で、縁の光 (silver lining) まで
+     * 潰れていた。
+     */
+    f32 PhaseMax = 8.0f;
+
+    /** 多重散乱の寄与 (0 で単散乱のみ)。 */
+    f32 MultiScatterContribution = 0.28f;
+
+    /** 多重散乱の消散の弱め方 (小さいほど内部まで光が回る)。 */
+    f32 MultiScatterOcclusion = 0.28f;
+
+    /** 雲底が空から受ける割合。 */
+    f32 AmbientAtBase = 0.26f;
+
+    /** 雲頂が空から受ける割合。 */
+    f32 AmbientAtTop = 0.52f;
+
+    /**
+     * 地面からの照り返しの強さ。
+     *
+     * @details
+     * 地面や海が太陽光と空の光を跳ね返して雲底を照らす。無いと雲底が真っ黒で平坦になる。
+     * 海や雪原の上ではもっと上げてよい。
+     */
+    f32 GroundContribution = 0.15f;
+
+    /** 照り返しの色。地面や海の色を入れる。 */
+    FVec3 GroundColor{0.20f, 0.19f, 0.21f};
+};
+
 struct FVolumetricCloudLayer {
     f32 base_height = 1500.0f;
     f32 top_height = 4000.0f;
@@ -701,6 +783,20 @@ public:
     /** Set the fixed world-space cloud altitude band and invalidate history. */
     void SetLayer(const FVolumetricCloudLayer& layer) noexcept;
 
+    /**
+     * 照らし方の係数を設定する。
+     *
+     * @param lighting 新しい係数。次のフレームから効く。
+     */
+    void SetLighting(const FVolumetricCloudLighting& lighting) noexcept { m_Lighting = lighting; }
+
+    /**
+     * 照らし方の係数を返す。
+     *
+     * @return 現在の係数。
+     */
+    const FVolumetricCloudLighting& Lighting() const noexcept { return m_Lighting; }
+
     /** Current sanitized world-space cloud altitude band. */
     const FVolumetricCloudLayer& Layer() const noexcept { return m_Layer; }
 
@@ -768,6 +864,9 @@ private:
         IRhiDevice& device,
         FCompiledShaders&& shaders,
         EFormat hdr_format) noexcept;
+
+    /** 照らし方の係数。 */
+    FVolumetricCloudLighting m_Lighting{};
 
     bool                     m_Ready = false;
     /** 形状ノイズを生成済みか。 */
