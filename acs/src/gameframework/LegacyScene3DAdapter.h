@@ -67,6 +67,31 @@ enum class ESceneProjectionMode : u8 {
  * `main.acscene` bootstrap entry を公開し、検証済み header から旧 .acscene/.acs3d reader を
  * 選ぶ。Sprite batching、Canvas/UI、2D physics は専用 runtime path に残す。
  */
+/**
+ * 距離で霞ませる霧の設定。
+ *
+ * @details
+ * 濃さ 1 つで画の締まりが大きく変わる。既定はうっすら掛かる程度。
+ * 高さの効き方は「基準の高さより上ほど薄い」。
+ */
+struct FScene3DFog {
+    /** 霧の色 (線形)。遠くのものがこの色へ寄っていく。 */
+    FVec3 Color{0.08f, 0.11f, 0.16f};
+
+    /** 濃さ。0 で切れる。大きいほど近くから霞む。 */
+    f32 Density = 0.0035f;
+
+    /** 高さによる減り方。大きいほど上空で薄くなる。 */
+    f32 HeightFalloff = 0.12f;
+
+    /**
+     * 高さの基準。
+     *
+     * @details 既定 (`FLT_MAX`) のときは、シーンの位置から自動で決める。
+     */
+    f32 HeightBase = FLT_MAX;
+};
+
 class ALegacyScene3DAdapter : public AScene {
 public:
     ALegacyScene3DAdapter() noexcept = default;
@@ -94,6 +119,42 @@ public:
 
     /** Active camera projection. */
     ESceneProjectionMode ProjectionMode() const noexcept { return m_Projection; }
+
+    /**
+     * 距離で霞ませる霧の設定。
+     *
+     * @details
+     * **見え方への影響が大きい割に、これまで場面から触れなかった。** 濃さ 1 つで画の締まりが
+     * 決まる。遠景を隠したいなら濃く、物の質感を見せたいなら薄く。
+     *
+     * `Density` を 0 にすると霧が切れる。
+     * @return 霧の設定 (次のフレームから効く)。
+     */
+    FScene3DFog& Fog() noexcept { return m_Fog; }
+
+    /**
+     * 霧の設定を読む。
+     *
+     * @return 霧の設定。
+     */
+    const FScene3DFog& Fog() const noexcept { return m_Fog; }
+
+    /**
+     * 仕上げ (露出・bloom・tonemap・vignette) の設定を触る。
+     *
+     * @details
+     * 既定では自動露出が入っている。物理ベースの明るさをそのまま出すと画面が飛ぶため。
+     * `exposure` はそこへの手動補正 (EV) として働く。
+     * @return 仕上げの設定 (次のフレームから効く)。
+     */
+    FPostProcessParams& PostParams() noexcept { return m_PostParams; }
+
+    /**
+     * 仕上げの設定を読む。
+     *
+     * @return 仕上げの設定。
+     */
+    const FPostProcessParams& PostParams() const noexcept { return m_PostParams; }
 
     /**
      * 空の設定を触る (雲・色・太陽の見た目・時刻)。
@@ -520,6 +581,9 @@ private:
     f32 m_Yaw = 0.0f;
     f32 m_Pitch = 0.22f;
     f32 m_Time = 0.0f;
+    /** 距離で霞ませる霧。 */
+    FScene3DFog m_Fog{};
+
     FPostProcessParams m_PostParams{};
     ESceneProjectionMode m_Projection = ESceneProjectionMode::Perspective;
     EShaderGpuState m_HdrShaderGpuState = EShaderGpuState::Unavailable;

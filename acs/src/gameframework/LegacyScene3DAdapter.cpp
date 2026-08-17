@@ -1341,11 +1341,11 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
     } else {
         shader.SetShadowMap(nullptr, FMat4{});
     }
-    shader.SetFog(
-        FVec3{0.08f, 0.11f, 0.16f},
-        0.0035f,
-        0.12f,
-        m_Target.y - m_Distance * 0.25f);
+    // 霧。場面から触れる (Fog())。高さの基準を決めていなければシーンの位置から自動で。
+    const f32 fog_base = m_Fog.HeightBase == FLT_MAX
+        ? m_Target.y - m_Distance * 0.25f
+        : m_Fog.HeightBase;
+    shader.SetFog(m_Fog.Color, m_Fog.Density, m_Fog.HeightFalloff, fog_base);
 
     struct FRenderEntry {
         const ANode* Node = nullptr;
