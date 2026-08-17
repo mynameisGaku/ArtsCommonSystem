@@ -2675,8 +2675,12 @@ FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
     f32 qualityMultiplier = std::isfinite(requested_render_scale)
                           ? requested_render_scale
                           : 1.0f;
+    // 上は 4.0 まで許す。1.0 が方策どおりの 1/4 で、4.0 で等倍になる。
+    // 以前は 1.0 で頭打ちだったため、余裕のある機械でも 1/4 より細かくできず、
+    // 低解像度トレース由来のドット感を消す手段が «参照描画» 以外に無かった。
     if (qualityMultiplier < 0.5f) qualityMultiplier = 0.5f;
-    if (qualityMultiplier > 1.0f) qualityMultiplier = 1.0f;
+    if (qualityMultiplier > static_cast<f32>(kVolumetricCloudUltraTraceDivisor))
+        qualityMultiplier = static_cast<f32>(kVolumetricCloudUltraTraceDivisor);
 
     FVolumetricCloudTraceResolution resolution{};
     static_assert(kVolumetricCloudUltraTraceDivisor > 0u);

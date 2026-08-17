@@ -469,6 +469,10 @@ struct FVolumetricCloudTraceResolution {
  * 0.1875 dimensions, and 0.5 or below uses the 0.125 lower bound. The resolved
  * output and temporal history remain full resolution.
  *
+ * Values above 1.0 trace finer than the policy: 2.0 halves the full dimensions and
+ * 4.0 matches them. The cap used to be 1.0, which left the visible dot pattern of a
+ * quarter-resolution trace unfixable outside reference mode.
+ *
  * `reference_mode` bypasses the policy entirely and traces at full dimensions.
  * It exists to tell «the lighting is wrong» apart from «the reconstruction is wrong»,
  * and is far too slow for gameplay.
