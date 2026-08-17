@@ -885,6 +885,9 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     if (EnsureShadowMap(*device)) (void)RenderShadowPass(context);
     else m_ShadowDrawn = false;
 
+    // 雲を計算する。描画パスの外で回す (結果は雲自身のテクスチャへ書かれる)。
+    RenderClouds(*device, context.Cmd(), context.Width(), context.Height());
+
     EGpuCommitSubsystem frame_commit = EGpuCommitSubsystem::None;
     const bool hdr_ready = EnsureHdrFrameResources(
         *device, context.Width(), context.Height(),
@@ -1043,6 +1046,9 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         }
     }
 
+    // 雲を最後に乗せる。手前の物で隠れるよう、完成したシーンの深度を使う。
+    if (depth != nullptr) CompositeClouds(command_list, *hdr, *depth, context.Width(), context.Height());
+
     m_PostParams.taa_depth_texture = nullptr;
     m_Post.Render(
         command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams);
@@ -1112,6 +1118,57 @@ FVec3 ALegacyScene3DAdapter::PhysicalSunIntensity(FVec3 sun_color) noexcept {
     const f32 scale = radiance / peak;
 
     return FVec3{sun_color.x * scale, sun_color.y * scale, sun_color.z * scale};
+}
+
+void ALegacyScene3DAdapter::RenderClouds(
+    IRhiDevice& device, IRhiCommandList& command_list, u32 width, u32 height) noexcept {
+    m_CloudsDrawn = false;
+    if (m_CloudParams.Coverage <= 0.001f) return;   // 出さない設定。
+    if (width == 0u || height == 0u) return;
+
+    if (!m_CloudsReady) {
+        if (m_Clouds.Init(device, EFormat::R16G16B16A16_Float).IsErr()) {
+            ACS_LOG_WARN("Scene3D: volumetric cloud init failed; clouds stay off");
+            // 二度と試さない。毎フレーム失敗し続けても意味がない。
+            m_CloudParams.Coverage = 0.0f;
+            return;
+        }
+        m_CloudsReady = true;
+    }
+
+    if (width != m_CloudsWidth || height != m_CloudsHeight) {
+        if (!m_Clouds.EnsureSize(device, width, height, m_CloudParams.RenderScale)) {
+            ACS_LOG_WARN("Scene3D: volumetric cloud sizing failed");
+            return;
+        }
+        m_CloudsWidth = width;
+        m_CloudsHeight = height;
+    }
+
+    m_Clouds.SetLayer(FVolumetricCloudLayer{
+        m_CloudParams.BaseAltitude, m_CloudParams.TopAltitude, m_CloudParams.NoiseScale});
+
+    // 雲を照らすのは物を照らすのと同じ太陽。ここを別にすると、雲だけ違う方向から
+    // 光っているように見える。
+    const FVec3 sun_color = SunColorForAtmosphere();
+
+    m_Clouds.RenderCompute(
+        command_list, Inverse(m_Camera.ViewProjection()), m_Camera.Eye(),
+        SunDirection(), sun_color, m_Sky.HorizonColor(),
+        m_CloudParams.Coverage, m_CloudParams.Density, m_CloudParams.Wind, m_Time);
+
+    m_CloudsDrawn = true;
+}
+
+void ALegacyScene3DAdapter::CompositeClouds(
+    IRhiCommandList& command_list, IRhiTexture& target,
+    IRhiTexture& scene_depth, u32 width, u32 height) noexcept {
+    if (!m_CloudsDrawn) return;
+
+    // 完成したシーンの深度を渡すので、手前にある物が雲を隠す。
+    command_list.BeginRenderToTextureLoad(target, nullptr);
+    m_Clouds.Composite(command_list, scene_depth, width, height);
+    command_list.EndRenderToTexture(target);
 }
 
 void ALegacyScene3DAdapter::RenderSky(

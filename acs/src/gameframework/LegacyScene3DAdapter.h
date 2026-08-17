@@ -74,6 +74,40 @@ enum class ESceneProjectionMode : u8 {
  * 濃さ 1 つで画の締まりが大きく変わる。既定はうっすら掛かる程度。
  * 高さの効き方は「基準の高さより上ほど薄い」。
  */
+/**
+ * 空に浮かべる雲の設定。
+ *
+ * @details
+ * `Coverage` が 0 なら出ない。厚みは `BaseAltitude` と `TopAltitude` の差で、
+ * 世界の単位で指定する。
+ */
+struct FScene3DClouds {
+    /** 空をどれだけ覆うか (0 で出ない、1 で一面)。 */
+    f32 Coverage = 0.0f;
+
+    /** 濃さ。大きいほど光を通さず、輪郭がはっきりする。 */
+    f32 Density = 1.0f;
+
+    /** 流れる速さ。 */
+    f32 Wind = 0.02f;
+
+    /** 雲の底の高さ。 */
+    f32 BaseAltitude = 1500.0f;
+
+    /** 雲の上端の高さ。 */
+    f32 TopAltitude = 4000.0f;
+
+    /** 形の細かさ。小さいほど大きな塊になる。 */
+    f32 NoiseScale = 1.0f;
+
+    /**
+     * 描く大きさの割合。
+     *
+     * @details 1 未満にすると内部を小さく描いて引き伸ばす。重いので下げる余地を残してある。
+     */
+    f32 RenderScale = 0.5f;
+};
+
 struct FScene3DFog {
     /** 霧の色 (線形)。遠くのものがこの色へ寄っていく。 */
     FVec3 Color{0.08f, 0.11f, 0.16f};
@@ -119,6 +153,23 @@ public:
 
     /** Active camera projection. */
     ESceneProjectionMode ProjectionMode() const noexcept { return m_Projection; }
+
+    /**
+     * 雲の設定を触る。
+     *
+     * @details
+     * `Coverage` を 0 にすると出ない (既定)。出すと、太陽の側が明るく縁が光る本物の雲になる。
+     * 空を焼いた cubemap には雲が入らないので、**雲は環境光には効かない** (影も落とさない)。
+     * @return 雲の設定 (次のフレームから効く)。
+     */
+    FScene3DClouds& Clouds() noexcept { return m_CloudParams; }
+
+    /**
+     * 雲の設定を読む。
+     *
+     * @return 雲の設定。
+     */
+    const FScene3DClouds& Clouds() const noexcept { return m_CloudParams; }
 
     /**
      * 大気の設定を触る (地面の色、散乱の細かさ)。
@@ -444,6 +495,32 @@ private:
      * @param color_format 描画先の色形式。
      * @param depth_format 描画先の深度形式。
      */
+    /**
+     * 雲を計算する (描画パスの外で呼ぶ)。
+     *
+     * @details
+     * 結果は雲自身のテクスチャへ書かれる。画面へ乗せるのは `CompositeClouds`。
+     * 分かれているのは、**手前にある物で雲を隠す**のに完成したシーンの深度が要るため。
+     * @param device 生成に使うデバイス。
+     * @param command_list コマンドを積む先。
+     * @param width 画面の幅。
+     * @param height 画面の高さ。
+     */
+    void RenderClouds(IRhiDevice& device, IRhiCommandList& command_list,
+                      u32 width, u32 height) noexcept;
+
+    /**
+     * 計算した雲を画面へ乗せる。
+     *
+     * @param command_list コマンドを積む先。
+     * @param target 乗せる先。
+     * @param scene_depth 完成したシーンの深度 (手前の物で雲を隠すのに使う)。
+     * @param width 画面の幅。
+     * @param height 画面の高さ。
+     */
+    void CompositeClouds(IRhiCommandList& command_list, IRhiTexture& target,
+                         IRhiTexture& scene_depth, u32 width, u32 height) noexcept;
+
     void RenderSky(IRhiDevice& device, IRhiCommandList& command_list,
                    EFormat color_format, EFormat depth_format) noexcept;
 
@@ -587,6 +664,24 @@ private:
 
     /** 物理ベースの大気。環境光の焼き元にする。 */
     CSkyAtmosphere m_Atmosphere;
+
+    /** 本物の雲。空 pass の外で compute を回し、最後に合成する。 */
+    CVolumetricClouds m_Clouds;
+
+    /** 雲の設定。 */
+    FScene3DClouds m_CloudParams{};
+
+    /** 雲を使える状態にできたか。 */
+    bool m_CloudsReady = false;
+
+    /** このフレームで雲を描いたか (描いていなければ合成もしない)。 */
+    bool m_CloudsDrawn = false;
+
+    /** 雲を用意した画面の大きさ。変わったら作り直す。 */
+    u32 m_CloudsWidth = 0u;
+
+    /** 雲を用意した画面の高さ。 */
+    u32 m_CloudsHeight = 0u;
 
     /** 大気の設定 (太陽以外)。 */
     FAtmosphereParams m_AtmosphereParams{};
