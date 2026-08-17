@@ -121,6 +121,26 @@ public:
     ESceneProjectionMode ProjectionMode() const noexcept { return m_Projection; }
 
     /**
+     * 大気の設定を触る (地面の色、散乱の細かさ)。
+     *
+     * @details
+     * **太陽の向きと強さは毎フレーム上書きされる** (シーンの光から取る)。触れるのは残り。
+     *
+     * いちばん効くのは `ground_albedo`。大気は「地面で跳ね返った光」も計算するので、
+     * ここが実際の地面と違う色だと、**地平線から下が別の場所の色になる**。
+     * 草地なら緑寄り、砂漠なら黄寄り、雪原なら白に近く。
+     * @return 大気の設定 (次に焼き直すときから効く)。
+     */
+    FAtmosphereParams& Atmosphere() noexcept { return m_AtmosphereParams; }
+
+    /**
+     * 大気の設定を読む。
+     *
+     * @return 大気の設定。
+     */
+    const FAtmosphereParams& Atmosphere() const noexcept { return m_AtmosphereParams; }
+
+    /**
      * 距離で霞ませる霧の設定。
      *
      * @details
@@ -567,6 +587,9 @@ private:
 
     /** 物理ベースの大気。環境光の焼き元にする。 */
     CSkyAtmosphere m_Atmosphere;
+
+    /** 大気の設定 (太陽以外)。 */
+    FAtmosphereParams m_AtmosphereParams{};
 
     /** 大気の初期化を一度試したか (失敗しても毎フレーム試さない)。 */
     bool m_AtmosphereTried = false;

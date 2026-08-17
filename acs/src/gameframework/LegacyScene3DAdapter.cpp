@@ -1164,7 +1164,8 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
         (void)m_Atmosphere.Init(device);
     }
 
-    FAtmosphereParams atmosphere{};
+    // 太陽だけは毎回いまの光から作る。残り (地面の色など) は場面が決めたものを使う。
+    FAtmosphereParams atmosphere = m_AtmosphereParams;
     atmosphere.sun_dir = sun;
     atmosphere.sun_intensity = PhysicalSunIntensity(SunColorForAtmosphere());
 
