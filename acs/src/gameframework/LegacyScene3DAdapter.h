@@ -7,6 +7,7 @@
 #include "gameframework/Scene.h"
 #include "gameframework/LightCollector3D.h"
 #include "render/ShadowMap.h"
+#include "render/Ibl.h"
 #include "gameframework/SceneNodeGraph.h"
 #include "gameframework/Scene3DSerialize.h"
 #include "math/Camera.h"
@@ -333,6 +334,20 @@ private:
     bool EnsureShadowMap(IRhiDevice& device) noexcept;
 
     /**
+     * 空から環境光を焼く (必要なときだけ)。
+     *
+     * @details
+     * IBL が無いと環境光が «一定の暗い色» になり、陰の側がのっぺり潰れる。空を映した
+     * 環境光を入れると、上を向いた面は空の色を、下を向いた面は地面の色を受ける。
+     *
+     * 焼き直しは重いので、**太陽が十分に動いたときだけ**やり直す。
+     * @param device 生成に使うデバイス。
+     * @param command_list 焼き込みに使うコマンドリスト。
+     * @return 使える状態なら true。
+     */
+    bool EnsureEnvironmentLighting(IRhiDevice& device, IRhiCommandList& command_list) noexcept;
+
+    /**
      * 太陽から見た深度を描く (影のもと)。
      *
      * @details
@@ -453,6 +468,15 @@ private:
     TArray<FCustomGpuMesh> m_CustomMeshes;
     /** シーンに置かれた光。毎フレーム集め直す。1 灯も無ければ既定の太陽を使う。 */
     CLightCollector3D m_Lights;
+
+    /** 空を映した環境光 (irradiance / prefilter / BRDF LUT)。 */
+    CImageBasedLighting m_Ibl;
+
+    /** 環境光を焼けたか。 */
+    bool m_IblReady = false;
+
+    /** 焼いたときの太陽の向き。ここから十分に動いたら焼き直す。 */
+    FVec3 m_IblBakedSunDirection{0.0f, 0.0f, 0.0f};
 
     /** 太陽から見た深度。影の判定に使う。 */
     CShadowMap m_Shadow;

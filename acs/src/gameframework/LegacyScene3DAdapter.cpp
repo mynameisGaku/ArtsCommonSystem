@@ -49,6 +49,10 @@ constexpr u32 kShadowMapSize = 2048u;
 // 影の判定をずらす量。小さすぎると自分の影で縞が出て、大きすぎると影が浮く。
 constexpr f32 kShadowDepthBias = 0.0025f;
 
+// 環境光を焼き直す太陽の移動量 (2 乗)。小さすぎると毎フレーム焼いて重くなり、
+// 大きすぎると夕暮れの色が付いてこない。約 1.7 度ぶん。
+constexpr f32 kIblRebakeThresholdSquared = 0.0009f;
+
 AMeshComponent3D* FindMesh(ANode& node) noexcept {
     const void* kind = ComponentKindOf<AMeshComponent3D>();
     for (u32 index = 0u; index < node.ComponentCount(); ++index) {
@@ -854,6 +858,9 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     IRhiTexture* depth = renderer.DepthBuffer();
     if (device == nullptr || swapchain == nullptr) return;
 
+    // 空を環境光として焼く。太陽が動いたときだけ焼き直す。
+    (void)EnsureEnvironmentLighting(*device, context.Cmd());
+
     // 太陽から見た深度を先に描く。PBR パスがこれを参照して影を落とす。
     if (EnsureShadowMap(*device)) (void)RenderShadowPass(context);
     else m_ShadowDrawn = false;
@@ -1071,6 +1078,43 @@ bool ALegacyScene3DAdapter::ComputeSceneBounds(FVec3& out_center, f32& out_radiu
     return true;
 }
 
+bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
+    IRhiDevice& device, IRhiCommandList& command_list) noexcept {
+    const FVec3 sun = SunDirection();
+
+    // 焼き直しは重い。太陽がほとんど動いていないなら前回のものをそのまま使う。
+    if (m_IblReady) {
+        const f32 dx = sun.x - m_IblBakedSunDirection.x;
+        const f32 dy = sun.y - m_IblBakedSunDirection.y;
+        const f32 dz = sun.z - m_IblBakedSunDirection.z;
+        if (dx * dx + dy * dy + dz * dz < kIblRebakeThresholdSquared) return true;
+    }
+
+    // BRDF LUT は太陽に依存しないので一度だけ。
+    if (!m_Ibl.HasBrdfLut() && m_Ibl.EnsureBrdfLut(device, command_list).IsErr()) {
+        ACS_LOG_WARN("Scene3D: BRDF LUT bake failed; environment lighting stays off");
+        return false;
+    }
+
+    // 空をそのまま環境光にする。見えている空と光が食い違わない。
+    if (m_Ibl.EnsureEnvCubemap(device, command_list, m_Sky).IsErr()) {
+        ACS_LOG_WARN("Scene3D: environment cubemap bake failed");
+        return false;
+    }
+    if (m_Ibl.EnsureIrradiance(device, command_list).IsErr()) {
+        ACS_LOG_WARN("Scene3D: irradiance bake failed");
+        return false;
+    }
+    if (m_Ibl.EnsurePrefilter(device, command_list).IsErr()) {
+        ACS_LOG_WARN("Scene3D: prefilter bake failed");
+        return false;
+    }
+
+    m_IblBakedSunDirection = sun;
+    m_IblReady = true;
+    return true;
+}
+
 bool ALegacyScene3DAdapter::EnsureShadowMap(IRhiDevice& device) noexcept {
     if (m_ShadowReady) return true;
 
@@ -1217,6 +1261,12 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
         use_scene_lights ? m_Lights.DirectionalCount() : 1u,
         kDefaultAmbient);
     shader.SetPointLights(m_Lights.PointLights(), m_Lights.PointCount());
+
+    // 環境光。空を映したものを渡すと、陰の側が «一定の暗い色» で潰れなくなる。
+    if (m_IblReady) {
+        shader.SetIbl(m_Ibl.IrradianceMap(), m_Ibl.PrefilterMap(),
+                      m_Ibl.BrdfLut(), m_Ibl.PrefilterMips());
+    }
 
     // 影。描けなかったフレームは nullptr を渡して切る (前のフレームの深度を
     // 使い回すと、動いた物の影が 1 フレーム遅れて付いてくる)。
