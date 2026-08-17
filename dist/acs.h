@@ -52798,6 +52798,441 @@ using FSsao = CSsao;
 
 } // namespace acs
 
+// ===================== render/Ssr.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// Screen-Space Reflection
+//
+// 設計:
+//   - シーン描画後の HDR scene color + depth-SRV を入力にして、各 pixel から
+//     reflection ray を screen space で march
+//   - 衝突したら scene_color を sample、ray 起点に reflection を加算
+//   - 結果は別 HDR RT (= ssr_rt) に書き出し → caller が composite で本 HDR へ加算
+//   - normal は CMotionVector パスが出力する normal G-buffer (RGBA16F world normal)
+//     から sample する。depth-derivative cross(ddx,ddy) は 2x2 quad
+//     単位で faceted になり、曲面の反射ベクトルが段差状になってガビガビになる
+//
+// ray march は screen-space DDA (McGuire & Mara 2014)。反射レイを
+// screen 空間へ射影し 1 texel/step で行進する。world 空間固定ステップ march は
+// screen 空間でサンプリングが疎になり、反射先がカメラ近傍/grazing だと 1 step が
+// 多 pixel に飛んで反射像がレイ方向に伸びてスメアする — DDA で根本解決。
+//
+// temporal accumulation: raw SSR を per-frame jitter 付きで撃ち、
+// 履歴 (reproject + neighborhood clamp) と時間方向に平均することで、ray-march の
+// silhouette ジャギーを均す。OutputTexture() は temporal 累積後を返す。
+//
+// glossy reflection (roughness 別 mip サンプル) は未対応 — roughness 依存の blend は
+// CPbrShader 側が担当。
+
+
+namespace acs {
+
+/**
+ * Screen-Space Reflection。HDR scene color + depth から反射を screen 空間で焼く。
+ *
+ * @details
+ * シーン描画後の HDR scene color と depth-SRV を入力に、各 pixel から反射 ray を
+ * screen-space DDA (McGuire & Mara 2014) で 1 texel/step march し、衝突先の
+ * scene_color を集める。raw march (jitter 付き) → temporal accumulation の 2 pass
+ * 構成で、履歴を reproject + neighborhood clamp して silhouette ジャギーを均す。
+ * GPU リソースは TUniquePtr で単独所有する non-copy 型。
+ */
+class CSsr {
+public:
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    CSsr() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~CSsr() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    CSsr(const CSsr&) = delete;
+
+    /** コピー代入も禁止。 */
+    CSsr& operator=(const CSsr&) = delete;
+
+    /**
+     * GPU リソース (出力 RT・history ping-pong・パイプライン・CB) を確保する。
+     *
+     * @param device RT・パイプライン生成に使う RHI デバイス。
+     * @param hdr_format SSR 出力テクスチャのフォーマット (シーン HDR と同じ R16G16B16A16F 推奨)。
+     * @param width 出力 RT の幅。
+     * @param height 出力 RT の高さ。
+     * @return 成功なら空の TResult、確保失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, EFormat hdr_format,
+                       u32 width, u32 height) noexcept;
+
+    /** 確保した GPU リソースを解放し、temporal 履歴をリセットする。 */
+    void Shutdown() noexcept;
+
+    /**
+     * Keep allocated targets but make the next render a cold temporal start.
+     * Call this when a shared render surface changes logical camera owner.
+     */
+    void InvalidateHistory() noexcept {
+        m_TemporalFrame = 0u;
+        m_OutputValid = false;
+    }
+
+    /**
+     * 解像度変更時に出力 RT と history を作り直す (ウィンドウリサイズで呼ぶ)。
+     *
+     * @details サイズが変わると history は再利用できないため temporal 累積をリセットする。
+     * @param width 新しい出力 RT の幅。
+     * @param height 新しい出力 RT の高さ。
+     * @return 成功なら空の TResult、Init 前の呼び出しや再確保失敗ならエラー。
+     */
+    TResult<void> Resize(u32 width, u32 height) noexcept;
+
+    /**
+     * SSR を計算する (raw march → temporal accumulation の 2 pass)。
+     *
+     * @details
+     * Pass1 で jitter 付き raw SSR を m_Output に焼き、Pass2 で前フレームの history と
+     * reproject + neighborhood clamp して時間平均する。
+     * @param device RHI デバイス (現状未使用、コマンドは cl 経由で積む)。
+     * @param cl 描画コマンドを積むコマンドリスト。
+     * @param scene_color 現フレームの HDR scene color。
+     * @param scene_depth 現フレームの depth buffer (shader_visible_depth=true 必須)。
+     * @param normal_gbuffer CMotionVector パスの world-space normal G-buffer (RGBA16F)。
+     * @param view_proj 現フレームの view-projection 行列 (row-major)。
+     * @param inv_view_proj view_proj の逆行列 (world pos 復元用)。
+     * @param prev_view_proj 前フレームの view_proj (temporal reproject 用、identity で reprojection 無効)。
+     * @param eye カメラのワールド位置。
+     * @param intensity SSR 強度 (0..2)。
+     * @param motion_texture 非 null なら temporal pass が動く mesh の反射を motion vector で reproject する (null なら camera-only depth reproject)。CMotionVector::OutputTexture() を渡す。
+     * @param hiz_even Hi-Z の偶数 level texture。旧 CHiZ::Texture() だけなら level 0 の coarse path。
+     * @param hiz_odd Hi-Z の奇数 level texture。hiz_mip_count > 1 のとき使用する。
+     * @param hiz_mip_count 有効 pyramid level 数。0 は hiz_even があれば互換 level 0、無ければ Hi-Z 無効。
+     */
+    void Render(IRhiDevice& device, IRhiCommandList& cl,
+                IRhiTexture& scene_color, IRhiTexture& scene_depth,
+                IRhiTexture& normal_gbuffer,
+                const FMat4& view_proj, const FMat4& inv_view_proj,
+                const FMat4& prev_view_proj,
+                FVec3 eye, f32 intensity = 0.6f,
+                IRhiTexture* motion_texture = nullptr,
+                IRhiTexture* hiz_even       = nullptr,
+                IRhiTexture* hiz_odd        = nullptr,
+                u32 hiz_mip_count           = 0) noexcept;
+
+    /**
+     * temporal accumulation 後の history テクスチャを返す (CPbrShader / overlay 用)。
+     *
+     * @return 直近に書き込んだ history RT (frame 0 では history[0])。
+     */
+    IRhiTexture* OutputTexture() const noexcept {
+        return m_History[m_TemporalFrame == 0u ? 0u : ((m_TemporalFrame - 1u) & 1u)].Get();
+    }
+
+    /** True only after the complete raw + temporal pair was recorded. */
+    bool HasValidOutput() const noexcept { return m_OutputValid; }
+
+    /**
+     * temporal 前の raw SSR テクスチャ (jitter 付き march 結果) を返す。
+     *
+     * @return raw SSR RT。
+     */
+    IRhiTexture*  RawTexture()    const noexcept { return m_Output.Get(); }
+
+    /**
+     * 出力テクスチャのフォーマットを返す。
+     *
+     * @return Init で指定した HDR フォーマット。
+     */
+    EFormat        OutputFormat() const noexcept { return m_HdrFormat; }
+
+private:
+    /**
+     * 出力 RT と temporal history ping-pong を生成する。
+     *
+     * @param device テクスチャ生成に使う RHI デバイス。
+     * @param width 生成する RT の幅。
+     * @param height 生成する RT の高さ。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * raw SSR と temporal の VS/PS/PSO を生成する。
+     *
+     * @param device パイプライン生成に使う RHI デバイス。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
+
+    /** Init で受け取った device (Resize で再利用)。 */
+    IRhiDevice*             m_Device = nullptr;
+
+    /** 出力 RT の幅。 */
+    u32                     m_Width  = 0;
+
+    /** 出力 RT の高さ。 */
+    u32                     m_Height = 0;
+
+    /** 出力テクスチャのフォーマット (既定 R16G16B16A16_Float)。 */
+    EFormat                  m_HdrFormat = EFormat::R16G16B16A16_Float;
+
+    /** raw SSR の出力 RT (jitter 付き march 結果)。 */
+    TUniquePtr<IRhiTexture>  m_Output;
+
+    /** temporal accumulation の history ping-pong (2 枚)。 */
+    TUniquePtr<IRhiTexture>  m_History[2];
+
+    /** フルスクリーン三角形の頂点シェーダ (raw/temporal 共用)。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** raw SSR の ray march ピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_Ps;
+
+    /** temporal accumulation のピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_TemporalPs;
+
+    /** raw SSR 描画のパイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+
+    /** temporal accumulation 描画のパイプライン。 */
+    TUniquePtr<IRhiPipeline> m_TemporalPipeline;
+
+    /** 定数バッファ (カメラ行列・パラメータを渡す)。 */
+    TUniquePtr<IRhiBuffer>   m_Cb;
+
+    /** temporal フレームカウンタ (history ping-pong と jitter に使う)。 */
+    u32                     m_TemporalFrame = 0;
+
+    /** Prevents callers from publishing an unwritten or invalidated history. */
+    bool                    m_OutputValid = false;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSsr = CSsr;
+
+
+} // namespace acs
+
+// ===================== render/HiZ.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * scene_depth から 1/8 解像度を level 0 とする min-depth pyramid を焼く Hi-Z。
+ *
+ * @details
+ * level 0 の各 texel は元 depth の 8x8 ブロック中の最近接値を持ち、後続 level は
+ * 直前 level の厳密な 2x2 min 縮約になる。2 本の R32G32_Float texture に level を
+ * 偶奇で分けることで、同一 resource の SRV/RTV 同時利用を避ける。
+ */
+class CHiZ {
+public:
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    CHiZ() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~CHiZ() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    CHiZ(const CHiZ&) = delete;
+
+    /** コピー代入も禁止。 */
+    CHiZ& operator=(const CHiZ&) = delete;
+
+    /**
+     * GPU リソースを確保する。
+     *
+     * @details Hi-Z は内部で ceil(src_w / 8) x ceil(src_h / 8) サイズで確保される。
+     * @param device RT・パイプライン生成に使う RHI デバイス。
+     * @param src_width 入力 scene_depth の幅。
+     * @param src_height 入力 scene_depth の高さ。
+     * @return 成功なら空の TResult、確保失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, u32 src_width, u32 src_height) noexcept;
+
+    /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
+    void Shutdown() noexcept;
+
+    /**
+     * 解像度変更時に内部 RT を作り直す (ウィンドウリサイズで呼ぶ)。
+     *
+     * @param src_width 新しい入力 scene_depth の幅。
+     * @param src_height 新しい入力 scene_depth の高さ。
+     * @return 成功なら空の TResult、再確保失敗ならエラー。
+     */
+    TResult<void> Resize(u32 src_width, u32 src_height) noexcept;
+
+    /**
+     * scene_depth から min-depth pyramid 全 level を焼く。
+     *
+     * @param device 描画に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param scene_depth 入力 depth (shader_visible_depth=true の D32_Float)。
+     */
+    void Build(IRhiDevice& device, IRhiCommandList& cl,
+               IRhiTexture& scene_depth) noexcept;
+
+    /**
+     * level 0 を保持する physical texture を返す。
+     *
+     * @details 旧 coarse-only SSR との互換 API。返値は EvenTexture() と同じで、
+     * level 0 は mip 0 に格納される。それ以外の even mip も有効だが odd mip は未定義。
+     * @return even-level texture (R32G32_Float、.r=min depth)。
+     */
+    IRhiTexture* Texture() const noexcept { return m_HizEven.Get(); }
+
+    /**
+     * 偶数 level を保持する physical texture を返す。
+     *
+     * @return level 0,2,4,... が同番号 mip に格納された texture。
+     */
+    IRhiTexture* EvenTexture() const noexcept { return m_HizEven.Get(); }
+
+    /**
+     * 奇数 level を保持する physical texture を返す。
+     *
+     * @return level 1,3,5,... が同番号 mip に格納された texture。
+     */
+    IRhiTexture* OddTexture() const noexcept { return m_HizOdd.Get(); }
+
+    /**
+     * pyramid の有効 level 数を返す。
+     *
+     * @return level 0 を含み、最終 1x1 level までの段数。
+     */
+    u32 MipCount() const noexcept { return m_MipCount; }
+
+    /**
+     * 入力 scene_depth の幅を返す。
+     *
+     * @return Init/Resize で渡された src 幅。
+     */
+    u32 SrcWidth() const noexcept { return m_SrcW; }
+
+    /**
+     * 入力 scene_depth の高さを返す。
+     *
+     * @return Init/Resize で渡された src 高さ。
+     */
+    u32 SrcHeight() const noexcept { return m_SrcH; }
+
+    /**
+     * Hi-Z RT の幅を返す。
+     *
+     * @return Hi-Z RT の幅 (src/8)。
+     */
+    u32 Width() const noexcept { return m_HizW; }
+
+    /**
+     * Hi-Z RT の高さを返す。
+     *
+     * @return Hi-Z RT の高さ (src/8)。
+     */
+    u32 Height() const noexcept { return m_HizH; }
+
+    /**
+     * padded physical texture の幅を返す。
+     *
+     * @return NextPowerOfTwo(Width())。SSR の mip texel address 計算に使う。
+     */
+    u32 PhysicalWidth() const noexcept { return m_PhysicalW; }
+
+    /**
+     * padded physical texture の高さを返す。
+     *
+     * @return NextPowerOfTwo(Height())。SSR の mip texel address 計算に使う。
+     */
+    u32 PhysicalHeight() const noexcept { return m_PhysicalH; }
+
+    /** 1 Hi-Z texel が覆う元 depth のブロック辺長。 */
+    static constexpr u32 kBlockSize = 8;
+
+    /**
+     * RHI texture に確保する最大 level 数。
+     *
+     * @details level 0 が 1/8 解像度なので、D3D12 の最大 16384px texture でも
+     * 必要なのは 12 level。16 は十分な余裕を持つ。
+     */
+    static constexpr u32 kMaxMipLevels = 16;
+
+private:
+    /**
+     * 偶奇 2 本の min-depth mip texture を生成する。
+     *
+     * @param device RT 生成に使う RHI デバイス。
+     * @param src_w 入力 scene_depth の幅。
+     * @param src_h 入力 scene_depth の高さ。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept;
+
+    /**
+     * level 0 抽出と pyramid 縮約用の VS/PS/PSO を生成する。
+     *
+     * @param device パイプライン生成に使う RHI デバイス。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
+
+    /** Init で受け取った device (Resize で再利用)。 */
+    IRhiDevice* m_Device = nullptr;
+
+    /** 入力 scene_depth の幅。 */
+    u32 m_SrcW = 0;
+
+    /** 入力 scene_depth の高さ。 */
+    u32 m_SrcH = 0;
+
+    /** Hi-Z RT の幅 (src/8)。 */
+    u32 m_HizW = 0;
+
+    /** Hi-Z RT の高さ (src/8)。 */
+    u32 m_HizH = 0;
+
+    /** power-of-two padding 後の physical texture 幅。 */
+    u32 m_PhysicalW = 0;
+
+    /** power-of-two padding 後の physical texture 高さ。 */
+    u32 m_PhysicalH = 0;
+
+    /** level 0 から最終 1x1 までの有効 level 数。 */
+    u32 m_MipCount = 0;
+
+    /** 偶数 level を同番号 mip に保持する physical texture。 */
+    TUniquePtr<IRhiTexture> m_HizEven;
+
+    /** 奇数 level を同番号 mip に保持する physical texture。 */
+    TUniquePtr<IRhiTexture> m_HizOdd;
+
+    /** フルスクリーン三角形の頂点シェーダ。 */
+    TUniquePtr<IRhiShader> m_Vs;
+
+    /** 8x8 ブロックから level 0 を抽出するピクセルシェーダ。 */
+    TUniquePtr<IRhiShader> m_PsBase;
+
+    /** 直前 level から次 level を min 縮約するピクセルシェーダ。 */
+    TUniquePtr<IRhiShader> m_PsReduce;
+
+    /** scene depth から level 0 を作るパイプライン。 */
+    TUniquePtr<IRhiPipeline> m_BasePipeline;
+
+    /** pyramid の level N-1 から N を作るパイプライン。 */
+    TUniquePtr<IRhiPipeline> m_ReducePipeline;
+
+    /**
+     * level ごとの immutable 定数バッファ。
+     *
+     * @details index N は src mip=N-1 / dst mip=N を保持する。各 draw が別 resource
+     * を使うため、Raw DX12 で同一 upload CB を同フレーム中に上書きしない。
+     */
+    TUniquePtr<IRhiBuffer> m_LevelCb[kMaxMipLevels];
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FHiZ = CHiZ;
+
+
+} // namespace acs
+
 // ===================== render/Atmosphere.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // CPU / GPU で評価する物理大気散乱。
@@ -57498,6 +57933,25 @@ struct FScene3DAmbientOcclusion {
 };
 
 /**
+ * 画面空間の反射 (SSR) の設定。
+ *
+ * @details
+ * 磨いた床・濡れた地面・金属に、画面に映っているものを映す。**«綺麗さ» の印象を
+ * いちばん変えるのはこれ。** 粗い面ほど自動で寄与が下がるので、全部がテカることはない。
+ *
+ * 画面に映っていないものは映せない。画面の外や、物の裏に隠れたものは反射に出ない。
+ * 視線を大きく振ると端が伸びて見えることがあるのはそのため。
+ */
+struct FScene3DReflections {
+    /**
+     * 反射の強さ。0 で切る。
+     *
+     * @details 0.6 が素直な強さ。1.0 を超えると «鏡» に寄っていく。
+     */
+    f32 Intensity = 0.0f;
+};
+
+/**
  * 下層の上に重ねる、もう 1 枚の高い雲。
  *
  * @details
@@ -57697,6 +58151,24 @@ public:
     const FScene3DAmbientOcclusion& AmbientOcclusion() const noexcept {
         return m_SsaoParams;
     }
+
+    /**
+     * 反射 (SSR) の設定を触る。
+     *
+     * @details
+     * 既定は 0 (切ってある)。**画面に映っていないものは映せない**ので、切っておいた方が
+     * 素直な場面もある。磨いた床や濡れた地面があるなら 0.6 前後から。
+     *
+     * @return 反射の設定 (次のフレームから効く)。
+     */
+    FScene3DReflections& Reflections() noexcept { return m_SsrParams; }
+
+    /**
+     * 反射の設定を読む。
+     *
+     * @return 現在の設定。
+     */
+    const FScene3DReflections& Reflections() const noexcept { return m_SsrParams; }
 
     /**
      * 雲の設定を読む。
@@ -58062,6 +58534,36 @@ private:
     bool RenderAmbientOcclusionPass(IRhiDevice& device, FRenderContext& context) noexcept;
 
     /**
+     * 反射 (SSR) の描き込み先を用意する。画面の大きさが変わったら作り直す。
+     *
+     * @param device 生成に使うデバイス。
+     * @param hdr_format シーンの HDR と同じ形式。
+     * @param width 画面の幅。
+     * @param height 画面の高さ。
+     * @return 使える状態なら true。
+     */
+    bool EnsureReflections(IRhiDevice& device, EFormat hdr_format,
+                           u32 width, u32 height) noexcept;
+
+    /**
+     * 完成したシーンから反射を作る。
+     *
+     * @details
+     * **これは «次の» フレームのための仕事。** 反射を混ぜるのは PBR パスなので、同じ
+     * フレームの結果は間に合わない。1 フレーム遅れるが、SSR は元々時間方向に均すので
+     * 破綻しない。
+     *
+     * @param device 描画に使うデバイス。
+     * @param context 描画文脈。
+     * @param scene_color 完成したシーンの色。
+     * @param scene_depth シーンの深度。
+     * @return 反射が使える状態になったら true。
+     */
+    bool RenderReflectionPass(IRhiDevice& device, FRenderContext& context,
+                              IRhiTexture& scene_color,
+                              IRhiTexture& scene_depth) noexcept;
+
+    /**
      * 空から環境光を焼く (必要なときだけ)。
      *
      * @details
@@ -58269,6 +58771,7 @@ private:
     /** 雲の設定。 */
     FScene3DClouds m_CloudParams{};
     FScene3DAmbientOcclusion m_SsaoParams{};
+    FScene3DReflections m_SsrParams{};
 
     /** 雲を使える状態にできたか。 */
     bool m_CloudsReady = false;
@@ -58326,6 +58829,39 @@ private:
 
     /** 用意してある遮蔽の大きさ。 */
     u32 m_SsaoHeight = 0u;
+
+    /** 画面空間の反射。 */
+    CSsr m_Ssr;
+
+    /**
+     * 深度の階層 (Hi-Z)。反射のレイが遠くまで届くようになる。
+     *
+     * @details
+     * 無いと SSR は 1 段だけの粗い探索になり、**ほとんどのレイが何にも当たらない。**
+     * 実測でも、これが無い状態では床の 5 % しか変わらなかった。
+     */
+    CHiZ m_HiZ;
+
+    /** 深度の階層を用意できたか。 */
+    bool m_HiZReady = false;
+
+    /** 反射の描き込み先を用意できたか。 */
+    bool m_SsrReady = false;
+
+    /** 使える反射があるか (前のフレームで作れたか)。 */
+    bool m_SsrValid = false;
+
+    /** 用意してある反射の大きさ。 */
+    u32 m_SsrWidth = 0u;
+
+    /** 用意してある反射の大きさ。 */
+    u32 m_SsrHeight = 0u;
+
+    /** 前のフレームの view * projection。反射を時間方向に均すのに要る。 */
+    FMat4 m_PrevViewProjection{};
+
+    /** 前のフレームの行列を持っているか (初回は持っていない)。 */
+    bool m_HasPrevViewProjection = false;
 
     CCamera m_Camera;
     FScene3DCameraState m_AuthoredCamera{};
@@ -99443,229 +99979,6 @@ using FFxaa = CFxaa;
 
 } // namespace acs
 
-// ===================== render/HiZ.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-namespace acs {
-
-/**
- * scene_depth から 1/8 解像度を level 0 とする min-depth pyramid を焼く Hi-Z。
- *
- * @details
- * level 0 の各 texel は元 depth の 8x8 ブロック中の最近接値を持ち、後続 level は
- * 直前 level の厳密な 2x2 min 縮約になる。2 本の R32G32_Float texture に level を
- * 偶奇で分けることで、同一 resource の SRV/RTV 同時利用を避ける。
- */
-class CHiZ {
-public:
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    CHiZ() noexcept = default;
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~CHiZ() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CHiZ(const CHiZ&) = delete;
-
-    /** コピー代入も禁止。 */
-    CHiZ& operator=(const CHiZ&) = delete;
-
-    /**
-     * GPU リソースを確保する。
-     *
-     * @details Hi-Z は内部で ceil(src_w / 8) x ceil(src_h / 8) サイズで確保される。
-     * @param device RT・パイプライン生成に使う RHI デバイス。
-     * @param src_width 入力 scene_depth の幅。
-     * @param src_height 入力 scene_depth の高さ。
-     * @return 成功なら空の TResult、確保失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device, u32 src_width, u32 src_height) noexcept;
-
-    /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
-    void Shutdown() noexcept;
-
-    /**
-     * 解像度変更時に内部 RT を作り直す (ウィンドウリサイズで呼ぶ)。
-     *
-     * @param src_width 新しい入力 scene_depth の幅。
-     * @param src_height 新しい入力 scene_depth の高さ。
-     * @return 成功なら空の TResult、再確保失敗ならエラー。
-     */
-    TResult<void> Resize(u32 src_width, u32 src_height) noexcept;
-
-    /**
-     * scene_depth から min-depth pyramid 全 level を焼く。
-     *
-     * @param device 描画に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @param scene_depth 入力 depth (shader_visible_depth=true の D32_Float)。
-     */
-    void Build(IRhiDevice& device, IRhiCommandList& cl,
-               IRhiTexture& scene_depth) noexcept;
-
-    /**
-     * level 0 を保持する physical texture を返す。
-     *
-     * @details 旧 coarse-only SSR との互換 API。返値は EvenTexture() と同じで、
-     * level 0 は mip 0 に格納される。それ以外の even mip も有効だが odd mip は未定義。
-     * @return even-level texture (R32G32_Float、.r=min depth)。
-     */
-    IRhiTexture* Texture() const noexcept { return m_HizEven.Get(); }
-
-    /**
-     * 偶数 level を保持する physical texture を返す。
-     *
-     * @return level 0,2,4,... が同番号 mip に格納された texture。
-     */
-    IRhiTexture* EvenTexture() const noexcept { return m_HizEven.Get(); }
-
-    /**
-     * 奇数 level を保持する physical texture を返す。
-     *
-     * @return level 1,3,5,... が同番号 mip に格納された texture。
-     */
-    IRhiTexture* OddTexture() const noexcept { return m_HizOdd.Get(); }
-
-    /**
-     * pyramid の有効 level 数を返す。
-     *
-     * @return level 0 を含み、最終 1x1 level までの段数。
-     */
-    u32 MipCount() const noexcept { return m_MipCount; }
-
-    /**
-     * 入力 scene_depth の幅を返す。
-     *
-     * @return Init/Resize で渡された src 幅。
-     */
-    u32 SrcWidth() const noexcept { return m_SrcW; }
-
-    /**
-     * 入力 scene_depth の高さを返す。
-     *
-     * @return Init/Resize で渡された src 高さ。
-     */
-    u32 SrcHeight() const noexcept { return m_SrcH; }
-
-    /**
-     * Hi-Z RT の幅を返す。
-     *
-     * @return Hi-Z RT の幅 (src/8)。
-     */
-    u32 Width() const noexcept { return m_HizW; }
-
-    /**
-     * Hi-Z RT の高さを返す。
-     *
-     * @return Hi-Z RT の高さ (src/8)。
-     */
-    u32 Height() const noexcept { return m_HizH; }
-
-    /**
-     * padded physical texture の幅を返す。
-     *
-     * @return NextPowerOfTwo(Width())。SSR の mip texel address 計算に使う。
-     */
-    u32 PhysicalWidth() const noexcept { return m_PhysicalW; }
-
-    /**
-     * padded physical texture の高さを返す。
-     *
-     * @return NextPowerOfTwo(Height())。SSR の mip texel address 計算に使う。
-     */
-    u32 PhysicalHeight() const noexcept { return m_PhysicalH; }
-
-    /** 1 Hi-Z texel が覆う元 depth のブロック辺長。 */
-    static constexpr u32 kBlockSize = 8;
-
-    /**
-     * RHI texture に確保する最大 level 数。
-     *
-     * @details level 0 が 1/8 解像度なので、D3D12 の最大 16384px texture でも
-     * 必要なのは 12 level。16 は十分な余裕を持つ。
-     */
-    static constexpr u32 kMaxMipLevels = 16;
-
-private:
-    /**
-     * 偶奇 2 本の min-depth mip texture を生成する。
-     *
-     * @param device RT 生成に使う RHI デバイス。
-     * @param src_w 入力 scene_depth の幅。
-     * @param src_h 入力 scene_depth の高さ。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept;
-
-    /**
-     * level 0 抽出と pyramid 縮約用の VS/PS/PSO を生成する。
-     *
-     * @param device パイプライン生成に使う RHI デバイス。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
-
-    /** Init で受け取った device (Resize で再利用)。 */
-    IRhiDevice* m_Device = nullptr;
-
-    /** 入力 scene_depth の幅。 */
-    u32 m_SrcW = 0;
-
-    /** 入力 scene_depth の高さ。 */
-    u32 m_SrcH = 0;
-
-    /** Hi-Z RT の幅 (src/8)。 */
-    u32 m_HizW = 0;
-
-    /** Hi-Z RT の高さ (src/8)。 */
-    u32 m_HizH = 0;
-
-    /** power-of-two padding 後の physical texture 幅。 */
-    u32 m_PhysicalW = 0;
-
-    /** power-of-two padding 後の physical texture 高さ。 */
-    u32 m_PhysicalH = 0;
-
-    /** level 0 から最終 1x1 までの有効 level 数。 */
-    u32 m_MipCount = 0;
-
-    /** 偶数 level を同番号 mip に保持する physical texture。 */
-    TUniquePtr<IRhiTexture> m_HizEven;
-
-    /** 奇数 level を同番号 mip に保持する physical texture。 */
-    TUniquePtr<IRhiTexture> m_HizOdd;
-
-    /** フルスクリーン三角形の頂点シェーダ。 */
-    TUniquePtr<IRhiShader> m_Vs;
-
-    /** 8x8 ブロックから level 0 を抽出するピクセルシェーダ。 */
-    TUniquePtr<IRhiShader> m_PsBase;
-
-    /** 直前 level から次 level を min 縮約するピクセルシェーダ。 */
-    TUniquePtr<IRhiShader> m_PsReduce;
-
-    /** scene depth から level 0 を作るパイプライン。 */
-    TUniquePtr<IRhiPipeline> m_BasePipeline;
-
-    /** pyramid の level N-1 から N を作るパイプライン。 */
-    TUniquePtr<IRhiPipeline> m_ReducePipeline;
-
-    /**
-     * level ごとの immutable 定数バッファ。
-     *
-     * @details index N は src mip=N-1 / dst mip=N を保持する。各 draw が別 resource
-     * を使うため、Raw DX12 で同一 upload CB を同フレーム中に上書きしない。
-     */
-    TUniquePtr<IRhiBuffer> m_LevelCb[kMaxMipLevels];
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FHiZ = CHiZ;
-
-
-} // namespace acs
-
 // ===================== render/Light2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // 2D 動的ライティング + ソフト影 (Core Keeper 風) と簡易ブロブ影。
@@ -101772,218 +102085,6 @@ private:
 
 /** 旧名を使う既存コード向けの互換別名。 */
 using FSsgi = CSsgi;
-
-
-} // namespace acs
-
-// ===================== render/Ssr.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// Screen-Space Reflection
-//
-// 設計:
-//   - シーン描画後の HDR scene color + depth-SRV を入力にして、各 pixel から
-//     reflection ray を screen space で march
-//   - 衝突したら scene_color を sample、ray 起点に reflection を加算
-//   - 結果は別 HDR RT (= ssr_rt) に書き出し → caller が composite で本 HDR へ加算
-//   - normal は CMotionVector パスが出力する normal G-buffer (RGBA16F world normal)
-//     から sample する。depth-derivative cross(ddx,ddy) は 2x2 quad
-//     単位で faceted になり、曲面の反射ベクトルが段差状になってガビガビになる
-//
-// ray march は screen-space DDA (McGuire & Mara 2014)。反射レイを
-// screen 空間へ射影し 1 texel/step で行進する。world 空間固定ステップ march は
-// screen 空間でサンプリングが疎になり、反射先がカメラ近傍/grazing だと 1 step が
-// 多 pixel に飛んで反射像がレイ方向に伸びてスメアする — DDA で根本解決。
-//
-// temporal accumulation: raw SSR を per-frame jitter 付きで撃ち、
-// 履歴 (reproject + neighborhood clamp) と時間方向に平均することで、ray-march の
-// silhouette ジャギーを均す。OutputTexture() は temporal 累積後を返す。
-//
-// glossy reflection (roughness 別 mip サンプル) は未対応 — roughness 依存の blend は
-// CPbrShader 側が担当。
-
-
-namespace acs {
-
-/**
- * Screen-Space Reflection。HDR scene color + depth から反射を screen 空間で焼く。
- *
- * @details
- * シーン描画後の HDR scene color と depth-SRV を入力に、各 pixel から反射 ray を
- * screen-space DDA (McGuire & Mara 2014) で 1 texel/step march し、衝突先の
- * scene_color を集める。raw march (jitter 付き) → temporal accumulation の 2 pass
- * 構成で、履歴を reproject + neighborhood clamp して silhouette ジャギーを均す。
- * GPU リソースは TUniquePtr で単独所有する non-copy 型。
- */
-class CSsr {
-public:
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    CSsr() noexcept = default;
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~CSsr() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CSsr(const CSsr&) = delete;
-
-    /** コピー代入も禁止。 */
-    CSsr& operator=(const CSsr&) = delete;
-
-    /**
-     * GPU リソース (出力 RT・history ping-pong・パイプライン・CB) を確保する。
-     *
-     * @param device RT・パイプライン生成に使う RHI デバイス。
-     * @param hdr_format SSR 出力テクスチャのフォーマット (シーン HDR と同じ R16G16B16A16F 推奨)。
-     * @param width 出力 RT の幅。
-     * @param height 出力 RT の高さ。
-     * @return 成功なら空の TResult、確保失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device, EFormat hdr_format,
-                       u32 width, u32 height) noexcept;
-
-    /** 確保した GPU リソースを解放し、temporal 履歴をリセットする。 */
-    void Shutdown() noexcept;
-
-    /**
-     * Keep allocated targets but make the next render a cold temporal start.
-     * Call this when a shared render surface changes logical camera owner.
-     */
-    void InvalidateHistory() noexcept {
-        m_TemporalFrame = 0u;
-        m_OutputValid = false;
-    }
-
-    /**
-     * 解像度変更時に出力 RT と history を作り直す (ウィンドウリサイズで呼ぶ)。
-     *
-     * @details サイズが変わると history は再利用できないため temporal 累積をリセットする。
-     * @param width 新しい出力 RT の幅。
-     * @param height 新しい出力 RT の高さ。
-     * @return 成功なら空の TResult、Init 前の呼び出しや再確保失敗ならエラー。
-     */
-    TResult<void> Resize(u32 width, u32 height) noexcept;
-
-    /**
-     * SSR を計算する (raw march → temporal accumulation の 2 pass)。
-     *
-     * @details
-     * Pass1 で jitter 付き raw SSR を m_Output に焼き、Pass2 で前フレームの history と
-     * reproject + neighborhood clamp して時間平均する。
-     * @param device RHI デバイス (現状未使用、コマンドは cl 経由で積む)。
-     * @param cl 描画コマンドを積むコマンドリスト。
-     * @param scene_color 現フレームの HDR scene color。
-     * @param scene_depth 現フレームの depth buffer (shader_visible_depth=true 必須)。
-     * @param normal_gbuffer CMotionVector パスの world-space normal G-buffer (RGBA16F)。
-     * @param view_proj 現フレームの view-projection 行列 (row-major)。
-     * @param inv_view_proj view_proj の逆行列 (world pos 復元用)。
-     * @param prev_view_proj 前フレームの view_proj (temporal reproject 用、identity で reprojection 無効)。
-     * @param eye カメラのワールド位置。
-     * @param intensity SSR 強度 (0..2)。
-     * @param motion_texture 非 null なら temporal pass が動く mesh の反射を motion vector で reproject する (null なら camera-only depth reproject)。CMotionVector::OutputTexture() を渡す。
-     * @param hiz_even Hi-Z の偶数 level texture。旧 CHiZ::Texture() だけなら level 0 の coarse path。
-     * @param hiz_odd Hi-Z の奇数 level texture。hiz_mip_count > 1 のとき使用する。
-     * @param hiz_mip_count 有効 pyramid level 数。0 は hiz_even があれば互換 level 0、無ければ Hi-Z 無効。
-     */
-    void Render(IRhiDevice& device, IRhiCommandList& cl,
-                IRhiTexture& scene_color, IRhiTexture& scene_depth,
-                IRhiTexture& normal_gbuffer,
-                const FMat4& view_proj, const FMat4& inv_view_proj,
-                const FMat4& prev_view_proj,
-                FVec3 eye, f32 intensity = 0.6f,
-                IRhiTexture* motion_texture = nullptr,
-                IRhiTexture* hiz_even       = nullptr,
-                IRhiTexture* hiz_odd        = nullptr,
-                u32 hiz_mip_count           = 0) noexcept;
-
-    /**
-     * temporal accumulation 後の history テクスチャを返す (CPbrShader / overlay 用)。
-     *
-     * @return 直近に書き込んだ history RT (frame 0 では history[0])。
-     */
-    IRhiTexture* OutputTexture() const noexcept {
-        return m_History[m_TemporalFrame == 0u ? 0u : ((m_TemporalFrame - 1u) & 1u)].Get();
-    }
-
-    /** True only after the complete raw + temporal pair was recorded. */
-    bool HasValidOutput() const noexcept { return m_OutputValid; }
-
-    /**
-     * temporal 前の raw SSR テクスチャ (jitter 付き march 結果) を返す。
-     *
-     * @return raw SSR RT。
-     */
-    IRhiTexture*  RawTexture()    const noexcept { return m_Output.Get(); }
-
-    /**
-     * 出力テクスチャのフォーマットを返す。
-     *
-     * @return Init で指定した HDR フォーマット。
-     */
-    EFormat        OutputFormat() const noexcept { return m_HdrFormat; }
-
-private:
-    /**
-     * 出力 RT と temporal history ping-pong を生成する。
-     *
-     * @param device テクスチャ生成に使う RHI デバイス。
-     * @param width 生成する RT の幅。
-     * @param height 生成する RT の高さ。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept;
-
-    /**
-     * raw SSR と temporal の VS/PS/PSO を生成する。
-     *
-     * @param device パイプライン生成に使う RHI デバイス。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
-
-    /** Init で受け取った device (Resize で再利用)。 */
-    IRhiDevice*             m_Device = nullptr;
-
-    /** 出力 RT の幅。 */
-    u32                     m_Width  = 0;
-
-    /** 出力 RT の高さ。 */
-    u32                     m_Height = 0;
-
-    /** 出力テクスチャのフォーマット (既定 R16G16B16A16_Float)。 */
-    EFormat                  m_HdrFormat = EFormat::R16G16B16A16_Float;
-
-    /** raw SSR の出力 RT (jitter 付き march 結果)。 */
-    TUniquePtr<IRhiTexture>  m_Output;
-
-    /** temporal accumulation の history ping-pong (2 枚)。 */
-    TUniquePtr<IRhiTexture>  m_History[2];
-
-    /** フルスクリーン三角形の頂点シェーダ (raw/temporal 共用)。 */
-    TUniquePtr<IRhiShader>   m_Vs;
-
-    /** raw SSR の ray march ピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_Ps;
-
-    /** temporal accumulation のピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_TemporalPs;
-
-    /** raw SSR 描画のパイプライン。 */
-    TUniquePtr<IRhiPipeline> m_Pipeline;
-
-    /** temporal accumulation 描画のパイプライン。 */
-    TUniquePtr<IRhiPipeline> m_TemporalPipeline;
-
-    /** 定数バッファ (カメラ行列・パラメータを渡す)。 */
-    TUniquePtr<IRhiBuffer>   m_Cb;
-
-    /** temporal フレームカウンタ (history ping-pong と jitter に使う)。 */
-    u32                     m_TemporalFrame = 0;
-
-    /** Prevents callers from publishing an unwritten or invalidated history. */
-    bool                    m_OutputValid = false;
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FSsr = CSsr;
 
 
 } // namespace acs

@@ -10,6 +10,8 @@
 #include "render/Ibl.h"
 #include "render/MotionVector.h"
 #include "render/Ssao.h"
+#include "render/Ssr.h"
+#include "render/HiZ.h"
 #include "render/Atmosphere.h"
 #include "gameframework/SceneNodeGraph.h"
 #include "gameframework/Scene3DSerialize.h"
@@ -102,6 +104,25 @@ struct FScene3DAmbientOcclusion {
      * 街なら数メートル。大きすぎると陰が広く薄くのび、小さすぎると何も出ない。
      */
     f32 Radius = 0.5f;
+};
+
+/**
+ * 画面空間の反射 (SSR) の設定。
+ *
+ * @details
+ * 磨いた床・濡れた地面・金属に、画面に映っているものを映す。**«綺麗さ» の印象を
+ * いちばん変えるのはこれ。** 粗い面ほど自動で寄与が下がるので、全部がテカることはない。
+ *
+ * 画面に映っていないものは映せない。画面の外や、物の裏に隠れたものは反射に出ない。
+ * 視線を大きく振ると端が伸びて見えることがあるのはそのため。
+ */
+struct FScene3DReflections {
+    /**
+     * 反射の強さ。0 で切る。
+     *
+     * @details 0.6 が素直な強さ。1.0 を超えると «鏡» に寄っていく。
+     */
+    f32 Intensity = 0.0f;
 };
 
 /**
@@ -304,6 +325,24 @@ public:
     const FScene3DAmbientOcclusion& AmbientOcclusion() const noexcept {
         return m_SsaoParams;
     }
+
+    /**
+     * 反射 (SSR) の設定を触る。
+     *
+     * @details
+     * 既定は 0 (切ってある)。**画面に映っていないものは映せない**ので、切っておいた方が
+     * 素直な場面もある。磨いた床や濡れた地面があるなら 0.6 前後から。
+     *
+     * @return 反射の設定 (次のフレームから効く)。
+     */
+    FScene3DReflections& Reflections() noexcept { return m_SsrParams; }
+
+    /**
+     * 反射の設定を読む。
+     *
+     * @return 現在の設定。
+     */
+    const FScene3DReflections& Reflections() const noexcept { return m_SsrParams; }
 
     /**
      * 雲の設定を読む。
@@ -669,6 +708,36 @@ private:
     bool RenderAmbientOcclusionPass(IRhiDevice& device, FRenderContext& context) noexcept;
 
     /**
+     * 反射 (SSR) の描き込み先を用意する。画面の大きさが変わったら作り直す。
+     *
+     * @param device 生成に使うデバイス。
+     * @param hdr_format シーンの HDR と同じ形式。
+     * @param width 画面の幅。
+     * @param height 画面の高さ。
+     * @return 使える状態なら true。
+     */
+    bool EnsureReflections(IRhiDevice& device, EFormat hdr_format,
+                           u32 width, u32 height) noexcept;
+
+    /**
+     * 完成したシーンから反射を作る。
+     *
+     * @details
+     * **これは «次の» フレームのための仕事。** 反射を混ぜるのは PBR パスなので、同じ
+     * フレームの結果は間に合わない。1 フレーム遅れるが、SSR は元々時間方向に均すので
+     * 破綻しない。
+     *
+     * @param device 描画に使うデバイス。
+     * @param context 描画文脈。
+     * @param scene_color 完成したシーンの色。
+     * @param scene_depth シーンの深度。
+     * @return 反射が使える状態になったら true。
+     */
+    bool RenderReflectionPass(IRhiDevice& device, FRenderContext& context,
+                              IRhiTexture& scene_color,
+                              IRhiTexture& scene_depth) noexcept;
+
+    /**
      * 空から環境光を焼く (必要なときだけ)。
      *
      * @details
@@ -876,6 +945,7 @@ private:
     /** 雲の設定。 */
     FScene3DClouds m_CloudParams{};
     FScene3DAmbientOcclusion m_SsaoParams{};
+    FScene3DReflections m_SsrParams{};
 
     /** 雲を使える状態にできたか。 */
     bool m_CloudsReady = false;
@@ -933,6 +1003,39 @@ private:
 
     /** 用意してある遮蔽の大きさ。 */
     u32 m_SsaoHeight = 0u;
+
+    /** 画面空間の反射。 */
+    CSsr m_Ssr;
+
+    /**
+     * 深度の階層 (Hi-Z)。反射のレイが遠くまで届くようになる。
+     *
+     * @details
+     * 無いと SSR は 1 段だけの粗い探索になり、**ほとんどのレイが何にも当たらない。**
+     * 実測でも、これが無い状態では床の 5 % しか変わらなかった。
+     */
+    CHiZ m_HiZ;
+
+    /** 深度の階層を用意できたか。 */
+    bool m_HiZReady = false;
+
+    /** 反射の描き込み先を用意できたか。 */
+    bool m_SsrReady = false;
+
+    /** 使える反射があるか (前のフレームで作れたか)。 */
+    bool m_SsrValid = false;
+
+    /** 用意してある反射の大きさ。 */
+    u32 m_SsrWidth = 0u;
+
+    /** 用意してある反射の大きさ。 */
+    u32 m_SsrHeight = 0u;
+
+    /** 前のフレームの view * projection。反射を時間方向に均すのに要る。 */
+    FMat4 m_PrevViewProjection{};
+
+    /** 前のフレームの行列を持っているか (初回は持っていない)。 */
+    bool m_HasPrevViewProjection = false;
 
     CCamera m_Camera;
     FScene3DCameraState m_AuthoredCamera{};

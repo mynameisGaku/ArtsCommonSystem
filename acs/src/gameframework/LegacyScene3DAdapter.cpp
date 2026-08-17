@@ -1054,6 +1054,16 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     // 雲を最後に乗せる。手前の物で隠れるよう、完成したシーンの深度を使う。
     if (depth != nullptr) CompositeClouds(command_list, *hdr, *depth, context.Width(), context.Height());
 
+    // 反射を作る。**空と雲まで乗った完成後**に作るので、水面や磨いた床に空も映る。
+    // 使うのは次のフレームの PBR パス。
+    if (depth != nullptr) {
+        (void)RenderReflectionPass(*device, context, *hdr, *depth);
+    } else {
+        m_SsrValid = false;
+    }
+    m_PrevViewProjection = m_Camera.ViewProjection();
+    m_HasPrevViewProjection = true;
+
     m_PostParams.taa_depth_texture = nullptr;
     m_Post.Render(
         command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams);
@@ -1425,6 +1435,86 @@ bool ALegacyScene3DAdapter::RenderAmbientOcclusionPass(
     return m_SsaoDrawn;
 }
 
+bool ALegacyScene3DAdapter::EnsureReflections(
+    IRhiDevice& device, EFormat hdr_format, u32 width, u32 height) noexcept {
+    if (width == 0u || height == 0u) return false;
+    if (m_SsrReady && m_SsrWidth == width && m_SsrHeight == height) return true;
+
+    if (!m_SsrReady) {
+        if (m_Ssr.Init(device, hdr_format, width, height).IsErr()) {
+            ACS_LOG_WARN("Scene3D: SSR init failed; reflections stay off");
+            return false;
+        }
+        m_SsrReady = true;
+    } else if (m_Ssr.Resize(width, height).IsErr()) {
+        // 古い大きさの反射を読むと、画面と対応しない «別の場所の景色» が映る。
+        ACS_LOG_WARN("Scene3D: SSR resize failed; reflections stay off");
+        m_SsrReady = false;
+        m_SsrValid = false;
+        m_Ssr.Shutdown();
+        return false;
+    }
+
+    // 深度の階層。これが無いと反射のレイは 1 段だけの粗い探索になり、ほとんど何にも
+    // 当たらない。**無くても反射自体は成立する**ので、作れなくても切らない。
+    if (!m_HiZReady) {
+        m_HiZReady = m_HiZ.Init(device, width, height).IsOk();
+        if (!m_HiZReady)
+            ACS_LOG_WARN("Scene3D: Hi-Z init failed; reflections stay coarse");
+    } else if (m_HiZ.Resize(width, height).IsErr()) {
+        ACS_LOG_WARN("Scene3D: Hi-Z resize failed; reflections stay coarse");
+        m_HiZReady = false;
+        m_HiZ.Shutdown();
+    }
+
+    // 大きさが変わった直後の履歴は前の大きさのもの。1 フレーム捨てる。
+    m_SsrValid = false;
+    m_SsrWidth = width;
+    m_SsrHeight = height;
+    return true;
+}
+
+bool ALegacyScene3DAdapter::RenderReflectionPass(
+    IRhiDevice& device, FRenderContext& context,
+    IRhiTexture& scene_color, IRhiTexture& scene_depth) noexcept {
+    if (m_SsrParams.Intensity <= 0.0f) {
+        m_SsrValid = false;
+        return false;
+    }
+    if (!EnsureReflections(device, scene_color.PixelFormat(),
+                           context.Width(), context.Height())) {
+        m_SsrValid = false;
+        return false;
+    }
+    // 法線は遮蔽と同じ前段のもの。前段が描けていないフレームは反射も作れない。
+    IRhiTexture* const prepass_normal =
+        m_SsaoDrawn ? m_NormalDepth.OutputNormalTexture() : nullptr;
+    if (prepass_normal == nullptr) {
+        m_SsrValid = false;
+        return false;
+    }
+
+    const FMat4 view_projection = m_Camera.ViewProjection();
+    // 初回は前フレームが無い。単位行列を渡すと再投影が切れる、という約束になっている。
+    const FMat4 previous = m_HasPrevViewProjection
+        ? m_PrevViewProjection : FMat4{};
+
+    // 深度の階層を先に作る。レイがこれを使って遠くまで飛べるようになる。
+    if (m_HiZReady) m_HiZ.Build(device, context.Cmd(), scene_depth);
+
+    m_Ssr.Render(
+        device, context.Cmd(), scene_color, scene_depth, *prepass_normal,
+        view_projection, Inverse(view_projection), previous,
+        m_Camera.Eye(), m_SsrParams.Intensity,
+        m_NormalDepth.OutputTexture(),
+        m_HiZReady ? m_HiZ.EvenTexture() : nullptr,
+        m_HiZReady ? m_HiZ.OddTexture() : nullptr,
+        m_HiZReady ? m_HiZ.MipCount() : 0u);
+
+    m_SsrValid = m_Ssr.HasValidOutput() && m_Ssr.OutputTexture() != nullptr;
+    return m_SsrValid;
+}
+
 bool ALegacyScene3DAdapter::RenderShadowPass(FRenderContext& context) noexcept {
     m_ShadowDrawn = false;
     if (!m_ShadowReady) return false;
@@ -1582,6 +1672,14 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
                        m_SsaoWidth, m_SsaoHeight);
     } else {
         shader.SetSsao(nullptr, 0.0f, 1u, 1u);
+    }
+
+    // 反射。**前のフレームで作ったもの**を混ぜる。反射を作るには完成したシーンの色が
+    // 要るので、同じフレームの結果は間に合わない。SSR は元々時間方向に均すので破綻しない。
+    if (m_SsrValid) {
+        shader.SetSsr(m_Ssr.OutputTexture(), m_SsrParams.Intensity);
+    } else {
+        shader.SetSsr(nullptr, 0.0f);
     }
     // 霧。場面から触れる (Fog())。高さの基準を決めていなければシーンの位置から自動で。
     const f32 fog_base = m_Fog.HeightBase == FLT_MAX
