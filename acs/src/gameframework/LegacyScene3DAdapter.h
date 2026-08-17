@@ -8,6 +8,7 @@
 #include "gameframework/LightCollector3D.h"
 #include "render/ShadowMap.h"
 #include "render/Ibl.h"
+#include "render/Atmosphere.h"
 #include "gameframework/SceneNodeGraph.h"
 #include "gameframework/Scene3DSerialize.h"
 #include "math/Camera.h"
@@ -348,6 +349,22 @@ private:
     bool EnsureEnvironmentLighting(IRhiDevice& device, IRhiCommandList& command_list) noexcept;
 
     /**
+     * 大気へ渡す太陽の色を返す。
+     *
+     * @return シーンの光の色 (強さが掛かったまま)。光が無ければ既定。
+     */
+    FVec3 SunColorForAtmosphere() const noexcept;
+
+    /**
+     * 太陽の色を大気の放射輝度へ直す。
+     *
+     * @details 一番大きい成分を «設定した強さ» とみなし、残りを色味として扱う。
+     * @param sun_color 強さの掛かった色。
+     * @return 大気へ渡す放射輝度。
+     */
+    static FVec3 PhysicalSunIntensity(FVec3 sun_color) noexcept;
+
+    /**
      * 太陽から見た深度を描く (影のもと)。
      *
      * @details
@@ -468,6 +485,12 @@ private:
     TArray<FCustomGpuMesh> m_CustomMeshes;
     /** シーンに置かれた光。毎フレーム集め直す。1 灯も無ければ既定の太陽を使う。 */
     CLightCollector3D m_Lights;
+
+    /** 物理ベースの大気。環境光の焼き元にする。 */
+    CSkyAtmosphere m_Atmosphere;
+
+    /** 大気の初期化を一度試したか (失敗しても毎フレーム試さない)。 */
+    bool m_AtmosphereTried = false;
 
     /** 空を映した環境光 (irradiance / prefilter / BRDF LUT)。 */
     CImageBasedLighting m_Ibl;

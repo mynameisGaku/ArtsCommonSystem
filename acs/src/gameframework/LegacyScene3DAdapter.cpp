@@ -53,6 +53,18 @@ constexpr f32 kShadowDepthBias = 0.0025f;
 // 大きすぎると夕暮れの色が付いてこない。約 1.7 度ぶん。
 constexpr f32 kIblRebakeThresholdSquared = 0.0009f;
 
+// 大気を焼く解像度。1024 の cubemap に対して 2:1 の元が要る (足りないと天頂に同心円が出る)。
+constexpr u32 kAtmosphereEquirectWidth = 2048u;
+constexpr u32 kAtmosphereEquirectHeight = 1024u;
+
+// GPU で焼けないときの逃げ道。同期で回すので小さくする。
+constexpr u32 kAtmosphereCpuEquirectWidth = 512u;
+constexpr u32 kAtmosphereCpuEquirectHeight = 256u;
+
+// 太陽の «設定した強さ» から大気の放射輝度への換算 (editor_abi と同じ)。
+constexpr f32 kAtmosphereDefaultIntensity = 2.35f;
+constexpr f32 kAtmosphereRadianceAtDefault = 22.0f;
+
 AMeshComponent3D* FindMesh(ANode& node) noexcept {
     const void* kind = ComponentKindOf<AMeshComponent3D>();
     for (u32 index = 0u; index < node.ComponentCount(); ++index) {
@@ -1078,6 +1090,26 @@ bool ALegacyScene3DAdapter::ComputeSceneBounds(FVec3& out_center, f32& out_radiu
     return true;
 }
 
+FVec3 ALegacyScene3DAdapter::SunColorForAtmosphere() const noexcept {
+    if (m_Lights.DirectionalCount() == 0u) return kDefaultSunColor;
+
+    return m_Lights.DirectionalLights()[0].color;
+}
+
+FVec3 ALegacyScene3DAdapter::PhysicalSunIntensity(FVec3 sun_color) noexcept {
+    // 光の色には強さが掛かっている。一番大きい成分を «設定した強さ» とみなし、
+    // 残りを色味として扱う。editor_abi と同じ換算 (既定 2.35 のとき 22.0)。
+    f32 peak = sun_color.x > sun_color.y ? sun_color.x : sun_color.y;
+    if (sun_color.z > peak) peak = sun_color.z;
+    if (peak <= 0.0f) return FVec3{0.0f, 0.0f, 0.0f};
+
+    const f32 radiance =
+        kAtmosphereRadianceAtDefault * (peak / kAtmosphereDefaultIntensity);
+    const f32 scale = radiance / peak;
+
+    return FVec3{sun_color.x * scale, sun_color.y * scale, sun_color.z * scale};
+}
+
 bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
     IRhiDevice& device, IRhiCommandList& command_list) noexcept {
     const FVec3 sun = SunDirection();
@@ -1096,9 +1128,38 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
         return false;
     }
 
-    // 空をそのまま環境光にする。見えている空と光が食い違わない。
-    if (m_Ibl.EnsureEnvCubemap(device, command_list, m_Sky).IsErr()) {
-        ACS_LOG_WARN("Scene3D: environment cubemap bake failed");
+    // 物理ベースの大気から焼く。太陽の高さで空の色が変わるので、夕暮れの赤みが
+    // 何も設定しなくても環境光に乗る。だめなら見えている空 (CSky) から焼く。
+    if (!m_AtmosphereTried) {
+        m_AtmosphereTried = true;
+        (void)m_Atmosphere.Init(device);
+    }
+
+    FAtmosphereParams atmosphere{};
+    atmosphere.sun_dir = sun;
+    atmosphere.sun_intensity = PhysicalSunIntensity(SunColorForAtmosphere());
+
+    TArray<f32> equirect;
+    u32 width = kAtmosphereEquirectWidth;
+    u32 height = kAtmosphereEquirectHeight;
+
+    bool baked = m_Atmosphere.Ready()
+        && m_Atmosphere.BakeEquirect(device, command_list, atmosphere, width, height, equirect);
+
+    if (!baked) {
+        // GPU で焼けない環境向けの逃げ道。同期で回すので解像度を落とす。
+        width = kAtmosphereCpuEquirectWidth;
+        height = kAtmosphereCpuEquirectHeight;
+        equirect = CAtmosphere::BakeEquirect(width, height, atmosphere);
+        baked = equirect.Num() != 0u;
+    }
+
+    const bool loaded = baked
+        && m_Ibl.LoadEquirectHdrFromMemory(
+               device, command_list, equirect.GetData(), width, height).IsOk();
+
+    if (!loaded && m_Ibl.EnsureEnvCubemap(device, command_list, m_Sky).IsErr()) {
+        ACS_LOG_WARN("Scene3D: environment bake failed (atmosphere and sky both)");
         return false;
     }
     if (m_Ibl.EnsureIrradiance(device, command_list).IsErr()) {
