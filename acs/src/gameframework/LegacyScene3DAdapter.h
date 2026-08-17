@@ -410,6 +410,24 @@ private:
     bool EnsureEnvironmentLighting(IRhiDevice& device, IRhiCommandList& command_list) noexcept;
 
     /**
+     * 空を描く。
+     *
+     * @details
+     * 環境光を焼けていれば、**それと同じ cubemap** を空として描く。見えている空と
+     * 物を照らす光が完全に一致するので、«空は晴れているのに陰りが曇り» のような
+     * ちぐはぐが起きない。焼けていないときだけ解析的な空 (`CSky`) へ落ちる。
+     *
+     * 太陽そのものは cubemap に焼かず、画面の解像度で描く (焼くと低解像度の
+     * テクセルが四角く拡大されて見える)。
+     * @param device 描画に使うデバイス。
+     * @param command_list コマンドを積む先。
+     * @param color_format 描画先の色形式。
+     * @param depth_format 描画先の深度形式。
+     */
+    void RenderSky(IRhiDevice& device, IRhiCommandList& command_list,
+                   EFormat color_format, EFormat depth_format) noexcept;
+
+    /**
      * 大気へ渡す太陽の色を返す。
      *
      * @return シーンの光の色 (強さが掛かったまま)。光が無ければ既定。

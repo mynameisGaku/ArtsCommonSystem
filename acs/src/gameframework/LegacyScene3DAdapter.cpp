@@ -65,6 +65,10 @@ constexpr u32 kAtmosphereCpuEquirectHeight = 256u;
 constexpr f32 kAtmosphereDefaultIntensity = 2.35f;
 constexpr f32 kAtmosphereRadianceAtDefault = 22.0f;
 
+// 太陽ディスク。実際の太陽の角半径 (0.2666 度) と、ディスクを空より強く出す倍率。
+constexpr f32 kSunAngularRadius = 0.004653f;
+constexpr f32 kSunDiscRadianceScale = 30.0f;
+
 AMeshComponent3D* FindMesh(ANode& node) noexcept {
     const void* kind = ComponentKindOf<AMeshComponent3D>();
     for (u32 index = 0u; index < node.ComponentCount(); ++index) {
@@ -946,10 +950,7 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     command_list.BeginRenderToTexture(
         *hdr, FClearColor{0.025f, 0.035f, 0.055f, 1.0f},
         depth, 1.0f);
-    if (m_SkyGpuState == ESkyGpuState::Ready) {
-        m_Sky.SetTime(m_Time);
-        m_Sky.Render(command_list, m_Camera);
-    }
+    RenderSky(*device, command_list, hdr->PixelFormat(), renderer.DepthFormat());
     if (!ssss_frame_ready) {
         (void)DrawPbrScene(
             context, ActiveHdrShader(),
@@ -1008,8 +1009,7 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
             command_list.BeginRenderToTexture(
                 *hdr, FClearColor{0.025f, 0.035f, 0.055f, 1.0f},
                 depth, 1.0f);
-            if (m_SkyGpuState == ESkyGpuState::Ready)
-                m_Sky.Render(command_list, m_Camera);
+            RenderSky(*device, command_list, hdr->PixelFormat(), renderer.DepthFormat());
             (void)DrawPbrScene(
                 context, ActiveHdrShader(),
                 water_count > 0u ? water_draws : nullptr,
@@ -1112,6 +1112,31 @@ FVec3 ALegacyScene3DAdapter::PhysicalSunIntensity(FVec3 sun_color) noexcept {
     const f32 scale = radiance / peak;
 
     return FVec3{sun_color.x * scale, sun_color.y * scale, sun_color.z * scale};
+}
+
+void ALegacyScene3DAdapter::RenderSky(
+    IRhiDevice& device, IRhiCommandList& command_list,
+    EFormat color_format, EFormat depth_format) noexcept {
+    if (m_IblReady && m_Ibl.EnvCubemap() != nullptr) {
+        // 環境光と同じ cubemap を空として描く。光と空が同じものから来る。
+        const FVec3 radiance = PhysicalSunIntensity(SunColorForAtmosphere());
+        m_Ibl.DrawEnvSkybox(
+            device, command_list,
+            m_Camera.ViewProjection(), m_Camera.Eye(),
+            color_format, depth_format,
+            SunDirection(),
+            FVec3{radiance.x * kSunDiscRadianceScale,
+                  radiance.y * kSunDiscRadianceScale,
+                  radiance.z * kSunDiscRadianceScale},
+            kSunAngularRadius);
+        return;
+    }
+
+    // 環境光をまだ焼けていないとき用。解析的な空で埋める。
+    if (m_SkyGpuState == ESkyGpuState::Ready) {
+        m_Sky.SetTime(m_Time);
+        m_Sky.Render(command_list, m_Camera);
+    }
 }
 
 bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
