@@ -85,11 +85,11 @@ struct FScene3DClouds {
     /** 空をどれだけ覆うか (0 で出ない、1 で一面)。 */
     f32 Coverage = 0.0f;
 
-    /** 濃さ。大きいほど光を通さず、輪郭がはっきりする。 */
-    f32 Density = 1.0f;
+    /** 濃さ。大きいほど光を通さず、輪郭がはっきりする (エディタと同じ既定)。 */
+    f32 Density = 1.6f;
 
-    /** 流れる速さ。 */
-    f32 Wind = 0.02f;
+    /** 流れる速さ (エディタと同じ既定)。 */
+    f32 Wind = 1.0f;
 
     /** 雲の底の高さ。 */
     f32 BaseAltitude = 1500.0f;
@@ -110,8 +110,9 @@ struct FScene3DClouds {
      * 描く大きさの割合。
      *
      * @details 1 未満にすると内部を小さく描いて引き伸ばす。重いので下げる余地を残してある。
+     * 既定はエディタの «高品質» と同じ。
      */
-    f32 RenderScale = 0.5f;
+    f32 RenderScale = 0.75f;
 };
 
 struct FScene3DFog {
