@@ -97,8 +97,14 @@ struct FScene3DClouds {
     /** 雲の上端の高さ。 */
     f32 TopAltitude = 4000.0f;
 
-    /** 形の細かさ。小さいほど大きな塊になる。 */
-    f32 NoiseScale = 1.0f;
+    /**
+     * 形の細かさ。
+     *
+     * @details
+     * **既定はエンジンの `FVolumetricCloudLayer` と同じ値。** 大きくすると細かくなりすぎて、
+     * 雲の塊にならず «何も出ていない» ように見える。
+     */
+    f32 NoiseScale = 0.035f;
 
     /**
      * 描く大きさの割合。
