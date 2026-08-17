@@ -43,6 +43,12 @@ constexpr FVec3 kDefaultAmbient{0.055f, 0.075f, 0.11f};
 // (既定値どうしの比がおよそこの値)。
 constexpr f32 kWaterSunBoost = 3.1f;
 
+// 影の解像度。上げると輪郭が締まるが、その 2 乗でメモリと描画費用が増える。
+constexpr u32 kShadowMapSize = 2048u;
+
+// 影の判定をずらす量。小さすぎると自分の影で縞が出て、大きすぎると影が浮く。
+constexpr f32 kShadowDepthBias = 0.0025f;
+
 AMeshComponent3D* FindMesh(ANode& node) noexcept {
     const void* kind = ComponentKindOf<AMeshComponent3D>();
     for (u32 index = 0u; index < node.ComponentCount(); ++index) {
@@ -848,6 +854,10 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     IRhiTexture* depth = renderer.DepthBuffer();
     if (device == nullptr || swapchain == nullptr) return;
 
+    // 太陽から見た深度を先に描く。PBR パスがこれを参照して影を落とす。
+    if (EnsureShadowMap(*device)) (void)RenderShadowPass(context);
+    else m_ShadowDrawn = false;
+
     EGpuCommitSubsystem frame_commit = EGpuCommitSubsystem::None;
     const bool hdr_ready = EnsureHdrFrameResources(
         *device, context.Width(), context.Height(),
@@ -1025,6 +1035,134 @@ void ALegacyScene3DAdapter::CollectSceneLights() noexcept {
     }
 }
 
+bool ALegacyScene3DAdapter::ComputeSceneBounds(FVec3& out_center, f32& out_radius) const noexcept {
+    FVec3 minimum{FLT_MAX, FLT_MAX, FLT_MAX};
+    FVec3 maximum{-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    bool found = false;
+
+    TArray<const ANode*> stack;
+    if (!stack.TryAdd(&Graph().Root())) return false;
+    while (!stack.IsEmpty()) {
+        const ANode* node = stack.Last();
+        stack.Pop();
+        if (node == nullptr) continue;
+        if (const AMeshComponent3D* component = FindMesh(*node)) {
+            FVec3 local_minimum, local_maximum;
+            LocalBounds(*component, local_minimum, local_maximum);
+            const FMat4 world = node->World().ToMat4();
+            for (u32 corner = 0u; corner < 8u; ++corner) {
+                const FVec3 local{
+                    (corner & 1u) != 0u ? local_maximum.x : local_minimum.x,
+                    (corner & 2u) != 0u ? local_maximum.y : local_minimum.y,
+                    (corner & 4u) != 0u ? local_maximum.z : local_minimum.z,
+                };
+                ExpandBounds(TransformPoint(local, world), minimum, maximum);
+            }
+            found = true;
+        }
+        for (u32 index = 0u; index < node->ChildCount(); ++index)
+            if (!stack.TryAdd(node->Child(index))) return false;
+    }
+    if (!found) return false;
+
+    out_center = (minimum + maximum) * 0.5f;
+    // 少し余裕を足す。ぴったりだと端のメッシュの影が投影範囲から外れて切れる。
+    out_radius = Length((maximum - minimum) * 0.5f) + 1.0f;
+    return true;
+}
+
+bool ALegacyScene3DAdapter::EnsureShadowMap(IRhiDevice& device) noexcept {
+    if (m_ShadowReady) return true;
+
+    // cascade 1 枚。シーン全体を 1 つの投影で覆う実績のある形から始める。
+    if (m_Shadow.Init(device, kShadowMapSize).IsErr()) {
+        ACS_LOG_WARN("Scene3D: shadow map init failed; shadows stay off");
+        return false;
+    }
+
+    m_ShadowReady = true;
+    return true;
+}
+
+bool ALegacyScene3DAdapter::RenderShadowPass(FRenderContext& context) noexcept {
+    m_ShadowDrawn = false;
+    if (!m_ShadowReady) return false;
+
+    IRhiTexture* const depth = m_Shadow.DepthTexture();
+    IRhiPipeline* const pipeline = m_Shadow.CasterPipeline();
+    IRhiBuffer* const light_cb = m_Shadow.LightCB();
+    if (depth == nullptr || pipeline == nullptr || light_cb == nullptr) return false;
+
+    FVec3 center{0.0f, 0.0f, 0.0f};
+    f32 radius = 0.0f;
+    if (!ComputeSceneBounds(center, radius) || radius <= 0.0f) return false;
+
+    // 影を落とすメッシュを先に数える。SetCaster は 1 灯ぶんの入れ物を使い回すので、
+    // 足りないまま描くと後ろのメッシュの影が黙って抜ける。
+    u32 caster_count = 0u;
+    TArray<const ANode*> count_stack;
+    if (!count_stack.TryAdd(&Graph().Root())) return false;
+    while (!count_stack.IsEmpty()) {
+        const ANode* node = count_stack.Last();
+        count_stack.Pop();
+        if (node == nullptr) continue;
+        if (const AMeshComponent3D* component = FindMesh(*node)) {
+            if (component->CastsShadow() && GpuMeshFor(*component) != nullptr) ++caster_count;
+        }
+        for (u32 index = 0u; index < node->ChildCount(); ++index)
+            if (!count_stack.TryAdd(node->Child(index))) return false;
+    }
+    if (caster_count == 0u) return false;
+
+    if (!m_Shadow.BeginFrame(caster_count)) return false;
+    m_Shadow.SetDirectionalLight(SunDirection(), center, radius);
+
+    IRhiCommandList& command_list = context.Cmd();
+    command_list.BeginShadowPass(*depth, 1.0f);
+    command_list.SetPipeline(*pipeline);
+    command_list.SetConstantBuffer(0, *light_cb);
+
+    TArray<const ANode*> stack;
+    if (!stack.TryAdd(&Graph().Root())) {
+        command_list.EndShadowPass(*depth);
+        return false;
+    }
+    while (!stack.IsEmpty()) {
+        const ANode* node = stack.Last();
+        stack.Pop();
+        if (node == nullptr) continue;
+
+        for (u32 index = 0u; index < node->ChildCount(); ++index)
+            if (!stack.TryAdd(node->Child(index))) break;
+
+        const AMeshComponent3D* const component = FindMesh(*node);
+        if (component == nullptr || !component->CastsShadow()) continue;
+
+        const FGpuMesh* const gpu = GpuMeshFor(*component);
+        if (gpu == nullptr || !gpu->vertex_buffer || !gpu->index_buffer) continue;
+
+        if (!m_Shadow.TrySetCaster(node->World().ToMat4())) continue;
+
+        IRhiBuffer* const object_cb = m_Shadow.CasterObjectCB();
+        if (object_cb == nullptr) continue;
+
+        command_list.SetConstantBuffer(1, *object_cb);
+        command_list.SetVertexBuffer(*gpu->vertex_buffer, gpu->vertex_stride);
+        command_list.SetIndexBuffer(*gpu->index_buffer);
+        command_list.DrawIndexed(gpu->index_count, 0u, 0);
+    }
+
+    command_list.EndShadowPass(*depth);
+
+    if (m_Shadow.CasterOverflowed()) {
+        // 黙って抜けると «一部だけ影が出ない» になり、原因が分かりにくい。
+        ACS_LOG_WARN("Scene3D: shadow caster buffer overflowed; some shadows are missing");
+    }
+
+    m_ShadowDrawn = m_Shadow.CasterDrawCount() > 0u;
+    return m_ShadowDrawn;
+}
+
 void ALegacyScene3DAdapter::UpdateSkyFromSun() noexcept {
     m_Sky.SetSunDirection(SunDirection());
 
@@ -1079,6 +1217,15 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
         use_scene_lights ? m_Lights.DirectionalCount() : 1u,
         kDefaultAmbient);
     shader.SetPointLights(m_Lights.PointLights(), m_Lights.PointCount());
+
+    // 影。描けなかったフレームは nullptr を渡して切る (前のフレームの深度を
+    // 使い回すと、動いた物の影が 1 フレーム遅れて付いてくる)。
+    if (m_ShadowDrawn) {
+        shader.SetShadowMap(m_Shadow.DepthTexture(), m_Shadow.LightViewProjection(),
+                            kShadowDepthBias, 1.0f / static_cast<f32>(kShadowMapSize));
+    } else {
+        shader.SetShadowMap(nullptr, FMat4{});
+    }
     shader.SetFog(
         FVec3{0.08f, 0.11f, 0.16f},
         0.0035f,

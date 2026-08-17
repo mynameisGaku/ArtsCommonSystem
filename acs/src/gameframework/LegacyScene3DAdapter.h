@@ -6,6 +6,7 @@
 #include "container/Array.h"
 #include "gameframework/Scene.h"
 #include "gameframework/LightCollector3D.h"
+#include "render/ShadowMap.h"
 #include "gameframework/SceneNodeGraph.h"
 #include "gameframework/Scene3DSerialize.h"
 #include "math/Camera.h"
@@ -324,6 +325,35 @@ private:
     void UpdateSkyFromSun() noexcept;
 
     /**
+     * 影の描き込み先を用意する (一度だけ)。
+     *
+     * @param device 生成に使うデバイス。
+     * @return 使える状態なら true。
+     */
+    bool EnsureShadowMap(IRhiDevice& device) noexcept;
+
+    /**
+     * 太陽から見た深度を描く (影のもと)。
+     *
+     * @details
+     * 影を落とす設定のメッシュだけを、太陽の側から描く。ここで描いた深度を PBR パスが
+     * 参照して «その点が太陽から見えるか» を判定する。
+     * @param context 描画文脈。
+     * @return 描けたら true。
+     */
+    bool RenderShadowPass(FRenderContext& context) noexcept;
+
+    /**
+     * シーン全体を包む球を求める。
+     *
+     * @details 影の投影範囲を決めるのに使う。広すぎると影が粗く、狭いと端が切れる。
+     * @param out_center 中心の入れ先。
+     * @param out_radius 半径の入れ先。
+     * @return メッシュが 1 つでもあれば true。
+     */
+    bool ComputeSceneBounds(FVec3& out_center, f32& out_radius) const noexcept;
+
+    /**
      * いま使っている太陽の向きを返す。
      *
      * @details シーンに平行光源があればその 1 灯目、無ければ既定の向き。
@@ -423,6 +453,15 @@ private:
     TArray<FCustomGpuMesh> m_CustomMeshes;
     /** シーンに置かれた光。毎フレーム集め直す。1 灯も無ければ既定の太陽を使う。 */
     CLightCollector3D m_Lights;
+
+    /** 太陽から見た深度。影の判定に使う。 */
+    CShadowMap m_Shadow;
+
+    /** 影の描き込み先を用意できたか。 */
+    bool m_ShadowReady = false;
+
+    /** このフレームで影を描けたか (描けなければ PBR 側も影を切る)。 */
+    bool m_ShadowDrawn = false;
 
     CCamera m_Camera;
     FScene3DCameraState m_AuthoredCamera{};
