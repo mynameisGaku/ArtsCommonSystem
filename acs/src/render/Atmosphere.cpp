@@ -149,6 +149,9 @@ inline FVec3 OzoneAbsorption() noexcept {
  * @param steps 光学厚さ積分のサンプル段数。
  * @return RGB 透過率 (t_max<=0 または steps==0 なら (1,1,1))。
  */
+/** 太陽透過率を CPU で積む段数。空 1 枚ぶんではなく 1 方向なので細かくしてよい。 */
+constexpr u32 kSunTransmittanceSteps = 24u;
+
 FVec3 Transmittance(FVec3 P_earth_centered, FVec3 dir, f32 t_max, u32 steps) noexcept {
     if (t_max <= 0.0f || steps == 0) return FVec3{1, 1, 1};
     const f32 step_len = t_max / static_cast<f32>(steps);
@@ -325,6 +328,37 @@ FVec3 GroundHemisphere(FVec3 viewer, FVec3 view_dir, FVec3 sun_dir,
 }
 
 } // namespace
+
+/**
+ * 指定した高度で、太陽方向へ抜ける大気透過率を返す。
+ *
+ * @details
+ * 雲を照らす太陽の «色» を求めるためのもの。太陽光は雲へ届く前に大気を通るので、
+ * 低い太陽ほど青が削られて赤くなる。これを掛けないと、夕方でも雲が昼の白さのままになる。
+ *
+ * 水平方向の位置には依らないものとして扱う (雲の層はごく薄く、太陽の高さが支配的)。
+ * @param altitude 地表からの高さ (world 単位)。
+ * @param sun_dir 太陽へ向かう単位方向 (上が +Y)。
+ * @return RGB 透過率。大気の外や真下向きなら (1,1,1) 側へ寄る。
+ */
+FVec3 SunTransmittanceAtAltitude(f32 altitude, FVec3 sun_dir) noexcept {
+    if (altitude < 0.0f) altitude = 0.0f;
+
+    const FVec3 origin{0.0f, kGroundRadius + altitude, 0.0f};
+    const f32 length = Sqrt(Dot(sun_dir, sun_dir));
+    if (length <= 0.0f) return FVec3{1.0f, 1.0f, 1.0f};
+
+    const FVec3 dir{sun_dir.x / length, sun_dir.y / length, sun_dir.z / length};
+
+    // 地面に隠れる向きなら光は届かない。
+    if (RaySphereNear(origin, dir, kGroundRadius) > 0.0f) return FVec3{0.0f, 0.0f, 0.0f};
+
+    const f32 distance = RaySphereOuter(origin, dir, kAtmosphereRadius);
+    if (distance <= 0.0f) return FVec3{1.0f, 1.0f, 1.0f};
+
+    return Transmittance(origin, dir, distance, kSunTransmittanceSteps);
+}
+
 
 /** equirect 画像の各方向で単散乱を評価し RGBA float 配列を焼く。 */
 TArray<f32> CAtmosphere::BakeEquirect(u32 width, u32 height,

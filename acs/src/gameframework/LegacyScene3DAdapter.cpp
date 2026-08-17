@@ -1159,6 +1159,14 @@ void ALegacyScene3DAdapter::RenderClouds(
     m_Clouds.SetLayer(FVolumetricCloudLayer{
         m_CloudParams.BaseAltitude, m_CloudParams.TopAltitude, m_CloudParams.NoiseScale});
 
+    // 太陽光が雲へ届くまでに大気で失う分を掛ける。これが無いと夕方でも雲が昼の白さのまま。
+    // 雲の層は薄いので、真ん中の高さで代表させる。
+    FVolumetricCloudLighting lighting = m_Clouds.Lighting();
+    const f32 midAltitude =
+        (m_CloudParams.BaseAltitude + m_CloudParams.TopAltitude) * 0.5f;
+    lighting.SunTransmittance = SunTransmittanceAtAltitude(midAltitude, SunDirection());
+    m_Clouds.SetLighting(lighting);
+
     // 雲を照らすのは物を照らすのと同じ太陽。ここを別にすると、雲だけ違う方向から
     // 光っているように見える。
     const FVec3 sun_color = SunColorForAtmosphere();

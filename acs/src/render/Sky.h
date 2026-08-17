@@ -399,6 +399,16 @@ struct FVolumetricCloudLighting {
      */
     f32 GroundContribution = 0.15f;
 
+    /**
+     * 太陽光が雲へ届くまでの大気透過率。
+     *
+     * @details
+     * 低い太陽ほど青が削られて赤くなる。これを掛けないと**夕方でも雲が昼の白さのまま**になる。
+     * `SunTransmittanceAtAltitude` (Atmosphere.h) で雲の高さぶんを求めて渡すとよい。
+     * 既定の (1,1,1) は «大気を通らない» = これまでと同じ。
+     */
+    FVec3 SunTransmittance{1.0f, 1.0f, 1.0f};
+
     /** 照り返しの色。地面や海の色を入れる。 */
     FVec3 GroundColor{0.20f, 0.19f, 0.21f};
 };

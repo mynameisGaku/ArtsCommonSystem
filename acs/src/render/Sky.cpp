@@ -775,6 +775,8 @@ cbuffer CloudCB : register(b0) {
     float4 cloudLightingAmbient;
     // xyz=地面の色 (照り返しに使う)
     float4 cloudLightingGround;
+    // xyz=太陽光が雲へ届くまでの大気透過率 (低い太陽で赤くなる)
+    float4 cloudSunTransmittance;
 };
 RWTexture2D<float4> cloudOut : register(u0);
 RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒット距離, y=アルファ信頼度
@@ -1871,7 +1873,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             // forward lobe clip into a featureless white sheet.
             float edgeBoost=lerp(
                 1.08,0.78,smoothstep(0.04,0.52,nearLightDensity*density));
-            float3 sunL=sunCol.rgb*cloudLightingExtinction.z*lightT*phase
+            // 太陽光は雲へ届く前に大気を通る。低い太陽ほど青が削られて赤くなる。
+            float3 sunAtCloud=sunCol.rgb*cloudSunTransmittance.rgb;
+            float3 sunL=sunAtCloud*cloudLightingExtinction.z*lightT*phase
                        *lerp(0.70,1.0,powder)*edgeBoost;
             float h=macro.height;
             float viewDepth=1.0-transmit;
@@ -2553,8 +2557,9 @@ struct FCloudCb {
     FVec4 cloudLightingMulti;
     FVec4 cloudLightingAmbient;
     FVec4 cloudLightingGround;
+    FVec4 cloudSunTransmittance;
 };
-static_assert(sizeof(FCloudCb) == 528, "CloudCB must match the HLSL layout");
+static_assert(sizeof(FCloudCb) == 544, "CloudCB must match the HLSL layout");
 static_assert(
     offsetof(FCloudCb, groundHorizon) == 320u,
     "CloudCB ground horizon must remain at HLSL register c20");
@@ -4361,6 +4366,9 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     cb.cloudLightingGround = FVec4{
         m_Lighting.GroundColor.x, m_Lighting.GroundColor.y,
         m_Lighting.GroundColor.z, 0.0f};
+    cb.cloudSunTransmittance = FVec4{
+        m_Lighting.SunTransmittance.x, m_Lighting.SunTransmittance.y,
+        m_Lighting.SunTransmittance.z, 0.0f};
     m_Cb->Update(&cb, sizeof(cb));
     // 初回に Perlin-Worley shape noise (128^3) を焼く (1 回のみ、以降 SRV で sample)。
     if (bakeShapeNoiseThisFrame) {

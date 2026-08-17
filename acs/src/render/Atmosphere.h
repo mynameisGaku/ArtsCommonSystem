@@ -83,6 +83,18 @@ struct FVolumetricFogParams {
  * 焼いた equirect 画像を CImageBasedLighting に渡すと env cubemap → irradiance →
  * prefilter の IBL chain が物理ベースの sky で構築できる。
  */
+/**
+ * 指定した高度で、太陽方向へ抜ける大気透過率を返す (CPU、LUT 不要)。
+ *
+ * @details
+ * 雲や遠景を照らす太陽の «色» に使う。低い太陽ほど青が削られて赤くなるので、これを
+ * 掛けないと夕方でも雲が昼の白さのままになる。水平位置には依らないものとして扱う。
+ * @param altitude 地表からの高さ (world 単位)。
+ * @param sun_dir 太陽へ向かう方向 (上が +Y、正規化は内部で行う)。
+ * @return RGB 透過率。地面に隠れる向きなら 0。
+ */
+FVec3 SunTransmittanceAtAltitude(f32 altitude, FVec3 sun_dir) noexcept;
+
 class CAtmosphere {
 public:
     /**
