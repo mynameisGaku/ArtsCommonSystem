@@ -78001,6 +78001,48 @@ public:
     void SetMeshPath(FStringView path) noexcept { m_MeshPath = FString(path); m_Prim = EMeshPrimitive3D::Mesh; }
 
     /**
+     * ローカル空間での境界を返す。
+     *
+     * @details
+     * プリミティブなら決まった大きさ (立方体と球は ±0.5、板は厚みが 0)、外部メッシュなら
+     * 頂点を走査して求める。
+     *
+     * **カメラを引く位置・影の投影範囲・クリックの当たり判定は、どれもこれが要る。**
+     * 持っていないと、使う側がプリミティブごとの寸法を勝手に書き直すことになり、
+     * 片方だけ直したときに «影は付くのに掴めない» のような食い違いが出る。
+     *
+     * 外部メッシュは呼ぶたびに全頂点を走査する。毎フレーム呼ぶなら結果を持っておくこと。
+     *
+     * @param minimum 最小座標の受け取り先。
+     * @param maximum 最大座標の受け取り先。
+     */
+    void LocalBounds(FVec3& minimum, FVec3& maximum) const noexcept {
+        minimum = FVec3{-0.5f, -0.5f, -0.5f};
+        maximum = FVec3{ 0.5f,  0.5f,  0.5f};
+        if (m_Prim == EMeshPrimitive3D::Plane) {
+            minimum.y = 0.0f;
+            maximum.y = 0.0f;
+            return;
+        }
+        const AMeshAsset* const mesh = Mesh();
+        if (m_Prim != EMeshPrimitive3D::Mesh
+            || mesh == nullptr || mesh->Vertices().IsEmpty()) {
+            return;
+        }
+        minimum = FVec3{ 3.4028235e38f,  3.4028235e38f,  3.4028235e38f};
+        maximum = FVec3{-3.4028235e38f, -3.4028235e38f, -3.4028235e38f};
+        for (u32 index = 0u; index < mesh->Vertices().Num(); ++index) {
+            const FVec3 value = mesh->Vertices()[index].position;
+            if (value.x < minimum.x) minimum.x = value.x;
+            if (value.y < minimum.y) minimum.y = value.y;
+            if (value.z < minimum.z) minimum.z = value.z;
+            if (value.x > maximum.x) maximum.x = value.x;
+            if (value.y > maximum.y) maximum.y = value.y;
+            if (value.z > maximum.z) maximum.z = value.z;
+        }
+    }
+
+    /**
      * アルベド色 (RGBA) を返す。
      *
      * @return 現在の色。

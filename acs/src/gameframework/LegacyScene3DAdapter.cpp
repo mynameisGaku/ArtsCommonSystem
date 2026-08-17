@@ -119,33 +119,13 @@ AWaterSurface3DComponent* FindWater(ANode& node) noexcept {
     return nullptr;
 }
 
+// 境界は component 自身が持つようになった (AMeshComponent3D::LocalBounds)。
+// ここに写しを置くと、片方だけ直したときに «影は付くのに掴めない» が起きる。
 void LocalBounds(
     const AMeshComponent3D& component,
     FVec3& minimum,
     FVec3& maximum) noexcept {
-    minimum = FVec3{-0.5f, -0.5f, -0.5f};
-    maximum = FVec3{0.5f, 0.5f, 0.5f};
-    if (component.Primitive() == EMeshPrimitive3D::Plane) {
-        minimum.y = 0.0f;
-        maximum.y = 0.0f;
-        return;
-    }
-    const AMeshAsset* mesh = component.Mesh();
-    if (component.Primitive() != EMeshPrimitive3D::Mesh
-        || mesh == nullptr || mesh->Vertices().IsEmpty()) {
-        return;
-    }
-    minimum = FVec3{FLT_MAX, FLT_MAX, FLT_MAX};
-    maximum = FVec3{-FLT_MAX, -FLT_MAX, -FLT_MAX};
-    for (u32 index = 0u; index < mesh->Vertices().Num(); ++index) {
-        const FVec3 value = mesh->Vertices()[index].position;
-        if (value.x < minimum.x) minimum.x = value.x;
-        if (value.y < minimum.y) minimum.y = value.y;
-        if (value.z < minimum.z) minimum.z = value.z;
-        if (value.x > maximum.x) maximum.x = value.x;
-        if (value.y > maximum.y) maximum.y = value.y;
-        if (value.z > maximum.z) maximum.z = value.z;
-    }
+    component.LocalBounds(minimum, maximum);
 }
 
 void ExpandBounds(
