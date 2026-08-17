@@ -27,8 +27,9 @@ enum class ELight3DKind : u8 {
  * このコンポーネントはノードに付き、**ワールド変換から向きと位置を導いて**その値を作る。
  * ノードを動かせば光も動き、親に付ければ一緒に動く。
  *
- * 向きはノードの回転を **-Y (真下)** に適用したもの。無回転なら真上から下を照らす。
- * これは `FDirLight::direction` の既定 (0, -1, 0) と揃えてある。
+ * 向きはノードの回転を **+Y (真上)** に適用したもの。無回転なら**真上に太陽がある**状態。
+ * `FDirLight::direction` は «面から光源へ向かう» 向きなので、これと同じ約束にしてある。
+ * 逆向きにすると地面の下から照らすことになり、上を向いた面がすべて陰る。
  *
  * @code
  * ANode& sun = root.AddChild(NewObject<ANode>());
@@ -135,15 +136,17 @@ public:
     bool IsEmitting() const noexcept { return m_Intensity > 0.0f; }
 
     /**
-     * ノードの向きから、光が進む方向を返す。
+     * ノードの向きから、**面から光源へ向かう**方向を返す。
      *
-     * @details 無回転なら (0, -1, 0)。ノードに付いていない場合もその既定を返す。
+     * @details
+     * 光が進む方向ではない (`FDirLight::direction` と同じ約束)。無回転なら (0, +1, 0) で、
+     * 真上に太陽がある状態。ノードに付いていない場合もその既定を返す。
      * @return ワールド空間の方向 (正規化済み)。
      */
     FVec3 WorldDirection() const noexcept {
-        if (!HasOwner()) return FVec3{ 0.0f, -1.0f, 0.0f };
+        if (!HasOwner()) return FVec3{ 0.0f, 1.0f, 0.0f };
 
-        return Rotate(Owner().World().rotation, FVec3{ 0.0f, -1.0f, 0.0f });
+        return Rotate(Owner().World().rotation, FVec3{ 0.0f, 1.0f, 0.0f });
     }
 
     /**

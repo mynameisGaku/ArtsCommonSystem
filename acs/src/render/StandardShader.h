@@ -27,8 +27,15 @@ namespace acs {
  * シェーダ側で normalize されるため問題ない。
  */
 struct FDirLight {
-    /** 光が向かう方向 (ワールド空間、シェーダ側で正規化される)。 */
-    FVec3 direction = FVec3{0, -1, 0};
+    /**
+     * **面から光源へ向かう**方向 (ワールド空間、シェーダ側で正規化される)。
+     *
+     * @details
+     * 光が進む方向ではない。真上に太陽があるなら (0, +1, 0)。逆向きを入れると
+     * 地面の下から照らすことになり、**上を向いた面がすべて陰る**。
+     * shader 側は `float3 L = normalize(light_dir[i].xyz)` として使う。
+     */
+    FVec3 direction = FVec3{0, 1, 0};
 
     /** 光の色 (例 (1,1,1))。 */
     FVec3 color     = FVec3{1, 1, 1};

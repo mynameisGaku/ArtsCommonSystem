@@ -18,18 +18,33 @@ constexpr f32 Deg(f32 d) noexcept { return d * 0.01745329252f; }
 
 } // namespace
 
-ACS_TEST(ALightComponent3D, DefaultsToDownwardDirectionalLight) {
+ACS_TEST(ALightComponent3D, DefaultsToSunDirectlyOverhead) {
     TObjectPtr<ANode> node = NewObject<ANode>();
     ALightComponent3D& light = node->AddComponent<ALightComponent3D>();
 
     EXPECT_TRUE(light.LightKind() == ELight3DKind::Directional);
     EXPECT_TRUE(light.IsEmitting());
 
-    // 無回転なら真上から下を照らす。FDirLight の既定と揃えてある。
+    // direction は «面から光源へ向かう» 向き。無回転なら真上に太陽がある。
+    // ここを逆 (0,-1,0) にすると地面の下から照らすことになり、上を向いた面が
+    // すべて陰る。実際にそれで «全体が暗い» 画になったので、向きを試験で固定する。
     const FVec3 dir = light.WorldDirection();
-    EXPECT_NEAR(dir.x,  0.0f, 1.0e-4f);
-    EXPECT_NEAR(dir.y, -1.0f, 1.0e-4f);
-    EXPECT_NEAR(dir.z,  0.0f, 1.0e-4f);
+    EXPECT_NEAR(dir.x, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(dir.y, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(dir.z, 0.0f, 1.0e-4f);
+}
+
+ACS_TEST(ALightComponent3D, PointsTowardTheLightNotAlongTheTravelDirection) {
+    // 上を向いた面が光を受けること。dot(法線, direction) が正であれば当たっている。
+    TObjectPtr<ANode> node = NewObject<ANode>();
+    ALightComponent3D& light = node->AddComponent<ALightComponent3D>();
+
+    FDirLight out{};
+    EXPECT_TRUE(light.FillDirectional(out));
+
+    const FVec3 up{ 0.0f, 1.0f, 0.0f };                       // 床の法線。
+    const f32 ndotl = out.direction.x * up.x + out.direction.y * up.y + out.direction.z * up.z;
+    EXPECT_TRUE(ndotl > 0.0f);
 }
 
 ACS_TEST(ALightComponent3D, DirectionFollowsNodeRotation) {
@@ -68,7 +83,7 @@ ACS_TEST(ALightComponent3D, FillDirectionalScalesColorByIntensity) {
     EXPECT_NEAR(out.color.x, 2.0f,  1.0e-4f);
     EXPECT_NEAR(out.color.y, 1.0f,  1.0e-4f);
     EXPECT_NEAR(out.color.z, 0.5f,  1.0e-4f);
-    EXPECT_NEAR(out.direction.y, -1.0f, 1.0e-4f);
+    EXPECT_NEAR(out.direction.y, 1.0f, 1.0e-4f);
 }
 
 ACS_TEST(ALightComponent3D, FillPointUsesWorldPosition) {
