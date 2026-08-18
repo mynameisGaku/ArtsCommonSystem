@@ -1292,15 +1292,23 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
 }
 
 bool ALegacyScene3DAdapter::EnsureShadowMap(IRhiDevice& device) noexcept {
-    if (m_ShadowReady) return true;
+    u32 wanted = m_ShadowParams.CascadeCount;
+    if (wanted == 0u) wanted = 1u;
+    if (wanted > CShadowMap::kMaxCascades) wanted = CShadowMap::kMaxCascades;
 
-    // cascade 1 枚。シーン全体を 1 つの投影で覆う実績のある形から始める。
-    if (m_Shadow.Init(device, kShadowMapSize).IsErr()) {
+    if (m_ShadowReady && m_ShadowCascadeCount == wanted) return true;
+
+    // 枚数が変わったら作り直す。atlas の幅が枚数で決まるので、使い回せない。
+    if (m_ShadowReady) m_Shadow.Shutdown();
+    m_ShadowReady = false;
+
+    if (m_Shadow.Init(device, kShadowMapSize, wanted).IsErr()) {
         ACS_LOG_WARN("Scene3D: shadow map init failed; shadows stay off");
         return false;
     }
 
     m_ShadowReady = true;
+    m_ShadowCascadeCount = wanted;
     return true;
 }
 
@@ -1680,57 +1688,84 @@ bool ALegacyScene3DAdapter::RenderShadowPass(FRenderContext& context) noexcept {
     if (caster_count == 0u) return false;
 
     if (!m_Shadow.BeginFrame(caster_count)) return false;
-    m_Shadow.SetDirectionalLight(SunDirection(), center, radius);
+
+    // 影の «撮り方» を決める。
+    //
+    // 1 枚なら、これまでどおりシーン全体を 1 つの投影で覆う。
+    // 2 枚以上なら、カメラの視錐台を near から «影を描く距離» までで分割し、手前を細かく
+    // 撮る。**カメラの far は使わない。** far は数 km あることがあり、そこまで枚数を配ると
+    // 手前がすかすかになる。
+    const u32 cascade_count = m_Shadow.CascadeCount();
+    if (cascade_count > 1u) {
+        f32 shadow_distance = m_ShadowParams.Distance;
+        if (!(shadow_distance > 0.0f)) shadow_distance = 120.0f;
+        // シーンがそれより小さいなら、わざわざ広く撮らない (そのぶん手前が細かくなる)。
+        const f32 scene_reach = radius * 4.0f;
+        if (scene_reach > 0.0f && scene_reach < shadow_distance) shadow_distance = scene_reach;
+
+        m_Shadow.SetDirectionalLightCascades(
+            SunDirection(), m_Camera.View(), m_Camera.Projection(),
+            0.05f, shadow_distance, Clamp(m_ShadowParams.SplitBlend, 0.0f, 1.0f));
+    } else {
+        m_Shadow.SetDirectionalLight(SunDirection(), center, radius);
+    }
 
     IRhiCommandList& command_list = context.Cmd();
     command_list.BeginShadowPass(*depth, 1.0f);
     command_list.SetPipeline(*pipeline);
-    command_list.SetConstantBuffer(0, *light_cb);
 
-    TArray<const ANode*> stack;
-    if (!stack.TryAdd(&Graph().Root())) {
-        command_list.EndShadowPass(*depth);
-        return false;
-    }
-    while (!stack.IsEmpty()) {
-        const ANode* node = stack.Last();
-        stack.Pop();
-        if (node == nullptr) continue;
+    for (u32 cascade = 0u; cascade < cascade_count; ++cascade) {
+        // 枚数ぶん、同じ物をもう一度描く。**これが CSM の値段。**
+        m_Shadow.SetCurrentCascade(cascade);
+        command_list.SetViewport(m_Shadow.CascadeViewport(cascade));
+        command_list.SetScissor(m_Shadow.CascadeScissor(cascade));
 
-        for (u32 index = 0u; index < node->ChildCount(); ++index)
-            if (!stack.TryAdd(node->Child(index))) break;
+        IRhiBuffer* const cascade_cb = m_Shadow.LightCB();
+        if (cascade_cb == nullptr) continue;
+        command_list.SetConstantBuffer(0, *cascade_cb);
 
-        const AMeshComponent3D* const component = FindMesh(*node);
-        if (component == nullptr || !component->CastsShadow()) continue;
+        TArray<const ANode*> stack;
+        if (!stack.TryAdd(&Graph().Root())) break;
+        while (!stack.IsEmpty()) {
+            const ANode* node = stack.Last();
+            stack.Pop();
+            if (node == nullptr) continue;
 
-        const FGpuMesh* const gpu = GpuMeshFor(*component);
-        if (gpu == nullptr || !gpu->vertex_buffer || !gpu->index_buffer) continue;
+            for (u32 index = 0u; index < node->ChildCount(); ++index)
+                if (!stack.TryAdd(node->Child(index))) break;
 
-        if (!m_Shadow.TrySetCaster(node->World().ToMat4())) continue;
+            const AMeshComponent3D* const component = FindMesh(*node);
+            if (component == nullptr || !component->CastsShadow()) continue;
 
-        IRhiBuffer* const object_cb = m_Shadow.CasterObjectCB();
-        if (object_cb == nullptr) continue;
+            const FGpuMesh* const gpu = GpuMeshFor(*component);
+            if (gpu == nullptr || !gpu->vertex_buffer || !gpu->index_buffer) continue;
 
-        command_list.SetConstantBuffer(1, *object_cb);
-        command_list.SetVertexBuffer(*gpu->vertex_buffer, gpu->vertex_stride);
-        command_list.SetIndexBuffer(*gpu->index_buffer);
-        command_list.DrawIndexed(gpu->index_count, 0u, 0);
-    }
+            if (!m_Shadow.TrySetCaster(node->World().ToMat4())) continue;
 
-    // 骨で動くメッシュも同じ形で落とす。CPU で変形済みなので、静的なものと区別が要らない。
-    for (usize index = 0u; index < m_SkinnedDrawn.Num(); ++index) {
-        const FSkinnedDraw& draw = m_SkinnedDrawn[index];
-        if (draw.Mesh == nullptr || !draw.Mesh->vertex_buffer || !draw.Mesh->index_buffer)
-            continue;
-        if (!m_Shadow.TrySetCaster(draw.Model)) continue;
+            IRhiBuffer* const object_cb = m_Shadow.CasterObjectCB();
+            if (object_cb == nullptr) continue;
 
-        IRhiBuffer* const object_cb = m_Shadow.CasterObjectCB();
-        if (object_cb == nullptr) continue;
+            command_list.SetConstantBuffer(1, *object_cb);
+            command_list.SetVertexBuffer(*gpu->vertex_buffer, gpu->vertex_stride);
+            command_list.SetIndexBuffer(*gpu->index_buffer);
+            command_list.DrawIndexed(gpu->index_count, 0u, 0);
+        }
 
-        command_list.SetConstantBuffer(1, *object_cb);
-        command_list.SetVertexBuffer(*draw.Mesh->vertex_buffer, draw.Mesh->vertex_stride);
-        command_list.SetIndexBuffer(*draw.Mesh->index_buffer);
-        command_list.DrawIndexed(draw.Mesh->index_count, 0u, 0);
+        // 骨で動くメッシュも同じ形で落とす。CPU で変形済みなので区別が要らない。
+        for (usize index = 0u; index < m_SkinnedDrawn.Num(); ++index) {
+            const FSkinnedDraw& draw = m_SkinnedDrawn[index];
+            if (draw.Mesh == nullptr || !draw.Mesh->vertex_buffer || !draw.Mesh->index_buffer)
+                continue;
+            if (!m_Shadow.TrySetCaster(draw.Model)) continue;
+
+            IRhiBuffer* const object_cb = m_Shadow.CasterObjectCB();
+            if (object_cb == nullptr) continue;
+
+            command_list.SetConstantBuffer(1, *object_cb);
+            command_list.SetVertexBuffer(*draw.Mesh->vertex_buffer, draw.Mesh->vertex_stride);
+            command_list.SetIndexBuffer(*draw.Mesh->index_buffer);
+            command_list.DrawIndexed(draw.Mesh->index_count, 0u, 0);
+        }
     }
 
     command_list.EndShadowPass(*depth);
@@ -1808,8 +1843,25 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
     // 影。描けなかったフレームは nullptr を渡して切る (前のフレームの深度を
     // 使い回すと、動いた物の影が 1 フレーム遅れて付いてくる)。
     if (m_ShadowDrawn) {
-        shader.SetShadowMap(m_Shadow.DepthTexture(), m_Shadow.LightViewProjection(),
-                            kShadowDepthBias, 1.0f / static_cast<f32>(kShadowMapSize));
+        const f32 bias = m_ShadowParams.DepthBias > 0.0f
+            ? m_ShadowParams.DepthBias : kShadowDepthBias;
+        // texel は «1 枚ぶん» の大きさ。atlas 全体の幅で割ると、枚数を増やすほど
+        // ぼかしが細くなって縞が出る。
+        const f32 texel = 1.0f / static_cast<f32>(kShadowMapSize);
+        const u32 cascade_count = m_Shadow.CascadeCount();
+        if (cascade_count > 1u) {
+            FMat4 light_vp[CShadowMap::kMaxCascades];
+            f32 splits[CShadowMap::kMaxCascades];
+            for (u32 cascade = 0u; cascade < cascade_count; ++cascade) {
+                light_vp[cascade] = m_Shadow.LightViewProjection(cascade);
+                splits[cascade] = m_Shadow.CascadeSplit(cascade);
+            }
+            shader.SetShadowMapCascades(
+                m_Shadow.DepthTexture(), light_vp, splits, cascade_count, bias, texel);
+        } else {
+            shader.SetShadowMap(m_Shadow.DepthTexture(), m_Shadow.LightViewProjection(),
+                                bias, texel);
+        }
     } else {
         shader.SetShadowMap(nullptr, FMat4{});
     }

@@ -58631,6 +58631,56 @@ struct FScene3DClouds {
     FScene3DUpperClouds UpperLayer{};
 };
 
+/**
+ * 影の設定。
+ *
+ * @details
+ * **カスケード (CSM) を使うかどうかがいちばん効く。** 影は太陽から見た深度の «写真» で、
+ * 1 枚で広い範囲を覆うと、手前の物の影が階段状になる。近くを細かく、遠くを粗く、と
+ * 分けて撮るのがカスケード。
+ *
+ * 狭い場面 (机の上、1 部屋) なら 1 枚で足りる。屋外なら 3〜4 枚。
+ */
+struct FScene3DShadows {
+    /**
+     * 何枚に分けるか (1〜4)。
+     *
+     * @details
+     * 1 なら分けない。**増やすほど描き直す回数が増える** (影に落とす物を枚数ぶん描く)。
+     * 変えると影の地図を作り直すので、毎フレーム変えないこと。
+     */
+    u32 CascadeCount = 4u;
+
+    /**
+     * 影を描く距離 (メートル)。
+     *
+     * @details
+     * **カメラの far ではない。** far は数 km あることがあり、そこまで枚数を配ると
+     * 手前がすかすかになる。«影が要る範囲» を指定する。
+     *
+     * これより遠い物は影を落とさない。広げるほど手前が粗くなる。
+     */
+    f32 Distance = 120.0f;
+
+    /**
+     * 分割の寄せ方 (0〜1)。
+     *
+     * @details
+     * 0 で等間隔、1 で対数 (手前を極端に細かく)。既定の 0.5 は両者の中間。
+     * 手前の影がまだ粗いなら上げる。
+     */
+    f32 SplitBlend = 0.5f;
+
+    /**
+     * 深度の下駄。
+     *
+     * @details
+     * **小さすぎると縞 (shadow acne)、大きすぎると影が浮く (peter-panning)。**
+     * 場面の大きさを変えたら見直す値。
+     */
+    f32 DepthBias = 0.0025f;
+};
+
 struct FScene3DFog {
     /** 霧の色 (線形)。遠くのものがこの色へ寄っていく。 */
     FVec3 Color{0.08f, 0.11f, 0.16f};
@@ -58686,6 +58736,23 @@ public:
      * @return 雲の設定 (次のフレームから効く)。
      */
     FScene3DClouds& Clouds() noexcept { return m_CloudParams; }
+
+    /**
+     * 影の設定を触る。
+     *
+     * @details
+     * **影が階段状なら、まず `Distance` を狭める。** 次に `CascadeCount` を増やす。
+     *
+     * @return 影の設定。`CascadeCount` を変えると次のフレームで地図を作り直す。
+     */
+    FScene3DShadows& Shadows() noexcept { return m_ShadowParams; }
+
+    /**
+     * 影の設定を読む。
+     *
+     * @return 現在の設定。
+     */
+    const FScene3DShadows& Shadows() const noexcept { return m_ShadowParams; }
 
     /**
      * 遮蔽 (SSAO) の設定を触る。
@@ -59378,6 +59445,7 @@ private:
 
     /** 雲の設定。 */
     FScene3DClouds m_CloudParams{};
+    FScene3DShadows m_ShadowParams{};
     FScene3DAmbientOcclusion m_SsaoParams{};
     FScene3DReflections m_SsrParams{};
 
@@ -59416,6 +59484,9 @@ private:
 
     /** 影の描き込み先を用意できたか。 */
     bool m_ShadowReady = false;
+
+    /** 用意してある地図の枚数。設定と違ったら作り直す。 */
+    u32 m_ShadowCascadeCount = 0u;
 
     /** このフレームで影を描けたか (描けなければ PBR 側も影を切る)。 */
     bool m_ShadowDrawn = false;
