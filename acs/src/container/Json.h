@@ -227,52 +227,52 @@ public:
     FStringView MemberKey(u32 i) const noexcept;
 
     /** この値を Null にリセットする (パーサ/テスト用ビルダ)。 */
-    void _SetNull()              noexcept { Reset(EJsonType::Null); }
+    void SetNull_Internal()              noexcept { Reset(EJsonType::Null); }
 
     /**
      * この値を Bool に設定する (パーサ/テスト用ビルダ)。
      *
      * @param b 設定する真偽値。
      */
-    void _SetBool(bool b)        noexcept { Reset(EJsonType::Bool);   m_Bool = b; }
+    void SetBool_Internal(bool b)        noexcept { Reset(EJsonType::Bool);   m_Bool = b; }
 
     /**
      * この値を Number に設定する (パーサ/テスト用ビルダ)。
      *
      * @param n 設定する数値。
      */
-    void _SetNumber(f64 n)       noexcept { Reset(EJsonType::Number); m_Number = n; }
+    void SetNumber_Internal(f64 n)       noexcept { Reset(EJsonType::Number); m_Number = n; }
 
     /**
      * この値を String に設定する (パーサ/テスト用ビルダ)。
      *
      * @param s 設定する文字列ビュー (内容をコピーする)。
      */
-    void _SetString(FStringView s) noexcept { Reset(EJsonType::String); m_String.Clear(); m_String.Append(s); }
+    void SetString_Internal(FStringView s) noexcept { Reset(EJsonType::String); m_String.Clear(); m_String.Append(s); }
 
     /**
      * 所有文字列をコピーせず String 値へ移す。
      *
      * @param s 同じ allocator 系で生成済みの文字列。
      */
-    void _SetString(FString&& s) noexcept
+    void SetString_Internal(FString&& s) noexcept
     {
         Reset(EJsonType::String);
         m_String = Move(s);
     }
 
     /** この値を空の Array にする (パーサ/テスト用ビルダ)。 */
-    void _MakeArray()            noexcept { Reset(EJsonType::Array); }
+    void MakeArray_Internal()            noexcept { Reset(EJsonType::Array); }
 
     /** この値を空の Object にする (パーサ/テスト用ビルダ)。 */
-    void _MakeObject()           noexcept { Reset(EJsonType::Object); }
+    void MakeObject_Internal()           noexcept { Reset(EJsonType::Object); }
 
     /**
      * Array に空要素を追加し、その参照を返す (パーサ/テスト用ビルダ)。
      *
      * @return 追加した空要素への参照。
      */
-    FJsonValue& _PushArrayElem() noexcept;
+    FJsonValue& PushArrayElem_Internal() noexcept;
 
     /**
      * Object に key を追加し、対応する value への参照を返す (パーサ/テスト用ビルダ)。
@@ -280,7 +280,7 @@ public:
      * @param key 追加するメンバ key。
      * @return 追加した value への参照。
      */
-    FJsonValue& _AddMember(FStringView key) noexcept;
+    FJsonValue& AddMember_Internal(FStringView key) noexcept;
 
     /**
      * Object へ所有済み key をコピーせず追加する。
@@ -288,7 +288,7 @@ public:
      * @param key 所有権を移す key。
      * @return 追加した value への参照。
      */
-    FJsonValue& _AddMember(FString&& key) noexcept;
+    FJsonValue& AddMember_Internal(FString&& key) noexcept;
 
 private:
     /**

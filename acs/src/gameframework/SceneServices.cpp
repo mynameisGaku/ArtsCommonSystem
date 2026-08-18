@@ -129,13 +129,13 @@ CTriggerWorld2D& CSceneServices::Triggers() noexcept {
 }
 
 /** Clock を Tick して scaled dt を確定する前段 tick。 */
-void CSceneServices::_PreUpdate(f32 raw_dt) noexcept {
+void CSceneServices::PreUpdate_Internal(f32 raw_dt) noexcept {
     // Clock 進行 (= scaled dt 確定)。他サービスは scene.OnUpdate の後で tick。
     if (m_Clock) m_Clock->Tick(raw_dt);
 }
 
 /** Tweens/Sequences/Camera/Triggers を scaled dt で Tick する後段 tick。 */
-void CSceneServices::_PostUpdate(f32 scaled_dt) noexcept {
+void CSceneServices::PostUpdate_Internal(f32 scaled_dt) noexcept {
     if (m_Tweens)    m_Tweens->Tick(scaled_dt);
     if (m_Sequences) m_Sequences->Tick(scaled_dt);
     if (m_Camera)    m_Camera->Tick(scaled_dt);
@@ -145,7 +145,7 @@ void CSceneServices::_PostUpdate(f32 scaled_dt) noexcept {
 }
 
 /** OnUpdate へ渡す dt を返す (Clock があればその scaled dt、無ければ raw_dt)。 */
-f32 CSceneServices::_ScaledDt(f32 raw_dt) const noexcept {
+f32 CSceneServices::ScaledDt_Internal(f32 raw_dt) const noexcept {
     return m_Clock ? m_Clock->Dt() : raw_dt;
 }
 

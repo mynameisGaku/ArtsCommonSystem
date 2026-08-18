@@ -197,7 +197,7 @@ FStringView FJsonValue::MemberKey(u32 i) const noexcept {
  *
  * @return 追加した空要素への参照。
  */
-FJsonValue& FJsonValue::_PushArrayElem() noexcept {
+FJsonValue& FJsonValue::PushArrayElem_Internal() noexcept {
     m_Elems.Add(FJsonValue{*m_String.GetAllocator()});
     return m_Elems[m_Elems.Num() - 1];
 }
@@ -208,7 +208,7 @@ FJsonValue& FJsonValue::_PushArrayElem() noexcept {
  * @param key 追加するメンバ key (内容をコピーする)。
  * @return 追加した value への参照。
  */
-FJsonValue& FJsonValue::_AddMember(FStringView key) noexcept {
+FJsonValue& FJsonValue::AddMember_Internal(FStringView key) noexcept {
     // 値と同じ allocator で所有キーを作る。
     FString k(*m_String.GetAllocator());
     k.Append(key);
@@ -223,7 +223,7 @@ FJsonValue& FJsonValue::_AddMember(FStringView key) noexcept {
  * @param key 所有権を移すメンバ key。
  * @return 追加した value への参照。
  */
-FJsonValue& FJsonValue::_AddMember(FString&& key) noexcept {
+FJsonValue& FJsonValue::AddMember_Internal(FString&& key) noexcept {
     m_Keys.Add(Move(key));
     m_Elems.Add(FJsonValue{*m_String.GetAllocator()});
     return m_Elems[m_Elems.Num() - 1];
@@ -646,24 +646,24 @@ struct FParser {
                 // パース対象と同じ allocator を使う一時文字列。
                 FString s(*allocator);
                 if (!ParseString(s)) return false;
-                out._SetString(Move(s));
+                out.SetString_Internal(Move(s));
                 return true;
             }
             case 't':
-                if (end - p >= 4 && p[1]=='r' && p[2]=='u' && p[3]=='e') { Advance();Advance();Advance();Advance(); out._SetBool(true); return true; }
+                if (end - p >= 4 && p[1]=='r' && p[2]=='u' && p[3]=='e') { Advance();Advance();Advance();Advance(); out.SetBool_Internal(true); return true; }
                 Fail(kSubJsonSyntax, "expected 'true'"); return false;
             case 'f':
-                if (end - p >= 5 && p[1]=='a'&&p[2]=='l'&&p[3]=='s'&&p[4]=='e') { Advance();Advance();Advance();Advance();Advance(); out._SetBool(false); return true; }
+                if (end - p >= 5 && p[1]=='a'&&p[2]=='l'&&p[3]=='s'&&p[4]=='e') { Advance();Advance();Advance();Advance();Advance(); out.SetBool_Internal(false); return true; }
                 Fail(kSubJsonSyntax, "expected 'false'"); return false;
             case 'n':
-                if (end - p >= 4 && p[1]=='u'&&p[2]=='l'&&p[3]=='l') { Advance();Advance();Advance();Advance(); out._SetNull(); return true; }
+                if (end - p >= 4 && p[1]=='u'&&p[2]=='l'&&p[3]=='l') { Advance();Advance();Advance();Advance(); out.SetNull_Internal(); return true; }
                 Fail(kSubJsonSyntax, "expected 'null'"); return false;
             default:
                 if (c == '-' || IsJsonDigit(c)) {
                     // 変換した JSON 数値。
                     f64 num;
                     if (!ParseNumber(num)) return false;
-                    out._SetNumber(num);
+                    out.SetNumber_Internal(num);
                     return true;
                 }
                 Fail(kSubJsonSyntax, "unexpected character");
@@ -680,12 +680,12 @@ struct FParser {
      */
     bool ParseArray(FJsonValue& out, u32 depth) noexcept {
         Advance();   // '['
-        out._MakeArray();
+        out.MakeArray_Internal();
         SkipWs();
         if (Peek() == ']') { Advance(); return true; }
         while (true) {
             // 末尾へ新規追加した配列要素。
-            FJsonValue& elem = out._PushArrayElem();
+            FJsonValue& elem = out.PushArrayElem_Internal();
             if (!ParseValue(elem, depth + 1)) return false;
             SkipWs();
             // 要素後に続く区切り文字。
@@ -706,7 +706,7 @@ struct FParser {
      */
     bool ParseObject(FJsonValue& out, u32 depth) noexcept {
         Advance();   // '{'
-        out._MakeObject();
+        out.MakeObject_Internal();
         SkipWs();
         if (Peek() == '}') { Advance(); return true; }
         while (true) {
@@ -720,7 +720,7 @@ struct FParser {
             if (Peek() != ':') { Fail(kSubJsonSyntax, "expected ':'"); return false; }
             Advance();
             // キーに対応して新規追加した値。
-            FJsonValue& val = out._AddMember(Move(key));
+            FJsonValue& val = out.AddMember_Internal(Move(key));
             if (!ParseValue(val, depth + 1)) return false;
             SkipWs();
             // メンバ後に続く区切り文字。

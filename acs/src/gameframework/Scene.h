@@ -43,7 +43,7 @@ inline constexpr ESvc kScene2DServices =
  * @details
  * 派生クラスが OnEnter/OnUpdate/OnRender/OnExit 等の lifecycle hook を override して
  * ロジックと描画を書く。CGame がスタック上で切り替え・更新・描画する。コピー禁止で、
- * CGame/CSceneManager が _SetContext / _AttachServices で実行コンテキストを配線する。
+ * CGame/CSceneManager が SetContext_Internal / AttachServices_Internal で実行コンテキストを配線する。
  * シーン遷移は OnUpdate 内で Scenes().ChangeScene() を呼ぶと次フレーム頭で適用される。
  */
 class AScene {
@@ -52,7 +52,7 @@ public:
     AScene() noexcept {
         // loader が SwapContents で root を差し替えた直後に service/subsystem 配線を
         // やり直せるよう、graph へ再配線 hook を登録する。
-        m_Graph._SetRootSwapHook(&AScene::_OnGraphRootSwapped, this);
+        m_Graph.SetRootSwapHook_Internal(&AScene::OnGraphRootSwapped_Internal, this);
     }
 
     /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
@@ -130,7 +130,7 @@ public:
      * @param g 所属する CGame。
      * @param sm シーンスタックを管理する CSceneManager。
      */
-    void _SetContext(CGame* g, CSceneManager* sm) noexcept {
+    void SetContext_Internal(CGame* g, CSceneManager* sm) noexcept {
         m_Game   = g;
         m_Scenes = sm;
     }
@@ -140,7 +140,7 @@ public:
      *
      * @param svc attach する CSceneServices (所有権が移る)。
      */
-    void _AttachServices(TUniquePtr<CSceneServices> svc) noexcept {
+    void AttachServices_Internal(TUniquePtr<CSceneServices> svc) noexcept {
         m_Services = Move(svc);
     }
 
@@ -149,7 +149,7 @@ public:
      *
      * @return CSceneServices へのポインタ (未 attach なら nullptr)。
      */
-    CSceneServices* _ServicesOrNull() const noexcept { return m_Services.Get(); }
+    CSceneServices* ServicesOrNull_Internal() const noexcept { return m_Services.Get(); }
 
     // ===== サブシステム (World スコープ) =====
 
@@ -176,7 +176,7 @@ public:
      *
      * @param parent GameInstance スコープのコレクション(フォールバック先)。
      */
-    bool _InitWorldSubsystems(CSubsystemCollection* parent) noexcept {
+    bool InitWorldSubsystems_Internal(CSubsystemCollection* parent) noexcept {
         if (!m_WorldSubsystems.TryInitialize(
                 ESubsystemScope::World, parent,
                 FSubsystemOwner{this, ESubsystemOwnerKind::Scene})) {
@@ -184,7 +184,7 @@ public:
         }
         /** hook前のWorld lifecycle世代。 */
         const u64 Generation = m_WorldSubsystems.LifecycleGeneration();
-        _OnWorldSubsystemsReady();
+        OnWorldSubsystemsReady_Internal();
         if (!m_WorldSubsystems.IsInitialized() ||
             m_WorldSubsystems.LifecycleGeneration() != Generation) {
             m_WorldSubsystems.Deinitialize();
@@ -194,19 +194,19 @@ public:
     }
 
     /** 指定 phase の World サブシステムを 1 フレーム進める (内部用)。 */
-    void _TickWorldSubsystems(const FSubsystemFrameContext& Context) noexcept
+    void TickWorldSubsystems_Internal(const FSubsystemFrameContext& Context) noexcept
     {
         m_WorldSubsystems.TickFrame(Context);
     }
 
     /** World サブシステムを解体する (内部用。CSceneManager が pop 時に呼ぶ)。 */
-    void _DeinitWorldSubsystems() noexcept { m_WorldSubsystems.Deinitialize(); }
+    void DeinitWorldSubsystems_Internal() noexcept { m_WorldSubsystems.Deinitialize(); }
 
     /** World サブシステムへのポインタ (内部用。派生がノードへ配線するのに使う)。 */
-    CSubsystemCollection* _WorldSubsystemsPtr() noexcept { return &m_WorldSubsystems; }
+    CSubsystemCollection* WorldSubsystemsPtr_Internal() noexcept { return &m_WorldSubsystems; }
 
     /** constructor後のscene固有状態が遷移準備可能かを返す。 */
-    bool _CanPrepare() const noexcept { return _IsPreparationReady(); }
+    bool CanPrepare_Internal() const noexcept { return IsPreparationReady_Internal(); }
 
     /**
      * シーンの root ノードへの可変参照を返す。
@@ -263,7 +263,7 @@ public:
      * @details 既存の context は破棄される。nullptr を渡すと context 無しに戻る。
      * @param context 引き渡す context (所有権が移る)。
      */
-    void _SetTravelContext(TUniquePtr<CSceneTravelContext> context) noexcept {
+    void SetTravelContext_Internal(TUniquePtr<CSceneTravelContext> context) noexcept {
         m_TravelContext = Move(context);
     }
 
@@ -446,7 +446,7 @@ public:
 
 protected:
     /** scene固有の必須所有物が生成済みならtrueを返す。 */
-    virtual bool _IsPreparationReady() const noexcept { return m_Graph.HasRoot(); }
+    virtual bool IsPreparationReady_Internal() const noexcept { return m_Graph.HasRoot(); }
 
     /**
      * World サブシステムの初期化直後に呼ばれる内部フック(OnEnter より前)。
@@ -454,7 +454,7 @@ protected:
      * @details AScene がルートノードへサブシステム束を配線し、配下のノード/コンポーネントから
      * GetSubsystem<T>() を使えるようにする。
      */
-    virtual void _OnWorldSubsystemsReady() noexcept;
+    virtual void OnWorldSubsystemsReady_Internal() noexcept;
 
     /** シーンが top に来たとき 1 度だけ呼ばれる初期化フック (派生で override)。 */
     virtual void OnReady() noexcept {}
@@ -509,22 +509,22 @@ private:
     friend class CSceneManager;
 
     /** rootへのservice配線を保証してから利用者のOnEnterを呼ぶ。 */
-    void _Enter() noexcept;
+    void Enter_Internal() noexcept;
 
     /** 利用者のOnExit後にrootと要求済みserviceを後始末する。 */
-    void _Exit() noexcept;
+    void Exit_Internal() noexcept;
 
     /** 利用者のOnUpdate後にrootの更新と構造変更解決を行う。 */
-    void _Update(f32 DeltaSeconds) noexcept;
+    void Update_Internal(f32 DeltaSeconds) noexcept;
 
     /** 利用者のOnFixedUpdate後にrootの固定更新と構造変更解決を行う。 */
-    void _FixedUpdate(f32 FixedDeltaSeconds) noexcept;
+    void FixedUpdate_Internal(f32 FixedDeltaSeconds) noexcept;
 
     /** graph の SwapContents が root を差し替えた直後に呼ばれる再配線 thunk。 */
-    static void _OnGraphRootSwapped(void* user) noexcept;
+    static void OnGraphRootSwapped_Internal(void* user) noexcept;
 
     /** 現在の root へ service/subsystem/spawn 先の配線をやり直す (swap 後の回復)。 */
-    void _RewireGraphRoot() noexcept;
+    void RewireGraphRoot_Internal() noexcept;
 
     /**
      * world パスを描画する (camera view を設定し root を DrawTree → OnDrawWorld)。
@@ -560,10 +560,10 @@ private:
 
     /** ステンシルマスクが有効かのフラグ。 */
     bool         m_StencilMaskEnabled = false;
-    /** 所属する CGame (default = nullptr、_SetContext で配線)。 */
+    /** 所属する CGame (default = nullptr、SetContext_Internal で配線)。 */
     CGame*                    m_Game     = nullptr;
 
-    /** シーンスタックを管理する CSceneManager (default = nullptr、_SetContext で配線)。 */
+    /** シーンスタックを管理する CSceneManager (default = nullptr、SetContext_Internal で配線)。 */
     CSceneManager*            m_Scenes   = nullptr;
 
     /** attach されたサービス束 (WantedServices に応じて CSceneManager が確保、所有権を持つ)。 */

@@ -42,7 +42,7 @@ void CGame::OnStart() noexcept {
         return;
     }
     m_Scenes.PushScene(Move(first));
-    m_Scenes._ApplyPending(*this);     // 起動時の最初の遷移は即時適用
+    m_Scenes.ApplyPending_Internal(*this);     // 起動時の最初の遷移は即時適用
     if (m_Scenes.IsEmpty()) {
         ACS_LOG_ERROR("CGame: initial scene subsystem initialization failed");
         Quit();
@@ -56,13 +56,13 @@ void CGame::OnUpdate(f32 dt) noexcept {
     if (m_Fade.IsActive()) {
         m_Fade.Tick(dt);
         if (m_Fade.IsMidPause() && m_PendingScene) {
-            // deferred → 下の _ApplyPending で適用 (context も一緒に渡す)
+            // deferred → 下の ApplyPending_Internal で適用 (context も一緒に渡す)
             m_Scenes.ChangeScene(Move(m_PendingScene), Move(m_PendingSceneContext));
         }
     }
 
     const f32 scaled_dt = dt * m_TimeScale;
-    m_Scenes._ApplyPending(*this);
+    m_Scenes.ApplyPending_Internal(*this);
 
     // 固定タイムステップ accumulator (Scene::OnFixedUpdate を呼ぶ)。
     //   accumulator += dt → fixed_dt 単位で消費しつつ OnFixedUpdate を呼ぶ。
@@ -72,7 +72,7 @@ void CGame::OnUpdate(f32 dt) noexcept {
         m_FixedAccum += scaled_dt;
         u32 steps = 0;
         while (m_FixedAccum >= m_FixedDt && steps < m_MaxFixedSteps) {
-            m_Scenes._FixedUpdate(m_FixedDt);
+            m_Scenes.FixedUpdate_Internal(m_FixedDt);
             m_FixedAccum -= m_FixedDt;
             ++steps;
         }
@@ -89,7 +89,7 @@ void CGame::OnUpdate(f32 dt) noexcept {
     m_GameInstanceSubsystems.TickFrame(PreContext);
 
     // variable-rate update。Scene 内では World Pre → Scene → World Post の順に進む。
-    m_Scenes._Update(scaled_dt, dt, FrameCount());
+    m_Scenes.Update_Internal(scaled_dt, dt, FrameCount());
 
     /** GameInstance の更新後コンテキスト。 */
     const FSubsystemFrameContext PostContext{
@@ -115,13 +115,13 @@ void CGame::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     if (!cl || !sc) return;
-    m_RenderCtx._BeginFrame(GetRenderer(), *cl, sc->Width(), sc->Height());
+    m_RenderCtx.BeginFrame_Internal(GetRenderer(), *cl, sc->Width(), sc->Height());
     // 全シーン共有の UI フォントを毎フレーム配線 (初回に遅延ロード)。
     EnsureUiFont();
-    if (m_UiFontReady) m_RenderCtx._SetFont(&m_UiFont);
-    m_Scenes._Render(m_RenderCtx);
+    if (m_UiFontReady) m_RenderCtx.SetFont_Internal(&m_UiFont);
+    m_Scenes.Render_Internal(m_RenderCtx);
     DrawFadeOverlay();                  // シーン描画の上にフェード幕を重ねる
-    m_RenderCtx._EndFrame();
+    m_RenderCtx.EndFrame_Internal();
 }
 
 /** 初回呼び出しでフェード overlay 用 SpriteBatch を 1 回だけ遅延 init する。 */
@@ -170,7 +170,7 @@ void CGame::TransitionTo(TUniquePtr<AScene> next,
 
 /** 全シーンを shutdown し、サブシステムと UI フォント・overlay リソースを解放する。 */
 void CGame::OnShutdown() noexcept {
-    m_Scenes._ShutdownAll();                  // 各シーンが OnExit で World サブシステムを解体
+    m_Scenes.ShutdownAll_Internal();                  // 各シーンが OnExit で World サブシステムを解体
     // Engine は CApplication がこの hook の復帰後に解体する。
     m_GameInstanceSubsystems.Deinitialize();
     if (m_UiFontReady) m_UiFont.Shutdown();
@@ -179,7 +179,7 @@ void CGame::OnShutdown() noexcept {
 
 /** 受け取ったイベントを CSceneManager にディスパッチする。 */
 void CGame::OnEvent(const FEvent& e) noexcept {
-    m_Scenes._DispatchEvent(e);
+    m_Scenes.DispatchEvent_Internal(e);
 }
 
 } // namespace acs::game

@@ -1324,7 +1324,7 @@ FScene3DLoadResult CommitScene3DDocument(
             node = spawned.Node;
         }
 
-        node->_SetSerialId(record.SourceId);
+        node->SetSerialId_Internal(record.SourceId);
         node->Local().position = record.Position;
         node->Local().SetEulerDeg(record.RotationDeg);
         node->Local().scale = record.Scale;

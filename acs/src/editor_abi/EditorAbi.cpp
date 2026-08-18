@@ -1120,7 +1120,7 @@ AEditorNode* CreateNode(FEditorHost& h, int id, int parent_id, const char* nm,
     auto child = NewObject<AEditorNode>();
     AEditorNode* p = child.Get();
     p->editor_id = id;
-    p->_SetSerialId(id);   // ANode の SerialId = editor_id → ObjectRef を instantiate/tick で解決可
+    p->SetSerialId_Internal(id);   // ANode の SerialId = editor_id → ObjectRef を instantiate/tick で解決可
     std::snprintf(p->name, sizeof(p->name), "%s", nm);
     p->SetLocal2D(game::FTransform2D{ FVec2{ x, y }, rot, FVec2{ sx, sy } });
     p->base  = base;

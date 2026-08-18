@@ -104,7 +104,7 @@ GR_API void* acs_game_scene_create() noexcept {
         // → cross-DLL 安全。root に配線しておくと、以降 add_component 時に各コンポーネントの
         //   OnAttachServices がガード付きで即発火する (services は walk-to-root で解決できる)。
         s->services = MakeUnique<CSceneServices>(ESvc::Default2D | ESvc::Camera2D | ESvc::Physics2D);
-        if (s->root && s->services) s->root->_SetSceneServices(s->services.Get());
+        if (s->root && s->services) s->root->SetSceneServices_Internal(s->services.Get());
     }
     return s;
 }
@@ -181,11 +181,11 @@ GR_API void acs_game_scene_tick(void* scene, float dt) noexcept {
     if (s == nullptr || !s->root) return;
     if (s->services) {
         // AScene と同じ 2 段モデル: PreUpdate(Clock) → OnUpdate → PostUpdate(Tweens/Seq/Camera)。
-        s->services->_PreUpdate(dt);
-        const float sdt = s->services->_ScaledDt(dt);
+        s->services->PreUpdate_Internal(dt);
+        const float sdt = s->services->ScaledDt_Internal(dt);
         s->root->UpdateTree(sdt);
         s->root->ResolveStructuralChanges();
-        s->services->_PostUpdate(sdt);
+        s->services->PostUpdate_Internal(sdt);
     } else {
         s->root->UpdateTree(dt);
         s->root->ResolveStructuralChanges();
@@ -226,8 +226,8 @@ GR_API void acs_game_scene_draw(void* scene, void* sprite_batch,
     if (s == nullptr || !s->root || sb == nullptr) return;
     (void)w; (void)h;   // 予約 (将来 rc.Width/Height を配線する場合に使用)
     FRenderContext rc;
-    rc._SetSpriteBatch(sb);
-    rc._SetView2D(FVec2{ view_cx, view_cy }, view_scale);
+    rc.SetSpriteBatch_Internal(sb);
+    rc.SetView2D_Internal(FVec2{ view_cx, view_cy }, view_scale);
     s->root->DrawTree(rc);
 }
 

@@ -186,18 +186,18 @@ CSceneServices* ANode::SceneServices() const noexcept {
 }
 
 /** root に services を設定し、subtree 全コンポーネントの OnAttachServices を一度発火する。 */
-void ANode::_ActivateServices(CSceneServices& svc) noexcept {
+void ANode::ActivateServices_Internal(CSceneServices& svc) noexcept {
     m_Services = &svc;                 // root にのみ設定 (子は walk-to-root で解決)
-    _ActivateSubtreeServices(&svc);
+    ActivateSubtreeServices_Internal(&svc);
 }
 
 /** subtree を DFS し各コンポーネントの OnAttachServices をガード付きで発火する。 */
-void ANode::_ActivateSubtreeServices(CSceneServices* svc) noexcept {
+void ANode::ActivateSubtreeServices_Internal(CSceneServices* svc) noexcept {
     for (u32 i = 0; i < m_Components.Num(); ++i) {
-        if (m_Components[i]) m_Components[i]->_MaybeAttachServices(svc);
+        if (m_Components[i]) m_Components[i]->MaybeAttachServices_Internal(svc);
     }
     for (u32 i = 0; i < m_Children.Num(); ++i) {
-        if (m_Children[i]) m_Children[i]->_ActivateSubtreeServices(svc);
+        if (m_Children[i]) m_Children[i]->ActivateSubtreeServices_Internal(svc);
     }
 }
 

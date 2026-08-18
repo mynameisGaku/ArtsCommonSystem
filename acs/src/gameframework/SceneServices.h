@@ -186,7 +186,7 @@ public:
      * @details Clock を Tick(raw_dt) して時間を進め、scaled dt を確定する。
      * @param raw_dt スケール前の生 dt。
      */
-    void _PreUpdate(f32 raw_dt) noexcept;
+    void PreUpdate_Internal(f32 raw_dt) noexcept;
 
     /**
      * scene.OnUpdate の後に呼ぶ後段 tick (利用者は触らない)。
@@ -194,16 +194,16 @@ public:
      * @details Tweens/Sequences/Camera/Triggers を scaled_dt で Tick して更新を適用する。
      * @param scaled_dt Clock で確定したスケール済み dt。
      */
-    void _PostUpdate(f32 scaled_dt) noexcept;
+    void PostUpdate_Internal(f32 scaled_dt) noexcept;
 
     /**
      * scene の OnUpdate に渡す dt を返す。
      *
-     * @details _PreUpdate 後に呼ぶ。Clock 未要求なら raw_dt をそのまま返す。
+     * @details PreUpdate_Internal 後に呼ぶ。Clock 未要求なら raw_dt をそのまま返す。
      * @param raw_dt スケール前の生 dt。
      * @return Clock がスケールした dt (未要求なら raw_dt)。
      */
-    f32  _ScaledDt(f32 raw_dt) const noexcept;
+    f32  ScaledDt_Internal(f32 raw_dt) const noexcept;
 
 private:
     friend class CSceneManager;

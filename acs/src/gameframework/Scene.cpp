@@ -21,40 +21,40 @@
 namespace acs::game {
 
 /** World サブシステムを root へ公開し、2D 専用生成先を型付きで接続する。 */
-void AScene::_OnWorldSubsystemsReady() noexcept
+void AScene::OnWorldSubsystemsReady_Internal() noexcept
 {
-    Root()._SetSubsystems(_WorldSubsystemsPtr());
+    Root().SetSubsystems_Internal(WorldSubsystemsPtr_Internal());
     ASpawn2DSubsystem* const Spawner = GetSubsystem<ASpawn2DSubsystem>();
     if (Spawner != nullptr) Spawner->BindTargetRoot(&Root());
 }
 
 /** SwapContents 直後に graph から呼ばれ、owner の AScene へ再配線を依頼する。 */
-void AScene::_OnGraphRootSwapped(void* user) noexcept {
-    static_cast<AScene*>(user)->_RewireGraphRoot();
+void AScene::OnGraphRootSwapped_Internal(void* user) noexcept {
+    static_cast<AScene*>(user)->RewireGraphRoot_Internal();
 }
 
 /** 差し替え後の root へ service/subsystem/spawn 先の配線をやり直す。 */
-void AScene::_RewireGraphRoot() noexcept {
+void AScene::RewireGraphRoot_Internal() noexcept {
     if (!m_Graph.HasRoot()) return;
     ANode& NewRoot = m_Graph.Root();
-    // _OnWorldSubsystemsReady / _Enter と同じ配線を、swap 後の root へ適用し直す。
+    // OnWorldSubsystemsReady_Internal / Enter_Internal と同じ配線を、swap 後の root へ適用し直す。
     // 未 attach (pre-enter の load) では services が無いだけで、束の公開は常に安全。
-    NewRoot._SetSubsystems(_WorldSubsystemsPtr());
+    NewRoot.SetSubsystems_Internal(WorldSubsystemsPtr_Internal());
     ASpawn2DSubsystem* const Spawner = GetSubsystem<ASpawn2DSubsystem>();
     if (Spawner != nullptr) Spawner->BindTargetRoot(&NewRoot);
     if (HasServices()) {
-        NewRoot._SetSceneServices(_ServicesOrNull());
-        NewRoot._ActivateServices(Services());
+        NewRoot.SetSceneServices_Internal(ServicesOrNull_Internal());
+        NewRoot.ActivateServices_Internal(Services());
     }
 }
 
 /** rootへservicesを配線し、利用者hook後に既存componentへ通知する。 */
-void AScene::_Enter() noexcept {
+void AScene::Enter_Internal() noexcept {
     // 利用者hookより前に配線し、hook内で追加したcomponentは即時通知する。
-    // hook後の_ActivateServicesは配線前から存在したcomponentを補う。
-    if (HasServices()) Root()._SetSceneServices(_ServicesOrNull());
+    // hook後のActivateServices_Internalは配線前から存在したcomponentを補う。
+    if (HasServices()) Root().SetSceneServices_Internal(ServicesOrNull_Internal());
     OnEnter();
-    if (HasServices()) Root()._ActivateServices(Services());
+    if (HasServices()) Root().ActivateServices_Internal(Services());
 }
 
 /** 既定の入場hookとしてOnReadyを呼ぶ。 */
@@ -63,7 +63,7 @@ void AScene::OnEnter() noexcept {
 }
 
 /** 利用者hook後に構造変更と要求済みserviceを後始末する。 */
-void AScene::_Exit() noexcept {
+void AScene::Exit_Internal() noexcept {
     OnExit();
     // 破棄予定ノードを pool から外してから reap する (順序は graph の Update と同じ)。
     m_Graph.ResolveStructuralChanges();
@@ -77,7 +77,7 @@ void AScene::_Exit() noexcept {
     // (docs/SceneUnification.md)。シーンを跨いで再 Init しない分、遷移コストも下がる。
 }
 
-/** 既定の退場hook。共通後始末は_Exitが必ず実行する。 */
+/** 既定の退場hook。共通後始末はExit_Internalが必ず実行する。 */
 void AScene::OnExit() noexcept {}
 
 /** CGame が共有する world/HUD 用 CSpriteBatch を返す (シーンは所有しない)。 */
@@ -86,7 +86,7 @@ CSpriteBatch& AScene::SpriteBatch() noexcept {
 }
 
 /** 利用者hook後にrootのUpdateTreeと構造変更解決を実行する。 */
-void AScene::_Update(f32 DeltaSeconds) noexcept {
+void AScene::Update_Internal(f32 DeltaSeconds) noexcept {
     OnUpdate(DeltaSeconds);
     // UpdateTree → pool purge → 構造変更解決。reap される前に破棄予定ノードを
     // pool から外す (docs/SceneUnification.md)。
@@ -99,7 +99,7 @@ void AScene::OnUpdate(f32 DeltaSeconds) noexcept {
 }
 
 /** 利用者hook後にrootの固定更新と構造変更解決を実行する。 */
-void AScene::_FixedUpdate(f32 FixedDeltaSeconds) noexcept {
+void AScene::FixedUpdate_Internal(f32 FixedDeltaSeconds) noexcept {
     OnFixedUpdate(FixedDeltaSeconds);
     m_Graph.FixedUpdate(FixedDeltaSeconds);
 }
@@ -262,13 +262,13 @@ void AScene::OnRender(FRenderContext& rc) noexcept {
     if (!res.EnsureSpriteBatch(rc)) return;
     // 以降このパスの間だけ「今の描画先」が publish され、batch を持ち回らずに
     // Draw* 関数から描けるようになる (gameframework/Draw.h)。
-    _SetDrawContext(&rc);
+    SetDrawContext_Internal(&rc);
     m_ScreenW = rc.Width();        // picking 用に画面サイズをキャッシュ
     m_ScreenH = rc.Height();
     CSpriteBatch& sb = res.SpriteBatch();
     const FVec2 center = ViewCenter();
     const f32 scale = m_PixelsPerUnit * ViewZoom();
-    rc._SetView2D(center, scale);   // 反射等の world→screen 投影用に配線
+    rc.SetView2D_Internal(center, scale);   // 反射等の world→screen 投影用に配線
 
     // マスク用 stencil バッファ (有効かつ作成成功時のみ)。world パスで DSV として bind。
     IRhiTexture* stencil = (m_StencilMaskEnabled && res.EnsureStencilBuffer(rc)) ? res.StencilBuffer() : nullptr;
@@ -292,16 +292,16 @@ void AScene::OnRender(FRenderContext& rc) noexcept {
         CSpriteBatch& sbR = res.SceneSprites();
         cl.BeginRenderToTexture(*res.SceneRt(), cc);
         sbR.Begin(cl, rc.Width(), rc.Height());
-        rc._SetSpriteBatch(&sbR);
-        rc._SetReflection(nullptr);
-        rc._SetSceneColor(nullptr);
-        rc._SetSceneDepth(nullptr);
-        rc._SetSceneColorCapturePass(waterSceneCapture);
-        rc._SetWaterDepthCapturePass(false);
-        rc._SetStencilMaskActive(false);
+        rc.SetSpriteBatch_Internal(&sbR);
+        rc.SetReflection_Internal(nullptr);
+        rc.SetSceneColor_Internal(nullptr);
+        rc.SetSceneDepth_Internal(nullptr);
+        rc.SetSceneColorCapturePass_Internal(waterSceneCapture);
+        rc.SetWaterDepthCapturePass_Internal(false);
+        rc.SetStencilMaskActive_Internal(false);
         DrawWorldPass(rc);
-        rc._SetSceneColorCapturePass(false);
-        rc._SetSpriteBatch(nullptr);
+        rc.SetSceneColorCapturePass_Internal(false);
+        rc.SetSpriteBatch_Internal(nullptr);
         sbR.End();
         cl.EndRenderToTexture(*res.SceneRt());
 
@@ -313,13 +313,13 @@ void AScene::OnRender(FRenderContext& rc) noexcept {
             cl.BeginRenderToTexture(*res.WaterDepthRt(), FClearColor{0, 0, 0, 0});
             sbD.Begin(cl, rc.Width(), rc.Height());
             sbD.SetDrawSuppressed(true);
-            rc._SetSpriteBatch(&sbD);
-            rc._SetWaterDepthCapturePass(true);
-            rc._SetSceneColorCapturePass(false);
-            rc._SetStencilMaskActive(false);
+            rc.SetSpriteBatch_Internal(&sbD);
+            rc.SetWaterDepthCapturePass_Internal(true);
+            rc.SetSceneColorCapturePass_Internal(false);
+            rc.SetStencilMaskActive_Internal(false);
             DrawWorldPass(rc);
-            rc._SetWaterDepthCapturePass(false);
-            rc._SetSpriteBatch(nullptr);
+            rc.SetWaterDepthCapturePass_Internal(false);
+            rc.SetSpriteBatch_Internal(nullptr);
             sbD.SetDrawSuppressed(false);
             sbD.End();
             cl.EndRenderToTexture(*res.WaterDepthRt());
@@ -329,43 +329,43 @@ void AScene::OnRender(FRenderContext& rc) noexcept {
         // scene/depth RT は既に書き終えており、ここでは SRV としてのみ参照する。
         if (sc) cl.BeginRenderToSwapchain(*sc, renderer.CurrentBuffer(), cc, stencil);
         sb.Begin(cl, rc.Width(), rc.Height());
-        rc._SetSpriteBatch(&sb);
-        if (stencil) { rc._SetStencilMaskActive(true); sb.SetStencilMode(EStencilMode::Off); }
-        rc._SetReflection(res.SceneRt());   // 水がこの RT を鏡像 UV でサンプル
-        rc._SetSceneColor(waterSceneCapture ? res.SceneRt() : nullptr);
-        rc._SetSceneDepth(waterDepthReady ? res.WaterDepthRt() : nullptr);
+        rc.SetSpriteBatch_Internal(&sb);
+        if (stencil) { rc.SetStencilMaskActive_Internal(true); sb.SetStencilMode(EStencilMode::Off); }
+        rc.SetReflection_Internal(res.SceneRt());   // 水がこの RT を鏡像 UV でサンプル
+        rc.SetSceneColor_Internal(waterSceneCapture ? res.SceneRt() : nullptr);
+        rc.SetSceneDepth_Internal(waterDepthReady ? res.WaterDepthRt() : nullptr);
         DrawWorldPass(rc);
-        rc._SetReflection(nullptr);
-        rc._SetSceneColor(nullptr);
-        rc._SetSceneDepth(nullptr);
-        if (stencil) { sb.SetStencilMode(EStencilMode::Off); rc._SetStencilMaskActive(false); }
+        rc.SetReflection_Internal(nullptr);
+        rc.SetSceneColor_Internal(nullptr);
+        rc.SetSceneDepth_Internal(nullptr);
+        if (stencil) { sb.SetStencilMode(EStencilMode::Off); rc.SetStencilMaskActive_Internal(false); }
         DrawHudPass(rc);
-        rc._SetSpriteBatch(nullptr);
+        rc.SetSpriteBatch_Internal(nullptr);
         sb.End();
         // EndRenderToSwapchain は CGame/Renderer の EndFrame が行う。
     } else if (stencil) {
         // stencil のみ: スワップチェーンを stencil 付きで再バインド (バリアはガード済)。
         if (sc) cl.BeginRenderToSwapchain(*sc, renderer.CurrentBuffer(), cc, stencil);
         sb.Begin(cl, rc.Width(), rc.Height());
-        rc._SetSpriteBatch(&sb);
-        rc._SetStencilMaskActive(true);
+        rc.SetSpriteBatch_Internal(&sb);
+        rc.SetStencilMaskActive_Internal(true);
         sb.SetStencilMode(EStencilMode::Off);   // DSV 整合の既定 PSO へ切替
         DrawWorldPass(rc);
         sb.SetStencilMode(EStencilMode::Off);   // HUD が誤ってマスクされないよう解除
-        rc._SetStencilMaskActive(false);
+        rc.SetStencilMaskActive_Internal(false);
         DrawHudPass(rc);
-        rc._SetSpriteBatch(nullptr);
+        rc.SetSpriteBatch_Internal(nullptr);
         sb.End();
     } else {
         sb.Begin(rc.Cmd(), rc.Width(), rc.Height());
-        rc._SetSpriteBatch(&sb);
+        rc.SetSpriteBatch_Internal(&sb);
         DrawWorldPass(rc);
         DrawHudPass(rc);
-        rc._SetSpriteBatch(nullptr);
+        rc.SetSpriteBatch_Internal(nullptr);
         sb.End();
     }
     // パスを出たら Draw* が何も描かないよう publish を解除する。
-    _SetDrawContext(nullptr);
+    SetDrawContext_Internal(nullptr);
 }
 
 } // namespace acs::game

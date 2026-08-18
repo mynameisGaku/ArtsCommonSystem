@@ -48,14 +48,14 @@ class FRenderContext;
  * @details nullptr を渡すと publish を解除する。main スレッドからのみ呼ぶ。
  * @param context 現在の描画コンテキスト (解除は nullptr)。
  */
-void _SetDrawContext(FRenderContext* context) noexcept;
+void SetDrawContext_Internal(FRenderContext* context) noexcept;
 
 /**
  * publish 済みの描画先を返す (内部用)。
  *
  * @return 現在の FRenderContext (パスの外なら nullptr)。
  */
-FRenderContext* _CurrentDrawContext() noexcept;
+FRenderContext* CurrentDrawContext_Internal() noexcept;
 
 /**
  * 今この場で描けるか (描画パスの内側で、かつ sprite batch が配線済みか) を返す。

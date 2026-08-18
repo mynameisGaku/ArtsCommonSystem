@@ -101,7 +101,7 @@ public:
      * @param hook 呼び出す関数 (nullptr で解除)。
      * @param user hook へそのまま渡す owner 文脈。
      */
-    void _SetRootSwapHook(void (*hook)(void* user) noexcept, void* user) noexcept {
+    void SetRootSwapHook_Internal(void (*hook)(void* user) noexcept, void* user) noexcept {
         m_RootSwapHook     = hook;
         m_RootSwapHookUser = user;
     }

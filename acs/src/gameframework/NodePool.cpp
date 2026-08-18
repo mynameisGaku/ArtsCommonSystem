@@ -5,7 +5,7 @@
 // パターンに完全準拠する。所有権を持たないこと、index 0 予約、generation 0
 // スキップ、24bit index 上限の 4 点が正しさの肝。
 #include "gameframework/NodePool.h"
-#include "gameframework/ANode.h"   // ANode::_SetId / Id を呼ぶため full include
+#include "gameframework/ANode.h"   // ANode::SetId_Internal / Id を呼ぶため full include
 
 namespace acs::game {
 
@@ -55,7 +55,7 @@ FNodePoolRegisterResult CNodePool::TryRegisterExistingNode(ANode* node) noexcept
     const FNodeId existing = IdOf(node);
     if (existing.IsValid()) {
         // active slotを真実としてnode側の内部Idも自己修復する。
-        if (node->Id() != existing) node->_SetId(existing);
+        if (node->Id() != existing) node->SetId_Internal(existing);
         return FNodePoolRegisterResult{
             existing, ENodePoolRegisterError::AlreadyRegistered
         };
@@ -80,7 +80,7 @@ FNodePoolRegisterResult CNodePool::TryRegisterExistingNode(ANode* node) noexcept
     ++m_ActiveCount;
 
     const FNodeId new_id{idx, s.gen};
-    node->_SetId(new_id);
+    node->SetId_Internal(new_id);
     return FNodePoolRegisterResult{new_id, ENodePoolRegisterError::None};
 }
 
@@ -102,7 +102,7 @@ void CNodePool::Unregister(FNodeId id) noexcept {
 
     // ANode 側の Id を invalid にリセット (ぶら下がった stale handle を node 経由でも検出可能に)。
     if (s.ptr != nullptr) {
-        s.ptr->_SetId(FNodeId{});
+        s.ptr->SetId_Internal(FNodeId{});
     }
 
     s.active = false;
@@ -136,7 +136,7 @@ u32 CNodePool::PurgePendingDestroy() noexcept {
         if (ancestor != nullptr && depth > kNodeMaxTreeDepth) pending_subtree = true;
 
         if (pending_subtree) {
-            s.ptr->_SetId(FNodeId{});
+            s.ptr->SetId_Internal(FNodeId{});
             s.active = false;
             s.ptr    = nullptr;
             if (m_ActiveCount > 0u) --m_ActiveCount;
@@ -190,7 +190,7 @@ void CNodePool::ClearAll() noexcept {
         FSlot& s = m_Slots[i];
         if (s.active) {
             if (s.ptr != nullptr) {
-                s.ptr->_SetId(FNodeId{});
+                s.ptr->SetId_Internal(FNodeId{});
             }
             s.active = false;
             s.ptr    = nullptr;

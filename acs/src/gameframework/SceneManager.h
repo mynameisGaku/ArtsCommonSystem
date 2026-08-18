@@ -11,7 +11,7 @@
 //   ・退場 AScene を **3 フレーム保持** (= フレームインフライト 2 + 1) する ring
 //     buffer。GPU が直前フレームで参照中のリソースの use-after-free を防ぐ
 //   ・Push 時に旧 top の OnPause、Pop 時に新 top の OnResume を呼ぶ
-//   ・OnFixedUpdate を CGame の accumulator から呼び込めるよう _FixedUpdate
+//   ・OnFixedUpdate を CGame の accumulator から呼び込めるよう FixedUpdate_Internal
 #pragma once
 
 #include "container/Array.h"
@@ -27,7 +27,7 @@ class FRenderContext;
  * TUniquePtr<AScene> のスタックを管理し、top のシーンを毎フレーム駆動するマネージャ。
  *
  * @details
- * 遷移要求 (Change/Push/Pop) はフレーム境界まで遅延し、_ApplyPending で適用するため、
+ * 遷移要求 (Change/Push/Pop) はフレーム境界まで遅延し、ApplyPending_Internal で適用するため、
  * 走査中 (Update/Render 内) からの構造変更が安全。1 フレーム 1 遷移で、複数要求が来た場合は
  * 後勝ち。退場した AScene は GPU が直前フレームで参照中のリソースを use-after-free しないよう、
  * ring buffer で 3 フレーム (フレームインフライト 2 + 1) 保持してから破棄する。Push 時には
@@ -50,7 +50,7 @@ public:
     /**
      * 現 top を pop して next を push する遷移を要求する (= 単純な画面切替)。
      *
-     * @details 即時適用せず次フレーム頭の _ApplyPending で実行する。pending が既に立っていれば
+     * @details 即時適用せず次フレーム頭の ApplyPending_Internal で実行する。pending が既に立っていれば
      * 上書きする (後勝ち)。next が nullptr の場合は警告ログを出して無視する。
      * @param next 切り替え先のシーン (所有権が移る)。
      */
@@ -126,7 +126,7 @@ public:
      * リソースを破棄しないよう ring buffer で 3 フレーム (フレームインフライト 2 + 1) 保持される。
      * @param game シーンに紐付ける CGame コンテキスト。
      */
-    void _ApplyPending(CGame& game) noexcept;
+    void ApplyPending_Internal(CGame& game) noexcept;
 
     /**
      * top のシーンに可変刻み dt を流す。
@@ -135,7 +135,7 @@ public:
      * → World PostUpdate の順で駆動する。Clock 未要求なら raw dt をそのまま渡す。
      * @param dt 前フレームからの経過秒。
      */
-    void _Update(f32 ScaledDeltaSeconds, f32 UnscaledDeltaSeconds, u64 FrameNumber) noexcept;
+    void Update_Internal(f32 ScaledDeltaSeconds, f32 UnscaledDeltaSeconds, u64 FrameNumber) noexcept;
 
     /**
      * top のシーンに固定刻み fixed_dt を流す。
@@ -143,24 +143,24 @@ public:
      * @details CGame の accumulator から 1 フレームに複数回呼ばれる可能性がある。
      * @param fixed_dt 固定刻みの秒。
      */
-    void _FixedUpdate(f32 fixed_dt) noexcept;
+    void FixedUpdate_Internal(f32 fixed_dt) noexcept;
 
     /**
      * top のシーンを描画する。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト (呼び出し側が用意)。
      */
-    void _Render(FRenderContext& rc) noexcept;
+    void Render_Internal(FRenderContext& rc) noexcept;
 
     /**
      * 受け取った FEvent を top のシーンへ配送する。
      *
      * @param e 配送するイベント。
      */
-    void _DispatchEvent(const FEvent& e) noexcept;
+    void DispatchEvent_Internal(const FEvent& e) noexcept;
 
     /** 終了処理。残った全シーンに top から OnExit を呼んでから破棄する。 */
-    void _ShutdownAll() noexcept;
+    void ShutdownAll_Internal() noexcept;
 
     /** 退場 AScene を保持するフレーム数 (= フレームインフライト 2 + 1)。 */
     static constexpr u32 kRetireRingSize = 3;

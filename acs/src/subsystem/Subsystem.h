@@ -55,10 +55,15 @@ public:
     }
 
     /** owner descriptor を設定するコレクション内部 API。 */
-    void _SetOwnerDescriptor(FSubsystemOwner owner) noexcept { m_Owner = owner; }
+    // ここから下は CSubsystemCollection が寿命を組み立てるあいだに呼ぶもの。
+    // **利用側から呼ぶものではない。**
+private:
+    friend class CSubsystemCollection;
+
+    void SetOwnerDescriptor_Internal(FSubsystemOwner owner) noexcept { m_Owner = owner; }
 
     /** 種別を持たない旧 owner ポインタを設定する互換 API。 */
-    void _SetOwner(void* owner) noexcept
+    void SetOwner_Internal(void* owner) noexcept
     {
         m_Owner = FSubsystemOwner{owner, ESubsystemOwnerKind::Unknown};
     }

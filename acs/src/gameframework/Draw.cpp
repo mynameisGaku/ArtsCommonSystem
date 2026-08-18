@@ -33,11 +33,11 @@ u32 ClampSegments(u32 segments) noexcept {
 
 } // namespace
 
-void _SetDrawContext(FRenderContext* context) noexcept {
+void SetDrawContext_Internal(FRenderContext* context) noexcept {
     g_draw_context = context;
 }
 
-FRenderContext* _CurrentDrawContext() noexcept {
+FRenderContext* CurrentDrawContext_Internal() noexcept {
     return g_draw_context;
 }
 

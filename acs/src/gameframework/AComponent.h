@@ -249,12 +249,6 @@ public:
      *
      * @param svc 配線された services (nullptr なら何もしない)。
      */
-    void _MaybeAttachServices(CSceneServices* svc) noexcept {
-        if (svc != nullptr && !m_ServicesAttached) {
-            m_ServicesAttached = true;
-            OnAttachServices(*svc);
-        }
-    }
 
     /**
      * owner ノードへの可変参照を返す。
@@ -277,14 +271,33 @@ public:
      */
     bool HasOwner() const noexcept { return m_Owner != nullptr; }
 
+    // ---- ここから下は ANode が組み立てのあいだに呼ぶもの ---------------------
+    //
+    // **ゲーム側から呼ぶものではない。** private + friend にしてあるので、誤って
+    // 呼ぶとコンパイルが止まる。名前の `_Internal` は «読めば分かる» ための印で、
+    // 実際に止めるのはこのアクセス指定の方。
+private:
+    friend class ANode;
+
     /**
-     * owner ポインタを設定する (内部用。ANode::AddComponent が呼ぶ)。
+     * owner ポインタを設定する (ANode::AddComponent が呼ぶ)。
      *
      * @param o 設定する owner ノード。
      */
-    void _SetOwner(ANode* o) noexcept { m_Owner = o; }
+    void SetOwner_Internal(ANode* o) noexcept { m_Owner = o; }
 
-private:
+    /**
+     * services が利用可能なら OnAttachServices を一度だけ発火する (ガード付き)。
+     *
+     * @param svc 配線された services (nullptr なら何もしない)。
+     */
+    void MaybeAttachServices_Internal(CSceneServices* svc) noexcept {
+        if (svc != nullptr && !m_ServicesAttached) {
+            m_ServicesAttached = true;
+            OnAttachServices(*svc);
+        }
+    }
+
     /** owner ノード (attach 前は nullptr)。 */
     ANode* m_Owner = nullptr;
 

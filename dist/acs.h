@@ -12352,10 +12352,15 @@ public:
     }
 
     /** owner descriptor を設定するコレクション内部 API。 */
-    void _SetOwnerDescriptor(FSubsystemOwner owner) noexcept { m_Owner = owner; }
+    // ここから下は CSubsystemCollection が寿命を組み立てるあいだに呼ぶもの。
+    // **利用側から呼ぶものではない。**
+private:
+    friend class CSubsystemCollection;
+
+    void SetOwnerDescriptor_Internal(FSubsystemOwner owner) noexcept { m_Owner = owner; }
 
     /** 種別を持たない旧 owner ポインタを設定する互換 API。 */
-    void _SetOwner(void* owner) noexcept
+    void SetOwner_Internal(void* owner) noexcept
     {
         m_Owner = FSubsystemOwner{owner, ESubsystemOwnerKind::Unknown};
     }
@@ -19656,52 +19661,52 @@ public:
     FStringView MemberKey(u32 i) const noexcept;
 
     /** この値を Null にリセットする (パーサ/テスト用ビルダ)。 */
-    void _SetNull()              noexcept { Reset(EJsonType::Null); }
+    void SetNull_Internal()              noexcept { Reset(EJsonType::Null); }
 
     /**
      * この値を Bool に設定する (パーサ/テスト用ビルダ)。
      *
      * @param b 設定する真偽値。
      */
-    void _SetBool(bool b)        noexcept { Reset(EJsonType::Bool);   m_Bool = b; }
+    void SetBool_Internal(bool b)        noexcept { Reset(EJsonType::Bool);   m_Bool = b; }
 
     /**
      * この値を Number に設定する (パーサ/テスト用ビルダ)。
      *
      * @param n 設定する数値。
      */
-    void _SetNumber(f64 n)       noexcept { Reset(EJsonType::Number); m_Number = n; }
+    void SetNumber_Internal(f64 n)       noexcept { Reset(EJsonType::Number); m_Number = n; }
 
     /**
      * この値を String に設定する (パーサ/テスト用ビルダ)。
      *
      * @param s 設定する文字列ビュー (内容をコピーする)。
      */
-    void _SetString(FStringView s) noexcept { Reset(EJsonType::String); m_String.Clear(); m_String.Append(s); }
+    void SetString_Internal(FStringView s) noexcept { Reset(EJsonType::String); m_String.Clear(); m_String.Append(s); }
 
     /**
      * 所有文字列をコピーせず String 値へ移す。
      *
      * @param s 同じ allocator 系で生成済みの文字列。
      */
-    void _SetString(FString&& s) noexcept
+    void SetString_Internal(FString&& s) noexcept
     {
         Reset(EJsonType::String);
         m_String = Move(s);
     }
 
     /** この値を空の Array にする (パーサ/テスト用ビルダ)。 */
-    void _MakeArray()            noexcept { Reset(EJsonType::Array); }
+    void MakeArray_Internal()            noexcept { Reset(EJsonType::Array); }
 
     /** この値を空の Object にする (パーサ/テスト用ビルダ)。 */
-    void _MakeObject()           noexcept { Reset(EJsonType::Object); }
+    void MakeObject_Internal()           noexcept { Reset(EJsonType::Object); }
 
     /**
      * Array に空要素を追加し、その参照を返す (パーサ/テスト用ビルダ)。
      *
      * @return 追加した空要素への参照。
      */
-    FJsonValue& _PushArrayElem() noexcept;
+    FJsonValue& PushArrayElem_Internal() noexcept;
 
     /**
      * Object に key を追加し、対応する value への参照を返す (パーサ/テスト用ビルダ)。
@@ -19709,7 +19714,7 @@ public:
      * @param key 追加するメンバ key。
      * @return 追加した value への参照。
      */
-    FJsonValue& _AddMember(FStringView key) noexcept;
+    FJsonValue& AddMember_Internal(FStringView key) noexcept;
 
     /**
      * Object へ所有済み key をコピーせず追加する。
@@ -19717,7 +19722,7 @@ public:
      * @param key 所有権を移す key。
      * @return 追加した value への参照。
      */
-    FJsonValue& _AddMember(FString&& key) noexcept;
+    FJsonValue& AddMember_Internal(FString&& key) noexcept;
 
 private:
     /**
@@ -29964,12 +29969,6 @@ public:
      *
      * @param svc 配線された services (nullptr なら何もしない)。
      */
-    void _MaybeAttachServices(CSceneServices* svc) noexcept {
-        if (svc != nullptr && !m_ServicesAttached) {
-            m_ServicesAttached = true;
-            OnAttachServices(*svc);
-        }
-    }
 
     /**
      * owner ノードへの可変参照を返す。
@@ -29992,14 +29991,33 @@ public:
      */
     bool HasOwner() const noexcept { return m_Owner != nullptr; }
 
+    // ---- ここから下は ANode が組み立てのあいだに呼ぶもの ---------------------
+    //
+    // **ゲーム側から呼ぶものではない。** private + friend にしてあるので、誤って
+    // 呼ぶとコンパイルが止まる。名前の `_Internal` は «読めば分かる» ための印で、
+    // 実際に止めるのはこのアクセス指定の方。
+private:
+    friend class ANode;
+
     /**
-     * owner ポインタを設定する (内部用。ANode::AddComponent が呼ぶ)。
+     * owner ポインタを設定する (ANode::AddComponent が呼ぶ)。
      *
      * @param o 設定する owner ノード。
      */
-    void _SetOwner(ANode* o) noexcept { m_Owner = o; }
+    void SetOwner_Internal(ANode* o) noexcept { m_Owner = o; }
 
-private:
+    /**
+     * services が利用可能なら OnAttachServices を一度だけ発火する (ガード付き)。
+     *
+     * @param svc 配線された services (nullptr なら何もしない)。
+     */
+    void MaybeAttachServices_Internal(CSceneServices* svc) noexcept {
+        if (svc != nullptr && !m_ServicesAttached) {
+            m_ServicesAttached = true;
+            OnAttachServices(*svc);
+        }
+    }
+
     /** owner ノード (attach 前は nullptr)。 */
     ANode* m_Owner = nullptr;
 
@@ -30968,8 +30986,15 @@ public:
      */
     FNodeId Id() const noexcept { return m_Id; }
 
-    /** ノード ID を設定する (内部用。生成側が割り当てる)。 */
-    void   _SetId(FNodeId id) noexcept { m_Id = id; }
+    // ノード ID を割り当てるのは生成側だけ。**外から書き換えると、他所が持っている
+    // handle が黙って別のノードを指す。** private + friend で止める。
+private:
+    friend class CNodePool;
+
+    /** ノード ID を設定する (CNodePool が割り当てる)。 */
+    void   SetId_Internal(FNodeId id) noexcept { m_Id = id; }
+
+public:
 
     /**
      * シーン直列化 ID (エディタ id) を返す (-1 = 未設定)。
@@ -30979,7 +31004,7 @@ public:
     i32 SerialId() const noexcept { return m_SerialId; }
 
     /** シーン直列化 ID を設定する (内部用。ローダ/エディタが割り当てる)。 */
-    void _SetSerialId(i32 id) noexcept { m_SerialId = id; }
+    void SetSerialId_Internal(i32 id) noexcept { m_SerialId = id; }
 
     /**
      * subtree (this + 子孫) から直列化 ID 一致のノードを探す (DFS、無ければ nullptr)。
@@ -31004,12 +31029,12 @@ public:
     T& AddComponent(Args&&... args) noexcept {
         TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
         T* ref = comp.Get();
-        ref->_SetOwner(this);
+        ref->SetOwner_Internal(this);
         // 依存コンポーネントを先に確保する。
         ref->OnRequire(*this);
         m_Components.Add(TUniquePtr<AComponent>(comp.Release(), comp.GetAllocator()));
         ref->OnAttach(*this);
-        ref->_MaybeAttachServices(SceneServices());   // ツリーが既に services 配線済なら即 fire
+        ref->MaybeAttachServices_Internal(SceneServices());   // ツリーが既に services 配線済なら即 fire
         return *ref;
     }
 
@@ -31126,11 +31151,11 @@ public:
      */
     AComponent& AttachComponent(TUniquePtr<AComponent> comp) noexcept {
         AComponent* ref = comp.Get();
-        ref->_SetOwner(this);
+        ref->SetOwner_Internal(this);
         ref->OnRequire(*this);
         m_Components.Add(Move(comp));
         ref->OnAttach(*this);
-        ref->_MaybeAttachServices(SceneServices());
+        ref->MaybeAttachServices_Internal(SceneServices());
         return *ref;
     }
 
@@ -31144,7 +31169,7 @@ public:
     CSceneServices* SceneServices() const noexcept;
 
     /** services ポインタを設定する (内部用。root ノードでのみ意味を持つ)。 */
-    void _SetSceneServices(CSceneServices* svc) noexcept { m_Services = svc; }
+    void SetSceneServices_Internal(CSceneServices* svc) noexcept { m_Services = svc; }
 
     /**
      * ツリーに配線された World サブシステム束を返す (root まで遡る。未配線なら nullptr)。
@@ -31154,7 +31179,7 @@ public:
     CSubsystemCollection* Subsystems() const noexcept;
 
     /** サブシステム束を設定する (内部用。root ノードでのみ意味を持つ)。 */
-    void _SetSubsystems(CSubsystemCollection* subs) noexcept { m_Subsystems = subs; }
+    void SetSubsystems_Internal(CSubsystemCollection* subs) noexcept { m_Subsystems = subs; }
 
     /**
      * 型でサブシステムを取得する (root のコレクションから解決)。
@@ -31169,7 +31194,7 @@ public:
     }
 
     /** root に services を設定し、subtree 全コンポーネントの OnAttachServices を一度発火する。 */
-    void _ActivateServices(CSceneServices& svc) noexcept;
+    void ActivateServices_Internal(CSceneServices& svc) noexcept;
 
     // ------------------------------------------------------------ ツリー実行
 
@@ -31301,7 +31326,7 @@ private:
     u32 SubtreeHeight() const noexcept;
 
     /** subtree を DFS し各コンポーネントの OnAttachServices をガード付きで発火する。 */
-    void _ActivateSubtreeServices(CSceneServices* svc) noexcept;
+    void ActivateSubtreeServices_Internal(CSceneServices* svc) noexcept;
 
     /** ローカル transform (真値。world は親から合成)。 */
     FTransform3D m_Local{};
@@ -42045,14 +42070,14 @@ class FRenderContext;
  * @details nullptr を渡すと publish を解除する。main スレッドからのみ呼ぶ。
  * @param context 現在の描画コンテキスト (解除は nullptr)。
  */
-void _SetDrawContext(FRenderContext* context) noexcept;
+void SetDrawContext_Internal(FRenderContext* context) noexcept;
 
 /**
  * publish 済みの描画先を返す (内部用)。
  *
  * @return 現在の FRenderContext (パスの外なら nullptr)。
  */
-FRenderContext* _CurrentDrawContext() noexcept;
+FRenderContext* CurrentDrawContext_Internal() noexcept;
 
 /**
  * 今この場で描けるか (描画パスの内側で、かつ sprite batch が配線済みか) を返す。
@@ -47037,7 +47062,7 @@ using FSpriteBatch = CSpriteBatch;
 //   ・退場 AScene を **3 フレーム保持** (= フレームインフライト 2 + 1) する ring
 //     buffer。GPU が直前フレームで参照中のリソースの use-after-free を防ぐ
 //   ・Push 時に旧 top の OnPause、Pop 時に新 top の OnResume を呼ぶ
-//   ・OnFixedUpdate を CGame の accumulator から呼び込めるよう _FixedUpdate
+//   ・OnFixedUpdate を CGame の accumulator から呼び込めるよう FixedUpdate_Internal
 
 
 // ===================== gameframework/Scene.h =====================
@@ -48435,7 +48460,7 @@ public:
      * @details Clock を Tick(raw_dt) して時間を進め、scaled dt を確定する。
      * @param raw_dt スケール前の生 dt。
      */
-    void _PreUpdate(f32 raw_dt) noexcept;
+    void PreUpdate_Internal(f32 raw_dt) noexcept;
 
     /**
      * scene.OnUpdate の後に呼ぶ後段 tick (利用者は触らない)。
@@ -48443,16 +48468,16 @@ public:
      * @details Tweens/Sequences/Camera/Triggers を scaled_dt で Tick して更新を適用する。
      * @param scaled_dt Clock で確定したスケール済み dt。
      */
-    void _PostUpdate(f32 scaled_dt) noexcept;
+    void PostUpdate_Internal(f32 scaled_dt) noexcept;
 
     /**
      * scene の OnUpdate に渡す dt を返す。
      *
-     * @details _PreUpdate 後に呼ぶ。Clock 未要求なら raw_dt をそのまま返す。
+     * @details PreUpdate_Internal 後に呼ぶ。Clock 未要求なら raw_dt をそのまま返す。
      * @param raw_dt スケール前の生 dt。
      * @return Clock がスケールした dt (未要求なら raw_dt)。
      */
-    f32  _ScaledDt(f32 raw_dt) const noexcept;
+    f32  ScaledDt_Internal(f32 raw_dt) const noexcept;
 
 private:
     friend class CSceneManager;
@@ -48511,7 +48536,7 @@ using game::ESvc;
 
 namespace acs::game {
 
-class ANode;   // forward decl — full include は .cpp 側 (ANode::_SetId 呼出のため)
+class ANode;   // forward decl — full include は .cpp 側 (ANode::SetId_Internal 呼出のため)
 
 /** CNodePool への checked 登録が返す状態。 */
 enum class ENodePoolRegisterError : u8 {
@@ -48805,7 +48830,7 @@ public:
      * @param hook 呼び出す関数 (nullptr で解除)。
      * @param user hook へそのまま渡す owner 文脈。
      */
-    void _SetRootSwapHook(void (*hook)(void* user) noexcept, void* user) noexcept {
+    void SetRootSwapHook_Internal(void (*hook)(void* user) noexcept, void* user) noexcept {
         m_RootSwapHook     = hook;
         m_RootSwapHookUser = user;
     }
@@ -49083,7 +49108,7 @@ inline constexpr ESvc kScene2DServices =
  * @details
  * 派生クラスが OnEnter/OnUpdate/OnRender/OnExit 等の lifecycle hook を override して
  * ロジックと描画を書く。CGame がスタック上で切り替え・更新・描画する。コピー禁止で、
- * CGame/CSceneManager が _SetContext / _AttachServices で実行コンテキストを配線する。
+ * CGame/CSceneManager が SetContext_Internal / AttachServices_Internal で実行コンテキストを配線する。
  * シーン遷移は OnUpdate 内で Scenes().ChangeScene() を呼ぶと次フレーム頭で適用される。
  */
 class AScene {
@@ -49092,7 +49117,7 @@ public:
     AScene() noexcept {
         // loader が SwapContents で root を差し替えた直後に service/subsystem 配線を
         // やり直せるよう、graph へ再配線 hook を登録する。
-        m_Graph._SetRootSwapHook(&AScene::_OnGraphRootSwapped, this);
+        m_Graph.SetRootSwapHook_Internal(&AScene::OnGraphRootSwapped_Internal, this);
     }
 
     /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
@@ -49170,7 +49195,7 @@ public:
      * @param g 所属する CGame。
      * @param sm シーンスタックを管理する CSceneManager。
      */
-    void _SetContext(CGame* g, CSceneManager* sm) noexcept {
+    void SetContext_Internal(CGame* g, CSceneManager* sm) noexcept {
         m_Game   = g;
         m_Scenes = sm;
     }
@@ -49180,7 +49205,7 @@ public:
      *
      * @param svc attach する CSceneServices (所有権が移る)。
      */
-    void _AttachServices(TUniquePtr<CSceneServices> svc) noexcept {
+    void AttachServices_Internal(TUniquePtr<CSceneServices> svc) noexcept {
         m_Services = Move(svc);
     }
 
@@ -49189,7 +49214,7 @@ public:
      *
      * @return CSceneServices へのポインタ (未 attach なら nullptr)。
      */
-    CSceneServices* _ServicesOrNull() const noexcept { return m_Services.Get(); }
+    CSceneServices* ServicesOrNull_Internal() const noexcept { return m_Services.Get(); }
 
     // ===== サブシステム (World スコープ) =====
 
@@ -49216,7 +49241,7 @@ public:
      *
      * @param parent GameInstance スコープのコレクション(フォールバック先)。
      */
-    bool _InitWorldSubsystems(CSubsystemCollection* parent) noexcept {
+    bool InitWorldSubsystems_Internal(CSubsystemCollection* parent) noexcept {
         if (!m_WorldSubsystems.TryInitialize(
                 ESubsystemScope::World, parent,
                 FSubsystemOwner{this, ESubsystemOwnerKind::Scene})) {
@@ -49224,7 +49249,7 @@ public:
         }
         /** hook前のWorld lifecycle世代。 */
         const u64 Generation = m_WorldSubsystems.LifecycleGeneration();
-        _OnWorldSubsystemsReady();
+        OnWorldSubsystemsReady_Internal();
         if (!m_WorldSubsystems.IsInitialized() ||
             m_WorldSubsystems.LifecycleGeneration() != Generation) {
             m_WorldSubsystems.Deinitialize();
@@ -49234,19 +49259,19 @@ public:
     }
 
     /** 指定 phase の World サブシステムを 1 フレーム進める (内部用)。 */
-    void _TickWorldSubsystems(const FSubsystemFrameContext& Context) noexcept
+    void TickWorldSubsystems_Internal(const FSubsystemFrameContext& Context) noexcept
     {
         m_WorldSubsystems.TickFrame(Context);
     }
 
     /** World サブシステムを解体する (内部用。CSceneManager が pop 時に呼ぶ)。 */
-    void _DeinitWorldSubsystems() noexcept { m_WorldSubsystems.Deinitialize(); }
+    void DeinitWorldSubsystems_Internal() noexcept { m_WorldSubsystems.Deinitialize(); }
 
     /** World サブシステムへのポインタ (内部用。派生がノードへ配線するのに使う)。 */
-    CSubsystemCollection* _WorldSubsystemsPtr() noexcept { return &m_WorldSubsystems; }
+    CSubsystemCollection* WorldSubsystemsPtr_Internal() noexcept { return &m_WorldSubsystems; }
 
     /** constructor後のscene固有状態が遷移準備可能かを返す。 */
-    bool _CanPrepare() const noexcept { return _IsPreparationReady(); }
+    bool CanPrepare_Internal() const noexcept { return IsPreparationReady_Internal(); }
 
     /**
      * シーンの root ノードへの可変参照を返す。
@@ -49303,7 +49328,7 @@ public:
      * @details 既存の context は破棄される。nullptr を渡すと context 無しに戻る。
      * @param context 引き渡す context (所有権が移る)。
      */
-    void _SetTravelContext(TUniquePtr<CSceneTravelContext> context) noexcept {
+    void SetTravelContext_Internal(TUniquePtr<CSceneTravelContext> context) noexcept {
         m_TravelContext = Move(context);
     }
 
@@ -49486,7 +49511,7 @@ public:
 
 protected:
     /** scene固有の必須所有物が生成済みならtrueを返す。 */
-    virtual bool _IsPreparationReady() const noexcept { return m_Graph.HasRoot(); }
+    virtual bool IsPreparationReady_Internal() const noexcept { return m_Graph.HasRoot(); }
 
     /**
      * World サブシステムの初期化直後に呼ばれる内部フック(OnEnter より前)。
@@ -49494,7 +49519,7 @@ protected:
      * @details AScene がルートノードへサブシステム束を配線し、配下のノード/コンポーネントから
      * GetSubsystem<T>() を使えるようにする。
      */
-    virtual void _OnWorldSubsystemsReady() noexcept;
+    virtual void OnWorldSubsystemsReady_Internal() noexcept;
 
     /** シーンが top に来たとき 1 度だけ呼ばれる初期化フック (派生で override)。 */
     virtual void OnReady() noexcept {}
@@ -49549,22 +49574,22 @@ private:
     friend class CSceneManager;
 
     /** rootへのservice配線を保証してから利用者のOnEnterを呼ぶ。 */
-    void _Enter() noexcept;
+    void Enter_Internal() noexcept;
 
     /** 利用者のOnExit後にrootと要求済みserviceを後始末する。 */
-    void _Exit() noexcept;
+    void Exit_Internal() noexcept;
 
     /** 利用者のOnUpdate後にrootの更新と構造変更解決を行う。 */
-    void _Update(f32 DeltaSeconds) noexcept;
+    void Update_Internal(f32 DeltaSeconds) noexcept;
 
     /** 利用者のOnFixedUpdate後にrootの固定更新と構造変更解決を行う。 */
-    void _FixedUpdate(f32 FixedDeltaSeconds) noexcept;
+    void FixedUpdate_Internal(f32 FixedDeltaSeconds) noexcept;
 
     /** graph の SwapContents が root を差し替えた直後に呼ばれる再配線 thunk。 */
-    static void _OnGraphRootSwapped(void* user) noexcept;
+    static void OnGraphRootSwapped_Internal(void* user) noexcept;
 
     /** 現在の root へ service/subsystem/spawn 先の配線をやり直す (swap 後の回復)。 */
-    void _RewireGraphRoot() noexcept;
+    void RewireGraphRoot_Internal() noexcept;
 
     /**
      * world パスを描画する (camera view を設定し root を DrawTree → OnDrawWorld)。
@@ -49600,10 +49625,10 @@ private:
 
     /** ステンシルマスクが有効かのフラグ。 */
     bool         m_StencilMaskEnabled = false;
-    /** 所属する CGame (default = nullptr、_SetContext で配線)。 */
+    /** 所属する CGame (default = nullptr、SetContext_Internal で配線)。 */
     CGame*                    m_Game     = nullptr;
 
-    /** シーンスタックを管理する CSceneManager (default = nullptr、_SetContext で配線)。 */
+    /** シーンスタックを管理する CSceneManager (default = nullptr、SetContext_Internal で配線)。 */
     CSceneManager*            m_Scenes   = nullptr;
 
     /** attach されたサービス束 (WantedServices に応じて CSceneManager が確保、所有権を持つ)。 */
@@ -49637,7 +49662,7 @@ class FRenderContext;
  * TUniquePtr<AScene> のスタックを管理し、top のシーンを毎フレーム駆動するマネージャ。
  *
  * @details
- * 遷移要求 (Change/Push/Pop) はフレーム境界まで遅延し、_ApplyPending で適用するため、
+ * 遷移要求 (Change/Push/Pop) はフレーム境界まで遅延し、ApplyPending_Internal で適用するため、
  * 走査中 (Update/Render 内) からの構造変更が安全。1 フレーム 1 遷移で、複数要求が来た場合は
  * 後勝ち。退場した AScene は GPU が直前フレームで参照中のリソースを use-after-free しないよう、
  * ring buffer で 3 フレーム (フレームインフライト 2 + 1) 保持してから破棄する。Push 時には
@@ -49660,7 +49685,7 @@ public:
     /**
      * 現 top を pop して next を push する遷移を要求する (= 単純な画面切替)。
      *
-     * @details 即時適用せず次フレーム頭の _ApplyPending で実行する。pending が既に立っていれば
+     * @details 即時適用せず次フレーム頭の ApplyPending_Internal で実行する。pending が既に立っていれば
      * 上書きする (後勝ち)。next が nullptr の場合は警告ログを出して無視する。
      * @param next 切り替え先のシーン (所有権が移る)。
      */
@@ -49736,7 +49761,7 @@ public:
      * リソースを破棄しないよう ring buffer で 3 フレーム (フレームインフライト 2 + 1) 保持される。
      * @param game シーンに紐付ける CGame コンテキスト。
      */
-    void _ApplyPending(CGame& game) noexcept;
+    void ApplyPending_Internal(CGame& game) noexcept;
 
     /**
      * top のシーンに可変刻み dt を流す。
@@ -49745,7 +49770,7 @@ public:
      * → World PostUpdate の順で駆動する。Clock 未要求なら raw dt をそのまま渡す。
      * @param dt 前フレームからの経過秒。
      */
-    void _Update(f32 ScaledDeltaSeconds, f32 UnscaledDeltaSeconds, u64 FrameNumber) noexcept;
+    void Update_Internal(f32 ScaledDeltaSeconds, f32 UnscaledDeltaSeconds, u64 FrameNumber) noexcept;
 
     /**
      * top のシーンに固定刻み fixed_dt を流す。
@@ -49753,24 +49778,24 @@ public:
      * @details CGame の accumulator から 1 フレームに複数回呼ばれる可能性がある。
      * @param fixed_dt 固定刻みの秒。
      */
-    void _FixedUpdate(f32 fixed_dt) noexcept;
+    void FixedUpdate_Internal(f32 fixed_dt) noexcept;
 
     /**
      * top のシーンを描画する。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト (呼び出し側が用意)。
      */
-    void _Render(FRenderContext& rc) noexcept;
+    void Render_Internal(FRenderContext& rc) noexcept;
 
     /**
      * 受け取った FEvent を top のシーンへ配送する。
      *
      * @param e 配送するイベント。
      */
-    void _DispatchEvent(const FEvent& e) noexcept;
+    void DispatchEvent_Internal(const FEvent& e) noexcept;
 
     /** 終了処理。残った全シーンに top から OnExit を呼んでから破棄する。 */
-    void _ShutdownAll() noexcept;
+    void ShutdownAll_Internal() noexcept;
 
     /** 退場 AScene を保持するフレーム数 (= フレームインフライト 2 + 1)。 */
     static constexpr u32 kRetireRingSize = 3;
@@ -50024,16 +50049,16 @@ namespace acs::game {
  * 描画先への非所有参照と frame・pass 状態を受け渡す context。
  *
  * @details
- * CGame 経路は _BeginFrame で renderer、command list、画面サイズを配線し、font と view は
+ * CGame 経路は BeginFrame_Internal で renderer、command list、画面サイズを配線し、font と view は
  * 必要時、sprite batch、texture、flag は各 pass で対応する setter から配線する。editor などの
  * 独自描画経路は必要な setter だけで部分的に構成でき、参照を返す accessor は対応する参照の
  * 配線中だけ使用する。
- * resource と pipeline の所有・生成は行わない。_EndFrame は command list、sprite / font /
+ * resource と pipeline の所有・生成は行わない。EndFrame_Internal は command list、sprite / font /
  * texture 参照と pass flag を解除し、renderer、画面サイズ、view 値は次の配線まで保持する。
  */
 class FRenderContext {
 public:
-    /** 参照未配線の既定状態で構築する (利用経路に必要な _BeginFrame / 各 setter で配線)。 */
+    /** 参照未配線の既定状態で構築する (利用経路に必要な BeginFrame_Internal / 各 setter で配線)。 */
     FRenderContext() noexcept = default;
 
     /** 破棄する (参照のみ保持するため何もしない)。 */
@@ -50049,13 +50074,13 @@ public:
      * フレーム冒頭で CGame が呼び、renderer、command list、画面サイズを配線する。
      *
      * @details sprite batch と texture の参照、pass flag を初期化する。font はこの後 CGame が
-     * _SetFont、view は描画経路が _SetView2D で配線する。
+     * SetFont_Internal、view は描画経路が SetView2D_Internal で配線する。
      * @param r 描画に使う CRenderer。
      * @param cl 現フレームのコマンドリスト。
      * @param w 画面の幅 (px)。
      * @param h 画面の高さ (px)。
      */
-    void _BeginFrame(CRenderer& r, IRhiCommandList& cl, u32 w, u32 h) noexcept {
+    void BeginFrame_Internal(CRenderer& r, IRhiCommandList& cl, u32 w, u32 h) noexcept {
         m_Renderer = &r;
         m_Cmd      = &cl;
         m_Width    = w;
@@ -50067,11 +50092,11 @@ public:
         m_SceneColorCapturePass = false;
         m_WaterDepthCapturePass = false;
         m_StencilMaskActive = false;
-        // m_Font は CGame が _BeginFrame 後に _SetFont で frame 中だけ配線する。
+        // m_Font は CGame が BeginFrame_Internal 後に SetFont_Internal で frame 中だけ配線する。
     }
 
     /** フレーム終端で command list、sprite / font / texture 参照と pass flag を解除する。 */
-    void _EndFrame() noexcept {
+    void EndFrame_Internal() noexcept {
         m_Cmd = nullptr;
         m_Sprites = nullptr;
         m_Font = nullptr;
@@ -50126,7 +50151,7 @@ public:
      * 自前で持たずに HasSprites()/Sprites() で利用できる。
      * @param sb 配線する CSpriteBatch (nullptr で解除)。
      */
-    void _SetSpriteBatch(CSpriteBatch* sb) noexcept { m_Sprites = sb; }
+    void SetSpriteBatch_Internal(CSpriteBatch* sb) noexcept { m_Sprites = sb; }
 
     /**
      * 2D 描画バッチが配線済みかを返す。
@@ -50149,7 +50174,7 @@ public:
      * sb.DrawString(rc.GetFont(), ...) でテキストを描ける。
      * @param f 配線するフォント (読込失敗時は nullptr で配線され HasFont()==false)。
      */
-    void _SetFont(FFont* f) noexcept { m_Font = f; }
+    void SetFont_Internal(FFont* f) noexcept { m_Font = f; }
 
     /**
      * UI フォントが配線済みかを返す。
@@ -50172,7 +50197,7 @@ public:
      * 鏡像 UV でこれをサンプルし planar reflection を出す。
      * @param tex 配線する反射テクスチャ (nullptr で解除)。
      */
-    void _SetReflection(IRhiTexture* tex) noexcept { m_Reflection = tex; }
+    void SetReflection_Internal(IRhiTexture* tex) noexcept { m_Reflection = tex; }
 
     /**
      * 反射テクスチャが配線済みかを返す。
@@ -50194,7 +50219,7 @@ public:
      * @details 現在の描画先とは別の RT だけを渡し、同一リソースの SRV/RTV 同時利用を避ける。
      * @param tex 配線するシーンカラー (nullptr で解除)。
      */
-    void _SetSceneColor(IRhiTexture* tex) noexcept { m_SceneColor = tex; }
+    void SetSceneColor_Internal(IRhiTexture* tex) noexcept { m_SceneColor = tex; }
 
     /** 実シーンカラーが配線済みかを返す。 */
     bool HasSceneColor() const noexcept { return m_SceneColor != nullptr; }
@@ -50207,7 +50232,7 @@ public:
      *
      * @param tex 配線する水深テクスチャ (nullptr で解除)。
      */
-    void _SetSceneDepth(IRhiTexture* tex) noexcept { m_SceneDepth = tex; }
+    void SetSceneDepth_Internal(IRhiTexture* tex) noexcept { m_SceneDepth = tex; }
 
     /** 水面用深度が配線済みかを返す。 */
     bool HasSceneDepth() const noexcept { return m_SceneDepth != nullptr; }
@@ -50220,7 +50245,7 @@ public:
      *
      * @details TopDown 水はこのパスでは描かず、水下の実シーンだけを RT に残す。
      */
-    void _SetSceneColorCapturePass(bool b) noexcept { m_SceneColorCapturePass = b; }
+    void SetSceneColorCapturePass_Internal(bool b) noexcept { m_SceneColorCapturePass = b; }
 
     /** シーンカラー捕捉中なら true。 */
     bool IsSceneColorCapturePass() const noexcept { return m_SceneColorCapturePass; }
@@ -50230,7 +50255,7 @@ public:
      *
      * @details 通常スプライトを抑止した専用 pass で TopDown 水だけが深度メッシュを描く。
      */
-    void _SetWaterDepthCapturePass(bool b) noexcept { m_WaterDepthCapturePass = b; }
+    void SetWaterDepthCapturePass_Internal(bool b) noexcept { m_WaterDepthCapturePass = b; }
 
     /** 水面深度捕捉中なら true。 */
     bool IsWaterDepthCapturePass() const noexcept { return m_WaterDepthCapturePass; }
@@ -50243,7 +50268,7 @@ public:
      * @param center world 空間のビュー中心。
      * @param scale world→screen のスケール。
      */
-    void _SetView2D(FVec2 center, f32 scale) noexcept { m_ViewCenter = center; m_ViewScale = scale; }
+    void SetView2D_Internal(FVec2 center, f32 scale) noexcept { m_ViewCenter = center; m_ViewScale = scale; }
 
     /**
      * world 空間のビュー中心を返す。
@@ -50264,7 +50289,7 @@ public:
      *
      * @param b stencil 付き DSV を bind した world パスなら true。
      */
-    void _SetStencilMaskActive(bool b) noexcept { m_StencilMaskActive = b; }
+    void SetStencilMaskActive_Internal(bool b) noexcept { m_StencilMaskActive = b; }
 
     /**
      * ステンシルマスクが有効なパスかを返す。

@@ -633,8 +633,15 @@ public:
      */
     FNodeId Id() const noexcept { return m_Id; }
 
-    /** ノード ID を設定する (内部用。生成側が割り当てる)。 */
-    void   _SetId(FNodeId id) noexcept { m_Id = id; }
+    // ノード ID を割り当てるのは生成側だけ。**外から書き換えると、他所が持っている
+    // handle が黙って別のノードを指す。** private + friend で止める。
+private:
+    friend class CNodePool;
+
+    /** ノード ID を設定する (CNodePool が割り当てる)。 */
+    void   SetId_Internal(FNodeId id) noexcept { m_Id = id; }
+
+public:
 
     /**
      * シーン直列化 ID (エディタ id) を返す (-1 = 未設定)。
@@ -644,7 +651,7 @@ public:
     i32 SerialId() const noexcept { return m_SerialId; }
 
     /** シーン直列化 ID を設定する (内部用。ローダ/エディタが割り当てる)。 */
-    void _SetSerialId(i32 id) noexcept { m_SerialId = id; }
+    void SetSerialId_Internal(i32 id) noexcept { m_SerialId = id; }
 
     /**
      * subtree (this + 子孫) から直列化 ID 一致のノードを探す (DFS、無ければ nullptr)。
@@ -669,12 +676,12 @@ public:
     T& AddComponent(Args&&... args) noexcept {
         TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
         T* ref = comp.Get();
-        ref->_SetOwner(this);
+        ref->SetOwner_Internal(this);
         // 依存コンポーネントを先に確保する。
         ref->OnRequire(*this);
         m_Components.Add(TUniquePtr<AComponent>(comp.Release(), comp.GetAllocator()));
         ref->OnAttach(*this);
-        ref->_MaybeAttachServices(SceneServices());   // ツリーが既に services 配線済なら即 fire
+        ref->MaybeAttachServices_Internal(SceneServices());   // ツリーが既に services 配線済なら即 fire
         return *ref;
     }
 
@@ -791,11 +798,11 @@ public:
      */
     AComponent& AttachComponent(TUniquePtr<AComponent> comp) noexcept {
         AComponent* ref = comp.Get();
-        ref->_SetOwner(this);
+        ref->SetOwner_Internal(this);
         ref->OnRequire(*this);
         m_Components.Add(Move(comp));
         ref->OnAttach(*this);
-        ref->_MaybeAttachServices(SceneServices());
+        ref->MaybeAttachServices_Internal(SceneServices());
         return *ref;
     }
 
@@ -809,7 +816,7 @@ public:
     CSceneServices* SceneServices() const noexcept;
 
     /** services ポインタを設定する (内部用。root ノードでのみ意味を持つ)。 */
-    void _SetSceneServices(CSceneServices* svc) noexcept { m_Services = svc; }
+    void SetSceneServices_Internal(CSceneServices* svc) noexcept { m_Services = svc; }
 
     /**
      * ツリーに配線された World サブシステム束を返す (root まで遡る。未配線なら nullptr)。
@@ -819,7 +826,7 @@ public:
     CSubsystemCollection* Subsystems() const noexcept;
 
     /** サブシステム束を設定する (内部用。root ノードでのみ意味を持つ)。 */
-    void _SetSubsystems(CSubsystemCollection* subs) noexcept { m_Subsystems = subs; }
+    void SetSubsystems_Internal(CSubsystemCollection* subs) noexcept { m_Subsystems = subs; }
 
     /**
      * 型でサブシステムを取得する (root のコレクションから解決)。
@@ -834,7 +841,7 @@ public:
     }
 
     /** root に services を設定し、subtree 全コンポーネントの OnAttachServices を一度発火する。 */
-    void _ActivateServices(CSceneServices& svc) noexcept;
+    void ActivateServices_Internal(CSceneServices& svc) noexcept;
 
     // ------------------------------------------------------------ ツリー実行
 
@@ -966,7 +973,7 @@ private:
     u32 SubtreeHeight() const noexcept;
 
     /** subtree を DFS し各コンポーネントの OnAttachServices をガード付きで発火する。 */
-    void _ActivateSubtreeServices(CSceneServices* svc) noexcept;
+    void ActivateSubtreeServices_Internal(CSceneServices* svc) noexcept;
 
     /** ローカル transform (真値。world は親から合成)。 */
     FTransform3D m_Local{};

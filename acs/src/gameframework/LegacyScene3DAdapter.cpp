@@ -809,7 +809,7 @@ void ALegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
     m_PostParams.delta_time =
         std::isfinite(dt) && dt > 0.0f ? dt : 0.0f;
     m_PostParams.grain_time += m_PostParams.delta_time;
-    // graph の tick は基底 AScene::_Update が OnUpdate 後に必ず実行する。
+    // graph の tick は基底 AScene::Update_Internal が OnUpdate 後に必ず実行する。
     // ここで手動 tick すると二重更新になる。
     RefreshAuthoredCameraPose();
     // 自由カメラは «編集中に見回す» ためのもの。入れたままだと矢印キーと Escape を
