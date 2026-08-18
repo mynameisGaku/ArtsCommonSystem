@@ -863,6 +863,10 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     // 空を環境光として焼く。太陽が動いたときだけ焼き直す。
     (void)EnsureEnvironmentLighting(*device, context.Cmd());
 
+    // 骨で動くメッシュを CPU で変形し、普通の頂点バッファへ入れ直す。**影も遮蔽も
+    // この後のパスが読むので、必ず一番先に。** 遅らせると、影だけ前フレームの姿勢になる。
+    (void)UpdateSkinnedMeshes(*device);
+
     // 太陽から見た深度を先に描く。PBR パスがこれを参照して影を落とす。
     if (EnsureShadowMap(*device)) (void)RenderShadowPass(context);
     else m_ShadowDrawn = false;
@@ -1029,14 +1033,6 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
                 "LegacyScene3DAdapter: interactive-water depth copy failed; "
                 "opaque PBR fallback remains active");
         }
-    }
-
-    // 骨で動くメッシュ。静的メッシュとは別の shader を通るので、深度だけ引き継いで
-    // 同じ HDR へ描き足す。**空と雲より前**でないと、雲の向こうに人が立つ。
-    if (depth != nullptr) {
-        command_list.BeginRenderToTextureLoad(*hdr, depth);
-        (void)DrawSkinnedScene(*device, context);
-        command_list.EndRenderToTexture(*hdr);
     }
 
     // 雲を最後に乗せる。手前の物で隠れるよう、完成したシーンの深度を使う。
@@ -1503,93 +1499,66 @@ bool ALegacyScene3DAdapter::RenderReflectionPass(
     return m_SsrValid;
 }
 
-bool ALegacyScene3DAdapter::EnsureSkinnedShader(IRhiDevice& device) noexcept {
-    if (m_SkinnedReady) return true;
-    if (m_Skinned.Init(device).IsErr()) {
-        ACS_LOG_WARN("Scene3D: skinned shader init failed; skinned meshes stay hidden");
-        return false;
+namespace {
+
+/**
+ * 1 頂点を骨で動かす。
+ *
+ * @details
+ * 影響する 4 本の行列を重みで混ぜてから 1 回だけ掛ける。行列を混ぜてから掛けるのは
+ * 「4 回変換して混ぜる」のと同じ結果で、掛け算が 1 回で済む (線形変換なので入れ替えられる)。
+ *
+ * @param source 元の頂点。
+ * @param palette ボーンパレット。
+ * @param bone_count パレットの数。
+ * @param out 書き込み先。
+ */
+void SkinVertex(const FSkinnedVertex& source, const FMat4* palette, u32 bone_count,
+                FMeshVertex& out) noexcept {
+    FMat4 blended{};
+    for (u32 row = 0u; row < 4u; ++row)
+        for (u32 column = 0u; column < 4u; ++column) blended.m[row][column] = 0.0f;
+
+    f32 total = 0.0f;
+    for (u32 influence = 0u; influence < 4u; ++influence) {
+        const f32 weight = source.weights[influence];
+        if (weight <= 0.0f) continue;
+
+        const u32 bone = source.bones[influence];
+        if (bone >= bone_count) continue;
+
+        const FMat4& matrix = palette[bone];
+        for (u32 row = 0u; row < 4u; ++row)
+            for (u32 column = 0u; column < 4u; ++column)
+                blended.m[row][column] += matrix.m[row][column] * weight;
+        total += weight;
     }
-    m_SkinnedReady = true;
-    return true;
+
+    // どの骨にも届かなかった頂点は、動かさずそのまま置く。0 行列を掛けると原点へ潰れる。
+    if (total <= 1e-6f) {
+        out.position = source.position;
+        out.normal = source.normal;
+    } else {
+        out.position = TransformPoint(source.position, blended);
+        // 法線は平行移動を受けない。非一様スケールでは厳密には逆転置が要るが、
+        // 骨のスケールは普通ほぼ一様なので、回転成分で足りる。
+        out.normal = Normalize(TransformVector(source.normal, blended));
+    }
+    out.u = source.u;
+    out.v = source.v;
 }
 
-const FSkinnedGpuMesh* ALegacyScene3DAdapter::SkinnedGpuMeshFor(
-    IRhiDevice& device, const ASkinnedMeshComponent3D& component) noexcept {
-    const ASkinnedMeshAsset* const asset = component.MeshAsset().Get();
-    if (asset == nullptr) return nullptr;
+} // namespace
 
-    // アセット単位で覚える。同じモデルを何体置いても、GPU へ上げるのは 1 回。
-    for (usize index = 0u; index < m_SkinnedMeshes.Num(); ++index) {
-        if (m_SkinnedMeshes[index].Asset == asset) return &m_SkinnedMeshes[index].Mesh;
-    }
-
-    FSkinnedGpuEntry entry;
-    entry.Asset = asset;
-    if (UploadSkinnedMesh(device, *asset, entry.Mesh).IsErr()) {
-        ACS_LOG_WARN("Scene3D: skinned mesh upload failed; this model stays hidden");
-        return nullptr;
-    }
-    if (!m_SkinnedMeshes.TryAdd(Move(entry))) return nullptr;
-
-    return &m_SkinnedMeshes[m_SkinnedMeshes.Num() - 1u].Mesh;
-}
-
-bool ALegacyScene3DAdapter::DrawSkinnedScene(
-    IRhiDevice& device, FRenderContext& context) noexcept {
-    if (!EnsureSkinnedShader(device)) return false;
-
-    IRhiPipeline* const pipeline = m_Skinned.Pipeline();
-    IRhiBuffer* const frame_cb = m_Skinned.PerFrameCB();
-    if (pipeline == nullptr || frame_cb == nullptr) return false;
-
-    // 描く数を先に数える。object CB の入れ物は使い回しなので、足りないまま描くと
-    // 後ろのモデルが黙って消える。
-    u32 draw_count = 0u;
-    TArray<ANode*> count_stack;
-    if (!count_stack.TryAdd(&Graph().Root())) return false;
-    while (!count_stack.IsEmpty()) {
-        ANode* const node = count_stack.Last();
-        count_stack.Pop();
-        if (node == nullptr) continue;
-        if (!node->IsVisible() || !node->IsEnabled()) continue;
-
-        const ASkinnedMeshComponent3D* const component =
-            node->GetComponent<ASkinnedMeshComponent3D>();
-        if (component != nullptr && component->IsRenderable()) ++draw_count;
-
-        for (u32 index = 0u; index < node->ChildCount(); ++index)
-            if (!count_stack.TryAdd(node->Child(index))) return false;
-    }
-    if (draw_count == 0u) return false;
-    if (!m_Skinned.BeginFrame(draw_count)) return false;
-
-    // 光は静的メッシュと同じものを渡す。**別々にすると、同じ場面で影の向きが食い違う。**
-    const bool use_scene_lights = m_Lights.DirectionalCount() > 0u;
-    FDirLight fallback_light{};
-    fallback_light.direction = SunDirection();
-    fallback_light.color = kDefaultSunColor;
-    m_Skinned.SetLights(
-        m_Camera.ViewProjection(), m_Camera.Eye(),
-        use_scene_lights ? m_Lights.DirectionalLights() : &fallback_light,
-        use_scene_lights ? m_Lights.DirectionalCount() : 1u,
-        kDefaultAmbient);
-    m_Skinned.SetPointLights(m_Lights.PointLights(), m_Lights.PointCount());
-
-    IRhiCommandList& command_list = context.Cmd();
-    command_list.SetPipeline(*pipeline);
-    command_list.SetConstantBuffer(0, *frame_cb);
-
-    // **貼らないと真っ黒になる。** shader は albedo テクスチャと base_color を掛けるので、
-    // 何も貼っていない slot から読んだ黒が全部を 0 にする。色だけ指定して «出ない» と
-    // 悩まないよう、白を貼っておく (shader 側が用意しているのはこのため)。
-    if (IRhiTexture* const white = m_Skinned.DefaultWhiteTexture())
-        command_list.SetTexture(0, *white);
-
-    bool drew_any = false;
-    FMat4 palette[CSkinnedShader::kMaxBones];
+bool ALegacyScene3DAdapter::UpdateSkinnedMeshes(IRhiDevice& device) noexcept {
+    m_SkinnedDrawn.Empty();
 
     TArray<ANode*> stack;
     if (!stack.TryAdd(&Graph().Root())) return false;
+
+    FMat4 palette[CSkinnedShader::kMaxBones];
+    bool any = false;
+
     while (!stack.IsEmpty()) {
         ANode* const node = stack.Last();
         stack.Pop();
@@ -1599,33 +1568,83 @@ bool ALegacyScene3DAdapter::DrawSkinnedScene(
         for (u32 index = 0u; index < node->ChildCount(); ++index)
             if (!stack.TryAdd(node->Child(index))) break;
 
-        const ASkinnedMeshComponent3D* const component =
+        ASkinnedMeshComponent3D* const component =
             node->GetComponent<ASkinnedMeshComponent3D>();
         if (component == nullptr || !component->IsRenderable()) continue;
 
-        const FSkinnedGpuMesh* const gpu = SkinnedGpuMeshFor(device, *component);
-        if (gpu == nullptr || !gpu->vertex_buffer || !gpu->index_buffer) continue;
+        FSkinnedInstance* const instance = SkinnedInstanceFor(device, *component);
+        if (instance == nullptr) continue;
 
-        if (!m_Skinned.SetObject(node->World().ToMat4(), component->Color())) continue;
-
-        // 姿勢は毎フレーム変わる。SetObject が確保した CB へ、その直後に書く。
-        const u32 written =
+        const ASkinnedMeshAsset& asset = *component->MeshAsset();
+        const u32 bone_count =
             component->Player().WritePalette(palette, CSkinnedShader::kMaxBones);
-        if (!m_Skinned.SetBonePalette(palette, written)) continue;
 
-        IRhiBuffer* const object_cb = m_Skinned.PerObjectCB();
-        IRhiBuffer* const bones_cb = m_Skinned.BonesCB();
-        if (object_cb == nullptr || bones_cb == nullptr) continue;
+        // CPU で動かして、動的な頂点バッファへ入れ直す。**そうすると以降は普通のメッシュ**
+        // なので、影・遮蔽・反射・IBL が静的メッシュと同じように効く。
+        // GPU スキニングより CPU を使うが、質感が揃わない方が問題として大きい。
+        for (usize index = 0u; index < asset.Vertices().Num(); ++index)
+            SkinVertex(asset.Vertices()[index], palette, bone_count, instance->Scratch[index]);
 
-        command_list.SetConstantBuffer(1, *object_cb);
-        command_list.SetConstantBuffer(2, *bones_cb);
-        command_list.SetVertexBuffer(*gpu->vertex_buffer, gpu->vertex_stride);
-        command_list.SetIndexBuffer(*gpu->index_buffer);
-        command_list.DrawIndexed(gpu->index_count, 0u, 0);
-        drew_any = true;
+        if (instance->Mesh.vertex_buffer) {
+            instance->Mesh.vertex_buffer->Update(
+                instance->Scratch.GetData(),
+                instance->Scratch.Num() * sizeof(FMeshVertex));
+        }
+
+        FSkinnedDraw draw;
+        draw.Mesh = &instance->Mesh;
+        draw.Model = node->World().ToMat4();
+        draw.Color = component->Color();
+        if (m_SkinnedDrawn.TryAdd(draw)) any = true;
     }
 
-    return drew_any;
+    return any;
+}
+
+ALegacyScene3DAdapter::FSkinnedInstance* ALegacyScene3DAdapter::SkinnedInstanceFor(
+    IRhiDevice& device, const ASkinnedMeshComponent3D& component) noexcept {
+    // **インスタンスごとに持つ。** 同じモデルでも姿勢が違えば頂点が違うので、
+    // アセット単位で共有すると全員が最後の 1 体の姿勢になる。
+    for (usize index = 0u; index < m_SkinnedInstances.Num(); ++index) {
+        if (m_SkinnedInstances[index].Component == &component)
+            return &m_SkinnedInstances[index];
+    }
+
+    const ASkinnedMeshAsset* const asset = component.MeshAsset().Get();
+    if (asset == nullptr) return nullptr;
+
+    FSkinnedInstance instance;
+    instance.Component = &component;
+    if (!instance.Scratch.TrySetNum(asset->Vertices().Num())) return nullptr;
+
+    FBufferDesc vertex_desc{};
+    vertex_desc.size = instance.Scratch.Num() * sizeof(FMeshVertex);
+    vertex_desc.usage = EBufferUsage::Vertex;
+    vertex_desc.cpu_writable = true;   // 毎フレーム書き換える
+    auto vertex_buffer = CreateRhiBuffer(device, vertex_desc);
+    if (vertex_buffer.IsErr()) {
+        ACS_LOG_WARN("Scene3D: skinned vertex buffer creation failed; model stays hidden");
+        return nullptr;
+    }
+
+    FBufferDesc index_desc{};
+    index_desc.size = asset->Indices().Num() * sizeof(u32);
+    index_desc.usage = EBufferUsage::Index32;
+    index_desc.initial_data = asset->Indices().GetData();
+    auto index_buffer = CreateRhiBuffer(device, index_desc);
+    if (index_buffer.IsErr()) {
+        ACS_LOG_WARN("Scene3D: skinned index buffer creation failed; model stays hidden");
+        return nullptr;
+    }
+
+    instance.Mesh.vertex_buffer = Move(vertex_buffer.Value());
+    instance.Mesh.index_buffer = Move(index_buffer.Value());
+    instance.Mesh.vertex_count = static_cast<u32>(instance.Scratch.Num());
+    instance.Mesh.index_count = static_cast<u32>(asset->Indices().Num());
+    instance.Mesh.vertex_stride = sizeof(FMeshVertex);
+
+    if (!m_SkinnedInstances.TryAdd(Move(instance))) return nullptr;
+    return &m_SkinnedInstances[m_SkinnedInstances.Num() - 1u];
 }
 
 bool ALegacyScene3DAdapter::RenderShadowPass(FRenderContext& context) noexcept {
@@ -1656,6 +1675,8 @@ bool ALegacyScene3DAdapter::RenderShadowPass(FRenderContext& context) noexcept {
         for (u32 index = 0u; index < node->ChildCount(); ++index)
             if (!count_stack.TryAdd(node->Child(index))) return false;
     }
+    // 骨で動くメッシュも影を落とす。**入れないと、そこだけ影が抜けて浮いて見える。**
+    caster_count += static_cast<u32>(m_SkinnedDrawn.Num());
     if (caster_count == 0u) return false;
 
     if (!m_Shadow.BeginFrame(caster_count)) return false;
@@ -1694,6 +1715,22 @@ bool ALegacyScene3DAdapter::RenderShadowPass(FRenderContext& context) noexcept {
         command_list.SetVertexBuffer(*gpu->vertex_buffer, gpu->vertex_stride);
         command_list.SetIndexBuffer(*gpu->index_buffer);
         command_list.DrawIndexed(gpu->index_count, 0u, 0);
+    }
+
+    // 骨で動くメッシュも同じ形で落とす。CPU で変形済みなので、静的なものと区別が要らない。
+    for (usize index = 0u; index < m_SkinnedDrawn.Num(); ++index) {
+        const FSkinnedDraw& draw = m_SkinnedDrawn[index];
+        if (draw.Mesh == nullptr || !draw.Mesh->vertex_buffer || !draw.Mesh->index_buffer)
+            continue;
+        if (!m_Shadow.TrySetCaster(draw.Model)) continue;
+
+        IRhiBuffer* const object_cb = m_Shadow.CasterObjectCB();
+        if (object_cb == nullptr) continue;
+
+        command_list.SetConstantBuffer(1, *object_cb);
+        command_list.SetVertexBuffer(*draw.Mesh->vertex_buffer, draw.Mesh->vertex_stride);
+        command_list.SetIndexBuffer(*draw.Mesh->index_buffer);
+        command_list.DrawIndexed(draw.Mesh->index_count, 0u, 0);
     }
 
     command_list.EndShadowPass(*depth);
@@ -1890,6 +1927,33 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
                 draws_valid;
         }
     }
+
+    // 骨で動くメッシュ。CPU で変形済みなので、**ここから先はただのメッシュ**として
+    // 静的なものと同じ shader で描く。IBL も影も遮蔽も反射も同じように効く。
+    for (usize index = 0u; index < m_SkinnedDrawn.Num(); ++index) {
+        const FSkinnedDraw& draw = m_SkinnedDrawn[index];
+        if (draw.Mesh == nullptr) continue;
+
+        shader.ClearSubstrateSurface();
+        shader.SetExtParams(0.0f, 0.1f, 0.0f);
+        shader.SetEmissive(FVec3{0.0f, 0.0f, 0.0f}, 0.0f);
+        shader.SetSheen(FVec3{1.0f, 1.0f, 1.0f}, 0.0f);
+        shader.SetSubsurface(FVec3{1.0f, 0.3f, 0.2f}, 0.0f);
+        shader.SetNormalMap(nullptr, 0.0f);
+
+        if (subsurface_mrt) {
+            if (!shader.DrawMeshSubsurfaceMrt(
+                    context.Cmd(), *draw.Mesh, draw.Model, draw.Color, 0.0f, 0.55f, 1.0f)) {
+                draws_valid = false;
+            }
+        } else {
+            draws_valid =
+                shader.DrawMesh(
+                    context.Cmd(), *draw.Mesh, draw.Model, draw.Color, 0.0f, 0.55f, 1.0f) &&
+                draws_valid;
+        }
+    }
+
     return draws_valid;
 }
 

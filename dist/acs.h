@@ -59118,39 +59118,58 @@ private:
                               IRhiTexture& scene_color,
                               IRhiTexture& scene_depth) noexcept;
 
-    /**
-     * 骨で動くメッシュを描く用意をする (一度だけ)。
-     *
-     * @param device 生成に使うデバイス。
-     * @return 使える状態なら true。
-     */
-    bool EnsureSkinnedShader(IRhiDevice& device) noexcept;
+    /** 骨付きメッシュ 1 体分の入れ物。 */
+    struct FSkinnedInstance {
+        /** 持ち主の部品 (同一判定に使う。所有はしない)。 */
+        const ASkinnedMeshComponent3D* Component = nullptr;
+
+        /** 変形した結果を置く GPU バッファ (頂点は毎フレーム書き換える)。 */
+        FGpuMesh Mesh;
+
+        /** 変形の計算に使う CPU 側の作業領域。 */
+        TArray<FMeshVertex> Scratch;
+    };
+
+    /** このフレームに描く骨付きメッシュ。 */
+    struct FSkinnedDraw {
+        /** 描く GPU メッシュ (所有はしない)。 */
+        const FGpuMesh* Mesh = nullptr;
+
+        /** 置く場所。 */
+        FMat4 Model{};
+
+        /** アルベド色。 */
+        FVec3 Color{1.0f, 1.0f, 1.0f};
+    };
 
     /**
-     * 骨付きメッシュを GPU へ上げる (まだなら)。
+     * 骨付きメッシュ 1 体分の入れ物を用意する (まだなら)。
      *
      * @details
-     * アセット単位で覚える。同じモデルを何体置いても上げるのは 1 回。
+     * **インスタンスごとに持つ。** 同じモデルでも姿勢が違えば頂点が違うので、
+     * アセット単位で共有すると全員が最後の 1 体の姿勢になる。
      *
      * @param device 生成に使うデバイス。
      * @param component 対象の部品。
-     * @return 上がっている GPU バッファ。上げられなければ nullptr。
+     * @return 用意できた入れ物。できなければ nullptr。
      */
-    const FSkinnedGpuMesh* SkinnedGpuMeshFor(
+    FSkinnedInstance* SkinnedInstanceFor(
         IRhiDevice& device, const ASkinnedMeshComponent3D& component) noexcept;
 
     /**
-     * 骨で動くメッシュを描く。
+     * 骨で動くメッシュを CPU で変形し、描く準備を整える。
      *
      * @details
-     * 静的メッシュとは**別のパス**。`CSkinnedShader` は Blinn-Phong なので、
-     * 物理ベースの静的メッシュと質感が揃わない。
+     * **変形した結果を普通の頂点バッファへ入れ直す。** そうすると以降はただのメッシュなので、
+     * 影・遮蔽・反射・IBL が静的メッシュと同じように効く。GPU スキニング
+     * (CSkinnedShader) より CPU を使うが、あちらは Blinn-Phong で質感が揃わない。
+     *
+     * 何体も出すなら CPU が効いてくる。そのときは CPbrShader 側へスキニングを足すのが本筋。
      *
      * @param device 描画に使うデバイス。
-     * @param context 描画文脈。
-     * @return 1 つでも描いたら true。
+     * @return 1 体でも用意できたら true。
      */
-    bool DrawSkinnedScene(IRhiDevice& device, FRenderContext& context) noexcept;
+    bool UpdateSkinnedMeshes(IRhiDevice& device) noexcept;
 
     /**
      * 空から環境光を焼く (必要なときだけ)。
@@ -59434,23 +59453,13 @@ private:
     /** 深度の階層を用意できたか。 */
     bool m_HiZReady = false;
 
-    /** 骨で動くメッシュを描く shader。 */
-    CSkinnedShader m_Skinned;
+    /** 用意済みの骨付きメッシュ (1 体ごと)。 */
+    TArray<FSkinnedInstance> m_SkinnedInstances;
 
-    /** 骨用 shader を用意できたか。 */
-    bool m_SkinnedReady = false;
+    /** このフレームぶんの描画予定。 */
+    TArray<FSkinnedDraw> m_SkinnedDrawn;
 
-    /** アセットごとに 1 度だけ上げた骨付きメッシュ。 */
-    struct FSkinnedGpuEntry {
-        /** 上げ元のアセット (同一判定に使う。所有はしない)。 */
-        const ASkinnedMeshAsset* Asset = nullptr;
 
-        /** 上げた GPU バッファ。 */
-        FSkinnedGpuMesh Mesh;
-    };
-
-    /** 上げ済みの骨付きメッシュ。 */
-    TArray<FSkinnedGpuEntry> m_SkinnedMeshes;
 
     /** 反射の描き込み先を用意できたか。 */
     bool m_SsrReady = false;
