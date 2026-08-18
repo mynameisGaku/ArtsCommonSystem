@@ -642,4 +642,46 @@ void ANode::ResolveStructuralChanges() noexcept {
     }
 }
 
+void ANode::LookAt(FVec3 target, FVec3 up) noexcept {
+    const FVec3 to = target - m_Local.position;
+    if (LengthSq(to) <= 1e-12f) return;   // 向きが決まらない。触らない方が安全。
+
+    // 左手系の直交基底を組んで、そのまま回転行列にする。LookAtLH は «見る側» の行列
+    // (world→view) なので、物の向きに使うには逆を取る必要があり、遠回りになる。
+    const FVec3 forward = Normalize(to);
+    FVec3 right = Cross(up, forward);
+    if (LengthSq(right) <= 1e-12f) {
+        // up と正面が平行 (真上や真下を向いた)。別の軸を借りて基底を作り直す。
+        const FVec3 fallback =
+            (forward.y > 0.0f || forward.y < 0.0f) ? FVec3{0.0f, 0.0f, 1.0f}
+                                                   : FVec3{0.0f, 1.0f, 0.0f};
+        right = Cross(fallback, forward);
+        if (LengthSq(right) <= 1e-12f) return;
+    }
+    right = Normalize(right);
+    const FVec3 upright = Cross(forward, right);
+
+    // row-vector 規約 (Rotate(q, v) == v * M) なので、行に基底を並べる。
+    FMat4 basis = FMat4::Identity();
+    basis.m[0][0] = right.x;   basis.m[0][1] = right.y;   basis.m[0][2] = right.z;
+    basis.m[1][0] = upright.x; basis.m[1][1] = upright.y; basis.m[1][2] = upright.z;
+    basis.m[2][0] = forward.x; basis.m[2][1] = forward.y; basis.m[2][2] = forward.z;
+
+    m_Local.rotation = Normalize(FQuat::FromMatrix(basis));
+}
+
+bool ANode::MoveToward(FVec3 target, f32 max_distance) noexcept {
+    const FVec3 to = target - m_Local.position;
+    const f32 distance = Length(to);
+
+    // 行き過ぎない。残りより大きい歩幅を渡されたら、目的地で止める。
+    if (distance <= max_distance || distance <= 1e-6f) {
+        m_Local.position = target;
+        return true;
+    }
+
+    m_Local.position += to * (max_distance / distance);
+    return false;
+}
+
 } // namespace acs::game

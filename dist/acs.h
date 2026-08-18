@@ -30446,6 +30446,136 @@ public:
      */
     FTransform3D World() const noexcept;
 
+
+    // ---- 3D の位置・向き・大きさ -------------------------------------------
+    //
+    // 2D にはヘルパが在るのに 3D は `Local().position = ...` を毎回書かせていた。
+    // 3D が前提の作りなので、同じだけの手数で書けるようにしておく。
+    //
+    // **どれもローカル (親の座標系)。** 親を持たないノードでは world と同じ。
+
+    /**
+     * ローカル位置を返す。
+     *
+     * @return 親の座標系での位置。
+     */
+    FVec3 Position() const noexcept { return m_Local.position; }
+
+    /**
+     * ローカル位置を設定する。
+     *
+     * @param p 新しい位置。
+     */
+    void SetPosition(FVec3 p) noexcept { m_Local.position = p; }
+
+    /**
+     * ローカル位置をずらす。
+     *
+     * @details **向きは見ない。** 前へ進めたいなら `Position() + ForwardVector() * 距離` を渡す。
+     * @param delta 加える量。
+     */
+    void Translate(FVec3 delta) noexcept { m_Local.position += delta; }
+
+    /**
+     * ローカル回転を度で返す。
+     *
+     * @details X→Y→Z の順に適用したときの角度。Y が ±90 度付近では Z が 0 に寄る
+     * (ジンバルロック)。
+     * @return X/Y/Z の角度 (度)。
+     */
+    FVec3 RotationDeg() const noexcept { return m_Local.EulerDeg(); }
+
+    /**
+     * ローカル回転を度で設定する。
+     *
+     * @details **ラジアンに直す必要は無い。** 度のまま渡す。
+     * @param deg X/Y/Z の角度 (度)。
+     */
+    void SetRotationDeg(FVec3 deg) noexcept { m_Local.SetEulerDeg(deg); }
+
+    /**
+     * ローカル回転に度を加える。
+     *
+     * @details
+     * 毎フレーム回し続ける用途向け。**角度で足すので、積み重ねるとジンバルロックの影響を
+     * 受ける。** 1 軸だけ回すなら問題にならない。
+     * @param deg 加える角度 (度)。
+     */
+    void RotateDeg(FVec3 deg) noexcept { SetRotationDeg(RotationDeg() + deg); }
+
+    /**
+     * ローカルスケールを返す。
+     *
+     * @return 各軸の倍率。
+     */
+    FVec3 Scale() const noexcept { return m_Local.scale; }
+
+    /**
+     * ローカルスケールを設定する。
+     *
+     * @param s 各軸の倍率。
+     */
+    void SetScale(FVec3 s) noexcept { m_Local.scale = s; }
+
+    /**
+     * ローカルスケールを一様に設定する。
+     *
+     * @param s 全軸に使う倍率。
+     */
+    void SetScale(f32 s) noexcept { m_Local.scale = FVec3{s, s, s}; }
+
+    /**
+     * このノードが向いている方向を返す。
+     *
+     * @details
+     * 回転していないときは +Z。
+     *
+     * `Forward` ではなく `ForwardVector` なのは、**同じ名前の完全転送 `Forward<T>` が
+     * この class の中で使われている**ため (`AddComponent` など)。member が勝って
+     * template の呼び出しが壊れる。3 つとも揃えて `...Vector` にしてある。
+     * @return 正規化された前方向 (親の座標系)。
+     */
+    FVec3 ForwardVector() const noexcept { return Rotate(m_Local.rotation, FVec3{0.0f, 0.0f, 1.0f}); }
+
+    /**
+     * このノードの右方向を返す。
+     *
+     * @return 正規化された右方向 (親の座標系)。
+     */
+    FVec3 RightVector() const noexcept { return Rotate(m_Local.rotation, FVec3{1.0f, 0.0f, 0.0f}); }
+
+    /**
+     * このノードの上方向を返す。
+     *
+     * @return 正規化された上方向 (親の座標系)。
+     */
+    FVec3 UpVector() const noexcept { return Rotate(m_Local.rotation, FVec3{0.0f, 1.0f, 0.0f}); }
+
+    /**
+     * ある点の方を向く。
+     *
+     * @details
+     * `ForwardVector()` が `target` を指すように回転を置き換える。**`target` は親の座標系**で
+     * 解釈する (親を持たないノードなら world と同じ)。
+     *
+     * 自分と同じ位置を指したときは何もしない (向きが決まらないため)。
+     * @param target 向く先。
+     * @param up 上として使う向き。既定は +Y。
+     */
+    void LookAt(FVec3 target, FVec3 up = FVec3{0.0f, 1.0f, 0.0f}) noexcept;
+
+    /**
+     * ある点へ、決めた距離だけ近づく。
+     *
+     * @details
+     * **行き過ぎない。** 残りが `max_distance` より近ければ、そこで止まる。
+     * 毎フレーム `速さ * dt` を渡す使い方を想定している。
+     * @param target 目指す点 (親の座標系)。
+     * @param max_distance この呼び出しで進む上限。
+     * @return 着いたら true。
+     */
+    bool MoveToward(FVec3 target, f32 max_distance) noexcept;
+
     /**
      * ローカル位置の x,y を返す (2D ヘルパ。z は温存される)。
      *
