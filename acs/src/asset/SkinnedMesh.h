@@ -22,6 +22,9 @@
 #include "container/Array.h"
 #include "container/String.h"
 #include "asset/Asset.h"
+#include "foundation/Result.h"
+#include "foundation/Error.h"
+#include "memory/SharedPtr.h"
 
 namespace acs {
 
@@ -202,6 +205,45 @@ private:
     /** アニメーションクリップ配列。 */
     TArray<FAnimation>     m_Animations;
 };
+
+/**
+ * 1 秒あたり何回サンプリングしてアニメーションを取り込むか。
+ *
+ * @details
+ * FBX の曲線をそのまま持たず、**一定間隔で焼いて `FAnimationKey` の列にする**。曲線の
+ * 種類 (ベジェ・TCB・オイラー角の巻き方) を全部解釈するより確実で、`CAnimationPlayer` の
+ * 補間 (線形 + slerp) にそのまま合う。
+ *
+ * 上げるとキーが増えて滑らかになり、記憶も増える。30 は «見て分からない» 下限のあたり。
+ */
+inline constexpr f32 kSkinnedFbxDefaultSampleRate = 30.0f;
+
+/**
+ * FBX のバイト列からスキン付きメッシュを読む。
+ *
+ * @details
+ * **静的メッシュの `CFbxAssetLoader` とは別口。** 同じ `.fbx` でも、骨の要る読み方と
+ * 要らない読み方で欲しいものが違うため、拡張子で自動に選ばせず呼び分ける。
+ *
+ * 取り込むもの:
+ * - 最初に見つかった «スキンの付いた» メッシュ 1 つ (複数は取らない)
+ * - その skin が指すボーンと、**そこから根までの祖先ノード全部**
+ *   (祖先を落とすと、腰から上だけが親の回転を失って崩れる)
+ * - 逆バインド行列は ufbx の `geometry_to_bone` をそのまま使う
+ *   (バインド姿勢を local から組み直すより正確)
+ * - 全アニメーションを `sample_rate` で焼く
+ *
+ * 1 頂点あたりの影響は**重みの大きい順に 4 本**まで。ufbx が既に降順で並べているので
+ * 先頭から取り、合計が 1 になるように正規化する。
+ *
+ * @param data FBX のバイト列。
+ * @param size バイト数。
+ * @param sample_rate アニメーションを焼く間隔 (回 / 秒)。0 以下なら既定。
+ * @return 読めたスキンメッシュ。スキンが 1 つも無ければエラー。
+ */
+TResult<TSharedPtr<ASkinnedMeshAsset>> LoadSkinnedMeshFromFbxMemory(
+    const byte* data, usize size,
+    f32 sample_rate = kSkinnedFbxDefaultSampleRate) noexcept;
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */
 using FSkinnedMeshAsset = ASkinnedMeshAsset;

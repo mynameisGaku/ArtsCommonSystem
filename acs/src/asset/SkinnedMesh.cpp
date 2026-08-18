@@ -6,6 +6,8 @@
 
 #include <cmath>
 
+#include <ufbx.h>
+
 namespace acs {
 
 namespace {
@@ -218,6 +220,351 @@ u32 CAnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noex
         out_palette[i] = FMat4::Identity();
     }
     return count;
+}
+
+// ---- FBX からの取り込み ----------------------------------------------------
+
+namespace {
+
+/** 1 頂点が持てる影響ボーンの数 (FSkinnedVertex の配列長)。 */
+constexpr u32 kSkinnedInfluenceCount = 4u;
+
+/** ボーンの上限。FSkinnedVertex の index が u8 なので 256 が上限。 */
+constexpr usize kSkinnedMaxBones = 256u;
+
+/** 面を三角形へ割るときの一時領域。 */
+constexpr usize kSkinnedTriangulationScratch = 256u;
+
+/** 読み込み失敗の内訳。 */
+constexpr u16 kSkinnedFbxSubParseFailed  = 410u;
+constexpr u16 kSkinnedFbxSubNoSkin       = 411u;
+constexpr u16 kSkinnedFbxSubOutOfMemory  = 412u;
+constexpr u16 kSkinnedFbxSubTooManyBones = 413u;
+constexpr u16 kSkinnedFbxSubTriangulate  = 414u;
+
+/** ufbx scene を必ず解放する。 */
+class CSkinnedFbxScene final {
+public:
+    explicit CSkinnedFbxScene(ufbx_scene* scene) noexcept : m_Scene(scene) {}
+    ~CSkinnedFbxScene() noexcept { if (m_Scene != nullptr) ::ufbx_free_scene(m_Scene); }
+    CSkinnedFbxScene(const CSkinnedFbxScene&) = delete;
+    CSkinnedFbxScene& operator=(const CSkinnedFbxScene&) = delete;
+    ufbx_scene* Get() const noexcept { return m_Scene; }
+
+private:
+    ufbx_scene* m_Scene = nullptr;
+};
+
+/**
+ * ufbx の行列を ACS の行列へ移す。
+ *
+ * @details
+ * ufbx は列ベクトル (v' = M * v) で 4x3、ACS は行ベクトル (v' = v * M) で row-major。
+ * 入れ替えないと、回転と平行移動が転置されたまま骨に効いて形が破綻する。
+ * ufbx の cols[i] が、そのまま ACS の行 i になる。
+ *
+ * @param m ufbx の行列。
+ * @return ACS の行列。
+ */
+FMat4 FromUfbxMatrix(const ufbx_matrix& m) noexcept {
+    FMat4 out = FMat4::Identity();
+    for (u32 i = 0u; i < 4u; ++i) {
+        out.m[i][0] = static_cast<f32>(m.cols[i].x);
+        out.m[i][1] = static_cast<f32>(m.cols[i].y);
+        out.m[i][2] = static_cast<f32>(m.cols[i].z);
+        out.m[i][3] = (i == 3u) ? 1.0f : 0.0f;
+    }
+    return out;
+}
+
+/** ufbx のベクトルを移す。 */
+FVec3 FromUfbxVec3(const ufbx_vec3& v) noexcept {
+    return FVec3{static_cast<f32>(v.x), static_cast<f32>(v.y), static_cast<f32>(v.z)};
+}
+
+/** ufbx のクォータニオンを移す。 */
+FQuat FromUfbxQuat(const ufbx_quat& q) noexcept {
+    FQuat out;
+    out.x = static_cast<f32>(q.x);
+    out.y = static_cast<f32>(q.y);
+    out.z = static_cast<f32>(q.z);
+    out.w = static_cast<f32>(q.w);
+    return out;
+}
+
+/** ufbx の文字列を移す。 */
+FString FromUfbxString(const ufbx_string& s) noexcept {
+    if (s.data == nullptr || s.length == 0u) return FString();
+    return FString(FStringView(s.data, s.length));
+}
+
+/** ボーンとして採用したノードと、その並び順。 */
+struct FSkinnedBoneTable {
+    /** ボーン番号順のノード。 */
+    TArray<const ufbx_node*> nodes;
+
+    /**
+     * ノードの element_id からボーン番号を引く表。
+     *
+     * @details element_id は scene 内で一意。ボーンでないノードは -1。
+     */
+    TArray<i32> index_by_element;
+};
+
+/**
+ * ノードとその祖先を、親が先に来る順で表へ足す。
+ *
+ * @details
+ * 祖先を落とすと親の回転が失われ、腰から上だけが取り残されたように崩れる。
+ * 親を先に入れるのは、CAnimationPlayer が「親は自分より小さい番号」を前提に
+ * world を組むため。
+ *
+ * @param node 足すノード。
+ * @param table 追加先。
+ * @return 足せたら true。上限超過や確保失敗で false。
+ */
+bool TryAddBoneChain(const ufbx_node* node, FSkinnedBoneTable& table) noexcept {
+    if (node == nullptr || node->is_root) return true;
+    if (static_cast<usize>(node->element_id) < table.index_by_element.Num()
+        && table.index_by_element[node->element_id] >= 0) return true;
+
+    if (!TryAddBoneChain(node->parent, table)) return false;
+    if (table.nodes.Num() >= kSkinnedMaxBones) return false;
+    if (!table.nodes.TryAdd(node)) return false;
+
+    table.index_by_element[node->element_id] = static_cast<i32>(table.nodes.Num()) - 1;
+    return true;
+}
+
+/**
+ * 重みの大きい 4 本を採って合計 1 に均す。
+ *
+ * @details
+ * ufbx は既に降順で並べているので先頭から採るだけ。正規化しないと、4 本に切った分の
+ * 重みが消えて、その頂点だけ縮んで見える。
+ *
+ * @param skin 読み元の skin。
+ * @param vertex_index メッシュの頂点番号。
+ * @param table ボーン表。
+ * @param out 書き込み先の頂点。
+ */
+void FillSkinInfluences(const ufbx_skin_deformer& skin, u32 vertex_index,
+                        const FSkinnedBoneTable& table, FSkinnedVertex& out) noexcept {
+    for (u32 i = 0u; i < kSkinnedInfluenceCount; ++i) {
+        out.bones[i] = 0u;
+        out.weights[i] = 0.0f;
+    }
+    if (static_cast<usize>(vertex_index) >= skin.vertices.count) {
+        out.weights[0] = 1.0f;
+        return;
+    }
+
+    const ufbx_skin_vertex entry = skin.vertices.data[vertex_index];
+    f32 total = 0.0f;
+    u32 taken = 0u;
+    for (u32 i = 0u; i < entry.num_weights && taken < kSkinnedInfluenceCount; ++i) {
+        const usize weight_index = static_cast<usize>(entry.weight_begin) + i;
+        if (weight_index >= skin.weights.count) break;
+
+        const ufbx_skin_weight weight = skin.weights.data[weight_index];
+        if (static_cast<usize>(weight.cluster_index) >= skin.clusters.count) continue;
+
+        const ufbx_skin_cluster* const cluster = skin.clusters.data[weight.cluster_index];
+        if (cluster == nullptr || cluster->bone_node == nullptr) continue;
+        if (static_cast<usize>(cluster->bone_node->element_id) >= table.index_by_element.Num()) continue;
+
+        const i32 bone = table.index_by_element[cluster->bone_node->element_id];
+        if (bone < 0) continue;
+
+        out.bones[taken] = static_cast<u8>(bone);
+        out.weights[taken] = static_cast<f32>(weight.weight);
+        total += out.weights[taken];
+        ++taken;
+    }
+
+    if (total > 1e-8f) {
+        const f32 inverse = 1.0f / total;
+        for (u32 i = 0u; i < taken; ++i) out.weights[i] *= inverse;
+    } else {
+        // どのボーンにも結ばれていない頂点。0 番へ全部預けて、消えるのを防ぐ。
+        out.bones[0] = 0u;
+        out.weights[0] = 1.0f;
+    }
+}
+
+} // namespace
+
+TResult<TSharedPtr<ASkinnedMeshAsset>> LoadSkinnedMeshFromFbxMemory(
+    const byte* data, usize size, f32 sample_rate) noexcept {
+    if (data == nullptr || size == 0u)
+        return ACS_ERR(Asset, kSkinnedFbxSubParseFailed, "empty FBX buffer");
+
+    ufbx_load_opts opts{};
+    ufbx_error err{};
+    CSkinnedFbxScene scope(::ufbx_load_memory(data, size, &opts, &err));
+    ufbx_scene* const scene = scope.Get();
+    if (scene == nullptr)
+        return ACS_ERR(Asset, kSkinnedFbxSubParseFailed, "ufbx_load_memory failed");
+
+    // 1) スキンの付いたメッシュを 1 つ選ぶ。
+    const ufbx_mesh* mesh = nullptr;
+    const ufbx_skin_deformer* skin = nullptr;
+    for (usize i = 0u; i < scene->meshes.count && mesh == nullptr; ++i) {
+        const ufbx_mesh* const candidate = scene->meshes.data[i];
+        if (candidate == nullptr || candidate->skin_deformers.count == 0u) continue;
+        const ufbx_skin_deformer* const candidate_skin = candidate->skin_deformers.data[0];
+        if (candidate_skin == nullptr || candidate_skin->clusters.count == 0u) continue;
+        mesh = candidate;
+        skin = candidate_skin;
+    }
+    if (mesh == nullptr || skin == nullptr)
+        return ACS_ERR(Asset, kSkinnedFbxSubNoSkin, "no skinned mesh in FBX");
+
+    // 2) ボーン表を作る。クラスタの骨と、そこから根までの祖先を、親が先の順で。
+    FSkinnedBoneTable table;
+    if (!table.index_by_element.TrySetNum(scene->elements.count))
+        return ACS_ERR(Memory, kSkinnedFbxSubOutOfMemory, "bone table allocation failed");
+    for (usize i = 0u; i < table.index_by_element.Num(); ++i) table.index_by_element[i] = -1;
+
+    for (usize i = 0u; i < skin->clusters.count; ++i) {
+        const ufbx_skin_cluster* const cluster = skin->clusters.data[i];
+        if (cluster == nullptr || cluster->bone_node == nullptr) continue;
+        if (!TryAddBoneChain(cluster->bone_node, table))
+            return ACS_ERR(Asset, kSkinnedFbxSubTooManyBones, "FBX skeleton exceeds 256 bones");
+    }
+    if (table.nodes.IsEmpty())
+        return ACS_ERR(Asset, kSkinnedFbxSubNoSkin, "FBX skin has no usable bones");
+
+    TSharedPtr<ASkinnedMeshAsset> staged = MakeShared<ASkinnedMeshAsset>();
+    if (!staged) return ACS_ERR(Memory, kSkinnedFbxSubOutOfMemory, "skinned mesh allocation failed");
+
+    // 3) ボーンのバインド姿勢と逆バインド行列。
+    TArray<FBone>& bones = staged->Bones();
+    if (!bones.TrySetNum(table.nodes.Num()))
+        return ACS_ERR(Memory, kSkinnedFbxSubOutOfMemory, "bone allocation failed");
+
+    for (usize i = 0u; i < table.nodes.Num(); ++i) {
+        const ufbx_node* const node = table.nodes[i];
+        FBone& bone = bones[i];
+        bone.name = FromUfbxString(node->name);
+        bone.parent = (node->parent != nullptr && !node->parent->is_root
+                       && static_cast<usize>(node->parent->element_id) < table.index_by_element.Num())
+            ? table.index_by_element[node->parent->element_id] : -1;
+        bone.bind_translation = FromUfbxVec3(node->local_transform.translation);
+        bone.bind_rotation    = FromUfbxQuat(node->local_transform.rotation);
+        bone.bind_scale       = FromUfbxVec3(node->local_transform.scale);
+        // 骨でない祖先は誰も参照しないので単位のまま。
+        bone.inverse_bind = FMat4::Identity();
+    }
+    for (usize i = 0u; i < skin->clusters.count; ++i) {
+        const ufbx_skin_cluster* const cluster = skin->clusters.data[i];
+        if (cluster == nullptr || cluster->bone_node == nullptr) continue;
+        if (static_cast<usize>(cluster->bone_node->element_id) >= table.index_by_element.Num()) continue;
+
+        const i32 bone = table.index_by_element[cluster->bone_node->element_id];
+        if (bone < 0) continue;
+        // ufbx が持っている「形状空間 -> 骨空間」をそのまま使う。local から組み直すと、
+        // バインド時と現在の姿勢が違うファイルでずれる。
+        bones[static_cast<usize>(bone)].inverse_bind = FromUfbxMatrix(cluster->geometry_to_bone);
+    }
+
+    // 4) 三角形へ割って頂点を作る。位置・法線・UV は静的メッシュと同じ読み方。
+    TArray<FSkinnedVertex>& vertices = staged->Vertices();
+    TArray<u32>& indices = staged->Indices();
+    const usize element_count = static_cast<usize>(mesh->num_triangles) * 3u;
+    if (element_count == 0u)
+        return ACS_ERR(Asset, kSkinnedFbxSubTriangulate, "FBX skinned mesh has no triangles");
+    if (!vertices.TrySetNum(element_count) || !indices.TrySetNum(element_count))
+        return ACS_ERR(Memory, kSkinnedFbxSubOutOfMemory, "skinned vertex allocation failed");
+
+    usize written = 0u;
+    for (usize face_index = 0u; face_index < mesh->faces.count; ++face_index) {
+        const ufbx_face face = mesh->faces.data[face_index];
+        if (face.num_indices < 3u) continue;
+
+        u32 local_indices[kSkinnedTriangulationScratch]{};
+        ufbx_panic panic{};
+        const u32 added = ::ufbx_catch_triangulate_face(
+            &panic, local_indices, kSkinnedTriangulationScratch, mesh, face);
+        if (panic.did_panic)
+            return ACS_ERR(Asset, kSkinnedFbxSubTriangulate, "FBX face triangulation failed");
+
+        const usize produced = static_cast<usize>(added) * 3u;
+        if (produced > element_count - written)
+            return ACS_ERR(Asset, kSkinnedFbxSubTriangulate, "FBX triangle count exceeds preflight");
+
+        for (usize i = 0u; i < produced; ++i) {
+            const u32 source = local_indices[i];
+            if (static_cast<usize>(source) >= mesh->num_indices)
+                return ACS_ERR(Asset, kSkinnedFbxSubTriangulate, "FBX source index out of range");
+
+            const ufbx_vec3 position = ::ufbx_get_vertex_vec3(&mesh->vertex_position, source);
+            const ufbx_vec3 normal = mesh->vertex_normal.exists
+                ? ::ufbx_get_vertex_vec3(&mesh->vertex_normal, source) : ufbx_vec3{0, 1, 0};
+            const ufbx_vec2 uv = mesh->vertex_uv.exists
+                ? ::ufbx_get_vertex_vec2(&mesh->vertex_uv, source) : ufbx_vec2{0, 0};
+
+            FSkinnedVertex& vertex = vertices[written];
+            vertex.position = FromUfbxVec3(position);
+            vertex.normal = FromUfbxVec3(normal);
+            vertex.u = static_cast<f32>(uv.x);
+            vertex.v = static_cast<f32>(uv.y);
+            FillSkinInfluences(*skin, mesh->vertex_indices.data[source], table, vertex);
+
+            indices[written] = static_cast<u32>(written);
+            ++written;
+        }
+    }
+    if (written != element_count)
+        return ACS_ERR(Asset, kSkinnedFbxSubTriangulate, "FBX triangle total changed");
+
+    // 5) アニメーションを一定間隔で焼く。
+    const f32 rate = (sample_rate > 0.0f && std::isfinite(sample_rate))
+        ? sample_rate : kSkinnedFbxDefaultSampleRate;
+    TArray<FAnimation>& animations = staged->Animations();
+
+    for (usize stack_index = 0u; stack_index < scene->anim_stacks.count; ++stack_index) {
+        const ufbx_anim_stack* const stack = scene->anim_stacks.data[stack_index];
+        if (stack == nullptr || stack->anim == nullptr) continue;
+
+        const f64 begin = stack->time_begin;
+        const f64 duration = stack->time_end - begin;
+        if (!(duration > 0.0)) continue;
+
+        const usize sample_count =
+            static_cast<usize>(duration * static_cast<f64>(rate)) + 1u;
+
+        FAnimation animation;
+        animation.name = FromUfbxString(stack->name);
+        animation.duration = static_cast<f32>(duration);
+        if (!animation.channels.TrySetNum(table.nodes.Num()))
+            return ACS_ERR(Memory, kSkinnedFbxSubOutOfMemory, "animation channel allocation failed");
+
+        for (usize bone = 0u; bone < table.nodes.Num(); ++bone) {
+            FAnimationChannel& channel = animation.channels[bone];
+            channel.bone_index = static_cast<i32>(bone);
+            if (!channel.keys.TrySetNum(sample_count))
+                return ACS_ERR(Memory, kSkinnedFbxSubOutOfMemory, "animation key allocation failed");
+
+            for (usize sample = 0u; sample < sample_count; ++sample) {
+                const f64 offset = static_cast<f64>(sample) / static_cast<f64>(rate);
+                const f64 time = (offset < duration) ? offset : duration;
+                const ufbx_transform transform =
+                    ::ufbx_evaluate_transform(stack->anim, table.nodes[bone], begin + time);
+
+                FAnimationKey& key = channel.keys[sample];
+                key.time = static_cast<f32>(time);
+                key.translation = FromUfbxVec3(transform.translation);
+                key.rotation = FromUfbxQuat(transform.rotation);
+                key.scale = FromUfbxVec3(transform.scale);
+            }
+        }
+
+        if (!animations.TryAdd(Move(animation)))
+            return ACS_ERR(Memory, kSkinnedFbxSubOutOfMemory, "animation allocation failed");
+    }
+
+    return TResult<TSharedPtr<ASkinnedMeshAsset>>(OkInit, Move(staged));
 }
 
 } // namespace acs
