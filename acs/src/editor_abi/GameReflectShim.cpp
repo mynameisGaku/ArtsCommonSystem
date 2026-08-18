@@ -104,7 +104,7 @@ GR_API void* acs_game_scene_create() noexcept {
         // → cross-DLL 安全。root に配線しておくと、以降 add_component 時に各コンポーネントの
         //   OnAttachServices がガード付きで即発火する (services は walk-to-root で解決できる)。
         s->services = MakeUnique<CSceneServices>(ESvc::Default2D | ESvc::Camera2D | ESvc::Physics2D);
-        if (s->root && s->services) s->root->SetSceneServices_Internal(s->services.Get());
+        if (s->root && s->services) FNodeInternals::SetSceneServices(*s->root, s->services.Get());
     }
     return s;
 }

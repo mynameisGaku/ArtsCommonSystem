@@ -633,13 +633,31 @@ public:
      */
     FNodeId Id() const noexcept { return m_Id; }
 
-    // ノード ID を割り当てるのは生成側だけ。**外から書き換えると、他所が持っている
-    // handle が黙って別のノードを指す。** private + friend で止める。
+    // ---- ここから下は «組み立て» のためのもの。ゲーム側から呼ぶものではない ----
+    //
+    // AScene と CNodePool はクラスなので friend で本当に閉じられる。
+    // ローダとエディタ ABI の呼び元は**自由関数**なので friend にできず、
+    // `FNodeInternals` (このファイルの下) を通す形にした。**止められてはいないが、
+    // ノードの補完候補には出てこないし、呼ぶには内部用の型を名指しする必要がある。**
 private:
     friend class CNodePool;
+    friend class AScene;
+    friend class FNodeInternals;
 
     /** ノード ID を設定する (CNodePool が割り当てる)。 */
     void   SetId_Internal(FNodeId id) noexcept { m_Id = id; }
+
+    /** シーン直列化 ID を設定する (ローダ/エディタが割り当てる)。 */
+    void SetSerialId_Internal(i32 id) noexcept { m_SerialId = id; }
+
+    /** services ポインタを設定する (root ノードでのみ意味を持つ)。 */
+    void SetSceneServices_Internal(CSceneServices* svc) noexcept { m_Services = svc; }
+
+    /** サブシステム束を設定する (root ノードでのみ意味を持つ)。 */
+    void SetSubsystems_Internal(CSubsystemCollection* subs) noexcept { m_Subsystems = subs; }
+
+    /** root に services を設定し、subtree 全コンポーネントの OnAttachServices を一度発火する。 */
+    void ActivateServices_Internal(CSceneServices& svc) noexcept;
 
 public:
 
@@ -649,9 +667,6 @@ public:
      * @return 直列化 ID。
      */
     i32 SerialId() const noexcept { return m_SerialId; }
-
-    /** シーン直列化 ID を設定する (内部用。ローダ/エディタが割り当てる)。 */
-    void SetSerialId_Internal(i32 id) noexcept { m_SerialId = id; }
 
     /**
      * subtree (this + 子孫) から直列化 ID 一致のノードを探す (DFS、無ければ nullptr)。
@@ -815,18 +830,12 @@ public:
      */
     CSceneServices* SceneServices() const noexcept;
 
-    /** services ポインタを設定する (内部用。root ノードでのみ意味を持つ)。 */
-    void SetSceneServices_Internal(CSceneServices* svc) noexcept { m_Services = svc; }
-
     /**
      * ツリーに配線された World サブシステム束を返す (root まで遡る。未配線なら nullptr)。
      *
      * @return 配線済み CSubsystemCollection (未配線は nullptr)。
      */
     CSubsystemCollection* Subsystems() const noexcept;
-
-    /** サブシステム束を設定する (内部用。root ノードでのみ意味を持つ)。 */
-    void SetSubsystems_Internal(CSubsystemCollection* subs) noexcept { m_Subsystems = subs; }
 
     /**
      * 型でサブシステムを取得する (root のコレクションから解決)。
@@ -839,9 +848,6 @@ public:
         CSubsystemCollection* s = Subsystems();
         return (s != nullptr) ? s->Get<T>() : nullptr;
     }
-
-    /** root に services を設定し、subtree 全コンポーネントの OnAttachServices を一度発火する。 */
-    void ActivateServices_Internal(CSceneServices& svc) noexcept;
 
     // ------------------------------------------------------------ ツリー実行
 
@@ -1037,6 +1043,44 @@ private:
 
     /** ツリー root に配線されるサブシステム束 (root のみ設定)。 */
     CSubsystemCollection* m_Subsystems = nullptr;
+};
+
+
+/**
+ * ノードの «組み立て» だけを通す窓口。
+ *
+ * @details
+ * ローダ (`SceneTextLoader` / `Scene3DSerialize`) とエディタ ABI は自由関数なので
+ * `friend` にできない。かといって組み立て用の関数を `ANode` の公開面へ戻すと、
+ * **ゲームを書く人の補完候補に «呼んではいけないもの» が並ぶ。**
+ *
+ * 呼べてしまうことは変わらないが、
+ *
+ * - `ANode` の公開 API からは消える
+ * - 呼ぶには内部用の型を名指しする必要がある
+ * - grep 一発で «組み立てに触っている場所» が全部出る
+ *
+ * ゲームのコードからは**呼ばない**。
+ */
+class FNodeInternals {
+public:
+    /** 直列化 ID を割り当てる (.acscene の id / editor_id)。 */
+    static void SetSerialId(ANode& node, i32 id) noexcept { node.SetSerialId_Internal(id); }
+
+    /** root ノードへ services を配線する。 */
+    static void SetSceneServices(ANode& node, CSceneServices* services) noexcept {
+        node.SetSceneServices_Internal(services);
+    }
+
+    /** root ノードへ World サブシステム束を配線する。 */
+    static void SetSubsystems(ANode& node, CSubsystemCollection* subsystems) noexcept {
+        node.SetSubsystems_Internal(subsystems);
+    }
+
+    /** subtree の OnAttachServices を一度だけ発火する。 */
+    static void ActivateServices(ANode& node, CSceneServices& services) noexcept {
+        node.ActivateServices_Internal(services);
+    }
 };
 
 } // namespace acs::game
