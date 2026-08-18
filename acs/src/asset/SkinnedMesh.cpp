@@ -456,17 +456,16 @@ TResult<TSharedPtr<ASkinnedMeshAsset>> LoadSkinnedMeshFromFbxMemory(
         // 骨でない祖先は誰も参照しないので単位のまま。
         bone.inverse_bind = FMat4::Identity();
     }
-    for (usize i = 0u; i < skin->clusters.count; ++i) {
-        const ufbx_skin_cluster* const cluster = skin->clusters.data[i];
-        if (cluster == nullptr || cluster->bone_node == nullptr) continue;
-        if (static_cast<usize>(cluster->bone_node->element_id) >= table.index_by_element.Num()) continue;
-
-        const i32 bone = table.index_by_element[cluster->bone_node->element_id];
-        if (bone < 0) continue;
-        // ufbx が持っている「形状空間 -> 骨空間」をそのまま使う。local から組み直すと、
-        // バインド時と現在の姿勢が違うファイルでずれる。
-        bones[static_cast<usize>(bone)].inverse_bind = FromUfbxMatrix(cluster->geometry_to_bone);
-    }
+    // 逆バインドは「いま入れた bind TRS の連鎖」から組み直す。
+    //
+    // 最初は ufbx の geometry_to_bone をそのまま入れていたが、**バインド姿勢で
+    // palette が単位行列にならなかった** (単体テストで捕まえた)。cluster が持つ
+    // バインドと、node の local_transform が指す姿勢が食い違うファイルがあるため。
+    //
+    // 食い違ったままだと、頂点が骨と別の場所へ飛んで «真っ黒» や «消える» になる。
+    // どちらか一方に揃えるしかないので、**player が world を組む元と同じ TRS** に揃える。
+    // 代償として、保存時の姿勢がバインド姿勢と違うファイルでは «その姿勢» が基準になる。
+    staged->ComputeInverseBindMatrices();
 
     // 4) 三角形へ割って頂点を作る。位置・法線・UV は静的メッシュと同じ読み方。
     TArray<FSkinnedVertex>& vertices = staged->Vertices();

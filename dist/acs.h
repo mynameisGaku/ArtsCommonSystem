@@ -53402,6 +53402,392 @@ using FHiZ = CHiZ;
 
 } // namespace acs
 
+// ===================== render/SkinnedShader.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * GPU スキニング対応のライティングシェーダ。
+ *
+ * @details
+ * CStandardShader の上位互換で、PerFrame (b0) / PerObject (b1) は同レイアウト。
+ * 加えて Bones (b2) を持ち、最大 kMaxBones 個のボーンパレット行列をシェーダへ送る。
+ * 頂点シェーダで BLENDINDICES / BLENDWEIGHT を使い 4 ボーンを加重平均してスキニングし、
+ * ピクセルシェーダで方向光 + 点光源の Blinn-Phong ライティングを計算する。
+ */
+class CSkinnedShader {
+public:
+    /** ボーンパレットの最大数 (シェーダ側 ACS_MAX_BONES と一致)。 */
+    static constexpr u32 kMaxBones = 64;
+
+    /**
+     * Source-compatibility estimate from the former fixed ring.
+     * The pool is growable; this is not a hard draw limit.
+     */
+    [[deprecated("growable pool; not a hard limit")]]
+    static constexpr u32 kMaxObjectDrawsPerFrame = 256u;
+
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    CSkinnedShader() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~CSkinnedShader() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    CSkinnedShader(const CSkinnedShader&)            = delete;
+
+    /** コピー代入も禁止。 */
+    CSkinnedShader& operator=(const CSkinnedShader&) = delete;
+
+    /**
+     * シェーダ・パイプライン・定数バッファ・既定白テクスチャを生成する。
+     *
+     * @param device リソース生成に使う RHI デバイス。
+     * @param rt_format レンダーターゲットのフォーマット。
+     * @param depth_format 深度バッファのフォーマット (Unknown で深度テスト無効)。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device,
+                      EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
+                      EFormat depth_format = EFormat::D32_Float) noexcept;
+
+    /** 確保した GPU リソースを解放する。 */
+    void Shutdown() noexcept;
+
+    /**
+     * Start one command-recording frame and reserve complete Object/Bones pairs.
+     *
+     * @return true when every requested pair is ready. On false SetObject
+     * refuses the entire frame until a later successful BeginFrame.
+     */
+    bool BeginFrame(u32 required_object_draws = 0u) noexcept;
+
+    u32 ObjectBufferCapacity() const noexcept {
+        return static_cast<u32>(m_DrawBuffers.Num());
+    }
+
+    u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
+
+    /**
+     * 単一方向光でフレーム共通の状態を設定する (SetLights の簡易版)。
+     *
+     * @param view_projection view * projection 行列。
+     * @param camera_pos カメラの world 位置 (スペキュラ計算に使う)。
+     * @param light_dir 方向光の向き。
+     * @param light_color 方向光の色。
+     * @param ambient_color 環境光の色。
+     */
+    void SetFrame(const FMat4& view_projection,
+                  FVec3 camera_pos,
+                  FVec3 light_dir, FVec3 light_color,
+                  FVec3 ambient_color) noexcept;
+
+    /**
+     * 複数の方向光でフレーム共通の状態を設定し、PerFrame CB を書き込む。
+     *
+     * @details count が最大数 (4) を超える場合は内部でクランプする。
+     * @param view_projection view * projection 行列。
+     * @param camera_pos カメラの world 位置 (スペキュラ計算に使う)。
+     * @param lights 方向光の配列。
+     * @param count 方向光の数 (最大 4)。
+     * @param ambient_color 環境光の色。
+     */
+    void SetLights(const FMat4& view_projection,
+                   FVec3 camera_pos,
+                   const FDirLight* lights, u32 count,
+                   FVec3 ambient_color) noexcept;
+
+    /**
+     * 点光源を設定し、PerFrame CB を再書き込みする。
+     *
+     * @details count が最大数 (4) を超える場合は内部でクランプする。
+     * @param lights 点光源の配列。
+     * @param count 点光源の数 (最大 4)。
+     */
+    void SetPointLights(const FPointLight* lights, u32 count) noexcept;
+
+    /**
+     * 描画オブジェクトのモデル行列とマテリアルを設定する。
+     *
+     * @param model モデル (world) 行列。
+     * @param base_color ベースカラー (アルベドへの乗算色)。
+     * @param specular_strength スペキュラ強度。
+     * @param shininess スペキュラの鋭さ (Blinn-Phong の指数)。
+     * @return Object/Bones の draw 専用 CB ペアを確保できたら true。
+     */
+    bool SetObject(const FMat4& model,
+                   FVec3 base_color = FVec3{1, 1, 1},
+                   f32  specular_strength = 0.0f,
+                   f32  shininess = 32.0f) noexcept;
+
+    /**
+     * ボーンパレット行列を設定する。
+     *
+     * @details count が kMaxBones を超える場合はクランプし、残りは単位行列で埋める。
+     * @param palette ボーン行列の配列。
+     * @param count パレットの行列数 (最大 kMaxBones)。
+     * @return 直前の SetObject が取得した Bones CB を更新できたら true。
+     */
+    bool SetBonePalette(const FMat4* palette, u32 count) noexcept;
+
+    /**
+     * 描画パイプラインを返す。
+     *
+     * @return スキニング描画用パイプライン。
+     */
+    IRhiPipeline*  Pipeline()    const noexcept { return m_Pipeline.Get(); }
+
+    /**
+     * PerFrame 定数バッファ (b0) を返す。
+     *
+     * @return view_proj・ライト等を格納した定数バッファ。
+     */
+    IRhiBuffer*    PerFrameCB()  const noexcept { return m_FrameCb.Get(); }
+
+    /**
+     * PerObject 定数バッファ (b1) を返す。
+     *
+     * @return モデル行列・マテリアルを格納した定数バッファ。
+     */
+    IRhiBuffer*    PerObjectCB() const noexcept {
+        return m_CurrentObjectCb < m_DrawBuffers.Num()
+             ? m_DrawBuffers[m_CurrentObjectCb].object.Get()
+             : nullptr;
+    }
+
+    /**
+     * Bones 定数バッファ (b2) を返す。
+     *
+     * @return ボーンパレット行列を格納した定数バッファ。
+     */
+    IRhiBuffer*    BonesCB()     const noexcept {
+        return m_CurrentObjectCb < m_DrawBuffers.Num()
+             ? m_DrawBuffers[m_CurrentObjectCb].bones.Get()
+             : nullptr;
+    }
+
+    /**
+     * テクスチャ未指定時に使う 1x1 白テクスチャを返す。
+     *
+     * @return 既定の白テクスチャ (slot 0 に bind する)。
+     */
+    IRhiTexture*   DefaultWhiteTexture() const noexcept { return m_White.Get(); }
+
+private:
+    struct FDrawBufferPair {
+        TUniquePtr<IRhiBuffer> object;
+        TUniquePtr<IRhiBuffer> bones;
+    };
+
+    bool EnsureObjectCapacity(u32 required_object_draws) noexcept;
+
+    IRhiDevice* m_ResourceDevice = nullptr;
+    /** キャッシュした Frame 状態を PerFrame CB へ書き込む。 */
+    void FlushFrameCB() noexcept;
+
+    /** 頂点シェーダ (スキニング + world 変換)。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** ピクセルシェーダ (方向光 + 点光源ライティング)。 */
+    TUniquePtr<IRhiShader>   m_Ps;
+
+    /** スキニング描画パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+
+    /** PerFrame 定数バッファ (b0)。 */
+    TUniquePtr<IRhiBuffer>   m_FrameCb;
+
+    /**
+     * PerObject (b1) と Bones (b2) の draw 単位ペアリング。
+     *
+     * 同じ upload CB を command list 内で再利用すると、Raw DX12 では先行 draw まで
+     * 最後の model/palette に上書きされる。SetObject が次のペアを取得し、
+     * SetBonePalette はその同じペアへ書き込む。
+     */
+    static constexpr u32     kInitialObjectBufferCapacity = 64u;
+    static constexpr u32     kInvalidObjectBuffer = ~u32{0};
+    TArray<FDrawBufferPair>  m_DrawBuffers;
+    u32                      m_ObjectCbCursor = 0u;
+    u32                      m_CurrentObjectCb = kInvalidObjectBuffer;
+    bool                     m_FrameCapacityReady = false;
+    bool                     m_ObjectCapacityFailureLogged = false;
+
+    /** テクスチャ未指定時の 1x1 白テクスチャ。 */
+    TUniquePtr<IRhiTexture>  m_White;
+
+    /** キャッシュした view * projection 行列。 */
+    FMat4       m_Vp;
+
+    /** キャッシュしたカメラ world 位置。 */
+    FVec3       m_Eye = FVec3{0, 0, 0};
+
+    /** キャッシュした環境光の色。 */
+    FVec3       m_Ambient = FVec3{0, 0, 0};
+
+    /** キャッシュした方向光 (最大 4)。 */
+    FDirLight   m_DirLights[4];
+
+    /** 有効な方向光の数。 */
+    u32        m_DirCount = 0;
+
+    /** キャッシュした点光源 (最大 4)。 */
+    FPointLight m_PointLights[4];
+
+    /** 有効な点光源の数。 */
+    u32        m_PointCount = 0;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSkinnedShader = CSkinnedShader;
+
+
+} // namespace acs
+
+// ===================== gameframework/SkinnedMeshComponent3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework — ASkinnedMeshComponent3D
+//
+// 骨で動くメッシュをノードへ付ける部品。静的な AMeshComponent3D の «動く» 版。
+
+
+namespace acs::game {
+
+/**
+ * 骨で動くメッシュをノードへ付ける部品。
+ *
+ * @details
+ * `AMeshComponent3D` の «動く» 版。**あちらとは別の描画経路を通る** ので、同じノードへ
+ * 両方付けると二重に描かれる。
+ *
+ * 姿勢の計算は `CAnimationPlayer` が持っている。この部品がするのは、
+ * **アセットと再生位置をノードに結び付けて、毎フレーム時刻を進めること**だけ。
+ *
+ * ```cpp
+ * ASkinnedMeshComponent3D& Skin = Node->AddComponent<ASkinnedMeshComponent3D>();
+ * Skin.SetMeshAsset( Loaded );
+ * Skin.Play( 0 );
+ * ```
+ *
+ * @note
+ * 描く側 (`CSkinnedShader`) は Blinn-Phong で、静的メッシュの物理ベースとは別の
+ * 照らし方をする。**同じ場面に並べると質感が揃わない。**
+ */
+class ASkinnedMeshComponent3D : public AComponent {
+public:
+    ACS_GAME_COMPONENT_KIND(ASkinnedMeshComponent3D)
+
+    /** 空の状態で構築する (アセット未設定では描かれない)。 */
+    ASkinnedMeshComponent3D() noexcept = default;
+
+    /**
+     * 骨付きメッシュを設定する。
+     *
+     * @details
+     * 設定すると再生位置は先頭へ戻る。`LoadSkinnedMeshFromFbxMemory` の結果を渡す。
+     *
+     * @param asset 骨付きメッシュ。空を渡すと描かれなくなる。
+     */
+    void SetMeshAsset(TSharedPtr<ASkinnedMeshAsset> asset) noexcept;
+
+    /**
+     * 設定されている骨付きメッシュを返す。
+     *
+     * @return 骨付きメッシュ。未設定なら空。
+     */
+    const TSharedPtr<ASkinnedMeshAsset>& MeshAsset() const noexcept { return m_Mesh; }
+
+    /**
+     * 描ける状態か。
+     *
+     * @return アセットが在り、頂点と骨を持っていれば true。
+     */
+    bool IsRenderable() const noexcept;
+
+    /**
+     * アニメーションを再生する。
+     *
+     * @param index クリップ番号。範囲外なら何も起きない。
+     * @param loop 繰り返すなら true。
+     */
+    void Play(u32 index, bool loop = true) noexcept;
+
+    /**
+     * 名前でアニメーションを探して再生する。
+     *
+     * @details
+     * **番号は書き出しの度に変わりうる。** 名前で指定できる方が壊れにくい。
+     *
+     * @param name クリップ名。
+     * @param loop 繰り返すなら true。
+     * @return 見つかって再生を始めたら true。
+     */
+    bool PlayByName(FStringView name, bool loop = true) noexcept;
+
+    /** 再生を止める (姿勢はその場に残る)。 */
+    void Pause() noexcept;
+
+    /**
+     * 再生を進める部分。
+     *
+     * @param dt 経過秒。
+     */
+    void OnUpdate(f32 dt) noexcept override;
+
+    /**
+     * 再生位置と姿勢を持っているプレイヤを返す。
+     *
+     * @details 描く側がボーンパレットを取り出すのに使う。
+     * @return プレイヤ。
+     */
+    const CAnimationPlayer& Player() const noexcept { return m_Player; }
+
+    /**
+     * アルベド色を返す。
+     *
+     * @return 現在の色。
+     */
+    FVec3 Color() const noexcept { return m_Color; }
+
+    /**
+     * アルベド色を設定する。
+     *
+     * @param color 新しい色。
+     */
+    void SetColor(FVec3 color) noexcept { m_Color = color; }
+
+    /**
+     * 時間を進めるかどうかを設定する。
+     *
+     * @details 止めても姿勢は保たれる。ポーズ画面などで使う。
+     * @param advance 進めるなら true。
+     */
+    void SetAdvancing(bool advance) noexcept { m_Advancing = advance; }
+
+    /**
+     * 時間を進める状態か。
+     *
+     * @return 進めるなら true。
+     */
+    bool IsAdvancing() const noexcept { return m_Advancing; }
+
+private:
+    /** 骨付きメッシュ (所有を分け合う)。 */
+    TSharedPtr<ASkinnedMeshAsset> m_Mesh;
+
+    /** 再生位置と姿勢。 */
+    CAnimationPlayer m_Player;
+
+    /** アルベド色。 */
+    FVec3 m_Color{1.0f, 1.0f, 1.0f};
+
+    /** 毎フレーム時間を進めるか。 */
+    bool m_Advancing = true;
+};
+
+} // namespace acs::game
+
 // ===================== render/Atmosphere.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // CPU / GPU で評価する物理大気散乱。
@@ -58733,6 +59119,40 @@ private:
                               IRhiTexture& scene_depth) noexcept;
 
     /**
+     * 骨で動くメッシュを描く用意をする (一度だけ)。
+     *
+     * @param device 生成に使うデバイス。
+     * @return 使える状態なら true。
+     */
+    bool EnsureSkinnedShader(IRhiDevice& device) noexcept;
+
+    /**
+     * 骨付きメッシュを GPU へ上げる (まだなら)。
+     *
+     * @details
+     * アセット単位で覚える。同じモデルを何体置いても上げるのは 1 回。
+     *
+     * @param device 生成に使うデバイス。
+     * @param component 対象の部品。
+     * @return 上がっている GPU バッファ。上げられなければ nullptr。
+     */
+    const FSkinnedGpuMesh* SkinnedGpuMeshFor(
+        IRhiDevice& device, const ASkinnedMeshComponent3D& component) noexcept;
+
+    /**
+     * 骨で動くメッシュを描く。
+     *
+     * @details
+     * 静的メッシュとは**別のパス**。`CSkinnedShader` は Blinn-Phong なので、
+     * 物理ベースの静的メッシュと質感が揃わない。
+     *
+     * @param device 描画に使うデバイス。
+     * @param context 描画文脈。
+     * @return 1 つでも描いたら true。
+     */
+    bool DrawSkinnedScene(IRhiDevice& device, FRenderContext& context) noexcept;
+
+    /**
      * 空から環境光を焼く (必要なときだけ)。
      *
      * @details
@@ -59013,6 +59433,24 @@ private:
 
     /** 深度の階層を用意できたか。 */
     bool m_HiZReady = false;
+
+    /** 骨で動くメッシュを描く shader。 */
+    CSkinnedShader m_Skinned;
+
+    /** 骨用 shader を用意できたか。 */
+    bool m_SkinnedReady = false;
+
+    /** アセットごとに 1 度だけ上げた骨付きメッシュ。 */
+    struct FSkinnedGpuEntry {
+        /** 上げ元のアセット (同一判定に使う。所有はしない)。 */
+        const ASkinnedMeshAsset* Asset = nullptr;
+
+        /** 上げた GPU バッファ。 */
+        FSkinnedGpuMesh Mesh;
+    };
+
+    /** 上げ済みの骨付きメッシュ。 */
+    TArray<FSkinnedGpuEntry> m_SkinnedMeshes;
 
     /** 反射の描き込み先を用意できたか。 */
     bool m_SsrReady = false;
@@ -101575,249 +102013,6 @@ constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FPipelineDes
 constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FComputePipelineDesc& desc) noexcept {
     return {desc.cbuffer_slots, desc.srv_slots, desc.static_sampler_count, 0u};
 }
-
-} // namespace acs
-
-// ===================== render/SkinnedShader.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-namespace acs {
-
-/**
- * GPU スキニング対応のライティングシェーダ。
- *
- * @details
- * CStandardShader の上位互換で、PerFrame (b0) / PerObject (b1) は同レイアウト。
- * 加えて Bones (b2) を持ち、最大 kMaxBones 個のボーンパレット行列をシェーダへ送る。
- * 頂点シェーダで BLENDINDICES / BLENDWEIGHT を使い 4 ボーンを加重平均してスキニングし、
- * ピクセルシェーダで方向光 + 点光源の Blinn-Phong ライティングを計算する。
- */
-class CSkinnedShader {
-public:
-    /** ボーンパレットの最大数 (シェーダ側 ACS_MAX_BONES と一致)。 */
-    static constexpr u32 kMaxBones = 64;
-
-    /**
-     * Source-compatibility estimate from the former fixed ring.
-     * The pool is growable; this is not a hard draw limit.
-     */
-    [[deprecated("growable pool; not a hard limit")]]
-    static constexpr u32 kMaxObjectDrawsPerFrame = 256u;
-
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    CSkinnedShader() noexcept = default;
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~CSkinnedShader() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CSkinnedShader(const CSkinnedShader&)            = delete;
-
-    /** コピー代入も禁止。 */
-    CSkinnedShader& operator=(const CSkinnedShader&) = delete;
-
-    /**
-     * シェーダ・パイプライン・定数バッファ・既定白テクスチャを生成する。
-     *
-     * @param device リソース生成に使う RHI デバイス。
-     * @param rt_format レンダーターゲットのフォーマット。
-     * @param depth_format 深度バッファのフォーマット (Unknown で深度テスト無効)。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device,
-                      EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
-                      EFormat depth_format = EFormat::D32_Float) noexcept;
-
-    /** 確保した GPU リソースを解放する。 */
-    void Shutdown() noexcept;
-
-    /**
-     * Start one command-recording frame and reserve complete Object/Bones pairs.
-     *
-     * @return true when every requested pair is ready. On false SetObject
-     * refuses the entire frame until a later successful BeginFrame.
-     */
-    bool BeginFrame(u32 required_object_draws = 0u) noexcept;
-
-    u32 ObjectBufferCapacity() const noexcept {
-        return static_cast<u32>(m_DrawBuffers.Num());
-    }
-
-    u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
-
-    /**
-     * 単一方向光でフレーム共通の状態を設定する (SetLights の簡易版)。
-     *
-     * @param view_projection view * projection 行列。
-     * @param camera_pos カメラの world 位置 (スペキュラ計算に使う)。
-     * @param light_dir 方向光の向き。
-     * @param light_color 方向光の色。
-     * @param ambient_color 環境光の色。
-     */
-    void SetFrame(const FMat4& view_projection,
-                  FVec3 camera_pos,
-                  FVec3 light_dir, FVec3 light_color,
-                  FVec3 ambient_color) noexcept;
-
-    /**
-     * 複数の方向光でフレーム共通の状態を設定し、PerFrame CB を書き込む。
-     *
-     * @details count が最大数 (4) を超える場合は内部でクランプする。
-     * @param view_projection view * projection 行列。
-     * @param camera_pos カメラの world 位置 (スペキュラ計算に使う)。
-     * @param lights 方向光の配列。
-     * @param count 方向光の数 (最大 4)。
-     * @param ambient_color 環境光の色。
-     */
-    void SetLights(const FMat4& view_projection,
-                   FVec3 camera_pos,
-                   const FDirLight* lights, u32 count,
-                   FVec3 ambient_color) noexcept;
-
-    /**
-     * 点光源を設定し、PerFrame CB を再書き込みする。
-     *
-     * @details count が最大数 (4) を超える場合は内部でクランプする。
-     * @param lights 点光源の配列。
-     * @param count 点光源の数 (最大 4)。
-     */
-    void SetPointLights(const FPointLight* lights, u32 count) noexcept;
-
-    /**
-     * 描画オブジェクトのモデル行列とマテリアルを設定する。
-     *
-     * @param model モデル (world) 行列。
-     * @param base_color ベースカラー (アルベドへの乗算色)。
-     * @param specular_strength スペキュラ強度。
-     * @param shininess スペキュラの鋭さ (Blinn-Phong の指数)。
-     * @return Object/Bones の draw 専用 CB ペアを確保できたら true。
-     */
-    bool SetObject(const FMat4& model,
-                   FVec3 base_color = FVec3{1, 1, 1},
-                   f32  specular_strength = 0.0f,
-                   f32  shininess = 32.0f) noexcept;
-
-    /**
-     * ボーンパレット行列を設定する。
-     *
-     * @details count が kMaxBones を超える場合はクランプし、残りは単位行列で埋める。
-     * @param palette ボーン行列の配列。
-     * @param count パレットの行列数 (最大 kMaxBones)。
-     * @return 直前の SetObject が取得した Bones CB を更新できたら true。
-     */
-    bool SetBonePalette(const FMat4* palette, u32 count) noexcept;
-
-    /**
-     * 描画パイプラインを返す。
-     *
-     * @return スキニング描画用パイプライン。
-     */
-    IRhiPipeline*  Pipeline()    const noexcept { return m_Pipeline.Get(); }
-
-    /**
-     * PerFrame 定数バッファ (b0) を返す。
-     *
-     * @return view_proj・ライト等を格納した定数バッファ。
-     */
-    IRhiBuffer*    PerFrameCB()  const noexcept { return m_FrameCb.Get(); }
-
-    /**
-     * PerObject 定数バッファ (b1) を返す。
-     *
-     * @return モデル行列・マテリアルを格納した定数バッファ。
-     */
-    IRhiBuffer*    PerObjectCB() const noexcept {
-        return m_CurrentObjectCb < m_DrawBuffers.Num()
-             ? m_DrawBuffers[m_CurrentObjectCb].object.Get()
-             : nullptr;
-    }
-
-    /**
-     * Bones 定数バッファ (b2) を返す。
-     *
-     * @return ボーンパレット行列を格納した定数バッファ。
-     */
-    IRhiBuffer*    BonesCB()     const noexcept {
-        return m_CurrentObjectCb < m_DrawBuffers.Num()
-             ? m_DrawBuffers[m_CurrentObjectCb].bones.Get()
-             : nullptr;
-    }
-
-    /**
-     * テクスチャ未指定時に使う 1x1 白テクスチャを返す。
-     *
-     * @return 既定の白テクスチャ (slot 0 に bind する)。
-     */
-    IRhiTexture*   DefaultWhiteTexture() const noexcept { return m_White.Get(); }
-
-private:
-    struct FDrawBufferPair {
-        TUniquePtr<IRhiBuffer> object;
-        TUniquePtr<IRhiBuffer> bones;
-    };
-
-    bool EnsureObjectCapacity(u32 required_object_draws) noexcept;
-
-    IRhiDevice* m_ResourceDevice = nullptr;
-    /** キャッシュした Frame 状態を PerFrame CB へ書き込む。 */
-    void FlushFrameCB() noexcept;
-
-    /** 頂点シェーダ (スキニング + world 変換)。 */
-    TUniquePtr<IRhiShader>   m_Vs;
-
-    /** ピクセルシェーダ (方向光 + 点光源ライティング)。 */
-    TUniquePtr<IRhiShader>   m_Ps;
-
-    /** スキニング描画パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_Pipeline;
-
-    /** PerFrame 定数バッファ (b0)。 */
-    TUniquePtr<IRhiBuffer>   m_FrameCb;
-
-    /**
-     * PerObject (b1) と Bones (b2) の draw 単位ペアリング。
-     *
-     * 同じ upload CB を command list 内で再利用すると、Raw DX12 では先行 draw まで
-     * 最後の model/palette に上書きされる。SetObject が次のペアを取得し、
-     * SetBonePalette はその同じペアへ書き込む。
-     */
-    static constexpr u32     kInitialObjectBufferCapacity = 64u;
-    static constexpr u32     kInvalidObjectBuffer = ~u32{0};
-    TArray<FDrawBufferPair>  m_DrawBuffers;
-    u32                      m_ObjectCbCursor = 0u;
-    u32                      m_CurrentObjectCb = kInvalidObjectBuffer;
-    bool                     m_FrameCapacityReady = false;
-    bool                     m_ObjectCapacityFailureLogged = false;
-
-    /** テクスチャ未指定時の 1x1 白テクスチャ。 */
-    TUniquePtr<IRhiTexture>  m_White;
-
-    /** キャッシュした view * projection 行列。 */
-    FMat4       m_Vp;
-
-    /** キャッシュしたカメラ world 位置。 */
-    FVec3       m_Eye = FVec3{0, 0, 0};
-
-    /** キャッシュした環境光の色。 */
-    FVec3       m_Ambient = FVec3{0, 0, 0};
-
-    /** キャッシュした方向光 (最大 4)。 */
-    FDirLight   m_DirLights[4];
-
-    /** 有効な方向光の数。 */
-    u32        m_DirCount = 0;
-
-    /** キャッシュした点光源 (最大 4)。 */
-    FPointLight m_PointLights[4];
-
-    /** 有効な点光源の数。 */
-    u32        m_PointCount = 0;
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FSkinnedShader = CSkinnedShader;
-
 
 } // namespace acs
 

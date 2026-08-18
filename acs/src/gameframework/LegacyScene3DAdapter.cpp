@@ -1031,6 +1031,14 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         }
     }
 
+    // 骨で動くメッシュ。静的メッシュとは別の shader を通るので、深度だけ引き継いで
+    // 同じ HDR へ描き足す。**空と雲より前**でないと、雲の向こうに人が立つ。
+    if (depth != nullptr) {
+        command_list.BeginRenderToTextureLoad(*hdr, depth);
+        (void)DrawSkinnedScene(*device, context);
+        command_list.EndRenderToTexture(*hdr);
+    }
+
     // 雲を最後に乗せる。手前の物で隠れるよう、完成したシーンの深度を使う。
     if (depth != nullptr) CompositeClouds(command_list, *hdr, *depth, context.Width(), context.Height());
 
@@ -1493,6 +1501,131 @@ bool ALegacyScene3DAdapter::RenderReflectionPass(
 
     m_SsrValid = m_Ssr.HasValidOutput() && m_Ssr.OutputTexture() != nullptr;
     return m_SsrValid;
+}
+
+bool ALegacyScene3DAdapter::EnsureSkinnedShader(IRhiDevice& device) noexcept {
+    if (m_SkinnedReady) return true;
+    if (m_Skinned.Init(device).IsErr()) {
+        ACS_LOG_WARN("Scene3D: skinned shader init failed; skinned meshes stay hidden");
+        return false;
+    }
+    m_SkinnedReady = true;
+    return true;
+}
+
+const FSkinnedGpuMesh* ALegacyScene3DAdapter::SkinnedGpuMeshFor(
+    IRhiDevice& device, const ASkinnedMeshComponent3D& component) noexcept {
+    const ASkinnedMeshAsset* const asset = component.MeshAsset().Get();
+    if (asset == nullptr) return nullptr;
+
+    // アセット単位で覚える。同じモデルを何体置いても、GPU へ上げるのは 1 回。
+    for (usize index = 0u; index < m_SkinnedMeshes.Num(); ++index) {
+        if (m_SkinnedMeshes[index].Asset == asset) return &m_SkinnedMeshes[index].Mesh;
+    }
+
+    FSkinnedGpuEntry entry;
+    entry.Asset = asset;
+    if (UploadSkinnedMesh(device, *asset, entry.Mesh).IsErr()) {
+        ACS_LOG_WARN("Scene3D: skinned mesh upload failed; this model stays hidden");
+        return nullptr;
+    }
+    if (!m_SkinnedMeshes.TryAdd(Move(entry))) return nullptr;
+
+    return &m_SkinnedMeshes[m_SkinnedMeshes.Num() - 1u].Mesh;
+}
+
+bool ALegacyScene3DAdapter::DrawSkinnedScene(
+    IRhiDevice& device, FRenderContext& context) noexcept {
+    if (!EnsureSkinnedShader(device)) return false;
+
+    IRhiPipeline* const pipeline = m_Skinned.Pipeline();
+    IRhiBuffer* const frame_cb = m_Skinned.PerFrameCB();
+    if (pipeline == nullptr || frame_cb == nullptr) return false;
+
+    // 描く数を先に数える。object CB の入れ物は使い回しなので、足りないまま描くと
+    // 後ろのモデルが黙って消える。
+    u32 draw_count = 0u;
+    TArray<ANode*> count_stack;
+    if (!count_stack.TryAdd(&Graph().Root())) return false;
+    while (!count_stack.IsEmpty()) {
+        ANode* const node = count_stack.Last();
+        count_stack.Pop();
+        if (node == nullptr) continue;
+        if (!node->IsVisible() || !node->IsEnabled()) continue;
+
+        const ASkinnedMeshComponent3D* const component =
+            node->GetComponent<ASkinnedMeshComponent3D>();
+        if (component != nullptr && component->IsRenderable()) ++draw_count;
+
+        for (u32 index = 0u; index < node->ChildCount(); ++index)
+            if (!count_stack.TryAdd(node->Child(index))) return false;
+    }
+    if (draw_count == 0u) return false;
+    if (!m_Skinned.BeginFrame(draw_count)) return false;
+
+    // 光は静的メッシュと同じものを渡す。**別々にすると、同じ場面で影の向きが食い違う。**
+    const bool use_scene_lights = m_Lights.DirectionalCount() > 0u;
+    FDirLight fallback_light{};
+    fallback_light.direction = SunDirection();
+    fallback_light.color = kDefaultSunColor;
+    m_Skinned.SetLights(
+        m_Camera.ViewProjection(), m_Camera.Eye(),
+        use_scene_lights ? m_Lights.DirectionalLights() : &fallback_light,
+        use_scene_lights ? m_Lights.DirectionalCount() : 1u,
+        kDefaultAmbient);
+    m_Skinned.SetPointLights(m_Lights.PointLights(), m_Lights.PointCount());
+
+    IRhiCommandList& command_list = context.Cmd();
+    command_list.SetPipeline(*pipeline);
+    command_list.SetConstantBuffer(0, *frame_cb);
+
+    // **貼らないと真っ黒になる。** shader は albedo テクスチャと base_color を掛けるので、
+    // 何も貼っていない slot から読んだ黒が全部を 0 にする。色だけ指定して «出ない» と
+    // 悩まないよう、白を貼っておく (shader 側が用意しているのはこのため)。
+    if (IRhiTexture* const white = m_Skinned.DefaultWhiteTexture())
+        command_list.SetTexture(0, *white);
+
+    bool drew_any = false;
+    FMat4 palette[CSkinnedShader::kMaxBones];
+
+    TArray<ANode*> stack;
+    if (!stack.TryAdd(&Graph().Root())) return false;
+    while (!stack.IsEmpty()) {
+        ANode* const node = stack.Last();
+        stack.Pop();
+        if (node == nullptr) continue;
+        if (!node->IsVisible() || !node->IsEnabled()) continue;
+
+        for (u32 index = 0u; index < node->ChildCount(); ++index)
+            if (!stack.TryAdd(node->Child(index))) break;
+
+        const ASkinnedMeshComponent3D* const component =
+            node->GetComponent<ASkinnedMeshComponent3D>();
+        if (component == nullptr || !component->IsRenderable()) continue;
+
+        const FSkinnedGpuMesh* const gpu = SkinnedGpuMeshFor(device, *component);
+        if (gpu == nullptr || !gpu->vertex_buffer || !gpu->index_buffer) continue;
+
+        if (!m_Skinned.SetObject(node->World().ToMat4(), component->Color())) continue;
+
+        // 姿勢は毎フレーム変わる。SetObject が確保した CB へ、その直後に書く。
+        const u32 written =
+            component->Player().WritePalette(palette, CSkinnedShader::kMaxBones);
+        if (!m_Skinned.SetBonePalette(palette, written)) continue;
+
+        IRhiBuffer* const object_cb = m_Skinned.PerObjectCB();
+        IRhiBuffer* const bones_cb = m_Skinned.BonesCB();
+        if (object_cb == nullptr || bones_cb == nullptr) continue;
+
+        command_list.SetConstantBuffer(1, *object_cb);
+        command_list.SetConstantBuffer(2, *bones_cb);
+        command_list.SetVertexBuffer(*gpu->vertex_buffer, gpu->vertex_stride);
+        command_list.SetIndexBuffer(*gpu->index_buffer);
+        command_list.DrawIndexed(gpu->index_count, 0u, 0);
+        drew_any = true;
+    }
+
+    return drew_any;
 }
 
 bool ALegacyScene3DAdapter::RenderShadowPass(FRenderContext& context) noexcept {

@@ -10,8 +10,8 @@ acs_module(
         Application.cpp
         ApplicationSubsystemCatalog.cpp
         AssetSubsystem.cpp
-        UiFontDefaults.cpp
         TimerSubsystem.cpp
+        UiFontDefaults.cpp
     HEADERS
         AppConfig.h
         Application.h
@@ -19,8 +19,8 @@ acs_module(
         AssetSubsystem.h
         EntryPoint.h
         Forward.h
-        UiFontDefaults.h
         TimerSubsystem.h
+        UiFontDefaults.h
     PUBLIC_DEPS
         Foundation
         Memory

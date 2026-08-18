@@ -12,6 +12,8 @@
 #include "render/Ssao.h"
 #include "render/Ssr.h"
 #include "render/HiZ.h"
+#include "render/SkinnedShader.h"
+#include "gameframework/SkinnedMeshComponent3D.h"
 #include "render/Atmosphere.h"
 #include "gameframework/SceneNodeGraph.h"
 #include "gameframework/Scene3DSerialize.h"
@@ -738,6 +740,40 @@ private:
                               IRhiTexture& scene_depth) noexcept;
 
     /**
+     * 骨で動くメッシュを描く用意をする (一度だけ)。
+     *
+     * @param device 生成に使うデバイス。
+     * @return 使える状態なら true。
+     */
+    bool EnsureSkinnedShader(IRhiDevice& device) noexcept;
+
+    /**
+     * 骨付きメッシュを GPU へ上げる (まだなら)。
+     *
+     * @details
+     * アセット単位で覚える。同じモデルを何体置いても上げるのは 1 回。
+     *
+     * @param device 生成に使うデバイス。
+     * @param component 対象の部品。
+     * @return 上がっている GPU バッファ。上げられなければ nullptr。
+     */
+    const FSkinnedGpuMesh* SkinnedGpuMeshFor(
+        IRhiDevice& device, const ASkinnedMeshComponent3D& component) noexcept;
+
+    /**
+     * 骨で動くメッシュを描く。
+     *
+     * @details
+     * 静的メッシュとは**別のパス**。`CSkinnedShader` は Blinn-Phong なので、
+     * 物理ベースの静的メッシュと質感が揃わない。
+     *
+     * @param device 描画に使うデバイス。
+     * @param context 描画文脈。
+     * @return 1 つでも描いたら true。
+     */
+    bool DrawSkinnedScene(IRhiDevice& device, FRenderContext& context) noexcept;
+
+    /**
      * 空から環境光を焼く (必要なときだけ)。
      *
      * @details
@@ -1018,6 +1054,24 @@ private:
 
     /** 深度の階層を用意できたか。 */
     bool m_HiZReady = false;
+
+    /** 骨で動くメッシュを描く shader。 */
+    CSkinnedShader m_Skinned;
+
+    /** 骨用 shader を用意できたか。 */
+    bool m_SkinnedReady = false;
+
+    /** アセットごとに 1 度だけ上げた骨付きメッシュ。 */
+    struct FSkinnedGpuEntry {
+        /** 上げ元のアセット (同一判定に使う。所有はしない)。 */
+        const ASkinnedMeshAsset* Asset = nullptr;
+
+        /** 上げた GPU バッファ。 */
+        FSkinnedGpuMesh Mesh;
+    };
+
+    /** 上げ済みの骨付きメッシュ。 */
+    TArray<FSkinnedGpuEntry> m_SkinnedMeshes;
 
     /** 反射の描き込み先を用意できたか。 */
     bool m_SsrReady = false;

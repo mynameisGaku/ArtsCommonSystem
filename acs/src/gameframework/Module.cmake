@@ -23,7 +23,6 @@ set(_acsgen_gameframework_sources
     CharacterCustomizer.cpp
     CheckpointSystem.cpp
     CinematicsDirector.cpp
-    cinetimeline/CCinematicTimelineDocument.cpp
     CollisionWorld2D.cpp
     CombatStateMachine.cpp
     ComponentFactory.cpp
@@ -116,6 +115,7 @@ set(_acsgen_gameframework_sources
     SeasonPass.cpp
     Sequence.cpp
     Settings.cpp
+    SkinnedMeshComponent3D.cpp
     SocialModeration.cpp
     SpatialAudio.cpp
     Spawn2DSubsystem.cpp
@@ -149,6 +149,7 @@ set(_acsgen_gameframework_sources
     audio_backend/XAudio2Backend.cpp
     cinematics/CCinematicPlayer.cpp
     cinematics/FCinematicDirectorBridge.cpp
+    cinetimeline/CCinematicTimelineDocument.cpp
 )
 set(_acsgen_gameframework_headers
     AComponent.h
@@ -170,6 +171,7 @@ set(_acsgen_gameframework_headers
     BehaviorTree.h
     BuffSystem.h
     Camera2D.h
+    Camera3D.h
     CameraComponent3D.h
     CameraShakePresets.h
     CameraStack.h
@@ -225,6 +227,8 @@ set(_acsgen_gameframework_headers
     LegacyKitEaseIdCodec.h
     LegacyScene3DAdapter.h
     Light2DComponent.h
+    LightCollector3D.h
+    LightComponent3D.h
     LlmSafetyPipeline.h
     LocalizationDirector.h
     Lockstep.h
@@ -289,6 +293,7 @@ set(_acsgen_gameframework_headers
     SeasonPass.h
     Sequence.h
     Settings.h
+    SkinnedMeshComponent3D.h
     SocialModeration.h
     SpatialAudio.h
     SpatialAudio2D.h
@@ -338,8 +343,6 @@ set(_acsgen_gameframework_headers
     cinetimeline/CCinematicTimelineDocument.h
     cinetimeline/ECinematicTimelineKeyKind.h
     cinetimeline/FCinematicTimelineKeyframe.h
-    tools/cinetimeline/ACinematicsTimelineEditorPanel.h
-    tools/cinetimeline/CinematicsTimelineEditorPanel.h
 )
 set(_acsgen_gameframework_public_deps
     Foundation
