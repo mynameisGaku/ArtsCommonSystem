@@ -30,6 +30,9 @@ public:
 
         /** 垂直回転。正で見下ろす。 */
         f32 look_pitch = 0.0f;
+
+        /** targetとの距離変更。正で近づき、負で遠ざかる。 */
+        f32 zoom = 0.0f;
     };
 
     /** 呼び出し側が所有し、snapshotやreplayへそのまま保存できるcamera状態。 */
@@ -66,6 +69,15 @@ public:
 
         /** 複数移動軸の合成長を1以下へ揃えるか。 */
         bool normalize_movement = false;
+
+        /** zoom入力1.0で一秒間に変更する現在距離の倍率。 */
+        f32 zoom_distance_scale_per_second = 1.0f;
+
+        /** targetへ近づける最小距離。 */
+        f32 minimum_distance = 0.01f;
+
+        /** targetから離れられる最大距離。 */
+        f32 maximum_distance = 1000000.0f;
     };
 
     /** rendererへ渡せるworld座標系のview情報。 */

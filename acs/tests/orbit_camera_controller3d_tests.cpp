@@ -76,6 +76,28 @@ ACS_TEST(OrbitCameraController3D, LookClampsPitchAndWrapsYaw)
     EXPECT_NEAR(state.pitch_radians, controller.Settings().pitch_limit_radians, 1.0e-6f);
 }
 
+ACS_TEST(OrbitCameraController3D, ZoomChangesDistanceAndClampsRange)
+{
+    COrbitCameraController3D controller;
+    COrbitCameraController3D::FOrbitCameraSettings3D settings = controller.Settings();
+    settings.zoom_distance_scale_per_second = 0.5f;
+    settings.minimum_distance = 2.0f;
+    settings.maximum_distance = 10.0f;
+    EXPECT_TRUE(controller.TryConfigure(settings));
+    COrbitCameraController3D::FOrbitCameraState3D state{};
+    state.distance = 8.0f;
+    COrbitCameraController3D::FOrbitCameraInput3D input{};
+    input.zoom = 1.0f;
+
+    EXPECT_TRUE(controller.TryStep(input, 1.0f, state));
+    EXPECT_NEAR(state.distance, 4.0f, 1.0e-6f);
+    EXPECT_TRUE(controller.TryStep(input, 10.0f, state));
+    EXPECT_NEAR(state.distance, 2.0f, 0.0f);
+    input.zoom = -1.0f;
+    EXPECT_TRUE(controller.TryStep(input, 10.0f, state));
+    EXPECT_NEAR(state.distance, 10.0f, 0.0f);
+}
+
 ACS_TEST(OrbitCameraController3D, InvalidInputAndTimeAreTransactional)
 {
     COrbitCameraController3D controller;
@@ -101,6 +123,13 @@ ACS_TEST(OrbitCameraController3D, InvalidConfigurationKeepsPreviousSettings)
     EXPECT_FALSE(controller.TryConfigure(invalid));
     EXPECT_NEAR(controller.Settings().yaw_radians_per_second, original.yaw_radians_per_second, 0.0f);
     EXPECT_NEAR(controller.Settings().pitch_limit_radians, original.pitch_limit_radians, 0.0f);
+
+    invalid = original;
+    invalid.minimum_distance = 10.0f;
+    invalid.maximum_distance = 1.0f;
+    EXPECT_FALSE(controller.TryConfigure(invalid));
+    EXPECT_NEAR(controller.Settings().minimum_distance, original.minimum_distance, 0.0f);
+    EXPECT_NEAR(controller.Settings().maximum_distance, original.maximum_distance, 0.0f);
 }
 
 ACS_TEST(OrbitCameraController3D, ReplayingFixedInputsProducesSameState)
@@ -114,6 +143,7 @@ ACS_TEST(OrbitCameraController3D, ReplayingFixedInputsProducesSameState)
     inputs[1].move_right = -0.5f;
     inputs[1].look_pitch = 0.75f;
     inputs[2].move_up = 1.0f;
+    inputs[2].zoom = -0.25f;
 
     for (u32 tick = 0u; tick < 180u; ++tick) {
         EXPECT_TRUE(controller.TryStep(inputs[tick % 3u], 1.0f / 60.0f, first));

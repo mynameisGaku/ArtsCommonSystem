@@ -413,7 +413,7 @@ ACS_REF.modules.push({
     {
       name: "COrbitCameraController3D",
       kind: "クラス", header: "gameframework/OrbitCameraController3D.h",
-      summary: "3D orbit camera の操作計算を renderer・device・World・platform 入力から切り離す決定論 controller。入力、外部所有 state、固定時間から次 state と eye/look-at を計算する。",
+      summary: "3D orbit camera の移動・回転・距離zoomを renderer・device・World・platform 入力から切り離す決定論 controller。入力、外部所有 state、固定時間から次 state と eye/look-at を計算する。",
       when: "gameplay、AI、replay、headless test で同じ 3D camera 移動を再現したい時。",
       members: [
         { sig: "bool TryConfigure(const FOrbitCameraSettings3D& settings)", desc: "有限な速度と安全範囲だけを transactional に反映する。" },
@@ -425,11 +425,11 @@ ACS_REF.modules.push({
     {
       name: "FOrbitCameraInputActionSet3D",
       kind: "構造体", header: "gameframework/OrbitCameraInputActionSet3D.h",
-      summary: "5個の名前付きactionを3D orbit camera入力へ変換する値。固定tick、AI、replayの明示入力状態を同じ経路で評価する。",
+      summary: "6個の名前付きactionを3D orbit camera入力へ変換する値。固定tick、AI、replayの明示入力状態を同じ経路で評価する。",
       when: "FInputMapとIInputStateViewをCOrbitCameraController3Dへ接続したい時。",
       members: [
-        { sig: "bool IsValid() const", desc: "5 action IDが有効かつ互いに異なる場合はtrueを返す。" },
-        { sig: "bool TryEvaluate(const FInputMap& map, const IInputStateView& input, FOrbitCameraInput3D& output) const", desc: "明示入力状態を評価し、成功時だけ5軸のcamera入力を反映する。" }
+        { sig: "bool IsValid() const", desc: "6 action IDが有効かつ互いに異なる場合はtrueを返す。" },
+        { sig: "bool TryEvaluate(const FInputMap& map, const IInputStateView& input, FOrbitCameraInput3D& output) const", desc: "明示入力状態を評価し、成功時だけ6軸のcamera入力を反映する。" }
       ]
     },
     {

@@ -42,7 +42,9 @@ bool IsValidSettings(const COrbitCameraController3D::FOrbitCameraSettings3D& set
     const bool valid_movement = std::isfinite(settings.movement_distance_scale_per_second) && settings.movement_distance_scale_per_second >= 0.0f;
     const bool valid_distance = std::isfinite(settings.minimum_movement_distance) && settings.minimum_movement_distance > 0.0f;
     const bool valid_limit = std::isfinite(settings.pitch_limit_radians) && settings.pitch_limit_radians > 0.0f && settings.pitch_limit_radians < HalfPi;
-    return valid_yaw && valid_pitch && valid_movement && valid_distance && valid_limit;
+    const bool valid_zoom = std::isfinite(settings.zoom_distance_scale_per_second) && settings.zoom_distance_scale_per_second >= 0.0f;
+    const bool valid_zoom_range = std::isfinite(settings.minimum_distance) && std::isfinite(settings.maximum_distance) && settings.minimum_distance > 0.0f && settings.maximum_distance >= settings.minimum_distance;
+    return valid_yaw && valid_pitch && valid_movement && valid_distance && valid_limit && valid_zoom && valid_zoom_range;
 }
 
 /** 外部所有stateが計算可能ならtrueを返す。 */
@@ -58,7 +60,7 @@ bool IsValidInput(const COrbitCameraController3D::FOrbitCameraInput3D& input) no
 {
     const bool valid_movement = std::isfinite(input.move_forward) && std::isfinite(input.move_right) && std::isfinite(input.move_up);
     const bool valid_look = std::isfinite(input.look_yaw) && std::isfinite(input.look_pitch);
-    return valid_movement && valid_look;
+    return valid_movement && valid_look && std::isfinite(input.zoom);
 }
 
 } // namespace
@@ -87,6 +89,18 @@ bool COrbitCameraController3D::TryStep(const FOrbitCameraInput3D& input, f32 del
     if (candidate.pitch_radians < -m_Settings.pitch_limit_radians)
         candidate.pitch_radians = -m_Settings.pitch_limit_radians;
 
+    if (candidate.distance < m_Settings.minimum_distance) candidate.distance = m_Settings.minimum_distance;
+    if (candidate.distance > m_Settings.maximum_distance) candidate.distance = m_Settings.maximum_distance;
+    const f64 zoom_axis = static_cast<f64>(ClampAxis(input.zoom));
+    const f64 zoom_distance = static_cast<f64>(candidate.distance) * static_cast<f64>(m_Settings.zoom_distance_scale_per_second) * static_cast<f64>(delta_seconds);
+    const f64 next_distance = static_cast<f64>(candidate.distance) - zoom_axis * zoom_distance;
+    if (next_distance <= static_cast<f64>(m_Settings.minimum_distance))
+        candidate.distance = m_Settings.minimum_distance;
+    else if (next_distance >= static_cast<f64>(m_Settings.maximum_distance))
+        candidate.distance = m_Settings.maximum_distance;
+    else
+        candidate.distance = static_cast<f32>(next_distance);
+
     const f32 yaw_sine = Sin(candidate.yaw_radians);
     const f32 yaw_cosine = Cos(candidate.yaw_radians);
     const FVec3 horizontal_forward{yaw_sine, 0.0f, yaw_cosine};
@@ -113,6 +127,7 @@ bool COrbitCameraController3D::TryBuildView(const FOrbitCameraState3D& state, FO
     if (!IsValidSettings(m_Settings) || !IsValidState(state)) return false;
     if (state.pitch_radians < -m_Settings.pitch_limit_radians) return false;
     if (state.pitch_radians > m_Settings.pitch_limit_radians) return false;
+    if (state.distance < m_Settings.minimum_distance || state.distance > m_Settings.maximum_distance) return false;
 
     const f32 pitch_cosine = Cos(state.pitch_radians);
     const FVec3 forward{Sin(state.yaw_radians) * pitch_cosine, -Sin(state.pitch_radians), Cos(state.yaw_radians) * pitch_cosine};
