@@ -98,6 +98,7 @@
 #include "gameframework/AnimationCurve.h"
 #include "gameframework/AnimationCurveArchive.h"
 #include "gameframework/InputRecorder.h"
+#include "gameframework/InputRecorderFixedTickSource.h"
 #include "gameframework/Perception.h"
 #include "gameframework/SeasonPass.h"
 #include "gameframework/VoiceChat.h"

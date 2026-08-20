@@ -420,8 +420,18 @@ TResult<void> FLockstep::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept 
     return Ok();
 }
 
+/** target allocatorを引き継ぐ空のload stagingへ初期化する。 */
+void FLockstep::PrepareLoadStaging_Internal(FLockstep& staging) const noexcept
+{
+    staging.m_Mode = ENetMode::Local;
+    staging.m_TickRateHz = 60u;
+    staging.m_CurrentTick = 0u;
+    staging.m_ReplayCursor = 0u;
+    staging.m_Frames = TArray<FInputFrame>(*m_Frames.GetAllocator());
+}
+
 /** loaded persistent stateだけをno-fail swapし、modeは各instanceで維持する。 */
-void FLockstep::SwapLoadedState(FLockstep& other) noexcept
+void FLockstep::SwapLoadedState_Internal(FLockstep& other) noexcept
 {
     u32 value = m_TickRateHz;
     m_TickRateHz = other.m_TickRateHz;

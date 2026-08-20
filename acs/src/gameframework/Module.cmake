@@ -55,6 +55,7 @@ set(_acsgen_gameframework_sources
     InputAxisOptions.cpp
     InputMap.cpp
     InputRecorder.cpp
+    InputRecorderFixedTickSource.cpp
     InputStateSnapshot.cpp
     InspectorSeam.cpp
     InventorySystem.cpp
@@ -215,6 +216,7 @@ set(_acsgen_gameframework_headers
     InputFrameSource.h
     InputMap.h
     InputRecorder.h
+    InputRecorderFixedTickSource.h
     InputStateSnapshot.h
     InputStateView.h
     InspectorSeam.h

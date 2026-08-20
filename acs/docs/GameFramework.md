@@ -245,7 +245,8 @@ Elastic/Bounce の In/Out/InOut、および SmoothStep/SmootherStep を安定し
   sceneへ固定tick入力として自動配線する。既定はplatform入力で、`IInputFrameSource`を
   `SetFixedStepInputSource`へ渡すとAI、headless testのframe入力へ差し替えられる。
   replay、rollbackは`IFixedTickInputSource`を`SetFixedTickInputSource`へ渡し、catch-up中も
-  固定tick番号ごとに別の入力を供給する。
+  固定tick番号ごとに別の入力を供給する。raw録画済みの`FInputRecorder`は明示key decoder付きの
+  `FInputRecorderFixedTickSource`でこの境界へ接続できる。
   `Services().FixedInput()` から読み、Pressed/Released は catch-up の最初の tick だけで消費する。
 - `FFixedStepRuntimeSnapshot` は固定時計、未消費入力、固定更新の有効状態を一括保存・復元する。
 - 名前付きアクションを物理入力（キー/マウス/ゲームパッド）に束ねる。1 アクションに

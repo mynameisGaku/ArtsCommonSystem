@@ -86,8 +86,6 @@
 
 namespace acs::game {
 
-class FReplayDirector;
-
 /** 1 recorderへ読み込めるsample件数上限。 */
 inline constexpr u32 kInputRecorderMaximumSamples = 1'000'000u;
 
@@ -316,13 +314,67 @@ public:
     TResult<void> TryLoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
-    friend class FReplayDirector;
+    /** 指定indexのsampleをcursorへ影響させず複製する内部処理。 */
+    bool TryReadSampleAt_Internal(u32 index, FInputSample& output) const noexcept;
 
-    /** ReplayDirector staging用にtargetと同じallocatorを注入する。 */
-    explicit FInputRecorder(FAllocator& allocator) noexcept : m_Samples(allocator) {}
+    /** targetと同じallocatorを使う空のload stagingへ初期化する内部処理。 */
+    void PrepareLoadStaging_Internal(FInputRecorder& staging) const noexcept;
 
     /** ReplayDirectorが複数sourceを一括commitするためのno-fail state swap。 */
-    void SwapLoadedState(FInputRecorder& other) noexcept;
+    void SwapLoadedState_Internal(FInputRecorder& other) noexcept;
+
+public:
+    /** 録画内容をcursorやmodeへ影響させず読む非所有アダプター。 */
+    class FReplayReadAdapter final {
+    public:
+        /** 読み取り対象を保持する。 */
+        explicit FReplayReadAdapter(const FInputRecorder& recorder) noexcept : m_Recorder(recorder) {}
+
+        /** 指定indexのsampleを複製し、範囲外ではoutputを変更しない。 */
+        bool TryReadSampleAt(u32 index, FInputSample& output) const noexcept
+        {
+            return m_Recorder.TryReadSampleAt_Internal(index, output);
+        }
+
+    private:
+        /** 読み取り対象のrecorder。 */
+        const FInputRecorder& m_Recorder;
+    };
+
+    /** ReplayDirectorのtransactional loadへ内部状態操作を限定する非所有アダプター。 */
+    class FPersistenceAdapter final {
+    public:
+        /** 操作対象を保持する。 */
+        explicit FPersistenceAdapter(FInputRecorder& recorder) noexcept : m_Recorder(recorder) {}
+
+        /** targetと同じallocatorを使う空のstagingを準備する。自己指定は拒否する。 */
+        bool PrepareLoadStaging(FInputRecorder& staging) const noexcept
+        {
+            if (&staging == &m_Recorder) return false;
+            m_Recorder.PrepareLoadStaging_Internal(staging);
+            return true;
+        }
+
+        /** 検証済みstagingの永続状態をno-fail swapで反映する。自己指定は拒否する。 */
+        bool CommitLoadedState(FInputRecorder& staging) noexcept
+        {
+            if (&staging == &m_Recorder) return false;
+            m_Recorder.SwapLoadedState_Internal(staging);
+            return true;
+        }
+
+    private:
+        /** 操作対象のrecorder。 */
+        FInputRecorder& m_Recorder;
+    };
+
+    /** cursor非変更のreplay読み取りアダプターを返す。 */
+    FReplayReadAdapter ReplayReadAccess() const noexcept { return FReplayReadAdapter(*this); }
+
+    /** transactional load用アダプターを返す。 */
+    FPersistenceAdapter PersistenceAccess() noexcept { return FPersistenceAdapter(*this); }
+
+private:
 
     /** 現在の動作モード。 */
     ERecorderMode       m_Mode          = ERecorderMode::Idle;

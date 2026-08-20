@@ -39,6 +39,8 @@ frame snapshotを提出できます。
 固定tick単位のreplayやrollbackは`IFixedTickInputSource`を実装し、
 `SetFixedTickInputSource`へ渡します。こちらは固定更新が実行される直前にtick番号付きで呼ばれ、
 catch-upの全tickへ別々の入力を供給します。固定時計を復元すると同じtick番号が再要求されます。
+既存の`FInputRecorder`を使う場合は、raw key codeを`EKey`へ変換する関数と一緒に
+`FInputRecorderFixedTickSource`へ渡します。sourceはrecorderのmodeやcursorを変更しません。
 どちらのソースも非所有なので、`ResetFixedStepInputSource`または`FGame`の破棄まで呼び出し側が
 生存させてください。二つの差し替えソースは排他的で、後から設定した側が有効になります。
 

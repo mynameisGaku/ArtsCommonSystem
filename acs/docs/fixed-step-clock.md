@@ -56,6 +56,8 @@ if (clock.Configure(options)) {
 - `SetFixedStepInputSource`は描画フレーム入力の取得元をAI、headless testへ差し替えます。
 - `SetFixedTickInputSource`は固定tick入力の取得元をreplay、rollbackへ差し替えます。catch-upでも
   tickごとに呼ばれ、時計snapshot復元後は同じtick番号を再要求します。
+- `FInputRecorderFixedTickSource`はraw key code decoderを受け取り、既存`.acsr`のsample列を
+  cursor非変更で固定tick入力へ変換します。
 - `ResetFixedStepInputSource`でどちらの差し替え元からも既定のplatform入力へ戻ります。
 - `FixedStepInterpolationAlpha` は描画補間に使える剰余率を返します。
 - 起動前に復元した時計状態は `FGame::OnStart` 後も維持されます。

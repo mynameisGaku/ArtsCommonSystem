@@ -209,6 +209,17 @@ ACS_REF.modules.push({
       ]
     },
     {
+      name: "FInputRecorderFixedTickSource",
+      kind: "クラス", header: "gameframework/InputRecorderFixedTickSource.h",
+      summary: "FInputRecorderのraw sample列からキーとマウスボタンをFGameの固定tick入力へ変換する非所有アダプター。巻き戻し時は先頭から保持状態を再構築する。",
+      when: "既存の.acsr入力を描画frame rateに依存せずFGame::SetFixedTickInputSourceへ接続したい時。",
+      sample: "bool DecodeKey(u8 raw, EKey& out) noexcept;\nFInputRecorderFixedTickSource source(recorder, DecodeKey);\ngame.SetFixedTickInputSource(source);",
+      members: [
+        { sig: "bool TryCaptureFixedTickInput(u64 fixed_tick, FInputStateSnapshot& output)", desc: "指定tickまでraw変化を適用する。変換不能・不正sampleではoutputとcached stateを維持してfalse。" },
+        { sig: "void Reset() / u32 TickRateHz() const", desc: "読み取り位置を初期化する / recorderのtick rateを返す。" }
+      ]
+    },
+    {
       name: "ERecorderMode",
       kind: "列挙(enum)", header: "gameframework/InputRecorder.h",
       summary: "FInputRecorder の動作モード。Idle (何もしない) / Recording (録画) / Replaying (再生) の 3 値。",

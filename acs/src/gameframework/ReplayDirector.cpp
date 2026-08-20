@@ -1040,12 +1040,16 @@ TResult<void> FReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept 
 
     const bool commit_recorder = m_Recorder != nullptr && input_blob_size > 0;
     const bool commit_lockstep = m_Lockstep != nullptr && lockstep_blob_size > 0;
-    FAllocator& recorder_allocator =
-        m_Recorder != nullptr ? *m_Recorder->m_Samples.GetAllocator() : DefaultAllocator();
-    FAllocator& lockstep_allocator =
-        m_Lockstep != nullptr ? *m_Lockstep->m_Frames.GetAllocator() : DefaultAllocator();
-    FInputRecorder staged_recorder(recorder_allocator);
-    FLockstep staged_lockstep(lockstep_allocator);
+    FInputRecorder staged_recorder;
+    FLockstep staged_lockstep;
+    if (commit_recorder && !m_Recorder->PersistenceAccess().PrepareLoadStaging(staged_recorder)) {
+        return ACS_ERR(Generic, kSub_BadSourceBlob,
+                       "FReplayDirector::TryLoadReplay: recorder staging alias rejected");
+    }
+    if (commit_lockstep && !m_Lockstep->PersistenceAccess().PrepareLoadStaging(staged_lockstep)) {
+        return ACS_ERR(Generic, kSub_BadSourceBlob,
+                       "FReplayDirector::TryLoadReplay: lockstep staging alias rejected");
+    }
     if (commit_recorder) {
         TResult<void> source_result = staged_recorder.TryLoadFromBuffer(input_blob_ptr, input_blob_size);
         if (source_result.IsErr()) {
@@ -1069,8 +1073,14 @@ TResult<void> FReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept 
         }
     }
 
-    if (commit_recorder) m_Recorder->SwapLoadedState(staged_recorder);
-    if (commit_lockstep) m_Lockstep->SwapLoadedState(staged_lockstep);
+    if (commit_recorder && !m_Recorder->PersistenceAccess().CommitLoadedState(staged_recorder)) {
+        return ACS_ERR(Generic, kSub_BadSourceBlob,
+                       "FReplayDirector::TryLoadReplay: recorder commit alias rejected");
+    }
+    if (commit_lockstep && !m_Lockstep->PersistenceAccess().CommitLoadedState(staged_lockstep)) {
+        return ACS_ERR(Generic, kSub_BadSourceBlob,
+                       "FReplayDirector::TryLoadReplay: lockstep commit alias rejected");
+    }
 
     m_GameVersionOwned = Move(game_version);
     m_LevelIdOwned = Move(level_id);

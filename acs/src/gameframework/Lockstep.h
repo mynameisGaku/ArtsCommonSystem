@@ -77,8 +77,6 @@
 
 namespace acs::game {
 
-class FReplayDirector;
-
 /** 1 lockstepへ読み込めるframe件数上限。 */
 inline constexpr u32 kLockstepMaximumFrames = 1'000'000u;
 
@@ -298,13 +296,44 @@ public:
     TResult<void> TryLoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
-    friend class FReplayDirector;
-
-    /** ReplayDirector staging用にtargetと同じallocatorを注入する。 */
-    explicit FLockstep(FAllocator& allocator) noexcept : m_Frames(allocator) {}
+    /** targetと同じallocatorを使う空のload stagingへ初期化する内部処理。 */
+    void PrepareLoadStaging_Internal(FLockstep& staging) const noexcept;
 
     /** ReplayDirectorが複数sourceを一括commitするためのno-fail state swap。 */
-    void SwapLoadedState(FLockstep& other) noexcept;
+    void SwapLoadedState_Internal(FLockstep& other) noexcept;
+
+public:
+    /** ReplayDirectorのtransactional loadへ内部状態操作を限定する非所有アダプター。 */
+    class FPersistenceAdapter final {
+    public:
+        /** 操作対象を保持する。 */
+        explicit FPersistenceAdapter(FLockstep& lockstep) noexcept : m_Lockstep(lockstep) {}
+
+        /** targetと同じallocatorを使う空のstagingを準備する。自己指定は拒否する。 */
+        bool PrepareLoadStaging(FLockstep& staging) const noexcept
+        {
+            if (&staging == &m_Lockstep) return false;
+            m_Lockstep.PrepareLoadStaging_Internal(staging);
+            return true;
+        }
+
+        /** 検証済みstagingの永続状態をno-fail swapで反映する。自己指定は拒否する。 */
+        bool CommitLoadedState(FLockstep& staging) noexcept
+        {
+            if (&staging == &m_Lockstep) return false;
+            m_Lockstep.SwapLoadedState_Internal(staging);
+            return true;
+        }
+
+    private:
+        /** 操作対象のlockstep。 */
+        FLockstep& m_Lockstep;
+    };
+
+    /** transactional load用アダプターを返す。 */
+    FPersistenceAdapter PersistenceAccess() noexcept { return FPersistenceAdapter(*this); }
+
+private:
 
     /** 現在の動作モード。 */
     ENetMode           m_Mode          = ENetMode::Local;

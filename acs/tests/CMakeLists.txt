@@ -13,6 +13,7 @@ add_executable(acs_unit_tests
     input_feed_tests.cpp
     input_axis_options_tests.cpp
     input_map_state_tests.cpp
+    input_recorder_fixed_tick_source_tests.cpp
     fixed_step_input_buffer_tests.cpp
     game_fixed_input_integration_tests.cpp
     game_fixed_step_integration_tests.cpp

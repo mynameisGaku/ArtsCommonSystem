@@ -105,16 +105,18 @@ game.SetFixedStepInputSource(input_source);
 復元すると同じ番号が再要求されるため、入力列を番号から決定できるようにしてください。
 
 ```cpp
-class FReplayInputSource final : public IFixedTickInputSource {
-public:
-    bool TryCaptureFixedTickInput(u64 fixed_tick, FInputStateSnapshot& output) noexcept override {
-        return TryReadRecordedInput(fixed_tick, output); // アプリ側の録画データから取得
-    }
-};
+bool DecodeRecordedKey(u8 raw_code, EKey& output) noexcept;
 
-FReplayInputSource replay_source;
+// recorderへ.acsrをLoadFromBufferした後は、再生中に内容を変更しない。
+FInputRecorderFixedTickSource replay_source(recorder, DecodeRecordedKey);
 game.SetFixedTickInputSource(replay_source);
 ```
+
+`FInputRecorder`のkey codeはWin32 VKやSDL scancodeなどアプリ定義なので、変換関数を省略できません。
+巻き戻し要求では先頭から保持状態を再構築し、通常の連続再生では前回位置から読み進めます。
+recorderを再読み込み・録画・clearした場合は`replay_source.Reset()`を呼んでください。
+`replay_source.TickRateHz()`とゲームの固定tick rateは呼び出し側で一致させます。変換対象はキーと
+マウスボタンで、raw sampleのmouse位置は`FInputStateSnapshot`に項目がないため含まれません。
 
 rollback では `FFixedStepRuntimeSnapshot` を使うと、固定時計、active scene の未消費入力、
 固定更新の有効状態を同じ境界で保存・復元できます。シーン本体や乱数の状態も別途同じ
