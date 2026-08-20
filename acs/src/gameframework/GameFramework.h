@@ -26,6 +26,7 @@
 #include "gameframework/ANode.h"
 #include "gameframework/InputMap.h"
 #include "gameframework/InputActionState.h"
+#include "gameframework/InputFrameSource.h"
 #include "gameframework/InputStateSnapshot.h"
 #include "gameframework/InputStateView.h"
 #include "gameframework/PlatformInputStateAdapter.h"

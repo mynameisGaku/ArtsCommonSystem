@@ -162,6 +162,7 @@ set(_acsgen_gameframework_headers
     BehaviorTree.h
     BuffSystem.h
     Camera2D.h
+    CameraComponent3D.h
     CameraShakePresets.h
     CameraStack.h
     CharacterCustomizer.h
@@ -210,6 +211,7 @@ set(_acsgen_gameframework_headers
     HungerSystem.h
     InputActionState.h
     InputAxisOptions.h
+    InputFrameSource.h
     InputMap.h
     InputRecorder.h
     InputStateSnapshot.h
@@ -269,7 +271,6 @@ set(_acsgen_gameframework_headers
     Scene.h
     Scene2D.h
     Scene3D.h
-    CameraComponent3D.h
     Scene3DSerialize.h
     SceneCommandQueue.h
     SceneEventBus.h

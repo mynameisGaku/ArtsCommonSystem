@@ -5,7 +5,7 @@
 
 namespace acs::game {
 
-/** 現在のCInputを所有された入力snapshotへ変換するplatformアダプター。 */
+/** 現在の FInput を所有された入力 snapshot へ変換する platform アダプター。 */
 class FPlatformInputStateAdapter final {
 public:
     /**

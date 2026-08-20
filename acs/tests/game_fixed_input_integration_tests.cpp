@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "gameframework/Game.h"
+#include "gameframework/InputFrameSource.h"
 #include "gameframework/Scene.h"
 #include "platform/Input.h"
 #include "test/Expect.h"
@@ -28,6 +29,47 @@ void ResetPlatformInput() noexcept
     FInput::OnEvent(lost_focus);
     FInput::Update();
 }
+
+/** test が指定した入力 snapshot を一フレームずつ返す明示入力ソース。 */
+class FScriptedInputFrameSource final : public IInputFrameSource {
+public:
+    /** 現在の入力を返し、呼び出し回数を記録する。 */
+    bool TryCaptureFrameInput(FInputStateSnapshot& output) noexcept override
+    {
+        ++m_CaptureCount;
+        if (!m_CaptureEnabled) return false;
+        output = m_Input;
+        return true;
+    }
+
+    /** Space キーの現在状態とエッジを設定する。 */
+    bool TrySetSpace(bool down, bool pressed, bool released) noexcept
+    {
+        return m_Input.TrySetKeyState(EKey::Space, down, pressed, released);
+    }
+
+    /** 次回以降の取得を成功または失敗させる。 */
+    void SetCaptureEnabled(bool enabled) noexcept
+    {
+        m_CaptureEnabled = enabled;
+    }
+
+    /** 入力を取得しようとした回数を返す。 */
+    u32 CaptureCount() const noexcept
+    {
+        return m_CaptureCount;
+    }
+
+private:
+    /** 次回取得で返す入力。 */
+    FInputStateSnapshot m_Input;
+
+    /** 取得を成功させる場合は true。 */
+    bool m_CaptureEnabled = true;
+
+    /** 取得を試みたフレーム数。 */
+    u32 m_CaptureCount = 0u;
+};
 
 /** 固定 tick ごとの Jump 入力を記録する検証用シーン。 */
 class AFixedInputProbeScene final : public FScene {
@@ -291,6 +333,90 @@ ACS_TEST(GameFixedInputIntegration, PausedTimeScaleDoesNotReplayOldEdges)
 
     game.SetTimeScale(1.0f);
     game.UpdateForTest(0.1f);
+    EXPECT_EQ(scene->FixedUpdateCount(), 1u);
+    EXPECT_EQ(scene->PressedCount(), 0u);
+    EXPECT_EQ(scene->HeldCount(), 0u);
+    EXPECT_EQ(scene->ReleasedCount(), 0u);
+
+    game.ShutdownForTest();
+    ResetPlatformInput();
+}
+
+ACS_TEST(GameFixedInputIntegration, ExplicitSourceFeedsHeadlessFixedUpdatesOncePerFrame)
+{
+    ResetPlatformInput();
+    FScriptedInputFrameSource source;
+    EXPECT_TRUE(source.TrySetSpace(true, true, false));
+
+    AFixedInputProbeGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.SetFixedStepInputSource(source);
+    EXPECT_FALSE(game.UsesPlatformFixedStepInput());
+    game.StartForTest();
+    AFixedInputProbeScene* scene = game.SceneForTest();
+    EXPECT_TRUE(scene != nullptr);
+
+    game.UpdateForTest(0.0625f);
+    EXPECT_EQ(source.CaptureCount(), 1u);
+    EXPECT_EQ(scene->FixedUpdateCount(), 0u);
+
+    EXPECT_TRUE(source.TrySetSpace(true, false, false));
+    game.UpdateForTest(0.0625f);
+    EXPECT_EQ(source.CaptureCount(), 2u);
+    EXPECT_EQ(scene->FixedUpdateCount(), 1u);
+    EXPECT_EQ(scene->PressedCount(), 1u);
+    EXPECT_EQ(scene->HeldCount(), 1u);
+    EXPECT_EQ(scene->ReleasedCount(), 0u);
+
+    game.ShutdownForTest();
+    ResetPlatformInput();
+}
+
+ACS_TEST(GameFixedInputIntegration, SourceSwitchDiscardsPendingInputBeforePlatformResume)
+{
+    ResetPlatformInput();
+    FScriptedInputFrameSource source;
+    EXPECT_TRUE(source.TrySetSpace(true, true, false));
+
+    AFixedInputProbeGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.SetFixedStepInputSource(source);
+    game.StartForTest();
+    AFixedInputProbeScene* scene = game.SceneForTest();
+    EXPECT_TRUE(scene != nullptr);
+
+    game.UpdateForTest(0.0625f);
+    game.ResetFixedStepInputSource();
+    EXPECT_TRUE(game.UsesPlatformFixedStepInput());
+    game.UpdateForTest(0.0625f);
+
+    EXPECT_EQ(scene->FixedUpdateCount(), 1u);
+    EXPECT_EQ(scene->PressedCount(), 0u);
+    EXPECT_EQ(scene->HeldCount(), 0u);
+    EXPECT_EQ(scene->ReleasedCount(), 0u);
+
+    game.ShutdownForTest();
+    ResetPlatformInput();
+}
+
+ACS_TEST(GameFixedInputIntegration, FailedExplicitSourceClearsPendingInputTransactionally)
+{
+    ResetPlatformInput();
+    FScriptedInputFrameSource source;
+    EXPECT_TRUE(source.TrySetSpace(true, true, false));
+
+    AFixedInputProbeGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.SetFixedStepInputSource(source);
+    game.StartForTest();
+    AFixedInputProbeScene* scene = game.SceneForTest();
+    EXPECT_TRUE(scene != nullptr);
+
+    game.UpdateForTest(0.0625f);
+    source.SetCaptureEnabled(false);
+    game.UpdateForTest(0.0625f);
+
+    EXPECT_EQ(source.CaptureCount(), 2u);
     EXPECT_EQ(scene->FixedUpdateCount(), 1u);
     EXPECT_EQ(scene->PressedCount(), 0u);
     EXPECT_EQ(scene->HeldCount(), 0u);

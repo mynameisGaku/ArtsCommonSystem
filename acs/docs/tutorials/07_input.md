@@ -81,6 +81,25 @@ public:
 };
 ```
 
+replay、AI、headless test では、`IInputFrameSource` を差し替えると `FInput` のグローバル状態へ
+触れずに同じ固定更新経路を使えます。入力ソースは非所有なので、ゲームより先に破棄しないで
+ください。既定の platform 入力へ戻すときは `ResetFixedStepInputSource()` を呼びます。
+
+```cpp
+class FHeadlessInputSource final : public IInputFrameSource {
+public:
+    FInputStateSnapshot next_input;
+
+    bool TryCaptureFrameInput(FInputStateSnapshot& output) noexcept override {
+        output = next_input;
+        return true;
+    }
+};
+
+FHeadlessInputSource input_source;
+game.SetFixedStepInputSource(input_source);
+```
+
 rollback では `FFixedStepRuntimeSnapshot` を使うと、固定時計、active scene の未消費入力、
 固定更新の有効状態を同じ境界で保存・復元できます。シーン本体や乱数の状態も別途同じ
 境界で保存してください。
@@ -93,7 +112,7 @@ rollback では `FFixedStepRuntimeSnapshot` を使うと、固定時計、active
 
 | メソッド | 説明 |
 |---|---|
-| `FInput::Update()` | フレーム先頭で 1 回。前フレーム状態を確定する（Pressed/Released 判定の土台） |
+| `FInput::Update()` | フレーム先頭で 1 回。前フレームの Pressed/Released を消去する |
 | `IsKeyDown(EKey)` | 押されている間 true（レベル） |
 | `IsKeyPressed(EKey)` | **このフレームで押された瞬間だけ** true（立ち上がりエッジ） |
 | `IsKeyReleased(EKey)` | このフレームで離された瞬間だけ true（立ち下がりエッジ） |
@@ -115,8 +134,10 @@ rollback では `FFixedStepRuntimeSnapshot` を使うと、固定時計、active
 | `BindGamepad(FActionId, EGamepadButton, u32 player=0)` | パッドボタンをバインド（player 既定 0） |
 | `BindAxisKeys(FActionId, EKey neg, EKey pos)` | 1D 軸。neg=-1 / pos=+1 を返す軸を作る |
 | `BindGamepadAxis(FActionId, EGamepadAxis, u32 player=0, f32 scale=1)` | アナログ軸を追加。負の `scale` で反転 |
+| `TryBindGamepadAxis(..., FInputAxisOptions)` | dead-zone・倍率・反転を検証してアナログ軸を追加 |
 | `Unbind(FActionId)` | 指定アクションの全バインド削除 |
 | `ClearAll()` | 全バインド削除 |
+| `Evaluate(FActionId, const IInputStateView&)` | 明示した入力時点からデジタル状態と軸をまとめて評価 |
 | `IsPressed(FActionId)` | いずれかのバインドがこのフレーム押された（OR） |
 | `IsHeld(FActionId)` | いずれかが押されている（OR） |
 | `IsReleased(FActionId)` | いずれかがこのフレーム離された（OR） |

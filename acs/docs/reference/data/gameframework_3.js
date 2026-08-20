@@ -422,11 +422,21 @@ ACS_REF.modules.push({
         { sig: "bool TrySetFixedTimestep(const FFixedStepOptions& options)", ret: "適用できたか", desc: "step・最大回数・蓄積上限をまとめて検証し、成功時だけ設定する。" },
         { sig: "void DisableFixedTimestep() / bool IsFixedTimestepEnabled() const", desc: "固定更新を無効化する / 現在有効かを返す。" },
         { sig: "f64 FixedStepInterpolationAlpha() const", ret: "[0,1) の補間率", desc: "次の固定 step までの剰余率。無効時は 0。" },
+        { sig: "void SetFixedStepInputSource(IInputFrameSource& source) / void ResetFixedStepInputSource()", desc: "固定更新の入力取得元を replay・AI・headless test へ差し替える / 既定の platform 入力へ戻す。" },
         { sig: "bool TryCaptureFixedStepSnapshot(FFixedStepClockSnapshot& out) const / bool TryRestoreFixedStepSnapshot(const FFixedStepClockSnapshot& snapshot)", desc: "固定時計の設定・剰余・統計を検証付きで保存 / 復元する。" },
         { sig: "bool TryCaptureFixedStepRuntimeSnapshot(FFixedStepRuntimeSnapshot& out) const / bool TryRestoreFixedStepRuntimeSnapshot(const FFixedStepRuntimeSnapshot& snapshot)", desc: "固定時計、active scene の未消費入力、固定更新の有効状態を一括保存 / 復元する。" },
         { sig: "T& EmplaceAppState<T>(args...) / T* AppState<T>()", desc: "シーン跨ぎで残る永続状態を構築 / 取り出す (型消去、1 個)。未設定・型不一致は nullptr。", when: "プレイヤー所持金やセーブデータをシーン間で持ち回りたい時。" },
         { sig: "void TransitionTo(TUniquePtr<FScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f)", desc: "フェードアウト → シーン切替 → フェードインを 1 行で行う。フェードは実時間で進む。" },
         { sig: "FFadeTransition& Fade()", desc: "進行中のフェード状態を参照する。" }
+      ]
+    },
+    {
+      name: "IInputFrameSource",
+      kind: "インターフェース", header: "gameframework/InputFrameSource.h",
+      summary: "FGame が一フレーム分の固定更新入力を所有 snapshot として取得する差し替え境界。",
+      when: "platform 入力の代わりに replay、AI、headless test の入力列で同じ固定更新経路を駆動したい時。",
+      members: [
+        { sig: "bool TryCaptureFrameInput(FInputStateSnapshot& output)", desc: "現在フレームの入力を取得する。false では FGame が未消費入力を破棄する。" }
       ]
     },
     {

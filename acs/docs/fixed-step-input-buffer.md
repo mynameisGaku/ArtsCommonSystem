@@ -29,3 +29,13 @@ buffer.TryRestoreSnapshot(saved);
 `FGame`配下では`FFixedStepRuntimeSnapshot`と
 `TryCaptureFixedStepRuntimeSnapshot` / `TryRestoreFixedStepRuntimeSnapshot`を使うと、
 固定時計とactive sceneの未消費入力を一つのtransactionとして扱えます。
+
+## FGame の入力ソース
+
+`FGame` は既定で現在の `FInput` を一フレームに一度だけ取得します。replay、AI、headless test
+では `IInputFrameSource` を実装し、`SetFixedStepInputSource` へ渡すと platform 入力を使わずに
+所有 snapshot を提出できます。ソースは非所有なので、`ResetFixedStepInputSource` または
+`FGame` の破棄まで呼び出し側が生存させてください。
+
+入力ソースを切り替えると、以前のソースから残った未消費入力は破棄されます。取得が
+`false` を返したフレームも同様に未消費入力を破棄し、その固定 tick は無入力になります。

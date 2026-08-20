@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // FGame 実装
 #include "gameframework/Game.h"
+#include "gameframework/InputFrameSource.h"
 #include "gameframework/InputStateSnapshot.h"
 #include "gameframework/PlatformInputStateAdapter.h"
 #include "gameframework/Scene.h"
@@ -96,6 +97,22 @@ bool FGame::TryRestoreFixedStepRuntimeSnapshot(const FFixedStepRuntimeSnapshot& 
     return true;
 }
 
+/** 入力ソースを切り替え、以前の取得元から残った未消費入力を破棄する。 */
+void FGame::SetFixedStepInputSource(IInputFrameSource& source) noexcept
+{
+    if (m_FixedStepInputSource == &source) return;
+    m_FixedStepInputSource = &source;
+    m_Scenes.ExecutionAccess().ResetFixedInput();
+}
+
+/** platform 入力へ戻し、差し替え元から残った未消費入力を破棄する。 */
+void FGame::ResetFixedStepInputSource() noexcept
+{
+    if (m_FixedStepInputSource == nullptr) return;
+    m_FixedStepInputSource = nullptr;
+    m_Scenes.ExecutionAccess().ResetFixedInput();
+}
+
 /** 起動時に InitialScene() を push して即時適用する。 */
 void FGame::OnStart() noexcept
 {
@@ -133,7 +150,10 @@ void FGame::OnUpdate(f32 dt) noexcept
     // PollEvents 後の platform 入力を一度だけ所有 snapshot にし、active Scene へ提出する。
     if (m_FixedStepEnabled && m_TimeScale > 0.0f && scaled_dt >= 0.0f && std::isfinite(scaled_dt)) {
         FInputStateSnapshot frame_input;
-        if (!FPlatformInputStateAdapter::TryCapture(frame_input) || !scene_execution.SubmitFrameInput(frame_input)) {
+        const bool captured = m_FixedStepInputSource != nullptr
+                                  ? m_FixedStepInputSource->TryCaptureFrameInput(frame_input)
+                                  : FPlatformInputStateAdapter::TryCapture(frame_input);
+        if (!captured || !scene_execution.SubmitFrameInput(frame_input)) {
             scene_execution.ResetFixedInput();
             ACS_LOG_WARN("FGame: fixed-step input capture was rejected; neutral input will be used");
         }

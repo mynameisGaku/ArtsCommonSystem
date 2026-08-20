@@ -13,7 +13,7 @@
 //   };
 //   ACS_GAME_MAIN(FMyGame)
 //
-// FSceneManager 駆動 + FRenderContext 配線。固定タイムステップ accumulator +
+// FSceneManager 駆動 + FRenderContext 配線。固定ステップ時計 +
 // AppState 型消去永続状態 + FScene への dt は time_scale 乗算済を渡す。
 // OnPause/OnResume は FSceneManager 側で配線済 (Push/Pop 時)。
 #pragma once
@@ -34,13 +34,14 @@
 namespace acs::game {
 
 class FScene;
+class IInputFrameSource;
 
 /**
  * FApplication を継承し FSceneManager を駆動するゲーム基底クラス。
  *
  * @details
  * 利用者は派生クラスで InitialScene() を override し最初の FScene を返すだけでよい。
- * 固定タイムステップ accumulator、AppState による型消去の永続状態、フェード付き
+ * 固定ステップ時計、AppState による型消去の永続状態、フェード付き
  * シーン遷移を提供する。FScene に渡す dt は time_scale 乗算済み。
  */
 class FGame : public FApplication {
@@ -140,6 +141,24 @@ public:
     f64 FixedStepInterpolationAlpha() const noexcept
     {
         return m_FixedStepEnabled ? m_FixedStepClock.InterpolationAlpha() : 0.0;
+    }
+
+    /**
+     * 固定更新で使う一フレーム入力の取得元を差し替える。
+     *
+     * @details source は非所有で、ResetFixedStepInputSource または FGame の破棄まで生存させる。
+     * platform 入力から切り替える際は未消費入力を破棄し、異なる入力列を混在させない。
+     * @param source replay、AI、headless test などが所有する入力ソース。
+     */
+    void SetFixedStepInputSource(IInputFrameSource& source) noexcept;
+
+    /** platform 入力を使う既定状態へ戻し、未消費入力を破棄する。 */
+    void ResetFixedStepInputSource() noexcept;
+
+    /** platform 入力を直接取得する既定状態なら true を返す。 */
+    bool UsesPlatformFixedStepInput() const noexcept
+    {
+        return m_FixedStepInputSource == nullptr;
     }
 
     /**
@@ -355,6 +374,9 @@ private:
 
     /** 固定タイムステップ更新が有効か。 */
     bool m_FixedStepEnabled = true;
+
+    /** replay、AI、test が所有する固定更新入力ソース。null なら platform 入力を使う。 */
+    IInputFrameSource* m_FixedStepInputSource = nullptr;
 };
 
 } // namespace acs::game
