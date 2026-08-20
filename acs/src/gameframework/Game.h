@@ -27,6 +27,8 @@
 #include "gameframework/RenderContext.h"
 #include "gameframework/AppState.h"
 #include "gameframework/FadeTransition.h"
+#include "gameframework/FixedStepClock.h"
+#include "gameframework/FixedStepRuntimeSnapshot.h"
 #include "gameframework/SubsystemCollection.h"
 
 namespace acs::game {
@@ -50,7 +52,7 @@ public:
     ~FGame() noexcept override = default;
 
     /** コピー禁止。 */
-    FGame(const FGame&)            = delete;
+    FGame(const FGame&) = delete;
 
     /** コピー代入も禁止。 */
     FGame& operator=(const FGame&) = delete;
@@ -60,14 +62,20 @@ public:
      *
      * @return FSceneManager への参照。
      */
-    FSceneManager&  Scenes()        noexcept { return m_Scenes; }
+    FSceneManager& Scenes() noexcept
+    {
+        return m_Scenes;
+    }
 
     /**
      * レンダーコンテキストへの参照を返す。
      *
      * @return FRenderContext への参照。
      */
-    FRenderContext& GetRenderCtx()  noexcept { return m_RenderCtx; }
+    FRenderContext& GetRenderCtx() noexcept
+    {
+        return m_RenderCtx;
+    }
 
     /**
      * 時間スケールを設定する。
@@ -75,14 +83,20 @@ public:
      * @details FScene::OnUpdate / OnFixedUpdate に渡る dt に乗算される。負値は 0 にクランプ。
      * @param s 新しい時間スケール。
      */
-    void SetTimeScale(f32 s) noexcept { m_TimeScale = s < 0.0f ? 0.0f : s; }
+    void SetTimeScale(f32 s) noexcept
+    {
+        m_TimeScale = s < 0.0f ? 0.0f : s;
+    }
 
     /**
      * 現在の時間スケールを返す。
      *
      * @return 設定済みの時間スケール。
      */
-    f32  TimeScale() const noexcept { return m_TimeScale; }
+    f32 TimeScale() const noexcept
+    {
+        return m_TimeScale;
+    }
 
     /**
      * 固定タイムステップを設定する。
@@ -92,9 +106,24 @@ public:
      * @param fixed_dt 固定 step の長さ (秒、典型 1/60 = 0.01667)。0 以下で無効化。
      * @param max_steps_per_frame 1 フレームで進める最大 step 数 (暴走防止クランプ)。
      */
-    void SetFixedTimestep(f32 fixed_dt, u32 max_steps_per_frame = 8) noexcept {
-        m_FixedDt = fixed_dt;
-        m_MaxFixedSteps = max_steps_per_frame;
+    void SetFixedTimestep(f32 fixed_dt, u32 max_steps_per_frame = 8) noexcept;
+
+    /**
+     * 固定タイムステップの完全な設定を検証して適用する。
+     *
+     * @details 設定が不正な場合は現在の時計状態を変更しない。成功時は累積時間と統計を初期化する。
+     * @param options 固定 step、1 フレーム最大 step 数、蓄積時間上限。
+     * @return 設定を適用できた場合は true。
+     */
+    bool TrySetFixedTimestep(const FFixedStepOptions& options) noexcept;
+
+    /** 固定タイムステップ更新を無効化し、時計の累積状態を初期化する。 */
+    void DisableFixedTimestep() noexcept;
+
+    /** 固定タイムステップ更新が有効なら true を返す。 */
+    bool IsFixedTimestepEnabled() const noexcept
+    {
+        return m_FixedStepEnabled;
     }
 
     /**
@@ -102,7 +131,44 @@ public:
      *
      * @return 固定 step の長さ (秒)。
      */
-    f32 FixedTimestep() const noexcept { return m_FixedDt; }
+    f32 FixedTimestep() const noexcept
+    {
+        return m_FixedStepEnabled ? static_cast<f32>(m_FixedStepClock.Options().step_seconds) : 0.0f;
+    }
+
+    /** 次の固定 step までの描画補間率を返す。 */
+    f64 FixedStepInterpolationAlpha() const noexcept
+    {
+        return m_FixedStepEnabled ? m_FixedStepClock.InterpolationAlpha() : 0.0;
+    }
+
+    /**
+     * 固定更新時計の再現可能な状態を取得する。
+     * @param snapshot 設定と累積状態の出力先。
+     * @return 固定更新が有効で状態を取得できた場合は true。
+     */
+    bool TryCaptureFixedStepSnapshot(FFixedStepClockSnapshot& snapshot) const noexcept;
+
+    /**
+     * 固定更新時計を保存状態へ復元する。
+     * @param snapshot 復元する設定と累積状態。
+     * @return 復元できた場合は true。失敗時は現在状態を変更しない。
+     */
+    bool TryRestoreFixedStepSnapshot(const FFixedStepClockSnapshot& snapshot) noexcept;
+
+    /**
+     * 固定時計と active scene の未消費入力を同じ保存値へ複製する。
+     * @param snapshot 時計、入力、固定更新の有効状態を受け取る保存先。
+     * @return 全状態を取得できた場合は true。失敗時は snapshot を変更しない。
+     */
+    bool TryCaptureFixedStepRuntimeSnapshot(FFixedStepRuntimeSnapshot& snapshot) const noexcept;
+
+    /**
+     * 固定時計と active scene の未消費入力を一括復元する。
+     * @param snapshot 復元する時計、入力、固定更新の有効状態。
+     * @return 全状態を復元できた場合は true。失敗時は現在状態を変更しない。
+     */
+    bool TryRestoreFixedStepRuntimeSnapshot(const FFixedStepRuntimeSnapshot& snapshot) noexcept;
 
     /**
      * シーン跨ぎの永続状態 (AppState) を構築する。
@@ -114,7 +180,8 @@ public:
      * @return 構築した T への参照。
      */
     template<typename T, typename... Args>
-    T& EmplaceAppState(Args&&... args) noexcept {
+    T& EmplaceAppState(Args&&... args) noexcept
+    {
         return m_AppState.Emplace<T>(Forward<Args>(args)...);
     }
 
@@ -125,7 +192,10 @@ public:
      * @return T へのポインタ (未設定 / 型不一致なら nullptr)。
      */
     template<typename T>
-    T* AppState() noexcept { return m_AppState.Get<T>(); }
+    T* AppState() noexcept
+    {
+        return m_AppState.Get<T>();
+    }
 
     /**
      * フェード付きシーン遷移を行う。
@@ -145,7 +215,10 @@ public:
      *
      * @return overlay alpha/color・phase を参照できる FFadeTransition への参照。
      */
-    FFadeTransition& Fade() noexcept { return m_Fade; }
+    FFadeTransition& Fade() noexcept
+    {
+        return m_Fade;
+    }
 
     /**
      * GameInstance スコープのサブシステム束を返す(Engine スコープへフォールバックする)。
@@ -153,14 +226,20 @@ public:
      * @details FScene の World サブシステム束はこれを parent にする。
      * @return GameInstance スコープのコレクション。
      */
-    FSubsystemCollection& GameInstanceSubsystems() noexcept { return m_GameInstanceSubsystems; }
+    FSubsystemCollection& GameInstanceSubsystems() noexcept
+    {
+        return m_GameInstanceSubsystems;
+    }
 
     /**
      * Engine スコープ(アプリ全体寿命)のサブシステム束を返す。
      *
      * @return Engine スコープのコレクション。
      */
-    FSubsystemCollection& EngineSubsystems() noexcept { return m_EngineSubsystems; }
+    FSubsystemCollection& EngineSubsystems() noexcept
+    {
+        return m_EngineSubsystems;
+    }
 
     /**
      * 型でサブシステムを取得する(GameInstance → Engine の順に検索)。
@@ -169,7 +248,10 @@ public:
      * @return T*(未登録なら nullptr)。
      */
     template<typename T>
-    T* GetSubsystem() noexcept { return m_GameInstanceSubsystems.Get<T>(); }
+    T* GetSubsystem() noexcept
+    {
+        return m_GameInstanceSubsystems.Get<T>();
+    }
 
 protected:
     /**
@@ -184,7 +266,7 @@ protected:
      *
      * @details 派生がさらに override する場合は基底を呼ぶこと。
      */
-    void OnStart()    noexcept override;
+    void OnStart() noexcept override;
 
     /**
      * 毎フレーム update フック。フェード進行と固定 / 可変 update を駆動する。
@@ -199,7 +281,7 @@ protected:
      *
      * @details 派生がさらに override する場合は基底を呼ぶこと。
      */
-    void OnRender()   noexcept override;
+    void OnRender() noexcept override;
 
     /**
      * 終了フック。全シーンとフォント・overlay リソースを解放する。
@@ -227,13 +309,13 @@ private:
     void DrawFadeOverlay() noexcept;
 
     /** シーンマネージャ (FScene の push/pop/切替を管理)。 */
-    FSceneManager  m_Scenes;
+    FSceneManager m_Scenes;
 
     /** FScene 描画に渡すレンダーコンテキスト。 */
     FRenderContext m_RenderCtx;
 
     /** シーン跨ぎの型消去永続状態 (1 個固定)。 */
-    FAppStateSlot  m_AppState;
+    FAppStateSlot m_AppState;
 
     /** Engine スコープ(アプリ全体寿命)のサブシステム束。 */
     FSubsystemCollection m_EngineSubsystems;
@@ -242,40 +324,37 @@ private:
     FSubsystemCollection m_GameInstanceSubsystems;
 
     /** 全シーン共有の HUD フォント (game 寿命)。 */
-    FFont          m_UiFont;
+    FFont m_UiFont;
 
     /** UI フォントのロードに成功したか。 */
-    bool          m_UiFontReady = false;
+    bool m_UiFontReady = false;
 
     /** UI フォントのロードを試行済みか (再試行抑止)。 */
-    bool          m_UiFontTried = false;
+    bool m_UiFontTried = false;
 
     /** シーン遷移フェードの状態。 */
-    FFadeTransition   m_Fade;
+    FFadeTransition m_Fade;
 
     /** 暗転中に差し替える次 FScene。 */
     TUniquePtr<FScene> m_PendingScene;
 
     /** フェード overlay 描画用の FSpriteBatch。 */
-    FSpriteBatch      m_Overlay;
+    FSpriteBatch m_Overlay;
 
     /** overlay FSpriteBatch の init に成功したか。 */
-    bool              m_OverlayReady = false;
+    bool m_OverlayReady = false;
 
     /** overlay FSpriteBatch の init を試行済みか (再試行抑止)。 */
-    bool              m_OverlayTried = false;
+    bool m_OverlayTried = false;
 
     /** 時間スケール (FScene の dt に乗算)。 */
-    f32           m_TimeScale       = 1.0f;
+    f32 m_TimeScale = 1.0f;
 
-    /** 固定 step の長さ (秒、0 以下で無効)。 */
-    f32           m_FixedDt         = 1.0f / 60.0f;
+    /** 可変 delta を有界な固定更新回数へ変換する時計。 */
+    FFixedStepClock m_FixedStepClock;
 
-    /** 固定タイムステップの蓄積秒。 */
-    f32           m_FixedAccum      = 0.0f;
-
-    /** 1 フレームで進める最大固定 step 数。 */
-    u32           m_MaxFixedSteps  = 8;
+    /** 固定タイムステップ更新が有効か。 */
+    bool m_FixedStepEnabled = true;
 };
 
 } // namespace acs::game

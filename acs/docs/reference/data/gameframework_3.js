@@ -418,11 +418,43 @@ ACS_REF.modules.push({
         { sig: "virtual TUniquePtr<FScene> InitialScene()", ret: "最初のシーン", desc: "派生クラスで必ず実装。起動時に最初に push されるシーンを返す。" },
         { sig: "FSceneManager& Scenes()", desc: "シーンスタック管理を取得 (push/pop/change)。" },
         { sig: "void SetTimeScale(f32 s) / f32 TimeScale()", desc: "時間スケール。FScene の dt に乗算される (0 でポーズ、2 で倍速)。" },
-        { sig: "void SetFixedTimestep(f32 fixed_dt, u32 max_steps_per_frame = 8)", desc: "固定タイムステップ設定 (既定 1/60 秒、最大 8 step)。物理を安定させる。" },
+        { sig: "void SetFixedTimestep(f32 fixed_dt, u32 max_steps_per_frame = 8)", desc: "固定タイムステップ設定。step が 0 以下、または最大回数が 0 なら固定更新を無効化する。" },
+        { sig: "bool TrySetFixedTimestep(const FFixedStepOptions& options)", ret: "適用できたか", desc: "step・最大回数・蓄積上限をまとめて検証し、成功時だけ設定する。" },
+        { sig: "void DisableFixedTimestep() / bool IsFixedTimestepEnabled() const", desc: "固定更新を無効化する / 現在有効かを返す。" },
+        { sig: "f64 FixedStepInterpolationAlpha() const", ret: "[0,1) の補間率", desc: "次の固定 step までの剰余率。無効時は 0。" },
+        { sig: "bool TryCaptureFixedStepSnapshot(FFixedStepClockSnapshot& out) const / bool TryRestoreFixedStepSnapshot(const FFixedStepClockSnapshot& snapshot)", desc: "固定時計の設定・剰余・統計を検証付きで保存 / 復元する。" },
+        { sig: "bool TryCaptureFixedStepRuntimeSnapshot(FFixedStepRuntimeSnapshot& out) const / bool TryRestoreFixedStepRuntimeSnapshot(const FFixedStepRuntimeSnapshot& snapshot)", desc: "固定時計、active scene の未消費入力、固定更新の有効状態を一括保存 / 復元する。" },
         { sig: "T& EmplaceAppState<T>(args...) / T* AppState<T>()", desc: "シーン跨ぎで残る永続状態を構築 / 取り出す (型消去、1 個)。未設定・型不一致は nullptr。", when: "プレイヤー所持金やセーブデータをシーン間で持ち回りたい時。" },
         { sig: "void TransitionTo(TUniquePtr<FScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f)", desc: "フェードアウト → シーン切替 → フェードインを 1 行で行う。フェードは実時間で進む。" },
         { sig: "FFadeTransition& Fade()", desc: "進行中のフェード状態を参照する。" }
       ]
+    },
+    {
+      name: "FFixedStepClock",
+      kind: "クラス", header: "gameframework/FixedStepClock.h",
+      summary: "可変の経過秒を上限付きの固定更新回数へ変換する値型。不正入力では状態を変更せず、剰余・破棄時間・補間率を明示的に返す。",
+      when: "物理、lockstep、独立 simulation を一定刻みで進めたい時。通常のゲームでは FGame が所有する。",
+      members: [
+        { sig: "bool Configure(const FFixedStepOptions& options) / FFixedStepAdvanceResult Advance(f64 delta_seconds)", desc: "設定を検証し、経過秒から今回の固定 step 数を求める。" },
+        { sig: "bool TryCaptureSnapshot(FFixedStepClockSnapshot& out) const / bool TryRestoreSnapshot(const FFixedStepClockSnapshot& snapshot)", desc: "設定・剰余・累積統計を保存 / 復元する。" },
+        { sig: "void Reset() / f64 InterpolationAlpha() const", desc: "設定を維持して進行状態を初期化する / 描画補間率を返す。" }
+      ]
+    },
+    {
+      name: "FFixedStepInputBuffer",
+      kind: "クラス", header: "gameframework/FixedStepInputBuffer.h",
+      summary: "可変フレーム入力を固定 tick 入力へ変換する値型。短い押下・解放を次の tick まで保持し、catch-up の最初の tick だけへ渡す。",
+      when: "独自ループで入力エッジの欠落と多重発火を防ぎたい時。FGame では同じ処理が自動配線される。",
+      members: [
+        { sig: "bool TryPushFrame(const IInputStateView& input) / bool TryConsumeFixedStep(FInputStateSnapshot& output)", desc: "フレーム入力を蓄積し、固定 tick 入力として一度だけ消費する。" },
+        { sig: "bool TryCaptureSnapshot(FFixedStepInputBufferSnapshot& out) const / bool TryRestoreSnapshot(const FFixedStepInputBufferSnapshot& snapshot)", desc: "未消費入力を検証付きで保存 / 復元する。" }
+      ]
+    },
+    {
+      name: "FFixedStepRuntimeSnapshot",
+      kind: "構造体", header: "gameframework/FixedStepRuntimeSnapshot.h",
+      summary: "FGame の固定時計、active scene の未消費入力、固定更新の有効状態を同じ境界で所有する保存値。",
+      when: "固定 tick の replay や rollback で、時計と短い入力エッジを transactional に復元したい時。"
     },
     {
       name: "ACS_GAME_MAIN",

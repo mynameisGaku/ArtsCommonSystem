@@ -44,6 +44,7 @@
 #include "gameframework/Tween.h"
 #include "gameframework/Sequence.h"
 #include "gameframework/InputMap.h"
+#include "gameframework/FixedStepInputBuffer.h"
 #include "gameframework/Camera2D.h"
 #include "gameframework/CollisionWorld2D.h"
 #include "gameframework/TriggerWorld2D.h"
@@ -57,31 +58,31 @@ namespace acs::game {
  */
 enum class ESvc : u32 {
     /** サービスを一切要求しない。 */
-    None       = 0,
+    None = 0,
 
     /** FSceneClock (時間スケール付き dt)。 */
-    Clock      = 1u << 0,
+    Clock = 1u << 0,
 
     /** FTweenManager (補間アニメーション)。 */
-    Tweens     = 1u << 1,
+    Tweens = 1u << 1,
 
     /** FSequenceRunner (時系列スクリプト)。 */
-    Sequences  = 1u << 2,
+    Sequences = 1u << 2,
 
     /** FInputMap (アクションへの入力束ね)。 */
-    Input      = 1u << 3,
+    Input = 1u << 3,
 
     /** FCamera2D (2D カメラ)。 */
-    Camera2D    = 1u << 4,
+    Camera2D = 1u << 4,
 
     /** FCollisionWorld2D (2D 衝突)。 */
-    Physics2D  = 1u << 5,
+    Physics2D = 1u << 5,
 
     /** FTriggerWorld2D (overlap enter/stay/exit イベント)。 */
-    Triggers   = 1u << 6,
+    Triggers = 1u << 6,
 
     /** 2D ゲームの既定セット (Clock | Tweens | Sequences | Input)。 */
-    Default2D  = Clock | Tweens | Sequences | Input,
+    Default2D = Clock | Tweens | Sequences | Input,
 };
 
 /**
@@ -91,7 +92,8 @@ enum class ESvc : u32 {
  * @param b 右辺のマスク。
  * @return a と b の bit OR を取ったマスク。
  */
-constexpr ESvc operator|(ESvc a, ESvc b) noexcept {
+constexpr ESvc operator|(ESvc a, ESvc b) noexcept
+{
     return static_cast<ESvc>(static_cast<u32>(a) | static_cast<u32>(b));
 }
 
@@ -102,7 +104,8 @@ constexpr ESvc operator|(ESvc a, ESvc b) noexcept {
  * @param b 右辺のマスク。
  * @return a と b の bit AND を取ったマスク。
  */
-constexpr ESvc operator&(ESvc a, ESvc b) noexcept {
+constexpr ESvc operator&(ESvc a, ESvc b) noexcept
+{
     return static_cast<ESvc>(static_cast<u32>(a) & static_cast<u32>(b));
 }
 
@@ -113,7 +116,8 @@ constexpr ESvc operator&(ESvc a, ESvc b) noexcept {
  * @param flag 含まれるか調べるフラグ。
  * @return mask に flag の bit が立っていれば true。
  */
-constexpr bool SvcHas(ESvc mask, ESvc flag) noexcept {
+constexpr bool SvcHas(ESvc mask, ESvc flag) noexcept
+{
     return (static_cast<u32>(mask) & static_cast<u32>(flag)) != 0u;
 }
 
@@ -140,7 +144,7 @@ public:
     ~FSceneServices() noexcept = default;
 
     /** コピー禁止 (サービスを単独所有するため)。 */
-    FSceneServices(const FSceneServices&)            = delete;
+    FSceneServices(const FSceneServices&) = delete;
 
     /** コピー代入も禁止。 */
     FSceneServices& operator=(const FSceneServices&) = delete;
@@ -150,7 +154,10 @@ public:
      *
      * @return constructor に渡された wanted マスク。
      */
-    ESvc  Wanted() const noexcept { return m_Wanted; }
+    ESvc Wanted() const noexcept
+    {
+        return m_Wanted;
+    }
 
     /**
      * 指定サービスが要求されているかを返す。
@@ -158,7 +165,10 @@ public:
      * @param s 調べるサービスフラグ。
      * @return wanted マスクに s が含まれていれば true。
      */
-    bool Has(ESvc s) const noexcept { return SvcHas(m_Wanted, s); }
+    bool Has(ESvc s) const noexcept
+    {
+        return SvcHas(m_Wanted, s);
+    }
 
     /**
      * FSceneClock への参照を返す。
@@ -166,7 +176,7 @@ public:
      * @details ESvc::Clock が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return クロックサービスへの参照。
      */
-    FSceneClock&          Clock()     noexcept;
+    FSceneClock& Clock() noexcept;
 
     /**
      * FTweenManager への参照を返す。
@@ -174,7 +184,7 @@ public:
      * @details ESvc::Tweens が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return tween サービスへの参照。
      */
-    FTweenManager&        Tweens()    noexcept;
+    FTweenManager& Tweens() noexcept;
 
     /**
      * FSequenceRunner への参照を返す。
@@ -182,7 +192,7 @@ public:
      * @details ESvc::Sequences が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return sequence サービスへの参照。
      */
-    FSequenceRunner&      Sequences() noexcept;
+    FSequenceRunner& Sequences() noexcept;
 
     /**
      * FInputMap への参照を返す。
@@ -190,7 +200,13 @@ public:
      * @details ESvc::Input が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return 入力サービスへの参照。
      */
-    FInputMap&            Input()     noexcept;
+    FInputMap& Input() noexcept;
+
+    /**
+     * 現在の固定 tick へ割り当てられた入力状態を返す。
+     * @return FInputMap::Evaluate へ渡せる読み取り専用入力状態。
+     */
+    const IInputStateView& FixedInput() const noexcept;
 
     /**
      * FCamera2D への参照を返す。
@@ -198,7 +214,7 @@ public:
      * @details ESvc::Camera2D が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return カメラサービスへの参照。
      */
-    acs::game::FCamera2D& Camera()    noexcept;
+    acs::game::FCamera2D& Camera() noexcept;
 
     /**
      * FCollisionWorld2D への参照を返す。
@@ -206,7 +222,7 @@ public:
      * @details ESvc::Physics2D が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return 物理サービスへの参照。
      */
-    FCollisionWorld2D&    Physics()   noexcept;
+    FCollisionWorld2D& Physics() noexcept;
 
     /**
      * FTriggerWorld2D への参照を返す。
@@ -214,57 +230,137 @@ public:
      * @details ESvc::Triggers が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return トリガサービスへの参照。
      */
-    FTriggerWorld2D&      Triggers()  noexcept;
-
-    /**
-     * scene.OnUpdate の前に呼ぶ前段 tick (利用者は触らない)。
-     *
-     * @details Clock を Tick(raw_dt) して時間を進め、scaled dt を確定する。
-     * @param raw_dt スケール前の生 dt。
-     */
-    void _PreUpdate(f32 raw_dt) noexcept;
-
-    /**
-     * scene.OnUpdate の後に呼ぶ後段 tick (利用者は触らない)。
-     *
-     * @details Tweens/Sequences/Camera/Triggers を scaled_dt で Tick して更新を適用する。
-     * @param scaled_dt Clock で確定したスケール済み dt。
-     */
-    void _PostUpdate(f32 scaled_dt) noexcept;
-
-    /**
-     * scene の OnUpdate に渡す dt を返す。
-     *
-     * @details _PreUpdate 後に呼ぶ。Clock 未要求なら raw_dt をそのまま返す。
-     * @param raw_dt スケール前の生 dt。
-     * @return Clock がスケールした dt (未要求なら raw_dt)。
-     */
-    f32  _ScaledDt(f32 raw_dt) const noexcept;
+    FTriggerWorld2D& Triggers() noexcept;
 
 private:
+    /** 可変フレーム入力を固定 tick 入力へ蓄積する内部処理。 */
+    bool SubmitFrameInput_Internal(const IInputStateView& input) noexcept;
+
+    /** 次の固定 tick 入力を確定し、押下・解放を一度だけ消費する内部処理。 */
+    void BeginFixedStepInput_Internal() noexcept;
+
+    /** シーン遷移、pause、時計設定変更で固定入力を初期化する内部処理。 */
+    void ResetFixedInput_Internal() noexcept;
+
+    /** 未消費の固定入力を保存値へ複製する内部処理。 */
+    bool TryCaptureFixedInputSnapshot_Internal(FFixedStepInputBufferSnapshot& snapshot) const noexcept;
+
+    /** 保存値から未消費の固定入力を復元する内部処理。 */
+    bool TryRestoreFixedInputSnapshot_Internal(const FFixedStepInputBufferSnapshot& snapshot) noexcept;
+
+    /** Clock を進めてスケール済み時間を確定する内部処理。 */
+    void PreUpdate_Internal(f32 raw_dt) noexcept;
+
+    /** Tween、Sequence、Camera、Trigger を進める内部処理。 */
+    void PostUpdate_Internal(f32 scaled_dt) noexcept;
+
+    /** シーンへ渡すスケール済み時間を返す内部処理。 */
+    f32 ScaledDt_Internal(f32 raw_dt) const noexcept;
+
+public:
+    /** サービス更新処理を明示的に呼び出す非所有アダプター。 */
+    class FUpdateAdapter final {
+    public:
+        /** 呼び出し先のサービス束を保持する。 */
+        explicit FUpdateAdapter(FSceneServices& services) noexcept : m_Services(services)
+        {
+        }
+
+        /** Clock を進めてスケール済み時間を確定する。 */
+        void PreUpdate(f32 raw_delta_seconds) noexcept
+        {
+            m_Services.PreUpdate_Internal(raw_delta_seconds);
+        }
+
+        /** 一フレーム分の入力を固定 tick 用に蓄積する。 */
+        bool SubmitFrameInput(const IInputStateView& input) noexcept
+        {
+            return m_Services.SubmitFrameInput_Internal(input);
+        }
+
+        /** 次の固定 tick へ渡す入力を確定する。 */
+        void BeginFixedStepInput() noexcept
+        {
+            m_Services.BeginFixedStepInput_Internal();
+        }
+
+        /** 未消費の固定入力と現在 tick 入力を初期化する。 */
+        void ResetFixedInput() noexcept
+        {
+            m_Services.ResetFixedInput_Internal();
+        }
+
+        /** 未消費の固定入力を保存値へ複製する。 */
+        bool TryCaptureFixedInputSnapshot(FFixedStepInputBufferSnapshot& snapshot) const noexcept
+        {
+            return m_Services.TryCaptureFixedInputSnapshot_Internal(snapshot);
+        }
+
+        /** 保存値から未消費の固定入力を復元する。 */
+        bool TryRestoreFixedInputSnapshot(const FFixedStepInputBufferSnapshot& snapshot) noexcept
+        {
+            return m_Services.TryRestoreFixedInputSnapshot_Internal(snapshot);
+        }
+
+        /** シーン更新後のサービスを進める。 */
+        void PostUpdate(f32 scaled_delta_seconds) noexcept
+        {
+            m_Services.PostUpdate_Internal(scaled_delta_seconds);
+        }
+
+        /** シーンへ渡すスケール済み時間を返す。 */
+        f32 ScaledDt(f32 raw_delta_seconds) const noexcept
+        {
+            return m_Services.ScaledDt_Internal(raw_delta_seconds);
+        }
+
+    private:
+        /** 呼び出し先のサービス束。 */
+        FSceneServices& m_Services;
+    };
+
+    /** シーン更新用アダプターを返す。 */
+    FUpdateAdapter UpdateAccess() noexcept
+    {
+        return FUpdateAdapter(*this);
+    }
+
+private:
+    /** InputMap と固定 tick 入力を一つの所有スロットへまとめる値。 */
+    struct FInputServiceState {
+        /** 物理入力を名前付きアクションへ変換する割り当て。 */
+        FInputMap input_map;
+
+        /** 可変フレーム入力の未消費状態。 */
+        FFixedStepInputBuffer fixed_input_buffer;
+
+        /** 現在の固定 tick へ公開する入力状態。 */
+        FInputStateSnapshot fixed_input;
+    };
+
     /** 構築時に要求されたサービスマスク。 */
-    ESvc                       m_Wanted = ESvc::None;
+    ESvc m_Wanted = ESvc::None;
 
     /** クロックサービス (未要求なら null)。 */
-    TUniquePtr<FSceneClock>     m_Clock;
+    TUniquePtr<FSceneClock> m_Clock;
 
     /** tween サービス (未要求なら null)。 */
-    TUniquePtr<FTweenManager>   m_Tweens;
+    TUniquePtr<FTweenManager> m_Tweens;
 
     /** sequence サービス (未要求なら null)。 */
     TUniquePtr<FSequenceRunner> m_Sequences;
 
-    /** 入力サービス (未要求なら null)。 */
-    TUniquePtr<FInputMap>       m_Input;
+    /** 入力割り当てと固定 tick 入力の状態 (未要求なら null)。 */
+    TUniquePtr<FInputServiceState> m_Input;
 
     /** カメラサービス (未要求なら null)。 */
     TUniquePtr<acs::game::FCamera2D> m_Camera;
 
     /** 物理サービス (未要求なら null)。 */
-    TUniquePtr<FCollisionWorld2D>    m_Physics;
+    TUniquePtr<FCollisionWorld2D> m_Physics;
 
     /** トリガサービス (未要求なら null)。 */
-    TUniquePtr<FTriggerWorld2D>      m_Triggers;
+    TUniquePtr<FTriggerWorld2D> m_Triggers;
 };
 
 } // namespace acs::game

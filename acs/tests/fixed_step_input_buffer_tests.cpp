@@ -122,14 +122,14 @@ ACS_TEST(FixedStepInputBuffer, LatestLevelsAndAxesWinWhileEdgesAccumulate)
     /** 最初の入力状態。 */
     FInputStateSnapshot first_frame;
     EXPECT_TRUE(first_frame.TrySetMouseButtonState(EMouseButton::Left, true, true, false));
-    EXPECT_TRUE(first_frame.TrySetGamepadButtonState(0u, EGamepadButton::South, true, true, false));
+    EXPECT_TRUE(first_frame.TrySetGamepadButtonState(0u, EGamepadButton::A, true, true, false));
     EXPECT_TRUE(first_frame.TrySetGamepadAxis(0u, EGamepadAxis::LeftX, 0.25f));
     EXPECT_TRUE(buffer.TryPushFrame(first_frame));
 
     /** 最新の保持状態と軸を更新する入力状態。 */
     FInputStateSnapshot latest_frame;
     EXPECT_TRUE(latest_frame.TrySetMouseButtonState(EMouseButton::Left, true, false, false));
-    EXPECT_TRUE(latest_frame.TrySetGamepadButtonState(0u, EGamepadButton::South, false, false, true));
+    EXPECT_TRUE(latest_frame.TrySetGamepadButtonState(0u, EGamepadButton::A, false, false, true));
     EXPECT_TRUE(latest_frame.TrySetGamepadAxis(0u, EGamepadAxis::LeftX, -0.5f));
     EXPECT_TRUE(buffer.TryPushFrame(latest_frame));
 
@@ -139,9 +139,9 @@ ACS_TEST(FixedStepInputBuffer, LatestLevelsAndAxesWinWhileEdgesAccumulate)
     EXPECT_TRUE(tick.IsMouseButtonDown(EMouseButton::Left));
     EXPECT_TRUE(tick.IsMouseButtonPressed(EMouseButton::Left));
     EXPECT_FALSE(tick.IsMouseButtonReleased(EMouseButton::Left));
-    EXPECT_FALSE(tick.IsGamepadButtonDown(0u, EGamepadButton::South));
-    EXPECT_TRUE(tick.IsGamepadButtonPressed(0u, EGamepadButton::South));
-    EXPECT_TRUE(tick.IsGamepadButtonReleased(0u, EGamepadButton::South));
+    EXPECT_FALSE(tick.IsGamepadButtonDown(0u, EGamepadButton::A));
+    EXPECT_TRUE(tick.IsGamepadButtonPressed(0u, EGamepadButton::A));
+    EXPECT_TRUE(tick.IsGamepadButtonReleased(0u, EGamepadButton::A));
     EXPECT_NEAR(tick.GamepadAxisValue(0u, EGamepadAxis::LeftX), -0.5f, 1.0e-6f);
 }
 

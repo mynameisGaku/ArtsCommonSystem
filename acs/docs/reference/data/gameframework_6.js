@@ -232,7 +232,8 @@ ACS_REF.modules.push({
         { sig: "void ChangeScene(TUniquePtr<FScene> next)", desc: "今の top を pop して <code>next</code> を push (= 画面切替)。次フレーム頭で適用。" },
         { sig: "void PushScene(TUniquePtr<FScene> next)", desc: "今の top を残したまま <code>next</code> を重ねる (= ダイアログ/ポーズ)。" },
         { sig: "void PopScene()", desc: "top を 1 枚 pop する。スタックが 1 枚以下なら何もしない。" },
-        { sig: "FScene* Top() const / u32 Depth() const / bool IsEmpty() const", desc: "現在の最上段シーン・スタック段数・空かどうか。" }
+        { sig: "FScene* Top() const / u32 Depth() const / bool IsEmpty() const", desc: "現在の最上段シーン・スタック段数・空かどうか。" },
+        { sig: "bool TryCaptureActiveFixedInputSnapshot(FFixedStepInputBufferSnapshot& out) const / bool TryRestoreActiveFixedInputSnapshot(const FFixedStepInputBufferSnapshot& snapshot)", desc: "active scene の未消費固定入力を保存 / 復元する。Input サービスが無い場合は空状態だけを受理する。" }
       ]
     },
     {
@@ -247,6 +248,7 @@ ACS_REF.modules.push({
         { sig: "FTweenManager& Tweens()", desc: "値を滑らかに補間する<t>トゥイーン</t>マネージャ。" },
         { sig: "FSequenceRunner& Sequences()", desc: "時間順の演出を組む<t>シーケンス</t>ランナー。" },
         { sig: "FInputMap& Input()", desc: "キー/パッドをアクション名に束ねる入力マップ。" },
+        { sig: "const IInputStateView& FixedInput() const", desc: "現在の固定 tick に割り当てられた入力。FInputMap::Evaluate へ渡す。" },
         { sig: "FCamera2D& Camera() / FCollisionWorld2D& Physics() / FTriggerWorld2D& Triggers()", desc: "2D カメラ・衝突ワールド・トリガーワールド。宣言していなければ呼ぶと停止。" }
       ]
     },

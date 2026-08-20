@@ -250,7 +250,7 @@ GR_API void acs_game_input_key(int keycode, int down) noexcept {
     acs::FInput::OnEvent(e);
 }
 
-/** Play フレーム先頭で呼び、この DLL の入力状態を now→prev に進める (IsPressed/Released エッジ用)。 */
+/** Play フレーム先頭で呼び、この DLL に残る前フレームの押下・解放エッジを消去する。 */
 GR_API void acs_game_input_update() noexcept {
     acs::FInput::Update();
 }

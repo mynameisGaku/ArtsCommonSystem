@@ -12,7 +12,10 @@ add_executable(acs_unit_tests
     component_services_tests.cpp
     input_feed_tests.cpp
     input_axis_options_tests.cpp
+    input_map_state_tests.cpp
     fixed_step_input_buffer_tests.cpp
+    game_fixed_input_integration_tests.cpp
+    game_fixed_step_integration_tests.cpp
     rigidworld_tests.cpp
     rigidbody_component_tests.cpp
     debugdraw_tests.cpp

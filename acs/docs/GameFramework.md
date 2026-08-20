@@ -98,7 +98,8 @@ v3 仕様の要点（詳細は本節末の確定事項）:
 - **`FSceneManager`** — `TUniquePtr<FScene>` のスタック。`ChangeScene`/`PushScene`/
   `PopScene`。遷移は遅延適用（1フレーム1遷移・後勝ち）。フェード遷移対応。
 - **`FGame : FApplication`** — フレームループから駆動。固定タイムステップ
-  （アキュムレータ + 暴走防止クランプ）・タイムスケール。`ACS_GAME_MAIN` でエントリ生成。
+  （[`FFixedStepClock`](fixed-step-clock.md) + 暴走防止クランプ + snapshot/restore）・
+  タイムスケール。`ACS_GAME_MAIN` でエントリ生成。
 - **GPU 遅延削除キュー** — 退場シーンを「フレームインフライト数+1（=3）」フレーム
   保持してから破棄。GPU が直前フレームで参照中のリソースの use-after-free を防ぐ。
 - **`FAppStateSlot`** — ユーザー定義の永続状態を `FGame` が型消去で1個保持する内部スロット。
@@ -122,6 +123,7 @@ public:
     FTweenManager&     Tweens()    noexcept;
     FSequenceRunner&   Sequences() noexcept;
     FInputMap&         Input()     noexcept;
+    const IInputStateView& FixedInput() const noexcept;
     FCamera2D&         Camera()    noexcept;
     FCollisionWorld2D& Physics()   noexcept;
     FTriggerWorld2D&   Triggers()  noexcept;
@@ -237,6 +239,12 @@ Elastic/Bounce の In/Out/InOut、および SmoothStep/SmootherStep を安定し
 ## 6. ピラー D — 入力（`InputMap`）
 
 グローバル `acs::Input`（ポーリング）の上に**アクションマッピング**を載せる。
+- `FInputStateSnapshot` を `FInputMap::Evaluate` へ渡すと、platform なしで同じ入力時点から
+  同じアクション状態を再現できる。従来の query API は現在の `FInput` を読む互換入口。
+- `FGame` は platform 入力をフレームごとに一度だけ snapshot 化し、`ESvc::Input` を要求した
+  active scene へ固定 tick 入力として自動配線する。`Services().FixedInput()` から読み、
+  Pressed/Released は catch-up の最初の tick だけで消費する。
+- `FFixedStepRuntimeSnapshot` は固定時計、未消費入力、固定更新の有効状態を一括保存・復元する。
 - 名前付きアクションを物理入力（キー/マウス/ゲームパッド）に束ねる。1 アクションに
   複数バインド可。プレイヤー番号対応。
 - デジタルアクション（`Pressed/Held/Released`）とアナログアクション/軸

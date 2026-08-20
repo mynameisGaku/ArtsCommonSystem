@@ -21,7 +21,7 @@
 //     1 つでも該当すれば Pressed/Held/Released は true。
 //   ・**1D axis**: neg/pos キーまたはゲームパッド軸を束ねる。複数の axis binding は
 //     累積 + clamp(-1, +1) (例: AD + LStick で同方向に重ねられる)。
-//   ・**poll-based**: 状態取得時に `acs::FInput::*` を呼ぶ。アクション側に状態は持たない。
+//   ・**明示入力**: Evaluate へ入力 view を渡す。従来の poll API は互換 adapter として残す。
 //
 // 範囲外:
 //   ・player_index 完全対応 (現状は gamepad bind 時のみ受ける、digital は 0 固定)
@@ -34,6 +34,9 @@
 #include "container/Array.h"
 #include "math/Vec.h"
 #include "platform/InputCodes.h"
+#include "gameframework/InputActionState.h"
+#include "gameframework/InputAxisOptions.h"
+#include "gameframework/InputStateView.h"
 
 namespace acs::game {
 
@@ -44,7 +47,8 @@ namespace acs::game {
  * @param s ハッシュ対象の null 終端文字列。
  * @return 計算した 32bit ハッシュ値。
  */
-constexpr u32 ActionHash(const char* s) noexcept {
+constexpr u32 ActionHash(const char* s) noexcept
+{
     u32 h = 2166136261u;
     while (*s != '\0') {
         h ^= static_cast<u32>(static_cast<unsigned char>(*s));
@@ -71,14 +75,18 @@ struct FActionId {
      *
      * @param v ハッシュ値。
      */
-    constexpr explicit FActionId(u32 v) noexcept : value(v) {}
+    constexpr explicit FActionId(u32 v) noexcept : value(v)
+    {
+    }
 
     /**
      * 名前文字列から識別子を構築する (compile-time ハッシュ)。
      *
      * @param name アクション名の null 終端文字列。
      */
-    constexpr FActionId(const char* name) noexcept : value(ActionHash(name)) {}
+    constexpr FActionId(const char* name) noexcept : value(ActionHash(name))
+    {
+    }
 
     /**
      * 等価比較する。
@@ -86,7 +94,10 @@ struct FActionId {
      * @param o 比較相手。
      * @return ハッシュ値が一致すれば true。
      */
-    constexpr bool operator==(FActionId o) const noexcept { return value == o.value; }
+    constexpr bool operator==(FActionId o) const noexcept
+    {
+        return value == o.value;
+    }
 
     /**
      * 非等価比較する。
@@ -94,7 +105,10 @@ struct FActionId {
      * @param o 比較相手。
      * @return ハッシュ値が異なれば true。
      */
-    constexpr bool operator!=(FActionId o) const noexcept { return value != o.value; }
+    constexpr bool operator!=(FActionId o) const noexcept
+    {
+        return value != o.value;
+    }
 };
 
 /**
@@ -114,7 +128,7 @@ public:
     ~FInputMap() noexcept = default;
 
     /** コピー禁止。 */
-    FInputMap(const FInputMap&)            = delete;
+    FInputMap(const FInputMap&) = delete;
 
     /** コピー代入も禁止。 */
     FInputMap& operator=(const FInputMap&) = delete;
@@ -125,7 +139,7 @@ public:
      * @param action 対象アクション。
      * @param key bind する物理キー。
      */
-    void BindKey         (FActionId action, EKey key) noexcept;
+    void BindKey(FActionId action, EKey key) noexcept;
 
     /**
      * アクションにマウスボタンを bind する。
@@ -133,7 +147,7 @@ public:
      * @param action 対象アクション。
      * @param mb bind するマウスボタン。
      */
-    void BindMouseButton (FActionId action, EMouseButton mb) noexcept;
+    void BindMouseButton(FActionId action, EMouseButton mb) noexcept;
 
     /**
      * アクションにゲームパッドボタンを bind する。
@@ -142,7 +156,7 @@ public:
      * @param gb bind するゲームパッドボタン。
      * @param player_index 対象プレイヤー番号 (既定 0)。
      */
-    void BindGamepad     (FActionId action, EGamepadButton gb, u32 player_index = 0) noexcept;
+    void BindGamepad(FActionId action, EGamepadButton gb, u32 player_index = 0) noexcept;
 
     /**
      * アクションに 1D axis (neg/pos キーのペア) を bind する。
@@ -151,7 +165,7 @@ public:
      * @param neg -1 方向のキー。
      * @param pos +1 方向のキー。
      */
-    void BindAxisKeys    (FActionId action, EKey neg, EKey pos) noexcept;
+    void BindAxisKeys(FActionId action, EKey neg, EKey pos) noexcept;
 
     /**
      * アクションにゲームパッドのアナログ軸を bind する。
@@ -164,14 +178,39 @@ public:
     void BindGamepadAxis(FActionId action, EGamepadAxis axis, u32 player_index = 0, f32 scale = 1.0f) noexcept;
 
     /**
+     * 検査済みのゲームパッド軸 binding を追加する。
+     * @param action 対象アクション。
+     * @param axis bind する物理軸。
+     * @param player_index 対象プレイヤー番号。
+     * @param options dead-zone、倍率、反転の設定。
+     * @return 全項目が有効で追加できた場合は true。失敗時は現在状態を変更しない。
+     */
+    bool TryBindGamepadAxis(FActionId action, EGamepadAxis axis, u32 player_index,
+                            const FInputAxisOptions& options) noexcept;
+
+    /** 現在登録されている binding 数を返す。 */
+    u32 BindingCount() const noexcept
+    {
+        return m_Bindings.Size();
+    }
+
+    /**
      * 指定アクションの全 binding を削除する。
      *
      * @param action binding を削除するアクション。
      */
-    void Unbind  (FActionId action) noexcept;
+    void Unbind(FActionId action) noexcept;
 
     /** 全アクションの全 binding を削除する。 */
     void ClearAll() noexcept;
+
+    /**
+     * 明示的な物理入力状態から一つのアクション結果を評価する。
+     * @param action 評価するアクション。
+     * @param input 評価に使う物理入力状態。
+     * @return デジタル状態と [-1, 1] へ制限した軸値。
+     */
+    FInputActionState Evaluate(FActionId action, const IInputStateView& input) const noexcept;
 
     /**
      * このフレームで押されたかを返す (FInput::* を内部で poll)。
@@ -179,7 +218,7 @@ public:
      * @param action 判定するアクション。
      * @return bind 済み入力のいずれかがこのフレームで押されたら true。
      */
-    bool IsPressed (FActionId action) const noexcept;
+    bool IsPressed(FActionId action) const noexcept;
 
     /**
      * 押されているかを返す (FInput::* を内部で poll)。
@@ -187,7 +226,7 @@ public:
      * @param action 判定するアクション。
      * @return bind 済み入力のいずれかが押下中なら true。
      */
-    bool IsHeld    (FActionId action) const noexcept;
+    bool IsHeld(FActionId action) const noexcept;
 
     /**
      * このフレームで離されたかを返す (FInput::* を内部で poll)。
@@ -205,7 +244,7 @@ public:
      * @param action 判定するアクション。
      * @return [-1, +1] の axis 値。
      */
-    f32  Axis      (FActionId action) const noexcept;
+    f32 Axis(FActionId action) const noexcept;
 
 private:
     /** binding の種別 (物理入力の種類を判別する)。 */
@@ -235,16 +274,16 @@ private:
         EBindKind kind;
 
         /** EKey/EMouseButton/EGamepadButton の enum 値 (Axis では neg 方向のキー)。 */
-        u32      code      = 0;
+        u32 code = 0;
 
         /** Axis 専用: pos 方向の EKey。 */
-        u32      code_pos  = 0;
+        u32 code_pos = 0;
 
         /** Gamepad 専用: 対象プレイヤー番号。 */
-        u32      player    = 0;
+        u32 player = 0;
 
-        /** アナログ軸へ乗算する倍率。 */
-        f32 scale = 1.0f;
+        /** ゲームパッド軸の dead-zone、反転、倍率設定。 */
+        FInputAxisOptions axis_options{};
     };
 
     /** 登録済み binding の配列。 */

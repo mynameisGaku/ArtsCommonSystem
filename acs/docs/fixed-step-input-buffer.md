@@ -26,3 +26,6 @@ buffer.TryRestoreSnapshot(saved);
 
 固定時計の`FFixedStepClockSnapshot`、simulation、乱数、シーン状態は別の保存値です。
 完全なreplayやrollbackでは、これらを同じフレーム境界でまとめて保存・復元してください。
+`FGame`配下では`FFixedStepRuntimeSnapshot`と
+`TryCaptureFixedStepRuntimeSnapshot` / `TryRestoreFixedStepRuntimeSnapshot`を使うと、
+固定時計とactive sceneの未消費入力を一つのtransactionとして扱えます。

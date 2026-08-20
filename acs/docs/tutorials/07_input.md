@@ -49,6 +49,42 @@ if (im.IsPressed(FActionId("Jump"))) DoJump();
 f32 mvx = im.Axis(FActionId("MoveX"));   // -1 / 0 / +1
 ```
 
+固定更新、replay、headless test では、対象時点の入力を明示して評価できます。
+
+```cpp
+#include "gameframework/InputStateSnapshot.h"
+
+FInputStateSnapshot input;
+input.TrySetKeyState(EKey::Space, true, true, false);
+
+const FInputActionState jump = im.Evaluate(FActionId("Jump"), input);
+if (jump.pressed) DoJump();
+```
+
+`FGame` のシーンでは `ESvc::Input` を要求すると固定入力が自動配線されます。可変フレームで
+短く押して離した入力も次の固定 tick まで保持され、catch-up の二回目以降には
+Pressed/Released を再送しません。
+
+```cpp
+class FGameplayScene final : public FScene {
+public:
+    ESvc WantedServices() const noexcept override { return ESvc::Input; }
+
+    void OnEnter() noexcept override {
+        Services().Input().BindKey(FActionId("Jump"), EKey::Space);
+    }
+
+    void OnFixedUpdate(f32 fixed_dt) noexcept override {
+        const FInputActionState jump = Services().Input().Evaluate(FActionId("Jump"), Services().FixedInput());
+        SimulatePlayer(fixed_dt, jump);
+    }
+};
+```
+
+rollback では `FFixedStepRuntimeSnapshot` を使うと、固定時計、active scene の未消費入力、
+固定更新の有効状態を同じ境界で保存・復元できます。シーン本体や乱数の状態も別途同じ
+境界で保存してください。
+
 ---
 
 ## 主要 API

@@ -6,6 +6,10 @@
 #pragma once
 
 #include "gameframework/Game.h"
+#include "gameframework/FixedStepClock.h"
+#include "gameframework/FixedStepInputBuffer.h"
+#include "gameframework/FixedStepInputBufferSnapshot.h"
+#include "gameframework/FixedStepRuntimeSnapshot.h"
 #include "gameframework/Scene.h"
 #include "gameframework/Scene2D.h"
 #include "gameframework/LegacyScene3DAdapter.h"
@@ -21,6 +25,10 @@
 #include "gameframework/AComponent.h"
 #include "gameframework/ANode.h"
 #include "gameframework/InputMap.h"
+#include "gameframework/InputActionState.h"
+#include "gameframework/InputStateSnapshot.h"
+#include "gameframework/InputStateView.h"
+#include "gameframework/PlatformInputStateAdapter.h"
 #include "gameframework/Camera2D.h"
 #include "gameframework/CollisionWorld2D.h"
 #include "gameframework/PhysicsBody2D.h"

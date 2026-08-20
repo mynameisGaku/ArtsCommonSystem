@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // FGame 実装
 #include "gameframework/Game.h"
+#include "gameframework/InputStateSnapshot.h"
+#include "gameframework/PlatformInputStateAdapter.h"
 #include "gameframework/Scene.h"
 
 #include "render/Renderer.h"
@@ -10,10 +12,93 @@
 #include "foundation/Move.h"
 #include "foundation/Log.h"
 
+#include <cmath>
+
 namespace acs::game {
 
+/** 最大回数を実行した後も 1 step 未満の剰余を残せる蓄積上限を求める。 */
+static f64 FixedStepCapacity(f64 step_seconds, u32 maximum_steps) noexcept
+{
+    const f64 requested_capacity = step_seconds * (static_cast<f64>(maximum_steps) + 1.0);
+    return requested_capacity < kMaximumFixedStepAccumulatedSeconds ? requested_capacity
+                                                                    : kMaximumFixedStepAccumulatedSeconds;
+}
+
+/** 互換 API から固定更新時計を設定し、0 以下の step または 0 回指定では無効化する。 */
+void FGame::SetFixedTimestep(f32 fixed_dt, u32 max_steps_per_frame) noexcept
+{
+    if (fixed_dt <= 0.0f || max_steps_per_frame == 0u) {
+        DisableFixedTimestep();
+        return;
+    }
+
+    FFixedStepOptions options{};
+    options.step_seconds = static_cast<f64>(fixed_dt);
+    options.maximum_steps_per_advance = max_steps_per_frame;
+    options.maximum_accumulated_seconds = FixedStepCapacity(options.step_seconds, max_steps_per_frame);
+    if (!TrySetFixedTimestep(options)) {
+        ACS_LOG_WARN("FGame::SetFixedTimestep rejected step=%g max_steps=%u", static_cast<double>(fixed_dt),
+                     max_steps_per_frame);
+    }
+}
+
+/** 完全な固定更新設定を検証し、成功時だけ時計と有効状態を更新する。 */
+bool FGame::TrySetFixedTimestep(const FFixedStepOptions& options) noexcept
+{
+    if (!m_FixedStepClock.Configure(options)) return false;
+    m_Scenes.ExecutionAccess().ResetFixedInput();
+    m_FixedStepEnabled = true;
+    return true;
+}
+
+/** 固定更新を無効化し、以前の設定を残したまま累積状態だけを初期化する。 */
+void FGame::DisableFixedTimestep() noexcept
+{
+    m_FixedStepClock.Reset();
+    m_Scenes.ExecutionAccess().ResetFixedInput();
+    m_FixedStepEnabled = false;
+}
+
+/** 有効な固定更新時計の状態を取得する。 */
+bool FGame::TryCaptureFixedStepSnapshot(FFixedStepClockSnapshot& snapshot) const noexcept
+{
+    return m_FixedStepEnabled && m_FixedStepClock.TryCaptureSnapshot(snapshot);
+}
+
+/** 検証済み snapshot を復元し、成功時だけ固定更新を有効化する。 */
+bool FGame::TryRestoreFixedStepSnapshot(const FFixedStepClockSnapshot& snapshot) noexcept
+{
+    if (!m_FixedStepClock.TryRestoreSnapshot(snapshot)) return false;
+    m_Scenes.ExecutionAccess().ResetFixedInput();
+    m_FixedStepEnabled = true;
+    return true;
+}
+
+/** 固定時計と active scene の未消費入力を同じ境界で保存する。 */
+bool FGame::TryCaptureFixedStepRuntimeSnapshot(FFixedStepRuntimeSnapshot& snapshot) const noexcept
+{
+    FFixedStepRuntimeSnapshot candidate{};
+    candidate.fixed_step_enabled = m_FixedStepEnabled;
+    if (!m_FixedStepClock.TryCaptureSnapshot(candidate.clock)) return false;
+    if (!m_Scenes.TryCaptureActiveFixedInputSnapshot(candidate.input)) return false;
+    snapshot = candidate;
+    return true;
+}
+
+/** 時計を隔離検証し、入力復元の成功後に固定実行状態を一括反映する。 */
+bool FGame::TryRestoreFixedStepRuntimeSnapshot(const FFixedStepRuntimeSnapshot& snapshot) noexcept
+{
+    FFixedStepClock validated_clock;
+    if (!validated_clock.TryRestoreSnapshot(snapshot.clock)) return false;
+    if (!m_Scenes.TryRestoreActiveFixedInputSnapshot(snapshot.input)) return false;
+    m_FixedStepClock = validated_clock;
+    m_FixedStepEnabled = snapshot.fixed_step_enabled;
+    return true;
+}
+
 /** 起動時に InitialScene() を push して即時適用する。 */
-void FGame::OnStart() noexcept {
+void FGame::OnStart() noexcept
+{
     // サブシステムを先に初期化(最初のシーンの World サブシステム/OnEnter が参照できるように)。
     // Engine が最上位、GameInstance はその子(Get<T> が Engine へフォールバックする)。owner=FGame。
     m_EngineSubsystems.Initialize(ESubsystemScope::Engine, nullptr, this);
@@ -26,38 +111,44 @@ void FGame::OnStart() noexcept {
         return;
     }
     m_Scenes.PushScene(Move(first));
-    m_Scenes._ApplyPending(*this);     // 起動時の最初の遷移は即時適用
+    m_Scenes.ExecutionAccess().ApplyPending(*this); // 起動時の最初の遷移は即時適用
 }
 
 /** フェード進行と固定 / 可変タイムステップ update を毎フレーム駆動する。 */
-void FGame::OnUpdate(f32 dt) noexcept {
+void FGame::OnUpdate(f32 dt) noexcept
+{
     // フェード遷移は実時間で進める (time_scale / pause の影響を受けない)。
     // 暗転 (MidPause) になった瞬間に次 Scene へ差し替え、そのまま fade-in する。
     if (m_Fade.IsActive()) {
         m_Fade.Tick(dt);
         if (m_Fade.IsMidPause() && m_PendingScene) {
-            m_Scenes.ChangeScene(Move(m_PendingScene));   // deferred → 下の _ApplyPending で適用
+            m_Scenes.ChangeScene(Move(m_PendingScene)); // deferred → 下の実行アダプターで適用
         }
     }
 
     const f32 scaled_dt = dt * m_TimeScale;
-    m_Scenes._ApplyPending(*this);
+    FSceneManager::FExecutionAdapter scene_execution = m_Scenes.ExecutionAccess();
+    scene_execution.ApplyPending(*this);
 
-    // 固定タイムステップ accumulator (Scene::OnFixedUpdate を呼ぶ)。
-    //   accumulator += dt → fixed_dt 単位で消費しつつ OnFixedUpdate を呼ぶ。
-    //   max_fixed_steps を超える遅延は捨てる (= spiral of death 防止)。
-    //   fixed_dt <= 0 なら固定 update は無効 (旧挙動)。
-    if (m_FixedDt > 0.0f) {
-        m_FixedAccum += scaled_dt;
-        u32 steps = 0;
-        while (m_FixedAccum >= m_FixedDt && steps < m_MaxFixedSteps) {
-            m_Scenes._FixedUpdate(m_FixedDt);
-            m_FixedAccum -= m_FixedDt;
-            ++steps;
+    // PollEvents 後の platform 入力を一度だけ所有 snapshot にし、active Scene へ提出する。
+    if (m_FixedStepEnabled && m_TimeScale > 0.0f && scaled_dt >= 0.0f && std::isfinite(scaled_dt)) {
+        FInputStateSnapshot frame_input;
+        if (!FPlatformInputStateAdapter::TryCapture(frame_input) || !scene_execution.SubmitFrameInput(frame_input)) {
+            scene_execution.ResetFixedInput();
+            ACS_LOG_WARN("FGame: fixed-step input capture was rejected; neutral input will be used");
         }
-        // 上限超え分は捨てる (遅延を引きずらない)
-        if (steps == m_MaxFixedSteps && m_FixedAccum > m_FixedDt) {
-            m_FixedAccum = 0.0f;
+    } else {
+        scene_execution.ResetFixedInput();
+    }
+
+    // 固定更新時計が確定した回数だけ Scene::OnFixedUpdate を呼ぶ。
+    if (m_FixedStepEnabled) {
+        const FFixedStepAdvanceResult advance = m_FixedStepClock.Advance(static_cast<f64>(scaled_dt));
+        if (advance.accepted) {
+            const f32 fixed_dt = static_cast<f32>(m_FixedStepClock.Options().step_seconds);
+            for (u32 step_index = 0; step_index < advance.step_count; ++step_index) {
+                scene_execution.FixedUpdate(fixed_dt);
+            }
         }
     }
 
@@ -66,14 +157,15 @@ void FGame::OnUpdate(f32 dt) noexcept {
     m_GameInstanceSubsystems.Tick(scaled_dt);
 
     // variable-rate update (毎フレーム dt)。Scene 内で World サブシステムも tick される。
-    m_Scenes._Update(scaled_dt);
+    scene_execution.Update(scaled_dt);
 }
 
 /** 初回呼び出しで default UI フォントを 1 回だけ遅延ロードする。 */
-void FGame::EnsureUiFont() noexcept {
+void FGame::EnsureUiFont() noexcept
+{
     if (m_UiFontTried) return;
     IRhiDevice* dev = GetRenderer().Device();
-    if (dev == nullptr) return;     // device 未準備 → 次フレーム再試行
+    if (dev == nullptr) return; // device 未準備 → 次フレーム再試行
     m_UiFontTried = true;
     const auto r = FSample::TryLoadDefaultUIFont(m_UiFont, *dev, 18.0f);
     m_UiFontReady = r.IsOk();
@@ -83,21 +175,23 @@ void FGame::EnsureUiFont() noexcept {
 }
 
 /** フレームを開始し、シーン描画の上にフェード幕を重ねて終了する。 */
-void FGame::OnRender() noexcept {
+void FGame::OnRender() noexcept
+{
     IRhiCommandList* cl = GetRenderer().CommandList();
-    IRhiSwapchain*   sc = GetRenderer().Swapchain();
+    IRhiSwapchain* sc = GetRenderer().Swapchain();
     if (!cl || !sc) return;
     m_RenderCtx._BeginFrame(GetRenderer(), *cl, sc->Width(), sc->Height());
     // 全シーン共有の UI フォントを毎フレーム配線 (初回に遅延ロード)。
     EnsureUiFont();
     if (m_UiFontReady) m_RenderCtx._SetFont(&m_UiFont);
-    m_Scenes._Render(m_RenderCtx);
-    DrawFadeOverlay();                  // シーン描画の上にフェード幕を重ねる
+    m_Scenes.ExecutionAccess().Render(m_RenderCtx);
+    DrawFadeOverlay(); // シーン描画の上にフェード幕を重ねる
     m_RenderCtx._EndFrame();
 }
 
 /** 初回呼び出しでフェード overlay 用 SpriteBatch を 1 回だけ遅延 init する。 */
-void FGame::EnsureOverlay() noexcept {
+void FGame::EnsureOverlay() noexcept
+{
     if (m_OverlayTried) return;
     IRhiDevice* dev = GetRenderer().Device();
     if (dev == nullptr) return;
@@ -110,31 +204,33 @@ void FGame::EnsureOverlay() noexcept {
 }
 
 /** 進行中フェードの色と alpha で画面全体を覆う quad を描く。 */
-void FGame::DrawFadeOverlay() noexcept {
+void FGame::DrawFadeOverlay() noexcept
+{
     if (!m_Fade.IsActive()) return;
     EnsureOverlay();
     if (!m_OverlayReady) return;
     IRhiCommandList* cl = GetRenderer().CommandList();
-    IRhiSwapchain*   sc = GetRenderer().Swapchain();
+    IRhiSwapchain* sc = GetRenderer().Swapchain();
     if (cl == nullptr || sc == nullptr) return;
-    m_Overlay.Begin(*cl, sc->Width(), sc->Height());   // Begin で view = 画面ピクセル
+    m_Overlay.Begin(*cl, sc->Width(), sc->Height()); // Begin で view = 画面ピクセル
     const FVec3 col = m_Fade.OverlayColor();
-    m_Overlay.DrawRect(0.0f, 0.0f,
-                       static_cast<f32>(sc->Width()), static_cast<f32>(sc->Height()),
+    m_Overlay.DrawRect(0.0f, 0.0f, static_cast<f32>(sc->Width()), static_cast<f32>(sc->Height()),
                        FVec4{col.x, col.y, col.z, m_Fade.OverlayAlpha()});
     m_Overlay.End();
 }
 
 /** 次 Scene を保留し FadeInOut を開始する (暗転中に切替)。 */
-void FGame::TransitionTo(TUniquePtr<FScene> next, f32 out_sec, f32 in_sec) noexcept {
+void FGame::TransitionTo(TUniquePtr<FScene> next, f32 out_sec, f32 in_sec) noexcept
+{
     if (!next) return;
     m_PendingScene = Move(next);
     m_Fade.StartFade(EFadeKind::FadeInOut, out_sec, in_sec, 0.0f);
 }
 
 /** 全シーンを shutdown し、サブシステムと UI フォント・overlay リソースを解放する。 */
-void FGame::OnShutdown() noexcept {
-    m_Scenes._ShutdownAll();                  // 各シーンが OnExit で World サブシステムを解体
+void FGame::OnShutdown() noexcept
+{
+    m_Scenes.ExecutionAccess().ShutdownAll(); // 各シーンが OnExit で World サブシステムを解体
     // サブシステムを下位スコープから順に解体(GameInstance → Engine)。
     m_GameInstanceSubsystems.Deinitialize();
     m_EngineSubsystems.Deinitialize();
@@ -143,8 +239,9 @@ void FGame::OnShutdown() noexcept {
 }
 
 /** 受け取ったイベントを FSceneManager にディスパッチする。 */
-void FGame::OnEvent(const FEvent& e) noexcept {
-    m_Scenes._DispatchEvent(e);
+void FGame::OnEvent(const FEvent& e) noexcept
+{
+    m_Scenes.ExecutionAccess().DispatchEvent(e);
 }
 
 } // namespace acs::game

@@ -71,15 +71,15 @@ ACS_TEST(InputFeed, MouseButtonFeedsInputMap) {
     EXPECT_FALSE(im.IsHeld(FActionId("Shoot")));
 }
 
-// IsPressed の立ち上がりエッジは Update() (now→prev ロール) を挟むと検出される。
+// IsPressed の立ち上がりエッジは次の Update() で消去される。
 ACS_TEST(InputFeed, PressedEdgeAfterUpdate) {
     FInput::Update();
     FInputMap im;
     im.BindKey(FActionId("Fire"), EKey::W);
 
-    FInput::OnEvent(KeyEvt(EKey::W, true));         // 押下 (now=true, prev は前フレーム)
+    FInput::OnEvent(KeyEvt(EKey::W, true));         // 押下エッジを記録
     EXPECT_TRUE(im.IsHeld(FActionId("Fire")));
-    FInput::Update();                                // now→prev (prev=true)
+    FInput::Update();                               // 前フレームの入力エッジを消去
     EXPECT_FALSE(im.IsPressed(FActionId("Fire")));   // もう「このフレーム押下開始」ではない
     EXPECT_TRUE(im.IsHeld(FActionId("Fire")));       // 押しっぱなしは Held のまま
     FInput::OnEvent(KeyEvt(EKey::W, false));         // 後始末

@@ -316,7 +316,7 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
     // メインループ
     while (m_bRunning && !m_Window.ShouldClose()) {
         // フレーム先頭処理
-        FInput::Update();            // 押下状態を 1 フレーム進める
+        FInput::Update();           // 前フレームの入力エッジを消去する
         m_Window.PollEvents();      // OS メッセージ処理
         if (m_RendererFailurePending) {
             ACS_LOG_ERROR(
