@@ -3,6 +3,7 @@
 #include "gameframework/Game.h"
 #include "gameframework/InputFrameSource.h"
 #include "gameframework/InputStateSnapshot.h"
+#include "gameframework/LegacyScene3DAdapter.h"
 #include "gameframework/Scene.h"
 #include "subsystem/SubsystemOwner.h"
 #include "test/Expect.h"
@@ -71,9 +72,7 @@ public:
     /** Engine親scopeを準備して初期sceneを開始する。 */
     bool StartForTest() noexcept
     {
-        if (!EngineSubsystems().TryInitialize(ESubsystemScope::Engine, nullptr,
-                                              FSubsystemOwner{this, ESubsystemOwnerKind::Application}))
-            return false;
+        if (!EngineSubsystems().TryInitialize(ESubsystemScope::Engine, nullptr, FSubsystemOwner{this, ESubsystemOwnerKind::Application})) return false;
         OnStart();
         return m_Scene != nullptr && !Scenes().IsEmpty();
     }
@@ -109,6 +108,51 @@ protected:
 private:
     /** scene managerが所有する検証sceneへの非所有参照。 */
     AFixedRuntimeInputScene* m_Scene = nullptr;
+};
+
+/** GPUを起動せずLegacy 3D自由cameraの固定更新を駆動する検証game。 */
+class CLegacyFixedOrbitCameraGame final : public CGame {
+public:
+    /** Engine親scopeを準備してLegacy 3D sceneを開始する。 */
+    bool StartForTest() noexcept
+    {
+        if (!EngineSubsystems().TryInitialize(ESubsystemScope::Engine, nullptr, FSubsystemOwner{this, ESubsystemOwnerKind::Application})) return false;
+        OnStart();
+        return m_Scene != nullptr && !Scenes().IsEmpty();
+    }
+
+    /** 指定秒で一フレーム進める。 */
+    void UpdateForTest(f32 delta_seconds) noexcept
+    {
+        OnUpdate(delta_seconds);
+    }
+
+    /** sceneとsubsystemを順に終了する。 */
+    void ShutdownForTest() noexcept
+    {
+        OnShutdown();
+        EngineSubsystems().Deinitialize();
+    }
+
+    /** scene managerが所有するLegacy 3D sceneを返す。 */
+    ALegacyScene3DAdapter* SceneForTest() const noexcept
+    {
+        return m_Scene;
+    }
+
+protected:
+    /** Legacy 3D adapterを初期sceneとして生成する。 */
+    TUniquePtr<AScene> InitialScene() noexcept override
+    {
+        /** scene managerへ所有権を渡すLegacy 3D scene。 */
+        TUniquePtr<ALegacyScene3DAdapter> scene = MakeUnique<ALegacyScene3DAdapter>();
+        m_Scene = scene.Get();
+        return TUniquePtr<AScene>(Move(scene));
+    }
+
+private:
+    /** scene managerが所有するLegacy 3D sceneへの非所有参照。 */
+    ALegacyScene3DAdapter* m_Scene = nullptr;
 };
 
 /** 物理フレームごとに差し替え可能な入力source。 */
@@ -228,6 +272,57 @@ ACS_TEST(GameFixedRuntimeInput, CatchUpRequestsEachFixedTickInOrder)
     EXPECT_EQ(scene->HeldCount(), 2u);
     EXPECT_EQ(scene->ReleasedCount(), 1u);
     game.ShutdownForTest();
+}
+
+ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraIgnoresRenderFramePartition)
+{
+    /** 一つの描画frameで二つの固定tickを供給する入力source。 */
+    CScriptedFixedTickInputSource single_frame_source;
+    /** 分割描画frameで同じ二つの固定tickを供給する入力source。 */
+    CScriptedFixedTickInputSource partitioned_frame_source;
+    /** 二つの固定tickを一回の可変更新で進めるgame。 */
+    CLegacyFixedOrbitCameraGame single_frame_game;
+    /** 同じ二つの固定tickを二回の可変更新へ分けるgame。 */
+    CLegacyFixedOrbitCameraGame partitioned_frame_game;
+    single_frame_game.SetFixedTimestep(0.125f, 4u);
+    partitioned_frame_game.SetFixedTimestep(0.125f, 4u);
+    single_frame_game.SetFixedTickInputSource(single_frame_source);
+    partitioned_frame_game.SetFixedTickInputSource(partitioned_frame_source);
+    EXPECT_TRUE(single_frame_game.StartForTest());
+    EXPECT_TRUE(partitioned_frame_game.StartForTest());
+
+    /** 単一frame側のscene manager所有scene。 */
+    ALegacyScene3DAdapter* single_frame_scene = single_frame_game.SceneForTest();
+    /** 分割frame側のscene manager所有scene。 */
+    ALegacyScene3DAdapter* partitioned_frame_scene = partitioned_frame_game.SceneForTest();
+    EXPECT_TRUE(single_frame_scene != nullptr);
+    EXPECT_TRUE(partitioned_frame_scene != nullptr);
+    if (single_frame_scene == nullptr || partitioned_frame_scene == nullptr) {
+        partitioned_frame_game.ShutdownForTest();
+        single_frame_game.ShutdownForTest();
+        return;
+    }
+    EXPECT_EQ(single_frame_scene->Services().Input().BindingCount(), 6u);
+    EXPECT_EQ(partitioned_frame_scene->Services().Input().BindingCount(), 6u);
+    /** 固定tick入力を適用する前のcamera位置。 */
+    const FVec3 before = single_frame_scene->Camera().Eye();
+
+    single_frame_game.UpdateForTest(0.25f);
+    partitioned_frame_game.UpdateForTest(0.05f);
+    partitioned_frame_game.UpdateForTest(0.20f);
+
+    /** 単一frame側で二つの固定tickを適用したcamera位置。 */
+    const FVec3 single_frame_eye = single_frame_scene->Camera().Eye();
+    /** 分割frame側で同じ二つの固定tickを適用したcamera位置。 */
+    const FVec3 partitioned_frame_eye = partitioned_frame_scene->Camera().Eye();
+    EXPECT_TRUE(single_frame_eye.z > before.z + 1.0f);
+    EXPECT_NEAR(single_frame_eye.x, partitioned_frame_eye.x, 1.0e-5f);
+    EXPECT_NEAR(single_frame_eye.y, partitioned_frame_eye.y, 1.0e-5f);
+    EXPECT_NEAR(single_frame_eye.z, partitioned_frame_eye.z, 1.0e-5f);
+    EXPECT_EQ(single_frame_source.CaptureCount(), 2u);
+    EXPECT_EQ(partitioned_frame_source.CaptureCount(), 2u);
+    partitioned_frame_game.ShutdownForTest();
+    single_frame_game.ShutdownForTest();
 }
 
 ACS_TEST(GameFixedRuntimeInput, RuntimeRestoreReissuesTheSameDeterministicTick)

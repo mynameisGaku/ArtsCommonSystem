@@ -48,8 +48,11 @@ void OnFixedUpdate(f32 FixedDeltaSeconds) noexcept
 
 ## 現在の利用先と範囲
 
-`ALegacyScene3DAdapter` の自由カメラはこの controller を使う。以前の W/A/S/D/Q/E と矢印キーの
-直接取得は adapter に残し、移動、角度制限、view 計算だけを共通化した。
+`ALegacyScene3DAdapter` は `ESvc::Input` を要求し、W/A/S/D/Q/E、矢印キー、PageUp/PageDown を
+scene-local actionへ割り当てる。自由カメラは `OnFixedUpdate` で `Services().FixedInput()` を評価するため、
+描画frameの分割に依存せず、platform、AI、replay、headless testの入力sourceを同じ経路で使える。
+移動・回転・zoomは `CGame` の固定timestepを無効にすると停止する。Escapeによる終了だけは固定更新の
+有無に関係なく反応させるため、可変frame側に残す。
 
 この型は orbit 操作だけを扱う。衝突回避、camera shake、投影行列、dolly、入力 binding の所有は
 別責務である。将来 gameplay camera へ接続するときも、これらを controller 内へ暗黙に追加しない。

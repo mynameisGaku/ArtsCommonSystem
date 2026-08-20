@@ -5,6 +5,7 @@
 #include "foundation/Types.h"
 #include "container/Array.h"
 #include "gameframework/Scene.h"
+#include "gameframework/OrbitCameraInputActionSet3D.h"
 #include "gameframework/OrbitCameraController3D.h"
 #include "gameframework/SceneNodeGraph.h"
 #include "gameframework/Scene3DSerialize.h"
@@ -167,9 +168,17 @@ public:
             static_cast<u64>(surface.m_Packed));
     }
 
+    /** 固定tick自由カメラへ使うscene入力サービスを要求する。 */
+    ESvc WantedServices() const noexcept override
+    {
+        return ESvc::Input;
+    }
+
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
     void OnUpdate(f32 dt) noexcept override;
+    /** scene入力の6 actionから自由カメラを固定刻みで更新する。 */
+    void OnFixedUpdate(f32 fixed_dt) noexcept override;
     void OnRender(FRenderContext& context) noexcept override;
 
 private:
@@ -379,6 +388,9 @@ private:
     i32 m_ActiveCameraNodeId = -1;
     /** device非依存の自由camera計算器。 */
     COrbitCameraController3D m_OrbitCameraController{};
+
+    /** scene入力を自由cameraの6操作軸へ変換するaction集合。 */
+    FOrbitCameraInputActionSet3D m_OrbitCameraActions{};
 
     /** 自由cameraのsnapshot可能なworld状態。 */
     COrbitCameraController3D::FOrbitCameraState3D m_OrbitCameraState{};
