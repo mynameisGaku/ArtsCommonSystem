@@ -103,12 +103,15 @@ public:
 
         /** cameraを障害物の手前へ離す距離。 */
         f32 CameraClearance = 0.25f;
+
+        /** 点rayの代わりに移動させるworld空間camera probe半径。0なら従来ray。 */
+        f32 ProbeRadius = 0.0f;
     };
 
     /**
      * presentation障害物回避設定を検証し、成功時だけ反映する。
-     * @param settings 有効状態、target除外距離、camera余白。
-     * @return 距離が有限で、余白後もcontrollerの最小距離を保てるならtrue。
+     * @param settings 有効状態、target除外距離、camera余白、probe半径。
+     * @return 全距離が有限でprobe半径が0以上、余白後もcontrollerの最小距離を保てるならtrue。
      */
     bool TrySetOrbitCameraObstructionSettings(const FOrbitCameraObstructionSettings3D& settings) noexcept;
 

@@ -961,13 +961,24 @@ ACS_REF.modules.push({
       ]
     },
     {
+      name: "CSceneNodeGraph",
+      kind: "クラス", header: "gameframework/SceneNodeGraph.h",
+      summary: "scene文脈から独立してroot node treeと世代付きpoolを所有し、構造更新、検索、3D bounds queryを提供するgraph。",
+      when: "scene、checked loader、editor stagingで同じnode graph操作を使う時。",
+      members: [
+        { sig: "FNodeId Raycast(const FRay3& ray, f32* out_t = nullptr) const", desc: "world rayと最初に交わるmesh nodeを返す通常pick。" },
+        { sig: "FNodeId RaycastActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, f32* out_t = nullptr) const", desc: "有効かつ可視なsubtreeだけを有限t区間で検索する。" },
+        { sig: "FNodeId SweepSphereActiveRange(const FRay3& center_ray, f32 radius, f32 minimum_t, f32 maximum_t, f32* out_t = nullptr) const", desc: "world球半径でmesh boundsを安全側へ拡張し、camera本体を含む最初の接触を返す。" }
+      ]
+    },
+    {
       name: "ALegacyScene3DAdapter",
       kind: "クラス", header: "gameframework/LegacyScene3DAdapter.h",
       summary: "旧scene 3D入口を現行scene lifecycle、固定tick自由camera入力、描画補間、rollback snapshot、任意の障害物回避へ接続する互換object。",
       when: "旧scene実装を段階的に移行する時。",
       members: [
         { sig: "ESvc WantedServices() const", desc: "自由camera用のscene入力serviceを要求する。" },
-        { sig: "bool TrySetOrbitCameraObstructionSettings(const FOrbitCameraObstructionSettings3D& settings)", desc: "target近傍除外とcamera余白を検証し、presentation-onlyのscene mesh障害物回避を設定する。" },
+        { sig: "bool TrySetOrbitCameraObstructionSettings(const FOrbitCameraObstructionSettings3D& settings)", desc: "target近傍、camera余白、任意probe半径を検証し、presentation-onlyのscene mesh障害物回避を設定する。" },
         { sig: "const FOrbitCameraObstructionSettings3D& OrbitCameraObstructionSettings() const", desc: "現在の検証済み障害物回避設定を返す。既定は無効。" },
         { sig: "bool TryCaptureOrbitCameraSnapshot(FOrbitCameraFixedStepSnapshot3D& output) const", desc: "自由cameraのprevious/current補間区間を検証して複製する。" },
         { sig: "bool TryRestoreOrbitCameraSnapshot(const FOrbitCameraFixedStepSnapshot3D& snapshot)", desc: "検証済みの自由camera補間区間を一括復元し、不正値では既存viewを維持する。" },

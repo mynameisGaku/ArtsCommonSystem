@@ -12,7 +12,7 @@
 | State | `FOrbitCameraState3D` | target、yaw、pitch、target から eye までの距離 |
 | Time | `f32 delta_seconds` | 呼び出し側が確定した固定 tick 秒 |
 | Presentation | `f64 interpolation_alpha` | 前回と現在の固定 tick 状態を混ぜる `[0,1]` の描画補間率 |
-| Obstruction | `obstruction_distance` / `camera_clearance` | scene queryが返したtargetからのhit距離とcamera余白 |
+| Obstruction | `obstruction_distance` / `camera_clearance` / `probe_radius` | scene queryが返したhit距離、camera余白、world空間probe半径 |
 | Snapshot | `FOrbitCameraFixedStepSnapshot3D` | 補間区間を再現するprevious/current固定tick状態 |
 | Output | 更新済み state / `FOrbitCameraView3D` | eye、look-at、up の world 座標 |
 
@@ -69,14 +69,16 @@ snapshotのいずれかが非有限、pitch上限外、距離範囲外なら復�
 
 `ALegacyScene3DAdapter::FOrbitCameraObstructionSettings3D` は既定で無効であり、既存sceneの見え方を
 変更しない。`TrySetOrbitCameraObstructionSettings` で有効にすると、adapterはtargetからdesired eyeへ
-正規化rayを飛ばし、`CSceneNodeGraph::RaycastActiveRange` で有効かつ可視なmeshだけを検索する。
+正規化した中心rayを飛ばし、`CSceneNodeGraph::SweepSphereActiveRange` で有効かつ可視なmeshだけを検索する。
 
 - `TargetClearance` より手前のhitは追従対象自身として除外する。
+- `ProbeRadius` はworld空間のcamera半径で、0なら従来の点ray、正値なら壁の角をかすめるcamera本体も検出する。
 - 最初のhitから `CameraClearance` を引いた距離を `TryResolveObstructedState` へ渡す。
 - `TargetClearance - CameraClearance` がcontrollerの最小距離を下回る設定は、障害物の奥へ丸めないよう拒否する。
 - 衝突で短縮するのはpresentation stateだけで、fixed tickのdesired distanceとrollback snapshotは変えない。
 - 障害物が無効または非表示になると、次のupdate/renderでdesired distanceへ戻る。
-- queryはnodeのworld変形を反映したmesh AABBを使う。mesh三角形やsphere sweep、復帰smoothingは別責務である。
+- queryはnodeの回転と非一様scaleを反映し、local mesh AABBをsphere半径で安全側へ拡張する。角では早めに命中する。
+- mesh三角形への厳密なsweepと復帰smoothingは別責務である。
 
 ## 現在の利用先と範囲
 

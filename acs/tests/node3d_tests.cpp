@@ -30,6 +30,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 using namespace acs;
 using namespace acs::game;
@@ -819,6 +820,29 @@ ACS_TEST(Scene3DRaycast, ActiveRangeSkipsTargetAndInactiveMeshes)
     EXPECT_NEAR(hit_t, 19.0f, 0.0f);
     EXPECT_FALSE(scene.RaycastActiveRange(FRay3{FVec3{}, FVec3{}}, 0.0f, 10.0f, &hit_t).IsValid());
     EXPECT_NEAR(hit_t, 19.0f, 0.0f);
+}
+
+ACS_TEST(Scene3DRaycast, SphereSweepCatchesGrazingRotatedScaledWall)
+{
+    /** 点rayから外れるが半径付きcamera probeが触れる回転済み非一様wall。 */
+    CSceneNodeGraph scene;
+    ANode& wall = scene.Spawn(FStringView("Wall"));
+    wall.Local().position = FVec3{0.0f, 0.0f, 4.0f};
+    wall.Local().scale = FVec3{2.0f, 1.0f, 1.0f};
+    wall.Local().SetEulerDeg(FVec3{0.0f, 0.0f, 90.0f});
+    wall.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+    const FRay3 center_ray{FVec3{0.7f, 0.0f, 0.0f}, FVec3{0.0f, 0.0f, 1.0f}};
+    f32 hit_t = 17.0f;
+
+    EXPECT_FALSE(scene.RaycastActiveRange(center_ray, 0.0f, 10.0f, &hit_t).IsValid());
+    EXPECT_NEAR(hit_t, 17.0f, 0.0f);
+    EXPECT_TRUE(scene.SweepSphereActiveRange(center_ray, 0.25f, 0.0f, 10.0f, &hit_t) == wall.Id());
+    EXPECT_NEAR(hit_t, 3.25f, 1.0e-5f);
+    hit_t = 23.0f;
+    EXPECT_FALSE(scene.SweepSphereActiveRange(center_ray, -0.01f, 0.0f, 10.0f, &hit_t).IsValid());
+    EXPECT_NEAR(hit_t, 23.0f, 0.0f);
+    EXPECT_FALSE(scene.SweepSphereActiveRange(center_ray, std::numeric_limits<f32>::quiet_NaN(), 0.0f, 10.0f, &hit_t).IsValid());
+    EXPECT_NEAR(hit_t, 23.0f, 0.0f);
 }
 
 // --- スケールで AABB が拡大し、単位 cube なら外れるレイが当たる (OBB) --------
