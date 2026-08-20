@@ -83,7 +83,9 @@ product-version label. The current required host set is:
 - incremental startup;
 - result-bearing resize;
 - sparse Transform mutation, so mixed-value Details edits cannot silently
-  overwrite untouched components.
+  overwrite untouched components;
+- transactional 3D Prefab instance refresh, so Apply/Revert cannot call a
+  missing export after startup or retire the old subtree on failure.
 
 Profiler v5 (with its version-4 compatibility prefix), the independent
 volumetric-cloud workload v1 snapshot, unified scene documents, high-quality
@@ -546,6 +548,15 @@ non-Discard close.
 Legacy PBR/effect panels still use their immediate native writers and are not
 part of the common material transaction. Common material autosave/recovery,
 cross-window Undo routing, and Blueprint/Prefab registration are not provided.
+
+3D Prefab/Blueprint instance refresh nevertheless has a bounded native scene
+transaction. The adapter validates the complete subtree and source-link byte
+limit before mutation, snapshots the combined 2D+3D scene, removes the old
+subtree before loading the replacement so authored camera stable IDs remain
+unchanged, and publishes one Undo record only after parent, transform, and
+source-link restoration succeeds. Any failure restores the prior scene and
+leaves Undo history unchanged. This is an instance-edit safety boundary, not
+Blueprint/Prefab document registration in `EditorDocumentHost`.
 
 Project Settings uses the canonical settings-file path as its stable identity
 and participates in common dirty, Undo/Redo transaction, Save All, and

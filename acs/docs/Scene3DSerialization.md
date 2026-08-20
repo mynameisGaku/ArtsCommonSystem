@@ -95,6 +95,12 @@
 マテリアル/画像依存をデコードし、Prefab/Blueprint原本を検証してからcommitする。したがって入力破損、未知命令、
 欠損依存、CRC/解凍/デコード失敗では読み込み先の既存シーンを変更しない。
 
+Editor ABIの3D subtree貼り付けとPrefab/Blueprint instance再生成も、入力検証後に2D+3Dの
+変更前snapshotを確保してから処理する。失敗時はscene、選択、Undo履歴を変更せず、成功時だけ
+1件のUndoを公開する。instance再生成は旧subtreeをsnapshot内で退役させてから新subtreeを
+読み込むため、旧instance自身との一時的なcamera stable ID衝突を発生させない。Editor内の
+`PFAB3D` source linkは終端を除く255 UTF-8 bytesまでとし、超過を切り詰めず拒否する。
+
 pack batch は後続entryの失敗時に先行entryの完了数を返す。loaderはprivate parsed
 document上で完了済み依存を初出順にdecodeし、旧逐次経路と同じ先行decode errorを優先する。
 batch bufferやparsed nodeが更新されても、全依存が成功するまでは公開Sceneへcommitしない。

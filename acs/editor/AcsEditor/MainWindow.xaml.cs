@@ -5093,20 +5093,10 @@ public partial class MainWindow : Window
         return list;
     }
 
-    /// <summary>ReinstantiateInstance の 3D 版 (transform=pos/euler/scale 9 値を維持して再生成)。新 id / -1。</summary>
-    private int ReinstantiateInstance3D(int id, string src, string prefabText)
+    /// <summary>3D instanceをNative transactionで再生成し、transform、親、Undoを一括維持する。新id / -1。</summary>
+    private int RefreshPrefabInstance3D(int id, string src, string prefabText)
     {
-        int parent = EngineInterop.acs_editor_node3d_parent(Engine, id);
-        var t = new float[9];
-        EngineInterop.acs_editor_node3d_get_transform(Engine, id, t);
-        EngineInterop.acs_editor_delete_node3d(Engine, id);
-        int nid = EngineInterop.acs_editor_paste_subtree3d(Engine, prefabText, parent);
-        if (nid >= 0)
-        {
-            EngineInterop.acs_editor_node3d_set_transform(Engine, nid, t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8]);
-            EngineInterop.acs_editor_node3d_set_prefab_src(Engine, nid, src);
-        }
-        return nid;
+        return EngineInterop.acs_editor_prefab_instance3d_refresh(Engine, id, src, prefabText);
     }
 
     /// <summary>FindPrefabInstances の 3D 版 (3D ノードを走査)。</summary>
@@ -5139,7 +5129,7 @@ public partial class MainWindow : Window
         var targets = _view3d ? FindPrefabInstances3D(src, id) : FindPrefabInstances(src, id);
         int updated = 0;
         foreach (int t in targets)
-            if ((_view3d ? ReinstantiateInstance3D(t, src, comp) : ReinstantiateInstance(t, src, comp)) >= 0) updated++;
+            if ((_view3d ? RefreshPrefabInstance3D(t, src, comp) : ReinstantiateInstance(t, src, comp)) >= 0) updated++;
         if (_view3d) { RefreshAfterSceneChange(); }
         else
         {
@@ -5163,7 +5153,7 @@ public partial class MainWindow : Window
         try { comp = ReadComponentsFor(src); }
         catch (Exception ex) { Log("Revert 読込エラー: " + ex.Message); return; }
         if (string.IsNullOrWhiteSpace(comp)) { Log("Revert 失敗 (コンポーネント木が空)。"); return; }
-        int nid = _view3d ? ReinstantiateInstance3D(id, src, comp) : ReinstantiateInstance(id, src, comp);
+        int nid = _view3d ? RefreshPrefabInstance3D(id, src, comp) : ReinstantiateInstance(id, src, comp);
         if (nid >= 0)
         {
             if (_view3d) { RefreshAfterSceneChange(); }

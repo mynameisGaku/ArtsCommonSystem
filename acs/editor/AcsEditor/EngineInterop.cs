@@ -1583,6 +1583,13 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_paste_subtree3d(IntPtr handle,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string text, int parentId);
+    /// <summary>既存の3D Prefab/Blueprint instanceを1回のUndo単位で再生成。新id / -1。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_refresh(
+        IntPtr handle,
+        int id,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string source,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string text);
     /// <summary>3D ノードの subtree を ACS3D テキストへシリアライズ取得 (UTF-8)。</summary>
     public static string CopySubtree3D(IntPtr handle, int id) =>
         Marshal.PtrToStringUTF8(acs_editor_copy_subtree3d(handle, id)) ?? "";

@@ -334,9 +334,10 @@ Material Editor は typed node palette、graph canvas、compile diagnostics、PB
 
 Prefab と Blueprint は subtree 保存、2D/3D 配置、source link、Apply/Revert を持つ。Blueprint graph には独自 Undo もある。
 
-- `editor/AcsEditor/MainWindow.xaml.cs:2429-2601`
-- `editor/AcsEditor/MainWindow.xaml.cs:2666-2751`
-- `editor/AcsEditor/BlueprintEditor.xaml.cs:3383-3416`
+3D subtree の貼り付けは全文を事前検証し、変更前の2D+3D snapshotを確保してからcommitする。不正payload、再生成失敗、Undo履歴の確保失敗ではsceneと履歴を変更しない。3D Apply/Revertのinstance再生成は単一のnative transactionを通り、親、transform、camera stable IDを維持して成功時だけ1回のUndoを公開する。
+
+- `editor/AcsEditor/MainWindow.xaml.cs:4846-5170`
+- `editor/AcsEditor/BlueprintEditor.xaml.cs:4125-4155`
 
 現在の Prefab Apply は subtree 全体を書き戻し、他 instance を再生成する。property 単位の override model ではない。
 
@@ -816,7 +817,8 @@ deterministic/async Document Host と Scene adapter は実装済みで、単一 
 
 初期 vertical slice を実装済み。managed host は product label を解析せず、
 versioned `acs_editor_abi_query` と capability bitmask で必須の frame-result、
-incremental-startup、resize-result 契約を検証する。旧 DLL、version 不一致、必須
+incremental-startup、resize-result、sparse-transform-mutation-v1、
+prefab-instance-refresh-3d-v1契約を検証する。旧 DLL、version 不一致、必須
 capability 不足、bad image は native host を作る前に fail closed とし、
 About/起動診断へ backend、provider version、既知/未知 bit、欠落理由を表示する。
 native lifecycle test と headless managed self-test で current/future/legacy/missing

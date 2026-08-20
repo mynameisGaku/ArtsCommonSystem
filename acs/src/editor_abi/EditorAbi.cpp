@@ -2410,13 +2410,14 @@ void ClearStack(TArray<char*>& st) noexcept {
     st.Reset();
 }
 
-/** 変更操作の直前に呼ぶ: 現在状態を undo に積み、redo を破棄する。
- *  連続編集中 (suppress_undo) は積まない → ドラッグ 1 回が undo 1 ステップになる。 */
-void PushUndo(FEditorHost& h) noexcept {
-    if (h.suppress_undo) return;
-    char* snap = DupSnapshot(h);
-    if (snap == nullptr) return;
-    h.undo.Add(snap);
+/** 変更前スナップショットを undo 履歴へ公開する。成功時だけ所有権を受け取る。 */
+[[nodiscard]] bool CommitUndoSnapshot(FEditorHost& h, char* snapshot) noexcept {
+    if (snapshot == nullptr) return false;
+    if (h.suppress_undo) {
+        delete[] snapshot;
+        return true;
+    }
+    if (!h.undo.TryAdd(snapshot)) return false;
     ClearStack(h.redo);
     constexpr u32 kMaxUndo = 128;
     while (h.undo.Num() > kMaxUndo) {            // 上限超過は古いものから捨てる
@@ -2424,6 +2425,16 @@ void PushUndo(FEditorHost& h) noexcept {
         for (u32 i = 1; i < h.undo.Num(); ++i) h.undo[i - 1] = h.undo[i];
         h.undo.Pop();
     }
+    return true;
+}
+
+/** 変更操作の直前に呼ぶ: 現在状態を undo に積み、redo を破棄する。
+ *  連続編集中 (suppress_undo) は積まない → ドラッグ 1 回が undo 1 ステップになる。 */
+void PushUndo(FEditorHost& h) noexcept {
+    if (h.suppress_undo) return;
+    char* snap = DupSnapshot(h);
+    if (snap == nullptr) return;
+    if (!CommitUndoSnapshot(h, snap)) delete[] snap;
 }
 
 // world↔screen 変換 (DrawScene/PickNode/gizmo で共有)。
@@ -16528,7 +16539,7 @@ ACS_EDITOR_API int acs_editor_node3d_clear_sprite(void* handle, int id) {
 ACS_EDITOR_API int acs_editor_node3d_set_prefab_src(void* handle, int id, const char* path) {
     auto* host = static_cast<FEditorHost*>(handle);
     AEditor3DRecordComponent* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
-    if (r == nullptr) return 0;
+    if (r == nullptr || (path != nullptr && std::strlen(path) >= sizeof(r->prefab_src))) return 0;
     std::snprintf(r->prefab_src, sizeof(r->prefab_src), "%s", (path != nullptr) ? path : "");
     return 1;
 }
@@ -17759,12 +17770,58 @@ ACS_EDITOR_API int acs_editor_scene_document_load_text(
  *  2D paste_subtree の 3D 版)。貼り付けたトップ root の新 id / 失敗 -1。 */
 ACS_EDITOR_API int acs_editor_paste_subtree3d(void* handle, const char* text, int parent_id) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || text == nullptr) return -1;
-    PushUndo(*host);
+    if (host == nullptr || text == nullptr || !ValidateEditorScene3DText(text)) return -1;
+    char* const rollback = DupSnapshot(*host);
+    if (rollback == nullptr) return -1;
     int root = -1;
     const int ok = LoadScene3DTextImpl(host, text, /*clear=*/false, /*idOffset=*/host->next_id3d,
-                                       /*reparentRootTo=*/parent_id, &root);
-    return (ok != 0) ? root : -1;
+                                       /*reparentRootTo=*/parent_id, &root, /*prevalidated=*/true);
+    if (ok == 0 || !CommitUndoSnapshot(*host, rollback)) {
+        RestoreSnapshot(*host, rollback);
+        delete[] rollback;
+        return -1;
+    }
+    return root;
+}
+
+/**
+ * 既存の3D Prefab/Blueprintインスタンスを検証済みsubtreeから再生成する。
+ * sourceまたはpayloadが不正、再生成・設定・履歴公開に失敗した場合は旧sceneを完全に復元する。
+ */
+ACS_EDITOR_API int acs_editor_prefab_instance3d_refresh(
+    void* handle, int id, const char* source, const char* text) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr || source == nullptr || source[0] == '\0' ||
+        text == nullptr || !ValidateEditorScene3DText(text)) {
+        return -1;
+    }
+    game::ANode* const instance = FindNode3DNode(*host, id);
+    AEditor3DRecordComponent* const record = Rec3D(instance);
+    if (instance == nullptr || record == nullptr ||
+        std::strlen(source) >= sizeof(record->prefab_src)) {
+        return -1;
+    }
+    const int parent = ParentId3D(*host, instance);
+    const FVec3 position = instance->Local().position;
+    const FVec3 scale = instance->Local().scale;
+    const FVec3 euler = record->euler;
+
+    char* const rollback = DupSnapshot(*host);
+    if (rollback == nullptr) return -1;
+    int replacement = -1;
+    const bool refreshed =
+        acs_editor_delete_node3d(host, id) != 0 &&
+        LoadScene3DTextImpl(host, text, /*clear=*/false, /*idOffset=*/host->next_id3d,
+                            /*reparentRootTo=*/parent, &replacement, /*prevalidated=*/true) != 0 &&
+        acs_editor_node3d_set_transform(host, replacement, position.x, position.y, position.z,
+                                        euler.x, euler.y, euler.z, scale.x, scale.y, scale.z) != 0 &&
+        acs_editor_node3d_set_prefab_src(host, replacement, source) != 0;
+    if (!refreshed || !CommitUndoSnapshot(*host, rollback)) {
+        RestoreSnapshot(*host, rollback);
+        delete[] rollback;
+        return -1;
+    }
+    return replacement;
 }
 
 ACS_EDITOR_API int acs_editor_water3d_hit_test(

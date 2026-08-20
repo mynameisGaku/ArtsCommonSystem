@@ -35,6 +35,8 @@ acs_editor_optional_service_diagnostic_get(
 extern "C" __declspec(dllimport) const char* acs_editor_render_backend(void);
 extern "C" __declspec(dllimport) void acs_editor_destroy(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_node_count(void* handle);
+extern "C" __declspec(dllimport) int acs_editor_node3d_count(void* handle);
+extern "C" __declspec(dllimport) int acs_editor_selected3d(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_add_node3d(
     void* handle, int primitive, const char* name);
 extern "C" __declspec(dllimport) int acs_editor_add_empty3d(
@@ -62,10 +64,20 @@ extern "C" __declspec(dllimport) int acs_editor_scene_load_text(
     void* handle, const char* text);
 extern "C" __declspec(dllimport) int acs_editor_scene_document_load_text(
     void* handle, const char* scene2d_text, const char* scene3d_text);
+extern "C" __declspec(dllimport) int acs_editor_paste_subtree3d(
+    void* handle, const char* text, int parent_id);
+extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_refresh(
+    void* handle, int id, const char* source, const char* text);
+extern "C" __declspec(dllimport) int acs_editor_can_undo(void* handle);
+extern "C" __declspec(dllimport) int acs_editor_undo(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_node3d_duplicate(
     void* handle, int id);
 extern "C" __declspec(dllimport) int acs_editor_reparent3d(
     void* handle, int child_id, int parent_id);
+extern "C" __declspec(dllimport) int acs_editor_node3d_parent(
+    void* handle, int id);
+extern "C" __declspec(dllimport) const char*
+acs_editor_node3d_get_prefab_src(void* handle, int id);
 extern "C" __declspec(dllimport) void acs_editor_node3d_set_visible(
     void* handle, int id, int visible);
 extern "C" __declspec(dllimport) void acs_editor_node3d_set_enabled(
@@ -240,6 +252,15 @@ bool RunAbiCapabilityContract() noexcept
          CapabilityBit(
              ECapability::SparseTransformMutationV1)) != 0u,
         "managed Details relies on sparse transform mutation");
+    static_assert(
+        (kCapabilities &
+         CapabilityBit(
+             ECapability::PrefabInstanceRefresh3DV1)) != 0u);
+    static_assert(
+        (kRequiredManagedHostCapabilities &
+         CapabilityBit(
+             ECapability::PrefabInstanceRefresh3DV1)) != 0u,
+        "managed Prefab Apply/Revert relies on transactional 3D refresh");
 
     std::uint32_t version = 0u;
     std::uint64_t capabilities = 0ull;
@@ -1270,6 +1291,117 @@ bool RunSceneDocumentStrictPreflight() noexcept
     ok = ok &&
          acs_editor_scene3d_load_text(
              host, "ACS3D v2\r\nSEL3D 0\r\n") != 0;
+    acs_editor_destroy(host);
+    return ok;
+}
+
+/** 3D subtree貼り付けは不正入力でsceneと履歴を変えず、成功時は1回のUndoで戻る。 */
+bool RunTransactionalScene3DSubtreePaste() noexcept
+{
+    constexpr const char* kStableScene =
+        "ACS3D v2\n"
+        "N3D 41 -1 0 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 StableRoot\n"
+        "SEL3D 41\n";
+    constexpr const char* kInvalidSubtree =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 1 2\n";
+    constexpr const char* kValidSubtree =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 4 5 6 0 0 0 1 1 1 0.6 0.5 0.4 1 PastedRoot\n"
+        "N3D 2 1 0 7 8 9 0 0 0 1 1 1 0.3 0.4 0.5 1 PastedChild\n";
+
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+    bool ok = acs_editor_scene3d_load_text(host, kStableScene) != 0;
+    std::string expected2d;
+    std::string expected3d;
+    ok = ok && SnapshotSceneDocument(host, expected2d, expected3d) &&
+         acs_editor_can_undo(host) == 0;
+
+    ok = ok &&
+         acs_editor_paste_subtree3d(host, kInvalidSubtree, 41) == -1 &&
+         acs_editor_can_undo(host) == 0 &&
+         acs_editor_node3d_count(host) == 1 &&
+         SceneDocumentEquals(host, expected2d, expected3d);
+
+    const int root = ok
+        ? acs_editor_paste_subtree3d(host, kValidSubtree, 41)
+        : -1;
+    ok = ok && root >= 0 &&
+         acs_editor_node3d_count(host) == 3 &&
+         acs_editor_node3d_parent(host, root) == 41 &&
+         acs_editor_selected3d(host) == root &&
+         acs_editor_can_undo(host) != 0 &&
+         acs_editor_undo(host) != 0 &&
+         acs_editor_can_undo(host) == 0 &&
+         SceneDocumentEquals(host, expected2d, expected3d);
+    if (!ok) std::printf("Transactional 3D subtree paste contract failed.\n");
+    acs_editor_destroy(host);
+    return ok;
+}
+
+/** 3D Prefab再生成は親とtransformを維持し、失敗時はsceneと履歴を完全に戻す。 */
+bool RunPrefabInstance3DRefreshTransaction() noexcept
+{
+    constexpr const char* kStableScene =
+        "ACS3D v2\n"
+        "N3D 40 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Container\n"
+        "EMPTY3D 40\n"
+        "N3D 41 40 0 3 4 5 10 20 30 2 3 4 0.2 0.3 0.4 1 OldInstance\n"
+        "N3D 42 41 0 0 1 0 0 0 0 1 1 1 0.4 0.5 0.6 1 OldCamera\n"
+        "CAM3D 42 prefab.camera 0 10 1 60 10 0.05 1000\n"
+        "PFAB3D 41 Assets/Old.acsprefab\n"
+        "SEL3D 41\n";
+    constexpr const char* kInvalidSubtree =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 invalid\n";
+    constexpr const char* kUpdatedSubtree =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 0.7 0.6 0.5 1 UpdatedInstance\n"
+        "N3D 2 1 0 0 2 0 0 0 0 1 1 1 0.5 0.6 0.7 1 UpdatedCamera\n"
+        "CAM3D 2 prefab.camera 0 20 1 70 12 0.1 2000\n";
+    constexpr const char* kUpdatedSource = "Assets/Updated.acsprefab";
+
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+    bool ok = acs_editor_scene3d_load_text(host, kStableScene) != 0;
+    std::string expected2d;
+    std::string expected3d;
+    ok = ok && SnapshotSceneDocument(host, expected2d, expected3d) &&
+         acs_editor_can_undo(host) == 0;
+
+    std::string oversized_source(256u, 'a');
+    ok = ok &&
+         acs_editor_prefab_instance3d_refresh(host, 41, kUpdatedSource, kInvalidSubtree) == -1 &&
+         acs_editor_prefab_instance3d_refresh(host, 41, oversized_source.c_str(), kUpdatedSubtree) == -1 &&
+         acs_editor_can_undo(host) == 0 &&
+         SceneDocumentEquals(host, expected2d, expected3d);
+
+    const int replacement = ok
+        ? acs_editor_prefab_instance3d_refresh(host, 41, kUpdatedSource, kUpdatedSubtree)
+        : -1;
+    float transform[9]{};
+    char refreshed_scene[32768]{};
+    const int written = replacement >= 0
+        ? acs_editor_scene3d_serialize(host, refreshed_scene, static_cast<int>(sizeof(refreshed_scene)))
+        : 0;
+    ok = ok && replacement >= 0 && replacement != 41 &&
+         acs_editor_node3d_count(host) == 3 &&
+         acs_editor_node3d_parent(host, replacement) == 40 &&
+         acs_editor_selected3d(host) == replacement &&
+         acs_editor_node3d_get_transform(host, replacement, transform) != 0 &&
+         transform[0] == 3.0f && transform[1] == 4.0f && transform[2] == 5.0f &&
+         transform[3] == 10.0f && transform[4] == 20.0f && transform[5] == 30.0f &&
+         transform[6] == 2.0f && transform[7] == 3.0f && transform[8] == 4.0f &&
+         std::strcmp(acs_editor_node3d_get_prefab_src(host, replacement), kUpdatedSource) == 0 &&
+         written > 0 && written < static_cast<int>(sizeof(refreshed_scene)) &&
+         std::strstr(refreshed_scene, "prefab.camera") != nullptr &&
+         std::strstr(refreshed_scene, "-copy-") == nullptr &&
+         acs_editor_can_undo(host) != 0 &&
+         acs_editor_undo(host) != 0 &&
+         acs_editor_can_undo(host) == 0 &&
+         SceneDocumentEquals(host, expected2d, expected3d);
+    if (!ok) std::printf("3D Prefab refresh transaction contract failed.\n");
     acs_editor_destroy(host);
     return ok;
 }
@@ -2463,6 +2595,8 @@ int main()
     if (!RunMaskedTransformMutationContract()) return 27;
     if (!RunScene3DSerializationGrowth()) return 9;
     if (!RunSceneDocumentStrictPreflight()) return 17;
+    if (!RunTransactionalScene3DSubtreePaste()) return 29;
+    if (!RunPrefabInstance3DRefreshTransaction()) return 30;
     if (!RunWater3DComponentRoundTrip()) return 15;
     if (!RunWater3DPointerOcclusion()) return 16;
     if (!RunCamera3DStateSafety()) return 10;
