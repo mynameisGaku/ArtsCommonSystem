@@ -1180,6 +1180,11 @@ float cloudHeightThreshold(float coverage,float profileShape){
     return cloudHeightThresholdFromTarget(
         cloudHeightThresholdTarget(coverage),profileShape);
 }
+// 高さ分布は基本形状のしきい値へ反映済みなので、最終密度では層端だけを閉じる。
+// 広い高さ重みを再度掛けると、視線が浅い地平線付近で水平な密度段差になる。
+float cloudProfileTailClosure(float thresholdWeight){
+    return smoothstep(0.0,0.12,thresholdWeight);
+}
 float basePerlinWorley(float2 ns){
     // R は bake pass で Perlin-Worley dilation 済み。
     return saturate(ns.r-(1.0-ns.g)*0.12);
@@ -1276,7 +1281,7 @@ struct CloudMacroSample {
     float2 curl;
     float baseNoise;
     float weatherMask;
-    float profileWeight;
+    float profileClosure;
     float heightThreshold;
     float height;
 };
@@ -1290,7 +1295,7 @@ CloudMacroSample sampleCloudMacro(
     macro.curl=float2(0,0);
     macro.baseNoise=0.0;
     macro.weatherMask=0.0;
-    macro.profileWeight=0.0;
+    macro.profileClosure=0.0;
     macro.heightThreshold=0.78;
     macro.height=0.0;
     macro.weather=cloudWeatherData(p);
@@ -1306,14 +1311,14 @@ CloudMacroSample sampleCloudMacro(
             cloudColumnHeightShift(macro.weather),upperBand);
         float sampledProfile=cloudProfile(
             macro.height,macro.weather.g,macro.weather.b);
-        macro.profileWeight=smoothstep(
-            0.02,0.32,sampledProfile);
-        if(macro.profileWeight>0.0){
-            float profileShape=pow(macro.profileWeight,0.65);
+        float profileThresholdWeight=smoothstep(0.02,0.32,sampledProfile);
+        if(profileThresholdWeight>0.0){
+            float profileShape=pow(profileThresholdWeight,0.65);
             macro.heightThreshold=cloudHeightThresholdFromTarget(
                 coverageTerms.z,profileShape);
             densityHeightThreshold=cloudHeightThresholdFromTarget(
                 coverageTerms.w,profileShape);
+            macro.profileClosure=cloudProfileTailClosure(profileThresholdWeight);
             macro.curl=cloudCurlOffset(p);
             sampleUvw=cloudUVW(
                 p,macro.weather,macro.curl,macro.height);
@@ -1330,7 +1335,7 @@ CloudMacroSample sampleCloudMacroLighting(
     macro.curl=float2(0,0);
     macro.baseNoise=0.0;
     macro.weatherMask=0.0;
-    macro.profileWeight=0.0;
+    macro.profileClosure=0.0;
     macro.heightThreshold=0.78;
     macro.height=0.0;
     macro.weather=cloudWeatherData(p);
@@ -1345,12 +1350,12 @@ CloudMacroSample sampleCloudMacroLighting(
             cloudColumnHeightShift(macro.weather),upperBand);
         float sampledProfile=cloudProfile(
             macro.height,macro.weather.g,macro.weather.b);
-        macro.profileWeight=smoothstep(
-            0.02,0.32,sampledProfile);
-        if(macro.profileWeight>0.0){
-            float profileShape=pow(macro.profileWeight,0.65);
+        float profileThresholdWeight=smoothstep(0.02,0.32,sampledProfile);
+        if(profileThresholdWeight>0.0){
+            float profileShape=pow(profileThresholdWeight,0.65);
             macro.heightThreshold=cloudHeightThreshold(
                 weatherCoverage,profileShape);
+            macro.profileClosure=cloudProfileTailClosure(profileThresholdWeight);
             macro.curl=cloudCurlOffset(p);
             cloudBaseShapeLighting(
                 cloudUVW(
@@ -1376,7 +1381,7 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(
     macro.curl=slowCurl;
     macro.baseNoise=0.0;
     macro.weatherMask=0.0;
-    macro.profileWeight=0.0;
+    macro.profileClosure=0.0;
     macro.heightThreshold=0.78;
     macro.height=0.0;
     // The weather field and authored coverage are identical for every probe
@@ -1394,12 +1399,12 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(
         slowProfileTerms.w,upperBand);
     float sampledProfile=cloudProfileFromTypeWeights(
         macro.height,slowProfileTerms.xy,slowProfileTerms.z);
-    macro.profileWeight=smoothstep(
-        0.02,0.32,sampledProfile);
-    if(macro.profileWeight>0.0){
-        float profileShape=pow(macro.profileWeight,0.65);
+    float profileThresholdWeight=smoothstep(0.02,0.32,sampledProfile);
+    if(profileThresholdWeight>0.0){
+        float profileShape=pow(profileThresholdWeight,0.65);
         macro.heightThreshold=cloudHeightThresholdFromTarget(
             heightThresholdTarget,profileShape);
+        macro.profileClosure=cloudProfileTailClosure(profileThresholdWeight);
         // Weather and curl are shared with the view sample, so their UV
         // transform is affine across the short light cone.  Reconstruct
         // the exact probe domain from the already evaluated view UVW
@@ -1430,11 +1435,12 @@ float sampleCloudLightingShapeFromSlowFields(
         slowProfileTerms.w,upperBand);
     float sampledProfile=cloudProfileFromTypeWeights(
         sampleHeight,slowProfileTerms.xy,slowProfileTerms.z);
-    float profileWeight=smoothstep(0.02,0.32,sampledProfile);
-    if(profileWeight>0.0){
-        float profileShape=pow(profileWeight,0.65);
+    float profileThresholdWeight=smoothstep(0.02,0.32,sampledProfile);
+    if(profileThresholdWeight>0.0){
+        float profileShape=pow(profileThresholdWeight,0.65);
         float heightThreshold=cloudHeightThresholdFromTarget(
             heightThresholdTarget,profileShape);
+        float profileClosure=cloudProfileTailClosure(profileThresholdWeight);
         float3 lightingUvw=referenceUvw+float3(
             (p.x-referenceP.x)*shapeScale,
             (sampleHeight-referenceHeight)*0.78,
@@ -1445,21 +1451,18 @@ float sampleCloudLightingShapeFromSlowFields(
         shapeResult=remapc(
             baseNoise,heightThreshold,
             min(heightThreshold+0.22,0.98),0.0,1.0)
-            *slowWeatherMask*profileWeight;
+            *slowWeatherMask*profileClosure;
     }
     return shapeResult;
 }
 float cloudShapeFromPositiveWeatherMacro(CloudMacroSample macro){
     float shapeResult=0.0;
-    if(macro.profileWeight>0.0){
-        // Use the Nubis/Horizon-style height gradient primarily as a shape
-        // threshold, then close only its extreme tail with profileWeight.
-        // Applying the raw profile after thresholding creates horizontal
-        // density shelves at every layer boundary.
+    if(macro.profileClosure>0.0){
+        // 高さ分布は基本形状のしきい値を決め、層端専用の重みは消失部分だけを閉じる。
         shapeResult=remapc(
             macro.baseNoise,macro.heightThreshold,
             min(macro.heightThreshold+0.22,0.98),0.0,1.0)
-                   *macro.weatherMask*macro.profileWeight;
+                   *macro.weatherMask*macro.profileClosure;
     }
     return shapeResult;
 }
@@ -1497,14 +1500,14 @@ void cloudDetailDomains(
 float cloudLowLodDensityFromPositiveWeatherMacro(
     CloudMacroSample macro,float heightThreshold,float weatherMask){
     float densityResult=0.0;
-    if(macro.profileWeight>0.0){
+    if(macro.profileClosure>0.0){
         float baseDensity=remapc(
             macro.baseNoise,heightThreshold,
             min(heightThreshold+0.22,0.98),0.0,1.0);
         if(baseDensity>0.001){
             float h=saturate(macro.height);
             densityResult=saturate(
-                baseDensity*weatherMask*macro.profileWeight
+                baseDensity*weatherMask*macro.profileClosure
                 *lerp(1.10,0.92,h)
                 *lerp(1.0,1.28,macro.weather.b));
         }
@@ -1516,7 +1519,7 @@ float cloudDensityFromPositiveWeatherMacro(
     float3 p,CloudMacroSample macro,float heightThreshold,
     float weatherMask,float detailWeight){
     float densityResult=0.0;
-    if(macro.profileWeight>0.0){
+    if(macro.profileClosure>0.0){
         float baseDensity=remapc(
             macro.baseNoise,heightThreshold,
             min(heightThreshold+0.22,0.98),0.0,1.0);
@@ -1548,12 +1551,8 @@ float cloudDensityFromPositiveWeatherMacro(
             // into zero density.
             float eroded=
                 remapc(baseDensity,detail*erosion,1.0,0.0,1.0);
-            // The generated volume currently has one mip. Fade sub-voxel
-            // erosion at distance instead of letting it alias into temporal
-            // or radial streaks.
-            float d=eroded;
             densityResult=saturate(
-                d*weatherMask*macro.profileWeight
+                eroded*weatherMask*macro.profileClosure
                 *lerp(1.10,0.92,h)
                 *lerp(1.0,1.28,macro.weather.b));
         }

@@ -181,6 +181,17 @@ model is physically calibrated; that remains a visual-reference requirement.
 採取回数は増えない。単体試験は層の両端、値域、全許容変形量での単調性、上層の抑制、光採取への
 共有、および採取回数を検査する。
 
+## 高さ分布の二重適用防止
+
+雲種ごとの高さ分布は、基本形状を雲として採用するしきい値へ反映する。この値を最終密度へも
+そのまま掛けると、同じ高さ変化を二度適用し、地平線に近い視線では層境界が水平な濃淡の段として
+強調される。現在は、しきい値用の重みが `0.12` に達するまでだけ滑らかに閉じ、それより内側では
+最終密度を減らさない。基本形状の三次元ノイズが輪郭を決める範囲を広げつつ、物理層の端では密度を
+確実にゼロへ戻す。
+
+視線の空領域判定、詳細密度、追加テクスチャ採取をしない低詳細度密度、近距離と遠距離の光採取は、
+すべて同じ層端用重みを使う。この変更は算術演算だけであり、テクスチャ採取回数を増やさない。
+
 Both the Editor and legacy Scene3D paths update cloud illumination from the
 current scene before dispatch. They evaluate atmospheric RGB transmittance at
 the normalized cloud-layer midpoint, use the current zenith color for the

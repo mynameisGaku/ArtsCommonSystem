@@ -322,6 +322,11 @@ f32 CloudConvectiveHeightForTest(
         boundedHeight - columnShift * interior * bandScale);
 }
 
+// しきい値用の高さ重みから、物理層の端だけを閉じる最終密度の重みを求める。
+f32 CloudProfileTailClosureForTest(f32 thresholdWeight) noexcept {
+    return SmoothStepForTest(0.0f, 0.12f, thresholdWeight);
+}
+
 } // namespace
 
 ACS_TEST(EditorStartup, FallbackSkyCompileIsBoundedAndOffOwnerThread) {
@@ -2062,8 +2067,7 @@ ACS_TEST(VolumetricClouds,
     const std::size_t base = shader.find("floatbaseDensity=remapc(", threshold);
     const std::size_t erosion = shader.find(
         "remapc(baseDensity,detail*erosion,1.0,0.0,1.0)");
-    const std::size_t attenuation = shader.find(
-        "d*weatherMask", erosion);
+    const std::size_t attenuation = shader.find("eroded*weatherMask*macro.profileClosure", erosion);
     EXPECT_TRUE(profile != std::string::npos);
     EXPECT_TRUE(threshold != std::string::npos);
     EXPECT_TRUE(base != std::string::npos);
@@ -2073,7 +2077,31 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(threshold < base);
     EXPECT_TRUE(base < erosion);
     EXPECT_TRUE(erosion < attenuation);
-    EXPECT_FALSE(Contains(shader, "d*profile*weatherMask"));
+    EXPECT_FALSE(Contains(shader, "eroded*weatherMask*macro.profileWeight"));
+}
+
+ACS_TEST(VolumetricClouds, HeightProfileThresholdOnlyClosesTheExtremeTail) {
+    f32 previousClosure = 0.0f;
+    for (u32 step = 0u; step <= 120u; ++step) {
+        const f32 thresholdWeight = static_cast<f32>(step) * 0.001f;
+        const f32 closure = CloudProfileTailClosureForTest(thresholdWeight);
+        EXPECT_TRUE(closure + 1e-6f >= previousClosure);
+        EXPECT_TRUE(closure >= 0.0f && closure <= 1.0f);
+        previousClosure = closure;
+    }
+    EXPECT_NEAR(CloudProfileTailClosureForTest(0.0f), 0.0f, 0.0f);
+    EXPECT_NEAR(CloudProfileTailClosureForTest(0.06f), 0.5f, 1e-6f);
+    EXPECT_NEAR(CloudProfileTailClosureForTest(0.12f), 1.0f, 0.0f);
+    EXPECT_NEAR(CloudProfileTailClosureForTest(1.0f), 1.0f, 0.0f);
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(Contains(shader, "floatcloudProfileTailClosure(floatthresholdWeight){returnsmoothstep(0.0,0.12,thresholdWeight);}"));
+    EXPECT_TRUE(Contains(shader, "macro.profileClosure=cloudProfileTailClosure(profileThresholdWeight);"));
+    EXPECT_TRUE(Contains(shader, "*macro.weatherMask*macro.profileClosure"));
+    EXPECT_TRUE(Contains(shader, "*slowWeatherMask*profileClosure"));
+    EXPECT_FALSE(Contains(shader, "macro.profileWeight"));
+    EXPECT_FALSE(Contains(shader, "*slowWeatherMask*profileThresholdWeight"));
 }
 
 ACS_TEST(VolumetricClouds,
@@ -2204,7 +2232,7 @@ ACS_TEST(VolumetricClouds,
         "macro.curl=float2(0,0);",
         "macro.baseNoise=0.0;",
         "macro.weatherMask=0.0;",
-        "macro.profileWeight=0.0;",
+        "macro.profileClosure=0.0;",
         "macro.heightThreshold=0.78;",
         "macro.height=0.0;"};
     for (u32 functionIndex = 0u;
@@ -2233,9 +2261,9 @@ ACS_TEST(VolumetricClouds,
         const std::size_t profile =
             function.find("floatsampledProfile=cloudProfile(");
         const std::size_t profileBranch =
-            function.find("if(macro.profileWeight>0.0){");
-        const std::size_t profileWeight =
-            function.find("macro.profileWeight=smoothstep(");
+            function.find("if(profileThresholdWeight>0.0){");
+        const std::size_t profileThresholdWeight =
+            function.find("floatprofileThresholdWeight=smoothstep(");
         const std::size_t profileShape =
             function.find("floatprofileShape=pow(");
         const std::size_t heightThreshold =
@@ -2243,6 +2271,7 @@ ACS_TEST(VolumetricClouds,
                 "macro.heightThreshold=cloudHeightThreshold");
         const std::size_t curl =
             function.find("macro.curl=cloudCurlOffset(p);");
+        const std::size_t profileClosure = function.find("macro.profileClosure=cloudProfileTailClosure(");
         const std::size_t shape =
             function.find("cloudBaseShape");
         for (const char* initializer : initializers) {
@@ -2255,11 +2284,12 @@ ACS_TEST(VolumetricClouds,
         EXPECT_TRUE(mask < maskBranch);
         EXPECT_TRUE(maskBranch < height);
         EXPECT_TRUE(height < profile);
-        EXPECT_TRUE(profile < profileWeight);
-        EXPECT_TRUE(profileWeight < profileBranch);
+        EXPECT_TRUE(profile < profileThresholdWeight);
+        EXPECT_TRUE(profileThresholdWeight < profileBranch);
         EXPECT_TRUE(profileBranch < profileShape);
         EXPECT_TRUE(profileShape < heightThreshold);
-        EXPECT_TRUE(heightThreshold < curl);
+        EXPECT_TRUE(heightThreshold < profileClosure);
+        EXPECT_TRUE(profileClosure < curl);
         EXPECT_TRUE(curl < shape);
     }
 
@@ -2912,12 +2942,7 @@ ACS_TEST(VolumetricClouds,
             helper,
             "cloudBaseShapeLighting("
             "lightingUvw,heightThreshold,baseNoise);"));
-        EXPECT_TRUE(Contains(
-            helper,
-            "shapeResult=remapc("
-            "baseNoise,heightThreshold,"
-            "min(heightThreshold+0.22,0.98),0.0,1.0)"
-            "*slowWeatherMask*profileWeight;"));
+        EXPECT_TRUE(Contains(helper, "shapeResult=remapc(baseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0)*slowWeatherMask*profileClosure;"));
         EXPECT_FALSE(Contains(helper, "cloudCurlOffset("));
         EXPECT_FALSE(Contains(helper, "detailNoise.SampleLevel("));
     }
@@ -3076,9 +3101,7 @@ ACS_TEST(VolumetricClouds,
         shader,
         "floatshape=cloudShapeFromMacro(macro);"
         "if(shape<=0.006){"));
-    EXPECT_FALSE(Contains(
-        shader,
-        "if(macro.weatherMask*macro.profileWeight>0.006){"));
+    EXPECT_FALSE(Contains(shader, "if(macro.weatherMask*macro.profileClosure>0.006){"));
 
     const std::size_t helperBegin = shader.find(
         "floatsampleCloudLightingShapeFromSlowFields(");
