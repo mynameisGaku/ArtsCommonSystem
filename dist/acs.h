@@ -12351,12 +12351,28 @@ public:
         return static_cast<T*>(m_Owner.pointer);
     }
 
-    /** owner descriptor を設定するコレクション内部 API。 */
-    // ここから下は CSubsystemCollection が寿命を組み立てるあいだに呼ぶもの。
-    // **利用側から呼ぶものではない。**
-private:
-    friend class CSubsystemCollection;
+    /** owner 配線だけを明示的に行う内部アダプター。 */
+    class FManagementAdapter final {
+    public:
+        /** 配線対象のサブシステムを保持する。 */
+        explicit FManagementAdapter(ASubsystem& subsystem) noexcept : m_Subsystem(subsystem) {}
 
+        /** owner と責務種別を配線する。 */
+        void SetOwnerDescriptor(FSubsystemOwner owner) noexcept { m_Subsystem.SetOwnerDescriptor_Internal(owner); }
+
+        /** 種別を持たない旧 owner ポインタを配線する。 */
+        void SetOwner(void* owner) noexcept { m_Subsystem.SetOwner_Internal(owner); }
+
+    private:
+        /** 内部処理を呼ぶ対象。 */
+        ASubsystem& m_Subsystem;
+    };
+
+    /** owner 配線用の明示的な内部アダプターを返す。 */
+    FManagementAdapter ManagementAccess() noexcept { return FManagementAdapter(*this); }
+
+private:
+    /** owner descriptor を設定する内部処理。 */
     void SetOwnerDescriptor_Internal(FSubsystemOwner owner) noexcept { m_Owner = owner; }
 
     /** 種別を持たない旧 owner ポインタを設定する互換 API。 */
@@ -29991,20 +30007,34 @@ public:
      */
     bool HasOwner() const noexcept { return m_Owner != nullptr; }
 
-    // ---- ここから下は ANode が組み立てのあいだに呼ぶもの ---------------------
-    //
-    // **ゲーム側から呼ぶものではない。** private + friend にしてあるので、誤って
-    // 呼ぶとコンパイルが止まる。名前の `_Internal` は «読めば分かる» ための印で、
-    // 実際に止めるのはこのアクセス指定の方。
+    /** コンポーネント所有とサービス配線を明示的に行う非所有アダプター。 */
+    class FManagementAdapter final {
+    public:
+        /** 配線対象のコンポーネントを保持する。 */
+        explicit FManagementAdapter(AComponent& component) noexcept : m_Component(component) {}
+
+        /** owner ノードを配線する。 */
+        void SetOwner(ANode* owner) noexcept { m_Component.SetOwner_Internal(owner); }
+
+        /** services が利用可能なら OnAttachServices を一度だけ発火する。 */
+        void MaybeAttachServices(CSceneServices* services) noexcept { m_Component.MaybeAttachServices_Internal(services); }
+
+    private:
+        /** 配線対象のコンポーネント。 */
+        AComponent& m_Component;
+    };
+
+    /** コンポーネント管理用の明示的な内部アダプターを返す。 */
+    FManagementAdapter ManagementAccess() noexcept { return FManagementAdapter(*this); }
+
 private:
-    friend class ANode;
 
     /**
      * owner ポインタを設定する (ANode::AddComponent が呼ぶ)。
      *
      * @param o 設定する owner ノード。
      */
-    void SetOwner_Internal(ANode* o) noexcept { m_Owner = o; }
+    void SetOwner_Internal(ANode* owner) noexcept { m_Owner = owner; }
 
     /**
      * services が利用可能なら OnAttachServices を一度だけ発火する (ガード付き)。
@@ -30986,17 +31016,7 @@ public:
      */
     FNodeId Id() const noexcept { return m_Id; }
 
-    // ---- ここから下は «組み立て» のためのもの。ゲーム側から呼ぶものではない ----
-    //
-    // AScene と CNodePool はクラスなので friend で本当に閉じられる。
-    // ローダとエディタ ABI の呼び元は**自由関数**なので friend にできず、
-    // `FNodeInternals` (このファイルの下) を通す形にした。**止められてはいないが、
-    // ノードの補完候補には出てこないし、呼ぶには内部用の型を名指しする必要がある。**
 private:
-    friend class CNodePool;
-    friend class AScene;
-    friend class FNodeInternals;
-
     /** ノード ID を設定する (CNodePool が割り当てる)。 */
     void   SetId_Internal(FNodeId id) noexcept { m_Id = id; }
 
@@ -31021,6 +31041,35 @@ public:
      */
     i32 SerialId() const noexcept { return m_SerialId; }
 
+    /** ノード識別子と実行環境の配線を明示的に行う非所有アダプター。 */
+    class FManagementAdapter final {
+    public:
+        /** 配線対象のノードを保持する。 */
+        explicit FManagementAdapter(ANode& node) noexcept : m_Node(node) {}
+
+        /** generational handle を設定する。 */
+        void SetId(FNodeId id) noexcept { m_Node.SetId_Internal(id); }
+
+        /** シーン直列化 ID を設定する。 */
+        void SetSerialId(i32 id) noexcept { m_Node.SetSerialId_Internal(id); }
+
+        /** root ノードへ services を配線する。 */
+        void SetSceneServices(CSceneServices* services) noexcept { m_Node.SetSceneServices_Internal(services); }
+
+        /** root ノードへ World サブシステム束を配線する。 */
+        void SetSubsystems(CSubsystemCollection* subsystems) noexcept { m_Node.SetSubsystems_Internal(subsystems); }
+
+        /** subtree の全コンポーネントへ services を一度だけ配線する。 */
+        void ActivateServices(CSceneServices& services) noexcept { m_Node.ActivateServices_Internal(services); }
+
+    private:
+        /** 配線対象のノード。 */
+        ANode& m_Node;
+    };
+
+    /** ノード管理用の明示的な内部アダプターを返す。 */
+    FManagementAdapter ManagementAccess() noexcept { return FManagementAdapter(*this); }
+
     /**
      * subtree (this + 子孫) から直列化 ID 一致のノードを探す (DFS、無ければ nullptr)。
      *
@@ -31044,12 +31093,12 @@ public:
     T& AddComponent(Args&&... args) noexcept {
         TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
         T* ref = comp.Get();
-        ref->SetOwner_Internal(this);
+        ref->ManagementAccess().SetOwner(this);
         // 依存コンポーネントを先に確保する。
         ref->OnRequire(*this);
         m_Components.Add(TUniquePtr<AComponent>(comp.Release(), comp.GetAllocator()));
         ref->OnAttach(*this);
-        ref->MaybeAttachServices_Internal(SceneServices());   // ツリーが既に services 配線済なら即 fire
+        ref->ManagementAccess().MaybeAttachServices(SceneServices());   // ツリーが既に services 配線済なら即 fire
         return *ref;
     }
 
@@ -31166,11 +31215,11 @@ public:
      */
     AComponent& AttachComponent(TUniquePtr<AComponent> comp) noexcept {
         AComponent* ref = comp.Get();
-        ref->SetOwner_Internal(this);
+        ref->ManagementAccess().SetOwner(this);
         ref->OnRequire(*this);
         m_Components.Add(Move(comp));
         ref->OnAttach(*this);
-        ref->MaybeAttachServices_Internal(SceneServices());
+        ref->ManagementAccess().MaybeAttachServices(SceneServices());
         return *ref;
     }
 
@@ -31397,45 +31446,6 @@ private:
     /** ツリー root に配線されるサブシステム束 (root のみ設定)。 */
     CSubsystemCollection* m_Subsystems = nullptr;
 };
-
-
-/**
- * ノードの «組み立て» だけを通す窓口。
- *
- * @details
- * ローダ (`SceneTextLoader` / `Scene3DSerialize`) とエディタ ABI は自由関数なので
- * `friend` にできない。かといって組み立て用の関数を `ANode` の公開面へ戻すと、
- * **ゲームを書く人の補完候補に «呼んではいけないもの» が並ぶ。**
- *
- * 呼べてしまうことは変わらないが、
- *
- * - `ANode` の公開 API からは消える
- * - 呼ぶには内部用の型を名指しする必要がある
- * - grep 一発で «組み立てに触っている場所» が全部出る
- *
- * ゲームのコードからは**呼ばない**。
- */
-class FNodeInternals {
-public:
-    /** 直列化 ID を割り当てる (.acscene の id / editor_id)。 */
-    static void SetSerialId(ANode& node, i32 id) noexcept { node.SetSerialId_Internal(id); }
-
-    /** root ノードへ services を配線する。 */
-    static void SetSceneServices(ANode& node, CSceneServices* services) noexcept {
-        node.SetSceneServices_Internal(services);
-    }
-
-    /** root ノードへ World サブシステム束を配線する。 */
-    static void SetSubsystems(ANode& node, CSubsystemCollection* subsystems) noexcept {
-        node.SetSubsystems_Internal(subsystems);
-    }
-
-    /** subtree の OnAttachServices を一度だけ発火する。 */
-    static void ActivateServices(ANode& node, CSceneServices& services) noexcept {
-        node.ActivateServices_Internal(services);
-    }
-};
-
 } // namespace acs::game
 
 namespace acs {
@@ -48580,7 +48590,7 @@ using game::ESvc;
 
 namespace acs::game {
 
-class ANode;   // forward decl — full include は .cpp 側 (ANode::SetId_Internal 呼出のため)
+class ANode;   // forward decl — full include は .cpp 側 (管理アダプター呼出のため)
 
 /** CNodePool への checked 登録が返す状態。 */
 enum class ENodePoolRegisterError : u8 {
@@ -56469,6 +56479,52 @@ using FPostProcess = CPostProcess;
 // SPDX-License-Identifier: Apache-2.0
 
 
+// ===================== render/SkySunProfile.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 太陽円盤の見かけの角半径を1-cos形式で表した値。 */
+inline constexpr f32 kSkySolarDiscRadiusOneMinusCosine = 1.08e-5f;
+/** 昼空で太陽の周囲に残す光彩の外端。 */
+inline constexpr f32 kSkyDaySunHaloRadiusOneMinusCosine = 0.0038f;
+/** 夕空で太陽の周囲に残す光彩の外端。 */
+inline constexpr f32 kSkySunsetSunHaloRadiusOneMinusCosine = 0.0076f;
+/** 夜空の月光周囲に残す光彩の外端。 */
+inline constexpr f32 kSkyNightMoonHaloRadiusOneMinusCosine = 0.0014f;
+/** 太陽色へ近づける光彩の最大割合。 */
+inline constexpr f32 kSkySunHaloStrength = 0.28f;
+/** 地平線付近へ加える前方散乱光の最大割合。 */
+inline constexpr f32 kSkySunHorizonGlowStrength = 0.18f;
+/** 地平線から離れた前方散乱光を弱める係数。 */
+inline constexpr f32 kSkySunHorizonGlowFalloff = 12.0f;
+/** 光彩幅から前方散乱の角度減衰幅を求める割合。 */
+inline constexpr f32 kSkySunForwardGlowWidthScale = 0.35f;
+
+/** 太陽方向に対する空の各放射成分の重み。 */
+struct FSkySunProfile {
+    /** 太陽円盤そのものが覆う割合。 */
+    f32 disc_weight = 0.0f;
+    /** 円盤外側の光彩が太陽色へ近づける割合。 */
+    f32 halo_weight = 0.0f;
+    /** 地平線付近へ加える前方散乱光の割合。 */
+    f32 horizon_glow_weight = 0.0f;
+};
+
+/**
+ * 視線と太陽の角度から円盤、光彩、地平線前方散乱の重みを求める。
+ *
+ * @param one_minus_cosine 視線と太陽方向の内積を1から引いた値。
+ * @param view_elevation 視線方向の上下成分。
+ * @param disc_radius_one_minus_cosine 円盤の角半径を1-cos形式で表した値。
+ * @param halo_radius_one_minus_cosine 光彩外端の角半径を1-cos形式で表した値。
+ * @param angular_filter_width 画素が覆う1-cos形式の角度幅。
+ */
+FSkySunProfile ResolveSkySunProfile(f32 one_minus_cosine, f32 view_elevation, f32 disc_radius_one_minus_cosine, f32 halo_radius_one_minus_cosine, f32 angular_filter_width) noexcept;
+
+} // namespace acs
+
 namespace acs {
 
 class CCamera;
@@ -56558,19 +56614,15 @@ public:
      */
     void SetSunColor(FVec3 c)       noexcept { m_SunColor = c; }
 
-    /**
-     * 太陽の見かけ半径を設定する。
-     *
-     * @param angular 視線角の cos 値からの差 (0.001 = 鋭い、0.05 = 大きい)。
+    /** 太陽円盤の角半径を1-cos形式で設定する。
+     * @param one_minus_cosine 太陽中心から円盤外端までの1-cos値。
      */
-    void SetSunRadius(f32 angular) noexcept { m_SunRadius  = angular; }
+    void SetSunRadius(f32 one_minus_cosine) noexcept;
 
-    /**
-     * 太陽の周りのハロー (グロー) の広がりを設定する。
-     *
-     * @param angular ハローの角度的な広がり。
+    /** 太陽の光彩外端を1-cos形式で設定する。
+     * @param one_minus_cosine 太陽中心から光彩外端までの1-cos値。
      */
-    void SetSunGlow(f32 angular)   noexcept { m_SunGlow    = angular; }
+    void SetSunGlow(f32 one_minus_cosine) noexcept;
 
     /**
      * 天頂の色を設定する。
@@ -56720,11 +56772,11 @@ private:
     /** 太陽の RGB 色。 */
     FVec3 m_SunColor  = FVec3{1.0f, 0.95f, 0.85f};
 
-    /** 太陽の見かけ半径 (視線角 cos 値からの差)。 */
-    f32  m_SunRadius = 0.0006f;
+    /** 太陽円盤の角半径を表す1-cos値。 */
+    f32 m_SunRadius = kSkySolarDiscRadiusOneMinusCosine;
 
-    /** 太陽ハローの角度的な広がり。 */
-    f32  m_SunGlow   = 0.04f;
+    /** 太陽の光彩外端を表す1-cos値。 */
+    f32 m_SunGlow = kSkyDaySunHaloRadiusOneMinusCosine;
 
     /** 天頂方向の RGB 色。 */
     FVec3 m_Zenith     = FVec3{0.18f, 0.40f, 0.78f};

@@ -64,8 +64,8 @@ ACS_TEST(EditorPlayDraw, DrawTreeInvokesComponentOnDrawWithWiredContext) {
     // fake ポインタではなく CPU 側だけで成立する実体が要る。
     CSpriteBatch sprites;
     FRenderContext rc;
-    rc._SetSpriteBatch(&sprites);
-    rc._SetView2D(FVec2{ 12.0f, 34.0f }, 2.0f);
+    rc.SetSpriteBatch_Internal(&sprites);
+    rc.SetView2D_Internal(FVec2{ 12.0f, 34.0f }, 2.0f);
 
     EXPECT_EQ(probe.draws, 0);
     root.DrawTree(rc);
@@ -86,7 +86,7 @@ ACS_TEST(EditorPlayDraw, HiddenNodeSkipsOnDraw) {
 
     CSpriteBatch sprites;
     FRenderContext rc;
-    rc._SetSpriteBatch(&sprites);
+    rc.SetSpriteBatch_Internal(&sprites);
     root.DrawTree(rc);
     EXPECT_EQ(probe.draws, 0);
 }

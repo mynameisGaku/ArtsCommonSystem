@@ -29,7 +29,7 @@ const char* kBullet =
 ACS_TEST(SpawnSubsystem, SpawnsIntoSceneRootAtPosition) {
     EXPECT_TRUE(AcsRegisterGameFrameworkSubsystems());
     AScene scene;
-    EXPECT_TRUE(scene._InitWorldSubsystems(nullptr));
+    EXPECT_TRUE(scene.InitWorldSubsystems_Internal(nullptr));
     ASpawn2DSubsystem* spawner = scene.GetSubsystem<ASpawn2DSubsystem>();
     EXPECT_TRUE(spawner != nullptr);
     if (spawner == nullptr) return;
@@ -56,7 +56,7 @@ ACS_TEST(SpawnSubsystem, NoOwnerIsSafe) {
     EXPECT_TRUE(orphan.SpawnPrefabText(nullptr, FVec2{ 0.0f, 0.0f }) == nullptr);
 
     int wrong_owner = 0;
-    orphan._SetOwner(&wrong_owner);
+    orphan.ManagementAccess().SetOwner(&wrong_owner);
     EXPECT_TRUE(orphan.SpawnPrefabText(kBullet, FVec2{ 0.0f, 0.0f }) == nullptr);
 }
 
@@ -65,7 +65,7 @@ ACS_TEST(SpawnSubsystem, PlainSceneOwnerSpawnsIntoRoot)
 {
     EXPECT_TRUE(AcsRegisterGameFrameworkSubsystems());
     AScene scene;
-    EXPECT_TRUE(scene._InitWorldSubsystems(nullptr));
+    EXPECT_TRUE(scene.InitWorldSubsystems_Internal(nullptr));
     ASpawn2DSubsystem* const spawner = scene.GetSubsystem<ASpawn2DSubsystem>();
     EXPECT_TRUE(spawner != nullptr);
     if (spawner != nullptr) {

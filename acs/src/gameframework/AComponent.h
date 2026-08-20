@@ -271,20 +271,34 @@ public:
      */
     bool HasOwner() const noexcept { return m_Owner != nullptr; }
 
-    // ---- ここから下は ANode が組み立てのあいだに呼ぶもの ---------------------
-    //
-    // **ゲーム側から呼ぶものではない。** private + friend にしてあるので、誤って
-    // 呼ぶとコンパイルが止まる。名前の `_Internal` は «読めば分かる» ための印で、
-    // 実際に止めるのはこのアクセス指定の方。
+    /** コンポーネント所有とサービス配線を明示的に行う非所有アダプター。 */
+    class FManagementAdapter final {
+    public:
+        /** 配線対象のコンポーネントを保持する。 */
+        explicit FManagementAdapter(AComponent& component) noexcept : m_Component(component) {}
+
+        /** owner ノードを配線する。 */
+        void SetOwner(ANode* owner) noexcept { m_Component.SetOwner_Internal(owner); }
+
+        /** services が利用可能なら OnAttachServices を一度だけ発火する。 */
+        void MaybeAttachServices(CSceneServices* services) noexcept { m_Component.MaybeAttachServices_Internal(services); }
+
+    private:
+        /** 配線対象のコンポーネント。 */
+        AComponent& m_Component;
+    };
+
+    /** コンポーネント管理用の明示的な内部アダプターを返す。 */
+    FManagementAdapter ManagementAccess() noexcept { return FManagementAdapter(*this); }
+
 private:
-    friend class ANode;
 
     /**
      * owner ポインタを設定する (ANode::AddComponent が呼ぶ)。
      *
      * @param o 設定する owner ノード。
      */
-    void SetOwner_Internal(ANode* o) noexcept { m_Owner = o; }
+    void SetOwner_Internal(ANode* owner) noexcept { m_Owner = owner; }
 
     /**
      * services が利用可能なら OnAttachServices を一度だけ発火する (ガード付き)。

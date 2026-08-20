@@ -23,7 +23,7 @@ namespace acs::game {
 /** World サブシステムを root へ公開し、2D 専用生成先を型付きで接続する。 */
 void AScene::OnWorldSubsystemsReady_Internal() noexcept
 {
-    Root().SetSubsystems_Internal(WorldSubsystemsPtr_Internal());
+    Root().ManagementAccess().SetSubsystems(WorldSubsystemsPtr_Internal());
     ASpawn2DSubsystem* const Spawner = GetSubsystem<ASpawn2DSubsystem>();
     if (Spawner != nullptr) Spawner->BindTargetRoot(&Root());
 }
@@ -39,12 +39,12 @@ void AScene::RewireGraphRoot_Internal() noexcept {
     ANode& NewRoot = m_Graph.Root();
     // OnWorldSubsystemsReady_Internal / Enter_Internal と同じ配線を、swap 後の root へ適用し直す。
     // 未 attach (pre-enter の load) では services が無いだけで、束の公開は常に安全。
-    NewRoot.SetSubsystems_Internal(WorldSubsystemsPtr_Internal());
+    NewRoot.ManagementAccess().SetSubsystems(WorldSubsystemsPtr_Internal());
     ASpawn2DSubsystem* const Spawner = GetSubsystem<ASpawn2DSubsystem>();
     if (Spawner != nullptr) Spawner->BindTargetRoot(&NewRoot);
     if (HasServices()) {
-        NewRoot.SetSceneServices_Internal(ServicesOrNull_Internal());
-        NewRoot.ActivateServices_Internal(Services());
+        NewRoot.ManagementAccess().SetSceneServices(ServicesOrNull_Internal());
+        NewRoot.ManagementAccess().ActivateServices(Services());
     }
 }
 
@@ -52,9 +52,9 @@ void AScene::RewireGraphRoot_Internal() noexcept {
 void AScene::Enter_Internal() noexcept {
     // 利用者hookより前に配線し、hook内で追加したcomponentは即時通知する。
     // hook後のActivateServices_Internalは配線前から存在したcomponentを補う。
-    if (HasServices()) Root().SetSceneServices_Internal(ServicesOrNull_Internal());
+    if (HasServices()) Root().ManagementAccess().SetSceneServices(ServicesOrNull_Internal());
     OnEnter();
-    if (HasServices()) Root().ActivateServices_Internal(Services());
+    if (HasServices()) Root().ManagementAccess().ActivateServices(Services());
 }
 
 /** 既定の入場hookとしてOnReadyを呼ぶ。 */

@@ -11,6 +11,7 @@
 #include "render/IRhiBuffer.h"
 #include "render/IRhiCommandList.h"
 #include "render/IRhiTexture.h"
+#include "render/SkySunProfile.h"
 
 namespace acs {
 
@@ -101,19 +102,15 @@ public:
      */
     void SetSunColor(FVec3 c)       noexcept { m_SunColor = c; }
 
-    /**
-     * 太陽の見かけ半径を設定する。
-     *
-     * @param angular 視線角の cos 値からの差 (0.001 = 鋭い、0.05 = 大きい)。
+    /** 太陽円盤の角半径を1-cos形式で設定する。
+     * @param one_minus_cosine 太陽中心から円盤外端までの1-cos値。
      */
-    void SetSunRadius(f32 angular) noexcept { m_SunRadius  = angular; }
+    void SetSunRadius(f32 one_minus_cosine) noexcept;
 
-    /**
-     * 太陽の周りのハロー (グロー) の広がりを設定する。
-     *
-     * @param angular ハローの角度的な広がり。
+    /** 太陽の光彩外端を1-cos形式で設定する。
+     * @param one_minus_cosine 太陽中心から光彩外端までの1-cos値。
      */
-    void SetSunGlow(f32 angular)   noexcept { m_SunGlow    = angular; }
+    void SetSunGlow(f32 one_minus_cosine) noexcept;
 
     /**
      * 天頂の色を設定する。
@@ -263,11 +260,11 @@ private:
     /** 太陽の RGB 色。 */
     FVec3 m_SunColor  = FVec3{1.0f, 0.95f, 0.85f};
 
-    /** 太陽の見かけ半径 (視線角 cos 値からの差)。 */
-    f32  m_SunRadius = 0.0006f;
+    /** 太陽円盤の角半径を表す1-cos値。 */
+    f32 m_SunRadius = kSkySolarDiscRadiusOneMinusCosine;
 
-    /** 太陽ハローの角度的な広がり。 */
-    f32  m_SunGlow   = 0.04f;
+    /** 太陽の光彩外端を表す1-cos値。 */
+    f32 m_SunGlow = kSkyDaySunHaloRadiusOneMinusCosine;
 
     /** 天頂方向の RGB 色。 */
     FVec3 m_Zenith     = FVec3{0.18f, 0.40f, 0.78f};

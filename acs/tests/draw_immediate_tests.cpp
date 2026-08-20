@@ -33,8 +33,8 @@ void CallEveryDrawFunction() noexcept {
 
 // 描画パスの外では publish が無いので、描かないし落ちない。
 ACS_TEST(Draw, WithoutContextEveryCallIsSafe) {
-    _SetDrawContext(nullptr);
-    EXPECT_TRUE(_CurrentDrawContext() == nullptr);
+    SetDrawContext_Internal(nullptr);
+    EXPECT_TRUE(CurrentDrawContext_Internal() == nullptr);
     EXPECT_TRUE(!IsDrawing());
     EXPECT_EQ(DrawWidth(), 0u);
     EXPECT_EQ(DrawHeight(), 0u);
@@ -44,24 +44,24 @@ ACS_TEST(Draw, WithoutContextEveryCallIsSafe) {
 // publish 済みでも batch が未配線なら «描ける» とは言わない (3D シーンの描画パス等)。
 ACS_TEST(Draw, PublishedContextWithoutSpriteBatchDoesNotDraw) {
     FRenderContext context;
-    _SetDrawContext(&context);
-    EXPECT_TRUE(_CurrentDrawContext() == &context);
+    SetDrawContext_Internal(&context);
+    EXPECT_TRUE(CurrentDrawContext_Internal() == &context);
     EXPECT_TRUE(!context.HasSprites());
     EXPECT_TRUE(!IsDrawing());
     CallEveryDrawFunction();
-    _SetDrawContext(nullptr);
-    EXPECT_TRUE(_CurrentDrawContext() == nullptr);
+    SetDrawContext_Internal(nullptr);
+    EXPECT_TRUE(CurrentDrawContext_Internal() == nullptr);
 }
 
 // 退化した引数 (0 半径 / 0 長さ / 負の太さ) を渡しても安全に無視する。
 ACS_TEST(Draw, DegenerateArgumentsAreIgnored) {
     FRenderContext context;
-    _SetDrawContext(&context);
+    SetDrawContext_Internal(&context);
     const FVec4 color{ 1.0f, 0.0f, 0.0f, 1.0f };
     DrawCircle(0.0f, 0.0f, 0.0f, color);
     DrawCircle(0.0f, 0.0f, -1.0f, color, 0u);
     DrawCircleOutline(0.0f, 0.0f, 1.0f, color, -1.0f);
     DrawLine(3.0f, 3.0f, 3.0f, 3.0f, color, 1.0f);
     DrawRectOutline(0.0f, 0.0f, 4.0f, 4.0f, color, 0.0f);
-    _SetDrawContext(nullptr);
+    SetDrawContext_Internal(nullptr);
 }

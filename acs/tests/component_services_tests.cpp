@@ -306,7 +306,7 @@ ACS_TEST(ComponentServices, FlatBuildThenReparentFollowsParent) {
 ACS_TEST(ComponentServices, RootWiringAndChildWalk) {
     ANode root;
     CSceneServices svc(ESvc::Input);
-    root._SetSceneServices(&svc);
+    root.ManagementAccess().SetSceneServices(&svc);
     EXPECT_TRUE(root.SceneServices() == &svc);
 
     ANode& child = root.AddChild(NewObject<ANode>());
@@ -331,7 +331,7 @@ ACS_TEST(ComponentServices, UnwiredIsNullAndSafe) {
     EXPECT_EQ(p.shapes_seen, 0u);
 }
 
-// «構築 → 後で配線» 経路: _ActivateServices が既存コンポーネントに 1 回だけ発火する。
+// «構築 → 後で配線» 経路: 内部アダプターが既存コンポーネントに 1 回だけ発火する。
 ACS_TEST(ComponentServices, ActivateFiresOncePreExisting) {
     ANode root;
     ANode& child = root.AddChild(NewObject<ANode>());
@@ -339,11 +339,11 @@ ACS_TEST(ComponentServices, ActivateFiresOncePreExisting) {
     EXPECT_EQ(p.attach_count, 0);
 
     CSceneServices svc(ESvc::Camera2D | ESvc::Physics2D);
-    root._ActivateServices(svc);
+    root.ManagementAccess().ActivateServices(svc);
     EXPECT_EQ(p.attach_count, 1);
     EXPECT_TRUE(p.seen == &svc);
 
-    root._ActivateServices(svc);       // 二度目は再発火しない (二重発火防止)
+    root.ManagementAccess().ActivateServices(svc);       // 二度目は再発火しない (二重発火防止)
     EXPECT_EQ(p.attach_count, 1);
 }
 
@@ -351,7 +351,7 @@ ACS_TEST(ComponentServices, ActivateFiresOncePreExisting) {
 ACS_TEST(ComponentServices, SpawnAfterWiringFiresImmediately) {
     ANode root;
     CSceneServices svc(ESvc::Physics2D);
-    root._SetSceneServices(&svc);                     // create 時に配線 (editor シムと同じ)
+    root.ManagementAccess().SetSceneServices(&svc);     // create 時に配線 (editor シムと同じ)
 
     ANode& child = root.AddChild(NewObject<ANode>());
     AServiceProbeComponent& p = child.AddComponent<AServiceProbeComponent>();   // 配線済 → 即発火
@@ -367,7 +367,7 @@ ACS_TEST(ComponentServices, ReadsPhysicsAndCameraDuringTick) {
     svc.Physics().AddAabb(FAabb2{ FVec2{ 5.0f, 0.0f }, FVec2{ 1.0f, 1.0f } });
     svc.Camera().SetPosition(FVec2{ 3.0f, 7.0f });
 
-    root._SetSceneServices(&svc);
+    root.ManagementAccess().SetSceneServices(&svc);
     ANode& child = root.AddChild(NewObject<ANode>());
     AServiceProbeComponent& p = child.AddComponent<AServiceProbeComponent>();
     EXPECT_EQ(p.attach_count, 1);

@@ -135,14 +135,14 @@ ACS_TEST(Json, WriterRoundTripsEscapesAndRollsBackOnFailure)
 
     // JSON では表現できない非有限数。
     FJsonValue NonFinite;
-    NonFinite._SetNumber(std::numeric_limits<f64>::infinity());
+    NonFinite.SetNumber_Internal(std::numeric_limits<f64>::infinity());
     EXPECT_FALSE(TryWriteJson(NonFinite, Output));
     EXPECT_TRUE(Output == FString("unchanged"));
 
     // writer 深さ上限を超える入れ子値。
     FJsonValue Nested;
-    Nested._MakeArray();
-    Nested._PushArrayElem()._MakeArray();
+    Nested.MakeArray_Internal();
+    Nested.PushArrayElem_Internal().MakeArray_Internal();
     EXPECT_FALSE(TryWriteJson(Nested, Output, 0u, 1024u));
     EXPECT_TRUE(Output == FString("unchanged"));
 }

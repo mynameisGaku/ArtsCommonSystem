@@ -633,17 +633,7 @@ public:
      */
     FNodeId Id() const noexcept { return m_Id; }
 
-    // ---- ここから下は «組み立て» のためのもの。ゲーム側から呼ぶものではない ----
-    //
-    // AScene と CNodePool はクラスなので friend で本当に閉じられる。
-    // ローダとエディタ ABI の呼び元は**自由関数**なので friend にできず、
-    // `FNodeInternals` (このファイルの下) を通す形にした。**止められてはいないが、
-    // ノードの補完候補には出てこないし、呼ぶには内部用の型を名指しする必要がある。**
 private:
-    friend class CNodePool;
-    friend class AScene;
-    friend class FNodeInternals;
-
     /** ノード ID を設定する (CNodePool が割り当てる)。 */
     void   SetId_Internal(FNodeId id) noexcept { m_Id = id; }
 
@@ -668,6 +658,35 @@ public:
      */
     i32 SerialId() const noexcept { return m_SerialId; }
 
+    /** ノード識別子と実行環境の配線を明示的に行う非所有アダプター。 */
+    class FManagementAdapter final {
+    public:
+        /** 配線対象のノードを保持する。 */
+        explicit FManagementAdapter(ANode& node) noexcept : m_Node(node) {}
+
+        /** generational handle を設定する。 */
+        void SetId(FNodeId id) noexcept { m_Node.SetId_Internal(id); }
+
+        /** シーン直列化 ID を設定する。 */
+        void SetSerialId(i32 id) noexcept { m_Node.SetSerialId_Internal(id); }
+
+        /** root ノードへ services を配線する。 */
+        void SetSceneServices(CSceneServices* services) noexcept { m_Node.SetSceneServices_Internal(services); }
+
+        /** root ノードへ World サブシステム束を配線する。 */
+        void SetSubsystems(CSubsystemCollection* subsystems) noexcept { m_Node.SetSubsystems_Internal(subsystems); }
+
+        /** subtree の全コンポーネントへ services を一度だけ配線する。 */
+        void ActivateServices(CSceneServices& services) noexcept { m_Node.ActivateServices_Internal(services); }
+
+    private:
+        /** 配線対象のノード。 */
+        ANode& m_Node;
+    };
+
+    /** ノード管理用の明示的な内部アダプターを返す。 */
+    FManagementAdapter ManagementAccess() noexcept { return FManagementAdapter(*this); }
+
     /**
      * subtree (this + 子孫) から直列化 ID 一致のノードを探す (DFS、無ければ nullptr)。
      *
@@ -691,12 +710,12 @@ public:
     T& AddComponent(Args&&... args) noexcept {
         TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
         T* ref = comp.Get();
-        ref->SetOwner_Internal(this);
+        ref->ManagementAccess().SetOwner(this);
         // 依存コンポーネントを先に確保する。
         ref->OnRequire(*this);
         m_Components.Add(TUniquePtr<AComponent>(comp.Release(), comp.GetAllocator()));
         ref->OnAttach(*this);
-        ref->MaybeAttachServices_Internal(SceneServices());   // ツリーが既に services 配線済なら即 fire
+        ref->ManagementAccess().MaybeAttachServices(SceneServices());   // ツリーが既に services 配線済なら即 fire
         return *ref;
     }
 
@@ -813,11 +832,11 @@ public:
      */
     AComponent& AttachComponent(TUniquePtr<AComponent> comp) noexcept {
         AComponent* ref = comp.Get();
-        ref->SetOwner_Internal(this);
+        ref->ManagementAccess().SetOwner(this);
         ref->OnRequire(*this);
         m_Components.Add(Move(comp));
         ref->OnAttach(*this);
-        ref->MaybeAttachServices_Internal(SceneServices());
+        ref->ManagementAccess().MaybeAttachServices(SceneServices());
         return *ref;
     }
 
@@ -1044,45 +1063,6 @@ private:
     /** ツリー root に配線されるサブシステム束 (root のみ設定)。 */
     CSubsystemCollection* m_Subsystems = nullptr;
 };
-
-
-/**
- * ノードの «組み立て» だけを通す窓口。
- *
- * @details
- * ローダ (`SceneTextLoader` / `Scene3DSerialize`) とエディタ ABI は自由関数なので
- * `friend` にできない。かといって組み立て用の関数を `ANode` の公開面へ戻すと、
- * **ゲームを書く人の補完候補に «呼んではいけないもの» が並ぶ。**
- *
- * 呼べてしまうことは変わらないが、
- *
- * - `ANode` の公開 API からは消える
- * - 呼ぶには内部用の型を名指しする必要がある
- * - grep 一発で «組み立てに触っている場所» が全部出る
- *
- * ゲームのコードからは**呼ばない**。
- */
-class FNodeInternals {
-public:
-    /** 直列化 ID を割り当てる (.acscene の id / editor_id)。 */
-    static void SetSerialId(ANode& node, i32 id) noexcept { node.SetSerialId_Internal(id); }
-
-    /** root ノードへ services を配線する。 */
-    static void SetSceneServices(ANode& node, CSceneServices* services) noexcept {
-        node.SetSceneServices_Internal(services);
-    }
-
-    /** root ノードへ World サブシステム束を配線する。 */
-    static void SetSubsystems(ANode& node, CSubsystemCollection* subsystems) noexcept {
-        node.SetSubsystems_Internal(subsystems);
-    }
-
-    /** subtree の OnAttachServices を一度だけ発火する。 */
-    static void ActivateServices(ANode& node, CSceneServices& services) noexcept {
-        node.ActivateServices_Internal(services);
-    }
-};
-
 } // namespace acs::game
 
 namespace acs {

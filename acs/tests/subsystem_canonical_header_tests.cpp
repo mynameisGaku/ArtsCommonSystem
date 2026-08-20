@@ -152,10 +152,12 @@ static_assert(std::is_same_v<decltype(&acs::ASubsystem::OnTick),
 static_assert(std::is_same_v<decltype(&acs::ASubsystem::OnTickFrame),
                              void (acs::ASubsystem::*)(
                                  const acs::FSubsystemFrameContext&) noexcept>);
-static_assert(std::is_same_v<decltype(&acs::ASubsystem::_SetOwner),
-                             void (acs::ASubsystem::*)(void*) noexcept>);
-static_assert(std::is_same_v<decltype(&acs::ASubsystem::_SetOwnerDescriptor),
-                             void (acs::ASubsystem::*)(acs::FSubsystemOwner) noexcept>);
+static_assert(std::is_same_v<decltype(&acs::ASubsystem::ManagementAccess),
+                              acs::ASubsystem::FManagementAdapter (acs::ASubsystem::*)() noexcept>);
+static_assert(std::is_same_v<decltype(&acs::ASubsystem::FManagementAdapter::SetOwner),
+                              void (acs::ASubsystem::FManagementAdapter::*)(void*) noexcept>);
+static_assert(std::is_same_v<decltype(&acs::ASubsystem::FManagementAdapter::SetOwnerDescriptor),
+                              void (acs::ASubsystem::FManagementAdapter::*)(acs::FSubsystemOwner) noexcept>);
 static_assert(std::is_same_v<decltype(&acs::CSubsystemCollection::Initialize),
                              void (acs::CSubsystemCollection::*)(
                                  acs::ESubsystemScope, acs::CSubsystemCollection*, void*) noexcept>);

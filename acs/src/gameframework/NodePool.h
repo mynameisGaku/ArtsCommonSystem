@@ -7,7 +7,7 @@
 
 namespace acs::game {
 
-class ANode;   // forward decl — full include は .cpp 側 (ANode::SetId_Internal 呼出のため)
+class ANode;   // forward decl — full include は .cpp 側 (管理アダプター呼出のため)
 
 /** CNodePool への checked 登録が返す状態。 */
 enum class ENodePoolRegisterError : u8 {

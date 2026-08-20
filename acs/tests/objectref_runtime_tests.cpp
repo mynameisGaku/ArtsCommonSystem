@@ -19,9 +19,9 @@ using namespace acs::game;
 // SerialId による subtree 検索(子孫も辿る)。
 ACS_TEST(ObjectRef, FindBySerialId) {
     ANode root;
-    ANode& a = root.AddChild(NewObject<ANode>()); a._SetSerialId(5);
-    ANode& b = root.AddChild(NewObject<ANode>()); b._SetSerialId(6);
-    ANode& c = b.AddChild(NewObject<ANode>());    c._SetSerialId(7);
+    ANode& a = root.AddChild(NewObject<ANode>()); a.ManagementAccess().SetSerialId(5);
+    ANode& b = root.AddChild(NewObject<ANode>()); b.ManagementAccess().SetSerialId(6);
+    ANode& c = b.AddChild(NewObject<ANode>());    c.ManagementAccess().SetSerialId(7);
     EXPECT_TRUE(root.FindBySerialId(5) == &a);
     EXPECT_TRUE(root.FindBySerialId(6) == &b);
     EXPECT_TRUE(root.FindBySerialId(7) == &c);   // 子孫も探す
@@ -33,11 +33,11 @@ ACS_TEST(ObjectRef, FindBySerialId) {
 ACS_TEST(ObjectRef, FollowResolvesAndMoves) {
     ANode root;
     ANode& target = root.AddChild(NewObject<ANode>());
-    target._SetSerialId(5);
+    target.ManagementAccess().SetSerialId(5);
     target.SetPosition2D(FVec2{ 100.0f, 0.0f });
 
     ANode& follower = root.AddChild(NewObject<ANode>());
-    follower._SetSerialId(6);
+    follower.ManagementAccess().SetSerialId(6);
     follower.SetPosition2D(FVec2{ 0.0f, 0.0f });
     AFollow2DComponent& f = follower.AddComponent<AFollow2DComponent>();
     f.target = 5;        // SerialId 5 (= target) を参照

@@ -536,7 +536,7 @@ static FSceneBounds LoadAcsceneTextValidated(const char* text, ANode& root,
         if (got < 12) continue;
         ANode& child = root.AddChild(NewObject<ANode>());
         child.SetLocal2D(FTransform2D{ FVec2{ x, y }, rot, FVec2{ sx, sy } });
-        FNodeInternals::SetSerialId(child, ln.id);   // オブジェクト参照の解決キー (.acscene の id)
+        child.ManagementAccess().SetSerialId(ln.id);   // オブジェクト参照の解決キー (.acscene の id)
         ln.node = &child; ln.base = base; ln.color = FVec4{ r, g, b, a };
         nodes.Add(ln);
     }
@@ -854,8 +854,8 @@ static FSceneTextLoadResult TryLoadAcsceneTextImpl(
     // request-array entry も呼び出し側へ公開しない。
     ANode staging;
     staging.Local() = root.World();
-    FNodeInternals::SetSceneServices(staging, root.SceneServices());
-    FNodeInternals::SetSubsystems(staging, root.Subsystems());
+    staging.ManagementAccess().SetSceneServices(root.SceneServices());
+    staging.ManagementAccess().SetSubsystems(root.Subsystems());
     TArray<FSpriteRequest> sprites;
     TArray<FRigidBodyRequest> bodies;
     TArray<FMaterialTexRequest> materials;

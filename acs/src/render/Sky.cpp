@@ -154,22 +154,22 @@ float4 PSMain(VSOut v) : SV_TARGET {
         sky = lerp(horizon_color.xyz, ground_color.xyz, pow(saturate(-t), 0.5));
     }
 
-    // 2.5) 太陽方向の地平線グロー (Mie 前方散乱の簡易ローブ): 地平線付近 + 太陽方位で
-    //      暖色を盛り、のっぺりした 2-stop グラデを大気らしくする。
-    float sun_d      = saturate(dot(dir, sundn));
-    float horizonBnd = exp(-abs(t) * 6.0);             // 地平線に集中
-    float glow       = pow(sun_d, 4.0) * horizonBnd;
-    sky += sun_color.xyz * glow * 0.6;
+    // 2.5) 太陽方向の地平線グロー。角度と高度を別々に減衰させ、空を横断する
+    //      巨大な平滑塊ではなく、低い太陽の周囲だけへ前方散乱を残す。
+    float sun_d = saturate(dot(dir, sundn));
+    float sunAngle = max(1.0 - sun_d, 0.0);
+    float angularAa = max(fwidth(sunAngle), 1.0e-7);
+    float discWeight = 1.0 - smoothstep(max(sun_params.x - angularAa, 0.0), sun_params.x + angularAa, sunAngle);
+    float haloStart = sun_params.x + angularAa;
+    float haloEnd = max(sun_params.y, haloStart + 1.0e-6);
+    float haloProfile = 1.0 - smoothstep(haloStart, haloEnd, sunAngle);
+    float haloWeight = haloProfile * haloProfile * 0.28 * (1.0 - discWeight);
+    float horizonBand = exp(-abs(t) * 12.0);
+    float forwardGlow = exp(-sunAngle / max(sun_params.y * 0.35, 1.0e-5)) * horizonBand * 0.18;
+    sky += sun_color.xyz * forwardGlow;
 
-    // 3) 太陽ディスク + ハロー
-    float c   = sun_d;
-    float ang = 1.0 - c;    // 0 = 太陽の中心
-    if (ang < sun_params.x) {
-        sky = sun_color.xyz;
-    } else if (ang < sun_params.y) {
-        float k = 1.0 - smoothstep(sun_params.x, sun_params.y, ang);
-        sky = lerp(sky, sun_color.xyz, k);
-    }
+    // 3) 太陽円盤は画素微分で輪郭だけを滑らかにし、光彩は太陽色への混合を0.28へ制限する。
+    sky = lerp(sky, sun_color.xyz, saturate(discWeight + haloWeight));
 
     // 4) volumetric clouds: 雲スラブ [h0,h1] を視線方向にレイマーチして密度を積分。各サンプルで太陽へ
     //    ライトマーチして自己影 (Beer-Lambert) → 立体的な雲。地平線より上のみ。
@@ -284,6 +284,83 @@ ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
 }
 
 } // namespace
+
+/**
+ * 視線と太陽の角度から円盤、光彩、地平線前方散乱の重みを求める。
+ *
+ * @param one_minus_cosine 視線と太陽方向の内積を1から引いた値。
+ * @param view_elevation 視線方向の上下成分。
+ * @param disc_radius_one_minus_cosine 円盤の角半径を1-cos形式で表した値。
+ * @param halo_radius_one_minus_cosine 光彩外端の角半径を1-cos形式で表した値。
+ * @param angular_filter_width 画素が覆う1-cos形式の角度幅。
+ */
+FSkySunProfile ResolveSkySunProfile(f32 one_minus_cosine, f32 view_elevation, f32 disc_radius_one_minus_cosine, f32 halo_radius_one_minus_cosine, f32 angular_filter_width) noexcept {
+    if (!std::isfinite(one_minus_cosine)) one_minus_cosine = 2.0f;
+    if (one_minus_cosine < 0.0f) one_minus_cosine = 0.0f;
+    if (one_minus_cosine > 2.0f) one_minus_cosine = 2.0f;
+    if (!std::isfinite(view_elevation)) view_elevation = 0.0f;
+    if (view_elevation < -1.0f) view_elevation = -1.0f;
+    if (view_elevation > 1.0f) view_elevation = 1.0f;
+    if (!std::isfinite(disc_radius_one_minus_cosine) || disc_radius_one_minus_cosine < 0.0f) disc_radius_one_minus_cosine = 0.0f;
+    if (disc_radius_one_minus_cosine > 2.0f) disc_radius_one_minus_cosine = 2.0f;
+    if (!std::isfinite(halo_radius_one_minus_cosine) || halo_radius_one_minus_cosine < disc_radius_one_minus_cosine) halo_radius_one_minus_cosine = disc_radius_one_minus_cosine;
+    if (halo_radius_one_minus_cosine > 2.0f) halo_radius_one_minus_cosine = 2.0f;
+    if (!std::isfinite(angular_filter_width) || angular_filter_width < 0.0f) angular_filter_width = 0.0f;
+    if (angular_filter_width > 2.0f) angular_filter_width = 2.0f;
+
+    /** GPUのsmoothstepと同じ三次補間を行う計算。 */
+    const auto smoothStep = [](f32 lower, f32 upper, f32 value) noexcept {
+        /** 補間範囲へ正規化した位置。 */
+        f32 normalized = (value - lower) / (upper - lower);
+        if (normalized < 0.0f) normalized = 0.0f;
+        if (normalized > 1.0f) normalized = 1.0f;
+        return normalized * normalized * (3.0f - 2.0f * normalized);
+    };
+    /** 円盤輪郭を滑らかにする最小角度幅。 */
+    const f32 edgeWidth = angular_filter_width > 1.0e-7f ? angular_filter_width : 1.0e-7f;
+    /** 円盤の内側輪郭。 */
+    const f32 discStart = disc_radius_one_minus_cosine > edgeWidth ? disc_radius_one_minus_cosine - edgeWidth : 0.0f;
+    /** 円盤の外側輪郭。 */
+    const f32 discEnd = disc_radius_one_minus_cosine + edgeWidth;
+    /** 光彩が始まる角度。 */
+    const f32 haloStart = discEnd;
+    /** 光彩補間の零除算を防いだ外端。 */
+    const f32 haloEnd = halo_radius_one_minus_cosine > haloStart + 1.0e-6f ? halo_radius_one_minus_cosine : haloStart + 1.0e-6f;
+    /** 外端へ向かって減衰する光彩の基礎値。 */
+    const f32 haloProfile = 1.0f - smoothStep(haloStart, haloEnd, one_minus_cosine);
+    /** 前方散乱の角度減衰幅。 */
+    const f32 forwardWidthCandidate = halo_radius_one_minus_cosine * kSkySunForwardGlowWidthScale;
+    /** 零除算を防いだ前方散乱の角度減衰幅。 */
+    const f32 forwardWidth = forwardWidthCandidate > 1.0e-5f ? forwardWidthCandidate : 1.0e-5f;
+
+    /** 算出した太陽方向の放射成分。 */
+    FSkySunProfile out{};
+    out.disc_weight = 1.0f - smoothStep(discStart, discEnd, one_minus_cosine);
+    out.halo_weight = haloProfile * haloProfile * kSkySunHaloStrength * (1.0f - out.disc_weight);
+    out.horizon_glow_weight = std::exp(-one_minus_cosine / forwardWidth) * std::exp(-std::fabs(view_elevation) * kSkySunHorizonGlowFalloff) * kSkySunHorizonGlowStrength;
+    return out;
+}
+
+/** 太陽円盤の角半径を1-cos形式で設定する。
+ * @param one_minus_cosine 太陽中心から円盤外端までの1-cos値。
+ */
+void CSky::SetSunRadius(f32 one_minus_cosine) noexcept {
+    if (!std::isfinite(one_minus_cosine)) return;
+    if (one_minus_cosine < 0.0f) one_minus_cosine = 0.0f;
+    if (one_minus_cosine > 2.0f) one_minus_cosine = 2.0f;
+    m_SunRadius = one_minus_cosine;
+    if (m_SunGlow < m_SunRadius) m_SunGlow = m_SunRadius;
+}
+
+/** 太陽の光彩外端を1-cos形式で設定する。
+ * @param one_minus_cosine 太陽中心から光彩外端までの1-cos値。
+ */
+void CSky::SetSunGlow(f32 one_minus_cosine) noexcept {
+    if (!std::isfinite(one_minus_cosine)) return;
+    if (one_minus_cosine < m_SunRadius) one_minus_cosine = m_SunRadius;
+    if (one_minus_cosine > 2.0f) one_minus_cosine = 2.0f;
+    m_SunGlow = one_minus_cosine;
+}
 
 /** 太陽方向を正規化して保持する。 */
 void CSky::SetSunDirection(FVec3 dir) noexcept { m_SunDir = NormalizeSafe(dir); }
@@ -469,8 +546,8 @@ void CSky::Shutdown() noexcept {
 void CSky::PresetDay() noexcept {
     m_SunDir     = NormalizeSafe(FVec3{0.4f, 0.7f, 0.4f});
     m_SunColor   = FVec3{1.0f, 0.95f, 0.85f};
-    m_SunRadius  = 0.0006f;
-    m_SunGlow    = 0.05f;
+    m_SunRadius  = kSkySolarDiscRadiusOneMinusCosine;
+    m_SunGlow    = kSkyDaySunHaloRadiusOneMinusCosine;
     m_Zenith      = FVec3{0.15f, 0.35f, 0.78f};
     m_Horizon     = FVec3{0.70f, 0.83f, 0.95f};
     m_Ground      = FVec3{0.18f, 0.20f, 0.20f};
@@ -484,8 +561,8 @@ void CSky::PresetDay() noexcept {
 void CSky::PresetSunset() noexcept {
     m_SunDir     = NormalizeSafe(FVec3{0.7f, 0.05f, 0.5f});
     m_SunColor   = FVec3{1.0f, 0.55f, 0.25f};
-    m_SunRadius  = 0.001f;
-    m_SunGlow    = 0.20f;
+    m_SunRadius  = kSkySolarDiscRadiusOneMinusCosine;
+    m_SunGlow    = kSkySunsetSunHaloRadiusOneMinusCosine;
     m_Zenith      = FVec3{0.06f, 0.10f, 0.30f};
     m_Horizon     = FVec3{1.00f, 0.55f, 0.25f};
     m_Ground      = FVec3{0.10f, 0.06f, 0.08f};
@@ -499,8 +576,8 @@ void CSky::PresetSunset() noexcept {
 void CSky::PresetNight() noexcept {
     m_SunDir     = NormalizeSafe(FVec3{0.3f, 0.6f, 0.2f});
     m_SunColor   = FVec3{0.85f, 0.85f, 0.95f};
-    m_SunRadius  = 0.0008f;
-    m_SunGlow    = 0.04f;
+    m_SunRadius  = kSkySolarDiscRadiusOneMinusCosine;
+    m_SunGlow    = kSkyNightMoonHaloRadiusOneMinusCosine;
     m_Zenith      = FVec3{0.02f, 0.03f, 0.08f};
     m_Horizon     = FVec3{0.05f, 0.07f, 0.15f};
     m_Ground      = FVec3{0.02f, 0.03f, 0.05f};

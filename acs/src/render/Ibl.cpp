@@ -183,14 +183,18 @@ float3 ProcSky(float3 dir) {
     } else {
         sky = lerp(horizon_color.xyz, ground_color.xyz, pow(saturate(-t), 0.6));
     }
-    float c   = saturate(dot(dir, normalize(sun_dir.xyz)));
-    float ang = 1.0 - c;
-    if (ang < sun_params.x) {
-        sky = sun_color.xyz;
-    } else if (ang < sun_params.y) {
-        float k = 1.0 - smoothstep(sun_params.x, sun_params.y, ang);
-        sky = lerp(sky, sun_color.xyz, k);
-    }
+    float sun_d = saturate(dot(dir, normalize(sun_dir.xyz)));
+    float sunAngle = max(1.0 - sun_d, 0.0);
+    float angularAa = max(fwidth(sunAngle), 1.0e-7);
+    float discWeight = 1.0 - smoothstep(max(sun_params.x - angularAa, 0.0), sun_params.x + angularAa, sunAngle);
+    float haloStart = sun_params.x + angularAa;
+    float haloEnd = max(sun_params.y, haloStart + 1.0e-6);
+    float haloProfile = 1.0 - smoothstep(haloStart, haloEnd, sunAngle);
+    float haloWeight = haloProfile * haloProfile * 0.28 * (1.0 - discWeight);
+    float horizonBand = exp(-abs(t) * 12.0);
+    float forwardGlow = exp(-sunAngle / max(sun_params.y * 0.35, 1.0e-5)) * horizonBand * 0.18;
+    sky += sun_color.xyz * forwardGlow;
+    sky = lerp(sky, sun_color.xyz, saturate(discWeight + haloWeight));
     return sky;
 }
 

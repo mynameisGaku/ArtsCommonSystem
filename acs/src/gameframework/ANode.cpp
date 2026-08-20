@@ -194,7 +194,7 @@ void ANode::ActivateServices_Internal(CSceneServices& svc) noexcept {
 /** subtree を DFS し各コンポーネントの OnAttachServices をガード付きで発火する。 */
 void ANode::ActivateSubtreeServices_Internal(CSceneServices* svc) noexcept {
     for (u32 i = 0; i < m_Components.Num(); ++i) {
-        if (m_Components[i]) m_Components[i]->MaybeAttachServices_Internal(svc);
+        if (m_Components[i]) m_Components[i]->ManagementAccess().MaybeAttachServices(svc);
     }
     for (u32 i = 0; i < m_Children.Num(); ++i) {
         if (m_Children[i]) m_Children[i]->ActivateSubtreeServices_Internal(svc);

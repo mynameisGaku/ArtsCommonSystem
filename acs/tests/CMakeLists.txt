@@ -136,6 +136,7 @@ add_executable(acs_unit_tests
     collider_tests.cpp
     crypto_tests.cpp
     render_tests.cpp
+    sky_sun_profile_tests.cpp
     render_graph_transient_alias_tests.cpp
     rhi_command_statistics_tests.cpp
     diligent_memory_adapter_tests.cpp
