@@ -1499,6 +1499,12 @@ void cloudDetailDomains(
 float cloudDetailVisibilityFromSampleSpacing(float sampleSpacing){
     return 1.0-smoothstep(10.0,48.0,max(sampleSpacing,0.0));
 }
+// 粗い採取点から一つ前の区間へ戻し、細密刻み内の採取位相だけを再適用する。
+// 参照描画の 0.5 は区間中央となり、通常描画の乱数位相も粗密切り替えで失われない。
+float cloudRefinedSampleT(float intervalStart,float coarseProbeT,float fineStep,float coarseStep,float jitter){
+    float coarseCellStart=max(coarseProbeT-coarseStep,intervalStart);
+    return coarseCellStart+jitter*fineStep;
+}
 // 内部散乱確率用の低 LOD density。detail texture を読まず、最終 density と同じ
 // weather/profile scale を保つ。
 float cloudLowLodDensityFromPositiveWeatherMacro(
@@ -1900,10 +1906,11 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             continue;
         }
         if(!nearDensity && coarseStep>fineStep*1.5){
-            // The coarse probe found occupancy.  Rewind to the beginning of
-            // that coarse cell so a thin cloud edge cannot be skipped.
-            refineUntil=t+coarseStep;
-            t=max(t-coarseStep,t0);
+            // 粗い採取点で密度を見つけたため、一つ前の区間へ戻して薄い雲縁も細かく積分する。
+            // 粗い刻みの位相を流用せず、細密刻み内の同じ乱数位相へ置き直す。
+            float coarseProbeT=t;
+            refineUntil=coarseProbeT+coarseStep;
+            t=cloudRefinedSampleT(t0,coarseProbeT,fineStep,coarseStep,jit);
             nearDensity=true;
             continue;
         }

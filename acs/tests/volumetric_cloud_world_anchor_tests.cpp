@@ -233,6 +233,13 @@ f64 CloudJitterForTest(
     return unwrapped - std::floor(unwrapped);
 }
 
+f32 CloudRefinedSampleTForTest(f32 intervalStart, f32 coarseProbeT, f32 fineStep, f32 coarseStep, f32 jitter) noexcept {
+    const f32 candidateStart = coarseProbeT - coarseStep;
+    const f32 coarseCellStart =
+        candidateStart > intervalStart ? candidateStart : intervalStart;
+    return coarseCellStart + jitter * fineStep;
+}
+
 f32 CloudHenyeyGreensteinForTest(f32 cosine, f32 anisotropy) noexcept {
     const f32 anisotropySquared = anisotropy * anisotropy;
     const f32 denominator = std::pow(
@@ -1066,6 +1073,30 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(shader, "span/168.0"));
     EXPECT_FALSE(Contains(shader, "span/84.0"));
     EXPECT_FALSE(Contains(shader, "constintMAX_STEPS=128;"));
+}
+
+ACS_TEST(VolumetricClouds, CoarseOccupancyRewindPreservesTheFineSamplePhase) {
+    constexpr f32 kIntervalStart = 100.0f;
+    constexpr f32 kFineStep = 6.0f;
+    constexpr f32 kCoarseStep = 12.0f;
+
+    // 最初の粗い区間で検出した場合も、参照描画は細密区間の中央から始める。
+    EXPECT_NEAR(CloudRefinedSampleTForTest(kIntervalStart, 106.0f, kFineStep, kCoarseStep, 0.5f), 103.0f, 1e-6f);
+    // 後続区間では一つ前の粗い区間へ戻し、同じ細密位相を保つ。
+    EXPECT_NEAR(CloudRefinedSampleTForTest(kIntervalStart, 154.0f, kFineStep, kCoarseStep, 0.5f), 145.0f, 1e-6f);
+    for (u32 phaseStep = 0u; phaseStep < 100u; ++phaseStep) {
+        const f32 jitter = static_cast<f32>(phaseStep) / 100.0f;
+        const f32 refined = CloudRefinedSampleTForTest(kIntervalStart, 154.0f, kFineStep, kCoarseStep, jitter);
+        EXPECT_TRUE(refined >= 142.0f);
+        EXPECT_TRUE(refined <= 148.0f);
+        EXPECT_NEAR(refined, 142.0f + jitter * kFineStep, 2e-5f);
+    }
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(Contains(shader, "floatcloudRefinedSampleT(" "floatintervalStart,floatcoarseProbeT,floatfineStep," "floatcoarseStep,floatjitter){" "floatcoarseCellStart=max(coarseProbeT-coarseStep,intervalStart);" "returncoarseCellStart+jitter*fineStep;}"));
+    EXPECT_TRUE(Contains(shader, "floatcoarseProbeT=t;" "refineUntil=coarseProbeT+coarseStep;" "t=cloudRefinedSampleT(" "t0,coarseProbeT,fineStep,coarseStep,jit);"));
+    EXPECT_FALSE(Contains(shader, "t=max(t-coarseStep,t0);"));
 }
 
 ACS_TEST(VolumetricClouds, DetailVisibilityFollowsRaySampleSpacing) {
