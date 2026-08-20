@@ -2665,10 +2665,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader, "floatlightStep=baseLightStep;"));
 
-    const std::size_t pairedTrig = shader.find(
-        "floatconeSin,coneCos;"
-        "sincos(6.2831853*jit,coneSin,coneCos);",
-        viewLoop);
+    const std::size_t lightPhase = shader.find("floatlightJitter=frac(jit+float(i)*0.61803398875);", viewLoop);
+    const std::size_t pairedTrig = shader.find("floatconeSin,coneCos;" "sincos(6.2831853*lightJitter,coneSin,coneCos);", lightPhase);
     const std::size_t nearLightLoop =
         shader.find("[loop]for(intl=0;l<3;l++)", pairedTrig);
     const std::size_t cacheCompileOut = shader.find(
@@ -2709,6 +2707,7 @@ ACS_TEST(VolumetricClouds,
         shader, "staticconstboolCLOUD_MAIN_SHADOW_CACHE_ENABLED=false;"));
     EXPECT_TRUE(nearLightLoop != std::string::npos);
     EXPECT_TRUE(farLightLoop != std::string::npos);
+    EXPECT_TRUE(lightPhase != std::string::npos);
     EXPECT_TRUE(pairedTrig != std::string::npos);
     EXPECT_TRUE(cacheCompileOut != std::string::npos);
     EXPECT_TRUE(coneDirection != std::string::npos);
@@ -2717,6 +2716,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(nearDensity != std::string::npos);
     EXPECT_TRUE(lightAccumulate != std::string::npos);
     EXPECT_TRUE(recurrence != std::string::npos);
+    EXPECT_TRUE(viewLoop < lightPhase);
+    EXPECT_TRUE(lightPhase < pairedTrig);
     EXPECT_TRUE(pairedTrig < nearLightLoop);
     EXPECT_TRUE(nearLightLoop < coneDirection);
     EXPECT_TRUE(coneDirection < lightAdvance);
@@ -2726,6 +2727,9 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(lightAccumulate < recurrence);
     EXPECT_TRUE(recurrence < cacheCompileOut);
     EXPECT_TRUE(cacheCompileOut < farLightLoop);
+    EXPECT_TRUE(Contains(shader, "floatlightStep=baseLightStep;" "lightStep*=lerp(0.72,1.28,lightJitter);"));
+    EXPECT_FALSE(Contains(shader, "lightStep*=lerp(0.72,1.28,jit);"));
+    EXPECT_FALSE(Contains(shader, "sincos(6.2831853*jit,coneSin,coneCos);"));
     if (nearLightLoop != std::string::npos &&
         farLightLoop != std::string::npos) {
         const std::string lightBody = shader.substr(
@@ -2781,6 +2785,30 @@ ACS_TEST(VolumetricClouds,
                       "cloudShapeFromPositiveWeatherMacro("),
                   static_cast<std::size_t>(0));
         EXPECT_FALSE(Contains(completeLightSection, "[branch]if(l>=3)"));
+    }
+}
+
+ACS_TEST(VolumetricClouds, LightProbePhaseCoversEveryDepthBandWithoutRepeatingOnePlane)
+{
+    /** 192 個の視線採取を 16 区画へ数えた分布。 */
+    u32 phaseBins[16]{};
+    /** 黄金比の小数部。隣接する採取点の位相を一定量ずらす。 */
+    constexpr f32 kGoldenFraction = 0.61803398875f;
+    for (u32 sample = 0u; sample < kVolumetricCloudViewSteps; ++sample) {
+        /** 参照描画の区間中央から進めた未折り返し位相。 */
+        const f32 unfoldedPhase =
+            0.5f + static_cast<f32>(sample) * kGoldenFraction;
+        /** HLSL の frac と同じ 0 以上 1 未満の位相。 */
+        const f32 phase = unfoldedPhase - std::floor(unfoldedPhase);
+        /** 位相の均一性を検査する区画番号。 */
+        const u32 bin = static_cast<u32>(phase * 16.0f);
+        EXPECT_TRUE(bin < 16u);
+        if (bin < 16u) ++phaseBins[bin];
+    }
+
+    for (u32 bin = 0u; bin < 16u; ++bin) {
+        EXPECT_TRUE(phaseBins[bin] >= 11u);
+        EXPECT_TRUE(phaseBins[bin] <= 13u);
     }
 }
 
@@ -4951,10 +4979,8 @@ ACS_TEST(VolumetricClouds,
 
     const std::size_t viewLoop =
         shader.find("[loop]for(inti=0;i<MAX_STEPS");
-    const std::size_t pairedTrig = shader.find(
-        "floatconeSin,coneCos;"
-        "sincos(6.2831853*jit,coneSin,coneCos);",
-        viewLoop);
+    const std::size_t lightPhase = shader.find("floatlightJitter=frac(jit+float(i)*0.61803398875);", viewLoop);
+    const std::size_t pairedTrig = shader.find("floatconeSin,coneCos;" "sincos(6.2831853*lightJitter,coneSin,coneCos);", lightPhase);
     const std::size_t nearLightLoop =
         shader.find("[loop]for(intl=0;l<3;l++)", pairedTrig);
     const std::size_t cacheAttempt =
@@ -4971,8 +4997,11 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(nearLightLoop != std::string::npos);
     EXPECT_TRUE(farLightLoop != std::string::npos);
     EXPECT_TRUE(cacheAttempt != std::string::npos);
+    EXPECT_TRUE(lightPhase != std::string::npos);
     EXPECT_TRUE(pairedTrig != std::string::npos);
     EXPECT_TRUE(coneDirection != std::string::npos);
+    EXPECT_TRUE(viewLoop < lightPhase);
+    EXPECT_TRUE(lightPhase < pairedTrig);
     EXPECT_TRUE(pairedTrig < nearLightLoop);
     EXPECT_TRUE(nearLightLoop < cacheAttempt);
     EXPECT_TRUE(cacheAttempt < farLightLoop);

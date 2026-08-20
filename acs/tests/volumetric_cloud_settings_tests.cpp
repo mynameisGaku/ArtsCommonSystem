@@ -325,3 +325,60 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_FALSE(Contains(source, "beer*(1.0-multiWeight)*phase"));
     EXPECT_FALSE(Contains(source, "density*4.2"));
 }
+
+ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesLocalIncomingOpticalDepth)
+{
+    /** GPU シェーダーを含む雲描画の実装。 */
+    const std::string source = ReadRenderFile("Sky.cpp");
+    /** 局所密度から空と地面の可視率を求める範囲。 */
+    const std::string ambientBlock = SliceBetween(source, "float ambientLocalDensity=", "float a=1.0-exp(");
+    EXPECT_TRUE(!ambientBlock.empty());
+    EXPECT_TRUE(Contains(ambientBlock, "float ambientLocalDensity=saturate(lowLodDensity*density);"));
+    EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*(1.0-h));"));
+    EXPECT_TRUE(Contains(ambientBlock, "float groundAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*h);"));
+    EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientVisibility=exp(-0.60*skyAmbientOpticalDepth);"));
+    EXPECT_TRUE(Contains(ambientBlock, "float groundAmbientVisibility=exp(-0.60*groundAmbientOpticalDepth);"));
+    EXPECT_TRUE(Contains(ambientBlock, "*skyAmbientVisibility;"));
+    EXPECT_TRUE(Contains(ambientBlock, "*bottomWeight*groundAmbientVisibility;"));
+    EXPECT_FALSE(Contains(ambientBlock, "transmit"));
+    EXPECT_FALSE(Contains(source, "float viewDepth=1.0-transmit;"));
+    EXPECT_FALSE(Contains(source, "float ambientOcclusion="));
+
+    /** 0 から 1 へ制限するシェーダー側 saturate の対応式。 */
+    const auto saturate = [](f32 value) noexcept {
+        if (value < 0.0f) return 0.0f;
+        if (value > 1.0f) return 1.0f;
+        return value;
+    };
+    /** 局所密度と高さから入射側の可視率を求める対応式。 */
+    const auto visibility = [saturate](f32 lowLodDensity, f32 density, f32 height, bool fromSky) noexcept {
+        /** 密度倍率を適用して 0 から 1 へ収めた局所密度。 */
+        const f32 localDensity = saturate(lowLodDensity * density);
+        /** 空は雲頂まで、地面反射は雲底までの距離を表す係数。 */
+        const f32 boundaryDistance = fromSky ? 1.0f - height : height;
+        /** 層境界で完全な 0 にせず、採取点周辺の厚みを残した光学的深さ。 */
+        const f32 opticalDepth = localDensity * (0.35f + 0.65f * boundaryDistance);
+        return std::exp(-0.60f * opticalDepth);
+    };
+
+    for (u32 densityStep = 0u; densityStep <= 4u; ++densityStep) {
+        /** 検査対象の局所密度。 */
+        const f32 density = static_cast<f32>(densityStep) * 0.25f;
+        for (u32 heightStep = 0u; heightStep <= 100u; ++heightStep) {
+            /** 雲底 0 から雲頂 1 までの高さ。 */
+            const f32 height = static_cast<f32>(heightStep) * 0.01f;
+            /** 雲頂側から届く空の可視率。 */
+            const f32 skyVisibility = visibility(density, 1.0f, height, true);
+            /** 雲底側から届く地面反射の可視率。 */
+            const f32 groundVisibility = visibility(density, 1.0f, height, false);
+            EXPECT_TRUE(std::isfinite(skyVisibility));
+            EXPECT_TRUE(std::isfinite(groundVisibility));
+            EXPECT_TRUE(skyVisibility > 0.0f && skyVisibility <= 1.0f);
+            EXPECT_TRUE(groundVisibility > 0.0f && groundVisibility <= 1.0f);
+            EXPECT_NEAR(skyVisibility, visibility(density, 1.0f, 1.0f - height, false), 1.0e-6f);
+        }
+    }
+
+    EXPECT_TRUE(visibility(1.0f, 1.0f, 1.0f, true) > visibility(1.0f, 1.0f, 0.0f, true));
+    EXPECT_TRUE(visibility(1.0f, 1.0f, 0.0f, false) > visibility(1.0f, 1.0f, 1.0f, false));
+}

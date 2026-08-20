@@ -1960,19 +1960,22 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             macro.weather,coverageTerms.y,cloudCoverageReciprocals.y);
         float dens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,detailFrequencyWeight,detailVisibility)*density;
         if(dens>0.0015){
-            // 指数的に間隔を広げる sample で layer 全体を覆い、2 番目の Beer term で
-            // 高次 scattering を近似する。
+            // 指数的に間隔を広げる採取点で雲層全体を覆い、2 番目の Beer 項で
+            // 高次の散乱を近似する。
+            // 同じ視線内では黄金比の列で光採取の位相を巡回し、疎な積分誤差を層として揃えない。
+            float lightJitter=frac(jit+float(i)*0.61803398875);
+            float coneSin,coneCos;
+            sincos(6.2831853*lightJitter,coneSin,coneCos);
             float lightDepth=0.0;
             float lightStep=baseLightStep;
-            lightStep*=lerp(0.72,1.28,jit);
+            lightStep*=lerp(0.72,1.28,lightJitter);
             float3 lp=p;
             float cachedTailForBlend=0.0;
             float cacheBlendWeight=0.0;
             float exactFarStart=0.0;
             bool blendCachedTail=false;
-            // Low-frequency weather/curl are coherent across this short light
-            // cone and are shared from the view sample. Density profile, macro
-            // shape and all near-field detail remain per-probe.
+            // この短い光円すい内では低周波の天候と渦がほぼ変わらないため、視線採取の値を共有する。
+            // 密度分布、基本形状、近距離の細部は各採取点で評価する。
             // 雲種、降水量、柱の高さ変形量を 1 つにまとめ、すべての光採取で
             // 視線密度と同じ縦形状を使う。
             float4 sharedLightProfileTerms=float4(
@@ -1980,18 +1983,10 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 macro.weather.b,cloudColumnHeightShift(macro.weather));
             float2 sharedLightCurl=macro.curl;
             float sharedShapeScale=cloudShapeScale();
-            // All eight cone phases differ by one constant golden-angle
-            // rotation.  One sincos plus this stable recurrence preserves the
-            // same sequence without paying eight transcendental evaluations.
-            float coneSin,coneCos;
-            sincos(6.2831853*jit,coneSin,coneCos);
+            // 8 個の光円すいは一定の黄金角で回し、上で求めた sin/cos を漸化式で再利用する。
             bool lightTerminated=false;
-            // Keep all three detailed near-light probes exact.  Splitting the
-            // uniform probe ranges lets the shader compiler end the lifetime of
-            // detail-erosion temporaries before the five macro-only probes.  It
-            // preserves every sample position and equation from the former
-            // dynamic l>=3 branch while materially reducing dense-ray register
-            // pressure and branch bookkeeping.
+            // 近距離 3 点では細部を省略しない。採取範囲を分けることで、後半 5 点へ進む前に
+            // 侵食用の一時値を破棄でき、採取位置と式を保ったままレジスター使用量を減らす。
             [loop] for(int l=0;l<3;l++){
                 float2 coneGeometry=CLOUD_CONE_GEOMETRY[l];
                 float3 coneDir=cloudConeDirection(
@@ -2005,9 +2000,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                         p,viewMacroUvw,macro.height,sharedShapeScale);
                 float lightDensity=cloudDensityFromPositiveWeatherMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,0.65,1.0);
                 lightDepth+=lightDensity*lightStep*layer.w;
-                // Once both the direct Beer term and the broad multiple-
-                // scattering approximation are below a sub-perceptual level,
-                // later probes cannot change the visible result.
+                // 直接光と多重散乱の近似値が知覚できない水準まで下がった後は、残りを省略する。
                 if(lightDepth*density*cloudLightingExtinction.y>18.0){
                     lightTerminated=true;
                     break;
@@ -2029,8 +2022,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                         lightDepth+=cachedTail;
                         cachedFarTail=true;
                     }else{
-                        // Only the one-cell border/confidence transition pays
-                        // for both paths. The interior remains cache-only.
+                        // 境界と信頼度の遷移部分だけ正確な経路も計算し、内側ではキャッシュだけを使う。
                         cachedTailForBlend=cachedTail;
                         cacheBlendWeight=cacheWeight;
                         exactFarStart=lightDepth;
@@ -2101,8 +2093,13 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float3 sunAtCloud=sunCol.rgb*cloudSunTransmittance.rgb;
             float3 sunL=sunAtCloud*cloudLightingExtinction.z*scatterTerm;
             float h=macro.height;
-            float viewDepth=1.0-transmit;
-            float ambientOcclusion=lerp(1.0,0.55,saturate(viewDepth+dens*0.22));
+            // 環境光の遮蔽はカメラまでの透過率ではなく、局所密度と入射側の層境界までの距離で近似する。
+            // 空は雲頂側、地面反射は雲底側から届くため、互いに逆向きの光学的深さを使う。
+            float ambientLocalDensity=saturate(lowLodDensity*density);
+            float skyAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*(1.0-h));
+            float groundAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*h);
+            float skyAmbientVisibility=exp(-0.60*skyAmbientOpticalDepth);
+            float groundAmbientVisibility=exp(-0.60*groundAmbientOpticalDepth);
             // 雲頂は天頂の空を、雲底は地平の空を受ける。分けないと上下で同じ色になり
             // «どちらが上か» が光から読み取れなくなる。
             float3 skyAmbient=cloudSkyZenith.w>0.5
@@ -2110,11 +2107,11 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                              :skyCol.rgb;
             float3 ambL=skyAmbient
                        *lerp(cloudLightingAmbient.x,cloudLightingAmbient.y,h)
-                       *ambientOcclusion;
+                       *skyAmbientVisibility;
             // 地面からの照り返し。雲底ほど強く受ける。0 なら足さない。
             float bottomWeight=1.0-smoothstep(0.15,0.65,h);
             float3 groundL=cloudLightingGround.rgb*cloudLightingMulti.w
-                          *bottomWeight*ambientOcclusion;
+                          *bottomWeight*groundAmbientVisibility;
             float a=1.0-exp(-dens*stepLength*layer.w*cloudLightingExtinction.x);
             float sampleWeight=transmit*a;
             scatter += sampleWeight*(sunL+ambL+groundL);
