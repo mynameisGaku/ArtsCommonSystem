@@ -35,8 +35,8 @@
 
 ### 従来互換の保存形式
 
-- ヘッダー無しの `N3D` / `MSH3D` / `SPR3D` / `CAM3D`。カメラと3Dスプライトを持つ
-  graphを `TrySaveScene3DText` → `TryLoadScene3DText` で往復しても参照を失わない。
+- ヘッダー無しの `N3D` / `MSH3D` / `SPR3D` / `PFAB3D` / `CAM3D`。カメラ、
+  3Dスプライト、Prefabリンクを持つgraphを往復しても参照を失わない。
 - rootは `id=0, parent=-1` の1件だけ。
 - idは0から連続し、子のparentは必ず先に宣言されたidを参照する。
 
@@ -46,7 +46,7 @@
 - node idは一意な非負整数であれば疎でもよい。parentは先に宣言されたnodeを参照する。
 - `parent=-1` のtop-level nodeを複数保持でき、runtimeでは1つの合成root配下へ接続する。
 - `N3D`、`MSH3D`、`FLG3D`、`EMPTY3D`、`MAT3D`、`CMP3D`、
-  `CPROP3D`、`PLY3D`、`SPR3D`、`CAM3D`、`SEL3D` を扱う。
+  `CPROP3D`、`PLY3D`、`SPR3D`、`PFAB3D`、`CAM3D`、`SEL3D` を扱う。
 - `MAT3D` は従来のmetallic/roughness値または `.acsmat` パスを扱う。
 - `CMP3D` は反射factoryで事前生成し、`CPROP3D` を適用してからnodeへattachする。
 - `PLY3D <nodeId> <pointCount> <x0> <y0> ...` は既出の `Mesh` nodeへXY平面上の
@@ -56,17 +56,20 @@
   画像をCPUへデコードしてコンポーネントが共有所有し、描画アダプターがGPU画像へ変換する。
   表示形状はnodeのworld transformを受けるローカルXY単位板で、billboard回転は行わない。
   UV、alpha cutoff 0.02、alpha blend、depth test有効、depth write無効はEditorと共通である。
+- `PFAB3D <nodeId> <sourcePath>` は、Editorが既に実体化して保存した3Dサブツリーと
+  `.acsprefab` または `.acsbp` 原本を結ぶ非実行リンクである。runtimeは原本を再展開せず、
+  保存済みnodeを実行状態として使うため、子を二重生成しない。
 - `CAM3D <nodeId> <stableId> <projection> <priority> <active> <fovYDeg>
   <orthoHeight> <near> <far>` は既存nodeへ1件のカメラをattachする。`projection` は
   Perspective=`0`、Orthographic=`1`、`active` は `0` または `1`。
-- `PFAB3D` と未知命令は、黙って欠落させず明示エラーでfail closedする。
+- 未知命令は、黙って欠落させず明示エラーでfail closedする。
 - `TrySaveScene3DText` は従来互換graphを保存し、runtime meshから `PLY3D` の元点列を
   再構築しない。authoring sourceの保持とpackageへの可逆な転記はEditor adapterが担う。
 
 ## 共通の検証規則
 
 - 深度上限は `ANode` と同じ512、ノード上限は65,536、入力上限は4 MiB。
-- 1行は4,095 bytes、名前は127 bytes、メッシュ/マテリアル/画像パスは299 bytesまで。
+- 1行は4,095 bytes、名前は127 bytes、メッシュ/マテリアル/画像/Prefabパスは299 bytesまで。
 - primitive は `-1` または `EMeshPrimitive3D` の `0..3` のみ。
 - transform と色は有限の `f32` だけを受理する。整数範囲外、`NaN`、`Inf`、途中で
   切れた数値、未知行、埋め込み NUL はエラーになる。
@@ -75,6 +78,9 @@
 - `SPR3D` は既出nodeに1件だけ指定できる。スプライトは同じnodeの下地メッシュより表示を
   優先し、不透明、影、SSAO、水面の各メッシュpassへ下地を重複投入しない。raycastと
   半径付きcamera probeも下地メッシュではなく同じローカルXY単位板を判定する。
+- `PFAB3D` は既出nodeに1件だけ指定できる。text-only経路はリンクだけを復元し、file/pack経路は
+  `.acsprefab` の `ACS3D v2` または `.acsbp` の `ACSBP 1` ヘッダーと参照資産の存在をcommit前に
+  検証する。リンクを実行しないためruntime内でPrefab循環は発生せず、Cook closureが循環を拒否する。
 - カメラは最大256件、stable IDは64 bytesまでの正準ASCIIで、nodeとstable IDの重複を
   拒否する。投影値、priority、FOV/orthographic height、near/farは有限かつ範囲内でなければ
   ならない。複数のactive指定は入力として保持するが、選択はactive指定、priority降順、
@@ -86,7 +92,7 @@
 
 容量不足を含む保存前検証エラーでは出力バッファを変更しない。読み込みは全入力を固定上限内で
 解析し、親関係・深度・値・文字列・命令・反射型を検証する。file/pack APIはさらに全メッシュ/
-マテリアル/画像依存を読み、デコードを完了してからcommitする。したがって入力破損、未対応命令、
+マテリアル/画像依存をデコードし、Prefab/Blueprint原本を検証してからcommitする。したがって入力破損、未知命令、
 欠損依存、CRC/解凍/デコード失敗では読み込み先の既存シーンを変更しない。
 
 pack batch は後続entryの失敗時に先行entryの完了数を返す。loaderはprivate parsed

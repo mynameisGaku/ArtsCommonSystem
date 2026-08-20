@@ -20,6 +20,7 @@
 #include "math/Collision3D.h"
 #include "gameframework/Scene3DSerialize.h"
 #include "gameframework/MeshComponent3D.h"
+#include "gameframework/PrefabLink3DComponent.h"
 #include "gameframework/Sprite3DComponent.h"
 #include "gameframework/Light2DComponent.h"
 #include "asset/MeshAsset.h"
@@ -1307,11 +1308,11 @@ ACS_TEST(Scene3DSerialize, LoadsEditorV2WithSparseIdsMultipleRootsAndComponents)
         EXPECT_NEAR(light->m_Radius, 640.0f, 1e-6f);
 }
 
-ACS_TEST(Scene3DSerialize, RejectsUnsupportedEditorDirectiveTransactionally) {
+ACS_TEST(Scene3DSerialize, RejectsUnknownEditorDirectiveTransactionally) {
     constexpr char kUnsupported[] =
         "ACS3D v2\n"
         "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Root\n"
-        "PFAB3D 1 Assets/prefab.acsprefab\n";
+        "BOGUS3D 1 Assets/prefab.acsprefab\n";
 
     CSceneNodeGraph scene;
     scene.Spawn(FStringView("Keep"));
@@ -1324,6 +1325,130 @@ ACS_TEST(Scene3DSerialize, RejectsUnsupportedEditorDirectiveTransactionally) {
     EXPECT_EQ(result.ErrorLine, 3u);
     EXPECT_EQ(scene.NodeCount(), 2u);
     EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
+}
+
+ACS_TEST(Scene3DSerialize, PrefabLinkRoundTripsWithoutExpandingSnapshot)
+{
+    CSceneNodeGraph source;
+    /** Editorが実体化済みのrootへ付ける非実行リンク。 */
+    APrefabLink3DComponent& source_link =
+        source.Root().AddComponent<APrefabLink3DComponent>();
+    source_link.SetSourcePath(FStringView("Assets/Prefabs/vehicle.acsprefab"));
+    source.Spawn(FStringView("EmbeddedWheel"));
+
+    char text[2048]{};
+    const FScene3DSaveResult saved =
+        TrySaveScene3DText(source, text, sizeof(text));
+    EXPECT_TRUE(saved.Succeeded());
+    EXPECT_EQ(saved.PrefabCount, 1u);
+    EXPECT_TRUE(std::strstr(text, "PFAB3D 0 Assets/Prefabs/vehicle.acsprefab\n") != nullptr);
+
+    CSceneNodeGraph loaded;
+    const FScene3DLoadResult result =
+        TryLoadScene3DText(loaded, text, saved.BytesWritten);
+    EXPECT_TRUE(result.Succeeded());
+    EXPECT_EQ(result.PrefabCount, 1u);
+    EXPECT_EQ(result.DependenciesLoaded, 0u);
+    EXPECT_EQ(loaded.NodeCount(), 2u);
+    EXPECT_TRUE(loaded.FindByName(FStringView("EmbeddedWheel")) != nullptr);
+    APrefabLink3DComponent* link =
+        loaded.Root().GetComponent<APrefabLink3DComponent>();
+    EXPECT_TRUE(link != nullptr);
+    EXPECT_TRUE(link != nullptr && link->SourcePath() == FStringView("Assets/Prefabs/vehicle.acsprefab"));
+}
+
+ACS_TEST(Scene3DSerialize, PrefabLinkLooseFileValidatesSourceWithoutExpansion)
+{
+    constexpr char kScenePath[] = "acs_prefab3d_scene_test.acs3d";
+    constexpr char kPrefabPath[] = "acs_prefab3d_source_test.acsprefab";
+    constexpr char kScene[] =
+        "ACS3D v2\n"
+        "N3D 9 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Vehicle\n"
+        "PFAB3D 9 acs_prefab3d_source_test.acsprefab\n";
+    constexpr char kPrefab[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 TemplateOnly\n";
+    (void)std::remove(kScenePath);
+    (void)std::remove(kPrefabPath);
+    std::FILE* prefab_file = std::fopen(kPrefabPath, "wb");
+    EXPECT_TRUE(prefab_file != nullptr);
+    if (prefab_file == nullptr) return;
+    EXPECT_EQ(std::fwrite(kPrefab, 1u, sizeof(kPrefab) - 1u, prefab_file), sizeof(kPrefab) - 1u);
+    std::fclose(prefab_file);
+    std::FILE* scene_file = std::fopen(kScenePath, "wb");
+    EXPECT_TRUE(scene_file != nullptr);
+    if (scene_file == nullptr) {
+        (void)std::remove(kPrefabPath);
+        return;
+    }
+    EXPECT_EQ(std::fwrite(kScene, 1u, sizeof(kScene) - 1u, scene_file), sizeof(kScene) - 1u);
+    std::fclose(scene_file);
+
+    CSceneNodeGraph scene;
+    const FScene3DLoadResult result = TryLoadScene3DFile(scene, kScenePath);
+    EXPECT_TRUE(result.Succeeded());
+    EXPECT_EQ(result.PrefabCount, 1u);
+    EXPECT_EQ(result.DependenciesLoaded, 1u);
+    EXPECT_EQ(scene.NodeCount(), 2u);
+    EXPECT_TRUE(scene.FindByName(FStringView("TemplateOnly")) == nullptr);
+    ANode* vehicle = scene.Root().FindBySerialId(9);
+    APrefabLink3DComponent* link = vehicle != nullptr
+        ? vehicle->GetComponent<APrefabLink3DComponent>() : nullptr;
+    EXPECT_TRUE(link != nullptr);
+    EXPECT_TRUE(link != nullptr && link->SourcePath() == FStringView(kPrefabPath));
+    (void)std::remove(kScenePath);
+    (void)std::remove(kPrefabPath);
+}
+
+ACS_TEST(Scene3DSerialize, RejectsInvalidDuplicateAndMalformedPrefabLinkTransactionally)
+{
+    constexpr char kInvalid[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Root\n"
+        "PFAB3D 1\n";
+    constexpr char kDuplicate[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Root\n"
+        "PFAB3D 1 a.acsprefab\n"
+        "PFAB3D 1 b.acsprefab\n";
+    CSceneNodeGraph scene;
+    scene.Spawn(FStringView("Keep"));
+    const FScene3DLoadResult invalid =
+        TryLoadScene3DText(scene, kInvalid, sizeof(kInvalid) - 1u);
+    EXPECT_TRUE(invalid.Error == EScene3DSerializeError::InvalidPrefabPath);
+    const FScene3DLoadResult duplicate =
+        TryLoadScene3DText(scene, kDuplicate, sizeof(kDuplicate) - 1u);
+    EXPECT_TRUE(duplicate.Error == EScene3DSerializeError::DuplicatePrefabPath);
+    EXPECT_EQ(scene.NodeCount(), 2u);
+    EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
+
+    constexpr char kScenePath[] = "acs_prefab3d_invalid_scene_test.acs3d";
+    constexpr char kPrefabPath[] = "acs_prefab3d_invalid_source_test.acsprefab";
+    constexpr char kScene[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Root\n"
+        "PFAB3D 1 acs_prefab3d_invalid_source_test.acsprefab\n";
+    constexpr char kMalformedPrefab[] = "ACS3D v20\n";
+    std::FILE* prefab_file = std::fopen(kPrefabPath, "wb");
+    EXPECT_TRUE(prefab_file != nullptr);
+    if (prefab_file == nullptr) return;
+    EXPECT_EQ(std::fwrite(kMalformedPrefab, 1u, sizeof(kMalformedPrefab) - 1u, prefab_file), sizeof(kMalformedPrefab) - 1u);
+    std::fclose(prefab_file);
+    std::FILE* scene_file = std::fopen(kScenePath, "wb");
+    EXPECT_TRUE(scene_file != nullptr);
+    if (scene_file == nullptr) {
+        (void)std::remove(kPrefabPath);
+        return;
+    }
+    EXPECT_EQ(std::fwrite(kScene, 1u, sizeof(kScene) - 1u, scene_file), sizeof(kScene) - 1u);
+    std::fclose(scene_file);
+    const FScene3DLoadResult malformed =
+        TryLoadScene3DFile(scene, kScenePath);
+    EXPECT_TRUE(malformed.Error == EScene3DSerializeError::PrefabSourceInvalid);
+    EXPECT_EQ(scene.NodeCount(), 2u);
+    EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
+    (void)std::remove(kScenePath);
+    (void)std::remove(kPrefabPath);
 }
 
 ACS_TEST(Scene3DSerialize, Sprite3DPathRoundTripsWithoutImplicitImageIo)

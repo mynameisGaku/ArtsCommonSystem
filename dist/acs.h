@@ -36479,6 +36479,7 @@ inline constexpr u32 kScene3DSerializeMaxNameBytes = 127u;
 inline constexpr u32 kScene3DSerializeMaxMeshPathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxMaterialPathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxSpritePathBytes = 299u;
+inline constexpr u32 kScene3DSerializeMaxPrefabPathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxComponentsPerNode = 1024u;
 inline constexpr u32 kScene3DSerializeMaxDirectiveRecords = 262144u;
 inline constexpr u32 kScene3DSerializeMaxCameraCount = 256u;
@@ -36539,6 +36540,9 @@ enum class EScene3DSerializeError : u8 {
     InvalidSpritePath,
     DuplicateSpritePath,
     ImageDecodeFailed,
+    InvalidPrefabPath,
+    DuplicatePrefabPath,
+    PrefabSourceInvalid,
 };
 
 /** Authored ACS3D camera projection encoded by CAM3D. */
@@ -36580,6 +36584,7 @@ struct FScene3DSaveResult {
     u32 MeshPathCount = 0u;
     u32 CameraCount = 0u;
     u32 SpriteCount = 0u;
+    u32 PrefabCount = 0u;
 
     bool Succeeded() const noexcept {
         return Error == EScene3DSerializeError::None && BytesWritten > 0u
@@ -36601,6 +36606,7 @@ struct FScene3DLoadResult {
     FScene3DCameraState ActiveCamera{};
     u32 PolygonCount = 0u;
     u32 SpriteCount = 0u;
+    u32 PrefabCount = 0u;
 
     bool Succeeded() const noexcept {
         return Error == EScene3DSerializeError::None && NodeCount > 0u;
@@ -81974,6 +81980,35 @@ private:
 
     /** 塗り色。 */
     FVec4 m_Color{ 0.6f, 0.7f, 0.9f, 1.0f };
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/PrefabLink3DComponent.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/**
+ * 実体化済み3DサブツリーとPrefab/Blueprint原本を結ぶコンポーネント。
+ *
+ * @details runtime状態はシーンに保存済みのノード群であり、本型は原本を再展開しない。
+ * EditorのApply/Revertや参照追跡に必要なPFAB3Dパスだけを所有する。
+ */
+class APrefabLink3DComponent final : public AComponent {
+public:
+    ACS_GAME_COMPONENT_KIND(APrefabLink3DComponent)
+
+    /** PFAB3Dに記録されたPrefabまたはBlueprintの原本パスを返す。 */
+    FStringView SourcePath() const noexcept;
+
+    /** PFAB3Dに記録するPrefabまたはBlueprintの原本パスを設定する。 */
+    void SetSourcePath(FStringView path) noexcept;
+
+private:
+    /** 実体化済みサブツリーの原本を指す非実行リンク。 */
+    FString m_SourcePath;
 };
 
 } // namespace acs::game
