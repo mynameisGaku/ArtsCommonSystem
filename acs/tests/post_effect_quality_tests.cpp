@@ -3468,42 +3468,53 @@ ACS_TEST(PostEffects, PbrSubsurfaceMrtIsOptionalAsyncAndOrderedBeforeAtmosphere)
     EXPECT_TRUE(legacy.find(
         "scene_has_water\n        || (scene_needs_subsurface") !=
                 std::string::npos);
-    const std::size_t legacy_render = legacy.find(
-        "void ALegacyScene3DAdapter::OnRender(");
-    const std::size_t legacy_ensure = legacy.find(
-        "bool ALegacyScene3DAdapter::EnsureGpu(", legacy_render);
-    EXPECT_TRUE(legacy_render != std::string::npos);
-    EXPECT_TRUE(legacy_ensure != std::string::npos);
-    if (legacy_render != std::string::npos &&
-        legacy_ensure != std::string::npos) {
-        const std::string frame =
-            legacy.substr(legacy_render, legacy_ensure - legacy_render);
-        const std::size_t sky = frame.find("m_Sky.Render(");
-        const std::size_t sky_end =
-            frame.find("EndRenderToTexture(*hdr)", sky);
-        const std::size_t mrt =
-            frame.find("BeginRenderToTextureMrtLoad(", sky_end);
-        const std::size_t ssss_render =
-            frame.find("m_Ssss.Render(", mrt);
-        const std::size_t blit =
-            frame.find("m_Blit.Copy(", ssss_render);
-        const std::size_t water =
-            frame.find("DrawWaterScene(", blit);
-        const std::size_t post =
-            frame.find("m_Post.Render(", water);
+    const std::string legacy_frame = ExtractFunction(
+        legacy, "void ALegacyScene3DAdapter::OnRender(");
+    const std::string legacy_sky = ExtractFunction(
+        legacy, "void ALegacyScene3DAdapter::RenderSky(");
+    EXPECT_TRUE(!legacy_frame.empty());
+    EXPECT_TRUE(!legacy_sky.empty());
+    if (!legacy_frame.empty() && !legacy_sky.empty()) {
+        // 空の実装を補助関数へ移しても、フレーム上の呼び出し順を検証できるようにする。
+        const std::size_t hdr_begin = legacy_frame.find(
+            "command_list.BeginRenderToTexture(");
+        const std::size_t sky = legacy_frame.find("RenderSky(", hdr_begin);
+        const std::size_t sky_end = legacy_frame.find(
+            "EndRenderToTexture(*hdr)", sky);
+        const std::size_t mrt = legacy_frame.find(
+            "BeginRenderToTextureMrtLoad(", sky_end);
+        const std::size_t ssss_render = legacy_frame.find(
+            "m_Ssss.Render(", mrt);
+        const std::size_t blit = legacy_frame.find(
+            "m_Blit.Copy(", ssss_render);
+        const std::size_t water = legacy_frame.find(
+            "DrawWaterScene(", blit);
+        const std::size_t clouds = legacy_frame.find(
+            "CompositeClouds(", water);
+        const std::size_t reflection = legacy_frame.find(
+            "RenderReflectionPass(", clouds);
+        const std::size_t post = legacy_frame.find(
+            "m_Post.Render(", reflection);
+        EXPECT_TRUE(hdr_begin != std::string::npos);
         EXPECT_TRUE(sky != std::string::npos);
         EXPECT_TRUE(sky_end != std::string::npos);
         EXPECT_TRUE(mrt != std::string::npos);
         EXPECT_TRUE(ssss_render != std::string::npos);
         EXPECT_TRUE(blit != std::string::npos);
         EXPECT_TRUE(water != std::string::npos);
+        EXPECT_TRUE(clouds != std::string::npos);
+        EXPECT_TRUE(reflection != std::string::npos);
         EXPECT_TRUE(post != std::string::npos);
+        EXPECT_TRUE(hdr_begin < sky);
         EXPECT_TRUE(sky < sky_end);
         EXPECT_TRUE(sky_end < mrt);
         EXPECT_TRUE(mrt < ssss_render);
         EXPECT_TRUE(ssss_render < blit);
         EXPECT_TRUE(blit < water);
-        EXPECT_TRUE(water < post);
+        EXPECT_TRUE(water < clouds);
+        EXPECT_TRUE(clouds < reflection);
+        EXPECT_TRUE(reflection < post);
+        EXPECT_TRUE(legacy_sky.find("m_Sky.Render(") != std::string::npos);
     }
 
     EXPECT_TRUE(rhi.find("EndRenderToTextureMrt(") !=
