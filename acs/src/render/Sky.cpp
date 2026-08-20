@@ -1495,6 +1495,10 @@ void cloudDetailDomains(
     detailDomainA=horizontal*0.0011+vertical*0.0018;
     detailDomainB=horizontal*0.0023+vertical*0.0030;
 }
+// 侵食体積は一つの詳細度しか持たない。採取間隔が細部の周期を越える前に寄与を消す。
+float cloudDetailVisibilityFromSampleSpacing(float sampleSpacing){
+    return 1.0-smoothstep(10.0,48.0,max(sampleSpacing,0.0));
+}
 // 内部散乱確率用の低 LOD density。detail texture を読まず、最終 density と同じ
 // weather/profile scale を保つ。
 float cloudLowLodDensityFromPositiveWeatherMacro(
@@ -1514,58 +1518,38 @@ float cloudLowLodDensityFromPositiveWeatherMacro(
     }
     return densityResult;
 }
-// 詳細表示用 density: macro weather + 高さ依存の edge erosion。
-float cloudDensityFromPositiveWeatherMacro(
-    float3 p,CloudMacroSample macro,float heightThreshold,
-    float weatherMask,float detailWeight){
+// 詳細表示用密度。採取できる帯域だけ侵食を適用し、粗い視線では基本形状へ戻す。
+float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float heightThreshold,float weatherMask,float detailFrequencyWeight,float detailVisibility){
     float densityResult=0.0;
     if(macro.profileClosure>0.0){
-        float baseDensity=remapc(
-            macro.baseNoise,heightThreshold,
-            min(heightThreshold+0.22,0.98),0.0,1.0);
+        float baseDensity=remapc(macro.baseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0);
         if(baseDensity>0.001){
-            // Detail has its own metre-based domain. Reusing the macro UV
-            // left the dominant erosion cells 0.5--0.7 km wide.
-            float2 detailXz=p.xz-cloudWindWorld()
-                          +macro.curl*35.0;
-            float3 detailDomainA,detailDomainB;
-            cloudDetailDomains(
-                detailXz,p.y,detailDomainA,detailDomainB);
-            float2 ndA=detailNoise.SampleLevel(
-                detailNoise_sampler,
-                detailDomainA+float3(0.19,0.67,0.41)
-                +float3(cloudEvolution.z,cloudEvolution.w,-cloudEvolution.z),0);
-            float2 ndB=detailNoise.SampleLevel(
-                detailNoise_sampler,
-                detailDomainB+float3(0.73,0.23,0.59)
-                +float3(-cloudEvolution.w,cloudEvolution.z,cloudEvolution.w),0);
-            float detailNear=ndA.g*0.62+ndB.g*0.38;
-            float detailFar=ndA.r*0.62+ndB.r*0.38;
-            float detail=lerp(detailFar,detailNear,saturate(detailWeight));
             float h=macro.height;
-            float erosion=lerp(0.10,0.24,smoothstep(0.18,0.92,h));
-            // Erode the normalized low-frequency shape before applying the
-            // height profile and the soft weather mask. Eroding their already
-            // attenuated product makes every transition-zone sample smaller
-            // than the detail cutoff and silently turns a valid cloud bank
-            // into zero density.
-            float eroded=
-                remapc(baseDensity,detail*erosion,1.0,0.0,1.0);
-            densityResult=saturate(
-                eroded*weatherMask*macro.profileClosure
-                *lerp(1.10,0.92,h)
-                *lerp(1.0,1.28,macro.weather.b));
+            float d=baseDensity;
+            detailVisibility=saturate(detailVisibility);
+            [branch] if(detailVisibility>0.001){
+                // 基本形状とは別のメートル基準領域を使い、雲塊と細部に同じ模様を出さない。
+                float2 detailXz=p.xz-cloudWindWorld()+macro.curl*35.0;
+                float3 detailDomainA,detailDomainB;
+                cloudDetailDomains(detailXz,p.y,detailDomainA,detailDomainB);
+                float2 ndA=detailNoise.SampleLevel(detailNoise_sampler,detailDomainA+float3(0.19,0.67,0.41)+float3(cloudEvolution.z,cloudEvolution.w,-cloudEvolution.z),0);
+                float2 ndB=detailNoise.SampleLevel(detailNoise_sampler,detailDomainB+float3(0.73,0.23,0.59)+float3(-cloudEvolution.w,cloudEvolution.z,cloudEvolution.w),0);
+                float detailNear=ndA.g*0.62+ndB.g*0.38;
+                float detailFar=ndA.r*0.62+ndB.r*0.38;
+                float detail=lerp(detailFar,detailNear,saturate(detailFrequencyWeight));
+                float erosion=lerp(0.10,0.24,smoothstep(0.18,0.92,h));
+                float eroded=remapc(baseDensity,detail*erosion,1.0,0.0,1.0);
+                d=lerp(baseDensity,eroded,detailVisibility);
+            }
+            densityResult=saturate(d*weatherMask*macro.profileClosure*lerp(1.10,0.92,h)*lerp(1.0,1.28,macro.weather.b));
         }
     }
     return densityResult;
 }
-float cloudDensityFromMacro(
-    float3 p,CloudMacroSample macro,float heightThreshold,
-    float weatherMask,float detailWeight){
+float cloudDensityFromMacro(float3 p,CloudMacroSample macro,float heightThreshold,float weatherMask,float detailFrequencyWeight,float detailVisibility){
     float densityResult=0.0;
     if(weatherMask>0.001){
-        densityResult=cloudDensityFromPositiveWeatherMacro(
-            p,macro,heightThreshold,weatherMask,detailWeight);
+        densityResult=cloudDensityFromPositiveWeatherMacro(p,macro,heightThreshold,weatherMask,detailFrequencyWeight,detailVisibility);
         // 上層は薄い高い雲として扱う。下層と同じ濃さで敷くと «積乱雲を 2 枚» になり、
         // 空が閉じて高度差がかえって読めなくなる。
         // 視線側も光側もここを通るので、1 箇所で足りる。
@@ -1589,9 +1573,7 @@ float cloudLowLodDensityFromMacro(
 float cloudDensity(float3 p, float coverage, float detailWeight){
     float densityResult=0.0;
     CloudMacroSample macro=sampleCloudMacroLighting(p,coverage);
-    densityResult=cloudDensityFromMacro(
-        p,macro,macro.heightThreshold,
-        macro.weatherMask,detailWeight);
+    densityResult=cloudDensityFromMacro(p,macro,macro.heightThreshold,macro.weatherMask,detailWeight,1.0);
     return densityResult;
 }
 
@@ -1973,19 +1955,13 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         nearDensity=true;
         refineUntil=max(refineUntil,t+coarseStep);
         float stepLength=min(fineStep,t1-t);
-        // Metre-based detail LOD: the previous 18/noiseScale..70/noiseScale
-        // interval ended at 2 km, so even the 1.5 km cloud base had already
-        // lost most erosion. Blend high-frequency detail into a low-frequency
-        // erosion channel instead of removing erosion in the distance.
-        float detailStart=12000.0;
-        float detailEnd=80000.0;
-        float detailWeight=lerp(
-            0.90,0.30,smoothstep(detailStart,detailEnd,t));
+        // レイの刻み幅から採取可能な侵食帯域を求める。最後の短い区間で細部が再出現しないよう、
+        // 実際の区間長ではなくレイ全体で一定の fineStep を使う。
+        float detailVisibility=cloudDetailVisibilityFromSampleSpacing(fineStep);
+        float detailFrequencyWeight=0.90*detailVisibility;
         float viewWeatherMask=cloudWeatherMaskFromTerms(
             macro.weather,coverageTerms.y,cloudCoverageReciprocals.y);
-        float dens=cloudDensityFromMacro(
-            p,macro,densityHeightThreshold,
-            viewWeatherMask,detailWeight)*density;
+        float dens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,detailFrequencyWeight,detailVisibility)*density;
         if(dens>0.0015){
             // 指数的に間隔を広げる sample で layer 全体を覆い、2 番目の Beer term で
             // 高次 scattering を近似する。
@@ -2030,9 +2006,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                         lp,viewWeatherMask,coverageTerms.w,
                         sharedLightProfileTerms,sharedLightCurl,
                         p,viewMacroUvw,macro.height,sharedShapeScale);
-                float lightDensity=cloudDensityFromPositiveWeatherMacro(
-                    lp,lightMacro,lightMacro.heightThreshold,
-                    lightMacro.weatherMask,0.65);
+                float lightDensity=cloudDensityFromPositiveWeatherMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,0.65,1.0);
                 lightDepth+=lightDensity*lightStep*layer.w;
                 // Once both the direct Beer term and the broad multiple-
                 // scattering approximation are below a sub-perceptual level,

@@ -192,6 +192,18 @@ model is physically calibrated; that remains a visual-reference requirement.
 視線の空領域判定、詳細密度、追加テクスチャ採取をしない低詳細度密度、近距離と遠距離の光採取は、
 すべて同じ層端用重みを使う。この変更は算術演算だけであり、テクスチャ採取回数を増やさない。
 
+## 採取間隔による侵食帯域の制限
+
+侵食用の3次元テクスチャは一つの詳細度だけを持つ。最も細かな成分は約20〜30m、低周波成分でも
+約100mの周期なので、地平線方向を数百m間隔で積分しながら詳細度0を読むと標本化できず、時間的な
+ちらつきや筋へ変わる。カメラからの距離だけでは、上向きの長いレイと短いレイを区別できないため、
+現在は視線レイの実際の細密刻み幅を使う。
+
+刻み幅が10m以下なら従来の侵食を保ち、10〜48mで高周波成分と侵食量を滑らかに減らし、48m以上では
+基本形状へ戻す。最後の端数区間だけ細部が再出現しないよう、各積分区間の長さではなくレイ全体で
+一定の刻み幅を使う。侵食寄与が消えたレイでは、二つの3次元テクスチャ採取も分岐前に省く。
+近距離3点の光採取は従来どおり完全な侵食を使い、自己遮蔽の形は変えない。
+
 Both the Editor and legacy Scene3D paths update cloud illumination from the
 current scene before dispatch. They evaluate atmospheric RGB transmittance at
 the normalized cloud-layer midpoint, use the current zenith color for the
