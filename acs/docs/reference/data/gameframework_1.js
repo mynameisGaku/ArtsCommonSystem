@@ -419,6 +419,7 @@ ACS_REF.modules.push({
         { sig: "bool TryConfigure(const FOrbitCameraSettings3D& settings)", desc: "有限な速度と安全範囲だけを transactional に反映する。" },
         { sig: "bool TryStep(const FOrbitCameraInput3D& input, f32 dt, FOrbitCameraState3D& state) const", desc: "入力、状態、時間から次状態を計算する。失敗時は state を変更しない。" },
         { sig: "bool TryInterpolateState(const FOrbitCameraState3D& previous, const FOrbitCameraState3D& current, f64 alpha, FOrbitCameraState3D& output) const", desc: "二つの固定tick状態を最短yaw経路で描画補間する。失敗時は output を変更しない。" },
+        { sig: "bool IsSnapshotValid(const FOrbitCameraFixedStepSnapshot3D& snapshot) const", desc: "previous/currentの両状態が現在設定で復元可能か同時検証する。" },
         { sig: "bool TryBuildView(const FOrbitCameraState3D& state, FOrbitCameraView3D& view) const", desc: "左手座標系の eye、look-at、up を計算する。失敗時は view を変更しない。" },
         { sig: "const FOrbitCameraSettings3D& Settings() const", desc: "現在の検証済み速度と pitch 上限を返す。" }
       ]

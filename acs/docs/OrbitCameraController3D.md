@@ -12,6 +12,7 @@
 | State | `FOrbitCameraState3D` | target、yaw、pitch、target から eye までの距離 |
 | Time | `f32 delta_seconds` | 呼び出し側が確定した固定 tick 秒 |
 | Presentation | `f64 interpolation_alpha` | 前回と現在の固定 tick 状態を混ぜる `[0,1]` の描画補間率 |
+| Snapshot | `FOrbitCameraFixedStepSnapshot3D` | 補間区間を再現するprevious/current固定tick状態 |
 | Output | 更新済み state / `FOrbitCameraView3D` | eye、look-at、up の world 座標 |
 
 controller は速度と pitch 上限だけを所有する。camera state の owner は scene、component、replay
@@ -23,6 +24,7 @@ session などの呼び出し側であり、controller は subsystem ではな�
 - 負値または非有限の時間、非有限 state、0以下の距離は拒否する。
 - `TryConfigure`、`TryStep`、`TryBuildView` は失敗時に出力を変更しない。
 - `TryInterpolateState` は両状態と `[0,1]` の有限な補間率だけを受け付け、失敗時に出力を変更しない。
+- `IsSnapshotValid` はsnapshotのprevious/currentを現在設定に対して同時検証する。
 - yaw 補間は `-pi` / `+pi` 境界を最短経路で越え、target、pitch、distance は線形補間する。
 - 補間率0はprevious、1はcurrentを表し、通常描画は一つ前の固定tickから現在tickまでを連続表示する。
 - yaw は `[-pi, pi]` へ折り返し、pitch は設定上限へ制限する。
@@ -49,6 +51,17 @@ void OnFixedUpdate(f32 FixedDeltaSeconds) noexcept
 `LookPitch`、`Zoom` である。ゲーム側は各 `FActionId` を置き換えられる。6 action は有効かつ互いに異なる
 必要があり、不正な集合では出力を変更しない。platform、AI、replay のどの入力状態でも同じ
 `FOrbitCameraInput3D` へ変換できる。
+
+## 保存と復元
+
+`ALegacyScene3DAdapter::TryCaptureOrbitCameraSnapshot` は自由cameraのprevious/currentを
+`FOrbitCameraFixedStepSnapshot3D` へ複製する。復元時は先に
+`CGame::TryRestoreFixedStepRuntimeSnapshot` で固定時計と未消費入力を戻し、その後
+`TryRestoreOrbitCameraSnapshot` でcamera区間を戻す。次のupdateまたはrenderで保存時の時計alphaから
+presentation stateを再計算するため、派生値はsnapshotへ重複保存しない。
+
+snapshotのいずれかが非有限、pitch上限外、距離範囲外なら復元を拒否し、previous/current、表示viewを
+変更しない。これは同一process内のrollback用であり、version間の永続保存形式ではない。
 
 ## 現在の利用先と範囲
 

@@ -532,6 +532,20 @@ public:
      */
     void SetOrbit(FVec3 target, f32 yaw, f32 pitch, f32 distance) noexcept;
 
+    /**
+     * 自由cameraの固定tick補間区間をprocess内snapshotへ複製する。
+     * @param output previous/current状態の書き込み先。失敗時は変更しない。
+     * @return 両状態が現在のcamera設定で有効ならtrue。
+     */
+    bool TryCaptureOrbitCameraSnapshot(COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D& output) const noexcept;
+
+    /**
+     * 自由cameraの固定tick補間区間をsnapshotから一括復元する。
+     * @param snapshot 復元するprevious/current状態。
+     * @return 両状態が有効ならtrue。失敗時はcamera状態とviewを変更しない。
+     */
+    bool TryRestoreOrbitCameraSnapshot(const COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D& snapshot) noexcept;
+
     CCamera& Camera() noexcept { return m_Camera; }
 
     /** Read-only standalone camera. */

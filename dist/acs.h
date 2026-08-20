@@ -52727,6 +52727,15 @@ public:
         f32 distance = 8.0f;
     };
 
+    /** 固定tickの補間区間を再現するprevious/current状態のprocess内保存値。 */
+    struct FOrbitCameraFixedStepSnapshot3D final {
+        /** 一つ前の固定tick完了時に確定した状態。 */
+        FOrbitCameraState3D previous{};
+
+        /** 現在の固定tick完了時に確定した状態。 */
+        FOrbitCameraState3D current{};
+    };
+
     /** controllerの速度と安全範囲。 */
     struct FOrbitCameraSettings3D final {
         /** yaw入力1.0で一秒間に回る角度。 */
@@ -52799,6 +52808,12 @@ public:
      * @return 設定、両状態、補間率が有効ならtrue。
      */
     bool TryInterpolateState(const FOrbitCameraState3D& previous, const FOrbitCameraState3D& current, f64 interpolation_alpha, FOrbitCameraState3D& output) const noexcept;
+
+    /**
+     * 固定tick snapshotの両状態が現在設定で復元可能か調べる。
+     * @return previous/currentが安全なview範囲ならtrue。
+     */
+    bool IsSnapshotValid(const FOrbitCameraFixedStepSnapshot3D& snapshot) const noexcept;
 
     /**
      * orbit状態からeye、look-at、upを計算する。
@@ -60073,6 +60088,20 @@ public:
      * @param distance 見る点からの距離。
      */
     void SetOrbit(FVec3 target, f32 yaw, f32 pitch, f32 distance) noexcept;
+
+    /**
+     * 自由cameraの固定tick補間区間をprocess内snapshotへ複製する。
+     * @param output previous/current状態の書き込み先。失敗時は変更しない。
+     * @return 両状態が現在のcamera設定で有効ならtrue。
+     */
+    bool TryCaptureOrbitCameraSnapshot(COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D& output) const noexcept;
+
+    /**
+     * 自由cameraの固定tick補間区間をsnapshotから一括復元する。
+     * @param snapshot 復元するprevious/current状態。
+     * @return 両状態が有効ならtrue。失敗時はcamera状態とviewを変更しない。
+     */
+    bool TryRestoreOrbitCameraSnapshot(const COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D& snapshot) noexcept;
 
     CCamera& Camera() noexcept { return m_Camera; }
 
