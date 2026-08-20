@@ -293,6 +293,35 @@ f32 CloudWeatherMaskForTest(f32 weatherCoverage, f32 coverage) noexcept {
         threshold, upper, weatherCoverage);
 }
 
+f32 CloudColumnHeightShiftForTest(
+    f32 weatherCoverage, f32 cloudType, f32 precipitation,
+    f32 warp, f32 evolutionPhase) noexcept {
+    const f32 core = SmoothStepForTest(
+        0.38f, 0.74f, weatherCoverage);
+    const f32 verticalType = SaturateForTest(
+        cloudType > precipitation ? cloudType : precipitation);
+    const f32 amplitude =
+        0.025f + (0.18f - 0.025f) * verticalType;
+    f32 evolvingWarp = warp - 0.5f + evolutionPhase * 0.45f;
+    if (evolvingWarp < -0.5f) evolvingWarp = -0.5f;
+    if (evolvingWarp > 0.5f) evolvingWarp = 0.5f;
+    f32 signal =
+        (core - 0.45f) * 1.45f + evolvingWarp * 0.65f;
+    if (signal < -1.0f) signal = -1.0f;
+    if (signal > 1.0f) signal = 1.0f;
+    return signal * amplitude;
+}
+
+f32 CloudConvectiveHeightForTest(
+    f32 height, f32 columnShift, bool upperBand) noexcept {
+    const f32 boundedHeight = SaturateForTest(height);
+    const f32 interior =
+        4.0f * boundedHeight * boundedHeight * (1.0f - boundedHeight);
+    const f32 bandScale = upperBand ? 0.30f : 1.0f;
+    return SaturateForTest(
+        boundedHeight - columnShift * interior * bandScale);
+}
+
 } // namespace
 
 ACS_TEST(EditorStartup, FallbackSkyCompileIsBoundedAndOffOwnerThread) {
@@ -1995,6 +2024,79 @@ ACS_TEST(VolumetricClouds,
 }
 
 ACS_TEST(VolumetricClouds,
+         ConvectiveHeightWarpIsBoundedMonotonicAndSharedWithLighting) {
+    const f32 tallCore = CloudColumnHeightShiftForTest(
+        1.0f, 1.0f, 0.0f, 1.0f, 0.0f);
+    const f32 compressedEdge = CloudColumnHeightShiftForTest(
+        0.0f, 1.0f, 0.0f, 0.0f, 0.0f);
+    const f32 stratusCore = CloudColumnHeightShiftForTest(
+        1.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+    EXPECT_NEAR(tallCore, 0.18f, 1e-6f);
+    EXPECT_NEAR(compressedEdge, -0.17595f, 1e-6f);
+    EXPECT_NEAR(stratusCore, 0.025f, 1e-6f);
+
+    // 高さ変形は層の両端を固定し、全許容変形量で折り返さない。
+    for (u32 shiftStep = 0u; shiftStep <= 36u; ++shiftStep) {
+        const f32 shift =
+            -0.18f + static_cast<f32>(shiftStep) * 0.01f;
+        f32 previousLower = 0.0f;
+        f32 previousUpper = 0.0f;
+        EXPECT_NEAR(
+            CloudConvectiveHeightForTest(0.0f, shift, false),
+            0.0f, 1e-6f);
+        EXPECT_NEAR(
+            CloudConvectiveHeightForTest(1.0f, shift, false),
+            1.0f, 1e-6f);
+        for (u32 heightStep = 1u; heightStep <= 1000u; ++heightStep) {
+            const f32 height =
+                static_cast<f32>(heightStep) / 1000.0f;
+            const f32 lower = CloudConvectiveHeightForTest(
+                height, shift, false);
+            const f32 upper = CloudConvectiveHeightForTest(
+                height, shift, true);
+            EXPECT_TRUE(lower + 1e-6f >= previousLower);
+            EXPECT_TRUE(upper + 1e-6f >= previousUpper);
+            EXPECT_TRUE(lower >= 0.0f && lower <= 1.0f);
+            EXPECT_TRUE(upper >= 0.0f && upper <= 1.0f);
+            EXPECT_TRUE(
+                std::fabs(upper - height) <=
+                std::fabs(lower - height) + 1e-6f);
+            previousLower = lower;
+            previousUpper = upper;
+        }
+    }
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(!shader.empty());
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcloudColumnHeightShift(float4weather){"
+        "floatcore=smoothstep(0.38,0.74,weather.r);"
+        "floatverticalType=saturate(max(weather.g,weather.b));"
+        "floatamplitude=lerp(0.025,0.18,verticalType);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcloudConvectiveHeight("
+        "floath,floatcolumnShift,boolupperBand){"
+        "h=saturate(h);"
+        "floatinterior=4.0*h*h*(1.0-h);"
+        "floatbandScale=upperBand?0.30:1.0;"
+        "returnsaturate(h-columnShift*interior*bandScale);}"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "float4sharedLightProfileTerms=float4("
+        "cloudProfileTypeWeights(macro.weather.g),"
+        "macro.weather.b,cloudColumnHeightShift(macro.weather));"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "macro.height=cloudConvectiveHeight("
+        "heightFractionFromAltitude(altitude,upperBand),"
+        "slowProfileTerms.w,upperBand);"));
+}
+
+ACS_TEST(VolumetricClouds,
          WeatherFirstRejectIsConservativeAndPrecedesVolumeFetches) {
     for (u32 coverageSample = 0u;
          coverageSample <= 1000u;
@@ -2074,7 +2176,7 @@ ACS_TEST(VolumetricClouds,
         const std::size_t maskBranch =
             function.find("if(macro.weatherMask>0.001){");
         const std::size_t height =
-            function.find("macro.height=heightFraction(p);");
+            function.find("macro.height=cloudConvectiveHeight(");
         const std::size_t profile =
             function.find("floatsampledProfile=cloudProfile(");
         const std::size_t profileBranch =
@@ -2434,8 +2536,7 @@ ACS_TEST(VolumetricClouds,
         "CloudMacroSamplelightMacro="
         "sampleCloudMacroLightingFromSlowFields("
         "lp,viewWeatherMask,coverageTerms.w,"
-        "sharedLightProfileTypeWeights,"
-        "sharedLightPrecipitation,sharedLightCurl,"
+        "sharedLightProfileTerms,sharedLightCurl,"
         "p,viewMacroUvw,macro.height,sharedShapeScale);",
         lightAdvance);
     const std::size_t nearDensity = shader.find(
@@ -2483,8 +2584,7 @@ ACS_TEST(VolumetricClouds,
                 lightBody,
                 "sampleCloudMacroLightingFromSlowFields("
                 "lp,viewWeatherMask,coverageTerms.w,"
-                "sharedLightProfileTypeWeights,"
-                "sharedLightPrecipitation,sharedLightCurl,"
+                "sharedLightProfileTerms,sharedLightCurl,"
                 "p,viewMacroUvw,macro.height,sharedShapeScale)"),
             static_cast<std::size_t>(1));
         EXPECT_FALSE(Contains(
@@ -2509,16 +2609,14 @@ ACS_TEST(VolumetricClouds,
                       completeLightSection,
                       "sampleCloudMacroLightingFromSlowFields("
                       "lp,viewWeatherMask,coverageTerms.w,"
-                      "sharedLightProfileTypeWeights,"
-                      "sharedLightPrecipitation,sharedLightCurl,"
+                      "sharedLightProfileTerms,sharedLightCurl,"
                       "p,viewMacroUvw,macro.height,sharedShapeScale)"),
                   static_cast<std::size_t>(1));
         EXPECT_EQ(CountOccurrences(
                       completeLightSection,
                       "sampleCloudLightingShapeFromSlowFields("
                       "lp,viewWeatherMask,coverageTerms.w,"
-                      "sharedLightProfileTypeWeights,"
-                      "sharedLightPrecipitation,"
+                      "sharedLightProfileTerms,"
                       "p,viewMacroUvw,macro.height,sharedShapeScale)"),
                   static_cast<std::size_t>(1));
         EXPECT_EQ(CountOccurrences(
@@ -2682,8 +2780,9 @@ ACS_TEST(VolumetricClouds,
     const std::size_t viewLoop =
         shader.find("[loop]for(inti=0;i<MAX_STEPS", coverageTerms);
     const std::size_t sharedProfile = shader.find(
-        "float2sharedLightProfileTypeWeights="
-        "cloudProfileTypeWeights(macro.weather.g);",
+        "float4sharedLightProfileTerms=float4("
+        "cloudProfileTypeWeights(macro.weather.g),"
+        "macro.weather.b,cloudColumnHeightShift(macro.weather));",
         viewLoop);
     const std::size_t nearLightLoop =
         shader.find("[loop]for(intl=0;l<3;l++)", sharedProfile);
@@ -2727,7 +2826,7 @@ ACS_TEST(VolumetricClouds,
         EXPECT_TRUE(Contains(
             helper,
             "cloudProfileFromTypeWeights("
-            "macro.height,slowProfileTypeWeights,slowPrecipitation);"));
+            "macro.height,slowProfileTerms.xy,slowProfileTerms.z);"));
         EXPECT_FALSE(Contains(helper, "cloudProfileTypeWeights("));
         EXPECT_FALSE(Contains(helper, "cloudWeatherThreshold("));
     }
@@ -2745,11 +2844,13 @@ ACS_TEST(VolumetricClouds,
                 farShapeMacro, farShapeMacroEnd - farShapeMacro);
         EXPECT_TRUE(Contains(
             helper,
-            "floatsampleHeight=heightFraction(p);"));
+            "floatsampleHeight=cloudConvectiveHeight("
+            "heightFractionFromAltitude(altitude,upperBand),"
+            "slowProfileTerms.w,upperBand);"));
         EXPECT_TRUE(Contains(
             helper,
             "floatsampledProfile=cloudProfileFromTypeWeights("
-            "sampleHeight,slowProfileTypeWeights,slowPrecipitation);"));
+            "sampleHeight,slowProfileTerms.xy,slowProfileTerms.z);"));
         EXPECT_TRUE(Contains(
             helper,
             "floatheightThreshold=cloudHeightThresholdFromTarget("
@@ -3258,21 +3359,26 @@ ACS_TEST(VolumetricClouds,
     const std::string compactSource = CompactShader(source);
     EXPECT_TRUE(!shader.empty());
 
-    // These expressions previously sat below helpers called by every view and
-    // light-cone sample. CloudCB now carries their one-per-frame results.
+    // 視線と光の各採取で繰り返していた値は、フレームごとの定数へ移してある。
+    // 高度からの層内位置も、同じ採取点で高度を再計算しない形を保つ。
     EXPECT_TRUE(Contains(shader, "float4cloudFrameTerms;"));
     EXPECT_TRUE(Contains(shader, "float4cloudEvolution;"));
     EXPECT_TRUE(Contains(shader, "float4cloudLightTangent;"));
     EXPECT_TRUE(Contains(shader, "float4cloudLightBitangent;"));
     EXPECT_TRUE(Contains(
         shader,
-        "if(inUpperCloudBand(p))"
-        "returnsaturate((cloudAltitude(p)-cloudUpperLayer.x)*"
-        "cloudUpperLayer.z);"));
+        "floatheightFractionFromAltitude("
+        "floataltitude,boolupperBand){"
+        "if(upperBand)"
+        "returnsaturate((altitude-cloudUpperLayer.x)*"
+        "cloudUpperLayer.z);"
+        "returnsaturate((altitude-layer.x)*cloudFrameTerms.w);}"));
     EXPECT_TRUE(Contains(
         shader,
-        "returnsaturate((cloudAltitude(p)-layer.x)*"
-        "cloudFrameTerms.w);"));
+        "floatheightFraction(float3p){"
+        "floataltitude=cloudAltitude(p);"
+        "returnheightFractionFromAltitude("
+        "altitude,inUpperCloudBandFromAltitude(altitude));}"));
     EXPECT_TRUE(Contains(
         shader,
         "floatcloudShapeScale(){"
@@ -4747,8 +4853,7 @@ ACS_TEST(VolumetricClouds,
         "floatlightDensity="
         "sampleCloudLightingShapeFromSlowFields("
         "lp,viewWeatherMask,coverageTerms.w,"
-        "sharedLightProfileTypeWeights,"
-        "sharedLightPrecipitation,"
+        "sharedLightProfileTerms,"
         "p,viewMacroUvw,macro.height,sharedShapeScale);"));
     EXPECT_TRUE(Contains(
         shader,
@@ -4759,26 +4864,24 @@ ACS_TEST(VolumetricClouds,
     // while macro shape remains exact at every probe through the helper.
     EXPECT_TRUE(Contains(
         shader,
-        "float2sharedLightProfileTypeWeights="
-        "cloudProfileTypeWeights(macro.weather.g);"
-        "floatsharedLightPrecipitation=macro.weather.b;"
+        "float4sharedLightProfileTerms=float4("
+        "cloudProfileTypeWeights(macro.weather.g),"
+        "macro.weather.b,cloudColumnHeightShift(macro.weather));"
         "float2sharedLightCurl=macro.curl;"));
     EXPECT_FALSE(Contains(
-        shader, "sharedLightProfileTypeWeights=cloudWeatherData(lp)"));
+        shader, "sharedLightProfileTerms=cloudWeatherData(lp)"));
     EXPECT_FALSE(Contains(shader, "sharedLightCurl=cloudCurlOffset(lp)"));
     EXPECT_TRUE(Contains(
         shader,
         "sampleCloudMacroLightingFromSlowFields("
         "lp,viewWeatherMask,coverageTerms.w,"
-        "sharedLightProfileTypeWeights,"
-        "sharedLightPrecipitation,sharedLightCurl,"
+        "sharedLightProfileTerms,sharedLightCurl,"
         "p,viewMacroUvw,macro.height,sharedShapeScale);"));
     EXPECT_TRUE(Contains(
         shader,
         "sampleCloudLightingShapeFromSlowFields("
         "lp,viewWeatherMask,coverageTerms.w,"
-        "sharedLightProfileTypeWeights,"
-        "sharedLightPrecipitation,"
+        "sharedLightProfileTerms,"
         "p,viewMacroUvw,macro.height,sharedShapeScale);"));
 }
 
