@@ -56,7 +56,7 @@ ACS_TEST(SpawnSubsystem, NoOwnerIsSafe) {
     EXPECT_TRUE(orphan.SpawnPrefabText(nullptr, FVec2{ 0.0f, 0.0f }) == nullptr);
 
     int wrong_owner = 0;
-    orphan._SetOwner(&wrong_owner);
+    orphan.ManagementAccess().SetOwner(&wrong_owner);
     EXPECT_TRUE(orphan.SpawnPrefabText(kBullet, FVec2{ 0.0f, 0.0f }) == nullptr);
 }
 

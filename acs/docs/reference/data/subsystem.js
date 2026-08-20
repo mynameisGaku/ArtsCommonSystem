@@ -11,6 +11,7 @@ ACS_REF.modules.push({
       summary: "ownerと寿命を持つsubsystemの基底object。",
       when: "共有機能をapplication、game、sceneへ組み込む時。",
       members: [
+        { sig: "FManagementAdapter ManagementAccess()", desc: "collectionやtestがowner配線だけを明示的に行う短寿命adapterを返す。内部処理はprivate。" },
         { sig: "using FSubsystem = ASubsystem", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>ASubsystem</code> を使う。" }
       ]
     },

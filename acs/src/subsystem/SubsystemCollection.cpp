@@ -246,7 +246,7 @@ bool CSubsystemCollection::TryInitialize(ESubsystemScope scope, CSubsystemCollec
         m_DeinitializeRequested = false;
 
         for (usize Index = 0u; Index < m_Subsystems.Num(); ++Index) {
-            m_Subsystems[Index].instance->_SetOwnerDescriptor(owner);
+            m_Subsystems[Index].instance->ManagementAccess().SetOwnerDescriptor(owner);
         }
         for (usize Index = 0u; Index < m_Subsystems.Num(); ++Index) {
             if (!m_Subsystems[Index].instance->OnOwnerAssigned() || m_DeinitializeRequested ||
@@ -321,7 +321,7 @@ void CSubsystemCollection::ClearOwners() noexcept
 {
     for (usize Index = 0u; Index < m_Subsystems.Num(); ++Index) {
         if (m_Subsystems[Index].instance) {
-            m_Subsystems[Index].instance->_SetOwnerDescriptor(FSubsystemOwner{});
+            m_Subsystems[Index].instance->ManagementAccess().SetOwnerDescriptor(FSubsystemOwner{});
         }
     }
 }
@@ -334,7 +334,7 @@ void CSubsystemCollection::TeardownVisibleEntries() noexcept
         FEntry& Entry = m_Subsystems[m_VisibleCount - 1u];
         if (Entry.instance) {
             Entry.instance->OnDeinitialize();
-            Entry.instance->_SetOwnerDescriptor(FSubsystemOwner{});
+            Entry.instance->ManagementAccess().SetOwnerDescriptor(FSubsystemOwner{});
         }
         --m_VisibleCount;
     }

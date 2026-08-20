@@ -54,11 +54,32 @@ public:
         return static_cast<T*>(m_Owner.pointer);
     }
 
-    /** owner descriptor を設定するコレクション内部 API。 */
-    void _SetOwnerDescriptor(FSubsystemOwner owner) noexcept { m_Owner = owner; }
+    /** owner 配線だけを明示的に行う内部アダプター。 */
+    class FManagementAdapter final {
+    public:
+        /** 配線対象のサブシステムを保持する。 */
+        explicit FManagementAdapter(ASubsystem& subsystem) noexcept : m_Subsystem(subsystem) {}
 
-    /** 種別を持たない旧 owner ポインタを設定する互換 API。 */
-    void _SetOwner(void* owner) noexcept
+        /** owner と責務種別を配線する。 */
+        void SetOwnerDescriptor(FSubsystemOwner owner) noexcept { m_Subsystem.SetOwnerDescriptor_Internal(owner); }
+
+        /** 種別を持たない旧 owner ポインタを配線する。 */
+        void SetOwner(void* owner) noexcept { m_Subsystem.SetOwner_Internal(owner); }
+
+    private:
+        /** 内部処理を呼ぶ対象。 */
+        ASubsystem& m_Subsystem;
+    };
+
+    /** owner 配線用の短寿命アダプターを返す。 */
+    FManagementAdapter ManagementAccess() noexcept { return FManagementAdapter(*this); }
+
+private:
+    /** owner descriptor を設定する内部処理。 */
+    void SetOwnerDescriptor_Internal(FSubsystemOwner owner) noexcept { m_Owner = owner; }
+
+    /** 種別を持たない旧 owner ポインタを設定する互換処理。 */
+    void SetOwner_Internal(void* owner) noexcept
     {
         m_Owner = FSubsystemOwner{owner, ESubsystemOwnerKind::Unknown};
     }
