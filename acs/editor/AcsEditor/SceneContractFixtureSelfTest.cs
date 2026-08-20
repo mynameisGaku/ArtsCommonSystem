@@ -275,7 +275,8 @@ internal static class SceneContractFixtureSelfTest
         const string prefabScene =
             "ACS3D v2\n" +
             "N3D 8 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Vehicle\n" +
-            "PFAB3D 8 Prefabs/vehicle.acsprefab\n";
+            "PFAB3D 8 Prefabs/vehicle.acsprefab\n" +
+            "PINS3D 8 0123456789abcdef0123456789abcdef\n";
         CanonicalSceneAdapterInspection prefabInspection =
             CanonicalSceneAdapter.InspectText(prefabScene, ".acs3d");
         string cookedPrefab = CanonicalSceneAdapter.RewriteReferences(
@@ -293,8 +294,11 @@ internal static class SceneContractFixtureSelfTest
                 CanonicalSceneReferenceKind.Prefab &&
             cookedPrefab.Contains(
                 "PFAB3D 8 Assets/Prefabs/vehicle.acsprefab\n",
+                StringComparison.Ordinal) &&
+            cookedPrefab.Contains(
+                "PINS3D 8 0123456789abcdef0123456789abcdef\n",
                 StringComparison.Ordinal),
-            "PFAB3D passes package validation and Cook rewrites its source link");
+            "PFAB3D/PINS3D pass package validation while Cook rewrites only the source link");
 
         CanonicalSceneAdapterInspection duplicatePrefab =
             CanonicalSceneAdapter.InspectText(
@@ -314,6 +318,28 @@ internal static class SceneContractFixtureSelfTest
             invalidPrefabExtension.Diagnostics.Any(static diagnostic =>
                 diagnostic.Code == "SCENE3D_PREFAB_FORMAT_UNSUPPORTED"),
             "PFAB3D duplicate links and unsupported source extensions fail closed");
+
+        CanonicalSceneAdapterInspection invalidPrefabIdentity =
+            CanonicalSceneAdapter.InspectText(
+                "ACS3D v2\n" +
+                "N3D 8 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Vehicle\n" +
+                "PINS3D 8 0123456789ABCDEF0123456789ABCDEF\n",
+                ".acs3d");
+        CanonicalSceneAdapterInspection duplicatePrefabIdentity =
+            CanonicalSceneAdapter.InspectText(
+                prefabScene +
+                "N3D 9 8 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Wheel\n" +
+                "PFAB3D 9 Prefabs/wheel.acsprefab\n" +
+                "PINS3D 9 0123456789abcdef0123456789abcdef\n",
+                ".acs3d");
+        Check(
+            invalidPrefabIdentity.HasErrors &&
+            invalidPrefabIdentity.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_PREFAB_INSTANCE_ID_INVALID") &&
+            duplicatePrefabIdentity.HasErrors &&
+            duplicatePrefabIdentity.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_PREFAB_INSTANCE_ID_DUPLICATE"),
+            "PINS3D orphan, malformed, and duplicate identities fail closed");
 
         CanonicalSceneAdapterInspection legacy2D =
             CanonicalSceneAdapter.InspectText(

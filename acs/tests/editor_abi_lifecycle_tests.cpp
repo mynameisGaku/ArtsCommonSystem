@@ -66,8 +66,13 @@ extern "C" __declspec(dllimport) int acs_editor_scene_document_load_text(
     void* handle, const char* scene2d_text, const char* scene3d_text);
 extern "C" __declspec(dllimport) int acs_editor_paste_subtree3d(
     void* handle, const char* text, int parent_id);
+extern "C" __declspec(dllimport) const char* acs_editor_copy_subtree3d(
+    void* handle, int id);
 extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_refresh(
     void* handle, int id, const char* source, const char* text);
+extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_instantiate(
+    void* handle, const char* source, const char* instance_id,
+    const char* text, int parent_id);
 extern "C" __declspec(dllimport) int acs_editor_can_undo(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_undo(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_node3d_duplicate(
@@ -78,6 +83,10 @@ extern "C" __declspec(dllimport) int acs_editor_node3d_parent(
     void* handle, int id);
 extern "C" __declspec(dllimport) const char*
 acs_editor_node3d_get_prefab_src(void* handle, int id);
+extern "C" __declspec(dllimport) const char*
+acs_editor_node3d_get_prefab_instance_id(void* handle, int id);
+extern "C" __declspec(dllimport) int acs_editor_node3d_set_prefab_link(
+    void* handle, int id, const char* source, const char* instance_id);
 extern "C" __declspec(dllimport) void acs_editor_node3d_set_visible(
     void* handle, int id, int visible);
 extern "C" __declspec(dllimport) void acs_editor_node3d_set_enabled(
@@ -261,6 +270,13 @@ bool RunAbiCapabilityContract() noexcept
          CapabilityBit(
              ECapability::PrefabInstanceRefresh3DV1)) != 0u,
         "managed Prefab Apply/Revert relies on transactional 3D refresh");
+    static_assert(
+        (kCapabilities & CapabilityBit(
+             ECapability::PrefabStableInstanceId3DV1)) != 0u);
+    static_assert(
+        (kRequiredManagedHostCapabilities & CapabilityBit(
+             ECapability::PrefabStableInstanceId3DV1)) != 0u,
+        "managed Prefab authoring relies on stable 3D instance identity");
 
     std::uint32_t version = 0u;
     std::uint64_t capabilities = 0ull;
@@ -1383,6 +1399,7 @@ bool RunPrefabInstance3DRefreshTransaction() noexcept
         "N3D 42 41 0 0 1 0 0 0 0 1 1 1 0.4 0.5 0.6 1 OldCamera\n"
         "CAM3D 42 prefab.camera 0 10 1 60 10 0.05 1000\n"
         "PFAB3D 41 Assets/Old.acsprefab\n"
+        "PINS3D 41 0123456789abcdef0123456789abcdef\n"
         "SEL3D 41\n";
     constexpr const char* kInvalidSubtree =
         "ACS3D v2\n"
@@ -1426,6 +1443,7 @@ bool RunPrefabInstance3DRefreshTransaction() noexcept
          transform[3] == 10.0f && transform[4] == 20.0f && transform[5] == 30.0f &&
          transform[6] == 2.0f && transform[7] == 3.0f && transform[8] == 4.0f &&
          std::strcmp(acs_editor_node3d_get_prefab_src(host, replacement), kUpdatedSource) == 0 &&
+         std::strcmp(acs_editor_node3d_get_prefab_instance_id(host, replacement), "0123456789abcdef0123456789abcdef") == 0 &&
          written > 0 && written < static_cast<int>(sizeof(refreshed_scene)) &&
          std::strstr(refreshed_scene, "prefab.camera") != nullptr &&
          std::strstr(refreshed_scene, "-copy-") == nullptr &&
@@ -1434,6 +1452,73 @@ bool RunPrefabInstance3DRefreshTransaction() noexcept
          acs_editor_can_undo(host) == 0 &&
          SceneDocumentEquals(host, expected2d, expected3d);
     if (!ok) std::printf("3D Prefab refresh transaction contract failed.\n");
+    acs_editor_destroy(host);
+    return ok;
+}
+
+bool IsLowerHexPrefabInstanceId(const char* value) noexcept
+{
+    if (value == nullptr || std::strlen(value) != 32u) return false;
+    for (std::uint32_t index = 0u; index < 32u; ++index) {
+        if (!((value[index] >= '0' && value[index] <= '9') || (value[index] >= 'a' && value[index] <= 'f'))) return false;
+    }
+    return true;
+}
+
+/** 3D Prefab生成は明示IDをtransactionで設定し、複製だけ新しいIDへ移る。 */
+bool RunPrefabInstance3DStableIdentity() noexcept
+{
+    constexpr const char* kStableScene =
+        "ACS3D v2\n"
+        "N3D 40 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Container\n"
+        "EMPTY3D 40\n"
+        "SEL3D 40\n";
+    constexpr const char* kPrefab =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 Vehicle\n";
+    constexpr const char* kSource = "Assets/Vehicle.acsprefab";
+    constexpr const char* kIdentity = "fedcba9876543210fedcba9876543210";
+
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+    bool ok = acs_editor_scene3d_load_text(host, kStableScene) != 0;
+    std::string expected2d;
+    std::string expected3d;
+    ok = ok && SnapshotSceneDocument(host, expected2d, expected3d) &&
+         acs_editor_prefab_instance3d_instantiate(host, kSource, "FEDCBA9876543210FEDCBA9876543210", kPrefab, 40) == -1 &&
+         acs_editor_can_undo(host) == 0 &&
+         SceneDocumentEquals(host, expected2d, expected3d);
+
+    int instance = ok ? acs_editor_prefab_instance3d_instantiate(host, kSource, kIdentity, kPrefab, 40) : -1;
+    ok = ok && instance >= 0 && acs_editor_node3d_parent(host, instance) == 40 &&
+         std::strcmp(acs_editor_node3d_get_prefab_src(host, instance), kSource) == 0 &&
+         std::strcmp(acs_editor_node3d_get_prefab_instance_id(host, instance), kIdentity) == 0 &&
+         acs_editor_can_undo(host) != 0 && acs_editor_undo(host) != 0 &&
+         SceneDocumentEquals(host, expected2d, expected3d);
+
+    instance = ok ? acs_editor_prefab_instance3d_instantiate(host, kSource, kIdentity, kPrefab, 40) : -1;
+    const int duplicate = instance >= 0 ? acs_editor_node3d_duplicate(host, instance) : -1;
+    const char* duplicate_identity = duplicate >= 0 ? acs_editor_node3d_get_prefab_instance_id(host, duplicate) : "";
+    const std::string duplicate_identity_copy = duplicate_identity;
+    ok = ok && duplicate >= 0 && IsLowerHexPrefabInstanceId(duplicate_identity) &&
+         std::strcmp(duplicate_identity, kIdentity) != 0 &&
+         std::strcmp(acs_editor_node3d_get_prefab_src(host, duplicate), kSource) == 0 &&
+         acs_editor_node3d_set_prefab_link(host, duplicate, kSource, kIdentity) == 0;
+
+    const std::string copied = ok ? acs_editor_copy_subtree3d(host, instance) : "";
+    const int pasted = !copied.empty() ? acs_editor_paste_subtree3d(host, copied.c_str(), 40) : -1;
+    const char* pasted_identity = pasted >= 0 ? acs_editor_node3d_get_prefab_instance_id(host, pasted) : "";
+    ok = ok && pasted >= 0 && IsLowerHexPrefabInstanceId(pasted_identity) &&
+         std::strcmp(pasted_identity, kIdentity) != 0 &&
+         std::strcmp(pasted_identity, duplicate_identity_copy.c_str()) != 0 &&
+         std::strcmp(acs_editor_node3d_get_prefab_src(host, pasted), kSource) == 0;
+
+    char scene[32768]{};
+    const int written = ok ? acs_editor_scene3d_serialize(host, scene, static_cast<int>(sizeof(scene))) : 0;
+    ok = ok && written > 0 && std::strstr(scene, "PINS3D ") != nullptr &&
+         acs_editor_scene3d_load_text(host, scene) != 0 &&
+         std::strcmp(acs_editor_node3d_get_prefab_instance_id(host, instance), kIdentity) == 0;
+    if (!ok) std::printf("3D Prefab stable instance identity contract failed.\n");
     acs_editor_destroy(host);
     return ok;
 }
@@ -2628,6 +2713,7 @@ int main()
     if (!RunSceneDocumentStrictPreflight()) return 17;
     if (!RunTransactionalScene3DSubtreePaste()) return 29;
     if (!RunPrefabInstance3DRefreshTransaction()) return 30;
+    if (!RunPrefabInstance3DStableIdentity()) return 31;
     if (!RunWater3DComponentRoundTrip()) return 15;
     if (!RunWater3DPointerOcclusion()) return 16;
     if (!RunCamera3DStateSafety()) return 10;

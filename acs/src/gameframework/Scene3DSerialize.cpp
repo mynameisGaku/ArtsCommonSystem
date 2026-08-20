@@ -58,6 +58,7 @@ struct FParsedNode {
     bool HasMaterialPath = false;
     bool HasSpritePath = false;
     bool HasPrefabPath = false;
+    bool HasPrefabInstanceId = false;
     bool HasLegacyMaterial = false;
     bool Visible = true;
     bool Enabled = true;
@@ -70,6 +71,7 @@ struct FParsedNode {
     char MaterialPath[kScene3DSerializeMaxMaterialPathBytes + 1u]{};
     char SpritePath[kScene3DSerializeMaxSpritePathBytes + 1u]{};
     char PrefabPath[kScene3DSerializeMaxPrefabPathBytes + 1u]{};
+    char PrefabInstanceId[kScene3DSerializePrefabInstanceIdBytes + 1u]{};
     TSharedPtr<AAsset> LoadedMesh;
     TSharedPtr<AAsset> LoadedSpriteImage;
     FMaterial2D LoadedMaterial{};
@@ -384,6 +386,29 @@ EScene3DSerializeError FormatPrefabLine(const APrefabLink3DComponent& prefab, i3
     return EScene3DSerializeError::None;
 }
 
+bool IsCanonicalPrefabInstanceId(FStringView instance_id) noexcept
+{
+    if (instance_id.Size() != kScene3DSerializePrefabInstanceIdBytes) return false;
+    for (u32 index = 0u; index < instance_id.Size(); ++index) {
+        const char value = instance_id[index];
+        if (!((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))) return false;
+    }
+    return true;
+}
+
+/** 3D Prefab instanceの安定IDをPINS3D行へ整形する。 */
+EScene3DSerializeError FormatPrefabInstanceLine(const APrefabLink3DComponent& prefab, i32 id, char* line, u32 capacity, u32& line_size) noexcept
+{
+    const FStringView instance_id = prefab.InstanceId();
+    if (!IsCanonicalPrefabInstanceId(instance_id)) return EScene3DSerializeError::InvalidPrefabInstanceId;
+    char value[kScene3DSerializePrefabInstanceIdBytes + 1u]{};
+    std::memcpy(value, instance_id.Data(), instance_id.Size());
+    const int written = std::snprintf(line, static_cast<size_t>(capacity), "PINS3D %d %s\n", id, value);
+    if (written <= 0 || static_cast<u32>(written) >= capacity) return EScene3DSerializeError::SerializedSizeOverflow;
+    line_size = static_cast<u32>(written);
+    return EScene3DSerializeError::None;
+}
+
 EScene3DSerializeError FormatCameraLine(
     const ACameraComponent3D& camera, i32 id, char* line, u32 capacity,
     u32& line_size) noexcept {
@@ -621,6 +646,36 @@ EScene3DSerializeError ParsePrefabLine(const char* line, u32 size, TArray<FParse
     if (path_error != EScene3DSerializeError::None || record.PrefabPath[0] == '\0') return EScene3DSerializeError::InvalidPrefabPath;
     record.HasPrefabPath = true;
     ++prefab_count;
+    return EScene3DSerializeError::None;
+}
+
+/** PINS3Dのnode参照と32桁小文字hex IDを検証して一時文書へ保持する。 */
+EScene3DSerializeError ParsePrefabInstanceLine(const char* line, u32 size, TArray<FParsedNode>& nodes, THashMap<i32, u32>& id_to_index) noexcept
+{
+    const char* cursor = line + 7u;
+    const char* end = line + size;
+    i32 id = -1;
+    if (!ParseI32(cursor, end, id)) return EScene3DSerializeError::InvalidInteger;
+    const u32* node_index = id_to_index.Find(id);
+    if (id < 0 || node_index == nullptr) return EScene3DSerializeError::InvalidNodeId;
+    FParsedNode& record = nodes[*node_index];
+    if (!record.HasPrefabPath || record.HasPrefabInstanceId) return EScene3DSerializeError::InvalidPrefabInstanceId;
+    SkipSpaces(cursor, end);
+    const char* begin = cursor;
+    while (cursor < end && *cursor != ' ' && *cursor != '\t') ++cursor;
+    const u32 value_size = static_cast<u32>(cursor - begin);
+    if (value_size != kScene3DSerializePrefabInstanceIdBytes) return EScene3DSerializeError::InvalidPrefabInstanceId;
+    SkipSpaces(cursor, end);
+    if (cursor != end) return EScene3DSerializeError::InvalidPrefabInstanceId;
+    for (u32 index = 0u; index < value_size; ++index) {
+        const char value = begin[index];
+        if (!((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))) return EScene3DSerializeError::InvalidPrefabInstanceId;
+        record.PrefabInstanceId[index] = value;
+    }
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
+        if (index != *node_index && nodes[index].HasPrefabInstanceId && std::strcmp(nodes[index].PrefabInstanceId, record.PrefabInstanceId) == 0) return EScene3DSerializeError::DuplicatePrefabInstanceId;
+    }
+    record.HasPrefabInstanceId = true;
     return EScene3DSerializeError::None;
 }
 
@@ -985,6 +1040,8 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept {
     case EScene3DSerializeError::ImageDecodeFailed:       return "image_decode_failed";
     case EScene3DSerializeError::InvalidPrefabPath:       return "invalid_prefab_path";
     case EScene3DSerializeError::DuplicatePrefabPath:     return "duplicate_prefab_path";
+    case EScene3DSerializeError::InvalidPrefabInstanceId: return "invalid_prefab_instance_id";
+    case EScene3DSerializeError::DuplicatePrefabInstanceId:return "duplicate_prefab_instance_id";
     case EScene3DSerializeError::PrefabSourceInvalid:     return "prefab_source_invalid";
     }
     return "unknown";
@@ -1047,6 +1104,21 @@ FScene3DSaveResult TrySaveScene3DText(
             if (!CheckedAdd(text_bytes, line_size)) {
                 result.Error = EScene3DSerializeError::SerializedSizeOverflow;
                 return result;
+            }
+            if (!prefab->InstanceId().IsEmpty()) {
+                for (u32 previous = 0u; previous < i; ++previous) {
+                    const APrefabLink3DComponent* previous_prefab = FindPrefabLink(*nodes[previous]);
+                    if (previous_prefab != nullptr && previous_prefab->InstanceId() == prefab->InstanceId()) {
+                        result.Error = EScene3DSerializeError::DuplicatePrefabInstanceId;
+                        return result;
+                    }
+                }
+                result.Error = FormatPrefabInstanceLine(*prefab, static_cast<i32>(i), line, sizeof(line), line_size);
+                if (result.Error != EScene3DSerializeError::None) return result;
+                if (!CheckedAdd(text_bytes, line_size)) {
+                    result.Error = EScene3DSerializeError::SerializedSizeOverflow;
+                    return result;
+                }
             }
             ++result.PrefabCount;
         }
@@ -1157,6 +1229,17 @@ FScene3DSaveResult TrySaveScene3DText(
             }
             std::memcpy(out + cursor, line, line_size);
             cursor += line_size;
+            if (!prefab->InstanceId().IsEmpty()) {
+                result.Error = FormatPrefabInstanceLine(*prefab, static_cast<i32>(i), line, sizeof(line), line_size);
+                if (result.Error != EScene3DSerializeError::None || line_size > cap - cursor - 1u) {
+                    result.Error = EScene3DSerializeError::SceneChangedDuringSave;
+                    result.BytesWritten = cursor;
+                    out[cursor] = '\0';
+                    return result;
+                }
+                std::memcpy(out + cursor, line, line_size);
+                cursor += line_size;
+            }
             ++emitted_prefabs;
         }
         const ACameraComponent3D* camera = FindCamera(*nodes[i]);
@@ -1441,6 +1524,8 @@ FScene3DLoadResult ParseScene3DDocument(
             error = ParseSpriteLine(line, line_size, document.Nodes, id_to_index, document.SpriteCount);
         } else if (StartsWith(line, line_size, "PFAB3D ", 7u)) {
             error = ParsePrefabLine(line, line_size, document.Nodes, id_to_index, document.PrefabCount);
+        } else if (StartsWith(line, line_size, "PINS3D ", 7u)) {
+            error = ParsePrefabInstanceLine(line, line_size, document.Nodes, id_to_index);
         } else if (document.EditorDocument
                    && StartsWith(line, line_size, "SEL3D ", 6u)) {
             const char* selection = line + 6u;
@@ -1598,6 +1683,7 @@ FScene3DLoadResult CommitScene3DDocument(
             APrefabLink3DComponent& prefab =
                 node->AddComponent<APrefabLink3DComponent>();
             prefab.SetSourcePath(FStringView(record.PrefabPath));
+            if (record.HasPrefabInstanceId) prefab.SetInstanceId(FStringView(record.PrefabInstanceId));
         }
         if (!runtime_nodes.TryAdd(node)) {
             return LoadFailure(

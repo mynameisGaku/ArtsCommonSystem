@@ -158,6 +158,10 @@ internal static class SceneEditorMigrationSelfTest
             ExtractMethodBody(
                 shellSource,
                 "private int RefreshPrefabInstance3D(");
+        string placeBlueprintBody =
+            ExtractMethodBody(shellSource, "private void PlaceBlueprint(");
+        string instantiatePrefabBody =
+            ExtractMethodBody(shellSource, "private void InstantiatePrefab(");
         string restoreDocumentBody =
             ExtractMethodBody(
                 documentsSource,
@@ -388,6 +392,23 @@ internal static class SceneEditorMigrationSelfTest
                 "ReinstantiateInstance3D(",
                 StringComparison.Ordinal),
             "3D Prefab refresh routes through one native rollback and Undo transaction");
+        Check(
+            placeBlueprintBody.Contains(
+                "EngineInterop.acs_editor_prefab_instance3d_instantiate(",
+                StringComparison.Ordinal) &&
+            instantiatePrefabBody.Contains(
+                "EngineInterop.acs_editor_prefab_instance3d_instantiate(",
+                StringComparison.Ordinal) &&
+            placeBlueprintBody.Contains(
+                "NewPrefabInstanceId3D()",
+                StringComparison.Ordinal) &&
+            instantiatePrefabBody.Contains(
+                "NewPrefabInstanceId3D()",
+                StringComparison.Ordinal) &&
+            shellSource.Contains(
+                "PFAB(?:3D)?|PINS3D",
+                StringComparison.Ordinal),
+            "3D Prefab placement supplies explicit identity through one native transaction and strips template self-links");
         Check(
             CountMatches(
                 applyRecoveryBody,

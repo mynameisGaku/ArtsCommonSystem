@@ -24779,6 +24779,7 @@ enum class ECapability : std::uint64_t {
     OptionalServiceDiagnosticsV2 = 1ull << 13u,
     SparseTransformMutationV1 = 1ull << 14u,
     PrefabInstanceRefresh3DV1 = 1ull << 15u,
+    PrefabStableInstanceId3DV1 = 1ull << 16u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -24802,14 +24803,16 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::VolumetricCloudWorkloadV1) |
     CapabilityBit(ECapability::OptionalServiceDiagnosticsV2) |
     CapabilityBit(ECapability::SparseTransformMutationV1) |
-    CapabilityBit(ECapability::PrefabInstanceRefresh3DV1);
+    CapabilityBit(ECapability::PrefabInstanceRefresh3DV1) |
+    CapabilityBit(ECapability::PrefabStableInstanceId3DV1);
 
 inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
     CapabilityBit(ECapability::IncrementalStartup) |
     CapabilityBit(ECapability::ResizeResultContract) |
     CapabilityBit(ECapability::SparseTransformMutationV1) |
-    CapabilityBit(ECapability::PrefabInstanceRefresh3DV1);
+    CapabilityBit(ECapability::PrefabInstanceRefresh3DV1) |
+    CapabilityBit(ECapability::PrefabStableInstanceId3DV1);
 
 [[nodiscard]] constexpr bool IsCompatible(
     std::uint32_t requested_version,
@@ -36677,6 +36680,7 @@ inline constexpr u32 kScene3DSerializeMaxMeshPathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxMaterialPathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxSpritePathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxPrefabPathBytes = 299u;
+inline constexpr u32 kScene3DSerializePrefabInstanceIdBytes = 32u;
 inline constexpr u32 kScene3DSerializeMaxComponentsPerNode = 1024u;
 inline constexpr u32 kScene3DSerializeMaxDirectiveRecords = 262144u;
 inline constexpr u32 kScene3DSerializeMaxCameraCount = 256u;
@@ -36740,6 +36744,8 @@ enum class EScene3DSerializeError : u8 {
     InvalidPrefabPath,
     DuplicatePrefabPath,
     PrefabSourceInvalid,
+    InvalidPrefabInstanceId,
+    DuplicatePrefabInstanceId,
 };
 
 /** Authored ACS3D camera projection encoded by CAM3D. */
@@ -81600,7 +81606,7 @@ namespace acs::game {
  * 実体化済み3DサブツリーとPrefab/Blueprint原本を結ぶコンポーネント。
  *
  * @details runtime状態はシーンに保存済みのノード群であり、本型は原本を再展開しない。
- * EditorのApply/Revertや参照追跡に必要なPFAB3Dパスだけを所有する。
+ * EditorのApply/Revertや参照追跡に必要なPFAB3Dパスとinstance IDを所有する。
  */
 class APrefabLink3DComponent final : public AComponent {
 public:
@@ -81612,9 +81618,18 @@ public:
     /** PFAB3Dに記録するPrefabまたはBlueprintの原本パスを設定する。 */
     void SetSourcePath(FStringView path) noexcept;
 
+    /** PINS3Dに記録されたscene内で安定したinstance IDを返す。 */
+    FStringView InstanceId() const noexcept;
+
+    /** PINS3Dに記録する32桁小文字hexのinstance IDを設定する。 */
+    void SetInstanceId(FStringView instance_id) noexcept;
+
 private:
     /** 実体化済みサブツリーの原本を指す非実行リンク。 */
     FString m_SourcePath;
+
+    /** Apply/Revert後も同じinstanceを識別するscene内の安定ID。 */
+    FString m_InstanceId;
 };
 
 } // namespace acs::game

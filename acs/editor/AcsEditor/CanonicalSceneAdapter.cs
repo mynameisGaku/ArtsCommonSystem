@@ -74,6 +74,7 @@ public static class CanonicalSceneAdapter
     private const int MaxDirectives = 262144;
     private const int MaxCameras = 256;
     private const int MaxCameraIdBytes = 64;
+    private const int PrefabInstanceIdBytes = 32;
     private const int MaxPolygonPoints = 4096;
 
     public static CanonicalSceneAdapterInspection InspectFile(string path)
@@ -360,6 +361,8 @@ public static class CanonicalSceneAdapter
         var materials = new HashSet<int>();
         var sprites = new HashSet<int>();
         var prefabs = new HashSet<int>();
+        var prefabInstanceNodes = new HashSet<int>();
+        var prefabInstanceIds = new HashSet<string>(StringComparer.Ordinal);
         var cameraNodes = new HashSet<int>();
         var cameraIds = new HashSet<string>(StringComparer.Ordinal);
         int activeCameraCount = 0;
@@ -440,6 +443,9 @@ public static class CanonicalSceneAdapter
                         CanonicalSceneReferenceKind.Prefab,
                         prefabs,
                         requireMeshPrimitive: false);
+                    break;
+                case "PINS3D":
+                    InspectPrefabInstance(line, lineNumber);
                     break;
                 case "PLY3D":
                     InspectPolygon(line, lineNumber);
@@ -756,6 +762,29 @@ public static class CanonicalSceneAdapter
             if (active != 0) ++activeCameraCount;
         }
 
+        void InspectPrefabInstance(string line, int lineNumber)
+        {
+            string[] tokens = Tokens(line);
+            if (tokens.Length != 3 ||
+                !TryInt(tokens[1], out int id) ||
+                !prefabs.Contains(id) ||
+                !IsCanonicalPrefabInstanceId(tokens[2]))
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_PREFAB_INSTANCE_ID_INVALID",
+                    "PINS3D requires an earlier PFAB3D on the same node and a 32-character lowercase hexadecimal id.",
+                    lineNumber));
+                return;
+            }
+            if (!prefabInstanceNodes.Add(id) || !prefabInstanceIds.Add(tokens[2]))
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_PREFAB_INSTANCE_ID_DUPLICATE",
+                    "Each PFAB3D node and stable Prefab instance id may have at most one PINS3D record.",
+                    lineNumber));
+            }
+        }
+
         void InspectFlags(string line, int lineNumber)
         {
             string[] tokens = Tokens(line);
@@ -938,6 +967,10 @@ public static class CanonicalSceneAdapter
         }
         return true;
     }
+
+    private static bool IsCanonicalPrefabInstanceId(string value) =>
+        value.Length == PrefabInstanceIdBytes &&
+        value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     private static bool AllFinite(
         IReadOnlyList<string> tokens,
