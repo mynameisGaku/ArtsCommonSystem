@@ -13,12 +13,12 @@ acs_module(
         Panic.cpp
         StackTrace.cpp
     HEADERS
-        EnumTraits.h
         Assert.h
         Cast.h
         Compiler.h
         EndianSerialization.h
         EnumLookup.h
+        EnumTraits.h
         Error.h
         GenerationHandleLayoutTraits.h
         Limits.h

@@ -1,180 +1,235 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar D — FInputMap 実装
+// actionと各入力deviceのbinding登録、明示状態評価、互換pollを実装する。
 #include "gameframework/InputMap.h"
+
 #include "platform/Input.h"
 
 namespace acs::game {
+namespace {
 
-/** キーボードキーの binding を末尾に追加する。 */
-void FInputMap::BindKey(FActionId action, EKey key) noexcept {
-    FBinding b;
-    b.action = action;
-    b.kind   = EBindKind::Key;
-    b.code   = static_cast<u32>(key);
-    m_Bindings.Add(b);
+/** 現在のplatform入力をIInputStateViewとして公開する非所有アダプター。 */
+class FPlatformInputStateView final : public IInputStateView {
+public:
+    /** 指定キーが現在押されているか返す。 */
+    bool IsKeyDown(EKey key) const noexcept override
+    {
+        return CInput::IsKeyDown(key);
+    }
+
+    /** 指定キーが今回押されたか返す。 */
+    bool IsKeyPressed(EKey key) const noexcept override
+    {
+        return CInput::IsKeyPressed(key);
+    }
+
+    /** 指定キーが今回離されたか返す。 */
+    bool IsKeyReleased(EKey key) const noexcept override
+    {
+        return CInput::IsKeyReleased(key);
+    }
+
+    /** 指定マウスボタンが現在押されているか返す。 */
+    bool IsMouseButtonDown(EMouseButton button) const noexcept override
+    {
+        return CInput::IsMouseButtonDown(button);
+    }
+
+    /** 指定マウスボタンが今回押されたか返す。 */
+    bool IsMouseButtonPressed(EMouseButton button) const noexcept override
+    {
+        return CInput::IsMouseButtonPressed(button);
+    }
+
+    /** 指定マウスボタンが今回離されたか返す。 */
+    bool IsMouseButtonReleased(EMouseButton button) const noexcept override
+    {
+        return CInput::IsMouseButtonReleased(button);
+    }
+
+    /** 指定プレイヤーのゲームパッドボタンが現在押されているか返す。 */
+    bool IsGamepadButtonDown(u32 player_index, EGamepadButton button) const noexcept override
+    {
+        return CInput::IsGamepadButtonDown(player_index, button);
+    }
+
+    /** 指定プレイヤーのゲームパッドボタンが今回押されたか返す。 */
+    bool IsGamepadButtonPressed(u32 player_index, EGamepadButton button) const noexcept override
+    {
+        return CInput::IsGamepadButtonPressed(player_index, button);
+    }
+
+    /** 指定プレイヤーのゲームパッドボタンが今回離されたか返す。 */
+    bool IsGamepadButtonReleased(u32 player_index, EGamepadButton button) const noexcept override
+    {
+        return CInput::IsGamepadButtonReleased(player_index, button);
+    }
+
+    /** 指定プレイヤーのゲームパッド軸値を返す。 */
+    f32 GamepadAxisValue(u32 player_index, EGamepadAxis axis) const noexcept override
+    {
+        return CInput::GamepadAxisValue(player_index, axis);
+    }
+};
+
+/** 公開列挙に含まれるゲームパッド軸ならtrueを返す。 */
+bool IsKnownGamepadAxis(EGamepadAxis axis) noexcept
+{
+    return static_cast<usize>(axis) < static_cast<usize>(EGamepadAxis::_Count);
 }
 
-/** マウスボタンの binding を末尾に追加する。 */
-void FInputMap::BindMouseButton(FActionId action, EMouseButton mb) noexcept {
-    FBinding b;
-    b.action = action;
-    b.kind   = EBindKind::MouseButton;
-    b.code   = static_cast<u32>(mb);
-    m_Bindings.Add(b);
+} // namespace
+
+void FInputMap::BindKey(FActionId action, EKey key) noexcept
+{
+    FBinding binding;
+    binding.action = action;
+    binding.kind = EBindKind::Key;
+    binding.code = static_cast<u32>(key);
+    m_Bindings.Add(binding);
 }
 
-/** ゲームパッドボタンの binding を player_index 付きで末尾に追加する。 */
-void FInputMap::BindGamepad(FActionId action, EGamepadButton gb, u32 player_index) noexcept {
-    FBinding b;
-    b.action = action;
-    b.kind   = EBindKind::GamepadButton;
-    b.code   = static_cast<u32>(gb);
-    b.player = player_index;
-    m_Bindings.Add(b);
+void FInputMap::BindMouseButton(FActionId action, EMouseButton button) noexcept
+{
+    FBinding binding;
+    binding.action = action;
+    binding.kind = EBindKind::MouseButton;
+    binding.code = static_cast<u32>(button);
+    m_Bindings.Add(binding);
 }
 
-/** neg/pos キーのペアを 1D axis binding として末尾に追加する。 */
-void FInputMap::BindAxisKeys(FActionId action, EKey neg, EKey pos) noexcept {
-    FBinding b;
-    b.action   = action;
-    b.kind     = EBindKind::Axis1D;
-    b.code     = static_cast<u32>(neg);
-    b.code_pos = static_cast<u32>(pos);
-    m_Bindings.Add(b);
+void FInputMap::BindGamepad(FActionId action, EGamepadButton button, u32 player_index) noexcept
+{
+    FBinding binding;
+    binding.action = action;
+    binding.kind = EBindKind::GamepadButton;
+    binding.code = static_cast<u32>(button);
+    binding.player = player_index;
+    m_Bindings.Add(binding);
 }
 
-/** ゲームパッドのアナログ軸 binding を倍率付きで末尾へ追加する。 */
+void FInputMap::BindAxisKeys(FActionId action, EKey negative, EKey positive) noexcept
+{
+    FBinding binding;
+    binding.action = action;
+    binding.kind = EBindKind::Axis1D;
+    binding.code = static_cast<u32>(negative);
+    binding.code_pos = static_cast<u32>(positive);
+    m_Bindings.Add(binding);
+}
+
 void FInputMap::BindGamepadAxis(FActionId action, EGamepadAxis axis, u32 player_index, f32 scale) noexcept
 {
-    FBinding b;
-    b.action = action;
-    b.kind = EBindKind::GamepadAxis;
-    b.code = static_cast<u32>(axis);
-    b.player = player_index;
-    b.scale = scale;
-    m_Bindings.Add(b);
+    (void)TryBindGamepadAxis(action, axis, player_index, FInputAxisOptions{0.0f, scale, false});
 }
 
-/** 指定アクションの binding を in-place の compaction で全削除する。 */
-void FInputMap::Unbind(FActionId action) noexcept {
-    u32 w = 0;
-    for (u32 r = 0; r < m_Bindings.Num(); ++r) {
-        if (m_Bindings[r].action != action) {
-            if (w != r) m_Bindings[w] = m_Bindings[r];
-            ++w;
+bool FInputMap::TryBindGamepadAxis(FActionId action, EGamepadAxis axis, u32 player_index,
+                                   const FInputAxisOptions& options) noexcept
+{
+    if (action.value == 0u || !IsKnownGamepadAxis(axis) || player_index >= 4u || !options.IsValid()) return false;
+    FBinding binding;
+    binding.action = action;
+    binding.kind = EBindKind::GamepadAxis;
+    binding.code = static_cast<u32>(axis);
+    binding.player = player_index;
+    binding.axis_options = options;
+    m_Bindings.Add(binding);
+    return true;
+}
+
+void FInputMap::Unbind(FActionId action) noexcept
+{
+    u32 write_index = 0u;
+    for (u32 read_index = 0u; read_index < m_Bindings.Num(); ++read_index) {
+        if (m_Bindings[read_index].action != action) {
+            if (write_index != read_index) m_Bindings[write_index] = m_Bindings[read_index];
+            ++write_index;
         }
     }
-    while (m_Bindings.Num() > w) m_Bindings.Pop();
+    while (m_Bindings.Num() > write_index)
+        m_Bindings.Pop();
 }
 
-/** 全 binding を破棄する。 */
-void FInputMap::ClearAll() noexcept {
+void FInputMap::ClearAll() noexcept
+{
     m_Bindings.Reset();
 }
 
-/** 該当アクションの各 binding を走査し、いずれかがこのフレームで押されたか判定する。 */
-bool FInputMap::IsPressed(FActionId action) const noexcept {
-    for (u32 i = 0; i < m_Bindings.Num(); ++i) {
-        const FBinding& b = m_Bindings[i];
-        if (b.action != action) continue;
-        switch (b.kind) {
-        case EBindKind::Key:
-            if (CInput::IsKeyPressed(static_cast<EKey>(b.code))) return true;
-            break;
-        case EBindKind::MouseButton:
-            if (CInput::IsMouseButtonPressed(static_cast<EMouseButton>(b.code))) return true;
-            break;
-        case EBindKind::GamepadButton:
-            if (CInput::IsGamepadButtonPressed(b.player, static_cast<EGamepadButton>(b.code))) return true;
-            break;
-        case EBindKind::GamepadAxis:
-            break;
-        case EBindKind::Axis1D:
-            // axis は Pressed の概念なし (常に false)
+FInputActionState FInputMap::Evaluate(FActionId action, const IInputStateView& input) const noexcept
+{
+    FInputActionState result{};
+    for (u32 index = 0u; index < m_Bindings.Num(); ++index) {
+        const FBinding& binding = m_Bindings[index];
+        if (binding.action != action) continue;
+        switch (binding.kind) {
+        case EBindKind::Key: {
+            const EKey key = static_cast<EKey>(binding.code);
+            result.pressed = result.pressed || input.IsKeyPressed(key);
+            result.held = result.held || input.IsKeyDown(key);
+            result.released = result.released || input.IsKeyReleased(key);
             break;
         }
-    }
-    return false;
-}
-
-/** 該当アクションの各 binding を走査し、いずれかが押下中か判定する (axis は |値|>0 で Held)。 */
-bool FInputMap::IsHeld(FActionId action) const noexcept {
-    for (u32 i = 0; i < m_Bindings.Num(); ++i) {
-        const FBinding& b = m_Bindings[i];
-        if (b.action != action) continue;
-        switch (b.kind) {
-        case EBindKind::Key:
-            if (CInput::IsKeyDown(static_cast<EKey>(b.code))) return true;
+        case EBindKind::MouseButton: {
+            const EMouseButton button = static_cast<EMouseButton>(binding.code);
+            result.pressed = result.pressed || input.IsMouseButtonPressed(button);
+            result.held = result.held || input.IsMouseButtonDown(button);
+            result.released = result.released || input.IsMouseButtonReleased(button);
             break;
-        case EBindKind::MouseButton:
-            if (CInput::IsMouseButtonDown(static_cast<EMouseButton>(b.code))) return true;
+        }
+        case EBindKind::GamepadButton: {
+            const EGamepadButton button = static_cast<EGamepadButton>(binding.code);
+            result.pressed = result.pressed || input.IsGamepadButtonPressed(binding.player, button);
+            result.held = result.held || input.IsGamepadButtonDown(binding.player, button);
+            result.released = result.released || input.IsGamepadButtonReleased(binding.player, button);
             break;
-        case EBindKind::GamepadButton:
-            if (CInput::IsGamepadButtonDown(b.player, static_cast<EGamepadButton>(b.code))) return true;
-            break;
+        }
         case EBindKind::GamepadAxis: {
-            const f32 value = CInput::GamepadAxisValue(b.player, static_cast<EGamepadAxis>(b.code)) * b.scale;
-            if (value < -0.0001f || value > 0.0001f) return true;
+            const f32 value = binding.axis_options.Apply(
+                input.GamepadAxisValue(binding.player, static_cast<EGamepadAxis>(binding.code)));
+            result.axis += value;
+            result.held = result.held || value < -0.0001f || value > 0.0001f;
             break;
         }
-        case EBindKind::Axis1D:
-            // axis は |Axis| > 0 で Held とみなす
-            if (CInput::IsKeyDown(static_cast<EKey>(b.code)) ||
-                CInput::IsKeyDown(static_cast<EKey>(b.code_pos))) return true;
+        case EBindKind::Axis1D: {
+            const bool negative = input.IsKeyDown(static_cast<EKey>(binding.code));
+            const bool positive = input.IsKeyDown(static_cast<EKey>(binding.code_pos));
+            result.held = result.held || negative || positive;
+            if (negative && !positive)
+                result.axis -= 1.0f;
+            else if (positive && !negative)
+                result.axis += 1.0f;
             break;
         }
-    }
-    return false;
-}
-
-/** 該当アクションの各 binding を走査し、いずれかがこのフレームで離されたか判定する。 */
-bool FInputMap::IsReleased(FActionId action) const noexcept {
-    for (u32 i = 0; i < m_Bindings.Num(); ++i) {
-        const FBinding& b = m_Bindings[i];
-        if (b.action != action) continue;
-        switch (b.kind) {
-        case EBindKind::Key:
-            if (CInput::IsKeyReleased(static_cast<EKey>(b.code))) return true;
-            break;
-        case EBindKind::MouseButton:
-            if (CInput::IsMouseButtonReleased(static_cast<EMouseButton>(b.code))) return true;
-            break;
-        case EBindKind::GamepadButton:
-            if (CInput::IsGamepadButtonReleased(b.player, static_cast<EGamepadButton>(b.code))) return true;
-            break;
-        case EBindKind::GamepadAxis:
-            break;
-        case EBindKind::Axis1D:
-            break;
         }
     }
-    return false;
+    if (result.axis > 1.0f) result.axis = 1.0f;
+    if (result.axis < -1.0f) result.axis = -1.0f;
+    return result;
 }
 
-/** 該当アクションの axis binding を累積し、clamp(-1, +1) した値を返す。 */
-f32 FInputMap::Axis(FActionId action) const noexcept {
-    f32 acc = 0.0f;
-    for (u32 i = 0; i < m_Bindings.Num(); ++i) {
-        const FBinding& b = m_Bindings[i];
-        if (b.action != action) continue;
-        if (b.kind == EBindKind::Axis1D) {
-            const bool n = CInput::IsKeyDown(static_cast<EKey>(b.code));
-            const bool p = CInput::IsKeyDown(static_cast<EKey>(b.code_pos));
-            // 両方押下は 0 (相殺)、片方なら ±1
-            if (n && !p)
-                acc -= 1.0f;
-            else if (p && !n)
-                acc += 1.0f;
-        } else if (b.kind == EBindKind::GamepadAxis) {
-            acc += CInput::GamepadAxisValue(b.player, static_cast<EGamepadAxis>(b.code)) * b.scale;
-        }
-    }
-    if (acc >  1.0f) acc =  1.0f;
-    if (acc < -1.0f) acc = -1.0f;
-    return acc;
+bool FInputMap::IsPressed(FActionId action) const noexcept
+{
+    const FPlatformInputStateView input;
+    return Evaluate(action, input).pressed;
 }
 
-/** 既存axis値へ明示された入力補正を適用する。 */
+bool FInputMap::IsHeld(FActionId action) const noexcept
+{
+    const FPlatformInputStateView input;
+    return Evaluate(action, input).held;
+}
+
+bool FInputMap::IsReleased(FActionId action) const noexcept
+{
+    const FPlatformInputStateView input;
+    return Evaluate(action, input).released;
+}
+
+f32 FInputMap::Axis(FActionId action) const noexcept
+{
+    const FPlatformInputStateView input;
+    return Evaluate(action, input).axis;
+}
+
 f32 FInputMap::AxisValue(FActionId action, FInputAxisOptions options) const noexcept
 {
     return options.Apply(Axis(action));

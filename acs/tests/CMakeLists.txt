@@ -777,6 +777,24 @@ target_link_libraries(acs_fixed_step_clock_tests PRIVATE
 add_test(NAME ACS.FixedStepClock COMMAND acs_fixed_step_clock_tests)
 set_tests_properties(ACS.FixedStepClock PROPERTIES LABELS "Foundation;Timing" TIMEOUT 30)
 
+# GameFrameworkの固定時計、入力buffer、replay sourceをGPU非依存で統合検証する。
+add_executable(acs_fixed_runtime_input_tests
+    main.cpp
+    fixed_step_runtime_input_tests.cpp
+    game_fixed_runtime_input_tests.cpp
+    input_recorder_fixed_tick_source_tests.cpp
+)
+set_target_properties(acs_fixed_runtime_input_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_fixed_runtime_input_tests)
+target_link_libraries(acs_fixed_runtime_input_tests PRIVATE
+    ACS::Foundation
+    ACS::GameFramework
+    ACS::Test
+    ACS::Timing
+)
+add_test(NAME ACS.FixedRuntimeInput COMMAND acs_fixed_runtime_input_tests)
+set_tests_properties(ACS.FixedRuntimeInput PROPERTIES LABELS "GameFramework;Input;Timing;Determinism" TIMEOUT 60)
+
 if(TARGET acs_third_party_diligent_core)
     # アダプタ契約テストだけが Diligent の IMemoryAllocator 定義を直接参照する。
     target_link_libraries(acs_unit_tests PRIVATE acs_third_party::diligent_core)

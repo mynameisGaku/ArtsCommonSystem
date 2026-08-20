@@ -9,6 +9,10 @@
 `acs::game::FSceneClock`はpauseや時間倍率を反映するシーン時間、`FWorldClockSubsystem`はWorld全体で共有する
 経過時間とframe数を扱う。責務と所有期間が異なるため、これらを`CFixedStepClock`へ置換しない。
 
+`acs::game::CGame`はこの時計を値として所有し、固定更新回数、固定tick番号、描画補間率をゲームループへ
+接続する。時計と未消費入力を同じrollback境界で扱う契約は
+[FixedStepRuntimeInput.md](FixedStepRuntimeInput.md)に定める。
+
 ## 基本操作
 
 ```cpp

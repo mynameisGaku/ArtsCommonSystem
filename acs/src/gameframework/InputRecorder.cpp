@@ -227,8 +227,26 @@ TResult<void> CInputRecorder::TryLoadFromBuffer(const u8* buffer, u32 size) noex
     return Ok();
 }
 
+/** 指定indexのsampleをcursorやmodeへ影響させず複製する。 */
+bool CInputRecorder::TryReadSampleAt_Internal(u32 index, FInputSample& output) const noexcept
+{
+    if (static_cast<usize>(index) >= m_Samples.Num()) return false;
+    output = m_Samples[index];
+    return true;
+}
+
+/** target allocatorを引き継ぐ空のload stagingへ初期化する。 */
+void CInputRecorder::PrepareLoadStaging_Internal(CInputRecorder& staging) const noexcept
+{
+    staging.m_Mode = ERecorderMode::Idle;
+    staging.m_TickRateHz = 60u;
+    staging.m_CurrentTick = 0u;
+    staging.m_Cursor = 0u;
+    staging.m_Samples = TArray<FInputSample>(*m_Samples.GetAllocator());
+}
+
 /** loaded persistent stateだけをno-fail swapし、modeは各instanceで維持する。 */
-void CInputRecorder::SwapLoadedState(CInputRecorder& other) noexcept
+void CInputRecorder::SwapLoadedState_Internal(CInputRecorder& other) noexcept
 {
     u32 value = m_TickRateHz;
     m_TickRateHz = other.m_TickRateHz;

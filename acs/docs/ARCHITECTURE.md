@@ -100,6 +100,8 @@ acs/
   [NetworkSocketSafety.md](NetworkSocketSafety.md) の契約に従う。
 - `Timing` の固定更新時計は利用側が値所有し、GameFrameworkのシーン時間やWorld共有時計を置換しない。
   一括処理と保存値の契約は[FixedStepClock.md](FixedStepClock.md)に従う。
+- `GameFramework` は固定更新時計と未消費入力を同じ実行境界で管理し、platform、AI、replay入力を
+  明示したsourceから取得する。契約は[FixedStepRuntimeInput.md](FixedStepRuntimeInput.md)に従う。
 - `Steamworks` / `Scripting` / `MlOnnx` / `OpenXr` / `CrashWin` /
   `TelemetryFile` / `LocalMatch` は構成時に明示して有効化する任意backendである。
 

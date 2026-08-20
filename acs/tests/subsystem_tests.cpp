@@ -2061,7 +2061,7 @@ ACS_TEST(Subsystem, SceneLifecycleWrapperWiresRootAndHandlesMissingCamera)
 
     FSceneRootLifecycleTrace Trace{};
     Game.Scenes().PushScene(MakeUnique<ANonCameraLifecycleScene>(&Trace));
-    Game.Scenes()._ApplyPending(Game);
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
     ANonCameraLifecycleScene* const Scene =
         static_cast<ANonCameraLifecycleScene*>(Game.Scenes().Top());
     EXPECT_TRUE(Scene != nullptr);
@@ -2080,20 +2080,20 @@ ACS_TEST(Subsystem, SceneLifecycleWrapperWiresRootAndHandlesMissingCamera)
     EXPECT_EQ(Scene->ViewCenter().y, 0.0f);
     EXPECT_EQ(Scene->ViewZoom(), 1.0f);
 
-    Game.Scenes()._Update(0.25f, 0.25f, 1u);
-    Game.Scenes()._FixedUpdate(0.5f);
+    Game.Scenes().ExecutionAccess().Update(0.25f, 0.25f, 1u);
+    Game.Scenes().ExecutionAccess().FixedUpdate(0.5f);
     EXPECT_EQ(Trace.scene_updates, 1u);
     EXPECT_EQ(Trace.scene_fixed_updates, 1u);
     EXPECT_EQ(Trace.component_updates, 1u);
     EXPECT_EQ(Trace.component_fixed_updates, 1u);
 
     Game.Scenes().ChangeScene(MakeUnique<AScene>());
-    Game.Scenes()._ApplyPending(Game);
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
     EXPECT_TRUE(Trace.exited);
     EXPECT_EQ(Scene->Root().ChildCount(), 0u);
     EXPECT_EQ(Scene->Services().Physics().ShapeCount(), 0u);
     EXPECT_EQ(Scene->Services().Tweens().ActiveCount(), 0u);
-    Game.Scenes()._ShutdownAll();
+    Game.Scenes().ExecutionAccess().ShutdownAll();
     Game.GameInstanceSubsystems().Deinitialize();
     Game.EngineSubsystems().Deinitialize();
 }
@@ -2109,7 +2109,7 @@ ACS_TEST(Subsystem, SceneServiceAllocationFailureNeverCommitsPartialCandidate)
         FSubsystemOwner{&Game, ESubsystemOwnerKind::Game}));
     FSceneTransitionTrace PreviousTrace{};
     Game.Scenes().PushScene(MakeUnique<ATransitionProbeScene>(&PreviousTrace));
-    Game.Scenes()._ApplyPending(Game);
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
     AScene* const Previous = Game.Scenes().Top();
     EXPECT_TRUE(Previous != nullptr);
 
@@ -2122,7 +2122,7 @@ ACS_TEST(Subsystem, SceneServiceAllocationFailureNeverCommitsPartialCandidate)
         {
             CSubsystemDefaultAllocatorScope AllocatorScope(Allocator);
             Game.Scenes().ChangeScene(Move(Candidate));
-            Game.Scenes()._ApplyPending(Game);
+            Game.Scenes().ExecutionAccess().ApplyPending(Game);
         }
         EXPECT_TRUE(Game.Scenes().Top() == Previous);
         EXPECT_EQ(Game.Scenes().Depth(), 1u);
@@ -2146,7 +2146,7 @@ ACS_TEST(Subsystem, Scene2DRootAllocationFailureRejectsPushAndChange)
         FSubsystemOwner{&Game, ESubsystemOwnerKind::Game}));
     FSceneTransitionTrace PreviousTrace{};
     Game.Scenes().PushScene(MakeUnique<ATransitionProbeScene>(&PreviousTrace));
-    Game.Scenes()._ApplyPending(Game);
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
     AScene* const Previous = Game.Scenes().Top();
     EXPECT_TRUE(Previous != nullptr);
 
@@ -2168,7 +2168,7 @@ ACS_TEST(Subsystem, Scene2DRootAllocationFailureRejectsPushAndChange)
             EXPECT_TRUE(Candidate.Get() != nullptr);
             if (Operation == 0u) Game.Scenes().PushScene(Move(Candidate));
             else Game.Scenes().ChangeScene(Move(Candidate));
-            Game.Scenes()._ApplyPending(Game);
+            Game.Scenes().ExecutionAccess().ApplyPending(Game);
         }
         EXPECT_TRUE(Game.Scenes().Top() == Previous);
         EXPECT_EQ(Game.Scenes().Depth(), 1u);
@@ -2193,7 +2193,7 @@ ACS_TEST(Subsystem, WorldReadyHookGenerationRollbackKeepsPreviousTop)
         FSubsystemOwner{&Game, ESubsystemOwnerKind::Game}));
     FSceneTransitionTrace PreviousTrace{};
     Game.Scenes().PushScene(MakeUnique<ATransitionProbeScene>(&PreviousTrace));
-    Game.Scenes()._ApplyPending(Game);
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
     AScene* const Previous = Game.Scenes().Top();
     EXPECT_TRUE(Previous != nullptr);
 
@@ -2218,7 +2218,7 @@ ACS_TEST(Subsystem, WorldReadyHookGenerationRollbackKeepsPreviousTop)
         EXPECT_TRUE(Candidate.Get() != nullptr);
         if (Operation == 0u) Game.Scenes().PushScene(Move(Candidate));
         else Game.Scenes().ChangeScene(Move(Candidate));
-        Game.Scenes()._ApplyPending(Game);
+        Game.Scenes().ExecutionAccess().ApplyPending(Game);
         EXPECT_TRUE(Game.Scenes().Top() == Previous);
         EXPECT_EQ(Game.Scenes().Depth(), 1u);
         EXPECT_EQ(PreviousTrace.paused, 0u);
@@ -2259,7 +2259,7 @@ ACS_TEST(Subsystem, FailedScenePreparationKeepsPreviousTopUnchanged)
         FSubsystemOwner{&Game, ESubsystemOwnerKind::Game}));
     FSceneTransitionTrace PreviousTrace{};
     Game.Scenes().PushScene(MakeUnique<ATransitionProbeScene>(&PreviousTrace));
-    Game.Scenes()._ApplyPending(Game);
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
     AScene* const Previous = Game.Scenes().Top();
     EXPECT_TRUE(Previous != nullptr);
     EXPECT_EQ(PreviousTrace.entered, 1u);
@@ -2273,7 +2273,7 @@ ACS_TEST(Subsystem, FailedScenePreparationKeepsPreviousTopUnchanged)
 
     FSceneTransitionTrace PushTrace{};
     Game.Scenes().PushScene(MakeUnique<ATransitionProbeScene>(&PushTrace));
-    Game.Scenes()._ApplyPending(Game);
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
     EXPECT_TRUE(Game.Scenes().Top() == Previous);
     EXPECT_EQ(Game.Scenes().Depth(), 1u);
     EXPECT_EQ(PreviousTrace.paused, 0u);
@@ -2281,7 +2281,7 @@ ACS_TEST(Subsystem, FailedScenePreparationKeepsPreviousTopUnchanged)
 
     FSceneTransitionTrace ChangeTrace{};
     Game.Scenes().ChangeScene(MakeUnique<ATransitionProbeScene>(&ChangeTrace));
-    Game.Scenes()._ApplyPending(Game);
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
     EXPECT_TRUE(Game.Scenes().Top() == Previous);
     EXPECT_EQ(PreviousTrace.exited, 0u);
     EXPECT_EQ(ChangeTrace.entered, 0u);

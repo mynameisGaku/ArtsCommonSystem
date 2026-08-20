@@ -11,7 +11,7 @@
 //   ・退場 AScene を **3 フレーム保持** (= フレームインフライト 2 + 1) する ring
 //     buffer。GPU が直前フレームで参照中のリソースの use-after-free を防ぐ
 //   ・Push 時に旧 top の OnPause、Pop 時に新 top の OnResume を呼ぶ
-//   ・OnFixedUpdate を CGame の accumulator から呼び込めるよう _FixedUpdate
+//   ・OnFixedUpdate を CGame の固定時計から実行アダプター経由で呼び込む
 #pragma once
 
 #include "container/Array.h"
@@ -22,12 +22,14 @@
 namespace acs::game {
 
 class FRenderContext;
+class IInputStateView;
+struct FFixedStepInputBufferSnapshot;
 
 /**
  * TUniquePtr<AScene> のスタックを管理し、top のシーンを毎フレーム駆動するマネージャ。
  *
  * @details
- * 遷移要求 (Change/Push/Pop) はフレーム境界まで遅延し、_ApplyPending で適用するため、
+ * 遷移要求 (Change/Push/Pop) はフレーム境界まで遅延し、実行アダプターで適用するため、
  * 走査中 (Update/Render 内) からの構造変更が安全。1 フレーム 1 遷移で、複数要求が来た場合は
  * 後勝ち。退場した AScene は GPU が直前フレームで参照中のリソースを use-after-free しないよう、
  * ring buffer で 3 フレーム (フレームインフライト 2 + 1) 保持してから破棄する。Push 時には
@@ -50,7 +52,7 @@ public:
     /**
      * 現 top を pop して next を push する遷移を要求する (= 単純な画面切替)。
      *
-     * @details 即時適用せず次フレーム頭の _ApplyPending で実行する。pending が既に立っていれば
+     * @details 即時適用せず次フレーム頭の実行アダプターで実行する。pending が既に立っていれば
      * 上書きする (後勝ち)。next が nullptr の場合は警告ログを出して無視する。
      * @param next 切り替え先のシーン (所有権が移る)。
      */
@@ -111,6 +113,12 @@ public:
      */
     u32     Depth() const noexcept;
 
+    /** active sceneが切り替わるたびに進むprocess内epochを返す。 */
+    u64 ActiveSceneEpoch() const noexcept
+    {
+        return m_ActiveSceneEpoch;
+    }
+
     /**
      * スタックが空かを返す。
      *
@@ -118,54 +126,110 @@ public:
      */
     bool    IsEmpty() const noexcept { return m_Stack.IsEmpty(); }
 
-    /**
-     * フレーム頭で保留中の遷移を適用する。
-     *
-     * @details ring buffer を 1 つ前進させて 3 フレーム前に退場した AScene を破棄したのち、
-     * pending op (Change/Push/Pop) を実行する。退場 AScene は GPU が直前フレームで参照中の
-     * リソースを破棄しないよう ring buffer で 3 フレーム (フレームインフライト 2 + 1) 保持される。
-     * @param game シーンに紐付ける CGame コンテキスト。
-     */
-    void _ApplyPending(CGame& game) noexcept;
+    /** active sceneの未消費固定入力を保存値へ複製する。 */
+    bool TryCaptureActiveFixedInputSnapshot(FFixedStepInputBufferSnapshot& snapshot) const noexcept;
 
-    /**
-     * top のシーンに可変刻み dt を流す。
-     *
-     * @details services PreUpdate → World PreUpdate → OnUpdate → services PostUpdate
-     * → World PostUpdate の順で駆動する。Clock 未要求なら raw dt をそのまま渡す。
-     * @param dt 前フレームからの経過秒。
-     */
-    void _Update(f32 ScaledDeltaSeconds, f32 UnscaledDeltaSeconds, u64 FrameNumber) noexcept;
+    /** active sceneの未消費固定入力を保存値から復元する。 */
+    bool TryRestoreActiveFixedInputSnapshot(const FFixedStepInputBufferSnapshot& snapshot) noexcept;
 
-    /**
-     * top のシーンに固定刻み fixed_dt を流す。
-     *
-     * @details CGame の accumulator から 1 フレームに複数回呼ばれる可能性がある。
-     * @param fixed_dt 固定刻みの秒。
-     */
-    void _FixedUpdate(f32 fixed_dt) noexcept;
+    /** 内部駆動処理を明示的に呼び出す非所有アダプター。 */
+    class FExecutionAdapter final {
+    public:
+        /** 呼び出し先のシーン管理器を保持する。 */
+        explicit FExecutionAdapter(CSceneManager& manager) noexcept : m_Manager(manager)
+        {
+        }
 
-    /**
-     * top のシーンを描画する。
-     *
-     * @param rc 描画コマンドを積む先のレンダーコンテキスト (呼び出し側が用意)。
-     */
-    void _Render(FRenderContext& rc) noexcept;
+        /** 保留中のシーン遷移をフレーム境界で適用する。 */
+        void ApplyPending(CGame& game) noexcept
+        {
+            m_Manager.ApplyPending_Internal(game);
+        }
 
-    /**
-     * 受け取った FEvent を top のシーンへ配送する。
-     *
-     * @param e 配送するイベント。
-     */
-    void _DispatchEvent(const FEvent& e) noexcept;
+        /** topシーンへ一フレーム分の入力を提出する。 */
+        bool SubmitFrameInput(const IInputStateView& input) noexcept
+        {
+            return m_Manager.SubmitFrameInput_Internal(input);
+        }
 
-    /** 終了処理。残った全シーンに top から OnExit を呼んでから破棄する。 */
-    void _ShutdownAll() noexcept;
+        /** topシーンの未消費固定入力を初期化する。 */
+        void ResetFixedInput() noexcept
+        {
+            m_Manager.ResetFixedInput_Internal();
+        }
+
+        /** topシーンへ可変刻み更新を流す。 */
+        void Update(f32 scaled_delta_seconds, f32 unscaled_delta_seconds, u64 frame_number) noexcept
+        {
+            m_Manager.Update_Internal(scaled_delta_seconds, unscaled_delta_seconds, frame_number);
+        }
+
+        /** topシーンへ固定刻み更新を流す。 */
+        void FixedUpdate(f32 fixed_delta_seconds) noexcept
+        {
+            m_Manager.FixedUpdate_Internal(fixed_delta_seconds);
+        }
+
+        /** topシーンを描画する。 */
+        void Render(FRenderContext& context) noexcept
+        {
+            m_Manager.Render_Internal(context);
+        }
+
+        /** topシーンへイベントを配送する。 */
+        void DispatchEvent(const FEvent& event) noexcept
+        {
+            m_Manager.DispatchEvent_Internal(event);
+        }
+
+        /** 全シーンを終了して破棄する。 */
+        void ShutdownAll() noexcept
+        {
+            m_Manager.ShutdownAll_Internal();
+        }
+
+    private:
+        /** 呼び出し先のシーン管理器。 */
+        CSceneManager& m_Manager;
+    };
+
+    /** 実行ループ用アダプターを返す。 */
+    FExecutionAdapter ExecutionAccess() noexcept
+    {
+        return FExecutionAdapter(*this);
+    }
 
     /** 退場 AScene を保持するフレーム数 (= フレームインフライト 2 + 1)。 */
     static constexpr u32 kRetireRingSize = 3;
 
 private:
+    /** active scene境界の世代を進め、使い切った場合は照合不能な0へ移す。 */
+    void AdvanceActiveSceneEpoch_Internal() noexcept;
+
+    /** フレーム頭で保留中の遷移を適用する内部処理。 */
+    void ApplyPending_Internal(CGame& game) noexcept;
+
+    /** topシーンへ一フレーム分の入力を提出する内部処理。 */
+    bool SubmitFrameInput_Internal(const IInputStateView& input) noexcept;
+
+    /** topシーンの未消費固定入力を初期化する内部処理。 */
+    void ResetFixedInput_Internal() noexcept;
+
+    /** topシーンへ可変刻み更新を流す内部処理。 */
+    void Update_Internal(f32 scaled_delta_seconds, f32 unscaled_delta_seconds, u64 frame_number) noexcept;
+
+    /** topシーンへ固定刻み更新を流す内部処理。 */
+    void FixedUpdate_Internal(f32 fixed_delta_seconds) noexcept;
+
+    /** topシーンを描画する内部処理。 */
+    void Render_Internal(FRenderContext& context) noexcept;
+
+    /** topシーンへイベントを配送する内部処理。 */
+    void DispatchEvent_Internal(const FEvent& event) noexcept;
+
+    /** 全シーンを終了して破棄する内部処理。 */
+    void ShutdownAll_Internal() noexcept;
+
     /** 保留中の遷移種別。 */
     enum class EOp : u8 { None, Change, Push, Pop };
 
@@ -206,7 +270,10 @@ private:
     TUniquePtr<AScene>       m_Retired[kRetireRingSize];
 
     /** ring buffer の現在ヘッド (次に release するスロット)。 */
-    u32                     m_RetireHead  = 0;
+    u32 m_RetireHead = 0;
+
+    /** active sceneの実効的な切替ごとに進む世代。0は使い切りを表す。 */
+    u64 m_ActiveSceneEpoch = 1u;
 };
 
 } // namespace acs::game

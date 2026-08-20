@@ -15,7 +15,7 @@ public sealed class GameFramework : AcsModule
         // cinematics 配下もGameFrameworkの通常ソースとして収集する。
         PublicDeps.AddRange(new[]
         {
-            "Foundation", "Memory", "Container", "Subsystem", "Threading", "Math", "Platform", "Render", "App", "Asset",
+            "Foundation", "Memory", "Container", "Subsystem", "Threading", "Timing", "Math", "Platform", "Render", "App", "Asset",
             // RollbackSession (World スナップショット履歴 + 入力台帳の rollback netcode 統合層) が
             // acs::World / FRollbackBuffer を使う。
             "Ecs",

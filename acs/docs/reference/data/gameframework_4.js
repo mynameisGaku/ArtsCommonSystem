@@ -148,6 +148,7 @@ ACS_REF.modules.push({
         { sig: "f32 dead_zone = 0", desc: "絶対値がこの値以下なら0。有効範囲は0以上1未満。" },
         { sig: "f32 scale = 1", desc: "再正規化後の絶対値へ掛ける有限の非負倍率。" },
         { sig: "bool inverted = false", desc: "trueなら出力方向を反転。" },
+        { sig: "bool IsValid() const noexcept", desc: "dead_zoneとscaleが有限かつ有効範囲ならtrue。" },
         { sig: "f32 Apply(f32 value) const noexcept", ret: "[-1,+1]", desc: "有限入力を制限して設定を適用。不正設定または非有限入力は0。" }
       ]
     },
@@ -155,13 +156,16 @@ ACS_REF.modules.push({
       name: "FInputMap",
       kind: "クラス", header: "gameframework/InputMap.h",
       summary: "物理キー/マウス/ゲームパッドを「Jump」「MoveX」のような<b>名前付きアクション</b>に束ねるマッピング層。ゲームロジックが物理キーから切り離され、キーコンフィグ UI も後付けできる。",
-      when: "「スペース or ゲームパッド A = ジャンプ」のように 1 アクションへ複数入力を割り当てたい時。状態は持たず、問い合わせ時に <code>acs::CInput</code> を poll する。",
+      when: "「W / 左stick = MoveForward」のように 1 actionへ複数入力を割り当てたい時。通常queryはplatform入力を読み、replay・AI・testでは明示snapshotをEvaluateへ渡す。",
       sample: "FInputMap im;\nim.BindKey    (FActionId(\"Jump\"),  EKey::Space);\nim.BindGamepad(FActionId(\"Jump\"),  EGamepadButton::A);\nim.BindAxisKeys(FActionId(\"MoveX\"), EKey::A, EKey::D);\nif (im.IsPressed(FActionId(\"Jump\"))) DoJump();\nf32 mx = im.Axis(FActionId(\"MoveX\")); // -1, 0, +1",
       members: [
         { sig: "void BindKey(FActionId a, EKey key)", desc: "キーボードのキーをアクションに割り当てる。" },
         { sig: "void BindMouseButton(FActionId a, EMouseButton mb)", desc: "マウスボタンを割り当てる。" },
         { sig: "void BindGamepad(FActionId a, EGamepadButton gb, u32 player_index = 0)", desc: "ゲームパッドボタンを割り当てる。" },
         { sig: "void BindAxisKeys(FActionId a, EKey neg, EKey pos)", desc: "2 キーで -1/+1 の 1D 軸を作る (例: A=-1, D=+1)。両押しは 0。" },
+        { sig: "bool TryBindGamepadAxis(FActionId a, EGamepadAxis axis, u32 player, const FInputAxisOptions& options)", desc: "3D移動や視点用axisを検証して割り当てる。不正設定ではbindingを変更しない。" },
+        { sig: "FInputActionState Evaluate(FActionId a, const IInputStateView& input) const", desc: "明示入力からedge・保持・合成axisを一度に評価する。deviceやWorldへ依存しない。" },
+        { sig: "u32 BindingCount() const", desc: "現在の物理binding数。" },
         { sig: "void Unbind(FActionId a) / void ClearAll()", desc: "指定アクションの全割り当てを削除 / 全削除。" },
         { sig: "bool IsPressed(FActionId a) const", desc: "このフレームで押された瞬間か (OR セマンティクス: どれか 1 つでも該当で true)。" },
         { sig: "bool IsHeld(FActionId a) const", desc: "押されているか。" },
@@ -169,6 +173,71 @@ ACS_REF.modules.push({
         { sig: "f32 Axis(FActionId a) const", ret: "[-1,+1]", desc: "1D 軸値。複数 axis 割り当ては累積して clamp(-1,+1)。" },
         { sig: "f32 AxisValue(FActionId a, FInputAxisOptions options) const", ret: "[-1,+1]", desc: "既存Axisの合算値へ検査済みのデッドゾーン、倍率、反転を後処理。" }
       ]
+    },
+    {
+      name: "FInputActionState",
+      kind: "構造体", header: "gameframework/InputActionState.h",
+      summary: "一つの名前付きactionを一入力時点から評価した結果。押下・保持・解放と、[-1,+1]の合成axisをまとめて持つ。",
+      when: "固定tickの移動、姿勢、視点、決定などを <code>FInputMap::Evaluate</code> から受け取る時。"
+    },
+    {
+      name: "IInputStateView",
+      kind: "インターフェース", header: "gameframework/InputStateView.h",
+      summary: "名前付きactionの評価に必要なキー、マウスボタン、ゲームパッド状態を読む境界。",
+      when: "platform、AI、replay、testの入力を同じ <code>FInputMap</code> へ渡したい時。"
+    },
+    {
+      name: "FInputStateSnapshot",
+      kind: "クラス", header: "gameframework/InputStateSnapshot.h",
+      summary: "一入力時点の物理入力を所有する値。同じsnapshotとinput mapから同じaction結果を再現できる。setterは範囲外値を拒否する。",
+      when: "deviceなしのtest、AI入力、replay、rollback用に入力状態を明示して保持する時。",
+      members: [
+        { sig: "void Clear()", desc: "全入力を離された初期状態へ戻す。" },
+        { sig: "bool TrySetKeyState(...) / TrySetMouseButtonState(...) / TrySetGamepadButtonState(...)", desc: "保持と今回の押下・解放を検証して設定する。" },
+        { sig: "bool TrySetGamepadAxis(u32 player, EGamepadAxis axis, f32 value)", desc: "正規化済みaxisを設定する。非有限値と範囲外値は拒否する。" }
+      ]
+    },
+    {
+      name: "FFixedStepInputBuffer",
+      kind: "クラス", header: "gameframework/FixedStepInputBuffer.h",
+      summary: "可変frame入力を固定tickへ渡す状態保持器。最新の保持状態・axisと、未消費の押下・解放を分けて管理する。",
+      when: "短いtapを固定更新まで保持し、catch-up中の同じedgeを一度だけ通知したい時。",
+      members: [
+        { sig: "bool TryPushFrame(const IInputStateView& input)", desc: "frame入力を蓄積する。不正入力では既存状態を保つ。" },
+        { sig: "bool TryConsumeFixedStep(FInputStateSnapshot& out)", desc: "固定tick用snapshotを返し、押下・解放だけを消費する。" },
+        { sig: "bool TryCaptureSnapshot(...) / bool TryRestoreSnapshot(...)", desc: "未消費入力を保存・復元する。" },
+        { sig: "using CFixedStepInputBuffer = FFixedStepInputBuffer", desc: "旧名向け互換別名。" }
+      ]
+    },
+    {
+      name: "FFixedStepInputBufferSnapshot",
+      kind: "構造体", header: "gameframework/FixedStepInputBufferSnapshot.h",
+      summary: "固定入力bufferの未消費入力と初期化状態を所有する保存値。",
+      when: "固定更新位置をrollbackするため、入力edgeを時計と一緒に保存する時。"
+    },
+    {
+      name: "IInputFrameSource",
+      kind: "インターフェース", header: "gameframework/InputFrameSource.h",
+      summary: "描画frameごとの所有snapshotをCGameへ供給する非所有の差し替え境界。",
+      when: "Player以外のAI入力やheadless test入力を固定更新まで蓄積したい時。"
+    },
+    {
+      name: "IFixedTickInputSource",
+      kind: "インターフェース", header: "gameframework/FixedTickInputSource.h",
+      summary: "0起点の固定tick番号ごとに決定論入力snapshotをCGameへ供給する非所有の差し替え境界。",
+      when: "replay、rollback、network lockstepでtick入力を再発行したい時。"
+    },
+    {
+      name: "FFixedStepRuntimeSnapshot",
+      kind: "構造体", header: "gameframework/FixedStepRuntimeSnapshot.h",
+      summary: "固定時計とactive sceneの未消費入力を同じ復元境界で保持するprocess内保存値。取得元game・scene・sourceも識別する。",
+      when: "同じ実行中gameで固定tickをrollbackし、時計と入力edgeをずらさず復元する時。"
+    },
+    {
+      name: "CPlatformInputStateAdapter",
+      kind: "クラス", header: "gameframework/PlatformInputStateAdapter.h",
+      summary: "現在の <code>CInput</code> を検証済み <code>FInputStateSnapshot</code> へ一度だけ取得するplatformアダプター。",
+      when: "platform入力を明示snapshotとして評価・蓄積する時。通常はCGameが自動で使う。"
     },
     {
       name: "FActionId",
@@ -208,6 +277,18 @@ ACS_REF.modules.push({
         { sig: "TResult<void> SaveToBuffer(u8* buf, u32 size, u32& out_written)", desc: "現在のサンプルを <code>.acsr</code> レイアウトでバッファに書き出す (CRC32 付き、round-trip 検証済み)。" },
         { sig: "TResult<void> LoadFromBuffer(const u8* buf, u32 size)", desc: "<code>.acsr</code> バッファを検証してサンプルを置換復元する。" },
         { sig: "using FInputRecorder = CInputRecorder", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CInputRecorder</code> を使う。" }
+      ]
+    },
+    {
+      name: "CInputRecorderFixedTickSource",
+      kind: "クラス", header: "gameframework/InputRecorderFixedTickSource.h",
+      summary: "<code>CInputRecorder</code> のraw key・mouse button sample列を固定tick入力へ変換する非所有アダプター。巻き戻し要求では先頭から状態を再構築する。",
+      when: "既存のraw入力記録を <code>CGame::SetFixedTickInputSource</code> へ接続し、3D操作やgame logicを同じtickで再生する時。",
+      members: [
+        { sig: "CInputRecorderFixedTickSource(const CInputRecorder&, FInputSampleKeyDecoder)", desc: "recorderとplatform固有raw key decoderを非所有参照で保持する。" },
+        { sig: "bool TryCaptureFixedTickInput(u64 tick, FInputStateSnapshot& out)", desc: "指定tickまでの変化を適用する。不正sampleでは状態と出力を保つ。" },
+        { sig: "void Reset() / u32 TickRateHz() const", desc: "読み取り位置を初期化 / 記録時tick rateを取得する。" },
+        { sig: "using FInputRecorderFixedTickSource = CInputRecorderFixedTickSource", desc: "旧名向け互換別名。" }
       ]
     },
     {

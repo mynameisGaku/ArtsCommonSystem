@@ -5,10 +5,16 @@
 
 namespace acs::game {
 
+/** 設定値が有限かつ公開範囲内ならtrueを返す。 */
+bool FInputAxisOptions::IsValid() const noexcept
+{
+    return std::isfinite(dead_zone) && dead_zone >= 0.0f && dead_zone < 1.0f && std::isfinite(scale) && scale >= 0.0f;
+}
+
 /** 有限範囲を検査し、デッドゾーン外を再正規化して倍率と反転を適用する。 */
 f32 FInputAxisOptions::Apply(f32 value) const noexcept
 {
-    if (!std::isfinite(dead_zone) || dead_zone < 0.0f || dead_zone >= 1.0f || !std::isfinite(scale) || scale < 0.0f || !std::isfinite(value)) {
+    if (!IsValid() || !std::isfinite(value)) {
         return 0.0f;
     }
 
