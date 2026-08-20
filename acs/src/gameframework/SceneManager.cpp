@@ -52,6 +52,16 @@ u32 FSceneManager::Depth() const noexcept
     return static_cast<u32>(m_Stack.Size());
 }
 
+/** active scene境界の世代を進め、u64を使い切った後は照合不能な0へ固定する。 */
+void FSceneManager::AdvanceActiveSceneEpoch_Internal() noexcept
+{
+    if (m_ActiveSceneEpoch == 0u || m_ActiveSceneEpoch == ~u64{0}) {
+        m_ActiveSceneEpoch = 0u;
+        return;
+    }
+    ++m_ActiveSceneEpoch;
+}
+
 /** 内部 push: 旧 top を任意で OnPause し、next に context/services を attach して OnEnter する。 */
 void FSceneManager::DoPushInternal(FGame& game, TUniquePtr<FScene> next, bool pause_current) noexcept
 {
@@ -70,6 +80,7 @@ void FSceneManager::DoPushInternal(FGame& game, TUniquePtr<FScene> next, bool pa
     // World スコープのサブシステムを初期化(parent = GameInstance → Engine)。OnEnter より前。
     next->_InitWorldSubsystems(&game.GameInstanceSubsystems());
     m_Stack.PushBack(Move(next));
+    AdvanceActiveSceneEpoch_Internal();
     m_Stack.Back()->OnEnter();
 }
 
@@ -83,6 +94,7 @@ void FSceneManager::DoPopInternal(bool resume_new) noexcept
     // ヘッドは _ApplyPending の冒頭で前進 + 古いスロット解放済。
     m_Retired[m_RetireHead] = Move(m_Stack.Back());
     m_Stack.PopBack();
+    AdvanceActiveSceneEpoch_Internal();
     // 新 top を OnResume (Pop 時のみ。Change は次の Push が走るので skip)
     if (resume_new && !m_Stack.IsEmpty()) {
         ResetFixedInput_Internal();
@@ -231,6 +243,7 @@ void FSceneManager::ShutdownAll_Internal() noexcept
         m_Stack.Back()->OnExit();
         m_Stack.Back()->_DeinitWorldSubsystems(); // World サブシステムも解体
         m_Stack.PopBack();
+        AdvanceActiveSceneEpoch_Internal();
     }
     for (u32 i = 0; i < kRetireRingSize; ++i) {
         m_Retired[i].Reset();

@@ -52,7 +52,8 @@ if (clock.Configure(options)) {
 - `TrySetFixedTimestep(options)` は蓄積上限を含む完全な設定を検証し、失敗時は現状態を維持します。
 - `TryCaptureFixedStepSnapshot` / `TryRestoreFixedStepSnapshot` で固定更新位置を保存・復元できます。
 - `TryCaptureFixedStepRuntimeSnapshot` / `TryRestoreFixedStepRuntimeSnapshot` は固定時計に加え、
-  active scene が次の tick へ繰り越す入力と固定更新の有効状態を一括保存・復元します。
+  active scene が次の tick へ繰り越す入力と固定更新の有効状態を一括保存・復元します。同じ
+  `FGame`、active scene、入力source結線でだけ復元でき、境界不一致では現状態を維持します。
 - `SetFixedStepInputSource`は描画フレーム入力の取得元をAI、headless testへ差し替えます。
 - `SetFixedTickInputSource`は固定tick入力の取得元をreplay、rollbackへ差し替えます。catch-upでも
   tickごとに呼ばれ、時計snapshot復元後は同じtick番号を再要求します。
@@ -65,3 +66,4 @@ if (clock.Configure(options)) {
 時計 snapshot が扱うのは固定更新時計だけです。完全な replay や rollback では、シーンや
 ゲーム状態の snapshot も同じフレーム境界で保存・復元してください。通常の `FGame` では
 `FFixedStepRuntimeSnapshot` を使うと時計と未消費入力の境界ずれを防げます。
+これはprocess内のrollback値であり、永続化や別`FGame`への移送を行う形式ではありません。

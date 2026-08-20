@@ -13,10 +13,33 @@
 #include "app/Sample.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"
+#include "threading/Atomic.h"
 
 #include <cmath>
 
 namespace acs::game {
+
+namespace {
+
+/** FGame instanceへ重複せず割り当てるprocess内runtime token。 */
+TAtomic<u64> g_NextFixedStepRuntimeOwnerToken{1u};
+
+/** process内で一意なruntime tokenを取得し、u64を使い切った場合は0を返す。 */
+u64 AcquireFixedStepRuntimeOwnerToken() noexcept
+{
+    u64 current = g_NextFixedStepRuntimeOwnerToken.Load(EMemoryOrder::Acquire);
+    for (;;) {
+        if (current == 0u || current == ~u64{0}) return 0u;
+        if (g_NextFixedStepRuntimeOwnerToken.CompareExchange(current, current + 1u)) return current;
+    }
+}
+
+} // namespace
+
+/** runtime snapshotの復元先を識別するprocess内tokenを割り当てる。 */
+FGame::FGame() noexcept : m_FixedStepRuntimeOwnerToken(AcquireFixedStepRuntimeOwnerToken())
+{
+}
 
 /** 最大回数を実行した後も 1 step 未満の剰余を残せる蓄積上限を求める。 */
 static f64 FixedStepCapacity(f64 step_seconds, u32 maximum_steps) noexcept
@@ -80,6 +103,14 @@ bool FGame::TryRestoreFixedStepSnapshot(const FFixedStepClockSnapshot& snapshot)
 bool FGame::TryCaptureFixedStepRuntimeSnapshot(FFixedStepRuntimeSnapshot& snapshot) const noexcept
 {
     FFixedStepRuntimeSnapshot candidate{};
+    candidate.runtime_owner_token = m_FixedStepRuntimeOwnerToken;
+    candidate.active_scene_epoch = m_Scenes.ActiveSceneEpoch();
+    candidate.input_source_epoch = m_FixedInputSourceEpoch;
+    const u64 owner_token = candidate.runtime_owner_token;
+    const u64 scene_epoch = candidate.active_scene_epoch;
+    const u64 source_epoch = candidate.input_source_epoch;
+    const bool has_runtime_identity = owner_token != 0u && scene_epoch != 0u && source_epoch != 0u;
+    if (!has_runtime_identity) return false;
     candidate.fixed_step_enabled = m_FixedStepEnabled;
     if (!m_FixedStepClock.TryCaptureSnapshot(candidate.clock)) return false;
     if (!m_Scenes.TryCaptureActiveFixedInputSnapshot(candidate.input)) return false;
@@ -90,6 +121,14 @@ bool FGame::TryCaptureFixedStepRuntimeSnapshot(FFixedStepRuntimeSnapshot& snapsh
 /** 時計を隔離検証し、入力復元の成功後に固定実行状態を一括反映する。 */
 bool FGame::TryRestoreFixedStepRuntimeSnapshot(const FFixedStepRuntimeSnapshot& snapshot) noexcept
 {
+    const u64 owner_token = snapshot.runtime_owner_token;
+    const u64 scene_epoch = snapshot.active_scene_epoch;
+    const u64 source_epoch = snapshot.input_source_epoch;
+    const bool same_runtime_owner = owner_token != 0u && owner_token == m_FixedStepRuntimeOwnerToken;
+    const bool same_active_scene = scene_epoch != 0u && scene_epoch == m_Scenes.ActiveSceneEpoch();
+    const bool same_input_source = source_epoch != 0u && source_epoch == m_FixedInputSourceEpoch;
+    if (!same_runtime_owner || !same_active_scene || !same_input_source) return false;
+
     FFixedStepClock validated_clock;
     if (!validated_clock.TryRestoreSnapshot(snapshot.clock)) return false;
     if (!m_Scenes.TryRestoreActiveFixedInputSnapshot(snapshot.input)) return false;
@@ -98,12 +137,23 @@ bool FGame::TryRestoreFixedStepRuntimeSnapshot(const FFixedStepRuntimeSnapshot& 
     return true;
 }
 
+/** 入力source境界の世代を進め、u64を使い切った後は照合不能な0へ固定する。 */
+void FGame::AdvanceFixedInputSourceEpoch_Internal() noexcept
+{
+    if (m_FixedInputSourceEpoch == 0u || m_FixedInputSourceEpoch == ~u64{0}) {
+        m_FixedInputSourceEpoch = 0u;
+        return;
+    }
+    ++m_FixedInputSourceEpoch;
+}
+
 /** 入力ソースを切り替え、以前の取得元から残った未消費入力を破棄する。 */
 void FGame::SetFixedStepInputSource(IInputFrameSource& source) noexcept
 {
     if (m_FixedStepInputSource == &source && m_FixedTickInputSource == nullptr) return;
     m_FixedStepInputSource = &source;
     m_FixedTickInputSource = nullptr;
+    AdvanceFixedInputSourceEpoch_Internal();
     m_Scenes.ExecutionAccess().ResetFixedInput();
 }
 
@@ -113,6 +163,7 @@ void FGame::SetFixedTickInputSource(IFixedTickInputSource& source) noexcept
     if (m_FixedTickInputSource == &source && m_FixedStepInputSource == nullptr) return;
     m_FixedTickInputSource = &source;
     m_FixedStepInputSource = nullptr;
+    AdvanceFixedInputSourceEpoch_Internal();
     m_Scenes.ExecutionAccess().ResetFixedInput();
 }
 
@@ -122,6 +173,7 @@ void FGame::ResetFixedStepInputSource() noexcept
     if (m_FixedStepInputSource == nullptr && m_FixedTickInputSource == nullptr) return;
     m_FixedStepInputSource = nullptr;
     m_FixedTickInputSource = nullptr;
+    AdvanceFixedInputSourceEpoch_Internal();
     m_Scenes.ExecutionAccess().ResetFixedInput();
 }
 

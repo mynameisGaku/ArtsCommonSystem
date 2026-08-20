@@ -84,6 +84,15 @@ public:
     u32 Depth() const noexcept;
 
     /**
+     * active sceneが切り替わるたびに進むprocess内epochを返す。
+     * @return 現在のepoch。0は世代を使い切りsnapshot照合不能になった状態。
+     */
+    u64 ActiveSceneEpoch() const noexcept
+    {
+        return m_ActiveSceneEpoch;
+    }
+
+    /**
      * スタックが空かを返す。
      *
      * @return 1 枚もシーンが無ければ true。
@@ -111,6 +120,9 @@ public:
     static constexpr u32 kRetireRingSize = 3;
 
 private:
+    /** active scene境界の世代を進め、使い切った場合は照合不能な0へ移す。 */
+    void AdvanceActiveSceneEpoch_Internal() noexcept;
+
     /** フレーム頭で保留中の遷移を適用する内部処理。 */
     void ApplyPending_Internal(FGame& game) noexcept;
 
@@ -242,6 +254,9 @@ private:
 
     /** ring buffer の現在ヘッド (次に release するスロット)。 */
     u32 m_RetireHead = 0;
+
+    /** active sceneの実効的な切替ごとに進む世代。0は使い切りを表す。 */
+    u64 m_ActiveSceneEpoch = 1u;
 };
 
 } // namespace acs::game

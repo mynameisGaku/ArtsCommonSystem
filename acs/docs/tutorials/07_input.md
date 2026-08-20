@@ -120,7 +120,8 @@ recorderを再読み込み・録画・clearした場合は`replay_source.Reset()
 
 rollback では `FFixedStepRuntimeSnapshot` を使うと、固定時計、active scene の未消費入力、
 固定更新の有効状態を同じ境界で保存・復元できます。シーン本体や乱数の状態も別途同じ
-境界で保存してください。
+境界で保存してください。このsnapshotは取得元`FGame`のprocess内rollback専用で、scene遷移や
+frame/tick入力sourceの切替後はtransaction全体を変更せず復元を拒否します。
 
 ---
 

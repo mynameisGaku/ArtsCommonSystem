@@ -47,8 +47,8 @@ class IInputFrameSource;
  */
 class FGame : public FApplication {
 public:
-    /** 既定状態で構築する。 */
-    FGame() noexcept = default;
+    /** 固定step runtime snapshot用のprocess内owner tokenを割り当てて構築する。 */
+    FGame() noexcept;
 
     /** 破棄する。 */
     ~FGame() noexcept override = default;
@@ -193,6 +193,7 @@ public:
 
     /**
      * 固定時計と active scene の未消費入力を同じ保存値へ複製する。
+     * @details 保存値はprocess内の同じFGame、active scene、入力source結線でだけ復元できる。
      * @param snapshot 時計、入力、固定更新の有効状態を受け取る保存先。
      * @return 全状態を取得できた場合は true。失敗時は snapshot を変更しない。
      */
@@ -200,6 +201,7 @@ public:
 
     /**
      * 固定時計と active scene の未消費入力を一括復元する。
+     * @details 取得元FGame、active scene、入力source結線のいずれかが異なる場合は拒否する。
      * @param snapshot 復元する時計、入力、固定更新の有効状態。
      * @return 全状態を復元できた場合は true。失敗時は現在状態を変更しない。
      */
@@ -334,6 +336,9 @@ protected:
     void OnEvent(const FEvent& e) noexcept override;
 
 private:
+    /** 入力source結線の世代を進め、使い切った場合はsnapshot取得不能な0へ移す。 */
+    void AdvanceFixedInputSourceEpoch_Internal() noexcept;
+
     /** 初回 OnRender で default UI フォントを遅延ロードする。 */
     void EnsureUiFont() noexcept;
 
@@ -396,6 +401,12 @@ private:
 
     /** replay、rollbackが所有する固定tick入力ソース。frame入力ソースとは排他的に使う。 */
     IFixedTickInputSource* m_FixedTickInputSource = nullptr;
+
+    /** このFGameだけへruntime snapshotを復元するためのprocess内識別token。 */
+    u64 m_FixedStepRuntimeOwnerToken = 0u;
+
+    /** frame/tick入力sourceの実効的な切替ごとに進む世代。0は使い切りを表す。 */
+    u64 m_FixedInputSourceEpoch = 1u;
 };
 
 } // namespace acs::game

@@ -425,7 +425,7 @@ ACS_REF.modules.push({
         { sig: "void SetFixedStepInputSource(IInputFrameSource& source)", desc: "描画フレーム入力の取得元をAI・headless testへ差し替える。" },
         { sig: "void SetFixedTickInputSource(IFixedTickInputSource& source) / void ResetFixedStepInputSource()", desc: "固定tick入力の取得元をreplay・rollbackへ差し替える / 既定のplatform入力へ戻す。" },
         { sig: "bool TryCaptureFixedStepSnapshot(FFixedStepClockSnapshot& out) const / bool TryRestoreFixedStepSnapshot(const FFixedStepClockSnapshot& snapshot)", desc: "固定時計の設定・剰余・統計を検証付きで保存 / 復元する。" },
-        { sig: "bool TryCaptureFixedStepRuntimeSnapshot(FFixedStepRuntimeSnapshot& out) const / bool TryRestoreFixedStepRuntimeSnapshot(const FFixedStepRuntimeSnapshot& snapshot)", desc: "固定時計、active scene の未消費入力、固定更新の有効状態を一括保存 / 復元する。" },
+        { sig: "bool TryCaptureFixedStepRuntimeSnapshot(FFixedStepRuntimeSnapshot& out) const / bool TryRestoreFixedStepRuntimeSnapshot(const FFixedStepRuntimeSnapshot& snapshot)", desc: "固定時計、active scene の未消費入力、固定更新の有効状態を一括保存 / 復元する。取得元FGame、active scene、入力source結線の不一致は変更なしで拒否する。" },
         { sig: "T& EmplaceAppState<T>(args...) / T* AppState<T>()", desc: "シーン跨ぎで残る永続状態を構築 / 取り出す (型消去、1 個)。未設定・型不一致は nullptr。", when: "プレイヤー所持金やセーブデータをシーン間で持ち回りたい時。" },
         { sig: "void TransitionTo(TUniquePtr<FScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f)", desc: "フェードアウト → シーン切替 → フェードインを 1 行で行う。フェードは実時間で進む。" },
         { sig: "FFadeTransition& Fade()", desc: "進行中のフェード状態を参照する。" }
@@ -473,8 +473,13 @@ ACS_REF.modules.push({
     {
       name: "FFixedStepRuntimeSnapshot",
       kind: "構造体", header: "gameframework/FixedStepRuntimeSnapshot.h",
-      summary: "FGame の固定時計、active scene の未消費入力、固定更新の有効状態を同じ境界で所有する保存値。",
-      when: "固定 tick の replay や rollback で、時計と短い入力エッジを transactional に復元したい時。"
+      summary: "FGame の固定時計、active scene の未消費入力、固定更新の有効状態とprocess内の復元先tokenを同じ境界で所有する保存値。",
+      when: "同じFGame・active scene・入力source結線の固定 tick rollbackで、時計と短い入力エッジをtransactionalに復元したい時。永続化や別gameへの移送には使わない。",
+      members: [
+        { sig: "u64 runtime_owner_token / active_scene_epoch / input_source_epoch", desc: "取得元と実行境界をprocess内で照合するtoken。0または現在値との不一致では復元を拒否する。" },
+        { sig: "FFixedStepClockSnapshot clock / FFixedStepInputBufferSnapshot input", desc: "固定時計とactive sceneの未消費入力。" },
+        { sig: "bool fixed_step_enabled", desc: "取得時に固定更新が有効だったか。" }
+      ]
     },
     {
       name: "ACS_GAME_MAIN",

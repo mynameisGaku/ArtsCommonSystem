@@ -249,6 +249,7 @@ Elastic/Bounce の In/Out/InOut、および SmoothStep/SmootherStep を安定し
   `FInputRecorderFixedTickSource`でこの境界へ接続できる。
   `Services().FixedInput()` から読み、Pressed/Released は catch-up の最初の tick だけで消費する。
 - `FFixedStepRuntimeSnapshot` は固定時計、未消費入力、固定更新の有効状態を一括保存・復元する。
+  process内の同じ`FGame`、active scene、入力source結線に限定し、境界不一致は変更なしで拒否する。
 - 名前付きアクションを物理入力（キー/マウス/ゲームパッド）に束ねる。1 アクションに
   複数バインド可。プレイヤー番号対応。
 - デジタルアクション（`Pressed/Held/Released`）とアナログアクション/軸

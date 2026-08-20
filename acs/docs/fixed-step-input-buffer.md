@@ -29,6 +29,9 @@ buffer.TryRestoreSnapshot(saved);
 `FGame`配下では`FFixedStepRuntimeSnapshot`と
 `TryCaptureFixedStepRuntimeSnapshot` / `TryRestoreFixedStepRuntimeSnapshot`を使うと、
 固定時計とactive sceneの未消費入力を一つのtransactionとして扱えます。
+この保存値はprocess内の取得元`FGame`専用です。active sceneまたはframe/tick入力sourceの結線が
+変わった後は復元を拒否し、現在の時計と入力を維持します。ファイル保存や別gameへの移送には
+simulation用の永続形式を別途使ってください。
 
 ## FGame の入力ソース
 

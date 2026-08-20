@@ -41956,8 +41956,20 @@ private:
 
 namespace acs::game {
 
-/** 固定更新時計と未消費入力を同じ復元境界で保持する保存値。 */
+/**
+ * 固定更新時計と未消費入力を同じ復元境界で保持するprocess内保存値。
+ * 取得元FGame、active scene、入力sourceの境界が変わった場合は復元できない。
+ */
 struct FFixedStepRuntimeSnapshot {
+    /** 取得元FGameを識別するprocess内token。永続化や別FGameへの移送には使わない。 */
+    u64 runtime_owner_token = 0u;
+
+    /** 取得時のactive scene境界。scene遷移後の復元を拒否するために使う。 */
+    u64 active_scene_epoch = 0u;
+
+    /** 取得時のframe/tick入力source結線。source切替後の復元を拒否するために使う。 */
+    u64 input_source_epoch = 0u;
+
     /** 固定更新時計の設定と進行状態。 */
     FFixedStepClockSnapshot clock{};
 
@@ -45862,6 +45874,15 @@ public:
     u32 Depth() const noexcept;
 
     /**
+     * active sceneが切り替わるたびに進むprocess内epochを返す。
+     * @return 現在のepoch。0は世代を使い切りsnapshot照合不能になった状態。
+     */
+    u64 ActiveSceneEpoch() const noexcept
+    {
+        return m_ActiveSceneEpoch;
+    }
+
+    /**
      * スタックが空かを返す。
      *
      * @return 1 枚もシーンが無ければ true。
@@ -45889,6 +45910,9 @@ public:
     static constexpr u32 kRetireRingSize = 3;
 
 private:
+    /** active scene境界の世代を進め、使い切った場合は照合不能な0へ移す。 */
+    void AdvanceActiveSceneEpoch_Internal() noexcept;
+
     /** フレーム頭で保留中の遷移を適用する内部処理。 */
     void ApplyPending_Internal(FGame& game) noexcept;
 
@@ -46020,6 +46044,9 @@ private:
 
     /** ring buffer の現在ヘッド (次に release するスロット)。 */
     u32 m_RetireHead = 0;
+
+    /** active sceneの実効的な切替ごとに進む世代。0は使い切りを表す。 */
+    u64 m_ActiveSceneEpoch = 1u;
 };
 
 } // namespace acs::game
@@ -46361,8 +46388,8 @@ class IInputFrameSource;
  */
 class FGame : public FApplication {
 public:
-    /** 既定状態で構築する。 */
-    FGame() noexcept = default;
+    /** 固定step runtime snapshot用のprocess内owner tokenを割り当てて構築する。 */
+    FGame() noexcept;
 
     /** 破棄する。 */
     ~FGame() noexcept override = default;
@@ -46507,6 +46534,7 @@ public:
 
     /**
      * 固定時計と active scene の未消費入力を同じ保存値へ複製する。
+     * @details 保存値はprocess内の同じFGame、active scene、入力source結線でだけ復元できる。
      * @param snapshot 時計、入力、固定更新の有効状態を受け取る保存先。
      * @return 全状態を取得できた場合は true。失敗時は snapshot を変更しない。
      */
@@ -46514,6 +46542,7 @@ public:
 
     /**
      * 固定時計と active scene の未消費入力を一括復元する。
+     * @details 取得元FGame、active scene、入力source結線のいずれかが異なる場合は拒否する。
      * @param snapshot 復元する時計、入力、固定更新の有効状態。
      * @return 全状態を復元できた場合は true。失敗時は現在状態を変更しない。
      */
@@ -46648,6 +46677,9 @@ protected:
     void OnEvent(const FEvent& e) noexcept override;
 
 private:
+    /** 入力source結線の世代を進め、使い切った場合はsnapshot取得不能な0へ移す。 */
+    void AdvanceFixedInputSourceEpoch_Internal() noexcept;
+
     /** 初回 OnRender で default UI フォントを遅延ロードする。 */
     void EnsureUiFont() noexcept;
 
@@ -46710,6 +46742,12 @@ private:
 
     /** replay、rollbackが所有する固定tick入力ソース。frame入力ソースとは排他的に使う。 */
     IFixedTickInputSource* m_FixedTickInputSource = nullptr;
+
+    /** このFGameだけへruntime snapshotを復元するためのprocess内識別token。 */
+    u64 m_FixedStepRuntimeOwnerToken = 0u;
+
+    /** frame/tick入力sourceの実効的な切替ごとに進む世代。0は使い切りを表す。 */
+    u64 m_FixedInputSourceEpoch = 1u;
 };
 
 } // namespace acs::game

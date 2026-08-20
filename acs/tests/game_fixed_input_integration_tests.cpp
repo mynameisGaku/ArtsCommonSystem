@@ -685,6 +685,103 @@ ACS_TEST(GameFixedInputIntegration, InvalidRuntimeSnapshotPreservesClockAndInput
     ResetPlatformInput();
 }
 
+ACS_TEST(GameFixedInputIntegration, RuntimeSnapshotRejectsDifferentGameWithMatchingSceneShape)
+{
+    ResetPlatformInput();
+    AFixedInputProbeGame source;
+    AFixedInputProbeGame target;
+    source.SetFixedTimestep(0.125f, 4u);
+    target.SetFixedTimestep(0.125f, 4u);
+    source.StartForTest();
+    target.StartForTest();
+
+    FFixedStepRuntimeSnapshot source_snapshot;
+    FFixedStepRuntimeSnapshot target_before;
+    EXPECT_TRUE(source.TryCaptureFixedStepRuntimeSnapshot(source_snapshot));
+    EXPECT_TRUE(target.TryCaptureFixedStepRuntimeSnapshot(target_before));
+    EXPECT_NE(source_snapshot.runtime_owner_token, target_before.runtime_owner_token);
+    EXPECT_EQ(source_snapshot.active_scene_epoch, target_before.active_scene_epoch);
+    EXPECT_EQ(source_snapshot.input_source_epoch, target_before.input_source_epoch);
+    EXPECT_FALSE(target.TryRestoreFixedStepRuntimeSnapshot(source_snapshot));
+
+    FFixedStepRuntimeSnapshot target_after;
+    EXPECT_TRUE(target.TryCaptureFixedStepRuntimeSnapshot(target_after));
+    EXPECT_TRUE(SameClockSnapshot(target_before.clock, target_after.clock));
+    EXPECT_EQ(target_before.runtime_owner_token, target_after.runtime_owner_token);
+    EXPECT_EQ(target_before.active_scene_epoch, target_after.active_scene_epoch);
+    EXPECT_EQ(target_before.input_source_epoch, target_after.input_source_epoch);
+
+    target.ShutdownForTest();
+    source.ShutdownForTest();
+    ResetPlatformInput();
+}
+
+ACS_TEST(GameFixedInputIntegration, RuntimeSnapshotRejectsChangedActiveSceneTransactionally)
+{
+    ResetPlatformInput();
+    AFixedInputProbeGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.StartForTest();
+
+    SendKeyEvent(EKey::Space, true);
+    game.UpdateForTest(0.0625f);
+    FFixedStepRuntimeSnapshot saved;
+    EXPECT_TRUE(game.TryCaptureFixedStepRuntimeSnapshot(saved));
+    EXPECT_TRUE(saved.input.pending_input.IsKeyPressed(EKey::Space));
+
+    ResetPlatformInput();
+    game.Scenes().PushScene(MakeUnique<AFixedInputOverlayScene>());
+    game.UpdateForTest(0.0f);
+    FFixedStepRuntimeSnapshot before;
+    EXPECT_TRUE(game.TryCaptureFixedStepRuntimeSnapshot(before));
+    EXPECT_NE(saved.active_scene_epoch, before.active_scene_epoch);
+    EXPECT_FALSE(before.input.pending_input.IsKeyPressed(EKey::Space));
+    EXPECT_FALSE(game.TryRestoreFixedStepRuntimeSnapshot(saved));
+
+    FFixedStepRuntimeSnapshot after;
+    EXPECT_TRUE(game.TryCaptureFixedStepRuntimeSnapshot(after));
+    EXPECT_TRUE(SameClockSnapshot(before.clock, after.clock));
+    EXPECT_EQ(before.active_scene_epoch, after.active_scene_epoch);
+    EXPECT_FALSE(after.input.pending_input.IsKeyPressed(EKey::Space));
+
+    game.ShutdownForTest();
+    ResetPlatformInput();
+}
+
+ACS_TEST(GameFixedInputIntegration, RuntimeSnapshotRejectsChangedInputSourceTransactionally)
+{
+    ResetPlatformInput();
+    FScriptedInputFrameSource first_source;
+    FScriptedInputFrameSource second_source;
+    EXPECT_TRUE(first_source.TrySetSpace(true, true, false));
+
+    AFixedInputProbeGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.SetFixedStepInputSource(first_source);
+    game.StartForTest();
+    game.UpdateForTest(0.0625f);
+
+    FFixedStepRuntimeSnapshot saved;
+    EXPECT_TRUE(game.TryCaptureFixedStepRuntimeSnapshot(saved));
+    EXPECT_TRUE(saved.input.pending_input.IsKeyPressed(EKey::Space));
+    game.SetFixedStepInputSource(second_source);
+
+    FFixedStepRuntimeSnapshot before;
+    EXPECT_TRUE(game.TryCaptureFixedStepRuntimeSnapshot(before));
+    EXPECT_NE(saved.input_source_epoch, before.input_source_epoch);
+    EXPECT_FALSE(before.input.has_input_state);
+    EXPECT_FALSE(game.TryRestoreFixedStepRuntimeSnapshot(saved));
+
+    FFixedStepRuntimeSnapshot after;
+    EXPECT_TRUE(game.TryCaptureFixedStepRuntimeSnapshot(after));
+    EXPECT_TRUE(SameClockSnapshot(before.clock, after.clock));
+    EXPECT_EQ(before.input_source_epoch, after.input_source_epoch);
+    EXPECT_FALSE(after.input.has_input_state);
+
+    game.ShutdownForTest();
+    ResetPlatformInput();
+}
+
 ACS_TEST(GameFixedInputIntegration, RuntimeSnapshotRejectsMissingInputServiceTransactionally)
 {
     ResetPlatformInput();
