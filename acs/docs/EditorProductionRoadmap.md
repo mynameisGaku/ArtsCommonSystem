@@ -85,7 +85,7 @@ ACS Editor には、シーンアウトライナー、詳細パネル、2D/3D ビ
 
 ### 残っている統一
 
-1. `PLY3D` はruntime/package adapterへ接続済み。引き続き `SPR3D`、`PFAB3D` など、現在fail-closedにしているauthoring directiveを実装する。
+1. `PLY3D` と `SPR3D` はruntime/package adapterへ接続済み。引き続き `PFAB3D` など、現在fail-closedにしているauthoring directiveを実装する。
 2. 旧 `.acscene` と capability marker を持たない旧 3D project の migration、round-trip、broken-reference recovery を継続検証する。
 3. すべての Scene picker、Play、Standalone、Package が path ではなく canonical Asset ID を最終 authority とする。
 4. multi-scene/subscene、level streaming、world partition を共通 document/dependency contract 上へ追加する。

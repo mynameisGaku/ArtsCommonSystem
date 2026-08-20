@@ -231,6 +231,47 @@ internal static class SceneContractFixtureSelfTest
                 diagnostic.Code == "SCENE3D_REFERENCE_DUPLICATE"),
             "PLY3D package validation rejects invalid points, non-Mesh owners, and duplicate geometry");
 
+        const string spriteScene =
+            "ACS3D v2\n" +
+            "N3D 5 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 Sign\n" +
+            "SPR3D 5 Textures/sign.png\n";
+        CanonicalSceneAdapterInspection spriteInspection =
+            CanonicalSceneAdapter.InspectText(spriteScene, ".acs3d");
+        string cookedSprite = CanonicalSceneAdapter.RewriteReferences(
+            spriteScene,
+            ".acs3d",
+            static reference =>
+                reference.Kind == CanonicalSceneReferenceKind.Texture
+                    ? "Assets/Textures/sign.png"
+                    : throw new InvalidOperationException(
+                        "SPR3D must expose one texture reference."));
+        Check(
+            !spriteInspection.HasErrors &&
+            spriteInspection.References.Count == 1 &&
+            spriteInspection.References[0].Kind ==
+                CanonicalSceneReferenceKind.Texture &&
+            cookedSprite.Contains(
+                "SPR3D 5 Assets/Textures/sign.png\n",
+                StringComparison.Ordinal),
+            "SPR3D passes package validation and Cook rewrites its texture path");
+
+        CanonicalSceneAdapterInspection duplicateSprite =
+            CanonicalSceneAdapter.InspectText(
+                spriteScene + "SPR3D 5 Textures/other.png\n",
+                ".acs3d");
+        CanonicalSceneAdapterInspection missingSpriteNode =
+            CanonicalSceneAdapter.InspectText(
+                "ACS3D v2\nSPR3D 99 Textures/sign.png\n",
+                ".acs3d");
+        Check(
+            duplicateSprite.HasErrors &&
+            duplicateSprite.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_REFERENCE_DUPLICATE") &&
+            missingSpriteNode.HasErrors &&
+            missingSpriteNode.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_REFERENCE_INVALID"),
+            "SPR3D duplicate and missing-node references fail closed");
+
         CanonicalSceneAdapterInspection legacy2D =
             CanonicalSceneAdapter.InspectText(
                 "ACSCENE v1\n",

@@ -2,6 +2,7 @@
 // root node treeとgeneration付きpoolを所有し、構造更新・検索・raycastを提供する。
 #include "gameframework/SceneNodeGraph.h"
 #include "gameframework/MeshComponent3D.h"   // AMeshComponent3D (Raycast の bounds)
+#include "gameframework/Sprite3DComponent.h"
 #include "asset/MeshAsset.h"                 // AMeshAsset (Mesh 種別の頂点 AABB)
 #include "math/Collision3D.h"                // FRay3 / FAabb3 / RaycastAabb (Raycast 本体)
 #include "math/Mat.h"                        // Inverse / TransformPoint / TransformVector
@@ -19,6 +20,17 @@ const AMeshComponent3D* FindMeshC(const ANode& n) noexcept {
     for (u32 i = 0; i < n.ComponentCount(); ++i) {
         const AComponent* c = n.ComponentAt(i);
         if (c != nullptr && c->Kind() == k) return static_cast<const AMeshComponent3D*>(c);
+    }
+    return nullptr;
+}
+
+/** constノードから表示を上書きする3Dスプライトを探す。 */
+const ASprite3DComponent* FindSpriteC(const ANode& node) noexcept
+{
+    const void* kind = ComponentKindOf<ASprite3DComponent>();
+    for (u32 index = 0u; index < node.ComponentCount(); ++index) {
+        const AComponent* component = node.ComponentAt(index);
+        if (component != nullptr && component->Kind() == kind) return static_cast<const ASprite3DComponent*>(component);
     }
     return nullptr;
 }
@@ -44,15 +56,40 @@ FAabb3 LocalBounds3D(const AMeshComponent3D& m) noexcept {
     return FAabb3{ FVec3{ 0, 0, 0 }, FVec3{ 0.5f, 0.5f, 0.5f } };        // Cube/Sphere/フォールバック
 }
 
+/** ノードが実際に表示するスプライト優先のローカル境界を返す。 */
+bool TryLocalVisualBounds3D(const ANode& node, FAabb3& output) noexcept
+{
+    if (const ASprite3DComponent* sprite = FindSpriteC(node)) {
+        FVec3 minimum;
+        FVec3 maximum;
+        sprite->LocalBounds(minimum, maximum);
+        output = FAabb3::FromMinMax(minimum, maximum);
+        return true;
+    }
+    const AMeshComponent3D* mesh = FindMeshC(node);
+    if (mesh == nullptr) return false;
+    output = LocalBounds3D(*mesh);
+    return true;
+}
+
+/** ノードが実際に表示するスプライトまたはメッシュへ厳密raycastする。 */
+FRayHit3 RaycastLocalVisualGeometry(const ANode& node, const FRay3& ray, f32 maximum_t) noexcept
+{
+    if (const ASprite3DComponent* sprite = FindSpriteC(node)) return sprite->RaycastLocalGeometry(ray, maximum_t);
+    const AMeshComponent3D* mesh = FindMeshC(node);
+    return mesh != nullptr ? mesh->RaycastLocalGeometry(ray, maximum_t) : FRayHit3{};
+}
+
 /** subtree を DFS し、レイと «最も手前で» 交わるメッシュノードを探す。 */
 void RaycastRec(const ANode* n, const FRay3& ray, FNodeId& best, f32& bestT) noexcept {
     if (n == nullptr) return;
-    if (const AMeshComponent3D* m = FindMeshC(*n)) {
+    FAabb3 bounds;
+    if (TryLocalVisualBounds3D(*n, bounds)) {
         const FMat4 M    = n->World().ToMat4();
         const FMat4 Minv = Inverse(M);
         // レイをノードのローカル空間へ (point/vector で別変換)。t は world レイと共通。
         const FRay3 lr{ TransformPoint(ray.origin, Minv), TransformVector(ray.direction, Minv) };
-        const FRayHit3 hit = RaycastAabb(lr, LocalBounds3D(*m));
+        const FRayHit3 hit = RaycastAabb(lr, bounds);
         if (hit.hit && hit.t >= 0.0f && hit.t < bestT) { bestT = hit.t; best = n->Id(); }
     }
     for (u32 i = 0; i < n->ChildCount(); ++i) RaycastRec(n->Child(i), ray, best, bestT);
@@ -93,9 +130,9 @@ void SweepSphereActiveRangeRec(const ANode* node, const FRay3& center_ray, f32 r
     if (node == nullptr) return;
     const bool active = parent_active && !node->IsPendingDestroy() && node->IsEnabled() && node->IsVisible();
     if (!active) return;
-    if (const AMeshComponent3D* mesh = FindMeshC(*node)) {
+    FAabb3 bounds;
+    if (TryLocalVisualBounds3D(*node, bounds)) {
         const FTransform3D world = node->World();
-        FAabb3 bounds = LocalBounds3D(*mesh);
         if (TryExpandBoundsForWorldSphere(world, radius, bounds)) {
             const FMat4 world_inverse = Inverse(world.ToMat4());
             /** world中心rayのtを保ったままnode localへ移したray。 */
@@ -117,16 +154,16 @@ void RaycastGeometryActiveRangeRec(const ANode* node, const FRay3& ray, f32 mini
     if (node == nullptr) return;
     const bool active = parent_active && !node->IsPendingDestroy() && node->IsEnabled() && node->IsVisible();
     if (!active) return;
-    if (const AMeshComponent3D* mesh = FindMeshC(*node)) {
+    FAabb3 bounds;
+    if (TryLocalVisualBounds3D(*node, bounds)) {
         const FMat4 world_inverse = Inverse(node->World().ToMat4());
         const FRay3 local_ray{TransformPoint(ray.origin, world_inverse), TransformVector(ray.direction, world_inverse)};
         const bool finite_local_ray = std::isfinite(local_ray.origin.x) && std::isfinite(local_ray.origin.y) && std::isfinite(local_ray.origin.z) && std::isfinite(local_ray.direction.x) && std::isfinite(local_ray.direction.y) && std::isfinite(local_ray.direction.z);
         const f32 local_direction_length_squared = local_ray.direction.x * local_ray.direction.x + local_ray.direction.y * local_ray.direction.y + local_ray.direction.z * local_ray.direction.z;
-        const FAabb3 bounds = LocalBounds3D(*mesh);
         if (finite_local_ray && std::isfinite(local_direction_length_squared) && local_direction_length_squared > 0.0f && ValidBounds(bounds)) {
             const FRayHit3 broad_hit = RaycastAabb(local_ray, bounds, maximum_t);
             if (broad_hit.hit && std::isfinite(broad_hit.t) && broad_hit.t >= minimum_t) {
-                const FRayHit3 hit = mesh->RaycastLocalGeometry(local_ray, maximum_t);
+                const FRayHit3 hit = RaycastLocalVisualGeometry(*node, local_ray, maximum_t);
                 if (hit.hit && std::isfinite(hit.t) && hit.t >= minimum_t && hit.t <= maximum_t && hit.t < best_t) {
                     best_t = hit.t;
                     best = node->Id();

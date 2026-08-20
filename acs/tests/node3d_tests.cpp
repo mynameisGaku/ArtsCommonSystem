@@ -20,8 +20,10 @@
 #include "math/Collision3D.h"
 #include "gameframework/Scene3DSerialize.h"
 #include "gameframework/MeshComponent3D.h"
+#include "gameframework/Sprite3DComponent.h"
 #include "gameframework/Light2DComponent.h"
 #include "asset/MeshAsset.h"
+#include "render/Sprite3DRenderer.h"
 #include "memory/SharedPtr.h"
 #include "math/Mat.h"
 #include "math/Quat.h"
@@ -873,6 +875,25 @@ ACS_TEST(Scene3DRaycast, GeometryRangeRejectsMeshBoundsFalsePositive)
     EXPECT_NEAR(hit_t, 3.5f, 1.0e-5f);
 }
 
+ACS_TEST(Scene3DRaycast, SpriteVisualOverridesUnderlyingMeshForCameraProbes)
+{
+    /** 下地cubeを持つが実表示はローカルXY板になるスプライトnode。 */
+    CSceneNodeGraph scene;
+    ANode& sprite = scene.Spawn(FStringView("Sprite"));
+    sprite.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+    sprite.AddComponent<ASprite3DComponent>();
+    /** +Z側から板の中心へ向かうworld ray。 */
+    const FRay3 ray{FVec3{0.0f, 0.0f, 2.0f}, FVec3{0.0f, 0.0f, -1.0f}};
+    f32 hit_t = -1.0f;
+
+    EXPECT_TRUE(scene.RaycastActiveRange(ray, 0.0f, 4.0f, &hit_t) == sprite.Id());
+    EXPECT_NEAR(hit_t, 2.0f, 1.0e-5f);
+    EXPECT_TRUE(scene.RaycastGeometryActiveRange(ray, 0.0f, 4.0f, &hit_t) == sprite.Id());
+    EXPECT_NEAR(hit_t, 2.0f, 1.0e-5f);
+    EXPECT_TRUE(scene.SweepSphereActiveRange(ray, 0.25f, 0.0f, 4.0f, &hit_t) == sprite.Id());
+    EXPECT_NEAR(hit_t, 1.75f, 1.0e-5f);
+}
+
 // --- スケールで AABB が拡大し、単位 cube なら外れるレイが当たる (OBB) --------
 ACS_TEST(Scene3DRaycast, RespectsScale) {
     CSceneNodeGraph scene;
@@ -1290,7 +1311,7 @@ ACS_TEST(Scene3DSerialize, RejectsUnsupportedEditorDirectiveTransactionally) {
     constexpr char kUnsupported[] =
         "ACS3D v2\n"
         "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Root\n"
-        "SPR3D 1 Assets/sprite.png\n";
+        "PFAB3D 1 Assets/prefab.acsprefab\n";
 
     CSceneNodeGraph scene;
     scene.Spawn(FStringView("Keep"));
@@ -1303,6 +1324,157 @@ ACS_TEST(Scene3DSerialize, RejectsUnsupportedEditorDirectiveTransactionally) {
     EXPECT_EQ(result.ErrorLine, 3u);
     EXPECT_EQ(scene.NodeCount(), 2u);
     EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
+}
+
+ACS_TEST(Scene3DSerialize, Sprite3DPathRoundTripsWithoutImplicitImageIo)
+{
+    CSceneNodeGraph source;
+    /** 保存対象の固定向き3Dスプライト。 */
+    ASprite3DComponent& source_sprite =
+        source.Root().AddComponent<ASprite3DComponent>();
+    source_sprite.SetTexturePath(FStringView("Assets/Textures/sign.png"));
+
+    char text[1024]{};
+    /** SPR3Dを含む正準保存結果。 */
+    const FScene3DSaveResult saved =
+        TrySaveScene3DText(source, text, sizeof(text));
+    EXPECT_TRUE(saved.Succeeded());
+    EXPECT_EQ(saved.SpriteCount, 1u);
+    EXPECT_TRUE(std::strstr(text, "SPR3D 0 Assets/Textures/sign.png\n") != nullptr);
+
+    CSceneNodeGraph loaded;
+    /** text-only経路はpathだけを復元する読込結果。 */
+    const FScene3DLoadResult result =
+        TryLoadScene3DText(loaded, text, saved.BytesWritten);
+    EXPECT_TRUE(result.Succeeded());
+    EXPECT_EQ(result.SpriteCount, 1u);
+    EXPECT_EQ(result.DependenciesLoaded, 0u);
+    ASprite3DComponent* sprite =
+        loaded.Root().GetComponent<ASprite3DComponent>();
+    EXPECT_TRUE(sprite != nullptr);
+    if (sprite == nullptr) return;
+    EXPECT_TRUE(sprite->TexturePath() == FStringView("Assets/Textures/sign.png"));
+    EXPECT_TRUE(!sprite->HasImageAsset());
+}
+
+ACS_TEST(Scene3DSerialize, Sprite3DLooseFileDecodesOwnedImage)
+{
+    /** stb_imageで2x1 RGBAへ復元できる最小PNG。 */
+    constexpr byte kPng[] = {0x89u, 0x50u, 0x4Eu, 0x47u, 0x0Du, 0x0Au, 0x1Au, 0x0Au, 0x00u, 0x00u, 0x00u, 0x0Du, 0x49u, 0x48u, 0x44u, 0x52u, 0x00u, 0x00u, 0x00u, 0x02u, 0x00u, 0x00u, 0x00u, 0x01u, 0x08u, 0x06u, 0x00u, 0x00u, 0x00u, 0xF4u, 0x22u, 0x7Fu, 0x8Au, 0x00u, 0x00u, 0x00u, 0x11u, 0x49u, 0x44u, 0x41u, 0x54u, 0x78u, 0xDAu, 0x63u, 0xF8u, 0xCFu, 0xC0u, 0xF0u, 0x9Fu, 0xA1u, 0xE1u, 0xBFu, 0x03u, 0x00u, 0x10u, 0xBAu, 0x03u, 0xBEu, 0x3Au, 0x79u, 0xBFu, 0xBEu, 0x00u, 0x00u, 0x00u, 0x00u, 0x49u, 0x45u, 0x4Eu, 0x44u, 0xAEu, 0x42u, 0x60u, 0x82u};
+    constexpr char kScenePath[] = "acs_sprite3d_scene_test.acs3d";
+    constexpr char kImagePath[] = "acs_sprite3d_image_test.png";
+    constexpr char kScene[] =
+        "ACS3D v2\n"
+        "N3D 9 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 Sprite\n"
+        "SPR3D 9 acs_sprite3d_image_test.png\n";
+    (void)std::remove(kScenePath);
+    (void)std::remove(kImagePath);
+    /** 画像fixtureの書込み先。 */
+    std::FILE* image_file = std::fopen(kImagePath, "wb");
+    EXPECT_TRUE(image_file != nullptr);
+    if (image_file == nullptr) return;
+    EXPECT_EQ(std::fwrite(kPng, 1u, sizeof(kPng), image_file), sizeof(kPng));
+    std::fclose(image_file);
+    /** scene fixtureの書込み先。 */
+    std::FILE* scene_file = std::fopen(kScenePath, "wb");
+    EXPECT_TRUE(scene_file != nullptr);
+    if (scene_file == nullptr) {
+        (void)std::remove(kImagePath);
+        return;
+    }
+    EXPECT_EQ(std::fwrite(kScene, 1u, sizeof(kScene) - 1u, scene_file), sizeof(kScene) - 1u);
+    std::fclose(scene_file);
+
+    CSceneNodeGraph scene;
+    /** loose sceneと画像を同一transactionで読む結果。 */
+    const FScene3DLoadResult result =
+        TryLoadScene3DFile(scene, kScenePath);
+    EXPECT_TRUE(result.Succeeded());
+    EXPECT_EQ(result.SpriteCount, 1u);
+    EXPECT_EQ(result.DependenciesLoaded, 1u);
+    ANode* node = scene.Root().FindBySerialId(9);
+    EXPECT_TRUE(node != nullptr);
+    ASprite3DComponent* sprite =
+        node != nullptr ? node->GetComponent<ASprite3DComponent>() : nullptr;
+    EXPECT_TRUE(sprite != nullptr);
+    EXPECT_TRUE(sprite != nullptr && sprite->Image() != nullptr);
+    if (sprite != nullptr && sprite->Image() != nullptr) {
+        EXPECT_EQ(sprite->Image()->Width(), 2u);
+        EXPECT_EQ(sprite->Image()->Height(), 1u);
+        EXPECT_TRUE(sprite->Image()->Format() == EPixelFormat::R8G8B8A8);
+    }
+    (void)std::remove(kScenePath);
+    (void)std::remove(kImagePath);
+}
+
+ACS_TEST(Scene3DSerialize, RejectsInvalidOrDuplicateSpriteTransactionally)
+{
+    constexpr char kInvalid[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 Sprite\n"
+        "SPR3D 1\n";
+    constexpr char kDuplicate[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 Sprite\n"
+        "SPR3D 1 a.png\n"
+        "SPR3D 1 b.png\n";
+    CSceneNodeGraph scene;
+    scene.Spawn(FStringView("Keep"));
+    const FScene3DLoadResult invalid =
+        TryLoadScene3DText(scene, kInvalid, sizeof(kInvalid) - 1u);
+    EXPECT_TRUE(invalid.Error == EScene3DSerializeError::InvalidSpritePath);
+    EXPECT_EQ(scene.NodeCount(), 2u);
+    const FScene3DLoadResult duplicate =
+        TryLoadScene3DText(scene, kDuplicate, sizeof(kDuplicate) - 1u);
+    EXPECT_TRUE(duplicate.Error == EScene3DSerializeError::DuplicateSpritePath);
+    EXPECT_EQ(scene.NodeCount(), 2u);
+    EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
+}
+
+ACS_TEST(Sprite3DRenderer, BuildsEditorCompatibleWorldVerticesAndUvs)
+{
+    FTransform3D transform;
+    transform.position = FVec3{10.0f, -3.0f, 2.0f};
+    transform.scale = FVec3{2.0f, 4.0f, 1.0f};
+    CSprite3DRenderer::FVertex vertices[6]{};
+    EXPECT_TRUE(CSprite3DRenderer::TryBuildVertices(transform.ToMat4(), vertices));
+    ExpectVec3Near(vertices[0].Position, FVec3{9.0f, -1.0f, 2.0f}, 1.0e-6f);
+    ExpectVec3Near(vertices[1].Position, FVec3{9.0f, -5.0f, 2.0f}, 1.0e-6f);
+    ExpectVec3Near(vertices[2].Position, FVec3{11.0f, -5.0f, 2.0f}, 1.0e-6f);
+    ExpectVec3Near(vertices[3].Position, FVec3{9.0f, -1.0f, 2.0f}, 1.0e-6f);
+    ExpectVec3Near(vertices[4].Position, FVec3{11.0f, -5.0f, 2.0f}, 1.0e-6f);
+    ExpectVec3Near(vertices[5].Position, FVec3{11.0f, -1.0f, 2.0f}, 1.0e-6f);
+    EXPECT_NEAR(vertices[0].Uv.x, 1.0f, 1.0e-6f);
+    EXPECT_NEAR(vertices[0].Uv.y, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(vertices[2].Uv.x, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(vertices[2].Uv.y, 1.0f, 1.0e-6f);
+
+    /** 失敗時に書き換えられないことを確認する受け取り先。 */
+    CSprite3DRenderer::FVertex rejected[6]{};
+    for (CSprite3DRenderer::FVertex& vertex : rejected) {
+        vertex.Position = FVec3{7.0f, 8.0f, 9.0f};
+        vertex.Uv = FVec2{0.25f, 0.75f};
+    }
+    FMat4 invalid;
+    invalid.m[2][1] = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_TRUE(!CSprite3DRenderer::TryBuildVertices(invalid, rejected));
+    ExpectVec3Near(rejected[0].Position, FVec3{7.0f, 8.0f, 9.0f}, 0.0f);
+    EXPECT_NEAR(rejected[5].Uv.x, 0.25f, 0.0f);
+    EXPECT_NEAR(rejected[5].Uv.y, 0.75f, 0.0f);
+}
+
+ACS_TEST(Sprite3DRenderer, RawDx12ShadersCompileWithoutGpu)
+{
+#if !WITH_RENDER_DILIGENT
+    /** GPUを作らずにVSとPSを検証するCPUコンパイル結果。 */
+    auto compiled = CSprite3DRenderer::CompileShadersCpu();
+    EXPECT_TRUE(compiled.IsOk());
+    if (compiled.IsOk()) {
+        EXPECT_TRUE(compiled.Value().Status() == EShaderStatus::Ready);
+    }
+#else
+    EXPECT_TRUE(true);
+#endif
 }
 
 ACS_TEST(Scene3DSerialize, LoadsProceduralPolygonAsDeterministicRuntimeMesh)

@@ -305,6 +305,9 @@ Compatibility remains explicit:
 `CanonicalSceneAdapter` validates the supported bootstrap subset and rewrites
 portable references only in isolated cook copies. Unsupported directives or
 external resources fail closed rather than being silently dropped.
+The supported 3D subset includes inline `PLY3D` geometry and `SPR3D` texture
+references; Cook preserves the former and rewrites the latter into the package
+asset namespace.
 
 ### Details multi-selection transactions
 

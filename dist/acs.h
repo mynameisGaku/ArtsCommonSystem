@@ -36672,6 +36672,7 @@ inline constexpr u32 kScene3DSerializeMaxLineBytes = 4095u;
 inline constexpr u32 kScene3DSerializeMaxNameBytes = 127u;
 inline constexpr u32 kScene3DSerializeMaxMeshPathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxMaterialPathBytes = 299u;
+inline constexpr u32 kScene3DSerializeMaxSpritePathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxComponentsPerNode = 1024u;
 inline constexpr u32 kScene3DSerializeMaxDirectiveRecords = 262144u;
 inline constexpr u32 kScene3DSerializeMaxCameraCount = 256u;
@@ -36729,6 +36730,9 @@ enum class EScene3DSerializeError : u8 {
     MaterialDecodeFailed,
     InvalidPolygon,
     DuplicateGeometry,
+    InvalidSpritePath,
+    DuplicateSpritePath,
+    ImageDecodeFailed,
 };
 
 /** Authored ACS3D camera projection encoded by CAM3D. */
@@ -36769,6 +36773,7 @@ struct FScene3DSaveResult {
     u32 NodeCount = 0u;
     u32 MeshPathCount = 0u;
     u32 CameraCount = 0u;
+    u32 SpriteCount = 0u;
 
     bool Succeeded() const noexcept {
         return Error == EScene3DSerializeError::None && BytesWritten > 0u
@@ -36789,6 +36794,7 @@ struct FScene3DLoadResult {
     u32 ActivePreferredCameraCount = 0u;
     FScene3DCameraState ActiveCamera{};
     u32 PolygonCount = 0u;
+    u32 SpriteCount = 0u;
 
     bool Succeeded() const noexcept {
         return Error == EScene3DSerializeError::None && NodeCount > 0u;
@@ -58790,6 +58796,127 @@ using FVolumetricClouds = CVolumetricClouds;
 
 } // namespace acs
 
+// ===================== render/Sprite3DRenderer.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 固定向きのローカルXY板へ画像を透過描画する3Dスプライト描画器。 */
+class CSprite3DRenderer final {
+public:
+    /** owner threadでのパイプライン生成を待つコンパイル済みシェーダ群。 */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> Vertex;
+        TUniquePtr<IRhiShader> Pixel;
+
+        /** 両シェーダの完了状態を一つにまとめて返す。 */
+        EShaderStatus Status() const noexcept;
+    };
+
+    /** CPUで生成してGPUへ送る1頂点。 */
+    struct FVertex {
+        /** ワールド空間位置。 */
+        FVec3 Position;
+        /** 画像を参照するUV座標。 */
+        FVec2 Uv;
+    };
+
+    /** 1スプライトの入力状態。 */
+    struct FDraw {
+        /** ノードの完全なワールド変換。 */
+        FMat4 World;
+        /** 描画に使うGPU画像。nullは不正入力。 */
+        IRhiTexture* Texture = nullptr;
+    };
+
+    /** 空の描画器を構築する。 */
+    CSprite3DRenderer() noexcept = default;
+
+    /** 所有GPU資源を解放する。 */
+    ~CSprite3DRenderer() noexcept = default;
+
+    /** GPU資源を単独所有するためコピーを禁止する。 */
+    CSprite3DRenderer(const CSprite3DRenderer&) = delete;
+
+    /** GPU資源を単独所有するためコピー代入を禁止する。 */
+    CSprite3DRenderer& operator=(const CSprite3DRenderer&) = delete;
+
+    /**
+     * 3Dスプライト用資源を同期生成する。
+     *
+     * @param device GPU資源を生成するデバイス。
+     * @param render_target_format 描画先HDR色バッファの形式。
+     * @param depth_format 不透明描画と共有する深度バッファの形式。
+     * @param max_sprite_count 1回のbatchで受け付ける最大スプライト数。
+     * @return 全資源を公開できた場合だけ成功。
+     */
+    TResult<void> Init(IRhiDevice& device, EFormat render_target_format, EFormat depth_format, u32 max_sprite_count) noexcept;
+
+    /** raw DX12向けにRHIデバイスへ触れずシェーダをCPUコンパイルする。 */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /** backend管理の非同期コンパイラへ両シェーダを投入する。 */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(IRhiDevice& device) noexcept;
+
+    /**
+     * ready済みシェーダからowner threadでGPU資源を一括生成する。
+     *
+     * @return 失敗時は既存資源を変更せずエラーを返す。
+     */
+    TResult<void> InitWithCompiledShaders(IRhiDevice& device, FCompiledShaders&& shaders, EFormat render_target_format, EFormat depth_format, u32 max_sprite_count) noexcept;
+
+    /** 全GPU資源とCPU作業領域を解放する。 */
+    void Shutdown() noexcept;
+
+    /**
+     * 変換だけからエディタ互換の6頂点を決定論的に生成する。
+     *
+     * @param world ローカルXY板をワールドへ移す行列。
+     * @param output 左上から始まる2三角形の受け取り先。
+     * @return 入力と生成位置が有限ならtrue。
+     */
+    static bool TryBuildVertices(const FMat4& world, FVertex (&output)[6]) noexcept;
+
+    /**
+     * 検証済みbatchを現在の色/深度ターゲットへ透過描画する。
+     *
+     * @param command_list 描画命令の記録先。
+     * @param view_projection 現在カメラのview×projection。
+     * @param draws 入力配列。countが0以外ならnull不可。
+     * @param count 描画数。初期化時の上限以下でなければならない。
+     * @return 全入力をGPUへ反映して描画命令を記録できた場合にtrue。
+     */
+    bool DrawBatch(IRhiCommandList& command_list, const FMat4& view_projection, const FDraw* draws, u32 count) noexcept;
+
+    /** 初期化済みパイプラインを返す。 */
+    IRhiPipeline* Pipeline() const noexcept;
+
+private:
+    /** 頂点シェーダ。 */
+    TUniquePtr<IRhiShader> m_VertexShader;
+
+    /** 画像をsampleするピクセルシェーダ。 */
+    TUniquePtr<IRhiShader> m_PixelShader;
+
+    /** 深度testとalpha blendを行う描画パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+
+    /** 1batch分の動的頂点バッファ。 */
+    TUniquePtr<IRhiBuffer> m_VertexBuffer;
+
+    /** view×projectionを保持する定数バッファ。 */
+    TUniquePtr<IRhiBuffer> m_FrameBuffer;
+
+    /** GPU更新前にbatch全体を組み立てるCPU頂点列。 */
+    TArray<FVertex> m_Vertices;
+
+    /** 初期化時に確定した最大スプライト数。 */
+    u32 m_MaxSpriteCount = 0u;
+};
+
+} // namespace acs
+
 // ===================== render/SubsurfaceScattering.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // Screen-space subsurface diffusion for opaque HDR lighting.
@@ -59669,6 +59796,7 @@ namespace acs::game {
 
 class IAssetPackReader;
 class AMeshComponent3D;
+class ASprite3DComponent;
 class AWaterSurface3DComponent;
 
 /**
@@ -60299,6 +60427,15 @@ private:
         FGpuMesh Mesh;
     };
 
+    /** sceneコンポーネントと所有GPU画像の対応。 */
+    struct FCustomGpuSprite {
+        /** 画像の所有元コンポーネント。 */
+        const ASprite3DComponent* Component = nullptr;
+
+        /** 描画アダプターが単独所有するGPU画像。 */
+        TUniquePtr<IRhiTexture> Texture;
+    };
+
     enum class EWaterGpuState : u8 {
         Unavailable = 0,
         Compiling,
@@ -60336,6 +60473,7 @@ private:
         Subsurface,
         Sky,
         Blit,
+        Sprite,
         Water,
     };
 
@@ -60365,6 +60503,7 @@ private:
         IRhiDevice& device) noexcept;
     bool BeginPostCpuCompilation() noexcept;
     bool BeginBlitCpuCompilation() noexcept;
+    bool BeginSpriteCpuCompilation() noexcept;
     static void SkyCpuCompileWorkerEntry(void* user) noexcept;
     static void WaterCpuCompileWorkerEntry(void* user) noexcept;
     static void HdrPbrCpuCompileWorkerEntry(void* user) noexcept;
@@ -60372,6 +60511,7 @@ private:
     static void SubsurfaceCpuCompileWorkerEntry(void* user) noexcept;
     static void PostCpuCompileWorkerEntry(void* user) noexcept;
     static void BlitCpuCompileWorkerEntry(void* user) noexcept;
+    static void SpriteCpuCompileWorkerEntry(void* user) noexcept;
     void JoinCpuCompileWorkers() noexcept;
     static bool TryClaimGpuCommit(
         EGpuCommitSubsystem& frame_commit,
@@ -60406,7 +60546,9 @@ private:
         IRhiDevice& device,
         EGpuCommitSubsystem& frame_commit,
         bool requested) noexcept;
+    void AdvanceSpriteInitialization(IRhiDevice& device, EFormat depth_format, EGpuCommitSubsystem& frame_commit, bool requested) noexcept;
     bool UploadGraphMeshes(IRhiDevice& device) noexcept;
+    bool UploadGraphSprites(IRhiDevice& device) noexcept;
     void DrainAndReleaseGpu() noexcept;
     void ReleaseGpu() noexcept;
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
@@ -60666,6 +60808,8 @@ private:
     void AdoptLoadedCamera() noexcept;
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
+    IRhiTexture* TextureFor(const ASprite3DComponent& component) const noexcept;
+    bool DrawSpriteScene(FRenderContext& context) noexcept;
     u32 CollectWaterDraws(
         FWaterDraw (&draws)[CWaterSurface3D::kMaxTrackedSurfaces],
         IRhiTexture* depth, u32 width, u32 height) const noexcept;
@@ -60731,6 +60875,10 @@ private:
     CBlit::FCompiledShaders m_BlitPendingShaders{};
     FThread m_BlitCompileWorker;
     std::atomic<i32> m_BlitCompileWorkerState{0};
+    CSprite3DRenderer m_SpriteRenderer;
+    CSprite3DRenderer::FCompiledShaders m_SpritePendingShaders{};
+    FThread m_SpriteCompileWorker;
+    std::atomic<i32> m_SpriteCompileWorkerState{0};
     CSky m_Sky;
     CSky::FCompiledShaders m_SkyPendingShaders{};
     FThread m_SkyCompileWorker;
@@ -60745,6 +60893,8 @@ private:
     FGpuMesh m_Sphere;
     FGpuMesh m_Plane;
     TArray<FCustomGpuMesh> m_CustomMeshes;
+    TArray<FCustomGpuSprite> m_CustomSprites;
+    TArray<CSprite3DRenderer::FDraw> m_SpriteDraws;
     /** シーンに置かれた光。毎フレーム集め直す。1 灯も無ければ既定の太陽を使う。 */
     CLightCollector3D m_Lights;
 
@@ -60901,6 +61051,7 @@ private:
     EShaderGpuState m_SsssGpuState = EShaderGpuState::Unavailable;
     EShaderGpuState m_PostGpuState = EShaderGpuState::Unavailable;
     EShaderGpuState m_BlitGpuState = EShaderGpuState::Unavailable;
+    EShaderGpuState m_SpriteGpuState = EShaderGpuState::Unavailable;
     ESkyGpuState m_SkyGpuState = ESkyGpuState::Unavailable;
     EWaterGpuState m_WaterGpuState = EWaterGpuState::Unavailable;
     u32 m_FrameWidth = 0u;
@@ -84792,6 +84943,62 @@ using game::ASpawn2DSubsystem;
 using game::FSpawn2DSubsystem;
 
 } // namespace acs
+
+// ===================== gameframework/Sprite3DComponent.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/**
+ * ノードに固定向きの3Dスプライト画像を持たせるコンポーネント。
+ *
+ * @details ノードのローカルXY平面に画像を描くためのCPU側状態だけを所有する。
+ * GPUリソースは描画アダプターが所有し、本型には保持しない。
+ */
+class ASprite3DComponent final : public AComponent {
+public:
+    ACS_GAME_COMPONENT_KIND(ASprite3DComponent)
+
+    /** 参照する画像パスを返す。 */
+    FStringView TexturePath() const noexcept;
+
+    /** 参照する画像パスを設定する。 */
+    void SetTexturePath(FStringView path) noexcept;
+
+    /** デコード済み画像を共有所有する。nullを渡すと画像だけを外す。 */
+    void SetImageAsset(TSharedPtr<AAsset> image) noexcept;
+
+    /** 所有している画像アセットを返す。 */
+    const TSharedPtr<AAsset>& ImageAsset() const noexcept;
+
+    /** デコード済み画像を所有している場合にtrueを返す。 */
+    bool HasImageAsset() const noexcept;
+
+    /** 所有画像をAImageAssetとして返し、未設定ならnullptrを返す。 */
+    AImageAsset* Image() const noexcept;
+
+    /** ローカルXY単位板の最小座標と最大座標を返す。 */
+    void LocalBounds(FVec3& minimum, FVec3& maximum) const noexcept;
+
+    /**
+     * ローカルXY単位板へraycastする純粋計算。
+     *
+     * @param ray コンポーネントのローカル空間へ変換済みのray。
+     * @param maximum_t 探索する有限t上限。0以上でなければならない。
+     * @return 板との最初のhit。入力不正、平行、板の外側ではhit=false。
+     */
+    FRayHit3 RaycastLocalGeometry(const FRay3& ray, f32 maximum_t = 3.4028235e38f) const noexcept;
+
+private:
+    /** SPR3Dに記録された画像アセットパス。 */
+    FString m_TexturePath;
+
+    /** シーン読込時にデコードした画像の共有所有権。 */
+    TSharedPtr<AAsset> m_ImageAsset;
+};
+
+} // namespace acs::game
 
 // ===================== gameframework/Steering2D.h =====================
 // SPDX-License-Identifier: Apache-2.0

@@ -10,6 +10,8 @@
 #include "gameframework/MeshComponent3D.h"
 #include "gameframework/Reflect.h"
 #include "gameframework/ReflectApply.h"
+#include "gameframework/Sprite3DComponent.h"
+#include "asset/ImageAsset.h"
 #include "asset/MeshAsset.h"
 #include "asset/MeshPrimitive.h"
 #include "container/Array.h"
@@ -53,6 +55,7 @@ struct FParsedNode {
     bool HasMeshPath = false;
     bool HasPolygon = false;
     bool HasMaterialPath = false;
+    bool HasSpritePath = false;
     bool HasLegacyMaterial = false;
     bool Visible = true;
     bool Enabled = true;
@@ -63,7 +66,9 @@ struct FParsedNode {
     char Name[kScene3DSerializeMaxNameBytes + 1u]{};
     char MeshPath[kScene3DSerializeMaxMeshPathBytes + 1u]{};
     char MaterialPath[kScene3DSerializeMaxMaterialPathBytes + 1u]{};
+    char SpritePath[kScene3DSerializeMaxSpritePathBytes + 1u]{};
     TSharedPtr<AAsset> LoadedMesh;
+    TSharedPtr<AAsset> LoadedSpriteImage;
     FMaterial2D LoadedMaterial{};
 };
 
@@ -126,11 +131,37 @@ const ACameraComponent3D* FindCamera(const ANode& node) noexcept {
     return nullptr;
 }
 
+/** constノードから最初の3Dスプライトを探す。 */
+const ASprite3DComponent* FindSprite(const ANode& node) noexcept
+{
+    const void* kind = ComponentKindOf<ASprite3DComponent>();
+    for (u32 index = 0u; index < node.ComponentCount(); ++index) {
+        const AComponent* component = node.ComponentAt(index);
+        if (component != nullptr && component->Kind() == kind)
+            return static_cast<const ASprite3DComponent*>(component);
+    }
+    return nullptr;
+}
+
 bool HasMultipleCameras(const ANode& node) noexcept {
     const void* kind = ComponentKindOf<ACameraComponent3D>();
     bool found = false;
     for (u32 i = 0u; i < node.ComponentCount(); ++i) {
         const AComponent* component = node.ComponentAt(i);
+        if (component == nullptr || component->Kind() != kind) continue;
+        if (found) return true;
+        found = true;
+    }
+    return false;
+}
+
+/** ノードに3Dスプライトが複数付いている場合にtrueを返す。 */
+bool HasMultipleSprites(const ANode& node) noexcept
+{
+    const void* kind = ComponentKindOf<ASprite3DComponent>();
+    bool found = false;
+    for (u32 index = 0u; index < node.ComponentCount(); ++index) {
+        const AComponent* component = node.ComponentAt(index);
         if (component == nullptr || component->Kind() != kind) continue;
         if (found) return true;
         found = true;
@@ -288,6 +319,21 @@ EScene3DSerializeError FormatMeshLine(
 
     const int written = std::snprintf(
         line, static_cast<size_t>(capacity), "MSH3D %d %s\n", id, path);
+    if (written <= 0 || static_cast<u32>(written) >= capacity)
+        return EScene3DSerializeError::SerializedSizeOverflow;
+    line_size = static_cast<u32>(written);
+    return EScene3DSerializeError::None;
+}
+
+/** 3Dスプライト参照をSPR3D行へ整形する。 */
+EScene3DSerializeError FormatSpriteLine(const ASprite3DComponent& sprite, i32 id, char* line, u32 capacity, u32& line_size) noexcept
+{
+    char path[kScene3DSerializeMaxSpritePathBytes + 1u];
+    const EScene3DSerializeError path_error = CopyField(sprite.TexturePath(), path, kScene3DSerializeMaxSpritePathBytes, "", EScene3DSerializeError::InvalidSpritePath);
+    if (path_error != EScene3DSerializeError::None) return path_error;
+    if (path[0] == '\0') return EScene3DSerializeError::InvalidSpritePath;
+
+    const int written = std::snprintf(line, static_cast<size_t>(capacity), "SPR3D %d %s\n", id, path);
     if (written <= 0 || static_cast<u32>(written) >= capacity)
         return EScene3DSerializeError::SerializedSizeOverflow;
     line_size = static_cast<u32>(written);
@@ -490,6 +536,29 @@ EScene3DSerializeError ParseMeshLine(
         return EScene3DSerializeError::InvalidMeshPath;
     record.HasMeshPath = true;
     ++mesh_path_count;
+    return EScene3DSerializeError::None;
+}
+
+/** SPR3Dのノード参照と画像パスを検証して一時文書へ保持する。 */
+EScene3DSerializeError ParseSpriteLine(const char* line, u32 size, TArray<FParsedNode>& nodes, THashMap<i32, u32>& id_to_index, u32& sprite_count) noexcept
+{
+    const char* cursor = line + 6u;
+    const char* end = line + size;
+    i32 id = -1;
+    if (!ParseI32(cursor, end, id))
+        return EScene3DSerializeError::InvalidInteger;
+    const u32* node_index = id_to_index.Find(id);
+    if (id < 0 || node_index == nullptr)
+        return EScene3DSerializeError::InvalidNodeId;
+    FParsedNode& record = nodes[*node_index];
+    if (record.HasSpritePath)
+        return EScene3DSerializeError::DuplicateSpritePath;
+    const EScene3DSerializeError path_error = ParseRemainder(cursor, end, record.SpritePath, kScene3DSerializeMaxSpritePathBytes, "", EScene3DSerializeError::InvalidSpritePath);
+    if (path_error != EScene3DSerializeError::None || record.SpritePath[0] == '\0') {
+        return EScene3DSerializeError::InvalidSpritePath;
+    }
+    record.HasSpritePath = true;
+    ++sprite_count;
     return EScene3DSerializeError::None;
 }
 
@@ -849,6 +918,9 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept {
     case EScene3DSerializeError::MaterialDecodeFailed:    return "material_decode_failed";
     case EScene3DSerializeError::InvalidPolygon:          return "invalid_polygon";
     case EScene3DSerializeError::DuplicateGeometry:       return "duplicate_geometry";
+    case EScene3DSerializeError::InvalidSpritePath:       return "invalid_sprite_path";
+    case EScene3DSerializeError::DuplicateSpritePath:     return "duplicate_sprite_path";
+    case EScene3DSerializeError::ImageDecodeFailed:       return "image_decode_failed";
     }
     return "unknown";
 }
@@ -884,6 +956,20 @@ FScene3DSaveResult TrySaveScene3DText(
                 return result;
             }
             ++result.MeshPathCount;
+        }
+        const ASprite3DComponent* sprite = FindSprite(*nodes[i]);
+        if (sprite != nullptr) {
+            if (HasMultipleSprites(*nodes[i])) {
+                result.Error = EScene3DSerializeError::DuplicateSpritePath;
+                return result;
+            }
+            result.Error = FormatSpriteLine(*sprite, static_cast<i32>(i), line, sizeof(line), line_size);
+            if (result.Error != EScene3DSerializeError::None) return result;
+            if (!CheckedAdd(text_bytes, line_size)) {
+                result.Error = EScene3DSerializeError::SerializedSizeOverflow;
+                return result;
+            }
+            ++result.SpriteCount;
         }
         const ACameraComponent3D* camera = FindCamera(*nodes[i]);
         if (camera != nullptr) {
@@ -936,6 +1022,7 @@ FScene3DSaveResult TrySaveScene3DText(
     u32 cursor = 0u;
     u32 emitted_mesh_paths = 0u;
     u32 emitted_cameras = 0u;
+    u32 emitted_sprites = 0u;
     for (u32 i = 0u; i < nodes.Num(); ++i) {
         u32 line_size = 0u;
         result.Error = FormatNodeLine(
@@ -966,6 +1053,19 @@ FScene3DSaveResult TrySaveScene3DText(
             cursor += line_size;
             ++emitted_mesh_paths;
         }
+        const ASprite3DComponent* sprite = FindSprite(*nodes[i]);
+        if (sprite != nullptr) {
+            result.Error = FormatSpriteLine(*sprite, static_cast<i32>(i), line, sizeof(line), line_size);
+            if (result.Error != EScene3DSerializeError::None || line_size > cap - cursor - 1u) {
+                result.Error = EScene3DSerializeError::SceneChangedDuringSave;
+                result.BytesWritten = cursor;
+                out[cursor] = '\0';
+                return result;
+            }
+            std::memcpy(out + cursor, line, line_size);
+            cursor += line_size;
+            ++emitted_sprites;
+        }
         const ACameraComponent3D* camera = FindCamera(*nodes[i]);
         if (camera != nullptr) {
             result.Error = FormatCameraLine(
@@ -984,9 +1084,7 @@ FScene3DSaveResult TrySaveScene3DText(
     }
     out[cursor] = '\0';
     result.BytesWritten = cursor;
-    if (cursor + 1u != result.RequiredBytes
-        || emitted_mesh_paths != result.MeshPathCount
-        || emitted_cameras != result.CameraCount) {
+    if (cursor + 1u != result.RequiredBytes || emitted_mesh_paths != result.MeshPathCount || emitted_cameras != result.CameraCount || emitted_sprites != result.SpriteCount) {
         result.Error = EScene3DSerializeError::SceneChangedDuringSave;
         return result;
     }
@@ -1011,6 +1109,7 @@ struct FParsedScene3DDocument {
     bool EditorDocument = false;
     u32 MeshPathCount = 0u;
     u32 PolygonCount = 0u;
+    u32 SpriteCount = 0u;
     u32 SourceBytes = 0u;
 };
 
@@ -1242,6 +1341,8 @@ FScene3DLoadResult ParseScene3DDocument(
             error = ParsePolygonLine(
                 line, line_size, document.Nodes, id_to_index,
                 document.PolygonCount);
+        } else if (StartsWith(line, line_size, "SPR3D ", 6u)) {
+            error = ParseSpriteLine(line, line_size, document.Nodes, id_to_index, document.SpriteCount);
         } else if (document.EditorDocument
                    && StartsWith(line, line_size, "SEL3D ", 6u)) {
             const char* selection = line + 6u;
@@ -1261,9 +1362,7 @@ FScene3DLoadResult ParseScene3DDocument(
             } else {
                 error = EScene3DSerializeError::None;
             }
-        } else if (document.EditorDocument
-                   && (StartsWith(line, line_size, "SPR3D ", 6u)
-                       || StartsWith(line, line_size, "PFAB3D ", 7u))) {
+        } else if (document.EditorDocument && StartsWith(line, line_size, "PFAB3D ", 7u)) {
             error = EScene3DSerializeError::UnsupportedDirective;
         }
         if (error != EScene3DSerializeError::None) {
@@ -1298,6 +1397,7 @@ FScene3DLoadResult ParseScene3DDocument(
         0u
     };
     result.PolygonCount = document.PolygonCount;
+    result.SpriteCount = document.SpriteCount;
     return result;
 }
 
@@ -1390,6 +1490,13 @@ FScene3DLoadResult CommitScene3DDocument(
                 mesh.SetMaterialLoaded(true);
             }
         }
+        if (record.HasSpritePath) {
+            ASprite3DComponent& sprite =
+                node->AddComponent<ASprite3DComponent>();
+            sprite.SetTexturePath(FStringView(record.SpritePath));
+            if (record.LoadedSpriteImage)
+                sprite.SetImageAsset(record.LoadedSpriteImage);
+        }
         if (!runtime_nodes.TryAdd(node)) {
             return LoadFailure(
                 EScene3DSerializeError::AllocationFailure,
@@ -1460,6 +1567,7 @@ FScene3DLoadResult CommitScene3DDocument(
     result.ActivePreferredCameraCount = active_preferred_camera_count;
     result.ActiveCamera = active_camera;
     result.PolygonCount = document.PolygonCount;
+    result.SpriteCount = document.SpriteCount;
     graph.SwapContents(staged_scene);
     return result;
 }
@@ -1561,6 +1669,8 @@ enum class ESceneDependencyKind : u8 {
     Mesh = 0u,
     /** マテリアルアセット。 */
     Material = 1u,
+    /** 3Dスプライト画像。 */
+    Image = 2u,
 };
 
 /** 同じ path と種別を参照する node 群を一件へまとめた record。 */
@@ -1639,7 +1749,7 @@ EScene3DSerializeError BuildStableSceneDependencyOrder(FParsedScene3DDocument& D
 {
     /** hash ごとの最初の dependency 添字。 */
     THashMap<u64, u32> FirstByHash;
-    if (!Dependencies.TryReserve(static_cast<usize>(Document.Nodes.Num()) * 2u)) {
+    if (!Dependencies.TryReserve(static_cast<usize>(Document.Nodes.Num()) * 3u)) {
         return EScene3DSerializeError::AllocationFailure;
     }
     /** document node を初出順に調べる添字。 */
@@ -1662,6 +1772,14 @@ EScene3DSerializeError BuildStableSceneDependencyOrder(FParsedScene3DDocument& D
                 return EScene3DSerializeError::AllocationFailure;
             }
         }
+        if (Node.HasSpritePath) {
+            if (ValidateVirtualPaths && !IsSafeVirtualAssetPath(Node.SpritePath)) {
+                return EScene3DSerializeError::AssetPathInvalid;
+            }
+            if (!AddStableSceneDependency(Dependencies, FirstByHash, ESceneDependencyKind::Image, Node.SpritePath, NodeIndex)) {
+                return EScene3DSerializeError::AllocationFailure;
+            }
+        }
     }
     return EScene3DSerializeError::None;
 }
@@ -1678,6 +1796,19 @@ EScene3DSerializeError DecodeAndAssignSceneDependency(FParsedScene3DDocument& Do
         /** mesh を割り当てる参照 node 添字。 */
         for (u32 NodeIndex : Dependency.Nodes) {
             Document.Nodes[NodeIndex].LoadedMesh = Decoded.Value();
+            ++DependenciesLoaded;
+        }
+        return EScene3DSerializeError::None;
+    }
+
+    if (Dependency.Kind == ESceneDependencyKind::Image) {
+        CImageAssetLoader loader;
+        auto decoded = loader.LoadFromBytes(kInvalidAssetId, Bytes);
+        if (decoded.IsErr() || !decoded.Value()) {
+            return EScene3DSerializeError::ImageDecodeFailed;
+        }
+        for (u32 node_index : Dependency.Nodes) {
+            Document.Nodes[node_index].LoadedSpriteImage = decoded.Value();
             ++DependenciesLoaded;
         }
         return EScene3DSerializeError::None;
@@ -1730,7 +1861,7 @@ EScene3DSerializeError LoadPackDependencies(IAssetPackReader& pack, FParsedScene
             /** 現在 batch へ追加を試す dependency。 */
             const FSceneDependencyRecord& Dependency = Dependencies[Cursor];
             /** dependency 種別ごとの最大 payload byte 数。 */
-            const u64 MaxBytes = Dependency.Kind == ESceneDependencyKind::Mesh ? kScene3DAssetMaxBytes : static_cast<u64>(kMaterial2DMaxTextBytes);
+            const u64 MaxBytes = Dependency.Kind == ESceneDependencyKind::Material ? static_cast<u64>(kMaterial2DMaxTextBytes) : kScene3DAssetMaxBytes;
             /** pack 内 payload size の取得結果。 */
             const auto SizeResult = pack.FileSize(Dependency.Path);
             if (SizeResult.IsErr() || SizeResult.Value() > MaxBytes) {
@@ -1869,7 +2000,7 @@ EScene3DSerializeError LoadLooseDependencies(const char* scene_path, FParsedScen
             return EScene3DSerializeError::AssetPathInvalid;
         }
         /** dependency 種別ごとの最大 payload byte 数。 */
-        const u64 MaxBytes = Dependency.Kind == ESceneDependencyKind::Mesh ? kScene3DAssetMaxBytes : static_cast<u64>(kMaterial2DMaxTextBytes);
+        const u64 MaxBytes = Dependency.Kind == ESceneDependencyKind::Material ? static_cast<u64>(kMaterial2DMaxTextBytes) : kScene3DAssetMaxBytes;
         /** loose file の read 結果。 */
         const EScene3DSerializeError ReadError = ReadLooseFile(resolved, MaxBytes, bytes);
         if (ReadError != EScene3DSerializeError::None)
