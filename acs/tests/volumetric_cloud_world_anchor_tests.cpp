@@ -323,7 +323,7 @@ f32 CloudConvectiveHeightForTest(
     f32 height, f32 columnShift, bool upperBand) noexcept {
     const f32 boundedHeight = SaturateForTest(height);
     const f32 interior =
-        4.0f * boundedHeight * boundedHeight * (1.0f - boundedHeight);
+        4.0f * boundedHeight * (1.0f - boundedHeight);
     const f32 bandScale = upperBand ? 0.30f : 1.0f;
     return SaturateForTest(
         boundedHeight - columnShift * interior * bandScale);
@@ -2222,6 +2222,14 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(compressedEdge, -0.17595f, 1e-6f);
     EXPECT_NEAR(stratusCore, 0.025f, 1e-6f);
 
+    // 雲底寄りでも柱ごとの差を残し、平らな下端へ戻らない。
+    const f32 liftedLowerBody = CloudConvectiveHeightForTest(0.10f, tallCore, false);
+    const f32 loweredLowerBody = CloudConvectiveHeightForTest(0.10f, compressedEdge, false);
+    EXPECT_NEAR(liftedLowerBody, 0.0352f, 1e-6f);
+    EXPECT_NEAR(loweredLowerBody, 0.163342f, 1e-6f);
+    EXPECT_TRUE(0.10f - liftedLowerBody > 0.05f);
+    EXPECT_TRUE(loweredLowerBody - 0.10f > 0.05f);
+
     // 高さ変形は層の両端を固定し、全許容変形量で折り返さない。
     for (u32 shiftStep = 0u; shiftStep <= 36u; ++shiftStep) {
         const f32 shift =
@@ -2268,9 +2276,10 @@ ACS_TEST(VolumetricClouds,
         "floatcloudConvectiveHeight("
         "floath,floatcolumnShift,boolupperBand){"
         "h=saturate(h);"
-        "floatinterior=4.0*h*h*(1.0-h);"
+        "floatinterior=4.0*h*(1.0-h);"
         "floatbandScale=upperBand?0.30:1.0;"
         "returnsaturate(h-columnShift*interior*bandScale);}"));
+    EXPECT_FALSE(Contains(shader, "floatinterior=4.0*h*h*(1.0-h);"));
     EXPECT_TRUE(Contains(
         shader,
         "float4sharedLightProfileTerms=float4("

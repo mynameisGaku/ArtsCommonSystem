@@ -1082,11 +1082,11 @@ float cloudColumnHeightShift(float4 weather){
         (core-0.45)*1.45+evolvingWarp*0.65,-1.0,1.0);
     return signal*amplitude;
 }
-// 0 と 1 を固定する単調な高さ変形。雲底と物理層の上端を保ったまま、
-// 中上部だけを柱ごとに伸縮する。薄い上層雲では変形を 30% に抑える。
+// 0 と 1 を固定する単調な高さ変形。物理層の上下端を越えず、雲底から雲頂までを
+// 柱ごとに上下させる。薄い上層雲では変形を 30% に抑える。
 float cloudConvectiveHeight(float h,float columnShift,bool upperBand){
     h=saturate(h);
-    float interior=4.0*h*h*(1.0-h);
+    float interior=4.0*h*(1.0-h);
     float bandScale=upperBand?0.30:1.0;
     return saturate(h-columnShift*interior*bandScale);
 }
