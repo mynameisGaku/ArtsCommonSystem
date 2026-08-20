@@ -81,9 +81,9 @@ public:
 };
 ```
 
-replay、AI、headless test では、`IInputFrameSource` を差し替えると `FInput` のグローバル状態へ
-触れずに同じ固定更新経路を使えます。入力ソースは非所有なので、ゲームより先に破棄しないで
-ください。既定の platform 入力へ戻すときは `ResetFixedStepInputSource()` を呼びます。
+AIやheadless testでは、`IInputFrameSource`を差し替えると`FInput`のグローバル状態へ
+触れずに描画フレーム入力を提出できます。入力ソースは非所有なので、ゲームより先に破棄しないで
+ください。既定のplatform入力へ戻すときは`ResetFixedStepInputSource()`を呼びます。
 
 ```cpp
 class FHeadlessInputSource final : public IInputFrameSource {
@@ -98,6 +98,22 @@ public:
 
 FHeadlessInputSource input_source;
 game.SetFixedStepInputSource(input_source);
+```
+
+固定tick単位で記録したreplayやrollbackには`IFixedTickInputSource`を使います。catch-upで
+一フレームに複数tick進む場合も、各tickの直前に一度ずつ呼ばれます。`fixed_tick`は時計snapshotを
+復元すると同じ番号が再要求されるため、入力列を番号から決定できるようにしてください。
+
+```cpp
+class FReplayInputSource final : public IFixedTickInputSource {
+public:
+    bool TryCaptureFixedTickInput(u64 fixed_tick, FInputStateSnapshot& output) noexcept override {
+        return TryReadRecordedInput(fixed_tick, output); // アプリ側の録画データから取得
+    }
+};
+
+FReplayInputSource replay_source;
+game.SetFixedTickInputSource(replay_source);
 ```
 
 rollback では `FFixedStepRuntimeSnapshot` を使うと、固定時計、active scene の未消費入力、

@@ -32,10 +32,16 @@ buffer.TryRestoreSnapshot(saved);
 
 ## FGame の入力ソース
 
-`FGame` は既定で現在の `FInput` を一フレームに一度だけ取得します。replay、AI、headless test
-では `IInputFrameSource` を実装し、`SetFixedStepInputSource` へ渡すと platform 入力を使わずに
-所有 snapshot を提出できます。ソースは非所有なので、`ResetFixedStepInputSource` または
-`FGame` の破棄まで呼び出し側が生存させてください。
+`FGame`は既定で現在の`FInput`を一フレームに一度だけ取得します。AIやheadless testでは
+`IInputFrameSource`を実装し、`SetFixedStepInputSource`へ渡すとplatform入力を使わずに
+frame snapshotを提出できます。
 
-入力ソースを切り替えると、以前のソースから残った未消費入力は破棄されます。取得が
-`false` を返したフレームも同様に未消費入力を破棄し、その固定 tick は無入力になります。
+固定tick単位のreplayやrollbackは`IFixedTickInputSource`を実装し、
+`SetFixedTickInputSource`へ渡します。こちらは固定更新が実行される直前にtick番号付きで呼ばれ、
+catch-upの全tickへ別々の入力を供給します。固定時計を復元すると同じtick番号が再要求されます。
+どちらのソースも非所有なので、`ResetFixedStepInputSource`または`FGame`の破棄まで呼び出し側が
+生存させてください。二つの差し替えソースは排他的で、後から設定した側が有効になります。
+
+入力ソースを切り替えると、以前のソースから残った未消費入力は破棄されます。frame sourceが
+`false`を返すとそのフレームの未消費入力を破棄します。fixed tick sourceが`false`を返すと
+拒否されたtickだけを無入力で実行し、次のtickは再び取得を試みます。

@@ -201,6 +201,7 @@ set(_acsgen_gameframework_headers
     FixedStepInputBufferSnapshot.h
     FixedStepOptions.h
     FixedStepRuntimeSnapshot.h
+    FixedTickInputSource.h
     Follow2DComponent.h
     Game.h
     GameFlow.h

@@ -10,6 +10,7 @@
 #include "gameframework/FixedStepInputBuffer.h"
 #include "gameframework/FixedStepInputBufferSnapshot.h"
 #include "gameframework/FixedStepRuntimeSnapshot.h"
+#include "gameframework/FixedTickInputSource.h"
 #include "gameframework/Scene.h"
 #include "gameframework/Scene2D.h"
 #include "gameframework/LegacyScene3DAdapter.h"

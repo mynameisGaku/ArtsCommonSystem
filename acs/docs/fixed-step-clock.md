@@ -53,8 +53,10 @@ if (clock.Configure(options)) {
 - `TryCaptureFixedStepSnapshot` / `TryRestoreFixedStepSnapshot` で固定更新位置を保存・復元できます。
 - `TryCaptureFixedStepRuntimeSnapshot` / `TryRestoreFixedStepRuntimeSnapshot` は固定時計に加え、
   active scene が次の tick へ繰り越す入力と固定更新の有効状態を一括保存・復元します。
-- `SetFixedStepInputSource` は一フレーム入力の取得元を replay、AI、headless test へ差し替えます。
-  `ResetFixedStepInputSource` で既定の platform 入力へ戻ります。
+- `SetFixedStepInputSource`は描画フレーム入力の取得元をAI、headless testへ差し替えます。
+- `SetFixedTickInputSource`は固定tick入力の取得元をreplay、rollbackへ差し替えます。catch-upでも
+  tickごとに呼ばれ、時計snapshot復元後は同じtick番号を再要求します。
+- `ResetFixedStepInputSource`でどちらの差し替え元からも既定のplatform入力へ戻ります。
 - `FixedStepInterpolationAlpha` は描画補間に使える剰余率を返します。
 - 起動前に復元した時計状態は `FGame::OnStart` 後も維持されます。
 

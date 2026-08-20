@@ -5,7 +5,7 @@ namespace acs::game {
 
 class FInputStateSnapshot;
 
-/** FGame の一フレーム分の固定更新入力を取得する差し替え境界。 */
+/** FGameの描画フレーム入力を取得し、次の固定更新まで蓄積する差し替え境界。 */
 class IInputFrameSource {
 public:
     /** 派生した入力ソースを基底ポインターから安全に破棄する。 */

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "gameframework/Game.h"
+#include "gameframework/FixedTickInputSource.h"
 #include "gameframework/InputFrameSource.h"
 #include "gameframework/Scene.h"
 #include "platform/Input.h"
@@ -69,6 +70,70 @@ private:
 
     /** 取得を試みたフレーム数。 */
     u32 m_CaptureCount = 0u;
+};
+
+/** 固定tick番号からSpace入力を決定論的に生成する検証ソース。 */
+class FScriptedFixedTickInputSource final : public IFixedTickInputSource {
+public:
+    /** tick 0で押下、tick 1で保持、tick 2で解放した入力を返す。 */
+    bool TryCaptureFixedTickInput(u64 fixed_tick, FInputStateSnapshot& output) noexcept override
+    {
+        if (m_CaptureCount < kMaximumObservedTicks) m_ObservedTicks[m_CaptureCount] = fixed_tick;
+        ++m_CaptureCount;
+        if (fixed_tick == m_FailedTick) return false;
+
+        FInputStateSnapshot staged;
+        if (m_ProducesNeutralInput) {
+            output = staged;
+            return true;
+        }
+        const bool down = fixed_tick < 2u;
+        const bool pressed = fixed_tick == 0u;
+        const bool released = fixed_tick == 2u;
+        if (!staged.TrySetKeyState(EKey::Space, down, pressed, released)) return false;
+        output = staged;
+        return true;
+    }
+
+    /** 指定tickの取得を失敗させる。 */
+    void SetFailedTick(u64 fixed_tick) noexcept
+    {
+        m_FailedTick = fixed_tick;
+    }
+
+    /** 全tickで無入力を返す。 */
+    void SetProducesNeutralInput(bool neutral) noexcept
+    {
+        m_ProducesNeutralInput = neutral;
+    }
+
+    /** 入力を要求された回数を返す。 */
+    u32 CaptureCount() const noexcept
+    {
+        return m_CaptureCount;
+    }
+
+    /** 指定位置で要求された固定tick番号を返す。 */
+    u64 ObservedTick(u32 index) const noexcept
+    {
+        return index < kMaximumObservedTicks ? m_ObservedTicks[index] : ~u64{0};
+    }
+
+private:
+    /** テストで保持する要求tick数。 */
+    static constexpr u32 kMaximumObservedTicks = 16u;
+
+    /** このtickだけ取得を失敗させる。 */
+    u64 m_FailedTick = ~u64{0};
+
+    /** 入力を要求された回数。 */
+    u32 m_CaptureCount = 0u;
+
+    /** 全tickを無入力として返す場合はtrue。 */
+    bool m_ProducesNeutralInput = false;
+
+    /** 要求順の固定tick番号。 */
+    u64 m_ObservedTicks[kMaximumObservedTicks]{};
 };
 
 /** 固定 tick ごとの Jump 入力を記録する検証用シーン。 */
@@ -421,6 +486,133 @@ ACS_TEST(GameFixedInputIntegration, FailedExplicitSourceClearsPendingInputTransa
     EXPECT_EQ(scene->PressedCount(), 0u);
     EXPECT_EQ(scene->HeldCount(), 0u);
     EXPECT_EQ(scene->ReleasedCount(), 0u);
+
+    game.ShutdownForTest();
+    ResetPlatformInput();
+}
+
+ACS_TEST(GameFixedInputIntegration, FixedTickSourceFeedsEveryCatchUpStepInOrder)
+{
+    ResetPlatformInput();
+    FScriptedFixedTickInputSource source;
+    AFixedInputProbeGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.SetFixedTickInputSource(source);
+    EXPECT_FALSE(game.UsesPlatformFixedStepInput());
+    EXPECT_TRUE(game.UsesFixedTickInputSource());
+    game.StartForTest();
+    AFixedInputProbeScene* scene = game.SceneForTest();
+    EXPECT_TRUE(scene != nullptr);
+
+    game.UpdateForTest(0.375f);
+
+    EXPECT_EQ(source.CaptureCount(), 3u);
+    EXPECT_EQ(source.ObservedTick(0u), 0u);
+    EXPECT_EQ(source.ObservedTick(1u), 1u);
+    EXPECT_EQ(source.ObservedTick(2u), 2u);
+    EXPECT_EQ(scene->FixedUpdateCount(), 3u);
+    EXPECT_EQ(scene->PressedCount(), 1u);
+    EXPECT_EQ(scene->HeldCount(), 2u);
+    EXPECT_EQ(scene->ReleasedCount(), 1u);
+
+    game.ShutdownForTest();
+    ResetPlatformInput();
+}
+
+ACS_TEST(GameFixedInputIntegration, FixedTickSourceIsNotConsumedWithoutFixedStep)
+{
+    ResetPlatformInput();
+    FScriptedFixedTickInputSource source;
+    AFixedInputProbeGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.SetFixedTickInputSource(source);
+    game.StartForTest();
+
+    game.UpdateForTest(0.0625f);
+    EXPECT_EQ(source.CaptureCount(), 0u);
+    game.UpdateForTest(0.0625f);
+    EXPECT_EQ(source.CaptureCount(), 1u);
+    EXPECT_EQ(source.ObservedTick(0u), 0u);
+
+    game.ShutdownForTest();
+    ResetPlatformInput();
+}
+
+ACS_TEST(GameFixedInputIntegration, SwitchingToFixedTickSourceDiscardsPendingFrameEdges)
+{
+    ResetPlatformInput();
+    FScriptedInputFrameSource frame_source;
+    EXPECT_TRUE(frame_source.TrySetSpace(true, true, false));
+    FScriptedFixedTickInputSource tick_source;
+    tick_source.SetProducesNeutralInput(true);
+
+    AFixedInputProbeGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.SetFixedStepInputSource(frame_source);
+    game.StartForTest();
+    AFixedInputProbeScene* scene = game.SceneForTest();
+    EXPECT_TRUE(scene != nullptr);
+
+    game.UpdateForTest(0.0625f);
+    game.SetFixedTickInputSource(tick_source);
+    game.UpdateForTest(0.0625f);
+
+    EXPECT_EQ(frame_source.CaptureCount(), 1u);
+    EXPECT_EQ(tick_source.CaptureCount(), 1u);
+    EXPECT_EQ(scene->FixedUpdateCount(), 1u);
+    EXPECT_EQ(scene->PressedCount(), 0u);
+    EXPECT_EQ(scene->HeldCount(), 0u);
+    EXPECT_EQ(scene->ReleasedCount(), 0u);
+
+    game.ShutdownForTest();
+    ResetPlatformInput();
+}
+
+ACS_TEST(GameFixedInputIntegration, FailedFixedTickSourceNeutralizesOnlyRejectedTick)
+{
+    ResetPlatformInput();
+    FScriptedFixedTickInputSource source;
+    source.SetFailedTick(1u);
+    AFixedInputProbeGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.SetFixedTickInputSource(source);
+    game.StartForTest();
+    AFixedInputProbeScene* scene = game.SceneForTest();
+    EXPECT_TRUE(scene != nullptr);
+
+    game.UpdateForTest(0.375f);
+
+    EXPECT_EQ(source.CaptureCount(), 3u);
+    EXPECT_EQ(scene->FixedUpdateCount(), 3u);
+    EXPECT_EQ(scene->PressedCount(), 1u);
+    EXPECT_EQ(scene->HeldCount(), 1u);
+    EXPECT_EQ(scene->ReleasedCount(), 1u);
+
+    game.ShutdownForTest();
+    ResetPlatformInput();
+}
+
+ACS_TEST(GameFixedInputIntegration, RuntimeRestoreReissuesFixedTickNumber)
+{
+    ResetPlatformInput();
+    FScriptedFixedTickInputSource source;
+    AFixedInputProbeGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.SetFixedTickInputSource(source);
+    game.StartForTest();
+
+    game.UpdateForTest(0.25f);
+    FFixedStepRuntimeSnapshot saved;
+    EXPECT_TRUE(game.TryCaptureFixedStepRuntimeSnapshot(saved));
+    game.UpdateForTest(0.125f);
+    EXPECT_TRUE(game.TryRestoreFixedStepRuntimeSnapshot(saved));
+    game.UpdateForTest(0.125f);
+
+    EXPECT_EQ(source.CaptureCount(), 4u);
+    EXPECT_EQ(source.ObservedTick(0u), 0u);
+    EXPECT_EQ(source.ObservedTick(1u), 1u);
+    EXPECT_EQ(source.ObservedTick(2u), 2u);
+    EXPECT_EQ(source.ObservedTick(3u), 2u);
 
     game.ShutdownForTest();
     ResetPlatformInput();

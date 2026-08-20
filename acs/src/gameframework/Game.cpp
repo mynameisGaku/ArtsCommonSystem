@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // FGame 実装
 #include "gameframework/Game.h"
+#include "gameframework/FixedTickInputSource.h"
 #include "gameframework/InputFrameSource.h"
 #include "gameframework/InputStateSnapshot.h"
 #include "gameframework/PlatformInputStateAdapter.h"
@@ -100,16 +101,27 @@ bool FGame::TryRestoreFixedStepRuntimeSnapshot(const FFixedStepRuntimeSnapshot& 
 /** 入力ソースを切り替え、以前の取得元から残った未消費入力を破棄する。 */
 void FGame::SetFixedStepInputSource(IInputFrameSource& source) noexcept
 {
-    if (m_FixedStepInputSource == &source) return;
+    if (m_FixedStepInputSource == &source && m_FixedTickInputSource == nullptr) return;
     m_FixedStepInputSource = &source;
+    m_FixedTickInputSource = nullptr;
+    m_Scenes.ExecutionAccess().ResetFixedInput();
+}
+
+/** 固定tick入力へ切り替え、frame入力から残った未消費状態を破棄する。 */
+void FGame::SetFixedTickInputSource(IFixedTickInputSource& source) noexcept
+{
+    if (m_FixedTickInputSource == &source && m_FixedStepInputSource == nullptr) return;
+    m_FixedTickInputSource = &source;
+    m_FixedStepInputSource = nullptr;
     m_Scenes.ExecutionAccess().ResetFixedInput();
 }
 
 /** platform 入力へ戻し、差し替え元から残った未消費入力を破棄する。 */
 void FGame::ResetFixedStepInputSource() noexcept
 {
-    if (m_FixedStepInputSource == nullptr) return;
+    if (m_FixedStepInputSource == nullptr && m_FixedTickInputSource == nullptr) return;
     m_FixedStepInputSource = nullptr;
+    m_FixedTickInputSource = nullptr;
     m_Scenes.ExecutionAccess().ResetFixedInput();
 }
 
@@ -147,8 +159,10 @@ void FGame::OnUpdate(f32 dt) noexcept
     FSceneManager::FExecutionAdapter scene_execution = m_Scenes.ExecutionAccess();
     scene_execution.ApplyPending(*this);
 
-    // PollEvents 後の platform 入力を一度だけ所有 snapshot にし、active Scene へ提出する。
-    if (m_FixedStepEnabled && m_TimeScale > 0.0f && scaled_dt >= 0.0f && std::isfinite(scaled_dt)) {
+    // frame入力経路はPollEvents後に一度だけ取得する。固定tick入力経路は下の各tick直前に取得する。
+    const bool can_advance_fixed = m_FixedStepEnabled && m_TimeScale > 0.0f && scaled_dt >= 0.0f &&
+                                   std::isfinite(scaled_dt);
+    if (can_advance_fixed && m_FixedTickInputSource == nullptr) {
         FInputStateSnapshot frame_input;
         const bool captured = m_FixedStepInputSource != nullptr
                                   ? m_FixedStepInputSource->TryCaptureFrameInput(frame_input)
@@ -163,10 +177,26 @@ void FGame::OnUpdate(f32 dt) noexcept
 
     // 固定更新時計が確定した回数だけ Scene::OnFixedUpdate を呼ぶ。
     if (m_FixedStepEnabled) {
+        /** Advance前に次回固定tick番号を保存し、catch-up中の各入力へ安定して渡す。 */
+        const u64 first_fixed_tick = m_FixedStepClock.TotalStepCount();
         const FFixedStepAdvanceResult advance = m_FixedStepClock.Advance(static_cast<f64>(scaled_dt));
         if (advance.accepted) {
             const f32 fixed_dt = static_cast<f32>(m_FixedStepClock.Options().step_seconds);
             for (u32 step_index = 0; step_index < advance.step_count; ++step_index) {
+                if (m_FixedTickInputSource != nullptr) {
+                    /** 現在実行する決定論入力の0起点tick番号。 */
+                    const u64 fixed_tick = first_fixed_tick > ~u64{0} - static_cast<u64>(step_index)
+                                               ? ~u64{0}
+                                               : first_fixed_tick + static_cast<u64>(step_index);
+                    /** 現在tickだけへ提出する所有入力。 */
+                    FInputStateSnapshot fixed_input;
+                    const bool captured = m_FixedTickInputSource->TryCaptureFixedTickInput(fixed_tick, fixed_input);
+                    if (!captured || !scene_execution.SubmitFrameInput(fixed_input)) {
+                        scene_execution.ResetFixedInput();
+                        ACS_LOG_WARN("FGame: fixed-tick input %llu was rejected; neutral input will be used",
+                                     static_cast<unsigned long long>(fixed_tick));
+                    }
+                }
                 scene_execution.FixedUpdate(fixed_dt);
             }
         }

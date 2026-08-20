@@ -34,6 +34,7 @@
 namespace acs::game {
 
 class FScene;
+class IFixedTickInputSource;
 class IInputFrameSource;
 
 /**
@@ -148,17 +149,32 @@ public:
      *
      * @details source は非所有で、ResetFixedStepInputSource または FGame の破棄まで生存させる。
      * platform 入力から切り替える際は未消費入力を破棄し、異なる入力列を混在させない。
-     * @param source replay、AI、headless test などが所有する入力ソース。
+     * @param source AI、headless testなどが所有する描画フレーム入力ソース。
      */
     void SetFixedStepInputSource(IInputFrameSource& source) noexcept;
 
-    /** platform 入力を使う既定状態へ戻し、未消費入力を破棄する。 */
+    /**
+     * 各固定tickの決定論入力を取得するソースへ切り替える。
+     *
+     * @details sourceは非所有。描画フレーム入力は使わず、catch-up中も各固定tickの直前に
+     * tick番号付きで一度ずつ取得する。切替時は以前の未消費入力を破棄する。
+     * @param source replayやrollbackが所有する固定tick入力ソース。
+     */
+    void SetFixedTickInputSource(IFixedTickInputSource& source) noexcept;
+
+    /** platform入力を使う既定状態へ戻し、frame/tickソースの未消費入力を破棄する。 */
     void ResetFixedStepInputSource() noexcept;
 
     /** platform 入力を直接取得する既定状態なら true を返す。 */
     bool UsesPlatformFixedStepInput() const noexcept
     {
-        return m_FixedStepInputSource == nullptr;
+        return m_FixedStepInputSource == nullptr && m_FixedTickInputSource == nullptr;
+    }
+
+    /** 固定tickごとの決定論入力ソースを使っている場合はtrueを返す。 */
+    bool UsesFixedTickInputSource() const noexcept
+    {
+        return m_FixedTickInputSource != nullptr;
     }
 
     /**
@@ -375,8 +391,11 @@ private:
     /** 固定タイムステップ更新が有効か。 */
     bool m_FixedStepEnabled = true;
 
-    /** replay、AI、test が所有する固定更新入力ソース。null なら platform 入力を使う。 */
+    /** AI、testが所有する描画フレーム入力ソース。nullならplatform入力または固定tick入力を使う。 */
     IInputFrameSource* m_FixedStepInputSource = nullptr;
+
+    /** replay、rollbackが所有する固定tick入力ソース。frame入力ソースとは排他的に使う。 */
+    IFixedTickInputSource* m_FixedTickInputSource = nullptr;
 };
 
 } // namespace acs::game
