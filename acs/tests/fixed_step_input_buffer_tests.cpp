@@ -188,3 +188,84 @@ ACS_TEST(FixedStepInputBuffer, ResetAndUninitializedConsumePreserveOutput)
     EXPECT_TRUE(output.IsKeyDown(EKey::Enter));
     EXPECT_TRUE(output.IsKeyPressed(EKey::Enter));
 }
+
+ACS_TEST(FixedStepInputBuffer, SnapshotRoundTripRestoresPendingEdgesAndAxes)
+{
+    /** 保存後に状態を変更してから巻き戻すbuffer。 */
+    FFixedStepInputBuffer buffer;
+    /** 保存する押下、保持、軸を含む入力。 */
+    FInputStateSnapshot frame;
+    EXPECT_TRUE(frame.TrySetKeyState(EKey::Space, true, true, false));
+    EXPECT_TRUE(frame.TrySetGamepadAxis(0u, EGamepadAxis::LeftX, 0.375f));
+    EXPECT_TRUE(buffer.TryPushFrame(frame));
+
+    /** 未消費入力を保持する保存値。 */
+    FFixedStepInputBufferSnapshot snapshot;
+    EXPECT_TRUE(buffer.TryCaptureSnapshot(snapshot));
+    EXPECT_TRUE(snapshot.has_input_state);
+
+    /** 保存後の状態を変更する解放入力。 */
+    FInputStateSnapshot released_frame;
+    EXPECT_TRUE(released_frame.TrySetKeyState(EKey::Space, false, false, true));
+    EXPECT_TRUE(buffer.TryPushFrame(released_frame));
+    EXPECT_TRUE(buffer.TryRestoreSnapshot(snapshot));
+
+    /** 復元後の最初の固定tick入力。 */
+    FInputStateSnapshot restored_tick;
+    EXPECT_TRUE(buffer.TryConsumeFixedStep(restored_tick));
+    EXPECT_TRUE(restored_tick.IsKeyDown(EKey::Space));
+    EXPECT_TRUE(restored_tick.IsKeyPressed(EKey::Space));
+    EXPECT_FALSE(restored_tick.IsKeyReleased(EKey::Space));
+    EXPECT_NEAR(restored_tick.GamepadAxisValue(0u, EGamepadAxis::LeftX), 0.375f, 1.0e-6f);
+}
+
+ACS_TEST(FixedStepInputBuffer, SnapshotAfterConsumptionDoesNotReplayEdges)
+{
+    /** 押下を一度消費してから保存するbuffer。 */
+    FFixedStepInputBuffer buffer;
+    /** 保持と押下を含む入力。 */
+    FInputStateSnapshot frame;
+    EXPECT_TRUE(frame.TrySetKeyState(EKey::Enter, true, true, false));
+    EXPECT_TRUE(buffer.TryPushFrame(frame));
+    /** 押下を消費する最初の固定tick入力。 */
+    FInputStateSnapshot consumed_tick;
+    EXPECT_TRUE(buffer.TryConsumeFixedStep(consumed_tick));
+
+    /** 押下消費後の保存値。 */
+    FFixedStepInputBufferSnapshot snapshot;
+    EXPECT_TRUE(buffer.TryCaptureSnapshot(snapshot));
+    buffer.Reset();
+    EXPECT_TRUE(buffer.TryRestoreSnapshot(snapshot));
+
+    /** 復元後も保持だけを含む固定tick入力。 */
+    FInputStateSnapshot restored_tick;
+    EXPECT_TRUE(buffer.TryConsumeFixedStep(restored_tick));
+    EXPECT_TRUE(restored_tick.IsKeyDown(EKey::Enter));
+    EXPECT_FALSE(restored_tick.IsKeyPressed(EKey::Enter));
+    EXPECT_FALSE(restored_tick.IsKeyReleased(EKey::Enter));
+}
+
+ACS_TEST(FixedStepInputBuffer, EmptySnapshotCanonicalizesIgnoredPayload)
+{
+    /** 初期化済み状態から空保存値へ戻すbuffer。 */
+    FFixedStepInputBuffer buffer;
+    /** 復元前に破棄される入力。 */
+    FInputStateSnapshot frame;
+    EXPECT_TRUE(frame.TrySetKeyState(EKey::Space, true, true, false));
+    EXPECT_TRUE(buffer.TryPushFrame(frame));
+
+    /** 未初期化指定だが無視対象payloadを持つ保存値。 */
+    FFixedStepInputBufferSnapshot empty_snapshot;
+    EXPECT_TRUE(empty_snapshot.pending_input.TrySetKeyState(EKey::Enter, true, true, false));
+    empty_snapshot.has_input_state = false;
+    EXPECT_TRUE(buffer.TryRestoreSnapshot(empty_snapshot));
+    EXPECT_FALSE(buffer.HasInputState());
+
+    /** 復元後に正規化された空状態を取得する保存値。 */
+    FFixedStepInputBufferSnapshot captured;
+    EXPECT_TRUE(captured.pending_input.TrySetKeyState(EKey::Enter, true, true, false));
+    EXPECT_TRUE(buffer.TryCaptureSnapshot(captured));
+    EXPECT_FALSE(captured.has_input_state);
+    EXPECT_FALSE(captured.pending_input.IsKeyDown(EKey::Enter));
+    EXPECT_FALSE(captured.pending_input.IsKeyPressed(EKey::Enter));
+}

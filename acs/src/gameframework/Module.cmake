@@ -197,6 +197,7 @@ set(_acsgen_gameframework_headers
     FixedStepClock.h
     FixedStepClockSnapshot.h
     FixedStepInputBuffer.h
+    FixedStepInputBufferSnapshot.h
     FixedStepOptions.h
     Follow2DComponent.h
     Game.h

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include "gameframework/InputStateSnapshot.h"
+#include "gameframework/FixedStepInputBufferSnapshot.h"
 
 namespace acs::game {
 
@@ -26,6 +26,20 @@ public:
      * @return 一度以上フレーム入力を受理済みで取得できた場合はtrue。
      */
     bool TryConsumeFixedStep(FInputStateSnapshot& output) noexcept;
+
+    /**
+     * 未消費入力を再現可能な保存値へ複製する。
+     * @param snapshot 保存先。内部状態を検証できない場合は変更しない。
+     * @return 保存値を取得できた場合はtrue。
+     */
+    bool TryCaptureSnapshot(FFixedStepInputBufferSnapshot& snapshot) const noexcept;
+
+    /**
+     * 保存した未消費入力を検証して復元する。
+     * @param snapshot 復元する入力状態。未初期化ならpending_inputを無視してResetする。
+     * @return 保存値全体を復元できた場合はtrue。失敗時は現在状態を変更しない。
+     */
+    bool TryRestoreSnapshot(const FFixedStepInputBufferSnapshot& snapshot) noexcept;
 
     /** 蓄積中の入力を破棄し、未初期化状態へ戻す。 */
     void Reset() noexcept;

@@ -89,6 +89,28 @@ bool FFixedStepInputBuffer::TryConsumeFixedStep(FInputStateSnapshot& output) noe
     return true;
 }
 
+/** 未消費入力を検証し、成功時だけ保存先へ一括反映する。 */
+bool FFixedStepInputBuffer::TryCaptureSnapshot(FFixedStepInputBufferSnapshot& snapshot) const noexcept
+{
+    /** 未初期化状態も正規化して保持する保存候補。 */
+    FFixedStepInputBufferSnapshot candidate{};
+    candidate.has_input_state = m_HasInputState;
+    if (m_HasInputState && !TryBuildSnapshot(m_Pending, nullptr, true, candidate.pending_input)) return false;
+    snapshot = candidate;
+    return true;
+}
+
+/** 保存値を隔離したbufferで検証し、成功時だけ現在状態へ一括反映する。 */
+bool FFixedStepInputBuffer::TryRestoreSnapshot(const FFixedStepInputBufferSnapshot& snapshot) noexcept
+{
+    /** 復元候補を現在状態から隔離して検証するbuffer。 */
+    FFixedStepInputBuffer candidate;
+    if (snapshot.has_input_state && !candidate.TryPushFrame(snapshot.pending_input)) return false;
+    m_Pending = candidate.m_Pending;
+    m_HasInputState = candidate.m_HasInputState;
+    return true;
+}
+
 /** 蓄積中の入力を破棄し、未初期化状態へ戻す。 */
 void FFixedStepInputBuffer::Reset() noexcept
 {
