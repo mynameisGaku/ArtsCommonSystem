@@ -128,6 +128,14 @@ These bounds establish numerical and cache-coherency safety. They do not by
 themselves prove that the heuristic density, phase, or multiple-scattering
 model is physically calibrated; that remains a visual-reference requirement.
 
+Both the Editor and legacy Scene3D paths update cloud illumination from the
+current scene before dispatch. They evaluate atmospheric RGB transmittance at
+the normalized cloud-layer midpoint, use the current zenith color for the
+top-to-bottom sky-light gradient, and use the current lower-hemisphere color
+for ground bounce. This prevents low-sun clouds from retaining white midday
+direct light and prevents the base and top of the cloud from sharing one
+horizon-color ambient term.
+
 ## Quality-preserving optimization rules
 
 Ultra cloud optimization keeps the `0.25` trace scale, 192 view-sample ceiling,

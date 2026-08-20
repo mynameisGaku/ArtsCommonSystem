@@ -1292,3 +1292,65 @@ ACS_TEST(EditorPerformance,
     EXPECT_FALSE(Contains(
         render, "TArray<game::ANode*> water_nodes;"));
 }
+
+ACS_TEST(Atmosphere, CloudSunTransmittanceRespondsToElevationAndGroundOcclusion) {
+    /** 雲層の中央高度から真上へ抜ける昼の透過率。 */
+    const FVec3 noon = SunTransmittanceAtAltitude(2750.0f, FVec3{0.0f, 1.0f, 0.0f});
+    /** 同じ高度から低い太陽へ抜ける長い大気経路の透過率。 */
+    const FVec3 lowSun = SunTransmittanceAtAltitude(2750.0f, FVec3{1.0f, 0.05f, 0.0f});
+    /** 地面に隠れた太陽への透過率。 */
+    const FVec3 blocked = SunTransmittanceAtAltitude(2750.0f, FVec3{0.0f, -1.0f, 0.0f});
+
+    EXPECT_TRUE(std::isfinite(static_cast<double>(noon.x)));
+    EXPECT_TRUE(std::isfinite(static_cast<double>(noon.y)));
+    EXPECT_TRUE(std::isfinite(static_cast<double>(noon.z)));
+    EXPECT_TRUE(std::isfinite(static_cast<double>(lowSun.x)));
+    EXPECT_TRUE(std::isfinite(static_cast<double>(lowSun.y)));
+    EXPECT_TRUE(std::isfinite(static_cast<double>(lowSun.z)));
+    EXPECT_TRUE(noon.x > 0.0f && noon.x <= 1.0f);
+    EXPECT_TRUE(noon.y > 0.0f && noon.y <= 1.0f);
+    EXPECT_TRUE(noon.z > 0.0f && noon.z <= 1.0f);
+    EXPECT_TRUE(lowSun.x > 0.0f && lowSun.x < noon.x);
+    EXPECT_TRUE(lowSun.y > 0.0f && lowSun.y < noon.y);
+    EXPECT_TRUE(lowSun.z > 0.0f && lowSun.z < noon.z);
+    EXPECT_TRUE(lowSun.x > lowSun.y && lowSun.y > lowSun.z);
+    EXPECT_NEAR(blocked.x, 0.0f, 0.0f);
+    EXPECT_NEAR(blocked.y, 0.0f, 0.0f);
+    EXPECT_NEAR(blocked.z, 0.0f, 0.0f);
+}
+
+ACS_TEST(Atmosphere, EditorCloudLightingUsesNormalizedLayerAndCurrentSky) {
+    const std::string source = ReadEditorAbiSource();
+    const std::size_t helperBegin = source.find(
+        "void UpdateVolumetricCloudLighting_Internal(");
+    const std::size_t helperEnd = source.find(
+        "void DrawScene3D(", helperBegin);
+    const std::string helper =
+        helperBegin != std::string::npos && helperEnd != std::string::npos
+            ? source.substr(helperBegin, helperEnd - helperBegin)
+            : std::string{};
+    EXPECT_TRUE(!helper.empty());
+    EXPECT_TRUE(Contains(
+        helper,
+        "const FVolumetricCloudLayer& layer = host.vclouds3d.Layer();"));
+    EXPECT_TRUE(Contains(
+        helper,
+        "SunTransmittanceAtAltitude(middleAltitude, host.sun_dir)"));
+    EXPECT_TRUE(Contains(helper, "lighting.SkyZenithColor = host.sky_zenith;"));
+    EXPECT_TRUE(Contains(helper, "lighting.GroundColor = host.sky_ground;"));
+    EXPECT_TRUE(Contains(helper, "host.vclouds3d.SetLighting(lighting);"));
+
+    const std::size_t drawBegin = source.find("void DrawScene3D(");
+    const std::string draw = drawBegin != std::string::npos
+        ? source.substr(drawBegin) : std::string{};
+    const std::size_t setLayer = draw.find("h.vclouds3d.SetLayer(");
+    const std::size_t updateLighting = draw.find(
+        "UpdateVolumetricCloudLighting_Internal(h);", setLayer);
+    const std::size_t renderClouds = draw.find(
+        "h.vclouds3d.RenderCompute(", updateLighting);
+    EXPECT_TRUE(setLayer != std::string::npos);
+    EXPECT_TRUE(updateLighting != std::string::npos);
+    EXPECT_TRUE(renderClouds != std::string::npos);
+    EXPECT_TRUE(setLayer < updateLighting);
+    EXPECT_TRUE(updateLighting < renderClouds);
+}

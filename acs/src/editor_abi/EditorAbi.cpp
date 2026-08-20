@@ -9272,6 +9272,22 @@ bool EnsureSsssFrameResources(
     return true;
 }
 
+/**
+ * Editor の空と太陽から、現在の雲層へ届く照明を更新する。
+ *
+ * @param host 正規化済みの雲層と、現在の太陽・空・地面色を持つ Editor 状態。
+ * @details 無効値を含む設定は CVolumetricClouds の setter 側で既定値または有効範囲へ直す。
+ */
+void UpdateVolumetricCloudLighting_Internal(FEditorHost& host) noexcept {
+    const FVolumetricCloudLayer& layer = host.vclouds3d.Layer();
+    const f32 middleAltitude = (layer.base_height + layer.top_height) * 0.5f;
+    FVolumetricCloudLighting lighting = host.vclouds3d.Lighting();
+    lighting.SunTransmittance = SunTransmittanceAtAltitude(middleAltitude, host.sun_dir);
+    lighting.SkyZenithColor = host.sky_zenith;
+    lighting.GroundColor = host.sky_ground;
+    host.vclouds3d.SetLighting(lighting);
+}
+
 void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     if (!Ensure3D(h)) {
         InvalidateTemporalRenderHistories(h);
@@ -9971,6 +9987,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         h.vclouds3d.SetLayer(acs::FVolumetricCloudLayer{
             h.q_cloud_base, h.q_cloud_top, h.q_cloud_noise_scale
         });
+        UpdateVolumetricCloudLighting_Internal(h);
         const FVec3 sunC{ h.sun_color.x * h.sun_intensity, h.sun_color.y * h.sun_intensity, h.sun_color.z * h.sun_intensity };
         {
             editor_profiler::FCpuScope cloudScope(
