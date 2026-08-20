@@ -619,14 +619,14 @@ void ALegacyScene3DAdapter::FrameScene() noexcept {
             if (!stack.TryAdd(node->Child(index))) return;
     }
     if (!found) {
-        m_Target = FVec3{0.0f, 0.0f, 0.0f};
-        m_Distance = 8.0f;
+        m_OrbitCameraState.target = FVec3{0.0f, 0.0f, 0.0f};
+        m_OrbitCameraState.distance = 8.0f;
     } else {
-        m_Target = (minimum + maximum) * 0.5f;
+        m_OrbitCameraState.target = (minimum + maximum) * 0.5f;
         const f32 radius = Length((maximum - minimum) * 0.5f);
-        m_Distance = radius > 0.25f ? radius * 2.8f : 3.0f;
-        if (m_Distance < 3.0f) m_Distance = 3.0f;
-        if (m_Distance > 10000.0f) m_Distance = 10000.0f;
+        m_OrbitCameraState.distance = radius > 0.25f ? radius * 2.8f : 3.0f;
+        if (m_OrbitCameraState.distance < 3.0f) m_OrbitCameraState.distance = 3.0f;
+        if (m_OrbitCameraState.distance > 10000.0f) m_OrbitCameraState.distance = 10000.0f;
     }
     UpdateCameraView();
 }
@@ -793,28 +793,18 @@ void ALegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
     }
 
     if (!m_UseAuthoredCamera) {
-        const f32 turn = 1.45f * dt;
-        if (CInput::IsKeyDown(EKey::Left)) m_Yaw -= turn;
-        if (CInput::IsKeyDown(EKey::Right)) m_Yaw += turn;
-        if (CInput::IsKeyDown(EKey::Up)) m_Pitch += turn * 0.75f;
-        if (CInput::IsKeyDown(EKey::Down)) m_Pitch -= turn * 0.75f;
-        const f32 pitch_limit = 0.475f * kPi;
-        if (m_Pitch > pitch_limit) m_Pitch = pitch_limit;
-        if (m_Pitch < -pitch_limit) m_Pitch = -pitch_limit;
-
-        const f32 move =
-            (m_Distance > 1.0f ? m_Distance : 1.0f) * 0.55f * dt;
-        const FVec3 horizontal_forward{
-            Sin(m_Yaw), 0.0f, Cos(m_Yaw)};
-        const FVec3 right{Cos(m_Yaw), 0.0f, -Sin(m_Yaw)};
-        if (CInput::IsKeyDown(EKey::W))
-            m_Target += horizontal_forward * move;
-        if (CInput::IsKeyDown(EKey::S))
-            m_Target -= horizontal_forward * move;
-        if (CInput::IsKeyDown(EKey::D)) m_Target += right * move;
-        if (CInput::IsKeyDown(EKey::A)) m_Target -= right * move;
-        if (CInput::IsKeyDown(EKey::E)) m_Target.y += move;
-        if (CInput::IsKeyDown(EKey::Q)) m_Target.y -= move;
+        COrbitCameraController3D::FOrbitCameraInput3D input{};
+        if (CInput::IsKeyDown(EKey::Left)) input.look_yaw -= 1.0f;
+        if (CInput::IsKeyDown(EKey::Right)) input.look_yaw += 1.0f;
+        if (CInput::IsKeyDown(EKey::Up)) input.look_pitch += 1.0f;
+        if (CInput::IsKeyDown(EKey::Down)) input.look_pitch -= 1.0f;
+        if (CInput::IsKeyDown(EKey::W)) input.move_forward += 1.0f;
+        if (CInput::IsKeyDown(EKey::S)) input.move_forward -= 1.0f;
+        if (CInput::IsKeyDown(EKey::D)) input.move_right += 1.0f;
+        if (CInput::IsKeyDown(EKey::A)) input.move_right -= 1.0f;
+        if (CInput::IsKeyDown(EKey::E)) input.move_up += 1.0f;
+        if (CInput::IsKeyDown(EKey::Q)) input.move_up -= 1.0f;
+        m_OrbitCameraController.TryStep(input, dt, m_OrbitCameraState);
     }
     UpdateCameraView();
 }
@@ -1017,7 +1007,7 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
         FVec3{0.08f, 0.11f, 0.16f},
         0.0035f,
         0.12f,
-        m_Target.y - m_Distance * 0.25f);
+        m_OrbitCameraState.target.y - m_OrbitCameraState.distance * 0.25f);
 
     struct FRenderEntry {
         const ANode* Node = nullptr;
@@ -2834,9 +2824,9 @@ void ALegacyScene3DAdapter::UpdateCameraProjection(
         }
         return;
     }
-    const f32 far_plane = m_Distance * 200.0f + 1000.0f;
+    const f32 far_plane = m_OrbitCameraState.distance * 200.0f + 1000.0f;
     if (m_Projection == ESceneProjectionMode::Orthographic) {
-        const f32 view_height = m_Distance * 1.25f;
+        const f32 view_height = m_OrbitCameraState.distance * 1.25f;
         m_Camera.SetOrthographic(
             view_height * aspect, view_height, 0.01f, far_plane);
     } else {
@@ -2853,12 +2843,9 @@ void ALegacyScene3DAdapter::UpdateCameraView() noexcept {
             m_AuthoredCamera.Up);
         return;
     }
-    const FVec3 forward{
-        Sin(m_Yaw) * Cos(m_Pitch),
-        -Sin(m_Pitch),
-        Cos(m_Yaw) * Cos(m_Pitch),
-    };
-    m_Camera.SetLookAt(m_Target - forward * m_Distance, m_Target);
+    COrbitCameraController3D::FOrbitCameraView3D view{};
+    if (!m_OrbitCameraController.TryBuildView(m_OrbitCameraState, view)) return;
+    m_Camera.SetLookAt(view.eye, view.look_at, view.up);
 }
 
 const FGpuMesh* ALegacyScene3DAdapter::GpuMeshFor(

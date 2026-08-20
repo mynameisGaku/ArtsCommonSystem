@@ -5,6 +5,7 @@
 #include "foundation/Types.h"
 #include "container/Array.h"
 #include "gameframework/Scene.h"
+#include "gameframework/OrbitCameraController3D.h"
 #include "gameframework/SceneNodeGraph.h"
 #include "gameframework/Scene3DSerialize.h"
 #include "math/Camera.h"
@@ -376,10 +377,12 @@ private:
     bool m_UseAuthoredCamera = false;
     bool m_HasExplicitCameraOverride = false;
     i32 m_ActiveCameraNodeId = -1;
-    FVec3 m_Target{0.0f, 0.0f, 0.0f};
-    f32 m_Distance = 8.0f;
-    f32 m_Yaw = 0.0f;
-    f32 m_Pitch = 0.22f;
+    /** device非依存の自由camera計算器。 */
+    COrbitCameraController3D m_OrbitCameraController{};
+
+    /** 自由cameraのsnapshot可能なworld状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D m_OrbitCameraState{};
+
     f32 m_Time = 0.0f;
     FPostProcessParams m_PostParams{};
     ESceneProjectionMode m_Projection = ESceneProjectionMode::Perspective;

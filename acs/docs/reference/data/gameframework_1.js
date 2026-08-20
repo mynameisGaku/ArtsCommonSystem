@@ -444,6 +444,18 @@ ACS_REF.modules.push({
       ]
     },
     {
+      name: "COrbitCameraController3D",
+      kind: "クラス", header: "gameframework/OrbitCameraController3D.h",
+      summary: "3D orbit camera の操作計算を renderer・device・World・platform 入力から切り離す決定論 controller。入力、外部所有 state、固定時間から次 state と eye/look-at を計算する。",
+      when: "gameplay、AI、replay、headless test で同じ 3D camera 移動を再現したい時。",
+      members: [
+        { sig: "bool TryConfigure(const FOrbitCameraSettings3D& settings)", desc: "有限な速度と安全範囲だけを transactional に反映する。" },
+        { sig: "bool TryStep(const FOrbitCameraInput3D& input, f32 dt, FOrbitCameraState3D& state) const", desc: "入力、状態、時間から次状態を計算する。失敗時は state を変更しない。" },
+        { sig: "bool TryBuildView(const FOrbitCameraState3D& state, FOrbitCameraView3D& view) const", desc: "左手座標系の eye、look-at、up を計算する。失敗時は view を変更しない。" },
+        { sig: "const FOrbitCameraSettings3D& Settings() const", desc: "現在の検証済み速度と pitch 上限を返す。" }
+      ]
+    },
+    {
       name: "CCameraStack",
       kind: "クラス", header: "gameframework/CameraStack.h",
       summary: "複数の <t>CCamera2D</t> を<b>仮想カメラのスタック</b>として持ち、最上層を active として扱う Cinemachine 風スイッチャ。Push/Pop で旧 top→新 top を線形補間でブレンドし、描画側は Effective* で「今どこを写しているか」を読む。",

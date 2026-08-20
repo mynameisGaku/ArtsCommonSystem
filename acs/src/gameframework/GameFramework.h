@@ -28,6 +28,7 @@
 #include "gameframework/FixedTickInputSource.h"
 #include "gameframework/FixedStepRuntimeSnapshot.h"
 #include "gameframework/Camera2D.h"
+#include "gameframework/OrbitCameraController3D.h"
 #include "gameframework/CollisionWorld2D.h"
 #include "gameframework/PhysicsBody2D.h"
 #include "gameframework/Sprite2DComponent.h"

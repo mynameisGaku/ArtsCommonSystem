@@ -795,6 +795,21 @@ target_link_libraries(acs_fixed_runtime_input_tests PRIVATE
 add_test(NAME ACS.FixedRuntimeInput COMMAND acs_fixed_runtime_input_tests)
 set_tests_properties(ACS.FixedRuntimeInput PROPERTIES LABELS "GameFramework;Input;Timing;Determinism" TIMEOUT 60)
 
+# 3D orbit cameraの入力、状態、時間境界をrenderer非依存で検証する。
+add_executable(acs_orbit_camera_controller3d_tests
+    main.cpp
+    orbit_camera_controller3d_tests.cpp
+)
+set_target_properties(acs_orbit_camera_controller3d_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_orbit_camera_controller3d_tests)
+target_link_libraries(acs_orbit_camera_controller3d_tests PRIVATE
+    ACS::Foundation
+    ACS::GameFramework
+    ACS::Test
+)
+add_test(NAME ACS.OrbitCameraController3D COMMAND acs_orbit_camera_controller3d_tests)
+set_tests_properties(ACS.OrbitCameraController3D PROPERTIES LABELS "GameFramework;Camera3D;Determinism" TIMEOUT 30)
+
 if(TARGET acs_third_party_diligent_core)
     # アダプタ契約テストだけが Diligent の IMemoryAllocator 定義を直接参照する。
     target_link_libraries(acs_unit_tests PRIVATE acs_third_party::diligent_core)
