@@ -1438,6 +1438,25 @@ void cloudDetailDomains(
     detailDomainA=horizontal*0.0011+vertical*0.0018;
     detailDomainB=horizontal*0.0023+vertical*0.0030;
 }
+// 内部散乱確率用の低 LOD density。detail texture を読まず、最終 density と同じ
+// weather/profile scale を保つ。
+float cloudLowLodDensityFromPositiveWeatherMacro(
+    CloudMacroSample macro,float heightThreshold,float weatherMask){
+    float densityResult=0.0;
+    if(macro.profileWeight>0.0){
+        float baseDensity=remapc(
+            macro.baseNoise,heightThreshold,
+            min(heightThreshold+0.22,0.98),0.0,1.0);
+        if(baseDensity>0.001){
+            float h=saturate(macro.height);
+            densityResult=saturate(
+                baseDensity*weatherMask*macro.profileWeight
+                *lerp(1.10,0.92,h)
+                *lerp(1.0,1.28,macro.weather.b));
+        }
+    }
+    return densityResult;
+}
 // 詳細表示用 density: macro weather + 高さ依存の edge erosion。
 float cloudDensityFromPositiveWeatherMacro(
     float3 p,CloudMacroSample macro,float heightThreshold,
@@ -1495,6 +1514,19 @@ float cloudDensityFromMacro(
         // 上層は薄い高い雲として扱う。下層と同じ濃さで敷くと «積乱雲を 2 枚» になり、
         // 空が閉じて高度差がかえって読めなくなる。
         // 視線側も光側もここを通るので、1 箇所で足りる。
+        if(inUpperCloudBand(p)) densityResult*=cloudUpperTerms.y;
+    }
+    return densityResult;
+}
+// 内部散乱確率用の低 LOD density。空間スキップ用の広い occupancy threshold ではなく、
+// 詳細密度と同じ coverage・高さ threshold・上層倍率を使う。追加 texture fetch は無い。
+float cloudLowLodDensityFromMacro(
+    float3 p,CloudMacroSample macro,float heightThreshold,
+    float weatherMask){
+    float densityResult=0.0;
+    if(weatherMask>0.001){
+        densityResult=cloudLowLodDensityFromPositiveWeatherMacro(
+            macro,heightThreshold,weatherMask);
         if(inUpperCloudBand(p)) densityResult*=cloudUpperTerms.y;
     }
     return densityResult;
@@ -2019,10 +2051,12 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             // 消散係数の減衰以下へ収め、各次数の single-scattering albedo を 1 以下に保つ。
             // 低 LOD 密度は周囲に散乱源がある確率、高さは雲底で散乱源が減る確率を表す。
             // 補正は一次散乱だけへ掛け、すでに内部へ回った二次散乱を二重に暗くしない。
+            float lowLodDensity=cloudLowLodDensityFromMacro(
+                p,macro,densityHeightThreshold,viewWeatherMask);
             float inScatterDepthExponent=lerp(
                 0.5,2.0,saturate((macro.height-0.30)/0.55));
             float inScatterDepth=saturate(
-                0.05+pow(saturate(shape),inScatterDepthExponent));
+                0.05+pow(saturate(lowLodDensity),inScatterDepthExponent));
             float inScatterVerticalBase=lerp(
                 0.10,1.0,saturate((macro.height-0.07)/0.07));
             float inScatterVertical=pow(inScatterVerticalBase,0.8);

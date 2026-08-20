@@ -293,6 +293,9 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     /** 上層 setter の実装範囲。 */
     const std::string setUpper = SliceBetween(source, "void CVolumetricClouds::SetUpperLayer(",
                                               "EShaderStatus CVolumetricClouds::FCompiledShaders::Status(");
+    /** 最終 coverage から追加 fetch 無しで求める低 LOD 密度の実装範囲。 */
+    const std::string lowLodDensity = SliceBetween(source, "float cloudLowLodDensityFromPositiveWeatherMacro(",
+                                                   "float cloudDensityFromPositiveWeatherMacro(");
     EXPECT_TRUE(Contains(setLayer, "InvalidateCloudHistory_Internal(true);"));
     EXPECT_TRUE(Contains(setUpper, "InvalidateCloudHistory_Internal(true);"));
     EXPECT_TRUE(Contains(setReference, "InvalidateCloudHistory_Internal(false);"));
@@ -300,11 +303,15 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(setRange, "InvalidateCloudHistory_Internal(false);"));
     EXPECT_TRUE(Contains(header, "InvalidateCloudHistory_Internal(false);"));
     EXPECT_TRUE(Contains(source, "if (density_field_changed) m_ShadowCacheValid = false;"));
+    EXPECT_TRUE(Contains(lowLodDensity, "macro.baseNoise,heightThreshold"));
+    EXPECT_TRUE(Contains(lowLodDensity, "baseDensity*weatherMask*macro.profileWeight"));
+    EXPECT_FALSE(Contains(lowLodDensity, "SampleLevel"));
 
     EXPECT_TRUE(Contains(source, "cached.y*density*cloudLightingExtinction.y"));
     EXPECT_TRUE(Contains(source, "lightDepth*density*cloudLightingExtinction.y>18.0"));
     EXPECT_TRUE(Contains(source, "float inScatterDepthExponent=lerp("));
-    EXPECT_TRUE(Contains(source, "0.05+pow(saturate(shape),inScatterDepthExponent)"));
+    EXPECT_TRUE(Contains(source, "float lowLodDensity=cloudLowLodDensityFromMacro("));
+    EXPECT_TRUE(Contains(source, "0.05+pow(saturate(lowLodDensity),inScatterDepthExponent)"));
     EXPECT_TRUE(Contains(source, "float inScatterProbability=inScatterDepth*inScatterVertical;"));
     EXPECT_TRUE(Contains(source, "1.0,inScatterProbability,cloudLightingExtinction.w"));
     EXPECT_TRUE(Contains(source, "float singleScatter=beer*phase*inScatterFactor;"));
@@ -314,6 +321,7 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_FALSE(Contains(source, "nearLightDensity"));
     EXPECT_FALSE(Contains(source, "edgeBoost"));
     EXPECT_FALSE(Contains(source, "1.0-exp(-dens*cloudLightingExtinction.w)"));
+    EXPECT_FALSE(Contains(source, "pow(saturate(shape),inScatterDepthExponent)"));
     EXPECT_FALSE(Contains(source, "beer*(1.0-multiWeight)*phase"));
     EXPECT_FALSE(Contains(source, "density*4.2"));
 }

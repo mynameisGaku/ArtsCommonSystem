@@ -149,10 +149,12 @@ term. For low-LOD density `d` and normalized layer height `h`:
 `S = exp(-tau) * phase0 * fInScatter + a * exp(-b * tau) * phase1`
 
 `PowderStrength` keeps its compatibility name, but is now a blend ratio in
-`[0, 1]`. The factor cannot amplify incident light. It uses the already sampled
-macro density instead of one arbitrary near-light probe and does not attenuate
-the explicit second-order term a second time. The former `edgeBoost` and its
-`1.08` energy increase are absent.
+`[0, 1]`. The factor cannot amplify incident light. It derives low-LOD density
+from the already sampled base noise using the final weather-coverage and height
+thresholds. It does not reuse the deliberately wider empty-space occupancy
+field, add a texture fetch, or attenuate the explicit second-order term a
+second time. The former arbitrary near-light probe, `edgeBoost`, and its `1.08`
+energy increase are absent.
 
 `MultiScatterContribution` is `a` and `MultiScatterOcclusion` is `b`. Runtime
 normalization enforces `0 <= a <= b <= 1`, so the reduced scattering
