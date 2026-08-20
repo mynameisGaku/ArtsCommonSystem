@@ -56916,8 +56916,15 @@ struct FVolumetricCloudLighting {
     /** 太陽光のうち散乱に回る割合。 */
     f32 SunScatter = 0.14f;
 
-    /** powder 効果 (雲の縁が暗く落ちるのを抑える) の強さ。 */
-    f32 PowderStrength = 2.4f;
+    /**
+     * 雲の内部散乱確率を一次散乱へ混ぜる割合。
+     *
+     * @details
+     * 公開名は互換性のため `PowderStrength` を維持する。0 なら補正なし、1 なら低 LOD 密度と
+     * 層内高さから求めた内部散乱確率をそのまま使う。既定の 0.30 は旧実装の 0.70 の縁係数を
+     * おおむね維持しつつ、局所密度だけで作っていた不連続な明暗を除く。
+     */
+    f32 PowderStrength = 0.30f;
 
     /** 前方散乱の鋭さ (Henyey-Greenstein の g)。 */
     f32 PhaseForward = 0.60f;
@@ -57096,8 +57103,8 @@ inline constexpr f32 kVolumetricCloudMaxFadeFraction = 0.95f;
 /** 視線・光レイへ適用する消散係数の上限。 */
 inline constexpr f32 kVolumetricCloudMaxExtinction = 64.0f;
 
-/** powder 効果へ適用する係数の上限。 */
-inline constexpr f32 kVolumetricCloudMaxPowderStrength = 64.0f;
+/** 内部散乱確率を一次散乱へ混ぜる割合の上限。 */
+inline constexpr f32 kVolumetricCloudMaxPowderStrength = 1.0f;
 
 /** 位相関数を描画用に切り詰める上限値。 */
 inline constexpr f32 kVolumetricCloudMaxPhaseValue = 64.0f;
@@ -57144,6 +57151,16 @@ FVolumetricCloudLighting SanitizeVolumetricCloudLighting(const FVolumetricCloudL
  * @return x が一次散乱、y が二次散乱。合計は x+y。
  */
 FVec2 EvaluateVolumetricCloudDirectionalScattering(f32 light_optical_depth, f32 single_phase, f32 multiple_phase, const FVolumetricCloudLighting& lighting) noexcept;
+
+/**
+ * 低 LOD 密度と層内高さから、一次散乱へ掛ける内部散乱係数を CPU で評価する。
+ *
+ * @param low_lod_density 周囲を表す低 LOD 密度。有限な 0..1 へ収める。
+ * @param normalized_height 雲層の底を 0、上端を 1 とした高さ。有限な 0..1 へ収める。
+ * @param strength 内部散乱確率を混ぜる割合。有限な 0..1 へ収める。
+ * @return 補正なしを 1 とする有限な係数。0..1 の範囲を越えない。
+ */
+f32 EvaluateVolumetricCloudInScatterFactor(f32 low_lod_density, f32 normalized_height, f32 strength) noexcept;
 
 /** 描画距離と刻み数を実装上の上限内へ直す。 */
 FVolumetricCloudRange SanitizeVolumetricCloudRange(const FVolumetricCloudRange& requested) noexcept;

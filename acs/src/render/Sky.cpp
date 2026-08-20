@@ -652,7 +652,7 @@ void CSky::Render(IRhiCommandList& cl, const CCamera& camera) noexcept {
 namespace {
 
 // 雲レイマーチ compute。視線ごとに雲スラブを march、Worley FBM 密度を coverage/height で remap、
-// 太陽へ light-march (Beer) + dual-lobe HG + powder でエネルギー保存散乱を積分。出力=非premult色+alpha。
+// 太陽へ light-march (Beer) + dual-lobe HG + 有界な内部散乱近似を積分。出力=非premult色+alpha。
 // ---- Perlin-Worley 3D noise を init で 1 回焼く ----
 // 128^3 RG16F: R=Perlin-Worley (dilate), G=base Worley。tileable。
 // per-voxel に worley 27-cell を計算するのは «高価» だが init 1 回だけなので実用 (per-frame march では
@@ -875,7 +875,7 @@ cbuffer CloudCB : register(b0) {
     float4 cloudShellRayOrigin;// xyz=camera from planet centre, w=inner c
     float4 cloudShellTerms;// x=outer c
     // 雲を «光を散らす媒質» として扱うための係数。これまでは shader 内の即値だった。
-    // x=見る側の消散, y=光の側の消散, z=太陽光のうち散乱に回る割合, w=powder の強さ
+    // x=見る側の消散, y=光の側の消散, z=太陽光のうち散乱に回る割合, w=内部散乱確率の混ぜ率
     float4 cloudLightingExtinction;
     // x=前方散乱の鋭さ, y=後方散乱, z=前方の混ぜ率, w=多重散乱の寄与
     float4 cloudLightingPhase;
@@ -1526,8 +1526,8 @@ float3 cloudShadowWorldPosition(float3 uvw){
 }
 
 // A cache texel is the point reached after the three exact near-light probes.
-// Integrate only l=3..7 so local erosion, silver lining and nearLightDensity
-// remain owned by the per-view sample.
+// Integrate only l=3..7 so detailed near-probe extinction remains owned by
+// the per-view sample.
 float traceCloudShadowPattern(
     float3 lp,float patternJitter,float coverage,
     float3 sun,float3 lightTangent,float3 lightBitangent){
@@ -1902,7 +1902,6 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             // 指数的に間隔を広げる sample で layer 全体を覆い、2 番目の Beer term で
             // 高次 scattering を近似する。
             float lightDepth=0.0;
-            float nearLightDensity=0.0;
             float lightStep=baseLightStep;
             lightStep*=lerp(0.72,1.28,jit);
             float3 lp=p;
@@ -1945,7 +1944,6 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 float lightDensity=cloudDensityFromPositiveWeatherMacro(
                     lp,lightMacro,lightMacro.heightThreshold,
                     lightMacro.weatherMask,0.65);
-                if(l==0) nearLightDensity=lightDensity;
                 lightDepth+=lightDensity*lightStep*layer.w;
                 // Once both the direct Beer term and the broad multiple-
                 // scattering approximation are below a sub-perceptual level,
@@ -2017,23 +2015,30 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float phaseMulti=12.566370*hg(cosA,cloudMultiPhase.x);
             phaseMulti=clamp(
                 phaseMulti,cloudLightingMulti.y,cloudLightingMulti.z);
-            // 一次散乱は必ず保持し、減衰させた二次散乱を追加する。CPU は散乱係数の
-            // 減衰を消散係数の減衰以下へ収め、各次数の single-scattering albedo を
-            // 1 以下に保つ。
-            float singleScatter=beer*phase;
+            // 一次散乱と減衰させた二次散乱を独立に評価する。CPU は散乱係数の減衰を
+            // 消散係数の減衰以下へ収め、各次数の single-scattering albedo を 1 以下に保つ。
+            // 低 LOD 密度は周囲に散乱源がある確率、高さは雲底で散乱源が減る確率を表す。
+            // 補正は一次散乱だけへ掛け、すでに内部へ回った二次散乱を二重に暗くしない。
+            float inScatterDepthExponent=lerp(
+                0.5,2.0,saturate((macro.height-0.30)/0.55));
+            float inScatterDepth=saturate(
+                0.05+pow(saturate(shape),inScatterDepthExponent));
+            float inScatterVerticalBase=lerp(
+                0.10,1.0,saturate((macro.height-0.07)/0.07));
+            float inScatterVertical=pow(inScatterVerticalBase,0.8);
+            float inScatterProbability=inScatterDepth*inScatterVertical;
+            float inScatterFactor=lerp(
+                1.0,inScatterProbability,cloudLightingExtinction.w);
+            float singleScatter=beer*phase*inScatterFactor;
             float multipleScatter=
                 multiContribution*multi*phaseMulti;
             float scatterTerm=singleScatter+multipleScatter;
-            float powder=1.0-exp(-dens*cloudLightingExtinction.w);
             // sunCol is the scene's direct-light radiance. Clouds scatter only
             // a calibrated fraction of it; using the full value here made the
             // forward lobe clip into a featureless white sheet.
-            float edgeBoost=lerp(
-                1.08,0.78,smoothstep(0.04,0.52,nearLightDensity*density));
             // 太陽光は雲へ届く前に大気を通る。低い太陽ほど青が削られて赤くなる。
             float3 sunAtCloud=sunCol.rgb*cloudSunTransmittance.rgb;
-            float3 sunL=sunAtCloud*cloudLightingExtinction.z*scatterTerm
-                       *lerp(0.70,1.0,powder)*edgeBoost;
+            float3 sunL=sunAtCloud*cloudLightingExtinction.z*scatterTerm;
             float h=macro.height;
             float viewDepth=1.0-transmit;
             float ambientOcclusion=lerp(1.0,0.55,saturate(viewDepth+dens*0.22));
@@ -2983,6 +2988,26 @@ FVec2 EvaluateVolumetricCloudDirectionalScattering(f32 light_optical_depth, f32 
     const f32 multipleScattering = lighting.MultiScatterContribution *
         Exp(-opticalDepth * lighting.MultiScatterOcclusion) * multiplePhase;
     return FVec2{singleScattering, multipleScattering};
+}
+
+f32 EvaluateVolumetricCloudInScatterFactor(f32 low_lod_density, f32 normalized_height, f32 strength) noexcept
+{
+    /** GPU が参照する低 LOD 密度。 */
+    const f32 density = SanitizeCloudScalar(low_lod_density, 0.0f, 0.0f, 1.0f);
+    /** 雲層内で正規化した高さ。 */
+    const f32 height = SanitizeCloudScalar(normalized_height, 0.0f, 0.0f, 1.0f);
+    /** 補正なしと内部散乱確率を混ぜる割合。 */
+    const f32 blend = SanitizeCloudScalar(strength, 0.0f, 0.0f, 1.0f);
+    /** 雲頂へ近づくほど低密度域を強く抑え、密な領域だけを残す指数。 */
+    const f32 depthExponent = 0.5f + 1.5f * Clamp((height - 0.30f) / 0.55f, 0.0f, 1.0f);
+    /** 周囲に散乱源が存在する確率。 */
+    const f32 depthProbability = Clamp(0.05f + std::pow(density, depthExponent), 0.0f, 1.0f);
+    /** 強い散乱源が少ない雲底を暗くする高さ基底。 */
+    const f32 verticalBase = 0.10f + 0.90f * Clamp((height - 0.07f) / 0.07f, 0.0f, 1.0f);
+    /** 高さ方向の内部散乱確率。 */
+    const f32 verticalProbability = std::pow(verticalBase, 0.8f);
+    /** 補正なしの 1 と有界な内部散乱確率を混ぜた一次散乱係数。 */
+    return 1.0f - blend * (1.0f - depthProbability * verticalProbability);
 }
 
 FVolumetricCloudRange SanitizeVolumetricCloudRange(const FVolumetricCloudRange& requested) noexcept

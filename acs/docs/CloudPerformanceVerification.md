@@ -136,10 +136,23 @@ for ground bounce. This prevents low-sun clouds from retaining white midday
 direct light and prevents the base and top of the cloud from sharing one
 horizon-color ambient term.
 
-The directional-light approximation keeps the single-scattering term intact
-and adds one reduced second-order term:
+The directional-light approximation applies a bounded in-scatter probability
+to the single-scattering term and adds one independent reduced second-order
+term. For low-LOD density `d` and normalized layer height `h`:
 
-`S = exp(-tau) * phase0 + a * exp(-b * tau) * phase1`
+`pDepth = saturate(0.05 + pow(d, lerp(0.5, 2.0, saturate((h - 0.30) / 0.55))))`
+
+`pVertical = pow(lerp(0.10, 1.0, saturate((h - 0.07) / 0.07)), 0.8)`
+
+`fInScatter = lerp(1, pDepth * pVertical, PowderStrength)`
+
+`S = exp(-tau) * phase0 * fInScatter + a * exp(-b * tau) * phase1`
+
+`PowderStrength` keeps its compatibility name, but is now a blend ratio in
+`[0, 1]`. The factor cannot amplify incident light. It uses the already sampled
+macro density instead of one arbitrary near-light probe and does not attenuate
+the explicit second-order term a second time. The former `edgeBoost` and its
+`1.08` energy increase are absent.
 
 `MultiScatterContribution` is `a` and `MultiScatterOcclusion` is `b`. Runtime
 normalization enforces `0 <= a <= b <= 1`, so the reduced scattering
@@ -148,8 +161,10 @@ use the configured phase bounds. This is a bounded two-order approximation,
 not a claim of a complete multiple-scattering solution. The model follows the
 coefficient-reduction and additive-order contract described in Frostbite's
 [SIGGRAPH 2016 course notes](https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/s2016-pbs-frostbite-sky-clouds-new.pdf);
-the Beer/Henyey-Greenstein/powder foundation and visual-reference requirement
-remain aligned with Guerrilla's [Horizon cloud presentation](https://www.guerrilla-games.com/read/the-real-time-volumetric-cloudscapes-of-horizon-zero-dawn).
+the density-and-height in-scatter probability follows Guerrilla's updated
+[Nubis SIGGRAPH 2017 cloud-lighting model](https://advances.realtimerendering.com/s2017/Nubis%20-%20Authoring%20Realtime%20Volumetric%20Cloudscapes%20with%20the%20Decima%20Engine%20-%20Final%20.pdf).
+This is still a production approximation, not a claim of complete radiative
+transfer; the locked visual-reference capture remains an acceptance gate.
 
 ## Quality-preserving optimization rules
 

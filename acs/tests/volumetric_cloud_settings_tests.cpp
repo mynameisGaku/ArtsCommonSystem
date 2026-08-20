@@ -144,6 +144,42 @@ ACS_TEST(VolumetricCloudSettings, MultipleScatteringAddsToSingleAndPreservesEner
     EXPECT_NEAR(boundedPhase.y, lighting.MultiScatterContribution * lighting.PhaseMax, 1e-6f);
 }
 
+ACS_TEST(VolumetricCloudSettings, InScatterUsesLowLodDensityAndHeightWithoutAmplifyingLight)
+{
+    /** 補正を切ったときの中立係数。 */
+    const f32 disabled = EvaluateVolumetricCloudInScatterFactor(0.0f, 0.0f, 0.0f);
+    EXPECT_NEAR(disabled, 1.0f, 0.0f);
+
+    /** 雲頂の空に近い低密度域へ完全適用した内部散乱係数。 */
+    const f32 sparseTop = EvaluateVolumetricCloudInScatterFactor(0.0f, 1.0f, 1.0f);
+    EXPECT_NEAR(sparseTop, 0.05f, 1e-6f);
+    /** 雲頂の密な領域は内部散乱確率が飽和する。 */
+    const f32 denseTop = EvaluateVolumetricCloudInScatterFactor(1.0f, 1.0f, 1.0f);
+    EXPECT_NEAR(denseTop, 1.0f, 0.0f);
+    /** 同じ密度でも、散乱源が少ない雲底は暗くなる。 */
+    const f32 denseBase = EvaluateVolumetricCloudInScatterFactor(1.0f, 0.0f, 1.0f);
+    EXPECT_NEAR(denseBase, std::pow(0.10f, 0.8f), 1e-6f);
+    EXPECT_TRUE(denseBase < denseTop);
+
+    /** 旧実装の 0.70 の縁係数へ近い既定の移行結果。 */
+    const FVolumetricCloudLighting defaults{};
+    const f32 defaultSparseBase = EvaluateVolumetricCloudInScatterFactor(0.0f, 0.0f, defaults.PowderStrength);
+    EXPECT_TRUE(defaultSparseBase >= 0.70f);
+    EXPECT_TRUE(defaultSparseBase <= 0.71f);
+
+    /** 非有限入力を含めても増幅せず有限な中立値へ戻る。 */
+    const f32 hostile = EvaluateVolumetricCloudInScatterFactor(
+        std::numeric_limits<f32>::infinity(), std::numeric_limits<f32>::quiet_NaN(),
+        std::numeric_limits<f32>::infinity());
+    EXPECT_TRUE(std::isfinite(hostile));
+    EXPECT_NEAR(hostile, 1.0f, 0.0f);
+
+    /** 公開設定の混ぜ率は確率範囲を越えない。 */
+    FVolumetricCloudLighting excessive{};
+    excessive.PowderStrength = 100.0f;
+    EXPECT_NEAR(SanitizeVolumetricCloudLighting(excessive).PowderStrength, 1.0f, 0.0f);
+}
+
 ACS_TEST(VolumetricCloudSettings, RangeBoundsDistanceFadeGrowthAndWork)
 {
     /** 非有限距離を既定値へ戻す入力。 */
@@ -267,10 +303,17 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
 
     EXPECT_TRUE(Contains(source, "cached.y*density*cloudLightingExtinction.y"));
     EXPECT_TRUE(Contains(source, "lightDepth*density*cloudLightingExtinction.y>18.0"));
-    EXPECT_TRUE(Contains(source, "float singleScatter=beer*phase;"));
+    EXPECT_TRUE(Contains(source, "float inScatterDepthExponent=lerp("));
+    EXPECT_TRUE(Contains(source, "0.05+pow(saturate(shape),inScatterDepthExponent)"));
+    EXPECT_TRUE(Contains(source, "float inScatterProbability=inScatterDepth*inScatterVertical;"));
+    EXPECT_TRUE(Contains(source, "1.0,inScatterProbability,cloudLightingExtinction.w"));
+    EXPECT_TRUE(Contains(source, "float singleScatter=beer*phase*inScatterFactor;"));
     EXPECT_TRUE(Contains(source, "float multipleScatter="));
     EXPECT_TRUE(Contains(source, "multiContribution*multi*phaseMulti;"));
     EXPECT_TRUE(Contains(source, "float scatterTerm=singleScatter+multipleScatter;"));
+    EXPECT_FALSE(Contains(source, "nearLightDensity"));
+    EXPECT_FALSE(Contains(source, "edgeBoost"));
+    EXPECT_FALSE(Contains(source, "1.0-exp(-dens*cloudLightingExtinction.w)"));
     EXPECT_FALSE(Contains(source, "beer*(1.0-multiWeight)*phase"));
     EXPECT_FALSE(Contains(source, "density*4.2"));
 }
