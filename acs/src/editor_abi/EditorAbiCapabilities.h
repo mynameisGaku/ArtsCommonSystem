@@ -30,6 +30,7 @@ enum class ECapability : std::uint64_t {
     ProfilerV5            = 1ull << 12u,
     OptionalServiceDiagnosticsV2 = 1ull << 13u,
     SparseTransformMutationV1 = 1ull << 14u,
+    PrefabInstanceRefresh3DV1 = 1ull << 15u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -52,13 +53,15 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::ResizeResultContract) |
     CapabilityBit(ECapability::VolumetricCloudWorkloadV1) |
     CapabilityBit(ECapability::OptionalServiceDiagnosticsV2) |
-    CapabilityBit(ECapability::SparseTransformMutationV1);
+    CapabilityBit(ECapability::SparseTransformMutationV1) |
+    CapabilityBit(ECapability::PrefabInstanceRefresh3DV1);
 
 inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
     CapabilityBit(ECapability::IncrementalStartup) |
     CapabilityBit(ECapability::ResizeResultContract) |
-    CapabilityBit(ECapability::SparseTransformMutationV1);
+    CapabilityBit(ECapability::SparseTransformMutationV1) |
+    CapabilityBit(ECapability::PrefabInstanceRefresh3DV1);
 
 [[nodiscard]] constexpr bool IsCompatible(
     std::uint32_t requested_version,

@@ -69,8 +69,13 @@ internal static class EditorAbiContractSelfTest
               compatible.ToDisplayText().Contains(
                   "sparse-transform-mutation-v1",
                   StringComparison.Ordinal) &&
+              compatible.ToDisplayText().Contains(
+                  "prefab-instance-refresh-3d-v1",
+                  StringComparison.Ordinal) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.SparseTransformMutationV1) &&
+              EditorAbiContract.RequiredCapabilities.HasFlag(
+                  EditorAbiCapability.PrefabInstanceRefresh3DV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.VolumetricCloudWorkloadV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
@@ -81,7 +86,7 @@ internal static class EditorAbiContractSelfTest
                   EditorAbiCapability.OptionalServiceDiagnosticsV2) &&
               !compatible.Capabilities.HasFlag(
                   EditorAbiCapability.ProfilerV3),
-            "diagnostics distinguish required sparse mutation from optional services");
+            "diagnostics distinguish required editor mutation contracts from optional services");
 
         Check(
             Marshal.SizeOf<EditorOptionalServiceDiagnosticNative>() ==
@@ -348,6 +353,22 @@ internal static class EditorAbiContractSelfTest
             missingSparseMutation.MissingRequired.HasFlag(
                 EditorAbiCapability.SparseTransformMutationV1),
             "provider without sparse transform mutation fails before the editor can call its export");
+
+        EditorAbiSnapshot missingPrefabRefresh =
+            EditorAbiContract.Evaluate(
+                queryAvailable: true,
+                queryResult: 0,
+                providerVersion: EditorAbiContract.RequestedVersion,
+                capabilityBits:
+                    (ulong)(complete &
+                        ~EditorAbiCapability.PrefabInstanceRefresh3DV1),
+                productVersion: "ACS Editor test",
+                renderBackend: "Test RHI");
+        Check(
+            !missingPrefabRefresh.Compatible &&
+            missingPrefabRefresh.MissingRequired.HasFlag(
+                EditorAbiCapability.PrefabInstanceRefresh3DV1),
+            "provider without transactional 3D Prefab refresh fails before the editor can call its export");
 
         EditorAbiSnapshot falseSuccess = EditorAbiContract.Evaluate(
             queryAvailable: true,

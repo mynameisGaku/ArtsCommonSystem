@@ -154,6 +154,10 @@ internal static class SceneEditorMigrationSelfTest
             ExtractMethodBody(shellSource, "private void SetGameView(");
         string newSceneBody =
             ExtractMethodBody(shellSource, "private async void OnNewScene(");
+        string refreshPrefabInstance3DBody =
+            ExtractMethodBody(
+                shellSource,
+                "private int RefreshPrefabInstance3D(");
         string restoreDocumentBody =
             ExtractMethodBody(
                 documentsSource,
@@ -370,6 +374,20 @@ internal static class SceneEditorMigrationSelfTest
         Check(
             fullDocumentRetirementIsCombined,
             "new, open, rollback, recovery and document history use atomic full-document retirement");
+        Check(
+            refreshPrefabInstance3DBody.Contains(
+                "return EngineInterop.acs_editor_prefab_instance3d_refresh(",
+                StringComparison.Ordinal) &&
+            !refreshPrefabInstance3DBody.Contains(
+                "acs_editor_delete_node3d(",
+                StringComparison.Ordinal) &&
+            !refreshPrefabInstance3DBody.Contains(
+                "acs_editor_paste_subtree3d(",
+                StringComparison.Ordinal) &&
+            !shellSource.Contains(
+                "ReinstantiateInstance3D(",
+                StringComparison.Ordinal),
+            "3D Prefab refresh routes through one native rollback and Undo transaction");
         Check(
             CountMatches(
                 applyRecoveryBody,
