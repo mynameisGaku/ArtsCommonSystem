@@ -4862,7 +4862,13 @@ public partial class MainWindow : Window
         {
             System.IO.File.WriteAllText(dlg.FileName, StripPrefabLinks(text), System.Text.Encoding.UTF8);
             // 保存元もこのプレハブのインスタンスにする (instance-of リンク)。2D/3D で ABI を切替え。
-            if (_view3d) { EngineInterop.acs_editor_node3d_set_prefab_src(Engine, id, dlg.FileName); Populate3DInspector(id); }
+            if (_view3d)
+            {
+                string instanceId = EngineInterop.NodePrefabInstanceId3D(Engine, id);
+                if (string.IsNullOrEmpty(instanceId)) instanceId = NewPrefabInstanceId3D();
+                if (EngineInterop.acs_editor_node3d_set_prefab_link(Engine, id, dlg.FileName, instanceId) == 0) throw new InvalidOperationException("3D Prefab instance linkを設定できませんでした。");
+                Populate3DInspector(id);
+            }
             else         { EngineInterop.acs_editor_node_set_prefab_src(Engine, id, dlg.FileName);   PopulateInspector(id); }
             RecordSceneDocumentChange("Create Prefab Link");
             AssetBrowser.Refresh();
@@ -4955,9 +4961,13 @@ public partial class MainWindow : Window
         if (payloadUses3D)   // 3D Blueprint (ACS3D テキスト) → 3D サブツリーとして実体化
         {
             int parent3d = EngineInterop.acs_editor_selected3d(Engine);
-            int rid = EngineInterop.acs_editor_paste_subtree3d(Engine, comp, parent3d);
+            int rid = EngineInterop.acs_editor_prefab_instance3d_instantiate(
+                Engine,
+                path,
+                NewPrefabInstanceId3D(),
+                comp,
+                parent3d);
             if (rid < 0) { Log("Blueprint の配置に失敗しました。"); return; }
-            EngineInterop.acs_editor_node3d_set_prefab_src(Engine, rid, path);   // instance-of リンク (Apply/Revert 対応)
             RefreshAfterSceneChange();   // 3D ヒエラルキー再構築 + 選択 UI 同期 (paste が root を選択済み)
             Log($"Blueprint をシーンに配置 → {System.IO.Path.GetFileName(path)} (3D node {rid})");
             return;
@@ -4994,10 +5004,14 @@ public partial class MainWindow : Window
         else AcsbpFormat.Write(src, comp);
     }
 
-    /// <summary>プレハブテンプレートは自己リンクを持たない → PFAB / PFAB3D 行を除去する。</summary>
+    /// <summary>プレハブテンプレートは自己リンクを持たないため、sourceとinstance ID行を除去する。</summary>
     private static string StripPrefabLinks(string text) =>
-        System.Text.RegularExpressions.Regex.Replace(text, @"^PFAB(3D)? .*\r?\n?", "",
+        System.Text.RegularExpressions.Regex.Replace(text, @"^(?:PFAB(?:3D)?|PINS3D) .*\r?\n?", "",
             System.Text.RegularExpressions.RegexOptions.Multiline);
+
+    /// <summary>Nativeへ明示入力する32桁小文字hexの新規3D Prefab instance IDを作る。</summary>
+    private static string NewPrefabInstanceId3D() =>
+        Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
 
     private bool AllowAssetPlacement(
         bool payloadUses3D,
@@ -5040,10 +5054,14 @@ public partial class MainWindow : Window
         if (payloadUses3D)   // 3D プレハブ (ACS3D テキスト) → 3D サブツリーとして実体化
         {
             int parent3d = EngineInterop.acs_editor_selected3d(Engine);
-            int rid = EngineInterop.acs_editor_paste_subtree3d(Engine, text, parent3d);
+            int rid = EngineInterop.acs_editor_prefab_instance3d_instantiate(
+                Engine,
+                path,
+                NewPrefabInstanceId3D(),
+                text,
+                parent3d);
             if (rid >= 0)
             {
-                EngineInterop.acs_editor_node3d_set_prefab_src(Engine, rid, path);   // instance-of リンク (Apply/Revert 対応)
                 RefreshAfterSceneChange();
                 Log($"プレハブをインスタンス化: {System.IO.Path.GetFileName(path)} → 3D node {rid}");
             }

@@ -307,7 +307,8 @@ Compatibility remains explicit:
 portable references only in isolated cook copies. Unsupported directives or
 external resources fail closed rather than being silently dropped.
 The supported 3D subset includes inline `PLY3D` geometry, `SPR3D` texture
-references, and non-executing `PFAB3D` instance-source links. Cook preserves
+references, non-executing `PFAB3D` instance-source links, and `PINS3D` stable
+instance identities. Cook preserves
 the geometry and rewrites both dependency kinds into the package asset namespace.
 
 ### Details multi-selection transactions

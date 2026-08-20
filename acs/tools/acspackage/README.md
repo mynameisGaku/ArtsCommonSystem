@@ -221,9 +221,10 @@ projection is selected per camera. The runtime header-dispatches to the 2D
 adapter or the supported `ACS3D v2` adapter.
 
 The reversible 3D subset supports `N3D`, `MSH3D`, `MAT3D`, `FLG3D`,
-`EMPTY3D`, `CMP3D`, `CPROP3D`, `PLY3D`, `SPR3D`, `PFAB3D`, and `SEL3D`. `PLY3D`
+`EMPTY3D`, `CMP3D`, `CPROP3D`, `PLY3D`, `SPR3D`, `PFAB3D`, `PINS3D`, and `SEL3D`. `PLY3D`
 remains inline deterministic geometry, while `SPR3D` adds a Cooked texture dependency
-and `PFAB3D` adds a non-executing Prefab/Blueprint source link. Unknown directives, invalid reflected components, and standalone
+and `PFAB3D` adds a non-executing Prefab/Blueprint source link. `PINS3D` preserves its
+32-character stable instance identity without adding a dependency. Unknown directives, invalid reflected components, and standalone
 glTF files with external non-data URIs fail closed with explicit diagnostics.
 Executable signing, application icon resources, installer generation, and
 store upload are not part of this local packaging step. The current metadata

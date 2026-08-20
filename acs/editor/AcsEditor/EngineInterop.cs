@@ -527,6 +527,18 @@ internal static class EngineInterop
     /// <summary>3D ノードの prefab/blueprint リンクパス (UTF-8、インスタンスでなければ "")。</summary>
     public static string NodePrefabSrc3D(IntPtr handle, int id) =>
         Marshal.PtrToStringUTF8(acs_editor_node3d_get_prefab_src(handle, id)) ?? "";
+    /// <summary>3D Prefab/Blueprintのsourceと32桁stable instance IDを一括設定する。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_set_prefab_link(
+        IntPtr handle,
+        int id,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string source,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string instanceId);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr acs_editor_node3d_get_prefab_instance_id(IntPtr handle, int id);
+    /// <summary>3D Prefab/Blueprint instanceの32桁stable ID。</summary>
+    public static string NodePrefabInstanceId3D(IntPtr handle, int id) =>
+        Marshal.PtrToStringUTF8(acs_editor_node3d_get_prefab_instance_id(handle, id)) ?? "";
     /// <summary>プリミティブ形状を切替 (0=Cube 1=Sphere 2=Plane)。sprite/polygon/mesh は不可。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_set_prim(IntPtr handle, int id, int prim);
@@ -1583,6 +1595,14 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_paste_subtree3d(IntPtr handle,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string text, int parentId);
+    /// <summary>3D subtreeをsourceと明示stable ID付きPrefab instanceとして1回のUndo単位で生成。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_instantiate(
+        IntPtr handle,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string source,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string instanceId,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string text,
+        int parentId);
     /// <summary>既存の3D Prefab/Blueprint instanceを1回のUndo単位で再生成。新id / -1。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_prefab_instance3d_refresh(

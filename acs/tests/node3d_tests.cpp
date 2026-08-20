@@ -1334,6 +1334,7 @@ ACS_TEST(Scene3DSerialize, PrefabLinkRoundTripsWithoutExpandingSnapshot)
     APrefabLink3DComponent& source_link =
         source.Root().AddComponent<APrefabLink3DComponent>();
     source_link.SetSourcePath(FStringView("Assets/Prefabs/vehicle.acsprefab"));
+    source_link.SetInstanceId(FStringView("0123456789abcdef0123456789abcdef"));
     source.Spawn(FStringView("EmbeddedWheel"));
 
     char text[2048]{};
@@ -1342,6 +1343,7 @@ ACS_TEST(Scene3DSerialize, PrefabLinkRoundTripsWithoutExpandingSnapshot)
     EXPECT_TRUE(saved.Succeeded());
     EXPECT_EQ(saved.PrefabCount, 1u);
     EXPECT_TRUE(std::strstr(text, "PFAB3D 0 Assets/Prefabs/vehicle.acsprefab\n") != nullptr);
+    EXPECT_TRUE(std::strstr(text, "PINS3D 0 0123456789abcdef0123456789abcdef\n") != nullptr);
 
     CSceneNodeGraph loaded;
     const FScene3DLoadResult result =
@@ -1355,6 +1357,39 @@ ACS_TEST(Scene3DSerialize, PrefabLinkRoundTripsWithoutExpandingSnapshot)
         loaded.Root().GetComponent<APrefabLink3DComponent>();
     EXPECT_TRUE(link != nullptr);
     EXPECT_TRUE(link != nullptr && link->SourcePath() == FStringView("Assets/Prefabs/vehicle.acsprefab"));
+    EXPECT_TRUE(link != nullptr && link->InstanceId() == FStringView("0123456789abcdef0123456789abcdef"));
+}
+
+ACS_TEST(Scene3DSerialize, PrefabInstanceIdentityRejectsMalformedOrDuplicateValuesTransactionally)
+{
+    constexpr char kMalformed[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "PFAB3D 1 first.acsprefab\n"
+        "PINS3D 1 0123456789ABCDEF0123456789ABCDEF\n";
+    constexpr char kDuplicate[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "PFAB3D 1 first.acsprefab\n"
+        "PINS3D 1 0123456789abcdef0123456789abcdef\n"
+        "N3D 2 1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Second\n"
+        "PFAB3D 2 second.acsprefab\n"
+        "PINS3D 2 0123456789abcdef0123456789abcdef\n";
+    constexpr char kOrphan[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "PINS3D 1 0123456789abcdef0123456789abcdef\n";
+
+    CSceneNodeGraph scene;
+    scene.Spawn(FStringView("Keep"));
+    const FScene3DLoadResult malformed = TryLoadScene3DText(scene, kMalformed, sizeof(kMalformed) - 1u);
+    const FScene3DLoadResult duplicate = TryLoadScene3DText(scene, kDuplicate, sizeof(kDuplicate) - 1u);
+    const FScene3DLoadResult orphan = TryLoadScene3DText(scene, kOrphan, sizeof(kOrphan) - 1u);
+    EXPECT_TRUE(malformed.Error == EScene3DSerializeError::InvalidPrefabInstanceId);
+    EXPECT_TRUE(duplicate.Error == EScene3DSerializeError::DuplicatePrefabInstanceId);
+    EXPECT_TRUE(orphan.Error == EScene3DSerializeError::InvalidPrefabInstanceId);
+    EXPECT_EQ(scene.NodeCount(), 2u);
+    EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
 }
 
 ACS_TEST(Scene3DSerialize, PrefabLinkLooseFileValidatesSourceWithoutExpansion)

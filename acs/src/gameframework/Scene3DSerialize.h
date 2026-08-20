@@ -38,6 +38,7 @@ inline constexpr u32 kScene3DSerializeMaxMeshPathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxMaterialPathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxSpritePathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxPrefabPathBytes = 299u;
+inline constexpr u32 kScene3DSerializePrefabInstanceIdBytes = 32u;
 inline constexpr u32 kScene3DSerializeMaxComponentsPerNode = 1024u;
 inline constexpr u32 kScene3DSerializeMaxDirectiveRecords = 262144u;
 inline constexpr u32 kScene3DSerializeMaxCameraCount = 256u;
@@ -101,6 +102,8 @@ enum class EScene3DSerializeError : u8 {
     InvalidPrefabPath,
     DuplicatePrefabPath,
     PrefabSourceInvalid,
+    InvalidPrefabInstanceId,
+    DuplicatePrefabInstanceId,
 };
 
 /** Authored ACS3D camera projection encoded by CAM3D. */

@@ -72,10 +72,15 @@ internal static class EditorAbiContractSelfTest
               compatible.ToDisplayText().Contains(
                   "prefab-instance-refresh-3d-v1",
                   StringComparison.Ordinal) &&
+              compatible.ToDisplayText().Contains(
+                  "prefab-stable-instance-id-3d-v1",
+                  StringComparison.Ordinal) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.SparseTransformMutationV1) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.PrefabInstanceRefresh3DV1) &&
+              EditorAbiContract.RequiredCapabilities.HasFlag(
+                  EditorAbiCapability.PrefabStableInstanceId3DV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.VolumetricCloudWorkloadV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
@@ -369,6 +374,22 @@ internal static class EditorAbiContractSelfTest
             missingPrefabRefresh.MissingRequired.HasFlag(
                 EditorAbiCapability.PrefabInstanceRefresh3DV1),
             "provider without transactional 3D Prefab refresh fails before the editor can call its export");
+
+        EditorAbiSnapshot missingPrefabIdentity =
+            EditorAbiContract.Evaluate(
+                queryAvailable: true,
+                queryResult: 0,
+                providerVersion: EditorAbiContract.RequestedVersion,
+                capabilityBits:
+                    (ulong)(complete &
+                        ~EditorAbiCapability.PrefabStableInstanceId3DV1),
+                productVersion: "ACS Editor test",
+                renderBackend: "Test RHI");
+        Check(
+            !missingPrefabIdentity.Compatible &&
+            missingPrefabIdentity.MissingRequired.HasFlag(
+                EditorAbiCapability.PrefabStableInstanceId3DV1),
+            "provider without stable 3D Prefab identity fails before the editor can call its exports");
 
         EditorAbiSnapshot falseSuccess = EditorAbiContract.Evaluate(
             queryAvailable: true,
