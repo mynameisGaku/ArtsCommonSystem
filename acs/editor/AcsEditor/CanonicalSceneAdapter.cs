@@ -29,6 +29,7 @@ public enum CanonicalSceneReferenceKind
     Texture,
     Mesh,
     Material,
+    Prefab,
 }
 
 public sealed record CanonicalSceneReference(
@@ -358,6 +359,7 @@ public static class CanonicalSceneAdapter
         var meshes = new HashSet<int>();
         var materials = new HashSet<int>();
         var sprites = new HashSet<int>();
+        var prefabs = new HashSet<int>();
         var cameraNodes = new HashSet<int>();
         var cameraIds = new HashSet<string>(StringComparer.Ordinal);
         int activeCameraCount = 0;
@@ -432,11 +434,12 @@ public static class CanonicalSceneAdapter
                     InspectSelection(line, lineNumber);
                     break;
                 case "PFAB3D":
-                    diagnostics.Add(Error(
-                        "SCENE3D_RUNTIME_DIRECTIVE_UNSUPPORTED",
-                        $"{directive} is preserved by the editor but is not yet implemented by " +
-                        "the standalone legacy 3D runtime adapter.",
-                        lineNumber));
+                    InspectPathReference(
+                        line,
+                        lineNumber,
+                        CanonicalSceneReferenceKind.Prefab,
+                        prefabs,
+                        requireMeshPrimitive: false);
                     break;
                 case "PLY3D":
                     InspectPolygon(line, lineNumber);
@@ -565,6 +568,19 @@ public static class CanonicalSceneAdapter
                     diagnostics.Add(Error(
                         "SCENE3D_MESH_FORMAT_UNSUPPORTED",
                         "Standalone 3D meshes must use .glb, .gltf, .obj, or .fbx.",
+                        lineNumber));
+                    return;
+                }
+            }
+            else if (kind == CanonicalSceneReferenceKind.Prefab)
+            {
+                string extension = Path.GetExtension(trimmed);
+                if (!(extension.Equals(".acsprefab", StringComparison.OrdinalIgnoreCase) ||
+                      extension.Equals(".acsbp", StringComparison.OrdinalIgnoreCase)))
+                {
+                    diagnostics.Add(Error(
+                        "SCENE3D_PREFAB_FORMAT_UNSUPPORTED",
+                        "PFAB3D links must use an .acsprefab or .acsbp source.",
                         lineNumber));
                     return;
                 }

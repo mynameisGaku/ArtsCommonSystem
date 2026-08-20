@@ -272,6 +272,49 @@ internal static class SceneContractFixtureSelfTest
                 diagnostic.Code == "SCENE3D_REFERENCE_INVALID"),
             "SPR3D duplicate and missing-node references fail closed");
 
+        const string prefabScene =
+            "ACS3D v2\n" +
+            "N3D 8 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Vehicle\n" +
+            "PFAB3D 8 Prefabs/vehicle.acsprefab\n";
+        CanonicalSceneAdapterInspection prefabInspection =
+            CanonicalSceneAdapter.InspectText(prefabScene, ".acs3d");
+        string cookedPrefab = CanonicalSceneAdapter.RewriteReferences(
+            prefabScene,
+            ".acs3d",
+            static reference =>
+                reference.Kind == CanonicalSceneReferenceKind.Prefab
+                    ? "Assets/Prefabs/vehicle.acsprefab"
+                    : throw new InvalidOperationException(
+                        "PFAB3D must expose one Prefab reference."));
+        Check(
+            !prefabInspection.HasErrors &&
+            prefabInspection.References.Count == 1 &&
+            prefabInspection.References[0].Kind ==
+                CanonicalSceneReferenceKind.Prefab &&
+            cookedPrefab.Contains(
+                "PFAB3D 8 Assets/Prefabs/vehicle.acsprefab\n",
+                StringComparison.Ordinal),
+            "PFAB3D passes package validation and Cook rewrites its source link");
+
+        CanonicalSceneAdapterInspection duplicatePrefab =
+            CanonicalSceneAdapter.InspectText(
+                prefabScene + "PFAB3D 8 Prefabs/other.acsprefab\n",
+                ".acs3d");
+        CanonicalSceneAdapterInspection invalidPrefabExtension =
+            CanonicalSceneAdapter.InspectText(
+                "ACS3D v2\n" +
+                "N3D 8 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Vehicle\n" +
+                "PFAB3D 8 Prefabs/vehicle.txt\n",
+                ".acs3d");
+        Check(
+            duplicatePrefab.HasErrors &&
+            duplicatePrefab.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_REFERENCE_DUPLICATE") &&
+            invalidPrefabExtension.HasErrors &&
+            invalidPrefabExtension.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_PREFAB_FORMAT_UNSUPPORTED"),
+            "PFAB3D duplicate links and unsupported source extensions fail closed");
+
         CanonicalSceneAdapterInspection legacy2D =
             CanonicalSceneAdapter.InspectText(
                 "ACSCENE v1\n",

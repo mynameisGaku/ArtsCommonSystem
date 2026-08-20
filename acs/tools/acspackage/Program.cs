@@ -3478,6 +3478,42 @@ internal static partial class Program
                     issue.Code.StartsWith("SCENE3D_", StringComparison.Ordinal) &&
                     issue.Severity == PackageIssueSeverity.Error),
                 "SPR3D texture references must pass the reversible runtime adapter");
+
+            string prefab3D = Path.Combine(
+                assets,
+                "Prefabs",
+                "vehicle.acsprefab");
+            Directory.CreateDirectory(Path.GetDirectoryName(prefab3D)!);
+            File.WriteAllText(
+                prefab3D,
+                "ACS3D v2\n" +
+                "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 Template\n",
+                new UTF8Encoding(false));
+            File.WriteAllText(
+                scene3d,
+                "ACS3D v2\n" +
+                "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Vehicle\n" +
+                "PFAB3D 1 Assets/Prefabs/vehicle.acsprefab\n",
+                new UTF8Encoding(false));
+            assetDatabase.Refresh(verifyContent: true);
+            scene3DAsset = assetDatabase.Snapshot().Single(item =>
+                item.RelativePath == "scene3d.acs3d");
+            AssetRecord prefab3DAsset = assetDatabase.Snapshot().Single(item =>
+                item.RelativePath == "Prefabs/vehicle.acsprefab");
+            assetDatabase.UpdateImportMetadata(
+                scene3DAsset.AssetId,
+                scene3DAsset.Metadata.Source,
+                "legacy-acs3d",
+                2,
+                [prefab3DAsset.AssetId],
+                scene3DAsset.Metadata.ImportSettings);
+            IReadOnlyList<PackageIssue> prefab3DIssues =
+                PackageCore.Validate(project3D, optionsA, executable, [runtime]);
+            Assert(
+                !prefab3DIssues.Any(issue =>
+                    issue.Code.StartsWith("SCENE3D_", StringComparison.Ordinal) &&
+                    issue.Severity == PackageIssueSeverity.Error),
+                "PFAB3D links must join Cook closure and pass the reversible runtime adapter");
             File.WriteAllText(
                 settings,
                 "[Game]\nDefaultScene=Assets/main.acscene\n",
