@@ -246,14 +246,21 @@ f32 CloudHenyeyGreensteinForTest(f32 cosine, f32 anisotropy) noexcept {
            (12.566370f * denominator);
 }
 
-f32 CalibratedCloudPhaseForTest(f32 cosine) noexcept {
+f32 DefaultCloudPhaseForTest(f32 cosine) noexcept {
+    const FVolumetricCloudLighting lighting{};
     const f32 clampedCosine =
         cosine < -1.0f ? -1.0f : (cosine > 1.0f ? 1.0f : cosine);
     const f32 phase =
         12.566370f *
-        (CloudHenyeyGreensteinForTest(clampedCosine, 0.60f) * 0.85f +
-         CloudHenyeyGreensteinForTest(clampedCosine, -0.20f) * 0.15f);
-    return phase < 0.25f ? 0.25f : (phase > 2.4f ? 2.4f : phase);
+        (CloudHenyeyGreensteinForTest(
+             clampedCosine, lighting.PhaseForward) *
+             lighting.PhaseBlend +
+         CloudHenyeyGreensteinForTest(
+             clampedCosine, lighting.PhaseBackward) *
+             (1.0f - lighting.PhaseBlend));
+    return phase < lighting.PhaseMin
+        ? lighting.PhaseMin
+        : (phase > lighting.PhaseMax ? lighting.PhaseMax : phase);
 }
 
 i32 ClampCloudCoordForTest(i32 value, i32 extent) noexcept {
@@ -655,7 +662,7 @@ ACS_TEST(VolumetricClouds, UnrepresentableLayerThicknessUsesFiniteDefaults) {
 }
 
 ACS_TEST(VolumetricClouds,
-         TraceQualityMultiplierIsMonotonicWithinQuarterDimensionPolicy) {
+         TraceQualityMultiplierIsMonotonicFromEighthToFullResolution) {
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
 
     const FVolumetricCloudTraceResolution ultra =
@@ -699,10 +706,22 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(clampedLow.height, 135u);
 
     const FVolumetricCloudTraceResolution clampedHigh =
-        ResolveVolumetricCloudTraceResolution(1919u, 1079u, 4.0f);
-    EXPECT_NEAR(clampedHigh.quality_multiplier, 1.0f, 1e-6f);
-    EXPECT_EQ(clampedHigh.width, 480u);
-    EXPECT_EQ(clampedHigh.height, 270u);
+        ResolveVolumetricCloudTraceResolution(1919u, 1079u, 8.0f);
+    EXPECT_NEAR(
+        clampedHigh.quality_multiplier,
+        static_cast<f32>(kVolumetricCloudUltraTraceDivisor), 1e-6f);
+    EXPECT_NEAR(clampedHigh.effective_dimension_scale, 1.0f, 1e-6f);
+    EXPECT_EQ(clampedHigh.width, 1919u);
+    EXPECT_EQ(clampedHigh.height, 1079u);
+    EXPECT_TRUE(ultra.width <= clampedHigh.width);
+    EXPECT_TRUE(ultra.height <= clampedHigh.height);
+
+    const FVolumetricCloudTraceResolution reference =
+        ResolveVolumetricCloudTraceResolution(
+            1919u, 1079u, 0.5f, true);
+    EXPECT_NEAR(reference.effective_dimension_scale, 1.0f, 1e-6f);
+    EXPECT_EQ(reference.width, 1919u);
+    EXPECT_EQ(reference.height, 1079u);
 
     const FVolumetricCloudTraceResolution sanitized =
         ResolveVolumetricCloudTraceResolution(
@@ -928,7 +947,10 @@ ACS_TEST(VolumetricClouds,
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudCS"));
     EXPECT_TRUE(!shader.empty());
-    EXPECT_TRUE(Contains(shader, "constintMAX_STEPS=192;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "intMAX_STEPS=(int)cloudLightingAmbient.z;"
+        "if(MAX_STEPS<32)MAX_STEPS=32;"));
     EXPECT_TRUE(Contains(shader, "floatspan=t1-t0;"));
     EXPECT_TRUE(Contains(
         shader, "floatbaseFineStep=cloudCoverageReciprocals.z;"));
@@ -1139,7 +1161,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader, "float3 p=camPos.xyz+dir*t;"));
     EXPECT_TRUE(Contains(
-        shader, "const float MAX_DISTANCE=250000.0;"));
+        shader, "float MAX_DISTANCE=cloudRange.x;"));
     EXPECT_TRUE(Contains(
         shader, "float3 local=p-worldOrigin.xyz;"));
     EXPECT_TRUE(Contains(
@@ -1905,7 +1927,8 @@ ACS_TEST(VolumetricClouds,
     // dimensions or requests a native/full seed.
     EXPECT_TRUE(Contains(
         source,
-        "ResolveVolumetricCloudTraceResolution(fw, fh, render_scale)"));
+        "ResolveVolumetricCloudTraceResolution(fw, fh, "
+        "render_scale, reference_mode)"));
     EXPECT_TRUE(Contains(
         compactSource,
         "constu32hw=traceResolution.width;"
@@ -1916,7 +1939,8 @@ ACS_TEST(VolumetricClouds,
         "(m_TemporalPhase&15u);"));
     EXPECT_TRUE(Contains(
         compactSource,
-        "cb.temporal=FVec4{historyValid?1.0f:0.0f,m_PrevWindOffset,"
+        "cb.temporal=FVec4{"
+        "(historyValid&&!m_ReferenceMode)?1.0f:0.0f,m_PrevWindOffset,"
         "static_cast<f32>(temporalFrame),"));
     EXPECT_TRUE(Contains(
         compactSource,
@@ -2868,7 +2892,10 @@ ACS_TEST(VolumetricClouds,
         EXPECT_TRUE(near(formerB.z, hoistedB.z));
     }
 
-    EXPECT_TRUE(Contains(shader, "constintMAX_STEPS=192;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "intMAX_STEPS=(int)cloudLightingAmbient.z;"
+        "if(MAX_STEPS<32)MAX_STEPS=32;"));
     EXPECT_TRUE(Contains(shader, "[loop]for(intl=0;l<3;l++){"));
     EXPECT_TRUE(Contains(shader, "[loop]for(intl=3;l<8;l++){"));
     EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 192u);
@@ -3086,7 +3113,7 @@ ACS_TEST(VolumetricClouds,
         "offsetof(FCloudCb,cloudShellTerms)==432u"));
     EXPECT_TRUE(Contains(
         compactSource,
-        "sizeof(FCloudCb)==448"));
+        "sizeof(FCloudCb)==624"));
     EXPECT_TRUE(Contains(
         compactSource,
         "constFVec3shellLocalOrigin{"
@@ -3108,7 +3135,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         compactSource,
         "cb.cloudShellTerms=FVec4{"
-        "shellC(m_Layer.top_height),0.0f,0.0f,0.0f};"));
+        "shellC(shellTopHeight),0.0f,0.0f,0.0f};"));
 
     struct FShellTerms {
         FVec3 from_planet_center;
@@ -3233,8 +3260,13 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "float4cloudLightBitangent;"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatheightFraction(float3p){"
-        "returnsaturate((cloudAltitude(p)-layer.x)*cloudFrameTerms.w);}"));
+        "if(inUpperCloudBand(p))"
+        "returnsaturate((cloudAltitude(p)-cloudUpperLayer.x)*"
+        "cloudUpperLayer.z);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "returnsaturate((cloudAltitude(p)-layer.x)*"
+        "cloudFrameTerms.w);"));
     EXPECT_TRUE(Contains(
         shader,
         "floatcloudShapeScale(){"
@@ -3262,7 +3294,7 @@ ACS_TEST(VolumetricClouds,
 
     EXPECT_TRUE(Contains(
         compactSource,
-        "sizeof(FCloudCb)==448"));
+        "sizeof(FCloudCb)==624"));
     EXPECT_TRUE(Contains(
         compactSource,
         "offsetof(FCloudCb,cloudFrameTerms)==336u"));
@@ -3427,8 +3459,11 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(std::isfinite(hostileBasis.bitangent.z));
 
     // Optimization changes only invariant ALU placement. Work submission and
-    // every authored quality/sample policy stay byte-for-byte explicit.
-    EXPECT_TRUE(Contains(shader, "constintMAX_STEPS=192;"));
+    // the CPU-bounded authored sample policy remain explicit in the shader.
+    EXPECT_TRUE(Contains(
+        shader,
+        "intMAX_STEPS=(int)cloudLightingAmbient.z;"
+        "if(MAX_STEPS<32)MAX_STEPS=32;"));
     EXPECT_TRUE(Contains(shader, "[loop]for(intl=0;l<3;l++){"));
     EXPECT_TRUE(Contains(shader, "[loop]for(intl=3;l<8;l++){"));
     EXPECT_TRUE(Contains(
@@ -3811,12 +3846,12 @@ ACS_TEST(VolumetricClouds,
         compactSource,
         "offsetof(FCloudCb,groundHorizon)==320u"));
     EXPECT_TRUE(Contains(
-        compactSource, "sizeof(FCloudCb)==448"));
+        compactSource, "sizeof(FCloudCb)==624"));
     EXPECT_TRUE(Contains(
         compactSource,
         "offsetof(FCloudCb,cloudFrameTerms)==336u"));
     EXPECT_TRUE(Contains(
-        compactSource, "CBSize<FCloudCb>()==512u"));
+        compactSource, "CBSize<FCloudCb>()==768u"));
     EXPECT_TRUE(Contains(
         resolveShader,
         "floatcurrentViewElevation=0.0;"
@@ -4136,29 +4171,30 @@ ACS_TEST(VolumetricClouds,
 }
 
 ACS_TEST(VolumetricClouds,
-         CalibratedCloudPhaseIsFiniteBoundedAndMatchesTheShader) {
+         ConfigurableCloudPhaseIsFiniteBoundedAndMatchesTheShader) {
+    const FVolumetricCloudLighting lighting{};
     f32 minimumPhase = 1000.0f;
     f32 maximumPhase = -1000.0f;
     for (u32 sample = 0; sample <= 256u; ++sample) {
         const f32 cosine =
             -1.0f + 2.0f * static_cast<f32>(sample) / 256.0f;
-        const f32 phase = CalibratedCloudPhaseForTest(cosine);
+        const f32 phase = DefaultCloudPhaseForTest(cosine);
         EXPECT_TRUE(std::isfinite(phase));
-        EXPECT_TRUE(phase >= 0.25f);
-        EXPECT_TRUE(phase <= 2.4f);
+        EXPECT_TRUE(phase >= lighting.PhaseMin);
+        EXPECT_TRUE(phase <= lighting.PhaseMax);
         if (phase < minimumPhase) minimumPhase = phase;
         if (phase > maximumPhase) maximumPhase = phase;
     }
 
-    const f32 backward = CalibratedCloudPhaseForTest(-1.0f);
-    const f32 side = CalibratedCloudPhaseForTest(0.0f);
-    const f32 forward = CalibratedCloudPhaseForTest(1.0f);
+    const f32 backward = DefaultCloudPhaseForTest(-1.0f);
+    const f32 side = DefaultCloudPhaseForTest(0.0f);
+    const f32 forward = DefaultCloudPhaseForTest(1.0f);
     EXPECT_TRUE(backward >= 0.30f && backward <= 0.50f);
     EXPECT_TRUE(side >= 0.40f && side <= 0.60f);
-    EXPECT_NEAR(forward, 2.4f, 1e-4f);
-    EXPECT_TRUE(forward > side * 5.0f);
-    EXPECT_TRUE(maximumPhase <= 2.4f);
-    EXPECT_TRUE(minimumPhase >= 0.25f);
+    EXPECT_NEAR(forward, lighting.PhaseMax, 1e-4f);
+    EXPECT_TRUE(forward > side * 10.0f);
+    EXPECT_TRUE(maximumPhase <= lighting.PhaseMax);
+    EXPECT_TRUE(minimumPhase >= lighting.PhaseMin);
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
@@ -4166,11 +4202,17 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(!shader.empty());
     EXPECT_TRUE(Contains(
         shader,
-        "floatphase=12.566370*(hg(cosA,0.60)*0.85+"
-        "hg(cosA,-0.20)*0.15);"));
-    EXPECT_TRUE(Contains(shader, "phase=clamp(phase,0.25,2.4);"));
+        "floatphaseBlend=cloudLightingPhase.z;"
+        "floatphase=12.566370*("
+        "hg(cosA,cloudLightingPhase.x)*phaseBlend+"
+        "hg(cosA,cloudLightingPhase.y)*(1.0-phaseBlend));"));
     EXPECT_TRUE(Contains(
-        shader, "sunCol.rgb*0.14*lightT*phase"));
+        shader,
+        "phase=clamp(phase,cloudLightingMulti.y,cloudLightingMulti.z);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "float3sunAtCloud=sunCol.rgb*cloudSunTransmittance.rgb;"
+        "float3sunL=sunAtCloud*cloudLightingExtinction.z*scatterTerm"));
 }
 
 ACS_TEST(VolumetricClouds,
