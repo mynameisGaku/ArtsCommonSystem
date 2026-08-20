@@ -264,6 +264,8 @@ rollback 用 snapshot、失敗時の無入力化は [FixedStepRuntimeInput.md](F
 接続し、描画時だけ previous/current 状態を固定時計の補間率で混ぜる。契約と固定入力からの変換例は
 [OrbitCameraController3D.md](OrbitCameraController3D.md) に定める。rollbackでは固定runtime snapshotを
 先に戻し、orbit cameraのprevious/current snapshotを明示的なLegacyアダプターから復元する。
+任意の障害物回避は `CSceneNodeGraph::RaycastActiveRange` でtarget近傍と無効meshを除外し、fixed tickの
+desired距離を変えずpresentation距離だけを短縮する。
 
 ### scene 遷移
 

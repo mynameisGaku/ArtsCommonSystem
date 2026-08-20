@@ -792,6 +792,35 @@ ACS_TEST(Scene3DRaycast, ReturnsNearest) {
     EXPECT_NEAR(t, 6.5f, 1e-3f);                        // near 手前面 z=1.5 に z=-5 から → 6.5
 }
 
+ACS_TEST(Scene3DRaycast, ActiveRangeSkipsTargetAndInactiveMeshes)
+{
+    /** ray原点を含みminimum tで除外する追従対象。 */
+    CSceneNodeGraph scene;
+    ANode& target = scene.Spawn(FStringView("Target"));
+    target.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+    /** 手前にあるが非表示なので除外するmesh。 */
+    ANode& hidden = scene.Spawn(FStringView("Hidden"));
+    hidden.Local().position = FVec3{0.0f, 0.0f, 2.0f};
+    hidden.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+    hidden.SetVisible(false);
+    /** 区間内で最初の有効mesh。 */
+    ANode& wall = scene.Spawn(FStringView("Wall"));
+    wall.Local().position = FVec3{0.0f, 0.0f, 4.0f};
+    wall.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+    const FRay3 ray{FVec3{0.0f, 0.0f, 0.0f}, FVec3{0.0f, 0.0f, 1.0f}};
+    f32 hit_t = -1.0f;
+
+    EXPECT_TRUE(scene.RaycastActiveRange(ray, 0.75f, 10.0f, &hit_t) == wall.Id());
+    EXPECT_NEAR(hit_t, 3.5f, 1.0e-5f);
+    hit_t = 19.0f;
+    EXPECT_FALSE(scene.RaycastActiveRange(ray, 0.75f, 3.0f, &hit_t).IsValid());
+    EXPECT_NEAR(hit_t, 19.0f, 0.0f);
+    EXPECT_FALSE(scene.RaycastActiveRange(ray, 2.0f, 1.0f, &hit_t).IsValid());
+    EXPECT_NEAR(hit_t, 19.0f, 0.0f);
+    EXPECT_FALSE(scene.RaycastActiveRange(FRay3{FVec3{}, FVec3{}}, 0.0f, 10.0f, &hit_t).IsValid());
+    EXPECT_NEAR(hit_t, 19.0f, 0.0f);
+}
+
 // --- スケールで AABB が拡大し、単位 cube なら外れるレイが当たる (OBB) --------
 ACS_TEST(Scene3DRaycast, RespectsScale) {
     CSceneNodeGraph scene;

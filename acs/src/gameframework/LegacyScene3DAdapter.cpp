@@ -2846,6 +2846,18 @@ void ALegacyScene3DAdapter::UpdateCameraProjection(
     }
 }
 
+/** 障害物回避距離を隔離検証し、成功時だけ表示設定へ反映する。 */
+bool ALegacyScene3DAdapter::TrySetOrbitCameraObstructionSettings(const FOrbitCameraObstructionSettings3D& settings) noexcept
+{
+    if (!std::isfinite(settings.TargetClearance) || !std::isfinite(settings.CameraClearance) || settings.TargetClearance <= 0.0f || settings.CameraClearance < 0.0f)
+        return false;
+    const f32 minimum_resolved_distance = settings.TargetClearance - settings.CameraClearance;
+    if (!std::isfinite(minimum_resolved_distance) || minimum_resolved_distance < m_OrbitCameraController.Settings().minimum_distance) return false;
+    m_OrbitCameraObstructionSettings = settings;
+    UpdateCameraView();
+    return true;
+}
+
 /** 自由cameraのprevious/currentを検証してからsnapshotへ公開する。 */
 bool ALegacyScene3DAdapter::TryCaptureOrbitCameraSnapshot(COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D& output) const noexcept
 {
@@ -2881,11 +2893,34 @@ void ALegacyScene3DAdapter::UpdateCameraView() noexcept {
 /** 指定した自由camera状態からviewを構築し、成功時だけ表示へ反映する。 */
 void ALegacyScene3DAdapter::UpdateOrbitCameraView_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state) noexcept
 {
+    /** scene障害物を反映してもsimulation stateを変更しないpresentation候補。 */
+    COrbitCameraController3D::FOrbitCameraState3D presented{};
+    if (!TryResolveOrbitCameraObstruction_Internal(state, presented)) return;
     /** cameraへ反映する左手座標系view候補。 */
     COrbitCameraController3D::FOrbitCameraView3D view{};
-    if (!m_OrbitCameraController.TryBuildView(state, view)) return;
-    m_PresentedOrbitCameraState = state;
+    if (!m_OrbitCameraController.TryBuildView(presented, view)) return;
+    m_PresentedOrbitCameraState = presented;
     m_Camera.SetLookAt(view.eye, view.look_at, view.up);
+}
+
+/** target近傍を除く有効scene meshから自由cameraのpresentation距離を解決する。 */
+bool ALegacyScene3DAdapter::TryResolveOrbitCameraObstruction_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state, COrbitCameraController3D::FOrbitCameraState3D& output) const noexcept
+{
+    if (!m_OrbitCameraObstructionSettings.Enabled || m_OrbitCameraObstructionSettings.TargetClearance > state.distance) {
+        output = state;
+        return true;
+    }
+    /** desired eyeとtargetから作る正規化済み障害物探索ray。 */
+    COrbitCameraController3D::FOrbitCameraView3D desired_view{};
+    if (!m_OrbitCameraController.TryBuildView(state, desired_view)) return false;
+    const FVec3 direction = (desired_view.eye - state.target) * (1.0f / state.distance);
+    f32 obstruction_distance = 0.0f;
+    const FNodeId obstruction = Graph().RaycastActiveRange(FRay3{state.target, direction}, m_OrbitCameraObstructionSettings.TargetClearance, state.distance, &obstruction_distance);
+    if (!obstruction.IsValid()) {
+        output = state;
+        return true;
+    }
+    return m_OrbitCameraController.TryResolveObstructedState(state, obstruction_distance, m_OrbitCameraObstructionSettings.CameraClearance, output);
 }
 
 /** 固定tick状態と時計alphaから今回表示する自由camera viewを決める。 */

@@ -446,13 +446,14 @@ ACS_REF.modules.push({
     {
       name: "COrbitCameraController3D",
       kind: "クラス", header: "gameframework/OrbitCameraController3D.h",
-      summary: "3D orbit camera の移動・回転・距離zoomを renderer・device・World・platform 入力から切り離す決定論 controller。入力、外部所有 state、固定時間から次 state と eye/look-at を計算する。",
+      summary: "3D orbit camera の移動・回転・距離zoomを renderer・device・World・platform 入力から切り離す決定論 controller。入力、外部所有 state、固定時間、明示した障害物距離から次 state と presentation eye/look-at を計算する。",
       when: "gameplay、AI、replay、headless test で同じ 3D camera 移動を再現したい時。",
       members: [
         { sig: "bool TryConfigure(const FOrbitCameraSettings3D& settings)", desc: "有限な速度と安全範囲だけを transactional に反映する。" },
         { sig: "bool TryStep(const FOrbitCameraInput3D& input, f32 dt, FOrbitCameraState3D& state) const", desc: "入力、状態、時間から次状態を計算する。失敗時は state を変更しない。" },
         { sig: "bool TryInterpolateState(const FOrbitCameraState3D& previous, const FOrbitCameraState3D& current, f64 alpha, FOrbitCameraState3D& output) const", desc: "二つの固定tick状態を最短yaw経路で描画補間する。失敗時は output を変更しない。" },
         { sig: "bool IsSnapshotValid(const FOrbitCameraFixedStepSnapshot3D& snapshot) const", desc: "previous/currentの両状態が現在設定で復元可能か同時検証する。" },
+        { sig: "bool TryResolveObstructedState(const FOrbitCameraState3D& state, f32 hit_distance, f32 clearance, FOrbitCameraState3D& output) const", desc: "desired stateを保ったまま、障害物の手前へ短縮するpresentation stateを計算する。" },
         { sig: "bool TryBuildView(const FOrbitCameraState3D& state, FOrbitCameraView3D& view) const", desc: "左手座標系の eye、look-at、up を計算する。失敗時は view を変更しない。" },
         { sig: "const FOrbitCameraSettings3D& Settings() const", desc: "現在の検証済み速度と pitch 上限を返す。" }
       ]

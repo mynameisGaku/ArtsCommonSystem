@@ -93,6 +93,28 @@ public:
     /** Active camera projection. */
     ESceneProjectionMode ProjectionMode() const noexcept { return m_Projection; }
 
+    /** 自由cameraのpresentation障害物回避設定。 */
+    struct FOrbitCameraObstructionSettings3D final {
+        /** 有効なscene meshでcamera距離を短縮するならtrue。既定は互換性のためfalse。 */
+        bool Enabled = false;
+
+        /** targetからこの距離未満のhitを追従対象として除外する。 */
+        f32 TargetClearance = 0.75f;
+
+        /** cameraを障害物の手前へ離す距離。 */
+        f32 CameraClearance = 0.25f;
+    };
+
+    /**
+     * presentation障害物回避設定を検証し、成功時だけ反映する。
+     * @param settings 有効状態、target除外距離、camera余白。
+     * @return 距離が有限で、余白後もcontrollerの最小距離を保てるならtrue。
+     */
+    bool TrySetOrbitCameraObstructionSettings(const FOrbitCameraObstructionSettings3D& settings) noexcept;
+
+    /** 現在の検証済みpresentation障害物回避設定を返す。 */
+    const FOrbitCameraObstructionSettings3D& OrbitCameraObstructionSettings() const noexcept { return m_OrbitCameraObstructionSettings; }
+
     /**
      * 自由cameraの固定tick補間区間をprocess内snapshotへ複製する。
      * @param output previous/current状態の書き込み先。失敗時は変更しない。
@@ -107,7 +129,7 @@ public:
      */
     bool TryRestoreOrbitCameraSnapshot(const COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D& snapshot) noexcept;
 
-    /** Camera used for standalone preview/gameplay. */
+    /** 単体previewとgameplayで使う自由cameraを返す。 */
     CCamera& Camera() noexcept { return m_Camera; }
 
     /** Read-only standalone camera. */
@@ -315,6 +337,8 @@ private:
     void UpdateCameraView() noexcept;
     /** 指定したorbit状態をcameraと表示用状態へ反映する内部処理。 */
     void UpdateOrbitCameraView_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state) noexcept;
+    /** scene graphの有効meshからpresentation用の衝突回避状態を求める内部処理。 */
+    bool TryResolveOrbitCameraObstruction_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state, COrbitCameraController3D::FOrbitCameraState3D& output) const noexcept;
     /** 固定時計の補間率から今回描画するcamera状態を反映する内部処理。 */
     void UpdatePresentedCameraView_Internal() noexcept;
     void AdoptLoadedCamera() noexcept;
@@ -406,6 +430,9 @@ private:
     i32 m_ActiveCameraNodeId = -1;
     /** device非依存の自由camera計算器。 */
     COrbitCameraController3D m_OrbitCameraController{};
+
+    /** scene-localな自由camera presentation障害物回避設定。 */
+    FOrbitCameraObstructionSettings3D m_OrbitCameraObstructionSettings{};
 
     /** scene入力を自由cameraの6操作軸へ変換するaction集合。 */
     FOrbitCameraInputActionSet3D m_OrbitCameraActions{};

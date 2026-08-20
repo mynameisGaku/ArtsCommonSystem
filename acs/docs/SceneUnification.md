@@ -29,7 +29,8 @@ staging graph を stack に置けるため、scene lifecycle と graph 構築を
 ### node graph
 
 すべての `AScene` は root `ANode` を持つ `CSceneNodeGraph` を一つ所有する。graph は node の
-登録、検索、破棄、raycast、更新、固定更新、`SwapContents()` を担当する。
+登録、検索、破棄、raycast、更新、固定更新、`SwapContents()` を担当する。通常のpick用 `Raycast` に加え、
+`RaycastActiveRange` は有効かつ可視なsubtreeだけを指定t区間で検索し、3D cameraのtarget近傍除外に使える。
 
 `SwapContents()` は root 自体を置き換える。置換後は `AScene` の root-swap hook が次を
 再接続する。

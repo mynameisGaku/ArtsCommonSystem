@@ -243,6 +243,19 @@ public:
     FNodeId Raycast(const FRay3& ray, f32* out_t = nullptr) const noexcept;
 
     /**
+     * 有効かつ可視なsubtreeを指定t区間だけraycastする。
+     *
+     * @details 親が無効、非表示、破棄予定ならsubtree全体を除外する。minimum_tより手前のhitを
+     * 除外できるため、ray原点を含む追従対象を無視して3D camera障害物を探せる。
+     * @param ray world空間ray。距離としてtを使う場合はdirectionを正規化する。
+     * @param minimum_t 含める最小t。有限かつ0以上。
+     * @param maximum_t 含める最大t。有限かつminimum_t以上。
+     * @param out_t 非nullかつ命中時だけ最近hitのtを書き込む。
+     * @return 区間内で最も手前の有効mesh node。入力不正または外れはinvalid。
+     */
+    FNodeId RaycastActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, f32* out_t = nullptr) const noexcept;
+
+    /**
      * subtree のノード総数を返す (root を含む)。
      *
      * @return ノード総数。

@@ -148,6 +148,32 @@ ACS_TEST(OrbitCameraController3D, SnapshotValidationChecksBothFixedTickStates)
     EXPECT_FALSE(controller.IsSnapshotValid(snapshot));
 }
 
+ACS_TEST(OrbitCameraController3D, ObstructionShortensOnlyPresentationDistance)
+{
+    /** 障害物hitを純粋計算へ渡すcontroller。 */
+    COrbitCameraController3D controller;
+    /** simulationが保持するdesired orbit状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D desired{};
+    desired.target = FVec3{1.0f, 2.0f, 3.0f};
+    desired.distance = 8.0f;
+    /** 障害物の手前へ短縮されるpresentation状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D resolved{};
+
+    EXPECT_TRUE(controller.TryResolveObstructedState(desired, 3.5f, 0.25f, resolved));
+    EXPECT_NEAR(resolved.distance, 3.25f, 1.0e-6f);
+    EXPECT_NEAR(resolved.target.x, desired.target.x, 0.0f);
+    EXPECT_NEAR(desired.distance, 8.0f, 0.0f);
+
+    /** 失敗時に維持されるsentinel出力。 */
+    const COrbitCameraController3D::FOrbitCameraState3D original = resolved;
+    EXPECT_FALSE(controller.TryResolveObstructedState(desired, 8.01f, 0.25f, resolved));
+    ExpectStateNear(resolved, original, 0.0f);
+    EXPECT_FALSE(controller.TryResolveObstructedState(desired, 3.5f, -0.01f, resolved));
+    ExpectStateNear(resolved, original, 0.0f);
+    EXPECT_FALSE(controller.TryResolveObstructedState(desired, 0.1f, 0.1f, resolved));
+    ExpectStateNear(resolved, original, 0.0f);
+}
+
 ACS_TEST(OrbitCameraController3D, ZoomChangesDistanceAndClampsRange)
 {
     COrbitCameraController3D controller;
