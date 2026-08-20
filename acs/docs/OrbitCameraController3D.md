@@ -8,7 +8,7 @@
 
 | 区分 | 型 | 内容 |
 |---|---|---|
-| Input | `FOrbitCameraInput3D` | 前後・左右・上下移動と yaw・pitch の正規化操作量 |
+| Input | `FOrbitCameraInput3D` | 前後・左右・上下移動、yaw・pitch、距離zoomの正規化操作量 |
 | State | `FOrbitCameraState3D` | target、yaw、pitch、target から eye までの距離 |
 | Time | `f32 delta_seconds` | 呼び出し側が確定した固定 tick 秒 |
 | Output | 更新済み state / `FOrbitCameraView3D` | eye、look-at、up の world 座標 |
@@ -22,6 +22,7 @@ session などの呼び出し側であり、controller は subsystem ではな�
 - 負値または非有限の時間、非有限 state、0以下の距離は拒否する。
 - `TryConfigure`、`TryStep`、`TryBuildView` は失敗時に出力を変更しない。
 - yaw は `[-pi, pi]` へ折り返し、pitch は設定上限へ制限する。
+- 正の zoom は target へ近づき、負の zoom は遠ざかる。距離は設定した最小・最大値へ制限する。
 - 移動速度は orbit 距離へ比例する。`normalize_movement` を有効にすると斜め入力も同じ速度になる。
 - 正の pitch は見下ろし、正の yaw は右回転である。左手座標系の `eye` と `look_at` を出力する。
 
@@ -41,7 +42,7 @@ void OnFixedUpdate(f32 FixedDeltaSeconds) noexcept
 ```
 
 `FOrbitCameraInputActionSet3D` の既定 action 名は `MoveForward`、`MoveRight`、`MoveUp`、`LookYaw`、
-`LookPitch` である。ゲーム側は各 `FActionId` を置き換えられる。5 action は有効かつ互いに異なる
+`LookPitch`、`Zoom` である。ゲーム側は各 `FActionId` を置き換えられる。6 action は有効かつ互いに異なる
 必要があり、不正な集合では出力を変更しない。platform、AI、replay のどの入力状態でも同じ
 `FOrbitCameraInput3D` へ変換できる。
 

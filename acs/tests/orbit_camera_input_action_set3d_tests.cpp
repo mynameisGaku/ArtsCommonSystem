@@ -8,13 +8,14 @@
 using namespace acs;
 using namespace acs::game;
 
-ACS_TEST(OrbitCameraInputActionSet3D, DefaultActionsEvaluateFiveAxes)
+ACS_TEST(OrbitCameraInputActionSet3D, DefaultActionsEvaluateSixAxes)
 {
     FOrbitCameraInputActionSet3D actions{};
     FInputMap input_map;
     input_map.BindAxisKeys(actions.move_forward_action, EKey::S, EKey::W);
     input_map.BindAxisKeys(actions.move_right_action, EKey::A, EKey::D);
     input_map.BindAxisKeys(actions.move_up_action, EKey::Q, EKey::E);
+    input_map.BindAxisKeys(actions.zoom_action, EKey::PageDown, EKey::PageUp);
     EXPECT_TRUE(input_map.TryBindGamepadAxis(actions.look_yaw_action, EGamepadAxis::RightX, 0u, FInputAxisOptions{}));
     EXPECT_TRUE(input_map.TryBindGamepadAxis(actions.look_pitch_action, EGamepadAxis::RightY, 0u, FInputAxisOptions{}));
 
@@ -22,6 +23,7 @@ ACS_TEST(OrbitCameraInputActionSet3D, DefaultActionsEvaluateFiveAxes)
     EXPECT_TRUE(input.TrySetKeyState(EKey::W, true, true, false));
     EXPECT_TRUE(input.TrySetKeyState(EKey::D, true, true, false));
     EXPECT_TRUE(input.TrySetKeyState(EKey::E, true, true, false));
+    EXPECT_TRUE(input.TrySetKeyState(EKey::PageUp, true, true, false));
     EXPECT_TRUE(input.TrySetGamepadAxis(0u, EGamepadAxis::RightX, 0.5f));
     EXPECT_TRUE(input.TrySetGamepadAxis(0u, EGamepadAxis::RightY, -0.25f));
 
@@ -32,6 +34,7 @@ ACS_TEST(OrbitCameraInputActionSet3D, DefaultActionsEvaluateFiveAxes)
     EXPECT_NEAR(output.move_up, 1.0f, 1.0e-6f);
     EXPECT_NEAR(output.look_yaw, 0.5f, 1.0e-6f);
     EXPECT_NEAR(output.look_pitch, -0.25f, 1.0e-6f);
+    EXPECT_NEAR(output.zoom, 1.0f, 1.0e-6f);
 }
 
 ACS_TEST(OrbitCameraInputActionSet3D, InvalidActionsPreserveOutput)
@@ -61,6 +64,7 @@ ACS_TEST(OrbitCameraInputActionSet3D, CustomActionsFeedFixedOrbitStep)
     actions.move_up_action = FActionId("EditorPedestal");
     actions.look_yaw_action = FActionId("EditorPan");
     actions.look_pitch_action = FActionId("EditorTilt");
+    actions.zoom_action = FActionId("EditorZoom");
     EXPECT_TRUE(actions.IsValid());
 
     FInputMap input_map;
@@ -99,4 +103,5 @@ ACS_TEST(OrbitCameraInputActionSet3D, UnboundActionsProduceNeutralInput)
     EXPECT_NEAR(output.move_up, 0.0f, 0.0f);
     EXPECT_NEAR(output.look_yaw, 0.0f, 0.0f);
     EXPECT_NEAR(output.look_pitch, 0.0f, 0.0f);
+    EXPECT_NEAR(output.zoom, 0.0f, 0.0f);
 }
