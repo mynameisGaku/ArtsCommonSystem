@@ -1978,12 +1978,19 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float tauL=lightDepth*density*cloudLightingExtinction.y;
             float beer=exp(-tauL);
             float multi=exp(-tauL*cloudLightingMulti.x);
-            float multiWeight=cloudLightingPhase.w;
+            float multiContribution=cloudLightingPhase.w;
             // 何度も散乱した光は向きを失うので、単散乱より等方に近い位相を使う。
             // 同じ位相を使うと、内部で回った光まで太陽方向へ偏って雲が薄く見える。
             float phaseMulti=12.566370*hg(cosA,cloudMultiPhase.x);
-            float scatterTerm=beer*(1.0-multiWeight)*phase
-                             +multi*multiWeight*phaseMulti;
+            phaseMulti=clamp(
+                phaseMulti,cloudLightingMulti.y,cloudLightingMulti.z);
+            // 一次散乱は必ず保持し、減衰させた二次散乱を追加する。CPU は散乱係数の
+            // 減衰を消散係数の減衰以下へ収め、各次数の single-scattering albedo を
+            // 1 以下に保つ。
+            float singleScatter=beer*phase;
+            float multipleScatter=
+                multiContribution*multi*phaseMulti;
+            float scatterTerm=singleScatter+multipleScatter;
             float powder=1.0-exp(-dens*cloudLightingExtinction.w);
             // sunCol is the scene's direct-light radiance. Clouds scatter only
             // a calibrated fraction of it; using the full value here made the
@@ -2907,10 +2914,11 @@ FVolumetricCloudLighting SanitizeVolumetricCloudLighting(const FVolumetricCloudL
         lighting.PhaseMin = lighting.PhaseMax;
         lighting.PhaseMax = swap;
     }
-    lighting.MultiScatterContribution = SanitizeCloudScalar(requested.MultiScatterContribution,
-                                                            defaults.MultiScatterContribution, 0.0f, 1.0f);
     lighting.MultiScatterOcclusion = SanitizeCloudScalar(requested.MultiScatterOcclusion,
                                                          defaults.MultiScatterOcclusion, 0.0f, 1.0f);
+    lighting.MultiScatterContribution = SanitizeCloudScalar(requested.MultiScatterContribution,
+                                                            defaults.MultiScatterContribution, 0.0f,
+                                                            lighting.MultiScatterOcclusion);
     lighting.SkyZenithColor = SanitizeCloudRadiance(requested.SkyZenithColor, defaults.SkyZenithColor);
     lighting.MultiScatterEccentricity = SanitizeCloudScalar(requested.MultiScatterEccentricity,
                                                             defaults.MultiScatterEccentricity,
@@ -2923,6 +2931,25 @@ FVolumetricCloudLighting SanitizeVolumetricCloudLighting(const FVolumetricCloudL
     lighting.SunTransmittance = SanitizeCloudUnitColor(requested.SunTransmittance, defaults.SunTransmittance);
     lighting.GroundColor = SanitizeCloudRadiance(requested.GroundColor, defaults.GroundColor);
     return lighting;
+}
+
+FVec2 EvaluateVolumetricCloudDirectionalScattering(f32 light_optical_depth, f32 single_phase, f32 multiple_phase, const FVolumetricCloudLighting& requested) noexcept
+{
+    /** GPU と同じ有効範囲へ直した照明設定。 */
+    const FVolumetricCloudLighting lighting = SanitizeVolumetricCloudLighting(requested);
+    if (!std::isfinite(light_optical_depth)) return FVec2{};
+    /** 密度積分から得る非負の光学的な厚さ。 */
+    const f32 opticalDepth = light_optical_depth > 0.0f ? light_optical_depth : 0.0f;
+    /** 一次散乱へ使う有限で有界な位相値。 */
+    const f32 singlePhase = SanitizeCloudScalar(single_phase, 0.0f, lighting.PhaseMin, lighting.PhaseMax);
+    /** 二次散乱へ使う有限で有界な位相値。 */
+    const f32 multiplePhase = SanitizeCloudScalar(multiple_phase, 0.0f, lighting.PhaseMin, lighting.PhaseMax);
+    /** 太陽から直接届く一次散乱。 */
+    const f32 singleScattering = Exp(-opticalDepth) * singlePhase;
+    /** 消散を弱めた経路から届く近似二次散乱。 */
+    const f32 multipleScattering = lighting.MultiScatterContribution *
+        Exp(-opticalDepth * lighting.MultiScatterOcclusion) * multiplePhase;
+    return FVec2{singleScattering, multipleScattering};
 }
 
 FVolumetricCloudRange SanitizeVolumetricCloudRange(const FVolumetricCloudRange& requested) noexcept

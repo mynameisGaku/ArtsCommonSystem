@@ -136,6 +136,21 @@ for ground bounce. This prevents low-sun clouds from retaining white midday
 direct light and prevents the base and top of the cloud from sharing one
 horizon-color ambient term.
 
+The directional-light approximation keeps the single-scattering term intact
+and adds one reduced second-order term:
+
+`S = exp(-tau) * phase0 + a * exp(-b * tau) * phase1`
+
+`MultiScatterContribution` is `a` and `MultiScatterOcclusion` is `b`. Runtime
+normalization enforces `0 <= a <= b <= 1`, so the reduced scattering
+coefficient cannot exceed the reduced extinction coefficient. Both phase terms
+use the configured phase bounds. This is a bounded two-order approximation,
+not a claim of a complete multiple-scattering solution. The model follows the
+coefficient-reduction and additive-order contract described in Frostbite's
+[SIGGRAPH 2016 course notes](https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/s2016-pbs-frostbite-sky-clouds-new.pdf);
+the Beer/Henyey-Greenstein/powder foundation and visual-reference requirement
+remain aligned with Guerrilla's [Horizon cloud presentation](https://www.guerrilla-games.com/read/the-real-time-volumetric-cloudscapes-of-horizon-zero-dawn).
+
 ## Quality-preserving optimization rules
 
 Ultra cloud optimization keeps the `0.25` trace scale, 192 view-sample ceiling,

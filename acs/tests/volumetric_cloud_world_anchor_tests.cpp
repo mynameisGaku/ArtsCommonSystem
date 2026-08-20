@@ -4209,6 +4209,9 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "phase=clamp(phase,cloudLightingMulti.y,cloudLightingMulti.z);"));
+    EXPECT_TRUE(Contains(shader, "phaseMulti=clamp(" "phaseMulti,cloudLightingMulti.y,cloudLightingMulti.z);"));
+    EXPECT_TRUE(Contains(shader, "floatsingleScatter=beer*phase;" "floatmultipleScatter=" "multiContribution*multi*phaseMulti;" "floatscatterTerm=singleScatter+multipleScatter;"));
+    EXPECT_FALSE(Contains(shader, "beer*(1.0-multiWeight)*phase"));
     EXPECT_TRUE(Contains(
         shader,
         "float3sunAtCloud=sunCol.rgb*cloudSunTransmittance.rgb;"

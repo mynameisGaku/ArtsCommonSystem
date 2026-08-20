@@ -93,7 +93,7 @@ ACS_TEST(VolumetricCloudSettings, LightingRejectsNonFiniteAndUnsafeCoefficients)
     EXPECT_NEAR(lighting.PhaseBlend, 0.85f, 0.0f);
     EXPECT_NEAR(lighting.PhaseMin, 2.0f, 0.0f);
     EXPECT_NEAR(lighting.PhaseMax, 20.0f, 0.0f);
-    EXPECT_NEAR(lighting.MultiScatterContribution, 1.0f, 0.0f);
+    EXPECT_NEAR(lighting.MultiScatterContribution, 0.0f, 0.0f);
     EXPECT_NEAR(lighting.MultiScatterOcclusion, 0.0f, 0.0f);
     EXPECT_NEAR(lighting.MultiScatterEccentricity, kVolumetricCloudMaxPhaseEccentricity, 0.0f);
     EXPECT_NEAR(lighting.AmbientAtBase, 0.0f, 0.0f);
@@ -111,6 +111,37 @@ ACS_TEST(VolumetricCloudSettings, LightingRejectsNonFiniteAndUnsafeCoefficients)
     EXPECT_NEAR(lighting.GroundColor.x, 0.0f, 0.0f);
     EXPECT_NEAR(lighting.GroundColor.y, 0.19f, 0.0f);
     EXPECT_NEAR(lighting.GroundColor.z, 16384.0f, 0.0f);
+}
+
+ACS_TEST(VolumetricCloudSettings, MultipleScatteringAddsToSingleAndPreservesEnergyBound)
+{
+    /** 消散より大きい二次散乱係数を含む入力。 */
+    FVolumetricCloudLighting requested{};
+    requested.MultiScatterContribution = 0.8f;
+    requested.MultiScatterOcclusion = 0.4f;
+    /** 二次散乱係数を消散係数以下へ直した設定。 */
+    const FVolumetricCloudLighting lighting = SanitizeVolumetricCloudLighting(requested);
+    EXPECT_NEAR(lighting.MultiScatterContribution, 0.4f, 0.0f);
+    EXPECT_NEAR(lighting.MultiScatterOcclusion, 0.4f, 0.0f);
+
+    /** 位相を含めた一次散乱と二次散乱の方向別係数。 */
+    const FVec2 scattering = EvaluateVolumetricCloudDirectionalScattering(2.0f, 2.0f, 1.0f, lighting);
+    EXPECT_NEAR(scattering.x, std::exp(-2.0f) * 2.0f, 1e-6f);
+    EXPECT_NEAR(scattering.y, 0.4f * std::exp(-0.8f), 1e-6f);
+    EXPECT_TRUE(scattering.x + scattering.y > scattering.x);
+
+    /** 二次散乱を切った単散乱のみの設定。 */
+    FVolumetricCloudLighting singleOnly = lighting;
+    singleOnly.MultiScatterContribution = 0.0f;
+    /** 二次散乱を切っても変化しない一次散乱係数。 */
+    const FVec2 withoutMultiple = EvaluateVolumetricCloudDirectionalScattering(2.0f, 2.0f, 1.0f, singleOnly);
+    EXPECT_NEAR(withoutMultiple.x, scattering.x, 1e-6f);
+    EXPECT_NEAR(withoutMultiple.y, 0.0f, 0.0f);
+
+    /** 位相上限を越える入力を評価した有界な係数。 */
+    const FVec2 boundedPhase = EvaluateVolumetricCloudDirectionalScattering(0.0f, 1000.0f, 1000.0f, lighting);
+    EXPECT_NEAR(boundedPhase.x, lighting.PhaseMax, 0.0f);
+    EXPECT_NEAR(boundedPhase.y, lighting.MultiScatterContribution * lighting.PhaseMax, 1e-6f);
 }
 
 ACS_TEST(VolumetricCloudSettings, RangeBoundsDistanceFadeGrowthAndWork)
@@ -236,5 +267,10 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
 
     EXPECT_TRUE(Contains(source, "cached.y*density*cloudLightingExtinction.y"));
     EXPECT_TRUE(Contains(source, "lightDepth*density*cloudLightingExtinction.y>18.0"));
+    EXPECT_TRUE(Contains(source, "float singleScatter=beer*phase;"));
+    EXPECT_TRUE(Contains(source, "float multipleScatter="));
+    EXPECT_TRUE(Contains(source, "multiContribution*multi*phaseMulti;"));
+    EXPECT_TRUE(Contains(source, "float scatterTerm=singleScatter+multipleScatter;"));
+    EXPECT_FALSE(Contains(source, "beer*(1.0-multiWeight)*phase"));
     EXPECT_FALSE(Contains(source, "density*4.2"));
 }
