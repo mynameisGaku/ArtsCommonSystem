@@ -16,6 +16,9 @@ struct FInputAxisOptions {
     /** 入力方向を反転する場合はtrue。 */
     bool inverted = false;
 
+    /** 全設定値が正規範囲ならtrueを返す。 */
+    bool IsValid() const noexcept;
+
     /**
      * 一次元入力を検査して設定を適用する。
      *

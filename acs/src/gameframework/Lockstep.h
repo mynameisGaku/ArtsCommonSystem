@@ -228,14 +228,49 @@ public:
     TResult<void> TryLoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
-    friend class CReplayDirector;
-
-    /** ReplayDirector staging用にtargetと同じallocatorを注入する。 */
-    explicit CLockstep(IAllocator& allocator) noexcept : m_Frames(allocator) {}
+    /** targetと同じallocatorを使う空のload stagingへ初期化する内部処理。 */
+    void PrepareLoadStaging_Internal(CLockstep& staging) const noexcept;
 
     /** ReplayDirectorが複数sourceを一括commitするためのno-fail state swap。 */
-    void SwapLoadedState(CLockstep& other) noexcept;
+    void SwapLoadedState_Internal(CLockstep& other) noexcept;
 
+public:
+    /** ReplayDirectorのtransactional loadへ内部状態操作を限定する非所有アダプター。 */
+    class FPersistenceAdapter final {
+    public:
+        /** 操作対象を保持する。 */
+        explicit FPersistenceAdapter(CLockstep& lockstep) noexcept : m_Lockstep(lockstep)
+        {
+        }
+
+        /** targetと同じallocatorを使う空のstagingを準備する。自己指定は拒否する。 */
+        bool PrepareLoadStaging(CLockstep& staging) const noexcept
+        {
+            if (&staging == &m_Lockstep) return false;
+            m_Lockstep.PrepareLoadStaging_Internal(staging);
+            return true;
+        }
+
+        /** 検証済みstagingの永続状態をno-fail swapで反映する。自己指定は拒否する。 */
+        bool CommitLoadedState(CLockstep& staging) noexcept
+        {
+            if (&staging == &m_Lockstep) return false;
+            m_Lockstep.SwapLoadedState_Internal(staging);
+            return true;
+        }
+
+    private:
+        /** 操作対象のlockstep。 */
+        CLockstep& m_Lockstep;
+    };
+
+    /** transactional load用アダプターを返す。 */
+    FPersistenceAdapter PersistenceAccess() noexcept
+    {
+        return FPersistenceAdapter(*this);
+    }
+
+private:
     /** 現在の動作モード。 */
     ENetMode           m_Mode          = ENetMode::Local;
 

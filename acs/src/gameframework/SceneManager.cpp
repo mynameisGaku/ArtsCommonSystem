@@ -3,6 +3,7 @@
 #include "gameframework/SceneManager.h"
 #include "gameframework/Scene.h"
 #include "gameframework/Game.h"
+#include "gameframework/FixedStepInputBufferSnapshot.h"
 #include "gameframework/RenderContext.h"
 
 #include "foundation/Move.h"
@@ -68,6 +69,16 @@ u32 CSceneManager::Depth() const noexcept {
     return static_cast<u32>(m_Stack.Num());
 }
 
+/** active scene境界の世代を進め、u64を使い切った後は照合不能な0へ固定する。 */
+void CSceneManager::AdvanceActiveSceneEpoch_Internal() noexcept
+{
+    if (m_ActiveSceneEpoch == 0u || m_ActiveSceneEpoch == ~u64{0}) {
+        m_ActiveSceneEpoch = 0u;
+        return;
+    }
+    ++m_ActiveSceneEpoch;
+}
+
 /** scene を可視化せず、context/services/World サブシステムを全て準備する。 */
 bool CSceneManager::PrepareScene(CGame& Game, AScene& Scene) noexcept
 {
@@ -79,7 +90,7 @@ bool CSceneManager::PrepareScene(CGame& Game, AScene& Scene) noexcept
     if (Wanted != ESvc::None) {
         /** scene が要求したサービス束。 */
         TUniquePtr<CSceneServices> Services = MakeUnique<CSceneServices>(Wanted);
-        if (!Services || !Services->IsReady()) return false;
+        if (!Services || !Services->UpdateAccess().IsReady()) return false;
         Scene.AttachServices_Internal(Move(Services));
     }
     return Scene.InitWorldSubsystems_Internal(&Game.GameInstanceSubsystems());
@@ -92,6 +103,7 @@ bool CSceneManager::CommitPush(TUniquePtr<AScene> Scene, bool PauseCurrent) noex
     if (PauseCurrent && !m_Stack.IsEmpty()) m_Stack.Last()->OnPause();
     // ApplyPending_Internal が必要容量を事前確保済みなので、ここでは割り当てが発生しない。
     if (!m_Stack.TryAdd(Move(Scene))) return false;
+    AdvanceActiveSceneEpoch_Internal();
     m_Stack.Last()->Enter_Internal();
     return true;
 }
@@ -106,12 +118,61 @@ void CSceneManager::DoPopInternal(
     // ヘッドは ApplyPending_Internal の冒頭で前進 + 古いスロット解放済。
     m_Retired[m_RetireHead] = Move(m_Stack.Last());
     m_Stack.Pop();
+    AdvanceActiveSceneEpoch_Internal();
     // 新 top を OnResume (Pop 時のみ。Change は次の Push が走るので skip)
     if (resume_new && !m_Stack.IsEmpty()) {
+        ResetFixedInput_Internal();
         // 結果の受け渡しなので、OnResume より前に差し込む。
         if (context) m_Stack.Last()->SetTravelContext_Internal(Move(context));
         m_Stack.Last()->OnResume();
     }
+}
+
+/** topシーンのInputサービスへ一フレーム分の入力を提出する。 */
+bool CSceneManager::SubmitFrameInput_Internal(const IInputStateView& input) noexcept
+{
+    AScene* top = Top();
+    if (top == nullptr) return true;
+    CSceneServices* services = top->ServicesOrNull_Internal();
+    return services == nullptr || services->UpdateAccess().SubmitFrameInput(input);
+}
+
+/** topシーンの未消費固定入力を初期化する。 */
+void CSceneManager::ResetFixedInput_Internal() noexcept
+{
+    AScene* top = Top();
+    if (top == nullptr) return;
+    CSceneServices* services = top->ServicesOrNull_Internal();
+    if (services != nullptr) services->UpdateAccess().ResetFixedInput();
+}
+
+/** active sceneの未消費固定入力を保存値へ複製する。 */
+bool CSceneManager::TryCaptureActiveFixedInputSnapshot(FFixedStepInputBufferSnapshot& snapshot) const noexcept
+{
+    FFixedStepInputBufferSnapshot candidate{};
+    AScene* top = Top();
+    if (top == nullptr || !top->HasServices()) {
+        snapshot = candidate;
+        return true;
+    }
+    CSceneServices& services = top->Services();
+    if (!services.Has(ESvc::Input)) {
+        snapshot = candidate;
+        return true;
+    }
+    if (!services.UpdateAccess().TryCaptureFixedInputSnapshot(candidate)) return false;
+    snapshot = candidate;
+    return true;
+}
+
+/** active sceneの未消費固定入力を保存値から復元する。 */
+bool CSceneManager::TryRestoreActiveFixedInputSnapshot(const FFixedStepInputBufferSnapshot& snapshot) noexcept
+{
+    AScene* top = Top();
+    if (top == nullptr || !top->HasServices()) return !snapshot.has_input_state;
+    CSceneServices& services = top->Services();
+    if (!services.Has(ESvc::Input)) return !snapshot.has_input_state;
+    return services.UpdateAccess().TryRestoreFixedInputSnapshot(snapshot);
 }
 
 /** ring buffer を前進させて古い退場 Scene を破棄し、保留中の遷移を適用する。 */
@@ -187,15 +248,16 @@ void CSceneManager::Update_Internal(f32 ScaledDeltaSeconds, f32 UnscaledDeltaSec
     CSceneServices* svc = top->ServicesOrNull_Internal();
     f32 WorldDeltaSeconds = ScaledDeltaSeconds;
     if (svc != nullptr) {
-        svc->PreUpdate_Internal(ScaledDeltaSeconds);
-        WorldDeltaSeconds = svc->ScaledDt_Internal(ScaledDeltaSeconds);
+        CSceneServices::FUpdateAdapter service_update = svc->UpdateAccess();
+        service_update.PreUpdate(ScaledDeltaSeconds);
+        WorldDeltaSeconds = service_update.ScaledDt(ScaledDeltaSeconds);
     }
     /** World の更新前コンテキスト。 */
     const FSubsystemFrameContext PreContext{
         WorldDeltaSeconds, UnscaledDeltaSeconds, FrameNumber, ESubsystemTickPhase::PreUpdate};
     top->TickWorldSubsystems_Internal(PreContext);
     top->Update_Internal(WorldDeltaSeconds);
-    if (svc != nullptr) svc->PostUpdate_Internal(WorldDeltaSeconds);
+    if (svc != nullptr) svc->UpdateAccess().PostUpdate(WorldDeltaSeconds);
     /** World の更新後コンテキスト。 */
     const FSubsystemFrameContext PostContext{
         WorldDeltaSeconds, UnscaledDeltaSeconds, FrameNumber, ESubsystemTickPhase::PostUpdate};
@@ -206,6 +268,8 @@ void CSceneManager::Update_Internal(f32 ScaledDeltaSeconds, f32 UnscaledDeltaSec
 void CSceneManager::FixedUpdate_Internal(f32 fixed_dt) noexcept {
     AScene* top = Top();
     if (!top) return;
+    CSceneServices* services = top->ServicesOrNull_Internal();
+    if (services != nullptr) services->UpdateAccess().BeginFixedStepInput();
     top->FixedUpdate_Internal(fixed_dt);
 }
 
@@ -230,11 +294,13 @@ void CSceneManager::ShutdownAll_Internal() noexcept {
         m_Stack.Last()->Exit_Internal();
         m_Stack.Last()->DeinitWorldSubsystems_Internal();   // World サブシステムも解体
         m_Stack.Pop();
+        AdvanceActiveSceneEpoch_Internal();
     }
     for (u32 i = 0; i < kRetireRingSize; ++i) {
         m_Retired[i].Reset();
     }
     m_PendingArg.Reset();
+    m_PendingContext.Reset();
     m_PendingOp = EOp::None;
 }
 

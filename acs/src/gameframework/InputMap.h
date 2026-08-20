@@ -3,7 +3,9 @@
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/InputActionState.h"
 #include "gameframework/InputAxisOptions.h"
+#include "gameframework/InputStateView.h"
 #include "math/Vec.h"
 #include "platform/InputCodes.h"
 
@@ -136,6 +138,19 @@ public:
     void BindGamepadAxis(FActionId action, EGamepadAxis axis, u32 player_index = 0, f32 scale = 1.0f) noexcept;
 
     /**
+     * 検査済みのゲームパッド軸bindingを追加する。
+     * @return 全項目が有効で追加できた場合はtrue。失敗時は現在状態を変更しない。
+     */
+    bool TryBindGamepadAxis(FActionId action, EGamepadAxis axis, u32 player_index,
+                            const FInputAxisOptions& options) noexcept;
+
+    /** 現在登録されているbinding数を返す。 */
+    u32 BindingCount() const noexcept
+    {
+        return m_Bindings.Num();
+    }
+
+    /**
      * 指定アクションの全 binding を削除する。
      *
      * @param action binding を削除するアクション。
@@ -144,6 +159,12 @@ public:
 
     /** 全アクションの全 binding を削除する。 */
     void ClearAll() noexcept;
+
+    /**
+     * 明示的な物理入力状態から一つのアクション結果を評価する。
+     * @return デジタル状態と[-1, 1]へ制限した軸値。
+     */
+    FInputActionState Evaluate(FActionId action, const IInputStateView& input) const noexcept;
 
     /**
      * このフレームで押されたかを返す (CInput::* を内部で poll)。
@@ -224,8 +245,8 @@ private:
         /** Gamepad 専用: 対象プレイヤー番号。 */
         u32      player    = 0;
 
-        /** アナログ軸へ乗算する倍率。 */
-        f32 scale = 1.0f;
+        /** ゲームパッド軸のdead-zone、反転、倍率設定。 */
+        FInputAxisOptions axis_options{};
     };
 
     /** 登録済み binding の配列。 */

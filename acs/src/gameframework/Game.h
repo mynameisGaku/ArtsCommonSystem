@@ -12,21 +12,26 @@
 #include "gameframework/RenderContext.h"
 #include "gameframework/AppState.h"
 #include "gameframework/FadeTransition.h"
+#include "gameframework/FixedStepRuntimeSnapshot.h"
 #include "gameframework/SubsystemCollection.h"
+#include "timing/FixedStepClock.h"
 
 namespace acs::game {
+
+class IFixedTickInputSource;
+class IInputFrameSource;
 
 /**
  * CApplication を継承し CSceneManager を駆動するゲーム基底クラス。
  *
  * @details
  * 利用者は派生クラスで InitialScene() を override し最初の AScene を返すだけでよい。
- * 固定タイムステップ accumulator、AppState による型消去の永続状態、フェード付き
+ * 固定ステップ時計、AppState による型消去の永続状態、フェード付き
  * シーン遷移を提供する。AScene に渡す dt は time_scale 乗算済み。
  */
 class CGame : public CApplication {
 public:
-    /** 既定状態で構築する。 */
+    /** 固定step runtime snapshot用のprocess内owner tokenを割り当てて構築する。 */
     CGame() noexcept;
 
     /** 破棄する。 */
@@ -75,9 +80,18 @@ public:
      * @param fixed_dt 固定 step の長さ (秒、典型 1/60 = 0.01667)。0 以下で無効化。
      * @param max_steps_per_frame 1 フレームで進める最大 step 数 (暴走防止クランプ)。
      */
-    void SetFixedTimestep(f32 fixed_dt, u32 max_steps_per_frame = 8) noexcept {
-        m_FixedDt = fixed_dt;
-        m_MaxFixedSteps = max_steps_per_frame;
+    void SetFixedTimestep(f32 fixed_dt, u32 max_steps_per_frame = 8) noexcept;
+
+    /** 固定タイムステップの完全な設定を検証して適用する。 */
+    bool TrySetFixedTimestep(const timing::FFixedStepOptions& options) noexcept;
+
+    /** 固定タイムステップ更新を無効化し、時計の累積状態を初期化する。 */
+    void DisableFixedTimestep() noexcept;
+
+    /** 固定タイムステップ更新が有効ならtrueを返す。 */
+    bool IsFixedTimestepEnabled() const noexcept
+    {
+        return m_FixedStepEnabled;
     }
 
     /**
@@ -85,7 +99,49 @@ public:
      *
      * @return 固定 step の長さ (秒)。
      */
-    f32 FixedTimestep() const noexcept { return m_FixedDt; }
+    f32 FixedTimestep() const noexcept
+    {
+        return m_FixedStepEnabled ? static_cast<f32>(m_FixedStepClock.Options().step_seconds) : 0.0f;
+    }
+
+    /** 次の固定stepまでの描画補間率を返す。 */
+    f64 FixedStepInterpolationAlpha() const noexcept
+    {
+        return m_FixedStepEnabled ? m_FixedStepClock.InterpolationAlpha() : 0.0;
+    }
+
+    /** AIやheadless testが所有する描画フレーム入力ソースへ切り替える。 */
+    void SetFixedStepInputSource(IInputFrameSource& source) noexcept;
+
+    /** replayやrollbackが所有する固定tick入力ソースへ切り替える。 */
+    void SetFixedTickInputSource(IFixedTickInputSource& source) noexcept;
+
+    /** platform入力を使う既定状態へ戻し、未消費入力を破棄する。 */
+    void ResetFixedStepInputSource() noexcept;
+
+    /** platform入力を直接取得する既定状態ならtrueを返す。 */
+    bool UsesPlatformFixedStepInput() const noexcept
+    {
+        return m_FixedStepInputSource == nullptr && m_FixedTickInputSource == nullptr;
+    }
+
+    /** 固定tickごとの決定論入力ソースを使っている場合はtrueを返す。 */
+    bool UsesFixedTickInputSource() const noexcept
+    {
+        return m_FixedTickInputSource != nullptr;
+    }
+
+    /** 固定更新時計の再現可能な状態を取得する。 */
+    bool TryCaptureFixedStepSnapshot(timing::FFixedStepClockSnapshot& snapshot) const noexcept;
+
+    /** 固定更新時計を保存状態へ復元し、成功時だけ固定更新を有効化する。 */
+    bool TryRestoreFixedStepSnapshot(const timing::FFixedStepClockSnapshot& snapshot) noexcept;
+
+    /** 固定時計とactive sceneの未消費入力を同じ保存値へ複製する。 */
+    bool TryCaptureFixedStepRuntimeSnapshot(FFixedStepRuntimeSnapshot& snapshot) const noexcept;
+
+    /** 同じgame、scene、入力sourceで取得した固定runtime状態を一括復元する。 */
+    bool TryRestoreFixedStepRuntimeSnapshot(const FFixedStepRuntimeSnapshot& snapshot) noexcept;
 
     /**
      * シーン跨ぎの永続状態 (AppState) を構築する。
@@ -225,6 +281,9 @@ protected:
     void OnEvent(const FEvent& e) noexcept override;
 
 private:
+    /** 入力source結線の世代を進め、使い切った場合はsnapshot取得不能な0へ移す。 */
+    void AdvanceFixedInputSourceEpoch_Internal() noexcept;
+
     /** 初回 OnRender で default UI フォントを遅延ロードする。 */
     void EnsureUiFont() noexcept;
 
@@ -282,14 +341,23 @@ private:
     /** 時間スケール (AScene の dt に乗算)。 */
     f32           m_TimeScale       = 1.0f;
 
-    /** 固定 step の長さ (秒、0 以下で無効)。 */
-    f32           m_FixedDt         = 1.0f / 60.0f;
+    /** 可変deltaを有界な固定更新回数へ変換する時計。 */
+    timing::CFixedStepClock m_FixedStepClock;
 
-    /** 固定タイムステップの蓄積秒。 */
-    f32           m_FixedAccum      = 0.0f;
+    /** 固定タイムステップ更新が有効か。 */
+    bool m_FixedStepEnabled = true;
 
-    /** 1 フレームで進める最大固定 step 数。 */
-    u32           m_MaxFixedSteps  = 8;
+    /** AI、testが所有する描画フレーム入力ソース。 */
+    IInputFrameSource* m_FixedStepInputSource = nullptr;
+
+    /** replay、rollbackが所有する固定tick入力ソース。 */
+    IFixedTickInputSource* m_FixedTickInputSource = nullptr;
+
+    /** このCGameだけへruntime snapshotを復元するためのprocess内識別token。 */
+    u64 m_FixedStepRuntimeOwnerToken = 0u;
+
+    /** frame/tick入力sourceの実効的な切替ごとに進む世代。 */
+    u64 m_FixedInputSourceEpoch = 1u;
 };
 
 } // namespace acs::game

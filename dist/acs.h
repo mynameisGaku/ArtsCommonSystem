@@ -45344,6 +45344,302 @@ using FFadeTransition = CFadeTransition;
 
 } // namespace acs::game
 
+// ===================== gameframework/FixedStepInputBuffer.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== gameframework/FixedStepInputBufferSnapshot.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== gameframework/InputStateSnapshot.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== gameframework/InputStateView.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 名前付きアクションの評価に必要な物理入力状態を読み取る境界。 */
+class IInputStateView {
+public:
+    /** 派生した入力参照を基底ポインターから安全に破棄する。 */
+    virtual ~IInputStateView() noexcept = default;
+
+    /** 指定キーが現在押されているか返す。 */
+    virtual bool IsKeyDown(EKey key) const noexcept = 0;
+
+    /** 指定キーが今回押されたか返す。 */
+    virtual bool IsKeyPressed(EKey key) const noexcept = 0;
+
+    /** 指定キーが今回離されたか返す。 */
+    virtual bool IsKeyReleased(EKey key) const noexcept = 0;
+
+    /** 指定マウスボタンが現在押されているか返す。 */
+    virtual bool IsMouseButtonDown(EMouseButton button) const noexcept = 0;
+
+    /** 指定マウスボタンが今回押されたか返す。 */
+    virtual bool IsMouseButtonPressed(EMouseButton button) const noexcept = 0;
+
+    /** 指定マウスボタンが今回離されたか返す。 */
+    virtual bool IsMouseButtonReleased(EMouseButton button) const noexcept = 0;
+
+    /** 指定プレイヤーのゲームパッドボタンが現在押されているか返す。 */
+    virtual bool IsGamepadButtonDown(u32 player_index, EGamepadButton button) const noexcept = 0;
+
+    /** 指定プレイヤーのゲームパッドボタンが今回押されたか返す。 */
+    virtual bool IsGamepadButtonPressed(u32 player_index, EGamepadButton button) const noexcept = 0;
+
+    /** 指定プレイヤーのゲームパッドボタンが今回離されたか返す。 */
+    virtual bool IsGamepadButtonReleased(u32 player_index, EGamepadButton button) const noexcept = 0;
+
+    /** 指定プレイヤーのゲームパッド軸値を返す。 */
+    virtual f32 GamepadAxisValue(u32 player_index, EGamepadAxis axis) const noexcept = 0;
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/**
+ * 一入力時点のキー、マウスボタン、ゲームパッド状態を所有する値。
+ *
+ * 同じsnapshotとFInputMapから同じFInputActionStateを再現する。setterは範囲外の
+ * 列挙値、プレイヤー番号、非有限または正規範囲外の軸値を拒否し、既存状態を保つ。
+ */
+class FInputStateSnapshot final : public IInputStateView {
+public:
+    /** 全入力を離された初期状態へ戻す。 */
+    void Clear() noexcept;
+
+    /** キーの保持状態と今回の変化を設定し、範囲外なら拒否する。 */
+    bool TrySetKeyState(EKey key, bool down, bool pressed, bool released) noexcept;
+
+    /** マウスボタンの保持状態と今回の変化を設定し、範囲外なら拒否する。 */
+    bool TrySetMouseButtonState(EMouseButton button, bool down, bool pressed, bool released) noexcept;
+
+    /** ゲームパッドボタンの保持状態と今回の変化を設定し、範囲外なら拒否する。 */
+    bool TrySetGamepadButtonState(u32 player_index, EGamepadButton button, bool down, bool pressed,
+                                  bool released) noexcept;
+
+    /** ゲームパッド軸の正規化済み値を設定し、不正値なら拒否する。 */
+    bool TrySetGamepadAxis(u32 player_index, EGamepadAxis axis, f32 value) noexcept;
+
+    /** 指定キーが現在押されているか返す。 */
+    bool IsKeyDown(EKey key) const noexcept override;
+
+    /** 指定キーが今回押されたか返す。 */
+    bool IsKeyPressed(EKey key) const noexcept override;
+
+    /** 指定キーが今回離されたか返す。 */
+    bool IsKeyReleased(EKey key) const noexcept override;
+
+    /** 指定マウスボタンが現在押されているか返す。 */
+    bool IsMouseButtonDown(EMouseButton button) const noexcept override;
+
+    /** 指定マウスボタンが今回押されたか返す。 */
+    bool IsMouseButtonPressed(EMouseButton button) const noexcept override;
+
+    /** 指定マウスボタンが今回離されたか返す。 */
+    bool IsMouseButtonReleased(EMouseButton button) const noexcept override;
+
+    /** 指定プレイヤーのゲームパッドボタンが現在押されているか返す。 */
+    bool IsGamepadButtonDown(u32 player_index, EGamepadButton button) const noexcept override;
+
+    /** 指定プレイヤーのゲームパッドボタンが今回押されたか返す。 */
+    bool IsGamepadButtonPressed(u32 player_index, EGamepadButton button) const noexcept override;
+
+    /** 指定プレイヤーのゲームパッドボタンが今回離されたか返す。 */
+    bool IsGamepadButtonReleased(u32 player_index, EGamepadButton button) const noexcept override;
+
+    /** 指定プレイヤーのゲームパッド軸値を返す。 */
+    f32 GamepadAxisValue(u32 player_index, EGamepadAxis axis) const noexcept override;
+
+private:
+    /** 対応するゲームパッドプレイヤー数。 */
+    static constexpr usize kGamepadPlayerCount = 4u;
+
+    /** キーの現在押下状態。 */
+    bool m_KeysDown[static_cast<usize>(EKey::_Count)]{};
+
+    /** キーの今回押下状態。 */
+    bool m_KeysPressed[static_cast<usize>(EKey::_Count)]{};
+
+    /** キーの今回解放状態。 */
+    bool m_KeysReleased[static_cast<usize>(EKey::_Count)]{};
+
+    /** マウスボタンの現在押下状態。 */
+    bool m_MouseButtonsDown[static_cast<usize>(EMouseButton::_Count)]{};
+
+    /** マウスボタンの今回押下状態。 */
+    bool m_MouseButtonsPressed[static_cast<usize>(EMouseButton::_Count)]{};
+
+    /** マウスボタンの今回解放状態。 */
+    bool m_MouseButtonsReleased[static_cast<usize>(EMouseButton::_Count)]{};
+
+    /** プレイヤー別ゲームパッドボタンの現在押下状態。 */
+    bool m_GamepadButtonsDown[kGamepadPlayerCount][static_cast<usize>(EGamepadButton::_Count)]{};
+
+    /** プレイヤー別ゲームパッドボタンの今回押下状態。 */
+    bool m_GamepadButtonsPressed[kGamepadPlayerCount][static_cast<usize>(EGamepadButton::_Count)]{};
+
+    /** プレイヤー別ゲームパッドボタンの今回解放状態。 */
+    bool m_GamepadButtonsReleased[kGamepadPlayerCount][static_cast<usize>(EGamepadButton::_Count)]{};
+
+    /** プレイヤー別ゲームパッド軸値。 */
+    f32 m_GamepadAxes[kGamepadPlayerCount][static_cast<usize>(EGamepadAxis::_Count)]{};
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/** 固定入力bufferの未消費入力と初期化状態を所有する保存値。 */
+struct FFixedStepInputBufferSnapshot {
+    /** 次の固定tickへ渡す保持状態、軸、未消費の押下・解放。 */
+    FInputStateSnapshot pending_input{};
+
+    /** pending_inputが受理済み入力を表す場合はtrue。 */
+    bool has_input_state = false;
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/**
+ * 可変フレーム入力を固定更新ごとのsnapshotへ変換する状態保持器。
+ *
+ * 保持状態と軸は最新フレームを採用し、押下・解放は次の固定更新まで蓄積する。
+ * 固定更新へ渡した押下・解放は一度だけ消費し、以後のcatch-up更新では再送しない。
+ */
+class FFixedStepInputBuffer final {
+public:
+    /** 一フレーム分の入力を蓄積し、不正な値では既存状態を保つ。 */
+    bool TryPushFrame(const IInputStateView& input) noexcept;
+
+    /** 次の固定更新へ渡す入力を取得し、押下・解放だけを消費する。 */
+    bool TryConsumeFixedStep(FInputStateSnapshot& output) noexcept;
+
+    /** 未消費入力を再現可能な保存値へ複製する。 */
+    bool TryCaptureSnapshot(FFixedStepInputBufferSnapshot& snapshot) const noexcept;
+
+    /** 保存した未消費入力を検証して復元し、失敗時は現在状態を保つ。 */
+    bool TryRestoreSnapshot(const FFixedStepInputBufferSnapshot& snapshot) noexcept;
+
+    /** 蓄積中の入力を破棄し、未初期化状態へ戻す。 */
+    void Reset() noexcept;
+
+    /** 一度以上フレーム入力を受理している場合はtrueを返す。 */
+    bool HasInputState() const noexcept;
+
+private:
+    /** 次の固定更新へ渡す保持状態、軸、未消費エッジ。 */
+    FInputStateSnapshot m_Pending;
+
+    /** m_Pendingが受理済み入力を表す場合はtrue。 */
+    bool m_HasInputState = false;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using CFixedStepInputBuffer = FFixedStepInputBuffer;
+
+} // namespace acs::game
+
+// ===================== gameframework/FixedStepRuntimeSnapshot.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== timing/FixedStepClockSnapshot.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== timing/FixedStepOptions.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::timing {
+
+/** 固定更新の刻み幅と一回の処理上限を指定する値。 */
+struct FFixedStepOptions {
+    /** 一回の固定更新が進める秒数。 */
+    f64 step_seconds = 1.0 / 60.0;
+
+    /** 一回の入力で実行できる固定更新の最大回数。 */
+    u32 maximum_steps_per_advance = 8u;
+
+    /** 一回の入力で受け付ける経過秒の上限。 */
+    f64 maximum_accumulated_seconds = 0.25;
+};
+
+} // namespace acs::timing
+
+namespace acs::timing {
+
+/** 固定更新時計の設定、補間位置、累積統計をまとめた保存値。 */
+struct FFixedStepClockSnapshot {
+    /** 保存時に時計へ適用されていた設定。 */
+    FFixedStepOptions options{};
+
+    /** 次の固定更新へ持ち越す経過秒。 */
+    f64 accumulated_seconds = 0.0;
+
+    /** 上限によって破棄した累積秒数。 */
+    f64 total_dropped_seconds = 0.0;
+
+    /** 時計が確定した固定更新の累積回数。 */
+    u64 total_step_count = 0u;
+};
+
+} // namespace acs::timing
+
+namespace acs::game {
+
+/** 固定更新時計と未消費入力を同じ復元境界で保持するprocess内保存値。 */
+struct FFixedStepRuntimeSnapshot {
+    /** 取得元CGameを識別するprocess内token。永続化や別CGameへの移送には使わない。 */
+    u64 runtime_owner_token = 0u;
+
+    /** 取得時のactive scene境界。scene遷移後の復元を拒否するために使う。 */
+    u64 active_scene_epoch = 0u;
+
+    /** 取得時のframe/tick入力source結線。source切替後の復元を拒否するために使う。 */
+    u64 input_source_epoch = 0u;
+
+    /** 固定更新時計の設定と進行状態。 */
+    timing::FFixedStepClockSnapshot clock{};
+
+    /** active sceneが保持する未消費の固定入力。 */
+    FFixedStepInputBufferSnapshot input{};
+
+    /** 固定タイムステップ更新が有効だったか。 */
+    bool fixed_step_enabled = true;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/FixedTickInputSource.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+class FInputStateSnapshot;
+
+/** CGameの各固定tickへ決定論入力を供給する差し替え境界。 */
+class IFixedTickInputSource {
+public:
+    /** 派生した入力ソースを基底ポインターから安全に破棄する。 */
+    virtual ~IFixedTickInputSource() noexcept = default;
+
+    /** 指定した0起点の固定tick入力を取得し、失敗したtickは無入力として扱わせる。 */
+    virtual bool TryCaptureFixedTickInput(u64 fixed_tick, FInputStateSnapshot& output) noexcept = 0;
+};
+
+} // namespace acs::game
+
 // ===================== gameframework/Follow2DComponent.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework — AFollow2DComponent
@@ -47116,7 +47412,7 @@ using FSpriteBatch = CSpriteBatch;
 //   ・退場 AScene を **3 フレーム保持** (= フレームインフライト 2 + 1) する ring
 //     buffer。GPU が直前フレームで参照中のリソースの use-after-free を防ぐ
 //   ・Push 時に旧 top の OnPause、Pop 時に新 top の OnResume を呼ぶ
-//   ・OnFixedUpdate を CGame の accumulator から呼び込めるよう FixedUpdate_Internal
+//   ・OnFixedUpdate を CGame の固定時計から実行アダプター経由で呼び込む
 
 
 // ===================== gameframework/Scene.h =====================
@@ -47760,6 +48056,29 @@ using FSequenceRunner = CSequenceRunner;
 // SPDX-License-Identifier: Apache-2.0
 
 
+// ===================== gameframework/InputActionState.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 一つの名前付きアクションを一入力時点から評価した結果。 */
+struct FInputActionState {
+    /** 入力時点で押下開始が含まれるか。 */
+    bool pressed = false;
+
+    /** 入力時点で操作が保持されているか。 */
+    bool held = false;
+
+    /** 入力時点で解放が含まれるか。 */
+    bool released = false;
+
+    /** 軸bindingを合成して[-1, 1]へ制限した値。 */
+    f32 axis = 0.0f;
+};
+
+} // namespace acs::game
+
 // ===================== gameframework/InputAxisOptions.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -47776,6 +48095,9 @@ struct FInputAxisOptions {
 
     /** 入力方向を反転する場合はtrue。 */
     bool inverted = false;
+
+    /** 全設定値が正規範囲ならtrueを返す。 */
+    bool IsValid() const noexcept;
 
     /**
      * 一次元入力を検査して設定を適用する。
@@ -47917,6 +48239,19 @@ public:
     void BindGamepadAxis(FActionId action, EGamepadAxis axis, u32 player_index = 0, f32 scale = 1.0f) noexcept;
 
     /**
+     * 検査済みのゲームパッド軸bindingを追加する。
+     * @return 全項目が有効で追加できた場合はtrue。失敗時は現在状態を変更しない。
+     */
+    bool TryBindGamepadAxis(FActionId action, EGamepadAxis axis, u32 player_index,
+                            const FInputAxisOptions& options) noexcept;
+
+    /** 現在登録されているbinding数を返す。 */
+    u32 BindingCount() const noexcept
+    {
+        return m_Bindings.Num();
+    }
+
+    /**
      * 指定アクションの全 binding を削除する。
      *
      * @param action binding を削除するアクション。
@@ -47925,6 +48260,12 @@ public:
 
     /** 全アクションの全 binding を削除する。 */
     void ClearAll() noexcept;
+
+    /**
+     * 明示的な物理入力状態から一つのアクション結果を評価する。
+     * @return デジタル状態と[-1, 1]へ制限した軸値。
+     */
+    FInputActionState Evaluate(FActionId action, const IInputStateView& input) const noexcept;
 
     /**
      * このフレームで押されたかを返す (CInput::* を内部で poll)。
@@ -48005,8 +48346,8 @@ private:
         /** Gamepad 専用: 対象プレイヤー番号。 */
         u32      player    = 0;
 
-        /** アナログ軸へ乗算する倍率。 */
-        f32 scale = 1.0f;
+        /** ゲームパッド軸のdead-zone、反転、倍率設定。 */
+        FInputAxisOptions axis_options{};
     };
 
     /** 登録済み binding の配列。 */
@@ -48485,6 +48826,12 @@ public:
     FInputMap&            Input()     noexcept;
 
     /**
+     * 現在の固定tickへ割り当てられた入力状態を返す。
+     * @return FInputMap::Evaluateへ渡せる読み取り専用入力状態。
+     */
+    const IInputStateView& FixedInput() const noexcept;
+
+    /**
      * CCamera2D への参照を返す。
      *
      * @details ESvc::Camera2D が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
@@ -48508,36 +48855,118 @@ public:
      */
     CTriggerWorld2D&      Triggers()  noexcept;
 
-    /**
-     * scene.OnUpdate の前に呼ぶ前段 tick (利用者は触らない)。
-     *
-     * @details Clock を Tick(raw_dt) して時間を進め、scaled dt を確定する。
-     * @param raw_dt スケール前の生 dt。
-     */
-    void PreUpdate_Internal(f32 raw_dt) noexcept;
+    /** サービス更新処理を明示的に呼び出す非所有アダプター。 */
+    class FUpdateAdapter final {
+    public:
+        /** 呼び出し先のサービス束を保持する。 */
+        explicit FUpdateAdapter(CSceneServices& services) noexcept : m_Services(services)
+        {
+        }
 
-    /**
-     * scene.OnUpdate の後に呼ぶ後段 tick (利用者は触らない)。
-     *
-     * @details Tweens/Sequences/Camera/Triggers を scaled_dt で Tick して更新を適用する。
-     * @param scaled_dt Clock で確定したスケール済み dt。
-     */
-    void PostUpdate_Internal(f32 scaled_dt) noexcept;
+        /** 要求された全サービスが生成済みならtrueを返す。 */
+        bool IsReady() const noexcept
+        {
+            return m_Services.IsReady_Internal();
+        }
 
-    /**
-     * scene の OnUpdate に渡す dt を返す。
-     *
-     * @details PreUpdate_Internal 後に呼ぶ。Clock 未要求なら raw_dt をそのまま返す。
-     * @param raw_dt スケール前の生 dt。
-     * @return Clock がスケールした dt (未要求なら raw_dt)。
-     */
-    f32  ScaledDt_Internal(f32 raw_dt) const noexcept;
+        /** Clockを進めてスケール済み時間を確定する。 */
+        void PreUpdate(f32 raw_delta_seconds) noexcept
+        {
+            m_Services.PreUpdate_Internal(raw_delta_seconds);
+        }
+
+        /** 一フレーム分の入力を固定tick用に蓄積する。 */
+        bool SubmitFrameInput(const IInputStateView& input) noexcept
+        {
+            return m_Services.SubmitFrameInput_Internal(input);
+        }
+
+        /** 次の固定tickへ渡す入力を確定する。 */
+        void BeginFixedStepInput() noexcept
+        {
+            m_Services.BeginFixedStepInput_Internal();
+        }
+
+        /** 未消費の固定入力と現在tick入力を初期化する。 */
+        void ResetFixedInput() noexcept
+        {
+            m_Services.ResetFixedInput_Internal();
+        }
+
+        /** 未消費の固定入力を保存値へ複製する。 */
+        bool TryCaptureFixedInputSnapshot(FFixedStepInputBufferSnapshot& snapshot) const noexcept
+        {
+            return m_Services.TryCaptureFixedInputSnapshot_Internal(snapshot);
+        }
+
+        /** 保存値から未消費の固定入力を復元する。 */
+        bool TryRestoreFixedInputSnapshot(const FFixedStepInputBufferSnapshot& snapshot) noexcept
+        {
+            return m_Services.TryRestoreFixedInputSnapshot_Internal(snapshot);
+        }
+
+        /** シーン更新後のサービスを進める。 */
+        void PostUpdate(f32 scaled_delta_seconds) noexcept
+        {
+            m_Services.PostUpdate_Internal(scaled_delta_seconds);
+        }
+
+        /** シーンへ渡すスケール済み時間を返す。 */
+        f32 ScaledDt(f32 raw_delta_seconds) const noexcept
+        {
+            return m_Services.ScaledDt_Internal(raw_delta_seconds);
+        }
+
+    private:
+        /** 呼び出し先のサービス束。 */
+        CSceneServices& m_Services;
+    };
+
+    /** シーン管理器へ渡すサービス更新用アダプターを返す。 */
+    FUpdateAdapter UpdateAccess() noexcept
+    {
+        return FUpdateAdapter(*this);
+    }
 
 private:
-    friend class CSceneManager;
+    /** 要求された全サービスが生成済みかを返す内部処理。 */
+    bool IsReady_Internal() const noexcept;
 
-    /** 要求された全サービスが生成済みかを返す。 */
-    bool IsReady() const noexcept;
+    /** 可変フレーム入力を固定tick入力へ蓄積する内部処理。 */
+    bool SubmitFrameInput_Internal(const IInputStateView& input) noexcept;
+
+    /** 次の固定tick入力を確定し、押下・解放を一度だけ消費する内部処理。 */
+    void BeginFixedStepInput_Internal() noexcept;
+
+    /** シーン遷移、pause、時計設定変更で固定入力を初期化する内部処理。 */
+    void ResetFixedInput_Internal() noexcept;
+
+    /** 未消費の固定入力を保存値へ複製する内部処理。 */
+    bool TryCaptureFixedInputSnapshot_Internal(FFixedStepInputBufferSnapshot& snapshot) const noexcept;
+
+    /** 保存値から未消費の固定入力を復元する内部処理。 */
+    bool TryRestoreFixedInputSnapshot_Internal(const FFixedStepInputBufferSnapshot& snapshot) noexcept;
+
+    /** Clockを進めてスケール済み時間を確定する内部処理。 */
+    void PreUpdate_Internal(f32 raw_dt) noexcept;
+
+    /** Tween、Sequence、Camera、Triggerを進める内部処理。 */
+    void PostUpdate_Internal(f32 scaled_dt) noexcept;
+
+    /** シーンへ渡すスケール済み時間を返す内部処理。 */
+    f32 ScaledDt_Internal(f32 raw_dt) const noexcept;
+
+    /** InputMapと固定tick入力を一つの所有スロットへまとめる値。 */
+    struct FInputServiceState {
+        /** 物理入力を名前付きアクションへ変換する割り当て。 */
+        FInputMap input_map;
+
+        /** 可変フレーム入力の未消費状態。 */
+        FFixedStepInputBuffer fixed_input_buffer;
+
+        /** 現在の固定tickへ公開する入力状態。 */
+        FInputStateSnapshot fixed_input;
+    };
 
     /** 構築時に要求されたサービスマスク。 */
     ESvc                       m_Wanted = ESvc::None;
@@ -48551,8 +48980,8 @@ private:
     /** sequence サービス (未要求なら null)。 */
     TUniquePtr<CSequenceRunner> m_Sequences;
 
-    /** 入力サービス (未要求なら null)。 */
-    TUniquePtr<FInputMap>       m_Input;
+    /** 入力割り当てと固定tick入力の状態 (未要求ならnull)。 */
+    TUniquePtr<FInputServiceState> m_Input;
 
     /** カメラサービス (未要求なら null)。 */
     TUniquePtr<acs::game::CCamera2D> m_Camera;
@@ -49711,6 +50140,8 @@ using game::kScene2DServices;
 namespace acs::game {
 
 class FRenderContext;
+class IInputStateView;
+struct FFixedStepInputBufferSnapshot;
 
 /**
  * TUniquePtr<AScene> のスタックを管理し、top のシーンを毎フレーム駆動するマネージャ。
@@ -49800,6 +50231,12 @@ public:
      */
     u32     Depth() const noexcept;
 
+    /** active sceneが切り替わるたびに進むprocess内epochを返す。 */
+    u64 ActiveSceneEpoch() const noexcept
+    {
+        return m_ActiveSceneEpoch;
+    }
+
     /**
      * スタックが空かを返す。
      *
@@ -49807,54 +50244,110 @@ public:
      */
     bool    IsEmpty() const noexcept { return m_Stack.IsEmpty(); }
 
-    /**
-     * フレーム頭で保留中の遷移を適用する。
-     *
-     * @details ring buffer を 1 つ前進させて 3 フレーム前に退場した AScene を破棄したのち、
-     * pending op (Change/Push/Pop) を実行する。退場 AScene は GPU が直前フレームで参照中の
-     * リソースを破棄しないよう ring buffer で 3 フレーム (フレームインフライト 2 + 1) 保持される。
-     * @param game シーンに紐付ける CGame コンテキスト。
-     */
-    void ApplyPending_Internal(CGame& game) noexcept;
+    /** active sceneの未消費固定入力を保存値へ複製する。 */
+    bool TryCaptureActiveFixedInputSnapshot(FFixedStepInputBufferSnapshot& snapshot) const noexcept;
 
-    /**
-     * top のシーンに可変刻み dt を流す。
-     *
-     * @details services PreUpdate → World PreUpdate → OnUpdate → services PostUpdate
-     * → World PostUpdate の順で駆動する。Clock 未要求なら raw dt をそのまま渡す。
-     * @param dt 前フレームからの経過秒。
-     */
-    void Update_Internal(f32 ScaledDeltaSeconds, f32 UnscaledDeltaSeconds, u64 FrameNumber) noexcept;
+    /** active sceneの未消費固定入力を保存値から復元する。 */
+    bool TryRestoreActiveFixedInputSnapshot(const FFixedStepInputBufferSnapshot& snapshot) noexcept;
 
-    /**
-     * top のシーンに固定刻み fixed_dt を流す。
-     *
-     * @details CGame の accumulator から 1 フレームに複数回呼ばれる可能性がある。
-     * @param fixed_dt 固定刻みの秒。
-     */
-    void FixedUpdate_Internal(f32 fixed_dt) noexcept;
+    /** 内部駆動処理を明示的に呼び出す非所有アダプター。 */
+    class FExecutionAdapter final {
+    public:
+        /** 呼び出し先のシーン管理器を保持する。 */
+        explicit FExecutionAdapter(CSceneManager& manager) noexcept : m_Manager(manager)
+        {
+        }
 
-    /**
-     * top のシーンを描画する。
-     *
-     * @param rc 描画コマンドを積む先のレンダーコンテキスト (呼び出し側が用意)。
-     */
-    void Render_Internal(FRenderContext& rc) noexcept;
+        /** 保留中のシーン遷移をフレーム境界で適用する。 */
+        void ApplyPending(CGame& game) noexcept
+        {
+            m_Manager.ApplyPending_Internal(game);
+        }
 
-    /**
-     * 受け取った FEvent を top のシーンへ配送する。
-     *
-     * @param e 配送するイベント。
-     */
-    void DispatchEvent_Internal(const FEvent& e) noexcept;
+        /** topシーンへ一フレーム分の入力を提出する。 */
+        bool SubmitFrameInput(const IInputStateView& input) noexcept
+        {
+            return m_Manager.SubmitFrameInput_Internal(input);
+        }
 
-    /** 終了処理。残った全シーンに top から OnExit を呼んでから破棄する。 */
-    void ShutdownAll_Internal() noexcept;
+        /** topシーンの未消費固定入力を初期化する。 */
+        void ResetFixedInput() noexcept
+        {
+            m_Manager.ResetFixedInput_Internal();
+        }
+
+        /** topシーンへ可変刻み更新を流す。 */
+        void Update(f32 scaled_delta_seconds, f32 unscaled_delta_seconds, u64 frame_number) noexcept
+        {
+            m_Manager.Update_Internal(scaled_delta_seconds, unscaled_delta_seconds, frame_number);
+        }
+
+        /** topシーンへ固定刻み更新を流す。 */
+        void FixedUpdate(f32 fixed_delta_seconds) noexcept
+        {
+            m_Manager.FixedUpdate_Internal(fixed_delta_seconds);
+        }
+
+        /** topシーンを描画する。 */
+        void Render(FRenderContext& context) noexcept
+        {
+            m_Manager.Render_Internal(context);
+        }
+
+        /** topシーンへイベントを配送する。 */
+        void DispatchEvent(const FEvent& event) noexcept
+        {
+            m_Manager.DispatchEvent_Internal(event);
+        }
+
+        /** 全シーンを終了して破棄する。 */
+        void ShutdownAll() noexcept
+        {
+            m_Manager.ShutdownAll_Internal();
+        }
+
+    private:
+        /** 呼び出し先のシーン管理器。 */
+        CSceneManager& m_Manager;
+    };
+
+    /** 実行ループ用アダプターを返す。 */
+    FExecutionAdapter ExecutionAccess() noexcept
+    {
+        return FExecutionAdapter(*this);
+    }
 
     /** 退場 AScene を保持するフレーム数 (= フレームインフライト 2 + 1)。 */
     static constexpr u32 kRetireRingSize = 3;
 
 private:
+    /** active scene境界の世代を進め、使い切った場合は照合不能な0へ移す。 */
+    void AdvanceActiveSceneEpoch_Internal() noexcept;
+
+    /** フレーム頭で保留中の遷移を適用する内部処理。 */
+    void ApplyPending_Internal(CGame& game) noexcept;
+
+    /** topシーンへ一フレーム分の入力を提出する内部処理。 */
+    bool SubmitFrameInput_Internal(const IInputStateView& input) noexcept;
+
+    /** topシーンの未消費固定入力を初期化する内部処理。 */
+    void ResetFixedInput_Internal() noexcept;
+
+    /** topシーンへ可変刻み更新を流す内部処理。 */
+    void Update_Internal(f32 scaled_delta_seconds, f32 unscaled_delta_seconds, u64 frame_number) noexcept;
+
+    /** topシーンへ固定刻み更新を流す内部処理。 */
+    void FixedUpdate_Internal(f32 fixed_delta_seconds) noexcept;
+
+    /** topシーンを描画する内部処理。 */
+    void Render_Internal(FRenderContext& context) noexcept;
+
+    /** topシーンへイベントを配送する内部処理。 */
+    void DispatchEvent_Internal(const FEvent& event) noexcept;
+
+    /** 全シーンを終了して破棄する内部処理。 */
+    void ShutdownAll_Internal() noexcept;
+
     /** 保留中の遷移種別。 */
     enum class EOp : u8 { None, Change, Push, Pop };
 
@@ -49895,7 +50388,10 @@ private:
     TUniquePtr<AScene>       m_Retired[kRetireRingSize];
 
     /** ring buffer の現在ヘッド (次に release するスロット)。 */
-    u32                     m_RetireHead  = 0;
+    u32 m_RetireHead = 0;
+
+    /** active sceneの実効的な切替ごとに進む世代。0は使い切りを表す。 */
+    u64 m_ActiveSceneEpoch = 1u;
 };
 
 } // namespace acs::game
@@ -50421,19 +50917,161 @@ using game::FRenderContext;
 
 } // namespace acs
 
+// ===================== timing/FixedStepClock.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== timing/FixedStepAdvanceResult.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::timing {
+
+/** 一回の経過入力から確定した固定更新回数と補間状態。 */
+struct FFixedStepAdvanceResult {
+    /** 実行対象として確定した固定更新の回数。 */
+    u32 step_count = 0u;
+
+    /** 次の固定更新までの進み具合。 */
+    f64 interpolation_alpha = 0.0;
+
+    /** 上限によって破棄した経過秒。 */
+    f64 dropped_seconds = 0.0;
+
+    /** 入力値を受け付けた場合に真となる値。 */
+    bool accepted = false;
+
+    /** 蓄積量または実行回数の上限を適用した場合に真となる値。 */
+    bool was_clamped = false;
+};
+
+} // namespace acs::timing
+
+namespace acs::timing {
+
+/** 固定更新に指定できる最小の刻み秒。 */
+inline constexpr f64 kMinimumFixedStepSeconds = 1.0e-9;
+
+/** 固定更新に指定できる最大の刻み秒。 */
+inline constexpr f64 kMaximumFixedStepSeconds = 3600.0;
+
+/** 一回の入力で実行できる固定更新の最大回数。 */
+inline constexpr u32 kMaximumFixedStepsPerAdvance = 1000000u;
+
+/** 一回の入力で蓄積できる最大秒数。 */
+inline constexpr f64 kMaximumFixedStepAccumulatedSeconds = 86400.0;
+
+/** 一括処理で受け付ける最大要素数。 */
+inline constexpr u32 kMaximumFixedStepBatchCount = 4096u;
+
+/**
+ * 可変な経過秒を有界な固定更新回数へ変換する値。
+ *
+ * 呼び出し側が値として所有し、OS時刻、ゲームループ、共有サービスの寿命を持たない。
+ */
+class CFixedStepClock final {
+public:
+    /**
+     * 設定を検証して適用し、補間位置と累積統計を初期化する。
+     *
+     * 範囲外または有限でない設定は拒否し、現在状態を変更しない。
+     */
+    bool Configure(FFixedStepOptions options) noexcept;
+
+    /**
+     * 設定を検証して適用し、補間率と累積統計を維持する。
+     *
+     * 範囲外の設定または現在状態の検証失敗では状態を変更しない。
+     */
+    bool TryReconfigurePreservingProgress(FFixedStepOptions options) noexcept;
+
+    /** 現在適用されている設定値を返す。 */
+    FFixedStepOptions Options() const noexcept;
+
+    /**
+     * 経過秒を受け付け、今回実行する固定更新回数と補間率を返す。
+     *
+     * 負値または有限でない入力は拒否し、現在状態を変更しない。
+     */
+    FFixedStepAdvanceResult Advance(f64 delta_seconds) noexcept;
+
+    /**
+     * 経過秒配列を単発処理と同じ順序でまとめて進める。
+     *
+     * 入力、容量、整列、領域重複を先に検証し、失敗時は時計、結果配列、件数を変更しない。
+     */
+    bool TryAdvanceBatch(const f64* delta_seconds, u32 count, FFixedStepAdvanceResult* results, u32 result_capacity, u32& result_count) noexcept;
+
+    /**
+     * 現在状態を指定先へ保存する。
+     *
+     * null、整列違反、時計との領域重複、現在状態の不正では保存先を変更しない。
+     */
+    bool TryCaptureSnapshot(FFixedStepClockSnapshot* snapshot) const noexcept;
+
+    /** 現在状態を参照で指定した保存先へ保存する。 */
+    bool TryCaptureSnapshot(FFixedStepClockSnapshot& snapshot) const noexcept { return TryCaptureSnapshot(&snapshot); }
+
+    /**
+     * 検証済みの保存値を現在状態へ復元する。
+     *
+     * null、整列違反、時計との領域重複、不正内容では現在状態を変更しない。
+     */
+    bool TryRestoreSnapshot(const FFixedStepClockSnapshot* snapshot) noexcept;
+
+    /** 参照で指定した保存値を現在状態へ復元する。 */
+    bool TryRestoreSnapshot(const FFixedStepClockSnapshot& snapshot) noexcept { return TryRestoreSnapshot(&snapshot); }
+
+    /** 設定を維持し、補間位置と累積統計を初期化する。 */
+    void Reset() noexcept;
+
+    /** 次の固定更新へ持ち越している経過秒を返す。 */
+    f64 AccumulatedSeconds() const noexcept;
+
+    /** 次の固定更新までの進み具合を0以上1未満で返す。 */
+    f64 InterpolationAlpha() const noexcept;
+
+    /** 時計が確定した固定更新の累積回数を返す。 */
+    u64 TotalStepCount() const noexcept;
+
+    /** 上限によって破棄した累積秒数を返す。 */
+    f64 TotalDroppedSeconds() const noexcept;
+
+private:
+    /** 現在適用されている固定更新設定。 */
+    FFixedStepOptions m_Options{};
+
+    /** 次の固定更新へ持ち越す経過秒。 */
+    f64 m_AccumulatedSeconds = 0.0;
+
+    /** 上限によって破棄した累積秒数。 */
+    f64 m_TotalDroppedSeconds = 0.0;
+
+    /** 時計が確定した固定更新の累積回数。 */
+    u64 m_TotalStepCount = 0u;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FFixedStepClock = CFixedStepClock;
+
+} // namespace acs::timing
+
 namespace acs::game {
+
+class IFixedTickInputSource;
+class IInputFrameSource;
 
 /**
  * CApplication を継承し CSceneManager を駆動するゲーム基底クラス。
  *
  * @details
  * 利用者は派生クラスで InitialScene() を override し最初の AScene を返すだけでよい。
- * 固定タイムステップ accumulator、AppState による型消去の永続状態、フェード付き
+ * 固定ステップ時計、AppState による型消去の永続状態、フェード付き
  * シーン遷移を提供する。AScene に渡す dt は time_scale 乗算済み。
  */
 class CGame : public CApplication {
 public:
-    /** 既定状態で構築する。 */
+    /** 固定step runtime snapshot用のprocess内owner tokenを割り当てて構築する。 */
     CGame() noexcept;
 
     /** 破棄する。 */
@@ -50482,9 +51120,18 @@ public:
      * @param fixed_dt 固定 step の長さ (秒、典型 1/60 = 0.01667)。0 以下で無効化。
      * @param max_steps_per_frame 1 フレームで進める最大 step 数 (暴走防止クランプ)。
      */
-    void SetFixedTimestep(f32 fixed_dt, u32 max_steps_per_frame = 8) noexcept {
-        m_FixedDt = fixed_dt;
-        m_MaxFixedSteps = max_steps_per_frame;
+    void SetFixedTimestep(f32 fixed_dt, u32 max_steps_per_frame = 8) noexcept;
+
+    /** 固定タイムステップの完全な設定を検証して適用する。 */
+    bool TrySetFixedTimestep(const timing::FFixedStepOptions& options) noexcept;
+
+    /** 固定タイムステップ更新を無効化し、時計の累積状態を初期化する。 */
+    void DisableFixedTimestep() noexcept;
+
+    /** 固定タイムステップ更新が有効ならtrueを返す。 */
+    bool IsFixedTimestepEnabled() const noexcept
+    {
+        return m_FixedStepEnabled;
     }
 
     /**
@@ -50492,7 +51139,49 @@ public:
      *
      * @return 固定 step の長さ (秒)。
      */
-    f32 FixedTimestep() const noexcept { return m_FixedDt; }
+    f32 FixedTimestep() const noexcept
+    {
+        return m_FixedStepEnabled ? static_cast<f32>(m_FixedStepClock.Options().step_seconds) : 0.0f;
+    }
+
+    /** 次の固定stepまでの描画補間率を返す。 */
+    f64 FixedStepInterpolationAlpha() const noexcept
+    {
+        return m_FixedStepEnabled ? m_FixedStepClock.InterpolationAlpha() : 0.0;
+    }
+
+    /** AIやheadless testが所有する描画フレーム入力ソースへ切り替える。 */
+    void SetFixedStepInputSource(IInputFrameSource& source) noexcept;
+
+    /** replayやrollbackが所有する固定tick入力ソースへ切り替える。 */
+    void SetFixedTickInputSource(IFixedTickInputSource& source) noexcept;
+
+    /** platform入力を使う既定状態へ戻し、未消費入力を破棄する。 */
+    void ResetFixedStepInputSource() noexcept;
+
+    /** platform入力を直接取得する既定状態ならtrueを返す。 */
+    bool UsesPlatformFixedStepInput() const noexcept
+    {
+        return m_FixedStepInputSource == nullptr && m_FixedTickInputSource == nullptr;
+    }
+
+    /** 固定tickごとの決定論入力ソースを使っている場合はtrueを返す。 */
+    bool UsesFixedTickInputSource() const noexcept
+    {
+        return m_FixedTickInputSource != nullptr;
+    }
+
+    /** 固定更新時計の再現可能な状態を取得する。 */
+    bool TryCaptureFixedStepSnapshot(timing::FFixedStepClockSnapshot& snapshot) const noexcept;
+
+    /** 固定更新時計を保存状態へ復元し、成功時だけ固定更新を有効化する。 */
+    bool TryRestoreFixedStepSnapshot(const timing::FFixedStepClockSnapshot& snapshot) noexcept;
+
+    /** 固定時計とactive sceneの未消費入力を同じ保存値へ複製する。 */
+    bool TryCaptureFixedStepRuntimeSnapshot(FFixedStepRuntimeSnapshot& snapshot) const noexcept;
+
+    /** 同じgame、scene、入力sourceで取得した固定runtime状態を一括復元する。 */
+    bool TryRestoreFixedStepRuntimeSnapshot(const FFixedStepRuntimeSnapshot& snapshot) noexcept;
 
     /**
      * シーン跨ぎの永続状態 (AppState) を構築する。
@@ -50632,6 +51321,9 @@ protected:
     void OnEvent(const FEvent& e) noexcept override;
 
 private:
+    /** 入力source結線の世代を進め、使い切った場合はsnapshot取得不能な0へ移す。 */
+    void AdvanceFixedInputSourceEpoch_Internal() noexcept;
+
     /** 初回 OnRender で default UI フォントを遅延ロードする。 */
     void EnsureUiFont() noexcept;
 
@@ -50689,14 +51381,23 @@ private:
     /** 時間スケール (AScene の dt に乗算)。 */
     f32           m_TimeScale       = 1.0f;
 
-    /** 固定 step の長さ (秒、0 以下で無効)。 */
-    f32           m_FixedDt         = 1.0f / 60.0f;
+    /** 可変deltaを有界な固定更新回数へ変換する時計。 */
+    timing::CFixedStepClock m_FixedStepClock;
 
-    /** 固定タイムステップの蓄積秒。 */
-    f32           m_FixedAccum      = 0.0f;
+    /** 固定タイムステップ更新が有効か。 */
+    bool m_FixedStepEnabled = true;
 
-    /** 1 フレームで進める最大固定 step 数。 */
-    u32           m_MaxFixedSteps  = 8;
+    /** AI、testが所有する描画フレーム入力ソース。 */
+    IInputFrameSource* m_FixedStepInputSource = nullptr;
+
+    /** replay、rollbackが所有する固定tick入力ソース。 */
+    IFixedTickInputSource* m_FixedTickInputSource = nullptr;
+
+    /** このCGameだけへruntime snapshotを復元するためのprocess内識別token。 */
+    u64 m_FixedStepRuntimeOwnerToken = 0u;
+
+    /** frame/tick入力sourceの実効的な切替ごとに進む世代。 */
+    u64 m_FixedInputSourceEpoch = 1u;
 };
 
 } // namespace acs::game
@@ -60013,6 +60714,47 @@ private:
 
 } // namespace acs::game
 
+// ===================== gameframework/PlatformInputStateAdapter.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 現在のCInputを所有された入力snapshotへ変換するplatformアダプター。 */
+class CPlatformInputStateAdapter final {
+public:
+    /**
+     * 現在のキー、マウスボタン、ゲームパッド状態を一度だけ取得する。
+     *
+     * 全入力を一時値へ検証してからoutputを置き換える。不正な軸値ではoutputを変更しない。
+     */
+    static bool TryCapture(FInputStateSnapshot& output) noexcept;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FPlatformInputStateAdapter = CPlatformInputStateAdapter;
+
+} // namespace acs::game
+
+// ===================== gameframework/InputFrameSource.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+namespace acs::game {
+
+class FInputStateSnapshot;
+
+/** CGameの描画フレーム入力を取得し、次の固定更新まで蓄積する差し替え境界。 */
+class IInputFrameSource {
+public:
+    /** 派生した入力ソースを基底ポインターから安全に破棄する。 */
+    virtual ~IInputFrameSource() noexcept = default;
+
+    /** 現在フレームの入力を所有snapshotとして取得し、失敗時は出力を変更しない。 */
+    virtual bool TryCaptureFrameInput(FInputStateSnapshot& output) noexcept = 0;
+};
+
+} // namespace acs::game
+
 // ===================== gameframework/PhysicsBody2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -66280,14 +67022,49 @@ public:
     TResult<void> TryLoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
-    friend class CReplayDirector;
-
-    /** ReplayDirector staging用にtargetと同じallocatorを注入する。 */
-    explicit CLockstep(IAllocator& allocator) noexcept : m_Frames(allocator) {}
+    /** targetと同じallocatorを使う空のload stagingへ初期化する内部処理。 */
+    void PrepareLoadStaging_Internal(CLockstep& staging) const noexcept;
 
     /** ReplayDirectorが複数sourceを一括commitするためのno-fail state swap。 */
-    void SwapLoadedState(CLockstep& other) noexcept;
+    void SwapLoadedState_Internal(CLockstep& other) noexcept;
 
+public:
+    /** ReplayDirectorのtransactional loadへ内部状態操作を限定する非所有アダプター。 */
+    class FPersistenceAdapter final {
+    public:
+        /** 操作対象を保持する。 */
+        explicit FPersistenceAdapter(CLockstep& lockstep) noexcept : m_Lockstep(lockstep)
+        {
+        }
+
+        /** targetと同じallocatorを使う空のstagingを準備する。自己指定は拒否する。 */
+        bool PrepareLoadStaging(CLockstep& staging) const noexcept
+        {
+            if (&staging == &m_Lockstep) return false;
+            m_Lockstep.PrepareLoadStaging_Internal(staging);
+            return true;
+        }
+
+        /** 検証済みstagingの永続状態をno-fail swapで反映する。自己指定は拒否する。 */
+        bool CommitLoadedState(CLockstep& staging) noexcept
+        {
+            if (&staging == &m_Lockstep) return false;
+            m_Lockstep.SwapLoadedState_Internal(staging);
+            return true;
+        }
+
+    private:
+        /** 操作対象のlockstep。 */
+        CLockstep& m_Lockstep;
+    };
+
+    /** transactional load用アダプターを返す。 */
+    FPersistenceAdapter PersistenceAccess() noexcept
+    {
+        return FPersistenceAdapter(*this);
+    }
+
+private:
     /** 現在の動作モード。 */
     ENetMode           m_Mode          = ENetMode::Local;
 
@@ -69950,14 +70727,77 @@ public:
     TResult<void> TryLoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
-    friend class CReplayDirector;
+    /** 指定indexのsampleをcursorへ影響させず複製する内部処理。 */
+    bool TryReadSampleAt_Internal(u32 index, FInputSample& output) const noexcept;
 
-    /** ReplayDirector staging用にtargetと同じallocatorを注入する。 */
-    explicit CInputRecorder(IAllocator& allocator) noexcept : m_Samples(allocator) {}
+    /** targetと同じallocatorを使う空のload stagingへ初期化する内部処理。 */
+    void PrepareLoadStaging_Internal(CInputRecorder& staging) const noexcept;
 
     /** ReplayDirectorが複数sourceを一括commitするためのno-fail state swap。 */
-    void SwapLoadedState(CInputRecorder& other) noexcept;
+    void SwapLoadedState_Internal(CInputRecorder& other) noexcept;
 
+public:
+    /** 録画内容をcursorやmodeへ影響させず読む非所有アダプター。 */
+    class FReplayReadAdapter final {
+    public:
+        /** 読み取り対象を保持する。 */
+        explicit FReplayReadAdapter(const CInputRecorder& recorder) noexcept : m_Recorder(recorder)
+        {
+        }
+
+        /** 指定indexのsampleを複製し、範囲外ではoutputを変更しない。 */
+        bool TryReadSampleAt(u32 index, FInputSample& output) const noexcept
+        {
+            return m_Recorder.TryReadSampleAt_Internal(index, output);
+        }
+
+    private:
+        /** 読み取り対象のrecorder。 */
+        const CInputRecorder& m_Recorder;
+    };
+
+    /** ReplayDirectorのtransactional loadへ内部状態操作を限定する非所有アダプター。 */
+    class FPersistenceAdapter final {
+    public:
+        /** 操作対象を保持する。 */
+        explicit FPersistenceAdapter(CInputRecorder& recorder) noexcept : m_Recorder(recorder)
+        {
+        }
+
+        /** targetと同じallocatorを使う空のstagingを準備する。自己指定は拒否する。 */
+        bool PrepareLoadStaging(CInputRecorder& staging) const noexcept
+        {
+            if (&staging == &m_Recorder) return false;
+            m_Recorder.PrepareLoadStaging_Internal(staging);
+            return true;
+        }
+
+        /** 検証済みstagingの永続状態をno-fail swapで反映する。自己指定は拒否する。 */
+        bool CommitLoadedState(CInputRecorder& staging) noexcept
+        {
+            if (&staging == &m_Recorder) return false;
+            m_Recorder.SwapLoadedState_Internal(staging);
+            return true;
+        }
+
+    private:
+        /** 操作対象のrecorder。 */
+        CInputRecorder& m_Recorder;
+    };
+
+    /** cursor非変更のreplay読み取りアダプターを返す。 */
+    FReplayReadAdapter ReplayReadAccess() const noexcept
+    {
+        return FReplayReadAdapter(*this);
+    }
+
+    /** transactional load用アダプターを返す。 */
+    FPersistenceAdapter PersistenceAccess() noexcept
+    {
+        return FPersistenceAdapter(*this);
+    }
+
+private:
     /** 現在の動作モード。 */
     ERecorderMode       m_Mode          = ERecorderMode::Idle;
 
@@ -69973,6 +70813,80 @@ private:
     /** 録画済み sample の線形ストレージ。 */
     TArray<FInputSample> m_Samples;
 };
+
+} // namespace acs::game
+
+// ===================== gameframework/InputRecorderFixedTickSource.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** raw key codeをACSのキーへ変換し、変換不能時はoutputを変更せずfalseを返す関数。 */
+using FInputSampleKeyDecoder = bool (*)(u8 key_code, EKey& output) noexcept;
+
+/**
+ * CInputRecorderのraw sample列を固定tick入力へ変換する非所有アダプター。
+ *
+ * キーとマウスボタンだけを変換する。mouse_posは対象外で、gamepadはsampleに存在しないため無入力となる。
+ */
+class CInputRecorderFixedTickSource final : public IFixedTickInputSource {
+public:
+    /** 読み取り対象とraw key code変換関数を保持する。 */
+    CInputRecorderFixedTickSource(const CInputRecorder& recorder, FInputSampleKeyDecoder key_decoder) noexcept;
+
+    /** 指定tickまでのraw変化を適用し、巻き戻し時は先頭から状態を再構築する。 */
+    bool TryCaptureFixedTickInput(u64 fixed_tick, FInputStateSnapshot& output) noexcept override;
+
+    /** 保持状態と読み取り位置を破棄し、次回要求を先頭から再構築する。 */
+    void Reset() noexcept;
+
+    /** recorderに保存されたtick rateを返す。 */
+    u32 TickRateHz() const noexcept
+    {
+        return m_Recorder.TickRateHz();
+    }
+
+private:
+    /** 直前要求まで適用済みのraw入力状態。 */
+    struct FReplayState {
+        /** キーの保持状態。 */
+        bool keys_down[static_cast<usize>(EKey::_Count)]{};
+
+        /** マウスボタンの保持bitmask。 */
+        u8 mouse_buttons = 0u;
+
+        /** 次に調べるsample index。 */
+        u32 next_sample_index = 0u;
+
+        /** 並び順検証に使う直前sampleのtick。 */
+        u32 previous_sample_tick = 0u;
+
+        /** previous_sample_tickが有効ならtrue。 */
+        bool has_previous_sample = false;
+    };
+
+    /** 指定tickまでsampleを適用し、候補状態とsnapshotを構築する内部処理。 */
+    bool TryBuildSnapshot_Internal(u32 fixed_tick, FReplayState& state, FInputStateSnapshot& output) const noexcept;
+
+    /** 読み取り対象。再生中は内容を変更しない。 */
+    const CInputRecorder& m_Recorder;
+
+    /** raw key codeをEKeyへ変換する関数。 */
+    FInputSampleKeyDecoder m_KeyDecoder = nullptr;
+
+    /** 直前の連続tick要求まで適用した状態。 */
+    FReplayState m_State{};
+
+    /** 直前に成功した固定tick。 */
+    u64 m_LastFixedTick = 0u;
+
+    /** m_LastFixedTickとm_Stateが有効ならtrue。 */
+    bool m_HasLastFixedTick = false;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FInputRecorderFixedTickSource = CInputRecorderFixedTickSource;
 
 } // namespace acs::game
 
@@ -103637,188 +104551,6 @@ acs::game::IBackendClient& GetDefaultFileTelemetryBackendClient() noexcept;
 void InstallFileTelemetryAsDefault() noexcept;
 
 } // namespace acs::telemetryfile
-
-// ===================== timing/FixedStepAdvanceResult.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-namespace acs::timing {
-
-/** 一回の経過入力から確定した固定更新回数と補間状態。 */
-struct FFixedStepAdvanceResult {
-    /** 実行対象として確定した固定更新の回数。 */
-    u32 step_count = 0u;
-
-    /** 次の固定更新までの進み具合。 */
-    f64 interpolation_alpha = 0.0;
-
-    /** 上限によって破棄した経過秒。 */
-    f64 dropped_seconds = 0.0;
-
-    /** 入力値を受け付けた場合に真となる値。 */
-    bool accepted = false;
-
-    /** 蓄積量または実行回数の上限を適用した場合に真となる値。 */
-    bool was_clamped = false;
-};
-
-} // namespace acs::timing
-
-// ===================== timing/FixedStepClock.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-// ===================== timing/FixedStepClockSnapshot.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-// ===================== timing/FixedStepOptions.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-namespace acs::timing {
-
-/** 固定更新の刻み幅と一回の処理上限を指定する値。 */
-struct FFixedStepOptions {
-    /** 一回の固定更新が進める秒数。 */
-    f64 step_seconds = 1.0 / 60.0;
-
-    /** 一回の入力で実行できる固定更新の最大回数。 */
-    u32 maximum_steps_per_advance = 8u;
-
-    /** 一回の入力で受け付ける経過秒の上限。 */
-    f64 maximum_accumulated_seconds = 0.25;
-};
-
-} // namespace acs::timing
-
-namespace acs::timing {
-
-/** 固定更新時計の設定、補間位置、累積統計をまとめた保存値。 */
-struct FFixedStepClockSnapshot {
-    /** 保存時に時計へ適用されていた設定。 */
-    FFixedStepOptions options{};
-
-    /** 次の固定更新へ持ち越す経過秒。 */
-    f64 accumulated_seconds = 0.0;
-
-    /** 上限によって破棄した累積秒数。 */
-    f64 total_dropped_seconds = 0.0;
-
-    /** 時計が確定した固定更新の累積回数。 */
-    u64 total_step_count = 0u;
-};
-
-} // namespace acs::timing
-
-namespace acs::timing {
-
-/** 固定更新に指定できる最小の刻み秒。 */
-inline constexpr f64 kMinimumFixedStepSeconds = 1.0e-9;
-
-/** 固定更新に指定できる最大の刻み秒。 */
-inline constexpr f64 kMaximumFixedStepSeconds = 3600.0;
-
-/** 一回の入力で実行できる固定更新の最大回数。 */
-inline constexpr u32 kMaximumFixedStepsPerAdvance = 1000000u;
-
-/** 一回の入力で蓄積できる最大秒数。 */
-inline constexpr f64 kMaximumFixedStepAccumulatedSeconds = 86400.0;
-
-/** 一括処理で受け付ける最大要素数。 */
-inline constexpr u32 kMaximumFixedStepBatchCount = 4096u;
-
-/**
- * 可変な経過秒を有界な固定更新回数へ変換する値。
- *
- * 呼び出し側が値として所有し、OS時刻、ゲームループ、共有サービスの寿命を持たない。
- */
-class CFixedStepClock final {
-public:
-    /**
-     * 設定を検証して適用し、補間位置と累積統計を初期化する。
-     *
-     * 範囲外または有限でない設定は拒否し、現在状態を変更しない。
-     */
-    bool Configure(FFixedStepOptions options) noexcept;
-
-    /**
-     * 設定を検証して適用し、補間率と累積統計を維持する。
-     *
-     * 範囲外の設定または現在状態の検証失敗では状態を変更しない。
-     */
-    bool TryReconfigurePreservingProgress(FFixedStepOptions options) noexcept;
-
-    /** 現在適用されている設定値を返す。 */
-    FFixedStepOptions Options() const noexcept;
-
-    /**
-     * 経過秒を受け付け、今回実行する固定更新回数と補間率を返す。
-     *
-     * 負値または有限でない入力は拒否し、現在状態を変更しない。
-     */
-    FFixedStepAdvanceResult Advance(f64 delta_seconds) noexcept;
-
-    /**
-     * 経過秒配列を単発処理と同じ順序でまとめて進める。
-     *
-     * 入力、容量、整列、領域重複を先に検証し、失敗時は時計、結果配列、件数を変更しない。
-     */
-    bool TryAdvanceBatch(const f64* delta_seconds, u32 count, FFixedStepAdvanceResult* results, u32 result_capacity, u32& result_count) noexcept;
-
-    /**
-     * 現在状態を指定先へ保存する。
-     *
-     * null、整列違反、時計との領域重複、現在状態の不正では保存先を変更しない。
-     */
-    bool TryCaptureSnapshot(FFixedStepClockSnapshot* snapshot) const noexcept;
-
-    /** 現在状態を参照で指定した保存先へ保存する。 */
-    bool TryCaptureSnapshot(FFixedStepClockSnapshot& snapshot) const noexcept { return TryCaptureSnapshot(&snapshot); }
-
-    /**
-     * 検証済みの保存値を現在状態へ復元する。
-     *
-     * null、整列違反、時計との領域重複、不正内容では現在状態を変更しない。
-     */
-    bool TryRestoreSnapshot(const FFixedStepClockSnapshot* snapshot) noexcept;
-
-    /** 参照で指定した保存値を現在状態へ復元する。 */
-    bool TryRestoreSnapshot(const FFixedStepClockSnapshot& snapshot) noexcept { return TryRestoreSnapshot(&snapshot); }
-
-    /** 設定を維持し、補間位置と累積統計を初期化する。 */
-    void Reset() noexcept;
-
-    /** 次の固定更新へ持ち越している経過秒を返す。 */
-    f64 AccumulatedSeconds() const noexcept;
-
-    /** 次の固定更新までの進み具合を0以上1未満で返す。 */
-    f64 InterpolationAlpha() const noexcept;
-
-    /** 時計が確定した固定更新の累積回数を返す。 */
-    u64 TotalStepCount() const noexcept;
-
-    /** 上限によって破棄した累積秒数を返す。 */
-    f64 TotalDroppedSeconds() const noexcept;
-
-private:
-    /** 現在適用されている固定更新設定。 */
-    FFixedStepOptions m_Options{};
-
-    /** 次の固定更新へ持ち越す経過秒。 */
-    f64 m_AccumulatedSeconds = 0.0;
-
-    /** 上限によって破棄した累積秒数。 */
-    f64 m_TotalDroppedSeconds = 0.0;
-
-    /** 時計が確定した固定更新の累積回数。 */
-    u64 m_TotalStepCount = 0u;
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FFixedStepClock = CFixedStepClock;
-
-} // namespace acs::timing
 
 // ===================== timing/FixedStepClockBatch.h =====================
 // SPDX-License-Identifier: Apache-2.0

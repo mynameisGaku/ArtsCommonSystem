@@ -258,20 +258,23 @@ ACS_REF.modules.push({
         { sig: "void PushScene(TUniquePtr<AScene> next)", desc: "今の top を残したまま <code>next</code> を重ねる (= ダイアログ/ポーズ)。" },
         { sig: "void PopScene()", desc: "top を 1 枚 pop する。スタックが 1 枚以下なら何もしない。" },
         { sig: "AScene* Top() const / u32 Depth() const / bool IsEmpty() const", desc: "現在の最上段シーン・スタック段数・空かどうか。" },
+        { sig: "u64 ActiveSceneEpoch() const", desc: "active scene境界の世代。固定runtime snapshotが遷移前の入力を復元しないために使う。" },
+        { sig: "bool TryCaptureActiveFixedInputSnapshot(...) / bool TryRestoreActiveFixedInputSnapshot(...)", desc: "active sceneの未消費固定入力をtransactionalに保存・復元する。" },
         { sig: "using FSceneManager = CSceneManager", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSceneManager</code> を使う。" }
       ]
     },
     {
       name: "CSceneServices",
       kind: "クラス", header: "gameframework/SceneServices.h",
-      summary: "<b>シーンが使うサービスの取り付けハブ</b>。<t>シーンクロック</t>・<t>トゥイーン</t>・<t>シーケンス</t>・入力マップ・カメラ・物理・トリガーを、<code>ESvc</code> で宣言した分だけ遅延確保して保持する。<code>CGame</code> が自動で更新する。",
-      when: "シーンで時間スケール・補間アニメ・入力アクション・2D カメラ/物理を使いたい時。<code>AScene::Services()</code> 経由でアクセスする。",
+      summary: "<b>シーンが使うサービスの取り付けハブ</b>。<t>シーンクロック</t>・<t>トゥイーン</t>・<t>シーケンス</t>・入力マップと固定入力・カメラ・物理・トリガーを、<code>ESvc</code> で宣言した分だけ遅延確保して保持する。<code>CGame</code> が自動で更新する。",
+      when: "シーンで時間スケール・補間アニメ・3D/2D入力アクション・2Dカメラ/物理を使いたい時。<code>AScene::Services()</code> 経由でアクセスする。",
       members: [
         { sig: "bool Has(ESvc s) const / ESvc Wanted() const", desc: "宣言したサービスを持っているか、何を要求したか。" },
         { sig: "CSceneClock& Clock()", desc: "時間スケールや一時停止を扱う<t>シーンクロック</t>。" },
         { sig: "CTweenManager& Tweens()", desc: "値を滑らかに補間する<t>トゥイーン</t>マネージャ。" },
         { sig: "CSequenceRunner& Sequences()", desc: "時間順の演出を組む<t>シーケンス</t>ランナー。" },
         { sig: "FInputMap& Input()", desc: "キー/パッドをアクション名に束ねる入力マップ。" },
+        { sig: "const IInputStateView& FixedInput() const", desc: "現在の固定tickで安定した物理入力snapshot。<code>Input().Evaluate</code>へ渡す。" },
         { sig: "CCamera2D& Camera() / CCollisionWorld2D& Physics() / CTriggerWorld2D& Triggers()", desc: "2D カメラ・衝突ワールド・トリガーワールド。宣言していなければ呼ぶと停止。" },
         { sig: "using FSceneServices = CSceneServices", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSceneServices</code> を使う。" }
       ]

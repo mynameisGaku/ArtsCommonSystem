@@ -16,7 +16,7 @@ owner の寿命へ接続する。
 公開依存は次の ACS モジュールである。
 
 - `Foundation`、`Memory`、`Container`、`Subsystem`
-- `Threading`、`Math`、`Platform`
+- `Threading`、`Math`、`Timing`、`Platform`
 - `Render`、`App`、`Ecs`
 
 `GameFramework.h` はまとめて利用するための公開入口である。依存を限定したい実装は、
@@ -28,7 +28,7 @@ owner の寿命へ接続する。
 
 | 型 | 責務 | 所有する状態 |
 |---|---|---|
-| `CGame` | `CApplication` の hook をゲーム向け順序へ接続する | `CSceneManager`、GameInstance サブシステム、共有描画資源、フェード、app state |
+| `CGame` | `CApplication` の hook をゲーム向け順序へ接続する | `CSceneManager`、固定更新時計、入力 source 結線、GameInstance サブシステム、共有描画資源、フェード、app state |
 | `CSceneManager` | シーン stack と遅延遷移を管理する | active scene、保留遷移、退場 scene の遅延破棄 ring |
 | `AScene` | 一つの world の多態的 owner | `CSceneNodeGraph`、World サブシステム、要求した `CSceneServices`、travel context |
 | `CSceneNodeGraph` | scene 文脈に依存しないノード graph 操作 | root `ANode`、`CNodePool` |
@@ -46,8 +46,8 @@ component、`WantedServices()` の構成で表現する。詳細は
 ### シーン内サービス
 
 `CSceneServices` は `AScene::WantedServices()` の `ESvc` bit に従って必要な機能だけを
-個別に確保して束ねる。現在の要素は clock、tween、sequence、input、2D camera、2D collision、
-trigger である。要求していない accessor の呼び出しは契約違反として検出する。
+個別に確保して束ねる。現在の要素は clock、tween、sequence、input map と固定更新入力、
+2D camera、2D collision、trigger である。要求していない accessor の呼び出しは契約違反として検出する。
 
 この束は scene 固有の決定的な機能を簡潔に配線するためのものであり、全機能を
 サブシステム化するための入口ではない。
@@ -79,7 +79,7 @@ GameFramework が標準登録する World サブシステムは次の三つで�
 機能を構成する場合は、その機能の folder を境界にする。現在の主な領域は次の通りである。
 
 - 時間と進行: `Clock`、`SceneTimer`、`Tween`、`Sequence`、`StateMachine`。
-- 入力: `InputMap`、`InputAxisOptions`、`InputRecorder`。
+- 入力: `InputMap`、`InputAxisOptions`、固定更新入力 snapshot/buffer/source、`InputRecorder`。
 - camera と描画: `Camera2D`、`CameraStack`、`Draw`、`RenderContext`、`SceneRenderResources`。
 - 物理と衝突: `CollisionWorld2D`、`RigidWorld2D`、`TriggerWorld2D` と対応 component。
 - asset と永続化: `AssetBundle`、`AssetPack`、`SaveArchive`、`SaveSlot`、scene serializer、prefab、reflection。
@@ -238,6 +238,7 @@ network snapshot、replay、script、hot reload、studio lock などは一つの
 境界は次の ACS 文書を正規契約とする。
 
 - [NetSnapshotSafety.md](NetSnapshotSafety.md)
+- [FixedStepRuntimeInput.md](FixedStepRuntimeInput.md)
 - [ReplayDirectorSafety.md](ReplayDirectorSafety.md)
 - [ScriptHostSafety.md](ScriptHostSafety.md)
 - [HotReloadSafety.md](HotReloadSafety.md)
@@ -262,18 +263,24 @@ network snapshot、replay、script、hot reload、studio lock などは一つの
 可変更新は次の順序で進む。
 
 1. fade と保留中の scene 遷移。
-2. 固定刻みの `AScene::_FixedUpdate()`。一 frame の最大 step 数を超えた遅延は捨てる。
-3. GameInstance `PreUpdate`。
-4. scene service `PreUpdate`。
-5. World サブシステム `PreUpdate`。
-6. `AScene::_Update()` と node graph 更新。
-7. scene service `PostUpdate`。
-8. World サブシステム `PostUpdate`。
-9. GameInstance `PostUpdate`。
+2. 描画 frame 入力を一度取得するか、各固定 tick の決定論入力を取得する。
+3. 固定刻みの `AScene::OnFixedUpdate()`。一 frame の最大 step 数を超えた遅延は捨てる。
+4. GameInstance `PreUpdate`。
+5. scene service `PreUpdate`。
+6. World サブシステム `PreUpdate`。
+7. `AScene::OnUpdate()` と node graph 更新。
+8. scene service `PostUpdate`。
+9. World サブシステム `PostUpdate`。
+10. GameInstance `PostUpdate`。
 
 scene service の clock を要求した場合は、その clock が求めた world delta を scene、node、
 World サブシステムへ渡す。GameInstance には game の time scale を反映した値と実時間を
 別々に渡す。
+
+`ESvc::Input` を要求した scene は `Services().FixedInput()` から現在の固定 tick 入力を読み、
+`Services().Input().Evaluate()` で名前付き action へ変換する。固定更新が来ない短い frame の
+押下・解放は次の固定 tick まで保持し、catch-up 中の同じ変化は一度だけ通知する。入力 source、
+rollback 用 snapshot、失敗時の無入力化は [FixedStepRuntimeInput.md](FixedStepRuntimeInput.md) に定める。
 
 ### scene 遷移
 

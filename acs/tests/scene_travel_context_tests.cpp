@@ -86,9 +86,8 @@ ACS_TEST(SceneTravelContext, ChangeSceneDeliversContextBeforeOnEnter) {
     CTravelProbeGame Game;
     EXPECT_TRUE(InitializeProbeGame(Game));
 
-    Game.Scenes().ChangeScene(MakeUnique<AProbeScene>(),
-                              MakeUnique<CScoreTravelContext>(1200));
-    Game.Scenes().ApplyPending_Internal(Game);
+    Game.Scenes().ChangeScene(MakeUnique<AProbeScene>(), MakeUnique<CScoreTravelContext>(1200));
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
 
     AProbeScene* const Scene = static_cast<AProbeScene*>(Game.Scenes().Top());
     EXPECT_TRUE(Scene != nullptr);
@@ -109,7 +108,7 @@ ACS_TEST(SceneTravelContext, ChangeSceneWithoutContextLeavesSceneEmpty) {
     EXPECT_TRUE(InitializeProbeGame(Game));
 
     Game.Scenes().ChangeScene(MakeUnique<AProbeScene>());
-    Game.Scenes().ApplyPending_Internal(Game);
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
 
     AProbeScene* const Scene = static_cast<AProbeScene*>(Game.Scenes().Top());
     EXPECT_TRUE(Scene != nullptr);
@@ -125,14 +124,13 @@ ACS_TEST(SceneTravelContext, PushAndPopCarryContextBothWays) {
     EXPECT_TRUE(InitializeProbeGame(Game));
 
     Game.Scenes().PushScene(MakeUnique<AProbeScene>());
-    Game.Scenes().ApplyPending_Internal(Game);
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
     AProbeScene* const Base = static_cast<AProbeScene*>(Game.Scenes().Top());
     EXPECT_TRUE(Base != nullptr);
     if (Base == nullptr) return;
 
-    Game.Scenes().PushScene(MakeUnique<AProbeScene>(),
-                            MakeUnique<CScoreTravelContext>(7));
-    Game.Scenes().ApplyPending_Internal(Game);
+    Game.Scenes().PushScene(MakeUnique<AProbeScene>(), MakeUnique<CScoreTravelContext>(7));
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
     AProbeScene* const Modal = static_cast<AProbeScene*>(Game.Scenes().Top());
     EXPECT_TRUE(Modal != nullptr);
     if (Modal == nullptr) return;
@@ -141,7 +139,7 @@ ACS_TEST(SceneTravelContext, PushAndPopCarryContextBothWays) {
 
     // モーダルの結果を戻り先へ返す。
     Game.Scenes().PopScene(MakeUnique<CScoreTravelContext>(42));
-    Game.Scenes().ApplyPending_Internal(Game);
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
     EXPECT_EQ(Game.Scenes().Depth(), 1u);
     EXPECT_EQ(Base->resumed_score, 42);
 }
@@ -151,11 +149,9 @@ ACS_TEST(SceneTravelContext, LastRequestWinsAndDropsEarlierContext) {
     CTravelProbeGame Game;
     EXPECT_TRUE(InitializeProbeGame(Game));
 
-    Game.Scenes().ChangeScene(MakeUnique<AProbeScene>(),
-                              MakeUnique<CScoreTravelContext>(1));
-    Game.Scenes().ChangeScene(MakeUnique<AProbeScene>(),
-                              MakeUnique<CScoreTravelContext>(2));
-    Game.Scenes().ApplyPending_Internal(Game);
+    Game.Scenes().ChangeScene(MakeUnique<AProbeScene>(), MakeUnique<CScoreTravelContext>(1));
+    Game.Scenes().ChangeScene(MakeUnique<AProbeScene>(), MakeUnique<CScoreTravelContext>(2));
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
 
     AProbeScene* const Scene = static_cast<AProbeScene*>(Game.Scenes().Top());
     EXPECT_TRUE(Scene != nullptr);
@@ -170,13 +166,13 @@ ACS_TEST(SceneTravelContext, PopOnSingleSceneStackKeepsTopUntouched) {
     EXPECT_TRUE(InitializeProbeGame(Game));
 
     Game.Scenes().PushScene(MakeUnique<AProbeScene>());
-    Game.Scenes().ApplyPending_Internal(Game);
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
     AProbeScene* const Scene = static_cast<AProbeScene*>(Game.Scenes().Top());
     EXPECT_TRUE(Scene != nullptr);
     if (Scene == nullptr) return;
 
     Game.Scenes().PopScene(MakeUnique<CScoreTravelContext>(99));
-    Game.Scenes().ApplyPending_Internal(Game);
+    Game.Scenes().ExecutionAccess().ApplyPending(Game);
 
     EXPECT_EQ(Game.Scenes().Depth(), 1u);
     EXPECT_TRUE(Game.Scenes().Top() == Scene);

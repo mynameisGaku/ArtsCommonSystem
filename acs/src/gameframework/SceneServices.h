@@ -8,6 +8,7 @@
 #include "gameframework/Tween.h"
 #include "gameframework/Sequence.h"
 #include "gameframework/InputMap.h"
+#include "gameframework/FixedStepInputBuffer.h"
 #include "gameframework/Camera2D.h"
 #include "gameframework/CollisionWorld2D.h"
 #include "gameframework/TriggerWorld2D.h"
@@ -157,6 +158,12 @@ public:
     FInputMap&            Input()     noexcept;
 
     /**
+     * 現在の固定tickへ割り当てられた入力状態を返す。
+     * @return FInputMap::Evaluateへ渡せる読み取り専用入力状態。
+     */
+    const IInputStateView& FixedInput() const noexcept;
+
+    /**
      * CCamera2D への参照を返す。
      *
      * @details ESvc::Camera2D が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
@@ -180,36 +187,118 @@ public:
      */
     CTriggerWorld2D&      Triggers()  noexcept;
 
-    /**
-     * scene.OnUpdate の前に呼ぶ前段 tick (利用者は触らない)。
-     *
-     * @details Clock を Tick(raw_dt) して時間を進め、scaled dt を確定する。
-     * @param raw_dt スケール前の生 dt。
-     */
-    void PreUpdate_Internal(f32 raw_dt) noexcept;
+    /** サービス更新処理を明示的に呼び出す非所有アダプター。 */
+    class FUpdateAdapter final {
+    public:
+        /** 呼び出し先のサービス束を保持する。 */
+        explicit FUpdateAdapter(CSceneServices& services) noexcept : m_Services(services)
+        {
+        }
 
-    /**
-     * scene.OnUpdate の後に呼ぶ後段 tick (利用者は触らない)。
-     *
-     * @details Tweens/Sequences/Camera/Triggers を scaled_dt で Tick して更新を適用する。
-     * @param scaled_dt Clock で確定したスケール済み dt。
-     */
-    void PostUpdate_Internal(f32 scaled_dt) noexcept;
+        /** 要求された全サービスが生成済みならtrueを返す。 */
+        bool IsReady() const noexcept
+        {
+            return m_Services.IsReady_Internal();
+        }
 
-    /**
-     * scene の OnUpdate に渡す dt を返す。
-     *
-     * @details PreUpdate_Internal 後に呼ぶ。Clock 未要求なら raw_dt をそのまま返す。
-     * @param raw_dt スケール前の生 dt。
-     * @return Clock がスケールした dt (未要求なら raw_dt)。
-     */
-    f32  ScaledDt_Internal(f32 raw_dt) const noexcept;
+        /** Clockを進めてスケール済み時間を確定する。 */
+        void PreUpdate(f32 raw_delta_seconds) noexcept
+        {
+            m_Services.PreUpdate_Internal(raw_delta_seconds);
+        }
+
+        /** 一フレーム分の入力を固定tick用に蓄積する。 */
+        bool SubmitFrameInput(const IInputStateView& input) noexcept
+        {
+            return m_Services.SubmitFrameInput_Internal(input);
+        }
+
+        /** 次の固定tickへ渡す入力を確定する。 */
+        void BeginFixedStepInput() noexcept
+        {
+            m_Services.BeginFixedStepInput_Internal();
+        }
+
+        /** 未消費の固定入力と現在tick入力を初期化する。 */
+        void ResetFixedInput() noexcept
+        {
+            m_Services.ResetFixedInput_Internal();
+        }
+
+        /** 未消費の固定入力を保存値へ複製する。 */
+        bool TryCaptureFixedInputSnapshot(FFixedStepInputBufferSnapshot& snapshot) const noexcept
+        {
+            return m_Services.TryCaptureFixedInputSnapshot_Internal(snapshot);
+        }
+
+        /** 保存値から未消費の固定入力を復元する。 */
+        bool TryRestoreFixedInputSnapshot(const FFixedStepInputBufferSnapshot& snapshot) noexcept
+        {
+            return m_Services.TryRestoreFixedInputSnapshot_Internal(snapshot);
+        }
+
+        /** シーン更新後のサービスを進める。 */
+        void PostUpdate(f32 scaled_delta_seconds) noexcept
+        {
+            m_Services.PostUpdate_Internal(scaled_delta_seconds);
+        }
+
+        /** シーンへ渡すスケール済み時間を返す。 */
+        f32 ScaledDt(f32 raw_delta_seconds) const noexcept
+        {
+            return m_Services.ScaledDt_Internal(raw_delta_seconds);
+        }
+
+    private:
+        /** 呼び出し先のサービス束。 */
+        CSceneServices& m_Services;
+    };
+
+    /** シーン管理器へ渡すサービス更新用アダプターを返す。 */
+    FUpdateAdapter UpdateAccess() noexcept
+    {
+        return FUpdateAdapter(*this);
+    }
 
 private:
-    friend class CSceneManager;
+    /** 要求された全サービスが生成済みかを返す内部処理。 */
+    bool IsReady_Internal() const noexcept;
 
-    /** 要求された全サービスが生成済みかを返す。 */
-    bool IsReady() const noexcept;
+    /** 可変フレーム入力を固定tick入力へ蓄積する内部処理。 */
+    bool SubmitFrameInput_Internal(const IInputStateView& input) noexcept;
+
+    /** 次の固定tick入力を確定し、押下・解放を一度だけ消費する内部処理。 */
+    void BeginFixedStepInput_Internal() noexcept;
+
+    /** シーン遷移、pause、時計設定変更で固定入力を初期化する内部処理。 */
+    void ResetFixedInput_Internal() noexcept;
+
+    /** 未消費の固定入力を保存値へ複製する内部処理。 */
+    bool TryCaptureFixedInputSnapshot_Internal(FFixedStepInputBufferSnapshot& snapshot) const noexcept;
+
+    /** 保存値から未消費の固定入力を復元する内部処理。 */
+    bool TryRestoreFixedInputSnapshot_Internal(const FFixedStepInputBufferSnapshot& snapshot) noexcept;
+
+    /** Clockを進めてスケール済み時間を確定する内部処理。 */
+    void PreUpdate_Internal(f32 raw_dt) noexcept;
+
+    /** Tween、Sequence、Camera、Triggerを進める内部処理。 */
+    void PostUpdate_Internal(f32 scaled_dt) noexcept;
+
+    /** シーンへ渡すスケール済み時間を返す内部処理。 */
+    f32 ScaledDt_Internal(f32 raw_dt) const noexcept;
+
+    /** InputMapと固定tick入力を一つの所有スロットへまとめる値。 */
+    struct FInputServiceState {
+        /** 物理入力を名前付きアクションへ変換する割り当て。 */
+        FInputMap input_map;
+
+        /** 可変フレーム入力の未消費状態。 */
+        FFixedStepInputBuffer fixed_input_buffer;
+
+        /** 現在の固定tickへ公開する入力状態。 */
+        FInputStateSnapshot fixed_input;
+    };
 
     /** 構築時に要求されたサービスマスク。 */
     ESvc                       m_Wanted = ESvc::None;
@@ -223,8 +312,8 @@ private:
     /** sequence サービス (未要求なら null)。 */
     TUniquePtr<CSequenceRunner> m_Sequences;
 
-    /** 入力サービス (未要求なら null)。 */
-    TUniquePtr<FInputMap>       m_Input;
+    /** 入力割り当てと固定tick入力の状態 (未要求ならnull)。 */
+    TUniquePtr<FInputServiceState> m_Input;
 
     /** カメラサービス (未要求なら null)。 */
     TUniquePtr<acs::game::CCamera2D> m_Camera;

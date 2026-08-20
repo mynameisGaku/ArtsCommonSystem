@@ -16,7 +16,7 @@ CSceneServices::CSceneServices(ESvc wanted) noexcept
     /** 成功時だけmemberへ移すsequence候補。 */
     TUniquePtr<CSequenceRunner> Sequences;
     /** 成功時だけmemberへ移すinput候補。 */
-    TUniquePtr<FInputMap> Input;
+    TUniquePtr<FInputServiceState> Input;
     /** 成功時だけmemberへ移すcamera候補。 */
     TUniquePtr<acs::game::CCamera2D> Camera;
     /** 成功時だけmemberへ移すphysics候補。 */
@@ -37,7 +37,7 @@ CSceneServices::CSceneServices(ESvc wanted) noexcept
         if (!Sequences) return;
     }
     if (Has(ESvc::Input)) {
-        Input = MakeUnique<FInputMap>();
+        Input = MakeUnique<FInputServiceState>();
         if (!Input) return;
     }
     if (Has(ESvc::Camera2D)) {
@@ -65,7 +65,7 @@ CSceneServices::CSceneServices(ESvc wanted) noexcept
 }
 
 /** 未知bitを含まず、要求された全サービスが生成済みならtrueを返す。 */
-bool CSceneServices::IsReady() const noexcept
+bool CSceneServices::IsReady_Internal() const noexcept
 {
     constexpr u32 KnownBits =
         static_cast<u32>(ESvc::Clock) | static_cast<u32>(ESvc::Tweens) |
@@ -104,7 +104,15 @@ CSequenceRunner& CSceneServices::Sequences() noexcept {
 FInputMap& CSceneServices::Input() noexcept {
     ACS_CHECKF(m_Input.Get() != nullptr,
                "CSceneServices::Input() called but ESvc::Input not requested in WantedServices()");
-    return *m_Input;
+    return m_Input->input_map;
+}
+
+/** 現在の固定tickへ割り当てられた読み取り専用入力状態を返す。 */
+const IInputStateView& CSceneServices::FixedInput() const noexcept
+{
+    ACS_CHECKF(m_Input.Get() != nullptr,
+               "CSceneServices::FixedInput() called but ESvc::Input not requested in WantedServices()");
+    return m_Input->fixed_input;
 }
 
 /** CCamera2D への参照を返す (未要求なら ACS_CHECK で停止)。 */
@@ -126,6 +134,41 @@ CTriggerWorld2D& CSceneServices::Triggers() noexcept {
     ACS_CHECKF(m_Triggers.Get() != nullptr,
                "CSceneServices::Triggers() called but ESvc::Triggers not requested in WantedServices()");
     return *m_Triggers;
+}
+
+/** 一フレーム分の入力を検証し、次の固定tickまで蓄積する。 */
+bool CSceneServices::SubmitFrameInput_Internal(const IInputStateView& input) noexcept
+{
+    return m_Input.Get() == nullptr || m_Input->fixed_input_buffer.TryPushFrame(input);
+}
+
+/** 次の固定tick入力を確定し、未入力なら安全な無入力状態を公開する。 */
+void CSceneServices::BeginFixedStepInput_Internal() noexcept
+{
+    if (m_Input.Get() == nullptr) return;
+    if (!m_Input->fixed_input_buffer.TryConsumeFixedStep(m_Input->fixed_input)) m_Input->fixed_input.Clear();
+}
+
+/** シーン境界を越えて古い入力エッジを再生しないよう固定入力を初期化する。 */
+void CSceneServices::ResetFixedInput_Internal() noexcept
+{
+    if (m_Input.Get() == nullptr) return;
+    m_Input->fixed_input_buffer.Reset();
+    m_Input->fixed_input.Clear();
+}
+
+/** 未消費の固定入力を検証付きで保存値へ複製する。 */
+bool CSceneServices::TryCaptureFixedInputSnapshot_Internal(FFixedStepInputBufferSnapshot& snapshot) const noexcept
+{
+    return m_Input.Get() != nullptr && m_Input->fixed_input_buffer.TryCaptureSnapshot(snapshot);
+}
+
+/** 未消費の固定入力を復元し、前回tickの公開入力を破棄する。 */
+bool CSceneServices::TryRestoreFixedInputSnapshot_Internal(const FFixedStepInputBufferSnapshot& snapshot) noexcept
+{
+    if (m_Input.Get() == nullptr || !m_Input->fixed_input_buffer.TryRestoreSnapshot(snapshot)) return false;
+    m_Input->fixed_input.Clear();
+    return true;
 }
 
 /** Clock を Tick して scaled dt を確定する前段 tick。 */
