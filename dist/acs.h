@@ -52673,6 +52673,10 @@ private:
 
 } // namespace acs::game
 
+// ===================== gameframework/OrbitCameraInputActionSet3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
 // ===================== gameframework/OrbitCameraController3D.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -52795,6 +52799,51 @@ public:
 private:
     /** 検証済みの速度と安全範囲。 */
     FOrbitCameraSettings3D m_Settings{};
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/**
+ * 名前付きactionを3D orbit cameraの6操作軸へ割り当てる値。
+ *
+ * @details platform入力を直接取得せず、明示されたIInputStateViewだけを評価する。
+ * 固定tick、AI、replayは同じaction集合を使って同じcamera入力を生成できる。
+ */
+struct FOrbitCameraInputActionSet3D final {
+    /** 前後移動へ使うaxis action。 */
+    FActionId move_forward_action{"MoveForward"};
+
+    /** 左右移動へ使うaxis action。 */
+    FActionId move_right_action{"MoveRight"};
+
+    /** 上下移動へ使うaxis action。 */
+    FActionId move_up_action{"MoveUp"};
+
+    /** 水平回転へ使うaxis action。 */
+    FActionId look_yaw_action{"LookYaw"};
+
+    /** 垂直回転へ使うaxis action。 */
+    FActionId look_pitch_action{"LookPitch"};
+
+    /** targetとの距離変更へ使うaxis action。 */
+    FActionId zoom_action{"Zoom"};
+
+    /**
+     * 全actionが有効かつ互いに異なる場合はtrueを返す。
+     * @return 6操作軸を曖昧さなく評価できる場合はtrue。
+     */
+    bool IsValid() const noexcept;
+
+    /**
+     * action mappingと明示入力状態から一回分のorbit camera入力を生成する。
+     * @param input_map 物理入力から名前付きactionへの対応。
+     * @param input 評価する固定tick、AI、replayなどの明示入力状態。
+     * @param output 生成した6軸入力。失敗時は変更しない。
+     * @return action集合が有効で全評価値が有限ならtrue。
+     */
+    bool TryEvaluate(const FInputMap& input_map, const IInputStateView& input, COrbitCameraController3D::FOrbitCameraInput3D& output) const noexcept;
 };
 
 } // namespace acs::game
@@ -59973,11 +60022,12 @@ public:
 
     /** Camera used for standalone preview/gameplay. */
     /**
-     * 自由カメラのキー操作 (矢印・WASD・Escape) を受け付けるか決める。
+     * 自由カメラのキー操作 (矢印・WASD・Q/E・PageUp/PageDown・Escape) を受け付けるか決める。
      *
      * @details
      * **既定は受け付ける。** ただしこれは編集中に見回すためのもので、入れたままだと
-     * **矢印キーと Escape をゲームから奪う。** 自分でカメラを動かすなら切ること。
+     * 同じ物理キーで自由カメラも動き、Escape はゲームを終了する。自分でカメラを動かすなら切ること。
+     * 移動と回転とzoomは固定tickだけで進むため、CGameの固定timestepを無効にすると停止する。
      *
      * 撮り比べのときも切る。キーが押されているだけで画角が変わり、比較にならない。
      * @param enabled 受け付けるなら true。
@@ -60076,9 +60126,17 @@ public:
             static_cast<u64>(surface.m_Packed));
     }
 
+    /** 固定tick自由カメラへ使うscene入力サービスを要求する。 */
+    ESvc WantedServices() const noexcept override
+    {
+        return ESvc::Input;
+    }
+
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
     void OnUpdate(f32 dt) noexcept override;
+    /** scene入力の6 actionから自由カメラを固定刻みで更新する。 */
+    void OnFixedUpdate(f32 fixed_dt) noexcept override;
     void OnRender(FRenderContext& context) noexcept override;
 
 private:
@@ -60654,6 +60712,9 @@ private:
     /** device非依存の自由camera計算器。 */
     COrbitCameraController3D m_OrbitCameraController{};
 
+    /** scene入力を自由cameraの6操作軸へ変換するaction集合。 */
+    FOrbitCameraInputActionSet3D m_OrbitCameraActions{};
+
     /** 自由cameraのsnapshot可能なworld状態。 */
     COrbitCameraController3D::FOrbitCameraState3D m_OrbitCameraState{};
 
@@ -60911,55 +60972,6 @@ public:
 
     /** 現在フレームの入力を所有snapshotとして取得し、失敗時は出力を変更しない。 */
     virtual bool TryCaptureFrameInput(FInputStateSnapshot& output) noexcept = 0;
-};
-
-} // namespace acs::game
-
-// ===================== gameframework/OrbitCameraInputActionSet3D.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-namespace acs::game {
-
-/**
- * 名前付きactionを3D orbit cameraの6操作軸へ割り当てる値。
- *
- * @details platform入力を直接取得せず、明示されたIInputStateViewだけを評価する。
- * 固定tick、AI、replayは同じaction集合を使って同じcamera入力を生成できる。
- */
-struct FOrbitCameraInputActionSet3D final {
-    /** 前後移動へ使うaxis action。 */
-    FActionId move_forward_action{"MoveForward"};
-
-    /** 左右移動へ使うaxis action。 */
-    FActionId move_right_action{"MoveRight"};
-
-    /** 上下移動へ使うaxis action。 */
-    FActionId move_up_action{"MoveUp"};
-
-    /** 水平回転へ使うaxis action。 */
-    FActionId look_yaw_action{"LookYaw"};
-
-    /** 垂直回転へ使うaxis action。 */
-    FActionId look_pitch_action{"LookPitch"};
-
-    /** targetとの距離変更へ使うaxis action。 */
-    FActionId zoom_action{"Zoom"};
-
-    /**
-     * 全actionが有効かつ互いに異なる場合はtrueを返す。
-     * @return 6操作軸を曖昧さなく評価できる場合はtrue。
-     */
-    bool IsValid() const noexcept;
-
-    /**
-     * action mappingと明示入力状態から一回分のorbit camera入力を生成する。
-     * @param input_map 物理入力から名前付きactionへの対応。
-     * @param input 評価する固定tick、AI、replayなどの明示入力状態。
-     * @param output 生成した6軸入力。失敗時は変更しない。
-     * @return action集合が有効で全評価値が有限ならtrue。
-     */
-    bool TryEvaluate(const FInputMap& input_map, const IInputStateView& input, COrbitCameraController3D::FOrbitCameraInput3D& output) const noexcept;
 };
 
 } // namespace acs::game

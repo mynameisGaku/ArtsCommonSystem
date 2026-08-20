@@ -762,6 +762,14 @@ bool ALegacyScene3DAdapter::AddWaterWake(
 }
 
 void ALegacyScene3DAdapter::OnEnter() noexcept {
+    /** 自由cameraの既定キーを所有するscene-local入力map。 */
+    FInputMap& input_map = Services().Input();
+    input_map.BindAxisKeys(m_OrbitCameraActions.move_forward_action, EKey::S, EKey::W);
+    input_map.BindAxisKeys(m_OrbitCameraActions.move_right_action, EKey::A, EKey::D);
+    input_map.BindAxisKeys(m_OrbitCameraActions.move_up_action, EKey::Q, EKey::E);
+    input_map.BindAxisKeys(m_OrbitCameraActions.look_yaw_action, EKey::Left, EKey::Right);
+    input_map.BindAxisKeys(m_OrbitCameraActions.look_pitch_action, EKey::Down, EKey::Up);
+    input_map.BindAxisKeys(m_OrbitCameraActions.zoom_action, EKey::PageDown, EKey::PageUp);
     GetGame().SetClearColor(0.025f, 0.035f, 0.055f, 1.0f);
     // Keep lighting, visible sky, fog and water reflection on one authored
     // environment. 太陽の向きと色は毎フレーム UpdateSkyFromSun() が上書きするので、
@@ -819,21 +827,17 @@ void ALegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
         return;
     }
 
-    if (m_FreeCameraEnabled && !m_UseAuthoredCamera) {
-        COrbitCameraController3D::FOrbitCameraInput3D input{};
-        if (CInput::IsKeyDown(EKey::Left)) input.look_yaw -= 1.0f;
-        if (CInput::IsKeyDown(EKey::Right)) input.look_yaw += 1.0f;
-        if (CInput::IsKeyDown(EKey::Up)) input.look_pitch += 1.0f;
-        if (CInput::IsKeyDown(EKey::Down)) input.look_pitch -= 1.0f;
-        if (CInput::IsKeyDown(EKey::W)) input.move_forward += 1.0f;
-        if (CInput::IsKeyDown(EKey::S)) input.move_forward -= 1.0f;
-        if (CInput::IsKeyDown(EKey::D)) input.move_right += 1.0f;
-        if (CInput::IsKeyDown(EKey::A)) input.move_right -= 1.0f;
-        if (CInput::IsKeyDown(EKey::E)) input.move_up += 1.0f;
-        if (CInput::IsKeyDown(EKey::Q)) input.move_up -= 1.0f;
-        m_OrbitCameraController.TryStep(input, dt, m_OrbitCameraState);
-    }
     UpdateCameraView();
+}
+
+/** scene入力を6軸へ変換し、自由camera状態を固定刻みで進める。 */
+void ALegacyScene3DAdapter::OnFixedUpdate(f32 fixed_dt) noexcept
+{
+    if (!m_FreeCameraEnabled || m_UseAuthoredCamera) return;
+    /** 現在tickの6 actionから生成する正規化camera入力。 */
+    COrbitCameraController3D::FOrbitCameraInput3D input{};
+    if (!m_OrbitCameraActions.TryEvaluate(Services().Input(), Services().FixedInput(), input)) return;
+    if (m_OrbitCameraController.TryStep(input, fixed_dt, m_OrbitCameraState)) UpdateCameraView();
 }
 
 void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {

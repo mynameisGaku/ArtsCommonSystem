@@ -6,6 +6,7 @@
 #include "container/Array.h"
 #include "gameframework/Scene.h"
 #include "gameframework/LightCollector3D.h"
+#include "gameframework/OrbitCameraInputActionSet3D.h"
 #include "gameframework/OrbitCameraController3D.h"
 #include "render/ShadowMap.h"
 #include "render/Ibl.h"
@@ -500,11 +501,12 @@ public:
 
     /** Camera used for standalone preview/gameplay. */
     /**
-     * 自由カメラのキー操作 (矢印・WASD・Escape) を受け付けるか決める。
+     * 自由カメラのキー操作 (矢印・WASD・Q/E・PageUp/PageDown・Escape) を受け付けるか決める。
      *
      * @details
      * **既定は受け付ける。** ただしこれは編集中に見回すためのもので、入れたままだと
-     * **矢印キーと Escape をゲームから奪う。** 自分でカメラを動かすなら切ること。
+     * 同じ物理キーで自由カメラも動き、Escape はゲームを終了する。自分でカメラを動かすなら切ること。
+     * 移動と回転とzoomは固定tickだけで進むため、CGameの固定timestepを無効にすると停止する。
      *
      * 撮り比べのときも切る。キーが押されているだけで画角が変わり、比較にならない。
      * @param enabled 受け付けるなら true。
@@ -603,9 +605,17 @@ public:
             static_cast<u64>(surface.m_Packed));
     }
 
+    /** 固定tick自由カメラへ使うscene入力サービスを要求する。 */
+    ESvc WantedServices() const noexcept override
+    {
+        return ESvc::Input;
+    }
+
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
     void OnUpdate(f32 dt) noexcept override;
+    /** scene入力の6 actionから自由カメラを固定刻みで更新する。 */
+    void OnFixedUpdate(f32 fixed_dt) noexcept override;
     void OnRender(FRenderContext& context) noexcept override;
 
 private:
@@ -1180,6 +1190,9 @@ private:
     i32 m_ActiveCameraNodeId = -1;
     /** device非依存の自由camera計算器。 */
     COrbitCameraController3D m_OrbitCameraController{};
+
+    /** scene入力を自由cameraの6操作軸へ変換するaction集合。 */
+    FOrbitCameraInputActionSet3D m_OrbitCameraActions{};
 
     /** 自由cameraのsnapshot可能なworld状態。 */
     COrbitCameraController3D::FOrbitCameraState3D m_OrbitCameraState{};
