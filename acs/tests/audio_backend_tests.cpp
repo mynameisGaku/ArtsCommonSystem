@@ -11,7 +11,7 @@ using namespace acs::game;
 namespace {
 
 /** SetVoiceParameters を上書きせず既定の音量 fallback を記録する backend。 */
-class FDefaultVoiceParametersBackend final : public IAudioBackend {
+class CDefaultVoiceParametersBackend final : public IAudioBackend {
 public:
     /** 初期化済みとして成功する。 */
     TResult<void> Init(u32) noexcept override
@@ -120,7 +120,7 @@ ACS_TEST(AudioBackend, XAudio2RejectsUnboundedVoicePoolsBeforeOsInitialization)
 
 ACS_TEST(AudioBackend, VoiceParametersDefaultUsesFiniteClampedVolumeFallback)
 {
-    FDefaultVoiceParametersBackend Backend;
+    CDefaultVoiceParametersBackend Backend;
     const FAudioVoiceHandle Voice = FAudioVoiceHandle::FromPackedValue(17u);
 
     Backend.SetVoiceParameters(Voice, 0.25f, -1.0f, 4.0f);
