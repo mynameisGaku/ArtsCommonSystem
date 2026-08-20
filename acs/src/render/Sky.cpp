@@ -1620,11 +1620,14 @@ float traceCloudShadowPattern(
         float3 coneDir=cloudConeDirection(
             sun,lightTangent,lightBitangent,
             coneSin,coneCos,coneGeometry);
-        lp+=coneDir*lightStep;
+        // 区間終端ではなく中央で密度を評価し、同じ採取数で一次の密度変化を正しく積分する。
+        float3 lightHalfStep=coneDir*(0.5*lightStep);
+        lp+=lightHalfStep;
         CloudMacroSample lightMacro=
             sampleCloudMacroLighting(lp,coverage);
         float lightDensity=cloudShapeFromMacro(lightMacro);
         lightDepth+=lightDensity*lightStep*layer.w;
+        lp+=lightHalfStep;
         lightStep*=1.65;
     }
     return lightDepth;
@@ -1957,7 +1960,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 float3 coneDir=cloudConeDirection(
                     sun,lightTangent,lightBitangent,
                     coneSin,coneCos,coneGeometry);
-                lp+=coneDir*lightStep;
+                float3 lightHalfStep=coneDir*(0.5*lightStep);
+                lp+=lightHalfStep;
                 CloudMacroSample lightMacro=
                     sampleCloudMacroLightingFromSlowFields(
                         lp,viewWeatherMask,coverageTerms.w,
@@ -1965,6 +1969,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                         p,viewMacroUvw,macro.height,sharedShapeScale);
                 float lightDensity=cloudDensityFromPositiveWeatherMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,0.65,1.0);
                 lightDepth+=lightDensity*lightStep*layer.w;
+                // 次区間と影キャッシュは従来と同じ区間終端から始める。
+                lp+=lightHalfStep;
                 // 直接光と多重散乱の近似値が知覚できない水準まで下がった後は、残りを省略する。
                 if(lightDepth*density*cloudLightingExtinction.y>18.0){
                     lightTerminated=true;
@@ -2001,13 +2007,15 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                     float3 coneDir=cloudConeDirection(
                         sun,lightTangent,lightBitangent,
                         coneSin,coneCos,coneGeometry);
-                    lp+=coneDir*lightStep;
+                    float3 lightHalfStep=coneDir*(0.5*lightStep);
+                    lp+=lightHalfStep;
                     float lightDensity=
                         sampleCloudLightingShapeFromSlowFields(
                             lp,viewWeatherMask,coverageTerms.w,
                             sharedLightProfileTerms,
                             p,viewMacroUvw,macro.height,sharedShapeScale);
                     lightDepth+=lightDensity*lightStep*layer.w;
+                    lp+=lightHalfStep;
                     if(lightDepth*density*cloudLightingExtinction.y>18.0) break;
                     float previousConeCos=coneCos;
                     coneCos=previousConeCos*(-0.737368878)

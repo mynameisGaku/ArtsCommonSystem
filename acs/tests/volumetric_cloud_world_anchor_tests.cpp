@@ -2722,8 +2722,9 @@ ACS_TEST(VolumetricClouds,
         "sun,lightTangent,lightBitangent,"
         "coneSin,coneCos,coneGeometry);",
         nearLightLoop);
+    const std::size_t lightHalfStep = shader.find("float3lightHalfStep=coneDir*(0.5*lightStep);", coneDirection);
     const std::size_t lightAdvance =
-        shader.find("lp+=coneDir*lightStep;", coneDirection);
+        shader.find("lp+=lightHalfStep;", lightHalfStep);
     const std::size_t lightMacro = shader.find(
         "CloudMacroSamplelightMacro="
         "sampleCloudMacroLightingFromSlowFields("
@@ -2739,6 +2740,8 @@ ACS_TEST(VolumetricClouds,
     const std::size_t lightAccumulate = shader.find(
         "lightDepth+=lightDensity*lightStep*layer.w;",
         nearDensity);
+    const std::size_t lightFinish =
+        shader.find("lp+=lightHalfStep;", lightAccumulate);
     const std::size_t recurrence = shader.find(
         "floatpreviousConeCos=coneCos;"
         "coneCos=previousConeCos*(-0.737368878)"
@@ -2753,20 +2756,24 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(pairedTrig != std::string::npos);
     EXPECT_TRUE(cacheCompileOut != std::string::npos);
     EXPECT_TRUE(coneDirection != std::string::npos);
+    EXPECT_TRUE(lightHalfStep != std::string::npos);
     EXPECT_TRUE(lightAdvance != std::string::npos);
     EXPECT_TRUE(lightMacro != std::string::npos);
     EXPECT_TRUE(nearDensity != std::string::npos);
     EXPECT_TRUE(lightAccumulate != std::string::npos);
+    EXPECT_TRUE(lightFinish != std::string::npos);
     EXPECT_TRUE(recurrence != std::string::npos);
     EXPECT_TRUE(viewLoop < lightPhase);
     EXPECT_TRUE(lightPhase < pairedTrig);
     EXPECT_TRUE(pairedTrig < nearLightLoop);
     EXPECT_TRUE(nearLightLoop < coneDirection);
-    EXPECT_TRUE(coneDirection < lightAdvance);
+    EXPECT_TRUE(coneDirection < lightHalfStep);
+    EXPECT_TRUE(lightHalfStep < lightAdvance);
     EXPECT_TRUE(lightAdvance < lightMacro);
     EXPECT_TRUE(lightMacro < nearDensity);
     EXPECT_TRUE(nearDensity < lightAccumulate);
-    EXPECT_TRUE(lightAccumulate < recurrence);
+    EXPECT_TRUE(lightAccumulate < lightFinish);
+    EXPECT_TRUE(lightFinish < recurrence);
     EXPECT_TRUE(recurrence < cacheCompileOut);
     EXPECT_TRUE(cacheCompileOut < farLightLoop);
     EXPECT_TRUE(Contains(shader, "floatlightStep=baseLightStep;" "lightStep*=lerp(0.72,1.28,lightJitter);"));
@@ -2828,6 +2835,46 @@ ACS_TEST(VolumetricClouds,
                   static_cast<std::size_t>(0));
         EXPECT_FALSE(Contains(completeLightSection, "[branch]if(l>=3)"));
     }
+}
+
+ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrigin) {
+    constexpr f32 kStepLength = 8.0f;
+    const auto decreasingLinearDensity = [kStepLength](f32 distance) noexcept { return 1.0f - distance / kStepLength; };
+    const f32 exactDepth = 0.5f * kStepLength;
+    const f32 rightEndpointDepth = decreasingLinearDensity(kStepLength) * kStepLength;
+    const f32 midpointDepth = decreasingLinearDensity(0.5f * kStepLength) * kStepLength;
+
+    // 終点法は区間内で濃度が下がる雲縁を見落とすが、中央法は一次変化の積分値と一致する。
+    EXPECT_NEAR(rightEndpointDepth, 0.0f, 0.0f);
+    EXPECT_NEAR(midpointDepth, exactDepth, 1e-6f);
+    EXPECT_TRUE(std::fabs(rightEndpointDepth - exactDepth) > 0.49f * kStepLength);
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_EQ(CountOccurrences(shader, "float3lightHalfStep=coneDir*(0.5*lightStep);"), static_cast<std::size_t>(3));
+    EXPECT_EQ(CountOccurrences(shader, "lp+=lightHalfStep;"), static_cast<std::size_t>(6));
+    EXPECT_FALSE(Contains(shader, "lp+=coneDir*lightStep;"));
+
+    const std::size_t cacheBegin = shader.find("floattraceCloudShadowPattern(");
+    const std::size_t cacheEnd = shader.find("returnlightDepth;}", cacheBegin);
+    EXPECT_TRUE(cacheBegin != std::string::npos);
+    EXPECT_TRUE(cacheEnd != std::string::npos);
+    if (cacheBegin != std::string::npos && cacheEnd != std::string::npos) {
+        const std::string cacheBody = shader.substr(cacheBegin, cacheEnd - cacheBegin);
+        EXPECT_EQ(CountOccurrences(cacheBody, "float3lightHalfStep=coneDir*(0.5*lightStep);"), static_cast<std::size_t>(1));
+        EXPECT_EQ(CountOccurrences(cacheBody, "lp+=lightHalfStep;"), static_cast<std::size_t>(2));
+        EXPECT_TRUE(Contains(cacheBody, "lp+=lightHalfStep;CloudMacroSamplelightMacro=sampleCloudMacroLighting(lp,coverage);"));
+        EXPECT_TRUE(Contains(cacheBody, "lightDepth+=lightDensity*lightStep*layer.w;lp+=lightHalfStep;lightStep*=1.65;"));
+    }
+    const std::size_t nearLoop = shader.find("[loop]for(intl=0;l<3;l++)");
+    const std::size_t cacheAttempt = shader.find("if(!lightTerminated&&CLOUD_MAIN_SHADOW_CACHE_ENABLED){", nearLoop);
+    const std::size_t nearTailOrigin = shader.rfind("lp+=lightHalfStep;", cacheAttempt);
+    EXPECT_TRUE(nearLoop != std::string::npos);
+    EXPECT_TRUE(cacheAttempt != std::string::npos);
+    EXPECT_TRUE(nearTailOrigin != std::string::npos);
+    EXPECT_TRUE(nearLoop < nearTailOrigin);
+    EXPECT_TRUE(nearTailOrigin < cacheAttempt);
+    EXPECT_TRUE(Contains(shader, "float3cachedTailSample=sampleCloudShadowTail(lp,density);"));
 }
 
 ACS_TEST(VolumetricClouds, LightProbePhaseCoversEveryDepthBandWithoutRepeatingOnePlane)
@@ -3797,7 +3844,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "[loop]for(intl=3;l<8;l++){"));
     EXPECT_TRUE(Contains(
         shader,
-        "lp+=coneDir*lightStep;"
+        "float3lightHalfStep=coneDir*(0.5*lightStep);"
+        "lp+=lightHalfStep;"
         "CloudMacroSamplelightMacro="));
     EXPECT_TRUE(Contains(
         compactSource,
