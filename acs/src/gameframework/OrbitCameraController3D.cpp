@@ -63,6 +63,15 @@ bool IsValidInput(const COrbitCameraController3D::FOrbitCameraInput3D& input) no
     return valid_movement && valid_look && std::isfinite(input.zoom);
 }
 
+/** stateが現在設定から安全なviewを構築できる範囲ならtrueを返す。 */
+bool IsViewState(const COrbitCameraController3D::FOrbitCameraSettings3D& settings, const COrbitCameraController3D::FOrbitCameraState3D& state) noexcept
+{
+    if (!IsValidState(state)) return false;
+    if (state.pitch_radians < -settings.pitch_limit_radians || state.pitch_radians > settings.pitch_limit_radians)
+        return false;
+    return state.distance >= settings.minimum_distance && state.distance <= settings.maximum_distance;
+}
+
 } // namespace
 
 /** 設定を隔離検証し、成功時だけ現在設定へ反映する。 */
@@ -121,13 +130,32 @@ bool COrbitCameraController3D::TryStep(const FOrbitCameraInput3D& input, f32 del
     return true;
 }
 
+/** 前回と現在の固定tick状態を最短yaw経路で描画用状態へ補間する。 */
+bool COrbitCameraController3D::TryInterpolateState(const FOrbitCameraState3D& previous, const FOrbitCameraState3D& current, f64 interpolation_alpha, FOrbitCameraState3D& output) const noexcept
+{
+    if (!IsValidSettings(m_Settings) || !IsViewState(m_Settings, previous) || !IsViewState(m_Settings, current))
+        return false;
+    if (!std::isfinite(interpolation_alpha) || interpolation_alpha < 0.0 || interpolation_alpha > 1.0) return false;
+
+    /** float状態へ適用する検証済み補間率。 */
+    const f32 blend = static_cast<f32>(interpolation_alpha);
+    /** ±pi境界を越える場合も長回りさせない水平角差。 */
+    const f32 yaw_delta = WrapRadians(current.yaw_radians - previous.yaw_radians);
+    /** 全項目を検証してから公開する描画用候補。 */
+    FOrbitCameraState3D candidate{};
+    candidate.target = Lerp(previous.target, current.target, blend);
+    candidate.yaw_radians = WrapRadians(previous.yaw_radians + yaw_delta * blend);
+    candidate.pitch_radians = Lerp(previous.pitch_radians, current.pitch_radians, blend);
+    candidate.distance = Lerp(previous.distance, current.distance, blend);
+    if (!IsViewState(m_Settings, candidate)) return false;
+    output = candidate;
+    return true;
+}
+
 /** orbit状態をLegacyScene3Dと同じ左手系view座標へ変換する。 */
 bool COrbitCameraController3D::TryBuildView(const FOrbitCameraState3D& state, FOrbitCameraView3D& view) const noexcept
 {
-    if (!IsValidSettings(m_Settings) || !IsValidState(state)) return false;
-    if (state.pitch_radians < -m_Settings.pitch_limit_radians) return false;
-    if (state.pitch_radians > m_Settings.pitch_limit_radians) return false;
-    if (state.distance < m_Settings.minimum_distance || state.distance > m_Settings.maximum_distance) return false;
+    if (!IsValidSettings(m_Settings) || !IsViewState(m_Settings, state)) return false;
 
     const f32 pitch_cosine = Cos(state.pitch_radians);
     const FVec3 forward{Sin(state.yaw_radians) * pitch_cosine, -Sin(state.pitch_radians), Cos(state.yaw_radians) * pitch_cosine};

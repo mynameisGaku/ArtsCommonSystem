@@ -963,7 +963,7 @@ ACS_REF.modules.push({
     {
       name: "ALegacyScene3DAdapter",
       kind: "クラス", header: "gameframework/LegacyScene3DAdapter.h",
-      summary: "旧scene 3D入口を現行scene lifecycleと固定tick自由camera入力へ接続する互換object。",
+      summary: "旧scene 3D入口を現行scene lifecycle、固定tick自由camera入力、描画補間へ接続する互換object。",
       when: "旧scene実装を段階的に移行する時。",
       members: [
         { sig: "ESvc WantedServices() const", desc: "自由camera用のscene入力serviceを要求する。" },

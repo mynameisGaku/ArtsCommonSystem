@@ -315,7 +315,7 @@ ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraIgnoresRenderFramePartition)
     const FVec3 single_frame_eye = single_frame_scene->Camera().Eye();
     /** 分割frame側で同じ二つの固定tickを適用したcamera位置。 */
     const FVec3 partitioned_frame_eye = partitioned_frame_scene->Camera().Eye();
-    EXPECT_TRUE(single_frame_eye.z > before.z + 1.0f);
+    EXPECT_TRUE(single_frame_eye.z > before.z + 0.5f);
     EXPECT_NEAR(single_frame_eye.x, partitioned_frame_eye.x, 1.0e-5f);
     EXPECT_NEAR(single_frame_eye.y, partitioned_frame_eye.y, 1.0e-5f);
     EXPECT_NEAR(single_frame_eye.z, partitioned_frame_eye.z, 1.0e-5f);
@@ -323,6 +323,51 @@ ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraIgnoresRenderFramePartition)
     EXPECT_EQ(partitioned_frame_source.CaptureCount(), 2u);
     partitioned_frame_game.ShutdownForTest();
     single_frame_game.ShutdownForTest();
+}
+
+ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraInterpolatesBetweenFixedTicks)
+{
+    /** tick 0で前進を供給する固定入力source。 */
+    CScriptedFixedTickInputSource source;
+    /** 0.125秒固定tickでLegacy 3D sceneを進めるgame。 */
+    CLegacyFixedOrbitCameraGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.SetFixedTickInputSource(source);
+    EXPECT_TRUE(game.StartForTest());
+
+    /** scene managerが所有する検証対象scene。 */
+    ALegacyScene3DAdapter* scene = game.SceneForTest();
+    EXPECT_TRUE(scene != nullptr);
+    if (scene == nullptr) {
+        game.ShutdownForTest();
+        return;
+    }
+    /** 最初の固定tick前に表示されるcamera位置。 */
+    const FVec3 before = scene->Camera().Eye();
+    game.UpdateForTest(0.125f);
+    /** tick境界では前回確定状態を表示するcamera位置。 */
+    const FVec3 boundary = scene->Camera().Eye();
+    EXPECT_NEAR(boundary.x, before.x, 1.0e-5f);
+    EXPECT_NEAR(boundary.y, before.y, 1.0e-5f);
+    EXPECT_NEAR(boundary.z, before.z, 1.0e-5f);
+
+    game.UpdateForTest(0.0625f);
+    /** 次tickまで半分進んだ時の補間済みcamera位置。 */
+    const FVec3 halfway = scene->Camera().Eye();
+    EXPECT_NEAR(halfway.x, before.x, 1.0e-5f);
+    EXPECT_NEAR(halfway.y, before.y, 1.0e-5f);
+    EXPECT_TRUE(halfway.z > before.z + 0.25f);
+    EXPECT_TRUE(halfway.z < before.z + 0.30f);
+    EXPECT_EQ(source.CaptureCount(), 1u);
+
+    game.DisableFixedTimestep();
+    game.UpdateForTest(0.0f);
+    /** 固定timestep無効時に巻き戻さず表示する現在camera位置。 */
+    const FVec3 disabled = scene->Camera().Eye();
+    EXPECT_TRUE(disabled.z > before.z + 0.50f);
+    EXPECT_TRUE(disabled.z < before.z + 0.60f);
+    EXPECT_EQ(source.CaptureCount(), 1u);
+    game.ShutdownForTest();
 }
 
 ACS_TEST(GameFixedRuntimeInput, RuntimeRestoreReissuesTheSameDeterministicTick)

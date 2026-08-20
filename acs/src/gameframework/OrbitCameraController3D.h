@@ -114,6 +114,16 @@ public:
     bool TryStep(const FOrbitCameraInput3D& input, f32 delta_seconds, FOrbitCameraState3D& state) const noexcept;
 
     /**
+     * 前回と現在の固定tick状態を描画補間率で混ぜる。
+     * @param previous 前回の固定tick後状態。
+     * @param current 現在の固定tick後状態。
+     * @param interpolation_alpha previousを0、currentを1とする[0,1]の描画補間率。
+     * @param output 補間した描画用状態。失敗時は変更しない。
+     * @return 設定、両状態、補間率が有効ならtrue。
+     */
+    bool TryInterpolateState(const FOrbitCameraState3D& previous, const FOrbitCameraState3D& current, f64 interpolation_alpha, FOrbitCameraState3D& output) const noexcept;
+
+    /**
      * orbit状態からeye、look-at、upを計算する。
      * @return 状態が有効ならtrue。失敗時はviewを変更しない。
      */

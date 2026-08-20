@@ -299,6 +299,10 @@ private:
     void ReleaseGpu() noexcept;
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
     void UpdateCameraView() noexcept;
+    /** 指定したorbit状態をcameraと表示用状態へ反映する内部処理。 */
+    void UpdateOrbitCameraView_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state) noexcept;
+    /** 固定時計の補間率から今回描画するcamera状態を反映する内部処理。 */
+    void UpdatePresentedCameraView_Internal() noexcept;
     void AdoptLoadedCamera() noexcept;
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
@@ -392,8 +396,14 @@ private:
     /** scene入力を自由cameraの6操作軸へ変換するaction集合。 */
     FOrbitCameraInputActionSet3D m_OrbitCameraActions{};
 
+    /** 一つ前の固定tick完了時に確定した自由camera状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D m_PreviousOrbitCameraState{};
+
     /** 自由cameraのsnapshot可能なworld状態。 */
     COrbitCameraController3D::FOrbitCameraState3D m_OrbitCameraState{};
+
+    /** viewとprojectionへ最後に反映した補間済み自由camera状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D m_PresentedOrbitCameraState{};
 
     f32 m_Time = 0.0f;
     FPostProcessParams m_PostParams{};

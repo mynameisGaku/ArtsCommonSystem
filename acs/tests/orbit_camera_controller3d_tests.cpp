@@ -76,6 +76,61 @@ ACS_TEST(OrbitCameraController3D, LookClampsPitchAndWrapsYaw)
     EXPECT_NEAR(state.pitch_radians, controller.Settings().pitch_limit_radians, 1.0e-6f);
 }
 
+ACS_TEST(OrbitCameraController3D, InterpolatesStateAcrossShortestYawArc)
+{
+    /** 既定の安全範囲で補間するcontroller。 */
+    COrbitCameraController3D controller;
+    /** +pi側にある前回固定tick状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D previous{};
+    previous.target = FVec3{0.0f, 2.0f, 4.0f};
+    previous.yaw_radians = ToRadians(170.0f);
+    previous.pitch_radians = -0.2f;
+    previous.distance = 10.0f;
+    /** -pi側にある現在固定tick状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D current{};
+    current.target = FVec3{10.0f, 6.0f, 8.0f};
+    current.yaw_radians = ToRadians(-170.0f);
+    current.pitch_radians = 0.6f;
+    current.distance = 2.0f;
+    /** 二状態の中間を受け取る描画用状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D interpolated{};
+
+    EXPECT_TRUE(controller.TryInterpolateState(previous, current, 0.5, interpolated));
+    EXPECT_NEAR(interpolated.target.x, 5.0f, 1.0e-6f);
+    EXPECT_NEAR(interpolated.target.y, 4.0f, 1.0e-6f);
+    EXPECT_NEAR(interpolated.target.z, 6.0f, 1.0e-6f);
+    EXPECT_NEAR(Cos(interpolated.yaw_radians), -1.0f, 1.0e-5f);
+    EXPECT_NEAR(Sin(interpolated.yaw_radians), 0.0f, 1.0e-5f);
+    EXPECT_NEAR(interpolated.pitch_radians, 0.2f, 1.0e-6f);
+    EXPECT_NEAR(interpolated.distance, 6.0f, 1.0e-6f);
+}
+
+ACS_TEST(OrbitCameraController3D, InvalidInterpolationPreservesOutput)
+{
+    /** 不正入力をtransactionalに拒否するcontroller。 */
+    COrbitCameraController3D controller;
+    /** 有効な前回固定tick状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D previous{};
+    /** 検証ごとに壊す現在固定tick状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D current{};
+    /** 失敗時に維持されるsentinel出力。 */
+    COrbitCameraController3D::FOrbitCameraState3D output{};
+    output.target = FVec3{9.0f, 8.0f, 7.0f};
+    output.yaw_radians = 0.5f;
+    output.pitch_radians = 0.25f;
+    output.distance = 6.0f;
+    /** 各失敗後に比較する変更前出力。 */
+    const COrbitCameraController3D::FOrbitCameraState3D original = output;
+
+    EXPECT_FALSE(controller.TryInterpolateState(previous, current, std::numeric_limits<f64>::quiet_NaN(), output));
+    ExpectStateNear(output, original, 0.0f);
+    EXPECT_FALSE(controller.TryInterpolateState(previous, current, 1.01, output));
+    ExpectStateNear(output, original, 0.0f);
+    current.distance = 0.0f;
+    EXPECT_FALSE(controller.TryInterpolateState(previous, current, 0.5, output));
+    ExpectStateNear(output, original, 0.0f);
+}
+
 ACS_TEST(OrbitCameraController3D, ZoomChangesDistanceAndClampsRange)
 {
     COrbitCameraController3D controller;
