@@ -2157,7 +2157,10 @@ ACS_TEST(VolumetricClouds,
     // Four independently transformed domains make the shared tile period much
     // longer while all inputs remain absolute-world coordinates.
     EXPECT_TRUE(Contains(shader, "float3uvwD=float3("));
-    EXPECT_TRUE(Contains(shader, ")*4.73+float3(0.263,0.887,0.491);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        ")*4.73+float3(0.263,0.887,0.491)"
+        "+float3(cloudEvolution.y,-cloudEvolution.x,cloudEvolution.x);"));
     EXPECT_TRUE(Contains(
         shader,
         "floatshape=basePerlinWorley(a)*0.45;"));
@@ -3115,7 +3118,7 @@ ACS_TEST(VolumetricClouds,
         "offsetof(FCloudCb,cloudShellTerms)==432u"));
     EXPECT_TRUE(Contains(
         compactSource,
-        "sizeof(FCloudCb)==624"));
+        "sizeof(FCloudCb)==640"));
     EXPECT_TRUE(Contains(
         compactSource,
         "constFVec3shellLocalOrigin{"
@@ -3258,6 +3261,7 @@ ACS_TEST(VolumetricClouds,
     // These expressions previously sat below helpers called by every view and
     // light-cone sample. CloudCB now carries their one-per-frame results.
     EXPECT_TRUE(Contains(shader, "float4cloudFrameTerms;"));
+    EXPECT_TRUE(Contains(shader, "float4cloudEvolution;"));
     EXPECT_TRUE(Contains(shader, "float4cloudLightTangent;"));
     EXPECT_TRUE(Contains(shader, "float4cloudLightBitangent;"));
     EXPECT_TRUE(Contains(
@@ -3296,7 +3300,7 @@ ACS_TEST(VolumetricClouds,
 
     EXPECT_TRUE(Contains(
         compactSource,
-        "sizeof(FCloudCb)==624"));
+        "sizeof(FCloudCb)==640"));
     EXPECT_TRUE(Contains(
         compactSource,
         "offsetof(FCloudCb,cloudFrameTerms)==336u"));
@@ -3306,11 +3310,21 @@ ACS_TEST(VolumetricClouds,
         "offsetof(FCloudCb,cloudLightBitangent)==368u"));
     EXPECT_TRUE(Contains(
         compactSource,
+        "offsetof(FCloudCb,cloudEvolution)==624u"));
+    EXPECT_TRUE(Contains(
+        compactSource,
         "cb.cloudFrameTerms=FVec4{"
         "densityFrameTerms.wind_world.x,"
         "densityFrameTerms.wind_world.y,"
         "densityFrameTerms.shape_scale,"
         "densityFrameTerms.inverse_layer_height};"));
+    EXPECT_TRUE(Contains(
+        compactSource,
+        "cb.cloudEvolution=FVec4{"
+        "evolutionFrameTerms.shape_phase.x,"
+        "evolutionFrameTerms.shape_phase.y,"
+        "evolutionFrameTerms.fine_phase.x,"
+        "evolutionFrameTerms.fine_phase.y};"));
     EXPECT_TRUE(Contains(
         compactSource,
         "cb.cloudLightTangent=FVec4{"
@@ -3481,6 +3495,116 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 192u);
     EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
+}
+
+ACS_TEST(VolumetricClouds,
+         EvolutionPhasesMorphIndependentDomainsWithoutAdditionalTextureReads) {
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudCS"));
+    const std::string compactSource = CompactShader(source);
+    EXPECT_TRUE(!shader.empty());
+
+    // 基準領域の採取数を増やさず、既存の独立領域だけへ異なる位相ずれを加える。
+    EXPECT_EQ(
+        CountOccurrences(shader, "shapeNoise.SampleLevel("),
+        static_cast<std::size_t>(7));
+    EXPECT_EQ(
+        CountOccurrences(shader, "weatherMap.SampleLevel("),
+        static_cast<std::size_t>(2));
+    EXPECT_EQ(
+        CountOccurrences(shader, "curlNoise.SampleLevel("),
+        static_cast<std::size_t>(2));
+    EXPECT_EQ(
+        CountOccurrences(shader, "detailNoise.SampleLevel("),
+        static_cast<std::size_t>(3));
+    EXPECT_EQ(
+        CountOccurrences(
+            shader,
+            "+float3(cloudEvolution.x,cloudEvolution.y,-cloudEvolution.x);"),
+        static_cast<std::size_t>(2));
+    EXPECT_EQ(
+        CountOccurrences(
+            shader,
+            "+float3(-cloudEvolution.y,cloudEvolution.x,cloudEvolution.y);"),
+        static_cast<std::size_t>(2));
+    EXPECT_TRUE(Contains(
+        shader,
+        "+float3(cloudEvolution.y,-cloudEvolution.x,cloudEvolution.x);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "curlUv+=float4(0.0,0.0,cloudEvolution.z,cloudEvolution.w);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "detailDomainA+float3(0.19,0.67,0.41)"
+        "+float3(cloudEvolution.z,cloudEvolution.w,-cloudEvolution.z)"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "detailDomainB+float3(0.73,0.23,0.59)"
+        "+float3(-cloudEvolution.w,cloudEvolution.z,cloudEvolution.w)"));
+    EXPECT_TRUE(Contains(
+        compactSource,
+        "ResolveVolumetricCloudEvolutionFrameTerms(safeTime,safeWind)"));
+
+    // 時刻 0 は従来の密度場と一致し、無風でも時間が進めば形状だけが変化する。
+    const auto zero = ResolveVolumetricCloudEvolutionFrameTerms(0.0f, 20.0f);
+    EXPECT_NEAR(zero.shape_phase.x, 0.0f, 0.0f);
+    EXPECT_NEAR(zero.shape_phase.y, 0.0f, 0.0f);
+    EXPECT_NEAR(zero.fine_phase.x, 0.0f, 0.0f);
+    EXPECT_NEAR(zero.fine_phase.y, 0.0f, 0.0f);
+    const auto still =
+        ResolveVolumetricCloudEvolutionFrameTerms(60.0f, 0.0f);
+    const f32 stillChange =
+        std::fabs(still.shape_phase.x) +
+        std::fabs(still.shape_phase.y) +
+        std::fabs(still.fine_phase.x) +
+        std::fabs(still.fine_phase.y);
+    EXPECT_TRUE(stillChange > 0.05f);
+
+    // 風向きの符号は移流だけへ反映し、変形速度は風速の大きさで決める。
+    const auto forward =
+        ResolveVolumetricCloudEvolutionFrameTerms(60.0f, 1.0f);
+    const auto reverse =
+        ResolveVolumetricCloudEvolutionFrameTerms(60.0f, -1.0f);
+    EXPECT_NEAR(forward.shape_phase.x, reverse.shape_phase.x, 0.0f);
+    EXPECT_NEAR(forward.shape_phase.y, reverse.shape_phase.y, 0.0f);
+    EXPECT_NEAR(forward.fine_phase.x, reverse.fine_phase.x, 0.0f);
+    EXPECT_NEAR(forward.fine_phase.y, reverse.fine_phase.y, 0.0f);
+
+    // 60 Hz の隣接フレームでは位相が急変せず、時間再構成へ過大な差を渡さない。
+    const auto nextFrame = ResolveVolumetricCloudEvolutionFrameTerms(
+        60.0f + 1.0f / 60.0f, 1.0f);
+    EXPECT_TRUE(std::fabs(nextFrame.shape_phase.x - forward.shape_phase.x) < 0.001f);
+    EXPECT_TRUE(std::fabs(nextFrame.shape_phase.y - forward.shape_phase.y) < 0.001f);
+    EXPECT_TRUE(std::fabs(nextFrame.fine_phase.x - forward.fine_phase.x) < 0.001f);
+    EXPECT_TRUE(std::fabs(nextFrame.fine_phase.y - forward.fine_phase.y) < 0.001f);
+
+    // 非有限値や極端な有限値でも GPU へ渡す範囲を超えない。
+    const f32 hostileTimes[] = {
+        std::numeric_limits<f32>::quiet_NaN(),
+        -std::numeric_limits<f32>::infinity(),
+        std::numeric_limits<f32>::infinity(),
+        std::numeric_limits<f32>::lowest(),
+        std::numeric_limits<f32>::max()};
+    const f32 hostileWinds[] = {
+        std::numeric_limits<f32>::quiet_NaN(),
+        -std::numeric_limits<f32>::infinity(),
+        std::numeric_limits<f32>::infinity(),
+        std::numeric_limits<f32>::max()};
+    for (const f32 hostileTime : hostileTimes) {
+        for (const f32 hostileWind : hostileWinds) {
+            const auto terms = ResolveVolumetricCloudEvolutionFrameTerms(
+                hostileTime, hostileWind);
+            EXPECT_TRUE(std::isfinite(terms.shape_phase.x));
+            EXPECT_TRUE(std::isfinite(terms.shape_phase.y));
+            EXPECT_TRUE(std::isfinite(terms.fine_phase.x));
+            EXPECT_TRUE(std::isfinite(terms.fine_phase.y));
+            EXPECT_TRUE(std::fabs(terms.shape_phase.x) <= 0.180001f);
+            EXPECT_TRUE(std::fabs(terms.shape_phase.y) <= 0.160001f);
+            EXPECT_TRUE(std::fabs(terms.fine_phase.x) <= 0.110001f);
+            EXPECT_TRUE(std::fabs(terms.fine_phase.y) <= 0.090001f);
+        }
+    }
 }
 
 ACS_TEST(VolumetricClouds,
@@ -3848,7 +3972,7 @@ ACS_TEST(VolumetricClouds,
         compactSource,
         "offsetof(FCloudCb,groundHorizon)==320u"));
     EXPECT_TRUE(Contains(
-        compactSource, "sizeof(FCloudCb)==624"));
+        compactSource, "sizeof(FCloudCb)==640"));
     EXPECT_TRUE(Contains(
         compactSource,
         "offsetof(FCloudCb,cloudFrameTerms)==336u"));

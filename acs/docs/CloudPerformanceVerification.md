@@ -128,6 +128,22 @@ These bounds establish numerical and cache-coherency safety. They do not by
 themselves prove that the heuristic density, phase, or multiple-scattering
 model is physically calibrated; that remains a visual-reference requirement.
 
+## 雲形状の時間変化
+
+風の移流だけでは密度場全体が同じ方向へ平行移動し、雲の輪郭や内部の盛り上がりは変化しない。
+現在の実装は、天候領域と基本形状の第 1 領域をワールド座標へ固定したまま、残りの基本形状領域、
+第 2 渦領域、二つの侵食領域へ異なる低速の位相ずれを加える。これにより大きな雲塊の連続性を
+保ちながら、輪郭と細部が非剛体に成長・浸食する。
+
+位相ずれは `ResolveVolumetricCloudEvolutionFrameTerms()` が CPU で 1 フレームに一度だけ求め、
+視線方向と光方向の密度評価で共有する。既存のテクスチャ採取位置を動かすだけなので、形状、
+天候、渦、侵食の採取回数は増えない。時刻 0 では全項が 0 となり従来の密度場を保つ。無風でも
+緩やかな対流変形は続き、風速の絶対値が大きい場合だけ変化速度を制限範囲内で上げる。
+
+時間再構成は 0.25 秒を超える時刻飛びで履歴を無効化する。通常フレーム間の位相差は十分小さく、
+既存の色・深度検査で局所的な形状変化を処理する。実験的な太陽深度キャッシュは現在無効である。
+再び有効にする場合は、位相ずれをキャッシュ鍵へ含めることを必須とする。
+
 Both the Editor and legacy Scene3D paths update cloud illumination from the
 current scene before dispatch. They evaluate atmospheric RGB transmittance at
 the normalized cloud-layer midpoint, use the current zenith color for the

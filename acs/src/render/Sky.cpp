@@ -897,6 +897,8 @@ cbuffer CloudCB : register(b0) {
     float4 cloudUpperLayer;
     // x=上層の被覆の割合, y=上層の濃さの割合
     float4 cloudUpperTerms;
+    // xy=基本形状の位相ずれ, zw=渦と侵食の位相ずれ
+    float4 cloudEvolution;
 };
 RWTexture2D<float4> cloudOut : register(u0);
 RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒット距離, y=アルファ信頼度
@@ -1110,6 +1112,8 @@ float2 cloudCurlOffset(float3 p){
     float4 curlUv=
         rotated/float4(1536.0,1536.0,947.0,947.0)
        +float4(0.137,0.619,0.743,0.281);
+    // 基準領域を固定し、第 2 領域だけを動かして渦の形を時間変化させる。
+    curlUv+=float4(0.0,0.0,cloudEvolution.z,cloudEvolution.w);
     float2 a=curlNoise.SampleLevel(
         curlNoise_sampler,curlUv.xy,0).rg;
     float2 b=curlNoise.SampleLevel(
@@ -1180,7 +1184,8 @@ void cloudBaseShape(
     // mid-frequency lobe. The former 0.613 multiplier made both lobes larger
     // than the complete upward editor view after switching to metre units.
     float3 uvwB=rotateNoise(uvw)*1.83
-               +float3(0.371,0.119,0.733);
+               +float3(0.371,0.119,0.733)
+               +float3(cloudEvolution.x,cloudEvolution.y,-cloudEvolution.x);
     float2 b=shapeNoise.SampleLevel(shapeNoise_sampler,uvwB,0);
     shape+=basePerlinWorley(b)*0.27;
     [branch] if(shape+0.28<rejectionThreshold-1e-5) return;
@@ -1188,7 +1193,8 @@ void cloudBaseShape(
         dot(uvw,float3(0.707,0.183,-0.683)),
         dot(uvw,float3(-0.354,0.930,-0.098)),
         dot(uvw,float3(0.612,0.319,0.724)))*3.17
-        +float3(0.817,0.293,0.157);
+        +float3(0.817,0.293,0.157)
+        +float3(-cloudEvolution.y,cloudEvolution.x,cloudEvolution.y);
     float2 c=shapeNoise.SampleLevel(shapeNoise_sampler,uvwC,0);
     shape+=basePerlinWorley(c)*0.17;
     [branch] if(shape+0.11<rejectionThreshold-1e-5) return;
@@ -1200,7 +1206,8 @@ void cloudBaseShape(
         dot(uvw,float3(0.433,-0.782,0.448)),
         dot(uvw,float3(0.862,0.501,0.073)),
         dot(uvw,float3(-0.267,0.355,0.896)))*4.73
-        +float3(0.263,0.887,0.491);
+        +float3(0.263,0.887,0.491)
+        +float3(cloudEvolution.y,-cloudEvolution.x,cloudEvolution.x);
     float2 d=shapeNoise.SampleLevel(shapeNoise_sampler,uvwD,0);
     shapeResult=saturate(shape+basePerlinWorley(d)*0.11);
 }
@@ -1214,7 +1221,8 @@ void cloudBaseShapeLighting(
     float shape=basePerlinWorley(a)*0.51;
     [branch] if(shape+0.49<rejectionThreshold-1e-5) return;
     float3 uvwB=rotateNoise(uvw)*1.83
-               +float3(0.371,0.119,0.733);
+               +float3(0.371,0.119,0.733)
+               +float3(cloudEvolution.x,cloudEvolution.y,-cloudEvolution.x);
     float2 b=shapeNoise.SampleLevel(shapeNoise_sampler,uvwB,0);
     shape+=basePerlinWorley(b)*0.30;
     [branch] if(shape+0.19<rejectionThreshold-1e-5) return;
@@ -1222,7 +1230,8 @@ void cloudBaseShapeLighting(
         dot(uvw,float3(0.707,0.183,-0.683)),
         dot(uvw,float3(-0.354,0.930,-0.098)),
         dot(uvw,float3(0.612,0.319,0.724)))*3.17
-        +float3(0.817,0.293,0.157);
+        +float3(0.817,0.293,0.157)
+        +float3(-cloudEvolution.y,cloudEvolution.x,cloudEvolution.y);
     float2 c=shapeNoise.SampleLevel(shapeNoise_sampler,uvwC,0);
     shapeResult=saturate(shape+basePerlinWorley(c)*0.19);
 }
@@ -1476,10 +1485,12 @@ float cloudDensityFromPositiveWeatherMacro(
                 detailXz,p.y,detailDomainA,detailDomainB);
             float2 ndA=detailNoise.SampleLevel(
                 detailNoise_sampler,
-                detailDomainA+float3(0.19,0.67,0.41),0);
+                detailDomainA+float3(0.19,0.67,0.41)
+                +float3(cloudEvolution.z,cloudEvolution.w,-cloudEvolution.z),0);
             float2 ndB=detailNoise.SampleLevel(
                 detailNoise_sampler,
-                detailDomainB+float3(0.73,0.23,0.59),0);
+                detailDomainB+float3(0.73,0.23,0.59)
+                +float3(-cloudEvolution.w,cloudEvolution.z,cloudEvolution.w),0);
             float detailNear=ndA.g*0.62+ndB.g*0.38;
             float detailFar=ndA.r*0.62+ndB.r*0.38;
             float detail=lerp(detailFar,detailNear,saturate(detailWeight));
@@ -2764,8 +2775,9 @@ struct FCloudCb {
     FVec4 cloudRange;
     FVec4 cloudUpperLayer;
     FVec4 cloudUpperTerms;
+    FVec4 cloudEvolution;
 };
-static_assert(sizeof(FCloudCb) == 624, "CloudCB must match the HLSL layout");
+static_assert(sizeof(FCloudCb) == 640, "CloudCB must match the HLSL layout");
 static_assert(
     offsetof(FCloudCb, groundHorizon) == 320u,
     "CloudCB ground horizon must remain at HLSL register c20");
@@ -2794,6 +2806,9 @@ static_assert(
 static_assert(
     offsetof(FCloudCb, cloudLightingExtinction) == 448u,
     "CloudCB lighting terms must remain at HLSL register c28");
+static_assert(
+    offsetof(FCloudCb, cloudEvolution) == 624u,
+    "CloudCB の時間変化項は HLSL の c39 と一致させる");
 static_assert(
     CBSize<FCloudCb>() == 768u,
     "CloudCB allocation must preserve DX12's 256-byte alignment");
@@ -3406,6 +3421,37 @@ FVolumetricCloudDensityFrameTerms ResolveVolumetricCloudDensityFrameTerms(
         layerHeight = 1.0e-4f;
     }
     out.inverse_layer_height = 1.0f / layerHeight;
+    return out;
+}
+
+FVolumetricCloudEvolutionFrameTerms ResolveVolumetricCloudEvolutionFrameTerms(
+    f32 time, f32 wind_speed) noexcept {
+    FVolumetricCloudEvolutionFrameTerms out{};
+    if (!std::isfinite(time)) time = 0.0f;
+    if (!std::isfinite(wind_speed)) wind_speed = 0.0f;
+
+    // 極端な入力でも三角関数へ巨大な角度を渡さず、描画側の入力範囲と一致させる。
+    if (time < -10000000.0f) time = -10000000.0f;
+    if (time > 10000000.0f) time = 10000000.0f;
+    f32 windMagnitude = std::fabs(wind_speed);
+    if (windMagnitude > 4.0f) windMagnitude = 4.0f;
+
+    // 無風でも対流による変形を残し、強風時だけ穏やかに変化速度を上げる。
+    const f64 rateScale = 0.8 + static_cast<f64>(windMagnitude) * 0.2;
+    const auto periodicSin = [time, rateScale](f64 angularSpeed) noexcept {
+        constexpr f64 kTwoPi = 6.28318530717958647692;
+        const f64 angle = std::fmod(
+            static_cast<f64>(time) * rateScale * angularSpeed, kTwoPi);
+        return static_cast<f32>(std::sin(angle));
+    };
+
+    // 互いに割り切れない周期により、短い時間で同じ形へ戻る反復を避ける。
+    out.shape_phase = FVec2{
+        periodicSin(0.021) * 0.18f,
+        periodicSin(0.013) * 0.16f};
+    out.fine_phase = FVec2{
+        periodicSin(0.037) * 0.11f,
+        periodicSin(0.029) * 0.09f};
     return out;
 }
 
@@ -4471,14 +4517,16 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         sky_color, m_HistoryValid ? m_PrevSkyColor
                                   : FVec3{0.2f, 0.25f, 0.3f});
     const FVec3 worldOrigin = RebaseVolumetricCloudWorldOrigin(cam_pos);
-    // One scalar world-space advection distance drives weather, base shape,
-    // detail, curl and temporal reprojection.  Keeping it independent from
-    // noise frequency prevents layers from sliding through each other.
+    // 一つのワールド移流距離を天候、形状、侵食、渦、時間再投影で共有する。
+    // 雑音の周波数とは分離し、各領域が風によって互いに滑ることを防ぐ。
     const f32 windOffset = safeTime * safeWind * 2.5f;
 
     const FVec2 windWorld = VolumetricCloudWindOffsetXZ(windOffset);
     const FVolumetricCloudDensityFrameTerms densityFrameTerms =
         ResolveVolumetricCloudDensityFrameTerms(m_Layer, windOffset);
+    // 独立領域の相対移動だけを変え、基準領域のワールド固定と風移流は維持する。
+    const FVolumetricCloudEvolutionFrameTerms evolutionFrameTerms =
+        ResolveVolumetricCloudEvolutionFrameTerms(safeTime, safeWind);
     const FVec2 cameraQ = VolumetricCloudMaterialXZ(cam_pos, windOffset);
     bool shadowRecentered = false;
     if (!m_ShadowGridInitialized) {
@@ -4710,6 +4758,11 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         densityFrameTerms.wind_world.y,
         densityFrameTerms.shape_scale,
         densityFrameTerms.inverse_layer_height};
+    cb.cloudEvolution = FVec4{
+        evolutionFrameTerms.shape_phase.x,
+        evolutionFrameTerms.shape_phase.y,
+        evolutionFrameTerms.fine_phase.x,
+        evolutionFrameTerms.fine_phase.y};
     cb.cloudLightTangent = FVec4{
         lightBasis.tangent.x,
         lightBasis.tangent.y,

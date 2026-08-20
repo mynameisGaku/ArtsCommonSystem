@@ -799,20 +799,43 @@ FVolumetricCloudGroundHorizon ResolveVolumetricCloudGroundHorizon(
     FVec3 world_origin) noexcept;
 
 /**
- * Density-domain terms that are constant for a complete cloud frame.
+ * 雲の 1 フレーム中に変わらない密度座標の計算結果。
  *
- * Keeping these values in CloudCB prevents every view and light-cone sample
- * from rebuilding the identical world wind, shape frequency, and layer-height
- * reciprocal. The density coordinates remain absolute world-space values.
+ * @details 風による移流、基本形状の周波数、層高の逆数を CPU で一度だけ求める。
+ * 密度座標は絶対ワールド座標のまま維持する。
  */
 struct FVolumetricCloudDensityFrameTerms {
+    /** 風で移動した雲を参照するためにワールド座標から引く XZ 距離。 */
     FVec2 wind_world{};
+
+    /** 基本形状をワールド距離からテクスチャ座標へ変換する倍率。 */
     f32 shape_scale = 0.00012f;
+
+    /** 雲層内の高さを 0 から 1 へ正規化する層高の逆数。 */
     f32 inverse_layer_height = 1.0f;
 };
 
+/** 層設定と風移流距離から 1 フレーム共通の密度座標項を求める。 */
 FVolumetricCloudDensityFrameTerms ResolveVolumetricCloudDensityFrameTerms(
     const FVolumetricCloudLayer& layer, f32 wind_offset) noexcept;
+
+/**
+ * 追加のテクスチャ採取なしで雲形状を時間変化させる位相ずれ。
+ *
+ * @details 基準となる基本形状と天候領域は固定し、独立した形状・渦・侵食領域だけを
+ * 相対移動させる。非有限の時刻または風速は 0 として扱う。
+ */
+struct FVolumetricCloudEvolutionFrameTerms {
+    /** 基本形状の独立領域へ加える低周波の位相ずれ。 */
+    FVec2 shape_phase{};
+
+    /** 渦と侵食の独立領域へ加える高周波の位相ずれ。 */
+    FVec2 fine_phase{};
+};
+
+/** 時刻と風速から 1 フレーム共通の雲形状の位相ずれを求める。 */
+FVolumetricCloudEvolutionFrameTerms ResolveVolumetricCloudEvolutionFrameTerms(
+    f32 time, f32 wind_speed) noexcept;
 
 /**
  * Normalized sun direction and its continuous Duff/Frisvad tangent basis.
