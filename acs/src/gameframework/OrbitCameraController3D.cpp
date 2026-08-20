@@ -173,6 +173,35 @@ bool COrbitCameraController3D::TryResolveObstructedState(const FOrbitCameraState
     return true;
 }
 
+/** 障害物への接近を遅らせず、離れる方向だけframe時間に依存しない割合で復帰させる。 */
+bool COrbitCameraController3D::TryAdvanceObstructionPresentation(const FOrbitCameraState3D& resolved_state, f32 current_distance, f32 recovery_sharpness, f32 delta_seconds, FOrbitCameraState3D& output) const noexcept
+{
+    if (!IsValidSettings(m_Settings) || !IsViewState(m_Settings, resolved_state)) return false;
+    /** 現在表示中の距離がcontroller範囲内ならtrue。 */
+    const bool valid_current_distance = std::isfinite(current_distance) && current_distance >= m_Settings.minimum_distance && current_distance <= m_Settings.maximum_distance;
+    /** 復帰速度と経過秒が計算可能ならtrue。 */
+    const bool valid_recovery = std::isfinite(recovery_sharpness) && recovery_sharpness >= 0.0f && std::isfinite(delta_seconds) && delta_seconds >= 0.0f;
+    if (!valid_current_distance || !valid_recovery) return false;
+
+    /** 全入力の検証完了まで呼び出し側出力へ触れない候補。 */
+    FOrbitCameraState3D candidate = resolved_state;
+    if (resolved_state.distance > current_distance && recovery_sharpness > 0.0f) {
+        /** frame分割に依存しない指数復帰の負指数。 */
+        const f64 exponent = -static_cast<f64>(recovery_sharpness) * static_cast<f64>(delta_seconds);
+        /** 今回の経過秒で埋める残距離の割合。 */
+        const f64 blend = 1.0 - std::exp(exponent);
+        /** floatへ公開する前の高精度な次距離。 */
+        const f64 next_distance = static_cast<f64>(current_distance) + (static_cast<f64>(resolved_state.distance) - static_cast<f64>(current_distance)) * blend;
+        candidate.distance = static_cast<f32>(next_distance);
+        /** 近接後にfloat丸めで復帰状態が残り続けない終了距離。 */
+        constexpr f32 CompletionDistance = 1.0e-4f;
+        if (delta_seconds > 0.0f && resolved_state.distance - candidate.distance <= CompletionDistance) candidate.distance = resolved_state.distance;
+    }
+    if (!IsViewState(m_Settings, candidate)) return false;
+    output = candidate;
+    return true;
+}
+
 /** orbit状態をLegacyScene3Dと同じ左手系view座標へ変換する。 */
 bool COrbitCameraController3D::TryBuildView(const FOrbitCameraState3D& state, FOrbitCameraView3D& view) const noexcept
 {

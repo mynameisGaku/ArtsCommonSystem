@@ -12,7 +12,7 @@
 | State | `FOrbitCameraState3D` | target、yaw、pitch、target から eye までの距離 |
 | Time | `f32 delta_seconds` | 呼び出し側が確定した固定 tick 秒 |
 | Presentation | `f64 interpolation_alpha` | 前回と現在の固定 tick 状態を混ぜる `[0,1]` の描画補間率 |
-| Obstruction | `obstruction_distance` / `camera_clearance` / `probe_radius` | scene queryが返したhit距離、camera余白、world空間probe半径 |
+| Obstruction | `obstruction_distance` / `camera_clearance` / `probe_radius` / `recovery_sharpness` | hit距離、camera余白、world空間probe半径、外向き復帰速度 |
 | Snapshot | `FOrbitCameraFixedStepSnapshot3D` | 補間区間を再現するprevious/current固定tick状態 |
 | Output | 更新済み state / `FOrbitCameraView3D` | eye、look-at、up の world 座標 |
 
@@ -23,10 +23,11 @@ session などの呼び出し側であり、controller は subsystem ではな�
 
 - 入力軸は有限値だけを受け付け、計算時に `[-1, 1]` へ制限する。
 - 負値または非有限の時間、非有限 state、0以下の距離は拒否する。
-- `TryConfigure`、`TryStep`、`TryBuildView` は失敗時に出力を変更しない。
+- `TryConfigure`、`TryStep`、`TryBuildView`、`TryAdvanceObstructionPresentation` は失敗時に出力を変更しない。
 - `TryInterpolateState` は両状態と `[0,1]` の有限な補間率だけを受け付け、失敗時に出力を変更しない。
 - `IsSnapshotValid` はsnapshotのprevious/currentを現在設定に対して同時検証する。
 - `TryResolveObstructedState` はdesired stateを変更せず、障害物の手前へ短縮したpresentation stateを返す。
+- `TryAdvanceObstructionPresentation` は近い解決距離を即時反映し、遠い解決距離だけを明示時間で指数復帰させる。
 - yaw 補間は `-pi` / `+pi` 境界を最短経路で越え、target、pitch、distance は線形補間する。
 - 補間率0はprevious、1はcurrentを表し、通常描画は一つ前の固定tickから現在tickまでを連続表示する。
 - yaw は `[-pi, pi]` へ折り返し、pitch は設定上限へ制限する。
@@ -62,6 +63,10 @@ void OnFixedUpdate(f32 FixedDeltaSeconds) noexcept
 `TryRestoreOrbitCameraSnapshot` でcamera区間を戻す。次のupdateまたはrenderで保存時の時計alphaから
 presentation stateを再計算するため、派生値はsnapshotへ重複保存しない。
 
+障害物からの復帰距離と回避継続flagはadapterが所有するpresentation履歴であり、simulation rollbackの
+snapshotには含めない。`TryRestoreOrbitCameraSnapshot` はこの履歴を破棄し、復元したcurrent状態と現在の
+scene queryから表示を再開する。視覚上の復帰途中まで再現したい利用側は、別のpresentation記録を持つ。
+
 snapshotのいずれかが非有限、pitch上限外、距離範囲外なら復元を拒否し、previous/current、表示viewを
 変更しない。これは同一process内のrollback用であり、version間の永続保存形式ではない。
 
@@ -73,12 +78,14 @@ snapshotのいずれかが非有限、pitch上限外、距離範囲外なら復�
 
 - `TargetClearance` より手前のhitは追従対象自身として除外する。
 - `ProbeRadius` はworld空間のcamera半径で、0なら従来の点ray、正値なら壁の角をかすめるcamera本体も検出する。
+- `RecoverySharpness` は障害物から離れる一秒あたりの復帰速度で、0なら従来互換の即時復帰、正値ならframe分割に依存しない指数復帰になる。
 - 最初のhitから `CameraClearance` を引いた距離を `TryResolveObstructedState` へ渡す。
 - `TargetClearance - CameraClearance` がcontrollerの最小距離を下回る設定は、障害物の奥へ丸めないよう拒否する。
 - 衝突で短縮するのはpresentation stateだけで、fixed tickのdesired distanceとrollback snapshotは変えない。
-- 障害物が無効または非表示になると、次のupdate/renderでdesired distanceへ戻る。
+- 障害物へ近づく方向はrenderを含むqueryごとに即時反映し、外向き復帰の時間は可変updateで一度だけ進める。
+- render側は経過秒0で再queryするため、同じframeで復帰時間を二重に消費しない。
 - queryはnodeの回転と非一様scaleを反映し、local mesh AABBをsphere半径で安全側へ拡張する。角では早めに命中する。
-- mesh三角形への厳密なsweepと復帰smoothingは別責務である。
+- mesh三角形への厳密なsweepは別責務である。
 
 ## 現在の利用先と範囲
 

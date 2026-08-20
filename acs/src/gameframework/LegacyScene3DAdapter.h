@@ -106,12 +106,15 @@ public:
 
         /** 点rayの代わりに移動させるworld空間camera probe半径。0なら従来ray。 */
         f32 ProbeRadius = 0.0f;
+
+        /** 障害物から離れる一秒あたりの指数復帰速度。0なら従来互換の即時復帰。 */
+        f32 RecoverySharpness = 0.0f;
     };
 
     /**
      * presentation障害物回避設定を検証し、成功時だけ反映する。
-     * @param settings 有効状態、target除外距離、camera余白、probe半径。
-     * @return 全距離が有限でprobe半径が0以上、余白後もcontrollerの最小距離を保てるならtrue。
+     * @param settings 有効状態、target除外距離、camera余白、probe半径、復帰速度。
+     * @return 全値が有限でprobe半径と復帰速度が0以上、余白後もcontrollerの最小距離を保てるならtrue。
      */
     bool TrySetOrbitCameraObstructionSettings(const FOrbitCameraObstructionSettings3D& settings) noexcept;
 
@@ -339,11 +342,11 @@ private:
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
     void UpdateCameraView() noexcept;
     /** 指定したorbit状態をcameraと表示用状態へ反映する内部処理。 */
-    void UpdateOrbitCameraView_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state) noexcept;
+    void UpdateOrbitCameraView_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state, f32 recovery_delta_seconds) noexcept;
     /** scene graphの有効meshからpresentation用の衝突回避状態を求める内部処理。 */
     bool TryResolveOrbitCameraObstruction_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state, COrbitCameraController3D::FOrbitCameraState3D& output) const noexcept;
     /** 固定時計の補間率から今回描画するcamera状態を反映する内部処理。 */
-    void UpdatePresentedCameraView_Internal() noexcept;
+    void UpdatePresentedCameraView_Internal(f32 recovery_delta_seconds) noexcept;
     void AdoptLoadedCamera() noexcept;
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
@@ -448,6 +451,9 @@ private:
 
     /** viewとprojectionへ最後に反映した補間済み自由camera状態。 */
     COrbitCameraController3D::FOrbitCameraState3D m_PresentedOrbitCameraState{};
+
+    /** 障害物による短縮または外向き復帰を継続中ならtrue。 */
+    bool m_IsOrbitCameraObstructionPresentationActive = false;
 
     f32 m_Time = 0.0f;
     FPostProcessParams m_PostParams{};

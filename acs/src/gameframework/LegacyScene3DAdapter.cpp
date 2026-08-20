@@ -630,6 +630,7 @@ void ALegacyScene3DAdapter::FrameScene() noexcept {
     }
     m_PreviousOrbitCameraState = m_OrbitCameraState;
     m_PresentedOrbitCameraState = m_OrbitCameraState;
+    m_IsOrbitCameraObstructionPresentationActive = false;
     UpdateCameraView();
 }
 
@@ -802,7 +803,7 @@ void ALegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
         return;
     }
 
-    UpdatePresentedCameraView_Internal();
+    UpdatePresentedCameraView_Internal(m_PostParams.delta_time);
 }
 
 /** scene入力を6軸へ変換し、自由camera状態を固定刻みで進める。 */
@@ -823,7 +824,7 @@ void ALegacyScene3DAdapter::OnFixedUpdate(f32 fixed_dt) noexcept
 void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     RefreshAuthoredCameraPose();
     if (!EnsureGpu(context)) return;
-    UpdatePresentedCameraView_Internal();
+    UpdatePresentedCameraView_Internal(0.0f);
     UpdateCameraProjection(context.Width(), context.Height());
 
     CRenderer& renderer = context.GetRenderer();
@@ -2849,11 +2850,12 @@ void ALegacyScene3DAdapter::UpdateCameraProjection(
 /** 障害物回避距離を隔離検証し、成功時だけ表示設定へ反映する。 */
 bool ALegacyScene3DAdapter::TrySetOrbitCameraObstructionSettings(const FOrbitCameraObstructionSettings3D& settings) noexcept
 {
-    if (!std::isfinite(settings.TargetClearance) || !std::isfinite(settings.CameraClearance) || !std::isfinite(settings.ProbeRadius) || settings.TargetClearance <= 0.0f || settings.CameraClearance < 0.0f || settings.ProbeRadius < 0.0f)
+    if (!std::isfinite(settings.TargetClearance) || !std::isfinite(settings.CameraClearance) || !std::isfinite(settings.ProbeRadius) || !std::isfinite(settings.RecoverySharpness) || settings.TargetClearance <= 0.0f || settings.CameraClearance < 0.0f || settings.ProbeRadius < 0.0f || settings.RecoverySharpness < 0.0f)
         return false;
     const f32 minimum_resolved_distance = settings.TargetClearance - settings.CameraClearance;
     if (!std::isfinite(minimum_resolved_distance) || minimum_resolved_distance < m_OrbitCameraController.Settings().minimum_distance) return false;
     m_OrbitCameraObstructionSettings = settings;
+    if (!settings.Enabled || settings.RecoverySharpness <= 0.0f) m_IsOrbitCameraObstructionPresentationActive = false;
     UpdateCameraView();
     return true;
 }
@@ -2875,6 +2877,7 @@ bool ALegacyScene3DAdapter::TryRestoreOrbitCameraSnapshot(const COrbitCameraCont
     m_PreviousOrbitCameraState = snapshot.previous;
     m_OrbitCameraState = snapshot.current;
     m_PresentedOrbitCameraState = snapshot.current;
+    m_IsOrbitCameraObstructionPresentationActive = false;
     UpdateCameraView();
     return true;
 }
@@ -2887,19 +2890,27 @@ void ALegacyScene3DAdapter::UpdateCameraView() noexcept {
             m_AuthoredCamera.Up);
         return;
     }
-    UpdateOrbitCameraView_Internal(m_OrbitCameraState);
+    UpdateOrbitCameraView_Internal(m_OrbitCameraState, 0.0f);
 }
 
 /** 指定した自由camera状態からviewを構築し、成功時だけ表示へ反映する。 */
-void ALegacyScene3DAdapter::UpdateOrbitCameraView_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state) noexcept
+void ALegacyScene3DAdapter::UpdateOrbitCameraView_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state, f32 recovery_delta_seconds) noexcept
 {
     /** scene障害物を反映してもsimulation stateを変更しないpresentation候補。 */
-    COrbitCameraController3D::FOrbitCameraState3D presented{};
-    if (!TryResolveOrbitCameraObstruction_Internal(state, presented)) return;
+    COrbitCameraController3D::FOrbitCameraState3D resolved{};
+    if (!TryResolveOrbitCameraObstruction_Internal(state, resolved)) return;
+    /** 今回のqueryがdesired距離を短縮したならtrue。 */
+    const bool has_obstruction = resolved.distance < state.distance;
+    /** 接近または外向き復帰を反映した最終presentation候補。 */
+    COrbitCameraController3D::FOrbitCameraState3D presented = resolved;
+    if (m_IsOrbitCameraObstructionPresentationActive || has_obstruction) {
+        if (!m_OrbitCameraController.TryAdvanceObstructionPresentation(resolved, m_PresentedOrbitCameraState.distance, m_OrbitCameraObstructionSettings.RecoverySharpness, recovery_delta_seconds, presented)) return;
+    }
     /** cameraへ反映する左手座標系view候補。 */
     COrbitCameraController3D::FOrbitCameraView3D view{};
     if (!m_OrbitCameraController.TryBuildView(presented, view)) return;
     m_PresentedOrbitCameraState = presented;
+    m_IsOrbitCameraObstructionPresentationActive = m_OrbitCameraObstructionSettings.Enabled && m_OrbitCameraObstructionSettings.RecoverySharpness > 0.0f && (has_obstruction || presented.distance < state.distance);
     m_Camera.SetLookAt(view.eye, view.look_at, view.up);
 }
 
@@ -2924,10 +2935,14 @@ bool ALegacyScene3DAdapter::TryResolveOrbitCameraObstruction_Internal(const COrb
 }
 
 /** 固定tick状態と時計alphaから今回表示する自由camera viewを決める。 */
-void ALegacyScene3DAdapter::UpdatePresentedCameraView_Internal() noexcept
+void ALegacyScene3DAdapter::UpdatePresentedCameraView_Internal(f32 recovery_delta_seconds) noexcept
 {
-    if (m_UseAuthoredCamera || !GetGame().IsFixedTimestepEnabled()) {
+    if (m_UseAuthoredCamera) {
         UpdateCameraView();
+        return;
+    }
+    if (!GetGame().IsFixedTimestepEnabled()) {
+        UpdateOrbitCameraView_Internal(m_OrbitCameraState, recovery_delta_seconds);
         return;
     }
     /** previous/current間を固定時計alphaで混ぜる表示状態。 */
@@ -2936,7 +2951,7 @@ void ALegacyScene3DAdapter::UpdatePresentedCameraView_Internal() noexcept
         UpdateCameraView();
         return;
     }
-    UpdateOrbitCameraView_Internal(presented);
+    UpdateOrbitCameraView_Internal(presented, recovery_delta_seconds);
 }
 
 const FGpuMesh* ALegacyScene3DAdapter::GpuMeshFor(

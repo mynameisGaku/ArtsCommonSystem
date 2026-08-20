@@ -978,7 +978,7 @@ ACS_REF.modules.push({
       when: "旧scene実装を段階的に移行する時。",
       members: [
         { sig: "ESvc WantedServices() const", desc: "自由camera用のscene入力serviceを要求する。" },
-        { sig: "bool TrySetOrbitCameraObstructionSettings(const FOrbitCameraObstructionSettings3D& settings)", desc: "target近傍、camera余白、任意probe半径を検証し、presentation-onlyのscene mesh障害物回避を設定する。" },
+        { sig: "bool TrySetOrbitCameraObstructionSettings(const FOrbitCameraObstructionSettings3D& settings)", desc: "target近傍、camera余白、任意probe半径、外向き復帰速度を検証し、presentation-onlyのscene mesh障害物回避を設定する。" },
         { sig: "const FOrbitCameraObstructionSettings3D& OrbitCameraObstructionSettings() const", desc: "現在の検証済み障害物回避設定を返す。既定は無効。" },
         { sig: "bool TryCaptureOrbitCameraSnapshot(FOrbitCameraFixedStepSnapshot3D& output) const", desc: "自由cameraのprevious/current補間区間を検証して複製する。" },
         { sig: "bool TryRestoreOrbitCameraSnapshot(const FOrbitCameraFixedStepSnapshot3D& snapshot)", desc: "検証済みの自由camera補間区間を一括復元し、不正値では既存viewを維持する。" },

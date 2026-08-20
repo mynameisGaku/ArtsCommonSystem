@@ -266,7 +266,8 @@ rollback 用 snapshot、失敗時の無入力化は [FixedStepRuntimeInput.md](F
 先に戻し、orbit cameraのprevious/current snapshotを明示的なLegacyアダプターから復元する。
 任意の障害物回避は `CSceneNodeGraph::SweepSphereActiveRange` でtarget近傍と無効meshを除外する。
 probe半径0なら点ray、正値ならcamera本体の半径を保守的に扱い、fixed tickのdesired距離を変えず
-presentation距離だけを短縮する。
+presentation距離だけを短縮する。外向き復帰速度は0なら従来互換の即時反映、正値なら明示した
+可変frame時間による指数復帰になり、障害物へ近づく方向は常に即時反映する。
 
 ### scene 遷移
 
