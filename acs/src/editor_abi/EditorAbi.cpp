@@ -9957,11 +9957,12 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         h.sky3d.SetZenithColor(h.sky_zenith); // 空グラデも設定駆動 → IBL 環境光と背景を一致
         h.sky3d.SetHorizonColor(h.sky_horizon);
         h.sky3d.SetGroundColor(h.sky_ground);
-        h.sky3d.SetCloudsEnabled(
+        h.sky3d.SetFallbackCloudsEnabled(
             h.q_cloud_coverage > 0.001f &&
             !renderOrtho && !cloudsActive);   // Ortho と volumetric 雲では 48-step CSky fallback を止める
-        h.sky3d.SetClouds(h.q_cloud_coverage, h.q_cloud_density);
-        h.sky3d.SetCloudWind(h.q_cloud_wind);
+        h.sky3d.SetFallbackClouds(h.q_cloud_coverage, h.q_cloud_density);
+        h.sky3d.SetFallbackCloudWind(h.q_cloud_wind);
+        h.sky3d.SetFallbackCloudTime(h.time);
         h.sky3d.Render(*cl, cam);
     } else if (h.sky_pipe && h.sky_cb) {
         FSkyCb sk{};

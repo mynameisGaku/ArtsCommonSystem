@@ -427,13 +427,16 @@ ACS_REF.modules.push({
     {
       name: "CSky",
       kind: "クラス", header: "render/Sky.h",
-      summary: "テクスチャ不要の<b>手続き生成スカイ</b>。ピクセルシェーダで天頂・地平線・地面の色と太陽を補間して背景の空を描く。Day/Sunset/Night プリセット付き。",
+      summary: "テクスチャ不要の<b>手続き生成スカイ</b>。ピクセルシェーダで天頂・地平線・地面の色と太陽を補間して背景の空を描く。Day/Sunset/Night プリセット付き。低コスト雲は明示的に選ぶ fallback で、既定は無効。",
       when: "3D シーンの背景に空を出したいとき。シーン描画より先に呼ぶ。<t>IBL</t> の環境マップ元にもなる。",
       members: [
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)", desc: "初期化。" },
         { sig: "void PresetDay() / PresetSunset() / PresetNight()", desc: "青空 / 茜色 / 紺青のプリセット。" },
         { sig: "void SetSunDirection(FVec3) / SetSunColor(FVec3) / SetSunRadius(f32) / SetSunGlow(f32)", desc: "太陽の方向・色・見かけサイズ・周囲のハロー。" },
         { sig: "void SetZenithColor(FVec3) / SetHorizonColor(FVec3) / SetGroundColor(FVec3)", desc: "天頂・地平線・地面方向の色。" },
+        { sig: "void SetFallbackClouds(f32 coverage, f32 density) / SetFallbackCloudsEnabled(bool)", desc: "本格雲を使えない場合の固定刻み fallback。カメラ中心の仮想層なので production の雲には <code>CVolumetricClouds</code> を使う。" },
+        { sig: "void SetFallbackCloudColor(FVec3) / SetFallbackCloudWind(f32) / SetFallbackCloudTime(f32)", desc: "fallback 雲の色・風速・時刻。Render は時刻を進めないため、呼び出し側が経過秒を渡す。" },
+        { sig: "void SetClouds(...) / SetCloudsEnabled(...) / SetCloudColor(...) / SetCloudWind(...) / SetTime(...)", desc: "既存コード向けの fallback API 互換アダプター。" },
         { sig: "FVec3 SunDirection() / SunColor() / ZenithColor() / HorizonColor() / GroundColor() / f32 SunRadius() / SunGlow()", desc: "現在の太陽・空パラメータ取得。<code>CStandardShader</code> / <t>IBL</t> と太陽方向を整合させるのに使う。" },
         { sig: "void Render(IRhiCommandList& cl, const CCamera& camera)", desc: "空を描く。深度は背景塗り想定で書込み無し・テスト無し。", when: "シーン描画の先頭。" },
         { sig: "using FSky = CSky", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSky</code> を使う。" }
@@ -477,9 +480,9 @@ ACS_REF.modules.push({
       when: "PBR の環境光を本格化して、金属に映り込みを、全体に自然な間接光を与えたいとき。",
       members: [
         { sig: "TResult&lt;void&gt; EnsureBrdfLut(IRhiDevice&, IRhiCommandList&)", desc: "BRDF LUT(256x256 RG16F)を初回だけ生成。" },
-        { sig: "TResult&lt;void&gt; EnsureEnvCubemap(IRhiDevice&, IRhiCommandList&, const CSky& sky)", desc: "<code>CSky</code> から環境 cubemap(256² ×6)をキャプチャ。" },
+        { sig: "TResult&lt;void&gt; EnsureEnvCubemap(IRhiDevice&, IRhiCommandList&, const CSky& sky)", desc: "<code>CSky</code> の空グラデーションと太陽から環境 cubemap(1024² ×6)をキャプチャ。動的な fallback 雲は含めない。" },
         { sig: "TResult&lt;void&gt; LoadEquirectHdrFromMemory(IRhiDevice&, IRhiCommandList&, const f32* rgba_float, u32 width, u32 height)", desc: "equirect HDR 画像(.hdr 等)から env cubemap を作り直す。" },
-        { sig: "TResult&lt;void&gt; EnsureIrradiance(...) / EnsurePrefilter(...)", desc: "環境から拡散 irradiance(32² ×6) / 鏡面 prefilter(128² ×6, 5 mip)を生成。" },
+        { sig: "TResult&lt;void&gt; EnsureIrradiance(...) / EnsurePrefilter(...)", desc: "環境から拡散 irradiance(64² ×6) / 鏡面 prefilter(512² ×6, 7 mip)を生成。" },
         { sig: "static void ComputeSh9FromEquirect(const f32* rgba_float, u32 w, u32 h, FVec4 out_sh_rgb[9])", desc: "equirect 画像から SH9 係数 9 個を CPU 計算(diffuse irradiance の圧縮版)。" },
         { sig: "void DrawSkybox(...) / void DrawEnvSkybox(...)", desc: "cubemap を全画面 skybox として現在の RT に描く。" },
         { sig: "IRhiTexture* BrdfLut() / EnvCubemap() / IrradianceMap() / PrefilterMap() / u32 PrefilterMips()", desc: "生成済みテクスチャの取得(SetIbl に渡す)。" },

@@ -95,6 +95,62 @@ ACS_TEST(SkySunProfile, PresetsAndPublicSettersPreserveValidAngularOrder) {
     EXPECT_NEAR(sky.SunGlow(), 2.0f, 1.0e-8f);
 }
 
+ACS_TEST(SkyFallbackClouds, RequireExplicitOptInAndSanitizePublicInputs) {
+    /** 低コスト雲を明示的に選んでいない空。 */
+    CSky sky;
+    EXPECT_FALSE(sky.FallbackCloudsEnabled());
+    sky.PresetDay();
+    EXPECT_FALSE(sky.FallbackCloudsEnabled());
+
+    sky.SetFallbackCloudsEnabled(true);
+    EXPECT_TRUE(sky.FallbackCloudsEnabled());
+    sky.SetFallbackClouds(-1.0f, std::numeric_limits<f32>::infinity());
+    EXPECT_NEAR(sky.FallbackCloudCoverage(), 0.0f, 0.0f);
+    EXPECT_NEAR(sky.FallbackCloudDensity(), 1.6f, 0.0f);
+    sky.SetFallbackClouds(2.0f, 20.0f);
+    EXPECT_NEAR(sky.FallbackCloudCoverage(), 1.0f, 0.0f);
+    EXPECT_NEAR(sky.FallbackCloudDensity(), 8.0f, 0.0f);
+
+    sky.SetFallbackCloudWind(std::numeric_limits<f32>::quiet_NaN());
+    EXPECT_NEAR(sky.FallbackCloudWind(), 0.0f, 0.0f);
+    sky.SetFallbackCloudWind(-100.0f);
+    EXPECT_NEAR(sky.FallbackCloudWind(), -20.0f, 0.0f);
+    sky.SetFallbackCloudTime(std::numeric_limits<f32>::quiet_NaN());
+    EXPECT_NEAR(sky.FallbackCloudTime(), 0.0f, 0.0f);
+    sky.SetFallbackCloudTime(20000000.0f);
+    EXPECT_NEAR(sky.FallbackCloudTime(), 10000000.0f, 0.0f);
+
+    const FVec3 initialColor = sky.FallbackCloudColor();
+    sky.SetFallbackCloudColor(FVec3{std::numeric_limits<f32>::quiet_NaN(), 0.5f, std::numeric_limits<f32>::infinity()});
+    EXPECT_NEAR(sky.FallbackCloudColor().x, initialColor.x, 0.0f);
+    EXPECT_NEAR(sky.FallbackCloudColor().y, 0.5f, 0.0f);
+    EXPECT_NEAR(sky.FallbackCloudColor().z, initialColor.z, 0.0f);
+    sky.SetFallbackCloudColor(FVec3{-1.0f, 20000.0f, 2.0f});
+    EXPECT_NEAR(sky.FallbackCloudColor().x, 0.0f, 0.0f);
+    EXPECT_NEAR(sky.FallbackCloudColor().y, 16384.0f, 0.0f);
+    EXPECT_NEAR(sky.FallbackCloudColor().z, 2.0f, 0.0f);
+
+    /** 旧名が同じ検証経路を通ることを確認する。 */
+    sky.SetCloudsEnabled(false);
+    sky.SetClouds(0.25f, 0.75f);
+    sky.SetCloudWind(2.0f);
+    sky.SetTime(3.0f);
+    EXPECT_FALSE(sky.FallbackCloudsEnabled());
+    EXPECT_NEAR(sky.FallbackCloudCoverage(), 0.25f, 0.0f);
+    EXPECT_NEAR(sky.FallbackCloudDensity(), 0.75f, 0.0f);
+    EXPECT_NEAR(sky.FallbackCloudWind(), 2.0f, 0.0f);
+    EXPECT_NEAR(sky.FallbackCloudTime(), 3.0f, 0.0f);
+}
+
+ACS_TEST(SkyFallbackClouds, RenderDoesNotAdvanceSimulationTime) {
+    /** 描画回数に応じた固定時間更新が残っていないことを検査する実装ソース。 */
+    const std::string skySource = ReadRenderSource("Sky.cpp");
+    EXPECT_TRUE(!skySource.empty());
+    EXPECT_TRUE(Contains(skySource, "m_FallbackCloudTime"));
+    EXPECT_TRUE(!Contains(skySource, "m_FallbackCloudTime +="));
+    EXPECT_TRUE(!Contains(skySource, "m_Time += 1.0f / 60.0f"));
+}
+
 ACS_TEST(SkySunProfile, FallbackAndCapturedEnvironmentUseTheSameBoundedProfile) {
     /** 画面へ直接描く空の実装ソース。 */
     const std::string skySource = ReadRenderSource("Sky.cpp");

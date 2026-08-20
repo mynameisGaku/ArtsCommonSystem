@@ -531,7 +531,7 @@ ACS_TEST(VolumetricClouds,
         "if(h.q_cloud_coverage>0.001f&&!renderOrtho&&"
         "hdrRt!=nullptr){";
     const char* fallbackGate =
-        "h.sky3d.SetCloudsEnabled("
+        "h.sky3d.SetFallbackCloudsEnabled("
         "h.q_cloud_coverage>0.001f&&"
         "!renderOrtho&&!cloudsActive);";
     const char* modernReadyGate =
@@ -544,7 +544,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(editorSource, fallbackGate));
     EXPECT_FALSE(Contains(
         editorSource,
-        "h.sky3d.SetCloudsEnabled("
+        "h.sky3d.SetFallbackCloudsEnabled("
         "h.q_cloud_coverage>0.001f&&!cloudsActive);"));
     EXPECT_FALSE(Contains(
         editorSource,
@@ -559,6 +559,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(
         CountOccurrences(editorSource, fallbackGate),
         static_cast<std::size_t>(1));
+    EXPECT_TRUE(Contains(
+        editorSource, "h.sky3d.SetFallbackCloudTime(h.time);"));
 }
 
 ACS_TEST(VolumetricClouds, LayerEntryRemainsWorldAnchoredAcrossCameraTranslation) {

@@ -181,8 +181,11 @@ view ray は同じ profile から occupancy coverage と authored density covera
 float 数、noise fetch、light-cone sample 位置、early-exit 条件は固定します。
 
 エディタ側は volumetric cloud の `EnsureSize` が成功した frame だけ
-`cloudsActive` を立て、その値で `FSky` の 48x3 cloud march を無効にします。
-compute path と fallback は同じ frame で二重実行されません。full-resolution resolve の
+`cloudsActive` を立て、その値で `CSky` の 48x3 cloud march を無効にします。
+`CSky` 側はカメラ中心の仮想層を使う低コスト fallback で、既定 OFF です。Editor は
+GPU 経路を使えない perspective frame だけ明示的に有効化し、同じ実時間を渡します。
+したがって compute path と fallback は同じ frame で二重実行されず、fallback の移動量も
+FPS や描画回数には依存しません。full-resolution resolve の
 empty-sky short path は履歴の 5x5 footprint で silhouette と horizon を保護します。
 192 view steps、8 light probes、Ultra 4x4 phase、trace / output dispatch、履歴規則を
 固定したまま workload を計測します。

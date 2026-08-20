@@ -766,7 +766,7 @@ void ALegacyScene3DAdapter::OnEnter() noexcept {
     // Keep lighting, visible sky, fog and water reflection on one authored
     // environment. 太陽の向きと色は毎フレーム UpdateSkyFromSun() が上書きするので、
     // ここで設定するのは «光が 1 灯も無いときの見え方» の初期値にあたる。
-    // 雲は既定で切ってある。使いたい場面が Sky().SetCloudsEnabled(true) で入れる
+    // 雲は既定で切ってある。必要な場面だけ Sky().SetFallbackCloudsEnabled(true) で入れる
     // (本格的なボリューメトリック雲は別機能)。
     m_Sky.PresetDay();
     m_Sky.SetSunDirection(Normalize(kDefaultSunDirection));
@@ -774,7 +774,7 @@ void ALegacyScene3DAdapter::OnEnter() noexcept {
     m_Sky.SetZenithColor(FVec3{0.16f, 0.33f, 0.62f});
     m_Sky.SetHorizonColor(FVec3{0.62f, 0.70f, 0.80f});
     m_Sky.SetGroundColor(FVec3{0.20f, 0.19f, 0.21f});
-    m_Sky.SetCloudsEnabled(false);
+    m_Sky.SetFallbackCloudsEnabled(false);
     m_PostParams.bloom_threshold = 1.1f;
     m_PostParams.bloom_intensity = 0.32f;
     m_PostParams.bloom_radius = 0.82f;
@@ -1219,7 +1219,7 @@ void ALegacyScene3DAdapter::RenderSky(
 
     // 環境光をまだ焼けていないとき用。解析的な空で埋める。
     if (m_SkyGpuState == ESkyGpuState::Ready) {
-        m_Sky.SetTime(m_Time);
+        m_Sky.SetFallbackCloudTime(m_Time);
         m_Sky.Render(command_list, m_Camera);
     }
 }

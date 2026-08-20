@@ -283,6 +283,13 @@ ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
     return { v.x * inv, v.y * inv, v.z * inv };
 }
 
+/** fallback 雲の放射色1成分を非負の half-float 安全範囲へ直す。 */
+f32 SanitizeFallbackCloudRadiance_Internal(f32 requested, f32 previous) noexcept {
+    if (!std::isfinite(requested)) return previous;
+    if (requested < 0.0f) return 0.0f;
+    return requested > 16384.0f ? 16384.0f : requested;
+}
+
 } // namespace
 
 /**
@@ -364,6 +371,35 @@ void CSky::SetSunGlow(f32 one_minus_cosine) noexcept {
 
 /** 太陽方向を正規化して保持する。 */
 void CSky::SetSunDirection(FVec3 dir) noexcept { m_SunDir = NormalizeSafe(dir); }
+
+/** 低コスト fallback 雲の入力を GPU で安全な範囲へ直して保持する。 */
+void CSky::SetFallbackClouds(f32 coverage, f32 density) noexcept {
+    if (!std::isfinite(coverage)) coverage = 0.0f;
+    if (!std::isfinite(density)) density = 1.6f;
+    m_FallbackCloudCoverage = coverage < 0.0f ? 0.0f
+                            : (coverage > 1.0f ? 1.0f : coverage);
+    m_FallbackCloudDensity = density < 0.1f ? 0.1f
+                           : (density > 8.0f ? 8.0f : density);
+}
+
+/** 低コスト fallback 雲の有限な色成分だけを更新する。 */
+void CSky::SetFallbackCloudColor(FVec3 color) noexcept {
+    m_FallbackCloudColor = FVec3{SanitizeFallbackCloudRadiance_Internal(color.x, m_FallbackCloudColor.x), SanitizeFallbackCloudRadiance_Internal(color.y, m_FallbackCloudColor.y), SanitizeFallbackCloudRadiance_Internal(color.z, m_FallbackCloudColor.z)};
+}
+
+/** 低コスト fallback 雲の風速を GPU で安全な範囲へ直して保持する。 */
+void CSky::SetFallbackCloudWind(f32 speed) noexcept {
+    if (!std::isfinite(speed)) speed = 0.0f;
+    m_FallbackCloudWind = speed < -20.0f ? -20.0f
+                        : (speed > 20.0f ? 20.0f : speed);
+}
+
+/** 低コスト fallback 雲の時刻を決定論的な有限範囲へ直して保持する。 */
+void CSky::SetFallbackCloudTime(f32 seconds) noexcept {
+    if (!std::isfinite(seconds)) seconds = 0.0f;
+    m_FallbackCloudTime = seconds < -10000000.0f ? -10000000.0f
+                        : (seconds > 10000000.0f ? 10000000.0f : seconds);
+}
 
 EShaderStatus CSky::FCompiledShaders::Status() const noexcept {
     if (!vertex || !pixel) return EShaderStatus::Failed;
@@ -551,10 +587,10 @@ void CSky::PresetDay() noexcept {
     m_Zenith      = FVec3{0.15f, 0.35f, 0.78f};
     m_Horizon     = FVec3{0.70f, 0.83f, 0.95f};
     m_Ground      = FVec3{0.18f, 0.20f, 0.20f};
-    m_CloudColor    = FVec3{1.0f, 1.0f, 1.0f};
-    m_CloudCoverage = 0.60f;
-    m_CloudDensity  = 1.1f;
-    m_CloudWind     = 1.0f;
+    m_FallbackCloudColor    = FVec3{1.0f, 1.0f, 1.0f};
+    m_FallbackCloudCoverage = 0.60f;
+    m_FallbackCloudDensity  = 1.1f;
+    m_FallbackCloudWind     = 1.0f;
 }
 
 /** 夕焼けプリセット (茜色 + 暖色太陽) を適用する。 */
@@ -566,10 +602,10 @@ void CSky::PresetSunset() noexcept {
     m_Zenith      = FVec3{0.06f, 0.10f, 0.30f};
     m_Horizon     = FVec3{1.00f, 0.55f, 0.25f};
     m_Ground      = FVec3{0.10f, 0.06f, 0.08f};
-    m_CloudColor    = FVec3{1.0f, 0.72f, 0.50f};   // 茜色に染まった雲
-    m_CloudCoverage = 0.55f;
-    m_CloudDensity  = 1.3f;
-    m_CloudWind     = 0.8f;
+    m_FallbackCloudColor    = FVec3{1.0f, 0.72f, 0.50f};   // 茜色に染まった雲
+    m_FallbackCloudCoverage = 0.55f;
+    m_FallbackCloudDensity  = 1.3f;
+    m_FallbackCloudWind     = 0.8f;
 }
 
 /** 夜空プリセット (紺青 + 弱い月光) を適用する。 */
@@ -581,10 +617,10 @@ void CSky::PresetNight() noexcept {
     m_Zenith      = FVec3{0.02f, 0.03f, 0.08f};
     m_Horizon     = FVec3{0.05f, 0.07f, 0.15f};
     m_Ground      = FVec3{0.02f, 0.03f, 0.05f};
-    m_CloudColor    = FVec3{0.10f, 0.12f, 0.20f};  // 紺青の薄い雲
-    m_CloudCoverage = 0.38f;
-    m_CloudDensity  = 1.8f;
-    m_CloudWind     = 0.5f;
+    m_FallbackCloudColor    = FVec3{0.10f, 0.12f, 0.20f};  // 紺青の薄い雲
+    m_FallbackCloudCoverage = 0.38f;
+    m_FallbackCloudDensity  = 1.8f;
+    m_FallbackCloudWind     = 0.5f;
 }
 
 /** 定数バッファを更新し、フルスクリーン三角形でスカイを描画する。 */
@@ -600,19 +636,16 @@ void CSky::Render(IRhiCommandList& cl, const CCamera& camera) noexcept {
     cb.zenith     = FVec4{m_Zenith.x, m_Zenith.y, m_Zenith.z, 1};
     cb.horizon    = FVec4{m_Horizon.x, m_Horizon.y, m_Horizon.z, 1};
     cb.ground     = FVec4{m_Ground.x, m_Ground.y, m_Ground.z, 1};
-    cb.cloud0     = FVec4{m_CloudCoverage, m_CloudDensity, m_Time,
-                          m_bCloudsEnabled ? 1.0f : 0.0f};
-    cb.cloud1     = FVec4{m_CloudColor.x, m_CloudColor.y, m_CloudColor.z, m_CloudWind};
+    cb.cloud0     = FVec4{m_FallbackCloudCoverage, m_FallbackCloudDensity,
+                          m_FallbackCloudTime, m_FallbackCloudsEnabled ? 1.0f : 0.0f};
+    cb.cloud1     = FVec4{m_FallbackCloudColor.x, m_FallbackCloudColor.y,
+                          m_FallbackCloudColor.z, m_FallbackCloudWind};
     m_Cb->Update(&cb, sizeof(cb));
 
     cl.SetPipeline(*m_Pipeline);
     cl.SetConstantBuffer(0, *m_Cb);
     cl.Draw(3);    // VB 無し、SV_VertexID で 3 頂点
 
-    // 雲アニメ用の時間を内部で進める。これにより呼び出し側が SetTime を書かなくても
-    // 雲が流れる (SetTime を毎フレーム呼べばそちらが優先され、決定論的に制御できる)。
-    // 60fps 想定の固定ステップ。雲はゆっくり流れるので実フレームレート差は問題にならない。
-    m_Time += 1.0f / 60.0f;
 }
 
 // ===================== CVolumetricClouds (GPU レイマーチ) =====================

@@ -24,7 +24,9 @@ class CCamera;
  * テクスチャ (キューブマップ) 不要で、ピクセルシェーダが視線方向から天頂・地平線・
  * 地面の色を補間して背景を描く。シーン描画より先にフルスクリーン三角形で塗り、
  * 深度の書き込み・テストは行わない (背景塗りなので既存深度を維持)。太陽は視線と太陽
- * 方向の角度で半径・ハローを付ける。VS/PS/PSO/定数バッファを単独所有する。
+ * 方向の角度で半径・ハローを付ける。低コスト雲は本格的な CVolumetricClouds が使えない
+ * 場合だけ明示的に有効化する fallback で、既定では描かない。VS/PS/PSO/定数バッファを
+ * 単独所有する。
  */
 class CSky {
 public:
@@ -134,45 +136,76 @@ public:
     void SetGroundColor(FVec3 c)    noexcept { m_Ground  = c; }
 
     /**
-     * 手続き的な雲の量と濃さを設定する。
+     * 低コスト fallback 雲の量と濃さを設定する。
      *
-     * @param coverage 雲量 (0=快晴、1=全天曇り)。
-     * @param density 雲の濃さ/輪郭の鋭さ (1=やわらか、2〜3=もくもく)。
+     * @details カメラ中心の仮想層を固定刻みで積分する近似であり、ワールド高度、物理大気、
+     * 時間再構成を使わない。本番品質の雲には CVolumetricClouds を使う。
+     * @param coverage 雲量。有限値を 0〜1 に収め、不正値は 0 にする。
+     * @param density 雲の濃さ。有限値を 0.1〜8 に収め、不正値は 1.6 にする。
      */
-    void SetClouds(f32 coverage, f32 density = 1.6f) noexcept {
-        m_CloudCoverage = coverage < 0.0f ? 0.0f : (coverage > 1.0f ? 1.0f : coverage);
-        m_CloudDensity  = density  < 0.1f ? 0.1f : density;
-    }
+    void SetFallbackClouds(f32 coverage, f32 density = 1.6f) noexcept;
 
     /**
-     * 雲を描くかどうかを切り替える。
+     * 低コスト fallback 雲を描くか切り替える。
      *
-     * @param on true で雲を描画 (既定 ON)。
+     * @param on true で描画する。既定は false。
      */
-    void SetCloudsEnabled(bool on)  noexcept { m_bCloudsEnabled = on; }
+    void SetFallbackCloudsEnabled(bool on) noexcept { m_FallbackCloudsEnabled = on; }
 
     /**
-     * 雲の基本色を設定する。
+     * 低コスト fallback 雲の基本色を設定する。
      *
-     * @param c 雲の RGB 色 (太陽方向で明色に、濃い所は暗色に補間される)。
+     * @param color 雲の RGB 色。有限でない成分は直前の値を保ち、有限値は 0〜16384 に収める。
      */
-    void SetCloudColor(FVec3 c)     noexcept { m_CloudColor = c; }
+    void SetFallbackCloudColor(FVec3 color) noexcept;
 
     /**
-     * 雲が流れる速さを設定する。
+     * 低コスト fallback 雲の移動速度を設定する。
      *
-     * @param speed 風速 (0=静止、1=標準)。SetTime と併用してアニメする。
+     * @param speed 風速。有限値を -20〜20 に収め、不正値は 0 にする。
      */
-    void SetCloudWind(f32 speed)    noexcept { m_CloudWind = speed; }
+    void SetFallbackCloudWind(f32 speed) noexcept;
 
     /**
-     * 雲アニメ用の時間を設定する (任意。決定論的に制御したいときだけ呼ぶ)。
+     * 低コスト fallback 雲が参照する時刻を設定する。
      *
-     * @details 呼ばなくても Render() が内部で時間を進めるので雲は流れる。毎フレーム
-     *          経過秒を渡すと、その値が当該フレームで優先される (リプレイ/スクショ向け)。
-     * @param seconds 起動からの経過秒など、単調増加する時間値。
+     * @details Render は時間を進めない。同じ入力は同じ雲配置になり、FPS や描画回数に依存しない。
+     * @param seconds 起動からの経過秒など。有限値を -10000000〜10000000 に収める。
      */
-    void SetTime(f32 seconds)       noexcept { m_Time = seconds; }
+    void SetFallbackCloudTime(f32 seconds) noexcept;
+
+    /** 旧 API から明示的な fallback 設定へ渡す互換アダプター。 */
+    void SetClouds(f32 coverage, f32 density = 1.6f) noexcept { SetFallbackClouds(coverage, density); }
+
+    /** 旧 API から明示的な fallback 有効状態へ渡す互換アダプター。 */
+    void SetCloudsEnabled(bool on) noexcept { SetFallbackCloudsEnabled(on); }
+
+    /** 旧 API から明示的な fallback 色へ渡す互換アダプター。 */
+    void SetCloudColor(FVec3 color) noexcept { SetFallbackCloudColor(color); }
+
+    /** 旧 API から明示的な fallback 風速へ渡す互換アダプター。 */
+    void SetCloudWind(f32 speed) noexcept { SetFallbackCloudWind(speed); }
+
+    /** 旧 API から明示的な fallback 時刻へ渡す互換アダプター。 */
+    void SetTime(f32 seconds) noexcept { SetFallbackCloudTime(seconds); }
+
+    /** 低コスト fallback 雲が有効なら true を返す。 */
+    bool FallbackCloudsEnabled() const noexcept { return m_FallbackCloudsEnabled; }
+
+    /** 検証済みの低コスト fallback 雲量を返す。 */
+    f32 FallbackCloudCoverage() const noexcept { return m_FallbackCloudCoverage; }
+
+    /** 検証済みの低コスト fallback 雲密度を返す。 */
+    f32 FallbackCloudDensity() const noexcept { return m_FallbackCloudDensity; }
+
+    /** 検証済みの低コスト fallback 雲風速を返す。 */
+    f32 FallbackCloudWind() const noexcept { return m_FallbackCloudWind; }
+
+    /** 検証済みの低コスト fallback 雲色を返す。 */
+    FVec3 FallbackCloudColor() const noexcept { return m_FallbackCloudColor; }
+
+    /** 現在の低コスト fallback 雲時刻を返す。 */
+    f32 FallbackCloudTime() const noexcept { return m_FallbackCloudTime; }
 
     /** 昼空プリセットを適用する (青空 + 白い太陽)。 */
     void PresetDay()    noexcept;
@@ -275,23 +308,23 @@ private:
     /** 地面方向の RGB 色。 */
     FVec3 m_Ground     = FVec3{0.20f, 0.18f, 0.16f};
 
-    /** 雲を描画するか (既定 ON)。 */
-    bool m_bCloudsEnabled = true;
+    /** 低コスト fallback 雲を描画するか。 */
+    bool m_FallbackCloudsEnabled = false;
 
     /** 雲量 (0=快晴、1=全天曇り)。 */
-    f32  m_CloudCoverage = 0.50f;
+    f32  m_FallbackCloudCoverage = 0.50f;
 
     /** 雲の濃さ/輪郭の鋭さ。 */
-    f32  m_CloudDensity  = 1.6f;
+    f32  m_FallbackCloudDensity  = 1.6f;
 
     /** 雲が流れる速さ。 */
-    f32  m_CloudWind     = 1.0f;
+    f32  m_FallbackCloudWind     = 1.0f;
 
-    /** 雲アニメ用の時間 (SetTime で更新)。 */
-    f32  m_Time          = 0.0f;
+    /** 低コスト fallback 雲の決定論的な時刻。 */
+    f32  m_FallbackCloudTime = 0.0f;
 
     /** 雲の基本 RGB 色。 */
-    FVec3 m_CloudColor   = FVec3{1.0f, 1.0f, 1.0f};
+    FVec3 m_FallbackCloudColor = FVec3{1.0f, 1.0f, 1.0f};
 };
 
 /** 旧名を使う既存コード向けの互換別名。 */
