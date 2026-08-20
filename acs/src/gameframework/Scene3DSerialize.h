@@ -36,6 +36,7 @@ inline constexpr u32 kScene3DSerializeMaxLineBytes = 4095u;
 inline constexpr u32 kScene3DSerializeMaxNameBytes = 127u;
 inline constexpr u32 kScene3DSerializeMaxMeshPathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxMaterialPathBytes = 299u;
+inline constexpr u32 kScene3DSerializeMaxSpritePathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxComponentsPerNode = 1024u;
 inline constexpr u32 kScene3DSerializeMaxDirectiveRecords = 262144u;
 inline constexpr u32 kScene3DSerializeMaxCameraCount = 256u;
@@ -93,6 +94,9 @@ enum class EScene3DSerializeError : u8 {
     MaterialDecodeFailed,
     InvalidPolygon,
     DuplicateGeometry,
+    InvalidSpritePath,
+    DuplicateSpritePath,
+    ImageDecodeFailed,
 };
 
 /** Authored ACS3D camera projection encoded by CAM3D. */
@@ -133,6 +137,7 @@ struct FScene3DSaveResult {
     u32 NodeCount = 0u;
     u32 MeshPathCount = 0u;
     u32 CameraCount = 0u;
+    u32 SpriteCount = 0u;
 
     bool Succeeded() const noexcept {
         return Error == EScene3DSerializeError::None && BytesWritten > 0u
@@ -153,6 +158,7 @@ struct FScene3DLoadResult {
     u32 ActivePreferredCameraCount = 0u;
     FScene3DCameraState ActiveCamera{};
     u32 PolygonCount = 0u;
+    u32 SpriteCount = 0u;
 
     bool Succeeded() const noexcept {
         return Error == EScene3DSerializeError::None && NodeCount > 0u;

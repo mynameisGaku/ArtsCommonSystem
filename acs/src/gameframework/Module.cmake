@@ -126,6 +126,7 @@ set(_acsgen_gameframework_sources
     SpatialAudio.cpp
     Spawn2DSubsystem.cpp
     Sprite2DComponent.cpp
+    Sprite3DComponent.cpp
     SpriteAnimComponent.cpp
     SpriteAnimator.cpp
     SpritePack.cpp
@@ -312,6 +313,7 @@ set(_acsgen_gameframework_headers
     SpatialAudio2D.h
     Spawn2DSubsystem.h
     Sprite2DComponent.h
+    Sprite3DComponent.h
     SpriteAnimComponent.h
     SpriteAnimator.h
     SpritePack.h

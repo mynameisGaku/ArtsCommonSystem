@@ -10,6 +10,7 @@
 #include "gameframework/Game.h"
 #include "gameframework/MeshComponent3D.h"
 #include "gameframework/RenderContext.h"
+#include "gameframework/Sprite3DComponent.h"
 #include "gameframework/WaterSurface3DComponent.h"
 #include "math/Mat.h"
 #include "math/Math.h"
@@ -56,6 +57,18 @@ const ACameraComponent3D* FindCamera(const ANode& node) noexcept {
         const AComponent* component = node.ComponentAt(index);
         if (component != nullptr && component->Kind() == kind)
             return static_cast<const ACameraComponent3D*>(component);
+    }
+    return nullptr;
+}
+
+/** constノードから3Dスプライトを探す。 */
+const ASprite3DComponent* FindSprite(const ANode& node) noexcept
+{
+    const void* kind = ComponentKindOf<ASprite3DComponent>();
+    for (u32 index = 0u; index < node.ComponentCount(); ++index) {
+        const AComponent* component = node.ComponentAt(index);
+        if (component != nullptr && component->Kind() == kind)
+            return static_cast<const ASprite3DComponent*>(component);
     }
     return nullptr;
 }
@@ -107,6 +120,19 @@ void LocalBounds(
         if (value.y > maximum.y) maximum.y = value.y;
         if (value.z > maximum.z) maximum.z = value.z;
     }
+}
+
+/** ノードで実際に表示するスプライト優先のローカル境界を返す。 */
+bool TryLocalVisualBounds(const ANode& node, FVec3& minimum, FVec3& maximum) noexcept
+{
+    if (const ASprite3DComponent* sprite = FindSprite(node)) {
+        sprite->LocalBounds(minimum, maximum);
+        return true;
+    }
+    const AMeshComponent3D* component = FindMesh(node);
+    if (component == nullptr) return false;
+    LocalBounds(*component, minimum, maximum);
+    return true;
 }
 
 void ExpandBounds(
@@ -326,6 +352,7 @@ bool SubstrateNeedsSubsurfaceMrt(
 struct FSceneRenderFeatures {
     bool has_water = false;
     bool needs_subsurface_mrt = false;
+    bool has_sprites = false;
 };
 
 FSceneRenderFeatures ScanSceneRenderFeatures(
@@ -343,6 +370,10 @@ FSceneRenderFeatures ScanSceneRenderFeatures(
         for (u32 index = 0u; index < node->ChildCount(); ++index) {
             if (!stack.TryAdd(node->Child(index))) return features;
         }
+        if (FindSprite(*node) != nullptr) {
+            features.has_sprites = true;
+            continue;
+        }
         const AMeshComponent3D* mesh = FindMesh(*node);
         if (mesh == nullptr) continue;
         if (FindWater(*node) != nullptr
@@ -350,8 +381,7 @@ FSceneRenderFeatures ScanSceneRenderFeatures(
             features.has_water = true;
         }
         if (!mesh->MaterialLoaded()) {
-            if (features.has_water
-                && features.needs_subsurface_mrt) {
+            if (features.has_water && features.has_sprites && features.needs_subsurface_mrt) {
                 break;
             }
             continue;
@@ -365,7 +395,7 @@ FSceneRenderFeatures ScanSceneRenderFeatures(
             || SubstrateNeedsSubsurfaceMrt(material)) {
             features.needs_subsurface_mrt = true;
         }
-        if (features.has_water && features.needs_subsurface_mrt) break;
+        if (features.has_water && features.has_sprites && features.needs_subsurface_mrt) break;
     }
     return features;
 }
@@ -529,9 +559,8 @@ void ALegacyScene3DAdapter::FrameScene() noexcept {
         const ANode* node = stack.Last();
         stack.Pop();
         if (node == nullptr) continue;
-        if (const AMeshComponent3D* component = FindMesh(*node)) {
-            FVec3 local_minimum, local_maximum;
-            LocalBounds(*component, local_minimum, local_maximum);
+        FVec3 local_minimum, local_maximum;
+        if (TryLocalVisualBounds(*node, local_minimum, local_maximum)) {
             const FMat4 world = node->World().ToMat4();
             for (u32 corner = 0u; corner < 8u; ++corner) {
                 const FVec3 local{
@@ -605,7 +634,8 @@ bool ALegacyScene3DAdapter::RaycastWater(
         }
         if (!enabled || !visible) continue;
 
-        const AMeshComponent3D* mesh = FindMesh(*node);
+        const AMeshComponent3D* mesh = FindSprite(*node) == nullptr
+            ? FindMesh(*node) : nullptr;
         if (mesh == nullptr) continue;
         const FRayHit3 hit =
             RaycastMeshWorld(*node, *mesh, ray, best_distance);
@@ -924,6 +954,13 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         }
     }
 
+    // SPR3Dは不透明物と水面を描いた後にalpha合成する。深度は読むだけで、
+    // editorと同じく書き換えない。
+    if (depth != nullptr && m_SpriteGpuState == EShaderGpuState::Ready && !m_CustomSprites.IsEmpty()) {
+        command_list.BeginRenderToTextureLoad(*hdr, depth);
+        (void)DrawSpriteScene(context);
+        command_list.EndRenderToTexture(*hdr);
+    }
     m_PostParams.taa_depth_texture = nullptr;
     m_Post.Render(
         command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams);
@@ -974,6 +1011,7 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
             }
         }
         if (!enabled || !visible) continue;
+        if (FindSprite(*node) != nullptr) continue;
         const AMeshComponent3D* component = FindMesh(*node);
         if (component == nullptr) continue;
         bool excluded = false;
@@ -1054,13 +1092,8 @@ bool ALegacyScene3DAdapter::EnsureGpu(FRenderContext& context) noexcept {
     const TSharedPtr<AMeshAsset> sphere =
         Primitive::MakeSphere(0.5f, 48u, 24u);
     const TSharedPtr<AMeshAsset> plane = Primitive::MakePlane();
-    if (!cube || !sphere || !plane
-        || UploadMesh(*device, *cube, m_Cube).IsErr()
-        || UploadMesh(*device, *sphere, m_Sphere).IsErr()
-        || UploadMesh(*device, *plane, m_Plane).IsErr()
-        || !UploadGraphMeshes(*device)) {
-        ACS_LOG_ERROR(
-            "LegacyScene3DAdapter: GPU mesh initialization failed");
+    if (!cube || !sphere || !plane || UploadMesh(*device, *cube, m_Cube).IsErr() || UploadMesh(*device, *sphere, m_Sphere).IsErr() || UploadMesh(*device, *plane, m_Plane).IsErr() || !UploadGraphMeshes(*device) || !UploadGraphSprites(*device)) {
+        ACS_LOG_ERROR("LegacyScene3DAdapter: GPU mesh initialization failed");
         DrainAndReleaseGpu();
         m_GpuAttempted = true;
         return false;
@@ -1086,6 +1119,7 @@ bool ALegacyScene3DAdapter::EnsureHdrFrameResources(
     const FSceneRenderFeatures scene_features =
         ScanSceneRenderFeatures(Graph().Root());
     const bool scene_has_water = scene_features.has_water;
+    const bool scene_has_sprites = scene_features.has_sprites;
     // CSceneNodeGraph has no mutation revision yet. Scan alongside the existing
     // water feature query so retained Graph references, visibility changes
     // and runtime material edits take effect on the very next frame.
@@ -1186,6 +1220,27 @@ bool ALegacyScene3DAdapter::EnsureHdrFrameResources(
         }
     }
     AdvanceSkyInitialization(device, frame_commit);
+
+    if (scene_has_sprites && m_SpriteGpuState == EShaderGpuState::Unavailable) {
+        if (device.SupportsAsyncShaderCompilation()) {
+            auto result =
+                CSprite3DRenderer::BeginCompileShadersAsync(device);
+            if (result.IsErr()) {
+                m_SpriteGpuState = EShaderGpuState::Failed;
+                ACS_LOG_WARN("LegacyScene3DAdapter: asynchronous 3D sprite shader submission failed: %s", result.Error().message);
+            } else {
+                m_SpritePendingShaders = Move(result.Value());
+                m_SpriteGpuState = EShaderGpuState::Compiling;
+            }
+        } else if (raw_dx12) {
+            if (!BeginSpriteCpuCompilation())
+                m_SpriteGpuState = EShaderGpuState::Failed;
+        } else {
+            m_SpriteGpuState = EShaderGpuState::Failed;
+            ACS_LOG_WARN("LegacyScene3DAdapter: 3D sprite shader compilation is unsupported by backend %s", backend_name ? backend_name : "(unknown)");
+        }
+    }
+    AdvanceSpriteInitialization(device, depth_format, frame_commit, scene_has_sprites);
 
     const bool scene_needs_blit =
         scene_has_water
@@ -1503,6 +1558,19 @@ void ALegacyScene3DAdapter::BlitCpuCompileWorkerEntry(
         succeeded ? 2 : -1, std::memory_order_release);
 }
 
+void ALegacyScene3DAdapter::SpriteCpuCompileWorkerEntry(void* user) noexcept
+{
+    auto& runtime = *static_cast<ALegacyScene3DAdapter*>(user);
+    auto result = CSprite3DRenderer::CompileShadersCpu();
+    const bool succeeded = result.IsOk();
+    if (succeeded) {
+        runtime.m_SpritePendingShaders = Move(result.Value());
+    } else {
+        ACS_LOG_WARN("LegacyScene3DAdapter: 3D sprite CPU shader compilation failed: %s", result.Error().message);
+    }
+    runtime.m_SpriteCompileWorkerState.store(succeeded ? 2 : -1, std::memory_order_release);
+}
+
 bool ALegacyScene3DAdapter::BeginSkyCpuCompilation() noexcept {
     if (m_SkyCompileWorker.Joinable()
         || m_SkyCompileWorkerState.load(
@@ -1725,6 +1793,26 @@ bool ALegacyScene3DAdapter::BeginBlitCpuCompilation() noexcept {
     ACS_LOG_INFO(
         "LegacyScene3DAdapter: raw-DX12 blit shader compilation dispatched "
         "to a CPU worker");
+    return true;
+}
+
+bool ALegacyScene3DAdapter::BeginSpriteCpuCompilation() noexcept
+{
+    if (m_SpriteCompileWorker.Joinable() || m_SpriteCompileWorkerState.load(std::memory_order_acquire) != 0) {
+        return false;
+    }
+    m_SpriteCompileWorkerState.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS runtime 3D sprite compile";
+    auto worker = FThread::Spawn(&ALegacyScene3DAdapter::SpriteCpuCompileWorkerEntry, this, config);
+    if (worker.IsErr()) {
+        m_SpriteCompileWorkerState.store(0, std::memory_order_release);
+        ACS_LOG_WARN("LegacyScene3DAdapter: failed to create 3D sprite CPU compile worker: %s", worker.Error().message);
+        return false;
+    }
+    m_SpriteCompileWorker = Move(worker.Value());
+    m_SpriteGpuState = EShaderGpuState::CpuCompiling;
+    ACS_LOG_INFO("LegacyScene3DAdapter: raw-DX12 3D sprite shader compilation dispatched to a CPU worker");
     return true;
 }
 
@@ -2374,6 +2462,45 @@ void ALegacyScene3DAdapter::AdvanceBlitInitialization(
         "LegacyScene3DAdapter: HDR blit renderer is ready");
 }
 
+void ALegacyScene3DAdapter::AdvanceSpriteInitialization(IRhiDevice& device, EFormat depth_format, EGpuCommitSubsystem& frame_commit, bool requested) noexcept
+{
+    if (m_SpriteGpuState == EShaderGpuState::CpuCompiling) {
+        const i32 worker_state = m_SpriteCompileWorkerState.load(std::memory_order_acquire);
+        if (worker_state == 1) return;
+        m_SpriteCompileWorker.Join();
+        m_SpriteCompileWorkerState.store(0, std::memory_order_release);
+        if (worker_state != 2) {
+            m_SpritePendingShaders = {};
+            m_SpriteGpuState = EShaderGpuState::Failed;
+            return;
+        }
+        m_SpriteGpuState = EShaderGpuState::PendingCommit;
+    } else if (m_SpriteGpuState == EShaderGpuState::Compiling) {
+        const EShaderStatus status = m_SpritePendingShaders.Status();
+        if (status == EShaderStatus::Compiling) return;
+        if (status != EShaderStatus::Ready) {
+            m_SpritePendingShaders = {};
+            m_SpriteGpuState = EShaderGpuState::Failed;
+            ACS_LOG_WARN("LegacyScene3DAdapter: asynchronous 3D sprite compilation failed");
+            return;
+        }
+        m_SpriteGpuState = EShaderGpuState::PendingCommit;
+    }
+    if (!requested || m_SpriteGpuState != EShaderGpuState::PendingCommit || !TryClaimGpuCommit(frame_commit, EGpuCommitSubsystem::Sprite)) {
+        return;
+    }
+
+    const auto result = m_SpriteRenderer.InitWithCompiledShaders(device, Move(m_SpritePendingShaders), m_Post.HdrFormat(), depth_format, static_cast<u32>(m_CustomSprites.Num()));
+    if (result.IsErr()) {
+        m_SpritePendingShaders = {};
+        m_SpriteGpuState = EShaderGpuState::Failed;
+        ACS_LOG_WARN("LegacyScene3DAdapter: 3D sprite RHI commit failed: %s", result.Error().message);
+        return;
+    }
+    m_SpriteGpuState = EShaderGpuState::Ready;
+    ACS_LOG_INFO("LegacyScene3DAdapter: alpha-blended 3D sprite renderer is ready");
+}
+
 void ALegacyScene3DAdapter::AdvanceSkyInitialization(
     IRhiDevice& device,
     EGpuCommitSubsystem& frame_commit) noexcept {
@@ -2546,7 +2673,8 @@ u32 ALegacyScene3DAdapter::CollectWaterDraws(
             || count >= CWaterSurface3D::kMaxTrackedSurfaces) {
             continue;
         }
-        const AMeshComponent3D* mesh = FindMesh(*node);
+        const AMeshComponent3D* mesh = FindSprite(*node) == nullptr
+            ? FindMesh(*node) : nullptr;
         const AWaterSurface3DComponent* water = FindWater(*node);
         if (mesh == nullptr || water == nullptr
             || !IsPlanarWaterMesh(*mesh)) {
@@ -2630,7 +2758,8 @@ bool ALegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
         ANode* node = stack.Last();
         stack.Pop();
         if (node == nullptr) continue;
-        AMeshComponent3D* component = FindMesh(*node);
+        AMeshComponent3D* component = FindSprite(*node) == nullptr
+            ? FindMesh(*node) : nullptr;
         if (component != nullptr
             && component->Primitive() == EMeshPrimitive3D::Mesh) {
             AMeshAsset* mesh = component->Mesh();
@@ -2646,6 +2775,72 @@ bool ALegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
             if (!stack.TryAdd(node->Child(index))) return false;
     }
     return true;
+}
+
+bool ALegacyScene3DAdapter::UploadGraphSprites(IRhiDevice& device) noexcept
+{
+    TArray<FCustomGpuSprite> uploaded(*m_CustomSprites.GetAllocator());
+    if (!uploaded.TryReserve(Graph().NodeCount())) return false;
+    TArray<ANode*> stack;
+    if (!stack.TryAdd(&Graph().Root())) return false;
+    while (!stack.IsEmpty()) {
+        ANode* node = stack.Last();
+        stack.Pop();
+        if (node == nullptr) continue;
+        const ASprite3DComponent* component = FindSprite(*node);
+        if (component != nullptr) {
+            AImageAsset* image = component->Image();
+            if (image == nullptr) return false;
+            auto texture = UploadTexture(device, *image);
+            if (texture.IsErr()) return false;
+            FCustomGpuSprite sprite;
+            sprite.Component = component;
+            sprite.Texture = Move(texture.Value());
+            if (!uploaded.TryAdd(Move(sprite))) return false;
+        }
+        for (u32 index = 0u; index < node->ChildCount(); ++index) {
+            if (!stack.TryAdd(node->Child(index))) return false;
+        }
+    }
+
+    TArray<CSprite3DRenderer::FDraw> draws(*m_SpriteDraws.GetAllocator());
+    if (!draws.TryReserve(uploaded.Num())) return false;
+    m_CustomSprites = Move(uploaded);
+    m_SpriteDraws = Move(draws);
+    return true;
+}
+
+IRhiTexture* ALegacyScene3DAdapter::TextureFor(const ASprite3DComponent& component) const noexcept
+{
+    for (u32 index = 0u; index < m_CustomSprites.Num(); ++index) {
+        if (m_CustomSprites[index].Component == &component)
+            return m_CustomSprites[index].Texture.Get();
+    }
+    return nullptr;
+}
+
+bool ALegacyScene3DAdapter::DrawSpriteScene(FRenderContext& context) noexcept
+{
+    if (m_SpriteGpuState != EShaderGpuState::Ready) return false;
+    m_SpriteDraws.Reset();
+    TArray<const ANode*> stack;
+    if (!stack.TryAdd(&Graph().Root())) return false;
+    while (!stack.IsEmpty()) {
+        const ANode* node = stack.Last();
+        stack.Pop();
+        if (node == nullptr || node->IsPendingDestroy()) continue;
+        for (u32 index = node->ChildCount(); index > 0u; --index) {
+            if (!stack.TryAdd(node->Child(index - 1u))) return false;
+        }
+        if (!IsEffectivelyActive(*node)) continue;
+        const ASprite3DComponent* component = FindSprite(*node);
+        if (component == nullptr) continue;
+        IRhiTexture* texture = TextureFor(*component);
+        if (texture == nullptr || !m_SpriteDraws.TryAdd(CSprite3DRenderer::FDraw{node->World().ToMat4(), texture})) {
+            return false;
+        }
+    }
+    return m_SpriteRenderer.DrawBatch(context.Cmd(), m_Camera.ViewProjection(), m_SpriteDraws.GetData(), static_cast<u32>(m_SpriteDraws.Num()));
 }
 
 void ALegacyScene3DAdapter::DrainAndReleaseGpu() noexcept {
@@ -2666,6 +2861,7 @@ void ALegacyScene3DAdapter::ReleaseGpu() noexcept {
     m_SsssPendingShaders = {};
     m_PostPendingShaders = {};
     m_BlitPendingShaders = {};
+    m_SpritePendingShaders = {};
     m_SkyPendingShaders = {};
     m_Sky.Shutdown();
     m_WaterPendingShaders = {};
@@ -2680,10 +2876,13 @@ void ALegacyScene3DAdapter::ReleaseGpu() noexcept {
     m_SsssNormal.Reset();
     m_Ssss.Shutdown();
     m_Blit.Shutdown();
+    m_SpriteRenderer.Shutdown();
     m_Post.Shutdown();
     m_HdrShaders[0].Shutdown();
     m_HdrShaders[1].Shutdown();
     m_CustomMeshes.Reset();
+    m_CustomSprites.Reset();
+    m_SpriteDraws.Reset();
     m_Cube = FGpuMesh{};
     m_Sphere = FGpuMesh{};
     m_Plane = FGpuMesh{};
@@ -2701,6 +2900,7 @@ void ALegacyScene3DAdapter::ReleaseGpu() noexcept {
     m_SsssPendingIsInitialized = false;
     m_PostGpuState = EShaderGpuState::Unavailable;
     m_BlitGpuState = EShaderGpuState::Unavailable;
+    m_SpriteGpuState = EShaderGpuState::Unavailable;
     m_WaterGpuState = EWaterGpuState::Unavailable;
     m_FrameWidth = 0u;
     m_FrameHeight = 0u;
@@ -2736,6 +2936,8 @@ void ALegacyScene3DAdapter::JoinCpuCompileWorkers() noexcept {
     m_PostCompileWorkerState.store(0, std::memory_order_release);
     m_BlitCompileWorker.Join();
     m_BlitCompileWorkerState.store(0, std::memory_order_release);
+    m_SpriteCompileWorker.Join();
+    m_SpriteCompileWorkerState.store(0, std::memory_order_release);
     m_SkyCompileWorker.Join();
     m_SkyCompileWorkerState.store(0, std::memory_order_release);
     m_WaterCompileWorker.Join();

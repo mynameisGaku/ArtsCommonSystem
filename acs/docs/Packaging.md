@@ -351,10 +351,11 @@ The projection hint is not authoritative scene state. Perspective or
 Orthographic is selected per camera at runtime.
 
 The reversible `ACS3D v2` subset supports `N3D`, `MSH3D`, `MAT3D`, `FLG3D`,
-`EMPTY3D`, `CMP3D`, `CPROP3D`, `PLY3D`, and `SEL3D`, including sparse IDs and
+`EMPTY3D`, `CMP3D`, `CPROP3D`, `PLY3D`, `SPR3D`, and `SEL3D`, including sparse IDs and
 multiple top-level nodes. Polygon payloads are validated and preserved without
 inventing an asset dependency; runtime deterministically builds their XY mesh.
-`SPR3D`, `PFAB3D`, unknown directives, invalid component/property records, or
+`SPR3D` texture paths are validated, included in the Cook closure, and rewritten
+in the isolated bootstrap copy. `PFAB3D`, unknown directives, invalid component/property records, or
 dependencies that cannot be decoded fail validation with an explicit
 scene-adapter diagnostic. Standalone `.gltf` assets with non-data external
 buffer/image URIs also fail closed; Cook never ships a scene with silently

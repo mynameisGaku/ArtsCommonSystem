@@ -32,6 +32,7 @@ set(_acsgen_render_sources
     ShadowMap.cpp
     SkinnedShader.cpp
     Sky.cpp
+    Sprite3DRenderer.cpp
     SpriteBatch.cpp
     SpriteSortList.cpp
     Ssao.cpp
@@ -89,6 +90,7 @@ set(_acsgen_render_headers
     ShadowMap.h
     SkinnedShader.h
     Sky.h
+    Sprite3DRenderer.h
     SpriteBatch.h
     SpriteSortList.h
     Ssao.h

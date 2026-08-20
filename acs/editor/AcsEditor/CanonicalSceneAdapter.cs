@@ -357,6 +357,7 @@ public static class CanonicalSceneAdapter
         var componentCounts = new Dictionary<int, int>();
         var meshes = new HashSet<int>();
         var materials = new HashSet<int>();
+        var sprites = new HashSet<int>();
         var cameraNodes = new HashSet<int>();
         var cameraIds = new HashSet<string>(StringComparer.Ordinal);
         int activeCameraCount = 0;
@@ -401,6 +402,14 @@ public static class CanonicalSceneAdapter
                         meshes,
                         requireMeshPrimitive: true);
                     break;
+                case "SPR3D":
+                    InspectPathReference(
+                        line,
+                        lineNumber,
+                        CanonicalSceneReferenceKind.Texture,
+                        sprites,
+                        requireMeshPrimitive: false);
+                    break;
                 case "MAT3D":
                     InspectMaterial(line, lineNumber);
                     break;
@@ -422,7 +431,6 @@ public static class CanonicalSceneAdapter
                 case "SEL3D":
                     InspectSelection(line, lineNumber);
                     break;
-                case "SPR3D":
                 case "PFAB3D":
                     diagnostics.Add(Error(
                         "SCENE3D_RUNTIME_DIRECTIVE_UNSUPPORTED",

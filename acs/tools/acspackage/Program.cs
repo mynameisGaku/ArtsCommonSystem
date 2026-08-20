@@ -3471,12 +3471,13 @@ internal static partial class Program
                 2,
                 [albedoAsset.AssetId],
                 scene3DAsset.Metadata.ImportSettings);
-            IReadOnlyList<PackageIssue> unsupported3DIssues =
+            IReadOnlyList<PackageIssue> sprite3DIssues =
                 PackageCore.Validate(project3D, optionsA, executable, [runtime]);
             Assert(
-                unsupported3DIssues.Any(issue =>
-                    issue.Code == "SCENE3D_RUNTIME_DIRECTIVE_UNSUPPORTED"),
-                "editor-only ACS3D directives must fail closed with an explicit adapter diagnostic");
+                !sprite3DIssues.Any(issue =>
+                    issue.Code.StartsWith("SCENE3D_", StringComparison.Ordinal) &&
+                    issue.Severity == PackageIssueSeverity.Error),
+                "SPR3D texture references must pass the reversible runtime adapter");
             File.WriteAllText(
                 settings,
                 "[Game]\nDefaultScene=Assets/main.acscene\n",

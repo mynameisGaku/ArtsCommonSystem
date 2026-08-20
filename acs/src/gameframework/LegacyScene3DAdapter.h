@@ -16,6 +16,7 @@
 #include "render/PostProcess.h"
 #include "render/RenderAssets.h"
 #include "render/Sky.h"
+#include "render/Sprite3DRenderer.h"
 #include "render/SubsurfaceScattering.h"
 #include "render/WaterSurface3D.h"
 #include "threading/Thread.h"
@@ -26,6 +27,7 @@ namespace acs::game {
 
 class IAssetPackReader;
 class AMeshComponent3D;
+class ASprite3DComponent;
 class AWaterSurface3DComponent;
 
 /**
@@ -229,6 +231,15 @@ private:
         FGpuMesh Mesh;
     };
 
+    /** sceneコンポーネントと所有GPU画像の対応。 */
+    struct FCustomGpuSprite {
+        /** 画像の所有元コンポーネント。 */
+        const ASprite3DComponent* Component = nullptr;
+
+        /** 描画アダプターが単独所有するGPU画像。 */
+        TUniquePtr<IRhiTexture> Texture;
+    };
+
     enum class EWaterGpuState : u8 {
         Unavailable = 0,
         Compiling,
@@ -266,6 +277,7 @@ private:
         Subsurface,
         Sky,
         Blit,
+        Sprite,
         Water,
     };
 
@@ -295,6 +307,7 @@ private:
         IRhiDevice& device) noexcept;
     bool BeginPostCpuCompilation() noexcept;
     bool BeginBlitCpuCompilation() noexcept;
+    bool BeginSpriteCpuCompilation() noexcept;
     static void SkyCpuCompileWorkerEntry(void* user) noexcept;
     static void WaterCpuCompileWorkerEntry(void* user) noexcept;
     static void HdrPbrCpuCompileWorkerEntry(void* user) noexcept;
@@ -302,6 +315,7 @@ private:
     static void SubsurfaceCpuCompileWorkerEntry(void* user) noexcept;
     static void PostCpuCompileWorkerEntry(void* user) noexcept;
     static void BlitCpuCompileWorkerEntry(void* user) noexcept;
+    static void SpriteCpuCompileWorkerEntry(void* user) noexcept;
     void JoinCpuCompileWorkers() noexcept;
     static bool TryClaimGpuCommit(
         EGpuCommitSubsystem& frame_commit,
@@ -336,7 +350,9 @@ private:
         IRhiDevice& device,
         EGpuCommitSubsystem& frame_commit,
         bool requested) noexcept;
+    void AdvanceSpriteInitialization(IRhiDevice& device, EFormat depth_format, EGpuCommitSubsystem& frame_commit, bool requested) noexcept;
     bool UploadGraphMeshes(IRhiDevice& device) noexcept;
+    bool UploadGraphSprites(IRhiDevice& device) noexcept;
     void DrainAndReleaseGpu() noexcept;
     void ReleaseGpu() noexcept;
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
@@ -350,6 +366,8 @@ private:
     void AdoptLoadedCamera() noexcept;
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
+    IRhiTexture* TextureFor(const ASprite3DComponent& component) const noexcept;
+    bool DrawSpriteScene(FRenderContext& context) noexcept;
     u32 CollectWaterDraws(
         FWaterDraw (&draws)[CWaterSurface3D::kMaxTrackedSurfaces],
         IRhiTexture* depth, u32 width, u32 height) const noexcept;
@@ -415,6 +433,10 @@ private:
     CBlit::FCompiledShaders m_BlitPendingShaders{};
     FThread m_BlitCompileWorker;
     std::atomic<i32> m_BlitCompileWorkerState{0};
+    CSprite3DRenderer m_SpriteRenderer;
+    CSprite3DRenderer::FCompiledShaders m_SpritePendingShaders{};
+    FThread m_SpriteCompileWorker;
+    std::atomic<i32> m_SpriteCompileWorkerState{0};
     CSky m_Sky;
     CSky::FCompiledShaders m_SkyPendingShaders{};
     FThread m_SkyCompileWorker;
@@ -429,6 +451,8 @@ private:
     FGpuMesh m_Sphere;
     FGpuMesh m_Plane;
     TArray<FCustomGpuMesh> m_CustomMeshes;
+    TArray<FCustomGpuSprite> m_CustomSprites;
+    TArray<CSprite3DRenderer::FDraw> m_SpriteDraws;
     CCamera m_Camera;
     FScene3DCameraState m_AuthoredCamera{};
     bool m_UseAuthoredCamera = false;
@@ -463,6 +487,7 @@ private:
     EShaderGpuState m_SsssGpuState = EShaderGpuState::Unavailable;
     EShaderGpuState m_PostGpuState = EShaderGpuState::Unavailable;
     EShaderGpuState m_BlitGpuState = EShaderGpuState::Unavailable;
+    EShaderGpuState m_SpriteGpuState = EShaderGpuState::Unavailable;
     ESkyGpuState m_SkyGpuState = ESkyGpuState::Unavailable;
     EWaterGpuState m_WaterGpuState = EWaterGpuState::Unavailable;
     u32 m_FrameWidth = 0u;
