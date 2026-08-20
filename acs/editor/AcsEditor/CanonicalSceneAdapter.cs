@@ -73,6 +73,7 @@ public static class CanonicalSceneAdapter
     private const int MaxDirectives = 262144;
     private const int MaxCameras = 256;
     private const int MaxCameraIdBytes = 64;
+    private const int MaxPolygonPoints = 4096;
 
     public static CanonicalSceneAdapterInspection InspectFile(string path)
     {
@@ -422,13 +423,15 @@ public static class CanonicalSceneAdapter
                     InspectSelection(line, lineNumber);
                     break;
                 case "SPR3D":
-                case "PLY3D":
                 case "PFAB3D":
                     diagnostics.Add(Error(
                         "SCENE3D_RUNTIME_DIRECTIVE_UNSUPPORTED",
                         $"{directive} is preserved by the editor but is not yet implemented by " +
                         "the standalone legacy 3D runtime adapter.",
                         lineNumber));
+                    break;
+                case "PLY3D":
+                    InspectPolygon(line, lineNumber);
                     break;
                 default:
                     diagnostics.Add(Error(
@@ -559,6 +562,42 @@ public static class CanonicalSceneAdapter
                 }
             }
             references.Add(new(kind, FirstToken(line), trimmed, lineNumber));
+        }
+
+        void InspectPolygon(string line, int lineNumber)
+        {
+            string[] tokens = Tokens(line);
+            if (tokens.Length < 3 || !TryInt(tokens[1], out int id) || !TryInt(tokens[2], out int pointCount) || pointCount is < 3 or > MaxPolygonPoints || tokens.Length != 3 + pointCount * 2 || !AllFinite(tokens, 3, pointCount * 2))
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_POLYGON_INVALID",
+                    $"PLY3D requires an existing Mesh node id, 3-{MaxPolygonPoints} points, and exactly two finite coordinates per point.",
+                    lineNumber));
+                return;
+            }
+            if (!nodes.TryGetValue(id, out NodeRecord? node))
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_POLYGON_NODE_INVALID",
+                    "PLY3D must reference an earlier N3D node.",
+                    lineNumber));
+                return;
+            }
+            if (node.Primitive != 3)
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_POLYGON_PRIMITIVE_INVALID",
+                    "PLY3D is only valid for an N3D node whose primitive is Mesh (3).",
+                    lineNumber));
+                return;
+            }
+            if (!meshes.Add(id))
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_REFERENCE_DUPLICATE",
+                    $"Node {id} has more than one mesh geometry directive.",
+                    lineNumber));
+            }
         }
 
         void InspectMaterial(string line, int lineNumber)

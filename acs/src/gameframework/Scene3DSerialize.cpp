@@ -11,6 +11,7 @@
 #include "gameframework/Reflect.h"
 #include "gameframework/ReflectApply.h"
 #include "asset/MeshAsset.h"
+#include "asset/MeshPrimitive.h"
 #include "container/Array.h"
 #include "container/Hash.h"
 #include "container/HashMap.h"
@@ -50,6 +51,7 @@ struct FParsedNode {
     FVec4 Color{1.0f, 1.0f, 1.0f, 1.0f};
     u32 Depth = 0u;
     bool HasMeshPath = false;
+    bool HasPolygon = false;
     bool HasMaterialPath = false;
     bool HasLegacyMaterial = false;
     bool Visible = true;
@@ -477,6 +479,7 @@ EScene3DSerializeError ParseMeshLine(
         return EScene3DSerializeError::InvalidNodeId;
     FParsedNode& record = nodes[*node_index];
     if (record.HasMeshPath) return EScene3DSerializeError::DuplicateMeshPath;
+    if (record.HasPolygon) return EScene3DSerializeError::DuplicateGeometry;
     if (record.Primitive != static_cast<i32>(EMeshPrimitive3D::Mesh))
         return EScene3DSerializeError::InvalidMeshPath;
     const EScene3DSerializeError path_error =
@@ -521,6 +524,35 @@ bool ParseCameraId(
 
 u32* FindNodeIndex(THashMap<i32, u32>& id_to_index, i32 id) noexcept {
     return id >= 0 ? id_to_index.Find(id) : nullptr;
+}
+
+EScene3DSerializeError ParsePolygonLine(const char* line, u32 size, TArray<FParsedNode>& nodes, THashMap<i32, u32>& id_to_index, u32& polygon_count) noexcept
+{
+    const char* cursor = line + 6u;
+    const char* end = line + size;
+    i32 id = -1;
+    i32 signed_point_count = 0;
+    if (!ParseI32(cursor, end, id) || !ParseI32(cursor, end, signed_point_count)) return EScene3DSerializeError::InvalidPolygon;
+    const u32* node_index = FindNodeIndex(id_to_index, id);
+    if (node_index == nullptr) return EScene3DSerializeError::InvalidNodeId;
+    FParsedNode& record = nodes[*node_index];
+    if (record.HasMeshPath || record.HasPolygon) return EScene3DSerializeError::DuplicateGeometry;
+    if (record.Primitive != static_cast<i32>(EMeshPrimitive3D::Mesh) || signed_point_count < 3 || signed_point_count > static_cast<i32>(kScene3DSerializeMaxPolygonPointCount)) return EScene3DSerializeError::InvalidPolygon;
+
+    const u32 point_count = static_cast<u32>(signed_point_count);
+    TArray<FVec2> points;
+    if (!points.TrySetNum(point_count)) return EScene3DSerializeError::AllocationFailure;
+    for (u32 index = 0u; index < point_count; ++index) {
+        if (!ParseF32(cursor, end, points[index].x) || !ParseF32(cursor, end, points[index].y)) return EScene3DSerializeError::InvalidPolygon;
+    }
+    if (!IsOnlyWhitespace(cursor, end)) return EScene3DSerializeError::InvalidPolygon;
+
+    TSharedPtr<AMeshAsset> polygon;
+    if (!Primitive::TryMakePolygonXY(points.GetData(), point_count, polygon)) return EScene3DSerializeError::AllocationFailure;
+    record.LoadedMesh = TSharedPtr<AAsset>(polygon);
+    record.HasPolygon = true;
+    ++polygon_count;
+    return EScene3DSerializeError::None;
 }
 
 EScene3DSerializeError ParseFlagsLine(
@@ -815,6 +847,8 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept {
     case EScene3DSerializeError::AssetMissing:            return "asset_missing";
     case EScene3DSerializeError::AssetDecodeFailed:       return "asset_decode_failed";
     case EScene3DSerializeError::MaterialDecodeFailed:    return "material_decode_failed";
+    case EScene3DSerializeError::InvalidPolygon:          return "invalid_polygon";
+    case EScene3DSerializeError::DuplicateGeometry:       return "duplicate_geometry";
     }
     return "unknown";
 }
@@ -976,6 +1010,7 @@ struct FParsedScene3DDocument {
     TArray<FParsedCamera> Cameras;
     bool EditorDocument = false;
     u32 MeshPathCount = 0u;
+    u32 PolygonCount = 0u;
     u32 SourceBytes = 0u;
 };
 
@@ -1203,6 +1238,11 @@ FScene3DLoadResult ParseScene3DDocument(
                 line, line_size, document.Nodes, id_to_index,
                 document.Cameras);
         } else if (document.EditorDocument
+                   && StartsWith(line, line_size, "PLY3D ", 6u)) {
+            error = ParsePolygonLine(
+                line, line_size, document.Nodes, id_to_index,
+                document.PolygonCount);
+        } else if (document.EditorDocument
                    && StartsWith(line, line_size, "SEL3D ", 6u)) {
             const char* selection = line + 6u;
             const char* end = line + line_size;
@@ -1223,7 +1263,6 @@ FScene3DLoadResult ParseScene3DDocument(
             }
         } else if (document.EditorDocument
                    && (StartsWith(line, line_size, "SPR3D ", 6u)
-                       || StartsWith(line, line_size, "PLY3D ", 6u)
                        || StartsWith(line, line_size, "PFAB3D ", 7u))) {
             error = EScene3DSerializeError::UnsupportedDirective;
         }
@@ -1249,7 +1288,7 @@ FScene3DLoadResult ParseScene3DDocument(
             document.MeshPathCount);
     }
     document.SourceBytes = size;
-    return FScene3DLoadResult{
+    FScene3DLoadResult result{
         EScene3DSerializeError::None,
         size,
         static_cast<u32>(document.Nodes.Num())
@@ -1258,6 +1297,8 @@ FScene3DLoadResult ParseScene3DDocument(
         0u,
         0u
     };
+    result.PolygonCount = document.PolygonCount;
+    return result;
 }
 
 FScene3DLoadResult CommitScene3DDocument(
@@ -1338,9 +1379,8 @@ FScene3DLoadResult CommitScene3DDocument(
             mesh.SetColor(record.Color);
             if (record.HasMeshPath) {
                 mesh.SetMeshPath(FStringView(record.MeshPath));
-                if (record.LoadedMesh)
-                    mesh.SetMeshAsset(record.LoadedMesh);
             }
+            if (record.LoadedMesh) mesh.SetMeshAsset(record.LoadedMesh);
             if (record.HasMaterialPath) {
                 mesh.SetMaterialPath(FStringView(record.MaterialPath));
                 mesh.SetMaterial(record.LoadedMaterial);
@@ -1419,6 +1459,7 @@ FScene3DLoadResult CommitScene3DDocument(
     result.CameraCount = document.Cameras.Num();
     result.ActivePreferredCameraCount = active_preferred_camera_count;
     result.ActiveCamera = active_camera;
+    result.PolygonCount = document.PolygonCount;
     graph.SwapContents(staged_scene);
     return result;
 }

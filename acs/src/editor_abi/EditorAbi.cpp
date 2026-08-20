@@ -5939,14 +5939,8 @@ FVec3 AxisDir(int axis) noexcept {
 /** 2D ポリゴン点列 (XY 平面、z=0) からフラットな AMeshAsset を作る (扇状三角形分割、法線+Z)。
  *  «2D は内部的に 3D 空間 (z=0) にある» を体現: 2D ポリゴンを 3D シーンのノードとして持つ。 */
 TSharedPtr<AAsset> MakeFlatPolygon3D(const FVec2* pts, u32 n) noexcept {
-    if (pts == nullptr || n < 3) return nullptr;
-    auto mesh = MakeShared<AMeshAsset>();
-    auto& V = mesh->Vertices();
-    for (u32 i = 0; i < n; ++i)
-        V.Add(FMeshVertex{ FVec3{ pts[i].x, pts[i].y, 0.0f }, FVec3{ 0, 0, 1 }, 0.0f, 0.0f });
-    auto& I = mesh->Indices();
-    for (u32 i = 1; i + 1 < n; ++i) { I.Add(0); I.Add(i); I.Add(i + 1); }   // 扇 (凸前提)
-    mesh->SubMeshes().Add(FSubMesh{ 0, static_cast<u32>(I.Num()) });
+    TSharedPtr<AMeshAsset> mesh;
+    if (!Primitive::TryMakePolygonXY(pts, n, mesh)) return nullptr;
     return TSharedPtr<AAsset>(mesh);
 }
 
