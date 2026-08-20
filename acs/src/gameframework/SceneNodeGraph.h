@@ -256,6 +256,20 @@ public:
     FNodeId RaycastActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, f32* out_t = nullptr) const noexcept;
 
     /**
+     * 有効かつ可視なmesh boundsへworld空間の球を指定t区間だけsweepする。
+     *
+     * @details node local AABBをworld scaleに応じて保守的に拡張し、球中心rayとの最初の接触を返す。
+     * 回転と非一様scaleを扱い、角では安全側へ早く命中する場合がある。radius 0はRaycastActiveRangeと同じ。
+     * @param center_ray world空間を移動する球中心ray。距離としてtを使う場合はdirectionを正規化する。
+     * @param radius world空間の球半径。有限かつ0以上。
+     * @param minimum_t 含める最小t。有限かつ0以上。
+     * @param maximum_t 含める最大t。有限かつminimum_t以上。
+     * @param out_t 非nullかつ命中時だけ最近hitのtを書き込む。
+     * @return 区間内で最も手前の有効mesh node。入力不正または外れはinvalid。
+     */
+    FNodeId SweepSphereActiveRange(const FRay3& center_ray, f32 radius, f32 minimum_t, f32 maximum_t, f32* out_t = nullptr) const noexcept;
+
+    /**
      * subtree のノード総数を返す (root を含む)。
      *
      * @return ノード総数。

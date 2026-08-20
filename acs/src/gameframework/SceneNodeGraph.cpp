@@ -58,24 +58,43 @@ void RaycastRec(const ANode* n, const FRay3& ray, FNodeId& best, f32& bestT) noe
     for (u32 i = 0; i < n->ChildCount(); ++i) RaycastRec(n->Child(i), ray, best, bestT);
 }
 
-/** 有効かつ可視なsubtreeから指定t区間内の最近meshを探す。 */
-void RaycastActiveRangeRec(const ANode* node, const FRay3& ray, f32 minimum_t, f32 maximum_t, bool parent_active, FNodeId& best, f32& best_t) noexcept
+/** world球半径をnode local軸へ写し、mesh boundsを安全側へ拡張する。 */
+bool TryExpandBoundsForWorldSphere(const FTransform3D& world, f32 radius, FAabb3& bounds) noexcept
+{
+    if (radius == 0.0f) return true;
+    const f32 scale_x = std::fabs(world.scale.x);
+    const f32 scale_y = std::fabs(world.scale.y);
+    const f32 scale_z = std::fabs(world.scale.z);
+    if (!std::isfinite(scale_x) || !std::isfinite(scale_y) || !std::isfinite(scale_z) || scale_x <= 0.0f || scale_y <= 0.0f || scale_z <= 0.0f) return false;
+    /** inverse scale後のsphereを覆うlocal軸別余白。 */
+    const FVec3 padding{radius / scale_x, radius / scale_y, radius / scale_z};
+    if (!std::isfinite(padding.x) || !std::isfinite(padding.y) || !std::isfinite(padding.z)) return false;
+    bounds.half_size = FVec3{bounds.half_size.x + padding.x, bounds.half_size.y + padding.y, bounds.half_size.z + padding.z};
+    return std::isfinite(bounds.half_size.x) && std::isfinite(bounds.half_size.y) && std::isfinite(bounds.half_size.z);
+}
+
+/** 有効かつ可視なsubtreeから指定t区間内の最近meshを球probeで探す。 */
+void SweepSphereActiveRangeRec(const ANode* node, const FRay3& center_ray, f32 radius, f32 minimum_t, f32 maximum_t, bool parent_active, FNodeId& best, f32& best_t) noexcept
 {
     if (node == nullptr) return;
     const bool active = parent_active && !node->IsPendingDestroy() && node->IsEnabled() && node->IsVisible();
     if (!active) return;
     if (const AMeshComponent3D* mesh = FindMeshC(*node)) {
-        const FMat4 world_inverse = Inverse(node->World().ToMat4());
-        /** world rayのtを保ったままnode localへ移したray。 */
-        const FRay3 local_ray{TransformPoint(ray.origin, world_inverse), TransformVector(ray.direction, world_inverse)};
-        const FRayHit3 hit = RaycastAabb(local_ray, LocalBounds3D(*mesh), maximum_t);
-        if (hit.hit && std::isfinite(hit.t) && hit.t >= minimum_t && hit.t <= maximum_t && hit.t < best_t) {
-            best_t = hit.t;
-            best = node->Id();
+        const FTransform3D world = node->World();
+        FAabb3 bounds = LocalBounds3D(*mesh);
+        if (TryExpandBoundsForWorldSphere(world, radius, bounds)) {
+            const FMat4 world_inverse = Inverse(world.ToMat4());
+            /** world中心rayのtを保ったままnode localへ移したray。 */
+            const FRay3 local_ray{TransformPoint(center_ray.origin, world_inverse), TransformVector(center_ray.direction, world_inverse)};
+            const FRayHit3 hit = RaycastAabb(local_ray, bounds, maximum_t);
+            if (hit.hit && std::isfinite(hit.t) && hit.t >= minimum_t && hit.t <= maximum_t && hit.t < best_t) {
+                best_t = hit.t;
+                best = node->Id();
+            }
         }
     }
     for (u32 index = 0u; index < node->ChildCount(); ++index)
-        RaycastActiveRangeRec(node->Child(index), ray, minimum_t, maximum_t, active, best, best_t);
+        SweepSphereActiveRangeRec(node->Child(index), center_ray, radius, minimum_t, maximum_t, active, best, best_t);
 }
 
 /** subtree を深さ優先で走査し name に一致する最初のノードを返す (root から再帰)。 */
@@ -217,13 +236,19 @@ FNodeId CSceneNodeGraph::Raycast(const FRay3& ray, f32* out_t) const noexcept {
 /** 有効な描画meshだけを有限t区間で検索し、外れでは出力を維持する。 */
 FNodeId CSceneNodeGraph::RaycastActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, f32* out_t) const noexcept
 {
-    const bool finite_ray = std::isfinite(ray.origin.x) && std::isfinite(ray.origin.y) && std::isfinite(ray.origin.z) && std::isfinite(ray.direction.x) && std::isfinite(ray.direction.y) && std::isfinite(ray.direction.z);
-    const f32 direction_length_squared = ray.direction.x * ray.direction.x + ray.direction.y * ray.direction.y + ray.direction.z * ray.direction.z;
-    if (!finite_ray || !std::isfinite(direction_length_squared) || direction_length_squared <= 0.0f || !std::isfinite(minimum_t) || !std::isfinite(maximum_t) || minimum_t < 0.0f || maximum_t < minimum_t)
+    return SweepSphereActiveRange(ray, 0.0f, minimum_t, maximum_t, out_t);
+}
+
+/** 有効な描画mesh boundsへ有限区間のworld球をsweepし、外れでは出力を維持する。 */
+FNodeId CSceneNodeGraph::SweepSphereActiveRange(const FRay3& center_ray, f32 radius, f32 minimum_t, f32 maximum_t, f32* out_t) const noexcept
+{
+    const bool finite_ray = std::isfinite(center_ray.origin.x) && std::isfinite(center_ray.origin.y) && std::isfinite(center_ray.origin.z) && std::isfinite(center_ray.direction.x) && std::isfinite(center_ray.direction.y) && std::isfinite(center_ray.direction.z);
+    const f32 direction_length_squared = center_ray.direction.x * center_ray.direction.x + center_ray.direction.y * center_ray.direction.y + center_ray.direction.z * center_ray.direction.z;
+    if (!finite_ray || !std::isfinite(direction_length_squared) || direction_length_squared <= 0.0f || !std::isfinite(radius) || radius < 0.0f || !std::isfinite(minimum_t) || !std::isfinite(maximum_t) || minimum_t < 0.0f || maximum_t < minimum_t)
         return FNodeId{};
     FNodeId best{};
     f32 best_t = 3.4028235e38f;
-    RaycastActiveRangeRec(m_Root.Get(), ray, minimum_t, maximum_t, true, best, best_t);
+    SweepSphereActiveRangeRec(m_Root.Get(), center_ray, radius, minimum_t, maximum_t, true, best, best_t);
     if (out_t != nullptr && best.IsValid()) *out_t = best_t;
     return best;
 }

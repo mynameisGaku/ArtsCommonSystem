@@ -3755,7 +3755,7 @@ void ALegacyScene3DAdapter::SetOrbit(
 /** 障害物回避距離を隔離検証し、成功時だけ表示設定へ反映する。 */
 bool ALegacyScene3DAdapter::TrySetOrbitCameraObstructionSettings(const FOrbitCameraObstructionSettings3D& settings) noexcept
 {
-    if (!std::isfinite(settings.TargetClearance) || !std::isfinite(settings.CameraClearance) || settings.TargetClearance <= 0.0f || settings.CameraClearance < 0.0f)
+    if (!std::isfinite(settings.TargetClearance) || !std::isfinite(settings.CameraClearance) || !std::isfinite(settings.ProbeRadius) || settings.TargetClearance <= 0.0f || settings.CameraClearance < 0.0f || settings.ProbeRadius < 0.0f)
         return false;
     const f32 minimum_resolved_distance = settings.TargetClearance - settings.CameraClearance;
     if (!std::isfinite(minimum_resolved_distance) || minimum_resolved_distance < m_OrbitCameraController.Settings().minimum_distance) return false;
@@ -3831,7 +3831,7 @@ bool ALegacyScene3DAdapter::TryResolveOrbitCameraObstruction_Internal(const COrb
     if (!m_OrbitCameraController.TryBuildView(state, desired_view)) return false;
     const FVec3 direction = (desired_view.eye - state.target) * (1.0f / state.distance);
     f32 obstruction_distance = 0.0f;
-    const FNodeId obstruction = Graph().RaycastActiveRange(FRay3{state.target, direction}, m_OrbitCameraObstructionSettings.TargetClearance, state.distance, &obstruction_distance);
+    const FNodeId obstruction = Graph().SweepSphereActiveRange(FRay3{state.target, direction}, m_OrbitCameraObstructionSettings.ProbeRadius, m_OrbitCameraObstructionSettings.TargetClearance, state.distance, &obstruction_distance);
     if (!obstruction.IsValid()) {
         output = state;
         return true;

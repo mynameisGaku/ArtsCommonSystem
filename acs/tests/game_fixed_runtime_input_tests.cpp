@@ -500,13 +500,14 @@ ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraObstructionIsPresentationOnly)
     settings.Enabled = true;
     settings.TargetClearance = 0.75f;
     settings.CameraClearance = 0.25f;
+    settings.ProbeRadius = 0.25f;
     EXPECT_TRUE(scene->TrySetOrbitCameraObstructionSettings(settings));
     game.UpdateForTest(0.0f);
     /** wall手前へ短縮されたpresentation eye。 */
     const FVec3 obstructed_eye = scene->Camera().Eye();
     EXPECT_NEAR(obstructed_eye.x, 0.0f, 1.0e-5f);
     EXPECT_NEAR(obstructed_eye.y, 0.0f, 1.0e-5f);
-    EXPECT_NEAR(obstructed_eye.z, -3.25f, 1.0e-4f);
+    EXPECT_NEAR(obstructed_eye.z, -3.0f, 1.0e-4f);
 
     /** 衝突表示中もdesired simulation距離を保持するsnapshot。 */
     COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D captured;
@@ -519,7 +520,11 @@ ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraObstructionIsPresentationOnly)
     invalid.TargetClearance = 0.1f;
     invalid.CameraClearance = 0.25f;
     EXPECT_FALSE(scene->TrySetOrbitCameraObstructionSettings(invalid));
+    invalid = settings;
+    invalid.ProbeRadius = -0.01f;
+    EXPECT_FALSE(scene->TrySetOrbitCameraObstructionSettings(invalid));
     EXPECT_NEAR(scene->OrbitCameraObstructionSettings().TargetClearance, 0.75f, 0.0f);
+    EXPECT_NEAR(scene->OrbitCameraObstructionSettings().ProbeRadius, 0.25f, 0.0f);
 
     if (wall.Node != nullptr) wall.Node->SetVisible(false);
     game.UpdateForTest(0.0f);
