@@ -1895,24 +1895,18 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float distanceLod=1.0+cloudRange.z*saturate(t0/max(MAX_DISTANCE,1.0));
     fineStep*=distanceLod;
     coarseStep*=distanceLod;
-    // Ultra revisits an exact full-resolution pixel once every sixteen frames.
-    // Give that pixel one deterministic ray/cone jitter so its refresh compares
-    // the same integral with the reprojected history. Advancing the jitter on
-    // every refresh changed one phase cohort at a time and exposed it as dots.
-    // The integer PCG hash also avoids IGN's diagonal screen-space correlation.
-    // Non-TSR modes retain the same long translated/rotated time sequence.
-    uint jitterFrame=(uint)temporal.z;
-    // A TSR pixel is refreshed only once per complete sixteen-phase cycle.
-    // Advance its low-discrepancy sample at that cadence, then accumulate the
-    // result in the resolve pass. Holding one random value forever leaves its
-    // Monte-Carlo error as static salt-and-pepper grain; advancing every frame
-    // instead changes one phase cohort at a time without allowing convergence.
-    uint jitterSequence=temporal.w>3.5?(jitterFrame>>4u):jitterFrame;
-    uint2 jitterPixel=rayPixel+uint2(
-        (jitterSequence*47u)%131u,
-        (jitterSequence*17u)%127u);
-    float pixelJitter=CloudJitter01(jitterPixel);
-    float jit=frac(pixelJitter+float(jitterSequence)*0.754877666);
+    // 参照描画は時間履歴を使わないため、乱数位相を毎フレーム変えると未平均の粒状誤差だけが動く。
+    // 区間中央を使う決定論的な積分にし、1 フレームだけで密度場と照明を比較できる基準画像にする。
+    float jit=0.5;
+    if(cloudLightingAmbient.w<0.5){
+        // 超高品質の時間再構成では、同じ出力画素を 16 段階ごとに更新する。
+        // その周期に乱数列を合わせ、通常の等倍・縮小描画では毎フレーム進めて履歴へ平均する。
+        uint jitterFrame=(uint)temporal.z;
+        uint jitterSequence=temporal.w>3.5?(jitterFrame>>4u):jitterFrame;
+        uint2 jitterPixel=rayPixel+uint2((jitterSequence*47u)%131u,(jitterSequence*17u)%127u);
+        float pixelJitter=CloudJitter01(jitterPixel);
+        jit=frac(pixelJitter+float(jitterSequence)*0.754877666);
+    }
     float3 sun=sunDir.xyz;
     float cosA=clamp(dot(dir,sun),-1.0,1.0);
     float phaseBlend=cloudLightingPhase.z;

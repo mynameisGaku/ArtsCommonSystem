@@ -4003,17 +4003,25 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(!Contains(shader, "if(profile<=0.001) return 0.0;"));
 }
 
-ACS_TEST(VolumetricClouds,
-         UltraRayJitterAdvancesOncePerCycleWhileNativeModesAvoidShortCycles) {
+ACS_TEST(VolumetricClouds, ReferenceRayJitterIsDeterministicWhileNativeModesAdvance) {
     const std::string source = ReadSkySource();
     const std::string shader =
         ExtractRawShader(source, "const char* kCloudCS");
+    const std::string compactShader = CompactShader(shader);
     EXPECT_TRUE(!source.empty());
     EXPECT_TRUE(!shader.empty());
 
-    // Ultra refreshes an exact pixel once per complete phase cycle, so the
-    // low-discrepancy sample advances at that same cadence. Native/scaled modes
-    // still rotate every frame because all pixels are current.
+    // 参照描画は時間履歴で平均しないため、区間中央を固定して粒状誤差の時間変化を止める。
+    // 通常描画だけが乱数列へ入り、超高品質の時間再構成では 16 段階ごとに列を進める。
+    const std::size_t referenceMidpoint = compactShader.find("floatjit=0.5;");
+    const std::size_t normalModeGate = compactShader.find("if(cloudLightingAmbient.w<0.5){", referenceMidpoint);
+    const std::size_t jitterFrame = compactShader.find("uintjitterFrame=(uint)temporal.z;", normalModeGate);
+    EXPECT_TRUE(referenceMidpoint != std::string::npos);
+    EXPECT_TRUE(normalModeGate != std::string::npos);
+    EXPECT_TRUE(jitterFrame != std::string::npos);
+    EXPECT_TRUE(referenceMidpoint < normalModeGate);
+    EXPECT_TRUE(normalModeGate < jitterFrame);
+    EXPECT_TRUE(Contains(source, "m_ReferenceMode ? 1.0f : 0.0f"));
     EXPECT_TRUE(Contains(shader, "uint jitterFrame=(uint)temporal.z;"));
     EXPECT_TRUE(Contains(
         shader,
