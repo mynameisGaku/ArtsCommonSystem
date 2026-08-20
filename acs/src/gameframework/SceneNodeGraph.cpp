@@ -7,6 +7,8 @@
 #include "math/Mat.h"                        // Inverse / TransformPoint / TransformVector
 #include "memory/UniquePtr.h"
 
+#include <cmath>
+
 namespace acs::game {
 
 namespace {
@@ -54,6 +56,26 @@ void RaycastRec(const ANode* n, const FRay3& ray, FNodeId& best, f32& bestT) noe
         if (hit.hit && hit.t >= 0.0f && hit.t < bestT) { bestT = hit.t; best = n->Id(); }
     }
     for (u32 i = 0; i < n->ChildCount(); ++i) RaycastRec(n->Child(i), ray, best, bestT);
+}
+
+/** 有効かつ可視なsubtreeから指定t区間内の最近meshを探す。 */
+void RaycastActiveRangeRec(const ANode* node, const FRay3& ray, f32 minimum_t, f32 maximum_t, bool parent_active, FNodeId& best, f32& best_t) noexcept
+{
+    if (node == nullptr) return;
+    const bool active = parent_active && !node->IsPendingDestroy() && node->IsEnabled() && node->IsVisible();
+    if (!active) return;
+    if (const AMeshComponent3D* mesh = FindMeshC(*node)) {
+        const FMat4 world_inverse = Inverse(node->World().ToMat4());
+        /** world rayのtを保ったままnode localへ移したray。 */
+        const FRay3 local_ray{TransformPoint(ray.origin, world_inverse), TransformVector(ray.direction, world_inverse)};
+        const FRayHit3 hit = RaycastAabb(local_ray, LocalBounds3D(*mesh), maximum_t);
+        if (hit.hit && std::isfinite(hit.t) && hit.t >= minimum_t && hit.t <= maximum_t && hit.t < best_t) {
+            best_t = hit.t;
+            best = node->Id();
+        }
+    }
+    for (u32 index = 0u; index < node->ChildCount(); ++index)
+        RaycastActiveRangeRec(node->Child(index), ray, minimum_t, maximum_t, active, best, best_t);
 }
 
 /** subtree を深さ優先で走査し name に一致する最初のノードを返す (root から再帰)。 */
@@ -189,6 +211,20 @@ FNodeId CSceneNodeGraph::Raycast(const FRay3& ray, f32* out_t) const noexcept {
     f32 bestT = 3.4028235e38f;
     RaycastRec(m_Root.Get(), ray, best, bestT);
     if (out_t != nullptr && best.IsValid()) *out_t = bestT;
+    return best;
+}
+
+/** 有効な描画meshだけを有限t区間で検索し、外れでは出力を維持する。 */
+FNodeId CSceneNodeGraph::RaycastActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, f32* out_t) const noexcept
+{
+    const bool finite_ray = std::isfinite(ray.origin.x) && std::isfinite(ray.origin.y) && std::isfinite(ray.origin.z) && std::isfinite(ray.direction.x) && std::isfinite(ray.direction.y) && std::isfinite(ray.direction.z);
+    const f32 direction_length_squared = ray.direction.x * ray.direction.x + ray.direction.y * ray.direction.y + ray.direction.z * ray.direction.z;
+    if (!finite_ray || !std::isfinite(direction_length_squared) || direction_length_squared <= 0.0f || !std::isfinite(minimum_t) || !std::isfinite(maximum_t) || minimum_t < 0.0f || maximum_t < minimum_t)
+        return FNodeId{};
+    FNodeId best{};
+    f32 best_t = 3.4028235e38f;
+    RaycastActiveRangeRec(m_Root.Get(), ray, minimum_t, maximum_t, true, best, best_t);
+    if (out_t != nullptr && best.IsValid()) *out_t = best_t;
     return best;
 }
 

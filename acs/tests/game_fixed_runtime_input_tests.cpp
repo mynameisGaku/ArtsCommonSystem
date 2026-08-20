@@ -4,6 +4,7 @@
 #include "gameframework/InputFrameSource.h"
 #include "gameframework/InputStateSnapshot.h"
 #include "gameframework/LegacyScene3DAdapter.h"
+#include "gameframework/MeshComponent3D.h"
 #include "gameframework/Scene.h"
 #include "subsystem/SubsystemOwner.h"
 #include "test/Expect.h"
@@ -457,6 +458,74 @@ ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraSnapshotRestoresReplayIntervalT
     EXPECT_EQ(source.ObservedTick(0u), 0u);
     EXPECT_EQ(source.ObservedTick(1u), 1u);
     EXPECT_EQ(source.ObservedTick(2u), 1u);
+    game.ShutdownForTest();
+}
+
+ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraObstructionIsPresentationOnly)
+{
+    /** GPUなしでLegacy 3D sceneを更新するgame。 */
+    CScriptedFixedTickInputSource source;
+    CLegacyFixedOrbitCameraGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.SetFixedTickInputSource(source);
+    EXPECT_TRUE(game.StartForTest());
+
+    ALegacyScene3DAdapter* scene = game.SceneForTest();
+    EXPECT_TRUE(scene != nullptr);
+    if (scene == nullptr) {
+        game.ShutdownForTest();
+        return;
+    }
+    /** target原点から-Zへ距離8の固定tick camera区間。 */
+    COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D camera_state{};
+    camera_state.previous.pitch_radians = 0.0f;
+    camera_state.previous.distance = 8.0f;
+    camera_state.current = camera_state.previous;
+    EXPECT_TRUE(scene->TryRestoreOrbitCameraSnapshot(camera_state));
+
+    /** target自身を模した原点cube。range raycastでは近傍hitとして除外する。 */
+    FScene3DSpawnResult target = scene->Graph().TrySpawn(FStringView("CameraTarget"));
+    EXPECT_TRUE(target.Succeeded());
+    if (target.Node != nullptr) target.Node->AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+    /** desired eyeとの間を遮るwall。 */
+    FScene3DSpawnResult wall = scene->Graph().TrySpawn(FStringView("CameraWall"));
+    EXPECT_TRUE(wall.Succeeded());
+    if (wall.Node != nullptr) {
+        wall.Node->Local().position = FVec3{0.0f, 0.0f, -4.0f};
+        wall.Node->Local().scale = FVec3{4.0f, 4.0f, 1.0f};
+        wall.Node->AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+    }
+
+    ALegacyScene3DAdapter::FOrbitCameraObstructionSettings3D settings{};
+    settings.Enabled = true;
+    settings.TargetClearance = 0.75f;
+    settings.CameraClearance = 0.25f;
+    EXPECT_TRUE(scene->TrySetOrbitCameraObstructionSettings(settings));
+    game.UpdateForTest(0.0f);
+    /** wall手前へ短縮されたpresentation eye。 */
+    const FVec3 obstructed_eye = scene->Camera().Eye();
+    EXPECT_NEAR(obstructed_eye.x, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(obstructed_eye.y, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(obstructed_eye.z, -3.25f, 1.0e-4f);
+
+    /** 衝突表示中もdesired simulation距離を保持するsnapshot。 */
+    COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D captured;
+    EXPECT_TRUE(scene->TryCaptureOrbitCameraSnapshot(captured));
+    EXPECT_NEAR(captured.previous.distance, 8.0f, 0.0f);
+    EXPECT_NEAR(captured.current.distance, 8.0f, 0.0f);
+    ALegacyScene3DAdapter::FOrbitCameraObstructionSettings3D invalid = settings;
+    invalid.TargetClearance = 0.0f;
+    EXPECT_FALSE(scene->TrySetOrbitCameraObstructionSettings(invalid));
+    invalid.TargetClearance = 0.1f;
+    invalid.CameraClearance = 0.25f;
+    EXPECT_FALSE(scene->TrySetOrbitCameraObstructionSettings(invalid));
+    EXPECT_NEAR(scene->OrbitCameraObstructionSettings().TargetClearance, 0.75f, 0.0f);
+
+    if (wall.Node != nullptr) wall.Node->SetVisible(false);
+    game.UpdateForTest(0.0f);
+    /** 障害物が非表示になるとdesired距離へ即時復帰するeye。 */
+    const FVec3 clear_eye = scene->Camera().Eye();
+    EXPECT_NEAR(clear_eye.z, -8.0f, 1.0e-4f);
     game.ShutdownForTest();
 }
 

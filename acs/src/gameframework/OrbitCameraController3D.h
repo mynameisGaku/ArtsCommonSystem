@@ -139,6 +139,16 @@ public:
     bool IsSnapshotValid(const FOrbitCameraFixedStepSnapshot3D& snapshot) const noexcept;
 
     /**
+     * targetからcameraまでの障害物距離と余白からpresentation用距離を短縮する。
+     * @param state 衝突前のdesired orbit状態。
+     * @param obstruction_distance targetから最初の障害物までの距離。
+     * @param camera_clearance 障害物の手前へ確保する距離。
+     * @param output 短縮したpresentation状態。失敗時は変更しない。
+     * @return 入力が有限で障害物距離がdesired距離内かつ余白後も最小距離を保てるならtrue。
+     */
+    bool TryResolveObstructedState(const FOrbitCameraState3D& state, f32 obstruction_distance, f32 camera_clearance, FOrbitCameraState3D& output) const noexcept;
+
+    /**
      * orbit状態からeye、look-at、upを計算する。
      * @return 状態が有効ならtrue。失敗時はviewを変更しない。
      */

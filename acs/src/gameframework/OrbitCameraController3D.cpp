@@ -158,6 +158,21 @@ bool COrbitCameraController3D::IsSnapshotValid(const FOrbitCameraFixedStepSnapsh
     return IsValidSettings(m_Settings) && IsViewState(m_Settings, snapshot.previous) && IsViewState(m_Settings, snapshot.current);
 }
 
+/** desired stateを維持し、障害物の手前へ置くpresentation stateだけを計算する。 */
+bool COrbitCameraController3D::TryResolveObstructedState(const FOrbitCameraState3D& state, f32 obstruction_distance, f32 camera_clearance, FOrbitCameraState3D& output) const noexcept
+{
+    if (!IsValidSettings(m_Settings) || !IsViewState(m_Settings, state)) return false;
+    if (!std::isfinite(obstruction_distance) || !std::isfinite(camera_clearance) || obstruction_distance < 0.0f || obstruction_distance > state.distance || camera_clearance < 0.0f)
+        return false;
+    const f32 unobstructed_distance = obstruction_distance - camera_clearance;
+    if (!std::isfinite(unobstructed_distance) || unobstructed_distance < m_Settings.minimum_distance) return false;
+    FOrbitCameraState3D candidate = state;
+    candidate.distance = unobstructed_distance;
+    if (!IsViewState(m_Settings, candidate)) return false;
+    output = candidate;
+    return true;
+}
+
 /** orbit状態をLegacyScene3Dと同じ左手系view座標へ変換する。 */
 bool COrbitCameraController3D::TryBuildView(const FOrbitCameraState3D& state, FOrbitCameraView3D& view) const noexcept
 {

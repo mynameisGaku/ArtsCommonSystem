@@ -49455,6 +49455,19 @@ public:
     FNodeId Raycast(const FRay3& ray, f32* out_t = nullptr) const noexcept;
 
     /**
+     * 有効かつ可視なsubtreeを指定t区間だけraycastする。
+     *
+     * @details 親が無効、非表示、破棄予定ならsubtree全体を除外する。minimum_tより手前のhitを
+     * 除外できるため、ray原点を含む追従対象を無視して3D camera障害物を探せる。
+     * @param ray world空間ray。距離としてtを使う場合はdirectionを正規化する。
+     * @param minimum_t 含める最小t。有限かつ0以上。
+     * @param maximum_t 含める最大t。有限かつminimum_t以上。
+     * @param out_t 非nullかつ命中時だけ最近hitのtを書き込む。
+     * @return 区間内で最も手前の有効mesh node。入力不正または外れはinvalid。
+     */
+    FNodeId RaycastActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, f32* out_t = nullptr) const noexcept;
+
+    /**
      * subtree のノード総数を返す (root を含む)。
      *
      * @return ノード総数。
@@ -52814,6 +52827,16 @@ public:
      * @return previous/currentが安全なview範囲ならtrue。
      */
     bool IsSnapshotValid(const FOrbitCameraFixedStepSnapshot3D& snapshot) const noexcept;
+
+    /**
+     * targetからcameraまでの障害物距離と余白からpresentation用距離を短縮する。
+     * @param state 衝突前のdesired orbit状態。
+     * @param obstruction_distance targetから最初の障害物までの距離。
+     * @param camera_clearance 障害物の手前へ確保する距離。
+     * @param output 短縮したpresentation状態。失敗時は変更しない。
+     * @return 入力が有限で障害物距離がdesired距離内かつ余白後も最小距離を保てるならtrue。
+     */
+    bool TryResolveObstructedState(const FOrbitCameraState3D& state, f32 obstruction_distance, f32 camera_clearance, FOrbitCameraState3D& output) const noexcept;
 
     /**
      * orbit状態からeye、look-at、upを計算する。
@@ -60056,7 +60079,6 @@ public:
      */
     const CSky& Sky() const noexcept { return m_Sky; }
 
-    /** Camera used for standalone preview/gameplay. */
     /**
      * 自由カメラのキー操作 (矢印・WASD・Q/E・PageUp/PageDown・Escape) を受け付けるか決める。
      *
@@ -60077,6 +60099,28 @@ public:
      * @return 受け付けるなら true。
      */
     bool FreeCameraEnabled() const noexcept { return m_FreeCameraEnabled; }
+
+    /** 自由cameraのpresentation障害物回避設定。 */
+    struct FOrbitCameraObstructionSettings3D final {
+        /** 有効なscene meshでcamera距離を短縮するならtrue。既定は互換性のためfalse。 */
+        bool Enabled = false;
+
+        /** targetからこの距離未満のhitを追従対象として除外する。 */
+        f32 TargetClearance = 0.75f;
+
+        /** cameraを障害物の手前へ離す距離。 */
+        f32 CameraClearance = 0.25f;
+    };
+
+    /**
+     * presentation障害物回避設定を検証し、成功時だけ反映する。
+     * @param settings 有効状態、target除外距離、camera余白。
+     * @return 距離が有限で、余白後もcontrollerの最小距離を保てるならtrue。
+     */
+    bool TrySetOrbitCameraObstructionSettings(const FOrbitCameraObstructionSettings3D& settings) noexcept;
+
+    /** 現在の検証済みpresentation障害物回避設定を返す。 */
+    const FOrbitCameraObstructionSettings3D& OrbitCameraObstructionSettings() const noexcept { return m_OrbitCameraObstructionSettings; }
 
     /**
      * 見る向きと距離を決める。
@@ -60103,6 +60147,7 @@ public:
      */
     bool TryRestoreOrbitCameraSnapshot(const COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D& snapshot) noexcept;
 
+    /** 単体previewとgameplayで使う自由cameraを返す。 */
     CCamera& Camera() noexcept { return m_Camera; }
 
     /** Read-only standalone camera. */
@@ -60310,6 +60355,8 @@ private:
     void UpdateCameraView() noexcept;
     /** 指定したorbit状態をcameraと表示用状態へ反映する内部処理。 */
     void UpdateOrbitCameraView_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state) noexcept;
+    /** scene graphの有効meshからpresentation用の衝突回避状態を求める内部処理。 */
+    bool TryResolveOrbitCameraObstruction_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state, COrbitCameraController3D::FOrbitCameraState3D& output) const noexcept;
     /** 固定時計の補間率から今回描画するcamera状態を反映する内部処理。 */
     void UpdatePresentedCameraView_Internal() noexcept;
 
@@ -60766,6 +60813,9 @@ private:
     i32 m_ActiveCameraNodeId = -1;
     /** device非依存の自由camera計算器。 */
     COrbitCameraController3D m_OrbitCameraController{};
+
+    /** scene-localな自由camera presentation障害物回避設定。 */
+    FOrbitCameraObstructionSettings3D m_OrbitCameraObstructionSettings{};
 
     /** scene入力を自由cameraの6操作軸へ変換するaction集合。 */
     FOrbitCameraInputActionSet3D m_OrbitCameraActions{};

@@ -12,6 +12,7 @@
 | State | `FOrbitCameraState3D` | target、yaw、pitch、target から eye までの距離 |
 | Time | `f32 delta_seconds` | 呼び出し側が確定した固定 tick 秒 |
 | Presentation | `f64 interpolation_alpha` | 前回と現在の固定 tick 状態を混ぜる `[0,1]` の描画補間率 |
+| Obstruction | `obstruction_distance` / `camera_clearance` | scene queryが返したtargetからのhit距離とcamera余白 |
 | Snapshot | `FOrbitCameraFixedStepSnapshot3D` | 補間区間を再現するprevious/current固定tick状態 |
 | Output | 更新済み state / `FOrbitCameraView3D` | eye、look-at、up の world 座標 |
 
@@ -25,6 +26,7 @@ session などの呼び出し側であり、controller は subsystem ではな�
 - `TryConfigure`、`TryStep`、`TryBuildView` は失敗時に出力を変更しない。
 - `TryInterpolateState` は両状態と `[0,1]` の有限な補間率だけを受け付け、失敗時に出力を変更しない。
 - `IsSnapshotValid` はsnapshotのprevious/currentを現在設定に対して同時検証する。
+- `TryResolveObstructedState` はdesired stateを変更せず、障害物の手前へ短縮したpresentation stateを返す。
 - yaw 補間は `-pi` / `+pi` 境界を最短経路で越え、target、pitch、distance は線形補間する。
 - 補間率0はprevious、1はcurrentを表し、通常描画は一つ前の固定tickから現在tickまでを連続表示する。
 - yaw は `[-pi, pi]` へ折り返し、pitch は設定上限へ制限する。
@@ -63,6 +65,19 @@ presentation stateを再計算するため、派生値はsnapshotへ重複保存
 snapshotのいずれかが非有限、pitch上限外、距離範囲外なら復元を拒否し、previous/current、表示viewを
 変更しない。これは同一process内のrollback用であり、version間の永続保存形式ではない。
 
+## 3D障害物回避
+
+`ALegacyScene3DAdapter::FOrbitCameraObstructionSettings3D` は既定で無効であり、既存sceneの見え方を
+変更しない。`TrySetOrbitCameraObstructionSettings` で有効にすると、adapterはtargetからdesired eyeへ
+正規化rayを飛ばし、`CSceneNodeGraph::RaycastActiveRange` で有効かつ可視なmeshだけを検索する。
+
+- `TargetClearance` より手前のhitは追従対象自身として除外する。
+- 最初のhitから `CameraClearance` を引いた距離を `TryResolveObstructedState` へ渡す。
+- `TargetClearance - CameraClearance` がcontrollerの最小距離を下回る設定は、障害物の奥へ丸めないよう拒否する。
+- 衝突で短縮するのはpresentation stateだけで、fixed tickのdesired distanceとrollback snapshotは変えない。
+- 障害物が無効または非表示になると、次のupdate/renderでdesired distanceへ戻る。
+- queryはnodeのworld変形を反映したmesh AABBを使う。mesh三角形やsphere sweep、復帰smoothingは別責務である。
+
 ## 現在の利用先と範囲
 
 `ALegacyScene3DAdapter` は `ESvc::Input` を要求し、W/A/S/D/Q/E、矢印キー、PageUp/PageDown を
@@ -74,5 +89,5 @@ scene-local actionへ割り当てる。自由カメラは `OnFixedUpdate` で `S
 移動・回転・zoomは `CGame` の固定timestepを無効にすると停止する。Escapeによる終了だけは固定更新の
 有無に関係なく反応させるため、可変frame側に残す。
 
-この型は orbit 操作だけを扱う。衝突回避、camera shake、投影行列、dolly、入力 binding の所有は
-別責務である。将来 gameplay camera へ接続するときも、これらを controller 内へ暗黙に追加しない。
+controllerはscene queryを所有せず、明示されたhit距離からpresentation stateを計算するだけである。
+camera shake、投影行列、dolly、入力 bindingの所有も別責務とし、controllerへ暗黙に追加しない。
