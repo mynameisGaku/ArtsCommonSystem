@@ -501,6 +501,8 @@ struct FEditorHost {
     i32   q_sky_mode         = 0;     // 0=CSky(グラデ+雲) / 1=CAtmosphere(物理大気散乱)。要 Diligent (IBL 経路)
     f32   q_cloud_coverage   = 0.50f; f32 q_cloud_density = 1.6f; f32 q_cloud_wind = 1.0f;
     f32   q_cloud_render_scale = 0.75f;   // 内部の 1/4 寸法描画を基準にした品質倍率。
+    // 診断時だけ等倍・512刻み・時間再構成なしにする。
+    bool  q_cloud_reference = false;
     f32   q_cloud_base       = 1500.0f; f32 q_cloud_top = 4000.0f; f32 q_cloud_noise_scale = 0.035f; // world-space volumetric cloud layer
     f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
     FVec3 sun_dir            = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (光源) 方向 «光へ向かう» 向き。Rendering/SunAzimuth+Elevation で駆動。
@@ -5659,9 +5661,10 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     }
 
     if (h.r3d_init_phase == 23u) {
-        if (h.vclouds_ready &&
-            !h.vclouds3d.EnsureSize(
-                *dev, startup_w, startup_h, h.q_cloud_render_scale)) {
+        if (h.vclouds_ready) {
+            h.vclouds3d.SetReferenceMode(h.q_cloud_reference);
+        }
+        if (h.vclouds_ready && !h.vclouds3d.EnsureSize(*dev, startup_w, startup_h, h.q_cloud_render_scale, h.q_cloud_reference)) {
             ACS_LOG_WARN("[3D] volumetric-cloud startup sizing failed");
         }
         h.r3d_init_phase = 24u;
@@ -9916,8 +9919,10 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             // 雲は «空 pass を End → compute dispatch (pass 外で UAV→SRV 遷移が成立)» する。
             // compute をここ (pass 前) で dispatch すると、後段 composite の SRV 読みへの
             // UAV→SRV 遷移が pass を跨げず書込みが見えない (実測)。よってここでは gate のみ。
-            if (h.vclouds_ready &&
-                h.vclouds3d.EnsureSize(*cdev, scW, scH, h.q_cloud_render_scale)) {
+            if (h.vclouds_ready) {
+                h.vclouds3d.SetReferenceMode(h.q_cloud_reference);
+            }
+            if (h.vclouds_ready && h.vclouds3d.EnsureSize(*cdev, scW, scH, h.q_cloud_render_scale, h.q_cloud_reference)) {
                 cloudsActive = true;
             }
         }
@@ -11351,14 +11356,10 @@ static void PublishProfilerFrame(
     snapshot.cloud_light_steps = 0u;
     snapshot.cloud_render_scale = 0.0f;
     if (host.profiler_work.clouds_active) {
-        const FVolumetricCloudTraceResolution trace =
-            ResolveVolumetricCloudTraceResolution(
-                snapshot.viewport_width,
-                snapshot.viewport_height,
-                host.q_cloud_render_scale);
+        const FVolumetricCloudTraceResolution trace = ResolveVolumetricCloudTraceResolution(snapshot.viewport_width, snapshot.viewport_height, host.q_cloud_render_scale, host.q_cloud_reference);
         snapshot.cloud_width = trace.width;
         snapshot.cloud_height = trace.height;
-        snapshot.cloud_march_steps = 192u;
+        snapshot.cloud_march_steps = host.q_cloud_reference ? kVolumetricCloudReferenceViewSteps : kVolumetricCloudViewSteps;
         snapshot.cloud_light_steps = 8u;
         snapshot.cloud_render_scale = trace.effective_dimension_scale;
     }
@@ -12011,6 +12012,7 @@ static void ApplySettings(FEditorHost& h) noexcept {
         h.q_cloud_render_scale =
             SanitizeVolumetricCloudQualityMultiplier(cloudRenderScale);
     }
+    h.q_cloud_reference = h.settings.GetBool("Rendering", "CloudReferenceMode", false);
     const f32 gray = h.settings.GetFloat("Rendering", "GodRays", 0.0f);
     h.q_godray_on = (gray > 0.0f); if (h.q_godray_on) h.q_godray_intensity = gray;   // 0=オフ / >0=光芒の強度
     h.q_vignette  = h.settings.GetFloat("Rendering", "Vignette", 0.0f);              // シネマフィルタ (0=オフ)

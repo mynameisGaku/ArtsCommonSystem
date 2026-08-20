@@ -1899,11 +1899,12 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     if(MAX_STEPS<32) MAX_STEPS=32;
     float span=t1-t0;
     float baseFineStep=cloudCoverageReciprocals.z;
-    // A dense oblique ray must still reach the far end of the shell. Keep
-    // vertical/near rays at authored detail resolution, then widen the step
-    // only enough to reserve sixteen probes for coarse-to-fine transitions.
-    float fineStep=max(baseFineStep,span/168.0);
-    float coarseStep=max(fineStep*2.0,span/84.0);
+    // 採取上限の 1/8 は空領域から細密領域へ戻る処理に残し、残りを実積分へ使う。
+    // 上限を下げた場合も区間終端へ到達し、参照描画では増やした採取回数が刻み幅へ反映される。
+    int fineSampleBudget=MAX_STEPS-(MAX_STEPS>>3);
+    int coarseSampleBudget=max(fineSampleBudget>>1,1);
+    float fineStep=max(baseFineStep,span/float(fineSampleBudget));
+    float coarseStep=max(fineStep*2.0,span/float(coarseSampleBudget));
     // 遠くから始まるレイほど刻みを広げる。地平線へ向かうレイは 1 画素の担当する
     // 立体角が広く、細かく刻んでも結果に出ない。上向きのレイは t0 が小さいので
     // ここでは粗くならない。レイごとに一定の倍率にして、粗密の往復を乱さない。
@@ -3359,12 +3360,15 @@ FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload(
         SaturatingCloudWorkloadAdd(
             out.one_time_bake_launched_threads,
             out.shadow_cache_launched_threads));
-    out.maximum_view_samples = SaturatingCloudWorkloadMultiply(
-        out.trace_logical_invocations,
-        kVolumetricCloudMaxViewMarchSamples);
-    out.maximum_light_samples = SaturatingCloudWorkloadMultiply(
-        out.maximum_view_samples,
-        kVolumetricCloudMaxLightMarchSamples);
+    u32 maximumViewSteps = plan.maximum_view_steps;
+    if (maximumViewSteps < kVolumetricCloudMinViewSteps) {
+        maximumViewSteps = kVolumetricCloudMinViewSteps;
+    }
+    if (maximumViewSteps > kVolumetricCloudReferenceViewSteps) {
+        maximumViewSteps = kVolumetricCloudReferenceViewSteps;
+    }
+    out.maximum_view_samples = SaturatingCloudWorkloadMultiply(out.trace_logical_invocations, maximumViewSteps);
+    out.maximum_light_samples = SaturatingCloudWorkloadMultiply(out.maximum_view_samples, kVolumetricCloudMaxLightMarchSamples);
     out.temporal_super_resolution =
         plan.output_width != 0u && plan.output_height != 0u &&
         plan.trace_width == CloudCeilDivisor(
@@ -3781,11 +3785,18 @@ FVolumetricCloudRayInterval IntersectVolumetricCloudShell(
     return out;
 }
 
-FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(
-    FVec3 ray_origin, FVec3 ray_direction,
-    const FVolumetricCloudLayer& layer,
-    f32 max_distance, FVec3 world_origin) noexcept {
+FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(FVec3 ray_origin, FVec3 ray_direction, const FVolumetricCloudLayer& layer, f32 max_distance, FVec3 world_origin, u32 maximum_samples) noexcept {
     FVolumetricCloudMarchPlan out{};
+    if (maximum_samples == 0u) {
+        maximum_samples = kVolumetricCloudMaxViewMarchSamples;
+    }
+    if (maximum_samples < kVolumetricCloudMinViewSteps) {
+        maximum_samples = kVolumetricCloudMinViewSteps;
+    }
+    if (maximum_samples > kVolumetricCloudReferenceViewSteps) {
+        maximum_samples = kVolumetricCloudReferenceViewSteps;
+    }
+    out.max_samples = maximum_samples;
     const f32 len2 = ray_direction.x * ray_direction.x +
                      ray_direction.y * ray_direction.y +
                      ray_direction.z * ray_direction.z;
@@ -3815,12 +3826,16 @@ FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(
     if (out.fine_step < 0.5f) out.fine_step = 0.5f;
     if (out.fine_step > 2.0f) out.fine_step = 2.0f;
     const f32 span = out.exit - out.enter;
-    const f32 intervalFineCoverage = span / 168.0f;
+    const u32 fineSampleBudget = maximum_samples - maximum_samples / 8u;
+    const u32 coarseSampleBudget = fineSampleBudget / 2u;
+    const f32 intervalFineCoverage =
+        span / static_cast<f32>(fineSampleBudget);
     if (out.fine_step < intervalFineCoverage) {
         out.fine_step = intervalFineCoverage;
     }
     out.coarse_step = out.fine_step * 2.0f;
-    const f32 intervalCoverage = span / 84.0f;
+    const f32 intervalCoverage =
+        span / static_cast<f32>(coarseSampleBudget);
     if (out.coarse_step < intervalCoverage) {
         out.coarse_step = intervalCoverage;
     }
@@ -4736,6 +4751,8 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     workloadPlan.trace_height = m_H;
     workloadPlan.output_width = m_FullW;
     workloadPlan.output_height = m_FullH;
+    const u32 viewSteps = m_ReferenceMode ? kVolumetricCloudReferenceViewSteps : (m_Range.ViewSteps > 0u ? m_Range.ViewSteps : kVolumetricCloudViewSteps);
+    workloadPlan.maximum_view_steps = viewSteps;
     workloadPlan.bake_shape_noise = bakeShapeNoiseThisFrame;
     workloadPlan.bake_weather = bakeWeatherThisFrame;
     workloadPlan.bake_detail_noise = bakeDetailNoiseThisFrame;
@@ -4907,13 +4924,7 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     cb.cloudLightingMulti = FVec4{
         m_Lighting.MultiScatterOcclusion, m_Lighting.PhaseMin,
         m_Lighting.PhaseMax, m_Lighting.GroundContribution};
-    // 刻み数。指定が無ければ既定 (通常 192 / 参照 512)。参照描画は «正解» を出すためのもの
-    // なので、そちらでは指定を無視して最大のまま走らせる。
-    const u32 viewSteps =
-        m_ReferenceMode
-            ? kVolumetricCloudReferenceViewSteps
-            : (m_Range.ViewSteps > 0u ? m_Range.ViewSteps
-                                      : kVolumetricCloudViewSteps);
+    // 刻み数は負荷計測とシェーダーで同じ値を使う。参照描画は利用側の上限指定を無視する。
     cb.cloudLightingAmbient = FVec4{
         m_Lighting.AmbientAtBase, m_Lighting.AmbientAtTop,
         static_cast<f32>(viewSteps),

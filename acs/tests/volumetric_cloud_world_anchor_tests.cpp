@@ -566,9 +566,11 @@ ACS_TEST(VolumetricClouds,
     const char* modernReadyGate =
         "if(h.vclouds_ready&&"
         "h.vclouds3d.EnsureSize("
-        "*cdev,scW,scH,h.q_cloud_render_scale)){"
+        "*cdev,scW,scH,h.q_cloud_render_scale,"
+        "h.q_cloud_reference)){"
         "cloudsActive=true;}";
     EXPECT_TRUE(Contains(editorSource, volumetricGate));
+    EXPECT_TRUE(Contains(editorSource, "h.vclouds3d.SetReferenceMode(h.q_cloud_reference);"));
     EXPECT_TRUE(Contains(editorSource, modernReadyGate));
     EXPECT_TRUE(Contains(editorSource, fallbackGate));
     EXPECT_FALSE(Contains(
@@ -787,6 +789,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(
         editorSource,
         "cloudRenderScale>1.0f?1.0f:cloudRenderScale"));
+    EXPECT_TRUE(Contains(editorSource, "h.q_cloud_reference=h.settings.GetBool(\"Rendering\",\"CloudReferenceMode\",false);"));
+    EXPECT_TRUE(Contains(editorSource, "host.q_cloud_render_scale,host.q_cloud_reference);"));
 }
 
 ACS_TEST(VolumetricClouds,
@@ -814,6 +818,14 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(steady.temporal_super_resolution);
     EXPECT_FALSE(steady.attempted);
     EXPECT_FALSE(steady.submitted);
+
+    FVolumetricCloudFrameWorkloadPlan referencePlan = steadyPlan;
+    referencePlan.maximum_view_steps =
+        kVolumetricCloudReferenceViewSteps;
+    const FVolumetricCloudFrameWorkload reference =
+        PlanVolumetricCloudFrameWorkload(referencePlan);
+    EXPECT_EQ(reference.maximum_view_samples, 66355200u);
+    EXPECT_EQ(reference.maximum_light_samples, 530841600u);
 
     FVolumetricCloudFrameWorkloadPlan coldPlan = steadyPlan;
     coldPlan.bake_shape_noise = true;
@@ -1000,9 +1012,22 @@ ACS_TEST(VolumetricClouds,
         EXPECT_EQ(plan.max_samples, 192u);
     }
 
+    const FVec3 horizonDirection =
+        NormalizeForTest(FVec3{1.0f, 0.02f, 0.0f});
+    const FVolumetricCloudMarchPlan minimum = PlanVolumetricCloudRayMarch(FVec3{0.0f, 8.0f, 0.0f}, horizonDirection, layer, kVolumetricCloudMaxDistance, FVec3{}, kVolumetricCloudMinViewSteps);
+    const FVolumetricCloudMarchPlan reference = PlanVolumetricCloudRayMarch(FVec3{0.0f, 8.0f, 0.0f}, horizonDirection, layer, kVolumetricCloudMaxDistance, FVec3{}, kVolumetricCloudReferenceViewSteps);
+    const f32 minimumSpan = minimum.exit - minimum.enter;
+    const f32 referenceSpan = reference.exit - reference.enter;
+    EXPECT_EQ(minimum.max_samples, 32u);
+    EXPECT_TRUE(minimum.fine_step * 28.0f >= minimumSpan);
+    EXPECT_TRUE(minimum.coarse_step * 14.0f >= minimumSpan);
+    EXPECT_EQ(reference.max_samples, 512u);
+    EXPECT_TRUE(reference.fine_step * 448.0f >= referenceSpan);
+    EXPECT_TRUE(reference.coarse_step * 224.0f >= referenceSpan);
+    EXPECT_TRUE(reference.fine_step < minimum.fine_step);
+
     const std::string source = ReadSkySource();
-    const std::string shader = CompactShader(
-        ExtractRawShader(source, "const char* kCloudCS"));
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
     EXPECT_TRUE(!shader.empty());
     EXPECT_TRUE(Contains(
         shader,
@@ -1011,10 +1036,12 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "floatspan=t1-t0;"));
     EXPECT_TRUE(Contains(
         shader, "floatbaseFineStep=cloudCoverageReciprocals.z;"));
-    EXPECT_TRUE(Contains(
-        shader, "floatfineStep=max(baseFineStep,span/168.0);"));
-    EXPECT_TRUE(Contains(
-        shader, "floatcoarseStep=max(fineStep*2.0,span/84.0);"));
+    EXPECT_TRUE(Contains(shader, "intfineSampleBudget=MAX_STEPS-(MAX_STEPS>>3);"));
+    EXPECT_TRUE(Contains(shader, "intcoarseSampleBudget=max(fineSampleBudget>>1,1);"));
+    EXPECT_TRUE(Contains(shader, "floatfineStep=max(baseFineStep,span/float(fineSampleBudget));"));
+    EXPECT_TRUE(Contains(shader, "floatcoarseStep=max(fineStep*2.0,span/float(coarseSampleBudget));"));
+    EXPECT_FALSE(Contains(shader, "span/168.0"));
+    EXPECT_FALSE(Contains(shader, "span/84.0"));
     EXPECT_FALSE(Contains(shader, "constintMAX_STEPS=128;"));
 }
 

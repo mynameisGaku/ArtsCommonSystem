@@ -703,6 +703,8 @@ struct FVolumetricCloudFrameWorkloadPlan {
     u32 trace_height = 0u;
     u32 output_width = 0u;
     u32 output_height = 0u;
+    /** 1 本の視線レイで実行できる密度採取回数。 */
+    u32 maximum_view_steps = kVolumetricCloudViewSteps;
     bool bake_shape_noise = false;
     bool bake_weather = false;
     bool bake_detail_noise = false;
@@ -951,13 +953,17 @@ FVolumetricCloudRayInterval IntersectVolumetricCloudShell(
     FVec3 world_origin = FVec3{}) noexcept;
 
 /**
- * Build the bounded, angle-stable ray-march plan mirrored by the cloud shader.
+ * 雲シェーダーと同じ、角度によらず有界な光線積分計画を作る。
+ *
+ * @param ray_origin 光線の始点。
+ * @param ray_direction 光線の方向。関数内で正規化する。
+ * @param layer 対象の雲層。
+ * @param max_distance 描画を打ち切る距離。
+ * @param world_origin 曲面雲層の基準原点。
+ * @param maximum_samples 密度採取回数の上限。0 は通常描画の既定値として扱う。
+ * @return 雲層との交差区間、刻み幅、採取上限をまとめた計画。
  */
-FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(
-    FVec3 ray_origin, FVec3 ray_direction,
-    const FVolumetricCloudLayer& layer,
-    f32 max_distance = kVolumetricCloudMaxDistance,
-    FVec3 world_origin = FVec3{}) noexcept;
+FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(FVec3 ray_origin, FVec3 ray_direction, const FVolumetricCloudLayer& layer, f32 max_distance = kVolumetricCloudMaxDistance, FVec3 world_origin = FVec3{}, u32 maximum_samples = kVolumetricCloudMaxViewMarchSamples) noexcept;
 
 /**
  * Return true when lighting changes make accumulated cloud color stale.
@@ -1035,9 +1041,14 @@ public:
     bool Ready() const noexcept { return m_Ready; }
 
     /**
-     * Scaled ray-march output and full-resolution reconstruction historyを確保/再確保。
-     * render_scale は Ultra internal quarter-dimension trace に対する
-     * 0.5..1.0 の品質倍率として扱い、resolved output は常に full-resolution。
+     * 縮小した光線積分先と、画面解像度へ戻す履歴を確保または再確保する。
+     *
+     * @param device 描画資源を作る装置。
+     * @param scW 出力画面の幅。
+     * @param scH 出力画面の高さ。
+     * @param render_scale 内部描画の品質倍率。1.0 は画面寸法の1/4、4.0は等倍。
+     * @param reference_mode trueなら等倍描画に固定し、時間再構成を使わない。
+     * @return 必要な描画資源を利用できるならtrue。
      */
     bool EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
                     f32 render_scale = 0.5f, bool reference_mode = false) noexcept;
