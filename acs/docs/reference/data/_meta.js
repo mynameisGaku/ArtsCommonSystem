@@ -160,6 +160,7 @@ Object.assign(ACS_REF.glossary, {
   "FCurveKey": "<t>FAnimationCurve</t> の 1 key。有限な time/value/tangent と入口・出口の補間方式を保持する。",
   "FBuffDef": "バフ 1 種の定義(id・種別・持続秒・効果量・<t>スタック</t>方針など)。<code>RegisterBuff</code> で登録する。",
   "CCamera2D": "2D <t>カメラ</t>。位置/ズーム/回転、ターゲット追従、画面振動、world↔screen 座標変換を持つ。",
+  "COrbitCameraController3D": "3D orbit camera の入力・状態・固定時間から、次状態と eye/look-at を決定論的に計算する。",
   "CCameraShakePresets": "『爆発/地震/着弾』などジャンル別の画面振動パラメータを名前付きで提供する preset ライブラリ。",
   "CCharacterCustomizer": "キャラの見た目(cosmetic)だけを slot 単位で着せ替えするマネージャ。戦闘性能はいじらない設計。",
   "CDebugDraw": "1 フレーム分のデバッグ線分(線/AABB/円/十字)を溜めるだけの<t>immediate-mode</t>バッファ。実描画は描画側が行う。",

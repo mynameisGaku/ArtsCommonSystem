@@ -80,7 +80,7 @@ GameFramework が標準登録する World サブシステムは次の三つで�
 
 - 時間と進行: `Clock`、`SceneTimer`、`Tween`、`Sequence`、`StateMachine`。
 - 入力: `InputMap`、`InputAxisOptions`、固定更新入力 snapshot/buffer/source、`InputRecorder`。
-- camera と描画: `Camera2D`、`CameraStack`、`Draw`、`RenderContext`、`SceneRenderResources`。
+- camera と描画: `Camera2D`、`Camera3D`、`OrbitCameraController3D`、`CameraStack`、`Draw`、`RenderContext`、`SceneRenderResources`。
 - 物理と衝突: `CollisionWorld2D`、`RigidWorld2D`、`TriggerWorld2D` と対応 component。
 - asset と永続化: `AssetBundle`、`AssetPack`、`SaveArchive`、`SaveSlot`、scene serializer、prefab、reflection。
 - UI、音声、演出: `UiLayer`、`AudioDirector`、`MusicDirector`、`EffectSystem`、`FadeTransition`。
@@ -239,6 +239,7 @@ network snapshot、replay、script、hot reload、studio lock などは一つの
 
 - [NetSnapshotSafety.md](NetSnapshotSafety.md)
 - [FixedStepRuntimeInput.md](FixedStepRuntimeInput.md)
+- [OrbitCameraController3D.md](OrbitCameraController3D.md)
 - [ReplayDirectorSafety.md](ReplayDirectorSafety.md)
 - [ScriptHostSafety.md](ScriptHostSafety.md)
 - [HotReloadSafety.md](HotReloadSafety.md)
@@ -281,6 +282,10 @@ World サブシステムへ渡す。GameInstance には game の time scale を�
 `Services().Input().Evaluate()` で名前付き action へ変換する。固定更新が来ない短い frame の
 押下・解放は次の固定 tick まで保持し、catch-up 中の同じ変化は一度だけ通知する。入力 source、
 rollback 用 snapshot、失敗時の無入力化は [FixedStepRuntimeInput.md](FixedStepRuntimeInput.md) に定める。
+
+3D orbit camera の移動と視点計算は `COrbitCameraController3D` へ入力値、外部所有 state、固定 tick 秒を
+渡す。controller は renderer や device を参照せず、出力した eye と look-at だけを描画 camera へ
+接続する。契約と固定入力からの変換例は [OrbitCameraController3D.md](OrbitCameraController3D.md) に定める。
 
 ### scene 遷移
 

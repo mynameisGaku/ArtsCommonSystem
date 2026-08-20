@@ -1,0 +1,128 @@
+// SPDX-License-Identifier: Apache-2.0
+#include "gameframework/OrbitCameraController3D.h"
+
+#include "math/Math.h"
+
+#include <cmath>
+
+namespace acs::game {
+namespace {
+
+/** 円周角を[-pi, pi]へ折り返す。 */
+f32 WrapRadians(f32 radians) noexcept
+{
+    constexpr f32 Pi = 3.14159265358979323846f;
+    constexpr f32 TwoPi = Pi * 2.0f;
+    if (radians >= -Pi && radians <= Pi) return radians;
+    f32 wrapped = std::fmod(radians + Pi, TwoPi);
+    if (wrapped < 0.0f) wrapped += TwoPi;
+    return wrapped - Pi;
+}
+
+/** 値を[-1, 1]へ制限する。 */
+f32 ClampAxis(f32 value) noexcept
+{
+    if (value < -1.0f) return -1.0f;
+    if (value > 1.0f) return 1.0f;
+    return value;
+}
+
+/** 3D値の全成分が有限ならtrueを返す。 */
+bool IsFinite(FVec3 value) noexcept
+{
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+/** controller設定が安全な範囲ならtrueを返す。 */
+bool IsValidSettings(const COrbitCameraController3D::FOrbitCameraSettings3D& settings) noexcept
+{
+    constexpr f32 HalfPi = 1.57079632679489661923f;
+    const bool valid_yaw = std::isfinite(settings.yaw_radians_per_second) && settings.yaw_radians_per_second >= 0.0f;
+    const bool valid_pitch = std::isfinite(settings.pitch_radians_per_second) && settings.pitch_radians_per_second >= 0.0f;
+    const bool valid_movement = std::isfinite(settings.movement_distance_scale_per_second) && settings.movement_distance_scale_per_second >= 0.0f;
+    const bool valid_distance = std::isfinite(settings.minimum_movement_distance) && settings.minimum_movement_distance > 0.0f;
+    const bool valid_limit = std::isfinite(settings.pitch_limit_radians) && settings.pitch_limit_radians > 0.0f && settings.pitch_limit_radians < HalfPi;
+    return valid_yaw && valid_pitch && valid_movement && valid_distance && valid_limit;
+}
+
+/** 外部所有stateが計算可能ならtrueを返す。 */
+bool IsValidState(const COrbitCameraController3D::FOrbitCameraState3D& state) noexcept
+{
+    const bool valid_angles = std::isfinite(state.yaw_radians) && std::isfinite(state.pitch_radians);
+    const bool valid_distance = std::isfinite(state.distance) && state.distance > 0.0f;
+    return IsFinite(state.target) && valid_angles && valid_distance;
+}
+
+/** 一回分の全入力が有限ならtrueを返す。 */
+bool IsValidInput(const COrbitCameraController3D::FOrbitCameraInput3D& input) noexcept
+{
+    const bool valid_movement = std::isfinite(input.move_forward) && std::isfinite(input.move_right) && std::isfinite(input.move_up);
+    const bool valid_look = std::isfinite(input.look_yaw) && std::isfinite(input.look_pitch);
+    return valid_movement && valid_look;
+}
+
+} // namespace
+
+/** 設定を隔離検証し、成功時だけ現在設定へ反映する。 */
+bool COrbitCameraController3D::TryConfigure(const FOrbitCameraSettings3D& settings) noexcept
+{
+    if (!IsValidSettings(settings)) return false;
+    m_Settings = settings;
+    return true;
+}
+
+/** 入力を角度とworld移動へ変換し、成功時だけstateを更新する。 */
+bool COrbitCameraController3D::TryStep(const FOrbitCameraInput3D& input, f32 delta_seconds, FOrbitCameraState3D& state) const noexcept
+{
+    if (!IsValidSettings(m_Settings) || !IsValidInput(input)) return false;
+    if (!std::isfinite(delta_seconds) || delta_seconds < 0.0f) return false;
+    if (!IsValidState(state)) return false;
+
+    FOrbitCameraState3D candidate = state;
+    const f32 yaw_delta = ClampAxis(input.look_yaw) * m_Settings.yaw_radians_per_second * delta_seconds;
+    candidate.yaw_radians = WrapRadians(candidate.yaw_radians + yaw_delta);
+    candidate.pitch_radians += ClampAxis(input.look_pitch) * m_Settings.pitch_radians_per_second * delta_seconds;
+    if (candidate.pitch_radians > m_Settings.pitch_limit_radians)
+        candidate.pitch_radians = m_Settings.pitch_limit_radians;
+    if (candidate.pitch_radians < -m_Settings.pitch_limit_radians)
+        candidate.pitch_radians = -m_Settings.pitch_limit_radians;
+
+    const f32 yaw_sine = Sin(candidate.yaw_radians);
+    const f32 yaw_cosine = Cos(candidate.yaw_radians);
+    const FVec3 horizontal_forward{yaw_sine, 0.0f, yaw_cosine};
+    const FVec3 right{yaw_cosine, 0.0f, -yaw_sine};
+    const FVec3 forward_movement = horizontal_forward * ClampAxis(input.move_forward);
+    const FVec3 right_movement = right * ClampAxis(input.move_right);
+    const FVec3 up_movement = FVec3::UnitY() * ClampAxis(input.move_up);
+    FVec3 movement = forward_movement + right_movement + up_movement;
+    const f32 movement_length_squared = LengthSq(movement);
+    if (m_Settings.normalize_movement && movement_length_squared > 1.0f)
+        movement = movement * (1.0f / Sqrt(movement_length_squared));
+
+    const f32 movement_distance = candidate.distance > m_Settings.minimum_movement_distance ? candidate.distance : m_Settings.minimum_movement_distance;
+    const f32 travel_distance = movement_distance * m_Settings.movement_distance_scale_per_second * delta_seconds;
+    candidate.target += movement * travel_distance;
+    if (!IsValidState(candidate)) return false;
+    state = candidate;
+    return true;
+}
+
+/** orbit状態をLegacyScene3Dと同じ左手系view座標へ変換する。 */
+bool COrbitCameraController3D::TryBuildView(const FOrbitCameraState3D& state, FOrbitCameraView3D& view) const noexcept
+{
+    if (!IsValidSettings(m_Settings) || !IsValidState(state)) return false;
+    if (state.pitch_radians < -m_Settings.pitch_limit_radians) return false;
+    if (state.pitch_radians > m_Settings.pitch_limit_radians) return false;
+
+    const f32 pitch_cosine = Cos(state.pitch_radians);
+    const FVec3 forward{Sin(state.yaw_radians) * pitch_cosine, -Sin(state.pitch_radians), Cos(state.yaw_radians) * pitch_cosine};
+    FOrbitCameraView3D candidate{};
+    candidate.eye = state.target - forward * state.distance;
+    candidate.look_at = state.target;
+    candidate.up = FVec3::UnitY();
+    if (!IsFinite(candidate.eye) || !IsFinite(candidate.look_at)) return false;
+    view = candidate;
+    return true;
+}
+
+} // namespace acs::game

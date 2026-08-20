@@ -52673,6 +52673,120 @@ private:
 
 } // namespace acs::game
 
+// ===================== gameframework/OrbitCameraController3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/**
+ * Orbit cameraの入力、状態、固定時間から次状態とview座標を決定する値型controller。
+ *
+ * @details renderer、device、World、platform入力を参照しない。gameplay、AI、replay、testは
+ * 同じFOrbitCameraInput3Dを渡せる。pitchは正方向で見下ろし、yawは正方向で右へ回る。
+ */
+class COrbitCameraController3D final {
+public:
+    /** 一回の更新へ渡す正規化済み操作量。各値は処理時に[-1, 1]へ制限される。 */
+    struct FOrbitCameraInput3D final {
+        /** 水平面上の前後移動。正で前進。 */
+        f32 move_forward = 0.0f;
+
+        /** 水平面上の左右移動。正で右移動。 */
+        f32 move_right = 0.0f;
+
+        /** world Y軸上の上下移動。正で上昇。 */
+        f32 move_up = 0.0f;
+
+        /** 水平回転。正で右を向く。 */
+        f32 look_yaw = 0.0f;
+
+        /** 垂直回転。正で見下ろす。 */
+        f32 look_pitch = 0.0f;
+    };
+
+    /** 呼び出し側が所有し、snapshotやreplayへそのまま保存できるcamera状態。 */
+    struct FOrbitCameraState3D final {
+        /** cameraが見るworld座標。 */
+        FVec3 target{0.0f, 0.0f, 0.0f};
+
+        /** world Y軸周りの水平角度。 */
+        f32 yaw_radians = 0.0f;
+
+        /** 水平面からの垂直角度。正で見下ろす。 */
+        f32 pitch_radians = 0.22f;
+
+        /** targetからeyeまでの距離。 */
+        f32 distance = 8.0f;
+    };
+
+    /** controllerの速度と安全範囲。 */
+    struct FOrbitCameraSettings3D final {
+        /** yaw入力1.0で一秒間に回る角度。 */
+        f32 yaw_radians_per_second = 1.45f;
+
+        /** pitch入力1.0で一秒間に回る角度。 */
+        f32 pitch_radians_per_second = 1.0875f;
+
+        /** distanceへ掛ける一秒あたりの移動倍率。 */
+        f32 movement_distance_scale_per_second = 0.55f;
+
+        /** 近距離でも移動速度を失わないための基準距離。 */
+        f32 minimum_movement_distance = 1.0f;
+
+        /** 上下反転を防ぐpitch絶対値上限。 */
+        f32 pitch_limit_radians = 1.49225652f;
+
+        /** 複数移動軸の合成長を1以下へ揃えるか。 */
+        bool normalize_movement = false;
+    };
+
+    /** rendererへ渡せるworld座標系のview情報。 */
+    struct FOrbitCameraView3D final {
+        /** camera位置。 */
+        FVec3 eye{};
+
+        /** cameraが見る位置。 */
+        FVec3 look_at{};
+
+        /** cameraの上方向。 */
+        FVec3 up{0.0f, 1.0f, 0.0f};
+    };
+
+    /** 既定設定で構築する。 */
+    COrbitCameraController3D() noexcept = default;
+
+    /**
+     * 設定を検証し、成功時だけ現在設定へ反映する。
+     * @return 全速度が有限かつ非負で、安全範囲が有効ならtrue。
+     */
+    bool TryConfigure(const FOrbitCameraSettings3D& settings) noexcept;
+
+    /** 現在の検証済み設定を返す。 */
+    const FOrbitCameraSettings3D& Settings() const noexcept
+    {
+        return m_Settings;
+    }
+
+    /**
+     * 入力と経過秒から次のorbit状態を計算する。
+     * @return 入力、時間、状態が有効ならtrue。失敗時はstateを変更しない。
+     */
+    bool TryStep(const FOrbitCameraInput3D& input, f32 delta_seconds, FOrbitCameraState3D& state) const noexcept;
+
+    /**
+     * orbit状態からeye、look-at、upを計算する。
+     * @return 状態が有効ならtrue。失敗時はviewを変更しない。
+     */
+    bool TryBuildView(const FOrbitCameraState3D& state, FOrbitCameraView3D& view) const noexcept;
+
+private:
+    /** 検証済みの速度と安全範囲。 */
+    FOrbitCameraSettings3D m_Settings{};
+};
+
+} // namespace acs::game
+
 // ===================== render/ShadowMap.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -60516,10 +60630,12 @@ private:
     bool m_UseAuthoredCamera = false;
     bool m_HasExplicitCameraOverride = false;
     i32 m_ActiveCameraNodeId = -1;
-    FVec3 m_Target{0.0f, 0.0f, 0.0f};
-    f32 m_Distance = 8.0f;
-    f32 m_Yaw = 0.0f;
-    f32 m_Pitch = 0.22f;
+    /** device非依存の自由camera計算器。 */
+    COrbitCameraController3D m_OrbitCameraController{};
+
+    /** 自由cameraのsnapshot可能なworld状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D m_OrbitCameraState{};
+
     f32 m_Time = 0.0f;
     /** 距離で霞ませる霧。 */
     FScene3DFog m_Fog{};
