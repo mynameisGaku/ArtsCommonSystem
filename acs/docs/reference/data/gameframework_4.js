@@ -963,10 +963,12 @@ ACS_REF.modules.push({
     {
       name: "ALegacyScene3DAdapter",
       kind: "クラス", header: "gameframework/LegacyScene3DAdapter.h",
-      summary: "旧scene 3D入口を現行scene lifecycle、固定tick自由camera入力、描画補間へ接続する互換object。",
+      summary: "旧scene 3D入口を現行scene lifecycle、固定tick自由camera入力、描画補間、rollback snapshotへ接続する互換object。",
       when: "旧scene実装を段階的に移行する時。",
       members: [
         { sig: "ESvc WantedServices() const", desc: "自由camera用のscene入力serviceを要求する。" },
+        { sig: "bool TryCaptureOrbitCameraSnapshot(FOrbitCameraFixedStepSnapshot3D& output) const", desc: "自由cameraのprevious/current補間区間を検証して複製する。" },
+        { sig: "bool TryRestoreOrbitCameraSnapshot(const FOrbitCameraFixedStepSnapshot3D& snapshot)", desc: "検証済みの自由camera補間区間を一括復元し、不正値では既存viewを維持する。" },
         { sig: "using FLegacyScene3DAdapter = ALegacyScene3DAdapter", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>ALegacyScene3DAdapter</code> を使う。" }
       ]
     },

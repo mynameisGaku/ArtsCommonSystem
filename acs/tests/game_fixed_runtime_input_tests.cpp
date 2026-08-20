@@ -225,6 +225,24 @@ bool SameClockSnapshot(const timing::FFixedStepClockSnapshot& first,
            first.total_step_count == second.total_step_count;
 }
 
+/** orbit camera状態の全項目が誤差内で一致することを確認する。 */
+void ExpectOrbitStateNear(const COrbitCameraController3D::FOrbitCameraState3D& actual, const COrbitCameraController3D::FOrbitCameraState3D& expected, f32 tolerance) noexcept
+{
+    EXPECT_NEAR(actual.target.x, expected.target.x, tolerance);
+    EXPECT_NEAR(actual.target.y, expected.target.y, tolerance);
+    EXPECT_NEAR(actual.target.z, expected.target.z, tolerance);
+    EXPECT_NEAR(actual.yaw_radians, expected.yaw_radians, tolerance);
+    EXPECT_NEAR(actual.pitch_radians, expected.pitch_radians, tolerance);
+    EXPECT_NEAR(actual.distance, expected.distance, tolerance);
+}
+
+/** orbit camera snapshotのprevious/currentが誤差内で一致することを確認する。 */
+void ExpectOrbitSnapshotNear(const COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D& actual, const COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D& expected, f32 tolerance) noexcept
+{
+    ExpectOrbitStateNear(actual.previous, expected.previous, tolerance);
+    ExpectOrbitStateNear(actual.current, expected.current, tolerance);
+}
+
 } // namespace
 
 ACS_TEST(GameFixedRuntimeInput, FrameEdgesSurviveUntilThreeDimensionalSimulationTick)
@@ -367,6 +385,65 @@ ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraInterpolatesBetweenFixedTicks)
     EXPECT_TRUE(disabled.z > before.z + 0.50f);
     EXPECT_TRUE(disabled.z < before.z + 0.60f);
     EXPECT_EQ(source.CaptureCount(), 1u);
+    game.ShutdownForTest();
+}
+
+ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraSnapshotRestoresReplayIntervalTransactionally)
+{
+    /** tick番号から同じ3D camera入力を再生成するsource。 */
+    CScriptedFixedTickInputSource source;
+    /** cameraと固定時計を同じ時点へ戻す検証game。 */
+    CLegacyFixedOrbitCameraGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.SetFixedTickInputSource(source);
+    EXPECT_TRUE(game.StartForTest());
+
+    /** scene managerが所有するsnapshot対象。 */
+    ALegacyScene3DAdapter* scene = game.SceneForTest();
+    EXPECT_TRUE(scene != nullptr);
+    if (scene == nullptr) {
+        game.ShutdownForTest();
+        return;
+    }
+
+    game.UpdateForTest(0.1875f);
+    /** clock alpha 0.5を含む固定runtime保存値。 */
+    FFixedStepRuntimeSnapshot runtime_saved;
+    /** 同じ時点のcamera previous/current保存値。 */
+    COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D camera_saved;
+    EXPECT_TRUE(game.TryCaptureFixedStepRuntimeSnapshot(runtime_saved));
+    EXPECT_TRUE(scene->TryCaptureOrbitCameraSnapshot(camera_saved));
+    /** 保存時点で補間表示されているcamera位置。 */
+    const FVec3 saved_eye = scene->Camera().Eye();
+
+    /** 不正snapshotの拒否で維持されるcamera状態とview。 */
+    COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D invalid = camera_saved;
+    invalid.current.distance = 0.0f;
+    EXPECT_FALSE(scene->TryRestoreOrbitCameraSnapshot(invalid));
+    COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D after_rejection;
+    EXPECT_TRUE(scene->TryCaptureOrbitCameraSnapshot(after_rejection));
+    ExpectOrbitSnapshotNear(after_rejection, camera_saved, 0.0f);
+    EXPECT_NEAR(scene->Camera().Eye().x, saved_eye.x, 0.0f);
+    EXPECT_NEAR(scene->Camera().Eye().y, saved_eye.y, 0.0f);
+    EXPECT_NEAR(scene->Camera().Eye().z, saved_eye.z, 0.0f);
+
+    game.UpdateForTest(0.125f);
+    /** 最初の実行で得た次の補間表示位置。 */
+    const FVec3 expected_replay_eye = scene->Camera().Eye();
+    EXPECT_TRUE(game.TryRestoreFixedStepRuntimeSnapshot(runtime_saved));
+    EXPECT_TRUE(scene->TryRestoreOrbitCameraSnapshot(camera_saved));
+    game.UpdateForTest(0.0f);
+    EXPECT_NEAR(scene->Camera().Eye().x, saved_eye.x, 1.0e-5f);
+    EXPECT_NEAR(scene->Camera().Eye().y, saved_eye.y, 1.0e-5f);
+    EXPECT_NEAR(scene->Camera().Eye().z, saved_eye.z, 1.0e-5f);
+    game.UpdateForTest(0.125f);
+    EXPECT_NEAR(scene->Camera().Eye().x, expected_replay_eye.x, 1.0e-5f);
+    EXPECT_NEAR(scene->Camera().Eye().y, expected_replay_eye.y, 1.0e-5f);
+    EXPECT_NEAR(scene->Camera().Eye().z, expected_replay_eye.z, 1.0e-5f);
+    EXPECT_EQ(source.CaptureCount(), 3u);
+    EXPECT_EQ(source.ObservedTick(0u), 0u);
+    EXPECT_EQ(source.ObservedTick(1u), 1u);
+    EXPECT_EQ(source.ObservedTick(2u), 1u);
     game.ShutdownForTest();
 }
 

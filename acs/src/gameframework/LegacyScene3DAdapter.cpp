@@ -2846,6 +2846,27 @@ void ALegacyScene3DAdapter::UpdateCameraProjection(
     }
 }
 
+/** 自由cameraのprevious/currentを検証してからsnapshotへ公開する。 */
+bool ALegacyScene3DAdapter::TryCaptureOrbitCameraSnapshot(COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D& output) const noexcept
+{
+    /** 検証完了まで呼び出し側出力へ触れないsnapshot候補。 */
+    const COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D candidate{m_PreviousOrbitCameraState, m_OrbitCameraState};
+    if (!m_OrbitCameraController.IsSnapshotValid(candidate)) return false;
+    output = candidate;
+    return true;
+}
+
+/** snapshotを隔離検証し、成功時だけ自由camera補間区間を置き換える。 */
+bool ALegacyScene3DAdapter::TryRestoreOrbitCameraSnapshot(const COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D& snapshot) noexcept
+{
+    if (!m_OrbitCameraController.IsSnapshotValid(snapshot)) return false;
+    m_PreviousOrbitCameraState = snapshot.previous;
+    m_OrbitCameraState = snapshot.current;
+    m_PresentedOrbitCameraState = snapshot.current;
+    UpdateCameraView();
+    return true;
+}
+
 void ALegacyScene3DAdapter::UpdateCameraView() noexcept {
     if (m_UseAuthoredCamera) {
         m_Camera.SetLookAt(

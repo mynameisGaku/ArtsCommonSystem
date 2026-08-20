@@ -152,6 +152,12 @@ bool COrbitCameraController3D::TryInterpolateState(const FOrbitCameraState3D& pr
     return true;
 }
 
+/** previous/currentを変更せず、現在設定で復元可能な組か検証する。 */
+bool COrbitCameraController3D::IsSnapshotValid(const FOrbitCameraFixedStepSnapshot3D& snapshot) const noexcept
+{
+    return IsValidSettings(m_Settings) && IsViewState(m_Settings, snapshot.previous) && IsViewState(m_Settings, snapshot.current);
+}
+
 /** orbit状態をLegacyScene3Dと同じ左手系view座標へ変換する。 */
 bool COrbitCameraController3D::TryBuildView(const FOrbitCameraState3D& state, FOrbitCameraView3D& view) const noexcept
 {

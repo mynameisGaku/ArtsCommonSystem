@@ -262,7 +262,8 @@ rollback 用 snapshot、失敗時の無入力化は [FixedStepRuntimeInput.md](F
 渡す。controller は renderer や device を参照せず、出力した eye と look-at だけを描画 camera へ
 接続する。`ALegacyScene3DAdapter` の自由カメラも scene-local action と固定 tick 入力をこの境界へ
 接続し、描画時だけ previous/current 状態を固定時計の補間率で混ぜる。契約と固定入力からの変換例は
-[OrbitCameraController3D.md](OrbitCameraController3D.md) に定める。
+[OrbitCameraController3D.md](OrbitCameraController3D.md) に定める。rollbackでは固定runtime snapshotを
+先に戻し、orbit cameraのprevious/current snapshotを明示的なLegacyアダプターから復元する。
 
 ### scene 遷移
 

@@ -78,6 +78,11 @@ flight_state = SimulateFlight(flight_state, forward.axis, yaw.axis, fixed_delta_
 source 切替後、別 game への復元は拒否し、時計と入力を変更しない。この snapshot は rollback と
 同一 process 内の検証用であり、version 間の永続保存形式ではない。
 
+3D orbit cameraも同じ時点へ戻す場合は、まずこのruntime snapshotを復元し、次に
+`ALegacyScene3DAdapter::TryRestoreOrbitCameraSnapshot` でprevious/current camera状態を復元する。
+表示位置は次のupdateまたはrenderで固定時計の補間率から再計算される。cameraの派生viewを時計と
+二重管理しないため、この順序を明示的なrollbackアダプターの契約とする。
+
 ## 失敗と所有権
 
 snapshot の setter、buffer、source adapter は範囲外 enum、player 番号、非有限または範囲外の軸値、
@@ -98,4 +103,5 @@ snapshot の setter、buffer、source adapter は範囲外 enum、player 番号�
 - 固定更新がない frame をまたぐ短い押下と解放。
 - catch-up 中の edge 一回消費と固定 tick 順序。
 - clock と未消費入力の rollback、および game・scene・source 境界の拒否。
+- 3D orbit camera補間区間の再実行、および不正camera snapshotの失敗時不変。
 - recorder の順次再生、巻き戻し、不正 sample の失敗時不変。

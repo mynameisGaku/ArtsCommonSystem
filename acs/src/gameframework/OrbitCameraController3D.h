@@ -50,6 +50,15 @@ public:
         f32 distance = 8.0f;
     };
 
+    /** 固定tickの補間区間を再現するprevious/current状態のprocess内保存値。 */
+    struct FOrbitCameraFixedStepSnapshot3D final {
+        /** 一つ前の固定tick完了時に確定した状態。 */
+        FOrbitCameraState3D previous{};
+
+        /** 現在の固定tick完了時に確定した状態。 */
+        FOrbitCameraState3D current{};
+    };
+
     /** controllerの速度と安全範囲。 */
     struct FOrbitCameraSettings3D final {
         /** yaw入力1.0で一秒間に回る角度。 */
@@ -122,6 +131,12 @@ public:
      * @return 設定、両状態、補間率が有効ならtrue。
      */
     bool TryInterpolateState(const FOrbitCameraState3D& previous, const FOrbitCameraState3D& current, f64 interpolation_alpha, FOrbitCameraState3D& output) const noexcept;
+
+    /**
+     * 固定tick snapshotの両状態が現在設定で復元可能か調べる。
+     * @return previous/currentが安全なview範囲ならtrue。
+     */
+    bool IsSnapshotValid(const FOrbitCameraFixedStepSnapshot3D& snapshot) const noexcept;
 
     /**
      * orbit状態からeye、look-at、upを計算する。

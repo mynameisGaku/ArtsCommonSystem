@@ -131,6 +131,23 @@ ACS_TEST(OrbitCameraController3D, InvalidInterpolationPreservesOutput)
     ExpectStateNear(output, original, 0.0f);
 }
 
+ACS_TEST(OrbitCameraController3D, SnapshotValidationChecksBothFixedTickStates)
+{
+    /** snapshotを現在設定に対して検証するcontroller。 */
+    COrbitCameraController3D controller;
+    /** previous/currentがともに有効な固定tick保存値。 */
+    COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D snapshot{};
+    snapshot.previous.target = FVec3{-2.0f, 1.0f, 3.0f};
+    snapshot.current.target = FVec3{4.0f, 5.0f, 6.0f};
+
+    EXPECT_TRUE(controller.IsSnapshotValid(snapshot));
+    snapshot.previous.pitch_radians = controller.Settings().pitch_limit_radians + 0.01f;
+    EXPECT_FALSE(controller.IsSnapshotValid(snapshot));
+    snapshot.previous = COrbitCameraController3D::FOrbitCameraState3D{};
+    snapshot.current.distance = controller.Settings().maximum_distance + 1.0f;
+    EXPECT_FALSE(controller.IsSnapshotValid(snapshot));
+}
+
 ACS_TEST(OrbitCameraController3D, ZoomChangesDistanceAndClampsRange)
 {
     COrbitCameraController3D controller;
