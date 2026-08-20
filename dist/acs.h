@@ -56809,38 +56809,6 @@ private:
 /** 旧名を使う既存コード向けの互換別名。 */
 using FSky = CSky;
 
-
-/**
- * GPU レイマーチによる volumetric clouds。
- *
- * @details
- * compute シェーダで全画面の視線ごとに雲スラブをレイマーチし、3D 手続きノイズ (Worley FBM) の
- * 密度を coverage/height-gradient で remap、太陽方向へ light-march して Beer 透過率を求め、
- * dual-lobe Henyey-Greenstein 位相 + powder 項でエネルギー保存散乱を積分する。出力 (straight 散乱色
- * + alpha) を hdrRt の «空» の上に合成する。ray march は half-res、雲自身の代表深度を使う
- * bilateral spatial reconstruction と camera/wind reprojection temporal accumulation で full-res に
- * 復元する。CSky の 2D-FBM 雲より遥かにディテール/立体感が高い。
- * compute コア (RWTexture2D UAV) が必要。full-res color/depth も一つの
- * 8x8 compute pass で別 format UAV へ同時に再構成し、重複 read と MRT overhead を避ける。
- */
-/**
- * World-space altitude band used by CVolumetricClouds.
- *
- * The cloud density field must never be translated with the camera.  Keeping
- * these heights in world space makes translation, orbit and temporal
- * reprojection observe the same density field.
- */
-/**
- * 雲を «光を散らす媒質» として照らすための係数。
- *
- * @details
- * これまで shader 内に即値で埋まっていたものを外へ出したもの。既定値は**以前の見え方を
- * そのまま再現する**ので、まず配線だけを確かめられる。
- *
- * 消散 (extinction) を見た目調整の摘みとして使いすぎないこと。同じ雲なのに見る方向と
- * 光の方向で消散が違うと、カメラからはすぐ不透明なのに太陽光だけ内部へ届く、という
- * «気体でない» 見え方になる。明るさを変えたいなら `SunScatter` や散乱側で調整する。
- */
 /**
  * どこまで雲を描くか。
  *
@@ -56891,6 +56859,14 @@ struct FVolumetricCloudRange {
     u32 ViewSteps = 0u;
 };
 
+/**
+ * 雲を «光を散らす媒質» として照らすための係数。
+ *
+ * @details
+ * 消散 (extinction) を見た目調整の摘みとして使いすぎないこと。同じ雲なのに見る方向と
+ * 光の方向で消散が違うと、カメラからはすぐ不透明なのに太陽光だけ内部へ届く、という
+ * «気体でない» 見え方になる。明るさは `SunScatter` や散乱側で調整する。
+ */
 struct FVolumetricCloudLighting {
     /**
      * 見る方向の消散。
@@ -56993,9 +56969,19 @@ struct FVolumetricCloudLighting {
     FVec3 GroundColor{0.20f, 0.19f, 0.21f};
 };
 
+/**
+ * 雲密度を固定するワールド空間の高度帯。
+ *
+ * @details カメラ移動で密度場を動かさず、描画と時間再構成が同じ雲を参照する。
+ */
 struct FVolumetricCloudLayer {
+    /** 下層の雲底高度 (メートル)。 */
     f32 base_height = 1500.0f;
+
+    /** 下層の雲頂高度 (メートル)。 */
     f32 top_height = 4000.0f;
+
+    /** ワールド XZ を形状ノイズ座標へ変換する倍率。 */
     f32 horizontal_noise_scale = 0.035f;
 };
 
@@ -57055,6 +57041,33 @@ inline constexpr f32 kVolumetricCloudPlanetRadius = 6360000.0f;
 inline constexpr f32 kVolumetricCloudOriginRebaseGrid = 64.0f;
 inline constexpr f32 kVolumetricCloudMaxDistance = 250000.0f;
 
+/** 設定可能な最短描画距離。これ未満では距離フェードとレイ刻みが不安定になる。 */
+inline constexpr f32 kVolumetricCloudMinDistance = 1000.0f;
+
+/** 雲層として保持する最小厚さ。逆数を GPU へ渡しても有限になる値。 */
+inline constexpr f32 kVolumetricCloudMinLayerThickness = 0.25f;
+
+/** 通常描画で利用者が指定できる最小レイ刻み数。 */
+inline constexpr u32 kVolumetricCloudMinViewSteps = 32u;
+
+/** 遠距離レイの刻み拡大率の上限。最大でも既定刻みの 5 倍に抑える。 */
+inline constexpr f32 kVolumetricCloudMaxStepGrowth = 4.0f;
+
+/** 描画距離の終端を滑らかに消す割合の上限。 */
+inline constexpr f32 kVolumetricCloudMaxFadeFraction = 0.95f;
+
+/** 視線・光レイへ適用する消散係数の上限。 */
+inline constexpr f32 kVolumetricCloudMaxExtinction = 64.0f;
+
+/** powder 効果へ適用する係数の上限。 */
+inline constexpr f32 kVolumetricCloudMaxPowderStrength = 64.0f;
+
+/** 位相関数を描画用に切り詰める上限値。 */
+inline constexpr f32 kVolumetricCloudMaxPhaseValue = 64.0f;
+
+/** Henyey-Greenstein 位相関数を特異点から離す異方性の絶対上限。 */
+inline constexpr f32 kVolumetricCloudMaxPhaseEccentricity = 0.99f;
+
 /**
  * Internal trace divisor used by the Ultra output-quality policy.
  *
@@ -57077,6 +57090,19 @@ inline constexpr u32 kVolumetricCloudViewSteps = 192u;
 inline constexpr u32 kVolumetricCloudReferenceViewSteps = 512u;
 inline constexpr u32 kVolumetricCloudMaxViewMarchSamples = 192u;
 inline constexpr u32 kVolumetricCloudMaxLightMarchSamples = 8u;
+
+/** 下層設定を有限で順序付けされた GPU 安全値へ直す。 */
+FVolumetricCloudLayer SanitizeVolumetricCloudLayer(const FVolumetricCloudLayer& requested) noexcept;
+
+/** 照明設定を有限で物理的に意味のある範囲へ直す。 */
+FVolumetricCloudLighting SanitizeVolumetricCloudLighting(const FVolumetricCloudLighting& requested) noexcept;
+
+/** 描画距離と刻み数を実装上の上限内へ直す。 */
+FVolumetricCloudRange SanitizeVolumetricCloudRange(const FVolumetricCloudRange& requested) noexcept;
+
+/** 上層設定を下層と交差しない有限値へ直す。成立しない層は無効化する。 */
+FVolumetricCloudUpperLayer SanitizeVolumetricCloudUpperLayer(const FVolumetricCloudUpperLayer& requested,
+                                                             const FVolumetricCloudLayer& lower_layer) noexcept;
 
 /** Sanitized current-trace dimensions selected for a full-resolution output. */
 struct FVolumetricCloudTraceResolution {
@@ -57374,6 +57400,13 @@ bool VolumetricCloudViewCutDetected(
     const FMat4& current_inv_view_proj,
     FVec3 current_camera_position) noexcept;
 
+/**
+ * GPU レイマーチ、影キャッシュ、時間再構成を所有するボリューメトリック雲描画。
+ *
+ * @details
+ * 入力設定は CPU で正規化してから保持する。描画時は同じ密度場を視線方向と太陽方向へ積分し、
+ * 低解像度結果を雲距離と前フレームのワールド位置から全解像度へ再構成する。
+ */
 class CVolumetricClouds {
 public:
     /** CPU-compiled shader bytecode handed to the render-owner thread. */
@@ -57441,7 +57474,7 @@ public:
      * **遊ぶには重すぎる。** 見比べるためだけのもの。
      * @param enabled 参照描画にするなら true。
      */
-    void SetReferenceMode(bool enabled) noexcept { m_ReferenceMode = enabled; }
+    void SetReferenceMode(bool enabled) noexcept;
 
     /**
      * 参照描画かどうかを返す。
@@ -57455,7 +57488,7 @@ public:
      *
      * @param lighting 新しい係数。次のフレームから効く。
      */
-    void SetLighting(const FVolumetricCloudLighting& lighting) noexcept { m_Lighting = lighting; }
+    void SetLighting(const FVolumetricCloudLighting& lighting) noexcept;
 
     /**
      * 照らし方の係数を返す。
@@ -57469,7 +57502,7 @@ public:
      *
      * @param range 新しい設定。次のフレームから効く。
      */
-    void SetRange(const FVolumetricCloudRange& range) noexcept { m_Range = range; }
+    void SetRange(const FVolumetricCloudRange& range) noexcept;
 
     /**
      * どこまで雲を描くかを返す。
@@ -57483,9 +57516,7 @@ public:
      *
      * @param layer 新しい設定。`top_height <= base_height` で無効。
      */
-    void SetUpperLayer(const FVolumetricCloudUpperLayer& layer) noexcept {
-        m_UpperLayer = layer;
-    }
+    void SetUpperLayer(const FVolumetricCloudUpperLayer& layer) noexcept;
 
     /**
      * 上に重ねる高い雲の設定を返す。
@@ -57503,7 +57534,10 @@ public:
      * Keep allocated cloud targets but reject the previous view's temporal
      * reconstruction history on the next render.
      */
-    void InvalidateHistory() noexcept { m_HistoryValid = false; }
+    void InvalidateHistory() noexcept
+    {
+        InvalidateCloudHistory_Internal(false);
+    }
 
     /** Logical sun-depth rebuilds; the raw/finalize dispatch pair counts once. */
     u64 ShadowCacheDispatchCount() const noexcept {
@@ -57559,6 +57593,9 @@ public:
     void Shutdown() noexcept;
 
 private:
+    /** 時間履歴を破棄し、密度場も変わる場合は影キャッシュも破棄する。 */
+    void InvalidateCloudHistory_Internal(bool density_field_changed) noexcept;
+
     TResult<void> InitCandidateWithCompiledShaders(
         IRhiDevice& device,
         FCompiledShaders&& shaders,

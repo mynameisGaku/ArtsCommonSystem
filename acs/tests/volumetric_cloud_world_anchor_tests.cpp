@@ -3547,7 +3547,8 @@ ACS_TEST(VolumetricClouds,
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudCS"));
     EXPECT_TRUE(Contains(
-        shader, "if(lightDepth*density*4.2>18.0)break;"));
+        shader,
+        "if(lightDepth*density*cloudLightingExtinction.y>18.0)break;"));
     EXPECT_TRUE(Contains(shader, "boolradianceValid="));
     EXPECT_TRUE(Contains(shader, "all(abs(col)<=65504.0)"));
     EXPECT_TRUE(Contains(shader, "col=max(col,0.0);"));
@@ -4485,7 +4486,8 @@ ACS_TEST(VolumetricClouds,
         static_cast<std::size_t>(1));
     EXPECT_TRUE(Contains(
         shader,
-        "floattauDisagreement=cached.y*density*4.2;"));
+        "floattauDisagreement="
+        "cached.y*density*cloudLightingExtinction.y;"));
     EXPECT_TRUE(Contains(
         shader,
         "if(tauDisagreement<=shadowState.y){"));

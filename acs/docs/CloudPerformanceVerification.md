@@ -107,6 +107,27 @@ Viewport/trace resolution, quality flags, query window configuration,
 dispatches, TSR, and exact maximum sample work must remain identical. A camera
 change therefore cannot silently buy performance by reducing cloud quality.
 
+## Runtime settings safety
+
+`CVolumetricClouds` normalizes every public layer, lighting, range, and upper-
+layer setting on the CPU before storing or uploading it. Non-finite values use
+the field default; distances, fade, step growth, sample count, transmittance,
+phase eccentricity, and contribution ratios are bounded to the ranges declared
+in `Sky.h`. An upper layer that cannot remain above the normalized lower layer
+is disabled instead of being uploaded as an intersecting or zero-thickness
+density band.
+
+Only an effective normalized change invalidates temporal history. Lower- or
+upper-layer changes also invalidate the sun-depth cache because they change the
+density field. Lighting, distance, and reference-mode changes retain the raw
+density cache, while rejecting accumulated screen-space color. The exact and
+cached light paths both use the configured `LightExtinction`; no legacy fixed
+extinction coefficient is allowed in cache confidence or early termination.
+
+These bounds establish numerical and cache-coherency safety. They do not by
+themselves prove that the heuristic density, phase, or multiple-scattering
+model is physically calibrated; that remains a visual-reference requirement.
+
 ## Quality-preserving optimization rules
 
 Ultra cloud optimization keeps the `0.25` trace scale, 192 view-sample ceiling,

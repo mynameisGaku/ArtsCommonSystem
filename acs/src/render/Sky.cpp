@@ -1558,7 +1558,8 @@ float3 sampleCloudShadowTail(float3 lp,float density){
             if(finiteValue){
                 // y conservatively combines trace-pattern disagreement with
                 // the +/-XYZ mean-tau gradient in the finalize pass.
-                float tauDisagreement=cached.y*density*4.2;
+                float tauDisagreement=
+                    cached.y*density*cloudLightingExtinction.y;
                 if(tauDisagreement<=shadowState.y){
                     float confidenceWeight=1.0-smoothstep(
                         shadowState.y*0.60,
@@ -1916,7 +1917,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 // Once both the direct Beer term and the broad multiple-
                 // scattering approximation are below a sub-perceptual level,
                 // later probes cannot change the visible result.
-                if(lightDepth*density*4.2>18.0){
+                if(lightDepth*density*cloudLightingExtinction.y>18.0){
                     lightTerminated=true;
                     break;
                 }
@@ -2795,7 +2796,189 @@ FVec3 SanitizeCloudRadiance(FVec3 value, FVec3 fallback) noexcept {
                  sanitize(value.z, fallback.z)};
 }
 
+/** 浮動小数設定を有限値へ戻し、指定範囲へ収める。 */
+f32 SanitizeCloudScalar(f32 value, f32 fallback, f32 minimum, f32 maximum) noexcept
+{
+    const f32 finiteValue = std::isfinite(value) ? value : fallback;
+    return Clamp(finiteValue, minimum, maximum);
+}
+
+/** 透過率などの RGB 比率を成分ごとに 0..1 へ収める。 */
+FVec3 SanitizeCloudUnitColor(FVec3 value, FVec3 fallback) noexcept
+{
+    return FVec3{SanitizeCloudScalar(value.x, fallback.x, 0.0f, 1.0f),
+                 SanitizeCloudScalar(value.y, fallback.y, 0.0f, 1.0f),
+                 SanitizeCloudScalar(value.z, fallback.z, 0.0f, 1.0f)};
+}
+
+/** 下層設定が成分単位で同じか返す。 */
+bool CloudLayerEqual(const FVolumetricCloudLayer& lhs, const FVolumetricCloudLayer& rhs) noexcept
+{
+    return lhs.base_height == rhs.base_height && lhs.top_height == rhs.top_height &&
+           lhs.horizontal_noise_scale == rhs.horizontal_noise_scale;
+}
+
+/** 照明設定が成分単位で同じか返す。 */
+bool CloudLightingEqual(const FVolumetricCloudLighting& lhs, const FVolumetricCloudLighting& rhs) noexcept
+{
+    return lhs.ViewExtinction == rhs.ViewExtinction && lhs.LightExtinction == rhs.LightExtinction &&
+           lhs.SunScatter == rhs.SunScatter && lhs.PowderStrength == rhs.PowderStrength &&
+           lhs.PhaseForward == rhs.PhaseForward && lhs.PhaseBackward == rhs.PhaseBackward &&
+           lhs.PhaseBlend == rhs.PhaseBlend && lhs.PhaseMin == rhs.PhaseMin && lhs.PhaseMax == rhs.PhaseMax &&
+           lhs.MultiScatterContribution == rhs.MultiScatterContribution &&
+           lhs.MultiScatterOcclusion == rhs.MultiScatterOcclusion && lhs.SkyZenithColor.x == rhs.SkyZenithColor.x &&
+           lhs.SkyZenithColor.y == rhs.SkyZenithColor.y && lhs.SkyZenithColor.z == rhs.SkyZenithColor.z &&
+           lhs.MultiScatterEccentricity == rhs.MultiScatterEccentricity && lhs.AmbientAtBase == rhs.AmbientAtBase &&
+           lhs.AmbientAtTop == rhs.AmbientAtTop && lhs.GroundContribution == rhs.GroundContribution &&
+           lhs.SunTransmittance.x == rhs.SunTransmittance.x && lhs.SunTransmittance.y == rhs.SunTransmittance.y &&
+           lhs.SunTransmittance.z == rhs.SunTransmittance.z && lhs.GroundColor.x == rhs.GroundColor.x &&
+           lhs.GroundColor.y == rhs.GroundColor.y && lhs.GroundColor.z == rhs.GroundColor.z;
+}
+
+/** 距離設定が成分単位で同じか返す。 */
+bool CloudRangeEqual(const FVolumetricCloudRange& lhs, const FVolumetricCloudRange& rhs) noexcept
+{
+    return lhs.MaxDistance == rhs.MaxDistance && lhs.FadeFraction == rhs.FadeFraction &&
+           lhs.StepGrowth == rhs.StepGrowth && lhs.ViewSteps == rhs.ViewSteps;
+}
+
+/** 上層設定が成分単位で同じか返す。 */
+bool CloudUpperLayerEqual(const FVolumetricCloudUpperLayer& lhs, const FVolumetricCloudUpperLayer& rhs) noexcept
+{
+    return lhs.base_height == rhs.base_height && lhs.top_height == rhs.top_height &&
+           lhs.coverage_scale == rhs.coverage_scale && lhs.density_scale == rhs.density_scale;
+}
+
 } // namespace
+
+FVolumetricCloudLayer SanitizeVolumetricCloudLayer(const FVolumetricCloudLayer& requested) noexcept
+{
+    const FVolumetricCloudLayer defaults{};
+    FVolumetricCloudLayer layer{};
+    layer.base_height = SanitizeCloudScalar(requested.base_height, defaults.base_height, -kVolumetricCloudMaxDistance,
+                                            kVolumetricCloudMaxDistance);
+    layer.top_height = SanitizeCloudScalar(requested.top_height, defaults.top_height, -kVolumetricCloudMaxDistance,
+                                           kVolumetricCloudMaxDistance);
+    layer.horizontal_noise_scale = SanitizeCloudScalar(requested.horizontal_noise_scale,
+                                                       defaults.horizontal_noise_scale, 0.001f, 1.0f);
+
+    if (layer.top_height < layer.base_height) {
+        const f32 swap = layer.base_height;
+        layer.base_height = layer.top_height;
+        layer.top_height = swap;
+    }
+    const f32 thickness = layer.top_height - layer.base_height;
+    if (!std::isfinite(thickness) || thickness < kVolumetricCloudMinLayerThickness) {
+        const f32 expandedTop = layer.base_height + kVolumetricCloudMinLayerThickness;
+        if (std::isfinite(expandedTop) && expandedTop <= kVolumetricCloudMaxDistance) {
+            layer.top_height = expandedTop;
+        } else {
+            layer.base_height = defaults.base_height;
+            layer.top_height = defaults.top_height;
+        }
+    }
+    return layer;
+}
+
+FVolumetricCloudLighting SanitizeVolumetricCloudLighting(const FVolumetricCloudLighting& requested) noexcept
+{
+    const FVolumetricCloudLighting defaults{};
+    FVolumetricCloudLighting lighting{};
+    lighting.ViewExtinction = SanitizeCloudScalar(requested.ViewExtinction, defaults.ViewExtinction, 0.0f,
+                                                  kVolumetricCloudMaxExtinction);
+    lighting.LightExtinction = SanitizeCloudScalar(requested.LightExtinction, defaults.LightExtinction, 0.0f,
+                                                   kVolumetricCloudMaxExtinction);
+    lighting.SunScatter = SanitizeCloudScalar(requested.SunScatter, defaults.SunScatter, 0.0f, 1.0f);
+    lighting.PowderStrength = SanitizeCloudScalar(requested.PowderStrength, defaults.PowderStrength, 0.0f,
+                                                  kVolumetricCloudMaxPowderStrength);
+    lighting.PhaseForward = SanitizeCloudScalar(requested.PhaseForward, defaults.PhaseForward,
+                                                -kVolumetricCloudMaxPhaseEccentricity,
+                                                kVolumetricCloudMaxPhaseEccentricity);
+    lighting.PhaseBackward = SanitizeCloudScalar(requested.PhaseBackward, defaults.PhaseBackward,
+                                                 -kVolumetricCloudMaxPhaseEccentricity,
+                                                 kVolumetricCloudMaxPhaseEccentricity);
+    lighting.PhaseBlend = SanitizeCloudScalar(requested.PhaseBlend, defaults.PhaseBlend, 0.0f, 1.0f);
+    lighting.PhaseMin = SanitizeCloudScalar(requested.PhaseMin, defaults.PhaseMin, 0.0f,
+                                            kVolumetricCloudMaxPhaseValue);
+    lighting.PhaseMax = SanitizeCloudScalar(requested.PhaseMax, defaults.PhaseMax, 0.0f,
+                                            kVolumetricCloudMaxPhaseValue);
+    if (lighting.PhaseMax < lighting.PhaseMin) {
+        const f32 swap = lighting.PhaseMin;
+        lighting.PhaseMin = lighting.PhaseMax;
+        lighting.PhaseMax = swap;
+    }
+    lighting.MultiScatterContribution = SanitizeCloudScalar(requested.MultiScatterContribution,
+                                                            defaults.MultiScatterContribution, 0.0f, 1.0f);
+    lighting.MultiScatterOcclusion = SanitizeCloudScalar(requested.MultiScatterOcclusion,
+                                                         defaults.MultiScatterOcclusion, 0.0f, 1.0f);
+    lighting.SkyZenithColor = SanitizeCloudRadiance(requested.SkyZenithColor, defaults.SkyZenithColor);
+    lighting.MultiScatterEccentricity = SanitizeCloudScalar(requested.MultiScatterEccentricity,
+                                                            defaults.MultiScatterEccentricity,
+                                                            -kVolumetricCloudMaxPhaseEccentricity,
+                                                            kVolumetricCloudMaxPhaseEccentricity);
+    lighting.AmbientAtBase = SanitizeCloudScalar(requested.AmbientAtBase, defaults.AmbientAtBase, 0.0f, 1.0f);
+    lighting.AmbientAtTop = SanitizeCloudScalar(requested.AmbientAtTop, defaults.AmbientAtTop, 0.0f, 1.0f);
+    lighting.GroundContribution = SanitizeCloudScalar(requested.GroundContribution, defaults.GroundContribution, 0.0f,
+                                                      1.0f);
+    lighting.SunTransmittance = SanitizeCloudUnitColor(requested.SunTransmittance, defaults.SunTransmittance);
+    lighting.GroundColor = SanitizeCloudRadiance(requested.GroundColor, defaults.GroundColor);
+    return lighting;
+}
+
+FVolumetricCloudRange SanitizeVolumetricCloudRange(const FVolumetricCloudRange& requested) noexcept
+{
+    const FVolumetricCloudRange defaults{};
+    FVolumetricCloudRange range{};
+    range.MaxDistance = SanitizeCloudScalar(requested.MaxDistance, defaults.MaxDistance, kVolumetricCloudMinDistance,
+                                            kVolumetricCloudMaxDistance);
+    range.FadeFraction = SanitizeCloudScalar(requested.FadeFraction, defaults.FadeFraction, 0.0f,
+                                             kVolumetricCloudMaxFadeFraction);
+    range.StepGrowth = SanitizeCloudScalar(requested.StepGrowth, defaults.StepGrowth, 0.0f,
+                                           kVolumetricCloudMaxStepGrowth);
+    range.ViewSteps = requested.ViewSteps;
+    if (range.ViewSteps > 0u && range.ViewSteps < kVolumetricCloudMinViewSteps) {
+        range.ViewSteps = kVolumetricCloudMinViewSteps;
+    }
+    if (range.ViewSteps > kVolumetricCloudMaxViewMarchSamples) {
+        range.ViewSteps = kVolumetricCloudMaxViewMarchSamples;
+    }
+    return range;
+}
+
+FVolumetricCloudUpperLayer SanitizeVolumetricCloudUpperLayer(const FVolumetricCloudUpperLayer& requested,
+                                                             const FVolumetricCloudLayer& lower_layer) noexcept
+{
+    const FVolumetricCloudUpperLayer defaults{};
+    FVolumetricCloudUpperLayer upper{};
+    upper.coverage_scale = SanitizeCloudScalar(requested.coverage_scale, defaults.coverage_scale, 0.0f, 1.0f);
+    upper.density_scale = SanitizeCloudScalar(requested.density_scale, defaults.density_scale, 0.0f, 1.0f);
+    if (!std::isfinite(requested.base_height) || !std::isfinite(requested.top_height)) {
+        return upper;
+    }
+
+    const FVolumetricCloudLayer lower = SanitizeVolumetricCloudLayer(lower_layer);
+    upper.base_height = Clamp(requested.base_height, -kVolumetricCloudMaxDistance, kVolumetricCloudMaxDistance);
+    upper.top_height = Clamp(requested.top_height, -kVolumetricCloudMaxDistance, kVolumetricCloudMaxDistance);
+    if (upper.top_height <= lower.top_height || upper.top_height <= upper.base_height) {
+        upper.base_height = 0.0f;
+        upper.top_height = 0.0f;
+        return upper;
+    }
+    if (upper.base_height < lower.top_height) {
+        upper.base_height = lower.top_height;
+    }
+    const f32 thickness = upper.top_height - upper.base_height;
+    if (!std::isfinite(thickness) || thickness < kVolumetricCloudMinLayerThickness) {
+        const f32 expandedTop = upper.base_height + kVolumetricCloudMinLayerThickness;
+        if (std::isfinite(expandedTop) && expandedTop <= kVolumetricCloudMaxDistance) {
+            upper.top_height = expandedTop;
+        } else {
+            upper.base_height = 0.0f;
+            upper.top_height = 0.0f;
+        }
+    }
+    return upper;
+}
 
 FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
     u32 full_width, u32 full_height,
@@ -3459,51 +3642,53 @@ FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(
     return out;
 }
 
-void CVolumetricClouds::SetLayer(const FVolumetricCloudLayer& requested) noexcept {
-    const FVolumetricCloudLayer defaults{};
-    FVolumetricCloudLayer layer = requested;
-    if (!std::isfinite(layer.base_height)) {
-        layer.base_height = defaults.base_height;
-    }
-    if (!std::isfinite(layer.top_height)) {
-        layer.top_height = defaults.top_height;
-    }
-    if (!std::isfinite(layer.horizontal_noise_scale)) {
-        layer.horizontal_noise_scale = defaults.horizontal_noise_scale;
-    }
+void CVolumetricClouds::InvalidateCloudHistory_Internal(bool density_field_changed) noexcept
+{
+    m_HistoryValid = false;
+    if (density_field_changed) m_ShadowCacheValid = false;
+}
 
-    if (layer.top_height < layer.base_height) {
-        const f32 swap = layer.base_height;
-        layer.base_height = layer.top_height;
-        layer.top_height = swap;
+void CVolumetricClouds::SetLayer(const FVolumetricCloudLayer& requested) noexcept
+{
+    const FVolumetricCloudLayer layer = SanitizeVolumetricCloudLayer(requested);
+    const FVolumetricCloudUpperLayer upper = SanitizeVolumetricCloudUpperLayer(m_UpperLayer, layer);
+    if (CloudLayerEqual(layer, m_Layer) && CloudUpperLayerEqual(upper, m_UpperLayer)) {
+        return;
     }
-    const f32 thickness = layer.top_height - layer.base_height;
-    if (!std::isfinite(thickness)) {
-        layer.base_height = defaults.base_height;
-        layer.top_height = defaults.top_height;
-    } else if (thickness < 0.25f) {
-        const f32 expanded_top = layer.base_height + 0.25f;
-        if (std::isfinite(expanded_top) &&
-            expanded_top > layer.base_height) {
-            layer.top_height = expanded_top;
-        } else {
-            layer.base_height = defaults.base_height;
-            layer.top_height = defaults.top_height;
-        }
-    }
-    if (layer.horizontal_noise_scale < 0.001f) {
-        layer.horizontal_noise_scale = 0.001f;
-    } else if (layer.horizontal_noise_scale > 1.0f) {
-        layer.horizontal_noise_scale = 1.0f;
-    }
+    m_Layer = layer;
+    m_UpperLayer = upper;
+    InvalidateCloudHistory_Internal(true);
+}
 
-    if (layer.base_height != m_Layer.base_height ||
-        layer.top_height != m_Layer.top_height ||
-        layer.horizontal_noise_scale != m_Layer.horizontal_noise_scale) {
-        m_Layer = layer;
-        m_HistoryValid = false;
-        m_ShadowCacheValid = false;
-    }
+void CVolumetricClouds::SetReferenceMode(bool enabled) noexcept
+{
+    if (enabled == m_ReferenceMode) return;
+    m_ReferenceMode = enabled;
+    InvalidateCloudHistory_Internal(false);
+}
+
+void CVolumetricClouds::SetLighting(const FVolumetricCloudLighting& requested) noexcept
+{
+    const FVolumetricCloudLighting lighting = SanitizeVolumetricCloudLighting(requested);
+    if (CloudLightingEqual(lighting, m_Lighting)) return;
+    m_Lighting = lighting;
+    InvalidateCloudHistory_Internal(false);
+}
+
+void CVolumetricClouds::SetRange(const FVolumetricCloudRange& requested) noexcept
+{
+    const FVolumetricCloudRange range = SanitizeVolumetricCloudRange(requested);
+    if (CloudRangeEqual(range, m_Range)) return;
+    m_Range = range;
+    InvalidateCloudHistory_Internal(false);
+}
+
+void CVolumetricClouds::SetUpperLayer(const FVolumetricCloudUpperLayer& requested) noexcept
+{
+    const FVolumetricCloudUpperLayer upper = SanitizeVolumetricCloudUpperLayer(requested, m_Layer);
+    if (CloudUpperLayerEqual(upper, m_UpperLayer)) return;
+    m_UpperLayer = upper;
+    InvalidateCloudHistory_Internal(true);
 }
 
 EShaderStatus CVolumetricClouds::FCompiledShaders::Status() const noexcept {
@@ -4487,8 +4672,7 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
                 1.0f}
         : FVec4{0.0f, 0.0f, 0.0f, 0.0f};
     cb.cloudUpperTerms = FVec4{
-        Clamp(m_UpperLayer.coverage_scale, 0.0f, 1.0f),
-        Clamp(m_UpperLayer.density_scale, 0.0f, 1.0f),
+        m_UpperLayer.coverage_scale, m_UpperLayer.density_scale,
         0.0f, 0.0f};
     cb.cloudLightingExtinction = FVec4{
         m_Lighting.ViewExtinction, m_Lighting.LightExtinction,
@@ -4524,14 +4708,13 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         m_Lighting.SkyZenithColor.z, splitSkyAmbient ? 1.0f : 0.0f};
     cb.cloudMultiPhase = FVec4{
         m_Lighting.MultiScatterEccentricity, 0.0f, 0.0f, 0.0f};
-    // 距離。0 以下や逆転した指定でレイマーチが破綻しないよう、ここで丸める。
-    const f32 maxDistance =
-        m_Range.MaxDistance > 1000.0f ? m_Range.MaxDistance : 1000.0f;
-    const f32 fadeFraction = Clamp(m_Range.FadeFraction, 0.0f, 0.95f);
+    // setter で正規化済みの距離を CPU 側の保持値と同じまま GPU へ渡す。
+    const f32 maxDistance = m_Range.MaxDistance;
+    const f32 fadeFraction = m_Range.FadeFraction;
     cb.cloudRange = FVec4{
         maxDistance,
         maxDistance * (1.0f - fadeFraction),
-        m_Range.StepGrowth > 0.0f ? m_Range.StepGrowth : 0.0f,
+        m_Range.StepGrowth,
         0.0f};
     m_Cb->Update(&cb, sizeof(cb));
     // 初回に Perlin-Worley shape noise (128^3) を焼く (1 回のみ、以降 SRV で sample)。
