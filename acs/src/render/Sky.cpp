@@ -975,9 +975,12 @@ bool inUpperCloudBand(float3 p){
 // 2 層のあいだの隙間は下層の 1.0 に貼り付くので、cloudProfile がそこで 0 を返し、
 // 密度も 0 になる。**隙間を別に扱う必要は無い。**
 float heightFractionFromAltitude(float altitude,bool upperBand){
+    // FXC が分岐内の即時 return を未初期化扱いすることがあるため、下層の値で先に初期化し、
+    // 上層だけを上書きして一つの経路から返す。高さの式と飽和処理の順序は変えない。
+    float height=(altitude-layer.x)*cloudFrameTerms.w;
     if(upperBand)
-        return saturate((altitude-cloudUpperLayer.x)*cloudUpperLayer.z);
-    return saturate((altitude-layer.x)*cloudFrameTerms.w);
+        height=(altitude-cloudUpperLayer.x)*cloudUpperLayer.z;
+    return saturate(height);
 }
 float heightFraction(float3 p){
     float altitude=cloudAltitude(p);

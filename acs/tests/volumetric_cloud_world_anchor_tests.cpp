@@ -333,6 +333,15 @@ f32 CloudDetailVisibilityFromSampleSpacingForTest(f32 sampleSpacing) noexcept {
     return 1.0f - SmoothStepForTest(10.0f, 48.0f, boundedSpacing);
 }
 
+// 高度から選択中の雲層内の高さ比率を求め、シェーダーと同じ範囲へ収める。
+f32 CloudHeightFractionFromAltitudeForTest(f32 altitude, f32 lowerBase, f32 lowerInverseThickness, f32 upperBase, f32 upperInverseThickness, bool upperBand) noexcept {
+    f32 height = (altitude - lowerBase) * lowerInverseThickness;
+    if (upperBand) {
+        height = (altitude - upperBase) * upperInverseThickness;
+    }
+    return SaturateForTest(height);
+}
+
 } // namespace
 
 ACS_TEST(EditorStartup, FallbackSkyCompileIsBoundedAndOffOwnerThread) {
@@ -2150,6 +2159,23 @@ ACS_TEST(VolumetricClouds, HeightProfileThresholdOnlyClosesTheExtremeTail) {
     EXPECT_FALSE(Contains(shader, "*slowWeatherMask*profileThresholdWeight"));
 }
 
+ACS_TEST(VolumetricClouds, HeightFractionUsesInitializedReturnWithoutChangingLayerSelection) {
+    constexpr f32 kLowerBase = 1500.0f;
+    constexpr f32 kLowerInverseThickness = 1.0f / 2500.0f;
+    constexpr f32 kUpperBase = 6500.0f;
+    constexpr f32 kUpperInverseThickness = 1.0f / 1800.0f;
+    const f32 altitudes[]{0.0f, 1500.0f, 2750.0f, 4000.0f, 6500.0f, 7400.0f, 8300.0f, 12000.0f};
+
+    for (const bool upperBand : {false, true}) {
+        for (const f32 altitude : altitudes) {
+            const f32 selectedExpression = upperBand
+                ? (altitude - kUpperBase) * kUpperInverseThickness
+                : (altitude - kLowerBase) * kLowerInverseThickness;
+            EXPECT_NEAR(CloudHeightFractionFromAltitudeForTest(altitude, kLowerBase, kLowerInverseThickness, kUpperBase, kUpperInverseThickness, upperBand), SaturateForTest(selectedExpression), 0.0f);
+        }
+    }
+}
+
 ACS_TEST(VolumetricClouds,
          ConvectiveHeightWarpIsBoundedMonotonicAndSharedWithLighting) {
     const f32 tallCore = CloudColumnHeightShiftForTest(
@@ -3483,14 +3509,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "float4cloudEvolution;"));
     EXPECT_TRUE(Contains(shader, "float4cloudLightTangent;"));
     EXPECT_TRUE(Contains(shader, "float4cloudLightBitangent;"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "floatheightFractionFromAltitude("
-        "floataltitude,boolupperBand){"
-        "if(upperBand)"
-        "returnsaturate((altitude-cloudUpperLayer.x)*"
-        "cloudUpperLayer.z);"
-        "returnsaturate((altitude-layer.x)*cloudFrameTerms.w);}"));
+    EXPECT_TRUE(Contains(shader, "floatheightFractionFromAltitude(" "floataltitude,boolupperBand){" "//FXCが分岐内の即時returnを未初期化扱いすることがあるため、" "下層の値で先に初期化し、" "//上層だけを上書きして一つの経路から返す。" "高さの式と飽和処理の順序は変えない。" "floatheight=(altitude-layer.x)*cloudFrameTerms.w;" "if(upperBand)" "height=(altitude-cloudUpperLayer.x)*cloudUpperLayer.z;" "returnsaturate(height);}"));
     EXPECT_TRUE(Contains(
         shader,
         "floatheightFraction(float3p){"
@@ -3973,6 +3992,8 @@ ACS_TEST(VolumetricClouds,
         "    t0=0.0;\n"
         "    t1=0.0;"));
     EXPECT_TRUE(Contains(shader, "float outerNear=0.0,outerFar=0.0;"));
+    EXPECT_TRUE(Contains(shader, "float height=(altitude-layer.x)*cloudFrameTerms.w;\n" "    if(upperBand)\n" "        height=(altitude-cloudUpperLayer.x)*cloudUpperLayer.z;\n" "    return saturate(height);"));
+    EXPECT_TRUE(!Contains(shader, "if(upperBand)\n" "        return saturate((altitude-cloudUpperLayer.x)*"));
     EXPECT_TRUE(Contains(shader, "float shapeResult=0.0;"));
     EXPECT_TRUE(Contains(shader, "return shapeResult;"));
     EXPECT_TRUE(Contains(shader, "float densityResult=0.0;"));
