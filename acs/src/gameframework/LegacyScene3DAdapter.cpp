@@ -647,6 +647,8 @@ void ALegacyScene3DAdapter::FrameScene() noexcept {
         if (m_OrbitCameraState.distance < 3.0f) m_OrbitCameraState.distance = 3.0f;
         if (m_OrbitCameraState.distance > 10000.0f) m_OrbitCameraState.distance = 10000.0f;
     }
+    m_PreviousOrbitCameraState = m_OrbitCameraState;
+    m_PresentedOrbitCameraState = m_OrbitCameraState;
     UpdateCameraView();
 }
 
@@ -827,7 +829,7 @@ void ALegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
         return;
     }
 
-    UpdateCameraView();
+    UpdatePresentedCameraView_Internal();
 }
 
 /** scene入力を6軸へ変換し、自由camera状態を固定刻みで進める。 */
@@ -837,14 +839,19 @@ void ALegacyScene3DAdapter::OnFixedUpdate(f32 fixed_dt) noexcept
     /** 現在tickの6 actionから生成する正規化camera入力。 */
     COrbitCameraController3D::FOrbitCameraInput3D input{};
     if (!m_OrbitCameraActions.TryEvaluate(Services().Input(), Services().FixedInput(), input)) return;
-    if (m_OrbitCameraController.TryStep(input, fixed_dt, m_OrbitCameraState)) UpdateCameraView();
+    /** 失敗時にprevious/currentを維持する次状態候補。 */
+    COrbitCameraController3D::FOrbitCameraState3D candidate = m_OrbitCameraState;
+    if (!m_OrbitCameraController.TryStep(input, fixed_dt, candidate)) return;
+    m_PreviousOrbitCameraState = m_OrbitCameraState;
+    m_OrbitCameraState = candidate;
+    UpdateCameraView();
 }
 
 void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     RefreshAuthoredCameraPose();
     if (!EnsureGpu(context)) return;
+    UpdatePresentedCameraView_Internal();
     UpdateCameraProjection(context.Width(), context.Height());
-    UpdateCameraView();
     CollectSceneLights();
     UpdateSkyFromSun();
 
@@ -3724,9 +3731,9 @@ void ALegacyScene3DAdapter::UpdateCameraProjection(
         }
         return;
     }
-    const f32 far_plane = m_OrbitCameraState.distance * 200.0f + 1000.0f;
+    const f32 far_plane = m_PresentedOrbitCameraState.distance * 200.0f + 1000.0f;
     if (m_Projection == ESceneProjectionMode::Orthographic) {
-        const f32 view_height = m_OrbitCameraState.distance * 1.25f;
+        const f32 view_height = m_PresentedOrbitCameraState.distance * 1.25f;
         m_Camera.SetOrthographic(
             view_height * aspect, view_height, 0.01f, far_plane);
     } else {
@@ -3740,6 +3747,18 @@ void ALegacyScene3DAdapter::SetOrbit(
     COrbitCameraController3D::FOrbitCameraState3D candidate{target, yaw, pitch, distance > 0.01f ? distance : 0.01f};
     if (!m_OrbitCameraController.TryStep(COrbitCameraController3D::FOrbitCameraInput3D{}, 0.0f, candidate)) return;
     m_OrbitCameraState = candidate;
+    m_PreviousOrbitCameraState = candidate;
+    m_PresentedOrbitCameraState = candidate;
+    UpdateCameraView();
+}
+
+/** 自由cameraの有効状態を切り替え、古い補間区間を残さない。 */
+void ALegacyScene3DAdapter::SetFreeCameraEnabled(bool enabled) noexcept
+{
+    if (m_FreeCameraEnabled == enabled) return;
+    m_FreeCameraEnabled = enabled;
+    m_PreviousOrbitCameraState = m_OrbitCameraState;
+    m_PresentedOrbitCameraState = m_OrbitCameraState;
     UpdateCameraView();
 }
 
@@ -3751,9 +3770,33 @@ void ALegacyScene3DAdapter::UpdateCameraView() noexcept {
             m_AuthoredCamera.Up);
         return;
     }
+    UpdateOrbitCameraView_Internal(m_OrbitCameraState);
+}
+
+/** 指定した自由camera状態からviewを構築し、成功時だけ表示へ反映する。 */
+void ALegacyScene3DAdapter::UpdateOrbitCameraView_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state) noexcept
+{
+    /** cameraへ反映する左手座標系view候補。 */
     COrbitCameraController3D::FOrbitCameraView3D view{};
-    if (!m_OrbitCameraController.TryBuildView(m_OrbitCameraState, view)) return;
+    if (!m_OrbitCameraController.TryBuildView(state, view)) return;
+    m_PresentedOrbitCameraState = state;
     m_Camera.SetLookAt(view.eye, view.look_at, view.up);
+}
+
+/** 固定tick状態と時計alphaから今回表示する自由camera viewを決める。 */
+void ALegacyScene3DAdapter::UpdatePresentedCameraView_Internal() noexcept
+{
+    if (m_UseAuthoredCamera || !m_FreeCameraEnabled || !GetGame().IsFixedTimestepEnabled()) {
+        UpdateCameraView();
+        return;
+    }
+    /** previous/current間を固定時計alphaで混ぜる表示状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D presented{};
+    if (!m_OrbitCameraController.TryInterpolateState(m_PreviousOrbitCameraState, m_OrbitCameraState, GetGame().FixedStepInterpolationAlpha(), presented)) {
+        UpdateCameraView();
+        return;
+    }
+    UpdateOrbitCameraView_Internal(presented);
 }
 
 const FGpuMesh* ALegacyScene3DAdapter::GpuMeshFor(

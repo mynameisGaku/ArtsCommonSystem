@@ -52791,6 +52791,16 @@ public:
     bool TryStep(const FOrbitCameraInput3D& input, f32 delta_seconds, FOrbitCameraState3D& state) const noexcept;
 
     /**
+     * 前回と現在の固定tick状態を描画補間率で混ぜる。
+     * @param previous 前回の固定tick後状態。
+     * @param current 現在の固定tick後状態。
+     * @param interpolation_alpha previousを0、currentを1とする[0,1]の描画補間率。
+     * @param output 補間した描画用状態。失敗時は変更しない。
+     * @return 設定、両状態、補間率が有効ならtrue。
+     */
+    bool TryInterpolateState(const FOrbitCameraState3D& previous, const FOrbitCameraState3D& current, f64 interpolation_alpha, FOrbitCameraState3D& output) const noexcept;
+
+    /**
      * orbit状態からeye、look-at、upを計算する。
      * @return 状態が有効ならtrue。失敗時はviewを変更しない。
      */
@@ -60039,11 +60049,12 @@ public:
      * **既定は受け付ける。** ただしこれは編集中に見回すためのもので、入れたままだと
      * 同じ物理キーで自由カメラも動き、Escape はゲームを終了する。自分でカメラを動かすなら切ること。
      * 移動と回転とzoomは固定tickだけで進むため、CGameの固定timestepを無効にすると停止する。
+     * 切替時は補間履歴を現在状態へ揃え、古い移動区間を再表示しない。
      *
      * 撮り比べのときも切る。キーが押されているだけで画角が変わり、比較にならない。
      * @param enabled 受け付けるなら true。
      */
-    void SetFreeCameraEnabled(bool enabled) noexcept { m_FreeCameraEnabled = enabled; }
+    void SetFreeCameraEnabled(bool enabled) noexcept;
 
     /**
      * 自由カメラのキー操作を受け付けるかを返す。
@@ -60268,6 +60279,10 @@ private:
     void ReleaseGpu() noexcept;
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
     void UpdateCameraView() noexcept;
+    /** 指定したorbit状態をcameraと表示用状態へ反映する内部処理。 */
+    void UpdateOrbitCameraView_Internal(const COrbitCameraController3D::FOrbitCameraState3D& state) noexcept;
+    /** 固定時計の補間率から今回描画するcamera状態を反映する内部処理。 */
+    void UpdatePresentedCameraView_Internal() noexcept;
 
     /** シーンに置かれた光を集め直す (毎フレーム、描画の前に呼ぶ)。 */
     void CollectSceneLights() noexcept;
@@ -60726,8 +60741,14 @@ private:
     /** scene入力を自由cameraの6操作軸へ変換するaction集合。 */
     FOrbitCameraInputActionSet3D m_OrbitCameraActions{};
 
+    /** 一つ前の固定tick完了時に確定した自由camera状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D m_PreviousOrbitCameraState{};
+
     /** 自由cameraのsnapshot可能なworld状態。 */
     COrbitCameraController3D::FOrbitCameraState3D m_OrbitCameraState{};
+
+    /** viewとprojectionへ最後に反映した補間済み自由camera状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D m_PresentedOrbitCameraState{};
 
     f32 m_Time = 0.0f;
     /** 距離で霞ませる霧。 */
