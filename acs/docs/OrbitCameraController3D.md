@@ -30,20 +30,20 @@ session などの呼び出し側であり、controller は subsystem ではな�
 ```cpp
 COrbitCameraController3D Controller;
 COrbitCameraController3D::FOrbitCameraState3D State;
+FOrbitCameraInputActionSet3D CameraActions;
 
 void OnFixedUpdate(f32 FixedDeltaSeconds) noexcept
 {
     COrbitCameraController3D::FOrbitCameraInput3D Input{};
-    Input.move_forward = Services().Input().Evaluate(FActionId("MoveForward"), Services().FixedInput()).axis;
-    Input.move_right = Services().Input().Evaluate(FActionId("MoveRight"), Services().FixedInput()).axis;
-    Input.look_yaw = Services().Input().Evaluate(FActionId("LookYaw"), Services().FixedInput()).axis;
-    Input.look_pitch = Services().Input().Evaluate(FActionId("LookPitch"), Services().FixedInput()).axis;
+    if (!CameraActions.TryEvaluate(Services().Input(), Services().FixedInput(), Input)) return;
     Controller.TryStep(Input, FixedDeltaSeconds, State);
 }
 ```
 
-入力 action 名は controller が固定しない。ゲーム側が mapping を決め、platform、AI、replay の
-どの入力状態でも同じ `FOrbitCameraInput3D` へ変換する。
+`FOrbitCameraInputActionSet3D` の既定 action 名は `MoveForward`、`MoveRight`、`MoveUp`、`LookYaw`、
+`LookPitch` である。ゲーム側は各 `FActionId` を置き換えられる。5 action は有効かつ互いに異なる
+必要があり、不正な集合では出力を変更しない。platform、AI、replay のどの入力状態でも同じ
+`FOrbitCameraInput3D` へ変換できる。
 
 ## 現在の利用先と範囲
 

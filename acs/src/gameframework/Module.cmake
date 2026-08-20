@@ -78,6 +78,7 @@ set(_acsgen_gameframework_sources
     NodePool.cpp
     OpenXrBridge.cpp
     OrbitCameraController3D.cpp
+    OrbitCameraInputActionSet3D.cpp
     ParticleEffectSystem.cpp
     PartySystem.cpp
     Pathfinding.cpp
@@ -253,6 +254,7 @@ set(_acsgen_gameframework_headers
     NodePool.h
     OpenXrBridge.h
     OrbitCameraController3D.h
+    OrbitCameraInputActionSet3D.h
     ParticleEffectSystem.h
     PartySystem.h
     Pathfinding.h
