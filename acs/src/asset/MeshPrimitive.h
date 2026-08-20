@@ -37,6 +37,15 @@ bool TryMakeSphere(f32 radius, u32 segments, u32 rings, TSharedPtr<AMeshAsset>& 
 bool TryMakePlane(f32 width, f32 depth, TSharedPtr<AMeshAsset>& output) noexcept;
 
 /**
+ * XY平面のpolygon点列をfan分割し、成功時だけoutputを置き換える。
+ * @param points polygon外周のlocal XY点列。有限値だけを受け付ける。
+ * @param point_count 点数。3以上でなければならない。
+ * @param output 成功時に生成結果を受け取る共有ポインタ。失敗時は変更しない。
+ * @return 頂点・index数を表現でき、全確保と生成に成功した場合はtrue。
+ */
+bool TryMakePolygonXY(const FVec2* points, u32 point_count, TSharedPtr<AMeshAsset>& output) noexcept;
+
+/**
  * 中心が原点の立方体メッシュを生成する互換 API。
  * @param size 立方体の一辺の長さ。
  * @return 生成結果。入力不正または確保失敗時は空。

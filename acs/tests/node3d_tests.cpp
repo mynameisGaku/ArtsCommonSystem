@@ -1305,6 +1305,89 @@ ACS_TEST(Scene3DSerialize, RejectsUnsupportedEditorDirectiveTransactionally) {
     EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
 }
 
+ACS_TEST(Scene3DSerialize, LoadsProceduralPolygonAsDeterministicRuntimeMesh)
+{
+    constexpr char kPolygon[] =
+        "ACS3D v2\n"
+        "N3D 7 -1 3 0 0 0 0 0 0 1 1 1 0.2 0.4 0.8 1 RuntimePolygon\n"
+        "PLY3D 7 4 -2 -1 2 -1 1 3 -1 2\n";
+    CSceneNodeGraph scene;
+    const FScene3DLoadResult result = TryLoadScene3DText(scene, kPolygon, sizeof(kPolygon) - 1u);
+
+    EXPECT_TRUE(result.Succeeded());
+    EXPECT_EQ(result.PolygonCount, 1u);
+    EXPECT_EQ(result.MeshPathCount, 0u);
+    ANode* polygon = scene.Root().FindBySerialId(7);
+    EXPECT_TRUE(polygon != nullptr);
+    if (polygon == nullptr) return;
+    AMeshComponent3D* mesh = polygon->GetComponent<AMeshComponent3D>();
+    EXPECT_TRUE(mesh != nullptr);
+    EXPECT_TRUE(mesh != nullptr && mesh->Mesh() != nullptr);
+    if (mesh == nullptr || mesh->Mesh() == nullptr) return;
+    EXPECT_TRUE(mesh->Primitive() == EMeshPrimitive3D::Mesh);
+    EXPECT_EQ(mesh->Mesh()->Vertices().Num(), 4u);
+    EXPECT_EQ(mesh->Mesh()->Indices().Num(), 6u);
+    EXPECT_EQ(mesh->Mesh()->Indices()[0], 0u);
+    EXPECT_EQ(mesh->Mesh()->Indices()[1], 1u);
+    EXPECT_EQ(mesh->Mesh()->Indices()[2], 2u);
+    EXPECT_EQ(mesh->Mesh()->Indices()[3], 0u);
+    EXPECT_EQ(mesh->Mesh()->Indices()[4], 2u);
+    EXPECT_EQ(mesh->Mesh()->Indices()[5], 3u);
+    f32 hit_t = -1.0f;
+    EXPECT_TRUE(scene.RaycastGeometryActiveRange(FRay3{FVec3{0.0f, 0.0f, 1.0f}, FVec3{0.0f, 0.0f, -1.0f}}, 0.0f, 2.0f, &hit_t) == polygon->Id());
+    EXPECT_NEAR(hit_t, 1.0f, 1.0e-5f);
+}
+
+ACS_TEST(Scene3DSerialize, RejectsInvalidOrDuplicatePolygonTransactionally)
+{
+    constexpr char kInvalidCount[] =
+        "ACS3D v2\n"
+        "N3D 7 -1 3 0 0 0 0 0 0 1 1 1 1 1 1 1 Polygon\n"
+        "PLY3D 7 2 0 0 1 0\n";
+    constexpr char kNonFinite[] =
+        "ACS3D v2\n"
+        "N3D 7 -1 3 0 0 0 0 0 0 1 1 1 1 1 1 1 Polygon\n"
+        "PLY3D 7 3 0 0 1 nan 0 1\n";
+    constexpr char kWrongPrimitive[] =
+        "ACS3D v2\n"
+        "N3D 7 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 Cube\n"
+        "PLY3D 7 3 0 0 1 0 0 1\n";
+    constexpr char kDuplicateGeometry[] =
+        "ACS3D v2\n"
+        "N3D 7 -1 3 0 0 0 0 0 0 1 1 1 1 1 1 1 Polygon\n"
+        "PLY3D 7 3 0 0 1 0 0 1\n"
+        "PLY3D 7 3 0 0 2 0 0 2\n";
+    constexpr char kMeshThenPolygon[] =
+        "ACS3D v2\n"
+        "N3D 7 -1 3 0 0 0 0 0 0 1 1 1 1 1 1 1 Polygon\n"
+        "MSH3D 7 mesh.acmesh\n"
+        "PLY3D 7 3 0 0 1 0 0 1\n";
+    constexpr char kPolygonThenMesh[] =
+        "ACS3D v2\n"
+        "N3D 7 -1 3 0 0 0 0 0 0 1 1 1 1 1 1 1 Polygon\n"
+        "PLY3D 7 3 0 0 1 0 0 1\n"
+        "MSH3D 7 mesh.acmesh\n";
+
+    CSceneNodeGraph scene;
+    scene.Spawn(FStringView("Keep"));
+    const FScene3DLoadResult invalid_count = TryLoadScene3DText(scene, kInvalidCount, sizeof(kInvalidCount) - 1u);
+    const FScene3DLoadResult non_finite = TryLoadScene3DText(scene, kNonFinite, sizeof(kNonFinite) - 1u);
+    const FScene3DLoadResult wrong_primitive = TryLoadScene3DText(scene, kWrongPrimitive, sizeof(kWrongPrimitive) - 1u);
+    const FScene3DLoadResult duplicate = TryLoadScene3DText(scene, kDuplicateGeometry, sizeof(kDuplicateGeometry) - 1u);
+    const FScene3DLoadResult mesh_then_polygon = TryLoadScene3DText(scene, kMeshThenPolygon, sizeof(kMeshThenPolygon) - 1u);
+    const FScene3DLoadResult polygon_then_mesh = TryLoadScene3DText(scene, kPolygonThenMesh, sizeof(kPolygonThenMesh) - 1u);
+
+    EXPECT_EQ(invalid_count.Error, EScene3DSerializeError::InvalidPolygon);
+    EXPECT_EQ(non_finite.Error, EScene3DSerializeError::InvalidPolygon);
+    EXPECT_EQ(wrong_primitive.Error, EScene3DSerializeError::InvalidPolygon);
+    EXPECT_EQ(duplicate.Error, EScene3DSerializeError::DuplicateGeometry);
+    EXPECT_EQ(mesh_then_polygon.Error, EScene3DSerializeError::DuplicateGeometry);
+    EXPECT_EQ(polygon_then_mesh.Error, EScene3DSerializeError::DuplicateGeometry);
+    EXPECT_TRUE(std::strcmp(Scene3DSerializeErrorName(duplicate.Error), "duplicate_geometry") == 0);
+    EXPECT_EQ(scene.NodeCount(), 2u);
+    EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
+}
+
 ACS_TEST(Scene3DSerialize, RejectsInvalidEditorSelectionTransactionally) {
     constexpr char kMissingSelection[] =
         "ACS3D v2\n"

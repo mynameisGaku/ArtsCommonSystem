@@ -147,6 +147,36 @@ void ExpectAllocationFailureMatrix(TTryCall try_call, TMakeCall make_call)
     EXPECT_EQ(allocator.OutstandingAllocationCount(), 0u);
 }
 
+/** Try APIだけを持つ形状生成について、四確保位置と成功時の所有権を検証する。 */
+template<typename TTryCall>
+void ExpectTryAllocationFailureMatrix(TTryCall try_call)
+{
+    /** 失敗時の同一性を確認する既存出力。 */
+    TSharedPtr<AMeshAsset> sentinel = MakeShared<AMeshAsset>();
+    EXPECT_TRUE(sentinel.IsValid());
+    AMeshAsset* const sentinel_address = sentinel.Get();
+
+    CFailOnMeshRequestAllocator allocator;
+    CDefaultAllocatorScope allocator_scope(allocator);
+    for (u64 failing_request = 1u; failing_request <= 4u; ++failing_request) {
+        TSharedPtr<AMeshAsset> output = sentinel;
+        allocator.Begin(failing_request);
+        EXPECT_FALSE(try_call(output));
+        EXPECT_EQ(output.Get(), sentinel_address);
+        EXPECT_EQ(allocator.RequestCount(), failing_request);
+        EXPECT_EQ(allocator.OutstandingAllocationCount(), 0u);
+    }
+
+    TSharedPtr<AMeshAsset> output = sentinel;
+    allocator.Begin(5u);
+    EXPECT_TRUE(try_call(output));
+    EXPECT_NE(output.Get(), sentinel_address);
+    EXPECT_EQ(allocator.RequestCount(), 4u);
+    EXPECT_EQ(allocator.OutstandingAllocationCount(), 4u);
+    output.Reset();
+    EXPECT_EQ(allocator.OutstandingAllocationCount(), 0u);
+}
+
 } // namespace
 
 ACS_TEST(MeshPrimitiveSafety, PublicSignaturesAndLayoutsRemainStable)
@@ -157,6 +187,7 @@ ACS_TEST(MeshPrimitiveSafety, PublicSignaturesAndLayoutsRemainStable)
     static_assert(std::is_same_v<decltype(&Primitive::TryMakeCube), bool (*)(f32, TSharedPtr<AMeshAsset>&) noexcept>);
     static_assert(std::is_same_v<decltype(&Primitive::TryMakeSphere), bool (*)(f32, u32, u32, TSharedPtr<AMeshAsset>&) noexcept>);
     static_assert(std::is_same_v<decltype(&Primitive::TryMakePlane), bool (*)(f32, f32, TSharedPtr<AMeshAsset>&) noexcept>);
+    static_assert(std::is_same_v<decltype(&Primitive::TryMakePolygonXY), bool (*)(const FVec2*, u32, TSharedPtr<AMeshAsset>&) noexcept>);
     static_assert(sizeof(FMeshVertex) == 48u && alignof(FMeshVertex) == 16u);
     static_assert(offsetof(FMeshVertex, position) == 0u);
     static_assert(offsetof(FMeshVertex, normal) == 16u);
@@ -245,11 +276,28 @@ ACS_TEST(MeshPrimitiveSafety, PlanePreservesVertexAndIndexOrder)
     for (usize index = 0u; index < 6u; ++index) EXPECT_EQ(asset.Indices()[index], expected_indices[index]);
 }
 
+ACS_TEST(MeshPrimitiveSafety, PolygonXYPreservesEditorFanGeometry)
+{
+    constexpr FVec2 points[4] = {{-2.0f, -1.0f}, {2.0f, -1.0f}, {1.0f, 3.0f}, {-1.0f, 2.0f}};
+    TSharedPtr<AMeshAsset> mesh;
+    EXPECT_TRUE(Primitive::TryMakePolygonXY(points, 4u, mesh));
+    EXPECT_TRUE(mesh.IsValid());
+    if (!mesh) return;
+
+    ExpectWholeMeshRange(*mesh, 4u, 6u);
+    for (u32 index = 0u; index < 4u; ++index)
+        ExpectVertex(mesh->Vertices()[index], FVec3{points[index].x, points[index].y, 0.0f}, FVec3{0.0f, 0.0f, 1.0f}, 0.0f, 0.0f);
+    constexpr u32 expected_indices[6] = {0u, 1u, 2u, 0u, 2u, 3u};
+    for (u32 index = 0u; index < 6u; ++index) EXPECT_EQ(mesh->Indices()[index], expected_indices[index]);
+}
+
 ACS_TEST(MeshPrimitiveSafety, EveryAllocationFailurePreservesOutputAndLeavesNoPartialMesh)
 {
     ExpectAllocationFailureMatrix([](TSharedPtr<AMeshAsset>& output) noexcept { return Primitive::TryMakeCube(1.0f, output); }, []() noexcept { return Primitive::MakeCube(1.0f); });
     ExpectAllocationFailureMatrix([](TSharedPtr<AMeshAsset>& output) noexcept { return Primitive::TryMakeSphere(1.0f, 8u, 4u, output); }, []() noexcept { return Primitive::MakeSphere(1.0f, 8u, 4u); });
     ExpectAllocationFailureMatrix([](TSharedPtr<AMeshAsset>& output) noexcept { return Primitive::TryMakePlane(1.0f, 1.0f, output); }, []() noexcept { return Primitive::MakePlane(1.0f, 1.0f); });
+    constexpr FVec2 polygon[4] = {{-1.0f, -1.0f}, {1.0f, -1.0f}, {1.0f, 1.0f}, {-1.0f, 1.0f}};
+    ExpectTryAllocationFailureMatrix([&polygon](TSharedPtr<AMeshAsset>& output) noexcept { return Primitive::TryMakePolygonXY(polygon, 4u, output); });
 }
 
 ACS_TEST(MeshPrimitiveSafety, InvalidAndUnrepresentableInputsAllocateNothingAndPreserveOutput)
@@ -278,6 +326,11 @@ ACS_TEST(MeshPrimitiveSafety, InvalidAndUnrepresentableInputsAllocateNothingAndP
     EXPECT_FALSE(Primitive::TryMakeSphere(not_a_number, 3u, 2u, output));
     EXPECT_FALSE(Primitive::TryMakeSphere(1.0f, ~u32(0), 2u, output));
     EXPECT_FALSE(Primitive::TryMakeSphere(1.0f, 3u, ~u32(0), output));
+    constexpr FVec2 too_few_points[2] = {{0.0f, 0.0f}, {1.0f, 0.0f}};
+    const FVec2 invalid_points[3] = {{0.0f, 0.0f}, {1.0f, not_a_number}, {0.0f, 1.0f}};
+    EXPECT_FALSE(Primitive::TryMakePolygonXY(nullptr, 3u, output));
+    EXPECT_FALSE(Primitive::TryMakePolygonXY(too_few_points, 2u, output));
+    EXPECT_FALSE(Primitive::TryMakePolygonXY(invalid_points, 3u, output));
     EXPECT_EQ(output.Get(), sentinel_address);
     EXPECT_EQ(allocator.RequestCount(), 0u);
     EXPECT_EQ(allocator.OutstandingAllocationCount(), 0u);

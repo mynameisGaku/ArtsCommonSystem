@@ -314,6 +314,35 @@ bool TryMakePlane(f32 width, f32 depth, TSharedPtr<AMeshAsset>& output) noexcept
     return true;
 }
 
+bool TryMakePolygonXY(const FVec2* points, u32 point_count, TSharedPtr<AMeshAsset>& output) noexcept
+{
+    if (points == nullptr || point_count < 3u) return false;
+
+    /** 先頭点を共有するfanのtriangle数。 */
+    const usize triangle_count = static_cast<usize>(point_count) - 2u;
+
+    /** triangleごとに三つ必要なindex数。 */
+    usize index_count = 0u;
+    if (!TryMultiplyCount(triangle_count, 3u, index_count) || index_count > static_cast<usize>(~u32(0))) return false;
+    for (u32 index = 0u; index < point_count; ++index) {
+        if (!std::isfinite(points[index].x) || !std::isfinite(points[index].y)) return false;
+    }
+
+    FMeshBuild build;
+    if (!TryCreateMeshBuffers(static_cast<usize>(point_count), index_count, build)) return false;
+    for (u32 index = 0u; index < point_count; ++index)
+        SetVertex(*build.vertices, index, FVec3{points[index].x, points[index].y, 0.0f}, FVec3{0.0f, 0.0f, 1.0f}, 0.0f, 0.0f);
+    for (u32 triangle = 0u; triangle + 2u < point_count; ++triangle) {
+        const usize base = static_cast<usize>(triangle) * 3u;
+        (*build.indices)[base + 0u] = 0u;
+        (*build.indices)[base + 1u] = triangle + 1u;
+        (*build.indices)[base + 2u] = triangle + 2u;
+    }
+    SetWholeMeshRange(build, index_count);
+    output = Move(build.asset);
+    return true;
+}
+
 TSharedPtr<AMeshAsset> MakeCube(f32 size) noexcept
 {
     TSharedPtr<AMeshAsset> output;

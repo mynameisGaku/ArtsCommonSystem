@@ -178,6 +178,54 @@ internal static class SceneContractFixtureSelfTest
                 diagnostic.Code == "SCENE3D_CAMERA_INVALID"),
             "CAM3D duplicate identity and malformed optics fail closed");
 
+        const string polygonScene =
+            "ACS3D v2\n" +
+            "N3D 7 -1 3 0 0 0 0 0 0 1 1 1 0.2 0.4 0.8 1 RuntimePolygon\n" +
+            "PLY3D 7 4 -2 -1 2 -1 1 3 -1 2\n";
+        CanonicalSceneAdapterInspection polygonInspection =
+            CanonicalSceneAdapter.InspectText(polygonScene, ".acs3d");
+        string cookedPolygon = CanonicalSceneAdapter.RewriteReferences(
+            polygonScene,
+            ".acs3d",
+            static _ => throw new InvalidOperationException(
+                "PLY3D must not create an asset reference."));
+        Check(
+            !polygonInspection.HasErrors &&
+            polygonInspection.References.Count == 0 &&
+            cookedPolygon == polygonScene,
+            "PLY3D passes the package boundary and Cook preserves its deterministic point payload");
+
+        CanonicalSceneAdapterInspection invalidPolygon =
+            CanonicalSceneAdapter.InspectText(
+                "ACS3D v2\n" +
+                "N3D 7 -1 3 0 0 0 0 0 0 1 1 1 1 1 1 1 Polygon\n" +
+                "PLY3D 7 3 0 0 1 nan 0 1\n",
+                ".acs3d");
+        CanonicalSceneAdapterInspection wrongPolygonPrimitive =
+            CanonicalSceneAdapter.InspectText(
+                "ACS3D v2\n" +
+                "N3D 7 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 Cube\n" +
+                "PLY3D 7 3 0 0 1 0 0 1\n",
+                ".acs3d");
+        CanonicalSceneAdapterInspection duplicatePolygonGeometry =
+            CanonicalSceneAdapter.InspectText(
+                "ACS3D v2\n" +
+                "N3D 7 -1 3 0 0 0 0 0 0 1 1 1 1 1 1 1 Polygon\n" +
+                "MSH3D 7 mesh.acmesh\n" +
+                "PLY3D 7 3 0 0 1 0 0 1\n",
+                ".acs3d");
+        Check(
+            invalidPolygon.HasErrors &&
+            invalidPolygon.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_POLYGON_INVALID") &&
+            wrongPolygonPrimitive.HasErrors &&
+            wrongPolygonPrimitive.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_POLYGON_PRIMITIVE_INVALID") &&
+            duplicatePolygonGeometry.HasErrors &&
+            duplicatePolygonGeometry.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_REFERENCE_DUPLICATE"),
+            "PLY3D package validation rejects invalid points, non-Mesh owners, and duplicate geometry");
+
         CanonicalSceneAdapterInspection legacy2D =
             CanonicalSceneAdapter.InspectText(
                 "ACSCENE v1\n",

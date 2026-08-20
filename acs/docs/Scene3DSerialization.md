@@ -17,7 +17,7 @@
 - `TryLoadScene3DText` は明示された入力サイズ内を完全に解析し、全行の検証と作業領域の
   確保が成功した後だけ既存シーンを置き換える。結果の `FScene3DLoadResult` にはエラー、
   消費 bytes、エラー行、宣言ノード数、メッシュパス数、ロード済み依存数、カメラ数、
-  active指定数、および決定的に選択されたカメラ状態が入る。
+  active指定数、手続き生成polygon数、および決定的に選択されたカメラ状態が入る。
 - `TryLoadScene3DFile` はloose sceneを読み、相対メッシュ/マテリアル参照をシーンの
   親ディレクトリ基準で解決・検証してから適用する。
 - `TryLoadScene3DAssetPack` は既定でpack内の `main.acscene` を読み、同じpackだけから
@@ -46,13 +46,18 @@
 - node idは一意な非負整数であれば疎でもよい。parentは先に宣言されたnodeを参照する。
 - `parent=-1` のtop-level nodeを複数保持でき、runtimeでは1つの合成root配下へ接続する。
 - `N3D`、`MSH3D`、`FLG3D`、`EMPTY3D`、`MAT3D`、`CMP3D`、
-  `CPROP3D`、`CAM3D`、`SEL3D` を扱う。
+  `CPROP3D`、`PLY3D`、`CAM3D`、`SEL3D` を扱う。
 - `MAT3D` は従来のmetallic/roughness値または `.acsmat` パスを扱う。
 - `CMP3D` は反射factoryで事前生成し、`CPROP3D` を適用してからnodeへattachする。
+- `PLY3D <nodeId> <pointCount> <x0> <y0> ...` は既出の `Mesh` nodeへXY平面上の
+  polygon点列を1件attachする。点数は3から4,096、座標は有限値だけとし、先頭点を共有する
+  決定的なtriangle fanへ変換する。頂点のZは0、normalは+Zになる。
 - `CAM3D <nodeId> <stableId> <projection> <priority> <active> <fovYDeg>
   <orthoHeight> <near> <far>` は既存nodeへ1件のカメラをattachする。`projection` は
   Perspective=`0`、Orthographic=`1`、`active` は `0` または `1`。
-- `SPR3D`、`PLY3D`、`PFAB3D` と未知命令は、黙って欠落させず明示エラーでfail closedする。
+- `SPR3D`、`PFAB3D` と未知命令は、黙って欠落させず明示エラーでfail closedする。
+- `TrySaveScene3DText` は従来互換graphを保存し、runtime meshから `PLY3D` の元点列を
+  再構築しない。authoring sourceの保持とpackageへの可逆な転記はEditor adapterが担う。
 
 ## 共通の検証規則
 
@@ -62,6 +67,7 @@
 - transform と色は有限の `f32` だけを受理する。整数範囲外、`NaN`、`Inf`、途中で
   切れた数値、未知行、埋め込み NUL はエラーになる。
 - `MSH3D` は既出の `Mesh` ノードに1件だけ指定できる。
+- `PLY3D` は既出の `Mesh` ノードに1件だけ指定でき、同じnodeの `MSH3D` と併用できない。
 - カメラは最大256件、stable IDは64 bytesまでの正準ASCIIで、nodeとstable IDの重複を
   拒否する。投影値、priority、FOV/orthographic height、near/farは有限かつ範囲内でなければ
   ならない。複数のactive指定は入力として保持するが、選択はactive指定、priority降順、

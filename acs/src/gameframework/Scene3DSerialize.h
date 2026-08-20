@@ -40,6 +40,7 @@ inline constexpr u32 kScene3DSerializeMaxComponentsPerNode = 1024u;
 inline constexpr u32 kScene3DSerializeMaxDirectiveRecords = 262144u;
 inline constexpr u32 kScene3DSerializeMaxCameraCount = 256u;
 inline constexpr u32 kScene3DSerializeMaxCameraIdBytes = 64u;
+inline constexpr u32 kScene3DSerializeMaxPolygonPointCount = 4096u;
 inline constexpr u64 kScene3DAssetMaxBytes = 256u * 1024u * 1024u;
 
 /** Scene3D テキスト保存・読み込みの安定した失敗理由。 */
@@ -90,6 +91,8 @@ enum class EScene3DSerializeError : u8 {
     AssetMissing,
     AssetDecodeFailed,
     MaterialDecodeFailed,
+    InvalidPolygon,
+    DuplicateGeometry,
 };
 
 /** Authored ACS3D camera projection encoded by CAM3D. */
@@ -149,6 +152,7 @@ struct FScene3DLoadResult {
     u32 CameraCount = 0u;
     u32 ActivePreferredCameraCount = 0u;
     FScene3DCameraState ActiveCamera{};
+    u32 PolygonCount = 0u;
 
     bool Succeeded() const noexcept {
         return Error == EScene3DSerializeError::None && NodeCount > 0u;
