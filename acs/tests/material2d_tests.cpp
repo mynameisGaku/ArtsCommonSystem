@@ -384,6 +384,8 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
     EXPECT_TRUE(top != nullptr && top->builtin);
     EXPECT_TRUE(scale != nullptr && scale->builtin);
     EXPECT_TRUE(render_scale != nullptr && render_scale->builtin);
+    EXPECT_TRUE(render_scale != nullptr && render_scale->desc != nullptr &&
+                std::strstr(render_scale->desc, "0.5〜4.0") != nullptr);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudBaseHeight", 0.0f), 1500.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudTopHeight", 0.0f), 4000.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudNoiseScale", 0.0f), 0.035f, 1e-5f);
@@ -394,14 +396,14 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
         "CloudBaseHeight=240\n"
         "CloudTopHeight=315\n"
         "CloudNoiseScale=0.018\n"
-        "CloudRenderScale=0.75\n";
+        "CloudRenderScale=4.0\n";
     const FProjectSettingsLoadResult loaded =
         settings.TryLoadText(custom_layer, sizeof(custom_layer) - 1u);
     EXPECT_TRUE(loaded.Succeeded());
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudBaseHeight", 0.0f), 240.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudTopHeight", 0.0f), 315.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudNoiseScale", 0.0f), 0.018f, 1e-5f);
-    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudRenderScale", 0.0f), 0.75f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudRenderScale", 0.0f), 4.0f, 1e-5f);
 }
 
 // --- ANode のマテリアル状態 ------------------------------------------------

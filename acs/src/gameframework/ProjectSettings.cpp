@@ -65,7 +65,7 @@ const FSettingDesc kSchema[] = {
     { "Rendering", "CloudNoiseScale", ESettingType::Float, "0.035",        nullptr,
       "ボリュメトリック雲の水平 world-space ノイズ周波数。小さいほど大きな雲塊になる" },
     { "Rendering", "CloudRenderScale", ESettingType::Float, "-1",          nullptr,
-      "雲レイマーチ解像度の上書き。-1=品質プリセット、0.25〜1.0。Ultraは1.0でネイティブ解像度" },
+      "雲の内部描画品質倍率。-1=品質プリセット、0.5〜4.0。1.0は画面寸法の1/4、4.0で等倍" },
     { "Rendering", "DofFocus",      ESettingType::Float, "0",              nullptr,
       "3D 被写界深度の焦点距離 (カメラからの距離)。0=オフ / >0 でその距離に焦点 (前後がぼける)" },
     { "Rendering", "DofRange",      ESettingType::Float, "5",              nullptr,

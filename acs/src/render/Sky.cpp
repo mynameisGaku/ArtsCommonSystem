@@ -3159,12 +3159,8 @@ FVolumetricCloudUpperLayer SanitizeVolumetricCloudUpperLayer(const FVolumetricCl
     return upper;
 }
 
-FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
-    u32 full_width, u32 full_height,
-    f32 requested_render_scale,
-    bool reference_mode) noexcept {
-    const u32 fullWidth = full_width > 0u ? full_width : 1u;
-    const u32 fullHeight = full_height > 0u ? full_height : 1u;
+f32 SanitizeVolumetricCloudQualityMultiplier(
+    f32 requested_render_scale) noexcept {
     f32 qualityMultiplier = std::isfinite(requested_render_scale)
                           ? requested_render_scale
                           : 1.0f;
@@ -3174,6 +3170,17 @@ FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
     if (qualityMultiplier < 0.5f) qualityMultiplier = 0.5f;
     if (qualityMultiplier > static_cast<f32>(kVolumetricCloudUltraTraceDivisor))
         qualityMultiplier = static_cast<f32>(kVolumetricCloudUltraTraceDivisor);
+    return qualityMultiplier;
+}
+
+FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
+    u32 full_width, u32 full_height,
+    f32 requested_render_scale,
+    bool reference_mode) noexcept {
+    const u32 fullWidth = full_width > 0u ? full_width : 1u;
+    const u32 fullHeight = full_height > 0u ? full_height : 1u;
+    const f32 qualityMultiplier =
+        SanitizeVolumetricCloudQualityMultiplier(requested_render_scale);
 
     FVolumetricCloudTraceResolution resolution{};
     static_assert(kVolumetricCloudUltraTraceDivisor > 0u);

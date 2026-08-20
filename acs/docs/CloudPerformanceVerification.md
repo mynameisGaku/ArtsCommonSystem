@@ -107,6 +107,19 @@ Viewport/trace resolution, quality flags, query window configuration,
 dispatches, TSR, and exact maximum sample work must remain identical. A camera
 change therefore cannot silently buy performance by reducing cloud quality.
 
+## 解像度による原因切り分け
+
+Editor の `Rendering/CloudRenderScale` は内部描画の品質倍率であり、`1.0` は画面寸法の
+`1/4`、`2.0` は `1/2`、`4.0` は等倍になる。通常の品質・性能検査は`1.0`を使い、
+出力解像度の履歴へ16段階で再構成する。`4.0`は全画素を毎フレーム描画するため、低解像度描画や
+時間再構成が形状の乱れを作っているかを目視で切り分ける場合だけ使う。通常描画と同じ192刻みを
+保つので、比較対象を画面解像度へ限定できる。
+
+通常C++利用側の`CVolumetricClouds::SetReferenceMode(true)`は、さらに512刻みへ増やして時間再構成も
+無効にする。`CloudRenderScale=4.0`でも乱れが残り、参照描画だけで消える場合はレイ積分が原因である。
+参照描画でも残る場合は、密度場または照明式を監査する。どちらも常用時の性能基準ではなく、原因を
+分離するための診断設定として扱う。
+
 ## Runtime settings safety
 
 `CVolumetricClouds` normalizes every public layer, lighting, range, and upper-

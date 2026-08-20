@@ -695,6 +695,18 @@ ACS_TEST(VolumetricClouds, UnrepresentableLayerThicknessUsesFiniteDefaults) {
 ACS_TEST(VolumetricClouds,
          TraceQualityMultiplierIsMonotonicFromEighthToFullResolution) {
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
+    EXPECT_NEAR(
+        SanitizeVolumetricCloudQualityMultiplier(0.0f), 0.5f, 1e-6f);
+    EXPECT_NEAR(
+        SanitizeVolumetricCloudQualityMultiplier(1.0f), 1.0f, 1e-6f);
+    EXPECT_NEAR(
+        SanitizeVolumetricCloudQualityMultiplier(4.0f), 4.0f, 1e-6f);
+    EXPECT_NEAR(
+        SanitizeVolumetricCloudQualityMultiplier(8.0f), 4.0f, 1e-6f);
+    EXPECT_NEAR(
+        SanitizeVolumetricCloudQualityMultiplier(
+            std::numeric_limits<f32>::quiet_NaN()),
+        1.0f, 1e-6f);
 
     const FVolumetricCloudTraceResolution ultra =
         ResolveVolumetricCloudTraceResolution(1920u, 1080u, 1.0f);
@@ -761,6 +773,20 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(sanitized.effective_dimension_scale, 0.25f, 1e-6f);
     EXPECT_EQ(sanitized.width, 1u);
     EXPECT_EQ(sanitized.height, 1u);
+}
+
+ACS_TEST(VolumetricClouds,
+         EditorUsesTheSharedFullResolutionQualityRange) {
+    const std::string editorSource =
+        CompactShader(ReadEditorAbiSource());
+    EXPECT_TRUE(!editorSource.empty());
+    EXPECT_TRUE(Contains(
+        editorSource,
+        "h.q_cloud_render_scale="
+        "SanitizeVolumetricCloudQualityMultiplier(cloudRenderScale);"));
+    EXPECT_FALSE(Contains(
+        editorSource,
+        "cloudRenderScale>1.0f?1.0f:cloudRenderScale"));
 }
 
 ACS_TEST(VolumetricClouds,

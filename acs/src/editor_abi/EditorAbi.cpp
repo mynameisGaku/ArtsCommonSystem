@@ -500,7 +500,7 @@ struct FEditorHost {
     bool  q_fog_on           = false; f32  q_fog_density     = 0.015f; f32 q_fog_height_falloff = 0.10f;
     i32   q_sky_mode         = 0;     // 0=CSky(グラデ+雲) / 1=CAtmosphere(物理大気散乱)。要 Diligent (IBL 経路)
     f32   q_cloud_coverage   = 0.50f; f32 q_cloud_density = 1.6f; f32 q_cloud_wind = 1.0f;
-    f32   q_cloud_render_scale = 0.75f;   // quality multiplier for the internal quarter-dimension trace policy
+    f32   q_cloud_render_scale = 0.75f;   // 内部の 1/4 寸法描画を基準にした品質倍率。
     f32   q_cloud_base       = 1500.0f; f32 q_cloud_top = 4000.0f; f32 q_cloud_noise_scale = 0.035f; // world-space volumetric cloud layer
     f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
     FVec3 sun_dir            = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (光源) 方向 «光へ向かう» 向き。Rendering/SunAzimuth+Elevation で駆動。
@@ -11801,9 +11801,9 @@ ACS_EDITOR_API int acs_editor_resize(void* handle, uint32_t width, uint32_t heig
 static void ApplyQualityPreset(FEditorHost& h, const char* level) noexcept {
     if (level == nullptr) level = "High";
     auto eq = [&](const char* s){ return std::strcmp(level, s) == 0; };
-    h.q_cloud_render_scale = 0.75f;   // High / Highest: 75% of the internal trace policy
+    h.q_cloud_render_scale = 0.75f;   // High / Highest は内部方策の基準倍率を 75% にする。
     if (eq("Ultra")) {
-        h.q_cloud_render_scale=1.0f;  // Ultra は内部トレースを等倍解像度で実行する
+        h.q_cloud_render_scale=1.0f;  // Ultra は画面寸法の 1/4 を時間再構成する基準品質。
         h.q_shadow_size=4096; h.q_shadow_cascades=4; h.q_shadow_bias=0.0010f; h.q_shadow_filter=2.0f;
         h.q_ssao_on=true;  h.q_ssao_intensity=1.2f; h.q_ssao_radius=1.5f;
         h.q_ssgi_on=true;  h.q_ssgi_intensity=1.2f; h.q_ssgi_max_dist=15.0f;
@@ -12009,9 +12009,7 @@ static void ApplySettings(FEditorHost& h) noexcept {
         h.settings.GetFloat("Rendering", "CloudRenderScale", -1.0f);
     if (cloudRenderScale >= 0.0f) {
         h.q_cloud_render_scale =
-            cloudRenderScale < 0.50f ? 0.50f
-          : cloudRenderScale > 1.0f  ? 1.0f
-                                     : cloudRenderScale;
+            SanitizeVolumetricCloudQualityMultiplier(cloudRenderScale);
     }
     const f32 gray = h.settings.GetFloat("Rendering", "GodRays", 0.0f);
     h.q_godray_on = (gray > 0.0f); if (h.q_godray_on) h.q_godray_intensity = gray;   // 0=オフ / >0=光芒の強度

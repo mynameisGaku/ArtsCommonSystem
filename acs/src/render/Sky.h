@@ -666,6 +666,15 @@ struct FVolumetricCloudTraceResolution {
 };
 
 /**
+ * 雲の内部描画品質倍率を有限な 0.5〜4.0 へ収める。
+ *
+ * @param requested_render_scale 利用側が指定した品質倍率。非有限値は 1.0 として扱う。
+ * @return 1.0 は画面寸法の 1/4、4.0 は画面と同じ寸法になる品質倍率。
+ */
+f32 SanitizeVolumetricCloudQualityMultiplier(
+    f32 requested_render_scale) noexcept;
+
+/**
  * Resolve the authored CloudRenderScale and the internal Ultra trace policy.
  *
  * CloudRenderScale is a monotonic quality multiplier over the policy's base
