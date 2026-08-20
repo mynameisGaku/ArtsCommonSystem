@@ -268,7 +268,8 @@ void AScene::OnRender(FRenderContext& rc) noexcept {
     CSpriteBatch& sb = res.SpriteBatch();
     const FVec2 center = ViewCenter();
     const f32 scale = m_PixelsPerUnit * ViewZoom();
-    rc.SetView2D_Internal(center, scale);   // 反射等の world→screen 投影用に配線
+    auto wiring = rc.WiringAccess();
+    wiring.SetView2D(center, scale);   // 反射等のワールド座標から画面座標への投影用に配線
 
     // マスク用 stencil バッファ (有効かつ作成成功時のみ)。world パスで DSV として bind。
     IRhiTexture* stencil = (m_StencilMaskEnabled && res.EnsureStencilBuffer(rc)) ? res.StencilBuffer() : nullptr;
@@ -292,16 +293,16 @@ void AScene::OnRender(FRenderContext& rc) noexcept {
         CSpriteBatch& sbR = res.SceneSprites();
         cl.BeginRenderToTexture(*res.SceneRt(), cc);
         sbR.Begin(cl, rc.Width(), rc.Height());
-        rc.SetSpriteBatch_Internal(&sbR);
-        rc.SetReflection_Internal(nullptr);
-        rc.SetSceneColor_Internal(nullptr);
-        rc.SetSceneDepth_Internal(nullptr);
-        rc.SetSceneColorCapturePass_Internal(waterSceneCapture);
-        rc.SetWaterDepthCapturePass_Internal(false);
-        rc.SetStencilMaskActive_Internal(false);
+        wiring.SetSpriteBatch(&sbR);
+        wiring.SetReflection(nullptr);
+        wiring.SetSceneColor(nullptr);
+        wiring.SetSceneDepth(nullptr);
+        wiring.SetSceneColorCapturePass(waterSceneCapture);
+        wiring.SetWaterDepthCapturePass(false);
+        wiring.SetStencilMaskActive(false);
         DrawWorldPass(rc);
-        rc.SetSceneColorCapturePass_Internal(false);
-        rc.SetSpriteBatch_Internal(nullptr);
+        wiring.SetSceneColorCapturePass(false);
+        wiring.SetSpriteBatch(nullptr);
         sbR.End();
         cl.EndRenderToTexture(*res.SceneRt());
 
@@ -313,13 +314,13 @@ void AScene::OnRender(FRenderContext& rc) noexcept {
             cl.BeginRenderToTexture(*res.WaterDepthRt(), FClearColor{0, 0, 0, 0});
             sbD.Begin(cl, rc.Width(), rc.Height());
             sbD.SetDrawSuppressed(true);
-            rc.SetSpriteBatch_Internal(&sbD);
-            rc.SetWaterDepthCapturePass_Internal(true);
-            rc.SetSceneColorCapturePass_Internal(false);
-            rc.SetStencilMaskActive_Internal(false);
+            wiring.SetSpriteBatch(&sbD);
+            wiring.SetWaterDepthCapturePass(true);
+            wiring.SetSceneColorCapturePass(false);
+            wiring.SetStencilMaskActive(false);
             DrawWorldPass(rc);
-            rc.SetWaterDepthCapturePass_Internal(false);
-            rc.SetSpriteBatch_Internal(nullptr);
+            wiring.SetWaterDepthCapturePass(false);
+            wiring.SetSpriteBatch(nullptr);
             sbD.SetDrawSuppressed(false);
             sbD.End();
             cl.EndRenderToTexture(*res.WaterDepthRt());
@@ -329,39 +330,39 @@ void AScene::OnRender(FRenderContext& rc) noexcept {
         // scene/depth RT は既に書き終えており、ここでは SRV としてのみ参照する。
         if (sc) cl.BeginRenderToSwapchain(*sc, renderer.CurrentBuffer(), cc, stencil);
         sb.Begin(cl, rc.Width(), rc.Height());
-        rc.SetSpriteBatch_Internal(&sb);
-        if (stencil) { rc.SetStencilMaskActive_Internal(true); sb.SetStencilMode(EStencilMode::Off); }
-        rc.SetReflection_Internal(res.SceneRt());   // 水がこの RT を鏡像 UV でサンプル
-        rc.SetSceneColor_Internal(waterSceneCapture ? res.SceneRt() : nullptr);
-        rc.SetSceneDepth_Internal(waterDepthReady ? res.WaterDepthRt() : nullptr);
+        wiring.SetSpriteBatch(&sb);
+        if (stencil) { wiring.SetStencilMaskActive(true); sb.SetStencilMode(EStencilMode::Off); }
+        wiring.SetReflection(res.SceneRt());   // 水がこの RT を鏡像 UV でサンプル
+        wiring.SetSceneColor(waterSceneCapture ? res.SceneRt() : nullptr);
+        wiring.SetSceneDepth(waterDepthReady ? res.WaterDepthRt() : nullptr);
         DrawWorldPass(rc);
-        rc.SetReflection_Internal(nullptr);
-        rc.SetSceneColor_Internal(nullptr);
-        rc.SetSceneDepth_Internal(nullptr);
-        if (stencil) { sb.SetStencilMode(EStencilMode::Off); rc.SetStencilMaskActive_Internal(false); }
+        wiring.SetReflection(nullptr);
+        wiring.SetSceneColor(nullptr);
+        wiring.SetSceneDepth(nullptr);
+        if (stencil) { sb.SetStencilMode(EStencilMode::Off); wiring.SetStencilMaskActive(false); }
         DrawHudPass(rc);
-        rc.SetSpriteBatch_Internal(nullptr);
+        wiring.SetSpriteBatch(nullptr);
         sb.End();
         // EndRenderToSwapchain は CGame/Renderer の EndFrame が行う。
     } else if (stencil) {
         // stencil のみ: スワップチェーンを stencil 付きで再バインド (バリアはガード済)。
         if (sc) cl.BeginRenderToSwapchain(*sc, renderer.CurrentBuffer(), cc, stencil);
         sb.Begin(cl, rc.Width(), rc.Height());
-        rc.SetSpriteBatch_Internal(&sb);
-        rc.SetStencilMaskActive_Internal(true);
+        wiring.SetSpriteBatch(&sb);
+        wiring.SetStencilMaskActive(true);
         sb.SetStencilMode(EStencilMode::Off);   // DSV 整合の既定 PSO へ切替
         DrawWorldPass(rc);
         sb.SetStencilMode(EStencilMode::Off);   // HUD が誤ってマスクされないよう解除
-        rc.SetStencilMaskActive_Internal(false);
+        wiring.SetStencilMaskActive(false);
         DrawHudPass(rc);
-        rc.SetSpriteBatch_Internal(nullptr);
+        wiring.SetSpriteBatch(nullptr);
         sb.End();
     } else {
         sb.Begin(rc.Cmd(), rc.Width(), rc.Height());
-        rc.SetSpriteBatch_Internal(&sb);
+        wiring.SetSpriteBatch(&sb);
         DrawWorldPass(rc);
         DrawHudPass(rc);
-        rc.SetSpriteBatch_Internal(nullptr);
+        wiring.SetSpriteBatch(nullptr);
         sb.End();
     }
     // パスを出たら Draw* が何も描かないよう publish を解除する。

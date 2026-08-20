@@ -315,6 +315,11 @@ component は node の局所能力である。`OnAttach`、更新、描画、que
 `AScene::OnRender()` は world pass と HUD pass を実行する。`Draw.h` の即時描画関数は pass 中の
 `FRenderContext` だけを参照し、pass 外または sprite batch 未接続時は何も行わない。
 
+エンジン、エディタ、外部の描画側が `FRenderContext` を構成する場合は、`WiringAccess()` が
+返す短寿命の接続窓口から `BeginFrame`、各 `Set*`、`EndFrame` を呼ぶ。実処理の
+`Foo_Internal` は `private` であり、通常の描画処理から直接変更しない。旧 `_BeginFrame`、
+`_SetFont`、`_EndFrame` は C++ 処理系の予約名であるため公開しない。
+
 2D node は `(DrawLayer, DrawPriority, Y sort, tree order)` の安定順で描画する。subtree 単位の
 描画状態を要求する component は、その subtree を一つの原子 group として扱う。
 

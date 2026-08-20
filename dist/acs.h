@@ -50100,19 +50100,19 @@ class IRhiTexture;
 namespace acs::game {
 
 /**
- * 描画先への非所有参照と frame・pass 状態を受け渡す context。
+ * 描画先への非所有参照とフレーム・描画パス状態を受け渡す描画コンテキスト。
  *
  * @details
- * CGame 経路は BeginFrame_Internal で renderer、command list、画面サイズを配線し、font と view は
- * 必要時、sprite batch、texture、flag は各 pass で対応する setter から配線する。editor などの
- * 独自描画経路は必要な setter だけで部分的に構成でき、参照を返す accessor は対応する参照の
- * 配線中だけ使用する。
- * resource と pipeline の所有・生成は行わない。EndFrame_Internal は command list、sprite / font /
- * texture 参照と pass flag を解除し、renderer、画面サイズ、view 値は次の配線まで保持する。
+ * CGame 経路は WiringAccess().BeginFrame() で CRenderer、描画命令一覧、画面サイズを配線する。
+ * UI フォントと表示変換は必要時、2D 一括描画器、テクスチャ、描画状態は各描画パスで同じ接続窓口
+ * から配線する。エディタなどの独自描画経路は必要な配線だけを選べる。参照を返す取得関数は、
+ * 対応する参照の配線中だけ使う。描画資源や描画処理の所有・生成は行わない。
+ * WiringAccess().EndFrame() は描画命令一覧、2D 一括描画器、UI フォント、テクスチャの参照と
+ * 描画パス状態を解除し、CRenderer、画面サイズ、表示変換値は次の配線まで保持する。
  */
 class FRenderContext {
 public:
-    /** 参照未配線の既定状態で構築する (利用経路に必要な BeginFrame_Internal / 各 setter で配線)。 */
+    /** 参照未配線の既定状態で構築する (利用経路に必要な WiringAccess() から配線)。 */
     FRenderContext() noexcept = default;
 
     /** 破棄する (参照のみ保持するため何もしない)。 */
@@ -50125,42 +50125,71 @@ public:
     FRenderContext& operator=(const FRenderContext&) = delete;
 
     /**
-     * フレーム冒頭で CGame が呼び、renderer、command list、画面サイズを配線する。
+     * フレームと描画パスの非所有参照を明示的に配線する接続窓口。
      *
-     * @details sprite batch と texture の参照、pass flag を初期化する。font はこの後 CGame が
-     * SetFont_Internal、view は描画経路が SetView2D_Internal で配線する。
-     * @param r 描画に使う CRenderer。
-     * @param cl 現フレームのコマンドリスト。
-     * @param w 画面の幅 (px)。
-     * @param h 画面の高さ (px)。
+     * @details エンジン、エディタ、外部の描画側だけが短時間保持する。ゲーム側の描画処理は
+     * FRenderContext の読み取り用公開関数を使い、この接続窓口から状態を変更しない。
      */
-    void BeginFrame_Internal(CRenderer& r, IRhiCommandList& cl, u32 w, u32 h) noexcept {
-        m_Renderer = &r;
-        m_Cmd      = &cl;
-        m_Width    = w;
-        m_Height   = h;
-        m_Sprites  = nullptr;
-        m_Reflection = nullptr;
-        m_SceneColor = nullptr;
-        m_SceneDepth = nullptr;
-        m_SceneColorCapturePass = false;
-        m_WaterDepthCapturePass = false;
-        m_StencilMaskActive = false;
-        // m_Font は CGame が BeginFrame_Internal 後に SetFont_Internal で frame 中だけ配線する。
-    }
+    class FWiringAdapter final {
+    public:
+        /** 配線対象の描画コンテキストを保持する。 */
+        explicit FWiringAdapter(FRenderContext& context) noexcept : m_Context(context) {}
 
-    /** フレーム終端で command list、sprite / font / texture 参照と pass flag を解除する。 */
-    void EndFrame_Internal() noexcept {
-        m_Cmd = nullptr;
-        m_Sprites = nullptr;
-        m_Font = nullptr;
-        m_Reflection = nullptr;
-        m_SceneColor = nullptr;
-        m_SceneDepth = nullptr;
-        m_SceneColorCapturePass = false;
-        m_WaterDepthCapturePass = false;
-        m_StencilMaskActive = false;
-    }
+        /** CRenderer、描画命令一覧、画面サイズを配線してフレームを開始する。 */
+        void BeginFrame(CRenderer& renderer, IRhiCommandList& command_list, u32 width, u32 height) noexcept
+        {
+            m_Context.BeginFrame_Internal(renderer, command_list, width, height);
+        }
+
+        /** フレーム固有の非所有参照と描画パス状態を解除する。 */
+        void EndFrame() noexcept { m_Context.EndFrame_Internal(); }
+
+        /** 現在の描画パスで使う 2D 一括描画器を配線する (nullptr で解除)。 */
+        void SetSpriteBatch(CSpriteBatch* sprite_batch) noexcept
+        {
+            m_Context.SetSpriteBatch_Internal(sprite_batch);
+        }
+
+        /** 全シーン共有の UI フォントを配線する (nullptr で解除)。 */
+        void SetFont(FFont* font) noexcept { m_Context.SetFont_Internal(font); }
+
+        /** 反射用シーンテクスチャを配線する (nullptr で解除)。 */
+        void SetReflection(IRhiTexture* texture) noexcept { m_Context.SetReflection_Internal(texture); }
+
+        /** 屈折・画面反射用シーンカラーを配線する (nullptr で解除)。 */
+        void SetSceneColor(IRhiTexture* texture) noexcept { m_Context.SetSceneColor_Internal(texture); }
+
+        /** 水面用の正規化深度テクスチャを配線する (nullptr で解除)。 */
+        void SetSceneDepth(IRhiTexture* texture) noexcept { m_Context.SetSceneDepth_Internal(texture); }
+
+        /** 主描画パス前のシーンカラーを捕捉中かを配線する。 */
+        void SetSceneColorCapturePass(bool active) noexcept
+        {
+            m_Context.SetSceneColorCapturePass_Internal(active);
+        }
+
+        /** 水面深度捕捉中かを配線する。 */
+        void SetWaterDepthCapturePass(bool active) noexcept
+        {
+            m_Context.SetWaterDepthCapturePass_Internal(active);
+        }
+
+        /** 2D ワールド座標から画面座標への変換値を配線する。 */
+        void SetView2D(FVec2 center, f32 scale) noexcept { m_Context.SetView2D_Internal(center, scale); }
+
+        /** 現在の描画パスでステンシルマスクが利用可能かを配線する。 */
+        void SetStencilMaskActive(bool active) noexcept
+        {
+            m_Context.SetStencilMaskActive_Internal(active);
+        }
+
+    private:
+        /** 配線対象の描画コンテキスト。 */
+        FRenderContext& m_Context;
+    };
+
+    /** フレームと描画パスの接続窓口を返す。 */
+    FWiringAdapter WiringAccess() noexcept { return FWiringAdapter(*this); }
 
     /**
      * 現フレームの IRhiCommandList を返す。
@@ -50199,15 +50228,6 @@ public:
     bool             IsFrameActive() const noexcept { return m_Cmd != nullptr; }
 
     /**
-     * 現パス用の 2D 描画バッチを配線する。
-     *
-     * @details AScene または独自ホストが設定する。コンポーネントは CSpriteBatch を
-     * 自前で持たずに HasSprites()/Sprites() で利用できる。
-     * @param sb 配線する CSpriteBatch (nullptr で解除)。
-     */
-    void SetSpriteBatch_Internal(CSpriteBatch* sb) noexcept { m_Sprites = sb; }
-
-    /**
      * 2D 描画バッチが配線済みかを返す。
      *
      * @return 配線済みなら true。
@@ -50220,15 +50240,6 @@ public:
      * @return CSpriteBatch 参照。
      */
     CSpriteBatch& Sprites() const noexcept { return *m_Sprites; }
-
-    /**
-     * 全シーン共有の UI フォントを配線する。
-     *
-     * @details CGame がロードして毎フレーム配線する。OnDrawHud から
-     * sb.DrawString(rc.GetFont(), ...) でテキストを描ける。
-     * @param f 配線するフォント (読込失敗時は nullptr で配線され HasFont()==false)。
-     */
-    void SetFont_Internal(FFont* f) noexcept { m_Font = f; }
 
     /**
      * UI フォントが配線済みかを返す。
@@ -50245,15 +50256,6 @@ public:
     FFont& GetFont() const noexcept { return *m_Font; }
 
     /**
-     * 反射用シーンテクスチャを配線する。
-     *
-     * @details AScene が world をオフスクリーン RT に焼いて配線する。水が per-vertex
-     * 鏡像 UV でこれをサンプルし planar reflection を出す。
-     * @param tex 配線する反射テクスチャ (nullptr で解除)。
-     */
-    void SetReflection_Internal(IRhiTexture* tex) noexcept { m_Reflection = tex; }
-
-    /**
      * 反射テクスチャが配線済みかを返す。
      *
      * @return 配線済みなら true。
@@ -50267,26 +50269,11 @@ public:
      */
     IRhiTexture& Reflection() const noexcept { return *m_Reflection; }
 
-    /**
-     * 水面の屈折・画面反射用に、main pass より前に捕捉した実シーンカラーを配線する。
-     *
-     * @details 現在の描画先とは別の RT だけを渡し、同一リソースの SRV/RTV 同時利用を避ける。
-     * @param tex 配線するシーンカラー (nullptr で解除)。
-     */
-    void SetSceneColor_Internal(IRhiTexture* tex) noexcept { m_SceneColor = tex; }
-
     /** 実シーンカラーが配線済みかを返す。 */
     bool HasSceneColor() const noexcept { return m_SceneColor != nullptr; }
 
     /** 配線済みの実シーンカラーを返す。 */
     IRhiTexture& SceneColor() const noexcept { return *m_SceneColor; }
-
-    /**
-     * 水面用の正規化深度 (0=岸/水外、1=深部) を保持するカラー RT を配線する。
-     *
-     * @param tex 配線する水深テクスチャ (nullptr で解除)。
-     */
-    void SetSceneDepth_Internal(IRhiTexture* tex) noexcept { m_SceneDepth = tex; }
 
     /** 水面用深度が配線済みかを返す。 */
     bool HasSceneDepth() const noexcept { return m_SceneDepth != nullptr; }
@@ -50294,35 +50281,11 @@ public:
     /** 配線済みの水面用深度を返す。 */
     IRhiTexture& SceneDepth() const noexcept { return *m_SceneDepth; }
 
-    /**
-     * main pass 前のシーンカラー捕捉中かを設定する。
-     *
-     * @details TopDown 水はこのパスでは描かず、水下の実シーンだけを RT に残す。
-     */
-    void SetSceneColorCapturePass_Internal(bool b) noexcept { m_SceneColorCapturePass = b; }
-
     /** シーンカラー捕捉中なら true。 */
     bool IsSceneColorCapturePass() const noexcept { return m_SceneColorCapturePass; }
 
-    /**
-     * 水面深度捕捉中かを設定する。
-     *
-     * @details 通常スプライトを抑止した専用 pass で TopDown 水だけが深度メッシュを描く。
-     */
-    void SetWaterDepthCapturePass_Internal(bool b) noexcept { m_WaterDepthCapturePass = b; }
-
     /** 水面深度捕捉中なら true。 */
     bool IsWaterDepthCapturePass() const noexcept { return m_WaterDepthCapturePass; }
-
-    /**
-     * 2D world→screen 変換パラメータを配線する。
-     *
-     * @details 変換は screen_px = (world - ViewCenter) * ViewScale + (Width/2, Height/2)。
-     * 水の反射 UV などコンポーネントの screen 投影に使う。
-     * @param center world 空間のビュー中心。
-     * @param scale world→screen のスケール。
-     */
-    void SetView2D_Internal(FVec2 center, f32 scale) noexcept { m_ViewCenter = center; m_ViewScale = scale; }
 
     /**
      * world 空間のビュー中心を返す。
@@ -50339,13 +50302,6 @@ public:
     f32   ViewScale()  const noexcept { return m_ViewScale; }
 
     /**
-     * ステンシルマスクが有効なパスかを設定する。
-     *
-     * @param b stencil 付き DSV を bind した world パスなら true。
-     */
-    void SetStencilMaskActive_Internal(bool b) noexcept { m_StencilMaskActive = b; }
-
-    /**
      * ステンシルマスクが有効なパスかを返す。
      *
      * @details clip コンポーネントはこれを見て、stencil が使えないパス (反射の RT パス等)
@@ -50355,6 +50311,64 @@ public:
     bool StencilMaskActive() const noexcept { return m_StencilMaskActive; }
 
 private:
+    /** CRenderer、描画命令一覧、画面サイズを配線し、描画パス状態を初期化する内部処理。 */
+    void BeginFrame_Internal(CRenderer& renderer, IRhiCommandList& command_list, u32 width, u32 height) noexcept
+    {
+        m_Renderer = &renderer;
+        m_Cmd = &command_list;
+        m_Width = width;
+        m_Height = height;
+        m_Sprites = nullptr;
+        m_Reflection = nullptr;
+        m_SceneColor = nullptr;
+        m_SceneDepth = nullptr;
+        m_SceneColorCapturePass = false;
+        m_WaterDepthCapturePass = false;
+        m_StencilMaskActive = false;
+        // m_Font は BeginFrame_Internal 後に SetFont_Internal でフレーム中だけ配線する。
+    }
+
+    /** フレーム固有の非所有参照と描画パス状態を解除する内部処理。 */
+    void EndFrame_Internal() noexcept
+    {
+        m_Cmd = nullptr;
+        m_Sprites = nullptr;
+        m_Font = nullptr;
+        m_Reflection = nullptr;
+        m_SceneColor = nullptr;
+        m_SceneDepth = nullptr;
+        m_SceneColorCapturePass = false;
+        m_WaterDepthCapturePass = false;
+        m_StencilMaskActive = false;
+    }
+
+    /** 現在の描画パスで使う 2D 一括描画器を配線する内部処理。 */
+    void SetSpriteBatch_Internal(CSpriteBatch* sprite_batch) noexcept { m_Sprites = sprite_batch; }
+
+    /** 全シーン共有の UI フォントを配線する内部処理。 */
+    void SetFont_Internal(FFont* font) noexcept { m_Font = font; }
+
+    /** 反射用シーンテクスチャを配線する内部処理。 */
+    void SetReflection_Internal(IRhiTexture* texture) noexcept { m_Reflection = texture; }
+
+    /** 屈折・画面反射用シーンカラーを配線する内部処理。 */
+    void SetSceneColor_Internal(IRhiTexture* texture) noexcept { m_SceneColor = texture; }
+
+    /** 水面用の正規化深度テクスチャを配線する内部処理。 */
+    void SetSceneDepth_Internal(IRhiTexture* texture) noexcept { m_SceneDepth = texture; }
+
+    /** 主描画パス前のシーンカラー捕捉状態を配線する内部処理。 */
+    void SetSceneColorCapturePass_Internal(bool active) noexcept { m_SceneColorCapturePass = active; }
+
+    /** 水面深度捕捉状態を配線する内部処理。 */
+    void SetWaterDepthCapturePass_Internal(bool active) noexcept { m_WaterDepthCapturePass = active; }
+
+    /** 2D ワールド座標から画面座標への変換値を配線する内部処理。 */
+    void SetView2D_Internal(FVec2 center, f32 scale) noexcept { m_ViewCenter = center; m_ViewScale = scale; }
+
+    /** 現在の描画パスのステンシルマスク利用状態を配線する内部処理。 */
+    void SetStencilMaskActive_Internal(bool active) noexcept { m_StencilMaskActive = active; }
+
     /** 描画に使う CRenderer (フレーム冒頭に配線)。 */
     CRenderer*        m_Renderer = nullptr;
 

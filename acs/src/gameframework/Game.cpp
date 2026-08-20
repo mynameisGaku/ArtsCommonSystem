@@ -115,13 +115,14 @@ void CGame::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     if (!cl || !sc) return;
-    m_RenderCtx.BeginFrame_Internal(GetRenderer(), *cl, sc->Width(), sc->Height());
+    auto wiring = m_RenderCtx.WiringAccess();
+    wiring.BeginFrame(GetRenderer(), *cl, sc->Width(), sc->Height());
     // 全シーン共有の UI フォントを毎フレーム配線 (初回に遅延ロード)。
     EnsureUiFont();
-    if (m_UiFontReady) m_RenderCtx.SetFont_Internal(&m_UiFont);
+    if (m_UiFontReady) wiring.SetFont(&m_UiFont);
     m_Scenes.Render_Internal(m_RenderCtx);
     DrawFadeOverlay();                  // シーン描画の上にフェード幕を重ねる
-    m_RenderCtx.EndFrame_Internal();
+    wiring.EndFrame();
 }
 
 /** 初回呼び出しでフェード overlay 用 SpriteBatch を 1 回だけ遅延 init する。 */

@@ -110,6 +110,46 @@ static_assert(std::is_same_v<acs::FScene, acs::AScene>);
 static_assert(std::is_same_v<acs::CSceneManager, acs::game::CSceneManager>);
 static_assert(std::is_same_v<acs::FSceneManager, acs::CSceneManager>);
 static_assert(std::is_same_v<acs::FRenderContext, acs::game::FRenderContext>);
+/** 描画コンテキストの明示的な接続窓口を取得する公開署名。 */
+using FRenderContextWiringAccessSignature = acs::FRenderContext::FWiringAdapter (acs::FRenderContext::*)() noexcept;
+/** 描画フレームの開始配線を行う公開署名。 */
+using FRenderContextBeginFrameSignature = void (acs::FRenderContext::FWiringAdapter::*)(acs::CRenderer&, acs::IRhiCommandList&, acs::u32, acs::u32) noexcept;
+/** 描画フレームの終了配線を行う公開署名。 */
+using FRenderContextEndFrameSignature = void (acs::FRenderContext::FWiringAdapter::*)() noexcept;
+/** 2D 一括描画器を配線する公開署名。 */
+using FRenderContextSpriteBatchSignature = void (acs::FRenderContext::FWiringAdapter::*)(acs::CSpriteBatch*) noexcept;
+/** UI フォントを配線する公開署名。 */
+using FRenderContextFontSignature = void (acs::FRenderContext::FWiringAdapter::*)(acs::FFont*) noexcept;
+/** 描画用テクスチャを配線する共通公開署名。 */
+using FRenderContextTextureSignature = void (acs::FRenderContext::FWiringAdapter::*)(acs::IRhiTexture*) noexcept;
+/** 描画パスの状態を配線する共通公開署名。 */
+using FRenderContextPassFlagSignature = void (acs::FRenderContext::FWiringAdapter::*)(bool) noexcept;
+/** 2D 表示変換を配線する公開署名。 */
+using FRenderContextView2DSignature = void (acs::FRenderContext::FWiringAdapter::*)(acs::FVec2, acs::f32) noexcept;
+static_assert(std::is_same_v<decltype(&acs::FRenderContext::WiringAccess),
+                             FRenderContextWiringAccessSignature>);
+static_assert(std::is_same_v<decltype(&acs::FRenderContext::FWiringAdapter::BeginFrame),
+                             FRenderContextBeginFrameSignature>);
+static_assert(std::is_same_v<decltype(&acs::FRenderContext::FWiringAdapter::EndFrame),
+                             FRenderContextEndFrameSignature>);
+static_assert(std::is_same_v<decltype(&acs::FRenderContext::FWiringAdapter::SetSpriteBatch),
+                             FRenderContextSpriteBatchSignature>);
+static_assert(std::is_same_v<decltype(&acs::FRenderContext::FWiringAdapter::SetFont),
+                             FRenderContextFontSignature>);
+static_assert(std::is_same_v<decltype(&acs::FRenderContext::FWiringAdapter::SetReflection),
+                             FRenderContextTextureSignature>);
+static_assert(std::is_same_v<decltype(&acs::FRenderContext::FWiringAdapter::SetSceneColor),
+                             FRenderContextTextureSignature>);
+static_assert(std::is_same_v<decltype(&acs::FRenderContext::FWiringAdapter::SetSceneDepth),
+                             FRenderContextTextureSignature>);
+static_assert(std::is_same_v<decltype(&acs::FRenderContext::FWiringAdapter::SetSceneColorCapturePass),
+                             FRenderContextPassFlagSignature>);
+static_assert(std::is_same_v<decltype(&acs::FRenderContext::FWiringAdapter::SetWaterDepthCapturePass),
+                             FRenderContextPassFlagSignature>);
+static_assert(std::is_same_v<decltype(&acs::FRenderContext::FWiringAdapter::SetView2D),
+                             FRenderContextView2DSignature>);
+static_assert(std::is_same_v<decltype(&acs::FRenderContext::FWiringAdapter::SetStencilMaskActive),
+                             FRenderContextPassFlagSignature>);
 static_assert(std::is_same_v<acs::CSceneServices, acs::game::CSceneServices>);
 static_assert(std::is_same_v<acs::FSceneServices, acs::CSceneServices>);
 static_assert(std::is_same_v<acs::ESvc, acs::game::ESvc>);

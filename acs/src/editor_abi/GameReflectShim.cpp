@@ -226,8 +226,9 @@ GR_API void acs_game_scene_draw(void* scene, void* sprite_batch,
     if (s == nullptr || !s->root || sb == nullptr) return;
     (void)w; (void)h;   // 予約 (将来 rc.Width/Height を配線する場合に使用)
     FRenderContext rc;
-    rc.SetSpriteBatch_Internal(sb);
-    rc.SetView2D_Internal(FVec2{ view_cx, view_cy }, view_scale);
+    auto wiring = rc.WiringAccess();
+    wiring.SetSpriteBatch(sb);
+    wiring.SetView2D(FVec2{ view_cx, view_cy }, view_scale);
     s->root->DrawTree(rc);
 }
 
