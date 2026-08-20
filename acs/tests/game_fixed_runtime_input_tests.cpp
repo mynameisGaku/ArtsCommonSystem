@@ -10,6 +10,9 @@
 #include "test/Expect.h"
 #include "test/Test.h"
 
+#include <cmath>
+#include <limits>
+
 using namespace acs;
 using namespace acs::game;
 
@@ -464,10 +467,10 @@ ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraSnapshotRestoresReplayIntervalT
 ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraObstructionIsPresentationOnly)
 {
     /** GPUなしでLegacy 3D sceneを更新するgame。 */
-    CScriptedFixedTickInputSource source;
+    CScriptedFrameInputSource source;
     CLegacyFixedOrbitCameraGame game;
     game.SetFixedTimestep(0.125f, 4u);
-    game.SetFixedTickInputSource(source);
+    game.SetFixedStepInputSource(source);
     EXPECT_TRUE(game.StartForTest());
 
     ALegacyScene3DAdapter* scene = game.SceneForTest();
@@ -501,6 +504,7 @@ ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraObstructionIsPresentationOnly)
     settings.TargetClearance = 0.75f;
     settings.CameraClearance = 0.25f;
     settings.ProbeRadius = 0.25f;
+    settings.RecoverySharpness = 4.0f;
     EXPECT_TRUE(scene->TrySetOrbitCameraObstructionSettings(settings));
     game.UpdateForTest(0.0f);
     /** wall手前へ短縮されたpresentation eye。 */
@@ -523,14 +527,32 @@ ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraObstructionIsPresentationOnly)
     invalid = settings;
     invalid.ProbeRadius = -0.01f;
     EXPECT_FALSE(scene->TrySetOrbitCameraObstructionSettings(invalid));
+    invalid = settings;
+    invalid.RecoverySharpness = -0.01f;
+    EXPECT_FALSE(scene->TrySetOrbitCameraObstructionSettings(invalid));
+    invalid.RecoverySharpness = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FALSE(scene->TrySetOrbitCameraObstructionSettings(invalid));
     EXPECT_NEAR(scene->OrbitCameraObstructionSettings().TargetClearance, 0.75f, 0.0f);
     EXPECT_NEAR(scene->OrbitCameraObstructionSettings().ProbeRadius, 0.25f, 0.0f);
+    EXPECT_NEAR(scene->OrbitCameraObstructionSettings().RecoverySharpness, 4.0f, 0.0f);
 
     if (wall.Node != nullptr) wall.Node->SetVisible(false);
     game.UpdateForTest(0.0f);
-    /** 障害物が非表示になるとdesired距離へ即時復帰するeye。 */
-    const FVec3 clear_eye = scene->Camera().Eye();
-    EXPECT_NEAR(clear_eye.z, -8.0f, 1.0e-4f);
+    /** 経過時間0では障害物が消えても外向き復帰を進めないeye。 */
+    const FVec3 recovery_start_eye = scene->Camera().Eye();
+    EXPECT_NEAR(recovery_start_eye.z, -3.0f, 1.0e-4f);
+    game.UpdateForTest(0.25f);
+    /** 明示したframe時間だけdesired距離へ滑らかに復帰したeye。 */
+    const FVec3 recovering_eye = scene->Camera().Eye();
+    /** 3から8へsharpness 4で0.25秒進めた理論距離。 */
+    const f32 expected_recovery_distance = static_cast<f32>(3.0 + 5.0 * (1.0 - std::exp(-1.0)));
+    EXPECT_NEAR(recovering_eye.z, -expected_recovery_distance, 1.0e-4f);
+
+    settings.RecoverySharpness = 0.0f;
+    EXPECT_TRUE(scene->TrySetOrbitCameraObstructionSettings(settings));
+    /** 復帰速度0は従来互換でdesired距離を即時表示する。 */
+    const FVec3 immediate_eye = scene->Camera().Eye();
+    EXPECT_NEAR(immediate_eye.z, -8.0f, 1.0e-4f);
     game.ShutdownForTest();
 }
 

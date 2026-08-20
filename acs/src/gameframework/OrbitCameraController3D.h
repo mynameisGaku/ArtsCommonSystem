@@ -149,6 +149,17 @@ public:
     bool TryResolveObstructedState(const FOrbitCameraState3D& state, f32 obstruction_distance, f32 camera_clearance, FOrbitCameraState3D& output) const noexcept;
 
     /**
+     * 解決済みpresentation距離へ、接近は即時、復帰は時間に応じて進める。
+     * @param resolved_state 今回のscene queryで解決済みのpresentation状態。
+     * @param current_distance 現在表示しているtargetからの距離。
+     * @param recovery_sharpness 一秒あたりの指数復帰速度。0なら従来互換の即時反映。
+     * @param delta_seconds 復帰を進める経過秒。0なら離れる方向へ進めない。
+     * @param output 今回表示する状態。失敗時は変更しない。
+     * @return 設定、状態、距離、速さ、時間が有効ならtrue。
+     */
+    bool TryAdvanceObstructionPresentation(const FOrbitCameraState3D& resolved_state, f32 current_distance, f32 recovery_sharpness, f32 delta_seconds, FOrbitCameraState3D& output) const noexcept;
+
+    /**
      * orbit状態からeye、look-at、upを計算する。
      * @return 状態が有効ならtrue。失敗時はviewを変更しない。
      */

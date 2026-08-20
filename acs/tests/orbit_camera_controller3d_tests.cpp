@@ -4,6 +4,7 @@
 #include "gameframework/OrbitCameraController3D.h"
 #include "math/Math.h"
 
+#include <cmath>
 #include <limits>
 
 using namespace acs;
@@ -172,6 +173,60 @@ ACS_TEST(OrbitCameraController3D, ObstructionShortensOnlyPresentationDistance)
     ExpectStateNear(resolved, original, 0.0f);
     EXPECT_FALSE(controller.TryResolveObstructedState(desired, 0.1f, 0.1f, resolved));
     ExpectStateNear(resolved, original, 0.0f);
+}
+
+ACS_TEST(OrbitCameraController3D, ObstructionRecoverySnapsInwardAndSmoothsOutward)
+{
+    /** scene query結果と明示時間だけでpresentation復帰を計算するcontroller。 */
+    COrbitCameraController3D controller;
+    /** 現在表示距離より近い障害物で解決された状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D resolved{};
+    resolved.target = FVec3{1.0f, 2.0f, 3.0f};
+    resolved.distance = 3.0f;
+    /** 今回表示する状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D presented{};
+
+    EXPECT_TRUE(controller.TryAdvanceObstructionPresentation(resolved, 8.0f, 4.0f, 0.0f, presented));
+    EXPECT_NEAR(presented.distance, 3.0f, 0.0f);
+    EXPECT_NEAR(presented.target.x, 1.0f, 0.0f);
+
+    resolved.distance = 8.0f;
+    EXPECT_TRUE(controller.TryAdvanceObstructionPresentation(resolved, 3.0f, 4.0f, 0.25f, presented));
+    /** 3から8へsharpness 4で0.25秒進めた理論距離。 */
+    const f32 expected_distance = static_cast<f32>(3.0 + 5.0 * (1.0 - std::exp(-1.0)));
+    EXPECT_NEAR(presented.distance, expected_distance, 1.0e-5f);
+
+    /** 同じ総時間を二分して進めたpresentation状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D partitioned{};
+    EXPECT_TRUE(controller.TryAdvanceObstructionPresentation(resolved, 3.0f, 4.0f, 0.125f, partitioned));
+    EXPECT_TRUE(controller.TryAdvanceObstructionPresentation(resolved, partitioned.distance, 4.0f, 0.125f, partitioned));
+    EXPECT_NEAR(partitioned.distance, presented.distance, 1.0e-5f);
+
+    EXPECT_TRUE(controller.TryAdvanceObstructionPresentation(resolved, 7.99995f, 4.0f, 0.0f, presented));
+    EXPECT_NEAR(presented.distance, 7.99995f, 0.0f);
+    EXPECT_TRUE(controller.TryAdvanceObstructionPresentation(resolved, 3.0f, 0.0f, 0.0f, presented));
+    EXPECT_NEAR(presented.distance, 8.0f, 0.0f);
+}
+
+ACS_TEST(OrbitCameraController3D, InvalidObstructionRecoveryPreservesOutput)
+{
+    /** 不正な復帰入力をtransactionalに拒否するcontroller。 */
+    COrbitCameraController3D controller;
+    /** 有効な解決済み状態。 */
+    COrbitCameraController3D::FOrbitCameraState3D resolved{};
+    /** 失敗時に維持されるsentinel出力。 */
+    COrbitCameraController3D::FOrbitCameraState3D output{};
+    output.target = FVec3{9.0f, 8.0f, 7.0f};
+    output.distance = 6.0f;
+    /** 各失敗後に比較する変更前出力。 */
+    const COrbitCameraController3D::FOrbitCameraState3D original = output;
+
+    EXPECT_FALSE(controller.TryAdvanceObstructionPresentation(resolved, 0.0f, 4.0f, 0.25f, output));
+    ExpectStateNear(output, original, 0.0f);
+    EXPECT_FALSE(controller.TryAdvanceObstructionPresentation(resolved, 3.0f, -1.0f, 0.25f, output));
+    ExpectStateNear(output, original, 0.0f);
+    EXPECT_FALSE(controller.TryAdvanceObstructionPresentation(resolved, 3.0f, 4.0f, std::numeric_limits<f32>::quiet_NaN(), output));
+    ExpectStateNear(output, original, 0.0f);
 }
 
 ACS_TEST(OrbitCameraController3D, ZoomChangesDistanceAndClampsRange)

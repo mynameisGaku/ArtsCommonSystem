@@ -161,7 +161,7 @@ Object.assign(ACS_REF.glossary, {
   "FBuffDef": "バフ 1 種の定義(id・種別・持続秒・効果量・<t>スタック</t>方針など)。<code>RegisterBuff</code> で登録する。",
   "CCamera2D": "2D <t>カメラ</t>。位置/ズーム/回転、ターゲット追従、画面振動、world↔screen 座標変換を持つ。",
   "CSceneNodeGraph": "root <t>ANode</t>と世代付きpoolを所有し、scene非依存の構造更新、検索、3D bounds queryを提供する。",
-  "COrbitCameraController3D": "3D orbit camera の入力・状態・固定時間から次状態を決定し、snapshot検証、描画補間、明示した障害物距離からpresentation eye/look-atを計算する。",
+  "COrbitCameraController3D": "3D orbit camera の入力・状態・固定時間から次状態を決定し、snapshot検証、描画補間、障害物距離と明示時間からpresentation eye/look-atを計算する。",
   "FOrbitCameraInputActionSet3D": "6個の名前付き action を、固定 tick や replay から評価できる3D orbit camera入力へ変換する。",
   "CCameraShakePresets": "『爆発/地震/着弾』などジャンル別の画面振動パラメータを名前付きで提供する preset ライブラリ。",
   "CCharacterCustomizer": "キャラの見た目(cosmetic)だけを slot 単位で着せ替えするマネージャ。戦闘性能はいじらない設計。",
