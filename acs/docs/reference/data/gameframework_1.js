@@ -423,6 +423,16 @@ ACS_REF.modules.push({
       ]
     },
     {
+      name: "FOrbitCameraInputActionSet3D",
+      kind: "構造体", header: "gameframework/OrbitCameraInputActionSet3D.h",
+      summary: "5個の名前付きactionを3D orbit camera入力へ変換する値。固定tick、AI、replayの明示入力状態を同じ経路で評価する。",
+      when: "FInputMapとIInputStateViewをCOrbitCameraController3Dへ接続したい時。",
+      members: [
+        { sig: "bool IsValid() const", desc: "5 action IDが有効かつ互いに異なる場合はtrueを返す。" },
+        { sig: "bool TryEvaluate(const FInputMap& map, const IInputStateView& input, FOrbitCameraInput3D& output) const", desc: "明示入力状態を評価し、成功時だけ5軸のcamera入力を反映する。" }
+      ]
+    },
+    {
       name: "CCameraStack",
       kind: "クラス", header: "gameframework/CameraStack.h",
       summary: "複数の <t>CCamera2D</t> を<b>仮想カメラのスタック</b>として持ち、最上層を active として扱う Cinemachine 風スイッチャ。Push/Pop で旧 top→新 top を線形補間でブレンドし、描画側は Effective* で「今どこを写しているか」を読む。",
