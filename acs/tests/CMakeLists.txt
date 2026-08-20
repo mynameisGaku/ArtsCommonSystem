@@ -11,6 +11,8 @@ add_executable(acs_unit_tests
     component_factory_tests.cpp
     component_services_tests.cpp
     input_feed_tests.cpp
+    input_axis_options_tests.cpp
+    fixed_step_input_buffer_tests.cpp
     rigidworld_tests.cpp
     rigidbody_component_tests.cpp
     debugdraw_tests.cpp
@@ -20,6 +22,8 @@ add_executable(acs_unit_tests
     behaviortree_tests.cpp
     behavior_tree_persistence_safety_tests.cpp
     easing_completeness_tests.cpp
+    legacy_kit_ease_codec_tests.cpp
+    fixed_step_clock_tests.cpp
     easing_tween_integration_tests.cpp
     easing_tween_numeric_safety_tests.cpp
     easy_easing_facade_tests.cpp

@@ -45,16 +45,21 @@ set(_acsgen_gameframework_sources
     Effects2D.cpp
     Entitlement.cpp
     FadeTransition.cpp
+    FixedStepClock.cpp
+    FixedStepInputBuffer.cpp
     Game.cpp
     GameFlow.cpp
     HealthSystem.cpp
     HotReload.cpp
     HungerSystem.cpp
+    InputAxisOptions.cpp
     InputMap.cpp
     InputRecorder.cpp
+    InputStateSnapshot.cpp
     InspectorSeam.cpp
     InventorySystem.cpp
     LapTimer.cpp
+    LegacyKitEaseCodec.cpp
     LegacyScene3DAdapter.cpp
     LlmSafetyPipeline.cpp
     LocalizationDirector.cpp
@@ -76,6 +81,7 @@ set(_acsgen_gameframework_sources
     PhotoMode.cpp
     PhysicsBody2D.cpp
     PickupSystem.cpp
+    PlatformInputStateAdapter.cpp
     PrefabSystem.cpp
     PrivacyDirector.cpp
     Progression.cpp
@@ -187,6 +193,11 @@ set(_acsgen_gameframework_headers
     EntryPoint.h
     EventBus.h
     FadeTransition.h
+    FixedStepAdvanceResult.h
+    FixedStepClock.h
+    FixedStepClockSnapshot.h
+    FixedStepInputBuffer.h
+    FixedStepOptions.h
     Follow2DComponent.h
     Game.h
     GameFlow.h
@@ -195,11 +206,16 @@ set(_acsgen_gameframework_headers
     HotReload.h
     HotReloadDiagnosticsInternal.h
     HungerSystem.h
+    InputActionState.h
+    InputAxisOptions.h
     InputMap.h
     InputRecorder.h
+    InputStateSnapshot.h
+    InputStateView.h
     InspectorSeam.h
     InventorySystem.h
     LapTimer.h
+    LegacyKitEaseCodec.h
     LegacyScene3DAdapter.h
     Light2DComponent.h
     LlmSafetyPipeline.h
@@ -225,6 +241,7 @@ set(_acsgen_gameframework_headers
     PhotoMode.h
     PhysicsBody2D.h
     PickupSystem.h
+    PlatformInputStateAdapter.h
     PolygonRenderer2D.h
     Pool.h
     PrefabSystem.h
