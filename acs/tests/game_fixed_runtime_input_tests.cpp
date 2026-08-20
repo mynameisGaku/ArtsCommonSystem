@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#include "asset/MeshAsset.h"
 #include "gameframework/FixedTickInputSource.h"
 #include "gameframework/Game.h"
 #include "gameframework/InputFrameSource.h"
@@ -6,6 +7,7 @@
 #include "gameframework/LegacyScene3DAdapter.h"
 #include "gameframework/MeshComponent3D.h"
 #include "gameframework/Scene.h"
+#include "memory/SharedPtr.h"
 #include "subsystem/SubsystemOwner.h"
 #include "test/Expect.h"
 #include "test/Test.h"
@@ -553,6 +555,59 @@ ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraObstructionIsPresentationOnly)
     /** 復帰速度0は従来互換でdesired距離を即時表示する。 */
     const FVec3 immediate_eye = scene->Camera().Eye();
     EXPECT_NEAR(immediate_eye.z, -8.0f, 1.0e-4f);
+    game.ShutdownForTest();
+}
+
+ACS_TEST(GameFixedRuntimeInput, LegacyOrbitCameraPointProbeUsesAuthoredTriangles)
+{
+    /** GPUなしでLegacy 3D camera obstructionを更新するgame。 */
+    CScriptedFrameInputSource source;
+    CLegacyFixedOrbitCameraGame game;
+    game.SetFixedTimestep(0.125f, 4u);
+    game.SetFixedStepInputSource(source);
+    EXPECT_TRUE(game.StartForTest());
+
+    ALegacyScene3DAdapter* scene = game.SceneForTest();
+    EXPECT_TRUE(scene != nullptr);
+    if (scene == nullptr) {
+        game.ShutdownForTest();
+        return;
+    }
+    COrbitCameraController3D::FOrbitCameraFixedStepSnapshot3D camera_state{};
+    camera_state.previous.pitch_radians = 0.0f;
+    camera_state.previous.distance = 8.0f;
+    camera_state.current = camera_state.previous;
+    EXPECT_TRUE(scene->TryRestoreOrbitCameraSnapshot(camera_state));
+
+    /** AABBはcamera rayを横切るがauthored triangleはrayから外れる手前mesh。 */
+    TSharedPtr<AMeshAsset> triangle = MakeShared<AMeshAsset>();
+    triangle->Vertices().Add(FMeshVertex{FVec3{-1.0f, -1.0f, 0.0f}, FVec3{0.0f, 0.0f, 1.0f}, 0.0f, 0.0f});
+    triangle->Vertices().Add(FMeshVertex{FVec3{1.0f, -1.0f, 0.0f}, FVec3{0.0f, 0.0f, 1.0f}, 1.0f, 0.0f});
+    triangle->Vertices().Add(FMeshVertex{FVec3{-1.0f, 0.2f, 0.0f}, FVec3{0.0f, 0.0f, 1.0f}, 0.0f, 1.0f});
+    FScene3DSpawnResult false_positive = scene->Graph().TrySpawn(FStringView("CameraBoundsOnly"));
+    EXPECT_TRUE(false_positive.Succeeded());
+    if (false_positive.Node != nullptr) {
+        false_positive.Node->Local().position = FVec3{0.0f, 0.0f, -2.0f};
+        AMeshComponent3D& mesh = false_positive.Node->AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Mesh);
+        mesh.SetMeshAsset(TSharedPtr<AAsset>(triangle));
+    }
+    /** 厳密形状で実際に遮る奥のwall。 */
+    FScene3DSpawnResult wall = scene->Graph().TrySpawn(FStringView("CameraExactWall"));
+    EXPECT_TRUE(wall.Succeeded());
+    if (wall.Node != nullptr) {
+        wall.Node->Local().position = FVec3{0.0f, 0.0f, -4.0f};
+        wall.Node->Local().scale = FVec3{4.0f, 4.0f, 1.0f};
+        wall.Node->AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+    }
+
+    ALegacyScene3DAdapter::FOrbitCameraObstructionSettings3D settings{};
+    settings.Enabled = true;
+    settings.TargetClearance = 0.75f;
+    settings.CameraClearance = 0.25f;
+    settings.ProbeRadius = 0.0f;
+    EXPECT_TRUE(scene->TrySetOrbitCameraObstructionSettings(settings));
+    game.UpdateForTest(0.0f);
+    EXPECT_NEAR(scene->Camera().Eye().z, -3.25f, 1.0e-4f);
     game.ShutdownForTest();
 }
 

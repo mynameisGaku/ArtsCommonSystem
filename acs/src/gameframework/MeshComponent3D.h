@@ -11,6 +11,7 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "math/Collision3D.h"
 #include "math/Vec.h"
 #include "container/String.h"
 #include "container/StringView.h"
@@ -205,6 +206,17 @@ public:
      * @return AMeshAsset へのポインタ (未設定なら nullptr)。
      */
     AMeshAsset* Mesh() const noexcept { return static_cast<AMeshAsset*>(m_MeshAsset.Get()); }
+
+    /**
+     * component local空間の描画形状へraycastする。
+     *
+     * @details Cube、Sphere、有限Planeは各primitive形状、Meshは有効なauthored triangleを使う。
+     * GPU resourceやnode transformには依存せず、不正入力または形状なしでは非命中を返す。
+     * @param ray component local空間のray。
+     * @param maximum_t 探索する有限t上限。0以上でなければならない。
+     * @return 最も手前の形状hit。外れまたは入力不正ではhit=false。
+     */
+    FRayHit3 RaycastLocalGeometry(const FRay3& ray, f32 maximum_t = 3.4028235e38f) const noexcept;
 
     // --- マテリアルアセット (.acsmat) 参照 ---------------------------------------------
     // 2D の ANode::m_Mat (ランタイム POD の材質状態) に相当するものをコンポーネントへ持たせる。

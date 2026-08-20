@@ -74,18 +74,19 @@ snapshotのいずれかが非有限、pitch上限外、距離範囲外なら復�
 
 `ALegacyScene3DAdapter::FOrbitCameraObstructionSettings3D` は既定で無効であり、既存sceneの見え方を
 変更しない。`TrySetOrbitCameraObstructionSettings` で有効にすると、adapterはtargetからdesired eyeへ
-正規化した中心rayを飛ばし、`CSceneNodeGraph::SweepSphereActiveRange` で有効かつ可視なmeshだけを検索する。
+正規化した中心rayを飛ばす。半径0は`CSceneNodeGraph::RaycastGeometryActiveRange`、正値は
+`SweepSphereActiveRange`を使い、有効かつ可視なmeshだけを検索する。
 
 - `TargetClearance` より手前のhitは追従対象自身として除外する。
-- `ProbeRadius` はworld空間のcamera半径で、0なら従来の点ray、正値なら壁の角をかすめるcamera本体も検出する。
+- `ProbeRadius` はworld空間のcamera半径で、0ならprimitiveまたはauthored mesh triangleへの厳密な点ray、正値なら壁の角をかすめるcamera本体も検出する。
 - `RecoverySharpness` は障害物から離れる一秒あたりの復帰速度で、0なら従来互換の即時復帰、正値ならframe分割に依存しない指数復帰になる。
 - 最初のhitから `CameraClearance` を引いた距離を `TryResolveObstructedState` へ渡す。
 - `TargetClearance - CameraClearance` がcontrollerの最小距離を下回る設定は、障害物の奥へ丸めないよう拒否する。
 - 衝突で短縮するのはpresentation stateだけで、fixed tickのdesired distanceとrollback snapshotは変えない。
 - 障害物へ近づく方向はrenderを含むqueryごとに即時反映し、外向き復帰の時間は可変updateで一度だけ進める。
 - render側は経過秒0で再queryするため、同じframeで復帰時間を二重に消費しない。
-- queryはnodeの回転と非一様scaleを反映し、local mesh AABBをsphere半径で安全側へ拡張する。角では早めに命中する。
-- mesh三角形への厳密なsweepは別責務である。
+- 点rayはlocal AABBをbroad-phaseに使った後、`AMeshComponent3D::RaycastLocalGeometry`でCube、Sphere、有限Planeまたはauthored mesh triangleを判定し、mesh boundsだけの誤検出を除く。
+- 半径付きqueryはnodeの回転と非一様scaleを反映し、local mesh AABBをsphere半径で安全側へ拡張する。角では早めに命中し、mesh三角形への厳密なsphere sweepは別責務である。
 
 ## 現在の利用先と範囲
 

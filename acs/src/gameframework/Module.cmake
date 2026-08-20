@@ -71,6 +71,7 @@ set(_acsgen_gameframework_sources
     Lockstep.cpp
     MatchGrid.cpp
     Material2D.cpp
+    MeshComponent3D.cpp
     MlRuntime.cpp
     ModRegistry.cpp
     MusicDirector.cpp

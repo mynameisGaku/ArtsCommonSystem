@@ -285,76 +285,6 @@ bool IsPlanarWaterMesh(const AMeshComponent3D& component) noexcept {
         && CWaterSurface3D::IsLocalXzSurfaceMesh(*mesh);
 }
 
-FRayHit3 RaycastMeshLocal(
-    const AMeshComponent3D& component,
-    const FRay3& ray,
-    f32 max_distance) noexcept {
-    switch (component.Primitive()) {
-    case EMeshPrimitive3D::Plane: {
-        FRayHit3 hit = RaycastPlane(
-            ray, FPlane::FromPointNormal(
-                FVec3{0.0f, 0.0f, 0.0f}, FVec3{0.0f, 1.0f, 0.0f}),
-            max_distance);
-        if (hit.hit
-            && (Abs(hit.point.x) > 0.5f || Abs(hit.point.z) > 0.5f)) {
-            return FRayHit3{};
-        }
-        return hit;
-    }
-    case EMeshPrimitive3D::Cube:
-        return RaycastAabb(
-            ray,
-            FAabb3::FromCenterExtents(
-                FVec3{0.0f, 0.0f, 0.0f},
-                FVec3{0.5f, 0.5f, 0.5f}),
-            max_distance);
-    case EMeshPrimitive3D::Sphere:
-        return RaycastSphere(
-            ray, FSphere{FVec3{0.0f, 0.0f, 0.0f}, 0.5f},
-            max_distance);
-    case EMeshPrimitive3D::Mesh:
-        break;
-    }
-
-    const AMeshAsset* mesh = component.Mesh();
-    if (mesh == nullptr || mesh->Vertices().Num() < 3u)
-        return FRayHit3{};
-    const auto& vertices = mesh->Vertices();
-    const auto& indices = mesh->Indices();
-    FRayHit3 best{};
-    f32 best_distance = max_distance;
-    if (indices.Num() >= 3u) {
-        for (u32 index = 0u; index + 2u < indices.Num(); index += 3u) {
-            const u32 i0 = indices[index + 0u];
-            const u32 i1 = indices[index + 1u];
-            const u32 i2 = indices[index + 2u];
-            if (i0 >= vertices.Num() || i1 >= vertices.Num()
-                || i2 >= vertices.Num()) {
-                continue;
-            }
-            const FRayHit3 hit = RaycastTriangle(
-                ray, vertices[i0].position, vertices[i1].position,
-                vertices[i2].position, best_distance);
-            if (hit.hit) {
-                best = hit;
-                best_distance = hit.t;
-            }
-        }
-    } else {
-        for (u32 index = 0u; index + 2u < vertices.Num(); index += 3u) {
-            const FRayHit3 hit = RaycastTriangle(
-                ray, vertices[index + 0u].position,
-                vertices[index + 1u].position,
-                vertices[index + 2u].position, best_distance);
-            if (hit.hit) {
-                best = hit;
-                best_distance = hit.t;
-            }
-        }
-    }
-    return best;
-}
-
 FRayHit3 RaycastMeshWorld(
     const ANode& node,
     const AMeshComponent3D& component,
@@ -370,8 +300,7 @@ FRayHit3 RaycastMeshWorld(
         || LengthSq(local_ray.direction) < 1.0e-12f) {
         return FRayHit3{};
     }
-    FRayHit3 hit = RaycastMeshLocal(
-        component, local_ray, max_distance);
+    FRayHit3 hit = component.RaycastLocalGeometry(local_ray, max_distance);
     if (!hit.hit) return hit;
     hit.point = ray.origin + ray.direction * hit.t;
     hit.normal = Normalize(TransformVector(
@@ -3844,7 +3773,11 @@ bool ALegacyScene3DAdapter::TryResolveOrbitCameraObstruction_Internal(const COrb
     if (!m_OrbitCameraController.TryBuildView(state, desired_view)) return false;
     const FVec3 direction = (desired_view.eye - state.target) * (1.0f / state.distance);
     f32 obstruction_distance = 0.0f;
-    const FNodeId obstruction = Graph().SweepSphereActiveRange(FRay3{state.target, direction}, m_OrbitCameraObstructionSettings.ProbeRadius, m_OrbitCameraObstructionSettings.TargetClearance, state.distance, &obstruction_distance);
+    FNodeId obstruction{};
+    if (m_OrbitCameraObstructionSettings.ProbeRadius == 0.0f)
+        obstruction = Graph().RaycastGeometryActiveRange(FRay3{state.target, direction}, m_OrbitCameraObstructionSettings.TargetClearance, state.distance, &obstruction_distance);
+    else
+        obstruction = Graph().SweepSphereActiveRange(FRay3{state.target, direction}, m_OrbitCameraObstructionSettings.ProbeRadius, m_OrbitCameraObstructionSettings.TargetClearance, state.distance, &obstruction_distance);
     if (!obstruction.IsValid()) {
         output = state;
         return true;
