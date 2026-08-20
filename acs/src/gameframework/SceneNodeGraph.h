@@ -256,6 +256,20 @@ public:
     FNodeId RaycastActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, f32* out_t = nullptr) const noexcept;
 
     /**
+     * 有効かつ可視な描画形状を指定t区間だけ厳密にraycastする。
+     *
+     * @details local AABBをbroad-phaseに使った後、Cube、Sphere、有限PlaneまたはMesh triangleを判定する。
+     * 親が無効、非表示、破棄予定ならsubtree全体を除外する。半径を持たない3D camera probe向けであり、
+     * editorのbounds pickや安全側のsphere sweepの契約は変更しない。
+     * @param ray world空間ray。距離としてtを使う場合はdirectionを正規化する。
+     * @param minimum_t 含める最小t。有限かつ0以上。
+     * @param maximum_t 含める最大t。有限かつminimum_t以上。
+     * @param out_t 非nullかつ命中時だけ最近hitのtを書き込む。
+     * @return 区間内で最も手前の有効な描画形状node。入力不正または外れはinvalid。
+     */
+    FNodeId RaycastGeometryActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, f32* out_t = nullptr) const noexcept;
+
+    /**
      * 有効かつ可視なmesh boundsへworld空間の球を指定t区間だけsweepする。
      *
      * @details node local AABBをworld scaleに応じて保守的に拡張し、球中心rayとの最初の接触を返す。

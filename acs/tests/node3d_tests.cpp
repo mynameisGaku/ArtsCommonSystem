@@ -845,6 +845,34 @@ ACS_TEST(Scene3DRaycast, SphereSweepCatchesGrazingRotatedScaledWall)
     EXPECT_NEAR(hit_t, 23.0f, 0.0f);
 }
 
+ACS_TEST(Scene3DRaycast, GeometryRangeRejectsMeshBoundsFalsePositive)
+{
+    /** AABBはcenter rayを含むがtriangle自体は左下に偏って外れるmesh。 */
+    TSharedPtr<AMeshAsset> triangle = MakeShared<AMeshAsset>();
+    triangle->Vertices().Add(FMeshVertex{FVec3{-1.0f, -1.0f, 0.0f}, FVec3{0.0f, 0.0f, -1.0f}, 0.0f, 0.0f});
+    triangle->Vertices().Add(FMeshVertex{FVec3{1.0f, -1.0f, 0.0f}, FVec3{0.0f, 0.0f, -1.0f}, 1.0f, 0.0f});
+    triangle->Vertices().Add(FMeshVertex{FVec3{-1.0f, 0.2f, 0.0f}, FVec3{0.0f, 0.0f, -1.0f}, 0.0f, 1.0f});
+    triangle->Indices().Add(0u);
+    triangle->Indices().Add(1u);
+    triangle->Indices().Add(2u);
+
+    CSceneNodeGraph scene;
+    ANode& false_positive = scene.Spawn(FStringView("BoundsOnly"));
+    false_positive.Local().position = FVec3{0.0f, 0.0f, 2.0f};
+    AMeshComponent3D& false_mesh = false_positive.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Mesh);
+    false_mesh.SetMeshAsset(TSharedPtr<AAsset>(triangle));
+    ANode& wall = scene.Spawn(FStringView("ExactWall"));
+    wall.Local().position = FVec3{0.0f, 0.0f, 4.0f};
+    wall.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+    const FRay3 ray{FVec3{0.0f, 0.0f, 0.0f}, FVec3{0.0f, 0.0f, 1.0f}};
+    f32 hit_t = -1.0f;
+
+    EXPECT_TRUE(scene.RaycastActiveRange(ray, 0.75f, 8.0f, &hit_t) == false_positive.Id());
+    EXPECT_NEAR(hit_t, 2.0f, 1.0e-5f);
+    EXPECT_TRUE(scene.RaycastGeometryActiveRange(ray, 0.75f, 8.0f, &hit_t) == wall.Id());
+    EXPECT_NEAR(hit_t, 3.5f, 1.0e-5f);
+}
+
 // --- スケールで AABB が拡大し、単位 cube なら外れるレイが当たる (OBB) --------
 ACS_TEST(Scene3DRaycast, RespectsScale) {
     CSceneNodeGraph scene;
