@@ -902,13 +902,13 @@ cbuffer CloudCB : register(b0) {
 };
 RWTexture2D<float4> cloudOut : register(u0);
 RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒット距離, y=アルファ信頼度
-RWTexture3D<float2> cloudShadowOut : register(u2); // raw/final cache write target
+// 平均深さと二標本差の書き込み先。
+RWTexture3D<float2> cloudShadowOut : register(u2);
 Texture3D<float2> shapeNoise     : register(t0);   // (Perlin-Worley, base Worley)
 Texture2D    weatherMap          : register(t1);   // coverage/type/precipitation/warp
 Texture3D<float2> detailNoise    : register(t2);   // (first octave, combined erosion)
 Texture2D    curlNoise           : register(t3);   // independent world-space curl field
-// CSCloudShadowFinalize reads the raw mean/pattern volume here; CSCloud reads
-// the finalized mean/max-error volume through the same contiguous t4 slot.
+// CSCloud は、現在フレームに生成した平均深さと二標本差を連続した t4 から読む。
 Texture3D<float2> cloudShadowCache : register(t4);
 SamplerState shapeNoise_sampler  : register(s0);   // wrap (tileable)
 SamplerState weatherMap_sampler  : register(s1);   // world-scale wrap
@@ -946,11 +946,8 @@ static const float2 CLOUD_CONE_GEOMETRY[8]={
     float2(0.08,0.996815279)};
 
 static const float CLOUD_PLANET_RADIUS=6360000.0;
-// The experimental far-tail cache is deliberately compiled out of the main
-// view shader while the bake/finalize entry points remain available for future
-// profiling.  A runtime-false branch still made FXC retain the cache sampler,
-// confidence path and blend temporaries in every dense view sample.
-static const bool CLOUD_MAIN_SHADOW_CACHE_ENABLED=false;
+// 遠距離5点だけをキャッシュで置き換え、信頼度が不足する場所は正確な積分へ戻す。
+static const bool CLOUD_MAIN_SHADOW_CACHE_ENABLED=true;
 // All marched points are within MAX_DISTANCE (250 km) of the rebased tangent
 // origin, so xz^2/(R+y)^2 stays below 0.0016.  The fourth-order expansion of
 // sqrt((R+y)^2+xz^2)-R removes a per-density-sample square root while retaining
@@ -1580,9 +1577,8 @@ float cloudDensity(float3 p, float coverage, float detailWeight){
     return densityResult;
 }
 
-// Reconstruct a point on the current curved shell from the cache's stable
-// material XZ and normalized altitude.  The rationalized sag avoids subtracting
-// two Earth-radius values and is the inverse of heightFraction to voxel error.
+// 移流を除いた安定XZ座標と正規化高度から、現在の曲面雲層上の点を復元する。
+// 有理化した沈み量により地球半径同士の減算を避け、誤差を1画素未満に抑える。
 float3 cloudShadowWorldPosition(float3 uvw){
     float2 q=shadowGrid.xy
              +float2(uvw.x/max(shadowGrid.z,1e-8),
@@ -1597,16 +1593,14 @@ float3 cloudShadowWorldPosition(float3 uvw){
     return float3(worldXz.x,worldOrigin.y+altitude-sag,worldXz.y);
 }
 
-// A cache texel is the point reached after the three exact near-light probes.
-// Integrate only l=3..7 so detailed near-probe extinction remains owned by
-// the per-view sample.
+// キャッシュの各画素は、近距離3点を正確に採取した後の位置に対応する。
+// l=3..7だけを積分し、細かな侵食を含む近距離の消散は視線側の採取へ残す。
 float traceCloudShadowPattern(
     float3 lp,float patternJitter,float coverage,
     float3 sun,float3 lightTangent,float3 lightBitangent){
     float lightStep=0.012/max(layer.w,1e-4);
     lightStep*=lerp(0.72,1.28,patternJitter);
-    // Match the exact path's three sequential multiplies bit-for-bit instead
-    // of folding pow(1.65,3) into a differently rounded literal.
+    // 正確な経路と同じ丸め結果にするため、三回の乗算を別の定数へまとめない。
     lightStep*=1.65;
     lightStep*=1.65;
     lightStep*=1.65;
@@ -1630,13 +1624,10 @@ float traceCloudShadowPattern(
     return lightDepth;
 }
 
-// Return (valid, light depth, blend weight) as one fully initialized value.
-// FXC can otherwise report an out-parameter as potentially uninitialized
-// across the conservative early-reject paths, even when every path assigns it.
+// 利用可否、光学的深さ、混合率を、初期化済みの一つの値として返す。
+// FXCが早期棄却経路を未初期化と誤判定することを避ける。
 float3 sampleCloudShadowTail(float3 lp,float density){
-    // Keep one initialized value across every rejection path. FXC otherwise
-    // reports the inlined helper as potentially uninitialized, which can turn
-    // a rejected lookup into isolated dark/bright cloud pixels on D3D12.
+    // 全ての棄却経路で一つの初期値を保ち、D3D12上の孤立した明暗画素を防ぐ。
     float3 result=float3(0.0,0.0,0.0);
     if(shadowState.x>0.5){
         float2 q=lp.xz-cloudWindWorld();
@@ -1646,9 +1637,8 @@ float3 sampleCloudShadowTail(float3 lp,float density){
             (q.x-shadowGrid.x)*shadowGrid.z,
             h,
             (q.y-shadowGrid.y)*shadowGrid.w);
-        // Do not clamp an out-of-footprint query onto an unrelated border
-        // texel. The finalized confidence was built from a complete +/-XYZ
-        // neighbourhood, so retain the 1.5-texel guard for the one-tap path.
+        // 範囲外の位置を無関係な端の画素へ固定しない。線形補間が境界をまたがないよう、
+        // 一回採取の経路にも1.5画素分の余白を残す。
         float3 texel=float3(shadowState.z,shadowState.w,shadowState.z);
         float3 edgeCells=min(uvw,1.0-uvw)/texel;
         float minimumEdgeCells=min(
@@ -1661,8 +1651,7 @@ float3 sampleCloudShadowTail(float3 lp,float density){
                           && all(cached>=0.0)
                           && all(cached<65504.0);
             if(finiteValue){
-                // y conservatively combines trace-pattern disagreement with
-                // the +/-XYZ mean-tau gradient in the finalize pass.
+                // yは二つの採取模様の差であり、大きい場所は正確な遠距離積分へ戻す。
                 float tauDisagreement=
                     cached.y*density*cloudLightingExtinction.y;
                 if(tauDisagreement<=shadowState.y){
@@ -1697,44 +1686,13 @@ void CSCloudShadow(uint3 tid : SV_DispatchThreadID){
         p,0.788675135,coverage,sun,lightTangent,lightBitangent);
     float meanDepth=max(0.5*(depthA+depthB),0.0);
     float disagreement=abs(depthA-depthB);
-    // t3 requires a contiguous t0..t3 layout in the current RHI. Keep t2/s2
-    // reflected without paying its fetch for any sanitized runtime density.
+    // 現在のRHIはt0..t3の連続配置を要求する。実行時に成立しない負の密度分岐へ置くことで、
+    // t2/s2を宣言へ残しつつ通常時のテクスチャ採取を発生させない。
     if(params.y<0.0){
         disagreement+=detailNoise.SampleLevel(
             detailNoise_sampler,float3(0.5,0.5,0.5),0).x;
     }
     cloudShadowOut[tid]=float2(meanDepth,disagreement);
-}
-
-// Move the spatial confidence work out of every visible cloud sample. The raw
-// cache is rebuilt only when its material/light key changes, so seven integer
-// reads per voxel are amortized across all main-view ray-march samples. The
-// finalized y channel retains the same conservative exact-tail fallback guard.
-[numthreads(4,4,4)]
-void CSCloudShadowFinalize(uint3 tid : SV_DispatchThreadID){
-    uint width,height,depth;
-    cloudShadowOut.GetDimensions(width,height,depth);
-    if(any(tid>=uint3(width,height,depth))) return;
-    int3 center=int3(tid);
-    int3 minimum=int3(0,0,0);
-    int3 maximum=int3(width,height,depth)-int3(1,1,1);
-    float2 rawCenter=cloudShadowCache.Load(int4(center,0));
-    float3 positiveTau=float3(
-        cloudShadowCache.Load(int4(min(center+int3(1,0,0),maximum),0)).x,
-        cloudShadowCache.Load(int4(min(center+int3(0,1,0),maximum),0)).x,
-        cloudShadowCache.Load(int4(min(center+int3(0,0,1),maximum),0)).x);
-    float3 negativeTau=float3(
-        cloudShadowCache.Load(int4(max(center-int3(1,0,0),minimum),0)).x,
-        cloudShadowCache.Load(int4(max(center-int3(0,1,0),minimum),0)).x,
-        cloudShadowCache.Load(int4(max(center-int3(0,0,1),minimum),0)).x);
-    float3 positiveGradient=abs(positiveTau-rawCenter.xxx);
-    float3 negativeGradient=abs(negativeTau-rawCenter.xxx);
-    float spatialDisagreement=max(
-        max(positiveGradient.x,positiveGradient.y),positiveGradient.z);
-    spatialDisagreement=max(spatialDisagreement,max(
-        max(negativeGradient.x,negativeGradient.y),negativeGradient.z));
-    cloudShadowOut[tid]=float2(
-        rawCenter.x,max(rawCenter.y,spatialDisagreement));
 }
 
 uint CloudTemporalBlockPhase4(uint2 blockQ,uint phaseIndex) {
@@ -3293,7 +3251,7 @@ FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload(
     add_bake_2d(plan.bake_curl_noise, 128u, 128u, 8u, 8u);
 
     if (plan.rebuild_shadow_cache) {
-        out.shadow_cache_dispatches = 2u;
+        out.shadow_cache_dispatches = 1u;
         const u64 logical = CloudLogicalInvocations3D(
             kVolumetricCloudShadowCacheWidth,
             kVolumetricCloudShadowCacheHeight,
@@ -3303,10 +3261,8 @@ FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload(
             kVolumetricCloudShadowCacheHeight,
             kVolumetricCloudShadowCacheDepth,
             4u, 4u, 4u);
-        out.shadow_cache_logical_invocations =
-            SaturatingCloudWorkloadMultiply(logical, 2u);
-        out.shadow_cache_launched_threads =
-            SaturatingCloudWorkloadMultiply(launched, 2u);
+        out.shadow_cache_logical_invocations = logical;
+        out.shadow_cache_launched_threads = launched;
     }
 
     out.total_compute_dispatches =
@@ -3910,19 +3866,12 @@ EShaderStatus CVolumetricClouds::FCompiledShaders::Status() const noexcept {
         compiling = compiling || status == EShaderStatus::Compiling;
     }
 
-    const bool has_shadow = shadow.Get() != nullptr ||
-                            shadow_finalize.Get() != nullptr;
-    if (has_shadow) {
-        if (!shadow || !shadow_finalize) return EShaderStatus::Failed;
+    if (shadow) {
         const EShaderStatus shadow_status = shadow->Status();
-        const EShaderStatus finalize_status = shadow_finalize->Status();
-        if (shadow_status == EShaderStatus::Failed ||
-            finalize_status == EShaderStatus::Failed) {
+        if (shadow_status == EShaderStatus::Failed) {
             return EShaderStatus::Failed;
         }
-        compiling = compiling ||
-                    shadow_status == EShaderStatus::Compiling ||
-                    finalize_status == EShaderStatus::Compiling;
+        compiling = compiling || shadow_status == EShaderStatus::Compiling;
     }
     return compiling ? EShaderStatus::Compiling : EShaderStatus::Ready;
 }
@@ -3984,14 +3933,6 @@ TResult<CVolumetricClouds::FCompiledShaders> CreateCloudShaderSet(
             "CSCloudShadow", "Clouds.ShadowCacheCS");
         if (shadow_result.IsOk()) {
             shaders.shadow = Move(shadow_result.Value());
-            auto finalize_result = compile(
-                EShaderStage::Compute, kCloudCS,
-                "CSCloudShadowFinalize", "Clouds.ShadowCacheFinalizeCS");
-            if (finalize_result.IsOk()) {
-                shaders.shadow_finalize = Move(finalize_result.Value());
-            } else {
-                shaders.shadow.Reset();
-            }
         }
     }
 #undef ACS_CREATE_CLOUD_SHADER
@@ -4064,14 +4005,6 @@ CVolumetricClouds::CompileShadersCpu() noexcept {
             "CSCloudShadow", "Clouds.ShadowCacheCS");
         if (shadow_result.IsOk()) {
             shaders.shadow = Move(shadow_result.Value());
-            auto finalize_result = compile(
-                EShaderStage::Compute, kCloudCS,
-                "CSCloudShadowFinalize", "Clouds.ShadowCacheFinalizeCS");
-            if (finalize_result.IsOk()) {
-                shaders.shadow_finalize = Move(finalize_result.Value());
-            } else {
-                shaders.shadow.Reset();
-            }
         }
     }
 #undef ACS_COMPILE_CLOUD_SHADER
@@ -4149,12 +4082,11 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
         pd.static_samplers[4].address_v = ESamplerAddress::Clamp;
         pd.static_samplers[4].address_w = ESamplerAddress::Clamp;
         auto r = CreateRhiComputePipeline(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_CloudPipe = Move(r.Value()); }
-    // Optional shallow Beer-shadow volume. The experiment is default-off after
-    // measurement showed its build/sample overhead exceeded the exact tail.
-    // When disabled, skip every optional creation and silently use exact light.
+    // 任意機能である浅い太陽方向深さを、一つの3次元テクスチャへ直接生成する。
+    // 作成に失敗した場合も雲本体は初期化し、正確な遠距離積分へ戻す。
     {
         bool shadowOk = kVolumetricCloudShadowCacheEnabled &&
-                        shaders.shadow && shaders.shadow_finalize;
+                        shaders.shadow;
         if (shadowOk) m_ShadowCs = Move(shaders.shadow);
         if (shadowOk) {
             FComputePipelineDesc pd{};
@@ -4166,8 +4098,8 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
             pd.srv_names[1] = "weatherMap";
             pd.srv_names[2] = "detailNoise";
             pd.srv_names[3] = "curlNoise";
-            // Compute slots are contiguous in the current RHI. u0/u1 are
-            // harmless dummies for the alternate entry point; u2 is the 3D UAV.
+            // 現在のRHIでは計算シェーダーの登録番号を連続させる。u0/u1には無害な
+            // 代替テクスチャを割り当て、u2だけを3次元キャッシュとして書き込む。
             pd.uav_slots = 3;
             pd.uav_names[0] = "cloudOut";
             pd.uav_names[1] = "cloudDepthOut";
@@ -4186,45 +4118,6 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
                 m_ShadowPipe = Move(pipeResult.Value());
             }
         }
-        if (shadowOk)
-            m_ShadowFinalizeCs = Move(shaders.shadow_finalize);
-        if (shadowOk) {
-            FComputePipelineDesc pd{};
-            pd.cs = m_ShadowFinalizeCs.Get();
-            // Raw DX12 exposes register-indexed contiguous tables. Although the
-            // finalize entry point only reads t4 and writes u2, describe/bind
-            // every preceding slot so both backends share one valid contract.
-            pd.srv_slots = 5;
-            pd.srv_names[0] = "shapeNoise";
-            pd.srv_names[1] = "weatherMap";
-            pd.srv_names[2] = "detailNoise";
-            pd.srv_names[3] = "curlNoise";
-            pd.srv_names[4] = "cloudShadowCache";
-            pd.uav_slots = 3;
-            pd.uav_names[0] = "cloudOut";
-            pd.uav_names[1] = "cloudDepthOut";
-            pd.uav_names[2] = "cloudShadowOut";
-            auto pipeResult = CreateRhiComputePipeline(device, pd);
-            if (pipeResult.IsErr()) {
-                shadowOk = false;
-            } else {
-                m_ShadowFinalizePipe = Move(pipeResult.Value());
-            }
-        }
-        if (shadowOk) {
-            FTextureDesc td{};
-            td.width = kVolumetricCloudShadowCacheWidth;
-            td.height = kVolumetricCloudShadowCacheHeight;
-            td.depth = kVolumetricCloudShadowCacheDepth;
-            td.format = EFormat::R16G16_Float;
-            td.is_uav = true;
-            auto textureResult = CreateRhiTexture(device, td);
-            if (textureResult.IsErr()) {
-                shadowOk = false;
-            } else {
-                m_ShadowRawTex = Move(textureResult.Value());
-            }
-        }
         if (shadowOk) {
             FTextureDesc td{};
             td.width = kVolumetricCloudShadowCacheWidth;
@@ -4241,9 +4134,6 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
         }
         if (!shadowOk) {
             m_ShadowTex.Reset();
-            m_ShadowRawTex.Reset();
-            m_ShadowFinalizePipe.Reset();
-            m_ShadowFinalizeCs.Reset();
             m_ShadowPipe.Reset();
             m_ShadowCs.Reset();
             if (kVolumetricCloudShadowCacheEnabled) {
@@ -4555,20 +4445,17 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     // 雑音の周波数とは分離し、各領域が風によって互いに滑ることを防ぐ。
     const f32 windOffset = safeTime * safeWind * 2.5f;
 
-    const FVec2 windWorld = VolumetricCloudWindOffsetXZ(windOffset);
     const FVolumetricCloudDensityFrameTerms densityFrameTerms =
         ResolveVolumetricCloudDensityFrameTerms(m_Layer, windOffset);
     // 独立領域の相対移動だけを変え、基準領域のワールド固定と風移流は維持する。
     const FVolumetricCloudEvolutionFrameTerms evolutionFrameTerms =
         ResolveVolumetricCloudEvolutionFrameTerms(safeTime, safeWind);
     const FVec2 cameraQ = VolumetricCloudMaterialXZ(cam_pos, windOffset);
-    bool shadowRecentered = false;
     if (!m_ShadowGridInitialized) {
         const auto mapping = CenterVolumetricCloudShadowCache(cameraQ);
         m_ShadowGridMinQ = mapping.min_material_xz;
         m_ShadowGridCenterQ = mapping.center_material_xz;
         m_ShadowGridInitialized = true;
-        shadowRecentered = true;
     } else {
         const f32 dx = cameraQ.x - m_ShadowGridCenterQ.x;
         const f32 dz = cameraQ.y - m_ShadowGridCenterQ.y;
@@ -4577,78 +4464,11 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
             const auto mapping = CenterVolumetricCloudShadowCache(cameraQ);
             m_ShadowGridMinQ = mapping.min_material_xz;
             m_ShadowGridCenterQ = mapping.center_material_xz;
-            shadowRecentered = true;
         }
     }
-    const FVec2 shadowCurvatureAnchor{
-        worldOrigin.x - windWorld.x,
-        worldOrigin.z - windWorld.y};
     const bool shadowResourcesReady =
-        m_ShadowCacheAvailable && m_ShadowCs && m_ShadowPipe &&
-        m_ShadowFinalizeCs && m_ShadowFinalizePipe &&
-        m_ShadowRawTex && m_ShadowTex;
+        m_ShadowCacheAvailable && m_ShadowCs && m_ShadowPipe && m_ShadowTex;
     if (!shadowResourcesReady) m_ShadowCacheValid = false;
-    bool shadowDirty = shadowResourcesReady &&
-                       (!m_ShadowCacheValid || shadowRecentered);
-    if (shadowResourcesReady && m_ShadowCacheValid) {
-        const f32 coverageDelta =
-            std::fabs(safeCoverage - m_ShadowCoverage);
-        const f32 sunDot = safeSun.x * m_ShadowSunDir.x +
-                           safeSun.y * m_ShadowSunDir.y +
-                           safeSun.z * m_ShadowSunDir.z;
-        constexpr f32 kShadowSunDirectionCosThreshold = 0.99999046f; // 0.25 degree
-        const bool lightBasisHemisphereChanged =
-            (safeSun.y >= 0.0f) != (m_ShadowSunDir.y >= 0.0f);
-        const bool layerChanged =
-            m_Layer.base_height != m_ShadowLayer.base_height ||
-            m_Layer.top_height != m_ShadowLayer.top_height ||
-            m_Layer.horizontal_noise_scale !=
-                m_ShadowLayer.horizontal_noise_scale;
-        const f32 anchorDx =
-            shadowCurvatureAnchor.x - m_ShadowCurvatureAnchor.x;
-        const f32 anchorDz =
-            shadowCurvatureAnchor.y - m_ShadowCurvatureAnchor.y;
-        const f32 anchorShift =
-            std::sqrt(anchorDx * anchorDx + anchorDz * anchorDz);
-        constexpr f32 kSqrtTwo = 1.41421356237f;
-        // Farthest voxel = grid-centre/anchor offset plus half of the complete
-        // 48 km square diagonal; an axis-only half extent underestimates it.
-        const f32 halfDiagonal =
-            kVolumetricCloudShadowCacheExtent * 0.5f * kSqrtTwo;
-        const f32 centerAnchorDx =
-            m_ShadowGridCenterQ.x - m_ShadowCurvatureAnchor.x;
-        const f32 centerAnchorDz =
-            m_ShadowGridCenterQ.y - m_ShadowCurvatureAnchor.y;
-        const f32 centerAnchorOffset = std::sqrt(
-            centerAnchorDx * centerAnchorDx +
-            centerAnchorDz * centerAnchorDz);
-        const f32 maximumShellRadius =
-            centerAnchorOffset + halfDiagonal;
-        const f32 curvatureError =
-            (maximumShellRadius * anchorShift +
-             0.5f * anchorShift * anchorShift) /
-            kVolumetricCloudPlanetRadius;
-        const f32 verticalQuarterCell =
-            (m_Layer.top_height - m_Layer.base_height) /
-            static_cast<f32>(kVolumetricCloudShadowCacheHeight) * 0.25f;
-        shadowDirty = shadowDirty || coverageDelta > 0.001f ||
-                      sunDot < kShadowSunDirectionCosThreshold ||
-                      lightBasisHemisphereChanged ||
-                      layerChanged ||
-                      curvatureError > verticalQuarterCell;
-    }
-    const bool shadowBakePrerequisites =
-        (m_NoiseBaked || (m_NoisePipe && m_ShapeTex)) &&
-        (m_WeatherBaked || (m_WeatherPipe && m_WeatherTex)) &&
-        (m_DetailBaked || (m_DetailPipe && m_DetailTex)) &&
-        (m_CurlBaked || (m_CurlPipe && m_CurlTex));
-    const bool shadowWillBuildThisFrame =
-        shadowResourcesReady && shadowDirty && shadowBakePrerequisites;
-    const bool shadowCacheUsableThisFrame =
-        (m_ShadowCacheValid && !shadowDirty) || shadowWillBuildThisFrame;
-    if (shadowDirty && !shadowWillBuildThisFrame) {
-        m_ShadowCacheValid = false;
-    }
 
     // history invalidation: resize は EnsureSize で扱う。ここでは camera cut、time jump、
     // 見える品質設定の不連続を拒否する。Reprojection に使える履歴と、
@@ -4707,12 +4527,15 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         !m_DetailBaked && m_DetailPipe && m_DetailTex;
     const bool bakeCurlNoiseThisFrame =
         !m_CurlBaked && m_CurlPipe && m_CurlTex;
+    // 雲は風移流とは別に対流変形するため、前フレームの影を再利用しない。
+    // 初回は基礎雑音の生成直後に、以降は現在の密度場から毎フレーム一度だけ生成する。
     const bool rebuildShadowCacheThisFrame =
-        shadowWillBuildThisFrame &&
+        shadowResourcesReady &&
         (m_NoiseBaked || bakeShapeNoiseThisFrame) &&
         (m_WeatherBaked || bakeWeatherThisFrame) &&
         (m_DetailBaked || bakeDetailNoiseThisFrame) &&
         (m_CurlBaked || bakeCurlNoiseThisFrame);
+    if (!rebuildShadowCacheThisFrame) m_ShadowCacheValid = false;
     FVolumetricCloudFrameWorkloadPlan workloadPlan{};
     workloadPlan.trace_width = m_W;
     workloadPlan.trace_height = m_H;
@@ -4777,7 +4600,7 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     cb.shadowGrid = FVec4{m_ShadowGridMinQ.x, m_ShadowGridMinQ.y,
                           invShadowExtent, invShadowExtent};
     cb.shadowState = FVec4{
-        shadowCacheUsableThisFrame ? 1.0f : 0.0f,
+        rebuildShadowCacheThisFrame ? 1.0f : 0.0f,
         0.10f,
         1.0f / static_cast<f32>(kVolumetricCloudShadowCacheWidth),
         1.0f / static_cast<f32>(kVolumetricCloudShadowCacheHeight)};
@@ -4951,25 +4774,8 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         cl.SetTexture(1, *m_WeatherTex);
         cl.SetTexture(2, *m_DetailTex);
         cl.SetTexture(3, *m_CurlTex);
-        // The current compute RHI describes contiguous UAV slots. These two
-        // valid dummies initialize raw-DX12 u0/u1; CSCloudShadow only writes u2.
-        cl.BindUav(0, *m_CloudTex);
-        cl.BindUav(1, *m_CloudDepth);
-        cl.BindUav(2, *m_ShadowRawTex);
-        cl.Dispatch(
-            (kVolumetricCloudShadowCacheWidth + 3u) / 4u,
-            (kVolumetricCloudShadowCacheHeight + 3u) / 4u,
-            (kVolumetricCloudShadowCacheDepth + 3u) / 4u);
-
-        // Finalize confidence once per logical rebuild. t0..t3 and u0/u1 are
-        // valid prefix dummies required by raw DX12's contiguous descriptor
-        // tables; t4 reads raw while the distinct u2 writes the final cache.
-        cl.SetComputePipeline(*m_ShadowFinalizePipe);
-        cl.SetTexture(0, *m_ShapeTex);
-        cl.SetTexture(1, *m_WeatherTex);
-        cl.SetTexture(2, *m_DetailTex);
-        cl.SetTexture(3, *m_CurlTex);
-        cl.SetTexture(4, *m_ShadowRawTex);
+        // 現在の計算RHIはUAV登録番号を連続させるため、u0/u1へ有効な代替テクスチャを
+        // 割り当てる。CSCloudShadowが書き込むのはu2だけである。
         cl.BindUav(0, *m_CloudTex);
         cl.BindUav(1, *m_CloudDepth);
         cl.BindUav(2, *m_ShadowTex);
@@ -4978,10 +4784,6 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
             (kVolumetricCloudShadowCacheHeight + 3u) / 4u,
             (kVolumetricCloudShadowCacheDepth + 3u) / 4u);
         m_ShadowCacheValid = true;
-        m_ShadowCoverage = safeCoverage;
-        m_ShadowSunDir = safeSun;
-        m_ShadowLayer = m_Layer;
-        m_ShadowCurvatureAnchor = shadowCurvatureAnchor;
         ++m_ShadowCacheDispatchCount;
     }
     cl.SetComputePipeline(*m_CloudPipe);
@@ -4993,7 +4795,7 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     if (m_ShadowTex && m_ShadowCacheValid) {
         cl.SetTexture(4, *m_ShadowTex);
     } else if (m_ShapeTex) {
-        // Compatible RG16F Texture3D fallback. shadowState.x prevents reads.
+        // 型が一致する代替3次元テクスチャ。shadowState.xが採取を止める。
         cl.SetTexture(4, *m_ShapeTex);
     }
     cl.BindUav(0, *m_CloudTex);
@@ -5088,8 +4890,7 @@ void CVolumetricClouds::Shutdown() noexcept {
     m_Cb.Reset(); m_CompPipe.Reset(); m_CompPs.Reset(); m_CompVs.Reset();
     m_CompAtmosCb.Reset(); m_CompAtmosPipe.Reset(); m_CompAtmosPs.Reset();
     m_ResolvePipe.Reset(); m_ResolveCs.Reset();
-    m_ShadowTex.Reset(); m_ShadowRawTex.Reset();
-    m_ShadowFinalizePipe.Reset(); m_ShadowFinalizeCs.Reset();
+    m_ShadowTex.Reset();
     m_ShadowPipe.Reset(); m_ShadowCs.Reset();
     m_CloudPipe.Reset(); m_CloudCs.Reset();
     m_Ready = false; m_HistoryValid = false;
@@ -5103,8 +4904,6 @@ void CVolumetricClouds::Shutdown() noexcept {
     m_PrevWindOffset = 0.0f; m_PrevWindSpeed = 0.0f;
     m_PrevCoverage = -1.0f; m_PrevDensity = -1.0f; m_PrevTime = -1.0f;
     m_ShadowGridMinQ = FVec2{}; m_ShadowGridCenterQ = FVec2{};
-    m_ShadowCurvatureAnchor = FVec2{}; m_ShadowSunDir = FVec3{};
-    m_ShadowLayer = FVolumetricCloudLayer{}; m_ShadowCoverage = -1.0f;
     m_ShadowCacheDispatchCount = 0; m_ShadowGridInitialized = false;
     m_ShadowCacheAvailable = false; m_ShadowCacheValid = false;
     m_WorkloadSubmissionIndex = 0u;

@@ -863,15 +863,14 @@ FVolumetricCloudLightBasis ResolveVolumetricCloudLightBasis(
     FVec3 sun_direction) noexcept;
 
 /**
- * Experimental hybrid shallow sun optical-depth cache.
+ * 遠方の太陽方向積分を置き換える、浅い光学的深さのキャッシュ。
  *
- * The current two-volume implementation costs more GPU time than the exact
- * far-light tail on the measured desktop path, so keep it compiled for
- * further iteration but do not allocate or dispatch it by default.
+ * 毎フレーム現在の密度場から一つの3次元テクスチャへ生成する。近距離3点は正確な採取を残し、
+ * キャッシュの信頼度が不足する場所では遠距離5点も正確な積分へ戻す。
  */
-inline constexpr bool kVolumetricCloudShadowCacheEnabled = false;
+inline constexpr bool kVolumetricCloudShadowCacheEnabled = true;
 
-/** Quality-preserving shallow sun optical-depth cache dimensions. */
+/** 品質を保つ太陽方向光学的深さキャッシュの寸法。 */
 inline constexpr u32 kVolumetricCloudShadowCacheWidth = 96u;
 inline constexpr u32 kVolumetricCloudShadowCacheHeight = 32u;
 inline constexpr u32 kVolumetricCloudShadowCacheDepth = 96u;
@@ -881,7 +880,7 @@ inline constexpr f32 kVolumetricCloudShadowCacheCellSize =
     static_cast<f32>(kVolumetricCloudShadowCacheWidth);
 inline constexpr f32 kVolumetricCloudShadowCacheSafeRadius = 8000.0f;
 
-/** Stable material-space footprint used by the cloud sun-depth cache. */
+/** 雲の太陽方向深さキャッシュが使う、移流を除いた安定座標の範囲。 */
 struct FVolumetricCloudShadowCacheMapping {
     FVec2 min_material_xz{};
     FVec2 center_material_xz{};
@@ -1012,6 +1011,7 @@ public:
         TUniquePtr<IRhiShader> composite_atmosphere_pixel;
         TUniquePtr<IRhiShader> resolve;
         TUniquePtr<IRhiShader> shadow;
+        /** 旧二段構成とのソース互換用。現在は常に空であり、初期化には使わない。 */
         TUniquePtr<IRhiShader> shadow_finalize;
 
         /** Aggregate all submitted shader jobs without waiting. */
@@ -1135,17 +1135,17 @@ public:
         InvalidateCloudHistory_Internal(false);
     }
 
-    /** Logical sun-depth rebuilds; the raw/finalize dispatch pair counts once. */
+    /** 太陽方向深さキャッシュを生成したフレーム数。 */
     u64 ShadowCacheDispatchCount() const noexcept {
         return m_ShadowCacheDispatchCount;
     }
 
-    /** Whether the optional cache resources were created successfully. */
+    /** 任意機能である影キャッシュの描画資源を利用できるか。 */
     bool ShadowCacheAvailable() const noexcept {
         return m_ShadowCacheAvailable;
     }
 
-    /** Whether the current material-space cache key has valid GPU contents. */
+    /** 現在フレームの密度場から生成した影キャッシュを利用できるか。 */
     bool ShadowCacheValid() const noexcept { return m_ShadowCacheValid; }
 
     /** Exact submitted-work accounting for the latest compute/composite frame. */
@@ -1231,12 +1231,11 @@ private:
     TUniquePtr<IRhiTexture>  m_CurlTex;                  // 128^2 independent world-space curl warp
     TUniquePtr<IRhiShader>   m_CloudCs;
     TUniquePtr<IRhiPipeline> m_CloudPipe;     // compute
-    TUniquePtr<IRhiShader>   m_ShadowCs;      // raw shallow sun optical depth
+    /** 浅い太陽方向光学的深さを生成するシェーダー。 */
+    TUniquePtr<IRhiShader>   m_ShadowCs;
     TUniquePtr<IRhiPipeline> m_ShadowPipe;
-    TUniquePtr<IRhiShader>   m_ShadowFinalizeCs; // bake spatial confidence
-    TUniquePtr<IRhiPipeline> m_ShadowFinalizePipe;
-    TUniquePtr<IRhiTexture>  m_ShadowRawTex;  // 96x32x96 mean/pattern error tau
-    TUniquePtr<IRhiTexture>  m_ShadowTex;     // 96x32x96 mean/max error tau
+    /** 96x32x96の平均深さと二標本差。 */
+    TUniquePtr<IRhiTexture>  m_ShadowTex;
     TUniquePtr<IRhiShader>   m_CompVs, m_CompPs;
     TUniquePtr<IRhiPipeline> m_CompPipe;      // graphics (alpha blend)
     TUniquePtr<IRhiShader>   m_CompAtmosPs;
@@ -1263,10 +1262,6 @@ private:
     f32                      m_PrevTime = -1.0f;
     FVec2                    m_ShadowGridMinQ{};
     FVec2                    m_ShadowGridCenterQ{};
-    FVec2                    m_ShadowCurvatureAnchor{};
-    FVec3                    m_ShadowSunDir{};
-    FVolumetricCloudLayer    m_ShadowLayer{};
-    f32                      m_ShadowCoverage = -1.0f;
     u64                      m_ShadowCacheDispatchCount = 0;
     bool                     m_ShadowGridInitialized = false;
     bool                     m_ShadowCacheAvailable = false;

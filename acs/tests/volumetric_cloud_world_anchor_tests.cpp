@@ -820,19 +820,22 @@ ACS_TEST(VolumetricClouds,
     steadyPlan.trace_height = 270u;
     steadyPlan.output_width = 1920u;
     steadyPlan.output_height = 1080u;
+    steadyPlan.rebuild_shadow_cache = true;
     const FVolumetricCloudFrameWorkload steady =
         PlanVolumetricCloudFrameWorkload(steadyPlan);
 
     EXPECT_EQ(steady.steady_dispatches, 2u);
     EXPECT_EQ(steady.one_time_bake_dispatches, 0u);
-    EXPECT_EQ(steady.shadow_cache_dispatches, 0u);
-    EXPECT_EQ(steady.total_compute_dispatches, 2u);
+    EXPECT_EQ(steady.shadow_cache_dispatches, 1u);
+    EXPECT_EQ(steady.total_compute_dispatches, 3u);
     EXPECT_EQ(steady.trace_logical_invocations, 129600u);
     EXPECT_EQ(steady.trace_launched_threads, 130560u);
     EXPECT_EQ(steady.resolve_logical_invocations, 2073600u);
     EXPECT_EQ(steady.resolve_launched_threads, 2073600u);
-    EXPECT_EQ(steady.total_logical_invocations, 2203200u);
-    EXPECT_EQ(steady.total_launched_threads, 2204160u);
+    EXPECT_EQ(steady.shadow_cache_logical_invocations, 294912u);
+    EXPECT_EQ(steady.shadow_cache_launched_threads, 294912u);
+    EXPECT_EQ(steady.total_logical_invocations, 2498112u);
+    EXPECT_EQ(steady.total_launched_threads, 2499072u);
     EXPECT_EQ(steady.maximum_view_samples, 24883200u);
     EXPECT_EQ(steady.maximum_light_samples, 199065600u);
     EXPECT_TRUE(steady.temporal_super_resolution);
@@ -858,14 +861,14 @@ ACS_TEST(VolumetricClouds,
 
     EXPECT_EQ(cold.steady_dispatches, 2u);
     EXPECT_EQ(cold.one_time_bake_dispatches, 4u);
-    EXPECT_EQ(cold.shadow_cache_dispatches, 2u);
-    EXPECT_EQ(cold.total_compute_dispatches, 8u);
+    EXPECT_EQ(cold.shadow_cache_dispatches, 1u);
+    EXPECT_EQ(cold.total_compute_dispatches, 7u);
     EXPECT_EQ(cold.one_time_bake_logical_invocations, 2637824u);
     EXPECT_EQ(cold.one_time_bake_launched_threads, 2637824u);
-    EXPECT_EQ(cold.shadow_cache_logical_invocations, 589824u);
-    EXPECT_EQ(cold.shadow_cache_launched_threads, 589824u);
-    EXPECT_EQ(cold.total_logical_invocations, 5430848u);
-    EXPECT_EQ(cold.total_launched_threads, 5431808u);
+    EXPECT_EQ(cold.shadow_cache_logical_invocations, 294912u);
+    EXPECT_EQ(cold.shadow_cache_launched_threads, 294912u);
+    EXPECT_EQ(cold.total_logical_invocations, 5135936u);
+    EXPECT_EQ(cold.total_launched_threads, 5136896u);
     EXPECT_EQ(cold.maximum_view_samples, steady.maximum_view_samples);
     EXPECT_EQ(cold.maximum_light_samples, steady.maximum_light_samples);
 }
@@ -2703,8 +2706,7 @@ ACS_TEST(VolumetricClouds,
         "coneSin=coneSin*(-0.737368878)"
         "+previousConeCos*(-0.675490294);",
         lightAccumulate);
-    EXPECT_TRUE(Contains(
-        shader, "staticconstboolCLOUD_MAIN_SHADOW_CACHE_ENABLED=false;"));
+    EXPECT_TRUE(Contains(shader, "staticconstboolCLOUD_MAIN_SHADOW_CACHE_ENABLED=true;"));
     EXPECT_TRUE(nearLightLoop != std::string::npos);
     EXPECT_TRUE(farLightLoop != std::string::npos);
     EXPECT_TRUE(lightPhase != std::string::npos);
@@ -4808,14 +4810,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(kVolumetricCloudShadowCacheDepth, 96u);
     EXPECT_NEAR(kVolumetricCloudShadowCacheExtent, 48000.0f, 1e-6f);
     EXPECT_NEAR(kVolumetricCloudShadowCacheCellSize, 500.0f, 1e-6f);
-    EXPECT_EQ(kVolumetricCloudShadowCacheWidth *
-                  kVolumetricCloudShadowCacheHeight *
-                  kVolumetricCloudShadowCacheDepth * 4u,
-              1179648u);
-    EXPECT_EQ(kVolumetricCloudShadowCacheWidth *
-                  kVolumetricCloudShadowCacheHeight *
-                  kVolumetricCloudShadowCacheDepth * 4u * 2u,
-              2359296u); // raw + finalized RG16F volumes
+    // 一つのRG16F 3次元テクスチャだけを使う。
+    EXPECT_EQ(kVolumetricCloudShadowCacheWidth * kVolumetricCloudShadowCacheHeight * kVolumetricCloudShadowCacheDepth * 4u, 1179648u);
 
     const FVec3 worldPoint{12345.0f, 2600.0f, -6789.0f};
     constexpr f32 windA = 91.0f;
@@ -4952,22 +4948,9 @@ ACS_TEST(VolumetricClouds,
         shader,
         "if(tauDisagreement>shadowState.y)"
         "returnfloat3(0.0,0.0,0.0);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "[numthreads(4,4,4)]voidCSCloudShadowFinalize("));
-    EXPECT_TRUE(Contains(
-        shader,
-        "float2rawCenter=cloudShadowCache.Load(int4(center,0));"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "float3positiveGradient=abs(positiveTau-rawCenter.xxx);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "float3negativeGradient=abs(negativeTau-rawCenter.xxx);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "cloudShadowOut[tid]=float2("
-        "rawCenter.x,max(rawCenter.y,spatialDisagreement));"));
+    EXPECT_TRUE(Contains(shader, "cloudShadowOut[tid]=float2(meanDepth,disagreement);"));
+    EXPECT_FALSE(Contains(shader, "CSCloudShadowFinalize"));
+    EXPECT_FALSE(Contains(shader, "cloudShadowCache.Load("));
     EXPECT_TRUE(Contains(
         shader,
         "float3result=float3(0.0,0.0,0.0);"));
@@ -5007,9 +4990,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(cacheAttempt < farLightLoop);
     EXPECT_TRUE(farLightLoop < coneDirection);
     EXPECT_FALSE(Contains(shader, "[branch]if(l>=3)"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "staticconstboolCLOUD_MAIN_SHADOW_CACHE_ENABLED=false;"));
+    EXPECT_TRUE(Contains(shader, "staticconstboolCLOUD_MAIN_SHADOW_CACHE_ENABLED=true;"));
     EXPECT_TRUE(Contains(
         shader,
         "float3cachedTailSample=sampleCloudShadowTail(lp,density);"
@@ -5022,8 +5003,7 @@ ACS_TEST(VolumetricClouds,
         shader,
         "lightDepth=exactFarStart+lerp("
         "exactTail,cachedTailForBlend,cacheBlendWeight);"));
-    // A rejected lookup simply falls through to the unchanged five-probe
-    // macro tail; the three detailed near probes remain a separate exact loop.
+    // 棄却した参照は従来の遠距離5点へ戻り、侵食を含む近距離3点は常に別の正確なループで採取する。
     EXPECT_TRUE(Contains(
         shader,
         "floatlightDensity="
@@ -5032,8 +5012,7 @@ ACS_TEST(VolumetricClouds,
         "sharedLightProfileTerms,"
         "p,viewMacroUvw,macro.height,sharedShapeScale);"));
     EXPECT_TRUE(Contains(shader, "floatlightDensity=cloudDensityFromPositiveWeatherMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,0.65,1.0);"));
-    // Weather/curl are slow fields. The view value must feed the light probes,
-    // while macro shape remains exact at every probe through the helper.
+    // 天候と渦は低周波なので視線側の値を共有し、基本形状は補助関数で各点を正確に採取する。
     EXPECT_TRUE(Contains(
         shader,
         "float4sharedLightProfileTerms=float4("
@@ -5057,40 +5036,27 @@ ACS_TEST(VolumetricClouds,
         "p,viewMacroUvw,macro.height,sharedShapeScale);"));
 }
 
-ACS_TEST(VolumetricClouds,
-         ShadowCacheRhiBindingIsOptionalOrderedAndWorldSpaceDirty) {
+ACS_TEST(VolumetricClouds, ShadowCacheRhiBindingIsOptionalOrderedAndRebuiltEveryFrame) {
     const std::string source = ReadSkySource();
     const std::string compact = CompactShader(source);
     EXPECT_TRUE(!compact.empty());
-    EXPECT_FALSE(kVolumetricCloudShadowCacheEnabled);
-    // Optional shader compilation is staged on both supported initialization
-    // paths. A missing optional pair disables only the cache; the mandatory
-    // cloud candidate and exact-lighting path remain publishable.
+    EXPECT_TRUE(kVolumetricCloudShadowCacheEnabled);
+    // どちらの初期化経路でも任意シェーダーを一つだけ用意する。作成に失敗しても
+    // 必須の雲描画は公開でき、遠距離の正確な積分へ戻る。
     EXPECT_EQ(
         CountOccurrences(
             compact,
             "autoshadow_result=compile(EShaderStage::Compute,kCloudCS,"
             "\"CSCloudShadow\",\"Clouds.ShadowCacheCS\");"),
         static_cast<std::size_t>(2));
-    EXPECT_EQ(
-        CountOccurrences(
-            compact,
-            "autofinalize_result=compile(EShaderStage::Compute,kCloudCS,"
-            "\"CSCloudShadowFinalize\","
-            "\"Clouds.ShadowCacheFinalizeCS\");"),
-        static_cast<std::size_t>(2));
-    EXPECT_EQ(
-        CountOccurrences(compact, "shaders.shadow.Reset();"),
-        static_cast<std::size_t>(2));
+    EXPECT_FALSE(Contains(compact, "CSCloudShadowFinalize"));
+    EXPECT_FALSE(Contains(compact, "m_ShadowFinalize"));
+    EXPECT_FALSE(Contains(compact, "m_ShadowRawTex"));
     EXPECT_TRUE(Contains(
         compact,
         "boolshadowOk=kVolumetricCloudShadowCacheEnabled&&"
-        "shaders.shadow&&shaders.shadow_finalize;"
+        "shaders.shadow;"
         "if(shadowOk)m_ShadowCs=Move(shaders.shadow);"));
-    EXPECT_TRUE(Contains(
-        compact,
-        "if(shadowOk)m_ShadowFinalizeCs="
-        "Move(shaders.shadow_finalize);"));
     EXPECT_TRUE(Contains(
         compact,
         "if(kVolumetricCloudShadowCacheEnabled){ACS_LOG_WARN("));
@@ -5110,30 +5076,18 @@ ACS_TEST(VolumetricClouds,
         "td.height=kVolumetricCloudShadowCacheHeight;"
         "td.depth=kVolumetricCloudShadowCacheDepth;"
         "td.format=EFormat::R16G16_Float;td.is_uav=true;"));
-    EXPECT_EQ(
-        CountOccurrences(
-            compact,
-            "td.width=kVolumetricCloudShadowCacheWidth;"
-            "td.height=kVolumetricCloudShadowCacheHeight;"
-            "td.depth=kVolumetricCloudShadowCacheDepth;"
-            "td.format=EFormat::R16G16_Float;td.is_uav=true;"),
-        static_cast<std::size_t>(2));
+    EXPECT_EQ(CountOccurrences(compact, "td.width=kVolumetricCloudShadowCacheWidth;" "td.height=kVolumetricCloudShadowCacheHeight;" "td.depth=kVolumetricCloudShadowCacheDepth;" "td.format=EFormat::R16G16_Float;td.is_uav=true;"), static_cast<std::size_t>(1));
     EXPECT_TRUE(Contains(
         compact,
         "cl.Dispatch((kVolumetricCloudShadowCacheWidth+3u)/4u,"
         "(kVolumetricCloudShadowCacheHeight+3u)/4u,"
         "(kVolumetricCloudShadowCacheDepth+3u)/4u);"));
+    EXPECT_TRUE(Contains(compact, "rebuildShadowCacheThisFrame?1.0f:0.0f"));
     EXPECT_TRUE(Contains(
         compact,
-        "shadowCacheUsableThisFrame?1.0f:0.0f"));
-    EXPECT_TRUE(Contains(
-        compact,
-        "if(!shadowOk){m_ShadowTex.Reset();m_ShadowRawTex.Reset();"
-        "m_ShadowFinalizePipe.Reset();m_ShadowFinalizeCs.Reset();"
+        "if(!shadowOk){m_ShadowTex.Reset();"
         "m_ShadowPipe.Reset();m_ShadowCs.Reset();"));
-    const std::size_t optionalBegin = compact.find(
-        "boolshadowOk=kVolumetricCloudShadowCacheEnabled&&"
-        "shaders.shadow&&shaders.shadow_finalize;");
+    const std::size_t optionalBegin = compact.find("boolshadowOk=kVolumetricCloudShadowCacheEnabled&&" "shaders.shadow;");
     const std::size_t optionalEnd = compact.find(
         "m_ShadowCacheDispatchCount=0;}", optionalBegin);
     EXPECT_TRUE(optionalBegin != std::string::npos);
@@ -5153,28 +5107,10 @@ ACS_TEST(VolumetricClouds,
         compact.find("cl.BindUav(0,*m_CloudTex);", shadowBuild);
     const std::size_t dummyU1 =
         compact.find("cl.BindUav(1,*m_CloudDepth);", dummyU0);
-    const std::size_t rawU2 =
-        compact.find("cl.BindUav(2,*m_ShadowRawTex);", dummyU1);
-    const std::size_t finalizePipeline = compact.find(
-        "cl.SetComputePipeline(*m_ShadowFinalizePipe);", rawU2);
-    const std::size_t finalizeDummyT0 =
-        compact.find("cl.SetTexture(0,*m_ShapeTex);", finalizePipeline);
-    const std::size_t finalizeDummyT1 =
-        compact.find("cl.SetTexture(1,*m_WeatherTex);", finalizeDummyT0);
-    const std::size_t finalizeDummyT2 =
-        compact.find("cl.SetTexture(2,*m_DetailTex);", finalizeDummyT1);
-    const std::size_t finalizeDummyT3 =
-        compact.find("cl.SetTexture(3,*m_CurlTex);", finalizeDummyT2);
-    const std::size_t finalizeRawT4 =
-        compact.find("cl.SetTexture(4,*m_ShadowRawTex);", finalizeDummyT3);
-    const std::size_t finalizeDummyU0 =
-        compact.find("cl.BindUav(0,*m_CloudTex);", finalizeRawT4);
-    const std::size_t finalizeDummyU1 =
-        compact.find("cl.BindUav(1,*m_CloudDepth);", finalizeDummyU0);
-    const std::size_t finalU2 =
-        compact.find("cl.BindUav(2,*m_ShadowTex);", finalizeDummyU1);
+    const std::size_t shadowU2 =
+        compact.find("cl.BindUav(2,*m_ShadowTex);", dummyU1);
     const std::size_t mainPipeline =
-        compact.find("cl.SetComputePipeline(*m_CloudPipe);", finalU2);
+        compact.find("cl.SetComputePipeline(*m_CloudPipe);", shadowU2);
     const std::size_t cacheT4 =
         compact.find("cl.SetTexture(4,*m_ShadowTex);", mainPipeline);
     const std::size_t dummyT4 =
@@ -5183,65 +5119,25 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(shadowBuild != std::string::npos);
     EXPECT_TRUE(dummyU0 != std::string::npos);
     EXPECT_TRUE(dummyU1 != std::string::npos);
-    EXPECT_TRUE(rawU2 != std::string::npos);
-    EXPECT_TRUE(finalizePipeline != std::string::npos);
-    EXPECT_TRUE(finalizeDummyT0 != std::string::npos);
-    EXPECT_TRUE(finalizeDummyT1 != std::string::npos);
-    EXPECT_TRUE(finalizeDummyT2 != std::string::npos);
-    EXPECT_TRUE(finalizeDummyT3 != std::string::npos);
-    EXPECT_TRUE(finalizeRawT4 != std::string::npos);
-    EXPECT_TRUE(finalizeDummyU0 != std::string::npos);
-    EXPECT_TRUE(finalizeDummyU1 != std::string::npos);
-    EXPECT_TRUE(finalU2 != std::string::npos);
+    EXPECT_TRUE(shadowU2 != std::string::npos);
     EXPECT_TRUE(mainPipeline != std::string::npos);
     EXPECT_TRUE(cacheT4 != std::string::npos);
     EXPECT_TRUE(dummyT4 != std::string::npos);
     EXPECT_TRUE(noiseBake < shadowBuild);
     EXPECT_TRUE(shadowBuild < dummyU0);
     EXPECT_TRUE(dummyU0 < dummyU1);
-    EXPECT_TRUE(dummyU1 < rawU2);
-    EXPECT_TRUE(rawU2 < finalizePipeline);
-    EXPECT_TRUE(finalizePipeline < finalizeDummyT0);
-    EXPECT_TRUE(finalizeDummyT0 < finalizeDummyT1);
-    EXPECT_TRUE(finalizeDummyT1 < finalizeDummyT2);
-    EXPECT_TRUE(finalizeDummyT2 < finalizeDummyT3);
-    EXPECT_TRUE(finalizeDummyT3 < finalizeRawT4);
-    EXPECT_TRUE(finalizeRawT4 < finalizeDummyU0);
-    EXPECT_TRUE(finalizeDummyU0 < finalizeDummyU1);
-    EXPECT_TRUE(finalizeDummyU1 < finalU2);
-    EXPECT_TRUE(finalU2 < mainPipeline);
+    EXPECT_TRUE(dummyU1 < shadowU2);
+    EXPECT_TRUE(shadowU2 < mainPipeline);
     EXPECT_TRUE(mainPipeline < cacheT4);
     EXPECT_TRUE(cacheT4 < dummyT4);
 
-    const std::size_t dirtyBegin = compact.find(
-        "if(shadowResourcesReady&&m_ShadowCacheValid){");
-    const std::size_t dirtyEnd = compact.find(
-        "constboolshadowWillBuildThisFrame=", dirtyBegin);
-    EXPECT_TRUE(dirtyBegin != std::string::npos);
-    EXPECT_TRUE(dirtyEnd != std::string::npos);
-    if (dirtyBegin != std::string::npos &&
-        dirtyEnd != std::string::npos) {
-        const std::string dirty =
-            compact.substr(dirtyBegin, dirtyEnd - dirtyBegin);
-        EXPECT_TRUE(Contains(dirty, "coverageDelta>0.001f"));
-        EXPECT_TRUE(Contains(
-            dirty, "sunDot<kShadowSunDirectionCosThreshold"));
-        EXPECT_TRUE(Contains(
-            dirty, "lightBasisHemisphereChanged"));
-        EXPECT_TRUE(Contains(dirty, "layerChanged"));
-        EXPECT_TRUE(Contains(
-            dirty, "curvatureError>verticalQuarterCell"));
-        EXPECT_TRUE(Contains(
-            dirty,
-            "constf32halfDiagonal="
-            "kVolumetricCloudShadowCacheExtent*0.5f*kSqrtTwo;"));
-        EXPECT_TRUE(Contains(dirty, "centerAnchorOffset"));
-        EXPECT_TRUE(Contains(dirty, "maximumShellRadius"));
-        EXPECT_FALSE(Contains(dirty, "safeDensity"));
-        EXPECT_FALSE(Contains(dirty, "sun_color"));
-        EXPECT_FALSE(Contains(dirty, "sky_color"));
-        EXPECT_FALSE(Contains(dirty, "matrixDelta"));
-    }
+    EXPECT_TRUE(Contains(compact, "m_ShadowCacheAvailable&&m_ShadowCs&&m_ShadowPipe&&m_ShadowTex;"));
+    EXPECT_TRUE(Contains(compact, "constboolrebuildShadowCacheThisFrame=shadowResourcesReady&&" "(m_NoiseBaked||bakeShapeNoiseThisFrame)&&" "(m_WeatherBaked||bakeWeatherThisFrame)&&" "(m_DetailBaked||bakeDetailNoiseThisFrame)&&" "(m_CurlBaked||bakeCurlNoiseThisFrame);"));
+    EXPECT_TRUE(Contains(compact, "if(!rebuildShadowCacheThisFrame)m_ShadowCacheValid=false;"));
+    EXPECT_FALSE(Contains(compact, "shadowDirty"));
+    EXPECT_FALSE(Contains(compact, "shadowWillBuildThisFrame"));
+    EXPECT_FALSE(Contains(compact, "shadowCacheUsableThisFrame"));
+    EXPECT_FALSE(Contains(compact, "kShadowSunDirectionCosThreshold"));
     EXPECT_TRUE(Contains(
         compact,
         "m_ShadowCacheValid=false;"));
@@ -5255,27 +5151,10 @@ ACS_TEST(VolumetricClouds,
         "++m_ShadowCacheDispatchCount;", shadowBuild);
     if (shadowBuild != std::string::npos &&
         logicalBuildEnd != std::string::npos) {
-        EXPECT_EQ(
-            CountOccurrences(
-                compact.substr(shadowBuild, logicalBuildEnd - shadowBuild),
-                "cl.Dispatch("),
-            static_cast<std::size_t>(2));
+        EXPECT_EQ(CountOccurrences(compact.substr(shadowBuild, logicalBuildEnd - shadowBuild), "cl.Dispatch("), static_cast<std::size_t>(1));
     }
-    EXPECT_TRUE(Contains(
-        compact,
-        "m_ShadowCacheAvailable&&m_ShadowCs&&m_ShadowPipe&&"
-        "m_ShadowFinalizeCs&&m_ShadowFinalizePipe&&"
-        "m_ShadowRawTex&&m_ShadowTex;"));
     EXPECT_FALSE(Contains(
         compact, "false&&m_ShadowCacheAvailable"));
-    EXPECT_TRUE(Contains(
-        compact,
-        "constboolshadowBakePrerequisites="
-        "(m_NoiseBaked||(m_NoisePipe&&m_ShapeTex))&&"));
-    EXPECT_TRUE(Contains(
-        compact,
-        "constboolshadowCacheUsableThisFrame="
-        "(m_ShadowCacheValid&&!shadowDirty)||shadowWillBuildThisFrame;"));
 }
 
 ACS_TEST(VolumetricClouds,

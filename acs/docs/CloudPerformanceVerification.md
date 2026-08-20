@@ -86,9 +86,8 @@ Each scenario must prove all of the following:
 - cloud work was attempted and submitted;
 - temporal history was available and reused without invalidation, with TSR
   enabled;
-- the steady cloud frame remains exactly two compute dispatches plus one
-  composite draw, with no one-time bake or shadow-cache dispatch leaking into
-  the measured frame;
+- 定常フレームは影キャッシュ生成、視線積分、時間再構成の計3回の計算ディスパッチと、
+  合成描画1回だけであり、一度限りの雑音生成が計測区間へ混入していないこと。
 - logical invocation, launched-thread, and maximum view/light sample totals
   are internally coherent;
 - native render, Dispatcher heartbeat, GPU retry/fallback, ready-after-retry,
@@ -157,8 +156,8 @@ model is physically calibrated; that remains a visual-reference requirement.
 緩やかな対流変形は続き、風速の絶対値が大きい場合だけ変化速度を制限範囲内で上げる。
 
 時間再構成は 0.25 秒を超える時刻飛びで履歴を無効化する。通常フレーム間の位相差は十分小さく、
-既存の色・深度検査で局所的な形状変化を処理する。実験的な太陽深度キャッシュは現在無効である。
-再び有効にする場合は、位相ずれをキャッシュ鍵へ含めることを必須とする。
+既存の色・深度検査で局所的な形状変化を処理する。太陽方向深さキャッシュは、移流だけを鍵にして
+古い密度を再利用せず、現在の対流位相を含む密度場から毎フレーム生成する。
 
 ## 雲頂の対流形状
 
@@ -237,6 +236,20 @@ model is physically calibrated; that remains a visual-reference requirement.
 一定の刻み幅を使う。侵食寄与が消えたレイでは、二つの3次元テクスチャ採取も分岐前に省く。
 近距離3点の光採取は従来どおり完全な侵食を使い、自己遮蔽の形は変えない。
 
+## 動的な自己遮蔽キャッシュ
+
+各視線標本から太陽方向へ採取する8点のうち、侵食の影響が大きい近距離3点は従来どおり正確に
+積分する。遠距離5点は、`96 x 32 x 96` の `RG16F` 3次元テクスチャへ先に積分した光学的深さを
+利用する。保存量は二つの採取模様から求めた平均深さと差であり、差がしきい値を超える場所、
+キャッシュ範囲外、上層雲では遠距離5点も正確な積分へ戻す。
+
+密度場は風移流とは別に対流変形するため、キャッシュは毎フレーム一度だけ現在の時刻で作り直す。
+以前の二段目は第一段の値を複写するだけで空間勾配を品質判定へ反映していなかったため廃止した。
+これによりGPU上の3次元テクスチャは2個から1個へ、生成ディスパッチも2回から1回へ減る。
+固定時刻の参照画像では、正確な8点積分に対する相関係数 `0.9992`、平均二乗誤差の平方根 `0.607`、
+平均輝度差 `0.071` で、横方向の帯状誤差は約17%減少した。重い参照描画でのGPU時間も
+約 `68.5 ms` から `60.0 ms` へ短縮したため、品質と速度の両方を満たす構成として有効化する。
+
 Both the Editor and legacy Scene3D paths update cloud illumination from the
 current scene before dispatch. They evaluate atmospheric RGB transmittance at
 the normalized cloud-layer midpoint, use the current zenith color for the
@@ -292,12 +305,9 @@ negative. Additional pre-fetch bounds are not accepted from algebra alone:
 they must also beat the baseline on both horizon and zenith captures without
 introducing enough branch divergence to erase the saved texture work.
 
-The first three light probes retain detail erosion. The remaining five retain
-the same positions, height/profile equations, threshold, and three shape
-fetches but return their scalar macro extinction directly. This shortens
-near-probe-only value lifetimes; it does not replace, move, or reduce any light
-probe. The experimental shadow cache remains disabled until an identical
-quality capture demonstrates a net GPU win.
+最初の3個の光標本は細かな侵食を保つ。残り5個も位置、高さ分布、しきい値を変えず、影キャッシュが
+利用できない場所では同じ式で正確に積分する。利用できる場所だけ、毎フレーム生成した遠距離の
+光学的深さへ置き換える。標本数や近距離の品質を減らす最適化ではない。
 
 Curved-shell intersection also preserves the original factorized quadratic.
 Camera position relative to the rebased tangent origin and the inner/outer
