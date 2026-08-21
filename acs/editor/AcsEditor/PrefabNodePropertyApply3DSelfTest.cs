@@ -44,7 +44,16 @@ internal static class PrefabNodePropertyApply3DSelfTest
             Red: 0.9f,
             Green: 0.8f,
             Blue: 0.7f,
-            Alpha: 0.6f);
+            Alpha: 0.6f,
+            PositionX: 7.0f,
+            PositionY: 8.0f,
+            PositionZ: 9.0f,
+            RotationX: 10.0f,
+            RotationY: 20.0f,
+            RotationZ: 30.0f,
+            ScaleX: 2.0f,
+            ScaleY: 3.0f,
+            ScaleZ: 4.0f);
 
         bool flagsOk = PrefabNodePropertyApply3D.TryBuildSource(
             source,
@@ -73,6 +82,20 @@ internal static class PrefabNodePropertyApply3DSelfTest
             colorSource.Contains("N3D 12 10 0 4 5 6 0 0 0 1 1 1 0.700 0.800 0.900 1.000 Door", StringComparison.Ordinal),
             "Color Apply changes only the source-identified child",
             colorError);
+
+        bool transformOk = PrefabNodePropertyApply3D.TryBuildSource(
+            colorSource,
+            targetId,
+            PrefabNodeProperty3D.Transform,
+            values,
+            out string transformSource,
+            out string transformError);
+        Check(
+            transformOk &&
+            transformSource.Contains("N3D 11 10 0 7.000 8.000 9.000 10.000 20.000 30.000 2.000 3.000 4.000 0.900 0.800 0.700 0.600 Wheel", StringComparison.Ordinal) &&
+            transformSource.Contains("N3D 12 10 0 4 5 6 0 0 0 1 1 1 0.700 0.800 0.900 1.000 Door", StringComparison.Ordinal),
+            "Transform Apply changes only the source-identified child N3D fields",
+            transformError);
 
         string renumbered = source
             .Replace("N3D 11 10", "N3D 201 10", StringComparison.Ordinal)
@@ -110,6 +133,19 @@ internal static class PrefabNodePropertyApply3DSelfTest
             out string duplicateSource,
             out _);
         Check(duplicateRejected && duplicateSource == duplicateIdentity, "ambiguous source ID fails without changing input");
+
+        PrefabNodePropertyValues3D nonFiniteTransform = values with
+        {
+            RotationY = float.NaN,
+        };
+        bool nonFiniteRejected = !PrefabNodePropertyApply3D.TryBuildSource(
+            source,
+            targetId,
+            PrefabNodeProperty3D.Rotation,
+            nonFiniteTransform,
+            out string nonFiniteSource,
+            out _);
+        Check(nonFiniteRejected && nonFiniteSource == source, "non-finite Transform fails without changing input");
 
         bool unknownMaskRejected = !PrefabNodePropertyApply3D.TryBuildSource(
             source,

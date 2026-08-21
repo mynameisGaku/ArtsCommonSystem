@@ -25012,6 +25012,7 @@ enum class ECapability : std::uint64_t {
     PrefabRootComponentPropertySelectiveApply3DV1 = 1ull << 21u,
     PrefabSourceNodeIdentity3DV1 = 1ull << 22u,
     PrefabNodePropertyOverride3DV1 = 1ull << 24u,
+    PrefabNodeTransformOverride3DV1 = 1ull << 25u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -25043,7 +25044,8 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveRevert3DV1) |
     CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveApply3DV1) |
     CapabilityBit(ECapability::PrefabSourceNodeIdentity3DV1) |
-    CapabilityBit(ECapability::PrefabNodePropertyOverride3DV1);
+    CapabilityBit(ECapability::PrefabNodePropertyOverride3DV1) |
+    CapabilityBit(ECapability::PrefabNodeTransformOverride3DV1);
 
 inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
@@ -25058,7 +25060,8 @@ inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveRevert3DV1) |
     CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveApply3DV1) |
     CapabilityBit(ECapability::PrefabSourceNodeIdentity3DV1) |
-    CapabilityBit(ECapability::PrefabNodePropertyOverride3DV1);
+    CapabilityBit(ECapability::PrefabNodePropertyOverride3DV1) |
+    CapabilityBit(ECapability::PrefabNodeTransformOverride3DV1);
 
 [[nodiscard]] constexpr bool IsCompatible(
     std::uint32_t requested_version,
@@ -82100,6 +82103,15 @@ enum class EPrefabNodeProperty3D : u8 {
 
     /** meshのRGBA色。 */
     Color = 2,
+
+    /** rootから見たchildのローカル位置。 */
+    Position = 3,
+
+    /** childのローカル回転角。 */
+    Rotation = 4,
+
+    /** childのローカル拡大率。 */
+    Scale = 5,
 };
 
 /** 指定propertyをPNOVR3D maskの1 bitへ変換する。 */
@@ -82112,7 +82124,10 @@ constexpr u32 PrefabNodeProperty3DBit(EPrefabNodeProperty3D property) noexcept
 inline constexpr u32 kPrefabNodeProperty3DAllMask =
     PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Visible) |
     PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Enabled) |
-    PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Color);
+    PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Color) |
+    PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Position) |
+    PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Rotation) |
+    PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Scale);
 
 } // namespace acs::game
 

@@ -301,7 +301,7 @@ struct AEditor3DRecordComponent : public acs::game::AComponent {
     char  prefab_instance_id[game::kScene3DSerializePrefabInstanceIdBytes + 1u] = {}; ///< Apply/Revert後も維持する32桁小文字hexのinstance ID。
     /** Prefab原本内の対応nodeを識別する32桁小文字hex ID。 */
     char  prefab_source_node_id[game::kScene3DSerializePrefabSourceNodeIdBytes + 1u] = {};
-    /** Source更新後も維持するchild nodeのVisible/Enabled/Color bit。 */
+    /** Source更新後も維持するchild nodeの値またはtransform bit。 */
     u32   prefab_node_property_override_mask = 0u;
     /** Source更新後も維持するrootのVisible/Enabled/Color bit。 */
     u32   prefab_root_property_override_mask = 0u;
@@ -6913,6 +6913,15 @@ struct FPrefabNodePropertyOverrideSnapshotEntry {
 
     /** child meshのRGBA色。 */
     FVec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+
+    /** childのローカル位置。 */
+    FVec3 position{0.0f, 0.0f, 0.0f};
+
+    /** childの編集用ローカル回転角。 */
+    FVec3 euler{0.0f, 0.0f, 0.0f};
+
+    /** childのローカル拡大率。 */
+    FVec3 scale{1.0f, 1.0f, 1.0f};
 };
 
 /** 1つの3D Prefab instanceから取得したchild node property override集合。 */
@@ -6929,6 +6938,12 @@ struct FPrefabNodePropertyRevertRequest {
     /** 原本値へ戻すproperty bit。 */
     u32 mask = 0u;
 };
+
+/** child transformの3成分がすべて有限ならtrueを返す。 */
+bool IsFinitePrefabNodeTransformValue_Internal(FVec3 value) noexcept
+{
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
 
 /** 現instanceからchild node property override値をsource node ID付きで取得する。 */
 bool CapturePrefabNodePropertyOverrides_Internal(game::ANode& root, FPrefabNodePropertyOverrideSnapshot& snapshot) noexcept
@@ -6951,6 +6966,10 @@ bool CapturePrefabNodePropertyOverrides_Internal(game::ANode& root, FPrefabNodeP
             if (record->is_empty || Mesh3D(node) == nullptr) return false;
             entry.color = NColor(node);
         }
+        if ((mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Position)) != 0u) entry.position = node->Local().position;
+        if ((mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Rotation)) != 0u) entry.euler = record->euler;
+        if ((mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Scale)) != 0u) entry.scale = node->Local().scale;
+        if (!IsFinitePrefabNodeTransformValue_Internal(entry.position) || !IsFinitePrefabNodeTransformValue_Internal(entry.euler) || !IsFinitePrefabNodeTransformValue_Internal(entry.scale)) return false;
         if (!snapshot.entries.TryAdd(entry)) return false;
     }
     return true;
@@ -6991,6 +7010,12 @@ bool ApplyPrefabNodePropertyOverrides_Internal(game::ANode& root, const FPrefabN
             if (record->is_empty || mesh == nullptr) return false;
             mesh->SetColor(entry.color);
         }
+        if ((entry.mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Position)) != 0u) node->Local().position = entry.position;
+        if ((entry.mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Rotation)) != 0u) {
+            node->Local().SetEulerDeg(entry.euler);
+            record->euler = entry.euler;
+        }
+        if ((entry.mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Scale)) != 0u) node->Local().scale = entry.scale;
         record->prefab_node_property_override_mask = entry.mask;
     }
     return true;
@@ -17150,7 +17175,7 @@ ACS_EDITOR_API int acs_editor_prefab_instance3d_root_for_node(void* handle, int 
     return root_record != nullptr ? root_record->id : -1;
 }
 
-/** rootまたはchild nodeで原本より優先するVisible/Enabled/Color bitを返す。 */
+/** rootまたはchild nodeで原本より優先するproperty bitを返す。 */
 ACS_EDITOR_API std::uint32_t acs_editor_prefab_instance3d_property_override_mask(void* handle, int id) {
     auto* host = static_cast<FEditorHost*>(handle);
     game::ANode* const node = host != nullptr ? FindNode3DNode(*host, id) : nullptr;
@@ -17173,6 +17198,7 @@ ACS_EDITOR_API int acs_editor_prefab_instance3d_mark_property_override(void* han
     game::ANode* const root = FindStablePrefabRootForNode_Internal(*node);
     if (root == nullptr) return 1;
     if (root == node) {
+        if ((checked_mask & ~game::kPrefabRootProperty3DAllMask) != 0u) return 0;
         record->prefab_root_property_override_mask |= checked_mask;
         return 1;
     }
@@ -17191,6 +17217,7 @@ ACS_EDITOR_API int acs_editor_prefab_instance3d_clear_property_overrides(void* h
     game::ANode* const root = FindStablePrefabRootForNode_Internal(*node);
     if (root == nullptr) return 1;
     if (root == node) {
+        if ((checked_mask & ~game::kPrefabRootProperty3DAllMask) != 0u) return 0;
         record->prefab_root_property_override_mask &= ~checked_mask;
         return 1;
     }
@@ -19222,7 +19249,23 @@ ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
 /** 3D ギズモのドラッグ終了。 */
 ACS_EDITOR_API void acs_editor_gizmo3d_end(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host != nullptr) host->giz3d_handle = 0;
+    if (host == nullptr || host->giz3d_handle == 0) return;
+    game::ANode* const node = FindNode3DNode(*host, host->sel3d);
+    if (node != nullptr) {
+        game::EPrefabNodeProperty3D property = game::EPrefabNodeProperty3D::Position;
+        bool changed = node->Local().position.x != host->giz3d_start_pos.x || node->Local().position.y != host->giz3d_start_pos.y || node->Local().position.z != host->giz3d_start_pos.z;
+        if (host->giz3d_handle <= 3 && host->gizmo_mode == 1) {
+            const AEditor3DRecordComponent* const record = Rec3D(node);
+            const FVec3 euler = record != nullptr ? record->euler : FVec3{0.0f, 0.0f, 0.0f};
+            property = game::EPrefabNodeProperty3D::Rotation;
+            changed = euler.x != host->giz3d_start_rot.x || euler.y != host->giz3d_start_rot.y || euler.z != host->giz3d_start_rot.z;
+        } else if (host->giz3d_handle <= 3 && host->gizmo_mode == 2) {
+            property = game::EPrefabNodeProperty3D::Scale;
+            changed = node->Local().scale.x != host->giz3d_start_scale.x || node->Local().scale.y != host->giz3d_start_scale.y || node->Local().scale.z != host->giz3d_start_scale.z;
+        }
+        if (changed) (void)acs_editor_prefab_instance3d_mark_property_override(handle, host->sel3d, game::PrefabNodeProperty3DBit(property));
+    }
+    host->giz3d_handle = 0;
 }
 
 // =============================================================================
