@@ -70,6 +70,7 @@ extern "C" __declspec(dllimport) const char* acs_editor_copy_subtree3d(
     void* handle, int id);
 extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_refresh(
     void* handle, int id, const char* source, const char* text);
+extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_refresh_with_root_overrides(void* handle, int id, const char* source, const char* text, std::uint32_t preserve_mask);
 extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_instantiate(
     void* handle, const char* source, const char* instance_id,
     const char* text, int parent_id);
@@ -87,10 +88,17 @@ extern "C" __declspec(dllimport) const char*
 acs_editor_node3d_get_prefab_instance_id(void* handle, int id);
 extern "C" __declspec(dllimport) int acs_editor_node3d_set_prefab_link(
     void* handle, int id, const char* source, const char* instance_id);
+extern "C" __declspec(dllimport) std::uint32_t acs_editor_prefab_instance3d_root_override_mask(void* handle, int id);
+extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_mark_root_override(void* handle, int id, std::uint32_t mask);
+extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_clear_root_overrides(void* handle, int id, std::uint32_t mask);
 extern "C" __declspec(dllimport) void acs_editor_node3d_set_visible(
     void* handle, int id, int visible);
+extern "C" __declspec(dllimport) int acs_editor_node3d_get_visible(void* handle, int id);
 extern "C" __declspec(dllimport) void acs_editor_node3d_set_enabled(
     void* handle, int id, int enabled);
+extern "C" __declspec(dllimport) int acs_editor_node3d_get_enabled(void* handle, int id);
+extern "C" __declspec(dllimport) int acs_editor_node3d_set_color(void* handle, int id, float r, float g, float b, float a);
+extern "C" __declspec(dllimport) int acs_editor_node3d_get_color(void* handle, int id, float* out4);
 extern "C" __declspec(dllimport) int acs_editor_node3d_add_component(
     void* handle, int id, const char* type_name);
 extern "C" __declspec(dllimport) int acs_editor_node3d_component_prop_get(
@@ -277,6 +285,8 @@ bool RunAbiCapabilityContract() noexcept
         (kRequiredManagedHostCapabilities & CapabilityBit(
              ECapability::PrefabStableInstanceId3DV1)) != 0u,
         "managed Prefab authoring relies on stable 3D instance identity");
+    static_assert((kCapabilities & CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1)) != 0u);
+    static_assert((kRequiredManagedHostCapabilities & CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1)) != 0u, "managed Prefab refresh relies on explicit 3D root property overrides");
 
     std::uint32_t version = 0u;
     std::uint64_t capabilities = 0ull;
@@ -1491,6 +1501,111 @@ bool RunPrefabInstance3DStableIdentity() noexcept
     return ok;
 }
 
+/** 3D Prefab root overrideは明示maskだけをsource更新後も保持し、全Revertで破棄する。 */
+bool RunPrefabInstance3DRootPropertyOverrides() noexcept
+{
+    constexpr std::uint32_t kVisible = 1u << 0u;
+    constexpr std::uint32_t kEnabled = 1u << 1u;
+    constexpr std::uint32_t kColor = 1u << 2u;
+    constexpr std::uint32_t kAll = kVisible | kEnabled | kColor;
+    constexpr const char* kScene =
+        "ACS3D v2\n"
+        "N3D 40 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Container\n"
+        "EMPTY3D 40\n"
+        "N3D 41 40 0 0 0 0 0 0 0 1 1 1 0.2 0.3 0.4 1 Instance\n"
+        "PFAB3D 41 Assets/Vehicle.acsprefab\n"
+        "PINS3D 41 0123456789abcdef0123456789abcdef\n"
+        "SEL3D 41\n";
+    constexpr const char* kInvalidOverrideScene =
+        "ACS3D v2\n"
+        "N3D 41 -1 0 0 0 0 0 0 0 1 1 1 0.2 0.3 0.4 1 Instance\n"
+        "PFAB3D 41 Assets/Vehicle.acsprefab\n"
+        "PINS3D 41 0123456789abcdef0123456789abcdef\n"
+        "POVR3D 41 8\n";
+    constexpr const char* kUpdatedSubtree =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 0.1 0.2 0.3 1 Updated\n";
+    constexpr const char* kMeshlessSubtree =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Meshless\n"
+        "EMPTY3D 1\n";
+    constexpr const char* kSource = "Assets/Vehicle.acsprefab";
+
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+    std::uint32_t completed_stage = 0u;
+    bool ok = acs_editor_scene3d_load_text(host, kScene) != 0;
+    std::string expected2d;
+    std::string expected3d;
+    ok = ok && SnapshotSceneDocument(host, expected2d, expected3d) &&
+         acs_editor_scene3d_load_text(host, kInvalidOverrideScene) == 0 &&
+         SceneDocumentEquals(host, expected2d, expected3d);
+    if (ok) completed_stage = 1u;
+
+    acs_editor_node3d_set_visible(host, 41, 0);
+    acs_editor_node3d_set_enabled(host, 41, 0);
+    ok = ok && acs_editor_node3d_set_color(host, 41, 0.9f, 0.8f, 0.7f, 1.0f) != 0 &&
+         acs_editor_prefab_instance3d_mark_root_override(host, 41, kAll) != 0 &&
+         acs_editor_prefab_instance3d_root_override_mask(host, 41) == kAll;
+    if (ok) completed_stage = 2u;
+
+    char overridden_scene[32768]{};
+    const int overridden_written = ok
+        ? acs_editor_scene3d_serialize(host, overridden_scene, static_cast<int>(sizeof(overridden_scene)))
+        : 0;
+    std::string before_failed_refresh2d;
+    std::string before_failed_refresh3d;
+    const bool emitted_override =
+        overridden_written > 0 &&
+        std::strstr(overridden_scene, "POVR3D 41 7\n") != nullptr;
+    const bool captured_failed_refresh_baseline =
+        SnapshotSceneDocument(host, before_failed_refresh2d, before_failed_refresh3d);
+    const int unknown_mask_result = acs_editor_prefab_instance3d_refresh_with_root_overrides(host, 41, kSource, kUpdatedSubtree, 8u);
+    const int meshless_result = acs_editor_prefab_instance3d_refresh_with_root_overrides(host, 41, kSource, kMeshlessSubtree, kAll);
+    const bool failed_refresh_unchanged =
+        SceneDocumentEquals(host, before_failed_refresh2d, before_failed_refresh3d);
+    ok = ok && emitted_override && captured_failed_refresh_baseline &&
+         unknown_mask_result == -1 && meshless_result == -1 &&
+         failed_refresh_unchanged;
+    if (ok) completed_stage = 3u;
+
+    const int preserved = ok ? acs_editor_prefab_instance3d_refresh_with_root_overrides(host, 41, kSource, kUpdatedSubtree, kAll) : -1;
+    float preserved_color[4]{};
+    ok = ok && preserved >= 0 &&
+         acs_editor_node3d_get_visible(host, preserved) == 0 &&
+         acs_editor_node3d_get_enabled(host, preserved) == 0 &&
+         acs_editor_node3d_get_color(host, preserved, preserved_color) != 0 &&
+         preserved_color[0] == 0.9f && preserved_color[1] == 0.8f &&
+         preserved_color[2] == 0.7f && preserved_color[3] == 1.0f &&
+         acs_editor_prefab_instance3d_root_override_mask(host, preserved) == kAll &&
+         acs_editor_prefab_instance3d_clear_root_overrides(host, preserved, kColor) != 0 &&
+         acs_editor_prefab_instance3d_root_override_mask(host, preserved) == (kVisible | kEnabled) &&
+         acs_editor_prefab_instance3d_mark_root_override(host, preserved, kColor) != 0;
+    if (ok) completed_stage = 4u;
+
+    const int reverted = ok ? acs_editor_prefab_instance3d_refresh(host, preserved, kSource, kUpdatedSubtree) : -1;
+    float reverted_color[4]{};
+    char reverted_scene[32768]{};
+    const int reverted_written = reverted >= 0
+        ? acs_editor_scene3d_serialize(host, reverted_scene, static_cast<int>(sizeof(reverted_scene)))
+        : 0;
+    ok = ok && reverted >= 0 &&
+         acs_editor_node3d_get_visible(host, reverted) != 0 &&
+         acs_editor_node3d_get_enabled(host, reverted) != 0 &&
+         acs_editor_node3d_get_color(host, reverted, reverted_color) != 0 &&
+         reverted_color[0] == 0.1f && reverted_color[1] == 0.2f &&
+         reverted_color[2] == 0.3f && reverted_color[3] == 1.0f &&
+         acs_editor_prefab_instance3d_root_override_mask(host, reverted) == 0u &&
+         reverted_written > 0 && std::strstr(reverted_scene, "POVR3D ") == nullptr;
+    if (!ok) {
+        std::printf("3D Prefab root property override contract failed after stage %u.\n", completed_stage);
+        std::printf("emitted=%d snapshot=%d unknown=%d meshless=%d unchanged=%d preserved=%d mask=%u color=%g,%g,%g,%g\n", emitted_override ? 1 : 0, captured_failed_refresh_baseline ? 1 : 0, unknown_mask_result, meshless_result, failed_refresh_unchanged ? 1 : 0, preserved, acs_editor_prefab_instance3d_root_override_mask(host, preserved), preserved_color[0], preserved_color[1], preserved_color[2], preserved_color[3]);
+        std::printf("reverted=%d mask=%u color=%g,%g,%g,%g\n", reverted, acs_editor_prefab_instance3d_root_override_mask(host, reverted), reverted_color[0], reverted_color[1], reverted_color[2], reverted_color[3]);
+    }
+    acs_editor_destroy(host);
+    return ok;
+}
+
 /** Interactive-water's complete reflected contract survives duplicate/save/load. */
 bool RunWater3DComponentRoundTrip() noexcept
 {
@@ -2683,6 +2798,7 @@ int main()
     if (!RunTransactionalScene3DSubtreePaste()) return 29;
     if (!RunPrefabInstance3DRefreshTransaction()) return 30;
     if (!RunPrefabInstance3DStableIdentity()) return 31;
+    if (!RunPrefabInstance3DRootPropertyOverrides()) return 32;
     if (!RunWater3DComponentRoundTrip()) return 15;
     if (!RunWater3DPointerOcclusion()) return 16;
     if (!RunCamera3DStateSafety()) return 10;

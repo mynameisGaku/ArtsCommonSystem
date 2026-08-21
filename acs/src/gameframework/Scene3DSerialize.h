@@ -1,23 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// GameFramework — 3D シーン (ANode ツリー) のテキストシリアライズ
-// -----------------------------------------------------------------------------
-// CSceneNodeGraph の階層 + 各ノードの FTransform3D (pos/euler/scale) + AMeshComponent3D
-// (prim/color/mesh path) を行ベースのテキストへ往復させる。editor_abi の 3D ビュー
-// ポートの scene3d_serialize/load_text が委譲する «正準フォーマット» (移行後)。
-//
-// フォーマット (行ベース、editor の N3D/MSH3D を階層対応に拡張):
-//   N3D <id> <parent> <prim> <px py pz> <rx ry rz(度)> <sx sy sz> <r g b a> <name>
-//   MSH3D <id> <mesh_path>
-//   ・id        = DFS pre-order の通し番号 (root=0)。
-//   ・parent    = 親の id (-1 = root 自身)。
-//   ・prim      = EMeshPrimitive3D の整数 (AMeshComponent3D 無しは -1)。
-//   ・rot       = FTransform3D::EulerDeg() (度、XYZ。|Y|<90° で往復一致)。
-//   ・MSH3D     = prim==Mesh かつ mesh path を持つノードのみ (アセット実体のロードは
-//                 呼び出し側の責務。本シリアライザはパスのみ往復する)。
-//
-// 規約: no-STL (C の strtol/strtof/snprintf のみ) / 全 noexcept / 固定上限。
-// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"
@@ -104,6 +85,7 @@ enum class EScene3DSerializeError : u8 {
     PrefabSourceInvalid,
     InvalidPrefabInstanceId,
     DuplicatePrefabInstanceId,
+    InvalidPrefabOverride,
 };
 
 /** Authored ACS3D camera projection encoded by CAM3D. */

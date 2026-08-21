@@ -3494,7 +3494,8 @@ internal static partial class Program
                 "ACS3D v2\n" +
                 "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Vehicle\n" +
                 "PFAB3D 1 Assets/Prefabs/vehicle.acsprefab\n" +
-                "PINS3D 1 0123456789abcdef0123456789abcdef\n",
+                "PINS3D 1 0123456789abcdef0123456789abcdef\n" +
+                "POVR3D 1 5\n",
                 new UTF8Encoding(false));
             assetDatabase.Refresh(verifyContent: true);
             scene3DAsset = assetDatabase.Snapshot().Single(item =>
@@ -3514,7 +3515,7 @@ internal static partial class Program
                 !prefab3DIssues.Any(issue =>
                     issue.Code.StartsWith("SCENE3D_", StringComparison.Ordinal) &&
                     issue.Severity == PackageIssueSeverity.Error),
-                "PFAB3D/PINS3D links must join Cook closure and preserve stable identity through the reversible runtime adapter");
+                "PFAB3D/PINS3D/POVR3D links must join Cook closure and preserve stable identity and root overrides through the reversible runtime adapter");
             File.WriteAllText(
                 settings,
                 "[Game]\nDefaultScene=Assets/main.acscene\n",

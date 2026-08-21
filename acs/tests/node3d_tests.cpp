@@ -1335,6 +1335,7 @@ ACS_TEST(Scene3DSerialize, PrefabLinkRoundTripsWithoutExpandingSnapshot)
         source.Root().AddComponent<APrefabLink3DComponent>();
     source_link.SetSourcePath(FStringView("Assets/Prefabs/vehicle.acsprefab"));
     source_link.SetInstanceId(FStringView("0123456789abcdef0123456789abcdef"));
+    EXPECT_TRUE(source_link.TrySetRootPropertyOverrideMask(PrefabRootProperty3DBit(EPrefabRootProperty3D::Visible) | PrefabRootProperty3DBit(EPrefabRootProperty3D::Color)));
     source.Spawn(FStringView("EmbeddedWheel"));
 
     char text[2048]{};
@@ -1344,6 +1345,7 @@ ACS_TEST(Scene3DSerialize, PrefabLinkRoundTripsWithoutExpandingSnapshot)
     EXPECT_EQ(saved.PrefabCount, 1u);
     EXPECT_TRUE(std::strstr(text, "PFAB3D 0 Assets/Prefabs/vehicle.acsprefab\n") != nullptr);
     EXPECT_TRUE(std::strstr(text, "PINS3D 0 0123456789abcdef0123456789abcdef\n") != nullptr);
+    EXPECT_TRUE(std::strstr(text, "POVR3D 0 5\n") != nullptr);
 
     CSceneNodeGraph loaded;
     const FScene3DLoadResult result =
@@ -1358,6 +1360,7 @@ ACS_TEST(Scene3DSerialize, PrefabLinkRoundTripsWithoutExpandingSnapshot)
     EXPECT_TRUE(link != nullptr);
     EXPECT_TRUE(link != nullptr && link->SourcePath() == FStringView("Assets/Prefabs/vehicle.acsprefab"));
     EXPECT_TRUE(link != nullptr && link->InstanceId() == FStringView("0123456789abcdef0123456789abcdef"));
+    EXPECT_EQ(link != nullptr ? link->RootPropertyOverrideMask() : 0u, 5u);
 }
 
 ACS_TEST(Scene3DSerialize, PrefabInstanceIdentityRejectsMalformedOrDuplicateValuesTransactionally)
@@ -1388,6 +1391,38 @@ ACS_TEST(Scene3DSerialize, PrefabInstanceIdentityRejectsMalformedOrDuplicateValu
     EXPECT_TRUE(malformed.Error == EScene3DSerializeError::InvalidPrefabInstanceId);
     EXPECT_TRUE(duplicate.Error == EScene3DSerializeError::DuplicatePrefabInstanceId);
     EXPECT_TRUE(orphan.Error == EScene3DSerializeError::InvalidPrefabInstanceId);
+    EXPECT_EQ(scene.NodeCount(), 2u);
+    EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
+}
+
+ACS_TEST(Scene3DSerialize, PrefabRootPropertyOverrideRejectsOrphansUnknownBitsAndDuplicatesTransactionally)
+{
+    constexpr char kOrphan[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "POVR3D 1 1\n";
+    constexpr char kUnknownBits[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "PFAB3D 1 first.acsprefab\n"
+        "PINS3D 1 0123456789abcdef0123456789abcdef\n"
+        "POVR3D 1 8\n";
+    constexpr char kDuplicate[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "PFAB3D 1 first.acsprefab\n"
+        "PINS3D 1 0123456789abcdef0123456789abcdef\n"
+        "POVR3D 1 1\n"
+        "POVR3D 1 2\n";
+
+    CSceneNodeGraph scene;
+    scene.Spawn(FStringView("Keep"));
+    const FScene3DLoadResult orphan = TryLoadScene3DText(scene, kOrphan, sizeof(kOrphan) - 1u);
+    const FScene3DLoadResult unknown = TryLoadScene3DText(scene, kUnknownBits, sizeof(kUnknownBits) - 1u);
+    const FScene3DLoadResult duplicate = TryLoadScene3DText(scene, kDuplicate, sizeof(kDuplicate) - 1u);
+    EXPECT_TRUE(orphan.Error == EScene3DSerializeError::InvalidPrefabOverride);
+    EXPECT_TRUE(unknown.Error == EScene3DSerializeError::InvalidPrefabOverride);
+    EXPECT_TRUE(duplicate.Error == EScene3DSerializeError::InvalidPrefabOverride);
     EXPECT_EQ(scene.NodeCount(), 2u);
     EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
 }

@@ -32,6 +32,7 @@ enum class ECapability : std::uint64_t {
     SparseTransformMutationV1 = 1ull << 14u,
     PrefabInstanceRefresh3DV1 = 1ull << 15u,
     PrefabStableInstanceId3DV1 = 1ull << 16u,
+    PrefabRootPropertyOverride3DV1 = 1ull << 17u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -56,7 +57,8 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::OptionalServiceDiagnosticsV2) |
     CapabilityBit(ECapability::SparseTransformMutationV1) |
     CapabilityBit(ECapability::PrefabInstanceRefresh3DV1) |
-    CapabilityBit(ECapability::PrefabStableInstanceId3DV1);
+    CapabilityBit(ECapability::PrefabStableInstanceId3DV1) |
+    CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1);
 
 inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
@@ -64,7 +66,8 @@ inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::ResizeResultContract) |
     CapabilityBit(ECapability::SparseTransformMutationV1) |
     CapabilityBit(ECapability::PrefabInstanceRefresh3DV1) |
-    CapabilityBit(ECapability::PrefabStableInstanceId3DV1);
+    CapabilityBit(ECapability::PrefabStableInstanceId3DV1) |
+    CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1);
 
 [[nodiscard]] constexpr bool IsCompatible(
     std::uint32_t requested_version,

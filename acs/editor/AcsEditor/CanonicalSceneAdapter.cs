@@ -363,6 +363,7 @@ public static class CanonicalSceneAdapter
         var prefabs = new HashSet<int>();
         var prefabInstanceNodes = new HashSet<int>();
         var prefabInstanceIds = new HashSet<string>(StringComparer.Ordinal);
+        var prefabOverrideNodes = new HashSet<int>();
         var cameraNodes = new HashSet<int>();
         var cameraIds = new HashSet<string>(StringComparer.Ordinal);
         int activeCameraCount = 0;
@@ -446,6 +447,9 @@ public static class CanonicalSceneAdapter
                     break;
                 case "PINS3D":
                     InspectPrefabInstance(line, lineNumber);
+                    break;
+                case "POVR3D":
+                    InspectPrefabRootOverride(line, lineNumber);
                     break;
                 case "PLY3D":
                     InspectPolygon(line, lineNumber);
@@ -781,6 +785,30 @@ public static class CanonicalSceneAdapter
                 diagnostics.Add(Error(
                     "SCENE3D_PREFAB_INSTANCE_ID_DUPLICATE",
                     "Each PFAB3D node and stable Prefab instance id may have at most one PINS3D record.",
+                    lineNumber));
+            }
+        }
+
+        void InspectPrefabRootOverride(string line, int lineNumber)
+        {
+            string[] tokens = Tokens(line);
+            if (tokens.Length != 3 ||
+                !TryInt(tokens[1], out int id) ||
+                !prefabInstanceNodes.Contains(id) ||
+                !TryInt(tokens[2], out int mask) ||
+                mask <= 0 || (mask & ~7) != 0)
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_PREFAB_ROOT_OVERRIDE_INVALID",
+                    "POVR3D requires an earlier PINS3D on the same node and a non-zero Visible/Enabled/Color mask.",
+                    lineNumber));
+                return;
+            }
+            if (!prefabOverrideNodes.Add(id))
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_PREFAB_ROOT_OVERRIDE_DUPLICATE",
+                    "Each stable 3D Prefab root may have at most one POVR3D record.",
                     lineNumber));
             }
         }

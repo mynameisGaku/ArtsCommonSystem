@@ -23,4 +23,16 @@ void APrefabLink3DComponent::SetInstanceId(FStringView instance_id) noexcept
     m_InstanceId = FString(instance_id);
 }
 
+u32 APrefabLink3DComponent::RootPropertyOverrideMask() const noexcept
+{
+    return m_RootPropertyOverrideMask;
+}
+
+bool APrefabLink3DComponent::TrySetRootPropertyOverrideMask(u32 mask) noexcept
+{
+    if ((mask & ~kPrefabRootProperty3DAllMask) != 0u) return false;
+    m_RootPropertyOverrideMask = mask;
+    return true;
+}
+
 } // namespace acs::game

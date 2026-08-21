@@ -28,6 +28,7 @@ internal enum EditorAbiCapability : ulong
     SparseTransformMutationV1 = 1UL << 14,
     PrefabInstanceRefresh3DV1 = 1UL << 15,
     PrefabStableInstanceId3DV1 = 1UL << 16,
+    PrefabRootPropertyOverride3DV1 = 1UL << 17,
 }
 
 internal readonly record struct EditorAbiSnapshot(
@@ -93,7 +94,8 @@ internal static class EditorAbiContract
         EditorAbiCapability.ResizeResultContract |
         EditorAbiCapability.SparseTransformMutationV1 |
         EditorAbiCapability.PrefabInstanceRefresh3DV1 |
-        EditorAbiCapability.PrefabStableInstanceId3DV1;
+        EditorAbiCapability.PrefabStableInstanceId3DV1 |
+        EditorAbiCapability.PrefabRootPropertyOverride3DV1;
 
     internal static readonly IReadOnlyList<EditorAbiCapability>
         KnownCapabilities = Array.AsReadOnly(new[]
@@ -115,6 +117,7 @@ internal static class EditorAbiContract
             EditorAbiCapability.SparseTransformMutationV1,
             EditorAbiCapability.PrefabInstanceRefresh3DV1,
             EditorAbiCapability.PrefabStableInstanceId3DV1,
+            EditorAbiCapability.PrefabRootPropertyOverride3DV1,
         });
 
     private const EditorAbiCapability AllKnownCapabilities =
@@ -134,7 +137,8 @@ internal static class EditorAbiContract
         EditorAbiCapability.OptionalServiceDiagnosticsV2 |
         EditorAbiCapability.SparseTransformMutationV1 |
         EditorAbiCapability.PrefabInstanceRefresh3DV1 |
-        EditorAbiCapability.PrefabStableInstanceId3DV1;
+        EditorAbiCapability.PrefabStableInstanceId3DV1 |
+        EditorAbiCapability.PrefabRootPropertyOverride3DV1;
 
     internal static EditorAbiSnapshot Evaluate(
         bool queryAvailable,
@@ -223,6 +227,8 @@ internal static class EditorAbiContract
                 "prefab-instance-refresh-3d-v1",
             EditorAbiCapability.PrefabStableInstanceId3DV1 =>
                 "prefab-stable-instance-id-3d-v1",
+            EditorAbiCapability.PrefabRootPropertyOverride3DV1 =>
+                "prefab-root-property-override-3d-v1",
             _ => "unknown",
         };
 }

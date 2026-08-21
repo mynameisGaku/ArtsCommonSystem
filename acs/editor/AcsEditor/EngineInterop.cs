@@ -4,6 +4,16 @@ using System.Runtime.InteropServices;
 namespace AcsEditor;
 
 [Flags]
+internal enum PrefabRootProperty3D : uint
+{
+    None = 0,
+    Visible = 1u << 0,
+    Enabled = 1u << 1,
+    Color = 1u << 2,
+    All = Visible | Enabled | Color,
+}
+
+[Flags]
 internal enum CameraViewRequestFlags : uint
 {
     None = 0,
@@ -1610,6 +1620,28 @@ internal static class EngineInterop
         int id,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string source,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string text);
+    /// <summary>指定済みroot property overrideを保持して3D instanceを再生成する。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_refresh_with_root_overrides(
+        IntPtr handle,
+        int id,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string source,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string text,
+        PrefabRootProperty3D preserveMask);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern PrefabRootProperty3D acs_editor_prefab_instance3d_root_override_mask(
+        IntPtr handle,
+        int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_mark_root_override(
+        IntPtr handle,
+        int id,
+        PrefabRootProperty3D mask);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_clear_root_overrides(
+        IntPtr handle,
+        int id,
+        PrefabRootProperty3D mask);
     /// <summary>3D ノードの subtree を ACS3D テキストへシリアライズ取得 (UTF-8)。</summary>
     public static string CopySubtree3D(IntPtr handle, int id) =>
         Marshal.PtrToStringUTF8(acs_editor_copy_subtree3d(handle, id)) ?? "";
