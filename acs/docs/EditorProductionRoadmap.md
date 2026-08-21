@@ -343,18 +343,20 @@ Prefab原本内の全3D nodeは `PSID3D` の32桁source node IDを持つ。対�
 
 instance rootのVisible、Enabled、Colorは `POVR3D` maskで明示的にoverrideとして記録する。source更新で他instanceを再生成するときは指定値だけを保持する。全Revertに加え、root propertyごとのselective Revertは選択bitだけを原本値へ戻し、残りのoverrideを同じnative transactionで維持する。selective Applyは選択propertyだけを原本の`N3D`/`FLG3D`へatomic書込し、選択instanceの該当bitだけを解消して、他instanceの明示overrideを保持したまま更新する。transformはproperty overrideに含めず、instance配置として常に保持する。
 
+instance childのVisible、Enabled、Colorは `PNOVR3D` maskで永続化する。source更新時は`PSID3D`でreplacement childを再解決し、値とmaskを同じnative transaction内で戻す。child削除、identity重複、meshless ColorはsceneとUndoをrollbackする。Inspectorのproperty単位Revertは選択bitだけを原本値へ戻し、property単位Applyはsource node IDに対応する原本`N3D`/`FLG3D`だけを純粋計算とatomic writerで更新する。他instanceの明示child overrideは保持し、全Apply/Revertは選択instanceのchild markerを破棄する。
+
 instance rootの反射component propertyは `PCOVR3D` でnode/slot/propertyごとに永続化する。source更新時は編集時slotをcomponent型IDへ解決し、再生成後の同型componentへ値を戻すため、source側のcomponent並び替えを許容する。対象component/propertyが消えた場合はsceneとUndoをrollbackし、全Revertはmarkerを破棄する。全Applyは選択instanceのmarkerを解消し、他instanceのmarkerは保持して更新する。propertyごとのselective Revertは現在slotを型IDへ解決し、選択propertyだけを保持snapshotから除外して原本値へ戻す。他のroot/component overrideは同じnative transactionで維持する。selective Applyは現在値とcomponent型名を明示入力とする純粋計算で原本の対象`CPROP3D`だけを更新し、atomic書込後に選択markerだけを解消する。他instanceは各自のoverrideを維持して再生成する。
 
 - `editor/AcsEditor/MainWindow.xaml.cs`
 - `editor/AcsEditor/PrefabRootPropertyApply3D.cs`
+- `editor/AcsEditor/PrefabNodePropertyApply3D.cs`
 - `editor/AcsEditor/PrefabNodeIdentity3D.cs`
 - `editor/AcsEditor/BlueprintEditor.xaml.cs:4125-4155`
 
-現在の全体Prefab Applyはsubtree全体を書き戻し、他instanceを再生成する。root 3 propertyとroot component propertyは差分保存、source更新時の保持、property単位Apply/Revertまで対応した。childはstable source node identityまで対応し、差分markerと値保持はまだ持たない。
+現在の全体Prefab Applyはsubtree全体を書き戻し、他instanceを再生成する。root 3 property、child 3 property、root component propertyは差分保存、source更新時の保持、property単位Apply/Revertまで対応した。
 
 不足:
 
-- child stable identityとchild property override。
 - nested prefab、variant、inheritance。
 - source 更新時の conflict、diff、rebase。
 - break/relink、missing source recovery。

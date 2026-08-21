@@ -280,7 +280,10 @@ internal static class SceneContractFixtureSelfTest
             "PFAB3D 8 Prefabs/vehicle.acsprefab\n" +
             "PINS3D 8 0123456789abcdef0123456789abcdef\n" +
             "POVR3D 8 5\n" +
-            "PCOVR3D 8 0 4\n";
+            "PCOVR3D 8 0 4\n" +
+            "N3D 9 8 0 0 0 0 0 0 0 1 1 1 0.4 0.5 0.6 1 Wheel\n" +
+            "PSID3D 9 fedcba9876543210fedcba9876543210\n" +
+            "PNOVR3D 9 3\n";
         CanonicalSceneAdapterInspection prefabInspection =
             CanonicalSceneAdapter.InspectText(prefabScene, ".acs3d");
         string cookedPrefab = CanonicalSceneAdapter.RewriteReferences(
@@ -307,8 +310,11 @@ internal static class SceneContractFixtureSelfTest
                 StringComparison.Ordinal) &&
             cookedPrefab.Contains(
                 "PCOVR3D 8 0 4\n",
+                StringComparison.Ordinal) &&
+            cookedPrefab.Contains(
+                "PNOVR3D 9 3\n",
                 StringComparison.Ordinal),
-            "PFAB3D/PINS3D/POVR3D/PCOVR3D pass package validation while Cook rewrites only the source link");
+            "PFAB3D/PINS3D/PSID3D/POVR3D/PNOVR3D/PCOVR3D pass package validation while Cook rewrites only the source link");
 
         CanonicalSceneAdapterInspection duplicatePrefab =
             CanonicalSceneAdapter.InspectText(
@@ -338,9 +344,9 @@ internal static class SceneContractFixtureSelfTest
         CanonicalSceneAdapterInspection duplicatePrefabIdentity =
             CanonicalSceneAdapter.InspectText(
                 prefabScene +
-                "N3D 9 8 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Wheel\n" +
-                "PFAB3D 9 Prefabs/wheel.acsprefab\n" +
-                "PINS3D 9 0123456789abcdef0123456789abcdef\n",
+                "N3D 10 8 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 WheelInstance\n" +
+                "PFAB3D 10 Prefabs/wheel.acsprefab\n" +
+                "PINS3D 10 0123456789abcdef0123456789abcdef\n",
                 ".acs3d");
         Check(
             invalidPrefabIdentity.HasErrors &&
@@ -376,6 +382,33 @@ internal static class SceneContractFixtureSelfTest
             orphanPrefabOverride.Diagnostics.Any(static diagnostic =>
                 diagnostic.Code == "SCENE3D_PREFAB_ROOT_OVERRIDE_INVALID"),
             "POVR3D unknown bits, duplicates, and orphan records fail closed");
+
+        CanonicalSceneAdapterInspection invalidPrefabNodeOverride =
+            CanonicalSceneAdapter.InspectText(
+                prefabScene.Replace("PNOVR3D 9 3\n", "PNOVR3D 9 8\n", StringComparison.Ordinal),
+                ".acs3d");
+        CanonicalSceneAdapterInspection duplicatePrefabNodeOverride =
+            CanonicalSceneAdapter.InspectText(
+                prefabScene + "PNOVR3D 9 1\n",
+                ".acs3d");
+        CanonicalSceneAdapterInspection orphanPrefabNodeOverride =
+            CanonicalSceneAdapter.InspectText(
+                "ACS3D v2\n" +
+                "N3D 9 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 Wheel\n" +
+                "PSID3D 9 fedcba9876543210fedcba9876543210\n" +
+                "PNOVR3D 9 1\n",
+                ".acs3d");
+        Check(
+            invalidPrefabNodeOverride.HasErrors &&
+            invalidPrefabNodeOverride.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_PREFAB_NODE_OVERRIDE_INVALID") &&
+            duplicatePrefabNodeOverride.HasErrors &&
+            duplicatePrefabNodeOverride.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_PREFAB_NODE_OVERRIDE_DUPLICATE") &&
+            orphanPrefabNodeOverride.HasErrors &&
+            orphanPrefabNodeOverride.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_PREFAB_NODE_OVERRIDE_SCOPE_INVALID"),
+            "PNOVR3D unknown bits, duplicates, and orphan scopes fail closed");
 
         CanonicalSceneAdapterInspection invalidPrefabComponentOverride =
             CanonicalSceneAdapter.InspectText(

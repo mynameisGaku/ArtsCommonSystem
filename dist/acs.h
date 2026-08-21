@@ -24787,6 +24787,7 @@ enum class ECapability : std::uint64_t {
     PrefabRootComponentPropertySelectiveApply3DV1 = 1ull << 21u,
     PrefabSourceNodeIdentity3DV1 = 1ull << 22u,
     VolumetricCloudWorkloadV2 = 1ull << 23u,
+    PrefabNodePropertyOverride3DV1 = 1ull << 24u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -24818,7 +24819,8 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::PrefabRootComponentPropertyOverride3DV1) |
     CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveRevert3DV1) |
     CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveApply3DV1) |
-    CapabilityBit(ECapability::PrefabSourceNodeIdentity3DV1);
+    CapabilityBit(ECapability::PrefabSourceNodeIdentity3DV1) |
+    CapabilityBit(ECapability::PrefabNodePropertyOverride3DV1);
 
 inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
@@ -24832,7 +24834,8 @@ inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::PrefabRootComponentPropertyOverride3DV1) |
     CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveRevert3DV1) |
     CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveApply3DV1) |
-    CapabilityBit(ECapability::PrefabSourceNodeIdentity3DV1);
+    CapabilityBit(ECapability::PrefabSourceNodeIdentity3DV1) |
+    CapabilityBit(ECapability::PrefabNodePropertyOverride3DV1);
 
 [[nodiscard]] constexpr bool IsCompatible(
     std::uint32_t requested_version,
@@ -81859,9 +81862,41 @@ private:
 // SPDX-License-Identifier: Apache-2.0
 
 
+// ===================== gameframework/PrefabNodeProperty3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
 namespace acs::game {
 
-/** Prefab原本内の対応nodeをApply/Revert後も識別する3D node metadata。 */
+/** 3D Prefab child nodeで原本より優先できるproperty。 */
+enum class EPrefabNodeProperty3D : u8 {
+    /** 表示状態。 */
+    Visible = 0,
+
+    /** 更新状態。 */
+    Enabled = 1,
+
+    /** meshのRGBA色。 */
+    Color = 2,
+};
+
+/** 指定propertyをPNOVR3D maskの1 bitへ変換する。 */
+constexpr u32 PrefabNodeProperty3DBit(EPrefabNodeProperty3D property) noexcept
+{
+    return u32{1} << static_cast<u32>(property);
+}
+
+/** PNOVR3Dで利用できる全property bit。 */
+inline constexpr u32 kPrefabNodeProperty3DAllMask =
+    PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Visible) |
+    PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Enabled) |
+    PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Color);
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/** Prefab原本内の対応nodeとinstance側の明示property overrideを保持する3D node metadata。 */
 class APrefabNodeIdentity3DComponent final : public AComponent {
 public:
     ACS_GAME_COMPONENT_KIND(APrefabNodeIdentity3DComponent)
@@ -81872,9 +81907,18 @@ public:
     /** 32桁小文字hexのsource node IDを設定する。不正な入力ではfalseを返して既存値を保持する。 */
     bool TrySetSourceNodeId(FStringView source_node_id) noexcept;
 
+    /** PNOVR3Dに記録されたchild node property override maskを返す。 */
+    u32 NodePropertyOverrideMask() const noexcept;
+
+    /** 定義済みbitだけのchild node property override maskを設定する。未知bitでは失敗する。 */
+    bool TrySetNodePropertyOverrideMask(u32 mask) noexcept;
+
 private:
     /** 同じPrefab原本から作られた全instanceで共有するsource node ID。 */
     FString m_SourceNodeId;
+
+    /** 原本更新後もinstance値を維持するchild node propertyのbit集合。 */
+    u32 m_NodePropertyOverrideMask = 0u;
 };
 
 } // namespace acs::game

@@ -166,6 +166,18 @@ internal static class SceneEditorMigrationSelfTest
             ExtractMethodBody(
                 shellSource,
                 "private void ApplyPrefabRootOverride3D(");
+        string selectivePrefabNodeRevertBody =
+            ExtractMethodBody(
+                shellSource,
+                "private void RevertPrefabNodeOverride3D(");
+        string selectivePrefabNodeApplyBody =
+            ExtractMethodBody(
+                shellSource,
+                "private void ApplyPrefabNodeOverride3D(");
+        string markPrefabNodePropertyBody =
+            ExtractMethodBody(
+                view3DSource,
+                "private void MarkPrefabPropertyOverride3D(");
         string selectivePrefabRootComponentApplyBody =
             ExtractMethodBody(
                 shellSource,
@@ -434,6 +446,9 @@ internal static class SceneEditorMigrationSelfTest
             shellSource.Contains(
                 "acs_editor_prefab_instance3d_clear_root_component_property_overrides(",
                 StringComparison.Ordinal) &&
+            shellSource.Contains(
+                "acs_editor_prefab_instance3d_clear_child_property_overrides(",
+                StringComparison.Ordinal) &&
             selectivePrefabRootApplyBody.Contains(
                 "preserveRootOverrides: true",
                 StringComparison.Ordinal) &&
@@ -444,6 +459,35 @@ internal static class SceneEditorMigrationSelfTest
                 "CreatePrefabRootOverrideApplyButton3D(",
                 StringComparison.Ordinal),
             "3D Prefab root overrides expose selective Apply through pure calculation and explicit adapters");
+        Check(
+            selectivePrefabNodeRevertBody.Contains(
+                "acs_editor_prefab_instance3d_revert_node_overrides(",
+                StringComparison.Ordinal) &&
+            selectivePrefabNodeApplyBody.Contains(
+                "PrefabNodePropertyApply3D.TryBuildSource(",
+                StringComparison.Ordinal) &&
+            selectivePrefabNodeApplyBody.Contains(
+                "SceneSourceFile.WriteAtomicText(",
+                StringComparison.Ordinal) &&
+            selectivePrefabNodeApplyBody.Contains(
+                "acs_editor_prefab_instance3d_clear_property_overrides(",
+                StringComparison.Ordinal) &&
+            view3DSource.Contains(
+                "acs_editor_prefab_instance3d_mark_property_override(",
+                StringComparison.Ordinal) &&
+            view3DSource.Contains(
+                "CreatePrefabNodeOverrideApplyButton3D(",
+                StringComparison.Ordinal) &&
+            view3DSource.Contains(
+                "CreatePrefabNodeOverrideRevertButton3D(",
+                StringComparison.Ordinal) &&
+            markPrefabNodePropertyBody.Contains(
+                "RefreshPrefabNodeOverrideBanner3D(id)",
+                StringComparison.Ordinal) &&
+            view3DSource.Contains(
+                "PopulatePrefabNodeOverrideBanner3D(",
+                StringComparison.Ordinal),
+            "3D Prefab child node overrides use source identity, pure Apply calculation, and native transactional Revert");
         Check(
             view3DSource.Contains(
                 "MarkPrefabRootComponentPropertyOverride3D(",
@@ -490,7 +534,7 @@ internal static class SceneEditorMigrationSelfTest
                 "NewPrefabInstanceId3D()",
                 StringComparison.Ordinal) &&
             shellSource.Contains(
-                "PFAB(?:3D)?|PINS3D|POVR3D|PCOVR3D",
+                "PFAB(?:3D)?|PINS3D|POVR3D|PNOVR3D|PCOVR3D",
                 StringComparison.Ordinal),
             "3D Prefab placement supplies explicit identity through one native transaction and strips template self-links and overrides");
         Check(

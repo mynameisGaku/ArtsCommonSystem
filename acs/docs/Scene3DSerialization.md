@@ -35,7 +35,7 @@
 
 ### 従来互換の保存形式
 
-- ヘッダー無しの `N3D` / `MSH3D` / `SPR3D` / `PFAB3D` / `PINS3D` / `POVR3D` / `CAM3D`。カメラ、
+- ヘッダー無しの `N3D` / `MSH3D` / `SPR3D` / `PFAB3D` / `PINS3D` / `PSID3D` / `POVR3D` / `PNOVR3D` / `CAM3D`。カメラ、
   3Dスプライト、Prefabリンクを持つgraphを往復しても参照を失わない。
 - rootは `id=0, parent=-1` の1件だけ。
 - idは0から連続し、子のparentは必ず先に宣言されたidを参照する。
@@ -46,7 +46,7 @@
 - node idは一意な非負整数であれば疎でもよい。parentは先に宣言されたnodeを参照する。
 - `parent=-1` のtop-level nodeを複数保持でき、runtimeでは1つの合成root配下へ接続する。
 - `N3D`、`MSH3D`、`FLG3D`、`EMPTY3D`、`MAT3D`、`CMP3D`、
-  `CPROP3D`、`PLY3D`、`SPR3D`、`PFAB3D`、`PINS3D`、`PSID3D`、`POVR3D`、`PCOVR3D`、`CAM3D`、`SEL3D` を扱う。
+  `CPROP3D`、`PLY3D`、`SPR3D`、`PFAB3D`、`PINS3D`、`PSID3D`、`POVR3D`、`PNOVR3D`、`PCOVR3D`、`CAM3D`、`SEL3D` を扱う。
 - `MAT3D` は従来のmetallic/roughness値または `.acsmat` パスを扱う。
 - `CMP3D` は反射factoryで事前生成し、`CPROP3D` を適用してからnodeへattachする。
 - `PLY3D <nodeId> <pointCount> <x0> <y0> ...` は既出の `Mesh` nodeへXY平面上の
@@ -69,6 +69,9 @@
 - `POVR3D <nodeId> <mask>` は同じnodeの `PINS3D` より後に、instance rootで原本より優先する
   propertyを記録する。maskはVisible=`1`、Enabled=`2`、Color=`4` の和であり、transformは
   instance配置として従来どおり常に保持する。値自体は同じnodeの `N3D` / `FLG3D` に保存する。
+- `PNOVR3D <nodeId> <mask>` は `PSID3D` を持つinstance childで原本より優先するVisible、Enabled、
+  Colorを同じbitで記録する。値は対象childの `N3D` / `FLG3D` に保存し、source更新後は一時的な
+  数値node IDではなくsource node IDでreplacement childを再解決して適用する。
 - `PCOVR3D <nodeId> <componentSlot> <propertyIndex>` はstable instance rootの反射component
   propertyを1件overrideとして記録する。値は同じslot/propertyの `CPROP3D` に保存する。
   source再生成時は現在slotのcomponent型IDを取得し、replacement内の同型componentへ値を
@@ -102,6 +105,9 @@
   値重複は許容する。Prefab原本内の重複はmanaged migrationがfail closedで拒否する。
 - `POVR3D` は同じnodeの `PINS3D` より後に1件だけ指定できる。maskは `1..7` とし、未知bit、
   重複、stable instance IDを持たないnodeへの指定をcommit前に拒否する。
+- `PNOVR3D` は同じnodeの `PSID3D` より後に1件だけ指定できる。対象はstable `PINS3D` root自身では
+  なく、そのscope内のchildに限定する。maskは `1..7` とし、未知bit、重複、孤立child、nested root
+  自身への指定をcommit前に拒否する。
 - `PCOVR3D` は同じnodeの `PINS3D` と対象 `CMP3D` より後に指定する。component slotは既存、
   property indexは `0..23` かつ現在の反射schema内でなければならず、同じnode/slot/propertyの
   重複とstable instance IDを持たないnodeへの指定をcommit前に拒否する。
@@ -137,7 +143,11 @@ sceneとUndo履歴をrollbackする。component selective Revertは現在slotか
 保持snapshotから除いてsource値へ戻す。他のroot/component overrideは維持し、未override property、
 不正slot/property、source不一致ではsceneを変更しない。component selective Applyは現在slotの型名で
 原本componentを解決し、選択`CPROP3D`だけをatomic更新して選択instanceのmarkerだけを外す。他instanceの
-明示overrideは型IDで維持する。全Revertはcomponent overrideも破棄する。
+明示overrideは型IDで維持する。child node overrideも同じrefresh transactionでcaptureし、`PSID3D`で
+replacementを再解決して値と`PNOVR3D` maskを戻す。対象childの削除、identity重複、Color適用先のmesh欠落は
+sceneとUndo履歴をrollbackする。child selective Revertは選択bitだけを保持snapshotから除き、selective Applyは
+source node IDに対応する原本`N3D`/`FLG3D`だけを純粋計算とatomic writerで更新する。他instanceのchild overrideは
+維持され、全Applyと全Revertは選択instanceのchild markerを破棄する。全Revertはcomponent overrideも破棄する。
 
 pack batch は後続entryの失敗時に先行entryの完了数を返す。loaderはprivate parsed
 document上で完了済み依存を初出順にdecodeし、旧逐次経路と同じ先行decode errorを優先する。

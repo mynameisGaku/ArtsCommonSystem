@@ -97,6 +97,9 @@ internal static class EditorAbiContractSelfTest
               compatible.ToDisplayText().Contains(
                   "prefab-source-node-identity-3d-v1",
                   StringComparison.Ordinal) &&
+              compatible.ToDisplayText().Contains(
+                  "prefab-node-property-override-3d-v1",
+                  StringComparison.Ordinal) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.SparseTransformMutationV1) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
@@ -115,6 +118,8 @@ internal static class EditorAbiContractSelfTest
                   EditorAbiCapability.PrefabRootComponentPropertySelectiveApply3DV1) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.PrefabSourceNodeIdentity3DV1) &&
+              EditorAbiContract.RequiredCapabilities.HasFlag(
+                  EditorAbiCapability.PrefabNodePropertyOverride3DV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.VolumetricCloudWorkloadV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
@@ -522,6 +527,22 @@ internal static class EditorAbiContractSelfTest
             missingPrefabSourceNodeIdentity.MissingRequired.HasFlag(
                 EditorAbiCapability.PrefabSourceNodeIdentity3DV1),
             "provider without stable 3D Prefab source node identity fails before the editor can call its exports");
+
+        EditorAbiSnapshot missingPrefabNodePropertyOverride =
+            EditorAbiContract.Evaluate(
+                queryAvailable: true,
+                queryResult: 0,
+                providerVersion: EditorAbiContract.RequestedVersion,
+                capabilityBits:
+                    (ulong)(complete &
+                        ~EditorAbiCapability.PrefabNodePropertyOverride3DV1),
+                productVersion: "ACS Editor test",
+                renderBackend: "Test RHI");
+        Check(
+            !missingPrefabNodePropertyOverride.Compatible &&
+            missingPrefabNodePropertyOverride.MissingRequired.HasFlag(
+                EditorAbiCapability.PrefabNodePropertyOverride3DV1),
+            "provider without 3D Prefab child node overrides fails before the editor can call its exports");
 
         EditorAbiSnapshot falseSuccess = EditorAbiContract.Evaluate(
             queryAvailable: true,

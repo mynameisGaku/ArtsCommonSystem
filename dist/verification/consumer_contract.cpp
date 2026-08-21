@@ -71,9 +71,15 @@ static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::TryWireframe), FDebugD
 using FPrefabSourceNodeIdSignature = acs::FStringView (acs::game::APrefabNodeIdentity3DComponent::*)() const noexcept;
 /** 3D Prefab source node identityの検証付きsetter署名。 */
 using FTrySetPrefabSourceNodeIdSignature = bool (acs::game::APrefabNodeIdentity3DComponent::*)(acs::FStringView) noexcept;
+/** 3D Prefab child node property override maskの公開getter署名。 */
+using FPrefabNodePropertyOverrideMaskSignature = acs::u32 (acs::game::APrefabNodeIdentity3DComponent::*)() const noexcept;
+/** 3D Prefab child node property override maskの検証付きsetter署名。 */
+using FTrySetPrefabNodePropertyOverrideMaskSignature = bool (acs::game::APrefabNodeIdentity3DComponent::*)(acs::u32) noexcept;
 
 static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent::SourceNodeId), FPrefabSourceNodeIdSignature>);
 static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent::TrySetSourceNodeId), FTrySetPrefabSourceNodeIdSignature>);
+static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent::NodePropertyOverrideMask), FPrefabNodePropertyOverrideMaskSignature>);
+static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent::TrySetNodePropertyOverrideMask), FTrySetPrefabNodePropertyOverrideMaskSignature>);
 
 /** Primitive の既存・追加公開入口を配布 header と library 間で照合する署名。 */
 using FPrimitiveMakeCubeSignature = acs::TSharedPtr<acs::AMeshAsset> (*)(acs::f32) noexcept;
@@ -245,8 +251,14 @@ void LinkPrefabSourceNodeIdentitySymbols() noexcept
     volatile FPrefabSourceNodeIdSignature source_node_id = &acs::game::APrefabNodeIdentity3DComponent::SourceNodeId;
     /** linkerが除去できない検証付きsetter symbolのmember pointer。 */
     volatile FTrySetPrefabSourceNodeIdSignature try_set_source_node_id = &acs::game::APrefabNodeIdentity3DComponent::TrySetSourceNodeId;
+    /** linkerが除去できないnode override getter symbolのmember pointer。 */
+    volatile FPrefabNodePropertyOverrideMaskSignature node_override_mask = &acs::game::APrefabNodeIdentity3DComponent::NodePropertyOverrideMask;
+    /** linkerが除去できないnode override setter symbolのmember pointer。 */
+    volatile FTrySetPrefabNodePropertyOverrideMaskSignature try_set_node_override_mask = &acs::game::APrefabNodeIdentity3DComponent::TrySetNodePropertyOverrideMask;
     (void)source_node_id;
     (void)try_set_source_node_id;
+    (void)node_override_mask;
+    (void)try_set_node_override_mask;
 }
 
 /** 配布SDKのheader、外部symbol、基本計算を検証し、失敗時は1を返す。 */
@@ -331,7 +343,7 @@ int main()
     /** rootへ所有させた3D Prefab source node identity component。 */
     game::APrefabNodeIdentity3DComponent& prefab_identity = prefab_identity_scene.Root().AddComponent<game::APrefabNodeIdentity3DComponent>();
     /** canonical値の設定、非canonical値の拒否、既存値保持をまとめた結果。 */
-    const bool prefab_source_identity_ok = prefab_identity.TrySetSourceNodeId(FStringView("0123456789abcdef0123456789abcdef")) && !prefab_identity.TrySetSourceNodeId(FStringView("0123456789ABCDEF0123456789ABCDEF")) && prefab_identity.SourceNodeId() == FStringView("0123456789abcdef0123456789abcdef");
+    const bool prefab_source_identity_ok = prefab_identity.TrySetSourceNodeId(FStringView("0123456789abcdef0123456789abcdef")) && !prefab_identity.TrySetSourceNodeId(FStringView("0123456789ABCDEF0123456789ABCDEF")) && prefab_identity.SourceNodeId() == FStringView("0123456789abcdef0123456789abcdef") && prefab_identity.TrySetNodePropertyOverrideMask(5u) && !prefab_identity.TrySetNodePropertyOverrideMask(8u) && prefab_identity.NodePropertyOverrideMask() == 5u;
 
     // 呼び出し側が所有するシーンタイマー。
     game::CSceneTimer scene_timer;

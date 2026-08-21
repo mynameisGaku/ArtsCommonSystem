@@ -20,4 +20,16 @@ bool APrefabNodeIdentity3DComponent::TrySetSourceNodeId(FStringView source_node_
     return true;
 }
 
+u32 APrefabNodeIdentity3DComponent::NodePropertyOverrideMask() const noexcept
+{
+    return m_NodePropertyOverrideMask;
+}
+
+bool APrefabNodeIdentity3DComponent::TrySetNodePropertyOverrideMask(u32 mask) noexcept
+{
+    if ((mask & ~kPrefabNodeProperty3DAllMask) != 0u) return false;
+    m_NodePropertyOverrideMask = mask;
+    return true;
+}
+
 } // namespace acs::game
