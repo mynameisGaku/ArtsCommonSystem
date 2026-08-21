@@ -17142,6 +17142,7 @@ ACS_EDITOR_API int acs_editor_reparent3d(void* handle, int child_id, int parent_
     if (child == nullptr || parent == nullptr) return 0;
     game::FTransform3D local{};
     if (!TryPrepareScene3DReparent_Internal(*child, *parent, local)) return 0;
+    const bool resets_temporal_history = TransformAffectsCurrentTemporalRenderCamera3D(*host, child);
     char* const rollback = DupSnapshot(*host);
     if (rollback == nullptr) return 0;
     if (!TryApplyScene3DReparent_Internal(*host, *child, *parent, local) || !CommitUndoSnapshot(*host, rollback))
@@ -17150,7 +17151,7 @@ ACS_EDITOR_API int acs_editor_reparent3d(void* handle, int child_id, int parent_
         delete[] rollback;
         return 0;
     }
-    InvalidateTemporalRenderHistories(*host);
+    if (resets_temporal_history) InvalidateTemporalRenderHistories(*host);
     return 1;
 }
 
@@ -17170,6 +17171,7 @@ ACS_EDITOR_API int acs_editor_node3d_move(void* handle, int id, int target_id, i
     const bool changes_parent = node->Parent() != parent;
     game::FTransform3D local{};
     if (changes_parent && !TryPrepareScene3DReparent_Internal(*node, *parent, local)) return 0;
+    const bool resets_temporal_history = changes_parent && TransformAffectsCurrentTemporalRenderCamera3D(*host, node);
     u32 source_index = parent->ChildCount();
     u32 target_index = parent->ChildCount();
     if (!changes_parent)
@@ -17216,7 +17218,7 @@ ACS_EDITOR_API int acs_editor_node3d_move(void* handle, int id, int target_id, i
         delete[] rollback;
         return 0;
     }
-    InvalidateTemporalRenderHistories(*host);
+    if (resets_temporal_history) InvalidateTemporalRenderHistories(*host);
     return 1;
 }
 
