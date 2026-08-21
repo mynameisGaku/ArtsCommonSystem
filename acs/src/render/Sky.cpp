@@ -1179,10 +1179,9 @@ float4 cloudWeatherData(float3 p){
         weatherMap_sampler,weatherUv.zw,0);
     float4 weather=lerp(a,b,0.45);
     weather.r=saturate((weather.r-0.045)*1.095);
-    // The generated type channel occupies a compressed middle band. Expand
-    // it so one weather field can actually author stratus, stratocumulus and
-    // cumulus instead of selecting the same soft profile everywhere.
-    weather.g=smoothstep(0.34,0.58,weather.g);
+    // 二領域を混ぜた雲種は主に 0.42～0.66 に収まる。この実分布を全範囲へ広げ、
+    // 中央値付近を積雲へ飽和させず、層雲、層積雲、積雲の高さ形状を使い分ける。
+    weather.g=smoothstep(0.42,0.66,weather.g);
     weather.b=max(a.b,b.b*0.72);
     // 成長後の被覆をこの天候値に収め、占有判定、詳細密度、自己影で共有する。
     weather.r=saturate(

@@ -316,6 +316,11 @@ f32 SmoothStepForTest(f32 edge0, f32 edge1, f32 value) noexcept {
     return t * t * (3.0f - 2.0f * t);
 }
 
+// 二つの天候領域を混ぜた雲種を、三種類の高さ形状で使う範囲へ広げる。
+f32 CloudExpandedTypeForTest(f32 blendedType) noexcept {
+    return SmoothStepForTest(0.42f, 0.66f, blendedType);
+}
+
 // 被覆差が大きい時だけ、時間再構成を現在の雲形状へ速く追従させる。
 f32 CloudTemporalCurrentWeightForTest(
     f32 currentAlpha, f32 historyAlpha, bool stationary) noexcept {
@@ -2631,8 +2636,7 @@ ACS_TEST(VolumetricClouds,
         "floatedgeResponse=16.0*edgeBase*edgeBase;"
         "returnclamp(slowPhase*0.38+finePhase*0.32,-0.14,0.14)"
         "*edgeResponse;}"));
-    const std::size_t typeExpansion = shader.find(
-        "weather.g=smoothstep(0.34,0.58,weather.g);");
+    const std::size_t typeExpansion = shader.find("weather.g=smoothstep(0.42,0.66,weather.g);");
     const std::size_t coverageEvolution = shader.find(
         "weather.r=saturate("
         "weather.r+cloudWeatherCoverageEvolution(weather));");
@@ -2652,6 +2656,30 @@ ACS_TEST(VolumetricClouds,
             helperBegin, helperEnd - helperBegin);
         EXPECT_FALSE(Contains(helper, "SampleLevel("));
     }
+}
+
+ACS_TEST(VolumetricClouds, WeatherTypeExpansionPreservesStratusTransitionAndCumulusRanges) {
+    // 決定的な天候場の 10～90 パーセンタイルを含む代表値で、中央域を飽和させない。
+    EXPECT_NEAR(CloudExpandedTypeForTest(0.40f), 0.0f, 0.0f);
+    EXPECT_NEAR(CloudExpandedTypeForTest(0.48f), 0.15625f, 1e-6f);
+    EXPECT_NEAR(CloudExpandedTypeForTest(0.54f), 0.5f, 1e-6f);
+    EXPECT_NEAR(CloudExpandedTypeForTest(0.60f), 0.84375f, 1e-6f);
+    EXPECT_NEAR(CloudExpandedTypeForTest(0.68f), 1.0f, 0.0f);
+
+    f32 previous = -1.0f;
+    for (u32 step = 0u; step <= 1000u; ++step) {
+        const f32 input = static_cast<f32>(step) / 1000.0f;
+        const f32 expanded = CloudExpandedTypeForTest(input);
+        EXPECT_TRUE(std::isfinite(expanded));
+        EXPECT_TRUE(expanded >= previous);
+        EXPECT_TRUE(expanded >= 0.0f && expanded <= 1.0f);
+        previous = expanded;
+    }
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(Contains(shader, "weather.g=smoothstep(0.42,0.66,weather.g);"));
+    EXPECT_FALSE(Contains(shader, "weather.g=smoothstep(0.34,0.58,weather.g);"));
 }
 
 ACS_TEST(VolumetricClouds,
