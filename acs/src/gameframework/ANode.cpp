@@ -34,15 +34,20 @@ void ANode::FReparentTargetObserver::Reset() noexcept {
     m_Next = nullptr;
 }
 
+ANode::FReparentTargetObserver* ANode::FReparentTargetObserver::InvalidateTarget_Internal() noexcept {
+    FReparentTargetObserver* next = m_Next;
+    m_Target = nullptr;
+    m_Previous = nullptr;
+    m_Next = nullptr;
+    return next;
+}
+
 ANode::~ANode() noexcept {
     // 対象側から全 observer を切り離す。各 source のデストラクタが後で
     // Reset しても、破棄中の this を再参照しない状態にする。
     while (m_ReparentObserverHead != nullptr) {
         FReparentTargetObserver* observer = m_ReparentObserverHead;
-        m_ReparentObserverHead = observer->m_Next;
-        observer->m_Target = nullptr;
-        observer->m_Previous = nullptr;
-        observer->m_Next = nullptr;
+        m_ReparentObserverHead = observer->InvalidateTarget_Internal();
     }
 }
 
