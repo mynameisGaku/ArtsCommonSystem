@@ -1368,12 +1368,8 @@ CloudMacroSample sampleCloudMacroLighting(float3 p,float weatherCoverage){
     }
     return macro;
 }
-// Weather varies over 9--65 km and curl only displaces the macro field by a
-// few dozen metres.  Re-fetching both slow fields for every exponentially
-// spaced sun probe dominated the light march without adding corresponding
-// shadow detail.  The view sample supplies the coherent low-frequency values
-// while this helper preserves the exact height profile and three-lobe shape
-// lookup at every probe.
+// 近距離3点では視線標本の天候と渦を共有し、基本形状と高度だけを各地点で採取する。
+// 遠距離5点は影キャッシュ、または地点ごとに天候を再採取する専用経路へ任せる。
 CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeatherMask,float heightThresholdTarget,float4 slowProfileTerms,float2 slowCurl,float3 referenceP,float3 referenceUvw,float referenceHeight,float shapeScale){
     CloudMacroSample macro;
     macro.weather=float4(0.0,0.0,slowProfileTerms.z,0.0);
@@ -1407,25 +1403,43 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeath
 float cloudHeightPrecipitationDensityScale(float height,float precipitation){
     return lerp(1.10,0.92,height)*lerp(1.0,1.28,precipitation);
 }
-// 遠距離5点は侵食を省きつつ、視線密度と同じ被覆・高度・降水・上層倍率を保つ。
-float sampleCloudLightingDensityFromSlowFields(float3 p,float slowWeatherMask,float heightThresholdTarget,float4 slowProfileTerms,float3 referenceP,float3 referenceUvw,float referenceHeight,float shapeScale){
+// キャッシュを使えない遠距離の光標本を、地点ごとの天候で再構成する。
+// 渦の形状移動は最大44 mなので視線標本から共有し、天候の最小約315 m模様は共有しない。
+// 構造体を返さず密度までここで確定し、視線積分中の一時値の寿命を広げない。
+float sampleCloudFarLightingDensity(float3 p,float weatherCoverage,float2 slowCurl){
     float densityResult=0.0;
+    float4 weather=cloudWeatherData(p);
+    float weatherMask=cloudWeatherMask(weather,weatherCoverage);
     float altitude=cloudAltitude(p);
     bool upperBand=inUpperCloudBandFromAltitude(altitude);
-    float weatherMask=slowWeatherMask;
-    if(upperBand) weatherMask*=cloudUpperTerms.x;
     if(weatherMask>0.001){
-        float sampleHeight=cloudConvectiveHeight(heightFractionFromAltitude(altitude,upperBand),slowProfileTerms.w,upperBand);
-        float sampledProfile=cloudProfileFromTypeWeights(sampleHeight,slowProfileTerms.xy,slowProfileTerms.z);
-        float profileThresholdWeight=smoothstep(0.02,0.32,sampledProfile);
+        float sampleHeight=cloudConvectiveHeight(
+            heightFractionFromAltitude(altitude,upperBand),
+            cloudColumnHeightShift(weather),upperBand);
+        float sampledProfile=cloudProfile(
+            sampleHeight,weather.g,weather.b);
+        float profileThresholdWeight=smoothstep(
+            0.02,0.32,sampledProfile);
         if(profileThresholdWeight>0.0){
             float profileShape=pow(profileThresholdWeight,0.65);
-            float heightThreshold=cloudHeightThresholdFromTarget(heightThresholdTarget,profileShape);
-            float profileClosure=cloudProfileTailClosure(profileThresholdWeight);
-            float3 lightingUvw=referenceUvw+float3((p.x-referenceP.x)*shapeScale,(sampleHeight-referenceHeight)*0.78,(p.z-referenceP.z)*shapeScale);
+            float heightThreshold=cloudHeightThreshold(
+                weatherCoverage,profileShape);
+            float profileClosure=
+                cloudProfileTailClosure(profileThresholdWeight);
             float baseNoise=0.0;
-            cloudBaseShapeLighting(lightingUvw,heightThreshold,baseNoise);
-            densityResult=saturate(remapc(baseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0)*weatherMask*profileClosure*cloudHeightPrecipitationDensityScale(sampleHeight,slowProfileTerms.z));
+            cloudBaseShapeLighting(
+                cloudUVW(p,weather,slowCurl,sampleHeight),
+                heightThreshold,baseNoise);
+            float baseDensity=remapc(
+                baseNoise,heightThreshold,
+                min(heightThreshold+0.22,0.98),0.0,1.0);
+            if(upperBand) weatherMask*=cloudUpperTerms.x;
+            if(baseDensity>0.001){
+                densityResult=saturate(
+                    baseDensity*weatherMask*profileClosure*
+                    cloudHeightPrecipitationDensityScale(
+                        sampleHeight,weather.b));
+            }
             if(upperBand) densityResult*=cloudUpperTerms.y;
         }
     }
@@ -1981,6 +1995,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 }
             }
             if(!lightTerminated && !cachedFarTail){
+                // 既定の2500 m層で約3.2 kmに及ぶため、各地点の天候、高さ、
+                // 基本形状を再評価する。視線標本の天候を流用すると、雲縁を跨いでも
+                // 同じ被覆が続き、退避経路だけ自己影が板状になる。
                 [loop] for(int l=3;l<8;l++){
                     float2 coneGeometry=CLOUD_CONE_GEOMETRY[l];
                     float3 coneDir=cloudConeDirection(
@@ -1988,7 +2005,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                         coneSin,coneCos,coneGeometry);
                     float3 lightHalfStep=coneDir*(0.5*lightStep);
                     lp+=lightHalfStep;
-                    float lightDensity=sampleCloudLightingDensityFromSlowFields(lp,viewWeatherMask,coverageTerms.w,sharedLightProfileTerms,p,viewMacroUvw,macro.height,sharedShapeScale);
+                    float lightDensity=sampleCloudFarLightingDensity(
+                        lp,coverage,sharedLightCurl);
                     lightDepth+=lightDensity*lightStep*layer.w;
                     lp+=lightHalfStep;
                     if(lightDepth*density*cloudLightingExtinction.y>18.0) break;

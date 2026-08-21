@@ -2271,7 +2271,9 @@ ACS_TEST(VolumetricClouds, HeightProfileThresholdOnlyClosesTheExtremeTail) {
     EXPECT_TRUE(Contains(shader, "floatcloudProfileTailClosure(floatthresholdWeight){returnsmoothstep(0.0,0.12,thresholdWeight);}"));
     EXPECT_TRUE(Contains(shader, "macro.profileClosure=cloudProfileTailClosure(profileThresholdWeight);"));
     EXPECT_TRUE(Contains(shader, "*macro.weatherMask*macro.profileClosure"));
-    EXPECT_TRUE(Contains(shader, "*weatherMask*profileClosure"));
+    EXPECT_EQ(
+        CountOccurrences(shader, "*weatherMask*macro.profileClosure"),
+        static_cast<std::size_t>(2));
     EXPECT_FALSE(Contains(shader, "macro.profileWeight"));
     EXPECT_FALSE(Contains(shader, "*slowWeatherMask*profileThresholdWeight"));
 }
@@ -2944,13 +2946,9 @@ ACS_TEST(VolumetricClouds,
     if (nearLightLoop != std::string::npos) {
         const std::string completeLightSection = shader.substr(nearLightLoop);
         EXPECT_EQ(CountOccurrences(completeLightSection, "sampleCloudMacroLightingFromSlowFields(" "lp,viewWeatherMask,coverageTerms.w," "sharedLightProfileTerms,sharedLightCurl," "p,viewMacroUvw,macro.height,sharedShapeScale)"), static_cast<std::size_t>(1));
-        EXPECT_EQ(CountOccurrences(
-                      completeLightSection,
-                      "sampleCloudLightingDensityFromSlowFields("
-                      "lp,viewWeatherMask,coverageTerms.w,"
-                      "sharedLightProfileTerms,"
-                      "p,viewMacroUvw,macro.height,sharedShapeScale)"),
-                  static_cast<std::size_t>(1));
+        EXPECT_EQ(CountOccurrences(completeLightSection, "sampleCloudMacroLighting(lp,coverage)"), static_cast<std::size_t>(0));
+        EXPECT_EQ(CountOccurrences(completeLightSection, "floatlightDensity=sampleCloudFarLightingDensity(" "lp,coverage,sharedLightCurl);"), static_cast<std::size_t>(1));
+        EXPECT_FALSE(Contains(completeLightSection, "sampleCloudLightingDensityFromSlowFields("));
         EXPECT_EQ(CountOccurrences(completeLightSection, "floatlightDensity=" "cloudDensityFromMacro("), static_cast<std::size_t>(1));
         EXPECT_EQ(CountOccurrences(
                       completeLightSection,
@@ -2972,6 +2970,36 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
     EXPECT_NEAR(rightEndpointDepth, 0.0f, 0.0f);
     EXPECT_NEAR(midpointDepth, exactDepth, 1e-6f);
     EXPECT_TRUE(std::fabs(rightEndpointDepth - exactDepth) > 0.49f * kStepLength);
+
+    // 既定の2500 m層では、近距離3点の終端は約206 mだが、遠距離5点を含む終端は
+    // 最大乱数位相で約3.2 kmとなる。約315 m周期まで含む天候場を視線位置で固定できない。
+    constexpr f32 kLayerHeight = 2500.0f;
+    constexpr f32 kMaximumJitterScale = 1.28f;
+    constexpr f32 kRegionalWeatherFinestSpan = 9127.0f / 29.0f;
+    constexpr f32 kMaximumCurlValueDifference = 2.0f;
+    constexpr f32 kCurlWarpMetres = 22.0f;
+    constexpr f32 kMaximumSharedCurlPositionError =
+        kMaximumCurlValueDifference * kCurlWarpMetres;
+    f32 expandingStep =
+        0.012f * kLayerHeight * kMaximumJitterScale;
+    f32 traveledDistance = 0.0f;
+    f32 nearEnd = 0.0f;
+    f32 farthestMidpoint = 0.0f;
+    for (u32 lightSample = 0u; lightSample < 8u; ++lightSample) {
+        farthestMidpoint = traveledDistance + 0.5f * expandingStep;
+        traveledDistance += expandingStep;
+        if (lightSample == 2u) nearEnd = traveledDistance;
+        expandingStep *= 1.65f;
+    }
+    EXPECT_NEAR(nearEnd, 206.304f, 0.001f);
+    EXPECT_NEAR(farthestMidpoint, 2547.205f, 0.002f);
+    EXPECT_NEAR(traveledDistance, 3186.481f, 0.002f);
+    EXPECT_TRUE(
+        farthestMidpoint > kRegionalWeatherFinestSpan * 8.0f);
+    EXPECT_NEAR(kMaximumSharedCurlPositionError, 44.0f, 1e-6f);
+    EXPECT_TRUE(
+        kMaximumSharedCurlPositionError <
+        kRegionalWeatherFinestSpan * 0.15f);
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
@@ -3034,22 +3062,30 @@ ACS_TEST(VolumetricClouds, LightDensityKeepsWeatherAndUpperLayerScalesAcrossEver
     EXPECT_FALSE(Contains(shader, "layerDensityScale"));
     EXPECT_FALSE(Contains(shader, "cloudLayerScales("));
 
-    // 高度と降水の補正は視線、近距離、遠距離で同じ関数を使い、遠距離だけ式を落とさない。
+    // 高度と降水の補正は詳細密度と低詳細度密度で共有し、遠距離だけ式を落とさない。
     EXPECT_EQ(CountOccurrences(shader, "cloudHeightPrecipitationDensityScale("), static_cast<std::size_t>(4));
     EXPECT_TRUE(Contains(shader, "floatcloudHeightPrecipitationDensityScale(" "floatheight,floatprecipitation){" "returnlerp(1.10,0.92,height)*" "lerp(1.0,1.28,precipitation);}"));
-    EXPECT_TRUE(Contains(shader, "sampleCloudLightingDensityFromSlowFields(" "lp,viewWeatherMask,coverageTerms.w,"));
+    EXPECT_FALSE(Contains(shader, "sampleCloudLightingDensityFromSlowFields("));
     EXPECT_FALSE(Contains(shader, "sampleCloudLightingShapeFromSlowFields("));
-    const std::size_t farDensityBegin = shader.find("floatsampleCloudLightingDensityFromSlowFields(");
-    const std::size_t farDensityEnd = shader.find("returndensityResult;}", farDensityBegin);
-    EXPECT_TRUE(farDensityBegin != std::string::npos);
-    EXPECT_TRUE(farDensityEnd != std::string::npos);
-    if (farDensityBegin != std::string::npos && farDensityEnd != std::string::npos) {
-        const std::string farDensity = shader.substr(farDensityBegin, farDensityEnd - farDensityBegin);
-        const std::size_t coverage = farDensity.find("if(upperBand)weatherMask*=cloudUpperTerms.x;");
-        const std::size_t saturation = farDensity.find("densityResult=saturate(");
-        const std::size_t densityScale = farDensity.find("if(upperBand)densityResult*=cloudUpperTerms.y;");
-        EXPECT_TRUE(coverage < saturation);
-        EXPECT_TRUE(saturation < densityScale);
+    const std::size_t mainCloudEntry =
+        shader.find("[numthreads(8,8,1)]voidCSCloud(");
+    const std::size_t farLightLoop =
+        shader.find("[loop]for(intl=3;l<8;l++){", mainCloudEntry);
+    const std::size_t farLightEnd =
+        shader.find("if(blendCachedTail&&!lightTerminated){", farLightLoop);
+    EXPECT_TRUE(mainCloudEntry != std::string::npos);
+    EXPECT_TRUE(farLightLoop != std::string::npos);
+    EXPECT_TRUE(farLightEnd != std::string::npos);
+    if (farLightLoop != std::string::npos &&
+        farLightEnd != std::string::npos) {
+        const std::string farLight =
+            shader.substr(farLightLoop, farLightEnd - farLightLoop);
+        EXPECT_TRUE(Contains(
+            farLight,
+            "floatlightDensity=sampleCloudFarLightingDensity("
+            "lp,coverage,sharedLightCurl);"));
+        EXPECT_FALSE(Contains(
+            farLight, "sampleCloudMacroLighting(lp,coverage)"));
     }
 
     const std::size_t cacheBegin = shader.find("floattraceCloudShadowPattern(");
@@ -3280,7 +3316,13 @@ ACS_TEST(VolumetricClouds,
             CountOccurrences(
                 lightLoops, "sampleCloudMacroLightingFromSlowFields("),
             static_cast<std::size_t>(1));
-        EXPECT_EQ(CountOccurrences(lightLoops, "sampleCloudLightingDensityFromSlowFields("), static_cast<std::size_t>(1));
+        EXPECT_EQ(
+            CountOccurrences(
+                lightLoops, "sampleCloudFarLightingDensity("
+                            "lp,coverage,sharedLightCurl)"),
+            static_cast<std::size_t>(1));
+        EXPECT_FALSE(Contains(
+            lightLoops, "sampleCloudLightingDensityFromSlowFields("));
     }
 
     const std::size_t sharedMacro = shader.find(
@@ -3301,34 +3343,28 @@ ACS_TEST(VolumetricClouds,
         EXPECT_FALSE(Contains(helper, "cloudWeatherThreshold("));
     }
 
-    const std::size_t farDensityMacro = shader.find("floatsampleCloudLightingDensityFromSlowFields(");
-    const std::size_t farDensityMacroEnd =
-        shader.find("returndensityResult;}", farDensityMacro);
-    EXPECT_TRUE(farDensityMacro != std::string::npos);
-    EXPECT_TRUE(farDensityMacroEnd != std::string::npos);
-    if (farDensityMacro != std::string::npos && farDensityMacroEnd != std::string::npos) {
+    EXPECT_FALSE(Contains(
+        shader, "floatsampleCloudLightingDensityFromSlowFields("));
+
+    const std::size_t farDensity = shader.find(
+        "floatsampleCloudFarLightingDensity(");
+    const std::size_t farDensityEnd =
+        shader.find("returndensityResult;}", farDensity);
+    EXPECT_TRUE(farDensity != std::string::npos);
+    EXPECT_TRUE(farDensityEnd != std::string::npos);
+    if (farDensity != std::string::npos &&
+        farDensityEnd != std::string::npos) {
         const std::string helper =
-            shader.substr(farDensityMacro, farDensityMacroEnd - farDensityMacro);
+            shader.substr(farDensity, farDensityEnd - farDensity);
+        EXPECT_TRUE(Contains(helper, "float4weather=cloudWeatherData(p);"));
         EXPECT_TRUE(Contains(
             helper,
-            "floatsampleHeight=cloudConvectiveHeight("
-            "heightFractionFromAltitude(altitude,upperBand),"
-            "slowProfileTerms.w,upperBand);"));
+            "cloudColumnHeightShift(weather),upperBand);"));
         EXPECT_TRUE(Contains(
             helper,
-            "floatsampledProfile=cloudProfileFromTypeWeights("
-            "sampleHeight,slowProfileTerms.xy,slowProfileTerms.z);"));
-        EXPECT_TRUE(Contains(
-            helper,
-            "floatheightThreshold=cloudHeightThresholdFromTarget("
-            "heightThresholdTarget,profileShape);"));
-        EXPECT_TRUE(Contains(
-            helper,
-            "cloudBaseShapeLighting("
-            "lightingUvw,heightThreshold,baseNoise);"));
-        EXPECT_TRUE(Contains(helper, "densityResult=saturate(" "remapc(baseNoise,heightThreshold," "min(heightThreshold+0.22,0.98),0.0,1.0)" "*weatherMask*profileClosure" "*cloudHeightPrecipitationDensityScale(" "sampleHeight,slowProfileTerms.z));" "if(upperBand)densityResult*=cloudUpperTerms.y;"));
+            "cloudUVW(p,weather,slowCurl,sampleHeight)"));
         EXPECT_FALSE(Contains(helper, "cloudCurlOffset("));
-        EXPECT_FALSE(Contains(helper, "detailNoise.SampleLevel("));
+        EXPECT_FALSE(Contains(helper, "CloudMacroSample"));
     }
 
     EXPECT_TRUE(Contains(
@@ -3472,7 +3508,7 @@ ACS_TEST(VolumetricClouds,
 }
 
 ACS_TEST(VolumetricClouds,
-         FarLightScalarSpecializationPreservesConsumerAndWorldDomain) {
+         NearLightSharedFieldSpecializationPreservesConsumerAndWorldDomain) {
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudCS"));
@@ -3487,9 +3523,10 @@ ACS_TEST(VolumetricClouds,
         "if(shape<=0.006){"));
     EXPECT_FALSE(Contains(shader, "if(macro.weatherMask*macro.profileClosure>0.006){"));
 
-    const std::size_t helperBegin = shader.find("floatsampleCloudLightingDensityFromSlowFields(");
+    const std::size_t helperBegin = shader.find(
+        "CloudMacroSamplesampleCloudMacroLightingFromSlowFields(");
     const std::size_t helperEnd =
-        shader.find("returndensityResult;}", helperBegin);
+        shader.find("returnmacro;}", helperBegin);
     EXPECT_TRUE(helperBegin != std::string::npos);
     EXPECT_TRUE(helperEnd != std::string::npos);
     if (helperBegin != std::string::npos &&
@@ -3500,7 +3537,7 @@ ACS_TEST(VolumetricClouds,
             helper,
             "float3lightingUvw=referenceUvw+float3("
             "(p.x-referenceP.x)*shapeScale,"
-            "(sampleHeight-referenceHeight)*0.78,"
+            "(macro.height-referenceHeight)*0.78,"
             "(p.z-referenceP.z)*shapeScale);"));
         EXPECT_FALSE(Contains(helper, "camPos"));
         EXPECT_FALSE(Contains(helper, "cloudWindWorld("));
@@ -3508,9 +3545,8 @@ ACS_TEST(VolumetricClouds,
         EXPECT_FALSE(Contains(helper, "cloudCurlOffset("));
     }
 
-    // With weather and curl shared from the view sample, cloudUVW is affine
-    // in world XZ and normalized height. Reconstructing a probe from the
-    // reference UVW therefore stays independent of camera position.
+    // 近距離では視線標本の天候と渦を共有するため、cloudUVW はワールド XZ と
+    // 正規化高度に対して一次式となる。基準座標からの復元はカメラ位置に依存しない。
     const FVec2 wind{183.25f, -91.75f};
     const FVec2 fixedWarp{-37.0f, 52.5f};
     constexpr f32 kShapeScale = 0.00021f;
@@ -3568,9 +3604,8 @@ ACS_TEST(VolumetricClouds,
         EXPECT_TRUE(near(former.z, specialized.z));
     }
 
-    // The former struct consumer and the scalar helper apply the identical
-    // saturated remap, weather mask and profile weight. Cover empty, edge,
-    // dense and clamped-threshold representatives.
+    // 共有場から作った構造体も、最終密度では同じ飽和変換、被覆、層端重みを使う。
+    // 空、縁、内部、しきい値上限の代表値を固定する。
     struct FScalarCase {
         f32 base_noise;
         f32 height_threshold;
@@ -5289,16 +5324,14 @@ ACS_TEST(VolumetricClouds,
         shader,
         "lightDepth=exactFarStart+lerp("
         "exactTail,cachedTailForBlend,cacheBlendWeight);"));
-    // 棄却した参照は従来の遠距離5点へ戻り、侵食を含む近距離3点は常に別の正確なループで採取する。
+    // 棄却した参照は各地点の天候と基本形状を再採取する遠距離5点へ戻り、
+    // 侵食を含む近距離3点は常に別のループで採取する。
     EXPECT_TRUE(Contains(
         shader,
-        "floatlightDensity="
-        "sampleCloudLightingDensityFromSlowFields("
-        "lp,viewWeatherMask,coverageTerms.w,"
-        "sharedLightProfileTerms,"
-        "p,viewMacroUvw,macro.height,sharedShapeScale);"));
+        "floatlightDensity=sampleCloudFarLightingDensity("
+        "lp,coverage,sharedLightCurl);"));
     EXPECT_TRUE(Contains(shader, "floatlightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,0.65,1.0);"));
-    // 天候と渦は低周波なので視線側の値を共有し、基本形状は補助関数で各点を正確に採取する。
+    // 視線側の天候と渦を共有するのは近距離3点だけで、基本形状は各点を採取する。
     EXPECT_TRUE(Contains(
         shader,
         "float4sharedLightProfileTerms=float4("
@@ -5314,12 +5347,8 @@ ACS_TEST(VolumetricClouds,
         "lp,viewWeatherMask,coverageTerms.w,"
         "sharedLightProfileTerms,sharedLightCurl,"
         "p,viewMacroUvw,macro.height,sharedShapeScale);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "sampleCloudLightingDensityFromSlowFields("
-        "lp,viewWeatherMask,coverageTerms.w,"
-        "sharedLightProfileTerms,"
-        "p,viewMacroUvw,macro.height,sharedShapeScale);"));
+    EXPECT_FALSE(Contains(
+        shader, "sampleCloudLightingDensityFromSlowFields("));
 }
 
 ACS_TEST(VolumetricClouds, ShadowCacheRhiBindingIsOptionalOrderedAndRebuiltEveryFrame) {
