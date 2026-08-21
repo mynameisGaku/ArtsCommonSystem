@@ -969,6 +969,11 @@ void CDiligentCommandList::RestoreStateAfterExternalCommands() noexcept
     Diligent::IDeviceContext* const context = m_Device->Context();
     if (!context) return;
 
+    // 外部コマンドと、その前に記録済みの雲 / SPR3D / HDR 処理を先に投入する。
+    // outstanding command が残ったまま InvalidateState() を呼ぶと Diligent は
+    // 状態追跡を破棄できず、後続の SSR / post が黒画面になる。
+    context->Flush();
+
     // 外部側の pipeline / resource state を Diligent の追跡対象から外す。
     context->InvalidateState();
     m_Pipeline = nullptr;

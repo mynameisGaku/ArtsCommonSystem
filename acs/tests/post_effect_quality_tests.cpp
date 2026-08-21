@@ -618,6 +618,20 @@ ACS_TEST(PostEffects,
     EXPECT_TRUE(interop_virtual != std::string::npos);
     EXPECT_TRUE(statistics_virtual < public_after_statistics);
     EXPECT_TRUE(public_after_statistics < interop_virtual);
+
+    const std::string diligent_command_list =
+        ReadWorkspaceSource("src/render/Diligent/DiligentCommandList.cpp");
+    const std::size_t restore_function = diligent_command_list.find(
+        "void CDiligentCommandList::RestoreStateAfterExternalCommands() noexcept");
+    const std::size_t flush = diligent_command_list.find(
+        "context->Flush();", restore_function);
+    const std::size_t invalidate = diligent_command_list.find(
+        "context->InvalidateState();", restore_function);
+    EXPECT_TRUE(!diligent_command_list.empty());
+    EXPECT_TRUE(restore_function != std::string::npos);
+    EXPECT_TRUE(flush != std::string::npos);
+    EXPECT_TRUE(invalidate != std::string::npos);
+    EXPECT_TRUE(flush < invalidate);
 }
 
 ACS_TEST(PostEffects, FixedTapGatherShadersKeepRolledQualityLoops)
