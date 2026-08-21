@@ -156,6 +156,13 @@ native command list を使います。これらのポインタは呼出し中だ
 呼び出されます。フックが `true` を返した場合だけ基底が外部コマンド後の状態復旧を
 行い、render target の Begin/End は常に基底が管理します。
 
+3D シーンの画面空間間接光は `ALegacyScene3DAdapter::GlobalIllumination()` で設定します。
+既定の `Intensity=0` では無効で、正の値を設定すると `CSsgi` が完成済み HDR 色から
+次フレーム用の履歴を作り、PBR の `SetSsgi` へ一度だけ強さを渡します。法線・深度の共有
+前段は SSAO の有効状態から独立して用意され、履歴が無効、画面サイズが不一致、入力深度が
+無い場合は古い間接光を公開しません。現行の前段は動的 motion vector を生成しないため、
+SSGI はカメラ再投影を使います。
+
 ### ボリュメトリック雲の workload 診断
 
 `FVolumetricClouds::LastFrameWorkload()` は、直近のボリューム雲の計算処理と

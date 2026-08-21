@@ -832,8 +832,10 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     if (EnsureShadowMap(*device)) (void)RenderShadowPass(context);
     else m_ShadowDrawn = false;
 
-    // 法線と深度を先に描いて遮蔽を出す。PBR パスがこれを読むので、必ずその «前» に。
-    (void)RenderAmbientOcclusionPass(*device, context);
+    // 法線と深度を先に描いて、SSAO/SSR/SSGI の共有入力にする。PBR パスがこれを
+    // 読むので、必ずその «前» に。SSAO が切れていても SSGI/SSR 用に前段は残す。
+    const bool normal_depth_ready =
+        RenderAmbientOcclusionPass(*device, context);
 
     // 雲を計算する。描画パスの外で回す (結果は雲自身のテクスチャへ書かれる)。
     RenderClouds(*device, context.Cmd(), context.Width(), context.Height());
@@ -847,7 +849,19 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     if (!hdr_ready || hdr == nullptr
         || hdr->Width() != context.Width()
         || hdr->Height() != context.Height()) {
+        InvalidateGlobalIlluminationOutput();
         return;
+    }
+
+    // SSGI は現フレームの完成色をまだ持っていないため、ここでは出力先だけを
+    // 用意する。前フレームの有効履歴は、入力前段が揃っている間だけ PBR へ渡す。
+    const bool global_illumination_ready = EnsureGlobalIllumination(
+        *device, context.Width(), context.Height());
+    if (!normal_depth_ready || !m_NormalDepthDrawn || depth == nullptr
+        || m_NormalDepth.OutputTexture() == nullptr
+        || m_NormalDepth.OutputNormalTexture() == nullptr
+        || !global_illumination_ready) {
+        InvalidateGlobalIlluminationOutput();
     }
 
     FWaterDraw water_draws[CWaterSurface3D::kMaxTrackedSurfaces]{};
@@ -896,7 +910,10 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     const bool pbr_base_pool_ready =
         pbr_full_pool_ready ||
         ActiveHdrShader().ObjectBufferCapacity() >= pbr_base_required;
-    if (!pbr_base_pool_ready) return;
+    if (!pbr_base_pool_ready) {
+        InvalidateGlobalIlluminationOutput();
+        return;
+    }
     const bool ssss_frame_ready =
         ssss_resources_ready && pbr_full_pool_ready;
 
@@ -1023,6 +1040,16 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         command_list.RestoreStateAfterExternalCommands();
     }
     command_list.EndRenderToTexture(*hdr);
+
+    // 完成したHDR色を入力にして、次フレームのPBRへ渡すSSGI履歴を作る。
+    // CMotionVector の前段は現在行列を前行列として使うため、動的motion textureは
+    // 渡さず、CSsgi側のカメラ再投影だけを使う。
+    if (depth != nullptr) {
+        (void)RenderGlobalIlluminationPass(
+            *device, context, *hdr, *depth);
+    } else {
+        InvalidateGlobalIlluminationOutput();
+    }
 
     // 反射を作る。**空と雲まで乗った完成後**に作るので、水面や磨いた床に空も映る。
     // 使うのは次のフレームの PBR パス。
@@ -1297,33 +1324,58 @@ bool ALegacyScene3DAdapter::EnsureShadowMap(IRhiDevice& device) noexcept {
     return true;
 }
 
+bool ALegacyScene3DAdapter::EnsureNormalDepth(
+    IRhiDevice& device, u32 width, u32 height) noexcept {
+    if (width == 0u || height == 0u) return false;
+    if (m_NormalDepthReady
+        && m_NormalDepthWidth == width
+        && m_NormalDepthHeight == height) {
+        return true;
+    }
+
+    if (!m_NormalDepthReady) {
+        if (m_NormalDepth.Init(device, width, height).IsErr()) {
+            ACS_LOG_WARN(
+                "Scene3D: normal/depth prepass init failed; screen-space effects stay off");
+            return false;
+        }
+        m_NormalDepthReady = true;
+    } else if (m_NormalDepth.Resize(width, height).IsErr()) {
+        ACS_LOG_WARN(
+            "Scene3D: normal/depth prepass resize failed; screen-space effects stay off");
+        m_NormalDepthReady = false;
+        m_NormalDepth.Shutdown();
+        m_NormalDepthWidth = 0u;
+        m_NormalDepthHeight = 0u;
+        return false;
+    }
+
+    m_NormalDepthWidth = width;
+    m_NormalDepthHeight = height;
+    return true;
+}
+
 bool ALegacyScene3DAdapter::EnsureAmbientOcclusion(
     IRhiDevice& device, u32 width, u32 height) noexcept {
     if (width == 0u || height == 0u) return false;
-    if (m_SsaoReady && m_SsaoWidth == width && m_SsaoHeight == height) return true;
+    if (!EnsureNormalDepth(device, width, height)) return false;
+    if (m_SsaoReady && m_SsaoWidth == width && m_SsaoHeight == height) {
+        return true;
+    }
 
     if (!m_SsaoReady) {
-        if (m_NormalDepth.Init(device, width, height).IsErr()) {
-            ACS_LOG_WARN("Scene3D: normal/depth prepass init failed; SSAO stays off");
-            return false;
-        }
         if (m_Ssao.Init(device, width, height).IsErr()) {
             ACS_LOG_WARN("Scene3D: SSAO init failed; SSAO stays off");
-            m_NormalDepth.Shutdown();
             return false;
         }
         m_SsaoReady = true;
-    } else {
+    } else if (m_Ssao.Resize(width, height).IsErr()) {
         // 画面の大きさが変わった。作り直せなかったら切る。古い大きさのまま読むと
         // 遮蔽が画面とずれて «物と関係の無い位置に汚れ» が出る。
-        if (m_NormalDepth.Resize(width, height).IsErr() ||
-            m_Ssao.Resize(width, height).IsErr()) {
-            ACS_LOG_WARN("Scene3D: SSAO resize failed; SSAO stays off");
-            m_SsaoReady = false;
-            m_Ssao.Shutdown();
-            m_NormalDepth.Shutdown();
-            return false;
-        }
+        ACS_LOG_WARN("Scene3D: SSAO resize failed; SSAO stays off");
+        m_SsaoReady = false;
+        m_Ssao.Shutdown();
+        return false;
     }
 
     m_SsaoWidth = width;
@@ -1333,7 +1385,7 @@ bool ALegacyScene3DAdapter::EnsureAmbientOcclusion(
 
 bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(
     FRenderContext& context) noexcept {
-    if (!m_SsaoReady) return false;
+    if (!m_NormalDepthReady) return false;
 
     // 描く数を先に数える。object CB の入れ物は使い回しなので、足りないまま描くと
     // 後ろのメッシュの法線が黙って抜け、そこだけ遮蔽が付かない。
@@ -1397,10 +1449,26 @@ bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(
 bool ALegacyScene3DAdapter::RenderAmbientOcclusionPass(
     IRhiDevice& device, FRenderContext& context) noexcept {
     m_SsaoDrawn = false;
-    if (m_SsaoParams.Intensity <= 0.0f) return false;
-    if (!EnsureAmbientOcclusion(device, context.Width(), context.Height()))
+    m_NormalDepthDrawn = false;
+    const bool ssao_requested = m_SsaoParams.Intensity > 0.0f;
+    const bool screen_space_effect_requested =
+        ssao_requested
+        || m_SsgiParams.Intensity > 0.0f
+        || m_SsrParams.Intensity > 0.0f;
+    if (!screen_space_effect_requested) return false;
+
+    // SSAO の初期化に失敗しても、SSGI/SSR は共有前段だけで継続できる。
+    if (ssao_requested) {
+        (void)EnsureAmbientOcclusion(
+            device, context.Width(), context.Height());
+    } else if (!EnsureNormalDepth(
+                   device, context.Width(), context.Height())) {
         return false;
-    if (!RenderNormalDepthPrepass(context)) return false;
+    }
+    if (!m_NormalDepthReady || !RenderNormalDepthPrepass(context)) return false;
+    m_NormalDepthDrawn = true;
+
+    if (!ssao_requested || !m_SsaoReady) return true;
 
     IRhiTexture* const prepass_depth = m_NormalDepth.DepthTexture();
     IRhiTexture* const prepass_normal = m_NormalDepth.OutputNormalTexture();
@@ -1415,7 +1483,98 @@ bool ALegacyScene3DAdapter::RenderAmbientOcclusionPass(
         m_SsaoParams.Radius > 0.0f ? m_SsaoParams.Radius : 0.5f);
 
     m_SsaoDrawn = m_Ssao.OutputTexture() != nullptr;
-    return m_SsaoDrawn;
+    return m_NormalDepthDrawn;
+}
+
+void ALegacyScene3DAdapter::InvalidateGlobalIlluminationOutput() noexcept {
+    m_SsgiValid = false;
+    if (m_SsgiReady) m_Ssgi.InvalidateHistory();
+}
+
+bool ALegacyScene3DAdapter::EnsureGlobalIllumination(
+    IRhiDevice& device, u32 width, u32 height) noexcept {
+    const bool requested =
+        width != 0u && height != 0u && m_SsgiParams.Intensity > 0.0f;
+    if (!requested) {
+        if (m_SsgiWasEnabled) m_Ssgi.InvalidateHistory();
+        m_SsgiWasEnabled = false;
+        m_SsgiValid = false;
+        return false;
+    }
+
+    if (!m_SsgiWasEnabled) {
+        // 無効中に残った履歴を再利用せず、再有効化は必ず初回から始める。
+        m_Ssgi.InvalidateHistory();
+        m_SsgiWasEnabled = true;
+        m_SsgiValid = false;
+    }
+
+    if (m_SsgiReady && m_SsgiWidth == width && m_SsgiHeight == height)
+        return true;
+
+    if (!m_SsgiReady) {
+        if (m_Ssgi.Init(device, width, height).IsErr()) {
+            ACS_LOG_WARN(
+                "Scene3D: SSGI init failed; global illumination stays off");
+            m_Ssgi.Shutdown();
+            m_SsgiWidth = 0u;
+            m_SsgiHeight = 0u;
+            m_SsgiValid = false;
+            return false;
+        }
+        m_SsgiReady = true;
+    } else {
+        // 画面の大きさが変わった履歴は別画面の値なので公開しない。Resizeが失敗した
+        // ときは旧リソースを保持する実装を尊重し、次フレームで再試行する。
+        if (m_Ssgi.Resize(width, height).IsErr()) {
+            ACS_LOG_WARN(
+                "Scene3D: SSGI resize failed; global illumination stays off");
+            m_Ssgi.InvalidateHistory();
+            m_SsgiValid = false;
+            return false;
+        }
+    }
+
+    m_SsgiWidth = width;
+    m_SsgiHeight = height;
+    m_SsgiValid = false;
+    return true;
+}
+
+bool ALegacyScene3DAdapter::RenderGlobalIlluminationPass(
+    IRhiDevice& device, FRenderContext& context,
+    IRhiTexture& scene_color, IRhiTexture& scene_depth) noexcept {
+    if (m_SsgiParams.Intensity <= 0.0f
+        || !m_SsgiWasEnabled
+        || !m_SsgiReady
+        || !m_NormalDepthDrawn) {
+        InvalidateGlobalIlluminationOutput();
+        return false;
+    }
+
+    IRhiTexture* const normal = m_NormalDepth.OutputNormalTexture();
+    if (normal == nullptr
+        || normal->Width() != scene_color.Width()
+        || normal->Height() != scene_color.Height()) {
+        InvalidateGlobalIlluminationOutput();
+        return false;
+    }
+
+    const FMat4 view_projection = m_Camera.ViewProjection();
+    const FMat4 previous = m_HasPrevViewProjection
+        ? m_PrevViewProjection : FMat4{};
+    const f32 max_distance = m_SsgiParams.MaxDistance > 0.0f
+        ? m_SsgiParams.MaxDistance : 5.0f;
+
+    // 出力は強さを持たない履歴にする。利用者のIntensityはPBR側で一度だけ掛ける。
+    // 法線前段は動的motionを生成しないため、temporalはカメラ再投影を使う。
+    m_Ssgi.Render(
+        device, context.Cmd(), scene_color, scene_depth, *normal,
+        view_projection, Inverse(view_projection), previous,
+        m_Camera.Eye(), 1.0f, max_distance, nullptr);
+    m_SsgiValid =
+        m_Ssgi.HasValidOutput() && m_Ssgi.OutputTexture() != nullptr;
+    return m_SsgiValid;
 }
 
 bool ALegacyScene3DAdapter::EnsureReflections(
@@ -1471,7 +1630,7 @@ bool ALegacyScene3DAdapter::RenderReflectionPass(
     }
     // 法線は遮蔽と同じ前段のもの。前段が描けていないフレームは反射も作れない。
     IRhiTexture* const prepass_normal =
-        m_SsaoDrawn ? m_NormalDepth.OutputNormalTexture() : nullptr;
+        m_NormalDepthDrawn ? m_NormalDepth.OutputNormalTexture() : nullptr;
     if (prepass_normal == nullptr) {
         m_SsrValid = false;
         return false;
@@ -1874,6 +2033,15 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
                        m_SsaoWidth, m_SsaoHeight);
     } else {
         shader.SetSsao(nullptr, 0.0f, 1u, 1u);
+    }
+
+    // SSGI は前フレームの完成HDR色から作った履歴だけを読む。Intensity はここで
+    // 一度だけ掛け、Render側では 1.0 を使って履歴の明るさを設定変更から分離する。
+    if (m_SsgiValid && m_SsgiParams.Intensity > 0.0f
+        && m_Ssgi.HasValidOutput() && m_Ssgi.OutputTexture() != nullptr) {
+        shader.SetSsgi(m_Ssgi.OutputTexture(), m_SsgiParams.Intensity);
+    } else {
+        shader.SetSsgi(nullptr, 0.0f);
     }
 
     // 反射。**前のフレームで作ったもの**を混ぜる。反射を作るには完成したシーンの色が
@@ -3792,6 +3960,9 @@ void ALegacyScene3DAdapter::ReleaseGpu() noexcept {
     m_SpritePendingShaders = {};
     m_SkyPendingShaders = {};
     m_Sky.Shutdown();
+    m_NormalDepth.Shutdown();
+    m_Ssao.Shutdown();
+    m_Ssgi.Shutdown();
     m_WaterPendingShaders = {};
     m_Water.Shutdown();
     m_WaterBackground.Reset();
@@ -3808,6 +3979,19 @@ void ALegacyScene3DAdapter::ReleaseGpu() noexcept {
     m_Post.Shutdown();
     m_HdrShaders[0].Shutdown();
     m_HdrShaders[1].Shutdown();
+    m_NormalDepthReady = false;
+    m_NormalDepthDrawn = false;
+    m_NormalDepthWidth = 0u;
+    m_NormalDepthHeight = 0u;
+    m_SsaoReady = false;
+    m_SsaoDrawn = false;
+    m_SsaoWidth = 0u;
+    m_SsaoHeight = 0u;
+    m_SsgiReady = false;
+    m_SsgiValid = false;
+    m_SsgiWasEnabled = false;
+    m_SsgiWidth = 0u;
+    m_SsgiHeight = 0u;
     m_CustomMeshes.Reset();
     m_CustomSprites.Reset();
     m_SpriteDraws.Reset();

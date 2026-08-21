@@ -54630,6 +54630,231 @@ using FSsao = CSsao;
 
 } // namespace acs
 
+// ===================== render/Ssgi.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// Screen-Space Global Illumination
+//
+// 各ピクセルから法線半球内に N 本のレイを screen-space で march し、ヒットした
+// pixel の HDR 色を 1 バウンス indirect light として集める。SSAO の構造に色
+// サンプリングを追加した発展版 (Aaltonen 2014 系の単純化版)。
+//
+// 入力: scene_color (HDR R16G16B16A16_Float)、scene_depth (shader-visible depth)
+// 出力: ssgi_color (RGB)、CPbrShader が ambient/indirect 項に加算
+//
+// 制限:
+//   - 法線は CMotionVector の normal G-buffer (world normal) から sample
+//     (depth 微分 cross(ddx,ddy) は faceted で hemisphere ray がブロック状になるため避ける)
+//   - 8 step / 4 ray = 32 sample/pixel (画質と速度のバランス)
+//   - 反射的なシャープなパスは捨て、diffuse-ish な広い hemisphere に絞る
+//   - 1 bounce のみ (Lumen の voxel cone tracing 等は未対応)
+//   - blur 無し (CPbrShader 側で linear sampling で smooth に補間する想定)
+
+
+namespace acs {
+
+/**
+ * Screen-Space Global Illumination (1 バウンス indirect light)。
+ *
+ * @details
+ * 各ピクセルから法線半球内に N 本のレイを screen-space で march し、ヒットした pixel の
+ * HDR 色を 1 バウンスの indirect light として集める。SSAO の構造に色サンプリングを
+ * 追加した発展版で、raw → depth-aware blur → temporal accumulation の 3 pass で構成する。
+ * CPbrShader が結果を ambient/indirect 項に加算する。8 step / 4 ray = 32 sample/pixel、
+ * diffuse-ish な広い hemisphere に絞り、反射的なシャープなパスは捨てる。
+ */
+class CSsgi {
+public:
+    /** CPU-compiled shader bytecode handed to the render-owner thread. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> main_pixel;
+        TUniquePtr<IRhiShader> blur_pixel;
+        TUniquePtr<IRhiShader> temporal_pixel;
+    };
+
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    CSsgi() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~CSsgi() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    CSsgi(const CSsgi&) = delete;
+
+    /** コピー代入も禁止。 */
+    CSsgi& operator=(const CSsgi&) = delete;
+
+    /**
+     * 出力 RT・history・パイプライン・定数バッファを生成する。
+     *
+     * @param device リソース生成に使う RHI デバイス。
+     * @param width 出力解像度の幅。
+     * @param height 出力解像度の高さ。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * Compile all raw-DX12 SSGI shaders without touching an RHI device.
+     * This is safe to run on a startup worker. Other backends return an
+     * unsupported error and retain the regular owner-thread Init path.
+     */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /**
+     * Install CPU-compiled shaders and create the render targets, constant
+     * buffer and PSOs. Must be called by the render-owner thread.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        u32 width,
+        u32 height) noexcept;
+
+    /** 確保した GPU リソースを解放する。 */
+    void Shutdown() noexcept;
+
+    /**
+     * Keep allocated targets but make the next render a cold temporal start.
+     * Call this when a shared render surface changes logical camera owner.
+     */
+    void InvalidateHistory() noexcept {
+        m_TemporalFrame = 0u;
+        m_OutputValid = false;
+    }
+
+    /**
+     * 解像度変更時に内部 RT を作り直す (ウィンドウリサイズで呼ぶ)。
+     *
+     * @param width 新しい出力幅。
+     * @param height 新しい出力高さ。
+     * @return 成功なら空の TResult、再確保失敗ならエラー。
+     */
+    TResult<void> Resize(u32 width, u32 height) noexcept;
+
+    /**
+     * SSGI を計算して内部 RT に書く (raw → blur → temporal の 3 pass)。
+     *
+     * @param device 描画に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param scene_color 現在フレームの HDR scene RT。
+     * @param scene_depth shader-visible depth (SSR/SSAO と同じ)。
+     * @param normal_gbuffer CMotionVector の world-space normal G-buffer (RGBA16F)。
+     * @param view_proj 現フレームの view * projection。
+     * @param inv_view_proj 現フレーム VP の逆 (depth+uv → world)。
+     * @param prev_view_proj 前フレームの view_proj (temporal reproject 用)。identity を渡すと reprojection 無効 (= 静的 accumulate)。
+     * @param eye カメラの world pos。
+     * @param intensity indirect light の倍率 (0=無効、1=neutral、>1=強調)。
+     * @param max_distance ray march の世界距離上限 (世界座標、典型 5.0)。
+     * @param motion_texture 非 null なら temporal pass が depth reprojection ではなくこの motion vector で history を引く (動く mesh も ghost せず追従)。CMotionVector::OutputTexture() を渡す。null なら従来の camera-only depth reprojection。
+     */
+    void Render(IRhiDevice& device, IRhiCommandList& cl,
+                IRhiTexture& scene_color,
+                IRhiTexture& scene_depth,
+                IRhiTexture& normal_gbuffer,
+                const FMat4& view_proj,
+                const FMat4& inv_view_proj,
+                const FMat4& prev_view_proj,
+                FVec3 eye,
+                f32 intensity   = 1.0f,
+                f32 max_distance = 5.0f,
+                IRhiTexture* motion_texture = nullptr) noexcept;
+
+    /**
+     * temporal accumulation 後の history RT を返す。
+     *
+     * @details 直近の Render が書き込んだ index を返す。CPbrShader はこれを読む (blur + 時間積分でノイズ除去済)。
+     * @return 直近の積分結果を持つ history RT。
+     */
+    IRhiTexture* OutputTexture() const noexcept {
+        return m_History[m_TemporalFrame == 0u ? 0u : ((m_TemporalFrame - 1u) & 1u)].Get();
+    }
+
+    /** True only after raw, bilateral and temporal output were all recorded. */
+    bool HasValidOutput() const noexcept { return m_OutputValid; }
+
+    /**
+     * raw (blur/temporal 前) の RT を返す (デバッグ用途向け)。
+     *
+     * @return SSGI raw RT。
+     */
+    IRhiTexture* RawTexture()    const noexcept { return m_Output.Get(); }
+
+private:
+    /**
+     * 出力 RT (raw・blur 後・history ping-pong) を生成する。
+     *
+     * @param device RT 生成に使う RHI デバイス。
+     * @param w 出力幅。
+     * @param h 出力高さ。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
+
+    /**
+     * Install 済みの SSGI 本体・blur・temporal シェーダから
+     * 各描画パイプラインを生成する。
+     *
+     * @param device パイプライン生成に使う RHI デバイス。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
+
+    /** Init で受け取った device (Resize で再利用)。 */
+    IRhiDevice*             m_Device = nullptr;
+
+    /** 出力 RT の幅。 */
+    u32                     m_Width  = 0;
+
+    /** 出力 RT の高さ。 */
+    u32                     m_Height = 0;
+
+    /** SSGI raw 出力 RT。 */
+    TUniquePtr<IRhiTexture>  m_Output;
+
+    /** depth-aware bilateral blur 後の出力 RT。 */
+    TUniquePtr<IRhiTexture>  m_BlurOutput;
+
+    /** temporal accumulation 用の ping-pong history RT。 */
+    TUniquePtr<IRhiTexture>  m_History[2];
+
+    /** フルスクリーン三角形の頂点シェーダ (全 pass 共用)。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** hemisphere ray march で indirect light を集めるピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_Ps;
+
+    /** depth-aware bilateral blur のピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_BlurPs;
+
+    /** temporal accumulation のピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_TemporalPs;
+
+    /** SSGI 本体の描画パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+
+    /** blur の描画パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_BlurPipeline;
+
+    /** temporal accumulation の描画パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_TemporalPipeline;
+
+    /** SSGI パラメータの定数バッファ。 */
+    TUniquePtr<IRhiBuffer>   m_Cb;
+
+    /** temporal accumulation のフレームカウンタ (history の ping-pong に使う)。 */
+    u32                     m_TemporalFrame = 0;
+
+    /** Prevents callers from publishing an unwritten or invalidated history. */
+    bool                    m_OutputValid = false;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSsgi = CSsgi;
+
+
+} // namespace acs
+
 // ===================== render/Ssr.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // Screen-Space Reflection
@@ -55761,6 +55986,29 @@ using FSkyAtmosphere = CSkyAtmosphere;
 
 
 } // namespace acs
+
+// ===================== gameframework/Scene3DGlobalIllumination.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/**
+ * 画面空間の間接光 (SSGI) の設定。
+ *
+ * @details
+ * SSGI は完成した HDR 色を次のフレームの PBR へ反映する。既定は 0 で切れており、
+ * `Intensity` を正の値にすると有効になる。画面外の間接光は扱わない。
+ */
+struct FScene3DGlobalIllumination {
+    /** 間接光の強さ。0 以下で切る。 */
+    f32 Intensity = 0.0f;
+
+    /** レイを探す最大の世界距離。0 以下なら既定値を使う。 */
+    f32 MaxDistance = 5.0f;
+};
+
+} // namespace acs::game
 
 // ===================== render/Blit.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -60907,6 +61155,23 @@ public:
     const FScene3DReflections& Reflections() const noexcept { return m_SsrParams; }
 
     /**
+     * 画面空間の間接光 (SSGI) の設定を触る。
+     *
+     * @details
+     * `Intensity` を正の値にすると有効になる。出力は内部で保持され、次のフレームの
+     * PBR にだけ渡す。無効化、リサイズ、入力不足時は古い間接光を公開しない。
+     * @return SSGI の設定 (次のフレームから効く)。
+     */
+    FScene3DGlobalIllumination& GlobalIllumination() noexcept {
+        return m_SsgiParams;
+    }
+
+    /** SSGI の設定を読む。 */
+    const FScene3DGlobalIllumination& GlobalIllumination() const noexcept {
+        return m_SsgiParams;
+    }
+
+    /**
      * 雲の設定を読む。
      *
      * @return 雲の設定。
@@ -61369,6 +61634,16 @@ private:
     bool EnsureAmbientOcclusion(IRhiDevice& device, u32 width, u32 height) noexcept;
 
     /**
+     * SSAO、SSR、SSGI が共有する法線・深度前段を用意する。
+     *
+     * @param device 描画先を作るRHIデバイス。
+     * @param width 画面の幅。
+     * @param height 画面の高さ。
+     * @return 前段を使える状態なら true。
+     */
+    bool EnsureNormalDepth(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
      * 遮蔽を計算する前段として、法線と深度を先に描く。
      *
      * @details
@@ -61388,6 +61663,26 @@ private:
      * @return 遮蔽が使える状態になったら true。
      */
     bool RenderAmbientOcclusionPass(IRhiDevice& device, FRenderContext& context) noexcept;
+
+    /** SSGI の出力RTと時間履歴を、必要な解像度で用意する。 */
+    bool EnsureGlobalIllumination(
+        IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * 完成したHDR色からSSGIを計算し、次フレーム用の結果を公開する。
+     *
+     * @param device 描画に使うRHIデバイス。
+     * @param context 描画文脈。
+     * @param scene_color 現フレームの完成したHDR色。
+     * @param scene_depth 現フレームのshader-visible深度。
+     * @return 次フレームへ渡せる出力を作れたら true。
+     */
+    bool RenderGlobalIlluminationPass(
+        IRhiDevice& device, FRenderContext& context,
+        IRhiTexture& scene_color, IRhiTexture& scene_depth) noexcept;
+
+    /** SSGI の出力を無効化し、次回復帰時を履歴の初回に戻す。 */
+    void InvalidateGlobalIlluminationOutput() noexcept;
 
     /**
      * 反射 (SSR) の描き込み先を用意する。画面の大きさが変わったら作り直す。
@@ -61690,6 +61985,7 @@ private:
     FScene3DShadows m_ShadowParams{};
     FScene3DAmbientOcclusion m_SsaoParams{};
     FScene3DReflections m_SsrParams{};
+    FScene3DGlobalIllumination m_SsgiParams{};
 
     /** 雲を使える状態にできたか。 */
     bool m_CloudsReady = false;
@@ -61736,8 +62032,26 @@ private:
     /** 法線と深度を先に描くパス。遮蔽の材料になる。 */
     CMotionVector m_NormalDepth;
 
+    /** 法線と深度の前段を用意できたか。SSAOの有効状態とは独立。 */
+    bool m_NormalDepthReady = false;
+
+    /** このフレームで法線と深度を完全に描けたか。 */
+    bool m_NormalDepthDrawn = false;
+
+    /** 法線と深度を用意してある画面の幅。 */
+    u32 m_NormalDepthWidth = 0u;
+
+    /** 法線と深度を用意してある画面の高さ。 */
+    u32 m_NormalDepthHeight = 0u;
+
     /** 画面空間の遮蔽 (GTAO + contact shadow)。 */
     CSsao m_Ssao;
+
+    /** 画面空間の間接光。出力RTと時間履歴を所有する。 */
+    CSsgi m_Ssgi;
+
+    /** SSGI の出力RTとパイプラインを用意できたか。 */
+    bool m_SsgiReady = false;
 
     /** 遮蔽の描き込み先を用意できたか。 */
     bool m_SsaoReady = false;
@@ -61779,6 +62093,18 @@ private:
 
     /** 使える反射があるか (前のフレームで作れたか)。 */
     bool m_SsrValid = false;
+
+    /** SSGIの出力を次のPBRへ渡せるか (現フレームの計算前の値)。 */
+    bool m_SsgiValid = false;
+
+    /** SSGIを前フレームから継続して有効にしているか。 */
+    bool m_SsgiWasEnabled = false;
+
+    /** SSGI出力を用意してある画面の幅。 */
+    u32 m_SsgiWidth = 0u;
+
+    /** SSGI出力を用意してある画面の高さ。 */
+    u32 m_SsgiHeight = 0u;
 
     /** 用意してある反射の大きさ。 */
     u32 m_SsrWidth = 0u;
@@ -105090,231 +105416,6 @@ private:
     /** 直前のSortが走査したitem数。 */
     u64                m_LastSortItemVisits = 0u;
 };
-
-} // namespace acs
-
-// ===================== render/Ssgi.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// Screen-Space Global Illumination
-//
-// 各ピクセルから法線半球内に N 本のレイを screen-space で march し、ヒットした
-// pixel の HDR 色を 1 バウンス indirect light として集める。SSAO の構造に色
-// サンプリングを追加した発展版 (Aaltonen 2014 系の単純化版)。
-//
-// 入力: scene_color (HDR R16G16B16A16_Float)、scene_depth (shader-visible depth)
-// 出力: ssgi_color (RGB)、CPbrShader が ambient/indirect 項に加算
-//
-// 制限:
-//   - 法線は CMotionVector の normal G-buffer (world normal) から sample
-//     (depth 微分 cross(ddx,ddy) は faceted で hemisphere ray がブロック状になるため避ける)
-//   - 8 step / 4 ray = 32 sample/pixel (画質と速度のバランス)
-//   - 反射的なシャープなパスは捨て、diffuse-ish な広い hemisphere に絞る
-//   - 1 bounce のみ (Lumen の voxel cone tracing 等は未対応)
-//   - blur 無し (CPbrShader 側で linear sampling で smooth に補間する想定)
-
-
-namespace acs {
-
-/**
- * Screen-Space Global Illumination (1 バウンス indirect light)。
- *
- * @details
- * 各ピクセルから法線半球内に N 本のレイを screen-space で march し、ヒットした pixel の
- * HDR 色を 1 バウンスの indirect light として集める。SSAO の構造に色サンプリングを
- * 追加した発展版で、raw → depth-aware blur → temporal accumulation の 3 pass で構成する。
- * CPbrShader が結果を ambient/indirect 項に加算する。8 step / 4 ray = 32 sample/pixel、
- * diffuse-ish な広い hemisphere に絞り、反射的なシャープなパスは捨てる。
- */
-class CSsgi {
-public:
-    /** CPU-compiled shader bytecode handed to the render-owner thread. */
-    struct FCompiledShaders {
-        TUniquePtr<IRhiShader> vertex;
-        TUniquePtr<IRhiShader> main_pixel;
-        TUniquePtr<IRhiShader> blur_pixel;
-        TUniquePtr<IRhiShader> temporal_pixel;
-    };
-
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    CSsgi() noexcept = default;
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~CSsgi() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CSsgi(const CSsgi&) = delete;
-
-    /** コピー代入も禁止。 */
-    CSsgi& operator=(const CSsgi&) = delete;
-
-    /**
-     * 出力 RT・history・パイプライン・定数バッファを生成する。
-     *
-     * @param device リソース生成に使う RHI デバイス。
-     * @param width 出力解像度の幅。
-     * @param height 出力解像度の高さ。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
-
-    /**
-     * Compile all raw-DX12 SSGI shaders without touching an RHI device.
-     * This is safe to run on a startup worker. Other backends return an
-     * unsupported error and retain the regular owner-thread Init path.
-     */
-    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
-
-    /**
-     * Install CPU-compiled shaders and create the render targets, constant
-     * buffer and PSOs. Must be called by the render-owner thread.
-     */
-    TResult<void> InitWithCompiledShaders(
-        IRhiDevice& device,
-        FCompiledShaders&& shaders,
-        u32 width,
-        u32 height) noexcept;
-
-    /** 確保した GPU リソースを解放する。 */
-    void Shutdown() noexcept;
-
-    /**
-     * Keep allocated targets but make the next render a cold temporal start.
-     * Call this when a shared render surface changes logical camera owner.
-     */
-    void InvalidateHistory() noexcept {
-        m_TemporalFrame = 0u;
-        m_OutputValid = false;
-    }
-
-    /**
-     * 解像度変更時に内部 RT を作り直す (ウィンドウリサイズで呼ぶ)。
-     *
-     * @param width 新しい出力幅。
-     * @param height 新しい出力高さ。
-     * @return 成功なら空の TResult、再確保失敗ならエラー。
-     */
-    TResult<void> Resize(u32 width, u32 height) noexcept;
-
-    /**
-     * SSGI を計算して内部 RT に書く (raw → blur → temporal の 3 pass)。
-     *
-     * @param device 描画に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @param scene_color 現在フレームの HDR scene RT。
-     * @param scene_depth shader-visible depth (SSR/SSAO と同じ)。
-     * @param normal_gbuffer CMotionVector の world-space normal G-buffer (RGBA16F)。
-     * @param view_proj 現フレームの view * projection。
-     * @param inv_view_proj 現フレーム VP の逆 (depth+uv → world)。
-     * @param prev_view_proj 前フレームの view_proj (temporal reproject 用)。identity を渡すと reprojection 無効 (= 静的 accumulate)。
-     * @param eye カメラの world pos。
-     * @param intensity indirect light の倍率 (0=無効、1=neutral、>1=強調)。
-     * @param max_distance ray march の世界距離上限 (世界座標、典型 5.0)。
-     * @param motion_texture 非 null なら temporal pass が depth reprojection ではなくこの motion vector で history を引く (動く mesh も ghost せず追従)。CMotionVector::OutputTexture() を渡す。null なら従来の camera-only depth reprojection。
-     */
-    void Render(IRhiDevice& device, IRhiCommandList& cl,
-                IRhiTexture& scene_color,
-                IRhiTexture& scene_depth,
-                IRhiTexture& normal_gbuffer,
-                const FMat4& view_proj,
-                const FMat4& inv_view_proj,
-                const FMat4& prev_view_proj,
-                FVec3 eye,
-                f32 intensity   = 1.0f,
-                f32 max_distance = 5.0f,
-                IRhiTexture* motion_texture = nullptr) noexcept;
-
-    /**
-     * temporal accumulation 後の history RT を返す。
-     *
-     * @details 直近の Render が書き込んだ index を返す。CPbrShader はこれを読む (blur + 時間積分でノイズ除去済)。
-     * @return 直近の積分結果を持つ history RT。
-     */
-    IRhiTexture* OutputTexture() const noexcept {
-        return m_History[m_TemporalFrame == 0u ? 0u : ((m_TemporalFrame - 1u) & 1u)].Get();
-    }
-
-    /** True only after raw, bilateral and temporal output were all recorded. */
-    bool HasValidOutput() const noexcept { return m_OutputValid; }
-
-    /**
-     * raw (blur/temporal 前) の RT を返す (デバッグ用途向け)。
-     *
-     * @return SSGI raw RT。
-     */
-    IRhiTexture* RawTexture()    const noexcept { return m_Output.Get(); }
-
-private:
-    /**
-     * 出力 RT (raw・blur 後・history ping-pong) を生成する。
-     *
-     * @param device RT 生成に使う RHI デバイス。
-     * @param w 出力幅。
-     * @param h 出力高さ。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
-
-    /**
-     * Install 済みの SSGI 本体・blur・temporal シェーダから
-     * 各描画パイプラインを生成する。
-     *
-     * @param device パイプライン生成に使う RHI デバイス。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
-
-    /** Init で受け取った device (Resize で再利用)。 */
-    IRhiDevice*             m_Device = nullptr;
-
-    /** 出力 RT の幅。 */
-    u32                     m_Width  = 0;
-
-    /** 出力 RT の高さ。 */
-    u32                     m_Height = 0;
-
-    /** SSGI raw 出力 RT。 */
-    TUniquePtr<IRhiTexture>  m_Output;
-
-    /** depth-aware bilateral blur 後の出力 RT。 */
-    TUniquePtr<IRhiTexture>  m_BlurOutput;
-
-    /** temporal accumulation 用の ping-pong history RT。 */
-    TUniquePtr<IRhiTexture>  m_History[2];
-
-    /** フルスクリーン三角形の頂点シェーダ (全 pass 共用)。 */
-    TUniquePtr<IRhiShader>   m_Vs;
-
-    /** hemisphere ray march で indirect light を集めるピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_Ps;
-
-    /** depth-aware bilateral blur のピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_BlurPs;
-
-    /** temporal accumulation のピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_TemporalPs;
-
-    /** SSGI 本体の描画パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_Pipeline;
-
-    /** blur の描画パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_BlurPipeline;
-
-    /** temporal accumulation の描画パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_TemporalPipeline;
-
-    /** SSGI パラメータの定数バッファ。 */
-    TUniquePtr<IRhiBuffer>   m_Cb;
-
-    /** temporal accumulation のフレームカウンタ (history の ping-pong に使う)。 */
-    u32                     m_TemporalFrame = 0;
-
-    /** Prevents callers from publishing an unwritten or invalidated history. */
-    bool                    m_OutputValid = false;
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FSsgi = CSsgi;
-
 
 } // namespace acs
 

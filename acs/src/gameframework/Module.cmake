@@ -308,6 +308,7 @@ set(_acsgen_gameframework_headers
     SaveArchive.h
     SaveSlot.h
     Scene.h
+    Scene3DGlobalIllumination.h
     Scene3DRaycastHit.h
     Scene3DSerialize.h
     SceneCommandQueue.h

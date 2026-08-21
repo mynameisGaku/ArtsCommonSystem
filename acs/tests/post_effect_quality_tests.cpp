@@ -634,6 +634,98 @@ ACS_TEST(PostEffects,
     EXPECT_TRUE(flush < invalidate);
 }
 
+ACS_TEST(PostEffects,
+         LegacyScene3DGlobalIlluminationUsesSharedPrepassAndPreviousFrame)
+{
+    const std::string adapter =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string header =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.h");
+    const std::string global_illumination_header =
+        ReadWorkspaceSource("src/gameframework/Scene3DGlobalIllumination.h");
+    const std::string frame = ExtractFunction(
+        adapter, "void ALegacyScene3DAdapter::OnRender(");
+    const std::string ambient_occlusion = ExtractFunction(
+        adapter, "bool ALegacyScene3DAdapter::RenderAmbientOcclusionPass(");
+    const std::string draw_pbr = ExtractFunction(
+        adapter, "bool ALegacyScene3DAdapter::DrawPbrScene(");
+    const std::string global_illumination = ExtractFunction(
+        adapter, "bool ALegacyScene3DAdapter::RenderGlobalIlluminationPass(");
+    EXPECT_TRUE(!adapter.empty());
+    EXPECT_TRUE(!header.empty());
+    EXPECT_TRUE(!global_illumination_header.empty());
+    EXPECT_TRUE(!frame.empty());
+    EXPECT_TRUE(!ambient_occlusion.empty());
+    EXPECT_TRUE(!draw_pbr.empty());
+    EXPECT_TRUE(!global_illumination.empty());
+    if (adapter.empty() || header.empty() || global_illumination_header.empty()
+        || frame.empty()
+        || ambient_occlusion.empty() || draw_pbr.empty()
+        || global_illumination.empty()) {
+        return;
+    }
+
+    // 公開設定は既定オフで、強さと探索距離を一つの設定値として持つ。
+    EXPECT_TRUE(global_illumination_header.find(
+        "struct FScene3DGlobalIllumination") !=
+                std::string::npos);
+    EXPECT_TRUE(header.find("GlobalIllumination() noexcept") !=
+                std::string::npos);
+    EXPECT_TRUE(global_illumination_header.find(
+        "f32 Intensity = 0.0f") != std::string::npos);
+    EXPECT_TRUE(global_illumination_header.find(
+        "f32 MaxDistance = 5.0f") != std::string::npos);
+
+    // SSGI/SSR は SSAO の出力ではなく、共有法線・深度前段を読む。SSAO の
+    // 初期化や出力が失敗しても、前段が完全なら後段を止めない。
+    EXPECT_TRUE(ambient_occlusion.find(
+        "m_NormalDepthDrawn = true;") != std::string::npos);
+    EXPECT_TRUE(ambient_occlusion.find(
+        "if (!ssao_requested || !m_SsaoReady) return true;") !=
+                std::string::npos);
+    EXPECT_TRUE(ambient_occlusion.find(
+        "return m_NormalDepthDrawn;") != std::string::npos);
+    EXPECT_TRUE(adapter.find(
+        "m_NormalDepthDrawn ? m_NormalDepth.OutputNormalTexture()") !=
+                std::string::npos);
+
+    // PBR は前フレームの完成結果を読む。SSGI の現フレーム計算は HDR の
+    // cloud/Sprite3D/外部透明描画が終わった後なので、同じフレームでは循環しない。
+    const std::size_t pbr = frame.find("DrawPbrScene(");
+    const std::size_t hdr_end = frame.find(
+        "EndRenderToTexture(*hdr);", pbr);
+    const std::size_t ssgi_render = frame.find(
+        "RenderGlobalIlluminationPass(", hdr_end);
+    const std::size_t reflection = frame.find(
+        "RenderReflectionPass(", ssgi_render);
+    EXPECT_TRUE(pbr != std::string::npos);
+    EXPECT_TRUE(hdr_end != std::string::npos);
+    EXPECT_TRUE(ssgi_render != std::string::npos);
+    EXPECT_TRUE(reflection != std::string::npos);
+    EXPECT_TRUE(pbr < hdr_end);
+    EXPECT_TRUE(hdr_end < ssgi_render);
+    EXPECT_TRUE(ssgi_render < reflection);
+    EXPECT_TRUE(draw_pbr.find(
+        "shader.SetSsgi(m_Ssgi.OutputTexture(), m_SsgiParams.Intensity)") !=
+                std::string::npos);
+    EXPECT_TRUE(draw_pbr.find(
+        "shader.SetSsgi(nullptr, 0.0f)") != std::string::npos);
+
+    // MotionVector は現在行列を前行列にも使うため、SSGI は動的 motion を
+    // 偽って渡さず、カメラ再投影だけを使う。強さは PBR 側で一度だけ掛ける。
+    EXPECT_TRUE(global_illumination.find(
+        "m_Camera.Eye(), 1.0f, max_distance, nullptr)") !=
+                std::string::npos);
+    EXPECT_TRUE(global_illumination.find(
+        "InvalidateGlobalIlluminationOutput()") != std::string::npos);
+    EXPECT_TRUE(adapter.find(
+        "m_Ssgi.Shutdown();") != std::string::npos);
+    EXPECT_TRUE(adapter.find(
+        "m_NormalDepth.Shutdown();") != std::string::npos);
+    EXPECT_TRUE(adapter.find(
+        "m_SsgiValid = false;") != std::string::npos);
+}
+
 ACS_TEST(PostEffects, FixedTapGatherShadersKeepRolledQualityLoops)
 {
     const std::string source =

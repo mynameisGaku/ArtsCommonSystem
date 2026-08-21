@@ -12,6 +12,7 @@
 #include "render/Ibl.h"
 #include "render/MotionVector.h"
 #include "render/Ssao.h"
+#include "render/Ssgi.h"
 #include "render/Ssr.h"
 #include "render/HiZ.h"
 #include "render/SkinnedShader.h"
@@ -20,6 +21,7 @@
 #include "render/Atmosphere.h"
 #include "gameframework/SceneNodeGraph.h"
 #include "gameframework/Scene3DSerialize.h"
+#include "gameframework/Scene3DGlobalIllumination.h"
 #include "math/Camera.h"
 #include "math/Collision3D.h"   // FRay3 / FRayHit3 (RaycastWater と mesh 交差)
 #include "render/Blit.h"
@@ -417,6 +419,23 @@ public:
      * @return 現在の設定。
      */
     const FScene3DReflections& Reflections() const noexcept { return m_SsrParams; }
+
+    /**
+     * 画面空間の間接光 (SSGI) の設定を触る。
+     *
+     * @details
+     * `Intensity` を正の値にすると有効になる。出力は内部で保持され、次のフレームの
+     * PBR にだけ渡す。無効化、リサイズ、入力不足時は古い間接光を公開しない。
+     * @return SSGI の設定 (次のフレームから効く)。
+     */
+    FScene3DGlobalIllumination& GlobalIllumination() noexcept {
+        return m_SsgiParams;
+    }
+
+    /** SSGI の設定を読む。 */
+    const FScene3DGlobalIllumination& GlobalIllumination() const noexcept {
+        return m_SsgiParams;
+    }
 
     /**
      * 雲の設定を読む。
@@ -881,6 +900,16 @@ private:
     bool EnsureAmbientOcclusion(IRhiDevice& device, u32 width, u32 height) noexcept;
 
     /**
+     * SSAO、SSR、SSGI が共有する法線・深度前段を用意する。
+     *
+     * @param device 描画先を作るRHIデバイス。
+     * @param width 画面の幅。
+     * @param height 画面の高さ。
+     * @return 前段を使える状態なら true。
+     */
+    bool EnsureNormalDepth(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
      * 遮蔽を計算する前段として、法線と深度を先に描く。
      *
      * @details
@@ -900,6 +929,26 @@ private:
      * @return 遮蔽が使える状態になったら true。
      */
     bool RenderAmbientOcclusionPass(IRhiDevice& device, FRenderContext& context) noexcept;
+
+    /** SSGI の出力RTと時間履歴を、必要な解像度で用意する。 */
+    bool EnsureGlobalIllumination(
+        IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * 完成したHDR色からSSGIを計算し、次フレーム用の結果を公開する。
+     *
+     * @param device 描画に使うRHIデバイス。
+     * @param context 描画文脈。
+     * @param scene_color 現フレームの完成したHDR色。
+     * @param scene_depth 現フレームのshader-visible深度。
+     * @return 次フレームへ渡せる出力を作れたら true。
+     */
+    bool RenderGlobalIlluminationPass(
+        IRhiDevice& device, FRenderContext& context,
+        IRhiTexture& scene_color, IRhiTexture& scene_depth) noexcept;
+
+    /** SSGI の出力を無効化し、次回復帰時を履歴の初回に戻す。 */
+    void InvalidateGlobalIlluminationOutput() noexcept;
 
     /**
      * 反射 (SSR) の描き込み先を用意する。画面の大きさが変わったら作り直す。
@@ -1202,6 +1251,7 @@ private:
     FScene3DShadows m_ShadowParams{};
     FScene3DAmbientOcclusion m_SsaoParams{};
     FScene3DReflections m_SsrParams{};
+    FScene3DGlobalIllumination m_SsgiParams{};
 
     /** 雲を使える状態にできたか。 */
     bool m_CloudsReady = false;
@@ -1248,8 +1298,26 @@ private:
     /** 法線と深度を先に描くパス。遮蔽の材料になる。 */
     CMotionVector m_NormalDepth;
 
+    /** 法線と深度の前段を用意できたか。SSAOの有効状態とは独立。 */
+    bool m_NormalDepthReady = false;
+
+    /** このフレームで法線と深度を完全に描けたか。 */
+    bool m_NormalDepthDrawn = false;
+
+    /** 法線と深度を用意してある画面の幅。 */
+    u32 m_NormalDepthWidth = 0u;
+
+    /** 法線と深度を用意してある画面の高さ。 */
+    u32 m_NormalDepthHeight = 0u;
+
     /** 画面空間の遮蔽 (GTAO + contact shadow)。 */
     CSsao m_Ssao;
+
+    /** 画面空間の間接光。出力RTと時間履歴を所有する。 */
+    CSsgi m_Ssgi;
+
+    /** SSGI の出力RTとパイプラインを用意できたか。 */
+    bool m_SsgiReady = false;
 
     /** 遮蔽の描き込み先を用意できたか。 */
     bool m_SsaoReady = false;
@@ -1291,6 +1359,18 @@ private:
 
     /** 使える反射があるか (前のフレームで作れたか)。 */
     bool m_SsrValid = false;
+
+    /** SSGIの出力を次のPBRへ渡せるか (現フレームの計算前の値)。 */
+    bool m_SsgiValid = false;
+
+    /** SSGIを前フレームから継続して有効にしているか。 */
+    bool m_SsgiWasEnabled = false;
+
+    /** SSGI出力を用意してある画面の幅。 */
+    u32 m_SsgiWidth = 0u;
+
+    /** SSGI出力を用意してある画面の高さ。 */
+    u32 m_SsgiHeight = 0u;
 
     /** 用意してある反射の大きさ。 */
     u32 m_SsrWidth = 0u;
