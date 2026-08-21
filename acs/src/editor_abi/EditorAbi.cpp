@@ -709,6 +709,8 @@ struct FEditorHost {
     bool                     gray_ready = false;
     FMat4                    prev_vp = FMat4::Identity();  // 前フレーム view_proj (SSR/SSGI temporal reproject 共用、jitter 込み)
     FMat4                    prev_vp_nojit = FMat4::Identity();  // 前フレーム view_proj (jitter 無し、TAA history reproject 用)
+    // 遠方でも精度を保つカメラ切替判定用の前フレーム逆行列。
+    FMat4                    prev_camera_relative_inv_vp = FMat4::Identity();
     FVec3                    prev_temporal_camera_eye{};
     bool                     temporal_camera_pose_valid = false;
     u32                      taa_frame = 0;                // TAA Halton ジッタ列のフレームインデックス
@@ -9962,6 +9964,8 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     h.profiler_work.render_orthographic = renderOrtho;
     h.profiler_work.render_camera_resolved = true;
     const FMat4 vp_nojit = cam.ViewProjection();
+    // 空、雲、カメラ切替判定で同じ高精度な視線復元を共有する。
+    const FMat4 camera_relative_inv_vp = BuildCameraRelativeInverseViewProjection(cam.View(), cam.Projection());
     const bool render_projection_changed =
         h.last_render_camera_projection_valid &&
         h.last_render_camera_orthographic != renderOrtho;
@@ -9971,11 +9975,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         h.last_render_camera_node_id != renderCamera.node_id;
     if (render_camera_changed)
         h.last_render_camera_node_id = renderCamera.node_id;
-    const bool render_camera_cut =
-        h.temporal_camera_pose_valid &&
-        VolumetricCloudViewCutDetected(
-            Inverse(h.prev_vp_nojit), h.prev_temporal_camera_eye,
-            Inverse(vp_nojit), eye);
+    const bool render_camera_cut = h.temporal_camera_pose_valid && VolumetricCloudViewCutDetected(h.prev_camera_relative_inv_vp, h.prev_temporal_camera_eye, camera_relative_inv_vp, eye);
     if (render_camera_changed || camera_view_history_reset ||
         render_projection_changed || render_camera_cut) {
         // The physical swapchain is shared, but temporal state must never
@@ -10579,7 +10579,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         h.sky3d.Render(*cl, cam);
     } else if (h.sky_pipe && h.sky_cb) {
         FSkyCb sk{};
-        sk.inv_view_proj = Inverse(vp);
+        sk.inv_view_proj = camera_relative_inv_vp;
         sk.zenith = FVec4{ h.sky_zenith.x,  h.sky_zenith.y,  h.sky_zenith.z,  0 };   // 天頂 (設定駆動)
         sk.horizon= FVec4{ h.sky_horizon.x, h.sky_horizon.y, h.sky_horizon.z, 0 };   // 地平
         sk.ground = FVec4{ h.sky_ground.x,  h.sky_ground.y,  h.sky_ground.z,  0 };   // 下半球
@@ -10608,10 +10608,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                 h.profiler_work.cloud_cpu_ms);
             FScopedRhiGpuTiming cloudGpuScope(
                 cl, ERhiGpuTimingPass::Cloud);
-            h.vclouds3d.RenderCompute(
-                *cl, Inverse(vp_nojit), eye, h.sun_dir, sunC, h.sky_horizon,
-                h.q_cloud_coverage, h.q_cloud_density, h.q_cloud_wind,
-                h.vclouds_time);
+            h.vclouds3d.RenderComputeCameraRelative(*cl, camera_relative_inv_vp, eye, h.sun_dir, sunC, h.sky_horizon, h.q_cloud_coverage, h.q_cloud_density, h.q_cloud_wind, h.vclouds_time);
         }
         cl->BeginRenderToTextureLoad(*hdrRt, h.renderer.DepthBuffer());
         { FViewport rvp2{}; rvp2.width = static_cast<f32>(scW); rvp2.height = static_cast<f32>(scH); cl->SetViewport(rvp2);
@@ -11304,6 +11301,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     }
     h.prev_vp = vp;               // SSR/SSGI temporal reproject 用 (jitter 込み)
     h.prev_vp_nojit = vp_nojit;   // TAA history reproject 用 (jitter 無し)
+    h.prev_camera_relative_inv_vp = camera_relative_inv_vp;
     h.prev_temporal_camera_eye = eye;
     h.temporal_camera_pose_valid = true;
     if (taaOn) ++h.taa_frame;     // ジッタ列を進める (TAA 無効時は固定)

@@ -35995,6 +35995,22 @@ using FCamera2D = CCamera2D;
 namespace acs {
 
 /**
+ * カメラ位置を含まない逆ビュープロジェクション行列を作る。
+ *
+ * @param view カメラのビュー行列。
+ * @param projection 同じカメラの投影行列。
+ * @return 平行移動を除いたビューと投影を合成してから反転した行列。
+ */
+inline FMat4 BuildCameraRelativeInverseViewProjection(const FMat4& view, const FMat4& projection) noexcept {
+    // 回転と投影だけを反転し、遠方座標を含む行列の反転で失われる精度を避ける。
+    FMat4 cameraRelativeView = view;
+    cameraRelativeView.m[3][0] = 0.0f;
+    cameraRelativeView.m[3][1] = 0.0f;
+    cameraRelativeView.m[3][2] = 0.0f;
+    return Inverse(cameraRelativeView * projection);
+}
+
+/**
  * ビュー行列とプロジェクション行列を保持するカメラヘルパ。
  *
  * @details
@@ -58672,26 +58688,26 @@ bool VolumetricCloudLightingChanged(
     FVec3 sun_color, FVec3 sky_color) noexcept;
 
 /**
- * Detect a discontinuous camera cut without treating ordinary world-space
- * translation as a cut.
+ * 通常移動と、履歴を破棄すべき不連続なカメラ切替を見分ける。
  *
- * Comparing view-projection matrix elements directly also compares their
- * translation terms. In a metre-scale editor that invalidates temporal cloud
- * history during normal fly/pan motion and repeatedly exposes the cold 4x4
- * reconstruction pattern. This comparison instead measures representative
- * view-ray directions and reserves the distance test for a real teleport.
+ * 行列要素ではなく画面中央と四辺の視線角を比較し、位置は実距離で判定する。
+ * 遠方座標で視線精度を失わないよう、逆行列には平行移動を含まないものを渡す。
+ * 非数、復元不能な行列、256メートルを超える移動は切替として扱う。
+ *
+ * @param previous_camera_relative_inv_view_proj 前フレームのカメラ相対逆行列。
+ * @param previous_camera_position 前フレームのカメラ位置。
+ * @param current_camera_relative_inv_view_proj 現在フレームのカメラ相対逆行列。
+ * @param current_camera_position 現在フレームのカメラ位置。
+ * @return 履歴を破棄すべき場合は true。
  */
-bool VolumetricCloudViewCutDetected(
-    const FMat4& previous_inv_view_proj, FVec3 previous_camera_position,
-    const FMat4& current_inv_view_proj,
-    FVec3 current_camera_position) noexcept;
+bool VolumetricCloudViewCutDetected(const FMat4& previous_camera_relative_inv_view_proj, FVec3 previous_camera_position, const FMat4& current_camera_relative_inv_view_proj, FVec3 current_camera_position) noexcept;
 
 /**
  * GPU レイマーチ、影キャッシュ、時間再構成を所有するボリューメトリック雲描画。
  *
  * @details
  * 入力設定は CPU で正規化してから保持する。描画時は同じ密度場を視線方向と太陽方向へ積分し、
- * 低解像度結果を雲距離と前フレームのワールド位置から全解像度へ再構成する。
+ * 低解像度結果を雲距離と前フレームのカメラ相対位置から全解像度へ再構成する。
  */
 class CVolumetricClouds {
 public:
@@ -58874,15 +58890,21 @@ public:
     }
 
     /**
-     * 雲を compute でレイマーチして内部 UAV テクスチャへ書く (render pass の «外» で呼ぶ)。
-     * Ultra は毎 frame quarter-dimension の全 texel を更新し、それぞれを 4x4 block
-     * 内の exact full-resolution subpixel へ 16 phase で割り当てる。camera motion や
-     * 履歴無効化でも native/full seed に戻らず、未更新 subpixel は world/depth
-     * reprojection、初回/disocclusion は spatial fallback で解決する。
+     * 雲を計算シェーダーで追跡し、内部テクスチャへ書く既存互換入口。
+     * 描画処理の外側で呼ぶ。遠方座標では、より高精度な
+     * RenderComputeCameraRelative() を使う。
      */
     void RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
                        FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color,
                        f32 coverage, f32 density, f32 wind, f32 time) noexcept;
+
+    /**
+     * カメラ相対逆行列で視線精度を保ちながら雲を描く。
+     *
+     * @param camera_relative_inv_view_proj 平行移動を含めず BuildCameraRelativeInverseViewProjection() で作った逆行列。
+     * 行列またはカメラ位置が非数なら雲を描かず、時間履歴を破棄する。
+     */
+    void RenderComputeCameraRelative(IRhiCommandList& cl, const FMat4& camera_relative_inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color, f32 coverage, f32 density, f32 wind, f32 time) noexcept;
 
     /**
      * 雲 (straight 散乱色+alpha) を現在の RT へ alpha blend する。
@@ -58967,8 +58989,8 @@ private:
     TUniquePtr<IRhiTexture>  m_CloudDepth;     // scaled ray-march RG32F (代表距離、信頼度)
     TUniquePtr<IRhiTexture>  m_HistoryColor[2];// 全解像度 RGBA16F の時間履歴 ping-pong
     TUniquePtr<IRhiTexture>  m_HistoryDepth[2];// 全解像度 RG32F の雲距離・信頼度 ping-pong
-    FMat4                    m_PrevViewProj = FMat4::Identity();
-    FMat4                    m_PrevInvViewProj = FMat4::Identity();
+    FMat4                    m_PrevCameraRelativeViewProj = FMat4::Identity();
+    FMat4                    m_PrevCameraRelativeInvViewProj = FMat4::Identity();
     FVec3                    m_PrevCamPos{};
     FVec3                    m_WorldOrigin{};
     FVec3                    m_PrevSunDir{};

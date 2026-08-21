@@ -1346,8 +1346,7 @@ ACS_TEST(Atmosphere, EditorCloudLightingUsesNormalizedLayerAndCurrentSky) {
     const std::size_t setLayer = draw.find("h.vclouds3d.SetLayer(");
     const std::size_t updateLighting = draw.find(
         "UpdateVolumetricCloudLighting_Internal(h);", setLayer);
-    const std::size_t renderClouds = draw.find(
-        "h.vclouds3d.RenderCompute(", updateLighting);
+    const std::size_t renderClouds = draw.find("h.vclouds3d.RenderComputeCameraRelative(", updateLighting);
     EXPECT_TRUE(setLayer != std::string::npos);
     EXPECT_TRUE(updateLighting != std::string::npos);
     EXPECT_TRUE(renderClouds != std::string::npos);

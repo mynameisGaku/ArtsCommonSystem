@@ -138,10 +138,10 @@ float SkyDither(float2 pix, float t) {
 }
 
 float4 PSMain(VSOut v) : SV_TARGET {
-    // 1) NDC（z=1）から逆 VP でワールド座標を求める
+    // 1) NDC（z=1）からカメラ相対遠点を求め、そのまま視線へ直す。
     float4 wp = mul(float4(v.ndc.x, -v.ndc.y, 1.0, 1.0), inv_view_proj);
     wp.xyz /= wp.w;
-    float3 dir   = normalize(wp.xyz - camera_pos.xyz);
+    float3 dir   = normalize(wp.xyz);
     float3 sundn = normalize(sun_dir.xyz);
 
     // 2) 高さ角でグラデ。dir.y = 0 が地平線、+1 が天頂、-1 が真下。
@@ -226,7 +226,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
  * スカイ定数バッファのレイアウト (HLSL の cbuffer CSky と一致)。
  */
 struct FSkyCb {
-    /** 画面 NDC からワールドへの逆 view-projection。 */
+    /** 画面 NDC からカメラ相対座標への逆 view-projection。 */
     FMat4 inv_view_proj;
 
     /** 視点ワールド座標 (xyz=eye)。 */
@@ -627,7 +627,7 @@ void CSky::PresetNight() noexcept {
 void CSky::Render(IRhiCommandList& cl, const CCamera& camera) noexcept {
     if (!m_Pipeline || !m_Cb) return;
     FSkyCb cb{};
-    cb.inv_view_proj = Inverse(camera.ViewProjection());
+    cb.inv_view_proj = BuildCameraRelativeInverseViewProjection(camera.View(), camera.Projection());
     const FVec3 eye = camera.Eye();
     cb.camera_pos = FVec4{eye.x, eye.y, eye.z, 1};
     cb.sun_dir    = FVec4{m_SunDir.x, m_SunDir.y, m_SunDir.z, 0};
@@ -851,7 +851,7 @@ const char* kCloudCS = R"(
 #pragma pack_matrix(row_major)
 cbuffer CloudCB : register(b0) {
     float4x4 invViewProj;
-    float4x4 prevViewProj;
+    float4x4 prevCameraRelativeViewProj;
     float4 camPos;     // xyz
     float4 prevCamPos; // xyz
     float4 sunDir;     // xyz (world)
@@ -1853,7 +1853,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float2 uv=(float2(rayPixel)+0.5)/rayDimensions;
     float4 clip=float4(uv.x*2-1, -(uv.y*2-1), 1, 1);
     float4 wp=mul(clip, invViewProj); wp/=wp.w;
-    float3 dir=normalize(wp.xyz - camPos.xyz);
+    float3 dir=normalize(wp.xyz);
     float3 localUp=groundHorizon.xyz;
     float signedElevation=dot(dir,localUp);
     // The planet/ground occlusion boundary has no rasterizer coverage because
@@ -1891,10 +1891,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             // far-plane inverse projection produces a negative w.
             xWp/=xWp.w;
             yWp/=yWp.w;
-            float xElevation=dot(
-                normalize(xWp.xyz-camPos.xyz),localUp);
-            float yElevation=dot(
-                normalize(yWp.xyz-camPos.xyz),localUp);
+            float xElevation=dot(normalize(xWp.xyz),localUp);
+            float yElevation=dot(normalize(yWp.xyz),localUp);
             float coverageHalfWidth=max(
                 0.5*(abs(xElevation-signedElevation)+
                      abs(yElevation-signedElevation)),1e-6);
@@ -2223,7 +2221,7 @@ const char* kCloudCompVS = R"(
 #pragma pack_matrix(row_major)
 cbuffer CloudCB : register(b0) {
     float4x4 invViewProj;
-    float4x4 prevViewProj;
+    float4x4 prevCameraRelativeViewProj;
     float4 camPos;
     float4 prevCamPos;
     float4 sunDir;
@@ -2260,7 +2258,7 @@ const char* kCloudResolveCS = R"(
 #pragma pack_matrix(row_major)
 cbuffer CloudCB : register(b0) {
     float4x4 invViewProj;
-    float4x4 prevViewProj;
+    float4x4 prevCameraRelativeViewProj;
     float4 camPos;
     float4 prevCamPos;
     float4 sunDir;
@@ -2417,16 +2415,12 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
             float4 stableFarP=mul(stableClip,invViewProj);
             float stableInvW=abs(stableFarP.w)>1e-6
                 ?rcp(stableFarP.w):0.0;
-            float3 stableRay=normalize(
-                stableFarP.xyz*stableInvW-camPos.xyz);
-            float3 stableWorldP=
-                camPos.xyz+stableRay*sameScreenDepth.x;
+            float3 stableRay=normalize(stableFarP.xyz*stableInvW);
             float stableWindDelta=params.z-temporal.y;
-            float3 stablePrevWorldP=stableWorldP-float3(
-                stableWindDelta*0.9284767,0.0,
-                stableWindDelta*0.3713907);
-            float4 stablePrevClip=mul(
-                float4(stablePrevWorldP,1.0),prevViewProj);
+            // 現在の相対位置へカメラ移動量と風の逆移流だけを加え、
+            // 大きなワールド座標を経由せず前フレームの位置を作る。
+            float3 stablePrevCameraRelativeP=stableRay*sameScreenDepth.x+(camPos.xyz-prevCamPos.xyz)-float3(stableWindDelta*0.9284767,0.0,stableWindDelta*0.3713907);
+            float4 stablePrevClip=mul(float4(stablePrevCameraRelativeP,1.0),prevCameraRelativeViewProj);
             if(stablePrevClip.w>1e-5) {
                 float2 stablePrevNdc=stablePrevClip.xy/stablePrevClip.w;
                 float2 stableHistoryUv=float2(
@@ -2442,8 +2436,7 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                         int3(stableHistoryPixel,0));
                     float2 stableHistD=historyDepth.Load(
                         int3(stableHistoryPixel,0));
-                    float stableExpectedDepth=length(
-                        stablePrevWorldP-prevCamPos.xyz);
+                    float stableExpectedDepth=length(stablePrevCameraRelativeP);
                     float stableDepthTolerance=max(
                         0.30,stableExpectedDepth*0.01);
                     bool stableDepthOk=stableHistD.x<=250000.0 &&
@@ -2556,16 +2549,12 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
         float4 clip=float4(uv.x*2.0-1.0,-(uv.y*2.0-1.0),1.0,1.0);
         float4 farP=mul(clip,invViewProj);
         float invW=(abs(farP.w)>1e-6)?rcp(farP.w):0.0;
-        float3 ray=normalize(farP.xyz*invW-camPos.xyz);
-        float3 worldP=camPos.xyz+ray*reprojectionDepth;
-
-        // Reproject the same advected density feature.  Camera translation is
-        // already represented by prevViewProj/prevCamPos; adding it to the
-        // world point would move the cloud field with the editor camera.
+        float3 ray=normalize(farP.xyz*invW);
+        // 同じ密度形状を前フレームへ戻す。相対位置へカメラ移動量を加え、
+        // 風の移流量を引くことで、ワールド固定を保ったまま精度低下を避ける。
         float windDelta=params.z-temporal.y;
-        float3 prevWorldP=worldP-float3(
-            windDelta*0.9284767,0.0,windDelta*0.3713907);
-        float4 prevClip=mul(float4(prevWorldP,1.0),prevViewProj);
+        float3 prevCameraRelativeP=ray*reprojectionDepth+(camPos.xyz-prevCamPos.xyz)-float3(windDelta*0.9284767,0.0,windDelta*0.3713907);
+        float4 prevClip=mul(float4(prevCameraRelativeP,1.0),prevCameraRelativeViewProj);
         if(prevClip.w>1e-5) {
             float2 prevNdc=prevClip.xy/prevClip.w;
             float2 historyUv=float2(prevNdc.x*0.5+0.5,-prevNdc.y*0.5+0.5);
@@ -2578,7 +2567,7 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                 // cloud edge than the color sample used for reprojection.
                 float4 hist=historyColor.Load(int3(historyPixel,0));
                 float2 histD=historyDepth.Load(int3(historyPixel,0));
-                float expectedDepth=length(prevWorldP-prevCamPos.xyz);
+                float expectedDepth=length(prevCameraRelativeP);
                 float depthTolerance=max(0.30,expectedDepth*0.01);
                 bool depthOk=histD.x<=250000.0 && histD.y>0.001
                     && abs(histD.x-expectedDepth)<depthTolerance;
@@ -2663,7 +2652,7 @@ const char* kCloudCompPS = R"(
 #pragma pack_matrix(row_major)
 cbuffer CloudCB : register(b0) {
     float4x4 invViewProj;
-    float4x4 prevViewProj;
+    float4x4 prevCameraRelativeViewProj;
     float4 camPos;
     float4 prevCamPos;
     float4 sunDir;
@@ -2693,7 +2682,7 @@ float CloudGroundCoverage(VSOut v) {
         uint2 pixel=min(uint2(v.pos.xy),fullSize-1u);
         float4 centerFarP=v.farPoint;
         centerFarP/=centerFarP.w;
-        float centerElevation=dot(normalize(centerFarP.xyz-camPos.xyz),groundHorizon.xyz);
+        float centerElevation=dot(normalize(centerFarP.xyz),groundHorizon.xyz);
         if(centerElevation<groundHorizon.w-0.02) {
             result=0.0;
         } else if(centerElevation<groundHorizon.w+0.02) {
@@ -2704,8 +2693,8 @@ float CloudGroundCoverage(VSOut v) {
             float4 yFarP=v.farPoint-yOffset*(2.0/dims.w)*invViewProj[1];
             xFarP/=xFarP.w;
             yFarP/=yFarP.w;
-            float xElevation=dot(normalize(xFarP.xyz-camPos.xyz),groundHorizon.xyz);
-            float yElevation=dot(normalize(yFarP.xyz-camPos.xyz),groundHorizon.xyz);
+            float xElevation=dot(normalize(xFarP.xyz),groundHorizon.xyz);
+            float yElevation=dot(normalize(yFarP.xyz),groundHorizon.xyz);
             float coverageHalfWidth=max(0.5*(abs(xElevation-centerElevation)+abs(yElevation-centerElevation)),1e-6);
             result=smoothstep(groundHorizon.w-coverageHalfWidth,groundHorizon.w+coverageHalfWidth,centerElevation);
         }
@@ -2720,23 +2709,25 @@ float4 PSMain(VSOut v):SV_TARGET {
     float groundCoverage=CloudGroundCoverage(v);
     cloud.a*=groundCoverage;
     cloudHit.y*=groundCoverage;
+    bool cloudCompositeFinite=all(cloud==cloud)
+        &&all(abs(cloud)<=65504.0)
+        &&all(cloudHit==cloudHit)
+        &&all(abs(cloudHit)<=250001.0)
+        &&groundCoverage==groundCoverage;
+    if(!cloudCompositeFinite)
+        return float4(0,0,0,0);
     if (cloud.a < 0.001 || cloudHit.y < 0.001)
         return float4(0,0,0,0);
 
-    // Compare actual ray distances instead of discarding clouds whenever any
-    // scene depth exists.  The old sky-only mask incorrectly removed clouds
-    // that are in front of terrain when the camera is inside/above the layer
-    // and looking down.
+    // 深度が存在するだけで雲を消さず、雲と形状の実距離を比較する。
+    // これにより、雲層の内側や上側から見下ろしたときも手前の雲を残す。
     float depth = sceneDepth.SampleLevel(sceneDepth_sampler, v.uv, 0.0);
-    // Every RHI main/off-screen pass clears conventional depth to exactly
-    // 1.0.  Any representable value below that is geometry, including objects
-    // very close to the far plane.  A broad epsilon here erases those objects
-    // from cloud occlusion (near=.05/far=500 reaches .99999 around z=454.5).
+    // 通常深度は1.0で消去されるため、それ未満は遠クリップ面付近も含めて形状として扱う。
     if (depth < 1.0) {
         float4 clip = float4(v.uv.x*2.0-1.0, -(v.uv.y*2.0-1.0), depth, 1.0);
         float4 world = mul(clip, invViewProj);
         world /= max(abs(world.w), 1e-6);
-        float sceneDistance = length(world.xyz - camPos.xyz);
+        float sceneDistance = length(world.xyz);
         float tolerance = max(0.05, sceneDistance * 0.001);
         if (cloudHit.x >= sceneDistance - tolerance) discard;
     }
@@ -2755,7 +2746,7 @@ const char* kCloudCompAtmosPS = R"(
 #pragma pack_matrix(row_major)
 cbuffer CloudCB : register(b0) {
     float4x4 invViewProj;
-    float4x4 prevViewProj;
+    float4x4 prevCameraRelativeViewProj;
     float4 camPos;
     float4 prevCamPos;
     float4 sunDir;
@@ -2792,7 +2783,7 @@ float CloudGroundCoverage(VSOut v) {
         uint2 pixel=min(uint2(v.pos.xy),fullSize-1u);
         float4 centerFarP=v.farPoint;
         centerFarP/=centerFarP.w;
-        float centerElevation=dot(normalize(centerFarP.xyz-camPos.xyz),groundHorizon.xyz);
+        float centerElevation=dot(normalize(centerFarP.xyz),groundHorizon.xyz);
         if(centerElevation<groundHorizon.w-0.02) {
             result=0.0;
         } else if(centerElevation<groundHorizon.w+0.02) {
@@ -2803,8 +2794,8 @@ float CloudGroundCoverage(VSOut v) {
             float4 yFarP=v.farPoint-yOffset*(2.0/dims.w)*invViewProj[1];
             xFarP/=xFarP.w;
             yFarP/=yFarP.w;
-            float xElevation=dot(normalize(xFarP.xyz-camPos.xyz),groundHorizon.xyz);
-            float yElevation=dot(normalize(yFarP.xyz-camPos.xyz),groundHorizon.xyz);
+            float xElevation=dot(normalize(xFarP.xyz),groundHorizon.xyz);
+            float yElevation=dot(normalize(yFarP.xyz),groundHorizon.xyz);
             float coverageHalfWidth=max(0.5*(abs(xElevation-centerElevation)+abs(yElevation-centerElevation)),1e-6);
             result=smoothstep(groundHorizon.w-coverageHalfWidth,groundHorizon.w+coverageHalfWidth,centerElevation);
         }
@@ -2819,6 +2810,13 @@ float4 PSMainAtmos(VSOut v):SV_TARGET {
     float groundCoverage=CloudGroundCoverage(v);
     cloud.a*=groundCoverage;
     cloudHit.y*=groundCoverage;
+    bool cloudCompositeFinite=all(cloud==cloud)
+        &&all(abs(cloud)<=65504.0)
+        &&all(cloudHit==cloudHit)
+        &&all(abs(cloudHit)<=250001.0)
+        &&groundCoverage==groundCoverage;
+    if(!cloudCompositeFinite)
+        return float4(0,0,0,0);
     if (cloud.a < 0.001 || cloudHit.y < 0.001)
         return float4(0,0,0,0);
 
@@ -2827,7 +2825,7 @@ float4 PSMainAtmos(VSOut v):SV_TARGET {
         float4 clip = float4(v.uv.x*2.0-1.0, -(v.uv.y*2.0-1.0), depth, 1.0);
         float4 world = mul(clip, invViewProj);
         world /= max(abs(world.w), 1e-6);
-        float sceneDistance = length(world.xyz - camPos.xyz);
+        float sceneDistance = length(world.xyz);
         float tolerance = max(0.05, sceneDistance * 0.001);
         if (cloudHit.x >= sceneDistance - tolerance) discard;
     }
@@ -2867,7 +2865,7 @@ float4 PSMainAtmos(VSOut v):SV_TARGET {
 
 struct FCloudCb {
     FMat4 invViewProj;
-    FMat4 prevViewProj;
+    FMat4 prevCameraRelativeViewProj;
     FVec4 camPos;
     FVec4 prevCamPos;
     FVec4 sunDir;
@@ -3730,14 +3728,8 @@ bool VolumetricCloudLightingChanged(
            previous_sky_color.z != sky_color.z;
 }
 
-bool VolumetricCloudViewCutDetected(
-    const FMat4& previous_inv_view_proj, FVec3 previous_camera_position,
-    const FMat4& current_inv_view_proj,
-    FVec3 current_camera_position) noexcept {
-    if (!IsFiniteCloudMatrix(previous_inv_view_proj) ||
-        !IsFiniteCloudMatrix(current_inv_view_proj) ||
-        !IsFiniteCloudVector(previous_camera_position) ||
-        !IsFiniteCloudVector(current_camera_position)) {
+bool VolumetricCloudViewCutDetected(const FMat4& previous_camera_relative_inv_view_proj, FVec3 previous_camera_position, const FMat4& current_camera_relative_inv_view_proj, FVec3 current_camera_position) noexcept {
+    if (!IsFiniteCloudMatrix(previous_camera_relative_inv_view_proj) || !IsFiniteCloudMatrix(current_camera_relative_inv_view_proj) || !IsFiniteCloudVector(previous_camera_position) || !IsFiniteCloudVector(current_camera_position)) {
         return true;
     }
 
@@ -3753,8 +3745,7 @@ bool VolumetricCloudViewCutDetected(
         return true;
     }
 
-    // Centre and cardinal edge rays detect yaw/pitch/roll and projection/FOV
-    // cuts while remaining invariant under pure camera translation.
+    // 中央と四辺の視線で向きと投影の変化を測り、通常の平行移動は無視する。
     constexpr f32 kRaySamples[5][2] = {
         {0.0f, 0.0f}, {-0.85f, 0.0f}, {0.85f, 0.0f},
         {0.0f, -0.85f}, {0.0f, 0.85f}};
@@ -3762,12 +3753,7 @@ bool VolumetricCloudViewCutDetected(
     for (const auto& sample : kRaySamples) {
         FVec3 previousDirection{};
         FVec3 currentDirection{};
-        if (!UnprojectCloudViewDirection(
-                previous_inv_view_proj, sample[0], sample[1],
-                previousDirection) ||
-            !UnprojectCloudViewDirection(
-                current_inv_view_proj, sample[0], sample[1],
-                currentDirection)) {
+        if (!UnprojectCloudViewDirection(previous_camera_relative_inv_view_proj, sample[0], sample[1], previousDirection) || !UnprojectCloudViewDirection(current_camera_relative_inv_view_proj, sample[0], sample[1], currentDirection)) {
             return true;
         }
         const f32 directionDot =
@@ -4637,8 +4623,8 @@ bool CVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
     m_ResolvedIndex = 0; m_HistoryValid = false;
     m_WorldShadowValid = false;
     m_WorldOrigin = FVec3{};
-    m_PrevViewProj = FMat4::Identity();
-    m_PrevInvViewProj = FMat4::Identity();
+    m_PrevCameraRelativeViewProj = FMat4::Identity();
+    m_PrevCameraRelativeInvViewProj = FMat4::Identity();
     m_PrevCamPos = FVec3{};
     m_PrevSunDir = FVec3{};
     m_PrevSunColor = FVec3{};
@@ -4649,6 +4635,13 @@ bool CVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
 }
 
 void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color, f32 coverage, f32 density, f32 wind, f32 time) noexcept {
+    // 既存の呼び出し元との互換性を保つ。新しい呼び出し元は、精度を保てる
+    // ビュー行列から作った camera_relative_inv_view_proj を直接渡す。
+    const FMat4 cameraRelativeInverseViewProjection = inv_view_proj * FMat4::Translation(FVec3{-cam_pos.x, -cam_pos.y, -cam_pos.z});
+    RenderComputeCameraRelative(cl, cameraRelativeInverseViewProjection, cam_pos, sun_dir, sun_color, sky_color, coverage, density, wind, time);
+}
+
+void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const FMat4& camera_relative_inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color, f32 coverage, f32 density, f32 wind, f32 time) noexcept {
     const bool historyWasAvailable = m_HistoryValid;
     m_LastFrameWorkload = {};
     m_LastFrameWorkload.attempted = true;
@@ -4665,11 +4658,9 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
             EVolumetricCloudFrameSkipReason::ResourcesNotReady;
         return;
     }
-    // A corrupt camera transform cannot produce a meaningful world ray and
-    // would otherwise seed NaNs into every temporal/history resource. Fail
-    // closed for this frame; the ordinary sky remains available.
-    if (!IsFiniteCloudMatrix(inv_view_proj) ||
-        !IsFiniteCloudVector(cam_pos)) {
+    // 壊れたカメラ変換からは有効な視線を作れず、履歴全体へ非数が広がるため、
+    // このフレームの雲だけを止めて通常の空を残す。
+    if (!IsFiniteCloudMatrix(camera_relative_inv_view_proj) || !IsFiniteCloudVector(cam_pos)) {
         m_HistoryValid = false;
         m_ShadowCacheValid = false;
         m_WorldShadowValid = false;
@@ -4679,8 +4670,9 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
             historyWasAvailable;
         return;
     }
-    const FMat4 viewProj = Inverse(inv_view_proj);
-    if (!IsFiniteCloudMatrix(viewProj)) {
+    const FMat4 cameraRelativeViewProj =
+        Inverse(camera_relative_inv_view_proj);
+    if (!IsFiniteCloudMatrix(cameraRelativeViewProj)) {
         m_HistoryValid = false;
         m_ShadowCacheValid = false;
         m_WorldShadowValid = false;
@@ -4790,16 +4782,15 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     f32 matrixDelta = 0.0f;
     for (u32 r = 0; r < 4; ++r) {
         for (u32 c = 0; c < 4; ++c) {
-            f32 d = viewProj.m[r][c] - m_PrevViewProj.m[r][c];
+            f32 d = cameraRelativeViewProj.m[r][c] -
+                m_PrevCameraRelativeViewProj.m[r][c];
             if (d < 0.0f) d = -d;
             if (d > matrixDelta) matrixDelta = d;
         }
     }
     bool historyValid = m_HistoryValid;
     if (historyValid) {
-        if (VolumetricCloudViewCutDetected(
-                m_PrevInvViewProj, m_PrevCamPos,
-                inv_view_proj, cam_pos)) {
+        if (VolumetricCloudViewCutDetected(m_PrevCameraRelativeInvViewProj, m_PrevCamPos, camera_relative_inv_view_proj, cam_pos)) {
             historyValid = false;
         }
         // The soft-snapped tangent origin changes continuously only inside a
@@ -4891,8 +4882,10 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         historyWasAvailable && !historyValid;
 
     FCloudCb cb{};
-    cb.invViewProj = inv_view_proj;
-    cb.prevViewProj = historyValid ? m_PrevViewProj : viewProj;
+    // 視線復元には、カメラ位置を含めずに反転した高精度な行列を使う。
+    cb.invViewProj = camera_relative_inv_view_proj;
+    cb.prevCameraRelativeViewProj = historyValid
+        ? m_PrevCameraRelativeViewProj : cameraRelativeViewProj;
     cb.camPos = FVec4{ cam_pos.x, cam_pos.y, cam_pos.z, 0.0f };
     cb.prevCamPos = historyValid
                   ? FVec4{m_PrevCamPos.x, m_PrevCamPos.y, m_PrevCamPos.z, 0.0f}
@@ -4914,7 +4907,8 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     // 参照描画では履歴も時間方向の再構成も使わない。そのフレームだけで完結させる
     // (再構成の影響を混ぜたままだと、ライティングの良し悪しを判断できない)。
     cb.temporal = FVec4{
-        (historyValid && !m_ReferenceMode) ? 1.0f : 0.0f, m_PrevWindOffset,
+        (historyValid && !m_ReferenceMode) ? 1.0f : 0.0f,
+        m_PrevWindOffset,
         static_cast<f32>(temporalFrame),
         (temporalSuperResolution && !m_ReferenceMode)
             ? static_cast<f32>(kVolumetricCloudUltraTraceDivisor)
@@ -5181,8 +5175,8 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     ++m_FrameIndex;
     m_TemporalPhase = (m_TemporalPhase + 1u) & 15u;
     m_HistoryValid = true;
-    m_PrevViewProj = viewProj;
-    m_PrevInvViewProj = inv_view_proj;
+    m_PrevCameraRelativeViewProj = cameraRelativeViewProj;
+    m_PrevCameraRelativeInvViewProj = camera_relative_inv_view_proj;
     m_PrevCamPos = cam_pos;
     m_WorldOrigin = worldOrigin;
     m_PrevSunDir = safeSun;
@@ -5268,8 +5262,8 @@ void CVolumetricClouds::Shutdown() noexcept {
     m_FrameIndex = 0; m_TemporalPhase = 0; m_ResolvedIndex = 0;
     m_W = 0; m_H = 0; m_FullW = 0; m_FullH = 0;
     m_WorldOrigin = FVec3{};
-    m_PrevViewProj = FMat4::Identity();
-    m_PrevInvViewProj = FMat4::Identity();
+    m_PrevCameraRelativeViewProj = FMat4::Identity();
+    m_PrevCameraRelativeInvViewProj = FMat4::Identity();
     m_PrevCamPos = FVec3{};
     m_PrevSunDir = FVec3{}; m_PrevSunColor = FVec3{}; m_PrevSkyColor = FVec3{};
     m_PrevWindOffset = 0.0f; m_PrevWindSpeed = 0.0f;

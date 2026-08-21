@@ -37,6 +37,14 @@ void ExpectVec3Near(FVec3 actual, FVec3 expected, f32 epsilon) noexcept {
     EXPECT_NEAR(actual.z, expected.z, epsilon);
 }
 
+void ExpectMat4Near(const FMat4& actual, const FMat4& expected, f32 epsilon) noexcept {
+    for (u32 row = 0u; row < 4u; ++row) {
+        for (u32 column = 0u; column < 4u; ++column) {
+            EXPECT_NEAR(actual.m[row][column], expected.m[row][column], epsilon);
+        }
+    }
+}
+
 FVolumetricCloudGroundHorizon
 GroundHorizonHlslReferenceForTest(
     FVec3 cameraPosition, const FVolumetricCloudLayer& layer,
@@ -165,6 +173,20 @@ std::string ReadEditorAbiSource() {
             std::filesystem::path{"acs"} / "src" / "editor_abi" /
             "EditorAbi.cpp",
             std::ios::binary);
+    }
+    return std::string{
+        std::istreambuf_iterator<char>{stream},
+        std::istreambuf_iterator<char>{}};
+}
+
+std::string ReadLegacyScene3DAdapterSource() {
+    const std::filesystem::path testFile{__FILE__};
+    const std::filesystem::path sourcePath =
+        testFile.parent_path().parent_path() /
+        "src" / "gameframework" / "LegacyScene3DAdapter.cpp";
+    std::ifstream stream(sourcePath, std::ios::binary);
+    if (!stream) {
+        stream.open(std::filesystem::path{"acs"} / "src" / "gameframework" / "LegacyScene3DAdapter.cpp", std::ios::binary);
     }
     return std::string{
         std::istreambuf_iterator<char>{stream},
@@ -4823,6 +4845,68 @@ ACS_TEST(VolumetricClouds,
         shader, "cloudOut[pixelQ]=float4(col,resolvedA);"));
 }
 
+ACS_TEST(VolumetricClouds, CameraRelativeInverseViewProjectionIgnoresFarWorldTranslation) {
+    constexpr f32 kAspect = 16.0f / 9.0f;
+    constexpr f32 kNear = 0.05f;
+    constexpr f32 kFar = 250000.0f;
+    const FVec3 viewDirection{0.25f, -0.125f, 1.0f};
+
+    CCamera originCamera;
+    originCamera.SetPerspective(60.0f * kDeg2Rad, kAspect, kNear, kFar);
+    originCamera.SetLookAt(FVec3{}, viewDirection);
+
+    const FVec3 farEye{64000.0f, 1.0f, 96000.0f};
+    CCamera farCamera;
+    farCamera.SetPerspective(60.0f * kDeg2Rad, kAspect, kNear, kFar);
+    farCamera.SetLookAt(farEye, FVec3{farEye.x + viewDirection.x, farEye.y + viewDirection.y, farEye.z + viewDirection.z});
+
+    const FMat4 originRelative = BuildCameraRelativeInverseViewProjection(originCamera.View(), originCamera.Projection());
+    const FMat4 farRelative = BuildCameraRelativeInverseViewProjection(farCamera.View(), farCamera.Projection());
+    ExpectMat4Near(farRelative, originRelative, 1.0e-5f);
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
+    const std::string resolveShader = CompactShader(ExtractRawShader(source, "const char* kCloudResolveCS"));
+    const std::string compositeShader = CompactShader(ExtractRawShader(source, "const char* kCloudCompPS"));
+    const std::string atmosphereCompositeShader = CompactShader(ExtractRawShader(source, "const char* kCloudCompAtmosPS"));
+    const std::string skyShader = CompactShader(ExtractRawShader(source, "const char* kSkyHLSL"));
+    const std::string compactSource = CompactShader(source);
+    EXPECT_TRUE(Contains(compactSource, "cb.invViewProj=camera_relative_inv_view_proj;"));
+    EXPECT_TRUE(Contains(compactSource, "voidCVolumetricClouds::RenderComputeCameraRelative("));
+    EXPECT_TRUE(Contains(compactSource, "cb.inv_view_proj=BuildCameraRelativeInverseViewProjection(camera.View(),camera.Projection());"));
+    EXPECT_TRUE(Contains(skyShader, "float3dir=normalize(wp.xyz);"));
+    EXPECT_FALSE(Contains(skyShader, "wp.xyz-camera_pos.xyz"));
+    EXPECT_TRUE(Contains(shader, "float3dir=normalize(wp.xyz);"));
+    EXPECT_TRUE(Contains(shader, "floatxElevation=dot(normalize(xWp.xyz),localUp);floatyElevation=dot(normalize(yWp.xyz),localUp);"));
+    EXPECT_FALSE(Contains(shader, "wp.xyz-camPos.xyz"));
+    EXPECT_TRUE(Contains(resolveShader, "float3stableRay=normalize(stableFarP.xyz*stableInvW);"));
+    EXPECT_TRUE(Contains(resolveShader, "float3ray=normalize(farP.xyz*invW);"));
+    EXPECT_FALSE(Contains(resolveShader, "farP.xyz*invW-camPos.xyz"));
+    EXPECT_TRUE(Contains(resolveShader, "float3stablePrevCameraRelativeP=stableRay*sameScreenDepth.x+(camPos.xyz-prevCamPos.xyz)-float3(stableWindDelta*0.9284767,0.0,stableWindDelta*0.3713907);"));
+    EXPECT_TRUE(Contains(resolveShader, "float3prevCameraRelativeP=ray*reprojectionDepth+(camPos.xyz-prevCamPos.xyz)-float3(windDelta*0.9284767,0.0,windDelta*0.3713907);"));
+    EXPECT_TRUE(Contains(resolveShader, "float4(prevCameraRelativeP,1.0),prevCameraRelativeViewProj"));
+    EXPECT_TRUE(Contains(resolveShader, "floatexpectedDepth=length(prevCameraRelativeP);"));
+    EXPECT_FALSE(Contains(resolveShader, "float3worldP="));
+    EXPECT_FALSE(Contains(resolveShader, "prevWorldP"));
+    const std::string compositeShaders[]{
+        compositeShader, atmosphereCompositeShader};
+    for (const std::string& composite : compositeShaders) {
+        EXPECT_TRUE(Contains(composite, "floatcenterElevation=dot(normalize(centerFarP.xyz),groundHorizon.xyz);"));
+        EXPECT_TRUE(Contains(composite, "floatsceneDistance=length(world.xyz);"));
+        EXPECT_FALSE(Contains(composite, "world.xyz-camPos.xyz"));
+    }
+
+    const std::string compactEditor = CompactShader(ReadEditorAbiSource());
+    const std::string compactLegacy = CompactShader(ReadLegacyScene3DAdapterSource());
+    EXPECT_TRUE(Contains(compactEditor, "BuildCameraRelativeInverseViewProjection(cam.View(),cam.Projection())"));
+    EXPECT_TRUE(Contains(compactEditor, "VolumetricCloudViewCutDetected(h.prev_camera_relative_inv_vp,h.prev_temporal_camera_eye,camera_relative_inv_vp,eye)"));
+    EXPECT_TRUE(Contains(compactEditor, "vclouds3d.RenderComputeCameraRelative("));
+    EXPECT_TRUE(Contains(compactEditor, "sk.inv_view_proj=camera_relative_inv_vp;"));
+    EXPECT_TRUE(Contains(compactEditor, "h.prev_camera_relative_inv_vp=camera_relative_inv_vp;"));
+    EXPECT_TRUE(Contains(compactLegacy, "BuildCameraRelativeInverseViewProjection(m_Camera.View(),m_Camera.Projection())"));
+    EXPECT_TRUE(Contains(compactLegacy, "m_Clouds.RenderComputeCameraRelative("));
+}
+
 ACS_TEST(VolumetricClouds,
          GroundHorizonUsesProjectionAwareAnalyticPixelCoverage) {
     const std::string source = ReadSkySource();
@@ -4894,7 +4978,7 @@ ACS_TEST(VolumetricClouds,
         EXPECT_TRUE(Contains(composite, "structVSOut{float4pos:SV_POSITION;float2uv:TEXCOORD0;float4farPoint:TEXCOORD1;};"));
         EXPECT_TRUE(Contains(composite, "floatCloudGroundCoverage(VSOutv){floatresult=1.0;if(groundHorizon.w>=-1.0){"));
         EXPECT_TRUE(Contains(composite, "uint2pixel=min(uint2(v.pos.xy),fullSize-1u);float4centerFarP=v.farPoint;centerFarP/=centerFarP.w;"));
-        EXPECT_TRUE(Contains(composite, "floatcenterElevation=dot(normalize(centerFarP.xyz-camPos.xyz),groundHorizon.xyz);"));
+        EXPECT_TRUE(Contains(composite, "floatcenterElevation=dot(normalize(centerFarP.xyz),groundHorizon.xyz);"));
         EXPECT_TRUE(Contains(composite, "float4xFarP=v.farPoint+xOffset*(2.0/dims.z)*invViewProj[0];float4yFarP=v.farPoint-yOffset*(2.0/dims.w)*invViewProj[1];"));
         EXPECT_TRUE(Contains(composite, "floatcoverageHalfWidth=max(0.5*(abs(xElevation-centerElevation)+abs(yElevation-centerElevation)),1e-6);"));
         EXPECT_TRUE(Contains(composite, "result=smoothstep(groundHorizon.w-coverageHalfWidth,groundHorizon.w+coverageHalfWidth,centerElevation);"));
@@ -5821,20 +5905,16 @@ ACS_TEST(VolumetricClouds,
     CCamera previousCamera;
     previousCamera.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
                                   0.05f, 250000.0f);
-    const FVec3 previousEye{12.0f, 24.0f, -36.0f};
-    previousCamera.SetLookAt(
-        previousEye, FVec3{12.0f, 24.0f, -35.0f});
+    const FVec3 previousEye{64012.0f, 24.0f, 95964.0f};
+    previousCamera.SetLookAt(previousEye, FVec3{64012.0f, 24.0f, 95965.0f});
 
     CCamera translatedCamera;
     translatedCamera.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
                                     0.05f, 250000.0f);
-    const FVec3 translatedEye{92.0f, 40.0f, 4.0f};
-    translatedCamera.SetLookAt(
-        translatedEye, FVec3{92.0f, 40.0f, 5.0f});
+    const FVec3 translatedEye{64092.0f, 40.0f, 96004.0f};
+    translatedCamera.SetLookAt(translatedEye, FVec3{64092.0f, 40.0f, 96005.0f});
 
-    EXPECT_FALSE(VolumetricCloudViewCutDetected(
-        Inverse(previousCamera.ViewProjection()), previousEye,
-        Inverse(translatedCamera.ViewProjection()), translatedEye));
+    EXPECT_FALSE(VolumetricCloudViewCutDetected(BuildCameraRelativeInverseViewProjection(previousCamera.View(), previousCamera.Projection()), previousEye, BuildCameraRelativeInverseViewProjection(translatedCamera.View(), translatedCamera.Projection()), translatedEye));
 }
 
 ACS_TEST(VolumetricClouds,
@@ -5845,8 +5925,7 @@ ACS_TEST(VolumetricClouds,
     const FVec3 previousEye{0.0f, 8.0f, 0.0f};
     previousCamera.SetLookAt(
         previousEye, FVec3{0.0f, 8.0f, 1.0f});
-    const FMat4 previousInverse =
-        Inverse(previousCamera.ViewProjection());
+    const FMat4 previousInverse = BuildCameraRelativeInverseViewProjection(previousCamera.View(), previousCamera.Projection());
 
     CCamera smallRotation;
     smallRotation.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
@@ -5855,9 +5934,7 @@ ACS_TEST(VolumetricClouds,
         previousEye,
         FVec3{Sin(5.0f * kDeg2Rad), 8.0f,
               Cos(5.0f * kDeg2Rad)});
-    EXPECT_FALSE(VolumetricCloudViewCutDetected(
-        previousInverse, previousEye,
-        Inverse(smallRotation.ViewProjection()), previousEye));
+    EXPECT_FALSE(VolumetricCloudViewCutDetected(previousInverse, previousEye, BuildCameraRelativeInverseViewProjection(smallRotation.View(), smallRotation.Projection()), previousEye));
 
     CCamera abruptRotation;
     abruptRotation.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
@@ -5866,9 +5943,7 @@ ACS_TEST(VolumetricClouds,
         previousEye,
         FVec3{Sin(35.0f * kDeg2Rad), 8.0f,
               Cos(35.0f * kDeg2Rad)});
-    EXPECT_TRUE(VolumetricCloudViewCutDetected(
-        previousInverse, previousEye,
-        Inverse(abruptRotation.ViewProjection()), previousEye));
+    EXPECT_TRUE(VolumetricCloudViewCutDetected(previousInverse, previousEye, BuildCameraRelativeInverseViewProjection(abruptRotation.View(), abruptRotation.Projection()), previousEye));
 
     const FVec3 teleportedEye{400.0f, 8.0f, 0.0f};
     CCamera teleportedCamera;
@@ -5876,9 +5951,7 @@ ACS_TEST(VolumetricClouds,
                                     0.05f, 250000.0f);
     teleportedCamera.SetLookAt(
         teleportedEye, FVec3{400.0f, 8.0f, 1.0f});
-    EXPECT_TRUE(VolumetricCloudViewCutDetected(
-        previousInverse, previousEye,
-        Inverse(teleportedCamera.ViewProjection()), teleportedEye));
+    EXPECT_TRUE(VolumetricCloudViewCutDetected(previousInverse, previousEye, BuildCameraRelativeInverseViewProjection(teleportedCamera.View(), teleportedCamera.Projection()), teleportedEye));
 }
 
 ACS_TEST(VolumetricClouds,
@@ -5910,27 +5983,13 @@ ACS_TEST(VolumetricClouds,
     const std::string source = ReadSkySource();
     const std::string compact = CompactShader(source);
 
-    EXPECT_TRUE(Contains(
-        compact,
-        "if(!IsFiniteCloudMatrix(inv_view_proj)||"
-        "!IsFiniteCloudVector(cam_pos)){"));
-    EXPECT_TRUE(Contains(
-        compact,
-        "constFMat4viewProj=Inverse(inv_view_proj);"
-        "if(!IsFiniteCloudMatrix(viewProj)){"));
-    EXPECT_TRUE(Contains(
-        compact,
-        "constf32finiteTime=std::isfinite(time)?time:fallbackTime;"));
-    EXPECT_TRUE(Contains(
-        compact,
-        "constf32safeTime=finiteTime<-10000000.0f?-10000000.0f:"));
-    EXPECT_TRUE(Contains(
-        compact,
-        "VolumetricCloudViewCutDetected("
-        "m_PrevInvViewProj,m_PrevCamPos,inv_view_proj,cam_pos)"));
+    EXPECT_TRUE(Contains(compact, "if(!IsFiniteCloudMatrix(camera_relative_inv_view_proj)||!IsFiniteCloudVector(cam_pos)){"));
+    EXPECT_TRUE(Contains(compact, "constFMat4cameraRelativeViewProj=Inverse(camera_relative_inv_view_proj);if(!IsFiniteCloudMatrix(cameraRelativeViewProj)){"));
+    EXPECT_TRUE(Contains(compact, "constf32finiteTime=std::isfinite(time)?time:fallbackTime;"));
+    EXPECT_TRUE(Contains(compact, "constf32safeTime=finiteTime<-10000000.0f?-10000000.0f:"));
+    EXPECT_TRUE(Contains(compact, "VolumetricCloudViewCutDetected(m_PrevCameraRelativeInvViewProj,m_PrevCamPos,camera_relative_inv_view_proj,cam_pos)"));
     EXPECT_FALSE(Contains(compact, "matrixDelta>0.35f"));
-    EXPECT_TRUE(Contains(
-        compact, "m_PrevInvViewProj=inv_view_proj;"));
+    EXPECT_TRUE(Contains(compact, "m_PrevCameraRelativeInvViewProj=camera_relative_inv_view_proj;"));
     EXPECT_TRUE(Contains(
         compact, "m_PrevSunColor=safeSunColor;"));
     EXPECT_TRUE(Contains(

@@ -1147,11 +1147,10 @@ void ALegacyScene3DAdapter::RenderClouds(
     // 雲を照らすのは物を照らすのと同じ太陽。ここを別にすると、雲だけ違う方向から
     // 光っているように見える。
     const FVec3 sun_color = SunColorForAtmosphere();
+    // 通常の C++ 描画でも、遠方座標に左右されない視線復元行列を渡す。
+    const FMat4 cloud_camera_relative_inverse_view_projection = BuildCameraRelativeInverseViewProjection(m_Camera.View(), m_Camera.Projection());
 
-    m_Clouds.RenderCompute(
-        command_list, Inverse(m_Camera.ViewProjection()), m_Camera.Eye(),
-        SunDirection(), sun_color, m_Sky.HorizonColor(),
-        m_CloudParams.Coverage, m_CloudParams.Density, m_CloudParams.Wind, m_Time);
+    m_Clouds.RenderComputeCameraRelative(command_list, cloud_camera_relative_inverse_view_projection, m_Camera.Eye(), SunDirection(), sun_color, m_Sky.HorizonColor(), m_CloudParams.Coverage, m_CloudParams.Density, m_CloudParams.Wind, m_Time);
 
     m_CloudsDrawn = true;
 }

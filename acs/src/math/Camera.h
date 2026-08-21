@@ -9,6 +9,22 @@
 namespace acs {
 
 /**
+ * カメラ位置を含まない逆ビュープロジェクション行列を作る。
+ *
+ * @param view カメラのビュー行列。
+ * @param projection 同じカメラの投影行列。
+ * @return 平行移動を除いたビューと投影を合成してから反転した行列。
+ */
+inline FMat4 BuildCameraRelativeInverseViewProjection(const FMat4& view, const FMat4& projection) noexcept {
+    // 回転と投影だけを反転し、遠方座標を含む行列の反転で失われる精度を避ける。
+    FMat4 cameraRelativeView = view;
+    cameraRelativeView.m[3][0] = 0.0f;
+    cameraRelativeView.m[3][1] = 0.0f;
+    cameraRelativeView.m[3][2] = 0.0f;
+    return Inverse(cameraRelativeView * projection);
+}
+
+/**
  * ビュー行列とプロジェクション行列を保持するカメラヘルパ。
  *
  * @details
