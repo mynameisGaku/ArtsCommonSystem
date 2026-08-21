@@ -572,6 +572,13 @@ cannot be preserved onto an Empty root, so that refresh rolls back atomically.
 Selective root Revert computes `remaining = current & ~requested` without scene
 mutation, rejects unknown or already-cleared bits, and then uses the same native
 refresh transaction to restore only the requested source values.
+Selective root Apply uses a side-effect-free managed calculation to replace only
+the selected root `N3D` Color or `FLG3D` flag in the Prefab/Blueprint component
+text. The UI adapter reads the instance value, writes the source atomically,
+clears only the selected mask bit, and refreshes other instances while retaining
+their explicit root overrides. The initiating instance remains selected after
+those replacement transactions. Invalid source, stale source text, or write
+failure leaves both the source and instance mask unchanged.
 
 Project Settings uses the canonical settings-file path as its stable identity
 and participates in common dirty, Undo/Redo transaction, Save All, and

@@ -162,6 +162,10 @@ internal static class SceneEditorMigrationSelfTest
             ExtractMethodBody(
                 shellSource,
                 "private void RevertPrefabRootOverride3D(");
+        string selectivePrefabRootApplyBody =
+            ExtractMethodBody(
+                shellSource,
+                "private void ApplyPrefabRootOverride3D(");
         string placeBlueprintBody =
             ExtractMethodBody(shellSource, "private void PlaceBlueprint(");
         string instantiatePrefabBody =
@@ -413,6 +417,26 @@ internal static class SceneEditorMigrationSelfTest
                 "CreatePrefabRootOverrideRevertButton3D(",
                 StringComparison.Ordinal),
             "3D Prefab root overrides expose selective Revert through one native transaction");
+        Check(
+            selectivePrefabRootApplyBody.Contains(
+                "PrefabRootPropertyApply3D.TryBuildSource(",
+                StringComparison.Ordinal) &&
+            selectivePrefabRootApplyBody.Contains(
+                "SceneSourceFile.WriteAtomicText(",
+                StringComparison.Ordinal) &&
+            selectivePrefabRootApplyBody.Contains(
+                "acs_editor_prefab_instance3d_clear_root_overrides(",
+                StringComparison.Ordinal) &&
+            selectivePrefabRootApplyBody.Contains(
+                "preserveRootOverrides: true",
+                StringComparison.Ordinal) &&
+            selectivePrefabRootApplyBody.Contains(
+                "acs_editor_select3d(Engine, id)",
+                StringComparison.Ordinal) &&
+            view3DSource.Contains(
+                "CreatePrefabRootOverrideApplyButton3D(",
+                StringComparison.Ordinal),
+            "3D Prefab root overrides expose selective Apply through pure calculation and explicit adapters");
         Check(
             placeBlueprintBody.Contains(
                 "EngineInterop.acs_editor_prefab_instance3d_instantiate(",
