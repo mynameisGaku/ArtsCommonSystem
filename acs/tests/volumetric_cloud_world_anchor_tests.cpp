@@ -5299,6 +5299,46 @@ ACS_TEST(VolumetricClouds,
 }
 
 ACS_TEST(VolumetricClouds,
+         SkyAmbientOcclusionReusesTheHighSunLightPath) {
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(!shader.empty());
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatskyAmbientPathWeight=smoothstep(0.15,0.75,sun.y);"
+        "floatskyAmbientPathOpticalDepth=tauL*skyAmbientPathWeight*"
+        "lerp(0.80,0.35,h);"
+        "floatskyAmbientVisibility=exp("
+        "-0.60*skyAmbientOpticalDepth-"
+        "multiOcclusion*skyAmbientPathOpticalDepth);"));
+
+    const FVolumetricCloudLighting lighting{};
+    const auto smoothStep = [](f32 lower, f32 upper, f32 value) noexcept {
+        const f32 t = std::clamp((value - lower) / (upper - lower), 0.0f, 1.0f);
+        return t * t * (3.0f - 2.0f * t);
+    };
+    const auto visibility = [&lighting, &smoothStep](f32 lowLodDensity, f32 height, f32 lightDepth, f32 density, f32 sunHeight) noexcept {
+        const f32 h = std::clamp(height, 0.0f, 1.0f);
+        const f32 localDensity = std::clamp(lowLodDensity * density, 0.0f, 1.0f);
+        const f32 localOpticalDepth = localDensity * (0.35f + 0.65f * (1.0f - h));
+        const f32 pathOpticalDepth = std::max(lightDepth, 0.0f) * std::max(density, 0.0f) * lighting.LightExtinction * smoothStep(0.15f, 0.75f, sunHeight) * (0.80f + (0.35f - 0.80f) * h);
+        return std::exp(-0.60f * localOpticalDepth - lighting.MultiScatterOcclusion * pathOpticalDepth);
+    };
+
+    const f32 clear = visibility(0.0f, 0.8f, 0.0f, 1.6f, 0.85f);
+    const f32 edge = visibility(0.15f, 0.85f, 0.08f, 1.6f, 0.85f);
+    const f32 enclosed = visibility(0.85f, 0.65f, 1.60f, 1.6f, 0.85f);
+    const f32 lowSun = visibility(0.85f, 0.65f, 1.60f, 1.6f, 0.05f);
+    EXPECT_NEAR(clear, 1.0f, 1e-6f);
+    EXPECT_TRUE(edge < clear);
+    EXPECT_TRUE(enclosed < edge);
+    EXPECT_TRUE(enclosed < 0.70f);
+    EXPECT_TRUE(lowSun > enclosed);
+    EXPECT_TRUE(enclosed > 0.0f);
+}
+
+ACS_TEST(VolumetricClouds,
          CompositeTreatsOnlyExactClearDepthAsSky) {
     const std::string source = ReadSkySource();
     const std::string shader =

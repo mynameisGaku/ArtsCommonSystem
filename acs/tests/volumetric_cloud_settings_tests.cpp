@@ -336,17 +336,19 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_FALSE(Contains(source, "density*4.2"));
 }
 
-ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesLocalIncomingOpticalDepth)
+ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesIncomingOpticalDepth)
 {
     /** GPU シェーダーを含む雲描画の実装。 */
     const std::string source = ReadRenderFile("Sky.cpp");
-    /** 局所密度から空と地面の可視率を求める範囲。 */
+    /** 局所密度と既存の太陽光路から空と地面の可視率を求める範囲。 */
     const std::string ambientBlock = SliceBetween(source, "float ambientLocalDensity=", "float a=1.0-exp(");
     EXPECT_TRUE(!ambientBlock.empty());
     EXPECT_TRUE(Contains(ambientBlock, "float ambientLocalDensity=saturate(lowLodDensity*density);"));
     EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*(1.0-h));"));
     EXPECT_TRUE(Contains(ambientBlock, "float groundAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*h);"));
-    EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientVisibility=exp(-0.60*skyAmbientOpticalDepth);"));
+    EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientPathWeight=smoothstep(0.15,0.75,sun.y);"));
+    EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientPathOpticalDepth=tauL*skyAmbientPathWeight"));
+    EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientVisibility=exp(-0.60*skyAmbientOpticalDepth-multiOcclusion*skyAmbientPathOpticalDepth);"));
     EXPECT_TRUE(Contains(ambientBlock, "float groundAmbientVisibility=exp(-0.60*groundAmbientOpticalDepth);"));
     EXPECT_TRUE(Contains(ambientBlock, "*skyAmbientVisibility;"));
     EXPECT_TRUE(Contains(ambientBlock, "*bottomWeight*groundAmbientVisibility;"));

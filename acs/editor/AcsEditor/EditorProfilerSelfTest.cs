@@ -144,6 +144,28 @@ internal static class EditorProfilerSelfTest
                 "REUSED - TSR 4x4",
             "cloud profiler presents exact dispatch, invocation, bake, and history accounting");
 
+        var referenceWorkload = workload;
+        referenceWorkload.Flags &=
+            ~EditorCloudWorkloadContract.FlagTemporalSuperResolution;
+        referenceWorkload.TraceWidth = referenceWorkload.OutputWidth;
+        referenceWorkload.TraceHeight = referenceWorkload.OutputHeight;
+        referenceWorkload.TraceLogicalInvocations = 15_360;
+        referenceWorkload.TraceLaunchedThreads = 15_360;
+        referenceWorkload.TotalLogicalInvocations = 3_028_992;
+        referenceWorkload.TotalLaunchedThreads = 3_028_992;
+        referenceWorkload.MaximumViewSamples = 7_864_320;
+        referenceWorkload.MaximumLightSamples = 62_914_560;
+        var unrecognizedViewCeiling = referenceWorkload;
+        unrecognizedViewCeiling.MaximumViewSamples = 3_932_160;
+        unrecognizedViewCeiling.MaximumLightSamples = 31_457_280;
+        Check(
+            EditorCloudWorkloadContract.ClassifyNativeResult(
+                1,
+                referenceWorkload) ==
+                EditorCloudWorkloadQueryStatus.Available &&
+            RejectsCloudSnapshot(unrecognizedViewCeiling),
+            "cloud workload accepts the full-resolution 512-step reference ceiling and rejects unknown ceilings");
+
         var skippedWorkload = new EditorCloudWorkloadSnapshot
         {
             Version = EditorCloudWorkloadContract.Version,

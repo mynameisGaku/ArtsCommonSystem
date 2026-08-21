@@ -77,7 +77,8 @@ internal static class EditorCloudWorkloadContract
     internal const uint SkipResourcesNotReady = 1;
     internal const uint SkipInvalidCamera = 2;
     internal const uint SkipInvalidProjection = 3;
-    private const ulong MaximumViewMarchSamples = 192;
+    private const ulong StandardMaximumViewMarchSamples = 192;
+    private const ulong ReferenceMaximumViewMarchSamples = 512;
     private const ulong MaximumLightMarchSamples = 8;
     private const ulong MaximumWorldShadowMarchSamples = 32;
 
@@ -246,14 +247,25 @@ internal static class EditorCloudWorkloadContract
                     snapshot.OneTimeBakeLaunchedThreads,
                     snapshot.ShadowCacheLaunchedThreads),
                 snapshot.WorldShadowLaunchedThreads));
-        ulong maximumViewSamples = SaturatingMultiply(
+        ulong standardMaximumViewSamples = SaturatingMultiply(
             snapshot.TraceLogicalInvocations,
-            MaximumViewMarchSamples);
+            StandardMaximumViewMarchSamples);
+        ulong referenceMaximumViewSamples = SaturatingMultiply(
+            snapshot.TraceLogicalInvocations,
+            ReferenceMaximumViewMarchSamples);
+        // 参照描画は全解像度かつ時間再構成なしで512段を使う。
+        // 通常描画の全解像度設定もあるため、192段は解像度比に関係なく許可する。
+        bool recognizedViewSampleCeiling =
+            snapshot.MaximumViewSamples == standardMaximumViewSamples ||
+            (!temporalSuperResolution &&
+             snapshot.TraceWidth == snapshot.OutputWidth &&
+             snapshot.TraceHeight == snapshot.OutputHeight &&
+             snapshot.MaximumViewSamples == referenceMaximumViewSamples);
         return snapshot.TotalLogicalInvocations == logicalTotal &&
                snapshot.TotalLaunchedThreads == launchedTotal &&
-               snapshot.MaximumViewSamples == maximumViewSamples &&
+               recognizedViewSampleCeiling &&
                snapshot.MaximumLightSamples == SaturatingMultiply(
-                   maximumViewSamples,
+                   snapshot.MaximumViewSamples,
                    MaximumLightMarchSamples) &&
                snapshot.MaximumWorldShadowSamples == SaturatingMultiply(
                    snapshot.WorldShadowLogicalInvocations,
