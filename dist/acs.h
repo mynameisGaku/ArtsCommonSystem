@@ -9846,6 +9846,32 @@ inline FVec4 Normalize(FVec4 v) noexcept {
 namespace acs {
 
 /**
+ * D3D12 外部描画へ一時的に貸し出すネイティブ資源。
+ *
+ * @details
+ * 各ポインタは ACS が所有し、呼出し中だけ有効な借用値である。外部側は
+ * AddRef/Release せず、FramesInFlight は外部描画側のフレーム資源管理に使う。
+ * 非 D3D12 バックエンドでは IRhiDevice の取得 API が false を返す。
+ */
+struct FRhiD3D12DeviceInterop final {
+    /** ACS が所有する ID3D12Device 相当の借用ポインタ。 */
+    void* Device = nullptr;
+
+    /** ACS が所有する DIRECT グラフィックスキュー相当の借用ポインタ。 */
+    void* GraphicsQueue = nullptr;
+
+    /** ACS が同時に保持するフレームスロット数。 */
+    u32 FramesInFlight = 0u;
+
+    /** device / queue / frame 数が揃い、外部描画へ渡せる値かを返す。 */
+    bool IsValid() const noexcept
+    {
+        return Device != nullptr && GraphicsQueue != nullptr &&
+               FramesInFlight > 0u;
+    }
+};
+
+/**
  * ピクセルフォーマット (DX12 / Vulkan 等で共通の論理フォーマット)。
  */
 enum class EFormat : u8 {
@@ -10081,6 +10107,23 @@ public:
     virtual bool IsOperational() const noexcept
     {
         return true;
+    }
+
+    /**
+     * D3D12 外部描画用のネイティブ device / queue を借用する。
+     *
+     * @details
+     * 返されるポインタは ACS 所有で、呼出し側は参照カウントを変更してはならない。
+     * 非 D3D12 バックエンドや未初期化状態では out を空にして false を返す。
+     * この virtual は既存実装の ABI を壊さないため末尾へ追加している。
+     * @param out 借用するネイティブ資源とフレームスロット数。
+     * @return D3D12 の device と graphics queue を取得できた場合は true。
+     */
+    virtual bool TryGetD3D12Interop(
+        FRhiD3D12DeviceInterop& out) const noexcept
+    {
+        out = {};
+        return false;
     }
 };
 
@@ -10923,6 +10966,31 @@ private:
      * @return このコマンドリストだけに属する統計領域。
      */
     virtual const FRhiCommandStatistics& StatisticsStorage() const noexcept = 0;
+
+public:
+    /**
+     * 現在記録中の D3D12 グラフィックスコマンドリストを借用する。
+     *
+     * @details
+     * 戻り値は AddRef 不要の借用ポインタで、現在の Begin～End 区間だけ有効である。
+     * 非 D3D12 バックエンドや未記録状態では nullptr を返す。NativeHandle() の既存の
+     * 意味は変更せず、この API を D3D12 外部描画専用の入口にする。
+     * この virtual は既存実装の ABI を壊さないため末尾へ追加している。
+     * @return ID3D12GraphicsCommandList 相当の不透明ポインタ。
+     */
+    virtual void* D3D12GraphicsCommandList() noexcept
+    {
+        return nullptr;
+    }
+
+    /**
+     * 外部コマンドを記録した後に ACS のバックエンド状態を無効化・復旧する。
+     *
+     * @details
+     * 外部側が変更した pipeline / descriptor / Diligent の追跡状態を捨て、次の ACS
+     * 描画が必要な状態を再 bind できるようにする。未対応バックエンドでは no-op。
+     */
+    virtual void RestoreStateAfterExternalCommands() noexcept {}
 };
 
 /** RAII helper that keeps named GPU markers balanced on all early exits. */
@@ -61082,6 +61150,54 @@ public:
     /** scene入力の6 actionから自由カメラを固定刻みで更新する。 */
     void OnFixedUpdate(f32 fixed_dt) noexcept override;
     void OnRender(FRenderContext& context) noexcept override;
+
+protected:
+    /**
+     * 透明 3D 追加描画へ渡す、そのフレームだけの値コンテキスト。
+     *
+     * @details
+     * OnRenderTransparent3D の呼出し中は ColorTarget が既存内容を保持した load 状態で、
+     * DepthTarget が null でなければ同じ深度バッファも DSV として bind されている。
+     * 参照とポインタは所有せず、フックの呼出し中だけ使う。
+     */
+    struct FScene3DTransparentRenderContext final {
+        /** 現在の RHI device。フックの呼出し中だけ参照する。 */
+        IRhiDevice& Device;
+
+        /** 現在記録中の RHI command list。フックの呼出し中だけ参照する。 */
+        IRhiCommandList& Commands;
+
+        /** 描画時点の active camera。行列と位置を参照する。 */
+        const CCamera& Camera;
+
+        /** 追加描画先の HDR color target。load-bind 済みである。 */
+        IRhiTexture& ColorTarget;
+
+        /** 追加描画で読み取り可能な深度 target (無い場合は null)。 */
+        IRhiTexture* DepthTarget = nullptr;
+
+        /** target の幅 (ピクセル)。 */
+        u32 Width = 0u;
+
+        /** target の高さ (ピクセル)。 */
+        u32 Height = 0u;
+
+    };
+
+    /**
+     * HDR シーンへ透明 3D 描画を追加する。
+     *
+     * @details
+     * 既定実装は何もしないため、外部描画を使わない派生 scene は安全にそのまま動く。
+     * 基底が Load/状態復旧/End を管理するので、派生は context の対象へ描画だけを追加する。
+     * @param context load-bind 済み HDR/深度と camera を含む一時コンテキスト。
+     */
+    virtual bool OnRenderTransparent3D(
+        const FScene3DTransparentRenderContext& context) noexcept
+    {
+        (void)context;
+        return false;
+    }
 
 private:
     struct FCustomGpuMesh {
