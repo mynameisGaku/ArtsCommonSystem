@@ -146,6 +146,40 @@ ACS_REF.modules.push({
       when: "形状を更新・削除・クエリ結果として扱う時。"
     },
     {
+      name: "CCollisionWorld3D",
+      kind: "クラス", header: "gameframework/CollisionWorld3D.h",
+      summary: "world 空間の AABB / sphere を世代付き handle で明示管理する GPU 非依存の 3D query core。登録 slot 順の決定的な overlap・raycast・sphere sweep・penetration query を提供し、scene や固定 tick を暗黙には所有しない。",
+      when: "3D gameplay の壁・床・trigger 候補を登録し、layer と自己除外を使って同期的に問い合わせたい時。",
+      members: [
+        { sig: "FCollisionShapeId3D TryAddAabb/TryAddSphere(shape, u32 layer = kAllLayers)", ret: "世代付き handle", desc: "有限で有効な形状を登録する。不正入力や確保失敗は invalid handle。" },
+        { sig: "bool TryUpdateAabb/TryUpdateSphere(id, shape)", desc: "現在世代の同種 shape だけを更新する。stale handle は失敗する。" },
+        { sig: "bool TrySetLayer/TryGetLayer(id, ...)", desc: "現在世代の shape が持つ layer bitmask を変更・取得する。" },
+        { sig: "bool TryRemove(id) / bool IsAlive(id) const / void ClearAll()", desc: "generation を維持して shape の寿命を明示管理する。" },
+        { sig: "bool TryOverlapAabb/TryOverlapSphere(shape, out, exclude = {}, mask = kAllLayers) const", desc: "重なる全 shape を slot 順で返す。0 件は成功、不正入力や確保失敗では出力を変更しない。" },
+        { sig: "bool TryRaycast(ray, min_t, max_t, out_hit, out_shape, exclude = {}, mask = kAllLayers) const", desc: "指定区間で最初に当たる shape と world 命中情報を返す。非正規化 direction を受け付ける。" },
+        { sig: "bool TrySweepSphere(center_ray, radius, min_t, max_t, out_hit, exclude = {}, mask = kAllLayers) const", desc: "移動 sphere と AABB の面・辺・角または sphere の最初の接触を連続判定する。" },
+        { sig: "bool TryFindSpherePenetration(sphere, out, exclude = {}, mask = kAllLayers) const", desc: "正の深さで最も深い接触を返す。同じ深さでは小さい slot を選び、world state は変更しない。" }
+      ]
+    },
+    {
+      name: "FCollisionShapeId3D",
+      kind: "構造体", header: "gameframework/CollisionShapeId3D.h",
+      summary: "<code>CCollisionWorld3D</code> の shape を指す 24bit index + 8bit generation の packed handle。0 は invalid で、slot 再利用後の古い handle は一致しない。",
+      when: "3D shape の更新・削除・自己除外・query 結果を扱う時。"
+    },
+    {
+      name: "FCollisionSweepHit3D",
+      kind: "構造体", header: "gameframework/CollisionSweepHit3D.h",
+      summary: "3D sphere sweep の結果。命中 shape、ray parameter T、接触時 center、world 法線、開始時重なりを保持する。",
+      when: "kinematic な 3D 移動を接触直前で止めたり、接触面に沿わせる上位処理を作る時。"
+    },
+    {
+      name: "FCollisionPenetration3D",
+      kind: "構造体", header: "gameframework/CollisionPenetration3D.h",
+      summary: "query sphere が最も深く貫通する shape、正の深さ、登録 shape から sphere へ向く world 単位法線を保持する。<code>Translation()</code> で最小分離移動量を得る。",
+      when: "3D sphere の初期重なりや移動後の貫通を、owner 側の明示的な反復処理で解消する時。"
+    },
+    {
       name: "CCombatStateMachine",
       kind: "クラス", header: "gameframework/CombatStateMachine.h",
       summary: "シーン全体の<b>戦闘フェーズ</b>を 6 状態 (Peaceful / Alert / Engaged / BossFight / Victory / Retreat) の<t>有限オートマトン</t>で追跡するディレクタ。敵検出・戦闘開始・ボス出現などを notify すると状態が遷移し、連続値の <code>ThreatLevel()</code> [0,1] も出す。",

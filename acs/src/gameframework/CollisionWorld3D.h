@@ -2,6 +2,7 @@
 #pragma once
 
 #include "container/Array.h"
+#include "gameframework/CollisionPenetration3D.h"
 #include "gameframework/CollisionShapeId3D.h"
 #include "gameframework/CollisionSweepHit3D.h"
 #include "math/Collision3D.h"
@@ -126,6 +127,20 @@ public:
      * @return 入力検証と結果構築に成功した場合true。重なり0件でもtrue。
      */
     bool TryOverlapSphere(const FSphere& sphere, TArray<FCollisionShapeId3D>& out_shapes, FCollisionShapeId3D exclude = {}, u32 mask = kAllLayers) const noexcept;
+
+    /**
+     * query sphereが最も深く貫通しているshapeを返す。
+     *
+     * @details 接触だけのshapeは除外する。同じ深さではslot indexが小さいshapeを選ぶ。
+     * AABB内部では最寄り面、sphere同士では中心差を分離法線にする。失敗・非貫通では
+     * 出力を変更しない。複数shapeからの反復分離は上位adapterが明示的に行う。
+     * @param sphere world空間のquery sphere。
+     * @param out_penetration shape、深さ、world分離法線の書き込み先。
+     * @param exclude queryから除外するshape。無効またはstaleなら除外なし。
+     * @param mask layerとのANDが0でないshapeだけを含めるmask。
+     * @return 有効なsphereが少なくとも一つのshapeへ正の深さで貫通していればtrue。
+     */
+    bool TryFindSpherePenetration(const FSphere& sphere, FCollisionPenetration3D& out_penetration, FCollisionShapeId3D exclude = {}, u32 mask = kAllLayers) const noexcept;
 
     /**
      * 指定区間のrayに最初に当たるshapeを返す。

@@ -190,6 +190,7 @@ set(_acsgen_gameframework_headers
     CheckpointSystem.h
     CinematicsDirector.h
     Clock.h
+    CollisionPenetration3D.h
     CollisionShapeId3D.h
     CollisionSweepHit3D.h
     CollisionWorld2D.h

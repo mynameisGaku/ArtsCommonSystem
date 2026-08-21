@@ -36,7 +36,8 @@ staging graph を stack に置けるため、scene lifecycle と graph 構築を
 これらは描画node queryである。gameplay collisionは明示ownerが`CCollisionWorld3D`を保持し、
 必要なAABB/sphereを登録・更新する。連続移動の確認は`TrySweepSphere()`で行い、描画bounds向けの
 保守的な`SweepSphereActiveRange`とgameplay接触判定を混同しない。graphがcollision stateや
-固定tick寿命を暗黙に所有しない。
+固定tick寿命を暗黙に所有しない。既存の貫通は`TryFindSpherePenetration()`で最深接触を取得し、
+反復分離と登録shapeの更新はgameplay側adapterが明示的に行う。
 
 `SwapContents()` は root 自体を置き換える。置換後は `AScene` の root-swap hook が次を
 再接続する。
