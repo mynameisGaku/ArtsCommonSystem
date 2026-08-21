@@ -350,7 +350,7 @@ The reversible `ACS3D v2` subset supports `N3D`, `MSH3D`, `MAT3D`, `FLG3D`,
 multiple top-level nodes. Polygon payloads are validated and preserved without
 inventing an asset dependency; runtime deterministically builds their XY mesh.
 `SPR3D` texture paths, non-executing `PFAB3D` instance-source links, `PINS3D`
-stable instance identities, `PSID3D` source-node identities, `POVR3D` root override masks, `PNOVR3D` child value/Transform/Material override masks, and `PCOVR3D` root-component
+stable instance identities, `PSID3D` source-node identities, `POVR3D` root override masks, `PNOVR3D` child value/Transform/Material/Name override masks, and `PCOVR3D` root-component
 property override records are validated, included in the Cook closure, and
 rewritten in the isolated bootstrap copy. Unknown directives, invalid component/property records, or
 dependencies that cannot be decoded fail validation with an explicit

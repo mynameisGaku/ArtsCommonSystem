@@ -24,8 +24,9 @@ internal enum PrefabNodeProperty3D : uint
     Rotation = 1u << 4,
     Scale = 1u << 5,
     Material = 1u << 6,
+    Name = 1u << 7,
     Transform = Position | Rotation | Scale,
-    All = Visible | Enabled | Color | Transform | Material,
+    All = Visible | Enabled | Color | Transform | Material | Name,
 }
 
 [Flags]

@@ -27,6 +27,9 @@ enum class EPrefabNodeProperty3D : u8 {
 
     /** child meshが参照するマテリアル。 */
     Material = 6,
+
+    /** childのヒエラルキー表示名。 */
+    Name = 7,
 };
 
 /** 指定propertyをPNOVR3D maskの1 bitへ変換する。 */
@@ -43,6 +46,7 @@ inline constexpr u32 kPrefabNodeProperty3DAllMask =
     PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Position) |
     PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Rotation) |
     PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Scale) |
-    PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Material);
+    PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Material) |
+    PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Name);
 
 } // namespace acs::game

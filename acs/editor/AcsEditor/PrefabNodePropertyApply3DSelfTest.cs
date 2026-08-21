@@ -56,7 +56,8 @@ internal static class PrefabNodePropertyApply3DSelfTest
             ScaleX: 2.0f,
             ScaleY: 3.0f,
             ScaleZ: 4.0f,
-            MaterialPath: "Assets/New Wheel.acsmat");
+            MaterialPath: "Assets/New Wheel.acsmat",
+            Name: "Renamed Wheel");
 
         bool flagsOk = PrefabNodePropertyApply3D.TryBuildSource(
             source,
@@ -113,6 +114,20 @@ internal static class PrefabNodePropertyApply3DSelfTest
             materialSource.Contains("MAT3D 12 Assets/Door.acsmat\r\n", StringComparison.Ordinal),
             "Material Apply changes only the source-identified child reference",
             materialError);
+
+        bool nameOk = PrefabNodePropertyApply3D.TryBuildSource(
+            materialSource,
+            targetId,
+            PrefabNodeProperty3D.Name,
+            values,
+            out string nameSource,
+            out string nameError);
+        Check(
+            nameOk &&
+            nameSource.Contains("N3D 11 10 0 7.000 8.000 9.000 10.000 20.000 30.000 2.000 3.000 4.000 0.900 0.800 0.700 0.600 Renamed Wheel\r\n", StringComparison.Ordinal) &&
+            nameSource.Contains("N3D 12 10 0 4 5 6 0 0 0 1 1 1 0.700 0.800 0.900 1.000 Door\r\n", StringComparison.Ordinal),
+            "Name Apply replaces the full source-identified N3D name and preserves another child",
+            nameError);
 
         PrefabNodePropertyValues3D clearedMaterial = values with
         {
@@ -212,6 +227,32 @@ internal static class PrefabNodePropertyApply3DSelfTest
             out string invalidMaterialSource,
             out _);
         Check(invalidMaterialRejected && invalidMaterialSource == source, "invalid Material path fails without changing input");
+
+        PrefabNodePropertyValues3D invalidName = values with
+        {
+            Name = "Injected\nN3D 99 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Other",
+        };
+        bool invalidNameRejected = !PrefabNodePropertyApply3D.TryBuildSource(
+            source,
+            targetId,
+            PrefabNodeProperty3D.Name,
+            invalidName,
+            out string invalidNameSource,
+            out _);
+        Check(invalidNameRejected && invalidNameSource == source, "invalid Name fails without changing input");
+
+        PrefabNodePropertyValues3D oversizedName = values with
+        {
+            Name = new string('N', 128),
+        };
+        bool oversizedNameRejected = !PrefabNodePropertyApply3D.TryBuildSource(
+            source,
+            targetId,
+            PrefabNodeProperty3D.Name,
+            oversizedName,
+            out string oversizedNameSource,
+            out _);
+        Check(oversizedNameRejected && oversizedNameSource == source, "Name over 127 UTF-8 bytes fails without changing input");
 
         bool unknownMaskRejected = !PrefabNodePropertyApply3D.TryBuildSource(
             source,

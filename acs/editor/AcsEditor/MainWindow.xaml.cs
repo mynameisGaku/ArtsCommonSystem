@@ -4688,9 +4688,11 @@ public partial class MainWindow : Window
         if (_pop3d || IsSceneEditingBlocked || Engine == IntPtr.Zero) return;
         string nm = (raw ?? "").Trim();
         if (nm.Length == 0) return;
+        if (string.Equals(nm, Node3DName(id), StringComparison.Ordinal)) return;
         if (EngineInterop.acs_editor_node3d_set_name(Engine, id, nm) != 0)
         {
             InspName.Text = nm;
+            MarkPrefabPropertyOverride3D(id, PrefabNodeProperty3D.Name);
             Build3DHierarchy();   // ヒエラルキー表示名を更新
             RecordSceneDocumentChange("Rename Node");
         }
@@ -5667,6 +5669,17 @@ public partial class MainWindow : Window
             }
             materialPath = EngineInterop.NodeMaterial3D(Engine, id);
         }
+        string nodeName = "";
+        if ((property & PrefabNodeProperty3D.Name) != PrefabNodeProperty3D.None)
+        {
+            var nameBuffer = new byte[128];
+            if (EngineInterop.acs_editor_node3d_name(Engine, id, nameBuffer, nameBuffer.Length) == 0)
+            {
+                Log("Child selective Apply失敗 (Nameを取得できません)。");
+                return;
+            }
+            nodeName = EngineInterop.Utf8Z(nameBuffer);
+        }
         var values = new PrefabNodePropertyValues3D(
             Visible: EngineInterop.acs_editor_node3d_get_visible(Engine, id) != 0,
             Enabled: EngineInterop.acs_editor_node3d_get_enabled(Engine, id) != 0,
@@ -5683,7 +5696,8 @@ public partial class MainWindow : Window
             ScaleX: transform[6],
             ScaleY: transform[7],
             ScaleZ: transform[8],
-            MaterialPath: materialPath);
+            MaterialPath: materialPath,
+            Name: nodeName);
         if (!PrefabNodePropertyApply3D.TryBuildSource(
                 components,
                 sourceNodeId,

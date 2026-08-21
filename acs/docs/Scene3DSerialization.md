@@ -70,10 +70,10 @@
   propertyを記録する。maskはVisible=`1`、Enabled=`2`、Color=`4` の和であり、transformは
   instance配置として従来どおり常に保持する。値自体は同じnodeの `N3D` / `FLG3D` に保存する。
 - `PNOVR3D <nodeId> <mask>` は `PSID3D` を持つinstance childで原本より優先するVisible=`1`、
-  Enabled=`2`、Color=`4`、Position=`8`、Rotation=`16`、Scale=`32`、Material=`64` の和を記録する。
+  Enabled=`2`、Color=`4`、Position=`8`、Rotation=`16`、Scale=`32`、Material=`64`、Name=`128` の和を記録する。
   値は対象childの `N3D` / `FLG3D` / `MAT3D` に保存し、source更新後は一時的な数値node IDではなく
   source node IDでreplacement childを再解決して適用する。空のMaterial overrideは割り当て解除を表す。
-  root transformとroot Materialはinstance child overrideの対象外とする。
+  Nameは`N3D`末尾の127-byte以下の値として保持する。root transform、root Material、root Nameはinstance child overrideの対象外とする。
 - `PCOVR3D <nodeId> <componentSlot> <propertyIndex>` はstable instance rootの反射component
   propertyを1件overrideとして記録する。値は同じslot/propertyの `CPROP3D` に保存する。
   source再生成時は現在slotのcomponent型IDを取得し、replacement内の同型componentへ値を
@@ -108,7 +108,7 @@
 - `POVR3D` は同じnodeの `PINS3D` より後に1件だけ指定できる。maskは `1..7` とし、未知bit、
   重複、stable instance IDを持たないnodeへの指定をcommit前に拒否する。
 - `PNOVR3D` は同じnodeの `PSID3D` より後に1件だけ指定できる。対象はstable `PINS3D` root自身では
-  なく、そのscope内のchildに限定する。maskは `1..127` とし、未知bit、重複、孤立child、nested root
+  なく、そのscope内のchildに限定する。maskは `1..255` とし、未知bit、重複、孤立child、nested root
   自身への指定をcommit前に拒否する。
 - `PCOVR3D` は同じnodeの `PINS3D` と対象 `CMP3D` より後に指定する。component slotは既存、
   property indexは `0..23` かつ現在の反射schema内でなければならず、同じnode/slot/propertyの

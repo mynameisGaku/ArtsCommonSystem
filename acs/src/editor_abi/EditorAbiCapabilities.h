@@ -42,6 +42,7 @@ enum class ECapability : std::uint64_t {
     PrefabNodePropertyOverride3DV1 = 1ull << 24u,
     PrefabNodeTransformOverride3DV1 = 1ull << 25u,
     PrefabNodeMaterialOverride3DV1 = 1ull << 26u,
+    PrefabNodeNameOverride3DV1 = 1ull << 27u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -76,7 +77,8 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::PrefabSourceNodeIdentity3DV1) |
     CapabilityBit(ECapability::PrefabNodePropertyOverride3DV1) |
     CapabilityBit(ECapability::PrefabNodeTransformOverride3DV1) |
-    CapabilityBit(ECapability::PrefabNodeMaterialOverride3DV1);
+    CapabilityBit(ECapability::PrefabNodeMaterialOverride3DV1) |
+    CapabilityBit(ECapability::PrefabNodeNameOverride3DV1);
 
 inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
@@ -93,7 +95,8 @@ inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::PrefabSourceNodeIdentity3DV1) |
     CapabilityBit(ECapability::PrefabNodePropertyOverride3DV1) |
     CapabilityBit(ECapability::PrefabNodeTransformOverride3DV1) |
-    CapabilityBit(ECapability::PrefabNodeMaterialOverride3DV1);
+    CapabilityBit(ECapability::PrefabNodeMaterialOverride3DV1) |
+    CapabilityBit(ECapability::PrefabNodeNameOverride3DV1);
 
 [[nodiscard]] constexpr bool IsCompatible(
     std::uint32_t requested_version,

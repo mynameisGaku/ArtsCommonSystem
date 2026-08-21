@@ -174,6 +174,8 @@ internal static class SceneEditorMigrationSelfTest
             ExtractMethodBody(
                 shellSource,
                 "private void ApplyPrefabNodeOverride3D(");
+        string apply3DRenameBody =
+            ExtractMethodBody(shellSource, "private void Apply3DRename(");
         string markPrefabNodePropertyBody =
             ExtractMethodBody(
                 view3DSource,
@@ -496,13 +498,22 @@ internal static class SceneEditorMigrationSelfTest
             view3DSource.Contains(
                 "PrefabNodeProperty3D.Material",
                 StringComparison.Ordinal) &&
+            apply3DRenameBody.Contains(
+                "string.Equals(nm, Node3DName(id), StringComparison.Ordinal)",
+                StringComparison.Ordinal) &&
+            apply3DRenameBody.Contains(
+                "MarkPrefabPropertyOverride3D(id, PrefabNodeProperty3D.Name)",
+                StringComparison.Ordinal) &&
             selectivePrefabNodeApplyBody.Contains(
                 "acs_editor_node3d_get_transform(",
                 StringComparison.Ordinal) &&
             selectivePrefabNodeApplyBody.Contains(
                 "EngineInterop.NodeMaterial3D(",
+                StringComparison.Ordinal) &&
+            selectivePrefabNodeApplyBody.Contains(
+                "acs_editor_node3d_name(",
                 StringComparison.Ordinal),
-            "3D Prefab child value, transform, and material overrides use source identity, pure Apply calculation, and native transactional Revert");
+            "3D Prefab child value, transform, material, and name overrides use source identity, pure Apply calculation, and native transactional Revert");
         Check(
             view3DSource.Contains(
                 "MarkPrefabRootComponentPropertyOverride3D(",
