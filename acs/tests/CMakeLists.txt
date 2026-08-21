@@ -146,6 +146,7 @@ add_executable(acs_unit_tests
     post_effect_quality_tests.cpp
     post_effect_workload_tests.cpp
     node3d_tests.cpp
+    skinned_mesh_animation_blend_tests.cpp
     legacy_scene3d_water_runtime_tests.cpp
     subsystem_tests.cpp
     provider_thread_safety_tests.cpp
@@ -381,6 +382,20 @@ target_link_libraries(acs_animation_player_update_safety_tests PRIVATE
 )
 add_test(NAME ACS.AnimationPlayerUpdateSafety COMMAND acs_animation_player_update_safety_tests)
 set_tests_properties(ACS.AnimationPlayerUpdateSafety PROPERTIES LABELS "Asset;Animation;Safety;Compatibility" TIMEOUT 60)
+
+# 骨格animationのローカルTRS cross-fadeとcomponent公開窓口を検証する。
+add_executable(acs_skinned_mesh_animation_blend_tests
+    main.cpp
+    skinned_mesh_animation_blend_tests.cpp
+)
+set_target_properties(acs_skinned_mesh_animation_blend_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_skinned_mesh_animation_blend_tests)
+target_link_libraries(acs_skinned_mesh_animation_blend_tests PRIVATE
+    ACS::GameFramework
+    ACS::Test
+)
+add_test(NAME ACS.SkinnedMeshAnimationBlend COMMAND acs_skinned_mesh_animation_blend_tests)
+set_tests_properties(ACS.SkinnedMeshAnimationBlend PROPERTIES LABELS "Asset;GameFramework;Animation;Compatibility" TIMEOUT 60)
 
 # FBX loaderのcount検査、OOM時の一括破棄、旧geometry順を独立して反復する。
 add_executable(acs_fbx_loader_transactional_tests

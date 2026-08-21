@@ -5,6 +5,7 @@
 #include "foundation/Move.h"
 
 #include <cmath>
+#include <limits>
 
 #include <ufbx.h>
 
@@ -74,6 +75,89 @@ void SampleChannel(const FAnimationChannel& ch, f32 t,
     };
 }
 
+/** 1本のボーンについて階層合成前のローカルTRSを保持する。 */
+struct FLocalBonePose {
+    /** ローカル平行移動。 */
+    FVec3 translation{0.0f, 0.0f, 0.0f};
+
+    /** ローカル回転。 */
+    FQuat rotation{};
+
+    /** ローカルスケール。 */
+    FVec3 scale{1.0f, 1.0f, 1.0f};
+};
+
+/**
+ * clip時刻を有限な開始値と差分から求める。
+ *
+ * @details loopは一回のfmodで折り返し、非loopは従来どおりdurationを超えた場合だけ
+ * 終端へ固定する。非有限値やf32範囲外は出力を変更せずfalseを返す。
+ */
+bool ResolveAdvancedTime(const FAnimation& animation, bool loop, f32 start_time, f64 delta_time, f32& out_time, bool& out_playing) noexcept
+{
+    if (!std::isfinite(animation.duration) || !std::isfinite(start_time) || !std::isfinite(delta_time)) return false;
+
+    const f64 duration = static_cast<f64>(animation.duration);
+    const f64 summed_time = static_cast<f64>(start_time) + delta_time;
+
+    if (loop && duration > 0.0) {
+        f64 wrapped_time = std::fmod(summed_time, duration);
+        if (wrapped_time < 0.0) wrapped_time += duration;
+        f32 narrowed_time = static_cast<f32>(wrapped_time);
+        if (narrowed_time >= animation.duration) narrowed_time = 0.0f;
+        if (narrowed_time == 0.0f) narrowed_time = 0.0f;
+        out_time = narrowed_time;
+        out_playing = true;
+        return true;
+    }
+
+    if (!loop && duration > 0.0 && summed_time > duration) {
+        out_time = animation.duration;
+        out_playing = false;
+        return true;
+    }
+
+    const f64 maximum = static_cast<f64>(std::numeric_limits<f32>::max());
+    if (summed_time > maximum || summed_time < -maximum) return false;
+    out_time = static_cast<f32>(summed_time);
+    if (out_time == 0.0f) out_time = 0.0f;
+    out_playing = true;
+    return true;
+}
+
+/** 全ボーンのローカル姿勢をbind poseで初期化する。 */
+void InitializeLocalPose(const TArray<FBone>& bones, FLocalBonePose* out_pose, u32 count) noexcept
+{
+    for (u32 i = 0u; i < count; ++i) {
+        out_pose[i].translation = bones[i].bind_translation;
+        out_pose[i].rotation = bones[i].bind_rotation;
+        out_pose[i].scale = bones[i].bind_scale;
+    }
+}
+
+/** 指定clipのchannelをローカル姿勢へ適用する。 */
+void ApplyAnimationPose(const FAnimation& animation, f32 time, FLocalBonePose* pose, u32 count) noexcept
+{
+    // 非有限時刻をchannel補間へ渡さず、安全なbind poseを維持する。
+    if (!std::isfinite(time)) return;
+    for (usize channel_index = 0u; channel_index < animation.channels.Num(); ++channel_index) {
+        const FAnimationChannel& channel = animation.channels[channel_index];
+        if (channel.bone_index < 0 || channel.bone_index >= static_cast<i32>(count)) continue;
+        FLocalBonePose& bone_pose = pose[channel.bone_index];
+        SampleChannel(channel, time, bone_pose.translation, bone_pose.rotation, bone_pose.scale);
+    }
+}
+
+/** 切替元と切替先のローカルTRSを指定比率で混ぜる。 */
+void BlendLocalPoses(const FLocalBonePose* source, FLocalBonePose* target, u32 count, f32 alpha) noexcept
+{
+    for (u32 i = 0u; i < count; ++i) {
+        target[i].translation = Lerp(source[i].translation, target[i].translation, alpha);
+        target[i].rotation = Slerp(source[i].rotation, target[i].rotation, alpha);
+        target[i].scale = Lerp(source[i].scale, target[i].scale, alpha);
+    }
+}
+
 } // namespace
 
 /** 各ボーンのバインドワールド行列を親から合成し、その逆行列を inverse_bind に格納する。 */
@@ -105,21 +189,138 @@ void ASkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
     }
 }
 
+/** 対象meshを設定し、clip選択、時刻、姿勢遷移を初期状態へ戻す。 */
+void CAnimationPlayer::SetMesh(const ASkinnedMeshAsset* mesh) noexcept
+{
+    m_Mesh = mesh;
+    m_Anim = -1;
+    m_Time = 0.0f;
+    ClearBlend_Internal();
+}
+
+/** 姿勢遷移の保存値を初期状態へ戻す。 */
+void CAnimationPlayer::ClearBlend_Internal() noexcept
+{
+    m_BlendFromAnimation = 0;
+    m_BlendFromTime = 0.0f;
+    m_BlendDuration = 0.0f;
+}
+
+/** packed値から切替元アニメーションのindexを返す。 */
+u32 CAnimationPlayer::BlendSourceIndex_Internal() const noexcept
+{
+    if (m_BlendFromAnimation >= 0) return static_cast<u32>(m_BlendFromAnimation);
+    return static_cast<u32>(-m_BlendFromAnimation - 1);
+}
+
 /** 指定アニメーションを先頭から再生開始する (mesh 未設定・範囲外は無視)。 */
 void CAnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
     if (!m_Mesh) return;
     if (anim_index >= m_Mesh->Animations().Num()) return;
+    if (anim_index > static_cast<u32>(std::numeric_limits<i32>::max())) return;
+    ClearBlend_Internal();
     m_Anim = static_cast<i32>(anim_index);
     m_bLoop = loop;
     m_Time = 0;
     m_Playing = true;
 }
 
+/** 現在clipから指定clipへ、階層合成前のローカルTRSで姿勢遷移を開始する。 */
+bool CAnimationPlayer::BlendTo(u32 animation_index, f32 blend_seconds, bool loop) noexcept
+{
+    if (IsBlending_Internal()) return false;
+    if (!m_Mesh || animation_index >= m_Mesh->Animations().Num()) return false;
+    if (animation_index > static_cast<u32>(std::numeric_limits<i32>::max())) return false;
+    if (!std::isfinite(blend_seconds) || blend_seconds < 0.0f) return false;
+
+    if (blend_seconds == 0.0f || m_Anim < 0 || m_Anim >= static_cast<i32>(m_Mesh->Animations().Num())) {
+        Play(animation_index, loop);
+        return true;
+    }
+
+    const f32 source_time = Time();
+    if (!std::isfinite(source_time)) return false;
+    const FAnimation& source = m_Mesh->Animations()[m_Anim];
+    const FAnimation& target = m_Mesh->Animations()[animation_index];
+    if (!std::isfinite(source.duration) || !std::isfinite(target.duration)) return false;
+    if (m_bLoop && m_Anim == std::numeric_limits<i32>::max()) return false;
+
+    // 負値をloop指定に使い、遷移状態をplayer内の3値へ収める。
+    m_BlendFromAnimation = m_bLoop ? -m_Anim - 1 : m_Anim;
+    m_BlendFromTime = source_time;
+    m_BlendDuration = blend_seconds;
+    m_Anim = static_cast<i32>(animation_index);
+    m_bLoop = loop;
+    m_Time = 0.0f;
+    m_Playing = true;
+    return true;
+}
+
+/** 再生と姿勢遷移を停止し、切替先clipの時刻を0へ戻す。 */
+void CAnimationPlayer::Stop() noexcept
+{
+    m_Playing = false;
+    m_Time = 0.0f;
+    ClearBlend_Internal();
+}
+
+/** 有限な時刻を直接設定し、姿勢遷移中なら切替先へ即時確定する。 */
+void CAnimationPlayer::SetTime(f32 time) noexcept
+{
+    if (!std::isfinite(time)) return;
+    if (IsBlending_Internal()) ClearBlend_Internal();
+    m_Time = time;
+}
+
+/** 切替先clipの現在時刻を返す。姿勢遷移中は未折返し経過値をclip時刻へ変換する。 */
+f32 CAnimationPlayer::Time() const noexcept
+{
+    if (!IsBlending_Internal() || !m_Mesh || m_Anim < 0 || m_Anim >= static_cast<i32>(m_Mesh->Animations().Num())) return m_Time;
+
+    f32 time = 0.0f;
+    bool playing = true;
+    const FAnimation& target = m_Mesh->Animations()[m_Anim];
+    return ResolveAdvancedTime(target, m_bLoop, 0.0f, m_Time, time, playing) ? time : m_Time;
+}
+
 /** 再生時刻を dt 進め、ループ時は wrap、非ループ時は終端でクランプして停止する。 */
 void CAnimationPlayer::Update(f32 dt) noexcept {
     if (!m_Playing || !m_Mesh || m_Anim < 0) return;
     if (m_Anim >= static_cast<i32>(m_Mesh->Animations().Num())) return;
+    // 非有限deltaまたは時刻は通常再生と姿勢遷移のどちらも変更しない。
+    if (!std::isfinite(dt) || !std::isfinite(m_Time)) return;
     const FAnimation& a = m_Mesh->Animations()[m_Anim];
+
+    if (IsBlending_Internal()) {
+        if (!std::isfinite(m_BlendFromTime) || !std::isfinite(m_BlendDuration)) return;
+        const u32 source_index = BlendSourceIndex_Internal();
+        if (source_index >= m_Mesh->Animations().Num()) return;
+        const FAnimation& source = m_Mesh->Animations()[source_index];
+        if (!std::isfinite(source.duration) || !std::isfinite(a.duration)) return;
+
+        const f64 elapsed_sum = static_cast<f64>(m_Time) + static_cast<f64>(dt);
+        f64 elapsed = elapsed_sum;
+        if (elapsed < 0.0) elapsed = 0.0;
+        if (elapsed > static_cast<f64>(m_BlendDuration)) elapsed = m_BlendDuration;
+        const f32 narrowed_elapsed = static_cast<f32>(elapsed);
+        const bool completes_blend = elapsed_sum >= static_cast<f64>(m_BlendDuration);
+
+        f32 source_time = 0.0f;
+        f32 target_time = 0.0f;
+        bool source_playing = true;
+        bool target_playing = true;
+        if (!ResolveAdvancedTime(source, BlendSourceLoops_Internal(), m_BlendFromTime, narrowed_elapsed, source_time, source_playing) || !ResolveAdvancedTime(a, m_bLoop, 0.0f, completes_blend ? elapsed_sum : static_cast<f64>(narrowed_elapsed), target_time, target_playing)) return;
+
+        if (completes_blend) {
+            m_Time = target_time;
+            m_Playing = target_playing;
+            ClearBlend_Internal();
+        } else {
+            // 遷移中だけm_Timeを未折返し経過時間として使い、両clip時刻は読出し時に求める。
+            m_Time = narrowed_elapsed;
+        }
+        return;
+    }
 
     if (m_bLoop && a.duration > 0.0f && std::isfinite(a.duration)) {
         // 非有限入力では再生時刻と再生状態を変更しない。
@@ -168,10 +369,10 @@ u32 CAnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noex
     const u32 count = nb < max_count ? nb : max_count;
     if (count == 0) return 0;
 
-    // 1) 各ボーンの「アニメーション後ローカル」を求める
-    //    アニメ無し（m_Anim == -1）の場合はバインド姿勢の TRS を使う
+    // 1) 各ボーンのアニメーション後ローカルTRSを求める。
     static constexpr u32 kStackBones = 256;
-    FMat4 local_pose[kStackBones];
+    FLocalBonePose target_pose[kStackBones];
+    FLocalBonePose source_pose[kStackBones];
     FMat4 world_pose[kStackBones];
     if (count > kStackBones) {
         // ボーン数が多すぎる場合は max_count に丸めて palette に書く
@@ -179,34 +380,56 @@ u32 CAnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noex
     }
     const u32 effective = count < kStackBones ? count : kStackBones;
 
-    // 初期値: バインドローカル
-    for (u32 i = 0; i < effective; ++i) {
-        const FBone& b = bones[i];
-        local_pose[i] = ComposeTRS(b.bind_translation, b.bind_rotation, b.bind_scale);
+    InitializeLocalPose(bones, target_pose, effective);
+
+    // 通常再生では現在clipだけをサンプリングする。
+    const FAnimation* target_animation = nullptr;
+    f32 target_time = m_Time;
+    if (m_Anim >= 0 && m_Anim < static_cast<i32>(m_Mesh->Animations().Num())) {
+        target_animation = &m_Mesh->Animations()[m_Anim];
     }
 
-    // アニメーションチャネルで上書き
-    if (m_Anim >= 0 && m_Anim < static_cast<i32>(m_Mesh->Animations().Num())) {
-        const FAnimation& a = m_Mesh->Animations()[m_Anim];
-        for (usize ci = 0; ci < a.channels.Num(); ++ci) {
-            const FAnimationChannel& ch = a.channels[ci];
-            if (ch.bone_index < 0 || ch.bone_index >= static_cast<i32>(effective)) continue;
-            FVec3 t, s; FQuat r;
-            SampleChannel(ch, m_Time, t, r, s);
-            local_pose[ch.bone_index] = ComposeTRS(t, r, s);
+    bool blend_pose = false;
+    f32 source_time = 0.0f;
+    f32 blend_alpha = 1.0f;
+    const FAnimation* source_animation = nullptr;
+    if (IsBlending_Internal() && target_animation != nullptr && std::isfinite(m_Time) && std::isfinite(m_BlendFromTime)) {
+        const u32 source_index = BlendSourceIndex_Internal();
+        if (source_index < m_Mesh->Animations().Num()) {
+            source_animation = &m_Mesh->Animations()[source_index];
+            bool source_playing = true;
+            bool target_playing = true;
+            blend_pose = ResolveAdvancedTime(*source_animation, BlendSourceLoops_Internal(), m_BlendFromTime, m_Time, source_time, source_playing) &&
+                         ResolveAdvancedTime(*target_animation, m_bLoop, 0.0f, m_Time, target_time, target_playing);
+            if (blend_pose) {
+                blend_alpha = m_Time / m_BlendDuration;
+                if (blend_alpha < 0.0f) blend_alpha = 0.0f;
+                if (blend_alpha > 1.0f) blend_alpha = 1.0f;
+            }
         }
+    }
+
+    if (target_animation != nullptr) {
+        ApplyAnimationPose(*target_animation, target_time, target_pose, effective);
+    }
+    if (blend_pose) {
+        InitializeLocalPose(bones, source_pose, effective);
+        ApplyAnimationPose(*source_animation, source_time, source_pose, effective);
+        BlendLocalPoses(source_pose, target_pose, effective, blend_alpha);
     }
 
     // 2) ローカル → ワールド（親が小さい index にいる前提）
     for (u32 i = 0; i < effective; ++i) {
+        const FLocalBonePose& pose = target_pose[i];
+        const FMat4 local = ComposeTRS(pose.translation, pose.rotation, pose.scale);
         const i32 parent = bones[i].parent;
         if (parent < 0) {
-            world_pose[i] = local_pose[i];
+            world_pose[i] = local;
         } else if (parent < static_cast<i32>(i)) {
-            world_pose[i] = local_pose[i] * world_pose[parent];
+            world_pose[i] = local * world_pose[parent];
         } else {
             // 想定外（親が後ろにある）→ ローカルをそのまま使う
-            world_pose[i] = local_pose[i];
+            world_pose[i] = local;
         }
     }
 

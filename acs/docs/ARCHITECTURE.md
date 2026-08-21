@@ -185,6 +185,13 @@ LDR 中間へ書き、その後 `CFxaa` を swapchain に一度だけ適用し�
 HUD pass 中だけ公開します。SpriteBatch 初期化失敗時は pass を開かず完成済み 3D 画像を維持し、
 成功時は swapchain pass を明示的に閉じてから Framework のフェード等へ制御を戻します。
 
+骨格animationの状態切替は`CAnimationPlayer::BlendTo()`、または
+`ASkinnedMeshComponent3D::BlendTo()` / `BlendToByName()`で実姿勢をcross-fadeします。
+遷移中は切替元と切替先のclip時刻をともに進め、各boneのローカル平行移動とscaleを線形補間、
+rotationをslerpしてから親子階層を合成します。0秒指定と従来の`Play` / `PlayByName`は即時切替で、
+非有限・負の期間や無効なmesh、index、名前は現在の再生状態を変更しません。進行中の遷移へ
+別の遷移を重ねる要求も拒否し、現在の遷移完了後に再試行できる契約としています。
+
 ### ボリュメトリック雲の workload 診断
 
 `FVolumetricClouds::LastFrameWorkload()` は、直近のボリューム雲の計算処理と
