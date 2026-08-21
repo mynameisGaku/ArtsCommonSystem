@@ -144,6 +144,18 @@ ACS の公開所有型契約を守り、`TArray<T>` 上の sparse-set 設計を�
 アセット（画像・glTF/FBX メッシュ・音声）は `FAssetRegistry` 経由で読み込まれ、
 非同期ロードも選べます。ImGui 統合は raw DX12 バックエンドだけを対象とします。
 
+D3D12 外部描画を ACS の 3D シーンへ組み込む場合は、
+`IRhiDevice::TryGetD3D12Interop(FRhiD3D12DeviceInterop&)` で借用した native
+device / graphics queue と、`IRhiCommandList::D3D12GraphicsCommandList()` の
+native command list を使います。これらのポインタは呼出し中だけ有効な借用値で、
+非 D3D12 backend では取得に失敗します。外部コマンドを記録した後は
+`RestoreStateAfterExternalCommands()` を呼び、ACS の後続描画に必要な追跡状態を
+再構築します。`ALegacyScene3DAdapter` の
+`OnRenderTransparent3D(const FScene3DTransparentRenderContext&)` は、雲と
+`Sprite3D` の後、SSR と post effect の前に HDR color を load 状態で bind して
+呼び出されます。フックが `true` を返した場合だけ基底が外部コマンド後の状態復旧を
+行い、render target の Begin/End は常に基底が管理します。
+
 ### ボリュメトリック雲の workload 診断
 
 `FVolumetricClouds::LastFrameWorkload()` は、直近のボリューム雲の計算処理と

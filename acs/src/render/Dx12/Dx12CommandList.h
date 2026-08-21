@@ -272,6 +272,15 @@ public:
      */
     void* NativeHandle() noexcept override { return m_CmdList; }
 
+    /** 外部 D3D12 描画へ現在のコマンドリストを借用させる。 */
+    void* D3D12GraphicsCommandList() noexcept override
+    {
+        return _open && m_CmdList ? static_cast<void*>(m_CmdList) : nullptr;
+    }
+
+    /** 外部コマンド後に ACS の descriptor heap と pipeline cache を戻す。 */
+    void RestoreStateAfterExternalCommands() noexcept override;
+
 private:
     /** Raw DX12が所有する変更可能な命令統計を返す。 */
     FRhiCommandStatistics& StatisticsStorage() noexcept override { return m_CommandStatistics; }

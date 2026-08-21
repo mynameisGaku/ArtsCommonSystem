@@ -393,6 +393,20 @@ bool CDx12CommandList::BeginCurrentSlot() noexcept {
     return true;
 }
 
+void CDx12CommandList::RestoreStateAfterExternalCommands() noexcept
+{
+    if (!_open || !m_CmdList || !m_Device) return;
+
+    // 外部側が差し替えた descriptor heap を ACS の共有 heap へ戻す。
+    if (m_Device->SrvHeap()) {
+        ID3D12DescriptorHeap* heaps[] = {m_Device->SrvHeap()};
+        m_CmdList->SetDescriptorHeaps(1, heaps);
+    }
+
+    // 外部 pipeline は ACS のキャッシュ外なので、次の描画で必ず再 bind する。
+    m_BoundPipe = nullptr;
+}
+
 void CDx12CommandList::Begin() noexcept {
     (void)BeginCurrentSlot();
 }

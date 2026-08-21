@@ -176,6 +176,10 @@ public:
         return IsDeviceHealthy();
     }
 
+    /** D3D12 外部描画へ Diligent のネイティブ device と queue を借用させる。 */
+    bool TryGetD3D12Interop(
+        FRhiD3D12DeviceInterop& out) const noexcept override;
+
     /**
      * 指定フェンス値の完了を待つ。
      *

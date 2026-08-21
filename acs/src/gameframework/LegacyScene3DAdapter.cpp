@@ -1007,6 +1007,23 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         command_list.EndRenderToTexture(*hdr);
     }
 
+    // 雲と SPR3D の後、SSR と post の前に外部透明 3D を追加する。HDR の既存色を
+    // 消さず、深度があれば DSV として読む。基底が pass の境界と外部後の状態復旧を持つ。
+    command_list.BeginRenderToTextureLoad(*hdr, depth);
+    const FScene3DTransparentRenderContext transparent_context{
+        *device,
+        command_list,
+        m_Camera,
+        *hdr,
+        depth,
+        context.Width(),
+        context.Height(),
+    };
+    if (OnRenderTransparent3D(transparent_context)) {
+        command_list.RestoreStateAfterExternalCommands();
+    }
+    command_list.EndRenderToTexture(*hdr);
+
     // 反射を作る。**空と雲まで乗った完成後**に作るので、水面や磨いた床に空も映る。
     // 使うのは次のフレームの PBR パス。
     if (depth != nullptr) {

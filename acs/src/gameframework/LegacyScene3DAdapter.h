@@ -663,6 +663,54 @@ public:
     void OnFixedUpdate(f32 fixed_dt) noexcept override;
     void OnRender(FRenderContext& context) noexcept override;
 
+protected:
+    /**
+     * 透明 3D 追加描画へ渡す、そのフレームだけの値コンテキスト。
+     *
+     * @details
+     * OnRenderTransparent3D の呼出し中は ColorTarget が既存内容を保持した load 状態で、
+     * DepthTarget が null でなければ同じ深度バッファも DSV として bind されている。
+     * 参照とポインタは所有せず、フックの呼出し中だけ使う。
+     */
+    struct FScene3DTransparentRenderContext final {
+        /** 現在の RHI device。フックの呼出し中だけ参照する。 */
+        IRhiDevice& Device;
+
+        /** 現在記録中の RHI command list。フックの呼出し中だけ参照する。 */
+        IRhiCommandList& Commands;
+
+        /** 描画時点の active camera。行列と位置を参照する。 */
+        const CCamera& Camera;
+
+        /** 追加描画先の HDR color target。load-bind 済みである。 */
+        IRhiTexture& ColorTarget;
+
+        /** 追加描画で読み取り可能な深度 target (無い場合は null)。 */
+        IRhiTexture* DepthTarget = nullptr;
+
+        /** target の幅 (ピクセル)。 */
+        u32 Width = 0u;
+
+        /** target の高さ (ピクセル)。 */
+        u32 Height = 0u;
+
+    };
+
+    /**
+     * HDR シーンへ透明 3D 描画を追加する。
+     *
+     * @details
+     * 既定実装は何もしないため、外部描画を使わない派生 scene は安全にそのまま動く。
+     * 基底が Load/状態復旧/End を管理するので、派生は context の対象へ描画だけを追加する。
+     * @param context load-bind 済み HDR/深度と camera を含む一時コンテキスト。
+     */
+    virtual bool OnRenderTransparent3D(
+        const FScene3DTransparentRenderContext& context) noexcept
+    {
+        (void)context;
+        return false;
+    }
+
 private:
     struct FCustomGpuMesh {
         AMeshComponent3D* Component = nullptr;

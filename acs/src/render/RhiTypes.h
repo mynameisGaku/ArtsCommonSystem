@@ -8,6 +8,32 @@
 namespace acs {
 
 /**
+ * D3D12 外部描画へ一時的に貸し出すネイティブ資源。
+ *
+ * @details
+ * 各ポインタは ACS が所有し、呼出し中だけ有効な借用値である。外部側は
+ * AddRef/Release せず、FramesInFlight は外部描画側のフレーム資源管理に使う。
+ * 非 D3D12 バックエンドでは IRhiDevice の取得 API が false を返す。
+ */
+struct FRhiD3D12DeviceInterop final {
+    /** ACS が所有する ID3D12Device 相当の借用ポインタ。 */
+    void* Device = nullptr;
+
+    /** ACS が所有する DIRECT グラフィックスキュー相当の借用ポインタ。 */
+    void* GraphicsQueue = nullptr;
+
+    /** ACS が同時に保持するフレームスロット数。 */
+    u32 FramesInFlight = 0u;
+
+    /** device / queue / frame 数が揃い、外部描画へ渡せる値かを返す。 */
+    bool IsValid() const noexcept
+    {
+        return Device != nullptr && GraphicsQueue != nullptr &&
+               FramesInFlight > 0u;
+    }
+};
+
+/**
  * ピクセルフォーマット (DX12 / Vulkan 等で共通の論理フォーマット)。
  */
 enum class EFormat : u8 {

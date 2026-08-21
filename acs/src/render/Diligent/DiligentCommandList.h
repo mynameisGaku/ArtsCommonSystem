@@ -272,6 +272,12 @@ public:
      */
     void* NativeHandle() noexcept override;
 
+    /** 外部 D3D12 描画へ現在のネイティブコマンドリストを借用させる。 */
+    void* D3D12GraphicsCommandList() noexcept override;
+
+    /** 外部コマンド後に Diligent の追跡状態を無効化して再構築させる。 */
+    void RestoreStateAfterExternalCommands() noexcept override;
+
     // ---- 計算シェーダー命令 ----
     /** compute パイプラインを設定する (次の Dispatch で使う CS + SRB)。 */
     void SetComputePipeline(IRhiPipeline& pipeline) noexcept override;

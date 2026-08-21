@@ -554,6 +554,72 @@ ACS_TEST(PostEffects, MotionVectorContractsPublishOnlyCompleteAuthoritativeOutpu
                 std::string::npos);
 }
 
+ACS_TEST(PostEffects,
+         LegacyScene3DTransparentHookUsesLoadAndRestoresExternalState)
+{
+    const std::string adapter =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string header =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.h");
+    const std::string command_header =
+        ReadWorkspaceSource("src/render/IRhiCommandList.h");
+    const std::string frame = ExtractFunction(
+        adapter, "void ALegacyScene3DAdapter::OnRender(");
+    EXPECT_TRUE(!frame.empty());
+    EXPECT_TRUE(!header.empty());
+    EXPECT_TRUE(!command_header.empty());
+    if (frame.empty() || header.empty() || command_header.empty()) return;
+
+    const std::size_t cloud = frame.find("CompositeClouds(");
+    const std::size_t load = frame.find(
+        "BeginRenderToTextureLoad(*hdr, depth)", cloud);
+    const std::size_t hook = frame.find(
+        "OnRenderTransparent3D(transparent_context)", load);
+    const std::size_t restore = frame.find(
+        "RestoreStateAfterExternalCommands()", hook);
+    const std::size_t end = frame.find(
+        "EndRenderToTexture(*hdr)", restore);
+    const std::size_t reflection = frame.find(
+        "RenderReflectionPass(", end);
+    const std::size_t post = frame.find("m_Post.Render(", reflection);
+    EXPECT_TRUE(cloud != std::string::npos);
+    EXPECT_TRUE(load != std::string::npos);
+    EXPECT_TRUE(hook != std::string::npos);
+    EXPECT_TRUE(restore != std::string::npos);
+    EXPECT_TRUE(end != std::string::npos);
+    EXPECT_TRUE(reflection != std::string::npos);
+    EXPECT_TRUE(post != std::string::npos);
+    EXPECT_TRUE(frame.find(
+        "if (OnRenderTransparent3D(transparent_context))") !=
+                std::string::npos);
+
+    EXPECT_TRUE(header.find("struct FScene3DTransparentRenderContext") !=
+                std::string::npos);
+    EXPECT_TRUE(header.find("IRhiDevice& Device") != std::string::npos);
+    EXPECT_TRUE(header.find("IRhiCommandList& Commands") != std::string::npos);
+    EXPECT_TRUE(header.find("const CCamera& Camera") != std::string::npos);
+    EXPECT_TRUE(header.find("IRhiTexture& ColorTarget") != std::string::npos);
+    EXPECT_TRUE(header.find("IRhiTexture* DepthTarget") != std::string::npos);
+    EXPECT_TRUE(header.find("u32 Width") != std::string::npos);
+    EXPECT_TRUE(header.find("u32 Height") != std::string::npos);
+    EXPECT_TRUE(header.find(
+        "virtual bool OnRenderTransparent3D(") != std::string::npos);
+    EXPECT_TRUE(header.find("(void)context;") != std::string::npos);
+    EXPECT_TRUE(header.find("return false;") != std::string::npos);
+
+    const std::size_t statistics_virtual = command_header.find(
+        "virtual FRhiCommandStatistics& StatisticsStorage() noexcept = 0;");
+    const std::size_t public_after_statistics = command_header.find(
+        "public:", statistics_virtual);
+    const std::size_t interop_virtual = command_header.find(
+        "virtual void* D3D12GraphicsCommandList() noexcept", statistics_virtual);
+    EXPECT_TRUE(statistics_virtual != std::string::npos);
+    EXPECT_TRUE(public_after_statistics != std::string::npos);
+    EXPECT_TRUE(interop_virtual != std::string::npos);
+    EXPECT_TRUE(statistics_virtual < public_after_statistics);
+    EXPECT_TRUE(public_after_statistics < interop_virtual);
+}
+
 ACS_TEST(PostEffects, FixedTapGatherShadersKeepRolledQualityLoops)
 {
     const std::string source =

@@ -145,6 +145,29 @@ private:
 /** I接頭辞のcommand list interfaceがvptr以外の状態を持たないことを固定する。 */
 static_assert(sizeof(IRhiCommandList) == sizeof(void*));
 
+/** 外部描画契約の既定実装を確認するための最小 RHI デバイス。 */
+class CDefaultRhiDevice final : public IRhiDevice {
+public:
+    const char* BackendName() const noexcept override { return "DefaultTest"; }
+    const char* AdapterName() const noexcept override { return "DefaultTest"; }
+    void WaitIdle() noexcept override {}
+};
+
+ACS_TEST(Render, ExternalD3D12InteropDefaultsFailClosed)
+{
+    CDefaultRhiDevice device;
+    FRhiD3D12DeviceInterop interop{};
+    EXPECT_FALSE(device.TryGetD3D12Interop(interop));
+    EXPECT_TRUE(interop.Device == nullptr);
+    EXPECT_TRUE(interop.GraphicsQueue == nullptr);
+    EXPECT_EQ(interop.FramesInFlight, 0u);
+    EXPECT_FALSE(interop.IsValid());
+
+    CStatisticsCommandList command;
+    EXPECT_TRUE(command.D3D12GraphicsCommandList() == nullptr);
+    command.RestoreStateAfterExternalCommands();
+}
+
 ACS_TEST(Render,
          NonBlockingCommandListDefaultsPreserveLegacyBackendContract)
 {

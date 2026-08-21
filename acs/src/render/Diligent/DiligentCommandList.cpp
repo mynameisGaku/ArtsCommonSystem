@@ -5,6 +5,8 @@
 #if WITH_RENDER_DILIGENT
 
 #include "render/Diligent/DiligentCommon.h"
+#include <d3d12.h>
+#include "DeviceContextD3D12.h"
 #include "render/Diligent/DiligentDevice.h"
 #include "render/Diligent/DiligentSwapchain.h"
 #include "render/Diligent/DiligentPipeline.h"
@@ -938,6 +940,40 @@ void CDiligentCommandList::DispatchIndirect(IRhiBuffer& args, u32 byte_offset) n
 
 void* CDiligentCommandList::NativeHandle() noexcept {
     return m_Device ? m_Device->Context() : nullptr;
+}
+
+void* CDiligentCommandList::D3D12GraphicsCommandList() noexcept
+{
+    if (!m_Device ||
+        m_Device->ActualBackend() != ERhiBackendKind::D3D12) {
+        return nullptr;
+    }
+    Diligent::IDeviceContext* const context = m_Device->Context();
+    if (context == nullptr) return nullptr;
+
+    Diligent::IDeviceContextD3D12* diligent_context = nullptr;
+    context->QueryInterface(
+        Diligent::IID_DeviceContextD3D12,
+        reinterpret_cast<Diligent::IObject**>(&diligent_context));
+    if (diligent_context == nullptr) return nullptr;
+
+    ID3D12GraphicsCommandList* const command_list =
+        diligent_context->GetD3D12CommandList();
+    diligent_context->Release();
+    return command_list;
+}
+
+void CDiligentCommandList::RestoreStateAfterExternalCommands() noexcept
+{
+    if (!m_Device) return;
+    Diligent::IDeviceContext* const context = m_Device->Context();
+    if (!context) return;
+
+    // 外部側の pipeline / resource state を Diligent の追跡対象から外す。
+    context->InvalidateState();
+    m_Pipeline = nullptr;
+    for (u32 i = 0; i < 16u; ++i) m_BoundUavTex[i] = nullptr;
+    m_BoundUavTexCount = 0;
 }
 
 } // namespace acs
