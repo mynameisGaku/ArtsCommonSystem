@@ -88,7 +88,9 @@ product-version label. The current required host set is:
   missing export after startup or retire the old subtree on failure;
 - explicit 3D Prefab root-property overrides, so source refresh preserves only
   marked Visible/Enabled/Color values while the compatibility Revert path
-  restores all source values.
+  restores all source values;
+- persistent 3D Prefab root-component property overrides and selective Revert,
+  so a missing native export cannot leave managed UI ahead of the scene ABI.
 
 Profiler v5 (with its version-4 compatibility prefix), the independent
 volumetric-cloud workload v1 snapshot, unified scene documents, high-quality
@@ -587,6 +589,9 @@ then resolves that type in the replacement subtree so source component reorder
 does not redirect an override. A removed component/property fails closed and
 restores the old scene and Undo history. Full Apply clears the selected
 instance's component markers; refresh of other instances preserves theirs.
+Selective component Revert removes only the chosen type/property from the
+captured snapshot, reloads that value from source, and retains every other root
+and component override in the same native transaction.
 
 Project Settings uses the canonical settings-file path as its stable identity
 and participates in common dirty, Undo/Redo transaction, Save All, and

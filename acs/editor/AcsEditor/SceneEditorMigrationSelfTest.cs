@@ -447,10 +447,16 @@ internal static class SceneEditorMigrationSelfTest
             view3DSource.Contains(
                 "acs_editor_prefab_instance3d_root_component_property_override_mask(",
                 StringComparison.Ordinal) &&
+            view3DSource.Contains(
+                "CreatePrefabRootComponentPropertyOverrideRevertButton3D(",
+                StringComparison.Ordinal) &&
+            shellSource.Contains(
+                "acs_editor_prefab_instance3d_revert_root_component_property_override(",
+                StringComparison.Ordinal) &&
             shellSource.Contains(
                 "PCOVR3D",
                 StringComparison.Ordinal),
-            "3D Prefab root component edits record explicit persistent override metadata");
+            "3D Prefab root component edits record persistent metadata and expose selective Revert through an explicit adapter");
         Check(
             placeBlueprintBody.Contains(
                 "EngineInterop.acs_editor_prefab_instance3d_instantiate(",

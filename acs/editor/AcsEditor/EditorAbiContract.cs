@@ -31,6 +31,7 @@ internal enum EditorAbiCapability : ulong
     PrefabRootPropertyOverride3DV1 = 1UL << 17,
     PrefabRootPropertySelectiveRevert3DV1 = 1UL << 18,
     PrefabRootComponentPropertyOverride3DV1 = 1UL << 19,
+    PrefabRootComponentPropertySelectiveRevert3DV1 = 1UL << 20,
 }
 
 internal readonly record struct EditorAbiSnapshot(
@@ -99,7 +100,8 @@ internal static class EditorAbiContract
         EditorAbiCapability.PrefabStableInstanceId3DV1 |
         EditorAbiCapability.PrefabRootPropertyOverride3DV1 |
         EditorAbiCapability.PrefabRootPropertySelectiveRevert3DV1 |
-        EditorAbiCapability.PrefabRootComponentPropertyOverride3DV1;
+        EditorAbiCapability.PrefabRootComponentPropertyOverride3DV1 |
+        EditorAbiCapability.PrefabRootComponentPropertySelectiveRevert3DV1;
 
     internal static readonly IReadOnlyList<EditorAbiCapability>
         KnownCapabilities = Array.AsReadOnly(new[]
@@ -124,6 +126,7 @@ internal static class EditorAbiContract
             EditorAbiCapability.PrefabRootPropertyOverride3DV1,
             EditorAbiCapability.PrefabRootPropertySelectiveRevert3DV1,
             EditorAbiCapability.PrefabRootComponentPropertyOverride3DV1,
+            EditorAbiCapability.PrefabRootComponentPropertySelectiveRevert3DV1,
         });
 
     private const EditorAbiCapability AllKnownCapabilities =
@@ -146,7 +149,8 @@ internal static class EditorAbiContract
         EditorAbiCapability.PrefabStableInstanceId3DV1 |
         EditorAbiCapability.PrefabRootPropertyOverride3DV1 |
         EditorAbiCapability.PrefabRootPropertySelectiveRevert3DV1 |
-        EditorAbiCapability.PrefabRootComponentPropertyOverride3DV1;
+        EditorAbiCapability.PrefabRootComponentPropertyOverride3DV1 |
+        EditorAbiCapability.PrefabRootComponentPropertySelectiveRevert3DV1;
 
     internal static EditorAbiSnapshot Evaluate(
         bool queryAvailable,
@@ -241,6 +245,8 @@ internal static class EditorAbiContract
                 "prefab-root-property-selective-revert-3d-v1",
             EditorAbiCapability.PrefabRootComponentPropertyOverride3DV1 =>
                 "prefab-root-component-property-override-3d-v1",
+            EditorAbiCapability.PrefabRootComponentPropertySelectiveRevert3DV1 =>
+                "prefab-root-component-property-selective-revert-3d-v1",
             _ => "unknown",
         };
 }

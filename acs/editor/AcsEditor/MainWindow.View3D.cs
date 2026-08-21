@@ -2397,6 +2397,11 @@ public partial class MainWindow
 
             // 編集プロパティ (reflection スキーマ駆動)。2D と同じ BuildPropEditor を is3d:true で流用。
             int pc = EngineInterop.acs_editor_component_prop_count(cname);
+            uint componentOverrideMask = EngineInterop
+                .acs_editor_prefab_instance3d_root_component_property_override_mask(
+                    Engine,
+                    id,
+                    idx);
             if (pc == 0)
                 inner.Children.Add(new TextBlock { Text = "(編集可能なプロパティなし)", Foreground = dim, FontSize = 11, Margin = new Thickness(0, 1, 0, 0) });
             else
@@ -2410,7 +2415,25 @@ public partial class MainWindow
                             Margin = new Thickness(0, p == 0 ? 0 : 5, 0, 1) });
                     lastCat = cat;
                     var prow = BuildPropEditor(id, idx, cname, p, is3d: true);
-                    if (prow != null) inner.Children.Add(prow);   // null = Hidden 指定子 → 出さない
+                    if (prow == null) continue;   // null = Hidden 指定子 → 出さない
+                    if ((componentOverrideMask & (1u << p)) == 0u)
+                    {
+                        inner.Children.Add(prow);
+                        continue;
+                    }
+                    var overridePropertyRow = new Grid();
+                    overridePropertyRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    overridePropertyRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    Grid.SetColumn(prow, 0);
+                    overridePropertyRow.Children.Add(prow);
+                    Button revertButton = CreatePrefabRootComponentPropertyOverrideRevertButton3D(
+                        id,
+                        idx,
+                        p,
+                        EngineInterop.ComponentPropName(cname, p));
+                    Grid.SetColumn(revertButton, 1);
+                    overridePropertyRow.Children.Add(revertButton);
+                    inner.Children.Add(overridePropertyRow);
                 }
             }
 
@@ -2823,6 +2846,21 @@ public partial class MainWindow
             ToolTip = $"{label} overrideだけを原本へ反映する",
         };
         button.Click += (_, __) => ApplyPrefabRootOverride3D(id, property);
+        return button;
+    }
+
+    /// <summary>1つの3D Prefab root component propertyだけをRevertする小型buttonを作る。</summary>
+    private Button CreatePrefabRootComponentPropertyOverrideRevertButton3D(int id, int slot, int property, string label)
+    {
+        var button = new Button {
+            Content = "Revert",
+            FontSize = 9,
+            Padding = new Thickness(5, 1, 5, 1),
+            Margin = new Thickness(5, 2, 0, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = $"{label} overrideだけを原本値へ戻す",
+        };
+        button.Click += (_, __) => RevertPrefabRootComponentPropertyOverride3D(id, slot, property, label);
         return button;
     }
 

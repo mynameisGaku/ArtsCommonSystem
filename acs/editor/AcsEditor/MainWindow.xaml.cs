@@ -5248,6 +5248,45 @@ public partial class MainWindow : Window
         Log($"3D Prefab rootの{property}だけを原本値へ復元しました。", "Asset", LogLevel.Info);
     }
 
+    /// <summary>指定した3D root component propertyだけを原本値へ戻し、他のoverrideを維持する。</summary>
+    private void RevertPrefabRootComponentPropertyOverride3D(int id, int slot, int property, string label)
+    {
+        if (Engine == IntPtr.Zero || slot < 0 || property < 0 || property >= 32) return;
+        uint currentMask = EngineInterop
+            .acs_editor_prefab_instance3d_root_component_property_override_mask(
+                Engine,
+                id,
+                slot);
+        uint propertyBit = 1u << property;
+        if ((currentMask & propertyBit) == 0u)
+        {
+            Log($"Selective Component Revert失敗 ({label}はoverrideされていません)。", "Asset", LogLevel.Warn);
+            return;
+        }
+        string src = EngineInterop.NodePrefabSrc3D(Engine, id);
+        if (string.IsNullOrEmpty(src) || !System.IO.File.Exists(src))
+        {
+            Log("Selective Component Revert失敗 (プレハブが見つからない)。");
+            return;
+        }
+        string comp;
+        try { comp = ReadComponentsFor(src); }
+        catch (Exception ex) { Log("Selective Component Revert読込エラー: " + ex.Message); return; }
+        if (string.IsNullOrWhiteSpace(comp))
+        {
+            Log("Selective Component Revert失敗 (コンポーネント木が空)。");
+            return;
+        }
+        int nid = EngineInterop.acs_editor_prefab_instance3d_revert_root_component_property_override(Engine, id, src, comp, slot, property);
+        if (nid < 0)
+        {
+            Log($"Selective Component Revert失敗 ({label})。", "Asset", LogLevel.Warn);
+            return;
+        }
+        RefreshAfterSceneChange();
+        Log($"3D Prefab root componentの{label}だけを原本値へ復元しました。", "Asset", LogLevel.Info);
+    }
+
     /// <summary>指定した3D root propertyだけを原本へ反映し、残りのsourceとoverrideを維持する。</summary>
     private void ApplyPrefabRootOverride3D(int id, PrefabRootProperty3D property)
     {
