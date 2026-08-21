@@ -177,7 +177,16 @@ ACS_REF.modules.push({
       name: "FCollisionPenetration3D",
       kind: "構造体", header: "gameframework/CollisionPenetration3D.h",
       summary: "query sphere が最も深く貫通する shape、正の深さ、登録 shape から sphere へ向く world 単位法線を保持する。<code>Translation()</code> で最小分離移動量を得る。",
-      when: "3D sphere の初期重なりや移動後の貫通を、owner 側の明示的な反復処理で解消する時。"
+      when: "3D sphere の初期重なりや移動後の最深接触を一件ずつ調べる時。"
+    },
+    {
+      name: "FSpherePenetrationResolution3D",
+      kind: "構造体", header: "gameframework/SpherePenetrationResolution3D.h",
+      summary: "最深接触から順に反復分離した 3D sphere、総移動量、反復回数、収束状態を保持する。query world と登録 shape は変更しない。",
+      when: "複数の壁や床へ貫通した kinematic sphere を、node 更新前に決定的かつ明示的に解消する時。",
+      members: [
+        { sig: "bool TryResolveSpherePenetrations3D(world, sphere, out, max_iterations = 4, exclude = {}, mask = kAllLayers)", desc: "最大64回まで最深接触を反復解消する。上限到達時は成功結果の FullyResolved が false になる。" }
+      ]
     },
     {
       name: "CCombatStateMachine",

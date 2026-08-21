@@ -34,6 +34,7 @@
 #include "gameframework/CollisionPenetration3D.h"
 #include "gameframework/CollisionSweepHit3D.h"
 #include "gameframework/CollisionWorld3D.h"
+#include "gameframework/SpherePenetrationResolution3D.h"
 #include "gameframework/PhysicsBody2D.h"
 #include "gameframework/Sprite2DComponent.h"
 #include "gameframework/SpriteAnimComponent.h"

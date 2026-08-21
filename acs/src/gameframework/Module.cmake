@@ -129,6 +129,7 @@ set(_acsgen_gameframework_sources
     SocialModeration.cpp
     SpatialAudio.cpp
     Spawn2DSubsystem.cpp
+    SpherePenetrationResolution3D.cpp
     Sprite2DComponent.cpp
     Sprite3DComponent.cpp
     SpriteAnimComponent.cpp
@@ -330,6 +331,7 @@ set(_acsgen_gameframework_headers
     SpatialAudio.h
     SpatialAudio2D.h
     Spawn2DSubsystem.h
+    SpherePenetrationResolution3D.h
     Sprite2DComponent.h
     Sprite3DComponent.h
     SpriteAnimComponent.h

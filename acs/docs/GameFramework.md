@@ -203,7 +203,10 @@ component 自身へ world 全体の broad-phase state を持たせない。
   `FCollisionPenetration3D` で返す。`Normal` は登録shapeからquery sphereへ向き、
   `Translation()` は接触まで戻すworld分離移動量を返す。同じ深さではslot indexが小さいshapeを選ぶ。
 - sphere対sphereとsphere対AABBの押し出し計算は `math/Collision3D.h` の `Resolve()` を再利用する。
-  複数接触の反復解消とshape更新はowner側adapterが明示的に行い、query coreはstateを変更しない。
+- `TryResolveSpherePenetrations3D()` は最深接触から順に最大64回まで反復分離し、
+  `FSpherePenetrationResolution3D` へ解消後sphere、総移動量、反復回数、収束状態を返す。
+  反復上限到達は処理失敗にせず`FullyResolved == false`で明示する。worldと登録shapeは変更しない。
+- 解消後のnode座標や登録shapeへの反映はowner側adapterが明示的に行い、query coreはstateを変更しない。
 - `ClearAll()` 後のslot再利用でもgenerationを進め、clear前のhandleを復活させない。
 
 この型はsubsystemではない。ownerが必要な寿命で保持し、scene nodeやgameplay stateからshapeを
