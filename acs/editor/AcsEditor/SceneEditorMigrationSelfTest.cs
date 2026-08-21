@@ -166,6 +166,10 @@ internal static class SceneEditorMigrationSelfTest
             ExtractMethodBody(
                 shellSource,
                 "private void ApplyPrefabRootOverride3D(");
+        string selectivePrefabRootComponentApplyBody =
+            ExtractMethodBody(
+                shellSource,
+                "private void ApplyPrefabRootComponentPropertyOverride3D(");
         string placeBlueprintBody =
             ExtractMethodBody(shellSource, "private void PlaceBlueprint(");
         string instantiatePrefabBody =
@@ -450,13 +454,28 @@ internal static class SceneEditorMigrationSelfTest
             view3DSource.Contains(
                 "CreatePrefabRootComponentPropertyOverrideRevertButton3D(",
                 StringComparison.Ordinal) &&
+            view3DSource.Contains(
+                "CreatePrefabRootComponentPropertyOverrideApplyButton3D(",
+                StringComparison.Ordinal) &&
             shellSource.Contains(
                 "acs_editor_prefab_instance3d_revert_root_component_property_override(",
+                StringComparison.Ordinal) &&
+            selectivePrefabRootComponentApplyBody.Contains(
+                "PrefabRootComponentPropertyApply3D.TryBuildSource(",
+                StringComparison.Ordinal) &&
+            selectivePrefabRootComponentApplyBody.Contains(
+                "SceneSourceFile.WriteAtomicText(",
+                StringComparison.Ordinal) &&
+            selectivePrefabRootComponentApplyBody.Contains(
+                "acs_editor_prefab_instance3d_clear_root_component_property_override(",
+                StringComparison.Ordinal) &&
+            selectivePrefabRootComponentApplyBody.Contains(
+                "preserveRootOverrides: true",
                 StringComparison.Ordinal) &&
             shellSource.Contains(
                 "PCOVR3D",
                 StringComparison.Ordinal),
-            "3D Prefab root component edits record persistent metadata and expose selective Revert through an explicit adapter");
+            "3D Prefab root component edits record persistent metadata and expose selective Apply/Revert through pure calculation and explicit adapters");
         Check(
             placeBlueprintBody.Contains(
                 "EngineInterop.acs_editor_prefab_instance3d_instantiate(",

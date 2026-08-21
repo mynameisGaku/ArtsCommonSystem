@@ -89,7 +89,7 @@ product-version label. The current required host set is:
 - explicit 3D Prefab root-property overrides, so source refresh preserves only
   marked Visible/Enabled/Color values while the compatibility Revert path
   restores all source values;
-- persistent 3D Prefab root-component property overrides and selective Revert,
+- persistent 3D Prefab root-component property overrides and selective Apply/Revert,
   so a missing native export cannot leave managed UI ahead of the scene ABI.
 
 Profiler v5 (with its version-4 compatibility prefix), the independent
@@ -593,6 +593,10 @@ instance's component markers; refresh of other instances preserves theirs.
 Selective component Revert removes only the chosen type/property from the
 captured snapshot, reloads that value from source, and retains every other root
 and component override in the same native transaction.
+Selective component Apply resolves the source component by type, changes only
+the chosen `CPROP3D` value through a pure calculation and atomic file adapter,
+then clears only that instance marker. Other instances refresh transactionally
+and preserve their own explicit root/component overrides.
 
 Project Settings uses the canonical settings-file path as its stable identity
 and participates in common dirty, Undo/Redo transaction, Save All, and

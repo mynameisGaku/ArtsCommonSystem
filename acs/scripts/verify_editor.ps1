@@ -753,7 +753,8 @@ $fastEditorTests = @(
     "--project-launcher-responsiveness-selftest",
     "--package-responsiveness-selftest",
     "--package-metadata-editor-selftest",
-    "--prefab-root-property-apply-3d-selftest"
+    "--prefab-root-property-apply-3d-selftest",
+    "--prefab-root-component-property-apply-3d-selftest"
 )
 $allEditorTests = @(
     "--abi-contract-selftest",
@@ -764,6 +765,7 @@ $allEditorTests = @(
     "--project-settings-selftest",
     "--scene-editor-migration-selftest",
     "--prefab-root-property-apply-3d-selftest",
+    "--prefab-root-component-property-apply-3d-selftest",
     "--material-workflow-selftest",
     "--material-preview-selftest",
     "--asset-creation-selftest",

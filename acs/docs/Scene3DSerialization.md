@@ -126,7 +126,9 @@ maskを保持せず原本値へ戻す。selective Revertは指定bitを現在mas
 再生成は `PCOVR3D` も型IDで解決して再適用し、componentまたはpropertyがsourceから消えた場合は
 sceneとUndo履歴をrollbackする。component selective Revertは現在slotから型IDを解決し、指定propertyだけを
 保持snapshotから除いてsource値へ戻す。他のroot/component overrideは維持し、未override property、
-不正slot/property、source不一致ではsceneを変更しない。全Revertはcomponent overrideも破棄する。
+不正slot/property、source不一致ではsceneを変更しない。component selective Applyは現在slotの型名で
+原本componentを解決し、選択`CPROP3D`だけをatomic更新して選択instanceのmarkerだけを外す。他instanceの
+明示overrideは型IDで維持する。全Revertはcomponent overrideも破棄する。
 
 pack batch は後続entryの失敗時に先行entryの完了数を返す。loaderはprivate parsed
 document上で完了済み依存を初出順にdecodeし、旧逐次経路と同じ先行decode errorを優先する。

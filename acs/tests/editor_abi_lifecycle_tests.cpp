@@ -73,6 +73,7 @@ extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_refresh(
 extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_refresh_with_root_overrides(void* handle, int id, const char* source, const char* text, std::uint32_t preserve_mask);
 extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_revert_root_overrides(void* handle, int id, const char* source, const char* text, std::uint32_t revert_mask);
 extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_revert_root_component_property_override(void* handle, int id, const char* source, const char* text, int slot, int property);
+extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_clear_root_component_property_override(void* handle, int id, int slot, int property);
 extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_instantiate(
     void* handle, const char* source, const char* instance_id,
     const char* text, int parent_id);
@@ -1748,6 +1749,19 @@ bool RunPrefabInstance3DRootComponentPropertyOverrides() noexcept
     std::string before_repeated_selective3d;
     ok = ok && SnapshotSceneDocument(host, before_repeated_selective2d, before_repeated_selective3d) && acs_editor_prefab_instance3d_revert_root_component_property_override(host, component_reverted, kSource, kReorderedSubtree, 0, 4) == -1 && SceneDocumentEquals(host, before_repeated_selective2d, before_repeated_selective3d);
     if (ok) completed_stage = 5u;
+
+    std::string before_invalid_clear2d;
+    std::string before_invalid_clear3d;
+    ok = ok && SnapshotSceneDocument(host, before_invalid_clear2d, before_invalid_clear3d) && acs_editor_prefab_instance3d_clear_root_component_property_override(host, component_reverted, 0, 4) == 0 && SceneDocumentEquals(host, before_invalid_clear2d, before_invalid_clear3d) && acs_editor_prefab_instance3d_clear_root_component_property_override(host, component_reverted, 0, 5) != 0;
+    char selectively_applied_scene[32768]{};
+    const int selectively_applied_written = ok ? acs_editor_scene3d_serialize(host, selectively_applied_scene, static_cast<int>(sizeof(selectively_applied_scene))) : 0;
+    char removed_normal_override_line[64]{};
+    const int removed_normal_override_written = std::snprintf(removed_normal_override_line, sizeof(removed_normal_override_line), "PCOVR3D %d 0 5\n", component_reverted);
+    ok = ok && acs_editor_prefab_instance3d_root_component_property_override_mask(host, component_reverted, 0) == 0u && acs_editor_prefab_instance3d_root_component_property_override_mask(host, component_reverted, 1) == kMeshRoughness && acs_editor_prefab_instance3d_root_override_mask(host, component_reverted) == kEnabled && selectively_applied_written > 0 && removed_normal_override_written > 0 && std::strstr(selectively_applied_scene, removed_normal_override_line) == nullptr && std::strstr(selectively_applied_scene, retained_mesh_override_line) != nullptr;
+    std::string before_repeated_clear2d;
+    std::string before_repeated_clear3d;
+    ok = ok && SnapshotSceneDocument(host, before_repeated_clear2d, before_repeated_clear3d) && acs_editor_prefab_instance3d_clear_root_component_property_override(host, component_reverted, 0, 5) == 0 && SceneDocumentEquals(host, before_repeated_clear2d, before_repeated_clear3d) && acs_editor_prefab_instance3d_mark_root_component_property_override(host, component_reverted, 0, 5) != 0;
+    if (ok) completed_stage = 6u;
 
     ok = ok && acs_editor_prefab_instance3d_clear_root_component_property_overrides(host, component_reverted) != 0 && acs_editor_prefab_instance3d_root_component_property_override_mask(host, component_reverted, 0) == 0u && acs_editor_prefab_instance3d_mark_root_component_property_override(host, component_reverted, 0, 4) != 0;
     const int reverted = ok ? acs_editor_prefab_instance3d_refresh(host, component_reverted, kSource, kReorderedSubtree) : -1;
