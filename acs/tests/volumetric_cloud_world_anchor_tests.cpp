@@ -4482,18 +4482,10 @@ ACS_TEST(VolumetricClouds,
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudResolveCS"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "floatCloudTemporalCurrentWeight("
-        "floatcurrentAlpha,floathistoryAlpha,boolstationary){"
-        "if(!stationary)return0.70;"
-        "floatcoverageChange=abs(currentAlpha-historyAlpha);"
-        "floatchangeResponse=smoothstep(0.025,0.18,coverageChange);"
-        "returnlerp(0.125,0.70,changeResponse);}"));
+    EXPECT_TRUE(Contains(shader, "floatCloudTemporalCurrentWeight(floatcurrentAlpha,floathistoryAlpha,boolstationary){floatcurrentWeight=0.70;if(stationary){floatcoverageChange=abs(currentAlpha-historyAlpha);floatchangeResponse=smoothstep(0.025,0.18,coverageChange);currentWeight=lerp(0.125,0.70,changeResponse);}returncurrentWeight;}"));
     const std::size_t helperBegin = shader.find(
         "floatCloudTemporalCurrentWeight(");
-    const std::size_t helperEnd = shader.find(
-        "returnlerp(0.125,0.70,changeResponse);}", helperBegin);
+    const std::size_t helperEnd = shader.find("returncurrentWeight;}", helperBegin);
     EXPECT_TRUE(helperBegin != std::string::npos);
     EXPECT_TRUE(helperEnd != std::string::npos);
     if (helperBegin != std::string::npos &&

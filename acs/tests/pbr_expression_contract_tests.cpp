@@ -183,6 +183,7 @@ ACS_TEST(PbrExpressionContract, CloudTransmittanceOnlyModulatesPrimaryDirectLigh
     EXPECT_TRUE(!source.empty());
     EXPECT_TRUE(Contains(source, "cloud_shadow_transmittance : register(t15)"));
     EXPECT_TRUE(Contains(source, "float ComputeCloudShadowTransmittance(float3 world_p)"));
+    EXPECT_TRUE(Contains(source, "float transmittance = 1.0;"));
     EXPECT_TRUE(Contains(source, "? (shadow * contact_shadow * cloud_shadow)"));
     EXPECT_TRUE(Contains(source, "cmd.SetTexture(15u, *m_CloudShadowTransmittance);"));
     EXPECT_TRUE(Contains(source, "cb.cloud_shadow_world_origin = m_CloudShadowWorldOrigin;"));

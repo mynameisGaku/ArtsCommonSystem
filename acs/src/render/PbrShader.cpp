@@ -403,33 +403,29 @@ float ComputeShadow(float3 world_p, float view_z) {
 // 地図の外、雲内、太陽が地平線付近の受光点は遮光なしへ戻す。境界二画素は
 // 透過率1へ滑らかにつなぎ、カメラ移動で地図の端が線として見えることを防ぐ。
 float ComputeCloudShadowTransmittance(float3 world_p) {
-    if (cloud_shadow_map_params.w < 0.5 || cloud_shadow_projection.y <= cloud_shadow_layer.z || cloud_shadow_layer.w < 100.0) {
-        return 1.0;
+    // どの分岐でも未初期化値を返さないよう、遮光なしを先に確定する。
+    float transmittance = 1.0;
+    bool mappingValid = cloud_shadow_map_params.w >= 0.5 && cloud_shadow_projection.y > cloud_shadow_layer.z && cloud_shadow_layer.w >= 100.0;
+    if (mappingValid) {
+        float3 local = world_p - cloud_shadow_world_origin.xyz;
+        float radialY = max(cloud_shadow_layer.w + local.y, 1.0);
+        float radialXzSquared = dot(local.xz, local.xz);
+        float q = radialXzSquared / radialY;
+        float receiverAltitude = local.y + q * (0.5 - q / (8.0 * radialY));
+        if (receiverAltitude < cloud_shadow_layer.x) {
+            float distanceAlongSun = (world_p.y - cloud_shadow_projection.w) / cloud_shadow_projection.y;
+            float2 referenceXz = world_p.xz - cloud_shadow_projection.xz * distanceAlongSun;
+            float2 uv = (referenceXz - cloud_shadow_map_params.xy) * cloud_shadow_map_params.z;
+            if (all(uv > 0.0) && all(uv < 1.0)) {
+                float edgeDistance = min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y));
+                float edgeWeight = smoothstep(0.0, max(2.0 * cloud_shadow_layer.y, 1e-6), edgeDistance);
+                float sampled = cloud_shadow_transmittance.SampleLevel(cloud_shadow_transmittance_sampler, uv, 0).r;
+                bool finiteAndBounded = sampled == sampled && sampled >= 0.0 && sampled <= 1.0;
+                if (finiteAndBounded) transmittance = lerp(1.0, sampled, edgeWeight);
+            }
+        }
     }
-    float3 local = world_p - cloud_shadow_world_origin.xyz;
-    float radialY = max(cloud_shadow_layer.w + local.y, 1.0);
-    float radialXzSquared = dot(local.xz, local.xz);
-    float q = radialXzSquared / radialY;
-    float receiverAltitude =
-        local.y + q * (0.5 - q / (8.0 * radialY));
-    if (receiverAltitude >= cloud_shadow_layer.x) return 1.0;
-    float distanceAlongSun =
-        (world_p.y - cloud_shadow_projection.w) /
-        cloud_shadow_projection.y;
-    float2 referenceXz = world_p.xz -
-        cloud_shadow_projection.xz * distanceAlongSun;
-    float2 uv =
-        (referenceXz - cloud_shadow_map_params.xy) *
-        cloud_shadow_map_params.z;
-    if (any(uv <= 0.0) || any(uv >= 1.0)) return 1.0;
-    float edgeDistance = min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y));
-    float edgeWeight = smoothstep(0.0, max(2.0 * cloud_shadow_layer.y, 1e-6), edgeDistance);
-    float sampled = cloud_shadow_transmittance.SampleLevel(cloud_shadow_transmittance_sampler, uv, 0).r;
-    bool finiteAndBounded =
-        sampled == sampled && sampled >= 0.0 && sampled <= 1.0;
-    return finiteAndBounded
-        ? lerp(1.0, sampled, edgeWeight)
-        : 1.0;
+    return transmittance;
 }
 
 // ddx/ddy 由来の screen-space TBN を使って tangent-space normal を world-space に変換。

@@ -2272,10 +2272,13 @@ bool IsTemporalSuperResolution() {
 }
 // 静止画素では小さな採取誤差を長く平均し、被覆が明確に変わった時だけ現在値へ速く追従する。
 float CloudTemporalCurrentWeight(float currentAlpha,float historyAlpha,bool stationary) {
-    if(!stationary) return 0.70;
-    float coverageChange=abs(currentAlpha-historyAlpha);
-    float changeResponse=smoothstep(0.025,0.18,coverageChange);
-    return lerp(0.125,0.70,changeResponse);
+    float currentWeight=0.70;
+    if(stationary) {
+        float coverageChange=abs(currentAlpha-historyAlpha);
+        float changeResponse=smoothstep(0.025,0.18,coverageChange);
+        currentWeight=lerp(0.125,0.70,changeResponse);
+    }
+    return currentWeight;
 }
 bool IsScheduledFullPixel(uint2 pixel,uint2 phaseOffset) {
     return ((pixel.x&3u)==phaseOffset.x) &&
