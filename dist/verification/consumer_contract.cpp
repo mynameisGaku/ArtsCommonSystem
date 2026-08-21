@@ -83,7 +83,12 @@ static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent
 /** world-space命中情報を返す3D描画形状raycastの公開署名。 */
 using FScene3DRaycastSignature = bool (acs::game::CSceneNodeGraph::*)(const acs::FRay3&, acs::f32, acs::f32, acs::game::FScene3DRaycastHit&) const noexcept;
 
+/** layer/exclude付き3D collision raycastの公開署名。 */
+using FCollisionWorld3DRaycastSignature = bool (acs::game::CCollisionWorld3D::*)(const acs::FRay3&, acs::f32, acs::f32, acs::FRayHit3&, acs::game::FCollisionShapeId3D&, acs::game::FCollisionShapeId3D, acs::u32) const noexcept;
+
 static_assert(std::is_same_v<decltype(&acs::game::CSceneNodeGraph::TryRaycastGeometryActiveRange), FScene3DRaycastSignature>);
+static_assert(sizeof(acs::game::FCollisionShapeId3D) == 4u);
+static_assert(std::is_same_v<decltype(&acs::game::CCollisionWorld3D::TryRaycast), FCollisionWorld3DRaycastSignature>);
 
 /** Primitive の既存・追加公開入口を配布 header と library 間で照合する署名。 */
 using FPrimitiveMakeCubeSignature = acs::TSharedPtr<acs::AMeshAsset> (*)(acs::f32) noexcept;
@@ -316,6 +321,19 @@ int main()
     /** 新しい非inline公開symbolと配布libraryの整合結果。 */
     const bool scene_raycast_ok = raycast_scene.TryRaycastGeometryActiveRange(FRay3{FVec3{0.0f, 0.0f, -2.0f}, FVec3{0.0f, 0.0f, 1.0f}}, 0.0f, 4.0f, raycast_hit) && raycast_hit.Node == raycast_cube.Id() && raycast_hit.T == 1.5f && raycast_hit.Point.x == 0.0f && raycast_hit.Point.y == 0.0f && raycast_hit.Point.z == -0.5f && raycast_hit.Normal.x == 0.0f && raycast_hit.Normal.y == 0.0f && raycast_hit.Normal.z == -1.0f;
 
+    /** 配布headerとlibraryだけで3D collision shapeを管理するquery world。 */
+    game::CCollisionWorld3D collision_world;
+    /** +X rayの手前に置くlayer 1のsphere。 */
+    const game::FCollisionShapeId3D collision_sphere = collision_world.TryAddSphere(FSphere{FVec3{3.0f, 0.0f, 0.0f}, 1.0f}, 0x1u);
+    /** sphere後方に置くlayer 2のAABB。 */
+    const game::FCollisionShapeId3D collision_box = collision_world.TryAddAabb(FAabb3{FVec3{6.0f, 0.0f, 0.0f}, FVec3{1.0f, 1.0f, 1.0f}}, 0x2u);
+    /** world-space collision hitの書き込み先。 */
+    FRayHit3 collision_hit;
+    /** 命中shape handleの書き込み先。 */
+    game::FCollisionShapeId3D collision_hit_shape;
+    /** generation handle、layer mask、非正規化rayと実symbolの整合結果。 */
+    const bool collision_world_3d_ok = collision_sphere.IsValid() && collision_box.IsValid() && collision_world.TryRaycast(FRay3{FVec3{}, FVec3{2.0f, 0.0f, 0.0f}}, 0.0f, 10.0f, collision_hit, collision_hit_shape, {}, 0x2u) && collision_hit_shape == collision_box && collision_hit.t == 2.5f && collision_hit.point.x == 5.0f && collision_hit.normal.x == -1.0f;
+
     // 呼び出し側が所有するシーンタイマー。
     game::CSceneTimer scene_timer;
     // シーンタイマーの発火回数。
@@ -340,6 +358,6 @@ int main()
     const bool log_sink_ok = log_subscription.IsValid() && log_notification_count == 1u;
     CLogger::Shutdown();
 
-    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u prefab_source_id=%u scene_raycast=%u scene_timer=%u log_sink=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, prefab_source_identity_ok ? 1u : 0u, scene_raycast_ok ? 1u : 0u, scene_timer_fire_count, log_notification_count);
-    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && prefab_source_identity_ok && scene_raycast_ok && scene_timer_ok && log_sink_ok) ? 0 : 1;
+    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u prefab_source_id=%u scene_raycast=%u collision3d=%u scene_timer=%u log_sink=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, prefab_source_identity_ok ? 1u : 0u, scene_raycast_ok ? 1u : 0u, collision_world_3d_ok ? 1u : 0u, scene_timer_fire_count, log_notification_count);
+    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && prefab_source_identity_ok && scene_raycast_ok && collision_world_3d_ok && scene_timer_ok && log_sink_ok) ? 0 : 1;
 }

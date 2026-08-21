@@ -81,7 +81,7 @@ GameFramework が標準登録する World サブシステムは次の三つで�
 - 時間と進行: `Clock`、`SceneTimer`、`Tween`、`Sequence`、`StateMachine`。
 - 入力: `InputMap`、`InputAxisOptions`、固定更新入力 snapshot/buffer/source、`InputRecorder`。
 - camera と描画: `Camera2D`、`Camera3D`、`OrbitCameraController3D`、`CameraStack`、`Draw`、`RenderContext`、`SceneRenderResources`。
-- 物理と衝突: `CollisionWorld2D`、`RigidWorld2D`、`TriggerWorld2D` と対応 component。
+- 物理と衝突: `CollisionWorld2D`、`CollisionWorld3D` query core、`RigidWorld2D`、`TriggerWorld2D` と対応 component。
 - asset と永続化: `AssetBundle`、`AssetPack`、`SaveArchive`、`SaveSlot`、scene serializer、prefab、reflection。
 - UI、音声、演出: `UiLayer`、`AudioDirector`、`MusicDirector`、`EffectSystem`、`FadeTransition`。
 - ゲームプレイ部品: dialogue、behavior、inventory、combat、progression などの独立した責務 class。
@@ -155,6 +155,25 @@ shape は generation 付き `FShapeId` で識別し、layer mask と除外 ID �
 
 rigid body、trigger、tilemap physics はこの world または専用 world class に接続し、
 component 自身へ world 全体の broad-phase state を持たせない。
+
+### 3D collision query
+
+`CCollisionWorld3D` はworld空間のAABBとsphereを、generation付き
+`FCollisionShapeId3D` で明示管理するGPU非依存のquery coreである。登録順に対応するslot index順で
+線形走査するため、同じstateとqueryから同じoverlap順・raycast結果を返す。
+
+- `TryAddAabb()` / `TryAddSphere()` は非有限値、不正な半サイズ・半径、容量・確保失敗を
+  invalid handleとして返す。
+- update、layer変更、削除はgenerationまで照合し、stale handleから再利用slotを変更しない。
+- AABB/sphere overlapとraycastはlayer maskおよびgenerationを含む除外handleを受け取る。
+- overlapは0件でもquery成功を`true`で返す。入力不正または結果領域の確保失敗では出力を維持する。
+- raycastは非正規化directionを受け付け、`origin + T * direction`に対応するworld命中点と法線を返す。
+  外れ・入力不正ではhitとshape出力を維持する。
+- `ClearAll()` 後のslot再利用でもgenerationを進め、clear前のhandleを復活させない。
+
+この型はsubsystemではない。ownerが必要な寿命で保持し、scene nodeやgameplay stateからshapeを
+登録・更新するadapterを明示する。動的剛体、固定tick、scene自動同期、broad-phase accelerationは
+query coreと分離する。
 
 ### 乱数
 

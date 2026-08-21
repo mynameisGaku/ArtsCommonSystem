@@ -33,6 +33,9 @@ staging graph を stack に置けるため、scene lifecycle と graph 構築を
 `RaycastActiveRange` は有効かつ可視なsubtreeだけを指定t区間で検索する。`SweepSphereActiveRange` は同じ
 範囲へworld空間半径を加え、3D cameraのtarget近傍除外と本体の壁抜け防止に使える。
 
+これらは描画node queryである。gameplay collisionは明示ownerが`CCollisionWorld3D`を保持し、
+必要なAABB/sphereを登録・更新する。graphがcollision stateや固定tick寿命を暗黙に所有しない。
+
 `SwapContents()` は root 自体を置き換える。置換後は `AScene` の root-swap hook が次を
 再接続する。
 
