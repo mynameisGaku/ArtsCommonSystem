@@ -1129,11 +1129,11 @@ float cloudWeatherCoverageEvolution(float4 weather){
     return clamp(
         slowPhase*0.38+finePhase*0.32,-0.14,0.14)*edgeResponse;
 }
-// 被覆の強い中心を持ち上げ、薄い縁を押し下げる柱ごとの高さ変形量。
-// 層雲では小さく、積雲または降水域では大きくする。局所位相を既存の
-// 天候模様へ小さく加え、追加のテクスチャ採取なしで雲頂も緩やかに変化させる。
-float cloudColumnHeightShift(float4 weather){
-    float core=smoothstep(0.38,0.74,weather.r);
+// 実際の被覆境界から中心までの位置で、薄い縁を押し下げ、濃い中心を持ち上げる。
+// 生の天候値を使うと、雲量しきい値を越えた柱がほぼ同じ中心判定になり、雲頂が平らになる。
+// 層雲では小さく、積雲または降水域では大きくし、局所位相で雲頂を緩やかに変化させる。
+float cloudColumnHeightShift(float4 weather,float cloudInterior){
+    float core=smoothstep(0.08,0.92,saturate(cloudInterior));
     float verticalType=saturate(max(weather.g,weather.b));
     float amplitude=lerp(0.025,0.18,verticalType);
     float evolvingWarp=clamp(
@@ -1344,6 +1344,8 @@ struct CloudMacroSample {
     float2 curl;
     float baseNoise;
     float weatherMask;
+    // 最終密度の被覆境界から雲柱内部までを表す補間値。
+    float densityWeatherMask;
     float profileClosure;
     float heightThreshold;
     float height;
@@ -1356,6 +1358,7 @@ CloudMacroSample sampleCloudMacro(float3 p,float4 coverageTerms,out float3 sampl
     macro.curl=float2(0,0);
     macro.baseNoise=0.0;
     macro.weatherMask=0.0;
+    macro.densityWeatherMask=0.0;
     macro.profileClosure=0.0;
     macro.heightThreshold=0.78;
     macro.height=0.0;
@@ -1367,9 +1370,10 @@ CloudMacroSample sampleCloudMacro(float3 p,float4 coverageTerms,out float3 sampl
     // 形状による空間棄却も上層の被覆倍率に合わせ、空を一様な二層目で閉じない。
     if(upperBand) macro.weatherMask*=cloudUpperTerms.x;
     if(macro.weatherMask>0.001){
-        macro.height=cloudConvectiveHeight(
-            heightFractionFromAltitude(altitude,upperBand),
-            cloudColumnHeightShift(macro.weather),upperBand);
+        // 空領域判定の広い被覆ではなく、最終密度と同じ境界から柱内の位置を求める。
+        // 後段の密度でもこの値を再利用し、被覆計算を重ねない。
+        macro.densityWeatherMask=cloudWeatherMaskFromTerms(macro.weather,coverageTerms.y,cloudCoverageReciprocals.y);
+        macro.height=cloudConvectiveHeight(heightFractionFromAltitude(altitude,upperBand),cloudColumnHeightShift(macro.weather,macro.densityWeatherMask),upperBand);
         float sampledProfile=cloudProfile(
             macro.height,macro.weather.g,macro.weather.b);
         float profileThresholdWeight=smoothstep(0.02,0.32,sampledProfile);
@@ -1395,18 +1399,18 @@ CloudMacroSample sampleCloudMacroLighting(float3 p,float weatherCoverage){
     macro.curl=float2(0,0);
     macro.baseNoise=0.0;
     macro.weatherMask=0.0;
+    macro.densityWeatherMask=0.0;
     macro.profileClosure=0.0;
     macro.heightThreshold=0.78;
     macro.height=0.0;
     macro.weather=cloudWeatherData(p);
     macro.weatherMask=cloudWeatherMask(
         macro.weather,weatherCoverage);
+    macro.densityWeatherMask=macro.weatherMask;
     float altitude=cloudAltitude(p);
     bool upperBand=inUpperCloudBandFromAltitude(altitude);
     if(macro.weatherMask>0.001){
-        macro.height=cloudConvectiveHeight(
-            heightFractionFromAltitude(altitude,upperBand),
-            cloudColumnHeightShift(macro.weather),upperBand);
+        macro.height=cloudConvectiveHeight(heightFractionFromAltitude(altitude,upperBand),cloudColumnHeightShift(macro.weather,macro.densityWeatherMask),upperBand);
         float sampledProfile=cloudProfile(
             macro.height,macro.weather.g,macro.weather.b);
         float profileThresholdWeight=smoothstep(0.02,0.32,sampledProfile);
@@ -1432,12 +1436,14 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeath
     macro.curl=slowCurl;
     macro.baseNoise=0.0;
     macro.weatherMask=0.0;
+    macro.densityWeatherMask=0.0;
     macro.profileClosure=0.0;
     macro.heightThreshold=0.78;
     macro.height=0.0;
     // 短い光円すい内では天候場と設定被覆が同じなので、計算済みの生の被覆を共有する。
     // 上層倍率は密度を確定する関数で適用し、ここでは一時値を呼び出し元へ持ち出さない。
     macro.weatherMask=slowWeatherMask;
+    macro.densityWeatherMask=slowWeatherMask;
     // 呼び出し元は視線密度がしきい値を超えた場合だけ到達するため、生の被覆は必ず有効である。
     // 同じ判定を近距離3点ごとに繰り返さず、高さと基本形状だけを採取点ごとに更新する。
     float altitude=cloudAltitude(p);
@@ -1469,9 +1475,7 @@ float sampleCloudFarLightingDensity(float3 p,float weatherCoverage,float2 slowCu
     float altitude=cloudAltitude(p);
     bool upperBand=inUpperCloudBandFromAltitude(altitude);
     if(weatherMask>0.001){
-        float sampleHeight=cloudConvectiveHeight(
-            heightFractionFromAltitude(altitude,upperBand),
-            cloudColumnHeightShift(weather),upperBand);
+        float sampleHeight=cloudConvectiveHeight(heightFractionFromAltitude(altitude,upperBand),cloudColumnHeightShift(weather,weatherMask),upperBand);
         float sampledProfile=cloudProfile(
             sampleHeight,weather.g,weather.b);
         float profileThresholdWeight=smoothstep(
@@ -2025,8 +2029,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         // 実際の区間長ではなくレイ全体で一定の fineStep を使う。
         float detailVisibility=cloudDetailVisibilityFromSampleSpacing(fineStep);
         float detailFrequencyWeight=0.90*detailVisibility;
-        float viewWeatherMask=cloudWeatherMaskFromTerms(
-            macro.weather,coverageTerms.y,cloudCoverageReciprocals.y);
+        float viewWeatherMask=macro.densityWeatherMask;
         float dens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,detailFrequencyWeight,detailVisibility)*density;
         if(dens>0.0015){
             // 指数的に間隔を広げる採取点で雲層全体を覆い、2 番目の Beer 項で
@@ -2047,9 +2050,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             // 密度分布、基本形状、近距離の細部は各採取点で評価する。
             // 雲種、降水量、柱の高さ変形量を 1 つにまとめ、すべての光採取で
             // 視線密度と同じ縦形状を使う。
-            float4 sharedLightProfileTerms=float4(
-                cloudProfileTypeWeights(macro.weather.g),
-                macro.weather.b,cloudColumnHeightShift(macro.weather));
+            float4 sharedLightProfileTerms=float4(cloudProfileTypeWeights(macro.weather.g),macro.weather.b,cloudColumnHeightShift(macro.weather,macro.densityWeatherMask));
             float2 sharedLightCurl=macro.curl;
             float sharedShapeScale=cloudShapeScale();
             // 8 個の光円すいは一定の黄金角で回し、上で求めた sin/cos を漸化式で再利用する。

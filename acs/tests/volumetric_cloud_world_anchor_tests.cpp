@@ -336,10 +336,9 @@ f32 CloudWeatherMaskForTest(f32 weatherCoverage, f32 coverage) noexcept {
 }
 
 f32 CloudColumnHeightShiftForTest(
-    f32 weatherCoverage, f32 cloudType, f32 precipitation,
+    f32 cloudInterior, f32 cloudType, f32 precipitation,
     f32 warp, f32 shapePhaseX, f32 shapePhaseY) noexcept {
-    const f32 core = SmoothStepForTest(
-        0.38f, 0.74f, weatherCoverage);
+    const f32 core = SmoothStepForTest(0.08f, 0.92f, SaturateForTest(cloudInterior));
     const f32 verticalType = SaturateForTest(
         cloudType > precipitation ? cloudType : precipitation);
     const f32 amplitude =
@@ -2406,6 +2405,18 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(compressedEdge, -0.17595f, 1e-6f);
     EXPECT_NEAR(stratusCore, 0.025f, 1e-6f);
 
+    // 既定雲量で実際に見える天候値を、被覆境界から中心までの位置へ直す。
+    // 生の天候値はどちらも高いが、雲の縁と中心は逆向きへ変形しなければならない。
+    constexpr f32 defaultCoverage = 0.50f;
+    const f32 visibleEdgeInterior = CloudWeatherMaskForTest(0.645f, defaultCoverage);
+    const f32 visibleCoreInterior = CloudWeatherMaskForTest(0.745f, defaultCoverage);
+    const f32 visibleEdgeShift = CloudColumnHeightShiftForTest(visibleEdgeInterior, 1.0f, 0.0f, 0.50f, 0.0f, 0.0f);
+    const f32 visibleCoreShift = CloudColumnHeightShiftForTest(visibleCoreInterior, 1.0f, 0.0f, 0.50f, 0.0f, 0.0f);
+    EXPECT_TRUE(visibleEdgeInterior < 0.10f);
+    EXPECT_TRUE(visibleCoreInterior > 0.90f);
+    EXPECT_TRUE(visibleEdgeShift < -0.08f);
+    EXPECT_TRUE(visibleCoreShift > 0.10f);
+
     // 同じ時刻でも低周波の天候模様が異なる地点は、逆向きへ変形する。
     const f32 lowWarpAtRest = CloudColumnHeightShiftForTest(
         0.60f, 0.50f, 0.0f, 0.40f, 0.0f, 0.0f);
@@ -2496,8 +2507,8 @@ ACS_TEST(VolumetricClouds,
         "returndot(cloudEvolution.xy,float2(warpPattern,typePattern));}"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatcloudColumnHeightShift(float4weather){"
-        "floatcore=smoothstep(0.38,0.74,weather.r);"
+        "floatcloudColumnHeightShift(float4weather,floatcloudInterior){"
+        "floatcore=smoothstep(0.08,0.92,saturate(cloudInterior));"
         "floatverticalType=saturate(max(weather.g,weather.b));"
         "floatamplitude=lerp(0.025,0.18,verticalType);"));
     EXPECT_TRUE(Contains(
@@ -2515,11 +2526,9 @@ ACS_TEST(VolumetricClouds,
         "floatbandScale=upperBand?0.30:1.0;"
         "returnsaturate(h-columnShift*interior*bandScale);}"));
     EXPECT_FALSE(Contains(shader, "floatinterior=4.0*h*h*(1.0-h);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "float4sharedLightProfileTerms=float4("
-        "cloudProfileTypeWeights(macro.weather.g),"
-        "macro.weather.b,cloudColumnHeightShift(macro.weather));"));
+    EXPECT_TRUE(Contains(shader, "float4sharedLightProfileTerms=float4(cloudProfileTypeWeights(macro.weather.g),macro.weather.b,cloudColumnHeightShift(macro.weather,macro.densityWeatherMask));"));
+    EXPECT_TRUE(Contains(shader, "floatviewWeatherMask=macro.densityWeatherMask;"));
+    EXPECT_FALSE(Contains(shader, "floatviewWeatherMask=cloudWeatherMaskFromTerms("));
     EXPECT_TRUE(Contains(
         shader,
         "macro.height=cloudConvectiveHeight("
@@ -2700,6 +2709,7 @@ ACS_TEST(VolumetricClouds,
         "macro.curl=float2(0,0);",
         "macro.baseNoise=0.0;",
         "macro.weatherMask=0.0;",
+        "macro.densityWeatherMask=0.0;",
         "macro.profileClosure=0.0;",
         "macro.heightThreshold=0.78;",
         "macro.height=0.0;"};
@@ -2770,9 +2780,8 @@ ACS_TEST(VolumetricClouds,
         ExtractRawShader(source, "const char* kCloudCS"));
     EXPECT_TRUE(!shader.empty());
 
-    // The view ray obtains one macro sample and reuses it for conservative
-    // occupancy and detailed density. This removes a duplicate weather/curl/
-    // base-volume evaluation from every occupied view sample.
+    // 視線は一つの大域標本を、広い空領域判定と詳細密度の両方へ再利用する。
+    // 占有された各標本で天候、渦、基本体積を二重に評価しない。
     EXPECT_TRUE(Contains(
         shader,
         "float3viewMacroUvw;"
@@ -2783,10 +2792,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "floatshape=cloudShapeFromMacro(macro);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "floatviewWeatherMask=cloudWeatherMaskFromTerms("
-        "macro.weather,coverageTerms.y,cloudCoverageReciprocals.y);"));
+    EXPECT_TRUE(Contains(shader, "floatviewWeatherMask=macro.densityWeatherMask;"));
     EXPECT_TRUE(Contains(shader, "floatdens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,detailFrequencyWeight,detailVisibility)*density;"));
     EXPECT_TRUE(Contains(
         shader, "macro.curl=cloudCurlOffset(p);"));
@@ -3508,7 +3514,8 @@ ACS_TEST(VolumetricClouds,
     const std::size_t sharedProfile = shader.find(
         "float4sharedLightProfileTerms=float4("
         "cloudProfileTypeWeights(macro.weather.g),"
-        "macro.weather.b,cloudColumnHeightShift(macro.weather));",
+        "macro.weather.b,cloudColumnHeightShift("
+        "macro.weather,macro.densityWeatherMask));",
         viewLoop);
     const std::size_t nearLightLoop =
         shader.find("[loop]for(intl=0;l<3;l++)", sharedProfile);
@@ -3574,9 +3581,7 @@ ACS_TEST(VolumetricClouds,
         const std::string helper =
             shader.substr(farDensity, farDensityEnd - farDensity);
         EXPECT_TRUE(Contains(helper, "float4weather=cloudWeatherData(p);"));
-        EXPECT_TRUE(Contains(
-            helper,
-            "cloudColumnHeightShift(weather),upperBand);"));
+        EXPECT_TRUE(Contains(helper, "cloudColumnHeightShift(weather,weatherMask),upperBand);"));
         EXPECT_TRUE(Contains(
             helper,
             "cloudUVW(p,weather,slowCurl,sampleHeight)"));
@@ -5645,7 +5650,8 @@ ACS_TEST(VolumetricClouds,
         shader,
         "float4sharedLightProfileTerms=float4("
         "cloudProfileTypeWeights(macro.weather.g),"
-        "macro.weather.b,cloudColumnHeightShift(macro.weather));"
+        "macro.weather.b,cloudColumnHeightShift("
+        "macro.weather,macro.densityWeatherMask));"
         "float2sharedLightCurl=macro.curl;"));
     EXPECT_FALSE(Contains(
         shader, "sharedLightProfileTerms=cloudWeatherData(lp)"));
