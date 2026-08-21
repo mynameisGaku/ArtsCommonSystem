@@ -66,6 +66,14 @@ static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::TryLine), FDebugDrawTr
 static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::TryAabb), FDebugDrawTryAabbSignature>);
 static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::TryWireframe), FDebugDrawTryWireframeSignature>);
 
+/** 3D Prefab source node identityの公開getter署名。 */
+using FPrefabSourceNodeIdSignature = acs::FStringView (acs::game::APrefabNodeIdentity3DComponent::*)() const noexcept;
+/** 3D Prefab source node identityの検証付きsetter署名。 */
+using FTrySetPrefabSourceNodeIdSignature = bool (acs::game::APrefabNodeIdentity3DComponent::*)(acs::FStringView) noexcept;
+
+static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent::SourceNodeId), FPrefabSourceNodeIdSignature>);
+static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent::TrySetSourceNodeId), FTrySetPrefabSourceNodeIdSignature>);
+
 /** Primitive の既存・追加公開入口を配布 header と library 間で照合する署名。 */
 using FPrimitiveMakeCubeSignature = acs::TSharedPtr<acs::AMeshAsset> (*)(acs::f32) noexcept;
 using FPrimitiveMakeSphereSignature = acs::TSharedPtr<acs::AMeshAsset> (*)(acs::f32, acs::u32, acs::u32) noexcept;
@@ -186,6 +194,17 @@ void LinkDebugDraw2DSymbols() noexcept
     (void)try_arrow;
 }
 
+/** 配布libraryに3D Prefab source node identityの実symbolが揃うことをlinkで固定する。 */
+void LinkPrefabSourceNodeIdentitySymbols() noexcept
+{
+    /** linkerが除去できないgetter symbolのmember pointer。 */
+    volatile FPrefabSourceNodeIdSignature source_node_id = &acs::game::APrefabNodeIdentity3DComponent::SourceNodeId;
+    /** linkerが除去できない検証付きsetter symbolのmember pointer。 */
+    volatile FTrySetPrefabSourceNodeIdSignature try_set_source_node_id = &acs::game::APrefabNodeIdentity3DComponent::TrySetSourceNodeId;
+    (void)source_node_id;
+    (void)try_set_source_node_id;
+}
+
 /** 配布SDKのheader、外部symbol、基本計算を検証し、失敗時は1を返す。 */
 int main()
 {
@@ -194,6 +213,7 @@ int main()
     LinkMeshPrimitiveSymbols();
     LinkDebugDraw2DSymbols();
     LinkDebugDraw3DSymbols();
+    LinkPrefabSourceNodeIdentitySymbols();
 
     // containerの基本操作を検証する値。
     TArray<i32> v;
@@ -262,6 +282,13 @@ int main()
     /** コンポーネント番号、操作情報、署名の整合結果。 */
     const bool component_identifier_ok = component_id == TComponentTypeTraits<FDistributionComponentProbe>::RuntimeId() && &registered_component == &fetched_component && GetComponentSignatureId<FDistributionComponentProbe>() == TComponentTypeTraits<FDistributionComponentProbe>::Signature;
 
+    /** 配布headerとlibraryを跨いで3D Prefab source node identityを保持するscene。 */
+    game::CSceneNodeGraph prefab_identity_scene;
+    /** rootへ所有させた3D Prefab source node identity component。 */
+    game::APrefabNodeIdentity3DComponent& prefab_identity = prefab_identity_scene.Root().AddComponent<game::APrefabNodeIdentity3DComponent>();
+    /** canonical値の設定、非canonical値の拒否、既存値保持をまとめた結果。 */
+    const bool prefab_source_identity_ok = prefab_identity.TrySetSourceNodeId(FStringView("0123456789abcdef0123456789abcdef")) && !prefab_identity.TrySetSourceNodeId(FStringView("0123456789ABCDEF0123456789ABCDEF")) && prefab_identity.SourceNodeId() == FStringView("0123456789abcdef0123456789abcdef");
+
     // 呼び出し側が所有するシーンタイマー。
     game::CSceneTimer scene_timer;
     // シーンタイマーの発火回数。
@@ -286,6 +313,6 @@ int main()
     const bool log_sink_ok = log_subscription.IsValid() && log_notification_count == 1u;
     CLogger::Shutdown();
 
-    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u scene_timer=%u log_sink=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, scene_timer_fire_count, log_notification_count);
-    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && scene_timer_ok && log_sink_ok) ? 0 : 1;
+    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u prefab_source_id=%u scene_timer=%u log_sink=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, prefab_source_identity_ok ? 1u : 0u, scene_timer_fire_count, log_notification_count);
+    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && prefab_source_identity_ok && scene_timer_ok && log_sink_ok) ? 0 : 1;
 }

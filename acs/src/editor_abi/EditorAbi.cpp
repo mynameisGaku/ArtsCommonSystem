@@ -298,6 +298,8 @@ struct AEditor3DRecordComponent : public acs::game::AComponent {
     char  sprite_path[256] = {};              ///< 非空ならスプライト (z=0 テクスチャ付きクアッド)。再読込用の画像パス。
     char  prefab_src[256]  = {};              ///< 非空なら prefab/blueprint インスタンス (.acsprefab/.acsbp パス。2D AEditorNode 鏡映)。
     char  prefab_instance_id[game::kScene3DSerializePrefabInstanceIdBytes + 1u] = {}; ///< Apply/Revert後も維持する32桁小文字hexのinstance ID。
+    /** Prefab原本内の対応nodeを識別する32桁小文字hex ID。 */
+    char  prefab_source_node_id[game::kScene3DSerializePrefabSourceNodeIdBytes + 1u] = {};
     /** Source更新後も維持するrootのVisible/Enabled/Color bit。 */
     u32   prefab_root_property_override_mask = 0u;
     bool  is_empty         = false;           ///< true なら «空ノード» (描画しないグループ用トランスフォーム。2D の空ノード相当)。
@@ -1908,10 +1910,7 @@ bool ValidateEditorScene2DText(const char* text) noexcept {
 }
 
 bool ValidateEditorScene3DText(const char* text) noexcept;
-static int LoadScene3DTextImpl(
-    FEditorHost* host, const char* text, bool clear,
-    int idOffset, int reparentRootTo, int* out_root,
-    bool prevalidated = false) noexcept;
+static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear, int idOffset, int reparentRootTo, int* out_root, bool prevalidated = false, const char* prefab_source_for_missing_node_identities = nullptr) noexcept;
 
 /** SerializeScene のテキストからシーンを復元する (成功 1 / 失敗 0)。 */
 int LoadSceneTextValidated(FEditorHost& h, const char* text) noexcept {
@@ -6597,6 +6596,16 @@ bool IsCanonicalPrefabInstanceId(const char* instance_id) noexcept {
     return instance_id[game::kScene3DSerializePrefabInstanceIdBytes] == '\0';
 }
 
+/** PSID3Dのsource node IDが32桁小文字hexならtrueを返す。 */
+bool IsCanonicalPrefabSourceNodeId_Internal(const char* source_node_id) noexcept {
+    if (source_node_id == nullptr) return false;
+    for (u32 index = 0u; index < game::kScene3DSerializePrefabSourceNodeIdBytes; ++index) {
+        const char value = source_node_id[index];
+        if (!((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))) return false;
+    }
+    return source_node_id[game::kScene3DSerializePrefabSourceNodeIdBytes] == '\0';
+}
+
 bool PrefabInstanceIdIsUnique(
     FEditorHost& host, int except_node_id,
     const char* instance_id) noexcept {
@@ -6618,6 +6627,92 @@ u64 HashPrefabInstanceSeed_Internal(const char* source_identity) noexcept {
         hash *= 1099511628211ull;
     }
     return hash;
+}
+
+/** source pathと原本node IDをFNV-1aへ畳み込み、legacy source用の決定論的seedを返す。 */
+u64 HashPrefabSourceNodeSeed_Internal(const char* source, int source_node_id, u64 seed) noexcept {
+    u64 hash = seed;
+    if (source == nullptr || source_node_id < 0) return hash;
+    for (u32 index = 0u; source[index] != '\0'; ++index) {
+        hash ^= static_cast<u8>(source[index]);
+        hash *= 1099511628211ull;
+    }
+    hash ^= 0xffu;
+    hash *= 1099511628211ull;
+    const u32 encoded_id = static_cast<u32>(source_node_id);
+    for (u32 byte_index = 0u; byte_index < 4u; ++byte_index) {
+        hash ^= static_cast<u8>((encoded_id >> (byte_index * 8u)) & 0xffu);
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+/** source pathと原本node IDからmanaged migrationと同じPSID3D値を作る。 */
+bool BuildPrefabSourceNodeId_Internal(const char* source, int source_node_id, char* output, u32 output_capacity) noexcept {
+    if (source == nullptr || source[0] == '\0' || source_node_id < 0 || output == nullptr || output_capacity < game::kScene3DSerializePrefabSourceNodeIdBytes + 1u) return false;
+    const u64 first = HashPrefabSourceNodeSeed_Internal(source, source_node_id, 14695981039346656037ull);
+    const u64 second = HashPrefabSourceNodeSeed_Internal(source, source_node_id, 7809847782465536322ull);
+    const int written = std::snprintf(output, output_capacity, "%016llx%016llx", static_cast<unsigned long long>(first), static_cast<unsigned long long>(second));
+    return written == static_cast<int>(game::kScene3DSerializePrefabSourceNodeIdBytes);
+}
+
+/** rootのPrefab scopeに属し、途中に別のstable Prefab rootを挟まないnodeならtrueを返す。 */
+bool IsInPrefabSourceNodeScope_Internal(const game::ANode& node, const game::ANode& root) noexcept {
+    const game::ANode* current = &node;
+    while (current != nullptr && current != &root) {
+        const AEditor3DRecordComponent* const record = Rec3D(current);
+        if (record != nullptr && record->prefab_src[0] != '\0' && IsCanonicalPrefabInstanceId(record->prefab_instance_id)) return false;
+        current = current->Parent();
+    }
+    return current == &root;
+}
+
+/** source node IDを検証後にcommitするための一時値。 */
+struct FPrefabSourceNodeIdentityAssignment {
+    /** 書込対象record。 */
+    AEditor3DRecordComponent* record = nullptr;
+
+    /** 検証済み32桁小文字hex ID。 */
+    char value[game::kScene3DSerializePrefabSourceNodeIdBytes + 1u]{};
+
+    /** trueならcommit時にrecordへ新規書込する。 */
+    bool generated = false;
+};
+
+/** subtree内で未設定のsource node IDだけを原本node IDから補う。 */
+bool AssignMissingPrefabSourceNodeIds_Internal(game::ANode& root, const char* source, int source_id_offset) noexcept {
+    if (source == nullptr || source[0] == '\0' || source_id_offset < 0) return false;
+    TArray<game::ANode*> nodes;
+    nodes.Add(&root);
+    Dfs3DCollect(&root, nodes);
+    TArray<FPrefabSourceNodeIdentityAssignment> assignments;
+    if (!assignments.TryReserve(nodes.Num())) return false;
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
+        if (!IsInPrefabSourceNodeScope_Internal(*nodes[index], root)) continue;
+        AEditor3DRecordComponent* record = Rec3D(nodes[index]);
+        if (record == nullptr || record->id < source_id_offset) return false;
+        FPrefabSourceNodeIdentityAssignment assignment{};
+        assignment.record = record;
+        assignment.generated = record->prefab_source_node_id[0] == '\0';
+        if (assignment.generated) {
+            if (!BuildPrefabSourceNodeId_Internal(source, record->id - source_id_offset, assignment.value, static_cast<u32>(sizeof(assignment.value)))) return false;
+        } else {
+            if (!IsCanonicalPrefabSourceNodeId_Internal(record->prefab_source_node_id)) return false;
+            std::snprintf(assignment.value, sizeof(assignment.value), "%s", record->prefab_source_node_id);
+        }
+        if (!assignments.TryAdd(assignment)) return false;
+    }
+    if (assignments.Num() > 1u) {
+        std::sort(assignments.GetData(), assignments.GetData() + assignments.Num(), [](const FPrefabSourceNodeIdentityAssignment& left, const FPrefabSourceNodeIdentityAssignment& right) noexcept { return std::strcmp(left.value, right.value) < 0; });
+    }
+    for (u32 index = 1u; index < assignments.Num(); ++index) {
+        if (std::strcmp(assignments[index - 1u].value, assignments[index].value) == 0) return false;
+    }
+    for (u32 index = 0u; index < assignments.Num(); ++index) {
+        if (!assignments[index].generated) continue;
+        std::snprintf(assignments[index].record->prefab_source_node_id, sizeof(assignments[index].record->prefab_source_node_id), "%s", assignments[index].value);
+    }
+    return true;
 }
 
 bool MakeUniqueClonedPrefabInstanceId(
@@ -6651,8 +6746,9 @@ void ClearPrefabRootComponentPropertyOverrides_Internal(AEditor3DRecordComponent
 bool SetPrefabLink3D_Internal(
     FEditorHost& host, int node_id, const char* source,
     const char* instance_id) noexcept {
-    AEditor3DRecordComponent* record = Rec3D(FindNode3DNode(host, node_id));
-    if (record == nullptr || source == nullptr || source[0] == '\0' || std::strlen(source) >= sizeof(record->prefab_src) || !IsCanonicalPrefabInstanceId(instance_id) || !PrefabInstanceIdIsUnique(host, node_id, instance_id)) return false;
+    game::ANode* const node = FindNode3DNode(host, node_id);
+    AEditor3DRecordComponent* const record = Rec3D(node);
+    if (node == nullptr || record == nullptr || source == nullptr || source[0] == '\0' || std::strlen(source) >= sizeof(record->prefab_src) || !IsCanonicalPrefabInstanceId(instance_id) || !PrefabInstanceIdIsUnique(host, node_id, instance_id) || !AssignMissingPrefabSourceNodeIds_Internal(*node, source, 0)) return false;
     std::snprintf(record->prefab_src, sizeof(record->prefab_src), "%s", source);
     std::snprintf(record->prefab_instance_id, sizeof(record->prefab_instance_id), "%s", instance_id);
     record->prefab_root_property_override_mask = 0u;
@@ -16371,6 +16467,7 @@ static int CloneNode3DSubtree(FEditorHost& h, game::ANode* src, game::ANode* par
             std::memcpy(
                 cr->prefab_src, sr->prefab_src,
                 sizeof(cr->prefab_src));
+            std::memcpy(cr->prefab_source_node_id, sr->prefab_source_node_id, sizeof(cr->prefab_source_node_id));
             if (cr->prefab_src[0] != '\0') {
                 const char* source_identity = sr->prefab_instance_id[0] != '\0' ? sr->prefab_instance_id : sr->prefab_src;
                 (void)MakeUniqueClonedPrefabInstanceId(
@@ -16838,6 +16935,33 @@ ACS_EDITOR_API const char* acs_editor_node3d_get_prefab_instance_id(
     return record != nullptr ? record->prefab_instance_id : "";
 }
 
+/** nodeに保存されたPrefab原本内source node IDを返す。未設定または不正nodeでは空文字。 */
+ACS_EDITOR_API const char* acs_editor_node3d_get_prefab_source_node_id(void* handle, int id) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditor3DRecordComponent* const record = host != nullptr ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    return record != nullptr ? record->prefab_source_node_id : "";
+}
+
+/** stable Prefab instance subtreeからsource node IDが一致する唯一のnodeを返す。未検出または重複時は-1。 */
+ACS_EDITOR_API int acs_editor_prefab_instance3d_find_node_by_source_id(void* handle, int root_id, const char* source_node_id) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* const root = host != nullptr ? FindNode3DNode(*host, root_id) : nullptr;
+    const AEditor3DRecordComponent* const root_record = Rec3D(root);
+    if (root == nullptr || root_record == nullptr || !IsStablePrefabRoot_Internal(*root_record) || !IsCanonicalPrefabSourceNodeId_Internal(source_node_id)) return -1;
+    TArray<game::ANode*> nodes;
+    nodes.Add(root);
+    Dfs3DCollect(root, nodes);
+    int match = -1;
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
+        if (!IsInPrefabSourceNodeScope_Internal(*nodes[index], *root)) continue;
+        const AEditor3DRecordComponent* const record = Rec3D(nodes[index]);
+        if (record == nullptr || std::strcmp(record->prefab_source_node_id, source_node_id) != 0) continue;
+        if (match >= 0) return -1;
+        match = record->id;
+    }
+    return match;
+}
+
 /** 3D Prefab rootで原本より優先するproperty bitを返す。 */
 ACS_EDITOR_API std::uint32_t acs_editor_prefab_instance3d_root_override_mask(void* handle, int id) {
     auto* host = static_cast<FEditorHost*>(handle);
@@ -17257,6 +17381,11 @@ static int EmitNode3DBlock(char* out, int cur, int cap, FEditorHost* host,
         s.x, s.y, s.z, col.x, col.y, col.z, col.w, nm);
     if (w < 0 || w >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
     cur += w;
+    if (r->prefab_source_node_id[0] != '\0' && cur < cap) {
+        const int identity_written = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "PSID3D %d %s\n", r->id, r->prefab_source_node_id);
+        if (identity_written < 0 || identity_written >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+        cur += identity_written;
+    }
     if (r->has_scene_camera && cur < cap) {
         const int camera_written = std::snprintf(
             out + cur, static_cast<size_t>(cap - cur),
@@ -17512,8 +17641,9 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
         const bool component = IsEditorTextDirective(line, "CMP3D");
         const bool property = IsEditorTextDirective(line, "CPROP3D");
         const bool camera = IsEditorTextDirective(line, "CAM3D");
+        const bool prefab_source_identity = IsEditorTextDirective(line, "PSID3D");
         const bool canonical_auxiliary =
-            mesh || material || camera ||
+            mesh || material || camera || prefab_source_identity ||
             IsEditorTextDirective(line, "FLG3D") ||
             IsEditorTextDirective(line, "EMPTY3D") ||
             IsEditorTextDirective(line, "SEL3D");
@@ -17868,9 +17998,7 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
 /** 3D シーンテキストの解析本体。clear=true で全置換 (load_text)、false で追記 (paste_subtree3d)。
  *  idOffset を読み取った全 id に加算 (paste の id 衝突回避)。reparentRootTo>=0 なら «親 -1 の root» を
  *  その id 配下へ繋ぐ (paste のドロップ先)。out_root に最初の root の新 id を返す。成功 1。 */
-static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
-                               int idOffset, int reparentRootTo, int* out_root,
-                               bool prevalidated) noexcept {
+static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear, int idOffset, int reparentRootTo, int* out_root, bool prevalidated, const char* prefab_source_for_missing_node_identities) noexcept {
     if (host == nullptr || text == nullptr) return 0;
     // Validate before the retirement boundary so a rejected source never
     // destroys the currently published world.
@@ -17967,6 +18095,7 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
             record->id = new_id;
             record->euler = rotation;
             record->is_empty = nprim < 0;
+            if (prefab_source_for_missing_node_identities != nullptr && !BuildPrefabSourceNodeId_Internal(prefab_source_for_missing_node_identities, nid, record->prefab_source_node_id, static_cast<u32>(sizeof(record->prefab_source_node_id)))) return 0;
         }
         game::AMeshComponent3D* mesh = node.GetComponent<game::AMeshComponent3D>();
         if (mesh != nullptr && nprim >= 0) {
@@ -18141,6 +18270,15 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
                         LoadNode3DMaterial(mn);
                     }
                 }
+            }
+            continue;
+        }
+        if (std::strncmp(line, "PSID3D ", 7) == 0) {
+            int source_node = 0;
+            char source_node_id[game::kScene3DSerializePrefabSourceNodeIdBytes + 1u]{};
+            if (std::sscanf(line, "PSID3D %d %32s", &source_node, source_node_id) == 2) {
+                AEditor3DRecordComponent* const record = Rec3D(FindNode3DNode(*host, source_node + idOffset));
+                if (record != nullptr) std::snprintf(record->prefab_source_node_id, sizeof(record->prefab_source_node_id), "%s", source_node_id);
             }
             continue;
         }
@@ -18323,10 +18461,7 @@ ACS_EDITOR_API int acs_editor_prefab_instance3d_instantiate(
     char* const rollback = DupSnapshot(*host);
     if (rollback == nullptr) return -1;
     int root = -1;
-    const bool instantiated =
-        LoadScene3DTextImpl(host, text, /*clear=*/false, /*idOffset=*/host->next_id3d,
-                            /*reparentRootTo=*/parent_id, &root, /*prevalidated=*/true) != 0 &&
-        SetPrefabLink3D_Internal(*host, root, source, instance_id);
+    const bool instantiated = LoadScene3DTextImpl(host, text, false, host->next_id3d, parent_id, &root, true, source) != 0 && SetPrefabLink3D_Internal(*host, root, source, instance_id);
     if (!instantiated || !CommitUndoSnapshot(*host, rollback)) {
         RestoreSnapshot(*host, rollback);
         delete[] rollback;
@@ -18372,7 +18507,7 @@ int RefreshPrefabInstance3D_Internal(void* handle, int id, const char* source, c
     char* const rollback = DupSnapshot(*host);
     if (rollback == nullptr) return -1;
     int replacement = -1;
-    bool refreshed = acs_editor_delete_node3d(host, id) != 0 && LoadScene3DTextImpl(host, text, /*clear=*/false, /*idOffset=*/host->next_id3d, /*reparentRootTo=*/parent, &replacement, /*prevalidated=*/true) != 0 && acs_editor_node3d_set_transform(host, replacement, position.x, position.y, position.z, euler.x, euler.y, euler.z, scale.x, scale.y, scale.z) != 0;
+    bool refreshed = acs_editor_delete_node3d(host, id) != 0 && LoadScene3DTextImpl(host, text, /*clear=*/false, /*idOffset=*/host->next_id3d, /*reparentRootTo=*/parent, &replacement, /*prevalidated=*/true, source) != 0 && acs_editor_node3d_set_transform(host, replacement, position.x, position.y, position.z, euler.x, euler.y, euler.z, scale.x, scale.y, scale.z) != 0;
     if (refreshed && preserved_instance_id[0] == '\0') {
         refreshed = MakeUniqueClonedPrefabInstanceId(*host, previous_source[0] != '\0' ? previous_source : source, replacement, preserved_instance_id, static_cast<u32>(sizeof(preserved_instance_id)));
     }

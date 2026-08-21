@@ -1223,7 +1223,7 @@ ACS_TEST(EditorLifecycle,
                 load2d.find("LoadSceneTextValidated(*host, text);"));
 
     const std::string load3d_impl = body_between(
-        "bool prevalidated) noexcept {",
+        "const char* prefab_source_for_missing_node_identities) noexcept {",
         "/** 3D シーンをテキストから読み込む");
     EXPECT_TRUE(load3d_impl.find("ValidateEditorScene3DText(text)") <
                 load3d_impl.find("ClearScene3D(*host);"));

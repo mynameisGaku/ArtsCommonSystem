@@ -313,7 +313,7 @@ portable references only in isolated cook copies. Unsupported directives or
 external resources fail closed rather than being silently dropped.
 The supported 3D subset includes inline `PLY3D` geometry, `SPR3D` texture
 references, non-executing `PFAB3D` instance-source links, and `PINS3D` stable
-instance identities plus `POVR3D` root overrides and `PCOVR3D` root-component
+instance identities plus `PSID3D` stable source-node identities, `POVR3D` root overrides, and `PCOVR3D` root-component
 property overrides. Cook preserves
 the geometry and rewrites both dependency kinds into the package asset namespace.
 
@@ -596,6 +596,15 @@ Selective component Apply resolves the source component by type, changes only
 the chosen `CPROP3D` value through a pure calculation and atomic file adapter,
 then clears only that instance marker. Other instances refresh transactionally
 and preserve their own explicit root/component overrides.
+
+Prefab child identity is independent of transient numeric node IDs. `PSID3D`
+stores a 32-character lowercase hexadecimal source-node identity on every
+authored Prefab node. Corresponding nodes share that value across instances;
+the native lookup adapter scopes it beneath one `PINS3D` root and rejects a
+missing or ambiguous match. Save, Place, Revert, and Apply route legacy source
+text through a side-effect-free migration calculation, then use the existing
+atomic source writer only when identities were missing. Native direct callers
+receive the same deterministic fallback from source path plus original node ID.
 
 Project Settings uses the canonical settings-file path as its stable identity
 and participates in common dirty, Undo/Redo transaction, Save All, and

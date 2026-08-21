@@ -549,6 +549,13 @@ internal static class EngineInterop
     /// <summary>3D Prefab/Blueprint instanceの32桁stable ID。</summary>
     public static string NodePrefabInstanceId3D(IntPtr handle, int id) =>
         Marshal.PtrToStringUTF8(acs_editor_node3d_get_prefab_instance_id(handle, id)) ?? "";
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr acs_editor_node3d_get_prefab_source_node_id(IntPtr handle, int id);
+    /// <summary>Prefab原本内で対応する3D nodeの32桁stable source ID。</summary>
+    public static string NodePrefabSourceNodeId3D(IntPtr handle, int id) => Marshal.PtrToStringUTF8(acs_editor_node3d_get_prefab_source_node_id(handle, id)) ?? "";
+    /// <summary>stable instance subtree内でsource node IDに対応する唯一のnodeを返す。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_find_node_by_source_id(IntPtr handle, int rootId, [MarshalAs(UnmanagedType.LPUTF8Str)] string sourceNodeId);
     /// <summary>プリミティブ形状を切替 (0=Cube 1=Sphere 2=Plane)。sprite/polygon/mesh は不可。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_set_prim(IntPtr handle, int id, int prim);
