@@ -24,6 +24,7 @@ set(_acsgen_gameframework_sources
     CheckpointSystem.cpp
     CinematicsDirector.cpp
     CollisionWorld2D.cpp
+    CollisionWorld3D.cpp
     CombatStateMachine.cpp
     ComponentFactory.cpp
     ContentModerator.cpp
@@ -189,7 +190,9 @@ set(_acsgen_gameframework_headers
     CheckpointSystem.h
     CinematicsDirector.h
     Clock.h
+    CollisionShapeId3D.h
     CollisionWorld2D.h
+    CollisionWorld3D.h
     CombatStateMachine.h
     ComponentFactory.h
     ContentModerator.h

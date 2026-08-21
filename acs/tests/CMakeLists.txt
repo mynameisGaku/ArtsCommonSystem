@@ -184,6 +184,7 @@ add_executable(acs_unit_tests
     light_collector3d_tests.cpp
     camerastack_tests.cpp
     collisionworld2d_tests.cpp
+    collisionworld3d_tests.cpp
     particleeffect_tests.cpp
     water2d_ripple_lifetime_tests.cpp
     water3d_ripple_lifetime_tests.cpp
