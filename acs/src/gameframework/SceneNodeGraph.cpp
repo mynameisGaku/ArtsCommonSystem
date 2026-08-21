@@ -148,8 +148,22 @@ void SweepSphereActiveRangeRec(const ANode* node, const FRay3& center_ray, f32 r
         SweepSphereActiveRangeRec(node->Child(index), center_ray, radius, minimum_t, maximum_t, active, best, best_t);
 }
 
+/** local命中情報をworld-spaceのscene命中結果へ変換する。 */
+bool TryCalculateScene3DRaycastHit_Internal(const ANode& node, const FRay3& world_ray, const FRayHit3& local_hit, const FMat4& world_inverse, FScene3DRaycastHit& output) noexcept
+{
+    FVec3 world_normal = TransformVector(local_hit.normal, Transpose(world_inverse));
+    const f32 normal_length_squared = Dot(world_normal, world_normal);
+    if (!std::isfinite(normal_length_squared) || normal_length_squared <= 1.0e-12f) return false;
+    world_normal = world_normal * (1.0f / std::sqrt(normal_length_squared));
+    if (Dot(world_normal, world_ray.direction) > 0.0f) world_normal = -world_normal;
+    const FVec3 world_point = world_ray.origin + world_ray.direction * local_hit.t;
+    if (!std::isfinite(world_point.x) || !std::isfinite(world_point.y) || !std::isfinite(world_point.z) || !std::isfinite(world_normal.x) || !std::isfinite(world_normal.y) || !std::isfinite(world_normal.z)) return false;
+    output = FScene3DRaycastHit{node.Id(), local_hit.t, world_point, world_normal};
+    return true;
+}
+
 /** 有効かつ可視なsubtreeから指定t区間内の最近描画形状を厳密raycastする。 */
-void RaycastGeometryActiveRangeRec(const ANode* node, const FRay3& ray, f32 minimum_t, f32 maximum_t, bool parent_active, FNodeId& best, f32& best_t) noexcept
+void RaycastGeometryActiveRangeRec(const ANode* node, const FRay3& ray, f32 minimum_t, f32 maximum_t, bool parent_active, FScene3DRaycastHit& best, f32& best_t) noexcept
 {
     if (node == nullptr) return;
     const bool active = parent_active && !node->IsPendingDestroy() && node->IsEnabled() && node->IsVisible();
@@ -165,8 +179,11 @@ void RaycastGeometryActiveRangeRec(const ANode* node, const FRay3& ray, f32 mini
             if (broad_hit.hit && std::isfinite(broad_hit.t) && broad_hit.t >= minimum_t) {
                 const FRayHit3 hit = RaycastLocalVisualGeometry(*node, local_ray, maximum_t);
                 if (hit.hit && std::isfinite(hit.t) && hit.t >= minimum_t && hit.t <= maximum_t && hit.t < best_t) {
-                    best_t = hit.t;
-                    best = node->Id();
+                    FScene3DRaycastHit candidate;
+                    if (TryCalculateScene3DRaycastHit_Internal(*node, ray, hit, world_inverse, candidate)) {
+                        best_t = hit.t;
+                        best = candidate;
+                    }
                 }
             }
         }
@@ -320,12 +337,22 @@ FNodeId CSceneNodeGraph::RaycastActiveRange(const FRay3& ray, f32 minimum_t, f32
 /** 有効な描画形状へ有限区間の厳密raycastを行い、外れでは出力を維持する。 */
 FNodeId CSceneNodeGraph::RaycastGeometryActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, f32* out_t) const noexcept
 {
-    if (!ValidRangeRay(ray, minimum_t, maximum_t)) return FNodeId{};
-    FNodeId best{};
+    FScene3DRaycastHit hit;
+    if (!TryRaycastGeometryActiveRange(ray, minimum_t, maximum_t, hit)) return FNodeId{};
+    if (out_t != nullptr) *out_t = hit.T;
+    return hit.Node;
+}
+
+/** 有効な描画形状へ有限区間の厳密raycastを行い、完全なworld-space結果を返す。 */
+bool CSceneNodeGraph::TryRaycastGeometryActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, FScene3DRaycastHit& out_hit) const noexcept
+{
+    if (!ValidRangeRay(ray, minimum_t, maximum_t)) return false;
+    FScene3DRaycastHit candidate;
     f32 best_t = 3.4028235e38f;
-    RaycastGeometryActiveRangeRec(m_Root.Get(), ray, minimum_t, maximum_t, true, best, best_t);
-    if (out_t != nullptr && best.IsValid()) *out_t = best_t;
-    return best;
+    RaycastGeometryActiveRangeRec(m_Root.Get(), ray, minimum_t, maximum_t, true, candidate, best_t);
+    if (!candidate.IsValid()) return false;
+    out_hit = candidate;
+    return true;
 }
 
 /** 有効な描画mesh boundsへ有限区間のworld球をsweepし、外れでは出力を維持する。 */

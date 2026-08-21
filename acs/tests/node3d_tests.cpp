@@ -878,6 +878,52 @@ ACS_TEST(Scene3DRaycast, GeometryRangeRejectsMeshBoundsFalsePositive)
     EXPECT_NEAR(hit_t, 3.5f, 1.0e-5f);
 }
 
+ACS_TEST(Scene3DRaycast, ExactResultReturnsWorldPointAndNormalThroughHierarchy)
+{
+    CSceneNodeGraph scene;
+    ANode& parent = scene.Spawn(FStringView("Parent"));
+    parent.Local().position = FVec3{3.0f, -2.0f, 5.0f};
+    parent.Local().rotation = FQuat::AxisAngle(FVec3{0.0f, 0.0f, 1.0f}, 0.45f);
+    parent.Local().scale = FVec3{2.0f, 0.75f, 1.5f};
+    ANode& cube = scene.Spawn(FStringView("Cube"), &parent);
+    cube.Local().position = FVec3{1.0f, 2.0f, -0.5f};
+    cube.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+    const FMat4 world = cube.World().ToMat4();
+    const FVec3 expected_point = TransformPoint(FVec3{0.2f, 0.5f, -0.1f}, world);
+    const FVec3 expected_normal = Normalize(TransformVector(FVec3{0.0f, 1.0f, 0.0f}, Transpose(Inverse(world))));
+    const FRay3 ray{expected_point + expected_normal * 3.0f, -expected_normal};
+    FScene3DRaycastHit hit;
+
+    EXPECT_TRUE(scene.TryRaycastGeometryActiveRange(ray, 0.0f, 10.0f, hit));
+    EXPECT_TRUE(hit.Node == cube.Id());
+    EXPECT_NEAR(hit.T, 3.0f, 1.0e-4f);
+    ExpectVec3Near(hit.Point, expected_point, 1.0e-4f);
+    ExpectVec3Near(hit.Normal, expected_normal, 1.0e-4f);
+    EXPECT_TRUE(Dot(hit.Normal, ray.direction) <= 0.0f);
+}
+
+ACS_TEST(Scene3DRaycast, ExactResultPreservesOutputOnMissAndInvalidInput)
+{
+    CSceneNodeGraph scene;
+    ANode& hidden_parent = scene.Spawn(FStringView("HiddenParent"));
+    hidden_parent.SetVisible(false);
+    ANode& cube = scene.Spawn(FStringView("Cube"), &hidden_parent);
+    cube.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+    const FScene3DRaycastHit preserved{cube.Id(), 17.0f, FVec3{1.0f, 2.0f, 3.0f}, FVec3{0.0f, 1.0f, 0.0f}};
+    FScene3DRaycastHit output = preserved;
+    const FRay3 ray{FVec3{0.0f, 5.0f, 0.0f}, FVec3{0.0f, -1.0f, 0.0f}};
+
+    EXPECT_FALSE(scene.TryRaycastGeometryActiveRange(ray, 0.0f, 10.0f, output));
+    EXPECT_TRUE(output.Node == preserved.Node);
+    EXPECT_NEAR(output.T, preserved.T, 0.0f);
+    ExpectVec3Near(output.Point, preserved.Point, 0.0f);
+    ExpectVec3Near(output.Normal, preserved.Normal, 0.0f);
+    EXPECT_FALSE(scene.TryRaycastGeometryActiveRange(FRay3{FVec3{}, FVec3{}}, 0.0f, 10.0f, output));
+    EXPECT_FALSE(scene.TryRaycastGeometryActiveRange(ray, 2.0f, 1.0f, output));
+    EXPECT_TRUE(output.Node == preserved.Node);
+    EXPECT_NEAR(output.T, preserved.T, 0.0f);
+}
+
 ACS_TEST(Scene3DRaycast, SpriteVisualOverridesUnderlyingMeshForCameraProbes)
 {
     /** 下地cubeを持つが実表示はローカルXY板になるスプライトnode。 */
@@ -893,6 +939,11 @@ ACS_TEST(Scene3DRaycast, SpriteVisualOverridesUnderlyingMeshForCameraProbes)
     EXPECT_NEAR(hit_t, 2.0f, 1.0e-5f);
     EXPECT_TRUE(scene.RaycastGeometryActiveRange(ray, 0.0f, 4.0f, &hit_t) == sprite.Id());
     EXPECT_NEAR(hit_t, 2.0f, 1.0e-5f);
+    FScene3DRaycastHit exact_hit;
+    EXPECT_TRUE(scene.TryRaycastGeometryActiveRange(ray, 0.0f, 4.0f, exact_hit));
+    EXPECT_TRUE(exact_hit.Node == sprite.Id());
+    ExpectVec3Near(exact_hit.Point, FVec3{0.0f, 0.0f, 0.0f}, 1.0e-5f);
+    ExpectVec3Near(exact_hit.Normal, FVec3{0.0f, 0.0f, 1.0f}, 1.0e-5f);
     EXPECT_TRUE(scene.SweepSphereActiveRange(ray, 0.25f, 0.0f, 4.0f, &hit_t) == sprite.Id());
     EXPECT_NEAR(hit_t, 1.75f, 1.0e-5f);
 }

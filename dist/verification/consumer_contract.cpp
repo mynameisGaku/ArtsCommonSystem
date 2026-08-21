@@ -80,6 +80,11 @@ static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent
 static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent::NodePropertyOverrideMask), FPrefabNodePropertyOverrideMaskSignature>);
 static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent::TrySetNodePropertyOverrideMask), FTrySetPrefabNodePropertyOverrideMaskSignature>);
 
+/** world-space命中情報を返す3D描画形状raycastの公開署名。 */
+using FScene3DRaycastSignature = bool (acs::game::CSceneNodeGraph::*)(const acs::FRay3&, acs::f32, acs::f32, acs::game::FScene3DRaycastHit&) const noexcept;
+
+static_assert(std::is_same_v<decltype(&acs::game::CSceneNodeGraph::TryRaycastGeometryActiveRange), FScene3DRaycastSignature>);
+
 /** Primitive の既存・追加公開入口を配布 header と library 間で照合する署名。 */
 using FPrimitiveMakeCubeSignature = acs::TSharedPtr<acs::AMeshAsset> (*)(acs::f32) noexcept;
 using FPrimitiveMakeSphereSignature = acs::TSharedPtr<acs::AMeshAsset> (*)(acs::f32, acs::u32, acs::u32) noexcept;
@@ -301,6 +306,16 @@ int main()
     /** canonical値の設定、非canonical値の拒否、既存値保持をまとめた結果。 */
     const bool prefab_source_identity_ok = prefab_identity.TrySetSourceNodeId(FStringView("0123456789abcdef0123456789abcdef")) && !prefab_identity.TrySetSourceNodeId(FStringView("0123456789ABCDEF0123456789ABCDEF")) && prefab_identity.SourceNodeId() == FStringView("0123456789abcdef0123456789abcdef") && prefab_identity.TrySetNodePropertyOverrideMask(255u) && !prefab_identity.TrySetNodePropertyOverrideMask(256u) && prefab_identity.NodePropertyOverrideMask() == 255u;
 
+    /** 配布headerとlibraryだけで厳密3D raycastを実行するscene。 */
+    game::CSceneNodeGraph raycast_scene;
+    /** +Z rayの前面に置く単位cube。 */
+    game::ANode& raycast_cube = raycast_scene.Spawn(FStringView("RaycastCube"));
+    raycast_cube.AddComponent<game::AMeshComponent3D>(game::EMeshPrimitive3D::Cube);
+    /** node、parameter、world点、world法線を受け取る結果。 */
+    game::FScene3DRaycastHit raycast_hit;
+    /** 新しい非inline公開symbolと配布libraryの整合結果。 */
+    const bool scene_raycast_ok = raycast_scene.TryRaycastGeometryActiveRange(FRay3{FVec3{0.0f, 0.0f, -2.0f}, FVec3{0.0f, 0.0f, 1.0f}}, 0.0f, 4.0f, raycast_hit) && raycast_hit.Node == raycast_cube.Id() && raycast_hit.T == 1.5f && raycast_hit.Point.x == 0.0f && raycast_hit.Point.y == 0.0f && raycast_hit.Point.z == -0.5f && raycast_hit.Normal.x == 0.0f && raycast_hit.Normal.y == 0.0f && raycast_hit.Normal.z == -1.0f;
+
     // 呼び出し側が所有するシーンタイマー。
     game::CSceneTimer scene_timer;
     // シーンタイマーの発火回数。
@@ -325,6 +340,6 @@ int main()
     const bool log_sink_ok = log_subscription.IsValid() && log_notification_count == 1u;
     CLogger::Shutdown();
 
-    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u prefab_source_id=%u scene_timer=%u log_sink=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, prefab_source_identity_ok ? 1u : 0u, scene_timer_fire_count, log_notification_count);
-    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && prefab_source_identity_ok && scene_timer_ok && log_sink_ok) ? 0 : 1;
+    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u prefab_source_id=%u scene_raycast=%u scene_timer=%u log_sink=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, prefab_source_identity_ok ? 1u : 0u, scene_raycast_ok ? 1u : 0u, scene_timer_fire_count, log_notification_count);
+    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && prefab_source_identity_ok && scene_raycast_ok && scene_timer_ok && log_sink_ok) ? 0 : 1;
 }
