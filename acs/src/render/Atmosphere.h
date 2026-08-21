@@ -1,16 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// CPU / GPU で評価する物理大気散乱。
-//
-// Rayleigh + Mie 単散乱を per-direction で CPU 評価し equirect 画像に焼く。
-// `CImageBasedLighting::LoadEquirectHdrFromMemory` に通せば env cubemap →
-// irradiance → prefilter の IBL chain が一気に物理ベースの sky で構築される。
-//
-// 地球規模の既定物理パラメータ:
-//   - 地表半径 6360 km、大気上端 6420 km (厚さ 60 km)
-//   - Rayleigh: β = (5.802, 13.558, 33.1) ×10⁻⁶ m⁻¹、scale height 8 km
-//   - Mie:      β = 3.996 ×10⁻⁶ m⁻¹、absorption 4.4 ×10⁻⁶ m⁻¹、scale height 1.2 km、g=0.8
-//
-// 簡易: 単散乱のみ (multi-scatter / aerial perspective / ozone は未含)。
 #pragma once
 
 #include "foundation/Result.h"
@@ -27,7 +15,10 @@
 
 namespace acs {
 
-/** Camera-volume quality contract shared by allocation and validation. */
+// CPUとGPUで評価する物理大気散乱。Rayleigh散乱とMie散乱を方向ごとに評価し、
+// 環境キューブ地図、拡散環境光、鏡面反射用事前計算へ同じ空の光を供給する。
+
+/** 確保処理と検証で共有する空気遠近法の体積表品質。 */
 inline constexpr u32 kSkyAtmosphereFroxelXyResolution = 48u;
 inline constexpr u32 kSkyAtmosphereFroxelZResolution = 96u;
 inline constexpr u32 kSkyAtmosphereFroxelIntegrationSteps = 24u;
@@ -187,6 +178,18 @@ public:
                                         f32 cam_alt_km,
                                         const FVolumetricFogParams& fog) noexcept;
 
+    /**
+     * カメラ相対逆行列から空気遠近法と局所霧の体積表を高精度に作る。
+     *
+     * @param camera_relative_inv_view_proj 平行移動を含まない逆ビュープロジェクション行列。
+     * @param cam_pos 局所霧の絶対高度を求めるカメラのワールド位置。
+     * @return 物理大気が有効なら空気遠近法の体積表、無効または失敗ならnullptr。
+     */
+    IRhiTexture* BuildAerialPerspectiveCameraRelative(IRhiDevice& device, IRhiCommandList& cl, const FMat4& camera_relative_inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_intensity, f32 max_dist_scene, f32 scene_to_km, f32 cam_alt_km) noexcept;
+
+    /** 局所霧の設定も受け取るカメラ相対版。 */
+    IRhiTexture* BuildAerialPerspectiveCameraRelative(IRhiDevice& device, IRhiCommandList& cl, const FMat4& camera_relative_inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_intensity, f32 max_dist_scene, f32 scene_to_km, f32 cam_alt_km, const FVolumetricFogParams& fog) noexcept;
+
     /** 直近に焼いた AP volume (BuildAerialPerspective 後に有効、非所有)。 */
     IRhiTexture* ApVolume() const noexcept { return m_ApVol.Get(); }
 
@@ -237,6 +240,9 @@ public:
                                     u32 screen_width,
                                     u32 screen_height) noexcept;
 
+    /** カメラ相対逆行列で深度位置を復元し、遠方でも空気遠近法の距離精度を保つ。 */
+    void CompositeAerialPerspectiveCameraRelative(IRhiCommandList& cl, IRhiTexture& depth, IRhiTexture& ap_volume, IRhiTexture& transmittance_volume, const FMat4& camera_relative_inv_view_proj, f32 max_dist_scene, u32 screen_width, u32 screen_height) noexcept;
+
     /**
      * Geometry と cleared-depth 背景へ local-fog-only volume を一度だけ合成する。
      *
@@ -253,6 +259,9 @@ public:
                            f32 max_dist_scene,
                            u32 screen_width,
                            u32 screen_height) noexcept;
+
+    /** カメラ相対逆行列で深度位置を復元し、局所霧を正しい視線距離で終端する。 */
+    void CompositeLocalFogCameraRelative(IRhiCommandList& cl, IRhiTexture& depth, IRhiTexture& local_fog_volume, IRhiTexture* cloud_depth, const FMat4& camera_relative_inv_view_proj, f32 max_dist_scene, u32 screen_width, u32 screen_height) noexcept;
 
     /** 全 GPU リソースを解放 (acs_editor_destroy から呼ぶ。UAF 防止)。 */
     void Shutdown() noexcept;

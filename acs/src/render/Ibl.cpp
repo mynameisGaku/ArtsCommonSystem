@@ -222,11 +222,13 @@ const char* kSkyboxHLSL = R"(
 #pragma pack_matrix(row_major)
 
 cbuffer Skybox : register(b0) {
-    float4x4 inv_view_proj;
-    float4   eye;            // xyz=camera world pos
-    float4   mip_pad;        // x=mip level (prefilter で 0..4 を切替、env/irradiance は 0)
-    float4   sun_dir_radius;  // xyz=direction to sun, w=angular radius in radians
-    float4   sun_radiance;    // rgb=linear HDR radiance, w=enabled
+    float4x4 camera_relative_inv_view_proj;
+    // xは事前ぼかしで選ぶミップ段階。
+    float4   mip_pad;
+    // xyzは太陽方向、wは角半径。
+    float4   sun_dir_radius;
+    // rgbは線形放射輝度、wは有効状態。
+    float4   sun_radiance;
 };
 
 TextureCube env : register(t0);
@@ -247,16 +249,14 @@ VSOut VSMain(uint id : SV_VertexID) {
 }
 
 float4 PSMain(VSOut v) : SV_TARGET {
-    // 遠平面の NDC からワールド位置を逆変換し、カメラからの方向を取る
-    float4 wp = mul(float4(v.ndc.x, -v.ndc.y, 1.0, 1.0), inv_view_proj);
-    wp.xyz /= wp.w;
-    float3 dir = normalize(wp.xyz - eye.xyz);
+    // 遠平面からカメラ相対位置を復元し、遠方座標でも視線精度を保つ。
+    float4 camera_relative_position = mul(float4(v.ndc.x, -v.ndc.y, 1.0, 1.0), camera_relative_inv_view_proj);
+    float safe_w = abs(camera_relative_position.w) > 1.0e-6 ? camera_relative_position.w : (camera_relative_position.w < 0.0 ? -1.0e-6 : 1.0e-6);
+    float3 dir = normalize(camera_relative_position.xyz / safe_w);
     float3 sky = env.SampleLevel(env_sampler, dir, mip_pad.x).rgb;
 
-    // The solar disc is evaluated at display resolution instead of being
-    // magnified from a handful of equirect texels.  Chord distance is monotonic
-    // with angular distance and has stable screen derivatives at the centre,
-    // unlike acos(dot()) whose derivative is singular at one.
+    // 太陽円盤は低解像度の環境地図へ焼かず、最終表示解像度で評価する。
+    // 方向差の弦長は角度差に対して単調で、内積が1に近いと微分が発散するacosも避けられる。
     if (sun_radiance.w > 0.5 && sun_dir_radius.w > 0.0) {
         float3 sun_dir = normalize(sun_dir_radius.xyz);
         float sun_distance = length(dir - sun_dir);
@@ -286,12 +286,23 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 struct FSkyboxCbLayout {
-    FMat4 inv_view_proj;
-    FVec4 eye;
-    FVec4 mip_pad;      // x=mip level
+    FMat4 camera_relative_inv_view_proj;
+    // xは描画するミップ段階。
+    FVec4 mip_pad;
     FVec4 sun_dir_radius;
     FVec4 sun_radiance;
 };
+static_assert(sizeof(FSkyboxCbLayout) == 112u, "空描画の定数配置はシェーダー側と一致させる");
+
+/** 空描画へ渡す行列の全要素が有限かを調べる。 */
+bool IsFiniteSkyboxMatrix_Internal(const FMat4& matrix) noexcept {
+    for (u32 row = 0u; row < 4u; ++row) {
+        for (u32 column = 0u; column < 4u; ++column) {
+            if (!std::isfinite(matrix.m[row][column])) return false;
+        }
+    }
+    return true;
+}
 
 // ---- Diffuse irradiance 生成 (env cubemap の半球積分) ----
 //
@@ -1403,6 +1414,11 @@ void CImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
                                      FVec3 sun_direction,
                                      FVec3 sun_radiance,
                                      f32 sun_angular_radius) noexcept {
+    const FMat4 cameraRelativeInverse = Inverse(view_proj) * FMat4::Translation(FVec3{-eye.x, -eye.y, -eye.z});
+    DrawSkyboxCameraRelative(device, cl, cube, cameraRelativeInverse, rt_format, depth_format, mip_level, sun_direction, sun_radiance, sun_angular_radius);
+}
+
+void CImageBasedLighting::DrawSkyboxCameraRelative(IRhiDevice& device, IRhiCommandList& cl, IRhiTexture& cube, const FMat4& camera_relative_inv_view_proj, EFormat rt_format, EFormat depth_format, f32 mip_level, FVec3 sun_direction, FVec3 sun_radiance, f32 sun_angular_radius) noexcept {
     // void なので error を返せない。fake-success と同義の no-op だが、最低限
     // 一度だけ warn して capability 境界を明示する (raw-DX12 は高度3D 非対応)。
     if (!IsDiligentBackend(device)) {
@@ -1414,12 +1430,12 @@ void CImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
         }
         return;
     }
+    if (!IsFiniteSkyboxMatrix_Internal(camera_relative_inv_view_proj)) return;
     if (auto r = EnsureSkyboxPipeline(device, rt_format, depth_format); r.IsErr()) return;
 
     FSkyboxCbLayout cb{};
-    cb.inv_view_proj = Inverse(view_proj);
-    cb.eye           = FVec4{eye.x, eye.y, eye.z, 1};
-    cb.mip_pad       = FVec4{mip_level, 0, 0, 0};
+    cb.camera_relative_inv_view_proj = camera_relative_inv_view_proj;
+    cb.mip_pad = FVec4{mip_level, 0, 0, 0};
     const f32 sun_length_sq =
         sun_direction.x * sun_direction.x +
         sun_direction.y * sun_direction.y +
@@ -1464,9 +1480,12 @@ void CImageBasedLighting::DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
                                         FVec3 sun_radiance,
                                         f32 sun_angular_radius) noexcept {
     if (!m_EnvCube) return;
-    DrawSkybox(device, cl, *m_EnvCube, view_proj, eye,
-               rt_format, depth_format, 0.0f,
-               sun_direction, sun_radiance, sun_angular_radius);
+    DrawSkybox(device, cl, *m_EnvCube, view_proj, eye, rt_format, depth_format, 0.0f, sun_direction, sun_radiance, sun_angular_radius);
+}
+
+void CImageBasedLighting::DrawEnvSkyboxCameraRelative(IRhiDevice& device, IRhiCommandList& cl, const FMat4& camera_relative_inv_view_proj, EFormat rt_format, EFormat depth_format, FVec3 sun_direction, FVec3 sun_radiance, f32 sun_angular_radius) noexcept {
+    if (!m_EnvCube) return;
+    DrawSkyboxCameraRelative(device, cl, *m_EnvCube, camera_relative_inv_view_proj, rt_format, depth_format, 0.0f, sun_direction, sun_radiance, sun_angular_radius);
 }
 
 void CImageBasedLighting::ResetEnvCubemap() noexcept {

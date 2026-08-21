@@ -144,6 +144,8 @@ ACS_REF.modules.push({
         { sig: "void SetPerspective(f32 fov_y_rad, f32 aspect, f32 near_z, f32 far_z)", desc: "<t>透視投影</t>（左手系）を設定。fov_y は縦画角（ラジアン）。" },
         { sig: "void SetOrthographic(f32 width, f32 height, f32 near_z, f32 far_z)", desc: "<t>正射影</t>を設定。2D や見下ろし視点に。" },
         { sig: "void SetLookAt(FVec3 eye, FVec3 target, FVec3 up = FVec3::Up())", desc: "視点 eye から target を見るビューを設定。" },
+        { sig: "void SetLookDirection(FVec3 eye, FVec3 direction, FVec3 up = FVec3::Up())", desc: "既知の方向からビューを設定。遠方で eye と注視点の差から方向の有効桁を失わない。" },
+        { sig: "BuildCameraRelativeViewProjection(...) / BuildCameraRelativeInverseViewProjection(...)", ret: "カメラ相対行列", desc: "ビューの平行移動を除き、遠方でも空・雲・大気の視線復元精度を保つ。" },
         { sig: "const FMat4& View() / Projection()", ret: "行列", desc: "ビュー / 投影行列を個別に取得。" },
         { sig: "FMat4 ViewProjection()", ret: "VP 行列", desc: "ビュー × 投影。シェーダの定数バッファに入れる定番。" },
         { sig: "FVec3 Eye()", ret: "視点位置", desc: "現在の視点（カメラ位置）。ライティングや距離計算に使う。" },

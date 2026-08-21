@@ -623,8 +623,7 @@ ACS_TEST(VolumetricClouds,
     const std::string editorSource = ReadEditorAbiSource();
     EXPECT_TRUE(Contains(
         editorSource, "IRhiTexture* localFogVol = nullptr;"));
-    const std::size_t producerCall = editorSource.find(
-        "builtAp = h.sky_atmo.BuildAerialPerspective(");
+    const std::size_t producerCall = editorSource.find("builtAp = h.sky_atmo.BuildAerialPerspectiveCameraRelative(");
     const std::size_t frameLocalAssignment = editorSource.find(
         "localFogVol = h.sky_atmo.LocalFogVolume();", producerCall);
     const std::size_t availabilityDecision = editorSource.find(
@@ -4853,16 +4852,19 @@ ACS_TEST(VolumetricClouds, CameraRelativeInverseViewProjectionIgnoresFarWorldTra
 
     CCamera originCamera;
     originCamera.SetPerspective(60.0f * kDeg2Rad, kAspect, kNear, kFar);
-    originCamera.SetLookAt(FVec3{}, viewDirection);
+    originCamera.SetLookDirection(FVec3{}, viewDirection);
 
     const FVec3 farEye{64000.0f, 1.0f, 96000.0f};
     CCamera farCamera;
     farCamera.SetPerspective(60.0f * kDeg2Rad, kAspect, kNear, kFar);
-    farCamera.SetLookAt(farEye, FVec3{farEye.x + viewDirection.x, farEye.y + viewDirection.y, farEye.z + viewDirection.z});
+    farCamera.SetLookDirection(farEye, viewDirection);
 
     const FMat4 originRelative = BuildCameraRelativeInverseViewProjection(originCamera.View(), originCamera.Projection());
     const FMat4 farRelative = BuildCameraRelativeInverseViewProjection(farCamera.View(), farCamera.Projection());
     ExpectMat4Near(farRelative, originRelative, 1.0e-5f);
+    const FMat4 originRelativeViewProjection = BuildCameraRelativeViewProjection(originCamera.View(), originCamera.Projection());
+    const FMat4 farRelativeViewProjection = BuildCameraRelativeViewProjection(farCamera.View(), farCamera.Projection());
+    ExpectMat4Near(farRelativeViewProjection, originRelativeViewProjection, 1.0e-5f);
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
@@ -4898,13 +4900,15 @@ ACS_TEST(VolumetricClouds, CameraRelativeInverseViewProjectionIgnoresFarWorldTra
 
     const std::string compactEditor = CompactShader(ReadEditorAbiSource());
     const std::string compactLegacy = CompactShader(ReadLegacyScene3DAdapterSource());
-    EXPECT_TRUE(Contains(compactEditor, "BuildCameraRelativeInverseViewProjection(cam.View(),cam.Projection())"));
+    EXPECT_TRUE(Contains(compactEditor, "BuildCameraRelativeViewProjection(cam.View(),cam.Projection())"));
     EXPECT_TRUE(Contains(compactEditor, "VolumetricCloudViewCutDetected(h.prev_camera_relative_inv_vp,h.prev_temporal_camera_eye,camera_relative_inv_vp,eye)"));
     EXPECT_TRUE(Contains(compactEditor, "vclouds3d.RenderComputeCameraRelative("));
+    EXPECT_TRUE(Contains(compactEditor, "ibl3d.DrawEnvSkyboxCameraRelative("));
     EXPECT_TRUE(Contains(compactEditor, "sk.inv_view_proj=camera_relative_inv_vp;"));
     EXPECT_TRUE(Contains(compactEditor, "h.prev_camera_relative_inv_vp=camera_relative_inv_vp;"));
     EXPECT_TRUE(Contains(compactLegacy, "BuildCameraRelativeInverseViewProjection(m_Camera.View(),m_Camera.Projection())"));
     EXPECT_TRUE(Contains(compactLegacy, "m_Clouds.RenderComputeCameraRelative("));
+    EXPECT_TRUE(Contains(compactLegacy, "m_Ibl.DrawEnvSkyboxCameraRelative("));
 }
 
 ACS_TEST(VolumetricClouds,

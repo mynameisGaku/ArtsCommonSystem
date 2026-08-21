@@ -423,12 +423,11 @@ struct FAtmoCB {
     FVec4 sunInt;
     FVec4 groundAlbedo;
 };
-static_assert(sizeof(FAtmoCB) == 48u,
-              "AtmoCB must match the HLSL constant-buffer layout");
+static_assert(sizeof(FAtmoCB) == 48u, "大気散乱の定数配置はシェーダー側と一致させる");
 
 /** ApCB レイアウト (HLSL の cbuffer ApCB と一致)。 */
 struct FApCB {
-    FMat4 invViewProj;
+    FMat4 cameraRelativeInvViewProj;
     FVec4 camPos;
     FVec4 sunDir;
     FVec4 sunInt;
@@ -436,13 +435,16 @@ struct FApCB {
     FVec4 fogColorDensity;
     FVec4 fogParams;
 };
+static_assert(sizeof(FApCB) == 160u, "空気遠近法の定数配置はシェーダー側と一致させる");
 
 /** Fullscreen AP composite の b0。 */
 struct FApCompositeCB {
-    FMat4 invViewProj;
-    FVec4 camPosMaxDist;
-    FVec4 compositeParams; // x=0: geometry depth, x=1: cleared-depth far slice
+    FMat4 cameraRelativeInvViewProj;
+    FVec4 maxDistance;
+    // x=0は物体深度、x=1は深度消去済み背景の最遠層を使う。
+    FVec4 compositeParams;
 };
+static_assert(sizeof(FApCompositeCB) == 96u, "空気遠近法合成の定数配置はシェーダー側と一致させる");
 
 ACS_FORCEINLINE f32 FiniteOr(f32 value, f32 fallback) noexcept {
     if (!std::isfinite(static_cast<double>(value))) return fallback;
@@ -470,7 +472,14 @@ FMat4 SanitizeMatrix(const FMat4& value) noexcept {
     return result;
 }
 
-/** Camera-volume froxel。画面 48²、深度 96 slice で 250 km の雲 range まで解像する。 */
+/** 旧ワールド逆行列からカメラ相対逆行列を作る互換処理。 */
+FMat4 BuildCameraRelativeInverseFromWorld_Internal(const FMat4& inv_view_proj, FVec3 cam_pos) noexcept {
+    const FMat4 sanitizedInverse = SanitizeMatrix(inv_view_proj);
+    const FVec3 sanitizedCamera = SanitizeVec3(cam_pos, FVec3{});
+    return sanitizedInverse * FMat4::Translation(FVec3{-sanitizedCamera.x, -sanitizedCamera.y, -sanitizedCamera.z});
+}
+
+/** 空気遠近法の視錐台格子。画面48²、深度96層で250 kmまで解像する。 */
 constexpr u32 kApXYRes = kSkyAtmosphereFroxelXyResolution;
 constexpr u32 kApZRes  = kSkyAtmosphereFroxelZResolution;
 
@@ -644,7 +653,7 @@ ATMO_COMMON_HLSL
 R"(
 #pragma pack_matrix(row_major)
 cbuffer ApCB : register(b0) {
-  float4x4 invViewProj;
+  float4x4 cameraRelativeInvViewProj;
   float4 camPos;
   float4 sunDir;
   float4 sunInt;
@@ -696,16 +705,28 @@ void IntegrateAp(uint3 id,uint W,uint H,uint D,
   float sliceN=(float(id.z)+0.5)/float(D);
   float tScene=sliceN*sliceN*apParams.z;                   // 近傍を密にする深度分布
   float4 clip=float4(uv.x*2.0-1.0,-(uv.y*2.0-1.0),1.0,1.0);
-  float4 wp=mul(clip,invViewProj);
-  float invW=(abs(wp.w)>1e-6)?rcp(wp.w):0.0;
-  float3 dir=normalize(wp.xyz*invW-camPos.xyz);
+  float4 cameraRelativeFar=mul(clip,cameraRelativeInvViewProj);
+  float invW=(abs(cameraRelativeFar.w)>1e-6)?rcp(cameraRelativeFar.w):0.0;
+  float3 cameraRelativeDirection=cameraRelativeFar.xyz*invW;
+  float directionLengthSquared=dot(cameraRelativeDirection,cameraRelativeDirection);
+  float3 dir=directionLengthSquared>1e-12?cameraRelativeDirection*rsqrt(directionLengthSquared):float3(0.0,0.0,1.0);
   float3 P0=float3(0.0,kBottom+apParams.y,0.0);
   float3 sd=normalize(sunDir.xyz);
   float cosVS=dot(dir,sd);
-  float phR=RayleighPhase(cosVS), phM=HgPhase(cosVS,kMieG);
-  float fogPhase=FogPhase(cosVS,fogParams.z);
-  float sunLum=max(dot(max(sunInt.xyz,0.0),float3(0.2126,0.7152,0.0722)),1e-4);
-  float3 sunTint=max(sunInt.xyz,0.0)/sunLum;
+  bool atmosphereEnabled=apParams.x>0.0;
+  bool localFogEnabled=fogColorDensity.w>0.0;
+  float phR=0.0, phM=0.0;
+  if(atmosphereEnabled) {
+    phR=RayleighPhase(cosVS);
+    phM=HgPhase(cosVS,kMieG);
+  }
+  float fogPhase=0.0;
+  float3 sunTint=float3(0.0,0.0,0.0);
+  if(localFogEnabled) {
+    fogPhase=FogPhase(cosVS,fogParams.z);
+    float sunLum=max(dot(max(sunInt.xyz,0.0),float3(0.2126,0.7152,0.0722)),1e-4);
+    sunTint=max(sunInt.xyz,0.0)/sunLum;
+  }
 
   const int N=24;
   float dtScene=tScene/float(N);
@@ -713,22 +734,29 @@ void IntegrateAp(uint3 id,uint W,uint H,uint D,
   L=float3(0,0,0); Tview=float3(1,1,1);
   [loop] for(int i=0;i<N;i++) {
     float t=dtScene*(float(i)+jitter);
-    float3 P=P0+dir*(t*apParams.x);
-    float r=length(P), alt=max(r-kBottom,0.0);
-    float3 sR; float sM; float3 extKm; SampleMedium(alt,sR,sM,extKm);
-    float muSun=dot(P/max(r,1e-5),sd);
-    float3 Tsun=SampleTrans(r,muSun), MS=SampleMulti(r,muSun);
-    float3 atmoScatterKm=(sR*phR+sM*phM)*Tsun+MS*(sR+sM);
+    float3 atmosphereExtinction=float3(0.0,0.0,0.0);
+    float3 atmosphereScatter=float3(0.0,0.0,0.0);
+    if(atmosphereEnabled) {
+      float3 P=P0+dir*(t*apParams.x);
+      float r=length(P), alt=max(r-kBottom,0.0);
+      float3 sR; float sM; float3 extKm; SampleMedium(alt,sR,sM,extKm);
+      float muSun=dot(P/max(r,1e-5),sd);
+      float3 Tsun=SampleTrans(r,muSun), MS=SampleMulti(r,muSun);
+      atmosphereExtinction=extKm*apParams.x;
+      atmosphereScatter=((sR*phR+sM*phM)*Tsun+MS*(sR+sM))*sunInt.xyz*apParams.x;
+    }
 
-    float worldY=camPos.y+dir.y*t;
-    float fogD=fogColorDensity.w
-              * exp(-min(max(fogParams.x,0.0)*max(worldY-fogParams.y,0.0),80.0));
-    float3 fogLight=fogColorDensity.xyz
-                  * (1.0+sunTint*(fogPhase*max(fogParams.w,0.0)));
+    float fogD=0.0;
+    float3 fogLight=float3(0.0,0.0,0.0);
+    if(localFogEnabled) {
+      float worldY=camPos.y+dir.y*t;
+      fogD=fogColorDensity.w*exp(-min(max(fogParams.x,0.0)*max(worldY-fogParams.y,0.0),80.0));
+      fogLight=fogColorDensity.xyz*(1.0+sunTint*(fogPhase*max(fogParams.w,0.0)));
+    }
 
     // scene-unit basis へ揃えて大気と local fog を同一 Beer-Lambert step で積分。
-    float3 totalExt=extKm*apParams.x+fogD;
-    float3 totalScatter=atmoScatterKm*sunInt.xyz*apParams.x+fogLight*fogD;
+    float3 totalExt=atmosphereExtinction+fogD;
+    float3 totalScatter=atmosphereScatter+fogLight*fogD;
     float3 sampleT=exp(-min(totalExt*dtScene,80.0));
     float3 Sint=totalScatter*(1.0-sampleT)/max(totalExt,1e-7);
     L+=Tview*Sint;
@@ -768,8 +796,8 @@ VSOut VSMain(uint id : SV_VertexID) {
 const char* kApCompositePS = R"(
 #pragma pack_matrix(row_major)
 cbuffer ApCompositeCB : register(b0) {
-  float4x4 invViewProj;
-  float4 camPosMaxDist;
+  float4x4 cameraRelativeInvViewProj;
+  float4 maxDistance;
   float4 compositeParams;
 };
 Texture2D sceneDepth : register(t0);
@@ -783,11 +811,11 @@ float PhysicalSlice(VSOut v) {
   float depth = sceneDepth.SampleLevel(sceneDepth_sampler, v.uv, 0.0).r;
   if (depth >= 1.0) discard;
   float2 ndc = float2(v.uv.x * 2.0 - 1.0, 1.0 - v.uv.y * 2.0);
-  float4 wp = mul(float4(ndc, depth, 1.0), invViewProj);
-  float safeW = abs(wp.w) > 1e-6 ? wp.w : (wp.w < 0.0 ? -1e-6 : 1e-6);
-  float3 worldPos = wp.xyz / safeW;
-  float maxDist = max(camPosMaxDist.w, 1e-3);
-  float dist = length(worldPos - camPosMaxDist.xyz);
+  float4 cameraRelativePosition = mul(float4(ndc, depth, 1.0), cameraRelativeInvViewProj);
+  float safeW = abs(cameraRelativePosition.w) > 1e-6 ? cameraRelativePosition.w : (cameraRelativePosition.w < 0.0 ? -1e-6 : 1e-6);
+  float3 cameraRelativeSurface = cameraRelativePosition.xyz / safeW;
+  float maxDist = max(maxDistance.x, 1e-3);
+  float dist = length(cameraRelativeSurface);
   return sqrt(saturate(dist / maxDist));
 }
 float4 PSMultiply(VSOut v) : SV_TARGET {
@@ -812,10 +840,10 @@ float4 PSAddScatter(VSOut v) : SV_TARGET {
 }
 float4 PSMain(VSOut v) : SV_TARGET {
   float depth = sceneDepth.SampleLevel(sceneDepth_sampler, v.uv, 0.0).r;
-  float maxDist = max(camPosMaxDist.w, 1e-3);
+  float maxDist = max(maxDistance.x, 1e-3);
   float dist;
   if (depth >= 1.0) {
-    // Physical-atmosphere mode leaves the already baked sky untouched.
+    // 物理大気では、すでに散乱を焼いた空を変更しない。
     // Local-fog mode covers sky/cloud pixels. Clouds use their resolved
     // distance; only a clear sky reaches the local volume's far slice.
     if (compositeParams.x <= 0.5) discard;
@@ -827,12 +855,12 @@ float4 PSMain(VSOut v) : SV_TARGET {
         dist = min(dist, resolvedCloudDepth);
     }
   } else {
-    // Geometry is always terminated at the reconstructed surface distance.
+    // 物体上の大気は、復元した表面までの距離で必ず終端する。
     float2 ndc = float2(v.uv.x * 2.0 - 1.0, 1.0 - v.uv.y * 2.0);
-    float4 wp = mul(float4(ndc, depth, 1.0), invViewProj);
-    float safeW = abs(wp.w) > 1e-6 ? wp.w : (wp.w < 0.0 ? -1e-6 : 1e-6);
-    float3 worldPos = wp.xyz / safeW;
-    dist = length(worldPos - camPosMaxDist.xyz);
+    float4 cameraRelativePosition = mul(float4(ndc, depth, 1.0), cameraRelativeInvViewProj);
+    float safeW = abs(cameraRelativePosition.w) > 1e-6 ? cameraRelativePosition.w : (cameraRelativePosition.w < 0.0 ? -1e-6 : 1e-6);
+    float3 cameraRelativeSurface = cameraRelativePosition.xyz / safeW;
+    dist = length(cameraRelativeSurface);
   }
   float slice = sqrt(saturate(dist / maxDist));
   float4 ap = apVolume.SampleLevel(apVolume_sampler, float3(v.uv, slice), 0.0);
@@ -1004,24 +1032,27 @@ IRhiTexture* CSkyAtmosphere::BuildAerialPerspective(IRhiDevice& device, IRhiComm
                                                     FVec3 sun_dir, FVec3 sun_intensity,
                                                     f32 max_dist_scene, f32 scene_to_km,
                                                     f32 cam_alt_km) noexcept {
-    return BuildAerialPerspective(device, cl, inv_view_proj, cam_pos, sun_dir, sun_intensity,
-                                  max_dist_scene, scene_to_km, cam_alt_km,
-                                  FVolumetricFogParams{});
+    return BuildAerialPerspective(device, cl, inv_view_proj, cam_pos, sun_dir, sun_intensity, max_dist_scene, scene_to_km, cam_alt_km, FVolumetricFogParams{});
 }
 
-IRhiTexture* CSkyAtmosphere::BuildAerialPerspective(IRhiDevice& /*device*/, IRhiCommandList& cl,
-                                                    const FMat4& inv_view_proj, FVec3 cam_pos,
-                                                    FVec3 sun_dir, FVec3 sun_intensity,
-                                                    f32 max_dist_scene, f32 scene_to_km,
-                                                    f32 cam_alt_km,
-                                                    const FVolumetricFogParams& fog) noexcept {
+IRhiTexture* CSkyAtmosphere::BuildAerialPerspective(IRhiDevice& device, IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_intensity, f32 max_dist_scene, f32 scene_to_km, f32 cam_alt_km, const FVolumetricFogParams& fog) noexcept {
+    const FVec3 sanitizedCamera = SanitizeVec3(cam_pos, FVec3{});
+    const FMat4 cameraRelativeInverse = BuildCameraRelativeInverseFromWorld_Internal(inv_view_proj, sanitizedCamera);
+    return BuildAerialPerspectiveCameraRelative(device, cl, cameraRelativeInverse, sanitizedCamera, sun_dir, sun_intensity, max_dist_scene, scene_to_km, cam_alt_km, fog);
+}
+
+IRhiTexture* CSkyAtmosphere::BuildAerialPerspectiveCameraRelative(IRhiDevice& device, IRhiCommandList& cl, const FMat4& camera_relative_inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_intensity, f32 max_dist_scene, f32 scene_to_km, f32 cam_alt_km) noexcept {
+    return BuildAerialPerspectiveCameraRelative(device, cl, camera_relative_inv_view_proj, cam_pos, sun_dir, sun_intensity, max_dist_scene, scene_to_km, cam_alt_km, FVolumetricFogParams{});
+}
+
+IRhiTexture* CSkyAtmosphere::BuildAerialPerspectiveCameraRelative(IRhiDevice& /*device*/, IRhiCommandList& cl, const FMat4& camera_relative_inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_intensity, f32 max_dist_scene, f32 scene_to_km, f32 cam_alt_km, const FVolumetricFogParams& fog) noexcept {
     m_LocalFogVolumeValid = false;
     m_LocalFogMaxDistance = kLocalVolumetricFogMaxDistance;
     if (!m_Ready || !m_ApVol || !m_ApTransVol || !m_TransLut ||
         !m_ApPipe || !m_LocalFogPipe) {
         return nullptr;
     }
-    const FMat4 sanitizedInvViewProj = SanitizeMatrix(inv_view_proj);
+    const FMat4 sanitizedInvViewProj = SanitizeMatrix(camera_relative_inv_view_proj);
     cam_pos = SanitizeVec3(cam_pos, FVec3{0, 0, 0});
     FVec3 sd = SanitizeVec3(sun_dir, FVec3{0, 1, 0});
     {   f32 l2 = sd.x*sd.x + sd.y*sd.y + sd.z*sd.z;
@@ -1059,21 +1090,20 @@ IRhiTexture* CSkyAtmosphere::BuildAerialPerspective(IRhiDevice& /*device*/, IRhi
     if (fogSun < 0.0f) fogSun = 0.0f;
 
     FApCB cb{};
-    cb.invViewProj = sanitizedInvViewProj;
+    cb.cameraRelativeInvViewProj = sanitizedInvViewProj;
     cb.camPos = FVec4{cam_pos.x, cam_pos.y, cam_pos.z, 0.0f};
     cb.sunDir = FVec4{sd.x, sd.y, sd.z, 0.0f};
     cb.sunInt = FVec4{sun_intensity.x, sun_intensity.y, sun_intensity.z, 0.0f};
     cb.apParams = FVec4{scene_to_km, cam_alt_km, max_dist_scene, static_cast<f32>(kApZRes)};
     cb.fogColorDensity = FVec4{fogColor.x, fogColor.y, fogColor.z, fogDensity};
     cb.fogParams = FVec4{fogFalloff, fogBase, fogG, fogSun};
-    // Keep the long-range atmosphere volume free of local fog. Its 250 km
-    // range is intentionally coarse near the camera; local fog is integrated
-    // into a separate 2.5 km volume below.
+    // 物理大気は遠距離用とし、近距離の局所霧は別の2.5 km体積表へ積分する。
     FApCB atmosphereCb = cb;
+    atmosphereCb.camPos = FVec4{};
     atmosphereCb.fogColorDensity.w = 0.0f;
 
     FVolumeCacheKey physicalKey{};
-    physicalKey.invViewProj = atmosphereCb.invViewProj;
+    physicalKey.invViewProj = atmosphereCb.cameraRelativeInvViewProj;
     physicalKey.camPos = atmosphereCb.camPos;
     physicalKey.sunDir = atmosphereCb.sunDir;
     physicalKey.sunInt = atmosphereCb.sunInt;
@@ -1085,7 +1115,7 @@ IRhiTexture* CSkyAtmosphere::BuildAerialPerspective(IRhiDevice& /*device*/, IRhi
          !SameVolumeCacheKey(m_PhysicalApCacheKey, physicalKey));
     // Transmittance / multi-scattering LUT は Earth 定数だけで決まり、camera/sun には非依存。
     // 初回だけ焼き、毎フレームは camera-volume 本体の更新に GPU 時間を集中する。
-    if (!m_LutsReady) {
+    if (!m_LutsReady && physicalEnabled) {
         cl.SetComputePipeline(*m_TransPipe);
         cl.BindUav(0, *m_TransLut);
         cl.Dispatch(32, 8, 1);
@@ -1111,14 +1141,16 @@ IRhiTexture* CSkyAtmosphere::BuildAerialPerspective(IRhiDevice& /*device*/, IRhi
         ++m_PhysicalApDispatchCount;
     }
 
-    // The physical sky already includes atmospheric scattering.  Keep a
-    // separate local-fog transfer volume so its far slice can be applied to
-    // clear depth without double-applying Rayleigh/Mie.  A dedicated CB is
-    // required: both dispatches may execute after the CPU-side updates.
+    // 物理空は大気散乱を含むため、局所霧だけの伝達体積表を分離する。
+    // これにより、深度消去済み背景へ最遠層を適用しても大気散乱を二重に足さない。
+    // 二つの処理はCPU更新後に実行され得るため、定数バッファも分ける。
     m_LocalFogVolumeValid = fogDensity > 1e-7f && m_LocalFogVol && m_LocalFogCb;
     if (m_LocalFogVolumeValid) {
         FApCB fogOnlyCb = cb;
-        fogOnlyCb.apParams.x = 0.0f; // suppress atmospheric extinction/scatter
+        // 物理大気の消散と散乱を止め、局所霧だけを積分する。
+        fogOnlyCb.apParams.x = 0.0f;
+        fogOnlyCb.apParams.y = 0.0f;
+        fogOnlyCb.camPos = FVec4{0.0f, cb.camPos.y, 0.0f, 0.0f};
         m_LocalFogMaxDistance =
             max_dist_scene < kLocalVolumetricFogMaxDistance
                 ? max_dist_scene
@@ -1126,7 +1158,7 @@ IRhiTexture* CSkyAtmosphere::BuildAerialPerspective(IRhiDevice& /*device*/, IRhi
         fogOnlyCb.apParams.z = m_LocalFogMaxDistance;
 
         FVolumeCacheKey localFogKey{};
-        localFogKey.invViewProj = fogOnlyCb.invViewProj;
+        localFogKey.invViewProj = fogOnlyCb.cameraRelativeInvViewProj;
         localFogKey.camPos = fogOnlyCb.camPos;
         localFogKey.sunDir = fogOnlyCb.sunDir;
         localFogKey.sunInt = fogOnlyCb.sunInt;
@@ -1161,15 +1193,21 @@ void CSkyAtmosphere::CompositeAerialPerspective(IRhiCommandList& cl,
                                                 f32 max_dist_scene,
                                                 u32 screen_width,
                                                 u32 screen_height) noexcept {
+    const FMat4 cameraRelativeInverse = BuildCameraRelativeInverseFromWorld_Internal(inv_view_proj, cam_pos);
+    CompositeAerialPerspectiveCameraRelative(cl, depth, ap_volume, transmittance_volume, cameraRelativeInverse, max_dist_scene, screen_width, screen_height);
+}
+
+void CSkyAtmosphere::CompositeAerialPerspectiveCameraRelative(IRhiCommandList& cl, IRhiTexture& depth, IRhiTexture& ap_volume, IRhiTexture& transmittance_volume, const FMat4& camera_relative_inv_view_proj, f32 max_dist_scene, u32 screen_width, u32 screen_height) noexcept {
     if (!m_Ready || !m_ApMultiplyPipe || !m_ApAddPipe ||
         !m_ApCompositeCb ||
         screen_width == 0 || screen_height == 0) {
         return;
     }
     FApCompositeCB cb{};
-    cb.invViewProj = inv_view_proj;
-    cb.camPosMaxDist = FVec4{cam_pos.x, cam_pos.y, cam_pos.z,
-                            max_dist_scene > 0.001f ? max_dist_scene : 0.001f};
+    f32 safeMaxDistance = FiniteOr(max_dist_scene, 0.001f);
+    if (safeMaxDistance < 0.001f) safeMaxDistance = 0.001f;
+    cb.cameraRelativeInvViewProj = SanitizeMatrix(camera_relative_inv_view_proj);
+    cb.maxDistance = FVec4{safeMaxDistance, 0.0f, 0.0f, 0.0f};
     cb.compositeParams = FVec4{0.0f, 0.0f, 0.0f, 0.0f};
     m_ApCompositeCb->Update(&cb, sizeof(cb));
 
@@ -1204,17 +1242,22 @@ void CSkyAtmosphere::CompositeLocalFog(
     IRhiTexture* cloud_depth, const FMat4& inv_view_proj,
     FVec3 cam_pos, f32 max_dist_scene,
     u32 screen_width, u32 screen_height) noexcept {
+    const FMat4 cameraRelativeInverse = BuildCameraRelativeInverseFromWorld_Internal(inv_view_proj, cam_pos);
+    CompositeLocalFogCameraRelative(cl, depth, local_fog_volume, cloud_depth, cameraRelativeInverse, max_dist_scene, screen_width, screen_height);
+}
+
+void CSkyAtmosphere::CompositeLocalFogCameraRelative(IRhiCommandList& cl, IRhiTexture& depth, IRhiTexture& local_fog_volume, IRhiTexture* cloud_depth, const FMat4& camera_relative_inv_view_proj, f32 max_dist_scene, u32 screen_width, u32 screen_height) noexcept {
     if (!m_Ready || !m_ApCompositePipe || !m_LocalFogCompositeCb ||
         screen_width == 0 || screen_height == 0) {
         return;
     }
 
     FApCompositeCB cb{};
-    cb.invViewProj = inv_view_proj;
-    cb.camPosMaxDist = FVec4{cam_pos.x, cam_pos.y, cam_pos.z,
-                            max_dist_scene > 0.001f ? max_dist_scene : 0.001f};
-    cb.compositeParams =
-        FVec4{1.0f, cloud_depth != nullptr ? 1.0f : 0.0f, 0.0f, 0.0f};
+    f32 safeMaxDistance = FiniteOr(max_dist_scene, 0.001f);
+    if (safeMaxDistance < 0.001f) safeMaxDistance = 0.001f;
+    cb.cameraRelativeInvViewProj = SanitizeMatrix(camera_relative_inv_view_proj);
+    cb.maxDistance = FVec4{safeMaxDistance, 0.0f, 0.0f, 0.0f};
+    cb.compositeParams = FVec4{1.0f, cloud_depth != nullptr ? 1.0f : 0.0f, 0.0f, 0.0f};
     m_LocalFogCompositeCb->Update(&cb, sizeof(cb));
 
     FViewport vp{};

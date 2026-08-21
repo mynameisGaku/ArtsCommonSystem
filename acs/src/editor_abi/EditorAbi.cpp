@@ -5858,12 +5858,19 @@ const FGpuMesh& Mesh3DFor(const FEditorHost& h, int prim) noexcept {
 }
 
 
+/** 軌道角度からカメラの正規化済み前方を求める。 */
+FVec3 Cam3DForward_Internal(const FEditorHost& h) noexcept {
+    const f32 cp = std::cos(h.cam3d_pitch), sp = std::sin(h.cam3d_pitch);
+    const f32 cy = std::cos(h.cam3d_yaw), sy = std::sin(h.cam3d_yaw);
+    return FVec3{-cp * sy, -sp, -cp * cy};
+}
+
 /** 軌道カメラの eye 位置を yaw/pitch/dist/target から求める。
  *  eye.y を床上にクランプ → 真上を向いても床下に潜らず «空» を見られる (EditorCam3D が pitch 方向を見る)。 */
 FVec3 Cam3DEye(const FEditorHost& h) noexcept {
-    const f32 cp = std::cos(h.cam3d_pitch), sp = std::sin(h.cam3d_pitch);
-    const f32 cy = std::cos(h.cam3d_yaw),   sy = std::sin(h.cam3d_yaw);
-    const FVec3 dir{ cp * sy, sp, cp * cy };          // target→eye 方向
+    const FVec3 forward = Cam3DForward_Internal(h);
+    // 注視点からカメラへ向かう方向。
+    const FVec3 dir{-forward.x, -forward.y, -forward.z};
     FVec3 eye{ h.cam3d_target.x + dir.x * h.cam3d_dist,
                h.cam3d_target.y + dir.y * h.cam3d_dist,
                h.cam3d_target.z + dir.z * h.cam3d_dist };
@@ -5883,17 +5890,9 @@ CCamera EditorCam3D(const FEditorHost& h, f32 aspect) noexcept {
     } else {
         cam.SetPerspective(50.0f * 3.14159265f / 180.0f, aspect, 0.05f, 500.0f);
     }
-    if (h.ortho3d) {
-        cam.SetLookAt(Cam3DEye(h), h.cam3d_target);
-    } else {
-        // 注視点固定でなく «pitch/yaw 方向» を見る。eye 非クランプ時は look-at-target と完全に同一だが、
-        // 真上を向いて eye が床上にクランプされたときは注視点ではなく空を向ける (空/雲/god rays を確認可能に)。
-        const f32 cp = std::cos(h.cam3d_pitch), sp = std::sin(h.cam3d_pitch);
-        const f32 cy = std::cos(h.cam3d_yaw),   sy = std::sin(h.cam3d_yaw);
-        const FVec3 eye = Cam3DEye(h);
-        const FVec3 fwd{ -cp * sy, -sp, -cp * cy };    // pitch/yaw 方向 (pitch 負で上向き)
-        cam.SetLookAt(eye, FVec3{ eye.x + fwd.x, eye.y + fwd.y, eye.z + fwd.z });
-    }
+    const FVec3 eye = Cam3DEye(h);
+    // 注視点の加算を介さず、遠方でもpitchとyawから得た向きを保つ。
+    cam.SetLookDirection(eye, Cam3DForward_Internal(h));
     return cam;
 }
 
@@ -5911,9 +5910,8 @@ bool ScreenToZ0(const FEditorHost& h, f32 sx, f32 sy, f32 W, f32 H, FVec2& outXY
 struct FEGizRay { FVec3 origin; FVec3 dir; };
 FEGizRay Cam3DScreenRay(const FEditorHost& h, f32 sx, f32 sy, f32 W, f32 H) noexcept {
     const FVec3 eye = Cam3DEye(h);
-    const f32 cpit = std::cos(h.cam3d_pitch), spit = std::sin(h.cam3d_pitch);
-    const f32 cyaw = std::cos(h.cam3d_yaw),   syaw = std::sin(h.cam3d_yaw);
-    const FVec3 fwd{ -cpit * syaw, -spit, -cpit * cyaw };
+    const f32 cyaw = std::cos(h.cam3d_yaw), syaw = std::sin(h.cam3d_yaw);
+    const FVec3 fwd = Cam3DForward_Internal(h);
     FVec3 right{ cyaw, 0, -syaw };
     FVec3 up{ right.y * fwd.z - right.z * fwd.y, right.z * fwd.x - right.x * fwd.z, right.x * fwd.y - right.y * fwd.x };
     const f32 aspect = (H > 0) ? W / H : 1.0f;
@@ -7359,8 +7357,7 @@ bool BuildResolvedRenderCamera3D(
             output.fov_y_degrees * 3.14159265f / 180.0f,
             aspect, output.near_plane, output.far_plane);
     }
-    output.camera.SetLookAt(
-        output.eye, output.eye + output.forward, output.up);
+    output.camera.SetLookDirection(output.eye, output.forward, output.up);
     return true;
 }
 
@@ -7488,8 +7485,7 @@ void BuildDeterministicFallbackCamera3D(
     output.camera.SetPerspective(
         output.fov_y_degrees * 3.14159265f / 180.0f,
         aspect, output.near_plane, output.far_plane);
-    output.camera.SetLookAt(
-        output.eye, center, output.up);
+    output.camera.SetLookDirection(output.eye, output.forward, output.up);
 }
 
 FRenderCamera3D ResolveGameRenderCamera3D(
@@ -7516,10 +7512,7 @@ FRenderCamera3D ResolveRenderCamera3D(
     FRenderCamera3D editor_camera;
     editor_camera.camera = EditorCam3D(host, aspect);
     editor_camera.eye = Cam3DEye(host);
-    FVec3 forward{
-        host.cam3d_target.x - editor_camera.eye.x,
-        host.cam3d_target.y - editor_camera.eye.y,
-        host.cam3d_target.z - editor_camera.eye.z};
+    const FVec3 forward = Cam3DForward_Internal(host);
     if (!NormalizeRenderCameraVector(
             forward, editor_camera.forward)) {
         editor_camera.forward = FVec3{0.0f, 0.0f, -1.0f};
@@ -9964,8 +9957,9 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     h.profiler_work.render_orthographic = renderOrtho;
     h.profiler_work.render_camera_resolved = true;
     const FMat4 vp_nojit = cam.ViewProjection();
-    // 空、雲、カメラ切替判定で同じ高精度な視線復元を共有する。
-    const FMat4 camera_relative_inv_vp = BuildCameraRelativeInverseViewProjection(cam.View(), cam.Projection());
+    // 空、雲、大気、カメラ切替判定で同じ高精度な視線復元を共有する。
+    const FMat4 camera_relative_vp_nojit = BuildCameraRelativeViewProjection(cam.View(), cam.Projection());
+    const FMat4 camera_relative_inv_vp = Inverse(camera_relative_vp_nojit);
     const bool render_projection_changed =
         h.last_render_camera_projection_valid &&
         h.last_render_camera_orthographic != renderOrtho;
@@ -9995,6 +9989,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     // reactive mask として渡す。したがって global TAA はジオメトリへ常時使いつつ、
     // 雲画素だけ current 100% にできる (二重 temporal history / ghost を回避)。
     FMat4 vp = vp_nojit;
+    FMat4 camera_relative_vp = camera_relative_vp_nojit;
     const bool taaOn =
         h.q_taa_on && !renderOrtho &&
         h.width > 0 && h.height > 0;
@@ -10003,7 +9998,10 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         const float jx = (HaltonSeq(fi, 2u) - 0.5f) * 2.0f / static_cast<float>(h.width);
         const float jy = (HaltonSeq(fi, 3u) - 0.5f) * 2.0f / static_cast<float>(h.height);
         vp = ApplyTaaJitter(vp_nojit, jx, jy);
+        camera_relative_vp = ApplyTaaJitter(camera_relative_vp_nojit, jx, jy);
     }
+    // 深度を読む処理だけは、深度を書いた同じ画面揺らぎを含む逆行列を使う。
+    const FMat4 camera_relative_inv_vp_with_jitter = taaOn ? Inverse(camera_relative_vp) : camera_relative_inv_vp;
     BuildSceneMeshVisibility(h, all3d, vp_nojit);
 
     const editor_subsurface_visibility::FPresence ssss_presence =
@@ -10354,15 +10352,9 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                         h.profiler_work.atmosphere_cpu_ms);
                     FScopedRhiGpuTiming atmosphereGpuScope(
                         cl, ERhiGpuTimingPass::Atmosphere);
-                    builtAp = h.sky_atmo.BuildAerialPerspective(
-                                *adev, *cl, Inverse(vp_nojit), eye, h.sun_dir,
-                                FVec3{
-                                    apSunRadiance * h.sun_color.x,
-                                    apSunRadiance * h.sun_color.y,
-                                    apSunRadiance * h.sun_color.z},
-                                kFogVolumeMaxDist,
-                                h.q_ap_on ? 0.001f : 0.0f /*scene metres→km*/,
-                                std::fmax(0.0f, eye.y * 0.001f) /*cam_alt_km*/, fog);
+                    // 大気表へ渡す太陽の線形放射輝度。
+                    const FVec3 apSunIntensity{apSunRadiance * h.sun_color.x, apSunRadiance * h.sun_color.y, apSunRadiance * h.sun_color.z};
+                    builtAp = h.sky_atmo.BuildAerialPerspectiveCameraRelative(*adev, *cl, camera_relative_inv_vp, eye, h.sun_dir, apSunIntensity, kFogVolumeMaxDist, h.q_ap_on ? 0.001f : 0.0f, std::fmax(0.0f, eye.y * 0.001f), fog);
                     localFogVol = h.sky_atmo.LocalFogVolume();
                 }
                 // Local fog owns a separate transfer volume.  Do not route its
@@ -10560,9 +10552,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                     kPhysicalSunDiscRadianceScale,
                 h.sun_color.z * h.sun_intensity *
                     kPhysicalSunDiscRadianceScale};
-            h.ibl3d.DrawEnvSkybox(
-                *sdev, *cl, vp, eye, skyRt, h.renderer.DepthFormat(),
-                h.sun_dir, sunDiscRadiance, kPhysicalSunAngularRadius);
+            h.ibl3d.DrawEnvSkyboxCameraRelative(*sdev, *cl, camera_relative_inv_vp_with_jitter, skyRt, h.renderer.DepthFormat(), h.sun_dir, sunDiscRadiance, kPhysicalSunAngularRadius);
         }
     } else if (h.sky3d_ready) {
         h.sky3d.SetSunDirection(h.sun_dir);   // 空の太陽もシーンのライト方向に追従 (設定駆動)
@@ -11033,10 +11023,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             FScopedRhiGpuTiming atmosphereGpuScope(
                 cl, ERhiGpuTimingPass::Atmosphere);
             cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
-            h.sky_atmo.CompositeAerialPerspective(*cl, *h.renderer.DepthBuffer(),
-                                                  *apVol, *apTransVol,
-                                                  Inverse(vp), eye, kFogVolumeMaxDist,
-                                                  scW, scH);
+            h.sky_atmo.CompositeAerialPerspectiveCameraRelative(*cl, *h.renderer.DepthBuffer(), *apVol, *apTransVol, camera_relative_inv_vp_with_jitter, kFogVolumeMaxDist, scW, scH);
             cl->EndRenderToTexture(*hdrRt);
         }
 
@@ -11065,10 +11052,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             FScopedRhiGpuTiming fogGpuScope(
                 cl, ERhiGpuTimingPass::Fog);
             cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
-            h.sky_atmo.CompositeLocalFog(
-                *cl, *localFogSceneDepth, *localFogVol,
-                cloudsActive ? h.vclouds3d.ResolvedDepth() : nullptr,
-                Inverse(vp), eye, h.sky_atmo.LocalFogMaxDistance(), scW, scH);
+            h.sky_atmo.CompositeLocalFogCameraRelative(*cl, *localFogSceneDepth, *localFogVol, cloudsActive ? h.vclouds3d.ResolvedDepth() : nullptr, camera_relative_inv_vp_with_jitter, h.sky_atmo.LocalFogMaxDistance(), scW, scH);
             cl->EndRenderToTexture(*hdrRt);
         }
 
@@ -16003,10 +15987,9 @@ ACS_EDITOR_API void acs_editor_camera_move(void* handle, float dx, float dy) {
         return;
     }
     // 透視: 注視点を camera の right/up 平面で移動 (grab-pan: 内容がカーソルに追従)。
-    const FVec3 eye = Cam3DEye(*host);
     auto nrm = [](FVec3 v){ const f32 l = std::sqrt(v.x*v.x+v.y*v.y+v.z*v.z); return l>1e-6f ? FVec3{v.x/l,v.y/l,v.z/l} : FVec3{0,0,1}; };
     auto crs = [](FVec3 a, FVec3 b){ return FVec3{a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x}; };
-    const FVec3 fwd   = nrm(FVec3{ host->cam3d_target.x - eye.x, host->cam3d_target.y - eye.y, host->cam3d_target.z - eye.z });
+    const FVec3 fwd = nrm(Cam3DForward_Internal(*host));
     const FVec3 right = nrm(crs(fwd, FVec3{ 0, 1, 0 }));
     const FVec3 up    = crs(right, fwd);
     const f32 wpp = host->cam3d_dist * 0.9f / H;        // 距離比例 (注視点深度の world/px ≈ 2*dist*tan(fov/2)/H)

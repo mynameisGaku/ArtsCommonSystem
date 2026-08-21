@@ -484,7 +484,8 @@ ACS_REF.modules.push({
         { sig: "TResult&lt;void&gt; LoadEquirectHdrFromMemory(IRhiDevice&, IRhiCommandList&, const f32* rgba_float, u32 width, u32 height)", desc: "equirect HDR 画像(.hdr 等)から env cubemap を作り直す。" },
         { sig: "TResult&lt;void&gt; EnsureIrradiance(...) / EnsurePrefilter(...)", desc: "環境から拡散 irradiance(64² ×6) / 鏡面 prefilter(512² ×6, 7 mip)を生成。" },
         { sig: "static void ComputeSh9FromEquirect(const f32* rgba_float, u32 w, u32 h, FVec4 out_sh_rgb[9])", desc: "equirect 画像から SH9 係数 9 個を CPU 計算(diffuse irradiance の圧縮版)。" },
-        { sig: "void DrawSkybox(...) / void DrawEnvSkybox(...)", desc: "cubemap を全画面 skybox として現在の RT に描く。" },
+        { sig: "void DrawSkybox(...) / void DrawEnvSkybox(...)", desc: "cubemap を全画面 skybox として現在の RT に描く既存互換入口。" },
+        { sig: "void DrawSkyboxCameraRelative(...) / void DrawEnvSkyboxCameraRelative(...)", desc: "カメラ相対逆行列から環境空を描き、遠方座標でも視線精度を保つ。" },
         { sig: "IRhiTexture* BrdfLut() / EnvCubemap() / IrradianceMap() / PrefilterMap() / u32 PrefilterMips()", desc: "生成済みテクスチャの取得(SetIbl に渡す)。" },
         { sig: "bool HasBrdfLut() / HasEnvCubemap() / HasIrradianceMap() / HasPrefilterMap()", desc: "各リソースが生成済みか。" },
         { sig: "void ResetEnvCubemap()", desc: "env(と依存先)だけ破棄。CSky preset 切替で作り直す前に <code>WaitIdle()</code> 必須。" },
@@ -657,6 +658,9 @@ ACS_REF.modules.push({
       summary: "空と大気散乱の描画資源および更新処理を管理する。",
       when: "物理大気をsceneへ描画する時。",
       members: [
+        { sig: "IRhiTexture* BuildAerialPerspectiveCameraRelative(...)", desc: "カメラ相対逆行列から物理大気と高さ霧の体積表を作る。水平一様な媒質はX/Z移動だけでは再生成しない。" },
+        { sig: "void CompositeAerialPerspectiveCameraRelative(...) / void CompositeLocalFogCameraRelative(...)", desc: "カメラ相対位置から深度距離を復元し、遠方でも大気と霧を正しい距離で終端する。" },
+        { sig: "BuildAerialPerspective(...) / CompositeAerialPerspective(...) / CompositeLocalFog(...)", desc: "ワールド逆行列を受け取る既存コード向け互換入口。" },
         { sig: "using FSkyAtmosphere = CSkyAtmosphere", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSkyAtmosphere</code> を使う。" }
       ]
     },

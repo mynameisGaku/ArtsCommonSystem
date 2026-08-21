@@ -35995,6 +35995,21 @@ using FCamera2D = CCamera2D;
 namespace acs {
 
 /**
+ * カメラ位置を含まないビュープロジェクション行列を作る。
+ *
+ * @param view カメラのビュー行列。
+ * @param projection 同じカメラの投影行列。
+ * @return 平行移動を除いたビューと投影を合成した行列。
+ */
+inline FMat4 BuildCameraRelativeViewProjection(const FMat4& view, const FMat4& projection) noexcept {
+    FMat4 cameraRelativeView = view;
+    cameraRelativeView.m[3][0] = 0.0f;
+    cameraRelativeView.m[3][1] = 0.0f;
+    cameraRelativeView.m[3][2] = 0.0f;
+    return cameraRelativeView * projection;
+}
+
+/**
  * カメラ位置を含まない逆ビュープロジェクション行列を作る。
  *
  * @param view カメラのビュー行列。
@@ -36003,11 +36018,7 @@ namespace acs {
  */
 inline FMat4 BuildCameraRelativeInverseViewProjection(const FMat4& view, const FMat4& projection) noexcept {
     // 回転と投影だけを反転し、遠方座標を含む行列の反転で失われる精度を避ける。
-    FMat4 cameraRelativeView = view;
-    cameraRelativeView.m[3][0] = 0.0f;
-    cameraRelativeView.m[3][1] = 0.0f;
-    cameraRelativeView.m[3][2] = 0.0f;
-    return Inverse(cameraRelativeView * projection);
+    return Inverse(BuildCameraRelativeViewProjection(view, projection));
 }
 
 /**
@@ -36059,6 +36070,21 @@ public:
     }
 
     /**
+     * 注視方向を指定してビュー行列を設定する。
+     *
+     * @details 遠方で注視点をeyeへ加算すると向きの有効桁が失われるため、既知の方向はこの入口へ直接渡す。
+     * @param eye カメラ位置。
+     * @param direction カメラから前方への方向。長さは任意。
+     * @param up 上方向ベクトル。
+     */
+    void SetLookDirection(FVec3 eye, FVec3 direction, FVec3 up = FVec3::Up()) noexcept {
+        m_Eye = eye;
+        // 原点で回転を作ってから平行移動を加え、方向の計算へ遠方座標を混ぜない。
+        const FMat4 cameraRelativeView = FMat4::LookAtLH(FVec3{}, direction, up);
+        m_View = FMat4::Translation(FVec3{-eye.x, -eye.y, -eye.z}) * cameraRelativeView;
+    }
+
+    /**
      * ビュー行列を返す。
      *
      * @return 現在のビュー行列への const 参照。
@@ -36082,7 +36108,7 @@ public:
     /**
      * カメラ位置を返す。
      *
-     * @return SetLookAt で設定した eye 位置。
+     * @return SetLookAtまたはSetLookDirectionで設定したeye位置。
      */
     FVec3        Eye()            const noexcept { return m_Eye; }
 
@@ -36105,7 +36131,7 @@ private:
     /** プロジェクション行列。 */
     FMat4 m_Projection;
 
-    /** カメラ位置 (SetLookAt で更新)。 */
+    /** SetLookAtまたはSetLookDirectionで更新するカメラ位置。 */
     FVec3 m_Eye{0, 0, 0};
 };
 
@@ -53489,6 +53515,13 @@ public:
                     f32 sun_angular_radius = 0.0f) noexcept;
 
     /**
+     * カメラ相対逆行列から任意の環境キューブ地図を高精度に描く。
+     *
+     * @param camera_relative_inv_view_proj 平行移動を含まない逆ビュープロジェクション行列。
+     */
+    void DrawSkyboxCameraRelative(IRhiDevice& device, IRhiCommandList& cl, IRhiTexture& cube, const FMat4& camera_relative_inv_view_proj, EFormat rt_format, EFormat depth_format, f32 mip_level = 0.0f, FVec3 sun_direction = FVec3{0.0f, 1.0f, 0.0f}, FVec3 sun_radiance = FVec3{}, f32 sun_angular_radius = 0.0f) noexcept;
+
+    /**
      * env_cube を skybox として現在の RT へ描く利便ラッパ。
      *
      * @param device リソース生成・描画に使う RHI デバイス。
@@ -53512,6 +53545,9 @@ public:
                        FVec3 sun_direction = FVec3{0.0f, 1.0f, 0.0f},
                        FVec3 sun_radiance = FVec3{},
                        f32 sun_angular_radius = 0.0f) noexcept;
+
+    /** 環境キューブ地図をカメラ相対逆行列から描く高精度版。 */
+    void DrawEnvSkyboxCameraRelative(IRhiDevice& device, IRhiCommandList& cl, const FMat4& camera_relative_inv_view_proj, EFormat rt_format, EFormat depth_format, FVec3 sun_direction = FVec3{0.0f, 1.0f, 0.0f}, FVec3 sun_radiance = FVec3{}, f32 sun_angular_radius = 0.0f) noexcept;
 
     /**
      * 環境 cubemap (とそれに依存する irradiance / prefilter) だけを reset する。
@@ -54953,23 +54989,14 @@ private:
 
 // ===================== render/Atmosphere.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// CPU / GPU で評価する物理大気散乱。
-//
-// Rayleigh + Mie 単散乱を per-direction で CPU 評価し equirect 画像に焼く。
-// `CImageBasedLighting::LoadEquirectHdrFromMemory` に通せば env cubemap →
-// irradiance → prefilter の IBL chain が一気に物理ベースの sky で構築される。
-//
-// 地球規模の既定物理パラメータ:
-//   - 地表半径 6360 km、大気上端 6420 km (厚さ 60 km)
-//   - Rayleigh: β = (5.802, 13.558, 33.1) ×10⁻⁶ m⁻¹、scale height 8 km
-//   - Mie:      β = 3.996 ×10⁻⁶ m⁻¹、absorption 4.4 ×10⁻⁶ m⁻¹、scale height 1.2 km、g=0.8
-//
-// 簡易: 単散乱のみ (multi-scatter / aerial perspective / ozone は未含)。
 
 
 namespace acs {
 
-/** Camera-volume quality contract shared by allocation and validation. */
+// CPUとGPUで評価する物理大気散乱。Rayleigh散乱とMie散乱を方向ごとに評価し、
+// 環境キューブ地図、拡散環境光、鏡面反射用事前計算へ同じ空の光を供給する。
+
+/** 確保処理と検証で共有する空気遠近法の体積表品質。 */
 inline constexpr u32 kSkyAtmosphereFroxelXyResolution = 48u;
 inline constexpr u32 kSkyAtmosphereFroxelZResolution = 96u;
 inline constexpr u32 kSkyAtmosphereFroxelIntegrationSteps = 24u;
@@ -55129,6 +55156,18 @@ public:
                                         f32 cam_alt_km,
                                         const FVolumetricFogParams& fog) noexcept;
 
+    /**
+     * カメラ相対逆行列から空気遠近法と局所霧の体積表を高精度に作る。
+     *
+     * @param camera_relative_inv_view_proj 平行移動を含まない逆ビュープロジェクション行列。
+     * @param cam_pos 局所霧の絶対高度を求めるカメラのワールド位置。
+     * @return 物理大気が有効なら空気遠近法の体積表、無効または失敗ならnullptr。
+     */
+    IRhiTexture* BuildAerialPerspectiveCameraRelative(IRhiDevice& device, IRhiCommandList& cl, const FMat4& camera_relative_inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_intensity, f32 max_dist_scene, f32 scene_to_km, f32 cam_alt_km) noexcept;
+
+    /** 局所霧の設定も受け取るカメラ相対版。 */
+    IRhiTexture* BuildAerialPerspectiveCameraRelative(IRhiDevice& device, IRhiCommandList& cl, const FMat4& camera_relative_inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_intensity, f32 max_dist_scene, f32 scene_to_km, f32 cam_alt_km, const FVolumetricFogParams& fog) noexcept;
+
     /** 直近に焼いた AP volume (BuildAerialPerspective 後に有効、非所有)。 */
     IRhiTexture* ApVolume() const noexcept { return m_ApVol.Get(); }
 
@@ -55179,6 +55218,9 @@ public:
                                     u32 screen_width,
                                     u32 screen_height) noexcept;
 
+    /** カメラ相対逆行列で深度位置を復元し、遠方でも空気遠近法の距離精度を保つ。 */
+    void CompositeAerialPerspectiveCameraRelative(IRhiCommandList& cl, IRhiTexture& depth, IRhiTexture& ap_volume, IRhiTexture& transmittance_volume, const FMat4& camera_relative_inv_view_proj, f32 max_dist_scene, u32 screen_width, u32 screen_height) noexcept;
+
     /**
      * Geometry と cleared-depth 背景へ local-fog-only volume を一度だけ合成する。
      *
@@ -55195,6 +55237,9 @@ public:
                            f32 max_dist_scene,
                            u32 screen_width,
                            u32 screen_height) noexcept;
+
+    /** カメラ相対逆行列で深度位置を復元し、局所霧を正しい視線距離で終端する。 */
+    void CompositeLocalFogCameraRelative(IRhiCommandList& cl, IRhiTexture& depth, IRhiTexture& local_fog_volume, IRhiTexture* cloud_depth, const FMat4& camera_relative_inv_view_proj, f32 max_dist_scene, u32 screen_width, u32 screen_height) noexcept;
 
     /** 全 GPU リソースを解放 (acs_editor_destroy から呼ぶ。UAF 防止)。 */
     void Shutdown() noexcept;
@@ -94806,7 +94851,7 @@ inline FVec3 OrbitEye(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dist) noexce
 }
 
 /**
- * 軌道カメラを組み立てて返す (OrbitEye + SetLookAt + SetPerspective)。
+ * 軌道カメラを組み立てて返す。
  *
  * @param target 注視点。
  * @param yaw_rad ヨー (rad)。
@@ -94822,7 +94867,12 @@ inline CCamera MakeOrbitCamera(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dis
                                f32 fov_y_rad, f32 aspect, f32 near_z, f32 far_z) noexcept {
     CCamera cam;
     cam.SetPerspective(fov_y_rad, aspect, near_z, far_z);
-    cam.SetLookAt(OrbitEye(target, yaw_rad, pitch_rad, dist), target);
+    const f32 cp = Cos(pitch_rad), sp = Sin(pitch_rad);
+    const f32 cy = Cos(yaw_rad), sy = Sin(yaw_rad);
+    // 注視点からカメラへ向かう単位方向。
+    const FVec3 targetToEye{cp * sy, sp, cp * cy};
+    const FVec3 eye{target.x + targetToEye.x * dist, target.y + targetToEye.y * dist, target.z + targetToEye.z * dist};
+    cam.SetLookDirection(eye, FVec3{-targetToEye.x, -targetToEye.y, -targetToEye.z});
     return cam;
 }
 

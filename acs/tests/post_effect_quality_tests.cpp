@@ -1144,7 +1144,7 @@ ACS_TEST(PostEffects, EditorCompositeOrderKeepsCloudsInRefractionBackground)
     const std::size_t ap_scale_gate =
         draw.find("h.q_ap_on ? 0.001f : 0.0f");
     const std::size_t stable_ap_matrix =
-        draw.find("*adev, *cl, Inverse(vp_nojit), eye, h.sun_dir");
+        draw.find("*adev, *cl, camera_relative_inv_vp, eye, h.sun_dir");
     const std::size_t ap_result_gate =
         draw.find("if (h.q_ap_on && builtAp != nullptr)", ap_scale_gate);
     const std::size_t ap_pair_assignment =
@@ -1189,7 +1189,7 @@ ACS_TEST(PostEffects, AnimatedCloudsUseReactiveMaskWhileGeometryKeepsGlobalTaa)
 
     EXPECT_TRUE(draw.find("animatedCloudsRequested") == std::string::npos);
     EXPECT_TRUE(draw.find("h.q_taa_on && !renderOrtho") != std::string::npos);
-    EXPECT_TRUE(draw.find("Inverse(vp_nojit), eye") != std::string::npos);
+    EXPECT_TRUE(draw.find("BuildAerialPerspectiveCameraRelative(*adev, *cl, camera_relative_inv_vp, eye") != std::string::npos);
     EXPECT_TRUE(draw.find(
         "pp.taa_reactive_texture = h.vclouds3d.ResolvedDepth();") !=
         std::string::npos);
@@ -3426,7 +3426,7 @@ ACS_TEST(PostEffects, PbrSubsurfaceMrtIsOptionalAsyncAndOrderedBeforeAtmosphere)
         const std::size_t water =
             frame.find("DrawInteractiveWater3DPass(");
         const std::size_t atmosphere =
-            frame.find("CompositeAerialPerspective(");
+            frame.find("CompositeAerialPerspectiveCameraRelative(");
         EXPECT_TRUE(mrt_draw != std::string::npos);
         EXPECT_TRUE(editor.find("DrawMeshSubsurfaceMrt(") !=
                     std::string::npos);

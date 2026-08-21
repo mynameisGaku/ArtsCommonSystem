@@ -4,6 +4,7 @@
 #include "render/Atmosphere.h"
 #include "render/IRhiDevice.h"
 #include "render/Sky.h"
+#include "math/Camera.h"
 #include "math/Math.h"
 #include "editor_abi/EditorFrameContract.h"
 
@@ -115,11 +116,62 @@ ACS_TEST(Atmosphere, CompositeSeparatesLongRangeAtmosphereFromLocalFog) {
     EXPECT_TRUE(Contains(
         shader, "dist = min(dist, resolvedCloudDepth);"));
 
-    // Geometry reconstructs world distance for both volumes.
-    EXPECT_TRUE(Contains(
-        shader, "dist = length(worldPos - camPosMaxDist.xyz);"));
+    // 物体までの距離はカメラ相対位置から直接求める。
+    EXPECT_TRUE(Contains(shader, "dist = length(cameraRelativeSurface);"));
+    EXPECT_FALSE(Contains(shader, "worldPos - camPosMaxDist.xyz"));
     EXPECT_TRUE(Contains(
         shader, "apVolume.SampleLevel(apVolume_sampler"));
+}
+
+ACS_TEST(Atmosphere, CameraRelativeRaysPreserveFarWorldPrecision) {
+    const std::string source = ReadAtmosphereSource();
+    const std::string volumeShader = ExtractRawShader(source, "const char* kApCS");
+    const std::string compositeShader = ExtractRawShader(source, "const char* kApCompositePS");
+    const std::string editorSource = ReadEditorAbiSource();
+    EXPECT_TRUE(!source.empty());
+    EXPECT_TRUE(!volumeShader.empty());
+    EXPECT_TRUE(!compositeShader.empty());
+    EXPECT_TRUE(!editorSource.empty());
+
+    // 体積表の視線は大きなワールド位置同士を減算せず、相対遠点を直接使う。
+    EXPECT_TRUE(Contains(volumeShader, "float4x4 cameraRelativeInvViewProj;"));
+    EXPECT_TRUE(Contains(volumeShader, "float3 cameraRelativeDirection=cameraRelativeFar.xyz*invW;"));
+    EXPECT_FALSE(Contains(volumeShader, "-camPos.xyz"));
+
+    // 深度合成もカメラ相対位置の長さを使い、遠方で有効桁を失わない。
+    EXPECT_TRUE(Contains(compositeShader, "float4x4 cameraRelativeInvViewProj;"));
+    EXPECT_TRUE(Contains(compositeShader, "float dist = length(cameraRelativeSurface);"));
+    EXPECT_FALSE(Contains(compositeShader, "camPosMaxDist"));
+    EXPECT_FALSE(Contains(compositeShader, "worldPos"));
+
+    // 旧入口は残し、Editorは揺らぎなしの生成と揺らぎ込みの深度復元を使い分ける。
+    EXPECT_TRUE(Contains(source, "BuildCameraRelativeInverseFromWorld_Internal"));
+    EXPECT_TRUE(Contains(source, "BuildAerialPerspectiveCameraRelative"));
+    EXPECT_TRUE(Contains(source, "CompositeAerialPerspectiveCameraRelative"));
+    EXPECT_TRUE(Contains(source, "CompositeLocalFogCameraRelative"));
+    EXPECT_TRUE(Contains(editorSource, "BuildCameraRelativeViewProjection(cam.View(), cam.Projection())"));
+    EXPECT_TRUE(Contains(editorSource, "camera_relative_vp = ApplyTaaJitter(camera_relative_vp_nojit, jx, jy);"));
+    EXPECT_TRUE(Contains(editorSource, "BuildAerialPerspectiveCameraRelative("));
+    EXPECT_TRUE(Contains(editorSource, "CompositeAerialPerspectiveCameraRelative("));
+    EXPECT_TRUE(Contains(editorSource, "CompositeLocalFogCameraRelative("));
+    EXPECT_TRUE(Contains(editorSource, "camera_relative_inv_vp_with_jitter"));
+
+    constexpr f32 kAspect = 16.0f / 9.0f;
+    const FVec3 direction{0.2f, -0.1f, 1.0f};
+    CCamera originCamera;
+    originCamera.SetPerspective(60.0f * kDeg2Rad, kAspect, 0.05f, 250000.0f);
+    originCamera.SetLookDirection(FVec3{}, direction);
+    const FVec3 farEye{64000.0f, 2000.0f, 96000.0f};
+    CCamera farCamera;
+    farCamera.SetPerspective(60.0f * kDeg2Rad, kAspect, 0.05f, 250000.0f);
+    farCamera.SetLookDirection(farEye, direction);
+    const FMat4 originRelative = BuildCameraRelativeViewProjection(originCamera.View(), originCamera.Projection());
+    const FMat4 farRelative = BuildCameraRelativeViewProjection(farCamera.View(), farCamera.Projection());
+    for (u32 row = 0u; row < 4u; ++row) {
+        for (u32 column = 0u; column < 4u; ++column) {
+            EXPECT_NEAR(farRelative.m[row][column], originRelative.m[row][column], 1.0e-5f);
+        }
+    }
 }
 
 ACS_TEST(Atmosphere,
@@ -150,6 +202,16 @@ ACS_TEST(Atmosphere,
     EXPECT_TRUE(Contains(
         shader,
         "apTransOut[id]=float4(saturate(Tview),1.0);"));
+
+    // 物理大気と局所霧は別々に焼くため、無効な媒質の高価な採取処理へ入らない。
+    EXPECT_TRUE(Contains(shader, "bool atmosphereEnabled=apParams.x>0.0;"));
+    EXPECT_TRUE(Contains(shader, "bool localFogEnabled=fogColorDensity.w>0.0;"));
+    EXPECT_TRUE(Contains(shader, "if(atmosphereEnabled) {"));
+    EXPECT_TRUE(Contains(shader, "if(localFogEnabled) {"));
+    EXPECT_TRUE(Contains(shader, "atmosphereExtinction=extKm*apParams.x;"));
+    EXPECT_TRUE(Contains(shader, "phR=RayleighPhase(cosVS);"));
+    EXPECT_TRUE(Contains(shader, "fogPhase=FogPhase(cosVS,fogParams.z);"));
+    EXPECT_TRUE(Contains(source, "if (!m_LutsReady && physicalEnabled)"));
 
     const std::size_t physicalEntry = shader.find(
         "void CSAp(uint3 id : SV_DispatchThreadID)");
@@ -495,19 +557,14 @@ ACS_TEST(Atmosphere,
 
     FVolumetricFogParams fog{};
     fog.density = 0.004f;
-    const FMat4 inverseViewProjection = FMat4::Identity();
+    const FMat4 cameraRelativeInverseViewProjection = FMat4::Identity();
     const FVec3 camera{0.0f, 2.0f, 0.0f};
     const FVec3 sunDirection{0.35f, 0.8f, 0.25f};
     const FVec3 sunIntensity{4.0f, 3.8f, 3.5f};
     command->Begin();
 
-    auto build = [&](f32 sceneToKm, f32 cameraAltitude,
-                     const FVolumetricFogParams& fogParams) {
-        return atmosphere.BuildAerialPerspective(
-            *deviceResult.Value(), *command, inverseViewProjection,
-            camera, sunDirection, sunIntensity, 250000.0f,
-            sceneToKm, cameraAltitude, fogParams);
-    };
+    auto buildAt = [&](FVec3 cameraPosition, f32 sceneToKm, f32 cameraAltitude, const FVolumetricFogParams& fogParams) { return atmosphere.BuildAerialPerspectiveCameraRelative(*deviceResult.Value(), *command, cameraRelativeInverseViewProjection, cameraPosition, sunDirection, sunIntensity, 250000.0f, sceneToKm, cameraAltitude, fogParams); };
+    auto build = [&](f32 sceneToKm, f32 cameraAltitude, const FVolumetricFogParams& fogParams) { return buildAt(camera, sceneToKm, cameraAltitude, fogParams); };
 
     // Fog-only mode must not initialize or overwrite the physical L/T pair.
     EXPECT_TRUE(build(0.0f, 0.0f, fog) == nullptr);
@@ -518,6 +575,12 @@ ACS_TEST(Atmosphere,
     EXPECT_EQ(atmosphere.LocalFogDispatchCount(), 1u);
 
     EXPECT_TRUE(build(0.001f, 0.0f, fog) != nullptr);
+    EXPECT_EQ(atmosphere.PhysicalApDispatchCount(), 1u);
+    EXPECT_EQ(atmosphere.LocalFogDispatchCount(), 1u);
+
+    // 水平一様な大気と高さ霧は、同じ向きでX/Zだけ移動しても再生成しない。
+    const FVec3 horizontallyMovedCamera{4096.0f, camera.y, -8192.0f};
+    EXPECT_TRUE(buildAt(horizontallyMovedCamera, 0.001f, 0.0f, fog) != nullptr);
     EXPECT_EQ(atmosphere.PhysicalApDispatchCount(), 1u);
     EXPECT_EQ(atmosphere.LocalFogDispatchCount(), 1u);
 
@@ -816,12 +879,11 @@ ACS_TEST(Atmosphere,
         source.find("void DrawScene3D(");
     const std::size_t water =
         source.find("DrawInteractiveWater3DPass(", draw_scene);
-    const std::size_t aerial = source.find(
-        "h.sky_atmo.CompositeAerialPerspective(", water);
+    const std::size_t aerial = source.find("h.sky_atmo.CompositeAerialPerspectiveCameraRelative(", water);
     const std::size_t cloud =
         source.find("h.vclouds3d.Composite(", water);
     const std::size_t local_fog =
-        source.find("h.sky_atmo.CompositeLocalFog(", water);
+        source.find("h.sky_atmo.CompositeLocalFogCameraRelative(", water);
 
     EXPECT_TRUE(draw_scene != std::string::npos);
     EXPECT_TRUE(water != std::string::npos);

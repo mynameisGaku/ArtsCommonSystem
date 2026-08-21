@@ -9,6 +9,21 @@
 namespace acs {
 
 /**
+ * カメラ位置を含まないビュープロジェクション行列を作る。
+ *
+ * @param view カメラのビュー行列。
+ * @param projection 同じカメラの投影行列。
+ * @return 平行移動を除いたビューと投影を合成した行列。
+ */
+inline FMat4 BuildCameraRelativeViewProjection(const FMat4& view, const FMat4& projection) noexcept {
+    FMat4 cameraRelativeView = view;
+    cameraRelativeView.m[3][0] = 0.0f;
+    cameraRelativeView.m[3][1] = 0.0f;
+    cameraRelativeView.m[3][2] = 0.0f;
+    return cameraRelativeView * projection;
+}
+
+/**
  * カメラ位置を含まない逆ビュープロジェクション行列を作る。
  *
  * @param view カメラのビュー行列。
@@ -17,11 +32,7 @@ namespace acs {
  */
 inline FMat4 BuildCameraRelativeInverseViewProjection(const FMat4& view, const FMat4& projection) noexcept {
     // 回転と投影だけを反転し、遠方座標を含む行列の反転で失われる精度を避ける。
-    FMat4 cameraRelativeView = view;
-    cameraRelativeView.m[3][0] = 0.0f;
-    cameraRelativeView.m[3][1] = 0.0f;
-    cameraRelativeView.m[3][2] = 0.0f;
-    return Inverse(cameraRelativeView * projection);
+    return Inverse(BuildCameraRelativeViewProjection(view, projection));
 }
 
 /**
@@ -73,6 +84,21 @@ public:
     }
 
     /**
+     * 注視方向を指定してビュー行列を設定する。
+     *
+     * @details 遠方で注視点をeyeへ加算すると向きの有効桁が失われるため、既知の方向はこの入口へ直接渡す。
+     * @param eye カメラ位置。
+     * @param direction カメラから前方への方向。長さは任意。
+     * @param up 上方向ベクトル。
+     */
+    void SetLookDirection(FVec3 eye, FVec3 direction, FVec3 up = FVec3::Up()) noexcept {
+        m_Eye = eye;
+        // 原点で回転を作ってから平行移動を加え、方向の計算へ遠方座標を混ぜない。
+        const FMat4 cameraRelativeView = FMat4::LookAtLH(FVec3{}, direction, up);
+        m_View = FMat4::Translation(FVec3{-eye.x, -eye.y, -eye.z}) * cameraRelativeView;
+    }
+
+    /**
      * ビュー行列を返す。
      *
      * @return 現在のビュー行列への const 参照。
@@ -96,7 +122,7 @@ public:
     /**
      * カメラ位置を返す。
      *
-     * @return SetLookAt で設定した eye 位置。
+     * @return SetLookAtまたはSetLookDirectionで設定したeye位置。
      */
     FVec3        Eye()            const noexcept { return m_Eye; }
 
@@ -119,7 +145,7 @@ private:
     /** プロジェクション行列。 */
     FMat4 m_Projection;
 
-    /** カメラ位置 (SetLookAt で更新)。 */
+    /** SetLookAtまたはSetLookDirectionで更新するカメラ位置。 */
     FVec3 m_Eye{0, 0, 0};
 };
 

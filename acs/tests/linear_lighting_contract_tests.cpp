@@ -510,6 +510,26 @@ ACS_TEST(LinearLightingContract,
     EXPECT_EQ(previous, 1024u);
 }
 
+ACS_TEST(LinearLightingContract, SkyboxUsesCameraRelativeRaysAtFarWorldCoordinates) {
+    const std::string source = ReadRenderSource("Ibl.cpp");
+    const std::string skybox = ExtractRawShader(source, "const char* kSkyboxHLSL");
+    EXPECT_TRUE(!source.empty());
+    EXPECT_TRUE(!skybox.empty());
+
+    // 環境空は巨大なワールド位置を復元せず、カメラ相対遠点を直接正規化する。
+    EXPECT_TRUE(Contains(skybox, "float4x4 camera_relative_inv_view_proj;"));
+    EXPECT_TRUE(Contains(skybox, "float3 dir = normalize(camera_relative_position.xyz / safe_w);"));
+    EXPECT_FALSE(Contains(skybox, "wp.xyz - eye.xyz"));
+    EXPECT_FALSE(Contains(skybox, "float4   eye;"));
+
+    // 旧入口を互換アダプターとして残し、高精度入口は不正行列を描画しない。
+    EXPECT_TRUE(Contains(source, "void CImageBasedLighting::DrawSkyboxCameraRelative("));
+    EXPECT_TRUE(Contains(source, "void CImageBasedLighting::DrawEnvSkyboxCameraRelative("));
+    EXPECT_TRUE(Contains(source, "Inverse(view_proj) * FMat4::Translation("));
+    EXPECT_TRUE(Contains(source, "if (!IsFiniteSkyboxMatrix_Internal(camera_relative_inv_view_proj)) return;"));
+    EXPECT_TRUE(Contains(source, "cb.camera_relative_inv_view_proj = camera_relative_inv_view_proj;"));
+}
+
 ACS_TEST(LinearLightingContract,
          PhysicalSunDiscIsAnalyticCircularAndDisplayResolution) {
     const std::string source = ReadRenderSource("Ibl.cpp");

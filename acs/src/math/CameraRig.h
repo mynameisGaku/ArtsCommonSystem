@@ -32,7 +32,7 @@ inline FVec3 OrbitEye(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dist) noexce
 }
 
 /**
- * 軌道カメラを組み立てて返す (OrbitEye + SetLookAt + SetPerspective)。
+ * 軌道カメラを組み立てて返す。
  *
  * @param target 注視点。
  * @param yaw_rad ヨー (rad)。
@@ -48,7 +48,12 @@ inline CCamera MakeOrbitCamera(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dis
                                f32 fov_y_rad, f32 aspect, f32 near_z, f32 far_z) noexcept {
     CCamera cam;
     cam.SetPerspective(fov_y_rad, aspect, near_z, far_z);
-    cam.SetLookAt(OrbitEye(target, yaw_rad, pitch_rad, dist), target);
+    const f32 cp = Cos(pitch_rad), sp = Sin(pitch_rad);
+    const f32 cy = Cos(yaw_rad), sy = Sin(yaw_rad);
+    // 注視点からカメラへ向かう単位方向。
+    const FVec3 targetToEye{cp * sy, sp, cp * cy};
+    const FVec3 eye{target.x + targetToEye.x * dist, target.y + targetToEye.y * dist, target.z + targetToEye.z * dist};
+    cam.SetLookDirection(eye, FVec3{-targetToEye.x, -targetToEye.y, -targetToEye.z});
     return cam;
 }
 

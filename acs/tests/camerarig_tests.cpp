@@ -120,3 +120,17 @@ ACS_TEST(CameraRig, BehindCameraReturnsFalse) {
     FVec2 px;
     EXPECT_FALSE(WorldToScreen(cam, FVec3{ 0, 0, 20 }, w, h, px));
 }
+
+ACS_TEST(CameraRig, FarWorldOrbitPreservesCameraRelativeOrientation) {
+    const FVec3 originTarget{};
+    const FVec3 farTarget{64000.0f, 2000.0f, 96000.0f};
+    const CCamera originCamera = MakeOrbitCamera(originTarget, 0.73f, -0.21f, 12.0f, kFov, 16.0f / 9.0f, 0.05f, 250000.0f);
+    const CCamera farCamera = MakeOrbitCamera(farTarget, 0.73f, -0.21f, 12.0f, kFov, 16.0f / 9.0f, 0.05f, 250000.0f);
+    const FMat4 originRelative = BuildCameraRelativeViewProjection(originCamera.View(), originCamera.Projection());
+    const FMat4 farRelative = BuildCameraRelativeViewProjection(farCamera.View(), farCamera.Projection());
+    for (u32 row = 0u; row < 4u; ++row) {
+        for (u32 column = 0u; column < 4u; ++column) {
+            EXPECT_NEAR(farRelative.m[row][column], originRelative.m[row][column], 1.0e-6f);
+        }
+    }
+}

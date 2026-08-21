@@ -165,6 +165,13 @@ public:
                     f32 sun_angular_radius = 0.0f) noexcept;
 
     /**
+     * カメラ相対逆行列から任意の環境キューブ地図を高精度に描く。
+     *
+     * @param camera_relative_inv_view_proj 平行移動を含まない逆ビュープロジェクション行列。
+     */
+    void DrawSkyboxCameraRelative(IRhiDevice& device, IRhiCommandList& cl, IRhiTexture& cube, const FMat4& camera_relative_inv_view_proj, EFormat rt_format, EFormat depth_format, f32 mip_level = 0.0f, FVec3 sun_direction = FVec3{0.0f, 1.0f, 0.0f}, FVec3 sun_radiance = FVec3{}, f32 sun_angular_radius = 0.0f) noexcept;
+
+    /**
      * env_cube を skybox として現在の RT へ描く利便ラッパ。
      *
      * @param device リソース生成・描画に使う RHI デバイス。
@@ -188,6 +195,9 @@ public:
                        FVec3 sun_direction = FVec3{0.0f, 1.0f, 0.0f},
                        FVec3 sun_radiance = FVec3{},
                        f32 sun_angular_radius = 0.0f) noexcept;
+
+    /** 環境キューブ地図をカメラ相対逆行列から描く高精度版。 */
+    void DrawEnvSkyboxCameraRelative(IRhiDevice& device, IRhiCommandList& cl, const FMat4& camera_relative_inv_view_proj, EFormat rt_format, EFormat depth_format, FVec3 sun_direction = FVec3{0.0f, 1.0f, 0.0f}, FVec3 sun_radiance = FVec3{}, f32 sun_angular_radius = 0.0f) noexcept;
 
     /**
      * 環境 cubemap (とそれに依存する irradiance / prefilter) だけを reset する。

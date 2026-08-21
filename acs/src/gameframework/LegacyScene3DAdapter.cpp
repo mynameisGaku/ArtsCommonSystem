@@ -1172,15 +1172,11 @@ void ALegacyScene3DAdapter::RenderSky(
     if (m_IblReady && m_Ibl.EnvCubemap() != nullptr) {
         // 環境光と同じ cubemap を空として描く。光と空が同じものから来る。
         const FVec3 radiance = PhysicalSunIntensity(SunColorForAtmosphere());
-        m_Ibl.DrawEnvSkybox(
-            device, command_list,
-            m_Camera.ViewProjection(), m_Camera.Eye(),
-            color_format, depth_format,
-            SunDirection(),
-            FVec3{radiance.x * kSunDiscRadianceScale,
-                  radiance.y * kSunDiscRadianceScale,
-                  radiance.z * kSunDiscRadianceScale},
-            kSunAngularRadius);
+        // 最終解像度で描く太陽円盤の放射輝度。
+        const FVec3 sunDiscRadiance{radiance.x * kSunDiscRadianceScale, radiance.y * kSunDiscRadianceScale, radiance.z * kSunDiscRadianceScale};
+        // 通常のC++描画でもワールド原点からの距離に依存しない視線を使う。
+        const FMat4 skyCameraRelativeInverse = BuildCameraRelativeInverseViewProjection(m_Camera.View(), m_Camera.Projection());
+        m_Ibl.DrawEnvSkyboxCameraRelative(device, command_list, skyCameraRelativeInverse, color_format, depth_format, SunDirection(), sunDiscRadiance, kSunAngularRadius);
         return;
     }
 
@@ -3947,10 +3943,7 @@ void ALegacyScene3DAdapter::SetFreeCameraEnabled(bool enabled) noexcept
 
 void ALegacyScene3DAdapter::UpdateCameraView() noexcept {
     if (m_UseAuthoredCamera) {
-        m_Camera.SetLookAt(
-            m_AuthoredCamera.Position,
-            m_AuthoredCamera.Position + m_AuthoredCamera.Forward,
-            m_AuthoredCamera.Up);
+        m_Camera.SetLookDirection(m_AuthoredCamera.Position, m_AuthoredCamera.Forward, m_AuthoredCamera.Up);
         return;
     }
     UpdateOrbitCameraView_Internal(m_OrbitCameraState, 0.0f);
@@ -3974,7 +3967,10 @@ void ALegacyScene3DAdapter::UpdateOrbitCameraView_Internal(const COrbitCameraCon
     if (!m_OrbitCameraController.TryBuildView(presented, view)) return;
     m_PresentedOrbitCameraState = presented;
     m_IsOrbitCameraObstructionPresentationActive = m_OrbitCameraObstructionSettings.Enabled && m_OrbitCameraObstructionSettings.RecoverySharpness > 0.0f && (has_obstruction || presented.distance < state.distance);
-    m_Camera.SetLookAt(view.eye, view.look_at, view.up);
+    // 軌道角度から直接前方を再構築し、遠方のeyeと注視点の減算誤差を避ける。
+    const f32 pitchCosine = Cos(presented.pitch_radians);
+    const FVec3 forward{Sin(presented.yaw_radians) * pitchCosine, -Sin(presented.pitch_radians), Cos(presented.yaw_radians) * pitchCosine};
+    m_Camera.SetLookDirection(view.eye, forward, view.up);
 }
 
 /** target近傍を除く有効scene meshから自由cameraのpresentation距離を解決する。 */
