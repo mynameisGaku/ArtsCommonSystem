@@ -81,6 +81,9 @@ internal static class EditorAbiContractSelfTest
               compatible.ToDisplayText().Contains(
                   "prefab-root-property-selective-revert-3d-v1",
                   StringComparison.Ordinal) &&
+              compatible.ToDisplayText().Contains(
+                  "prefab-root-component-property-override-3d-v1",
+                  StringComparison.Ordinal) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.SparseTransformMutationV1) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
@@ -91,6 +94,8 @@ internal static class EditorAbiContractSelfTest
                   EditorAbiCapability.PrefabRootPropertyOverride3DV1) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.PrefabRootPropertySelectiveRevert3DV1) &&
+              EditorAbiContract.RequiredCapabilities.HasFlag(
+                  EditorAbiCapability.PrefabRootComponentPropertyOverride3DV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.VolumetricCloudWorkloadV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
@@ -432,6 +437,22 @@ internal static class EditorAbiContractSelfTest
             missingPrefabSelectiveRevert.MissingRequired.HasFlag(
                 EditorAbiCapability.PrefabRootPropertySelectiveRevert3DV1),
             "provider without selective 3D Prefab root Revert fails before the editor can call its export");
+
+        EditorAbiSnapshot missingPrefabComponentOverrides =
+            EditorAbiContract.Evaluate(
+                queryAvailable: true,
+                queryResult: 0,
+                providerVersion: EditorAbiContract.RequestedVersion,
+                capabilityBits:
+                    (ulong)(complete &
+                        ~EditorAbiCapability.PrefabRootComponentPropertyOverride3DV1),
+                productVersion: "ACS Editor test",
+                renderBackend: "Test RHI");
+        Check(
+            !missingPrefabComponentOverrides.Compatible &&
+            missingPrefabComponentOverrides.MissingRequired.HasFlag(
+                EditorAbiCapability.PrefabRootComponentPropertyOverride3DV1),
+            "provider without 3D Prefab root component property overrides fails before the editor can call its exports");
 
         EditorAbiSnapshot falseSuccess = EditorAbiContract.Evaluate(
             queryAvailable: true,

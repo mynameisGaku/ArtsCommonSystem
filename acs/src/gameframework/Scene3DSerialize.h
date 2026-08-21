@@ -21,6 +21,7 @@ inline constexpr u32 kScene3DSerializeMaxSpritePathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxPrefabPathBytes = 299u;
 inline constexpr u32 kScene3DSerializePrefabInstanceIdBytes = 32u;
 inline constexpr u32 kScene3DSerializeMaxComponentsPerNode = 1024u;
+inline constexpr u32 kScene3DSerializeMaxEditorComponentProperties = 24u;
 inline constexpr u32 kScene3DSerializeMaxDirectiveRecords = 262144u;
 inline constexpr u32 kScene3DSerializeMaxCameraCount = 256u;
 inline constexpr u32 kScene3DSerializeMaxCameraIdBytes = 64u;

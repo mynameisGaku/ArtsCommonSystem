@@ -427,6 +427,9 @@ internal static class SceneEditorMigrationSelfTest
             selectivePrefabRootApplyBody.Contains(
                 "acs_editor_prefab_instance3d_clear_root_overrides(",
                 StringComparison.Ordinal) &&
+            shellSource.Contains(
+                "acs_editor_prefab_instance3d_clear_root_component_property_overrides(",
+                StringComparison.Ordinal) &&
             selectivePrefabRootApplyBody.Contains(
                 "preserveRootOverrides: true",
                 StringComparison.Ordinal) &&
@@ -437,6 +440,17 @@ internal static class SceneEditorMigrationSelfTest
                 "CreatePrefabRootOverrideApplyButton3D(",
                 StringComparison.Ordinal),
             "3D Prefab root overrides expose selective Apply through pure calculation and explicit adapters");
+        Check(
+            view3DSource.Contains(
+                "MarkPrefabRootComponentPropertyOverride3D(",
+                StringComparison.Ordinal) &&
+            view3DSource.Contains(
+                "acs_editor_prefab_instance3d_root_component_property_override_mask(",
+                StringComparison.Ordinal) &&
+            shellSource.Contains(
+                "PCOVR3D",
+                StringComparison.Ordinal),
+            "3D Prefab root component edits record explicit persistent override metadata");
         Check(
             placeBlueprintBody.Contains(
                 "EngineInterop.acs_editor_prefab_instance3d_instantiate(",
@@ -451,7 +465,7 @@ internal static class SceneEditorMigrationSelfTest
                 "NewPrefabInstanceId3D()",
                 StringComparison.Ordinal) &&
             shellSource.Contains(
-                "PFAB(?:3D)?|PINS3D|POVR3D",
+                "PFAB(?:3D)?|PINS3D|POVR3D|PCOVR3D",
                 StringComparison.Ordinal),
             "3D Prefab placement supplies explicit identity through one native transaction and strips template self-links and overrides");
         Check(

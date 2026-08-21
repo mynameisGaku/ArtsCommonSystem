@@ -341,15 +341,18 @@ Prefab と Blueprint は subtree 保存、2D/3D 配置、source link、Apply/Rev
 
 instance rootのVisible、Enabled、Colorは `POVR3D` maskで明示的にoverrideとして記録する。source更新で他instanceを再生成するときは指定値だけを保持する。全Revertに加え、root propertyごとのselective Revertは選択bitだけを原本値へ戻し、残りのoverrideを同じnative transactionで維持する。selective Applyは選択propertyだけを原本の`N3D`/`FLG3D`へatomic書込し、選択instanceの該当bitだけを解消して、他instanceの明示overrideを保持したまま更新する。transformはproperty overrideに含めず、instance配置として常に保持する。
 
+instance rootの反射component propertyは `PCOVR3D` でnode/slot/propertyごとに永続化する。source更新時は編集時slotをcomponent型IDへ解決し、再生成後の同型componentへ値を戻すため、source側のcomponent並び替えを許容する。対象component/propertyが消えた場合はsceneとUndoをrollbackし、全Revertはmarkerを破棄する。全Applyは選択instanceのmarkerを解消し、他instanceのmarkerは保持して更新する。
+
 - `editor/AcsEditor/MainWindow.xaml.cs`
 - `editor/AcsEditor/PrefabRootPropertyApply3D.cs`
 - `editor/AcsEditor/BlueprintEditor.xaml.cs:4125-4155`
 
-現在の全体Prefab Applyはsubtree全体を書き戻し、他instanceを再生成する。root 3 propertyはproperty単位Apply/Revertに対応したが、child/component単位の差分はまだ持たない。
+現在の全体Prefab Applyはsubtree全体を書き戻し、他instanceを再生成する。root 3 propertyはproperty単位Apply/Revertに対応し、root component propertyは差分保存とsource更新時の保持まで対応した。component単位のselective Apply/Revertとchild差分はまだ持たない。
 
 不足:
 
-- child/component property override と selective Apply/Revert。
+- root component propertyのselective Apply/Revert。
+- child stable identityとchild property override。
 - nested prefab、variant、inheritance。
 - source 更新時の conflict、diff、rebase。
 - break/relink、missing source recovery。

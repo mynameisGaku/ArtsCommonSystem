@@ -1642,6 +1642,24 @@ internal static class EngineInterop
         IntPtr handle,
         int id,
         PrefabRootProperty3D mask);
+    /// <summary>root component slotでoverride済みのproperty bitを返す。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern uint acs_editor_prefab_instance3d_root_component_property_override_mask(
+        IntPtr handle,
+        int id,
+        int slot);
+    /// <summary>編集成功済みのroot component propertyをoverrideへ追加する。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_mark_root_component_property_override(
+        IntPtr handle,
+        int id,
+        int slot,
+        int property);
+    /// <summary>Full Apply済みrootのcomponent property overrideを全て解消する。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_clear_root_component_property_overrides(
+        IntPtr handle,
+        int id);
     /// <summary>指定したroot overrideだけを原本値へ戻し、残りを維持する。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_prefab_instance3d_revert_root_overrides(

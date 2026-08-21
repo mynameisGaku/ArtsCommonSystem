@@ -312,7 +312,8 @@ portable references only in isolated cook copies. Unsupported directives or
 external resources fail closed rather than being silently dropped.
 The supported 3D subset includes inline `PLY3D` geometry, `SPR3D` texture
 references, non-executing `PFAB3D` instance-source links, and `PINS3D` stable
-instance identities plus `POVR3D` root override masks. Cook preserves
+instance identities plus `POVR3D` root overrides and `PCOVR3D` root-component
+property overrides. Cook preserves
 the geometry and rewrites both dependency kinds into the package asset namespace.
 
 ### Details multi-selection transactions
@@ -579,6 +580,14 @@ clears only the selected mask bit, and refreshes other instances while retaining
 their explicit root overrides. The initiating instance remains selected after
 those replacement transactions. Invalid source, stale source text, or write
 failure leaves both the source and instance mask unchanged.
+
+Root reflected component edits use the same explicit boundary. Managed code
+marks `PCOVR3D` metadata only after a verified property write or successful
+atomic multi-edit. Refresh captures component type ID, property mask, and value,
+then resolves that type in the replacement subtree so source component reorder
+does not redirect an override. A removed component/property fails closed and
+restores the old scene and Undo history. Full Apply clears the selected
+instance's component markers; refresh of other instances preserves theirs.
 
 Project Settings uses the canonical settings-file path as its stable identity
 and participates in common dirty, Undo/Redo transaction, Save All, and

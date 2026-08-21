@@ -637,6 +637,7 @@ internal static class PackageResponsivenessSelfTest
                 $"MAT3D 3 {material}\n" +
                 $"PFAB3D 4 {child}\n" +
                 "PINS3D 4 0123456789abcdef0123456789abcdef\n" +
+                "PCOVR3D 4 0 4\n" +
                 "MAT3D 5 0.250 0.750\n";
             byte[] cooked3D = PackageCore.RewritePrefabPayloadForSelfTest(
                 new UTF8Encoding(false).GetBytes(source3D),
@@ -652,6 +653,7 @@ internal static class PackageResponsivenessSelfTest
                     "MAT3D 3 Assets/Materials/cloud.acsmat\n" +
                     "PFAB3D 4 Assets/Prefabs/engine.acsprefab\n" +
                     "PINS3D 4 0123456789abcdef0123456789abcdef\n" +
+                    "PCOVR3D 4 0 4\n" +
                     "MAT3D 5 0.250 0.750\n" &&
                 !rewritten3D.Contains(root, StringComparison.OrdinalIgnoreCase) &&
                 !rewritten3D.Contains(

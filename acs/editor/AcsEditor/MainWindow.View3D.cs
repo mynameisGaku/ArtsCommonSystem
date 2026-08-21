@@ -291,14 +291,49 @@ public partial class MainWindow
                 (rootOverrides.HasFlag(PrefabRootProperty3D.Visible) ? 1 : 0) +
                 (rootOverrides.HasFlag(PrefabRootProperty3D.Enabled) ? 1 : 0) +
                 (rootOverrides.HasFlag(PrefabRootProperty3D.Color) ? 1 : 0);
+            int componentOverrideCount = 0;
+            int componentCount =
+                EngineInterop.acs_editor_node3d_component_count(Engine, id);
+            for (int slot = 0; slot < componentCount; ++slot)
+            {
+                uint mask = EngineInterop
+                    .acs_editor_prefab_instance3d_root_component_property_override_mask(
+                        Engine,
+                        id,
+                        slot);
+                while (mask != 0u)
+                {
+                    mask &= mask - 1u;
+                    componentOverrideCount++;
+                }
+            }
+            string rootOverrideSummary =
+                $"{rootOverrideCount} root override{(rootOverrideCount == 1 ? "" : "s")}";
+            string componentOverrideSummary =
+                $"{componentOverrideCount} component override{(componentOverrideCount == 1 ? "" : "s")}";
+            string overrideSummary = rootOverrideCount > 0 && componentOverrideCount > 0
+                ? $"{rootOverrideSummary}, {componentOverrideSummary}"
+                : rootOverrideCount > 0
+                    ? rootOverrideSummary
+                    : componentOverrideCount > 0
+                        ? componentOverrideSummary
+                        : "";
             int curId = id;
             var banner = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
             banner.Children.Add(new TextBlock {
                 Text = (IsBlueprint(prefabSrc) ? "◆ Blueprint: " : "◆ Prefab: ") +
-                    System.IO.Path.GetFileName(prefabSrc) +
-                    (rootOverrideCount > 0 ? $"  ({rootOverrideCount} root override)" : ""),
+                    System.IO.Path.GetFileName(prefabSrc),
                 Foreground = (Brush)FindResource("Accent"), FontSize = 11, FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 0, 0, 4) });
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, string.IsNullOrEmpty(overrideSummary) ? 4 : 1) });
+            if (!string.IsNullOrEmpty(overrideSummary))
+            {
+                banner.Children.Add(new TextBlock {
+                    Text = overrideSummary,
+                    Foreground = (Brush)FindResource("TextDim"), FontSize = 10,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 4) });
+            }
             var brow = new StackPanel { Orientation = Orientation.Horizontal };
             var apply  = new Button { Content = "Apply",  FontSize = 11, Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0),
                 ToolTip = "この編集をプレハブ側へ反映 (instance → prefab)" };
@@ -1806,15 +1841,14 @@ public partial class MainWindow
 
         string selectionIdentity =
             InspectorMultiEditContract.SelectionIdentity(selected);
-        InspectorAtomicBatchResult result;
-        using (BeginSceneDocumentTransaction(
-                   label,
-                   $"inspector.multi.component.{typeName}." +
-                   $"{property.Schema.Name}.{selectionIdentity}",
-                   TimeSpan.Zero,
-                   selected[0]))
-        {
-            result = InspectorMultiEditContract.ApplyAtomically(
+        using IDisposable transaction = BeginSceneDocumentTransaction(
+            label,
+            $"inspector.multi.component.{typeName}." +
+            $"{property.Schema.Name}.{selectionIdentity}",
+            TimeSpan.Zero,
+            selected[0]);
+        InspectorAtomicBatchResult result =
+            InspectorMultiEditContract.ApplyAtomically(
                 selected,
                 (int nodeId, out MultiArrayMutation mutation) =>
                 {
@@ -1877,13 +1911,23 @@ public partial class MainWindow
                         typeName,
                         targets[nodeId],
                         mutation.Before));
-        }
 
         bool succeeded =
             ReportMultiBatchResult(
                 label,
                 selected.Length,
                 result);
+        if (succeeded)
+        {
+            foreach (InspectorReflectedPropertyTarget target in
+                     property.Targets)
+            {
+                MarkPrefabRootComponentPropertyOverride3D(
+                    target.NodeId,
+                    target.Slot,
+                    target.PropertyIndex);
+            }
+        }
         if (succeeded &&
             InspectorMultiEditContract.SameSelection(
                 selected,
@@ -2726,6 +2770,29 @@ public partial class MainWindow
         {
             Log(
                 $"3D Prefab root overrideを記録できませんでした (node {id}, {property})。",
+                "Scene",
+                LogLevel.Warn);
+        }
+    }
+
+    /// <summary>成功済みcomponent編集をstable 3D Prefab rootのoverrideへ記録する。</summary>
+    private void MarkPrefabRootComponentPropertyOverride3D(
+        int id,
+        int slot,
+        int property)
+    {
+        if (Engine == IntPtr.Zero || id < 0 || slot < 0 || property < 0)
+            return;
+        if (EngineInterop
+                .acs_editor_prefab_instance3d_mark_root_component_property_override(
+                    Engine,
+                    id,
+                    slot,
+                    property) == 0)
+        {
+            Log(
+                $"3D Prefab root component overrideを記録できませんでした " +
+                $"(node {id}, slot {slot}, property {property})。",
                 "Scene",
                 LogLevel.Warn);
         }
