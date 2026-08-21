@@ -1550,6 +1550,15 @@ float cloudRefinedSampleT(float intervalStart,float coarseProbeT,float fineStep,
     float coarseCellStart=max(coarseProbeT-coarseStep,intervalStart);
     return coarseCellStart+jitter*fineStep;
 }
+// 通常描画では各細密区間の採取位置を一定周期を持たない列でずらし、周期形状との共振を防ぐ。
+// 参照描画は時間平均を使わないため、従来どおり全区間の中央を採取する。
+float cloudRayIntervalPhase(float basePhase,int intervalIndex){
+    float samplePhase=0.5;
+    if(cloudLightingAmbient.w<0.5){
+        samplePhase=frac(basePhase+float(intervalIndex)*0.41421356237);
+    }
+    return samplePhase;
+}
 // 内部散乱確率用の低 LOD density。detail texture を読まず、最終 density と同じ
 // weather/profile scale を保つ。
 float cloudLowLodDensityFromPositiveWeatherMacro(CloudMacroSample macro,float heightThreshold,float weatherMask){
@@ -1974,7 +1983,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float fineCellStart=max(t-finePhaseOffset,t0);
             if(fineCellStart>=t1) break;
             stepLength=min(fineStep,t1-fineCellStart);
-            sampleT=fineCellStart+jit*stepLength;
+            float intervalPhase=cloudRayIntervalPhase(jit,i);
+            sampleT=fineCellStart+intervalPhase*stepLength;
         }else if(t>=t1){
             break;
         }

@@ -398,6 +398,13 @@ f32 CloudDetailVisibilityFromSampleSpacingForTest(f32 sampleSpacing) noexcept {
     return 1.0f - SmoothStepForTest(10.0f, 48.0f, boundedSpacing);
 }
 
+// 視線区間ごとの採取位相を求め、参照描画だけは区間中央へ固定する。
+f32 CloudRayIntervalPhaseForTest(f32 basePhase, u32 intervalIndex, bool referenceMode) noexcept {
+    if (referenceMode) return 0.5f;
+    const f32 unfolded = basePhase + static_cast<f32>(intervalIndex) * 0.41421356237f;
+    return unfolded - std::floor(unfolded);
+}
+
 // 高度から選択中の雲層内の高さ比率を求め、シェーダーと同じ範囲へ収める。
 f32 CloudHeightFractionFromAltitudeForTest(f32 altitude, f32 lowerBase, f32 lowerInverseThickness, f32 upperBase, f32 upperInverseThickness, bool upperBand) noexcept {
     f32 height = (altitude - lowerBase) * lowerInverseThickness;
@@ -1212,7 +1219,7 @@ ACS_TEST(VolumetricClouds, FineSamplePhaseOwnsTheCompleteIntegrationInterval) {
     EXPECT_TRUE(Contains(shader, "floatfinePhaseOffset=jit*fineStep;"));
     EXPECT_TRUE(Contains(shader, "[loop]for(inti=0;i<MAX_STEPS;i++){"));
     EXPECT_TRUE(Contains(shader, "elseif(t>=t1){break;}"));
-    EXPECT_TRUE(Contains(shader, "floatfineCellStart=max(t-finePhaseOffset,t0);" "if(fineCellStart>=t1)break;" "stepLength=min(fineStep,t1-fineCellStart);" "sampleT=fineCellStart+jit*stepLength;"));
+    EXPECT_TRUE(Contains(shader, "floatfineCellStart=max(t-finePhaseOffset,t0);" "if(fineCellStart>=t1)break;" "stepLength=min(fineStep,t1-fineCellStart);" "floatintervalPhase=cloudRayIntervalPhase(jit,i);" "sampleT=fineCellStart+intervalPhase*stepLength;"));
     EXPECT_TRUE(Contains(shader, "float3p=camPos.xyz+dir*sampleT;"));
     EXPECT_TRUE(Contains(shader, "depthMoment+=sampleWeight*sampleT;"));
     EXPECT_TRUE(Contains(shader, "t+=fineStep;"));
@@ -1259,6 +1266,44 @@ ACS_TEST(VolumetricClouds, DetailVisibilityFollowsRaySampleSpacing) {
     EXPECT_TRUE(detailBranch < firstDetailRead);
     EXPECT_TRUE(firstDetailRead < erosionBlend);
     EXPECT_TRUE(Contains(shader, "cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,0.65,1.0);"));
+}
+
+ACS_TEST(VolumetricClouds, ViewRayIntervalPhasesBreakPeriodicShapeResonance) {
+    constexpr u32 kIntervalCount = kVolumetricCloudViewSteps;
+    constexpr u32 kPhaseBinCount = 16u;
+    constexpr f32 kBasePhase = 0.37f;
+    constexpr f64 kTwoPi = 6.28318530717958647692;
+    u32 phaseBins[kPhaseBinCount]{};
+    f64 fixedSignalSum = 0.0;
+    f64 dispersedSignalSum = 0.0;
+
+    for (u32 interval = 0u; interval < kIntervalCount; ++interval) {
+        const f32 phase = CloudRayIntervalPhaseForTest(kBasePhase, interval, false);
+        EXPECT_TRUE(phase >= 0.0f && phase < 1.0f);
+        const u32 bin = static_cast<u32>(phase * static_cast<f32>(kPhaseBinCount));
+        EXPECT_TRUE(bin < kPhaseBinCount);
+        if (bin < kPhaseBinCount) ++phaseBins[bin];
+
+        // 区間周期と同じ形状成分では、固定位相は全標本が同じ値となる。
+        fixedSignalSum += 0.5 + 0.5 * std::cos(kTwoPi * static_cast<f64>(kBasePhase));
+        dispersedSignalSum += 0.5 + 0.5 * std::cos(kTwoPi * static_cast<f64>(phase));
+        EXPECT_NEAR(CloudRayIntervalPhaseForTest(kBasePhase, interval, true), 0.5f, 0.0f);
+    }
+
+    const f64 fixedAverage = fixedSignalSum / static_cast<f64>(kIntervalCount);
+    const f64 dispersedAverage = dispersedSignalSum / static_cast<f64>(kIntervalCount);
+    EXPECT_TRUE(std::fabs(fixedAverage - 0.5) > 0.30);
+    EXPECT_NEAR(dispersedAverage, 0.5, 0.01);
+    for (u32 bin = 0u; bin < kPhaseBinCount; ++bin) {
+        EXPECT_TRUE(phaseBins[bin] >= 11u);
+        EXPECT_TRUE(phaseBins[bin] <= 13u);
+    }
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(Contains(shader, "floatcloudRayIntervalPhase(floatbasePhase,intintervalIndex){floatsamplePhase=0.5;if(cloudLightingAmbient.w<0.5){samplePhase=frac(basePhase+float(intervalIndex)*0.41421356237);}returnsamplePhase;}"));
+    EXPECT_TRUE(Contains(shader, "floatintervalPhase=cloudRayIntervalPhase(jit,i);sampleT=fineCellStart+intervalPhase*stepLength;"));
+    EXPECT_FALSE(Contains(shader, "sampleT=fineCellStart+jit*stepLength;"));
 }
 
 ACS_TEST(VolumetricClouds, MarchPlanSupportsFlyThroughAndRejectsPlanetFacingGroundRay) {
