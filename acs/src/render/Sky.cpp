@@ -1859,13 +1859,26 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float4 coverageTerms=cloudCoverage;
     float transmit=1.0; float3 scatter=float3(0,0,0);
     float depthMoment=0.0;
+    float finePhaseOffset=jit*fineStep;
     float t=t0+jit*coarseStep;
     bool nearDensity=false;
     float refineUntil=t0;
-    [loop] for(int i=0;i<MAX_STEPS && t<t1;i++){
-        // The complete sample position stays in world space.  Subtracting
-        // camPos.y here used to drag the cloud layer with editor camera pans.
-        float3 p=camPos.xyz+dir*t;
+    [loop] for(int i=0;i<MAX_STEPS;i++){
+        float sampleT=t;
+        float stepLength=fineStep;
+        if(nearDensity){
+            // 乱数位相付きの位置から担当区間の始点を戻し、末尾の端数区間も全長を積分する。
+            // 端数区間では同じ位相を区間内へ縮め、標本が雲層の外へ出ないようにする。
+            float fineCellStart=max(t-finePhaseOffset,t0);
+            if(fineCellStart>=t1) break;
+            stepLength=min(fineStep,t1-fineCellStart);
+            sampleT=fineCellStart+jit*stepLength;
+        }else if(t>=t1){
+            break;
+        }
+        // カメラ位置を含む完全な標本位置はワールド座標である。ここでカメラの高さを
+        // 再び引くと、Editor のカメラ移動に合わせて雲層まで動いてしまう。
+        float3 p=camPos.xyz+dir*sampleT;
         float3 viewMacroUvw;
         float densityHeightThreshold;
         CloudMacroSample macro=sampleCloudMacro(p,coverageTerms,viewMacroUvw,densityHeightThreshold);
@@ -1890,7 +1903,6 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         }
         nearDensity=true;
         refineUntil=max(refineUntil,t+coarseStep);
-        float stepLength=min(fineStep,t1-t);
         // レイの刻み幅から採取可能な侵食帯域を求める。最後の短い区間で細部が再出現しないよう、
         // 実際の区間長ではなくレイ全体で一定の fineStep を使う。
         float detailVisibility=cloudDetailVisibilityFromSampleSpacing(fineStep);
@@ -2050,11 +2062,11 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float a=1.0-exp(-dens*stepLength*layer.w*cloudLightingExtinction.x);
             float sampleWeight=transmit*a;
             scatter += sampleWeight*(sunL+ambL+groundL);
-            depthMoment += sampleWeight*(t+stepLength*0.5);
+            depthMoment += sampleWeight*sampleT;
             transmit *= (1.0-a);
             if(transmit<0.012) break;
         }
-        t+=stepLength;
+        t+=fineStep;
     }
     float baseA = saturate(1.0 - transmit);
     float3 col = baseA>1e-4 ? scatter/baseA : float3(0,0,0);

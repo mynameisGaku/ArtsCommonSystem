@@ -240,6 +240,31 @@ f32 CloudRefinedSampleTForTest(f32 intervalStart, f32 coarseProbeT, f32 fineStep
     return coarseCellStart + jitter * fineStep;
 }
 
+// 細密標本が代表する区間と、その区間内で密度を採取する位置。
+struct FCloudFineSampleForTest {
+    // 担当区間の始点。
+    f32 cell_start = 0.0f;
+    // 担当区間内の標本位置。
+    f32 sample_t = 0.0f;
+    // 光学的深さへ掛ける担当区間の長さ。
+    f32 step_length = 0.0f;
+    // 雲層の積分範囲内に担当区間が存在するか。
+    bool valid = false;
+};
+
+// 乱数位相付きの標本位置から担当区間を復元し、末尾の端数区間へ位相を収める。
+FCloudFineSampleForTest ResolveCloudFineSampleForTest(f32 intervalStart, f32 intervalEnd, f32 phaseSampleT, f32 fineStep, f32 jitter) noexcept {
+    const f32 finePhaseOffset = jitter * fineStep;
+    const f32 candidateStart = phaseSampleT - finePhaseOffset;
+    const f32 cellStart =
+        candidateStart > intervalStart ? candidateStart : intervalStart;
+    if (cellStart >= intervalEnd) return {};
+    const f32 remainingLength = intervalEnd - cellStart;
+    const f32 stepLength =
+        remainingLength < fineStep ? remainingLength : fineStep;
+    return FCloudFineSampleForTest{cellStart, cellStart + jitter * stepLength, stepLength, true};
+}
+
 f32 CloudHenyeyGreensteinForTest(f32 cosine, f32 anisotropy) noexcept {
     const f32 anisotropySquared = anisotropy * anisotropy;
     const f32 denominator = std::pow(
@@ -1104,6 +1129,60 @@ ACS_TEST(VolumetricClouds, CoarseOccupancyRewindPreservesTheFineSamplePhase) {
     EXPECT_FALSE(Contains(shader, "t=max(t-coarseStep,t0);"));
 }
 
+ACS_TEST(VolumetricClouds, FineSamplePhaseOwnsTheCompleteIntegrationInterval) {
+    constexpr f32 kIntervalStart = 100.0f;
+    constexpr f32 kIntervalEnd = 110.0f;
+    constexpr f32 kFineStep = 6.0f;
+    constexpr f32 kReferencePhase = 0.5f;
+
+    const FCloudFineSampleForTest first = ResolveCloudFineSampleForTest(kIntervalStart, kIntervalEnd, 103.0f, kFineStep, kReferencePhase);
+    const FCloudFineSampleForTest last = ResolveCloudFineSampleForTest(kIntervalStart, kIntervalEnd, 109.0f, kFineStep, kReferencePhase);
+    const FCloudFineSampleForTest finished = ResolveCloudFineSampleForTest(kIntervalStart, kIntervalEnd, 115.0f, kFineStep, kReferencePhase);
+    EXPECT_TRUE(first.valid);
+    EXPECT_NEAR(first.cell_start, 100.0f, 1e-6f);
+    EXPECT_NEAR(first.sample_t, 103.0f, 1e-6f);
+    EXPECT_NEAR(first.step_length, 6.0f, 1e-6f);
+    EXPECT_TRUE(last.valid);
+    EXPECT_NEAR(last.cell_start, 106.0f, 1e-6f);
+    EXPECT_NEAR(last.sample_t, 108.0f, 1e-6f);
+    EXPECT_NEAR(last.step_length, 4.0f, 1e-6f);
+    EXPECT_FALSE(finished.valid);
+
+    // どの位相でも各標本の担当区間を合計すると、積分区間の全長になる。
+    constexpr f32 kPhases[]{0.0f, 0.25f, 0.5f, 0.9f};
+    for (const f32 phase : kPhases) {
+        f32 phaseSampleT = kIntervalStart + phase * kFineStep;
+        f32 integratedLength = 0.0f;
+        for (u32 sampleIndex = 0u; sampleIndex < 4u; ++sampleIndex) {
+            const FCloudFineSampleForTest sample = ResolveCloudFineSampleForTest(kIntervalStart, kIntervalEnd, phaseSampleT, kFineStep, phase);
+            if (!sample.valid) break;
+            EXPECT_TRUE(sample.sample_t >= sample.cell_start);
+            EXPECT_TRUE(sample.sample_t <= sample.cell_start + sample.step_length);
+            integratedLength += sample.step_length;
+            phaseSampleT += kFineStep;
+        }
+        EXPECT_NEAR(integratedLength, kIntervalEnd - kIntervalStart, 2e-5f);
+    }
+
+    // 一様密度なら区間中央採取の重み付き代表深度は、積分区間全体の中央と一致する。
+    const f32 integratedLength = first.step_length + last.step_length;
+    const f32 meanDepth = (first.sample_t * first.step_length + last.sample_t * last.step_length) / integratedLength;
+    EXPECT_NEAR(meanDepth, 105.0f, 1e-6f);
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(Contains(shader, "floatfinePhaseOffset=jit*fineStep;"));
+    EXPECT_TRUE(Contains(shader, "[loop]for(inti=0;i<MAX_STEPS;i++){"));
+    EXPECT_TRUE(Contains(shader, "elseif(t>=t1){break;}"));
+    EXPECT_TRUE(Contains(shader, "floatfineCellStart=max(t-finePhaseOffset,t0);" "if(fineCellStart>=t1)break;" "stepLength=min(fineStep,t1-fineCellStart);" "sampleT=fineCellStart+jit*stepLength;"));
+    EXPECT_TRUE(Contains(shader, "float3p=camPos.xyz+dir*sampleT;"));
+    EXPECT_TRUE(Contains(shader, "depthMoment+=sampleWeight*sampleT;"));
+    EXPECT_TRUE(Contains(shader, "t+=fineStep;"));
+    EXPECT_FALSE(Contains(shader, "MAX_STEPS&&t<t1"));
+    EXPECT_FALSE(Contains(shader, "t+stepLength*0.5"));
+    EXPECT_FALSE(Contains(shader, "stepLength=min(fineStep,t1-t)"));
+}
+
 ACS_TEST(VolumetricClouds, DetailVisibilityFollowsRaySampleSpacing) {
     const FVolumetricCloudLayer layer{1500.0f, 4000.0f, 0.035f};
     const FVec3 camera{0.0f, 18.0f, 0.0f};
@@ -1338,11 +1417,10 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(!source.empty());
     EXPECT_TRUE(!shader.empty());
 
-    // The ray origin is camera-dependent, but the resulting sample position is
-    // an absolute world point.  Noise/weather lookups must consume that point
-    // directly instead of subtracting camera position again.
+    // レイ始点はカメラに依存するが、密度の標本位置は絶対ワールド座標である。
+    // 雑音と天候の採取では、カメラ位置をもう一度引かずにこの座標を直接使う。
     EXPECT_TRUE(Contains(
-        shader, "float3 p=camPos.xyz+dir*t;"));
+        shader, "float3 p=camPos.xyz+dir*sampleT;"));
     EXPECT_TRUE(Contains(
         shader, "float MAX_DISTANCE=cloudRange.x;"));
     EXPECT_TRUE(Contains(
