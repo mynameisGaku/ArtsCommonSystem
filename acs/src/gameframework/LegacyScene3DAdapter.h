@@ -356,6 +356,25 @@ public:
     ESceneProjectionMode ProjectionMode() const noexcept { return m_Projection; }
 
     /**
+     * PBR の IBL、SH9、光プローブへ掛ける環境光倍率を返す。
+     *
+     * @details 既定値は 1.0。direct light、emissive、UI、SSGI、lightmap、SSR には影響しない。
+     * @return 有限かつ 0 以上の環境光倍率。
+     */
+    f32 EnvironmentLightMultiplier() const noexcept {
+        return m_EnvironmentLightMultiplier;
+    }
+
+    /**
+     * PBR の環境由来の間接光だけへ掛ける明るさ倍率を設定する。
+     *
+     * @details 0 で環境光を消し、有限な正値は上限を設けず受理する。NaN、無限大、負数は
+     * 無視して現在値を維持する。CWeatherSystem::AmbientLightMultiplier() をそのまま渡せる。
+     * @param multiplier 設定する有限かつ 0 以上の環境光倍率。
+     */
+    void SetEnvironmentLightMultiplier(f32 multiplier) noexcept;
+
+    /**
      * 雲の設定を触る。
      *
      * @details
@@ -1441,6 +1460,9 @@ private:
     bool m_SsssRequested = false;
     bool m_GpuReady = false;
     bool m_GpuAttempted = false;
+
+    /** 既存field位置を保ち、末尾paddingで所有する環境光倍率。 */
+    f32 m_EnvironmentLightMultiplier = 1.0f;
 };
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */

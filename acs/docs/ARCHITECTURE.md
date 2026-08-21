@@ -163,6 +163,15 @@ native command list を使います。これらのポインタは呼出し中だ
 無い場合は古い間接光を公開しません。現行の前段は動的 motion vector を生成しないため、
 SSGI はカメラ再投影を使います。
 
+3D シーンの天候による環境光変化は
+`ALegacyScene3DAdapter::SetEnvironmentLightMultiplier()` へ有限かつ 0 以上の倍率を渡します。
+既定値 1.0 は従来描画と同一で、`CWeatherSystem::AmbientLightMultiplier()` をそのまま接続できます。
+倍率は `CPbrShader::SetIblLightMultiplier()` から既存 `FrameCB::ibl_params.w` へ入り、IBL cubemap、
+SH9、光プローブ、IBL 未生成時の代替環境光だけへ適用されます。direct light、emissive、SSGI、
+lightmap、SSR、UI は暗くせず、雲による直射光の変化は既存のボリューム雲ワールド影が担当します。
+倍率の保存領域は両公開クラスの既存 alignment padding を利用し、class size、既存member offset、
+vtable slot を変更しません。NaN、無限大、負数は現在値を維持します。
+
 最終画面の空間アンチエイリアスは `ALegacyScene3DAdapter::PostParams()` の
 `FPostProcessParams::fxaa_enabled` で明示的に有効化できます。既定は無効で、既存の
 出力と TAA 利用時の負荷を変えません。有効時は HDR の完成色をトーンマップとガンマ補正で全解像度

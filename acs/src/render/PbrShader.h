@@ -214,6 +214,24 @@ public:
                 u32 prefilter_mips) noexcept;
 
     /**
+     * IBL、SH9、光プローブ、代替環境光へ掛ける明るさ倍率を設定する。
+     *
+     * @details
+     * 既定値は 1.0 で従来描画を維持する。0 で環境由来の間接光だけを消し、有限な正値は
+     * 上限を設けず受理する。direct light、emissive、SSGI、lightmap、SSR には掛けない。
+     * NaN、無限大、負数は無視して現在値を維持する。
+     * @param multiplier 設定する有限かつ 0 以上の環境光倍率。
+     */
+    void SetIblLightMultiplier(f32 multiplier) noexcept;
+
+    /**
+     * 現在の IBL 環境光倍率を返す。
+     *
+     * @return 有限かつ 0 以上の倍率。
+     */
+    f32 IblLightMultiplier() const noexcept { return m_IblLightMultiplier; }
+
+    /**
      * IBL slot 1/2/3 と normal/shadow/SSAO/SSGI/lightmap/SSR の各 slot を bind する。
      *
      * @details SetIbl で非 null をセットしてあれば実テクスチャ、無ければ fallback
@@ -862,6 +880,9 @@ private:
     u32 m_SubstrateExpressionParameterCount = 0u;
     u32 m_SubstrateExpressionTextureMask = 0u;
     f32 m_SubstrateExpressionTime = 0.0f;
+
+    /** 既存field位置を保ち、末尾paddingで所有する環境光倍率。 */
+    f32 m_IblLightMultiplier = 1.0f;
 };
 
 /** 旧名を使う既存コード向けの互換別名。 */

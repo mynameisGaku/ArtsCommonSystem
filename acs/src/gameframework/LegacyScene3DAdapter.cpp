@@ -425,6 +425,13 @@ ALegacyScene3DAdapter::~ALegacyScene3DAdapter() noexcept {
     JoinCpuCompileWorkers();
 }
 
+/** 有限かつ 0 以上の値だけを受理し、場面の環境光倍率を更新する。 */
+void ALegacyScene3DAdapter::SetEnvironmentLightMultiplier(f32 multiplier) noexcept
+{
+    if (!std::isfinite(multiplier) || multiplier < 0.0f) return;
+    m_EnvironmentLightMultiplier = multiplier;
+}
+
 FScene3DLoadResult ALegacyScene3DAdapter::LoadFile(const char* path) noexcept {
     if (m_GpuReady || m_GpuAttempted) DrainAndReleaseGpu();
     m_LoadResult = TryLoadScene3DFile(Graph(), path);
@@ -1997,6 +2004,9 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
     FDirLight fallback[1];
     fallback[0].direction = Normalize(kDefaultSunDirection);
     fallback[0].color = kDefaultSunColor;
+
+    // 天候などが決めた倍率は環境由来の間接光だけへ渡し、直射光と雲のワールド影は分離する。
+    shader.SetIblLightMultiplier(EnvironmentLightMultiplier());
 
     const bool use_scene_lights = m_Lights.DirectionalCount() > 0u;
     shader.SetLights(
