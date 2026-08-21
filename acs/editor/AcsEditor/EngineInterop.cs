@@ -1660,6 +1660,15 @@ internal static class EngineInterop
     public static extern int acs_editor_prefab_instance3d_clear_root_component_property_overrides(
         IntPtr handle,
         int id);
+    /// <summary>指定したroot component propertyだけを原本値へ戻し、他のoverrideを維持する。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_revert_root_component_property_override(
+        IntPtr handle,
+        int id,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string source,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string text,
+        int slot,
+        int property);
     /// <summary>指定したroot overrideだけを原本値へ戻し、残りを維持する。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_prefab_instance3d_revert_root_overrides(

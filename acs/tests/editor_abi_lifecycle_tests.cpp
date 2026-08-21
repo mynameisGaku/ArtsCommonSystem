@@ -72,6 +72,7 @@ extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_refresh(
     void* handle, int id, const char* source, const char* text);
 extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_refresh_with_root_overrides(void* handle, int id, const char* source, const char* text, std::uint32_t preserve_mask);
 extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_revert_root_overrides(void* handle, int id, const char* source, const char* text, std::uint32_t revert_mask);
+extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_revert_root_component_property_override(void* handle, int id, const char* source, const char* text, int slot, int property);
 extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_instantiate(
     void* handle, const char* source, const char* instance_id,
     const char* text, int parent_id);
@@ -1665,6 +1666,9 @@ bool RunPrefabInstance3DRootPropertyOverrides() noexcept
 bool RunPrefabInstance3DRootComponentPropertyOverrides() noexcept
 {
     constexpr std::uint32_t kRoughness = 1u << 4u;
+    constexpr std::uint32_t kNormalStrength = 1u << 5u;
+    constexpr std::uint32_t kMeshRoughness = 1u << 1u;
+    constexpr std::uint32_t kEnabled = 1u << 1u;
     constexpr const char* kSource = "Assets/WaterVehicle.acsprefab";
     constexpr const char* kScene =
         "ACS3D v2\n"
@@ -1689,6 +1693,7 @@ bool RunPrefabInstance3DRootComponentPropertyOverrides() noexcept
         "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 0.1 0.2 0.3 1 Updated\n"
         "CMP3D 1 AWaterSurface3DComponent\n"
         "CPROP3D 1 0 4 0.1 0 0 0\n"
+        "CPROP3D 1 0 5 0.2 0 0 0\n"
         "CMP3D 1 AMeshComponent3D\n"
         "CPROP3D 1 1 1 0.4 0 0 0\n";
 
@@ -1718,12 +1723,38 @@ bool RunPrefabInstance3DRootComponentPropertyOverrides() noexcept
     ok = ok && preserved >= 0 && acs_editor_node3d_component_prop_get(host, preserved, 0, 4, &preserved_roughness, nullptr, nullptr, nullptr) != 0 && preserved_roughness == 0.9f && acs_editor_prefab_instance3d_root_component_property_override_mask(host, preserved, 0) == kRoughness && acs_editor_prefab_instance3d_root_component_property_override_mask(host, preserved, 1) == 0u && preserved_written > 0 && preserved_override_written > 0 && std::strstr(preserved_scene, preserved_override_line) != nullptr && acs_editor_scene3d_load_text(host, preserved_scene) != 0 && acs_editor_prefab_instance3d_root_component_property_override_mask(host, preserved, 0) == kRoughness;
     if (ok) completed_stage = 4u;
 
-    ok = ok && acs_editor_prefab_instance3d_clear_root_component_property_overrides(host, preserved) != 0 && acs_editor_prefab_instance3d_root_component_property_override_mask(host, preserved, 0) == 0u && acs_editor_prefab_instance3d_mark_root_component_property_override(host, preserved, 0, 4) != 0;
-    const int reverted = ok ? acs_editor_prefab_instance3d_refresh(host, preserved, kSource, kReorderedSubtree) : -1;
+    ok = ok && acs_editor_node3d_component_prop_set(host, preserved, 0, 5, 0.8f, 0.0f, 0.0f, 0.0f) != 0 && acs_editor_prefab_instance3d_mark_root_component_property_override(host, preserved, 0, 5) != 0 && acs_editor_node3d_component_prop_set(host, preserved, 1, 1, 0.7f, 0.0f, 0.0f, 0.0f) != 0 && acs_editor_prefab_instance3d_mark_root_component_property_override(host, preserved, 1, 1) != 0;
+    if (ok) {
+        acs_editor_node3d_set_enabled(host, preserved, 0);
+        ok = acs_editor_prefab_instance3d_mark_root_override(host, preserved, kEnabled) != 0;
+    }
+    std::string before_invalid_selective2d;
+    std::string before_invalid_selective3d;
+    ok = ok && SnapshotSceneDocument(host, before_invalid_selective2d, before_invalid_selective3d) && acs_editor_prefab_instance3d_revert_root_component_property_override(host, preserved, kSource, kReorderedSubtree, 0, 3) == -1 && SceneDocumentEquals(host, before_invalid_selective2d, before_invalid_selective3d);
+    const int component_reverted = ok ? acs_editor_prefab_instance3d_revert_root_component_property_override(host, preserved, kSource, kReorderedSubtree, 0, 4) : -1;
+    float selectively_reverted_roughness = 0.0f;
+    float preserved_normal_strength = 0.0f;
+    float preserved_mesh_roughness = 0.0f;
+    char component_reverted_scene[32768]{};
+    const int component_reverted_written = component_reverted >= 0 ? acs_editor_scene3d_serialize(host, component_reverted_scene, static_cast<int>(sizeof(component_reverted_scene))) : 0;
+    char retained_water_override_line[64]{};
+    char retained_mesh_override_line[64]{};
+    char removed_water_override_line[64]{};
+    const int retained_water_override_written = std::snprintf(retained_water_override_line, sizeof(retained_water_override_line), "PCOVR3D %d 0 5\n", component_reverted);
+    const int retained_mesh_override_written = std::snprintf(retained_mesh_override_line, sizeof(retained_mesh_override_line), "PCOVR3D %d 1 1\n", component_reverted);
+    const int removed_water_override_written = std::snprintf(removed_water_override_line, sizeof(removed_water_override_line), "PCOVR3D %d 0 4\n", component_reverted);
+    ok = ok && component_reverted >= 0 && acs_editor_node3d_component_prop_get(host, component_reverted, 0, 4, &selectively_reverted_roughness, nullptr, nullptr, nullptr) != 0 && selectively_reverted_roughness == 0.1f && acs_editor_node3d_component_prop_get(host, component_reverted, 0, 5, &preserved_normal_strength, nullptr, nullptr, nullptr) != 0 && preserved_normal_strength == 0.8f && acs_editor_node3d_component_prop_get(host, component_reverted, 1, 1, &preserved_mesh_roughness, nullptr, nullptr, nullptr) != 0 && preserved_mesh_roughness == 0.7f && acs_editor_prefab_instance3d_root_component_property_override_mask(host, component_reverted, 0) == kNormalStrength && acs_editor_prefab_instance3d_root_component_property_override_mask(host, component_reverted, 1) == kMeshRoughness && acs_editor_prefab_instance3d_root_override_mask(host, component_reverted) == kEnabled && acs_editor_node3d_get_enabled(host, component_reverted) == 0 && component_reverted_written > 0 && retained_water_override_written > 0 && retained_mesh_override_written > 0 && removed_water_override_written > 0 && std::strstr(component_reverted_scene, retained_water_override_line) != nullptr && std::strstr(component_reverted_scene, retained_mesh_override_line) != nullptr && std::strstr(component_reverted_scene, removed_water_override_line) == nullptr;
+    std::string before_repeated_selective2d;
+    std::string before_repeated_selective3d;
+    ok = ok && SnapshotSceneDocument(host, before_repeated_selective2d, before_repeated_selective3d) && acs_editor_prefab_instance3d_revert_root_component_property_override(host, component_reverted, kSource, kReorderedSubtree, 0, 4) == -1 && SceneDocumentEquals(host, before_repeated_selective2d, before_repeated_selective3d);
+    if (ok) completed_stage = 5u;
+
+    ok = ok && acs_editor_prefab_instance3d_clear_root_component_property_overrides(host, component_reverted) != 0 && acs_editor_prefab_instance3d_root_component_property_override_mask(host, component_reverted, 0) == 0u && acs_editor_prefab_instance3d_mark_root_component_property_override(host, component_reverted, 0, 4) != 0;
+    const int reverted = ok ? acs_editor_prefab_instance3d_refresh(host, component_reverted, kSource, kReorderedSubtree) : -1;
     float reverted_roughness = 0.0f;
     char reverted_scene[32768]{};
     const int reverted_written = reverted >= 0 ? acs_editor_scene3d_serialize(host, reverted_scene, static_cast<int>(sizeof(reverted_scene))) : 0;
-    ok = ok && reverted >= 0 && acs_editor_node3d_component_prop_get(host, reverted, 0, 4, &reverted_roughness, nullptr, nullptr, nullptr) != 0 && reverted_roughness == 0.1f && acs_editor_prefab_instance3d_root_component_property_override_mask(host, reverted, 0) == 0u && reverted_written > 0 && std::strstr(reverted_scene, "PCOVR3D ") == nullptr;
+    ok = ok && reverted >= 0 && acs_editor_node3d_component_prop_get(host, reverted, 0, 4, &reverted_roughness, nullptr, nullptr, nullptr) != 0 && reverted_roughness == 0.1f && acs_editor_prefab_instance3d_root_component_property_override_mask(host, reverted, 0) == 0u && acs_editor_prefab_instance3d_root_override_mask(host, reverted) == 0u && acs_editor_node3d_get_enabled(host, reverted) != 0 && reverted_written > 0 && std::strstr(reverted_scene, "PCOVR3D ") == nullptr;
     if (!ok) {
         std::printf("3D Prefab root component property override contract failed after stage %u.\n", completed_stage);
     }

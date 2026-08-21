@@ -35,6 +35,7 @@ enum class ECapability : std::uint64_t {
     PrefabRootPropertyOverride3DV1 = 1ull << 17u,
     PrefabRootPropertySelectiveRevert3DV1 = 1ull << 18u,
     PrefabRootComponentPropertyOverride3DV1 = 1ull << 19u,
+    PrefabRootComponentPropertySelectiveRevert3DV1 = 1ull << 20u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -62,7 +63,8 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::PrefabStableInstanceId3DV1) |
     CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1) |
     CapabilityBit(ECapability::PrefabRootPropertySelectiveRevert3DV1) |
-    CapabilityBit(ECapability::PrefabRootComponentPropertyOverride3DV1);
+    CapabilityBit(ECapability::PrefabRootComponentPropertyOverride3DV1) |
+    CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveRevert3DV1);
 
 inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
@@ -73,7 +75,8 @@ inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::PrefabStableInstanceId3DV1) |
     CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1) |
     CapabilityBit(ECapability::PrefabRootPropertySelectiveRevert3DV1) |
-    CapabilityBit(ECapability::PrefabRootComponentPropertyOverride3DV1);
+    CapabilityBit(ECapability::PrefabRootComponentPropertyOverride3DV1) |
+    CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveRevert3DV1);
 
 [[nodiscard]] constexpr bool IsCompatible(
     std::uint32_t requested_version,
