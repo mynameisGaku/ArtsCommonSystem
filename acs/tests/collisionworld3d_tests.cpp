@@ -239,3 +239,68 @@ ACS_TEST(CollisionWorld3D, SphereSweepReportsInitialOverlapAndPreservesOutputOnF
     EXPECT_EQ(hit.T, preserved.T);
     EXPECT_EQ(hit.StartedOverlapping, preserved.StartedOverlapping);
 }
+
+ACS_TEST(CollisionWorld3D, SpherePenetrationReturnsExactAabbSeparation)
+{
+    CCollisionWorld3D world;
+    const FCollisionShapeId3D box = world.TryAddAabb(FAabb3{FVec3{}, FVec3{1.0f, 1.0f, 1.0f}});
+    FCollisionPenetration3D penetration;
+    EXPECT_TRUE(world.TryFindSpherePenetration(FSphere{FVec3{1.25f, 0.0f, 0.0f}, 0.5f}, penetration));
+    EXPECT_TRUE(penetration.IsValid());
+    EXPECT_TRUE(penetration.Shape == box);
+    EXPECT_NEAR(penetration.Depth, 0.25f, 1.0e-6f);
+    EXPECT_NEAR(penetration.Normal.x, 1.0f, 1.0e-6f);
+    EXPECT_NEAR(penetration.Translation().x, 0.25f, 1.0e-6f);
+
+    EXPECT_TRUE(world.TryFindSpherePenetration(FSphere{FVec3{}, 0.5f}, penetration));
+    EXPECT_NEAR(penetration.Depth, 1.5f, 1.0e-6f);
+    EXPECT_NEAR(penetration.Normal.x, -1.0f, 1.0e-6f);
+
+    EXPECT_TRUE(world.TryFindSpherePenetration(FSphere{FVec3{1.3f, 1.4f, 0.0f}, 0.6f}, penetration));
+    EXPECT_NEAR(penetration.Depth, 0.1f, 1.0e-5f);
+    EXPECT_NEAR(penetration.Normal.x, 0.6f, 1.0e-5f);
+    EXPECT_NEAR(penetration.Normal.y, 0.8f, 1.0e-5f);
+}
+
+ACS_TEST(CollisionWorld3D, SpherePenetrationChoosesDeepestAndHonorsFilters)
+{
+    CCollisionWorld3D world;
+    const FCollisionShapeId3D positive_sphere = world.TryAddSphere(FSphere{FVec3{1.5f, 0.0f, 0.0f}, 1.0f}, 0x1u);
+    const FCollisionShapeId3D negative_sphere = world.TryAddSphere(FSphere{FVec3{-1.5f, 0.0f, 0.0f}, 1.0f}, 0x2u);
+    const FCollisionShapeId3D deep_box = world.TryAddAabb(FAabb3{FVec3{}, FVec3{0.25f, 0.25f, 0.25f}}, 0x4u);
+    const FSphere query{FVec3{}, 1.0f};
+    FCollisionPenetration3D penetration;
+    EXPECT_TRUE(world.TryFindSpherePenetration(query, penetration, {}, 0x3u));
+    EXPECT_TRUE(penetration.Shape == positive_sphere);
+    EXPECT_NEAR(penetration.Depth, 0.5f, 1.0e-6f);
+    EXPECT_NEAR(penetration.Normal.x, -1.0f, 1.0e-6f);
+
+    EXPECT_TRUE(world.TryFindSpherePenetration(query, penetration));
+    EXPECT_TRUE(penetration.Shape == deep_box);
+    EXPECT_NEAR(penetration.Depth, 1.25f, 1.0e-6f);
+    EXPECT_TRUE(world.TryFindSpherePenetration(query, penetration, positive_sphere, 0x3u));
+    EXPECT_TRUE(penetration.Shape == negative_sphere);
+    EXPECT_NEAR(penetration.Normal.x, 1.0f, 1.0e-6f);
+
+    EXPECT_TRUE(world.TryRemove(positive_sphere));
+    const FCollisionShapeId3D replacement = world.TryAddSphere(FSphere{FVec3{0.5f, 0.0f, 0.0f}, 1.0f}, 0x1u);
+    EXPECT_EQ(replacement.Index(), positive_sphere.Index());
+    EXPECT_TRUE(replacement.Generation() != positive_sphere.Generation());
+    EXPECT_TRUE(world.TryFindSpherePenetration(query, penetration, positive_sphere, 0x1u));
+    EXPECT_TRUE(penetration.Shape == replacement);
+    EXPECT_NEAR(penetration.Depth, 1.5f, 1.0e-6f);
+}
+
+ACS_TEST(CollisionWorld3D, SpherePenetrationRejectsTouchingAndPreservesOutput)
+{
+    CCollisionWorld3D world;
+    const FCollisionShapeId3D shape = world.TryAddSphere(FSphere{FVec3{2.0f, 0.0f, 0.0f}, 1.0f});
+    const FCollisionPenetration3D preserved{shape, 17.0f, FVec3{0.0f, 1.0f, 0.0f}};
+    FCollisionPenetration3D penetration = preserved;
+    EXPECT_FALSE(world.TryFindSpherePenetration(FSphere{FVec3{}, 1.0f}, penetration));
+    EXPECT_FALSE(world.TryFindSpherePenetration(FSphere{FVec3{}, 0.0f}, penetration));
+    EXPECT_FALSE(world.TryFindSpherePenetration(FSphere{FVec3{std::numeric_limits<f32>::quiet_NaN(), 0.0f, 0.0f}, 1.0f}, penetration));
+    EXPECT_TRUE(penetration.Shape == preserved.Shape);
+    EXPECT_EQ(penetration.Depth, preserved.Depth);
+    EXPECT_NEAR(penetration.Normal.y, preserved.Normal.y, 1.0e-6f);
+}

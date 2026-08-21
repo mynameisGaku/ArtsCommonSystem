@@ -264,7 +264,7 @@ ACS_REF.modules.push({
       members: [
         { sig: "bool Intersect(A, B)", ret: "重なるか", desc: "AABB・球の組合せで重なり判定。" },
         { sig: "bool Contains(FAabb3/FSphere, FVec3 p)", ret: "内側か", desc: "点 p が形状内部にあるか。" },
-        { sig: "bool Resolve(const FSphere& a, const FSphere& b, FVec3& push)", ret: "衝突したか", desc: "球同士のめり込みを押し出す <t>MTV</t> を求める。" },
+        { sig: "bool Resolve(const FSphere& sphere, const FSphere&/const FAabb3&, FVec3& push)", ret: "正の深さで貫通したか", desc: "球を球または AABB から離す最小分離移動量を求める。AABB 内部では最寄り面を決定的に選ぶ。" },
         { sig: "FRayHit3 RaycastAabb/RaycastSphere/RaycastPlane(ray, shape, t_max)", ret: "命中情報", desc: "レイと AABB/球/平面の交差。" },
         { sig: "FRayHit3 RaycastTriangle(ray, FVec3 v0, FVec3 v1, FVec3 v2, t_max)", ret: "命中情報", desc: "三角形（両面）との交差を<t>Möller–Trumbore</t>法で計算。メッシュの精密ピッキングに。" }
       ]

@@ -31,6 +31,7 @@
 #include "gameframework/OrbitCameraController3D.h"
 #include "gameframework/OrbitCameraInputActionSet3D.h"
 #include "gameframework/CollisionWorld2D.h"
+#include "gameframework/CollisionPenetration3D.h"
 #include "gameframework/CollisionSweepHit3D.h"
 #include "gameframework/CollisionWorld3D.h"
 #include "gameframework/PhysicsBody2D.h"

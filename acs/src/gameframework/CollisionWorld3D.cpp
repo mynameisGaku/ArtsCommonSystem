@@ -487,6 +487,38 @@ bool CCollisionWorld3D::TryOverlapSphere(const FSphere& sphere, TArray<FCollisio
     return true;
 }
 
+/** query sphereの最深penetrationを決定的なslot順で失敗時非破壊に返す。 */
+bool CCollisionWorld3D::TryFindSpherePenetration(const FSphere& sphere, FCollisionPenetration3D& out_penetration, FCollisionShapeId3D exclude, u32 mask) const noexcept
+{
+    if (!IsValidSphere_Internal(sphere)) return false;
+    FCollisionPenetration3D best_penetration;
+    f32 best_depth = 0.0f;
+    for (u32 index = 1u; index < m_Slots.Num(); ++index) {
+        const FSlot& slot = m_Slots[index];
+        if (!slot.Active || (slot.Layer & mask) == 0u) continue;
+        const FCollisionShapeId3D current{index, slot.Generation};
+        if (current == exclude) continue;
+        FVec3 translation;
+        bool penetrates = false;
+        if (slot.Kind == EKind::Aabb)
+            penetrates = Resolve(sphere, slot.Aabb, translation);
+        else if (slot.Kind == EKind::Sphere)
+            penetrates = Resolve(sphere, slot.Sphere, translation);
+        if (!penetrates || !IsFiniteVector3_Internal(translation)) continue;
+        const f32 depth_squared = Dot(translation, translation);
+        if (!std::isfinite(depth_squared) || depth_squared <= 0.0f) continue;
+        const f32 depth = std::sqrt(depth_squared);
+        if (!std::isfinite(depth) || (best_penetration.IsValid() && depth <= best_depth)) continue;
+        const FVec3 normal = translation * (1.0f / depth);
+        if (!IsFiniteVector3_Internal(normal)) continue;
+        best_depth = depth;
+        best_penetration = FCollisionPenetration3D{current, depth, normal};
+    }
+    if (!best_penetration.IsValid()) return false;
+    out_penetration = best_penetration;
+    return true;
+}
+
 /** 指定ray区間で最も近いlayer対象shapeを失敗時非破壊で返す。 */
 bool CCollisionWorld3D::TryRaycast(const FRay3& ray, f32 minimum_t, f32 maximum_t, FRayHit3& out_hit, FCollisionShapeId3D& out_shape, FCollisionShapeId3D exclude, u32 mask) const noexcept
 {

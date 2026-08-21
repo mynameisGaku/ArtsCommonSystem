@@ -160,7 +160,7 @@ component 自身へ world 全体の broad-phase state を持たせない。
 
 `CCollisionWorld3D` はworld空間のAABBとsphereを、generation付き
 `FCollisionShapeId3D` で明示管理するGPU非依存のquery coreである。登録順に対応するslot index順で
-線形走査するため、同じstateとqueryから同じoverlap順・raycast・sphere sweep結果を返す。
+線形走査するため、同じstateとqueryから同じoverlap順・raycast・sphere sweep・penetration結果を返す。
 
 - `TryAddAabb()` / `TryAddSphere()` は非有限値、不正な半サイズ・半径、容量・確保失敗を
   invalid handleとして返す。
@@ -174,6 +174,11 @@ component 自身へ world 全体の broad-phase state を持たせない。
   移動sphereへ向くworld法線である。開始時重なりは`T == 0`と`StartedOverlapping`で区別できる。
 - sweep半径0は点rayとして扱う。layer、generation付き除外handle、非正規化direction、
   `minimum_t`による手前の接触除外はraycastと同じ契約である。
+- `TryFindSpherePenetration()` は正の深さで最も深く重なるshapeを
+  `FCollisionPenetration3D` で返す。`Normal` は登録shapeからquery sphereへ向き、
+  `Translation()` は接触まで戻すworld分離移動量を返す。同じ深さではslot indexが小さいshapeを選ぶ。
+- sphere対sphereとsphere対AABBの押し出し計算は `math/Collision3D.h` の `Resolve()` を再利用する。
+  複数接触の反復解消とshape更新はowner側adapterが明示的に行い、query coreはstateを変更しない。
 - `ClearAll()` 後のslot再利用でもgenerationを進め、clear前のhandleを復活させない。
 
 この型はsubsystemではない。ownerが必要な寿命で保持し、scene nodeやgameplay stateからshapeを

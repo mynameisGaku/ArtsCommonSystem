@@ -89,10 +89,14 @@ using FCollisionWorld3DRaycastSignature = bool (acs::game::CCollisionWorld3D::*)
 /** layer/exclude付き3D sphere sweepの公開署名。 */
 using FCollisionWorld3DSweepSignature = bool (acs::game::CCollisionWorld3D::*)(const acs::FRay3&, acs::f32, acs::f32, acs::f32, acs::game::FCollisionSweepHit3D&, acs::game::FCollisionShapeId3D, acs::u32) const noexcept;
 
+/** layer/exclude付き3D sphere penetration queryの公開署名。 */
+using FCollisionWorld3DPenetrationSignature = bool (acs::game::CCollisionWorld3D::*)(const acs::FSphere&, acs::game::FCollisionPenetration3D&, acs::game::FCollisionShapeId3D, acs::u32) const noexcept;
+
 static_assert(std::is_same_v<decltype(&acs::game::CSceneNodeGraph::TryRaycastGeometryActiveRange), FScene3DRaycastSignature>);
 static_assert(sizeof(acs::game::FCollisionShapeId3D) == 4u);
 static_assert(std::is_same_v<decltype(&acs::game::CCollisionWorld3D::TryRaycast), FCollisionWorld3DRaycastSignature>);
 static_assert(std::is_same_v<decltype(&acs::game::CCollisionWorld3D::TrySweepSphere), FCollisionWorld3DSweepSignature>);
+static_assert(std::is_same_v<decltype(&acs::game::CCollisionWorld3D::TryFindSpherePenetration), FCollisionWorld3DPenetrationSignature>);
 
 /** Primitive の既存・追加公開入口を配布 header と library 間で照合する署名。 */
 using FPrimitiveMakeCubeSignature = acs::TSharedPtr<acs::AMeshAsset> (*)(acs::f32) noexcept;
@@ -341,6 +345,10 @@ int main()
     game::FCollisionSweepHit3D collision_sweep_hit;
     /** AABB角を箱状に膨らませず、layer 2の辺へ正確に接触する実symbolの整合結果。 */
     const bool collision_sweep_3d_ok = collision_world.TrySweepSphere(FRay3{FVec3{0.0f, 1.5f, 0.0f}, FVec3{2.0f, 0.0f, 0.0f}}, 0.5f, 0.0f, 10.0f, collision_sweep_hit, {}, 0x2u) && collision_sweep_hit.Shape == collision_box && collision_sweep_hit.T == 2.5f && collision_sweep_hit.Center.x == 5.0f && collision_sweep_hit.Center.y == 1.5f && collision_sweep_hit.Normal.y == 1.0f && !collision_sweep_hit.StartedOverlapping;
+    /** 最深sphere penetrationの書き込み先。 */
+    game::FCollisionPenetration3D collision_penetration;
+    /** layer 2のAABB面からquery sphereを正確に分離する実symbolの整合結果。 */
+    const bool collision_penetration_3d_ok = collision_world.TryFindSpherePenetration(FSphere{FVec3{4.75f, 0.0f, 0.0f}, 0.5f}, collision_penetration, {}, 0x2u) && collision_penetration.Shape == collision_box && collision_penetration.Depth == 0.25f && collision_penetration.Normal.x == -1.0f && collision_penetration.Translation().x == -0.25f;
 
     // 呼び出し側が所有するシーンタイマー。
     game::CSceneTimer scene_timer;
@@ -366,6 +374,6 @@ int main()
     const bool log_sink_ok = log_subscription.IsValid() && log_notification_count == 1u;
     CLogger::Shutdown();
 
-    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u prefab_source_id=%u scene_raycast=%u collision3d=%u collision_sweep3d=%u scene_timer=%u log_sink=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, prefab_source_identity_ok ? 1u : 0u, scene_raycast_ok ? 1u : 0u, collision_world_3d_ok ? 1u : 0u, collision_sweep_3d_ok ? 1u : 0u, scene_timer_fire_count, log_notification_count);
-    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && prefab_source_identity_ok && scene_raycast_ok && collision_world_3d_ok && collision_sweep_3d_ok && scene_timer_ok && log_sink_ok) ? 0 : 1;
+    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u prefab_source_id=%u scene_raycast=%u collision3d=%u collision_sweep3d=%u collision_penetration3d=%u scene_timer=%u log_sink=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, prefab_source_identity_ok ? 1u : 0u, scene_raycast_ok ? 1u : 0u, collision_world_3d_ok ? 1u : 0u, collision_sweep_3d_ok ? 1u : 0u, collision_penetration_3d_ok ? 1u : 0u, scene_timer_fire_count, log_notification_count);
+    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && prefab_source_identity_ok && scene_raycast_ok && collision_world_3d_ok && collision_sweep_3d_ok && collision_penetration_3d_ok && scene_timer_ok && log_sink_ok) ? 0 : 1;
 }

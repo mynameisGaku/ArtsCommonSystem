@@ -1,14 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 3D 衝突判定プリミティブ（AABB / 球 / 平面 / レイ）
-//
-// 使い方:
-//   FAabb3 box = FAabb3::FromCenterExtents({0,0,0}, {1,1,1});
-//   FSphere s{ {3,0,0}, 0.5f };
-//   if (Intersect(box, s)) { /* 重なっている */ }
-//
-//   FRay3 ray{ camera.Eye(), forward };
-//   FRayHit3 h = RaycastAabb(ray, box);
-//   if (h.hit) { /* h.point, h.normal, h.t */ }
 #pragma once
 
 #include "foundation/Types.h"
@@ -246,6 +236,65 @@ ACS_FORCEINLINE bool Resolve(const FSphere& a, const FSphere& b, FVec3& push) no
     const f32 d = Sqrt(d2);
     const f32 overlap = r - d;
     push = { (dx / d) * overlap, (dy / d) * overlap, (dz / d) * overlap };
+    return true;
+}
+
+/**
+ * sphereをAABBから離す最小押し出しベクトルを求める。
+ *
+ * @details sphere中心がAABB内にある場合は最寄り面へ押し出す。同距離の面は
+ * -X、+X、-Y、+Y、-Z、+Zの順で選ぶ。境界で接するだけならfalseを返す。
+ * @param sphere 押し出す対象のsphere。
+ * @param bounds 押し出しの基準となるAABB。
+ * @param push sphereを動かす最小分離移動量の書き込み先。
+ * @return 正の深さで貫通していた場合だけtrue。
+ */
+ACS_FORCEINLINE bool Resolve(const FSphere& sphere, const FAabb3& bounds, FVec3& push) noexcept {
+    const FVec3 minimum = bounds.Min();
+    const FVec3 maximum = bounds.Max();
+    const FVec3 closest{sphere.center.x < minimum.x ? minimum.x : (sphere.center.x > maximum.x ? maximum.x : sphere.center.x), sphere.center.y < minimum.y ? minimum.y : (sphere.center.y > maximum.y ? maximum.y : sphere.center.y), sphere.center.z < minimum.z ? minimum.z : (sphere.center.z > maximum.z ? maximum.z : sphere.center.z)};
+    const FVec3 delta = sphere.center - closest;
+    const f32 distance_squared = Dot(delta, delta);
+    const f32 radius_squared = sphere.radius * sphere.radius;
+    if (distance_squared > 0.0f) {
+        if (distance_squared >= radius_squared) return false;
+        const f32 distance = Sqrt(distance_squared);
+        const f32 depth = sphere.radius - distance;
+        push = delta * (depth / distance);
+        return true;
+    }
+    if (!Contains(bounds, sphere.center)) return false;
+
+    f32 nearest_distance = sphere.center.x - minimum.x;
+    FVec3 normal{-1.0f, 0.0f, 0.0f};
+    const f32 positive_x_distance = maximum.x - sphere.center.x;
+    if (positive_x_distance < nearest_distance) {
+        nearest_distance = positive_x_distance;
+        normal = FVec3{1.0f, 0.0f, 0.0f};
+    }
+    const f32 negative_y_distance = sphere.center.y - minimum.y;
+    if (negative_y_distance < nearest_distance) {
+        nearest_distance = negative_y_distance;
+        normal = FVec3{0.0f, -1.0f, 0.0f};
+    }
+    const f32 positive_y_distance = maximum.y - sphere.center.y;
+    if (positive_y_distance < nearest_distance) {
+        nearest_distance = positive_y_distance;
+        normal = FVec3{0.0f, 1.0f, 0.0f};
+    }
+    const f32 negative_z_distance = sphere.center.z - minimum.z;
+    if (negative_z_distance < nearest_distance) {
+        nearest_distance = negative_z_distance;
+        normal = FVec3{0.0f, 0.0f, -1.0f};
+    }
+    const f32 positive_z_distance = maximum.z - sphere.center.z;
+    if (positive_z_distance < nearest_distance) {
+        nearest_distance = positive_z_distance;
+        normal = FVec3{0.0f, 0.0f, 1.0f};
+    }
+    const f32 depth = sphere.radius + nearest_distance;
+    if (depth <= 0.0f) return false;
+    push = normal * depth;
     return true;
 }
 
