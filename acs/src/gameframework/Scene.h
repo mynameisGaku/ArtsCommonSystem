@@ -52,7 +52,7 @@ public:
     AScene() noexcept {
         // loader が SwapContents で root を差し替えた直後に service/subsystem 配線を
         // やり直せるよう、graph へ再配線 hook を登録する。
-        m_Graph._SetRootSwapHook(&AScene::_OnGraphRootSwapped, this);
+        m_Graph.SetRootSwapHook_Internal(&AScene::OnGraphRootSwapped_Internal, this);
     }
 
     /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
@@ -521,10 +521,10 @@ private:
     void _FixedUpdate(f32 FixedDeltaSeconds) noexcept;
 
     /** graph の SwapContents が root を差し替えた直後に呼ばれる再配線 thunk。 */
-    static void _OnGraphRootSwapped(void* user) noexcept;
+    static void OnGraphRootSwapped_Internal(void* user) noexcept;
 
     /** 現在の root へ service/subsystem/spawn 先の配線をやり直す (swap 後の回復)。 */
-    void _RewireGraphRoot() noexcept;
+    void RewireGraphRoot_Internal() noexcept;
 
     /**
      * world パスを描画する (camera view を設定し root を DrawTree → OnDrawWorld)。

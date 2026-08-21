@@ -29,12 +29,12 @@ void AScene::_OnWorldSubsystemsReady() noexcept
 }
 
 /** SwapContents 直後に graph から呼ばれ、owner の AScene へ再配線を依頼する。 */
-void AScene::_OnGraphRootSwapped(void* user) noexcept {
-    static_cast<AScene*>(user)->_RewireGraphRoot();
+void AScene::OnGraphRootSwapped_Internal(void* user) noexcept {
+    static_cast<AScene*>(user)->RewireGraphRoot_Internal();
 }
 
 /** 差し替え後の root へ service/subsystem/spawn 先の配線をやり直す。 */
-void AScene::_RewireGraphRoot() noexcept {
+void AScene::RewireGraphRoot_Internal() noexcept {
     if (!m_Graph.HasRoot()) return;
     ANode& NewRoot = m_Graph.Root();
     // _OnWorldSubsystemsReady / _Enter と同じ配線を、swap 後の root へ適用し直す。
