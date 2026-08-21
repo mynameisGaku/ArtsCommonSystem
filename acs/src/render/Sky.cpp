@@ -1270,21 +1270,16 @@ void cloudBaseShape(
     float3 uvw,float rejectionThreshold,out float shapeResult){
     shapeResult=0.0;
     float2 a=shapeNoise.SampleLevel(shapeNoise_sampler,uvw,0);
-    float shape=basePerlinWorley(a)*0.45;
-    // Every lobe is saturated to [0,1]. If the accumulated value plus the
-    // exact maximum of all unvisited lobes cannot cross the density threshold,
-    // later volume fetches are provably invisible. The small guard keeps the
-    // rejection conservative under floating-point contraction.
-    [branch] if(shape+0.55<rejectionThreshold-1e-5) return;
-    // Preserve the flight-scale bank while adding an incommensurate
-    // mid-frequency lobe. The former 0.613 multiplier made both lobes larger
-    // than the complete upward editor view after switching to metre units.
+    // 主形状を正値平均で平滑化せず、残りの領域は平均0の揺らぎとして重ねる。
+    // 未採取領域が加えられる正の最大値だけを足し、密度0を保証できる場合だけ棄却する。
+    float shape=basePerlinWorley(a);
+    [branch] if(shape+0.29<rejectionThreshold-1e-5) return;
     float3 uvwB=rotateNoise(uvw)*1.83
                +float3(0.371,0.119,0.733)
                +float3(cloudEvolution.x,cloudEvolution.y,-cloudEvolution.x);
     float2 b=shapeNoise.SampleLevel(shapeNoise_sampler,uvwB,0);
-    shape+=basePerlinWorley(b)*0.27;
-    [branch] if(shape+0.28<rejectionThreshold-1e-5) return;
+    shape+=(basePerlinWorley(b)-0.5)*0.30;
+    [branch] if(shape+0.14<rejectionThreshold-1e-5) return;
     float3 uvwC=float3(
         dot(uvw,float3(0.707,0.183,-0.683)),
         dot(uvw,float3(-0.354,0.930,-0.098)),
@@ -1292,8 +1287,8 @@ void cloudBaseShape(
         +float3(0.817,0.293,0.157)
         +float3(-cloudEvolution.y,cloudEvolution.x,cloudEvolution.y);
     float2 c=shapeNoise.SampleLevel(shapeNoise_sampler,uvwC,0);
-    shape+=basePerlinWorley(c)*0.17;
-    [branch] if(shape+0.11<rejectionThreshold-1e-5) return;
+    shape+=(basePerlinWorley(c)-0.5)*0.18;
+    [branch] if(shape+0.05<rejectionThreshold-1e-5) return;
     // A fourth, irrationally scaled world-space domain removes the last
     // conspicuous common landmark shared by the three lower-frequency lobes.
     // All domains remain anchored to the absolute world point; this is
@@ -1305,7 +1300,7 @@ void cloudBaseShape(
         +float3(0.263,0.887,0.491)
         +float3(cloudEvolution.y,-cloudEvolution.x,cloudEvolution.x);
     float2 d=shapeNoise.SampleLevel(shapeNoise_sampler,uvwD,0);
-    shapeResult=saturate(shape+basePerlinWorley(d)*0.11);
+    shapeResult=saturate(shape+(basePerlinWorley(d)-0.5)*0.10);
 }
 // Light-cone integration already evaluates this field at eight decorrelated
 // world positions. Keep its macro approximation at three lobes so the fourth
@@ -1314,14 +1309,14 @@ void cloudBaseShapeLighting(
     float3 uvw,float rejectionThreshold,out float shapeResult){
     shapeResult=0.0;
     float2 a=shapeNoise.SampleLevel(shapeNoise_sampler,uvw,0);
-    float shape=basePerlinWorley(a)*0.51;
-    [branch] if(shape+0.49<rejectionThreshold-1e-5) return;
+    float shape=basePerlinWorley(a);
+    [branch] if(shape+0.24<rejectionThreshold-1e-5) return;
     float3 uvwB=rotateNoise(uvw)*1.83
                +float3(0.371,0.119,0.733)
                +float3(cloudEvolution.x,cloudEvolution.y,-cloudEvolution.x);
     float2 b=shapeNoise.SampleLevel(shapeNoise_sampler,uvwB,0);
-    shape+=basePerlinWorley(b)*0.30;
-    [branch] if(shape+0.19<rejectionThreshold-1e-5) return;
+    shape+=(basePerlinWorley(b)-0.5)*0.30;
+    [branch] if(shape+0.09<rejectionThreshold-1e-5) return;
     float3 uvwC=float3(
         dot(uvw,float3(0.707,0.183,-0.683)),
         dot(uvw,float3(-0.354,0.930,-0.098)),
@@ -1329,7 +1324,7 @@ void cloudBaseShapeLighting(
         +float3(0.817,0.293,0.157)
         +float3(-cloudEvolution.y,cloudEvolution.x,cloudEvolution.y);
     float2 c=shapeNoise.SampleLevel(shapeNoise_sampler,uvwC,0);
-    shapeResult=saturate(shape+basePerlinWorley(c)*0.19);
+    shapeResult=saturate(shape+(basePerlinWorley(c)-0.5)*0.18);
 }
 
 // View marching used to evaluate weather, curl and all base-shape lobes once

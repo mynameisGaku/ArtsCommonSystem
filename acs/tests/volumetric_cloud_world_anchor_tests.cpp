@@ -2867,16 +2867,16 @@ ACS_TEST(VolumetricClouds,
         "+float3(cloudEvolution.y,-cloudEvolution.x,cloudEvolution.x);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatshape=basePerlinWorley(a)*0.45;"));
+        "floatshape=basePerlinWorley(a);"));
     EXPECT_TRUE(Contains(
         shader,
-        "shape+=basePerlinWorley(b)*0.27;"));
+        "shape+=(basePerlinWorley(b)-0.5)*0.30;"));
     EXPECT_TRUE(Contains(
         shader,
-        "shape+=basePerlinWorley(c)*0.17;"));
+        "shape+=(basePerlinWorley(c)-0.5)*0.18;"));
     EXPECT_TRUE(Contains(
         shader,
-        "shapeResult=saturate(shape+basePerlinWorley(d)*0.11);"));
+        "shapeResult=saturate(shape+(basePerlinWorley(d)-0.5)*0.10);"));
     const std::size_t viewShapeBegin =
         shader.find(
             "voidcloudBaseShape("
@@ -2923,19 +2923,19 @@ ACS_TEST(VolumetricClouds,
     // only texture reads whose [0,1] upper bound proves zero final density.
     EXPECT_TRUE(Contains(
         shader,
-        "[branch]if(shape+0.55<rejectionThreshold-1e-5)return;"));
+        "[branch]if(shape+0.29<rejectionThreshold-1e-5)return;"));
     EXPECT_TRUE(Contains(
         shader,
-        "[branch]if(shape+0.28<rejectionThreshold-1e-5)return;"));
+        "[branch]if(shape+0.14<rejectionThreshold-1e-5)return;"));
     EXPECT_TRUE(Contains(
         shader,
-        "[branch]if(shape+0.11<rejectionThreshold-1e-5)return;"));
+        "[branch]if(shape+0.05<rejectionThreshold-1e-5)return;"));
     EXPECT_TRUE(Contains(
         shader,
-        "[branch]if(shape+0.49<rejectionThreshold-1e-5)return;"));
+        "[branch]if(shape+0.24<rejectionThreshold-1e-5)return;"));
     EXPECT_TRUE(Contains(
         shader,
-        "[branch]if(shape+0.19<rejectionThreshold-1e-5)return;"));
+        "[branch]if(shape+0.09<rejectionThreshold-1e-5)return;"));
 
     // Keep FXC's flow analysis from treating an inlined helper out value as
     // potentially undefined. Both fields initialize their out storage before
@@ -2977,6 +2977,10 @@ ACS_TEST(VolumetricClouds,
     u32 fourLobeViolations = 0u;
     u32 threeLobeRejects = 0u;
     u32 threeLobeViolations = 0u;
+    f64 centeredShapeSum = 0.0;
+    f64 centeredShapeSquareSum = 0.0;
+    f64 averagedShapeSum = 0.0;
+    f64 averagedShapeSquareSum = 0.0;
     for (u32 state = 0u; state < 65536u; ++state) {
         const f32 a = static_cast<f32>(state & 15u) / 15.0f;
         const f32 b = static_cast<f32>((state >> 4u) & 15u) / 15.0f;
@@ -2986,35 +2990,46 @@ ACS_TEST(VolumetricClouds,
             0.50f + 0.28f *
                 static_cast<f32>((state * 37u) & 255u) / 255.0f;
 
-        const f32 fullFour =
+        const f32 fullFour = SaturateForTest(
+            a + (b - 0.5f) * 0.30f +
+            (c - 0.5f) * 0.18f +
+            (d - 0.5f) * 0.10f);
+        const f32 averagedFour =
             a * 0.45f + b * 0.27f + c * 0.17f + d * 0.11f;
-        f32 partialFour = a * 0.45f;
+        centeredShapeSum += fullFour;
+        centeredShapeSquareSum +=
+            static_cast<f64>(fullFour) * fullFour;
+        averagedShapeSum += averagedFour;
+        averagedShapeSquareSum +=
+            static_cast<f64>(averagedFour) * averagedFour;
+        f32 partialFour = a;
         bool rejectedFour =
-            partialFour + 0.55f < threshold - 1.0e-5f;
+            partialFour + 0.29f < threshold - 1.0e-5f;
         if (!rejectedFour) {
-            partialFour += b * 0.27f;
+            partialFour += (b - 0.5f) * 0.30f;
             rejectedFour =
-                partialFour + 0.28f < threshold - 1.0e-5f;
+                partialFour + 0.14f < threshold - 1.0e-5f;
         }
         if (!rejectedFour) {
-            partialFour += c * 0.17f;
+            partialFour += (c - 0.5f) * 0.18f;
             rejectedFour =
-                partialFour + 0.11f < threshold - 1.0e-5f;
+                partialFour + 0.05f < threshold - 1.0e-5f;
         }
         if (rejectedFour) {
             ++fourLobeRejects;
             if (fullFour > threshold) ++fourLobeViolations;
         }
 
-        const f32 fullThree =
-            a * 0.51f + b * 0.30f + c * 0.19f;
-        f32 partialThree = a * 0.51f;
+        const f32 fullThree = SaturateForTest(
+            a + (b - 0.5f) * 0.30f +
+            (c - 0.5f) * 0.18f);
+        f32 partialThree = a;
         bool rejectedThree =
-            partialThree + 0.49f < threshold - 1.0e-5f;
+            partialThree + 0.24f < threshold - 1.0e-5f;
         if (!rejectedThree) {
-            partialThree += b * 0.30f;
+            partialThree += (b - 0.5f) * 0.30f;
             rejectedThree =
-                partialThree + 0.19f < threshold - 1.0e-5f;
+                partialThree + 0.09f < threshold - 1.0e-5f;
         }
         if (rejectedThree) {
             ++threeLobeRejects;
@@ -3025,6 +3040,18 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(threeLobeRejects > 0u);
     EXPECT_EQ(fourLobeViolations, 0u);
     EXPECT_EQ(threeLobeViolations, 0u);
+
+    constexpr f64 kShapeStateCount = 65536.0;
+    const f64 centeredMean = centeredShapeSum / kShapeStateCount;
+    const f64 averagedMean = averagedShapeSum / kShapeStateCount;
+    const f64 centeredVariance =
+        centeredShapeSquareSum / kShapeStateCount - centeredMean * centeredMean;
+    const f64 averagedVariance =
+        averagedShapeSquareSum / kShapeStateCount - averagedMean * averagedMean;
+    EXPECT_NEAR(centeredMean, 0.5, 1.0e-6);
+    EXPECT_NEAR(averagedMean, 0.5, 1.0e-6);
+    EXPECT_TRUE(centeredVariance > averagedVariance * 3.0);
+    EXPECT_FALSE(Contains(shader, "basePerlinWorley(a)*0.45"));
 
     // Occupancy uses coverage+0.08. Because higher coverage lowers the shape
     // threshold, its rejection threshold is never stricter than the detailed
