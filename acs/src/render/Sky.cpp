@@ -1076,6 +1076,17 @@ float cloudLocalConvectionPhase(float4 weather){
     float typePattern=weather.g*2.0-1.0;
     return dot(cloudEvolution.xy,float2(warpPattern,typePattern));
 }
+// 空と濃い中心を固定し、雲縁の被覆だけを場所ごとに成長または消散させる。
+// 既存の時間位相と天候模様だけを使うため、テクスチャ採取は増えない。
+float cloudWeatherCoverageEvolution(float4 weather){
+    float2 localPattern=float2(weather.a,weather.g)*2.0-1.0;
+    float slowPhase=dot(cloudEvolution.xy,localPattern);
+    float finePhase=dot(cloudEvolution.zw,localPattern.yx);
+    float edgeBase=weather.r*(1.0-weather.r);
+    float edgeResponse=16.0*edgeBase*edgeBase;
+    return clamp(
+        slowPhase*0.38+finePhase*0.32,-0.14,0.14)*edgeResponse;
+}
 // 被覆の強い中心を持ち上げ、薄い縁を押し下げる柱ごとの高さ変形量。
 // 層雲では小さく、積雲または降水域では大きくする。局所位相を既存の
 // 天候模様へ小さく加え、追加のテクスチャ採取なしで雲頂も緩やかに変化させる。
@@ -1131,6 +1142,9 @@ float4 cloudWeatherData(float3 p){
     // cumulus instead of selecting the same soft profile everywhere.
     weather.g=smoothstep(0.34,0.58,weather.g);
     weather.b=max(a.b,b.b*0.72);
+    // 成長後の被覆をこの天候値に収め、占有判定、詳細密度、自己影で共有する。
+    weather.r=saturate(
+        weather.r+cloudWeatherCoverageEvolution(weather));
     return weather;
 }
 float3 rotateNoise(float3 q){

@@ -349,6 +349,24 @@ f32 CloudColumnHeightShiftForTest(
     return signal * amplitude;
 }
 
+// 天候被覆の中間域だけに局所的な成長量を与える。
+f32 CloudWeatherCoverageEvolutionForTest(
+    f32 weatherCoverage, f32 cloudType, f32 warp,
+    FVec2 shapePhase, FVec2 finePhase) noexcept {
+    const f32 warpPattern = warp * 2.0f - 1.0f;
+    const f32 typePattern = cloudType * 2.0f - 1.0f;
+    const f32 slow = shapePhase.x * warpPattern +
+                     shapePhase.y * typePattern;
+    const f32 fine = finePhase.x * typePattern +
+                     finePhase.y * warpPattern;
+    const f32 edgeBase = weatherCoverage * (1.0f - weatherCoverage);
+    const f32 edgeResponse = 16.0f * edgeBase * edgeBase;
+    f32 boundedPhase = slow * 0.38f + fine * 0.32f;
+    if (boundedPhase < -0.14f) boundedPhase = -0.14f;
+    if (boundedPhase > 0.14f) boundedPhase = 0.14f;
+    return boundedPhase * edgeResponse;
+}
+
 f32 CloudConvectiveHeightForTest(
     f32 height, f32 columnShift, bool upperBand) noexcept {
     const f32 boundedHeight = SaturateForTest(height);
@@ -2426,6 +2444,124 @@ ACS_TEST(VolumetricClouds,
         "macro.height=cloudConvectiveHeight("
         "heightFractionFromAltitude(altitude,upperBand),"
         "slowProfileTerms.w,upperBand);"));
+}
+
+ACS_TEST(VolumetricClouds,
+         WeatherCoverageEvolutionCreatesBoundedLocalGrowthAndDissipation) {
+    const FVec2 maximumShapePhase{0.18f, 0.16f};
+    const FVec2 maximumFinePhase{0.11f, 0.09f};
+    const f32 growth = CloudWeatherCoverageEvolutionForTest(
+        0.5f, 1.0f, 1.0f,
+        maximumShapePhase, maximumFinePhase);
+    const f32 dissipation = CloudWeatherCoverageEvolutionForTest(
+        0.5f, 0.0f, 0.0f,
+        maximumShapePhase, maximumFinePhase);
+    EXPECT_NEAR(growth, 0.14f, 1e-6f);
+    EXPECT_NEAR(dissipation, -0.14f, 1e-6f);
+
+    // 完全な空と濃い中心は動かさず、全許容値で変化量と被覆を有界に保つ。
+    for (u32 coverageStep = 0u; coverageStep <= 100u; ++coverageStep) {
+        const f32 coverage =
+            static_cast<f32>(coverageStep) / 100.0f;
+        for (u32 typeStep = 0u; typeStep <= 20u; ++typeStep) {
+            const f32 cloudType =
+                static_cast<f32>(typeStep) / 20.0f;
+            for (u32 warpStep = 0u; warpStep <= 20u; ++warpStep) {
+                const f32 warp =
+                    static_cast<f32>(warpStep) / 20.0f;
+                for (const f32 phaseSign : {-1.0f, 1.0f}) {
+                    const FVec2 shapePhase{
+                        0.18f * phaseSign, 0.16f * phaseSign};
+                    const FVec2 finePhase{
+                        0.11f * phaseSign, 0.09f * phaseSign};
+                    const f32 change =
+                        CloudWeatherCoverageEvolutionForTest(
+                            coverage, cloudType, warp,
+                            shapePhase, finePhase);
+                    const f32 evolved =
+                        SaturateForTest(coverage + change);
+                    EXPECT_TRUE(std::isfinite(change));
+                    EXPECT_TRUE(std::fabs(change) <= 0.140001f);
+                    EXPECT_TRUE(evolved >= 0.0f && evolved <= 1.0f);
+                    if (coverageStep == 0u || coverageStep == 100u) {
+                        EXPECT_NEAR(change, 0.0f, 0.0f);
+                        EXPECT_NEAR(evolved, coverage, 0.0f);
+                    }
+                }
+            }
+        }
+    }
+
+    // 時刻0では従来と一致し、5秒後は同時に成長地点と消散地点を作る。
+    const auto zeroTerms =
+        ResolveVolumetricCloudEvolutionFrameTerms(0.0f, 1.0f);
+    EXPECT_NEAR(
+        CloudWeatherCoverageEvolutionForTest(
+            0.5f, 1.0f, 1.0f,
+            zeroTerms.shape_phase, zeroTerms.fine_phase),
+        0.0f, 0.0f);
+    const auto fiveSecondTerms =
+        ResolveVolumetricCloudEvolutionFrameTerms(5.0f, 1.0f);
+    const f32 fiveSecondGrowth =
+        CloudWeatherCoverageEvolutionForTest(
+            0.5f, 1.0f, 1.0f,
+            fiveSecondTerms.shape_phase,
+            fiveSecondTerms.fine_phase);
+    const f32 fiveSecondDissipation =
+        CloudWeatherCoverageEvolutionForTest(
+            0.5f, 0.0f, 0.0f,
+            fiveSecondTerms.shape_phase,
+            fiveSecondTerms.fine_phase);
+    EXPECT_TRUE(fiveSecondGrowth > 0.02f);
+    EXPECT_NEAR(
+        fiveSecondGrowth, -fiveSecondDissipation, 1e-6f);
+
+    // 60 Hzの隣接フレームでは被覆を急変させず、時間再構成が追従できる。
+    const auto nextFrameTerms =
+        ResolveVolumetricCloudEvolutionFrameTerms(
+            5.0f + 1.0f / 60.0f, 1.0f);
+    const f32 nextFrameGrowth =
+        CloudWeatherCoverageEvolutionForTest(
+            0.5f, 1.0f, 1.0f,
+            nextFrameTerms.shape_phase,
+            nextFrameTerms.fine_phase);
+    EXPECT_TRUE(
+        std::fabs(nextFrameGrowth - fiveSecondGrowth) < 0.0002f);
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcloudWeatherCoverageEvolution(float4weather){"
+        "float2localPattern=float2(weather.a,weather.g)*2.0-1.0;"
+        "floatslowPhase=dot(cloudEvolution.xy,localPattern);"
+        "floatfinePhase=dot(cloudEvolution.zw,localPattern.yx);"
+        "floatedgeBase=weather.r*(1.0-weather.r);"
+        "floatedgeResponse=16.0*edgeBase*edgeBase;"
+        "returnclamp(slowPhase*0.38+finePhase*0.32,-0.14,0.14)"
+        "*edgeResponse;}"));
+    const std::size_t typeExpansion = shader.find(
+        "weather.g=smoothstep(0.34,0.58,weather.g);");
+    const std::size_t coverageEvolution = shader.find(
+        "weather.r=saturate("
+        "weather.r+cloudWeatherCoverageEvolution(weather));");
+    const std::size_t weatherReturn = shader.find(
+        "returnweather;}", coverageEvolution);
+    EXPECT_TRUE(typeExpansion < coverageEvolution);
+    EXPECT_TRUE(coverageEvolution < weatherReturn);
+    const std::size_t helperBegin = shader.find(
+        "floatcloudWeatherCoverageEvolution(");
+    const std::size_t helperEnd = shader.find(
+        "*edgeResponse;}", helperBegin);
+    EXPECT_TRUE(helperBegin != std::string::npos);
+    EXPECT_TRUE(helperEnd != std::string::npos);
+    if (helperBegin != std::string::npos &&
+        helperEnd != std::string::npos) {
+        const std::string helper = shader.substr(
+            helperBegin, helperEnd - helperBegin);
+        EXPECT_FALSE(Contains(helper, "SampleLevel("));
+    }
 }
 
 ACS_TEST(VolumetricClouds,
