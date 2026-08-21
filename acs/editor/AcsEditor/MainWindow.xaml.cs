@@ -2492,7 +2492,7 @@ public partial class MainWindow : Window
         _dropAdorner = null;
     }
 
-    // ドロップ確定: 前/後ろ = 兄弟挿入 (acs_editor_node_move), 子 = 子化, 空白 = root。
+    // ドロップ確定: 前/後ろ = 兄弟挿入、子 = 子化、空白 = root。
     private void OnHierarchyDrop(object sender, DragEventArgs e)
     {
         _dragNodeId = -1;
@@ -2503,18 +2503,33 @@ public partial class MainWindow : Window
         e.Handled = true;
         if (dragged == target) return;
 
-        if (_view3d)   // 3D: 中央=子化 / 前後=兄弟(target の親へ) / 空白=root。順序付けは無し。
+        if (_view3d)
         {
-            int newParent = target < 0 ? -1
-                          : (mode == 2 ? target : EngineInterop.acs_editor_node3d_parent(Engine, target));
-            if (EngineInterop.acs_editor_reparent3d(Engine, dragged, newParent) != 0)
+            int rc3d;
+            string what3d;
+            if (target < 0)
+            {
+                rc3d = EngineInterop.acs_editor_reparent3d(Engine, dragged, -1);
+                what3d = "→ root";
+            }
+            else if (mode == 2)
+            {
+                rc3d = EngineInterop.acs_editor_reparent3d(Engine, dragged, target);
+                what3d = $"→ {target} の子";
+            }
+            else
+            {
+                rc3d = EngineInterop.acs_editor_node3d_move(Engine, dragged, target, mode);
+                what3d = mode == 0 ? $"→ {target} の前" : $"→ {target} の後";
+            }
+            if (rc3d != 0)
             {
                 Build3DHierarchy();
                 EngineInterop.acs_editor_select3d(Engine, dragged);
                 Select3DInHierarchy(dragged);
                 Populate3DInspector(dragged);
-                RecordSceneDocumentChange("Reparent Node");
-                Log($"3D: reparented {dragged} → {(newParent < 0 ? "root" : newParent.ToString())}");
+                RecordSceneDocumentChange("Move Node");
+                Log($"3D: moved node {dragged} {what3d}");
             }
             return;
         }

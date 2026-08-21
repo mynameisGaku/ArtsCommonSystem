@@ -93,6 +93,8 @@ product-version label. The current required host set is:
   so a missing native export cannot leave managed UI ahead of the scene ABI.
 - stable source-node identities and transactional child value/Transform/Material/Name overrides,
   so refresh cannot publish a subtree whose explicit child edits were lost.
+- transactional 3D sibling reorder, so Outliner before/after drops cannot call
+  a missing export or publish a partially reparented hierarchy.
 
 Profiler v5 (with its version-4 compatibility prefix), the independent
 volumetric-cloud workload v1 snapshot, unified scene documents, high-quality

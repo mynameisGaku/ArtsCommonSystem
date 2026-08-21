@@ -176,6 +176,8 @@ internal static class SceneEditorMigrationSelfTest
                 "private void ApplyPrefabNodeOverride3D(");
         string apply3DRenameBody =
             ExtractMethodBody(shellSource, "private void Apply3DRename(");
+        string hierarchyDropBody =
+            ExtractMethodBody(shellSource, "private void OnHierarchyDrop(");
         string markPrefabNodePropertyBody =
             ExtractMethodBody(
                 view3DSource,
@@ -283,6 +285,20 @@ internal static class SceneEditorMigrationSelfTest
                 "private bool _view3d = true;",
                 StringComparison.Ordinal),
             "unpublished editor bootstrap state is one 3D world in Perspective view");
+        Check(
+            hierarchyDropBody.Contains(
+                "acs_editor_node3d_move(Engine, dragged, target, mode)",
+                StringComparison.Ordinal) &&
+            hierarchyDropBody.Contains(
+                "mode == 2",
+                StringComparison.Ordinal) &&
+            hierarchyDropBody.Contains(
+                "acs_editor_reparent3d(Engine, dragged, target)",
+                StringComparison.Ordinal) &&
+            hierarchyDropBody.Contains(
+                "RecordSceneDocumentChange(\"Move Node\")",
+                StringComparison.Ordinal),
+            "3D Outliner routes before/after through sibling reorder and child drops through reparent");
         Check(
             initializeBody.Contains(
                 "EditorSceneStartupPolicy.Resolve(",

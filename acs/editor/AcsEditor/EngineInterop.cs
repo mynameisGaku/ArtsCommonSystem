@@ -529,6 +529,9 @@ internal static class EngineInterop
     public static extern int acs_editor_node3d_parent(IntPtr handle, int id);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_reparent3d(IntPtr handle, int child, int parent);
+    /// <summary>3Dノードをtargetの直前または直後へtransactionalに移動する。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_move(IntPtr handle, int id, int targetId, int mode);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_name(IntPtr handle, int id, [Out] byte[] buf, int cap);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
