@@ -6925,6 +6925,9 @@ struct FPrefabNodePropertyOverrideSnapshotEntry {
 
     /** child meshのマテリアルパス。空文字は明示的な割り当て解除。 */
     char material_path[260]{};
+
+    /** childのヒエラルキー表示名。 */
+    char name[game::kScene3DSerializeMaxNameBytes + 1u]{};
 };
 
 /** 1つの3D Prefab instanceから取得したchild node property override集合。 */
@@ -6960,6 +6963,20 @@ bool TryCopyPrefabNodeMaterialPath_Internal(FStringView path, char* destination,
     return true;
 }
 
+/** 保存可能な3D node名を固定長bufferへコピーする。 */
+bool TryCopyScene3DNodeName_Internal(FStringView name, char* destination, u32 capacity) noexcept
+{
+    if (destination == nullptr || capacity == 0u || name.IsEmpty() || name.Size() >= capacity) return false;
+    if (name[0] == ' ' || name[name.Size() - 1u] == ' ') return false;
+    for (u32 index = 0u; index < name.Size(); ++index) {
+        const u8 byte = static_cast<u8>(name[index]);
+        if (byte < 0x20u || byte == 0x7fu) return false;
+    }
+    std::memcpy(destination, name.Data(), name.Size());
+    destination[name.Size()] = '\0';
+    return true;
+}
+
 /** 現instanceからchild node property override値をsource node ID付きで取得する。 */
 bool CapturePrefabNodePropertyOverrides_Internal(game::ANode& root, FPrefabNodePropertyOverrideSnapshot& snapshot) noexcept
 {
@@ -6989,6 +7006,7 @@ bool CapturePrefabNodePropertyOverrides_Internal(game::ANode& root, FPrefabNodeP
             const game::AMeshComponent3D* const mesh = Mesh3D(node);
             if (record->is_empty || mesh == nullptr || !TryCopyPrefabNodeMaterialPath_Internal(mesh->MaterialPath(), entry.material_path, static_cast<u32>(sizeof(entry.material_path)))) return false;
         }
+        if ((mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Name)) != 0u && !TryCopyScene3DNodeName_Internal(node->Name(), entry.name, static_cast<u32>(sizeof(entry.name)))) return false;
         if (!snapshot.entries.TryAdd(entry)) return false;
     }
     return true;
@@ -7042,6 +7060,7 @@ bool ApplyPrefabNodePropertyOverrides_Internal(game::ANode& root, const FPrefabN
             else mesh->SetMaterialPath(FStringView(entry.material_path));
             LoadNode3DMaterial(node);
         }
+        if ((entry.mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Name)) != 0u) node->SetName(FStringView(entry.name));
         record->prefab_node_property_override_mask = entry.mask;
     }
     return true;
@@ -17060,8 +17079,11 @@ ACS_EDITOR_API int acs_editor_node3d_set_name(void* handle, int id, const char* 
     if (host == nullptr || name == nullptr || name[0] == '\0') return 0;
     game::ANode* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
+    char checked_name[game::kScene3DSerializeMaxNameBytes + 1u]{};
+    if (!TryCopyScene3DNodeName_Internal(FStringView(name), checked_name, static_cast<u32>(sizeof(checked_name)))) return 0;
+    if (n->Name() == FStringView(checked_name)) return 1;
     PushUndo(*host);
-    n->SetName(FStringView(name));
+    n->SetName(FStringView(checked_name));
     return 1;
 }
 

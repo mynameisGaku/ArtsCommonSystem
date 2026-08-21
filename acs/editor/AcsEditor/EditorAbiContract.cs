@@ -37,6 +37,7 @@ internal enum EditorAbiCapability : ulong
     PrefabNodePropertyOverride3DV1 = 1UL << 24,
     PrefabNodeTransformOverride3DV1 = 1UL << 25,
     PrefabNodeMaterialOverride3DV1 = 1UL << 26,
+    PrefabNodeNameOverride3DV1 = 1UL << 27,
 }
 
 internal readonly record struct EditorAbiSnapshot(
@@ -111,7 +112,8 @@ internal static class EditorAbiContract
         EditorAbiCapability.PrefabSourceNodeIdentity3DV1 |
         EditorAbiCapability.PrefabNodePropertyOverride3DV1 |
         EditorAbiCapability.PrefabNodeTransformOverride3DV1 |
-        EditorAbiCapability.PrefabNodeMaterialOverride3DV1;
+        EditorAbiCapability.PrefabNodeMaterialOverride3DV1 |
+        EditorAbiCapability.PrefabNodeNameOverride3DV1;
 
     internal static readonly IReadOnlyList<EditorAbiCapability>
         KnownCapabilities = Array.AsReadOnly(new[]
@@ -142,6 +144,7 @@ internal static class EditorAbiContract
             EditorAbiCapability.PrefabNodePropertyOverride3DV1,
             EditorAbiCapability.PrefabNodeTransformOverride3DV1,
             EditorAbiCapability.PrefabNodeMaterialOverride3DV1,
+            EditorAbiCapability.PrefabNodeNameOverride3DV1,
         });
 
     private const EditorAbiCapability AllKnownCapabilities =
@@ -170,7 +173,8 @@ internal static class EditorAbiContract
         EditorAbiCapability.PrefabSourceNodeIdentity3DV1 |
         EditorAbiCapability.PrefabNodePropertyOverride3DV1 |
         EditorAbiCapability.PrefabNodeTransformOverride3DV1 |
-        EditorAbiCapability.PrefabNodeMaterialOverride3DV1;
+        EditorAbiCapability.PrefabNodeMaterialOverride3DV1 |
+        EditorAbiCapability.PrefabNodeNameOverride3DV1;
 
     internal static EditorAbiSnapshot Evaluate(
         bool queryAvailable,
@@ -277,6 +281,8 @@ internal static class EditorAbiContract
                 "prefab-node-transform-override-3d-v1",
             EditorAbiCapability.PrefabNodeMaterialOverride3DV1 =>
                 "prefab-node-material-override-3d-v1",
+            EditorAbiCapability.PrefabNodeNameOverride3DV1 =>
+                "prefab-node-name-override-3d-v1",
             _ => "unknown",
         };
 }

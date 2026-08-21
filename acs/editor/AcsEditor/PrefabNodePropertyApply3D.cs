@@ -26,7 +26,8 @@ internal readonly record struct PrefabNodePropertyValues3D(
     float ScaleX,
     float ScaleY,
     float ScaleZ,
-    string MaterialPath);
+    string MaterialPath,
+    string Name);
 
 /// <summary>PSID3Dで選んだ3D Prefab原本nodeのpropertyだけを差し替える副作用なしの計算器。</summary>
 internal static class PrefabNodePropertyApply3D
@@ -77,6 +78,11 @@ internal static class PrefabNodePropertyApply3D
         {
             return Reject(sourceText, "Apply対象のMaterial pathが不正です。", out updatedSource, out error);
         }
+        if ((applyMask & PrefabNodeProperty3D.Name) != PrefabNodeProperty3D.None &&
+            !IsValidNodeName(values.Name))
+        {
+            return Reject(sourceText, "Apply対象のNameが不正です。", out updatedSource, out error);
+        }
 
         CanonicalSceneAdapterInspection inspection =
             CanonicalSceneAdapter.InspectText(sourceText, ".acs3d");
@@ -115,7 +121,7 @@ internal static class PrefabNodePropertyApply3D
         for (int index = 0; index < lines.Count; ++index)
         {
             List<TokenRange> tokens = FindTokens(lines[index].Text);
-            if (tokens.Count < 17 ||
+            if (tokens.Count < 18 ||
                 !TokenEquals(lines[index].Text, tokens[0], "N3D") ||
                 !TryParseInt(lines[index].Text, tokens[1], out int nodeId) ||
                 nodeId != targetNodeId)
@@ -198,6 +204,14 @@ internal static class PrefabNodePropertyApply3D
                 lines[targetLineIndex].Text,
                 targetTokens,
                 nodeReplacements);
+        }
+        if ((applyMask & PrefabNodeProperty3D.Name) != PrefabNodeProperty3D.None)
+        {
+            List<TokenRange> updatedTokens = FindTokens(lines[targetLineIndex].Text);
+            if (updatedTokens.Count < 18)
+                return Reject(sourceText, "Apply対象のN3DにNameがありません。", out updatedSource, out error);
+            lines[targetLineIndex].Text =
+                lines[targetLineIndex].Text[..updatedTokens[17].Start] + values.Name;
         }
 
         bool insertMaterial = false;
@@ -284,6 +298,26 @@ internal static class PrefabNodePropertyApply3D
           !value.Contains('\n') &&
           Encoding.UTF8.GetByteCount(value) <= 259 &&
           value.EndsWith(".acsmat", StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>改行や制御文字を含まずUTF-8で127-byte以下のnode名だけを受理する。</summary>
+    private static bool IsValidNodeName(string? value)
+    {
+        if (string.IsNullOrEmpty(value) ||
+            value[0] == ' ' ||
+            value[^1] == ' ' ||
+            value.Any(static character => character < ' ' || character == '\u007f'))
+        {
+            return false;
+        }
+        try
+        {
+            return new UTF8Encoding(false, true).GetByteCount(value) <= 127;
+        }
+        catch (EncoderFallbackException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>失敗結果を入力不変で返す。</summary>
     private static bool Reject(string sourceText, string message, out string updatedSource, out string error)

@@ -132,7 +132,7 @@ public partial class MainWindow
 
     private string Node3DName(int id)
     {
-        var buf = new byte[64];
+        var buf = new byte[128];
         return EngineInterop.acs_editor_node3d_name(Engine, id, buf, buf.Length) != 0
             ? EngineInterop.Utf8Z(buf) : $"Node {id}";
     }
@@ -2860,7 +2860,7 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>成功済みの値、transform、material編集をstable 3D Prefab overrideへ反映する。</summary>
+    /// <summary>成功済みの値、transform、material、name編集をstable 3D Prefab overrideへ反映する。</summary>
     private void MarkPrefabPropertyOverride3D(
         int id,
         PrefabNodeProperty3D property)
@@ -2868,7 +2868,8 @@ public partial class MainWindow
         if (Engine == IntPtr.Zero || id < 0 || property == PrefabNodeProperty3D.None) return;
         PrefabNodeProperty3D childOnlyProperties =
             PrefabNodeProperty3D.Transform |
-            PrefabNodeProperty3D.Material;
+            PrefabNodeProperty3D.Material |
+            PrefabNodeProperty3D.Name;
         if ((property & childOnlyProperties) != PrefabNodeProperty3D.None &&
             EngineInterop.acs_editor_prefab_instance3d_root_for_node(Engine, id) == id)
         {
@@ -2905,7 +2906,8 @@ public partial class MainWindow
             (nodeOverrides.HasFlag(PrefabNodeProperty3D.Position) ? 1 : 0) +
             (nodeOverrides.HasFlag(PrefabNodeProperty3D.Rotation) ? 1 : 0) +
             (nodeOverrides.HasFlag(PrefabNodeProperty3D.Scale) ? 1 : 0) +
-            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Material) ? 1 : 0);
+            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Material) ? 1 : 0) +
+            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Name) ? 1 : 0);
         string sourceNodeId =
             EngineInterop.NodePrefabSourceNodeId3D(Engine, id);
         banner.Children.Clear();
@@ -2959,6 +2961,10 @@ public partial class MainWindow
             overrideRow.Children.Add(CreatePrefabNodeOverrideApplyButton3D(id, PrefabNodeProperty3D.Material, "Material"));
         if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Material))
             overrideRow.Children.Add(CreatePrefabNodeOverrideRevertButton3D(id, PrefabNodeProperty3D.Material, "Material"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Name))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideApplyButton3D(id, PrefabNodeProperty3D.Name, "Name"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Name))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideRevertButton3D(id, PrefabNodeProperty3D.Name, "Name"));
         banner.Children.Add(overrideRow);
     }
 
