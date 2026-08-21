@@ -16904,6 +16904,20 @@ ACS_EDITOR_API int acs_editor_prefab_instance3d_clear_root_component_property_ov
     return 1;
 }
 
+/** Selective Apply済みの3D Prefab root component propertyだけをoverrideから外す。 */
+ACS_EDITOR_API int acs_editor_prefab_instance3d_clear_root_component_property_override(void* handle, int id, int slot, int property) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditor3DRecordComponent* record = host != nullptr ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    if (record == nullptr || !IsStablePrefabRoot_Internal(*record) || slot < 0 || slot >= static_cast<int>(record->component_count) || property < 0 || property >= static_cast<int>(AEditor3DRecordComponent::kMaxProps)) return 0;
+    const u32 component_slot = static_cast<u32>(slot);
+    const u32 component_property = static_cast<u32>(property);
+    const game::FTypeDesc* const descriptor = game::CTypeRegistry::Get().FindById(record->components[component_slot]);
+    const u32 property_bit = u32{1} << component_property;
+    if (descriptor == nullptr || component_property >= CompPropCount(descriptor) || (record->prefab_root_component_property_override_masks[component_slot] & property_bit) == 0u) return 0;
+    record->prefab_root_component_property_override_masks[component_slot] &= ~property_bit;
+    return 1;
+}
+
 /** プリミティブノードの形状を切り替える (0=Cube 1=Sphere 2=Plane)。sprite/polygon/mesh は対象外。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_set_prim(void* handle, int id, int prim) {
     auto* host = static_cast<FEditorHost*>(handle);

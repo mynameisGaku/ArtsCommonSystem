@@ -2424,14 +2424,23 @@ public partial class MainWindow
                     var overridePropertyRow = new Grid();
                     overridePropertyRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                     overridePropertyRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    overridePropertyRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                     Grid.SetColumn(prow, 0);
                     overridePropertyRow.Children.Add(prow);
+                    Button applyButton = CreatePrefabRootComponentPropertyOverrideApplyButton3D(
+                        id,
+                        idx,
+                        p,
+                        cname,
+                        EngineInterop.ComponentPropName(cname, p));
+                    Grid.SetColumn(applyButton, 1);
+                    overridePropertyRow.Children.Add(applyButton);
                     Button revertButton = CreatePrefabRootComponentPropertyOverrideRevertButton3D(
                         id,
                         idx,
                         p,
                         EngineInterop.ComponentPropName(cname, p));
-                    Grid.SetColumn(revertButton, 1);
+                    Grid.SetColumn(revertButton, 2);
                     overridePropertyRow.Children.Add(revertButton);
                     inner.Children.Add(overridePropertyRow);
                 }
@@ -2846,6 +2855,21 @@ public partial class MainWindow
             ToolTip = $"{label} overrideだけを原本へ反映する",
         };
         button.Click += (_, __) => ApplyPrefabRootOverride3D(id, property);
+        return button;
+    }
+
+    /// <summary>1つの3D Prefab root component propertyだけをApplyする小型buttonを作る。</summary>
+    private Button CreatePrefabRootComponentPropertyOverrideApplyButton3D(int id, int slot, int property, string componentTypeName, string label)
+    {
+        var button = new Button {
+            Content = "Apply",
+            FontSize = 9,
+            Padding = new Thickness(5, 1, 5, 1),
+            Margin = new Thickness(5, 2, 0, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = $"{label} overrideだけを原本へ反映する",
+        };
+        button.Click += (_, __) => ApplyPrefabRootComponentPropertyOverride3D(id, slot, property, componentTypeName, label);
         return button;
     }
 

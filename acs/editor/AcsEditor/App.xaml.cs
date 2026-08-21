@@ -303,6 +303,15 @@ public partial class App : Application
             return;
         }
 
+        // CLI: --prefab-root-component-property-apply-3d-selftest -> component selective source calculation contract.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--prefab-root-component-property-apply-3d-selftest")
+        {
+            int failures = PrefabRootComponentPropertyApply3DSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
         // CLI: --material-preview-selftest -> async/cancellation/cache/stale-result contract.
         if (e.Args.Length >= 1 && e.Args[0] == "--material-preview-selftest")
         {
