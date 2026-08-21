@@ -2039,17 +2039,17 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             }
             float tauL=lightDepth*density*cloudLightingExtinction.y;
             float beer=exp(-tauL);
-            float multi=exp(-tauL*cloudLightingMulti.x);
             float multiContribution=cloudLightingPhase.w;
+            float multiOcclusion=cloudLightingMulti.x;
             // 何度も散乱した光は向きを失うので、単散乱より等方に近い位相を使う。
             // 同じ位相を使うと、内部で回った光まで太陽方向へ偏って雲が薄く見える。
             float phaseMulti=12.566370*hg(cosA,cloudMultiPhase.x);
             phaseMulti=clamp(
                 phaseMulti,cloudLightingMulti.y,cloudLightingMulti.z);
-            // 一次散乱と減衰させた二次散乱を独立に評価する。CPU は散乱係数の減衰を
-            // 消散係数の減衰以下へ収め、各次数の single-scattering albedo を 1 以下に保つ。
+            // 一次散乱と、係数を次数ごとに縮小した二次・三次散乱を独立に評価する。
+            // CPU は散乱係数の縮小率を消散係数以下へ収め、各次数で散乱が消散を越えないようにする。
             // 低 LOD 密度は周囲に散乱源がある確率、高さは雲底で散乱源が減る確率を表す。
-            // 補正は一次散乱だけへ掛け、すでに内部へ回った二次散乱を二重に暗くしない。
+            // 補正は一次散乱だけへ掛け、すでに内部へ回った高次散乱を二重に暗くしない。
             float lowLodDensity=cloudLowLodDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask);
             float inScatterDepthExponent=lerp(
                 0.5,2.0,saturate((macro.height-0.30)/0.55));
@@ -2062,8 +2062,13 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float inScatterFactor=lerp(
                 1.0,inScatterProbability,cloudLightingExtinction.w);
             float singleScatter=beer*phase*inScatterFactor;
-            float multipleScatter=
-                multiContribution*multi*phaseMulti;
+            float secondScatter=multiContribution
+                *exp(-tauL*multiOcclusion)*phaseMulti;
+            float thirdContribution=multiContribution*multiContribution;
+            float thirdOcclusion=multiOcclusion*multiOcclusion;
+            float thirdScatter=thirdContribution
+                *exp(-tauL*thirdOcclusion)*phaseMulti;
+            float multipleScatter=secondScatter+thirdScatter;
             float scatterTerm=singleScatter+multipleScatter;
             // sunCol is the scene's direct-light radiance. Clouds scatter only
             // a calibrated fraction of it; using the full value here made the
@@ -3028,14 +3033,23 @@ FVec2 EvaluateVolumetricCloudDirectionalScattering(f32 light_optical_depth, f32 
     const f32 opticalDepth = light_optical_depth > 0.0f ? light_optical_depth : 0.0f;
     /** 一次散乱へ使う有限で有界な位相値。 */
     const f32 singlePhase = SanitizeCloudScalar(single_phase, 0.0f, lighting.PhaseMin, lighting.PhaseMax);
-    /** 二次散乱へ使う有限で有界な位相値。 */
+    /** 二次以降の散乱へ使う有限で有界な位相値。 */
     const f32 multiplePhase = SanitizeCloudScalar(multiple_phase, 0.0f, lighting.PhaseMin, lighting.PhaseMax);
     /** 太陽から直接届く一次散乱。 */
     const f32 singleScattering = Exp(-opticalDepth) * singlePhase;
+    /** 二次散乱へ使う散乱係数の縮小率。 */
+    const f32 secondContribution = lighting.MultiScatterContribution;
+    /** 二次散乱へ使う消散係数の縮小率。 */
+    const f32 secondOcclusion = lighting.MultiScatterOcclusion;
     /** 消散を弱めた経路から届く近似二次散乱。 */
-    const f32 multipleScattering = lighting.MultiScatterContribution *
-        Exp(-opticalDepth * lighting.MultiScatterOcclusion) * multiplePhase;
-    return FVec2{singleScattering, multipleScattering};
+    const f32 secondScattering = secondContribution * Exp(-opticalDepth * secondOcclusion) * multiplePhase;
+    /** 三次散乱へ使う散乱係数の縮小率。 */
+    const f32 thirdContribution = secondContribution * secondContribution;
+    /** 三次散乱へ使う消散係数の縮小率。 */
+    const f32 thirdOcclusion = secondOcclusion * secondOcclusion;
+    /** さらに内部へ回った経路から届く近似三次散乱。 */
+    const f32 thirdScattering = thirdContribution * Exp(-opticalDepth * thirdOcclusion) * multiplePhase;
+    return FVec2{singleScattering, secondScattering + thirdScattering};
 }
 
 f32 EvaluateVolumetricCloudInScatterFactor(f32 low_lod_density, f32 normalized_height, f32 strength) noexcept

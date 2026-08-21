@@ -351,9 +351,8 @@ for ground bounce. This prevents low-sun clouds from retaining white midday
 direct light and prevents the base and top of the cloud from sharing one
 horizon-color ambient term.
 
-The directional-light approximation applies a bounded in-scatter probability
-to the single-scattering term and adds one independent reduced second-order
-term. For low-LOD density `d` and normalized layer height `h`:
+方向光の近似では、一次散乱へ有界な内部散乱確率を適用し、係数を縮小した二次散乱と
+三次散乱を独立に加える。低 LOD 密度を `d`、層内の正規化高さを `h` とすると次式になる。
 
 `pDepth = saturate(0.05 + pow(d, lerp(0.5, 2.0, saturate((h - 0.30) / 0.55))))`
 
@@ -361,27 +360,28 @@ term. For low-LOD density `d` and normalized layer height `h`:
 
 `fInScatter = lerp(1, pDepth * pVertical, PowderStrength)`
 
-`S = exp(-tau) * phase0 * fInScatter + a * exp(-b * tau) * phase1`
+`S = exp(-tau) * phase0 * fInScatter`
 
-`PowderStrength` keeps its compatibility name, but is now a blend ratio in
-`[0, 1]`. The factor cannot amplify incident light. It derives low-LOD density
-from the already sampled base noise using the final weather-coverage and height
-thresholds. It does not reuse the deliberately wider empty-space occupancy
-field, add a texture fetch, or attenuate the explicit second-order term a
-second time. The former arbitrary near-light probe, `edgeBoost`, and its `1.08`
-energy increase are absent.
+`  + a * exp(-b * tau) * phase1`
 
-`MultiScatterContribution` is `a` and `MultiScatterOcclusion` is `b`. Runtime
-normalization enforces `0 <= a <= b <= 1`, so the reduced scattering
-coefficient cannot exceed the reduced extinction coefficient. Both phase terms
-use the configured phase bounds. This is a bounded two-order approximation,
-not a claim of a complete multiple-scattering solution. The model follows the
-coefficient-reduction and additive-order contract described in Frostbite's
-[SIGGRAPH 2016 course notes](https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/s2016-pbs-frostbite-sky-clouds-new.pdf);
-the density-and-height in-scatter probability follows Guerrilla's updated
-[Nubis SIGGRAPH 2017 cloud-lighting model](https://advances.realtimerendering.com/s2017/Nubis%20-%20Authoring%20Realtime%20Volumetric%20Cloudscapes%20with%20the%20Decima%20Engine%20-%20Final%20.pdf).
-This is still a production approximation, not a claim of complete radiative
-transfer; the locked visual-reference capture remains an acceptance gate.
+`  + a^2 * exp(-b^2 * tau) * phase1`
+
+`PowderStrength` は互換性のため名前を維持するが、現在の意味は `[0, 1]` の混ぜ率である。
+この係数は入射光を増幅しない。低 LOD 密度は、最終的な天候被覆と高さのしきい値を用いて、
+すでに採取した基本形状から求める。空間を広めに取る空領域判定は流用せず、テクスチャ採取も
+増やさず、内部へ回った二次・三次散乱を重ねて暗くしない。以前の任意な近距離光標本、
+`edgeBoost`、および `1.08` のエネルギー増幅は使わない。
+
+`MultiScatterContribution` を `a`、`MultiScatterOcclusion` を `b` とする。実行時の正規化で
+`0 <= a <= b <= 1` を保証するため、二次の `a <= b` だけでなく三次の `a^2 <= b^2` も成立し、
+縮小後の散乱係数は消散係数を越えない。高次散乱は方向を失う近似として、二次と三次で同じ
+有界な位相を使う。これは三次までの有界な近似であり、完全な多重散乱解ではない。
+係数縮小と次数加算は Frostbite の
+[SIGGRAPH 2016講義資料](https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/s2016-pbs-frostbite-sky-clouds-new.pdf)
+に従い、同資料の比較対象である `N=3` まで積算する。密度と高さによる内部散乱確率は Guerrilla の
+[Nubis SIGGRAPH 2017雲照明モデル](https://advances.realtimerendering.com/s2017/Nubis%20-%20Authoring%20Realtime%20Volumetric%20Cloudscapes%20with%20the%20Decima%20Engine%20-%20Final%20.pdf)
+に従う。引き続き実用向け近似であり、完全な放射輸送を主張するものではないため、固定した
+視覚参照の撮影を合格条件として維持する。
 
 ## Quality-preserving optimization rules
 

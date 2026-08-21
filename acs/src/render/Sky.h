@@ -442,13 +442,15 @@ struct FVolumetricCloudLighting {
     f32 PhaseMax = 8.0f;
 
     /**
-     * 2 次散乱へ渡す散乱係数の割合 (0 で単散乱のみ)。
+     * 二次以降の散乱係数へ次数ごとに掛ける縮小率 (0 で単散乱のみ)。
      *
-     * @details エネルギー超過を避けるため `MultiScatterOcclusion` 以下へ正規化する。
+     * @details
+     * 二次ではこの値、三次ではこの値の二乗を使う。散乱が消散を越えないように
+     * `MultiScatterOcclusion` 以下へ正規化する。
      */
     f32 MultiScatterContribution = 0.28f;
 
-    /** 2 次散乱で使う消散係数の割合 (小さいほど内部まで光が回る)。 */
+    /** 二次以降の消散係数へ次数ごとに掛ける縮小率 (小さいほど内部まで光が回る)。 */
     f32 MultiScatterOcclusion = 0.28f;
 
     /**
@@ -630,13 +632,13 @@ FVolumetricCloudLayer SanitizeVolumetricCloudLayer(const FVolumetricCloudLayer& 
 FVolumetricCloudLighting SanitizeVolumetricCloudLighting(const FVolumetricCloudLighting& requested) noexcept;
 
 /**
- * 雲の一次散乱と近似二次散乱の方向別係数を CPU で評価する。
+ * 雲の一次散乱と、近似二次・三次散乱の方向別係数を CPU で評価する。
  *
  * @param light_optical_depth 太陽までの光学的な厚さ。負値は 0、非有限値は寄与なしとして扱う。
  * @param single_phase 一次散乱の位相値。照明設定の位相範囲へ収める。
- * @param multiple_phase 二次散乱の位相値。照明設定の位相範囲へ収める。
+ * @param multiple_phase 二次・三次散乱の位相値。照明設定の位相範囲へ収める。
  * @param lighting 正規化前でもよい照明設定。
- * @return x が一次散乱、y が二次散乱。合計は x+y。
+ * @return x が一次散乱、y が二次と三次の合計。全散乱は x+y。
  */
 FVec2 EvaluateVolumetricCloudDirectionalScattering(f32 light_optical_depth, f32 single_phase, f32 multiple_phase, const FVolumetricCloudLighting& lighting) noexcept;
 
