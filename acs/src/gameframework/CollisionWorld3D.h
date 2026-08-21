@@ -3,6 +3,7 @@
 
 #include "container/Array.h"
 #include "gameframework/CollisionShapeId3D.h"
+#include "gameframework/CollisionSweepHit3D.h"
 #include "math/Collision3D.h"
 
 namespace acs::game {
@@ -141,6 +142,23 @@ public:
      * @return 入力が有効でshapeへ命中した場合だけtrue。
      */
     bool TryRaycast(const FRay3& ray, f32 minimum_t, f32 maximum_t, FRayHit3& out_hit, FCollisionShapeId3D& out_shape, FCollisionShapeId3D exclude = {}, u32 mask = kAllLayers) const noexcept;
+
+    /**
+     * world空間のsphereを指定区間で動かし、最初に接触するshapeを返す。
+     *
+     * @details AABBの面・辺・角とsphere同士を連続判定する。directionは非正規化でもよく、
+     * 接触中心は`origin + T * direction`で求める。同じTではslot indexが小さいshapeを選ぶ。
+     * minimum_tより前に接触を開始したshapeは返さず、失敗・外れでは出力を変更しない。
+     * @param center_ray world空間を移動するsphere中心ray。
+     * @param radius 移動sphere半径。有限かつ0以上。
+     * @param minimum_t 含める最小T。有限かつ0以上。
+     * @param maximum_t 含める最大T。有限かつminimum_t以上。
+     * @param out_hit shape、T、接触時中心、world法線の書き込み先。
+     * @param exclude queryから除外するshape。無効またはstaleなら除外なし。
+     * @param mask layerとのANDが0でないshapeだけを含めるmask。
+     * @return 入力が有効でshapeへ接触した場合だけtrue。
+     */
+    bool TrySweepSphere(const FRay3& center_ray, f32 radius, f32 minimum_t, f32 maximum_t, FCollisionSweepHit3D& out_hit, FCollisionShapeId3D exclude = {}, u32 mask = kAllLayers) const noexcept;
 
 private:
     /** slotに格納したshape種別。 */

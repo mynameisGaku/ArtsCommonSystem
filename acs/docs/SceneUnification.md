@@ -34,7 +34,9 @@ staging graph を stack に置けるため、scene lifecycle と graph 構築を
 範囲へworld空間半径を加え、3D cameraのtarget近傍除外と本体の壁抜け防止に使える。
 
 これらは描画node queryである。gameplay collisionは明示ownerが`CCollisionWorld3D`を保持し、
-必要なAABB/sphereを登録・更新する。graphがcollision stateや固定tick寿命を暗黙に所有しない。
+必要なAABB/sphereを登録・更新する。連続移動の確認は`TrySweepSphere()`で行い、描画bounds向けの
+保守的な`SweepSphereActiveRange`とgameplay接触判定を混同しない。graphがcollision stateや
+固定tick寿命を暗黙に所有しない。
 
 `SwapContents()` は root 自体を置き換える。置換後は `AScene` の root-swap hook が次を
 再接続する。
