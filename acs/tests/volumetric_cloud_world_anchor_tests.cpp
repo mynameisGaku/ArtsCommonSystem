@@ -302,14 +302,19 @@ f32 CloudWeatherMaskForTest(f32 weatherCoverage, f32 coverage) noexcept {
 
 f32 CloudColumnHeightShiftForTest(
     f32 weatherCoverage, f32 cloudType, f32 precipitation,
-    f32 warp, f32 evolutionPhase) noexcept {
+    f32 warp, f32 shapePhaseX, f32 shapePhaseY) noexcept {
     const f32 core = SmoothStepForTest(
         0.38f, 0.74f, weatherCoverage);
     const f32 verticalType = SaturateForTest(
         cloudType > precipitation ? cloudType : precipitation);
     const f32 amplitude =
         0.025f + (0.18f - 0.025f) * verticalType;
-    f32 evolvingWarp = warp - 0.5f + evolutionPhase * 0.45f;
+    const f32 warpPattern =
+        SmoothStepForTest(0.36f, 0.64f, warp) * 2.0f - 1.0f;
+    const f32 typePattern = cloudType * 2.0f - 1.0f;
+    const f32 localPhase =
+        shapePhaseX * warpPattern + shapePhaseY * typePattern;
+    f32 evolvingWarp = warp - 0.5f + localPhase * 0.45f;
     if (evolvingWarp < -0.5f) evolvingWarp = -0.5f;
     if (evolvingWarp > 0.5f) evolvingWarp = 0.5f;
     f32 signal =
@@ -2213,14 +2218,53 @@ ACS_TEST(VolumetricClouds, HeightFractionUsesInitializedReturnWithoutChangingLay
 ACS_TEST(VolumetricClouds,
          ConvectiveHeightWarpIsBoundedMonotonicAndSharedWithLighting) {
     const f32 tallCore = CloudColumnHeightShiftForTest(
-        1.0f, 1.0f, 0.0f, 1.0f, 0.0f);
+        1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
     const f32 compressedEdge = CloudColumnHeightShiftForTest(
-        0.0f, 1.0f, 0.0f, 0.0f, 0.0f);
+        0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     const f32 stratusCore = CloudColumnHeightShiftForTest(
-        1.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+        1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f);
     EXPECT_NEAR(tallCore, 0.18f, 1e-6f);
     EXPECT_NEAR(compressedEdge, -0.17595f, 1e-6f);
     EXPECT_NEAR(stratusCore, 0.025f, 1e-6f);
+
+    // 同じ時刻でも低周波の天候模様が異なる地点は、逆向きへ変形する。
+    const f32 lowWarpAtRest = CloudColumnHeightShiftForTest(
+        0.60f, 0.50f, 0.0f, 0.40f, 0.0f, 0.0f);
+    const f32 lowWarpEvolved = CloudColumnHeightShiftForTest(
+        0.60f, 0.50f, 0.0f, 0.40f, 0.18f, 0.0f);
+    const f32 highWarpAtRest = CloudColumnHeightShiftForTest(
+        0.60f, 0.50f, 0.0f, 0.60f, 0.0f, 0.0f);
+    const f32 highWarpEvolved = CloudColumnHeightShiftForTest(
+        0.60f, 0.50f, 0.0f, 0.60f, 0.18f, 0.0f);
+    EXPECT_TRUE(lowWarpEvolved < lowWarpAtRest);
+    EXPECT_TRUE(highWarpEvolved > highWarpAtRest);
+    EXPECT_TRUE(lowWarpAtRest - lowWarpEvolved > 0.004f);
+    EXPECT_TRUE(highWarpEvolved - highWarpAtRest > 0.004f);
+
+    // 第2位相も雲種模様を通じて独立に寄与し、全許容入力でも変形量を越えない。
+    const f32 lowTypeAtRest = CloudColumnHeightShiftForTest(
+        0.60f, 0.25f, 0.0f, 0.50f, 0.0f, 0.0f);
+    const f32 lowTypeEvolved = CloudColumnHeightShiftForTest(
+        0.60f, 0.25f, 0.0f, 0.50f, 0.0f, 0.16f);
+    const f32 highTypeAtRest = CloudColumnHeightShiftForTest(
+        0.60f, 0.75f, 0.0f, 0.50f, 0.0f, 0.0f);
+    const f32 highTypeEvolved = CloudColumnHeightShiftForTest(
+        0.60f, 0.75f, 0.0f, 0.50f, 0.0f, 0.16f);
+    EXPECT_TRUE(lowTypeEvolved < lowTypeAtRest);
+    EXPECT_TRUE(highTypeEvolved > highTypeAtRest);
+    for (u32 warpStep = 0u; warpStep <= 20u; ++warpStep) {
+        for (u32 typeStep = 0u; typeStep <= 20u; ++typeStep) {
+            const f32 warp = static_cast<f32>(warpStep) / 20.0f;
+            const f32 cloudType = static_cast<f32>(typeStep) / 20.0f;
+            for (const f32 shapePhaseX : {-0.18f, 0.18f}) {
+                for (const f32 shapePhaseY : {-0.16f, 0.16f}) {
+                    EXPECT_TRUE(std::fabs(CloudColumnHeightShiftForTest(
+                        0.60f, cloudType, 1.0f, warp,
+                        shapePhaseX, shapePhaseY)) <= 0.180001f);
+                }
+            }
+        }
+    }
 
     // 雲底寄りでも柱ごとの差を残し、平らな下端へ戻らない。
     const f32 liftedLowerBody = CloudConvectiveHeightForTest(0.10f, tallCore, false);
@@ -2267,10 +2311,22 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(!shader.empty());
     EXPECT_TRUE(Contains(
         shader,
+        "floatcloudLocalConvectionPhase(float4weather){"
+        "floatwarpPattern=smoothstep(0.36,0.64,weather.a)*2.0-1.0;"
+        "floattypePattern=weather.g*2.0-1.0;"
+        "returndot(cloudEvolution.xy,float2(warpPattern,typePattern));}"));
+    EXPECT_TRUE(Contains(
+        shader,
         "floatcloudColumnHeightShift(float4weather){"
         "floatcore=smoothstep(0.38,0.74,weather.r);"
         "floatverticalType=saturate(max(weather.g,weather.b));"
         "floatamplitude=lerp(0.025,0.18,verticalType);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "weather.a-0.5+cloudLocalConvectionPhase(weather)*0.45,"));
+    EXPECT_FALSE(Contains(
+        shader,
+        "weather.a-0.5+cloudEvolution.x*0.45"));
     EXPECT_TRUE(Contains(
         shader,
         "floatcloudConvectiveHeight("

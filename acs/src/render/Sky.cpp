@@ -1069,15 +1069,22 @@ float cloudProfile(float h,float cloudType,float precipitation){
     return cloudProfileFromTypeWeights(
         h,cloudProfileTypeWeights(cloudType),precipitation);
 }
+// 既に採取した二つの天候模様で時間位相の向きと強さを場所ごとに変える。
+// 全地点へ同じ位相を足したときの一様な上下動を避け、追加のテクスチャ採取は行わない。
+float cloudLocalConvectionPhase(float4 weather){
+    float warpPattern=smoothstep(0.36,0.64,weather.a)*2.0-1.0;
+    float typePattern=weather.g*2.0-1.0;
+    return dot(cloudEvolution.xy,float2(warpPattern,typePattern));
+}
 // 被覆の強い中心を持ち上げ、薄い縁を押し下げる柱ごとの高さ変形量。
-// 層雲では小さく、積雲または降水域では大きくする。時間位相は既存の
+// 層雲では小さく、積雲または降水域では大きくする。局所位相を既存の
 // 天候模様へ小さく加え、追加のテクスチャ採取なしで雲頂も緩やかに変化させる。
 float cloudColumnHeightShift(float4 weather){
     float core=smoothstep(0.38,0.74,weather.r);
     float verticalType=saturate(max(weather.g,weather.b));
     float amplitude=lerp(0.025,0.18,verticalType);
     float evolvingWarp=clamp(
-        weather.a-0.5+cloudEvolution.x*0.45,-0.5,0.5);
+        weather.a-0.5+cloudLocalConvectionPhase(weather)*0.45,-0.5,0.5);
     float signal=clamp(
         (core-0.45)*1.45+evolvingWarp*0.65,-1.0,1.0);
     return signal*amplitude;
