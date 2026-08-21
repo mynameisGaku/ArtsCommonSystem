@@ -4818,90 +4818,56 @@ ACS_TEST(VolumetricClouds,
         CountOccurrences(shader, "float4groundHorizon;"),
         static_cast<std::size_t>(1));
 
-    const std::string resolveShader = CompactShader(
-        ExtractRawShader(source, "const char* kCloudResolveCS"));
+    const std::string compositeVertexShader = CompactShader(ExtractRawShader(source, "const char* kCloudCompVS"));
+    const std::string resolveShader = CompactShader(ExtractRawShader(source, "const char* kCloudResolveCS"));
+    const std::string compositeShader = CompactShader(ExtractRawShader(source, "const char* kCloudCompPS"));
+    const std::string atmosphereCompositeShader = CompactShader(ExtractRawShader(source, "const char* kCloudCompAtmosPS"));
+    const std::string compositeShaders[]{compositeShader, atmosphereCompositeShader};
     const std::string compactSource = CompactShader(source);
-    EXPECT_EQ(
-        CountOccurrences(resolveShader, "float4groundHorizon;"),
-        static_cast<std::size_t>(1));
-    EXPECT_TRUE(Contains(
-        compactSource,
-        "offsetof(FCloudCb,groundHorizon)==320u"));
+    EXPECT_EQ(CountOccurrences(resolveShader, "float4groundHorizon;"), static_cast<std::size_t>(1));
+    EXPECT_TRUE(Contains(compactSource, "offsetof(FCloudCb,groundHorizon)==320u"));
     EXPECT_TRUE(Contains(compactSource, "sizeof(FCloudCb)==656"));
-    EXPECT_TRUE(Contains(
-        compactSource,
-        "offsetof(FCloudCb,cloudFrameTerms)==336u"));
-    EXPECT_TRUE(Contains(
-        compactSource, "CBSize<FCloudCb>()==768u"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "floatcurrentViewElevation=0.0;"
-        "boolcurrentViewElevationReady=false;"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "currentViewElevation=dot("
-        "stableRay,groundHorizon.xyz);"
-        "currentViewElevationReady=true;"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "currentViewElevation=dot(ray,groundHorizon.xyz);"
-        "currentViewElevationReady=true;"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "if(possibleGroundEdge&&groundHorizon.w>=-1.0){"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "floatoutputElevation=currentViewElevation;"
-        "if(!currentViewElevationReady){"));
-    EXPECT_FALSE(Contains(
-        resolveShader, "floatoutputCameraAltitude="));
-    EXPECT_FALSE(Contains(
-        resolveShader,
-        "floatradiusRatio=CLOUD_PLANET_RADIUS/"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "if(outputElevation<outputGroundCutoff-0.02){"
-        "outputGroundCoverage=0.0;}"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "float2outputCenter=float2(tid.xy)+0.5;"
-        "floatoutputXOffset=tid.x+1u<fullW?1.0:-1.0;"
-        "floatoutputYOffset=tid.y+1u<fullH?1.0:-1.0;"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "floatoutputCoverageHalfWidth=max("
-        "0.5*(abs(outputXElevation-outputElevation)+"
-        "abs(outputYElevation-outputElevation)),1e-6);"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "outputXFarP/=outputXFarP.w;"
-        "outputYFarP/=outputYFarP.w;"));
-    EXPECT_FALSE(Contains(
-        resolveShader,
-        "outputXFarP/=max(abs(outputXFarP.w),1e-6);"));
-    // Reusing the already unprojected centre ray must never remove the two
-    // independent neighbouring rays that define the analytic pixel footprint.
-    EXPECT_EQ(
-        CountOccurrences(
-            resolveShader, "outputXFarP=mul(outputXClip,invViewProj);"),
-        static_cast<std::size_t>(1));
-    EXPECT_EQ(
-        CountOccurrences(
-            resolveShader, "outputYFarP=mul(outputYClip,invViewProj);"),
-        static_cast<std::size_t>(1));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "outputGroundCoverage=smoothstep("
-        "outputGroundCutoff-outputCoverageHalfWidth,"
-        "outputGroundCutoff+outputCoverageHalfWidth,"
-        "outputElevation);"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "resolved.rgb*=outputGroundCoverage;"
-        "outA*=outputGroundCoverage;resolvedDepth.y=outA;"));
-    // The former edge repair borrowed six history pixels with unrelated
-    // radiance/depth. It could hide a staircase in one frame but introduced
-    // dots and partial-history contamination on the next.
+    EXPECT_TRUE(Contains(compactSource, "offsetof(FCloudCb,cloudFrameTerms)==336u"));
+    EXPECT_TRUE(Contains(compactSource, "CBSize<FCloudCb>()==768u"));
+    EXPECT_TRUE(Contains(resolveShader, "floatoutA=saturate(resolved.a);resolvedDepth.y=outA;"));
+    EXPECT_FALSE(Contains(resolveShader, "CloudGroundCoverage"));
+    EXPECT_FALSE(Contains(resolveShader, "outA*=outputGroundCoverage"));
+    EXPECT_FALSE(Contains(resolveShader, "resolved.rgb*=outputGroundCoverage"));
+    EXPECT_TRUE(Contains(compositeVertexShader, "structVSOut{float4pos:SV_POSITION;float2uv:TEXCOORD0;float4farPoint:TEXCOORD1;};"));
+    EXPECT_TRUE(Contains(compositeVertexShader, "float4CloudFarPoint(float2uv){float4clip=float4(uv.x*2.0-1.0,-(uv.y*2.0-1.0),1.0,1.0);returnmul(clip,invViewProj);}"));
+    EXPECT_TRUE(Contains(compositeVertexShader, "o.farPoint=CloudFarPoint(uv);"));
+    for (const std::string& composite : compositeShaders) {
+        EXPECT_EQ(CountOccurrences(composite, "float4groundHorizon;"), static_cast<std::size_t>(1));
+        EXPECT_TRUE(Contains(composite, "float4worldOrigin;float4shadowGrid;float4shadowState;float4groundHorizon;"));
+        EXPECT_TRUE(Contains(composite, "structVSOut{float4pos:SV_POSITION;float2uv:TEXCOORD0;float4farPoint:TEXCOORD1;};"));
+        EXPECT_TRUE(Contains(composite, "floatCloudGroundCoverage(VSOutv){floatresult=1.0;if(groundHorizon.w>=-1.0){"));
+        EXPECT_TRUE(Contains(composite, "uint2pixel=min(uint2(v.pos.xy),fullSize-1u);float4centerFarP=v.farPoint;centerFarP/=centerFarP.w;"));
+        EXPECT_TRUE(Contains(composite, "floatcenterElevation=dot(normalize(centerFarP.xyz-camPos.xyz),groundHorizon.xyz);"));
+        EXPECT_TRUE(Contains(composite, "float4xFarP=v.farPoint+xOffset*(2.0/dims.z)*invViewProj[0];float4yFarP=v.farPoint-yOffset*(2.0/dims.w)*invViewProj[1];"));
+        EXPECT_TRUE(Contains(composite, "floatcoverageHalfWidth=max(0.5*(abs(xElevation-centerElevation)+abs(yElevation-centerElevation)),1e-6);"));
+        EXPECT_TRUE(Contains(composite, "result=smoothstep(groundHorizon.w-coverageHalfWidth,groundHorizon.w+coverageHalfWidth,centerElevation);"));
+        EXPECT_TRUE(Contains(composite, "floatgroundCoverage=CloudGroundCoverage(v);cloud.a*=groundCoverage;cloudHit.y*=groundCoverage;"));
+        EXPECT_FALSE(Contains(composite, "centerFarP=mul("));
+        EXPECT_FALSE(Contains(composite, "xFarP=mul("));
+        EXPECT_FALSE(Contains(composite, "yFarP=mul("));
+        EXPECT_FALSE(Contains(composite, "cloud.rgb*=groundCoverage"));
+        const std::size_t coverageCall = composite.find("floatgroundCoverage=CloudGroundCoverage(v);");
+        const std::size_t sceneDepthRead = composite.find("floatdepth=sceneDepth.SampleLevel", coverageCall);
+        EXPECT_TRUE(coverageCall != std::string::npos);
+        EXPECT_TRUE(sceneDepthRead != std::string::npos);
+        EXPECT_TRUE(coverageCall < sceneDepthRead);
+    }
+    // 旧順序では16位相中15回の履歴表示だけで、被覆0.5がほぼ透明まで減衰する。
+    constexpr f64 partialCoverage = 0.5;
+    f64 repeatedlyMaskedHistory = 1.0;
+    f64 compositeOnlyVisibleAlpha = 0.0;
+    for (u32 phase = 1u; phase < 16u; ++phase) {
+        repeatedlyMaskedHistory *= partialCoverage;
+        compositeOnlyVisibleAlpha = 1.0 * partialCoverage;
+    }
+    EXPECT_TRUE(repeatedlyMaskedHistory < 0.0001);
+    EXPECT_NEAR(compositeOnlyVisibleAlpha, partialCoverage, 0.0);
+    // 以前の境界修復が使った無関係な履歴画素の借用は戻さない。
     EXPECT_FALSE(Contains(resolveShader, "outputCoveragePixels"));
     EXPECT_FALSE(Contains(resolveShader, "edgePremul"));
     EXPECT_FALSE(Contains(resolveShader, "edgeColor=historyColor.Load"));
@@ -5078,58 +5044,38 @@ ACS_TEST(VolumetricClouds,
         0.0f, 0.0f);
 }
 
-ACS_TEST(VolumetricClouds,
-         StableHistoryStillRunsExactGroundCutoffForSmallCameraMotion) {
+ACS_TEST(VolumetricClouds, StableHistoryStoresUnmaskedCloudUntilFinalComposite) {
     const std::string source = ReadSkySource();
     const std::string compactSource = CompactShader(source);
-    const std::string resolveShader = CompactShader(
-        ExtractRawShader(source, "const char* kCloudResolveCS"));
+    const std::string resolveShader = CompactShader(ExtractRawShader(source, "const char* kCloudResolveCS"));
+    const std::string compositeShader = CompactShader(ExtractRawShader(source, "const char* kCloudCompPS"));
+    const std::string atmosphereCompositeShader = CompactShader(ExtractRawShader(source, "const char* kCloudCompAtmosPS"));
     EXPECT_TRUE(!resolveShader.empty());
 
-    // Small camera/matrix deltas deliberately retain history. Therefore the
-    // stable unscheduled shortcut cannot publish a reprojected pixel before the
-    // current frame's exact full-resolution planet/ground cutoff is evaluated.
-    EXPECT_TRUE(Contains(
-        compactSource,
-        "constbooltemporalHistoryStationary=historyValid&&"
-        "cameraDeltaSquared<=0.0025f&&matrixDelta<=0.002f;"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "boolstableUnscheduled=temporal.x>0.5&&temporalSuperRes&&"
-        "!scheduled&&worldOrigin.w>0.5;"));
+    // 小さなカメラ移動で保持した履歴も、被覆前の値として一度だけ公開する。
+    EXPECT_TRUE(Contains(compactSource, "constbooltemporalHistoryStationary=historyValid&&cameraDeltaSquared<=0.0025f&&matrixDelta<=0.002f;"));
+    EXPECT_TRUE(Contains(resolveShader, "boolstableUnscheduled=temporal.x>0.5&&temporalSuperRes&&!scheduled&&worldOrigin.w>0.5;"));
 
-    const std::size_t stableAccept = resolveShader.find(
-        "if(stableDepthOk&&stableAlphaOk){");
-    const std::size_t fallbackGate = resolveShader.find(
-        "if(!stableHistoryResolved){", stableAccept);
-    const std::size_t exactGroundCutoff = resolveShader.find(
-        "if(possibleGroundEdge&&groundHorizon.w>=-1.0){",
-        fallbackGate);
-    const std::size_t finalColorWrite = resolveShader.find(
-        "historyColorOut[tid.xy]=float4(", exactGroundCutoff);
+    const std::size_t stableAccept = resolveShader.find("if(stableDepthOk&&stableAlphaOk){");
+    const std::size_t fallbackGate = resolveShader.find("if(!stableHistoryResolved){", stableAccept);
+    const std::size_t finalColorWrite = resolveShader.find("historyColorOut[tid.xy]=float4(", fallbackGate);
     EXPECT_TRUE(stableAccept != std::string::npos);
     EXPECT_TRUE(fallbackGate != std::string::npos);
-    EXPECT_TRUE(exactGroundCutoff != std::string::npos);
     EXPECT_TRUE(finalColorWrite != std::string::npos);
     EXPECT_TRUE(stableAccept < fallbackGate);
-    EXPECT_TRUE(fallbackGate < exactGroundCutoff);
-    EXPECT_TRUE(exactGroundCutoff < finalColorWrite);
+    EXPECT_TRUE(fallbackGate < finalColorWrite);
+    EXPECT_FALSE(Contains(resolveShader, "possibleGroundEdge"));
+    EXPECT_FALSE(Contains(resolveShader, "outputGroundCoverage"));
+    EXPECT_TRUE(Contains(resolveShader, "resolvedDepth.y=outA;if(outA<=0.001){resolved.rgb=0.0;outA=0.0;resolvedDepth=float2(250001.0,0.0);}"));
+    EXPECT_TRUE(Contains(compositeShader, "cloud.a*=groundCoverage;cloudHit.y*=groundCoverage;"));
+    EXPECT_TRUE(Contains(atmosphereCompositeShader, "cloud.a*=groundCoverage;cloudHit.y*=groundCoverage;"));
 
-    if (stableAccept != std::string::npos &&
-        fallbackGate != std::string::npos &&
-        stableAccept < fallbackGate) {
-        const std::string stableAcceptPath = resolveShader.substr(
-            stableAccept, fallbackGate - stableAccept);
-        EXPECT_TRUE(Contains(
-            stableAcceptPath,
-            "resolved=float4(stableHist.rgb*stableHist.a,stableHist.a);"));
-        EXPECT_TRUE(Contains(
-            stableAcceptPath,
-            "resolvedDepth=float2(sameScreenDepth.x,stableHist.a);"));
-        EXPECT_TRUE(Contains(
-            stableAcceptPath, "stableHistoryResolved=true;"));
-        EXPECT_FALSE(Contains(
-            stableAcceptPath, "historyColorOut[tid.xy]=stableHist;"));
+    if (stableAccept != std::string::npos && fallbackGate != std::string::npos && stableAccept < fallbackGate) {
+        const std::string stableAcceptPath = resolveShader.substr(stableAccept, fallbackGate - stableAccept);
+        EXPECT_TRUE(Contains(stableAcceptPath, "resolved=float4(stableHist.rgb*stableHist.a,stableHist.a);"));
+        EXPECT_TRUE(Contains(stableAcceptPath, "resolvedDepth=float2(sameScreenDepth.x,stableHist.a);"));
+        EXPECT_TRUE(Contains(stableAcceptPath, "stableHistoryResolved=true;"));
+        EXPECT_FALSE(Contains(stableAcceptPath, "historyColorOut[tid.xy]=stableHist;"));
         EXPECT_FALSE(Contains(stableAcceptPath, "return;"));
     }
 }

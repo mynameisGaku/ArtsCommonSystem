@@ -2214,10 +2214,35 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
 
 // 雲合成: 全画面三角形で cloudTex を AlphaBlend 合成 (sky の上に)。
 const char* kCloudCompVS = R"(
-struct VSOut { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; };
+#pragma pack_matrix(row_major)
+cbuffer CloudCB : register(b0) {
+    float4x4 invViewProj;
+    float4x4 prevViewProj;
+    float4 camPos;
+    float4 prevCamPos;
+    float4 sunDir;
+    float4 sunCol;
+    float4 skyCol;
+    float4 params;
+    float4 dims;
+    float4 temporal;
+    float4 layer;
+    float4 worldOrigin;
+    float4 shadowGrid;
+    float4 shadowState;
+    float4 groundHorizon;
+};
+struct VSOut { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; float4 farPoint:TEXCOORD1; };
+float4 CloudFarPoint(float2 uv) {
+    float4 clip=float4(uv.x*2.0-1.0,-(uv.y*2.0-1.0),1.0,1.0);
+    return mul(clip,invViewProj);
+}
 VSOut VSMain(uint id:SV_VertexID){
     float2 uv=float2((id<<1)&2, id&2);
-    VSOut o; o.uv=uv; o.pos=float4(uv.x*2.0-1.0, -(uv.y*2.0-1.0), 0.0, 1.0); return o;
+    VSOut o; o.uv=uv; o.pos=float4(uv.x*2.0-1.0,-(uv.y*2.0-1.0),0.0,1.0);
+    // 逆射影は三頂点だけで行い、画素中心の遠点は線形補間する。
+    o.farPoint=CloudFarPoint(uv);
+    return o;
 }
 )";
 
@@ -2333,15 +2358,11 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     float2 nativeDepth=float2(
         (refC.a>0.003 && refD.x<=250000.0)?refD.x:250001.0,
         saturate(refC.a));
-    // The stable-history path may skip the expensive bilateral gather, but it
-    // must still flow through the exact full-resolution ground cutoff below.
-    // Keep the accepted history in the same premultiplied representation used
-    // by the ordinary resolve path instead of publishing it early.
+    // 安定した履歴では高価な両側採取を省くが、通常経路と同じ乗算済み表現を保つ。
+    // 地平線被覆は履歴へ保存せず、最終合成で一度だけ適用する。
     bool stableHistoryResolved=false;
     float4 resolved=float4(0,0,0,0);
     float2 resolvedDepth=float2(250001.0,0.0);
-    float currentViewElevation=0.0;
-    bool currentViewElevationReady=false;
 
     // The steady-state TSR resolve does not need a nine-tap spatial fallback
     // for the interior of a stable cloud. Reproject those pixels first, while
@@ -2392,11 +2413,6 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                 ?rcp(stableFarP.w):0.0;
             float3 stableRay=normalize(
                 stableFarP.xyz*stableInvW-camPos.xyz);
-            if(groundHorizon.w>=-1.0) {
-                currentViewElevation=dot(
-                    stableRay,groundHorizon.xyz);
-                currentViewElevationReady=true;
-            }
             float3 stableWorldP=
                 camPos.xyz+stableRay*sameScreenDepth.x;
             float stableWindDelta=params.z-temporal.y;
@@ -2535,10 +2551,6 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
         float4 farP=mul(clip,invViewProj);
         float invW=(abs(farP.w)>1e-6)?rcp(farP.w):0.0;
         float3 ray=normalize(farP.xyz*invW-camPos.xyz);
-        if(groundHorizon.w>=-1.0) {
-            currentViewElevation=dot(ray,groundHorizon.xyz);
-            currentViewElevationReady=true;
-        }
         float3 worldP=camPos.xyz+ray*reprojectionDepth;
 
         // Reproject the same advected density feature.  Camera translation is
@@ -2627,70 +2639,13 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     }
     }
 
+    // 履歴には地平線被覆前の値を保存し、部分被覆をフレームごとに重ねない。
     float outA=saturate(resolved.a);
-    bool possibleGroundEdge=outA>1e-5 ||
-        (refC.a>0.003 && refD.x<=250000.0);
-    if(possibleGroundEdge && groundHorizon.w>=-1.0) {
-        // Enforce the analytic planet/ground horizon at the exact output pixel.
-        // Quarter-resolution current taps may straddle this boundary, so doing
-        // the final conservative coverage here prevents bilateral reconstruction
-        // from reintroducing a one-pixel white fringe into the ground hemisphere.
-        float3 outputUp=groundHorizon.xyz;
-        float outputGroundCutoff=groundHorizon.w;
-        float outputElevation=currentViewElevation;
-        if(!currentViewElevationReady) {
-            float4 outputClip=float4(
-                uv.x*2.0-1.0,-(uv.y*2.0-1.0),1.0,1.0);
-            float4 outputFarP=mul(outputClip,invViewProj);
-            outputFarP/=outputFarP.w;
-            float3 outputRay=normalize(outputFarP.xyz-camPos.xyz);
-            outputElevation=dot(outputRay,outputUp);
-        }
-        float outputGroundCoverage=1.0;
-        if(outputElevation<outputGroundCutoff-0.02) {
-            outputGroundCoverage=0.0;
-        } else if(outputElevation<outputGroundCutoff+0.02) {
-            // Use the exact two-axis output-pixel footprint. Centering the
-            // implicit-edge filter around the physical tangent removes the
-            // old one-sided staircase without borrowing radiance from a
-            // different history/depth sample.
-            float2 outputCenter=float2(tid.xy)+0.5;
-            float outputXOffset=tid.x+1u<fullW?1.0:-1.0;
-            float outputYOffset=tid.y+1u<fullH?1.0:-1.0;
-            float2 outputXUv=(
-                outputCenter+float2(outputXOffset,0.0))/dims.zw;
-            float2 outputYUv=(
-                outputCenter+float2(0.0,outputYOffset))/dims.zw;
-            float4 outputXClip=float4(
-                outputXUv.x*2.0-1.0,
-                -(outputXUv.y*2.0-1.0),1.0,1.0);
-            float4 outputYClip=float4(
-                outputYUv.x*2.0-1.0,
-                -(outputYUv.y*2.0-1.0),1.0,1.0);
-            float4 outputXFarP=mul(outputXClip,invViewProj);
-            float4 outputYFarP=mul(outputYClip,invViewProj);
-            outputXFarP/=outputXFarP.w;
-            outputYFarP/=outputYFarP.w;
-            float outputXElevation=dot(
-                normalize(outputXFarP.xyz-camPos.xyz),outputUp);
-            float outputYElevation=dot(
-                normalize(outputYFarP.xyz-camPos.xyz),outputUp);
-            float outputCoverageHalfWidth=max(
-                0.5*(abs(outputXElevation-outputElevation)+
-                     abs(outputYElevation-outputElevation)),1e-6);
-            outputGroundCoverage=smoothstep(
-                outputGroundCutoff-outputCoverageHalfWidth,
-                outputGroundCutoff+outputCoverageHalfWidth,
-                outputElevation);
-        }
-        resolved.rgb*=outputGroundCoverage;
-        outA*=outputGroundCoverage;
-        resolvedDepth.y=outA;
-        if(outA<=0.001) {
-            resolved.rgb=0.0;
-            outA=0.0;
-            resolvedDepth=float2(250001.0,0.0);
-        }
+    resolvedDepth.y=outA;
+    if(outA<=0.001) {
+        resolved.rgb=0.0;
+        outA=0.0;
+        resolvedDepth=float2(250001.0,0.0);
     }
     historyColorOut[tid.xy]=float4(
         outA>1e-5 ? resolved.rgb/outA : float3(0,0,0),outA);
@@ -2712,6 +2667,10 @@ cbuffer CloudCB : register(b0) {
     float4 dims;
     float4 temporal;
     float4 layer;
+    float4 worldOrigin;
+    float4 shadowGrid;
+    float4 shadowState;
+    float4 groundHorizon;
 };
 Texture2D<float4> cloudTex : register(t0);
 Texture2D<float> sceneDepth : register(t1);
@@ -2719,11 +2678,43 @@ Texture2D<float2> cloudDepth : register(t2);
 SamplerState cloudTex_sampler : register(s0);
 SamplerState sceneDepth_sampler : register(s1);
 SamplerState cloudDepth_sampler : register(s2);
-struct VSOut { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; };
+struct VSOut { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; float4 farPoint:TEXCOORD1; };
+// 履歴へ混ぜず、表示する全解像度画素で地平線被覆を一度だけ求める。
+float CloudGroundCoverage(VSOut v) {
+    float result=1.0;
+    if(groundHorizon.w>=-1.0) {
+        uint2 fullSize=max(uint2(dims.zw),uint2(1,1));
+        uint2 pixel=min(uint2(v.pos.xy),fullSize-1u);
+        float4 centerFarP=v.farPoint;
+        centerFarP/=centerFarP.w;
+        float centerElevation=dot(normalize(centerFarP.xyz-camPos.xyz),groundHorizon.xyz);
+        if(centerElevation<groundHorizon.w-0.02) {
+            result=0.0;
+        } else if(centerElevation<groundHorizon.w+0.02) {
+            float xOffset=pixel.x+1u<fullSize.x?1.0:-1.0;
+            float yOffset=pixel.y+1u<fullSize.y?1.0:-1.0;
+            // 同次遠点は画面座標に対して線形なので、行列の対応行だけで隣接画素へ進める。
+            float4 xFarP=v.farPoint+xOffset*(2.0/dims.z)*invViewProj[0];
+            float4 yFarP=v.farPoint-yOffset*(2.0/dims.w)*invViewProj[1];
+            xFarP/=xFarP.w;
+            yFarP/=yFarP.w;
+            float xElevation=dot(normalize(xFarP.xyz-camPos.xyz),groundHorizon.xyz);
+            float yElevation=dot(normalize(yFarP.xyz-camPos.xyz),groundHorizon.xyz);
+            float coverageHalfWidth=max(0.5*(abs(xElevation-centerElevation)+abs(yElevation-centerElevation)),1e-6);
+            result=smoothstep(groundHorizon.w-coverageHalfWidth,groundHorizon.w+coverageHalfWidth,centerElevation);
+        }
+    }
+    return result;
+}
 float4 PSMain(VSOut v):SV_TARGET {
     float4 cloud = cloudTex.SampleLevel(cloudTex_sampler, v.uv, 0.0);
     float2 cloudHit = cloudDepth.SampleLevel(cloudDepth_sampler, v.uv, 0.0);
     if (cloud.a < 0.001 || cloudHit.y < 0.001 || cloudHit.x > 250000.0)
+        return float4(0,0,0,0);
+    float groundCoverage=CloudGroundCoverage(v);
+    cloud.a*=groundCoverage;
+    cloudHit.y*=groundCoverage;
+    if (cloud.a < 0.001 || cloudHit.y < 0.001)
         return float4(0,0,0,0);
 
     // Compare actual ray distances instead of discarding clouds whenever any
@@ -2768,6 +2759,10 @@ cbuffer CloudCB : register(b0) {
     float4 dims;
     float4 temporal;
     float4 layer;
+    float4 worldOrigin;
+    float4 shadowGrid;
+    float4 shadowState;
+    float4 groundHorizon;
 };
 cbuffer CloudAtmosphereCB : register(b1) {
     float4 atmosphereParams; // x=maximum camera-volume distance
@@ -2782,11 +2777,43 @@ SamplerState sceneDepth_sampler : register(s1);
 SamplerState cloudDepth_sampler : register(s2);
 SamplerState atmosphereVolume_sampler : register(s3);
 SamplerState atmosphereTransmittance_sampler : register(s4);
-struct VSOut { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; };
+struct VSOut { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; float4 farPoint:TEXCOORD1; };
+// 履歴へ混ぜず、表示する全解像度画素で地平線被覆を一度だけ求める。
+float CloudGroundCoverage(VSOut v) {
+    float result=1.0;
+    if(groundHorizon.w>=-1.0) {
+        uint2 fullSize=max(uint2(dims.zw),uint2(1,1));
+        uint2 pixel=min(uint2(v.pos.xy),fullSize-1u);
+        float4 centerFarP=v.farPoint;
+        centerFarP/=centerFarP.w;
+        float centerElevation=dot(normalize(centerFarP.xyz-camPos.xyz),groundHorizon.xyz);
+        if(centerElevation<groundHorizon.w-0.02) {
+            result=0.0;
+        } else if(centerElevation<groundHorizon.w+0.02) {
+            float xOffset=pixel.x+1u<fullSize.x?1.0:-1.0;
+            float yOffset=pixel.y+1u<fullSize.y?1.0:-1.0;
+            // 同次遠点は画面座標に対して線形なので、行列の対応行だけで隣接画素へ進める。
+            float4 xFarP=v.farPoint+xOffset*(2.0/dims.z)*invViewProj[0];
+            float4 yFarP=v.farPoint-yOffset*(2.0/dims.w)*invViewProj[1];
+            xFarP/=xFarP.w;
+            yFarP/=yFarP.w;
+            float xElevation=dot(normalize(xFarP.xyz-camPos.xyz),groundHorizon.xyz);
+            float yElevation=dot(normalize(yFarP.xyz-camPos.xyz),groundHorizon.xyz);
+            float coverageHalfWidth=max(0.5*(abs(xElevation-centerElevation)+abs(yElevation-centerElevation)),1e-6);
+            result=smoothstep(groundHorizon.w-coverageHalfWidth,groundHorizon.w+coverageHalfWidth,centerElevation);
+        }
+    }
+    return result;
+}
 float4 PSMainAtmos(VSOut v):SV_TARGET {
     float4 cloud = cloudTex.SampleLevel(cloudTex_sampler, v.uv, 0.0);
     float2 cloudHit = cloudDepth.SampleLevel(cloudDepth_sampler, v.uv, 0.0);
     if (cloud.a < 0.001 || cloudHit.y < 0.001 || cloudHit.x > 250000.0)
+        return float4(0,0,0,0);
+    float groundCoverage=CloudGroundCoverage(v);
+    cloud.a*=groundCoverage;
+    cloudHit.y*=groundCoverage;
+    if (cloud.a < 0.001 || cloudHit.y < 0.001)
         return float4(0,0,0,0);
 
     float depth = sceneDepth.SampleLevel(sceneDepth_sampler, v.uv, 0.0);
