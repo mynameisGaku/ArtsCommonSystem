@@ -363,6 +363,7 @@ public static class CanonicalSceneAdapter
         var prefabs = new HashSet<int>();
         var prefabInstanceNodes = new HashSet<int>();
         var prefabInstanceIds = new HashSet<string>(StringComparer.Ordinal);
+        var prefabSourceIdentityNodes = new HashSet<int>();
         var prefabOverrideNodes = new HashSet<int>();
         var prefabComponentOverrides = new HashSet<(int Node, int Slot, int Property)>();
         var cameraNodes = new HashSet<int>();
@@ -448,6 +449,9 @@ public static class CanonicalSceneAdapter
                     break;
                 case "PINS3D":
                     InspectPrefabInstance(line, lineNumber);
+                    break;
+                case "PSID3D":
+                    InspectPrefabSourceNodeIdentity(line, lineNumber);
                     break;
                 case "POVR3D":
                     InspectPrefabRootOverride(line, lineNumber);
@@ -789,6 +793,29 @@ public static class CanonicalSceneAdapter
                 diagnostics.Add(Error(
                     "SCENE3D_PREFAB_INSTANCE_ID_DUPLICATE",
                     "Each PFAB3D node and stable Prefab instance id may have at most one PINS3D record.",
+                    lineNumber));
+            }
+        }
+
+        void InspectPrefabSourceNodeIdentity(string line, int lineNumber)
+        {
+            string[] tokens = Tokens(line);
+            if (tokens.Length != 3 ||
+                !TryInt(tokens[1], out int id) ||
+                !nodes.ContainsKey(id) ||
+                !IsCanonicalPrefabInstanceId(tokens[2]))
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_PREFAB_SOURCE_NODE_ID_INVALID",
+                    "PSID3D requires an existing node and a 32-character lowercase hexadecimal source node id.",
+                    lineNumber));
+                return;
+            }
+            if (!prefabSourceIdentityNodes.Add(id))
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_PREFAB_SOURCE_NODE_ID_DUPLICATE",
+                    "Each 3D node may have at most one PSID3D record.",
                     lineNumber));
             }
         }

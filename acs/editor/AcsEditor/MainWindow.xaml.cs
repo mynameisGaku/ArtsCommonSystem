@@ -4860,7 +4860,12 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog(this) != true) return;
         try
         {
-            System.IO.File.WriteAllText(dlg.FileName, StripPrefabLinks(text), System.Text.Encoding.UTF8);
+            string sourceText = StripPrefabLinks(text);
+            if (_view3d)
+            {
+                if (!PrefabNodeIdentity3D.TryEnsureSource(dlg.FileName, sourceText, out sourceText, out _, out string identityError)) throw new InvalidDataException(identityError);
+            }
+            SceneSourceFile.WriteAtomicText(dlg.FileName, sourceText);
             // 保存元もこのプレハブのインスタンスにする (instance-of リンク)。2D/3D で ABI を切替え。
             if (_view3d)
             {
@@ -4898,6 +4903,7 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog(this) != true) return;
         try
         {
+            if (_view3d && !PrefabNodeIdentity3D.TryEnsureSource(dlg.FileName, comp, out comp, out _, out string identityError)) throw new InvalidDataException(identityError);
             int cmpLines = comp.Replace("\r", "").TrimEnd('\n').Split('\n').Length;   // ログ表示用の行数
             AcsbpFormat.Write(dlg.FileName, AcsbpFormat.WrapComponents(comp));
             AssetBrowser.Refresh();
@@ -4931,8 +4937,9 @@ public partial class MainWindow : Window
         string acscene;
         try { acscene = StripPrefabLinks(System.IO.File.ReadAllText(prefabPath, System.Text.Encoding.UTF8)); }
         catch (Exception ex) { Log("変換読込エラー: " + ex.Message); return; }
-        int cmpLines = acscene.Replace("\r", "").TrimEnd('\n').Split('\n').Length;   // ログ表示用の行数
         string bpPath = System.IO.Path.ChangeExtension(prefabPath, ".acsbp");
+        if (acscene.TrimStart().StartsWith("ACS3D", StringComparison.Ordinal) && !PrefabNodeIdentity3D.TryEnsureSource(bpPath, acscene, out acscene, out _, out string identityError)) { Log("変換エラー: " + identityError); return; }
+        int cmpLines = acscene.Replace("\r", "").TrimEnd('\n').Split('\n').Length;   // ログ表示用の行数
         try { AcsbpFormat.Write(bpPath, AcsbpFormat.WrapComponents(acscene)); }
         catch (Exception ex) { Log("変換書込エラー: " + ex.Message); return; }
         AssetBrowser.Refresh();
@@ -4960,6 +4967,8 @@ public partial class MainWindow : Window
         }
         if (payloadUses3D)   // 3D Blueprint (ACS3D テキスト) → 3D サブツリーとして実体化
         {
+            try { comp = EnsurePrefabNodeIdentities3D(path, comp); }
+            catch (Exception ex) { Log("Blueprint node identity移行エラー: " + ex.Message); return; }
             int parent3d = EngineInterop.acs_editor_selected3d(Engine);
             int rid = EngineInterop.acs_editor_prefab_instance3d_instantiate(
                 Engine,
@@ -4986,11 +4995,29 @@ public partial class MainWindow : Window
     /// <summary>prefab_src が Blueprint(.acsbp) か (= CMP ブロックを持つ統合資産)。</summary>
     private static bool IsBlueprint(string src) => src.EndsWith(".acsbp", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>src から «インスタンス化に使うコンポーネント木テキスト» を読む (.acsbp は CMP 抽出、.acsprefab は全文)。</summary>
+    /// <summary>srcから実体化する木を読み、3D sourceなら不足PSID3Dをatomic migrationして返す。</summary>
     private static string ReadComponentsFor(string src)
     {
         string text = System.IO.File.ReadAllText(src, System.Text.Encoding.UTF8);
-        return IsBlueprint(src) ? AcsbpFormat.ExtractCmp(text) : text;
+        string components = IsBlueprint(src) ? AcsbpFormat.ExtractCmp(text) : text;
+        return components.TrimStart().StartsWith("ACS3D", StringComparison.Ordinal)
+            ? EnsurePrefabNodeIdentities3D(src, components)
+            : components;
+    }
+
+    /// <summary>3D source textへ不足PSID3Dを補い、変更時だけ原本へatomic書込する。</summary>
+    private static string EnsurePrefabNodeIdentities3D(string src, string components)
+    {
+        if (!PrefabNodeIdentity3D.TryEnsureSource(src, components, out string identified, out int added, out string error)) throw new InvalidDataException(error);
+        if (added > 0)
+        {
+            string currentSource = System.IO.File.ReadAllText(src, System.Text.Encoding.UTF8);
+            string currentComponents = IsBlueprint(src) ? AcsbpFormat.ExtractCmp(currentSource) : currentSource;
+            if (!string.Equals(currentComponents, components, StringComparison.Ordinal)) throw new IOException("読込後にPrefab原本が変更されました。再度操作してください。");
+            string updatedSource = IsBlueprint(src) ? AcsbpFormat.ReplaceCmp(currentSource, identified) : identified;
+            SceneSourceFile.WriteAtomicText(src, updatedSource);
+        }
+        return identified;
     }
 
     /// <summary>コンポーネント木 comp を src へ書き戻す (.acsbp は CMP ブロックだけ差し替えて VAR/graph を温存)。</summary>
@@ -5053,6 +5080,8 @@ public partial class MainWindow : Window
         }
         if (payloadUses3D)   // 3D プレハブ (ACS3D テキスト) → 3D サブツリーとして実体化
         {
+            try { text = EnsurePrefabNodeIdentities3D(path, text); }
+            catch (Exception ex) { Log("Prefab node identity移行エラー: " + ex.Message); return; }
             int parent3d = EngineInterop.acs_editor_selected3d(Engine);
             int rid = EngineInterop.acs_editor_prefab_instance3d_instantiate(
                 Engine,
@@ -5159,6 +5188,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrEmpty(src)) return;
         string comp = StripPrefabLinks(_view3d ? EngineInterop.CopySubtree3D(Engine, id) : EngineInterop.CopySubtree(Engine, id));
         if (string.IsNullOrEmpty(comp)) { Log("Apply 失敗 (直列化が空)。"); return; }
+        if (_view3d && !PrefabNodeIdentity3D.TryEnsureSource(src, comp, out comp, out _, out string identityError)) { Log("Apply node identityエラー: " + identityError); return; }
         try { WriteComponentsTo(src, comp); }   // .acsbp は CMP だけ差し替え (VAR/graph 温存)、.acsprefab は全文
         catch (Exception ex) { Log("Apply エラー: " + ex.Message); return; }
 

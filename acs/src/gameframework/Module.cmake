@@ -91,6 +91,7 @@ set(_acsgen_gameframework_sources
     PickupSystem.cpp
     PlatformInputStateAdapter.cpp
     PrefabLink3DComponent.cpp
+    PrefabNodeIdentity3DComponent.cpp
     PrefabSystem.cpp
     PrivacyDirector.cpp
     Progression.cpp
@@ -276,6 +277,8 @@ set(_acsgen_gameframework_headers
     PolygonRenderer2D.h
     Pool.h
     PrefabLink3DComponent.h
+    PrefabNodeIdentity3DComponent.h
+    PrefabRootProperty3D.h
     PrefabSystem.h
     PrimitiveRenderer2D.h
     PrivacyDirector.h

@@ -89,6 +89,8 @@ extern "C" __declspec(dllimport) const char*
 acs_editor_node3d_get_prefab_src(void* handle, int id);
 extern "C" __declspec(dllimport) const char*
 acs_editor_node3d_get_prefab_instance_id(void* handle, int id);
+extern "C" __declspec(dllimport) const char* acs_editor_node3d_get_prefab_source_node_id(void* handle, int id);
+extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_find_node_by_source_id(void* handle, int root_id, const char* source_node_id);
 extern "C" __declspec(dllimport) int acs_editor_node3d_set_prefab_link(
     void* handle, int id, const char* source, const char* instance_id);
 extern "C" __declspec(dllimport) std::uint32_t acs_editor_prefab_instance3d_root_override_mask(void* handle, int id);
@@ -1543,6 +1545,70 @@ bool RunPrefabInstance3DStableIdentity() noexcept
     return ok;
 }
 
+/** PSID3Dは原本nodeの再採番を越えて対応childを解決し、複製と保存でも同じsource identityを保つ。 */
+bool RunPrefabInstance3DSourceNodeIdentity() noexcept
+{
+    constexpr const char* kSource = "Assets/Vehicle.acsprefab";
+    constexpr const char* kRootSourceId = "0123456789abcdef0123456789abcdef";
+    constexpr const char* kChildSourceId = "fedcba9876543210fedcba9876543210";
+    constexpr const char* kPrefab =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 0.2 0.3 0.4 1 Vehicle\n"
+        "PSID3D 1 0123456789abcdef0123456789abcdef\n"
+        "N3D 2 1 0 1 0 0 0 0 0 1 1 1 0.5 0.6 0.7 1 Wheel\n"
+        "PSID3D 2 fedcba9876543210fedcba9876543210\n";
+    constexpr const char* kRenumberedPrefab =
+        "ACS3D v2\n"
+        "N3D 200 100 0 2 0 0 0 0 0 1 1 1 0.7 0.6 0.5 1 UpdatedWheel\n"
+        "PSID3D 200 fedcba9876543210fedcba9876543210\n"
+        "N3D 100 -1 0 0 0 0 0 0 0 1 1 1 0.4 0.3 0.2 1 UpdatedVehicle\n"
+        "PSID3D 100 0123456789abcdef0123456789abcdef\n";
+    constexpr const char* kLegacyPrefab =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 LegacyRoot\n"
+        "N3D 2 1 0 0 1 0 0 0 0 1 1 1 1 1 1 1 LegacyChild\n";
+    constexpr const char* kMalformedPrefab =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 Invalid\n"
+        "PSID3D 1 0123456789ABCDEF0123456789ABCDEF\n";
+    constexpr const char* kDuplicateSourceIdPrefab =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 Root\n"
+        "PSID3D 1 0123456789abcdef0123456789abcdef\n"
+        "N3D 2 1 0 0 1 0 0 0 0 1 1 1 1 1 1 1 Child\n"
+        "PSID3D 2 0123456789abcdef0123456789abcdef\n";
+
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+    int instance = acs_editor_prefab_instance3d_instantiate(host, kSource, "0123456789abcdef0123456789abcdef", kPrefab, -1);
+    int child = instance >= 0 ? acs_editor_prefab_instance3d_find_node_by_source_id(host, instance, kChildSourceId) : -1;
+    bool ok = instance >= 0 && child >= 0 && acs_editor_node3d_parent(host, child) == instance && std::strcmp(acs_editor_node3d_get_prefab_source_node_id(host, instance), kRootSourceId) == 0 && std::strcmp(acs_editor_node3d_get_prefab_source_node_id(host, child), kChildSourceId) == 0 && acs_editor_prefab_instance3d_find_node_by_source_id(host, instance, "FEDCBA9876543210FEDCBA9876543210") == -1;
+
+    const int duplicate = ok ? acs_editor_node3d_duplicate(host, instance) : -1;
+    const int duplicate_child = duplicate >= 0 ? acs_editor_prefab_instance3d_find_node_by_source_id(host, duplicate, kChildSourceId) : -1;
+    ok = ok && duplicate >= 0 && duplicate_child >= 0 && std::strcmp(acs_editor_node3d_get_prefab_source_node_id(host, duplicate), kRootSourceId) == 0 && std::strcmp(acs_editor_node3d_get_prefab_source_node_id(host, duplicate_child), kChildSourceId) == 0;
+
+    const int refreshed = ok ? acs_editor_prefab_instance3d_refresh(host, instance, kSource, kRenumberedPrefab) : -1;
+    const int refreshed_child = refreshed >= 0 ? acs_editor_prefab_instance3d_find_node_by_source_id(host, refreshed, kChildSourceId) : -1;
+    ok = ok && refreshed >= 0 && refreshed_child >= 0 && acs_editor_node3d_parent(host, refreshed_child) == refreshed && std::strcmp(acs_editor_node3d_get_prefab_source_node_id(host, refreshed), kRootSourceId) == 0;
+
+    char serialized[32768]{};
+    const int serialized_bytes = ok ? acs_editor_scene3d_serialize(host, serialized, static_cast<int>(sizeof(serialized))) : 0;
+    ok = ok && serialized_bytes > 0 && std::strstr(serialized, "PSID3D ") != nullptr && acs_editor_scene3d_load_text(host, serialized) != 0 && acs_editor_prefab_instance3d_find_node_by_source_id(host, refreshed, kChildSourceId) >= 0;
+
+    std::string before_invalid2d;
+    std::string before_invalid3d;
+    ok = ok && SnapshotSceneDocument(host, before_invalid2d, before_invalid3d) && acs_editor_prefab_instance3d_instantiate(host, kSource, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", kMalformedPrefab, -1) == -1 && acs_editor_prefab_instance3d_instantiate(host, kSource, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab", kDuplicateSourceIdPrefab, -1) == -1 && SceneDocumentEquals(host, before_invalid2d, before_invalid3d);
+
+    const int legacy = ok ? acs_editor_prefab_instance3d_instantiate(host, kSource, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", kLegacyPrefab, -1) : -1;
+    const char* legacy_root_source_id = legacy >= 0 ? acs_editor_node3d_get_prefab_source_node_id(host, legacy) : "";
+    const int legacy_child = legacy >= 0 ? acs_editor_prefab_instance3d_find_node_by_source_id(host, legacy, "1c5a7ecfeb80b56902d7afc7d82b3250") : -1;
+    ok = ok && legacy >= 0 && std::strcmp(legacy_root_source_id, "bc552ad841b671fae2c7b3e0dacc6803") == 0 && legacy_child >= 0;
+    if (!ok) std::printf("3D Prefab source node identity contract failed.\n");
+    acs_editor_destroy(host);
+    return ok;
+}
+
 /** 3D Prefab root overrideは明示maskだけをsource更新後も保持し、全Revertで破棄する。 */
 bool RunPrefabInstance3DRootPropertyOverrides() noexcept
 {
@@ -2967,6 +3033,7 @@ int main()
     if (!RunTransactionalScene3DSubtreePaste()) return 29;
     if (!RunPrefabInstance3DRefreshTransaction()) return 30;
     if (!RunPrefabInstance3DStableIdentity()) return 31;
+    if (!RunPrefabInstance3DSourceNodeIdentity()) return 34;
     if (!RunPrefabInstance3DRootPropertyOverrides()) return 32;
     if (!RunPrefabInstance3DRootComponentPropertyOverrides()) return 33;
     if (!RunWater3DComponentRoundTrip()) return 15;

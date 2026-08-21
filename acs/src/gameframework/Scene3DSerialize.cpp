@@ -9,6 +9,7 @@
 #include "gameframework/Material2D.h"
 #include "gameframework/MeshComponent3D.h"
 #include "gameframework/PrefabLink3DComponent.h"
+#include "gameframework/PrefabNodeIdentity3DComponent.h"
 #include "gameframework/Reflect.h"
 #include "gameframework/ReflectApply.h"
 #include "gameframework/Sprite3DComponent.h"
@@ -60,6 +61,7 @@ struct FParsedNode {
     bool HasPrefabPath = false;
     bool HasPrefabInstanceId = false;
     bool HasPrefabOverride = false;
+    bool HasPrefabSourceNodeId = false;
     bool HasLegacyMaterial = false;
     bool Visible = true;
     bool Enabled = true;
@@ -73,6 +75,7 @@ struct FParsedNode {
     char SpritePath[kScene3DSerializeMaxSpritePathBytes + 1u]{};
     char PrefabPath[kScene3DSerializeMaxPrefabPathBytes + 1u]{};
     char PrefabInstanceId[kScene3DSerializePrefabInstanceIdBytes + 1u]{};
+    char PrefabSourceNodeId[kScene3DSerializePrefabSourceNodeIdBytes + 1u]{};
     u32 PrefabRootPropertyOverrideMask = 0u;
     TSharedPtr<AAsset> LoadedMesh;
     TSharedPtr<AAsset> LoadedSpriteImage;
@@ -174,6 +177,17 @@ const APrefabLink3DComponent* FindPrefabLink(const ANode& node) noexcept
     return nullptr;
 }
 
+/** constノードから最初の3D Prefab source node identityを探す。 */
+const APrefabNodeIdentity3DComponent* FindPrefabNodeIdentity(const ANode& node) noexcept
+{
+    const void* kind = ComponentKindOf<APrefabNodeIdentity3DComponent>();
+    for (u32 index = 0u; index < node.ComponentCount(); ++index) {
+        const AComponent* component = node.ComponentAt(index);
+        if (component != nullptr && component->Kind() == kind) return static_cast<const APrefabNodeIdentity3DComponent*>(component);
+    }
+    return nullptr;
+}
+
 bool HasMultipleCameras(const ANode& node) noexcept {
     const void* kind = ComponentKindOf<ACameraComponent3D>();
     bool found = false;
@@ -204,6 +218,20 @@ bool HasMultipleSprites(const ANode& node) noexcept
 bool HasMultiplePrefabLinks(const ANode& node) noexcept
 {
     const void* kind = ComponentKindOf<APrefabLink3DComponent>();
+    bool found = false;
+    for (u32 index = 0u; index < node.ComponentCount(); ++index) {
+        const AComponent* component = node.ComponentAt(index);
+        if (component == nullptr || component->Kind() != kind) continue;
+        if (found) return true;
+        found = true;
+    }
+    return false;
+}
+
+/** ノードに3D Prefab source node identityが複数付いている場合にtrueを返す。 */
+bool HasMultiplePrefabNodeIdentities(const ANode& node) noexcept
+{
+    const void* kind = ComponentKindOf<APrefabNodeIdentity3DComponent>();
     bool found = false;
     for (u32 index = 0u; index < node.ComponentCount(); ++index) {
         const AComponent* component = node.ComponentAt(index);
@@ -381,6 +409,23 @@ EScene3DSerializeError FormatSpriteLine(const ASprite3DComponent& sprite, i32 id
     const int written = std::snprintf(line, static_cast<size_t>(capacity), "SPR3D %d %s\n", id, path);
     if (written <= 0 || static_cast<u32>(written) >= capacity)
         return EScene3DSerializeError::SerializedSizeOverflow;
+    line_size = static_cast<u32>(written);
+    return EScene3DSerializeError::None;
+}
+
+/** Prefab原本内のsource node IDをPSID3D行へ整形する。 */
+EScene3DSerializeError FormatPrefabSourceNodeIdentityLine(const APrefabNodeIdentity3DComponent& identity, i32 id, char* line, u32 capacity, u32& line_size) noexcept
+{
+    const FStringView source_node_id = identity.SourceNodeId();
+    if (source_node_id.Size() != kScene3DSerializePrefabSourceNodeIdBytes) return EScene3DSerializeError::InvalidPrefabSourceNodeId;
+    char value[kScene3DSerializePrefabSourceNodeIdBytes + 1u]{};
+    for (u32 index = 0u; index < source_node_id.Size(); ++index) {
+        const char character = source_node_id[index];
+        if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))) return EScene3DSerializeError::InvalidPrefabSourceNodeId;
+        value[index] = character;
+    }
+    const int written = std::snprintf(line, static_cast<size_t>(capacity), "PSID3D %d %s\n", id, value);
+    if (written <= 0 || static_cast<u32>(written) >= capacity) return EScene3DSerializeError::SerializedSizeOverflow;
     line_size = static_cast<u32>(written);
     return EScene3DSerializeError::None;
 }
@@ -653,6 +698,32 @@ EScene3DSerializeError ParseSpriteLine(const char* line, u32 size, TArray<FParse
     }
     record.HasSpritePath = true;
     ++sprite_count;
+    return EScene3DSerializeError::None;
+}
+
+/** PSID3Dのnode参照と32桁小文字hex source node IDを検証して保持する。 */
+EScene3DSerializeError ParsePrefabSourceNodeIdentityLine(const char* line, u32 size, TArray<FParsedNode>& nodes, THashMap<i32, u32>& id_to_index) noexcept
+{
+    const char* cursor = line + 7u;
+    const char* end = line + size;
+    i32 id = -1;
+    if (!ParseI32(cursor, end, id)) return EScene3DSerializeError::InvalidInteger;
+    const u32* node_index = id_to_index.Find(id);
+    if (id < 0 || node_index == nullptr) return EScene3DSerializeError::InvalidNodeId;
+    FParsedNode& record = nodes[*node_index];
+    if (record.HasPrefabSourceNodeId) return EScene3DSerializeError::DuplicatePrefabSourceNodeId;
+    SkipSpaces(cursor, end);
+    const char* begin = cursor;
+    while (cursor < end && *cursor != ' ' && *cursor != '\t') ++cursor;
+    const u32 value_size = static_cast<u32>(cursor - begin);
+    SkipSpaces(cursor, end);
+    if (value_size != kScene3DSerializePrefabSourceNodeIdBytes || cursor != end) return EScene3DSerializeError::InvalidPrefabSourceNodeId;
+    for (u32 index = 0u; index < value_size; ++index) {
+        const char value = begin[index];
+        if (!((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))) return EScene3DSerializeError::InvalidPrefabSourceNodeId;
+        record.PrefabSourceNodeId[index] = value;
+    }
+    record.HasPrefabSourceNodeId = true;
     return EScene3DSerializeError::None;
 }
 
@@ -1130,6 +1201,8 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept {
     case EScene3DSerializeError::DuplicatePrefabInstanceId:return "duplicate_prefab_instance_id";
     case EScene3DSerializeError::InvalidPrefabOverride:   return "invalid_prefab_override";
     case EScene3DSerializeError::PrefabSourceInvalid:     return "prefab_source_invalid";
+    case EScene3DSerializeError::InvalidPrefabSourceNodeId:return "invalid_prefab_source_node_id";
+    case EScene3DSerializeError::DuplicatePrefabSourceNodeId:return "duplicate_prefab_source_node_id";
     }
     return "unknown";
 }
@@ -1179,6 +1252,19 @@ FScene3DSaveResult TrySaveScene3DText(
                 return result;
             }
             ++result.SpriteCount;
+        }
+        const APrefabNodeIdentity3DComponent* prefab_node_identity = FindPrefabNodeIdentity(*nodes[i]);
+        if (prefab_node_identity != nullptr) {
+            if (HasMultiplePrefabNodeIdentities(*nodes[i])) {
+                result.Error = EScene3DSerializeError::DuplicatePrefabSourceNodeId;
+                return result;
+            }
+            result.Error = FormatPrefabSourceNodeIdentityLine(*prefab_node_identity, static_cast<i32>(i), line, sizeof(line), line_size);
+            if (result.Error != EScene3DSerializeError::None) return result;
+            if (!CheckedAdd(text_bytes, line_size)) {
+                result.Error = EScene3DSerializeError::SerializedSizeOverflow;
+                return result;
+            }
         }
         const APrefabLink3DComponent* prefab = FindPrefabLink(*nodes[i]);
         if (prefab != nullptr) {
@@ -1315,6 +1401,18 @@ FScene3DSaveResult TrySaveScene3DText(
             std::memcpy(out + cursor, line, line_size);
             cursor += line_size;
             ++emitted_sprites;
+        }
+        const APrefabNodeIdentity3DComponent* prefab_node_identity = FindPrefabNodeIdentity(*nodes[i]);
+        if (prefab_node_identity != nullptr) {
+            result.Error = FormatPrefabSourceNodeIdentityLine(*prefab_node_identity, static_cast<i32>(i), line, sizeof(line), line_size);
+            if (result.Error != EScene3DSerializeError::None || line_size > cap - cursor - 1u) {
+                result.Error = EScene3DSerializeError::SceneChangedDuringSave;
+                result.BytesWritten = cursor;
+                out[cursor] = '\0';
+                return result;
+            }
+            std::memcpy(out + cursor, line, line_size);
+            cursor += line_size;
         }
         const APrefabLink3DComponent* prefab = FindPrefabLink(*nodes[i]);
         if (prefab != nullptr) {
@@ -1637,6 +1735,8 @@ FScene3DLoadResult ParseScene3DDocument(
                 document.PolygonCount);
         } else if (StartsWith(line, line_size, "SPR3D ", 6u)) {
             error = ParseSpriteLine(line, line_size, document.Nodes, id_to_index, document.SpriteCount);
+        } else if (StartsWith(line, line_size, "PSID3D ", 7u)) {
+            error = ParsePrefabSourceNodeIdentityLine(line, line_size, document.Nodes, id_to_index);
         } else if (StartsWith(line, line_size, "PFAB3D ", 7u)) {
             error = ParsePrefabLine(line, line_size, document.Nodes, id_to_index, document.PrefabCount);
         } else if (StartsWith(line, line_size, "PINS3D ", 7u)) {
@@ -1796,6 +1896,10 @@ FScene3DLoadResult CommitScene3DDocument(
             sprite.SetTexturePath(FStringView(record.SpritePath));
             if (record.LoadedSpriteImage)
                 sprite.SetImageAsset(record.LoadedSpriteImage);
+        }
+        if (record.HasPrefabSourceNodeId) {
+            APrefabNodeIdentity3DComponent& identity = node->AddComponent<APrefabNodeIdentity3DComponent>();
+            if (!identity.TrySetSourceNodeId(FStringView(record.PrefabSourceNodeId))) return LoadFailure(EScene3DSerializeError::InvalidPrefabSourceNodeId, document.SourceBytes, 0u, static_cast<u32>(document.Nodes.Num()), document.MeshPathCount);
         }
         if (record.HasPrefabPath) {
             APrefabLink3DComponent& prefab =

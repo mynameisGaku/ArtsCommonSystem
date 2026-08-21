@@ -311,6 +311,15 @@ public partial class App : Application
             return;
         }
 
+        // CLI: --prefab-node-identity-3d-selftest -> legacy source identity migration contract.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--prefab-node-identity-3d-selftest")
+        {
+            int failures = PrefabNodeIdentity3DSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
         // CLI: --material-preview-selftest -> async/cancellation/cache/stale-result contract.
         if (e.Args.Length >= 1 && e.Args[0] == "--material-preview-selftest")
         {

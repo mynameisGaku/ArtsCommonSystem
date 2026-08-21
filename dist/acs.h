@@ -24783,6 +24783,9 @@ enum class ECapability : std::uint64_t {
     PrefabRootPropertyOverride3DV1 = 1ull << 17u,
     PrefabRootPropertySelectiveRevert3DV1 = 1ull << 18u,
     PrefabRootComponentPropertyOverride3DV1 = 1ull << 19u,
+    PrefabRootComponentPropertySelectiveRevert3DV1 = 1ull << 20u,
+    PrefabRootComponentPropertySelectiveApply3DV1 = 1ull << 21u,
+    PrefabSourceNodeIdentity3DV1 = 1ull << 22u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -24810,7 +24813,10 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::PrefabStableInstanceId3DV1) |
     CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1) |
     CapabilityBit(ECapability::PrefabRootPropertySelectiveRevert3DV1) |
-    CapabilityBit(ECapability::PrefabRootComponentPropertyOverride3DV1);
+    CapabilityBit(ECapability::PrefabRootComponentPropertyOverride3DV1) |
+    CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveRevert3DV1) |
+    CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveApply3DV1) |
+    CapabilityBit(ECapability::PrefabSourceNodeIdentity3DV1);
 
 inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
@@ -24821,7 +24827,10 @@ inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::PrefabStableInstanceId3DV1) |
     CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1) |
     CapabilityBit(ECapability::PrefabRootPropertySelectiveRevert3DV1) |
-    CapabilityBit(ECapability::PrefabRootComponentPropertyOverride3DV1);
+    CapabilityBit(ECapability::PrefabRootComponentPropertyOverride3DV1) |
+    CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveRevert3DV1) |
+    CapabilityBit(ECapability::PrefabRootComponentPropertySelectiveApply3DV1) |
+    CapabilityBit(ECapability::PrefabSourceNodeIdentity3DV1);
 
 [[nodiscard]] constexpr bool IsCompatible(
     std::uint32_t requested_version,
@@ -36672,6 +36681,7 @@ inline constexpr u32 kScene3DSerializeMaxMaterialPathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxSpritePathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxPrefabPathBytes = 299u;
 inline constexpr u32 kScene3DSerializePrefabInstanceIdBytes = 32u;
+inline constexpr u32 kScene3DSerializePrefabSourceNodeIdBytes = 32u;
 inline constexpr u32 kScene3DSerializeMaxComponentsPerNode = 1024u;
 inline constexpr u32 kScene3DSerializeMaxEditorComponentProperties = 24u;
 inline constexpr u32 kScene3DSerializeMaxDirectiveRecords = 262144u;
@@ -36739,6 +36749,8 @@ enum class EScene3DSerializeError : u8 {
     InvalidPrefabInstanceId,
     DuplicatePrefabInstanceId,
     InvalidPrefabOverride,
+    InvalidPrefabSourceNodeId,
+    DuplicatePrefabSourceNodeId,
 };
 
 /** Authored ACS3D camera projection encoded by CAM3D. */
@@ -81666,6 +81678,30 @@ private:
 
     /** 原本更新後もinstance値を維持するroot propertyのbit集合。 */
     u32 m_RootPropertyOverrideMask = 0u;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/PrefabNodeIdentity3DComponent.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** Prefab原本内の対応nodeをApply/Revert後も識別する3D node metadata。 */
+class APrefabNodeIdentity3DComponent final : public AComponent {
+public:
+    ACS_GAME_COMPONENT_KIND(APrefabNodeIdentity3DComponent)
+
+    /** PSID3Dに記録された32桁小文字hexのsource node IDを返す。 */
+    FStringView SourceNodeId() const noexcept;
+
+    /** 32桁小文字hexのsource node IDを設定する。不正な入力ではfalseを返して既存値を保持する。 */
+    bool TrySetSourceNodeId(FStringView source_node_id) noexcept;
+
+private:
+    /** 同じPrefab原本から作られた全instanceで共有するsource node ID。 */
+    FString m_SourceNodeId;
 };
 
 } // namespace acs::game

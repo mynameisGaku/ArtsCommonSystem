@@ -21,6 +21,7 @@
 #include "gameframework/Scene3DSerialize.h"
 #include "gameframework/MeshComponent3D.h"
 #include "gameframework/PrefabLink3DComponent.h"
+#include "gameframework/PrefabNodeIdentity3DComponent.h"
 #include "gameframework/Sprite3DComponent.h"
 #include "gameframework/WaterSurface3DComponent.h"
 #include "gameframework/Light2DComponent.h"
@@ -1362,6 +1363,48 @@ ACS_TEST(Scene3DSerialize, PrefabLinkRoundTripsWithoutExpandingSnapshot)
     EXPECT_TRUE(link != nullptr && link->SourcePath() == FStringView("Assets/Prefabs/vehicle.acsprefab"));
     EXPECT_TRUE(link != nullptr && link->InstanceId() == FStringView("0123456789abcdef0123456789abcdef"));
     EXPECT_EQ(link != nullptr ? link->RootPropertyOverrideMask() : 0u, 5u);
+}
+
+ACS_TEST(Scene3DSerialize, PrefabSourceNodeIdentityRoundTripsAndRejectsMalformedRecordsTransactionally)
+{
+    CSceneNodeGraph source;
+    APrefabNodeIdentity3DComponent& root_identity = source.Root().AddComponent<APrefabNodeIdentity3DComponent>();
+    EXPECT_TRUE(root_identity.TrySetSourceNodeId(FStringView("0123456789abcdef0123456789abcdef")));
+    EXPECT_FALSE(root_identity.TrySetSourceNodeId(FStringView("0123456789ABCDEF0123456789ABCDEF")));
+    EXPECT_TRUE(root_identity.SourceNodeId() == FStringView("0123456789abcdef0123456789abcdef"));
+    ANode& child = source.Spawn(FStringView("EmbeddedWheel"));
+    APrefabNodeIdentity3DComponent& child_identity = child.AddComponent<APrefabNodeIdentity3DComponent>();
+    EXPECT_TRUE(child_identity.TrySetSourceNodeId(FStringView("fedcba9876543210fedcba9876543210")));
+
+    char text[2048]{};
+    const FScene3DSaveResult saved = TrySaveScene3DText(source, text, sizeof(text));
+    EXPECT_TRUE(saved.Succeeded());
+    EXPECT_TRUE(std::strstr(text, "PSID3D 0 0123456789abcdef0123456789abcdef\n") != nullptr);
+    EXPECT_TRUE(std::strstr(text, "PSID3D 1 fedcba9876543210fedcba9876543210\n") != nullptr);
+
+    CSceneNodeGraph loaded;
+    const FScene3DLoadResult loaded_result = TryLoadScene3DText(loaded, text, saved.BytesWritten);
+    const APrefabNodeIdentity3DComponent* loaded_root_identity = loaded.Root().GetComponent<APrefabNodeIdentity3DComponent>();
+    ANode* loaded_child = loaded.FindByName(FStringView("EmbeddedWheel"));
+    const APrefabNodeIdentity3DComponent* loaded_child_identity = loaded_child != nullptr ? loaded_child->GetComponent<APrefabNodeIdentity3DComponent>() : nullptr;
+    EXPECT_TRUE(loaded_result.Succeeded());
+    EXPECT_TRUE(loaded_root_identity != nullptr && loaded_root_identity->SourceNodeId() == FStringView("0123456789abcdef0123456789abcdef"));
+    EXPECT_TRUE(loaded_child_identity != nullptr && loaded_child_identity->SourceNodeId() == FStringView("fedcba9876543210fedcba9876543210"));
+
+    constexpr char kMalformed[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "PSID3D 1 0123456789ABCDEF0123456789ABCDEF\n";
+    constexpr char kDuplicate[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "PSID3D 1 0123456789abcdef0123456789abcdef\n"
+        "PSID3D 1 fedcba9876543210fedcba9876543210\n";
+    const FScene3DLoadResult malformed = TryLoadScene3DText(loaded, kMalformed, sizeof(kMalformed) - 1u);
+    const FScene3DLoadResult duplicate = TryLoadScene3DText(loaded, kDuplicate, sizeof(kDuplicate) - 1u);
+    EXPECT_TRUE(malformed.Error == EScene3DSerializeError::InvalidPrefabSourceNodeId);
+    EXPECT_TRUE(duplicate.Error == EScene3DSerializeError::DuplicatePrefabSourceNodeId);
+    EXPECT_TRUE(loaded.NodeCount() == 2u && loaded.FindByName(FStringView("EmbeddedWheel")) != nullptr);
 }
 
 ACS_TEST(Scene3DSerialize, PrefabInstanceIdentityRejectsMalformedOrDuplicateValuesTransactionally)
