@@ -364,6 +364,7 @@ public static class CanonicalSceneAdapter
         var prefabInstanceNodes = new HashSet<int>();
         var prefabInstanceIds = new HashSet<string>(StringComparer.Ordinal);
         var prefabOverrideNodes = new HashSet<int>();
+        var prefabComponentOverrides = new HashSet<(int Node, int Slot, int Property)>();
         var cameraNodes = new HashSet<int>();
         var cameraIds = new HashSet<string>(StringComparer.Ordinal);
         int activeCameraCount = 0;
@@ -450,6 +451,9 @@ public static class CanonicalSceneAdapter
                     break;
                 case "POVR3D":
                     InspectPrefabRootOverride(line, lineNumber);
+                    break;
+                case "PCOVR3D":
+                    InspectPrefabRootComponentOverride(line, lineNumber);
                     break;
                 case "PLY3D":
                     InspectPolygon(line, lineNumber);
@@ -809,6 +813,34 @@ public static class CanonicalSceneAdapter
                 diagnostics.Add(Error(
                     "SCENE3D_PREFAB_ROOT_OVERRIDE_DUPLICATE",
                     "Each stable 3D Prefab root may have at most one POVR3D record.",
+                    lineNumber));
+            }
+        }
+
+        void InspectPrefabRootComponentOverride(string line, int lineNumber)
+        {
+            string[] tokens = Tokens(line);
+            if (tokens.Length != 4 ||
+                !TryInt(tokens[1], out int id) ||
+                !prefabInstanceNodes.Contains(id) ||
+                !TryNonNegativeInt(tokens[2], out int slot) ||
+                !TryNonNegativeInt(tokens[3], out int property) ||
+                !componentCounts.TryGetValue(id, out int componentCount) ||
+                slot >= componentCount ||
+                property >= 24)
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_PREFAB_COMPONENT_OVERRIDE_INVALID",
+                    "PCOVR3D requires an earlier PINS3D, an existing component slot, " +
+                    "and a property index from 0 through 23.",
+                    lineNumber));
+                return;
+            }
+            if (!prefabComponentOverrides.Add((id, slot, property)))
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_PREFAB_COMPONENT_OVERRIDE_DUPLICATE",
+                    "Each stable 3D Prefab root component property may have at most one PCOVR3D record.",
                     lineNumber));
             }
         }

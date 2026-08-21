@@ -22,6 +22,7 @@
 #include "gameframework/MeshComponent3D.h"
 #include "gameframework/PrefabLink3DComponent.h"
 #include "gameframework/Sprite3DComponent.h"
+#include "gameframework/WaterSurface3DComponent.h"
 #include "gameframework/Light2DComponent.h"
 #include "asset/MeshAsset.h"
 #include "render/Sprite3DRenderer.h"
@@ -1422,6 +1423,64 @@ ACS_TEST(Scene3DSerialize, PrefabRootPropertyOverrideRejectsOrphansUnknownBitsAn
     const FScene3DLoadResult duplicate = TryLoadScene3DText(scene, kDuplicate, sizeof(kDuplicate) - 1u);
     EXPECT_TRUE(orphan.Error == EScene3DSerializeError::InvalidPrefabOverride);
     EXPECT_TRUE(unknown.Error == EScene3DSerializeError::InvalidPrefabOverride);
+    EXPECT_TRUE(duplicate.Error == EScene3DSerializeError::InvalidPrefabOverride);
+    EXPECT_EQ(scene.NodeCount(), 2u);
+    EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
+}
+
+ACS_TEST(Scene3DSerialize, PrefabRootComponentPropertyOverrideValidatesStableComponentTargetsTransactionally)
+{
+    constexpr char kValid[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "CMP3D 1 AWaterSurface3DComponent\n"
+        "CPROP3D 1 0 4 0.25 0 0 0\n"
+        "PFAB3D 1 first.acsprefab\n"
+        "PINS3D 1 0123456789abcdef0123456789abcdef\n"
+        "PCOVR3D 1 0 4\n";
+    constexpr char kOrphan[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "CMP3D 1 AWaterSurface3DComponent\n"
+        "PCOVR3D 1 0 4\n";
+    constexpr char kMissingSlot[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "CMP3D 1 AWaterSurface3DComponent\n"
+        "PFAB3D 1 first.acsprefab\n"
+        "PINS3D 1 0123456789abcdef0123456789abcdef\n"
+        "PCOVR3D 1 1 4\n";
+    constexpr char kUnknownProperty[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "CMP3D 1 AMeshComponent3D\n"
+        "PFAB3D 1 first.acsprefab\n"
+        "PINS3D 1 0123456789abcdef0123456789abcdef\n"
+        "PCOVR3D 1 0 4\n";
+    constexpr char kDuplicate[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "CMP3D 1 AWaterSurface3DComponent\n"
+        "PFAB3D 1 first.acsprefab\n"
+        "PINS3D 1 0123456789abcdef0123456789abcdef\n"
+        "PCOVR3D 1 0 4\n"
+        "PCOVR3D 1 0 4\n";
+
+    CSceneNodeGraph valid_scene;
+    const FScene3DLoadResult valid = TryLoadScene3DText(valid_scene, kValid, sizeof(kValid) - 1u);
+    ANode* const valid_root = valid_scene.Root().FindBySerialId(1);
+    EXPECT_TRUE(valid.Succeeded());
+    EXPECT_TRUE(valid_root != nullptr && valid_root->GetComponent<AWaterSurface3DComponent>() != nullptr);
+
+    CSceneNodeGraph scene;
+    scene.Spawn(FStringView("Keep"));
+    const FScene3DLoadResult orphan = TryLoadScene3DText(scene, kOrphan, sizeof(kOrphan) - 1u);
+    const FScene3DLoadResult missing_slot = TryLoadScene3DText(scene, kMissingSlot, sizeof(kMissingSlot) - 1u);
+    const FScene3DLoadResult unknown_property = TryLoadScene3DText(scene, kUnknownProperty, sizeof(kUnknownProperty) - 1u);
+    const FScene3DLoadResult duplicate = TryLoadScene3DText(scene, kDuplicate, sizeof(kDuplicate) - 1u);
+    EXPECT_TRUE(orphan.Error == EScene3DSerializeError::InvalidPrefabOverride);
+    EXPECT_TRUE(missing_slot.Error == EScene3DSerializeError::InvalidPrefabOverride);
+    EXPECT_TRUE(unknown_property.Error == EScene3DSerializeError::InvalidPrefabOverride);
     EXPECT_TRUE(duplicate.Error == EScene3DSerializeError::InvalidPrefabOverride);
     EXPECT_EQ(scene.NodeCount(), 2u);
     EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);

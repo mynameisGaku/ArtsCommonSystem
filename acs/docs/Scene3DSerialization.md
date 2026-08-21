@@ -46,7 +46,7 @@
 - node idは一意な非負整数であれば疎でもよい。parentは先に宣言されたnodeを参照する。
 - `parent=-1` のtop-level nodeを複数保持でき、runtimeでは1つの合成root配下へ接続する。
 - `N3D`、`MSH3D`、`FLG3D`、`EMPTY3D`、`MAT3D`、`CMP3D`、
-  `CPROP3D`、`PLY3D`、`SPR3D`、`PFAB3D`、`PINS3D`、`POVR3D`、`CAM3D`、`SEL3D` を扱う。
+  `CPROP3D`、`PLY3D`、`SPR3D`、`PFAB3D`、`PINS3D`、`POVR3D`、`PCOVR3D`、`CAM3D`、`SEL3D` を扱う。
 - `MAT3D` は従来のmetallic/roughness値または `.acsmat` パスを扱う。
 - `CMP3D` は反射factoryで事前生成し、`CPROP3D` を適用してからnodeへattachする。
 - `PLY3D <nodeId> <pointCount> <x0> <y0> ...` は既出の `Mesh` nodeへXY平面上の
@@ -66,6 +66,10 @@
 - `POVR3D <nodeId> <mask>` は同じnodeの `PINS3D` より後に、instance rootで原本より優先する
   propertyを記録する。maskはVisible=`1`、Enabled=`2`、Color=`4` の和であり、transformは
   instance配置として従来どおり常に保持する。値自体は同じnodeの `N3D` / `FLG3D` に保存する。
+- `PCOVR3D <nodeId> <componentSlot> <propertyIndex>` はstable instance rootの反射component
+  propertyを1件overrideとして記録する。値は同じslot/propertyの `CPROP3D` に保存する。
+  source再生成時は現在slotのcomponent型IDを取得し、replacement内の同型componentへ値を
+  戻すため、source側でcomponentの宣言順が変わってもslotずれを起こさない。
 - `CAM3D <nodeId> <stableId> <projection> <priority> <active> <fovYDeg>
   <orthoHeight> <near> <far>` は既存nodeへ1件のカメラをattachする。`projection` は
   Perspective=`0`、Orthographic=`1`、`active` は `0` または `1`。
@@ -92,6 +96,9 @@
   大文字hex、長さ違反、nodeまたはIDの重複、孤立したIDをcommit前に拒否する。
 - `POVR3D` は同じnodeの `PINS3D` より後に1件だけ指定できる。maskは `1..7` とし、未知bit、
   重複、stable instance IDを持たないnodeへの指定をcommit前に拒否する。
+- `PCOVR3D` は同じnodeの `PINS3D` と対象 `CMP3D` より後に指定する。component slotは既存、
+  property indexは `0..23` かつ現在の反射schema内でなければならず、同じnode/slot/propertyの
+  重複とstable instance IDを持たないnodeへの指定をcommit前に拒否する。
 - カメラは最大256件、stable IDは64 bytesまでの正準ASCIIで、nodeとstable IDの重複を
   拒否する。投影値、priority、FOV/orthographic height、near/farは有限かつ範囲内でなければ
   ならない。複数のactive指定は入力として保持するが、選択はactive指定、priority降順、
@@ -115,7 +122,9 @@ instance生成はsource、32桁ID、subtreeを1つのnative adapterへ渡し、�
 root override付き再生成は明示maskのVisible/Enabled/Colorだけを再適用する。Color保持先が描画対象を
 持たない場合を含め、再適用できなければ旧subtreeとoverride maskを復元する。既存の全Revert入口は
 maskを保持せず原本値へ戻す。selective Revertは指定bitを現在maskから除いた残りだけを再適用し、
-未知bitまたは既にoverrideでないpropertyを指定した場合はsceneを変更しない。
+未知bitまたは既にoverrideでないpropertyを指定した場合はsceneを変更しない。override保持付き
+再生成は `PCOVR3D` も型IDで解決して再適用し、componentまたはpropertyがsourceから消えた場合は
+sceneとUndo履歴をrollbackする。全Revertはcomponent overrideも破棄する。
 
 pack batch は後続entryの失敗時に先行entryの完了数を返す。loaderはprivate parsed
 document上で完了済み依存を初出順にdecodeし、旧逐次経路と同じ先行decode errorを優先する。

@@ -5006,7 +5006,7 @@ public partial class MainWindow : Window
 
     /// <summary>プレハブテンプレートは自己リンクを持たないため、sourceとinstance ID行を除去する。</summary>
     private static string StripPrefabLinks(string text) =>
-        System.Text.RegularExpressions.Regex.Replace(text, @"^(?:PFAB(?:3D)?|PINS3D|POVR3D) .*\r?\n?", "",
+        System.Text.RegularExpressions.Regex.Replace(text, @"^(?:PFAB(?:3D)?|PINS3D|POVR3D|PCOVR3D) .*\r?\n?", "",
             System.Text.RegularExpressions.RegexOptions.Multiline);
 
     /// <summary>Nativeへ明示入力する32桁小文字hexの新規3D Prefab instance IDを作る。</summary>
@@ -5170,6 +5170,17 @@ public partial class MainWindow : Window
         {
             Log(
                 "Apply後の3D Prefab root override状態を解消できませんでした。",
+                "Asset",
+                LogLevel.Warn);
+        }
+        if (_view3d &&
+            EngineInterop
+                .acs_editor_prefab_instance3d_clear_root_component_property_overrides(
+                    Engine,
+                    id) == 0)
+        {
+            Log(
+                "Apply後の3D Prefab root component override状態を解消できませんでした。",
                 "Asset",
                 LogLevel.Warn);
         }
@@ -5542,14 +5553,18 @@ public partial class MainWindow : Window
         {
             if (vals[0] == committed[0] && vals[1] == committed[1]
                 && vals[2] == committed[2] && vals[3] == committed[3]) return;
+            int changed;
+            if (is3d)
+                changed = EngineInterop.acs_editor_node3d_component_prop_set(
+                    Engine, id, slot, prop, vals[0], vals[1], vals[2], vals[3]);
+            else
+                changed = EngineInterop.acs_editor_node_component_prop_set(
+                    Engine, id, slot, prop, vals[0], vals[1], vals[2], vals[3]);
+            if (changed == 0) return;
             committed[0] = vals[0]; committed[1] = vals[1];
             committed[2] = vals[2]; committed[3] = vals[3];
             if (is3d)
-                EngineInterop.acs_editor_node3d_component_prop_set(
-                    Engine, id, slot, prop, vals[0], vals[1], vals[2], vals[3]);
-            else
-                EngineInterop.acs_editor_node_component_prop_set(
-                    Engine, id, slot, prop, vals[0], vals[1], vals[2], vals[3]);
+                MarkPrefabRootComponentPropertyOverride3D(id, slot, prop);
             NotifySceneMutationPending(
                 $"Edit {pname}",
                 $"component.{slot}.{typeName}.property.{prop}.{pname}",

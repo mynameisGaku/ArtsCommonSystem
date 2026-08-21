@@ -93,6 +93,18 @@ struct FParsedComponentProperty {
     f32 Value[4]{};
 };
 
+/** PCOVR3Dで指定されたEditor専用component property override。 */
+struct FParsedPrefabComponentOverride {
+    /** 対象nodeの解析配列index。 */
+    u32 NodeIndex = 0u;
+
+    /** CMP3D宣言順のcomponent slot。 */
+    u32 Slot = 0u;
+
+    /** component schema内のproperty index。 */
+    u32 Property = 0u;
+};
+
 struct FParsedCamera {
     u32 NodeIndex = 0u;
     i32 NodeId = -1;
@@ -711,6 +723,37 @@ EScene3DSerializeError ParsePrefabOverrideLine(const char* line, u32 size, TArra
     return EScene3DSerializeError::None;
 }
 
+/** PCOVR3Dのstable Prefab root、component slot、propertyを検証する。 */
+EScene3DSerializeError ParsePrefabComponentOverrideLine(const char* line, u32 size, TArray<FParsedNode>& nodes, THashMap<i32, u32>& id_to_index, TArray<FParsedPrefabComponentOverride>& overrides) noexcept {
+    const char* cursor = line + 8u;
+    const char* end = line + size;
+    i32 id = -1;
+    i32 slot = -1;
+    i32 property = -1;
+    if (!ParseI32(cursor, end, id) || !ParseI32(cursor, end, slot) || !ParseI32(cursor, end, property)) {
+        return EScene3DSerializeError::InvalidPrefabOverride;
+    }
+    SkipSpaces(cursor, end);
+    if (cursor != end) return EScene3DSerializeError::InvalidPrefabOverride;
+    const u32* const node_index = id_to_index.Find(id);
+    if (id < 0 || node_index == nullptr || slot < 0 || property < 0 || static_cast<u32>(property) >= kScene3DSerializeMaxEditorComponentProperties) {
+        return EScene3DSerializeError::InvalidPrefabOverride;
+    }
+    const FParsedNode& node = nodes[*node_index];
+    if (!node.HasPrefabPath || !node.HasPrefabInstanceId || static_cast<u32>(slot) >= node.ComponentCount) {
+        return EScene3DSerializeError::InvalidPrefabOverride;
+    }
+    for (u32 index = 0u; index < overrides.Num(); ++index) {
+        const FParsedPrefabComponentOverride& existing = overrides[index];
+        if (existing.NodeIndex == *node_index && existing.Slot == static_cast<u32>(slot) && existing.Property == static_cast<u32>(property)) {
+            return EScene3DSerializeError::InvalidPrefabOverride;
+        }
+    }
+    return overrides.TryAdd(FParsedPrefabComponentOverride{*node_index, static_cast<u32>(slot), static_cast<u32>(property)})
+        ? EScene3DSerializeError::None
+        : EScene3DSerializeError::AllocationFailure;
+}
+
 bool IsOnlyWhitespace(const char* cursor, const char* end) noexcept {
     SkipSpaces(cursor, end);
     return cursor == end;
@@ -975,9 +1018,7 @@ EScene3DSerializeError ParseCameraLine(
     return EScene3DSerializeError::None;
 }
 
-EScene3DSerializeError PrepareComponents(
-    TArray<FParsedComponent>& components,
-    const TArray<FParsedComponentProperty>& properties) noexcept {
+EScene3DSerializeError PrepareComponents(TArray<FParsedComponent>& components, const TArray<FParsedComponentProperty>& properties, const TArray<FParsedPrefabComponentOverride>& overrides) noexcept {
     THashMap<u64, u32> component_indices;
     for (u32 i = 0u; i < components.Num(); ++i) {
         FParsedComponent& component = components[i];
@@ -1005,6 +1046,19 @@ EScene3DSerializeError PrepareComponents(
         }
         ApplyFieldValue(component.Instance.Get(),
                         type->fields[property.Property], property.Value);
+    }
+    for (u32 i = 0u; i < overrides.Num(); ++i) {
+        const FParsedPrefabComponentOverride& override_record = overrides[i];
+        const u64 key = (static_cast<u64>(override_record.NodeIndex) << 32u) | static_cast<u64>(override_record.Slot);
+        const u32* const component_index = component_indices.Find(key);
+        if (component_index == nullptr) {
+            return EScene3DSerializeError::InvalidPrefabOverride;
+        }
+        const FParsedComponent& component = components[*component_index];
+        const FTypeDesc* const type = CTypeRegistry::Get().FindByName(component.Instance->ReflectName());
+        if (type == nullptr || type->fields == nullptr || override_record.Property >= type->field_count) {
+            return EScene3DSerializeError::InvalidPrefabOverride;
+        }
     }
     return EScene3DSerializeError::None;
 }
@@ -1341,6 +1395,7 @@ struct FParsedScene3DDocument {
     TArray<FParsedNode> Nodes;
     TArray<FParsedComponent> Components;
     TArray<FParsedComponentProperty> Properties;
+    TArray<FParsedPrefabComponentOverride> PrefabComponentOverrides;
     TArray<FParsedCamera> Cameras;
     bool EditorDocument = false;
     u32 MeshPathCount = 0u;
@@ -1588,6 +1643,8 @@ FScene3DLoadResult ParseScene3DDocument(
             error = ParsePrefabInstanceLine(line, line_size, document.Nodes, id_to_index);
         } else if (StartsWith(line, line_size, "POVR3D ", 7u)) {
             error = ParsePrefabOverrideLine(line, line_size, document.Nodes, id_to_index);
+        } else if (StartsWith(line, line_size, "PCOVR3D ", 8u)) {
+            error = ParsePrefabComponentOverrideLine(line, line_size, document.Nodes, id_to_index, document.PrefabComponentOverrides);
         } else if (document.EditorDocument
                    && StartsWith(line, line_size, "SEL3D ", 6u)) {
             const char* selection = line + 6u;
@@ -1621,8 +1678,7 @@ FScene3DLoadResult ParseScene3DDocument(
             EScene3DSerializeError::MissingRoot, cursor, line_number,
             0u, document.MeshPathCount);
     }
-    const EScene3DSerializeError component_error =
-        PrepareComponents(document.Components, document.Properties);
+    const EScene3DSerializeError component_error = PrepareComponents(document.Components, document.Properties, document.PrefabComponentOverrides);
     if (component_error != EScene3DSerializeError::None) {
         return LoadFailure(
             component_error, cursor, line_number,
