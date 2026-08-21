@@ -95,6 +95,8 @@ product-version label. The current required host set is:
   so refresh cannot publish a subtree whose explicit child edits were lost.
 - transactional 3D sibling reorder, so Outliner before/after drops cannot call
   a missing export or publish a partially reparented hierarchy.
+- world-stable transactional 3D reparent, so child/root and cross-parent sibling
+  drops preserve position, rotation, and scale or fail without changing the scene.
 
 Profiler v5 (with its version-4 compatibility prefix), the independent
 volumetric-cloud workload v1 snapshot, unified scene documents, high-quality

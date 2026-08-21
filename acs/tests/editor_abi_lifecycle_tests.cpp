@@ -323,6 +323,8 @@ bool RunAbiCapabilityContract() noexcept
     static_assert((kRequiredManagedHostCapabilities & CapabilityBit(ECapability::PrefabNodeNameOverride3DV1)) != 0u, "managed Prefab authoring relies on transactional 3D child name overrides");
     static_assert((kCapabilities & CapabilityBit(ECapability::Scene3DSiblingReorderV1)) != 0u);
     static_assert((kRequiredManagedHostCapabilities & CapabilityBit(ECapability::Scene3DSiblingReorderV1)) != 0u, "managed Outliner relies on transactional 3D sibling reorder");
+    static_assert((kCapabilities & CapabilityBit(ECapability::Scene3DWorldStableReparentV1)) != 0u);
+    static_assert((kRequiredManagedHostCapabilities & CapabilityBit(ECapability::Scene3DWorldStableReparentV1)) != 0u, "managed Outliner relies on world-stable transactional 3D reparent");
 
     std::uint32_t version = 0u;
     std::uint64_t capabilities = 0ull;
@@ -1263,6 +1265,18 @@ bool SceneDocumentEquals(
            current2d == expected2d && current3d == expected3d;
 }
 
+/** 3Dノードのlocal transformが指定値と許容誤差内で一致するかをABI越しに検証する。 */
+bool Node3DTransformEquals(void* host, int id, const float* expected9, float tolerance = 1.0e-3f) noexcept
+{
+    float actual9[9]{};
+    if (expected9 == nullptr || acs_editor_node3d_get_transform(host, id, actual9) == 0) return false;
+    for (int index = 0; index < 9; ++index)
+    {
+        if (std::fabs(actual9[index] - expected9[index]) > tolerance) return false;
+    }
+    return true;
+}
+
 /** 3D sibling reorderはbefore/after順を永続化し、不正操作とno-opではsceneも履歴も変えない。 */
 bool RunScene3DSiblingReorderTransaction() noexcept
 {
@@ -1331,6 +1345,41 @@ bool RunScene3DSiblingReorderTransaction() noexcept
          acs_editor_node3d_id_at(host, 2) == 41 &&
          acs_editor_node3d_id_at(host, 3) == 43;
     if (!ok) std::printf("Transactional 3D sibling reorder contract failed.\n");
+    acs_editor_destroy(host);
+    return ok;
+}
+
+/** 3D reparentはworld表示を保ち、不正操作を拒否し、1 transactionでUndoと永続化を行う。 */
+bool RunScene3DWorldStableReparentTransaction() noexcept
+{
+    constexpr const char* kScene =
+        "ACS3D v2\n"
+        "N3D 50 -1 0 1 2 3 0 0 30 2 2 2 1 1 1 1 ParentA\n"
+        "N3D 51 50 0 0 0 2 0 0 15 0.5 0.5 0.5 1 1 1 1 Child\n"
+        "N3D 52 -1 0 1 2 -1 0 0 -15 4 4 4 1 1 1 1 ParentB\n"
+        "N3D 53 52 0 0 0 0 0 0 0 1 1 1 1 1 1 1 Target\n"
+        "N3D 54 -1 0 0 0 0 0 0 0 0 1 1 1 1 1 1 ZeroScale\n";
+    constexpr float kParentBLocal[9]{0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 60.0f, 0.25f, 0.25f, 0.25f};
+    constexpr float kRootLocal[9]{1.0f, 2.0f, 7.0f, 0.0f, 0.0f, 45.0f, 1.0f, 1.0f, 1.0f};
+
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+    bool ok = acs_editor_scene3d_load_text(host, kScene) != 0;
+    std::string original2d;
+    std::string original3d;
+    ok = ok && SnapshotSceneDocument(host, original2d, original3d);
+
+    ok = ok && acs_editor_reparent3d(host, 51, 50) == 0 && acs_editor_reparent3d(host, 51, 51) == 0 && acs_editor_reparent3d(host, 50, 51) == 0 && acs_editor_reparent3d(host, 999, 52) == 0 && acs_editor_reparent3d(host, 51, 999) == 0 && acs_editor_reparent3d(host, 51, 54) == 0 && acs_editor_can_undo(host) == 0 && SceneDocumentEquals(host, original2d, original3d);
+
+    ok = ok && acs_editor_node3d_move(host, 51, 53, 0) != 0 && acs_editor_node3d_parent(host, 51) == 52 && Node3DTransformEquals(host, 51, kParentBLocal) && acs_editor_undo(host) != 0 && SceneDocumentEquals(host, original2d, original3d);
+
+    ok = ok && acs_editor_reparent3d(host, 51, 52) != 0 && acs_editor_node3d_parent(host, 51) == 52 && Node3DTransformEquals(host, 51, kParentBLocal) && acs_editor_can_undo(host) != 0 && acs_editor_undo(host) != 0 && SceneDocumentEquals(host, original2d, original3d);
+
+    ok = ok && acs_editor_reparent3d(host, 51, -1) != 0 && acs_editor_node3d_parent(host, 51) == -1 && Node3DTransformEquals(host, 51, kRootLocal);
+    char serialized[32768]{};
+    const int written = ok ? acs_editor_scene3d_serialize(host, serialized, static_cast<int>(sizeof(serialized))) : 0;
+    ok = ok && written > 0 && written < static_cast<int>(sizeof(serialized)) && acs_editor_scene3d_load_text(host, serialized) != 0 && acs_editor_node3d_parent(host, 51) == -1 && Node3DTransformEquals(host, 51, kRootLocal);
+    if (!ok) std::printf("World-stable transactional 3D reparent contract failed.\n");
     acs_editor_destroy(host);
     return ok;
 }
@@ -3260,6 +3309,7 @@ int main()
     if (!RunMaskedTransformMutationContract()) return 27;
     if (!RunScene3DSerializationGrowth()) return 9;
     if (!RunScene3DSiblingReorderTransaction()) return 36;
+    if (!RunScene3DWorldStableReparentTransaction()) return 37;
     if (!RunSceneDocumentStrictPreflight()) return 17;
     if (!RunTransactionalScene3DSubtreePaste()) return 29;
     if (!RunPrefabInstance3DRefreshTransaction()) return 30;

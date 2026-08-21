@@ -56,7 +56,7 @@ ACS Editor には、シーンアウトライナー、詳細パネル、2D/3D ビ
 
 | 領域 | 現状 | プロダクション上の主要不足 | 優先度 |
 |---|---|---|---|
-| シーン / Outliner | 新規2D/3D共通の空の `.acs3d` world、2DだけのOrthographic初期view、legacy adapter、階層、検索、複数選択、2D/3D sibling reorderを含むDnD、Scene Save All、自動保存・復旧あり | runtime adapter の全 authoring directive 対応、subscene | P0 |
+| シーン / Outliner | 新規2D/3D共通の空の `.acs3d` world、2DだけのOrthographic初期view、legacy adapter、階層、検索、複数選択、world-space安定な3D reparentと2D/3D sibling reorderを含むDnD、Scene Save All、自動保存・復旧あり | runtime adapter の全 authoring directive 対応、subscene | P0 |
 | Details / Components | Transform、コンポーネント追加削除、反射プロパティ、CallInEditor、3D複数選択のper-axis mixed value・atomic Transform/Enabled/Color編集・Transform reset、共通反射component propertyのmixed/sparse/atomic編集とschema default resetあり | copy/paste/diff、配列・構造体編集、component add/remove/reorderの複数編集、legacy 2D parity | P1 |
 | Asset Browser | Import、texture/mesh/audio設定UIとcanonical recipe identity、source-preserving worker、hash検証付きprocessed-import DDC、監視、current/subfolder/all-assets 検索、永続 thumbnail DDC、配置、Material 変換、永続 GUID/DB、依存・参照元、Reference Viewer あり | tag filter、native texture/mesh/audio transcoder、詳細progress | P0 |
 | Undo / Redo | Scene、Blueprint、Material graph に個別 snapshot 履歴。Scene 自動保存・復旧、Material graph と Project Settings の共通 host transaction 参加あり | cross-document command routing、Asset の履歴、履歴表示 | P0 |
@@ -127,8 +127,8 @@ managed/native 接続は `EngineInterop.cs` の P/Invoke と `EditorAbi.cpp` に
 
 - 2D hierarchy、visibility、node icon、collapse state。
 - 名前検索と祖先表示。
-- Ctrl 複数選択、2D/3D の before/after/child DnD。3D sibling reorderは
-  副作用なしのindex計算とnative transactionで永続化する。
+- Ctrl 複数選択、2D/3D の before/after/child DnD。3D hierarchy変更は
+  副作用なしのindex/world→local計算とnative transactionで表示位置・回転・scaleを保って永続化する。
 - picking、orbit、pan、zoom、gizmo、box selection。
 - move/rotate/scale snap、focus、frame、align、distribute。
 - Scene dirty 判定、New/Open/Close 時の保存確認。

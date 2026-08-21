@@ -112,6 +112,9 @@ internal static class EditorAbiContractSelfTest
               compatible.ToDisplayText().Contains(
                   "scene-3d-sibling-reorder-v1",
                   StringComparison.Ordinal) &&
+              compatible.ToDisplayText().Contains(
+                  "scene-3d-world-stable-reparent-v1",
+                  StringComparison.Ordinal) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.SparseTransformMutationV1) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
@@ -140,6 +143,8 @@ internal static class EditorAbiContractSelfTest
                   EditorAbiCapability.PrefabNodeNameOverride3DV1) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.Scene3DSiblingReorderV1) &&
+              EditorAbiContract.RequiredCapabilities.HasFlag(
+                  EditorAbiCapability.Scene3DWorldStableReparentV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.VolumetricCloudWorkloadV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
@@ -627,6 +632,22 @@ internal static class EditorAbiContractSelfTest
             missingScene3DSiblingReorder.MissingRequired.HasFlag(
                 EditorAbiCapability.Scene3DSiblingReorderV1),
             "provider without 3D sibling reorder fails before the Outliner can call its export");
+
+        EditorAbiSnapshot missingScene3DWorldStableReparent =
+            EditorAbiContract.Evaluate(
+                queryAvailable: true,
+                queryResult: 0,
+                providerVersion: EditorAbiContract.RequestedVersion,
+                capabilityBits:
+                    (ulong)(complete &
+                        ~EditorAbiCapability.Scene3DWorldStableReparentV1),
+                productVersion: "ACS Editor test",
+                renderBackend: "Test RHI");
+        Check(
+            !missingScene3DWorldStableReparent.Compatible &&
+            missingScene3DWorldStableReparent.MissingRequired.HasFlag(
+                EditorAbiCapability.Scene3DWorldStableReparentV1),
+            "provider without world-stable 3D reparent fails before the Outliner can move hierarchy nodes");
 
         EditorAbiSnapshot falseSuccess = EditorAbiContract.Evaluate(
             queryAvailable: true,

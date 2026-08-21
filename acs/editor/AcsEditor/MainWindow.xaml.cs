@@ -2074,7 +2074,17 @@ public partial class MainWindow : Window
         {
             int id3 = EngineInterop.acs_editor_add_empty3d(Engine, "Empty");
             if (id3 < 0) return;
-            if (parentId >= 0 && parentId != id3) EngineInterop.acs_editor_reparent3d(Engine, id3, parentId);
+            if (parentId >= 0 && parentId != id3)
+            {
+                int parented = EngineInterop.acs_editor_reparent3d(Engine, id3, parentId);
+                int initialized = parented != 0 ? EngineInterop.acs_editor_node3d_set_transform(Engine, id3, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f) : 0;
+                if (initialized == 0)
+                {
+                    EngineInterop.acs_editor_delete_node3d(Engine, id3);
+                    Log($"空ノードを {parentId} の子として作成できませんでした。");
+                    return;
+                }
+            }
             RefreshAfterSceneChange();   // 階層再構築 + 選択 UI 同期 (add_empty3d が新ノードを選択済み)
             Log(parentId >= 0 ? $"空ノード {id3} を {parentId} の子に作成。" : $"空ノード {id3} を作成。");
             return;

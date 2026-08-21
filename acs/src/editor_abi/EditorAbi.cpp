@@ -17070,6 +17070,53 @@ ACS_EDITOR_API int acs_editor_node3d_parent(void* handle, int id) {
 
 namespace {
 
+/** transformの全成分がworld/local変換に使える有限値かを返す。 */
+[[nodiscard]] bool IsFiniteScene3DTransform_Internal(const game::FTransform3D& value) noexcept
+{
+    const bool position_finite = std::isfinite(value.position.x) && std::isfinite(value.position.y) && std::isfinite(value.position.z);
+    const bool rotation_finite = std::isfinite(value.rotation.x) && std::isfinite(value.rotation.y) && std::isfinite(value.rotation.z) && std::isfinite(value.rotation.w);
+    const bool scale_finite = std::isfinite(value.scale.x) && std::isfinite(value.scale.y) && std::isfinite(value.scale.z);
+    return position_finite && rotation_finite && scale_finite;
+}
+
+/** 保持するworld transformと新しい親から、付け替え後のlocal transformを副作用なく計算する。 */
+[[nodiscard]] bool TryCalculateScene3DLocalTransform_Internal(const game::FTransform3D& world, const game::FTransform3D& parent_world, game::FTransform3D& local) noexcept
+{
+    constexpr f32 kMinimumParentScaleMagnitude = 1.0e-6f;
+    if (!IsFiniteScene3DTransform_Internal(world) || !IsFiniteScene3DTransform_Internal(parent_world)) return false;
+    if (std::abs(parent_world.scale.x) < kMinimumParentScaleMagnitude || std::abs(parent_world.scale.y) < kMinimumParentScaleMagnitude || std::abs(parent_world.scale.z) < kMinimumParentScaleMagnitude) return false;
+    const FVec3 delta = world.position - parent_world.position;
+    const FVec3 parent_space = Rotate(Inverse(parent_world.rotation), delta);
+    local.position = FVec3{parent_space.x / parent_world.scale.x, parent_space.y / parent_world.scale.y, parent_space.z / parent_world.scale.z};
+    local.rotation = Normalize(world.rotation * Inverse(parent_world.rotation));
+    local.scale = FVec3{world.scale.x / parent_world.scale.x, world.scale.y / parent_world.scale.y, world.scale.z / parent_world.scale.z};
+    return IsFiniteScene3DTransform_Internal(local);
+}
+
+/** 付け替え可否を検査し、world表示を保つための新しいlocal transformを計算する。 */
+[[nodiscard]] bool TryPrepareScene3DReparent_Internal(game::ANode& node, game::ANode& parent, game::FTransform3D& local) noexcept
+{
+    const bool invalid_state = node.Parent() == nullptr || node.IsPendingDestroy() || node.IsPendingReparent() || parent.IsPendingDestroy() || parent.IsPendingReparent();
+    if (invalid_state || &node == &parent || node.Parent() == &parent || node.IsAncestorOf(&parent)) return false;
+    return TryCalculateScene3DLocalTransform_Internal(node.World(), parent.World(), local);
+}
+
+/** 検査済みの3D付け替えを適用し、計算済みlocal transformとauthored回転を同期する。 */
+[[nodiscard]] bool TryApplyScene3DReparent_Internal(FEditorHost& host, game::ANode& node, game::ANode& parent, const game::FTransform3D& local) noexcept
+{
+    const FVec3 euler = local.EulerDeg();
+    if (!std::isfinite(euler.x) || !std::isfinite(euler.y) || !std::isfinite(euler.z)) return false;
+    node.Reparent(parent);
+    if (!node.IsPendingReparent()) return false;
+    host.scene3d.Update(0.0f);
+    if (node.Parent() != &parent) return false;
+    AEditor3DRecordComponent* const record = Rec3D(&node);
+    if (record == nullptr) return false;
+    node.Local() = local;
+    record->euler = euler;
+    return true;
+}
+
 /** 兄弟配列の現在位置とdrop対象から、MoveChildへ渡す最終indexを副作用なく計算する。 */
 bool TryCalculateScene3DSiblingIndex_Internal(u32 child_count, u32 source_index, u32 target_index, int mode, u32& destination_index) noexcept
 {
@@ -17085,21 +17132,25 @@ bool TryCalculateScene3DSiblingIndex_Internal(u32 child_count, u32 source_index,
 
 } // namespace
 
-/** child を parent(=-1 で root) の子に付け替える。成功 1。 */
-ACS_EDITOR_API int acs_editor_reparent3d(void* handle, int child_id, int parent_id) {
+/** childをparent(=-1でroot)へworld表示を保って1 transactionで付け替える。成功1、no-op/失敗0。 */
+ACS_EDITOR_API int acs_editor_reparent3d(void* handle, int child_id, int parent_id)
+{
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
-    game::ANode* child = FindNode3DNode(*host, child_id);
-    if (child == nullptr) return 0;
-    game::ANode* parent = (parent_id < 0) ? &host->scene3d.Root() : FindNode3DNode(*host, parent_id);
-    if (parent == nullptr) return 0;
-    const bool resets_temporal_history =
-        TransformAffectsCurrentTemporalRenderCamera3D(
-            *host, child);
-    child->Reparent(*parent);                 // cycle/自己は engine 側で弾く
-    host->scene3d.Update(0.0f);               // 構造変更を即時解決
-    if (resets_temporal_history)
-        InvalidateTemporalRenderHistories(*host);
+    game::ANode* const child = FindNode3DNode(*host, child_id);
+    game::ANode* const parent = parent_id < 0 ? &host->scene3d.Root() : FindNode3DNode(*host, parent_id);
+    if (child == nullptr || parent == nullptr) return 0;
+    game::FTransform3D local{};
+    if (!TryPrepareScene3DReparent_Internal(*child, *parent, local)) return 0;
+    char* const rollback = DupSnapshot(*host);
+    if (rollback == nullptr) return 0;
+    if (!TryApplyScene3DReparent_Internal(*host, *child, *parent, local) || !CommitUndoSnapshot(*host, rollback))
+    {
+        RestoreSnapshot(*host, rollback);
+        delete[] rollback;
+        return 0;
+    }
+    InvalidateTemporalRenderHistories(*host);
     return 1;
 }
 
@@ -17117,6 +17168,8 @@ ACS_EDITOR_API int acs_editor_node3d_move(void* handle, int id, int target_id, i
     }
 
     const bool changes_parent = node->Parent() != parent;
+    game::FTransform3D local{};
+    if (changes_parent && !TryPrepareScene3DReparent_Internal(*node, *parent, local)) return 0;
     u32 source_index = parent->ChildCount();
     u32 target_index = parent->ChildCount();
     if (!changes_parent)
@@ -17138,14 +17191,7 @@ ACS_EDITOR_API int acs_editor_node3d_move(void* handle, int id, int target_id, i
     if (rollback == nullptr) return 0;
     if (changes_parent)
     {
-        node->Reparent(*parent);
-        if (!node->IsPendingReparent())
-        {
-            delete[] rollback;
-            return 0;
-        }
-        host->scene3d.Update(0.0f);
-        if (node->Parent() != parent)
+        if (!TryApplyScene3DReparent_Internal(*host, *node, *parent, local))
         {
             RestoreSnapshot(*host, rollback);
             delete[] rollback;
