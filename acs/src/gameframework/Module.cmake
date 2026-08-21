@@ -188,6 +188,7 @@ set(_acsgen_gameframework_headers
     CinematicsDirector.h
     Clock.h
     CollisionShapeId3D.h
+    CollisionSweepHit3D.h
     CollisionWorld2D.h
     CollisionWorld3D.h
     CombatStateMachine.h

@@ -159,3 +159,83 @@ ACS_TEST(CollisionWorld3D, RaycastMissAndInvalidInputPreserveOutputs)
     EXPECT_EQ(hit.t, 0.0f);
     EXPECT_NEAR(hit.normal.x, -1.0f, 1.0e-6f);
 }
+
+ACS_TEST(CollisionWorld3D, SphereSweepUsesExactRoundedAabbEdges)
+{
+    CCollisionWorld3D world;
+    const FCollisionShapeId3D box = world.TryAddAabb(FAabb3{FVec3{5.0f, 0.0f, 0.0f}, FVec3{1.0f, 1.0f, 1.0f}});
+    FCollisionSweepHit3D hit;
+    EXPECT_TRUE(world.TrySweepSphere(FRay3{FVec3{0.0f, 1.5f, 0.0f}, FVec3{2.0f, 0.0f, 0.0f}}, 0.5f, 0.0f, 10.0f, hit));
+    EXPECT_TRUE(hit.IsValid());
+    EXPECT_TRUE(hit.Shape == box);
+    EXPECT_FALSE(hit.StartedOverlapping);
+    EXPECT_NEAR(hit.T, 2.0f, 1.0e-6f);
+    EXPECT_NEAR(hit.Center.x, 4.0f, 1.0e-6f);
+    EXPECT_NEAR(hit.Center.y, 1.5f, 1.0e-6f);
+    EXPECT_NEAR(hit.Normal.x, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(hit.Normal.y, 1.0f, 1.0e-6f);
+
+    EXPECT_TRUE(world.TrySweepSphere(FRay3{FVec3{}, FVec3{2.0f, 0.0f, 0.0f}}, 0.0f, 0.0f, 10.0f, hit));
+    EXPECT_NEAR(hit.T, 2.0f, 1.0e-6f);
+    EXPECT_NEAR(hit.Center.x, 4.0f, 1.0e-6f);
+    EXPECT_NEAR(hit.Normal.x, -1.0f, 1.0e-6f);
+
+    EXPECT_TRUE(world.TrySweepSphere(FRay3{FVec3{0.0f, 5.0f, 5.0f}, FVec3{1.0f, -1.0f, -1.0f}}, 1.0f, 0.0f, 10.0f, hit));
+    EXPECT_NEAR(hit.T, 3.4226497f, 1.0e-5f);
+    EXPECT_NEAR(hit.Normal.x, -0.5773503f, 1.0e-5f);
+    EXPECT_NEAR(hit.Normal.y, 0.5773503f, 1.0e-5f);
+    EXPECT_NEAR(hit.Normal.z, 0.5773503f, 1.0e-5f);
+}
+
+ACS_TEST(CollisionWorld3D, SphereSweepReturnsNearestShapeAndHonorsFilters)
+{
+    CCollisionWorld3D world;
+    const FCollisionShapeId3D sphere = world.TryAddSphere(FSphere{FVec3{3.0f, 0.0f, 0.0f}, 1.0f}, 0x1u);
+    const FCollisionShapeId3D box = world.TryAddAabb(FAabb3{FVec3{6.0f, 0.0f, 0.0f}, FVec3{1.0f, 1.0f, 1.0f}}, 0x2u);
+    const FRay3 center_ray{FVec3{}, FVec3{2.0f, 0.0f, 0.0f}};
+    FCollisionSweepHit3D hit;
+    EXPECT_TRUE(world.TrySweepSphere(center_ray, 0.5f, 0.0f, 10.0f, hit));
+    EXPECT_TRUE(hit.Shape == sphere);
+    EXPECT_NEAR(hit.T, 0.75f, 1.0e-6f);
+    EXPECT_NEAR(hit.Center.x, 1.5f, 1.0e-6f);
+    EXPECT_NEAR(hit.Normal.x, -1.0f, 1.0e-6f);
+
+    EXPECT_TRUE(world.TrySweepSphere(center_ray, 0.5f, 0.0f, 10.0f, hit, sphere));
+    EXPECT_TRUE(hit.Shape == box);
+    EXPECT_NEAR(hit.T, 2.25f, 1.0e-6f);
+    EXPECT_TRUE(world.TrySweepSphere(center_ray, 0.5f, 0.0f, 10.0f, hit, {}, 0x2u));
+    EXPECT_TRUE(hit.Shape == box);
+    EXPECT_TRUE(world.TrySweepSphere(center_ray, 0.5f, 1.0f, 10.0f, hit));
+    EXPECT_TRUE(hit.Shape == box);
+
+    EXPECT_TRUE(world.TryRemove(sphere));
+    const FCollisionShapeId3D replacement = world.TryAddSphere(FSphere{FVec3{2.0f, 0.0f, 0.0f}, 1.0f}, 0x1u);
+    EXPECT_EQ(replacement.Index(), sphere.Index());
+    EXPECT_TRUE(replacement.Generation() != sphere.Generation());
+    EXPECT_TRUE(world.TrySweepSphere(center_ray, 0.5f, 0.0f, 10.0f, hit, sphere, 0x1u));
+    EXPECT_TRUE(hit.Shape == replacement);
+    EXPECT_NEAR(hit.T, 0.25f, 1.0e-6f);
+}
+
+ACS_TEST(CollisionWorld3D, SphereSweepReportsInitialOverlapAndPreservesOutputOnFailure)
+{
+    CCollisionWorld3D world;
+    const FCollisionShapeId3D box = world.TryAddAabb(FAabb3{FVec3{}, FVec3{1.0f, 1.0f, 1.0f}});
+    FCollisionSweepHit3D hit;
+    EXPECT_TRUE(world.TrySweepSphere(FRay3{FVec3{}, FVec3{1.0f, 0.0f, 0.0f}}, 0.25f, 0.0f, 10.0f, hit));
+    EXPECT_TRUE(hit.Shape == box);
+    EXPECT_TRUE(hit.StartedOverlapping);
+    EXPECT_EQ(hit.T, 0.0f);
+    EXPECT_NEAR(hit.Normal.x, -1.0f, 1.0e-6f);
+
+    const FCollisionSweepHit3D preserved = hit;
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FALSE(world.TrySweepSphere(FRay3{FVec3{}, FVec3{1.0f, 0.0f, 0.0f}}, -0.1f, 0.0f, 10.0f, hit));
+    EXPECT_FALSE(world.TrySweepSphere(FRay3{FVec3{}, FVec3{1.0f, 0.0f, 0.0f}}, nan, 0.0f, 10.0f, hit));
+    EXPECT_FALSE(world.TrySweepSphere(FRay3{FVec3{}, FVec3{}}, 0.25f, 0.0f, 10.0f, hit));
+    EXPECT_FALSE(world.TrySweepSphere(FRay3{FVec3{}, FVec3{1.0f, 0.0f, 0.0f}}, 0.25f, 0.1f, 10.0f, hit));
+    EXPECT_FALSE(world.TrySweepSphere(FRay3{FVec3{5.0f, 0.0f, 0.0f}, FVec3{1.0f, 0.0f, 0.0f}}, 0.25f, 0.0f, 10.0f, hit));
+    EXPECT_TRUE(hit.Shape == preserved.Shape);
+    EXPECT_EQ(hit.T, preserved.T);
+    EXPECT_EQ(hit.StartedOverlapping, preserved.StartedOverlapping);
+}
