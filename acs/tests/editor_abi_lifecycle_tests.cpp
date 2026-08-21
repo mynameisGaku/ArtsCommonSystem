@@ -113,6 +113,9 @@ extern "C" __declspec(dllimport) void acs_editor_node3d_set_enabled(
 extern "C" __declspec(dllimport) int acs_editor_node3d_get_enabled(void* handle, int id);
 extern "C" __declspec(dllimport) int acs_editor_node3d_set_color(void* handle, int id, float r, float g, float b, float a);
 extern "C" __declspec(dllimport) int acs_editor_node3d_get_color(void* handle, int id, float* out4);
+extern "C" __declspec(dllimport) int acs_editor_node3d_set_material(void* handle, int id, const char* utf8_path);
+extern "C" __declspec(dllimport) const char* acs_editor_node3d_get_material(void* handle, int id);
+extern "C" __declspec(dllimport) int acs_editor_node3d_clear_material(void* handle, int id);
 extern "C" __declspec(dllimport) int acs_editor_node3d_add_component(
     void* handle, int id, const char* type_name);
 extern "C" __declspec(dllimport) int acs_editor_node3d_component_prop_get(
@@ -309,6 +312,8 @@ bool RunAbiCapabilityContract() noexcept
     static_assert((kRequiredManagedHostCapabilities & CapabilityBit(ECapability::PrefabNodePropertyOverride3DV1)) != 0u, "managed Prefab authoring relies on source-identified 3D child node overrides");
     static_assert((kCapabilities & CapabilityBit(ECapability::PrefabNodeTransformOverride3DV1)) != 0u);
     static_assert((kRequiredManagedHostCapabilities & CapabilityBit(ECapability::PrefabNodeTransformOverride3DV1)) != 0u, "managed Prefab authoring relies on transactional 3D child transform overrides");
+    static_assert((kCapabilities & CapabilityBit(ECapability::PrefabNodeMaterialOverride3DV1)) != 0u);
+    static_assert((kRequiredManagedHostCapabilities & CapabilityBit(ECapability::PrefabNodeMaterialOverride3DV1)) != 0u, "managed Prefab authoring relies on transactional 3D child material overrides");
 
     std::uint32_t version = 0u;
     std::uint64_t capabilities = 0ull;
@@ -1716,7 +1721,8 @@ bool RunPrefabInstance3DNodePropertyOverrides() noexcept
     constexpr std::uint32_t kPosition = 1u << 3u;
     constexpr std::uint32_t kRotation = 1u << 4u;
     constexpr std::uint32_t kScale = 1u << 5u;
-    constexpr std::uint32_t kAll = kVisible | kEnabled | kColor | kPosition | kRotation | kScale;
+    constexpr std::uint32_t kMaterial = 1u << 6u;
+    constexpr std::uint32_t kAll = kVisible | kEnabled | kColor | kPosition | kRotation | kScale | kMaterial;
     constexpr const char* kSource = "Assets/Vehicle.acsprefab";
     constexpr const char* kChildSourceId = "fedcba9876543210fedcba9876543210";
     constexpr const char* kPrefab =
@@ -1724,13 +1730,15 @@ bool RunPrefabInstance3DNodePropertyOverrides() noexcept
         "N3D 1 -1 0 0 0 0 0 0 0 1 1 1 0.2 0.3 0.4 1 Vehicle\n"
         "PSID3D 1 0123456789abcdef0123456789abcdef\n"
         "N3D 2 1 0 1 0 0 0 0 0 1 1 1 0.5 0.6 0.7 1 Wheel\n"
-        "PSID3D 2 fedcba9876543210fedcba9876543210\n";
+        "PSID3D 2 fedcba9876543210fedcba9876543210\n"
+        "MAT3D 2 Assets/Original.acsmat\n";
     constexpr const char* kUpdatedPrefab =
         "ACS3D v2\n"
         "N3D 100 -1 0 0 0 0 0 0 0 1 1 1 0.3 0.4 0.5 1 UpdatedVehicle\n"
         "PSID3D 100 0123456789abcdef0123456789abcdef\n"
         "N3D 200 100 0 2 3 4 5 6 7 0.5 0.6 0.7 0.1 0.2 0.3 1 UpdatedWheel\n"
-        "PSID3D 200 fedcba9876543210fedcba9876543210\n";
+        "PSID3D 200 fedcba9876543210fedcba9876543210\n"
+        "MAT3D 200 Assets/Updated.acsmat\n";
     constexpr const char* kMissingChildPrefab =
         "ACS3D v2\n"
         "N3D 100 -1 0 0 0 0 0 0 0 1 1 1 0.3 0.4 0.5 1 UpdatedVehicle\n"
@@ -1756,13 +1764,15 @@ bool RunPrefabInstance3DNodePropertyOverrides() noexcept
 
     acs_editor_node3d_set_visible(host, child, 0);
     acs_editor_node3d_set_enabled(host, child, 0);
-    ok = ok && acs_editor_node3d_set_color(host, child, 0.9f, 0.8f, 0.7f, 0.6f) != 0 && acs_editor_node3d_set_transform(host, child, 9.0f, 8.0f, 7.0f, 10.0f, 20.0f, 30.0f, 2.0f, 3.0f, 4.0f) != 0 && acs_editor_prefab_instance3d_mark_property_override(host, child, kAll) != 0 && acs_editor_prefab_instance3d_property_override_mask(host, child) == kAll && acs_editor_prefab_instance3d_mark_property_override(host, instance, kPosition) == 0 && acs_editor_prefab_instance3d_root_override_mask(host, instance) == 0u;
+    ok = ok && acs_editor_node3d_set_color(host, child, 0.9f, 0.8f, 0.7f, 0.6f) != 0 && acs_editor_node3d_set_transform(host, child, 9.0f, 8.0f, 7.0f, 10.0f, 20.0f, 30.0f, 2.0f, 3.0f, 4.0f) != 0 && acs_editor_node3d_set_material(host, child, "Assets/Override.acsmat") != 0 && acs_editor_prefab_instance3d_mark_property_override(host, child, kAll) != 0 && acs_editor_prefab_instance3d_property_override_mask(host, child) == kAll && acs_editor_prefab_instance3d_mark_property_override(host, instance, kMaterial) == 0 && acs_editor_prefab_instance3d_root_override_mask(host, instance) == 0u;
 
     char overridden_scene[32768]{};
     const int overridden_written = ok ? acs_editor_scene3d_serialize(host, overridden_scene, static_cast<int>(sizeof(overridden_scene))) : 0;
     char override_line[64]{};
-    const int override_line_written = std::snprintf(override_line, sizeof(override_line), "PNOVR3D %d 63\n", child);
-    ok = ok && overridden_written > 0 && override_line_written > 0 && std::strstr(overridden_scene, override_line) != nullptr;
+    const int override_line_written = std::snprintf(override_line, sizeof(override_line), "PNOVR3D %d 127\n", child);
+    char override_material_line[128]{};
+    const int override_material_line_written = std::snprintf(override_material_line, sizeof(override_material_line), "MAT3D %d Assets/Override.acsmat\n", child);
+    ok = ok && overridden_written > 0 && override_line_written > 0 && override_material_line_written > 0 && std::strstr(overridden_scene, override_line) != nullptr && std::strstr(overridden_scene, override_material_line) != nullptr;
 
     std::string before_invalid2d;
     std::string before_invalid3d;
@@ -1779,18 +1789,20 @@ bool RunPrefabInstance3DNodePropertyOverrides() noexcept
     child = refreshed >= 0 ? acs_editor_prefab_instance3d_find_node_by_source_id(host, refreshed, kChildSourceId) : -1;
     float preserved_color[4]{};
     float preserved_transform[9]{};
-    ok = ok && refreshed >= 0 && child >= 0 && acs_editor_node3d_get_visible(host, child) == 0 && acs_editor_node3d_get_enabled(host, child) == 0 && acs_editor_node3d_get_color(host, child, preserved_color) != 0 && preserved_color[0] == 0.9f && preserved_color[1] == 0.8f && preserved_color[2] == 0.7f && preserved_color[3] == 0.6f && acs_editor_node3d_get_transform(host, child, preserved_transform) != 0 && preserved_transform[0] == 9.0f && preserved_transform[1] == 8.0f && preserved_transform[2] == 7.0f && preserved_transform[3] == 10.0f && preserved_transform[4] == 20.0f && preserved_transform[5] == 30.0f && preserved_transform[6] == 2.0f && preserved_transform[7] == 3.0f && preserved_transform[8] == 4.0f && acs_editor_prefab_instance3d_property_override_mask(host, child) == kAll;
+    ok = ok && refreshed >= 0 && child >= 0 && acs_editor_node3d_get_visible(host, child) == 0 && acs_editor_node3d_get_enabled(host, child) == 0 && acs_editor_node3d_get_color(host, child, preserved_color) != 0 && preserved_color[0] == 0.9f && preserved_color[1] == 0.8f && preserved_color[2] == 0.7f && preserved_color[3] == 0.6f && acs_editor_node3d_get_transform(host, child, preserved_transform) != 0 && preserved_transform[0] == 9.0f && preserved_transform[1] == 8.0f && preserved_transform[2] == 7.0f && preserved_transform[3] == 10.0f && preserved_transform[4] == 20.0f && preserved_transform[5] == 30.0f && preserved_transform[6] == 2.0f && preserved_transform[7] == 3.0f && preserved_transform[8] == 4.0f && std::strcmp(acs_editor_node3d_get_material(host, child), "Assets/Override.acsmat") == 0 && acs_editor_prefab_instance3d_property_override_mask(host, child) == kAll;
+
+    ok = ok && acs_editor_node3d_clear_material(host, child) != 0 && std::strcmp(acs_editor_node3d_get_material(host, child), "") == 0 && acs_editor_prefab_instance3d_property_override_mask(host, child) == kAll;
 
     ok = ok && acs_editor_prefab_instance3d_clear_property_overrides(host, child, kColor) != 0 && acs_editor_prefab_instance3d_property_override_mask(host, child) == (kAll & ~kColor) && acs_editor_prefab_instance3d_mark_property_override(host, child, kColor) != 0 && acs_editor_prefab_instance3d_clear_child_property_overrides(host, refreshed) != 0 && acs_editor_prefab_instance3d_property_override_mask(host, child) == 0u && acs_editor_prefab_instance3d_mark_property_override(host, child, kAll) != 0;
 
     std::string before_bad_revert2d;
     std::string before_bad_revert3d;
-    ok = ok && SnapshotSceneDocument(host, before_bad_revert2d, before_bad_revert3d) && acs_editor_prefab_instance3d_revert_node_overrides(host, child, kSource, kUpdatedPrefab, 64u) == -1 && SceneDocumentEquals(host, before_bad_revert2d, before_bad_revert3d);
+    ok = ok && SnapshotSceneDocument(host, before_bad_revert2d, before_bad_revert3d) && acs_editor_prefab_instance3d_revert_node_overrides(host, child, kSource, kUpdatedPrefab, 128u) == -1 && SceneDocumentEquals(host, before_bad_revert2d, before_bad_revert3d);
     const int reverted_child = ok ? acs_editor_prefab_instance3d_revert_node_overrides(host, child, kSource, kUpdatedPrefab, kVisible) : -1;
     const int reverted_root = reverted_child >= 0 ? acs_editor_prefab_instance3d_root_for_node(host, reverted_child) : -1;
     float selective_color[4]{};
     float selective_transform[9]{};
-    ok = ok && reverted_child >= 0 && reverted_root >= 0 && acs_editor_node3d_get_visible(host, reverted_child) != 0 && acs_editor_node3d_get_enabled(host, reverted_child) == 0 && acs_editor_node3d_get_color(host, reverted_child, selective_color) != 0 && selective_color[0] == 0.9f && selective_color[1] == 0.8f && selective_color[2] == 0.7f && selective_color[3] == 0.6f && acs_editor_node3d_get_transform(host, reverted_child, selective_transform) != 0 && selective_transform[0] == 9.0f && selective_transform[3] == 10.0f && selective_transform[6] == 2.0f && acs_editor_prefab_instance3d_property_override_mask(host, reverted_child) == (kAll & ~kVisible);
+    ok = ok && reverted_child >= 0 && reverted_root >= 0 && acs_editor_node3d_get_visible(host, reverted_child) != 0 && acs_editor_node3d_get_enabled(host, reverted_child) == 0 && acs_editor_node3d_get_color(host, reverted_child, selective_color) != 0 && selective_color[0] == 0.9f && selective_color[1] == 0.8f && selective_color[2] == 0.7f && selective_color[3] == 0.6f && acs_editor_node3d_get_transform(host, reverted_child, selective_transform) != 0 && selective_transform[0] == 9.0f && selective_transform[3] == 10.0f && selective_transform[6] == 2.0f && std::strcmp(acs_editor_node3d_get_material(host, reverted_child), "") == 0 && acs_editor_prefab_instance3d_property_override_mask(host, reverted_child) == (kAll & ~kVisible);
 
     std::string before_repeated2d;
     std::string before_repeated3d;
@@ -1799,15 +1811,19 @@ bool RunPrefabInstance3DNodePropertyOverrides() noexcept
     const int position_reverted_child = ok ? acs_editor_prefab_instance3d_revert_node_overrides(host, reverted_child, kSource, kUpdatedPrefab, kPosition) : -1;
     const int position_reverted_root = position_reverted_child >= 0 ? acs_editor_prefab_instance3d_root_for_node(host, position_reverted_child) : -1;
     float position_reverted_transform[9]{};
-    ok = ok && position_reverted_child >= 0 && position_reverted_root >= 0 && acs_editor_node3d_get_transform(host, position_reverted_child, position_reverted_transform) != 0 && position_reverted_transform[0] == 2.0f && position_reverted_transform[1] == 3.0f && position_reverted_transform[2] == 4.0f && position_reverted_transform[3] == 10.0f && position_reverted_transform[4] == 20.0f && position_reverted_transform[5] == 30.0f && position_reverted_transform[6] == 2.0f && position_reverted_transform[7] == 3.0f && position_reverted_transform[8] == 4.0f && acs_editor_prefab_instance3d_property_override_mask(host, position_reverted_child) == (kAll & ~(kVisible | kPosition));
+    ok = ok && position_reverted_child >= 0 && position_reverted_root >= 0 && acs_editor_node3d_get_transform(host, position_reverted_child, position_reverted_transform) != 0 && position_reverted_transform[0] == 2.0f && position_reverted_transform[1] == 3.0f && position_reverted_transform[2] == 4.0f && position_reverted_transform[3] == 10.0f && position_reverted_transform[4] == 20.0f && position_reverted_transform[5] == 30.0f && position_reverted_transform[6] == 2.0f && position_reverted_transform[7] == 3.0f && position_reverted_transform[8] == 4.0f && std::strcmp(acs_editor_node3d_get_material(host, position_reverted_child), "") == 0 && acs_editor_prefab_instance3d_property_override_mask(host, position_reverted_child) == (kAll & ~(kVisible | kPosition));
 
-    const int fully_reverted = ok ? acs_editor_prefab_instance3d_refresh(host, position_reverted_root, kSource, kUpdatedPrefab) : -1;
+    const int material_reverted_child = ok ? acs_editor_prefab_instance3d_revert_node_overrides(host, position_reverted_child, kSource, kUpdatedPrefab, kMaterial) : -1;
+    const int material_reverted_root = material_reverted_child >= 0 ? acs_editor_prefab_instance3d_root_for_node(host, material_reverted_child) : -1;
+    ok = ok && material_reverted_child >= 0 && material_reverted_root >= 0 && std::strcmp(acs_editor_node3d_get_material(host, material_reverted_child), "Assets/Updated.acsmat") == 0 && acs_editor_prefab_instance3d_property_override_mask(host, material_reverted_child) == (kAll & ~(kVisible | kPosition | kMaterial));
+
+    const int fully_reverted = ok ? acs_editor_prefab_instance3d_refresh(host, material_reverted_root, kSource, kUpdatedPrefab) : -1;
     const int fully_reverted_child = fully_reverted >= 0 ? acs_editor_prefab_instance3d_find_node_by_source_id(host, fully_reverted, kChildSourceId) : -1;
     float source_color[4]{};
     float source_transform[9]{};
     char reverted_scene[32768]{};
     const int reverted_written = fully_reverted_child >= 0 ? acs_editor_scene3d_serialize(host, reverted_scene, static_cast<int>(sizeof(reverted_scene))) : 0;
-    ok = ok && fully_reverted >= 0 && fully_reverted_child >= 0 && acs_editor_node3d_get_visible(host, fully_reverted_child) != 0 && acs_editor_node3d_get_enabled(host, fully_reverted_child) != 0 && acs_editor_node3d_get_color(host, fully_reverted_child, source_color) != 0 && source_color[0] == 0.1f && source_color[1] == 0.2f && source_color[2] == 0.3f && source_color[3] == 1.0f && acs_editor_node3d_get_transform(host, fully_reverted_child, source_transform) != 0 && source_transform[0] == 2.0f && source_transform[1] == 3.0f && source_transform[2] == 4.0f && source_transform[3] == 5.0f && source_transform[4] == 6.0f && source_transform[5] == 7.0f && source_transform[6] == 0.5f && source_transform[7] == 0.6f && source_transform[8] == 0.7f && acs_editor_prefab_instance3d_property_override_mask(host, fully_reverted_child) == 0u && reverted_written > 0 && std::strstr(reverted_scene, "PNOVR3D ") == nullptr;
+    ok = ok && fully_reverted >= 0 && fully_reverted_child >= 0 && acs_editor_node3d_get_visible(host, fully_reverted_child) != 0 && acs_editor_node3d_get_enabled(host, fully_reverted_child) != 0 && acs_editor_node3d_get_color(host, fully_reverted_child, source_color) != 0 && source_color[0] == 0.1f && source_color[1] == 0.2f && source_color[2] == 0.3f && source_color[3] == 1.0f && acs_editor_node3d_get_transform(host, fully_reverted_child, source_transform) != 0 && source_transform[0] == 2.0f && source_transform[1] == 3.0f && source_transform[2] == 4.0f && source_transform[3] == 5.0f && source_transform[4] == 6.0f && source_transform[5] == 7.0f && source_transform[6] == 0.5f && source_transform[7] == 0.6f && source_transform[8] == 0.7f && std::strcmp(acs_editor_node3d_get_material(host, fully_reverted_child), "Assets/Updated.acsmat") == 0 && acs_editor_prefab_instance3d_property_override_mask(host, fully_reverted_child) == 0u && reverted_written > 0 && std::strstr(reverted_scene, "PNOVR3D ") == nullptr;
     if (!ok) std::printf("3D Prefab child node property override contract failed.\n");
     acs_editor_destroy(host);
     return ok;

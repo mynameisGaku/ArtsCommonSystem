@@ -25,7 +25,8 @@ internal readonly record struct PrefabNodePropertyValues3D(
     float RotationZ,
     float ScaleX,
     float ScaleY,
-    float ScaleZ);
+    float ScaleZ,
+    string MaterialPath);
 
 /// <summary>PSID3Dで選んだ3D Prefab原本nodeのpropertyだけを差し替える副作用なしの計算器。</summary>
 internal static class PrefabNodePropertyApply3D
@@ -70,6 +71,11 @@ internal static class PrefabNodePropertyApply3D
              !float.IsFinite(values.ScaleZ)))
         {
             return Reject(sourceText, "Apply対象のTransformに有限でない値があります。", out updatedSource, out error);
+        }
+        if ((applyMask & PrefabNodeProperty3D.Material) != PrefabNodeProperty3D.None &&
+            !IsValidMaterialPath(values.MaterialPath))
+        {
+            return Reject(sourceText, "Apply対象のMaterial pathが不正です。", out updatedSource, out error);
         }
 
         CanonicalSceneAdapterInspection inspection =
@@ -142,6 +148,24 @@ internal static class PrefabNodePropertyApply3D
             flagTokens = tokens;
         }
 
+        int materialLineIndex = -1;
+        List<TokenRange>? materialTokens = null;
+        for (int index = 0; index < lines.Count; ++index)
+        {
+            List<TokenRange> tokens = FindTokens(lines[index].Text);
+            if (tokens.Count < 3 ||
+                !TokenEquals(lines[index].Text, tokens[0], "MAT3D") ||
+                !TryParseInt(lines[index].Text, tokens[1], out int materialId) ||
+                materialId != targetNodeId)
+            {
+                continue;
+            }
+            if (materialLineIndex >= 0)
+                return Reject(sourceText, "Apply対象nodeのMAT3Dが重複しています。", out updatedSource, out error);
+            materialLineIndex = index;
+            materialTokens = tokens;
+        }
+
         var nodeReplacements = new Dictionary<int, string>();
         if ((applyMask & PrefabNodeProperty3D.Position) != PrefabNodeProperty3D.None)
         {
@@ -174,6 +198,29 @@ internal static class PrefabNodePropertyApply3D
                 lines[targetLineIndex].Text,
                 targetTokens,
                 nodeReplacements);
+        }
+
+        bool insertMaterial = false;
+        if ((applyMask & PrefabNodeProperty3D.Material) != PrefabNodeProperty3D.None)
+        {
+            if (materialLineIndex >= 0 && materialTokens != null)
+            {
+                if (values.MaterialPath.Length == 0)
+                {
+                    lines.RemoveAt(materialLineIndex);
+                    if (flagsLineIndex > materialLineIndex) flagsLineIndex--;
+                }
+                else
+                {
+                    lines[materialLineIndex].Text =
+                        lines[materialLineIndex].Text[..materialTokens[2].Start] +
+                        values.MaterialPath;
+                }
+            }
+            else
+            {
+                insertMaterial = values.MaterialPath.Length > 0;
+            }
         }
 
         PrefabNodeProperty3D flagMask = applyMask &
@@ -211,6 +258,13 @@ internal static class PrefabNodePropertyApply3D
                 }
             }
         }
+        if (insertMaterial)
+        {
+            InsertAfter(
+                lines,
+                targetLineIndex,
+                $"MAT3D {targetNodeId.ToString(CultureInfo.InvariantCulture)} {values.MaterialPath}");
+        }
 
         updatedSource = JoinLines(lines);
         return true;
@@ -220,6 +274,16 @@ internal static class PrefabNodePropertyApply3D
     private static bool IsCanonicalSourceNodeId(string value) =>
         value is { Length: 32 } && value.All(static character =>
             character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
+    /// <summary>空文字または改行を含まない259-byte以下の.acsmat pathだけを受理する。</summary>
+    private static bool IsValidMaterialPath(string? value) =>
+        value != null &&
+        (value.Length == 0 ||
+         (!string.IsNullOrWhiteSpace(value) &&
+          !value.Contains('\r') &&
+          !value.Contains('\n') &&
+          Encoding.UTF8.GetByteCount(value) <= 259 &&
+          value.EndsWith(".acsmat", StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>失敗結果を入力不変で返す。</summary>
     private static bool Reject(string sourceText, string message, out string updatedSource, out string error)

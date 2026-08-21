@@ -35,8 +35,10 @@ internal static class PrefabNodePropertyApply3DSelfTest
             "PSID3D 10 0123456789abcdef0123456789abcdef\r\n" +
             "N3D 11 10 0 1 2 3 0 0 0 1 1 1 0.400 0.500 0.600 1.000 Wheel\r\n" +
             "PSID3D 11 fedcba9876543210fedcba9876543210\r\n" +
+            "MAT3D 11 Assets/Old Wheel.acsmat\r\n" +
             "N3D 12 10 0 4 5 6 0 0 0 1 1 1 0.700 0.800 0.900 1.000 Door\r\n" +
             "PSID3D 12 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n" +
+            "MAT3D 12 Assets/Door.acsmat\r\n" +
             "FLG3D 12 0 1\r\n";
         var values = new PrefabNodePropertyValues3D(
             Visible: false,
@@ -53,7 +55,8 @@ internal static class PrefabNodePropertyApply3DSelfTest
             RotationZ: 30.0f,
             ScaleX: 2.0f,
             ScaleY: 3.0f,
-            ScaleZ: 4.0f);
+            ScaleZ: 4.0f,
+            MaterialPath: "Assets/New Wheel.acsmat");
 
         bool flagsOk = PrefabNodePropertyApply3D.TryBuildSource(
             source,
@@ -97,9 +100,59 @@ internal static class PrefabNodePropertyApply3DSelfTest
             "Transform Apply changes only the source-identified child N3D fields",
             transformError);
 
+        bool materialOk = PrefabNodePropertyApply3D.TryBuildSource(
+            transformSource,
+            targetId,
+            PrefabNodeProperty3D.Material,
+            values,
+            out string materialSource,
+            out string materialError);
+        Check(
+            materialOk &&
+            materialSource.Contains("MAT3D 11 Assets/New Wheel.acsmat\r\n", StringComparison.Ordinal) &&
+            materialSource.Contains("MAT3D 12 Assets/Door.acsmat\r\n", StringComparison.Ordinal),
+            "Material Apply changes only the source-identified child reference",
+            materialError);
+
+        PrefabNodePropertyValues3D clearedMaterial = values with
+        {
+            MaterialPath = "",
+        };
+        bool materialClearOk = PrefabNodePropertyApply3D.TryBuildSource(
+            materialSource,
+            targetId,
+            PrefabNodeProperty3D.Material,
+            clearedMaterial,
+            out string materialClearedSource,
+            out string materialClearError);
+        Check(
+            materialClearOk &&
+            !materialClearedSource.Contains("MAT3D 11 ", StringComparison.Ordinal) &&
+            materialClearedSource.Contains("MAT3D 12 Assets/Door.acsmat\r\n", StringComparison.Ordinal),
+            "cleared Material removes only the source-identified child reference",
+            materialClearError);
+
+        string sourceWithoutTargetMaterial = source.Replace(
+            "MAT3D 11 Assets/Old Wheel.acsmat\r\n",
+            "",
+            StringComparison.Ordinal);
+        bool materialInsertOk = PrefabNodePropertyApply3D.TryBuildSource(
+            sourceWithoutTargetMaterial,
+            targetId,
+            PrefabNodeProperty3D.Material,
+            values,
+            out string materialInsertedSource,
+            out string materialInsertError);
+        Check(
+            materialInsertOk &&
+            materialInsertedSource.Contains("MAT3D 11 Assets/New Wheel.acsmat\r\n", StringComparison.Ordinal),
+            "Material Apply inserts a missing target reference with the source newline style",
+            materialInsertError);
+
         string renumbered = source
             .Replace("N3D 11 10", "N3D 201 10", StringComparison.Ordinal)
-            .Replace("PSID3D 11 ", "PSID3D 201 ", StringComparison.Ordinal);
+            .Replace("PSID3D 11 ", "PSID3D 201 ", StringComparison.Ordinal)
+            .Replace("MAT3D 11 ", "MAT3D 201 ", StringComparison.Ordinal);
         bool renumberedOk = PrefabNodePropertyApply3D.TryBuildSource(
             renumbered,
             targetId,
@@ -146,6 +199,19 @@ internal static class PrefabNodePropertyApply3DSelfTest
             out string nonFiniteSource,
             out _);
         Check(nonFiniteRejected && nonFiniteSource == source, "non-finite Transform fails without changing input");
+
+        PrefabNodePropertyValues3D invalidMaterial = values with
+        {
+            MaterialPath = "Assets/Injected.acsmat\nMAT3D 12 Assets/Other.acsmat",
+        };
+        bool invalidMaterialRejected = !PrefabNodePropertyApply3D.TryBuildSource(
+            source,
+            targetId,
+            PrefabNodeProperty3D.Material,
+            invalidMaterial,
+            out string invalidMaterialSource,
+            out _);
+        Check(invalidMaterialRejected && invalidMaterialSource == source, "invalid Material path fails without changing input");
 
         bool unknownMaskRejected = !PrefabNodePropertyApply3D.TryBuildSource(
             source,

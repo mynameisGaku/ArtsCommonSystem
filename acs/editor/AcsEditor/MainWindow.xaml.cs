@@ -1088,6 +1088,9 @@ public partial class MainWindow : Window
                     return;
                 }
 
+                MarkPrefabPropertyOverride3D(
+                    s3,
+                    PrefabNodeProperty3D.Material);
                 Populate3DInspector(s3);   // インスペクタの .acsmat ドロップダウンを更新
                 RecordSceneDocumentChange("Assign Material");
                 Log($"Material ← {System.IO.Path.GetFileName(matPath)} (3D node {s3})");
@@ -5653,6 +5656,17 @@ public partial class MainWindow : Window
             Log("Child selective Apply失敗 (Transformを取得できません)。");
             return;
         }
+        string materialPath = "";
+        if ((property & PrefabNodeProperty3D.Material) != PrefabNodeProperty3D.None)
+        {
+            int kind = EngineInterop.acs_editor_node3d_kind(Engine, id);
+            if (kind < 0 || kind == 6)
+            {
+                Log("Child selective Apply失敗 (Materialを持たないnodeです)。");
+                return;
+            }
+            materialPath = EngineInterop.NodeMaterial3D(Engine, id);
+        }
         var values = new PrefabNodePropertyValues3D(
             Visible: EngineInterop.acs_editor_node3d_get_visible(Engine, id) != 0,
             Enabled: EngineInterop.acs_editor_node3d_get_enabled(Engine, id) != 0,
@@ -5668,7 +5682,8 @@ public partial class MainWindow : Window
             RotationZ: transform[5],
             ScaleX: transform[6],
             ScaleY: transform[7],
-            ScaleZ: transform[8]);
+            ScaleZ: transform[8],
+            MaterialPath: materialPath);
         if (!PrefabNodePropertyApply3D.TryBuildSource(
                 components,
                 sourceNodeId,
