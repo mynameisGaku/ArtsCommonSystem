@@ -58342,10 +58342,7 @@ FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
     u32 full_width, u32 full_height, f32 requested_render_scale,
     bool reference_mode = false) noexcept;
 
-/**
- * Inputs used to account for the exact compute work submitted by one cloud
- * frame. These booleans describe dispatches, not authoring quality levels.
- */
+/** 1フレームの雲描画で投入する計算量を数えるための入力。 */
 struct FVolumetricCloudFrameWorkloadPlan {
     u32 trace_width = 0u;
     u32 trace_height = 0u;
@@ -58353,6 +58350,8 @@ struct FVolumetricCloudFrameWorkloadPlan {
     u32 output_height = 0u;
     /** 1 本の視線レイで実行できる密度採取回数。 */
     u32 maximum_view_steps = kVolumetricCloudViewSteps;
+    /** 自己影を各軸で何画素おきに更新するか。1 は全更新。 */
+    u32 shadow_update_divisor = 1u;
     bool bake_shape_noise = false;
     bool bake_weather = false;
     bool bake_detail_noise = false;
@@ -58518,7 +58517,7 @@ FVolumetricCloudLightBasis ResolveVolumetricCloudLightBasis(
 /**
  * 遠方の太陽方向積分を置き換える、浅い光学的深さのキャッシュ。
  *
- * 毎フレーム現在の密度場から一つの3次元テクスチャへ生成する。近距離3点は正確な採取を残し、
+ * 現在の密度場から一つの3次元テクスチャへ生成する。近距離3点は正確な採取を残し、
  * キャッシュの信頼度が不足する場所では遠距離5点も正確な積分へ戻す。
  */
 inline constexpr bool kVolumetricCloudShadowCacheEnabled = true;
@@ -58533,11 +58532,18 @@ inline constexpr f32 kVolumetricCloudShadowCacheCellSize =
     static_cast<f32>(kVolumetricCloudShadowCacheWidth);
 inline constexpr f32 kVolumetricCloudShadowCacheSafeRadius = 8000.0f;
 
+/** 安定フレームの自己影を各軸で2画素おきに更新し、4フレームで全体を巡回する。 */
+inline constexpr u32 kVolumetricCloudShadowTemporalDivisor = 2u;
+static_assert(kVolumetricCloudShadowTemporalDivisor == 2u);
+static_assert(kVolumetricCloudShadowCacheWidth % kVolumetricCloudShadowTemporalDivisor == 0u);
+static_assert(kVolumetricCloudShadowCacheDepth % kVolumetricCloudShadowTemporalDivisor == 0u);
+
 /** 立体物用の雲影透過率地図を生成するか。 */
 inline constexpr bool kVolumetricCloudWorldShadowEnabled = true;
 
 /** 立体物用の雲影透過率地図の一辺の画素数。 */
 inline constexpr u32 kVolumetricCloudWorldShadowMapResolution = 256u;
+static_assert(kVolumetricCloudWorldShadowMapResolution % kVolumetricCloudShadowTemporalDivisor == 0u);
 
 /** 立体物用の雲影透過率地図が覆うワールド距離。 */
 inline constexpr f32 kVolumetricCloudWorldShadowMapExtent = 32768.0f;
@@ -58827,7 +58833,7 @@ public:
         return m_ShadowCacheAvailable;
     }
 
-    /** 現在フレームの密度場から生成した影キャッシュを利用できるか。 */
+    /** 現在または直近3フレーム以内の密度場から生成した影キャッシュを利用できるか。 */
     bool ShadowCacheValid() const noexcept { return m_ShadowCacheValid; }
 
     /** 現在フレームの立体物用雲影透過率地図と座標情報を返す。 */
@@ -58843,7 +58849,7 @@ public:
         return m_WorldShadowAvailable;
     }
 
-    /** 現在フレームの立体物用雲影を利用できるか。 */
+    /** 現在または直近3フレーム以内の立体物用雲影を利用できるか。 */
     bool WorldShadowValid() const noexcept {
         return m_WorldShadowValid;
     }

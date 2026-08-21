@@ -152,6 +152,9 @@ ACS の公開所有型契約を守り、`TArray<T>` 上の sparse-set 設計を�
 雲内部影の再生成、3D受光面へ投影するワールド雲影の再生成を、別々の
 ディスパッチ数として記録します。有効呼び出し数は有効な画素・体積画素の数、
 起動スレッド数は 8x8 または 4x4x4 の処理群の端数を含む実際の投入範囲です。
+自己影は初回と座標・履歴の不連続時に全更新し、安定時は2x2の偶奇位置を4位相で
+巡回します。診断値は元テクスチャの寸法ではなく、そのフレームで実際に更新した
+`48x32x48` と `128x128` の範囲を数えます。
 
 `maximum_view_samples`、`maximum_light_samples`、`maximum_world_shadow_samples` は
 シェーダー反復の保守的な上限で、空領域の省略、透過率による早期終了、画面内容の
@@ -162,13 +165,13 @@ ACS の公開所有型契約を守り、`TArray<T>` 上の sparse-set 設計を�
 計測のために画質を下げません。算術は `u64` 飽和で、異常な診断入力が小さい値へ
 wrap することも防ぎます。
 
-地面接線の `local_up` と角度 cutoff は camera/world-origin/cloud-layer ごとの
-frame 不変値として CPU で一度だけ計算し、`CloudCB` の c20 から trace/resolve の
-両方へ渡します。HLSL `cloudAltitude` と同じ座標契約を使い、接線近傍の二軸
-neighbor-ray coverage を維持します。full-resolution resolve は temporal
-reprojection で既に求めた center ray の elevation も再利用し、未計算の経路だけ
-unproject します。この最適化は dispatch 数、trace 解像度、march/light step 数を
-変えないため、効果量は profiler の cloud GPU timestamp で実測してください。
+地面接線の `local_up` と角度のしきい値は、カメラ、ワールド原点、雲層ごとの
+フレーム不変値としてCPUで一度だけ計算し、`CloudCB` の c20 から視線積分、時間再構成、
+最終合成へ渡します。視線積分は隣接する二方向も使って地平線の正確な部分被覆を求め、
+地面だけの画素を早期に除外します。時間履歴には部分被覆を掛ける前の雲色、不透明度、深さを
+保存し、最終合成で全解像度の被覆を一度だけ適用します。中心方向の同次座標は全画面三角形の
+3頂点で計算して補間し、隣接方向は逆ビュー射影行列の行から差分を作るため、画素ごとの
+行列乗算は増やしません。ディスパッチ数、視線積分解像度、視線・光の採取数は変えません。
 
 密な上向き視点では、同じ world wind、shape frequency、layer-height reciprocal を
 view sample と最大 8 個の light-cone probe で共有します。これらは
