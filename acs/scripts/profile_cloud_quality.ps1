@@ -78,6 +78,9 @@ $script:ExpectedCloudScale = 0.25
 $script:ExpectedViewSamples = 192
 $script:ExpectedLightSamples = 8
 $script:ExpectedSteadyDispatches = 2
+$script:ExpectedShadowCacheDispatches = 1
+$script:ExpectedShadowCacheLogicalInvocations = 96 * 32 * 96
+$script:ExpectedShadowCacheLaunchedThreads = 96 * 32 * 96
 $script:ExpectedCompositeDraws = 1
 $script:SummarySchemaVersion = 3
 $script:ExpectedEditorArtifactRoles = @(
@@ -1377,10 +1380,13 @@ function Test-CloudQualityReport {
                 -Faults $faults `
                 -Code "CLOUD_DISPATCH_TOTAL_INCOHERENT"
         }
+        $expectedTotalDispatches =
+            $script:ExpectedSteadyDispatches +
+            $script:ExpectedShadowCacheDispatches
         if ($steady -ne $script:ExpectedSteadyDispatches -or
             $bake -ne 0 -or
-            $shadow -ne 0 -or
-            $totalDispatches -ne $script:ExpectedSteadyDispatches -or
+            $shadow -ne $script:ExpectedShadowCacheDispatches -or
+            $totalDispatches -ne $expectedTotalDispatches -or
             (ConvertTo-CloudInt64 -Value $workload.CompositeDraws) -ne
                 $script:ExpectedCompositeDraws) {
             Add-CloudFault `
@@ -1424,6 +1430,14 @@ function Test-CloudQualityReport {
             Add-CloudFault `
                 -Faults $faults `
                 -Code "CLOUD_INVOCATION_TOTAL_INCOHERENT"
+        }
+        if ($shadowLogical -ne
+                $script:ExpectedShadowCacheLogicalInvocations -or
+            $shadowLaunched -ne
+                $script:ExpectedShadowCacheLaunchedThreads) {
+            Add-CloudFault `
+                -Faults $faults `
+                -Code "CLOUD_SHADOW_WORKLOAD_CHANGED"
         }
         $expectedTraceLogical =
             (ConvertTo-CloudInt64 -Value $workload.TraceWidth) *
@@ -2735,7 +2749,7 @@ function New-SyntheticCloudReport {
                 GameView = $false
                 ScenePresentationSuppressed = $false
                 DrawCalls = 32
-                DispatchCalls = 2
+                DispatchCalls = 3
                 ViewportWidth = $outputWidth
                 ViewportHeight = $outputHeight
                 CloudWidth = $traceWidth
@@ -2762,8 +2776,8 @@ function New-SyntheticCloudReport {
                 OutputHeight = $outputHeight
                 SteadyDispatches = 2
                 OneTimeBakeDispatches = 0
-                ShadowCacheDispatches = 0
-                TotalComputeDispatches = 2
+                ShadowCacheDispatches = 1
+                TotalComputeDispatches = 3
                 CompositeDraws = 1
                 TraceLogicalInvocations = $traceLogical
                 TraceLaunchedThreads = 24192
@@ -2771,10 +2785,16 @@ function New-SyntheticCloudReport {
                 ResolveLaunchedThreads = 380160
                 OneTimeBakeLogicalInvocations = 0
                 OneTimeBakeLaunchedThreads = 0
-                ShadowCacheLogicalInvocations = 0
-                ShadowCacheLaunchedThreads = 0
-                TotalLogicalInvocations = $traceLogical + $resolveLogical
-                TotalLaunchedThreads = 24192 + 380160
+                ShadowCacheLogicalInvocations =
+                    $script:ExpectedShadowCacheLogicalInvocations
+                ShadowCacheLaunchedThreads =
+                    $script:ExpectedShadowCacheLaunchedThreads
+                TotalLogicalInvocations =
+                    $traceLogical + $resolveLogical +
+                    $script:ExpectedShadowCacheLogicalInvocations
+                TotalLaunchedThreads =
+                    24192 + 380160 +
+                    $script:ExpectedShadowCacheLaunchedThreads
                 MaximumViewSamples = $maximumView
                 MaximumLightSamples = $maximumLight
             }
@@ -3079,15 +3099,26 @@ function Invoke-CloudProfilerSelfTest {
 
     $extraDispatch = Copy-CloudObject -Value $validReport
     $extraDispatch.ProfilerSummary.LatestCloudWorkload.
-        ShadowCacheDispatches = 1
+        ShadowCacheDispatches = 2
     $extraDispatch.ProfilerSummary.LatestCloudWorkload.
-        TotalComputeDispatches = 3
+        TotalComputeDispatches = 4
     $extraDispatchValidation =
         Test-CloudQualityReport -Report $extraDispatch
     Assert-CloudSelfTest `
         ($extraDispatchValidation.FaultCodes -contains
             "CLOUD_STEADY_WORKLOAD_CHANGED") `
-        "steady workload shape required"
+        "second steady shadow dispatch rejected"
+    $changedShadowWork = Copy-CloudObject -Value $validReport
+    $changedShadowWork.ProfilerSummary.LatestCloudWorkload.
+        ShadowCacheLogicalInvocations--
+    $changedShadowWork.ProfilerSummary.LatestCloudWorkload.
+        TotalLogicalInvocations--
+    $changedShadowWorkValidation =
+        Test-CloudQualityReport -Report $changedShadowWork
+    Assert-CloudSelfTest `
+        ($changedShadowWorkValidation.FaultCodes -contains
+            "CLOUD_SHADOW_WORKLOAD_CHANGED") `
+        "steady shadow workload dimensions fixed"
     $nullZeroWork = Copy-CloudObject -Value $validReport
     $nullZeroWork.ProfilerSummary.LatestCloudWorkload.
         ShadowCacheDispatches = $null
@@ -3248,8 +3279,9 @@ function Invoke-CloudProfilerSelfTest {
         $processSelfTestRoot = Assert-SafeOutputDirectory `
             -Path $processSelfTestRoot `
             -Create
+        # 実行中の本体を再利用し、Windows PowerShellとPowerShell 7の実行名の差を吸収する。
         $selfTestPowerShell = Assert-CloudRegularInputFile `
-            -Path (Join-Path $PSHOME "powershell.exe") `
+            -Path (Get-Process -Id $PID).Path `
             -Label "Self-test PowerShell"
         $selfTestCmd = Assert-CloudRegularInputFile `
             -Path (

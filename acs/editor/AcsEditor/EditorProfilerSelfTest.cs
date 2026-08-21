@@ -103,8 +103,8 @@ internal static class EditorProfilerSelfTest
             OutputHeight = 96,
             SteadyDispatches = 2,
             OneTimeBakeDispatches = 4,
-            ShadowCacheDispatches = 0,
-            TotalComputeDispatches = 6,
+            ShadowCacheDispatches = 1,
+            TotalComputeDispatches = 7,
             CompositeDraws = 1,
             TraceLogicalInvocations = 960,
             TraceLaunchedThreads = 960,
@@ -112,8 +112,10 @@ internal static class EditorProfilerSelfTest
             ResolveLaunchedThreads = 15_360,
             OneTimeBakeLogicalInvocations = 2_637_824,
             OneTimeBakeLaunchedThreads = 2_637_824,
-            TotalLogicalInvocations = 2_654_144,
-            TotalLaunchedThreads = 2_654_144,
+            ShadowCacheLogicalInvocations = 294_912,
+            ShadowCacheLaunchedThreads = 294_912,
+            TotalLogicalInvocations = 2_949_056,
+            TotalLaunchedThreads = 2_949_056,
             MaximumViewSamples = 184_320,
             MaximumLightSamples = 1_474_560,
         };
@@ -127,11 +129,11 @@ internal static class EditorProfilerSelfTest
                 workload) ==
                 "SUBMITTED - frame 42 - cloud #7" &&
             EditorCloudWorkloadFormatting.Dispatches(workload) ==
-                "6 = 2 steady + 4 bake + 0 shadow; 1 composite draw" &&
+                "7 = 2 steady + 4 bake + 1 shadow; 1 composite draw" &&
             EditorCloudWorkloadFormatting.Invocations(
                 workload.TotalLogicalInvocations,
                 workload.TotalLaunchedThreads) ==
-                "2,654,144 logical / 2,654,144 launched" &&
+                "2,949,056 logical / 2,949,056 launched" &&
             EditorCloudWorkloadFormatting.OneTimeBake(workload) ==
                 "4 dispatch; 2,637,824 logical / 2,637,824 launched" &&
             EditorCloudWorkloadFormatting.History(workload) ==
@@ -244,7 +246,10 @@ internal static class EditorProfilerSelfTest
         incorrectDispatchTotal.TotalComputeDispatches--;
         var dispatchedComponentWithoutDispatch = workload;
         dispatchedComponentWithoutDispatch.OneTimeBakeDispatches = 0;
-        dispatchedComponentWithoutDispatch.TotalComputeDispatches = 2;
+        dispatchedComponentWithoutDispatch.TotalComputeDispatches = 3;
+        var duplicatedShadowDispatch = workload;
+        duplicatedShadowDispatch.ShadowCacheDispatches = 2;
+        duplicatedShadowDispatch.TotalComputeDispatches = 8;
         var incorrectLogicalTotal = workload;
         incorrectLogicalTotal.TotalLogicalInvocations--;
         var incorrectSampleCeiling = workload;
@@ -252,9 +257,10 @@ internal static class EditorProfilerSelfTest
         Check(
             RejectsCloudSnapshot(incorrectDispatchTotal) &&
             RejectsCloudSnapshot(dispatchedComponentWithoutDispatch) &&
+            RejectsCloudSnapshot(duplicatedShadowDispatch) &&
             RejectsCloudSnapshot(incorrectLogicalTotal) &&
             RejectsCloudSnapshot(incorrectSampleCeiling),
-            "cloud workload v1 rejects dispatch, invocation-total, and sample-ceiling mismatches");
+            "cloud workload v1 rejects repeated shadow dispatch, invocation-total, and sample-ceiling mismatches");
 
         var launchedBelowLogical = workload;
         launchedBelowLogical.TraceLaunchedThreads =
@@ -625,7 +631,7 @@ internal static class EditorProfilerSelfTest
             automationLatest.NativePresentCpuPeakMs <
                 presentPeak &&
             automationSummary.LatestCloudWorkload.HistoryReused &&
-            automationSummary.LatestCloudWorkload.TotalComputeDispatches == 6 &&
+            automationSummary.LatestCloudWorkload.TotalComputeDispatches == 7 &&
             automationSummary.LatestEditorRuntime.NativeAvailable &&
             automationSummary.LatestEditorRuntime.NativeCallCount == 900 &&
             automationSummary.LatestEditorRuntime
@@ -823,7 +829,7 @@ internal static class EditorProfilerSelfTest
                 "# cloud_workload_submitted,true",
                 StringComparison.Ordinal) &&
             automationCsv.Contains(
-                "# cloud_workload_total_dispatches,6",
+                "# cloud_workload_total_dispatches,7",
                 StringComparison.Ordinal) &&
             automationCsv.Contains(
                 "# cloud_workload_profiler_frame_within_capture,true",

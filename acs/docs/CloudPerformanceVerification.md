@@ -87,7 +87,8 @@ Each scenario must prove all of the following:
 - temporal history was available and reused without invalidation, with TSR
   enabled;
 - 定常フレームは影キャッシュ生成、視線積分、時間再構成の計3回の計算ディスパッチと、
-  合成描画1回だけであり、一度限りの雑音生成が計測区間へ混入していないこと。
+  合成描画1回だけであり、一度限りの雑音生成が計測区間へ混入していないこと。処理量契約では
+  視線積分と時間再構成を定常2回、`96 x 32 x 96`の影キャッシュ生成を別枠1回として記録する。
 - logical invocation, launched-thread, and maximum view/light sample totals
   are internally coherent;
 - native render, Dispatcher heartbeat, GPU retry/fallback, ready-after-retry,

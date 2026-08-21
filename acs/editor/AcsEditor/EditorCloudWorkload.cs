@@ -163,10 +163,10 @@ internal static class EditorCloudWorkloadContract
             return false;
         }
 
+        // 定常描画は視線積分と時間再構成に加え、動く密度場の影を1回だけ再生成する。
         if (snapshot.SteadyDispatches != 2u ||
             snapshot.OneTimeBakeDispatches > 4u ||
-            (snapshot.ShadowCacheDispatches != 0u &&
-             snapshot.ShadowCacheDispatches != 2u) ||
+            snapshot.ShadowCacheDispatches > 1u ||
             (ulong)snapshot.TotalComputeDispatches !=
                 (ulong)snapshot.SteadyDispatches +
                 snapshot.OneTimeBakeDispatches +
