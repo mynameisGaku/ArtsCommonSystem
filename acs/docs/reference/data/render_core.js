@@ -469,7 +469,7 @@ ACS_REF.modules.push({
         { sig: "TResult&lt;void&gt; Resize(u32 width, u32 height)", desc: "ウィンドウサイズ変更時に内部 RT を作り直す。" },
         { sig: "IRhiTexture* HdrRenderTarget() / EFormat HdrFormat()", desc: "シーンを描く HDR RT とそのフォーマット。" },
         { sig: "void Render(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buffer_index, const FPostProcessParams& params)", desc: "Bloom + Tonemap 一式を実行してバックバッファへ書き出す。" },
-        { sig: "FPostProcessParams{ bloom_*, exposure, gamma, tonemap_kind, vignette_*, chromatic_aberration, grain_*, cg_* (color grading), cas_strength, taa_*, auto_exposure_* }", desc: "各効果のパラメータ。bloom / トーンマップ種別 / シネマティック FX / カラーグレーディング / シャープ / TAA / 自動露出。" },
+        { sig: "FPostProcessParams{ bloom_*, exposure, gamma, tonemap_kind, vignette_*, chromatic_aberration, grain_*, cg_* (color grading), cas_strength, taa_*, auto_exposure_*, fxaa_enabled }", desc: "各効果のパラメータ。bloom / トーンマップ種別 / シネマティック FX / カラーグレーディング / シャープ / TAA / 自動露出 / トーンマップ後FXAA。既定は無効で、TAA解像が有効な場合は重ねない。" },
         { sig: "using FPostProcess = CPostProcess", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CPostProcess</code> を使う。" }
       ]
     },

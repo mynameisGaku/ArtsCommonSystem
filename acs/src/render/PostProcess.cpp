@@ -934,6 +934,13 @@ TResult<CPostProcess::FCompiledShaders> CompilePostShadersWithDevice(
                          "Exposure.Apply", compiled.exposure_apply_pixel);
         r.IsErr()) return Err<CPostProcess::FCompiledShaders>(r.Error());
 
+    // FXAA は任意機能なので、シェーダ準備に失敗しても既存の直接トーンマップは
+    // 利用できる。成功した場合だけ同じ描画基盤のコンパイル成果を移す。
+    if (auto fxaa = CFxaa::CompileShaders(device, compile_async); fxaa.IsOk()) {
+        compiled.fxaa_vertex = Move(fxaa.Value().vertex);
+        compiled.fxaa_pixel = Move(fxaa.Value().pixel);
+    }
+
     return TResult<CPostProcess::FCompiledShaders>(
         OkInit, Move(compiled));
 }
@@ -965,6 +972,14 @@ EShaderStatus CPostProcess::FCompiledShaders::Status() const noexcept {
         const EShaderStatus status = shader->Status();
         if (status == EShaderStatus::Failed) return EShaderStatus::Failed;
         if (status == EShaderStatus::Compiling) compiling = true;
+    }
+
+    // FXAA は任意シェーダ。両方が提供された場合だけ非同期コンパイルの完了を
+    // 待つが、失敗しても必須のトーンマップ処理は Ready とみなす。
+    if (fxaa_vertex && fxaa_pixel) {
+        compiling = compiling
+            || fxaa_vertex->Status() == EShaderStatus::Compiling
+            || fxaa_pixel->Status() == EShaderStatus::Compiling;
     }
     return compiling ? EShaderStatus::Compiling : EShaderStatus::Ready;
 }
@@ -1093,6 +1108,12 @@ CPostProcess::CompileShadersCpu() noexcept {
                          "Exposure.Apply", compiled.exposure_apply_pixel);
         r.IsErr()) return Err<FCompiledShaders>(r.Error());
 
+    // FXAA は任意機能。失敗時も PostProcess の通常表示を維持する。
+    if (auto fxaa = CFxaa::CompileShadersCpu(); fxaa.IsOk()) {
+        compiled.fxaa_vertex = Move(fxaa.Value().vertex);
+        compiled.fxaa_pixel = Move(fxaa.Value().pixel);
+    }
+
     return TResult<FCompiledShaders>(OkInit, Move(compiled));
 #else
     return ACS_ERR(
@@ -1201,6 +1222,8 @@ TResult<void> CPostProcess::InitWithCompiledShaders(
 }
 
 void CPostProcess::Shutdown() noexcept {
+    m_FxaaInput.Reset();
+    m_Fxaa.Reset();
     m_BlackFb.Reset();
     m_TaaDepthFb.Reset();
     m_CbAuto.Reset();
@@ -1277,6 +1300,9 @@ TResult<void> CPostProcess::Resize(u32 width, u32 height) noexcept {
         m_LumaMips[i] = Move(candidate.m_LumaMips[i]);
     m_LumaMipCount = candidate.m_LumaMipCount;
     m_ExposedRt = Move(candidate.m_ExposedRt);
+    // FXAA の中間 LDR は新しい寸法で遅延再作成する。FXAAシェーダとPSOは
+    // 描画先形式のみで決まるため、そのまま再利用できる。
+    m_FxaaInput.Reset();
     m_TransientAliasPlan = candidate.m_TransientAliasPlan;
     m_Width  = width;
     m_Height = height;
@@ -1642,6 +1668,27 @@ TResult<void> CPostProcess::CreatePipelines(
         m_PipeExposeApply = Move(r.Value());
     }
 
+    // FXAA は任意機能。コンパイル処理がシェーダを準備できた場合だけPSOを
+    // 作り、失敗時は Render が従来の直接トーンマップへ戻れるようにする。
+    if (shaders.fxaa_vertex && shaders.fxaa_pixel) {
+        auto fxaa = MakeUnique<CFxaa>();
+        if (fxaa) {
+            CFxaa::FCompiledShaders fxaa_shaders{};
+            fxaa_shaders.vertex = Move(shaders.fxaa_vertex);
+            fxaa_shaders.pixel = Move(shaders.fxaa_pixel);
+            const auto result = fxaa->InitWithCompiledShaders(
+                device, Move(fxaa_shaders), m_ColorFormat);
+            if (result.IsOk()) {
+                m_Fxaa = Move(fxaa);
+            } else {
+                ACS_LOG_WARN(
+                    "CPostProcess: optional FXAA pipeline unavailable; "
+                    "direct tonemap remains active: %s",
+                    result.Error().message);
+            }
+        }
+    }
+
     // Shader ownership is transferred only after every PSO is known-good.
     // A failed owner-thread commit therefore leaves the compiled set reusable.
     m_VsFullscreen = Move(shaders.fullscreen_vertex);
@@ -1746,8 +1793,32 @@ void CPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
         m_BloomOutputValid = bloom_complete;
     }
 
-    // 4) Tonemap: HDR (or TAA resolved) + mip[0] → backbuffer
-    Pass_Tonemap(cmd, swapchain, buffer_index, safe_params);
+    // 4) Tonemap: HDR (or TAA resolved) + mip[0] → LDR backbuffer.
+    // FXAA はトーンマップとガンマ補正の後にだけ掛ける。TAA の有効出力へ重ねると
+    // temporally resolved edge を再び空間ぼかしするため、明示的に抑止する。
+    const bool use_fxaa = safe_params.fxaa_enabled
+        && !m_TaaOutputValid
+        && EnsureFxaaResources();
+    if (use_fxaa && Pass_Tonemap(
+            cmd, swapchain, buffer_index, safe_params, m_FxaaInput.Get())) {
+        cmd.BeginRenderToSwapchain(
+            swapchain, buffer_index, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+        FViewport viewport{};
+        viewport.width = static_cast<f32>(swapchain.Width());
+        viewport.height = static_cast<f32>(swapchain.Height());
+        cmd.SetViewport(viewport);
+        FScissorRect scissor{};
+        scissor.right = static_cast<i32>(swapchain.Width());
+        scissor.bottom = static_cast<i32>(swapchain.Height());
+        cmd.SetScissor(scissor);
+        m_Fxaa->Apply(cmd, *m_FxaaInput);
+        // FXAA が全画面を上書きした後も、swapchain pass を必ず閉じる。
+        cmd.EndRenderToSwapchain(swapchain, buffer_index);
+    } else {
+        // FXAA資源・中間RT・トーンマップが一つでも使えない場合は、中間へ描いて
+        // から戻ることをせず、従来の直接経路で画面を成立させる。
+        Pass_Tonemap(cmd, swapchain, buffer_index, safe_params);
+    }
 
     // Advance temporal cursors only after their complete output was recorded.
     // Failed or partial passes preserve the last complete history for retry
@@ -1973,8 +2044,14 @@ bool CPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParam
 }
 
 bool CPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
-                                const FPostProcessParams& p) noexcept {
+                                const FPostProcessParams& p,
+                                IRhiTexture* ldr_target) noexcept {
     if (!m_PipeTonemap || sc.Width() == 0 || sc.Height() == 0) return false;
+    if (ldr_target != nullptr
+        && (ldr_target->Width() != sc.Width()
+            || ldr_target->Height() != sc.Height())) {
+        return false;
+    }
     const bool scene_auto_exposed =
         p.auto_exposure_enabled &&
         m_ExposureOutputValid &&
@@ -2010,7 +2087,13 @@ bool CPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf
     if (!bloom_input || !ssr_input || !adapted_exposure_input)
         return false;
 
-    cmd.BeginRenderToSwapchain(sc, buf_idx, FClearColor{0,0,0,1}, nullptr, 1.0f);
+    if (ldr_target != nullptr) {
+        cmd.BeginRenderToTexture(
+            *ldr_target, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+    } else {
+        cmd.BeginRenderToSwapchain(
+            sc, buf_idx, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+    }
     cmd.SetPipeline(*m_PipeTonemap);
     cmd.SetConstantBuffer(0, *post_cb);
     cmd.SetTexture(0, *tonemap_src);
@@ -2021,7 +2104,32 @@ bool CPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf
     // disabled shader branch even though the strict binding is present.
     cmd.SetTexture(3, *adapted_exposure_input);
     cmd.Draw(3, 0);
-    cmd.EndRenderToSwapchain(sc, buf_idx);
+    if (ldr_target != nullptr) {
+        cmd.EndRenderToTexture(*ldr_target);
+    } else {
+        cmd.EndRenderToSwapchain(sc, buf_idx);
+    }
+    return true;
+}
+
+bool CPostProcess::EnsureFxaaResources() noexcept {
+    if (!m_Device || !m_Fxaa || !m_Fxaa->IsReady()
+        || m_Width == 0 || m_Height == 0) {
+        return false;
+    }
+    if (m_FxaaInput && m_FxaaInput->Width() == m_Width
+        && m_FxaaInput->Height() == m_Height) {
+        return true;
+    }
+
+    FTextureDesc description{};
+    description.width = m_Width;
+    description.height = m_Height;
+    description.format = m_ColorFormat;
+    description.is_render_target = true;
+    auto result = CreateRhiTexture(*m_Device, description);
+    if (result.IsErr()) return false;
+    m_FxaaInput = Move(result.Value());
     return true;
 }
 

@@ -163,6 +163,13 @@ native command list を使います。これらのポインタは呼出し中だ
 無い場合は古い間接光を公開しません。現行の前段は動的 motion vector を生成しないため、
 SSGI はカメラ再投影を使います。
 
+最終画面の空間アンチエイリアスは `ALegacyScene3DAdapter::PostParams()` の
+`FPostProcessParams::fxaa_enabled` で明示的に有効化できます。既定は無効で、既存の
+出力と TAA 利用時の負荷を変えません。有効時は HDR の完成色をトーンマップとガンマ補正で全解像度
+LDR 中間へ書き、その後 `CFxaa` を swapchain に一度だけ適用します。有効な TAA 解像結果
+があるフレームでは FXAA を重ねず、TAA 解像が失敗した場合だけ FXAA を代替処理にします。
+任意シェーダのコンパイルに失敗しても直接トーンマップを使い、空のフレームを公開しません。
+
 ### ボリュメトリック雲の workload 診断
 
 `FVolumetricClouds::LastFrameWorkload()` は、直近のボリューム雲の計算処理と

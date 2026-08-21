@@ -12,6 +12,7 @@
 #include "render/IRhiPipeline.h"
 #include "render/IRhiShader.h"
 #include "render/IRhiBuffer.h"
+#include "render/Fxaa.h"
 #include "render/RenderGraphAliasPlanSummary.h"
 
 namespace acs {
@@ -202,6 +203,15 @@ struct FPostProcessParams {
     f32  delta_time            = 0.0166f;
 
     /**
+     * トーンマップ後の LDR 出力へ FXAA を一度だけ適用するか。
+     *
+     * @details 既定は false。既存の出力を変えず、TAA の有効な解像結果がある
+     * 場合も FXAA を重ねない。TAA を要求したが解像に失敗した場合は、true なら
+     * FXAA を安全な空間的代替処理として使う。
+     */
+    bool fxaa_enabled = false;
+
+    /**
      * Replaces non-finite values with defaults and clamps bounded controls to
      * the ranges accepted by the post-process shaders.
      *
@@ -236,7 +246,13 @@ public:
         TUniquePtr<IRhiShader> exposure_pixel;
         TUniquePtr<IRhiShader> exposure_apply_pixel;
 
-        /** Aggregate all eleven submitted shader jobs without waiting. */
+        /** 任意の FXAA 頂点シェーダ。 */
+        TUniquePtr<IRhiShader> fxaa_vertex;
+
+        /** 任意の FXAA ピクセルシェーダ。 */
+        TUniquePtr<IRhiShader> fxaa_pixel;
+
+        /** 必須11本と任意FXAAシェーダのコンパイル状態を返す。 */
         EShaderStatus Status() const noexcept;
     };
 
@@ -446,7 +462,16 @@ private:
      * @param p 適用する効果のパラメータ。
      */
     bool Pass_Tonemap  (IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
-                        const FPostProcessParams& p) noexcept;
+                        const FPostProcessParams& p,
+                        IRhiTexture* ldr_target = nullptr) noexcept;
+
+    /**
+     * FXAA の任意リソースを描画所有スレッドで遅延確保する。
+     *
+     * @return FXAAシェーダと中間LDR RTが揃い、現在サイズで使える場合だけ true。
+     * 失敗時は呼び出し側が従来の直接トーンマップへ戻る。
+     */
+    bool EnsureFxaaResources() noexcept;
 
     /**
      * Auto-exposure: HDR を log2 輝度の mip chain に縮約する luma reduction パス。
@@ -548,6 +573,12 @@ private:
 
     /** Tonemap パイプライン (HDR + bloom_mips[0] → backbuffer)。 */
     TUniquePtr<IRhiPipeline> m_PipeTonemap;
+
+    /** 非同期コンパイル済みシェーダから作った任意の FXAA パイプライン。 */
+    TUniquePtr<CFxaa> m_Fxaa;
+
+    /** トーンマップ後の LDR を一時保存する全解像度の描画先。 */
+    TUniquePtr<IRhiTexture> m_FxaaInput;
 
     /** True only after every bloom stage for the current frame was recorded. */
     bool                     m_BloomOutputValid = false;

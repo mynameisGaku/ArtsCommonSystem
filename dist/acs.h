@@ -57704,6 +57704,120 @@ using FPbrShader = CPbrShader;
 // SPDX-License-Identifier: Apache-2.0
 
 
+// ===================== render/Fxaa.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * FXAA をフルスクリーン三角形 1 パスで掛けるポストエフェクト。
+ *
+ * @details
+ * FXAA 3.11 の簡易品質版。中心+対角 4 近傍の輝度からエッジ方向を推定し、
+ * エッジに沿って 2/4 タップのブレンドを行う。低コントラスト画素は早期 return で
+ * 素通しするため、ベタ塗り領域やテキストのにじみは最小限。入力サイズは
+ * GetDimensions で取得するので cbuffer 不要。
+ */
+class CFxaa {
+public:
+    /**
+     * 非同期コンパイルから所有権を移す FXAA シェーダ束。
+     *
+     * @details
+     * `CPostProcess` の既存コンパイル処理で準備し、描画所有スレッドでは
+     * パイプライン生成だけを行う。FXAA が任意機能であるため、空の束は
+     * PostProcess の通常経路を失敗させない。
+     */
+    struct FCompiledShaders {
+        /** 全画面三角形の頂点シェーダ。 */
+        TUniquePtr<IRhiShader> vertex;
+
+        /** 輝度エッジを解決するピクセルシェーダ。 */
+        TUniquePtr<IRhiShader> pixel;
+
+        /** 両シェーダのコンパイル状態を返す。 */
+        EShaderStatus Status() const noexcept;
+    };
+
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    CFxaa() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~CFxaa() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    CFxaa(const CFxaa&)            = delete;
+
+    /** コピー代入も禁止。 */
+    CFxaa& operator=(const CFxaa&) = delete;
+
+    /** raw DX12 のバックグラウンド worker でシェーダをコンパイルする。 */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /** 描画基盤の非同期コンパイル機構へ FXAA シェーダを投入する。 */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /** 指定した同期・非同期方式でFXAAシェーダを準備する。 */
+    static TResult<FCompiledShaders> CompileShaders(
+        IRhiDevice& device, bool compile_async) noexcept;
+
+    /**
+     * シェーダとパイプラインを生成して初期化する。
+     *
+     * @param device シェーダ・パイプライン生成に使う RHI デバイス。
+     * @param rt_format 出力先 RT のフォーマット (PSO に焼き込む)。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
+
+    /**
+     * 既にコンパイル済みのシェーダから描画所有スレッドで初期化する。
+     *
+     * @param device パイプライン生成に使う RHI デバイス。
+     * @param shaders コンパイル処理から移譲する FXAA シェーダ束。
+     * @param rt_format 出力先 RT のフォーマット。
+     * @return 成功なら空の TResult、PSO 生成失敗ならエラー。
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device, FCompiledShaders&& shaders,
+        EFormat rt_format) noexcept;
+
+    /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
+    void Shutdown() noexcept;
+
+    /**
+     * 現在 bind 中のターゲットへ src を FXAA 解決しつつ全画面描画する。
+     *
+     * @details
+     * CBlit::Copy と違い出力 RT の bind は行わない。呼ぶ前に BeginRenderToSwapchain
+     * 等で出力先を bind し、viewport を設定しておくこと (全 pixel を上書きする)。
+     * @param cmd コマンドを積むコマンドリスト。
+     * @param src FXAA を掛けるシーンテクスチャ (SRV 状態であること)。
+     */
+    void Apply(IRhiCommandList& cmd, IRhiTexture& src) noexcept;
+
+    /** 使用可能な FXAA パイプラインを保持しているか返す。 */
+    bool IsReady() const noexcept { return !!m_Pipeline; }
+
+private:
+    /** フルスクリーン三角形の頂点シェーダ。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** FXAA ピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_Ps;
+
+    /** FXAA 描画のパイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FFxaa = CFxaa;
+
+
+} // namespace acs
+
 // ===================== render/RenderGraphAliasPlanSummary.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -57920,6 +58034,15 @@ struct FPostProcessParams {
     f32  delta_time            = 0.0166f;
 
     /**
+     * トーンマップ後の LDR 出力へ FXAA を一度だけ適用するか。
+     *
+     * @details 既定は false。既存の出力を変えず、TAA の有効な解像結果がある
+     * 場合も FXAA を重ねない。TAA を要求したが解像に失敗した場合は、true なら
+     * FXAA を安全な空間的代替処理として使う。
+     */
+    bool fxaa_enabled = false;
+
+    /**
      * Replaces non-finite values with defaults and clamps bounded controls to
      * the ranges accepted by the post-process shaders.
      *
@@ -57954,7 +58077,13 @@ public:
         TUniquePtr<IRhiShader> exposure_pixel;
         TUniquePtr<IRhiShader> exposure_apply_pixel;
 
-        /** Aggregate all eleven submitted shader jobs without waiting. */
+        /** 任意の FXAA 頂点シェーダ。 */
+        TUniquePtr<IRhiShader> fxaa_vertex;
+
+        /** 任意の FXAA ピクセルシェーダ。 */
+        TUniquePtr<IRhiShader> fxaa_pixel;
+
+        /** 必須11本と任意FXAAシェーダのコンパイル状態を返す。 */
         EShaderStatus Status() const noexcept;
     };
 
@@ -58164,7 +58293,16 @@ private:
      * @param p 適用する効果のパラメータ。
      */
     bool Pass_Tonemap  (IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
-                        const FPostProcessParams& p) noexcept;
+                        const FPostProcessParams& p,
+                        IRhiTexture* ldr_target = nullptr) noexcept;
+
+    /**
+     * FXAA の任意リソースを描画所有スレッドで遅延確保する。
+     *
+     * @return FXAAシェーダと中間LDR RTが揃い、現在サイズで使える場合だけ true。
+     * 失敗時は呼び出し側が従来の直接トーンマップへ戻る。
+     */
+    bool EnsureFxaaResources() noexcept;
 
     /**
      * Auto-exposure: HDR を log2 輝度の mip chain に縮約する luma reduction パス。
@@ -58266,6 +58404,12 @@ private:
 
     /** Tonemap パイプライン (HDR + bloom_mips[0] → backbuffer)。 */
     TUniquePtr<IRhiPipeline> m_PipeTonemap;
+
+    /** 非同期コンパイル済みシェーダから作った任意の FXAA パイプライン。 */
+    TUniquePtr<CFxaa> m_Fxaa;
+
+    /** トーンマップ後の LDR を一時保存する全解像度の描画先。 */
+    TUniquePtr<IRhiTexture> m_FxaaInput;
 
     /** True only after every bloom stage for the current frame was recorded. */
     bool                     m_BloomOutputValid = false;
@@ -103705,75 +103849,6 @@ constexpr bool IsFormatUsageLegal(EFormat format, bool depth_target) noexcept {
     return traits.bytes_per_block != 0u && traits.block_width != 0u && traits.block_height != 0u &&
            (depth_target ? IsDepthFormat(format) : IsColorFormat(format));
 }
-
-} // namespace acs
-
-// ===================== render/Fxaa.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-namespace acs {
-
-/**
- * FXAA をフルスクリーン三角形 1 パスで掛けるポストエフェクト。
- *
- * @details
- * FXAA 3.11 の簡易品質版。中心+対角 4 近傍の輝度からエッジ方向を推定し、
- * エッジに沿って 2/4 タップのブレンドを行う。低コントラスト画素は早期 return で
- * 素通しするため、ベタ塗り領域やテキストのにじみは最小限。入力サイズは
- * GetDimensions で取得するので cbuffer 不要。
- */
-class CFxaa {
-public:
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    CFxaa() noexcept = default;
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~CFxaa() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CFxaa(const CFxaa&)            = delete;
-
-    /** コピー代入も禁止。 */
-    CFxaa& operator=(const CFxaa&) = delete;
-
-    /**
-     * シェーダとパイプラインを生成して初期化する。
-     *
-     * @param device シェーダ・パイプライン生成に使う RHI デバイス。
-     * @param rt_format 出力先 RT のフォーマット (PSO に焼き込む)。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
-
-    /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
-    void Shutdown() noexcept;
-
-    /**
-     * 現在 bind 中のターゲットへ src を FXAA 解決しつつ全画面描画する。
-     *
-     * @details
-     * CBlit::Copy と違い出力 RT の bind は行わない。呼ぶ前に BeginRenderToSwapchain
-     * 等で出力先を bind し、viewport を設定しておくこと (全 pixel を上書きする)。
-     * @param cmd コマンドを積むコマンドリスト。
-     * @param src FXAA を掛けるシーンテクスチャ (SRV 状態であること)。
-     */
-    void Apply(IRhiCommandList& cmd, IRhiTexture& src) noexcept;
-
-private:
-    /** フルスクリーン三角形の頂点シェーダ。 */
-    TUniquePtr<IRhiShader>   m_Vs;
-
-    /** FXAA ピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_Ps;
-
-    /** FXAA 描画のパイプライン。 */
-    TUniquePtr<IRhiPipeline> m_Pipeline;
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FFxaa = CFxaa;
-
 
 } // namespace acs
 

@@ -8,6 +8,7 @@
 #include "math/Vec.h"
 #include "memory/MemorySystem.h"
 #include "render/Blit.h"
+#include "render/Fxaa.h"
 #include "render/IRhiDevice.h"
 #include "render/IRhiTexture.h"
 #include "render/HiZ.h"
@@ -2142,6 +2143,52 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
 #endif
     }
     EXPECT_TRUE(post.HdrRenderTarget() != nullptr);
+
+    // 任意機能であることは、使用中の描画基盤で未生成でも通す意味ではない。
+    // 非同期Diligentとraw DX12のCPUコンパイルの両経路で実際にPSOまで作る。
+    CFxaa fxaa;
+    if (device.SupportsAsyncShaderCompilation()) {
+        auto compiled = CFxaa::BeginCompileShadersAsync(device);
+        EXPECT_TRUE(compiled.IsOk());
+        if (compiled.IsOk()) {
+            const auto deadline =
+                std::chrono::steady_clock::now() +
+                std::chrono::seconds(30);
+            EShaderStatus status = compiled.Value().Status();
+            while (status == EShaderStatus::Compiling
+                   && std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(1));
+                status = compiled.Value().Status();
+            }
+            EXPECT_EQ(status, EShaderStatus::Ready);
+            if (status == EShaderStatus::Ready) {
+                EXPECT_TRUE(
+                    fxaa.InitWithCompiledShaders(
+                            device, Move(compiled.Value()),
+                            EFormat::B8G8R8A8_UNorm)
+                        .IsOk());
+            }
+        }
+    } else {
+#if !WITH_RENDER_DILIGENT
+        auto compiled = CFxaa::CompileShadersCpu();
+        EXPECT_TRUE(compiled.IsOk());
+        if (compiled.IsOk()) {
+            EXPECT_EQ(compiled.Value().Status(), EShaderStatus::Ready);
+            EXPECT_TRUE(
+                fxaa.InitWithCompiledShaders(
+                        device, Move(compiled.Value()),
+                        EFormat::B8G8R8A8_UNorm)
+                    .IsOk());
+        }
+#else
+        EXPECT_TRUE(
+            fxaa.Init(device, EFormat::B8G8R8A8_UNorm).IsOk());
+#endif
+    }
+    EXPECT_TRUE(fxaa.IsReady());
+
     IRhiTexture* const first_hdr = post.HdrRenderTarget();
     CPostProcess::FCompiledShaders incomplete_post{};
     EXPECT_EQ(incomplete_post.Status(), EShaderStatus::Failed);
@@ -3363,6 +3410,64 @@ ACS_TEST(PostEffects, FxaaUsesBoundedLongEdgeSearchAndSubpixelCoverage)
 
     EXPECT_TRUE(shader.find("float rcpDirMin") == std::string::npos);
     EXPECT_TRUE(shader.find("float3 rgbA") == std::string::npos);
+}
+
+ACS_TEST(PostEffects, FxaaRunsAfterTonemapWithoutDoubleApplyingTaa)
+{
+    const std::string header =
+        ReadWorkspaceSource("src/render/PostProcess.h");
+    const std::string source =
+        ReadWorkspaceSource("src/render/PostProcess.cpp");
+    EXPECT_TRUE(!header.empty());
+    EXPECT_TRUE(!source.empty());
+    if (header.empty() || source.empty()) return;
+
+    // 既定出力を変えず、利用者が PostParams から明示的に有効化する契約。
+    EXPECT_TRUE(header.find("bool fxaa_enabled = false;") !=
+                std::string::npos);
+    EXPECT_TRUE(source.find(
+        "CFxaa::CompileShaders(device, compile_async)") != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "CFxaa::CompileShadersCpu()") != std::string::npos);
+
+    const std::string render = ExtractFunction(
+        source, "void CPostProcess::Render");
+    const std::string tonemap = ExtractFunction(
+        source, "bool CPostProcess::Pass_Tonemap");
+    EXPECT_TRUE(!render.empty());
+    EXPECT_TRUE(!tonemap.empty());
+    if (render.empty() || tonemap.empty()) return;
+
+    // 有効な TAA 解像へ FXAA を重ねず、失敗時だけ空間AAへ戻す。
+    EXPECT_TRUE(render.find(
+        "safe_params.fxaa_enabled\n        && !m_TaaOutputValid") !=
+                std::string::npos);
+    EXPECT_TRUE(render.find(
+        "Pass_Tonemap(\n            cmd, swapchain, buffer_index, safe_params, m_FxaaInput.Get())") !=
+                std::string::npos);
+    EXPECT_TRUE(render.find(
+        "m_Fxaa->Apply(cmd, *m_FxaaInput);") != std::string::npos);
+    EXPECT_EQ(
+        CountOccurrences(render, "m_Fxaa->Apply(cmd, *m_FxaaInput);"),
+        std::size_t{1});
+    EXPECT_TRUE(render.find(
+        "cmd.EndRenderToSwapchain(swapchain, buffer_index);") !=
+                std::string::npos);
+    EXPECT_TRUE(render.find(
+        "Pass_Tonemap(cmd, swapchain, buffer_index, safe_params);") !=
+                std::string::npos);
+
+    // FXAA用経路はトーンマップとガンマ補正のLDR中間へ描いてからswapchainを結び付ける。
+    EXPECT_TRUE(tonemap.find(
+        "cmd.BeginRenderToTexture(\n            *ldr_target") !=
+                std::string::npos);
+    EXPECT_TRUE(tonemap.find(
+        "cmd.EndRenderToTexture(*ldr_target);") != std::string::npos);
+    EXPECT_TRUE(tonemap.find(
+        "cmd.BeginRenderToSwapchain(\n            sc, buf_idx") !=
+                std::string::npos);
+    EXPECT_TRUE(tonemap.find(
+        "cmd.EndRenderToSwapchain(sc, buf_idx);") != std::string::npos);
 }
 
 ACS_TEST(PostEffects, SubsurfaceAuthoringParamsRejectUnsafeValues)

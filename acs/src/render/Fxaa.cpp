@@ -3,6 +3,10 @@
 #include "render/Fxaa.h"
 #include "foundation/Move.h"
 
+#if !WITH_RENDER_DILIGENT
+#include "render/Dx12/Dx12Shader.h"
+#endif
+
 namespace acs {
 
 namespace {
@@ -165,28 +169,130 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 } // namespace
 
-TResult<void> CFxaa::Init(IRhiDevice& device, EFormat rt_format) noexcept {
-    FShaderDesc vs_d{};
-    vs_d.stage = EShaderStage::Vertex;
-    vs_d.hlsl_source = kFxaaHLSL;
-    vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "CFxaa.VS";
-    auto vs_r = CreateRhiShader(device, vs_d);
-    if (vs_r.IsErr()) return Err<void>(vs_r.Error());
-    m_Vs = Move(vs_r.Value());
+namespace {
 
-    FShaderDesc ps_d{};
-    ps_d.stage = EShaderStage::Pixel;
-    ps_d.hlsl_source = kFxaaHLSL;
-    ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "CFxaa.PS";
-    auto ps_r = CreateRhiShader(device, ps_d);
-    if (ps_r.IsErr()) return Err<void>(ps_r.Error());
-    m_Ps = Move(ps_r.Value());
+TResult<CFxaa::FCompiledShaders> CompileFxaaShadersWithDevice(
+    IRhiDevice& device, bool compile_async) noexcept {
+    CFxaa::FCompiledShaders compiled{};
+    auto compile = [&](EShaderStage stage, const char* debug_name,
+                       TUniquePtr<IRhiShader>& output) noexcept
+        -> TResult<void> {
+        FShaderDesc description{};
+        description.stage = stage;
+        description.hlsl_source = kFxaaHLSL;
+        description.entry_point = stage == EShaderStage::Vertex
+            ? "VSMain" : "PSMain";
+        description.debug_name = debug_name;
+        description.compile_async = compile_async;
+        auto result = CreateRhiShader(device, description);
+        if (result.IsErr()) return Err<void>(result.Error());
+        output = Move(result.Value());
+        return Ok();
+    };
+
+    if (auto r = compile(EShaderStage::Vertex, "CFxaa.VS",
+                         compiled.vertex); r.IsErr()) {
+        return Err<CFxaa::FCompiledShaders>(r.Error());
+    }
+    if (auto r = compile(EShaderStage::Pixel, "CFxaa.PS",
+                         compiled.pixel); r.IsErr()) {
+        return Err<CFxaa::FCompiledShaders>(r.Error());
+    }
+    return TResult<CFxaa::FCompiledShaders>(OkInit, Move(compiled));
+}
+
+} // namespace
+
+EShaderStatus CFxaa::FCompiledShaders::Status() const noexcept {
+    if (!vertex || !pixel) return EShaderStatus::Failed;
+    bool compiling = false;
+    const EShaderStatus vertex_status = vertex->Status();
+    const EShaderStatus pixel_status = pixel->Status();
+    if (vertex_status == EShaderStatus::Failed
+        || pixel_status == EShaderStatus::Failed) {
+        return EShaderStatus::Failed;
+    }
+    compiling = vertex_status == EShaderStatus::Compiling
+        || pixel_status == EShaderStatus::Compiling;
+    return compiling ? EShaderStatus::Compiling : EShaderStatus::Ready;
+}
+
+TResult<CFxaa::FCompiledShaders> CFxaa::CompileShadersCpu() noexcept {
+#if !WITH_RENDER_DILIGENT
+    CFxaa::FCompiledShaders compiled{};
+    auto compile = [](EShaderStage stage, const char* debug_name,
+                      TUniquePtr<IRhiShader>& output) noexcept
+        -> TResult<void> {
+        FShaderDesc description{};
+        description.stage = stage;
+        description.hlsl_source = kFxaaHLSL;
+        description.entry_point = stage == EShaderStage::Vertex
+            ? "VSMain" : "PSMain";
+        description.debug_name = debug_name;
+
+        auto shader = MakeUnique<FDx12Shader>();
+        if (!shader) {
+            return ACS_ERR(
+                Memory, 730, "FXAA shader allocation failed");
+        }
+        const FHrResult result = shader->Init(description);
+        if (result.IsErr()) {
+            return ACS_ERR_OS(
+                Render, 731, "FXAA shader CPU compile failed",
+                static_cast<u32>(result.hr));
+        }
+        auto* allocator = shader.GetAllocator();
+        output = TUniquePtr<IRhiShader>(shader.Release(), allocator);
+        return Ok();
+    };
+
+    if (auto r = compile(EShaderStage::Vertex, "CFxaa.VS", compiled.vertex);
+        r.IsErr()) return Err<CFxaa::FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, "CFxaa.PS", compiled.pixel);
+        r.IsErr()) return Err<CFxaa::FCompiledShaders>(r.Error());
+    return TResult<CFxaa::FCompiledShaders>(OkInit, Move(compiled));
+#else
+    return ACS_ERR(
+        Render, 732,
+        "FXAA CPU compilation is available only on raw DX12");
+#endif
+}
+
+TResult<CFxaa::FCompiledShaders> CFxaa::BeginCompileShadersAsync(
+    IRhiDevice& device) noexcept {
+    if (!device.SupportsAsyncShaderCompilation()) {
+        return ACS_ERR(
+            Render, 733,
+            "FXAA backend-managed asynchronous compilation is unsupported");
+    }
+    return CompileShaders(device, true);
+}
+
+TResult<CFxaa::FCompiledShaders> CFxaa::CompileShaders(
+    IRhiDevice& device, bool compile_async) noexcept {
+    return CompileFxaaShadersWithDevice(device, compile_async);
+}
+
+TResult<void> CFxaa::Init(IRhiDevice& device, EFormat rt_format) noexcept {
+    auto compiled = CompileShaders(device, false);
+    if (compiled.IsErr()) return Err<void>(compiled.Error());
+    return InitWithCompiledShaders(
+        device, Move(compiled.Value()), rt_format);
+}
+
+TResult<void> CFxaa::InitWithCompiledShaders(
+    IRhiDevice& device, FCompiledShaders&& shaders,
+    EFormat rt_format) noexcept {
+    if (shaders.Status() != EShaderStatus::Ready) {
+        return ACS_ERR(Render, 734, "FXAA compiled shader set is not ready");
+    }
+
+    TUniquePtr<IRhiShader> vertex = Move(shaders.vertex);
+    TUniquePtr<IRhiShader> pixel = Move(shaders.pixel);
 
     FPipelineDesc pd{};
-    pd.vs            = m_Vs.Get();
-    pd.ps            = m_Ps.Get();
+    pd.vs            = vertex.Get();
+    pd.ps            = pixel.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = EFormat::Unknown;
@@ -203,6 +309,9 @@ TResult<void> CFxaa::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());
+
+    m_Vs = Move(vertex);
+    m_Ps = Move(pixel);
     m_Pipeline = Move(pl_r.Value());
 
     return Ok();
