@@ -109,6 +109,7 @@ GENERIC_READ = 0x80000000
 FILE_SHARE_READ = 0x00000001
 FILE_SHARE_WRITE = 0x00000002
 OPEN_EXISTING = 3
+FILE_INFO_BY_HANDLE_CLASS_FILE_ID_INFO = 18
 JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 WAIT_OBJECT_0 = 0
@@ -156,6 +157,15 @@ class _ByHandleFileInformation(ctypes.Structure):
         ("number_of_links", wintypes.DWORD),
         ("file_index_high", wintypes.DWORD),
         ("file_index_low", wintypes.DWORD),
+    )
+
+
+class _FileIdInformation(ctypes.Structure):
+    """GetFileInformationByHandleExが返す完全なvolume/file IDを保持する。"""
+
+    _fields_ = (
+        ("volume_serial_number", ctypes.c_uint64),
+        ("file_id", ctypes.c_ubyte * 16),
     )
 
 
@@ -271,25 +281,66 @@ def _open_windows_pin(path: Path, expected_directory: bool) -> tuple[int, tuple[
         raise DistributionValidationError(
             f"distribution path cannot be pinned: {path}: winerror={error}"
         )
-    get_information = _kernel32_function("GetFileInformationByHandle")
-    get_information.argtypes = (wintypes.HANDLE, ctypes.POINTER(_ByHandleFileInformation))
-    get_information.restype = wintypes.BOOL
-    information = _ByHandleFileInformation()
-    if not get_information(handle, ctypes.byref(information)):
-        error = ctypes.get_last_error()
-        _close_windows_handle(handle)
-        raise DistributionValidationError(
-            f"distribution path identity cannot be read: {path}: winerror={error}"
+    opened_handle = int(handle)
+    try:
+        get_information = _kernel32_function("GetFileInformationByHandle")
+        get_information.argtypes = (
+            wintypes.HANDLE,
+            ctypes.POINTER(_ByHandleFileInformation),
         )
-    is_directory = bool(information.file_attributes & FILE_ATTRIBUTE_DIRECTORY)
-    if information.file_attributes & FILE_ATTRIBUTE_REPARSE_POINT or is_directory != expected_directory:
-        _close_windows_handle(handle)
-        raise DistributionValidationError(f"distribution pin type differs: {path}")
-    identity = (
-        information.volume_serial_number,
-        (information.file_index_high << 32) | information.file_index_low,
-    )
-    return int(handle), identity
+        get_information.restype = wintypes.BOOL
+        information = _ByHandleFileInformation()
+        if not get_information(opened_handle, ctypes.byref(information)):
+            error = ctypes.get_last_error()
+            raise DistributionValidationError(
+                f"distribution path identity cannot be read: {path}: winerror={error}"
+            )
+        is_directory = bool(
+            information.file_attributes & FILE_ATTRIBUTE_DIRECTORY
+        )
+        if (
+            information.file_attributes & FILE_ATTRIBUTE_REPARSE_POINT
+            or is_directory != expected_directory
+        ):
+            raise DistributionValidationError(
+                f"distribution pin type differs: {path}"
+            )
+        legacy_identity = (
+            int(information.volume_serial_number),
+            (int(information.file_index_high) << 32)
+            | int(information.file_index_low),
+        )
+        get_file_id = _kernel32_function("GetFileInformationByHandleEx")
+        get_file_id.argtypes = (
+            wintypes.HANDLE,
+            ctypes.c_int,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+        )
+        get_file_id.restype = wintypes.BOOL
+        file_id_information = _FileIdInformation()
+        if not get_file_id(
+            opened_handle,
+            FILE_INFO_BY_HANDLE_CLASS_FILE_ID_INFO,
+            ctypes.byref(file_id_information),
+            ctypes.sizeof(file_id_information),
+        ):
+            error = ctypes.get_last_error()
+            raise DistributionValidationError(
+                f"distribution path full identity cannot be read: {path}: "
+                f"winerror={error}"
+            )
+        full_identity = _file_id_information_identity(file_id_information)
+        identity = _select_windows_stat_identity(
+            path,
+            _assert_normal_path(path, expected_directory),
+            legacy_identity,
+            full_identity,
+        )
+    except BaseException:
+        _close_windows_handle(opened_handle)
+        raise
+    return opened_handle, identity
 
 
 def _close_windows_handle(handle: int) -> None:
@@ -357,6 +408,38 @@ def _stat_object_identity(path_stat: os.stat_result) -> tuple[int, int]:
             f"distribution stat identity is unavailable: {identity}"
         )
     return identity
+
+
+def _file_id_information_identity(
+    information: _FileIdInformation,
+) -> tuple[int, int]:
+    """Windowsの完全なvolume/file IDをPythonのstatと同じ整数組へ変換する。"""
+    identity = (
+        int(information.volume_serial_number),
+        int.from_bytes(bytes(information.file_id), "little"),
+    )
+    if not identity[0] or not identity[1]:
+        raise DistributionValidationError(
+            f"distribution handle identity is unavailable: {identity}"
+        )
+    return identity
+
+
+def _select_windows_stat_identity(
+    path: Path,
+    path_stat: os.stat_result,
+    legacy_identity: tuple[int, int],
+    full_identity: tuple[int, int],
+) -> tuple[int, int]:
+    """実行中のPythonが公開するWindows識別子を固定handleの候補と照合する。"""
+    actual_identity = _stat_object_identity(path_stat)
+    if actual_identity not in {legacy_identity, full_identity}:
+        raise DistributionValidationError(
+            f"distribution path identity does not match its handle: {path}: "
+            f"legacy={legacy_identity} full={full_identity} "
+            f"actual={actual_identity}"
+        )
+    return actual_identity
 
 
 def _assert_pinned_identity(
@@ -1278,6 +1361,86 @@ def _self_test_directory_pin(root: Path) -> bool:
     )
 
 
+def _self_test_pin_identity_failure_closes_handle(root: Path) -> bool:
+    """完全識別子の拒否経路でも取得済みhandleを残さないことを固定する。"""
+    probe = root / "pin-identity-failure-probe"
+    probe.mkdir()
+    handles_before = _current_process_handle_count()
+    module = sys.modules[__name__]
+    original_converter = _file_id_information_identity
+
+    def reject_identity(information: _FileIdInformation) -> tuple[int, int]:
+        del information
+        raise DistributionValidationError("synthetic full identity rejection")
+
+    try:
+        setattr(module, "_file_id_information_identity", reject_identity)
+        reason = _capture_distribution_failure(
+            lambda: _open_windows_pin(probe, True)
+        )
+    finally:
+        setattr(module, "_file_id_information_identity", original_converter)
+    handles_after = _current_process_handle_count()
+    return (
+        reason == "synthetic full identity rejection"
+        and handles_before == handles_after
+    )
+
+
+def _self_test_file_id_information() -> bool:
+    """64ビットvolume IDと128ビットfile IDを切り詰めないことを固定する。"""
+    expected_volume = 0xFEDCBA9876543210
+    expected_file = 0x0123456789ABCDEFFEDCBA9876543210
+    information = _FileIdInformation()
+    information.volume_serial_number = expected_volume
+    information.file_id[:] = expected_file.to_bytes(16, "little")
+    return _file_id_information_identity(information) == (
+        expected_volume,
+        expected_file,
+    )
+
+
+def _self_test_windows_stat_identity_selection() -> bool:
+    """Python 3.8系の旧形式と3.12以降の完全形式だけを受理する。"""
+
+    class _SyntheticStat:
+        """識別子選択だけを検査する最小stat結果。"""
+
+        def __init__(self, identity: tuple[int, int]) -> None:
+            self.st_dev, self.st_ino = identity
+
+    legacy_identity = (0x76543210, 0x0123456789ABCDEF)
+    full_identity = (
+        0xFEDCBA9876543210,
+        0x0123456789ABCDEFFEDCBA9876543210,
+    )
+    probe = Path("synthetic-identity")
+    return (
+        _select_windows_stat_identity(
+            probe,
+            _SyntheticStat(legacy_identity),
+            legacy_identity,
+            full_identity,
+        )
+        == legacy_identity
+        and _select_windows_stat_identity(
+            probe,
+            _SyntheticStat(full_identity),
+            legacy_identity,
+            full_identity,
+        )
+        == full_identity
+        and _expect_distribution_failure(
+            lambda: _select_windows_stat_identity(
+                probe,
+                _SyntheticStat((full_identity[0], legacy_identity[1])),
+                legacy_identity,
+                full_identity,
+            )
+        )
+    )
+
+
 def self_test() -> int:
     """manifest、snapshot、引数、generator命令のfail-closed契約を固定する。"""
     with tempfile.TemporaryDirectory(prefix="acs-distribution-smoke-selftest-") as temporary:
@@ -1286,6 +1449,9 @@ def self_test() -> int:
         distribution.mkdir()
         _write_test_distribution(distribution, "A")
         directory_pin_contract = _self_test_directory_pin(root)
+        pin_failure_cleanup_contract = (
+            _self_test_pin_identity_failure_closes_handle(root)
+        )
         fixture_contract_hash = hashlib.sha256(
             (distribution / "verification" / "consumer_contract.cpp").read_bytes()
         ).hexdigest().upper()
@@ -1396,6 +1562,9 @@ def self_test() -> int:
             and "target_link_libraries" not in CMAKE_PROJECT
             and rejects_invalid
             and directory_pin_contract
+            and pin_failure_cleanup_contract
+            and _self_test_file_id_information()
+            and _self_test_windows_stat_identity_selection()
         )
         manifest_bytes = (distribution / MANIFEST_NAME).read_bytes()
         parsed = parse_distribution_manifest(manifest_bytes)
