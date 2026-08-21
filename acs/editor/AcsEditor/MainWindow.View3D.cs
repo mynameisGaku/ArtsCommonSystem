@@ -312,9 +312,15 @@ public partial class MainWindow
             {
                 var overrideRow = new WrapPanel { Margin = new Thickness(0, 5, 0, 0) };
                 if (rootOverrides.HasFlag(PrefabRootProperty3D.Visible))
+                    overrideRow.Children.Add(CreatePrefabRootOverrideApplyButton3D(curId, PrefabRootProperty3D.Visible, "Visible"));
+                if (rootOverrides.HasFlag(PrefabRootProperty3D.Visible))
                     overrideRow.Children.Add(CreatePrefabRootOverrideRevertButton3D(curId, PrefabRootProperty3D.Visible, "Visible"));
                 if (rootOverrides.HasFlag(PrefabRootProperty3D.Enabled))
+                    overrideRow.Children.Add(CreatePrefabRootOverrideApplyButton3D(curId, PrefabRootProperty3D.Enabled, "Enabled"));
+                if (rootOverrides.HasFlag(PrefabRootProperty3D.Enabled))
                     overrideRow.Children.Add(CreatePrefabRootOverrideRevertButton3D(curId, PrefabRootProperty3D.Enabled, "Enabled"));
+                if (rootOverrides.HasFlag(PrefabRootProperty3D.Color))
+                    overrideRow.Children.Add(CreatePrefabRootOverrideApplyButton3D(curId, PrefabRootProperty3D.Color, "Color"));
                 if (rootOverrides.HasFlag(PrefabRootProperty3D.Color))
                     overrideRow.Children.Add(CreatePrefabRootOverrideRevertButton3D(curId, PrefabRootProperty3D.Color, "Color"));
                 banner.Children.Add(overrideRow);
@@ -2736,6 +2742,20 @@ public partial class MainWindow
             ToolTip = $"{label} overrideだけを原本値へ戻す",
         };
         button.Click += (_, __) => RevertPrefabRootOverride3D(id, property);
+        return button;
+    }
+
+    /// <summary>1つの3D Prefab root overrideだけをApplyする小型buttonを作る。</summary>
+    private Button CreatePrefabRootOverrideApplyButton3D(int id, PrefabRootProperty3D property, string label)
+    {
+        var button = new Button {
+            Content = $"Apply {label}",
+            FontSize = 10,
+            Padding = new Thickness(7, 1, 7, 1),
+            Margin = new Thickness(0, 0, 5, 4),
+            ToolTip = $"{label} overrideだけを原本へ反映する",
+        };
+        button.Click += (_, __) => ApplyPrefabRootOverride3D(id, property);
         return button;
     }
 

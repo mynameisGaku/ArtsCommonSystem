@@ -4999,9 +4999,9 @@ public partial class MainWindow : Window
         if (IsBlueprint(src) && System.IO.File.Exists(src))
         {
             string existing = System.IO.File.ReadAllText(src, System.Text.Encoding.UTF8);
-            AcsbpFormat.Write(src, AcsbpFormat.ReplaceCmp(existing, comp));
+            SceneSourceFile.WriteAtomicText(src, AcsbpFormat.ReplaceCmp(existing, comp));
         }
-        else AcsbpFormat.Write(src, comp);
+        else SceneSourceFile.WriteAtomicText(src, comp);
     }
 
     /// <summary>プレハブテンプレートは自己リンクを持たないため、sourceとinstance ID行を除去する。</summary>
@@ -5179,7 +5179,11 @@ public partial class MainWindow : Window
         int updated = 0;
         foreach (int t in targets)
             if ((_view3d ? RefreshPrefabInstance3D(t, src, comp, preserveRootOverrides: true) : ReinstantiateInstance(t, src, comp)) >= 0) updated++;
-        if (_view3d) { RefreshAfterSceneChange(); }
+        if (_view3d)
+        {
+            EngineInterop.acs_editor_select3d(Engine, id);
+            RefreshAfterSceneChange();
+        }
         else
         {
             BuildHierarchy();
@@ -5231,6 +5235,121 @@ public partial class MainWindow : Window
         if (nid < 0) { Log($"Selective Revert失敗 ({property})。", "Asset", LogLevel.Warn); return; }
         RefreshAfterSceneChange();
         Log($"3D Prefab rootの{property}だけを原本値へ復元しました。", "Asset", LogLevel.Info);
+    }
+
+    /// <summary>指定した3D root propertyだけを原本へ反映し、残りのsourceとoverrideを維持する。</summary>
+    private void ApplyPrefabRootOverride3D(int id, PrefabRootProperty3D property)
+    {
+        if (Engine == IntPtr.Zero || property == PrefabRootProperty3D.None ||
+            (property & ~PrefabRootProperty3D.All) != PrefabRootProperty3D.None)
+        {
+            return;
+        }
+        PrefabRootProperty3D currentMask =
+            EngineInterop.acs_editor_prefab_instance3d_root_override_mask(Engine, id);
+        if ((currentMask & property) != property)
+        {
+            Log($"Selective Apply失敗 ({property}はoverrideされていません)。", "Asset", LogLevel.Warn);
+            return;
+        }
+
+        string src = EngineInterop.NodePrefabSrc3D(Engine, id);
+        if (string.IsNullOrEmpty(src) || !System.IO.File.Exists(src))
+        {
+            Log("Selective Apply失敗 (プレハブが見つからない)。");
+            return;
+        }
+
+        string originalSource;
+        try { originalSource = System.IO.File.ReadAllText(src, System.Text.Encoding.UTF8); }
+        catch (Exception ex) { Log("Selective Apply読込エラー: " + ex.Message); return; }
+        string components = IsBlueprint(src)
+            ? AcsbpFormat.ExtractCmp(originalSource)
+            : originalSource;
+        if (string.IsNullOrWhiteSpace(components))
+        {
+            Log("Selective Apply失敗 (コンポーネント木が空)。");
+            return;
+        }
+
+        var color = new float[4];
+        if ((property & PrefabRootProperty3D.Color) != PrefabRootProperty3D.None &&
+            EngineInterop.acs_editor_node3d_get_color(Engine, id, color) == 0)
+        {
+            Log("Selective Apply失敗 (root Colorを取得できません)。");
+            return;
+        }
+        var values = new PrefabRootPropertyValues3D(
+            Visible: EngineInterop.acs_editor_node3d_get_visible(Engine, id) != 0,
+            Enabled: EngineInterop.acs_editor_node3d_get_enabled(Engine, id) != 0,
+            Red: color[0],
+            Green: color[1],
+            Blue: color[2],
+            Alpha: color[3]);
+        if (!PrefabRootPropertyApply3D.TryBuildSource(
+                components,
+                property,
+                values,
+                out string updatedComponents,
+                out string calculationError))
+        {
+            Log("Selective Apply失敗: " + calculationError, "Asset", LogLevel.Warn);
+            return;
+        }
+        string updatedSource = IsBlueprint(src)
+            ? AcsbpFormat.ReplaceCmp(originalSource, updatedComponents)
+            : updatedComponents;
+
+        try
+        {
+            string currentSource = System.IO.File.ReadAllText(src, System.Text.Encoding.UTF8);
+            if (!string.Equals(currentSource, originalSource, StringComparison.Ordinal))
+                throw new IOException("読込後に原本が変更されました。再度Applyしてください。");
+            SceneSourceFile.WriteAtomicText(src, updatedSource);
+        }
+        catch (Exception ex)
+        {
+            Log("Selective Apply書込エラー: " + ex.Message, "Asset", LogLevel.Warn);
+            return;
+        }
+
+        if (EngineInterop.acs_editor_prefab_instance3d_clear_root_overrides(
+                Engine,
+                id,
+                property) == 0)
+        {
+            try { SceneSourceFile.WriteAtomicText(src, originalSource); }
+            catch (Exception rollbackError)
+            {
+                Log(
+                    "Selective Apply rollbackエラー: " + rollbackError.Message,
+                    "Asset",
+                    LogLevel.Error);
+            }
+            Log("Selective Apply後のroot overrideを解消できませんでした。", "Asset", LogLevel.Warn);
+            return;
+        }
+
+        System.Collections.Generic.List<int> targets = FindPrefabInstances3D(src, id);
+        int updated = 0;
+        foreach (int target in targets)
+        {
+            if (RefreshPrefabInstance3D(
+                    target,
+                    src,
+                    updatedComponents,
+                    preserveRootOverrides: true) >= 0)
+            {
+                updated++;
+            }
+        }
+        EngineInterop.acs_editor_select3d(Engine, id);
+        RefreshAfterSceneChange();
+        int refreshFailures = targets.Count - updated;
+        Log(
+            $"3D Prefab rootの{property}だけを原本へ反映しました ({updated}個更新、{refreshFailures}個失敗)。",
+            "Asset",
+            refreshFailures == 0 ? LogLevel.Success : LogLevel.Warn);
     }
 
     // ===== Components: 登録 Component 型のアタッチ表示 / 編集 =====

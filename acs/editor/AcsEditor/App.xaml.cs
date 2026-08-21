@@ -294,6 +294,15 @@ public partial class App : Application
             return;
         }
 
+        // CLI: --prefab-root-property-apply-3d-selftest -> selective source calculation contract.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--prefab-root-property-apply-3d-selftest")
+        {
+            int failures = PrefabRootPropertyApply3DSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
         // CLI: --material-preview-selftest -> async/cancellation/cache/stale-result contract.
         if (e.Args.Length >= 1 && e.Args[0] == "--material-preview-selftest")
         {
