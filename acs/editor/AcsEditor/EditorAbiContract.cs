@@ -39,6 +39,7 @@ internal enum EditorAbiCapability : ulong
     PrefabNodeTransformOverride3DV1 = 1UL << 25,
     PrefabNodeMaterialOverride3DV1 = 1UL << 26,
     PrefabNodeNameOverride3DV1 = 1UL << 27,
+    Scene3DSiblingReorderV1 = 1UL << 28,
 }
 
 internal readonly record struct EditorAbiSnapshot(
@@ -114,7 +115,8 @@ internal static class EditorAbiContract
         EditorAbiCapability.PrefabNodePropertyOverride3DV1 |
         EditorAbiCapability.PrefabNodeTransformOverride3DV1 |
         EditorAbiCapability.PrefabNodeMaterialOverride3DV1 |
-        EditorAbiCapability.PrefabNodeNameOverride3DV1;
+        EditorAbiCapability.PrefabNodeNameOverride3DV1 |
+        EditorAbiCapability.Scene3DSiblingReorderV1;
 
     internal static readonly IReadOnlyList<EditorAbiCapability>
         KnownCapabilities = Array.AsReadOnly(new[]
@@ -147,6 +149,7 @@ internal static class EditorAbiContract
             EditorAbiCapability.PrefabNodeTransformOverride3DV1,
             EditorAbiCapability.PrefabNodeMaterialOverride3DV1,
             EditorAbiCapability.PrefabNodeNameOverride3DV1,
+            EditorAbiCapability.Scene3DSiblingReorderV1,
         });
 
     private const EditorAbiCapability AllKnownCapabilities =
@@ -177,7 +180,8 @@ internal static class EditorAbiContract
         EditorAbiCapability.PrefabNodePropertyOverride3DV1 |
         EditorAbiCapability.PrefabNodeTransformOverride3DV1 |
         EditorAbiCapability.PrefabNodeMaterialOverride3DV1 |
-        EditorAbiCapability.PrefabNodeNameOverride3DV1;
+        EditorAbiCapability.PrefabNodeNameOverride3DV1 |
+        EditorAbiCapability.Scene3DSiblingReorderV1;
 
     internal static EditorAbiSnapshot Evaluate(
         bool queryAvailable,
@@ -288,6 +292,8 @@ internal static class EditorAbiContract
                 "prefab-node-material-override-3d-v1",
             EditorAbiCapability.PrefabNodeNameOverride3DV1 =>
                 "prefab-node-name-override-3d-v1",
+            EditorAbiCapability.Scene3DSiblingReorderV1 =>
+                "scene-3d-sibling-reorder-v1",
             _ => "unknown",
         };
 }

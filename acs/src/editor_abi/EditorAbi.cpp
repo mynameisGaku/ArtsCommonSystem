@@ -17068,6 +17068,23 @@ ACS_EDITOR_API int acs_editor_node3d_parent(void* handle, int id) {
     return ParentId3D(*host, FindNode3DNode(*host, id));
 }
 
+namespace {
+
+/** 兄弟配列の現在位置とdrop対象から、MoveChildへ渡す最終indexを副作用なく計算する。 */
+bool TryCalculateScene3DSiblingIndex_Internal(u32 child_count, u32 source_index, u32 target_index, int mode, u32& destination_index) noexcept
+{
+    if (child_count < 2u || source_index >= child_count || target_index >= child_count || source_index == target_index || (mode != 0 && mode != 1))
+    {
+        return false;
+    }
+    destination_index = mode == 0
+        ? (source_index < target_index ? target_index - 1u : target_index)
+        : (source_index < target_index ? target_index : target_index + 1u);
+    return destination_index < child_count;
+}
+
+} // namespace
+
 /** child を parent(=-1 で root) の子に付け替える。成功 1。 */
 ACS_EDITOR_API int acs_editor_reparent3d(void* handle, int child_id, int parent_id) {
     auto* host = static_cast<FEditorHost*>(handle);
@@ -17083,6 +17100,77 @@ ACS_EDITOR_API int acs_editor_reparent3d(void* handle, int child_id, int parent_
     host->scene3d.Update(0.0f);               // 構造変更を即時解決
     if (resets_temporal_history)
         InvalidateTemporalRenderHistories(*host);
+    return 1;
+}
+
+/** 3Dノードをtargetの直前または直後へ1 transactionで移動する。成功1、no-op/失敗0。 */
+ACS_EDITOR_API int acs_editor_node3d_move(void* handle, int id, int target_id, int mode)
+{
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr || id == target_id || (mode != 0 && mode != 1)) return 0;
+    game::ANode* const node = FindNode3DNode(*host, id);
+    game::ANode* const target = FindNode3DNode(*host, target_id);
+    game::ANode* const parent = target != nullptr ? target->Parent() : nullptr;
+    if (node == nullptr || target == nullptr || parent == nullptr || node->Parent() == nullptr || node->IsPendingDestroy() || target->IsPendingDestroy() || node->IsPendingReparent() || parent->IsPendingDestroy() || node == parent || node->IsAncestorOf(parent))
+    {
+        return 0;
+    }
+
+    const bool changes_parent = node->Parent() != parent;
+    u32 source_index = parent->ChildCount();
+    u32 target_index = parent->ChildCount();
+    if (!changes_parent)
+    {
+        for (u32 index = 0u; index < parent->ChildCount(); ++index)
+        {
+            game::ANode* const child = parent->Child(index);
+            if (child == node) source_index = index;
+            if (child == target) target_index = index;
+        }
+        u32 destination_index = 0u;
+        if (!TryCalculateScene3DSiblingIndex_Internal(parent->ChildCount(), source_index, target_index, mode, destination_index) || destination_index == source_index)
+        {
+            return 0;
+        }
+    }
+
+    char* const rollback = DupSnapshot(*host);
+    if (rollback == nullptr) return 0;
+    if (changes_parent)
+    {
+        node->Reparent(*parent);
+        if (!node->IsPendingReparent())
+        {
+            delete[] rollback;
+            return 0;
+        }
+        host->scene3d.Update(0.0f);
+        if (node->Parent() != parent)
+        {
+            RestoreSnapshot(*host, rollback);
+            delete[] rollback;
+            return 0;
+        }
+    }
+
+    source_index = parent->ChildCount();
+    target_index = parent->ChildCount();
+    for (u32 index = 0u; index < parent->ChildCount(); ++index)
+    {
+        game::ANode* const child = parent->Child(index);
+        if (child == node) source_index = index;
+        if (child == target) target_index = index;
+    }
+    u32 destination_index = 0u;
+    const bool calculated = TryCalculateScene3DSiblingIndex_Internal(parent->ChildCount(), source_index, target_index, mode, destination_index);
+    const bool moved = calculated && (destination_index == source_index || parent->MoveChild(*node, destination_index));
+    if (!moved || !CommitUndoSnapshot(*host, rollback))
+    {
+        RestoreSnapshot(*host, rollback);
+        delete[] rollback;
+        return 0;
+    }
+    InvalidateTemporalRenderHistories(*host);
     return 1;
 }
 

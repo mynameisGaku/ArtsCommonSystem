@@ -109,6 +109,9 @@ internal static class EditorAbiContractSelfTest
               compatible.ToDisplayText().Contains(
                   "prefab-node-name-override-3d-v1",
                   StringComparison.Ordinal) &&
+              compatible.ToDisplayText().Contains(
+                  "scene-3d-sibling-reorder-v1",
+                  StringComparison.Ordinal) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.SparseTransformMutationV1) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
@@ -135,6 +138,8 @@ internal static class EditorAbiContractSelfTest
                   EditorAbiCapability.PrefabNodeMaterialOverride3DV1) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.PrefabNodeNameOverride3DV1) &&
+              EditorAbiContract.RequiredCapabilities.HasFlag(
+                  EditorAbiCapability.Scene3DSiblingReorderV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.VolumetricCloudWorkloadV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
@@ -606,6 +611,22 @@ internal static class EditorAbiContractSelfTest
             missingPrefabNodeNameOverride.MissingRequired.HasFlag(
                 EditorAbiCapability.PrefabNodeNameOverride3DV1),
             "provider without 3D Prefab child name overrides fails before the editor can rename children");
+
+        EditorAbiSnapshot missingScene3DSiblingReorder =
+            EditorAbiContract.Evaluate(
+                queryAvailable: true,
+                queryResult: 0,
+                providerVersion: EditorAbiContract.RequestedVersion,
+                capabilityBits:
+                    (ulong)(complete &
+                        ~EditorAbiCapability.Scene3DSiblingReorderV1),
+                productVersion: "ACS Editor test",
+                renderBackend: "Test RHI");
+        Check(
+            !missingScene3DSiblingReorder.Compatible &&
+            missingScene3DSiblingReorder.MissingRequired.HasFlag(
+                EditorAbiCapability.Scene3DSiblingReorderV1),
+            "provider without 3D sibling reorder fails before the Outliner can call its export");
 
         EditorAbiSnapshot falseSuccess = EditorAbiContract.Evaluate(
             queryAvailable: true,

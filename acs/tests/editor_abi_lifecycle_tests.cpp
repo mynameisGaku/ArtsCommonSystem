@@ -36,6 +36,7 @@ extern "C" __declspec(dllimport) const char* acs_editor_render_backend(void);
 extern "C" __declspec(dllimport) void acs_editor_destroy(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_node_count(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_node3d_count(void* handle);
+extern "C" __declspec(dllimport) int acs_editor_node3d_id_at(void* handle, int index);
 extern "C" __declspec(dllimport) int acs_editor_selected3d(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_add_node3d(
     void* handle, int primitive, const char* name);
@@ -83,6 +84,7 @@ extern "C" __declspec(dllimport) int acs_editor_node3d_duplicate(
     void* handle, int id);
 extern "C" __declspec(dllimport) int acs_editor_reparent3d(
     void* handle, int child_id, int parent_id);
+extern "C" __declspec(dllimport) int acs_editor_node3d_move(void* handle, int id, int target_id, int mode);
 extern "C" __declspec(dllimport) int acs_editor_node3d_parent(
     void* handle, int id);
 extern "C" __declspec(dllimport) const char*
@@ -319,6 +321,8 @@ bool RunAbiCapabilityContract() noexcept
     static_assert((kRequiredManagedHostCapabilities & CapabilityBit(ECapability::PrefabNodeMaterialOverride3DV1)) != 0u, "managed Prefab authoring relies on transactional 3D child material overrides");
     static_assert((kCapabilities & CapabilityBit(ECapability::PrefabNodeNameOverride3DV1)) != 0u);
     static_assert((kRequiredManagedHostCapabilities & CapabilityBit(ECapability::PrefabNodeNameOverride3DV1)) != 0u, "managed Prefab authoring relies on transactional 3D child name overrides");
+    static_assert((kCapabilities & CapabilityBit(ECapability::Scene3DSiblingReorderV1)) != 0u);
+    static_assert((kRequiredManagedHostCapabilities & CapabilityBit(ECapability::Scene3DSiblingReorderV1)) != 0u, "managed Outliner relies on transactional 3D sibling reorder");
 
     std::uint32_t version = 0u;
     std::uint64_t capabilities = 0ull;
@@ -1257,6 +1261,78 @@ bool SceneDocumentEquals(
     std::string current3d;
     return SnapshotSceneDocument(host, current2d, current3d) &&
            current2d == expected2d && current3d == expected3d;
+}
+
+/** 3D sibling reorderはbefore/after順を永続化し、不正操作とno-opではsceneも履歴も変えない。 */
+bool RunScene3DSiblingReorderTransaction() noexcept
+{
+    constexpr const char* kScene =
+        "ACS3D v2\n"
+        "N3D 40 -1 0 0 0 0 0 0 0 1 1 1 1 1 1 1 ParentA\n"
+        "N3D 41 40 0 1 0 0 0 0 0 1 1 1 1 1 1 1 First\n"
+        "N3D 42 40 0 2 0 0 0 0 0 1 1 1 1 1 1 1 Second\n"
+        "N3D 43 40 0 3 0 0 0 0 0 1 1 1 1 1 1 1 Third\n"
+        "N3D 44 -1 0 4 0 0 0 0 0 1 1 1 1 1 1 1 ParentB\n"
+        "N3D 45 44 0 5 0 0 0 0 0 1 1 1 1 1 1 1 Other\n";
+
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+    bool ok = acs_editor_scene3d_load_text(host, kScene) != 0;
+    std::string original2d;
+    std::string original3d;
+    ok = ok && SnapshotSceneDocument(host, original2d, original3d) &&
+         acs_editor_node3d_id_at(host, 0) == 40 &&
+         acs_editor_node3d_id_at(host, 1) == 41 &&
+         acs_editor_node3d_id_at(host, 2) == 42 &&
+         acs_editor_node3d_id_at(host, 3) == 43 &&
+         acs_editor_node3d_id_at(host, 4) == 44 &&
+         acs_editor_node3d_id_at(host, 5) == 45;
+
+    ok = ok && acs_editor_node3d_move(host, 41, 42, 0) == 0 &&
+         acs_editor_node3d_move(host, 41, 41, 0) == 0 &&
+         acs_editor_node3d_move(host, 41, 42, 2) == 0 &&
+         acs_editor_node3d_move(host, 40, 41, 0) == 0 &&
+         acs_editor_node3d_move(host, 999, 42, 0) == 0 &&
+         acs_editor_can_undo(host) == 0 &&
+         SceneDocumentEquals(host, original2d, original3d);
+
+    ok = ok && acs_editor_node3d_move(host, 43, 41, 0) != 0 &&
+         acs_editor_node3d_parent(host, 43) == 40 &&
+         acs_editor_node3d_id_at(host, 0) == 40 &&
+         acs_editor_node3d_id_at(host, 1) == 43 &&
+         acs_editor_node3d_id_at(host, 2) == 41 &&
+         acs_editor_node3d_id_at(host, 3) == 42 &&
+         acs_editor_can_undo(host) != 0 &&
+         acs_editor_undo(host) != 0 &&
+         SceneDocumentEquals(host, original2d, original3d);
+
+    ok = ok && acs_editor_node3d_move(host, 42, 45, 0) != 0 &&
+         acs_editor_node3d_parent(host, 42) == 44 &&
+         acs_editor_node3d_id_at(host, 0) == 40 &&
+         acs_editor_node3d_id_at(host, 1) == 41 &&
+         acs_editor_node3d_id_at(host, 2) == 43 &&
+         acs_editor_node3d_id_at(host, 3) == 44 &&
+         acs_editor_node3d_id_at(host, 4) == 42 &&
+         acs_editor_node3d_id_at(host, 5) == 45 &&
+         acs_editor_undo(host) != 0 &&
+         SceneDocumentEquals(host, original2d, original3d);
+
+    ok = ok && acs_editor_node3d_move(host, 41, 42, 1) != 0 &&
+         acs_editor_node3d_id_at(host, 0) == 40 &&
+         acs_editor_node3d_id_at(host, 1) == 42 &&
+         acs_editor_node3d_id_at(host, 2) == 41 &&
+         acs_editor_node3d_id_at(host, 3) == 43;
+    char reordered[32768]{};
+    const int written = ok ? acs_editor_scene3d_serialize(host, reordered, static_cast<int>(sizeof(reordered))) : 0;
+    ok = ok && written > 0 && written < static_cast<int>(sizeof(reordered)) &&
+         acs_editor_scene3d_load_text(host, reordered) != 0 &&
+         acs_editor_node3d_id_at(host, 0) == 40 &&
+         acs_editor_node3d_id_at(host, 1) == 42 &&
+         acs_editor_node3d_id_at(host, 2) == 41 &&
+         acs_editor_node3d_id_at(host, 3) == 43;
+    if (!ok) std::printf("Transactional 3D sibling reorder contract failed.\n");
+    acs_editor_destroy(host);
+    return ok;
 }
 
 /**
@@ -3183,6 +3259,7 @@ int main()
     if (!RunZeroScaleSafety()) return 8;
     if (!RunMaskedTransformMutationContract()) return 27;
     if (!RunScene3DSerializationGrowth()) return 9;
+    if (!RunScene3DSiblingReorderTransaction()) return 36;
     if (!RunSceneDocumentStrictPreflight()) return 17;
     if (!RunTransactionalScene3DSubtreePaste()) return 29;
     if (!RunPrefabInstance3DRefreshTransaction()) return 30;
