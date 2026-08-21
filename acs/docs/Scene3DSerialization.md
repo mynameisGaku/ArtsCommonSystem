@@ -178,6 +178,11 @@ stale化する。
 デコード済みmeshを `CPbrShader`、3Dスプライトを `CSprite3DRenderer` で描画する。visible/enabled、階層transform、
 PBR/Substrate material、fogを反映し、loose/packの双方を同じ読み込み契約で扱う。
 
+gameplayの3D照準やinteractionは `CSceneNodeGraph::TryRaycastGeometryActiveRange` でGPUを
+使わずに判定できる。結果は最前面のnode ID、ray parameter、world命中点、world法線をまとめて返す。
+spriteは同じnodeのmeshより優先し、無効・非表示・破棄予定の祖先subtreeは対象外となる。従来の
+`RaycastGeometryActiveRange` はnode IDとparameterだけを返す互換アダプターとして同じ計算を使う。
+
 各 `CAM3D` はgraph所有の `ACameraComponent3D` になり、姿勢は所有nodeの現在のworld
 transformから更新される。runtimeはstable IDまたはnode IDでカメラを安全に切り替えられる。
 投影方式はscene全体の固定属性ではなく、各cameraがPerspective/Orthographicを選択する。

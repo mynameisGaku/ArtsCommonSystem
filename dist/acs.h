@@ -49095,13 +49095,6 @@ using game::ESvc;
 
 // ===================== gameframework/SceneNodeGraph.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — CSceneNodeGraph
-//
-// root ANode ツリーと CNodePool をまとめて所有する、シーン文脈非依存のノードグラフ。
-// AScene が正規のシーングラフとして保持するほか、checked loader や editor の staging の
-// ようにスタック上へ一時グラフを構築する用途でも使う。
-// CSubsystemCollection / CSceneServices を一切持たないため、一時グラフがシーン文脈を
-// 抱え込むことはない。
 
 
 // ===================== gameframework/NodePool.h =====================
@@ -49315,6 +49308,32 @@ private:
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */
 using FNodePool = CNodePool;
+
+} // namespace acs::game
+
+// ===================== gameframework/Scene3DRaycastHit.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 有効かつ可視な3D描画形状へのworld-space raycast結果。 */
+struct FScene3DRaycastHit {
+    /** 命中したscene nodeの世代付きID。 */
+    FNodeId Node{};
+
+    /** `RayOrigin + T * RayDirection` で表す命中parameter。 */
+    f32 T = 0.0f;
+
+    /** world空間の命中点。 */
+    FVec3 Point{};
+
+    /** world空間で正規化し、入力ray側へ向けた面法線。 */
+    FVec3 Normal{};
+
+    /** 現在のgraph nodeを指す候補が格納されているかを返す。 */
+    bool IsValid() const noexcept { return Node.IsValid(); }
+};
 
 } // namespace acs::game
 
@@ -49571,6 +49590,20 @@ public:
      * @return 区間内で最も手前の有効な描画形状node。入力不正または外れはinvalid。
      */
     FNodeId RaycastGeometryActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, f32* out_t = nullptr) const noexcept;
+
+    /**
+     * 有効かつ可視な描画形状を厳密にraycastし、world-space命中情報を返す。
+     *
+     * @details spriteが同じnodeのmesh表示を上書きする描画契約、親のVisible/Enabled、階層transformを
+     * 反映する。Cube、Sphere、有限Plane、runtime mesh triangleを厳密判定し、非一様scaleを受けた
+     * 法線はinverse-transposeでworld空間へ戻す。失敗時はout_hitを変更しない。
+     * @param ray world空間ray。距離としてTを使う場合はdirectionを正規化する。
+     * @param minimum_t 含める最小T。有限かつ0以上。
+     * @param maximum_t 含める最大T。有限かつminimum_t以上。
+     * @param out_hit 最近hitのnode、T、world命中点、world法線の書き込み先。
+     * @return 命中情報を書き込めた場合だけtrue。
+     */
+    bool TryRaycastGeometryActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, FScene3DRaycastHit& out_hit) const noexcept;
 
     /**
      * 有効かつ可視なmesh boundsへworld空間の球を指定t区間だけsweepする。
