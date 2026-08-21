@@ -316,6 +316,16 @@ f32 SmoothStepForTest(f32 edge0, f32 edge1, f32 value) noexcept {
     return t * t * (3.0f - 2.0f * t);
 }
 
+// 被覆差が大きい時だけ、時間再構成を現在の雲形状へ速く追従させる。
+f32 CloudTemporalCurrentWeightForTest(
+    f32 currentAlpha, f32 historyAlpha, bool stationary) noexcept {
+    if (!stationary) return 0.70f;
+    const f32 coverageChange = std::fabs(currentAlpha - historyAlpha);
+    const f32 changeResponse = SmoothStepForTest(
+        0.025f, 0.18f, coverageChange);
+    return 0.125f + (0.70f - 0.125f) * changeResponse;
+}
+
 f32 CloudWeatherMaskForTest(f32 weatherCoverage, f32 coverage) noexcept {
     const f32 threshold =
         0.90f + (0.35f - 0.90f) * SaturateForTest(coverage);
@@ -4374,7 +4384,8 @@ ACS_TEST(VolumetricClouds,
         "abs(hist.a-seedDepth.y)<0.42;"));
     EXPECT_TRUE(Contains(
         resolveShader,
-        "floatcurrentWeight=worldOrigin.w>0.5?0.125:0.70;"
+        "floatcurrentWeight=CloudTemporalCurrentWeight("
+        "curA,hist.a,worldOrigin.w>0.5);"
         "resolved=lerp(histPacked,current,currentWeight);"));
     EXPECT_TRUE(Contains(
         resolveShader,
@@ -4424,6 +4435,70 @@ ACS_TEST(VolumetricClouds,
         source, "pd.srv_names[3] = \"historyDepth\";"));
     EXPECT_TRUE(Contains(
         source, "cl.SetTexture(3, *m_HistoryDepth[prev]);"));
+}
+
+ACS_TEST(VolumetricClouds,
+         TemporalSuperResolutionRespondsToCoverageEvolution) {
+    EXPECT_NEAR(
+        CloudTemporalCurrentWeightForTest(0.60f, 0.60f, true),
+        0.125f, 0.0f);
+    EXPECT_NEAR(
+        CloudTemporalCurrentWeightForTest(0.60f, 0.575f, true),
+        0.125f, 1e-6f);
+    EXPECT_NEAR(
+        CloudTemporalCurrentWeightForTest(0.60f, 0.42f, true),
+        0.70f, 1e-6f);
+    EXPECT_NEAR(
+        CloudTemporalCurrentWeightForTest(0.60f, 0.60f, false),
+        0.70f, 0.0f);
+
+    // 静止時の重みは被覆差に対して単調に増え、常に許容範囲へ収まる。
+    f32 previousWeight = 0.0f;
+    for (u32 step = 0u; step <= 100u; ++step) {
+        const f32 difference = static_cast<f32>(step) / 100.0f;
+        const f32 weight = CloudTemporalCurrentWeightForTest(
+            1.0f, 1.0f - difference, true);
+        EXPECT_TRUE(weight >= 0.125f && weight <= 0.70f);
+        EXPECT_TRUE(weight + 1e-6f >= previousWeight);
+        previousWeight = weight;
+    }
+
+    // 占有判定を通る大きな変化でも、固定値より現在形状へ速く近づく。
+    const f32 currentAlpha = 0.55f;
+    const f32 historyAlpha = 0.20f;
+    const f32 adaptiveWeight = CloudTemporalCurrentWeightForTest(
+        currentAlpha, historyAlpha, true);
+    const f32 adaptiveResult = historyAlpha +
+        (currentAlpha - historyAlpha) * adaptiveWeight;
+    const f32 fixedResult = historyAlpha +
+        (currentAlpha - historyAlpha) * 0.125f;
+    EXPECT_TRUE(adaptiveWeight > 0.60f);
+    EXPECT_TRUE(adaptiveResult > fixedResult + 0.15f);
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudResolveCS"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatCloudTemporalCurrentWeight("
+        "floatcurrentAlpha,floathistoryAlpha,boolstationary){"
+        "if(!stationary)return0.70;"
+        "floatcoverageChange=abs(currentAlpha-historyAlpha);"
+        "floatchangeResponse=smoothstep(0.025,0.18,coverageChange);"
+        "returnlerp(0.125,0.70,changeResponse);}"));
+    const std::size_t helperBegin = shader.find(
+        "floatCloudTemporalCurrentWeight(");
+    const std::size_t helperEnd = shader.find(
+        "returnlerp(0.125,0.70,changeResponse);}", helperBegin);
+    EXPECT_TRUE(helperBegin != std::string::npos);
+    EXPECT_TRUE(helperEnd != std::string::npos);
+    if (helperBegin != std::string::npos &&
+        helperEnd != std::string::npos) {
+        const std::string helper = shader.substr(
+            helperBegin, helperEnd - helperBegin);
+        EXPECT_FALSE(Contains(helper, "SampleLevel("));
+        EXPECT_FALSE(Contains(helper, ".Load("));
+    }
 }
 
 ACS_TEST(VolumetricClouds,

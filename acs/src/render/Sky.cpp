@@ -2191,6 +2191,13 @@ uint2 CloudTemporalPhaseOffset4(uint2 blockQ,uint phaseIndex) {
 bool IsTemporalSuperResolution() {
     return temporal.w>3.5;
 }
+// 静止画素では小さな採取誤差を長く平均し、被覆が明確に変わった時だけ現在値へ速く追従する。
+float CloudTemporalCurrentWeight(float currentAlpha,float historyAlpha,bool stationary) {
+    if(!stationary) return 0.70;
+    float coverageChange=abs(currentAlpha-historyAlpha);
+    float changeResponse=smoothstep(0.025,0.18,coverageChange);
+    return lerp(0.125,0.70,changeResponse);
+}
 bool IsScheduledFullPixel(uint2 pixel,uint2 phaseOffset) {
     return ((pixel.x&3u)==phaseOffset.x) &&
            ((pixel.y&3u)==phaseOffset.y);
@@ -2489,8 +2496,8 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                             // wider stationary window so stochastic lighting and
                             // shell-edge errors converge instead of becoming
                             // static stipple; keep motion responsive.
-                            float currentWeight=
-                                worldOrigin.w>0.5?0.125:0.70;
+                            float currentWeight=CloudTemporalCurrentWeight(
+                                curA,hist.a,worldOrigin.w>0.5);
                             resolved=lerp(
                                 histPacked,current,currentWeight);
                             resolvedDepth=float2(curDepth,curA);
