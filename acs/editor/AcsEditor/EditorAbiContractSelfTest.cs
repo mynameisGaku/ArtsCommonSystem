@@ -103,6 +103,9 @@ internal static class EditorAbiContractSelfTest
               compatible.ToDisplayText().Contains(
                   "prefab-node-transform-override-3d-v1",
                   StringComparison.Ordinal) &&
+              compatible.ToDisplayText().Contains(
+                  "prefab-node-material-override-3d-v1",
+                  StringComparison.Ordinal) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.SparseTransformMutationV1) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
@@ -125,6 +128,8 @@ internal static class EditorAbiContractSelfTest
                   EditorAbiCapability.PrefabNodePropertyOverride3DV1) &&
               EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.PrefabNodeTransformOverride3DV1) &&
+              EditorAbiContract.RequiredCapabilities.HasFlag(
+                  EditorAbiCapability.PrefabNodeMaterialOverride3DV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.VolumetricCloudWorkloadV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
@@ -564,6 +569,22 @@ internal static class EditorAbiContractSelfTest
             missingPrefabNodeTransformOverride.MissingRequired.HasFlag(
                 EditorAbiCapability.PrefabNodeTransformOverride3DV1),
             "provider without 3D Prefab child transform overrides fails before the editor can edit child transforms");
+
+        EditorAbiSnapshot missingPrefabNodeMaterialOverride =
+            EditorAbiContract.Evaluate(
+                queryAvailable: true,
+                queryResult: 0,
+                providerVersion: EditorAbiContract.RequestedVersion,
+                capabilityBits:
+                    (ulong)(complete &
+                        ~EditorAbiCapability.PrefabNodeMaterialOverride3DV1),
+                productVersion: "ACS Editor test",
+                renderBackend: "Test RHI");
+        Check(
+            !missingPrefabNodeMaterialOverride.Compatible &&
+            missingPrefabNodeMaterialOverride.MissingRequired.HasFlag(
+                EditorAbiCapability.PrefabNodeMaterialOverride3DV1),
+            "provider without 3D Prefab child material overrides fails before the editor can edit child materials");
 
         EditorAbiSnapshot falseSuccess = EditorAbiContract.Evaluate(
             queryAvailable: true,

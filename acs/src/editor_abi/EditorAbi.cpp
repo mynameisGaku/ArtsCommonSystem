@@ -301,7 +301,7 @@ struct AEditor3DRecordComponent : public acs::game::AComponent {
     char  prefab_instance_id[game::kScene3DSerializePrefabInstanceIdBytes + 1u] = {}; ///< Apply/Revert後も維持する32桁小文字hexのinstance ID。
     /** Prefab原本内の対応nodeを識別する32桁小文字hex ID。 */
     char  prefab_source_node_id[game::kScene3DSerializePrefabSourceNodeIdBytes + 1u] = {};
-    /** Source更新後も維持するchild nodeの値またはtransform bit。 */
+    /** Source更新後も維持するchild nodeの値、transform、material bit。 */
     u32   prefab_node_property_override_mask = 0u;
     /** Source更新後も維持するrootのVisible/Enabled/Color bit。 */
     u32   prefab_root_property_override_mask = 0u;
@@ -6892,6 +6892,9 @@ struct FPrefabNodePropertyOverrideSnapshotEntry {
 
     /** childのローカル拡大率。 */
     FVec3 scale{1.0f, 1.0f, 1.0f};
+
+    /** child meshのマテリアルパス。空文字は明示的な割り当て解除。 */
+    char material_path[260]{};
 };
 
 /** 1つの3D Prefab instanceから取得したchild node property override集合。 */
@@ -6913,6 +6916,18 @@ struct FPrefabNodePropertyRevertRequest {
 bool IsFinitePrefabNodeTransformValue_Internal(FVec3 value) noexcept
 {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+/** 改行を含まないmaterial pathを固定長snapshotへコピーする。空文字も成功。 */
+bool TryCopyPrefabNodeMaterialPath_Internal(FStringView path, char* destination, u32 capacity) noexcept
+{
+    if (destination == nullptr || capacity == 0u || path.Size() >= capacity) return false;
+    for (u32 index = 0u; index < path.Size(); ++index) {
+        if (path[index] == '\r' || path[index] == '\n') return false;
+    }
+    if (path.Size() > 0u) std::memcpy(destination, path.Data(), path.Size());
+    destination[path.Size()] = '\0';
+    return true;
 }
 
 /** 現instanceからchild node property override値をsource node ID付きで取得する。 */
@@ -6940,6 +6955,10 @@ bool CapturePrefabNodePropertyOverrides_Internal(game::ANode& root, FPrefabNodeP
         if ((mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Rotation)) != 0u) entry.euler = record->euler;
         if ((mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Scale)) != 0u) entry.scale = node->Local().scale;
         if (!IsFinitePrefabNodeTransformValue_Internal(entry.position) || !IsFinitePrefabNodeTransformValue_Internal(entry.euler) || !IsFinitePrefabNodeTransformValue_Internal(entry.scale)) return false;
+        if ((mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Material)) != 0u) {
+            const game::AMeshComponent3D* const mesh = Mesh3D(node);
+            if (record->is_empty || mesh == nullptr || !TryCopyPrefabNodeMaterialPath_Internal(mesh->MaterialPath(), entry.material_path, static_cast<u32>(sizeof(entry.material_path)))) return false;
+        }
         if (!snapshot.entries.TryAdd(entry)) return false;
     }
     return true;
@@ -6986,6 +7005,13 @@ bool ApplyPrefabNodePropertyOverrides_Internal(game::ANode& root, const FPrefabN
             record->euler = entry.euler;
         }
         if ((entry.mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Scale)) != 0u) node->Local().scale = entry.scale;
+        if ((entry.mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Material)) != 0u) {
+            game::AMeshComponent3D* const mesh = Mesh3D(node);
+            if (record->is_empty || mesh == nullptr) return false;
+            if (entry.material_path[0] == '\0') mesh->ClearMaterial();
+            else mesh->SetMaterialPath(FStringView(entry.material_path));
+            LoadNode3DMaterial(node);
+        }
         record->prefab_node_property_override_mask = entry.mask;
     }
     return true;

@@ -2776,6 +2776,9 @@ public partial class MainWindow
             selectedPath = path;
             committedSelection = combo.SelectedIndex;
             UpdateActionState();
+            MarkPrefabPropertyOverride3D(
+                id,
+                PrefabNodeProperty3D.Material);
             Log(string.IsNullOrEmpty(path)
                 ? "3D マテリアルを外した (→ ノード色)."
                 : $"3D ノード {id} にマテリアル {AssetRel(path)} を割当.");
@@ -2804,6 +2807,9 @@ public partial class MainWindow
                 return;
             }
 
+            MarkPrefabPropertyOverride3D(
+                id,
+                PrefabNodeProperty3D.Material);
             RecordSceneDocumentChange("Assign Material");
             Log($"3D ノード {id} に新規マテリアル {AssetRel(path)} を割当.");
             Populate3DInspector(id);
@@ -2818,6 +2824,9 @@ public partial class MainWindow
                 return;
             }
 
+            MarkPrefabPropertyOverride3D(
+                id,
+                PrefabNodeProperty3D.Material);
             RecordSceneDocumentChange("Clear Material");
             Log("3D マテリアルを外した (→ ノード色).");
             Populate3DInspector(id);
@@ -2851,13 +2860,16 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>成功済みの値編集をstable 3D Prefabのrootまたはchild overrideへ明示的に反映する。</summary>
+    /// <summary>成功済みの値、transform、material編集をstable 3D Prefab overrideへ反映する。</summary>
     private void MarkPrefabPropertyOverride3D(
         int id,
         PrefabNodeProperty3D property)
     {
         if (Engine == IntPtr.Zero || id < 0 || property == PrefabNodeProperty3D.None) return;
-        if ((property & PrefabNodeProperty3D.Transform) != PrefabNodeProperty3D.None &&
+        PrefabNodeProperty3D childOnlyProperties =
+            PrefabNodeProperty3D.Transform |
+            PrefabNodeProperty3D.Material;
+        if ((property & childOnlyProperties) != PrefabNodeProperty3D.None &&
             EngineInterop.acs_editor_prefab_instance3d_root_for_node(Engine, id) == id)
         {
             return;
@@ -2892,7 +2904,8 @@ public partial class MainWindow
             (nodeOverrides.HasFlag(PrefabNodeProperty3D.Color) ? 1 : 0) +
             (nodeOverrides.HasFlag(PrefabNodeProperty3D.Position) ? 1 : 0) +
             (nodeOverrides.HasFlag(PrefabNodeProperty3D.Rotation) ? 1 : 0) +
-            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Scale) ? 1 : 0);
+            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Scale) ? 1 : 0) +
+            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Material) ? 1 : 0);
         string sourceNodeId =
             EngineInterop.NodePrefabSourceNodeId3D(Engine, id);
         banner.Children.Clear();
@@ -2942,6 +2955,10 @@ public partial class MainWindow
             overrideRow.Children.Add(CreatePrefabNodeOverrideApplyButton3D(id, PrefabNodeProperty3D.Scale, "Scale"));
         if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Scale))
             overrideRow.Children.Add(CreatePrefabNodeOverrideRevertButton3D(id, PrefabNodeProperty3D.Scale, "Scale"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Material))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideApplyButton3D(id, PrefabNodeProperty3D.Material, "Material"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Material))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideRevertButton3D(id, PrefabNodeProperty3D.Material, "Material"));
         banner.Children.Add(overrideRow);
     }
 

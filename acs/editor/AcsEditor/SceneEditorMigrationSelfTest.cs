@@ -493,10 +493,16 @@ internal static class SceneEditorMigrationSelfTest
             view3DSource.Contains(
                 "PrefabNodeProperty3D.Position",
                 StringComparison.Ordinal) &&
+            view3DSource.Contains(
+                "PrefabNodeProperty3D.Material",
+                StringComparison.Ordinal) &&
             selectivePrefabNodeApplyBody.Contains(
                 "acs_editor_node3d_get_transform(",
+                StringComparison.Ordinal) &&
+            selectivePrefabNodeApplyBody.Contains(
+                "EngineInterop.NodeMaterial3D(",
                 StringComparison.Ordinal),
-            "3D Prefab child value and transform overrides use source identity, pure Apply calculation, and native transactional Revert");
+            "3D Prefab child value, transform, and material overrides use source identity, pure Apply calculation, and native transactional Revert");
         Check(
             view3DSource.Contains(
                 "MarkPrefabRootComponentPropertyOverride3D(",

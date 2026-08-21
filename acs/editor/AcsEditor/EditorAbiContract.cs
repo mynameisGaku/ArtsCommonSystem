@@ -37,6 +37,7 @@ internal enum EditorAbiCapability : ulong
     VolumetricCloudWorkloadV2 = 1UL << 23,
     PrefabNodePropertyOverride3DV1 = 1UL << 24,
     PrefabNodeTransformOverride3DV1 = 1UL << 25,
+    PrefabNodeMaterialOverride3DV1 = 1UL << 26,
 }
 
 internal readonly record struct EditorAbiSnapshot(
@@ -110,7 +111,8 @@ internal static class EditorAbiContract
         EditorAbiCapability.PrefabRootComponentPropertySelectiveApply3DV1 |
         EditorAbiCapability.PrefabSourceNodeIdentity3DV1 |
         EditorAbiCapability.PrefabNodePropertyOverride3DV1 |
-        EditorAbiCapability.PrefabNodeTransformOverride3DV1;
+        EditorAbiCapability.PrefabNodeTransformOverride3DV1 |
+        EditorAbiCapability.PrefabNodeMaterialOverride3DV1;
 
     internal static readonly IReadOnlyList<EditorAbiCapability>
         KnownCapabilities = Array.AsReadOnly(new[]
@@ -141,6 +143,7 @@ internal static class EditorAbiContract
             EditorAbiCapability.PrefabSourceNodeIdentity3DV1,
             EditorAbiCapability.PrefabNodePropertyOverride3DV1,
             EditorAbiCapability.PrefabNodeTransformOverride3DV1,
+            EditorAbiCapability.PrefabNodeMaterialOverride3DV1,
         });
 
     private const EditorAbiCapability AllKnownCapabilities =
@@ -169,7 +172,8 @@ internal static class EditorAbiContract
         EditorAbiCapability.PrefabRootComponentPropertySelectiveApply3DV1 |
         EditorAbiCapability.PrefabSourceNodeIdentity3DV1 |
         EditorAbiCapability.PrefabNodePropertyOverride3DV1 |
-        EditorAbiCapability.PrefabNodeTransformOverride3DV1;
+        EditorAbiCapability.PrefabNodeTransformOverride3DV1 |
+        EditorAbiCapability.PrefabNodeMaterialOverride3DV1;
 
     internal static EditorAbiSnapshot Evaluate(
         bool queryAvailable,
@@ -276,6 +280,8 @@ internal static class EditorAbiContract
                 "prefab-node-property-override-3d-v1",
             EditorAbiCapability.PrefabNodeTransformOverride3DV1 =>
                 "prefab-node-transform-override-3d-v1",
+            EditorAbiCapability.PrefabNodeMaterialOverride3DV1 =>
+                "prefab-node-material-override-3d-v1",
             _ => "unknown",
         };
 }

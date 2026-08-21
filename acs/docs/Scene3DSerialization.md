@@ -70,9 +70,10 @@
   propertyを記録する。maskはVisible=`1`、Enabled=`2`、Color=`4` の和であり、transformは
   instance配置として従来どおり常に保持する。値自体は同じnodeの `N3D` / `FLG3D` に保存する。
 - `PNOVR3D <nodeId> <mask>` は `PSID3D` を持つinstance childで原本より優先するVisible=`1`、
-  Enabled=`2`、Color=`4`、Position=`8`、Rotation=`16`、Scale=`32` の和を記録する。値は対象childの
-  `N3D` / `FLG3D` に保存し、source更新後は一時的な数値node IDではなくsource node IDでreplacement
-  childを再解決して適用する。root transformはinstance配置として従来どおり常に保持する。
+  Enabled=`2`、Color=`4`、Position=`8`、Rotation=`16`、Scale=`32`、Material=`64` の和を記録する。
+  値は対象childの `N3D` / `FLG3D` / `MAT3D` に保存し、source更新後は一時的な数値node IDではなく
+  source node IDでreplacement childを再解決して適用する。空のMaterial overrideは割り当て解除を表す。
+  root transformとroot Materialはinstance child overrideの対象外とする。
 - `PCOVR3D <nodeId> <componentSlot> <propertyIndex>` はstable instance rootの反射component
   propertyを1件overrideとして記録する。値は同じslot/propertyの `CPROP3D` に保存する。
   source再生成時は現在slotのcomponent型IDを取得し、replacement内の同型componentへ値を
@@ -107,7 +108,7 @@
 - `POVR3D` は同じnodeの `PINS3D` より後に1件だけ指定できる。maskは `1..7` とし、未知bit、
   重複、stable instance IDを持たないnodeへの指定をcommit前に拒否する。
 - `PNOVR3D` は同じnodeの `PSID3D` より後に1件だけ指定できる。対象はstable `PINS3D` root自身では
-  なく、そのscope内のchildに限定する。maskは `1..63` とし、未知bit、重複、孤立child、nested root
+  なく、そのscope内のchildに限定する。maskは `1..127` とし、未知bit、重複、孤立child、nested root
   自身への指定をcommit前に拒否する。
 - `PCOVR3D` は同じnodeの `PINS3D` と対象 `CMP3D` より後に指定する。component slotは既存、
   property indexは `0..23` かつ現在の反射schema内でなければならず、同じnode/slot/propertyの
@@ -145,9 +146,9 @@ sceneとUndo履歴をrollbackする。component selective Revertは現在slotか
 不正slot/property、source不一致ではsceneを変更しない。component selective Applyは現在slotの型名で
 原本componentを解決し、選択`CPROP3D`だけをatomic更新して選択instanceのmarkerだけを外す。他instanceの
 明示overrideは型IDで維持する。child node overrideも同じrefresh transactionでcaptureし、`PSID3D`で
-replacementを再解決して値、ローカルtransform、`PNOVR3D` maskを戻す。対象childの削除、identity重複、
-Color適用先のmesh欠落はsceneとUndo履歴をrollbackする。child selective Revertは選択bitだけを保持snapshotから
-除き、selective Applyはsource node IDに対応する原本`N3D`/`FLG3D`だけを純粋計算とatomic writerで更新する。他instanceのchild overrideは
+replacementを再解決して値、ローカルtransform、Material path、`PNOVR3D` maskを戻す。対象childの削除、identity重複、
+ColorまたはMaterial適用先のmesh欠落はsceneとUndo履歴をrollbackする。child selective Revertは選択bitだけを保持snapshotから
+除き、selective Applyはsource node IDに対応する原本`N3D`/`FLG3D`/`MAT3D`だけを純粋計算とatomic writerで更新する。他instanceのchild overrideは
 維持され、全Applyと全Revertは選択instanceのchild markerを破棄する。全Revertはcomponent overrideも破棄する。
 
 pack batch は後続entryの失敗時に先行entryの完了数を返す。loaderはprivate parsed
