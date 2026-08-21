@@ -43,6 +43,7 @@ enum class ECapability : std::uint64_t {
     PrefabNodeMaterialOverride3DV1 = 1ull << 26u,
     PrefabNodeNameOverride3DV1 = 1ull << 27u,
     Scene3DSiblingReorderV1 = 1ull << 28u,
+    Scene3DWorldStableReparentV1 = 1ull << 29u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -78,7 +79,8 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::PrefabNodeTransformOverride3DV1) |
     CapabilityBit(ECapability::PrefabNodeMaterialOverride3DV1) |
     CapabilityBit(ECapability::PrefabNodeNameOverride3DV1) |
-    CapabilityBit(ECapability::Scene3DSiblingReorderV1);
+    CapabilityBit(ECapability::Scene3DSiblingReorderV1) |
+    CapabilityBit(ECapability::Scene3DWorldStableReparentV1);
 
 inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
@@ -97,7 +99,8 @@ inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::PrefabNodeTransformOverride3DV1) |
     CapabilityBit(ECapability::PrefabNodeMaterialOverride3DV1) |
     CapabilityBit(ECapability::PrefabNodeNameOverride3DV1) |
-    CapabilityBit(ECapability::Scene3DSiblingReorderV1);
+    CapabilityBit(ECapability::Scene3DSiblingReorderV1) |
+    CapabilityBit(ECapability::Scene3DWorldStableReparentV1);
 
 [[nodiscard]] constexpr bool IsCompatible(
     std::uint32_t requested_version,

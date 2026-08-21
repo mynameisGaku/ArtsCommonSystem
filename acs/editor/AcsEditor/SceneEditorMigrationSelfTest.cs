@@ -178,6 +178,8 @@ internal static class SceneEditorMigrationSelfTest
             ExtractMethodBody(shellSource, "private void Apply3DRename(");
         string hierarchyDropBody =
             ExtractMethodBody(shellSource, "private void OnHierarchyDrop(");
+        string createEmptyNodeBody =
+            ExtractMethodBody(shellSource, "private void CreateEmptyNode(");
         string markPrefabNodePropertyBody =
             ExtractMethodBody(
                 view3DSource,
@@ -299,6 +301,17 @@ internal static class SceneEditorMigrationSelfTest
                 "RecordSceneDocumentChange(\"Move Node\")",
                 StringComparison.Ordinal),
             "3D Outliner routes before/after through sibling reorder and child drops through reparent");
+        Check(
+            createEmptyNodeBody.Contains(
+                "acs_editor_reparent3d(Engine, id3, parentId)",
+                StringComparison.Ordinal) &&
+            createEmptyNodeBody.Contains(
+                "acs_editor_node3d_set_transform(Engine, id3",
+                StringComparison.Ordinal) &&
+            createEmptyNodeBody.Contains(
+                "acs_editor_delete_node3d(Engine, id3)",
+                StringComparison.Ordinal),
+            "3D child creation restores local identity after world-stable reparent and rolls back failed creation");
         Check(
             initializeBody.Contains(
                 "EditorSceneStartupPolicy.Resolve(",
