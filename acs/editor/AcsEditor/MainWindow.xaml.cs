@@ -5646,13 +5646,29 @@ public partial class MainWindow : Window
             Log("Child selective Apply失敗 (Colorを取得できません)。");
             return;
         }
+        var transform = new float[9];
+        if ((property & PrefabNodeProperty3D.Transform) != PrefabNodeProperty3D.None &&
+            EngineInterop.acs_editor_node3d_get_transform(Engine, id, transform) == 0)
+        {
+            Log("Child selective Apply失敗 (Transformを取得できません)。");
+            return;
+        }
         var values = new PrefabNodePropertyValues3D(
             Visible: EngineInterop.acs_editor_node3d_get_visible(Engine, id) != 0,
             Enabled: EngineInterop.acs_editor_node3d_get_enabled(Engine, id) != 0,
             Red: color[0],
             Green: color[1],
             Blue: color[2],
-            Alpha: color[3]);
+            Alpha: color[3],
+            PositionX: transform[0],
+            PositionY: transform[1],
+            PositionZ: transform[2],
+            RotationX: transform[3],
+            RotationY: transform[4],
+            RotationZ: transform[5],
+            ScaleX: transform[6],
+            ScaleY: transform[7],
+            ScaleZ: transform[8]);
         if (!PrefabNodePropertyApply3D.TryBuildSource(
                 components,
                 sourceNodeId,

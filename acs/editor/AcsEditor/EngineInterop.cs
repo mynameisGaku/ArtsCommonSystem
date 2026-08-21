@@ -20,7 +20,11 @@ internal enum PrefabNodeProperty3D : uint
     Visible = 1u << 0,
     Enabled = 1u << 1,
     Color = 1u << 2,
-    All = Visible | Enabled | Color,
+    Position = 1u << 3,
+    Rotation = 1u << 4,
+    Scale = 1u << 5,
+    Transform = Position | Rotation | Scale,
+    All = Visible | Enabled | Color | Transform,
 }
 
 [Flags]
@@ -1654,7 +1658,7 @@ internal static class EngineInterop
     public static extern int acs_editor_prefab_instance3d_root_for_node(
         IntPtr handle,
         int id);
-    /// <summary>rootまたはchildでoverride済みのVisible/Enabled/Color bitを返す。</summary>
+    /// <summary>rootまたはchildでoverride済みのproperty bitを返す。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern PrefabNodeProperty3D acs_editor_prefab_instance3d_property_override_mask(
         IntPtr handle,

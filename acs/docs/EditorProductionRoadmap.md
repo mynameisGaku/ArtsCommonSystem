@@ -65,7 +65,7 @@ ACS Editor には、シーンアウトライナー、詳細パネル、2D/3D ビ
 | Project Settings | schema 駆動 UI、検索、検証、未知キー保持、Document Host の dirty/Undo/Save All/close、非同期 atomic 保存、snap 値同期あり | Editor/User 設定分離、Input/Packaging/Platform 等 | P0/P1 |
 | Material Editor | typed node graph、semantic Undo/Redo、Document Host dirty/Save All/close、compile diagnostics、CPU-safe async/cancellable preview、192/256/384 px 出力、同一入力 LRU cache、計測表示あり。native preview API に HDR/ACES、1x–4x SSAA、3種 mesh/background 契約あり | legacy property writer の transaction 化、native API を live window へ接続する fenced GPU readback、instance/function、shader cache | P0/P1 |
 | Profiler / Diagnostics | Profiler v5 の CPU/GPU/pass/実フラスタムカリング計測、capture reset serial/presented-frame境界、normal/depth・motion・opaque PBR・interactive water・refraction共通submission traversal、aggregate fast pathと可視range結合、Shadow/VXGIの非camera-mask契約、UI stall watchdog、独立した cloud-workload-v2 の dispatch/invocation/history/sample ceiling 表示あり | GPU capture、allocation tracker、platform telemetry、継続 performance budget | P1 |
-| Prefab / Blueprint | 保存、配置、Apply/Revert、graph undo、3D stable instance ID、root Visible/Enabled/Color overrideとselective Apply/Revert、root component property overrideとselective Apply/Revertあり | child override、nested prefab、variant、conflict/diff | P2 |
+| Prefab / Blueprint | 保存、配置、Apply/Revert、graph undo、3D stable instance/source node ID、root Visible/Enabled/Color override、child value/Transform override、root component property overrideと各selective Apply/Revertあり | nested prefab、variant、conflict/diff | P2 |
 | Navigation | 2D grid A* と Tilemap bridge あり | 3D navmesh、bake UI、agent/area/link、debug/cook | P2 |
 | Editor UX | メニュー、toolbar、panel toggle、主要 shortcut、command palette、per-user layout 永続化、6 stable-ID toolの個別float/hide/restore、複数同時float、DPI対応snapあり | document/tool tab tear-off、任意dock tree、multi-document、shortcut editor、複数workspaceの完全統合 | P1 |
 | Release operations | Windows x64 deterministic ZIP、runtime 依存解決、Cook/`.acpak` native verify、manifest hash、manifest-to-PE metadata verify あり | icon/license/channel、署名、installer、patch、store upload、他platform | P0/P3 |
@@ -343,7 +343,7 @@ Prefab原本内の全3D nodeは `PSID3D` の32桁source node IDを持つ。対�
 
 instance rootのVisible、Enabled、Colorは `POVR3D` maskで明示的にoverrideとして記録する。source更新で他instanceを再生成するときは指定値だけを保持する。全Revertに加え、root propertyごとのselective Revertは選択bitだけを原本値へ戻し、残りのoverrideを同じnative transactionで維持する。selective Applyは選択propertyだけを原本の`N3D`/`FLG3D`へatomic書込し、選択instanceの該当bitだけを解消して、他instanceの明示overrideを保持したまま更新する。transformはproperty overrideに含めず、instance配置として常に保持する。
 
-instance childのVisible、Enabled、Colorは `PNOVR3D` maskで永続化する。source更新時は`PSID3D`でreplacement childを再解決し、値とmaskを同じnative transaction内で戻す。child削除、identity重複、meshless ColorはsceneとUndoをrollbackする。Inspectorのproperty単位Revertは選択bitだけを原本値へ戻し、property単位Applyはsource node IDに対応する原本`N3D`/`FLG3D`だけを純粋計算とatomic writerで更新する。他instanceの明示child overrideは保持し、全Apply/Revertは選択instanceのchild markerを破棄する。
+instance childのVisible、Enabled、Color、Position、Rotation、Scaleは `PNOVR3D` maskで永続化する。Inspector、sparse multi-edit、3D gizmoは値変更成功後だけmarkerを追加し、root transformはinstance配置としてmarker対象外にする。source更新時は`PSID3D`でreplacement childを再解決し、値、ローカルtransform、maskを同じnative transaction内で戻す。child削除、identity重複、meshless ColorはsceneとUndoをrollbackする。Inspectorのproperty単位Revertは選択bitだけを原本値へ戻し、property単位Applyはsource node IDに対応する原本`N3D`/`FLG3D`だけを純粋計算とatomic writerで更新する。他instanceの明示child overrideは保持し、全Apply/Revertは選択instanceのchild markerを破棄する。
 
 instance rootの反射component propertyは `PCOVR3D` でnode/slot/propertyごとに永続化する。source更新時は編集時slotをcomponent型IDへ解決し、再生成後の同型componentへ値を戻すため、source側のcomponent並び替えを許容する。対象component/propertyが消えた場合はsceneとUndoをrollbackし、全Revertはmarkerを破棄する。全Applyは選択instanceのmarkerを解消し、他instanceのmarkerは保持して更新する。propertyごとのselective Revertは現在slotを型IDへ解決し、選択propertyだけを保持snapshotから除外して原本値へ戻す。他のroot/component overrideは同じnative transactionで維持する。selective Applyは現在値とcomponent型名を明示入力とする純粋計算で原本の対象`CPROP3D`だけを更新し、atomic書込後に選択markerだけを解消する。他instanceは各自のoverrideを維持して再生成する。
 
@@ -669,7 +669,7 @@ flowchart TD
 
 成果物:
 
-- stable instance ID、root Visible/Enabled/Color override、root component overrideとselective Apply/Revert（実装済み）、child override。
+- stable instance/source node ID、root Visible/Enabled/Color override、child value/Transform override、root component overrideとselective Apply/Revert（実装済み）。
 - selective Apply/Revert、diff UI。
 - nested prefab、variant、break/relink。
 - source update conflict と migration。

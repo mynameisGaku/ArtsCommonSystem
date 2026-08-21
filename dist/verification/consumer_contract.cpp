@@ -343,7 +343,7 @@ int main()
     /** rootへ所有させた3D Prefab source node identity component。 */
     game::APrefabNodeIdentity3DComponent& prefab_identity = prefab_identity_scene.Root().AddComponent<game::APrefabNodeIdentity3DComponent>();
     /** canonical値の設定、非canonical値の拒否、既存値保持をまとめた結果。 */
-    const bool prefab_source_identity_ok = prefab_identity.TrySetSourceNodeId(FStringView("0123456789abcdef0123456789abcdef")) && !prefab_identity.TrySetSourceNodeId(FStringView("0123456789ABCDEF0123456789ABCDEF")) && prefab_identity.SourceNodeId() == FStringView("0123456789abcdef0123456789abcdef") && prefab_identity.TrySetNodePropertyOverrideMask(5u) && !prefab_identity.TrySetNodePropertyOverrideMask(8u) && prefab_identity.NodePropertyOverrideMask() == 5u;
+    const bool prefab_source_identity_ok = prefab_identity.TrySetSourceNodeId(FStringView("0123456789abcdef0123456789abcdef")) && !prefab_identity.TrySetSourceNodeId(FStringView("0123456789ABCDEF0123456789ABCDEF")) && prefab_identity.SourceNodeId() == FStringView("0123456789abcdef0123456789abcdef") && prefab_identity.TrySetNodePropertyOverrideMask(63u) && !prefab_identity.TrySetNodePropertyOverrideMask(64u) && prefab_identity.NodePropertyOverrideMask() == 63u;
 
     // 呼び出し側が所有するシーンタイマー。
     game::CSceneTimer scene_timer;

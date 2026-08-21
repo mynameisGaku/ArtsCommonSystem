@@ -1818,11 +1818,33 @@ public partial class MainWindow
               "legacy zero/near-zero value on an edited scale axis; select " +
               "that object alone, enter a non-zero scale, then retry."
             : null;
-        return ReportMultiBatchResult(
+        bool succeeded = ReportMultiBatchResult(
             label,
             selected.Length,
             result,
             failureDetail);
+        if (succeeded)
+        {
+            PrefabNodeProperty3D properties =
+                PrefabNodeTransformProperties3D(patch);
+            foreach (int nodeId in selected)
+                MarkPrefabPropertyOverride3D(nodeId, properties);
+        }
+        return succeeded;
+    }
+
+    /// <summary>transform sparse patchをPosition、Rotation、Scaleのproperty bitへまとめる。</summary>
+    private static PrefabNodeProperty3D PrefabNodeTransformProperties3D(
+        IReadOnlyList<float?> patch)
+    {
+        PrefabNodeProperty3D properties = PrefabNodeProperty3D.None;
+        if (patch.Take(3).Any(static value => value.HasValue))
+            properties |= PrefabNodeProperty3D.Position;
+        if (patch.Skip(3).Take(3).Any(static value => value.HasValue))
+            properties |= PrefabNodeProperty3D.Rotation;
+        if (patch.Skip(6).Take(3).Any(static value => value.HasValue))
+            properties |= PrefabNodeProperty3D.Scale;
+        return properties;
     }
 
     private bool ApplyMultiReflectedPropertyPatch(
@@ -2815,8 +2837,18 @@ public partial class MainWindow
         var tf = new float[9];
         if (EngineInterop.acs_editor_node3d_get_transform(Engine, id, tf) == 0) return;
         tf[which * 3 + 0] = a; tf[which * 3 + 1] = b; tf[which * 3 + 2] = c;
-        EngineInterop.acs_editor_node3d_set_transform(Engine, id,
-            tf[0], tf[1], tf[2], tf[3], tf[4], tf[5], tf[6], tf[7], tf[8]);
+        if (EngineInterop.acs_editor_node3d_set_transform(Engine, id,
+                tf[0], tf[1], tf[2], tf[3], tf[4], tf[5], tf[6], tf[7], tf[8]) != 0)
+        {
+            MarkPrefabPropertyOverride3D(
+                id,
+                which switch
+                {
+                    0 => PrefabNodeProperty3D.Position,
+                    1 => PrefabNodeProperty3D.Rotation,
+                    _ => PrefabNodeProperty3D.Scale,
+                });
+        }
     }
 
     /// <summary>成功済みの値編集をstable 3D Prefabのrootまたはchild overrideへ明示的に反映する。</summary>
@@ -2824,7 +2856,12 @@ public partial class MainWindow
         int id,
         PrefabNodeProperty3D property)
     {
-        if (Engine == IntPtr.Zero || id < 0) return;
+        if (Engine == IntPtr.Zero || id < 0 || property == PrefabNodeProperty3D.None) return;
+        if ((property & PrefabNodeProperty3D.Transform) != PrefabNodeProperty3D.None &&
+            EngineInterop.acs_editor_prefab_instance3d_root_for_node(Engine, id) == id)
+        {
+            return;
+        }
         if (EngineInterop.acs_editor_prefab_instance3d_mark_property_override(
                 Engine,
                 id,
@@ -2852,7 +2889,10 @@ public partial class MainWindow
         int nodeOverrideCount =
             (nodeOverrides.HasFlag(PrefabNodeProperty3D.Visible) ? 1 : 0) +
             (nodeOverrides.HasFlag(PrefabNodeProperty3D.Enabled) ? 1 : 0) +
-            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Color) ? 1 : 0);
+            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Color) ? 1 : 0) +
+            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Position) ? 1 : 0) +
+            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Rotation) ? 1 : 0) +
+            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Scale) ? 1 : 0);
         string sourceNodeId =
             EngineInterop.NodePrefabSourceNodeId3D(Engine, id);
         banner.Children.Clear();
@@ -2890,6 +2930,18 @@ public partial class MainWindow
             overrideRow.Children.Add(CreatePrefabNodeOverrideApplyButton3D(id, PrefabNodeProperty3D.Color, "Color"));
         if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Color))
             overrideRow.Children.Add(CreatePrefabNodeOverrideRevertButton3D(id, PrefabNodeProperty3D.Color, "Color"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Position))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideApplyButton3D(id, PrefabNodeProperty3D.Position, "Position"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Position))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideRevertButton3D(id, PrefabNodeProperty3D.Position, "Position"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Rotation))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideApplyButton3D(id, PrefabNodeProperty3D.Rotation, "Rotation"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Rotation))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideRevertButton3D(id, PrefabNodeProperty3D.Rotation, "Rotation"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Scale))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideApplyButton3D(id, PrefabNodeProperty3D.Scale, "Scale"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Scale))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideRevertButton3D(id, PrefabNodeProperty3D.Scale, "Scale"));
         banner.Children.Add(overrideRow);
     }
 

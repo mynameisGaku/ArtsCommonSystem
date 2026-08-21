@@ -91,6 +91,8 @@ product-version label. The current required host set is:
   restores all source values;
 - persistent 3D Prefab root-component property overrides and selective Apply/Revert,
   so a missing native export cannot leave managed UI ahead of the scene ABI.
+- stable source-node identities and transactional child value/Transform overrides,
+  so refresh cannot publish a subtree whose explicit child edits were lost.
 
 Profiler v5 (with its version-4 compatibility prefix), the independent
 volumetric-cloud workload v1 snapshot, unified scene documents, high-quality
@@ -314,7 +316,7 @@ portable references only in isolated cook copies. Unsupported directives or
 external resources fail closed rather than being silently dropped.
 The supported 3D subset includes inline `PLY3D` geometry, `SPR3D` texture
 references, non-executing `PFAB3D` instance-source links, and `PINS3D` stable
-instance identities plus `PSID3D` stable source-node identities, `POVR3D` root overrides, `PNOVR3D` child-node overrides, and `PCOVR3D` root-component
+instance identities plus `PSID3D` stable source-node identities, `POVR3D` root overrides, `PNOVR3D` child value/Transform overrides, and `PCOVR3D` root-component
 property overrides. Cook preserves
 the geometry and rewrites both dependency kinds into the package asset namespace.
 
@@ -607,8 +609,10 @@ text through a side-effect-free migration calculation, then use the existing
 atomic source writer only when identities were missing. Native direct callers
 receive the same deterministic fallback from source path plus original node ID.
 
-Child Visible, Enabled, and Color edits use the same explicit boundary. The
-managed mutation adapter marks `PNOVR3D` only after the value write succeeds.
+Child Visible, Enabled, Color, Position, Rotation, and Scale edits use the same
+explicit boundary. Inspector, sparse multi-edit, and 3D gizmo adapters mark
+`PNOVR3D` only after the value write succeeds. Root Transform remains instance
+placement and is not marked.
 Native refresh captures each marked value with its `PSID3D`, rebuilds the
 subtree, resolves the replacement below the same stable root, and reapplies the
 value before publishing Undo. Missing or ambiguous children and meshless Color

@@ -1416,21 +1416,21 @@ ACS_TEST(Scene3DSerialize, PrefabChildNodePropertyOverrideRoundTripsAndRejectsIn
     ANode& child = source.Spawn(FStringView("Wheel"));
     APrefabNodeIdentity3DComponent& child_identity = child.AddComponent<APrefabNodeIdentity3DComponent>();
     EXPECT_TRUE(child_identity.TrySetSourceNodeId(FStringView("fedcba9876543210fedcba9876543210")));
-    EXPECT_TRUE(child_identity.TrySetNodePropertyOverrideMask(PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Visible) | PrefabNodeProperty3DBit(EPrefabNodeProperty3D::Color)));
-    EXPECT_FALSE(child_identity.TrySetNodePropertyOverrideMask(8u));
-    EXPECT_EQ(child_identity.NodePropertyOverrideMask(), 5u);
+    EXPECT_TRUE(child_identity.TrySetNodePropertyOverrideMask(kPrefabNodeProperty3DAllMask));
+    EXPECT_FALSE(child_identity.TrySetNodePropertyOverrideMask(64u));
+    EXPECT_EQ(child_identity.NodePropertyOverrideMask(), 63u);
 
     char text[2048]{};
     const FScene3DSaveResult saved = TrySaveScene3DText(source, text, sizeof(text));
     EXPECT_TRUE(saved.Succeeded());
-    EXPECT_TRUE(std::strstr(text, "PNOVR3D 1 5\n") != nullptr);
+    EXPECT_TRUE(std::strstr(text, "PNOVR3D 1 63\n") != nullptr);
 
     CSceneNodeGraph loaded;
     const FScene3DLoadResult loaded_result = TryLoadScene3DText(loaded, text, saved.BytesWritten);
     ANode* loaded_child = loaded.FindByName(FStringView("Wheel"));
     const APrefabNodeIdentity3DComponent* loaded_identity = loaded_child != nullptr ? loaded_child->GetComponent<APrefabNodeIdentity3DComponent>() : nullptr;
     EXPECT_TRUE(loaded_result.Succeeded());
-    EXPECT_EQ(loaded_identity != nullptr ? loaded_identity->NodePropertyOverrideMask() : 0u, 5u);
+    EXPECT_EQ(loaded_identity != nullptr ? loaded_identity->NodePropertyOverrideMask() : 0u, 63u);
 
     constexpr char kOrphan[] =
         "ACS3D v2\n"

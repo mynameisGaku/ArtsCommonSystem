@@ -16,7 +16,16 @@ internal readonly record struct PrefabNodePropertyValues3D(
     float Red,
     float Green,
     float Blue,
-    float Alpha);
+    float Alpha,
+    float PositionX,
+    float PositionY,
+    float PositionZ,
+    float RotationX,
+    float RotationY,
+    float RotationZ,
+    float ScaleX,
+    float ScaleY,
+    float ScaleZ);
 
 /// <summary>PSID3Dで選んだ3D Prefab原本nodeのpropertyだけを差し替える副作用なしの計算器。</summary>
 internal static class PrefabNodePropertyApply3D
@@ -48,6 +57,19 @@ internal static class PrefabNodePropertyApply3D
              !float.IsFinite(values.Alpha)))
         {
             return Reject(sourceText, "Apply対象のColorに有限でない値があります。", out updatedSource, out error);
+        }
+        if ((applyMask & PrefabNodeProperty3D.Transform) != PrefabNodeProperty3D.None &&
+            (!float.IsFinite(values.PositionX) ||
+             !float.IsFinite(values.PositionY) ||
+             !float.IsFinite(values.PositionZ) ||
+             !float.IsFinite(values.RotationX) ||
+             !float.IsFinite(values.RotationY) ||
+             !float.IsFinite(values.RotationZ) ||
+             !float.IsFinite(values.ScaleX) ||
+             !float.IsFinite(values.ScaleY) ||
+             !float.IsFinite(values.ScaleZ)))
+        {
+            return Reject(sourceText, "Apply対象のTransformに有限でない値があります。", out updatedSource, out error);
         }
 
         CanonicalSceneAdapterInspection inspection =
@@ -120,18 +142,38 @@ internal static class PrefabNodePropertyApply3D
             flagTokens = tokens;
         }
 
+        var nodeReplacements = new Dictionary<int, string>();
+        if ((applyMask & PrefabNodeProperty3D.Position) != PrefabNodeProperty3D.None)
+        {
+            nodeReplacements[4] = FormatNumber(values.PositionX);
+            nodeReplacements[5] = FormatNumber(values.PositionY);
+            nodeReplacements[6] = FormatNumber(values.PositionZ);
+        }
+        if ((applyMask & PrefabNodeProperty3D.Rotation) != PrefabNodeProperty3D.None)
+        {
+            nodeReplacements[7] = FormatNumber(values.RotationX);
+            nodeReplacements[8] = FormatNumber(values.RotationY);
+            nodeReplacements[9] = FormatNumber(values.RotationZ);
+        }
+        if ((applyMask & PrefabNodeProperty3D.Scale) != PrefabNodeProperty3D.None)
+        {
+            nodeReplacements[10] = FormatNumber(values.ScaleX);
+            nodeReplacements[11] = FormatNumber(values.ScaleY);
+            nodeReplacements[12] = FormatNumber(values.ScaleZ);
+        }
         if ((applyMask & PrefabNodeProperty3D.Color) != PrefabNodeProperty3D.None)
+        {
+            nodeReplacements[13] = FormatNumber(values.Red);
+            nodeReplacements[14] = FormatNumber(values.Green);
+            nodeReplacements[15] = FormatNumber(values.Blue);
+            nodeReplacements[16] = FormatNumber(values.Alpha);
+        }
+        if (nodeReplacements.Count > 0)
         {
             lines[targetLineIndex].Text = ReplaceTokens(
                 lines[targetLineIndex].Text,
                 targetTokens,
-                new Dictionary<int, string>
-                {
-                    [13] = FormatColor(values.Red),
-                    [14] = FormatColor(values.Green),
-                    [15] = FormatColor(values.Blue),
-                    [16] = FormatColor(values.Alpha),
-                });
+                nodeReplacements);
         }
 
         PrefabNodeProperty3D flagMask = applyMask &
@@ -187,8 +229,8 @@ internal static class PrefabNodePropertyApply3D
         return false;
     }
 
-    /// <summary>native ACS3D serializerと同じ小数3桁でColorを表す。</summary>
-    private static string FormatColor(float value) =>
+    /// <summary>native ACS3D serializerと同じ小数3桁で数値を表す。</summary>
+    private static string FormatNumber(float value) =>
         value.ToString("F3", CultureInfo.InvariantCulture);
 
     /// <summary>ASCII整数tokenをInvariantCultureで読む。</summary>

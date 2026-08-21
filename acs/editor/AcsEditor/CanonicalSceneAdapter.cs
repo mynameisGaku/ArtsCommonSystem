@@ -886,11 +886,12 @@ public static class CanonicalSceneAdapter
                 !TryInt(tokens[1], out int id) ||
                 !prefabSourceIdentityNodes.Contains(id) ||
                 !TryInt(tokens[2], out int mask) ||
-                mask <= 0 || (mask & ~7) != 0)
+                mask <= 0 ||
+                (mask & ~(int)PrefabNodeProperty3D.All) != 0)
             {
                 diagnostics.Add(Error(
                     "SCENE3D_PREFAB_NODE_OVERRIDE_INVALID",
-                    "PNOVR3D requires an earlier PSID3D on the same node and a non-zero Visible/Enabled/Color mask.",
+                    "PNOVR3D requires an earlier PSID3D on the same node and a non-zero Visible/Enabled/Color/Position/Rotation/Scale mask.",
                     lineNumber));
                 return;
             }
