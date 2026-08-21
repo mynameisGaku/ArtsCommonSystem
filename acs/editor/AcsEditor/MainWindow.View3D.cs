@@ -70,12 +70,14 @@ public partial class MainWindow
             {
                 if (Engine == IntPtr.Zero) return;
                 EngineInterop.acs_editor_node3d_set_visible(Engine, vid, 1);
+                MarkPrefabRootOverride3D(vid, PrefabRootProperty3D.Visible);
                 RecordSceneDocumentChange("Visibility");
             };
             eye.Unchecked += (_, __) =>
             {
                 if (Engine == IntPtr.Zero) return;
                 EngineInterop.acs_editor_node3d_set_visible(Engine, vid, 0);
+                MarkPrefabRootOverride3D(vid, PrefabRootProperty3D.Visible);
                 RecordSceneDocumentChange("Visibility");
             };
             var hdr = new StackPanel { Orientation = Orientation.Horizontal };
@@ -237,6 +239,7 @@ public partial class MainWindow
         int id = EngineInterop.acs_editor_selected3d(Engine);
         if (id < 0) return;
         EngineInterop.acs_editor_node3d_set_enabled(Engine, id, InspEnabled.IsChecked == true ? 1 : 0);
+        MarkPrefabRootOverride3D(id, PrefabRootProperty3D.Enabled);
         RecordSceneDocumentChange("Enabled State");
     }
 
@@ -280,9 +283,19 @@ public partial class MainWindow
         string prefabSrc = EngineInterop.NodePrefabSrc3D(Engine, id);
         if (!string.IsNullOrEmpty(prefabSrc))
         {
+            PrefabRootProperty3D rootOverrides =
+                EngineInterop.acs_editor_prefab_instance3d_root_override_mask(
+                    Engine,
+                    id);
+            int rootOverrideCount =
+                (rootOverrides.HasFlag(PrefabRootProperty3D.Visible) ? 1 : 0) +
+                (rootOverrides.HasFlag(PrefabRootProperty3D.Enabled) ? 1 : 0) +
+                (rootOverrides.HasFlag(PrefabRootProperty3D.Color) ? 1 : 0);
             var banner = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
             banner.Children.Add(new TextBlock {
-                Text = (IsBlueprint(prefabSrc) ? "◆ Blueprint: " : "◆ Prefab: ") + System.IO.Path.GetFileName(prefabSrc),
+                Text = (IsBlueprint(prefabSrc) ? "◆ Blueprint: " : "◆ Prefab: ") +
+                    System.IO.Path.GetFileName(prefabSrc) +
+                    (rootOverrideCount > 0 ? $"  ({rootOverrideCount} root override)" : ""),
                 Foreground = (Brush)FindResource("Accent"), FontSize = 11, FontWeight = FontWeights.SemiBold,
                 Margin = new Thickness(0, 0, 0, 4) });
             var brow = new StackPanel { Orientation = Orientation.Horizontal };
@@ -1962,7 +1975,13 @@ public partial class MainWindow
                     WriteAndVerifyColor(nodeId, mutation.After),
                 (nodeId, mutation) =>
                     WriteAndVerifyColor(nodeId, mutation.Before));
-        return ReportMultiBatchResult(label, selected.Length, result);
+        bool succeeded = ReportMultiBatchResult(label, selected.Length, result);
+        if (succeeded)
+        {
+            foreach (int nodeId in selected)
+                MarkPrefabRootOverride3D(nodeId, PrefabRootProperty3D.Color);
+        }
+        return succeeded;
     }
 
     private bool ApplyMultiEnabled(int[] selected, bool desired)
@@ -2011,10 +2030,16 @@ public partial class MainWindow
                     WriteAndVerifyEnabled(nodeId, desired),
                 (nodeId, mutation) =>
                     WriteAndVerifyEnabled(nodeId, mutation.Before));
-        return ReportMultiBatchResult(
+        bool succeeded = ReportMultiBatchResult(
             "Edit Enabled",
             selected.Length,
             result);
+        if (succeeded)
+        {
+            foreach (int nodeId in selected)
+                MarkPrefabRootOverride3D(nodeId, PrefabRootProperty3D.Enabled);
+        }
+        return succeeded;
     }
 
     private bool WriteAndVerifyTransformMasked(
@@ -2470,7 +2495,14 @@ public partial class MainWindow
 
         if (showAll || DetailsMatches("color", "tint", "opacity", "alpha"))
             body.Children.Add(Vec4Row("Color", color[0], color[1], color[2], color[3],
-                (r, g, b, a) => EngineInterop.acs_editor_node3d_set_color(Engine, id, r, g, b, a),
+                (r, g, b, a) =>
+                {
+                    if (EngineInterop.acs_editor_node3d_set_color(
+                            Engine, id, r, g, b, a) != 0)
+                        MarkPrefabRootOverride3D(
+                            id,
+                            PrefabRootProperty3D.Color);
+                },
                 id,
                 "inspector.appearance.color"));
 
@@ -2662,6 +2694,24 @@ public partial class MainWindow
         tf[which * 3 + 0] = a; tf[which * 3 + 1] = b; tf[which * 3 + 2] = c;
         EngineInterop.acs_editor_node3d_set_transform(Engine, id,
             tf[0], tf[1], tf[2], tf[3], tf[4], tf[5], tf[6], tf[7], tf[8]);
+    }
+
+    /// <summary>成功済みの値編集をstable 3D Prefab rootのoverride metadataへ明示的に反映する。</summary>
+    private void MarkPrefabRootOverride3D(
+        int id,
+        PrefabRootProperty3D property)
+    {
+        if (Engine == IntPtr.Zero || id < 0) return;
+        if (EngineInterop.acs_editor_prefab_instance3d_mark_root_override(
+                Engine,
+                id,
+                property) == 0)
+        {
+            Log(
+                $"3D Prefab root overrideを記録できませんでした (node {id}, {property})。",
+                "Scene",
+                LogLevel.Warn);
+        }
     }
 
     // ----- 動的 UI ヘルパ -----

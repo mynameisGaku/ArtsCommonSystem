@@ -4,6 +4,7 @@
 #include "container/String.h"
 #include "container/StringView.h"
 #include "gameframework/AComponent.h"
+#include "gameframework/PrefabRootProperty3D.h"
 
 namespace acs::game {
 
@@ -29,12 +30,21 @@ public:
     /** PINS3Dに記録する32桁小文字hexのinstance IDを設定する。 */
     void SetInstanceId(FStringView instance_id) noexcept;
 
+    /** POVR3Dに記録されたroot property override maskを返す。 */
+    u32 RootPropertyOverrideMask() const noexcept;
+
+    /** 定義済みbitだけのroot property override maskを設定する。未知bitでは失敗する。 */
+    bool TrySetRootPropertyOverrideMask(u32 mask) noexcept;
+
 private:
     /** 実体化済みサブツリーの原本を指す非実行リンク。 */
     FString m_SourcePath;
 
     /** Apply/Revert後も同じinstanceを識別するscene内の安定ID。 */
     FString m_InstanceId;
+
+    /** 原本更新後もinstance値を維持するroot propertyのbit集合。 */
+    u32 m_RootPropertyOverrideMask = 0u;
 };
 
 } // namespace acs::game

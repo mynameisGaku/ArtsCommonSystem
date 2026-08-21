@@ -24780,6 +24780,7 @@ enum class ECapability : std::uint64_t {
     SparseTransformMutationV1 = 1ull << 14u,
     PrefabInstanceRefresh3DV1 = 1ull << 15u,
     PrefabStableInstanceId3DV1 = 1ull << 16u,
+    PrefabRootPropertyOverride3DV1 = 1ull << 17u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -24804,7 +24805,8 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::OptionalServiceDiagnosticsV2) |
     CapabilityBit(ECapability::SparseTransformMutationV1) |
     CapabilityBit(ECapability::PrefabInstanceRefresh3DV1) |
-    CapabilityBit(ECapability::PrefabStableInstanceId3DV1);
+    CapabilityBit(ECapability::PrefabStableInstanceId3DV1) |
+    CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1);
 
 inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
@@ -24812,7 +24814,8 @@ inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::ResizeResultContract) |
     CapabilityBit(ECapability::SparseTransformMutationV1) |
     CapabilityBit(ECapability::PrefabInstanceRefresh3DV1) |
-    CapabilityBit(ECapability::PrefabStableInstanceId3DV1);
+    CapabilityBit(ECapability::PrefabStableInstanceId3DV1) |
+    CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1);
 
 [[nodiscard]] constexpr bool IsCompatible(
     std::uint32_t requested_version,
@@ -36646,25 +36649,6 @@ private:
 
 // ===================== gameframework/Scene3DSerialize.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// GameFramework — 3D シーン (ANode ツリー) のテキストシリアライズ
-// -----------------------------------------------------------------------------
-// CSceneNodeGraph の階層 + 各ノードの FTransform3D (pos/euler/scale) + AMeshComponent3D
-// (prim/color/mesh path) を行ベースのテキストへ往復させる。editor_abi の 3D ビュー
-// ポートの scene3d_serialize/load_text が委譲する «正準フォーマット» (移行後)。
-//
-// フォーマット (行ベース、editor の N3D/MSH3D を階層対応に拡張):
-//   N3D <id> <parent> <prim> <px py pz> <rx ry rz(度)> <sx sy sz> <r g b a> <name>
-//   MSH3D <id> <mesh_path>
-//   ・id        = DFS pre-order の通し番号 (root=0)。
-//   ・parent    = 親の id (-1 = root 自身)。
-//   ・prim      = EMeshPrimitive3D の整数 (AMeshComponent3D 無しは -1)。
-//   ・rot       = FTransform3D::EulerDeg() (度、XYZ。|Y|<90° で往復一致)。
-//   ・MSH3D     = prim==Mesh かつ mesh path を持つノードのみ (アセット実体のロードは
-//                 呼び出し側の責務。本シリアライザはパスのみ往復する)。
-//
-// 規約: no-STL (C の strtol/strtof/snprintf のみ) / 全 noexcept / 固定上限。
-// =============================================================================
 
 
 namespace acs::game {
@@ -36747,6 +36731,7 @@ enum class EScene3DSerializeError : u8 {
     PrefabSourceInvalid,
     InvalidPrefabInstanceId,
     DuplicatePrefabInstanceId,
+    InvalidPrefabOverride,
 };
 
 /** Authored ACS3D camera projection encoded by CAM3D. */
@@ -81601,6 +81586,38 @@ private:
 // SPDX-License-Identifier: Apache-2.0
 
 
+// ===================== gameframework/PrefabRootProperty3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 3D Prefab rootで原本より優先する編集プロパティ。 */
+enum class EPrefabRootProperty3D : u32 {
+    /** rootの表示状態。 */
+    Visible = 1u << 0u,
+
+    /** rootの有効状態。 */
+    Enabled = 1u << 1u,
+
+    /** rootメッシュのRGBA色。 */
+    Color = 1u << 2u,
+};
+
+/** 3D Prefab rootプロパティを保存maskへ変換する。 */
+[[nodiscard]] constexpr u32 PrefabRootProperty3DBit(EPrefabRootProperty3D property) noexcept
+{
+    return static_cast<u32>(property);
+}
+
+/** 現在のPOVR3D契約が受理する全bit。 */
+inline constexpr u32 kPrefabRootProperty3DAllMask =
+    PrefabRootProperty3DBit(EPrefabRootProperty3D::Visible) |
+    PrefabRootProperty3DBit(EPrefabRootProperty3D::Enabled) |
+    PrefabRootProperty3DBit(EPrefabRootProperty3D::Color);
+
+} // namespace acs::game
+
 namespace acs::game {
 
 /**
@@ -81625,12 +81642,21 @@ public:
     /** PINS3Dに記録する32桁小文字hexのinstance IDを設定する。 */
     void SetInstanceId(FStringView instance_id) noexcept;
 
+    /** POVR3Dに記録されたroot property override maskを返す。 */
+    u32 RootPropertyOverrideMask() const noexcept;
+
+    /** 定義済みbitだけのroot property override maskを設定する。未知bitでは失敗する。 */
+    bool TrySetRootPropertyOverrideMask(u32 mask) noexcept;
+
 private:
     /** 実体化済みサブツリーの原本を指す非実行リンク。 */
     FString m_SourcePath;
 
     /** Apply/Revert後も同じinstanceを識別するscene内の安定ID。 */
     FString m_InstanceId;
+
+    /** 原本更新後もinstance値を維持するroot propertyのbit集合。 */
+    u32 m_RootPropertyOverrideMask = 0u;
 };
 
 } // namespace acs::game

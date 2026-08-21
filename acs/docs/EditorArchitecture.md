@@ -85,7 +85,10 @@ product-version label. The current required host set is:
 - sparse Transform mutation, so mixed-value Details edits cannot silently
   overwrite untouched components;
 - transactional 3D Prefab instance refresh, so Apply/Revert cannot call a
-  missing export after startup or retire the old subtree on failure.
+  missing export after startup or retire the old subtree on failure;
+- explicit 3D Prefab root-property overrides, so source refresh preserves only
+  marked Visible/Enabled/Color values while the compatibility Revert path
+  restores all source values.
 
 Profiler v5 (with its version-4 compatibility prefix), the independent
 volumetric-cloud workload v1 snapshot, unified scene documents, high-quality
@@ -309,7 +312,7 @@ portable references only in isolated cook copies. Unsupported directives or
 external resources fail closed rather than being silently dropped.
 The supported 3D subset includes inline `PLY3D` geometry, `SPR3D` texture
 references, non-executing `PFAB3D` instance-source links, and `PINS3D` stable
-instance identities. Cook preserves
+instance identities plus `POVR3D` root override masks. Cook preserves
 the geometry and rewrites both dependency kinds into the package asset namespace.
 
 ### Details multi-selection transactions
@@ -559,6 +562,13 @@ unchanged, and publishes one Undo record only after parent, transform, and
 source-link restoration succeeds. Any failure restores the prior scene and
 leaves Undo history unchanged. This is an instance-edit safety boundary, not
 Blueprint/Prefab document registration in `EditorDocumentHost`.
+
+The root override adapter keeps calculation and mutation boundaries explicit.
+Managed setters mark a bit only after the complete edit succeeds; native refresh
+captures only bits already present on the stable instance, recreates the subtree,
+and reapplies those values before publishing Undo. `POVR3D` stores the mask after
+`PINS3D`; the ordinary refresh export remains a full Revert. A Color override
+cannot be preserved onto an Empty root, so that refresh rolls back atomically.
 
 Project Settings uses the canonical settings-file path as its stable identity
 and participates in common dirty, Undo/Redo transaction, Save All, and

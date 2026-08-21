@@ -5006,7 +5006,7 @@ public partial class MainWindow : Window
 
     /// <summary>プレハブテンプレートは自己リンクを持たないため、sourceとinstance ID行を除去する。</summary>
     private static string StripPrefabLinks(string text) =>
-        System.Text.RegularExpressions.Regex.Replace(text, @"^(?:PFAB(?:3D)?|PINS3D) .*\r?\n?", "",
+        System.Text.RegularExpressions.Regex.Replace(text, @"^(?:PFAB(?:3D)?|PINS3D|POVR3D) .*\r?\n?", "",
             System.Text.RegularExpressions.RegexOptions.Multiline);
 
     /// <summary>Nativeへ明示入力する32桁小文字hexの新規3D Prefab instance IDを作る。</summary>
@@ -5111,10 +5111,29 @@ public partial class MainWindow : Window
         return list;
     }
 
-    /// <summary>3D instanceをNative transactionで再生成し、transform、親、Undoを一括維持する。新id / -1。</summary>
-    private int RefreshPrefabInstance3D(int id, string src, string prefabText)
+    /// <summary>3D instanceをNative transactionで再生成し、必要なら明示root overrideも維持する。新id / -1。</summary>
+    private int RefreshPrefabInstance3D(
+        int id,
+        string src,
+        string prefabText,
+        bool preserveRootOverrides)
     {
-        return EngineInterop.acs_editor_prefab_instance3d_refresh(Engine, id, src, prefabText);
+        if (!preserveRootOverrides)
+            return EngineInterop.acs_editor_prefab_instance3d_refresh(
+                Engine,
+                id,
+                src,
+                prefabText);
+        PrefabRootProperty3D preserveMask =
+            EngineInterop.acs_editor_prefab_instance3d_root_override_mask(
+                Engine,
+                id);
+        return EngineInterop.acs_editor_prefab_instance3d_refresh_with_root_overrides(
+            Engine,
+            id,
+            src,
+            prefabText,
+            preserveMask);
     }
 
     /// <summary>FindPrefabInstances の 3D 版 (3D ノードを走査)。</summary>
@@ -5143,11 +5162,23 @@ public partial class MainWindow : Window
         try { WriteComponentsTo(src, comp); }   // .acsbp は CMP だけ差し替え (VAR/graph 温存)、.acsprefab は全文
         catch (Exception ex) { Log("Apply エラー: " + ex.Message); return; }
 
+        if (_view3d &&
+            EngineInterop.acs_editor_prefab_instance3d_clear_root_overrides(
+                Engine,
+                id,
+                PrefabRootProperty3D.All) == 0)
+        {
+            Log(
+                "Apply後の3D Prefab root override状態を解消できませんでした。",
+                "Asset",
+                LogLevel.Warn);
+        }
+
         // 他の全インスタンスを再生成 (id を先に集めてから処理 = 走査中の構造変更を回避)。
         var targets = _view3d ? FindPrefabInstances3D(src, id) : FindPrefabInstances(src, id);
         int updated = 0;
         foreach (int t in targets)
-            if ((_view3d ? RefreshPrefabInstance3D(t, src, comp) : ReinstantiateInstance(t, src, comp)) >= 0) updated++;
+            if ((_view3d ? RefreshPrefabInstance3D(t, src, comp, preserveRootOverrides: true) : ReinstantiateInstance(t, src, comp)) >= 0) updated++;
         if (_view3d) { RefreshAfterSceneChange(); }
         else
         {
@@ -5171,7 +5202,7 @@ public partial class MainWindow : Window
         try { comp = ReadComponentsFor(src); }
         catch (Exception ex) { Log("Revert 読込エラー: " + ex.Message); return; }
         if (string.IsNullOrWhiteSpace(comp)) { Log("Revert 失敗 (コンポーネント木が空)。"); return; }
-        int nid = _view3d ? RefreshPrefabInstance3D(id, src, comp) : ReinstantiateInstance(id, src, comp);
+        int nid = _view3d ? RefreshPrefabInstance3D(id, src, comp, preserveRootOverrides: false) : ReinstantiateInstance(id, src, comp);
         if (nid >= 0)
         {
             if (_view3d) { RefreshAfterSceneChange(); }

@@ -276,7 +276,8 @@ internal static class SceneContractFixtureSelfTest
             "ACS3D v2\n" +
             "N3D 8 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Vehicle\n" +
             "PFAB3D 8 Prefabs/vehicle.acsprefab\n" +
-            "PINS3D 8 0123456789abcdef0123456789abcdef\n";
+            "PINS3D 8 0123456789abcdef0123456789abcdef\n" +
+            "POVR3D 8 5\n";
         CanonicalSceneAdapterInspection prefabInspection =
             CanonicalSceneAdapter.InspectText(prefabScene, ".acs3d");
         string cookedPrefab = CanonicalSceneAdapter.RewriteReferences(
@@ -297,8 +298,11 @@ internal static class SceneContractFixtureSelfTest
                 StringComparison.Ordinal) &&
             cookedPrefab.Contains(
                 "PINS3D 8 0123456789abcdef0123456789abcdef\n",
+                StringComparison.Ordinal) &&
+            cookedPrefab.Contains(
+                "POVR3D 8 5\n",
                 StringComparison.Ordinal),
-            "PFAB3D/PINS3D pass package validation while Cook rewrites only the source link");
+            "PFAB3D/PINS3D/POVR3D pass package validation while Cook rewrites only the source link");
 
         CanonicalSceneAdapterInspection duplicatePrefab =
             CanonicalSceneAdapter.InspectText(
@@ -340,6 +344,32 @@ internal static class SceneContractFixtureSelfTest
             duplicatePrefabIdentity.Diagnostics.Any(static diagnostic =>
                 diagnostic.Code == "SCENE3D_PREFAB_INSTANCE_ID_DUPLICATE"),
             "PINS3D orphan, malformed, and duplicate identities fail closed");
+
+        CanonicalSceneAdapterInspection invalidPrefabOverride =
+            CanonicalSceneAdapter.InspectText(
+                prefabScene.Replace("POVR3D 8 5\n", "POVR3D 8 8\n", StringComparison.Ordinal),
+                ".acs3d");
+        CanonicalSceneAdapterInspection duplicatePrefabOverride =
+            CanonicalSceneAdapter.InspectText(
+                prefabScene + "POVR3D 8 1\n",
+                ".acs3d");
+        CanonicalSceneAdapterInspection orphanPrefabOverride =
+            CanonicalSceneAdapter.InspectText(
+                "ACS3D v2\n" +
+                "N3D 8 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Vehicle\n" +
+                "POVR3D 8 1\n",
+                ".acs3d");
+        Check(
+            invalidPrefabOverride.HasErrors &&
+            invalidPrefabOverride.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_PREFAB_ROOT_OVERRIDE_INVALID") &&
+            duplicatePrefabOverride.HasErrors &&
+            duplicatePrefabOverride.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_PREFAB_ROOT_OVERRIDE_DUPLICATE") &&
+            orphanPrefabOverride.HasErrors &&
+            orphanPrefabOverride.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_PREFAB_ROOT_OVERRIDE_INVALID"),
+            "POVR3D unknown bits, duplicates, and orphan records fail closed");
 
         CanonicalSceneAdapterInspection legacy2D =
             CanonicalSceneAdapter.InspectText(

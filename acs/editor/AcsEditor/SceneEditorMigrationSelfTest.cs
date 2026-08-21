@@ -382,6 +382,12 @@ internal static class SceneEditorMigrationSelfTest
             refreshPrefabInstance3DBody.Contains(
                 "return EngineInterop.acs_editor_prefab_instance3d_refresh(",
                 StringComparison.Ordinal) &&
+            refreshPrefabInstance3DBody.Contains(
+                "acs_editor_prefab_instance3d_refresh_with_root_overrides(",
+                StringComparison.Ordinal) &&
+            refreshPrefabInstance3DBody.Contains(
+                "acs_editor_prefab_instance3d_root_override_mask(",
+                StringComparison.Ordinal) &&
             !refreshPrefabInstance3DBody.Contains(
                 "acs_editor_delete_node3d(",
                 StringComparison.Ordinal) &&
@@ -406,9 +412,9 @@ internal static class SceneEditorMigrationSelfTest
                 "NewPrefabInstanceId3D()",
                 StringComparison.Ordinal) &&
             shellSource.Contains(
-                "PFAB(?:3D)?|PINS3D",
+                "PFAB(?:3D)?|PINS3D|POVR3D",
                 StringComparison.Ordinal),
-            "3D Prefab placement supplies explicit identity through one native transaction and strips template self-links");
+            "3D Prefab placement supplies explicit identity through one native transaction and strips template self-links and overrides");
         Check(
             CountMatches(
                 applyRecoveryBody,
