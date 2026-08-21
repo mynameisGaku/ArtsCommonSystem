@@ -1,12 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "test/Test.h"
 #include "test/Expect.h"
+#include "asset/AssetRegistry.h"
+#include "asset/AudioAsset.h"
+#include "foundation/Move.h"
 #include "gameframework/AudioDirector.h"
 #include "gameframework/SpatialAudio.h"
+#include "memory/SharedPtr.h"
+#include "platform/FileSystem.h"
 
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <limits>
+#include <string>
 
 using namespace acs;
 using namespace acs::game;
@@ -178,6 +187,51 @@ private:
     bool m_AllTickDeltasFinite = true;
 };
 
+/** 名前解決経路を実ファイル I/O まで通し、最小 PCM asset を返す検証用 loader。 */
+class CTestAudioAssetLoader final : public IAssetLoader {
+public:
+    /** 生成する asset 型を返す。 */
+    AssetType TypeId() const noexcept override { return AAudioAsset::StaticType(); }
+
+    /** 検証用拡張子を返す。 */
+    const char* Extension() const noexcept override { return "audiotest"; }
+
+    /** 入力内容に依存しない無音 1 sample の audio asset を返す。 */
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override
+    {
+        (void)id;
+        (void)bytes;
+        TArray<byte> samples;
+        if (!samples.TrySetNum(sizeof(i16))) {
+            return ACS_ERR(Memory, 2800u, "CTestAudioAssetLoader: allocation failed");
+        }
+        samples[0] = 0u;
+        samples[1] = 0u;
+        TSharedPtr<AAudioAsset> audio = MakeShared<AAudioAsset>(
+            48000u, 1u, ESampleFormat::PCM_S16, 1u, Move(samples));
+        if (!audio.Get()) {
+            return ACS_ERR(Memory, 2801u, "CTestAudioAssetLoader: allocation failed");
+        }
+        TSharedPtr<AAsset> asset(Move(audio));
+        return TResult<TSharedPtr<AAsset>>(OkInit, Move(asset));
+    }
+};
+
+/** workspace 基準で source contract の検証対象を読み込む。 */
+std::string ReadAudioWorkspaceSource(const char* relative_path)
+{
+    const std::filesystem::path test_file{__FILE__};
+    const std::filesystem::path source_path =
+        test_file.parent_path().parent_path() / std::filesystem::path{relative_path};
+    std::ifstream stream(source_path, std::ios::binary);
+    if (!stream) {
+        stream.open(std::filesystem::path{"acs"} / std::filesystem::path{relative_path}, std::ios::binary);
+    }
+    return std::string{
+        std::istreambuf_iterator<char>{stream},
+        std::istreambuf_iterator<char>{}};
+}
+
 /** fake backend が受理する最小 mono clip を返す。 */
 FAudioClipDesc MakeClip() noexcept
 {
@@ -192,6 +246,76 @@ FAudioClipDesc MakeClip() noexcept
 }
 
 } // namespace
+
+ACS_TEST(AudioDirectorSfxVoice, ResolvesNameAndReturnsBackendVoiceWithoutDirectorStateMutation)
+{
+    constexpr const wchar_t* kAudioPath = L"acs_audio_director_voice.audiotest";
+    constexpr const char* kAudioPathUtf8 = "acs_audio_director_voice.audiotest";
+    const byte file_payload[]{0u};
+    (void)CFileSystem::Delete(kAudioPath);
+    EXPECT_TRUE(CFileSystem::WriteAllBytes(kAudioPath, file_payload, sizeof(file_payload)).IsOk());
+
+    CTestAudioAssetLoader loader;
+    CAssetRegistry registry;
+    EXPECT_TRUE(registry.TryRegisterLoader(&loader).IsOk());
+    CRecordingAudioBackend backend;
+    EXPECT_TRUE(backend.Init(4u).IsOk());
+    CAudioDirector director;
+    director.SetBackend(&backend);
+    director.SetAssetRegistry(&registry);
+    director.SetMasterVolume(0.5f);
+    director.SetSfxVolume(0.5f);
+
+    unsigned char state_before[sizeof(CAudioDirector)]{};
+    std::memcpy(state_before, &director, sizeof(director));
+    const FAudioVoiceHandle voice = director.PlaySfxVoice(kAudioPathUtf8, 2.0f, 1.5f);
+    EXPECT_TRUE(voice.IsValid());
+    EXPECT_EQ(backend.PlayCallCount(), 1u);
+    EXPECT_NEAR(backend.LastPlayVolume(), 0.5f, 1e-4f);
+    EXPECT_NEAR(backend.LastPlayPitch(), 1.5f, 1e-4f);
+    EXPECT_EQ(std::memcmp(state_before, &director, sizeof(director)), 0);
+
+    std::memcpy(state_before, &director, sizeof(director));
+    EXPECT_FALSE(director.PlaySfxVoice("acs_audio_director_missing.audiotest").IsValid());
+    EXPECT_EQ(std::memcmp(state_before, &director, sizeof(director)), 0);
+
+    backend.SetFailNextPlay();
+    std::memcpy(state_before, &director, sizeof(director));
+    EXPECT_FALSE(director.PlaySfxVoice(kAudioPathUtf8).IsValid());
+    EXPECT_EQ(std::memcmp(state_before, &director, sizeof(director)), 0);
+
+    registry.Shutdown();
+    EXPECT_TRUE(CFileSystem::Delete(kAudioPath).IsOk());
+}
+
+ACS_TEST(AudioDirectorSfxVoice, RejectsInvalidOrUnresolvedRequestsWithoutStateOnlyEntry)
+{
+    CRecordingAudioBackend backend;
+    EXPECT_TRUE(backend.Init(4u).IsOk());
+    CAssetRegistry registry;
+    CAudioDirector director;
+    director.SetBackend(&backend);
+    director.SetAssetRegistry(&registry);
+
+    unsigned char state_before[sizeof(CAudioDirector)]{};
+    std::memcpy(state_before, &director, sizeof(director));
+    EXPECT_FALSE(director.PlaySfxVoice(nullptr).IsValid());
+    EXPECT_FALSE(director.PlaySfxVoice("").IsValid());
+    EXPECT_FALSE(director.PlaySfxVoice("missing.audiotest").IsValid());
+    EXPECT_FALSE(director.PlaySfxVoice("missing.audiotest", 0.0f).IsValid());
+    EXPECT_FALSE(director.PlaySfxVoice(
+        "missing.audiotest", std::numeric_limits<f32>::quiet_NaN()).IsValid());
+    EXPECT_EQ(backend.PlayCallCount(), 0u);
+    EXPECT_EQ(std::memcmp(state_before, &director, sizeof(director)), 0);
+
+    CAudioDirector missing_registry;
+    missing_registry.SetBackend(&backend);
+    EXPECT_FALSE(missing_registry.PlaySfxVoice("missing.audiotest").IsValid());
+
+    CAudioDirector missing_backend;
+    missing_backend.SetAssetRegistry(&registry);
+    EXPECT_FALSE(missing_backend.PlaySfxVoice("missing.audiotest").IsValid());
+}
 
 ACS_TEST(AudioDirectorSfx, NonFiniteVolumeIsNoOpBeforeBackendOrRingMutation)
 {
@@ -747,6 +871,52 @@ ACS_TEST(SpatialAudioVoice, ComposesDirectorSourceAndDistanceVolume)
     EXPECT_NEAR(backend.LastVolume(), 0.025f, 1e-4f);
 }
 
+ACS_TEST(SpatialAudioVoice, ComposesRequestVolumeAndPreservesFourArgumentPitchContract)
+{
+    CRecordingAudioBackend backend;
+    EXPECT_TRUE(backend.Init(4u).IsOk());
+    CAudioDirector director;
+    director.SetBackend(&backend);
+    director.SetMasterVolume(0.5f);
+    director.SetSfxVolume(0.4f);
+    const FAudioVoiceHandle voice = director.PlaySfxClip(MakeClip());
+    EXPECT_TRUE(voice.IsValid());
+
+    CSpatialAudio spatial;
+    const u32 source_id = spatial.RegisterSource(
+        {0.0f, 0.0f, 5.0f}, 10.0f, EAttenuationCurve::Linear);
+
+    backend.ResetParameterRecords();
+    director.UpdateSpatialSfxVoice(voice, spatial, source_id, 0.25f, 1.75f);
+    EXPECT_EQ(backend.ParameterCallCount(), 1u);
+    EXPECT_NEAR(backend.LastVolume(), 0.025f, 1e-4f);
+    EXPECT_NEAR(backend.LastPitch(), 1.75f, 1e-4f);
+
+    // 既存 4 引数版の第 4 引数は volume_scale ではなく pitch のまま維持する。
+    backend.ResetParameterRecords();
+    director.UpdateSpatialSfxVoice(voice, spatial, source_id, 0.25f);
+    EXPECT_EQ(backend.ParameterCallCount(), 1u);
+    EXPECT_NEAR(backend.LastVolume(), 0.1f, 1e-4f);
+    EXPECT_NEAR(backend.LastPitch(), 0.25f, 1e-4f);
+
+    backend.ResetParameterRecords();
+    director.UpdateSpatialSfxVoice(
+        voice, spatial, source_id, std::numeric_limits<f32>::quiet_NaN(), 1.0f);
+    EXPECT_EQ(backend.ParameterCallCount(), 1u);
+    EXPECT_NEAR(backend.LastVolume(), 0.0f, 1e-4f);
+
+    backend.ResetParameterRecords();
+    director.UpdateSpatialSfxVoice(voice, spatial, source_id, 2.0f, 1.0f);
+    EXPECT_EQ(backend.ParameterCallCount(), 1u);
+    EXPECT_NEAR(backend.LastVolume(), 0.2f, 1e-4f);
+
+    spatial.RemoveSource(source_id);
+    EXPECT_FALSE(spatial.HasSource(source_id));
+    backend.ResetParameterRecords();
+    director.UpdateSpatialSfxVoice(voice, spatial, source_id, 1.0f, 1.0f);
+    EXPECT_EQ(backend.ParameterCallCount(), 0u);
+}
+
 ACS_TEST(SpatialAudioVoice, UpdatesPitchAndPauseResumeVolume)
 {
     CRecordingAudioBackend backend;
@@ -986,6 +1156,41 @@ ACS_TEST(SpatialAudio, NormalizesNonFinitePublicInputsAndReturnsFiniteRanges)
     EXPECT_NEAR(volume, 0.95f, 1e-4f);
     EXPECT_TRUE(std::isfinite(pan));
     EXPECT_TRUE(pan >= -1.0f && pan <= 1.0f);
+}
+
+ACS_TEST(SpatialAudio, HasSourceIsPublicAndRejectsStaleIds)
+{
+    CSpatialAudio spatial;
+    EXPECT_FALSE(spatial.HasSource(0u));
+    EXPECT_FALSE(spatial.HasSource(999u));
+
+    const u32 first_source = spatial.RegisterSource(
+        {0.0f, 0.0f, 1.0f}, 10.0f, EAttenuationCurve::Linear);
+    EXPECT_TRUE(spatial.HasSource(first_source));
+    spatial.RemoveSource(first_source);
+    EXPECT_FALSE(spatial.HasSource(first_source));
+
+    const u32 second_source = spatial.RegisterSource(
+        {0.0f, 0.0f, 2.0f}, 10.0f, EAttenuationCurve::Linear);
+    EXPECT_TRUE(spatial.HasSource(second_source));
+    spatial.Clear();
+    EXPECT_FALSE(spatial.HasSource(second_source));
+}
+
+ACS_TEST(SpatialAudioContract, PublicSourceQueryDoesNotUseDirectorFriend)
+{
+    const std::string header = ReadAudioWorkspaceSource("src/gameframework/SpatialAudio.h");
+    EXPECT_FALSE(header.empty());
+    EXPECT_EQ(header.find("friend class CAudioDirector"), std::string::npos);
+
+    const std::size_t class_begin = header.find("class CSpatialAudio");
+    const std::size_t public_begin = header.find("public:", class_begin);
+    const std::size_t query = header.find("bool HasSource(u32 id) const noexcept;", public_begin);
+    const std::size_t private_begin = header.find("private:", public_begin);
+    EXPECT_NE(class_begin, std::string::npos);
+    EXPECT_NE(public_begin, std::string::npos);
+    EXPECT_NE(query, std::string::npos);
+    EXPECT_TRUE(query < private_begin);
 }
 
 ACS_TEST(SpatialAudio, KeepsFiniteReturnRangesWhenVectorMathOverflows)

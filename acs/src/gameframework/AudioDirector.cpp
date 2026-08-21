@@ -300,6 +300,19 @@ void CAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept
     m_Sfx[slot].active = true;
 }
 
+/** 名前または asset path を解決し、実再生を開始できたときだけ voice ハンドルを返す。 */
+FAudioVoiceHandle CAudioDirector::PlaySfxVoice(const char* name, f32 volume_scale, f32 pitch) noexcept
+{
+    if (name == nullptr || name[0] == '\0') return kInvalidAudioVoice;
+    if (!std::isfinite(volume_scale) || volume_scale <= 0.0f) return kInvalidAudioVoice;
+    if (m_Backend == nullptr || m_Registry == nullptr) return kInvalidAudioVoice;
+
+    FAudioClipDesc clip;
+    TSharedPtr<AAsset> keep;
+    if (!ResolveAudioClip(m_Registry, name, clip, keep)) return kInvalidAudioVoice;
+    return PlaySfxClip(clip, volume_scale, pitch);
+}
+
 /** ダッキング state を設定する (既存を上書き、depth>=0.999 は実質 no-op)。 */
 void CAudioDirector::Duck(f32 duration_sec, f32 depth) noexcept
 {
@@ -573,10 +586,22 @@ void CAudioDirector::UpdateSpatialSfxVoice(FAudioVoiceHandle voice,
                                            u32 source_id,
                                            f32 pitch) noexcept
 {
+    UpdateSpatialSfxVoice(voice, spatial, source_id, 1.0f, pitch);
+}
+
+/** 再生中 SFX voice へ追加ゲイン、距離減衰、pan、pitch を一回の backend 更新で反映する。 */
+void CAudioDirector::UpdateSpatialSfxVoice(FAudioVoiceHandle voice,
+                                           const CSpatialAudio& spatial,
+                                           u32 source_id,
+                                           f32 volume_scale,
+                                           f32 pitch) noexcept
+{
     if (m_Backend == nullptr || !voice.IsValid() || !spatial.HasSource(source_id)) return;
 
+    const f32 normalized_volume_scale =
+        std::isfinite(volume_scale) && volume_scale > 0.0f ? volume_scale : 0.0f;
     const f32 volume = NormalizeSpatialVolume(
-        EffectiveSfxVolume() * spatial.ComputeAttenuatedVolume(source_id));
+        EffectiveSfxVolume() * normalized_volume_scale * spatial.ComputeAttenuatedVolume(source_id));
     const f32 pan = NormalizeSpatialPan(spatial.ComputePan(source_id));
     m_Backend->SetVoiceParameters(voice, volume, pan, NormalizeSpatialPitch(pitch));
 }

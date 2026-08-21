@@ -156,12 +156,16 @@ backend は Director からの最終利用まで生存させる。backend の切
 呼び出し側が直列化する。backend 呼び出し以降だけを backend 内部で同期し、この結線を
 thread-safe とは扱わない。
 
-- `PlaySfxClip()` で voice を開始した同じ frame に `UpdateSpatialSfxVoice()` を呼び、その後も
-  listener または source の移動後に毎 frame 呼ぶ。`Pause()` 中も呼ぶことで音量 0 を反映し、
-  `Resume()` 後の次回更新で距離減衰後の音量へ戻す。
-- 更新音量は Master、Sfx、source の基準音量、距離減衰を合成する。削除済み source と無効 voice
-  は Director から backend へ渡さず、解放済み voice は backend が安全な no-op として扱う。
-  source の解除だけでは対応 voice を自動停止しない。
+- 名前または asset path から始める場合は `PlaySfxVoice()`、PCM を直接渡す場合は
+  `PlaySfxClip()` で voice handle を得る。`PlaySfxVoice()` は backend と registry の両方が必要で、
+  解決・ロード・再生に失敗した場合は state-only ring へ追加せず無効 handle を返す。
+- voice を開始した同じ frame に `UpdateSpatialSfxVoice()` を呼び、その後も listener または source の
+  移動後に毎 frame 呼ぶ。`Pause()` 中も呼ぶことで音量 0 を反映し、`Resume()` 後の次回更新で
+  距離減衰後の音量へ戻す。
+- 5 引数版の更新音量は Master、Sfx、要求単位の `volume_scale`、source の基準音量、距離減衰を
+  合成する。既存 4 引数版の第 4 引数は引き続き pitch であり、`volume_scale = 1` として動く。
+  削除済み source と無効 voice は Director から backend へ渡さず、解放済み voice は backend が
+  安全な no-op として扱う。source の解除だけでは対応 voice を自動停止しない。
 - XAudio2 backend の左右 pan は mono source と、左右 front speaker を識別できる出力だけに
   適用する。stereo または多 channel source、出力 channel mask を取得できない環境では既存の
   matrix を保ち、音量と pitch だけを更新する。

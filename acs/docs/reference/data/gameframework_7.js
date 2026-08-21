@@ -135,6 +135,7 @@ ACS_REF.modules.push({
         { sig: "f32 ComputeAttenuatedVolume(u32 id) const", ret: "最終音量 [0,1]", desc: "距離とカーブから音量を算出。範囲外 / 無効は 0。", when: "毎フレーム取り出してミキサ音量に掛ける。" },
         { sig: "f32 ComputePan(u32 id) const", ret: "パン [-1,+1]", desc: "-1=完全左 / 0=正面・真後ろ / +1=完全右。" },
         { sig: "u32 SourceCount() const", ret: "稼働音源数", desc: "有効な音源の数。" },
+        { sig: "bool HasSource(u32 id) const", ret: "登録中なら true", desc: "source ID が現在有効かを返す。0、削除済み、未登録は false。" },
         { sig: "void Tick(f32 dt) / void Clear()", desc: "毎フレームの更新 / 全音源を空にする (聞き手は保持)。" },
         { sig: "using FSpatialAudio = CSpatialAudio", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSpatialAudio</code> を使う。" }
       ]
