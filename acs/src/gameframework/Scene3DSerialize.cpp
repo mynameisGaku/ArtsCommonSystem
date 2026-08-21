@@ -61,6 +61,7 @@ struct FParsedNode {
     bool HasPrefabPath = false;
     bool HasPrefabInstanceId = false;
     bool HasPrefabOverride = false;
+    bool HasPrefabNodeOverride = false;
     bool HasPrefabSourceNodeId = false;
     bool HasLegacyMaterial = false;
     bool Visible = true;
@@ -77,6 +78,7 @@ struct FParsedNode {
     char PrefabInstanceId[kScene3DSerializePrefabInstanceIdBytes + 1u]{};
     char PrefabSourceNodeId[kScene3DSerializePrefabSourceNodeIdBytes + 1u]{};
     u32 PrefabRootPropertyOverrideMask = 0u;
+    u32 PrefabNodePropertyOverrideMask = 0u;
     TSharedPtr<AAsset> LoadedMesh;
     TSharedPtr<AAsset> LoadedSpriteImage;
     FMaterial2D LoadedMaterial{};
@@ -430,6 +432,17 @@ EScene3DSerializeError FormatPrefabSourceNodeIdentityLine(const APrefabNodeIdent
     return EScene3DSerializeError::None;
 }
 
+/** 3D Prefab child nodeのproperty override maskをPNOVR3D行へ整形する。 */
+EScene3DSerializeError FormatPrefabNodeOverrideLine(const APrefabNodeIdentity3DComponent& identity, i32 id, char* line, u32 capacity, u32& line_size) noexcept
+{
+    const u32 mask = identity.NodePropertyOverrideMask();
+    if (mask == 0u || (mask & ~kPrefabNodeProperty3DAllMask) != 0u) return EScene3DSerializeError::InvalidPrefabOverride;
+    const int written = std::snprintf(line, static_cast<size_t>(capacity), "PNOVR3D %d %u\n", id, static_cast<unsigned>(mask));
+    if (written <= 0 || static_cast<u32>(written) >= capacity) return EScene3DSerializeError::SerializedSizeOverflow;
+    line_size = static_cast<u32>(written);
+    return EScene3DSerializeError::None;
+}
+
 /** 3D Prefabの非実行リンクをPFAB3D行へ整形する。 */
 EScene3DSerializeError FormatPrefabLine(const APrefabLink3DComponent& prefab, i32 id, char* line, u32 capacity, u32& line_size) noexcept
 {
@@ -453,6 +466,23 @@ bool IsCanonicalPrefabInstanceId(FStringView instance_id) noexcept
         if (!((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))) return false;
     }
     return true;
+}
+
+/** 指定nodeがstable 3D Prefab root自身ではなく、その子scopeに属するかを返す。 */
+bool HasStablePrefabAncestor(const TArray<const ANode*>& nodes, const TArray<i32>& parents, u32 node_index) noexcept
+{
+    if (node_index >= nodes.Num() || node_index >= parents.Num()) return false;
+    const APrefabLink3DComponent* const own_link = FindPrefabLink(*nodes[node_index]);
+    if (own_link != nullptr && !own_link->SourcePath().IsEmpty() && IsCanonicalPrefabInstanceId(own_link->InstanceId())) return false;
+    i32 current = parents[node_index];
+    while (current >= 0) {
+        const u32 parent_index = static_cast<u32>(current);
+        if (parent_index >= nodes.Num() || parent_index >= parents.Num()) return false;
+        const APrefabLink3DComponent* const link = FindPrefabLink(*nodes[parent_index]);
+        if (link != nullptr && !link->SourcePath().IsEmpty() && IsCanonicalPrefabInstanceId(link->InstanceId())) return true;
+        current = parents[parent_index];
+    }
+    return false;
 }
 
 /** 3D Prefab instanceの安定IDをPINS3D行へ整形する。 */
@@ -724,6 +754,25 @@ EScene3DSerializeError ParsePrefabSourceNodeIdentityLine(const char* line, u32 s
         record.PrefabSourceNodeId[index] = value;
     }
     record.HasPrefabSourceNodeId = true;
+    return EScene3DSerializeError::None;
+}
+
+/** PNOVR3Dのnode参照と定義済みchild property maskを検証して保持する。 */
+EScene3DSerializeError ParsePrefabNodeOverrideLine(const char* line, u32 size, TArray<FParsedNode>& nodes, THashMap<i32, u32>& id_to_index) noexcept
+{
+    const char* cursor = line + 8u;
+    const char* end = line + size;
+    i32 id = -1;
+    i32 signed_mask = 0;
+    if (!ParseI32(cursor, end, id) || !ParseI32(cursor, end, signed_mask)) return EScene3DSerializeError::InvalidPrefabOverride;
+    const u32* const node_index = id_to_index.Find(id);
+    SkipSpaces(cursor, end);
+    if (id < 0 || node_index == nullptr || cursor != end) return EScene3DSerializeError::InvalidPrefabOverride;
+    FParsedNode& record = nodes[*node_index];
+    const u32 mask = signed_mask > 0 ? static_cast<u32>(signed_mask) : 0u;
+    if (!record.HasPrefabSourceNodeId || record.HasPrefabNodeOverride || mask == 0u || (mask & ~kPrefabNodeProperty3DAllMask) != 0u) return EScene3DSerializeError::InvalidPrefabOverride;
+    record.HasPrefabNodeOverride = true;
+    record.PrefabNodePropertyOverrideMask = mask;
     return EScene3DSerializeError::None;
 }
 
@@ -1134,6 +1183,30 @@ EScene3DSerializeError PrepareComponents(TArray<FParsedComponent>& components, c
     return EScene3DSerializeError::None;
 }
 
+/** PNOVR3Dがstable Prefab root自身ではなく、その子scopeに属することを検証する。 */
+EScene3DSerializeError ValidatePrefabNodeOverrides(const TArray<FParsedNode>& nodes) noexcept
+{
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
+        const FParsedNode& node = nodes[index];
+        if (!node.HasPrefabNodeOverride) continue;
+        if (node.HasPrefabInstanceId) return EScene3DSerializeError::InvalidPrefabOverride;
+        i32 current = node.ParentIndex;
+        bool found_owner = false;
+        while (current >= 0) {
+            const u32 parent_index = static_cast<u32>(current);
+            if (parent_index >= nodes.Num()) return EScene3DSerializeError::InvalidPrefabOverride;
+            const FParsedNode& parent = nodes[parent_index];
+            if (parent.HasPrefabPath && parent.HasPrefabInstanceId) {
+                found_owner = true;
+                break;
+            }
+            current = parent.ParentIndex;
+        }
+        if (!found_owner) return EScene3DSerializeError::InvalidPrefabOverride;
+    }
+    return EScene3DSerializeError::None;
+}
+
 FScene3DLoadResult LoadFailure(
     EScene3DSerializeError error, u32 bytes, u32 line, u32 node_count,
     u32 mesh_path_count) noexcept {
@@ -1264,6 +1337,18 @@ FScene3DSaveResult TrySaveScene3DText(
             if (!CheckedAdd(text_bytes, line_size)) {
                 result.Error = EScene3DSerializeError::SerializedSizeOverflow;
                 return result;
+            }
+            if (prefab_node_identity->NodePropertyOverrideMask() != 0u) {
+                if (!HasStablePrefabAncestor(nodes, parents, i)) {
+                    result.Error = EScene3DSerializeError::InvalidPrefabOverride;
+                    return result;
+                }
+                result.Error = FormatPrefabNodeOverrideLine(*prefab_node_identity, static_cast<i32>(i), line, sizeof(line), line_size);
+                if (result.Error != EScene3DSerializeError::None) return result;
+                if (!CheckedAdd(text_bytes, line_size)) {
+                    result.Error = EScene3DSerializeError::SerializedSizeOverflow;
+                    return result;
+                }
             }
         }
         const APrefabLink3DComponent* prefab = FindPrefabLink(*nodes[i]);
@@ -1413,6 +1498,23 @@ FScene3DSaveResult TrySaveScene3DText(
             }
             std::memcpy(out + cursor, line, line_size);
             cursor += line_size;
+            if (prefab_node_identity->NodePropertyOverrideMask() != 0u) {
+                if (!HasStablePrefabAncestor(nodes, parents, i)) {
+                    result.Error = EScene3DSerializeError::SceneChangedDuringSave;
+                    result.BytesWritten = cursor;
+                    out[cursor] = '\0';
+                    return result;
+                }
+                result.Error = FormatPrefabNodeOverrideLine(*prefab_node_identity, static_cast<i32>(i), line, sizeof(line), line_size);
+                if (result.Error != EScene3DSerializeError::None || line_size > cap - cursor - 1u) {
+                    result.Error = EScene3DSerializeError::SceneChangedDuringSave;
+                    result.BytesWritten = cursor;
+                    out[cursor] = '\0';
+                    return result;
+                }
+                std::memcpy(out + cursor, line, line_size);
+                cursor += line_size;
+            }
         }
         const APrefabLink3DComponent* prefab = FindPrefabLink(*nodes[i]);
         if (prefab != nullptr) {
@@ -1737,6 +1839,8 @@ FScene3DLoadResult ParseScene3DDocument(
             error = ParseSpriteLine(line, line_size, document.Nodes, id_to_index, document.SpriteCount);
         } else if (StartsWith(line, line_size, "PSID3D ", 7u)) {
             error = ParsePrefabSourceNodeIdentityLine(line, line_size, document.Nodes, id_to_index);
+        } else if (StartsWith(line, line_size, "PNOVR3D ", 8u)) {
+            error = ParsePrefabNodeOverrideLine(line, line_size, document.Nodes, id_to_index);
         } else if (StartsWith(line, line_size, "PFAB3D ", 7u)) {
             error = ParsePrefabLine(line, line_size, document.Nodes, id_to_index, document.PrefabCount);
         } else if (StartsWith(line, line_size, "PINS3D ", 7u)) {
@@ -1777,6 +1881,10 @@ FScene3DLoadResult ParseScene3DDocument(
         return LoadFailure(
             EScene3DSerializeError::MissingRoot, cursor, line_number,
             0u, document.MeshPathCount);
+    }
+    const EScene3DSerializeError node_override_error = ValidatePrefabNodeOverrides(document.Nodes);
+    if (node_override_error != EScene3DSerializeError::None) {
+        return LoadFailure(node_override_error, cursor, line_number, static_cast<u32>(document.Nodes.Num()), document.MeshPathCount);
     }
     const EScene3DSerializeError component_error = PrepareComponents(document.Components, document.Properties, document.PrefabComponentOverrides);
     if (component_error != EScene3DSerializeError::None) {
@@ -1900,6 +2008,7 @@ FScene3DLoadResult CommitScene3DDocument(
         if (record.HasPrefabSourceNodeId) {
             APrefabNodeIdentity3DComponent& identity = node->AddComponent<APrefabNodeIdentity3DComponent>();
             if (!identity.TrySetSourceNodeId(FStringView(record.PrefabSourceNodeId))) return LoadFailure(EScene3DSerializeError::InvalidPrefabSourceNodeId, document.SourceBytes, 0u, static_cast<u32>(document.Nodes.Num()), document.MeshPathCount);
+            if (record.HasPrefabNodeOverride && !identity.TrySetNodePropertyOverrideMask(record.PrefabNodePropertyOverrideMask)) return LoadFailure(EScene3DSerializeError::InvalidPrefabOverride, document.SourceBytes, 0u, static_cast<u32>(document.Nodes.Num()), document.MeshPathCount);
         }
         if (record.HasPrefabPath) {
             APrefabLink3DComponent& prefab =

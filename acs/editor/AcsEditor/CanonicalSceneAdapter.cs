@@ -365,6 +365,7 @@ public static class CanonicalSceneAdapter
         var prefabInstanceIds = new HashSet<string>(StringComparer.Ordinal);
         var prefabSourceIdentityNodes = new HashSet<int>();
         var prefabOverrideNodes = new HashSet<int>();
+        var prefabNodeOverrideLines = new Dictionary<int, int>();
         var prefabComponentOverrides = new HashSet<(int Node, int Slot, int Property)>();
         var cameraNodes = new HashSet<int>();
         var cameraIds = new HashSet<string>(StringComparer.Ordinal);
@@ -456,6 +457,9 @@ public static class CanonicalSceneAdapter
                 case "POVR3D":
                     InspectPrefabRootOverride(line, lineNumber);
                     break;
+                case "PNOVR3D":
+                    InspectPrefabNodeOverride(line, lineNumber);
+                    break;
                 case "PCOVR3D":
                     InspectPrefabRootComponentOverride(line, lineNumber);
                     break;
@@ -468,6 +472,37 @@ public static class CanonicalSceneAdapter
                         $"Unknown ACS3D directive '{directive}'.",
                         lineNumber));
                     break;
+            }
+        }
+
+        foreach ((int nodeId, int lineNumber) in prefabNodeOverrideLines)
+        {
+            if (!nodes.TryGetValue(nodeId, out NodeRecord? node) ||
+                prefabInstanceNodes.Contains(nodeId))
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_PREFAB_NODE_OVERRIDE_SCOPE_INVALID",
+                    "PNOVR3D is only valid on a non-root child of a stable 3D Prefab instance.",
+                    lineNumber));
+                continue;
+            }
+            int parent = node.Parent;
+            bool foundOwner = false;
+            while (parent >= 0 && nodes.TryGetValue(parent, out NodeRecord? ancestor))
+            {
+                if (prefabInstanceNodes.Contains(parent))
+                {
+                    foundOwner = true;
+                    break;
+                }
+                parent = ancestor.Parent;
+            }
+            if (!foundOwner)
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_PREFAB_NODE_OVERRIDE_SCOPE_INVALID",
+                    "PNOVR3D requires a stable PINS3D ancestor in the same 3D Prefab scope.",
+                    lineNumber));
             }
         }
 
@@ -534,7 +569,7 @@ public static class CanonicalSceneAdapter
                     lineNumber));
                 return;
             }
-            nodes.Add(id, new(primitive));
+            nodes.Add(id, new(primitive, parent));
             componentCounts.Add(id, 0);
         }
 
@@ -844,6 +879,30 @@ public static class CanonicalSceneAdapter
             }
         }
 
+        void InspectPrefabNodeOverride(string line, int lineNumber)
+        {
+            string[] tokens = Tokens(line);
+            if (tokens.Length != 3 ||
+                !TryInt(tokens[1], out int id) ||
+                !prefabSourceIdentityNodes.Contains(id) ||
+                !TryInt(tokens[2], out int mask) ||
+                mask <= 0 || (mask & ~7) != 0)
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_PREFAB_NODE_OVERRIDE_INVALID",
+                    "PNOVR3D requires an earlier PSID3D on the same node and a non-zero Visible/Enabled/Color mask.",
+                    lineNumber));
+                return;
+            }
+            if (!prefabNodeOverrideLines.TryAdd(id, lineNumber))
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_PREFAB_NODE_OVERRIDE_DUPLICATE",
+                    "Each 3D Prefab child node may have at most one PNOVR3D record.",
+                    lineNumber));
+            }
+        }
+
         void InspectPrefabRootComponentOverride(string line, int lineNumber)
         {
             string[] tokens = Tokens(line);
@@ -1081,5 +1140,5 @@ public static class CanonicalSceneAdapter
         string path = "") =>
         new(CanonicalSceneAdapterSeverity.Error, code, message, line, path);
 
-    private sealed record NodeRecord(int Primitive);
+    private sealed record NodeRecord(int Primitive, int Parent);
 }

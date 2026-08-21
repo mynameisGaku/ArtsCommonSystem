@@ -14,6 +14,16 @@ internal enum PrefabRootProperty3D : uint
 }
 
 [Flags]
+internal enum PrefabNodeProperty3D : uint
+{
+    None = 0,
+    Visible = 1u << 0,
+    Enabled = 1u << 1,
+    Color = 1u << 2,
+    All = Visible | Enabled | Color,
+}
+
+[Flags]
 internal enum CameraViewRequestFlags : uint
 {
     None = 0,
@@ -1639,6 +1649,33 @@ internal static class EngineInterop
     public static extern PrefabRootProperty3D acs_editor_prefab_instance3d_root_override_mask(
         IntPtr handle,
         int id);
+    /// <summary>node自身または最も近いancestorのstable 3D Prefab root ID。未所属では-1。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_root_for_node(
+        IntPtr handle,
+        int id);
+    /// <summary>rootまたはchildでoverride済みのVisible/Enabled/Color bitを返す。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern PrefabNodeProperty3D acs_editor_prefab_instance3d_property_override_mask(
+        IntPtr handle,
+        int id);
+    /// <summary>編集成功済みのrootまたはchild propertyをoverrideへ追加する。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_mark_property_override(
+        IntPtr handle,
+        int id,
+        PrefabNodeProperty3D mask);
+    /// <summary>Selective Apply済みのrootまたはchild propertyをoverrideから外す。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_clear_property_overrides(
+        IntPtr handle,
+        int id,
+        PrefabNodeProperty3D mask);
+    /// <summary>Full Apply済みroot scopeのchild property overrideを全て解消する。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_clear_child_property_overrides(
+        IntPtr handle,
+        int rootId);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_prefab_instance3d_mark_root_override(
         IntPtr handle,
@@ -1691,6 +1728,14 @@ internal static class EngineInterop
         [MarshalAs(UnmanagedType.LPUTF8Str)] string source,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string text,
         PrefabRootProperty3D revertMask);
+    /// <summary>指定したchild node propertyだけを原本値へ戻し、他のoverrideを維持する。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_revert_node_overrides(
+        IntPtr handle,
+        int id,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string source,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string text,
+        PrefabNodeProperty3D revertMask);
     /// <summary>3D ノードの subtree を ACS3D テキストへシリアライズ取得 (UTF-8)。</summary>
     public static string CopySubtree3D(IntPtr handle, int id) =>
         Marshal.PtrToStringUTF8(acs_editor_copy_subtree3d(handle, id)) ?? "";

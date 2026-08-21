@@ -273,6 +273,7 @@ set(_acsgen_gameframework_headers
     Pool.h
     PrefabLink3DComponent.h
     PrefabNodeIdentity3DComponent.h
+    PrefabNodeProperty3D.h
     PrefabRootProperty3D.h
     PrefabSystem.h
     PrimitiveRenderer2D.h

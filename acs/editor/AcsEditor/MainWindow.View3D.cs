@@ -19,6 +19,8 @@ public partial class MainWindow
     // this source-adapter flag before any viewport is published.
     private bool _view3d = true;
     private bool _pop3d;                  // 3D Inspector を populate 中 (編集イベントの再入抑止)
+    private StackPanel? _prefabNodeOverrideBanner3D;
+    private int _prefabNodeOverrideBannerNodeId = -1;
 
     // ===== Hierarchy: 3D ノード一覧 =====
     private void Build3DHierarchy()
@@ -70,14 +72,14 @@ public partial class MainWindow
             {
                 if (Engine == IntPtr.Zero) return;
                 EngineInterop.acs_editor_node3d_set_visible(Engine, vid, 1);
-                MarkPrefabRootOverride3D(vid, PrefabRootProperty3D.Visible);
+                MarkPrefabPropertyOverride3D(vid, PrefabNodeProperty3D.Visible);
                 RecordSceneDocumentChange("Visibility");
             };
             eye.Unchecked += (_, __) =>
             {
                 if (Engine == IntPtr.Zero) return;
                 EngineInterop.acs_editor_node3d_set_visible(Engine, vid, 0);
-                MarkPrefabRootOverride3D(vid, PrefabRootProperty3D.Visible);
+                MarkPrefabPropertyOverride3D(vid, PrefabNodeProperty3D.Visible);
                 RecordSceneDocumentChange("Visibility");
             };
             var hdr = new StackPanel { Orientation = Orientation.Horizontal };
@@ -199,6 +201,8 @@ public partial class MainWindow
         _pop3d = true;
         try
         {
+            _prefabNodeOverrideBanner3D = null;
+            _prefabNodeOverrideBannerNodeId = -1;
             Insp3DPanel.Children.Clear();
             Insp3DPanel.Visibility = Visibility.Collapsed;
             // ヘッダの Enabled トグルも隠す (選択なし / 2D)。
@@ -239,7 +243,7 @@ public partial class MainWindow
         int id = EngineInterop.acs_editor_selected3d(Engine);
         if (id < 0) return;
         EngineInterop.acs_editor_node3d_set_enabled(Engine, id, InspEnabled.IsChecked == true ? 1 : 0);
-        MarkPrefabRootOverride3D(id, PrefabRootProperty3D.Enabled);
+        MarkPrefabPropertyOverride3D(id, PrefabNodeProperty3D.Enabled);
         RecordSceneDocumentChange("Enabled State");
     }
 
@@ -278,10 +282,18 @@ public partial class MainWindow
         InspEnabled.IsChecked  = EngineInterop.acs_editor_node3d_get_enabled(Engine, id) != 0;
         InspEnabled.Visibility = Visibility.Visible;
         InspEnabled.ToolTip = "有効 (Enabled)";
+        _prefabNodeOverrideBanner3D = null;
+        _prefabNodeOverrideBannerNodeId = -1;
         Insp3DPanel.Children.Clear();
         // プレハブ/Blueprint インスタンスなら «◆ Prefab: X» + Apply/Revert バナーを先頭に出す (2D PopulateComponents 鏡映)。
-        string prefabSrc = EngineInterop.NodePrefabSrc3D(Engine, id);
-        if (!string.IsNullOrEmpty(prefabSrc))
+        int prefabRootId =
+            EngineInterop.acs_editor_prefab_instance3d_root_for_node(
+                Engine,
+                id);
+        string prefabSrc = prefabRootId >= 0
+            ? EngineInterop.NodePrefabSrc3D(Engine, prefabRootId)
+            : "";
+        if (!string.IsNullOrEmpty(prefabSrc) && prefabRootId == id)
         {
             PrefabRootProperty3D rootOverrides =
                 EngineInterop.acs_editor_prefab_instance3d_root_override_mask(
@@ -363,6 +375,24 @@ public partial class MainWindow
             Insp3DPanel.Children.Add(new Border {
                 Background = (Brush)FindResource("Panel2"), CornerRadius = new CornerRadius(5),
                 Padding = new Thickness(8, 6, 8, 7), Margin = new Thickness(0, 0, 0, 6), Child = banner });
+        }
+        else if (!string.IsNullOrEmpty(prefabSrc))
+        {
+            var childBanner = new StackPanel
+            {
+                Margin = new Thickness(0, 0, 0, 6),
+            };
+            _prefabNodeOverrideBanner3D = childBanner;
+            _prefabNodeOverrideBannerNodeId = id;
+            PopulatePrefabNodeOverrideBanner3D(childBanner, id, prefabSrc);
+            Insp3DPanel.Children.Add(new Border
+            {
+                Background = (Brush)FindResource("Panel2"),
+                CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(8, 6, 8, 7),
+                Margin = new Thickness(0, 0, 0, 6),
+                Child = childBanner,
+            });
         }
         bool anyDetails = false;
         // Actor label stays editable, but participates in Details filtering like any other property.
@@ -2040,7 +2070,7 @@ public partial class MainWindow
         if (succeeded)
         {
             foreach (int nodeId in selected)
-                MarkPrefabRootOverride3D(nodeId, PrefabRootProperty3D.Color);
+                MarkPrefabPropertyOverride3D(nodeId, PrefabNodeProperty3D.Color);
         }
         return succeeded;
     }
@@ -2098,7 +2128,7 @@ public partial class MainWindow
         if (succeeded)
         {
             foreach (int nodeId in selected)
-                MarkPrefabRootOverride3D(nodeId, PrefabRootProperty3D.Enabled);
+                MarkPrefabPropertyOverride3D(nodeId, PrefabNodeProperty3D.Enabled);
         }
         return succeeded;
     }
@@ -2592,9 +2622,9 @@ public partial class MainWindow
                 {
                     if (EngineInterop.acs_editor_node3d_set_color(
                             Engine, id, r, g, b, a) != 0)
-                        MarkPrefabRootOverride3D(
+                        MarkPrefabPropertyOverride3D(
                             id,
-                            PrefabRootProperty3D.Color);
+                            PrefabNodeProperty3D.Color);
                 },
                 id,
                 "inspector.appearance.color"));
@@ -2789,22 +2819,99 @@ public partial class MainWindow
             tf[0], tf[1], tf[2], tf[3], tf[4], tf[5], tf[6], tf[7], tf[8]);
     }
 
-    /// <summary>成功済みの値編集をstable 3D Prefab rootのoverride metadataへ明示的に反映する。</summary>
-    private void MarkPrefabRootOverride3D(
+    /// <summary>成功済みの値編集をstable 3D Prefabのrootまたはchild overrideへ明示的に反映する。</summary>
+    private void MarkPrefabPropertyOverride3D(
         int id,
-        PrefabRootProperty3D property)
+        PrefabNodeProperty3D property)
     {
         if (Engine == IntPtr.Zero || id < 0) return;
-        if (EngineInterop.acs_editor_prefab_instance3d_mark_root_override(
+        if (EngineInterop.acs_editor_prefab_instance3d_mark_property_override(
                 Engine,
                 id,
                 property) == 0)
         {
             Log(
-                $"3D Prefab root overrideを記録できませんでした (node {id}, {property})。",
+                $"3D Prefab node overrideを記録できませんでした (node {id}, {property})。",
                 "Scene",
                 LogLevel.Warn);
+            return;
         }
+        RefreshPrefabNodeOverrideBanner3D(id);
+    }
+
+    /// <summary>child node overrideの件数とproperty単位操作だけを再構築する。</summary>
+    private void PopulatePrefabNodeOverrideBanner3D(
+        StackPanel banner,
+        int id,
+        string prefabSrc)
+    {
+        PrefabNodeProperty3D nodeOverrides =
+            EngineInterop.acs_editor_prefab_instance3d_property_override_mask(
+                Engine,
+                id);
+        int nodeOverrideCount =
+            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Visible) ? 1 : 0) +
+            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Enabled) ? 1 : 0) +
+            (nodeOverrides.HasFlag(PrefabNodeProperty3D.Color) ? 1 : 0);
+        string sourceNodeId =
+            EngineInterop.NodePrefabSourceNodeId3D(Engine, id);
+        banner.Children.Clear();
+        banner.Children.Add(new TextBlock
+        {
+            Text = (IsBlueprint(prefabSrc) ? "◆ Blueprint child: " : "◆ Prefab child: ") +
+                System.IO.Path.GetFileName(prefabSrc),
+            Foreground = (Brush)FindResource("Accent"),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, nodeOverrideCount > 0 ? 1 : 0),
+            ToolTip = sourceNodeId.Length == 32
+                ? $"Source node ID: {sourceNodeId}"
+                : null,
+        });
+        if (nodeOverrideCount == 0) return;
+        banner.Children.Add(new TextBlock
+        {
+            Text = $"{nodeOverrideCount} node override{(nodeOverrideCount == 1 ? "" : "s")}",
+            Foreground = (Brush)FindResource("TextDim"),
+            FontSize = 10,
+            Margin = new Thickness(0, 0, 0, 4),
+        });
+        var overrideRow = new WrapPanel();
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Visible))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideApplyButton3D(id, PrefabNodeProperty3D.Visible, "Visible"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Visible))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideRevertButton3D(id, PrefabNodeProperty3D.Visible, "Visible"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Enabled))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideApplyButton3D(id, PrefabNodeProperty3D.Enabled, "Enabled"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Enabled))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideRevertButton3D(id, PrefabNodeProperty3D.Enabled, "Enabled"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Color))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideApplyButton3D(id, PrefabNodeProperty3D.Color, "Color"));
+        if (nodeOverrides.HasFlag(PrefabNodeProperty3D.Color))
+            overrideRow.Children.Add(CreatePrefabNodeOverrideRevertButton3D(id, PrefabNodeProperty3D.Color, "Color"));
+        banner.Children.Add(overrideRow);
+    }
+
+    /// <summary>現在表示中のchild bannerだけを更新し、編集中fieldのfocusを維持する。</summary>
+    private void RefreshPrefabNodeOverrideBanner3D(int id)
+    {
+        if (_prefabNodeOverrideBanner3D == null ||
+            _prefabNodeOverrideBannerNodeId != id ||
+            EngineInterop.acs_editor_selected3d(Engine) != id)
+            return;
+        int prefabRootId =
+            EngineInterop.acs_editor_prefab_instance3d_root_for_node(
+                Engine,
+                id);
+        if (prefabRootId < 0 || prefabRootId == id) return;
+        string prefabSrc =
+            EngineInterop.NodePrefabSrc3D(Engine, prefabRootId);
+        if (string.IsNullOrEmpty(prefabSrc)) return;
+        PopulatePrefabNodeOverrideBanner3D(
+            _prefabNodeOverrideBanner3D,
+            id,
+            prefabSrc);
     }
 
     /// <summary>成功済みcomponent編集をstable 3D Prefab rootのoverrideへ記録する。</summary>
@@ -2855,6 +2962,34 @@ public partial class MainWindow
             ToolTip = $"{label} overrideだけを原本へ反映する",
         };
         button.Click += (_, __) => ApplyPrefabRootOverride3D(id, property);
+        return button;
+    }
+
+    /// <summary>1つの3D Prefab child node overrideだけをRevertする小型buttonを作る。</summary>
+    private Button CreatePrefabNodeOverrideRevertButton3D(int id, PrefabNodeProperty3D property, string label)
+    {
+        var button = new Button {
+            Content = $"Revert {label}",
+            FontSize = 10,
+            Padding = new Thickness(7, 1, 7, 1),
+            Margin = new Thickness(0, 0, 5, 4),
+            ToolTip = $"child {label} overrideだけを原本値へ戻す",
+        };
+        button.Click += (_, __) => RevertPrefabNodeOverride3D(id, property);
+        return button;
+    }
+
+    /// <summary>1つの3D Prefab child node overrideだけをApplyする小型buttonを作る。</summary>
+    private Button CreatePrefabNodeOverrideApplyButton3D(int id, PrefabNodeProperty3D property, string label)
+    {
+        var button = new Button {
+            Content = $"Apply {label}",
+            FontSize = 10,
+            Padding = new Thickness(7, 1, 7, 1),
+            Margin = new Thickness(0, 0, 5, 4),
+            ToolTip = $"child {label} overrideだけを原本へ反映する",
+        };
+        button.Click += (_, __) => ApplyPrefabNodeOverride3D(id, property);
         return button;
     }
 

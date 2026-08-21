@@ -34,6 +34,7 @@ internal enum EditorAbiCapability : ulong
     PrefabRootComponentPropertySelectiveRevert3DV1 = 1UL << 20,
     PrefabRootComponentPropertySelectiveApply3DV1 = 1UL << 21,
     PrefabSourceNodeIdentity3DV1 = 1UL << 22,
+    PrefabNodePropertyOverride3DV1 = 1UL << 24,
 }
 
 internal readonly record struct EditorAbiSnapshot(
@@ -105,7 +106,8 @@ internal static class EditorAbiContract
         EditorAbiCapability.PrefabRootComponentPropertyOverride3DV1 |
         EditorAbiCapability.PrefabRootComponentPropertySelectiveRevert3DV1 |
         EditorAbiCapability.PrefabRootComponentPropertySelectiveApply3DV1 |
-        EditorAbiCapability.PrefabSourceNodeIdentity3DV1;
+        EditorAbiCapability.PrefabSourceNodeIdentity3DV1 |
+        EditorAbiCapability.PrefabNodePropertyOverride3DV1;
 
     internal static readonly IReadOnlyList<EditorAbiCapability>
         KnownCapabilities = Array.AsReadOnly(new[]
@@ -133,6 +135,7 @@ internal static class EditorAbiContract
             EditorAbiCapability.PrefabRootComponentPropertySelectiveRevert3DV1,
             EditorAbiCapability.PrefabRootComponentPropertySelectiveApply3DV1,
             EditorAbiCapability.PrefabSourceNodeIdentity3DV1,
+            EditorAbiCapability.PrefabNodePropertyOverride3DV1,
         });
 
     private const EditorAbiCapability AllKnownCapabilities =
@@ -158,7 +161,8 @@ internal static class EditorAbiContract
         EditorAbiCapability.PrefabRootComponentPropertyOverride3DV1 |
         EditorAbiCapability.PrefabRootComponentPropertySelectiveRevert3DV1 |
         EditorAbiCapability.PrefabRootComponentPropertySelectiveApply3DV1 |
-        EditorAbiCapability.PrefabSourceNodeIdentity3DV1;
+        EditorAbiCapability.PrefabSourceNodeIdentity3DV1 |
+        EditorAbiCapability.PrefabNodePropertyOverride3DV1;
 
     internal static EditorAbiSnapshot Evaluate(
         bool queryAvailable,
@@ -259,6 +263,8 @@ internal static class EditorAbiContract
                 "prefab-root-component-property-selective-apply-3d-v1",
             EditorAbiCapability.PrefabSourceNodeIdentity3DV1 =>
                 "prefab-source-node-identity-3d-v1",
+            EditorAbiCapability.PrefabNodePropertyOverride3DV1 =>
+                "prefab-node-property-override-3d-v1",
             _ => "unknown",
         };
 }

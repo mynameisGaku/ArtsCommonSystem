@@ -45,6 +45,7 @@
 #include "gameframework/HierarchyWorldTransformBatch.h"
 #include "gameframework/Scene3DSerialize.h" // (将来) シリアライザ委譲用
 #include "gameframework/PrefabRootProperty3D.h"
+#include "gameframework/PrefabNodeProperty3D.h"
 #include "gameframework/SceneTextLoader.h" // strict ACSCENE document preflight
 #include "memory/UniquePtr.h"               // TUniquePtr / MakeUnique
 #include "memory/SharedPtr.h"               // TSharedPtr / MakeShared (フラットポリゴンメッシュ生成)
@@ -300,6 +301,8 @@ struct AEditor3DRecordComponent : public acs::game::AComponent {
     char  prefab_instance_id[game::kScene3DSerializePrefabInstanceIdBytes + 1u] = {}; ///< Apply/Revert後も維持する32桁小文字hexのinstance ID。
     /** Prefab原本内の対応nodeを識別する32桁小文字hex ID。 */
     char  prefab_source_node_id[game::kScene3DSerializePrefabSourceNodeIdBytes + 1u] = {};
+    /** Source更新後も維持するchild nodeのVisible/Enabled/Color bit。 */
+    u32   prefab_node_property_override_mask = 0u;
     /** Source更新後も維持するrootのVisible/Enabled/Color bit。 */
     u32   prefab_root_property_override_mask = 0u;
     bool  is_empty         = false;           ///< true なら «空ノード» (描画しないグループ用トランスフォーム。2D の空ノード相当)。
@@ -6743,6 +6746,19 @@ void ClearPrefabRootComponentPropertyOverrides_Internal(AEditor3DRecordComponent
     }
 }
 
+/** 指定Prefab root scopeのchild node property overrideを全て破棄する。 */
+void ClearPrefabNodePropertyOverrides_Internal(game::ANode& root) noexcept
+{
+    TArray<game::ANode*> nodes;
+    nodes.Add(&root);
+    Dfs3DCollect(&root, nodes);
+    for (u32 index = 1u; index < nodes.Num(); ++index) {
+        if (!IsInPrefabSourceNodeScope_Internal(*nodes[index], root)) continue;
+        AEditor3DRecordComponent* const record = Rec3D(nodes[index]);
+        if (record != nullptr) record->prefab_node_property_override_mask = 0u;
+    }
+}
+
 bool SetPrefabLink3D_Internal(
     FEditorHost& host, int node_id, const char* source,
     const char* instance_id) noexcept {
@@ -6751,6 +6767,7 @@ bool SetPrefabLink3D_Internal(
     if (node == nullptr || record == nullptr || source == nullptr || source[0] == '\0' || std::strlen(source) >= sizeof(record->prefab_src) || !IsCanonicalPrefabInstanceId(instance_id) || !PrefabInstanceIdIsUnique(host, node_id, instance_id) || !AssignMissingPrefabSourceNodeIds_Internal(*node, source, 0)) return false;
     std::snprintf(record->prefab_src, sizeof(record->prefab_src), "%s", source);
     std::snprintf(record->prefab_instance_id, sizeof(record->prefab_instance_id), "%s", instance_id);
+    ClearPrefabNodePropertyOverrides_Internal(*node);
     record->prefab_root_property_override_mask = 0u;
     ClearPrefabRootComponentPropertyOverrides_Internal(*record);
     return true;
@@ -6760,6 +6777,36 @@ bool SetPrefabLink3D_Internal(
 bool IsStablePrefabRoot_Internal(const AEditor3DRecordComponent& record) noexcept {
     return record.prefab_src[0] != '\0' &&
            IsCanonicalPrefabInstanceId(record.prefab_instance_id);
+}
+
+/** node自身または最も近いancestorからstable 3D Prefab rootを返す。 */
+game::ANode* FindStablePrefabRootForNode_Internal(game::ANode& node) noexcept
+{
+    game::ANode* current = &node;
+    while (current != nullptr) {
+        const AEditor3DRecordComponent* const record = Rec3D(current);
+        if (record != nullptr && IsStablePrefabRoot_Internal(*record)) return current;
+        current = current->Parent();
+    }
+    return nullptr;
+}
+
+/** stable Prefab scope内でsource node IDが一致する唯一のnodeを返す。 */
+game::ANode* FindPrefabNodeBySourceId_Internal(game::ANode& root, const char* source_node_id) noexcept
+{
+    if (!IsCanonicalPrefabSourceNodeId_Internal(source_node_id)) return nullptr;
+    TArray<game::ANode*> nodes;
+    nodes.Add(&root);
+    Dfs3DCollect(&root, nodes);
+    game::ANode* match = nullptr;
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
+        if (!IsInPrefabSourceNodeScope_Internal(*nodes[index], root)) continue;
+        const AEditor3DRecordComponent* const record = Rec3D(nodes[index]);
+        if (record == nullptr || std::strcmp(record->prefab_source_node_id, source_node_id) != 0) continue;
+        if (match != nullptr) return nullptr;
+        match = nodes[index];
+    }
+    return match;
 }
 
 /** current maskから指定propertyだけを除いたmaskを計算する。未知bit、空指定、未override指定では失敗する。 */
@@ -6806,6 +6853,145 @@ bool ApplyPrefabRootPropertyOverrides_Internal(game::ANode& node, const FPrefabR
         game::AMeshComponent3D* const mesh = Mesh3D(&node);
         if (record == nullptr || record->is_empty || mesh == nullptr) return false;
         mesh->SetColor(snapshot.color);
+    }
+    return true;
+}
+
+/** stable Prefab scope内のsource node IDとruntime nodeの対応。 */
+struct FPrefabSourceNodeLookupEntry {
+    /** Prefab原本内で対応nodeを識別する32桁ID。 */
+    char source_node_id[game::kScene3DSerializePrefabSourceNodeIdBytes + 1u]{};
+
+    /** source node IDに対応するruntime node。 */
+    game::ANode* node = nullptr;
+};
+
+/** stable Prefab scopeの有効なsource node IDを一度だけ収集し、重複を検出する。 */
+bool BuildPrefabSourceNodeLookup_Internal(game::ANode& root, TArray<FPrefabSourceNodeLookupEntry>& lookup) noexcept
+{
+    TArray<game::ANode*> nodes;
+    nodes.Add(&root);
+    Dfs3DCollect(&root, nodes);
+    if (!lookup.TryReserve(nodes.Num())) return false;
+    for (u32 index = 0u; index < nodes.Num(); ++index) {
+        game::ANode* const node = nodes[index];
+        if (!IsInPrefabSourceNodeScope_Internal(*node, root)) continue;
+        const AEditor3DRecordComponent* const record = Rec3D(node);
+        if (record == nullptr) return false;
+        if (record->prefab_source_node_id[0] == '\0') {
+            if (record->prefab_node_property_override_mask != 0u) return false;
+            continue;
+        }
+        if (!IsCanonicalPrefabSourceNodeId_Internal(record->prefab_source_node_id)) return false;
+        FPrefabSourceNodeLookupEntry entry{};
+        std::snprintf(entry.source_node_id, sizeof(entry.source_node_id), "%s", record->prefab_source_node_id);
+        entry.node = node;
+        if (!lookup.TryAdd(entry)) return false;
+    }
+    if (lookup.Num() > 1u) {
+        std::sort(lookup.GetData(), lookup.GetData() + lookup.Num(), [](const FPrefabSourceNodeLookupEntry& left, const FPrefabSourceNodeLookupEntry& right) noexcept { return std::strcmp(left.source_node_id, right.source_node_id) < 0; });
+    }
+    for (u32 index = 1u; index < lookup.Num(); ++index) {
+        if (std::strcmp(lookup[index - 1u].source_node_id, lookup[index].source_node_id) == 0) return false;
+    }
+    return true;
+}
+
+/** Source更新を越えて維持するchild node property override 1件分。 */
+struct FPrefabNodePropertyOverrideSnapshotEntry {
+    /** Prefab原本内で対応nodeを識別する32桁ID。 */
+    char source_node_id[game::kScene3DSerializePrefabSourceNodeIdBytes + 1u]{};
+
+    /** 保存対象のEPrefabNodeProperty3D bit。 */
+    u32 mask = 0u;
+
+    /** childの表示状態。 */
+    bool visible = true;
+
+    /** childの有効状態。 */
+    bool enabled = true;
+
+    /** child meshのRGBA色。 */
+    FVec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+};
+
+/** 1つの3D Prefab instanceから取得したchild node property override集合。 */
+struct FPrefabNodePropertyOverrideSnapshot {
+    /** source node IDで再解決するoverride値。 */
+    TArray<FPrefabNodePropertyOverrideSnapshotEntry> entries;
+};
+
+/** 選択Revertで除外するsource nodeとproperty mask。 */
+struct FPrefabNodePropertyRevertRequest {
+    /** 対象childのsource node ID。 */
+    char source_node_id[game::kScene3DSerializePrefabSourceNodeIdBytes + 1u]{};
+
+    /** 原本値へ戻すproperty bit。 */
+    u32 mask = 0u;
+};
+
+/** 現instanceからchild node property override値をsource node ID付きで取得する。 */
+bool CapturePrefabNodePropertyOverrides_Internal(game::ANode& root, FPrefabNodePropertyOverrideSnapshot& snapshot) noexcept
+{
+    TArray<FPrefabSourceNodeLookupEntry> lookup;
+    if (!BuildPrefabSourceNodeLookup_Internal(root, lookup) || !snapshot.entries.TryReserve(lookup.Num())) return false;
+    for (u32 index = 0u; index < lookup.Num(); ++index) {
+        game::ANode* const node = lookup[index].node;
+        if (node == &root) continue;
+        const AEditor3DRecordComponent* const record = Rec3D(node);
+        if (record == nullptr || record->prefab_node_property_override_mask == 0u) continue;
+        const u32 mask = record->prefab_node_property_override_mask;
+        if ((mask & ~game::kPrefabNodeProperty3DAllMask) != 0u) return false;
+        FPrefabNodePropertyOverrideSnapshotEntry entry{};
+        std::snprintf(entry.source_node_id, sizeof(entry.source_node_id), "%s", lookup[index].source_node_id);
+        entry.mask = mask;
+        if ((mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Visible)) != 0u) entry.visible = node->IsVisible();
+        if ((mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Enabled)) != 0u) entry.enabled = node->IsEnabled();
+        if ((mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Color)) != 0u) {
+            if (record->is_empty || Mesh3D(node) == nullptr) return false;
+            entry.color = NColor(node);
+        }
+        if (!snapshot.entries.TryAdd(entry)) return false;
+    }
+    return true;
+}
+
+/** snapshotから指定child propertyだけを除き、未override指定では失敗する。 */
+bool RemovePrefabNodePropertyOverride_Internal(FPrefabNodePropertyOverrideSnapshot& snapshot, const FPrefabNodePropertyRevertRequest& request) noexcept
+{
+    if (!IsCanonicalPrefabSourceNodeId_Internal(request.source_node_id) || request.mask == 0u || (request.mask & ~game::kPrefabNodeProperty3DAllMask) != 0u) return false;
+    for (u32 index = 0u; index < snapshot.entries.Num(); ++index) {
+        FPrefabNodePropertyOverrideSnapshotEntry& entry = snapshot.entries[index];
+        if (std::strcmp(entry.source_node_id, request.source_node_id) != 0) continue;
+        if ((request.mask & ~entry.mask) != 0u) return false;
+        entry.mask &= ~request.mask;
+        return true;
+    }
+    return false;
+}
+
+/** source再生成後の対応childへsnapshot値とoverride maskを再適用する。 */
+bool ApplyPrefabNodePropertyOverrides_Internal(game::ANode& root, const FPrefabNodePropertyOverrideSnapshot& snapshot) noexcept
+{
+    TArray<FPrefabSourceNodeLookupEntry> lookup;
+    if (!BuildPrefabSourceNodeLookup_Internal(root, lookup)) return false;
+    u32 lookup_index = 0u;
+    for (u32 index = 0u; index < snapshot.entries.Num(); ++index) {
+        const FPrefabNodePropertyOverrideSnapshotEntry& entry = snapshot.entries[index];
+        if (!IsCanonicalPrefabSourceNodeId_Internal(entry.source_node_id) || (index > 0u && std::strcmp(snapshot.entries[index - 1u].source_node_id, entry.source_node_id) >= 0)) return false;
+        while (lookup_index < lookup.Num() && std::strcmp(lookup[lookup_index].source_node_id, entry.source_node_id) < 0) ++lookup_index;
+        if (lookup_index >= lookup.Num() || std::strcmp(lookup[lookup_index].source_node_id, entry.source_node_id) != 0) return false;
+        game::ANode* const node = lookup[lookup_index].node;
+        AEditor3DRecordComponent* const record = Rec3D(node);
+        if (node == nullptr || node == &root || record == nullptr || (entry.mask & ~game::kPrefabNodeProperty3DAllMask) != 0u) return false;
+        if ((entry.mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Visible)) != 0u) node->SetVisible(entry.visible);
+        if ((entry.mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Enabled)) != 0u) node->SetEnabled(entry.enabled);
+        if ((entry.mask & game::PrefabNodeProperty3DBit(game::EPrefabNodeProperty3D::Color)) != 0u) {
+            game::AMeshComponent3D* const mesh = Mesh3D(node);
+            if (record->is_empty || mesh == nullptr) return false;
+            mesh->SetColor(entry.color);
+        }
+        record->prefab_node_property_override_mask = entry.mask;
     }
     return true;
 }
@@ -16468,6 +16654,8 @@ static int CloneNode3DSubtree(FEditorHost& h, game::ANode* src, game::ANode* par
                 cr->prefab_src, sr->prefab_src,
                 sizeof(cr->prefab_src));
             std::memcpy(cr->prefab_source_node_id, sr->prefab_source_node_id, sizeof(cr->prefab_source_node_id));
+            cr->prefab_node_property_override_mask =
+                sr->prefab_node_property_override_mask;
             if (cr->prefab_src[0] != '\0') {
                 const char* source_identity = sr->prefab_instance_id[0] != '\0' ? sr->prefab_instance_id : sr->prefab_src;
                 (void)MakeUniqueClonedPrefabInstanceId(
@@ -16896,10 +17084,12 @@ ACS_EDITOR_API int acs_editor_node3d_clear_sprite(void* handle, int id) {
 /** 3D ノードに prefab/blueprint インスタンスリンク (.acsprefab/.acsbp パス) を張る (2D 版の 3D 対応)。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_set_prefab_src(void* handle, int id, const char* path) {
     auto* host = static_cast<FEditorHost*>(handle);
-    AEditor3DRecordComponent* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    game::ANode* const node = host != nullptr ? FindNode3DNode(*host, id) : nullptr;
+    AEditor3DRecordComponent* r = Rec3D(node);
     if (r == nullptr || (path != nullptr && std::strlen(path) >= sizeof(r->prefab_src))) return 0;
     const char* const next_path = path != nullptr ? path : "";
     if (std::strcmp(r->prefab_src, next_path) != 0) {
+        ClearPrefabNodePropertyOverrides_Internal(*node);
         r->prefab_root_property_override_mask = 0u;
         ClearPrefabRootComponentPropertyOverrides_Internal(*r);
     }
@@ -16948,18 +17138,75 @@ ACS_EDITOR_API int acs_editor_prefab_instance3d_find_node_by_source_id(void* han
     game::ANode* const root = host != nullptr ? FindNode3DNode(*host, root_id) : nullptr;
     const AEditor3DRecordComponent* const root_record = Rec3D(root);
     if (root == nullptr || root_record == nullptr || !IsStablePrefabRoot_Internal(*root_record) || !IsCanonicalPrefabSourceNodeId_Internal(source_node_id)) return -1;
-    TArray<game::ANode*> nodes;
-    nodes.Add(root);
-    Dfs3DCollect(root, nodes);
-    int match = -1;
-    for (u32 index = 0u; index < nodes.Num(); ++index) {
-        if (!IsInPrefabSourceNodeScope_Internal(*nodes[index], *root)) continue;
-        const AEditor3DRecordComponent* const record = Rec3D(nodes[index]);
-        if (record == nullptr || std::strcmp(record->prefab_source_node_id, source_node_id) != 0) continue;
-        if (match >= 0) return -1;
-        match = record->id;
+    const AEditor3DRecordComponent* const match = Rec3D(FindPrefabNodeBySourceId_Internal(*root, source_node_id));
+    return match != nullptr ? match->id : -1;
+}
+
+/** node自身または最も近いancestorのstable 3D Prefab root IDを返す。未所属では-1。 */
+ACS_EDITOR_API int acs_editor_prefab_instance3d_root_for_node(void* handle, int id) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* const node = host != nullptr ? FindNode3DNode(*host, id) : nullptr;
+    const AEditor3DRecordComponent* const root_record = node != nullptr ? Rec3D(FindStablePrefabRootForNode_Internal(*node)) : nullptr;
+    return root_record != nullptr ? root_record->id : -1;
+}
+
+/** rootまたはchild nodeで原本より優先するVisible/Enabled/Color bitを返す。 */
+ACS_EDITOR_API std::uint32_t acs_editor_prefab_instance3d_property_override_mask(void* handle, int id) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* const node = host != nullptr ? FindNode3DNode(*host, id) : nullptr;
+    AEditor3DRecordComponent* const record = Rec3D(node);
+    game::ANode* const root = node != nullptr ? FindStablePrefabRootForNode_Internal(*node) : nullptr;
+    if (record == nullptr || root == nullptr) return 0u;
+    if (root == node) return record->prefab_root_property_override_mask;
+    return IsCanonicalPrefabSourceNodeId_Internal(record->prefab_source_node_id)
+        ? record->prefab_node_property_override_mask
+        : 0u;
+}
+
+/** 値変更済みのrootまたはchild propertyを対応するoverride metadataへ追加する。 */
+ACS_EDITOR_API int acs_editor_prefab_instance3d_mark_property_override(void* handle, int id, std::uint32_t mask) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* const node = host != nullptr ? FindNode3DNode(*host, id) : nullptr;
+    AEditor3DRecordComponent* const record = Rec3D(node);
+    const u32 checked_mask = static_cast<u32>(mask);
+    if (record == nullptr || checked_mask == 0u || (checked_mask & ~game::kPrefabNodeProperty3DAllMask) != 0u) return 0;
+    game::ANode* const root = FindStablePrefabRootForNode_Internal(*node);
+    if (root == nullptr) return 1;
+    if (root == node) {
+        record->prefab_root_property_override_mask |= checked_mask;
+        return 1;
     }
-    return match;
+    if (!IsCanonicalPrefabSourceNodeId_Internal(record->prefab_source_node_id) || !IsInPrefabSourceNodeScope_Internal(*node, *root)) return 0;
+    record->prefab_node_property_override_mask |= checked_mask;
+    return 1;
+}
+
+/** Apply済みのrootまたはchild propertyを対応するoverride metadataから外す。 */
+ACS_EDITOR_API int acs_editor_prefab_instance3d_clear_property_overrides(void* handle, int id, std::uint32_t mask) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* const node = host != nullptr ? FindNode3DNode(*host, id) : nullptr;
+    AEditor3DRecordComponent* const record = Rec3D(node);
+    const u32 checked_mask = static_cast<u32>(mask);
+    if (record == nullptr || checked_mask == 0u || (checked_mask & ~game::kPrefabNodeProperty3DAllMask) != 0u) return 0;
+    game::ANode* const root = FindStablePrefabRootForNode_Internal(*node);
+    if (root == nullptr) return 1;
+    if (root == node) {
+        record->prefab_root_property_override_mask &= ~checked_mask;
+        return 1;
+    }
+    if (!IsCanonicalPrefabSourceNodeId_Internal(record->prefab_source_node_id) || !IsInPrefabSourceNodeScope_Internal(*node, *root)) return 0;
+    record->prefab_node_property_override_mask &= ~checked_mask;
+    return 1;
+}
+
+/** Full Apply済みroot scopeのchild property overrideを全て解消する。 */
+ACS_EDITOR_API int acs_editor_prefab_instance3d_clear_child_property_overrides(void* handle, int root_id) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* const root = host != nullptr ? FindNode3DNode(*host, root_id) : nullptr;
+    const AEditor3DRecordComponent* const record = Rec3D(root);
+    if (root == nullptr || record == nullptr || !IsStablePrefabRoot_Internal(*record)) return 0;
+    ClearPrefabNodePropertyOverrides_Internal(*root);
+    return 1;
 }
 
 /** 3D Prefab rootで原本より優先するproperty bitを返す。 */
@@ -17385,6 +17632,11 @@ static int EmitNode3DBlock(char* out, int cur, int cap, FEditorHost* host,
         const int identity_written = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "PSID3D %d %s\n", r->id, r->prefab_source_node_id);
         if (identity_written < 0 || identity_written >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
         cur += identity_written;
+        if (r->prefab_node_property_override_mask != 0u && cur < cap) {
+            const int node_override_written = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "PNOVR3D %d %u\n", r->id, static_cast<unsigned>(r->prefab_node_property_override_mask));
+            if (node_override_written < 0 || node_override_written >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+            cur += node_override_written;
+        }
     }
     if (r->has_scene_camera && cur < cap) {
         const int camera_written = std::snprintf(
@@ -17598,6 +17850,8 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
     TArray<FValidatedEditorProperty> properties;
     TArray<FValidatedEditorProperty> component_overrides;
     TArray<FValidatedEditorPrefabLink> prefab_links;
+    TArray<int> prefab_source_identity_nodes;
+    TArray<int> prefab_node_override_nodes;
     if (!AppendEditorTextLine(structural, "ACS3D v2")) return false;
     game::AcsRegisterEngineTypes();
 
@@ -17736,6 +17990,13 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
                 // the order-independent node preflight below.
                 if (selected > 0) editor_only_targets.Add(selected);
             }
+            if (prefab_source_identity) {
+                const char* values = line + 7u;
+                int id = -1;
+                char source_node_id[game::kScene3DSerializePrefabSourceNodeIdBytes + 1u]{};
+                if (!ParseEditorTextInt(values, id) || !ParseEditorTextWord(values, source_node_id, sizeof(source_node_id)) || !EditorTextOnlyWhitespace(values) || !IsCanonicalPrefabSourceNodeId_Internal(source_node_id)) return false;
+                prefab_source_identity_nodes.Add(id);
+            }
             if (!AppendEditorTextLine(auxiliary, line)) return false;
             continue;
         }
@@ -17788,6 +18049,19 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
             }
             if (link == nullptr || !link->has_instance_id || link->has_root_property_override) return false;
             link->has_root_property_override = true;
+            editor_only_targets.Add(id);
+            continue;
+        }
+        if (IsEditorTextDirective(line, "PNOVR3D")) {
+            if (line[7] != ' ') return false;
+            const char* values = line + 8u;
+            int id = -1;
+            u32 mask = 0u;
+            if (!ParseEditorTextInt(values, id) || !ParseEditorTextU32(values, mask) || !EditorTextOnlyWhitespace(values) || mask == 0u || (mask & ~game::kPrefabNodeProperty3DAllMask) != 0u) return false;
+            for (u32 index = 0u; index < prefab_node_override_nodes.Num(); ++index) {
+                if (prefab_node_override_nodes[index] == id) return false;
+            }
+            prefab_node_override_nodes.Add(id);
             editor_only_targets.Add(id);
             continue;
         }
@@ -17895,6 +18169,33 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
                 return false;
             }
         }
+    }
+
+    for (u32 override_index = 0u; override_index < prefab_node_override_nodes.Num(); ++override_index) {
+        const int node_id = prefab_node_override_nodes[override_index];
+        bool has_source_identity = false;
+        for (u32 identity_index = 0u; identity_index < prefab_source_identity_nodes.Num(); ++identity_index) {
+            if (prefab_source_identity_nodes[identity_index] == node_id) has_source_identity = true;
+        }
+        const int node_index = FindValidatedEditor3DNode(nodes, node_id);
+        if (!has_source_identity || node_index < 0) return false;
+        for (u32 link_index = 0u; link_index < prefab_links.Num(); ++link_index) {
+            if (prefab_links[link_index].node_id == node_id && prefab_links[link_index].has_instance_id) return false;
+        }
+        int current = nodes[static_cast<u32>(node_index)].parent_index;
+        bool found_owner = false;
+        while (current >= 0) {
+            const int ancestor_id = nodes[static_cast<u32>(current)].id;
+            for (u32 link_index = 0u; link_index < prefab_links.Num(); ++link_index) {
+                if (prefab_links[link_index].node_id == ancestor_id && prefab_links[link_index].has_instance_id) {
+                    found_owner = true;
+                    break;
+                }
+            }
+            if (found_owner) break;
+            current = nodes[static_cast<u32>(current)].parent_index;
+        }
+        if (!found_owner) return false;
     }
 
     TArray<u32> topological_order;
@@ -18282,6 +18583,15 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear, 
             }
             continue;
         }
+        if (std::strncmp(line, "PNOVR3D ", 8) == 0) {
+            int source_node = 0;
+            unsigned mask = 0u;
+            if (std::sscanf(line, "PNOVR3D %d %u", &source_node, &mask) == 2) {
+                AEditor3DRecordComponent* const record = Rec3D(FindNode3DNode(*host, source_node + idOffset));
+                if (record != nullptr) record->prefab_node_property_override_mask = static_cast<u32>(mask);
+            }
+            continue;
+        }
         if (std::strncmp(line, "PFAB3D ", 7) == 0) {                 // prefab/blueprint インスタンスリンクの復元 (N3D の後)
             int fid = 0; char fpath[256] = {};
             if (std::sscanf(line, "PFAB3D %d %255[^\n]", &fid, fpath) >= 2) {
@@ -18474,11 +18784,11 @@ namespace {
 
 /**
  * 既存の3D Prefab/Blueprintインスタンスを検証済みsubtreeから再生成する。
- * 指定root値と明示component overrideを再適用し、失敗時は旧sceneと履歴を復元する。
+ * 指定root値、root component、child node overrideを再適用し、失敗時は旧sceneと履歴を復元する。
  */
-int RefreshPrefabInstance3D_Internal(void* handle, int id, const char* source, const char* text, u32 preserve_mask, bool preserve_component_overrides, const FPrefabRootComponentPropertyRevertRequest* component_revert_request) noexcept {
+int RefreshPrefabInstance3D_Internal(void* handle, int id, const char* source, const char* text, u32 preserve_mask, bool preserve_component_overrides, const FPrefabRootComponentPropertyRevertRequest* component_revert_request, bool preserve_node_overrides, const FPrefabNodePropertyRevertRequest* node_revert_request, const char* result_source_node_id) noexcept {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || source == nullptr || source[0] == '\0' || text == nullptr || (preserve_mask & ~game::kPrefabRootProperty3DAllMask) != 0u || (!preserve_component_overrides && component_revert_request != nullptr) || !ValidateEditorScene3DText(text)) {
+    if (host == nullptr || source == nullptr || source[0] == '\0' || text == nullptr || (preserve_mask & ~game::kPrefabRootProperty3DAllMask) != 0u || (!preserve_component_overrides && component_revert_request != nullptr) || (!preserve_node_overrides && node_revert_request != nullptr) || (result_source_node_id != nullptr && !IsCanonicalPrefabSourceNodeId_Internal(result_source_node_id)) || !ValidateEditorScene3DText(text)) {
         return -1;
     }
     game::ANode* const instance = FindNode3DNode(*host, id);
@@ -18495,6 +18805,9 @@ int RefreshPrefabInstance3D_Internal(void* handle, int id, const char* source, c
         return -1;
     }
     if (component_revert_request != nullptr && !RemovePrefabRootComponentPropertyOverride_Internal(component_override_snapshot, *component_revert_request)) return -1;
+    FPrefabNodePropertyOverrideSnapshot node_override_snapshot{};
+    if (preserve_node_overrides && !CapturePrefabNodePropertyOverrides_Internal(*instance, node_override_snapshot)) return -1;
+    if (node_revert_request != nullptr && !RemovePrefabNodePropertyOverride_Internal(node_override_snapshot, *node_revert_request)) return -1;
     const int parent = ParentId3D(*host, instance);
     const FVec3 position = instance->Local().position;
     const FVec3 scale = instance->Local().scale;
@@ -18517,27 +18830,34 @@ int RefreshPrefabInstance3D_Internal(void* handle, int id, const char* source, c
     if (refreshed && replacement_record != nullptr) {
         replacement_record->prefab_root_property_override_mask = preserve_mask;
         refreshed = !preserve_component_overrides || ApplyPrefabRootComponentPropertyOverrides_Internal(*replacement_record, component_override_snapshot);
+        if (refreshed && preserve_node_overrides) refreshed = ApplyPrefabNodePropertyOverrides_Internal(*replacement_node, node_override_snapshot);
     } else if (refreshed) {
         refreshed = false;
+    }
+    int result_id = replacement;
+    if (refreshed && result_source_node_id != nullptr) {
+        const AEditor3DRecordComponent* const result_record = Rec3D(FindPrefabNodeBySourceId_Internal(*replacement_node, result_source_node_id));
+        if (result_record == nullptr || result_record == replacement_record) refreshed = false;
+        else result_id = result_record->id;
     }
     if (!refreshed || !CommitUndoSnapshot(*host, rollback)) {
         RestoreSnapshot(*host, rollback);
         delete[] rollback;
         return -1;
     }
-    return replacement;
+    return result_id;
 }
 
 } // namespace
 
 /** 既存互換の全Revert。root overrideを保持せずsource値へ戻す。 */
 ACS_EDITOR_API int acs_editor_prefab_instance3d_refresh(void* handle, int id, const char* source, const char* text) {
-    return RefreshPrefabInstance3D_Internal(handle, id, source, text, 0u, false, nullptr);
+    return RefreshPrefabInstance3D_Internal(handle, id, source, text, 0u, false, nullptr, false, nullptr, nullptr);
 }
 
 /** 指定済みroot/component overrideを保持して3D Prefab instanceを再生成する。 */
 ACS_EDITOR_API int acs_editor_prefab_instance3d_refresh_with_root_overrides(void* handle, int id, const char* source, const char* text, std::uint32_t preserve_mask) {
-    return RefreshPrefabInstance3D_Internal(handle, id, source, text, static_cast<u32>(preserve_mask), true, nullptr);
+    return RefreshPrefabInstance3D_Internal(handle, id, source, text, static_cast<u32>(preserve_mask), true, nullptr, true, nullptr, nullptr);
 }
 
 /** 指定したroot overrideだけをsource値へ戻し、残りのoverrideを維持する。 */
@@ -18546,7 +18866,7 @@ ACS_EDITOR_API int acs_editor_prefab_instance3d_revert_root_overrides(void* hand
     AEditor3DRecordComponent* const record = host != nullptr ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
     u32 remaining_mask = 0u;
     if (record == nullptr || !IsStablePrefabRoot_Internal(*record) || source == nullptr || std::strcmp(record->prefab_src, source) != 0 || !TryCalculatePrefabRootPropertyRevertMask_Internal(record->prefab_root_property_override_mask, static_cast<u32>(revert_mask), remaining_mask)) return -1;
-    return RefreshPrefabInstance3D_Internal(handle, id, source, text, remaining_mask, true, nullptr);
+    return RefreshPrefabInstance3D_Internal(handle, id, source, text, remaining_mask, true, nullptr, true, nullptr, nullptr);
 }
 
 /** 指定したroot component propertyだけをsource値へ戻し、他のoverrideを維持する。 */
@@ -18560,7 +18880,22 @@ ACS_EDITOR_API int acs_editor_prefab_instance3d_revert_root_component_property_o
     const game::FTypeDesc* const descriptor = game::CTypeRegistry::Get().FindById(record->components[component_slot]);
     if (descriptor == nullptr || component_property >= CompPropCount(descriptor) || (record->prefab_root_component_property_override_masks[component_slot] & property_bit) == 0u) return -1;
     const FPrefabRootComponentPropertyRevertRequest request{record->components[component_slot], component_property};
-    return RefreshPrefabInstance3D_Internal(handle, id, source, text, record->prefab_root_property_override_mask, true, &request);
+    return RefreshPrefabInstance3D_Internal(handle, id, source, text, record->prefab_root_property_override_mask, true, &request, true, nullptr, nullptr);
+}
+
+/** 指定したchild node propertyだけをsource値へ戻し、他のoverrideを維持する。 */
+ACS_EDITOR_API int acs_editor_prefab_instance3d_revert_node_overrides(void* handle, int id, const char* source, const char* text, std::uint32_t revert_mask) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* const node = host != nullptr ? FindNode3DNode(*host, id) : nullptr;
+    game::ANode* const root = node != nullptr ? FindStablePrefabRootForNode_Internal(*node) : nullptr;
+    AEditor3DRecordComponent* const node_record = Rec3D(node);
+    AEditor3DRecordComponent* const root_record = Rec3D(root);
+    const u32 checked_mask = static_cast<u32>(revert_mask);
+    if (node == nullptr || root == nullptr || node == root || node_record == nullptr || root_record == nullptr || source == nullptr || std::strcmp(root_record->prefab_src, source) != 0 || !IsCanonicalPrefabSourceNodeId_Internal(node_record->prefab_source_node_id) || checked_mask == 0u || (checked_mask & ~game::kPrefabNodeProperty3DAllMask) != 0u || (checked_mask & ~node_record->prefab_node_property_override_mask) != 0u) return -1;
+    FPrefabNodePropertyRevertRequest request{};
+    std::snprintf(request.source_node_id, sizeof(request.source_node_id), "%s", node_record->prefab_source_node_id);
+    request.mask = checked_mask;
+    return RefreshPrefabInstance3D_Internal(handle, root_record->id, source, text, root_record->prefab_root_property_override_mask, true, nullptr, true, &request, request.source_node_id);
 }
 
 ACS_EDITOR_API int acs_editor_water3d_hit_test(
