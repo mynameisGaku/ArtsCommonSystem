@@ -291,6 +291,7 @@ public partial class MainWindow
                 (rootOverrides.HasFlag(PrefabRootProperty3D.Visible) ? 1 : 0) +
                 (rootOverrides.HasFlag(PrefabRootProperty3D.Enabled) ? 1 : 0) +
                 (rootOverrides.HasFlag(PrefabRootProperty3D.Color) ? 1 : 0);
+            int curId = id;
             var banner = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
             banner.Children.Add(new TextBlock {
                 Text = (IsBlueprint(prefabSrc) ? "◆ Blueprint: " : "◆ Prefab: ") +
@@ -303,11 +304,21 @@ public partial class MainWindow
                 ToolTip = "この編集をプレハブ側へ反映 (instance → prefab)" };
             var revert = new Button { Content = "Revert", FontSize = 11, Padding = new Thickness(10, 2, 10, 2),
                 ToolTip = "編集を破棄しプレハブの状態へ戻す (prefab → instance)" };
-            int curId = id;
             apply.Click  += (_, __) => ApplyToPrefab(curId);
             revert.Click += (_, __) => RevertToPrefab(curId);
             brow.Children.Add(apply); brow.Children.Add(revert);
             banner.Children.Add(brow);
+            if (rootOverrideCount > 0)
+            {
+                var overrideRow = new WrapPanel { Margin = new Thickness(0, 5, 0, 0) };
+                if (rootOverrides.HasFlag(PrefabRootProperty3D.Visible))
+                    overrideRow.Children.Add(CreatePrefabRootOverrideRevertButton3D(curId, PrefabRootProperty3D.Visible, "Visible"));
+                if (rootOverrides.HasFlag(PrefabRootProperty3D.Enabled))
+                    overrideRow.Children.Add(CreatePrefabRootOverrideRevertButton3D(curId, PrefabRootProperty3D.Enabled, "Enabled"));
+                if (rootOverrides.HasFlag(PrefabRootProperty3D.Color))
+                    overrideRow.Children.Add(CreatePrefabRootOverrideRevertButton3D(curId, PrefabRootProperty3D.Color, "Color"));
+                banner.Children.Add(overrideRow);
+            }
             Insp3DPanel.Children.Add(new Border {
                 Background = (Brush)FindResource("Panel2"), CornerRadius = new CornerRadius(5),
                 Padding = new Thickness(8, 6, 8, 7), Margin = new Thickness(0, 0, 0, 6), Child = banner });
@@ -2712,6 +2723,20 @@ public partial class MainWindow
                 "Scene",
                 LogLevel.Warn);
         }
+    }
+
+    /// <summary>1つの3D Prefab root overrideだけをRevertする小型buttonを作る。</summary>
+    private Button CreatePrefabRootOverrideRevertButton3D(int id, PrefabRootProperty3D property, string label)
+    {
+        var button = new Button {
+            Content = $"Revert {label}",
+            FontSize = 10,
+            Padding = new Thickness(7, 1, 7, 1),
+            Margin = new Thickness(0, 0, 5, 4),
+            ToolTip = $"{label} overrideだけを原本値へ戻す",
+        };
+        button.Click += (_, __) => RevertPrefabRootOverride3D(id, property);
+        return button;
     }
 
     // ----- 動的 UI ヘルパ -----

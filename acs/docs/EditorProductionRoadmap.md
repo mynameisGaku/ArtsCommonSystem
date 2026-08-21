@@ -64,7 +64,7 @@ ACS Editor には、シーンアウトライナー、詳細パネル、2D/3D ビ
 | Project Settings | schema 駆動 UI、検索、検証、未知キー保持、Document Host の dirty/Undo/Save All/close、非同期 atomic 保存、snap 値同期あり | Editor/User 設定分離、Input/Packaging/Platform 等 | P0/P1 |
 | Material Editor | typed node graph、semantic Undo/Redo、Document Host dirty/Save All/close、compile diagnostics、CPU-safe async/cancellable preview、192/256/384 px 出力、同一入力 LRU cache、計測表示あり。native preview API に HDR/ACES、1x–4x SSAA、3種 mesh/background 契約あり | legacy property writer の transaction 化、native API を live window へ接続する fenced GPU readback、instance/function、shader cache | P0/P1 |
 | Profiler / Diagnostics | Profiler v5 の CPU/GPU/pass/実フラスタムカリング計測、capture reset serial/presented-frame境界、normal/depth・motion・opaque PBR・interactive water・refraction共通submission traversal、aggregate fast pathと可視range結合、Shadow/VXGIの非camera-mask契約、UI stall watchdog、独立した cloud-workload-v1 の dispatch/invocation/history/sample ceiling 表示あり | GPU capture、allocation tracker、platform telemetry、継続 performance budget | P1 |
-| Prefab / Blueprint | 保存、配置、Apply/Revert、graph undo、3D stable instance ID、root Visible/Enabled/Color overrideあり | child/component override、selective Apply/Revert、nested prefab、variant、conflict/diff | P2 |
+| Prefab / Blueprint | 保存、配置、Apply/Revert、graph undo、3D stable instance ID、root Visible/Enabled/Color overrideとselective Revertあり | child/component override、selective Apply、nested prefab、variant、conflict/diff | P2 |
 | Navigation | 2D grid A* と Tilemap bridge あり | 3D navmesh、bake UI、agent/area/link、debug/cook | P2 |
 | Editor UX | メニュー、toolbar、panel toggle、主要 shortcut、command palette、per-user layout 永続化、6 stable-ID toolの個別float/hide/restore、複数同時float、DPI対応snapあり | document/tool tab tear-off、任意dock tree、multi-document、shortcut editor、複数workspaceの完全統合 | P1 |
 | Release operations | Windows x64 deterministic ZIP、runtime 依存解決、Cook/`.acpak` native verify、manifest hash、manifest-to-PE metadata verify あり | icon/license/channel、署名、installer、patch、store upload、他platform | P0/P3 |
@@ -338,16 +338,16 @@ Prefab と Blueprint は subtree 保存、2D/3D 配置、source link、Apply/Rev
 
 3D Prefab/Blueprint instanceは `PINS3D` の32桁stable IDをsceneへ保存する。新規配置はmanaged GUIDをnative transactionへ明示入力し、Apply/Revertと再読込では同じID、duplicateとsubtree pasteでは別IDになる。旧 `PFAB3D` 単独sceneは互換読込し、次の再生成時にIDを補う。
 
-instance rootのVisible、Enabled、Colorは `POVR3D` maskで明示的にoverrideとして記録する。source更新で他instanceを再生成するときは指定値だけを保持し、Revertはmaskと値を原本へ戻す。Apply後は選択instanceのroot maskを解消する。transformはproperty overrideに含めず、instance配置として常に保持する。
+instance rootのVisible、Enabled、Colorは `POVR3D` maskで明示的にoverrideとして記録する。source更新で他instanceを再生成するときは指定値だけを保持する。全Revertに加え、root propertyごとのselective Revertは選択bitだけを原本値へ戻し、残りのoverrideを同じnative transactionで維持する。Apply後は選択instanceのroot maskを解消する。transformはproperty overrideに含めず、instance配置として常に保持する。
 
 - `editor/AcsEditor/MainWindow.xaml.cs:4846-5170`
 - `editor/AcsEditor/BlueprintEditor.xaml.cs:4125-4155`
 
-現在の Prefab Apply は subtree 全体を書き戻し、他instanceを再生成する。root 3 propertyのoverride追跡はあるが、child/component単位の差分やproperty選択UIはまだ持たない。
+現在の Prefab Apply は subtree 全体を書き戻し、他instanceを再生成する。root 3 propertyのoverride追跡とproperty単位Revertはあるが、selective Apply、child/component単位の差分はまだ持たない。
 
 不足:
 
-- child/component property override と selective Apply/Revert。
+- child/component property override と selective Apply。
 - nested prefab、variant、inheritance。
 - source 更新時の conflict、diff、rebase。
 - break/relink、missing source recovery。
@@ -660,7 +660,7 @@ flowchart TD
 
 成果物:
 
-- stable instance IDとroot Visible/Enabled/Color override（実装済み）、child/component override。
+- stable instance ID、root Visible/Enabled/Color overrideとselective Revert（実装済み）、child/component overrideとselective Apply。
 - selective Apply/Revert、diff UI。
 - nested prefab、variant、break/relink。
 - source update conflict と migration。

@@ -5217,6 +5217,22 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>指定した3D root propertyだけを原本値へ戻し、他のoverrideを維持する。</summary>
+    private void RevertPrefabRootOverride3D(int id, PrefabRootProperty3D property)
+    {
+        if (Engine == IntPtr.Zero || property == PrefabRootProperty3D.None || (property & ~PrefabRootProperty3D.All) != PrefabRootProperty3D.None) return;
+        string src = EngineInterop.NodePrefabSrc3D(Engine, id);
+        if (string.IsNullOrEmpty(src) || !System.IO.File.Exists(src)) { Log("Selective Revert失敗 (プレハブが見つからない)。"); return; }
+        string comp;
+        try { comp = ReadComponentsFor(src); }
+        catch (Exception ex) { Log("Selective Revert読込エラー: " + ex.Message); return; }
+        if (string.IsNullOrWhiteSpace(comp)) { Log("Selective Revert失敗 (コンポーネント木が空)。"); return; }
+        int nid = EngineInterop.acs_editor_prefab_instance3d_revert_root_overrides(Engine, id, src, comp, property);
+        if (nid < 0) { Log($"Selective Revert失敗 ({property})。", "Asset", LogLevel.Warn); return; }
+        RefreshAfterSceneChange();
+        Log($"3D Prefab rootの{property}だけを原本値へ復元しました。", "Asset", LogLevel.Info);
+    }
+
     // ===== Components: 登録 Component 型のアタッチ表示 / 編集 =====
     private void PopulateComponentCombo()
     {

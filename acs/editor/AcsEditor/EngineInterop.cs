@@ -1642,6 +1642,14 @@ internal static class EngineInterop
         IntPtr handle,
         int id,
         PrefabRootProperty3D mask);
+    /// <summary>指定したroot overrideだけを原本値へ戻し、残りを維持する。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_prefab_instance3d_revert_root_overrides(
+        IntPtr handle,
+        int id,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string source,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string text,
+        PrefabRootProperty3D revertMask);
     /// <summary>3D ノードの subtree を ACS3D テキストへシリアライズ取得 (UTF-8)。</summary>
     public static string CopySubtree3D(IntPtr handle, int id) =>
         Marshal.PtrToStringUTF8(acs_editor_copy_subtree3d(handle, id)) ?? "";

@@ -6655,6 +6655,13 @@ bool IsStablePrefabRoot_Internal(const AEditor3DRecordComponent& record) noexcep
            IsCanonicalPrefabInstanceId(record.prefab_instance_id);
 }
 
+/** current maskから指定propertyだけを除いたmaskを計算する。未知bit、空指定、未override指定では失敗する。 */
+bool TryCalculatePrefabRootPropertyRevertMask_Internal(u32 current_mask, u32 revert_mask, u32& remaining_mask) noexcept {
+    if ((current_mask & ~game::kPrefabRootProperty3DAllMask) != 0u || revert_mask == 0u || (revert_mask & ~game::kPrefabRootProperty3DAllMask) != 0u || (revert_mask & ~current_mask) != 0u) return false;
+    remaining_mask = current_mask & ~revert_mask;
+    return true;
+}
+
 /** source更新を越えて維持する3D Prefab root値のsnapshot。 */
 struct FPrefabRootPropertyOverrideSnapshot {
     /** 保存対象のEPrefabRootProperty3D bit。 */
@@ -18140,6 +18147,15 @@ ACS_EDITOR_API int acs_editor_prefab_instance3d_refresh(void* handle, int id, co
 /** 指定済みroot overrideを保持して3D Prefab/Blueprint instanceを再生成する。 */
 ACS_EDITOR_API int acs_editor_prefab_instance3d_refresh_with_root_overrides(void* handle, int id, const char* source, const char* text, std::uint32_t preserve_mask) {
     return RefreshPrefabInstance3D_Internal(handle, id, source, text, static_cast<u32>(preserve_mask));
+}
+
+/** 指定したroot overrideだけをsource値へ戻し、残りのoverrideを維持する。 */
+ACS_EDITOR_API int acs_editor_prefab_instance3d_revert_root_overrides(void* handle, int id, const char* source, const char* text, std::uint32_t revert_mask) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditor3DRecordComponent* const record = host != nullptr ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    u32 remaining_mask = 0u;
+    if (record == nullptr || !IsStablePrefabRoot_Internal(*record) || source == nullptr || std::strcmp(record->prefab_src, source) != 0 || !TryCalculatePrefabRootPropertyRevertMask_Internal(record->prefab_root_property_override_mask, static_cast<u32>(revert_mask), remaining_mask)) return -1;
+    return RefreshPrefabInstance3D_Internal(handle, id, source, text, remaining_mask);
 }
 
 ACS_EDITOR_API int acs_editor_water3d_hit_test(
