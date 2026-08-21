@@ -31373,12 +31373,13 @@ private:
         /** 対象が生存中ならそのポインタ、破棄済みまたは未設定なら nullptr。 */
         ANode* Get() const noexcept { return m_Target; }
 
+        /** 対象破棄時に監視を無効化し、同じ対象を監視する次の observer を返す。 */
+        FReparentTargetObserver* InvalidateTarget_Internal() noexcept;
+
     private:
         ANode* m_Target = nullptr;
         FReparentTargetObserver* m_Previous = nullptr;
         FReparentTargetObserver* m_Next = nullptr;
-
-        friend class ANode;
     };
 
     /**
