@@ -24782,6 +24782,7 @@ enum class ECapability : std::uint64_t {
     PrefabStableInstanceId3DV1 = 1ull << 16u,
     PrefabRootPropertyOverride3DV1 = 1ull << 17u,
     PrefabRootPropertySelectiveRevert3DV1 = 1ull << 18u,
+    PrefabRootComponentPropertyOverride3DV1 = 1ull << 19u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -24808,7 +24809,8 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::PrefabInstanceRefresh3DV1) |
     CapabilityBit(ECapability::PrefabStableInstanceId3DV1) |
     CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1) |
-    CapabilityBit(ECapability::PrefabRootPropertySelectiveRevert3DV1);
+    CapabilityBit(ECapability::PrefabRootPropertySelectiveRevert3DV1) |
+    CapabilityBit(ECapability::PrefabRootComponentPropertyOverride3DV1);
 
 inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
@@ -24818,7 +24820,8 @@ inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::PrefabInstanceRefresh3DV1) |
     CapabilityBit(ECapability::PrefabStableInstanceId3DV1) |
     CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1) |
-    CapabilityBit(ECapability::PrefabRootPropertySelectiveRevert3DV1);
+    CapabilityBit(ECapability::PrefabRootPropertySelectiveRevert3DV1) |
+    CapabilityBit(ECapability::PrefabRootComponentPropertyOverride3DV1);
 
 [[nodiscard]] constexpr bool IsCompatible(
     std::uint32_t requested_version,
@@ -36670,6 +36673,7 @@ inline constexpr u32 kScene3DSerializeMaxSpritePathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxPrefabPathBytes = 299u;
 inline constexpr u32 kScene3DSerializePrefabInstanceIdBytes = 32u;
 inline constexpr u32 kScene3DSerializeMaxComponentsPerNode = 1024u;
+inline constexpr u32 kScene3DSerializeMaxEditorComponentProperties = 24u;
 inline constexpr u32 kScene3DSerializeMaxDirectiveRecords = 262144u;
 inline constexpr u32 kScene3DSerializeMaxCameraCount = 256u;
 inline constexpr u32 kScene3DSerializeMaxCameraIdBytes = 64u;
