@@ -256,12 +256,14 @@ ACS_REF.modules.push({
         { sig: "void Init() / void Shutdown()", desc: "UI 層を初期化 / 後始末する。どちらも冪等で再呼び出し安全。" },
         { sig: "void Tick(f32 dt)", desc: "AScene::OnUpdate から呼ぶ。押下フラグの伝搬などを処理する。" },
         { sig: "void HandleInput(const acs::FEvent& event)", desc: "AScene::OnEvent から呼ぶ。マウス移動 / 押下 / 離しを処理し、クリック成立で押下フラグを立てる。" },
-        { sig: "void Draw(FRenderContext& rc) const", desc: "AScene2D::OnDrawHud から呼ぶ。登録 widget を描画する(ボタンは hover / 押下で色変化)。" },
-        { sig: "u32 AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size)", ret: "ハンドル(非 0)", desc: "ボタンを追加する。label は非所有。", when: "クリックで反応する短形ボタンを置く時。" },
-        { sig: "u32 AddText(const char* text, acs::FVec2 pos)", ret: "ハンドル", desc: "静的テキストを追加する。text は非所有。" },
-        { sig: "bool IsButtonPressed(u32 handle) const", ret: "押されたか", desc: "そのボタンが直前フレームで押されたかを返す。", when: "ボタンクリックを毎フレーム拾う時。" },
+        { sig: "void Draw(FRenderContext& rc) const", desc: "AScene::OnDrawHud から呼ぶ。登録 widget を描画する(ボタンは hover / 押下で色変化)。" },
+        { sig: "u32 AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size)", ret: "ハンドル(非 0)", desc: "ボタンを追加し、label をコピー所有する。", when: "クリックで反応する矩形ボタンを置く時。" },
+        { sig: "u32 AddText(const char* text, acs::FVec2 pos)", ret: "ハンドル", desc: "静的テキストを追加し、text をコピー所有する。" },
+        { sig: "bool ConsumeButtonPress(u32 handle)", ret: "未消費の押下があったか", desc: "クリック成立を一度だけ取得して消費する。", when: "ボタンクリックを毎フレーム拾う時。" },
+        { sig: "bool IsButtonPressed(u32 handle) const", ret: "未消費の押下があったか", desc: "既存コード向けの互換 API。ConsumeButtonPress と同じワンショット動作。" },
+        { sig: "bool SetText(u32 handle, const char* text) / const char* Text(u32 handle) const", desc: "表示文字列を安全に差し替える / レイヤ所有の現在値を参照する。" },
         { sig: "void SetVisible(u32 handle, bool visible)", desc: "widget の可視性を切り替える(無効ハンドルは無視)。" },
-        { sig: "void Remove(u32 handle) / void Clear()", desc: "1 つ削除 / 全削除する。Clear は root を残すので続けて追加可能。" },
+        { sig: "void Remove(u32 handle) / void Clear()", desc: "1 つ削除 / 全削除する。Clear は初期化状態を保つので続けて追加可能。" },
         { sig: "u32 WidgetCount() const", desc: "登録 widget 数を返す。" },
         { sig: "using FUiLayer = CUiLayer", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CUiLayer</code> を使う。" }
       ]
@@ -274,7 +276,7 @@ ACS_REF.modules.push({
       members: [
         { sig: "u32 handle / EWidgetKind kind", desc: "不透明 ID(0 は無効) / 種別(Button / Text)。" },
         { sig: "acs::FVec2 pos / acs::FVec2 size", desc: "画面ピクセルの絶対座標 / サイズ。" },
-        { sig: "const char* text / bool visible", desc: "ラベル / 表示テキスト(非所有) / 可視か。" },
+        { sig: "const char* text / bool visible", desc: "CUiLayer が所有するラベル / 表示テキストの読み取り用ポインタ / 可視か。" },
         { sig: "bool just_pressed / bool hovered / bool pressed_down", desc: "クリック成立(読み取りで消費) / カーソルが上か / 押し込み中か。" }
       ]
     },

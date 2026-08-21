@@ -505,6 +505,16 @@ protected:
      */
     virtual void OnDrawHud() noexcept {}
 
+    /**
+     * 配線済みの HUD 用 SpriteBatch から OnDrawHud を呼ぶ。
+     *
+     * @details 呼出し中だけ Draw.h の即時描画 context を公開し、以前の公開状態を
+     * 復元する。標準 2D 描画と独自 3D 描画経路が同じ HUD hook を安全に共有するための
+     * 非仮想 helper であり、render pass と SpriteBatch の Begin/End は呼出し側が管理する。
+     * @param rc HUD 用 SpriteBatch が配線済みの描画コンテキスト。
+     */
+    void DrawHudPass_Internal(FRenderContext& rc) noexcept;
+
 private:
     friend class CSceneManager;
 
@@ -532,13 +542,6 @@ private:
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
     void DrawWorldPass(FRenderContext& rc) noexcept;
-
-    /**
-     * HUD パスを描画する (画面中心の view を設定し OnDrawHud)。
-     *
-     * @param rc 描画コマンドを積む先のレンダーコンテキスト。
-     */
-    void DrawHudPass(FRenderContext& rc) noexcept;
 
     /** root ツリーと generational pool を所有するノードグラフ (シーングラフの実体)。 */
     CSceneNodeGraph m_Graph;

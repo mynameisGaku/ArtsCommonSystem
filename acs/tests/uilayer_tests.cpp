@@ -8,6 +8,8 @@
 #include "gameframework/UiLayer.h"
 #include "platform/Event.h"
 
+#include <cstring>
+
 using namespace acs;
 using acs::game::CUiLayer;
 
@@ -81,6 +83,19 @@ ACS_TEST(UiLayer, ClickDetectionConsumeOnce) {
     ui.Shutdown();
 }
 
+// ---- 明示 consume API も 1 クリックを 1 回だけ返す -----------------------
+ACS_TEST(UiLayer, ConsumeButtonPressIsOneShot) {
+    CUiLayer ui;
+    ui.Init();
+    const u32 b = ui.AddButton("OK", FVec2{10, 10}, FVec2{100, 40});
+
+    ClickAt(ui, 50, 30);
+    EXPECT_TRUE(ui.ConsumeButtonPress(b));
+    EXPECT_FALSE(ui.ConsumeButtonPress(b));
+    EXPECT_FALSE(ui.IsButtonPressed(b));
+    ui.Shutdown();
+}
+
 // ---- ボタン外で離したらクリック不成立 ------------------------------------
 ACS_TEST(UiLayer, ReleaseOutsideNoClick) {
     CUiLayer ui;
@@ -103,6 +118,24 @@ ACS_TEST(UiLayer, TopmostHit) {
     ClickAt(ui, 50, 50);
     EXPECT_TRUE(ui.IsButtonPressed(front));
     EXPECT_FALSE(ui.IsButtonPressed(back));
+    ui.Shutdown();
+}
+
+// ---- 途中削除後も追加順を保ち、最前面判定を変えない ----------------------
+ACS_TEST(UiLayer, RemovalPreservesTopmostOrder) {
+    CUiLayer ui;
+    ui.Init();
+    const u32 back = ui.AddButton(
+        "back", FVec2{0, 0}, FVec2{100, 100});
+    const u32 middle = ui.AddButton(
+        "middle", FVec2{0, 0}, FVec2{100, 100});
+    const u32 front = ui.AddButton(
+        "front", FVec2{0, 0}, FVec2{100, 100});
+    ui.Remove(middle);
+
+    ClickAt(ui, 50, 50);
+    EXPECT_TRUE(ui.ConsumeButtonPress(front));
+    EXPECT_FALSE(ui.ConsumeButtonPress(back));
     ui.Shutdown();
 }
 
@@ -141,7 +174,38 @@ ACS_TEST(UiLayer, RemoveAndClear) {
     ClickAt(ui, 25, 5);                    // 残った b はクリック可能
     EXPECT_TRUE(ui.IsButtonPressed(b));
 
+    ui.HandleInput(MouseMove(25, 5));
+    ui.HandleInput(MouseDown());
     ui.Clear();
     EXPECT_EQ(ui.WidgetCount(), u32(0));
+    const u32 next = ui.AddButton(
+        "next", FVec2{20, 0}, FVec2{10, 10});
+    ui.HandleInput(MouseUp());
+    EXPECT_FALSE(ui.ConsumeButtonPress(next));
+    ui.Shutdown();
+}
+
+// ---- 文字列はコピー所有し、SetText は安全に差し替える -------------------
+ACS_TEST(UiLayer, OwnsAndReplacesWidgetText) {
+    CUiLayer ui;
+    ui.Init();
+    char caller_text[] = "Play";
+    const u32 button = ui.AddButton(
+        caller_text, FVec2{0, 0}, FVec2{100, 40});
+    caller_text[0] = 'X';
+    EXPECT_TRUE(ui.Text(button) != nullptr);
+    EXPECT_TRUE(std::strcmp(ui.Text(button), "Play") == 0);
+
+    EXPECT_TRUE(ui.SetText(button, "Continue"));
+    EXPECT_TRUE(std::strcmp(ui.Text(button), "Continue") == 0);
+    EXPECT_TRUE(ui.SetText(button, ui.Text(button)));
+    EXPECT_TRUE(std::strcmp(ui.Text(button), "Continue") == 0);
+    EXPECT_FALSE(ui.SetText(0u, "invalid"));
+
+    const u32 empty = ui.AddText(nullptr, FVec2{0, 50});
+    EXPECT_TRUE(ui.Text(empty) != nullptr);
+    EXPECT_TRUE(std::strcmp(ui.Text(empty), "") == 0);
+    ui.Remove(button);
+    EXPECT_TRUE(ui.Text(button) == nullptr);
     ui.Shutdown();
 }

@@ -138,6 +138,12 @@ null scene、容量確保失敗、service 構築失敗、World subsystem 初期�
 `DrawTexture()`、`DrawString()` などは何も行わない。pass 終了時は必ず context を解除し、次の
 scene や frame へ漏らさない。
 
+`ALegacyScene3DAdapter` は 3D の HDR/post 経路を置き換えるため、標準 world pass は呼ばない。
+post が LDR swapchain を完成させた後、共有 `CSceneRenderResources::SpriteBatch` の準備に
+成功した場合だけ swapchain を load で再バインドし、`DrawHudPass_Internal` から同じ
+`OnDrawHud` hook を呼ぶ。SpriteBatch 準備失敗時は完成済み 3D 画像を保ち、成功時は
+SpriteBatch と swapchain pass の両方を明示的に閉じてから外側の overlay へ戻る。
+
 2D node 描画は scene graph が可視 node を収集し、安定した描画 key で並べる。3D component は
 同じ root graph に存在でき、専用 component と render 経路が projection と depth を扱う。
 

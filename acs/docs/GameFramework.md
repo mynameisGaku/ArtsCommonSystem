@@ -366,9 +366,19 @@ component は node の局所能力である。`OnAttach`、更新、描画、que
 `AScene::OnRender()` は world pass と HUD pass を実行する。`Draw.h` の即時描画関数は pass 中の
 `FRenderContext` だけを参照し、pass 外または sprite batch 未接続時は何も行わない。
 
+`ALegacyScene3DAdapter` は `AScene::OnRender()` を再呼出しせず、3D post 処理後の LDR
+swapchain を load で再バインドして同じ `OnDrawHud` hook だけを実行する。順序は
+`HDR 3D → post/TAA-or-FXAA/tonemap → HUD → Framework overlay` であり、HUD は完成済み
+scene color を消去しない。共有 SpriteBatch の初期化に失敗したフレームは HUD だけを省略する。
+
+小規模なボタンとテキストには `CUiLayer` を利用できる。`AddButton` / `AddText` は渡された
+文字列をコピー所有し、`SetText` は新しいコピーの成功後に表示を差し替える。クリックは
+`ConsumeButtonPress` が一度だけ消費し、既存の `IsButtonPressed` も同じ互換動作を維持する。
+
 エンジン、エディタ、外部の描画側が `FRenderContext` を構成する場合は、`WiringAccess()` が
 返す短寿命の接続窓口から `BeginFrame`、各 `Set*`、`EndFrame` を呼ぶ。実処理の
-`Foo_Internal` は `private` であり、通常の描画処理から直接変更しない。旧 `_BeginFrame`、
+`Foo_Internal` は原則 `private` とし、派生描画経路で再利用する非仮想 helper だけを
+`protected` に置く。通常の描画処理から接続状態を直接変更しない。旧 `_BeginFrame`、
 `_SetFont`、`_EndFrame` は C++ 処理系の予約名であるため公開しない。
 
 2D node は `(DrawLayer, DrawPriority, Y sort, tree order)` の安定順で描画する。subtree 単位の

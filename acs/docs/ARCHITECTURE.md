@@ -170,6 +170,12 @@ LDR 中間へ書き、その後 `CFxaa` を swapchain に一度だけ適用し�
 があるフレームでは FXAA を重ねず、TAA 解像が失敗した場合だけ FXAA を代替処理にします。
 任意シェーダのコンパイルに失敗しても直接トーンマップを使い、空のフレームを公開しません。
 
+`ALegacyScene3DAdapter` のプレイヤー向け HUD は、HDR 3D と post/TAA-or-FXAA/トーンマップを
+完了した後に LDR swapchain を load で再バインドし、`AScene::OnDrawHud` を呼びます。
+`CSceneRenderResources::SpriteBatch` を共有し、`FRenderContext` と `Draw.h` の即時描画 context は
+HUD pass 中だけ公開します。SpriteBatch 初期化失敗時は pass を開かず完成済み 3D 画像を維持し、
+成功時は swapchain pass を明示的に閉じてから Framework のフェード等へ制御を戻します。
+
 ### ボリュメトリック雲の workload 診断
 
 `FVolumetricClouds::LastFrameWorkload()` は、直近のボリューム雲の計算処理と

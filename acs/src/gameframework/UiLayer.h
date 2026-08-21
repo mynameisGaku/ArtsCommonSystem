@@ -48,14 +48,14 @@ struct FWidgetEntry {
     /** 画面ピクセル単位のサイズ (Text は未使用)。 */
     acs::FVec2   size        {0.0f, 0.0f};
 
-    /** ラベル / 表示テキスト (非所有、寿命は呼び出し側保証)。 */
-    const char* text         = nullptr;
+    /** CUiLayer が所有する NUL 終端ラベル / 表示テキストの読み取り用ポインタ。 */
+    const char* text = nullptr;
 
     /** 可視フラグ (不可視時は描画もヒットテストもスキップ)。 */
     bool        visible      = true;
 
-    /** 直前フレームで押されたフラグ (consume-on-read。Tick 開始時に clear)。 */
-    bool        just_pressed = false;
+    /** 直前に成立し、まだ読み取られていない押下フラグ。 */
+    mutable bool just_pressed = false;
 
     /** カーソルが上に乗っているフラグ (描画ハイライト用)。 */
     bool        hovered      = false;
@@ -65,23 +65,22 @@ struct FWidgetEntry {
 };
 
 /**
- * acs::ui の AWidget tree を AScene のライフサイクルに繋ぐ薄い glue 層。
+ * Button/Text の軽量 UI を AScene のライフサイクルに繋ぐ層。
  *
  * @details
- * AScene の Init / Tick / HandleInput / Shutdown と AWidget tree を結び、典型的なゲーム UI
- * (ボタン / テキスト表示) を最小 API で扱えるようにする。現状は実 AWidget 生成 / 描画 /
- * ヒットテストは未接続の state holder で、ハンドル付きの FWidgetEntry を TArray で保持し、
- * 追加・削除・可視性・押下クエリは完全動作する。ハンドルは u32 単調増加で再利用しない
- * (0 は invalid 予約)。const char* は非所有 (寿命は呼び出し側保証)。非コピー・非ムーブ、
- * 全 noexcept、Init / Shutdown は冪等。
+ * AScene の Init / Tick / HandleInput / Draw / Shutdown と結び、典型的なゲーム UI
+ * (ボタン / テキスト表示) を最小 API で扱えるようにする。描画は FRenderContext の
+ * CSpriteBatch / FFont、入力は最前面ボタンの hit test を使う。ハンドルは u32 単調増加で
+ * 再利用せず (0 は invalid 予約)、表示文字列はレイヤがコピー所有する。非コピー・
+ * 非ムーブ、全 noexcept、Init / Shutdown は冪等。
  */
 class CUiLayer {
 public:
     /** 空の UI レイヤを構築する (widget 未登録、未初期化)。 */
     CUiLayer()  noexcept = default;
 
-    /** 破棄する。 */
-    ~CUiLayer() noexcept = default;
+    /** 所有する表示文字列と widget 状態を解放して破棄する。 */
+    ~CUiLayer() noexcept;
 
     /** コピー禁止 (state holder。誤コピーで widget 状態が分裂しないため)。 */
     CUiLayer(const CUiLayer&)            = delete;
@@ -99,20 +98,19 @@ public:
      * UI レイヤを初期化する (AScene::OnEnter から呼ぶ)。
      *
      * @details
-     * AWidget tree の root を確保する (現状は stub、実装時は acs::AContainer を root として
-     * new する)。冪等で再呼び出し安全 (二度 Init してもメモリリークしない)。
+     * 軽量 Button/Text 状態を受け付ける準備をする。冪等で再呼び出し安全。
      */
     void Init() noexcept;
 
-    /** 全 widget をクリアし root を解放する (AScene::OnExit から呼ぶ。冪等)。 */
+    /** 全 widget と所有文字列を解放する (AScene::OnExit から呼ぶ。冪等)。 */
     void Shutdown() noexcept;
 
     /**
      * UI 状態を更新する (AScene::OnUpdate から呼ぶ)。
      *
      * @details
-     * 現状は just_pressed フラグの伝搬ハンドリングのみ。実装時に acs::AWidget::Layout
-     * 再計算と tween / animation の更新を入れる。
+     * 現在は押下状態をイベント間で保持する。クリックは ConsumeButtonPress または
+     * 互換 IsButtonPressed が読み取るまで失われない。
      * @param dt 前フレームからの経過秒。
      */
     void Tick(f32 dt) noexcept;
@@ -148,7 +146,7 @@ public:
     /**
      * ボタンを追加する。
      *
-     * @param label ボタンのラベル (非所有、寿命は呼び出し側保証)。
+     * @param label ボタンのラベル (内部へコピー、nullptr は空文字列)。
      * @param pos 画面ピクセル単位の絶対座標。
      * @param size 画面ピクセル単位のサイズ。
      * @return 0 でない handle (IsButtonPressed / SetVisible / Remove に渡す)。
@@ -158,20 +156,49 @@ public:
     /**
      * 静的テキストを追加する。
      *
-     * @details size は描画時にフォントメトリックから自動計算する想定。
-     * @param text 表示テキスト (非所有、寿命は呼び出し側保証)。
+     * @details size は描画時にフォントメトリックから決まる。
+     * @param text 表示テキスト (内部へコピー、nullptr は空文字列)。
      * @param pos 画面ピクセル単位の絶対座標。
      * @return 発行した handle。
      */
     u32 AddText(const char* text, acs::FVec2 pos) noexcept;
 
     /**
-     * ボタンが直前フレームで押されたかを返す。
+     * ボタンの未消費クリックを一度だけ取得する。
      *
+     * @param handle 確認して消費するボタンの handle。
+     * @return 未消費クリックがあれば true。invalid handle / Text kind は false。
+     */
+    bool ConsumeButtonPress(u32 handle) noexcept;
+
+    /**
+     * ボタンの未消費クリックを一度だけ取得する互換 API。
+     *
+     * @details 新しいコードは状態変更を明示する ConsumeButtonPress を使う。この関数も
+     * 従来どおり consume-on-read を維持し、mutable な押下フラグだけを変更する。
      * @param handle 確認するボタンの handle。
      * @return 押されていれば true。invalid handle / Text kind には常に false。
      */
     bool IsButtonPressed(u32 handle) const noexcept;
+
+    /**
+     * widget の表示文字列を安全に差し替える。
+     *
+     * @details 新しい文字列のコピーに成功してから旧文字列を解放するため、失敗時も
+     * 以前の表示を維持する。
+     * @param handle 対象 widget の handle。
+     * @param text 新しい文字列 (内部へコピー、nullptr は空文字列)。
+     * @return 差し替え成功なら true。invalid handle / メモリ不足なら false。
+     */
+    bool SetText(u32 handle, const char* text) noexcept;
+
+    /**
+     * widget の現在の表示文字列を返す。
+     *
+     * @param handle 対象 widget の handle。
+     * @return レイヤ所有の NUL 終端文字列。invalid handle なら nullptr。
+     */
+    const char* Text(u32 handle) const noexcept;
 
     /**
      * widget の可視性を変更する。
@@ -193,8 +220,8 @@ public:
      * 全 widget を削除する。
      *
      * @details
-     * Init 後の初期化やシーン内画面切替で利用する。Shutdown とは異なり root は保持されるので、
-     * 続けて AddButton 等が可能。
+     * Init 後の初期化やシーン内画面切替で利用する。初期化状態は維持されるため、続けて
+     * AddButton 等が可能。
      */
     void Clear() noexcept;
 
@@ -216,7 +243,7 @@ private:
      */
     u32 HitTopButton(f32 x, f32 y) const noexcept;
 
-    /** 全 widget の状態 (handle 順は保証しない)。 */
+    /** 全 widget の状態 (追加順。後ろほど hit test 上の前面)。 */
     TArray<FWidgetEntry> m_Widgets;
 
     /** 次に発行する handle (0 は invalid 予約)。 */

@@ -1064,6 +1064,23 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     m_PostParams.taa_depth_texture = nullptr;
     m_Post.Render(
         command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams);
+
+    // HDR 3D と post の完成後、LDR backbuffer を消さずに HUD だけを重ねる。
+    // SpriteBatch の初期化に失敗した場合は pass を開かず、完成済み 3D 表示を保つ。
+    CSceneRenderResources& render_resources =
+        GetGame().SceneRenderResources();
+    if (!render_resources.EnsureSpriteBatch(context)) return;
+
+    const u32 buffer_index = renderer.CurrentBuffer();
+    CSpriteBatch& hud_sprites = render_resources.SpriteBatch();
+    command_list.BeginRenderToSwapchainLoad(*swapchain, buffer_index);
+    hud_sprites.Begin(command_list, context.Width(), context.Height());
+    auto wiring = context.WiringAccess();
+    wiring.SetSpriteBatch(&hud_sprites);
+    DrawHudPass_Internal(context);
+    wiring.SetSpriteBatch(nullptr);
+    hud_sprites.End();
+    command_list.EndRenderToSwapchain(*swapchain, buffer_index);
 }
 
 void ALegacyScene3DAdapter::CollectSceneLights() noexcept {

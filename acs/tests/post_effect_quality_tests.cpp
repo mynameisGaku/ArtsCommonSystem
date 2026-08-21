@@ -23,6 +23,7 @@
 #include "render/Ssr.h"
 #include "render/Sky.h"
 #include "render/SkinnedShader.h"
+#include "render/SpriteBatch.h"
 #include "render/StandardShader.h"
 #include "render/SubsurfaceScattering.h"
 #include "render/TemporalHistory.h"
@@ -633,6 +634,121 @@ ACS_TEST(PostEffects,
     EXPECT_TRUE(flush != std::string::npos);
     EXPECT_TRUE(invalidate != std::string::npos);
     EXPECT_TRUE(flush < invalidate);
+}
+
+ACS_TEST(PostEffects,
+         LegacyScene3DHudLoadsAfterPostAndClosesSwapchainPass)
+{
+    const std::string adapter =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string scene_header =
+        ReadWorkspaceSource("src/gameframework/Scene.h");
+    const std::string scene_source =
+        ReadWorkspaceSource("src/gameframework/Scene.cpp");
+    const std::string game_source =
+        ReadWorkspaceSource("src/gameframework/Game.cpp");
+    const std::string frame = ExtractFunction(
+        adapter, "void ALegacyScene3DAdapter::OnRender(");
+    const std::string hud = ExtractFunction(
+        scene_source, "void AScene::DrawHudPass_Internal(");
+    const std::string game_frame = ExtractFunction(
+        game_source, "void CGame::OnRender(");
+    EXPECT_TRUE(!frame.empty());
+    EXPECT_TRUE(!scene_header.empty());
+    EXPECT_TRUE(!hud.empty());
+    EXPECT_TRUE(!game_frame.empty());
+    if (frame.empty() || scene_header.empty() || hud.empty()
+        || game_frame.empty()) {
+        return;
+    }
+
+    // post/TAA-or-FXAA/tonemap の完成後だけ、LDR backbuffer を load して HUD を重ねる。
+    const std::size_t post = frame.find("m_Post.Render(");
+    const std::size_t ensure = frame.find(
+        "render_resources.EnsureSpriteBatch(context)", post);
+    const std::size_t load = frame.find(
+        "command_list.BeginRenderToSwapchainLoad(*swapchain, buffer_index)",
+        ensure);
+    const std::size_t batch_begin = frame.find(
+        "hud_sprites.Begin(command_list, context.Width(), context.Height())",
+        load);
+    const std::size_t wire = frame.find(
+        "wiring.SetSpriteBatch(&hud_sprites)", batch_begin);
+    const std::size_t draw = frame.find(
+        "DrawHudPass_Internal(context)", wire);
+    const std::size_t unwire = frame.find(
+        "wiring.SetSpriteBatch(nullptr)", draw);
+    const std::size_t batch_end = frame.find(
+        "hud_sprites.End()", unwire);
+    const std::size_t pass_end = frame.find(
+        "command_list.EndRenderToSwapchain(*swapchain, buffer_index)",
+        batch_end);
+    EXPECT_TRUE(post != std::string::npos);
+    EXPECT_TRUE(ensure != std::string::npos);
+    EXPECT_TRUE(load != std::string::npos);
+    EXPECT_TRUE(batch_begin != std::string::npos);
+    EXPECT_TRUE(wire != std::string::npos);
+    EXPECT_TRUE(draw != std::string::npos);
+    EXPECT_TRUE(unwire != std::string::npos);
+    EXPECT_TRUE(batch_end != std::string::npos);
+    EXPECT_TRUE(pass_end != std::string::npos);
+    EXPECT_TRUE(post < ensure);
+    EXPECT_TRUE(ensure < load);
+    EXPECT_TRUE(load < batch_begin);
+    EXPECT_TRUE(batch_begin < wire);
+    EXPECT_TRUE(wire < draw);
+    EXPECT_TRUE(draw < unwire);
+    EXPECT_TRUE(unwire < batch_end);
+    EXPECT_TRUE(batch_end < pass_end);
+    EXPECT_TRUE(frame.find(
+        "if (!render_resources.EnsureSpriteBatch(context)) return;") !=
+                std::string::npos);
+    EXPECT_TRUE(frame.find("AScene::OnRender(") == std::string::npos);
+
+    // helper は vtable を増やさず、引数なし Draw API の context も呼出し中だけ公開する。
+    EXPECT_TRUE(scene_header.find(
+        "void DrawHudPass_Internal(FRenderContext& rc) noexcept;") !=
+                std::string::npos);
+    EXPECT_TRUE(scene_header.find(
+        "virtual void DrawHudPass_Internal") == std::string::npos);
+    const std::size_t helper_declaration = scene_header.find(
+        "void DrawHudPass_Internal(FRenderContext& rc) noexcept;");
+    const std::size_t protected_section = scene_header.rfind(
+        "protected:", helper_declaration);
+    const std::size_t private_after_helper = scene_header.find(
+        "private:", helper_declaration);
+    EXPECT_TRUE(protected_section != std::string::npos);
+    EXPECT_TRUE(private_after_helper != std::string::npos);
+    EXPECT_TRUE(protected_section < helper_declaration);
+    EXPECT_TRUE(helper_declaration < private_after_helper);
+    const std::size_t previous = hud.find(
+        "CurrentDrawContext_Internal()");
+    const std::size_t publish = hud.find(
+        "SetDrawContext_Internal(&rc)", previous);
+    const std::size_t draw_with_context = hud.find(
+        "OnDrawHud(rc, sb)", publish);
+    const std::size_t draw_immediate = hud.find(
+        "OnDrawHud()", draw_with_context);
+    const std::size_t restore = hud.find(
+        "SetDrawContext_Internal(previous_context)", draw_immediate);
+    EXPECT_TRUE(previous != std::string::npos);
+    EXPECT_TRUE(publish != std::string::npos);
+    EXPECT_TRUE(draw_with_context != std::string::npos);
+    EXPECT_TRUE(draw_immediate != std::string::npos);
+    EXPECT_TRUE(restore != std::string::npos);
+    EXPECT_TRUE(previous < publish);
+    EXPECT_TRUE(publish < draw_with_context);
+    EXPECT_TRUE(draw_with_context < draw_immediate);
+    EXPECT_TRUE(draw_immediate < restore);
+
+    // CGame のフェードなど Framework overlay は scene の HUD 後に積まれる。
+    const std::size_t scene_render = game_frame.find(
+        "m_Scenes.ExecutionAccess().Render(m_RenderCtx)");
+    const std::size_t outer_overlay = game_frame.find(
+        "DrawFadeOverlay()", scene_render);
+    EXPECT_TRUE(scene_render != std::string::npos);
+    EXPECT_TRUE(outer_overlay != std::string::npos);
+    EXPECT_TRUE(scene_render < outer_overlay);
 }
 
 ACS_TEST(PostEffects,
@@ -2188,6 +2304,14 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
 #endif
     }
     EXPECT_TRUE(fxaa.IsReady());
+
+    // Legacy 3D HUD が借りる標準 SpriteBatch も、使用中 backend の LDR
+    // swapchain format 向けに実際の pipeline と buffer を生成できることを確認する。
+    CSpriteBatch hud_sprites;
+    EXPECT_TRUE(
+        hud_sprites.Init(
+                device, EFormat::B8G8R8A8_UNorm, 32u)
+            .IsOk());
 
     IRhiTexture* const first_hdr = post.HdrRenderTarget();
     CPostProcess::FCompiledShaders incomplete_post{};
