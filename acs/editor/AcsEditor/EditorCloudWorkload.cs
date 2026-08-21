@@ -40,6 +40,12 @@ internal struct EditorCloudWorkloadSnapshot
     public ulong TotalLaunchedThreads;
     public ulong MaximumViewSamples;
     public ulong MaximumLightSamples;
+
+    public uint WorldShadowDispatches;
+    public uint Reserved1;
+    public ulong WorldShadowLogicalInvocations;
+    public ulong WorldShadowLaunchedThreads;
+    public ulong MaximumWorldShadowSamples;
 }
 
 internal enum EditorCloudWorkloadQueryStatus
@@ -52,7 +58,7 @@ internal enum EditorCloudWorkloadQueryStatus
 
 internal static class EditorCloudWorkloadContract
 {
-    internal const uint Version = 1;
+    internal const uint Version = 2;
     internal const uint FlagAttempted = 1u << 0;
     internal const uint FlagSubmitted = 1u << 1;
     internal const uint FlagHistoryWasAvailable = 1u << 2;
@@ -73,13 +79,14 @@ internal static class EditorCloudWorkloadContract
     internal const uint SkipInvalidProjection = 3;
     private const ulong MaximumViewMarchSamples = 192;
     private const ulong MaximumLightMarchSamples = 8;
+    private const ulong MaximumWorldShadowMarchSamples = 32;
 
     internal static uint SnapshotSize =>
         checked((uint)Marshal.SizeOf<EditorCloudWorkloadSnapshot>());
 
     internal static bool IsSupported(EditorAbiCapability capabilities) =>
         capabilities.HasFlag(
-            EditorAbiCapability.VolumetricCloudWorkloadV1);
+            EditorAbiCapability.VolumetricCloudWorkloadV2);
 
     internal static bool HasValidSemantics(
         int nativeResult,
@@ -87,6 +94,7 @@ internal static class EditorCloudWorkloadContract
     {
         if ((snapshot.Flags & ~KnownFlags) != 0u ||
             snapshot.Reserved0 != 0u ||
+            snapshot.Reserved1 != 0u ||
             snapshot.SkipReason > SkipInvalidProjection ||
             (nativeResult != 0 && nativeResult != 1))
         {
@@ -163,14 +171,16 @@ internal static class EditorCloudWorkloadContract
             return false;
         }
 
-        // 定常描画は視線積分と時間再構成に加え、動く密度場の影を1回だけ再生成する。
+        // 定常描画では、視線積分、時間再構成、雲内部影、ワールド雲影を各1回だけ処理する。
         if (snapshot.SteadyDispatches != 2u ||
             snapshot.OneTimeBakeDispatches > 4u ||
             snapshot.ShadowCacheDispatches > 1u ||
+            snapshot.WorldShadowDispatches > 1u ||
             (ulong)snapshot.TotalComputeDispatches !=
                 (ulong)snapshot.SteadyDispatches +
                 snapshot.OneTimeBakeDispatches +
-                snapshot.ShadowCacheDispatches)
+                snapshot.ShadowCacheDispatches +
+                snapshot.WorldShadowDispatches)
         {
             return false;
         }
@@ -207,6 +217,10 @@ internal static class EditorCloudWorkloadContract
                 snapshot.ShadowCacheDispatches,
                 snapshot.ShadowCacheLogicalInvocations,
                 snapshot.ShadowCacheLaunchedThreads) ||
+            !InvocationComponentMatchesDispatches(
+                snapshot.WorldShadowDispatches,
+                snapshot.WorldShadowLogicalInvocations,
+                snapshot.WorldShadowLaunchedThreads) ||
             !InvocationPairIsValid(
                 snapshot.TotalLogicalInvocations,
                 snapshot.TotalLaunchedThreads))
@@ -219,15 +233,19 @@ internal static class EditorCloudWorkloadContract
                 snapshot.TraceLogicalInvocations,
                 snapshot.ResolveLogicalInvocations),
             SaturatingAdd(
-                snapshot.OneTimeBakeLogicalInvocations,
-                snapshot.ShadowCacheLogicalInvocations));
+                SaturatingAdd(
+                    snapshot.OneTimeBakeLogicalInvocations,
+                    snapshot.ShadowCacheLogicalInvocations),
+                snapshot.WorldShadowLogicalInvocations));
         ulong launchedTotal = SaturatingAdd(
             SaturatingAdd(
                 snapshot.TraceLaunchedThreads,
                 snapshot.ResolveLaunchedThreads),
             SaturatingAdd(
-                snapshot.OneTimeBakeLaunchedThreads,
-                snapshot.ShadowCacheLaunchedThreads));
+                SaturatingAdd(
+                    snapshot.OneTimeBakeLaunchedThreads,
+                    snapshot.ShadowCacheLaunchedThreads),
+                snapshot.WorldShadowLaunchedThreads));
         ulong maximumViewSamples = SaturatingMultiply(
             snapshot.TraceLogicalInvocations,
             MaximumViewMarchSamples);
@@ -236,7 +254,10 @@ internal static class EditorCloudWorkloadContract
                snapshot.MaximumViewSamples == maximumViewSamples &&
                snapshot.MaximumLightSamples == SaturatingMultiply(
                    maximumViewSamples,
-                   MaximumLightMarchSamples);
+                   MaximumLightMarchSamples) &&
+               snapshot.MaximumWorldShadowSamples == SaturatingMultiply(
+                   snapshot.WorldShadowLogicalInvocations,
+                   MaximumWorldShadowMarchSamples);
     }
 
     internal static EditorCloudWorkloadQueryStatus ClassifyNativeResult(
@@ -286,6 +307,7 @@ internal static class EditorCloudWorkloadContract
         snapshot.SteadyDispatches == 0u &&
         snapshot.OneTimeBakeDispatches == 0u &&
         snapshot.ShadowCacheDispatches == 0u &&
+        snapshot.WorldShadowDispatches == 0u &&
         snapshot.TotalComputeDispatches == 0u &&
         snapshot.CompositeDraws == 0u &&
         snapshot.TraceLogicalInvocations == 0u &&
@@ -296,10 +318,13 @@ internal static class EditorCloudWorkloadContract
         snapshot.OneTimeBakeLaunchedThreads == 0u &&
         snapshot.ShadowCacheLogicalInvocations == 0u &&
         snapshot.ShadowCacheLaunchedThreads == 0u &&
+        snapshot.WorldShadowLogicalInvocations == 0u &&
+        snapshot.WorldShadowLaunchedThreads == 0u &&
         snapshot.TotalLogicalInvocations == 0u &&
         snapshot.TotalLaunchedThreads == 0u &&
         snapshot.MaximumViewSamples == 0u &&
-        snapshot.MaximumLightSamples == 0u;
+        snapshot.MaximumLightSamples == 0u &&
+        snapshot.MaximumWorldShadowSamples == 0u;
 
     private static bool InvocationPairIsValid(
         ulong logical,
@@ -362,7 +387,7 @@ internal static class EditorCloudWorkloadFormatting
         status switch
         {
             EditorCloudWorkloadQueryStatus.Unsupported =>
-                "UNSUPPORTED - cloud-workload-v1",
+                "UNSUPPORTED - cloud-workload-v2",
             EditorCloudWorkloadQueryStatus.RuntimeUnavailable
                 when snapshot.SkipReason ==
                      EditorCloudWorkloadContract
@@ -397,7 +422,8 @@ internal static class EditorCloudWorkloadFormatting
         $"{Count(snapshot.TotalComputeDispatches)} = " +
         $"{Count(snapshot.SteadyDispatches)} steady + " +
         $"{Count(snapshot.OneTimeBakeDispatches)} bake + " +
-        $"{Count(snapshot.ShadowCacheDispatches)} shadow; " +
+        $"{Count(snapshot.ShadowCacheDispatches)} internal shadow + " +
+        $"{Count(snapshot.WorldShadowDispatches)} world shadow; " +
         $"{Count(snapshot.CompositeDraws)} composite draw";
 
     internal static string Invocations(

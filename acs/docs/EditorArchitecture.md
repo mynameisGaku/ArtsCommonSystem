@@ -917,13 +917,13 @@ the provider invalidates current CPU/GPU timing payloads, GPU validity,
 smoothed FPS, and cloud workload, advances the reset serial, and publishes zero
 presented frames. Managed capture accepts no sample until a later presented
 frame carries that exact serial. Exact
-volumetric-cloud accounting remains an optional, separate packed 168-byte
-version-1 contract (`cloud-workload-v1`), so it is negotiated and queried
-independently. The managed host calls an optional export only when its
-capability was advertised. The cloud query distinguishes an available attempt,
-runtime unavailability, and an ABI error; an unattached/warming renderer,
-inactive cloud pass, or uninitialized cloud renderer is shown as unavailable
-rather than as a zero-cost frame.
+ボリューム雲の処理量取得は独立した任意契約である。現在の
+`cloud-workload-v2` は200バイトの固定配置で、先頭168バイトに v1 と同じ配置を
+維持する。旧利用側が v1 を要求した場合は、v1 に存在しないワールド雲影を合計から
+除いた整合する値を返す。管理側は v2 の能力値が公開された場合だけ任意の公開関数を
+呼ぶ。取得結果は、利用可能な計測、実行時の利用不能、ABIエラーを区別する。
+描画先へ未接続、準備中、雲描画が無効、または雲描画器が未初期化の場合は、
+処理量ゼロのフレームではなく利用不能として表示する。
 
 Before either snapshot call, the panel consumes its independent optional
 service diagnostic. A pending/failed Profiler disables native Reset but not
@@ -951,14 +951,13 @@ plane extraction, default profiler publication, the shared traversal's
 recorded command forms through a fake RHI, range coalescing and overflow, and
 the real `DrawScene3D` profiler path when a DX12 adapter is available.
 
-For an available attempt the Cloud panel displays the exact steady,
-one-time-bake, shadow-cache, and total compute-dispatch counts; the composite
-draw count; logical invocations and padded launched-thread counts for trace,
-resolve, bake, shadow, and totals; temporal-history state; and conservative
-view/light sample ceilings. A skipped attempt retains its explicit native
-reason. The ceilings are not measured samples; GPU timestamps remain the
-authoritative elapsed-cost metric. This diagnostic surface does not change
-cloud resolution, quality, or march counts.
+利用可能な計測では、Cloudパネルに定常処理、初回雑音生成、雲内部影、
+ワールド雲影、計算処理合計の正確なディスパッチ数と、合成描画数を表示する。
+視線積分、時間再構成、初回生成、二種類の影、全体について、有効呼び出し数と
+端数を含む起動スレッド数も表示する。さらに、時間履歴の状態と、視線・光・
+ワールド雲影の保守的な最大試料数を表示する。処理を省略した場合は、ネイティブ側の
+理由をそのまま保持する。最大試料数は実測値ではなく、経過時間の正本にはGPU時刻を
+使う。この診断表示は、雲の解像度、品質、積分回数を変更しない。
 
 Managed metrics include:
 

@@ -36,6 +36,7 @@ internal static class EditorAbiContractSelfTest
             EditorAbiCapability.ProfilerV5 |
             EditorAbiCapability.UnifiedSceneDocument |
             EditorAbiCapability.VolumetricCloudWorkloadV1 |
+            EditorAbiCapability.VolumetricCloudWorkloadV2 |
             EditorAbiCapability.CameraAuthoringV1 |
             EditorAbiCapability.CameraViewRequestsV1 |
             EditorAbiCapability.OptionalServiceDiagnosticsV2;
@@ -56,6 +57,9 @@ internal static class EditorAbiContractSelfTest
                   StringComparison.Ordinal) &&
               compatible.ToDisplayText().Contains(
                   "cloud-workload-v1",
+                  StringComparison.Ordinal) &&
+              compatible.ToDisplayText().Contains(
+                  "cloud-workload-v2",
                   StringComparison.Ordinal) &&
               compatible.ToDisplayText().Contains(
                   "camera-authoring-v1",
@@ -113,6 +117,8 @@ internal static class EditorAbiContractSelfTest
                   EditorAbiCapability.PrefabSourceNodeIdentity3DV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.VolumetricCloudWorkloadV1) &&
+              !EditorAbiContract.RequiredCapabilities.HasFlag(
+                  EditorAbiCapability.VolumetricCloudWorkloadV2) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.CameraAuthoringV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(

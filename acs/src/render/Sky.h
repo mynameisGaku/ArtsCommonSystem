@@ -12,6 +12,7 @@
 #include "render/IRhiCommandList.h"
 #include "render/IRhiTexture.h"
 #include "render/SkySunProfile.h"
+#include "render/VolumetricCloudWorldShadow.h"
 
 namespace acs {
 
@@ -712,6 +713,7 @@ struct FVolumetricCloudFrameWorkloadPlan {
     bool bake_detail_noise = false;
     bool bake_curl_noise = false;
     bool rebuild_shadow_cache = false;
+    bool rebuild_world_shadow = false;
 };
 
 enum class EVolumetricCloudFrameSkipReason : u32 {
@@ -739,6 +741,7 @@ struct FVolumetricCloudFrameWorkload {
     u32 steady_dispatches = 0u;
     u32 one_time_bake_dispatches = 0u;
     u32 shadow_cache_dispatches = 0u;
+    u32 world_shadow_dispatches = 0u;
     u32 total_compute_dispatches = 0u;
     u32 composite_draws = 0u;
 
@@ -750,10 +753,13 @@ struct FVolumetricCloudFrameWorkload {
     u64 one_time_bake_launched_threads = 0u;
     u64 shadow_cache_logical_invocations = 0u;
     u64 shadow_cache_launched_threads = 0u;
+    u64 world_shadow_logical_invocations = 0u;
+    u64 world_shadow_launched_threads = 0u;
     u64 total_logical_invocations = 0u;
     u64 total_launched_threads = 0u;
     u64 maximum_view_samples = 0u;
     u64 maximum_light_samples = 0u;
+    u64 maximum_world_shadow_samples = 0u;
 
     EVolumetricCloudFrameSkipReason skip_reason =
         EVolumetricCloudFrameSkipReason::None;
@@ -882,6 +888,24 @@ inline constexpr f32 kVolumetricCloudShadowCacheCellSize =
     static_cast<f32>(kVolumetricCloudShadowCacheWidth);
 inline constexpr f32 kVolumetricCloudShadowCacheSafeRadius = 8000.0f;
 
+/** 立体物用の雲影透過率地図を生成するか。 */
+inline constexpr bool kVolumetricCloudWorldShadowEnabled = true;
+
+/** 立体物用の雲影透過率地図の一辺の画素数。 */
+inline constexpr u32 kVolumetricCloudWorldShadowMapResolution = 256u;
+
+/** 立体物用の雲影透過率地図が覆うワールド距離。 */
+inline constexpr f32 kVolumetricCloudWorldShadowMapExtent = 32768.0f;
+
+/** 立体物用の雲影透過率地図の一画素が覆うワールド距離。 */
+inline constexpr f32 kVolumetricCloudWorldShadowMapTexelSize = kVolumetricCloudWorldShadowMapExtent / static_cast<f32>(kVolumetricCloudWorldShadowMapResolution);
+
+/** 一画素の透過率を求める太陽方向の密度採取数。 */
+inline constexpr u32 kVolumetricCloudWorldShadowSamples = 32u;
+
+/** 地平線付近の極端に長い光路を無効化する太陽方向 Y の下限。 */
+inline constexpr f32 kVolumetricCloudWorldShadowMinimumSunY = 0.03f;
+
 /** 雲の太陽方向深さキャッシュが使う、移流を除いた安定座標の範囲。 */
 struct FVolumetricCloudShadowCacheMapping {
     FVec2 min_material_xz{};
@@ -898,6 +922,16 @@ FVec2 VolumetricCloudMaterialXZ(FVec3 world_position,
 /** Snap a cache footprint to the material-space voxel lattice. */
 FVolumetricCloudShadowCacheMapping CenterVolumetricCloudShadowCache(
     FVec2 material_position) noexcept;
+
+/**
+ * 受光点を太陽方向に沿って基準高さへ投影し、雲影地図で使う XZ を返す。
+ *
+ * 太陽方向が不正または地平線に近すぎる場合は、受光点の XZ をそのまま返す。
+ */
+FVec2 ProjectVolumetricCloudWorldShadowReferenceXZ(FVec3 world_position, FVec3 sun_direction, f32 reference_height) noexcept;
+
+/** 地図の中心を画素格子へ固定し、左下の基準面 XZ を返す。 */
+FVec2 VolumetricCloudWorldShadowMapMinimum(FVec2 center_reference_xz) noexcept;
 
 /**
  * Compute the soft-snapped XZ world origin used by the curved cloud shell.
@@ -1013,6 +1047,7 @@ public:
         TUniquePtr<IRhiShader> composite_atmosphere_pixel;
         TUniquePtr<IRhiShader> resolve;
         TUniquePtr<IRhiShader> shadow;
+        TUniquePtr<IRhiShader> world_shadow;
         /** 旧二段構成とのソース互換用。現在は常に空であり、初期化には使わない。 */
         TUniquePtr<IRhiShader> shadow_finalize;
 
@@ -1150,6 +1185,24 @@ public:
     /** 現在フレームの密度場から生成した影キャッシュを利用できるか。 */
     bool ShadowCacheValid() const noexcept { return m_ShadowCacheValid; }
 
+    /** 現在フレームの立体物用雲影透過率地図と座標情報を返す。 */
+    FVolumetricCloudWorldShadowMap WorldShadowMap() const noexcept;
+
+    /** 立体物用雲影透過率地図を生成したフレーム数。 */
+    u64 WorldShadowDispatchCount() const noexcept {
+        return m_WorldShadowDispatchCount;
+    }
+
+    /** 立体物用雲影の描画資源を利用できるか。 */
+    bool WorldShadowAvailable() const noexcept {
+        return m_WorldShadowAvailable;
+    }
+
+    /** 現在フレームの立体物用雲影を利用できるか。 */
+    bool WorldShadowValid() const noexcept {
+        return m_WorldShadowValid;
+    }
+
     /** Exact submitted-work accounting for the latest compute/composite frame. */
     const FVolumetricCloudFrameWorkload& LastFrameWorkload() const noexcept {
         return m_LastFrameWorkload;
@@ -1238,6 +1291,10 @@ private:
     TUniquePtr<IRhiPipeline> m_ShadowPipe;
     /** 96x32x96の平均深さと二標本差。 */
     TUniquePtr<IRhiTexture>  m_ShadowTex;
+    /** 立体物の直接光へ掛ける256角の雲透過率地図。 */
+    TUniquePtr<IRhiShader>   m_WorldShadowCs;
+    TUniquePtr<IRhiPipeline> m_WorldShadowPipe;
+    TUniquePtr<IRhiTexture>  m_WorldShadowTex;
     TUniquePtr<IRhiShader>   m_CompVs, m_CompPs;
     TUniquePtr<IRhiPipeline> m_CompPipe;      // graphics (alpha blend)
     TUniquePtr<IRhiShader>   m_CompAtmosPs;
@@ -1264,10 +1321,18 @@ private:
     f32                      m_PrevTime = -1.0f;
     FVec2                    m_ShadowGridMinQ{};
     FVec2                    m_ShadowGridCenterQ{};
+    FVec2                    m_WorldShadowMapMinReferenceXz{};
+    f32                      m_WorldShadowReferenceHeight = 0.0f;
+    FVec3                    m_WorldShadowSunDirection{0.0f, 1.0f, 0.0f};
+    FVec3                    m_WorldShadowWorldOrigin{};
+    f32                      m_WorldShadowCloudBaseAltitude = 0.0f;
     u64                      m_ShadowCacheDispatchCount = 0;
+    u64                      m_WorldShadowDispatchCount = 0;
     bool                     m_ShadowGridInitialized = false;
     bool                     m_ShadowCacheAvailable = false;
     bool                     m_ShadowCacheValid = false;
+    bool                     m_WorldShadowAvailable = false;
+    bool                     m_WorldShadowValid = false;
     FVolumetricCloudLayer    m_Layer{};
     u32                      m_FrameIndex = 0;
     u32                      m_TemporalPhase = 0;

@@ -34,6 +34,7 @@ internal enum EditorAbiCapability : ulong
     PrefabRootComponentPropertySelectiveRevert3DV1 = 1UL << 20,
     PrefabRootComponentPropertySelectiveApply3DV1 = 1UL << 21,
     PrefabSourceNodeIdentity3DV1 = 1UL << 22,
+    VolumetricCloudWorkloadV2 = 1UL << 23,
 }
 
 internal readonly record struct EditorAbiSnapshot(
@@ -121,6 +122,7 @@ internal static class EditorAbiContract
             EditorAbiCapability.InteractiveWater3D,
             EditorAbiCapability.ResizeResultContract,
             EditorAbiCapability.VolumetricCloudWorkloadV1,
+            EditorAbiCapability.VolumetricCloudWorkloadV2,
             EditorAbiCapability.CameraAuthoringV1,
             EditorAbiCapability.CameraViewRequestsV1,
             EditorAbiCapability.OptionalServiceDiagnosticsV2,
@@ -147,6 +149,7 @@ internal static class EditorAbiContract
         EditorAbiCapability.InteractiveWater3D |
         EditorAbiCapability.ResizeResultContract |
         EditorAbiCapability.VolumetricCloudWorkloadV1 |
+        EditorAbiCapability.VolumetricCloudWorkloadV2 |
         EditorAbiCapability.CameraAuthoringV1 |
         EditorAbiCapability.CameraViewRequestsV1 |
         EditorAbiCapability.OptionalServiceDiagnosticsV2 |
@@ -235,6 +238,8 @@ internal static class EditorAbiContract
                 "resize-result-v1",
             EditorAbiCapability.VolumetricCloudWorkloadV1 =>
                 "cloud-workload-v1",
+            EditorAbiCapability.VolumetricCloudWorkloadV2 =>
+                "cloud-workload-v2",
             EditorAbiCapability.CameraAuthoringV1 =>
                 "camera-authoring-v1",
             EditorAbiCapability.CameraViewRequestsV1 =>

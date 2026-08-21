@@ -18,6 +18,7 @@
 #include "render/RhiTypes.h"
 #include "render/SubstrateMaterial.h"
 #include "render/TransientUploadArena.h"
+#include "render/VolumetricCloudWorldShadow.h"
 
 namespace acs {
 
@@ -378,6 +379,14 @@ public:
                                f32 bias = 0.002f,
                                f32 texel_size = 1.0f / 2048.0f,
                                f32 filter_radius = 1.0f) noexcept;
+
+    /**
+     * 第0有向光源の直接光へ、現在フレームの雲透過率を掛ける。
+     *
+     * 地図が無効なら透過率1へ戻し、環境光・自己発光・第1以降の光源には影響しない。
+     * @param shadow_map CVolumetricClouds::WorldShadowMap() の戻り値。
+     */
+    void SetCloudShadowMap(const FVolumetricCloudWorldShadowMap& shadow_map) noexcept;
 
     /**
      * PBR マテリアルを設定して per-object CB を更新する。
@@ -792,6 +801,21 @@ private:
 
     /** shadow 未バインド時に bind する fallback (1x1 depth-ish texture)。 */
     TUniquePtr<IRhiTexture> m_ShadowFb;
+
+    /** 雲を通過した太陽光の透過率地図 (非所有)。 */
+    IRhiTexture* m_CloudShadowTransmittance = nullptr;
+
+    /** 雲影地図の座標 (xy=左下XZ、z=1/範囲、w=有効)。 */
+    FVec4 m_CloudShadowMapParams = FVec4{0, 0, 0, 0};
+
+    /** 雲影の投影 (xyz=受光点から太陽への方向、w=基準面Y)。 */
+    FVec4 m_CloudShadowProjection = FVec4{0, 1, 0, 0};
+
+    /** 雲影の受光範囲 (x=雲底高度、y=正規化画素幅、z=太陽Y下限、w=惑星半径)。 */
+    FVec4 m_CloudShadowLayer = FVec4{0, 0, 0.03f, 0};
+
+    /** 曲面雲殻の接平面を置いたワールド原点。 */
+    FVec4 m_CloudShadowWorldOrigin = FVec4{0, 0, 0, 0};
 
     /** 拡張 material パラメータ (x=clearcoat、y=coat_roughness、z=anisotropy)。 */
     FVec4         m_ExtParams     = FVec4{0, 0.5f, 0, 0};

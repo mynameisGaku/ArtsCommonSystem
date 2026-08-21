@@ -146,17 +146,18 @@ ACS の公開所有型契約を守り、`TArray<T>` 上の sparse-set 設計を�
 
 ### ボリュメトリック雲の workload 診断
 
-`FVolumetricClouds::LastFrameWorkload()` は、直近の cloud compute/composite が
-実際に投入した仕事量を allocation なしで保持します。定常フレームの trace と
-full-resolution resolve、初回だけの shape/weather/detail/curl bake、任意の
-shadow-cache rebuild を別々の dispatch 数として記録します。logical invocation
-は有効 texel/voxel 数、launched thread は 8x8 または 4x4x4 workgroup の端数を
-含む実 dispatch 範囲です。
+`FVolumetricClouds::LastFrameWorkload()` は、直近のボリューム雲の計算処理と
+合成描画が実際に投入した処理量を、動的確保なしで保持します。定常フレームの
+視線積分と全解像度の時間再構成、初回だけの形状・天候・詳細・渦の雑音生成、
+雲内部影の再生成、3D受光面へ投影するワールド雲影の再生成を、別々の
+ディスパッチ数として記録します。有効呼び出し数は有効な画素・体積画素の数、
+起動スレッド数は 8x8 または 4x4x4 の処理群の端数を含む実際の投入範囲です。
 
-`maximum_view_samples` と `maximum_light_samples` は shader loop の保守的な上限で、
-empty-space skipping、透過率 early exit、画面内容による分岐後の実行数では
-ありません。したがって最適化判断では、これらのカウンタで「初回 bake」と
-「定常処理」を分離し、RHI の cloud GPU timestamp を実時間の正本として併記します。
+`maximum_view_samples`、`maximum_light_samples`、`maximum_world_shadow_samples` は
+シェーダー反復の保守的な上限で、空領域の省略、透過率による早期終了、画面内容の
+分岐後に実際に処理した数ではありません。したがって最適化判断では、これらの
+値で「初回生成」と「定常処理」を分離し、RHIが計測した雲のGPU時刻を実時間の
+正本として併記します。
 この診断は描画解像度、march 数、lighting 数、temporal reconstruction を変更せず、
 計測のために画質を下げません。算術は `u64` 飽和で、異常な診断入力が小さい値へ
 wrap することも防ぎます。

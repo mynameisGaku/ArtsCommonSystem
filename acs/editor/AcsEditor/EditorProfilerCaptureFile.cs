@@ -108,6 +108,7 @@ internal sealed record EditorProfilerCloudWorkloadSummary(
     uint SteadyDispatches,
     uint OneTimeBakeDispatches,
     uint ShadowCacheDispatches,
+    uint WorldShadowDispatches,
     uint TotalComputeDispatches,
     uint CompositeDraws,
     ulong TraceLogicalInvocations,
@@ -118,10 +119,13 @@ internal sealed record EditorProfilerCloudWorkloadSummary(
     ulong OneTimeBakeLaunchedThreads,
     ulong ShadowCacheLogicalInvocations,
     ulong ShadowCacheLaunchedThreads,
+    ulong WorldShadowLogicalInvocations,
+    ulong WorldShadowLaunchedThreads,
     ulong TotalLogicalInvocations,
     ulong TotalLaunchedThreads,
     ulong MaximumViewSamples,
-    ulong MaximumLightSamples);
+    ulong MaximumLightSamples,
+    ulong MaximumWorldShadowSamples);
 
 internal sealed record EditorProfilerEditorRuntimeSummary(
     bool NativeAvailable,
@@ -251,7 +255,7 @@ internal static class EditorProfilerCaptureValidation
 /// </summary>
 internal static class EditorProfilerCaptureFile
 {
-    internal const int CurrentSchemaVersion = 4;
+    internal const int CurrentSchemaVersion = 5;
     internal const int MaximumCaptureBytes = 1024 * 1024;
     internal const int MaximumDestinationCharacters = 1024;
 
@@ -619,6 +623,10 @@ internal static class EditorProfilerCaptureFile
             cloud.ShadowCacheDispatches);
         AppendMetadata(
             builder,
+            "cloud_workload_world_shadow_dispatches",
+            cloud.WorldShadowDispatches);
+        AppendMetadata(
+            builder,
             "cloud_workload_total_dispatches",
             cloud.TotalComputeDispatches);
         AppendMetadata(
@@ -659,6 +667,14 @@ internal static class EditorProfilerCaptureFile
             cloud.ShadowCacheLaunchedThreads);
         AppendMetadata(
             builder,
+            "cloud_workload_world_shadow_logical_invocations",
+            cloud.WorldShadowLogicalInvocations);
+        AppendMetadata(
+            builder,
+            "cloud_workload_world_shadow_launched_threads",
+            cloud.WorldShadowLaunchedThreads);
+        AppendMetadata(
+            builder,
             "cloud_workload_total_logical_invocations",
             cloud.TotalLogicalInvocations);
         AppendMetadata(
@@ -673,6 +689,10 @@ internal static class EditorProfilerCaptureFile
             builder,
             "cloud_workload_maximum_light_samples",
             cloud.MaximumLightSamples);
+        AppendMetadata(
+            builder,
+            "cloud_workload_maximum_world_shadow_samples",
+            cloud.MaximumWorldShadowSamples);
 
         EditorProfilerEditorRuntimeSummary runtime =
             summary.LatestEditorRuntime;
@@ -1259,6 +1279,7 @@ internal static class EditorProfilerCaptureFile
             payloadAvailable ? workload.SteadyDispatches : 0,
             payloadAvailable ? workload.OneTimeBakeDispatches : 0,
             payloadAvailable ? workload.ShadowCacheDispatches : 0,
+            payloadAvailable ? workload.WorldShadowDispatches : 0,
             payloadAvailable ? workload.TotalComputeDispatches : 0,
             payloadAvailable ? workload.CompositeDraws : 0,
             payloadAvailable ? workload.TraceLogicalInvocations : 0,
@@ -1277,10 +1298,17 @@ internal static class EditorProfilerCaptureFile
             payloadAvailable
                 ? workload.ShadowCacheLaunchedThreads
                 : 0,
+            payloadAvailable
+                ? workload.WorldShadowLogicalInvocations
+                : 0,
+            payloadAvailable
+                ? workload.WorldShadowLaunchedThreads
+                : 0,
             payloadAvailable ? workload.TotalLogicalInvocations : 0,
             payloadAvailable ? workload.TotalLaunchedThreads : 0,
             payloadAvailable ? workload.MaximumViewSamples : 0,
-            payloadAvailable ? workload.MaximumLightSamples : 0);
+            payloadAvailable ? workload.MaximumLightSamples : 0,
+            payloadAvailable ? workload.MaximumWorldShadowSamples : 0);
     }
 
     private static bool CaptureBoundaryIsValid(

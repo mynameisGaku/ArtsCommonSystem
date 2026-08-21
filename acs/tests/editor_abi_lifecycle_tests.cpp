@@ -210,7 +210,7 @@ extern "C" __declspec(dllimport) int acs_editor_profiler_get(
     void* handle, acs::editor_profiler::FSnapshot* out_snapshot,
     unsigned out_size);
 extern "C" __declspec(dllimport) int acs_editor_cloud_workload_get(
-    void* handle, acs::editor_cloud_workload::FSnapshot* out_snapshot,
+    void* handle, void* out_snapshot,
     unsigned out_size);
 extern "C" __declspec(dllimport) void acs_editor_profiler_reset_peaks(
     void* handle);
@@ -248,6 +248,7 @@ bool RunAbiCapabilityContract() noexcept
     static_assert(
         (kCapabilities &
          CapabilityBit(ECapability::VolumetricCloudWorkloadV1)) != 0u);
+    static_assert((kCapabilities & CapabilityBit(ECapability::VolumetricCloudWorkloadV2)) != 0u);
     static_assert(
         (kCapabilities &
          CapabilityBit(ECapability::CameraViewRequestsV1)) != 0u);
@@ -1015,68 +1016,71 @@ bool RunProfilerSnapshotContract() noexcept
 bool RunCloudWorkloadSnapshotContract() noexcept
 {
     using namespace acs::editor_cloud_workload;
-    static_assert(kSnapshotVersion == 1u);
-    static_assert(kSnapshotSize == 168u);
+    static_assert(kSnapshotVersionV1 == 1u);
+    static_assert(kSnapshotSizeV1 == 168u);
+    static_assert(kSnapshotVersionV2 == 2u);
+    static_assert(kSnapshotSizeV2 == 200u);
     static_assert(sizeof(FSnapshot) == 168u);
+    static_assert(sizeof(FSnapshotV2) == 200u);
     static_assert(acs::editor_profiler::kSnapshotVersion == 5u);
     static_assert(acs::editor_profiler::kSnapshotSize == 256u);
 
     void* const host = acs_editor_create();
     if (host == nullptr) return false;
 
-    FSnapshot snapshot{};
-    const bool unavailable_before_attach =
-        acs_editor_cloud_workload_get(
-            host, &snapshot,
-            static_cast<unsigned>(sizeof(snapshot))) == 0 &&
-        snapshot.version == kSnapshotVersion &&
-        snapshot.struct_size == kSnapshotSize &&
-        snapshot.flags == 0u &&
-        snapshot.skip_reason == static_cast<acs::u32>(ESkipReason::None) &&
-        snapshot.profiler_frame_index == 0u &&
-        snapshot.submission_index == 0u &&
-        snapshot.total_compute_dispatches == 0u &&
-        snapshot.total_logical_invocations == 0u &&
-        snapshot.total_launched_threads == 0u;
+    FSnapshot snapshotV1{};
+    const bool v1_unavailable_before_attach =
+        acs_editor_cloud_workload_get(host, &snapshotV1, static_cast<unsigned>(sizeof(snapshotV1))) == 0 &&
+        snapshotV1.version == kSnapshotVersionV1 &&
+        snapshotV1.struct_size == kSnapshotSizeV1 &&
+        snapshotV1.flags == 0u &&
+        snapshotV1.skip_reason == static_cast<acs::u32>(ESkipReason::None) &&
+        snapshotV1.profiler_frame_index == 0u &&
+        snapshotV1.submission_index == 0u &&
+        snapshotV1.total_compute_dispatches == 0u &&
+        snapshotV1.total_logical_invocations == 0u &&
+        snapshotV1.total_launched_threads == 0u;
 
-    snapshot.version = kSnapshotVersion + 1u;
+    FSnapshotV2 snapshotV2{};
+    const bool v2_unavailable_before_attach =
+        acs_editor_cloud_workload_get(host, &snapshotV2, static_cast<unsigned>(sizeof(snapshotV2))) == 0 &&
+        snapshotV2.base.version == kSnapshotVersionV2 &&
+        snapshotV2.base.struct_size == kSnapshotSizeV2 &&
+        snapshotV2.base.flags == 0u &&
+        snapshotV2.world_shadow_dispatches == 0u &&
+        snapshotV2.world_shadow_logical_invocations == 0u &&
+        snapshotV2.world_shadow_launched_threads == 0u &&
+        snapshotV2.maximum_world_shadow_samples == 0u;
+
+    snapshotV2.base.version = kSnapshotVersionV2 + 1u;
     const bool rejects_version =
-        acs_editor_cloud_workload_get(
-            host, &snapshot,
-            static_cast<unsigned>(sizeof(snapshot))) < 0;
-    snapshot.version = kSnapshotVersion;
-    snapshot.struct_size = kSnapshotSize - 1u;
+        acs_editor_cloud_workload_get(host, &snapshotV2, static_cast<unsigned>(sizeof(snapshotV2))) < 0;
+    snapshotV2.base.version = kSnapshotVersionV2;
+    snapshotV2.base.struct_size = kSnapshotSizeV2 - 1u;
     const bool rejects_struct_size =
-        acs_editor_cloud_workload_get(
-            host, &snapshot,
-            static_cast<unsigned>(sizeof(snapshot))) < 0;
-    snapshot.struct_size = kSnapshotSize;
+        acs_editor_cloud_workload_get(host, &snapshotV2, static_cast<unsigned>(sizeof(snapshotV2))) < 0;
+    snapshotV2.base.struct_size = kSnapshotSizeV2;
     const bool rejects_buffer_size =
-        acs_editor_cloud_workload_get(
-            host, &snapshot, kSnapshotSize - 1u) < 0;
+        acs_editor_cloud_workload_get(host, &snapshotV2, kSnapshotSizeV2 - 1u) < 0;
 
     struct FExtendedSnapshot {
-        FSnapshot base{};
+        FSnapshotV2 base{};
         unsigned extension_sentinel = 0xC10D5A5Au;
     } extended;
-    extended.base.struct_size = sizeof(extended);
+    extended.base.base.struct_size = sizeof(extended);
     const bool forward_prefix =
-        acs_editor_cloud_workload_get(
-            host, &extended.base,
-            static_cast<unsigned>(sizeof(extended))) == 0 &&
-        extended.base.version == kSnapshotVersion &&
-        extended.base.struct_size == kSnapshotSize &&
+        acs_editor_cloud_workload_get(host, &extended, static_cast<unsigned>(sizeof(extended))) == 0 &&
+        extended.base.base.version == kSnapshotVersionV2 &&
+        extended.base.base.struct_size == kSnapshotSizeV2 &&
         extended.extension_sentinel == 0xC10D5A5Au;
 
     const bool rejects_null =
-        acs_editor_cloud_workload_get(
-            host, nullptr, kSnapshotSize) < 0 &&
-        acs_editor_cloud_workload_get(
-            nullptr, &extended.base,
-            static_cast<unsigned>(sizeof(extended))) < 0;
+        acs_editor_cloud_workload_get(host, nullptr, kSnapshotSizeV2) < 0 &&
+        acs_editor_cloud_workload_get(nullptr, &extended, static_cast<unsigned>(sizeof(extended))) < 0;
 
     acs_editor_destroy(host);
-    return unavailable_before_attach && rejects_version &&
+    return v1_unavailable_before_attach &&
+           v2_unavailable_before_attach && rejects_version &&
            rejects_struct_size && rejects_buffer_size &&
            forward_prefix && rejects_null;
 }

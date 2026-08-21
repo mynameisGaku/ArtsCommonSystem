@@ -1845,6 +1845,9 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
     } else {
         shader.SetShadowMap(nullptr, FMat4{});
     }
+    // 同じフレームで積分した雲透過率を、太陽である第0有向光源の直接光だけへ掛ける。
+    // 雲を描けなかったフレームは無効値を渡し、古い影を残さない。
+    shader.SetCloudShadowMap(m_CloudsDrawn ? m_Clouds.WorldShadowMap() : FVolumetricCloudWorldShadowMap{});
 
     // 遮蔽。物と床が接するところを締める。影の地図は解像度の都合でそこまで届かず、
     // これが無いと «置いてあるのか浮いているのか» が読めない。

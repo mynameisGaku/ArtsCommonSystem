@@ -578,17 +578,22 @@ public partial class ProfilerPanel : UserControl
             ? EditorCloudWorkloadFormatting.OneTimeBake(workload)
             : "N/A";
         CloudShadowInvocationsValue.Text = available
-            ? $"{workload.ShadowCacheDispatches:N0} dispatch; " +
+            ? $"internal {workload.ShadowCacheDispatches:N0} dispatch; " +
               EditorCloudWorkloadFormatting.Invocations(
                   workload.ShadowCacheLogicalInvocations,
-                  workload.ShadowCacheLaunchedThreads)
+                  workload.ShadowCacheLaunchedThreads) +
+              $" | world {workload.WorldShadowDispatches:N0} dispatch; " +
+              EditorCloudWorkloadFormatting.Invocations(
+                  workload.WorldShadowLogicalInvocations,
+                  workload.WorldShadowLaunchedThreads)
             : "N/A";
         CloudHistoryValue.Text = available
             ? EditorCloudWorkloadFormatting.History(workload)
             : "N/A";
         CloudSampleCeilingsValue.Text = available
             ? $"{workload.MaximumViewSamples:N0} view / " +
-              $"{workload.MaximumLightSamples:N0} light"
+              $"{workload.MaximumLightSamples:N0} light / " +
+              $"{workload.MaximumWorldShadowSamples:N0} world shadow"
             : "N/A";
     }
 

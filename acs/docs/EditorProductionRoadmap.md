@@ -64,7 +64,7 @@ ACS Editor には、シーンアウトライナー、詳細パネル、2D/3D ビ
 | Build / Package | Windows x64、Development/Test/Shipping、canonical Scene Asset ID起点のdependency-closure Cook、`.acpak`/ZIP、native verify、製品metadata付きPE VERSIONINFO、application manifest、3D fail-closed、private stagingでのhidden first-frame launch smoke、deterministic成功report あり | icon/license/release channel、署名、installer、継続smokeのCI運用、他 platform | P0 |
 | Project Settings | schema 駆動 UI、検索、検証、未知キー保持、Document Host の dirty/Undo/Save All/close、非同期 atomic 保存、snap 値同期あり | Editor/User 設定分離、Input/Packaging/Platform 等 | P0/P1 |
 | Material Editor | typed node graph、semantic Undo/Redo、Document Host dirty/Save All/close、compile diagnostics、CPU-safe async/cancellable preview、192/256/384 px 出力、同一入力 LRU cache、計測表示あり。native preview API に HDR/ACES、1x–4x SSAA、3種 mesh/background 契約あり | legacy property writer の transaction 化、native API を live window へ接続する fenced GPU readback、instance/function、shader cache | P0/P1 |
-| Profiler / Diagnostics | Profiler v5 の CPU/GPU/pass/実フラスタムカリング計測、capture reset serial/presented-frame境界、normal/depth・motion・opaque PBR・interactive water・refraction共通submission traversal、aggregate fast pathと可視range結合、Shadow/VXGIの非camera-mask契約、UI stall watchdog、独立した cloud-workload-v1 の dispatch/invocation/history/sample ceiling 表示あり | GPU capture、allocation tracker、platform telemetry、継続 performance budget | P1 |
+| Profiler / Diagnostics | Profiler v5 の CPU/GPU/pass/実フラスタムカリング計測、capture reset serial/presented-frame境界、normal/depth・motion・opaque PBR・interactive water・refraction共通submission traversal、aggregate fast pathと可視range結合、Shadow/VXGIの非camera-mask契約、UI stall watchdog、独立した cloud-workload-v2 の dispatch/invocation/history/sample ceiling 表示あり | GPU capture、allocation tracker、platform telemetry、継続 performance budget | P1 |
 | Prefab / Blueprint | 保存、配置、Apply/Revert、graph undo、3D stable instance ID、root Visible/Enabled/Color overrideとselective Apply/Revert、root component property overrideとselective Apply/Revertあり | child override、nested prefab、variant、conflict/diff | P2 |
 | Navigation | 2D grid A* と Tilemap bridge あり | 3D navmesh、bake UI、agent/area/link、debug/cook | P2 |
 | Editor UX | メニュー、toolbar、panel toggle、主要 shortcut、command palette、per-user layout 永続化、6 stable-ID toolの個別float/hide/restore、複数同時float、DPI対応snapあり | document/tool tab tear-off、任意dock tree、multi-document、shortcut editor、複数workspaceの完全統合 | P1 |
@@ -108,7 +108,7 @@ WPF Shell は `.NET 10 / Windows / win-x64` で、Editor ABI は Raw DX12 構成
 - `editor/AcsEditor/AcsEditor.csproj`
 - `engine/CMakeLists.txt:152-164`
 
-managed/native 接続は `EngineInterop.cs` の P/Invoke と `EditorAbi.cpp` に集中しているが、接続前の数値 contract と capability negotiation は実装済みである。managed host は versioned `acs_editor_abi_query` へ必須 bit を渡し、provider version、既知/未知 capability、構造体 version/size を検証する。packed 256-byte の Profiler v5（先頭 224-byte は v4 compatibility prefix）、packed 168-byte の `cloud-workload-v1`、packed 60-byte の `camera-view-requests-v1` snapshot、packed 256-byte の `optional-service-diagnostics-v2`（先頭 192-byte は v1 compatibility prefix）は独立した optional capability であり、一方を追加しても既存 payload を再解釈しない。
+managed/native 接続は `EngineInterop.cs` の P/Invoke と `EditorAbi.cpp` に集中しているが、接続前の数値 contract と capability negotiation は実装済みである。managed host は versioned `acs_editor_abi_query` へ必須 bit を渡し、provider version、既知/未知 capability、構造体 version/size を検証する。packed 256-byte の Profiler v5（先頭 224-byte は v4 compatibility prefix）、packed 200-byte の `cloud-workload-v2`（先頭168バイトは v1 と同じ配置で、v1 要求時はワールド雲影を除いた整合値を返す）、packed 60-byte の `camera-view-requests-v1` snapshot、packed 256-byte の `optional-service-diagnostics-v2`（先頭 192-byte は v1 compatibility prefix）は独立した optional capability であり、一方を追加しても既存 payload を再解釈しない。
 
 - `editor/AcsEditor/EngineInterop.cs`
 - `editor/AcsEditor/EditorAbiContract.cs`
@@ -467,7 +467,7 @@ flowchart TD
 
 - 実装済み: 数値 contract version、feature bit、required/optional capability query、構造体 version/size 検証。
 - 実装済み: legacy/future/missing capability の fail-closed smoke test と起動診断。
-- 実装済み: Profiler v5 から独立した `cloud-workload-v1` snapshot。dispatch、logical/launched invocation、history、sample ceiling、skip reason を exact native workload から表示する。
+- 実装済み: Profiler v5 から独立した `cloud-workload-v2` snapshot。視線積分、時間再構成、雲内部影、ワールド雲影の dispatch、logical/launched invocation、history、sample ceiling、skip reason を exact native workload から表示する。v1 利用側にはワールド雲影を除いた整合する接頭部を返す。
 - 実装済み: optional `camera-view-requests-v1`。1 hostにつき最大8件の
   logical request、slot generationを含むopaque ID、stable camera identityを
   registryで保持する。60-byte v1 snapshotはcamera node、requested/presented
@@ -835,8 +835,9 @@ native lifecycle test と headless managed self-test で current/future/legacy/m
 capability を固定した。Profiler v5 は 256-byte version-5 とし、先頭
 224-byte のversion-4 prefix要求も受理する後方互換contractとしている。実際のmain-view
 frustum tested/visible/culled数と解決済みgame-camera nodeを追加した。volumetric
-cloud の exact workload は独立した 168-byte `cloud-workload-v1` optional contract
-として追加した。Cloud panel は dispatch、logical/launched invocation、history、
+cloud の exact workload は独立した 200-byte `cloud-workload-v2` optional contract
+として追加した。先頭168バイトは v1 の配置を保ち、旧要求にはワールド雲影を除いた
+整合値を返す。Cloud panel は dispatch、logical/launched invocation、history、
 sample ceiling、skip reason を表示するが、品質設定や march count は変更しない。
 Camera View requestは独立した `camera-view-requests-v1` optional contractで、
 最大8 logical request、ABA-safe ID、registry内のstable camera identity、
@@ -874,7 +875,7 @@ filter/Re-dock/closeとCameraの単一legacy previewは維持する。
 
 1. 完了: 3D Build/Run/Package guard と snap 同期修正で、現状の誤動作を停止。
 2. 完了: P0-A の Scene manifest/schema/loader を ADR 0001 と `SceneContractFixtureSelfTest` で固定。
-3. 進行中: P0-B は ABI version/capability negotiation、`cloud-workload-v1`、`camera-view-requests-v1`、`optional-service-diagnostics-v2`、取得済みreasonによるProfiler/Cloud/Camera Viewのservice単位UI disable、managed Build/Package operation diagnostic を実装済み。native/managed operation ID の相関、native job cancellation、Camera Viewのdedicated offscreen/async presentation capabilityを追加する。
+3. 進行中: P0-B は ABI version/capability negotiation、後方互換の `cloud-workload-v2`、`camera-view-requests-v1`、`optional-service-diagnostics-v2`、取得済みreasonによるProfiler/Cloud/Camera Viewのservice単位UI disable、managed Build/Package operation diagnostic を実装済み。native/managed operation ID の相関、native job cancellation、Camera Viewのdedicated offscreen/async presentation capabilityを追加する。
 4. 進行中: P0-C は deterministic/async Document Host、Scene adapter、Scene Save All/autosave/recovery、Material graph adapter/transaction、Project Settings adapter/transaction/非同期保存を実装済み。Project Settings の startup snapshot/parse は worker 化され、generation/cancel/late-result gate、project root→Config→file containment、Build/Run/Standalone/Package durability gate まで実装済み。Material legacy property、Blueprint、Prefab、multi-document tabを追加する。
 5. 進行中: P0-D は GUID/metadata/dependency index/Reference Viewer、reimport、safe rename/move/delete、global search、Cook DDC、Asset Browser thumbnail DDC、owner固有DDC path reuse診断、texture/mesh/audio importer設定UIとcanonical recipe cache identity、source-preserving worker、hash検証付きprocessed-import DDC、Import/Reimport parityを実装済み。native texture/mesh/audio transcoder、詳細progress、tag/dynamic collection、processed-import payload cache observability、10 万 Asset 規模の継続検証を追加する。
 6. 進行中: P0-E はcanonical Scene Asset ID起点のrequired-only dependency closure、deterministic Cook/pack/native verify、manifest-to-PE製品metadata/application manifest、private stagingのhidden first-frame runtime smoke、deterministic成功reportまで実装済み。icon/license/channel、resource更新後の署名、installer、継続smokeのCI/GPU matrixを追加する。

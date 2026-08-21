@@ -158,8 +158,8 @@ ACS_TEST(PbrExpressionContract, ShaderSourceMatchesExpressionVmContract) {
         source, "expression_texture2 : register(t13)"));
     EXPECT_TRUE(Contains(
         source, "expression_texture3 : register(t14)"));
-    EXPECT_TRUE(Contains(source, "pd.texture_slots = 15"));
-    EXPECT_TRUE(Contains(source, "pd.static_sampler_count = 15"));
+    EXPECT_TRUE(Contains(source, "pd.texture_slots = 16"));
+    EXPECT_TRUE(Contains(source, "pd.static_sampler_count = 16"));
     EXPECT_TRUE(Contains(
         source, "cmd.SetTexture(11u + slot, *texture);"));
     EXPECT_TRUE(Contains(
@@ -176,6 +176,18 @@ ACS_TEST(PbrExpressionContract, ShaderSourceMatchesExpressionVmContract) {
         source, "offsetof(FObjectCbLayout, substrate_expr_instructions)"));
     EXPECT_TRUE(Contains(
         source, "sizeof(FObjectCbLayout) % 16u == 0u"));
+}
+
+ACS_TEST(PbrExpressionContract, CloudTransmittanceOnlyModulatesPrimaryDirectLight) {
+    const std::string source = ReadPbrShaderSource();
+    EXPECT_TRUE(!source.empty());
+    EXPECT_TRUE(Contains(source, "cloud_shadow_transmittance : register(t15)"));
+    EXPECT_TRUE(Contains(source, "float ComputeCloudShadowTransmittance(float3 world_p)"));
+    EXPECT_TRUE(Contains(source, "? (shadow * contact_shadow * cloud_shadow)"));
+    EXPECT_TRUE(Contains(source, "cmd.SetTexture(15u, *m_CloudShadowTransmittance);"));
+    EXPECT_TRUE(Contains(source, "cb.cloud_shadow_world_origin = m_CloudShadowWorldOrigin;"));
+    EXPECT_FALSE(Contains(source, "base_ibl * cloud_shadow"));
+    EXPECT_FALSE(Contains(source, "emissive * cloud_shadow"));
 }
 
 ACS_TEST(PbrExpressionContract,

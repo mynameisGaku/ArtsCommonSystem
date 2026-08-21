@@ -418,7 +418,8 @@
                                    ToolTip="Perlin-Worley shape, weather, detail, and curl texture generation. A steady warmed frame should show zero."/>
                         <TextBlock x:Name="CloudBakeValue" Grid.Row="8" Grid.Column="1"
                                    FontFamily="Consolas" FontSize="10"/>
-                        <TextBlock Grid.Row="9" Text="Shadow-cache work"/>
+                        <TextBlock Grid.Row="9" Text="Cloud-shadow work"
+                                   ToolTip="Internal cloud self-shadow cache and the world-space cloud shadow projected onto 3D receivers."/>
                         <TextBlock x:Name="CloudShadowInvocationsValue" Grid.Row="9" Grid.Column="1"
                                    FontFamily="Consolas" FontSize="10"/>
                         <TextBlock Grid.Row="10" Text="Temporal history"/>

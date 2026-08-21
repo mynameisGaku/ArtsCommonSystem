@@ -81,8 +81,12 @@ $script:ExpectedSteadyDispatches = 2
 $script:ExpectedShadowCacheDispatches = 1
 $script:ExpectedShadowCacheLogicalInvocations = 96 * 32 * 96
 $script:ExpectedShadowCacheLaunchedThreads = 96 * 32 * 96
+$script:ExpectedWorldShadowDispatches = 1
+$script:ExpectedWorldShadowLogicalInvocations = 256 * 256
+$script:ExpectedWorldShadowLaunchedThreads = 256 * 256
+$script:ExpectedWorldShadowSamples = 256 * 256 * 32
 $script:ExpectedCompositeDraws = 1
-$script:SummarySchemaVersion = 3
+$script:SummarySchemaVersion = 4
 $script:ExpectedEditorArtifactRoles = @(
     "ManagedAssembly",
     "NativeRenderer",
@@ -1270,6 +1274,7 @@ function Test-CloudQualityReport {
         "SteadyDispatches",
         "OneTimeBakeDispatches",
         "ShadowCacheDispatches",
+        "WorldShadowDispatches",
         "TotalComputeDispatches",
         "CompositeDraws",
         "TraceLogicalInvocations",
@@ -1280,10 +1285,13 @@ function Test-CloudQualityReport {
         "OneTimeBakeLaunchedThreads",
         "ShadowCacheLogicalInvocations",
         "ShadowCacheLaunchedThreads",
+        "WorldShadowLogicalInvocations",
+        "WorldShadowLaunchedThreads",
         "TotalLogicalInvocations",
         "TotalLaunchedThreads",
         "MaximumViewSamples",
-        "MaximumLightSamples"
+        "MaximumLightSamples",
+        "MaximumWorldShadowSamples"
     )
     $workloadValid = Test-CloudProperties `
         -Value $workload `
@@ -1327,16 +1335,20 @@ function Test-CloudQualityReport {
                 "OutputWidth",
                 "OutputHeight",
                 "SteadyDispatches",
+                "WorldShadowDispatches",
                 "TotalComputeDispatches",
                 "CompositeDraws",
                 "TraceLogicalInvocations",
                 "TraceLaunchedThreads",
                 "ResolveLogicalInvocations",
                 "ResolveLaunchedThreads",
+                "WorldShadowLogicalInvocations",
+                "WorldShadowLaunchedThreads",
                 "TotalLogicalInvocations",
                 "TotalLaunchedThreads",
                 "MaximumViewSamples",
-                "MaximumLightSamples")) {
+                "MaximumLightSamples",
+                "MaximumWorldShadowSamples")) {
             if (-not (Test-PositiveInteger -Value $workload.$property)) {
                 Add-CloudFault `
                     -Faults $faults `
@@ -1373,19 +1385,24 @@ function Test-CloudQualityReport {
         $steady = ConvertTo-CloudInt64 -Value $workload.SteadyDispatches
         $bake = ConvertTo-CloudInt64 -Value $workload.OneTimeBakeDispatches
         $shadow = ConvertTo-CloudInt64 -Value $workload.ShadowCacheDispatches
+        $worldShadow =
+            ConvertTo-CloudInt64 -Value $workload.WorldShadowDispatches
         $totalDispatches =
             ConvertTo-CloudInt64 -Value $workload.TotalComputeDispatches
-        if ($totalDispatches -ne ($steady + $bake + $shadow)) {
+        if ($totalDispatches -ne
+                ($steady + $bake + $shadow + $worldShadow)) {
             Add-CloudFault `
                 -Faults $faults `
                 -Code "CLOUD_DISPATCH_TOTAL_INCOHERENT"
         }
         $expectedTotalDispatches =
             $script:ExpectedSteadyDispatches +
-            $script:ExpectedShadowCacheDispatches
+            $script:ExpectedShadowCacheDispatches +
+            $script:ExpectedWorldShadowDispatches
         if ($steady -ne $script:ExpectedSteadyDispatches -or
             $bake -ne 0 -or
             $shadow -ne $script:ExpectedShadowCacheDispatches -or
+            $worldShadow -ne $script:ExpectedWorldShadowDispatches -or
             $totalDispatches -ne $expectedTotalDispatches -or
             (ConvertTo-CloudInt64 -Value $workload.CompositeDraws) -ne
                 $script:ExpectedCompositeDraws) {
@@ -1409,6 +1426,12 @@ function Test-CloudQualityReport {
             ConvertTo-CloudInt64 -Value $workload.ShadowCacheLogicalInvocations
         $shadowLaunched =
             ConvertTo-CloudInt64 -Value $workload.ShadowCacheLaunchedThreads
+        $worldShadowLogical =
+            ConvertTo-CloudInt64 `
+                -Value $workload.WorldShadowLogicalInvocations
+        $worldShadowLaunched =
+            ConvertTo-CloudInt64 `
+                -Value $workload.WorldShadowLaunchedThreads
         $totalLogical =
             ConvertTo-CloudInt64 -Value $workload.TotalLogicalInvocations
         $totalLaunched =
@@ -1416,17 +1439,18 @@ function Test-CloudQualityReport {
         if ($traceLaunched -lt $traceLogical -or
             $resolveLaunched -lt $resolveLogical -or
             $bakeLaunched -lt $bakeLogical -or
-            $shadowLaunched -lt $shadowLogical) {
+            $shadowLaunched -lt $shadowLogical -or
+            $worldShadowLaunched -lt $worldShadowLogical) {
             Add-CloudFault `
                 -Faults $faults `
                 -Code "CLOUD_LAUNCHED_THREADS_BELOW_LOGICAL"
         }
         if ($totalLogical -ne
                 ($traceLogical + $resolveLogical +
-                 $bakeLogical + $shadowLogical) -or
+                 $bakeLogical + $shadowLogical + $worldShadowLogical) -or
             $totalLaunched -ne
                 ($traceLaunched + $resolveLaunched +
-                 $bakeLaunched + $shadowLaunched)) {
+                 $bakeLaunched + $shadowLaunched + $worldShadowLaunched)) {
             Add-CloudFault `
                 -Faults $faults `
                 -Code "CLOUD_INVOCATION_TOTAL_INCOHERENT"
@@ -1438,6 +1462,14 @@ function Test-CloudQualityReport {
             Add-CloudFault `
                 -Faults $faults `
                 -Code "CLOUD_SHADOW_WORKLOAD_CHANGED"
+        }
+        if ($worldShadowLogical -ne
+                $script:ExpectedWorldShadowLogicalInvocations -or
+            $worldShadowLaunched -ne
+                $script:ExpectedWorldShadowLaunchedThreads) {
+            Add-CloudFault `
+                -Faults $faults `
+                -Code "CLOUD_WORLD_SHADOW_WORKLOAD_CHANGED"
         }
         $expectedTraceLogical =
             (ConvertTo-CloudInt64 -Value $workload.TraceWidth) *
@@ -1455,6 +1487,9 @@ function Test-CloudQualityReport {
             ConvertTo-CloudInt64 -Value $workload.MaximumViewSamples
         $maximumLight =
             ConvertTo-CloudInt64 -Value $workload.MaximumLightSamples
+        $maximumWorldShadow =
+            ConvertTo-CloudInt64 `
+                -Value $workload.MaximumWorldShadowSamples
         $expectedMaximumView =
             $traceLogical * $script:ExpectedViewSamples
         $expectedMaximumLight =
@@ -1468,6 +1503,12 @@ function Test-CloudQualityReport {
             Add-CloudFault `
                 -Faults $faults `
                 -Code "CLOUD_MAXIMUM_LIGHT_SAMPLES_INCOHERENT"
+        }
+        if ($maximumWorldShadow -ne
+                $script:ExpectedWorldShadowSamples) {
+            Add-CloudFault `
+                -Faults $faults `
+                -Code "CLOUD_MAXIMUM_WORLD_SHADOW_SAMPLES_INCOHERENT"
         }
     }
 
@@ -1683,6 +1724,8 @@ function Test-CloudQualityReport {
                 ConvertTo-CloudInt64 -Value $workload.OneTimeBakeDispatches
             ShadowCacheDispatches =
                 ConvertTo-CloudInt64 -Value $workload.ShadowCacheDispatches
+            WorldShadowDispatches =
+                ConvertTo-CloudInt64 -Value $workload.WorldShadowDispatches
             TotalComputeDispatches =
                 ConvertTo-CloudInt64 -Value $workload.TotalComputeDispatches
             CompositeDraws =
@@ -1695,10 +1738,19 @@ function Test-CloudQualityReport {
                 ConvertTo-CloudInt64 -Value $workload.ResolveLogicalInvocations
             ResolveLaunchedThreads =
                 ConvertTo-CloudInt64 -Value $workload.ResolveLaunchedThreads
+            WorldShadowLogicalInvocations =
+                ConvertTo-CloudInt64 `
+                    -Value $workload.WorldShadowLogicalInvocations
+            WorldShadowLaunchedThreads =
+                ConvertTo-CloudInt64 `
+                    -Value $workload.WorldShadowLaunchedThreads
             MaximumViewSamples =
                 ConvertTo-CloudInt64 -Value $workload.MaximumViewSamples
             MaximumLightSamples =
                 ConvertTo-CloudInt64 -Value $workload.MaximumLightSamples
+            MaximumWorldShadowSamples =
+                ConvertTo-CloudInt64 `
+                    -Value $workload.MaximumWorldShadowSamples
         }
     }
 
@@ -2692,6 +2744,10 @@ function New-SyntheticCloudReport {
     $resolveLogical = $outputWidth * $outputHeight
     $maximumView = $traceLogical * $script:ExpectedViewSamples
     $maximumLight = $maximumView * $script:ExpectedLightSamples
+    $worldShadowLogical =
+        $script:ExpectedWorldShadowLogicalInvocations
+    $worldShadowLaunched =
+        $script:ExpectedWorldShadowLaunchedThreads
     return [pscustomobject][ordered]@{
         SchemaVersion = 2
         Result = "PASS"
@@ -2749,7 +2805,7 @@ function New-SyntheticCloudReport {
                 GameView = $false
                 ScenePresentationSuppressed = $false
                 DrawCalls = 32
-                DispatchCalls = 3
+                DispatchCalls = 4
                 ViewportWidth = $outputWidth
                 ViewportHeight = $outputHeight
                 CloudWidth = $traceWidth
@@ -2777,7 +2833,8 @@ function New-SyntheticCloudReport {
                 SteadyDispatches = 2
                 OneTimeBakeDispatches = 0
                 ShadowCacheDispatches = 1
-                TotalComputeDispatches = 3
+                WorldShadowDispatches = 1
+                TotalComputeDispatches = 4
                 CompositeDraws = 1
                 TraceLogicalInvocations = $traceLogical
                 TraceLaunchedThreads = 24192
@@ -2789,14 +2846,22 @@ function New-SyntheticCloudReport {
                     $script:ExpectedShadowCacheLogicalInvocations
                 ShadowCacheLaunchedThreads =
                     $script:ExpectedShadowCacheLaunchedThreads
+                WorldShadowLogicalInvocations =
+                    $worldShadowLogical
+                WorldShadowLaunchedThreads =
+                    $worldShadowLaunched
                 TotalLogicalInvocations =
                     $traceLogical + $resolveLogical +
-                    $script:ExpectedShadowCacheLogicalInvocations
+                    $script:ExpectedShadowCacheLogicalInvocations +
+                    $worldShadowLogical
                 TotalLaunchedThreads =
                     24192 + 380160 +
-                    $script:ExpectedShadowCacheLaunchedThreads
+                    $script:ExpectedShadowCacheLaunchedThreads +
+                    $worldShadowLaunched
                 MaximumViewSamples = $maximumView
                 MaximumLightSamples = $maximumLight
+                MaximumWorldShadowSamples =
+                    $script:ExpectedWorldShadowSamples
             }
             LatestEditorRuntime = [pscustomobject][ordered]@{
                 NativeAvailable = $true
@@ -3096,18 +3161,38 @@ function Invoke-CloudProfilerSelfTest {
         ($badMaximumValidation.FaultCodes -contains
             "CLOUD_MAXIMUM_VIEW_SAMPLES_INCOHERENT") `
         "maximum view work coherent"
+    $badWorldMaximum = Copy-CloudObject -Value $validReport
+    $badWorldMaximum.ProfilerSummary.LatestCloudWorkload.
+        MaximumWorldShadowSamples--
+    $badWorldMaximumValidation =
+        Test-CloudQualityReport -Report $badWorldMaximum
+    Assert-CloudSelfTest `
+        ($badWorldMaximumValidation.FaultCodes -contains
+            "CLOUD_MAXIMUM_WORLD_SHADOW_SAMPLES_INCOHERENT") `
+        "maximum world-shadow work coherent"
 
     $extraDispatch = Copy-CloudObject -Value $validReport
     $extraDispatch.ProfilerSummary.LatestCloudWorkload.
         ShadowCacheDispatches = 2
     $extraDispatch.ProfilerSummary.LatestCloudWorkload.
-        TotalComputeDispatches = 4
+        TotalComputeDispatches = 5
     $extraDispatchValidation =
         Test-CloudQualityReport -Report $extraDispatch
     Assert-CloudSelfTest `
         ($extraDispatchValidation.FaultCodes -contains
             "CLOUD_STEADY_WORKLOAD_CHANGED") `
         "second steady shadow dispatch rejected"
+    $extraWorldShadowDispatch = Copy-CloudObject -Value $validReport
+    $extraWorldShadowDispatch.ProfilerSummary.LatestCloudWorkload.
+        WorldShadowDispatches = 2
+    $extraWorldShadowDispatch.ProfilerSummary.LatestCloudWorkload.
+        TotalComputeDispatches = 5
+    $extraWorldShadowDispatchValidation =
+        Test-CloudQualityReport -Report $extraWorldShadowDispatch
+    Assert-CloudSelfTest `
+        ($extraWorldShadowDispatchValidation.FaultCodes -contains
+            "CLOUD_STEADY_WORKLOAD_CHANGED") `
+        "second world-shadow dispatch rejected"
     $changedShadowWork = Copy-CloudObject -Value $validReport
     $changedShadowWork.ProfilerSummary.LatestCloudWorkload.
         ShadowCacheLogicalInvocations--
@@ -3119,6 +3204,17 @@ function Invoke-CloudProfilerSelfTest {
         ($changedShadowWorkValidation.FaultCodes -contains
             "CLOUD_SHADOW_WORKLOAD_CHANGED") `
         "steady shadow workload dimensions fixed"
+    $changedWorldShadowWork = Copy-CloudObject -Value $validReport
+    $changedWorldShadowWork.ProfilerSummary.LatestCloudWorkload.
+        WorldShadowLogicalInvocations--
+    $changedWorldShadowWork.ProfilerSummary.LatestCloudWorkload.
+        TotalLogicalInvocations--
+    $changedWorldShadowWorkValidation =
+        Test-CloudQualityReport -Report $changedWorldShadowWork
+    Assert-CloudSelfTest `
+        ($changedWorldShadowWorkValidation.FaultCodes -contains
+            "CLOUD_WORLD_SHADOW_WORKLOAD_CHANGED") `
+        "world-shadow workload dimensions fixed"
     $nullZeroWork = Copy-CloudObject -Value $validReport
     $nullZeroWork.ProfilerSummary.LatestCloudWorkload.
         ShadowCacheDispatches = $null
@@ -3128,6 +3224,15 @@ function Invoke-CloudProfilerSelfTest {
         ($nullZeroWorkValidation.FaultCodes -contains
             "CLOUD_WORKLOAD_SHADOWCACHEDISPATCHES_INVALID") `
         "null zero-work diagnostic rejected"
+    $nullWorldShadowWork = Copy-CloudObject -Value $validReport
+    $nullWorldShadowWork.ProfilerSummary.LatestCloudWorkload.
+        WorldShadowDispatches = $null
+    $nullWorldShadowWorkValidation =
+        Test-CloudQualityReport -Report $nullWorldShadowWork
+    Assert-CloudSelfTest `
+        ($nullWorldShadowWorkValidation.FaultCodes -contains
+            "CLOUD_WORKLOAD_WORLDSHADOWDISPATCHES_INVALID") `
+        "null world-shadow diagnostic rejected"
 
     $missingScheduler = Copy-CloudObject -Value $validReport
     $missingScheduler.ProfilerSummary.LatestEditorRuntime.PSObject.Properties.Remove(

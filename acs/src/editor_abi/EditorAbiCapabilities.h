@@ -38,6 +38,7 @@ enum class ECapability : std::uint64_t {
     PrefabRootComponentPropertySelectiveRevert3DV1 = 1ull << 20u,
     PrefabRootComponentPropertySelectiveApply3DV1 = 1ull << 21u,
     PrefabSourceNodeIdentity3DV1 = 1ull << 22u,
+    VolumetricCloudWorkloadV2 = 1ull << 23u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -59,6 +60,7 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::InteractiveWater3D) |
     CapabilityBit(ECapability::ResizeResultContract) |
     CapabilityBit(ECapability::VolumetricCloudWorkloadV1) |
+    CapabilityBit(ECapability::VolumetricCloudWorkloadV2) |
     CapabilityBit(ECapability::OptionalServiceDiagnosticsV2) |
     CapabilityBit(ECapability::SparseTransformMutationV1) |
     CapabilityBit(ECapability::PrefabInstanceRefresh3DV1) |

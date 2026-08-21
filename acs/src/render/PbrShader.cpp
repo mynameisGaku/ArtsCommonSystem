@@ -97,6 +97,15 @@ cbuffer Frame : register(b0) {
     // screen uv + 深度→スライスで trilinear サンプルし col = col*(1-ap.a)+ap.rgb で適用。
     //   x = enabled (0/1)、y = max_dist (scene 単位、深度→スライス逆変換用)、zw = pad
     float4   ap_params;
+
+    // 立体物用の雲影。受光点を太陽方向に沿って基準面へ戻して透過率地図を引く。
+    // 地図: xy=基準面上の左下XZ, z=1/範囲, w=有効
+    // 投影: xyz=受光点から太陽への方向, w=基準面Y
+    // 雲層: x=雲底高度, y=正規化画素幅, z=太陽Y下限, w=惑星半径
+    float4   cloud_shadow_map_params;
+    float4   cloud_shadow_projection;
+    float4   cloud_shadow_layer;
+    float4   cloud_shadow_world_origin;
 };
 
 cbuffer Object : register(b1) {
@@ -148,6 +157,7 @@ Texture2D    expression_texture0 : register(t11);
 Texture2D    expression_texture1 : register(t12);
 Texture2D    expression_texture2 : register(t13);
 Texture2D    expression_texture3 : register(t14);
+Texture2D    cloud_shadow_transmittance : register(t15);
 SamplerState albedo_sampler     : register(s0);
 SamplerState irradiance_sampler : register(s1);
 SamplerState prefilter_sampler  : register(s2);
@@ -163,6 +173,7 @@ SamplerState expression_texture0_sampler : register(s11);
 SamplerState expression_texture1_sampler : register(s12);
 SamplerState expression_texture2_sampler : register(s13);
 SamplerState expression_texture3_sampler : register(s14);
+SamplerState cloud_shadow_transmittance_sampler : register(s15);
 
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float2 uv : TEXCOORD0; };
 struct VSOut {
@@ -387,6 +398,38 @@ float ComputeShadow(float3 world_p, float view_z) {
     }
     }
     return shadow_value;
+}
+
+// 地図の外、雲内、太陽が地平線付近の受光点は遮光なしへ戻す。境界二画素は
+// 透過率1へ滑らかにつなぎ、カメラ移動で地図の端が線として見えることを防ぐ。
+float ComputeCloudShadowTransmittance(float3 world_p) {
+    if (cloud_shadow_map_params.w < 0.5 || cloud_shadow_projection.y <= cloud_shadow_layer.z || cloud_shadow_layer.w < 100.0) {
+        return 1.0;
+    }
+    float3 local = world_p - cloud_shadow_world_origin.xyz;
+    float radialY = max(cloud_shadow_layer.w + local.y, 1.0);
+    float radialXzSquared = dot(local.xz, local.xz);
+    float q = radialXzSquared / radialY;
+    float receiverAltitude =
+        local.y + q * (0.5 - q / (8.0 * radialY));
+    if (receiverAltitude >= cloud_shadow_layer.x) return 1.0;
+    float distanceAlongSun =
+        (world_p.y - cloud_shadow_projection.w) /
+        cloud_shadow_projection.y;
+    float2 referenceXz = world_p.xz -
+        cloud_shadow_projection.xz * distanceAlongSun;
+    float2 uv =
+        (referenceXz - cloud_shadow_map_params.xy) *
+        cloud_shadow_map_params.z;
+    if (any(uv <= 0.0) || any(uv >= 1.0)) return 1.0;
+    float edgeDistance = min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y));
+    float edgeWeight = smoothstep(0.0, max(2.0 * cloud_shadow_layer.y, 1e-6), edgeDistance);
+    float sampled = cloud_shadow_transmittance.SampleLevel(cloud_shadow_transmittance_sampler, uv, 0).r;
+    bool finiteAndBounded =
+        sampled == sampled && sampled >= 0.0 && sampled <= 1.0;
+    return finiteAndBounded
+        ? lerp(1.0, sampled, edgeWeight)
+        : 1.0;
 }
 
 // ddx/ddy 由来の screen-space TBN を使って tangent-space normal を world-space に変換。
@@ -1577,13 +1620,16 @@ PbrSurfaceOutputs EvaluatePbr(VSOut v, bool applyAnalyticSss) {
 
     // 有向光源 (i==0 のみ shadow_map で遮蔽)
     float shadow = ComputeShadow(v.world_p, v.view_z);
+    float cloud_shadow = ComputeCloudShadowTransmittance(v.world_p);
     int dir_count = (int)ambient.w;
     [loop]
     for (int i = 0; i < ACS_MAX_DIR_LIGHTS; ++i) {
         if (i >= dir_count) break;
         float3 L = normalize(light_dir[i].xyz);
         // i==0 (= sun) は shadow map (PCSS) と contact shadow (Phase 34q) の両方で遮蔽
-        float k = (i == 0) ? (shadow * contact_shadow) : 1.0;
+        float k = (i == 0)
+            ? (shadow * contact_shadow * cloud_shadow)
+            : 1.0;
         float3 light_diffuse = float3(0, 0, 0);
         float3 light_lit = EvalSurfaceForLight(
             N, V, L, mat, applyAnalyticSss, light_diffuse);
@@ -1874,6 +1920,18 @@ struct FFrameCBLayout {
 
     /** Aerial perspective パラメータ (x=enabled、y=max_dist scene)。 */
     FVec4 ap_params;
+
+    /** 雲影地図の座標 (xy=左下XZ、z=1/範囲、w=有効)。 */
+    FVec4 cloud_shadow_map_params;
+
+    /** 雲影の投影 (xyz=受光点から太陽への方向、w=基準面Y)。 */
+    FVec4 cloud_shadow_projection;
+
+    /** 雲影の受光範囲 (x=雲底高度、y=正規化画素幅、z=太陽Y下限、w=惑星半径)。 */
+    FVec4 cloud_shadow_layer;
+
+    /** 曲面雲殻の接平面を置いたワールド原点。 */
+    FVec4 cloud_shadow_world_origin;
 };
 
 /**
@@ -2374,7 +2432,8 @@ TResult<void> CPbrShader::InitWithCompiledShadersInternal(
     pd.depth_write   = true;
     pd.cull_mode     = cull_mode;
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
-    pd.texture_slots = 15;    // t0..t10 frame inputs, t11..t14 expressions
+    // t0..t10 はフレーム入力、t11..t14 は式、t15 は雲影に使う。
+    pd.texture_slots = 16;
     pd.cbuffer_names[0] = "Frame";
     pd.cbuffer_names[1] = "Object";
     pd.texture_names[0] = "albedo";
@@ -2392,7 +2451,8 @@ TResult<void> CPbrShader::InitWithCompiledShadersInternal(
     pd.texture_names[12] = "expression_texture1";
     pd.texture_names[13] = "expression_texture2";
     pd.texture_names[14] = "expression_texture3";
-    pd.static_sampler_count = 15;
+    pd.texture_names[15] = "cloud_shadow_transmittance";
+    pd.static_sampler_count = 16;
     pd.static_samplers[0].filter    = ESamplerFilter::Linear;
     pd.static_samplers[0].address_u = ESamplerAddress::Wrap;
     pd.static_samplers[0].address_v = ESamplerAddress::Wrap;
@@ -2439,6 +2499,9 @@ TResult<void> CPbrShader::InitWithCompiledShadersInternal(
         pd.static_samplers[i].address_v = ESamplerAddress::Wrap;
         pd.static_samplers[i].address_w = ESamplerAddress::Wrap;
     }
+    pd.static_samplers[15].filter = ESamplerFilter::Linear;
+    pd.static_samplers[15].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[15].address_v = ESamplerAddress::Clamp;
     pd.vertex_stride = sizeof(FMeshVertex);
     // MeshVertex の FVec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
@@ -2539,6 +2602,9 @@ TResult<void> CPbrShader::InitWithCompiledShadersInternal(
         m_NormalMapStrength = 1.0f;
         m_ShadowDepth = nullptr;
         m_ShadowParams.y = 0.0f;
+        m_CloudShadowTransmittance = nullptr;
+        m_CloudShadowMapParams = FVec4{0, 0, 0, 0};
+        m_CloudShadowWorldOrigin = FVec4{0, 0, 0, 0};
         m_SsaoTex = nullptr;
         m_SsaoIntensity = 0.0f;
         m_SsaoInvW = 0.0f;
@@ -2572,6 +2638,11 @@ void CPbrShader::Shutdown() noexcept {
     m_FrameCb.Reset();
     m_ShadowFb.Reset();
     m_ShadowDepth = nullptr;
+    m_CloudShadowTransmittance = nullptr;
+    m_CloudShadowMapParams = FVec4{0, 0, 0, 0};
+    m_CloudShadowProjection = FVec4{0, 1, 0, 0};
+    m_CloudShadowLayer = FVec4{0, 0, 0.03f, 0};
+    m_CloudShadowWorldOrigin = FVec4{0, 0, 0, 0};
     m_NormalMapFb.Reset();
     m_NormalMap = nullptr;
     m_NormalMapStrength = 1.0f;
@@ -2682,7 +2753,7 @@ void CPbrShader::SetSh9(const FVec4* sh9_or_null) noexcept {
     FlushFrameCB();
 }
 
-/** IBL slot 1-3 と normal/shadow/SSAO/SSGI/lightmap/SSR を実テクスチャか fallback で bind する。 */
+/** IBLと各フレーム入力を、実テクスチャまたは無害な代替テクスチャへ割り当てる。 */
 void CPbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     if (m_IblEnabled) {
         cmd.SetTexture(1, *m_IblIrradiance);
@@ -2744,6 +2815,11 @@ void CPbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
         } else if (m_White) {
             cmd.SetTexture(11u + slot, *m_White);
         }
+    }
+    if (m_CloudShadowTransmittance) {
+        cmd.SetTexture(15u, *m_CloudShadowTransmittance);
+    } else if (m_White) {
+        cmd.SetTexture(15u, *m_White);
     }
 }
 
@@ -2832,6 +2908,60 @@ void CPbrShader::SetShadowMapCascades(IRhiTexture* depth,
     // atlas X scale = 1 / cascade_count (single mode は cascade_count=1 で 1)
     const f32 scale_x = 1.0f / static_cast<f32>(cascade_count);
     m_CascadeUvScale = FVec4{scale_x, 1.0f, static_cast<f32>(cascade_count), 0};
+    FlushFrameCB();
+}
+
+/** 雲影の透過率地図と、受光点を基準面へ投影する座標を記録する。 */
+void CPbrShader::SetCloudShadowMap(const FVolumetricCloudWorldShadowMap& shadow_map) noexcept {
+    m_CloudShadowTransmittance = nullptr;
+    m_CloudShadowMapParams = FVec4{0, 0, 0, 0};
+    m_CloudShadowProjection = FVec4{0, 1, 0, 0};
+    m_CloudShadowLayer = FVec4{0, 0, 0.03f, 0};
+    m_CloudShadowWorldOrigin = FVec4{0, 0, 0, 0};
+
+    const f32 sunLengthSquared =
+        shadow_map.sun_direction.x * shadow_map.sun_direction.x +
+        shadow_map.sun_direction.y * shadow_map.sun_direction.y +
+        shadow_map.sun_direction.z * shadow_map.sun_direction.z;
+    const bool finiteMapping =
+        std::isfinite(shadow_map.minimum_reference_xz.x) &&
+        std::isfinite(shadow_map.minimum_reference_xz.y) &&
+        std::isfinite(shadow_map.inverse_extent) &&
+        std::isfinite(shadow_map.reference_height) &&
+        std::isfinite(shadow_map.world_origin.x) &&
+        std::isfinite(shadow_map.world_origin.y) &&
+        std::isfinite(shadow_map.world_origin.z) &&
+        std::isfinite(shadow_map.cloud_base_altitude) &&
+        std::isfinite(shadow_map.planet_radius) &&
+        std::isfinite(sunLengthSquared);
+    if (shadow_map.IsValid() && finiteMapping && sunLengthSquared > 1.0e-12f) {
+        const f32 inverseSunLength =
+            1.0f / static_cast<f32>(std::sqrt(sunLengthSquared));
+        const FVec3 sun{
+            shadow_map.sun_direction.x * inverseSunLength,
+            shadow_map.sun_direction.y * inverseSunLength,
+            shadow_map.sun_direction.z * inverseSunLength};
+        if (sun.y > 0.03f) {
+            m_CloudShadowTransmittance = shadow_map.transmittance;
+            m_CloudShadowMapParams = FVec4{
+                shadow_map.minimum_reference_xz.x,
+                shadow_map.minimum_reference_xz.y,
+                shadow_map.inverse_extent,
+                1.0f};
+            m_CloudShadowProjection = FVec4{
+                sun.x, sun.y, sun.z,
+                shadow_map.reference_height};
+            m_CloudShadowLayer = FVec4{
+                shadow_map.cloud_base_altitude,
+                1.0f / static_cast<f32>(shadow_map.resolution),
+                0.03f, shadow_map.planet_radius};
+            m_CloudShadowWorldOrigin = FVec4{
+                shadow_map.world_origin.x,
+                shadow_map.world_origin.y,
+                shadow_map.world_origin.z,
+                0.0f};
+        }
+    }
     FlushFrameCB();
 }
 
@@ -2929,6 +3059,10 @@ void CPbrShader::FlushFrameCB() noexcept {
         0, 0
     };
     cb.ap_params = m_ApParams;
+    cb.cloud_shadow_map_params = m_CloudShadowMapParams;
+    cb.cloud_shadow_projection = m_CloudShadowProjection;
+    cb.cloud_shadow_layer = m_CloudShadowLayer;
+    cb.cloud_shadow_world_origin = m_CloudShadowWorldOrigin;
     for (u32 i = 0; i < 9; ++i) cb.sh9[i] = m_Sh9[i];
     m_FrameCb->Update(&cb, sizeof(cb));
 }

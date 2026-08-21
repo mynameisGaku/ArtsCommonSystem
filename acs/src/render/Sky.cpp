@@ -899,6 +899,8 @@ cbuffer CloudCB : register(b0) {
     float4 cloudUpperTerms;
     // xy=基本形状の位相ずれ, zw=渦と侵食の位相ずれ
     float4 cloudEvolution;
+    // xy=基準面上の左下XZ, z=1/範囲, w=基準面のワールドY
+    float4 cloudWorldShadowMap;
 };
 RWTexture2D<float4> cloudOut : register(u0);
 RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒット距離, y=アルファ信頼度
@@ -1031,6 +1033,44 @@ bool intersectCloudShell(float3 rayDir,out float t0,out float t1){
         } else if(outerNear>0.0){
             t0=outerNear;
             t1=(hitsInner && innerNear>t0)?innerNear:outerFar;
+        }
+    }
+    return t1>t0;
+}
+
+// 任意の始点から見た最寄りの雲殻区間を求める。立体物用の透過率地図は画素ごとに
+// 始点が異なるため、カメラ専用にCPUで先行計算した係数は使わない。
+bool intersectCloudShellFromPosition(float3 rayOrigin,float3 rayDir,out float t0,out float t1){
+    t0=0.0;
+    t1=0.0;
+    float3 local=rayOrigin-worldOrigin.xyz;
+    float3 centreOffset=float3(local.x,CLOUD_PLANET_RADIUS+local.y,local.z);
+    float outerAltitude=cloudUpperLayer.w>0.5
+        ?cloudUpperLayer.y:layer.y;
+    float innerC=dot(local.xz,local.xz)
+        +(local.y-layer.x)
+         *(2.0*CLOUD_PLANET_RADIUS+local.y+layer.x);
+    float outerC=dot(local.xz,local.xz)
+        +(local.y-outerAltitude)
+         *(2.0*CLOUD_PLANET_RADIUS+local.y+outerAltitude);
+    float b=dot(centreOffset,rayDir);
+    float outerNear=0.0,outerFar=0.0;
+    bool hitsOuter=sphereRootsFromTerms(b,outerC,outerNear,outerFar);
+    if(hitsOuter&&outerFar>0.0){
+        float innerNear=0.0,innerFar=0.0;
+        bool hitsInner=sphereRootsFromTerms(b,innerC,innerNear,innerFar);
+        if(innerC<0.0){
+            if(hitsInner&&innerFar>0.0){
+                t0=max(innerFar,0.0);
+                t1=outerFar;
+            }
+        }else if(outerC<=0.0){
+            bool headingInward=b<0.0;
+            t1=(headingInward&&hitsInner&&innerNear>0.0)
+                ?innerNear:outerFar;
+        }else if(outerNear>0.0){
+            t0=outerNear;
+            t1=(hitsInner&&innerNear>t0)?innerNear:outerFar;
         }
     }
     return t1>t0;
@@ -1703,6 +1743,40 @@ void CSCloudShadow(uint3 tid : SV_DispatchThreadID){
             detailNoise_sampler,float3(0.5,0.5,0.5),0).x;
     }
     cloudShadowOut[tid]=float2(meanDepth,disagreement);
+}
+
+[numthreads(8,8,1)]
+void CSCloudWorldShadow(uint3 tid : SV_DispatchThreadID){
+    uint width,height;
+    cloudOut.GetDimensions(width,height);
+    if(any(tid.xy>=uint2(width,height))) return;
+    float2 uv=(float2(tid.xy)+0.5)/float2(width,height);
+    float2 referenceXz=cloudWorldShadowMap.xy
+        +uv/max(cloudWorldShadowMap.z,1e-8);
+    float3 rayOrigin=float3(referenceXz.x,cloudWorldShadowMap.w,referenceXz.y);
+    float transmittance=1.0;
+    float opticalDepth=0.0;
+    float3 sun=sunDir.xyz;
+    float enter=0.0,exit=0.0;
+    if(sun.y>0.03&&intersectCloudShellFromPosition(rayOrigin,sun,enter,exit)){
+        const int SAMPLE_COUNT=32;
+        float stepLength=(exit-enter)/float(SAMPLE_COUNT);
+        float sampleDistance=enter+0.5*stepLength;
+        [loop] for(int sampleIndex=0;sampleIndex<SAMPLE_COUNT;++sampleIndex){
+            float3 p=rayOrigin+sun*sampleDistance;
+            CloudMacroSample macro=sampleCloudMacroLighting(p,saturate(params.x));
+            float sampleDensity=cloudLowLodDensityFromMacro(p,macro,macro.heightThreshold,macro.weatherMask)*max(params.y,0.0);
+            opticalDepth+=sampleDensity*stepLength*layer.w;
+            if(opticalDepth*cloudLightingExtinction.y>=12.0) break;
+            sampleDistance+=stepLength;
+        }
+        // 登録番号をt0..t3で連続させるため、通常は到達しない分岐でも詳細雑音を宣言へ残す。
+        if(params.y<0.0){
+            opticalDepth+=detailNoise.SampleLevel(detailNoise_sampler,float3(0.5,0.5,0.5),0).x;
+        }
+        transmittance=exp(-max(opticalDepth,0.0)*max(cloudLightingExtinction.y,0.0));
+    }
+    cloudOut[tid.xy]=float4(saturate(transmittance),max(opticalDepth,0.0),0.0,1.0);
 }
 
 uint CloudTemporalBlockPhase4(uint2 blockQ,uint phaseIndex) {
@@ -2780,8 +2854,9 @@ struct FCloudCb {
     FVec4 cloudUpperLayer;
     FVec4 cloudUpperTerms;
     FVec4 cloudEvolution;
+    FVec4 cloudWorldShadowMap;
 };
-static_assert(sizeof(FCloudCb) == 640, "CloudCB must match the HLSL layout");
+static_assert(sizeof(FCloudCb) == 656, "CloudCB must match the HLSL layout");
 static_assert(
     offsetof(FCloudCb, groundHorizon) == 320u,
     "CloudCB ground horizon must remain at HLSL register c20");
@@ -2813,6 +2888,7 @@ static_assert(
 static_assert(
     offsetof(FCloudCb, cloudEvolution) == 624u,
     "CloudCB の時間変化項は HLSL の c39 と一致させる");
+static_assert(offsetof(FCloudCb, cloudWorldShadowMap) == 640u, "CloudCB の立体物用雲影座標は HLSL の c40 と一致させる");
 static_assert(
     CBSize<FCloudCb>() == 768u,
     "CloudCB allocation must preserve DX12's 256-byte alignment");
@@ -3307,24 +3383,19 @@ FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload(
         out.shadow_cache_launched_threads = launched;
     }
 
+    if (plan.rebuild_world_shadow) {
+        out.world_shadow_dispatches = 1u;
+        out.world_shadow_logical_invocations = CloudLogicalInvocations2D(kVolumetricCloudWorldShadowMapResolution, kVolumetricCloudWorldShadowMapResolution);
+        out.world_shadow_launched_threads = CloudLaunchedThreads2D(kVolumetricCloudWorldShadowMapResolution, kVolumetricCloudWorldShadowMapResolution, 8u, 8u);
+    }
+
     out.total_compute_dispatches =
         out.steady_dispatches +
         out.one_time_bake_dispatches +
-        out.shadow_cache_dispatches;
-    out.total_logical_invocations = SaturatingCloudWorkloadAdd(
-        SaturatingCloudWorkloadAdd(
-            out.trace_logical_invocations,
-            out.resolve_logical_invocations),
-        SaturatingCloudWorkloadAdd(
-            out.one_time_bake_logical_invocations,
-            out.shadow_cache_logical_invocations));
-    out.total_launched_threads = SaturatingCloudWorkloadAdd(
-        SaturatingCloudWorkloadAdd(
-            out.trace_launched_threads,
-            out.resolve_launched_threads),
-        SaturatingCloudWorkloadAdd(
-            out.one_time_bake_launched_threads,
-            out.shadow_cache_launched_threads));
+        out.shadow_cache_dispatches +
+        out.world_shadow_dispatches;
+    out.total_logical_invocations = SaturatingCloudWorkloadAdd(SaturatingCloudWorkloadAdd(out.trace_logical_invocations, out.resolve_logical_invocations), SaturatingCloudWorkloadAdd(SaturatingCloudWorkloadAdd(out.one_time_bake_logical_invocations, out.shadow_cache_logical_invocations), out.world_shadow_logical_invocations));
+    out.total_launched_threads = SaturatingCloudWorkloadAdd(SaturatingCloudWorkloadAdd(out.trace_launched_threads, out.resolve_launched_threads), SaturatingCloudWorkloadAdd(SaturatingCloudWorkloadAdd(out.one_time_bake_launched_threads, out.shadow_cache_launched_threads), out.world_shadow_launched_threads));
     u32 maximumViewSteps = plan.maximum_view_steps;
     if (maximumViewSteps < kVolumetricCloudMinViewSteps) {
         maximumViewSteps = kVolumetricCloudMinViewSteps;
@@ -3334,6 +3405,7 @@ FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload(
     }
     out.maximum_view_samples = SaturatingCloudWorkloadMultiply(out.trace_logical_invocations, maximumViewSteps);
     out.maximum_light_samples = SaturatingCloudWorkloadMultiply(out.maximum_view_samples, kVolumetricCloudMaxLightMarchSamples);
+    out.maximum_world_shadow_samples = SaturatingCloudWorkloadMultiply(out.world_shadow_logical_invocations, kVolumetricCloudWorldShadowSamples);
     out.temporal_super_resolution =
         plan.output_width != 0u && plan.output_height != 0u &&
         plan.trace_width == CloudCeilDivisor(
@@ -3520,6 +3592,49 @@ FVolumetricCloudShadowCacheMapping CenterVolumetricCloudShadowCache(
         out.center_material_xz.x - halfExtent,
         out.center_material_xz.y - halfExtent};
     return out;
+}
+
+FVec2 ProjectVolumetricCloudWorldShadowReferenceXZ(FVec3 world_position, FVec3 sun_direction, f32 reference_height) noexcept {
+    if (!std::isfinite(reference_height)) reference_height = 0.0f;
+    const f32 worldX =
+        std::isfinite(world_position.x) ? world_position.x : 0.0f;
+    const f32 worldY =
+        std::isfinite(world_position.y) ? world_position.y : reference_height;
+    const f32 worldZ =
+        std::isfinite(world_position.z) ? world_position.z : 0.0f;
+    const f32 lengthSquared =
+        sun_direction.x * sun_direction.x +
+        sun_direction.y * sun_direction.y +
+        sun_direction.z * sun_direction.z;
+    if (!std::isfinite(lengthSquared) || lengthSquared <= 1.0e-12f) {
+        return FVec2{worldX, worldZ};
+    }
+    const f32 inverseLength = 1.0f / Sqrt(lengthSquared);
+    const FVec3 sun{
+        sun_direction.x * inverseLength,
+        sun_direction.y * inverseLength,
+        sun_direction.z * inverseLength};
+    if (sun.y <= kVolumetricCloudWorldShadowMinimumSunY) {
+        return FVec2{worldX, worldZ};
+    }
+    const f32 distanceAlongSun =
+        (worldY - reference_height) / sun.y;
+    return FVec2{
+        worldX - sun.x * distanceAlongSun,
+        worldZ - sun.z * distanceAlongSun};
+}
+
+FVec2 VolumetricCloudWorldShadowMapMinimum(FVec2 center_reference_xz) noexcept {
+    if (!std::isfinite(center_reference_xz.x)) center_reference_xz.x = 0.0f;
+    if (!std::isfinite(center_reference_xz.y)) center_reference_xz.y = 0.0f;
+    const f32 cell = kVolumetricCloudWorldShadowMapTexelSize;
+    const f32 halfExtent = kVolumetricCloudWorldShadowMapExtent * 0.5f;
+    const FVec2 snappedCenter{
+        std::floor(center_reference_xz.x / cell + 0.5f) * cell,
+        std::floor(center_reference_xz.y / cell + 0.5f) * cell};
+    return FVec2{
+        snappedCenter.x - halfExtent,
+        snappedCenter.y - halfExtent};
 }
 
 FVec3 RebaseVolumetricCloudWorldOrigin(FVec3 camera_position,
@@ -3842,6 +3957,7 @@ FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(FVec3 ray_origin, FVec3 ra
 void CVolumetricClouds::InvalidateCloudHistory_Internal(bool density_field_changed) noexcept
 {
     m_HistoryValid = false;
+    m_WorldShadowValid = false;
     if (density_field_changed) m_ShadowCacheValid = false;
 }
 
@@ -3915,6 +4031,14 @@ EShaderStatus CVolumetricClouds::FCompiledShaders::Status() const noexcept {
         }
         compiling = compiling || shadow_status == EShaderStatus::Compiling;
     }
+    if (world_shadow) {
+        const EShaderStatus world_shadow_status = world_shadow->Status();
+        if (world_shadow_status == EShaderStatus::Failed) {
+            return EShaderStatus::Failed;
+        }
+        compiling = compiling ||
+            world_shadow_status == EShaderStatus::Compiling;
+    }
     return compiling ? EShaderStatus::Compiling : EShaderStatus::Ready;
 }
 
@@ -3975,6 +4099,12 @@ TResult<CVolumetricClouds::FCompiledShaders> CreateCloudShaderSet(
             "CSCloudShadow", "Clouds.ShadowCacheCS");
         if (shadow_result.IsOk()) {
             shaders.shadow = Move(shadow_result.Value());
+        }
+    }
+    if (kVolumetricCloudWorldShadowEnabled) {
+        auto world_shadow_result = compile(EShaderStage::Compute, kCloudCS, "CSCloudWorldShadow", "Clouds.WorldShadowCS");
+        if (world_shadow_result.IsOk()) {
+            shaders.world_shadow = Move(world_shadow_result.Value());
         }
     }
 #undef ACS_CREATE_CLOUD_SHADER
@@ -4047,6 +4177,12 @@ CVolumetricClouds::CompileShadersCpu() noexcept {
             "CSCloudShadow", "Clouds.ShadowCacheCS");
         if (shadow_result.IsOk()) {
             shaders.shadow = Move(shadow_result.Value());
+        }
+    }
+    if (kVolumetricCloudWorldShadowEnabled) {
+        auto world_shadow_result = compile(EShaderStage::Compute, kCloudCS, "CSCloudWorldShadow", "Clouds.WorldShadowCS");
+        if (world_shadow_result.IsOk()) {
+            shaders.world_shadow = Move(world_shadow_result.Value());
         }
     }
 #undef ACS_COMPILE_CLOUD_SHADER
@@ -4188,6 +4324,63 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
         m_ShadowCacheValid = false;
         m_ShadowGridInitialized = false;
         m_ShadowCacheDispatchCount = 0;
+    }
+    // 立体物用の雲影は独立した二次元透過率地図へ生成する。作成できない場合も
+    // 雲そのものは描き、PBR側は透過率1の代替処理へ戻す。
+    {
+        bool worldShadowOk =
+            kVolumetricCloudWorldShadowEnabled && shaders.world_shadow;
+        if (worldShadowOk) {
+            m_WorldShadowCs = Move(shaders.world_shadow);
+            FComputePipelineDesc pd{};
+            pd.cs = m_WorldShadowCs.Get();
+            pd.cbuffer_slots = 1;
+            pd.cbuffer_names[0] = "CloudCB";
+            pd.srv_slots = 4;
+            pd.srv_names[0] = "shapeNoise";
+            pd.srv_names[1] = "weatherMap";
+            pd.srv_names[2] = "detailNoise";
+            pd.srv_names[3] = "curlNoise";
+            pd.uav_slots = 1;
+            pd.uav_names[0] = "cloudOut";
+            pd.static_sampler_count = 4;
+            for (u32 i = 0; i < 4; ++i) {
+                pd.static_samplers[i].filter = ESamplerFilter::Linear;
+                pd.static_samplers[i].address_u = ESamplerAddress::Wrap;
+                pd.static_samplers[i].address_v = ESamplerAddress::Wrap;
+                pd.static_samplers[i].address_w = ESamplerAddress::Wrap;
+            }
+            auto pipelineResult = CreateRhiComputePipeline(device, pd);
+            if (pipelineResult.IsErr()) {
+                worldShadowOk = false;
+            } else {
+                m_WorldShadowPipe = Move(pipelineResult.Value());
+            }
+        }
+        if (worldShadowOk) {
+            FTextureDesc td{};
+            td.width = kVolumetricCloudWorldShadowMapResolution;
+            td.height = kVolumetricCloudWorldShadowMapResolution;
+            td.format = EFormat::R16G16B16A16_Float;
+            td.is_uav = true;
+            auto textureResult = CreateRhiTexture(device, td);
+            if (textureResult.IsErr()) {
+                worldShadowOk = false;
+            } else {
+                m_WorldShadowTex = Move(textureResult.Value());
+            }
+        }
+        if (!worldShadowOk) {
+            m_WorldShadowTex.Reset();
+            m_WorldShadowPipe.Reset();
+            m_WorldShadowCs.Reset();
+            if (kVolumetricCloudWorldShadowEnabled) {
+                ACS_LOG_WARN("CVolumetricClouds: 立体物用の雲影を利用できないため、直接光は雲で遮らずに描画します");
+            }
+        }
+        m_WorldShadowAvailable = worldShadowOk;
+        m_WorldShadowValid = false;
+        m_WorldShadowDispatchCount = 0u;
     }
     // Perlin-Worley noise 生成 compute。
     // shader 宣言は独立した物理行へ置き、行 comment と結合させない。
@@ -4394,6 +4587,7 @@ bool CVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
     m_W = hw; m_H = hh; m_FullW = fw; m_FullH = fh;
     m_FrameIndex = 0; m_TemporalPhase = 0;
     m_ResolvedIndex = 0; m_HistoryValid = false;
+    m_WorldShadowValid = false;
     m_WorldOrigin = FVec3{};
     m_PrevViewProj = FMat4::Identity();
     m_PrevInvViewProj = FMat4::Identity();
@@ -4406,10 +4600,9 @@ bool CVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
     return true;
 }
 
-void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
-                                      FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color,
-                                      f32 coverage, f32 density, f32 wind, f32 time) noexcept {
+void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color, f32 coverage, f32 density, f32 wind, f32 time) noexcept {
     const bool historyWasAvailable = m_HistoryValid;
+    m_WorldShadowValid = false;
     m_LastFrameWorkload = {};
     m_LastFrameWorkload.attempted = true;
     m_LastFrameWorkload.history_was_available =
@@ -4483,6 +4676,12 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         sky_color, m_HistoryValid ? m_PrevSkyColor
                                   : FVec3{0.2f, 0.25f, 0.3f});
     const FVec3 worldOrigin = RebaseVolumetricCloudWorldOrigin(cam_pos);
+    const FVec2 worldShadowCenterReferenceXz = ProjectVolumetricCloudWorldShadowReferenceXZ(cam_pos, safeSun, worldOrigin.y);
+    m_WorldShadowMapMinReferenceXz = VolumetricCloudWorldShadowMapMinimum(worldShadowCenterReferenceXz);
+    m_WorldShadowReferenceHeight = worldOrigin.y;
+    m_WorldShadowSunDirection = safeSun;
+    m_WorldShadowWorldOrigin = worldOrigin;
+    m_WorldShadowCloudBaseAltitude = m_Layer.base_height;
     // 一つのワールド移流距離を天候、形状、侵食、渦、時間再投影で共有する。
     // 雑音の周波数とは分離し、各領域が風によって互いに滑ることを防ぐ。
     const f32 windOffset = safeTime * safeWind * 2.5f;
@@ -4511,6 +4710,9 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     const bool shadowResourcesReady =
         m_ShadowCacheAvailable && m_ShadowCs && m_ShadowPipe && m_ShadowTex;
     if (!shadowResourcesReady) m_ShadowCacheValid = false;
+    const bool worldShadowResourcesReady =
+        m_WorldShadowAvailable && m_WorldShadowCs &&
+        m_WorldShadowPipe && m_WorldShadowTex;
 
     // history invalidation: resize は EnsureSize で扱う。ここでは camera cut、time jump、
     // 見える品質設定の不連続を拒否する。Reprojection に使える履歴と、
@@ -4578,6 +4780,14 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         (m_DetailBaked || bakeDetailNoiseThisFrame) &&
         (m_CurlBaked || bakeCurlNoiseThisFrame);
     if (!rebuildShadowCacheThisFrame) m_ShadowCacheValid = false;
+    const bool rebuildWorldShadowThisFrame =
+        worldShadowResourcesReady &&
+        safeSun.y > kVolumetricCloudWorldShadowMinimumSunY &&
+        safeCoverage > 0.001f &&
+        (m_NoiseBaked || bakeShapeNoiseThisFrame) &&
+        (m_WeatherBaked || bakeWeatherThisFrame) &&
+        (m_DetailBaked || bakeDetailNoiseThisFrame) &&
+        (m_CurlBaked || bakeCurlNoiseThisFrame);
     FVolumetricCloudFrameWorkloadPlan workloadPlan{};
     workloadPlan.trace_width = m_W;
     workloadPlan.trace_height = m_H;
@@ -4590,6 +4800,7 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     workloadPlan.bake_detail_noise = bakeDetailNoiseThisFrame;
     workloadPlan.bake_curl_noise = bakeCurlNoiseThisFrame;
     workloadPlan.rebuild_shadow_cache = rebuildShadowCacheThisFrame;
+    workloadPlan.rebuild_world_shadow = rebuildWorldShadowThisFrame;
     m_LastFrameWorkload =
         PlanVolumetricCloudFrameWorkload(workloadPlan);
     m_LastFrameWorkload.attempted = true;
@@ -4664,6 +4875,7 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         evolutionFrameTerms.shape_phase.y,
         evolutionFrameTerms.fine_phase.x,
         evolutionFrameTerms.fine_phase.y};
+    cb.cloudWorldShadowMap = FVec4{m_WorldShadowMapMinReferenceXz.x, m_WorldShadowMapMinReferenceXz.y, 1.0f / kVolumetricCloudWorldShadowMapExtent, m_WorldShadowReferenceHeight};
     cb.cloudLightTangent = FVec4{
         lightBasis.tangent.x,
         lightBasis.tangent.y,
@@ -4828,6 +5040,18 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         m_ShadowCacheValid = true;
         ++m_ShadowCacheDispatchCount;
     }
+    if (rebuildWorldShadowThisFrame) {
+        cl.SetComputePipeline(*m_WorldShadowPipe);
+        cl.SetConstantBuffer(0, *m_Cb);
+        cl.SetTexture(0, *m_ShapeTex);
+        cl.SetTexture(1, *m_WeatherTex);
+        cl.SetTexture(2, *m_DetailTex);
+        cl.SetTexture(3, *m_CurlTex);
+        cl.BindUav(0, *m_WorldShadowTex);
+        cl.Dispatch((kVolumetricCloudWorldShadowMapResolution + 7u) / 8u, (kVolumetricCloudWorldShadowMapResolution + 7u) / 8u, 1u);
+        m_WorldShadowValid = true;
+        ++m_WorldShadowDispatchCount;
+    }
     cl.SetComputePipeline(*m_CloudPipe);
     cl.SetConstantBuffer(0, *m_Cb);
     if (m_ShapeTex) cl.SetTexture(0, *m_ShapeTex);   // shape noise SRV (UAV→SRV は Dispatch の TRANSITION commit)
@@ -4885,6 +5109,23 @@ void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     m_PrevTime = safeTime;
 }
 
+FVolumetricCloudWorldShadowMap
+CVolumetricClouds::WorldShadowMap() const noexcept {
+    FVolumetricCloudWorldShadowMap out{};
+    out.transmittance =
+        m_WorldShadowValid ? m_WorldShadowTex.Get() : nullptr;
+    out.minimum_reference_xz = m_WorldShadowMapMinReferenceXz;
+    out.inverse_extent =
+        1.0f / kVolumetricCloudWorldShadowMapExtent;
+    out.reference_height = m_WorldShadowReferenceHeight;
+    out.sun_direction = m_WorldShadowSunDirection;
+    out.world_origin = m_WorldShadowWorldOrigin;
+    out.cloud_base_altitude = m_WorldShadowCloudBaseAltitude;
+    out.planet_radius = kVolumetricCloudPlanetRadius;
+    out.resolution = kVolumetricCloudWorldShadowMapResolution;
+    return out;
+}
+
 void CVolumetricClouds::Composite(IRhiCommandList& cl, IRhiTexture& scene_depth,
                                   u32 scW, u32 scH,
                                   IRhiTexture* atmosphere_volume,
@@ -4934,6 +5175,8 @@ void CVolumetricClouds::Shutdown() noexcept {
     m_ResolvePipe.Reset(); m_ResolveCs.Reset();
     m_ShadowTex.Reset();
     m_ShadowPipe.Reset(); m_ShadowCs.Reset();
+    m_WorldShadowTex.Reset();
+    m_WorldShadowPipe.Reset(); m_WorldShadowCs.Reset();
     m_CloudPipe.Reset(); m_CloudCs.Reset();
     m_Ready = false; m_HistoryValid = false;
     m_FrameIndex = 0; m_TemporalPhase = 0; m_ResolvedIndex = 0;
@@ -4946,8 +5189,15 @@ void CVolumetricClouds::Shutdown() noexcept {
     m_PrevWindOffset = 0.0f; m_PrevWindSpeed = 0.0f;
     m_PrevCoverage = -1.0f; m_PrevDensity = -1.0f; m_PrevTime = -1.0f;
     m_ShadowGridMinQ = FVec2{}; m_ShadowGridCenterQ = FVec2{};
+    m_WorldShadowMapMinReferenceXz = FVec2{};
+    m_WorldShadowReferenceHeight = 0.0f;
+    m_WorldShadowSunDirection = FVec3{0.0f, 1.0f, 0.0f};
+    m_WorldShadowWorldOrigin = FVec3{};
+    m_WorldShadowCloudBaseAltitude = 0.0f;
     m_ShadowCacheDispatchCount = 0; m_ShadowGridInitialized = false;
     m_ShadowCacheAvailable = false; m_ShadowCacheValid = false;
+    m_WorldShadowDispatchCount = 0u;
+    m_WorldShadowAvailable = false; m_WorldShadowValid = false;
     m_WorkloadSubmissionIndex = 0u;
     m_LastFrameWorkload = {};
 }

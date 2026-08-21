@@ -72,6 +72,7 @@ set(_acsgen_render_headers
     NormalMatrix.h
     Particles.h
     PbrShader.h
+    VolumetricCloudWorldShadow.h
     PipelineStateKey.h
     PipelineStateKeyCache.h
     PostProcess.h

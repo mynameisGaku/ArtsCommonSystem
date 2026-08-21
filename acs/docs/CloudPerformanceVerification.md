@@ -86,11 +86,12 @@ Each scenario must prove all of the following:
 - cloud work was attempted and submitted;
 - temporal history was available and reused without invalidation, with TSR
   enabled;
-- 定常フレームは影キャッシュ生成、視線積分、時間再構成の計3回の計算ディスパッチと、
-  合成描画1回だけであり、一度限りの雑音生成が計測区間へ混入していないこと。処理量契約では
-  視線積分と時間再構成を定常2回、`96 x 32 x 96`の影キャッシュ生成を別枠1回として記録する。
-- logical invocation, launched-thread, and maximum view/light sample totals
-  are internally coherent;
+- 定常フレームは視線積分、時間再構成、雲内部の影キャッシュ、3D受光面用ワールド雲影の
+  計4回の計算ディスパッチと、合成描画1回だけであり、一度限りの雑音生成が計測区間へ
+  混入していないこと。処理量契約では視線積分と時間再構成を定常2回、
+  `96 x 32 x 96`の雲内部影を1回、`256 x 256`のワールド雲影を1回として記録する。
+- 有効呼び出し数、端数を含む起動スレッド数、視線・光・ワールド雲影の最大試料数が、
+  各内訳と合計で一致すること。
 - native render, Dispatcher heartbeat, GPU retry/fallback, ready-after-retry,
   and renderer-fairness diagnostics are present.
 

@@ -40,10 +40,10 @@ internal static class EditorProfilerSelfTest
               EditorProfilerContract.LegacyVersion == 4 &&
               EditorProfilerContract.LegacySnapshotSize == 224,
             "profiler contract reports the packed snapshot size");
-        Check(Marshal.SizeOf<EditorCloudWorkloadSnapshot>() == 168 &&
-              EditorCloudWorkloadContract.Version == 1 &&
-              EditorCloudWorkloadContract.SnapshotSize == 168,
-            "cloud workload v1 uses an independent fixed 168-byte ABI");
+        Check(Marshal.SizeOf<EditorCloudWorkloadSnapshot>() == 200 &&
+              EditorCloudWorkloadContract.Version == 2 &&
+              EditorCloudWorkloadContract.SnapshotSize == 200,
+            "cloud workload v2 uses an independent fixed 200-byte ABI");
         Check(EditorProfilerContract.Version == 5 &&
               EditorProfilerContract.SnapshotSize == 256,
             "cloud workload remains independent from profiler v5");
@@ -104,7 +104,8 @@ internal static class EditorProfilerSelfTest
             SteadyDispatches = 2,
             OneTimeBakeDispatches = 4,
             ShadowCacheDispatches = 1,
-            TotalComputeDispatches = 7,
+            WorldShadowDispatches = 1,
+            TotalComputeDispatches = 8,
             CompositeDraws = 1,
             TraceLogicalInvocations = 960,
             TraceLaunchedThreads = 960,
@@ -114,10 +115,13 @@ internal static class EditorProfilerSelfTest
             OneTimeBakeLaunchedThreads = 2_637_824,
             ShadowCacheLogicalInvocations = 294_912,
             ShadowCacheLaunchedThreads = 294_912,
-            TotalLogicalInvocations = 2_949_056,
-            TotalLaunchedThreads = 2_949_056,
+            WorldShadowLogicalInvocations = 65_536,
+            WorldShadowLaunchedThreads = 65_536,
+            TotalLogicalInvocations = 3_014_592,
+            TotalLaunchedThreads = 3_014_592,
             MaximumViewSamples = 184_320,
             MaximumLightSamples = 1_474_560,
+            MaximumWorldShadowSamples = 2_097_152,
         };
         Check(
             EditorCloudWorkloadContract.ClassifyNativeResult(
@@ -129,11 +133,11 @@ internal static class EditorProfilerSelfTest
                 workload) ==
                 "SUBMITTED - frame 42 - cloud #7" &&
             EditorCloudWorkloadFormatting.Dispatches(workload) ==
-                "7 = 2 steady + 4 bake + 1 shadow; 1 composite draw" &&
+                "8 = 2 steady + 4 bake + 1 internal shadow + 1 world shadow; 1 composite draw" &&
             EditorCloudWorkloadFormatting.Invocations(
                 workload.TotalLogicalInvocations,
                 workload.TotalLaunchedThreads) ==
-                "2,949,056 logical / 2,949,056 launched" &&
+                "3,014,592 logical / 3,014,592 launched" &&
             EditorCloudWorkloadFormatting.OneTimeBake(workload) ==
                 "4 dispatch; 2,637,824 logical / 2,637,824 launched" &&
             EditorCloudWorkloadFormatting.History(workload) ==
@@ -211,6 +215,8 @@ internal static class EditorProfilerSelfTest
                 unavailableWorkload) ==
                 EditorCloudWorkloadQueryStatus.ContractError &&
             EditorCloudWorkloadContract.IsSupported(
+                EditorAbiCapability.VolumetricCloudWorkloadV2) &&
+            !EditorCloudWorkloadContract.IsSupported(
                 EditorAbiCapability.VolumetricCloudWorkloadV1) &&
             !EditorCloudWorkloadContract.IsSupported(
                 EditorAbiCapability.ProfilerV3),
@@ -220,10 +226,13 @@ internal static class EditorProfilerSelfTest
         unknownFlags.Flags |= 1u << 31;
         var nonzeroReserved = workload;
         nonzeroReserved.Reserved0 = 1;
+        var nonzeroV2Reserved = workload;
+        nonzeroV2Reserved.Reserved1 = 1;
         Check(
             RejectsCloudSnapshot(unknownFlags) &&
-            RejectsCloudSnapshot(nonzeroReserved),
-            "cloud workload v1 rejects unknown flags and nonzero reserved fields");
+            RejectsCloudSnapshot(nonzeroReserved) &&
+            RejectsCloudSnapshot(nonzeroV2Reserved),
+            "cloud workload v2 rejects unknown flags and nonzero reserved fields");
 
         var unknownSkipReason = skippedWorkload;
         unknownSkipReason.SkipReason = 99;
@@ -240,27 +249,34 @@ internal static class EditorProfilerSelfTest
             RejectsCloudSnapshot(
                 resourceUnavailableWorkload,
                 nativeResult: 1),
-            "cloud workload v1 rejects unknown or native-result-inconsistent skip states");
+            "cloud workload v2 rejects unknown or native-result-inconsistent skip states");
 
         var incorrectDispatchTotal = workload;
         incorrectDispatchTotal.TotalComputeDispatches--;
         var dispatchedComponentWithoutDispatch = workload;
         dispatchedComponentWithoutDispatch.OneTimeBakeDispatches = 0;
-        dispatchedComponentWithoutDispatch.TotalComputeDispatches = 3;
+        dispatchedComponentWithoutDispatch.TotalComputeDispatches = 4;
         var duplicatedShadowDispatch = workload;
         duplicatedShadowDispatch.ShadowCacheDispatches = 2;
-        duplicatedShadowDispatch.TotalComputeDispatches = 8;
+        duplicatedShadowDispatch.TotalComputeDispatches = 9;
+        var duplicatedWorldShadowDispatch = workload;
+        duplicatedWorldShadowDispatch.WorldShadowDispatches = 2;
+        duplicatedWorldShadowDispatch.TotalComputeDispatches = 9;
         var incorrectLogicalTotal = workload;
         incorrectLogicalTotal.TotalLogicalInvocations--;
         var incorrectSampleCeiling = workload;
         incorrectSampleCeiling.MaximumLightSamples--;
+        var incorrectWorldSampleCeiling = workload;
+        incorrectWorldSampleCeiling.MaximumWorldShadowSamples--;
         Check(
             RejectsCloudSnapshot(incorrectDispatchTotal) &&
             RejectsCloudSnapshot(dispatchedComponentWithoutDispatch) &&
             RejectsCloudSnapshot(duplicatedShadowDispatch) &&
+            RejectsCloudSnapshot(duplicatedWorldShadowDispatch) &&
             RejectsCloudSnapshot(incorrectLogicalTotal) &&
-            RejectsCloudSnapshot(incorrectSampleCeiling),
-            "cloud workload v1 rejects repeated shadow dispatch, invocation-total, and sample-ceiling mismatches");
+            RejectsCloudSnapshot(incorrectSampleCeiling) &&
+            RejectsCloudSnapshot(incorrectWorldSampleCeiling),
+            "cloud workload v2 rejects repeated shadow dispatch, invocation-total, and sample-ceiling mismatches");
 
         var launchedBelowLogical = workload;
         launchedBelowLogical.TraceLaunchedThreads =
@@ -268,13 +284,13 @@ internal static class EditorProfilerSelfTest
         launchedBelowLogical.TotalLaunchedThreads--;
         Check(
             RejectsCloudSnapshot(launchedBelowLogical),
-            "cloud workload v1 rejects launched-thread counts below logical work");
+            "cloud workload v2 rejects launched-thread counts below logical work");
 
         var zeroSubmittedDimension = workload;
         zeroSubmittedDimension.TraceWidth = 0;
         Check(
             RejectsCloudSnapshot(zeroSubmittedDimension),
-            "cloud workload v1 rejects submitted work with a zero trace or output dimension");
+            "cloud workload v2 rejects submitted work with a zero trace or output dimension");
 
         var reusedWithoutHistory = workload;
         reusedWithoutHistory.Flags &=
@@ -293,7 +309,7 @@ internal static class EditorProfilerSelfTest
             RejectsCloudSnapshot(reusedAndInvalidated) &&
             RejectsCloudSnapshot(missingRequiredTsrState) &&
             RejectsCloudSnapshot(skippedWithTsr),
-            "cloud workload v1 rejects impossible history and temporal-super-resolution states");
+            "cloud workload v2 rejects impossible history and temporal-super-resolution states");
 
         var staleDormantPayload = unavailableWorkload;
         staleDormantPayload.TotalComputeDispatches = 1;
@@ -307,7 +323,7 @@ internal static class EditorProfilerSelfTest
             RejectsCloudSnapshot(
                 malformedResourcesNotReady,
                 nativeResult: 0),
-            "cloud workload v1 unavailable states reject stale work while preserving clean dormant snapshots");
+            "cloud workload v2 unavailable states reject stale work while preserving clean dormant snapshots");
 
         var history = new EditorProfilerHistory(3);
         for (ulong frame = 1; frame <= 4; frame++)
@@ -453,7 +469,7 @@ internal static class EditorProfilerSelfTest
             EditorProfilerContract.FlagFog |
             EditorProfilerContract.FlagAerialPerspective;
         automationLatest.DrawCalls = 42;
-        automationLatest.DispatchCalls = 7;
+        automationLatest.DispatchCalls = 8;
         automationLatest.Triangles = 12345;
         automationLatest.ViewportWidth = 1920;
         automationLatest.ViewportHeight = 1080;
@@ -619,7 +635,7 @@ internal static class EditorProfilerSelfTest
             automationSummary.LatestRenderState.View3D &&
             automationSummary.LatestRenderState.CloudsEnabled &&
             automationSummary.LatestRenderState.DrawCalls == 42 &&
-            automationSummary.LatestRenderState.DispatchCalls == 7 &&
+            automationSummary.LatestRenderState.DispatchCalls == 8 &&
             automationSummary.LatestRenderState.Triangles == 12345 &&
             automationSummary.LatestRenderState.CloudMarchSteps == 192 &&
             automationSummary.LatestCloudWorkload.Available &&
@@ -631,7 +647,12 @@ internal static class EditorProfilerSelfTest
             automationLatest.NativePresentCpuPeakMs <
                 presentPeak &&
             automationSummary.LatestCloudWorkload.HistoryReused &&
-            automationSummary.LatestCloudWorkload.TotalComputeDispatches == 7 &&
+            automationSummary.LatestCloudWorkload.TotalComputeDispatches == 8 &&
+            automationSummary.LatestCloudWorkload.WorldShadowDispatches == 1 &&
+            automationSummary.LatestCloudWorkload
+                .WorldShadowLogicalInvocations == 65_536 &&
+            automationSummary.LatestCloudWorkload
+                .MaximumWorldShadowSamples == 2_097_152 &&
             automationSummary.LatestEditorRuntime.NativeAvailable &&
             automationSummary.LatestEditorRuntime.NativeCallCount == 900 &&
             automationSummary.LatestEditorRuntime
@@ -829,7 +850,13 @@ internal static class EditorProfilerSelfTest
                 "# cloud_workload_submitted,true",
                 StringComparison.Ordinal) &&
             automationCsv.Contains(
-                "# cloud_workload_total_dispatches,7",
+                "# cloud_workload_total_dispatches,8",
+                StringComparison.Ordinal) &&
+            automationCsv.Contains(
+                "# cloud_workload_world_shadow_dispatches,1",
+                StringComparison.Ordinal) &&
+            automationCsv.Contains(
+                "# cloud_workload_maximum_world_shadow_samples,2097152",
                 StringComparison.Ordinal) &&
             automationCsv.Contains(
                 "# cloud_workload_profiler_frame_within_capture,true",

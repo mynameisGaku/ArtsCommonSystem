@@ -453,7 +453,7 @@ struct FEditorHost {
     f32          frame_dt      = 1.0f / 60.0f;  // 実測 render dt。フレームレート非依存の motion blur shutter に使用。
     editor_profiler::FAccumulator profiler_work{};
     editor_profiler::FSnapshot    profiler_snapshot{};
-    editor_cloud_workload::FSnapshot cloud_workload_snapshot{};
+    editor_cloud_workload::FSnapshotV2 cloud_workload_snapshot{};
     std::atomic<bool>             cloud_workload_available{false};
     editor_profiler::FRollingPeak profiler_cpu_peak{};
     editor_profiler::FRollingPeak profiler_gpu_peak{};
@@ -3083,8 +3083,7 @@ u64 RequiredCapabilityForService(u32 service) noexcept
     case EService::Profiler:
         return CapabilityBit(ECapability::ProfilerV5);
     case EService::VolumetricCloudWorkload:
-        return CapabilityBit(
-            ECapability::VolumetricCloudWorkloadV1);
+        return CapabilityBit(ECapability::VolumetricCloudWorkloadV2);
     case EService::CameraViewRequests:
         return CapabilityBit(ECapability::CameraViewRequestsV1);
     default:
@@ -10465,6 +10464,8 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                                      h.q_shadow_bias, texel, h.q_shadow_filter);
         }
         else          h.pbr3d.SetShadowMap(nullptr, sh.lightVp);
+        // 現在の雲密度から作った透過率を太陽の直接光だけへ掛ける。無効時は透過率1へ戻る。
+        h.pbr3d.SetCloudShadowMap(cloudsActive ? h.vclouds3d.WorldShadowMap() : FVolumetricCloudWorldShadowMap{});
         // SSAO (GTAO) visibility を ambient へ乗算 (今フレーム焼けていれば)。screen UV でサンプル。
         if (h.ssao_computed) h.pbr3d.SetSsao(h.ssao3d.OutputTexture(), h.q_ssao_intensity, scW, scH);
         else                 h.pbr3d.SetSsao(nullptr, 0.0f, scW, scH);
@@ -11438,7 +11439,7 @@ static void PublishCloudWorkloadSnapshot(
     if (!workload.attempted) return;
 
     editor_cloud_workload::FSnapshot& snapshot =
-        host.cloud_workload_snapshot;
+        host.cloud_workload_snapshot.base;
     snapshot.profiler_frame_index = profilerFrameIndex;
     snapshot.submission_index = workload.submission_index;
     snapshot.trace_width = workload.trace_width;
@@ -11475,6 +11476,14 @@ static void PublishCloudWorkloadSnapshot(
         workload.total_launched_threads;
     snapshot.maximum_view_samples = workload.maximum_view_samples;
     snapshot.maximum_light_samples = workload.maximum_light_samples;
+    host.cloud_workload_snapshot.world_shadow_dispatches =
+        workload.world_shadow_dispatches;
+    host.cloud_workload_snapshot.world_shadow_logical_invocations =
+        workload.world_shadow_logical_invocations;
+    host.cloud_workload_snapshot.world_shadow_launched_threads =
+        workload.world_shadow_launched_threads;
+    host.cloud_workload_snapshot.maximum_world_shadow_samples =
+        workload.maximum_world_shadow_samples;
     snapshot.skip_reason = static_cast<u32>(workload.skip_reason);
     if (workload.attempted) {
         snapshot.flags |= editor_cloud_workload::Attempted;
@@ -12032,26 +12041,60 @@ ACS_EDITOR_API int acs_editor_profiler_get(
  * unavailable snapshot is still initialized so a negotiated caller can
  * distinguish runtime state from stale payload.
  */
-ACS_EDITOR_API int acs_editor_cloud_workload_get(
-    void* handle,
-    editor_cloud_workload::FSnapshot* outSnapshot,
-    uint32_t outSize) {
+ACS_EDITOR_API int acs_editor_cloud_workload_get(void* handle, void* outSnapshot, uint32_t outSize) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || outSnapshot == nullptr ||
-        outSize < editor_cloud_workload::kSnapshotSize ||
-        outSnapshot->version !=
-            editor_cloud_workload::kSnapshotVersion ||
-        outSnapshot->struct_size <
-            editor_cloud_workload::kSnapshotSize) {
+    struct FRequestHeader {
+        u32 version = 0u;
+        u32 struct_size = 0u;
+    };
+    if (host == nullptr || outSnapshot == nullptr || outSize < sizeof(FRequestHeader)) {
         return -1;
     }
 
-    const editor_cloud_workload::FSnapshot& snapshot =
-        host->cloud_workload_snapshot;
-    std::memcpy(
-        outSnapshot,
-        &snapshot,
-        editor_cloud_workload::kSnapshotSize);
+    FRequestHeader request{};
+    std::memcpy(&request, outSnapshot, sizeof(request));
+    if (request.version == editor_cloud_workload::kSnapshotVersionV2) {
+        if (outSize < editor_cloud_workload::kSnapshotSizeV2 || request.struct_size < editor_cloud_workload::kSnapshotSizeV2) {
+            return -1;
+        }
+        editor_cloud_workload::FSnapshotV2 snapshot =
+            host->cloud_workload_snapshot;
+        snapshot.base.version = editor_cloud_workload::kSnapshotVersionV2;
+        snapshot.base.struct_size = editor_cloud_workload::kSnapshotSizeV2;
+        std::memcpy(outSnapshot, &snapshot, editor_cloud_workload::kSnapshotSizeV2);
+    } else if (request.version == editor_cloud_workload::kSnapshotVersionV1) {
+        if (outSize < editor_cloud_workload::kSnapshotSizeV1 || request.struct_size < editor_cloud_workload::kSnapshotSizeV1) {
+            return -1;
+        }
+        editor_cloud_workload::FSnapshot snapshot =
+            host->cloud_workload_snapshot.base;
+        const editor_cloud_workload::FSnapshotV2& full =
+            host->cloud_workload_snapshot;
+        // v1 の合計値は、v1 に存在しないワールド雲影を除いて整合させる。
+        snapshot.total_compute_dispatches =
+            snapshot.total_compute_dispatches >=
+                    full.world_shadow_dispatches
+                ? snapshot.total_compute_dispatches -
+                    full.world_shadow_dispatches
+                : 0u;
+        snapshot.total_logical_invocations =
+            snapshot.total_logical_invocations >=
+                    full.world_shadow_logical_invocations
+                ? snapshot.total_logical_invocations -
+                    full.world_shadow_logical_invocations
+                : 0u;
+        snapshot.total_launched_threads =
+            snapshot.total_launched_threads >=
+                    full.world_shadow_launched_threads
+                ? snapshot.total_launched_threads -
+                    full.world_shadow_launched_threads
+                : 0u;
+        snapshot.version = editor_cloud_workload::kSnapshotVersionV1;
+        snapshot.struct_size = editor_cloud_workload::kSnapshotSizeV1;
+        std::memcpy(outSnapshot, &snapshot, editor_cloud_workload::kSnapshotSizeV1);
+    } else {
+        return -1;
+    }
     return host->cloud_workload_available ? 1 : 0;
 }
 
