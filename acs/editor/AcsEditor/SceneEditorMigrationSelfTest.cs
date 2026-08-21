@@ -158,6 +158,10 @@ internal static class SceneEditorMigrationSelfTest
             ExtractMethodBody(
                 shellSource,
                 "private int RefreshPrefabInstance3D(");
+        string selectivePrefabRootRevertBody =
+            ExtractMethodBody(
+                shellSource,
+                "private void RevertPrefabRootOverride3D(");
         string placeBlueprintBody =
             ExtractMethodBody(shellSource, "private void PlaceBlueprint(");
         string instantiatePrefabBody =
@@ -398,6 +402,17 @@ internal static class SceneEditorMigrationSelfTest
                 "ReinstantiateInstance3D(",
                 StringComparison.Ordinal),
             "3D Prefab refresh routes through one native rollback and Undo transaction");
+        Check(
+            selectivePrefabRootRevertBody.Contains(
+                "acs_editor_prefab_instance3d_revert_root_overrides(",
+                StringComparison.Ordinal) &&
+            selectivePrefabRootRevertBody.Contains(
+                "RefreshAfterSceneChange()",
+                StringComparison.Ordinal) &&
+            view3DSource.Contains(
+                "CreatePrefabRootOverrideRevertButton3D(",
+                StringComparison.Ordinal),
+            "3D Prefab root overrides expose selective Revert through one native transaction");
         Check(
             placeBlueprintBody.Contains(
                 "EngineInterop.acs_editor_prefab_instance3d_instantiate(",

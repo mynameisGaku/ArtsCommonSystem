@@ -71,6 +71,7 @@ extern "C" __declspec(dllimport) const char* acs_editor_copy_subtree3d(
 extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_refresh(
     void* handle, int id, const char* source, const char* text);
 extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_refresh_with_root_overrides(void* handle, int id, const char* source, const char* text, std::uint32_t preserve_mask);
+extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_revert_root_overrides(void* handle, int id, const char* source, const char* text, std::uint32_t revert_mask);
 extern "C" __declspec(dllimport) int acs_editor_prefab_instance3d_instantiate(
     void* handle, const char* source, const char* instance_id,
     const char* text, int parent_id);
@@ -287,6 +288,8 @@ bool RunAbiCapabilityContract() noexcept
         "managed Prefab authoring relies on stable 3D instance identity");
     static_assert((kCapabilities & CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1)) != 0u);
     static_assert((kRequiredManagedHostCapabilities & CapabilityBit(ECapability::PrefabRootPropertyOverride3DV1)) != 0u, "managed Prefab refresh relies on explicit 3D root property overrides");
+    static_assert((kCapabilities & CapabilityBit(ECapability::PrefabRootPropertySelectiveRevert3DV1)) != 0u);
+    static_assert((kRequiredManagedHostCapabilities & CapabilityBit(ECapability::PrefabRootPropertySelectiveRevert3DV1)) != 0u, "managed Prefab authoring relies on selective 3D root override Revert");
 
     std::uint32_t version = 0u;
     std::uint64_t capabilities = 0ull;
@@ -1615,7 +1618,22 @@ bool RunPrefabInstance3DRootPropertyOverrides() noexcept
          acs_editor_prefab_instance3d_mark_root_override(host, preserved, kColor) != 0;
     if (ok) completed_stage = 4u;
 
-    const int reverted = ok ? acs_editor_prefab_instance3d_refresh(host, preserved, kSource, kUpdatedSubtree) : -1;
+    std::string before_selective_invalid2d;
+    std::string before_selective_invalid3d;
+    ok = ok && SnapshotSceneDocument(host, before_selective_invalid2d, before_selective_invalid3d) && acs_editor_prefab_instance3d_revert_root_overrides(host, preserved, kSource, kUpdatedSubtree, 8u) == -1 && SceneDocumentEquals(host, before_selective_invalid2d, before_selective_invalid3d);
+    const int selectively_reverted = ok ? acs_editor_prefab_instance3d_revert_root_overrides(host, preserved, kSource, kUpdatedSubtree, kVisible) : -1;
+    float selective_color[4]{};
+    char selective_scene[32768]{};
+    const int selective_written = selectively_reverted >= 0 ? acs_editor_scene3d_serialize(host, selective_scene, static_cast<int>(sizeof(selective_scene))) : 0;
+    char selective_override_line[64]{};
+    const int selective_override_written = std::snprintf(selective_override_line, sizeof(selective_override_line), "POVR3D %d 6\n", selectively_reverted);
+    ok = ok && selectively_reverted >= 0 && acs_editor_node3d_get_visible(host, selectively_reverted) != 0 && acs_editor_node3d_get_enabled(host, selectively_reverted) == 0 && acs_editor_node3d_get_color(host, selectively_reverted, selective_color) != 0 && selective_color[0] == 0.9f && selective_color[1] == 0.8f && selective_color[2] == 0.7f && selective_color[3] == 1.0f && acs_editor_prefab_instance3d_root_override_mask(host, selectively_reverted) == (kEnabled | kColor) && selective_written > 0 && selective_override_written > 0 && std::strstr(selective_scene, selective_override_line) != nullptr;
+    std::string before_repeated_selective2d;
+    std::string before_repeated_selective3d;
+    ok = ok && SnapshotSceneDocument(host, before_repeated_selective2d, before_repeated_selective3d) && acs_editor_prefab_instance3d_revert_root_overrides(host, selectively_reverted, kSource, kUpdatedSubtree, kVisible) == -1 && SceneDocumentEquals(host, before_repeated_selective2d, before_repeated_selective3d);
+    if (ok) completed_stage = 5u;
+
+    const int reverted = ok ? acs_editor_prefab_instance3d_refresh(host, selectively_reverted, kSource, kUpdatedSubtree) : -1;
     float reverted_color[4]{};
     char reverted_scene[32768]{};
     const int reverted_written = reverted >= 0

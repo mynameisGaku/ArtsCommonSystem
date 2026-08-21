@@ -114,7 +114,8 @@ Editor ABIの3D subtree貼り付け、stable ID付きinstance生成、Prefab/Blu
 instance生成はsource、32桁ID、subtreeを1つのnative adapterへ渡し、途中失敗で未リンクnodeを残さない。
 root override付き再生成は明示maskのVisible/Enabled/Colorだけを再適用する。Color保持先が描画対象を
 持たない場合を含め、再適用できなければ旧subtreeとoverride maskを復元する。既存の全Revert入口は
-maskを保持せず原本値へ戻す。
+maskを保持せず原本値へ戻す。selective Revertは指定bitを現在maskから除いた残りだけを再適用し、
+未知bitまたは既にoverrideでないpropertyを指定した場合はsceneを変更しない。
 
 pack batch は後続entryの失敗時に先行entryの完了数を返す。loaderはprivate parsed
 document上で完了済み依存を初出順にdecodeし、旧逐次経路と同じ先行decode errorを優先する。

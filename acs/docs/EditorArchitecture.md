@@ -569,6 +569,9 @@ captures only bits already present on the stable instance, recreates the subtree
 and reapplies those values before publishing Undo. `POVR3D` stores the mask after
 `PINS3D`; the ordinary refresh export remains a full Revert. A Color override
 cannot be preserved onto an Empty root, so that refresh rolls back atomically.
+Selective root Revert computes `remaining = current & ~requested` without scene
+mutation, rejects unknown or already-cleared bits, and then uses the same native
+refresh transaction to restore only the requested source values.
 
 Project Settings uses the canonical settings-file path as its stable identity
 and participates in common dirty, Undo/Redo transaction, Save All, and
