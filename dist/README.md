@@ -100,12 +100,12 @@ consumer_contract.exe
 Expected output:
 
 ```
-acs.h OK | sum=42 dist=5.0 clamp=100.0 len=5.0 hash=2773fad09b34e937 event=1 component=1 scene_timer=1 log_sink=1
+acs.h OK | sum=42 dist=5.0 clamp=100.0 len=5.0 hash=2773fad09b34e937 event=1 component=1 prefab_source_id=1 scene_timer=1 weather=1 log_sink=1 audio_backend=1
 ```
 
 `verification\consumer_contract.cpp` is the canonical distribution contract: it includes
 *only* `<acs.h>` and checks the container, math, easy, event, ECS, scene timer,
-log sink and non-inline hash-library paths. The consumer does not list
+continuous weather retargeting, log sink, audio backend and non-inline hash-library paths. The consumer does not list
 individual libraries on its command line; `acs.h` supplies the `acs.lib`,
 Windows SDK, Diligent and xxHash link directives above.
 

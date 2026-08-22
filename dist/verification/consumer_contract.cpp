@@ -2,8 +2,6 @@
 // 配布先だけを include/link して header と実装 library の整合を確認する。
 #include <acs.h>
 #include <cstdio>
-#include <limits>
-#include <type_traits>
 
 static_assert(sizeof(acs::FTimerHandle) == 8u, "event タイマーハンドルは 8byte の独立型です");
 static_assert(sizeof(acs::game::FSceneTimerHandle) == 4u, "シーンタイマーハンドルは 4byte の packed 型です");
@@ -16,9 +14,9 @@ static_assert(acs::IsSameV<acs::scripting::FLuaVm, acs::scripting::CLuaVm>, "旧
 static_assert(acs::IsSameV<acs::FEventTypeId, acs::u32> && acs::IsSameV<acs::EventTypeId, acs::FEventTypeId>, "イベント通路番号の正規型と旧名が一致しません");
 static_assert(acs::IsSameV<acs::FComponentTypeId, acs::u32> && acs::IsSameV<acs::ComponentTypeId, acs::FComponentTypeId>, "コンポーネント番号の正規型と旧名が一致しません");
 static_assert(acs::IsSameV<acs::FComponentSignatureId, acs::u64> && acs::IsSameV<acs::ComponentSignatureId, acs::FComponentSignatureId>, "コンポーネント署名の正規型と旧名が一致しません");
-static_assert(std::is_same_v<decltype(&acs::TArray<acs::i32>::Remove), bool (acs::TArray<acs::i32>::*)(const acs::i32&) noexcept>);
-static_assert(std::is_same_v<decltype(&acs::TInlineArray<acs::i32, 2u>::Remove), bool (acs::TInlineArray<acs::i32, 2u>::*)(const acs::i32&) noexcept>);
-static_assert(std::is_same_v<decltype(&acs::TObservableArray<acs::i32>::Remove), bool (acs::TObservableArray<acs::i32>::*)(const acs::i32&) noexcept>);
+static_assert(acs::IsSameV<decltype(&acs::TArray<acs::i32>::Remove), bool (acs::TArray<acs::i32>::*)(const acs::i32&) noexcept>);
+static_assert(acs::IsSameV<decltype(&acs::TInlineArray<acs::i32, 2u>::Remove), bool (acs::TInlineArray<acs::i32, 2u>::*)(const acs::i32&) noexcept>);
+static_assert(acs::IsSameV<decltype(&acs::TObservableArray<acs::i32>::Remove), bool (acs::TObservableArray<acs::i32>::*)(const acs::i32&) noexcept>);
 
 /** CDebugDraw の既存・追加公開入口を配布 header と library 間で照合する署名。 */
 using FDebugDraw2DLineSignature = void (acs::CDebugDraw::*)(acs::FVec2, acs::FVec2, acs::FVec4) noexcept;
@@ -33,16 +31,16 @@ using FDebugDraw2DTryCrossSignature = bool (acs::CDebugDraw::*)(acs::FVec2, acs:
 using FDebugDraw2DTryArrowSignature = bool (acs::CDebugDraw::*)(acs::FVec2, acs::FVec2, acs::FVec4, acs::f32) noexcept;
 
 static_assert(acs::IsSameV<acs::FDebugDraw, acs::CDebugDraw>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw::DrawLine), FDebugDraw2DLineSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw::DrawAabb), FDebugDraw2DAabbSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw::DrawCircle), FDebugDraw2DCircleSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw::DrawCross), FDebugDraw2DCrossSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw::DrawArrow), FDebugDraw2DArrowSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw::TryDrawLine), FDebugDraw2DTryLineSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw::TryDrawAabb), FDebugDraw2DTryAabbSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw::TryDrawCircle), FDebugDraw2DTryCircleSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw::TryDrawCross), FDebugDraw2DTryCrossSignature>);
-static_assert(std::is_same_v<decltype(&acs::CDebugDraw::TryDrawArrow), FDebugDraw2DTryArrowSignature>);
+static_assert(acs::IsSameV<decltype(&acs::CDebugDraw::DrawLine), FDebugDraw2DLineSignature>);
+static_assert(acs::IsSameV<decltype(&acs::CDebugDraw::DrawAabb), FDebugDraw2DAabbSignature>);
+static_assert(acs::IsSameV<decltype(&acs::CDebugDraw::DrawCircle), FDebugDraw2DCircleSignature>);
+static_assert(acs::IsSameV<decltype(&acs::CDebugDraw::DrawCross), FDebugDraw2DCrossSignature>);
+static_assert(acs::IsSameV<decltype(&acs::CDebugDraw::DrawArrow), FDebugDraw2DArrowSignature>);
+static_assert(acs::IsSameV<decltype(&acs::CDebugDraw::TryDrawLine), FDebugDraw2DTryLineSignature>);
+static_assert(acs::IsSameV<decltype(&acs::CDebugDraw::TryDrawAabb), FDebugDraw2DTryAabbSignature>);
+static_assert(acs::IsSameV<decltype(&acs::CDebugDraw::TryDrawCircle), FDebugDraw2DTryCircleSignature>);
+static_assert(acs::IsSameV<decltype(&acs::CDebugDraw::TryDrawCross), FDebugDraw2DTryCrossSignature>);
+static_assert(acs::IsSameV<decltype(&acs::CDebugDraw::TryDrawArrow), FDebugDraw2DTryArrowSignature>);
 
 /** FDebugDraw3Dの既存・追加公開入口を配布headerとlibrary間で照合する署名。 */
 using FDebugDrawInitSignature = acs::TResult<void> (acs::FDebugDraw3D::*)(acs::IRhiDevice&, acs::EFormat, acs::u32) noexcept;
@@ -55,17 +53,17 @@ using FDebugDrawTryLineSignature = bool (acs::FDebugDraw3D::*)(acs::FVec3, acs::
 using FDebugDrawTryAabbSignature = bool (acs::FDebugDraw3D::*)(const acs::FAabb3&, acs::FVec4) noexcept;
 using FDebugDrawTryWireframeSignature = bool (acs::FDebugDraw3D::*)(const acs::FVec3*, acs::u32, const acs::u32*, acs::u32, acs::FVec4) noexcept;
 
-static_assert(std::is_same_v<acs::CDebugDraw3D, acs::FDebugDraw3D>);
-static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::Init), FDebugDrawInitSignature>);
-static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::Shutdown), FDebugDrawVoidSignature>);
-static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::Begin), FDebugDrawVoidSignature>);
-static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::Line), FDebugDrawLineSignature>);
-static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::Aabb), FDebugDrawAabbSignature>);
-static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::Wireframe), FDebugDrawWireframeSignature>);
-static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::End), FDebugDrawEndSignature>);
-static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::TryLine), FDebugDrawTryLineSignature>);
-static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::TryAabb), FDebugDrawTryAabbSignature>);
-static_assert(std::is_same_v<decltype(&acs::FDebugDraw3D::TryWireframe), FDebugDrawTryWireframeSignature>);
+static_assert(acs::IsSameV<acs::CDebugDraw3D, acs::FDebugDraw3D>);
+static_assert(acs::IsSameV<decltype(&acs::FDebugDraw3D::Init), FDebugDrawInitSignature>);
+static_assert(acs::IsSameV<decltype(&acs::FDebugDraw3D::Shutdown), FDebugDrawVoidSignature>);
+static_assert(acs::IsSameV<decltype(&acs::FDebugDraw3D::Begin), FDebugDrawVoidSignature>);
+static_assert(acs::IsSameV<decltype(&acs::FDebugDraw3D::Line), FDebugDrawLineSignature>);
+static_assert(acs::IsSameV<decltype(&acs::FDebugDraw3D::Aabb), FDebugDrawAabbSignature>);
+static_assert(acs::IsSameV<decltype(&acs::FDebugDraw3D::Wireframe), FDebugDrawWireframeSignature>);
+static_assert(acs::IsSameV<decltype(&acs::FDebugDraw3D::End), FDebugDrawEndSignature>);
+static_assert(acs::IsSameV<decltype(&acs::FDebugDraw3D::TryLine), FDebugDrawTryLineSignature>);
+static_assert(acs::IsSameV<decltype(&acs::FDebugDraw3D::TryAabb), FDebugDrawTryAabbSignature>);
+static_assert(acs::IsSameV<decltype(&acs::FDebugDraw3D::TryWireframe), FDebugDrawTryWireframeSignature>);
 
 /** 3D Prefab source node identityの公開getter署名。 */
 using FPrefabSourceNodeIdSignature = acs::FStringView (acs::game::APrefabNodeIdentity3DComponent::*)() const noexcept;
@@ -76,10 +74,10 @@ using FPrefabNodePropertyOverrideMaskSignature = acs::u32 (acs::game::APrefabNod
 /** 3D Prefab child node property override maskの検証付きsetter署名。 */
 using FTrySetPrefabNodePropertyOverrideMaskSignature = bool (acs::game::APrefabNodeIdentity3DComponent::*)(acs::u32) noexcept;
 
-static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent::SourceNodeId), FPrefabSourceNodeIdSignature>);
-static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent::TrySetSourceNodeId), FTrySetPrefabSourceNodeIdSignature>);
-static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent::NodePropertyOverrideMask), FPrefabNodePropertyOverrideMaskSignature>);
-static_assert(std::is_same_v<decltype(&acs::game::APrefabNodeIdentity3DComponent::TrySetNodePropertyOverrideMask), FTrySetPrefabNodePropertyOverrideMaskSignature>);
+static_assert(acs::IsSameV<decltype(&acs::game::APrefabNodeIdentity3DComponent::SourceNodeId), FPrefabSourceNodeIdSignature>);
+static_assert(acs::IsSameV<decltype(&acs::game::APrefabNodeIdentity3DComponent::TrySetSourceNodeId), FTrySetPrefabSourceNodeIdSignature>);
+static_assert(acs::IsSameV<decltype(&acs::game::APrefabNodeIdentity3DComponent::NodePropertyOverrideMask), FPrefabNodePropertyOverrideMaskSignature>);
+static_assert(acs::IsSameV<decltype(&acs::game::APrefabNodeIdentity3DComponent::TrySetNodePropertyOverrideMask), FTrySetPrefabNodePropertyOverrideMaskSignature>);
 
 /** Primitive の既存・追加公開入口を配布 header と library 間で照合する署名。 */
 using FPrimitiveMakeCubeSignature = acs::TSharedPtr<acs::AMeshAsset> (*)(acs::f32) noexcept;
@@ -89,12 +87,12 @@ using FPrimitiveTryMakeCubeSignature = bool (*)(acs::f32, acs::TSharedPtr<acs::A
 using FPrimitiveTryMakeSphereSignature = bool (*)(acs::f32, acs::u32, acs::u32, acs::TSharedPtr<acs::AMeshAsset>&) noexcept;
 using FPrimitiveTryMakePlaneSignature = bool (*)(acs::f32, acs::f32, acs::TSharedPtr<acs::AMeshAsset>&) noexcept;
 
-static_assert(std::is_same_v<decltype(&acs::Primitive::MakeCube), FPrimitiveMakeCubeSignature>);
-static_assert(std::is_same_v<decltype(&acs::Primitive::MakeSphere), FPrimitiveMakeSphereSignature>);
-static_assert(std::is_same_v<decltype(&acs::Primitive::MakePlane), FPrimitiveMakePlaneSignature>);
-static_assert(std::is_same_v<decltype(&acs::Primitive::TryMakeCube), FPrimitiveTryMakeCubeSignature>);
-static_assert(std::is_same_v<decltype(&acs::Primitive::TryMakeSphere), FPrimitiveTryMakeSphereSignature>);
-static_assert(std::is_same_v<decltype(&acs::Primitive::TryMakePlane), FPrimitiveTryMakePlaneSignature>);
+static_assert(acs::IsSameV<decltype(&acs::Primitive::MakeCube), FPrimitiveMakeCubeSignature>);
+static_assert(acs::IsSameV<decltype(&acs::Primitive::MakeSphere), FPrimitiveMakeSphereSignature>);
+static_assert(acs::IsSameV<decltype(&acs::Primitive::MakePlane), FPrimitiveMakePlaneSignature>);
+static_assert(acs::IsSameV<decltype(&acs::Primitive::TryMakeCube), FPrimitiveTryMakeCubeSignature>);
+static_assert(acs::IsSameV<decltype(&acs::Primitive::TryMakeSphere), FPrimitiveTryMakeSphereSignature>);
+static_assert(acs::IsSameV<decltype(&acs::Primitive::TryMakePlane), FPrimitiveTryMakePlaneSignature>);
 
 /** 配布物のイベント通路番号を割り当てる検査型。 */
 struct FDistributionEventProbe {};
@@ -142,8 +140,8 @@ using FAudioVoiceParametersSignature = void (acs::game::IAudioBackend::*)(
     acs::f32,
     acs::f32) noexcept;
 
-static_assert(std::is_same_v<decltype(&acs::game::IAudioBackend::SetVoiceParameters),
-                             FAudioVoiceParametersSignature>);
+static_assert(acs::IsSameV<decltype(&acs::game::IAudioBackend::SetVoiceParameters),
+                           FAudioVoiceParametersSignature>);
 
 /**
  * 配布ライブラリを経由したシーンタイマー発火を記録する。
@@ -261,6 +259,14 @@ void LinkPrefabSourceNodeIdentitySymbols() noexcept
     (void)try_set_node_override_mask;
 }
 
+/** 2つの単精度値が指定した許容差内で一致するかを標準ライブラリなしで判定する。 */
+static bool NearlyEqual_Internal(acs::f32 left, acs::f32 right, acs::f32 tolerance) noexcept
+{
+    /** 符号を保った2値の差。 */
+    const acs::f32 difference = left - right;
+    return difference >= -tolerance && difference <= tolerance;
+}
+
 /** 配布SDKのheader、外部symbol、基本計算を検証し、失敗時は1を返す。 */
 int main()
 {
@@ -355,6 +361,44 @@ int main()
     // 登録、発火、完了をまとめて確認する結果。
     const bool scene_timer_ok = scene_timer_handle.IsValid() && scene_timer_fire_count == 1u && !scene_timer.IsActive(scene_timer_handle);
 
+    /** 配布headerとlibraryを跨いで状態配置と非inline実装を検査する天候システム。 */
+    game::CWeatherSystem weather;
+    weather.SetWeather(game::EWeatherKind::HeavyRain, 4.0f);
+    weather.Tick(2.0f);
+    /** 目標変更直前の環境光倍率。 */
+    const f32 weather_ambient_before = weather.AmbientLightMultiplier();
+    /** 目標変更直前の粒子密度。 */
+    const f32 weather_particles_before = weather.ParticleDensity();
+    /** 目標変更直前の空色補正。 */
+    const FVec3 weather_sky_before = weather.SkyTintMultiplier();
+    /** 目標変更直前の風強さ。 */
+    const f32 weather_wind_before = weather.WindStrength();
+    /** 目標変更直前の霧密度倍率。 */
+    const f32 weather_fog_before = weather.FogDensityMultiplier();
+    weather.SetWeather(game::EWeatherKind::Cloudy, 2.0f);
+    /** 目標変更だけでは全描画係数が変化しないことを示す結果。 */
+    const bool weather_retarget_continuous =
+        NearlyEqual_Internal(weather.AmbientLightMultiplier(), weather_ambient_before, 1.0e-6f) &&
+        NearlyEqual_Internal(weather.ParticleDensity(), weather_particles_before, 1.0e-6f) &&
+        NearlyEqual_Internal(weather.SkyTintMultiplier().x, weather_sky_before.x, 1.0e-6f) &&
+        NearlyEqual_Internal(weather.SkyTintMultiplier().y, weather_sky_before.y, 1.0e-6f) &&
+        NearlyEqual_Internal(weather.SkyTintMultiplier().z, weather_sky_before.z, 1.0e-6f) &&
+        NearlyEqual_Internal(weather.WindStrength(), weather_wind_before, 1.0e-6f) &&
+        NearlyEqual_Internal(weather.FogDensityMultiplier(), weather_fog_before, 1.0e-6f);
+    weather.Tick(1.0f);
+    /** 新目標への中間値と公開状態が一致することを示す結果。 */
+    const bool weather_transition_ok = weather_retarget_continuous &&
+        weather.CurrentWeather() == game::EWeatherKind::Clear &&
+        weather.TargetWeather() == game::EWeatherKind::Cloudy &&
+        NearlyEqual_Internal(weather.TransitionT(), 0.5f, 1.0e-6f) &&
+        NearlyEqual_Internal(weather.AmbientLightMultiplier(), 0.8125f, 1.0e-6f) &&
+        NearlyEqual_Internal(weather.ParticleDensity(), 0.5f, 1.0e-6f) &&
+        NearlyEqual_Internal(weather.SkyTintMultiplier().x, 0.8125f, 1.0e-6f) &&
+        NearlyEqual_Internal(weather.SkyTintMultiplier().y, 0.84f, 1.0e-6f) &&
+        NearlyEqual_Internal(weather.SkyTintMultiplier().z, 0.885f, 1.0e-6f) &&
+        NearlyEqual_Internal(weather.WindStrength(), 0.325f, 1.0e-6f) &&
+        NearlyEqual_Internal(weather.FogDensityMultiplier(), 1.3f, 1.0e-6f);
+
     // 配布ライブラリの複数ログ通知先を画面出力なしで検証する設定。
     FLogConfig log_config{};
     log_config.console = false;
@@ -372,14 +416,16 @@ int main()
     // 新virtualをoverrideしない外部backendが既定の有限化された音量更新を受け取るか。
     CDistributionAudioBackend audio_backend;
     const game::FAudioVoiceHandle audio_voice = game::FAudioVoiceHandle::FromPackedValue(1u);
+    /** ACSの数学機能で生成し、音声設定の有限化を検査する非数。 */
+    const f32 invalid_audio_parameter = Sqrt(-1.0f);
     audio_backend.SetVoiceParameters(audio_voice,
-                                     std::numeric_limits<f32>::quiet_NaN(),
-                                     std::numeric_limits<f32>::quiet_NaN(),
-                                     std::numeric_limits<f32>::quiet_NaN());
+                                     invalid_audio_parameter,
+                                     invalid_audio_parameter,
+                                     invalid_audio_parameter);
     const bool audio_backend_contract_ok = audio_backend.VolumeUpdateCount == 1u &&
                                            audio_backend.LastVoice == audio_voice &&
                                            audio_backend.LastVolume == 0.0f;
 
-    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u prefab_source_id=%u scene_timer=%u log_sink=%u audio_backend=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, prefab_source_identity_ok ? 1u : 0u, scene_timer_fire_count, log_notification_count, audio_backend_contract_ok ? 1u : 0u);
-    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && prefab_source_identity_ok && scene_timer_ok && log_sink_ok && audio_backend_contract_ok) ? 0 : 1;
+    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u prefab_source_id=%u scene_timer=%u weather=%u log_sink=%u audio_backend=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, prefab_source_identity_ok ? 1u : 0u, scene_timer_fire_count, weather_transition_ok ? 1u : 0u, log_notification_count, audio_backend_contract_ok ? 1u : 0u);
+    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && prefab_source_identity_ok && scene_timer_ok && weather_transition_ok && log_sink_ok && audio_backend_contract_ok) ? 0 : 1;
 }

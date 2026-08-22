@@ -751,6 +751,22 @@ Editor ABIも両構成でビルドできた。内部処理はprivateの`Params_I
 `NormalizeKind_Internal`、`CurrentParams_Internal`、`CompleteTransition_Internal`へ閉じ、`friend`やSTLは
 追加していない。
 
+`291dc4eb`のソースからDebug・Release配布物を隔離生成し、44件の実体ファイルとmanifestの計45件を
+生成元と配置先で照合した。manifestのSHA-256は
+`5975EEDB1884A7AC6FA13D2D06BB8DE732DA6DFBD21E293161E7809CBFD612D2`、単一ヘッダーは
+`781999C83582DF1BD88C284F06D387C22C480F7E6E47597CAFAB214A532122AD`、正規consumer契約は
+`A8DA14318DBE49DF965A49ABB99C64461D16207515645223F0330961369A61B4`だった。
+
+正規consumer契約は`CWeatherSystem`を配布headerから生成し、快晴から豪雨への途中で曇りへ目標変更する。
+変更直後の5成分が不変であることと、その1秒後に全成分が同じ進行度0.5の期待値へ到達することを
+配布libraryとのリンク・実行で検査する。契約自身に残っていた`type_traits`と`numeric_limits`への依存は、
+ACSの`IsSameV`と`Sqrt`へ置き換えた。安全検査の自己試験と通常C++ consumerのDebug・Release実行は
+すべて合格した。
+
+外部ACS Framework `5ba0200`も最終隔離配布物を明示参照してDebug・Releaseを再ビルドし、単体試験は
+両構成でそれぞれ538件中0件失敗だった。Framework既存の`AcsEnumReflection.h`にある`C4267`警告は
+両構成で残るが、今回の配布物による新規警告ではない。
+
 ## Quality-preserving optimization rules
 
 Ultra cloud optimization keeps the `0.25` trace scale, 192 view-sample ceiling,

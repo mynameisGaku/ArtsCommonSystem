@@ -68505,6 +68505,8 @@ private:
 
 // ===================== gameframework/WeatherSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
+#ifndef ACS_GAMEFRAMEWORK_WEATHER_SYSTEM_H
+#define ACS_GAMEFRAMEWORK_WEATHER_SYSTEM_H
 
 
 namespace acs::game {
@@ -68543,12 +68545,12 @@ enum class EWeatherKind : u8 {
 };
 
 /**
- * 天候モードを保持し、現在 → 目標天候の線形遷移と描画修飾係数を提供するシステム。
+ * 天候モードを保持し、現在の描画状態から目標天候まで連続遷移させるシステム。
  *
  * @details
- * CAmbientDirector (時刻補間) と直交し、天候ごとの ambient 倍率 / 粒子密度 /
- * sky tint / 風強さ / 霧密度を 1 つの LUT から引いて current/target 間で Lerp する。
- * non-copy / non-move で AScene 等に値メンバとして持たせ、Tick(dt) で遷移を進める。
+ * CAmbientDirector の時刻補間とは独立し、天候ごとの環境光倍率、粒子密度、空の色補正、
+ * 風強さ、霧密度を 1 つの表から引いて補間する。コピーと移動は行わず、AScene などに
+ * 値メンバーとして持たせ、Tick(dt) で遷移を進める。
  */
 class CWeatherSystem {
 public:
@@ -68574,31 +68576,32 @@ public:
      * 目標天候を設定し、遷移を開始する。
      *
      * @details
-     * 既に同一天候かつ完了状態なら遷移をスキップして即完了状態に揃える。遷移中の
-     * 再呼出は現 target を current に固定してから新 target へ向け再スタートする。
+     * 遷移中に別の天候を指定した場合は、その時点の補間済み描画値を新しい開始値として
+     * 保持する。同じ目標を正の時間で再指定した場合は、毎フレームの再指定で遷移が停止しないよう
+     * 進行中の遷移を維持する。0以下または非有限の時間は即時切替として扱う。
      * @param kind 目標とする天候。
-     * @param transition_duration 遷移に掛ける秒数 (<=0 は即時切替、既定 5.0)。
+     * @param transition_duration 遷移に掛ける秒数。0以下または非有限なら即時切替する。
      */
     void SetWeather(EWeatherKind kind, f32 transition_duration = 5.0f) noexcept;
 
     /**
-     * 現在の (遷移元) 天候を返す。
+     * 最後に遷移を完了した天候を返す。
      *
-     * @return current の EWeatherKind。
+     * @return 遷移中は直前に完了した天候、完了後は目標天候。
      */
     EWeatherKind CurrentWeather() const noexcept { return m_Current; }
 
     /**
      * 目標 (遷移先) 天候を返す。
      *
-     * @return target の EWeatherKind。
+     * @return 目標の EWeatherKind。範囲外の入力は Clear に直される。
      */
     EWeatherKind TargetWeather()  const noexcept { return m_Target; }
 
     /**
      * 遷移の進行度を返す。
      *
-     * @return [0, 1] の進行度。1 で遷移完了 (current == target に snap 済み)。
+     * @return 0～1 の進行度。1 で遷移完了済み。
      */
     f32 TransitionT() const noexcept { return m_TransitionT; }
 
@@ -68606,42 +68609,42 @@ public:
      * 遷移を 1 フレーム分進める。
      *
      * @details
-     * dt < 0 は 0 にクランプ。完了状態なら何もしない。transition_elapsed が
-     * duration に達したら current を target にスナップし transition_t を 1 に固定する。
+     * 0以下または非数の dt は進行させない。残り時間以上の dt は加算前に判定して完了させ、
+     * 加算あふれによる非数を作らない。
      * @param dt 経過秒 (リアル秒)。
      */
     void Tick(f32 dt) noexcept;
 
     /**
-     * ambient 輝度倍率を返す (current → target を transition_t で Lerp)。
+     * 環境光の輝度倍率を返す。
      *
-     * @return ambient 倍率 (1.0 = 通常輝度、Storm / Sandstorm 中は 0.5 まで暗化)。
+     * @return 補間済みの環境光倍率。1.0が通常輝度。
      */
     f32 AmbientLightMultiplier() const noexcept;
 
     /**
-     * 粒子密度倍率を返す (current → target を transition_t で Lerp)。
+     * 粒子密度倍率を返す。
      *
      * @return 粒子密度倍率 (Clear = 0、雨 / 雪 / 嵐中で増加)。
      */
     f32 ParticleDensity() const noexcept;
 
     /**
-     * sky color に乗算する補正を返す (current → target を transition_t で Lerp)。
+     * 空の色へ乗算する補正を返す。
      *
-     * @return sky tint 乗算係数 (1,1,1 = 無補正、Sandstorm 時は黄褐色など)。
+     * @return 補間済みの色補正。1,1,1は無補正。
      */
     FVec3 SkyTintMultiplier() const noexcept;
 
     /**
-     * 風の強さを返す (current → target を transition_t で Lerp)。
+     * 風の強さを返す。
      *
      * @return 風強さ [0, 1] (Storm = 1.0、Clear = 0.0、Rain / Snow は中間値)。
      */
     f32 WindStrength() const noexcept;
 
     /**
-     * 霧密度倍率を返す (current → target を transition_t で Lerp)。
+     * 霧密度倍率を返す。
      *
      * @return 霧密度倍率 (1 = 通常、Fog / Sandstorm で大きくなる)。
      */
@@ -68668,39 +68671,64 @@ public:
     /**
      * 天候ごとの描画修飾パラメータ。
      *
-     * @details LUT として .cpp にテーブルで持つ。各値は対応する getter のコメント参照。
+     * @details 実装ファイルの固定表に保持する。各値は対応する取得関数の説明を参照する。
      */
     struct FKindParams {
-        /** ambient 輝度倍率 (Storm/Sandstorm で暗化)。 */
-        f32  ambient_mult;
+        /** 環境光の輝度倍率。StormとSandstormでは暗くする。 */
+        f32 ambient_mult = 1.0f;
 
-        /** 粒子発生率倍率 (Clear=0、HeavyRain/Storm で最大)。 */
-        f32  particle_density;
+        /** 粒子発生率の倍率。Clearは0、HeavyRainとStormでは最大になる。 */
+        f32 particle_density = 0.0f;
 
-        /** sky color に乗算する補正 (1,1,1 = 補正なし)。 */
-        FVec3 sky_tint;
+        /** 空の色へ乗算する補正。1,1,1は無補正。 */
+        FVec3 sky_tint{1.0f, 1.0f, 1.0f};
 
-        /** 風の強さ [0,1] (Storm/Sandstorm = 1)。 */
-        f32  wind_strength;
+        /** 0～1の風強さ。StormとSandstormは1。 */
+        f32 wind_strength = 0.1f;
 
-        /** 霧密度倍率 (Fog で大、Sandstorm でも視界不良)。 */
-        f32  fog_density;
+        /** 霧密度倍率。Fogで最大になり、Sandstormでも視界を狭める。 */
+        f32 fog_density = 1.0f;
     };
 
 private:
     /**
-     * 天候種別に対応する修飾パラメータを LUT から引く。
+     * 天候種別に対応する描画係数を固定表から引く。
      *
-     * @param k 引く天候種別。
- * @return k に対応する FKindParams への const 参照 (範囲外は Clear にフォールバック)。
+     * @param kind 引く天候種別。
+     * @return kindに対応するFKindParams。範囲外はClearへ戻す。
      */
-    static const FKindParams& Params(EWeatherKind k) noexcept;
+    static const FKindParams& Params_Internal(EWeatherKind kind) noexcept;
 
-    /** 現在 (遷移元) の天候。 */
+    /**
+     * 保存値や外部入力の天候種別を定義済み範囲へ直す。
+     *
+     * @param kind 検査する天候種別。
+     * @return 定義済みならkind、範囲外ならClear。
+     */
+    static EWeatherKind NormalizeKind_Internal(EWeatherKind kind) noexcept;
+
+    /**
+     * 現在表示している全描画係数を同じ進行度で補間する。
+     *
+     * @return 遷移開始値と目標値を現在の進行度で混ぜた値。
+     */
+    FKindParams CurrentParams_Internal() const noexcept;
+
+    /**
+     * 指定天候へ即時切替し、遷移状態と開始値を完了状態へ揃える。
+     *
+     * @param kind 正規化前でも受け付ける完了先天候。
+     */
+    void CompleteTransition_Internal(EWeatherKind kind) noexcept;
+
+    /** 最後に遷移を完了した天候。 */
     EWeatherKind m_Current = EWeatherKind::Clear;
 
     /** 目標 (遷移先) の天候。 */
     EWeatherKind m_Target  = EWeatherKind::Clear;
+
+    /** 現在の遷移を開始した時点の連続な描画係数。 */
+    FKindParams m_TransitionStartParams{};
 
     /** 遷移にかける総時間 [s] (Tick で進行)。 */
     f32 m_TransitionDuration = 0.0f;
@@ -68708,7 +68736,7 @@ private:
     /** 遷移開始からの経過時間 [s]。 */
     f32 m_TransitionElapsed  = 0.0f;
 
-    /** 遷移の進行度 [0, 1] (1 = 完了。current == target かつ duration <= 0 のとき常に 1)。 */
+    /** 0～1の遷移進行度。1は完了状態。 */
     f32 m_TransitionT = 1.0f;
 
     /** 風向きベクトル (天候とは独立、既定は東向き)。 */
@@ -68719,6 +68747,8 @@ private:
 using FWeatherSystem = CWeatherSystem;
 
 } // namespace acs::game
+
+#endif // ACS_GAMEFRAMEWORK_WEATHER_SYSTEM_H
 
 // ===================== gameframework/WorkshopBridge.h =====================
 // SPDX-License-Identifier: Apache-2.0
