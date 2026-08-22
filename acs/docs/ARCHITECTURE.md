@@ -172,6 +172,15 @@ lightmap、SSR、UI は暗くせず、雲による直射光の変化は既存の
 倍率の保存領域は両公開クラスの既存 alignment padding を利用し、class size、既存member offset、
 vtable slot を変更しません。NaN、無限大、負数は現在値を維持します。
 
+Legacy 3D の物理大気による空気遠近は
+`ALegacyScene3DAdapter::SetAerialPerspectiveEnabled(true)` で明示的に有効化します。既定は無効で、
+従来の出力とfroxel計算負荷を維持します。有効時は既存`CSkyAtmosphere`の物理大気volumeを使い、
+不透明物と水面の完成深度へ `scene.rgb = scene.rgb * T + L` を一度だけ適用してから、同じvolumeを
+雲の実距離へ適用します。透過3D、SSGI、SSR、postはその後段です。`Fog()` は従来どおり
+`CPbrShader::SetFog()` のsurface fogとして独立し、AP volumeには混ぜないため、通常fogを二重積分
+しません。orthographic camera、深度不足、AP資源作成失敗ではpassを開かず従来描画へ戻ります。
+有効状態は既存alignment paddingに保持し、class sizeとvtable slotを変更しません。
+
 最終画面の空間アンチエイリアスは `ALegacyScene3DAdapter::PostParams()` の
 `FPostProcessParams::fxaa_enabled` で明示的に有効化できます。既定は無効で、既存の
 出力と TAA 利用時の負荷を変えません。有効時は HDR の完成色をトーンマップとガンマ補正で全解像度

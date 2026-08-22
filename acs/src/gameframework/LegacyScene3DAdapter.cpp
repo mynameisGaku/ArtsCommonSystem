@@ -71,6 +71,10 @@ constexpr u32 kAtmosphereCpuEquirectHeight = 256u;
 constexpr f32 kAtmosphereDefaultIntensity = 2.35f;
 constexpr f32 kAtmosphereRadianceAtDefault = 22.0f;
 
+// Legacy 3D の world 単位はメートル。既存 Editor 経路と同じ 250 km の体積へ換算する。
+constexpr f32 kAerialPerspectiveSceneToKilometers = 0.001f;
+constexpr f32 kAerialPerspectiveMaxDistance = kVolumetricCloudMaxDistance;
+
 // 太陽ディスク。実際の太陽の角半径 (0.2666 度) と、ディスクを空より強く出す倍率。
 constexpr f32 kSunAngularRadius = 0.004653f;
 constexpr f32 kSunDiscRadianceScale = 30.0f;
@@ -931,6 +935,31 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         water_draws, depth, context.Width(), context.Height());
 
     IRhiCommandList& command_list = context.Cmd();
+    IRhiTexture* aerial_volume = nullptr;
+    IRhiTexture* aerial_transmittance = nullptr;
+    const bool perspective_camera = m_UseAuthoredCamera
+        ? m_AuthoredCamera.Projection == EScene3DCameraProjection::Perspective
+        : m_Projection == ESceneProjectionMode::Perspective;
+    if (m_AerialPerspectiveEnabled && perspective_camera
+        && depth != nullptr && m_Atmosphere.Ready()) {
+        const FVec3 eye = m_Camera.Eye();
+        const f32 camera_altitude_km = eye.y > 0.0f
+            ? eye.y * kAerialPerspectiveSceneToKilometers : 0.0f;
+        // 物理大気だけを積分するoverloadを使う。Fog()は従来のPBR surface fogへ
+        // 一度だけ適用し、local fog volumeへ二重に入れない。
+        aerial_volume = m_Atmosphere.BuildAerialPerspective(
+            *device, command_list, Inverse(m_Camera.ViewProjection()), eye,
+            SunDirection(), PhysicalSunIntensity(SunColorForAtmosphere()),
+            kAerialPerspectiveMaxDistance,
+            kAerialPerspectiveSceneToKilometers,
+            camera_altitude_km);
+        if (aerial_volume != nullptr) {
+            aerial_transmittance =
+                m_Atmosphere.ApTransmittanceVolume();
+        }
+        // 片方だけの古い体積は公開せず、従来描画へ安全に戻す。
+        if (aerial_transmittance == nullptr) aerial_volume = nullptr;
+    }
     const bool ssss_resources_ready =
         m_SsssRequested
         && m_HdrSsssGpuState == EShaderGpuState::Ready
@@ -1075,8 +1104,28 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         }
     }
 
-    // 雲を最後に乗せる。手前の物で隠れるよう、完成したシーンの深度を使う。
-    if (depth != nullptr) CompositeClouds(command_list, *hdr, *depth, context.Width(), context.Height());
+    // 水面まで書いた完成depthで不透明物へ空気遠近を一度だけ適用する。深度はSRVで
+    // 読むため、このpassではDSVを同時にbindしない。失敗時はpass自体を開かない。
+    if (depth != nullptr && aerial_volume != nullptr
+        && aerial_transmittance != nullptr) {
+        command_list.BeginRenderToTextureLoad(*hdr, nullptr);
+        m_Atmosphere.CompositeAerialPerspective(
+            command_list, *depth, *aerial_volume,
+            *aerial_transmittance,
+            Inverse(m_Camera.ViewProjection()), m_Camera.Eye(),
+            kAerialPerspectiveMaxDistance,
+            context.Width(), context.Height());
+        command_list.EndRenderToTexture(*hdr);
+    }
+
+    // 雲を最後に乗せる。手前の物で隠し、有効な空気遠近を雲の実距離まで適用する。
+    if (depth != nullptr) {
+        CompositeClouds(
+            command_list, *hdr, *depth,
+            context.Width(), context.Height(),
+            aerial_volume, aerial_transmittance,
+            kAerialPerspectiveMaxDistance);
+    }
 
     // SPR3Dは不透明物と水面を描いた後にalpha合成する。深度は読むだけで、
     // editorと同じく書き換えない。
@@ -1281,12 +1330,18 @@ void ALegacyScene3DAdapter::RenderClouds(
 
 void ALegacyScene3DAdapter::CompositeClouds(
     IRhiCommandList& command_list, IRhiTexture& target,
-    IRhiTexture& scene_depth, u32 width, u32 height) noexcept {
+    IRhiTexture& scene_depth, u32 width, u32 height,
+    IRhiTexture* aerial_volume,
+    IRhiTexture* aerial_transmittance,
+    f32 aerial_max_distance) noexcept {
     if (!m_CloudsDrawn) return;
 
     // 完成したシーンの深度を渡すので、手前にある物が雲を隠す。
     command_list.BeginRenderToTextureLoad(target, nullptr);
-    m_Clouds.Composite(command_list, scene_depth, width, height);
+    m_Clouds.Composite(
+        command_list, scene_depth, width, height,
+        aerial_volume, aerial_transmittance,
+        aerial_max_distance);
     command_list.EndRenderToTexture(target);
 }
 

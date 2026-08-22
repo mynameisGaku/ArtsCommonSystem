@@ -139,6 +139,133 @@ ACS_TEST(LegacyScene3DCameraContract,
 #endif
 }
 
+ACS_TEST(LegacyScene3DAerialPerspective,
+         DefaultIsDisabledAndOptInPreservesLayout) {
+    ALegacyScene3DAdapter runtime;
+    EXPECT_FALSE(runtime.AerialPerspectiveEnabled());
+    runtime.SetAerialPerspectiveEnabled(true);
+    EXPECT_TRUE(runtime.AerialPerspectiveEnabled());
+    runtime.SetAerialPerspectiveEnabled(false);
+    EXPECT_FALSE(runtime.AerialPerspectiveEnabled());
+
+#if defined(_WIN64)
+    EXPECT_EQ(
+        sizeof(ALegacyScene3DAdapter),
+        static_cast<usize>(377360u));
+#endif
+}
+
+ACS_TEST(LegacyScene3DAerialPerspective,
+         UsesPhysicalOnlyAtmosphereBetweenWaterAndClouds) {
+    const std::string header = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.h");
+    const std::string source = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.cpp");
+    EXPECT_FALSE(header.empty());
+    EXPECT_FALSE(source.empty());
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header,
+        "void SetAerialPerspectiveEnabled(bool enabled) noexcept"));
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header,
+        "bool AerialPerspectiveEnabled() const noexcept"));
+
+    const std::size_t render = source.find(
+        "void ALegacyScene3DAdapter::OnRender(");
+    const std::size_t volume_defaults = source.find(
+        "IRhiTexture* aerial_volume = nullptr;", render);
+    const std::size_t transmittance_default = source.find(
+        "IRhiTexture* aerial_transmittance = nullptr;", volume_defaults);
+    const std::size_t projection_check = source.find(
+        "const bool perspective_camera =", transmittance_default);
+    const std::size_t aerial_condition = source.find(
+        "if (m_AerialPerspectiveEnabled && perspective_camera",
+        projection_check);
+    const std::size_t build = source.find(
+        "aerial_volume = m_Atmosphere.BuildAerialPerspective(", render);
+    const std::size_t incomplete_volume_fallback = source.find(
+        "if (aerial_transmittance == nullptr) aerial_volume = nullptr;",
+        build);
+    const std::size_t water = source.find(
+        "DrawWaterScene(", build);
+    const std::size_t composite = source.find(
+        "m_Atmosphere.CompositeAerialPerspective(", water);
+    const std::size_t clouds = source.find(
+        "CompositeClouds(", composite);
+    const std::size_t transparent = source.find(
+        "OnRenderTransparent3D(", clouds);
+    const std::size_t post = source.find(
+        "m_Post.Render(", transparent);
+    EXPECT_TRUE(render != std::string::npos);
+    EXPECT_TRUE(volume_defaults != std::string::npos);
+    EXPECT_TRUE(transmittance_default != std::string::npos);
+    EXPECT_TRUE(projection_check != std::string::npos);
+    EXPECT_TRUE(aerial_condition != std::string::npos);
+    EXPECT_TRUE(build != std::string::npos);
+    EXPECT_TRUE(incomplete_volume_fallback != std::string::npos);
+    EXPECT_TRUE(water != std::string::npos);
+    EXPECT_TRUE(composite != std::string::npos);
+    EXPECT_TRUE(clouds != std::string::npos);
+    EXPECT_TRUE(transparent != std::string::npos);
+    EXPECT_TRUE(post != std::string::npos);
+    EXPECT_TRUE(volume_defaults < transmittance_default);
+    EXPECT_TRUE(transmittance_default < projection_check);
+    EXPECT_TRUE(projection_check < aerial_condition);
+    EXPECT_TRUE(aerial_condition < build);
+    EXPECT_TRUE(build < incomplete_volume_fallback);
+    EXPECT_TRUE(incomplete_volume_fallback < water);
+    EXPECT_TRUE(build < water);
+    EXPECT_TRUE(water < composite);
+    EXPECT_TRUE(composite < clouds);
+    EXPECT_TRUE(clouds < transparent);
+    EXPECT_TRUE(transparent < post);
+
+    if (projection_check != std::string::npos
+        && aerial_condition != std::string::npos) {
+        const std::string projection_gate = source.substr(
+            projection_check, aerial_condition - projection_check);
+        EXPECT_TRUE(projection_gate.find(
+            "EScene3DCameraProjection::Perspective")
+            != std::string::npos);
+        EXPECT_TRUE(projection_gate.find(
+            "ESceneProjectionMode::Perspective")
+            != std::string::npos);
+    }
+
+    // 空気遠近を作れない場合も、nullの体積を渡して通常の雲合成を続ける。
+    const std::size_t cloud_fallback_guard = source.rfind(
+        "if (depth != nullptr) {", clouds);
+    EXPECT_TRUE(cloud_fallback_guard != std::string::npos);
+    if (cloud_fallback_guard != std::string::npos
+        && clouds != std::string::npos) {
+        const std::string cloud_fallback = source.substr(
+            cloud_fallback_guard, clouds - cloud_fallback_guard);
+        EXPECT_TRUE(cloud_fallback.find("aerial_volume")
+                    == std::string::npos);
+        EXPECT_TRUE(cloud_fallback.find("aerial_transmittance")
+                    == std::string::npos);
+    }
+
+    const std::size_t build_end = source.find(
+        "if (aerial_volume != nullptr)", build);
+    EXPECT_TRUE(build_end != std::string::npos);
+    if (build != std::string::npos && build_end != std::string::npos) {
+        const std::string physical_build =
+            source.substr(build, build_end - build);
+        EXPECT_TRUE(physical_build.find("m_Fog") == std::string::npos);
+        EXPECT_TRUE(physical_build.find("FVolumetricFogParams")
+                    == std::string::npos);
+    }
+    EXPECT_TRUE(source.find(
+        "shader.SetFog(m_Fog.Color, m_Fog.Density")
+        != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "m_Clouds.Composite(\n"
+        "        command_list, scene_depth, width, height,\n"
+        "        aerial_volume, aerial_transmittance,")
+        != std::string::npos);
+}
+
 ACS_TEST(LegacyScene3DWaterRuntime, TransformedPlaneUsesExactWorldHit) {
     ALegacyScene3DAdapter runtime;
     FScene3DSpawnResult surface =

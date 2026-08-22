@@ -61489,6 +61489,27 @@ public:
     const FAtmosphereParams& Atmosphere() const noexcept { return m_AtmosphereParams; }
 
     /**
+     * 深度に応じた物理大気の空気遠近を有効にする。
+     *
+     * @details 既定は false で、従来の描画結果と計算負荷を維持する。有効時は不透明物と
+     * 水面を camera からの距離に応じて大気へ馴染ませる。`Fog()` は別の表現として従来どおり
+     * PBR surface fog にだけ適用し、空気遠近の体積へ重ねて積分しない。
+     * @param enabled true なら次の描画から物理大気の空気遠近を使う。
+     */
+    void SetAerialPerspectiveEnabled(bool enabled) noexcept {
+        m_AerialPerspectiveEnabled = enabled;
+    }
+
+    /**
+     * 物理大気の空気遠近を要求しているか返す。
+     *
+     * @return `SetAerialPerspectiveEnabled(true)` が設定されていれば true。
+     */
+    bool AerialPerspectiveEnabled() const noexcept {
+        return m_AerialPerspectiveEnabled;
+    }
+
+    /**
      * 距離で霞ませる霧の設定。
      *
      * @details
@@ -62143,9 +62164,16 @@ private:
      * @param scene_depth 完成したシーンの深度 (手前の物で雲を隠すのに使う)。
      * @param width 画面の幅。
      * @param height 画面の高さ。
+     * @param aerial_volume 空気遠近の散乱体積。nullptrなら従来の雲合成へ戻る。
+     * @param aerial_transmittance 空気遠近の透過率体積。nullptrなら従来の雲合成へ戻る。
+     * @param aerial_max_distance 体積を生成した最大距離 (Legacy 3D world単位のメートル)。
      */
-    void CompositeClouds(IRhiCommandList& command_list, IRhiTexture& target,
-                         IRhiTexture& scene_depth, u32 width, u32 height) noexcept;
+    void CompositeClouds(
+        IRhiCommandList& command_list, IRhiTexture& target,
+        IRhiTexture& scene_depth, u32 width, u32 height,
+        IRhiTexture* aerial_volume,
+        IRhiTexture* aerial_transmittance,
+        f32 aerial_max_distance) noexcept;
 
     void RenderSky(IRhiDevice& device, IRhiCommandList& command_list,
                    EFormat color_format, EFormat depth_format) noexcept;
@@ -62336,6 +62364,9 @@ private:
 
     /** 大気の初期化を一度試したか (失敗しても毎フレーム試さない)。 */
     bool m_AtmosphereTried = false;
+
+    /** 既存alignment padding内で保持する、物理大気の空気遠近要求。 */
+    bool m_AerialPerspectiveEnabled = false;
 
     /** 空を映した環境光 (irradiance / prefilter / BRDF LUT)。 */
     CImageBasedLighting m_Ibl;
