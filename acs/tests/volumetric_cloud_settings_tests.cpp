@@ -113,6 +113,16 @@ ACS_TEST(VolumetricCloudSettings, LightingRejectsNonFiniteAndUnsafeCoefficients)
     EXPECT_NEAR(lighting.GroundColor.z, 16384.0f, 0.0f);
 }
 
+ACS_TEST(VolumetricCloudSettings, DefaultLightingKeepsWaterDropletScatteringNearConservative)
+{
+    /** 水滴雲として使う既定照明。 */
+    const FVolumetricCloudLighting lighting{};
+    // 区間不透明度が消散を含むため、散乱割合を小さくすると雲が灰色の吸収体になる。
+    EXPECT_TRUE(lighting.SunScatter >= 0.90f);
+    EXPECT_TRUE(lighting.SunScatter <= 1.0f);
+    EXPECT_NEAR(lighting.ViewExtinction, lighting.LightExtinction, 0.0f);
+}
+
 ACS_TEST(VolumetricCloudSettings, MultipleScatteringAccumulatesThroughThirdOrderAndPreservesEnergyBound)
 {
     /** 消散より大きい高次散乱係数を含む入力。 */

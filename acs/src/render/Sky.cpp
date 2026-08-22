@@ -2207,9 +2207,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float multipleScatter=(secondScatter+thirdScatter)
                                  *inScatterFactor;
             float scatterTerm=singleScatter+multipleScatter;
-            // sunCol is the scene's direct-light radiance. Clouds scatter only
-            // a calibrated fraction of it; using the full value here made the
-            // forward lobe clip into a featureless white sheet.
+            // 区間不透明度 a は既に消散係数を含むため、太陽光には消散に対する散乱の割合を掛ける。
+            // ここを見た目調整用に暗くすると、水滴雲が光を吸収する灰色の媒質になってしまう。
+            // 太陽付近の強い前方散乱は位相上限と後段の露出で制御する。
             // 太陽光は雲へ届く前に大気を通る。低い太陽ほど青が削られて赤くなる。
             float3 sunAtCloud=sunCol.rgb*cloudSunTransmittance.rgb;
             float3 sunL=sunAtCloud*cloudLightingExtinction.z*scatterTerm;
