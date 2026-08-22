@@ -26,6 +26,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 namespace acs::game {
 
@@ -39,6 +40,10 @@ constexpr FVec3 kDefaultSunColor{1.55f, 1.48f, 1.36f};
 constexpr FVec3 kDefaultSkySunColor{1.0f, 0.95f, 0.85f};
 constexpr FVec3 kDefaultWaterSunColor{4.8f, 4.35f, 3.9f};
 constexpr FVec3 kDefaultAmbient{0.055f, 0.075f, 0.11f};
+
+// runtime生成nodeの-1と区別する、明示orbit camera専用の予約値。
+constexpr i32 kExplicitOrbitCameraNodeId =
+    std::numeric_limits<i32>::min();
 
 // 水面は同じ太陽をより強く受ける。シーンの光を使うときはこの倍率を掛ける
 // (既定値どうしの比がおよそこの値)。
@@ -479,7 +484,8 @@ void ALegacyScene3DAdapter::AdoptLoadedCamera() noexcept {
 }
 
 bool ALegacyScene3DAdapter::HasExplicitOrbitCameraOverride_Internal() const noexcept {
-    return m_HasExplicitCameraOverride && m_ActiveCameraNodeId < 0;
+    return m_HasExplicitCameraOverride
+        && m_ActiveCameraNodeId == kExplicitOrbitCameraNodeId;
 }
 
 void ALegacyScene3DAdapter::ResetOrbitCameraPresentation_Internal() noexcept {
@@ -493,9 +499,12 @@ bool ALegacyScene3DAdapter::RefreshAuthoredCameraPose() noexcept {
         m_UseAuthoredCamera = false;
         return false;
     }
-    if (m_HasExplicitCameraOverride && m_ActiveCameraNodeId >= 0) {
+    if (m_HasExplicitCameraOverride) {
         const ANode* node =
-            Graph().Root().FindBySerialId(m_ActiveCameraNodeId);
+            m_ActiveCameraNodeId >= 0
+                ? Graph().Root().FindBySerialId(m_ActiveCameraNodeId)
+                : FindCameraByStableIdRecursive(
+                    Graph().Root(), m_AuthoredCamera.StableId);
         const ACameraComponent3D* component =
             node != nullptr ? FindCamera(*node) : nullptr;
         FScene3DCameraState live;
@@ -546,7 +555,7 @@ void ALegacyScene3DAdapter::SetOrbitCameraActive(bool active) noexcept {
     if (HasExplicitOrbitCameraOverride_Internal()) return;
 
     m_HasExplicitCameraOverride = true;
-    m_ActiveCameraNodeId = -1;
+    m_ActiveCameraNodeId = kExplicitOrbitCameraNodeId;
     m_UseAuthoredCamera = false;
     m_AuthoredCamera = FScene3DCameraState{};
     m_Projection = ESceneProjectionMode::Perspective;
@@ -559,7 +568,8 @@ bool ALegacyScene3DAdapter::OrbitCameraOverrideActive() const noexcept {
 }
 
 bool ALegacyScene3DAdapter::AuthoredCameraOverrideActive() const noexcept {
-    return m_HasExplicitCameraOverride && m_ActiveCameraNodeId >= 0;
+    return m_HasExplicitCameraOverride
+        && m_ActiveCameraNodeId != kExplicitOrbitCameraNodeId;
 }
 
 u32 ALegacyScene3DAdapter::CameraCount() const noexcept {

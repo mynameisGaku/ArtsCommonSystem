@@ -648,7 +648,8 @@ public:
     /**
      * authored cameraをstable idまたはnode idで明示選択しているならtrueを返す。
      *
-     * @details trueの場合はAuthoredCamera()->NodeIdを保存し、SetActiveCamera(NodeId)で復元できる。
+     * @details serialized cameraはAuthoredCamera()->NodeId、NodeIdが負のruntime cameraは
+     * AuthoredCamera()->StableIdを保存し、対応するSetActiveCamera overloadで復元できる。
      * @return SetActiveCamera成功による明示overrideが有効ならtrue。
      */
     bool AuthoredCameraOverrideActive() const noexcept;

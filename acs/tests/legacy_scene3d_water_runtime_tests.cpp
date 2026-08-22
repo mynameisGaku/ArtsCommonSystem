@@ -108,7 +108,10 @@ ACS_TEST(LegacyScene3DCameraContract,
          SelectionAccessorsRemainNonVirtualAndLayoutStable) {
     const std::string header = ReadLegacyCameraWorkspaceSource(
         "src/gameframework/LegacyScene3DAdapter.h");
+    const std::string source = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.cpp");
     EXPECT_FALSE(header.empty());
+    EXPECT_FALSE(source.empty());
     EXPECT_TRUE(IsNonVirtualDeclarationLine(
         header, "void SetOrbitCameraActive(bool active) noexcept;"));
     EXPECT_TRUE(IsNonVirtualDeclarationLine(
@@ -117,6 +120,18 @@ ACS_TEST(LegacyScene3DCameraContract,
         header, "bool OrbitCameraOverrideActive() const noexcept;"));
     EXPECT_TRUE(IsNonVirtualDeclarationLine(
         header, "bool AuthoredCameraOverrideActive() const noexcept;"));
+    EXPECT_TRUE(source.find(
+        "constexpr i32 kExplicitOrbitCameraNodeId =")
+        != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "m_ActiveCameraNodeId == kExplicitOrbitCameraNodeId")
+        != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "m_ActiveCameraNodeId != kExplicitOrbitCameraNodeId")
+        != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "m_ActiveCameraNodeId = kExplicitOrbitCameraNodeId;")
+        != std::string::npos);
 #if defined(_WIN64)
     EXPECT_EQ(
         sizeof(ALegacyScene3DAdapter),
@@ -484,6 +499,57 @@ ACS_TEST(LegacyScene3DCameraRuntime,
     EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
     EXPECT_TRUE(runtime.AuthoredCamera() != nullptr);
     EXPECT_EQ(runtime.AuthoredCamera()->NodeId, spawned.Node->SerialId());
+}
+
+ACS_TEST(LegacyScene3DCameraRuntime,
+         RuntimeStableIdOverrideDoesNotCollideWithExplicitOrbit) {
+    CCameraSelectionTestScene runtime;
+    runtime.SetFreeCameraEnabled(false);
+    FScene3DSpawnResult spawned =
+        runtime.Graph().TrySpawn(FStringView("RuntimeCamera"));
+    EXPECT_TRUE(spawned.Succeeded());
+    if (!spawned) return;
+    auto& camera = spawned.Node->AddComponent<ACameraComponent3D>();
+    FScene3DCameraState authored;
+    authored.IsAuthored = true;
+    authored.IsActivePreferred = true;
+    authored.Priority = 10;
+    std::memcpy(authored.StableId, "runtime.stable", 15u);
+    EXPECT_TRUE(camera.TrySetAuthoredState(authored));
+    EXPECT_EQ(spawned.Node->SerialId(), -1);
+
+    EXPECT_TRUE(runtime.SetActiveCamera("runtime.stable"));
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() != nullptr);
+    EXPECT_EQ(runtime.AuthoredCamera()->NodeId, -1);
+
+    runtime.UpdateForTest(1.0f / 60.0f);
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_EQ(runtime.AuthoredCamera()->NodeId, -1);
+    EXPECT_FALSE(runtime.SetActiveCamera("missing.runtime"));
+    EXPECT_FALSE(runtime.SetActiveCamera(nullptr));
+    EXPECT_FALSE(runtime.SetActiveCamera(""));
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(std::strcmp(
+        runtime.AuthoredCamera()->StableId, "runtime.stable") == 0);
+
+    runtime.SetOrbitCameraActive(true);
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.SetActiveCamera("runtime.stable"));
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCameraOverrideActive());
+
+    EXPECT_TRUE(runtime.ClearActiveCameraOverride());
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
 }
 
 ACS_TEST(LegacyScene3DCameraRuntime,

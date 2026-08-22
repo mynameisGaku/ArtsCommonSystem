@@ -346,7 +346,9 @@ presentation距離だけを短縮する。外向き復帰速度は0なら従来�
 明示選択と自動代替を区別せず、現在実際にorbit cameraを描画へ使っているかを返す。
 `OrbitCameraOverrideActive()`は明示選択だけを返すため、接続前の自動選択modeを厳密に復元できる。
 接続前が`SetActiveCamera`による明示authored選択だった場合は`AuthoredCameraOverrideActive()`と
-`AuthoredCamera()->NodeId`を保存し、接続解除時に`SetActiveCamera(NodeId)`で同じ選択へ戻せる。
+`AuthoredCamera()`のidentityを保存する。serialized cameraは`NodeId`、`NodeId == -1`のruntime生成
+cameraは`StableId`を対応する`SetActiveCamera` overloadへ渡すと、接続解除時に同じ選択へ戻せる。
+明示orbitは`i32`最小値の内部予約値で区別するため、runtime cameraの`NodeId == -1`と衝突しない。
 
 ### scene 遷移
 
