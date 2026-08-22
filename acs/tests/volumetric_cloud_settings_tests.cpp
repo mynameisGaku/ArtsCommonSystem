@@ -286,6 +286,41 @@ ACS_TEST(VolumetricCloudSettings, RangeBoundsDistanceFadeGrowthAndWork)
     EXPECT_EQ(second.ViewSteps, kVolumetricCloudMaxViewMarchSamples);
 }
 
+ACS_TEST(VolumetricCloudSettings, InteriorViewDistanceIsLocalAndContinuousAcrossLayerBoundaries)
+{
+    /** 通常の積雲層と層外で使う遠景距離。 */
+    constexpr f32 baseHeight = 2600.0f;
+    constexpr f32 topHeight = 5200.0f;
+    constexpr f32 maximumDistance = 250000.0f;
+    /** 層厚の4倍から求まる中央部の局所視程。 */
+    constexpr f32 interiorDistance = 10400.0f;
+
+    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(baseHeight - 1.0f, baseHeight, topHeight, maximumDistance), maximumDistance, 0.0f);
+    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(baseHeight, baseHeight, topHeight, maximumDistance), maximumDistance, 0.0f);
+    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(3900.0f, baseHeight, topHeight, maximumDistance), interiorDistance, 0.01f);
+    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(topHeight, baseHeight, topHeight, maximumDistance), maximumDistance, 0.0f);
+    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(topHeight + 1.0f, baseHeight, topHeight, maximumDistance), maximumDistance, 0.0f);
+
+    /** 境界遷移の中央では逆距離が正確に半分ずつ混ざる。 */
+    const f32 transitionMidpoint = baseHeight + (topHeight - baseHeight) * kVolumetricCloudInteriorTransitionFraction * 0.5f;
+    const f32 expectedMidpoint = 1.0f / (0.5f / maximumDistance + 0.5f / interiorDistance);
+    const f32 entering = EvaluateVolumetricCloudInteriorViewDistance(transitionMidpoint, baseHeight, topHeight, maximumDistance);
+    const f32 leaving = EvaluateVolumetricCloudInteriorViewDistance(topHeight - (transitionMidpoint - baseHeight), baseHeight, topHeight, maximumDistance);
+    EXPECT_NEAR(entering, expectedMidpoint, 0.01f);
+    EXPECT_NEAR(leaving, entering, 0.01f);
+    EXPECT_TRUE(entering > interiorDistance);
+    EXPECT_TRUE(entering < maximumDistance);
+
+    /** 薄い層と厚い層は公開した8～35 kmの範囲へ収まる。 */
+    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(500.0f, 0.0f, 1000.0f, maximumDistance), kVolumetricCloudInteriorMinDistance, 0.01f);
+    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(5000.0f, 0.0f, 10000.0f, maximumDistance), kVolumetricCloudInteriorMaxDistance, 0.01f);
+    /** 利用側が局所視程より短く指定した場合は、その指定を広げない。 */
+    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(3900.0f, baseHeight, topHeight, 6000.0f), 6000.0f, 0.0f);
+    /** 不正な高度または層は正規化した遠景距離へ戻る。 */
+    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(std::numeric_limits<f32>::quiet_NaN(), baseHeight, topHeight, maximumDistance), maximumDistance, 0.0f);
+    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(3900.0f, topHeight, baseHeight, maximumDistance), maximumDistance, 0.0f);
+}
+
 ACS_TEST(VolumetricCloudSettings, UpperLayerCannotIntersectLowerDensityBand)
 {
     /** 上下逆転と小さすぎるノイズ尺度を含む下層入力。 */
@@ -442,6 +477,8 @@ ACS_TEST(VolumetricCloudSettings,
     EXPECT_TRUE(Contains(signature, "m_Lighting.SunTransmittance.x"));
     EXPECT_TRUE(Contains(signature, "m_Lighting.SkyZenithColor.x"));
     EXPECT_TRUE(Contains(signature, "HashCloudEnvironmentQuantizedFloat("));
+    EXPECT_TRUE(Contains(signature, "ResolveVolumetricCloudViewDistance_Internal("));
+    EXPECT_TRUE(Contains(signature, "kCloudEnvironmentViewDistanceSignatureStep"));
 
     const std::string environment = SliceBetween(
         sky_source,

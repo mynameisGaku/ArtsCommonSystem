@@ -59286,7 +59286,7 @@ struct FVolumetricCloudRange {
      * 1 本のレイに使う刻みの上限。
      *
      * @details
-     * 0 なら既定 (通常 192 / 参照 512)。**「重い」ときにいちばん効く摘み。**
+     * 0 なら既定 (通常 384 / 参照 512)。**「重い」ときにいちばん効く摘み。**
      * 下げると厚い雲の内部が粗くなり、縞が出る。
      */
     u32 ViewSteps = 0u;
@@ -59498,6 +59498,18 @@ inline constexpr f32 kVolumetricCloudMaxDistance = 250000.0f;
 /** 設定可能な最短描画距離。これ未満では距離フェードとレイ刻みが不安定になる。 */
 inline constexpr f32 kVolumetricCloudMinDistance = 1000.0f;
 
+/** 雲層内で局所的な雲塊を追う距離を層厚から求める倍率。 */
+inline constexpr f32 kVolumetricCloudInteriorDistanceScale = 4.0f;
+
+/** 薄い雲層でも距離フェードが近景へ見えないように保つ最短の層内視程。 */
+inline constexpr f32 kVolumetricCloudInteriorMinDistance = 8000.0f;
+
+/** 雲層内の水平レイが遠距離の平均色へ収束しないようにする最長の層内視程。 */
+inline constexpr f32 kVolumetricCloudInteriorMaxDistance = 35000.0f;
+
+/** 雲層へ進入または退出するときに層内視程へ移行する、層厚に対する割合。 */
+inline constexpr f32 kVolumetricCloudInteriorTransitionFraction = 0.12f;
+
 /** 雲層として保持する最小厚さ。逆数を GPU へ渡しても有限になる値。 */
 inline constexpr f32 kVolumetricCloudMinLayerThickness = 0.25f;
 
@@ -59584,6 +59596,21 @@ FVolumetricCloudRange SanitizeVolumetricCloudRange(const FVolumetricCloudRange& 
  * @return 有限な 0～1 の密度係数。不正な標本距離は見えない値へ戻す。
  */
 f32 EvaluateVolumetricCloudDistanceFade(f32 sample_distance, f32 max_distance, f32 fade_fraction) noexcept;
+
+/**
+ * カメラ高度に応じて、一つの雲層内で使う局所的な最大描画距離を求める。
+ *
+ * @details 層外では指定距離をそのまま返す。層内では層厚の4倍を8～35 kmへ収め、層境界の
+ * 12%区間で逆距離を補間する。遠距離の平均色へ急に切り替わらず、進入・内部・退出を
+ * 連続して描ける。
+ *
+ * @param camera_altitude 曲面惑星面から測ったカメラ高度。
+ * @param layer_base_height 対象層の底の高度。
+ * @param layer_top_height 対象層の上端高度。
+ * @param maximum_distance 層外で使う最大描画距離。
+ * @return 有限な最大描画距離。層が不正な場合は正規化した指定距離を返す。
+ */
+f32 EvaluateVolumetricCloudInteriorViewDistance(f32 camera_altitude, f32 layer_base_height, f32 layer_top_height, f32 maximum_distance) noexcept;
 
 /** 上層設定を下層と交差しない有限値へ直す。成立しない層は無効化する。 */
 FVolumetricCloudUpperLayer SanitizeVolumetricCloudUpperLayer(const FVolumetricCloudUpperLayer& requested,
@@ -60179,9 +60206,9 @@ public:
      * 環境光へ焼く雲設定の決定論的な署名を返す。
      *
      * @details 形状、照明、固定方向の太陽放射輝度、空色、大気透過率、被覆、密度、
-     * 風速を含むが、連続する時刻は含めない。連続補間値は見た目に届く単位へ量子化し、
-     * 雲の移流や微小差だけで高価なIBLを毎frame作り直さない。同じ正規化・量子化済み
-     * 入力なら同じ値を返す。
+     * 風速を含むが、連続する時刻は含めない。連続補間値と直前に描画したカメラ高度の
+     * 層内視程は見た目に届く単位へ量子化し、微小差だけで高価なIBLを毎frame作り直さない。
+     * 同じ正規化・量子化済み入力なら同じ値を返す。
      * @param coverage 空を覆う割合。
      * @param density 雲の濃さ。
      * @param wind 風速。

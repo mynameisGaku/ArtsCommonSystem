@@ -910,7 +910,7 @@ cbuffer CloudCB : register(b0) {
     float4 cloudSkyZenith;
     // x=多重散乱に使う位相の鋭さ (0 で等方)
     float4 cloudMultiPhase;
-    // x=最大距離, y=薄め始める距離, z=遠いレイの刻みを広げる度合い
+    // x=層外の最大距離, y=層外で薄め始める距離, z=遠いレイの刻み拡大, w=現在高度の最大距離
     float4 cloudRange;
     // x=上層の底, y=上層の天井, z=1/(天井-底), w=1 なら上層あり
     float4 cloudUpperLayer;
@@ -2200,7 +2200,11 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     }
     // どこまで追うか。遠い雲は 1 画素に何 km も入るので積分が成立せず、描くほど
     // «ちらつく細かいゴミ» になる。打ち切りの手前で薄くして、境界の «壁» を出さない。
-    float MAX_DISTANCE=cloudRange.x;
+    // カメラが雲層内にあるときは、CPUで層境界から連続補間した局所視程を使う。
+    // 地上と上空では w==x のため従来の遠景距離を保つ。
+    float MAX_DISTANCE=min(cloudRange.x,max(cloudRange.w,1.0));
+    float fadeStartRatio=saturate(cloudRange.y/max(cloudRange.x,1.0));
+    float fadeStart=MAX_DISTANCE*fadeStartRatio;
     t1=min(t1,MAX_DISTANCE);
     // 曲面雲層には有限な地平線区間がある。距離減衰はこの入口だけでレイ全体を
     // 棄却せず、後続の各密度標本へ適用する。
@@ -2305,7 +2309,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         float billowVisibility=cloudBillowVisibilityFromSampleSpacing(fineStep);
         float erosionVisibility=cloudErosionVisibilityFromSampleSpacing(fineStep);
         float viewWeatherMask=macro.densityWeatherMask;
-        float distanceFade=cloudDistanceFade(sampleT,cloudRange.y,MAX_DISTANCE);
+        float distanceFade=cloudDistanceFade(sampleT,fadeStart,MAX_DISTANCE);
         float dens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,billowVisibility,erosionVisibility)*density*distanceFade;
         if(dens>0.0015){
             bool sampleUpperBand=macro.upperBand>0.5;
@@ -3248,6 +3252,8 @@ constexpr f32 kCloudEnvironmentCoverageSignatureStep = 1.0f / 32.0f;
 constexpr f32 kCloudEnvironmentDensitySignatureStep = 1.0f / 16.0f;
 constexpr f32 kCloudEnvironmentWindSignatureStep = 1.0f / 8.0f;
 constexpr f32 kCloudEnvironmentRadianceSignatureStep = 1.0f / 64.0f;
+// 雲層へ進入または退出したときだけ環境光を更新し、微小な上下動では再生成しない。
+constexpr f32 kCloudEnvironmentViewDistanceSignatureStep = 250.0f;
 
 struct FCloudEnvironmentCompositeCb {
     i32 face_index = 0;
@@ -3390,6 +3396,35 @@ u32 HashCloudEnvironmentQuantizedFloat(u32 hash, f32 value, f32 step) noexcept {
 bool IsFiniteCloudVector(FVec3 value) noexcept {
     return std::isfinite(value.x) && std::isfinite(value.y) &&
            std::isfinite(value.z);
+}
+
+/** 曲面惑星の局所原点から測った位置を、GPUと同じ近似式で高度へ変換する。 */
+f32 CloudAltitudeFromLocalPosition(FVec3 local_position) noexcept
+{
+    if (!IsFiniteCloudVector(local_position)) return 0.0f;
+    const f32 unboundedRadialY =
+        kVolumetricCloudPlanetRadius + local_position.y;
+    const f32 radialY = unboundedRadialY > 1.0f ? unboundedRadialY : 1.0f;
+    const f32 radialXzSquared =
+        local_position.x * local_position.x +
+        local_position.z * local_position.z;
+    const f32 q = radialXzSquared / radialY;
+    return local_position.y + q * (0.5f - q / (8.0f * radialY));
+}
+
+/** 下層と上層をまとめて、現在高度で使う最短の雲描画距離を求める。 */
+f32 ResolveVolumetricCloudViewDistance_Internal(FVec3 shell_local_origin, const FVolumetricCloudLayer& lower_layer, const FVolumetricCloudUpperLayer& upper_layer, bool has_upper_layer, f32 maximum_distance) noexcept
+{
+    const f32 camera_altitude =
+        CloudAltitudeFromLocalPosition(shell_local_origin);
+    f32 current_view_distance = EvaluateVolumetricCloudInteriorViewDistance(camera_altitude, lower_layer.base_height, lower_layer.top_height, maximum_distance);
+    if (has_upper_layer) {
+        const f32 upper_view_distance = EvaluateVolumetricCloudInteriorViewDistance(camera_altitude, upper_layer.base_height, upper_layer.top_height, maximum_distance);
+        if (upper_view_distance < current_view_distance) {
+            current_view_distance = upper_view_distance;
+        }
+    }
+    return current_view_distance;
 }
 
 bool IsFiniteCloudMatrix(const FMat4& value) noexcept {
@@ -3659,6 +3694,37 @@ f32 EvaluateVolumetricCloudDistanceFade(f32 sample_distance, f32 max_distance, f
     if (blend >= 1.0f) return 0.0f;
     blend = blend * blend * (3.0f - 2.0f * blend);
     return 1.0f - blend;
+}
+
+f32 EvaluateVolumetricCloudInteriorViewDistance(f32 camera_altitude, f32 layer_base_height, f32 layer_top_height, f32 maximum_distance) noexcept
+{
+    const FVolumetricCloudRange defaults{};
+    const f32 maximum = SanitizeCloudScalar(maximum_distance, defaults.MaxDistance, kVolumetricCloudMinDistance, kVolumetricCloudMaxDistance);
+    if (!(camera_altitude >= -kVolumetricCloudMaxDistance && camera_altitude <= kVolumetricCloudMaxDistance) || !(layer_base_height >= -kVolumetricCloudMaxDistance && layer_base_height <= kVolumetricCloudMaxDistance) || !(layer_top_height >= -kVolumetricCloudMaxDistance && layer_top_height <= kVolumetricCloudMaxDistance)) {
+        return maximum;
+    }
+    const f32 thickness = layer_top_height - layer_base_height;
+    if (thickness < kVolumetricCloudMinLayerThickness || camera_altitude <= layer_base_height || camera_altitude >= layer_top_height) {
+        return maximum;
+    }
+
+    const f32 normalizedHeight = (camera_altitude - layer_base_height) / thickness;
+    f32 lowerTransition = Clamp(normalizedHeight / kVolumetricCloudInteriorTransitionFraction, 0.0f, 1.0f);
+    lowerTransition = lowerTransition * lowerTransition *
+        (3.0f - 2.0f * lowerTransition);
+    f32 upperTransition = Clamp((1.0f - normalizedHeight) / kVolumetricCloudInteriorTransitionFraction, 0.0f, 1.0f);
+    upperTransition = upperTransition * upperTransition *
+        (3.0f - 2.0f * upperTransition);
+    const f32 interiorWeight = lowerTransition * upperTransition;
+    f32 interiorDistance = Clamp(thickness * kVolumetricCloudInteriorDistanceScale, kVolumetricCloudInteriorMinDistance, kVolumetricCloudInteriorMaxDistance);
+    if (interiorDistance > maximum) interiorDistance = maximum;
+    if (interiorWeight <= 0.0f || interiorDistance >= maximum) return maximum;
+
+    // 視程の逆数は媒質の減衰率として加算できる。距離を直接補間するよりも、層境界で
+    // 遠景の不透明化が急に残らず、進入と退出で対称な変化になる。
+    const f32 inverseMaximum = 1.0f / maximum;
+    const f32 inverseInterior = 1.0f / interiorDistance;
+    return 1.0f / (inverseMaximum + (inverseInterior - inverseMaximum) * interiorWeight);
 }
 
 FVolumetricCloudUpperLayer SanitizeVolumetricCloudUpperLayer(const FVolumetricCloudUpperLayer& requested,
@@ -3955,16 +4021,8 @@ FVolumetricCloudGroundHorizon ResolveVolumetricCloudGroundHorizon(
     }
     out.local_up = NormalizeSafe(fromPlanetCenter);
 
-    const f32 unboundedRadialY =
-        kVolumetricCloudPlanetRadius + cameraLocal.y;
-    const f32 radialY =
-        unboundedRadialY > 1.0f ? unboundedRadialY : 1.0f;
-    const f32 radialXz2 =
-        cameraLocal.x * cameraLocal.x +
-        cameraLocal.z * cameraLocal.z;
-    const f32 q = radialXz2 / radialY;
     const f32 cameraAltitude =
-        cameraLocal.y + q * (0.5f - q / (8.0f * radialY));
+        CloudAltitudeFromLocalPosition(cameraLocal);
     if (!std::isfinite(cameraAltitude) ||
         cameraAltitude >= layer.base_height) {
         return out;
@@ -5145,6 +5203,16 @@ u32 CVolumetricClouds::EnvironmentLightingSignature(
     add_float(m_UpperLayer.top_height);
     add_float(m_UpperLayer.coverage_scale);
     add_float(m_UpperLayer.density_scale);
+    // 環境cubemapも現在高度の局所視程を使う。層外で焼いたIBLを雲中へ
+    // 持ち越さないよう、進入と退出による見える距離の変化を署名へ含める。
+    const bool has_upper_layer =
+        m_UpperLayer.top_height > m_UpperLayer.base_height &&
+        m_UpperLayer.base_height >= m_Layer.top_height;
+    const FVec3 world_origin =
+        RebaseVolumetricCloudWorldOrigin(m_PrevCamPos);
+    const FVec3 shell_local_origin{m_PrevCamPos.x - world_origin.x, m_PrevCamPos.y - world_origin.y, m_PrevCamPos.z - world_origin.z};
+    const f32 current_view_distance = ResolveVolumetricCloudViewDistance_Internal(shell_local_origin, m_Layer, m_UpperLayer, has_upper_layer, m_Range.MaxDistance);
+    hash = HashCloudEnvironmentQuantizedFloat(hash, current_view_distance, kCloudEnvironmentViewDistanceSignatureStep);
     return hash != 0u ? hash : 1u;
 }
 
@@ -5601,11 +5669,12 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     // setter で正規化済みの距離を CPU 側の保持値と同じまま GPU へ渡す。
     const f32 maxDistance = m_Range.MaxDistance;
     const f32 fadeFraction = m_Range.FadeFraction;
+    const f32 currentViewDistance = ResolveVolumetricCloudViewDistance_Internal(shellLocalOrigin, m_Layer, m_UpperLayer, hasUpperLayer, maxDistance);
     cb.cloudRange = FVec4{
         maxDistance,
         maxDistance * (1.0f - fadeFraction),
         m_Range.StepGrowth,
-        0.0f};
+        currentViewDistance};
     m_Cb->Update(&cb, sizeof(cb));
     // 初回に Perlin-Worley shape noise (128^3) を焼く (1 回のみ、以降 SRV で sample)。
     if (bakeShapeNoiseThisFrame) {
@@ -6073,11 +6142,12 @@ CVolumetricClouds::BuildEnvironmentCubemap(
     cb.cloudMultiPhase = FVec4{
         m_Lighting.MultiScatterEccentricity,
         0.0f, 0.0f, 0.0f};
+    const f32 current_view_distance = ResolveVolumetricCloudViewDistance_Internal(shell_local_origin, m_Layer, m_UpperLayer, has_upper_layer, m_Range.MaxDistance);
     cb.cloudRange = FVec4{
         m_Range.MaxDistance,
         m_Range.MaxDistance * (1.0f - m_Range.FadeFraction),
         m_Range.StepGrowth,
-        0.0f};
+        current_view_distance};
 
     FViewport viewport{};
     viewport.width =

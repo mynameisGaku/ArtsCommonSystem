@@ -1315,7 +1315,9 @@ ACS_TEST(VolumetricClouds,
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
-    EXPECT_TRUE(Contains(shader, "floatdistanceFade=cloudDistanceFade(sampleT,cloudRange.y,MAX_DISTANCE);"));
+    EXPECT_TRUE(Contains(shader, "floatMAX_DISTANCE=min(cloudRange.x,max(cloudRange.w,1.0));"));
+    EXPECT_TRUE(Contains(shader, "floatfadeStart=MAX_DISTANCE*fadeStartRatio;"));
+    EXPECT_TRUE(Contains(shader, "floatdistanceFade=cloudDistanceFade(sampleT,fadeStart,MAX_DISTANCE);"));
     EXPECT_TRUE(Contains(shader, "*density*distanceFade;"));
     EXPECT_TRUE(Contains(
         shader,
@@ -1851,8 +1853,7 @@ ACS_TEST(VolumetricClouds,
     // 雑音と天候の採取では、カメラ位置をもう一度引かずにこの座標を直接使う。
     EXPECT_TRUE(Contains(
         shader, "float3 p=camPos.xyz+dir*sampleT;"));
-    EXPECT_TRUE(Contains(
-        shader, "float MAX_DISTANCE=cloudRange.x;"));
+    EXPECT_TRUE(Contains(shader, "float MAX_DISTANCE=min(cloudRange.x,max(cloudRange.w,1.0));"));
     EXPECT_TRUE(Contains(
         shader, "float3 local=p-worldOrigin.xyz;"));
     EXPECT_TRUE(Contains(
