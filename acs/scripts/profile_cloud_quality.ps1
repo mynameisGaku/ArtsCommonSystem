@@ -1,48 +1,45 @@
 # SPDX-License-Identifier: Apache-2.0
 <#
 .SYNOPSIS
-Profiles the ACS volumetric-cloud fixture at the horizon and zenith.
+ACS の体積雲 fixture を地平線、天頂、上空の 3 視点で計測する。
 
 .DESCRIPTION
-Runs two unattended editor captures with identical quality settings and
-different deterministic cameras. Each profiler report is validated
-fail-closed for real 3D/cloud work, GPU timing availability, exact cloud
-quality, temporal-history reuse, and editor scheduler diagnostics.
+同一の品質設定と決定論的な 3 台のカメラで、Editor の無人計測を直列実行する。
+各 profiler report は、実際の 3D／雲描画、GPU 時間、正確な雲品質、時間履歴の再利用、
+Editor scheduler 診断が揃わない限り失敗する。
 
-The default 300 FPS target is reported independently from the quality gate.
-A target miss changes the process exit code only when -RequireTargetFps is
-specified.
+既定の 300 FPS 目標は品質 gate と分けて報告する。目標未達を終了 code へ反映するのは
+-RequireTargetFps を指定した場合だけである。
 
-Every generated file stays below the current process TEMP directory. Existing
-scenario reports, captures, logs, and summaries are never overwritten.
+生成物は現在の process の TEMP 配下だけへ置く。既存の report、capture、log、summary は
+上書きしない。
 
 .PARAMETER EditorExe
-Path to AcsEditor.exe.
+AcsEditor.exe の path。
 
 .PARAMETER Project
-Path to the 3D .acsproject fixture.
+3D .acsproject fixture の path。
 
 .PARAMETER OutputDirectory
-Unique run directory below TEMP. A unique directory is chosen when omitted.
+TEMP 配下の実行専用 directory。省略時は重複しない directory を選ぶ。
 
 .PARAMETER SoakSeconds
-Duration of each horizon and zenith capture.
+地平線、天頂、上空の各取得時間。
 
 .PARAMETER Monitor
-secondary uses --secondary-monitor, primary uses --monitor 0, and none leaves
-monitor placement unspecified.
+secondary は --secondary-monitor、primary は --monitor 0 を使う。none は画面配置を指定しない。
 
 .PARAMETER MonitorIndex
-Explicit --monitor index. A non-negative value overrides -Monitor.
+明示する --monitor index。0 以上なら -Monitor より優先する。
 
 .PARAMETER RequireTargetFps
-Makes either scenario missing -TargetFps a failing threshold gate.
+いずれかの視点が -TargetFps 未満なら、しきい値 gate を失敗させる。
 
 .PARAMETER SelfTest
-Runs pure synthetic-report parser and validation boundary tests.
+合成 report の parser と検証境界だけを自己試験する。
 
 .PARAMETER DryRun
-Validates inputs and prints both editor commands without creating output.
+出力を作らずに入力を検証し、3 本の Editor command を表示する。
 #>
 [CmdletBinding()]
 param(
@@ -86,7 +83,7 @@ $script:ExpectedWorldShadowLogicalInvocations = 128 * 128
 $script:ExpectedWorldShadowLaunchedThreads = 128 * 128
 $script:ExpectedWorldShadowSamples = 128 * 128 * 32
 $script:ExpectedCompositeDraws = 1
-$script:SummarySchemaVersion = 4
+$script:SummarySchemaVersion = 5
 $script:ExpectedEditorArtifactRoles = @(
     "ManagedAssembly",
     "NativeRenderer",
@@ -1763,11 +1760,14 @@ function Test-CloudQualityReport {
 function Compare-CloudQuality {
     param(
         [AllowNull()][object]$Horizon,
-        [AllowNull()][object]$Zenith
+        [AllowNull()][object]$Zenith,
+        [AllowNull()][object]$Above
     )
 
     $mismatches = New-Object "System.Collections.Generic.List[string]"
-    if ($null -eq $Horizon -or $null -eq $Zenith) {
+    if ($null -eq $Horizon -or
+        $null -eq $Zenith -or
+        $null -eq $Above) {
         Add-CloudFault `
             -Faults $mismatches `
             -Code "QUALITY_SNAPSHOT_MISSING"
@@ -1777,45 +1777,47 @@ function Compare-CloudQuality {
         }
     }
 
-    foreach ($property in $Horizon.PSObject.Properties) {
-        $name = $property.Name
-        $zenithProperty = $Zenith.PSObject.Properties[$name]
-        if ($null -eq $zenithProperty) {
-            Add-CloudFault `
-                -Faults $mismatches `
-                -Code ("QUALITY_MISSING_" + $name.ToUpperInvariant())
-            continue
-        }
+    foreach ($candidate in @($Zenith, $Above)) {
+        foreach ($property in $Horizon.PSObject.Properties) {
+            $name = $property.Name
+            $candidateProperty = $candidate.PSObject.Properties[$name]
+            if ($null -eq $candidateProperty) {
+                Add-CloudFault `
+                    -Faults $mismatches `
+                    -Code ("QUALITY_MISSING_" + $name.ToUpperInvariant())
+                continue
+            }
 
-        $left = $property.Value
-        $right = $zenithProperty.Value
-        $equal = $false
-        if ($null -eq $left -or $null -eq $right) {
-            $equal = $null -eq $left -and $null -eq $right
+            $left = $property.Value
+            $right = $candidateProperty.Value
+            $equal = $false
+            if ($null -eq $left -or $null -eq $right) {
+                $equal = $null -eq $left -and $null -eq $right
+            }
+            elseif ($left -is [double] -or $left -is [float] -or
+                $right -is [double] -or $right -is [float]) {
+                $equal = Test-NearlyEqual `
+                    -Left $left `
+                    -Right $right `
+                    -Tolerance 0.0000001
+            }
+            else {
+                $equal = $left -eq $right
+            }
+            if (-not $equal) {
+                Add-CloudFault `
+                    -Faults $mismatches `
+                    -Code ("QUALITY_MISMATCH_" + $name.ToUpperInvariant())
+            }
         }
-        elseif ($left -is [double] -or $left -is [float] -or
-            $right -is [double] -or $right -is [float]) {
-            $equal = Test-NearlyEqual `
-                -Left $left `
-                -Right $right `
-                -Tolerance 0.0000001
-        }
-        else {
-            $equal = $left -eq $right
-        }
-        if (-not $equal) {
-            Add-CloudFault `
-                -Faults $mismatches `
-                -Code ("QUALITY_MISMATCH_" + $name.ToUpperInvariant())
-        }
-    }
-    foreach ($property in $Zenith.PSObject.Properties) {
-        if ($null -eq $Horizon.PSObject.Properties[$property.Name]) {
-            Add-CloudFault `
-                -Faults $mismatches `
-                -Code (
-                    "QUALITY_UNEXPECTED_" +
-                    $property.Name.ToUpperInvariant())
+        foreach ($property in $candidate.PSObject.Properties) {
+            if ($null -eq $Horizon.PSObject.Properties[$property.Name]) {
+                Add-CloudFault `
+                    -Faults $mismatches `
+                    -Code (
+                        "QUALITY_UNEXPECTED_" +
+                        $property.Name.ToUpperInvariant())
+            }
         }
     }
 
@@ -2006,6 +2008,11 @@ function Get-ScenarioDefinitions {
         [pscustomobject][ordered]@{
             Name = "zenith"
             Camera = @("0", "-1.5533", "18", "0", "2", "0")
+        },
+        [pscustomobject][ordered]@{
+            Name = "above"
+            # 約 10 km の高度から浅く見下ろし、青空と雲頂を同じ画角へ入れる。
+            Camera = @("0", "0.35", "8000", "0", "7200", "0")
         }
     )
 }
@@ -3255,29 +3262,55 @@ function Invoke-CloudProfilerSelfTest {
 
     $sameQuality = Compare-CloudQuality `
         -Horizon $valid.Quality `
-        -Zenith $valid.Quality
-    Assert-CloudSelfTest $sameQuality.Pass "same quality accepted"
+        -Zenith $valid.Quality `
+        -Above $valid.Quality
+    Assert-CloudSelfTest $sameQuality.Pass "3 視点で同じ品質を受理"
     $changedQuality = Copy-CloudObject -Value $valid.Quality
     $changedQuality.CloudWidth++
     $differentQuality = Compare-CloudQuality `
         -Horizon $valid.Quality `
-        -Zenith $changedQuality
+        -Zenith $valid.Quality `
+        -Above $changedQuality
     Assert-CloudSelfTest `
         (-not $differentQuality.Pass -and
          $differentQuality.MismatchCodes -contains
             "QUALITY_MISMATCH_CLOUDWIDTH") `
-        "cross-view quality mismatch"
+        "上空視点の品質差を拒否"
     $extendedQuality = Copy-CloudObject -Value $valid.Quality
     $extendedQuality | Add-Member -NotePropertyName FutureQualityField `
         -NotePropertyValue 1
     $asymmetricQuality = Compare-CloudQuality `
         -Horizon $valid.Quality `
-        -Zenith $extendedQuality
+        -Zenith $valid.Quality `
+        -Above $extendedQuality
     Assert-CloudSelfTest `
         (-not $asymmetricQuality.Pass -and
          $asymmetricQuality.MismatchCodes -contains
             "QUALITY_UNEXPECTED_FUTUREQUALITYFIELD") `
-        "cross-view quality comparison is symmetric"
+        "3 視点の品質項目を対称に比較"
+
+    $missingAboveQuality = Compare-CloudQuality `
+        -Horizon $valid.Quality `
+        -Zenith $valid.Quality `
+        -Above $null
+    Assert-CloudSelfTest `
+        (-not $missingAboveQuality.Pass -and
+         $missingAboveQuality.MismatchCodes -contains
+            "QUALITY_SNAPSHOT_MISSING") `
+        "上空視点の品質 snapshot を必須化"
+
+    $scenarioDefinitions = @(Get-ScenarioDefinitions)
+    $aboveDefinition = $scenarioDefinitions |
+        Where-Object Name -EQ "above" |
+        Select-Object -First 1
+    Assert-CloudSelfTest `
+        ($scenarioDefinitions.Count -eq 3 -and
+         $null -ne $aboveDefinition -and
+         @($aboveDefinition.Camera).Count -eq 6 -and
+         $aboveDefinition.Camera[1] -eq "0.35" -and
+         $aboveDefinition.Camera[2] -eq "8000" -and
+         $aboveDefinition.Camera[4] -eq "7200") `
+        "決定論的な上空視点を定義"
 
     $badP95 = Copy-CloudObject -Value $validReport
     $badP95.ProfilerSummary.EditorFpsFromP95FrameInterval = 201.0
@@ -3652,9 +3685,13 @@ try {
     $zenith = $scenarioResults |
         Where-Object Name -EQ "zenith" |
         Select-Object -First 1
+    $above = $scenarioResults |
+        Where-Object Name -EQ "above" |
+        Select-Object -First 1
     $qualityComparison = Compare-CloudQuality `
         -Horizon $horizon.Quality `
-        -Zenith $zenith.Quality
+        -Zenith $zenith.Quality `
+        -Above $above.Quality
     $inputStability = Test-CloudInputStability `
         -InitialEnvironment $runEnvironment `
         -EditorPath $editorPath `
@@ -3664,6 +3701,7 @@ try {
     $qualityGatePass =
         $horizon.Pass -and
         $zenith.Pass -and
+        $above.Pass -and
         $qualityComparison.Pass -and
         $provenancePass
     $qualityFaults =
@@ -3678,6 +3716,11 @@ try {
             -Faults $qualityFaults `
             -Code ("ZENITH_" + [string]$fault)
     }
+    foreach ($fault in @($above.FaultCodes)) {
+        Add-CloudFault `
+            -Faults $qualityFaults `
+            -Code ("ABOVE_" + [string]$fault)
+    }
     foreach ($fault in @($qualityComparison.MismatchCodes) +
         @($environmentValidation.FaultCodes) +
         @($inputStability.FaultCodes)) {
@@ -3689,7 +3732,13 @@ try {
     $zenithTargetMet = Test-CloudTarget `
         -Measurements $zenith.Measurements `
         -Target $TargetFps
-    $targetMet = $horizonTargetMet -and $zenithTargetMet
+    $aboveTargetMet = Test-CloudTarget `
+        -Measurements $above.Measurements `
+        -Target $TargetFps
+    $targetMet =
+        $horizonTargetMet -and
+        $zenithTargetMet -and
+        $aboveTargetMet
     $thresholdFaults =
         New-Object "System.Collections.Generic.List[string]"
     if (-not $horizonTargetMet) {
@@ -3701,6 +3750,11 @@ try {
         Add-CloudFault `
             -Faults $thresholdFaults `
             -Code "ZENITH_TARGET_FPS_NOT_MET"
+    }
+    if (-not $aboveTargetMet) {
+        Add-CloudFault `
+            -Faults $thresholdFaults `
+            -Code "ABOVE_TARGET_FPS_NOT_MET"
     }
     $overallPass =
         $qualityGatePass -and

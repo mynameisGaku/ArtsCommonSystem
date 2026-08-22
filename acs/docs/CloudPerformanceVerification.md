@@ -1,16 +1,15 @@
 # Cloud Performance Verification
 
-`profile_cloud_quality.ps1` is the reproducible acceptance harness for ACS
-volumetric-cloud performance. It captures the same 3D fixture twice:
+`profile_cloud_quality.ps1` は、ACS の体積雲を同じ条件で再測定できる受入ハーネスである。
+同じ 3D fixture を次の 3 視点で取得する。
 
-- `horizon`: a nearly horizontal view that includes the horizon;
-- `zenith`: an 89-degree upward view that exercises the worst visible cloud
-  coverage.
+- `horizon`: 地平線を含む、ほぼ水平の視点。
+- `zenith`: 可視範囲の大半が雲になり得る、上向き 89 度の視点。
+- `above`: 高度約 10 km から浅く見下ろし、青空と雲頂を同じ画角へ入れる視点。
 
-Both runs are unattended and sequential. They use the existing editor
-automation path (`--show-profiler`, `--hide-grid`, `--interaction-soak`,
-`--profiler-capture`, and `--camera3d`), so the harness does not introduce a
-second renderer or synthetic timing path.
+3 回の実行は無人かつ直列で行う。既存 Editor の自動実行経路
+(`--show-profiler`、`--hide-grid`、`--interaction-soak`、
+`--profiler-capture`、`--camera3d`) を使うため、別の描画器や合成計測経路は持たない。
 
 ## Run
 
@@ -53,24 +52,19 @@ identity. The harness keeps read-only, non-writer/non-delete-sharing leases on
 all six inputs for the complete run, closing the check-to-launch
 replace-and-restore window rather than relying only on before/after hashes.
 
-The editor is launched with `--unattended`, so neither scenario receives
-mouse/keyboard input or activates itself. `-Monitor secondary` keeps both
-captures on the first active secondary display; use `-Monitor none` only when
-the host process should choose placement.
+Editor は `--unattended` で起動するため、どの視点もマウス／キーボード入力を受けず、
+自分から前面へ出ない。`-Monitor secondary` は 3 回の取得を最初の有効な副画面へ固定する。
+配置をホスト側へ任せる場合だけ `-Monitor none` を使う。
 
-Use `-DryRun` to validate inputs and print both exact editor commands without
-creating output or starting the editor. Use `-SelfTest` without other
-parameters to run the synthetic parser and validation boundary suite plus
-short isolated child-process checks for exit `0`, exit `7`, timeout, asynchronous
-stdout/stderr draining, and descendant cleanup. It does not start the editor or
-perform GPU work.
+`-DryRun` は出力作成や Editor 起動を行わず、入力を検証して 3 本の正確なコマンドを表示する。
+`-SelfTest` は他の parameter を付けずに実行し、合成 report の解析・検証境界に加えて、
+終了 code `0`、終了 code `7`、時間切れ、標準出力／標準エラーの非同期排出、子 process の
+後始末を短い隔離 process で検査する。Editor 起動や GPU 処理は行わない。
 
-`verify_editor.ps1 -Mode full` runs that GPU-independent `-SelfTest` as the
-`rendering / cloud profiler harness self-test` step. Fast and managed modes do
-not include it. This validates the harness contract on every complete
-verification run without starting the editor or turning a hardware-dependent
-FPS measurement into a build gate; real horizon/zenith captures remain an
-explicit release-performance run.
+`verify_editor.ps1 -Mode full` は、この GPU 非依存の `-SelfTest` を
+`rendering / cloud profiler harness self-test` として実行する。fast／managed mode には
+含めない。完全検証ではハーネス契約を毎回確認しつつ、機材依存の FPS を build gate にはしない。
+実際の horizon／zenith／above 取得は、明示的な release 性能検査として別に実行する。
 
 ## Fail-closed quality evidence
 
@@ -104,10 +98,9 @@ and status enums are case-sensitive.
 GPU query count may not exceed query capacity, and zero-work fields must be
 reported explicitly rather than omitted or represented by `null`.
 
-The horizon and zenith quality snapshots are then compared field by field.
-Viewport/trace resolution, quality flags, query window configuration,
-dispatches, TSR, and exact maximum sample work must remain identical. A camera
-change therefore cannot silently buy performance by reducing cloud quality.
+horizon、zenith、above の品質 snapshot は項目ごとに比較する。viewport／trace 解像度、
+品質 flag、query window 設定、dispatch 数、TSR、最大試料処理量は完全に一致しなければならない。
+したがって、カメラ変更だけで雲品質を下げ、見かけの性能を上げることはできない。
 
 ## 解像度による原因切り分け
 
@@ -841,14 +834,14 @@ ACSの`IsSameV`と`Sqrt`へ置き換えた。安全検査の自己試験と通�
 Ultra cloud optimization keeps the `0.25` trace scale, 192 view-sample ceiling,
 8 light probes, sixteen-phase TSR, world-space density coordinates, and every
 accepted probe position fixed. A candidate is retained only when the same
-provenance-locked horizon/zenith harness shows a repeatable GPU improvement;
+provenance-locked horizon/zenith/above harness shows a repeatable GPU improvement;
 FXC instruction count is diagnostic evidence, not acceptance by itself.
 
 The view marcher keeps its `shape <= 0.006` empty-space consumer contract.
 Progressive four-lobe and three-lobe shape rejection uses the exact maximum
 weight of all unvisited lobes, so those existing skips cannot create a false
 negative. Additional pre-fetch bounds are not accepted from algebra alone:
-they must also beat the baseline on both horizon and zenith captures without
+they must also beat the baseline on horizon, zenith, and above captures without
 introducing enough branch divergence to erase the saved texture work.
 
 最初の3個の光標本は採取間隔で侵食帯域を制限する。残り5個も位置、高さ分布、しきい値を変えず、影キャッシュが
@@ -879,14 +872,14 @@ The same summary also records the UTC capture time, OS and architecture, every
 reported GPU adapter and driver version/date, and the canonical paths,
 versions, sizes, timestamps, and SHA-256 hashes of `AcsEditor.exe`, its four
 required runtime artifacts, and the `.acsproject`. All six inputs are hashed
-immediately before and after each capture, then once more after both captures.
+immediately before and after each capture, then once more after all three captures.
 Any checkpoint differing from the initial identity fails the affected scenario
 and `ProvenanceGate`. The terminal provenance tables print the same artifact,
 project, GPU, and driver identities, so a result cannot be compared without
 seeing which renderer and machine produced it.
 
 The 300 FPS target is informational by default. `TargetGate.Result` says
-`MISS` when either view misses any of the four cadence/throughput checks, while
+`MISS` when any view misses any of the four cadence/throughput checks, while
 the script still succeeds if its quality and evidence gates pass. This keeps a
 measured performance gap visible without mislabelling it as missing or corrupt
 quality evidence.
