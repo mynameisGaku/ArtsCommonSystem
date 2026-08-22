@@ -516,6 +516,8 @@ struct FEditorHost {
     // 診断時だけ等倍・512刻み・時間再構成なしにする。
     bool  q_cloud_reference = false;
     f32   q_cloud_base       = 1500.0f; f32 q_cloud_top = 4000.0f; f32 q_cloud_noise_scale = 0.035f; // world-space volumetric cloud layer
+    // 地上向けの遠方雲を薄める距離設定。飛行場面では設定から広げられる。
+    f32   q_cloud_max_distance = 60000.0f; f32 q_cloud_fade_fraction = 0.35f; f32 q_cloud_step_growth = 0.0f;
     f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
     FVec3 sun_dir            = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (光源) 方向 «光へ向かう» 向き。Rendering/SunAzimuth+Elevation で駆動。
     FVec3 sun_color          = FVec3{ 1.0f, 0.95f, 0.85f };     // 太陽の色 (Rendering/SunColor)。
@@ -10588,6 +10590,11 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         cl->EndRenderToTexture(*hdrRt);
         // フレーム時間を積算した時刻を雲の移流へ渡す。
         h.vclouds_time = h.time;
+        FVolumetricCloudRange cloudRange{};
+        cloudRange.MaxDistance = h.q_cloud_max_distance;
+        cloudRange.FadeFraction = h.q_cloud_fade_fraction;
+        cloudRange.StepGrowth = h.q_cloud_step_growth;
+        h.vclouds3d.SetRange(cloudRange);
         h.vclouds3d.SetLayer(acs::FVolumetricCloudLayer{
             h.q_cloud_base, h.q_cloud_top, h.q_cloud_noise_scale
         });
@@ -12640,6 +12647,9 @@ static void ApplySettings(FEditorHost& h) noexcept {
     h.q_cloud_base     = h.settings.GetFloat("Rendering", "CloudBaseHeight", 1500.0f);
     h.q_cloud_top      = h.settings.GetFloat("Rendering", "CloudTopHeight", 4000.0f);
     h.q_cloud_noise_scale = h.settings.GetFloat("Rendering", "CloudNoiseScale", 0.035f);
+    h.q_cloud_max_distance = h.settings.GetFloat("Rendering", "CloudMaxDistance", 60000.0f);
+    h.q_cloud_fade_fraction = h.settings.GetFloat("Rendering", "CloudFadeFraction", 0.35f);
+    h.q_cloud_step_growth = h.settings.GetFloat("Rendering", "CloudStepGrowth", 0.0f);
     const f32 cloudRenderScale =
         h.settings.GetFloat("Rendering", "CloudRenderScale", -1.0f);
     if (cloudRenderScale >= 0.0f) {

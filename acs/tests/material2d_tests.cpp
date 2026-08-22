@@ -379,11 +379,17 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
     const FSettingEntry* base = settings.Find("Rendering", "CloudBaseHeight");
     const FSettingEntry* top = settings.Find("Rendering", "CloudTopHeight");
     const FSettingEntry* scale = settings.Find("Rendering", "CloudNoiseScale");
+    const FSettingEntry* max_distance = settings.Find("Rendering", "CloudMaxDistance");
+    const FSettingEntry* fade_fraction = settings.Find("Rendering", "CloudFadeFraction");
+    const FSettingEntry* step_growth = settings.Find("Rendering", "CloudStepGrowth");
     const FSettingEntry* render_scale = settings.Find("Rendering", "CloudRenderScale");
     const FSettingEntry* reference_mode = settings.Find("Rendering", "CloudReferenceMode");
     EXPECT_TRUE(base != nullptr && base->builtin);
     EXPECT_TRUE(top != nullptr && top->builtin);
     EXPECT_TRUE(scale != nullptr && scale->builtin);
+    EXPECT_TRUE(max_distance != nullptr && max_distance->builtin);
+    EXPECT_TRUE(fade_fraction != nullptr && fade_fraction->builtin);
+    EXPECT_TRUE(step_growth != nullptr && step_growth->builtin);
     EXPECT_TRUE(render_scale != nullptr && render_scale->builtin);
     EXPECT_TRUE(reference_mode != nullptr && reference_mode->builtin);
     EXPECT_TRUE(render_scale != nullptr && render_scale->desc != nullptr &&
@@ -391,6 +397,9 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudBaseHeight", 0.0f), 1500.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudTopHeight", 0.0f), 4000.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudNoiseScale", 0.0f), 0.035f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudMaxDistance", 0.0f), 60000.0f, 1e-4f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudFadeFraction", 0.0f), 0.35f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudStepGrowth", -1.0f), 0.0f, 1e-5f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudRenderScale", 0.0f), -1.0f, 1e-5f);
     EXPECT_FALSE(settings.GetBool("Rendering", "CloudReferenceMode", true));
 
@@ -399,6 +408,9 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
         "CloudBaseHeight=240\n"
         "CloudTopHeight=315\n"
         "CloudNoiseScale=0.018\n"
+        "CloudMaxDistance=120000\n"
+        "CloudFadeFraction=0.5\n"
+        "CloudStepGrowth=1.25\n"
         "CloudRenderScale=4.0\n"
         "CloudReferenceMode=true\n";
     const FProjectSettingsLoadResult loaded =
@@ -407,6 +419,9 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudBaseHeight", 0.0f), 240.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudTopHeight", 0.0f), 315.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudNoiseScale", 0.0f), 0.018f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudMaxDistance", 0.0f), 120000.0f, 1e-4f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudFadeFraction", 0.0f), 0.5f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudStepGrowth", 0.0f), 1.25f, 1e-5f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudRenderScale", 0.0f), 4.0f, 1e-5f);
     EXPECT_TRUE(settings.GetBool("Rendering", "CloudReferenceMode", false));
 }

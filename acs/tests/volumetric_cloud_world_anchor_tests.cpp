@@ -914,6 +914,13 @@ ACS_TEST(VolumetricClouds,
         editorSource,
         "cloudRenderScale>1.0f?1.0f:cloudRenderScale"));
     EXPECT_TRUE(Contains(editorSource, "h.q_cloud_reference=h.settings.GetBool(\"Rendering\",\"CloudReferenceMode\",false);"));
+    EXPECT_TRUE(Contains(editorSource, "h.q_cloud_max_distance=h.settings.GetFloat(\"Rendering\",\"CloudMaxDistance\",60000.0f);"));
+    EXPECT_TRUE(Contains(editorSource, "h.q_cloud_fade_fraction=h.settings.GetFloat(\"Rendering\",\"CloudFadeFraction\",0.35f);"));
+    EXPECT_TRUE(Contains(editorSource, "h.q_cloud_step_growth=h.settings.GetFloat(\"Rendering\",\"CloudStepGrowth\",0.0f);"));
+    EXPECT_TRUE(Contains(editorSource, "cloudRange.MaxDistance=h.q_cloud_max_distance;"));
+    EXPECT_TRUE(Contains(editorSource, "cloudRange.FadeFraction=h.q_cloud_fade_fraction;"));
+    EXPECT_TRUE(Contains(editorSource, "cloudRange.StepGrowth=h.q_cloud_step_growth;"));
+    EXPECT_TRUE(Contains(editorSource, "h.vclouds3d.SetRange(cloudRange);"));
     EXPECT_TRUE(Contains(editorSource, "host.q_cloud_render_scale,host.q_cloud_reference);"));
 }
 
@@ -1143,6 +1150,34 @@ ACS_TEST(VolumetricClouds, MarchPlanFadesAndBoundsGrazingRays) {
                 horizon.exit - horizon.enter);
     EXPECT_TRUE(horizon.coarse_step * 84.0f >=
                 horizon.exit - horizon.enter);
+}
+
+ACS_TEST(VolumetricClouds,
+         DistanceFadeWeightsEachDensitySampleInsteadOfTheFinishedRay) {
+    constexpr f32 maximumDistance = 60000.0f;
+    constexpr f32 fadeFraction = 0.35f;
+    constexpr f32 fadeStart = maximumDistance * (1.0f - fadeFraction);
+    constexpr f32 fadeMiddle = (fadeStart + maximumDistance) * 0.5f;
+
+    EXPECT_NEAR(EvaluateVolumetricCloudDistanceFade(0.0f, maximumDistance, fadeFraction), 1.0f, 0.0f);
+    EXPECT_NEAR(EvaluateVolumetricCloudDistanceFade(fadeStart, maximumDistance, fadeFraction), 1.0f, 1e-6f);
+    EXPECT_NEAR(EvaluateVolumetricCloudDistanceFade(fadeMiddle, maximumDistance, fadeFraction), 0.5f, 1e-6f);
+    EXPECT_NEAR(EvaluateVolumetricCloudDistanceFade(maximumDistance, maximumDistance, fadeFraction), 0.0f, 0.0f);
+    EXPECT_NEAR(EvaluateVolumetricCloudDistanceFade(maximumDistance - 1.0f, maximumDistance, 0.0f), 1.0f, 0.0f);
+    EXPECT_NEAR(EvaluateVolumetricCloudDistanceFade(maximumDistance, maximumDistance, 0.0f), 0.0f, 0.0f);
+    EXPECT_NEAR(EvaluateVolumetricCloudDistanceFade(std::numeric_limits<f32>::quiet_NaN(), maximumDistance, fadeFraction), 0.0f, 0.0f);
+    EXPECT_NEAR(EvaluateVolumetricCloudDistanceFade(std::numeric_limits<f32>::infinity(), maximumDistance, fadeFraction), 0.0f, 0.0f);
+    EXPECT_NEAR(EvaluateVolumetricCloudDistanceFade(-std::numeric_limits<f32>::infinity(), maximumDistance, fadeFraction), 0.0f, 0.0f);
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(Contains(shader, "floatdistanceFade=cloudDistanceFade(sampleT,cloudRange.y,MAX_DISTANCE);"));
+    EXPECT_TRUE(Contains(shader, "*density*distanceFade;"));
+    EXPECT_TRUE(Contains(shader, "if(fadeLength<=0.001){returnsampleDistance<maxDistance?1.0:0.0;}"));
+    EXPECT_TRUE(Contains(shader, "floatresolvedA=baseA;"));
+    EXPECT_FALSE(Contains(shader, "smoothstep(cloudRange.y,MAX_DISTANCE,t0)"));
+    EXPECT_FALSE(Contains(shader, "floathFade="));
+    EXPECT_FALSE(Contains(shader, "resolvedA=saturate(baseA*"));
 }
 
 ACS_TEST(VolumetricClouds,
@@ -2888,7 +2923,7 @@ ACS_TEST(VolumetricClouds,
         shader,
         "floatshape=cloudShapeFromMacro(macro);"));
     EXPECT_TRUE(Contains(shader, "floatviewWeatherMask=macro.densityWeatherMask;"));
-    EXPECT_TRUE(Contains(shader, "floatdens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,detailFrequencyWeight,detailVisibility)*density;"));
+    EXPECT_TRUE(Contains(shader, "floatdens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,detailFrequencyWeight,detailVisibility)*density*distanceFade;"));
     EXPECT_TRUE(Contains(
         shader, "macro.curl=cloudCurlOffset(p);"));
     EXPECT_TRUE(Contains(
@@ -3482,7 +3517,7 @@ ACS_TEST(VolumetricClouds, LightDensityAndOpticalScaleStayLayerCorrectAcrossEver
         EXPECT_TRUE(coverage < densityValue);
         EXPECT_TRUE(densityValue < densityScale);
     }
-    EXPECT_TRUE(Contains(shader, "floatdens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,detailFrequencyWeight,detailVisibility)*density;"));
+    EXPECT_TRUE(Contains(shader, "floatdens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,detailFrequencyWeight,detailVisibility)*density*distanceFade;"));
     EXPECT_TRUE(Contains(shader, "floatlightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,lightDetailFrequencyWeight,lightDetailVisibility);"));
     EXPECT_TRUE(Contains(shader, "floatlowLodDensity=cloudLowLodDensityFromMacro(macro,densityHeightThreshold,viewWeatherMask);"));
     EXPECT_FALSE(Contains(shader, "boolinUpperCloudBand(float3p)"));
@@ -5140,9 +5175,6 @@ ACS_TEST(VolumetricClouds,
         "groundCutoff+coverageHalfWidth,signedElevation);"));
     EXPECT_FALSE(Contains(shader, "floatverticalOffset="));
     EXPECT_FALSE(Contains(shader, "groundCutoff+coverageWidth"));
-    EXPECT_TRUE(Contains(shader, "floathFade=rangeFade;"));
-    EXPECT_FALSE(Contains(
-        shader, "floathFade=rangeFade*groundHorizonCoverage;"));
     EXPECT_FALSE(Contains(
         shader,
         "cameraAltitude<layer.x&&signedElevation<-0.002"));

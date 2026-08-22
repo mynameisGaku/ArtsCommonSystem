@@ -1574,6 +1574,15 @@ void cloudDetailDomains(
 float cloudDetailVisibilityFromSampleSpacing(float sampleSpacing){
     return 1.0-smoothstep(10.0,48.0,max(sampleSpacing,0.0));
 }
+// 距離減衰は完成済みのレイへ一括適用せず、各密度標本へ適用する。
+// 減衰区間が 0 の場合は smoothstep の同一端点による 0 除算を避ける。
+float cloudDistanceFade(float sampleDistance,float fadeStart,float maxDistance){
+    float fadeLength=maxDistance-fadeStart;
+    if(fadeLength<=0.001){
+        return sampleDistance<maxDistance?1.0:0.0;
+    }
+    return 1.0-smoothstep(fadeStart,maxDistance,sampleDistance);
+}
 // 粗い採取点から一つ前の区間へ戻し、細密刻み内の採取位相だけを再適用する。
 // 参照描画の 0.5 は区間中央となり、通常描画の乱数位相も粗密切り替えで失われない。
 float cloudRefinedSampleT(float intervalStart,float coarseProbeT,float fineStep,float coarseStep,float jitter){
@@ -1959,17 +1968,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     // «ちらつく細かいゴミ» になる。打ち切りの手前で薄くして、境界の «壁» を出さない。
     float MAX_DISTANCE=cloudRange.x;
     t1=min(t1,MAX_DISTANCE);
-    float rangeFade=1.0-smoothstep(cloudRange.y,MAX_DISTANCE,t0);
-    // The curved shell has a finite, valid horizon interval.  Keep that far
-    // layer visible and let atmospheric perspective soften it instead of
-    // cutting away the lowest twelve degrees of the sky.
-    // Coverage is resolved once at the exact full-resolution output pixel.
-    // Applying it here as well squares the edge response whenever this traced
-    // phase is scheduled and turns a two-pixel analytic ramp into a hard,
-    // sparkling one-pixel line. The early reject above still prevents any
-    // work for rays that are physically below the ground tangent.
-    float hFade=rangeFade;
-    if(t1<=t0 || hFade<=0.001){
+    // 曲面雲層には有限な地平線区間がある。距離減衰はこの入口だけでレイ全体を
+    // 棄却せず、後続の各密度標本へ適用する。
+    if(t1<=t0){
         cloudOut[pixelQ]=float4(0,0,0,0);
         cloudDepthOut[pixelQ]=float2(250001.0,0.0);
         return;
@@ -2067,7 +2068,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         float detailVisibility=cloudDetailVisibilityFromSampleSpacing(fineStep);
         float detailFrequencyWeight=0.90*detailVisibility;
         float viewWeatherMask=macro.densityWeatherMask;
-        float dens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,detailFrequencyWeight,detailVisibility)*density;
+        float distanceFade=cloudDistanceFade(sampleT,cloudRange.y,MAX_DISTANCE);
+        float dens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,detailFrequencyWeight,detailVisibility)*density*distanceFade;
         if(dens>0.0015){
             bool sampleUpperBand=macro.upperBand>0.5;
             float sampleOpticalDepthScale=
@@ -2259,7 +2261,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         depthMoment=0.0;
     }
     col=max(col,0.0);
-    float resolvedA=saturate(baseA*hFade);
+    float resolvedA=baseA;
     cloudOut[pixelQ]=float4(col,resolvedA);
     float meanDepth=baseA>1e-4 ? depthMoment/baseA : 250001.0;
     if(!(meanDepth==meanDepth) || meanDepth<0.0 || meanDepth>250000.0){
@@ -3248,6 +3250,27 @@ FVolumetricCloudRange SanitizeVolumetricCloudRange(const FVolumetricCloudRange& 
     return range;
 }
 
+f32 EvaluateVolumetricCloudDistanceFade(f32 sample_distance, f32 max_distance, f32 fade_fraction) noexcept
+{
+    const FVolumetricCloudRange defaults{};
+    const f32 maximum = SanitizeCloudScalar(max_distance, defaults.MaxDistance, kVolumetricCloudMinDistance,
+                                            kVolumetricCloudMaxDistance);
+    const f32 fadeFraction = SanitizeCloudScalar(fade_fraction, defaults.FadeFraction, 0.0f,
+                                                 kVolumetricCloudMaxFadeFraction);
+    if (!(sample_distance == sample_distance) || sample_distance < -kVolumetricCloudMaxDistance ||
+        sample_distance > kVolumetricCloudMaxDistance) return 0.0f;
+    if (sample_distance <= 0.0f) return 1.0f;
+    if (sample_distance >= maximum) return 0.0f;
+    if (fadeFraction <= 0.0f) return 1.0f;
+
+    const f32 fadeStart = maximum * (1.0f - fadeFraction);
+    f32 blend = (sample_distance - fadeStart) / (maximum - fadeStart);
+    if (blend <= 0.0f) return 1.0f;
+    if (blend >= 1.0f) return 0.0f;
+    blend = blend * blend * (3.0f - 2.0f * blend);
+    return 1.0f - blend;
+}
+
 FVolumetricCloudUpperLayer SanitizeVolumetricCloudUpperLayer(const FVolumetricCloudUpperLayer& requested,
                                                              const FVolumetricCloudLayer& lower_layer) noexcept
 {
@@ -3959,7 +3982,9 @@ FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(FVec3 ray_origin, FVec3 ra
             world_origin);
     if (!interval.hit) return out;
 
-    if (max_distance < 1.0f) max_distance = 1.0f;
+    const FVolumetricCloudRange defaults{};
+    max_distance = SanitizeCloudScalar(max_distance, defaults.MaxDistance, kVolumetricCloudMinDistance,
+                                       kVolumetricCloudMaxDistance);
     out.enter = interval.enter;
     out.exit = interval.exit < max_distance ? interval.exit : max_distance;
     if (out.exit <= out.enter) {
@@ -3988,12 +4013,6 @@ FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(FVec3 ray_origin, FVec3 ra
         out.coarse_step = intervalCoverage;
     }
 
-    auto smooth_step = [](f32 edge0, f32 edge1, f32 x) noexcept {
-        f32 t = (x - edge0) / (edge1 - edge0);
-        if (t < 0.0f) t = 0.0f;
-        if (t > 1.0f) t = 1.0f;
-        return t * t * (3.0f - 2.0f * t);
-    };
     const FVec3 fromCenter{
         ray_origin.x - world_origin.x,
         ray_origin.y - world_origin.y + kVolumetricCloudPlanetRadius,
@@ -4011,14 +4030,9 @@ FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(FVec3 ray_origin, FVec3 ra
         out.exit = 0.0f;
         return out;
     }
-    const f32 rangeFade =
-        1.0f - smooth_step(max_distance * 0.72f, max_distance, out.enter);
-    out.visibility = rangeFade;
-    out.hit = out.visibility > 0.001f;
-    if (!out.hit) {
-        out.enter = 0.0f;
-        out.exit = 0.0f;
-    }
+    out.visibility = EvaluateVolumetricCloudDistanceFade(out.enter, max_distance, defaults.FadeFraction);
+    // GPU は各標本を距離で薄めるため、入口係数だけを使って有効区間を捨てない。
+    out.hit = true;
     return out;
 }
 
