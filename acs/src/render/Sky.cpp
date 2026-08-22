@@ -1284,6 +1284,18 @@ float cloudBillowOffset(float detailA,float detailB,float height){
 float cloudProfileTailClosure(float thresholdWeight){
     return smoothstep(0.0,0.12,thresholdWeight);
 }
+// 2D 天候場を完成密度へ乗算すると、同じ XZ の上下が同じ割合で透けて縦の幕になる。
+// 雲縁ほど 3D 基本形状を削り、強い房だけを残すことで被覆境界にも立体的な穴を作る。
+float cloudWeatherShapeErosion(float weatherMask){
+    // weatherMask は被覆しきい値から既に滑らかに正規化済みなので、再補間しない。
+    float edge=1.0-saturate(weatherMask);
+    // 境界外は完全に閉じ、内側では急速に弱めて晴天時の雲量を失わない。
+    float edgeSquared=edge*edge;
+    return edgeSquared*edgeSquared*0.65;
+}
+float cloudWeatheredBaseNoise(float baseNoise,float weatherMask){
+    return baseNoise-cloudWeatherShapeErosion(weatherMask);
+}
 float basePerlinWorley(float2 ns){
     // R は bake pass で Perlin-Worley dilation 済み。
     return saturate(ns.r-(1.0-ns.g)*0.12);
@@ -1556,13 +1568,14 @@ float cloudShapeFromPositiveWeatherMacro(CloudMacroSample macro){
     float shapeResult=0.0;
     if(macro.profileClosure>0.0){
         // 詳細体積の最大膨張まで占有領域へ含め、房の外縁を採取前に捨てない。
-        float envelopeNoise=
-            macro.baseNoise+cloudBillowMaximumOffset(macro.height);
+        float envelopeNoise=cloudWeatheredBaseNoise(
+            macro.baseNoise+cloudBillowMaximumOffset(macro.height),
+            macro.weatherMask);
         // 高さ分布は基本形状のしきい値を決め、層端専用の重みは消失部分だけを閉じる。
         shapeResult=remapc(
             envelopeNoise,macro.heightThreshold,
             min(macro.heightThreshold+0.22,0.98),0.0,1.0)
-                   *macro.weatherMask*macro.profileClosure;
+                   *macro.profileClosure;
     }
     return shapeResult;
 }
@@ -1641,10 +1654,12 @@ float cloudRayIntervalPhase(float basePhase,int intervalIndex){
 float cloudLowLodDensityFromPositiveWeatherMacro(CloudMacroSample macro,float heightThreshold,float weatherMask){
     float densityResult=0.0;
     if(macro.profileClosure>0.0){
-        float baseDensity=remapc(macro.baseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0);
+        float weatheredBaseNoise=cloudWeatheredBaseNoise(
+            macro.baseNoise,weatherMask);
+        float baseDensity=remapc(weatheredBaseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0);
         if(baseDensity>0.001){
             float h=saturate(macro.height);
-            densityResult=saturate(baseDensity*weatherMask*macro.profileClosure*cloudHeightPrecipitationDensityScale(h,macro.weather.b));
+            densityResult=saturate(baseDensity*macro.profileClosure*cloudHeightPrecipitationDensityScale(h,macro.weather.b));
         }
     }
     return densityResult;
@@ -1654,16 +1669,20 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
     float densityResult=0.0;
     if(macro.profileClosure>0.0){
         float h=saturate(macro.height);
-        float baseDensity=remapc(macro.baseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0);
+        float weatheredBaseNoise=cloudWeatheredBaseNoise(
+            macro.baseNoise,weatherMask);
+        float baseDensity=remapc(weatheredBaseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0);
         // 基本形状の外側でも、詳細体積が到達できる範囲だけは密度評価へ進める。
         float envelopeBaseDensity=remapc(
-            macro.baseNoise+cloudBillowMaximumOffset(h),heightThreshold,
+            cloudWeatheredBaseNoise(
+                macro.baseNoise+cloudBillowMaximumOffset(h),weatherMask),
+            heightThreshold,
             min(heightThreshold+0.22,0.98),0.0,1.0);
         if(envelopeBaseDensity>0.001){
             // 高さ形状と被覆を含む実際の粗密度を先に確定し、その表面を侵食する。
             // 基本密度だけを先に侵食すると、値1の雲芯では細部が消えて滑らかな高さ面が残る。
             float densityScale=
-                weatherMask*macro.profileClosure
+                macro.profileClosure
                 *cloudHeightPrecipitationDensityScale(h,macro.weather.b);
             float coarseDensity=saturate(
                 baseDensity*densityScale);
@@ -1679,7 +1698,9 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                 // 同分布の差なので、領域全体を一方向へ膨張させず、動く房と谷を同時に作る。
                 float billowOffset=cloudBillowOffset(ndA.r,ndB.r,h);
                 float billowedBaseDensity=remapc(
-                    macro.baseNoise+billowOffset,heightThreshold,
+                    cloudWeatheredBaseNoise(
+                        macro.baseNoise+billowOffset,weatherMask),
+                    heightThreshold,
                     min(heightThreshold+0.22,0.98),0.0,1.0);
                 float billowedCoarseDensity=saturate(
                     billowedBaseDensity*densityScale);

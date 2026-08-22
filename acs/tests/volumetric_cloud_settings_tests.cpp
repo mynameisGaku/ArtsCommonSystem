@@ -390,8 +390,10 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(setRange, "InvalidateCloudHistory_Internal(false);"));
     EXPECT_TRUE(Contains(header, "InvalidateCloudHistory_Internal(false);"));
     EXPECT_TRUE(Contains(source, "if (density_field_changed) m_ShadowCacheValid = false;"));
-    EXPECT_TRUE(Contains(lowLodDensity, "macro.baseNoise,heightThreshold"));
-    EXPECT_TRUE(Contains(lowLodDensity, "baseDensity*weatherMask*macro.profileClosure"));
+    EXPECT_TRUE(Contains(lowLodDensity, "cloudWeatheredBaseNoise("));
+    EXPECT_TRUE(Contains(lowLodDensity, "macro.baseNoise,weatherMask"));
+    EXPECT_TRUE(Contains(lowLodDensity, "baseDensity*macro.profileClosure"));
+    EXPECT_FALSE(Contains(lowLodDensity, "baseDensity*weatherMask*macro.profileClosure"));
     EXPECT_TRUE(Contains(source, "if(upperBand) weatherMask*=cloudUpperTerms.x;"));
     EXPECT_TRUE(Contains(source, "if(upperBand) densityResult*=cloudUpperTerms.y;"));
     EXPECT_FALSE(Contains(lowLodDensity, "SampleLevel"));
