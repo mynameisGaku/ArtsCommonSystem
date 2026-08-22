@@ -719,6 +719,19 @@ Editor は `CloudMaxDistance=60000`、`CloudFadeFraction=0.35`、`CloudStepGrowt
 分離して表示された。上空側の雲頂は依然として輪郭がぼやけ、細かな房状の盛り上がりが不足する。
 この天候制御を超高品質な雲の完成とは扱わず、次の密度詳細監査で上空視点を合格条件にする。
 
+`91824cee` のソースからDebug・Release配布物を再生成し、配布パイプラインの安全検査を通した。
+配置した配布物は44件の実体ファイルとmanifestの計45件で、manifestのSHA-256は
+`E570D9DC3E128EBB0813B1B8AE26DFA811F23E8189CC37BCF918CD321212C268`、単一ヘッダーは
+`B9674F48B69B3DD0851DC83FD04E04E6F85603A8D79B3F851ACD41888E02F33E`だった。ファイル集合、
+サイズ、内容は生成元と隔離配置先で一致した。単一ヘッダーを直接使う通常C++ consumerはDebug・
+Releaseともコンパイル、リンク、実行に合格した。
+
+外部ACS Framework `5ba0200` は同じ隔離配布物を明示参照してDebug・Releaseともビルドでき、
+単体試験は両構成でそれぞれ538件中0件失敗だった。Release実行画面を10秒後に1296 x 759で取得し、
+3D描画と雲更新を確認した。雲は白から薄い灰色の疎な塊として青空から分離しており、灰色の連続面で
+空を閉じる曇天状態ではなかった。Framework既存の`AcsEnumReflection.h`にある`C4267`警告は両構成で
+残るが、今回の配布物による新規警告ではない。
+
 ## Quality-preserving optimization rules
 
 Ultra cloud optimization keeps the `0.25` trace scale, 192 view-sample ceiling,

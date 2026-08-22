@@ -57794,6 +57794,47 @@ FSkySunProfile ResolveSkySunProfile(f32 one_minus_cosine, f32 view_elevation, f3
 
 } // namespace acs
 
+// ===================== render/VolumetricCloudWeather.h =====================
+// SPDX-License-Identifier: Apache-2.0
+#ifndef ACS_RENDER_VOLUMETRIC_CLOUD_WEATHER_H
+#define ACS_RENDER_VOLUMETRIC_CLOUD_WEATHER_H
+
+
+namespace acs {
+
+/**
+ * 手続き生成した天候場を残しながら、雲種と降水成分を目的の天候へ寄せる設定。
+ *
+ * 各適用率が 0 なら生成済みの天候場をそのまま使い、1 なら対応する目標値へ固定する。
+ * 雲量とは独立しているため、雲量を増やしても暗黙に嵐や層雲へ変化しない。
+ */
+struct FVolumetricCloudWeather {
+    /** 目標とする雲種。0 は層雲、0.5 は層積雲、1 は積雲。 */
+    f32 CloudType = 0.78f;
+
+    /** 手続き生成した雲種から CloudType へ寄せる割合。 */
+    f32 CloudTypeInfluence = 0.0f;
+
+    /** 目標とする降水成分。0 は晴天、1 は強い降水域。 */
+    f32 Precipitation = 0.0f;
+
+    /** 手続き生成した降水成分から Precipitation へ寄せる割合。 */
+    f32 PrecipitationInfluence = 0.0f;
+};
+
+/**
+ * 天候設定を GPU が受け取れる有限な 0～1 の範囲へ直す。
+ *
+ * @param requested 利用側が指定した天候設定。非有限値は各項目の既定値へ戻す。
+ * @return 雲種、降水成分、各適用率を 0～1 へ収めた設定。
+ */
+FVolumetricCloudWeather SanitizeVolumetricCloudWeather(
+    const FVolumetricCloudWeather& requested) noexcept;
+
+} // namespace acs
+
+#endif // ACS_RENDER_VOLUMETRIC_CLOUD_WEATHER_H
+
 namespace acs {
 
 class CCamera;
@@ -58947,6 +58988,20 @@ public:
     const FVolumetricCloudLighting& Lighting() const noexcept { return m_Lighting; }
 
     /**
+     * 手続き生成した雲種と降水成分を、目的の天候へ寄せる。
+     *
+     * @param weather 新しい天候設定。次のフレームから密度、自己影、立体物用雲影へ効く。
+     */
+    void SetWeather(const FVolumetricCloudWeather& weather) noexcept;
+
+    /**
+     * 現在の正規化済み天候設定を返す。
+     *
+     * @return 雲種と降水成分、および各適用率。
+     */
+    const FVolumetricCloudWeather& Weather() const noexcept { return m_Weather; }
+
+    /**
      * どこまで雲を描くかを設定する。
      *
      * @param range 新しい設定。次のフレームから効く。
@@ -59079,6 +59134,9 @@ private:
 
     /** 照らし方の係数。 */
     FVolumetricCloudLighting m_Lighting{};
+
+    /** 手続き天候場へ重ねる雲種と降水成分。 */
+    FVolumetricCloudWeather m_Weather{};
 
     /** どこまで描くか。 */
     FVolumetricCloudRange    m_Range{};
@@ -60347,6 +60405,14 @@ struct FScene3DClouds {
      * - 参照だけ綺麗 → 低解像度か再構成か履歴の側
      */
     bool bReferenceMode = false;
+
+    /**
+     * 雲種と降水成分。既定は手続き生成した天候場を変更しない。
+     *
+     * @details `CloudTypeInfluence` と `PrecipitationInfluence` を 0 にすると、
+     * エンジンが生成した天候場を加工せずに使う。
+     */
+    FVolumetricCloudWeather Weather{};
 
     /**
      * 雲の照らし方。位相・消散・多重散乱・環境光・地面からの照り返し。
