@@ -189,6 +189,33 @@ ACS_REF.modules.push({
       ]
     },
     {
+      name: "FKinematicCharacterMovementInput3D",
+      kind: "構造体", header: "gameframework/collision/KinematicCharacterMovementInput3D.h",
+      summary: "sphere型3D characterを一回進める希望水平速度、jump要求、collision mask、自己除外shapeを保持する値型。水平速度のxはworld X、yはworld Zを表す。",
+      when: "player入力やAI移動要求を固定tickのcharacter移動へ渡す時。"
+    },
+    {
+      name: "FKinematicCharacterState3D",
+      kind: "構造体", header: "gameframework/collision/KinematicCharacterState3D.h",
+      summary: "sphere中心のworld座標、world速度、接地状態、接地面法線を保持するkinematic character状態。",
+      when: "前回結果を保持し、次回のcharacter移動入力へ渡す時。"
+    },
+    {
+      name: "FKinematicCharacterMovementParams3D",
+      kind: "構造体", header: "gameframework/collision/KinematicCharacterMovementParams3D.h",
+      summary: "character sphere半径、重力加速度、jump初速、接触間隔、接地確認距離、歩行可能面の法線Y下限をまとめる調整値。JumpSpeedが0ならjump要求を無効として接地を維持する。",
+      when: "characterごとの大きさ、jump感覚、接地許容範囲を設定する時。"
+    },
+    {
+      name: "FKinematicCharacterMovementResult3D",
+      kind: "構造体", header: "gameframework/collision/KinematicCharacterMovementResult3D.h",
+      summary: "確定した次状態、適用移動量、最後の接触、接触分類、jump・貫通解消・反復上限事象を返す値型。",
+      when: "計算した次状態をnodeへ反映し、着地・壁・天井・jump事象をgameplayへ渡す時。",
+      members: [
+        { sig: "bool TryMoveKinematicCharacter3D(world, input, state, delta_time, params, out_result)", ret: "次状態を安全に確定できれば true", desc: "移動前後各4回の貫通解消、最大4回のsphere sweepとslide、横壁接触を避ける縮小sphereで1回の接地確認を行う。無効入力・非有限結果・未収束ではout_resultを変更しない。" }
+      ]
+    },
+    {
       name: "CCombatStateMachine",
       kind: "クラス", header: "gameframework/CombatStateMachine.h",
       summary: "シーン全体の<b>戦闘フェーズ</b>を 6 状態 (Peaceful / Alert / Engaged / BossFight / Victory / Retreat) の<t>有限オートマトン</t>で追跡するディレクタ。敵検出・戦闘開始・ボス出現などを notify すると状態が遷移し、連続値の <code>ThreatLevel()</code> [0,1] も出す。",

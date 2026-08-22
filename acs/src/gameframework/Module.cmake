@@ -162,6 +162,7 @@ set(_acsgen_gameframework_sources
     cinematics/CCinematicPlayer.cpp
     cinematics/FCinematicDirectorBridge.cpp
     cinetimeline/CCinematicTimelineDocument.cpp
+    collision/KinematicCharacterMovement3D.cpp
 )
 set(_acsgen_gameframework_headers
     AComponent.h
@@ -379,6 +380,11 @@ set(_acsgen_gameframework_headers
     cinetimeline/CCinematicTimelineDocument.h
     cinetimeline/ECinematicTimelineKeyKind.h
     cinetimeline/FCinematicTimelineKeyframe.h
+    collision/KinematicCharacterMovement3D.h
+    collision/KinematicCharacterMovementInput3D.h
+    collision/KinematicCharacterMovementParams3D.h
+    collision/KinematicCharacterMovementResult3D.h
+    collision/KinematicCharacterState3D.h
 )
 set(_acsgen_gameframework_public_deps
     Foundation

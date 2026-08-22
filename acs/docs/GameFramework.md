@@ -210,6 +210,14 @@ component 自身へ world 全体の broad-phase state を持たせない。
 - `TryResolveSpherePenetrations3D()` は最深接触から順に最大64回まで反復分離し、
   `FSpherePenetrationResolution3D` へ解消後sphere、総移動量、反復回数、収束状態を返す。
   反復上限到達は処理失敗にせず`FullyResolved == false`で明示する。worldと登録shapeは変更しない。
+- `TryMoveKinematicCharacter3D()` は希望水平速度、現在状態、delta time、調整値から、sphere型characterの
+  次状態と接触事象を計算する。重力、接地中のjump、連続sweep、接触面slide、接地確認を一つの
+  決定的なCPU処理へまとめるが、world、scene、固定tick、入力寿命は所有しない。
+- character移動の貫通解消は移動前後に各4回、sweepとslideは最大4回、接地確認は1回へ固定する。
+  無効・非有限入力または固定回数内に貫通を解消できない場合は出力を変更せず失敗する。
+  layerはworld登録shapeへ設定し、移動入力の`CollisionMask`と`SelfShape`で対象選別と自己除外を行う。
+  接地probeは接触間隔ぶん縮めたsphereで横壁のT=0接触を避け、命中後は通常sweepと同じ
+  `ContactOffset`位置へ戻す。`JumpSpeed == 0`はjump無効で、要求を事象として公開しない。
 - 解消後のnode座標や登録shapeへの反映はowner側adapterが明示的に行い、query coreはstateを変更しない。
 - `ClearAll()` 後のslot再利用でもgenerationを進め、clear前のhandleを復活させない。
 
