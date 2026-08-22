@@ -718,6 +718,15 @@ FXCはインライン展開後の`cloudDistanceFade`を未初期化の可能性�
 代入して、最後の一箇所から返す。有限値の式と分岐境界は従来の`SmoothStep`と同じで、NaN入力だけは
 明示的に0へ倒す。実GPUコンパイルを含むDebug 1415件、Release 1411件の単体試験で`X4000`が消えた。
 
+`8c4a9c95`のソースからDebug・Release配布物を隔離生成し、44件の実体ファイルとmanifestの計45件を
+照合した。manifestのSHA-256は
+`A7B8529EB56F5F2B0D96215D002A6419A717801B04AF9A70E8334BF7606A2B40`、変更のない単一ヘッダーは
+`781999C83582DF1BD88C284F06D387C22C480F7E6E47597CAFAB214A532122AD`だった。通常C++ consumerを
+Debug・Releaseで同時実行した初回はDebugだけ成功印を取得できなかったが、同じ配布物を単独再実行すると
+合格した。並列結果は受け入れ証跡に使わず、単独実行のコンパイル、リンク、実行結果を採用する。
+外部ACS Framework `5ba0200`は両構成で本体を再ビルドでき、単体試験はそれぞれ538件中0件失敗だった。
+既存の`AcsEnumReflection.h:90`にある`C4267`以外に新規警告はない。
+
 Editor は `CloudMaxDistance=60000`、`CloudFadeFraction=0.35`、`CloudStepGrowth=0` を地上向け既定値とし、
 各値を `ProjectSettings.ini` から変更できる。飛行場面では `CloudMaxDistance` を必要な範囲へ広げる。
 通常C++利用は従来どおり `CVolumetricClouds::SetRange()` で同じ3値を渡し、シェーダー側の標本単位減衰を
