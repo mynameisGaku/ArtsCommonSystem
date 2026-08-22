@@ -274,6 +274,117 @@ ACS_TEST(VolumetricCloudSettings, PublicSettersStoreTheSameSanitizedValuesUsedBy
     EXPECT_FALSE(clouds.ReferenceMode());
 }
 
+ACS_TEST(VolumetricCloudSettings,
+         EnvironmentSignatureTracksSettingsWithoutPerFrameTime)
+{
+    CVolumetricClouds clouds;
+    const u32 original = clouds.EnvironmentLightingSignature(
+        0.55f, 1.6f, 1.0f);
+    EXPECT_TRUE(original != 0u);
+    EXPECT_EQ(
+        clouds.EnvironmentLightingSignature(0.55f, 1.6f, 1.0f),
+        original);
+
+    // 画面用の参照品質は環境の物理状態ではないため署名を変えない。
+    clouds.SetReferenceMode(true);
+    EXPECT_EQ(
+        clouds.EnvironmentLightingSignature(0.55f, 1.6f, 1.0f),
+        original);
+
+    // coverage、密度、風速は形と採取時点を変えるため直ちに無効化する。
+    EXPECT_TRUE(
+        clouds.EnvironmentLightingSignature(0.60f, 1.6f, 1.0f)
+        != original);
+    EXPECT_TRUE(
+        clouds.EnvironmentLightingSignature(0.55f, 1.8f, 1.0f)
+        != original);
+    EXPECT_TRUE(
+        clouds.EnvironmentLightingSignature(0.55f, 1.6f, 2.0f)
+        != original);
+
+    FVolumetricCloudLighting lighting = clouds.Lighting();
+    lighting.AmbientAtTop += 0.1f;
+    clouds.SetLighting(lighting);
+    const u32 lighting_changed = clouds.EnvironmentLightingSignature(
+        0.55f, 1.6f, 1.0f);
+    EXPECT_TRUE(lighting_changed != original);
+
+    // Sceneが毎frame上書きする大気色は太陽側のしきい値で更新するため、
+    // 設定署名へ重ねて入れず微小変化による連続再生成を防ぐ。
+    lighting = clouds.Lighting();
+    lighting.SkyZenithColor = FVec3{4.0f, 3.0f, 2.0f};
+    lighting.SunTransmittance = FVec3{0.4f, 0.5f, 0.6f};
+    clouds.SetLighting(lighting);
+    EXPECT_EQ(
+        clouds.EnvironmentLightingSignature(0.55f, 1.6f, 1.0f),
+        lighting_changed);
+
+    clouds.SetLayer(FVolumetricCloudLayer{1800.0f, 4300.0f, 0.035f});
+    EXPECT_TRUE(
+        clouds.EnvironmentLightingSignature(0.55f, 1.6f, 1.0f)
+        != lighting_changed);
+
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const u32 hostile = clouds.EnvironmentLightingSignature(
+        nan, nan, nan);
+    EXPECT_TRUE(hostile != 0u);
+    EXPECT_EQ(
+        clouds.EnvironmentLightingSignature(nan, nan, nan),
+        hostile);
+}
+
+ACS_TEST(VolumetricCloudSettings,
+         EnvironmentBakeReusesVolumeAndPublishesDerivedMapsTransactionally)
+{
+    const std::string sky_source = ReadRenderFile("Sky.cpp");
+    const std::string ibl_source = ReadRenderFile("Ibl.cpp");
+    EXPECT_TRUE(!sky_source.empty());
+    EXPECT_TRUE(!ibl_source.empty());
+
+    const std::string environment = SliceBetween(
+        sky_source,
+        "CVolumetricClouds::BuildEnvironmentCubemap(",
+        "FVolumetricCloudWorldShadowMap");
+    EXPECT_TRUE(Contains(environment, "cl.SetComputePipeline(*m_CloudPipe);"));
+    EXPECT_TRUE(Contains(environment, "cl.SetTexture(0, *m_ShapeTex);"));
+    EXPECT_TRUE(Contains(environment, "cl.SetTexture(1, *m_WeatherTex);"));
+    EXPECT_TRUE(Contains(environment, "cl.SetTexture(2, *m_DetailTex);"));
+    EXPECT_TRUE(Contains(environment, "cl.SetTexture(3, *m_CurlTex);"));
+    EXPECT_TRUE(Contains(environment, "m_Lighting.SunScatter"));
+    EXPECT_TRUE(Contains(environment, "m_Lighting.MultiScatterContribution"));
+    EXPECT_TRUE(Contains(environment, "base_environment"));
+    EXPECT_TRUE(Contains(environment, "for (u32 face = 0u; face < 6u; ++face)"));
+    EXPECT_TRUE(Contains(environment, "TUniquePtr<IRhiBuffer> cloud_cb[6]"));
+    EXPECT_TRUE(Contains(environment, "TUniquePtr<IRhiBuffer> composite_cb[6]"));
+    EXPECT_TRUE(Contains(environment, "cl.SetConstantBuffer(0, *cloud_cb[face])"));
+    EXPECT_FALSE(Contains(environment, "ReadTexture"));
+    EXPECT_FALSE(Contains(environment, "m_HistoryColor["));
+    EXPECT_FALSE(Contains(environment, "m_HistoryDepth["));
+    EXPECT_FALSE(Contains(environment, "m_Cb->Update"));
+
+    const std::string rebuild = SliceBetween(
+        ibl_source,
+        "CImageBasedLighting::RebuildDerivedMapsFromEnvironment(",
+        "CImageBasedLighting::EnsureSkyboxPipeline(");
+    const std::size_t irradiance_build = rebuild.find(
+        "BuildIrradiance(");
+    const std::size_t prefilter_build = rebuild.find(
+        "BuildPrefilter(", irradiance_build);
+    const std::size_t irradiance_publish = rebuild.find(
+        "m_IrradianceCube = Move(irradiance_candidate);",
+        prefilter_build);
+    const std::size_t prefilter_publish = rebuild.find(
+        "m_PrefilterCube = Move(prefilter_candidate);",
+        irradiance_publish);
+    EXPECT_TRUE(irradiance_build != std::string::npos);
+    EXPECT_TRUE(prefilter_build != std::string::npos);
+    EXPECT_TRUE(irradiance_publish != std::string::npos);
+    EXPECT_TRUE(prefilter_publish != std::string::npos);
+    EXPECT_TRUE(irradiance_build < prefilter_build);
+    EXPECT_TRUE(prefilter_build < irradiance_publish);
+    EXPECT_TRUE(irradiance_publish < prefilter_publish);
+}
+
 ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
 {
     /** CPU の設定処理と GPU シェーダを含む実装。 */

@@ -4,6 +4,7 @@
 
 #include "asset/MeshAsset.h"
 #include "foundation/Move.h"
+#include "math/Camera.h"
 #include "math/Mat.h"
 #include "math/Vec.h"
 #include "memory/MemorySystem.h"
@@ -12,6 +13,7 @@
 #include "render/IRhiDevice.h"
 #include "render/IRhiTexture.h"
 #include "render/HiZ.h"
+#include "render/Ibl.h"
 #include "render/MotionVector.h"
 #include "render/NormalMatrix.h"
 #include "render/PbrShader.h"
@@ -2544,6 +2546,77 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
 
     CVolumetricClouds clouds;
     EXPECT_TRUE(clouds.Init(device, EFormat::R16G16B16A16_Float).IsOk());
+    {
+        // 実行中backendで、画面用cloud ray-marchを壊さずに6面の環境を生成できることを
+        // shader compileだけでなく実際のcommand記録まで通して固定する。
+        FTextureDesc base_environment_desc{};
+        base_environment_desc.width = 64u;
+        base_environment_desc.height = 64u;
+        base_environment_desc.format = EFormat::R16G16B16A16_Float;
+        base_environment_desc.array_size = 6u;
+        base_environment_desc.is_cubemap = true;
+        base_environment_desc.is_render_target = true;
+        base_environment_desc.per_slice_rtv = true;
+        auto base_environment_result = CreateRhiTexture(
+            device, base_environment_desc);
+        auto cloud_command_result = CreateRhiCommandList(device);
+        EXPECT_TRUE(base_environment_result.IsOk());
+        EXPECT_TRUE(cloud_command_result.IsOk());
+        EXPECT_TRUE(clouds.EnsureSize(
+            device, 16u, 16u, 4.0f, true));
+        if (base_environment_result.IsOk()
+            && cloud_command_result.IsOk()) {
+            auto base_environment = Move(base_environment_result.Value());
+            auto cloud_command = Move(cloud_command_result.Value());
+            cloud_command->Begin();
+            const FClearColor clear_sky{
+                0.12f, 0.24f, 0.48f, 1.0f};
+            for (u32 face = 0u; face < 6u; ++face) {
+                cloud_command->BeginRenderToTextureSlice(
+                    *base_environment, face, 0u, clear_sky);
+            }
+            cloud_command->EndRenderToTexture(*base_environment);
+
+            CCamera cloud_camera;
+            cloud_camera.SetPerspective(
+                kPi / 3.0f, 1.0f, 0.5f, 60000.0f);
+            cloud_camera.SetLookAt(
+                FVec3{0.0f, 120.0f, -20.0f},
+                FVec3{0.0f, 120.0f, 1.0f});
+            clouds.RenderCompute(
+                *cloud_command,
+                Inverse(cloud_camera.ViewProjection()),
+                cloud_camera.Eye(),
+                FVec3{0.3f, 0.9f, 0.2f},
+                FVec3{5.0f, 4.5f, 4.0f},
+                FVec3{0.2f, 0.3f, 0.5f},
+                0.55f, 1.6f, 1.0f, 12.0f);
+            auto cloud_environment_result =
+                clouds.BuildEnvironmentCubemap(
+                    device, *cloud_command, *base_environment);
+            EXPECT_TRUE(cloud_environment_result.IsOk());
+            if (cloud_environment_result.IsOk()) {
+                IRhiTexture& cloud_environment =
+                    *cloud_environment_result.Value();
+                EXPECT_TRUE(cloud_environment.IsCubemap());
+                EXPECT_EQ(cloud_environment.ArraySize(), 6u);
+                EXPECT_EQ(cloud_environment.Width(), 64u);
+                EXPECT_EQ(cloud_environment.Height(), 64u);
+#if WITH_RENDER_DILIGENT
+                CImageBasedLighting cloud_ibl;
+                EXPECT_TRUE(
+                    cloud_ibl.RebuildDerivedMapsFromEnvironment(
+                        device, *cloud_command, cloud_environment)
+                    .IsOk());
+                EXPECT_TRUE(cloud_ibl.IrradianceMap() != nullptr);
+                EXPECT_TRUE(cloud_ibl.PrefilterMap() != nullptr);
+#endif
+            }
+            cloud_command->End();
+            EXPECT_TRUE(cloud_command->Submit());
+            device.WaitIdle();
+        }
+    }
 
     // Keep the dedicated 3D-water VS displacement / normal-map / refraction
     // pipeline compiled on every active RHI backend. CPU ripple lifetime tests

@@ -266,6 +266,112 @@ ACS_TEST(LegacyScene3DAerialPerspective,
         != std::string::npos);
 }
 
+ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
+         DefaultsToCloudContributionWithoutChangingLayout) {
+    FScene3DClouds clouds{};
+    EXPECT_TRUE(clouds.bAffectEnvironmentLighting);
+    clouds.bAffectEnvironmentLighting = false;
+    EXPECT_FALSE(clouds.bAffectEnvironmentLighting);
+
+#if defined(_WIN64)
+    EXPECT_EQ(
+        sizeof(ALegacyScene3DAdapter),
+        static_cast<usize>(377360u));
+#endif
+}
+
+ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
+         BuildsAfterCloudsAndFallsBackToVisibleSkyEnvironment) {
+    const std::string header = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.h");
+    const std::string source = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.cpp");
+    EXPECT_FALSE(header.empty());
+    EXPECT_FALSE(source.empty());
+    EXPECT_TRUE(header.find(
+        "bool bAffectEnvironmentLighting = true;")
+        != std::string::npos);
+
+    const std::size_t render = source.find(
+        "void ALegacyScene3DAdapter::OnRender(");
+    const std::size_t clouds = source.find(
+        "RenderClouds(*device, context.Cmd()", render);
+    const std::size_t environment = source.find(
+        "EnsureEnvironmentLighting(*device, context.Cmd())", clouds);
+    const std::size_t hdr = source.find(
+        "EnsureHdrFrameResources(", environment);
+    EXPECT_TRUE(render != std::string::npos);
+    EXPECT_TRUE(clouds != std::string::npos);
+    EXPECT_TRUE(environment != std::string::npos);
+    EXPECT_TRUE(hdr != std::string::npos);
+    EXPECT_TRUE(clouds < environment);
+    EXPECT_TRUE(environment < hdr);
+
+    const std::size_t ensure_begin = source.find(
+        "bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(");
+    const std::size_t ensure_end = source.find(
+        "bool ALegacyScene3DAdapter::EnsureShadowMap(", ensure_begin);
+    EXPECT_TRUE(ensure_begin != std::string::npos);
+    EXPECT_TRUE(ensure_end != std::string::npos);
+    if (ensure_begin != std::string::npos
+        && ensure_end != std::string::npos) {
+        const std::string ensure = source.substr(
+            ensure_begin, ensure_end - ensure_begin);
+        EXPECT_TRUE(ensure.find(
+            "m_CloudsDrawn && m_CloudParams.bAffectEnvironmentLighting")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "m_Clouds.EnvironmentLightingSignature(")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "cloud_signature == m_IblBakedCloudSignature")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "if (rebuild_base_environment) {")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "m_Atmosphere.BakeEquirect(")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "m_Clouds.BuildEnvironmentCubemap(")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "m_Ibl.RebuildDerivedMapsFromEnvironment(")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "device, command_list, *base_environment);")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "m_IblBakedCloudSignature = cloud_signature;")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "m_CloudParams.Wind,\n                m_Time")
+            == std::string::npos);
+    }
+
+    // 表示用EnvCubemapは雲なしのまま描き、画面用雲は従来の後段合成を一度だけ使う。
+    const std::size_t sky_begin = source.find(
+        "void ALegacyScene3DAdapter::RenderSky(");
+    const std::size_t lighting_begin = source.find(
+        "bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(",
+        sky_begin);
+    EXPECT_TRUE(sky_begin != std::string::npos);
+    EXPECT_TRUE(lighting_begin != std::string::npos);
+    if (sky_begin != std::string::npos
+        && lighting_begin != std::string::npos) {
+        const std::string sky = source.substr(
+            sky_begin, lighting_begin - sky_begin);
+        EXPECT_TRUE(sky.find("m_Ibl.DrawEnvSkybox(")
+                    != std::string::npos);
+        EXPECT_TRUE(sky.find("cloud_environment")
+                    == std::string::npos);
+    }
+    EXPECT_TRUE(source.find(
+        "m_Clouds.Composite(\n"
+        "        command_list, scene_depth, width, height,")
+        != std::string::npos);
+}
+
 ACS_TEST(LegacyScene3DWaterRuntime, TransformedPlaneUsesExactWorldHit) {
     ALegacyScene3DAdapter runtime;
     FScene3DSpawnResult surface =

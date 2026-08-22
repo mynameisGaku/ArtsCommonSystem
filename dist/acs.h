@@ -54042,6 +54042,21 @@ public:
     TResult<void> EnsurePrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
 
     /**
+     * 表示用 env cubemap を置き換えず、指定した環境から間接光mapだけを作り直す。
+     *
+     * @details 雲を一時的な環境cubemapへ描いた後、その形と照明をirradiance / prefilterへ
+     * 反映するために使う。両方の候補が完成してから公開するため、途中で失敗した場合は
+     * 直前の間接光mapを維持する。既存mapを置き換える場合は内部でGPU完了を待つ。
+     * @param device 描画資源を作る装置。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param environment 6面を持つ読み取り可能なcubemap。
+     * @return 両方のmapを更新できれば成功。不正な入力または生成失敗ならエラー。
+     */
+    TResult<void> RebuildDerivedMapsFromEnvironment(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& environment) noexcept;
+
+    /**
      * デバッグ用に任意の cubemap を fullscreen quad の skybox として現在の RT へ描く。
      *
      * @details
@@ -54195,7 +54210,10 @@ private:
      * @param cl コマンドを積むコマンドリスト。
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
-    TResult<void> BuildIrradiance(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+    TResult<void> BuildIrradiance(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& environment,
+        TUniquePtr<IRhiTexture>& output) noexcept;
 
     /**
      * prefilter cubemap を実際に生成する。
@@ -54204,7 +54222,11 @@ private:
      * @param cl コマンドを積むコマンドリスト。
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
-    TResult<void> BuildPrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+    TResult<void> BuildPrefilter(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& environment,
+        TUniquePtr<IRhiTexture>& output,
+        u32& output_mips) noexcept;
 
     /**
      * skybox 描画用の PSO/CB を必要なら lazy init する。
@@ -59909,6 +59931,34 @@ public:
     }
 
     /**
+     * 環境光へ焼く雲設定の決定論的な署名を返す。
+     *
+     * @details 形状、照明、被覆、密度、風速を含むが、連続する時刻は含めない。
+     * 雲の移流だけで高価なIBLを毎frame作り直さず、設定変更だけを明示的な
+     * 無効化点にするための値である。同じ正規化済み入力なら同じ値を返す。
+     * @param coverage 空を覆う割合。
+     * @param density 雲の濃さ。
+     * @param wind 風速。
+     * @return 比較用の32bit署名。0は予約値なので返さない。
+     */
+    u32 EnvironmentLightingSignature(
+        f32 coverage, f32 density, f32 wind) const noexcept;
+
+    /**
+     * 直近の成功した雲frameを、表示用の空と合成した一時環境cubemapへ描く。
+     *
+     * @details 画面用履歴や雲影を変更せず、同じ形状noise、weather、侵食、照明を使って
+     * 6方向を決定論的にray marchする。表示用base_environment自体は変更しない。
+     * @param device 一時描画資源を作る装置。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param base_environment 雲なしの表示用cubemap。
+     * @return 成功なら所有権付き一時cubemap。資源不足や有効な雲frameがなければエラー。
+     */
+    TResult<TUniquePtr<IRhiTexture>> BuildEnvironmentCubemap(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& base_environment) noexcept;
+
+    /**
      * 雲を compute でレイマーチして内部 UAV テクスチャへ書く (render pass の «外» で呼ぶ)。
      * Ultra は毎 frame quarter-dimension の全 texel を更新し、それぞれを 4x4 block
      * 内の exact full-resolution subpixel へ 16 phase で割り当てる。camera motion や
@@ -61222,6 +61272,15 @@ struct FScene3DClouds {
     bool bReferenceMode = false;
 
     /**
+     * 雲の形と照明をPBR環境光へ反映するか。
+     *
+     * @details 既定はtrue。被覆が正なら、設定変更または太陽の有意な変化時だけ
+     * GPU上で環境cubemapを作り直す。連続する雲の移流だけでは高価なIBLを再生成しない。
+     * falseなら表示中の雲と雲影は保ち、環境光だけ従来の雲なし大気へ戻す。
+     */
+    bool bAffectEnvironmentLighting = true;
+
+    /**
      * 雲の照らし方。位相・消散・多重散乱・環境光・地面からの照り返し。
      *
      * @details
@@ -61384,7 +61443,8 @@ public:
      *
      * @details
      * `Coverage` を 0 にすると出ない (既定)。出すと、太陽の側が明るく縁が光る本物の雲になる。
-     * 空を焼いた cubemap には雲が入らないので、**雲は環境光には効かない** (影も落とさない)。
+     * `bAffectEnvironmentLighting` がtrueなら、同じ密度場と照明をPBRの環境光にも反映する。
+     * 画面の雲とワールド雲影はこの設定に関係なく従来どおり描く。
      * @return 雲の設定 (次のフレームから効く)。
      */
     FScene3DClouds& Clouds() noexcept { return m_CloudParams; }
@@ -62367,6 +62427,9 @@ private:
 
     /** 既存alignment padding内で保持する、物理大気の空気遠近要求。 */
     bool m_AerialPerspectiveEnabled = false;
+
+    /** 既存alignment padding内で保持する、環境光へ焼いた雲設定の署名。 */
+    u32 m_IblBakedCloudSignature = ~u32{0};
 
     /** 空を映した環境光 (irradiance / prefilter / BRDF LUT)。 */
     CImageBasedLighting m_Ibl;

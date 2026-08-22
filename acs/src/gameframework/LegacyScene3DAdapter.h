@@ -217,6 +217,15 @@ struct FScene3DClouds {
     bool bReferenceMode = false;
 
     /**
+     * 雲の形と照明をPBR環境光へ反映するか。
+     *
+     * @details 既定はtrue。被覆が正なら、設定変更または太陽の有意な変化時だけ
+     * GPU上で環境cubemapを作り直す。連続する雲の移流だけでは高価なIBLを再生成しない。
+     * falseなら表示中の雲と雲影は保ち、環境光だけ従来の雲なし大気へ戻す。
+     */
+    bool bAffectEnvironmentLighting = true;
+
+    /**
      * 雲の照らし方。位相・消散・多重散乱・環境光・地面からの照り返し。
      *
      * @details
@@ -379,7 +388,8 @@ public:
      *
      * @details
      * `Coverage` を 0 にすると出ない (既定)。出すと、太陽の側が明るく縁が光る本物の雲になる。
-     * 空を焼いた cubemap には雲が入らないので、**雲は環境光には効かない** (影も落とさない)。
+     * `bAffectEnvironmentLighting` がtrueなら、同じ密度場と照明をPBRの環境光にも反映する。
+     * 画面の雲とワールド雲影はこの設定に関係なく従来どおり描く。
      * @return 雲の設定 (次のフレームから効く)。
      */
     FScene3DClouds& Clouds() noexcept { return m_CloudParams; }
@@ -1362,6 +1372,9 @@ private:
 
     /** 既存alignment padding内で保持する、物理大気の空気遠近要求。 */
     bool m_AerialPerspectiveEnabled = false;
+
+    /** 既存alignment padding内で保持する、環境光へ焼いた雲設定の署名。 */
+    u32 m_IblBakedCloudSignature = ~u32{0};
 
     /** 空を映した環境光 (irradiance / prefilter / BRDF LUT)。 */
     CImageBasedLighting m_Ibl;

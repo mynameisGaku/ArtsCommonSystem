@@ -140,6 +140,21 @@ public:
     TResult<void> EnsurePrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
 
     /**
+     * 表示用 env cubemap を置き換えず、指定した環境から間接光mapだけを作り直す。
+     *
+     * @details 雲を一時的な環境cubemapへ描いた後、その形と照明をirradiance / prefilterへ
+     * 反映するために使う。両方の候補が完成してから公開するため、途中で失敗した場合は
+     * 直前の間接光mapを維持する。既存mapを置き換える場合は内部でGPU完了を待つ。
+     * @param device 描画資源を作る装置。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param environment 6面を持つ読み取り可能なcubemap。
+     * @return 両方のmapを更新できれば成功。不正な入力または生成失敗ならエラー。
+     */
+    TResult<void> RebuildDerivedMapsFromEnvironment(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& environment) noexcept;
+
+    /**
      * デバッグ用に任意の cubemap を fullscreen quad の skybox として現在の RT へ描く。
      *
      * @details
@@ -293,7 +308,10 @@ private:
      * @param cl コマンドを積むコマンドリスト。
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
-    TResult<void> BuildIrradiance(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+    TResult<void> BuildIrradiance(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& environment,
+        TUniquePtr<IRhiTexture>& output) noexcept;
 
     /**
      * prefilter cubemap を実際に生成する。
@@ -302,7 +320,11 @@ private:
      * @param cl コマンドを積むコマンドリスト。
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
-    TResult<void> BuildPrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+    TResult<void> BuildPrefilter(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& environment,
+        TUniquePtr<IRhiTexture>& output,
+        u32& output_mips) noexcept;
 
     /**
      * skybox 描画用の PSO/CB を必要なら lazy init する。

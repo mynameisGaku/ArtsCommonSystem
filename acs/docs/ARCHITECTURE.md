@@ -172,6 +172,18 @@ lightmap、SSR、UI は暗くせず、雲による直射光の変化は既存の
 倍率の保存領域は両公開クラスの既存 alignment padding を利用し、class size、既存member offset、
 vtable slot を変更しません。NaN、無限大、負数は現在値を維持します。
 
+Legacy 3D のボリューム雲は、`Clouds().bAffectEnvironmentLighting` が true かつ雲が描けた場合、
+画面描画と同じ密度場、天候模様、照明、雲内部影を使う低解像度の環境 cubemap を GPU 上で作り、
+`CImageBasedLighting` の irradiance と prefilter だけを再生成します。見える空の cubemap は雲なしの
+物理大気のままなので、通常の画面雲合成やワールド雲影を二重適用しません。既定は true ですが、
+`Coverage=0` の既定場面は従来出力と同一で、false にすれば表示中の雲と雲影を保ったまま従来の
+雲なし IBL へ戻せます。
+
+再生成は雲設定の署名変更または既存の太陽方向しきい値を越えた時だけ行い、連続する雲の移流時刻は
+署名へ含めません。雲だけの更新は大気画像の CPU readback を行わず、毎フレームの同期や無制御な
+焼き直しを避けます。一時 cubemap または畳み込み資源を作れない場合は、雲なしの環境 cubemap から
+派生マップを作る代替処理へ戻り、完成済みの環境光を空の資源で置換しません。
+
 Legacy 3D の物理大気による空気遠近は
 `ALegacyScene3DAdapter::SetAerialPerspectiveEnabled(true)` で明示的に有効化します。既定は無効で、
 従来の出力とfroxel計算負荷を維持します。有効時は既存`CSkyAtmosphere`の物理大気volumeを使い、

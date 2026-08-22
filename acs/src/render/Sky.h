@@ -1220,6 +1220,34 @@ public:
     }
 
     /**
+     * 環境光へ焼く雲設定の決定論的な署名を返す。
+     *
+     * @details 形状、照明、被覆、密度、風速を含むが、連続する時刻は含めない。
+     * 雲の移流だけで高価なIBLを毎frame作り直さず、設定変更だけを明示的な
+     * 無効化点にするための値である。同じ正規化済み入力なら同じ値を返す。
+     * @param coverage 空を覆う割合。
+     * @param density 雲の濃さ。
+     * @param wind 風速。
+     * @return 比較用の32bit署名。0は予約値なので返さない。
+     */
+    u32 EnvironmentLightingSignature(
+        f32 coverage, f32 density, f32 wind) const noexcept;
+
+    /**
+     * 直近の成功した雲frameを、表示用の空と合成した一時環境cubemapへ描く。
+     *
+     * @details 画面用履歴や雲影を変更せず、同じ形状noise、weather、侵食、照明を使って
+     * 6方向を決定論的にray marchする。表示用base_environment自体は変更しない。
+     * @param device 一時描画資源を作る装置。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param base_environment 雲なしの表示用cubemap。
+     * @return 成功なら所有権付き一時cubemap。資源不足や有効な雲frameがなければエラー。
+     */
+    TResult<TUniquePtr<IRhiTexture>> BuildEnvironmentCubemap(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& base_environment) noexcept;
+
+    /**
      * 雲を compute でレイマーチして内部 UAV テクスチャへ書く (render pass の «外» で呼ぶ)。
      * Ultra は毎 frame quarter-dimension の全 texel を更新し、それぞれを 4x4 block
      * 内の exact full-resolution subpixel へ 16 phase で割り当てる。camera motion や

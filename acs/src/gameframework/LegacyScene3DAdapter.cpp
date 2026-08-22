@@ -887,9 +887,6 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     IRhiTexture* depth = renderer.DepthBuffer();
     if (device == nullptr || swapchain == nullptr) return;
 
-    // 空を環境光として焼く。太陽が動いたときだけ焼き直す。
-    (void)EnsureEnvironmentLighting(*device, context.Cmd());
-
     // 骨で動くメッシュを CPU で変形し、普通の頂点バッファへ入れ直す。**影も遮蔽も
     // この後のパスが読むので、必ず一番先に。** 遅らせると、影だけ前フレームの姿勢になる。
     (void)UpdateSkinnedMeshes(*device);
@@ -905,6 +902,10 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
 
     // 雲を計算する。描画パスの外で回す (結果は雲自身のテクスチャへ書かれる)。
     RenderClouds(*device, context.Cmd(), context.Width(), context.Height());
+
+    // 雲を環境光へ入れる場合は、現在の密度場と照明が完成してからGPU cubemapを作る。
+    // 表示用の空は雲なしのままなので、この後の画面合成で雲を二重に描かない。
+    (void)EnsureEnvironmentLighting(*device, context.Cmd());
 
     EGpuCommitSubsystem frame_commit = EGpuCommitSubsystem::None;
     const bool hdr_ready = EnsureHdrFrameResources(
@@ -1373,13 +1374,28 @@ void ALegacyScene3DAdapter::RenderSky(
 bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
     IRhiDevice& device, IRhiCommandList& command_list) noexcept {
     const FVec3 sun = SunDirection();
+    const u32 cloud_signature =
+        m_CloudsDrawn && m_CloudParams.bAffectEnvironmentLighting
+            ? m_Clouds.EnvironmentLightingSignature(
+                m_CloudParams.Coverage,
+                m_CloudParams.Density,
+                m_CloudParams.Wind)
+            : 0u;
 
-    // 焼き直しは重い。太陽がほとんど動いていないなら前回のものをそのまま使う。
+    // 空本体は太陽が有意に動いたときだけ、雲由来mapは設定が変わったときだけ更新する。
+    // 連続するm_Timeを署名へ入れないため、移流だけで同期readbackやprefilterを繰り返さない。
+    bool rebuild_base_environment = !m_IblReady;
     if (m_IblReady) {
         const f32 dx = sun.x - m_IblBakedSunDirection.x;
         const f32 dy = sun.y - m_IblBakedSunDirection.y;
         const f32 dz = sun.z - m_IblBakedSunDirection.z;
-        if (dx * dx + dy * dy + dz * dz < kIblRebakeThresholdSquared) return true;
+        rebuild_base_environment =
+            dx * dx + dy * dy + dz * dz
+                >= kIblRebakeThresholdSquared;
+        if (!rebuild_base_environment
+            && cloud_signature == m_IblBakedCloudSignature) {
+            return true;
+        }
     }
 
     // BRDF LUT は太陽に依存しないので一度だけ。
@@ -1388,51 +1404,90 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
         return false;
     }
 
-    // 物理ベースの大気から焼く。太陽の高さで空の色が変わるので、夕暮れの赤みが
-    // 何も設定しなくても環境光に乗る。だめなら見えている空 (CSky) から焼く。
-    if (!m_AtmosphereTried) {
-        m_AtmosphereTried = true;
-        (void)m_Atmosphere.Init(device);
+    if (rebuild_base_environment) {
+        m_IblReady = false;
+
+        // 物理ベースの大気から焼く。太陽の高さで空の色が変わるので、夕暮れの赤みが
+        // 何も設定しなくても環境光に乗る。だめなら見えている空 (CSky) から焼く。
+        if (!m_AtmosphereTried) {
+            m_AtmosphereTried = true;
+            (void)m_Atmosphere.Init(device);
+        }
+
+        // 太陽だけは毎回いまの光から作る。残り (地面の色など) は場面が決めたものを使う。
+        FAtmosphereParams atmosphere = m_AtmosphereParams;
+        atmosphere.sun_dir = sun;
+        atmosphere.sun_intensity =
+            PhysicalSunIntensity(SunColorForAtmosphere());
+
+        TArray<f32> equirect;
+        u32 width = kAtmosphereEquirectWidth;
+        u32 height = kAtmosphereEquirectHeight;
+
+        bool baked = m_Atmosphere.Ready()
+            && m_Atmosphere.BakeEquirect(
+                device, command_list, atmosphere,
+                width, height, equirect);
+
+        if (!baked) {
+            // GPU で焼けない環境向けの代替処理。同期で回すので解像度を落とす。
+            width = kAtmosphereCpuEquirectWidth;
+            height = kAtmosphereCpuEquirectHeight;
+            equirect = CAtmosphere::BakeEquirect(
+                width, height, atmosphere);
+            baked = equirect.Num() != 0u;
+        }
+
+        const bool loaded = baked
+            && m_Ibl.LoadEquirectHdrFromMemory(
+                device, command_list, equirect.GetData(),
+                width, height).IsOk();
+
+        if (!loaded
+            && m_Ibl.EnsureEnvCubemap(
+                device, command_list, m_Sky).IsErr()) {
+            ACS_LOG_WARN(
+                "Scene3D: environment bake failed (atmosphere and sky both)");
+            return false;
+        }
     }
 
-    // 太陽だけは毎回いまの光から作る。残り (地面の色など) は場面が決めたものを使う。
-    FAtmosphereParams atmosphere = m_AtmosphereParams;
-    atmosphere.sun_dir = sun;
-    atmosphere.sun_intensity = PhysicalSunIntensity(SunColorForAtmosphere());
-
-    TArray<f32> equirect;
-    u32 width = kAtmosphereEquirectWidth;
-    u32 height = kAtmosphereEquirectHeight;
-
-    bool baked = m_Atmosphere.Ready()
-        && m_Atmosphere.BakeEquirect(device, command_list, atmosphere, width, height, equirect);
-
-    if (!baked) {
-        // GPU で焼けない環境向けの逃げ道。同期で回すので解像度を落とす。
-        width = kAtmosphereCpuEquirectWidth;
-        height = kAtmosphereCpuEquirectHeight;
-        equirect = CAtmosphere::BakeEquirect(width, height, atmosphere);
-        baked = equirect.Num() != 0u;
-    }
-
-    const bool loaded = baked
-        && m_Ibl.LoadEquirectHdrFromMemory(
-               device, command_list, equirect.GetData(), width, height).IsOk();
-
-    if (!loaded && m_Ibl.EnsureEnvCubemap(device, command_list, m_Sky).IsErr()) {
-        ACS_LOG_WARN("Scene3D: environment bake failed (atmosphere and sky both)");
+    IRhiTexture* const base_environment = m_Ibl.EnvCubemap();
+    if (base_environment == nullptr) {
+        ACS_LOG_WARN("Scene3D: environment cubemap is unavailable");
         return false;
     }
-    if (m_Ibl.EnsureIrradiance(device, command_list).IsErr()) {
-        ACS_LOG_WARN("Scene3D: irradiance bake failed");
-        return false;
+
+    TUniquePtr<IRhiTexture> cloud_environment;
+    IRhiTexture* convolution_source = base_environment;
+    if (cloud_signature != 0u) {
+        auto cloud_result = m_Clouds.BuildEnvironmentCubemap(
+            device, command_list, *base_environment);
+        if (cloud_result.IsOk()) {
+            cloud_environment = Move(cloud_result.Value());
+            convolution_source = cloud_environment.Get();
+        } else {
+            // この更新周期では再試行せず、次の設定または太陽変更まで雲なしIBLを使う。
+            ACS_LOG_WARN(
+                "Scene3D: cloud environment bake failed; using clear-sky IBL");
+        }
     }
-    if (m_Ibl.EnsurePrefilter(device, command_list).IsErr()) {
-        ACS_LOG_WARN("Scene3D: prefilter bake failed");
+
+    auto derived_result = m_Ibl.RebuildDerivedMapsFromEnvironment(
+        device, command_list, *convolution_source);
+    if (derived_result.IsErr() && convolution_source != base_environment) {
+        ACS_LOG_WARN(
+            "Scene3D: cloud IBL convolution failed; rebuilding clear-sky IBL");
+        derived_result = m_Ibl.RebuildDerivedMapsFromEnvironment(
+            device, command_list, *base_environment);
+    }
+    if (derived_result.IsErr()) {
+        ACS_LOG_WARN("Scene3D: environment IBL convolution failed");
         return false;
     }
 
     m_IblBakedSunDirection = sun;
+    m_IblBakedCloudSignature = cloud_signature;
     m_IblReady = true;
     return true;
 }
