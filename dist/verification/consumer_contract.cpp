@@ -267,6 +267,38 @@ static bool NearlyEqual_Internal(acs::f32 left, acs::f32 right, acs::f32 toleran
     return difference >= -tolerance && difference <= tolerance;
 }
 
+/** TrueHDRIの測定値が単一headerと配布libraryを跨いで同じ太陽へ解決されるか検証する。 */
+static bool VerifyTrueHdriLightData_Internal() noexcept
+{
+    /** 公式LightDataと同じ座標・sRGB照度行を持つ最小CSV。 */
+    constexpr char csv[] = "----Light direction----\r\n"
+                           "photoshopXY(panorama uv[%]),49.967,31.885\r\n"
+                           "altitude_azimuth,32.607,359.88\r\n"
+                           "----Light color sRGB----\r\n"
+                           ",R,G,B,scale\r\n"
+                           "color illuminance,110854.344,94286.023,78994.93,1\r\n"
+                           "normarized color illminance,1.0,0.851,0.713,110854.344\r\n";
+    /** 配布library内の検証付き解析結果。 */
+    acs::TResult<acs::FTrueHdriLightData> parsed = acs::FTrueHdriLightData::ParseSrgbCsv(csv, sizeof(csv) - 1u);
+    if (parsed.IsErr()) return false;
+
+    /** HDR画像へ加える90度回転と同じ回転を適用した太陽方向。 */
+    acs::TResult<acs::FVec3> sun_direction = parsed.Value().ResolveSunDirection(90.0f);
+    /** 測定ピークをACSの既定太陽強度へ対応させた平行光色。 */
+    acs::TResult<acs::FVec3> light_color = parsed.Value().ResolveDirectionalLightColor(parsed.Value().PeakIlluminanceLux(), 2.35f);
+    if (sun_direction.IsErr() || light_color.IsErr()) return false;
+
+    /** 画像座標、回転後方向、測定色の全経路が期待値と一致するか。 */
+    return NearlyEqual_Internal(parsed.Value().PanoramaUPercent(), 49.967f, 1.0e-5f) &&
+           NearlyEqual_Internal(parsed.Value().AltitudeDegrees(), 32.607f, 1.0e-5f) &&
+           NearlyEqual_Internal(sun_direction.Value().x, 0.8423f, 0.001f) &&
+           NearlyEqual_Internal(sun_direction.Value().y, 0.5390f, 0.001f) &&
+           NearlyEqual_Internal(sun_direction.Value().z, 0.0018f, 0.001f) &&
+           NearlyEqual_Internal(light_color.Value().x, 2.35f, 1.0e-5f) &&
+           NearlyEqual_Internal(light_color.Value().y, 1.9988f, 0.001f) &&
+           NearlyEqual_Internal(light_color.Value().z, 1.6744f, 0.001f);
+}
+
 /** 配布SDKのheader、外部symbol、基本計算を検証し、失敗時は1を返す。 */
 int main()
 {
@@ -276,6 +308,9 @@ int main()
     LinkDebugDraw2DSymbols();
     LinkDebugDraw3DSymbols();
     LinkPrefabSourceNodeIdentitySymbols();
+
+    /** TrueHDRIの配布header宣言とlibrary実装を実データ経路で照合した結果。 */
+    const bool true_hdri_light_data_ok = VerifyTrueHdriLightData_Internal();
 
     // containerの基本操作を検証する値。
     TArray<i32> v;
@@ -426,6 +461,6 @@ int main()
                                            audio_backend.LastVoice == audio_voice &&
                                            audio_backend.LastVolume == 0.0f;
 
-    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u prefab_source_id=%u scene_timer=%u weather=%u log_sink=%u audio_backend=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, prefab_source_identity_ok ? 1u : 0u, scene_timer_fire_count, weather_transition_ok ? 1u : 0u, log_notification_count, audio_backend_contract_ok ? 1u : 0u);
-    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && prefab_source_identity_ok && scene_timer_ok && weather_transition_ok && log_sink_ok && audio_backend_contract_ok) ? 0 : 1;
+    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx event=%u component=%u prefab_source_id=%u scene_timer=%u weather=%u truehdri=%u log_sink=%u audio_backend=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), event_identifier_ok ? 1u : 0u, component_identifier_ok ? 1u : 0u, prefab_source_identity_ok ? 1u : 0u, scene_timer_fire_count, weather_transition_ok ? 1u : 0u, true_hdri_light_data_ok ? 1u : 0u, log_notification_count, audio_backend_contract_ok ? 1u : 0u);
+    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && event_identifier_ok && component_identifier_ok && prefab_source_identity_ok && scene_timer_ok && weather_transition_ok && true_hdri_light_data_ok && log_sink_ok && audio_backend_contract_ok) ? 0 : 1;
 }
