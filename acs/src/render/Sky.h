@@ -1331,7 +1331,7 @@ private:
     /** Perlin-Worley ノイズを生成する計算シェーダー。 */
     TUniquePtr<IRhiShader>   m_NoiseCs;
     TUniquePtr<IRhiPipeline> m_NoisePipe;                // compute (noise gen)
-    TUniquePtr<IRhiTexture>  m_ShapeTex;                 // 128^3 RG16F Perlin-Worley/low-frequency Worley
+    TUniquePtr<IRhiTexture>  m_ShapeTex;                 // 128^3 RG16F 低周波/全帯域 Perlin-Worley
     bool                     m_WeatherBaked = false;
     TUniquePtr<IRhiShader>   m_WeatherCs;
     TUniquePtr<IRhiPipeline> m_WeatherPipe;
