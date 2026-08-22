@@ -1654,17 +1654,17 @@ float3 cloudShadowWorldPosition(float3 uvw){
     return float3(worldXz.x,worldOrigin.y+altitude-sag,worldXz.y);
 }
 
-// キャッシュの各画素は、近距離3点を正確に採取した後の位置に対応する。
-// l=3..7だけを積分し、細かな侵食を含む近距離の消散は視線側の採取へ残す。
+// キャッシュの各画素は、採取間隔に合わせて侵食帯域を制限した近距離3点の後へ対応する。
+// l=3..7だけを積分し、48 m以下で採取できる細部は視線側の近距離採取へ残す。
 float traceCloudShadowPattern(
     float3 lp,float patternJitter,float coverage,
     float3 sun,float3 lightTangent,float3 lightBitangent){
-    float lightStep=0.012/max(layer.w,1e-4);
+    float lightStep=0.0075/max(layer.w,1e-4);
     lightStep*=lerp(0.72,1.28,patternJitter);
     // 正確な経路と同じ丸め結果にするため、三回の乗算を別の定数へまとめない。
-    lightStep*=1.65;
-    lightStep*=1.65;
-    lightStep*=1.65;
+    lightStep*=1.8;
+    lightStep*=1.8;
+    lightStep*=1.8;
     float lightDepth=0.0;
     [loop] for(int l=3;l<8;l++){
         float2 coneGeometry=CLOUD_CONE_GEOMETRY[l];
@@ -1683,7 +1683,7 @@ float traceCloudShadowPattern(
         float lightDensity=cloudLowLodDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask);
         lightDepth+=lightDensity*lightStep*layer.w;
         lp+=lightHalfStep;
-        lightStep*=1.65;
+        lightStep*=1.8;
     }
     return lightDepth;
 }
@@ -2052,8 +2052,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float sharedShapeScale=cloudShapeScale();
             // 8 個の光円すいは一定の黄金角で回し、上で求めた sin/cos を漸化式で再利用する。
             bool lightTerminated=false;
-            // 近距離 3 点では細部を省略しない。採取範囲を分けることで、後半 5 点へ進む前に
-            // 侵食用の一時値を破棄でき、採取位置と式を保ったままレジスター使用量を減らす。
+            // 近距離3点は実際の採取間隔で侵食帯域を減らす。既定層では4点目が最小でも
+            // 48 mを越えるため、後半5点へ進む前に侵食用の一時値を破棄する。
             [loop] for(int l=0;l<3;l++){
                 float2 coneGeometry=CLOUD_CONE_GEOMETRY[l];
                 float3 coneDir=cloudConeDirection(
@@ -2062,7 +2062,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 float3 lightHalfStep=coneDir*(0.5*lightStep);
                 lp+=lightHalfStep;
                 CloudMacroSample lightMacro=sampleCloudMacroLightingFromSlowFields(lp,viewWeatherMask,coverageTerms.w,sharedLightProfileTerms,sharedLightCurl,p,viewMacroUvw,macro.height,sharedShapeScale);
-                float lightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,0.65,1.0);
+                float lightDetailVisibility=cloudDetailVisibilityFromSampleSpacing(lightStep);
+                float lightDetailFrequencyWeight=0.90*lightDetailVisibility;
+                float lightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,lightDetailFrequencyWeight,lightDetailVisibility);
                 lightDepth+=lightDensity*lightStep*layer.w;
                 // 次区間と影キャッシュは従来と同じ区間終端から始める。
                 lp+=lightHalfStep;
@@ -2076,7 +2078,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                        -coneSin*(-0.675490294);
                 coneSin=coneSin*(-0.737368878)
                        +previousConeCos*(-0.675490294);
-                lightStep*=1.65;
+                lightStep*=1.8;
             }
             bool cachedFarTail=false;
             if(!lightTerminated && CLOUD_MAIN_SHADOW_CACHE_ENABLED){
@@ -2097,7 +2099,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 }
             }
             if(!lightTerminated && !cachedFarTail){
-                // 既定の2500 m層で約3.2 kmに及ぶため、各地点の天候、高さ、
+                // 既定の2500 m層で最大約2.05 kmに及ぶため、各地点の天候、高さ、
                 // 基本形状を再評価する。視線標本の天候を流用すると、雲縁を跨いでも
                 // 同じ被覆が続き、退避経路だけ自己影が板状になる。
                 [loop] for(int l=3;l<8;l++){
@@ -2117,7 +2119,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                            -coneSin*(-0.675490294);
                     coneSin=coneSin*(-0.737368878)
                            +previousConeCos*(-0.675490294);
-                    lightStep*=1.65;
+                    lightStep*=1.8;
                 }
             }
             if(blendCachedTail && !lightTerminated){
@@ -4996,7 +4998,7 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         unclampedFineStep < 0.5f ? 0.5f
         : (unclampedFineStep > 2.0f ? 2.0f : unclampedFineStep);
     const f32 lightStep =
-        0.012f /
+        0.0075f /
         (layerCanonicalScale > 0.0001f
              ? layerCanonicalScale : 0.0001f);
     cb.cloudCoverageReciprocals = FVec4{

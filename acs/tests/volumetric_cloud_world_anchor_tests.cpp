@@ -1313,7 +1313,10 @@ ACS_TEST(VolumetricClouds, DetailVisibilityFollowsRaySampleSpacing) {
     EXPECT_TRUE(erosionBlend != std::string::npos);
     EXPECT_TRUE(detailBranch < firstDetailRead);
     EXPECT_TRUE(firstDetailRead < erosionBlend);
-    EXPECT_TRUE(Contains(shader, "cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,0.65,1.0);"));
+    EXPECT_TRUE(Contains(shader, "floatlightDetailVisibility=cloudDetailVisibilityFromSampleSpacing(lightStep);"));
+    EXPECT_TRUE(Contains(shader, "floatlightDetailFrequencyWeight=0.90*lightDetailVisibility;"));
+    EXPECT_TRUE(Contains(shader, "cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,lightDetailFrequencyWeight,lightDetailVisibility);"));
+    EXPECT_FALSE(Contains(shader, "lightMacro.weatherMask,0.65,1.0);"));
 }
 
 ACS_TEST(VolumetricClouds, ViewRayIntervalPhasesBreakPeriodicShapeResonance) {
@@ -3205,11 +3208,20 @@ ACS_TEST(VolumetricClouds,
         "sharedLightProfileTerms,sharedLightCurl,"
         "p,viewMacroUvw,macro.height,sharedShapeScale);",
         lightAdvance);
+    const std::size_t nearDetailVisibility = shader.find(
+        "floatlightDetailVisibility="
+        "cloudDetailVisibilityFromSampleSpacing(lightStep);",
+        lightMacro);
+    const std::size_t nearDetailFrequency = shader.find(
+        "floatlightDetailFrequencyWeight="
+        "0.90*lightDetailVisibility;",
+        nearDetailVisibility);
     const std::size_t nearDensity = shader.find(
         "floatlightDensity=cloudDensityFromMacro("
         "lp,lightMacro,lightMacro.heightThreshold,"
-        "lightMacro.weatherMask,0.65,1.0);",
-        lightMacro);
+        "lightMacro.weatherMask,lightDetailFrequencyWeight,"
+        "lightDetailVisibility);",
+        nearDetailFrequency);
     const std::size_t lightAccumulate = shader.find(
         "lightDepth+=lightDensity*lightStep*layer.w;",
         nearDensity);
@@ -3232,6 +3244,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(lightHalfStep != std::string::npos);
     EXPECT_TRUE(lightAdvance != std::string::npos);
     EXPECT_TRUE(lightMacro != std::string::npos);
+    EXPECT_TRUE(nearDetailVisibility != std::string::npos);
+    EXPECT_TRUE(nearDetailFrequency != std::string::npos);
     EXPECT_TRUE(nearDensity != std::string::npos);
     EXPECT_TRUE(lightAccumulate != std::string::npos);
     EXPECT_TRUE(lightFinish != std::string::npos);
@@ -3243,7 +3257,9 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(coneDirection < lightHalfStep);
     EXPECT_TRUE(lightHalfStep < lightAdvance);
     EXPECT_TRUE(lightAdvance < lightMacro);
-    EXPECT_TRUE(lightMacro < nearDensity);
+    EXPECT_TRUE(lightMacro < nearDetailVisibility);
+    EXPECT_TRUE(nearDetailVisibility < nearDetailFrequency);
+    EXPECT_TRUE(nearDetailFrequency < nearDensity);
     EXPECT_TRUE(nearDensity < lightAccumulate);
     EXPECT_TRUE(lightAccumulate < lightFinish);
     EXPECT_TRUE(lightFinish < recurrence);
@@ -3308,31 +3324,91 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
     EXPECT_NEAR(midpointDepth, exactDepth, 1e-6f);
     EXPECT_TRUE(std::fabs(rightEndpointDepth - exactDepth) > 0.49f * kStepLength);
 
-    // 既定の2500 m層では、近距離3点の終端は約206 mだが、遠距離5点を含む終端は
-    // 最大乱数位相で約3.2 kmとなる。約315 m周期まで含む天候場を視線位置で固定できない。
+    // layer.w は単純な層厚の逆数ではなく 1.6 / 層厚である。実際の単位で採取列を評価し、
+    // テスト側だけ距離を1.6倍へ誤算しない。
     constexpr f32 kLayerHeight = 2500.0f;
+    constexpr f32 kLayerCanonicalSpan = 1.6f;
+    constexpr f32 kMinimumJitterScale = 0.72f;
     constexpr f32 kMaximumJitterScale = 1.28f;
+    constexpr f32 kOldBaseStep = 0.012f;
+    constexpr f32 kOldStepGrowth = 1.65f;
+    constexpr f32 kBaseStep = 0.0075f;
+    constexpr f32 kStepGrowth = 1.8f;
     constexpr f32 kRegionalWeatherFinestSpan = 9127.0f / 29.0f;
     constexpr f32 kMaximumCurlValueDifference = 2.0f;
     constexpr f32 kCurlWarpMetres = 22.0f;
     constexpr f32 kMaximumSharedCurlPositionError =
         kMaximumCurlValueDifference * kCurlWarpMetres;
+    const f32 layerCanonicalScale =
+        kLayerCanonicalSpan / kLayerHeight;
+    EXPECT_NEAR(layerCanonicalScale, 0.00064f, 1e-8f);
+
+    // 新しい列は同じ8標本とほぼ同じ到達距離を保ち、遠方の天候再採取範囲を狭めない。
+    const f32 jitterScales[]{
+        kMinimumJitterScale, 1.0f, kMaximumJitterScale};
+    for (const f32 jitterScale : jitterScales) {
+        f32 oldStep =
+            kOldBaseStep / layerCanonicalScale * jitterScale;
+        f32 newStep = kBaseStep / layerCanonicalScale * jitterScale;
+        f32 oldDistance = 0.0f;
+        f32 newDistance = 0.0f;
+        f32 oldFarthestMidpoint = 0.0f;
+        f32 newFarthestMidpoint = 0.0f;
+        for (u32 lightSample = 0u;
+             lightSample < kVolumetricCloudMaxLightMarchSamples;
+             ++lightSample) {
+            oldFarthestMidpoint = oldDistance + 0.5f * oldStep;
+            newFarthestMidpoint = newDistance + 0.5f * newStep;
+            oldDistance += oldStep;
+            newDistance += newStep;
+            oldStep *= kOldStepGrowth;
+            newStep *= kStepGrowth;
+        }
+        EXPECT_TRUE(
+            std::fabs(newDistance - oldDistance) < oldDistance * 0.03f);
+        EXPECT_TRUE(
+            std::fabs(newFarthestMidpoint - oldFarthestMidpoint) <
+            oldFarthestMidpoint * 0.005f);
+    }
+
+    // 既定層では近距離3点だけが8～49 mの侵食帯域へ入り、4点目は最小位相でも
+    // 48 mを越える。最高周波数を遠距離標本へ強制しない境界を固定する。
+    f32 minimumDetailedStep =
+        kBaseStep / layerCanonicalScale * kMinimumJitterScale;
+    f32 maximumDetailedStep =
+        kBaseStep / layerCanonicalScale * kMaximumJitterScale;
+    f32 maximumNearEnd = 0.0f;
+    for (u32 lightSample = 0u; lightSample < 3u; ++lightSample) {
+        EXPECT_TRUE(
+            CloudDetailVisibilityFromSampleSpacingForTest(
+                minimumDetailedStep) > 0.0f);
+        maximumNearEnd += maximumDetailedStep;
+        minimumDetailedStep *= kStepGrowth;
+        maximumDetailedStep *= kStepGrowth;
+    }
+    EXPECT_TRUE(minimumDetailedStep > 48.0f);
+    EXPECT_TRUE(maximumDetailedStep > 48.0f);
+    EXPECT_NEAR(
+        CloudDetailVisibilityFromSampleSpacingForTest(
+            maximumDetailedStep / kStepGrowth),
+        0.0f, 0.0f);
+
     f32 expandingStep =
-        0.012f * kLayerHeight * kMaximumJitterScale;
+        kBaseStep / layerCanonicalScale * kMaximumJitterScale;
     f32 traveledDistance = 0.0f;
-    f32 nearEnd = 0.0f;
     f32 farthestMidpoint = 0.0f;
-    for (u32 lightSample = 0u; lightSample < 8u; ++lightSample) {
+    for (u32 lightSample = 0u;
+         lightSample < kVolumetricCloudMaxLightMarchSamples;
+         ++lightSample) {
         farthestMidpoint = traveledDistance + 0.5f * expandingStep;
         traveledDistance += expandingStep;
-        if (lightSample == 2u) nearEnd = traveledDistance;
-        expandingStep *= 1.65f;
+        expandingStep *= kStepGrowth;
     }
-    EXPECT_NEAR(nearEnd, 206.304f, 0.001f);
-    EXPECT_NEAR(farthestMidpoint, 2547.205f, 0.002f);
-    EXPECT_NEAR(traveledDistance, 3186.481f, 0.002f);
+    EXPECT_NEAR(maximumNearEnd, 90.600f, 0.001f);
+    EXPECT_NEAR(farthestMidpoint, 1588.328f, 0.002f);
+    EXPECT_NEAR(traveledDistance, 2047.493f, 0.002f);
     EXPECT_TRUE(
-        farthestMidpoint > kRegionalWeatherFinestSpan * 8.0f);
+        farthestMidpoint > kRegionalWeatherFinestSpan * 5.0f);
     EXPECT_NEAR(kMaximumSharedCurlPositionError, 44.0f, 1e-6f);
     EXPECT_TRUE(
         kMaximumSharedCurlPositionError <
@@ -3340,6 +3416,12 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
+    const std::string compactSource = CompactShader(source);
+    EXPECT_TRUE(Contains(shader, "floatlightStep=0.0075/max(layer.w,1e-4);"));
+    EXPECT_EQ(CountOccurrences(shader, "lightStep*=1.8;"), static_cast<std::size_t>(6));
+    EXPECT_FALSE(Contains(shader, "lightStep*=1.65;"));
+    EXPECT_TRUE(Contains(compactSource, "constf32lightStep=0.0075f/(layerCanonicalScale>0.0001f?layerCanonicalScale:0.0001f);"));
+    EXPECT_FALSE(Contains(compactSource, "constf32lightStep=0.012f/"));
     EXPECT_EQ(CountOccurrences(shader, "float3lightHalfStep=coneDir*(0.5*lightStep);"), static_cast<std::size_t>(3));
     EXPECT_EQ(CountOccurrences(shader, "lp+=lightHalfStep;"), static_cast<std::size_t>(6));
     EXPECT_FALSE(Contains(shader, "lp+=coneDir*lightStep;"));
@@ -3353,7 +3435,7 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
         EXPECT_EQ(CountOccurrences(cacheBody, "float3lightHalfStep=coneDir*(0.5*lightStep);"), static_cast<std::size_t>(1));
         EXPECT_EQ(CountOccurrences(cacheBody, "lp+=lightHalfStep;"), static_cast<std::size_t>(2));
         EXPECT_TRUE(Contains(cacheBody, "lp+=lightHalfStep;CloudMacroSamplelightMacro=sampleCloudMacroLighting(lp,coverage);"));
-        EXPECT_TRUE(Contains(cacheBody, "lightDepth+=lightDensity*lightStep*layer.w;lp+=lightHalfStep;lightStep*=1.65;"));
+        EXPECT_TRUE(Contains(cacheBody, "lightDepth+=lightDensity*lightStep*layer.w;lp+=lightHalfStep;lightStep*=1.8;"));
     }
     const std::size_t nearLoop = shader.find("[loop]for(intl=0;l<3;l++)");
     const std::size_t cacheAttempt = shader.find("if(!lightTerminated&&CLOUD_MAIN_SHADOW_CACHE_ENABLED){", nearLoop);
@@ -3394,7 +3476,7 @@ ACS_TEST(VolumetricClouds, LightDensityKeepsWeatherAndUpperLayerScalesAcrossEver
         EXPECT_TRUE(densityValue < densityScale);
     }
     EXPECT_TRUE(Contains(shader, "floatdens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,detailFrequencyWeight,detailVisibility)*density;"));
-    EXPECT_TRUE(Contains(shader, "floatlightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,0.65,1.0);"));
+    EXPECT_TRUE(Contains(shader, "floatlightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,lightDetailFrequencyWeight,lightDetailVisibility);"));
     EXPECT_TRUE(Contains(shader, "floatlowLodDensity=cloudLowLodDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask);"));
     EXPECT_FALSE(Contains(shader, "layerDensityScale"));
     EXPECT_FALSE(Contains(shader, "cloudLayerScales("));
@@ -5771,8 +5853,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "[loop]for(intl=3;l<8;l++){"));
     EXPECT_TRUE(Contains(
         shader,
-        "lightStep*=1.65;lightStep*=1.65;lightStep*=1.65;"));
-    EXPECT_FALSE(Contains(shader, "lightStep*=4.492125"));
+        "lightStep*=1.8;lightStep*=1.8;lightStep*=1.8;"));
+    EXPECT_FALSE(Contains(shader, "lightStep*=5.832"));
     EXPECT_TRUE(Contains(
         shader,
         "float2q=lp.xz-cloudWindWorld();"));
@@ -5865,7 +5947,7 @@ ACS_TEST(VolumetricClouds,
         shader,
         "floatlightDensity=sampleCloudFarLightingDensity("
         "lp,coverage,sharedLightCurl);"));
-    EXPECT_TRUE(Contains(shader, "floatlightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,0.65,1.0);"));
+    EXPECT_TRUE(Contains(shader, "floatlightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,lightDetailFrequencyWeight,lightDetailVisibility);"));
     // 視線側の天候と渦を共有するのは近距離3点だけで、基本形状は各点を採取する。
     EXPECT_TRUE(Contains(
         shader,
