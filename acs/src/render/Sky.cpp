@@ -38,6 +38,18 @@ struct VSOut {
     float2 ndc : TEXCOORD0;       // -1..+1 の 2D NDC
 };
 
+float3 CameraRelativeViewDirection(float2 ndc) {
+    // 遠点が無限遠になって w=0 でも、同次座標の xyz は透視投影の視線を保持する。
+    float4 farHomogeneous=mul(float4(ndc,1.0,1.0),inv_view_proj);
+    bool perspective=abs(inv_view_proj[2][3])>1.0e-7;
+    float3 candidate=perspective
+        ?farHomogeneous.xyz
+        :mul(float4(0.0,0.0,1.0,0.0),inv_view_proj).xyz;
+    float lengthSquared=dot(candidate,candidate);
+    return lengthSquared>1.0e-12&&lengthSquared<3.0e38
+        ?candidate*rsqrt(lengthSquared):float3(0.0,0.0,1.0);
+}
+
 VSOut VSMain(uint id : SV_VertexID) {
     // 大きな三角形を 1 枚張ってフルスクリーンを覆う
     float2 uv = float2((id << 1) & 2, id & 2);
@@ -138,10 +150,8 @@ float SkyDither(float2 pix, float t) {
 }
 
 float4 PSMain(VSOut v) : SV_TARGET {
-    // 1) NDC（z=1）からカメラ相対遠点を求め、そのまま視線へ直す。
-    float4 wp = mul(float4(v.ndc.x, -v.ndc.y, 1.0, 1.0), inv_view_proj);
-    wp.xyz /= wp.w;
-    float3 dir   = normalize(wp.xyz);
+    // 1) NDCからカメラ相対視線を復元する。
+    float3 dir   = CameraRelativeViewDirection(float2(v.ndc.x,-v.ndc.y));
     float3 sundn = normalize(sun_dir.xyz);
 
     // 2) 高さ角でグラデ。dir.y = 0 が地平線、+1 が天頂、-1 が真下。
@@ -1858,6 +1868,18 @@ float CloudJitter01(uint2 pixel) {
     return float(CloudJitterHash2D(pixel)>>8u)*(1.0/16777216.0);
 }
 
+float3 CloudViewDirection(float2 ndc) {
+    // far/near比がfloat精度を超えて遠点のwが0になっても、xyzから視線を復元する。
+    float4 farHomogeneous=mul(float4(ndc,1.0,1.0),invViewProj);
+    bool perspective=abs(invViewProj[2][3])>1.0e-7;
+    float3 candidate=perspective
+        ?farHomogeneous.xyz
+        :mul(float4(0.0,0.0,1.0,0.0),invViewProj).xyz;
+    float lengthSquared=dot(candidate,candidate);
+    return lengthSquared>1.0e-12&&lengthSquared<3.0e38
+        ?candidate*rsqrt(lengthSquared):float3(0.0,0.0,1.0);
+}
+
 [numthreads(8,8,1)]
 void CSCloud(uint3 tid : SV_DispatchThreadID){
     uint W=(uint)dims.x, H=(uint)dims.y;
@@ -1879,8 +1901,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     }
     float2 uv=(float2(rayPixel)+0.5)/rayDimensions;
     float4 clip=float4(uv.x*2-1, -(uv.y*2-1), 1, 1);
-    float4 wp=mul(clip, invViewProj); wp/=wp.w;
-    float3 dir=normalize(wp.xyz);
+    float3 dir=CloudViewDirection(clip.xy);
     float3 localUp=groundHorizon.xyz;
     float signedElevation=dot(dir,localUp);
     // The planet/ground occlusion boundary has no rasterizer coverage because
@@ -1911,15 +1932,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float2 yUv=(pixelCenter+float2(0.0,yOffset))/rayDimensions;
             float4 xClip=float4(xUv.x*2-1,-(xUv.y*2-1),1,1);
             float4 yClip=float4(yUv.x*2-1,-(yUv.y*2-1),1,1);
-            float4 xWp=mul(xClip,invViewProj);
-            float4 yWp=mul(yClip,invViewProj);
-            // Preserve the homogeneous sign exactly as the center ray does.
-            // abs(w) can flip adjacent rays for projection conventions whose
-            // far-plane inverse projection produces a negative w.
-            xWp/=xWp.w;
-            yWp/=yWp.w;
-            float xElevation=dot(normalize(xWp.xyz),localUp);
-            float yElevation=dot(normalize(yWp.xyz),localUp);
+            float xElevation=dot(CloudViewDirection(xClip.xy),localUp);
+            float yElevation=dot(CloudViewDirection(yClip.xy),localUp);
             float coverageHalfWidth=max(
                 0.5*(abs(xElevation-signedElevation)+
                      abs(yElevation-signedElevation)),1e-6);
@@ -2378,6 +2392,19 @@ float2 CurrentSamplePixel(int2 q,uint phaseIndex,bool temporalSuperRes) {
     }
     return samplePixel;
 }
+float3 ResolveViewDirection(float2 uv) {
+    float2 ndc=float2(uv.x*2.0-1.0,-(uv.y*2.0-1.0));
+    float4 farHomogeneous=mul(
+        float4(ndc,1.0,1.0),invViewProj);
+    bool perspective=abs(invViewProj[2][3])>1.0e-7;
+    float3 candidate=perspective
+        ?farHomogeneous.xyz
+        :mul(float4(0.0,0.0,1.0,0.0),invViewProj).xyz;
+    float lengthSquared=dot(candidate,candidate);
+    return lengthSquared>1.0e-12&&lengthSquared<3.0e38
+        ?candidate*rsqrt(lengthSquared):float3(0.0,0.0,1.0);
+}
+
 [numthreads(8,8,1)]
 void CSResolve(uint3 tid : SV_DispatchThreadID) {
     uint fullW=(uint)dims.z;
@@ -2453,12 +2480,7 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
         bool currentInterior=refC.a>0.12 && refD.x<=250000.0 &&
             abs(refC.a-sameScreenColor.a)<0.42;
         if(seedValid && currentInterior) {
-            float4 stableClip=float4(
-                uv.x*2.0-1.0,-(uv.y*2.0-1.0),1.0,1.0);
-            float4 stableFarP=mul(stableClip,invViewProj);
-            float stableInvW=abs(stableFarP.w)>1e-6
-                ?rcp(stableFarP.w):0.0;
-            float3 stableRay=normalize(stableFarP.xyz*stableInvW);
+            float3 stableRay=ResolveViewDirection(uv);
             float stableWindDelta=params.z-temporal.y;
             // 現在の相対位置へカメラ移動量と風の逆移流だけを加え、
             // 大きなワールド座標を経由せず前フレームの位置を作る。
@@ -2589,10 +2611,7 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     bool historyAccepted=false;
     if(temporal.x>0.5 &&
        reprojectionDepth<=250000.0 && seedDepth.y>0.001) {
-        float4 clip=float4(uv.x*2.0-1.0,-(uv.y*2.0-1.0),1.0,1.0);
-        float4 farP=mul(clip,invViewProj);
-        float invW=(abs(farP.w)>1e-6)?rcp(farP.w):0.0;
-        float3 ray=normalize(farP.xyz*invW);
+        float3 ray=ResolveViewDirection(uv);
         // 同じ密度形状を前フレームへ戻す。相対位置へカメラ移動量を加え、
         // 風の移流量を引くことで、ワールド固定を保ったまま精度低下を避ける。
         float windDelta=params.z-temporal.y;
@@ -2717,15 +2736,23 @@ SamplerState cloudTex_sampler : register(s0);
 SamplerState sceneDepth_sampler : register(s1);
 SamplerState cloudDepth_sampler : register(s2);
 struct VSOut { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; float4 farPoint:TEXCOORD1; };
+float3 CloudCompositeViewDirection(float4 farHomogeneous) {
+    bool perspective=abs(invViewProj[2][3])>1.0e-7;
+    float3 candidate=perspective
+        ?farHomogeneous.xyz
+        :mul(float4(0.0,0.0,1.0,0.0),invViewProj).xyz;
+    float lengthSquared=dot(candidate,candidate);
+    return lengthSquared>1.0e-12&&lengthSquared<3.0e38
+        ?candidate*rsqrt(lengthSquared):float3(0.0,0.0,1.0);
+}
 // 履歴へ混ぜず、表示する全解像度画素で地平線被覆を一度だけ求める。
 float CloudGroundCoverage(VSOut v) {
     float result=1.0;
     if(groundHorizon.w>=-1.0) {
         uint2 fullSize=max(uint2(dims.zw),uint2(1,1));
         uint2 pixel=min(uint2(v.pos.xy),fullSize-1u);
-        float4 centerFarP=v.farPoint;
-        centerFarP/=centerFarP.w;
-        float centerElevation=dot(normalize(centerFarP.xyz),groundHorizon.xyz);
+        float centerElevation=dot(
+            CloudCompositeViewDirection(v.farPoint),groundHorizon.xyz);
         if(centerElevation<groundHorizon.w-0.02) {
             result=0.0;
         } else if(centerElevation<groundHorizon.w+0.02) {
@@ -2734,10 +2761,8 @@ float CloudGroundCoverage(VSOut v) {
             // 同次遠点は画面座標に対して線形なので、行列の対応行だけで隣接画素へ進める。
             float4 xFarP=v.farPoint+xOffset*(2.0/dims.z)*invViewProj[0];
             float4 yFarP=v.farPoint-yOffset*(2.0/dims.w)*invViewProj[1];
-            xFarP/=xFarP.w;
-            yFarP/=yFarP.w;
-            float xElevation=dot(normalize(xFarP.xyz),groundHorizon.xyz);
-            float yElevation=dot(normalize(yFarP.xyz),groundHorizon.xyz);
+            float xElevation=dot(CloudCompositeViewDirection(xFarP),groundHorizon.xyz);
+            float yElevation=dot(CloudCompositeViewDirection(yFarP),groundHorizon.xyz);
             float coverageHalfWidth=max(0.5*(abs(xElevation-centerElevation)+abs(yElevation-centerElevation)),1e-6);
             result=smoothstep(groundHorizon.w-coverageHalfWidth,groundHorizon.w+coverageHalfWidth,centerElevation);
         }
@@ -2818,15 +2843,23 @@ SamplerState cloudDepth_sampler : register(s2);
 SamplerState atmosphereVolume_sampler : register(s3);
 SamplerState atmosphereTransmittance_sampler : register(s4);
 struct VSOut { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; float4 farPoint:TEXCOORD1; };
+float3 CloudCompositeViewDirection(float4 farHomogeneous) {
+    bool perspective=abs(invViewProj[2][3])>1.0e-7;
+    float3 candidate=perspective
+        ?farHomogeneous.xyz
+        :mul(float4(0.0,0.0,1.0,0.0),invViewProj).xyz;
+    float lengthSquared=dot(candidate,candidate);
+    return lengthSquared>1.0e-12&&lengthSquared<3.0e38
+        ?candidate*rsqrt(lengthSquared):float3(0.0,0.0,1.0);
+}
 // 履歴へ混ぜず、表示する全解像度画素で地平線被覆を一度だけ求める。
 float CloudGroundCoverage(VSOut v) {
     float result=1.0;
     if(groundHorizon.w>=-1.0) {
         uint2 fullSize=max(uint2(dims.zw),uint2(1,1));
         uint2 pixel=min(uint2(v.pos.xy),fullSize-1u);
-        float4 centerFarP=v.farPoint;
-        centerFarP/=centerFarP.w;
-        float centerElevation=dot(normalize(centerFarP.xyz),groundHorizon.xyz);
+        float centerElevation=dot(
+            CloudCompositeViewDirection(v.farPoint),groundHorizon.xyz);
         if(centerElevation<groundHorizon.w-0.02) {
             result=0.0;
         } else if(centerElevation<groundHorizon.w+0.02) {
@@ -2835,10 +2868,8 @@ float CloudGroundCoverage(VSOut v) {
             // 同次遠点は画面座標に対して線形なので、行列の対応行だけで隣接画素へ進める。
             float4 xFarP=v.farPoint+xOffset*(2.0/dims.z)*invViewProj[0];
             float4 yFarP=v.farPoint-yOffset*(2.0/dims.w)*invViewProj[1];
-            xFarP/=xFarP.w;
-            yFarP/=yFarP.w;
-            float xElevation=dot(normalize(xFarP.xyz),groundHorizon.xyz);
-            float yElevation=dot(normalize(yFarP.xyz),groundHorizon.xyz);
+            float xElevation=dot(CloudCompositeViewDirection(xFarP),groundHorizon.xyz);
+            float yElevation=dot(CloudCompositeViewDirection(yFarP),groundHorizon.xyz);
             float coverageHalfWidth=max(0.5*(abs(xElevation-centerElevation)+abs(yElevation-centerElevation)),1e-6);
             result=smoothstep(groundHorizon.w-coverageHalfWidth,groundHorizon.w+coverageHalfWidth,centerElevation);
         }
@@ -3003,46 +3034,8 @@ bool IsFiniteCloudMatrix(const FMat4& value) noexcept {
 bool UnprojectCloudViewDirection(const FMat4& inverse_view_projection,
                                  f32 ndc_x, f32 ndc_y,
                                  FVec3& direction) noexcept {
-    const FVec4 nearHomogeneous = Transform(
-        FVec4{ndc_x, ndc_y, 0.0f, 1.0f}, inverse_view_projection);
-    const FVec4 farHomogeneous = Transform(
-        FVec4{ndc_x, ndc_y, 1.0f, 1.0f}, inverse_view_projection);
-    if (!std::isfinite(nearHomogeneous.x) ||
-        !std::isfinite(nearHomogeneous.y) ||
-        !std::isfinite(nearHomogeneous.z) ||
-        !std::isfinite(nearHomogeneous.w) ||
-        !std::isfinite(farHomogeneous.x) ||
-        !std::isfinite(farHomogeneous.y) ||
-        !std::isfinite(farHomogeneous.z) ||
-        !std::isfinite(farHomogeneous.w) ||
-        std::fabs(nearHomogeneous.w) <= 1e-7f ||
-        std::fabs(farHomogeneous.w) <= 1e-7f) {
-        return false;
-    }
-
-    const f32 nearInvW = 1.0f / nearHomogeneous.w;
-    const f32 farInvW = 1.0f / farHomogeneous.w;
-    const FVec3 nearPoint{
-        nearHomogeneous.x * nearInvW,
-        nearHomogeneous.y * nearInvW,
-        nearHomogeneous.z * nearInvW};
-    const FVec3 farPoint{
-        farHomogeneous.x * farInvW,
-        farHomogeneous.y * farInvW,
-        farHomogeneous.z * farInvW};
-    const FVec3 ray{
-        farPoint.x - nearPoint.x,
-        farPoint.y - nearPoint.y,
-        farPoint.z - nearPoint.z};
-    const f32 rayLengthSquared =
-        ray.x * ray.x + ray.y * ray.y + ray.z * ray.z;
-    if (!std::isfinite(rayLengthSquared) || rayLengthSquared <= 1e-12f) {
-        return false;
-    }
-    const f32 inverseLength = 1.0f / Sqrt(rayLengthSquared);
-    direction = FVec3{ray.x * inverseLength, ray.y * inverseLength,
-                      ray.z * inverseLength};
-    return IsFiniteCloudVector(direction);
+    return TryBuildCameraRelativeViewDirection(
+        inverse_view_projection, ndc_x, ndc_y, direction);
 }
 
 FVec3 SanitizeCloudRadiance(FVec3 value, FVec3 fallback) noexcept {

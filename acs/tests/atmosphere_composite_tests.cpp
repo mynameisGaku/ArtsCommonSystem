@@ -133,9 +133,11 @@ ACS_TEST(Atmosphere, CameraRelativeRaysPreserveFarWorldPrecision) {
     EXPECT_TRUE(!compositeShader.empty());
     EXPECT_TRUE(!editorSource.empty());
 
-    // 体積表の視線は大きなワールド位置同士を減算せず、相対遠点を直接使う。
+    // 体積表の視線は大きなワールド位置を減算せず、無限遠の同次座標も方向として使う。
     EXPECT_TRUE(Contains(volumeShader, "float4x4 cameraRelativeInvViewProj;"));
-    EXPECT_TRUE(Contains(volumeShader, "float3 cameraRelativeDirection=cameraRelativeFar.xyz*invW;"));
+    EXPECT_TRUE(Contains(volumeShader, "float3 CameraRelativeViewDirection(float2 ndc)"));
+    EXPECT_TRUE(Contains(volumeShader, "float3 dir=CameraRelativeViewDirection(ndc);"));
+    EXPECT_FALSE(Contains(volumeShader, "farHomogeneous.xyz/farHomogeneous.w"));
     EXPECT_FALSE(Contains(volumeShader, "-camPos.xyz"));
 
     // 深度合成もカメラ相対位置の長さを使い、遠方で有効桁を失わない。

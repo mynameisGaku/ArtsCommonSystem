@@ -516,9 +516,11 @@ ACS_TEST(LinearLightingContract, SkyboxUsesCameraRelativeRaysAtFarWorldCoordinat
     EXPECT_TRUE(!source.empty());
     EXPECT_TRUE(!skybox.empty());
 
-    // 環境空は巨大なワールド位置を復元せず、カメラ相対遠点を直接正規化する。
+    // 環境空は巨大なワールド位置を復元せず、無限遠の同次座標も視線として扱う。
     EXPECT_TRUE(Contains(skybox, "float4x4 camera_relative_inv_view_proj;"));
-    EXPECT_TRUE(Contains(skybox, "float3 dir = normalize(camera_relative_position.xyz / safe_w);"));
+    EXPECT_TRUE(Contains(skybox, "float3 CameraRelativeViewDirection(float2 ndc)"));
+    EXPECT_TRUE(Contains(skybox, "float3 dir=CameraRelativeViewDirection(float2(v.ndc.x,-v.ndc.y));"));
+    EXPECT_FALSE(Contains(skybox, "farHomogeneous.xyz/farHomogeneous.w"));
     EXPECT_FALSE(Contains(skybox, "wp.xyz - eye.xyz"));
     EXPECT_FALSE(Contains(skybox, "float4   eye;"));
 

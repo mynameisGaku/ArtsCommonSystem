@@ -2,6 +2,7 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "gameframework/OrbitCameraController3D.h"
+#include "math/Camera.h"
 #include "math/Math.h"
 
 #include <cmath>
@@ -321,6 +322,67 @@ ACS_TEST(OrbitCameraController3D, BuildsLegacyCompatibleLeftHandedView)
     EXPECT_NEAR(view.eye.z, -4.0f, 1.0e-6f);
     EXPECT_NEAR(view.look_at.z, 4.0f, 1.0e-6f);
     EXPECT_NEAR(view.up.y, 1.0f, 1.0e-6f);
+}
+
+ACS_TEST(OrbitCameraController3D, CameraRelativeCenterRayMatchesDownwardView)
+{
+    /** 上層雲を上空から見るときと同じ下向き軌道camera状態。 */
+    COrbitCameraController3D controller;
+    COrbitCameraController3D::FOrbitCameraState3D state{};
+    state.target = FVec3{0.0f, 6000.0f, 0.0f};
+    state.pitch_radians = 1.2f;
+    state.distance = 6000.0f;
+    COrbitCameraController3D::FOrbitCameraView3D view{};
+    EXPECT_TRUE(controller.TryBuildView(state, view));
+
+    /** 実描画と同じ投影とcamera相対逆行列。 */
+    CCamera camera;
+    camera.SetPerspective(55.0f * kDeg2Rad, 16.0f / 9.0f, 0.05f, 1201000.0f);
+    const FVec3 expected_direction{
+        0.0f, -Sin(state.pitch_radians), Cos(state.pitch_radians)};
+    camera.SetLookDirection(view.eye, expected_direction, view.up);
+    const FMat4 inverse_view_projection =
+        BuildCameraRelativeInverseViewProjection(camera.View(), camera.Projection());
+
+    /** 実際に遠点が無限遠へ丸められる投影比であることを固定する。 */
+    const FVec4 far_homogeneous = Transform(
+        FVec4{0.0f, 0.0f, 1.0f, 1.0f}, inverse_view_projection);
+    EXPECT_TRUE(Abs(far_homogeneous.w) <= 1.0e-7f);
+
+    /** 同次wで割らず、画面中央の視線を安全に復元する。 */
+    FVec3 reconstructed_direction{};
+    EXPECT_TRUE(TryBuildCameraRelativeViewDirection(
+        inverse_view_projection, 0.0f, 0.0f, reconstructed_direction));
+
+    EXPECT_TRUE(reconstructed_direction.y < 0.0f);
+    EXPECT_NEAR(reconstructed_direction.x, expected_direction.x, 1.0e-5f);
+    EXPECT_NEAR(reconstructed_direction.y, expected_direction.y, 1.0e-5f);
+    EXPECT_NEAR(reconstructed_direction.z, expected_direction.z, 1.0e-5f);
+}
+
+ACS_TEST(OrbitCameraController3D, CameraRelativeOrthographicRaysRemainParallel)
+{
+    /** 正射影でも画面端の視線がカメラ前方と平行になる設定。 */
+    const FVec3 expected_direction = Normalize(FVec3{0.25f, -0.5f, 1.0f});
+    CCamera camera;
+    camera.SetOrthographic(160.0f, 90.0f, 0.05f, 250000.0f);
+    camera.SetLookDirection(
+        FVec3{64000.0f, 8000.0f, 96000.0f}, expected_direction);
+    const FMat4 inverse_view_projection =
+        BuildCameraRelativeInverseViewProjection(camera.View(), camera.Projection());
+
+    FVec3 left_top_direction{};
+    FVec3 right_bottom_direction{};
+    EXPECT_TRUE(TryBuildCameraRelativeViewDirection(
+        inverse_view_projection, -0.9f, 0.9f, left_top_direction));
+    EXPECT_TRUE(TryBuildCameraRelativeViewDirection(
+        inverse_view_projection, 0.9f, -0.9f, right_bottom_direction));
+    EXPECT_NEAR(left_top_direction.x, expected_direction.x, 1.0e-5f);
+    EXPECT_NEAR(left_top_direction.y, expected_direction.y, 1.0e-5f);
+    EXPECT_NEAR(left_top_direction.z, expected_direction.z, 1.0e-5f);
+    EXPECT_NEAR(right_bottom_direction.x, expected_direction.x, 1.0e-5f);
+    EXPECT_NEAR(right_bottom_direction.y, expected_direction.y, 1.0e-5f);
+    EXPECT_NEAR(right_bottom_direction.z, expected_direction.z, 1.0e-5f);
 }
 
 ACS_TEST(OrbitCameraController3D, InvalidStateDoesNotOverwriteView)

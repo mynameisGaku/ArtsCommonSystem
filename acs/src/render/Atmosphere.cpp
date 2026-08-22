@@ -699,17 +699,27 @@ float FogPhase(float cosTheta,float g) {
   return (1.0-g2)/(d*sqrt(d));
 }
 
+float3 CameraRelativeViewDirection(float2 ndc) {
+  // 透視投影の遠点が無限遠になっても、同次xyzは正しい視線を保持する。
+  float4 farHomogeneous=mul(
+      float4(ndc,1.0,1.0),cameraRelativeInvViewProj);
+  bool perspective=abs(cameraRelativeInvViewProj[2][3])>1.0e-7;
+  float3 candidate=perspective
+      ?farHomogeneous.xyz
+      :mul(float4(0.0,0.0,1.0,0.0),
+           cameraRelativeInvViewProj).xyz;
+  float lengthSquared=dot(candidate,candidate);
+  return lengthSquared>1.0e-12&&lengthSquared<3.0e38
+      ?candidate*rsqrt(lengthSquared):float3(0.0,0.0,1.0);
+}
+
 void IntegrateAp(uint3 id,uint W,uint H,uint D,
                  out float3 L,out float3 Tview) {
   float2 uv=(float2(id.xy)+0.5)/float2(W,H);
   float sliceN=(float(id.z)+0.5)/float(D);
   float tScene=sliceN*sliceN*apParams.z;                   // 近傍を密にする深度分布
-  float4 clip=float4(uv.x*2.0-1.0,-(uv.y*2.0-1.0),1.0,1.0);
-  float4 cameraRelativeFar=mul(clip,cameraRelativeInvViewProj);
-  float invW=(abs(cameraRelativeFar.w)>1e-6)?rcp(cameraRelativeFar.w):0.0;
-  float3 cameraRelativeDirection=cameraRelativeFar.xyz*invW;
-  float directionLengthSquared=dot(cameraRelativeDirection,cameraRelativeDirection);
-  float3 dir=directionLengthSquared>1e-12?cameraRelativeDirection*rsqrt(directionLengthSquared):float3(0.0,0.0,1.0);
+  float2 ndc=float2(uv.x*2.0-1.0,-(uv.y*2.0-1.0));
+  float3 dir=CameraRelativeViewDirection(ndc);
   float3 P0=float3(0.0,kBottom+apParams.y,0.0);
   float3 sd=normalize(sunDir.xyz);
   float cosVS=dot(dir,sd);

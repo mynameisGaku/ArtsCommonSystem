@@ -36,6 +36,58 @@ inline FMat4 BuildCameraRelativeInverseViewProjection(const FMat4& view, const F
 }
 
 /**
+ * カメラ相対逆行列から画面上の視線方向を復元する。
+ *
+ * @details 遠クリップ面と近クリップ面の比が大きい透視投影では、遠点の同次座標 w が
+ * 0 に丸められて無限遠点になる。この場合も xyz は視線方向を保持するため、w では割らない。
+ * 正射影では画面位置によらない Z 方向を逆変換する。
+ * @param inverse_view_projection カメラ位置を含まない逆ビュープロジェクション行列。
+ * @param ndc_x 画面の X 座標 (-1から1)。
+ * @param ndc_y 画面の Y 座標 (-1から1)。
+ * @param direction 成功時に書き込む正規化済み視線方向。
+ * @return 有効な視線を復元できた場合はtrue。
+ */
+inline bool TryBuildCameraRelativeViewDirection(
+    const FMat4& inverse_view_projection,
+    f32 ndc_x,
+    f32 ndc_y,
+    FVec3& direction) noexcept {
+    /** 透視投影では無限遠点を含めて視線方向を保持する同次座標。 */
+    const FVec4 far_homogeneous = Transform(
+        FVec4{ndc_x, ndc_y, 1.0f, 1.0f}, inverse_view_projection);
+    /** 逆投影の Z 行が w を変える場合は透視投影。 */
+    const bool perspective = Abs(inverse_view_projection.m[2][3]) > 1.0e-7f;
+    /** 正射影では画面位置に依存しない奥行き方向を使う。 */
+    const FVec4 orthographic_homogeneous = perspective
+        ? FVec4{}
+        : Transform(FVec4{0.0f, 0.0f, 1.0f, 0.0f}, inverse_view_projection);
+    const FVec3 candidate = perspective
+        ? FVec3{far_homogeneous.x, far_homogeneous.y, far_homogeneous.z}
+        : FVec3{orthographic_homogeneous.x, orthographic_homogeneous.y,
+                orthographic_homogeneous.z};
+    /** 非数と無限大は比較結果または長さ上限で拒否する。 */
+    const f32 length_squared =
+        candidate.x * candidate.x + candidate.y * candidate.y +
+        candidate.z * candidate.z;
+    constexpr f32 kMaximumFinite = 3.402823466e+38f;
+    if (!(length_squared > 1.0e-12f) || length_squared > kMaximumFinite) {
+        return false;
+    }
+    const f32 inverse_length = 1.0f / Sqrt(length_squared);
+    const FVec3 resolved{
+        candidate.x * inverse_length,
+        candidate.y * inverse_length,
+        candidate.z * inverse_length};
+    if (!(resolved.x == resolved.x) || !(resolved.y == resolved.y) ||
+        !(resolved.z == resolved.z) || Abs(resolved.x) > 1.0f ||
+        Abs(resolved.y) > 1.0f || Abs(resolved.z) > 1.0f) {
+        return false;
+    }
+    direction = resolved;
+    return true;
+}
+
+/**
  * ビュー行列とプロジェクション行列を保持するカメラヘルパ。
  *
  * @details

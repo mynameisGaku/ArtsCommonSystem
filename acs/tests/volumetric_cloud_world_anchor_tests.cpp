@@ -5064,14 +5064,14 @@ ACS_TEST(VolumetricClouds, CameraRelativeInverseViewProjectionIgnoresFarWorldTra
     EXPECT_TRUE(Contains(compactSource, "cb.invViewProj=camera_relative_inv_view_proj;"));
     EXPECT_TRUE(Contains(compactSource, "voidCVolumetricClouds::RenderComputeCameraRelative("));
     EXPECT_TRUE(Contains(compactSource, "cb.inv_view_proj=BuildCameraRelativeInverseViewProjection(camera.View(),camera.Projection());"));
-    EXPECT_TRUE(Contains(skyShader, "float3dir=normalize(wp.xyz);"));
-    EXPECT_FALSE(Contains(skyShader, "wp.xyz-camera_pos.xyz"));
-    EXPECT_TRUE(Contains(shader, "float3dir=normalize(wp.xyz);"));
-    EXPECT_TRUE(Contains(shader, "floatxElevation=dot(normalize(xWp.xyz),localUp);floatyElevation=dot(normalize(yWp.xyz),localUp);"));
-    EXPECT_FALSE(Contains(shader, "wp.xyz-camPos.xyz"));
-    EXPECT_TRUE(Contains(resolveShader, "float3stableRay=normalize(stableFarP.xyz*stableInvW);"));
-    EXPECT_TRUE(Contains(resolveShader, "float3ray=normalize(farP.xyz*invW);"));
-    EXPECT_FALSE(Contains(resolveShader, "farP.xyz*invW-camPos.xyz"));
+    EXPECT_TRUE(Contains(skyShader, "float3dir=CameraRelativeViewDirection(float2(v.ndc.x,-v.ndc.y));"));
+    EXPECT_FALSE(Contains(skyShader, "farHomogeneous.xyz/farHomogeneous.w"));
+    EXPECT_TRUE(Contains(shader, "float3dir=CloudViewDirection(clip.xy);"));
+    EXPECT_TRUE(Contains(shader, "floatxElevation=dot(CloudViewDirection(xClip.xy),localUp);floatyElevation=dot(CloudViewDirection(yClip.xy),localUp);"));
+    EXPECT_FALSE(Contains(shader, "farHomogeneous.xyz/farHomogeneous.w"));
+    EXPECT_TRUE(Contains(resolveShader, "float3stableRay=ResolveViewDirection(uv);"));
+    EXPECT_TRUE(Contains(resolveShader, "float3ray=ResolveViewDirection(uv);"));
+    EXPECT_FALSE(Contains(resolveShader, "farHomogeneous.xyz/farHomogeneous.w"));
     EXPECT_TRUE(Contains(resolveShader, "float3stablePrevCameraRelativeP=stableRay*sameScreenDepth.x+(camPos.xyz-prevCamPos.xyz)-float3(stableWindDelta*0.9284767,0.0,stableWindDelta*0.3713907);"));
     EXPECT_TRUE(Contains(resolveShader, "float3prevCameraRelativeP=ray*reprojectionDepth+(camPos.xyz-prevCamPos.xyz)-float3(windDelta*0.9284767,0.0,windDelta*0.3713907);"));
     EXPECT_TRUE(Contains(resolveShader, "float4(prevCameraRelativeP,1.0),prevCameraRelativeViewProj"));
@@ -5081,7 +5081,7 @@ ACS_TEST(VolumetricClouds, CameraRelativeInverseViewProjectionIgnoresFarWorldTra
     const std::string compositeShaders[]{
         compositeShader, atmosphereCompositeShader};
     for (const std::string& composite : compositeShaders) {
-        EXPECT_TRUE(Contains(composite, "floatcenterElevation=dot(normalize(centerFarP.xyz),groundHorizon.xyz);"));
+        EXPECT_TRUE(Contains(composite, "floatcenterElevation=dot(CloudCompositeViewDirection(v.farPoint),groundHorizon.xyz);"));
         EXPECT_TRUE(Contains(composite, "floatsceneDistance=length(world.xyz);"));
         EXPECT_FALSE(Contains(composite, "world.xyz-camPos.xyz"));
     }
@@ -5127,8 +5127,12 @@ ACS_TEST(VolumetricClouds,
         "floatcoverageHalfWidth=max("
         "0.5*(abs(xElevation-signedElevation)+"
         "abs(yElevation-signedElevation)),1e-6);"));
-    EXPECT_TRUE(Contains(shader, "xWp/=xWp.w;yWp/=yWp.w;"));
-    EXPECT_FALSE(Contains(shader, "xWp/=max(abs(xWp.w),1e-6);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatxElevation=dot(CloudViewDirection(xClip.xy),localUp);"
+        "floatyElevation=dot(CloudViewDirection(yClip.xy),localUp);"));
+    EXPECT_FALSE(Contains(shader, "xWp/="));
+    EXPECT_FALSE(Contains(shader, "yWp/="));
     EXPECT_TRUE(Contains(
         shader,
         "groundHorizonCoverage=smoothstep("
@@ -5169,8 +5173,8 @@ ACS_TEST(VolumetricClouds,
         EXPECT_TRUE(Contains(composite, "float4worldOrigin;float4shadowGrid;float4shadowState;float4groundHorizon;"));
         EXPECT_TRUE(Contains(composite, "structVSOut{float4pos:SV_POSITION;float2uv:TEXCOORD0;float4farPoint:TEXCOORD1;};"));
         EXPECT_TRUE(Contains(composite, "floatCloudGroundCoverage(VSOutv){floatresult=1.0;if(groundHorizon.w>=-1.0){"));
-        EXPECT_TRUE(Contains(composite, "uint2pixel=min(uint2(v.pos.xy),fullSize-1u);float4centerFarP=v.farPoint;centerFarP/=centerFarP.w;"));
-        EXPECT_TRUE(Contains(composite, "floatcenterElevation=dot(normalize(centerFarP.xyz),groundHorizon.xyz);"));
+        EXPECT_TRUE(Contains(composite, "uint2pixel=min(uint2(v.pos.xy),fullSize-1u);floatcenterElevation=dot(CloudCompositeViewDirection(v.farPoint),groundHorizon.xyz);"));
+        EXPECT_TRUE(Contains(composite, "float3CloudCompositeViewDirection(float4farHomogeneous)"));
         EXPECT_TRUE(Contains(composite, "float4xFarP=v.farPoint+xOffset*(2.0/dims.z)*invViewProj[0];float4yFarP=v.farPoint-yOffset*(2.0/dims.w)*invViewProj[1];"));
         EXPECT_TRUE(Contains(composite, "floatcoverageHalfWidth=max(0.5*(abs(xElevation-centerElevation)+abs(yElevation-centerElevation)),1e-6);"));
         EXPECT_TRUE(Contains(composite, "result=smoothstep(groundHorizon.w-coverageHalfWidth,groundHorizon.w+coverageHalfWidth,centerElevation);"));
@@ -5178,6 +5182,8 @@ ACS_TEST(VolumetricClouds,
         EXPECT_FALSE(Contains(composite, "centerFarP=mul("));
         EXPECT_FALSE(Contains(composite, "xFarP=mul("));
         EXPECT_FALSE(Contains(composite, "yFarP=mul("));
+        EXPECT_FALSE(Contains(composite, "xFarP/=xFarP.w"));
+        EXPECT_FALSE(Contains(composite, "yFarP/=yFarP.w"));
         EXPECT_FALSE(Contains(composite, "cloud.rgb*=groundCoverage"));
         const std::size_t coverageCall = composite.find("floatgroundCoverage=CloudGroundCoverage(v);");
         const std::size_t sceneDepthRead = composite.find("floatdepth=sceneDepth.SampleLevel", coverageCall);

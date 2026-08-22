@@ -239,6 +239,20 @@ struct VSOut {
     float2 ndc : TEXCOORD0;
 };
 
+float3 CameraRelativeViewDirection(float2 ndc) {
+    // 遠点が無限遠になってw=0でも、透視投影の同次xyzは視線を保持する。
+    float4 farHomogeneous=mul(
+        float4(ndc,1.0,1.0),camera_relative_inv_view_proj);
+    bool perspective=abs(camera_relative_inv_view_proj[2][3])>1.0e-7;
+    float3 candidate=perspective
+        ?farHomogeneous.xyz
+        :mul(float4(0.0,0.0,1.0,0.0),
+             camera_relative_inv_view_proj).xyz;
+    float lengthSquared=dot(candidate,candidate);
+    return lengthSquared>1.0e-12&&lengthSquared<3.0e38
+        ?candidate*rsqrt(lengthSquared):float3(0.0,0.0,1.0);
+}
+
 VSOut VSMain(uint id : SV_VertexID) {
     float2 uv = float2((id << 1) & 2, id & 2);
     VSOut o;
@@ -249,10 +263,8 @@ VSOut VSMain(uint id : SV_VertexID) {
 }
 
 float4 PSMain(VSOut v) : SV_TARGET {
-    // 遠平面からカメラ相対位置を復元し、遠方座標でも視線精度を保つ。
-    float4 camera_relative_position = mul(float4(v.ndc.x, -v.ndc.y, 1.0, 1.0), camera_relative_inv_view_proj);
-    float safe_w = abs(camera_relative_position.w) > 1.0e-6 ? camera_relative_position.w : (camera_relative_position.w < 0.0 ? -1.0e-6 : 1.0e-6);
-    float3 dir = normalize(camera_relative_position.xyz / safe_w);
+    // 遠方座標でも有限遠点への同次除算に依存せず視線精度を保つ。
+    float3 dir=CameraRelativeViewDirection(float2(v.ndc.x,-v.ndc.y));
     float3 sky = env.SampleLevel(env_sampler, dir, mip_pad.x).rgb;
 
     // 太陽円盤は低解像度の環境地図へ焼かず、最終表示解像度で評価する。
