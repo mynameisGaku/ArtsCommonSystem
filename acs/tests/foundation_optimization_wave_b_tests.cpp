@@ -36,6 +36,9 @@ static_assert(CFileSystem::ClassifyExtension(L"C:\\雲\\設定.AcPaK") == EFileE
 static_assert(CFileSystem::ClassifyExtension("content/.ini") == EFileExtensionKind::Unknown);
 static_assert(CFileSystem::ClassifyExtension("content/name.") == EFileExtensionKind::Unknown);
 static_assert(CFileSystem::ClassifyExtension(L"content/設定.データ") == EFileExtensionKind::Unknown);
+static_assert(CFileSystem::IsAscii(static_cast<signed char>(0x7f)));
+static_assert(!CFileSystem::IsAscii(static_cast<signed char>(-1)));
+static_assert(!CFileSystem::IsAscii(static_cast<wchar_t>(0x80)));
 
 namespace {
 

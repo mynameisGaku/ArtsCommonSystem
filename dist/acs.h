@@ -82671,7 +82671,6 @@ u32 AcsRegisterEngineTypes() noexcept;
 #include <cstdio>    // snprintf (戻り値の文字列化)
 #include <cmath>     // f32の有限値判定
 #include <system_error>
-#include <type_traits>
 
 namespace acs::game {
 
@@ -82901,7 +82900,7 @@ namespace detail {
 template <typename TValue>
 inline bool TryParseMethodNumericArgument(const char* text, TValue& out) noexcept
 {
-    static_assert(std::is_same_v<TValue, f32> || std::is_same_v<TValue, i32>);
+    static_assert(IsSameV<TValue, f32> || IsSameV<TValue, i32>);
     if (text == nullptr || *text == '\0') return false;
 
     // 符号を除いた構文走査の開始位置。
@@ -82919,7 +82918,7 @@ inline bool TryParseMethodNumericArgument(const char* text, TValue& out) noexcep
         ++cursor;
     }
 
-    if constexpr (std::is_same_v<TValue, f32>) {
+    if constexpr (IsSameV<TValue, f32>) {
         if (*cursor == '.') {
             ++cursor;
             while (*cursor >= '0' && *cursor <= '9') {
@@ -82944,7 +82943,7 @@ inline bool TryParseMethodNumericArgument(const char* text, TValue& out) noexcep
     // 先頭+だけを除き、-はfrom_charsへ渡して符号を保つ。
     const char* conversion_begin = *text == '+' ? text + 1 : text;
     TValue parsed{};
-    if constexpr (std::is_same_v<TValue, f32>) {
+    if constexpr (IsSameV<TValue, f32>) {
         const bool negative = *text == '-';
         const std::from_chars_result conversion = std::from_chars(conversion_begin, cursor, parsed, std::chars_format::general);
         if (conversion.ec != std::errc{} || conversion.ptr != cursor || !std::isfinite(parsed)) return false;
@@ -101195,8 +101194,6 @@ struct FFileSystemDiagnostics {
 
 } // namespace acs
 
-#include <type_traits>
-
 namespace acs {
 
 /** ファイル I/O とパス操作のユーティリティ (全メソッド static、Win32 実装)。 */
@@ -101221,9 +101218,8 @@ public:
      */
     template<typename Char>
     static constexpr bool IsAscii(Char value) noexcept {
-        /** 符号なしへ変換した文字型。 */
-        using U = std::make_unsigned_t<Char>;
-        return static_cast<U>(value) <= static_cast<U>(0x7f);
+        return value >= static_cast<Char>(0) &&
+               value <= static_cast<Char>(0x7f);
     }
 
     /**

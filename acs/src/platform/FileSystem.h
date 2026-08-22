@@ -8,8 +8,6 @@
 #include "platform/FileExtensionKind.h"
 #include "platform/FileSystemDiagnostics.h"
 
-#include <type_traits>
-
 namespace acs {
 
 /** ファイル I/O とパス操作のユーティリティ (全メソッド static、Win32 実装)。 */
@@ -34,9 +32,8 @@ public:
      */
     template<typename Char>
     static constexpr bool IsAscii(Char value) noexcept {
-        /** 符号なしへ変換した文字型。 */
-        using U = std::make_unsigned_t<Char>;
-        return static_cast<U>(value) <= static_cast<U>(0x7f);
+        return value >= static_cast<Char>(0) &&
+               value <= static_cast<Char>(0x7f);
     }
 
     /**
