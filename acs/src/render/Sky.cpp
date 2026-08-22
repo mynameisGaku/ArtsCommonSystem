@@ -2215,18 +2215,16 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float3 sunL=sunAtCloud*cloudLightingExtinction.z*scatterTerm;
             float h=macro.height;
             // 環境光の遮蔽はカメラまでの透過率ではなく、局所密度と入射側の層境界までの距離で近似する。
-            // 太陽が高い場合は、既に積分した太陽方向の光路を空からの代表光路として再利用する。
-            // 低い太陽の長い水平光路は空半球の遮蔽を過大評価するため寄与させない。
+            // 太陽方向の tauL は細い光円すいの経路であり、空半球や地面から届く拡散光の経路ではない。
+            // ここへ流用すると、太陽が高いほど全天空光まで直接影と同じ形で失われ、厚い雲が一様な灰色へ沈む。
             float ambientLocalDensity=saturate(lowLodDensity*density);
+            // 水滴の多重散乱で方向を失った光には、高次散乱と同じ縮小消散率を使う。
+            // 層境界までの鉛直近似なので追加採取を増やさず、雲頂と雲底の明暗差も保てる。
+            float reducedAmbientExtinction=0.60*multiOcclusion*cloudLightingExtinction.y;
             float skyAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*(1.0-h));
             float groundAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*h);
-            // 直接光と同じ消散係数を含む光学的厚さを使う。密度積分値だけを使うと、
-            // 既定値では遮蔽を 5 分の 1 に過小評価し、雲内部まで空の光で白くなる。
-            float skyAmbientPathWeight=smoothstep(0.15,0.75,sun.y);
-            float skyAmbientPathOpticalDepth=tauL*skyAmbientPathWeight
-                                            *lerp(0.80,0.35,h);
-            float skyAmbientVisibility=exp(-0.60*skyAmbientOpticalDepth-multiOcclusion*skyAmbientPathOpticalDepth);
-            float groundAmbientVisibility=exp(-0.60*groundAmbientOpticalDepth);
+            float skyAmbientVisibility=exp(-reducedAmbientExtinction*skyAmbientOpticalDepth);
+            float groundAmbientVisibility=exp(-reducedAmbientExtinction*groundAmbientOpticalDepth);
             // 雲頂は天頂の空を、雲底は地平の空を受ける。分けないと上下で同じ色になり
             // «どちらが上か» が光から読み取れなくなる。
             float3 skyAmbient=cloudSkyZenith.w>0.5

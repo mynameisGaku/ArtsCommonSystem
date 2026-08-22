@@ -369,22 +369,24 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_FALSE(Contains(source, "density*4.2"));
 }
 
-ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesIncomingOpticalDepth)
+ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesReducedBoundaryOpticalDepth)
 {
     /** GPU シェーダーを含む雲描画の実装。 */
     const std::string source = ReadRenderFile("Sky.cpp");
-    /** 局所密度と既存の太陽光路から空と地面の可視率を求める範囲。 */
+    /** 局所密度と層境界までの距離から空と地面の可視率を求める範囲。 */
     const std::string ambientBlock = SliceBetween(source, "float ambientLocalDensity=", "float a=1.0-exp(");
     EXPECT_TRUE(!ambientBlock.empty());
     EXPECT_TRUE(Contains(ambientBlock, "float ambientLocalDensity=saturate(lowLodDensity*density);"));
+    EXPECT_TRUE(Contains(ambientBlock, "float reducedAmbientExtinction=0.60*multiOcclusion"));
+    EXPECT_TRUE(Contains(ambientBlock, "*cloudLightingExtinction.y;"));
     EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*(1.0-h));"));
     EXPECT_TRUE(Contains(ambientBlock, "float groundAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*h);"));
-    EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientPathWeight=smoothstep(0.15,0.75,sun.y);"));
-    EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientPathOpticalDepth=tauL*skyAmbientPathWeight"));
-    EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientVisibility=exp(-0.60*skyAmbientOpticalDepth-multiOcclusion*skyAmbientPathOpticalDepth);"));
-    EXPECT_TRUE(Contains(ambientBlock, "float groundAmbientVisibility=exp(-0.60*groundAmbientOpticalDepth);"));
+    EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientVisibility=exp(-reducedAmbientExtinction*skyAmbientOpticalDepth);"));
+    EXPECT_TRUE(Contains(ambientBlock, "float groundAmbientVisibility=exp(-reducedAmbientExtinction*groundAmbientOpticalDepth);"));
     EXPECT_TRUE(Contains(ambientBlock, "*skyAmbientVisibility;"));
     EXPECT_TRUE(Contains(ambientBlock, "*bottomWeight*groundAmbientVisibility;"));
+    EXPECT_FALSE(Contains(ambientBlock, "tauL"));
+    EXPECT_FALSE(Contains(ambientBlock, "sun.y"));
     EXPECT_FALSE(Contains(ambientBlock, "transmit"));
     EXPECT_FALSE(Contains(source, "float viewDepth=1.0-transmit;"));
     EXPECT_FALSE(Contains(source, "float ambientOcclusion="));
@@ -395,15 +397,17 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesIncomingOpticalDepth)
         if (value > 1.0f) return 1.0f;
         return value;
     };
-    /** 局所密度と高さから入射側の可視率を求める対応式。 */
-    const auto visibility = [saturate](f32 lowLodDensity, f32 density, f32 height, bool fromSky) noexcept {
+    /** 局所密度、高さ、縮小消散率から入射側の可視率を求める対応式。 */
+    const auto visibility = [saturate](f32 lowLodDensity, f32 density, f32 height, f32 lightExtinction, f32 multiScatterOcclusion, bool fromSky) noexcept {
         /** 密度倍率を適用して 0 から 1 へ収めた局所密度。 */
         const f32 localDensity = saturate(lowLodDensity * density);
         /** 空は雲頂まで、地面反射は雲底までの距離を表す係数。 */
         const f32 boundaryDistance = fromSky ? 1.0f - height : height;
         /** 層境界で完全な 0 にせず、採取点周辺の厚みを残した光学的深さ。 */
         const f32 opticalDepth = localDensity * (0.35f + 0.65f * boundaryDistance);
-        return std::exp(-0.60f * opticalDepth);
+        /** 高次散乱で縮小した拡散光用の消散率。 */
+        const f32 reducedExtinction = 0.60f * multiScatterOcclusion * lightExtinction;
+        return std::exp(-reducedExtinction * opticalDepth);
     };
 
     for (u32 densityStep = 0u; densityStep <= 4u; ++densityStep) {
@@ -413,17 +417,21 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesIncomingOpticalDepth)
             /** 雲底 0 から雲頂 1 までの高さ。 */
             const f32 height = static_cast<f32>(heightStep) * 0.01f;
             /** 雲頂側から届く空の可視率。 */
-            const f32 skyVisibility = visibility(density, 1.0f, height, true);
+            const f32 skyVisibility = visibility(density, 1.0f, height, 5.0f, 0.28f, true);
             /** 雲底側から届く地面反射の可視率。 */
-            const f32 groundVisibility = visibility(density, 1.0f, height, false);
+            const f32 groundVisibility = visibility(density, 1.0f, height, 5.0f, 0.28f, false);
             EXPECT_TRUE(std::isfinite(skyVisibility));
             EXPECT_TRUE(std::isfinite(groundVisibility));
             EXPECT_TRUE(skyVisibility > 0.0f && skyVisibility <= 1.0f);
             EXPECT_TRUE(groundVisibility > 0.0f && groundVisibility <= 1.0f);
-            EXPECT_NEAR(skyVisibility, visibility(density, 1.0f, 1.0f - height, false), 1.0e-6f);
+            EXPECT_NEAR(skyVisibility, visibility(density, 1.0f, 1.0f - height, 5.0f, 0.28f, false), 1.0e-6f);
         }
     }
 
-    EXPECT_TRUE(visibility(1.0f, 1.0f, 1.0f, true) > visibility(1.0f, 1.0f, 0.0f, true));
-    EXPECT_TRUE(visibility(1.0f, 1.0f, 0.0f, false) > visibility(1.0f, 1.0f, 1.0f, false));
+    EXPECT_TRUE(visibility(1.0f, 1.0f, 1.0f, 5.0f, 0.28f, true) > visibility(1.0f, 1.0f, 0.0f, 5.0f, 0.28f, true));
+    EXPECT_TRUE(visibility(1.0f, 1.0f, 0.0f, 5.0f, 0.28f, false) > visibility(1.0f, 1.0f, 1.0f, 5.0f, 0.28f, false));
+    EXPECT_TRUE(visibility(1.0f, 1.0f, 0.5f, 5.0f, 0.28f, true) < visibility(1.0f, 1.0f, 0.5f, 2.5f, 0.28f, true));
+    EXPECT_NEAR(visibility(1.0f, 1.0f, 0.5f, 5.0f, 0.0f, true), 1.0f, 0.0f);
+    EXPECT_NEAR(visibility(1.0f, 1.0f, 0.0f, 5.0f, 0.28f, true), 0.4317105f, 1.0e-6f);
+    EXPECT_NEAR(visibility(1.0f, 1.0f, 1.0f, 5.0f, 0.28f, true), 0.7452765f, 1.0e-6f);
 }
