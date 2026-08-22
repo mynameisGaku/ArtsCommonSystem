@@ -1004,6 +1004,36 @@ Debug・Releaseでコンパイル、リンク、実行に合格した。外部AC
 単体試験は両構成で各538件中0件失敗だった。既存の`AcsEnumReflection.h:90`にある`C4267`以外の
 新規警告はない。今回の本体実装には標準コンテナ、`std::`、`friend`を追加していない。
 
+## 16位相時間再構成の領域反応
+
+通常描画は1/4幅・1/4高さの各標本を、16フレームで4x4領域の全画素へ巡回配置する。従来は
+採取対象の1画素だけが被覆差に応じて最大`0.70`で現在値へ追従し、残り15画素は安定履歴をそのまま
+保持していた。動く雲縁では同じ領域の1画素だけが先行するため、参照描画にない4画素周期の孤立点が
+輪郭へ現れていた。
+
+現在は、低解像度標本が実際に通った等倍画素と、その同じ画素の履歴不透明度を比較する。差`0.015`以下を
+安定、`0.12`以上を明確な変化として三次補間し、領域共通の反応度を得る。静止カメラの採取画素は
+`0.10`から`0.42`、未採取15画素は変化中だけ最大`0.20`で現在の両側再構成へ寄せる。不透明度差`0.60`の
+最大反応でも、同一領域内の更新後の差は`0.132`に収まる。変化が収まると未採取側の重みは厳密に`0`へ戻り、
+16位相で蓄積した等倍細部を保持する。追加費用は出力画素ごとの履歴色1採取であり、視線レイ、光レイ、
+密度体積の採取回数は増やしていない。
+
+雲量`0.42`、積雲`0.78`、降水`0`、風速`1.0`の通常描画を、地上
+`--camera3d 0 -0.08 18 0 2 0`、雲層高度`--camera3d 0 0.02 5000 0 4300 0`、上空
+`--camera3d 0 0.35 8000 0 7200 0`から各2時刻確認した。地上と上空では孤立した4画素周期の点が
+連続する薄い輪郭へ寄り、雲の移流と形状変化も継続した。一方、上空の雲頂は広い白い面へ潰れ、
+雲層内も低解像度由来の柔らかさが強い。今回の修正を完成とは扱わず、次の品質ループでは空間再構成が
+雲頂の照明差と形状差を失う順序を優先して監査する。
+
+Debug単体試験1426件、Release単体試験1422件は全合格した。ReleaseのEditor ABIとmanaged Editorは
+警告0・エラー0でビルドし、GPU経路のHLSLも三視点の実画面でコンパイルできた。隔離配布先
+`C:\dev\acs_temp_builds\CloudDistributionTemporalBlock-20260823`はmanifest記載44件とmanifest本体の
+計45件を持ち、manifestのSHA-256は
+`2F96B528AD927B241EBCDCFDB95D7EDF09C46401EEE432D4512D285EB910EABD`だった。通常C++ consumerは
+Debug・Releaseでコンパイル、リンク、実行に合格した。最新の外部ACS Frameworkとの検証は、同Frameworkが
+要求する3D衝突・明示カメラAPIをこの分岐前のACS基点が持たないため保留した。これらを持つ`origin/dev`を
+統合し、同じ配布契約で再検証するまでFramework互換を合格扱いにしない。
+
 - [The Real-time Volumetric Cloudscapes of Horizon: Zero Dawn](https://advances.realtimerendering.com/s2015/The%20Real-time%20Volumetric%20Cloudscapes%20of%20Horizon%20-%20Zero%20Dawn%20-%20ARTR.pdf)
 - [Volumetric Cloud Material in Unreal Engine](https://dev.epicgames.com/documentation/en-us/unreal-engine/volumetric-cloud-material-in-unreal-engine)
 
