@@ -2888,9 +2888,9 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                 float depthTolerance=max(0.30,expectedDepth*0.01);
                 bool depthOk=histD.x<=250000.0 && histD.y>0.001
                     && abs(histD.x-expectedDepth)<depthTolerance;
-                bool occupancyMismatch=
-                    (curA<0.02 && hist.a>0.08) ||
-                    (curA>0.08 && hist.a<0.02);
+                // 未採取画素のcurAは同じ4x4領域にある別レイの空間再構成であり、
+                // その画素自身の現在被覆ではない。等倍標本がある経路だけ空／雲の不一致を判定する。
+                bool occupancyMismatch=(!temporalSuperRes || scheduled) && ((curA<0.02 && hist.a>0.08) || (curA>0.08 && hist.a<0.02));
                 bool alphaOk=!occupancyMismatch &&
                     abs(hist.a-seedDepth.y)<0.42;
                 if(depthOk && alphaOk) {

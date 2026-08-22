@@ -383,6 +383,11 @@ f32 CloudTemporalCurrentWeightForTest(
     return 0.10f + (0.20f - 0.10f) * changeResponse;
 }
 
+// 等倍の現在標本がある場合だけ、履歴との空／雲の不一致を判定する。
+bool CloudTemporalOccupancyMismatchForTest(f32 currentAlpha, f32 historyAlpha, bool temporalSuperResolution, bool scheduled) noexcept {
+    return (!temporalSuperResolution || scheduled) && ((currentAlpha < 0.02f && historyAlpha > 0.08f) || (currentAlpha > 0.08f && historyAlpha < 0.02f));
+}
+
 f32 CloudWeatherMaskForTest(f32 weatherCoverage, f32 coverage) noexcept {
     const f32 threshold =
         0.72f + (0.36f - 0.72f) * SaturateForTest(coverage);
@@ -5505,10 +5510,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         resolveShader,
         "floatdepthTolerance=max(0.30,expectedDepth*0.01);"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "booloccupancyMismatch=(curA<0.02&&hist.a>0.08)||"
-        "(curA>0.08&&hist.a<0.02);"));
+    EXPECT_TRUE(Contains(resolveShader, "booloccupancyMismatch=(!temporalSuperRes||scheduled)&&((curA<0.02&&hist.a>0.08)||(curA>0.08&&hist.a<0.02));"));
     EXPECT_TRUE(Contains(
         resolveShader,
         "boolalphaOk=!occupancyMismatch&&"
@@ -5605,11 +5607,18 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(unscheduledResult, 0.20f, 0.0f);
     EXPECT_NEAR(scheduledResult - unscheduledResult, 0.12f, 1e-6f);
 
+    // 未採取画素の空間再構成は別レイなので、正確な画素別履歴を棄却する根拠にしない。
+    EXPECT_FALSE(CloudTemporalOccupancyMismatchForTest(0.0f, 0.8f, true, false));
+    EXPECT_FALSE(CloudTemporalOccupancyMismatchForTest(0.8f, 0.0f, true, false));
+    EXPECT_TRUE(CloudTemporalOccupancyMismatchForTest(0.0f, 0.8f, true, true));
+    EXPECT_TRUE(CloudTemporalOccupancyMismatchForTest(0.8f, 0.0f, false, false));
+
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudResolveCS"));
     EXPECT_TRUE(Contains(shader, "floatCloudTemporalSampleResponse(floatcurrentAlpha,floathistoryAlpha){returnsmoothstep(0.015,0.12,abs(currentAlpha-historyAlpha));}"));
     EXPECT_TRUE(Contains(shader, "floatCloudTemporalCurrentWeight(floatcurrentAlpha,floathistoryAlpha,boolstationary){floatcurrentWeight=0.70;if(stationary){floatchangeResponse=CloudTemporalSampleResponse(currentAlpha,historyAlpha);currentWeight=lerp(0.10,0.20,changeResponse);}returncurrentWeight;}"));
+    EXPECT_TRUE(Contains(shader, "booloccupancyMismatch=(!temporalSuperRes||scheduled)&&((curA<0.02&&hist.a>0.08)||(curA>0.08&&hist.a<0.02));"));
     EXPECT_FALSE(Contains(shader, "CloudTemporalBlockResponse"));
     EXPECT_FALSE(Contains(shader, "CloudTemporalUnscheduledWeight"));
     const std::size_t helperBegin = shader.find(
