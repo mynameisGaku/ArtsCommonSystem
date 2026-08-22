@@ -370,7 +370,9 @@ try {
             throw 'SetWindowPos failed while raising validator for capture'
         }
         $raisedForScreenCapture = $true
-        Start-Sleep -Milliseconds 100
+        # WPF親画面を前面へ移した直後は、別HWNDのGPU子画面が一時的に親の下へ隠れる。
+        # 子画面の再配置と次のPresentを待ち、Editor背景だけを誤って証拠画像にしない。
+        Start-Sleep -Milliseconds 1000
         Assert-ValidatorNotForeground $childProcessId
         $size = New-Object System.Drawing.Size($width, $height)
         $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $size)
