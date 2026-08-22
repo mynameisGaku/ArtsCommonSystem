@@ -2626,12 +2626,12 @@ bool IsTemporalSuperResolution() {
 float CloudTemporalSampleResponse(float currentAlpha,float historyAlpha) {
     return smoothstep(0.015,0.12,abs(currentAlpha-historyAlpha));
 }
-// 静止画素では小さな採取誤差を長く平均し、1/16だけ先行する採取画素が点状に突出しない重みに抑える。
+// 静止画素でも古い体積履歴を長く残しすぎず、変化した雲縁を16位相の次周期までに追従させる。
 float CloudTemporalCurrentWeight(float currentAlpha,float historyAlpha,bool stationary) {
     float currentWeight=0.70;
     if(stationary) {
         float changeResponse=CloudTemporalSampleResponse(currentAlpha,historyAlpha);
-        currentWeight=lerp(0.10,0.20,changeResponse);
+        currentWeight=lerp(0.20,0.35,changeResponse);
     }
     return currentWeight;
 }
@@ -2833,20 +2833,24 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
             neighborhoodMax=max(neighborhoodMax,packed);
         }
     }
-    // A scheduled Ultra pixel is the exact full-resolution ray stored at its
-    // 4x4 block coordinate. Unscheduled pixels use this gather only as a
-    // first-frame/disocclusion fallback; accepted history is never blurred by
-    // the quarter-resolution footprint.
+    float gatheredA=saturate(alphaSum/max(weightSum,1e-5));
+    float3 gatheredPremul=premulSum/max(weightSum,1e-5);
+    float gatheredDepth=depthWeight>1e-5
+        ?depthSum/depthWeight:250001.0;
+    float4 spatialCurrent=float4(gatheredPremul,gatheredA);
+    float2 spatialDepth=float2(gatheredDepth,gatheredA);
+    // 採取位相の画素は4x4領域内の等倍レイを持つ。未採取画素は、初回表示や
+    // 新規露出時だけ現在フレームの両側再構成を使い、有効な履歴はぼかさない。
     bool exactCurrent=nativeMarch || scheduled;
     float curA=exactCurrent
         ? saturate(refC.a)
-        : saturate(alphaSum/max(weightSum,1e-5));
+        : gatheredA;
     float3 curPremul=exactCurrent
         ? refC.rgb*refC.a
-        : premulSum/max(weightSum,1e-5);
+        : gatheredPremul;
     float curDepth=exactCurrent
         ? ((refC.a>0.003 && refD.x<=250000.0)?refD.x:250001.0)
-        : (depthWeight>1e-5 ? depthSum/depthWeight : 250001.0);
+        : gatheredDepth;
     float4 current=float4(curPremul,curA);
     resolved=current;
     resolvedDepth=nativeMarch
@@ -2911,11 +2915,8 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                     float edgeConfidence=saturate(abs(refC.a-0.5)*2.0);
                     if(temporalSuperRes) {
                         if(scheduled) {
-                            // Each exact subpixel now advances a low-discrepancy
-                            // sample once per sixteen-phase cycle. Accumulate a
-                            // wider stationary window so stochastic lighting and
-                            // shell-edge errors converge instead of becoming
-                            // static stipple; keep motion responsive.
+                            // 等倍標本は16位相ごとにしか更新されない。古い体積位置を長く残すと
+                            // 等高線状の履歴差になるため、静止時も被覆差に応じて20～35%追従する。
                             float currentWeight=CloudTemporalCurrentWeight(
                                 curA,hist.a,worldOrigin.w>0.5);
                             resolved=lerp(
@@ -2950,6 +2951,12 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
             resolved=float4(0,0,0,0);
             resolvedDepth=float2(250001.0,0.0);
         }
+    }
+    // 新規露出や初回フレームで履歴を使えない採取画素だけは、等倍レイを単独で
+    // 100%表示せず、周囲15画素と同じ現在フレームの両側再構成へ戻す。
+    if(temporalSuperRes && scheduled && !historyAccepted) {
+        resolved=spatialCurrent;
+        resolvedDepth=spatialDepth;
     }
     }
 

@@ -375,12 +375,17 @@ f32 CloudTemporalSampleResponseForTest(f32 currentAlpha, f32 historyAlpha) noexc
     return SmoothStepForTest(0.015f, 0.12f, std::fabs(currentAlpha - historyAlpha));
 }
 
-// 被覆差が大きい時も、1/16だけ先行する採取画素が点状に突出しない範囲で追従させる。
+// 被覆差が大きいほど、16位相前の古い体積履歴を早く現在値へ追従させる。
 f32 CloudTemporalCurrentWeightForTest(
     f32 currentAlpha, f32 historyAlpha, bool stationary) noexcept {
     if (!stationary) return 0.70f;
     const f32 changeResponse = CloudTemporalSampleResponseForTest(currentAlpha, historyAlpha);
-    return 0.10f + (0.20f - 0.10f) * changeResponse;
+    return 0.20f + (0.35f - 0.20f) * changeResponse;
+}
+
+// 履歴を使えない採取画素だけを、現在フレームの両側再構成へ戻す条件を表す。
+bool CloudTemporalUsesSpatialFallbackForTest(bool temporalSuperResolution, bool scheduled, bool historyAccepted) noexcept {
+    return temporalSuperResolution && scheduled && !historyAccepted;
 }
 
 // 等倍の現在標本がある場合だけ、履歴との空／雲の不一致を判定する。
@@ -2740,10 +2745,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(marchShader, "uint2pixelQ=tid.xy;"));
     EXPECT_TRUE(Contains(marchShader, "cloudOut[pixelQ]="));
     EXPECT_TRUE(Contains(marchShader, "cloudDepthOut[pixelQ]="));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "floatcurA=exactCurrent?saturate(refC.a):"
-        "saturate(alphaSum/max(weightSum,1e-5));"));
+    EXPECT_TRUE(Contains(resolveShader, "floatgatheredA=saturate(alphaSum/max(weightSum,1e-5));"));
+    EXPECT_TRUE(Contains(resolveShader, "floatcurA=exactCurrent?saturate(refC.a):gatheredA;"));
 }
 
 ACS_TEST(VolumetricClouds,
@@ -5528,6 +5531,12 @@ ACS_TEST(VolumetricClouds,
         resolveShader,
         "resolved=histPacked;"
         "resolvedDepth=float2(reprojectionDepth,histD.y);"));
+    EXPECT_TRUE(Contains(resolveShader, "float4spatialCurrent=float4(gatheredPremul,gatheredA);float2spatialDepth=float2(gatheredDepth,gatheredA);"));
+    EXPECT_TRUE(Contains(resolveShader, "if(temporalSuperRes&&scheduled&&!historyAccepted){resolved=spatialCurrent;resolvedDepth=spatialDepth;}"));
+    EXPECT_TRUE(CloudTemporalUsesSpatialFallbackForTest(true, true, false));
+    EXPECT_FALSE(CloudTemporalUsesSpatialFallbackForTest(true, true, true));
+    EXPECT_FALSE(CloudTemporalUsesSpatialFallbackForTest(true, false, false));
+    EXPECT_FALSE(CloudTemporalUsesSpatialFallbackForTest(false, true, false));
     EXPECT_TRUE(Contains(
         resolveShader,
         "float4hist=historyColor.Load(int3(historyPixel,0));"
@@ -5577,9 +5586,9 @@ ACS_TEST(VolumetricClouds,
 
 ACS_TEST(VolumetricClouds,
          TemporalSuperResolutionRespondsToCoverageEvolution) {
-    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.60f, 0.60f, true), 0.10f, 0.0f);
-    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.60f, 0.585f, true), 0.10f, 1e-6f);
-    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.60f, 0.48f, true), 0.20f, 1e-6f);
+    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.60f, 0.60f, true), 0.20f, 0.0f);
+    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.60f, 0.585f, true), 0.20f, 1e-6f);
+    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.60f, 0.48f, true), 0.35f, 1e-6f);
     EXPECT_NEAR(
         CloudTemporalCurrentWeightForTest(0.60f, 0.60f, false),
         0.70f, 0.0f);
@@ -5589,7 +5598,7 @@ ACS_TEST(VolumetricClouds,
     for (u32 step = 0u; step <= 100u; ++step) {
         const f32 difference = static_cast<f32>(step) / 100.0f;
         const f32 weight = CloudTemporalCurrentWeightForTest(1.0f, 1.0f - difference, true);
-        EXPECT_TRUE(weight >= 0.10f && weight <= 0.20f);
+        EXPECT_TRUE(weight >= 0.20f && weight <= 0.35f);
         EXPECT_TRUE(weight + 1e-6f >= previousWeight);
         previousWeight = weight;
     }
@@ -5603,10 +5612,10 @@ ACS_TEST(VolumetricClouds,
         (currentAlpha - historyAlpha) * scheduledWeight;
     const f32 unscheduledResult = historyAlpha;
     EXPECT_NEAR(sampleResponse, 1.0f, 0.0f);
-    EXPECT_NEAR(scheduledWeight, 0.20f, 1e-6f);
-    EXPECT_NEAR(scheduledResult, 0.32f, 1e-6f);
+    EXPECT_NEAR(scheduledWeight, 0.35f, 1e-6f);
+    EXPECT_NEAR(scheduledResult, 0.41f, 1e-6f);
     EXPECT_NEAR(unscheduledResult, 0.20f, 0.0f);
-    EXPECT_NEAR(scheduledResult - unscheduledResult, 0.12f, 1e-6f);
+    EXPECT_NEAR(scheduledResult - unscheduledResult, 0.21f, 1e-6f);
 
     // 未採取画素の空間再構成は別レイなので、正確な画素別履歴を棄却する根拠にしない。
     EXPECT_FALSE(CloudTemporalOccupancyMismatchForTest(0.0f, 0.8f, true, false));
@@ -5618,7 +5627,7 @@ ACS_TEST(VolumetricClouds,
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudResolveCS"));
     EXPECT_TRUE(Contains(shader, "floatCloudTemporalSampleResponse(floatcurrentAlpha,floathistoryAlpha){returnsmoothstep(0.015,0.12,abs(currentAlpha-historyAlpha));}"));
-    EXPECT_TRUE(Contains(shader, "floatCloudTemporalCurrentWeight(floatcurrentAlpha,floathistoryAlpha,boolstationary){floatcurrentWeight=0.70;if(stationary){floatchangeResponse=CloudTemporalSampleResponse(currentAlpha,historyAlpha);currentWeight=lerp(0.10,0.20,changeResponse);}returncurrentWeight;}"));
+    EXPECT_TRUE(Contains(shader, "floatCloudTemporalCurrentWeight(floatcurrentAlpha,floathistoryAlpha,boolstationary){floatcurrentWeight=0.70;if(stationary){floatchangeResponse=CloudTemporalSampleResponse(currentAlpha,historyAlpha);currentWeight=lerp(0.20,0.35,changeResponse);}returncurrentWeight;}"));
     EXPECT_TRUE(Contains(shader, "booloccupancyMismatch=(!temporalSuperRes||scheduled)&&((curA<0.02&&hist.a>0.08)||(curA>0.08&&hist.a<0.02));"));
     EXPECT_FALSE(Contains(shader, "CloudTemporalBlockResponse"));
     EXPECT_FALSE(Contains(shader, "CloudTemporalUnscheduledWeight"));
