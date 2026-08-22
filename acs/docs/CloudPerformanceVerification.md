@@ -712,6 +712,12 @@ Editor の実画面では、約 `10200 m` からの見下ろしで暗い灰色�
 薄める後処理ではない。`FadeFraction=0` は同じ端点を `smoothstep` へ渡さず、`MaxDistance` の直前まで
 係数1、終端で0とするため、0除算による非数も作らない。
 
+旧HLSLは減衰区間が無い場合と通常の場合を別々の`return`で返していた。全有限経路で値は決まるが、
+FXCはインライン展開後の`cloudDistanceFade`を未初期化の可能性ありとして`X4000`を出していた。
+現在は返り値を0で初期化し、有効な区間では`blend² * (3 - 2 * blend)`、区間が無ければ終端前だけ1を
+代入して、最後の一箇所から返す。有限値の式と分岐境界は従来の`SmoothStep`と同じで、NaN入力だけは
+明示的に0へ倒す。実GPUコンパイルを含むDebug 1415件、Release 1411件の単体試験で`X4000`が消えた。
+
 Editor は `CloudMaxDistance=60000`、`CloudFadeFraction=0.35`、`CloudStepGrowth=0` を地上向け既定値とし、
 各値を `ProjectSettings.ini` から変更できる。飛行場面では `CloudMaxDistance` を必要な範囲へ広げる。
 通常C++利用は従来どおり `CVolumetricClouds::SetRange()` で同じ3値を渡し、シェーダー側の標本単位減衰を

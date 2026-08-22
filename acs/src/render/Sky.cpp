@@ -1605,11 +1605,21 @@ float cloudDetailVisibilityFromSampleSpacing(float sampleSpacing){
 // 距離減衰は完成済みのレイへ一括適用せず、各密度標本へ適用する。
 // 減衰区間が 0 の場合は smoothstep の同一端点による 0 除算を避ける。
 float cloudDistanceFade(float sampleDistance,float fadeStart,float maxDistance){
+    // 返り値を先に確定し、旧HLSLコンパイラーが複数returnを未初期化経路と誤認しない形にする。
+    // NaNは見えない値へ倒し、有限な通常経路はCPU側と同じ三次補間で評価する。
+    float fadeResult=0.0;
     float fadeLength=maxDistance-fadeStart;
-    if(fadeLength<=0.001){
-        return sampleDistance<maxDistance?1.0:0.0;
+    if(sampleDistance==sampleDistance){
+        if(fadeLength>0.001){
+            float blend=saturate(
+                (sampleDistance-fadeStart)/fadeLength);
+            blend=blend*blend*(3.0-2.0*blend);
+            fadeResult=1.0-blend;
+        }else if(sampleDistance<maxDistance){
+            fadeResult=1.0;
+        }
     }
-    return 1.0-smoothstep(fadeStart,maxDistance,sampleDistance);
+    return fadeResult;
 }
 // 粗い採取点から一つ前の区間へ戻し、細密刻み内の採取位相だけを再適用する。
 // 参照描画の 0.5 は区間中央となり、通常描画の乱数位相も粗密切り替えで失われない。

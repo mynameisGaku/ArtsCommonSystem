@@ -1195,7 +1195,21 @@ ACS_TEST(VolumetricClouds,
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
     EXPECT_TRUE(Contains(shader, "floatdistanceFade=cloudDistanceFade(sampleT,cloudRange.y,MAX_DISTANCE);"));
     EXPECT_TRUE(Contains(shader, "*density*distanceFade;"));
-    EXPECT_TRUE(Contains(shader, "if(fadeLength<=0.001){returnsampleDistance<maxDistance?1.0:0.0;}"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatfadeResult=0.0;"
+        "floatfadeLength=maxDistance-fadeStart;"
+        "if(sampleDistance==sampleDistance){"
+        "if(fadeLength>0.001){"
+        "floatblend=saturate((sampleDistance-fadeStart)/fadeLength);"
+        "blend=blend*blend*(3.0-2.0*blend);"
+        "fadeResult=1.0-blend;"
+        "}elseif(sampleDistance<maxDistance){fadeResult=1.0;}"
+        "}returnfadeResult;}"));
+    EXPECT_FALSE(Contains(
+        shader, "smoothstep(fadeStart,maxDistance,sampleDistance)"));
+    EXPECT_FALSE(Contains(
+        shader, "if(fadeLength<=0.001){return"));
     EXPECT_TRUE(Contains(shader, "floatresolvedA=baseA;"));
     EXPECT_FALSE(Contains(shader, "smoothstep(cloudRange.y,MAX_DISTANCE,t0)"));
     EXPECT_FALSE(Contains(shader, "floathFade="));
