@@ -215,7 +215,7 @@ ACS_TEST(VolumetricCloudSettings, HigherOrderScatteringRequiresNeighbouringMediu
         scattering.x + scattering.y, 0.0f);
 }
 
-ACS_TEST(VolumetricCloudSettings, HigherOrderScatterFactorUsesLowLodDensityAndHeightWithoutAmplifyingLight)
+ACS_TEST(VolumetricCloudSettings, HigherOrderScatterFactorUsesDensityWithoutDarkeningDenseCloudBase)
 {
     /** 補正を切ったときの中立係数。 */
     const f32 disabled = EvaluateVolumetricCloudInScatterFactor(0.0f, 0.0f, 0.0f);
@@ -227,16 +227,22 @@ ACS_TEST(VolumetricCloudSettings, HigherOrderScatterFactorUsesLowLodDensityAndHe
     /** 雲頂の密な領域は内部散乱確率が飽和する。 */
     const f32 denseTop = EvaluateVolumetricCloudInScatterFactor(1.0f, 1.0f, 1.0f);
     EXPECT_NEAR(denseTop, 1.0f, 0.0f);
-    /** 同じ密度でも、散乱源が少ない雲底は暗くなる。 */
+    /** 密な雲底の直上には周囲媒質があるため、高さだけでは高次散乱を減らさない。 */
     const f32 denseBase = EvaluateVolumetricCloudInScatterFactor(1.0f, 0.0f, 1.0f);
-    EXPECT_NEAR(denseBase, std::pow(0.10f, 0.8f), 1e-6f);
-    EXPECT_TRUE(denseBase < denseTop);
+    EXPECT_NEAR(denseBase, 1.0f, 0.0f);
+    EXPECT_NEAR(denseBase, denseTop, 0.0f);
 
-    /** 既定の混ぜ率でも、疎な雲底の高次散乱を約 0.70 へ滑らかに抑える。 */
+    /** 同じ中密度なら雲底側ほど上方の周囲媒質を残し、疎な雲頂縁は強く抑える。 */
+    const f32 middleBase = EvaluateVolumetricCloudInScatterFactor(0.25f, 0.0f, 1.0f);
+    const f32 middleTop = EvaluateVolumetricCloudInScatterFactor(0.25f, 1.0f, 1.0f);
+    EXPECT_NEAR(middleBase, 0.55f, 1e-6f);
+    EXPECT_NEAR(middleTop, 0.1125f, 1e-6f);
+    EXPECT_TRUE(middleBase > middleTop);
+
+    /** 既定の混ぜ率でも、空に近い疎な領域の高次散乱を約0.715へ滑らかに抑える。 */
     const FVolumetricCloudLighting defaults{};
     const f32 defaultSparseBase = EvaluateVolumetricCloudInScatterFactor(0.0f, 0.0f, defaults.PowderStrength);
-    EXPECT_TRUE(defaultSparseBase >= 0.70f);
-    EXPECT_TRUE(defaultSparseBase <= 0.71f);
+    EXPECT_NEAR(defaultSparseBase, 0.715f, 1e-6f);
 
     /** 非有限入力を含めても増幅せず有限な中立値へ戻る。 */
     const f32 hostile = EvaluateVolumetricCloudInScatterFactor(
@@ -392,8 +398,9 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(source, "if (density_field_changed) m_ShadowCacheValid = false;"));
     EXPECT_TRUE(Contains(lowLodDensity, "cloudWeatheredBaseNoise("));
     EXPECT_TRUE(Contains(lowLodDensity, "macro.baseNoise,weatherMask"));
-    EXPECT_TRUE(Contains(lowLodDensity, "baseDensity*macro.profileClosure"));
-    EXPECT_FALSE(Contains(lowLodDensity, "baseDensity*weatherMask*macro.profileClosure"));
+    EXPECT_TRUE(Contains(lowLodDensity, "float dimensionalDensity=cloudDimensionalDensity("));
+    EXPECT_TRUE(Contains(lowLodDensity, "baseDensity,macro.heightProfile);"));
+    EXPECT_FALSE(Contains(lowLodDensity, "baseDensity*weatherMask*macro.heightProfile"));
     EXPECT_TRUE(Contains(source, "if(upperBand) weatherMask*=cloudUpperTerms.x;"));
     EXPECT_TRUE(Contains(source, "if(upperBand) densityResult*=cloudUpperTerms.y;"));
     EXPECT_FALSE(Contains(lowLodDensity, "SampleLevel"));
@@ -403,7 +410,8 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(source, "float inScatterDepthExponent=lerp("));
     EXPECT_TRUE(Contains(source, "float lowLodDensity=cloudLowLodDensityFromMacro("));
     EXPECT_TRUE(Contains(source, "0.05+pow(saturate(lowLodDensity),inScatterDepthExponent)"));
-    EXPECT_TRUE(Contains(source, "float inScatterProbability=inScatterDepth*inScatterVertical;"));
+    EXPECT_TRUE(Contains(source, "float inScatterProbability=inScatterDepth;"));
+    EXPECT_FALSE(Contains(source, "inScatterVertical"));
     EXPECT_TRUE(Contains(source, "1.0,inScatterProbability,cloudLightingExtinction.w"));
     EXPECT_TRUE(Contains(source, "float singleScatter=beer*phase;"));
     EXPECT_TRUE(Contains(source, "float secondScatter=multiContribution"));
@@ -431,12 +439,17 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesReducedBoundaryOpticalDep
     const std::string ambientBlock = SliceBetween(source, "float ambientLocalDensity=", "float a=1.0-exp(");
     EXPECT_TRUE(!ambientBlock.empty());
     EXPECT_TRUE(Contains(ambientBlock, "float ambientLocalDensity=saturate(lowLodDensity*density);"));
-    EXPECT_TRUE(Contains(ambientBlock, "float reducedAmbientExtinction=0.60*multiOcclusion"));
+    EXPECT_TRUE(Contains(ambientBlock, "float diffuseOcclusion=multiOcclusion*multiOcclusion;"));
+    EXPECT_TRUE(Contains(ambientBlock, "float reducedAmbientExtinction=0.60*diffuseOcclusion"));
     EXPECT_TRUE(Contains(ambientBlock, "*cloudLightingExtinction.y;"));
     EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*(1.0-h));"));
     EXPECT_TRUE(Contains(ambientBlock, "float groundAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*h);"));
     EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientVisibility=exp(-reducedAmbientExtinction*skyAmbientOpticalDepth);"));
     EXPECT_TRUE(Contains(ambientBlock, "float groundAmbientVisibility=exp(-reducedAmbientExtinction*groundAmbientOpticalDepth);"));
+    EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientZenithWeight=lerp("));
+    EXPECT_TRUE(Contains(ambientBlock, "0.3333333,0.6666667,saturate(h)"));
+    EXPECT_TRUE(Contains(ambientBlock, "skyCol.rgb,cloudSkyZenith.rgb,"));
+    EXPECT_TRUE(Contains(ambientBlock, "skyAmbientZenithWeight"));
     EXPECT_TRUE(Contains(ambientBlock, "*skyAmbientVisibility;"));
     EXPECT_TRUE(Contains(ambientBlock, "*bottomWeight*groundAmbientVisibility;"));
     EXPECT_FALSE(Contains(ambientBlock, "tauL"));
@@ -459,8 +472,9 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesReducedBoundaryOpticalDep
         const f32 boundaryDistance = fromSky ? 1.0f - height : height;
         /** 層境界で完全な 0 にせず、採取点周辺の厚みを残した光学的深さ。 */
         const f32 opticalDepth = localDensity * (0.35f + 0.65f * boundaryDistance);
-        /** 高次散乱で縮小した拡散光用の消散率。 */
-        const f32 reducedExtinction = 0.60f * multiScatterOcclusion * lightExtinction;
+        /** 三次散乱と同じ縮小率を使う拡散光用の消散率。 */
+        const f32 diffuseOcclusion = multiScatterOcclusion * multiScatterOcclusion;
+        const f32 reducedExtinction = 0.60f * diffuseOcclusion * lightExtinction;
         return std::exp(-reducedExtinction * opticalDepth);
     };
 
@@ -486,6 +500,15 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesReducedBoundaryOpticalDep
     EXPECT_TRUE(visibility(1.0f, 1.0f, 0.0f, 5.0f, 0.28f, false) > visibility(1.0f, 1.0f, 1.0f, 5.0f, 0.28f, false));
     EXPECT_TRUE(visibility(1.0f, 1.0f, 0.5f, 5.0f, 0.28f, true) < visibility(1.0f, 1.0f, 0.5f, 2.5f, 0.28f, true));
     EXPECT_NEAR(visibility(1.0f, 1.0f, 0.5f, 5.0f, 0.0f, true), 1.0f, 0.0f);
-    EXPECT_NEAR(visibility(1.0f, 1.0f, 0.0f, 5.0f, 0.28f, true), 0.4317105f, 1.0e-6f);
-    EXPECT_NEAR(visibility(1.0f, 1.0f, 1.0f, 5.0f, 0.28f, true), 0.7452765f, 1.0e-6f);
+    EXPECT_NEAR(visibility(1.0f, 1.0f, 0.0f, 5.0f, 0.28f, true), 0.7904128f, 1.0e-6f);
+    EXPECT_NEAR(visibility(1.0f, 1.0f, 1.0f, 5.0f, 0.28f, true), 0.9209772f, 1.0e-6f);
+
+    /** 二点半球近似は雲底でも天頂色を、雲頂でも地平色を残す。 */
+    const auto zenithWeight = [saturate](f32 height) noexcept {
+        return 0.3333333f + (0.6666667f - 0.3333333f) * saturate(height);
+    };
+    EXPECT_NEAR(zenithWeight(0.0f), 0.3333333f, 1.0e-6f);
+    EXPECT_NEAR(zenithWeight(1.0f), 0.6666667f, 1.0e-6f);
+    EXPECT_NEAR(zenithWeight(0.5f), 0.5f, 1.0e-6f);
+    EXPECT_TRUE(zenithWeight(-1.0f) >= 0.0f && zenithWeight(2.0f) <= 1.0f);
 }
