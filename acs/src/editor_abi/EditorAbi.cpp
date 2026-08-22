@@ -511,13 +511,22 @@ struct FEditorHost {
     // 既定は無効。FogDensity が正なら単一色の高さフォグを有効にする。
     bool  q_fog_on           = false; f32  q_fog_density     = 0.015f; f32 q_fog_height_falloff = 0.10f;
     i32   q_sky_mode         = 0;     // 0=CSky(グラデ+雲) / 1=CAtmosphere(物理大気散乱)。要 Diligent (IBL 経路)
-    f32   q_cloud_coverage   = 0.50f; f32 q_cloud_density = 1.6f; f32 q_cloud_wind = 1.0f;
+    f32   q_cloud_coverage   = 0.42f; f32 q_cloud_density = 1.6f; f32 q_cloud_wind = 1.0f;
     f32   q_cloud_render_scale = 0.75f;   // 内部の 1/4 寸法描画を基準にした品質倍率。
     // 診断時だけ等倍・512刻み・時間再構成なしにする。
     bool  q_cloud_reference = false;
     f32   q_cloud_base       = 1500.0f; f32 q_cloud_top = 4000.0f; f32 q_cloud_noise_scale = 0.035f; // world-space volumetric cloud layer
     // 地上向けの遠方雲を薄める距離設定。飛行場面では設定から広げられる。
     f32   q_cloud_max_distance = 60000.0f; f32 q_cloud_fade_fraction = 0.35f; f32 q_cloud_step_growth = 0.0f;
+    // 雲種と降水成分を明示した天候へ寄せる設定。既定は手続き天候場を変更しない。
+    f32   q_cloud_type = 0.78f;
+    f32   q_cloud_type_influence = 0.0f;
+    f32   q_cloud_precipitation = 0.0f;
+    f32   q_cloud_precipitation_influence = 0.0f;
+    // 雲底と雲頂の空光、地面反射を天候や地表に応じて調整する係数。
+    f32   q_cloud_ambient_at_base = 0.26f;
+    f32   q_cloud_ambient_at_top = 0.52f;
+    f32   q_cloud_ground_contribution = 0.15f;
     f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
     FVec3 sun_dir            = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (光源) 方向 «光へ向かう» 向き。Rendering/SunAzimuth+Elevation で駆動。
     FVec3 sun_color          = FVec3{ 1.0f, 0.95f, 0.85f };     // 太陽の色 (Rendering/SunColor)。
@@ -9890,6 +9899,9 @@ void UpdateVolumetricCloudLighting_Internal(FEditorHost& host) noexcept {
     const FVolumetricCloudLayer& layer = host.vclouds3d.Layer();
     const f32 middleAltitude = (layer.base_height + layer.top_height) * 0.5f;
     FVolumetricCloudLighting lighting = host.vclouds3d.Lighting();
+    lighting.AmbientAtBase = host.q_cloud_ambient_at_base;
+    lighting.AmbientAtTop = host.q_cloud_ambient_at_top;
+    lighting.GroundContribution = host.q_cloud_ground_contribution;
     lighting.SunTransmittance = SunTransmittanceAtAltitude(middleAltitude, host.sun_dir);
     lighting.SkyZenithColor = host.sky_zenith;
     lighting.GroundColor = host.sky_ground;
@@ -10595,6 +10607,12 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         cloudRange.FadeFraction = h.q_cloud_fade_fraction;
         cloudRange.StepGrowth = h.q_cloud_step_growth;
         h.vclouds3d.SetRange(cloudRange);
+        FVolumetricCloudWeather cloudWeather{};
+        cloudWeather.CloudType = h.q_cloud_type;
+        cloudWeather.CloudTypeInfluence = h.q_cloud_type_influence;
+        cloudWeather.Precipitation = h.q_cloud_precipitation;
+        cloudWeather.PrecipitationInfluence = h.q_cloud_precipitation_influence;
+        h.vclouds3d.SetWeather(cloudWeather);
         h.vclouds3d.SetLayer(acs::FVolumetricCloudLayer{
             h.q_cloud_base, h.q_cloud_top, h.q_cloud_noise_scale
         });
@@ -12641,7 +12659,7 @@ static void ApplySettings(FEditorHost& h) noexcept {
     const i32 sm = h.settings.GetInt("Rendering", "SkyMode", 0);
     const i32 smc = (sm == 1) ? 1 : 0;
     if (smc != h.q_sky_mode) { h.q_sky_mode = smc; h.ibl_dirty = true; h.ibl_tried = false; }   // モード変更 → env 再焼成
-    h.q_cloud_coverage = h.settings.GetFloat("Rendering", "CloudCoverage", 0.50f);   // 0=雲オフ / 0.1〜1.0
+    h.q_cloud_coverage = h.settings.GetFloat("Rendering", "CloudCoverage", 0.42f);   // 0=雲オフ / 0.35=快晴 / 0.42=晴天 / 0.5以上=多雲
     h.q_cloud_density  = h.settings.GetFloat("Rendering", "CloudDensity",  1.6f);
     h.q_cloud_wind     = h.settings.GetFloat("Rendering", "CloudWind",     1.0f);
     h.q_cloud_base     = h.settings.GetFloat("Rendering", "CloudBaseHeight", 1500.0f);
@@ -12650,6 +12668,13 @@ static void ApplySettings(FEditorHost& h) noexcept {
     h.q_cloud_max_distance = h.settings.GetFloat("Rendering", "CloudMaxDistance", 60000.0f);
     h.q_cloud_fade_fraction = h.settings.GetFloat("Rendering", "CloudFadeFraction", 0.35f);
     h.q_cloud_step_growth = h.settings.GetFloat("Rendering", "CloudStepGrowth", 0.0f);
+    h.q_cloud_type = h.settings.GetFloat("Rendering", "CloudType", 0.78f);
+    h.q_cloud_type_influence = h.settings.GetFloat("Rendering", "CloudTypeInfluence", 0.0f);
+    h.q_cloud_precipitation = h.settings.GetFloat("Rendering", "CloudPrecipitation", 0.0f);
+    h.q_cloud_precipitation_influence = h.settings.GetFloat("Rendering", "CloudPrecipitationInfluence", 0.0f);
+    h.q_cloud_ambient_at_base = h.settings.GetFloat("Rendering", "CloudAmbientAtBase", 0.26f);
+    h.q_cloud_ambient_at_top = h.settings.GetFloat("Rendering", "CloudAmbientAtTop", 0.52f);
+    h.q_cloud_ground_contribution = h.settings.GetFloat("Rendering", "CloudGroundContribution", 0.15f);
     const f32 cloudRenderScale =
         h.settings.GetFloat("Rendering", "CloudRenderScale", -1.0f);
     if (cloudRenderScale >= 0.0f) {

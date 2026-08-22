@@ -123,6 +123,32 @@ ACS_TEST(VolumetricCloudSettings, DefaultLightingKeepsWaterDropletScatteringNear
     EXPECT_NEAR(lighting.ViewExtinction, lighting.LightExtinction, 0.0f);
 }
 
+ACS_TEST(VolumetricCloudSettings, WeatherControlsRemainBoundedAndDefaultToProceduralInput)
+{
+    /** 影響率 0 により、直接利用時の手続き天候場を変えない既定値。 */
+    const FVolumetricCloudWeather defaults{};
+    EXPECT_NEAR(defaults.CloudType, 0.78f, 0.0f);
+    EXPECT_NEAR(defaults.CloudTypeInfluence, 0.0f, 0.0f);
+    EXPECT_NEAR(defaults.Precipitation, 0.0f, 0.0f);
+    EXPECT_NEAR(defaults.PrecipitationInfluence, 0.0f, 0.0f);
+
+    /** 非有限値と範囲外値を含む入力。 */
+    FVolumetricCloudWeather requested{};
+    requested.CloudType = std::numeric_limits<f32>::quiet_NaN();
+    requested.CloudTypeInfluence = 2.0f;
+    requested.Precipitation = -1.0f;
+    requested.PrecipitationInfluence = std::numeric_limits<f32>::infinity();
+    /** GPU へ渡せる範囲へ正規化した天候。 */
+    const FVolumetricCloudWeather sanitized =
+        SanitizeVolumetricCloudWeather(requested);
+    EXPECT_NEAR(sanitized.CloudType, defaults.CloudType, 0.0f);
+    EXPECT_NEAR(sanitized.CloudTypeInfluence, 1.0f, 0.0f);
+    EXPECT_NEAR(sanitized.Precipitation, 0.0f, 0.0f);
+    EXPECT_NEAR(
+        sanitized.PrecipitationInfluence,
+        defaults.PrecipitationInfluence, 0.0f);
+}
+
 ACS_TEST(VolumetricCloudSettings, MultipleScatteringAccumulatesThroughThirdOrderAndPreservesEnergyBound)
 {
     /** 消散より大きい高次散乱係数を含む入力。 */
@@ -300,6 +326,18 @@ ACS_TEST(VolumetricCloudSettings, PublicSettersStoreTheSameSanitizedValuesUsedBy
     EXPECT_NEAR(clouds.Lighting().SunTransmittance.y, 0.0f, 0.0f);
     EXPECT_NEAR(clouds.Lighting().SunTransmittance.z, 0.5f, 0.0f);
 
+    /** 範囲外の雲種と降水成分を含む天候入力。 */
+    FVolumetricCloudWeather weather{};
+    weather.CloudType = -1.0f;
+    weather.CloudTypeInfluence = 2.0f;
+    weather.Precipitation = 2.0f;
+    weather.PrecipitationInfluence = -1.0f;
+    clouds.SetWeather(weather);
+    EXPECT_NEAR(clouds.Weather().CloudType, 0.0f, 0.0f);
+    EXPECT_NEAR(clouds.Weather().CloudTypeInfluence, 1.0f, 0.0f);
+    EXPECT_NEAR(clouds.Weather().Precipitation, 1.0f, 0.0f);
+    EXPECT_NEAR(clouds.Weather().PrecipitationInfluence, 0.0f, 0.0f);
+
     /** 過大な距離と刻み数を含む範囲入力。 */
     FVolumetricCloudRange range{};
     range.MaxDistance = 1.0e30f;
@@ -331,7 +369,10 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
                                                   "void CVolumetricClouds::SetLighting(");
     /** 照明 setter の実装範囲。 */
     const std::string setLighting = SliceBetween(source, "void CVolumetricClouds::SetLighting(",
-                                                 "void CVolumetricClouds::SetRange(");
+                                                 "void CVolumetricClouds::SetWeather(");
+    /** 天候 setter の実装範囲。 */
+    const std::string setWeather = SliceBetween(source, "void CVolumetricClouds::SetWeather(",
+                                                "void CVolumetricClouds::SetRange(");
     /** 距離 setter の実装範囲。 */
     const std::string setRange = SliceBetween(source, "void CVolumetricClouds::SetRange(",
                                               "void CVolumetricClouds::SetUpperLayer(");
@@ -345,6 +386,7 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(setUpper, "InvalidateCloudHistory_Internal(true);"));
     EXPECT_TRUE(Contains(setReference, "InvalidateCloudHistory_Internal(false);"));
     EXPECT_TRUE(Contains(setLighting, "InvalidateCloudHistory_Internal(false);"));
+    EXPECT_TRUE(Contains(setWeather, "InvalidateCloudHistory_Internal(true);"));
     EXPECT_TRUE(Contains(setRange, "InvalidateCloudHistory_Internal(false);"));
     EXPECT_TRUE(Contains(header, "InvalidateCloudHistory_Internal(false);"));
     EXPECT_TRUE(Contains(source, "if (density_field_changed) m_ShadowCacheValid = false;"));

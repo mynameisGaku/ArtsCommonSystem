@@ -1400,6 +1400,9 @@ ACS_TEST(Atmosphere, EditorCloudLightingUsesNormalizedLayerAndCurrentSky) {
     EXPECT_TRUE(Contains(
         helper,
         "SunTransmittanceAtAltitude(middleAltitude, host.sun_dir)"));
+    EXPECT_TRUE(Contains(helper, "lighting.AmbientAtBase = host.q_cloud_ambient_at_base;"));
+    EXPECT_TRUE(Contains(helper, "lighting.AmbientAtTop = host.q_cloud_ambient_at_top;"));
+    EXPECT_TRUE(Contains(helper, "lighting.GroundContribution = host.q_cloud_ground_contribution;"));
     EXPECT_TRUE(Contains(helper, "lighting.SkyZenithColor = host.sky_zenith;"));
     EXPECT_TRUE(Contains(helper, "lighting.GroundColor = host.sky_ground;"));
     EXPECT_TRUE(Contains(helper, "host.vclouds3d.SetLighting(lighting);"));

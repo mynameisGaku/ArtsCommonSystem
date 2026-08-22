@@ -215,6 +215,14 @@ struct FScene3DClouds {
     bool bReferenceMode = false;
 
     /**
+     * 雲種と降水成分。既定は手続き生成した天候場を変更しない。
+     *
+     * @details `CloudTypeInfluence` と `PrecipitationInfluence` を 0 にすると、
+     * エンジンが生成した天候場を加工せずに使う。
+     */
+    FVolumetricCloudWeather Weather{};
+
+    /**
      * 雲の照らし方。位相・消散・多重散乱・環境光・地面からの照り返し。
      *
      * @details

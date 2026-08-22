@@ -72,7 +72,6 @@ set(_acsgen_render_headers
     NormalMatrix.h
     Particles.h
     PbrShader.h
-    VolumetricCloudWorldShadow.h
     PipelineStateKey.h
     PipelineStateKeyCache.h
     PostProcess.h
@@ -105,6 +104,8 @@ set(_acsgen_render_headers
     TemporalHistory.h
     TransientUploadArena.h
     VertexScatter.h
+    VolumetricCloudWeather.h
+    VolumetricCloudWorldShadow.h
     WaterSurface3D.h
 )
 set(_acsgen_render_public_deps

@@ -12,6 +12,7 @@
 #include "render/IRhiCommandList.h"
 #include "render/IRhiTexture.h"
 #include "render/SkySunProfile.h"
+#include "render/VolumetricCloudWeather.h"
 #include "render/VolumetricCloudWorldShadow.h"
 
 namespace acs {
@@ -1167,6 +1168,20 @@ public:
     const FVolumetricCloudLighting& Lighting() const noexcept { return m_Lighting; }
 
     /**
+     * 手続き生成した雲種と降水成分を、目的の天候へ寄せる。
+     *
+     * @param weather 新しい天候設定。次のフレームから密度、自己影、立体物用雲影へ効く。
+     */
+    void SetWeather(const FVolumetricCloudWeather& weather) noexcept;
+
+    /**
+     * 現在の正規化済み天候設定を返す。
+     *
+     * @return 雲種と降水成分、および各適用率。
+     */
+    const FVolumetricCloudWeather& Weather() const noexcept { return m_Weather; }
+
+    /**
      * どこまで雲を描くかを設定する。
      *
      * @param range 新しい設定。次のフレームから効く。
@@ -1299,6 +1314,9 @@ private:
 
     /** 照らし方の係数。 */
     FVolumetricCloudLighting m_Lighting{};
+
+    /** 手続き天候場へ重ねる雲種と降水成分。 */
+    FVolumetricCloudWeather m_Weather{};
 
     /** どこまで描くか。 */
     FVolumetricCloudRange    m_Range{};

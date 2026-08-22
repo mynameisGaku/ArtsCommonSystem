@@ -909,6 +909,8 @@ cbuffer CloudCB : register(b0) {
     float4 cloudUpperTerms;
     // xy=基本形状の位相ずれ, zw=渦と侵食の位相ずれ
     float4 cloudEvolution;
+    // x=目標雲種, y=雲種適用率, z=目標降水成分, w=降水適用率
+    float4 cloudWeatherControl;
     // xy=更新する偶奇位置, z=各軸の更新間隔, w=1 なら全更新
     float4 cloudShadowUpdate;
     // xy=基準面上の左下XZ, z=1/範囲, w=基準面のワールドY
@@ -1204,6 +1206,10 @@ float4 cloudWeatherData(float3 p){
     // 中央値付近を積雲へ飽和させず、層雲、層積雲、積雲の高さ形状を使い分ける。
     weather.g=smoothstep(0.42,0.66,weather.g);
     weather.b=max(a.b,b.b*0.72);
+    // 手続き模様を消さずに目的の天候へ寄せる。被覆の時間変化より先に適用し、
+    // 視線密度、自己影、立体物用雲影が同じ雲種と降水成分を共有する。
+    weather.g=lerp(weather.g,cloudWeatherControl.x,cloudWeatherControl.y);
+    weather.b=lerp(weather.b,cloudWeatherControl.z,cloudWeatherControl.w);
     // 成長後の被覆をこの天候値に収め、占有判定、詳細密度、自己影で共有する。
     weather.r=saturate(
         weather.r+cloudWeatherCoverageEvolution(weather));
@@ -2972,10 +2978,11 @@ struct FCloudCb {
     FVec4 cloudUpperLayer;
     FVec4 cloudUpperTerms;
     FVec4 cloudEvolution;
+    FVec4 cloudWeatherControl;
     FVec4 cloudShadowUpdate;
     FVec4 cloudWorldShadowMap;
 };
-static_assert(sizeof(FCloudCb) == 672, "CloudCB must match the HLSL layout");
+static_assert(sizeof(FCloudCb) == 688, "CloudCB must match the HLSL layout");
 static_assert(
     offsetof(FCloudCb, groundHorizon) == 320u,
     "CloudCB ground horizon must remain at HLSL register c20");
@@ -3007,8 +3014,9 @@ static_assert(
 static_assert(
     offsetof(FCloudCb, cloudEvolution) == 624u,
     "CloudCB の時間変化項は HLSL の c39 と一致させる");
-static_assert(offsetof(FCloudCb, cloudShadowUpdate) == 640u, "CloudCB の自己影更新項は HLSL の c40 と一致させる");
-static_assert(offsetof(FCloudCb, cloudWorldShadowMap) == 656u, "CloudCB の立体物用雲影座標は HLSL の c41 と一致させる");
+static_assert(offsetof(FCloudCb, cloudWeatherControl) == 640u, "CloudCB の天候制御項は HLSL の c40 と一致させる");
+static_assert(offsetof(FCloudCb, cloudShadowUpdate) == 656u, "CloudCB の自己影更新項は HLSL の c41 と一致させる");
+static_assert(offsetof(FCloudCb, cloudWorldShadowMap) == 672u, "CloudCB の立体物用雲影座標は HLSL の c42 と一致させる");
 static_assert(
     CBSize<FCloudCb>() == 768u,
     "CloudCB allocation must preserve DX12's 256-byte alignment");
@@ -3091,6 +3099,14 @@ bool CloudLightingEqual(const FVolumetricCloudLighting& lhs, const FVolumetricCl
            lhs.GroundColor.y == rhs.GroundColor.y && lhs.GroundColor.z == rhs.GroundColor.z;
 }
 
+/** 天候設定が成分単位で同じか返す。 */
+bool CloudWeatherEqual(const FVolumetricCloudWeather& lhs, const FVolumetricCloudWeather& rhs) noexcept
+{
+    return lhs.CloudType == rhs.CloudType && lhs.CloudTypeInfluence == rhs.CloudTypeInfluence &&
+           lhs.Precipitation == rhs.Precipitation &&
+           lhs.PrecipitationInfluence == rhs.PrecipitationInfluence;
+}
+
 /** 距離設定が成分単位で同じか返す。 */
 bool CloudRangeEqual(const FVolumetricCloudRange& lhs, const FVolumetricCloudRange& rhs) noexcept
 {
@@ -3134,6 +3150,20 @@ FVolumetricCloudLayer SanitizeVolumetricCloudLayer(const FVolumetricCloudLayer& 
         }
     }
     return layer;
+}
+
+FVolumetricCloudWeather SanitizeVolumetricCloudWeather(const FVolumetricCloudWeather& requested) noexcept
+{
+    const FVolumetricCloudWeather defaults{};
+    FVolumetricCloudWeather weather{};
+    weather.CloudType = SanitizeCloudScalar(requested.CloudType, defaults.CloudType, 0.0f, 1.0f);
+    weather.CloudTypeInfluence = SanitizeCloudScalar(
+        requested.CloudTypeInfluence, defaults.CloudTypeInfluence, 0.0f, 1.0f);
+    weather.Precipitation = SanitizeCloudScalar(
+        requested.Precipitation, defaults.Precipitation, 0.0f, 1.0f);
+    weather.PrecipitationInfluence = SanitizeCloudScalar(
+        requested.PrecipitationInfluence, defaults.PrecipitationInfluence, 0.0f, 1.0f);
+    return weather;
 }
 
 FVolumetricCloudLighting SanitizeVolumetricCloudLighting(const FVolumetricCloudLighting& requested) noexcept
@@ -4070,6 +4100,14 @@ void CVolumetricClouds::SetLighting(const FVolumetricCloudLighting& requested) n
     InvalidateCloudHistory_Internal(false);
 }
 
+void CVolumetricClouds::SetWeather(const FVolumetricCloudWeather& requested) noexcept
+{
+    const FVolumetricCloudWeather weather = SanitizeVolumetricCloudWeather(requested);
+    if (CloudWeatherEqual(weather, m_Weather)) return;
+    m_Weather = weather;
+    InvalidateCloudHistory_Internal(true);
+}
+
 void CVolumetricClouds::SetRange(const FVolumetricCloudRange& requested) noexcept
 {
     const FVolumetricCloudRange range = SanitizeVolumetricCloudRange(requested);
@@ -4997,6 +5035,11 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         evolutionFrameTerms.shape_phase.y,
         evolutionFrameTerms.fine_phase.x,
         evolutionFrameTerms.fine_phase.y};
+    cb.cloudWeatherControl = FVec4{
+        m_Weather.CloudType,
+        m_Weather.CloudTypeInfluence,
+        m_Weather.Precipitation,
+        m_Weather.PrecipitationInfluence};
     cb.cloudShadowUpdate = FVec4{
         static_cast<f32>(shadowUpdateOffsetX),
         static_cast<f32>(shadowUpdateOffsetY),

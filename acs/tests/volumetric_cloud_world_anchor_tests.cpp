@@ -917,10 +917,19 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(editorSource, "h.q_cloud_max_distance=h.settings.GetFloat(\"Rendering\",\"CloudMaxDistance\",60000.0f);"));
     EXPECT_TRUE(Contains(editorSource, "h.q_cloud_fade_fraction=h.settings.GetFloat(\"Rendering\",\"CloudFadeFraction\",0.35f);"));
     EXPECT_TRUE(Contains(editorSource, "h.q_cloud_step_growth=h.settings.GetFloat(\"Rendering\",\"CloudStepGrowth\",0.0f);"));
+    EXPECT_TRUE(Contains(editorSource, "h.q_cloud_type=h.settings.GetFloat(\"Rendering\",\"CloudType\",0.78f);"));
+    EXPECT_TRUE(Contains(editorSource, "h.q_cloud_type_influence=h.settings.GetFloat(\"Rendering\",\"CloudTypeInfluence\",0.0f);"));
+    EXPECT_TRUE(Contains(editorSource, "h.q_cloud_precipitation=h.settings.GetFloat(\"Rendering\",\"CloudPrecipitation\",0.0f);"));
+    EXPECT_TRUE(Contains(editorSource, "h.q_cloud_precipitation_influence=h.settings.GetFloat(\"Rendering\",\"CloudPrecipitationInfluence\",0.0f);"));
     EXPECT_TRUE(Contains(editorSource, "cloudRange.MaxDistance=h.q_cloud_max_distance;"));
     EXPECT_TRUE(Contains(editorSource, "cloudRange.FadeFraction=h.q_cloud_fade_fraction;"));
     EXPECT_TRUE(Contains(editorSource, "cloudRange.StepGrowth=h.q_cloud_step_growth;"));
     EXPECT_TRUE(Contains(editorSource, "h.vclouds3d.SetRange(cloudRange);"));
+    EXPECT_TRUE(Contains(editorSource, "cloudWeather.CloudType=h.q_cloud_type;"));
+    EXPECT_TRUE(Contains(editorSource, "cloudWeather.CloudTypeInfluence=h.q_cloud_type_influence;"));
+    EXPECT_TRUE(Contains(editorSource, "cloudWeather.Precipitation=h.q_cloud_precipitation;"));
+    EXPECT_TRUE(Contains(editorSource, "cloudWeather.PrecipitationInfluence=h.q_cloud_precipitation_influence;"));
+    EXPECT_TRUE(Contains(editorSource, "h.vclouds3d.SetWeather(cloudWeather);"));
     EXPECT_TRUE(Contains(editorSource, "host.q_cloud_render_scale,host.q_cloud_reference);"));
 }
 
@@ -2734,12 +2743,18 @@ ACS_TEST(VolumetricClouds,
         "returnclamp(slowPhase*0.38+finePhase*0.32,-0.14,0.14)"
         "*edgeResponse;}"));
     const std::size_t typeExpansion = shader.find("weather.g=smoothstep(0.42,0.66,weather.g);");
+    const std::size_t typeControl = shader.find(
+        "weather.g=lerp(weather.g,cloudWeatherControl.x,cloudWeatherControl.y);");
+    const std::size_t precipitationControl = shader.find(
+        "weather.b=lerp(weather.b,cloudWeatherControl.z,cloudWeatherControl.w);");
     const std::size_t coverageEvolution = shader.find(
         "weather.r=saturate("
         "weather.r+cloudWeatherCoverageEvolution(weather));");
     const std::size_t weatherReturn = shader.find(
         "returnweather;}", coverageEvolution);
-    EXPECT_TRUE(typeExpansion < coverageEvolution);
+    EXPECT_TRUE(typeExpansion < typeControl);
+    EXPECT_TRUE(typeControl < precipitationControl);
+    EXPECT_TRUE(precipitationControl < coverageEvolution);
     EXPECT_TRUE(coverageEvolution < weatherReturn);
     const std::size_t helperBegin = shader.find(
         "floatcloudWeatherCoverageEvolution(");
@@ -4205,7 +4220,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         compactSource,
         "offsetof(FCloudCb,cloudShellTerms)==432u"));
-    EXPECT_TRUE(Contains(compactSource, "sizeof(FCloudCb)==672"));
+    EXPECT_TRUE(Contains(compactSource, "sizeof(FCloudCb)==688"));
     EXPECT_TRUE(Contains(
         compactSource,
         "constFVec3shellLocalOrigin{"
@@ -4349,6 +4364,7 @@ ACS_TEST(VolumetricClouds,
     // 高度からの層内位置も、同じ採取点で高度を再計算しない形を保つ。
     EXPECT_TRUE(Contains(shader, "float4cloudFrameTerms;"));
     EXPECT_TRUE(Contains(shader, "float4cloudEvolution;"));
+    EXPECT_TRUE(Contains(shader, "float4cloudWeatherControl;"));
     EXPECT_TRUE(Contains(shader, "float4cloudLightTangent;"));
     EXPECT_TRUE(Contains(shader, "float4cloudLightBitangent;"));
     EXPECT_TRUE(Contains(shader, "floatheightFractionFromAltitude(" "floataltitude,boolupperBand){" "//FXCが分岐内の即時returnを未初期化扱いすることがあるため、" "下層の値で先に初期化し、" "//上層だけを上書きして一つの経路から返す。" "高さの式と飽和処理の順序は変えない。" "floatheight=(altitude-layer.x)*cloudFrameTerms.w;" "if(upperBand)" "height=(altitude-cloudUpperLayer.x)*cloudUpperLayer.z;" "returnsaturate(height);}"));
@@ -4382,7 +4398,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(shader, "normalize(sunDir.xyz)"));
     EXPECT_FALSE(Contains(shader, "cloudLightBasis("));
 
-    EXPECT_TRUE(Contains(compactSource, "sizeof(FCloudCb)==672"));
+    EXPECT_TRUE(Contains(compactSource, "sizeof(FCloudCb)==688"));
     EXPECT_TRUE(Contains(
         compactSource,
         "offsetof(FCloudCb,cloudFrameTerms)==336u"));
@@ -4393,8 +4409,9 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         compactSource,
         "offsetof(FCloudCb,cloudEvolution)==624u"));
-    EXPECT_TRUE(Contains(compactSource, "offsetof(FCloudCb,cloudShadowUpdate)==640u"));
-    EXPECT_TRUE(Contains(compactSource, "offsetof(FCloudCb,cloudWorldShadowMap)==656u"));
+    EXPECT_TRUE(Contains(compactSource, "offsetof(FCloudCb,cloudWeatherControl)==640u"));
+    EXPECT_TRUE(Contains(compactSource, "offsetof(FCloudCb,cloudShadowUpdate)==656u"));
+    EXPECT_TRUE(Contains(compactSource, "offsetof(FCloudCb,cloudWorldShadowMap)==672u"));
     EXPECT_TRUE(Contains(
         compactSource,
         "cb.cloudFrameTerms=FVec4{"
@@ -4409,6 +4426,13 @@ ACS_TEST(VolumetricClouds,
         "evolutionFrameTerms.shape_phase.y,"
         "evolutionFrameTerms.fine_phase.x,"
         "evolutionFrameTerms.fine_phase.y};"));
+    EXPECT_TRUE(Contains(
+        compactSource,
+        "cb.cloudWeatherControl=FVec4{"
+        "m_Weather.CloudType,"
+        "m_Weather.CloudTypeInfluence,"
+        "m_Weather.Precipitation,"
+        "m_Weather.PrecipitationInfluence};"));
     EXPECT_TRUE(Contains(compactSource, "cb.cloudShadowUpdate=FVec4{" "static_cast<f32>(shadowUpdateOffsetX)," "static_cast<f32>(shadowUpdateOffsetY)," "static_cast<f32>(shadowUpdateDivisor)," "refreshAllShadows?1.0f:0.0f};"));
     EXPECT_TRUE(Contains(
         compactSource,
@@ -5190,7 +5214,7 @@ ACS_TEST(VolumetricClouds,
     const std::string compactSource = CompactShader(source);
     EXPECT_EQ(CountOccurrences(resolveShader, "float4groundHorizon;"), static_cast<std::size_t>(1));
     EXPECT_TRUE(Contains(compactSource, "offsetof(FCloudCb,groundHorizon)==320u"));
-    EXPECT_TRUE(Contains(compactSource, "sizeof(FCloudCb)==672"));
+    EXPECT_TRUE(Contains(compactSource, "sizeof(FCloudCb)==688"));
     EXPECT_TRUE(Contains(compactSource, "offsetof(FCloudCb,cloudFrameTerms)==336u"));
     EXPECT_TRUE(Contains(compactSource, "CBSize<FCloudCb>()==768u"));
     EXPECT_TRUE(Contains(resolveShader, "floatoutA=saturate(resolved.a);resolvedDepth.y=outA;"));

@@ -1137,6 +1137,7 @@ void ALegacyScene3DAdapter::RenderClouds(
     // (見えている空は大気から焼いたものだが、上下の «色の傾き» はこちらで足りる)。
     lighting.SkyZenithColor = m_Sky.ZenithColor();
     m_Clouds.SetLighting(lighting);
+    m_Clouds.SetWeather(m_CloudParams.Weather);
     m_Clouds.SetRange(m_CloudParams.Range);
     m_Clouds.SetUpperLayer(FVolumetricCloudUpperLayer{
         m_CloudParams.UpperLayer.BaseAltitude,
