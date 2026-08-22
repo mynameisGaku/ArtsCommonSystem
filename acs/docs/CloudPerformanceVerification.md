@@ -669,6 +669,18 @@ Editor は `CloudMaxDistance=60000`、`CloudFadeFraction=0.35`、`CloudStepGrowt
 灰色で横に広く、上空の雲頂もぼやけた白い面が多い。距離積分の修正だけを超高品質な雲の完成とは扱わず、
 次の大域形状・雲種制御・照明監査へ残す。
 
+同じ `c824212d` の成果物で通常品質を各20秒計測し、品質判定は地平線・天頂とも合格した。雲GPU時間は
+地平線が平均 `3.03 ms`、最大 `4.29 ms`、天頂が平均 `1.40 ms`、最大 `2.10 ms` だった。Editor全体の
+実測更新頻度に対する300 FPS目標は両視点で参考値未達だが、雲GPU平均の換算値は地平線 `320.33 FPS`、
+天頂 `656.86 FPS` である。
+
+同じソースからDebug・Release配布物を再生成し、配布表のSHA-256
+`1EAD871A116C8F83BD57D7E917816408CBBF8A57191B14484743F1E095D32F07` と45ファイルの集合・サイズ・内容を
+照合した。単一ヘッダーを直接使う通常C++ consumerは両構成で合格した。外部ACS Framework
+`5ba0200` も同じ配布物で両構成をビルドし、単体試験はそれぞれ538件中0件失敗だった。Release実行を
+5秒以上継続し、3D描画、雲更新、終了を確認した。Framework既存の`AcsEnumReflection.h`にある
+`C4267`警告は両構成で残るが、今回の配布物による新規警告ではない。
+
 ## Quality-preserving optimization rules
 
 Ultra cloud optimization keeps the `0.25` trace scale, 192 view-sample ceiling,

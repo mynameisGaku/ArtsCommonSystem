@@ -58182,8 +58182,15 @@ struct FVolumetricCloudLighting {
     /** 光の方向の消散。見る方向と揃える。 */
     f32 LightExtinction = 5.0f;
 
-    /** 太陽光のうち散乱に回る割合。 */
-    f32 SunScatter = 0.14f;
+    /**
+     * 太陽光のうち散乱に回る割合（単散乱アルベド）。
+     *
+     * @details
+     * 視線側の区間不透明度は消散係数を含むため、ここへ見た目調整用の小さな倍率を置くと
+     * 雲だけが光を吸収する灰色の媒質になる。可視光の水滴雲として1に近い値を既定にし、
+     * 太陽付近の明るさは位相上限と露出で制御する。
+     */
+    f32 SunScatter = 0.92f;
 
     /**
      * 周囲に高次散乱の光源がある確率を混ぜる割合。
@@ -58435,6 +58442,16 @@ f32 EvaluateVolumetricCloudInScatterFactor(f32 low_lod_density, f32 normalized_h
 
 /** 描画距離と刻み数を実装上の上限内へ直す。 */
 FVolumetricCloudRange SanitizeVolumetricCloudRange(const FVolumetricCloudRange& requested) noexcept;
+
+/**
+ * 雲の標本距離から、打ち切り区間で密度へ掛ける係数を求める。
+ *
+ * @param sample_distance カメラから標本までの距離。
+ * @param max_distance 雲描画を打ち切る距離。
+ * @param fade_fraction 打ち切り手前で薄める区間の割合。0 は終端での即時打ち切り。
+ * @return 有限な 0～1 の密度係数。不正な標本距離は見えない値へ戻す。
+ */
+f32 EvaluateVolumetricCloudDistanceFade(f32 sample_distance, f32 max_distance, f32 fade_fraction) noexcept;
 
 /** 上層設定を下層と交差しない有限値へ直す。成立しない層は無効化する。 */
 FVolumetricCloudUpperLayer SanitizeVolumetricCloudUpperLayer(const FVolumetricCloudUpperLayer& requested,
@@ -58741,12 +58758,25 @@ FVec3 RebaseVolumetricCloudWorldOrigin(
  * occupied density uses fine_step.
  */
 struct FVolumetricCloudMarchPlan {
+    /** 雲層へ入る視線距離。 */
     f32 enter = 0.0f;
+
+    /** 雲層を出るか、描画を打ち切る視線距離。 */
     f32 exit = 0.0f;
+
+    /** 密度がある区間の採取間隔。 */
     f32 fine_step = 1.0f;
+
+    /** 空領域を探す採取間隔。 */
     f32 coarse_step = 4.0f;
+
+    /** 区間入口の距離減衰。実積分では各標本の距離から個別に求める。 */
     f32 visibility = 0.0f;
+
+    /** 1 本の視線で許可する最大採取数。 */
     u32 max_samples = kVolumetricCloudMaxViewMarchSamples;
+
+    /** 打ち切り距離内に積分可能な区間があるか。 */
     bool hit = false;
 };
 
