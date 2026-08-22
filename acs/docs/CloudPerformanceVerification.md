@@ -1154,6 +1154,39 @@ SHA-256は`BF8689EFD719A8B8DDF57B39DA6B89E681A8CEFB318572854CF61A59CE0D71F6`だ�
 - [The Real-time Volumetric Cloudscapes of Horizon: Zero Dawn](https://advances.realtimerendering.com/s2015/The%20Real-time%20Volumetric%20Cloudscapes%20of%20Horizon%20-%20Zero%20Dawn%20-%20ARTR.pdf)
 - [Volumetric Cloud Material in Unreal Engine](https://dev.epicgames.com/documentation/en-us/unreal-engine/volumetric-cloud-material-in-unreal-engine)
 
+## 雲層境界で遠景距離へ戻り、雲頂が白い水平面へ飽和していた問題の修正
+
+高度`5190 m`と`5210 m`の従来画像は、雲層上端`5200 m`をまたいでもほぼ同じ白い水平面だった。
+垂直密度分布には列ごとの雲頂移動がすでにあり、上端を一律に切っていることだけでは説明できない。
+一方、診断用に最大描画距離を`60 km`から`12 km`へ変えると、雲頂直上でも房、谷、空への抜けが
+分離した。このため、境界で局所視程から`60 km`へ戻り、ほぼ水平な長距離レイの光学的深さが
+飽和する処理を主因と判定した。
+
+現在は層内と境界面で層厚の4倍を`8～35 km`へ収めた局所視程を保つ。層外では層厚の50%を
+近接帯とし、その外縁まで局所視程と設定距離の逆数を滑らかに補間する。雲層`2600～5200 m`では
+局所視程が`10.4 km`、近接帯が上下各`1300 m`となる。高度`5400 m`でも`12 km`未満を保ち、
+高度`8000 m`では設定した遠景距離へ完全に戻る。境界内側で設定距離へ戻す旧式と違い、雲へ進入、
+内部滞在、境界通過、退出の順序で同じ連続式を使う。
+
+通常描画の高度`5190 / 5210 / 5400 m`では、旧画像にあった白い棚が消え、独立した雲塊と谷が
+連続して残った。雲中`4300 m`では中央帯を一色へ戻さず、地上視点と約`10 km`上空でも従来の
+広域雲場を維持した。証拠画像は
+`C:\dev\acs_temp_builds\CloudBoundaryProximityAudit-20260823`へ保存した。WPF親画面だけ、全黒、
+または3D子画面が単色の取得は成功扱いせず、3D領域の実画素に十分な明度差がある画像だけを採用した。
+
+Debug全体ビルドと単体試験1505件、Release全体ビルドと単体試験1501件は全合格した。managed
+EditorもReleaseで警告0・エラー0となり、通常描画で更新後のHLSLを実行できた。配布先
+`C:\dev\acs_temp_builds\CloudDistributionBoundaryProximity-20260823`は45ファイルを持ち、manifestの
+SHA-256は`E2D9AEDA0C0444CFE2CF10838E227A77DD56533BEC6A690CAF3679283E82A4AD`だった。
+単一headerの通常C++利用者はDebug・Releaseでコンパイル、リンク、実行に合格した。隔離した
+Framework `d5a4b6824132df0750ac8aa7d3b14f54bc3a3e34`も同じ配布物で両構成の全体ビルドに合格した。
+単体試験は両構成とも1451件中、既知の`FWeather3DAppearance` 2件だけが失敗し、雲または配布APIの
+新規失敗はない。本体実装には標準コンテナ、`std::`、`friend`を追加していない。
+
+今回の修正は雲中と雲頂近傍の長距離飽和を解消するが、最終品質ではない。地上と上空の雲縁には
+白い点列、雲頂表面には細かなざらつきが残る。次の品質ループでは、低解像度標本の空間再構成と
+距離別の密度しきい値を監査し、雲塊の厚みと動きを保ったまま輪郭ノイズを減らす。
+
 ## Quality-preserving optimization rules
 
 Ultra cloud optimization keeps the `0.25` trace scale, 384 view-sample ceiling,

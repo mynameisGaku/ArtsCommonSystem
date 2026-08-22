@@ -2200,8 +2200,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     }
     // どこまで追うか。遠い雲は 1 画素に何 km も入るので積分が成立せず、描くほど
     // «ちらつく細かいゴミ» になる。打ち切りの手前で薄くして、境界の «壁» を出さない。
-    // カメラが雲層内にあるときは、CPUで層境界から連続補間した局所視程を使う。
-    // 地上と上空では w==x のため従来の遠景距離を保つ。
+    // カメラが雲層内または境界近傍にあるときは、CPUで連続補間した局所視程を使う。
+    // 境界から十分離れた地上と上空では w==x のため従来の遠景距離を保つ。
     float MAX_DISTANCE=min(cloudRange.x,max(cloudRange.w,1.0));
     float fadeStartRatio=saturate(cloudRange.y/max(cloudRange.x,1.0));
     float fadeStart=MAX_DISTANCE*fadeStartRatio;
@@ -3704,27 +3704,36 @@ f32 EvaluateVolumetricCloudInteriorViewDistance(f32 camera_altitude, f32 layer_b
         return maximum;
     }
     const f32 thickness = layer_top_height - layer_base_height;
-    if (thickness < kVolumetricCloudMinLayerThickness || camera_altitude <= layer_base_height || camera_altitude >= layer_top_height) {
+    if (thickness < kVolumetricCloudMinLayerThickness) {
         return maximum;
     }
 
-    const f32 normalizedHeight = (camera_altitude - layer_base_height) / thickness;
-    f32 lowerTransition = Clamp(normalizedHeight / kVolumetricCloudInteriorTransitionFraction, 0.0f, 1.0f);
-    lowerTransition = lowerTransition * lowerTransition *
-        (3.0f - 2.0f * lowerTransition);
-    f32 upperTransition = Clamp((1.0f - normalizedHeight) / kVolumetricCloudInteriorTransitionFraction, 0.0f, 1.0f);
-    upperTransition = upperTransition * upperTransition *
-        (3.0f - 2.0f * upperTransition);
-    const f32 interiorWeight = lowerTransition * upperTransition;
-    f32 interiorDistance = Clamp(thickness * kVolumetricCloudInteriorDistanceScale, kVolumetricCloudInteriorMinDistance, kVolumetricCloudInteriorMaxDistance);
-    if (interiorDistance > maximum) interiorDistance = maximum;
-    if (interiorWeight <= 0.0f || interiorDistance >= maximum) return maximum;
+    // 層内と境界面で使う局所視程。利用側の指定距離を広げない。
+    f32 localDistance = Clamp(thickness * kVolumetricCloudInteriorDistanceScale, kVolumetricCloudInteriorMinDistance, kVolumetricCloudInteriorMaxDistance);
+    if (localDistance > maximum) localDistance = maximum;
+    if (localDistance >= maximum) return maximum;
+
+    // 層内を0とし、層外だけで最寄りの境界面までの距離を測る。
+    f32 distanceFromLayer = 0.0f;
+    if (camera_altitude < layer_base_height) {
+        distanceFromLayer = layer_base_height - camera_altitude;
+    } else if (camera_altitude > layer_top_height) {
+        distanceFromLayer = camera_altitude - layer_top_height;
+    }
+    // 層の厚さに比例させた、境界外側の局所視程維持範囲。
+    const f32 transitionDistance = thickness * kVolumetricCloudBoundaryTransitionFraction;
+    if (distanceFromLayer >= transitionDistance) return maximum;
+
+    // 近接帯の外縁へ進むほど、遠景距離の減衰率へ滑らかに戻す割合。
+    f32 maximumWeight = Clamp(distanceFromLayer / transitionDistance, 0.0f, 1.0f);
+    maximumWeight = maximumWeight * maximumWeight * (3.0f - 2.0f * maximumWeight);
+    const f32 localWeight = 1.0f - maximumWeight;
 
     // 視程の逆数は媒質の減衰率として加算できる。距離を直接補間するよりも、層境界で
-    // 遠景の不透明化が急に残らず、進入と退出で対称な変化になる。
+    // 遠景の不透明化が急に現れず、進入と退出で対称な変化になる。
     const f32 inverseMaximum = 1.0f / maximum;
-    const f32 inverseInterior = 1.0f / interiorDistance;
-    return 1.0f / (inverseMaximum + (inverseInterior - inverseMaximum) * interiorWeight);
+    const f32 inverseLocal = 1.0f / localDistance;
+    return 1.0f / (inverseMaximum + (inverseLocal - inverseMaximum) * localWeight);
 }
 
 FVolumetricCloudUpperLayer SanitizeVolumetricCloudUpperLayer(const FVolumetricCloudUpperLayer& requested,

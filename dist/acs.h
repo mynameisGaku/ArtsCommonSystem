@@ -59507,8 +59507,11 @@ inline constexpr f32 kVolumetricCloudInteriorMinDistance = 8000.0f;
 /** 雲層内の水平レイが遠距離の平均色へ収束しないようにする最長の層内視程。 */
 inline constexpr f32 kVolumetricCloudInteriorMaxDistance = 35000.0f;
 
-/** 雲層へ進入または退出するときに層内視程へ移行する、層厚に対する割合。 */
-inline constexpr f32 kVolumetricCloudInteriorTransitionFraction = 0.12f;
+/** 雲層境界の外側で局所視程から遠景距離へ戻す近接帯の、層厚に対する割合。 */
+inline constexpr f32 kVolumetricCloudBoundaryTransitionFraction = 0.5f;
+
+/** 従来名を使う利用側に、境界近接帯の同じ割合を公開する互換定数。 */
+inline constexpr f32 kVolumetricCloudInteriorTransitionFraction = kVolumetricCloudBoundaryTransitionFraction;
 
 /** 雲層として保持する最小厚さ。逆数を GPU へ渡しても有限になる値。 */
 inline constexpr f32 kVolumetricCloudMinLayerThickness = 0.25f;
@@ -59598,16 +59601,16 @@ FVolumetricCloudRange SanitizeVolumetricCloudRange(const FVolumetricCloudRange& 
 f32 EvaluateVolumetricCloudDistanceFade(f32 sample_distance, f32 max_distance, f32 fade_fraction) noexcept;
 
 /**
- * カメラ高度に応じて、一つの雲層内で使う局所的な最大描画距離を求める。
+ * カメラ高度に応じて、一つの雲層内と境界近傍で使う局所的な最大描画距離を求める。
  *
- * @details 層外では指定距離をそのまま返す。層内では層厚の4倍を8～35 kmへ収め、層境界の
- * 12%区間で逆距離を補間する。遠距離の平均色へ急に切り替わらず、進入・内部・退出を
- * 連続して描ける。
+ * @details 層内では層厚の4倍を8～35 kmへ収めた局所視程を使う。層境界の外側50%を
+ * 近接帯とし、そこで局所視程から指定距離へ逆距離補間する。境界直上または直下で遠距離の
+ * 平均色へ戻らず、進入・内部・退出を連続して描ける。
  *
  * @param camera_altitude 曲面惑星面から測ったカメラ高度。
  * @param layer_base_height 対象層の底の高度。
  * @param layer_top_height 対象層の上端高度。
- * @param maximum_distance 層外で使う最大描画距離。
+ * @param maximum_distance 近接帯より外で使う最大描画距離。
  * @return 有限な最大描画距離。層が不正な場合は正規化した指定距離を返す。
  */
 f32 EvaluateVolumetricCloudInteriorViewDistance(f32 camera_altitude, f32 layer_base_height, f32 layer_top_height, f32 maximum_distance) noexcept;
