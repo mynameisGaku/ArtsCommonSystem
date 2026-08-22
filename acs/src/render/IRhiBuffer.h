@@ -109,7 +109,9 @@ public:
     /**
      * 実バッファ先頭からのbind offsetを返す。
      *
-     * @return 通常バッファは0、一時arenaの論理sliceはアライン済みoffset。
+     * @details backend がフレームごとに物理領域を分ける通常バッファは現在領域の先頭を返す。
+     * 一時 arena の論理 slice は、親バッファの物理先頭へ自身の部分領域を加えた位置を返す。
+     * @return backend が実際の bind に使う実バッファ先頭からのバイト位置。
      */
     virtual usize BindingOffset() const noexcept { return 0u; }
 };

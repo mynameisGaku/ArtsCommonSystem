@@ -692,10 +692,11 @@ void CDiligentCommandList::SetVertexBuffer(IRhiBuffer& vb, u32 /*stride*/) noexc
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto& b = static_cast<FDiligentBuffer&>(vb);
+    IRhiBuffer& binding_buffer = vb.BindingBuffer();
+    auto& b = static_cast<FDiligentBuffer&>(binding_buffer);
     if (!b.Native()) return;
     Diligent::IBuffer* bufs[1] = { b.Native() };
-    Diligent::Uint64   offs[1] = { 0 };
+    Diligent::Uint64 offs[1] = { static_cast<Diligent::Uint64>(vb.BindingOffset()) };
     ctx->SetVertexBuffers(0, 1, bufs, offs,
                           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
                           Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
@@ -705,11 +706,11 @@ void CDiligentCommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto& b = static_cast<FDiligentBuffer&>(ib);
+    IRhiBuffer& binding_buffer = ib.BindingBuffer();
+    auto& b = static_cast<FDiligentBuffer&>(binding_buffer);
     if (!b.Native()) return;
-    m_bIsIndex32 = (b.Usage() == EBufferUsage::Index32);
-    ctx->SetIndexBuffer(b.Native(), 0,
-                        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    m_bIsIndex32 = (binding_buffer.Usage() == EBufferUsage::Index32);
+    ctx->SetIndexBuffer(b.Native(), static_cast<Diligent::Uint64>(ib.BindingOffset()), Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 }
 
 void CDiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
@@ -720,7 +721,8 @@ void CDiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept 
     IRhiBuffer& binding_buffer = cb.BindingBuffer();
     /** 実バッファ先頭からの定数範囲offset。 */
     const usize binding_offset = cb.BindingOffset();
-    if (cb.Usage() != EBufferUsage::Uniform || binding_buffer.Usage() != EBufferUsage::Uniform || binding_offset > binding_buffer.Size() || cb.Size() > binding_buffer.Size() - binding_offset || (binding_offset & 255u) != 0u) return;
+    const usize frame_offset = binding_buffer.BindingOffset();
+    if (cb.Usage() != EBufferUsage::Uniform || binding_buffer.Usage() != EBufferUsage::Uniform || binding_offset < frame_offset || binding_offset - frame_offset > binding_buffer.Size() || cb.Size() > binding_buffer.Size() - (binding_offset - frame_offset) || (binding_offset & 255u) != 0u) return;
     /** resource変数へ渡すbackendバッファ。 */
     auto& b = static_cast<FDiligentBuffer&>(binding_buffer);
     if (!b.Native()) return;
