@@ -875,7 +875,7 @@ cbuffer CloudCB : register(b0) {
     float4 cloudShellRayOrigin;// xyz=camera from planet centre, w=inner c
     float4 cloudShellTerms;// x=outer c
     // 雲を «光を散らす媒質» として扱うための係数。これまでは shader 内の即値だった。
-    // x=見る側の消散, y=光の側の消散, z=太陽光のうち散乱に回る割合, w=内部散乱確率の混ぜ率
+    // x=見る側の消散, y=光の側の消散, z=太陽光の散乱率, w=周囲散乱源の確率を混ぜる割合
     float4 cloudLightingExtinction;
     // x=前方散乱の鋭さ, y=後方散乱, z=前方の混ぜ率, w=多重散乱の寄与
     float4 cloudLightingPhase;
@@ -895,7 +895,7 @@ cbuffer CloudCB : register(b0) {
     float4 cloudRange;
     // x=上層の底, y=上層の天井, z=1/(天井-底), w=1 なら上層あり
     float4 cloudUpperLayer;
-    // x=上層の被覆の割合, y=上層の濃さの割合
+    // x=上層の被覆, y=上層の濃さ, z=上層の光学的深さ尺度, w=上層の光採取基準間隔
     float4 cloudUpperTerms;
     // xy=基本形状の位相ずれ, zw=渦と侵食の位相ずれ
     float4 cloudEvolution;
@@ -968,8 +968,19 @@ float cloudAltitude(float3 p){
 bool inUpperCloudBandFromAltitude(float altitude){
     return cloudUpperLayer.w>0.5 && altitude>=cloudUpperLayer.x;
 }
-bool inUpperCloudBand(float3 p){
-    return inUpperCloudBandFromAltitude(cloudAltitude(p));
+// 密度は各層の厚さを 1.6 の基準幅へ写して積分する。上層でも下層の尺度を使うと、
+// 光学的深さが上層厚と下層厚の比で変わるため、既に判定した層から尺度を選ぶ。
+float cloudOpticalDepthScaleFromBand(bool upperBand){
+    float scale=layer.w;
+    if(upperBand) scale=cloudUpperTerms.z;
+    return scale;
+}
+// 光円すいの採取間隔も同じ基準幅へ合わせる。CPU で除算済みの値を選び、密度標本ごとの
+// 除算を避ける。
+float cloudLightStepFromBand(bool upperBand){
+    float lightStep=cloudCoverageReciprocals.w;
+    if(upperBand) lightStep=cloudUpperTerms.w;
+    return lightStep;
 }
 // 層の中での高さ (0=底, 1=天井)。上層に居るなら上層の中で測る。
 //
@@ -1343,6 +1354,8 @@ struct CloudMacroSample {
     float profileClosure;
     float heightThreshold;
     float height;
+    // 高度計算で確定した層。後段の密度と積分尺度で再利用し、同じ高度を再計算しない。
+    float upperBand;
 };
 CloudMacroSample sampleCloudMacro(float3 p,float4 coverageTerms,out float3 sampleUvw,out float densityHeightThreshold){
     CloudMacroSample macro;
@@ -1356,11 +1369,13 @@ CloudMacroSample sampleCloudMacro(float3 p,float4 coverageTerms,out float3 sampl
     macro.profileClosure=0.0;
     macro.heightThreshold=0.78;
     macro.height=0.0;
+    macro.upperBand=0.0;
     macro.weather=cloudWeatherData(p);
     macro.weatherMask=cloudWeatherMaskFromTerms(
         macro.weather,coverageTerms.x,cloudCoverageReciprocals.x);
     float altitude=cloudAltitude(p);
     bool upperBand=inUpperCloudBandFromAltitude(altitude);
+    macro.upperBand=upperBand?1.0:0.0;
     // 形状による空間棄却も上層の被覆倍率に合わせ、空を一様な二層目で閉じない。
     if(upperBand) macro.weatherMask*=cloudUpperTerms.x;
     if(macro.weatherMask>0.001){
@@ -1397,12 +1412,14 @@ CloudMacroSample sampleCloudMacroLighting(float3 p,float weatherCoverage){
     macro.profileClosure=0.0;
     macro.heightThreshold=0.78;
     macro.height=0.0;
+    macro.upperBand=0.0;
     macro.weather=cloudWeatherData(p);
     macro.weatherMask=cloudWeatherMask(
         macro.weather,weatherCoverage);
     macro.densityWeatherMask=macro.weatherMask;
     float altitude=cloudAltitude(p);
     bool upperBand=inUpperCloudBandFromAltitude(altitude);
+    macro.upperBand=upperBand?1.0:0.0;
     if(macro.weatherMask>0.001){
         macro.height=cloudConvectiveHeight(heightFractionFromAltitude(altitude,upperBand),cloudColumnHeightShift(macro.weather,macro.densityWeatherMask),upperBand);
         float sampledProfile=cloudProfile(
@@ -1434,6 +1451,7 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeath
     macro.profileClosure=0.0;
     macro.heightThreshold=0.78;
     macro.height=0.0;
+    macro.upperBand=0.0;
     // 短い光円すい内では天候場と設定被覆が同じなので、計算済みの生の被覆を共有する。
     // 上層倍率は密度を確定する関数で適用し、ここでは一時値を呼び出し元へ持ち出さない。
     macro.weatherMask=slowWeatherMask;
@@ -1442,6 +1460,7 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeath
     // 同じ判定を近距離3点ごとに繰り返さず、高さと基本形状だけを採取点ごとに更新する。
     float altitude=cloudAltitude(p);
     bool upperBand=inUpperCloudBandFromAltitude(altitude);
+    macro.upperBand=upperBand?1.0:0.0;
     macro.height=cloudConvectiveHeight(heightFractionFromAltitude(altitude,upperBand),slowProfileTerms.w,upperBand);
     float sampledProfile=cloudProfileFromTypeWeights(macro.height,slowProfileTerms.xy,slowProfileTerms.z);
     float profileThresholdWeight=smoothstep(0.02,0.32,sampledProfile);
@@ -1461,8 +1480,8 @@ float cloudHeightPrecipitationDensityScale(float height,float precipitation){
 }
 // キャッシュを使えない遠距離の光標本を、地点ごとの天候で再構成する。
 // 渦の形状移動は最大44 mなので視線標本から共有し、天候の最小約315 m模様は共有しない。
-// 構造体を返さず密度までここで確定し、視線積分中の一時値の寿命を広げない。
-float sampleCloudFarLightingDensity(float3 p,float weatherCoverage,float2 slowCurl){
+// 密度と、その地点の層に対応する光学的深さ尺度だけを返し、構造体の寿命を広げない。
+float2 sampleCloudFarLightingDensityAndScale(float3 p,float weatherCoverage,float2 slowCurl){
     float densityResult=0.0;
     float4 weather=cloudWeatherData(p);
     float weatherMask=cloudWeatherMask(weather,weatherCoverage);
@@ -1497,7 +1516,8 @@ float sampleCloudFarLightingDensity(float3 p,float weatherCoverage,float2 slowCu
             if(upperBand) densityResult*=cloudUpperTerms.y;
         }
     }
-    return densityResult;
+    return float2(
+        densityResult,cloudOpticalDepthScaleFromBand(upperBand));
 }
 float cloudShapeFromPositiveWeatherMacro(CloudMacroSample macro){
     float shapeResult=0.0;
@@ -1522,7 +1542,7 @@ float cloudShape(float3 p, float coverage){
     float shapeResult=0.0;
     CloudMacroSample macro=sampleCloudMacroLighting(p,coverage);
     shapeResult=cloudShapeFromMacro(macro);
-    if(inUpperCloudBand(p)) shapeResult*=cloudUpperTerms.x;
+    if(macro.upperBand>0.5) shapeResult*=cloudUpperTerms.x;
     return shapeResult;
 }
 // rotateNoise is linear, while both detail domains use the same horizontal
@@ -1608,7 +1628,7 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
 float cloudDensityFromMacro(float3 p,CloudMacroSample macro,float heightThreshold,float weatherMask,float detailFrequencyWeight,float detailVisibility){
     float densityResult=0.0;
     if(weatherMask>0.001){
-        bool upperBand=inUpperCloudBand(p);
+        bool upperBand=macro.upperBand>0.5;
         // 被覆は密度の飽和前に掛け、疎らな上層の占有率を保つ。
         if(upperBand) weatherMask*=cloudUpperTerms.x;
         densityResult=cloudDensityFromPositiveWeatherMacro(p,macro,heightThreshold,weatherMask,detailFrequencyWeight,detailVisibility);
@@ -1617,12 +1637,12 @@ float cloudDensityFromMacro(float3 p,CloudMacroSample macro,float heightThreshol
     }
     return densityResult;
 }
-// 内部散乱確率用の低 LOD density。空間スキップ用の広い occupancy threshold ではなく、
+// 高次散乱の周囲媒質判定用の低 LOD 密度。空間スキップ用の広い占有しきい値ではなく、
 // 詳細密度と同じ coverage・高さ threshold・上層倍率を使う。追加 texture fetch は無い。
-float cloudLowLodDensityFromMacro(float3 p,CloudMacroSample macro,float heightThreshold,float weatherMask){
+float cloudLowLodDensityFromMacro(CloudMacroSample macro,float heightThreshold,float weatherMask){
     float densityResult=0.0;
     if(weatherMask>0.001){
-        bool upperBand=inUpperCloudBand(p);
+        bool upperBand=macro.upperBand>0.5;
         // 詳細密度と同じ順序で被覆を飽和前へ適用する。
         if(upperBand) weatherMask*=cloudUpperTerms.x;
         densityResult=cloudLowLodDensityFromPositiveWeatherMacro(macro,heightThreshold,weatherMask);
@@ -1680,8 +1700,11 @@ float traceCloudShadowPattern(
         lp+=lightHalfStep;
         CloudMacroSample lightMacro=
             sampleCloudMacroLighting(lp,coverage);
-        float lightDensity=cloudLowLodDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask);
-        lightDepth+=lightDensity*lightStep*layer.w;
+        float lightDensity=cloudLowLodDensityFromMacro(
+            lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask);
+        lightDepth+=lightDensity*lightStep
+                   *cloudOpticalDepthScaleFromBand(
+                       lightMacro.upperBand>0.5);
         lp+=lightHalfStep;
         lightStep*=1.8;
     }
@@ -1783,8 +1806,12 @@ void CSCloudWorldShadow(uint3 tid : SV_DispatchThreadID){
         [loop] for(int sampleIndex=0;sampleIndex<SAMPLE_COUNT;++sampleIndex){
             float3 p=rayOrigin+sun*sampleDistance;
             CloudMacroSample macro=sampleCloudMacroLighting(p,saturate(params.x));
-            float sampleDensity=cloudLowLodDensityFromMacro(p,macro,macro.heightThreshold,macro.weatherMask)*max(params.y,0.0);
-            opticalDepth+=sampleDensity*stepLength*layer.w;
+            float sampleDensity=cloudLowLodDensityFromMacro(
+                macro,macro.heightThreshold,macro.weatherMask)
+                *max(params.y,0.0);
+            opticalDepth+=sampleDensity*stepLength
+                         *cloudOpticalDepthScaleFromBand(
+                             macro.upperBand>0.5);
             if(opticalDepth*cloudLightingExtinction.y>=12.0) break;
             sampleDistance+=stepLength;
         }
@@ -1973,7 +2000,6 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     phase=clamp(phase,cloudLightingMulti.y,cloudLightingMulti.z);
     float3 lightTangent=cloudLightTangent.xyz;
     float3 lightBitangent=cloudLightBitangent.xyz;
-    float baseLightStep=cloudCoverageReciprocals.w;
     float4 coverageTerms=cloudCoverage;
     float transmit=1.0; float3 scatter=float3(0,0,0);
     float depthMoment=0.0;
@@ -2029,6 +2055,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         float viewWeatherMask=macro.densityWeatherMask;
         float dens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,detailFrequencyWeight,detailVisibility)*density;
         if(dens>0.0015){
+            bool sampleUpperBand=macro.upperBand>0.5;
+            float sampleOpticalDepthScale=
+                cloudOpticalDepthScaleFromBand(sampleUpperBand);
             // 指数的に間隔を広げる採取点で雲層全体を覆い、2 番目の Beer 項で
             // 高次の散乱を近似する。
             // 同じ視線内では黄金比の列で光採取の位相を巡回し、疎な積分誤差を層として揃えない。
@@ -2036,7 +2065,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float coneSin,coneCos;
             sincos(6.2831853*lightJitter,coneSin,coneCos);
             float lightDepth=0.0;
-            float lightStep=baseLightStep;
+            float lightStep=cloudLightStepFromBand(sampleUpperBand);
             lightStep*=lerp(0.72,1.28,lightJitter);
             float3 lp=p;
             float cachedTailForBlend=0.0;
@@ -2065,7 +2094,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 float lightDetailVisibility=cloudDetailVisibilityFromSampleSpacing(lightStep);
                 float lightDetailFrequencyWeight=0.90*lightDetailVisibility;
                 float lightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,lightDetailFrequencyWeight,lightDetailVisibility);
-                lightDepth+=lightDensity*lightStep*layer.w;
+                lightDepth+=lightDensity*lightStep
+                           *cloudOpticalDepthScaleFromBand(
+                               lightMacro.upperBand>0.5);
                 // 次区間と影キャッシュは従来と同じ区間終端から始める。
                 lp+=lightHalfStep;
                 // 直接光と多重散乱の近似値が知覚できない水準まで下がった後は、残りを省略する。
@@ -2109,9 +2140,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                         coneSin,coneCos,coneGeometry);
                     float3 lightHalfStep=coneDir*(0.5*lightStep);
                     lp+=lightHalfStep;
-                    float lightDensity=sampleCloudFarLightingDensity(
+                    float2 farLightSample=sampleCloudFarLightingDensityAndScale(
                         lp,coverage,sharedLightCurl);
-                    lightDepth+=lightDensity*lightStep*layer.w;
+                    lightDepth+=farLightSample.x*lightStep*farLightSample.y;
                     lp+=lightHalfStep;
                     if(lightDepth*density*cloudLightingExtinction.y>18.0) break;
                     float previousConeCos=coneCos;
@@ -2140,7 +2171,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             // CPU は散乱係数の縮小率を消散係数以下へ収め、各次数で散乱が消散を越えないようにする。
             // 一次散乱は現在の密度標本と区間不透明度で既に制限される。高次散乱は周囲の
             // 散乱源を必要とするため、低 LOD 密度と高さから求める確率をこちらだけへ掛ける。
-            float lowLodDensity=cloudLowLodDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask);
+            float lowLodDensity=cloudLowLodDensityFromMacro(
+                macro,densityHeightThreshold,viewWeatherMask);
             float inScatterDepthExponent=lerp(
                 0.5,2.0,saturate((macro.height-0.30)/0.55));
             float inScatterDepth=saturate(
@@ -2193,7 +2225,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float bottomWeight=1.0-smoothstep(0.15,0.65,h);
             float3 groundL=cloudLightingGround.rgb*cloudLightingMulti.w
                           *bottomWeight*groundAmbientVisibility;
-            float a=1.0-exp(-dens*stepLength*layer.w*cloudLightingExtinction.x);
+            float a=1.0-exp(
+                -dens*stepLength*sampleOpticalDepthScale
+                *cloudLightingExtinction.x);
             float sampleWeight=transmit*a;
             scatter += sampleWeight*(sunL+ambL+groundL);
             depthMoment += sampleWeight*sampleT;
@@ -5044,9 +5078,18 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
                 1.0f / (m_UpperLayer.top_height - m_UpperLayer.base_height),
                 1.0f}
         : FVec4{0.0f, 0.0f, 0.0f, 0.0f};
+    // どちらの層も厚さ全体を 1.6 の基準幅へ写す。上層の尺度と、その逆数から求める
+    // 光採取間隔をここで一度だけ計算し、GPU の密度標本ごとの除算を避ける。
+    const f32 upperLayerCanonicalScale = hasUpperLayer
+        ? 1.6f / (m_UpperLayer.top_height - m_UpperLayer.base_height)
+        : layerCanonicalScale;
+    const f32 upperLayerLightStep =
+        0.0075f /
+        (upperLayerCanonicalScale > 0.0001f
+             ? upperLayerCanonicalScale : 0.0001f);
     cb.cloudUpperTerms = FVec4{
         m_UpperLayer.coverage_scale, m_UpperLayer.density_scale,
-        0.0f, 0.0f};
+        upperLayerCanonicalScale, upperLayerLightStep};
     cb.cloudLightingExtinction = FVec4{
         m_Lighting.ViewExtinction, m_Lighting.LightExtinction,
         m_Lighting.SunScatter, m_Lighting.PowderStrength};
