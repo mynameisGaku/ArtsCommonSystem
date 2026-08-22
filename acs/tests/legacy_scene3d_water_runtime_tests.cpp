@@ -7,6 +7,8 @@
 #include "gameframework/CameraComponent3D.h"
 #include "gameframework/LegacyScene3DAdapter.h"
 #include "gameframework/MeshComponent3D.h"
+#include "gameframework/Scene3DSerialize.h"
+#include "gameframework/SceneSerialize.h"
 #include "gameframework/WaterSurface3DComponent.h"
 #include "math/Mat.h"
 #include "math/Math.h"
@@ -380,6 +382,130 @@ ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
         "m_Clouds.Composite(\n"
         "        command_list, scene_depth, width, height,")
         != std::string::npos);
+}
+
+ACS_TEST(LegacyScene3DSelectionHighlight, PublicApiIsTransactionalDefaultOffAndLayoutStable) {
+    ALegacyScene3DAdapter runtime;
+    EXPECT_FALSE(runtime.SelectionHighlightNode().IsValid());
+
+    FScene3DSpawnResult parent = runtime.Graph().TrySpawn(FStringView("FocusParent"));
+    EXPECT_TRUE(parent.Succeeded());
+    FScene3DSpawnResult child = runtime.Graph().TrySpawn(FStringView("VisibleChild"), parent.Node);
+    EXPECT_TRUE(child.Succeeded());
+    child.Node->AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+
+    EXPECT_TRUE(runtime.SetSelectionHighlight(parent.Id));
+    EXPECT_TRUE(runtime.SelectionHighlightNode() == parent.Id);
+    EXPECT_TRUE(runtime.SetSelectionHighlight(child.Id, FVec3{0.2f, 0.7f, 1.0f}, 1.5f, 3.0f));
+    EXPECT_TRUE(runtime.SelectionHighlightNode() == child.Id);
+
+    const f32 invalid = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FALSE(runtime.SetSelectionHighlight(parent.Id, FVec3{invalid, 0.5f, 0.5f}, 1.0f, 2.0f));
+    EXPECT_FALSE(runtime.SetSelectionHighlight(parent.Id, FVec3{1.0f, 0.5f, 0.0f}, 0.0f, 2.0f));
+    EXPECT_FALSE(runtime.SetSelectionHighlight(parent.Id, FVec3{1.0f, 0.5f, 0.0f}, 1.0f, 4.1f));
+    EXPECT_TRUE(runtime.SelectionHighlightNode() == child.Id);
+
+    FScene3DSpawnResult stale = runtime.Graph().TrySpawn(FStringView("StaleFocus"));
+    EXPECT_TRUE(stale.Succeeded());
+    const FNodeId stale_id = stale.Id;
+    EXPECT_TRUE(runtime.Graph().Destroy(stale_id));
+    runtime.Graph().Update(0.0f);
+    EXPECT_FALSE(runtime.SetSelectionHighlight(stale_id));
+    EXPECT_TRUE(runtime.SelectionHighlightNode() == child.Id);
+
+    // Graph.Updateを待たず、破棄予約された選択nodeを公開しない。
+    EXPECT_TRUE(runtime.Graph().Destroy(child.Id));
+    EXPECT_FALSE(runtime.SelectionHighlightNode().IsValid());
+    EXPECT_FALSE(runtime.SetSelectionHighlight(child.Id));
+    runtime.Graph().Update(0.0f);
+    EXPECT_FALSE(runtime.SelectionHighlightNode().IsValid());
+
+    runtime.ClearSelectionHighlight();
+    EXPECT_FALSE(runtime.SelectionHighlightNode().IsValid());
+    runtime.ClearSelectionHighlight();
+    EXPECT_FALSE(runtime.SelectionHighlightNode().IsValid());
+
+#if defined(_WIN64)
+    EXPECT_EQ(sizeof(ALegacyScene3DAdapter), static_cast<usize>(377360u));
+#endif
+}
+
+ACS_TEST(LegacyScene3DSelectionHighlight, RuntimeMarkerNeverEntersSceneArchives) {
+    ALegacyScene3DAdapter runtime;
+    const FScene3DSpawnResult selected =
+        runtime.Graph().TrySpawn(FStringView("ArchiveInvisibleSelection"));
+    EXPECT_TRUE(selected.Succeeded());
+    if (!selected.Succeeded()) return;
+
+    u8 binary_before[4096]{};
+    u8 binary_selected[4096]{};
+    char text_before[4096]{};
+    char text_selected[4096]{};
+    const FSceneSaveResult binary_without_marker =
+        TrySaveNodeTree(&runtime.Graph().Root(), binary_before, sizeof(binary_before));
+    const FScene3DSaveResult text_without_marker =
+        TrySaveScene3DText(runtime.Graph(), text_before, sizeof(text_before));
+    EXPECT_TRUE(binary_without_marker.Succeeded());
+    EXPECT_TRUE(text_without_marker.Succeeded());
+
+    EXPECT_TRUE(runtime.SetSelectionHighlight(selected.Id));
+    const FSceneSaveResult binary_with_marker =
+        TrySaveNodeTree(&runtime.Graph().Root(), binary_selected, sizeof(binary_selected));
+    const FScene3DSaveResult text_with_marker =
+        TrySaveScene3DText(runtime.Graph(), text_selected, sizeof(text_selected));
+    EXPECT_TRUE(binary_with_marker.Succeeded());
+    EXPECT_TRUE(text_with_marker.Succeeded());
+    EXPECT_EQ(binary_with_marker.BytesWritten, binary_without_marker.BytesWritten);
+    EXPECT_EQ(binary_with_marker.ComponentCount, binary_without_marker.ComponentCount);
+    EXPECT_EQ(text_with_marker.BytesWritten, text_without_marker.BytesWritten);
+    EXPECT_TRUE(std::memcmp(binary_selected, binary_before, binary_with_marker.BytesWritten) == 0);
+    EXPECT_TRUE(std::memcmp(text_selected, text_before, text_with_marker.BytesWritten) == 0);
+    EXPECT_TRUE(runtime.SelectionHighlightNode() == selected.Id);
+}
+
+ACS_TEST(LegacyScene3DSelectionHighlight, UsesDepthTestedSubtreeMaskBeforeFxaaAndHud) {
+    const std::string header = ReadLegacyCameraWorkspaceSource("src/gameframework/LegacyScene3DAdapter.h");
+    const std::string adapter = ReadLegacyCameraWorkspaceSource("src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string motion = ReadLegacyCameraWorkspaceSource("src/render/MotionVector.cpp");
+    const std::string post = ReadLegacyCameraWorkspaceSource("src/render/PostProcess.cpp");
+    EXPECT_FALSE(header.empty());
+    EXPECT_FALSE(adapter.empty());
+    EXPECT_FALSE(motion.empty());
+    EXPECT_FALSE(post.empty());
+
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(header, "bool SetSelectionHighlight("));
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(header, "void ClearSelectionHighlight() noexcept;"));
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(header, "FNodeId SelectionHighlightNode() const noexcept;"));
+    EXPECT_TRUE(adapter.find("class ASelectionHighlightMarker3D final : public AComponent") != std::string::npos);
+    EXPECT_TRUE(adapter.find("ACS_GAME_COMPONENT_KIND(ASelectionHighlightMarker3D)") == std::string::npos);
+    EXPECT_TRUE(adapter.find("return ComponentKindOf<ASelectionHighlightMarker3D>();") != std::string::npos);
+    EXPECT_TRUE(adapter.find("const char* ReflectName() const noexcept override { return nullptr; }") != std::string::npos);
+    EXPECT_TRUE(adapter.find("IsSelectionHighlightOwnerLive_Internal(Graph(), *owner)") != std::string::npos);
+    EXPECT_TRUE(adapter.find("marker == nullptr || owner == nullptr || !IsEffectivelyActive(*owner)") != std::string::npos);
+    EXPECT_TRUE(adapter.find("current = current->Parent();") != std::string::npos);
+    EXPECT_TRUE(adapter.find("|| selection_requested;") != std::string::npos);
+    EXPECT_TRUE(adapter.find("draw.SelectionHighlighted") != std::string::npos);
+    EXPECT_TRUE(motion.find("saturate(normal_row0.w)") != std::string::npos);
+    EXPECT_TRUE(motion.find("selection_mask ? 1.0f : 0.0f") != std::string::npos);
+    EXPECT_TRUE(post.find("Texture2D    selection_mask : register(t4);") != std::string::npos);
+    EXPECT_TRUE(post.find("saturate(neighbor_mask - center_mask)") != std::string::npos);
+    EXPECT_TRUE(post.find("pd.texture_slots = 5;") != std::string::npos);
+    EXPECT_TRUE(post.find("cmd.SetTexture(4, *selection_input);") != std::string::npos);
+
+    const std::size_t frame = adapter.find("void ALegacyScene3DAdapter::OnRender(");
+    const std::size_t mask = adapter.find("IRhiTexture* selection_mask =", frame);
+    const std::size_t outlined_post = adapter.find("selection_mask, selection_highlight->Color()", mask);
+    const std::size_t normal_post = adapter.find("m_Post.Render(command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams);", outlined_post + 1u);
+    const std::size_t hud = adapter.find("EnsureSpriteBatch(context)", normal_post);
+    EXPECT_TRUE(frame != std::string::npos);
+    EXPECT_TRUE(mask != std::string::npos);
+    EXPECT_TRUE(outlined_post != std::string::npos);
+    EXPECT_TRUE(normal_post != std::string::npos);
+    EXPECT_TRUE(hud != std::string::npos);
+    EXPECT_TRUE(frame < mask);
+    EXPECT_TRUE(mask < outlined_post);
+    EXPECT_TRUE(outlined_post < normal_post);
+    EXPECT_TRUE(normal_post < hud);
 }
 
 ACS_TEST(LegacyScene3DWaterRuntime, TransformedPlaneUsesExactWorldHit) {

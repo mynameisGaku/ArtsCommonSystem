@@ -54414,6 +54414,21 @@ public:
                   const FMat4& model, const FMat4& prev_model) noexcept;
 
     /**
+     * 1 mesh の motion vector と world-space normal に選択maskも描く。
+     *
+     * @details selection_mask=trueではnormal出力の未使用alphaへ1を書き、falseでは0を書く。
+     * depth testを共有するため、手前の通常meshが奥の選択meshを正しく隠す。既存の4引数版は
+     * falseを渡す互換入口であり、従来出力を維持する。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param mesh 描画するGPU mesh。
+     * @param model 現frameのmodel行列。
+     * @param prev_model 前frameのmodel行列。
+     * @param selection_mask 選択対象の可視画素へ1を書くならtrue。
+     * @return 完全なindexed drawを記録できた場合だけtrue。
+     */
+    bool DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh, const FMat4& model, const FMat4& prev_model, bool selection_mask) noexcept;
+
+    /**
      * モーションパスを終了する (main pass の RT へ復帰)。
      *
      * @param cl コマンドを積むコマンドリスト。
@@ -58359,6 +58374,23 @@ public:
     void Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index,
                 const FPostProcessParams& params) noexcept;
 
+    /**
+     * depth test済みの選択maskから外側輪郭を合成してpost processを実行する。
+     *
+     * @details selection_maskのalphaを現在frameの可視選択画素として読み、tonemap後かつ
+     * FXAA前に外側だけを合成する。null、不正値、空maskでは通常のRenderと同じ出力へ戻る。
+     * maskと設定は呼出し中だけ借り、class内へ保持しない。
+     * @param cmd 既にBegin済みのコマンドリスト。
+     * @param swapchain 出力先。
+     * @param buffer_index 出力backbuffer番号。
+     * @param params 通常のpost process設定。
+     * @param selection_mask 可視選択画素をalphaに持つ同解像度texture。nullで無効。
+     * @param color sRGB表示域の輪郭色。各成分は0以上1以下。
+     * @param intensity 輪郭の強さ。0より大きく4以下。
+     * @param thickness_pixels 輪郭幅。0より大きく4 pixel以下。
+     */
+    void Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index, const FPostProcessParams& params, IRhiTexture* selection_mask, FVec3 color, f32 intensity, f32 thickness_pixels) noexcept;
+
 private:
     CPostProcess& operator=(CPostProcess&&) noexcept = default;
 
@@ -58444,9 +58476,7 @@ private:
      * @param buf_idx 書き出すバックバッファの index。
      * @param p 適用する効果のパラメータ。
      */
-    bool Pass_Tonemap  (IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
-                        const FPostProcessParams& p,
-                        IRhiTexture* ldr_target = nullptr) noexcept;
+    bool Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx, const FPostProcessParams& p, IRhiTexture* ldr_target, IRhiTexture* selection_mask, FVec3 selection_color, f32 selection_intensity, f32 selection_thickness_pixels) noexcept;
 
     /**
      * FXAA の任意リソースを描画所有スレッドで遅延確保する。
@@ -61622,6 +61652,30 @@ public:
     const FPostProcessParams& PostParams() const noexcept { return m_PostParams; }
 
     /**
+     * 一つのnode subtreeへdepth-awareな選択輪郭を設定する。
+     *
+     * @details subtree_root自身と可視・有効な子孫meshを対象にする。既定では選択なしで、
+     * stale/未知handleまたは範囲外設定ではfalseを返し、現在の選択を変更しない。
+     * hidden/disabled/destroyed node、mask前段またはpost資源の失敗時は通常の3D表示を維持する。
+     * @param subtree_root 輪郭を付けるsubtree root。
+     * @param color sRGB表示域の輪郭色。各成分は0以上1以下。
+     * @param intensity 輪郭の強さ。0より大きく4以下。
+     * @param thickness_pixels 輪郭幅。0より大きく4 pixel以下。
+     * @return 設定を受理した場合だけtrue。
+     */
+    bool SetSelectionHighlight(FNodeId subtree_root, FVec3 color = FVec3{1.0f, 0.66f, 0.16f}, f32 intensity = 1.0f, f32 thickness_pixels = 2.0f) noexcept;
+
+    /** 選択輪郭を解除する。未設定でも安全に呼べる。 */
+    void ClearSelectionHighlight() noexcept;
+
+    /**
+     * 現在設定されている選択輪郭のsubtree rootを返す。
+     *
+     * @return 設定中の有効なFNodeId。未設定または破棄済みならinvalid。
+     */
+    FNodeId SelectionHighlightNode() const noexcept;
+
+    /**
      * 空の設定を触る (雲・色・太陽の見た目・時刻)。
      *
      * @details
@@ -62158,6 +62212,9 @@ private:
 
         /** アルベド色。 */
         FVec3 Color{1.0f, 1.0f, 1.0f};
+
+        /** 可視選択subtreeに含まれ、normal alphaへmaskを書くならtrue。 */
+        bool SelectionHighlighted = false;
     };
 
     /**

@@ -2530,6 +2530,65 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
 
     CMotionVector motion;
     EXPECT_TRUE(motion.Init(device, 64, 64).IsOk());
+    {
+        // 使用中backendで、depth-tested normal前段のalphaへ選択maskを実際に書く。
+        AMeshAsset selection_triangle;
+        selection_triangle.Vertices().Add(FMeshVertex{FVec3{-0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 0, 1});
+        selection_triangle.Vertices().Add(FMeshVertex{FVec3{0.0f, 0.8f, 0.5f}, FVec3{0, 0, 1}, 0.5f, 0});
+        selection_triangle.Vertices().Add(FMeshVertex{FVec3{0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 1, 1});
+        selection_triangle.Indices().Add(0u);
+        selection_triangle.Indices().Add(1u);
+        selection_triangle.Indices().Add(2u);
+        FGpuMesh selection_gpu{};
+        const auto selection_mesh_result =
+            UploadMesh(device, selection_triangle, selection_gpu);
+        auto selection_command_result = CreateRhiCommandList(device);
+        EXPECT_TRUE(selection_mesh_result.IsOk());
+        EXPECT_TRUE(selection_command_result.IsOk());
+        EXPECT_TRUE(motion.OutputNormalTexture() != nullptr);
+        if (selection_mesh_result.IsOk() && selection_command_result.IsOk() && motion.OutputNormalTexture() != nullptr) {
+            auto selection_command =
+                Move(selection_command_result.Value());
+            const FMat4 front = FMat4::Translation(FVec3{0.0f, 0.0f, -0.15f});
+            const FMat4 rear = FMat4::Translation(FVec3{0.0f, 0.0f, 0.15f});
+            selection_command->Begin();
+            EXPECT_TRUE(motion.BeginFrame(2u));
+            EXPECT_TRUE(motion.Begin(*selection_command, FMat4::Identity(), FMat4::Identity()));
+            EXPECT_TRUE(motion.DrawMesh(*selection_command, selection_gpu, front, front, true));
+            EXPECT_TRUE(motion.DrawMesh(*selection_command, selection_gpu, rear, rear, false));
+            motion.End(*selection_command);
+            selection_command->End();
+            EXPECT_TRUE(selection_command->Submit());
+            device.WaitIdle();
+
+            u16 selection_pixels[64u * 64u * 4u]{};
+            const bool selection_read = device.ReadTexture(*motion.OutputNormalTexture(), selection_pixels, static_cast<u32>(sizeof(selection_pixels)));
+            EXPECT_TRUE(selection_read);
+            if (selection_read) {
+                constexpr usize center = (32u * 64u + 32u) * 4u;
+                constexpr usize corner = 0u;
+                EXPECT_EQ(selection_pixels[center + 3u], static_cast<u16>(0x3C00u));
+                EXPECT_EQ(selection_pixels[corner + 3u], static_cast<u16>(0u));
+            }
+
+            // static/skinnedが共有する同じdepth前段で、手前の通常meshが奥の選択maskを消す。
+            selection_command->Begin();
+            EXPECT_TRUE(motion.BeginFrame(2u));
+            EXPECT_TRUE(motion.Begin(*selection_command, FMat4::Identity(), FMat4::Identity()));
+            EXPECT_TRUE(motion.DrawMesh(*selection_command, selection_gpu, rear, rear, true));
+            EXPECT_TRUE(motion.DrawMesh(*selection_command, selection_gpu, front, front, false));
+            motion.End(*selection_command);
+            selection_command->End();
+            EXPECT_TRUE(selection_command->Submit());
+            device.WaitIdle();
+            const bool occluded_read = device.ReadTexture(*motion.OutputNormalTexture(), selection_pixels, static_cast<u32>(sizeof(selection_pixels)));
+            EXPECT_TRUE(occluded_read);
+            if (occluded_read) {
+                constexpr usize center = (32u * 64u + 32u) * 4u;
+                EXPECT_EQ(selection_pixels[center + 3u], static_cast<u16>(0u));
+            }
+        }
+    }
 
     CRefractionShader refraction;
     EXPECT_TRUE(refraction.Init(device, EFormat::R16G16B16A16_Float,
@@ -3667,9 +3726,7 @@ ACS_TEST(PostEffects, FxaaRunsAfterTonemapWithoutDoubleApplyingTaa)
     EXPECT_TRUE(render.find(
         "safe_params.fxaa_enabled\n        && !m_TaaOutputValid") !=
                 std::string::npos);
-    EXPECT_TRUE(render.find(
-        "Pass_Tonemap(\n            cmd, swapchain, buffer_index, safe_params, m_FxaaInput.Get())") !=
-                std::string::npos);
+    EXPECT_TRUE(render.find("Pass_Tonemap(cmd, swapchain, buffer_index, safe_params, m_FxaaInput.Get()") != std::string::npos);
     EXPECT_TRUE(render.find(
         "m_Fxaa->Apply(cmd, *m_FxaaInput);") != std::string::npos);
     EXPECT_EQ(
@@ -3678,19 +3735,13 @@ ACS_TEST(PostEffects, FxaaRunsAfterTonemapWithoutDoubleApplyingTaa)
     EXPECT_TRUE(render.find(
         "cmd.EndRenderToSwapchain(swapchain, buffer_index);") !=
                 std::string::npos);
-    EXPECT_TRUE(render.find(
-        "Pass_Tonemap(cmd, swapchain, buffer_index, safe_params);") !=
-                std::string::npos);
+    EXPECT_TRUE(render.find("Pass_Tonemap(cmd, swapchain, buffer_index, safe_params, nullptr") != std::string::npos);
 
     // FXAA用経路はトーンマップとガンマ補正のLDR中間へ描いてからswapchainを結び付ける。
-    EXPECT_TRUE(tonemap.find(
-        "cmd.BeginRenderToTexture(\n            *ldr_target") !=
-                std::string::npos);
+    EXPECT_TRUE(tonemap.find("cmd.BeginRenderToTexture(*ldr_target") != std::string::npos);
     EXPECT_TRUE(tonemap.find(
         "cmd.EndRenderToTexture(*ldr_target);") != std::string::npos);
-    EXPECT_TRUE(tonemap.find(
-        "cmd.BeginRenderToSwapchain(\n            sc, buf_idx") !=
-                std::string::npos);
+    EXPECT_TRUE(tonemap.find("cmd.BeginRenderToSwapchain(sc, buf_idx") != std::string::npos);
     EXPECT_TRUE(tonemap.find(
         "cmd.EndRenderToSwapchain(sc, buf_idx);") != std::string::npos);
 }

@@ -163,14 +163,11 @@ ACS_TEST(PostEffectWorkload,
     EXPECT_TRUE(tonemap.find(
         "(params3.y * ssr_exposure)") !=
         std::string::npos);
-    EXPECT_TRUE(create_pipelines.find(
-        "pd.texture_slots = 4;") != std::string::npos);
+    EXPECT_TRUE(create_pipelines.find("pd.texture_slots = 5;") != std::string::npos);
     EXPECT_TRUE(create_pipelines.find(
         "pd.texture_names[3] = \"adapted_exposure\";") !=
         std::string::npos);
-    EXPECT_TRUE(create_pipelines.find(
-        "pd.static_sampler_count = 4;") !=
-        std::string::npos);
+    EXPECT_TRUE(create_pipelines.find("pd.static_sampler_count = 5;") != std::string::npos);
     EXPECT_TRUE(tonemap_pass.find(
         "const bool scene_auto_exposed =") !=
         std::string::npos);
@@ -196,15 +193,11 @@ ACS_TEST(PostEffectWorkload,
         std::string::npos);
     EXPECT_TRUE(tonemap_pass.find(
         ": m_BlackFb.Get();") != std::string::npos);
-    EXPECT_TRUE(tonemap_pass.find(
-        "if (!bloom_input || !ssr_input || !adapted_exposure_input)") !=
-        std::string::npos);
+    EXPECT_TRUE(tonemap_pass.find("if (!bloom_input || !ssr_input || !adapted_exposure_input || !selection_input)") != std::string::npos);
     EXPECT_TRUE(tonemap_pass.find(
         "cmd.SetTexture(3, *adapted_exposure_input);") !=
         std::string::npos);
-    EXPECT_EQ(
-        CountOccurrences(tonemap_pass, "cmd.SetTexture("),
-        std::size_t{4u});
+    EXPECT_EQ(CountOccurrences(tonemap_pass, "cmd.SetTexture("), std::size_t{5u});
     EXPECT_TRUE(scene_input.find(
         "p.auto_exposure_enabled && m_ExposureOutputValid && "
         "m_ExposedRt") != std::string::npos);
@@ -550,9 +543,7 @@ ACS_TEST(PostEffectWorkload,
     EXPECT_TRUE(taa.find(
         "if (!slot2_tex || !reactive_tex || !reactive_depth)") !=
         std::string::npos);
-    EXPECT_EQ(
-        CountOccurrences(tonemap, "cmd.SetTexture("),
-        std::size_t{4u});
+    EXPECT_EQ(CountOccurrences(tonemap, "cmd.SetTexture("), std::size_t{5u});
     EXPECT_TRUE(tonemap.find(
         "cmd.SetTexture(3, *adapted_exposure_input);") !=
         std::string::npos);

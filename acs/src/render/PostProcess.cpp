@@ -467,17 +467,21 @@ cbuffer Post : register(b0) {
     float4 cg0;       // x=saturation, y=contrast, z=temperature, w=tint
     float4 cg_lift;   // xyz=lift (shadow offset)
     float4 cg_gain;   // xyz=gain (highlight multiplier)
-    float4 cas_params;// x=cas_strength (0=disable)
-    float4 taa_params;// x=blend_factor (tonemap は読まないが CB レイアウト整合のため)
+    // x=cas_strength、tonemap描画のyzw=選択輪郭色。
+    float4 cas_params;
+    // TAA描画=x:blend/y:reproject/z:motion/w:reactive、tonemap描画=x:輪郭強さ/y:幅/z:有効。
+    float4 taa_params;
 };
 Texture2D    hdr   : register(t0);
 Texture2D    bloom : register(t1);
 Texture2D    ssr   : register(t2);
 Texture2D    adapted_exposure : register(t3);
+Texture2D    selection_mask : register(t4);
 SamplerState hdr_sampler   : register(s0);
 SamplerState bloom_sampler : register(s1);
 SamplerState ssr_sampler   : register(s2);
 SamplerState adapted_exposure_sampler : register(s3);
+SamplerState selection_mask_sampler : register(s4);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
@@ -726,6 +730,30 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // linear toe with an inaccurate pure power curve.
     mapped = pow(max(mapped, 0.0), 2.2 / max(params1.x, 1.0));
 
+    // 5.5) depth test済みmaskの外側だけを固定4 ringで膨張する。
+    // cas_params.yzw=表示色、taa_params.xyz=強さ/pixel幅/有効flag。
+    [branch]
+    if (taa_params.z >= 0.5) {
+        float center_mask = selection_mask.SampleLevel(selection_mask_sampler, v.uv, 0).a;
+        float neighbor_mask = 0.0;
+        int rings = (int)ceil(clamp(taa_params.y, 1.0, 4.0));
+        [unroll]
+        for (int ring = 1; ring <= 4; ++ring) {
+            if (ring > rings) continue;
+            float2 offset = float2(params1.y, params1.z) * ring;
+            neighbor_mask = max(neighbor_mask, selection_mask.SampleLevel(selection_mask_sampler, v.uv + float2( offset.x, 0.0), 0).a);
+            neighbor_mask = max(neighbor_mask, selection_mask.SampleLevel(selection_mask_sampler, v.uv + float2(-offset.x, 0.0), 0).a);
+            neighbor_mask = max(neighbor_mask, selection_mask.SampleLevel(selection_mask_sampler, v.uv + float2(0.0,  offset.y), 0).a);
+            neighbor_mask = max(neighbor_mask, selection_mask.SampleLevel(selection_mask_sampler, v.uv + float2(0.0, -offset.y), 0).a);
+            neighbor_mask = max(neighbor_mask, selection_mask.SampleLevel(selection_mask_sampler, v.uv + float2( offset.x,  offset.y), 0).a);
+            neighbor_mask = max(neighbor_mask, selection_mask.SampleLevel(selection_mask_sampler, v.uv + float2(-offset.x,  offset.y), 0).a);
+            neighbor_mask = max(neighbor_mask, selection_mask.SampleLevel(selection_mask_sampler, v.uv + float2( offset.x, -offset.y), 0).a);
+            neighbor_mask = max(neighbor_mask, selection_mask.SampleLevel(selection_mask_sampler, v.uv + float2(-offset.x, -offset.y), 0).a);
+        }
+        float outline = saturate(neighbor_mask - center_mask);
+        mapped = lerp(mapped, saturate(cas_params.yzw), saturate(outline * taa_params.x));
+    }
+
     // 6) Dither: 8-bit 量子化前に ±1 LSB の三角分布 (TPDF) ノイズを足し、空・bloom の裾・
     //    vignette・グレーディングのシャドウに出る等高線状バンディングを消す。ほぼゼロコスト
     //    で「安っぽさ」に最も効く。2 つの IGN を独立化して足すと三角分布 (TPDF) になる。
@@ -744,8 +772,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 //   1) Luma extract/downsample: m_HdrRt → log2 輝度 → mip chain で 1x1 まで縮約
 //   2) Exposure adapt: 1x1 平均輝度から目標露出を出し、前フレーム露出へ指数補間
 //   3) Exposure apply: m_HdrRt に露出を掛けて m_ExposedRt へ
-// tonemap PSO の texture slot 数を変えない設計: 各パスの texture slot は最大 2、
-// tonemap は 3 slot のまま。
+// tonemapはHDR、bloom、SSR、露出、任意の選択maskを読む。
 
 // Luma extract: HDR → log2 輝度。出力 texel が覆う 2x2 source 領域を 4-tap 平均。
 // 幾何平均 (log 空間平均) にすることで少数の高輝度ピクセルに過敏にならない。
@@ -848,8 +875,10 @@ struct FPostCbLayout {
     FVec4 cg0;       // x=saturation, y=contrast, z=temperature, w=tint
     FVec4 cg_lift;   // xyz=lift
     FVec4 cg_gain;   // xyz=gain
-    FVec4 cas_params;// x=cas_strength
-    FVec4 taa_params;// x=blend_factor (TAA)、y=reproject_enabled
+    // x=cas_strength、tonemap描画のyzw=選択輪郭色。
+    FVec4 cas_params;
+    // TAA描画=x:blend/y:reproject/z:motion/w:reactive、tonemap描画=x:輪郭強さ/y:幅/z:有効。
+    FVec4 taa_params;
 };
 
 // TAA reprojection 用の別 CB (b1 で bind)。
@@ -1560,7 +1589,7 @@ TResult<void> CPostProcess::CreatePipelines(
         m_PipeTaaResolve = Move(r.Value());
     }
 
-    // Tonemap: HDR + bloom + ssr → backbuffer、Opaque
+    // Tonemap: HDR + bloom + ssr + 任意の選択mask → backbuffer、Opaque
     {
         FPipelineDesc pd{};
         FillFullscreenLayout(pd);
@@ -1568,14 +1597,16 @@ TResult<void> CPostProcess::CreatePipelines(
         pd.ps = shaders.tonemap_pixel.Get();
         pd.rt_format = m_ColorFormat;
         pd.cbuffer_slots = 1;
-        pd.texture_slots = 4;       // t0=hdr, t1=bloom, t2=ssr, t3=adapted exposure
+        // t0=HDR、t1=bloom、t2=SSR、t3=補正露出、t4=選択mask。
+        pd.texture_slots = 5;
         pd.cbuffer_names[0] = "Post";
         pd.texture_names[0] = "hdr";
         pd.texture_names[1] = "bloom";
         pd.texture_names[2] = "ssr";
         pd.texture_names[3] = "adapted_exposure";
-        pd.static_sampler_count = 4;
-        for (u32 i = 0; i < 4; ++i) {
+        pd.texture_names[4] = "selection_mask";
+        pd.static_sampler_count = 5;
+        for (u32 i = 0; i < 5; ++i) {
             pd.static_samplers[i].filter    = ESamplerFilter::Linear;
             pd.static_samplers[i].address_u = ESamplerAddress::Clamp;
             pd.static_samplers[i].address_v = ESamplerAddress::Clamp;
@@ -1705,8 +1736,7 @@ TResult<void> CPostProcess::CreatePipelines(
     return Ok();
 }
 
-void CPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index,
-                          const FPostProcessParams& params) noexcept {
+void CPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index, const FPostProcessParams& params, IRhiTexture* selection_mask, FVec3 selection_color, f32 selection_intensity, f32 selection_thickness_pixels) noexcept {
     m_BloomOutputValid = false;
     m_TaaOutputValid = false;
     m_ExposureOutputValid = false;
@@ -1714,6 +1744,25 @@ void CPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
     m_PostCbCursor = 0;
     FPostProcessParams safe_params = params;
     safe_params.Sanitize();
+
+    // maskと設定が一組でも不正なら、通常のpost processへ戻す。NaNは範囲比較を
+    // 通らないため、production側で追加の標準library判定を要しない。
+    const bool selection_outline_valid =
+        selection_mask != nullptr
+        && selection_mask->Width() == swapchain.Width()
+        && selection_mask->Height() == swapchain.Height()
+        && selection_color.x >= 0.0f && selection_color.x <= 1.0f
+        && selection_color.y >= 0.0f && selection_color.y <= 1.0f
+        && selection_color.z >= 0.0f && selection_color.z <= 1.0f
+        && selection_intensity > 0.0f && selection_intensity <= 4.0f
+        && selection_thickness_pixels > 0.0f
+        && selection_thickness_pixels <= 4.0f;
+    if (!selection_outline_valid) {
+        selection_mask = nullptr;
+        selection_color = FVec3{0.0f, 0.0f, 0.0f};
+        selection_intensity = 0.0f;
+        selection_thickness_pixels = 0.0f;
+    }
 
     // Metering and adaptation inspect raw scene-linear HDR. Exposure is
     // deliberately applied only after TAA below: accumulating
@@ -1799,10 +1848,8 @@ void CPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
     const bool use_fxaa = safe_params.fxaa_enabled
         && !m_TaaOutputValid
         && EnsureFxaaResources();
-    if (use_fxaa && Pass_Tonemap(
-            cmd, swapchain, buffer_index, safe_params, m_FxaaInput.Get())) {
-        cmd.BeginRenderToSwapchain(
-            swapchain, buffer_index, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+    if (use_fxaa && Pass_Tonemap(cmd, swapchain, buffer_index, safe_params, m_FxaaInput.Get(), selection_mask, selection_color, selection_intensity, selection_thickness_pixels)) {
+        cmd.BeginRenderToSwapchain(swapchain, buffer_index, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
         FViewport viewport{};
         viewport.width = static_cast<f32>(swapchain.Width());
         viewport.height = static_cast<f32>(swapchain.Height());
@@ -1817,7 +1864,7 @@ void CPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
     } else {
         // FXAA資源・中間RT・トーンマップが一つでも使えない場合は、中間へ描いて
         // から戻ることをせず、従来の直接経路で画面を成立させる。
-        Pass_Tonemap(cmd, swapchain, buffer_index, safe_params);
+        Pass_Tonemap(cmd, swapchain, buffer_index, safe_params, nullptr, selection_mask, selection_color, selection_intensity, selection_thickness_pixels);
     }
 
     // Advance temporal cursors only after their complete output was recorded.
@@ -1831,9 +1878,12 @@ void CPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
     }
 }
 
+void CPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index, const FPostProcessParams& params) noexcept {
+    Render(cmd, swapchain, buffer_index, params, nullptr, FVec3{0.0f, 0.0f, 0.0f}, 0.0f, 0.0f);
+}
+
 namespace {
-void UpdatePostCB(IRhiBuffer* cb, const FPostProcessParams& p,
-                  f32 texel_w, f32 texel_h) noexcept {
+void UpdatePostCB(IRhiBuffer* cb, const FPostProcessParams& p, f32 texel_w, f32 texel_h, FVec3 selection_color = FVec3{}, f32 selection_intensity = 0.0f, f32 selection_thickness_pixels = 0.0f) noexcept {
     if (!cb) return;
     FPostCbLayout l{};
     l.params0 = FVec4{ p.bloom_threshold, p.bloom_intensity, p.bloom_radius, p.exposure };
@@ -1846,7 +1896,9 @@ void UpdatePostCB(IRhiBuffer* cb, const FPostProcessParams& p,
     l.cg0     = FVec4{ p.cg_saturation, p.cg_contrast, p.cg_temperature, p.cg_tint };
     l.cg_lift = FVec4{ p.cg_lift.x, p.cg_lift.y, p.cg_lift.z, 0 };
     l.cg_gain = FVec4{ p.cg_gain.x, p.cg_gain.y, p.cg_gain.z, 0 };
-    l.cas_params = FVec4{ p.cas_strength < 0 ? 0.0f : p.cas_strength, 0, 0, 0 };
+    l.cas_params = FVec4{
+        p.cas_strength < 0 ? 0.0f : p.cas_strength,
+        selection_color.x, selection_color.y, selection_color.z};
     // reproject_enabled は taa_depth_texture が指定されてるかで判定。
     const f32 reproject_enabled = (p.taa_enabled && p.taa_depth_texture) ? 1.0f : 0.0f;
     // motion texture があれば motion mode (depth reprojection より優先)。
@@ -1855,6 +1907,11 @@ void UpdatePostCB(IRhiBuffer* cb, const FPostProcessParams& p,
         (p.taa_enabled && p.taa_reactive_texture) ? 1.0f : 0.0f;
     l.taa_params = FVec4{ p.taa_blend_factor < 0 ? 0.0f : p.taa_blend_factor,
                          reproject_enabled, motion_mode, reactive_mode };
+    if (selection_intensity > 0.0f && selection_thickness_pixels > 0.0f) {
+        // Tonemap drawだけは同じ未使用領域を選択輪郭へ読み替える。TAA drawは従来値のまま。
+        l.taa_params = FVec4{
+            selection_intensity, selection_thickness_pixels, 1.0f, 0.0f};
+    }
     cb->Update(&l, sizeof(l), 0);
 }
 } // namespace
@@ -2043,9 +2100,7 @@ bool CPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParam
     return true;
 }
 
-bool CPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
-                                const FPostProcessParams& p,
-                                IRhiTexture* ldr_target) noexcept {
+bool CPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx, const FPostProcessParams& p, IRhiTexture* ldr_target, IRhiTexture* selection_mask, FVec3 selection_color, f32 selection_intensity, f32 selection_thickness_pixels) noexcept {
     if (!m_PipeTonemap || sc.Width() == 0 || sc.Height() == 0) return false;
     if (ldr_target != nullptr
         && (ldr_target->Width() != sc.Width()
@@ -2066,9 +2121,7 @@ bool CPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf
     tonemap_params.auto_exposure_enabled = expose_ssr;
     IRhiBuffer* post_cb = AcquirePostCb();
     if (!post_cb) return false;
-    UpdatePostCB(
-        post_cb, tonemap_params,
-        1.0f / sc.Width(), 1.0f / sc.Height());
+    UpdatePostCB(post_cb, tonemap_params, 1.0f / sc.Width(), 1.0f / sc.Height(), selection_color, selection_intensity, selection_thickness_pixels);
 
     IRhiTexture* tonemap_src = SceneInput(p);
     if (!tonemap_src) return false;
@@ -2081,18 +2134,18 @@ bool CPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf
         expose_ssr
             ? m_Exposure[m_AutoFrame % 2].Get()
             : m_BlackFb.Get();
+    IRhiTexture* selection_input =
+        selection_mask != nullptr ? selection_mask : m_BlackFb.Get();
     // Every declared SRV is mandatory on strict backends. A successfully
     // initialized post stack owns m_BlackFb, but fail before beginning the
     // swapchain pass if that invariant is ever broken.
-    if (!bloom_input || !ssr_input || !adapted_exposure_input)
+    if (!bloom_input || !ssr_input || !adapted_exposure_input || !selection_input)
         return false;
 
     if (ldr_target != nullptr) {
-        cmd.BeginRenderToTexture(
-            *ldr_target, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+        cmd.BeginRenderToTexture(*ldr_target, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
     } else {
-        cmd.BeginRenderToSwapchain(
-            sc, buf_idx, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+        cmd.BeginRenderToSwapchain(sc, buf_idx, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
     }
     cmd.SetPipeline(*m_PipeTonemap);
     cmd.SetConstantBuffer(0, *post_cb);
@@ -2103,6 +2156,8 @@ bool CPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf
     // The mode bit keeps the fallback neutral; no t3 sample is issued on the
     // disabled shader branch even though the strict binding is present.
     cmd.SetTexture(3, *adapted_exposure_input);
+    // 無効時もstrict backend向けに黒textureをbindし、shader側flagでsampleを抑止する。
+    cmd.SetTexture(4, *selection_input);
     cmd.Draw(3, 0);
     if (ldr_target != nullptr) {
         cmd.EndRenderToTexture(*ldr_target);

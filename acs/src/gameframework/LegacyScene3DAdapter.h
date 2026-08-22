@@ -553,6 +553,30 @@ public:
     const FPostProcessParams& PostParams() const noexcept { return m_PostParams; }
 
     /**
+     * 一つのnode subtreeへdepth-awareな選択輪郭を設定する。
+     *
+     * @details subtree_root自身と可視・有効な子孫meshを対象にする。既定では選択なしで、
+     * stale/未知handleまたは範囲外設定ではfalseを返し、現在の選択を変更しない。
+     * hidden/disabled/destroyed node、mask前段またはpost資源の失敗時は通常の3D表示を維持する。
+     * @param subtree_root 輪郭を付けるsubtree root。
+     * @param color sRGB表示域の輪郭色。各成分は0以上1以下。
+     * @param intensity 輪郭の強さ。0より大きく4以下。
+     * @param thickness_pixels 輪郭幅。0より大きく4 pixel以下。
+     * @return 設定を受理した場合だけtrue。
+     */
+    bool SetSelectionHighlight(FNodeId subtree_root, FVec3 color = FVec3{1.0f, 0.66f, 0.16f}, f32 intensity = 1.0f, f32 thickness_pixels = 2.0f) noexcept;
+
+    /** 選択輪郭を解除する。未設定でも安全に呼べる。 */
+    void ClearSelectionHighlight() noexcept;
+
+    /**
+     * 現在設定されている選択輪郭のsubtree rootを返す。
+     *
+     * @return 設定中の有効なFNodeId。未設定または破棄済みならinvalid。
+     */
+    FNodeId SelectionHighlightNode() const noexcept;
+
+    /**
      * 空の設定を触る (雲・色・太陽の見た目・時刻)。
      *
      * @details
@@ -1089,6 +1113,9 @@ private:
 
         /** アルベド色。 */
         FVec3 Color{1.0f, 1.0f, 1.0f};
+
+        /** 可視選択subtreeに含まれ、normal alphaへmaskを書くならtrue。 */
+        bool SelectionHighlighted = false;
     };
 
     /**

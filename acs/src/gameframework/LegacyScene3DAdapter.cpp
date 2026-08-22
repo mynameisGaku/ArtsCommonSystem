@@ -79,6 +79,44 @@ constexpr f32 kAerialPerspectiveMaxDistance = kVolumetricCloudMaxDistance;
 constexpr f32 kSunAngularRadius = 0.004653f;
 constexpr f32 kSunDiscRadianceScale = 30.0f;
 
+/** Adapterのlayoutを増やさず、選択subtree rootへ一時設定を所有させる内部component。 */
+class ASelectionHighlightMarker3D final : public AComponent {
+public:
+    /** 実行時検索だけに使う型識別子を返す。 */
+    const void* Kind() const noexcept override {
+        return ComponentKindOf<ASelectionHighlightMarker3D>();
+    }
+
+    /** scene保存・archiveへ出力しない実行時専用componentであることを返す。 */
+    const char* ReflectName() const noexcept override { return nullptr; }
+
+    /** 検証済みの輪郭設定を置き換える。 */
+    void Set(FVec3 color, f32 intensity, f32 thickness_pixels) noexcept {
+        m_Color = color;
+        m_Intensity = intensity;
+        m_ThicknessPixels = thickness_pixels;
+    }
+
+    /** sRGB表示域の輪郭色を返す。 */
+    FVec3 Color() const noexcept { return m_Color; }
+
+    /** 輪郭の強さを返す。 */
+    f32 Intensity() const noexcept { return m_Intensity; }
+
+    /** pixel単位の輪郭幅を返す。 */
+    f32 ThicknessPixels() const noexcept { return m_ThicknessPixels; }
+
+private:
+    /** sRGB表示域の輪郭色。 */
+    FVec3 m_Color{1.0f, 0.66f, 0.16f};
+
+    /** 輪郭の強さ。 */
+    f32 m_Intensity = 1.0f;
+
+    /** pixel単位の輪郭幅。 */
+    f32 m_ThicknessPixels = 2.0f;
+};
+
 AMeshComponent3D* FindMesh(ANode& node) noexcept {
     const void* kind = ComponentKindOf<AMeshComponent3D>();
     for (u32 index = 0u; index < node.ComponentCount(); ++index) {
@@ -192,6 +230,88 @@ bool IsEffectivelyActive(const ANode& node) noexcept {
         if (++depth > kNodeMaxTreeDepth) return false;
     }
     return true;
+}
+
+/** const nodeから実行時専用の選択輪郭markerを探す。 */
+const ASelectionHighlightMarker3D* FindSelectionHighlightMarker_Internal(const ANode& node) noexcept {
+    const void* kind = ComponentKindOf<ASelectionHighlightMarker3D>();
+    for (u32 index = 0u; index < node.ComponentCount(); ++index) {
+        const AComponent* component = node.ComponentAt(index);
+        if (component != nullptr && component->Kind() == kind) {
+            return static_cast<const ASelectionHighlightMarker3D*>(component);
+        }
+    }
+    return nullptr;
+}
+
+/** 選択輪郭設定をnode順の決定論的DFSで探す。 */
+const ASelectionHighlightMarker3D* FindSelectionHighlight_Internal(const ANode& node, const ANode*& owner, u32 depth = 0u) noexcept {
+    if (depth > kNodeMaxTreeDepth) return nullptr;
+    if (const ASelectionHighlightMarker3D* marker = FindSelectionHighlightMarker_Internal(node)) {
+        owner = &node;
+        return marker;
+    }
+    for (u32 index = 0u; index < node.ChildCount(); ++index) {
+        const ANode* child = node.Child(index);
+        if (child == nullptr) continue;
+        if (const ASelectionHighlightMarker3D* marker = FindSelectionHighlight_Internal(*child, owner, depth + 1u)) {
+            return marker;
+        }
+    }
+    return nullptr;
+}
+
+/** 選択設定の所有nodeが破棄予約を含まず、現在のgraphに属するかを返す。 */
+bool IsSelectionHighlightOwnerLive_Internal(const CSceneNodeGraph& graph, const ANode& owner) noexcept {
+    if (!graph.IsValid(owner.Id())) return false;
+    const ANode* current = &owner;
+    u32 depth = 0u;
+    while (current != nullptr) {
+        if (current->IsPendingDestroy()) return false;
+        current = current->Parent();
+        if (++depth > kNodeMaxTreeDepth) return false;
+    }
+    return true;
+}
+
+/** keep以外の選択輪郭markerをsubtreeから除去する。 */
+void RemoveSelectionHighlights_Internal(ANode& node, const ANode* keep, u32 depth = 0u) noexcept {
+    if (depth > kNodeMaxTreeDepth) return;
+    if (&node != keep) {
+        (void)node.RemoveComponent<ASelectionHighlightMarker3D>();
+    }
+    for (u32 index = 0u; index < node.ChildCount(); ++index) {
+        ANode* child = node.Child(index);
+        if (child != nullptr) {
+            RemoveSelectionHighlights_Internal(*child, keep, depth + 1u);
+        }
+    }
+}
+
+/** nodeが可視・有効な選択subtreeに含まれるかを返す。 */
+bool IsSelectionHighlightedNode_Internal(const ANode& node) noexcept {
+    if (!IsEffectivelyActive(node)) return false;
+    const ANode* current = &node;
+    u32 depth = 0u;
+    while (current != nullptr) {
+        if (FindSelectionHighlightMarker_Internal(*current) != nullptr) {
+            return true;
+        }
+        current = current->Parent();
+        if (++depth > kNodeMaxTreeDepth) return false;
+    }
+    return false;
+}
+
+/** 可視・有効な選択輪郭設定と所有nodeを返す。 */
+const ASelectionHighlightMarker3D* FindRenderableSelectionHighlight_Internal(const ANode& root, const ANode*& owner) noexcept {
+    owner = nullptr;
+    const ASelectionHighlightMarker3D* marker = FindSelectionHighlight_Internal(root, owner);
+    if (marker == nullptr || owner == nullptr || !IsEffectivelyActive(*owner)) {
+        owner = nullptr;
+        return nullptr;
+    }
+    return marker;
 }
 
 bool IsEffectivelyEnabled(const ANode& node) noexcept {
@@ -439,6 +559,36 @@ void ALegacyScene3DAdapter::SetEnvironmentLightMultiplier(f32 multiplier) noexce
 {
     if (!std::isfinite(multiplier) || multiplier < 0.0f) return;
     m_EnvironmentLightMultiplier = multiplier;
+}
+
+bool ALegacyScene3DAdapter::SetSelectionHighlight(FNodeId subtree_root, FVec3 color, f32 intensity, f32 thickness_pixels) noexcept {
+    // 範囲比較はNaN/infも拒否する。失敗時は既存markerへ一切触れない。
+    if (!subtree_root.IsValid() || !Finite(color) || color.x < 0.0f || color.x > 1.0f || color.y < 0.0f || color.y > 1.0f || color.z < 0.0f || color.z > 1.0f || !(intensity > 0.0f) || intensity > 4.0f || !(thickness_pixels > 0.0f) || thickness_pixels > 4.0f) {
+        return false;
+    }
+    ANode* target = Graph().Get(subtree_root);
+    if (target == nullptr || !IsSelectionHighlightOwnerLive_Internal(Graph(), *target)) {
+        return false;
+    }
+
+    ASelectionHighlightMarker3D& marker =
+        target->GetOrAddComponent<ASelectionHighlightMarker3D>();
+    marker.Set(color, intensity, thickness_pixels);
+    RemoveSelectionHighlights_Internal(Graph().Root(), target);
+    return true;
+}
+
+void ALegacyScene3DAdapter::ClearSelectionHighlight() noexcept {
+    RemoveSelectionHighlights_Internal(Graph().Root(), nullptr);
+}
+
+FNodeId ALegacyScene3DAdapter::SelectionHighlightNode() const noexcept {
+    const ANode* owner = nullptr;
+    const ASelectionHighlightMarker3D* marker =
+        FindSelectionHighlight_Internal(Graph().Root(), owner);
+    return marker != nullptr && owner != nullptr
+            && IsSelectionHighlightOwnerLive_Internal(Graph(), *owner)
+        ? owner->Id() : FNodeId{};
 }
 
 FScene3DLoadResult ALegacyScene3DAdapter::LoadFile(const char* path) noexcept {
@@ -1174,8 +1324,17 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     m_HasPrevViewProjection = true;
 
     m_PostParams.taa_depth_texture = nullptr;
-    m_Post.Render(
-        command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams);
+    const ANode* selection_owner = nullptr;
+    const ASelectionHighlightMarker3D* selection_highlight = FindRenderableSelectionHighlight_Internal(Graph().Root(), selection_owner);
+    IRhiTexture* selection_mask =
+        selection_highlight != nullptr && m_NormalDepthDrawn
+            ? m_NormalDepth.OutputNormalTexture() : nullptr;
+    if (selection_highlight != nullptr && selection_mask != nullptr) {
+        m_Post.Render(command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams, selection_mask, selection_highlight->Color(), selection_highlight->Intensity(), selection_highlight->ThicknessPixels());
+    } else {
+        // markerがstale/hiddenまたはmask前段に失敗しても、完成済み3Dを通常postで表示する。
+        m_Post.Render(command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams);
+    }
 
     // HDR 3D と post の完成後、LDR backbuffer を消さずに HUD だけを重ねる。
     // SpriteBatch の初期化に失敗した場合は pass を開かず、完成済み 3D 表示を保つ。
@@ -1580,19 +1739,22 @@ bool ALegacyScene3DAdapter::EnsureAmbientOcclusion(
     return true;
 }
 
-bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(
-    FRenderContext& context) noexcept {
+bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(FRenderContext& context) noexcept {
     if (!m_NormalDepthReady) return false;
+
+    const ANode* selection_owner = nullptr;
+    const bool selection_requested = FindRenderableSelectionHighlight_Internal(Graph().Root(), selection_owner) != nullptr;
 
     // 描く数を先に数える。object CB の入れ物は使い回しなので、足りないまま描くと
     // 後ろのメッシュの法線が黙って抜け、そこだけ遮蔽が付かない。
-    u32 mesh_count = 0u;
+    u64 mesh_count = 0u;
     TArray<const ANode*> count_stack;
     if (!count_stack.TryAdd(&Graph().Root())) return false;
     while (!count_stack.IsEmpty()) {
         const ANode* node = count_stack.Last();
         count_stack.Pop();
         if (node == nullptr) continue;
+        if (node->IsPendingDestroy() || !node->IsVisible() || !node->IsEnabled()) continue;
         if (FindSprite(*node) != nullptr) {
             for (u32 index = 0u; index < node->ChildCount(); ++index)
                 if (!count_stack.TryAdd(node->Child(index))) return false;
@@ -1604,8 +1766,15 @@ bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(
         for (u32 index = 0u; index < node->ChildCount(); ++index)
             if (!count_stack.TryAdd(node->Child(index))) return false;
     }
-    if (mesh_count == 0u) return false;
-    if (!m_NormalDepth.BeginFrame(mesh_count)) return false;
+    // 選択対象を隠す未選択skinned meshもdepthへ入れて、through-wallを防ぐ。
+    // 選択なしのframeでは従来の前段負荷を変えない。
+    if (selection_requested) {
+        mesh_count += static_cast<u64>(m_SkinnedDrawn.Num());
+    }
+    if (mesh_count == 0u || mesh_count > static_cast<u64>(0xFFFFFFFFu)) {
+        return false;
+    }
+    if (!m_NormalDepth.BeginFrame(static_cast<u32>(mesh_count))) return false;
 
     IRhiCommandList& command_list = context.Cmd();
     // 動きは使わない (遮蔽が要るのは法線と深度だけ)。前フレームの行列に現フレームの
@@ -1624,6 +1793,7 @@ bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(
         const ANode* node = stack.Last();
         stack.Pop();
         if (node == nullptr) continue;
+        if (node->IsPendingDestroy() || !node->IsVisible() || !node->IsEnabled()) continue;
 
         for (u32 index = 0u; index < node->ChildCount(); ++index)
             if (!stack.TryAdd(node->Child(index))) { complete = false; break; }
@@ -1636,8 +1806,20 @@ bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(
         if (gpu == nullptr || !gpu->vertex_buffer || !gpu->index_buffer) continue;
 
         const FMat4 model = node->World().ToMat4();
-        if (!m_NormalDepth.DrawMesh(command_list, *gpu, model, model))
+        if (!m_NormalDepth.DrawMesh(command_list, *gpu, model, model, selection_requested && IsSelectionHighlightedNode_Internal(*node))) {
             complete = false;
+        }
+    }
+    if (selection_requested) {
+        for (usize index = 0u; index < m_SkinnedDrawn.Num(); ++index) {
+            const FSkinnedDraw& draw = m_SkinnedDrawn[index];
+            if (draw.Mesh == nullptr || !draw.Mesh->vertex_buffer || !draw.Mesh->index_buffer) {
+                continue;
+            }
+            if (!m_NormalDepth.DrawMesh(command_list, *draw.Mesh, draw.Model, draw.Model, draw.SelectionHighlighted)) {
+                complete = false;
+            }
+        }
     }
     m_NormalDepth.End(command_list);
     return complete;
@@ -1648,10 +1830,13 @@ bool ALegacyScene3DAdapter::RenderAmbientOcclusionPass(
     m_SsaoDrawn = false;
     m_NormalDepthDrawn = false;
     const bool ssao_requested = m_SsaoParams.Intensity > 0.0f;
+    const ANode* selection_owner = nullptr;
+    const bool selection_requested = FindRenderableSelectionHighlight_Internal(Graph().Root(), selection_owner) != nullptr;
     const bool screen_space_effect_requested =
         ssao_requested
         || m_SsgiParams.Intensity > 0.0f
-        || m_SsrParams.Intensity > 0.0f;
+        || m_SsrParams.Intensity > 0.0f
+        || selection_requested;
     if (!screen_space_effect_requested) return false;
 
     // SSAO の初期化に失敗しても、SSGI/SSR は共有前段だけで継続できる。
@@ -1918,7 +2103,7 @@ bool ALegacyScene3DAdapter::UpdateSkinnedMeshes(IRhiDevice& device) noexcept {
         ANode* const node = stack.Last();
         stack.Pop();
         if (node == nullptr) continue;
-        if (!node->IsVisible() || !node->IsEnabled()) continue;
+        if (node->IsPendingDestroy() || !node->IsVisible() || !node->IsEnabled()) continue;
 
         for (u32 index = 0u; index < node->ChildCount(); ++index)
             if (!stack.TryAdd(node->Child(index))) break;
@@ -1950,6 +2135,8 @@ bool ALegacyScene3DAdapter::UpdateSkinnedMeshes(IRhiDevice& device) noexcept {
         draw.Mesh = &instance->Mesh;
         draw.Model = node->World().ToMat4();
         draw.Color = component->Color();
+        draw.SelectionHighlighted =
+            IsSelectionHighlightedNode_Internal(*node);
         if (m_SkinnedDrawn.TryAdd(draw)) any = true;
     }
 

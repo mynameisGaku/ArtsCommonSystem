@@ -376,6 +376,23 @@ public:
     void Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index,
                 const FPostProcessParams& params) noexcept;
 
+    /**
+     * depth test済みの選択maskから外側輪郭を合成してpost processを実行する。
+     *
+     * @details selection_maskのalphaを現在frameの可視選択画素として読み、tonemap後かつ
+     * FXAA前に外側だけを合成する。null、不正値、空maskでは通常のRenderと同じ出力へ戻る。
+     * maskと設定は呼出し中だけ借り、class内へ保持しない。
+     * @param cmd 既にBegin済みのコマンドリスト。
+     * @param swapchain 出力先。
+     * @param buffer_index 出力backbuffer番号。
+     * @param params 通常のpost process設定。
+     * @param selection_mask 可視選択画素をalphaに持つ同解像度texture。nullで無効。
+     * @param color sRGB表示域の輪郭色。各成分は0以上1以下。
+     * @param intensity 輪郭の強さ。0より大きく4以下。
+     * @param thickness_pixels 輪郭幅。0より大きく4 pixel以下。
+     */
+    void Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index, const FPostProcessParams& params, IRhiTexture* selection_mask, FVec3 color, f32 intensity, f32 thickness_pixels) noexcept;
+
 private:
     CPostProcess& operator=(CPostProcess&&) noexcept = default;
 
@@ -461,9 +478,7 @@ private:
      * @param buf_idx 書き出すバックバッファの index。
      * @param p 適用する効果のパラメータ。
      */
-    bool Pass_Tonemap  (IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
-                        const FPostProcessParams& p,
-                        IRhiTexture* ldr_target = nullptr) noexcept;
+    bool Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx, const FPostProcessParams& p, IRhiTexture* ldr_target, IRhiTexture* selection_mask, FVec3 selection_color, f32 selection_intensity, f32 selection_thickness_pixels) noexcept;
 
     /**
      * FXAA の任意リソースを描画所有スレッドで遅延確保する。

@@ -201,6 +201,18 @@ LDR 中間へ書き、その後 `CFxaa` を swapchain に一度だけ適用し�
 があるフレームでは FXAA を重ねず、TAA 解像が失敗した場合だけ FXAA を代替処理にします。
 任意シェーダのコンパイルに失敗しても直接トーンマップを使い、空のフレームを公開しません。
 
+Legacy 3Dの操作対象は`ALegacyScene3DAdapter::SetSelectionHighlight()`へ`FNodeId`を渡すと、
+そのnode自身と可視・有効な子孫meshへ選択輪郭を表示できます。設定はruntime専用componentとして
+subtree rootが所有するため、adapterのclass size、member位置、vtable slotを変更しません。
+stale/未知handleや不正な色・強さ・幅は現在設定を維持して拒否し、`ClearSelectionHighlight()`で
+明示解除します。
+
+輪郭maskは既存`CMotionVector`のRGBA16F normal出力の未使用alphaへ書きます。同じ前段depthへ
+未選択meshも描くため、手前の物体で隠れた選択物を壁越しに表示しません。tonemap後、任意FXAA前に
+maskの外側だけを最大4 pixelへ広げ、HUDより前に合成します。TAA/FXAA、SSAO/SSR/SSGIはnormalの
+xyzだけを従来どおり利用します。hidden/disabled/destroyed node、前段・post資源失敗、空subtreeでは
+通常の完成済み3D表示へ戻り、選択輪郭のために別mask textureや同期readbackを追加しません。
+
 `ALegacyScene3DAdapter` のプレイヤー向け HUD は、HDR 3D と post/TAA-or-FXAA/トーンマップを
 完了した後に LDR swapchain を load で再バインドし、`AScene::OnDrawHud` を呼びます。
 `CSceneRenderResources::SpriteBatch` を共有し、`FRenderContext` と `Draw.h` の即時描画 context は
