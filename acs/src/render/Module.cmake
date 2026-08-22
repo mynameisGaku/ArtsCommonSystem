@@ -43,6 +43,7 @@ set(_acsgen_render_sources
     SubstrateMaterial.cpp
     SubsurfaceScattering.cpp
     TransientUploadArena.cpp
+    TrueHdriLightData.cpp
     VertexScatter.cpp
     WaterSurface3D.cpp
 )
@@ -103,6 +104,7 @@ set(_acsgen_render_headers
     SubsurfaceScattering.h
     TemporalHistory.h
     TransientUploadArena.h
+    TrueHdriLightData.h
     VertexScatter.h
     VolumetricCloudWeather.h
     VolumetricCloudWorldShadow.h

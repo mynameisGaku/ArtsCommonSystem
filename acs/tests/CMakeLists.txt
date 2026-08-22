@@ -137,6 +137,7 @@ add_executable(acs_unit_tests
     crypto_tests.cpp
     render_tests.cpp
     sky_sun_profile_tests.cpp
+    true_hdri_light_data_tests.cpp
     weather_system_tests.cpp
     volumetric_cloud_settings_tests.cpp
     render_graph_transient_alias_tests.cpp
