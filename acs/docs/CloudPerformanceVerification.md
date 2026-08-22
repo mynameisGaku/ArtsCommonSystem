@@ -732,6 +732,25 @@ Releaseともコンパイル、リンク、実行に合格した。
 空を閉じる曇天状態ではなかった。Framework既存の`AcsEnumReflection.h`にある`C4267`警告は両構成で
 残るが、今回の配布物による新規警告ではない。
 
+### 天候遷移の連続性監査
+
+既存の`CWeatherSystem`は遷移中に別の天候を指定すると、補間途中の描画係数を捨てて旧目標を新しい
+開始天候にしていた。たとえば快晴から豪雨へ50%進んだ時点で曇りへ変更すると、環境光、粒子、空色、
+風、霧が豪雨100%へ1フレームで跳んでから曇りへ戻る。これは天候名が離散値であることを理由にした
+近似ではなく、遷移の処理順による不連続である。
+
+現在は5成分の開始値を連続値として保持し、各成分を`P = P_start + (P_target - P_start) * t`で補間する。
+目標変更時は目標を書き換える前に現在の`P`を全成分で求め、次の`P_start`へ保存してから`t=0`へ戻す。
+同じ目標を正の時間で再指定した場合は経過時間を維持し、0以下または非有限の遷移時間は即時切替する。
+`Tick`は0以下と非数の経過時間を無視し、残り時間以上かを加算前に判定するため、加算あふれから非数を
+作らない。範囲外の`EWeatherKind`は保存前に`Clear`へ直す。
+
+専用試験は、全5成分が同じ進行度を使うこと、途中の目標変更で値が連続すること、同一目標の再指定、
+非数と正の無限大相当の時間、範囲外種別を検査した。Releaseは1410件、Debugは1414件が全合格し、
+Editor ABIも両構成でビルドできた。内部処理はprivateの`Params_Internal`、
+`NormalizeKind_Internal`、`CurrentParams_Internal`、`CompleteTransition_Internal`へ閉じ、`friend`やSTLは
+追加していない。
+
 ## Quality-preserving optimization rules
 
 Ultra cloud optimization keeps the `0.25` trace scale, 192 view-sample ceiling,
