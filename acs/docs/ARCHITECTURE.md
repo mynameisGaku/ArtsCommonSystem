@@ -283,5 +283,5 @@ GPU 経路を使えない perspective frame だけ明示的に有効化し、同
 したがって compute path と fallback は同じ frame で二重実行されず、fallback の移動量も
 FPS や描画回数には依存しません。full-resolution resolve の
 empty-sky short path は履歴の 5x5 footprint で silhouette と horizon を保護します。
-192 view steps、8 light probes、Ultra 4x4 phase、trace / output dispatch、履歴規則を
+384 view steps、8 light probes、Ultra 4x4 phase、trace / output dispatch、履歴規則を
 固定したまま workload を計測します。

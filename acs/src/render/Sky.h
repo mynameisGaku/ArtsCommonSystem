@@ -624,7 +624,7 @@ inline constexpr f32 kVolumetricCloudMaxPhaseEccentricity = 0.99f;
 inline constexpr u32 kVolumetricCloudUltraTraceDivisor = 4u;
 
 /** 通常描画で 1 本のレイに使う刻みの上限。 */
-inline constexpr u32 kVolumetricCloudViewSteps = 192u;
+inline constexpr u32 kVolumetricCloudViewSteps = 384u;
 
 /**
  * 参照描画で 1 本のレイに使う刻みの上限。
@@ -632,7 +632,7 @@ inline constexpr u32 kVolumetricCloudViewSteps = 192u;
  * @details 正解画像を作るためのもので、速度は捨てている。
  */
 inline constexpr u32 kVolumetricCloudReferenceViewSteps = 512u;
-inline constexpr u32 kVolumetricCloudMaxViewMarchSamples = 192u;
+inline constexpr u32 kVolumetricCloudMaxViewMarchSamples = 384u;
 inline constexpr u32 kVolumetricCloudMaxLightMarchSamples = 8u;
 
 /** 下層設定を有限で順序付けされた GPU 安全値へ直す。 */

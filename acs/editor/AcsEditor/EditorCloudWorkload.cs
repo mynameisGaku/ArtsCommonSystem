@@ -77,7 +77,7 @@ internal static class EditorCloudWorkloadContract
     internal const uint SkipResourcesNotReady = 1;
     internal const uint SkipInvalidCamera = 2;
     internal const uint SkipInvalidProjection = 3;
-    private const ulong StandardMaximumViewMarchSamples = 192;
+    private const ulong StandardMaximumViewMarchSamples = 384;
     private const ulong ReferenceMaximumViewMarchSamples = 512;
     private const ulong MaximumLightMarchSamples = 8;
     private const ulong MaximumWorldShadowMarchSamples = 32;
@@ -254,7 +254,7 @@ internal static class EditorCloudWorkloadContract
             snapshot.TraceLogicalInvocations,
             ReferenceMaximumViewMarchSamples);
         // 参照描画は全解像度かつ時間再構成なしで512段を使う。
-        // 通常描画の全解像度設定もあるため、192段は解像度比に関係なく許可する。
+        // 通常描画の全解像度設定もあるため、384段は解像度比に関係なく許可する。
         bool recognizedViewSampleCeiling =
             snapshot.MaximumViewSamples == standardMaximumViewSamples ||
             (!temporalSuperResolution &&

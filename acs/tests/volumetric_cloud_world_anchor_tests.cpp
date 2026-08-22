@@ -370,22 +370,17 @@ f32 CloudExpandedTypeForTest(f32 blendedType) noexcept {
     return SmoothStepForTest(0.42f, 0.66f, blendedType);
 }
 
-// 同じレイの現在値と履歴値から、4x4領域で共有する被覆変化率を求める。
-f32 CloudTemporalBlockResponseForTest(f32 currentAlpha, f32 historyAlpha) noexcept {
+// 同じ出力画素の現在値と履歴値から、正確な位相標本だけに使う変化率を求める。
+f32 CloudTemporalSampleResponseForTest(f32 currentAlpha, f32 historyAlpha) noexcept {
     return SmoothStepForTest(0.015f, 0.12f, std::fabs(currentAlpha - historyAlpha));
 }
 
-// 被覆差が大きい時も、採取画素だけが突出しない範囲で現在形状へ追従させる。
+// 被覆差が大きい時も、1/16だけ先行する採取画素が点状に突出しない範囲で追従させる。
 f32 CloudTemporalCurrentWeightForTest(
     f32 currentAlpha, f32 historyAlpha, bool stationary) noexcept {
     if (!stationary) return 0.70f;
-    const f32 changeResponse = CloudTemporalBlockResponseForTest(currentAlpha, historyAlpha);
-    return 0.10f + (0.42f - 0.10f) * changeResponse;
-}
-
-// 未採取画素は4x4領域の被覆が変わっている間だけ、現在の空間再構成へ追従する。
-f32 CloudTemporalUnscheduledWeightForTest(f32 blockResponse, bool stationary) noexcept {
-    return stationary ? 0.20f * SaturateForTest(blockResponse) : 0.0f;
+    const f32 changeResponse = CloudTemporalSampleResponseForTest(currentAlpha, historyAlpha);
+    return 0.10f + (0.20f - 0.10f) * changeResponse;
 }
 
 f32 CloudWeatherMaskForTest(f32 weatherCoverage, f32 coverage) noexcept {
@@ -1068,8 +1063,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(steady.world_shadow_launched_threads, 16384u);
     EXPECT_EQ(steady.total_logical_invocations, 2293312u);
     EXPECT_EQ(steady.total_launched_threads, 2294272u);
-    EXPECT_EQ(steady.maximum_view_samples, 24883200u);
-    EXPECT_EQ(steady.maximum_light_samples, 199065600u);
+    EXPECT_EQ(steady.maximum_view_samples, 49766400u);
+    EXPECT_EQ(steady.maximum_light_samples, 398131200u);
     EXPECT_EQ(steady.maximum_world_shadow_samples, 524288u);
     EXPECT_TRUE(steady.temporal_super_resolution);
     EXPECT_FALSE(steady.attempted);
@@ -1210,7 +1205,7 @@ ACS_TEST(VolumetricClouds,
         compact,
         "if(m_LastFrameWorkload.submitted&&"
         "m_LastFrameWorkload.composite_draws!=~u32{0}){"));
-    EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 192u);
+    EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
     EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
 }
 
@@ -1232,16 +1227,44 @@ ACS_TEST(VolumetricClouds, MarchPlanUsesWorldDistanceInsteadOfHeightSlices) {
     EXPECT_TRUE(oblique.coarse_step >= vertical.coarse_step);
     EXPECT_TRUE(oblique.exit - oblique.enter >
                 vertical.exit - vertical.enter);
-    EXPECT_TRUE(vertical.fine_step * 168.0f >=
+    EXPECT_TRUE(vertical.fine_step * 336.0f >=
                 vertical.exit - vertical.enter);
-    EXPECT_TRUE(oblique.fine_step * 168.0f >=
+    EXPECT_TRUE(oblique.fine_step * 336.0f >=
                 oblique.exit - oblique.enter);
-    EXPECT_TRUE(vertical.coarse_step * 84.0f >=
+    EXPECT_TRUE(vertical.coarse_step * 168.0f >=
                 vertical.exit - vertical.enter);
-    EXPECT_TRUE(oblique.coarse_step * 84.0f >=
+    EXPECT_TRUE(oblique.coarse_step * 168.0f >=
                 oblique.exit - oblique.enter);
-    EXPECT_EQ(vertical.max_samples, 192u);
-    EXPECT_EQ(oblique.max_samples, 192u);
+    EXPECT_EQ(vertical.max_samples, 384u);
+    EXPECT_EQ(oblique.max_samples, 384u);
+}
+
+ACS_TEST(VolumetricClouds,
+         ProductionMarchBudgetHalvesTheFormerNearCloudInterval) {
+    const FVolumetricCloudLayer layer{2600.0f, 5200.0f, 0.035f};
+    const FVec3 camera{0.0f, 0.0f, 0.0f};
+    const FVec3 upward{0.0f, 1.0f, 0.0f};
+    const FVolumetricCloudMarchPlan former =
+        PlanVolumetricCloudRayMarch(
+            camera, upward, layer, kVolumetricCloudMaxDistance,
+            FVec3{}, 192u);
+    const FVolumetricCloudMarchPlan production =
+        PlanVolumetricCloudRayMarch(
+            camera, upward, layer, kVolumetricCloudMaxDistance,
+            FVec3{}, kVolumetricCloudViewSteps);
+
+    EXPECT_TRUE(former.hit);
+    EXPECT_TRUE(production.hit);
+    EXPECT_EQ(former.max_samples, 192u);
+    EXPECT_EQ(production.max_samples, 384u);
+    EXPECT_NEAR(production.enter, former.enter, 1e-4f);
+    EXPECT_NEAR(production.exit, former.exit, 1e-4f);
+    // 2600 m厚の雲層では、旧上限が約15.5 m間隔だったのに対し、
+    // 通常描画は約7.7 m間隔となり、小さな雲塊を飛び越えにくくする。
+    EXPECT_TRUE(former.fine_step > 15.0f);
+    EXPECT_TRUE(production.fine_step < 8.0f);
+    EXPECT_NEAR(production.fine_step * 2.0f, former.fine_step, 1e-4f);
+    EXPECT_NEAR(production.coarse_step * 2.0f, former.coarse_step, 1e-4f);
 }
 
 ACS_TEST(VolumetricClouds, MarchPlanFadesAndBoundsGrazingRays) {
@@ -1262,9 +1285,9 @@ ACS_TEST(VolumetricClouds, MarchPlanFadesAndBoundsGrazingRays) {
     EXPECT_TRUE(horizon.hit);
     EXPECT_TRUE(horizon.visibility > 0.0f);
     EXPECT_TRUE(horizon.visibility <= 1.0f);
-    EXPECT_TRUE(horizon.fine_step * 168.0f >=
+    EXPECT_TRUE(horizon.fine_step * 336.0f >=
                 horizon.exit - horizon.enter);
-    EXPECT_TRUE(horizon.coarse_step * 84.0f >=
+    EXPECT_TRUE(horizon.coarse_step * 168.0f >=
                 horizon.exit - horizon.enter);
 }
 
@@ -1325,9 +1348,9 @@ ACS_TEST(VolumetricClouds,
                 FVec3{0.0f, 8.0f, 0.0f}, direction, layer);
         EXPECT_TRUE(plan.hit);
         const f32 span = plan.exit - plan.enter;
-        EXPECT_TRUE(plan.fine_step * 168.0f >= span);
-        EXPECT_TRUE(plan.coarse_step * 84.0f >= span);
-        EXPECT_EQ(plan.max_samples, 192u);
+        EXPECT_TRUE(plan.fine_step * 336.0f >= span);
+        EXPECT_TRUE(plan.coarse_step * 168.0f >= span);
+        EXPECT_EQ(plan.max_samples, 384u);
     }
 
     const FVec3 horizonDirection =
@@ -1454,13 +1477,17 @@ ACS_TEST(VolumetricClouds, DetailBandsFollowRaySampleSpacing) {
     EXPECT_TRUE(horizon.fine_step > 120.0f);
     EXPECT_TRUE(horizon.fine_step < 420.0f);
     EXPECT_TRUE(horizonNormal.fine_step > horizon.fine_step);
-    EXPECT_TRUE(horizonNormal.fine_step > 419.0f);
-    EXPECT_TRUE(horizonNormal.fine_step < 620.0f);
+    // 同一区間で通常336個、参照448個の細密区間を使うため、
+    // 通常描画の間隔は参照描画の4/3となる。
+    EXPECT_NEAR(
+        horizonNormal.fine_step * 3.0f,
+        horizon.fine_step * 4.0f, 1e-3f);
     EXPECT_NEAR(CloudBillowVisibilityFromSampleSpacingForTest(vertical.fine_step), 1.0f, 0.0f);
     EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(vertical.fine_step), 1.0f, 0.0f);
     EXPECT_TRUE(CloudBillowVisibilityFromSampleSpacingForTest(horizon.fine_step) > 0.90f);
     EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(horizon.fine_step), 0.0f, 0.0f);
-    EXPECT_NEAR(CloudBillowVisibilityFromSampleSpacingForTest(horizonNormal.fine_step), 0.0f, 0.0f);
+    EXPECT_TRUE(CloudBillowVisibilityFromSampleSpacingForTest(horizonNormal.fine_step) > 0.70f);
+    EXPECT_TRUE(CloudBillowVisibilityFromSampleSpacingForTest(horizonNormal.fine_step) < CloudBillowVisibilityFromSampleSpacingForTest(horizon.fine_step));
     EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(horizonNormal.fine_step), 0.0f, 0.0f);
     EXPECT_NEAR(CloudBillowVisibilityFromSampleSpacingForTest(270.1613f), 0.5f, 1e-5f);
     EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(29.23387f), 0.5f, 1e-5f);
@@ -1585,6 +1612,7 @@ ACS_TEST(VolumetricClouds, BaseShapeLodRejectsUnresolvableFrequencies) {
 ACS_TEST(VolumetricClouds, ViewRayIntervalPhasesBreakPeriodicShapeResonance) {
     constexpr u32 kIntervalCount = kVolumetricCloudViewSteps;
     constexpr u32 kPhaseBinCount = 16u;
+    constexpr u32 kExpectedPerBin = kIntervalCount / kPhaseBinCount;
     constexpr f32 kBasePhase = 0.37f;
     constexpr f64 kTwoPi = 6.28318530717958647692;
     u32 phaseBins[kPhaseBinCount]{};
@@ -1609,8 +1637,8 @@ ACS_TEST(VolumetricClouds, ViewRayIntervalPhasesBreakPeriodicShapeResonance) {
     EXPECT_TRUE(std::fabs(fixedAverage - 0.5) > 0.30);
     EXPECT_NEAR(dispersedAverage, 0.5, 0.01);
     for (u32 bin = 0u; bin < kPhaseBinCount; ++bin) {
-        EXPECT_TRUE(phaseBins[bin] >= 11u);
-        EXPECT_TRUE(phaseBins[bin] <= 13u);
+        EXPECT_TRUE(phaseBins[bin] + 1u >= kExpectedPerBin);
+        EXPECT_TRUE(phaseBins[bin] <= kExpectedPerBin + 1u);
     }
 
     const std::string source = ReadSkySource();
@@ -4323,8 +4351,10 @@ ACS_TEST(VolumetricClouds, LightDensityAndOpticalScaleStayLayerCorrectAcrossEver
 
 ACS_TEST(VolumetricClouds, LightProbePhaseCoversEveryDepthBandWithoutRepeatingOnePlane)
 {
-    /** 192 個の視線採取を 16 区画へ数えた分布。 */
+    /** 通常の視線採取を16区画へ数えた分布。 */
     u32 phaseBins[16]{};
+    /** 各区画へ入る理想個数。 */
+    constexpr u32 kExpectedPerBin = kVolumetricCloudViewSteps / 16u;
     /** 黄金比の小数部。隣接する採取点の位相を一定量ずらす。 */
     constexpr f32 kGoldenFraction = 0.61803398875f;
     for (u32 sample = 0u; sample < kVolumetricCloudViewSteps; ++sample) {
@@ -4340,8 +4370,8 @@ ACS_TEST(VolumetricClouds, LightProbePhaseCoversEveryDepthBandWithoutRepeatingOn
     }
 
     for (u32 bin = 0u; bin < 16u; ++bin) {
-        EXPECT_TRUE(phaseBins[bin] >= 11u);
-        EXPECT_TRUE(phaseBins[bin] <= 13u);
+        EXPECT_TRUE(phaseBins[bin] + 1u >= kExpectedPerBin);
+        EXPECT_TRUE(phaseBins[bin] <= kExpectedPerBin + 1u);
     }
 }
 
@@ -4481,7 +4511,7 @@ ACS_TEST(VolumetricClouds,
         }
     }
 
-    EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 192u);
+    EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
     EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
     EXPECT_TRUE(Contains(shader, "[loop]for(intl=0;l<3;l++){"));
     EXPECT_TRUE(Contains(shader, "[loop]for(intl=3;l<8;l++){"));
@@ -4743,7 +4773,7 @@ ACS_TEST(VolumetricClouds,
         "if(MAX_STEPS<32)MAX_STEPS=32;"));
     EXPECT_TRUE(Contains(shader, "[loop]for(intl=0;l<3;l++){"));
     EXPECT_TRUE(Contains(shader, "[loop]for(intl=3;l<8;l++){"));
-    EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 192u);
+    EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
     EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
 }
@@ -4898,7 +4928,7 @@ ACS_TEST(VolumetricClouds,
             0.0f);
     }
 
-    EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 192u);
+    EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
     EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
 }
@@ -5079,7 +5109,7 @@ ACS_TEST(VolumetricClouds,
         }
     }
 
-    EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 192u);
+    EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
     EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
 }
@@ -5334,7 +5364,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         compactSource,
         "cl.Dispatch((m_FullW+7u)/8u,(m_FullH+7u)/8u,1);"));
-    EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 192u);
+    EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
     EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
 }
@@ -5491,7 +5521,10 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         resolveShader,
         "resolvedDepth=float2(curDepth,curA);"));
-    EXPECT_TRUE(Contains(resolveShader, "floatunscheduledWeight=CloudTemporalUnscheduledWeight(" "blockResponse,worldOrigin.w>0.5);" "resolved=lerp(histPacked,current,unscheduledWeight);" "resolvedDepth=float2(reprojectionDepth,resolved.a);"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "resolved=histPacked;"
+        "resolvedDepth=float2(reprojectionDepth,histD.y);"));
     EXPECT_TRUE(Contains(
         resolveShader,
         "float4hist=historyColor.Load(int3(historyPixel,0));"
@@ -5502,9 +5535,14 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         resolveShader,
         "bilateral=exp(-max(refC.a,c.a)*5.0);"));
-    EXPECT_TRUE(Contains(resolveShader, "boolstableUnscheduled=temporal.x>0.5&&temporalSuperRes&&" "!scheduled&&worldOrigin.w>0.5&&blockResponse<=0.001;"));
-    EXPECT_TRUE(Contains(resolveShader, "int2currentTracePixel=clamp(int2(CurrentSamplePixel(" "nearestQ,phaseIndex,true)+0.5),int2(0,0),int2(dims.zw)-1);"));
-    EXPECT_TRUE(Contains(resolveShader, "float4currentTraceHistory=historyColor.Load(" "int3(currentTracePixel,0));" "blockResponse=CloudTemporalBlockResponse(" "refC.a,currentTraceHistory.a);"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "boolstableUnscheduled=temporal.x>0.5&&temporalSuperRes&&"
+        "!scheduled&&worldOrigin.w>0.5;"));
+    EXPECT_FALSE(Contains(resolveShader, "currentTracePixel"));
+    EXPECT_FALSE(Contains(resolveShader, "currentTraceHistory"));
+    EXPECT_FALSE(Contains(resolveShader, "blockResponse"));
+    EXPECT_FALSE(Contains(resolveShader, "CloudTemporalUnscheduledWeight"));
     EXPECT_TRUE(Contains(
         resolveShader,
         "if(currentDefinitelyEmpty&&sameScreenColor.a<=0.003)"));
@@ -5538,7 +5576,7 @@ ACS_TEST(VolumetricClouds,
          TemporalSuperResolutionRespondsToCoverageEvolution) {
     EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.60f, 0.60f, true), 0.10f, 0.0f);
     EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.60f, 0.585f, true), 0.10f, 1e-6f);
-    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.60f, 0.48f, true), 0.42f, 1e-6f);
+    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.60f, 0.48f, true), 0.20f, 1e-6f);
     EXPECT_NEAR(
         CloudTemporalCurrentWeightForTest(0.60f, 0.60f, false),
         0.70f, 0.0f);
@@ -5548,35 +5586,32 @@ ACS_TEST(VolumetricClouds,
     for (u32 step = 0u; step <= 100u; ++step) {
         const f32 difference = static_cast<f32>(step) / 100.0f;
         const f32 weight = CloudTemporalCurrentWeightForTest(1.0f, 1.0f - difference, true);
-        EXPECT_TRUE(weight >= 0.10f && weight <= 0.42f);
+        EXPECT_TRUE(weight >= 0.10f && weight <= 0.20f);
         EXPECT_TRUE(weight + 1e-6f >= previousWeight);
         previousWeight = weight;
     }
 
-    // 大きな変化を4x4領域で共有し、採取画素だけが孤立して突出しないことを確認する。
+    // 採取画素だけを抑制して更新し、未採取15画素は各自の正確な履歴を保つ。
     const f32 currentAlpha = 0.80f;
     const f32 historyAlpha = 0.20f;
-    const f32 blockResponse = CloudTemporalBlockResponseForTest(currentAlpha, historyAlpha);
+    const f32 sampleResponse = CloudTemporalSampleResponseForTest(currentAlpha, historyAlpha);
     const f32 scheduledWeight = CloudTemporalCurrentWeightForTest(currentAlpha, historyAlpha, true);
-    const f32 unscheduledWeight =
-        CloudTemporalUnscheduledWeightForTest(blockResponse, true);
     const f32 scheduledResult = historyAlpha +
         (currentAlpha - historyAlpha) * scheduledWeight;
-    const f32 unscheduledResult = historyAlpha +
-        (currentAlpha - historyAlpha) * unscheduledWeight;
-    EXPECT_NEAR(blockResponse, 1.0f, 0.0f);
-    EXPECT_NEAR(scheduledWeight, 0.42f, 1e-6f);
-    EXPECT_NEAR(unscheduledWeight, 0.20f, 1e-6f);
-    EXPECT_TRUE(scheduledResult > unscheduledResult);
-    EXPECT_TRUE(scheduledResult - unscheduledResult < 0.14f);
-    EXPECT_NEAR(CloudTemporalUnscheduledWeightForTest(blockResponse, false), 0.0f, 0.0f);
+    const f32 unscheduledResult = historyAlpha;
+    EXPECT_NEAR(sampleResponse, 1.0f, 0.0f);
+    EXPECT_NEAR(scheduledWeight, 0.20f, 1e-6f);
+    EXPECT_NEAR(scheduledResult, 0.32f, 1e-6f);
+    EXPECT_NEAR(unscheduledResult, 0.20f, 0.0f);
+    EXPECT_NEAR(scheduledResult - unscheduledResult, 0.12f, 1e-6f);
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudResolveCS"));
-    EXPECT_TRUE(Contains(shader, "floatCloudTemporalBlockResponse(floatcurrentAlpha,floathistoryAlpha){returnsmoothstep(0.015,0.12,abs(currentAlpha-historyAlpha));}"));
-    EXPECT_TRUE(Contains(shader, "floatCloudTemporalCurrentWeight(floatcurrentAlpha,floathistoryAlpha,boolstationary){floatcurrentWeight=0.70;if(stationary){floatchangeResponse=CloudTemporalBlockResponse(currentAlpha,historyAlpha);currentWeight=lerp(0.10,0.42,changeResponse);}returncurrentWeight;}"));
-    EXPECT_TRUE(Contains(shader, "floatCloudTemporalUnscheduledWeight(floatblockResponse,boolstationary){returnstationary?0.20*saturate(blockResponse):0.0;}"));
+    EXPECT_TRUE(Contains(shader, "floatCloudTemporalSampleResponse(floatcurrentAlpha,floathistoryAlpha){returnsmoothstep(0.015,0.12,abs(currentAlpha-historyAlpha));}"));
+    EXPECT_TRUE(Contains(shader, "floatCloudTemporalCurrentWeight(floatcurrentAlpha,floathistoryAlpha,boolstationary){floatcurrentWeight=0.70;if(stationary){floatchangeResponse=CloudTemporalSampleResponse(currentAlpha,historyAlpha);currentWeight=lerp(0.10,0.20,changeResponse);}returncurrentWeight;}"));
+    EXPECT_FALSE(Contains(shader, "CloudTemporalBlockResponse"));
+    EXPECT_FALSE(Contains(shader, "CloudTemporalUnscheduledWeight"));
     const std::size_t helperBegin = shader.find(
         "floatCloudTemporalCurrentWeight(");
     const std::size_t helperEnd = shader.find("returncurrentWeight;}", helperBegin);
@@ -6177,7 +6212,7 @@ ACS_TEST(VolumetricClouds, StableHistoryStoresUnmaskedCloudUntilFinalComposite) 
 
     // 小さなカメラ移動で保持した履歴も、被覆前の値として一度だけ公開する。
     EXPECT_TRUE(Contains(compactSource, "constbooltemporalHistoryStationary=historyValid&&cameraDeltaSquared<=0.0025f&&matrixDelta<=0.002f;"));
-    EXPECT_TRUE(Contains(resolveShader, "boolstableUnscheduled=temporal.x>0.5&&temporalSuperRes&&!scheduled&&worldOrigin.w>0.5&&blockResponse<=0.001;"));
+    EXPECT_TRUE(Contains(resolveShader, "boolstableUnscheduled=temporal.x>0.5&&temporalSuperRes&&!scheduled&&worldOrigin.w>0.5;"));
 
     const std::size_t stableAccept = resolveShader.find("if(stableDepthOk&&stableAlphaOk){");
     const std::size_t fallbackGate = resolveShader.find("if(!stableHistoryResolved){", stableAccept);

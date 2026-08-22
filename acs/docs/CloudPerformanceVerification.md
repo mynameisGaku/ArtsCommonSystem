@@ -76,7 +76,7 @@ Each scenario must prove all of the following:
 - completed GPU queries and the native GPU pass window are available;
 - cloud frame/pass timings are finite and positive;
 - viewport and cloud trace resolutions are coherent;
-- cloud scale is exactly `0.25`, with 192 view samples and 8 light samples;
+- cloud scale is exactly `0.25`, with 384 view samples and 8 light samples;
 - cloud work was attempted and submitted;
 - temporal history was available and reused without invalidation, with TSR
   enabled;
@@ -1034,12 +1034,58 @@ Debug・Releaseでコンパイル、リンク、実行に合格した。最新�
 要求する3D衝突・明示カメラAPIをこの分岐前のACS基点が持たないため保留した。これらを持つ`origin/dev`を
 統合し、同じ配布契約で再検証するまでFramework互換を合格扱いにしない。
 
+## 上空の雲塊を潰す視線積分と履歴拡散の修正
+
+前節の4x4領域反応は、点状の先行画素を抑えた一方、未採取15画素へ低解像度の代表レイを
+毎フレーム最大`0.20`で混ぜていた。この処理は16位相で得た画素別の正確な履歴を低解像度補間へ
+戻すため、雲頂の小さな房と切れ間を面状に拡散した。領域共通の現在レイ履歴を読む処理と
+未採取画素の混合を削除し、未採取画素は風とカメラ移動を補正した各画素の履歴をそのまま保つ。
+採取対象の1画素だけは、静止時の現在値重みを`0.10`から最大`0.20`へ制限し、16分の1画素だけが
+先行して点状に見える時間差を抑える。カメラ移動時の重み`0.70`は変更しない。
+
+原因を分離するため、雲量`0.42`、密度`2.1`、積雲`0.78`、降水`0`、風速`1.0`、
+雲層`2600`～`5200 m`と上空カメラ
+`--camera3d 0 0.35 200 0 5400 0 --hide-grid`を固定し、診断中だけ雲時刻を`0`へ固定した。
+等倍・512段・履歴なしの参照描画は小さな房と切れ間を保持したが、1/4幅・1/4高さ・192段で
+現在の正確な位相だけを直接表示しても白い面へ潰れた。さらに等倍・192段も同じ潰れ方をしたため、
+この場面の主因は拡大率や履歴ではなく192段の適応積分だと判定した。
+
+通常上限を384段へ変更すると、2600 m厚の層に使える細密区間は168個から336個となり、
+細密間隔は約`15.48 m`から約`7.74 m`、粗密間隔は約`30.95 m`から約`15.48 m`へ半減する。
+同じ固定時刻の1/4描画で参照描画にあった小さな房、雲塊間の空、側面の垂れを再現し、
+動的時刻へ戻して2.5秒以上経過させても白い一枚板へ収束しなかった。
+
+Editor表示下部の暫定値では、同じ空のビューポートで雲GPU時間が旧192段の約`1.21 ms`から
+384段の約`2.06`～`2.44 ms`へ増えた。等倍・192段の約`5.4 ms`よりは低いが、これは正式な
+性能ハーネスではない。動的時刻へ戻した後、地上`--camera3d 0 -0.08 18 0 2 0`、雲層内
+`--camera3d 0 0.02 200 0 4300 0`、上空`--camera3d 0 0.35 200 0 5400 0`を各二時刻確認した。
+三視点とも移流と形状変化を継続し、上空では雲塊、切れ間、側面の垂れを保持した。一方、地上の
+高コントラスト輪郭には白い点状ノイズが残り、雲層内は低解像度再構成による柔らかさが強い。
+これらの修正を完了するまで、今回の修正を最終品質とは扱わない。
+
+同じ生成物とfixtureを各30秒測定した正式ハーネスでは、三視点とも品質ゲートに合格した。
+雲GPU時間の平均／最大は、地平線`3.24 / 4.22 ms`、天頂`3.79 / 4.84 ms`、上空
+`3.49 / 4.12 ms`だった。GPU平均時間から換算した処理能力は順に`297.31`、`266.25`、
+`279.06 FPS`であり、300 FPS目標は情報扱いの未達となった。結果は
+`C:\Users\g0190\AppData\Local\Temp\acs-cloud-quality-20260822T203021428Z-4aa1d66f677d477d804af7e690f8e36c\cloud-quality-summary.json`
+へ保存した。品質ゲート合格は処理契約と計測の健全性を示すものであり、目視で確認した輪郭ノイズを
+許容する根拠にはしない。
+
+単一ヘッダー配布はDebug・Releaseの両ライブラリを含む45ファイルを
+`C:\dev\acs_temp_builds\CloudDistributionMarch384-20260823`へ隔離生成し、manifestの
+SHA-256は`AADE7218409677EAA494BA78D5AA55A4FE59F4A647A63E28CC8A4354D5B7A5E4`となった。
+一時的な通常C++利用者によるコンパイル、リンク、起動はDebug・Releaseとも合格した。
+Frameworkの隔離worktree`d5a4b6824132df0750ac8aa7d3b14f54bc3a3e34`でも同じ配布物を
+明示指定し、全体ビルドはDebug・Releaseとも合格した。単体試験は両構成とも1451件中、既知の
+`FWeather3DAppearance` 2件だけが失敗した。Framework側は未知の天候列挙値で既存出力を
+保つことを期待するが、ACSは安全な晴天へ正規化する契約であり、今回の描画変更による新規失敗はない。
+
 - [The Real-time Volumetric Cloudscapes of Horizon: Zero Dawn](https://advances.realtimerendering.com/s2015/The%20Real-time%20Volumetric%20Cloudscapes%20of%20Horizon%20-%20Zero%20Dawn%20-%20ARTR.pdf)
 - [Volumetric Cloud Material in Unreal Engine](https://dev.epicgames.com/documentation/en-us/unreal-engine/volumetric-cloud-material-in-unreal-engine)
 
 ## Quality-preserving optimization rules
 
-Ultra cloud optimization keeps the `0.25` trace scale, 192 view-sample ceiling,
+Ultra cloud optimization keeps the `0.25` trace scale, 384 view-sample ceiling,
 8 light probes, sixteen-phase TSR, world-space density coordinates, and every
 accepted probe position fixed. A candidate is retained only when the same
 provenance-locked horizon/zenith/above harness shows a repeatable GPU improvement;

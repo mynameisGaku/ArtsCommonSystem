@@ -119,8 +119,8 @@ internal static class EditorProfilerSelfTest
             WorldShadowLaunchedThreads = 65_536,
             TotalLogicalInvocations = 3_014_592,
             TotalLaunchedThreads = 3_014_592,
-            MaximumViewSamples = 184_320,
-            MaximumLightSamples = 1_474_560,
+            MaximumViewSamples = 368_640,
+            MaximumLightSamples = 2_949_120,
             MaximumWorldShadowSamples = 2_097_152,
         };
         Check(
@@ -497,7 +497,7 @@ internal static class EditorProfilerSelfTest
         automationLatest.ViewportHeight = 1080;
         automationLatest.CloudWidth = 1280;
         automationLatest.CloudHeight = 720;
-        automationLatest.CloudMarchSteps = 192;
+        automationLatest.CloudMarchSteps = 384;
         automationLatest.CloudLightSteps = 8;
         automationLatest.CloudRenderScale = 2.0f / 3.0f;
         automationLatest.GpuFrameMs = 2.5f;
@@ -659,7 +659,7 @@ internal static class EditorProfilerSelfTest
             automationSummary.LatestRenderState.DrawCalls == 42 &&
             automationSummary.LatestRenderState.DispatchCalls == 8 &&
             automationSummary.LatestRenderState.Triangles == 12345 &&
-            automationSummary.LatestRenderState.CloudMarchSteps == 192 &&
+            automationSummary.LatestRenderState.CloudMarchSteps == 384 &&
             automationSummary.LatestCloudWorkload.Available &&
             automationSummary.LatestCloudWorkload.Submitted &&
             automationSummary.LatestCloudWorkload
@@ -866,7 +866,7 @@ internal static class EditorProfilerSelfTest
                 "# render_draw_calls,42",
                 StringComparison.Ordinal) &&
             automationCsv.Contains(
-                "# render_cloud_march_steps,192",
+                "# render_cloud_march_steps,384",
                 StringComparison.Ordinal) &&
             automationCsv.Contains(
                 "# cloud_workload_submitted,true",

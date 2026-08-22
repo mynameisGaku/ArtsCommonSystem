@@ -2618,23 +2618,18 @@ uint2 CloudTemporalPhaseOffset4(uint2 blockQ,uint phaseIndex) {
 bool IsTemporalSuperResolution() {
     return temporal.w>3.5;
 }
-// 現在レイと同じ出力画素の履歴差を、4x4領域で共有できる変化率へ写す。
-// ごく小さい採取差は履歴へ任せ、雲縁の移動は15個の未採取画素にも伝える。
-float CloudTemporalBlockResponse(float currentAlpha,float historyAlpha) {
+// 同じ出力画素の現在値と履歴値から、正確な位相標本だけに使う変化率を求める。
+float CloudTemporalSampleResponse(float currentAlpha,float historyAlpha) {
     return smoothstep(0.015,0.12,abs(currentAlpha-historyAlpha));
 }
-// 静止画素では小さな採取誤差を長く平均し、被覆が明確に変わった時も孤立画素を作らない重みに抑える。
+// 静止画素では小さな採取誤差を長く平均し、1/16だけ先行する採取画素が点状に突出しない重みに抑える。
 float CloudTemporalCurrentWeight(float currentAlpha,float historyAlpha,bool stationary) {
     float currentWeight=0.70;
     if(stationary) {
-        float changeResponse=CloudTemporalBlockResponse(currentAlpha,historyAlpha);
-        currentWeight=lerp(0.10,0.42,changeResponse);
+        float changeResponse=CloudTemporalSampleResponse(currentAlpha,historyAlpha);
+        currentWeight=lerp(0.10,0.20,changeResponse);
     }
     return currentWeight;
-}
-// 未採取画素は変化中だけ現在の両側再構成へ寄せ、安定後は蓄積済みの等倍標本を保つ。
-float CloudTemporalUnscheduledWeight(float blockResponse,bool stationary) {
-    return stationary?0.20*saturate(blockResponse):0.0;
 }
 bool IsScheduledFullPixel(uint2 pixel,uint2 phaseOffset) {
     return ((pixel.x&3u)==phaseOffset.x) &&
@@ -2692,14 +2687,6 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     float2 nativeDepth=float2(
         (refC.a>0.003 && refD.x<=250000.0)?refD.x:250001.0,
         saturate(refC.a));
-    // 低解像度の現在レイが実際に通った等倍画素を履歴側でも読む。
-    // 対象画素自身と比較すると静止した雲縁でも4x4内の位置差を変化と誤認するため、同じレイ同士を比べる。
-    float blockResponse=0.0;
-    if(temporal.x>0.5 && temporalSuperRes) {
-        int2 currentTracePixel=clamp(int2(CurrentSamplePixel(nearestQ,phaseIndex,true)+0.5),int2(0,0),int2(dims.zw)-1);
-        float4 currentTraceHistory=historyColor.Load(int3(currentTracePixel,0));
-        blockResponse=CloudTemporalBlockResponse(refC.a,currentTraceHistory.a);
-    }
     // 安定した履歴では高価な両側採取を省くが、通常経路と同じ乗算済み表現を保つ。
     // 地平線被覆は履歴へ保存せず、最終合成で一度だけ適用する。
     bool stableHistoryResolved=false;
@@ -2713,7 +2700,7 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     // empty pixels must reach the gather: one low texel represents a 4x4 phase
     // block and cannot conservatively classify a horizon edge by itself.
     bool stableUnscheduled=temporal.x>0.5 && temporalSuperRes &&
-        !scheduled && worldOrigin.w>0.5 && blockResponse<=0.001;
+        !scheduled && worldOrigin.w>0.5;
     if(stableUnscheduled) {
         float4 sameScreenColor=historyColor.Load(int3(tid.xy,0));
         float2 sameScreenDepth=historyDepth.Load(int3(tid.xy,0));
@@ -2931,11 +2918,10 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                                 histPacked,current,currentWeight);
                             resolvedDepth=float2(curDepth,curA);
                         } else {
-                            // 同じ現在レイで被覆が変わった場合だけ、4x4内の未採取画素も両側再構成へ少し寄せる。
-                            // 変化が収まれば重みは0となり、他の15位相で蓄積した等倍細部を再びそのまま保つ。
-                            float unscheduledWeight=CloudTemporalUnscheduledWeight(blockResponse,worldOrigin.w>0.5);
-                            resolved=lerp(histPacked,current,unscheduledWeight);
-                            resolvedDepth=float2(reprojectionDepth,resolved.a);
+                            // 未採取画素は、他の15位相で得た等倍標本をワールド移動だけ補正して保つ。
+                            // 4x4領域の代表レイを混ぜると、正確な履歴を低解像度補間へ毎回戻して雲頂差を面状に拡散する。
+                            resolved=histPacked;
+                            resolvedDepth=float2(reprojectionDepth,histD.y);
                         }
                     } else {
                         float feedback=lerp(
