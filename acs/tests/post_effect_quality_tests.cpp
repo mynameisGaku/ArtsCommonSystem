@@ -2611,6 +2611,9 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
                 EXPECT_TRUE(cloud_ibl.IrradianceMap() != nullptr);
                 EXPECT_TRUE(cloud_ibl.PrefilterMap() != nullptr);
 #endif
+                // Adapterと同じく、記録済みの一時sourceをSubmit前に解放する。
+                // rawとDiligentの遅延解放がGPU参照を保持することを実backendで固定する。
+                cloud_environment_result.Value().Reset();
             }
             cloud_command->End();
             EXPECT_TRUE(cloud_command->Submit());

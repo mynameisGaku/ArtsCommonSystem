@@ -1382,8 +1382,8 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
                 m_CloudParams.Wind)
             : 0u;
 
-    // 空本体は太陽が有意に動いたときだけ、雲由来mapは設定が変わったときだけ更新する。
-    // 連続するm_Timeを署名へ入れないため、移流だけで同期readbackやprefilterを繰り返さない。
+    // 空本体は太陽が有意に動いたときだけ即時更新する。雲の有効・無効も表示との
+    // 不一致を残さないため即時だが、有効中の連続補間は固定frame間隔へまとめる。
     bool rebuild_base_environment = !m_IblReady;
     if (m_IblReady) {
         const f32 dx = sun.x - m_IblBakedSunDirection.x;
@@ -1392,9 +1392,14 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
         rebuild_base_environment =
             dx * dx + dy * dy + dz * dz
                 >= kIblRebakeThresholdSquared;
-        if (!rebuild_base_environment
-            && cloud_signature == m_IblBakedCloudSignature) {
-            return true;
+        if (!rebuild_base_environment) {
+            if (cloud_signature == m_IblBakedCloudSignature) return true;
+
+            const bool cloud_mode_changed = (cloud_signature == 0u) != (m_IblBakedCloudSignature == 0u);
+            const u64 cloud_frame = m_Clouds.LastFrameWorkload().submission_index;
+            if (!cloud_mode_changed && !CVolumetricClouds::IsEnvironmentLightingRefreshFrame(cloud_frame)) {
+                return true;
+            }
         }
     }
 
@@ -1485,6 +1490,9 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
         ACS_LOG_WARN("Scene3D: environment IBL convolution failed");
         return false;
     }
+
+    // 一時資源をここで解放しても、raw DX12とDiligentはいずれもnative資源を
+    // 現在のsubmission fenceまで遅延解放する。frame途中のFlush/WaitIdleは挟まない。
 
     m_IblBakedSunDirection = sun;
     m_IblBakedCloudSignature = cloud_signature;

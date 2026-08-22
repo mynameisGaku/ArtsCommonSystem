@@ -2913,6 +2913,16 @@ float4 PSMain(VSOut input) : SV_TARGET {
 
 constexpr u32 kVolumetricCloudEnvironmentCubeSize = 64u;
 constexpr u32 kVolumetricCloudEnvironmentViewSteps = 64u;
+// 64x6方向のray marchとIBL畳み込みは高価なので、連続補間中は最大でも
+// この成功雲frame数ごとに一度だけ更新する。30は60 Hz時に約0.5秒。
+constexpr u64 kVolumetricCloudEnvironmentRefreshInterval = 30u;
+
+// 連続補間の微小差を同じ署名へ丸める間隔。設定の大きな変更は署名を変え、
+// 実際の再生成頻度は上の固定frame間隔でも制限する。
+constexpr f32 kCloudEnvironmentCoverageSignatureStep = 1.0f / 32.0f;
+constexpr f32 kCloudEnvironmentDensitySignatureStep = 1.0f / 16.0f;
+constexpr f32 kCloudEnvironmentWindSignatureStep = 1.0f / 8.0f;
+constexpr f32 kCloudEnvironmentRadianceSignatureStep = 1.0f / 64.0f;
 
 struct FCloudEnvironmentCompositeCb {
     i32 face_index = 0;
@@ -3042,6 +3052,12 @@ u32 HashCloudEnvironmentFloat(u32 hash, f32 value) noexcept {
     static_assert(sizeof(bits) == sizeof(value), "float hash size mismatch");
     ::memcpy(&bits, &value, sizeof(bits));
     return HashCloudEnvironmentWord(hash, bits);
+}
+
+/** 有限かつ有界な値を指定間隔へ丸め、連続補間の微小差を署名から除く。 */
+u32 HashCloudEnvironmentQuantizedFloat(u32 hash, f32 value, f32 step) noexcept {
+    const i32 bucket = static_cast<i32>(Floor(value / step + 0.5f));
+    return HashCloudEnvironmentWord(hash, static_cast<u32>(bucket));
 }
 
 bool IsFiniteCloudVector(FVec3 value) noexcept {
@@ -4763,12 +4779,15 @@ u32 CVolumetricClouds::EnvironmentLightingSignature(
     const auto add_float = [&hash, canonical](f32 value) noexcept {
         hash = HashCloudEnvironmentFloat(hash, canonical(value));
     };
+    const auto add_radiance = [&hash](f32 value) noexcept {
+        hash = HashCloudEnvironmentQuantizedFloat(hash, value, kCloudEnvironmentRadianceSignatureStep);
+    };
     add_float(m_Layer.base_height);
     add_float(m_Layer.top_height);
     add_float(m_Layer.horizontal_noise_scale);
-    add_float(safe_coverage);
-    add_float(safe_density);
-    add_float(safe_wind);
+    hash = HashCloudEnvironmentQuantizedFloat(hash, safe_coverage, kCloudEnvironmentCoverageSignatureStep);
+    hash = HashCloudEnvironmentQuantizedFloat(hash, safe_density, kCloudEnvironmentDensitySignatureStep);
+    hash = HashCloudEnvironmentQuantizedFloat(hash, safe_wind, kCloudEnvironmentWindSignatureStep);
     add_float(m_Lighting.ViewExtinction);
     add_float(m_Lighting.LightExtinction);
     add_float(m_Lighting.SunScatter);
@@ -4787,6 +4806,20 @@ u32 CVolumetricClouds::EnvironmentLightingSignature(
     add_float(m_Lighting.GroundColor.x);
     add_float(m_Lighting.GroundColor.y);
     add_float(m_Lighting.GroundColor.z);
+    // 環境cubemap shaderが実際に使う固定方向光と空の放射輝度も追跡する。
+    // 日周や天候の連続補間は呼び側の固定frame間隔でまとめて反映される。
+    add_radiance(m_PrevSunColor.x);
+    add_radiance(m_PrevSunColor.y);
+    add_radiance(m_PrevSunColor.z);
+    add_radiance(m_PrevSkyColor.x);
+    add_radiance(m_PrevSkyColor.y);
+    add_radiance(m_PrevSkyColor.z);
+    add_radiance(m_Lighting.SkyZenithColor.x);
+    add_radiance(m_Lighting.SkyZenithColor.y);
+    add_radiance(m_Lighting.SkyZenithColor.z);
+    add_radiance(m_Lighting.SunTransmittance.x);
+    add_radiance(m_Lighting.SunTransmittance.y);
+    add_radiance(m_Lighting.SunTransmittance.z);
     add_float(m_Range.MaxDistance);
     add_float(m_Range.FadeFraction);
     add_float(m_Range.StepGrowth);
@@ -4796,6 +4829,10 @@ u32 CVolumetricClouds::EnvironmentLightingSignature(
     add_float(m_UpperLayer.coverage_scale);
     add_float(m_UpperLayer.density_scale);
     return hash != 0u ? hash : 1u;
+}
+
+bool CVolumetricClouds::IsEnvironmentLightingRefreshFrame(u64 submission_index) noexcept {
+    return submission_index != 0u && submission_index % kVolumetricCloudEnvironmentRefreshInterval == 0u;
 }
 
 void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color, f32 coverage, f32 density, f32 wind, f32 time) noexcept {

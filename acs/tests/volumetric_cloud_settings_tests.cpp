@@ -284,6 +284,8 @@ ACS_TEST(VolumetricCloudSettings,
     EXPECT_EQ(
         clouds.EnvironmentLightingSignature(0.55f, 1.6f, 1.0f),
         original);
+    // 連続補間の隣接値は同じ量子化区間に収まり、微小差だけでは無効化しない。
+    EXPECT_EQ(clouds.EnvironmentLightingSignature(0.551f, 1.61f, 1.02f), original);
 
     // 画面用の参照品質は環境の物理状態ではないため署名を変えない。
     clouds.SetReferenceMode(true);
@@ -291,7 +293,7 @@ ACS_TEST(VolumetricCloudSettings,
         clouds.EnvironmentLightingSignature(0.55f, 1.6f, 1.0f),
         original);
 
-    // coverage、密度、風速は形と採取時点を変えるため直ちに無効化する。
+    // 見た目へ届く大きさのcoverage、密度、風速変更は署名を変える。
     EXPECT_TRUE(
         clouds.EnvironmentLightingSignature(0.60f, 1.6f, 1.0f)
         != original);
@@ -309,15 +311,13 @@ ACS_TEST(VolumetricCloudSettings,
         0.55f, 1.6f, 1.0f);
     EXPECT_TRUE(lighting_changed != original);
 
-    // Sceneが毎frame上書きする大気色は太陽側のしきい値で更新するため、
-    // 設定署名へ重ねて入れず微小変化による連続再生成を防ぐ。
+    // Sceneが毎frame上書きする大気色も、環境cubemapの実際の照明入力なので追跡する。
+    // 再生成頻度は固定frame間隔で別に制限される。
     lighting = clouds.Lighting();
     lighting.SkyZenithColor = FVec3{4.0f, 3.0f, 2.0f};
     lighting.SunTransmittance = FVec3{0.4f, 0.5f, 0.6f};
     clouds.SetLighting(lighting);
-    EXPECT_EQ(
-        clouds.EnvironmentLightingSignature(0.55f, 1.6f, 1.0f),
-        lighting_changed);
+    EXPECT_TRUE(clouds.EnvironmentLightingSignature(0.55f, 1.6f, 1.0f) != lighting_changed);
 
     clouds.SetLayer(FVolumetricCloudLayer{1800.0f, 4300.0f, 0.035f});
     EXPECT_TRUE(
@@ -333,6 +333,17 @@ ACS_TEST(VolumetricCloudSettings,
         hostile);
 }
 
+ACS_TEST(VolumetricCloudSettings, EnvironmentLightingRefreshCadenceIsBoundedAndEventual)
+{
+    EXPECT_FALSE(CVolumetricClouds::IsEnvironmentLightingRefreshFrame(0u));
+    for (u64 frame = 1u; frame < 30u; ++frame) {
+        EXPECT_FALSE(CVolumetricClouds::IsEnvironmentLightingRefreshFrame(frame));
+    }
+    EXPECT_TRUE(CVolumetricClouds::IsEnvironmentLightingRefreshFrame(30u));
+    EXPECT_FALSE(CVolumetricClouds::IsEnvironmentLightingRefreshFrame(31u));
+    EXPECT_TRUE(CVolumetricClouds::IsEnvironmentLightingRefreshFrame(60u));
+}
+
 ACS_TEST(VolumetricCloudSettings,
          EnvironmentBakeReusesVolumeAndPublishesDerivedMapsTransactionally)
 {
@@ -340,6 +351,13 @@ ACS_TEST(VolumetricCloudSettings,
     const std::string ibl_source = ReadRenderFile("Ibl.cpp");
     EXPECT_TRUE(!sky_source.empty());
     EXPECT_TRUE(!ibl_source.empty());
+
+    const std::string signature = SliceBetween(sky_source, "u32 CVolumetricClouds::EnvironmentLightingSignature(", "bool CVolumetricClouds::IsEnvironmentLightingRefreshFrame(");
+    EXPECT_TRUE(Contains(signature, "m_PrevSunColor.x"));
+    EXPECT_TRUE(Contains(signature, "m_PrevSkyColor.x"));
+    EXPECT_TRUE(Contains(signature, "m_Lighting.SunTransmittance.x"));
+    EXPECT_TRUE(Contains(signature, "m_Lighting.SkyZenithColor.x"));
+    EXPECT_TRUE(Contains(signature, "HashCloudEnvironmentQuantizedFloat("));
 
     const std::string environment = SliceBetween(
         sky_source,

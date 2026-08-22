@@ -1222,9 +1222,10 @@ public:
     /**
      * 環境光へ焼く雲設定の決定論的な署名を返す。
      *
-     * @details 形状、照明、被覆、密度、風速を含むが、連続する時刻は含めない。
-     * 雲の移流だけで高価なIBLを毎frame作り直さず、設定変更だけを明示的な
-     * 無効化点にするための値である。同じ正規化済み入力なら同じ値を返す。
+     * @details 形状、照明、固定方向の太陽放射輝度、空色、大気透過率、被覆、密度、
+     * 風速を含むが、連続する時刻は含めない。連続補間値は見た目に届く単位へ量子化し、
+     * 雲の移流や微小差だけで高価なIBLを毎frame作り直さない。同じ正規化・量子化済み
+     * 入力なら同じ値を返す。
      * @param coverage 空を覆う割合。
      * @param density 雲の濃さ。
      * @param wind 風速。
@@ -1232,6 +1233,17 @@ public:
      */
     u32 EnvironmentLightingSignature(
         f32 coverage, f32 density, f32 wind) const noexcept;
+
+    /**
+     * 連続変化中の環境光を更新してよい固定間隔のframeかを返す。
+     *
+     * @details 成功した雲computeのsubmission番号を渡す。0と間隔外ではfalse、
+     * 固定間隔ごとにtrueを返すため、補間中も高価なcubemap生成を毎frame実行しない。
+     * 初回有効化、無効化、base環境の変更は呼び側がこの間隔を待たず処理する。
+     * @param submission_index 成功した雲computeを数える`LastFrameWorkload().submission_index`。
+     * @return 定期更新frameならtrue。
+     */
+    static bool IsEnvironmentLightingRefreshFrame(u64 submission_index) noexcept;
 
     /**
      * 直近の成功した雲frameを、表示用の空と合成した一時環境cubemapへ描く。

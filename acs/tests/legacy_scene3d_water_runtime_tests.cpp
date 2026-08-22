@@ -326,6 +326,15 @@ ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
         EXPECT_TRUE(ensure.find(
             "cloud_signature == m_IblBakedCloudSignature")
             != std::string::npos);
+        const std::size_t cadence_frame = ensure.find("m_Clouds.LastFrameWorkload().submission_index");
+        const std::size_t cadence_gate = ensure.find("CVolumetricClouds::IsEnvironmentLightingRefreshFrame(", cadence_frame);
+        const std::size_t cloud_build = ensure.find("m_Clouds.BuildEnvironmentCubemap(", cadence_gate);
+        EXPECT_TRUE(cadence_frame != std::string::npos);
+        EXPECT_TRUE(cadence_gate != std::string::npos);
+        EXPECT_TRUE(cloud_build != std::string::npos);
+        EXPECT_TRUE(cadence_frame < cadence_gate);
+        EXPECT_TRUE(cadence_gate < cloud_build);
+        EXPECT_TRUE(ensure.find("const bool cloud_mode_changed =") != std::string::npos);
         EXPECT_TRUE(ensure.find(
             "if (rebuild_base_environment) {")
             != std::string::npos);
@@ -347,6 +356,7 @@ ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
         EXPECT_TRUE(ensure.find(
             "m_CloudParams.Wind,\n                m_Time")
             == std::string::npos);
+        EXPECT_TRUE(ensure.find("command_list.Submit(") == std::string::npos);
     }
 
     // 表示用EnvCubemapは雲なしのまま描き、画面用雲は従来の後段合成を一度だけ使う。

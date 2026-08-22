@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// Reversible AScene host for legacy ACS3D editor documents.
 #pragma once
+
+// 旧ACS3D editor文書をASceneへ可逆的に載せるhost。
 
 #include "foundation/Types.h"
 #include "container/Array.h"
@@ -219,8 +220,9 @@ struct FScene3DClouds {
     /**
      * 雲の形と照明をPBR環境光へ反映するか。
      *
-     * @details 既定はtrue。被覆が正なら、設定変更または太陽の有意な変化時だけ
-     * GPU上で環境cubemapを作り直す。連続する雲の移流だけでは高価なIBLを再生成しない。
+     * @details 既定はtrue。被覆が正なら、初回有効化・無効化・太陽方向の有意な変化は
+     * 即時、連続する設定・照明変化は最大30成功雲frameごとにまとめてGPU上の
+     * 環境cubemapを作り直す。雲の移流だけでは高価なIBLを再生成しない。
      * falseなら表示中の雲と雲影は保ち、環境光だけ従来の雲なし大気へ戻す。
      */
     bool bAffectEnvironmentLighting = true;
@@ -1125,7 +1127,8 @@ private:
      * IBL が無いと環境光が «一定の暗い色» になり、陰の側がのっぺり潰れる。空を映した
      * 環境光を入れると、上を向いた面は空の色を、下を向いた面は地面の色を受ける。
      *
-     * 焼き直しは重いので、**太陽が十分に動いたときだけ**やり直す。
+     * 焼き直しは重いので、太陽方向が十分に動いたときは即時、雲の連続変化は
+     * 固定間隔へまとめてやり直す。
      * @param device 生成に使うデバイス。
      * @param command_list 焼き込みに使うコマンドリスト。
      * @return 使える状態なら true。
@@ -1373,7 +1376,7 @@ private:
     /** 既存alignment padding内で保持する、物理大気の空気遠近要求。 */
     bool m_AerialPerspectiveEnabled = false;
 
-    /** 既存alignment padding内で保持する、環境光へ焼いた雲設定の署名。 */
+    /** 既存alignment padding内で保持する、環境光へ焼いた雲形状・照明の署名。 */
     u32 m_IblBakedCloudSignature = ~u32{0};
 
     /** 空を映した環境光 (irradiance / prefilter / BRDF LUT)。 */

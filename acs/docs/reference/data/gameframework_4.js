@@ -951,7 +951,7 @@ ACS_REF.modules.push({
         { sig: "bool OrbitCameraOverrideActive() const", desc: "authored camera不在の自動代替を除き、SetOrbitCameraActive(true)による明示orbit overrideだけを返す。" },
         { sig: "bool AuthoredCameraOverrideActive() const", desc: "SetActiveCamera成功による明示authored overrideならtrue。serialized cameraはNodeId、NodeIdが負のruntime cameraはStableIdで復元する。" },
         { sig: "void SetAerialPerspectiveEnabled(bool enabled) / bool AerialPerspectiveEnabled() const", desc: "既定無効の物理大気による空気遠近を切り替える。不透明物と水面へ完成深度で一度だけ適用し、Fog()のsurface fogは別経路に保つ。" },
-        { sig: "FScene3DClouds& Clouds()", desc: "ボリューム雲を設定する。bAffectEnvironmentLighting=trueなら画面と同じ雲形状と照明からIBL派生mapを設定変更時だけ再生成し、失敗時は雲なしIBLを維持する。" },
+        { sig: "FScene3DClouds& Clouds()", desc: "ボリューム雲を設定する。bAffectEnvironmentLighting=trueなら画面と同じ雲形状と照明からIBL派生mapを生成する。初回有効化・無効化・太陽方向の有意変化は即時、連続補間は最大30成功雲frameごとに更新し、失敗時は雲なしIBLを維持する。" },
         { sig: "bool TrySetOrbitCameraObstructionSettings(const FOrbitCameraObstructionSettings3D& settings)", desc: "target近傍、camera余白、任意probe半径、外向き復帰速度を検証し、presentation-onlyのscene mesh障害物回避を設定する。" },
         { sig: "const FOrbitCameraObstructionSettings3D& OrbitCameraObstructionSettings() const", desc: "現在の検証済み障害物回避設定を返す。既定は無効。" },
         { sig: "bool TryCaptureOrbitCameraSnapshot(FOrbitCameraFixedStepSnapshot3D& output) const", desc: "自由cameraのprevious/current補間区間を検証して複製する。" },
