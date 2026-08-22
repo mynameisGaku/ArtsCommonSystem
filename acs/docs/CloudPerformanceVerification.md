@@ -547,33 +547,37 @@ XZまたはXYの偶奇位置を4位相で巡回し、各体積画素・画素を
 平均輝度差 `0.071` で、横方向の帯状誤差は約17%減少した。重い参照描画でのGPU時間も
 約 `68.5 ms` から `60.0 ms` へ短縮したため、品質と速度の両方を満たす構成として有効化する。
 
-Both the Editor and legacy Scene3D paths update cloud illumination from the
-current scene before dispatch. They evaluate atmospheric RGB transmittance at
-the normalized cloud-layer midpoint, use the current zenith color for the
-top-to-bottom sky-light gradient, and use the current lower-hemisphere color
-for ground bounce. This prevents low-sun clouds from retaining white midday
-direct light and prevents the base and top of the cloud from sharing one
-horizon-color ambient term.
+Editor と従来の Scene3D 経路は、描画処理を開始する前に現在の場面から雲照明を更新する。
+雲層中央の正規化高度で大気の RGB 透過率を評価し、上下方向の空照明勾配には現在の天頂色、
+地面からの反射には現在の下半球色を使う。これにより、太陽が低いときも昼間の白い直接光が
+雲へ残る問題と、雲底と雲頂が同じ地平色の環境光を受ける問題を防ぐ。
 
-方向光の近似では、一次散乱へ有界な内部散乱確率を適用し、係数を縮小した二次散乱と
-三次散乱を独立に加える。低 LOD 密度を `d`、層内の正規化高さを `h` とすると次式になる。
+方向光の近似では、現在地点の密度と区間不透明度が一次散乱の発生量を既に制限する。
+二次・三次散乱は周囲にも散乱源が必要なため、低 LOD 密度 `d` と層内の正規化高さ `h` から
+周囲散乱源の確率を求め、その係数を高次散乱だけへ適用する。
 
 `pDepth = saturate(0.05 + pow(d, lerp(0.5, 2.0, saturate((h - 0.30) / 0.55))))`
 
 `pVertical = pow(lerp(0.10, 1.0, saturate((h - 0.07) / 0.07)), 0.8)`
 
-`fInScatter = lerp(1, pDepth * pVertical, PowderStrength)`
+`fSurround = lerp(1, pDepth * pVertical, PowderStrength)`
 
-`S = exp(-tau) * phase0 * fInScatter`
+`S = exp(-tau) * phase0`
 
-`  + a * exp(-b * tau) * phase1`
+`  + fSurround * (`
 
-`  + a^2 * exp(-b^2 * tau) * phase1`
+`      a * exp(-b * tau) * phase1`
+
+`    + a^2 * exp(-b^2 * tau) * phase1)`
 
 `PowderStrength` は互換性のため名前を維持するが、現在の意味は `[0, 1]` の混ぜ率である。
 この係数は入射光を増幅しない。低 LOD 密度は、最終的な天候被覆と高さのしきい値を用いて、
 すでに採取した基本形状から求める。空間を広めに取る空領域判定は流用せず、テクスチャ採取も
-増やさず、内部へ回った二次・三次散乱を重ねて暗くしない。以前の任意な近距離光標本、
+増やさない。以前は `fSurround` を一次散乱へ掛け、周囲媒質を必要とする二次・三次散乱を
+雲縁でも全量加えていた。この順序では方向性を持つ表面光だけが失われ、等方に近い内部光が残る。
+光学的深さ `tau=2`、一次位相 `0.4`、高次位相 `1.0`、既定の `a=b=0.28`、疎な雲頂の
+`fSurround=0.715` では、旧順序の合計 `0.26567` に対して補正後は `0.21641` となる。
+密な領域では `fSurround=1` のため結果は変わらない。以前の任意な近距離光標本、
 `edgeBoost`、および `1.08` のエネルギー増幅は使わない。
 
 `MultiScatterContribution` を `a`、`MultiScatterOcclusion` を `b` とする。実行時の正規化で
@@ -582,10 +586,15 @@ horizon-color ambient term.
 有界な位相を使う。これは三次までの有界な近似であり、完全な多重散乱解ではない。
 係数縮小と次数加算は Frostbite の
 [SIGGRAPH 2016講義資料](https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/s2016-pbs-frostbite-sky-clouds-new.pdf)
-に従い、同資料の比較対象である `N=3` まで積算する。密度と高さによる内部散乱確率は Guerrilla の
+に従い、同資料の比較対象である `N=3` まで積算する。密度と高さによる周囲散乱源の分布は Guerrilla の
 [Nubis SIGGRAPH 2017雲照明モデル](https://advances.realtimerendering.com/s2017/Nubis%20-%20Authoring%20Realtime%20Volumetric%20Cloudscapes%20with%20the%20Decima%20Engine%20-%20Final%20.pdf)
 に従う。引き続き実用向け近似であり、完全な放射輸送を主張するものではないため、固定した
 視覚参照の撮影を合格条件として維持する。
+
+通常照明の上空視点と地平線視点をそれぞれ5秒以上観察し、新しいちらつき、白飛び、明暗の跳ね、
+停止を起こさないことを確認した。ただし両視点とも広い雲面が白く均され、房状の細部と内部陰影は
+まだ不足している。この補正だけを超高品質な雲の達成とは扱わず、上層を含む光学的深さの尺度と
+環境光の寄与を引き続き分離して監査する。
 
 ## Quality-preserving optimization rules
 

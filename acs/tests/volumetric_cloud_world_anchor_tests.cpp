@@ -5425,7 +5425,7 @@ ACS_TEST(VolumetricClouds,
         shader,
         "phase=clamp(phase,cloudLightingMulti.y,cloudLightingMulti.z);"));
     EXPECT_TRUE(Contains(shader, "phaseMulti=clamp(" "phaseMulti,cloudLightingMulti.y,cloudLightingMulti.z);"));
-    EXPECT_TRUE(Contains(shader, "floatinScatterProbability=inScatterDepth*inScatterVertical;" "floatinScatterFactor=lerp(" "1.0,inScatterProbability,cloudLightingExtinction.w);" "floatsingleScatter=beer*phase*inScatterFactor;"));
+    EXPECT_TRUE(Contains(shader, "floatinScatterProbability=inScatterDepth*inScatterVertical;" "floatinScatterFactor=lerp(" "1.0,inScatterProbability,cloudLightingExtinction.w);" "floatsingleScatter=beer*phase;"));
     EXPECT_TRUE(Contains(shader, "floatlowLodDensity=cloudLowLodDensityFromMacro(" "p,macro,densityHeightThreshold,viewWeatherMask);"));
     EXPECT_FALSE(Contains(shader, "pow(saturate(shape),inScatterDepthExponent)"));
     EXPECT_TRUE(Contains(
@@ -5434,8 +5434,10 @@ ACS_TEST(VolumetricClouds,
         "floatthirdContribution=multiContribution*multiContribution;"
         "floatthirdOcclusion=multiOcclusion*multiOcclusion;"
         "floatthirdScatter=thirdContribution*exp(-tauL*thirdOcclusion)*phaseMulti;"
-        "floatmultipleScatter=secondScatter+thirdScatter;"
+        "floatmultipleScatter=(secondScatter+thirdScatter)*inScatterFactor;"
         "floatscatterTerm=singleScatter+multipleScatter;"));
+    EXPECT_FALSE(Contains(shader, "floatsingleScatter=beer*phase*inScatterFactor;"));
+    EXPECT_FALSE(Contains(shader, "floatmultipleScatter=secondScatter+thirdScatter;"));
     EXPECT_FALSE(Contains(shader, "beer*(1.0-multiWeight)*phase"));
     EXPECT_FALSE(Contains(shader, "nearLightDensity"));
     EXPECT_FALSE(Contains(shader, "edgeBoost"));

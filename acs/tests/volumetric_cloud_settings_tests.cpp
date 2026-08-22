@@ -149,7 +149,37 @@ ACS_TEST(VolumetricCloudSettings, MultipleScatteringAccumulatesThroughThirdOrder
     EXPECT_NEAR(boundedPhase.y, (0.4f + 0.16f) * lighting.PhaseMax, 1e-6f);
 }
 
-ACS_TEST(VolumetricCloudSettings, InScatterUsesLowLodDensityAndHeightWithoutAmplifyingLight)
+ACS_TEST(VolumetricCloudSettings, HigherOrderScatteringRequiresNeighbouringMedium)
+{
+    /** 既定照明で、遮蔽された地点の一次散乱と高次散乱を分離した値。 */
+    const FVolumetricCloudLighting lighting{};
+    const FVec2 scattering = EvaluateVolumetricCloudDirectionalScattering(
+        2.0f, 0.4f, 1.0f, lighting);
+    EXPECT_TRUE(scattering.x > 0.0f);
+    EXPECT_TRUE(scattering.y > scattering.x);
+
+    /** 雲頂の疎な領域で、周囲散乱源が存在する有界な確率。 */
+    const f32 sparseFactor = EvaluateVolumetricCloudInScatterFactor(
+        0.0f, 1.0f, lighting.PowderStrength);
+    /** 密な領域では高次散乱を減らさない中立係数。 */
+    const f32 denseFactor = EvaluateVolumetricCloudInScatterFactor(
+        1.0f, 1.0f, lighting.PowderStrength);
+    EXPECT_TRUE(sparseFactor > 0.0f && sparseFactor < 1.0f);
+    EXPECT_NEAR(denseFactor, 1.0f, 0.0f);
+
+    /** 旧順序は方向性を持つ一次散乱を減らし、等方に近い高次散乱を雲縁でも全量残していた。 */
+    const f32 formerSparseTotal =
+        scattering.x * sparseFactor + scattering.y;
+    /** 補正後は一次散乱を保ち、周囲媒質を必要とする高次散乱だけを減らす。 */
+    const f32 correctedSparseTotal =
+        scattering.x + scattering.y * sparseFactor;
+    EXPECT_TRUE(correctedSparseTotal < formerSparseTotal);
+    EXPECT_NEAR(
+        scattering.x + scattering.y * denseFactor,
+        scattering.x + scattering.y, 0.0f);
+}
+
+ACS_TEST(VolumetricCloudSettings, HigherOrderScatterFactorUsesLowLodDensityAndHeightWithoutAmplifyingLight)
 {
     /** 補正を切ったときの中立係数。 */
     const f32 disabled = EvaluateVolumetricCloudInScatterFactor(0.0f, 0.0f, 0.0f);
@@ -166,7 +196,7 @@ ACS_TEST(VolumetricCloudSettings, InScatterUsesLowLodDensityAndHeightWithoutAmpl
     EXPECT_NEAR(denseBase, std::pow(0.10f, 0.8f), 1e-6f);
     EXPECT_TRUE(denseBase < denseTop);
 
-    /** 旧実装の 0.70 の縁係数へ近い既定の移行結果。 */
+    /** 既定の混ぜ率でも、疎な雲底の高次散乱を約 0.70 へ滑らかに抑える。 */
     const FVolumetricCloudLighting defaults{};
     const f32 defaultSparseBase = EvaluateVolumetricCloudInScatterFactor(0.0f, 0.0f, defaults.PowderStrength);
     EXPECT_TRUE(defaultSparseBase >= 0.70f);
@@ -321,13 +351,16 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(source, "0.05+pow(saturate(lowLodDensity),inScatterDepthExponent)"));
     EXPECT_TRUE(Contains(source, "float inScatterProbability=inScatterDepth*inScatterVertical;"));
     EXPECT_TRUE(Contains(source, "1.0,inScatterProbability,cloudLightingExtinction.w"));
-    EXPECT_TRUE(Contains(source, "float singleScatter=beer*phase*inScatterFactor;"));
+    EXPECT_TRUE(Contains(source, "float singleScatter=beer*phase;"));
     EXPECT_TRUE(Contains(source, "float secondScatter=multiContribution"));
     EXPECT_TRUE(Contains(source, "float thirdContribution=multiContribution*multiContribution;"));
     EXPECT_TRUE(Contains(source, "float thirdOcclusion=multiOcclusion*multiOcclusion;"));
     EXPECT_TRUE(Contains(source, "float thirdScatter=thirdContribution"));
-    EXPECT_TRUE(Contains(source, "float multipleScatter=secondScatter+thirdScatter;"));
+    EXPECT_TRUE(Contains(source, "float multipleScatter=(secondScatter+thirdScatter)"));
+    EXPECT_TRUE(Contains(source, "*inScatterFactor;"));
     EXPECT_TRUE(Contains(source, "float scatterTerm=singleScatter+multipleScatter;"));
+    EXPECT_FALSE(Contains(source, "float singleScatter=beer*phase*inScatterFactor;"));
+    EXPECT_FALSE(Contains(source, "float multipleScatter=secondScatter+thirdScatter;"));
     EXPECT_FALSE(Contains(source, "nearLightDensity"));
     EXPECT_FALSE(Contains(source, "edgeBoost"));
     EXPECT_FALSE(Contains(source, "1.0-exp(-dens*cloudLightingExtinction.w)"));

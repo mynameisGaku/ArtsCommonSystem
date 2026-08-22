@@ -2138,8 +2138,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 phaseMulti,cloudLightingMulti.y,cloudLightingMulti.z);
             // 一次散乱と、係数を次数ごとに縮小した二次・三次散乱を独立に評価する。
             // CPU は散乱係数の縮小率を消散係数以下へ収め、各次数で散乱が消散を越えないようにする。
-            // 低 LOD 密度は周囲に散乱源がある確率、高さは雲底で散乱源が減る確率を表す。
-            // 補正は一次散乱だけへ掛け、すでに内部へ回った高次散乱を二重に暗くしない。
+            // 一次散乱は現在の密度標本と区間不透明度で既に制限される。高次散乱は周囲の
+            // 散乱源を必要とするため、低 LOD 密度と高さから求める確率をこちらだけへ掛ける。
             float lowLodDensity=cloudLowLodDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask);
             float inScatterDepthExponent=lerp(
                 0.5,2.0,saturate((macro.height-0.30)/0.55));
@@ -2151,14 +2151,15 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float inScatterProbability=inScatterDepth*inScatterVertical;
             float inScatterFactor=lerp(
                 1.0,inScatterProbability,cloudLightingExtinction.w);
-            float singleScatter=beer*phase*inScatterFactor;
+            float singleScatter=beer*phase;
             float secondScatter=multiContribution
                 *exp(-tauL*multiOcclusion)*phaseMulti;
             float thirdContribution=multiContribution*multiContribution;
             float thirdOcclusion=multiOcclusion*multiOcclusion;
             float thirdScatter=thirdContribution
                 *exp(-tauL*thirdOcclusion)*phaseMulti;
-            float multipleScatter=secondScatter+thirdScatter;
+            float multipleScatter=(secondScatter+thirdScatter)
+                                 *inScatterFactor;
             float scatterTerm=singleScatter+multipleScatter;
             // sunCol is the scene's direct-light radiance. Clouds scatter only
             // a calibrated fraction of it; using the full value here made the
@@ -3188,7 +3189,7 @@ f32 EvaluateVolumetricCloudInScatterFactor(f32 low_lod_density, f32 normalized_h
     const f32 density = SanitizeCloudScalar(low_lod_density, 0.0f, 0.0f, 1.0f);
     /** 雲層内で正規化した高さ。 */
     const f32 height = SanitizeCloudScalar(normalized_height, 0.0f, 0.0f, 1.0f);
-    /** 補正なしと内部散乱確率を混ぜる割合。 */
+    /** 補正なしと周囲散乱源の確率を混ぜる割合。 */
     const f32 blend = SanitizeCloudScalar(strength, 0.0f, 0.0f, 1.0f);
     /** 雲頂へ近づくほど低密度域を強く抑え、密な領域だけを残す指数。 */
     const f32 depthExponent = 0.5f + 1.5f * Clamp((height - 0.30f) / 0.55f, 0.0f, 1.0f);
@@ -3198,7 +3199,7 @@ f32 EvaluateVolumetricCloudInScatterFactor(f32 low_lod_density, f32 normalized_h
     const f32 verticalBase = 0.10f + 0.90f * Clamp((height - 0.07f) / 0.07f, 0.0f, 1.0f);
     /** 高さ方向の内部散乱確率。 */
     const f32 verticalProbability = std::pow(verticalBase, 0.8f);
-    /** 補正なしの 1 と有界な内部散乱確率を混ぜた一次散乱係数。 */
+    /** 補正なしの 1 と有界な周囲散乱源の確率を混ぜた高次散乱係数。 */
     return 1.0f - blend * (1.0f - depthProbability * verticalProbability);
 }
 
