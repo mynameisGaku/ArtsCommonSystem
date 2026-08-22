@@ -1171,6 +1171,16 @@ float cloudColumnHeightShift(float4 weather,float cloudInterior){
         (core-0.45)*1.45+evolvingWarp*0.65,-1.0,1.0);
     return signal*amplitude;
 }
+// 既存の低周波天候模様から、柱ごとに物理層内の雲底を少し持ち上げる。
+// 可視境界ほど持ち上げて下面の輪郭を崩し、層雲では変化量を小さく保つ。
+float cloudColumnBaseLift(float4 weather,float cloudInterior){
+    float verticalType=saturate(max(weather.g,weather.b));
+    float broadPattern=smoothstep(0.18,0.82,weather.a);
+    float edgePattern=1.0-smoothstep(0.08,0.86,saturate(cloudInterior));
+    float amplitude=lerp(0.045,0.12,verticalType);
+    float signal=saturate(0.08+broadPattern*0.62+edgePattern*0.30);
+    return amplitude*signal;
+}
 // 凝結高度までは雲底を固定し、その上だけを柱ごとに成長または圧縮する。
 // u^4(1-u)^2 により両端で傾きも連続し、変形の山を雲頂側2/3へ置く。
 // 45.5625u^4(1-u)^2 は最大値1で、許容変形量の全範囲でも高さの単調性を保つ。
@@ -1186,6 +1196,15 @@ float cloudConvectiveHeight(float h,float columnShift,bool upperBand){
     float bandScale=upperBand?0.30:1.0;
     float shiftedUpper=saturate(upperHeight-columnShift*upperInterior*bandScale);
     return h<=condensationHeight?h:lerp(condensationHeight,1.0,shiftedUpper);
+}
+// 局所雲底より下を空に保ち、残りの高さを 0～1 へ単調に再配置してから
+// 既存の対流形状を適用する。上層雲の薄い形状では雲底差も 35% に抑える。
+float cloudColumnHeight(float h,float columnShift,float baseLift,bool upperBand){
+    h=saturate(h);
+    float bandScale=upperBand?0.35:1.0;
+    float localBase=saturate(baseLift*bandScale);
+    float localHeight=saturate((h-localBase)/max(1.0-localBase,0.001));
+    return cloudConvectiveHeight(localHeight,columnShift,upperBand);
 }
 // bake 済み volume は tile あたり 4..32 cells を既に含む。world frequency を下げ、
 // 小さな blob の反復ではなく連続した cloud bank を作る。
@@ -1519,9 +1538,11 @@ CloudMacroSample sampleCloudMacro(
         // 空領域判定の広い被覆ではなく、最終密度と同じ境界から柱内の位置を求める。
         // 後段の密度でもこの値を再利用し、被覆計算を重ねない。
         macro.densityWeatherMask=cloudWeatherMaskFromTerms(macro.weather,coverageTerms.y,cloudCoverageReciprocals.y);
-        macro.height=cloudConvectiveHeight(
+        macro.height=cloudColumnHeight(
             layerHeight,
             cloudColumnHeightShift(
+                macro.weather,macro.densityWeatherMask),
+            cloudColumnBaseLift(
                 macro.weather,macro.densityWeatherMask),
             upperBand);
         float sampledProfile=cloudProfile(
@@ -1574,9 +1595,11 @@ CloudMacroSample sampleCloudMacroLighting(
     macro.densityWeatherMask=macro.weatherMask;
     macro.upperBand=upperBand?1.0:0.0;
     if(macro.weatherMask>0.001){
-        macro.height=cloudConvectiveHeight(
+        macro.height=cloudColumnHeight(
             layerHeight,
             cloudColumnHeightShift(
+                macro.weather,macro.densityWeatherMask),
+            cloudColumnBaseLift(
                 macro.weather,macro.densityWeatherMask),
             upperBand);
         float sampledProfile=cloudProfile(
@@ -1603,7 +1626,7 @@ CloudMacroSample sampleCloudMacroLighting(
 }
 // 近距離3点では視線標本の天候と渦を共有し、基本形状と高度だけを各地点で採取する。
 // 遠距離5点は影キャッシュ、または地点ごとに天候を再採取する専用経路へ任せる。
-CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeatherMask,float heightThresholdTarget,float4 slowProfileTerms,float2 slowCurl,float3 referenceP,float3 referenceUvw,float referenceHeight,float shapeScale,float sampleSpacing){
+CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeatherMask,float heightThresholdTarget,float4 slowProfileTerms,float slowBaseLift,float2 slowCurl,float3 referenceP,float3 referenceUvw,float referenceHeight,float shapeScale,float sampleSpacing){
     CloudMacroSample macro;
     macro.weather=float4(0.0,0.0,slowProfileTerms.z,0.0);
     macro.curl=slowCurl;
@@ -1623,7 +1646,7 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeath
     float altitude=cloudAltitude(p);
     bool upperBand=inUpperCloudBandFromAltitude(altitude);
     macro.upperBand=upperBand?1.0:0.0;
-    macro.height=cloudConvectiveHeight(heightFractionFromAltitude(altitude,upperBand),slowProfileTerms.w,upperBand);
+    macro.height=cloudColumnHeight(heightFractionFromAltitude(altitude,upperBand),slowProfileTerms.w,slowBaseLift,upperBand);
     float sampledProfile=cloudProfileFromTypeWeights(macro.height,slowProfileTerms.xy,slowProfileTerms.z);
     if(sampledProfile>0.0){
         float profileShape=cloudVerticalProfileShape(sampledProfile);
@@ -1659,9 +1682,9 @@ float2 sampleCloudFarLightingDensityAndScale(
     float4 weather=cloudWeatherData(p,layerHeight,upperBand);
     float weatherMask=cloudWeatherMask(weather,weatherCoverage);
     if(weatherMask>0.001){
-        float sampleHeight=cloudConvectiveHeight(
+        float sampleHeight=cloudColumnHeight(
             layerHeight,cloudColumnHeightShift(weather,weatherMask),
-            upperBand);
+            cloudColumnBaseLift(weather,weatherMask),upperBand);
         float sampledProfile=cloudProfile(
             sampleHeight,weather.g,weather.b);
         if(sampledProfile>0.0){
@@ -2306,9 +2329,10 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             bool blendCachedTail=false;
             // この短い光円すい内では低周波の天候と渦がほぼ変わらないため、視線採取の値を共有する。
             // 密度分布、基本形状、近距離の細部は各採取点で評価する。
-            // 雲種、降水量、柱の高さ変形量を 1 つにまとめ、すべての光採取で
-            // 視線密度と同じ縦形状を使う。
+            // 雲種、降水量、高さ変形量と局所雲底を共有し、すべての光採取で
+            // 視線密度と同じ縦形状を使う。局所雲底は float4 の外で保持する。
             float4 sharedLightProfileTerms=float4(cloudProfileTypeWeights(macro.weather.g),macro.weather.b,cloudColumnHeightShift(macro.weather,macro.densityWeatherMask));
+            float sharedLightBaseLift=cloudColumnBaseLift(macro.weather,macro.densityWeatherMask);
             float2 sharedLightCurl=macro.curl;
             float sharedShapeScale=cloudShapeScale();
             // 8 個の光円すいは一定の黄金角で回し、上で求めた sin/cos を漸化式で再利用する。
@@ -2322,7 +2346,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                     coneSin,coneCos,coneGeometry);
                 float3 lightHalfStep=coneDir*(0.5*lightStep);
                 lp+=lightHalfStep;
-                CloudMacroSample lightMacro=sampleCloudMacroLightingFromSlowFields(lp,viewWeatherMask,coverageTerms.w,sharedLightProfileTerms,sharedLightCurl,p,viewMacroUvw,macro.height,sharedShapeScale,lightStep);
+                CloudMacroSample lightMacro=sampleCloudMacroLightingFromSlowFields(lp,viewWeatherMask,coverageTerms.w,sharedLightProfileTerms,sharedLightBaseLift,sharedLightCurl,p,viewMacroUvw,macro.height,sharedShapeScale,lightStep);
                 float lightBillowVisibility=cloudBillowVisibilityFromSampleSpacing(lightStep);
                 float lightErosionVisibility=cloudErosionVisibilityFromSampleSpacing(lightStep);
                 float lightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,lightBillowVisibility,lightErosionVisibility);
@@ -3180,6 +3204,73 @@ float4 PSMainAtmos(VSOut v):SV_TARGET {
 }
 )";
 
+// 表示用の雲なしcubemapと、同じvolumeを6方向へ積分した雲を合成する。
+// 出力はIBL convolution専用であり、画面へ描くEnvCubemap自体は変更しない。
+const char* kCloudEnvironmentCompositeHLSL = R"(
+cbuffer CloudEnvironmentCompositeCB : register(b0) {
+    int faceIndex;
+    float3 padding;
+};
+TextureCube<float4> baseEnvironment : register(t0);
+Texture2D<float4> cloudEnvironment : register(t1);
+SamplerState baseEnvironment_sampler : register(s0);
+SamplerState cloudEnvironment_sampler : register(s1);
+struct VSOut {
+    float4 position : SV_POSITION;
+    float2 uv : TEXCOORD0;
+};
+VSOut VSMain(uint id : SV_VertexID) {
+    float2 uv=float2((id<<1)&2,id&2);
+    VSOut output;
+    output.uv=uv;
+    output.position=float4(uv.x*2.0-1.0,-(uv.y*2.0-1.0),0.0,1.0);
+    return output;
+}
+float3 CubeFaceDirection(float2 uv,int face) {
+    float2 m=uv*2.0-1.0;
+    float3 direction=float3(-m.x,-m.y,-1.0);
+    if(face==0) direction=float3(1.0,-m.y,-m.x);
+    else if(face==1) direction=float3(-1.0,-m.y,m.x);
+    else if(face==2) direction=float3(m.x,1.0,m.y);
+    else if(face==3) direction=float3(m.x,-1.0,-m.y);
+    else if(face==4) direction=float3(m.x,-m.y,1.0);
+    return normalize(direction);
+}
+float4 PSMain(VSOut input) : SV_TARGET {
+    float3 base=max(baseEnvironment.SampleLevel(
+        baseEnvironment_sampler,
+        CubeFaceDirection(input.uv,faceIndex),0.0).rgb,0.0);
+    float4 cloud=cloudEnvironment.SampleLevel(
+        cloudEnvironment_sampler,input.uv,0.0);
+    bool valid=cloud.a==cloud.a && all(cloud.rgb==cloud.rgb)
+        && cloud.a>=0.0 && cloud.a<=1.001
+        && all(cloud.rgb>=0.0) && all(cloud.rgb<=65504.0);
+    if(!valid) cloud=float4(0.0,0.0,0.0,0.0);
+    return float4(lerp(base,max(cloud.rgb,0.0),saturate(cloud.a)),1.0);
+}
+)";
+
+constexpr u32 kVolumetricCloudEnvironmentCubeSize = 64u;
+constexpr u32 kVolumetricCloudEnvironmentViewSteps = 64u;
+// 64x6方向のray marchとIBL畳み込みは高価なので、連続補間中は最大でも
+// この成功雲frame数ごとに一度だけ更新する。30は60 Hz時に約0.5秒。
+constexpr u64 kVolumetricCloudEnvironmentRefreshInterval = 30u;
+
+// 連続補間の微小差を同じ署名へ丸める間隔。設定の大きな変更は署名を変え、
+// 実際の再生成頻度は上の固定frame間隔でも制限する。
+constexpr f32 kCloudEnvironmentCoverageSignatureStep = 1.0f / 32.0f;
+constexpr f32 kCloudEnvironmentDensitySignatureStep = 1.0f / 16.0f;
+constexpr f32 kCloudEnvironmentWindSignatureStep = 1.0f / 8.0f;
+constexpr f32 kCloudEnvironmentRadianceSignatureStep = 1.0f / 64.0f;
+
+struct FCloudEnvironmentCompositeCb {
+    i32 face_index = 0;
+    f32 padding[3]{};
+};
+static_assert(
+    sizeof(FCloudEnvironmentCompositeCb) == 16u,
+    "Cloud environment composite CB must match HLSL");
+
 struct FCloudCb {
     FMat4 invViewProj;
     FMat4 prevCameraRelativeViewProj;
@@ -3261,6 +3352,54 @@ static_assert(
 struct FCloudAtmosphereCb {
     FVec4 atmosphereParams;
 };
+
+/** cubemap faceとIBL側のD3D規約を一致させた、カメラ相対の逆view-projectionを返す。 */
+FMat4 CloudEnvironmentInverseViewProjection(
+        u32 face, f32 far_distance) noexcept {
+    static constexpr FVec3 kDirections[6] = {
+        FVec3{1.0f, 0.0f, 0.0f},
+        FVec3{-1.0f, 0.0f, 0.0f},
+        FVec3{0.0f, 1.0f, 0.0f},
+        FVec3{0.0f, -1.0f, 0.0f},
+        FVec3{0.0f, 0.0f, 1.0f},
+        FVec3{0.0f, 0.0f, -1.0f}};
+    static constexpr FVec3 kUp[6] = {
+        FVec3{0.0f, 1.0f, 0.0f},
+        FVec3{0.0f, 1.0f, 0.0f},
+        FVec3{0.0f, 0.0f, -1.0f},
+        FVec3{0.0f, 0.0f, 1.0f},
+        FVec3{0.0f, 1.0f, 0.0f},
+        FVec3{0.0f, 1.0f, 0.0f}};
+    const u32 safe_face = face < 6u ? face : 5u;
+    CCamera camera;
+    camera.SetPerspective(
+        kPi * 0.5f, 1.0f, 0.5f,
+        far_distance > 1.0f ? far_distance : 1.0f);
+    camera.SetLookAt(
+        FVec3{}, kDirections[safe_face], kUp[safe_face]);
+    return Inverse(camera.ViewProjection());
+}
+
+/** FNV-1aで設定値を順序付き32bit署名へ混ぜる。 */
+u32 HashCloudEnvironmentWord(u32 hash, u32 value) noexcept {
+    hash ^= value;
+    hash *= 16777619u;
+    return hash;
+}
+
+/** 有限化済みfloatの表現を署名へ混ぜる。 */
+u32 HashCloudEnvironmentFloat(u32 hash, f32 value) noexcept {
+    u32 bits = 0u;
+    static_assert(sizeof(bits) == sizeof(value), "float hash size mismatch");
+    ::memcpy(&bits, &value, sizeof(bits));
+    return HashCloudEnvironmentWord(hash, bits);
+}
+
+/** 有限かつ有界な値を指定間隔へ丸め、連続補間の微小差を署名から除く。 */
+u32 HashCloudEnvironmentQuantizedFloat(u32 hash, f32 value, f32 step) noexcept {
+    const i32 bucket = static_cast<i32>(Floor(value / step + 0.5f));
+    return HashCloudEnvironmentWord(hash, static_cast<u32>(bucket));
+}
 
 bool IsFiniteCloudVector(FVec3 value) noexcept {
     return std::isfinite(value.x) && std::isfinite(value.y) &&
@@ -4955,6 +5094,78 @@ bool CVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
     return true;
 }
 
+u32 CVolumetricClouds::EnvironmentLightingSignature(
+        f32 coverage, f32 density, f32 wind) const noexcept {
+    auto canonical = [](f32 value) noexcept {
+        return value == 0.0f ? 0.0f : value;
+    };
+    const f32 safe_coverage = canonical(
+        SanitizeCloudScalar(coverage, 0.0f, 0.0f, 1.0f));
+    const f32 safe_density = canonical(
+        SanitizeCloudScalar(density, 1.0f, 0.05f, 8.0f));
+    const f32 safe_wind = canonical(
+        SanitizeCloudScalar(wind, 0.0f, -20.0f, 20.0f));
+
+    u32 hash = 2166136261u;
+    const auto add_float = [&hash, canonical](f32 value) noexcept {
+        hash = HashCloudEnvironmentFloat(hash, canonical(value));
+    };
+    const auto add_radiance = [&hash](f32 value) noexcept {
+        hash = HashCloudEnvironmentQuantizedFloat(hash, value, kCloudEnvironmentRadianceSignatureStep);
+    };
+    add_float(m_Layer.base_height);
+    add_float(m_Layer.top_height);
+    add_float(m_Layer.horizontal_noise_scale);
+    hash = HashCloudEnvironmentQuantizedFloat(hash, safe_coverage, kCloudEnvironmentCoverageSignatureStep);
+    hash = HashCloudEnvironmentQuantizedFloat(hash, safe_density, kCloudEnvironmentDensitySignatureStep);
+    hash = HashCloudEnvironmentQuantizedFloat(hash, safe_wind, kCloudEnvironmentWindSignatureStep);
+    add_float(m_Lighting.ViewExtinction);
+    add_float(m_Lighting.LightExtinction);
+    add_float(m_Lighting.SunScatter);
+    add_float(m_Lighting.PowderStrength);
+    add_float(m_Lighting.PhaseForward);
+    add_float(m_Lighting.PhaseBackward);
+    add_float(m_Lighting.PhaseBlend);
+    add_float(m_Lighting.PhaseMin);
+    add_float(m_Lighting.PhaseMax);
+    add_float(m_Lighting.MultiScatterContribution);
+    add_float(m_Lighting.MultiScatterOcclusion);
+    add_float(m_Lighting.MultiScatterEccentricity);
+    add_float(m_Lighting.AmbientAtBase);
+    add_float(m_Lighting.AmbientAtTop);
+    add_float(m_Lighting.GroundContribution);
+    add_float(m_Lighting.GroundColor.x);
+    add_float(m_Lighting.GroundColor.y);
+    add_float(m_Lighting.GroundColor.z);
+    // 環境cubemap shaderが実際に使う固定方向光と空の放射輝度も追跡する。
+    // 日周や天候の連続補間は呼び側の固定frame間隔でまとめて反映される。
+    add_radiance(m_PrevSunColor.x);
+    add_radiance(m_PrevSunColor.y);
+    add_radiance(m_PrevSunColor.z);
+    add_radiance(m_PrevSkyColor.x);
+    add_radiance(m_PrevSkyColor.y);
+    add_radiance(m_PrevSkyColor.z);
+    add_radiance(m_Lighting.SkyZenithColor.x);
+    add_radiance(m_Lighting.SkyZenithColor.y);
+    add_radiance(m_Lighting.SkyZenithColor.z);
+    add_radiance(m_Lighting.SunTransmittance.x);
+    add_radiance(m_Lighting.SunTransmittance.y);
+    add_radiance(m_Lighting.SunTransmittance.z);
+    add_float(m_Range.MaxDistance);
+    add_float(m_Range.FadeFraction);
+    add_float(m_Range.StepGrowth);
+    hash = HashCloudEnvironmentWord(hash, m_Range.ViewSteps);
+    add_float(m_UpperLayer.base_height);
+    add_float(m_UpperLayer.top_height);
+    add_float(m_UpperLayer.coverage_scale);
+    add_float(m_UpperLayer.density_scale);
+    return hash != 0u ? hash : 1u;
+}
+
+bool CVolumetricClouds::IsEnvironmentLightingRefreshFrame(u64 submission_index) noexcept {
+    return submission_index != 0u && submission_index % kVolumetricCloudEnvironmentRefreshInterval == 0u;
+}
+
 void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color, f32 coverage, f32 density, f32 wind, f32 time) noexcept {
     // 既存の呼び出し元との互換性を保つ。新しい呼び出し元は、精度を保てる
     // ビュー行列から作った camera_relative_inv_view_proj を直接渡す。
@@ -5522,6 +5733,419 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     m_PrevCoverage = safeCoverage;
     m_PrevDensity = safeDensity;
     m_PrevTime = safeTime;
+}
+
+TResult<TUniquePtr<IRhiTexture>>
+CVolumetricClouds::BuildEnvironmentCubemap(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& base_environment) noexcept {
+    if (!m_Ready || !m_HistoryValid || !m_CloudPipe || !m_Cb
+        || !m_ShapeTex || !m_WeatherTex || !m_DetailTex || !m_CurlTex
+        || !m_NoiseBaked || !m_WeatherBaked || !m_DetailBaked
+        || !m_CurlBaked) {
+        return Err<TUniquePtr<IRhiTexture>>(
+            ACS_ERR(Render, 730,
+                    "cloud environment source is not ready"));
+    }
+    if (!base_environment.IsCubemap()
+        || base_environment.ArraySize() < 6u) {
+        return Err<TUniquePtr<IRhiTexture>>(
+            ACS_ERR(Render, 731,
+                    "cloud environment requires a base cubemap"));
+    }
+
+    FTextureDesc cloud_color_desc{};
+    cloud_color_desc.width = kVolumetricCloudEnvironmentCubeSize;
+    cloud_color_desc.height = kVolumetricCloudEnvironmentCubeSize;
+    cloud_color_desc.format = EFormat::R16G16B16A16_Float;
+    cloud_color_desc.is_uav = true;
+    auto cloud_color_result = CreateRhiTexture(device, cloud_color_desc);
+    if (cloud_color_result.IsErr()) {
+        return Err<TUniquePtr<IRhiTexture>>(cloud_color_result.Error());
+    }
+    TUniquePtr<IRhiTexture> cloud_color =
+        Move(cloud_color_result.Value());
+
+    FTextureDesc cloud_depth_desc{};
+    cloud_depth_desc.width = kVolumetricCloudEnvironmentCubeSize;
+    cloud_depth_desc.height = kVolumetricCloudEnvironmentCubeSize;
+    cloud_depth_desc.format = EFormat::R32G32_Float;
+    cloud_depth_desc.is_uav = true;
+    auto cloud_depth_result = CreateRhiTexture(device, cloud_depth_desc);
+    if (cloud_depth_result.IsErr()) {
+        return Err<TUniquePtr<IRhiTexture>>(cloud_depth_result.Error());
+    }
+    TUniquePtr<IRhiTexture> cloud_depth =
+        Move(cloud_depth_result.Value());
+
+    FTextureDesc environment_desc{};
+    environment_desc.width = kVolumetricCloudEnvironmentCubeSize;
+    environment_desc.height = kVolumetricCloudEnvironmentCubeSize;
+    environment_desc.format = EFormat::R16G16B16A16_Float;
+    environment_desc.array_size = 6u;
+    environment_desc.is_cubemap = true;
+    environment_desc.is_render_target = true;
+    environment_desc.per_slice_rtv = true;
+    auto environment_result = CreateRhiTexture(device, environment_desc);
+    if (environment_result.IsErr()) {
+        return Err<TUniquePtr<IRhiTexture>>(environment_result.Error());
+    }
+    TUniquePtr<IRhiTexture> environment =
+        Move(environment_result.Value());
+
+    FBufferDesc cloud_cb_desc{};
+    cloud_cb_desc.size = CBSize<FCloudCb>();
+    cloud_cb_desc.usage = EBufferUsage::Uniform;
+    cloud_cb_desc.cpu_writable = true;
+    // raw DX12のupload bufferは同一frame slot内の再更新をGPU実行まで保持しない。
+    // 6面を別bufferにして、各dispatchが対応する逆view-projectionを確実に読む。
+    TUniquePtr<IRhiBuffer> cloud_cb[6];
+    for (u32 face = 0u; face < 6u; ++face) {
+        auto cloud_cb_result = CreateRhiBuffer(device, cloud_cb_desc);
+        if (cloud_cb_result.IsErr()) {
+            return Err<TUniquePtr<IRhiTexture>>(cloud_cb_result.Error());
+        }
+        cloud_cb[face] = Move(cloud_cb_result.Value());
+    }
+
+    FBufferDesc composite_cb_desc{};
+    composite_cb_desc.size = CBSize<FCloudEnvironmentCompositeCb>();
+    composite_cb_desc.usage = EBufferUsage::Uniform;
+    composite_cb_desc.cpu_writable = true;
+    TUniquePtr<IRhiBuffer> composite_cb[6];
+    for (u32 face = 0u; face < 6u; ++face) {
+        auto composite_cb_result = CreateRhiBuffer(
+            device, composite_cb_desc);
+        if (composite_cb_result.IsErr()) {
+            return Err<TUniquePtr<IRhiTexture>>(
+                composite_cb_result.Error());
+        }
+        composite_cb[face] = Move(composite_cb_result.Value());
+    }
+
+    FShaderDesc vertex_desc{};
+    vertex_desc.stage = EShaderStage::Vertex;
+    vertex_desc.hlsl_source = kCloudEnvironmentCompositeHLSL;
+    vertex_desc.entry_point = "VSMain";
+    vertex_desc.debug_name = "CloudEnvironmentComposite.VS";
+    auto vertex_result = CreateRhiShader(device, vertex_desc);
+    if (vertex_result.IsErr()) {
+        return Err<TUniquePtr<IRhiTexture>>(vertex_result.Error());
+    }
+    TUniquePtr<IRhiShader> vertex = Move(vertex_result.Value());
+
+    FShaderDesc pixel_desc{};
+    pixel_desc.stage = EShaderStage::Pixel;
+    pixel_desc.hlsl_source = kCloudEnvironmentCompositeHLSL;
+    pixel_desc.entry_point = "PSMain";
+    pixel_desc.debug_name = "CloudEnvironmentComposite.PS";
+    auto pixel_result = CreateRhiShader(device, pixel_desc);
+    if (pixel_result.IsErr()) {
+        return Err<TUniquePtr<IRhiTexture>>(pixel_result.Error());
+    }
+    TUniquePtr<IRhiShader> pixel = Move(pixel_result.Value());
+
+    FPipelineDesc pipeline_desc{};
+    pipeline_desc.vs = vertex.Get();
+    pipeline_desc.ps = pixel.Get();
+    pipeline_desc.topology = EPrimitiveTopology::TriangleList;
+    pipeline_desc.rt_format = EFormat::R16G16B16A16_Float;
+    pipeline_desc.depth_format = EFormat::Unknown;
+    pipeline_desc.depth_test = false;
+    pipeline_desc.depth_write = false;
+    pipeline_desc.cull_mode = ECullMode::None;
+    pipeline_desc.blend_mode = EBlendMode::Opaque;
+    pipeline_desc.cbuffer_slots = 1u;
+    pipeline_desc.cbuffer_names[0] = "CloudEnvironmentCompositeCB";
+    pipeline_desc.texture_slots = 2u;
+    pipeline_desc.texture_names[0] = "baseEnvironment";
+    pipeline_desc.texture_names[1] = "cloudEnvironment";
+    pipeline_desc.static_sampler_count = 2u;
+    pipeline_desc.static_samplers[0].filter = ESamplerFilter::Linear;
+    pipeline_desc.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pipeline_desc.static_samplers[0].address_v = ESamplerAddress::Clamp;
+    pipeline_desc.static_samplers[0].address_w = ESamplerAddress::Clamp;
+    pipeline_desc.static_samplers[1].filter = ESamplerFilter::Linear;
+    pipeline_desc.static_samplers[1].address_u = ESamplerAddress::Clamp;
+    pipeline_desc.static_samplers[1].address_v = ESamplerAddress::Clamp;
+    pipeline_desc.layout_count = 0u;
+    pipeline_desc.vertex_stride = 0u;
+    auto pipeline_result = CreateRhiPipeline(device, pipeline_desc);
+    if (pipeline_result.IsErr()) {
+        return Err<TUniquePtr<IRhiTexture>>(pipeline_result.Error());
+    }
+    TUniquePtr<IRhiPipeline> pipeline = Move(pipeline_result.Value());
+
+    const FVolumetricCloudLightBasis light_basis =
+        ResolveVolumetricCloudLightBasis(m_PrevSunDir);
+    const FVec3 safe_sun = light_basis.direction;
+    const FVec3 safe_sun_color = SanitizeCloudRadiance(
+        m_PrevSunColor, FVec3{1.0f, 1.0f, 1.0f});
+    const FVec3 safe_sky_color = SanitizeCloudRadiance(
+        m_PrevSkyColor, FVec3{0.2f, 0.25f, 0.3f});
+    const f32 safe_coverage = SanitizeCloudScalar(
+        m_PrevCoverage, 0.0f, 0.0f, 1.0f);
+    const f32 safe_density = SanitizeCloudScalar(
+        m_PrevDensity, 1.0f, 0.05f, 8.0f);
+    const f32 safe_time = SanitizeCloudScalar(
+        m_PrevTime, 0.0f, -10000000.0f, 10000000.0f);
+    const f32 safe_wind = SanitizeCloudScalar(
+        m_PrevWindSpeed, 0.0f, -20.0f, 20.0f);
+    const f32 wind_offset = safe_time * safe_wind * 2.5f;
+    const FVec3 world_origin = RebaseVolumetricCloudWorldOrigin(m_PrevCamPos);
+    const FVolumetricCloudDensityFrameTerms density_terms =
+        ResolveVolumetricCloudDensityFrameTerms(m_Layer, wind_offset);
+    const FVolumetricCloudEvolutionFrameTerms evolution_terms =
+        ResolveVolumetricCloudEvolutionFrameTerms(safe_time, safe_wind);
+
+    FCloudCb cb{};
+    cb.camPos = FVec4{
+        m_PrevCamPos.x, m_PrevCamPos.y, m_PrevCamPos.z, 0.0f};
+    cb.prevCamPos = cb.camPos;
+    cb.sunDir = FVec4{safe_sun.x, safe_sun.y, safe_sun.z, 0.0f};
+    cb.sunCol = FVec4{
+        safe_sun_color.x, safe_sun_color.y, safe_sun_color.z, 0.0f};
+    cb.skyCol = FVec4{
+        safe_sky_color.x, safe_sky_color.y, safe_sky_color.z, 0.0f};
+    cb.params = FVec4{
+        safe_coverage, safe_density, wind_offset, safe_time};
+    cb.dims = FVec4{
+        static_cast<f32>(kVolumetricCloudEnvironmentCubeSize),
+        static_cast<f32>(kVolumetricCloudEnvironmentCubeSize),
+        static_cast<f32>(kVolumetricCloudEnvironmentCubeSize),
+        static_cast<f32>(kVolumetricCloudEnvironmentCubeSize)};
+    // 時間履歴を持たない一回完結の積分なので、固定した区間中央を採取する。
+    cb.temporal = FVec4{0.0f, wind_offset, 0.0f, 0.0f};
+    const f32 layer_thickness =
+        m_Layer.top_height - m_Layer.base_height;
+    const f32 layer_canonical_scale = 1.6f / layer_thickness;
+    cb.layer = FVec4{
+        m_Layer.base_height, m_Layer.top_height,
+        m_Layer.horizontal_noise_scale, layer_canonical_scale};
+    cb.worldOrigin = FVec4{
+        world_origin.x, world_origin.y, world_origin.z, 0.0f};
+    const f32 inverse_shadow_extent =
+        1.0f / kVolumetricCloudShadowCacheExtent;
+    cb.shadowGrid = FVec4{
+        m_ShadowGridMinQ.x, m_ShadowGridMinQ.y,
+        inverse_shadow_extent, inverse_shadow_extent};
+    cb.shadowState = FVec4{
+        m_ShadowCacheValid ? 1.0f : 0.0f,
+        0.10f,
+        1.0f / static_cast<f32>(kVolumetricCloudShadowCacheWidth),
+        1.0f / static_cast<f32>(kVolumetricCloudShadowCacheHeight)};
+    const FVolumetricCloudGroundHorizon ground_horizon =
+        ResolveVolumetricCloudGroundHorizon(
+            m_PrevCamPos, m_Layer, world_origin);
+    cb.groundHorizon = FVec4{
+        ground_horizon.local_up.x,
+        ground_horizon.local_up.y,
+        ground_horizon.local_up.z,
+        ground_horizon.ground_cutoff};
+    cb.cloudFrameTerms = FVec4{
+        density_terms.wind_world.x,
+        density_terms.wind_world.y,
+        density_terms.shape_scale,
+        density_terms.inverse_layer_height};
+    cb.cloudEvolution = FVec4{
+        evolution_terms.shape_phase.x,
+        evolution_terms.shape_phase.y,
+        evolution_terms.fine_phase.x,
+        evolution_terms.fine_phase.y};
+    cb.cloudShadowUpdate = FVec4{0.0f, 0.0f, 1.0f, 1.0f};
+    cb.cloudWorldShadowMap = FVec4{
+        m_WorldShadowMapMinReferenceXz.x,
+        m_WorldShadowMapMinReferenceXz.y,
+        1.0f / kVolumetricCloudWorldShadowMapExtent,
+        m_WorldShadowReferenceHeight};
+    cb.cloudLightTangent = FVec4{
+        light_basis.tangent.x,
+        light_basis.tangent.y,
+        light_basis.tangent.z,
+        0.0f};
+    cb.cloudLightBitangent = FVec4{
+        light_basis.bitangent.x,
+        light_basis.bitangent.y,
+        light_basis.bitangent.z,
+        0.0f};
+    const f32 occupancy_coverage =
+        safe_coverage + 0.08f < 1.0f
+            ? safe_coverage + 0.08f : 1.0f;
+    const f32 occupancy_height_coverage =
+        occupancy_coverage < 0.72f ? occupancy_coverage : 0.72f;
+    const f32 density_height_coverage =
+        safe_coverage < 0.72f ? safe_coverage : 0.72f;
+    cb.cloudCoverage = FVec4{
+        0.90f - 0.55f * occupancy_coverage,
+        0.90f - 0.55f * safe_coverage,
+        0.72f - 0.22f * occupancy_height_coverage,
+        0.72f - 0.22f * density_height_coverage};
+    const f32 occupancy_weather_upper =
+        cb.cloudCoverage.x + 0.14f < 0.98f
+            ? cb.cloudCoverage.x + 0.14f : 0.98f;
+    const f32 density_weather_upper =
+        cb.cloudCoverage.y + 0.14f < 0.98f
+            ? cb.cloudCoverage.y + 0.14f : 0.98f;
+    const f32 unclamped_fine_step =
+        0.035f /
+        (m_Layer.horizontal_noise_scale > 0.001f
+             ? m_Layer.horizontal_noise_scale : 0.001f);
+    const f32 fine_step =
+        unclamped_fine_step < 0.5f ? 0.5f
+        : (unclamped_fine_step > 2.0f ? 2.0f
+                                      : unclamped_fine_step);
+    const f32 light_step =
+        0.012f /
+        (layer_canonical_scale > 0.0001f
+             ? layer_canonical_scale : 0.0001f);
+    cb.cloudCoverageReciprocals = FVec4{
+        1.0f / (occupancy_weather_upper - cb.cloudCoverage.x),
+        1.0f / (density_weather_upper - cb.cloudCoverage.y),
+        fine_step,
+        light_step};
+    const FVec3 shell_local_origin{
+        m_PrevCamPos.x - world_origin.x,
+        m_PrevCamPos.y - world_origin.y,
+        m_PrevCamPos.z - world_origin.z};
+    const f32 shell_radial_xz_squared =
+        shell_local_origin.x * shell_local_origin.x
+        + shell_local_origin.z * shell_local_origin.z;
+    const auto shell_c =
+        [shell_local_origin, shell_radial_xz_squared](f32 altitude) noexcept {
+            return shell_radial_xz_squared
+                + (shell_local_origin.y - altitude)
+                * (2.0f * kVolumetricCloudPlanetRadius
+                   + shell_local_origin.y + altitude);
+        };
+    cb.cloudShellRayOrigin = FVec4{
+        shell_local_origin.x,
+        shell_local_origin.y + kVolumetricCloudPlanetRadius,
+        shell_local_origin.z,
+        shell_c(m_Layer.base_height)};
+    const bool has_upper_layer =
+        m_UpperLayer.top_height > m_UpperLayer.base_height
+        && m_UpperLayer.base_height >= m_Layer.top_height;
+    const f32 shell_top_height = has_upper_layer
+        ? m_UpperLayer.top_height : m_Layer.top_height;
+    cb.cloudShellTerms = FVec4{
+        shell_c(shell_top_height), 0.0f, 0.0f, 0.0f};
+    cb.cloudUpperLayer = has_upper_layer
+        ? FVec4{
+            m_UpperLayer.base_height,
+            m_UpperLayer.top_height,
+            1.0f /
+                (m_UpperLayer.top_height - m_UpperLayer.base_height),
+            1.0f}
+        : FVec4{0.0f, 0.0f, 0.0f, 0.0f};
+    cb.cloudUpperTerms = FVec4{
+        m_UpperLayer.coverage_scale,
+        m_UpperLayer.density_scale,
+        0.0f, 0.0f};
+    cb.cloudLightingExtinction = FVec4{
+        m_Lighting.ViewExtinction,
+        m_Lighting.LightExtinction,
+        m_Lighting.SunScatter,
+        m_Lighting.PowderStrength};
+    cb.cloudLightingPhase = FVec4{
+        m_Lighting.PhaseForward,
+        m_Lighting.PhaseBackward,
+        m_Lighting.PhaseBlend,
+        m_Lighting.MultiScatterContribution};
+    cb.cloudLightingMulti = FVec4{
+        m_Lighting.MultiScatterOcclusion,
+        m_Lighting.PhaseMin,
+        m_Lighting.PhaseMax,
+        m_Lighting.GroundContribution};
+    u32 environment_view_steps = m_Range.ViewSteps > 0u
+        ? m_Range.ViewSteps : kVolumetricCloudEnvironmentViewSteps;
+    if (environment_view_steps < 32u) environment_view_steps = 32u;
+    if (environment_view_steps > 96u) environment_view_steps = 96u;
+    cb.cloudLightingAmbient = FVec4{
+        m_Lighting.AmbientAtBase,
+        m_Lighting.AmbientAtTop,
+        static_cast<f32>(environment_view_steps),
+        1.0f};
+    cb.cloudLightingGround = FVec4{
+        m_Lighting.GroundColor.x,
+        m_Lighting.GroundColor.y,
+        m_Lighting.GroundColor.z,
+        0.0f};
+    cb.cloudSunTransmittance = FVec4{
+        m_Lighting.SunTransmittance.x,
+        m_Lighting.SunTransmittance.y,
+        m_Lighting.SunTransmittance.z,
+        0.0f};
+    const bool split_sky_ambient =
+        m_Lighting.SkyZenithColor.x > 0.0f
+        || m_Lighting.SkyZenithColor.y > 0.0f
+        || m_Lighting.SkyZenithColor.z > 0.0f;
+    cb.cloudSkyZenith = FVec4{
+        m_Lighting.SkyZenithColor.x,
+        m_Lighting.SkyZenithColor.y,
+        m_Lighting.SkyZenithColor.z,
+        split_sky_ambient ? 1.0f : 0.0f};
+    cb.cloudMultiPhase = FVec4{
+        m_Lighting.MultiScatterEccentricity,
+        0.0f, 0.0f, 0.0f};
+    cb.cloudRange = FVec4{
+        m_Range.MaxDistance,
+        m_Range.MaxDistance * (1.0f - m_Range.FadeFraction),
+        m_Range.StepGrowth,
+        0.0f};
+
+    FViewport viewport{};
+    viewport.width =
+        static_cast<f32>(kVolumetricCloudEnvironmentCubeSize);
+    viewport.height =
+        static_cast<f32>(kVolumetricCloudEnvironmentCubeSize);
+    FScissorRect scissor{};
+    scissor.right =
+        static_cast<i32>(kVolumetricCloudEnvironmentCubeSize);
+    scissor.bottom =
+        static_cast<i32>(kVolumetricCloudEnvironmentCubeSize);
+    const FClearColor black{0.0f, 0.0f, 0.0f, 1.0f};
+
+    for (u32 face = 0u; face < 6u; ++face) {
+        cb.invViewProj = CloudEnvironmentInverseViewProjection(
+            face, m_Range.MaxDistance);
+        cb.prevCameraRelativeViewProj = Inverse(cb.invViewProj);
+        cloud_cb[face]->Update(&cb, sizeof(cb));
+
+        cl.SetComputePipeline(*m_CloudPipe);
+        cl.SetConstantBuffer(0, *cloud_cb[face]);
+        cl.SetTexture(0, *m_ShapeTex);
+        cl.SetTexture(1, *m_WeatherTex);
+        cl.SetTexture(2, *m_DetailTex);
+        cl.SetTexture(3, *m_CurlTex);
+        if (m_ShadowTex && m_ShadowCacheValid) {
+            cl.SetTexture(4, *m_ShadowTex);
+        } else {
+            cl.SetTexture(4, *m_ShapeTex);
+        }
+        cl.BindUav(0, *cloud_color);
+        cl.BindUav(1, *cloud_depth);
+        cl.Dispatch(
+            (kVolumetricCloudEnvironmentCubeSize + 7u) / 8u,
+            (kVolumetricCloudEnvironmentCubeSize + 7u) / 8u,
+            1u);
+
+        FCloudEnvironmentCompositeCb composite_data{};
+        composite_data.face_index = static_cast<i32>(face);
+        composite_cb[face]->Update(
+            &composite_data, sizeof(composite_data));
+        cl.BeginRenderToTextureSlice(*environment, face, 0u, black);
+        cl.SetViewport(viewport);
+        cl.SetScissor(scissor);
+        cl.SetPipeline(*pipeline);
+        cl.SetConstantBuffer(0, *composite_cb[face]);
+        cl.SetTexture(0, base_environment);
+        cl.SetTexture(1, *cloud_color);
+        cl.Draw(3u);
+    }
+    cl.EndRenderToTexture(*environment);
+
+    return TResult<TUniquePtr<IRhiTexture>>(
+        OkInit, Move(environment));
 }
 
 FVolumetricCloudWorldShadowMap

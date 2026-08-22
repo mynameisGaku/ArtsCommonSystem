@@ -1,28 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar H — CUiLayer 実装
 //
-// state holder を完全実装する。実 `acs::ui` AWidget tree 構築 / 描画 /
-// hit-test / event 配送は seam として未接続で、Init / Tick / HandleInput の中身は
-// state 操作と TODO コメントのみ。これにより Scene 側は通常通り
-// AddButton / AddText / SetVisible / Remove を呼び始めることができ、後から
-// `acs::ui` 接続を入れるだけで実 UI が表示される設計。
-//
 // 設計メモ:
 //   ・handle 発行は単純な単調増加 (`m_NextHandle++`)。重複しない正の u32 を保証。
-//     現実的なシーンで widget 数が 2^32 を超えることはないため reuse は不要。
-//   ・FindIndex の戻り値 0xFFFFFFFFu はセンチネル。`m_Widgets.Size()` と比較して
+//     wrap 後は 0 を返して新規追加を止め、既存 handle を再利用しない。
+//   ・FindIndex の戻り値 0xFFFFFFFFu はセンチネル。`m_Widgets.Num()` と比較して
 //     見つからなかったか判定する (signed/unsigned 混在を避ける慣用)。
-//   ・Tick で `just_pressed` を一括クリアする。これにより IsButtonPressed は
-//     **直前フレームに発生した押下** のみ true を返すワンショットセマンティクス
-//     となる (押しっぱなしで連続 true を返さない)。event 配送が繋がると、
-//     HandleInput で該当 widget の just_pressed を立てる流れになる。
-//   ・全 noexcept、STL 不使用、<string> 不使用 (規約 §1, §2)。
+//   ・表示文字列は DefaultAllocator から個別確保する。FWidgetEntry のポインタ幅と
+//     CUiLayer の member 構成を維持しながら、呼出し側の文字列寿命へ依存しない。
+//   ・全 noexcept、std::string 不使用。
 #include "gameframework/UiLayer.h"
 #include "gameframework/RenderContext.h"
 
+#include "memory/Allocator.h"
 #include "platform/Event.h"
 #include "render/SpriteBatch.h"
 #include "render/Font.h"
+
+#include <cstring>
 
 namespace acs::game {
 
@@ -31,7 +26,31 @@ namespace {
 // FindIndex が見つからなかった時に返すセンチネル値。u32 の MAX。
 constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 
+/** NUL 終端文字列を既定アロケータへコピーする。失敗時は nullptr。 */
+char* TryCopyWidgetText(const char* text) noexcept {
+    const char* const source = text != nullptr ? text : "";
+    const usize length = std::strlen(source);
+    if (length == static_cast<usize>(-1)) return nullptr;
+    char* const copy = static_cast<char*>(
+        DefaultAllocator().Alloc(length + 1u));
+    if (copy == nullptr) return nullptr;
+    std::memcpy(copy, source, length + 1u);
+    return copy;
+}
+
+/** widget が所有する文字列を解放して空にする。 */
+void ReleaseWidgetText(FWidgetEntry& widget) noexcept {
+    // text は公開読み取り形式を保つため const char* だが、必ず CUiLayer が
+    // char* として確保した領域だけを保持する。所有権境界での解放時だけ const を外す。
+    DefaultAllocator().Free(const_cast<char*>(widget.text));
+    widget.text = nullptr;
+}
+
 } // namespace
+
+CUiLayer::~CUiLayer() noexcept {
+    Clear();
+}
 
 void CUiLayer::Init() noexcept {
     if (m_Initialized) {
@@ -42,7 +61,7 @@ void CUiLayer::Init() noexcept {
     }
     // 自前の軽量 WidgetEntry 配列で Button/Text を直接保持・描画する設計のため、
     // acs::ui::Container のツリーは確保しない (リッチ widget は acs::ui を直接使う)。
-    m_Widgets.Reset();
+    Clear();
     m_NextHandle = 1;
     m_Initialized = true;
     ACS_LOG_DEBUG("CUiLayer::Init: ready");
@@ -53,7 +72,7 @@ void CUiLayer::Shutdown() noexcept {
         // 未初期化での Shutdown は no-op (冪等)。
         return;
     }
-    m_Widgets.Reset();
+    Clear();
     m_NextHandle = 1;
     m_Initialized = false;
     ACS_LOG_DEBUG("CUiLayer::Shutdown: state cleared");
@@ -156,15 +175,29 @@ u32 CUiLayer::AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size) noex
         ACS_LOG_WARN("CUiLayer::AddButton called before Init (ignored)");
         return 0;
     }
+    if (m_NextHandle == 0u) {
+        ACS_LOG_WARN("CUiLayer::AddButton: handle space exhausted");
+        return 0u;
+    }
+    char* const owned_text = TryCopyWidgetText(label);
+    if (owned_text == nullptr) {
+        ACS_LOG_WARN("CUiLayer::AddButton: text allocation failed");
+        return 0u;
+    }
     FWidgetEntry e{};
-    e.handle       = m_NextHandle++;
+    e.handle       = m_NextHandle;
     e.kind         = EWidgetKind::Button;
     e.pos          = pos;
     e.size         = size;
-    e.text         = label;          // 非所有、寿命は呼び出し側保証
+    e.text         = owned_text;
     e.visible      = true;
     e.just_pressed = false;
-    m_Widgets.Add(e);
+    if (!m_Widgets.TryAdd(e)) {
+        ReleaseWidgetText(e);
+        ACS_LOG_WARN("CUiLayer::AddButton: widget allocation failed");
+        return 0u;
+    }
+    ++m_NextHandle;
     return e.handle;
 }
 
@@ -173,16 +206,39 @@ u32 CUiLayer::AddText(const char* text, acs::FVec2 pos) noexcept {
         ACS_LOG_WARN("CUiLayer::AddText called before Init (ignored)");
         return 0;
     }
+    if (m_NextHandle == 0u) {
+        ACS_LOG_WARN("CUiLayer::AddText: handle space exhausted");
+        return 0u;
+    }
+    char* const owned_text = TryCopyWidgetText(text);
+    if (owned_text == nullptr) {
+        ACS_LOG_WARN("CUiLayer::AddText: text allocation failed");
+        return 0u;
+    }
     FWidgetEntry e{};
-    e.handle       = m_NextHandle++;
+    e.handle       = m_NextHandle;
     e.kind         = EWidgetKind::Text;
     e.pos          = pos;
     e.size         = acs::FVec2{0.0f, 0.0f};  // フォントメトリックから計算予定
-    e.text         = text;                    // 非所有
+    e.text         = owned_text;
     e.visible      = true;
     e.just_pressed = false;
-    m_Widgets.Add(e);
+    if (!m_Widgets.TryAdd(e)) {
+        ReleaseWidgetText(e);
+        ACS_LOG_WARN("CUiLayer::AddText: widget allocation failed");
+        return 0u;
+    }
+    ++m_NextHandle;
     return e.handle;
+}
+
+bool CUiLayer::ConsumeButtonPress(u32 handle) noexcept {
+    const u32 idx = FindIndex(handle);
+    if (idx == kInvalidIndex) return false;
+    FWidgetEntry& e = m_Widgets[idx];
+    if (e.kind != EWidgetKind::Button || !e.just_pressed) return false;
+    e.just_pressed = false;
+    return true;
 }
 
 bool CUiLayer::IsButtonPressed(u32 handle) const noexcept {
@@ -192,10 +248,24 @@ bool CUiLayer::IsButtonPressed(u32 handle) const noexcept {
     // Text widget には押下概念がない。Button のみが押下対象。
     if (e.kind != EWidgetKind::Button) return false;
     if (!e.just_pressed) return false;
-    // consume-on-read: 1 クリックにつき 1 回だけ true を返す (フレーム順に非依存で、
-    // OnEvent で立てた just_pressed を OnUpdate の本呼び出しで確実に拾える)。
-    const_cast<FWidgetEntry&>(e).just_pressed = false;
+    // mutable な押下フラグだけを消費し、互換 API のワンショット動作を保つ。
+    e.just_pressed = false;
     return true;
+}
+
+bool CUiLayer::SetText(u32 handle, const char* text) noexcept {
+    const u32 idx = FindIndex(handle);
+    if (idx == kInvalidIndex) return false;
+    char* const replacement = TryCopyWidgetText(text);
+    if (replacement == nullptr) return false;
+    ReleaseWidgetText(m_Widgets[idx]);
+    m_Widgets[idx].text = replacement;
+    return true;
+}
+
+const char* CUiLayer::Text(u32 handle) const noexcept {
+    const u32 idx = FindIndex(handle);
+    return idx != kInvalidIndex ? m_Widgets[idx].text : nullptr;
 }
 
 void CUiLayer::SetVisible(u32 handle, bool visible) noexcept {
@@ -215,18 +285,17 @@ void CUiLayer::Remove(u32 handle) noexcept {
         ACS_LOG_DEBUG("CUiLayer::Remove: invalid handle %u (already removed?)", handle);
         return;
     }
-    // 末尾と swap して Pop (順序非保持の高速削除、ハンドル探索は線形なので
-    // 順序保持不要)。TArray に EraseSwap 等の API があればそちらを使うがここでは
-    // 明示的に書く。
-    const u32 last = static_cast<u32>(m_Widgets.Num()) - 1u;
-    if (idx != last) {
-        m_Widgets[idx] = m_Widgets[last];
-    }
-    m_Widgets.Pop();
+    // hit test は追加順の末尾を最前面とするため、途中削除でも残りの順序を保つ。
+    ReleaseWidgetText(m_Widgets[idx]);
+    m_Widgets.RemoveAt(idx);
 }
 
 void CUiLayer::Clear() noexcept {
+    for (u32 i = 0u; i < m_Widgets.Num(); ++i) {
+        ReleaseWidgetText(m_Widgets[i]);
+    }
     m_Widgets.Reset();
+    m_PressedHandle = 0u;
     // m_NextHandle はリセットしない: Clear 後も以前の handle が外部に残っている
     // 可能性があり、再利用すると意図しないヒットが起こり得る。Shutdown まで
     // 単調増加を維持する。

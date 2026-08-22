@@ -23,6 +23,25 @@ namespace acs {
  */
 class CFxaa {
 public:
+    /**
+     * 非同期コンパイルから所有権を移す FXAA シェーダ束。
+     *
+     * @details
+     * `CPostProcess` の既存コンパイル処理で準備し、描画所有スレッドでは
+     * パイプライン生成だけを行う。FXAA が任意機能であるため、空の束は
+     * PostProcess の通常経路を失敗させない。
+     */
+    struct FCompiledShaders {
+        /** 全画面三角形の頂点シェーダ。 */
+        TUniquePtr<IRhiShader> vertex;
+
+        /** 輝度エッジを解決するピクセルシェーダ。 */
+        TUniquePtr<IRhiShader> pixel;
+
+        /** 両シェーダのコンパイル状態を返す。 */
+        EShaderStatus Status() const noexcept;
+    };
+
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     CFxaa() noexcept = default;
 
@@ -35,6 +54,17 @@ public:
     /** コピー代入も禁止。 */
     CFxaa& operator=(const CFxaa&) = delete;
 
+    /** raw DX12 のバックグラウンド worker でシェーダをコンパイルする。 */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /** 描画基盤の非同期コンパイル機構へ FXAA シェーダを投入する。 */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /** 指定した同期・非同期方式でFXAAシェーダを準備する。 */
+    static TResult<FCompiledShaders> CompileShaders(
+        IRhiDevice& device, bool compile_async) noexcept;
+
     /**
      * シェーダとパイプラインを生成して初期化する。
      *
@@ -43,6 +73,18 @@ public:
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
     TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
+
+    /**
+     * 既にコンパイル済みのシェーダから描画所有スレッドで初期化する。
+     *
+     * @param device パイプライン生成に使う RHI デバイス。
+     * @param shaders コンパイル処理から移譲する FXAA シェーダ束。
+     * @param rt_format 出力先 RT のフォーマット。
+     * @return 成功なら空の TResult、PSO 生成失敗ならエラー。
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device, FCompiledShaders&& shaders,
+        EFormat rt_format) noexcept;
 
     /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
     void Shutdown() noexcept;
@@ -57,6 +99,9 @@ public:
      * @param src FXAA を掛けるシーンテクスチャ (SRV 状態であること)。
      */
     void Apply(IRhiCommandList& cmd, IRhiTexture& src) noexcept;
+
+    /** 使用可能な FXAA パイプラインを保持しているか返す。 */
+    bool IsReady() const noexcept { return !!m_Pipeline; }
 
 private:
     /** フルスクリーン三角形の頂点シェーダ。 */

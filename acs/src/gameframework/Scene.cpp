@@ -246,13 +246,16 @@ void AScene::DrawWorldPass(FRenderContext& rc) noexcept {
     OnDrawWorld();
 }
 
-/** 画面中心の view を設定し OnDrawHud を呼ぶ (カメラ非依存の HUD 描画)。 */
-void AScene::DrawHudPass(FRenderContext& rc) noexcept {
+/** 即時描画 context を一時公開し、画面中心の view で OnDrawHud を呼ぶ。 */
+void AScene::DrawHudPass_Internal(FRenderContext& rc) noexcept {
+    FRenderContext* const previous_context = CurrentDrawContext_Internal();
+    SetDrawContext_Internal(&rc);
     CSpriteBatch& sb = rc.Sprites();
     sb.SetView(static_cast<f32>(rc.Width()) * 0.5f,
                static_cast<f32>(rc.Height()) * 0.5f, 1.0f);
     OnDrawHud(rc, sb);
     OnDrawHud();
+    SetDrawContext_Internal(previous_context);
 }
 
 /** 反射/ステンシル設定に応じて単一〜複数パスでシーンを描画する。 */
@@ -340,7 +343,7 @@ void AScene::OnRender(FRenderContext& rc) noexcept {
         wiring.SetSceneColor(nullptr);
         wiring.SetSceneDepth(nullptr);
         if (stencil) { sb.SetStencilMode(EStencilMode::Off); wiring.SetStencilMaskActive(false); }
-        DrawHudPass(rc);
+        DrawHudPass_Internal(rc);
         wiring.SetSpriteBatch(nullptr);
         sb.End();
         // EndRenderToSwapchain は CGame/Renderer の EndFrame が行う。
@@ -354,14 +357,14 @@ void AScene::OnRender(FRenderContext& rc) noexcept {
         DrawWorldPass(rc);
         sb.SetStencilMode(EStencilMode::Off);   // HUD が誤ってマスクされないよう解除
         wiring.SetStencilMaskActive(false);
-        DrawHudPass(rc);
+        DrawHudPass_Internal(rc);
         wiring.SetSpriteBatch(nullptr);
         sb.End();
     } else {
         sb.Begin(rc.Cmd(), rc.Width(), rc.Height());
         wiring.SetSpriteBatch(&sb);
         DrawWorldPass(rc);
-        DrawHudPass(rc);
+        DrawHudPass_Internal(rc);
         wiring.SetSpriteBatch(nullptr);
         sb.End();
     }

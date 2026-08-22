@@ -315,8 +315,9 @@ ACS_REF.modules.push({
       members: [
         { sig: "void SetMesh(const ASkinnedMeshAsset* mesh)", desc: "再生対象のメッシュを設定する(アニメ・時刻はリセット)。" },
         { sig: "void Play(u32 anim_index, bool loop = true)", desc: "指定番号のアニメを再生開始する。" },
+        { sig: "bool BlendTo(u32 animation_index, f32 blend_seconds, bool loop = true)", ret: "受理できたら true", desc: "現在clipと切替先clipの時刻をともに進め、boneごとのローカルTRSを混ぜて滑らかに切り替える。0秒はPlayと同じ即時切替。無効値と進行中の遷移へ重ねる要求では再生状態を変更せず、遷移完了後に再試行できる。" },
         { sig: "void Pause() / void Resume() / void Stop()", desc: "一時停止 / 再開 / 停止(Stop は時刻を 0 に)。" },
-        { sig: "void SetTime(f32) / f32 Time() / bool IsPlaying()", desc: "再生時刻の設定・取得と再生中判定。" },
+        { sig: "void SetTime(f32) / f32 Time() / bool IsPlaying()", desc: "有限な再生時刻の設定・取得と再生中判定。非有限時刻は現在値を維持する。" },
         { sig: "void Update(f32 dt)", desc: "経過時間 <code>dt</code> ぶん再生を進める。毎フレーム呼ぶ。" },
         { sig: "u32 WritePalette(FMat4* out, u32 max_count) const", ret: "ボーン数", desc: "現在時刻の<t>ボーンパレット</t>を <code>out</code> へ書き、書いたボーン数を返す。シェーダへ渡す行列群。" },
         { sig: "using FAnimationPlayer = CAnimationPlayer", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAnimationPlayer</code> を使う。" }

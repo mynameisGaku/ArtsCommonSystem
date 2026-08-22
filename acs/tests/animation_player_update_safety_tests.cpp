@@ -35,12 +35,13 @@ f32 FloatFromBits(u32 bits) noexcept
 
 } // namespace
 
-ACS_TEST(AnimationPlayerUpdateSafety, PublicContractAndLayoutRemainStable)
+ACS_TEST(AnimationPlayerUpdateSafety, PublicContractAndTransitionLayoutRemainBounded)
 {
     static_assert(std::is_same_v<decltype(&CAnimationPlayer::Play), void (CAnimationPlayer::*)(u32, bool) noexcept>);
+    static_assert(std::is_same_v<decltype(&CAnimationPlayer::BlendTo), bool (CAnimationPlayer::*)(u32, f32, bool) noexcept>);
     static_assert(std::is_same_v<decltype(&CAnimationPlayer::Update), void (CAnimationPlayer::*)(f32) noexcept>);
     static_assert(std::is_same_v<decltype(&CAnimationPlayer::WritePalette), u32 (CAnimationPlayer::*)(FMat4*, u32) const noexcept>);
-    static_assert(sizeof(CAnimationPlayer) == 24u);
+    static_assert(sizeof(CAnimationPlayer) == 32u);
     static_assert(alignof(CAnimationPlayer) == 8u);
     EXPECT_TRUE(true);
 }
@@ -158,18 +159,13 @@ ACS_TEST(AnimationPlayerUpdateSafety, InvalidFiniteLoopInputsPreserveOldState)
     EXPECT_NEAR(player.Time(), sentinel_time, 0.0f);
 
     player.SetTime(not_a_number);
-    player.Update(0.25f);
-    EXPECT_TRUE(std::isnan(player.Time()));
+    EXPECT_NEAR(player.Time(), sentinel_time, 0.0f);
 
     player.SetTime(infinity);
-    player.Update(0.25f);
-    EXPECT_TRUE(std::isinf(player.Time()));
-    EXPECT_FALSE(std::signbit(player.Time()));
+    EXPECT_NEAR(player.Time(), sentinel_time, 0.0f);
 
     player.SetTime(-infinity);
-    player.Update(0.25f);
-    EXPECT_TRUE(std::isinf(player.Time()));
-    EXPECT_TRUE(std::signbit(player.Time()));
+    EXPECT_NEAR(player.Time(), sentinel_time, 0.0f);
     EXPECT_TRUE(player.IsPlaying());
 }
 

@@ -14,6 +14,7 @@
 #    include "memory/MemorySystem.h"
 #    include <d3d12.h>
 #    include "RenderDeviceD3D12.h"
+#    include "DeviceContextD3D12.h"
 
 #    include <cstring>
 #    include <thread>
@@ -58,6 +59,46 @@ bool CDiligentDevice::IsDeviceHealthy() const noexcept
     // D3D12 fences use the same sentinel after device removal.
     return m_IdleFence->GetCompletedValue() !=
            static_cast<Diligent::Uint64>(~Diligent::Uint64{0});
+}
+
+bool CDiligentDevice::TryGetD3D12Interop(
+    FRhiD3D12DeviceInterop& out) const noexcept
+{
+    out = {};
+    if (m_ActualBackend != ERhiBackendKind::D3D12 ||
+        m_Device == nullptr || m_Context == nullptr) {
+        return false;
+    }
+
+    ID3D12Device* native_device = nullptr;
+    Diligent::IRenderDeviceD3D12* diligent_device = nullptr;
+    m_Device->QueryInterface(
+        Diligent::IID_RenderDeviceD3D12,
+        reinterpret_cast<Diligent::IObject**>(&diligent_device));
+    if (diligent_device != nullptr) {
+        native_device = diligent_device->GetD3D12Device();
+        diligent_device->Release();
+    }
+
+    ID3D12CommandQueue* graphics_queue = nullptr;
+    Diligent::ICommandQueue* locked_queue = m_Context->LockCommandQueue();
+    if (locked_queue != nullptr) {
+        Diligent::ICommandQueueD3D12* diligent_queue = nullptr;
+        locked_queue->QueryInterface(
+            Diligent::IID_CommandQueueD3D12,
+            reinterpret_cast<Diligent::IObject**>(&diligent_queue));
+        if (diligent_queue != nullptr) {
+            graphics_queue = diligent_queue->GetD3D12CommandQueue();
+            diligent_queue->Release();
+        }
+        m_Context->UnlockCommandQueue();
+    }
+
+    if (native_device == nullptr || graphics_queue == nullptr) return false;
+    out.Device = static_cast<void*>(native_device);
+    out.GraphicsQueue = static_cast<void*>(graphics_queue);
+    out.FramesInFlight = kFramesInFlight;
+    return out.IsValid();
 }
 
 namespace {

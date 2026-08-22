@@ -420,6 +420,17 @@ f32 CloudColumnHeightShiftForTest(
     return signal * amplitude;
 }
 
+// 低周波天候模様から、物理層内に収まる柱ごとの雲底持ち上げ量を求める。
+f32 CloudColumnBaseLiftForTest(f32 cloudInterior, f32 cloudType, f32 precipitation, f32 warp) noexcept {
+    const f32 verticalType = SaturateForTest(cloudType > precipitation ? cloudType : precipitation);
+    const f32 broadPattern = SmoothStepForTest(0.18f, 0.82f, warp);
+    const f32 edgePattern = 1.0f - SmoothStepForTest(0.08f, 0.86f, SaturateForTest(cloudInterior));
+    const f32 amplitude =
+        0.045f + (0.12f - 0.045f) * verticalType;
+    const f32 signal = SaturateForTest(0.08f + broadPattern * 0.62f + edgePattern * 0.30f);
+    return amplitude * signal;
+}
+
 // 天候被覆の中間域だけに局所的な成長量を与える。
 f32 CloudWeatherCoverageEvolutionForTest(
     f32 weatherCoverage, f32 cloudType, f32 warp,
@@ -454,6 +465,17 @@ f32 CloudConvectiveHeightForTest(f32 height, f32 columnShift, bool upperBand) no
 f32 CloudDimensionalDensityForTest(f32 baseDensity, f32 heightProfile) noexcept {
     return Sqrt(SaturateForTest(baseDensity)) *
         SaturateForTest(heightProfile);
+}
+
+// 局所雲底より上の高さだけを再配置し、既存の対流形状を適用する。
+f32 CloudColumnHeightForTest(f32 height, f32 columnShift, f32 baseLift, bool upperBand) noexcept {
+    const f32 boundedHeight = SaturateForTest(height);
+    const f32 bandScale = upperBand ? 0.35f : 1.0f;
+    const f32 localBase = SaturateForTest(baseLift * bandScale);
+    const f32 remainingHeight =
+        1.0f - localBase > 0.001f ? 1.0f - localBase : 0.001f;
+    const f32 localHeight = SaturateForTest((boundedHeight - localBase) / remainingHeight);
+    return CloudConvectiveHeightForTest(localHeight, columnShift, upperBand);
 }
 
 // 高さ分布を途中で飽和させず、上下端を中心より強く絞る形状重みを求める。
@@ -3159,13 +3181,80 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(shader, "floatinterior=4.0*h*(1.0-h);"));
     EXPECT_TRUE(Contains(shader, "float4(0.56,0.84,0.94,0.98),h.xxxx);"));
     EXPECT_TRUE(Contains(shader, "float4sharedLightProfileTerms=float4(cloudProfileTypeWeights(macro.weather.g),macro.weather.b,cloudColumnHeightShift(macro.weather,macro.densityWeatherMask));"));
+    EXPECT_TRUE(Contains(shader, "floatsharedLightBaseLift=cloudColumnBaseLift(macro.weather,macro.densityWeatherMask);"));
     EXPECT_TRUE(Contains(shader, "floatviewWeatherMask=macro.densityWeatherMask;"));
     EXPECT_FALSE(Contains(shader, "floatviewWeatherMask=cloudWeatherMaskFromTerms("));
     EXPECT_TRUE(Contains(
         shader,
-        "macro.height=cloudConvectiveHeight("
+        "macro.height=cloudColumnHeight("
         "heightFractionFromAltitude(altitude,upperBand),"
-        "slowProfileTerms.w,upperBand);"));
+        "slowProfileTerms.w,slowBaseLift,upperBand);"));
+}
+
+ACS_TEST(VolumetricClouds,
+         ColumnBaseLiftBreaksCommonUndersideWithinPhysicalShell) {
+    const f32 lowPatternLift = CloudColumnBaseLiftForTest(1.0f, 1.0f, 0.0f, 0.0f);
+    const f32 highPatternLift = CloudColumnBaseLiftForTest(1.0f, 1.0f, 0.0f, 1.0f);
+    const f32 visibleEdgeLift = CloudColumnBaseLiftForTest(0.0f, 1.0f, 0.0f, 0.0f);
+    const f32 stratusLift = CloudColumnBaseLiftForTest(1.0f, 0.0f, 0.0f, 1.0f);
+    EXPECT_NEAR(lowPatternLift, 0.0096f, 1e-6f);
+    EXPECT_NEAR(highPatternLift, 0.084f, 1e-6f);
+    EXPECT_NEAR(visibleEdgeLift, 0.0456f, 1e-6f);
+    EXPECT_NEAR(stratusLift, 0.0315f, 1e-6f);
+    EXPECT_TRUE(highPatternLift > lowPatternLift + 0.07f);
+    EXPECT_TRUE(visibleEdgeLift > lowPatternLift);
+    EXPECT_TRUE(stratusLift < highPatternLift);
+
+    // 同じ物理高度でも低周波模様の異なる柱は同時に立ち上がらず、共通の平面を作らない。
+    constexpr f32 lowerLayerHeight = 0.04f;
+    EXPECT_TRUE(CloudColumnHeightForTest(lowerLayerHeight, 0.0f, lowPatternLift, false) > 0.0f);
+    EXPECT_NEAR(CloudColumnHeightForTest(lowerLayerHeight, 0.0f, highPatternLift, false), 0.0f, 0.0f);
+
+    // 局所雲底より下は常に空で、上端は固定し、全許容値で折り返さない。
+    for (u32 liftStep = 0u; liftStep <= 12u; ++liftStep) {
+        const f32 lift = static_cast<f32>(liftStep) * 0.01f;
+        for (const bool upperBand : {false, true}) {
+            const f32 scaledLift = lift * (upperBand ? 0.35f : 1.0f);
+            EXPECT_NEAR(CloudColumnHeightForTest(scaledLift, 0.0f, lift, upperBand), 0.0f, 0.0f);
+            EXPECT_NEAR(CloudColumnHeightForTest(1.0f, 0.18f, lift, upperBand), 1.0f, 1e-6f);
+            f32 previous = 0.0f;
+            for (u32 heightStep = 0u; heightStep <= 1000u; ++heightStep) {
+                const f32 height =
+                    static_cast<f32>(heightStep) / 1000.0f;
+                const f32 localHeight = CloudColumnHeightForTest(height, 0.18f, lift, upperBand);
+                EXPECT_TRUE(localHeight + 1e-6f >= previous);
+                EXPECT_TRUE(localHeight >= 0.0f && localHeight <= 1.0f);
+                previous = localHeight;
+            }
+        }
+    }
+
+    // 上層雲は同じ入力でも局所雲底差を抑え、薄い層を過度に削らない。
+    EXPECT_TRUE(CloudColumnHeightForTest(0.05f, 0.0f, highPatternLift, true) > 0.0f);
+    EXPECT_NEAR(CloudColumnHeightForTest(0.05f, 0.0f, highPatternLift, false), 0.0f, 0.0f);
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(!shader.empty());
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcloudColumnBaseLift(float4weather,floatcloudInterior){"
+        "floatverticalType=saturate(max(weather.g,weather.b));"
+        "floatbroadPattern=smoothstep(0.18,0.82,weather.a);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcloudColumnHeight("
+        "floath,floatcolumnShift,floatbaseLift,boolupperBand){"
+        "h=saturate(h);"
+        "floatbandScale=upperBand?0.35:1.0;"
+        "floatlocalBase=saturate(baseLift*bandScale);"));
+    EXPECT_EQ(CountOccurrences(shader, "cloudColumnBaseLift("), static_cast<std::size_t>(5));
+    EXPECT_EQ(CountOccurrences(shader, "cloudColumnHeight("), static_cast<std::size_t>(5));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floaterosion=lerp(0.10,0.24,"
+        "smoothstep(0.18,0.92,h));"));
+    EXPECT_FALSE(Contains(shader, "floaterosion=lerp(0.17,0.24,"));
 }
 
 ACS_TEST(VolumetricClouds,
@@ -3498,7 +3587,7 @@ ACS_TEST(VolumetricClouds,
         const std::size_t maskBranch =
             function.find("if(macro.weatherMask>0.001){");
         const std::size_t height =
-            function.find("macro.height=cloudConvectiveHeight(");
+            function.find("macro.height=cloudColumnHeight(");
         const usize macroUpperBand =
             function.find("macro.upperBand=upperBand?1.0:0.0;");
         const std::size_t profile =
@@ -3864,7 +3953,7 @@ ACS_TEST(VolumetricClouds,
         "CloudMacroSamplelightMacro="
         "sampleCloudMacroLightingFromSlowFields("
         "lp,viewWeatherMask,coverageTerms.w,"
-        "sharedLightProfileTerms,sharedLightCurl,"
+        "sharedLightProfileTerms,sharedLightBaseLift,sharedLightCurl,"
         "p,viewMacroUvw,macro.height,sharedShapeScale,lightStep);",
         lightAdvance);
     const std::size_t nearBillowVisibility = shader.find(
@@ -3938,7 +4027,7 @@ ACS_TEST(VolumetricClouds,
                 lightBody,
                 "sampleCloudMacroLightingFromSlowFields("
                 "lp,viewWeatherMask,coverageTerms.w,"
-                "sharedLightProfileTerms,sharedLightCurl,"
+                "sharedLightProfileTerms,sharedLightBaseLift,sharedLightCurl,"
                 "p,viewMacroUvw,macro.height,sharedShapeScale,lightStep)"),
             static_cast<std::size_t>(1));
         EXPECT_FALSE(Contains(
@@ -3959,7 +4048,7 @@ ACS_TEST(VolumetricClouds,
     }
     if (nearLightLoop != std::string::npos) {
         const std::string completeLightSection = shader.substr(nearLightLoop);
-        EXPECT_EQ(CountOccurrences(completeLightSection, "sampleCloudMacroLightingFromSlowFields(" "lp,viewWeatherMask,coverageTerms.w," "sharedLightProfileTerms,sharedLightCurl," "p,viewMacroUvw,macro.height,sharedShapeScale,lightStep)"), static_cast<std::size_t>(1));
+        EXPECT_EQ(CountOccurrences(completeLightSection, "sampleCloudMacroLightingFromSlowFields(" "lp,viewWeatherMask,coverageTerms.w," "sharedLightProfileTerms,sharedLightBaseLift,sharedLightCurl," "p,viewMacroUvw,macro.height,sharedShapeScale,lightStep)"), static_cast<std::size_t>(1));
         EXPECT_EQ(CountOccurrences(completeLightSection, "sampleCloudMacroLighting(lp,coverage,lightStep)"), static_cast<std::size_t>(0));
         EXPECT_EQ(CountOccurrences(completeLightSection, "float2farLightSample=sampleCloudFarLightingDensityAndScale(" "lp,coverage,sharedLightCurl,lightStep);"), static_cast<usize>(1));
         EXPECT_FALSE(Contains(completeLightSection, "sampleCloudLightingDensityFromSlowFields("));
@@ -4415,15 +4504,21 @@ ACS_TEST(VolumetricClouds,
         "macro.weather.b,cloudColumnHeightShift("
         "macro.weather,macro.densityWeatherMask));",
         viewLoop);
+    const std::size_t sharedBaseLift = shader.find(
+        "floatsharedLightBaseLift=cloudColumnBaseLift("
+        "macro.weather,macro.densityWeatherMask);",
+        sharedProfile);
     const std::size_t nearLightLoop =
-        shader.find("[loop]for(intl=0;l<3;l++)", sharedProfile);
+        shader.find("[loop]for(intl=0;l<3;l++)", sharedBaseLift);
     EXPECT_TRUE(coverageTerms != std::string::npos);
     EXPECT_TRUE(viewLoop != std::string::npos);
     EXPECT_TRUE(sharedProfile != std::string::npos);
+    EXPECT_TRUE(sharedBaseLift != std::string::npos);
     EXPECT_TRUE(nearLightLoop != std::string::npos);
     EXPECT_TRUE(coverageTerms < viewLoop);
     EXPECT_TRUE(viewLoop < sharedProfile);
-    EXPECT_TRUE(sharedProfile < nearLightLoop);
+    EXPECT_TRUE(sharedProfile < sharedBaseLift);
+    EXPECT_TRUE(sharedBaseLift < nearLightLoop);
     if (viewLoop != std::string::npos) {
         const std::string denseRay = shader.substr(viewLoop);
         EXPECT_FALSE(Contains(denseRay, "cloudWeatherThreshold("));
@@ -4481,7 +4576,10 @@ ACS_TEST(VolumetricClouds,
         EXPECT_TRUE(Contains(
             helper,
             "float4weather=cloudWeatherData(p,layerHeight,upperBand);"));
-        EXPECT_TRUE(Contains(helper, "cloudColumnHeightShift(weather,weatherMask),upperBand);"));
+        EXPECT_TRUE(Contains(
+            helper,
+            "cloudColumnHeightShift(weather,weatherMask),"
+            "cloudColumnBaseLift(weather,weatherMask),upperBand);"));
         EXPECT_TRUE(Contains(
             helper,
             "cloudUVW(p,weather,slowCurl,sampleHeight)"));
@@ -6776,6 +6874,8 @@ ACS_TEST(VolumetricClouds,
         "cloudProfileTypeWeights(macro.weather.g),"
         "macro.weather.b,cloudColumnHeightShift("
         "macro.weather,macro.densityWeatherMask));"
+        "floatsharedLightBaseLift=cloudColumnBaseLift("
+        "macro.weather,macro.densityWeatherMask);"
         "float2sharedLightCurl=macro.curl;"));
     EXPECT_FALSE(Contains(
         shader, "sharedLightProfileTerms=cloudWeatherData(lp)"));
@@ -6784,7 +6884,7 @@ ACS_TEST(VolumetricClouds,
         shader,
         "sampleCloudMacroLightingFromSlowFields("
         "lp,viewWeatherMask,coverageTerms.w,"
-        "sharedLightProfileTerms,sharedLightCurl,"
+        "sharedLightProfileTerms,sharedLightBaseLift,sharedLightCurl,"
         "p,viewMacroUvw,macro.height,sharedShapeScale,lightStep);"));
     EXPECT_FALSE(Contains(
         shader, "sampleCloudLightingDensityFromSlowFields("));

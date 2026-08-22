@@ -1942,6 +1942,9 @@ void CSpriteBatch::Flush() noexcept {
     const usize byte_size    = static_cast<usize>(count) * 4 * sizeof(FVertex);
     m_Vb->Update(m_VertexCpu + first_sprite * 4, byte_size, byte_offset);
 
+    // Diligent の UpdateBuffer は頂点バッファを COPY_DEST へ遷移する。
+    // 描画直前に再設定し、頂点状態への復帰と現在のGPUアドレスを同時に確定する。
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));
     m_Cl->SetTexture(0, *m_CurrentTex);
     m_Cl->DrawIndexed(count * 6, first_sprite * 6, 0);
 

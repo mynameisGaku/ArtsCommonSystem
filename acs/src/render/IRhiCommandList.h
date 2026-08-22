@@ -508,6 +508,31 @@ private:
      * @return このコマンドリストだけに属する統計領域。
      */
     virtual const FRhiCommandStatistics& StatisticsStorage() const noexcept = 0;
+
+public:
+    /**
+     * 現在記録中の D3D12 グラフィックスコマンドリストを借用する。
+     *
+     * @details
+     * 戻り値は AddRef 不要の借用ポインタで、現在の Begin～End 区間だけ有効である。
+     * 非 D3D12 バックエンドや未記録状態では nullptr を返す。NativeHandle() の既存の
+     * 意味は変更せず、この API を D3D12 外部描画専用の入口にする。
+     * この virtual は既存実装の ABI を壊さないため末尾へ追加している。
+     * @return ID3D12GraphicsCommandList 相当の不透明ポインタ。
+     */
+    virtual void* D3D12GraphicsCommandList() noexcept
+    {
+        return nullptr;
+    }
+
+    /**
+     * 外部コマンドを記録した後に ACS のバックエンド状態を無効化・復旧する。
+     *
+     * @details
+     * 外部側が変更した pipeline / descriptor / Diligent の追跡状態を捨て、次の ACS
+     * 描画が必要な状態を再 bind できるようにする。未対応バックエンドでは no-op。
+     */
+    virtual void RestoreStateAfterExternalCommands() noexcept {}
 };
 
 /** RAII helper that keeps named GPU markers balanced on all early exits. */

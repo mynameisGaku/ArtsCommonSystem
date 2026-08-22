@@ -23,6 +23,24 @@ neutral default and the shader-facing multiplier remains clamped to `[0, 64]`.
 The 2x2 Karis prefilter, six-mip chain, fixed Gaussian gathers, and circular
 upsampling remain unchanged.
 
+## FXAA presentation
+
+`FPostProcessParams::fxaa_enabled` is an opt-in scene setting exposed by
+`ALegacyScene3DAdapter::PostParams()`. It is disabled by default to preserve
+existing output and avoid a recurring full-screen pass for scenes that already
+use TAA or accept the native raster result. When enabled, the post-process
+graph first writes the completed HDR scene through tonemap and gamma into a
+full-resolution LDR intermediate, then runs `CFxaa` once while the swapchain
+pass is bound. This keeps FXAA in the correct display-color domain instead of
+filtering HDR radiance.
+
+If TAA produced a valid resolve, FXAA is skipped to avoid double filtering. If
+TAA was requested but its resolve failed, FXAA can serve as the spatial
+fallback. Missing FXAA shaders or the intermediate target preserve the
+existing direct-tonemap path, so enabling the option cannot publish a blank
+frame. The FXAA shaders join the existing CPU/backend asynchronous compilation
+bundle; activation does not introduce a new synchronous shader compile stall.
+
 The optional post-process SSR texture is explicitly scene-linear. Tone mapping
 multiplies it by the same manual exposure and, only after a completed automatic
 exposure pass, by the same adapted 1x1 value as scene color. The adapted value

@@ -1121,14 +1121,18 @@ TResult<void> CImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
         return ACS_ERR(Render, 160,
             "CImageBasedLighting::EnsureIrradiance: env cubemap not built yet");
     }
-    auto r = BuildIrradiance(device, cl);
+    TUniquePtr<IRhiTexture> candidate;
+    auto r = BuildIrradiance(device, cl, *m_EnvCube, candidate);
     if (r.IsErr()) return r;
+    m_IrradianceCube = Move(candidate);
     m_bIrradianceBuilt = true;
     return Ok();
 }
 
-TResult<void> CImageBasedLighting::BuildIrradiance(IRhiDevice& device,
-                                                  IRhiCommandList& cl) noexcept {
+TResult<void> CImageBasedLighting::BuildIrradiance(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& environment,
+        TUniquePtr<IRhiTexture>& output) noexcept {
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
@@ -1138,7 +1142,7 @@ TResult<void> CImageBasedLighting::BuildIrradiance(IRhiDevice& device,
         }
         return ACS_ERR(Render, 88, "irradiance requires the Diligent backend (-DACS_RENDER_DILIGENT=ON)");
     }
-    m_IrradianceCube.Reset();
+    output.Reset();
 
     // 1) irradiance cubemap (6 face, 64x64, R11G11B10_Float, per-slice RTV)
     FTextureDesc td{};
@@ -1151,7 +1155,7 @@ TResult<void> CImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     td.per_slice_rtv    = true;
     auto t_r = CreateRhiTexture(device, td);
     if (t_r.IsErr()) return Err<void>(t_r.Error());
-    m_IrradianceCube = Move(t_r.Value());
+    output = Move(t_r.Value());
 
     // 2) 一時 VS/PS/Pipeline/CB
     TUniquePtr<IRhiShader>   vs;
@@ -1213,17 +1217,17 @@ TResult<void> CImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     FClearColor black{0, 0, 0, 1};
     cl.SetPipeline(*pipeline);
     cl.SetConstantBuffer(0, *cb);
-    cl.SetTexture(0, *m_EnvCube);
+    cl.SetTexture(0, environment);
     for (u32 face = 0; face < 6; ++face) {
         FIrradianceCBLayout data{};
         data.face_index = static_cast<i32>(face);
         data.direct_light_exclusion = m_DirectLightExclusion;
         cb->Update(&data, sizeof(data));
 
-        cl.BeginRenderToTextureSlice(*m_IrradianceCube, face, 0, black);
+        cl.BeginRenderToTextureSlice(*output, face, 0, black);
         cl.Draw(3);
     }
-    cl.EndRenderToTexture(*m_IrradianceCube);
+    cl.EndRenderToTexture(*output);
     return Ok();
 }
 
@@ -1244,14 +1248,22 @@ TResult<void> CImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
         return ACS_ERR(Render, 161,
             "CImageBasedLighting::EnsurePrefilter: env cubemap not built yet");
     }
-    auto r = BuildPrefilter(device, cl);
+    TUniquePtr<IRhiTexture> candidate;
+    u32 candidate_mips = 0u;
+    auto r = BuildPrefilter(
+        device, cl, *m_EnvCube, candidate, candidate_mips);
     if (r.IsErr()) return r;
+    m_PrefilterCube = Move(candidate);
+    m_PrefilterMips = candidate_mips;
     m_bPrefilterBuilt = true;
     return Ok();
 }
 
-TResult<void> CImageBasedLighting::BuildPrefilter(IRhiDevice& device,
-                                                 IRhiCommandList& cl) noexcept {
+TResult<void> CImageBasedLighting::BuildPrefilter(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& environment,
+        TUniquePtr<IRhiTexture>& output,
+        u32& output_mips) noexcept {
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
@@ -1261,8 +1273,8 @@ TResult<void> CImageBasedLighting::BuildPrefilter(IRhiDevice& device,
         }
         return ACS_ERR(Render, 88, "prefilter requires the Diligent backend (-DACS_RENDER_DILIGENT=ON)");
     }
-    m_PrefilterCube.Reset();
-    m_PrefilterMips = 0;
+    output.Reset();
+    output_mips = 0u;
 
     // 1) prefilter cubemap (6 face, 512x512, 7 mips, R11G11B10_Float, per-slice RTV)
     FTextureDesc td{};
@@ -1276,8 +1288,7 @@ TResult<void> CImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     td.per_slice_rtv    = true;
     auto t_r = CreateRhiTexture(device, td);
     if (t_r.IsErr()) return Err<void>(t_r.Error());
-    m_PrefilterCube  = Move(t_r.Value());
-    m_PrefilterMips  = kPrefilterMips;
+    output = Move(t_r.Value());
 
     // 2) 一時 VS/PS/Pipeline/CB
     TUniquePtr<IRhiShader>   vs;
@@ -1336,7 +1347,7 @@ TResult<void> CImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     FClearColor black{0, 0, 0, 1};
     cl.SetPipeline(*pipeline);
     cl.SetConstantBuffer(0, *cb);
-    cl.SetTexture(0, *m_EnvCube);
+    cl.SetTexture(0, environment);
     for (u32 mip = 0; mip < kPrefilterMips; ++mip) {
         const f32 roughness = static_cast<f32>(mip) / static_cast<f32>(kPrefilterMips - 1);
         for (u32 face = 0; face < 6; ++face) {
@@ -1346,11 +1357,46 @@ TResult<void> CImageBasedLighting::BuildPrefilter(IRhiDevice& device,
             data.direct_light_exclusion = m_DirectLightExclusion;
             cb->Update(&data, sizeof(data));
 
-            cl.BeginRenderToTextureSlice(*m_PrefilterCube, face, mip, black);
+            cl.BeginRenderToTextureSlice(*output, face, mip, black);
             cl.Draw(3);
         }
     }
-    cl.EndRenderToTexture(*m_PrefilterCube);
+    cl.EndRenderToTexture(*output);
+    output_mips = kPrefilterMips;
+    return Ok();
+}
+
+TResult<void> CImageBasedLighting::RebuildDerivedMapsFromEnvironment(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& environment) noexcept {
+    if (!environment.IsCubemap() || environment.ArraySize() < 6u
+        || environment.Width() == 0u || environment.Height() == 0u) {
+        return ACS_ERR(
+            Render, 162,
+            "RebuildDerivedMapsFromEnvironment: cubemap is required");
+    }
+
+    // 前frameが参照したmapだけを待つ。新しい候補は現在のcommand listへ順に記録し、
+    // 両方が完成するまで公開中の所有権を変えない。
+    if (m_IrradianceCube || m_PrefilterCube) device.WaitIdle();
+
+    TUniquePtr<IRhiTexture> irradiance_candidate;
+    auto irradiance_result = BuildIrradiance(
+        device, cl, environment, irradiance_candidate);
+    if (irradiance_result.IsErr()) return irradiance_result;
+
+    TUniquePtr<IRhiTexture> prefilter_candidate;
+    u32 prefilter_mips = 0u;
+    auto prefilter_result = BuildPrefilter(
+        device, cl, environment,
+        prefilter_candidate, prefilter_mips);
+    if (prefilter_result.IsErr()) return prefilter_result;
+
+    m_IrradianceCube = Move(irradiance_candidate);
+    m_PrefilterCube = Move(prefilter_candidate);
+    m_PrefilterMips = prefilter_mips;
+    m_bIrradianceBuilt = true;
+    m_bPrefilterBuilt = true;
     return Ok();
 }
 

@@ -122,6 +122,21 @@ public:
                   const FMat4& model, const FMat4& prev_model) noexcept;
 
     /**
+     * 1 mesh の motion vector と world-space normal に選択maskも描く。
+     *
+     * @details selection_mask=trueではnormal出力の未使用alphaへ1を書き、falseでは0を書く。
+     * depth testを共有するため、手前の通常meshが奥の選択meshを正しく隠す。既存の4引数版は
+     * falseを渡す互換入口であり、従来出力を維持する。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param mesh 描画するGPU mesh。
+     * @param model 現frameのmodel行列。
+     * @param prev_model 前frameのmodel行列。
+     * @param selection_mask 選択対象の可視画素へ1を書くならtrue。
+     * @return 完全なindexed drawを記録できた場合だけtrue。
+     */
+    bool DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh, const FMat4& model, const FMat4& prev_model, bool selection_mask) noexcept;
+
+    /**
      * モーションパスを終了する (main pass の RT へ復帰)。
      *
      * @param cl コマンドを積むコマンドリスト。

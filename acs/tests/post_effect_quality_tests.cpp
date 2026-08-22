@@ -4,13 +4,16 @@
 
 #include "asset/MeshAsset.h"
 #include "foundation/Move.h"
+#include "math/Camera.h"
 #include "math/Mat.h"
 #include "math/Vec.h"
 #include "memory/MemorySystem.h"
 #include "render/Blit.h"
+#include "render/Fxaa.h"
 #include "render/IRhiDevice.h"
 #include "render/IRhiTexture.h"
 #include "render/HiZ.h"
+#include "render/Ibl.h"
 #include "render/MotionVector.h"
 #include "render/NormalMatrix.h"
 #include "render/PbrShader.h"
@@ -22,6 +25,7 @@
 #include "render/Ssr.h"
 #include "render/Sky.h"
 #include "render/SkinnedShader.h"
+#include "render/SpriteBatch.h"
 #include "render/StandardShader.h"
 #include "render/SubsurfaceScattering.h"
 #include "render/TemporalHistory.h"
@@ -552,6 +556,318 @@ ACS_TEST(PostEffects, MotionVectorContractsPublishOnlyCompleteAuthoritativeOutpu
     EXPECT_TRUE(reference.find(
         "sig: \"void DrawMesh(IRhiCommandList& cl") ==
                 std::string::npos);
+}
+
+ACS_TEST(PostEffects,
+         LegacyScene3DTransparentHookUsesLoadAndRestoresExternalState)
+{
+    const std::string adapter =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string header =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.h");
+    const std::string command_header =
+        ReadWorkspaceSource("src/render/IRhiCommandList.h");
+    const std::string frame = ExtractFunction(
+        adapter, "void ALegacyScene3DAdapter::OnRender(");
+    EXPECT_TRUE(!frame.empty());
+    EXPECT_TRUE(!header.empty());
+    EXPECT_TRUE(!command_header.empty());
+    if (frame.empty() || header.empty() || command_header.empty()) return;
+
+    const std::size_t cloud = frame.find("CompositeClouds(");
+    const std::size_t load = frame.find(
+        "BeginRenderToTextureLoad(*hdr, depth)", cloud);
+    const std::size_t hook = frame.find(
+        "OnRenderTransparent3D(transparent_context)", load);
+    const std::size_t restore = frame.find(
+        "RestoreStateAfterExternalCommands()", hook);
+    const std::size_t end = frame.find(
+        "EndRenderToTexture(*hdr)", restore);
+    const std::size_t reflection = frame.find(
+        "RenderReflectionPass(", end);
+    const std::size_t post = frame.find("m_Post.Render(", reflection);
+    EXPECT_TRUE(cloud != std::string::npos);
+    EXPECT_TRUE(load != std::string::npos);
+    EXPECT_TRUE(hook != std::string::npos);
+    EXPECT_TRUE(restore != std::string::npos);
+    EXPECT_TRUE(end != std::string::npos);
+    EXPECT_TRUE(reflection != std::string::npos);
+    EXPECT_TRUE(post != std::string::npos);
+    EXPECT_TRUE(frame.find(
+        "if (OnRenderTransparent3D(transparent_context))") !=
+                std::string::npos);
+
+    EXPECT_TRUE(header.find("struct FScene3DTransparentRenderContext") !=
+                std::string::npos);
+    EXPECT_TRUE(header.find("IRhiDevice& Device") != std::string::npos);
+    EXPECT_TRUE(header.find("IRhiCommandList& Commands") != std::string::npos);
+    EXPECT_TRUE(header.find("const CCamera& Camera") != std::string::npos);
+    EXPECT_TRUE(header.find("IRhiTexture& ColorTarget") != std::string::npos);
+    EXPECT_TRUE(header.find("IRhiTexture* DepthTarget") != std::string::npos);
+    EXPECT_TRUE(header.find("u32 Width") != std::string::npos);
+    EXPECT_TRUE(header.find("u32 Height") != std::string::npos);
+    EXPECT_TRUE(header.find(
+        "virtual bool OnRenderTransparent3D(") != std::string::npos);
+    EXPECT_TRUE(header.find("(void)context;") != std::string::npos);
+    EXPECT_TRUE(header.find("return false;") != std::string::npos);
+
+    const std::size_t statistics_virtual = command_header.find(
+        "virtual FRhiCommandStatistics& StatisticsStorage() noexcept = 0;");
+    const std::size_t public_after_statistics = command_header.find(
+        "public:", statistics_virtual);
+    const std::size_t interop_virtual = command_header.find(
+        "virtual void* D3D12GraphicsCommandList() noexcept", statistics_virtual);
+    EXPECT_TRUE(statistics_virtual != std::string::npos);
+    EXPECT_TRUE(public_after_statistics != std::string::npos);
+    EXPECT_TRUE(interop_virtual != std::string::npos);
+    EXPECT_TRUE(statistics_virtual < public_after_statistics);
+    EXPECT_TRUE(public_after_statistics < interop_virtual);
+
+    const std::string diligent_command_list =
+        ReadWorkspaceSource("src/render/Diligent/DiligentCommandList.cpp");
+    const std::size_t restore_function = diligent_command_list.find(
+        "void CDiligentCommandList::RestoreStateAfterExternalCommands() noexcept");
+    const std::size_t flush = diligent_command_list.find(
+        "context->Flush();", restore_function);
+    const std::size_t invalidate = diligent_command_list.find(
+        "context->InvalidateState();", restore_function);
+    EXPECT_TRUE(!diligent_command_list.empty());
+    EXPECT_TRUE(restore_function != std::string::npos);
+    EXPECT_TRUE(flush != std::string::npos);
+    EXPECT_TRUE(invalidate != std::string::npos);
+    EXPECT_TRUE(flush < invalidate);
+}
+
+ACS_TEST(PostEffects,
+         LegacyScene3DHudLoadsAfterPostAndClosesSwapchainPass)
+{
+    const std::string adapter =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string scene_header =
+        ReadWorkspaceSource("src/gameframework/Scene.h");
+    const std::string scene_source =
+        ReadWorkspaceSource("src/gameframework/Scene.cpp");
+    const std::string game_source =
+        ReadWorkspaceSource("src/gameframework/Game.cpp");
+    const std::string frame = ExtractFunction(
+        adapter, "void ALegacyScene3DAdapter::OnRender(");
+    const std::string hud = ExtractFunction(
+        scene_source, "void AScene::DrawHudPass_Internal(");
+    const std::string game_frame = ExtractFunction(
+        game_source, "void CGame::OnRender(");
+    EXPECT_TRUE(!frame.empty());
+    EXPECT_TRUE(!scene_header.empty());
+    EXPECT_TRUE(!hud.empty());
+    EXPECT_TRUE(!game_frame.empty());
+    if (frame.empty() || scene_header.empty() || hud.empty()
+        || game_frame.empty()) {
+        return;
+    }
+
+    // post/TAA-or-FXAA/tonemap の完成後だけ、LDR backbuffer を load して HUD を重ねる。
+    const std::size_t post = frame.find("m_Post.Render(");
+    const std::size_t ensure = frame.find(
+        "render_resources.EnsureSpriteBatch(context)", post);
+    const std::size_t load = frame.find(
+        "command_list.BeginRenderToSwapchainLoad(*swapchain, buffer_index)",
+        ensure);
+    const std::size_t batch_begin = frame.find(
+        "hud_sprites.Begin(command_list, context.Width(), context.Height())",
+        load);
+    const std::size_t wire = frame.find(
+        "wiring.SetSpriteBatch(&hud_sprites)", batch_begin);
+    const std::size_t draw = frame.find(
+        "DrawHudPass_Internal(context)", wire);
+    const std::size_t unwire = frame.find(
+        "wiring.SetSpriteBatch(nullptr)", draw);
+    const std::size_t batch_end = frame.find(
+        "hud_sprites.End()", unwire);
+    const std::size_t pass_end = frame.find(
+        "command_list.EndRenderToSwapchain(*swapchain, buffer_index)",
+        batch_end);
+    EXPECT_TRUE(post != std::string::npos);
+    EXPECT_TRUE(ensure != std::string::npos);
+    EXPECT_TRUE(load != std::string::npos);
+    EXPECT_TRUE(batch_begin != std::string::npos);
+    EXPECT_TRUE(wire != std::string::npos);
+    EXPECT_TRUE(draw != std::string::npos);
+    EXPECT_TRUE(unwire != std::string::npos);
+    EXPECT_TRUE(batch_end != std::string::npos);
+    EXPECT_TRUE(pass_end != std::string::npos);
+    EXPECT_TRUE(post < ensure);
+    EXPECT_TRUE(ensure < load);
+    EXPECT_TRUE(load < batch_begin);
+    EXPECT_TRUE(batch_begin < wire);
+    EXPECT_TRUE(wire < draw);
+    EXPECT_TRUE(draw < unwire);
+    EXPECT_TRUE(unwire < batch_end);
+    EXPECT_TRUE(batch_end < pass_end);
+    EXPECT_TRUE(frame.find(
+        "if (!render_resources.EnsureSpriteBatch(context)) return;") !=
+                std::string::npos);
+    EXPECT_TRUE(frame.find("AScene::OnRender(") == std::string::npos);
+
+    // helper は vtable を増やさず、引数なし Draw API の context も呼出し中だけ公開する。
+    EXPECT_TRUE(scene_header.find(
+        "void DrawHudPass_Internal(FRenderContext& rc) noexcept;") !=
+                std::string::npos);
+    EXPECT_TRUE(scene_header.find(
+        "virtual void DrawHudPass_Internal") == std::string::npos);
+    const std::size_t helper_declaration = scene_header.find(
+        "void DrawHudPass_Internal(FRenderContext& rc) noexcept;");
+    const std::size_t protected_section = scene_header.rfind(
+        "protected:", helper_declaration);
+    const std::size_t private_after_helper = scene_header.find(
+        "private:", helper_declaration);
+    EXPECT_TRUE(protected_section != std::string::npos);
+    EXPECT_TRUE(private_after_helper != std::string::npos);
+    EXPECT_TRUE(protected_section < helper_declaration);
+    EXPECT_TRUE(helper_declaration < private_after_helper);
+    const std::size_t previous = hud.find(
+        "CurrentDrawContext_Internal()");
+    const std::size_t publish = hud.find(
+        "SetDrawContext_Internal(&rc)", previous);
+    const std::size_t draw_with_context = hud.find(
+        "OnDrawHud(rc, sb)", publish);
+    const std::size_t draw_immediate = hud.find(
+        "OnDrawHud()", draw_with_context);
+    const std::size_t restore = hud.find(
+        "SetDrawContext_Internal(previous_context)", draw_immediate);
+    EXPECT_TRUE(previous != std::string::npos);
+    EXPECT_TRUE(publish != std::string::npos);
+    EXPECT_TRUE(draw_with_context != std::string::npos);
+    EXPECT_TRUE(draw_immediate != std::string::npos);
+    EXPECT_TRUE(restore != std::string::npos);
+    EXPECT_TRUE(previous < publish);
+    EXPECT_TRUE(publish < draw_with_context);
+    EXPECT_TRUE(draw_with_context < draw_immediate);
+    EXPECT_TRUE(draw_immediate < restore);
+
+    // CGame のフェードなど Framework overlay は scene の HUD 後に積まれる。
+    const std::size_t scene_render = game_frame.find(
+        "m_Scenes.ExecutionAccess().Render(m_RenderCtx)");
+    const std::size_t outer_overlay = game_frame.find(
+        "DrawFadeOverlay()", scene_render);
+    EXPECT_TRUE(scene_render != std::string::npos);
+    EXPECT_TRUE(outer_overlay != std::string::npos);
+    EXPECT_TRUE(scene_render < outer_overlay);
+}
+
+ACS_TEST(PostEffects,
+         SpriteBatchRestoresVertexStateAfterPartialUpload)
+{
+    const std::string source =
+        ReadWorkspaceSource("src/render/SpriteBatch.cpp");
+    const std::string flush = ExtractFunction(
+        source, "void CSpriteBatch::Flush() noexcept");
+    EXPECT_TRUE(!source.empty());
+    EXPECT_TRUE(!flush.empty());
+    if (flush.empty()) return;
+
+    // Diligent の UpdateBuffer が作る COPY_DEST 状態を、描画前に頂点状態へ戻す。
+    const std::size_t upload = flush.find(
+        "m_Vb->Update(m_VertexCpu + first_sprite * 4, byte_size, byte_offset);");
+    const std::size_t restore = flush.find(
+        "m_Cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));", upload);
+    const std::size_t draw = flush.find(
+        "m_Cl->DrawIndexed(count * 6, first_sprite * 6, 0);", restore);
+    EXPECT_TRUE(upload != std::string::npos);
+    EXPECT_TRUE(restore != std::string::npos);
+    EXPECT_TRUE(draw != std::string::npos);
+    EXPECT_TRUE(upload < restore);
+    EXPECT_TRUE(restore < draw);
+}
+
+ACS_TEST(PostEffects,
+         LegacyScene3DGlobalIlluminationUsesSharedPrepassAndPreviousFrame)
+{
+    const std::string adapter =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string header =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.h");
+    const std::string global_illumination_header =
+        ReadWorkspaceSource("src/gameframework/Scene3DGlobalIllumination.h");
+    const std::string frame = ExtractFunction(
+        adapter, "void ALegacyScene3DAdapter::OnRender(");
+    const std::string ambient_occlusion = ExtractFunction(
+        adapter, "bool ALegacyScene3DAdapter::RenderAmbientOcclusionPass(");
+    const std::string draw_pbr = ExtractFunction(
+        adapter, "bool ALegacyScene3DAdapter::DrawPbrScene(");
+    const std::string global_illumination = ExtractFunction(
+        adapter, "bool ALegacyScene3DAdapter::RenderGlobalIlluminationPass(");
+    EXPECT_TRUE(!adapter.empty());
+    EXPECT_TRUE(!header.empty());
+    EXPECT_TRUE(!global_illumination_header.empty());
+    EXPECT_TRUE(!frame.empty());
+    EXPECT_TRUE(!ambient_occlusion.empty());
+    EXPECT_TRUE(!draw_pbr.empty());
+    EXPECT_TRUE(!global_illumination.empty());
+    if (adapter.empty() || header.empty() || global_illumination_header.empty()
+        || frame.empty()
+        || ambient_occlusion.empty() || draw_pbr.empty()
+        || global_illumination.empty()) {
+        return;
+    }
+
+    // 公開設定は既定オフで、強さと探索距離を一つの設定値として持つ。
+    EXPECT_TRUE(global_illumination_header.find(
+        "struct FScene3DGlobalIllumination") !=
+                std::string::npos);
+    EXPECT_TRUE(header.find("GlobalIllumination() noexcept") !=
+                std::string::npos);
+    EXPECT_TRUE(global_illumination_header.find(
+        "f32 Intensity = 0.0f") != std::string::npos);
+    EXPECT_TRUE(global_illumination_header.find(
+        "f32 MaxDistance = 5.0f") != std::string::npos);
+
+    // SSGI/SSR は SSAO の出力ではなく、共有法線・深度前段を読む。SSAO の
+    // 初期化や出力が失敗しても、前段が完全なら後段を止めない。
+    EXPECT_TRUE(ambient_occlusion.find(
+        "m_NormalDepthDrawn = true;") != std::string::npos);
+    EXPECT_TRUE(ambient_occlusion.find(
+        "if (!ssao_requested || !m_SsaoReady) return true;") !=
+                std::string::npos);
+    EXPECT_TRUE(ambient_occlusion.find(
+        "return m_NormalDepthDrawn;") != std::string::npos);
+    EXPECT_TRUE(adapter.find(
+        "m_NormalDepthDrawn ? m_NormalDepth.OutputNormalTexture()") !=
+                std::string::npos);
+
+    // PBR は前フレームの完成結果を読む。SSGI の現フレーム計算は HDR の
+    // cloud/Sprite3D/外部透明描画が終わった後なので、同じフレームでは循環しない。
+    const std::size_t pbr = frame.find("DrawPbrScene(");
+    const std::size_t hdr_end = frame.find(
+        "EndRenderToTexture(*hdr);", pbr);
+    const std::size_t ssgi_render = frame.find(
+        "RenderGlobalIlluminationPass(", hdr_end);
+    const std::size_t reflection = frame.find(
+        "RenderReflectionPass(", ssgi_render);
+    EXPECT_TRUE(pbr != std::string::npos);
+    EXPECT_TRUE(hdr_end != std::string::npos);
+    EXPECT_TRUE(ssgi_render != std::string::npos);
+    EXPECT_TRUE(reflection != std::string::npos);
+    EXPECT_TRUE(pbr < hdr_end);
+    EXPECT_TRUE(hdr_end < ssgi_render);
+    EXPECT_TRUE(ssgi_render < reflection);
+    EXPECT_TRUE(draw_pbr.find(
+        "shader.SetSsgi(m_Ssgi.OutputTexture(), m_SsgiParams.Intensity)") !=
+                std::string::npos);
+    EXPECT_TRUE(draw_pbr.find(
+        "shader.SetSsgi(nullptr, 0.0f)") != std::string::npos);
+
+    // MotionVector は現在行列を前行列にも使うため、SSGI は動的 motion を
+    // 偽って渡さず、カメラ再投影だけを使う。強さは PBR 側で一度だけ掛ける。
+    EXPECT_TRUE(global_illumination.find(
+        "m_Camera.Eye(), 1.0f, max_distance, nullptr)") !=
+                std::string::npos);
+    EXPECT_TRUE(global_illumination.find(
+        "InvalidateGlobalIlluminationOutput()") != std::string::npos);
+    EXPECT_TRUE(adapter.find(
+        "m_Ssgi.Shutdown();") != std::string::npos);
+    EXPECT_TRUE(adapter.find(
+        "m_NormalDepth.Shutdown();") != std::string::npos);
+    EXPECT_TRUE(adapter.find(
+        "m_SsgiValid = false;") != std::string::npos);
 }
 
 ACS_TEST(PostEffects, FixedTapGatherShadersKeepRolledQualityLoops)
@@ -1970,6 +2286,60 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
 #endif
     }
     EXPECT_TRUE(post.HdrRenderTarget() != nullptr);
+
+    // 任意機能であることは、使用中の描画基盤で未生成でも通す意味ではない。
+    // 非同期Diligentとraw DX12のCPUコンパイルの両経路で実際にPSOまで作る。
+    CFxaa fxaa;
+    if (device.SupportsAsyncShaderCompilation()) {
+        auto compiled = CFxaa::BeginCompileShadersAsync(device);
+        EXPECT_TRUE(compiled.IsOk());
+        if (compiled.IsOk()) {
+            const auto deadline =
+                std::chrono::steady_clock::now() +
+                std::chrono::seconds(30);
+            EShaderStatus status = compiled.Value().Status();
+            while (status == EShaderStatus::Compiling
+                   && std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(1));
+                status = compiled.Value().Status();
+            }
+            EXPECT_EQ(status, EShaderStatus::Ready);
+            if (status == EShaderStatus::Ready) {
+                EXPECT_TRUE(
+                    fxaa.InitWithCompiledShaders(
+                            device, Move(compiled.Value()),
+                            EFormat::B8G8R8A8_UNorm)
+                        .IsOk());
+            }
+        }
+    } else {
+#if !WITH_RENDER_DILIGENT
+        auto compiled = CFxaa::CompileShadersCpu();
+        EXPECT_TRUE(compiled.IsOk());
+        if (compiled.IsOk()) {
+            EXPECT_EQ(compiled.Value().Status(), EShaderStatus::Ready);
+            EXPECT_TRUE(
+                fxaa.InitWithCompiledShaders(
+                        device, Move(compiled.Value()),
+                        EFormat::B8G8R8A8_UNorm)
+                    .IsOk());
+        }
+#else
+        EXPECT_TRUE(
+            fxaa.Init(device, EFormat::B8G8R8A8_UNorm).IsOk());
+#endif
+    }
+    EXPECT_TRUE(fxaa.IsReady());
+
+    // Legacy 3D HUD が借りる標準 SpriteBatch も、使用中 backend の LDR
+    // swapchain format 向けに実際の pipeline と buffer を生成できることを確認する。
+    CSpriteBatch hud_sprites;
+    EXPECT_TRUE(
+        hud_sprites.Init(
+                device, EFormat::B8G8R8A8_UNorm, 32u)
+            .IsOk());
+
     IRhiTexture* const first_hdr = post.HdrRenderTarget();
     CPostProcess::FCompiledShaders incomplete_post{};
     EXPECT_EQ(incomplete_post.Status(), EShaderStatus::Failed);
@@ -2160,6 +2530,65 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
 
     CMotionVector motion;
     EXPECT_TRUE(motion.Init(device, 64, 64).IsOk());
+    {
+        // 使用中backendで、depth-tested normal前段のalphaへ選択maskを実際に書く。
+        AMeshAsset selection_triangle;
+        selection_triangle.Vertices().Add(FMeshVertex{FVec3{-0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 0, 1});
+        selection_triangle.Vertices().Add(FMeshVertex{FVec3{0.0f, 0.8f, 0.5f}, FVec3{0, 0, 1}, 0.5f, 0});
+        selection_triangle.Vertices().Add(FMeshVertex{FVec3{0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 1, 1});
+        selection_triangle.Indices().Add(0u);
+        selection_triangle.Indices().Add(1u);
+        selection_triangle.Indices().Add(2u);
+        FGpuMesh selection_gpu{};
+        const auto selection_mesh_result =
+            UploadMesh(device, selection_triangle, selection_gpu);
+        auto selection_command_result = CreateRhiCommandList(device);
+        EXPECT_TRUE(selection_mesh_result.IsOk());
+        EXPECT_TRUE(selection_command_result.IsOk());
+        EXPECT_TRUE(motion.OutputNormalTexture() != nullptr);
+        if (selection_mesh_result.IsOk() && selection_command_result.IsOk() && motion.OutputNormalTexture() != nullptr) {
+            auto selection_command =
+                Move(selection_command_result.Value());
+            const FMat4 front = FMat4::Translation(FVec3{0.0f, 0.0f, -0.15f});
+            const FMat4 rear = FMat4::Translation(FVec3{0.0f, 0.0f, 0.15f});
+            selection_command->Begin();
+            EXPECT_TRUE(motion.BeginFrame(2u));
+            EXPECT_TRUE(motion.Begin(*selection_command, FMat4::Identity(), FMat4::Identity()));
+            EXPECT_TRUE(motion.DrawMesh(*selection_command, selection_gpu, front, front, true));
+            EXPECT_TRUE(motion.DrawMesh(*selection_command, selection_gpu, rear, rear, false));
+            motion.End(*selection_command);
+            selection_command->End();
+            EXPECT_TRUE(selection_command->Submit());
+            device.WaitIdle();
+
+            u16 selection_pixels[64u * 64u * 4u]{};
+            const bool selection_read = device.ReadTexture(*motion.OutputNormalTexture(), selection_pixels, static_cast<u32>(sizeof(selection_pixels)));
+            EXPECT_TRUE(selection_read);
+            if (selection_read) {
+                constexpr usize center = (32u * 64u + 32u) * 4u;
+                constexpr usize corner = 0u;
+                EXPECT_EQ(selection_pixels[center + 3u], static_cast<u16>(0x3C00u));
+                EXPECT_EQ(selection_pixels[corner + 3u], static_cast<u16>(0u));
+            }
+
+            // static/skinnedが共有する同じdepth前段で、手前の通常meshが奥の選択maskを消す。
+            selection_command->Begin();
+            EXPECT_TRUE(motion.BeginFrame(2u));
+            EXPECT_TRUE(motion.Begin(*selection_command, FMat4::Identity(), FMat4::Identity()));
+            EXPECT_TRUE(motion.DrawMesh(*selection_command, selection_gpu, rear, rear, true));
+            EXPECT_TRUE(motion.DrawMesh(*selection_command, selection_gpu, front, front, false));
+            motion.End(*selection_command);
+            selection_command->End();
+            EXPECT_TRUE(selection_command->Submit());
+            device.WaitIdle();
+            const bool occluded_read = device.ReadTexture(*motion.OutputNormalTexture(), selection_pixels, static_cast<u32>(sizeof(selection_pixels)));
+            EXPECT_TRUE(occluded_read);
+            if (occluded_read) {
+                constexpr usize center = (32u * 64u + 32u) * 4u;
+                EXPECT_EQ(selection_pixels[center + 3u], static_cast<u16>(0u));
+            }
+        }
+    }
 
     CRefractionShader refraction;
     EXPECT_TRUE(refraction.Init(device, EFormat::R16G16B16A16_Float,
@@ -2176,6 +2605,80 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
 
     CVolumetricClouds clouds;
     EXPECT_TRUE(clouds.Init(device, EFormat::R16G16B16A16_Float).IsOk());
+    {
+        // 実行中backendで、画面用cloud ray-marchを壊さずに6面の環境を生成できることを
+        // shader compileだけでなく実際のcommand記録まで通して固定する。
+        FTextureDesc base_environment_desc{};
+        base_environment_desc.width = 64u;
+        base_environment_desc.height = 64u;
+        base_environment_desc.format = EFormat::R16G16B16A16_Float;
+        base_environment_desc.array_size = 6u;
+        base_environment_desc.is_cubemap = true;
+        base_environment_desc.is_render_target = true;
+        base_environment_desc.per_slice_rtv = true;
+        auto base_environment_result = CreateRhiTexture(
+            device, base_environment_desc);
+        auto cloud_command_result = CreateRhiCommandList(device);
+        EXPECT_TRUE(base_environment_result.IsOk());
+        EXPECT_TRUE(cloud_command_result.IsOk());
+        EXPECT_TRUE(clouds.EnsureSize(
+            device, 16u, 16u, 4.0f, true));
+        if (base_environment_result.IsOk()
+            && cloud_command_result.IsOk()) {
+            auto base_environment = Move(base_environment_result.Value());
+            auto cloud_command = Move(cloud_command_result.Value());
+            cloud_command->Begin();
+            const FClearColor clear_sky{
+                0.12f, 0.24f, 0.48f, 1.0f};
+            for (u32 face = 0u; face < 6u; ++face) {
+                cloud_command->BeginRenderToTextureSlice(
+                    *base_environment, face, 0u, clear_sky);
+            }
+            cloud_command->EndRenderToTexture(*base_environment);
+
+            CCamera cloud_camera;
+            cloud_camera.SetPerspective(
+                kPi / 3.0f, 1.0f, 0.5f, 60000.0f);
+            cloud_camera.SetLookAt(
+                FVec3{0.0f, 120.0f, -20.0f},
+                FVec3{0.0f, 120.0f, 1.0f});
+            clouds.RenderCompute(
+                *cloud_command,
+                Inverse(cloud_camera.ViewProjection()),
+                cloud_camera.Eye(),
+                FVec3{0.3f, 0.9f, 0.2f},
+                FVec3{5.0f, 4.5f, 4.0f},
+                FVec3{0.2f, 0.3f, 0.5f},
+                0.55f, 1.6f, 1.0f, 12.0f);
+            auto cloud_environment_result =
+                clouds.BuildEnvironmentCubemap(
+                    device, *cloud_command, *base_environment);
+            EXPECT_TRUE(cloud_environment_result.IsOk());
+            if (cloud_environment_result.IsOk()) {
+                IRhiTexture& cloud_environment =
+                    *cloud_environment_result.Value();
+                EXPECT_TRUE(cloud_environment.IsCubemap());
+                EXPECT_EQ(cloud_environment.ArraySize(), 6u);
+                EXPECT_EQ(cloud_environment.Width(), 64u);
+                EXPECT_EQ(cloud_environment.Height(), 64u);
+#if WITH_RENDER_DILIGENT
+                CImageBasedLighting cloud_ibl;
+                EXPECT_TRUE(
+                    cloud_ibl.RebuildDerivedMapsFromEnvironment(
+                        device, *cloud_command, cloud_environment)
+                    .IsOk());
+                EXPECT_TRUE(cloud_ibl.IrradianceMap() != nullptr);
+                EXPECT_TRUE(cloud_ibl.PrefilterMap() != nullptr);
+#endif
+                // Adapterと同じく、記録済みの一時sourceをSubmit前に解放する。
+                // rawとDiligentの遅延解放がGPU参照を保持することを実backendで固定する。
+                cloud_environment_result.Value().Reset();
+            }
+            cloud_command->End();
+            EXPECT_TRUE(cloud_command->Submit());
+            device.WaitIdle();
+        }
+    }
 
     // Keep the dedicated 3D-water VS displacement / normal-map / refraction
     // pipeline compiled on every active RHI backend. CPU ripple lifetime tests
@@ -3191,6 +3694,56 @@ ACS_TEST(PostEffects, FxaaUsesBoundedLongEdgeSearchAndSubpixelCoverage)
 
     EXPECT_TRUE(shader.find("float rcpDirMin") == std::string::npos);
     EXPECT_TRUE(shader.find("float3 rgbA") == std::string::npos);
+}
+
+ACS_TEST(PostEffects, FxaaRunsAfterTonemapWithoutDoubleApplyingTaa)
+{
+    const std::string header =
+        ReadWorkspaceSource("src/render/PostProcess.h");
+    const std::string source =
+        ReadWorkspaceSource("src/render/PostProcess.cpp");
+    EXPECT_TRUE(!header.empty());
+    EXPECT_TRUE(!source.empty());
+    if (header.empty() || source.empty()) return;
+
+    // 既定出力を変えず、利用者が PostParams から明示的に有効化する契約。
+    EXPECT_TRUE(header.find("bool fxaa_enabled = false;") !=
+                std::string::npos);
+    EXPECT_TRUE(source.find(
+        "CFxaa::CompileShaders(device, compile_async)") != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "CFxaa::CompileShadersCpu()") != std::string::npos);
+
+    const std::string render = ExtractFunction(
+        source, "void CPostProcess::Render");
+    const std::string tonemap = ExtractFunction(
+        source, "bool CPostProcess::Pass_Tonemap");
+    EXPECT_TRUE(!render.empty());
+    EXPECT_TRUE(!tonemap.empty());
+    if (render.empty() || tonemap.empty()) return;
+
+    // 有効な TAA 解像へ FXAA を重ねず、失敗時だけ空間AAへ戻す。
+    EXPECT_TRUE(render.find(
+        "safe_params.fxaa_enabled\n        && !m_TaaOutputValid") !=
+                std::string::npos);
+    EXPECT_TRUE(render.find("Pass_Tonemap(cmd, swapchain, buffer_index, safe_params, m_FxaaInput.Get()") != std::string::npos);
+    EXPECT_TRUE(render.find(
+        "m_Fxaa->Apply(cmd, *m_FxaaInput);") != std::string::npos);
+    EXPECT_EQ(
+        CountOccurrences(render, "m_Fxaa->Apply(cmd, *m_FxaaInput);"),
+        std::size_t{1});
+    EXPECT_TRUE(render.find(
+        "cmd.EndRenderToSwapchain(swapchain, buffer_index);") !=
+                std::string::npos);
+    EXPECT_TRUE(render.find("Pass_Tonemap(cmd, swapchain, buffer_index, safe_params, nullptr") != std::string::npos);
+
+    // FXAA用経路はトーンマップとガンマ補正のLDR中間へ描いてからswapchainを結び付ける。
+    EXPECT_TRUE(tonemap.find("cmd.BeginRenderToTexture(*ldr_target") != std::string::npos);
+    EXPECT_TRUE(tonemap.find(
+        "cmd.EndRenderToTexture(*ldr_target);") != std::string::npos);
+    EXPECT_TRUE(tonemap.find("cmd.BeginRenderToSwapchain(sc, buf_idx") != std::string::npos);
+    EXPECT_TRUE(tonemap.find(
+        "cmd.EndRenderToSwapchain(sc, buf_idx);") != std::string::npos);
 }
 
 ACS_TEST(PostEffects, SubsurfaceAuthoringParamsRejectUnsafeValues)

@@ -647,6 +647,18 @@ bool CDx12Device::IsOperational() const noexcept
            SUCCEEDED(m_Device->GetDeviceRemovedReason());
 }
 
+bool CDx12Device::TryGetD3D12Interop(
+    FRhiD3D12DeviceInterop& out) const noexcept
+{
+    out = {};
+    if (m_Device == nullptr || m_GfxQueue == nullptr) return false;
+
+    out.Device = static_cast<void*>(m_Device);
+    out.GraphicsQueue = static_cast<void*>(m_GfxQueue);
+    out.FramesInFlight = kFramesInFlight;
+    return out.IsValid();
+}
+
 u64 CDx12Device::SignalGraphicsQueueLocked() noexcept
 {
     if (!m_GfxQueue || !m_IdleFence) return 0;

@@ -157,7 +157,6 @@ CSprite3DRenderer::BeginCompileShadersAsync(IRhiDevice& device) noexcept
 
 TResult<void> CSprite3DRenderer::InitWithCompiledShaders(IRhiDevice& device, FCompiledShaders&& shaders, EFormat render_target_format, EFormat depth_format, u32 max_sprite_count) noexcept
 {
-    constexpr u32 kMaximumSpriteCount = 65536u;
     if (shaders.Status() != EShaderStatus::Ready) {
         return ACS_ERR(Render, 784, "3D sprite shader set is not ready");
     }
@@ -223,6 +222,46 @@ TResult<void> CSprite3DRenderer::InitWithCompiledShaders(IRhiDevice& device, FCo
     m_PixelShader = Move(shaders.Pixel);
     m_Vertices = Move(vertices);
     m_MaxSpriteCount = max_sprite_count;
+    return Ok();
+}
+
+TResult<void> CSprite3DRenderer::EnsureCapacity(IRhiDevice& device, u32 required_sprite_count) noexcept
+{
+    if (required_sprite_count <= m_MaxSpriteCount) return Ok();
+    if (!m_Pipeline || !m_VertexBuffer || required_sprite_count > kMaximumSpriteCount) {
+        return ACS_ERR(Render, 788, "3D sprite capacity input is invalid");
+    }
+
+    // 追加のたびに再生成しないよう2倍ずつ増やし、公開上限で止める。
+    u32 grown_capacity = m_MaxSpriteCount > 0u ? m_MaxSpriteCount : 1u;
+    while (grown_capacity < required_sprite_count) {
+        if (grown_capacity > kMaximumSpriteCount / 2u) {
+            grown_capacity = kMaximumSpriteCount;
+            break;
+        }
+        grown_capacity *= 2u;
+    }
+    if (static_cast<usize>(grown_capacity) > TNumLimits<usize>::Max() / (6u * sizeof(FVertex))) {
+        return ACS_ERR(Render, 789, "3D sprite grown vertex capacity overflows");
+    }
+
+    TArray<FVertex> vertices(*m_Vertices.GetAllocator());
+    if (!vertices.TryReserve(static_cast<usize>(grown_capacity) * 6u)) {
+        return ACS_ERR(Memory, 790, "3D sprite grown CPU vertex allocation failed");
+    }
+
+    FBufferDesc vertex_description{};
+    vertex_description.size =
+        static_cast<usize>(grown_capacity) * 6u * sizeof(FVertex);
+    vertex_description.usage = EBufferUsage::Vertex;
+    vertex_description.cpu_writable = true;
+    auto vertex_result = CreateRhiBuffer(device, vertex_description);
+    if (vertex_result.IsErr()) return Err<void>(vertex_result.Error());
+
+    // CPU/GPU候補が両方揃った後だけ公開し、失敗時は従来容量を維持する。
+    m_VertexBuffer = Move(vertex_result.Value());
+    m_Vertices = Move(vertices);
+    m_MaxSpriteCount = grown_capacity;
     return Ok();
 }
 

@@ -1266,9 +1266,52 @@ public:
     }
 
     /**
+     * 環境光へ焼く雲設定の決定論的な署名を返す。
+     *
+     * @details 形状、照明、固定方向の太陽放射輝度、空色、大気透過率、被覆、密度、
+     * 風速を含むが、連続する時刻は含めない。連続補間値は見た目に届く単位へ量子化し、
+     * 雲の移流や微小差だけで高価なIBLを毎frame作り直さない。同じ正規化・量子化済み
+     * 入力なら同じ値を返す。
+     * @param coverage 空を覆う割合。
+     * @param density 雲の濃さ。
+     * @param wind 風速。
+     * @return 比較用の32bit署名。0は予約値なので返さない。
+     */
+    u32 EnvironmentLightingSignature(
+        f32 coverage, f32 density, f32 wind) const noexcept;
+
+    /**
+     * 連続変化中の環境光を更新してよい固定間隔のframeかを返す。
+     *
+     * @details 成功した雲computeのsubmission番号を渡す。0と間隔外ではfalse、
+     * 固定間隔ごとにtrueを返すため、補間中も高価なcubemap生成を毎frame実行しない。
+     * 初回有効化、無効化、base環境の変更は呼び側がこの間隔を待たず処理する。
+     * @param submission_index 成功した雲computeを数える`LastFrameWorkload().submission_index`。
+     * @return 定期更新frameならtrue。
+     */
+    static bool IsEnvironmentLightingRefreshFrame(u64 submission_index) noexcept;
+
+    /**
+     * 直近の成功した雲frameを、表示用の空と合成した一時環境cubemapへ描く。
+     *
+     * @details 画面用履歴や雲影を変更せず、同じ形状noise、weather、侵食、照明を使って
+     * 6方向を決定論的にray marchする。表示用base_environment自体は変更しない。
+     * @param device 一時描画資源を作る装置。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param base_environment 雲なしの表示用cubemap。
+     * @return 成功なら所有権付き一時cubemap。資源不足や有効な雲frameがなければエラー。
+     */
+    TResult<TUniquePtr<IRhiTexture>> BuildEnvironmentCubemap(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& base_environment) noexcept;
+
+    /**
      * 雲を計算シェーダーで追跡し、内部テクスチャへ書く既存互換入口。
-     * 描画処理の外側で呼ぶ。遠方座標では、より高精度な
-     * RenderComputeCameraRelative() を使う。
+     *
+     * @details 描画処理の外側で呼ぶ。Ultraは毎フレーム1/4幅・1/4高さの全画素を更新し、
+     * 4x4領域内の等倍画素へ16位相で割り当てる。カメラ移動と履歴無効化でも等倍追跡へ
+     * 切り替えず、未更新画素は位置・深度履歴、初回と遮蔽解除は空間再構成で解決する。
+     * 遠方座標では、より高精度なRenderComputeCameraRelative()を使う。
      */
     void RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
                        FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color,

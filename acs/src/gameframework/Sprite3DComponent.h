@@ -32,10 +32,10 @@ public:
     /** 所有している画像アセットを返す。 */
     const TSharedPtr<AAsset>& ImageAsset() const noexcept;
 
-    /** デコード済み画像を所有している場合にtrueを返す。 */
+    /** 画像として指定されたアセット参照を所有している場合にtrueを返す。 */
     bool HasImageAsset() const noexcept;
 
-    /** 所有画像をAImageAssetとして返し、未設定ならnullptrを返す。 */
+    /** 所有画像をAImageAssetとして返し、未設定または別型ならnullptrを返す。 */
     AImageAsset* Image() const noexcept;
 
     /** ローカルXY単位板の最小座標と最大座標を返す。 */

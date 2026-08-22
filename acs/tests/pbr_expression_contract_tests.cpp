@@ -2,6 +2,7 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 
+#include "gameframework/LegacyScene3DAdapter.h"
 #include "render/PbrShader.h"
 #include "render/SubstrateExpression.h"
 #include "render/SubstrateMaterial.h"
@@ -17,55 +18,36 @@ using namespace acs;
 
 namespace {
 
-std::string ReadPbrShaderSource() {
+/** 雲天候制御を含む現在のWin64公開配置。環境光倍率は末尾余白内に保持する。 */
+constexpr usize kLegacyScene3DAdapterLayoutSize = 377408u;
+
+std::string ReadPbrWorkspaceSource(const char* relative_path) {
     const std::filesystem::path test_file{__FILE__};
     const std::filesystem::path source_path =
         test_file.parent_path().parent_path() /
-        "src" / "render" / "PbrShader.cpp";
+        std::filesystem::path{relative_path};
     std::ifstream stream(source_path, std::ios::binary);
     if (!stream) {
         stream.open(
-            std::filesystem::path{"acs"} / "src" /
-            "render" / "PbrShader.cpp",
+            std::filesystem::path{"acs"} /
+            std::filesystem::path{relative_path},
             std::ios::binary);
     }
     return std::string{
         std::istreambuf_iterator<char>{stream},
         std::istreambuf_iterator<char>{}};
+}
+
+std::string ReadPbrShaderSource() {
+    return ReadPbrWorkspaceSource("src/render/PbrShader.cpp");
 }
 
 std::string ReadEditorAbiSource() {
-    const std::filesystem::path test_file{__FILE__};
-    const std::filesystem::path source_path =
-        test_file.parent_path().parent_path() /
-        "src" / "editor_abi" / "EditorAbi.cpp";
-    std::ifstream stream(source_path, std::ios::binary);
-    if (!stream) {
-        stream.open(
-            std::filesystem::path{"acs"} / "src" /
-            "editor_abi" / "EditorAbi.cpp",
-            std::ios::binary);
-    }
-    return std::string{
-        std::istreambuf_iterator<char>{stream},
-        std::istreambuf_iterator<char>{}};
+    return ReadPbrWorkspaceSource("src/editor_abi/EditorAbi.cpp");
 }
 
 std::string ReadIblSource() {
-    const std::filesystem::path test_file{__FILE__};
-    const std::filesystem::path source_path =
-        test_file.parent_path().parent_path() /
-        "src" / "render" / "Ibl.cpp";
-    std::ifstream stream(source_path, std::ios::binary);
-    if (!stream) {
-        stream.open(
-            std::filesystem::path{"acs"} / "src" /
-            "render" / "Ibl.cpp",
-            std::ios::binary);
-    }
-    return std::string{
-        std::istreambuf_iterator<char>{stream},
-        std::istreambuf_iterator<char>{}};
+    return ReadPbrWorkspaceSource("src/render/Ibl.cpp");
 }
 
 bool Contains(const std::string& text, const char* token) {
@@ -113,6 +95,90 @@ ACS_TEST(PbrExpressionContract, FlatGpuAbiRemainsBoundedAndAligned) {
         EXPECT_TRUE(name != nullptr);
         EXPECT_TRUE(std::string{name} != "Unknown");
     }
+}
+
+ACS_TEST(PbrEnvironmentLight, ValidatesMultiplierAndPreservesPublicLayouts) {
+    CPbrShader shader;
+    EXPECT_NEAR(shader.IblLightMultiplier(), 1.0f, 1.0e-6f);
+    shader.SetIblLightMultiplier(0.35f);
+    EXPECT_NEAR(shader.IblLightMultiplier(), 0.35f, 1.0e-6f);
+    shader.SetIblLightMultiplier(-1.0f);
+    EXPECT_NEAR(shader.IblLightMultiplier(), 0.35f, 1.0e-6f);
+    shader.SetIblLightMultiplier(std::numeric_limits<f32>::quiet_NaN());
+    EXPECT_NEAR(shader.IblLightMultiplier(), 0.35f, 1.0e-6f);
+    shader.SetIblLightMultiplier(std::numeric_limits<f32>::infinity());
+    EXPECT_NEAR(shader.IblLightMultiplier(), 0.35f, 1.0e-6f);
+    shader.SetIblLightMultiplier(0.0f);
+    EXPECT_NEAR(shader.IblLightMultiplier(), 0.0f, 1.0e-6f);
+
+    game::ALegacyScene3DAdapter scene;
+    EXPECT_NEAR(scene.EnvironmentLightMultiplier(), 1.0f, 1.0e-6f);
+    scene.SetEnvironmentLightMultiplier(0.42f);
+    EXPECT_NEAR(scene.EnvironmentLightMultiplier(), 0.42f, 1.0e-6f);
+    scene.SetEnvironmentLightMultiplier(-0.5f);
+    scene.SetEnvironmentLightMultiplier(
+        std::numeric_limits<f32>::quiet_NaN());
+    scene.SetEnvironmentLightMultiplier(
+        std::numeric_limits<f32>::infinity());
+    EXPECT_NEAR(scene.EnvironmentLightMultiplier(), 0.42f, 1.0e-6f);
+
+#if defined(_WIN64)
+    EXPECT_EQ(sizeof(CPbrShader), static_cast<usize>(7136u));
+    EXPECT_EQ(
+        sizeof(game::ALegacyScene3DAdapter),
+        kLegacyScene3DAdapterLayoutSize);
+#endif
+}
+
+ACS_TEST(PbrEnvironmentLight, OnlyEnvironmentDerivedTermsUseMultiplier) {
+    const std::string source = ReadPbrShaderSource();
+    const std::string legacy = ReadPbrWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string legacy_header = ReadPbrWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.h");
+    EXPECT_FALSE(source.empty());
+    EXPECT_FALSE(legacy.empty());
+    EXPECT_FALSE(legacy_header.empty());
+
+    EXPECT_TRUE(Contains(
+        source,
+        "w=environment_light_multiplier"));
+    EXPECT_TRUE(Contains(
+        source,
+        "float environment_light_multiplier = max(ibl_params.w, 0.0);"));
+    EXPECT_TRUE(Contains(
+        source,
+        "irr *= environment_light_multiplier;"));
+    EXPECT_TRUE(Contains(
+        source,
+        "prefilt *= environment_light_multiplier;"));
+    EXPECT_TRUE(Contains(
+        source,
+        "secondPrefilt *= environment_light_multiplier;"));
+    EXPECT_TRUE(Contains(
+        source,
+        "lerp(prefilt, ssr_radiance, saturate(ssr_weight))"));
+    EXPECT_TRUE(Contains(
+        source,
+        "ambient.xyz * albedo_rgb * ao * ssao_factor"));
+    EXPECT_TRUE(Contains(
+        source,
+        "m_bSh9Enabled ? 1.0f : 0.0f,\n        m_IblLightMultiplier"));
+    EXPECT_FALSE(Contains(source, "ssr_radiance * environment_light_multiplier"));
+    EXPECT_FALSE(Contains(source, "gi * environment_light_multiplier"));
+    EXPECT_FALSE(Contains(source, "light_lit * environment_light_multiplier"));
+    EXPECT_FALSE(Contains(source, "emissive * environment_light_multiplier"));
+
+    EXPECT_TRUE(Contains(
+        legacy,
+        "shader.SetIblLightMultiplier(EnvironmentLightMultiplier());"));
+    EXPECT_TRUE(Contains(
+        legacy_header,
+        "void SetEnvironmentLightMultiplier(f32 multiplier) noexcept;"));
+    EXPECT_FALSE(Contains(
+        legacy_header,
+        "virtual void SetEnvironmentLightMultiplier"));
+    EXPECT_FALSE(Contains(legacy_header, "friend "));
 }
 
 ACS_TEST(PbrExpressionContract, ShaderSourceMatchesExpressionVmContract) {

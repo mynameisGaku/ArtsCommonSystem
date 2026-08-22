@@ -74,6 +74,19 @@ public:
     void Play(u32 index, bool loop = true) noexcept;
 
     /**
+     * 現在姿勢から指定番号のアニメーションへ滑らかに切り替える。
+     *
+     * @details 0秒はPlayと同じ即時切替。mesh未設定、範囲外index、非有限または負の期間では
+     * 現在の再生を変更しない。進行中の遷移へ新しい遷移を重ねる要求も拒否し、
+     * 現在の姿勢と再生状態を維持する。呼び出し側は遷移完了後に再試行できる。
+     * @param index 切替先のclip番号。
+     * @param blend_seconds 姿勢を混ぜる有限かつ0以上の秒数。
+     * @param loop 切替先を繰り返すならtrue。
+     * @return 切替要求を受理したらtrue。
+     */
+    bool BlendTo(u32 index, f32 blend_seconds, bool loop = true) noexcept;
+
+    /**
      * 名前でアニメーションを探して再生する。
      *
      * @details
@@ -84,6 +97,18 @@ public:
      * @return 見つかって再生を始めたら true。
      */
     bool PlayByName(FStringView name, bool loop = true) noexcept;
+
+    /**
+     * 名前でアニメーションを探し、現在姿勢から滑らかに切り替える。
+     *
+     * @details 進行中の遷移へ新しい遷移を重ねる要求は拒否し、現在の姿勢と再生状態を維持する。
+     * 呼び出し側は遷移完了後に再試行できる。
+     * @param name 切替先のclip名。
+     * @param blend_seconds 姿勢を混ぜる有限かつ0以上の秒数。
+     * @param loop 切替先を繰り返すならtrue。
+     * @return clipが見つかり、切替要求を受理したらtrue。
+     */
+    bool BlendToByName(FStringView name, f32 blend_seconds, bool loop = true) noexcept;
 
     /** 再生を止める (姿勢はその場に残る)。 */
     void Pause() noexcept;
@@ -133,6 +158,9 @@ public:
     bool IsAdvancing() const noexcept { return m_Advancing; }
 
 private:
+    /** 名前が一致するclip番号を探し、見つかった場合だけout_indexへ書く。 */
+    bool FindAnimationByName_Internal(FStringView name, u32& out_index) const noexcept;
+
     /** 骨付きメッシュ (所有を分け合う)。 */
     TSharedPtr<ASkinnedMeshAsset> m_Mesh;
 

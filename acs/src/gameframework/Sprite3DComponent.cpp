@@ -44,7 +44,9 @@ bool ASprite3DComponent::HasImageAsset() const noexcept
 
 AImageAsset* ASprite3DComponent::Image() const noexcept
 {
-    return static_cast<AImageAsset*>(m_ImageAsset.Get());
+    AAsset* const asset = m_ImageAsset.Get();
+    return asset != nullptr && asset->Type() == AImageAsset::StaticType()
+        ? static_cast<AImageAsset*>(asset) : nullptr;
 }
 
 void ASprite3DComponent::LocalBounds(FVec3& minimum, FVec3& maximum) const noexcept

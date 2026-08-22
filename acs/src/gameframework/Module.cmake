@@ -24,6 +24,7 @@ set(_acsgen_gameframework_sources
     CheckpointSystem.cpp
     CinematicsDirector.cpp
     CollisionWorld2D.cpp
+    CollisionWorld3D.cpp
     CombatStateMachine.cpp
     ComponentFactory.cpp
     ContentModerator.cpp
@@ -128,6 +129,7 @@ set(_acsgen_gameframework_sources
     SocialModeration.cpp
     SpatialAudio.cpp
     Spawn2DSubsystem.cpp
+    SpherePenetrationResolution3D.cpp
     Sprite2DComponent.cpp
     Sprite3DComponent.cpp
     SpriteAnimComponent.cpp
@@ -160,6 +162,7 @@ set(_acsgen_gameframework_sources
     cinematics/CCinematicPlayer.cpp
     cinematics/FCinematicDirectorBridge.cpp
     cinetimeline/CCinematicTimelineDocument.cpp
+    collision/KinematicCharacterMovement3D.cpp
 )
 set(_acsgen_gameframework_headers
     AComponent.h
@@ -189,7 +192,11 @@ set(_acsgen_gameframework_headers
     CheckpointSystem.h
     CinematicsDirector.h
     Clock.h
+    CollisionPenetration3D.h
+    CollisionShapeId3D.h
+    CollisionSweepHit3D.h
     CollisionWorld2D.h
+    CollisionWorld3D.h
     CombatStateMachine.h
     ComponentFactory.h
     ContentModerator.h
@@ -302,6 +309,8 @@ set(_acsgen_gameframework_headers
     SaveArchive.h
     SaveSlot.h
     Scene.h
+    Scene3DGlobalIllumination.h
+    Scene3DRaycastHit.h
     Scene3DSerialize.h
     SceneCommandQueue.h
     SceneEventBus.h
@@ -324,6 +333,7 @@ set(_acsgen_gameframework_headers
     SpatialAudio.h
     SpatialAudio2D.h
     Spawn2DSubsystem.h
+    SpherePenetrationResolution3D.h
     Sprite2DComponent.h
     Sprite3DComponent.h
     SpriteAnimComponent.h
@@ -370,6 +380,11 @@ set(_acsgen_gameframework_headers
     cinetimeline/CCinematicTimelineDocument.h
     cinetimeline/ECinematicTimelineKeyKind.h
     cinetimeline/FCinematicTimelineKeyframe.h
+    collision/KinematicCharacterMovement3D.h
+    collision/KinematicCharacterMovementInput3D.h
+    collision/KinematicCharacterMovementParams3D.h
+    collision/KinematicCharacterMovementResult3D.h
+    collision/KinematicCharacterState3D.h
 )
 set(_acsgen_gameframework_public_deps
     Foundation

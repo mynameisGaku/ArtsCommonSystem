@@ -1,11 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — CSceneNodeGraph
-//
-// root ANode ツリーと CNodePool をまとめて所有する、シーン文脈非依存のノードグラフ。
-// AScene が正規のシーングラフとして保持するほか、checked loader や editor の staging の
-// ようにスタック上へ一時グラフを構築する用途でも使う。
-// CSubsystemCollection / CSceneServices を一切持たないため、一時グラフがシーン文脈を
-// 抱え込むことはない。
 #pragma once
 
 #include "foundation/Types.h"
@@ -14,6 +7,7 @@
 #include "gameframework/ANode.h"
 #include "gameframework/NodePool.h"
 #include "gameframework/NodeId.h"
+#include "gameframework/Scene3DRaycastHit.h"
 
 namespace acs {
 
@@ -268,6 +262,20 @@ public:
      * @return 区間内で最も手前の有効な描画形状node。入力不正または外れはinvalid。
      */
     FNodeId RaycastGeometryActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, f32* out_t = nullptr) const noexcept;
+
+    /**
+     * 有効かつ可視な描画形状を厳密にraycastし、world-space命中情報を返す。
+     *
+     * @details spriteが同じnodeのmesh表示を上書きする描画契約、親のVisible/Enabled、階層transformを
+     * 反映する。Cube、Sphere、有限Plane、runtime mesh triangleを厳密判定し、非一様scaleを受けた
+     * 法線はinverse-transposeでworld空間へ戻す。失敗時はout_hitを変更しない。
+     * @param ray world空間ray。距離としてTを使う場合はdirectionを正規化する。
+     * @param minimum_t 含める最小T。有限かつ0以上。
+     * @param maximum_t 含める最大T。有限かつminimum_t以上。
+     * @param out_hit 最近hitのnode、T、world命中点、world法線の書き込み先。
+     * @return 命中情報を書き込めた場合だけtrue。
+     */
+    bool TryRaycastGeometryActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, FScene3DRaycastHit& out_hit) const noexcept;
 
     /**
      * 有効かつ可視なmesh boundsへworld空間の球を指定t区間だけsweepする。

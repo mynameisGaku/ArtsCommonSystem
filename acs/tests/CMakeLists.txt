@@ -136,6 +136,7 @@ add_executable(acs_unit_tests
     collider_tests.cpp
     crypto_tests.cpp
     render_tests.cpp
+    sprite_batch_upload_tests.cpp
     sky_sun_profile_tests.cpp
     true_hdri_light_data_tests.cpp
     weather_system_tests.cpp
@@ -148,6 +149,7 @@ add_executable(acs_unit_tests
     post_effect_quality_tests.cpp
     post_effect_workload_tests.cpp
     node3d_tests.cpp
+    skinned_mesh_animation_blend_tests.cpp
     legacy_scene3d_water_runtime_tests.cpp
     subsystem_tests.cpp
     provider_thread_safety_tests.cpp
@@ -186,6 +188,9 @@ add_executable(acs_unit_tests
     light_collector3d_tests.cpp
     camerastack_tests.cpp
     collisionworld2d_tests.cpp
+    collisionworld3d_tests.cpp
+    kinematic_character_movement3d_tests.cpp
+    sphere_penetration_resolution3d_tests.cpp
     particleeffect_tests.cpp
     water2d_ripple_lifetime_tests.cpp
     water3d_ripple_lifetime_tests.cpp
@@ -381,6 +386,34 @@ target_link_libraries(acs_animation_player_update_safety_tests PRIVATE
 )
 add_test(NAME ACS.AnimationPlayerUpdateSafety COMMAND acs_animation_player_update_safety_tests)
 set_tests_properties(ACS.AnimationPlayerUpdateSafety PROPERTIES LABELS "Asset;Animation;Safety;Compatibility" TIMEOUT 60)
+
+# 骨格animationのローカルTRS cross-fadeとcomponent公開窓口を検証する。
+add_executable(acs_skinned_mesh_animation_blend_tests
+    main.cpp
+    skinned_mesh_animation_blend_tests.cpp
+)
+set_target_properties(acs_skinned_mesh_animation_blend_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_skinned_mesh_animation_blend_tests)
+target_link_libraries(acs_skinned_mesh_animation_blend_tests PRIVATE
+    ACS::GameFramework
+    ACS::Test
+)
+add_test(NAME ACS.SkinnedMeshAnimationBlend COMMAND acs_skinned_mesh_animation_blend_tests)
+set_tests_properties(ACS.SkinnedMeshAnimationBlend PROPERTIES LABELS "Asset;GameFramework;Animation;Compatibility" TIMEOUT 60)
+
+# sphere型kinematic characterの接地、slide、filter、失敗時不変性を独立して反復する。
+add_executable(acs_kinematic_character_movement3d_tests
+    main.cpp
+    kinematic_character_movement3d_tests.cpp
+)
+set_target_properties(acs_kinematic_character_movement3d_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_kinematic_character_movement3d_tests)
+target_link_libraries(acs_kinematic_character_movement3d_tests PRIVATE
+    ACS::GameFramework
+    ACS::Test
+)
+add_test(NAME ACS.KinematicCharacterMovement3D COMMAND acs_kinematic_character_movement3d_tests)
+set_tests_properties(ACS.KinematicCharacterMovement3D PROPERTIES LABELS "GameFramework;Collision;Safety;Determinism" TIMEOUT 60)
 
 # FBX loaderのcount検査、OOM時の一括破棄、旧geometry順を独立して反復する。
 add_executable(acs_fbx_loader_transactional_tests

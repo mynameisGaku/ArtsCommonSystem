@@ -21,7 +21,7 @@ namespace acs::game {
  * screen shake は 2D と同じ Eiserloh trauma 方式 (trauma² * amplitude * noise)。
  * `EffectiveEye()` / `EffectiveLookAt()` = 追従結果 + shake offset をレンダラーが使う。
  *
- * `IShakeTarget` を実装しているので `FCameraShakePresets::ApplyPreset` をそのまま渡せる。
+ * `IShakeTarget` を実装しているので `CCameraShakePresets::ApplyPreset` をそのまま渡せる。
  *
  * 軌道カメラ (yaw/pitch/距離) が要るだけなら math/CameraRig.h の `MakeOrbitCamera` を使う。
  * こちらは**時間で変化する状態**を持つ場合のもの。
@@ -36,10 +36,9 @@ namespace acs::game {
  * cam.SetTargetPos(player_pos);
  * cam.Tick(dt);
  * cam.ApplyTo(render_camera, aspect);
- *
- * // 爆発したとき
- * FCameraShakePresets::ApplyPreset(cam, EShakePreset::ExplosionLarge);
  * @endcode
+ *
+ * 爆発時は `CCameraShakePresets::ApplyPreset(cam, EShakePreset::ExplosionLarge)` を呼ぶ。
  */
 class CCamera3D : public IShakeTarget {
 public:

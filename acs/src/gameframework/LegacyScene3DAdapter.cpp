@@ -26,6 +26,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 namespace acs::game {
 
@@ -39,6 +40,10 @@ constexpr FVec3 kDefaultSunColor{1.55f, 1.48f, 1.36f};
 constexpr FVec3 kDefaultSkySunColor{1.0f, 0.95f, 0.85f};
 constexpr FVec3 kDefaultWaterSunColor{4.8f, 4.35f, 3.9f};
 constexpr FVec3 kDefaultAmbient{0.055f, 0.075f, 0.11f};
+
+// runtime生成nodeの-1と区別する、明示orbit camera専用の予約値。
+constexpr i32 kExplicitOrbitCameraNodeId =
+    std::numeric_limits<i32>::min();
 
 // 水面は同じ太陽をより強く受ける。シーンの光を使うときはこの倍率を掛ける
 // (既定値どうしの比がおよそこの値)。
@@ -66,9 +71,51 @@ constexpr u32 kAtmosphereCpuEquirectHeight = 256u;
 constexpr f32 kAtmosphereDefaultIntensity = 2.35f;
 constexpr f32 kAtmosphereRadianceAtDefault = 22.0f;
 
+// Legacy 3D の world 単位はメートル。既存 Editor 経路と同じ 250 km の体積へ換算する。
+constexpr f32 kAerialPerspectiveSceneToKilometers = 0.001f;
+constexpr f32 kAerialPerspectiveMaxDistance = kVolumetricCloudMaxDistance;
+
 // 太陽ディスク。実際の太陽の角半径 (0.2666 度) と、ディスクを空より強く出す倍率。
 constexpr f32 kSunAngularRadius = 0.004653f;
 constexpr f32 kSunDiscRadianceScale = 30.0f;
+
+/** Adapterのlayoutを増やさず、選択subtree rootへ一時設定を所有させる内部component。 */
+class ASelectionHighlightMarker3D final : public AComponent {
+public:
+    /** 実行時検索だけに使う型識別子を返す。 */
+    const void* Kind() const noexcept override {
+        return ComponentKindOf<ASelectionHighlightMarker3D>();
+    }
+
+    /** scene保存・archiveへ出力しない実行時専用componentであることを返す。 */
+    const char* ReflectName() const noexcept override { return nullptr; }
+
+    /** 検証済みの輪郭設定を置き換える。 */
+    void Set(FVec3 color, f32 intensity, f32 thickness_pixels) noexcept {
+        m_Color = color;
+        m_Intensity = intensity;
+        m_ThicknessPixels = thickness_pixels;
+    }
+
+    /** sRGB表示域の輪郭色を返す。 */
+    FVec3 Color() const noexcept { return m_Color; }
+
+    /** 輪郭の強さを返す。 */
+    f32 Intensity() const noexcept { return m_Intensity; }
+
+    /** pixel単位の輪郭幅を返す。 */
+    f32 ThicknessPixels() const noexcept { return m_ThicknessPixels; }
+
+private:
+    /** sRGB表示域の輪郭色。 */
+    FVec3 m_Color{1.0f, 0.66f, 0.16f};
+
+    /** 輪郭の強さ。 */
+    f32 m_Intensity = 1.0f;
+
+    /** pixel単位の輪郭幅。 */
+    f32 m_ThicknessPixels = 2.0f;
+};
 
 AMeshComponent3D* FindMesh(ANode& node) noexcept {
     const void* kind = ComponentKindOf<AMeshComponent3D>();
@@ -183,6 +230,88 @@ bool IsEffectivelyActive(const ANode& node) noexcept {
         if (++depth > kNodeMaxTreeDepth) return false;
     }
     return true;
+}
+
+/** const nodeから実行時専用の選択輪郭markerを探す。 */
+const ASelectionHighlightMarker3D* FindSelectionHighlightMarker_Internal(const ANode& node) noexcept {
+    const void* kind = ComponentKindOf<ASelectionHighlightMarker3D>();
+    for (u32 index = 0u; index < node.ComponentCount(); ++index) {
+        const AComponent* component = node.ComponentAt(index);
+        if (component != nullptr && component->Kind() == kind) {
+            return static_cast<const ASelectionHighlightMarker3D*>(component);
+        }
+    }
+    return nullptr;
+}
+
+/** 選択輪郭設定をnode順の決定論的DFSで探す。 */
+const ASelectionHighlightMarker3D* FindSelectionHighlight_Internal(const ANode& node, const ANode*& owner, u32 depth = 0u) noexcept {
+    if (depth > kNodeMaxTreeDepth) return nullptr;
+    if (const ASelectionHighlightMarker3D* marker = FindSelectionHighlightMarker_Internal(node)) {
+        owner = &node;
+        return marker;
+    }
+    for (u32 index = 0u; index < node.ChildCount(); ++index) {
+        const ANode* child = node.Child(index);
+        if (child == nullptr) continue;
+        if (const ASelectionHighlightMarker3D* marker = FindSelectionHighlight_Internal(*child, owner, depth + 1u)) {
+            return marker;
+        }
+    }
+    return nullptr;
+}
+
+/** 選択設定の所有nodeが破棄予約を含まず、現在のgraphに属するかを返す。 */
+bool IsSelectionHighlightOwnerLive_Internal(const CSceneNodeGraph& graph, const ANode& owner) noexcept {
+    if (!graph.IsValid(owner.Id())) return false;
+    const ANode* current = &owner;
+    u32 depth = 0u;
+    while (current != nullptr) {
+        if (current->IsPendingDestroy()) return false;
+        current = current->Parent();
+        if (++depth > kNodeMaxTreeDepth) return false;
+    }
+    return true;
+}
+
+/** keep以外の選択輪郭markerをsubtreeから除去する。 */
+void RemoveSelectionHighlights_Internal(ANode& node, const ANode* keep, u32 depth = 0u) noexcept {
+    if (depth > kNodeMaxTreeDepth) return;
+    if (&node != keep) {
+        (void)node.RemoveComponent<ASelectionHighlightMarker3D>();
+    }
+    for (u32 index = 0u; index < node.ChildCount(); ++index) {
+        ANode* child = node.Child(index);
+        if (child != nullptr) {
+            RemoveSelectionHighlights_Internal(*child, keep, depth + 1u);
+        }
+    }
+}
+
+/** nodeが可視・有効な選択subtreeに含まれるかを返す。 */
+bool IsSelectionHighlightedNode_Internal(const ANode& node) noexcept {
+    if (!IsEffectivelyActive(node)) return false;
+    const ANode* current = &node;
+    u32 depth = 0u;
+    while (current != nullptr) {
+        if (FindSelectionHighlightMarker_Internal(*current) != nullptr) {
+            return true;
+        }
+        current = current->Parent();
+        if (++depth > kNodeMaxTreeDepth) return false;
+    }
+    return false;
+}
+
+/** 可視・有効な選択輪郭設定と所有nodeを返す。 */
+const ASelectionHighlightMarker3D* FindRenderableSelectionHighlight_Internal(const ANode& root, const ANode*& owner) noexcept {
+    owner = nullptr;
+    const ASelectionHighlightMarker3D* marker = FindSelectionHighlight_Internal(root, owner);
+    if (marker == nullptr || owner == nullptr || !IsEffectivelyActive(*owner)) {
+        owner = nullptr;
+        return nullptr;
+    }
+    return marker;
 }
 
 bool IsEffectivelyEnabled(const ANode& node) noexcept {
@@ -425,6 +554,43 @@ ALegacyScene3DAdapter::~ALegacyScene3DAdapter() noexcept {
     JoinCpuCompileWorkers();
 }
 
+/** 有限かつ 0 以上の値だけを受理し、場面の環境光倍率を更新する。 */
+void ALegacyScene3DAdapter::SetEnvironmentLightMultiplier(f32 multiplier) noexcept
+{
+    if (!std::isfinite(multiplier) || multiplier < 0.0f) return;
+    m_EnvironmentLightMultiplier = multiplier;
+}
+
+bool ALegacyScene3DAdapter::SetSelectionHighlight(FNodeId subtree_root, FVec3 color, f32 intensity, f32 thickness_pixels) noexcept {
+    // 範囲比較はNaN/infも拒否する。失敗時は既存markerへ一切触れない。
+    if (!subtree_root.IsValid() || !Finite(color) || color.x < 0.0f || color.x > 1.0f || color.y < 0.0f || color.y > 1.0f || color.z < 0.0f || color.z > 1.0f || !(intensity > 0.0f) || intensity > 4.0f || !(thickness_pixels > 0.0f) || thickness_pixels > 4.0f) {
+        return false;
+    }
+    ANode* target = Graph().Get(subtree_root);
+    if (target == nullptr || !IsSelectionHighlightOwnerLive_Internal(Graph(), *target)) {
+        return false;
+    }
+
+    ASelectionHighlightMarker3D& marker =
+        target->GetOrAddComponent<ASelectionHighlightMarker3D>();
+    marker.Set(color, intensity, thickness_pixels);
+    RemoveSelectionHighlights_Internal(Graph().Root(), target);
+    return true;
+}
+
+void ALegacyScene3DAdapter::ClearSelectionHighlight() noexcept {
+    RemoveSelectionHighlights_Internal(Graph().Root(), nullptr);
+}
+
+FNodeId ALegacyScene3DAdapter::SelectionHighlightNode() const noexcept {
+    const ANode* owner = nullptr;
+    const ASelectionHighlightMarker3D* marker =
+        FindSelectionHighlight_Internal(Graph().Root(), owner);
+    return marker != nullptr && owner != nullptr
+            && IsSelectionHighlightOwnerLive_Internal(Graph(), *owner)
+        ? owner->Id() : FNodeId{};
+}
+
 FScene3DLoadResult ALegacyScene3DAdapter::LoadFile(const char* path) noexcept {
     if (m_GpuReady || m_GpuAttempted) DrainAndReleaseGpu();
     m_LoadResult = TryLoadScene3DFile(Graph(), path);
@@ -471,10 +637,28 @@ void ALegacyScene3DAdapter::AdoptLoadedCamera() noexcept {
     m_UseAuthoredCamera = RefreshAuthoredCameraPose();
 }
 
+bool ALegacyScene3DAdapter::HasExplicitOrbitCameraOverride_Internal() const noexcept {
+    return m_HasExplicitCameraOverride
+        && m_ActiveCameraNodeId == kExplicitOrbitCameraNodeId;
+}
+
+void ALegacyScene3DAdapter::ResetOrbitCameraPresentation_Internal() noexcept {
+    m_PreviousOrbitCameraState = m_OrbitCameraState;
+    m_PresentedOrbitCameraState = m_OrbitCameraState;
+    m_IsOrbitCameraObstructionPresentationActive = false;
+}
+
 bool ALegacyScene3DAdapter::RefreshAuthoredCameraPose() noexcept {
-    if (m_HasExplicitCameraOverride && m_ActiveCameraNodeId >= 0) {
+    if (HasExplicitOrbitCameraOverride_Internal()) {
+        m_UseAuthoredCamera = false;
+        return false;
+    }
+    if (m_HasExplicitCameraOverride) {
         const ANode* node =
-            Graph().Root().FindBySerialId(m_ActiveCameraNodeId);
+            m_ActiveCameraNodeId >= 0
+                ? Graph().Root().FindBySerialId(m_ActiveCameraNodeId)
+                : FindCameraByStableIdRecursive(
+                    Graph().Root(), m_AuthoredCamera.StableId);
         const ACameraComponent3D* component =
             node != nullptr ? FindCamera(*node) : nullptr;
         FScene3DCameraState live;
@@ -517,6 +701,31 @@ bool ALegacyScene3DAdapter::RefreshAuthoredCameraPose() noexcept {
     return true;
 }
 
+void ALegacyScene3DAdapter::SetOrbitCameraActive(bool active) noexcept {
+    if (!active) {
+        ClearActiveCameraOverride();
+        return;
+    }
+    if (HasExplicitOrbitCameraOverride_Internal()) return;
+
+    m_HasExplicitCameraOverride = true;
+    m_ActiveCameraNodeId = kExplicitOrbitCameraNodeId;
+    m_UseAuthoredCamera = false;
+    m_AuthoredCamera = FScene3DCameraState{};
+    m_Projection = ESceneProjectionMode::Perspective;
+    ResetOrbitCameraPresentation_Internal();
+    UpdateCameraView();
+}
+
+bool ALegacyScene3DAdapter::OrbitCameraOverrideActive() const noexcept {
+    return HasExplicitOrbitCameraOverride_Internal();
+}
+
+bool ALegacyScene3DAdapter::AuthoredCameraOverrideActive() const noexcept {
+    return m_HasExplicitCameraOverride
+        && m_ActiveCameraNodeId != kExplicitOrbitCameraNodeId;
+}
+
 u32 ALegacyScene3DAdapter::CameraCount() const noexcept {
     return CountCamerasRecursive(Graph().Root());
 }
@@ -540,6 +749,8 @@ bool ALegacyScene3DAdapter::SetActiveCamera(const char* stable_id) noexcept {
         live.Projection == EScene3DCameraProjection::Orthographic
             ? ESceneProjectionMode::Orthographic
             : ESceneProjectionMode::Perspective;
+    ResetOrbitCameraPresentation_Internal();
+    UpdateCameraView();
     return true;
 }
 
@@ -560,12 +771,17 @@ bool ALegacyScene3DAdapter::SetActiveCamera(i32 node_id) noexcept {
         live.Projection == EScene3DCameraProjection::Orthographic
             ? ESceneProjectionMode::Orthographic
             : ESceneProjectionMode::Perspective;
+    ResetOrbitCameraPresentation_Internal();
+    UpdateCameraView();
     return true;
 }
 
 bool ALegacyScene3DAdapter::ClearActiveCameraOverride() noexcept {
     m_HasExplicitCameraOverride = false;
-    return RefreshAuthoredCameraPose();
+    const bool selected_authored_camera = RefreshAuthoredCameraPose();
+    ResetOrbitCameraPresentation_Internal();
+    UpdateCameraView();
+    return selected_authored_camera;
 }
 
 void ALegacyScene3DAdapter::FrameScene() noexcept {
@@ -821,8 +1037,9 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     IRhiTexture* depth = renderer.DepthBuffer();
     if (device == nullptr || swapchain == nullptr) return;
 
-    // 空を環境光として焼く。太陽が動いたときだけ焼き直す。
-    (void)EnsureEnvironmentLighting(*device, context.Cmd());
+    // graph更新後、現在frameの描画命令を積む前にだけ同期する。変更が無いframeは
+    // node/image同一性の確認だけで、texture uploadやvertex buffer再生成を行わない。
+    (void)SynchronizeGraphSprites_Internal(*device);
 
     // 骨で動くメッシュを CPU で変形し、普通の頂点バッファへ入れ直す。**影も遮蔽も
     // この後のパスが読むので、必ず一番先に。** 遅らせると、影だけ前フレームの姿勢になる。
@@ -832,11 +1049,17 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     if (EnsureShadowMap(*device)) (void)RenderShadowPass(context);
     else m_ShadowDrawn = false;
 
-    // 法線と深度を先に描いて遮蔽を出す。PBR パスがこれを読むので、必ずその «前» に。
-    (void)RenderAmbientOcclusionPass(*device, context);
+    // 法線と深度を先に描いて、SSAO/SSR/SSGI の共有入力にする。PBR パスがこれを
+    // 読むので、必ずその «前» に。SSAO が切れていても SSGI/SSR 用に前段は残す。
+    const bool normal_depth_ready =
+        RenderAmbientOcclusionPass(*device, context);
 
     // 雲を計算する。描画パスの外で回す (結果は雲自身のテクスチャへ書かれる)。
     RenderClouds(*device, context.Cmd(), context.Width(), context.Height());
+
+    // 雲を環境光へ入れる場合は、現在の密度場と照明が完成してからGPU cubemapを作る。
+    // 表示用の空は雲なしのままなので、この後の画面合成で雲を二重に描かない。
+    (void)EnsureEnvironmentLighting(*device, context.Cmd());
 
     EGpuCommitSubsystem frame_commit = EGpuCommitSubsystem::None;
     const bool hdr_ready = EnsureHdrFrameResources(
@@ -847,7 +1070,19 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     if (!hdr_ready || hdr == nullptr
         || hdr->Width() != context.Width()
         || hdr->Height() != context.Height()) {
+        InvalidateGlobalIlluminationOutput();
         return;
+    }
+
+    // SSGI は現フレームの完成色をまだ持っていないため、ここでは出力先だけを
+    // 用意する。前フレームの有効履歴は、入力前段が揃っている間だけ PBR へ渡す。
+    const bool global_illumination_ready = EnsureGlobalIllumination(
+        *device, context.Width(), context.Height());
+    if (!normal_depth_ready || !m_NormalDepthDrawn || depth == nullptr
+        || m_NormalDepth.OutputTexture() == nullptr
+        || m_NormalDepth.OutputNormalTexture() == nullptr
+        || !global_illumination_ready) {
+        InvalidateGlobalIlluminationOutput();
     }
 
     FWaterDraw water_draws[CWaterSurface3D::kMaxTrackedSurfaces]{};
@@ -855,6 +1090,31 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         water_draws, depth, context.Width(), context.Height());
 
     IRhiCommandList& command_list = context.Cmd();
+    IRhiTexture* aerial_volume = nullptr;
+    IRhiTexture* aerial_transmittance = nullptr;
+    const bool perspective_camera = m_UseAuthoredCamera
+        ? m_AuthoredCamera.Projection == EScene3DCameraProjection::Perspective
+        : m_Projection == ESceneProjectionMode::Perspective;
+    if (m_AerialPerspectiveEnabled && perspective_camera
+        && depth != nullptr && m_Atmosphere.Ready()) {
+        const FVec3 eye = m_Camera.Eye();
+        const f32 camera_altitude_km = eye.y > 0.0f
+            ? eye.y * kAerialPerspectiveSceneToKilometers : 0.0f;
+        // 物理大気だけを積分するoverloadを使う。Fog()は従来のPBR surface fogへ
+        // 一度だけ適用し、local fog volumeへ二重に入れない。
+        aerial_volume = m_Atmosphere.BuildAerialPerspective(
+            *device, command_list, Inverse(m_Camera.ViewProjection()), eye,
+            SunDirection(), PhysicalSunIntensity(SunColorForAtmosphere()),
+            kAerialPerspectiveMaxDistance,
+            kAerialPerspectiveSceneToKilometers,
+            camera_altitude_km);
+        if (aerial_volume != nullptr) {
+            aerial_transmittance =
+                m_Atmosphere.ApTransmittanceVolume();
+        }
+        // 片方だけの古い体積は公開せず、従来描画へ安全に戻す。
+        if (aerial_transmittance == nullptr) aerial_volume = nullptr;
+    }
     const bool ssss_resources_ready =
         m_SsssRequested
         && m_HdrSsssGpuState == EShaderGpuState::Ready
@@ -896,7 +1156,10 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     const bool pbr_base_pool_ready =
         pbr_full_pool_ready ||
         ActiveHdrShader().ObjectBufferCapacity() >= pbr_base_required;
-    if (!pbr_base_pool_ready) return;
+    if (!pbr_base_pool_ready) {
+        InvalidateGlobalIlluminationOutput();
+        return;
+    }
     const bool ssss_frame_ready =
         ssss_resources_ready && pbr_full_pool_ready;
 
@@ -996,8 +1259,28 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         }
     }
 
-    // 雲を最後に乗せる。手前の物で隠れるよう、完成したシーンの深度を使う。
-    if (depth != nullptr) CompositeClouds(command_list, *hdr, *depth, context.Width(), context.Height());
+    // 水面まで書いた完成depthで不透明物へ空気遠近を一度だけ適用する。深度はSRVで
+    // 読むため、このpassではDSVを同時にbindしない。失敗時はpass自体を開かない。
+    if (depth != nullptr && aerial_volume != nullptr
+        && aerial_transmittance != nullptr) {
+        command_list.BeginRenderToTextureLoad(*hdr, nullptr);
+        m_Atmosphere.CompositeAerialPerspective(
+            command_list, *depth, *aerial_volume,
+            *aerial_transmittance,
+            Inverse(m_Camera.ViewProjection()), m_Camera.Eye(),
+            kAerialPerspectiveMaxDistance,
+            context.Width(), context.Height());
+        command_list.EndRenderToTexture(*hdr);
+    }
+
+    // 雲を最後に乗せる。手前の物で隠し、有効な空気遠近を雲の実距離まで適用する。
+    if (depth != nullptr) {
+        CompositeClouds(
+            command_list, *hdr, *depth,
+            context.Width(), context.Height(),
+            aerial_volume, aerial_transmittance,
+            kAerialPerspectiveMaxDistance);
+    }
 
     // SPR3Dは不透明物と水面を描いた後にalpha合成する。深度は読むだけで、
     // editorと同じく書き換えない。
@@ -1005,6 +1288,33 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         command_list.BeginRenderToTextureLoad(*hdr, depth);
         (void)DrawSpriteScene(context);
         command_list.EndRenderToTexture(*hdr);
+    }
+
+    // 雲と SPR3D の後、SSR と post の前に外部透明 3D を追加する。HDR の既存色を
+    // 消さず、深度があれば DSV として読む。基底が pass の境界と外部後の状態復旧を持つ。
+    command_list.BeginRenderToTextureLoad(*hdr, depth);
+    const FScene3DTransparentRenderContext transparent_context{
+        *device,
+        command_list,
+        m_Camera,
+        *hdr,
+        depth,
+        context.Width(),
+        context.Height(),
+    };
+    if (OnRenderTransparent3D(transparent_context)) {
+        command_list.RestoreStateAfterExternalCommands();
+    }
+    command_list.EndRenderToTexture(*hdr);
+
+    // 完成したHDR色を入力にして、次フレームのPBRへ渡すSSGI履歴を作る。
+    // CMotionVector の前段は現在行列を前行列として使うため、動的motion textureは
+    // 渡さず、CSsgi側のカメラ再投影だけを使う。
+    if (depth != nullptr) {
+        (void)RenderGlobalIlluminationPass(
+            *device, context, *hdr, *depth);
+    } else {
+        InvalidateGlobalIlluminationOutput();
     }
 
     // 反射を作る。**空と雲まで乗った完成後**に作るので、水面や磨いた床に空も映る。
@@ -1018,8 +1328,34 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     m_HasPrevViewProjection = true;
 
     m_PostParams.taa_depth_texture = nullptr;
-    m_Post.Render(
-        command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams);
+    const ANode* selection_owner = nullptr;
+    const ASelectionHighlightMarker3D* selection_highlight = FindRenderableSelectionHighlight_Internal(Graph().Root(), selection_owner);
+    IRhiTexture* selection_mask =
+        selection_highlight != nullptr && m_NormalDepthDrawn
+            ? m_NormalDepth.OutputNormalTexture() : nullptr;
+    if (selection_highlight != nullptr && selection_mask != nullptr) {
+        m_Post.Render(command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams, selection_mask, selection_highlight->Color(), selection_highlight->Intensity(), selection_highlight->ThicknessPixels());
+    } else {
+        // markerがstale/hiddenまたはmask前段に失敗しても、完成済み3Dを通常postで表示する。
+        m_Post.Render(command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams);
+    }
+
+    // HDR 3D と post の完成後、LDR backbuffer を消さずに HUD だけを重ねる。
+    // SpriteBatch の初期化に失敗した場合は pass を開かず、完成済み 3D 表示を保つ。
+    CSceneRenderResources& render_resources =
+        GetGame().SceneRenderResources();
+    if (!render_resources.EnsureSpriteBatch(context)) return;
+
+    const u32 buffer_index = renderer.CurrentBuffer();
+    CSpriteBatch& hud_sprites = render_resources.SpriteBatch();
+    command_list.BeginRenderToSwapchainLoad(*swapchain, buffer_index);
+    hud_sprites.Begin(command_list, context.Width(), context.Height());
+    auto wiring = context.WiringAccess();
+    wiring.SetSpriteBatch(&hud_sprites);
+    DrawHudPass_Internal(context);
+    wiring.SetSpriteBatch(nullptr);
+    hud_sprites.End();
+    command_list.EndRenderToSwapchain(*swapchain, buffer_index);
 }
 
 void ALegacyScene3DAdapter::CollectSceneLights() noexcept {
@@ -1158,12 +1494,18 @@ void ALegacyScene3DAdapter::RenderClouds(
 
 void ALegacyScene3DAdapter::CompositeClouds(
     IRhiCommandList& command_list, IRhiTexture& target,
-    IRhiTexture& scene_depth, u32 width, u32 height) noexcept {
+    IRhiTexture& scene_depth, u32 width, u32 height,
+    IRhiTexture* aerial_volume,
+    IRhiTexture* aerial_transmittance,
+    f32 aerial_max_distance) noexcept {
     if (!m_CloudsDrawn) return;
 
     // 完成したシーンの深度を渡すので、手前にある物が雲を隠す。
     command_list.BeginRenderToTextureLoad(target, nullptr);
-    m_Clouds.Composite(command_list, scene_depth, width, height);
+    m_Clouds.Composite(
+        command_list, scene_depth, width, height,
+        aerial_volume, aerial_transmittance,
+        aerial_max_distance);
     command_list.EndRenderToTexture(target);
 }
 
@@ -1191,13 +1533,33 @@ void ALegacyScene3DAdapter::RenderSky(
 bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
     IRhiDevice& device, IRhiCommandList& command_list) noexcept {
     const FVec3 sun = SunDirection();
+    const u32 cloud_signature =
+        m_CloudsDrawn && m_CloudParams.bAffectEnvironmentLighting
+            ? m_Clouds.EnvironmentLightingSignature(
+                m_CloudParams.Coverage,
+                m_CloudParams.Density,
+                m_CloudParams.Wind)
+            : 0u;
 
-    // 焼き直しは重い。太陽がほとんど動いていないなら前回のものをそのまま使う。
+    // 空本体は太陽が有意に動いたときだけ即時更新する。雲の有効・無効も表示との
+    // 不一致を残さないため即時だが、有効中の連続補間は固定frame間隔へまとめる。
+    bool rebuild_base_environment = !m_IblReady;
     if (m_IblReady) {
         const f32 dx = sun.x - m_IblBakedSunDirection.x;
         const f32 dy = sun.y - m_IblBakedSunDirection.y;
         const f32 dz = sun.z - m_IblBakedSunDirection.z;
-        if (dx * dx + dy * dy + dz * dz < kIblRebakeThresholdSquared) return true;
+        rebuild_base_environment =
+            dx * dx + dy * dy + dz * dz
+                >= kIblRebakeThresholdSquared;
+        if (!rebuild_base_environment) {
+            if (cloud_signature == m_IblBakedCloudSignature) return true;
+
+            const bool cloud_mode_changed = (cloud_signature == 0u) != (m_IblBakedCloudSignature == 0u);
+            const u64 cloud_frame = m_Clouds.LastFrameWorkload().submission_index;
+            if (!cloud_mode_changed && !CVolumetricClouds::IsEnvironmentLightingRefreshFrame(cloud_frame)) {
+                return true;
+            }
+        }
     }
 
     // BRDF LUT は太陽に依存しないので一度だけ。
@@ -1206,51 +1568,93 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
         return false;
     }
 
-    // 物理ベースの大気から焼く。太陽の高さで空の色が変わるので、夕暮れの赤みが
-    // 何も設定しなくても環境光に乗る。だめなら見えている空 (CSky) から焼く。
-    if (!m_AtmosphereTried) {
-        m_AtmosphereTried = true;
-        (void)m_Atmosphere.Init(device);
+    if (rebuild_base_environment) {
+        m_IblReady = false;
+
+        // 物理ベースの大気から焼く。太陽の高さで空の色が変わるので、夕暮れの赤みが
+        // 何も設定しなくても環境光に乗る。だめなら見えている空 (CSky) から焼く。
+        if (!m_AtmosphereTried) {
+            m_AtmosphereTried = true;
+            (void)m_Atmosphere.Init(device);
+        }
+
+        // 太陽だけは毎回いまの光から作る。残り (地面の色など) は場面が決めたものを使う。
+        FAtmosphereParams atmosphere = m_AtmosphereParams;
+        atmosphere.sun_dir = sun;
+        atmosphere.sun_intensity =
+            PhysicalSunIntensity(SunColorForAtmosphere());
+
+        TArray<f32> equirect;
+        u32 width = kAtmosphereEquirectWidth;
+        u32 height = kAtmosphereEquirectHeight;
+
+        bool baked = m_Atmosphere.Ready()
+            && m_Atmosphere.BakeEquirect(
+                device, command_list, atmosphere,
+                width, height, equirect);
+
+        if (!baked) {
+            // GPU で焼けない環境向けの代替処理。同期で回すので解像度を落とす。
+            width = kAtmosphereCpuEquirectWidth;
+            height = kAtmosphereCpuEquirectHeight;
+            equirect = CAtmosphere::BakeEquirect(
+                width, height, atmosphere);
+            baked = equirect.Num() != 0u;
+        }
+
+        const bool loaded = baked
+            && m_Ibl.LoadEquirectHdrFromMemory(
+                device, command_list, equirect.GetData(),
+                width, height).IsOk();
+
+        if (!loaded
+            && m_Ibl.EnsureEnvCubemap(
+                device, command_list, m_Sky).IsErr()) {
+            ACS_LOG_WARN(
+                "Scene3D: environment bake failed (atmosphere and sky both)");
+            return false;
+        }
     }
 
-    // 太陽だけは毎回いまの光から作る。残り (地面の色など) は場面が決めたものを使う。
-    FAtmosphereParams atmosphere = m_AtmosphereParams;
-    atmosphere.sun_dir = sun;
-    atmosphere.sun_intensity = PhysicalSunIntensity(SunColorForAtmosphere());
-
-    TArray<f32> equirect;
-    u32 width = kAtmosphereEquirectWidth;
-    u32 height = kAtmosphereEquirectHeight;
-
-    bool baked = m_Atmosphere.Ready()
-        && m_Atmosphere.BakeEquirect(device, command_list, atmosphere, width, height, equirect);
-
-    if (!baked) {
-        // GPU で焼けない環境向けの逃げ道。同期で回すので解像度を落とす。
-        width = kAtmosphereCpuEquirectWidth;
-        height = kAtmosphereCpuEquirectHeight;
-        equirect = CAtmosphere::BakeEquirect(width, height, atmosphere);
-        baked = equirect.Num() != 0u;
-    }
-
-    const bool loaded = baked
-        && m_Ibl.LoadEquirectHdrFromMemory(
-               device, command_list, equirect.GetData(), width, height).IsOk();
-
-    if (!loaded && m_Ibl.EnsureEnvCubemap(device, command_list, m_Sky).IsErr()) {
-        ACS_LOG_WARN("Scene3D: environment bake failed (atmosphere and sky both)");
+    IRhiTexture* const base_environment = m_Ibl.EnvCubemap();
+    if (base_environment == nullptr) {
+        ACS_LOG_WARN("Scene3D: environment cubemap is unavailable");
         return false;
     }
-    if (m_Ibl.EnsureIrradiance(device, command_list).IsErr()) {
-        ACS_LOG_WARN("Scene3D: irradiance bake failed");
+
+    TUniquePtr<IRhiTexture> cloud_environment;
+    IRhiTexture* convolution_source = base_environment;
+    if (cloud_signature != 0u) {
+        auto cloud_result = m_Clouds.BuildEnvironmentCubemap(
+            device, command_list, *base_environment);
+        if (cloud_result.IsOk()) {
+            cloud_environment = Move(cloud_result.Value());
+            convolution_source = cloud_environment.Get();
+        } else {
+            // この更新周期では再試行せず、次の設定または太陽変更まで雲なしIBLを使う。
+            ACS_LOG_WARN(
+                "Scene3D: cloud environment bake failed; using clear-sky IBL");
+        }
+    }
+
+    auto derived_result = m_Ibl.RebuildDerivedMapsFromEnvironment(
+        device, command_list, *convolution_source);
+    if (derived_result.IsErr() && convolution_source != base_environment) {
+        ACS_LOG_WARN(
+            "Scene3D: cloud IBL convolution failed; rebuilding clear-sky IBL");
+        derived_result = m_Ibl.RebuildDerivedMapsFromEnvironment(
+            device, command_list, *base_environment);
+    }
+    if (derived_result.IsErr()) {
+        ACS_LOG_WARN("Scene3D: environment IBL convolution failed");
         return false;
     }
-    if (m_Ibl.EnsurePrefilter(device, command_list).IsErr()) {
-        ACS_LOG_WARN("Scene3D: prefilter bake failed");
-        return false;
-    }
+
+    // 一時資源をここで解放しても、raw DX12とDiligentはいずれもnative資源を
+    // 現在のsubmission fenceまで遅延解放する。frame途中のFlush/WaitIdleは挟まない。
 
     m_IblBakedSunDirection = sun;
+    m_IblBakedCloudSignature = cloud_signature;
     m_IblReady = true;
     return true;
 }
@@ -1276,33 +1680,58 @@ bool ALegacyScene3DAdapter::EnsureShadowMap(IRhiDevice& device) noexcept {
     return true;
 }
 
+bool ALegacyScene3DAdapter::EnsureNormalDepth(
+    IRhiDevice& device, u32 width, u32 height) noexcept {
+    if (width == 0u || height == 0u) return false;
+    if (m_NormalDepthReady
+        && m_NormalDepthWidth == width
+        && m_NormalDepthHeight == height) {
+        return true;
+    }
+
+    if (!m_NormalDepthReady) {
+        if (m_NormalDepth.Init(device, width, height).IsErr()) {
+            ACS_LOG_WARN(
+                "Scene3D: normal/depth prepass init failed; screen-space effects stay off");
+            return false;
+        }
+        m_NormalDepthReady = true;
+    } else if (m_NormalDepth.Resize(width, height).IsErr()) {
+        ACS_LOG_WARN(
+            "Scene3D: normal/depth prepass resize failed; screen-space effects stay off");
+        m_NormalDepthReady = false;
+        m_NormalDepth.Shutdown();
+        m_NormalDepthWidth = 0u;
+        m_NormalDepthHeight = 0u;
+        return false;
+    }
+
+    m_NormalDepthWidth = width;
+    m_NormalDepthHeight = height;
+    return true;
+}
+
 bool ALegacyScene3DAdapter::EnsureAmbientOcclusion(
     IRhiDevice& device, u32 width, u32 height) noexcept {
     if (width == 0u || height == 0u) return false;
-    if (m_SsaoReady && m_SsaoWidth == width && m_SsaoHeight == height) return true;
+    if (!EnsureNormalDepth(device, width, height)) return false;
+    if (m_SsaoReady && m_SsaoWidth == width && m_SsaoHeight == height) {
+        return true;
+    }
 
     if (!m_SsaoReady) {
-        if (m_NormalDepth.Init(device, width, height).IsErr()) {
-            ACS_LOG_WARN("Scene3D: normal/depth prepass init failed; SSAO stays off");
-            return false;
-        }
         if (m_Ssao.Init(device, width, height).IsErr()) {
             ACS_LOG_WARN("Scene3D: SSAO init failed; SSAO stays off");
-            m_NormalDepth.Shutdown();
             return false;
         }
         m_SsaoReady = true;
-    } else {
+    } else if (m_Ssao.Resize(width, height).IsErr()) {
         // 画面の大きさが変わった。作り直せなかったら切る。古い大きさのまま読むと
         // 遮蔽が画面とずれて «物と関係の無い位置に汚れ» が出る。
-        if (m_NormalDepth.Resize(width, height).IsErr() ||
-            m_Ssao.Resize(width, height).IsErr()) {
-            ACS_LOG_WARN("Scene3D: SSAO resize failed; SSAO stays off");
-            m_SsaoReady = false;
-            m_Ssao.Shutdown();
-            m_NormalDepth.Shutdown();
-            return false;
-        }
+        ACS_LOG_WARN("Scene3D: SSAO resize failed; SSAO stays off");
+        m_SsaoReady = false;
+        m_Ssao.Shutdown();
+        return false;
     }
 
     m_SsaoWidth = width;
@@ -1310,19 +1739,22 @@ bool ALegacyScene3DAdapter::EnsureAmbientOcclusion(
     return true;
 }
 
-bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(
-    FRenderContext& context) noexcept {
-    if (!m_SsaoReady) return false;
+bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(FRenderContext& context) noexcept {
+    if (!m_NormalDepthReady) return false;
+
+    const ANode* selection_owner = nullptr;
+    const bool selection_requested = FindRenderableSelectionHighlight_Internal(Graph().Root(), selection_owner) != nullptr;
 
     // 描く数を先に数える。object CB の入れ物は使い回しなので、足りないまま描くと
     // 後ろのメッシュの法線が黙って抜け、そこだけ遮蔽が付かない。
-    u32 mesh_count = 0u;
+    u64 mesh_count = 0u;
     TArray<const ANode*> count_stack;
     if (!count_stack.TryAdd(&Graph().Root())) return false;
     while (!count_stack.IsEmpty()) {
         const ANode* node = count_stack.Last();
         count_stack.Pop();
         if (node == nullptr) continue;
+        if (node->IsPendingDestroy() || !node->IsVisible() || !node->IsEnabled()) continue;
         if (FindSprite(*node) != nullptr) {
             for (u32 index = 0u; index < node->ChildCount(); ++index)
                 if (!count_stack.TryAdd(node->Child(index))) return false;
@@ -1334,8 +1766,15 @@ bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(
         for (u32 index = 0u; index < node->ChildCount(); ++index)
             if (!count_stack.TryAdd(node->Child(index))) return false;
     }
-    if (mesh_count == 0u) return false;
-    if (!m_NormalDepth.BeginFrame(mesh_count)) return false;
+    // 選択対象を隠す未選択skinned meshもdepthへ入れて、through-wallを防ぐ。
+    // 選択なしのframeでは従来の前段負荷を変えない。
+    if (selection_requested) {
+        mesh_count += static_cast<u64>(m_SkinnedDrawn.Num());
+    }
+    if (mesh_count == 0u || mesh_count > static_cast<u64>(0xFFFFFFFFu)) {
+        return false;
+    }
+    if (!m_NormalDepth.BeginFrame(static_cast<u32>(mesh_count))) return false;
 
     IRhiCommandList& command_list = context.Cmd();
     // 動きは使わない (遮蔽が要るのは法線と深度だけ)。前フレームの行列に現フレームの
@@ -1354,6 +1793,7 @@ bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(
         const ANode* node = stack.Last();
         stack.Pop();
         if (node == nullptr) continue;
+        if (node->IsPendingDestroy() || !node->IsVisible() || !node->IsEnabled()) continue;
 
         for (u32 index = 0u; index < node->ChildCount(); ++index)
             if (!stack.TryAdd(node->Child(index))) { complete = false; break; }
@@ -1366,8 +1806,20 @@ bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(
         if (gpu == nullptr || !gpu->vertex_buffer || !gpu->index_buffer) continue;
 
         const FMat4 model = node->World().ToMat4();
-        if (!m_NormalDepth.DrawMesh(command_list, *gpu, model, model))
+        if (!m_NormalDepth.DrawMesh(command_list, *gpu, model, model, selection_requested && IsSelectionHighlightedNode_Internal(*node))) {
             complete = false;
+        }
+    }
+    if (selection_requested) {
+        for (usize index = 0u; index < m_SkinnedDrawn.Num(); ++index) {
+            const FSkinnedDraw& draw = m_SkinnedDrawn[index];
+            if (draw.Mesh == nullptr || !draw.Mesh->vertex_buffer || !draw.Mesh->index_buffer) {
+                continue;
+            }
+            if (!m_NormalDepth.DrawMesh(command_list, *draw.Mesh, draw.Model, draw.Model, draw.SelectionHighlighted)) {
+                complete = false;
+            }
+        }
     }
     m_NormalDepth.End(command_list);
     return complete;
@@ -1376,10 +1828,29 @@ bool ALegacyScene3DAdapter::RenderNormalDepthPrepass(
 bool ALegacyScene3DAdapter::RenderAmbientOcclusionPass(
     IRhiDevice& device, FRenderContext& context) noexcept {
     m_SsaoDrawn = false;
-    if (m_SsaoParams.Intensity <= 0.0f) return false;
-    if (!EnsureAmbientOcclusion(device, context.Width(), context.Height()))
+    m_NormalDepthDrawn = false;
+    const bool ssao_requested = m_SsaoParams.Intensity > 0.0f;
+    const ANode* selection_owner = nullptr;
+    const bool selection_requested = FindRenderableSelectionHighlight_Internal(Graph().Root(), selection_owner) != nullptr;
+    const bool screen_space_effect_requested =
+        ssao_requested
+        || m_SsgiParams.Intensity > 0.0f
+        || m_SsrParams.Intensity > 0.0f
+        || selection_requested;
+    if (!screen_space_effect_requested) return false;
+
+    // SSAO の初期化に失敗しても、SSGI/SSR は共有前段だけで継続できる。
+    if (ssao_requested) {
+        (void)EnsureAmbientOcclusion(
+            device, context.Width(), context.Height());
+    } else if (!EnsureNormalDepth(
+                   device, context.Width(), context.Height())) {
         return false;
-    if (!RenderNormalDepthPrepass(context)) return false;
+    }
+    if (!m_NormalDepthReady || !RenderNormalDepthPrepass(context)) return false;
+    m_NormalDepthDrawn = true;
+
+    if (!ssao_requested || !m_SsaoReady) return true;
 
     IRhiTexture* const prepass_depth = m_NormalDepth.DepthTexture();
     IRhiTexture* const prepass_normal = m_NormalDepth.OutputNormalTexture();
@@ -1394,7 +1865,98 @@ bool ALegacyScene3DAdapter::RenderAmbientOcclusionPass(
         m_SsaoParams.Radius > 0.0f ? m_SsaoParams.Radius : 0.5f);
 
     m_SsaoDrawn = m_Ssao.OutputTexture() != nullptr;
-    return m_SsaoDrawn;
+    return m_NormalDepthDrawn;
+}
+
+void ALegacyScene3DAdapter::InvalidateGlobalIlluminationOutput() noexcept {
+    m_SsgiValid = false;
+    if (m_SsgiReady) m_Ssgi.InvalidateHistory();
+}
+
+bool ALegacyScene3DAdapter::EnsureGlobalIllumination(
+    IRhiDevice& device, u32 width, u32 height) noexcept {
+    const bool requested =
+        width != 0u && height != 0u && m_SsgiParams.Intensity > 0.0f;
+    if (!requested) {
+        if (m_SsgiWasEnabled) m_Ssgi.InvalidateHistory();
+        m_SsgiWasEnabled = false;
+        m_SsgiValid = false;
+        return false;
+    }
+
+    if (!m_SsgiWasEnabled) {
+        // 無効中に残った履歴を再利用せず、再有効化は必ず初回から始める。
+        m_Ssgi.InvalidateHistory();
+        m_SsgiWasEnabled = true;
+        m_SsgiValid = false;
+    }
+
+    if (m_SsgiReady && m_SsgiWidth == width && m_SsgiHeight == height)
+        return true;
+
+    if (!m_SsgiReady) {
+        if (m_Ssgi.Init(device, width, height).IsErr()) {
+            ACS_LOG_WARN(
+                "Scene3D: SSGI init failed; global illumination stays off");
+            m_Ssgi.Shutdown();
+            m_SsgiWidth = 0u;
+            m_SsgiHeight = 0u;
+            m_SsgiValid = false;
+            return false;
+        }
+        m_SsgiReady = true;
+    } else {
+        // 画面の大きさが変わった履歴は別画面の値なので公開しない。Resizeが失敗した
+        // ときは旧リソースを保持する実装を尊重し、次フレームで再試行する。
+        if (m_Ssgi.Resize(width, height).IsErr()) {
+            ACS_LOG_WARN(
+                "Scene3D: SSGI resize failed; global illumination stays off");
+            m_Ssgi.InvalidateHistory();
+            m_SsgiValid = false;
+            return false;
+        }
+    }
+
+    m_SsgiWidth = width;
+    m_SsgiHeight = height;
+    m_SsgiValid = false;
+    return true;
+}
+
+bool ALegacyScene3DAdapter::RenderGlobalIlluminationPass(
+    IRhiDevice& device, FRenderContext& context,
+    IRhiTexture& scene_color, IRhiTexture& scene_depth) noexcept {
+    if (m_SsgiParams.Intensity <= 0.0f
+        || !m_SsgiWasEnabled
+        || !m_SsgiReady
+        || !m_NormalDepthDrawn) {
+        InvalidateGlobalIlluminationOutput();
+        return false;
+    }
+
+    IRhiTexture* const normal = m_NormalDepth.OutputNormalTexture();
+    if (normal == nullptr
+        || normal->Width() != scene_color.Width()
+        || normal->Height() != scene_color.Height()) {
+        InvalidateGlobalIlluminationOutput();
+        return false;
+    }
+
+    const FMat4 view_projection = m_Camera.ViewProjection();
+    const FMat4 previous = m_HasPrevViewProjection
+        ? m_PrevViewProjection : FMat4{};
+    const f32 max_distance = m_SsgiParams.MaxDistance > 0.0f
+        ? m_SsgiParams.MaxDistance : 5.0f;
+
+    // 出力は強さを持たない履歴にする。利用者のIntensityはPBR側で一度だけ掛ける。
+    // 法線前段は動的motionを生成しないため、temporalはカメラ再投影を使う。
+    m_Ssgi.Render(
+        device, context.Cmd(), scene_color, scene_depth, *normal,
+        view_projection, Inverse(view_projection), previous,
+        m_Camera.Eye(), 1.0f, max_distance, nullptr);
+    m_SsgiValid =
+        m_Ssgi.HasValidOutput() && m_Ssgi.OutputTexture() != nullptr;
+    return m_SsgiValid;
 }
 
 bool ALegacyScene3DAdapter::EnsureReflections(
@@ -1450,7 +2012,7 @@ bool ALegacyScene3DAdapter::RenderReflectionPass(
     }
     // 法線は遮蔽と同じ前段のもの。前段が描けていないフレームは反射も作れない。
     IRhiTexture* const prepass_normal =
-        m_SsaoDrawn ? m_NormalDepth.OutputNormalTexture() : nullptr;
+        m_NormalDepthDrawn ? m_NormalDepth.OutputNormalTexture() : nullptr;
     if (prepass_normal == nullptr) {
         m_SsrValid = false;
         return false;
@@ -1541,7 +2103,7 @@ bool ALegacyScene3DAdapter::UpdateSkinnedMeshes(IRhiDevice& device) noexcept {
         ANode* const node = stack.Last();
         stack.Pop();
         if (node == nullptr) continue;
-        if (!node->IsVisible() || !node->IsEnabled()) continue;
+        if (node->IsPendingDestroy() || !node->IsVisible() || !node->IsEnabled()) continue;
 
         for (u32 index = 0u; index < node->ChildCount(); ++index)
             if (!stack.TryAdd(node->Child(index))) break;
@@ -1573,6 +2135,8 @@ bool ALegacyScene3DAdapter::UpdateSkinnedMeshes(IRhiDevice& device) noexcept {
         draw.Mesh = &instance->Mesh;
         draw.Model = node->World().ToMat4();
         draw.Color = component->Color();
+        draw.SelectionHighlighted =
+            IsSelectionHighlightedNode_Internal(*node);
         if (m_SkinnedDrawn.TryAdd(draw)) any = true;
     }
 
@@ -1801,6 +2365,9 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
     fallback[0].direction = Normalize(kDefaultSunDirection);
     fallback[0].color = kDefaultSunColor;
 
+    // 天候などが決めた倍率は環境由来の間接光だけへ渡し、直射光と雲のワールド影は分離する。
+    shader.SetIblLightMultiplier(EnvironmentLightMultiplier());
+
     const bool use_scene_lights = m_Lights.DirectionalCount() > 0u;
     shader.SetLights(
         m_Camera.ViewProjection(),
@@ -1853,6 +2420,15 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
                        m_SsaoWidth, m_SsaoHeight);
     } else {
         shader.SetSsao(nullptr, 0.0f, 1u, 1u);
+    }
+
+    // SSGI は前フレームの完成HDR色から作った履歴だけを読む。Intensity はここで
+    // 一度だけ掛け、Render側では 1.0 を使って履歴の明るさを設定変更から分離する。
+    if (m_SsgiValid && m_SsgiParams.Intensity > 0.0f
+        && m_Ssgi.HasValidOutput() && m_Ssgi.OutputTexture() != nullptr) {
+        shader.SetSsgi(m_Ssgi.OutputTexture(), m_SsgiParams.Intensity);
+    } else {
+        shader.SetSsgi(nullptr, 0.0f);
     }
 
     // 反射。**前のフレームで作ったもの**を混ぜる。反射を作るには完成したシーンの色が
@@ -2000,7 +2576,7 @@ bool ALegacyScene3DAdapter::EnsureGpu(FRenderContext& context) noexcept {
     const TSharedPtr<AMeshAsset> sphere =
         Primitive::MakeSphere(0.5f, 48u, 24u);
     const TSharedPtr<AMeshAsset> plane = Primitive::MakePlane();
-    if (!cube || !sphere || !plane || UploadMesh(*device, *cube, m_Cube).IsErr() || UploadMesh(*device, *sphere, m_Sphere).IsErr() || UploadMesh(*device, *plane, m_Plane).IsErr() || !UploadGraphMeshes(*device) || !UploadGraphSprites(*device)) {
+    if (!cube || !sphere || !plane || UploadMesh(*device, *cube, m_Cube).IsErr() || UploadMesh(*device, *sphere, m_Sphere).IsErr() || UploadMesh(*device, *plane, m_Plane).IsErr() || !UploadGraphMeshes(*device)) {
         ACS_LOG_ERROR("LegacyScene3DAdapter: GPU mesh initialization failed");
         DrainAndReleaseGpu();
         m_GpuAttempted = true;
@@ -2027,7 +2603,9 @@ bool ALegacyScene3DAdapter::EnsureHdrFrameResources(
     const FSceneRenderFeatures scene_features =
         ScanSceneRenderFeatures(Graph().Root());
     const bool scene_has_water = scene_features.has_water;
-    const bool scene_has_sprites = scene_features.has_sprites;
+    // pathだけ、別型、未設定の画像は暗黙I/Oせず、画像が届いたframeから初期化する。
+    const bool scene_has_sprites =
+        scene_features.has_sprites && !m_CustomSprites.IsEmpty();
     // CSceneNodeGraph has no mutation revision yet. Scan alongside the existing
     // water feature query so retained Graph references, visibility changes
     // and runtime material edits take effect on the very next frame.
@@ -3684,44 +4262,150 @@ bool ALegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
     return true;
 }
 
-bool ALegacyScene3DAdapter::UploadGraphSprites(IRhiDevice& device) noexcept
+bool ALegacyScene3DAdapter::SpriteResourcesMatchGraph_Internal(
+    const ANode& node, usize& matched_count, u32 depth) const noexcept
 {
-    TArray<FCustomGpuSprite> uploaded(*m_CustomSprites.GetAllocator());
-    if (!uploaded.TryReserve(Graph().NodeCount())) return false;
-    TArray<ANode*> stack;
-    if (!stack.TryAdd(&Graph().Root())) return false;
-    while (!stack.IsEmpty()) {
-        ANode* node = stack.Last();
-        stack.Pop();
-        if (node == nullptr) continue;
-        const ASprite3DComponent* component = FindSprite(*node);
-        if (component != nullptr) {
-            AImageAsset* image = component->Image();
-            if (image == nullptr) return false;
-            auto texture = UploadTexture(device, *image);
-            if (texture.IsErr()) return false;
-            FCustomGpuSprite sprite;
-            sprite.Component = component;
-            sprite.Texture = Move(texture.Value());
-            if (!uploaded.TryAdd(Move(sprite))) return false;
+    if (depth > kNodeMaxTreeDepth) return false;
+    if (node.IsPendingDestroy()) return true;
+
+    const ASprite3DComponent* component = FindSprite(node);
+    if (component != nullptr && component->Image() != nullptr) {
+        const TSharedPtr<AAsset>& source = component->ImageAsset();
+        if (matched_count >= m_CustomSprites.Num()) return false;
+        const FCustomGpuSprite& sprite = m_CustomSprites[matched_count];
+        if (sprite.Node != node.Id()
+            || sprite.SourceImage.Get() != source.Get()) {
+            return false;
         }
-        for (u32 index = 0u; index < node->ChildCount(); ++index) {
-            if (!stack.TryAdd(node->Child(index))) return false;
-        }
+        ++matched_count;
     }
 
-    TArray<CSprite3DRenderer::FDraw> draws(*m_SpriteDraws.GetAllocator());
-    if (!draws.TryReserve(uploaded.Num())) return false;
-    m_CustomSprites = Move(uploaded);
-    m_SpriteDraws = Move(draws);
+    for (u32 index = 0u; index < node.ChildCount(); ++index) {
+        const ANode* child = node.Child(index);
+        if (child != nullptr
+            && !SpriteResourcesMatchGraph_Internal(
+                *child, matched_count, depth + 1u)) {
+            return false;
+        }
+    }
     return true;
 }
 
-IRhiTexture* ALegacyScene3DAdapter::TextureFor(const ASprite3DComponent& component) const noexcept
+bool ALegacyScene3DAdapter::SynchronizeGraphSprites_Internal(
+    IRhiDevice& device) noexcept
 {
-    for (u32 index = 0u; index < m_CustomSprites.Num(); ++index) {
-        if (m_CustomSprites[index].Component == &component)
-            return m_CustomSprites[index].Texture.Get();
+    usize matched_count = 0u;
+    const bool unchanged =
+        SpriteResourcesMatchGraph_Internal(
+            Graph().Root(), matched_count)
+        && matched_count == m_CustomSprites.Num();
+    if (unchanged) {
+        if (m_SpriteGpuState != EShaderGpuState::Ready) return true;
+        if (m_CustomSprites.Num()
+            > CSprite3DRenderer::kMaximumSpriteCount) {
+            return false;
+        }
+        return m_SpriteRenderer.EnsureCapacity(
+            device, static_cast<u32>(m_CustomSprites.Num())).IsOk();
+    }
+
+    /** 変更時だけ作る、旧GPU画像の再利用または新規uploadの計画。 */
+    struct FSpriteSyncPlan final {
+        /** 新しいgraph上の所有node。 */
+        FNodeId Node;
+        /** GPU画像の生成元を保持する共有参照。 */
+        TSharedPtr<AAsset> SourceImage;
+        /** 再利用する旧表の添字。無い場合は最大usize。 */
+        usize ExistingIndex = static_cast<usize>(-1);
+        /** 画像差し替え時に新規生成したGPU画像。失敗時はnull。 */
+        TUniquePtr<IRhiTexture> NewTexture;
+    };
+
+    constexpr usize kInvalidSpriteIndex = static_cast<usize>(-1);
+    TArray<FSpriteSyncPlan> plans(*m_CustomSprites.GetAllocator());
+    if (!plans.TryReserve(Graph().NodeCount())) return false;
+    TArray<ANode*> stack;
+    if (!stack.TryReserve(Graph().NodeCount())
+        || !stack.TryAdd(&Graph().Root())) {
+        return false;
+    }
+
+    while (!stack.IsEmpty()) {
+        ANode* node = stack.Last();
+        stack.Pop();
+        if (node == nullptr || node->IsPendingDestroy()) continue;
+        for (u32 index = node->ChildCount(); index > 0u; --index) {
+            if (!stack.TryAdd(node->Child(index - 1u))) return false;
+        }
+
+        const ASprite3DComponent* component = FindSprite(*node);
+        AImageAsset* image =
+            component != nullptr ? component->Image() : nullptr;
+        if (component == nullptr || image == nullptr) continue;
+        if (plans.Num() >= CSprite3DRenderer::kMaximumSpriteCount) {
+            return false;
+        }
+
+        FSpriteSyncPlan plan;
+        plan.Node = node->Id();
+        plan.SourceImage = component->ImageAsset();
+        for (usize index = 0u; index < m_CustomSprites.Num(); ++index) {
+            const FCustomGpuSprite& previous = m_CustomSprites[index];
+            if (previous.Node == plan.Node
+                && previous.SourceImage.Get() == plan.SourceImage.Get()) {
+                plan.ExistingIndex = index;
+                break;
+            }
+        }
+
+        if (plan.ExistingIndex == kInvalidSpriteIndex) {
+            auto texture = UploadTexture(device, *image);
+            if (texture.IsOk()) {
+                plan.NewTexture = Move(texture.Value());
+            } else {
+                // 失敗も画像同一性と一緒に記録し、同じ不正画像を毎frame再uploadしない。
+                ACS_LOG_WARN(
+                    "LegacyScene3DAdapter: Sprite3D image upload failed; "
+                    "the sprite stays hidden: %s",
+                    texture.Error().message);
+            }
+        }
+        if (!plans.TryAdd(Move(plan))) return false;
+    }
+
+    TArray<FCustomGpuSprite> synchronized(
+        *m_CustomSprites.GetAllocator());
+    if (!synchronized.TrySetNum(plans.Num())
+        || !m_SpriteDraws.TryReserve(plans.Num())) {
+        return false;
+    }
+
+    // これ以降は確保を伴わない。旧GPU画像を動かした後に失敗して半端な表を公開しない。
+    for (usize index = 0u; index < plans.Num(); ++index) {
+        FSpriteSyncPlan& plan = plans[index];
+        FCustomGpuSprite& sprite = synchronized[index];
+        sprite.Node = plan.Node;
+        sprite.SourceImage = Move(plan.SourceImage);
+        sprite.Texture = plan.ExistingIndex != kInvalidSpriteIndex
+            ? Move(m_CustomSprites[plan.ExistingIndex].Texture)
+            : Move(plan.NewTexture);
+    }
+    m_CustomSprites = Move(synchronized);
+
+    if (m_SpriteGpuState != EShaderGpuState::Ready) return true;
+    return m_SpriteRenderer.EnsureCapacity(
+        device, static_cast<u32>(m_CustomSprites.Num())).IsOk();
+}
+
+IRhiTexture* ALegacyScene3DAdapter::TextureFor(
+    FNodeId node, const TSharedPtr<AAsset>& source_image) const noexcept
+{
+    for (usize index = 0u; index < m_CustomSprites.Num(); ++index) {
+        const FCustomGpuSprite& sprite = m_CustomSprites[index];
+        if (sprite.Node == node
+            && sprite.SourceImage.Get() == source_image.Get()) {
+            return sprite.Texture.Get();
+        }
     }
     return nullptr;
 }
@@ -3742,8 +4426,11 @@ bool ALegacyScene3DAdapter::DrawSpriteScene(FRenderContext& context) noexcept
         if (!IsEffectivelyActive(*node)) continue;
         const ASprite3DComponent* component = FindSprite(*node);
         if (component == nullptr) continue;
-        IRhiTexture* texture = TextureFor(*component);
-        if (texture == nullptr || !m_SpriteDraws.TryAdd(CSprite3DRenderer::FDraw{node->World().ToMat4(), texture})) {
+        IRhiTexture* texture = TextureFor(
+            node->Id(), component->ImageAsset());
+        // 未設定・別型・upload失敗の1件だけを省き、他の3Dスプライトは描画する。
+        if (texture == nullptr) continue;
+        if (!m_SpriteDraws.TryAdd(CSprite3DRenderer::FDraw{node->World().ToMat4(), texture})) {
             return false;
         }
     }
@@ -3771,6 +4458,9 @@ void ALegacyScene3DAdapter::ReleaseGpu() noexcept {
     m_SpritePendingShaders = {};
     m_SkyPendingShaders = {};
     m_Sky.Shutdown();
+    m_NormalDepth.Shutdown();
+    m_Ssao.Shutdown();
+    m_Ssgi.Shutdown();
     m_WaterPendingShaders = {};
     m_Water.Shutdown();
     m_WaterBackground.Reset();
@@ -3787,6 +4477,19 @@ void ALegacyScene3DAdapter::ReleaseGpu() noexcept {
     m_Post.Shutdown();
     m_HdrShaders[0].Shutdown();
     m_HdrShaders[1].Shutdown();
+    m_NormalDepthReady = false;
+    m_NormalDepthDrawn = false;
+    m_NormalDepthWidth = 0u;
+    m_NormalDepthHeight = 0u;
+    m_SsaoReady = false;
+    m_SsaoDrawn = false;
+    m_SsaoWidth = 0u;
+    m_SsaoHeight = 0u;
+    m_SsgiReady = false;
+    m_SsgiValid = false;
+    m_SsgiWasEnabled = false;
+    m_SsgiWidth = 0u;
+    m_SsgiHeight = 0u;
     m_CustomMeshes.Reset();
     m_CustomSprites.Reset();
     m_SpriteDraws.Reset();
@@ -3936,9 +4639,7 @@ void ALegacyScene3DAdapter::SetFreeCameraEnabled(bool enabled) noexcept
 {
     if (m_FreeCameraEnabled == enabled) return;
     m_FreeCameraEnabled = enabled;
-    m_PreviousOrbitCameraState = m_OrbitCameraState;
-    m_PresentedOrbitCameraState = m_OrbitCameraState;
-    m_IsOrbitCameraObstructionPresentationActive = false;
+    ResetOrbitCameraPresentation_Internal();
     UpdateCameraView();
 }
 

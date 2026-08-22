@@ -178,6 +178,17 @@ stale化する。
 デコード済みmeshを `CPbrShader`、3Dスプライトを `CSprite3DRenderer` で描画する。visible/enabled、階層transform、
 PBR/Substrate material、fogを反映し、loose/packの双方を同じ読み込み契約で扱う。
 
+runtimeで追加した `ASprite3DComponent` は、デコード済み `AImageAsset` を `SetImageAsset` へ
+渡すと次の描画前にGPU画像表へ追加される。componentの除去と画像差し替えも同じ同期点で反映する。
+変更が無いframeは既存GPU画像を再利用し、`TexturePath` だけでは暗黙の読込みを行わない。
+画像が未設定、別のasset型、不正なpixel列、またはGPU生成失敗の場合はそのspriteだけを表示せず、
+場面の他の3D描画は維持する。
+
+gameplayの3D照準やinteractionは `CSceneNodeGraph::TryRaycastGeometryActiveRange` でGPUを
+使わずに判定できる。結果は最前面のnode ID、ray parameter、world命中点、world法線をまとめて返す。
+spriteは同じnodeのmeshより優先し、無効・非表示・破棄予定の祖先subtreeは対象外となる。従来の
+`RaycastGeometryActiveRange` はnode IDとparameterだけを返す互換アダプターとして同じ計算を使う。
+
 各 `CAM3D` はgraph所有の `ACameraComponent3D` になり、姿勢は所有nodeの現在のworld
 transformから更新される。runtimeはstable IDまたはnode IDでカメラを安全に切り替えられる。
 投影方式はscene全体の固定属性ではなく、各cameraがPerspective/Orthographicを選択する。

@@ -252,8 +252,8 @@ using FSkinnedMeshAsset = ASkinnedMeshAsset;
  * アニメーションを再生し、GPU 用ボーンパレットを計算するプレイヤ。
  *
  * @details
- * SetMesh でスキンメッシュを設定し Play でクリップを選択、Update で時刻を進め、
- * WritePalette で現在時刻の (world * inverse_bind) パレットを書き出す。
+ * SetMesh でスキンメッシュを設定し Play または BlendTo でクリップを選択、Update で
+ * 時刻を進め、WritePalette で現在時刻の (world * inverse_bind) パレットを書き出す。
  */
 class CAnimationPlayer {
 public:
@@ -265,7 +265,7 @@ public:
      *
      * @param mesh 参照するスキンメッシュ (所有はしない)。
      */
-    void SetMesh(const ASkinnedMeshAsset* mesh) noexcept { m_Mesh = mesh; m_Anim = -1; m_Time = 0; }
+    void SetMesh(const ASkinnedMeshAsset* mesh) noexcept;
 
     /**
      * 指定インデックスのアニメーションを先頭から再生する。
@@ -276,28 +276,46 @@ public:
      */
     void Play(u32 anim_index, bool loop = true) noexcept;
 
+    /**
+     * 現在姿勢から指定アニメーションの先頭へ滑らかに切り替える。
+     *
+     * @details 遷移中は切替元と切替先の時刻をともに進め、各ボーンのローカルTRSを
+     * 平行移動・スケールは線形、回転はslerpで混ぜてから親子階層を合成する。
+     * blend_seconds == 0 は Play と同じ即時切替になる。mesh未設定、範囲外index、
+     * 非有限または負の期間、非有限な現在時刻では何も変更せずfalseを返す。
+     * 進行中の遷移へ新しい遷移を重ねる要求も、現在の姿勢と再生状態を保ってfalseを返す。
+     * 呼び出し側は現在の遷移が完了した後に再試行できる。
+     * @param animation_index 切替先アニメーションのindex。
+     * @param blend_seconds 姿勢を混ぜる有限かつ0以上の秒数。
+     * @param loop 切替先を繰り返すならtrue。
+     * @return 切替要求を受理したらtrue。
+     */
+    bool BlendTo(u32 animation_index, f32 blend_seconds, bool loop = true) noexcept;
+
     /** 再生を一時停止する (時刻は保持)。 */
     void Pause() noexcept { m_Playing = false; }
 
     /** 一時停止した再生を再開する。 */
     void Resume() noexcept { m_Playing = true; }
 
-    /** 再生を停止し時刻を 0 に戻す。 */
-    void Stop() noexcept { m_Playing = false; m_Time = 0; }
+    /** 再生と姿勢遷移を停止し、切替先の時刻を0へ戻す。 */
+    void Stop() noexcept;
 
     /**
      * 再生時刻を直接設定する。
      *
+     * @details 有限値だけを受理する。姿勢遷移中は遷移を解除して切替先だけを残す。
+     * NaNと正負の無限大は現在時刻と姿勢遷移を変更しない。
      * @param t 設定する時刻 (秒)。
      */
-    void SetTime(f32 t) noexcept { m_Time = t; }
+    void SetTime(f32 t) noexcept;
 
     /**
      * 現在の再生時刻を返す。
      *
      * @return 現在の時刻 (秒)。
      */
-    f32  Time() const noexcept { return m_Time; }
+    f32  Time() const noexcept;
 
     /**
      * 再生中かどうかを返す。
@@ -318,8 +336,9 @@ public:
      * 現在時刻のボーンパレットを書き込み、書き込んだボーン数を返す。
      *
      * @details
-     * 各ボーンのアニメーション後ローカル TRS を求め、親から合成したワールド行列に
-     * inverse_bind を掛けたものを out_palette へ書く。アニメ無し (m_Anim==-1) ならバインド姿勢を使う。
+     * 各ボーンのアニメーション後ローカルTRSを求め、姿勢遷移中は階層合成より前に
+     * 切替元と切替先を混ぜる。親から合成したワールド行列にinverse_bindを掛けたものを
+     * out_paletteへ書く。アニメ無し (m_Anim==-1) ならバインド姿勢を使う。
      * @param out_palette 最大 max_count 個の FMat4 を書き込む領域。
      * @param max_count 書き込める最大ボーン数。
      * @return 実際に書き込んだボーン数。
@@ -327,6 +346,18 @@ public:
     u32 WritePalette(FMat4* out_palette, u32 max_count) const noexcept;
 
 private:
+    /** 姿勢遷移中ならtrueを返す。 */
+    bool IsBlending_Internal() const noexcept { return m_BlendDuration > 0.0f; }
+
+    /** 姿勢遷移の保存値を初期状態へ戻す。 */
+    void ClearBlend_Internal() noexcept;
+
+    /** packed値から切替元アニメーションのindexを返す。 */
+    u32 BlendSourceIndex_Internal() const noexcept;
+
+    /** packed値から切替元のloop指定を返す。 */
+    bool BlendSourceLoops_Internal() const noexcept { return m_BlendFromAnimation < 0; }
+
     /** 参照中のスキンメッシュ (所有しない)。 */
     const ASkinnedMeshAsset* m_Mesh    = nullptr;
 
@@ -341,6 +372,15 @@ private:
 
     /** 再生中フラグ。 */
     bool                    m_Playing = false;
+
+    /** 切替元index。負値はloop指定を兼ね、-index-1で格納する。 */
+    i32                     m_BlendFromAnimation = 0;
+
+    /** 姿勢遷移を開始した時点の切替元clip時刻。 */
+    f32                     m_BlendFromTime = 0.0f;
+
+    /** 姿勢を混ぜる総秒数。0なら遷移なし。 */
+    f32                     m_BlendDuration = 0.0f;
 };
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */

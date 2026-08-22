@@ -148,11 +148,11 @@ ACS_TEST(CCamera3D, ShakeMovesEyeAndLookAtTogether) {
 
 ACS_TEST(CCamera3D, AcceptsShakePresetsThroughIShakeTarget) {
     CCamera3D big;
-    FCameraShakePresets::ApplyPreset(big, EShakePreset::ExplosionLarge);
+    CCameraShakePresets::ApplyPreset(big, EShakePreset::ExplosionLarge);
     EXPECT_TRUE(big.TraumaLevel() > 0.0f);
 
     CCamera3D small;
-    FCameraShakePresets::ApplyPreset(small, EShakePreset::HitImpact);
+    CCameraShakePresets::ApplyPreset(small, EShakePreset::HitImpact);
     EXPECT_TRUE(small.TraumaLevel() > 0.0f);
 
     // preset ごとに強さが違わなければ、preset を使えていない。

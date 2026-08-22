@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// Reversible AScene host for legacy ACS3D editor documents.
 #pragma once
+
+// 旧ACS3D editor文書をASceneへ可逆的に載せるhost。
 
 #include "foundation/Types.h"
 #include "container/Array.h"
@@ -12,6 +13,7 @@
 #include "render/Ibl.h"
 #include "render/MotionVector.h"
 #include "render/Ssao.h"
+#include "render/Ssgi.h"
 #include "render/Ssr.h"
 #include "render/HiZ.h"
 #include "render/SkinnedShader.h"
@@ -20,6 +22,7 @@
 #include "render/Atmosphere.h"
 #include "gameframework/SceneNodeGraph.h"
 #include "gameframework/Scene3DSerialize.h"
+#include "gameframework/Scene3DGlobalIllumination.h"
 #include "math/Camera.h"
 #include "math/Collision3D.h"   // FRay3 / FRayHit3 (RaycastWater と mesh 交差)
 #include "render/Blit.h"
@@ -223,6 +226,16 @@ struct FScene3DClouds {
     FVolumetricCloudWeather Weather{};
 
     /**
+     * 雲の形と照明をPBR環境光へ反映するか。
+     *
+     * @details 既定はtrue。被覆が正なら、初回有効化・無効化・太陽方向の有意な変化は
+     * 即時、連続する設定・照明変化は最大30成功雲frameごとにまとめてGPU上の
+     * 環境cubemapを作り直す。雲の移流だけでは高価なIBLを再生成しない。
+     * falseなら表示中の雲と雲影は保ち、環境光だけ従来の雲なし大気へ戻す。
+     */
+    bool bAffectEnvironmentLighting = true;
+
+    /**
      * 雲の照らし方。位相・消散・多重散乱・環境光・地面からの照り返し。
      *
      * @details
@@ -362,11 +375,31 @@ public:
     ESceneProjectionMode ProjectionMode() const noexcept { return m_Projection; }
 
     /**
+     * PBR の IBL、SH9、光プローブへ掛ける環境光倍率を返す。
+     *
+     * @details 既定値は 1.0。direct light、emissive、UI、SSGI、lightmap、SSR には影響しない。
+     * @return 有限かつ 0 以上の環境光倍率。
+     */
+    f32 EnvironmentLightMultiplier() const noexcept {
+        return m_EnvironmentLightMultiplier;
+    }
+
+    /**
+     * PBR の環境由来の間接光だけへ掛ける明るさ倍率を設定する。
+     *
+     * @details 0 で環境光を消し、有限な正値は上限を設けず受理する。NaN、無限大、負数は
+     * 無視して現在値を維持する。CWeatherSystem::AmbientLightMultiplier() をそのまま渡せる。
+     * @param multiplier 設定する有限かつ 0 以上の環境光倍率。
+     */
+    void SetEnvironmentLightMultiplier(f32 multiplier) noexcept;
+
+    /**
      * 雲の設定を触る。
      *
      * @details
      * `Coverage` を 0 にすると出ない (既定)。出すと、太陽の側が明るく縁が光る本物の雲になる。
-     * 空を焼いた cubemap には雲が入らないので、**雲は環境光には効かない** (影も落とさない)。
+     * `bAffectEnvironmentLighting` がtrueなら、同じ密度場と照明をPBRの環境光にも反映する。
+     * 画面の雲とワールド雲影はこの設定に関係なく従来どおり描く。
      * @return 雲の設定 (次のフレームから効く)。
      */
     FScene3DClouds& Clouds() noexcept { return m_CloudParams; }
@@ -427,6 +460,23 @@ public:
     const FScene3DReflections& Reflections() const noexcept { return m_SsrParams; }
 
     /**
+     * 画面空間の間接光 (SSGI) の設定を触る。
+     *
+     * @details
+     * `Intensity` を正の値にすると有効になる。出力は内部で保持され、次のフレームの
+     * PBR にだけ渡す。無効化、リサイズ、入力不足時は古い間接光を公開しない。
+     * @return SSGI の設定 (次のフレームから効く)。
+     */
+    FScene3DGlobalIllumination& GlobalIllumination() noexcept {
+        return m_SsgiParams;
+    }
+
+    /** SSGI の設定を読む。 */
+    const FScene3DGlobalIllumination& GlobalIllumination() const noexcept {
+        return m_SsgiParams;
+    }
+
+    /**
      * 雲の設定を読む。
      *
      * @return 雲の設定。
@@ -452,6 +502,27 @@ public:
      * @return 大気の設定。
      */
     const FAtmosphereParams& Atmosphere() const noexcept { return m_AtmosphereParams; }
+
+    /**
+     * 深度に応じた物理大気の空気遠近を有効にする。
+     *
+     * @details 既定は false で、従来の描画結果と計算負荷を維持する。有効時は不透明物と
+     * 水面を camera からの距離に応じて大気へ馴染ませる。`Fog()` は別の表現として従来どおり
+     * PBR surface fog にだけ適用し、空気遠近の体積へ重ねて積分しない。
+     * @param enabled true なら次の描画から物理大気の空気遠近を使う。
+     */
+    void SetAerialPerspectiveEnabled(bool enabled) noexcept {
+        m_AerialPerspectiveEnabled = enabled;
+    }
+
+    /**
+     * 物理大気の空気遠近を要求しているか返す。
+     *
+     * @return `SetAerialPerspectiveEnabled(true)` が設定されていれば true。
+     */
+    bool AerialPerspectiveEnabled() const noexcept {
+        return m_AerialPerspectiveEnabled;
+    }
 
     /**
      * 距離で霞ませる霧の設定。
@@ -488,6 +559,30 @@ public:
      * @return 仕上げの設定。
      */
     const FPostProcessParams& PostParams() const noexcept { return m_PostParams; }
+
+    /**
+     * 一つのnode subtreeへdepth-awareな選択輪郭を設定する。
+     *
+     * @details subtree_root自身と可視・有効な子孫meshを対象にする。既定では選択なしで、
+     * stale/未知handleまたは範囲外設定ではfalseを返し、現在の選択を変更しない。
+     * hidden/disabled/destroyed node、mask前段またはpost資源の失敗時は通常の3D表示を維持する。
+     * @param subtree_root 輪郭を付けるsubtree root。
+     * @param color sRGB表示域の輪郭色。各成分は0以上1以下。
+     * @param intensity 輪郭の強さ。0より大きく4以下。
+     * @param thickness_pixels 輪郭幅。0より大きく4 pixel以下。
+     * @return 設定を受理した場合だけtrue。
+     */
+    bool SetSelectionHighlight(FNodeId subtree_root, FVec3 color = FVec3{1.0f, 0.66f, 0.16f}, f32 intensity = 1.0f, f32 thickness_pixels = 2.0f) noexcept;
+
+    /** 選択輪郭を解除する。未設定でも安全に呼べる。 */
+    void ClearSelectionHighlight() noexcept;
+
+    /**
+     * 現在設定されている選択輪郭のsubtree rootを返す。
+     *
+     * @return 設定中の有効なFNodeId。未設定または破棄済みならinvalid。
+     */
+    FNodeId SelectionHighlightNode() const noexcept;
 
     /**
      * 空の設定を触る (雲・色・太陽の見た目・時刻)。
@@ -589,6 +684,41 @@ public:
     /** Read-only standalone camera. */
     const CCamera& Camera() const noexcept { return m_Camera; }
 
+    /**
+     * authored cameraの有無にかかわらず、orbit cameraを明示的に選ぶかを設定する。
+     *
+     * @details trueでは毎frameのcamera再選択を抑止し、falseでは明示camera指定を解除して
+     * deterministic authored camera選択へ戻す。authored cameraが無い場合はorbit cameraを維持する。
+     * 切替時はorbit cameraの補間区間を現在状態へ揃え、古い表示区間を残さない。
+     * @param active orbit cameraを明示選択するならtrue。
+     */
+    void SetOrbitCameraActive(bool active) noexcept;
+
+    /**
+     * 現在の描画cameraがorbit cameraならtrueを返す。
+     *
+     * @details 明示選択だけでなく、authored cameraが無い自動代替もtrueになる。
+     * @return orbit cameraを使っているならtrue。
+     */
+    bool OrbitCameraActive() const noexcept { return !m_UseAuthoredCamera; }
+
+    /**
+     * orbit cameraを明示的に選択しているならtrueを返す。
+     *
+     * @details authored camera不在による自動代替はfalse。Bind前の選択modeを復元する用途で使う。
+     * @return SetOrbitCameraActive(true)による明示overrideが有効ならtrue。
+     */
+    bool OrbitCameraOverrideActive() const noexcept;
+
+    /**
+     * authored cameraをstable idまたはnode idで明示選択しているならtrueを返す。
+     *
+     * @details serialized cameraはAuthoredCamera()->NodeId、NodeIdが負のruntime cameraは
+     * AuthoredCamera()->StableIdを保存し、対応するSetActiveCamera overloadで復元できる。
+     * @return SetActiveCamera成功による明示overrideが有効ならtrue。
+     */
+    bool AuthoredCameraOverrideActive() const noexcept;
+
     /** Deterministically selected authored camera, or null for frame-scene fallback. */
     const FScene3DCameraState* AuthoredCamera() const noexcept {
         return m_UseAuthoredCamera ? &m_AuthoredCamera : nullptr;
@@ -671,6 +801,54 @@ public:
     void OnFixedUpdate(f32 fixed_dt) noexcept override;
     void OnRender(FRenderContext& context) noexcept override;
 
+protected:
+    /**
+     * 透明 3D 追加描画へ渡す、そのフレームだけの値コンテキスト。
+     *
+     * @details
+     * OnRenderTransparent3D の呼出し中は ColorTarget が既存内容を保持した load 状態で、
+     * DepthTarget が null でなければ同じ深度バッファも DSV として bind されている。
+     * 参照とポインタは所有せず、フックの呼出し中だけ使う。
+     */
+    struct FScene3DTransparentRenderContext final {
+        /** 現在の RHI device。フックの呼出し中だけ参照する。 */
+        IRhiDevice& Device;
+
+        /** 現在記録中の RHI command list。フックの呼出し中だけ参照する。 */
+        IRhiCommandList& Commands;
+
+        /** 描画時点の active camera。行列と位置を参照する。 */
+        const CCamera& Camera;
+
+        /** 追加描画先の HDR color target。load-bind 済みである。 */
+        IRhiTexture& ColorTarget;
+
+        /** 追加描画で読み取り可能な深度 target (無い場合は null)。 */
+        IRhiTexture* DepthTarget = nullptr;
+
+        /** target の幅 (ピクセル)。 */
+        u32 Width = 0u;
+
+        /** target の高さ (ピクセル)。 */
+        u32 Height = 0u;
+
+    };
+
+    /**
+     * HDR シーンへ透明 3D 描画を追加する。
+     *
+     * @details
+     * 既定実装は何もしないため、外部描画を使わない派生 scene は安全にそのまま動く。
+     * 基底が Load/状態復旧/End を管理するので、派生は context の対象へ描画だけを追加する。
+     * @param context load-bind 済み HDR/深度と camera を含む一時コンテキスト。
+     */
+    virtual bool OnRenderTransparent3D(
+        const FScene3DTransparentRenderContext& context) noexcept
+    {
+        (void)context;
+        return false;
+    }
+
 private:
     struct FCustomGpuMesh {
         AMeshComponent3D* Component = nullptr;
@@ -679,8 +857,11 @@ private:
 
     /** sceneコンポーネントと所有GPU画像の対応。 */
     struct FCustomGpuSprite {
-        /** 画像の所有元コンポーネント。 */
-        const ASprite3DComponent* Component = nullptr;
+        /** 画像を使うnode。世代を含むhandleなので破棄後の再利用と衝突しない。 */
+        FNodeId Node;
+
+        /** GPU画像の生成元。差し替え検出とCPU画像の寿命保持に使う。 */
+        TSharedPtr<AAsset> SourceImage;
 
         /** 描画アダプターが単独所有するGPU画像。 */
         TUniquePtr<IRhiTexture> Texture;
@@ -798,7 +979,10 @@ private:
         bool requested) noexcept;
     void AdvanceSpriteInitialization(IRhiDevice& device, EFormat depth_format, EGpuCommitSubsystem& frame_commit, bool requested) noexcept;
     bool UploadGraphMeshes(IRhiDevice& device) noexcept;
-    bool UploadGraphSprites(IRhiDevice& device) noexcept;
+    /** 現在のgraphとGPU画像表を登録順に線形比較し、同一ならtrueを返す。 */
+    bool SpriteResourcesMatchGraph_Internal(const ANode& node, usize& matched_count, u32 depth = 0u) const noexcept;
+    /** 3Dスプライトの追加・除去・画像差し替えをGPU画像表へ反映する。 */
+    bool SynchronizeGraphSprites_Internal(IRhiDevice& device) noexcept;
     void DrainAndReleaseGpu() noexcept;
     void ReleaseGpu() noexcept;
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
@@ -841,6 +1025,16 @@ private:
     bool EnsureAmbientOcclusion(IRhiDevice& device, u32 width, u32 height) noexcept;
 
     /**
+     * SSAO、SSR、SSGI が共有する法線・深度前段を用意する。
+     *
+     * @param device 描画先を作るRHIデバイス。
+     * @param width 画面の幅。
+     * @param height 画面の高さ。
+     * @return 前段を使える状態なら true。
+     */
+    bool EnsureNormalDepth(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
      * 遮蔽を計算する前段として、法線と深度を先に描く。
      *
      * @details
@@ -860,6 +1054,26 @@ private:
      * @return 遮蔽が使える状態になったら true。
      */
     bool RenderAmbientOcclusionPass(IRhiDevice& device, FRenderContext& context) noexcept;
+
+    /** SSGI の出力RTと時間履歴を、必要な解像度で用意する。 */
+    bool EnsureGlobalIllumination(
+        IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * 完成したHDR色からSSGIを計算し、次フレーム用の結果を公開する。
+     *
+     * @param device 描画に使うRHIデバイス。
+     * @param context 描画文脈。
+     * @param scene_color 現フレームの完成したHDR色。
+     * @param scene_depth 現フレームのshader-visible深度。
+     * @return 次フレームへ渡せる出力を作れたら true。
+     */
+    bool RenderGlobalIlluminationPass(
+        IRhiDevice& device, FRenderContext& context,
+        IRhiTexture& scene_color, IRhiTexture& scene_depth) noexcept;
+
+    /** SSGI の出力を無効化し、次回復帰時を履歴の初回に戻す。 */
+    void InvalidateGlobalIlluminationOutput() noexcept;
 
     /**
      * 反射 (SSR) の描き込み先を用意する。画面の大きさが変わったら作り直す。
@@ -913,6 +1127,9 @@ private:
 
         /** アルベド色。 */
         FVec3 Color{1.0f, 1.0f, 1.0f};
+
+        /** 可視選択subtreeに含まれ、normal alphaへmaskを書くならtrue。 */
+        bool SelectionHighlighted = false;
     };
 
     /**
@@ -951,7 +1168,8 @@ private:
      * IBL が無いと環境光が «一定の暗い色» になり、陰の側がのっぺり潰れる。空を映した
      * 環境光を入れると、上を向いた面は空の色を、下を向いた面は地面の色を受ける。
      *
-     * 焼き直しは重いので、**太陽が十分に動いたときだけ**やり直す。
+     * 焼き直しは重いので、太陽方向が十分に動いたときは即時、雲の連続変化は
+     * 固定間隔へまとめてやり直す。
      * @param device 生成に使うデバイス。
      * @param command_list 焼き込みに使うコマンドリスト。
      * @return 使える状態なら true。
@@ -995,9 +1213,16 @@ private:
      * @param scene_depth 完成したシーンの深度 (手前の物で雲を隠すのに使う)。
      * @param width 画面の幅。
      * @param height 画面の高さ。
+     * @param aerial_volume 空気遠近の散乱体積。nullptrなら従来の雲合成へ戻る。
+     * @param aerial_transmittance 空気遠近の透過率体積。nullptrなら従来の雲合成へ戻る。
+     * @param aerial_max_distance 体積を生成した最大距離 (Legacy 3D world単位のメートル)。
      */
-    void CompositeClouds(IRhiCommandList& command_list, IRhiTexture& target,
-                         IRhiTexture& scene_depth, u32 width, u32 height) noexcept;
+    void CompositeClouds(
+        IRhiCommandList& command_list, IRhiTexture& target,
+        IRhiTexture& scene_depth, u32 width, u32 height,
+        IRhiTexture* aerial_volume,
+        IRhiTexture* aerial_transmittance,
+        f32 aerial_max_distance) noexcept;
 
     void RenderSky(IRhiDevice& device, IRhiCommandList& command_list,
                    EFormat color_format, EFormat depth_format) noexcept;
@@ -1056,9 +1281,13 @@ private:
      */
     FVec3 SunColorForWater() const noexcept;
     void AdoptLoadedCamera() noexcept;
+    /** 明示的なorbit camera選択を保持しているならtrueを返す。 */
+    bool HasExplicitOrbitCameraOverride_Internal() const noexcept;
+    /** orbit cameraの補間履歴と障害物回避表示を現在状態へ揃える。 */
+    void ResetOrbitCameraPresentation_Internal() noexcept;
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
-    IRhiTexture* TextureFor(const ASprite3DComponent& component) const noexcept;
+    IRhiTexture* TextureFor(FNodeId node, const TSharedPtr<AAsset>& source_image) const noexcept;
     bool DrawSpriteScene(FRenderContext& context) noexcept;
     u32 CollectWaterDraws(
         FWaterDraw (&draws)[CWaterSurface3D::kMaxTrackedSurfaces],
@@ -1162,6 +1391,7 @@ private:
     FScene3DShadows m_ShadowParams{};
     FScene3DAmbientOcclusion m_SsaoParams{};
     FScene3DReflections m_SsrParams{};
+    FScene3DGlobalIllumination m_SsgiParams{};
 
     /** 雲を使える状態にできたか。 */
     bool m_CloudsReady = false;
@@ -1183,6 +1413,12 @@ private:
 
     /** 大気の初期化を一度試したか (失敗しても毎フレーム試さない)。 */
     bool m_AtmosphereTried = false;
+
+    /** 既存alignment padding内で保持する、物理大気の空気遠近要求。 */
+    bool m_AerialPerspectiveEnabled = false;
+
+    /** 既存alignment padding内で保持する、環境光へ焼いた雲形状・照明の署名。 */
+    u32 m_IblBakedCloudSignature = ~u32{0};
 
     /** 空を映した環境光 (irradiance / prefilter / BRDF LUT)。 */
     CImageBasedLighting m_Ibl;
@@ -1208,8 +1444,26 @@ private:
     /** 法線と深度を先に描くパス。遮蔽の材料になる。 */
     CMotionVector m_NormalDepth;
 
+    /** 法線と深度の前段を用意できたか。SSAOの有効状態とは独立。 */
+    bool m_NormalDepthReady = false;
+
+    /** このフレームで法線と深度を完全に描けたか。 */
+    bool m_NormalDepthDrawn = false;
+
+    /** 法線と深度を用意してある画面の幅。 */
+    u32 m_NormalDepthWidth = 0u;
+
+    /** 法線と深度を用意してある画面の高さ。 */
+    u32 m_NormalDepthHeight = 0u;
+
     /** 画面空間の遮蔽 (GTAO + contact shadow)。 */
     CSsao m_Ssao;
+
+    /** 画面空間の間接光。出力RTと時間履歴を所有する。 */
+    CSsgi m_Ssgi;
+
+    /** SSGI の出力RTとパイプラインを用意できたか。 */
+    bool m_SsgiReady = false;
 
     /** 遮蔽の描き込み先を用意できたか。 */
     bool m_SsaoReady = false;
@@ -1251,6 +1505,18 @@ private:
 
     /** 使える反射があるか (前のフレームで作れたか)。 */
     bool m_SsrValid = false;
+
+    /** SSGIの出力を次のPBRへ渡せるか (現フレームの計算前の値)。 */
+    bool m_SsgiValid = false;
+
+    /** SSGIを前フレームから継続して有効にしているか。 */
+    bool m_SsgiWasEnabled = false;
+
+    /** SSGI出力を用意してある画面の幅。 */
+    u32 m_SsgiWidth = 0u;
+
+    /** SSGI出力を用意してある画面の高さ。 */
+    u32 m_SsgiHeight = 0u;
 
     /** 用意してある反射の大きさ。 */
     u32 m_SsrWidth = 0u;
@@ -1321,6 +1587,9 @@ private:
     bool m_SsssRequested = false;
     bool m_GpuReady = false;
     bool m_GpuAttempted = false;
+
+    /** 既存field位置を保ち、末尾paddingで所有する環境光倍率。 */
+    f32 m_EnvironmentLightMultiplier = 1.0f;
 };
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */

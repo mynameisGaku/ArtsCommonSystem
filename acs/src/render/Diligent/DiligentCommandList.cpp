@@ -5,6 +5,8 @@
 #if WITH_RENDER_DILIGENT
 
 #include "render/Diligent/DiligentCommon.h"
+#include <d3d12.h>
+#include "DeviceContextD3D12.h"
 #include "render/Diligent/DiligentDevice.h"
 #include "render/Diligent/DiligentSwapchain.h"
 #include "render/Diligent/DiligentPipeline.h"
@@ -690,10 +692,11 @@ void CDiligentCommandList::SetVertexBuffer(IRhiBuffer& vb, u32 /*stride*/) noexc
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto& b = static_cast<FDiligentBuffer&>(vb);
+    IRhiBuffer& binding_buffer = vb.BindingBuffer();
+    auto& b = static_cast<FDiligentBuffer&>(binding_buffer);
     if (!b.Native()) return;
     Diligent::IBuffer* bufs[1] = { b.Native() };
-    Diligent::Uint64   offs[1] = { 0 };
+    Diligent::Uint64 offs[1] = { static_cast<Diligent::Uint64>(vb.BindingOffset()) };
     ctx->SetVertexBuffers(0, 1, bufs, offs,
                           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
                           Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
@@ -703,11 +706,11 @@ void CDiligentCommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto& b = static_cast<FDiligentBuffer&>(ib);
+    IRhiBuffer& binding_buffer = ib.BindingBuffer();
+    auto& b = static_cast<FDiligentBuffer&>(binding_buffer);
     if (!b.Native()) return;
-    m_bIsIndex32 = (b.Usage() == EBufferUsage::Index32);
-    ctx->SetIndexBuffer(b.Native(), 0,
-                        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    m_bIsIndex32 = (binding_buffer.Usage() == EBufferUsage::Index32);
+    ctx->SetIndexBuffer(b.Native(), static_cast<Diligent::Uint64>(ib.BindingOffset()), Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 }
 
 void CDiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
@@ -718,7 +721,8 @@ void CDiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept 
     IRhiBuffer& binding_buffer = cb.BindingBuffer();
     /** 実バッファ先頭からの定数範囲offset。 */
     const usize binding_offset = cb.BindingOffset();
-    if (cb.Usage() != EBufferUsage::Uniform || binding_buffer.Usage() != EBufferUsage::Uniform || binding_offset > binding_buffer.Size() || cb.Size() > binding_buffer.Size() - binding_offset || (binding_offset & 255u) != 0u) return;
+    const usize frame_offset = binding_buffer.BindingOffset();
+    if (cb.Usage() != EBufferUsage::Uniform || binding_buffer.Usage() != EBufferUsage::Uniform || binding_offset < frame_offset || binding_offset - frame_offset > binding_buffer.Size() || cb.Size() > binding_buffer.Size() - (binding_offset - frame_offset) || (binding_offset & 255u) != 0u) return;
     /** resource変数へ渡すbackendバッファ。 */
     auto& b = static_cast<FDiligentBuffer&>(binding_buffer);
     if (!b.Native()) return;
@@ -938,6 +942,45 @@ void CDiligentCommandList::DispatchIndirect(IRhiBuffer& args, u32 byte_offset) n
 
 void* CDiligentCommandList::NativeHandle() noexcept {
     return m_Device ? m_Device->Context() : nullptr;
+}
+
+void* CDiligentCommandList::D3D12GraphicsCommandList() noexcept
+{
+    if (!m_Device ||
+        m_Device->ActualBackend() != ERhiBackendKind::D3D12) {
+        return nullptr;
+    }
+    Diligent::IDeviceContext* const context = m_Device->Context();
+    if (context == nullptr) return nullptr;
+
+    Diligent::IDeviceContextD3D12* diligent_context = nullptr;
+    context->QueryInterface(
+        Diligent::IID_DeviceContextD3D12,
+        reinterpret_cast<Diligent::IObject**>(&diligent_context));
+    if (diligent_context == nullptr) return nullptr;
+
+    ID3D12GraphicsCommandList* const command_list =
+        diligent_context->GetD3D12CommandList();
+    diligent_context->Release();
+    return command_list;
+}
+
+void CDiligentCommandList::RestoreStateAfterExternalCommands() noexcept
+{
+    if (!m_Device) return;
+    Diligent::IDeviceContext* const context = m_Device->Context();
+    if (!context) return;
+
+    // 外部コマンドと、その前に記録済みの雲 / SPR3D / HDR 処理を先に投入する。
+    // outstanding command が残ったまま InvalidateState() を呼ぶと Diligent は
+    // 状態追跡を破棄できず、後続の SSR / post が黒画面になる。
+    context->Flush();
+
+    // 外部側の pipeline / resource state を Diligent の追跡対象から外す。
+    context->InvalidateState();
+    m_Pipeline = nullptr;
+    for (u32 i = 0; i < 16u; ++i) m_BoundUavTex[i] = nullptr;
+    m_BoundUavTexCount = 0;
 }
 
 } // namespace acs

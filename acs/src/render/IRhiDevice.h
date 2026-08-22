@@ -86,6 +86,23 @@ public:
     {
         return true;
     }
+
+    /**
+     * D3D12 外部描画用のネイティブ device / queue を借用する。
+     *
+     * @details
+     * 返されるポインタは ACS 所有で、呼出し側は参照カウントを変更してはならない。
+     * 非 D3D12 バックエンドや未初期化状態では out を空にして false を返す。
+     * この virtual は既存実装の ABI を壊さないため末尾へ追加している。
+     * @param out 借用するネイティブ資源とフレームスロット数。
+     * @return D3D12 の device と graphics queue を取得できた場合は true。
+     */
+    virtual bool TryGetD3D12Interop(
+        FRhiD3D12DeviceInterop& out) const noexcept
+    {
+        out = {};
+        return false;
+    }
 };
 
 /**

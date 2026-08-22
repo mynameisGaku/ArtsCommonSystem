@@ -70,7 +70,8 @@ PSOut PSMain(VSOut i) {
     float2 velocity = i.prev_clip.w > 1e-5 ? prev_uv - curr_uv : float2(0, 0);
     o.motion = float4(clamp(velocity, -1.0, 1.0), 0.0, 0.0);
     // 補間後に正規化 → 曲面でも滑らかな per-pixel 法線
-    o.normal = float4(normalize(i.world_n), 0.0);
+    // normal_row0.wはC++側の選択mask。既存consumerは.xyzだけを読む。
+    o.normal = float4(normalize(i.world_n), saturate(normal_row0.w));
     return o;
 }
 )";
@@ -321,6 +322,10 @@ bool CMotionVector::Begin(IRhiCommandList& cl,
 
 bool CMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
                              const FMat4& model, const FMat4& prev_model) noexcept {
+    return DrawMesh(cl, mesh, model, prev_model, false);
+}
+
+bool CMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh, const FMat4& model, const FMat4& prev_model, bool selection_mask) noexcept {
     if (!m_PassActive) return false;
     if (!mesh.vertex_buffer || !mesh.index_buffer) return false;
     if (m_DrawCursor == kInvalidObjectBuffer ||
@@ -342,7 +347,7 @@ bool CMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
     cb.prev_mvp   = prev_model * m_PrevVp;
     const FMat4 normal_matrix = MakeSafeNormalMatrix(model);
     cb.normal_row0 = FVec4{normal_matrix.m[0][0], normal_matrix.m[0][1],
-                           normal_matrix.m[0][2], 0};
+                           normal_matrix.m[0][2], selection_mask ? 1.0f : 0.0f};
     cb.normal_row1 = FVec4{normal_matrix.m[1][0], normal_matrix.m[1][1],
                            normal_matrix.m[1][2], 0};
     cb.normal_row2 = FVec4{normal_matrix.m[2][0], normal_matrix.m[2][1],

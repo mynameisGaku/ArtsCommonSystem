@@ -19,9 +19,11 @@ class CDiligentDevice;
  *
  * @details
  * EBufferUsage に応じて vertex/index/uniform/structured/staging の bind flag と
- * Diligent::USAGE を選び、初期データ付きで作る。cpu_writable=false かつ初期データありの
- * 場合は USAGE_IMMUTABLE、それ以外は USAGE_DEFAULT (UpdateBuffer 経路)、Staging は
- * USAGE_STAGING (Map 経路) を使う。生の Diligent::IBuffer は参照カウントで所有する。
+ * Diligent::USAGE を選び、初期データ付きで作る。cpu_writable=true の描画用バッファは
+ * フレームスロットごとに領域を分け、実行中の GPU 読み出しと次フレームの更新が競合しない。
+ * cpu_writable=false かつ初期データありの場合は USAGE_IMMUTABLE、それ以外は
+ * USAGE_DEFAULT (UpdateBuffer 経路)、Staging は USAGE_STAGING (Map 経路) を使う。
+ * 生の Diligent::IBuffer は参照カウントで所有する。
  */
 class FDiligentBuffer final : public IRhiBuffer {
 public:
@@ -77,6 +79,15 @@ public:
     void        Update(const void* data, usize size, usize offset = 0) noexcept override;
 
     /**
+     * 現在フレームが使う実バッファ内の先頭位置を返す。
+     *
+     * @details cpu_writable=true の頂点・インデックス・定数バッファでは、
+     * GPU が参照中の領域を避けるためフレームスロットに応じた位置を返す。
+     * @return 実バッファ先頭からのバイト位置。フレーム分離しない場合は 0。
+     */
+    usize BindingOffset() const noexcept override;
+
+    /**
      * 生の Diligent バッファを返す (内部公開)。
      *
      * @return 保持している Diligent::IBuffer (未生成なら nullptr)。
@@ -92,6 +103,12 @@ public:
 private:
     /** 保持リソースと借用参照を空状態へ戻す。 */
     void Reset() noexcept;
+
+    /** 実バッファがフレームスロットごとの領域を持つかを返す。 */
+    bool IsFrameCycled_Internal() const noexcept;
+
+    /** 1 フレームスロットの 256 バイト境界へ切り上げた幅を返す。 */
+    usize FrameSlotStride_Internal() const noexcept;
 
     /** Update でコンテキストを引くために保持する生成元デバイス。 */
     CDiligentDevice*    m_Device = nullptr;

@@ -44,7 +44,7 @@ cbuffer Frame : register(b0) {
     float4   light_color[ACS_MAX_DIR_LIGHTS];
     float4   point_pos_range [ACS_MAX_POINT_LIGHTS];
     float4   point_color     [ACS_MAX_POINT_LIGHTS];
-    float4   ibl_params;                              // x=ibl_enabled, y=prefilter_mip_count, z=use_sh9
+    float4   ibl_params;                              // x=ibl_enabled, y=prefilter_mip_count, z=use_sh9, w=environment_light_multiplier
     float4   sh9[9];                                  // SH 9 coefficients (RGB)、z モードで使用
     // 矩形 area light: center (world), axis_x*half_width, axis_y*half_height, color
     float4   area_center [ACS_MAX_AREA_LIGHTS];
@@ -597,6 +597,7 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
 {
     float NoV = saturate(dot(N, V));
     float3 R  = reflect(-V, N);
+    float environment_light_multiplier = max(ibl_params.w, 0.0);
 
     float3 F0 = directF0;
     float3 F  = F_Schlick90(NoV, F0, directF90);
@@ -611,6 +612,7 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
     } else {
         irr = irradiance.SampleLevel(irradiance_sampler, N, 0).rgb;
     }
+    irr *= environment_light_multiplier;
     float3 diffuse_ibl = kd * base * irr;
     float3 material_diffuse_ibl = diffuse_ibl;
     // Sheen ambient (Phase 35-1a): irradiance を sheen 色で着色した簡易 ambient + base 減衰
@@ -633,6 +635,7 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
         float mip_lvl = roughness * max(ibl_params.y - 1.0, 0.0);
         prefilt = prefilter.SampleLevel(prefilter_sampler, R, mip_lvl).rgb;
     }
+    prefilt *= environment_light_multiplier;
     float2 lut_xy = brdf_lut.SampleLevel(brdf_lut_sampler, float2(NoV, roughness), 0).rg;
     // Phase 34e-2fix: 反射元の radiance を環境 prefilter (off-screen) から SSR
     // (on-screen の実ジオメトリ) へ blend。BRDF 応答 (split-sum scale+bias) は共通。
@@ -645,6 +648,7 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
         float3 secondPrefilt = (ibl_params.z >= 0.5)
             ? Sh9Radiance(R, sh9)
             : prefilter.SampleLevel(prefilter_sampler, R, secondMip).rgb;
+        secondPrefilt *= environment_light_multiplier;
         float2 secondLut = brdf_lut.SampleLevel(
             brdf_lut_sampler, float2(NoV, secondRoughness), 0).rg;
         float3 secondSpec = secondPrefilt
@@ -674,7 +678,8 @@ IblCoatTerm ComputeIblClearcoat(float3 N, float3 V, float clearcoat,
     float mip_lvl = coat_roughness * max(ibl_params.y - 1.0, 0.0);
     float3 prefilt = prefilter.SampleLevel(prefilter_sampler, R, mip_lvl).rgb;
     float2 lut_xy = brdf_lut.SampleLevel(brdf_lut_sampler, float2(NoV, coat_roughness), 0).rg;
-    o.spec = prefilt * (F0c * lut_xy.x + lut_xy.y) * clearcoat;
+    o.spec = prefilt * (F0c * lut_xy.x + lut_xy.y) * clearcoat
+           * max(ibl_params.w, 0.0);
     // base 透過: Fresnel * clearcoat 強度ぶんを引く
     o.attenuation = 1.0 - max(Fc.r, max(Fc.g, Fc.b)) * clearcoat;
     }
@@ -1587,7 +1592,8 @@ PbrSurfaceOutputs EvaluatePbr(VSOut v, bool applyAnalyticSss) {
         diffuse_col =
             base_ibl_diffuse * cc_ibl.attenuation * ssao_factor;
     } else {
-        col = ambient.xyz * albedo_rgb * ao * ssao_factor;
+        col = ambient.xyz * albedo_rgb * ao * ssao_factor
+            * max(ibl_params.w, 0.0);
         diffuse_col = col;
     }
 
@@ -1852,7 +1858,7 @@ struct FFrameCBLayout {
     /** 各点光源の色 (xyz)。 */
     FVec4 point_color    [kMaxPointLights];
 
-    /** IBL パラメータ (x=ibl_enabled、y=prefilter_mip_count、z=use_sh9)。 */
+    /** IBL パラメータ (x=有効、y=prefilter mip 数、z=SH9、w=環境光倍率)。 */
     FVec4 ibl_params;
 
     /** SH 9 single mode の係数 (各 xyz=RGB)。 */
@@ -2702,6 +2708,14 @@ void CPbrShader::SetIbl(IRhiTexture* irradiance,
     FlushFrameCB();
 }
 
+/** 有限かつ 0 以上の値だけを受理し、環境由来の間接光倍率を更新する。 */
+void CPbrShader::SetIblLightMultiplier(f32 multiplier) noexcept
+{
+    if (!std::isfinite(multiplier) || multiplier < 0.0f) return;
+    m_IblLightMultiplier = multiplier;
+    FlushFrameCB();
+}
+
 /** 従来 ABI を保ちつつ、高品質 fog の標準位相値を適用する。 */
 void CPbrShader::SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base) noexcept {
     SetFog(color, density, height_falloff, height_base, 0.35f, 0.18f);
@@ -3031,7 +3045,7 @@ void CPbrShader::FlushFrameCB() noexcept {
         m_IblEnabled ? 1.0f : 0.0f,
         static_cast<f32>(m_IblMips),
         m_bSh9Enabled ? 1.0f : 0.0f,
-        0
+        m_IblLightMultiplier
     };
     cb.ssao_params = FVec4{
         (m_SsaoTex && m_SsaoInvW > 0 && m_SsaoInvH > 0) ? 1.0f : 0.0f,

@@ -9864,6 +9864,32 @@ inline FVec4 Normalize(FVec4 v) noexcept {
 namespace acs {
 
 /**
+ * D3D12 外部描画へ一時的に貸し出すネイティブ資源。
+ *
+ * @details
+ * 各ポインタは ACS が所有し、呼出し中だけ有効な借用値である。外部側は
+ * AddRef/Release せず、FramesInFlight は外部描画側のフレーム資源管理に使う。
+ * 非 D3D12 バックエンドでは IRhiDevice の取得 API が false を返す。
+ */
+struct FRhiD3D12DeviceInterop final {
+    /** ACS が所有する ID3D12Device 相当の借用ポインタ。 */
+    void* Device = nullptr;
+
+    /** ACS が所有する DIRECT グラフィックスキュー相当の借用ポインタ。 */
+    void* GraphicsQueue = nullptr;
+
+    /** ACS が同時に保持するフレームスロット数。 */
+    u32 FramesInFlight = 0u;
+
+    /** device / queue / frame 数が揃い、外部描画へ渡せる値かを返す。 */
+    bool IsValid() const noexcept
+    {
+        return Device != nullptr && GraphicsQueue != nullptr &&
+               FramesInFlight > 0u;
+    }
+};
+
+/**
  * ピクセルフォーマット (DX12 / Vulkan 等で共通の論理フォーマット)。
  */
 enum class EFormat : u8 {
@@ -10099,6 +10125,23 @@ public:
     virtual bool IsOperational() const noexcept
     {
         return true;
+    }
+
+    /**
+     * D3D12 外部描画用のネイティブ device / queue を借用する。
+     *
+     * @details
+     * 返されるポインタは ACS 所有で、呼出し側は参照カウントを変更してはならない。
+     * 非 D3D12 バックエンドや未初期化状態では out を空にして false を返す。
+     * この virtual は既存実装の ABI を壊さないため末尾へ追加している。
+     * @param out 借用するネイティブ資源とフレームスロット数。
+     * @return D3D12 の device と graphics queue を取得できた場合は true。
+     */
+    virtual bool TryGetD3D12Interop(
+        FRhiD3D12DeviceInterop& out) const noexcept
+    {
+        out = {};
+        return false;
     }
 };
 
@@ -10941,6 +10984,31 @@ private:
      * @return このコマンドリストだけに属する統計領域。
      */
     virtual const FRhiCommandStatistics& StatisticsStorage() const noexcept = 0;
+
+public:
+    /**
+     * 現在記録中の D3D12 グラフィックスコマンドリストを借用する。
+     *
+     * @details
+     * 戻り値は AddRef 不要の借用ポインタで、現在の Begin～End 区間だけ有効である。
+     * 非 D3D12 バックエンドや未記録状態では nullptr を返す。NativeHandle() の既存の
+     * 意味は変更せず、この API を D3D12 外部描画専用の入口にする。
+     * この virtual は既存実装の ABI を壊さないため末尾へ追加している。
+     * @return ID3D12GraphicsCommandList 相当の不透明ポインタ。
+     */
+    virtual void* D3D12GraphicsCommandList() noexcept
+    {
+        return nullptr;
+    }
+
+    /**
+     * 外部コマンドを記録した後に ACS のバックエンド状態を無効化・復旧する。
+     *
+     * @details
+     * 外部側が変更した pipeline / descriptor / Diligent の追跡状態を捨て、次の ACS
+     * 描画が必要な状態を再 bind できるようにする。未対応バックエンドでは no-op。
+     */
+    virtual void RestoreStateAfterExternalCommands() noexcept {}
 };
 
 /** RAII helper that keeps named GPU markers balanced on all early exits. */
@@ -15269,8 +15337,8 @@ using FSkinnedMeshAsset = ASkinnedMeshAsset;
  * アニメーションを再生し、GPU 用ボーンパレットを計算するプレイヤ。
  *
  * @details
- * SetMesh でスキンメッシュを設定し Play でクリップを選択、Update で時刻を進め、
- * WritePalette で現在時刻の (world * inverse_bind) パレットを書き出す。
+ * SetMesh でスキンメッシュを設定し Play または BlendTo でクリップを選択、Update で
+ * 時刻を進め、WritePalette で現在時刻の (world * inverse_bind) パレットを書き出す。
  */
 class CAnimationPlayer {
 public:
@@ -15282,7 +15350,7 @@ public:
      *
      * @param mesh 参照するスキンメッシュ (所有はしない)。
      */
-    void SetMesh(const ASkinnedMeshAsset* mesh) noexcept { m_Mesh = mesh; m_Anim = -1; m_Time = 0; }
+    void SetMesh(const ASkinnedMeshAsset* mesh) noexcept;
 
     /**
      * 指定インデックスのアニメーションを先頭から再生する。
@@ -15293,28 +15361,46 @@ public:
      */
     void Play(u32 anim_index, bool loop = true) noexcept;
 
+    /**
+     * 現在姿勢から指定アニメーションの先頭へ滑らかに切り替える。
+     *
+     * @details 遷移中は切替元と切替先の時刻をともに進め、各ボーンのローカルTRSを
+     * 平行移動・スケールは線形、回転はslerpで混ぜてから親子階層を合成する。
+     * blend_seconds == 0 は Play と同じ即時切替になる。mesh未設定、範囲外index、
+     * 非有限または負の期間、非有限な現在時刻では何も変更せずfalseを返す。
+     * 進行中の遷移へ新しい遷移を重ねる要求も、現在の姿勢と再生状態を保ってfalseを返す。
+     * 呼び出し側は現在の遷移が完了した後に再試行できる。
+     * @param animation_index 切替先アニメーションのindex。
+     * @param blend_seconds 姿勢を混ぜる有限かつ0以上の秒数。
+     * @param loop 切替先を繰り返すならtrue。
+     * @return 切替要求を受理したらtrue。
+     */
+    bool BlendTo(u32 animation_index, f32 blend_seconds, bool loop = true) noexcept;
+
     /** 再生を一時停止する (時刻は保持)。 */
     void Pause() noexcept { m_Playing = false; }
 
     /** 一時停止した再生を再開する。 */
     void Resume() noexcept { m_Playing = true; }
 
-    /** 再生を停止し時刻を 0 に戻す。 */
-    void Stop() noexcept { m_Playing = false; m_Time = 0; }
+    /** 再生と姿勢遷移を停止し、切替先の時刻を0へ戻す。 */
+    void Stop() noexcept;
 
     /**
      * 再生時刻を直接設定する。
      *
+     * @details 有限値だけを受理する。姿勢遷移中は遷移を解除して切替先だけを残す。
+     * NaNと正負の無限大は現在時刻と姿勢遷移を変更しない。
      * @param t 設定する時刻 (秒)。
      */
-    void SetTime(f32 t) noexcept { m_Time = t; }
+    void SetTime(f32 t) noexcept;
 
     /**
      * 現在の再生時刻を返す。
      *
      * @return 現在の時刻 (秒)。
      */
-    f32  Time() const noexcept { return m_Time; }
+    f32  Time() const noexcept;
 
     /**
      * 再生中かどうかを返す。
@@ -15335,8 +15421,9 @@ public:
      * 現在時刻のボーンパレットを書き込み、書き込んだボーン数を返す。
      *
      * @details
-     * 各ボーンのアニメーション後ローカル TRS を求め、親から合成したワールド行列に
-     * inverse_bind を掛けたものを out_palette へ書く。アニメ無し (m_Anim==-1) ならバインド姿勢を使う。
+     * 各ボーンのアニメーション後ローカルTRSを求め、姿勢遷移中は階層合成より前に
+     * 切替元と切替先を混ぜる。親から合成したワールド行列にinverse_bindを掛けたものを
+     * out_paletteへ書く。アニメ無し (m_Anim==-1) ならバインド姿勢を使う。
      * @param out_palette 最大 max_count 個の FMat4 を書き込む領域。
      * @param max_count 書き込める最大ボーン数。
      * @return 実際に書き込んだボーン数。
@@ -15344,6 +15431,18 @@ public:
     u32 WritePalette(FMat4* out_palette, u32 max_count) const noexcept;
 
 private:
+    /** 姿勢遷移中ならtrueを返す。 */
+    bool IsBlending_Internal() const noexcept { return m_BlendDuration > 0.0f; }
+
+    /** 姿勢遷移の保存値を初期状態へ戻す。 */
+    void ClearBlend_Internal() noexcept;
+
+    /** packed値から切替元アニメーションのindexを返す。 */
+    u32 BlendSourceIndex_Internal() const noexcept;
+
+    /** packed値から切替元のloop指定を返す。 */
+    bool BlendSourceLoops_Internal() const noexcept { return m_BlendFromAnimation < 0; }
+
     /** 参照中のスキンメッシュ (所有しない)。 */
     const ASkinnedMeshAsset* m_Mesh    = nullptr;
 
@@ -15358,6 +15457,15 @@ private:
 
     /** 再生中フラグ。 */
     bool                    m_Playing = false;
+
+    /** 切替元index。負値はloop指定を兼ね、-index-1で格納する。 */
+    i32                     m_BlendFromAnimation = 0;
+
+    /** 姿勢遷移を開始した時点の切替元clip時刻。 */
+    f32                     m_BlendFromTime = 0.0f;
+
+    /** 姿勢を混ぜる総秒数。0なら遷移なし。 */
+    f32                     m_BlendDuration = 0.0f;
 };
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */
@@ -17827,6 +17935,65 @@ ACS_FORCEINLINE bool Resolve(const FSphere& a, const FSphere& b, FVec3& push) no
     const f32 d = Sqrt(d2);
     const f32 overlap = r - d;
     push = { (dx / d) * overlap, (dy / d) * overlap, (dz / d) * overlap };
+    return true;
+}
+
+/**
+ * sphereをAABBから離す最小押し出しベクトルを求める。
+ *
+ * @details sphere中心がAABB内にある場合は最寄り面へ押し出す。同距離の面は
+ * -X、+X、-Y、+Y、-Z、+Zの順で選ぶ。境界で接するだけならfalseを返す。
+ * @param sphere 押し出す対象のsphere。
+ * @param bounds 押し出しの基準となるAABB。
+ * @param push sphereを動かす最小分離移動量の書き込み先。
+ * @return 正の深さで貫通していた場合だけtrue。
+ */
+ACS_FORCEINLINE bool Resolve(const FSphere& sphere, const FAabb3& bounds, FVec3& push) noexcept {
+    const FVec3 minimum = bounds.Min();
+    const FVec3 maximum = bounds.Max();
+    const FVec3 closest{sphere.center.x < minimum.x ? minimum.x : (sphere.center.x > maximum.x ? maximum.x : sphere.center.x), sphere.center.y < minimum.y ? minimum.y : (sphere.center.y > maximum.y ? maximum.y : sphere.center.y), sphere.center.z < minimum.z ? minimum.z : (sphere.center.z > maximum.z ? maximum.z : sphere.center.z)};
+    const FVec3 delta = sphere.center - closest;
+    const f32 distance_squared = Dot(delta, delta);
+    const f32 radius_squared = sphere.radius * sphere.radius;
+    if (distance_squared > 0.0f) {
+        if (distance_squared >= radius_squared) return false;
+        const f32 distance = Sqrt(distance_squared);
+        const f32 depth = sphere.radius - distance;
+        push = delta * (depth / distance);
+        return true;
+    }
+    if (!Contains(bounds, sphere.center)) return false;
+
+    f32 nearest_distance = sphere.center.x - minimum.x;
+    FVec3 normal{-1.0f, 0.0f, 0.0f};
+    const f32 positive_x_distance = maximum.x - sphere.center.x;
+    if (positive_x_distance < nearest_distance) {
+        nearest_distance = positive_x_distance;
+        normal = FVec3{1.0f, 0.0f, 0.0f};
+    }
+    const f32 negative_y_distance = sphere.center.y - minimum.y;
+    if (negative_y_distance < nearest_distance) {
+        nearest_distance = negative_y_distance;
+        normal = FVec3{0.0f, -1.0f, 0.0f};
+    }
+    const f32 positive_y_distance = maximum.y - sphere.center.y;
+    if (positive_y_distance < nearest_distance) {
+        nearest_distance = positive_y_distance;
+        normal = FVec3{0.0f, 1.0f, 0.0f};
+    }
+    const f32 negative_z_distance = sphere.center.z - minimum.z;
+    if (negative_z_distance < nearest_distance) {
+        nearest_distance = negative_z_distance;
+        normal = FVec3{0.0f, 0.0f, -1.0f};
+    }
+    const f32 positive_z_distance = maximum.z - sphere.center.z;
+    if (positive_z_distance < nearest_distance) {
+        nearest_distance = positive_z_distance;
+        normal = FVec3{0.0f, 0.0f, 1.0f};
+    }
+    const f32 depth = sphere.radius + nearest_distance;
+    if (depth <= 0.0f) return false;
+    push = normal * depth;
     return true;
 }
 
@@ -28802,6 +28969,9 @@ class CCollisionWorld2D;
 /** 旧公開名から正規二次元衝突世界型へ接続する互換別名。 */
 using FCollisionWorld2D = CCollisionWorld2D;
 
+/** 三次元衝突query shapeを管理する正規型。 */
+class CCollisionWorld3D;
+
 /** デバッグ線を管理する正規型。 */
 class CDebugDraw;
 /** 旧公開名から正規デバッグ線型へ接続する互換別名。 */
@@ -34022,6 +34192,21 @@ public:
     void PlaySfx(const char* name, f32 volume_scale = 1.0f) noexcept;
 
     /**
+     * 名前または asset path から SFX voice を開始してハンドルを返す。
+     *
+     * @details
+     * SetBackend と SetAssetRegistry の両方が必要。PlaySfx と異なり state-only ring へは
+     * 追加せず、実際に backend が再生を開始した場合だけ有効なハンドルを返す。
+     * @param name 再生する SFX 名 (= asset path)。
+     * @param volume_scale この voice の追加ゲイン [0, ~] (非有限または 0.0 以下で失敗)。
+     * @param pitch 再生ピッチ。非有限値は 1.0、範囲外は [0.25, 4] に制限する。
+     * @return 再生 voice ハンドル。不正引数、未結線、解決・ロード・再生失敗時は kInvalidAudioVoice。
+     */
+    FAudioVoiceHandle PlaySfxVoice(const char* name,
+                                   f32 volume_scale = 1.0f,
+                                   f32 pitch = 1.0f) noexcept;
+
+    /**
      * 短期間だけ BGM 音量を一時的に下げる (ダッキング)。
      *
      * @details 前後 kDuckFadeWindow 秒で線形 fade in/out が掛かる。新たな Duck() で既存
@@ -34162,6 +34347,26 @@ public:
                                const CSpatialAudio& spatial,
                                u32 source_id,
                                f32 pitch = 1.0f) noexcept;
+
+    /**
+     * 再生中 SFX voice へ要求単位の音量、3D 距離減衰、左右 pan、pitch を反映する。
+     *
+     * @details
+     * 音量は `EffectiveSfxVolume() * volume_scale *
+     * spatial.ComputeAttenuatedVolume(source_id)` を一度だけ合成し、有限な [0, 1] に制限する。
+     * 非有限または 0.0 以下の volume_scale は 0 として voice を消音する。その他の寿命、
+     * stale source、thread の契約は 4 引数版と同じ。
+     * @param voice `PlaySfxVoice` または `PlaySfxClip` で開始した SFX voice。
+     * @param spatial listener と 3D source を保持する scene 局所状態。
+     * @param source_id `spatial` が払い出した source ID。
+     * @param volume_scale この voice の追加ゲイン [0, ~]。
+     * @param pitch 再生比率。非有限値は 1、範囲外は [0.25, 4] に制限する。
+     */
+    void UpdateSpatialSfxVoice(FAudioVoiceHandle voice,
+                               const CSpatialAudio& spatial,
+                               u32 source_id,
+                               f32 volume_scale,
+                               f32 pitch) noexcept;
 
 private:
     /** BGM スロット 1 本の state (m_Bgm[0] = current、m_Bgm[1] = 遷移中の new)。 */
@@ -36433,7 +36638,7 @@ namespace acs::game {
  * screen shake は 2D と同じ Eiserloh trauma 方式 (trauma² * amplitude * noise)。
  * `EffectiveEye()` / `EffectiveLookAt()` = 追従結果 + shake offset をレンダラーが使う。
  *
- * `IShakeTarget` を実装しているので `FCameraShakePresets::ApplyPreset` をそのまま渡せる。
+ * `IShakeTarget` を実装しているので `CCameraShakePresets::ApplyPreset` をそのまま渡せる。
  *
  * 軌道カメラ (yaw/pitch/距離) が要るだけなら math/CameraRig.h の `MakeOrbitCamera` を使う。
  * こちらは**時間で変化する状態**を持つ場合のもの。
@@ -36448,10 +36653,9 @@ namespace acs::game {
  * cam.SetTargetPos(player_pos);
  * cam.Tick(dt);
  * cam.ApplyTo(render_camera, aspect);
- *
- * // 爆発したとき
- * FCameraShakePresets::ApplyPreset(cam, EShakePreset::ExplosionLarge);
  * @endcode
+ *
+ * 爆発時は `CCameraShakePresets::ApplyPreset(cam, EShakePreset::ExplosionLarge)` を呼ぶ。
  */
 class CCamera3D : public IShakeTarget {
 public:
@@ -38466,6 +38670,128 @@ using FSceneClock = CSceneClock;
 
 } // namespace acs::game
 
+// ===================== gameframework/CollisionPenetration3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== gameframework/CollisionShapeId3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 3D collision world内のshapeを世代付きで識別する32bit handle。 */
+struct FCollisionShapeId3D {
+    /** pack済み値。0は無効、下位24bitはslot index、上位8bitはgeneration。 */
+    u32 Packed = 0u;
+
+    /** 無効handleを構築する。 */
+    constexpr FCollisionShapeId3D() noexcept = default;
+
+    /**
+     * slot indexとgenerationからhandleを構築する。
+     *
+     * @param index shape slotのindex。
+     * @param generation slot再利用を識別する世代番号。
+     */
+    constexpr FCollisionShapeId3D(u32 index, u8 generation) noexcept
+        : Packed((index & 0x00FFFFFFu) | (static_cast<u32>(generation) << 24u))
+    {
+    }
+
+    /** slot indexを返す。 */
+    constexpr u32 Index() const noexcept
+    {
+        return Packed & 0x00FFFFFFu;
+    }
+
+    /** generationを返す。 */
+    constexpr u8 Generation() const noexcept
+    {
+        return static_cast<u8>(Packed >> 24u);
+    }
+
+    /** 無効値でなければtrueを返す。world内で生存しているかはIsAliveで別に確認する。 */
+    constexpr bool IsValid() const noexcept
+    {
+        return Packed != 0u;
+    }
+
+    /** indexとgenerationが等しければtrueを返す。 */
+    constexpr bool operator==(FCollisionShapeId3D other) const noexcept
+    {
+        return Packed == other.Packed;
+    }
+
+    /** indexまたはgenerationが異なればtrueを返す。 */
+    constexpr bool operator!=(FCollisionShapeId3D other) const noexcept
+    {
+        return Packed != other.Packed;
+    }
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/** world空間のsphereを登録shapeから分離する最深接触情報。 */
+struct FCollisionPenetration3D {
+    /** 貫通しているshapeの世代付きhandle。 */
+    FCollisionShapeId3D Shape{};
+
+    /** sphereを法線方向へ動かして接触まで戻す距離。 */
+    f32 Depth = 0.0f;
+
+    /** 登録shapeからquery sphereへ向くworld空間の単位法線。 */
+    FVec3 Normal{};
+
+    /** 最小分離移動量を返す。 */
+    FVec3 Translation() const noexcept
+    {
+        return Normal * Depth;
+    }
+
+    /** 有効形式のshape handleが格納されているかを返す。 */
+    bool IsValid() const noexcept
+    {
+        return Shape.IsValid();
+    }
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/CollisionSweepHit3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** world空間を移動するsphereが登録shapeへ最初に接触した結果。 */
+struct FCollisionSweepHit3D {
+    /** 接触したshapeの世代付きhandle。 */
+    FCollisionShapeId3D Shape{};
+
+    /** `RayOrigin + T * RayDirection` で表す最初の接触parameter。 */
+    f32 T = 0.0f;
+
+    /** 接触時の移動sphere中心。 */
+    FVec3 Center{};
+
+    /** 登録shapeから移動sphereへ向くworld空間の単位法線。 */
+    FVec3 Normal{};
+
+    /** T=0で既にshapeと重なっていた場合はtrue。 */
+    bool StartedOverlapping = false;
+
+    /** 有効形式のshape handleが格納されているかを返す。 */
+    bool IsValid() const noexcept
+    {
+        return Shape.IsValid();
+    }
+};
+
+} // namespace acs::game
+
 // ===================== gameframework/CollisionWorld2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -38916,6 +39242,238 @@ private:
 
     /** CollectCandidates が積むブロードフェーズ候補 (slot index、クエリ間で使い回す)。 */
     TArray<u32>      m_QueryScratch;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/CollisionWorld3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/**
+ * AABBとsphereを世代付きhandleで管理するGPU非依存の3D collision query world。
+ *
+ * @details shapeは呼び出し側が明示的に登録・更新する。queryはslot index順の決定的な線形走査で、
+ * layer maskと自己除外を共通に扱う。scene同期、動的剛体、固定tick所有は上位adapterの責務とする。
+ */
+class CCollisionWorld3D {
+public:
+    /** 全layerをquery対象にするmask。 */
+    static constexpr u32 kAllLayers = 0xFFFFFFFFu;
+
+    /** shapeを持たないworldを構築する。 */
+    CCollisionWorld3D() noexcept = default;
+
+    /** 登録shapeと内部配列を破棄する。 */
+    ~CCollisionWorld3D() noexcept = default;
+
+    /** world所有権を重複させないためcopyを禁止する。 */
+    CCollisionWorld3D(const CCollisionWorld3D&) = delete;
+
+    /** world所有権を重複させないためcopy代入を禁止する。 */
+    CCollisionWorld3D& operator=(const CCollisionWorld3D&) = delete;
+
+    /**
+     * AABBを登録する。
+     *
+     * @param bounds world空間の有限な中心と0以上の半サイズ。
+     * @param layer shapeが属するlayer bitmask。0は全queryから除外される。
+     * @return 登録済みhandle。入力不正、容量超過、確保失敗では無効handle。
+     */
+    FCollisionShapeId3D TryAddAabb(const FAabb3& bounds, u32 layer = kAllLayers) noexcept;
+
+    /**
+     * sphereを登録する。
+     *
+     * @param sphere world空間の有限な中心と0より大きい半径。
+     * @param layer shapeが属するlayer bitmask。0は全queryから除外される。
+     * @return 登録済みhandle。入力不正、容量超過、確保失敗では無効handle。
+     */
+    FCollisionShapeId3D TryAddSphere(const FSphere& sphere, u32 layer = kAllLayers) noexcept;
+
+    /**
+     * 登録済みAABBを更新する。
+     *
+     * @param id 更新対象handle。
+     * @param bounds 新しいworld空間AABB。
+     * @return handle・shape種別・入力が有効で更新できた場合だけtrue。
+     */
+    bool TryUpdateAabb(FCollisionShapeId3D id, const FAabb3& bounds) noexcept;
+
+    /**
+     * 登録済みsphereを更新する。
+     *
+     * @param id 更新対象handle。
+     * @param sphere 新しいworld空間sphere。
+     * @return handle・shape種別・入力が有効で更新できた場合だけtrue。
+     */
+    bool TryUpdateSphere(FCollisionShapeId3D id, const FSphere& sphere) noexcept;
+
+    /**
+     * 登録shapeのlayerを変更する。
+     *
+     * @param id 更新対象handle。
+     * @param layer 新しいlayer bitmask。
+     * @return handleが現在生存していればtrue。
+     */
+    bool TrySetLayer(FCollisionShapeId3D id, u32 layer) noexcept;
+
+    /**
+     * 登録shapeのlayerを取得する。
+     *
+     * @param id 取得対象handle。
+     * @param out_layer layerの書き込み先。失敗時は変更しない。
+     * @return handleが現在生存していればtrue。
+     */
+    bool TryGetLayer(FCollisionShapeId3D id, u32& out_layer) const noexcept;
+
+    /**
+     * shapeを削除してhandleを失効させる。
+     *
+     * @param id 削除対象handle。
+     * @return 現在生存するshapeを削除できた場合だけtrue。
+     */
+    bool TryRemove(FCollisionShapeId3D id) noexcept;
+
+    /** handleがこのworldで現在生存していればtrueを返す。 */
+    bool IsAlive(FCollisionShapeId3D id) const noexcept;
+
+    /** 現在登録されているshape数を返す。 */
+    u32 ShapeCount() const noexcept
+    {
+        return m_ShapeCount;
+    }
+
+    /** 全shapeを削除する。既存handleはslot再利用後もgeneration不一致で失効する。 */
+    void ClearAll() noexcept;
+
+    /**
+     * AABBと重なるshapeをslot index順で列挙する。
+     *
+     * @param bounds world空間のquery AABB。
+     * @param out_shapes 結果の書き込み先。失敗時は変更しない。
+     * @param exclude queryから除外するshape。無効またはstaleなら除外なし。
+     * @param mask layerとのANDが0でないshapeだけを含めるmask。
+     * @return 入力検証と結果構築に成功した場合true。重なり0件でもtrue。
+     */
+    bool TryOverlapAabb(const FAabb3& bounds, TArray<FCollisionShapeId3D>& out_shapes, FCollisionShapeId3D exclude = {}, u32 mask = kAllLayers) const noexcept;
+
+    /**
+     * sphereと重なるshapeをslot index順で列挙する。
+     *
+     * @param sphere world空間のquery sphere。
+     * @param out_shapes 結果の書き込み先。失敗時は変更しない。
+     * @param exclude queryから除外するshape。無効またはstaleなら除外なし。
+     * @param mask layerとのANDが0でないshapeだけを含めるmask。
+     * @return 入力検証と結果構築に成功した場合true。重なり0件でもtrue。
+     */
+    bool TryOverlapSphere(const FSphere& sphere, TArray<FCollisionShapeId3D>& out_shapes, FCollisionShapeId3D exclude = {}, u32 mask = kAllLayers) const noexcept;
+
+    /**
+     * query sphereが最も深く貫通しているshapeを返す。
+     *
+     * @details 接触だけのshapeは除外する。同じ深さではslot indexが小さいshapeを選ぶ。
+     * AABB内部では最寄り面、sphere同士では中心差を分離法線にする。失敗・非貫通では
+     * 出力を変更しない。複数shapeからの反復分離は上位adapterが明示的に行う。
+     * @param sphere world空間のquery sphere。
+     * @param out_penetration shape、深さ、world分離法線の書き込み先。
+     * @param exclude queryから除外するshape。無効またはstaleなら除外なし。
+     * @param mask layerとのANDが0でないshapeだけを含めるmask。
+     * @return 有効なsphereが少なくとも一つのshapeへ正の深さで貫通していればtrue。
+     */
+    bool TryFindSpherePenetration(const FSphere& sphere, FCollisionPenetration3D& out_penetration, FCollisionShapeId3D exclude = {}, u32 mask = kAllLayers) const noexcept;
+
+    /**
+     * 指定区間のrayに最初に当たるshapeを返す。
+     *
+     * @details directionは非正規化でもよく、TとPointは`origin + T * direction`で対応する。
+     * 同じTではslot indexが小さいshapeを選ぶ。失敗・外れでは出力を変更しない。
+     * @param ray world空間ray。
+     * @param minimum_t 含める最小T。有限かつ0以上。
+     * @param maximum_t 含める最大T。有限かつminimum_t以上。
+     * @param out_hit T、world命中点、world法線の書き込み先。
+     * @param out_shape 命中shape handleの書き込み先。
+     * @param exclude queryから除外するshape。無効またはstaleなら除外なし。
+     * @param mask layerとのANDが0でないshapeだけを含めるmask。
+     * @return 入力が有効でshapeへ命中した場合だけtrue。
+     */
+    bool TryRaycast(const FRay3& ray, f32 minimum_t, f32 maximum_t, FRayHit3& out_hit, FCollisionShapeId3D& out_shape, FCollisionShapeId3D exclude = {}, u32 mask = kAllLayers) const noexcept;
+
+    /**
+     * world空間のsphereを指定区間で動かし、最初に接触するshapeを返す。
+     *
+     * @details AABBの面・辺・角とsphere同士を連続判定する。directionは非正規化でもよく、
+     * 接触中心は`origin + T * direction`で求める。同じTではslot indexが小さいshapeを選ぶ。
+     * minimum_tより前に接触を開始したshapeは返さず、失敗・外れでは出力を変更しない。
+     * @param center_ray world空間を移動するsphere中心ray。
+     * @param radius 移動sphere半径。有限かつ0以上。
+     * @param minimum_t 含める最小T。有限かつ0以上。
+     * @param maximum_t 含める最大T。有限かつminimum_t以上。
+     * @param out_hit shape、T、接触時中心、world法線の書き込み先。
+     * @param exclude queryから除外するshape。無効またはstaleなら除外なし。
+     * @param mask layerとのANDが0でないshapeだけを含めるmask。
+     * @return 入力が有効でshapeへ接触した場合だけtrue。
+     */
+    bool TrySweepSphere(const FRay3& center_ray, f32 radius, f32 minimum_t, f32 maximum_t, FCollisionSweepHit3D& out_hit, FCollisionShapeId3D exclude = {}, u32 mask = kAllLayers) const noexcept;
+
+private:
+    /** slotに格納したshape種別。 */
+    enum class EKind : u8 {
+        /** 未使用slot。 */
+        None = 0,
+
+        /** 軸並行境界box。 */
+        Aabb,
+
+        /** 球。 */
+        Sphere,
+    };
+
+    /** 一つのshapeとhandle検証情報を保持するslot。 */
+    struct FSlot {
+        /** 格納shape種別。 */
+        EKind Kind = EKind::None;
+
+        /** slotが現在使用中ならtrue。 */
+        bool Active = false;
+
+        /** slot再利用を識別する世代番号。 */
+        u8 Generation = 0u;
+
+        /** query選別に使うlayer bitmask。 */
+        u32 Layer = kAllLayers;
+
+        /** KindがAabbのとき有効なshape値。 */
+        FAabb3 Aabb{};
+
+        /** KindがSphereのとき有効なshape値。 */
+        FSphere Sphere{};
+    };
+
+    /** handleの24bit indexで表現できる最大slot index。 */
+    static constexpr u32 kMaximumSlotIndex = 0x00FFFFFFu;
+
+    /**
+     * 未使用slotを取得する。
+     *
+     * @param out_index 確保したslot indexの書き込み先。失敗時は変更しない。
+     * @return 既存slot再利用または配列拡張に成功した場合true。
+     */
+    bool TryAcquireSlot_Internal(u32& out_index) noexcept;
+
+    /** handleが指す生存slotを返す。無効、範囲外、世代不一致ではnullptr。 */
+    FSlot* FindSlot_Internal(FCollisionShapeId3D id) noexcept;
+
+    /** handleが指す生存slotを返す。無効、範囲外、世代不一致ではnullptr。 */
+    const FSlot* FindSlot_Internal(FCollisionShapeId3D id) const noexcept;
+
+    /** index 0を無効値用に予約したshape slot配列。 */
+    TArray<FSlot> m_Slots;
+
+    /** 現在生存しているshape数。 */
+    u32 m_ShapeCount = 0u;
 };
 
 } // namespace acs::game
@@ -46766,7 +47324,9 @@ public:
     /**
      * 実バッファ先頭からのbind offsetを返す。
      *
-     * @return 通常バッファは0、一時arenaの論理sliceはアライン済みoffset。
+     * @details backend がフレームごとに物理領域を分ける通常バッファは現在領域の先頭を返す。
+     * 一時 arena の論理 slice は、親バッファの物理先頭へ自身の部分領域を加えた位置を返す。
+     * @return backend が実際の bind に使う実バッファ先頭からのバイト位置。
      */
     virtual usize BindingOffset() const noexcept { return 0u; }
 };
@@ -49203,13 +49763,6 @@ using game::ESvc;
 
 // ===================== gameframework/SceneNodeGraph.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — CSceneNodeGraph
-//
-// root ANode ツリーと CNodePool をまとめて所有する、シーン文脈非依存のノードグラフ。
-// AScene が正規のシーングラフとして保持するほか、checked loader や editor の staging の
-// ようにスタック上へ一時グラフを構築する用途でも使う。
-// CSubsystemCollection / CSceneServices を一切持たないため、一時グラフがシーン文脈を
-// 抱え込むことはない。
 
 
 // ===================== gameframework/NodePool.h =====================
@@ -49423,6 +49976,32 @@ private:
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */
 using FNodePool = CNodePool;
+
+} // namespace acs::game
+
+// ===================== gameframework/Scene3DRaycastHit.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 有効かつ可視な3D描画形状へのworld-space raycast結果。 */
+struct FScene3DRaycastHit {
+    /** 命中したscene nodeの世代付きID。 */
+    FNodeId Node{};
+
+    /** `RayOrigin + T * RayDirection` で表す命中parameter。 */
+    f32 T = 0.0f;
+
+    /** world空間の命中点。 */
+    FVec3 Point{};
+
+    /** world空間で正規化し、入力ray側へ向けた面法線。 */
+    FVec3 Normal{};
+
+    /** 現在のgraph nodeを指す候補が格納されているかを返す。 */
+    bool IsValid() const noexcept { return Node.IsValid(); }
+};
 
 } // namespace acs::game
 
@@ -49679,6 +50258,20 @@ public:
      * @return 区間内で最も手前の有効な描画形状node。入力不正または外れはinvalid。
      */
     FNodeId RaycastGeometryActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, f32* out_t = nullptr) const noexcept;
+
+    /**
+     * 有効かつ可視な描画形状を厳密にraycastし、world-space命中情報を返す。
+     *
+     * @details spriteが同じnodeのmesh表示を上書きする描画契約、親のVisible/Enabled、階層transformを
+     * 反映する。Cube、Sphere、有限Plane、runtime mesh triangleを厳密判定し、非一様scaleを受けた
+     * 法線はinverse-transposeでworld空間へ戻す。失敗時はout_hitを変更しない。
+     * @param ray world空間ray。距離としてTを使う場合はdirectionを正規化する。
+     * @param minimum_t 含める最小T。有限かつ0以上。
+     * @param maximum_t 含める最大T。有限かつminimum_t以上。
+     * @param out_hit 最近hitのnode、T、world命中点、world法線の書き込み先。
+     * @return 命中情報を書き込めた場合だけtrue。
+     */
+    bool TryRaycastGeometryActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, FScene3DRaycastHit& out_hit) const noexcept;
 
     /**
      * 有効かつ可視なmesh boundsへworld空間の球を指定t区間だけsweepする。
@@ -50293,6 +50886,16 @@ protected:
      */
     virtual void OnDrawHud() noexcept {}
 
+    /**
+     * 配線済みの HUD 用 SpriteBatch から OnDrawHud を呼ぶ。
+     *
+     * @details 呼出し中だけ Draw.h の即時描画 context を公開し、以前の公開状態を
+     * 復元する。標準 2D 描画と独自 3D 描画経路が同じ HUD hook を安全に共有するための
+     * 非仮想 helper であり、render pass と SpriteBatch の Begin/End は呼出し側が管理する。
+     * @param rc HUD 用 SpriteBatch が配線済みの描画コンテキスト。
+     */
+    void DrawHudPass_Internal(FRenderContext& rc) noexcept;
+
 private:
     friend class CSceneManager;
 
@@ -50320,13 +50923,6 @@ private:
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
     void DrawWorldPass(FRenderContext& rc) noexcept;
-
-    /**
-     * HUD パスを描画する (画面中心の view を設定し OnDrawHud)。
-     *
-     * @param rc 描画コマンドを積む先のレンダーコンテキスト。
-     */
-    void DrawHudPass(FRenderContext& rc) noexcept;
 
     /** root ツリーと generational pool を所有するノードグラフ (シーングラフの実体)。 */
     CSceneNodeGraph m_Graph;
@@ -51925,7 +52521,8 @@ using FGameFlow = CGameFlow;
 
 // ===================== gameframework/LegacyScene3DAdapter.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// Reversible AScene host for legacy ACS3D editor documents.
+
+// 旧ACS3D editor文書をASceneへ可逆的に載せるhost。
 
 
 // ===================== gameframework/LightCollector3D.h =====================
@@ -53556,6 +54153,21 @@ public:
     TResult<void> EnsurePrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
 
     /**
+     * 表示用 env cubemap を置き換えず、指定した環境から間接光mapだけを作り直す。
+     *
+     * @details 雲を一時的な環境cubemapへ描いた後、その形と照明をirradiance / prefilterへ
+     * 反映するために使う。両方の候補が完成してから公開するため、途中で失敗した場合は
+     * 直前の間接光mapを維持する。既存mapを置き換える場合は内部でGPU完了を待つ。
+     * @param device 描画資源を作る装置。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param environment 6面を持つ読み取り可能なcubemap。
+     * @return 両方のmapを更新できれば成功。不正な入力または生成失敗ならエラー。
+     */
+    TResult<void> RebuildDerivedMapsFromEnvironment(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& environment) noexcept;
+
+    /**
      * デバッグ用に任意の cubemap を fullscreen quad の skybox として現在の RT へ描く。
      *
      * @details
@@ -53719,7 +54331,10 @@ private:
      * @param cl コマンドを積むコマンドリスト。
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
-    TResult<void> BuildIrradiance(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+    TResult<void> BuildIrradiance(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& environment,
+        TUniquePtr<IRhiTexture>& output) noexcept;
 
     /**
      * prefilter cubemap を実際に生成する。
@@ -53728,7 +54343,11 @@ private:
      * @param cl コマンドを積むコマンドリスト。
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
-    TResult<void> BuildPrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+    TResult<void> BuildPrefilter(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& environment,
+        TUniquePtr<IRhiTexture>& output,
+        u32& output_mips) noexcept;
 
     /**
      * skybox 描画用の PSO/CB を必要なら lazy init する。
@@ -53911,6 +54530,21 @@ public:
      */
     bool DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
                   const FMat4& model, const FMat4& prev_model) noexcept;
+
+    /**
+     * 1 mesh の motion vector と world-space normal に選択maskも描く。
+     *
+     * @details selection_mask=trueではnormal出力の未使用alphaへ1を書き、falseでは0を書く。
+     * depth testを共有するため、手前の通常meshが奥の選択meshを正しく隠す。既存の4引数版は
+     * falseを渡す互換入口であり、従来出力を維持する。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param mesh 描画するGPU mesh。
+     * @param model 現frameのmodel行列。
+     * @param prev_model 前frameのmodel行列。
+     * @param selection_mask 選択対象の可視画素へ1を書くならtrue。
+     * @return 完全なindexed drawを記録できた場合だけtrue。
+     */
+    bool DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh, const FMat4& model, const FMat4& prev_model, bool selection_mask) noexcept;
 
     /**
      * モーションパスを終了する (main pass の RT へ復帰)。
@@ -54228,6 +54862,231 @@ private:
 
 /** 旧名を使う既存コード向けの互換別名。 */
 using FSsao = CSsao;
+
+
+} // namespace acs
+
+// ===================== render/Ssgi.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// Screen-Space Global Illumination
+//
+// 各ピクセルから法線半球内に N 本のレイを screen-space で march し、ヒットした
+// pixel の HDR 色を 1 バウンス indirect light として集める。SSAO の構造に色
+// サンプリングを追加した発展版 (Aaltonen 2014 系の単純化版)。
+//
+// 入力: scene_color (HDR R16G16B16A16_Float)、scene_depth (shader-visible depth)
+// 出力: ssgi_color (RGB)、CPbrShader が ambient/indirect 項に加算
+//
+// 制限:
+//   - 法線は CMotionVector の normal G-buffer (world normal) から sample
+//     (depth 微分 cross(ddx,ddy) は faceted で hemisphere ray がブロック状になるため避ける)
+//   - 8 step / 4 ray = 32 sample/pixel (画質と速度のバランス)
+//   - 反射的なシャープなパスは捨て、diffuse-ish な広い hemisphere に絞る
+//   - 1 bounce のみ (Lumen の voxel cone tracing 等は未対応)
+//   - blur 無し (CPbrShader 側で linear sampling で smooth に補間する想定)
+
+
+namespace acs {
+
+/**
+ * Screen-Space Global Illumination (1 バウンス indirect light)。
+ *
+ * @details
+ * 各ピクセルから法線半球内に N 本のレイを screen-space で march し、ヒットした pixel の
+ * HDR 色を 1 バウンスの indirect light として集める。SSAO の構造に色サンプリングを
+ * 追加した発展版で、raw → depth-aware blur → temporal accumulation の 3 pass で構成する。
+ * CPbrShader が結果を ambient/indirect 項に加算する。8 step / 4 ray = 32 sample/pixel、
+ * diffuse-ish な広い hemisphere に絞り、反射的なシャープなパスは捨てる。
+ */
+class CSsgi {
+public:
+    /** CPU-compiled shader bytecode handed to the render-owner thread. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> main_pixel;
+        TUniquePtr<IRhiShader> blur_pixel;
+        TUniquePtr<IRhiShader> temporal_pixel;
+    };
+
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    CSsgi() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~CSsgi() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    CSsgi(const CSsgi&) = delete;
+
+    /** コピー代入も禁止。 */
+    CSsgi& operator=(const CSsgi&) = delete;
+
+    /**
+     * 出力 RT・history・パイプライン・定数バッファを生成する。
+     *
+     * @param device リソース生成に使う RHI デバイス。
+     * @param width 出力解像度の幅。
+     * @param height 出力解像度の高さ。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * Compile all raw-DX12 SSGI shaders without touching an RHI device.
+     * This is safe to run on a startup worker. Other backends return an
+     * unsupported error and retain the regular owner-thread Init path.
+     */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /**
+     * Install CPU-compiled shaders and create the render targets, constant
+     * buffer and PSOs. Must be called by the render-owner thread.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        u32 width,
+        u32 height) noexcept;
+
+    /** 確保した GPU リソースを解放する。 */
+    void Shutdown() noexcept;
+
+    /**
+     * Keep allocated targets but make the next render a cold temporal start.
+     * Call this when a shared render surface changes logical camera owner.
+     */
+    void InvalidateHistory() noexcept {
+        m_TemporalFrame = 0u;
+        m_OutputValid = false;
+    }
+
+    /**
+     * 解像度変更時に内部 RT を作り直す (ウィンドウリサイズで呼ぶ)。
+     *
+     * @param width 新しい出力幅。
+     * @param height 新しい出力高さ。
+     * @return 成功なら空の TResult、再確保失敗ならエラー。
+     */
+    TResult<void> Resize(u32 width, u32 height) noexcept;
+
+    /**
+     * SSGI を計算して内部 RT に書く (raw → blur → temporal の 3 pass)。
+     *
+     * @param device 描画に使う RHI デバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param scene_color 現在フレームの HDR scene RT。
+     * @param scene_depth shader-visible depth (SSR/SSAO と同じ)。
+     * @param normal_gbuffer CMotionVector の world-space normal G-buffer (RGBA16F)。
+     * @param view_proj 現フレームの view * projection。
+     * @param inv_view_proj 現フレーム VP の逆 (depth+uv → world)。
+     * @param prev_view_proj 前フレームの view_proj (temporal reproject 用)。identity を渡すと reprojection 無効 (= 静的 accumulate)。
+     * @param eye カメラの world pos。
+     * @param intensity indirect light の倍率 (0=無効、1=neutral、>1=強調)。
+     * @param max_distance ray march の世界距離上限 (世界座標、典型 5.0)。
+     * @param motion_texture 非 null なら temporal pass が depth reprojection ではなくこの motion vector で history を引く (動く mesh も ghost せず追従)。CMotionVector::OutputTexture() を渡す。null なら従来の camera-only depth reprojection。
+     */
+    void Render(IRhiDevice& device, IRhiCommandList& cl,
+                IRhiTexture& scene_color,
+                IRhiTexture& scene_depth,
+                IRhiTexture& normal_gbuffer,
+                const FMat4& view_proj,
+                const FMat4& inv_view_proj,
+                const FMat4& prev_view_proj,
+                FVec3 eye,
+                f32 intensity   = 1.0f,
+                f32 max_distance = 5.0f,
+                IRhiTexture* motion_texture = nullptr) noexcept;
+
+    /**
+     * temporal accumulation 後の history RT を返す。
+     *
+     * @details 直近の Render が書き込んだ index を返す。CPbrShader はこれを読む (blur + 時間積分でノイズ除去済)。
+     * @return 直近の積分結果を持つ history RT。
+     */
+    IRhiTexture* OutputTexture() const noexcept {
+        return m_History[m_TemporalFrame == 0u ? 0u : ((m_TemporalFrame - 1u) & 1u)].Get();
+    }
+
+    /** True only after raw, bilateral and temporal output were all recorded. */
+    bool HasValidOutput() const noexcept { return m_OutputValid; }
+
+    /**
+     * raw (blur/temporal 前) の RT を返す (デバッグ用途向け)。
+     *
+     * @return SSGI raw RT。
+     */
+    IRhiTexture* RawTexture()    const noexcept { return m_Output.Get(); }
+
+private:
+    /**
+     * 出力 RT (raw・blur 後・history ping-pong) を生成する。
+     *
+     * @param device RT 生成に使う RHI デバイス。
+     * @param w 出力幅。
+     * @param h 出力高さ。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
+
+    /**
+     * Install 済みの SSGI 本体・blur・temporal シェーダから
+     * 各描画パイプラインを生成する。
+     *
+     * @param device パイプライン生成に使う RHI デバイス。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
+
+    /** Init で受け取った device (Resize で再利用)。 */
+    IRhiDevice*             m_Device = nullptr;
+
+    /** 出力 RT の幅。 */
+    u32                     m_Width  = 0;
+
+    /** 出力 RT の高さ。 */
+    u32                     m_Height = 0;
+
+    /** SSGI raw 出力 RT。 */
+    TUniquePtr<IRhiTexture>  m_Output;
+
+    /** depth-aware bilateral blur 後の出力 RT。 */
+    TUniquePtr<IRhiTexture>  m_BlurOutput;
+
+    /** temporal accumulation 用の ping-pong history RT。 */
+    TUniquePtr<IRhiTexture>  m_History[2];
+
+    /** フルスクリーン三角形の頂点シェーダ (全 pass 共用)。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** hemisphere ray march で indirect light を集めるピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_Ps;
+
+    /** depth-aware bilateral blur のピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_BlurPs;
+
+    /** temporal accumulation のピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_TemporalPs;
+
+    /** SSGI 本体の描画パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+
+    /** blur の描画パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_BlurPipeline;
+
+    /** temporal accumulation の描画パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_TemporalPipeline;
+
+    /** SSGI パラメータの定数バッファ。 */
+    TUniquePtr<IRhiBuffer>   m_Cb;
+
+    /** temporal accumulation のフレームカウンタ (history の ping-pong に使う)。 */
+    u32                     m_TemporalFrame = 0;
+
+    /** Prevents callers from publishing an unwritten or invalidated history. */
+    bool                    m_OutputValid = false;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSsgi = CSsgi;
 
 
 } // namespace acs
@@ -54979,6 +55838,19 @@ public:
     void Play(u32 index, bool loop = true) noexcept;
 
     /**
+     * 現在姿勢から指定番号のアニメーションへ滑らかに切り替える。
+     *
+     * @details 0秒はPlayと同じ即時切替。mesh未設定、範囲外index、非有限または負の期間では
+     * 現在の再生を変更しない。進行中の遷移へ新しい遷移を重ねる要求も拒否し、
+     * 現在の姿勢と再生状態を維持する。呼び出し側は遷移完了後に再試行できる。
+     * @param index 切替先のclip番号。
+     * @param blend_seconds 姿勢を混ぜる有限かつ0以上の秒数。
+     * @param loop 切替先を繰り返すならtrue。
+     * @return 切替要求を受理したらtrue。
+     */
+    bool BlendTo(u32 index, f32 blend_seconds, bool loop = true) noexcept;
+
+    /**
      * 名前でアニメーションを探して再生する。
      *
      * @details
@@ -54989,6 +55861,18 @@ public:
      * @return 見つかって再生を始めたら true。
      */
     bool PlayByName(FStringView name, bool loop = true) noexcept;
+
+    /**
+     * 名前でアニメーションを探し、現在姿勢から滑らかに切り替える。
+     *
+     * @details 進行中の遷移へ新しい遷移を重ねる要求は拒否し、現在の姿勢と再生状態を維持する。
+     * 呼び出し側は遷移完了後に再試行できる。
+     * @param name 切替先のclip名。
+     * @param blend_seconds 姿勢を混ぜる有限かつ0以上の秒数。
+     * @param loop 切替先を繰り返すならtrue。
+     * @return clipが見つかり、切替要求を受理したらtrue。
+     */
+    bool BlendToByName(FStringView name, f32 blend_seconds, bool loop = true) noexcept;
 
     /** 再生を止める (姿勢はその場に残る)。 */
     void Pause() noexcept;
@@ -55038,6 +55922,9 @@ public:
     bool IsAdvancing() const noexcept { return m_Advancing; }
 
 private:
+    /** 名前が一致するclip番号を探し、見つかった場合だけout_indexへ書く。 */
+    bool FindAnimationByName_Internal(FStringView name, u32& out_index) const noexcept;
+
     /** 骨付きメッシュ (所有を分け合う)。 */
     TSharedPtr<ASkinnedMeshAsset> m_Mesh;
 
@@ -55372,6 +56259,29 @@ using FSkyAtmosphere = CSkyAtmosphere;
 
 
 } // namespace acs
+
+// ===================== gameframework/Scene3DGlobalIllumination.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/**
+ * 画面空間の間接光 (SSGI) の設定。
+ *
+ * @details
+ * SSGI は完成した HDR 色を次のフレームの PBR へ反映する。既定は 0 で切れており、
+ * `Intensity` を正の値にすると有効になる。画面外の間接光は扱わない。
+ */
+struct FScene3DGlobalIllumination {
+    /** 間接光の強さ。0 以下で切る。 */
+    f32 Intensity = 0.0f;
+
+    /** レイを探す最大の世界距離。0 以下なら既定値を使う。 */
+    f32 MaxDistance = 5.0f;
+};
+
+} // namespace acs::game
 
 // ===================== render/Blit.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -56406,6 +57316,24 @@ public:
                 u32 prefilter_mips) noexcept;
 
     /**
+     * IBL、SH9、光プローブ、代替環境光へ掛ける明るさ倍率を設定する。
+     *
+     * @details
+     * 既定値は 1.0 で従来描画を維持する。0 で環境由来の間接光だけを消し、有限な正値は
+     * 上限を設けず受理する。direct light、emissive、SSGI、lightmap、SSR には掛けない。
+     * NaN、無限大、負数は無視して現在値を維持する。
+     * @param multiplier 設定する有限かつ 0 以上の環境光倍率。
+     */
+    void SetIblLightMultiplier(f32 multiplier) noexcept;
+
+    /**
+     * 現在の IBL 環境光倍率を返す。
+     *
+     * @return 有限かつ 0 以上の倍率。
+     */
+    f32 IblLightMultiplier() const noexcept { return m_IblLightMultiplier; }
+
+    /**
      * IBL slot 1/2/3 と normal/shadow/SSAO/SSGI/lightmap/SSR の各 slot を bind する。
      *
      * @details SetIbl で非 null をセットしてあれば実テクスチャ、無ければ fallback
@@ -57054,6 +57982,9 @@ private:
     u32 m_SubstrateExpressionParameterCount = 0u;
     u32 m_SubstrateExpressionTextureMask = 0u;
     f32 m_SubstrateExpressionTime = 0.0f;
+
+    /** 既存field位置を保ち、末尾paddingで所有する環境光倍率。 */
+    f32 m_IblLightMultiplier = 1.0f;
 };
 
 /** 旧名を使う既存コード向けの互換別名。 */
@@ -57065,6 +57996,120 @@ using FPbrShader = CPbrShader;
 // ===================== render/PostProcess.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
+
+// ===================== render/Fxaa.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * FXAA をフルスクリーン三角形 1 パスで掛けるポストエフェクト。
+ *
+ * @details
+ * FXAA 3.11 の簡易品質版。中心+対角 4 近傍の輝度からエッジ方向を推定し、
+ * エッジに沿って 2/4 タップのブレンドを行う。低コントラスト画素は早期 return で
+ * 素通しするため、ベタ塗り領域やテキストのにじみは最小限。入力サイズは
+ * GetDimensions で取得するので cbuffer 不要。
+ */
+class CFxaa {
+public:
+    /**
+     * 非同期コンパイルから所有権を移す FXAA シェーダ束。
+     *
+     * @details
+     * `CPostProcess` の既存コンパイル処理で準備し、描画所有スレッドでは
+     * パイプライン生成だけを行う。FXAA が任意機能であるため、空の束は
+     * PostProcess の通常経路を失敗させない。
+     */
+    struct FCompiledShaders {
+        /** 全画面三角形の頂点シェーダ。 */
+        TUniquePtr<IRhiShader> vertex;
+
+        /** 輝度エッジを解決するピクセルシェーダ。 */
+        TUniquePtr<IRhiShader> pixel;
+
+        /** 両シェーダのコンパイル状態を返す。 */
+        EShaderStatus Status() const noexcept;
+    };
+
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    CFxaa() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~CFxaa() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    CFxaa(const CFxaa&)            = delete;
+
+    /** コピー代入も禁止。 */
+    CFxaa& operator=(const CFxaa&) = delete;
+
+    /** raw DX12 のバックグラウンド worker でシェーダをコンパイルする。 */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /** 描画基盤の非同期コンパイル機構へ FXAA シェーダを投入する。 */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /** 指定した同期・非同期方式でFXAAシェーダを準備する。 */
+    static TResult<FCompiledShaders> CompileShaders(
+        IRhiDevice& device, bool compile_async) noexcept;
+
+    /**
+     * シェーダとパイプラインを生成して初期化する。
+     *
+     * @param device シェーダ・パイプライン生成に使う RHI デバイス。
+     * @param rt_format 出力先 RT のフォーマット (PSO に焼き込む)。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
+
+    /**
+     * 既にコンパイル済みのシェーダから描画所有スレッドで初期化する。
+     *
+     * @param device パイプライン生成に使う RHI デバイス。
+     * @param shaders コンパイル処理から移譲する FXAA シェーダ束。
+     * @param rt_format 出力先 RT のフォーマット。
+     * @return 成功なら空の TResult、PSO 生成失敗ならエラー。
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device, FCompiledShaders&& shaders,
+        EFormat rt_format) noexcept;
+
+    /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
+    void Shutdown() noexcept;
+
+    /**
+     * 現在 bind 中のターゲットへ src を FXAA 解決しつつ全画面描画する。
+     *
+     * @details
+     * CBlit::Copy と違い出力 RT の bind は行わない。呼ぶ前に BeginRenderToSwapchain
+     * 等で出力先を bind し、viewport を設定しておくこと (全 pixel を上書きする)。
+     * @param cmd コマンドを積むコマンドリスト。
+     * @param src FXAA を掛けるシーンテクスチャ (SRV 状態であること)。
+     */
+    void Apply(IRhiCommandList& cmd, IRhiTexture& src) noexcept;
+
+    /** 使用可能な FXAA パイプラインを保持しているか返す。 */
+    bool IsReady() const noexcept { return !!m_Pipeline; }
+
+private:
+    /** フルスクリーン三角形の頂点シェーダ。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** FXAA ピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_Ps;
+
+    /** FXAA 描画のパイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+};
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FFxaa = CFxaa;
+
+
+} // namespace acs
 
 // ===================== render/RenderGraphAliasPlanSummary.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -57282,6 +58327,15 @@ struct FPostProcessParams {
     f32  delta_time            = 0.0166f;
 
     /**
+     * トーンマップ後の LDR 出力へ FXAA を一度だけ適用するか。
+     *
+     * @details 既定は false。既存の出力を変えず、TAA の有効な解像結果がある
+     * 場合も FXAA を重ねない。TAA を要求したが解像に失敗した場合は、true なら
+     * FXAA を安全な空間的代替処理として使う。
+     */
+    bool fxaa_enabled = false;
+
+    /**
      * Replaces non-finite values with defaults and clamps bounded controls to
      * the ranges accepted by the post-process shaders.
      *
@@ -57316,7 +58370,13 @@ public:
         TUniquePtr<IRhiShader> exposure_pixel;
         TUniquePtr<IRhiShader> exposure_apply_pixel;
 
-        /** Aggregate all eleven submitted shader jobs without waiting. */
+        /** 任意の FXAA 頂点シェーダ。 */
+        TUniquePtr<IRhiShader> fxaa_vertex;
+
+        /** 任意の FXAA ピクセルシェーダ。 */
+        TUniquePtr<IRhiShader> fxaa_pixel;
+
+        /** 必須11本と任意FXAAシェーダのコンパイル状態を返す。 */
         EShaderStatus Status() const noexcept;
     };
 
@@ -57440,6 +58500,23 @@ public:
     void Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index,
                 const FPostProcessParams& params) noexcept;
 
+    /**
+     * depth test済みの選択maskから外側輪郭を合成してpost processを実行する。
+     *
+     * @details selection_maskのalphaを現在frameの可視選択画素として読み、tonemap後かつ
+     * FXAA前に外側だけを合成する。null、不正値、空maskでは通常のRenderと同じ出力へ戻る。
+     * maskと設定は呼出し中だけ借り、class内へ保持しない。
+     * @param cmd 既にBegin済みのコマンドリスト。
+     * @param swapchain 出力先。
+     * @param buffer_index 出力backbuffer番号。
+     * @param params 通常のpost process設定。
+     * @param selection_mask 可視選択画素をalphaに持つ同解像度texture。nullで無効。
+     * @param color sRGB表示域の輪郭色。各成分は0以上1以下。
+     * @param intensity 輪郭の強さ。0より大きく4以下。
+     * @param thickness_pixels 輪郭幅。0より大きく4 pixel以下。
+     */
+    void Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index, const FPostProcessParams& params, IRhiTexture* selection_mask, FVec3 color, f32 intensity, f32 thickness_pixels) noexcept;
+
 private:
     CPostProcess& operator=(CPostProcess&&) noexcept = default;
 
@@ -57525,8 +58602,15 @@ private:
      * @param buf_idx 書き出すバックバッファの index。
      * @param p 適用する効果のパラメータ。
      */
-    bool Pass_Tonemap  (IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
-                        const FPostProcessParams& p) noexcept;
+    bool Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx, const FPostProcessParams& p, IRhiTexture* ldr_target, IRhiTexture* selection_mask, FVec3 selection_color, f32 selection_intensity, f32 selection_thickness_pixels) noexcept;
+
+    /**
+     * FXAA の任意リソースを描画所有スレッドで遅延確保する。
+     *
+     * @return FXAAシェーダと中間LDR RTが揃い、現在サイズで使える場合だけ true。
+     * 失敗時は呼び出し側が従来の直接トーンマップへ戻る。
+     */
+    bool EnsureFxaaResources() noexcept;
 
     /**
      * Auto-exposure: HDR を log2 輝度の mip chain に縮約する luma reduction パス。
@@ -57628,6 +58712,12 @@ private:
 
     /** Tonemap パイプライン (HDR + bloom_mips[0] → backbuffer)。 */
     TUniquePtr<IRhiPipeline> m_PipeTonemap;
+
+    /** 非同期コンパイル済みシェーダから作った任意の FXAA パイプライン。 */
+    TUniquePtr<CFxaa> m_Fxaa;
+
+    /** トーンマップ後の LDR を一時保存する全解像度の描画先。 */
+    TUniquePtr<IRhiTexture> m_FxaaInput;
 
     /** True only after every bloom stage for the current frame was recorded. */
     bool                     m_BloomOutputValid = false;
@@ -59086,9 +60176,52 @@ public:
     }
 
     /**
+     * 環境光へ焼く雲設定の決定論的な署名を返す。
+     *
+     * @details 形状、照明、固定方向の太陽放射輝度、空色、大気透過率、被覆、密度、
+     * 風速を含むが、連続する時刻は含めない。連続補間値は見た目に届く単位へ量子化し、
+     * 雲の移流や微小差だけで高価なIBLを毎frame作り直さない。同じ正規化・量子化済み
+     * 入力なら同じ値を返す。
+     * @param coverage 空を覆う割合。
+     * @param density 雲の濃さ。
+     * @param wind 風速。
+     * @return 比較用の32bit署名。0は予約値なので返さない。
+     */
+    u32 EnvironmentLightingSignature(
+        f32 coverage, f32 density, f32 wind) const noexcept;
+
+    /**
+     * 連続変化中の環境光を更新してよい固定間隔のframeかを返す。
+     *
+     * @details 成功した雲computeのsubmission番号を渡す。0と間隔外ではfalse、
+     * 固定間隔ごとにtrueを返すため、補間中も高価なcubemap生成を毎frame実行しない。
+     * 初回有効化、無効化、base環境の変更は呼び側がこの間隔を待たず処理する。
+     * @param submission_index 成功した雲computeを数える`LastFrameWorkload().submission_index`。
+     * @return 定期更新frameならtrue。
+     */
+    static bool IsEnvironmentLightingRefreshFrame(u64 submission_index) noexcept;
+
+    /**
+     * 直近の成功した雲frameを、表示用の空と合成した一時環境cubemapへ描く。
+     *
+     * @details 画面用履歴や雲影を変更せず、同じ形状noise、weather、侵食、照明を使って
+     * 6方向を決定論的にray marchする。表示用base_environment自体は変更しない。
+     * @param device 一時描画資源を作る装置。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param base_environment 雲なしの表示用cubemap。
+     * @return 成功なら所有権付き一時cubemap。資源不足や有効な雲frameがなければエラー。
+     */
+    TResult<TUniquePtr<IRhiTexture>> BuildEnvironmentCubemap(
+        IRhiDevice& device, IRhiCommandList& cl,
+        IRhiTexture& base_environment) noexcept;
+
+    /**
      * 雲を計算シェーダーで追跡し、内部テクスチャへ書く既存互換入口。
-     * 描画処理の外側で呼ぶ。遠方座標では、より高精度な
-     * RenderComputeCameraRelative() を使う。
+     *
+     * @details 描画処理の外側で呼ぶ。Ultraは毎フレーム1/4幅・1/4高さの全画素を更新し、
+     * 4x4領域内の等倍画素へ16位相で割り当てる。カメラ移動と履歴無効化でも等倍追跡へ
+     * 切り替えず、未更新画素は位置・深度履歴、初回と遮蔽解除は空間再構成で解決する。
+     * 遠方座標では、より高精度なRenderComputeCameraRelative()を使う。
      */
     void RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
                        FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color,
@@ -59240,6 +60373,9 @@ namespace acs {
 /** 固定向きのローカルXY板へ画像を透過描画する3Dスプライト描画器。 */
 class CSprite3DRenderer final {
 public:
+    /** 1回のbatchで受理する3Dスプライト数の上限。 */
+    static constexpr u32 kMaximumSpriteCount = 65536u;
+
     /** owner threadでのパイプライン生成を待つコンパイル済みシェーダ群。 */
     struct FCompiledShaders {
         TUniquePtr<IRhiShader> Vertex;
@@ -59300,6 +60436,16 @@ public:
      * @return 失敗時は既存資源を変更せずエラーを返す。
      */
     TResult<void> InitWithCompiledShaders(IRhiDevice& device, FCompiledShaders&& shaders, EFormat render_target_format, EFormat depth_format, u32 max_sprite_count) noexcept;
+
+    /**
+     * 実行時に増えた3Dスプライトを収容できるよう、頂点領域だけを拡張する。
+     *
+     * @details 既に十分な場合はGPU資源を作り直さない。失敗時は現在の頂点領域を保持する。
+     * @param device 頂点バッファを生成するデバイス。
+     * @param required_sprite_count 次のbatchに必要なスプライト数。
+     * @return 必要数を収容できる場合だけ成功。
+     */
+    TResult<void> EnsureCapacity(IRhiDevice& device, u32 required_sprite_count) noexcept;
 
     /** 全GPU資源とCPU作業領域を解放する。 */
     void Shutdown() noexcept;
@@ -60416,6 +61562,16 @@ struct FScene3DClouds {
     FVolumetricCloudWeather Weather{};
 
     /**
+     * 雲の形と照明をPBR環境光へ反映するか。
+     *
+     * @details 既定はtrue。被覆が正なら、初回有効化・無効化・太陽方向の有意な変化は
+     * 即時、連続する設定・照明変化は最大30成功雲frameごとにまとめてGPU上の
+     * 環境cubemapを作り直す。雲の移流だけでは高価なIBLを再生成しない。
+     * falseなら表示中の雲と雲影は保ち、環境光だけ従来の雲なし大気へ戻す。
+     */
+    bool bAffectEnvironmentLighting = true;
+
+    /**
      * 雲の照らし方。位相・消散・多重散乱・環境光・地面からの照り返し。
      *
      * @details
@@ -60555,11 +61711,31 @@ public:
     ESceneProjectionMode ProjectionMode() const noexcept { return m_Projection; }
 
     /**
+     * PBR の IBL、SH9、光プローブへ掛ける環境光倍率を返す。
+     *
+     * @details 既定値は 1.0。direct light、emissive、UI、SSGI、lightmap、SSR には影響しない。
+     * @return 有限かつ 0 以上の環境光倍率。
+     */
+    f32 EnvironmentLightMultiplier() const noexcept {
+        return m_EnvironmentLightMultiplier;
+    }
+
+    /**
+     * PBR の環境由来の間接光だけへ掛ける明るさ倍率を設定する。
+     *
+     * @details 0 で環境光を消し、有限な正値は上限を設けず受理する。NaN、無限大、負数は
+     * 無視して現在値を維持する。CWeatherSystem::AmbientLightMultiplier() をそのまま渡せる。
+     * @param multiplier 設定する有限かつ 0 以上の環境光倍率。
+     */
+    void SetEnvironmentLightMultiplier(f32 multiplier) noexcept;
+
+    /**
      * 雲の設定を触る。
      *
      * @details
      * `Coverage` を 0 にすると出ない (既定)。出すと、太陽の側が明るく縁が光る本物の雲になる。
-     * 空を焼いた cubemap には雲が入らないので、**雲は環境光には効かない** (影も落とさない)。
+     * `bAffectEnvironmentLighting` がtrueなら、同じ密度場と照明をPBRの環境光にも反映する。
+     * 画面の雲とワールド雲影はこの設定に関係なく従来どおり描く。
      * @return 雲の設定 (次のフレームから効く)。
      */
     FScene3DClouds& Clouds() noexcept { return m_CloudParams; }
@@ -60620,6 +61796,23 @@ public:
     const FScene3DReflections& Reflections() const noexcept { return m_SsrParams; }
 
     /**
+     * 画面空間の間接光 (SSGI) の設定を触る。
+     *
+     * @details
+     * `Intensity` を正の値にすると有効になる。出力は内部で保持され、次のフレームの
+     * PBR にだけ渡す。無効化、リサイズ、入力不足時は古い間接光を公開しない。
+     * @return SSGI の設定 (次のフレームから効く)。
+     */
+    FScene3DGlobalIllumination& GlobalIllumination() noexcept {
+        return m_SsgiParams;
+    }
+
+    /** SSGI の設定を読む。 */
+    const FScene3DGlobalIllumination& GlobalIllumination() const noexcept {
+        return m_SsgiParams;
+    }
+
+    /**
      * 雲の設定を読む。
      *
      * @return 雲の設定。
@@ -60645,6 +61838,27 @@ public:
      * @return 大気の設定。
      */
     const FAtmosphereParams& Atmosphere() const noexcept { return m_AtmosphereParams; }
+
+    /**
+     * 深度に応じた物理大気の空気遠近を有効にする。
+     *
+     * @details 既定は false で、従来の描画結果と計算負荷を維持する。有効時は不透明物と
+     * 水面を camera からの距離に応じて大気へ馴染ませる。`Fog()` は別の表現として従来どおり
+     * PBR surface fog にだけ適用し、空気遠近の体積へ重ねて積分しない。
+     * @param enabled true なら次の描画から物理大気の空気遠近を使う。
+     */
+    void SetAerialPerspectiveEnabled(bool enabled) noexcept {
+        m_AerialPerspectiveEnabled = enabled;
+    }
+
+    /**
+     * 物理大気の空気遠近を要求しているか返す。
+     *
+     * @return `SetAerialPerspectiveEnabled(true)` が設定されていれば true。
+     */
+    bool AerialPerspectiveEnabled() const noexcept {
+        return m_AerialPerspectiveEnabled;
+    }
 
     /**
      * 距離で霞ませる霧の設定。
@@ -60681,6 +61895,30 @@ public:
      * @return 仕上げの設定。
      */
     const FPostProcessParams& PostParams() const noexcept { return m_PostParams; }
+
+    /**
+     * 一つのnode subtreeへdepth-awareな選択輪郭を設定する。
+     *
+     * @details subtree_root自身と可視・有効な子孫meshを対象にする。既定では選択なしで、
+     * stale/未知handleまたは範囲外設定ではfalseを返し、現在の選択を変更しない。
+     * hidden/disabled/destroyed node、mask前段またはpost資源の失敗時は通常の3D表示を維持する。
+     * @param subtree_root 輪郭を付けるsubtree root。
+     * @param color sRGB表示域の輪郭色。各成分は0以上1以下。
+     * @param intensity 輪郭の強さ。0より大きく4以下。
+     * @param thickness_pixels 輪郭幅。0より大きく4 pixel以下。
+     * @return 設定を受理した場合だけtrue。
+     */
+    bool SetSelectionHighlight(FNodeId subtree_root, FVec3 color = FVec3{1.0f, 0.66f, 0.16f}, f32 intensity = 1.0f, f32 thickness_pixels = 2.0f) noexcept;
+
+    /** 選択輪郭を解除する。未設定でも安全に呼べる。 */
+    void ClearSelectionHighlight() noexcept;
+
+    /**
+     * 現在設定されている選択輪郭のsubtree rootを返す。
+     *
+     * @return 設定中の有効なFNodeId。未設定または破棄済みならinvalid。
+     */
+    FNodeId SelectionHighlightNode() const noexcept;
 
     /**
      * 空の設定を触る (雲・色・太陽の見た目・時刻)。
@@ -60782,6 +62020,41 @@ public:
     /** Read-only standalone camera. */
     const CCamera& Camera() const noexcept { return m_Camera; }
 
+    /**
+     * authored cameraの有無にかかわらず、orbit cameraを明示的に選ぶかを設定する。
+     *
+     * @details trueでは毎frameのcamera再選択を抑止し、falseでは明示camera指定を解除して
+     * deterministic authored camera選択へ戻す。authored cameraが無い場合はorbit cameraを維持する。
+     * 切替時はorbit cameraの補間区間を現在状態へ揃え、古い表示区間を残さない。
+     * @param active orbit cameraを明示選択するならtrue。
+     */
+    void SetOrbitCameraActive(bool active) noexcept;
+
+    /**
+     * 現在の描画cameraがorbit cameraならtrueを返す。
+     *
+     * @details 明示選択だけでなく、authored cameraが無い自動代替もtrueになる。
+     * @return orbit cameraを使っているならtrue。
+     */
+    bool OrbitCameraActive() const noexcept { return !m_UseAuthoredCamera; }
+
+    /**
+     * orbit cameraを明示的に選択しているならtrueを返す。
+     *
+     * @details authored camera不在による自動代替はfalse。Bind前の選択modeを復元する用途で使う。
+     * @return SetOrbitCameraActive(true)による明示overrideが有効ならtrue。
+     */
+    bool OrbitCameraOverrideActive() const noexcept;
+
+    /**
+     * authored cameraをstable idまたはnode idで明示選択しているならtrueを返す。
+     *
+     * @details serialized cameraはAuthoredCamera()->NodeId、NodeIdが負のruntime cameraは
+     * AuthoredCamera()->StableIdを保存し、対応するSetActiveCamera overloadで復元できる。
+     * @return SetActiveCamera成功による明示overrideが有効ならtrue。
+     */
+    bool AuthoredCameraOverrideActive() const noexcept;
+
     /** Deterministically selected authored camera, or null for frame-scene fallback. */
     const FScene3DCameraState* AuthoredCamera() const noexcept {
         return m_UseAuthoredCamera ? &m_AuthoredCamera : nullptr;
@@ -60864,6 +62137,54 @@ public:
     void OnFixedUpdate(f32 fixed_dt) noexcept override;
     void OnRender(FRenderContext& context) noexcept override;
 
+protected:
+    /**
+     * 透明 3D 追加描画へ渡す、そのフレームだけの値コンテキスト。
+     *
+     * @details
+     * OnRenderTransparent3D の呼出し中は ColorTarget が既存内容を保持した load 状態で、
+     * DepthTarget が null でなければ同じ深度バッファも DSV として bind されている。
+     * 参照とポインタは所有せず、フックの呼出し中だけ使う。
+     */
+    struct FScene3DTransparentRenderContext final {
+        /** 現在の RHI device。フックの呼出し中だけ参照する。 */
+        IRhiDevice& Device;
+
+        /** 現在記録中の RHI command list。フックの呼出し中だけ参照する。 */
+        IRhiCommandList& Commands;
+
+        /** 描画時点の active camera。行列と位置を参照する。 */
+        const CCamera& Camera;
+
+        /** 追加描画先の HDR color target。load-bind 済みである。 */
+        IRhiTexture& ColorTarget;
+
+        /** 追加描画で読み取り可能な深度 target (無い場合は null)。 */
+        IRhiTexture* DepthTarget = nullptr;
+
+        /** target の幅 (ピクセル)。 */
+        u32 Width = 0u;
+
+        /** target の高さ (ピクセル)。 */
+        u32 Height = 0u;
+
+    };
+
+    /**
+     * HDR シーンへ透明 3D 描画を追加する。
+     *
+     * @details
+     * 既定実装は何もしないため、外部描画を使わない派生 scene は安全にそのまま動く。
+     * 基底が Load/状態復旧/End を管理するので、派生は context の対象へ描画だけを追加する。
+     * @param context load-bind 済み HDR/深度と camera を含む一時コンテキスト。
+     */
+    virtual bool OnRenderTransparent3D(
+        const FScene3DTransparentRenderContext& context) noexcept
+    {
+        (void)context;
+        return false;
+    }
+
 private:
     struct FCustomGpuMesh {
         AMeshComponent3D* Component = nullptr;
@@ -60872,8 +62193,11 @@ private:
 
     /** sceneコンポーネントと所有GPU画像の対応。 */
     struct FCustomGpuSprite {
-        /** 画像の所有元コンポーネント。 */
-        const ASprite3DComponent* Component = nullptr;
+        /** 画像を使うnode。世代を含むhandleなので破棄後の再利用と衝突しない。 */
+        FNodeId Node;
+
+        /** GPU画像の生成元。差し替え検出とCPU画像の寿命保持に使う。 */
+        TSharedPtr<AAsset> SourceImage;
 
         /** 描画アダプターが単独所有するGPU画像。 */
         TUniquePtr<IRhiTexture> Texture;
@@ -60991,7 +62315,10 @@ private:
         bool requested) noexcept;
     void AdvanceSpriteInitialization(IRhiDevice& device, EFormat depth_format, EGpuCommitSubsystem& frame_commit, bool requested) noexcept;
     bool UploadGraphMeshes(IRhiDevice& device) noexcept;
-    bool UploadGraphSprites(IRhiDevice& device) noexcept;
+    /** 現在のgraphとGPU画像表を登録順に線形比較し、同一ならtrueを返す。 */
+    bool SpriteResourcesMatchGraph_Internal(const ANode& node, usize& matched_count, u32 depth = 0u) const noexcept;
+    /** 3Dスプライトの追加・除去・画像差し替えをGPU画像表へ反映する。 */
+    bool SynchronizeGraphSprites_Internal(IRhiDevice& device) noexcept;
     void DrainAndReleaseGpu() noexcept;
     void ReleaseGpu() noexcept;
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
@@ -61034,6 +62361,16 @@ private:
     bool EnsureAmbientOcclusion(IRhiDevice& device, u32 width, u32 height) noexcept;
 
     /**
+     * SSAO、SSR、SSGI が共有する法線・深度前段を用意する。
+     *
+     * @param device 描画先を作るRHIデバイス。
+     * @param width 画面の幅。
+     * @param height 画面の高さ。
+     * @return 前段を使える状態なら true。
+     */
+    bool EnsureNormalDepth(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
      * 遮蔽を計算する前段として、法線と深度を先に描く。
      *
      * @details
@@ -61053,6 +62390,26 @@ private:
      * @return 遮蔽が使える状態になったら true。
      */
     bool RenderAmbientOcclusionPass(IRhiDevice& device, FRenderContext& context) noexcept;
+
+    /** SSGI の出力RTと時間履歴を、必要な解像度で用意する。 */
+    bool EnsureGlobalIllumination(
+        IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * 完成したHDR色からSSGIを計算し、次フレーム用の結果を公開する。
+     *
+     * @param device 描画に使うRHIデバイス。
+     * @param context 描画文脈。
+     * @param scene_color 現フレームの完成したHDR色。
+     * @param scene_depth 現フレームのshader-visible深度。
+     * @return 次フレームへ渡せる出力を作れたら true。
+     */
+    bool RenderGlobalIlluminationPass(
+        IRhiDevice& device, FRenderContext& context,
+        IRhiTexture& scene_color, IRhiTexture& scene_depth) noexcept;
+
+    /** SSGI の出力を無効化し、次回復帰時を履歴の初回に戻す。 */
+    void InvalidateGlobalIlluminationOutput() noexcept;
 
     /**
      * 反射 (SSR) の描き込み先を用意する。画面の大きさが変わったら作り直す。
@@ -61106,6 +62463,9 @@ private:
 
         /** アルベド色。 */
         FVec3 Color{1.0f, 1.0f, 1.0f};
+
+        /** 可視選択subtreeに含まれ、normal alphaへmaskを書くならtrue。 */
+        bool SelectionHighlighted = false;
     };
 
     /**
@@ -61144,7 +62504,8 @@ private:
      * IBL が無いと環境光が «一定の暗い色» になり、陰の側がのっぺり潰れる。空を映した
      * 環境光を入れると、上を向いた面は空の色を、下を向いた面は地面の色を受ける。
      *
-     * 焼き直しは重いので、**太陽が十分に動いたときだけ**やり直す。
+     * 焼き直しは重いので、太陽方向が十分に動いたときは即時、雲の連続変化は
+     * 固定間隔へまとめてやり直す。
      * @param device 生成に使うデバイス。
      * @param command_list 焼き込みに使うコマンドリスト。
      * @return 使える状態なら true。
@@ -61188,9 +62549,16 @@ private:
      * @param scene_depth 完成したシーンの深度 (手前の物で雲を隠すのに使う)。
      * @param width 画面の幅。
      * @param height 画面の高さ。
+     * @param aerial_volume 空気遠近の散乱体積。nullptrなら従来の雲合成へ戻る。
+     * @param aerial_transmittance 空気遠近の透過率体積。nullptrなら従来の雲合成へ戻る。
+     * @param aerial_max_distance 体積を生成した最大距離 (Legacy 3D world単位のメートル)。
      */
-    void CompositeClouds(IRhiCommandList& command_list, IRhiTexture& target,
-                         IRhiTexture& scene_depth, u32 width, u32 height) noexcept;
+    void CompositeClouds(
+        IRhiCommandList& command_list, IRhiTexture& target,
+        IRhiTexture& scene_depth, u32 width, u32 height,
+        IRhiTexture* aerial_volume,
+        IRhiTexture* aerial_transmittance,
+        f32 aerial_max_distance) noexcept;
 
     void RenderSky(IRhiDevice& device, IRhiCommandList& command_list,
                    EFormat color_format, EFormat depth_format) noexcept;
@@ -61249,9 +62617,13 @@ private:
      */
     FVec3 SunColorForWater() const noexcept;
     void AdoptLoadedCamera() noexcept;
+    /** 明示的なorbit camera選択を保持しているならtrueを返す。 */
+    bool HasExplicitOrbitCameraOverride_Internal() const noexcept;
+    /** orbit cameraの補間履歴と障害物回避表示を現在状態へ揃える。 */
+    void ResetOrbitCameraPresentation_Internal() noexcept;
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
-    IRhiTexture* TextureFor(const ASprite3DComponent& component) const noexcept;
+    IRhiTexture* TextureFor(FNodeId node, const TSharedPtr<AAsset>& source_image) const noexcept;
     bool DrawSpriteScene(FRenderContext& context) noexcept;
     u32 CollectWaterDraws(
         FWaterDraw (&draws)[CWaterSurface3D::kMaxTrackedSurfaces],
@@ -61355,6 +62727,7 @@ private:
     FScene3DShadows m_ShadowParams{};
     FScene3DAmbientOcclusion m_SsaoParams{};
     FScene3DReflections m_SsrParams{};
+    FScene3DGlobalIllumination m_SsgiParams{};
 
     /** 雲を使える状態にできたか。 */
     bool m_CloudsReady = false;
@@ -61376,6 +62749,12 @@ private:
 
     /** 大気の初期化を一度試したか (失敗しても毎フレーム試さない)。 */
     bool m_AtmosphereTried = false;
+
+    /** 既存alignment padding内で保持する、物理大気の空気遠近要求。 */
+    bool m_AerialPerspectiveEnabled = false;
+
+    /** 既存alignment padding内で保持する、環境光へ焼いた雲形状・照明の署名。 */
+    u32 m_IblBakedCloudSignature = ~u32{0};
 
     /** 空を映した環境光 (irradiance / prefilter / BRDF LUT)。 */
     CImageBasedLighting m_Ibl;
@@ -61401,8 +62780,26 @@ private:
     /** 法線と深度を先に描くパス。遮蔽の材料になる。 */
     CMotionVector m_NormalDepth;
 
+    /** 法線と深度の前段を用意できたか。SSAOの有効状態とは独立。 */
+    bool m_NormalDepthReady = false;
+
+    /** このフレームで法線と深度を完全に描けたか。 */
+    bool m_NormalDepthDrawn = false;
+
+    /** 法線と深度を用意してある画面の幅。 */
+    u32 m_NormalDepthWidth = 0u;
+
+    /** 法線と深度を用意してある画面の高さ。 */
+    u32 m_NormalDepthHeight = 0u;
+
     /** 画面空間の遮蔽 (GTAO + contact shadow)。 */
     CSsao m_Ssao;
+
+    /** 画面空間の間接光。出力RTと時間履歴を所有する。 */
+    CSsgi m_Ssgi;
+
+    /** SSGI の出力RTとパイプラインを用意できたか。 */
+    bool m_SsgiReady = false;
 
     /** 遮蔽の描き込み先を用意できたか。 */
     bool m_SsaoReady = false;
@@ -61444,6 +62841,18 @@ private:
 
     /** 使える反射があるか (前のフレームで作れたか)。 */
     bool m_SsrValid = false;
+
+    /** SSGIの出力を次のPBRへ渡せるか (現フレームの計算前の値)。 */
+    bool m_SsgiValid = false;
+
+    /** SSGIを前フレームから継続して有効にしているか。 */
+    bool m_SsgiWasEnabled = false;
+
+    /** SSGI出力を用意してある画面の幅。 */
+    u32 m_SsgiWidth = 0u;
+
+    /** SSGI出力を用意してある画面の高さ。 */
+    u32 m_SsgiHeight = 0u;
 
     /** 用意してある反射の大きさ。 */
     u32 m_SsrWidth = 0u;
@@ -61514,6 +62923,9 @@ private:
     bool m_SsssRequested = false;
     bool m_GpuReady = false;
     bool m_GpuAttempted = false;
+
+    /** 既存field位置を保ち、末尾paddingで所有する環境光倍率。 */
+    f32 m_EnvironmentLightMultiplier = 1.0f;
 };
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */
@@ -61739,6 +63151,45 @@ public:
     /** 現在フレームの入力を所有snapshotとして取得し、失敗時は出力を変更しない。 */
     virtual bool TryCaptureFrameInput(FInputStateSnapshot& output) noexcept = 0;
 };
+
+} // namespace acs::game
+
+// ===================== gameframework/SpherePenetrationResolution3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 3D sphereの反復貫通解消結果。 */
+struct FSpherePenetrationResolution3D {
+    /** 一回のqueryで許可する反復回数の上限。 */
+    static constexpr u32 kMaximumIterations = 64u;
+
+    /** 反復分離後のworld空間sphere。 */
+    FSphere ResolvedSphere{};
+
+    /** 入力sphereからResolvedSphereまでのworld空間移動量。 */
+    FVec3 Translation{};
+
+    /** 実際に分離移動を適用した回数。 */
+    u32 IterationCount = 0u;
+
+    /** 対象layerのshapeへ正の深さで貫通していなければtrue。 */
+    bool FullyResolved = false;
+};
+
+/**
+ * worldを変更せず、最深接触から順にsphereの貫通を反復解消する。
+ *
+ * @param world 問い合わせる3D collision world。
+ * @param sphere 解消対象のworld空間sphere。
+ * @param out_result 解消後sphere、総移動量、反復回数、収束状態の書き込み先。
+ * @param max_iterations 許可する分離移動回数。0は状態確認だけを行い、上限はkMaximumIterations。
+ * @param exclude queryから除外するshape。無効またはstaleなら除外なし。
+ * @param mask layerとのANDが0でないshapeだけを対象にするmask。
+ * @return 入力と計算結果が有限で処理を完了できた場合true。未収束はFullyResolvedで返す。
+ */
+bool TryResolveSpherePenetrations3D(const CCollisionWorld3D& world, const FSphere& sphere, FSpherePenetrationResolution3D& out_result, u32 max_iterations = 4u, FCollisionShapeId3D exclude = {}, u32 mask = CCollisionWorld3D::kAllLayers) noexcept;
 
 } // namespace acs::game
 
@@ -68116,14 +69567,14 @@ struct FWidgetEntry {
     /** 画面ピクセル単位のサイズ (Text は未使用)。 */
     acs::FVec2   size        {0.0f, 0.0f};
 
-    /** ラベル / 表示テキスト (非所有、寿命は呼び出し側保証)。 */
-    const char* text         = nullptr;
+    /** CUiLayer が所有する NUL 終端ラベル / 表示テキストの読み取り用ポインタ。 */
+    const char* text = nullptr;
 
     /** 可視フラグ (不可視時は描画もヒットテストもスキップ)。 */
     bool        visible      = true;
 
-    /** 直前フレームで押されたフラグ (consume-on-read。Tick 開始時に clear)。 */
-    bool        just_pressed = false;
+    /** 直前に成立し、まだ読み取られていない押下フラグ。 */
+    mutable bool just_pressed = false;
 
     /** カーソルが上に乗っているフラグ (描画ハイライト用)。 */
     bool        hovered      = false;
@@ -68133,23 +69584,22 @@ struct FWidgetEntry {
 };
 
 /**
- * acs::ui の AWidget tree を AScene のライフサイクルに繋ぐ薄い glue 層。
+ * Button/Text の軽量 UI を AScene のライフサイクルに繋ぐ層。
  *
  * @details
- * AScene の Init / Tick / HandleInput / Shutdown と AWidget tree を結び、典型的なゲーム UI
- * (ボタン / テキスト表示) を最小 API で扱えるようにする。現状は実 AWidget 生成 / 描画 /
- * ヒットテストは未接続の state holder で、ハンドル付きの FWidgetEntry を TArray で保持し、
- * 追加・削除・可視性・押下クエリは完全動作する。ハンドルは u32 単調増加で再利用しない
- * (0 は invalid 予約)。const char* は非所有 (寿命は呼び出し側保証)。非コピー・非ムーブ、
- * 全 noexcept、Init / Shutdown は冪等。
+ * AScene の Init / Tick / HandleInput / Draw / Shutdown と結び、典型的なゲーム UI
+ * (ボタン / テキスト表示) を最小 API で扱えるようにする。描画は FRenderContext の
+ * CSpriteBatch / FFont、入力は最前面ボタンの hit test を使う。ハンドルは u32 単調増加で
+ * 再利用せず (0 は invalid 予約)、表示文字列はレイヤがコピー所有する。非コピー・
+ * 非ムーブ、全 noexcept、Init / Shutdown は冪等。
  */
 class CUiLayer {
 public:
     /** 空の UI レイヤを構築する (widget 未登録、未初期化)。 */
     CUiLayer()  noexcept = default;
 
-    /** 破棄する。 */
-    ~CUiLayer() noexcept = default;
+    /** 所有する表示文字列と widget 状態を解放して破棄する。 */
+    ~CUiLayer() noexcept;
 
     /** コピー禁止 (state holder。誤コピーで widget 状態が分裂しないため)。 */
     CUiLayer(const CUiLayer&)            = delete;
@@ -68167,20 +69617,19 @@ public:
      * UI レイヤを初期化する (AScene::OnEnter から呼ぶ)。
      *
      * @details
-     * AWidget tree の root を確保する (現状は stub、実装時は acs::AContainer を root として
-     * new する)。冪等で再呼び出し安全 (二度 Init してもメモリリークしない)。
+     * 軽量 Button/Text 状態を受け付ける準備をする。冪等で再呼び出し安全。
      */
     void Init() noexcept;
 
-    /** 全 widget をクリアし root を解放する (AScene::OnExit から呼ぶ。冪等)。 */
+    /** 全 widget と所有文字列を解放する (AScene::OnExit から呼ぶ。冪等)。 */
     void Shutdown() noexcept;
 
     /**
      * UI 状態を更新する (AScene::OnUpdate から呼ぶ)。
      *
      * @details
-     * 現状は just_pressed フラグの伝搬ハンドリングのみ。実装時に acs::AWidget::Layout
-     * 再計算と tween / animation の更新を入れる。
+     * 現在は押下状態をイベント間で保持する。クリックは ConsumeButtonPress または
+     * 互換 IsButtonPressed が読み取るまで失われない。
      * @param dt 前フレームからの経過秒。
      */
     void Tick(f32 dt) noexcept;
@@ -68216,7 +69665,7 @@ public:
     /**
      * ボタンを追加する。
      *
-     * @param label ボタンのラベル (非所有、寿命は呼び出し側保証)。
+     * @param label ボタンのラベル (内部へコピー、nullptr は空文字列)。
      * @param pos 画面ピクセル単位の絶対座標。
      * @param size 画面ピクセル単位のサイズ。
      * @return 0 でない handle (IsButtonPressed / SetVisible / Remove に渡す)。
@@ -68226,20 +69675,49 @@ public:
     /**
      * 静的テキストを追加する。
      *
-     * @details size は描画時にフォントメトリックから自動計算する想定。
-     * @param text 表示テキスト (非所有、寿命は呼び出し側保証)。
+     * @details size は描画時にフォントメトリックから決まる。
+     * @param text 表示テキスト (内部へコピー、nullptr は空文字列)。
      * @param pos 画面ピクセル単位の絶対座標。
      * @return 発行した handle。
      */
     u32 AddText(const char* text, acs::FVec2 pos) noexcept;
 
     /**
-     * ボタンが直前フレームで押されたかを返す。
+     * ボタンの未消費クリックを一度だけ取得する。
      *
+     * @param handle 確認して消費するボタンの handle。
+     * @return 未消費クリックがあれば true。invalid handle / Text kind は false。
+     */
+    bool ConsumeButtonPress(u32 handle) noexcept;
+
+    /**
+     * ボタンの未消費クリックを一度だけ取得する互換 API。
+     *
+     * @details 新しいコードは状態変更を明示する ConsumeButtonPress を使う。この関数も
+     * 従来どおり consume-on-read を維持し、mutable な押下フラグだけを変更する。
      * @param handle 確認するボタンの handle。
      * @return 押されていれば true。invalid handle / Text kind には常に false。
      */
     bool IsButtonPressed(u32 handle) const noexcept;
+
+    /**
+     * widget の表示文字列を安全に差し替える。
+     *
+     * @details 新しい文字列のコピーに成功してから旧文字列を解放するため、失敗時も
+     * 以前の表示を維持する。
+     * @param handle 対象 widget の handle。
+     * @param text 新しい文字列 (内部へコピー、nullptr は空文字列)。
+     * @return 差し替え成功なら true。invalid handle / メモリ不足なら false。
+     */
+    bool SetText(u32 handle, const char* text) noexcept;
+
+    /**
+     * widget の現在の表示文字列を返す。
+     *
+     * @param handle 対象 widget の handle。
+     * @return レイヤ所有の NUL 終端文字列。invalid handle なら nullptr。
+     */
+    const char* Text(u32 handle) const noexcept;
 
     /**
      * widget の可視性を変更する。
@@ -68261,8 +69739,8 @@ public:
      * 全 widget を削除する。
      *
      * @details
-     * Init 後の初期化やシーン内画面切替で利用する。Shutdown とは異なり root は保持されるので、
-     * 続けて AddButton 等が可能。
+     * Init 後の初期化やシーン内画面切替で利用する。初期化状態は維持されるため、続けて
+     * AddButton 等が可能。
      */
     void Clear() noexcept;
 
@@ -68284,7 +69762,7 @@ private:
      */
     u32 HitTopButton(f32 x, f32 y) const noexcept;
 
-    /** 全 widget の状態 (handle 順は保証しない)。 */
+    /** 全 widget の状態 (追加順。後ろほど hit test 上の前面)。 */
     TArray<FWidgetEntry> m_Widgets;
 
     /** 次に発行する handle (0 は invalid 予約)。 */
@@ -74925,6 +76403,14 @@ public:
     u32  SourceCount() const noexcept;
 
     /**
+     * source ID が現在登録されているかを返す。
+     *
+     * @param id 確認する source ID。
+     * @return active な登録があれば true。0、削除済み、未登録なら false。
+     */
+    bool HasSource(u32 id) const noexcept;
+
+    /**
      * state を 1 フレーム進める。
      *
      * @details dt は更新契約として受け取るが、内部 state を変更しない no-op。
@@ -74937,16 +76423,6 @@ public:
 
 
 private:
-    friend class CAudioDirector;
-
-    /**
-     * source ID が現在登録されているかを返す。
-     *
-     * @param id 確認する source ID。
-     * @return active な登録があれば true。0、削除済み、未登録なら false。
-     */
-    bool HasSource(u32 id) const noexcept;
-
     /**
      * source_id を index に線形検索で変換する。
      *
@@ -85608,10 +87084,10 @@ public:
     /** 所有している画像アセットを返す。 */
     const TSharedPtr<AAsset>& ImageAsset() const noexcept;
 
-    /** デコード済み画像を所有している場合にtrueを返す。 */
+    /** 画像として指定されたアセット参照を所有している場合にtrueを返す。 */
     bool HasImageAsset() const noexcept;
 
-    /** 所有画像をAImageAssetとして返し、未設定ならnullptrを返す。 */
+    /** 所有画像をAImageAssetとして返し、未設定または別型ならnullptrを返す。 */
     AImageAsset* Image() const noexcept;
 
     /** ローカルXY単位板の最小座標と最大座標を返す。 */
@@ -86328,6 +87804,153 @@ private:
 
 }
 }
+
+// ===================== gameframework/collision/KinematicCharacterMovement3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== gameframework/collision/KinematicCharacterMovementInput3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 一回のkinematic character移動へ渡す操作入力とcollision filter。 */
+struct FKinematicCharacterMovementInput3D {
+    /** world X/Z軸へ適用する希望水平速度。xはworld X、yはworld Zを表す。 */
+    FVec2 DesiredHorizontalVelocity{};
+
+    /** queryから除外する自身の登録shape。無効またはstaleなら除外しない。 */
+    FCollisionShapeId3D SelfShape{};
+
+    /** 登録shapeのlayerとのANDが0でないshapeだけを対象にするmask。 */
+    u32 CollisionMask = 0xFFFFFFFFu;
+
+    /** 接地中かつJumpSpeedが0より大きい場合に上向き初速を与える要求。 */
+    bool JumpRequested = false;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/collision/KinematicCharacterMovementParams3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** sphere型kinematic characterの形状と移動調整値。 */
+struct FKinematicCharacterMovementParams3D {
+    /** characterを近似するsphere半径。有限かつ0より大きい値だけを受理する。 */
+    f32 Radius = 0.5f;
+
+    /** world -Y方向へ加える加速度。有限かつ0以上の値だけを受理する。 */
+    f32 GravityAcceleration = 9.80665f;
+
+    /** 接地中のjump要求で設定するworld +Y初速。有限かつ0以上で、0はjump無効を表す。 */
+    f32 JumpSpeed = 5.0f;
+
+    /** 接触後に法線方向へ離す距離。有限で0より大きく、Radius未満でなければならない。 */
+    f32 ContactOffset = 0.001f;
+
+    /** 接地確認でsphereを下へ調べる追加距離。有限かつ0以上の値だけを受理する。 */
+    f32 GroundProbeDistance = 0.05f;
+
+    /** 歩行可能とみなす接触法線Y成分の下限。有限な0以上1以下でなければならない。 */
+    f32 MinimumGroundNormalY = 0.7f;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/collision/KinematicCharacterMovementResult3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== gameframework/collision/KinematicCharacterState3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** sphereで近似するkinematic characterの一時刻分の状態。 */
+struct FKinematicCharacterState3D {
+    /** character sphere中心のworld座標。 */
+    FVec3 Position{};
+
+    /** 重力と接触面への投影を反映したworld速度。 */
+    FVec3 Velocity{};
+
+    /** 接地面のworld単位法線。非接地時は零ベクトル。 */
+    FVec3 GroundNormal{};
+
+    /** 歩行可能な面を直下または移動経路で検出していればtrue。 */
+    bool Grounded = false;
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/** 一回のkinematic character移動で確定した次状態と接触事象。 */
+struct FKinematicCharacterMovementResult3D {
+    /** 呼び出し側が次回入力として保持する確定済み状態。 */
+    FKinematicCharacterState3D NextState{};
+
+    /** 入力PositionからNextState.Positionまでのworld移動量。貫通解消を含む。 */
+    FVec3 Translation{};
+
+    /** 最後にsweepまたは接地確認で接触したshape。接触なしでは無効。 */
+    FCollisionShapeId3D LastCollisionShape{};
+
+    /** LastCollisionShapeからcharacterへ向くworld単位法線。接触なしでは零。 */
+    FVec3 LastCollisionNormal{};
+
+    /** 移動sweepと接地確認で検出した接触回数。 */
+    u32 CollisionCount = 0u;
+
+    /** 移動前後の貫通解消で実際に適用した分離回数の合計。 */
+    u32 DepenetrationIterationCount = 0u;
+
+    /** 接地中に0より大きいJumpSpeedでjump要求を受理した場合はtrue。 */
+    bool Jumped = false;
+
+    /** 一回以上の貫通分離を適用した場合はtrue。 */
+    bool Depenetrated = false;
+
+    /** 歩行可能な面へ接触または接地確認した場合はtrue。 */
+    bool HitGround = false;
+
+    /** 歩行可能面と天井以外へ接触した場合はtrue。 */
+    bool HitWall = false;
+
+    /** 下向き法線を持つ面へ接触した場合はtrue。 */
+    bool HitCeiling = false;
+
+    /** 4回のslide後にも未適用移動が残り、安全のため打ち切った場合はtrue。 */
+    bool SlideIterationLimitReached = false;
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/**
+ * 既存collision worldを変更せず、sphere型characterの次状態と接触事象を計算する。
+ *
+ * @details 移動前後の貫通解消は各4回、移動sweepと接触面slideは最大4回、接地確認は1回に
+ * 固定する。入力不正、非有限な中間値、または固定回数内に貫通を解消できない場合はfalseを返し、
+ * out_resultを変更しない。JumpSpeedが0ならjump要求を無効として接地を再確認する。
+ * world、state、input、paramsも変更しない。
+ * @param world AABBとsphereを登録済みの3D collision query world。
+ * @param input 希望水平速度、jump要求、layer mask、自己除外shape。
+ * @param state 現在のsphere中心、速度、接地状態。
+ * @param delta_time 進める有限かつ0以上の秒数。
+ * @param params sphere半径、重力、jump初速、接触調整値。
+ * @param out_result 次状態と接触事象の書き込み先。失敗時は変更しない。
+ * @return 入力検証、貫通解消、有限な次状態の確定に成功した場合だけtrue。
+ */
+bool TryMoveKinematicCharacter3D(const CCollisionWorld3D& world, const FKinematicCharacterMovementInput3D& input, const FKinematicCharacterState3D& state, f32 delta_time, const FKinematicCharacterMovementParams3D& params, FKinematicCharacterMovementResult3D& out_result) noexcept;
+
+} // namespace acs::game
 
 // ===================== gameframework/tools/animcurve/AnimCurveEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -103039,75 +104662,6 @@ constexpr bool IsFormatUsageLegal(EFormat format, bool depth_target) noexcept {
 
 } // namespace acs
 
-// ===================== render/Fxaa.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-namespace acs {
-
-/**
- * FXAA をフルスクリーン三角形 1 パスで掛けるポストエフェクト。
- *
- * @details
- * FXAA 3.11 の簡易品質版。中心+対角 4 近傍の輝度からエッジ方向を推定し、
- * エッジに沿って 2/4 タップのブレンドを行う。低コントラスト画素は早期 return で
- * 素通しするため、ベタ塗り領域やテキストのにじみは最小限。入力サイズは
- * GetDimensions で取得するので cbuffer 不要。
- */
-class CFxaa {
-public:
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    CFxaa() noexcept = default;
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~CFxaa() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CFxaa(const CFxaa&)            = delete;
-
-    /** コピー代入も禁止。 */
-    CFxaa& operator=(const CFxaa&) = delete;
-
-    /**
-     * シェーダとパイプラインを生成して初期化する。
-     *
-     * @param device シェーダ・パイプライン生成に使う RHI デバイス。
-     * @param rt_format 出力先 RT のフォーマット (PSO に焼き込む)。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
-
-    /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
-    void Shutdown() noexcept;
-
-    /**
-     * 現在 bind 中のターゲットへ src を FXAA 解決しつつ全画面描画する。
-     *
-     * @details
-     * CBlit::Copy と違い出力 RT の bind は行わない。呼ぶ前に BeginRenderToSwapchain
-     * 等で出力先を bind し、viewport を設定しておくこと (全 pixel を上書きする)。
-     * @param cmd コマンドを積むコマンドリスト。
-     * @param src FXAA を掛けるシーンテクスチャ (SRV 状態であること)。
-     */
-    void Apply(IRhiCommandList& cmd, IRhiTexture& src) noexcept;
-
-private:
-    /** フルスクリーン三角形の頂点シェーダ。 */
-    TUniquePtr<IRhiShader>   m_Vs;
-
-    /** FXAA ピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_Ps;
-
-    /** FXAA 描画のパイプライン。 */
-    TUniquePtr<IRhiPipeline> m_Pipeline;
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FFxaa = CFxaa;
-
-
-} // namespace acs
-
 // ===================== render/Light2D.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // 2D 動的ライティング + ソフト影 (Core Keeper 風) と簡易ブロブ影。
@@ -104747,231 +106301,6 @@ private:
     /** 直前のSortが走査したitem数。 */
     u64                m_LastSortItemVisits = 0u;
 };
-
-} // namespace acs
-
-// ===================== render/Ssgi.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// Screen-Space Global Illumination
-//
-// 各ピクセルから法線半球内に N 本のレイを screen-space で march し、ヒットした
-// pixel の HDR 色を 1 バウンス indirect light として集める。SSAO の構造に色
-// サンプリングを追加した発展版 (Aaltonen 2014 系の単純化版)。
-//
-// 入力: scene_color (HDR R16G16B16A16_Float)、scene_depth (shader-visible depth)
-// 出力: ssgi_color (RGB)、CPbrShader が ambient/indirect 項に加算
-//
-// 制限:
-//   - 法線は CMotionVector の normal G-buffer (world normal) から sample
-//     (depth 微分 cross(ddx,ddy) は faceted で hemisphere ray がブロック状になるため避ける)
-//   - 8 step / 4 ray = 32 sample/pixel (画質と速度のバランス)
-//   - 反射的なシャープなパスは捨て、diffuse-ish な広い hemisphere に絞る
-//   - 1 bounce のみ (Lumen の voxel cone tracing 等は未対応)
-//   - blur 無し (CPbrShader 側で linear sampling で smooth に補間する想定)
-
-
-namespace acs {
-
-/**
- * Screen-Space Global Illumination (1 バウンス indirect light)。
- *
- * @details
- * 各ピクセルから法線半球内に N 本のレイを screen-space で march し、ヒットした pixel の
- * HDR 色を 1 バウンスの indirect light として集める。SSAO の構造に色サンプリングを
- * 追加した発展版で、raw → depth-aware blur → temporal accumulation の 3 pass で構成する。
- * CPbrShader が結果を ambient/indirect 項に加算する。8 step / 4 ray = 32 sample/pixel、
- * diffuse-ish な広い hemisphere に絞り、反射的なシャープなパスは捨てる。
- */
-class CSsgi {
-public:
-    /** CPU-compiled shader bytecode handed to the render-owner thread. */
-    struct FCompiledShaders {
-        TUniquePtr<IRhiShader> vertex;
-        TUniquePtr<IRhiShader> main_pixel;
-        TUniquePtr<IRhiShader> blur_pixel;
-        TUniquePtr<IRhiShader> temporal_pixel;
-    };
-
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    CSsgi() noexcept = default;
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~CSsgi() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    CSsgi(const CSsgi&) = delete;
-
-    /** コピー代入も禁止。 */
-    CSsgi& operator=(const CSsgi&) = delete;
-
-    /**
-     * 出力 RT・history・パイプライン・定数バッファを生成する。
-     *
-     * @param device リソース生成に使う RHI デバイス。
-     * @param width 出力解像度の幅。
-     * @param height 出力解像度の高さ。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
-
-    /**
-     * Compile all raw-DX12 SSGI shaders without touching an RHI device.
-     * This is safe to run on a startup worker. Other backends return an
-     * unsupported error and retain the regular owner-thread Init path.
-     */
-    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
-
-    /**
-     * Install CPU-compiled shaders and create the render targets, constant
-     * buffer and PSOs. Must be called by the render-owner thread.
-     */
-    TResult<void> InitWithCompiledShaders(
-        IRhiDevice& device,
-        FCompiledShaders&& shaders,
-        u32 width,
-        u32 height) noexcept;
-
-    /** 確保した GPU リソースを解放する。 */
-    void Shutdown() noexcept;
-
-    /**
-     * Keep allocated targets but make the next render a cold temporal start.
-     * Call this when a shared render surface changes logical camera owner.
-     */
-    void InvalidateHistory() noexcept {
-        m_TemporalFrame = 0u;
-        m_OutputValid = false;
-    }
-
-    /**
-     * 解像度変更時に内部 RT を作り直す (ウィンドウリサイズで呼ぶ)。
-     *
-     * @param width 新しい出力幅。
-     * @param height 新しい出力高さ。
-     * @return 成功なら空の TResult、再確保失敗ならエラー。
-     */
-    TResult<void> Resize(u32 width, u32 height) noexcept;
-
-    /**
-     * SSGI を計算して内部 RT に書く (raw → blur → temporal の 3 pass)。
-     *
-     * @param device 描画に使う RHI デバイス。
-     * @param cl コマンドを積むコマンドリスト。
-     * @param scene_color 現在フレームの HDR scene RT。
-     * @param scene_depth shader-visible depth (SSR/SSAO と同じ)。
-     * @param normal_gbuffer CMotionVector の world-space normal G-buffer (RGBA16F)。
-     * @param view_proj 現フレームの view * projection。
-     * @param inv_view_proj 現フレーム VP の逆 (depth+uv → world)。
-     * @param prev_view_proj 前フレームの view_proj (temporal reproject 用)。identity を渡すと reprojection 無効 (= 静的 accumulate)。
-     * @param eye カメラの world pos。
-     * @param intensity indirect light の倍率 (0=無効、1=neutral、>1=強調)。
-     * @param max_distance ray march の世界距離上限 (世界座標、典型 5.0)。
-     * @param motion_texture 非 null なら temporal pass が depth reprojection ではなくこの motion vector で history を引く (動く mesh も ghost せず追従)。CMotionVector::OutputTexture() を渡す。null なら従来の camera-only depth reprojection。
-     */
-    void Render(IRhiDevice& device, IRhiCommandList& cl,
-                IRhiTexture& scene_color,
-                IRhiTexture& scene_depth,
-                IRhiTexture& normal_gbuffer,
-                const FMat4& view_proj,
-                const FMat4& inv_view_proj,
-                const FMat4& prev_view_proj,
-                FVec3 eye,
-                f32 intensity   = 1.0f,
-                f32 max_distance = 5.0f,
-                IRhiTexture* motion_texture = nullptr) noexcept;
-
-    /**
-     * temporal accumulation 後の history RT を返す。
-     *
-     * @details 直近の Render が書き込んだ index を返す。CPbrShader はこれを読む (blur + 時間積分でノイズ除去済)。
-     * @return 直近の積分結果を持つ history RT。
-     */
-    IRhiTexture* OutputTexture() const noexcept {
-        return m_History[m_TemporalFrame == 0u ? 0u : ((m_TemporalFrame - 1u) & 1u)].Get();
-    }
-
-    /** True only after raw, bilateral and temporal output were all recorded. */
-    bool HasValidOutput() const noexcept { return m_OutputValid; }
-
-    /**
-     * raw (blur/temporal 前) の RT を返す (デバッグ用途向け)。
-     *
-     * @return SSGI raw RT。
-     */
-    IRhiTexture* RawTexture()    const noexcept { return m_Output.Get(); }
-
-private:
-    /**
-     * 出力 RT (raw・blur 後・history ping-pong) を生成する。
-     *
-     * @param device RT 生成に使う RHI デバイス。
-     * @param w 出力幅。
-     * @param h 出力高さ。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
-
-    /**
-     * Install 済みの SSGI 本体・blur・temporal シェーダから
-     * 各描画パイプラインを生成する。
-     *
-     * @param device パイプライン生成に使う RHI デバイス。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
-
-    /** Init で受け取った device (Resize で再利用)。 */
-    IRhiDevice*             m_Device = nullptr;
-
-    /** 出力 RT の幅。 */
-    u32                     m_Width  = 0;
-
-    /** 出力 RT の高さ。 */
-    u32                     m_Height = 0;
-
-    /** SSGI raw 出力 RT。 */
-    TUniquePtr<IRhiTexture>  m_Output;
-
-    /** depth-aware bilateral blur 後の出力 RT。 */
-    TUniquePtr<IRhiTexture>  m_BlurOutput;
-
-    /** temporal accumulation 用の ping-pong history RT。 */
-    TUniquePtr<IRhiTexture>  m_History[2];
-
-    /** フルスクリーン三角形の頂点シェーダ (全 pass 共用)。 */
-    TUniquePtr<IRhiShader>   m_Vs;
-
-    /** hemisphere ray march で indirect light を集めるピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_Ps;
-
-    /** depth-aware bilateral blur のピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_BlurPs;
-
-    /** temporal accumulation のピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_TemporalPs;
-
-    /** SSGI 本体の描画パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_Pipeline;
-
-    /** blur の描画パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_BlurPipeline;
-
-    /** temporal accumulation の描画パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_TemporalPipeline;
-
-    /** SSGI パラメータの定数バッファ。 */
-    TUniquePtr<IRhiBuffer>   m_Cb;
-
-    /** temporal accumulation のフレームカウンタ (history の ping-pong に使う)。 */
-    u32                     m_TemporalFrame = 0;
-
-    /** Prevents callers from publishing an unwritten or invalidated history. */
-    bool                    m_OutputValid = false;
-};
-
-/** 旧名を使う既存コード向けの互換別名。 */
-using FSsgi = CSsgi;
-
 
 } // namespace acs
 

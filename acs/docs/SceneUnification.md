@@ -33,6 +33,13 @@ staging graph を stack に置けるため、scene lifecycle と graph 構築を
 `RaycastActiveRange` は有効かつ可視なsubtreeだけを指定t区間で検索する。`SweepSphereActiveRange` は同じ
 範囲へworld空間半径を加え、3D cameraのtarget近傍除外と本体の壁抜け防止に使える。
 
+これらは描画node queryである。gameplay collisionは明示ownerが`CCollisionWorld3D`を保持し、
+必要なAABB/sphereを登録・更新する。連続移動の確認は`TrySweepSphere()`で行い、描画bounds向けの
+保守的な`SweepSphereActiveRange`とgameplay接触判定を混同しない。graphがcollision stateや
+固定tick寿命を暗黙に所有しない。既存の貫通は`TryFindSpherePenetration()`で最深接触を取得し、
+複数接触は`TryResolveSpherePenetrations3D()`でworld非破壊に反復分離できる。解消後のnode座標と
+登録shapeの更新はgameplay側adapterが明示的に行う。
+
 `SwapContents()` は root 自体を置き換える。置換後は `AScene` の root-swap hook が次を
 再接続する。
 
@@ -130,6 +137,12 @@ null scene、容量確保失敗、service 構築失敗、World subsystem 初期�
 即時描画 context がない場合、または sprite batch が接続されていない場合、`DrawRect()`、
 `DrawTexture()`、`DrawString()` などは何も行わない。pass 終了時は必ず context を解除し、次の
 scene や frame へ漏らさない。
+
+`ALegacyScene3DAdapter` は 3D の HDR/post 経路を置き換えるため、標準 world pass は呼ばない。
+post が LDR swapchain を完成させた後、共有 `CSceneRenderResources::SpriteBatch` の準備に
+成功した場合だけ swapchain を load で再バインドし、`DrawHudPass_Internal` から同じ
+`OnDrawHud` hook を呼ぶ。SpriteBatch 準備失敗時は完成済み 3D 画像を保ち、成功時は
+SpriteBatch と swapchain pass の両方を明示的に閉じてから外側の overlay へ戻る。
 
 2D node 描画は scene graph が可視 node を収集し、安定した描画 key で並べる。3D component は
 同じ root graph に存在でき、専用 component と render 経路が projection と depth を扱う。

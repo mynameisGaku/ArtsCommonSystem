@@ -122,6 +122,21 @@ public:
     void PlaySfx(const char* name, f32 volume_scale = 1.0f) noexcept;
 
     /**
+     * 名前または asset path から SFX voice を開始してハンドルを返す。
+     *
+     * @details
+     * SetBackend と SetAssetRegistry の両方が必要。PlaySfx と異なり state-only ring へは
+     * 追加せず、実際に backend が再生を開始した場合だけ有効なハンドルを返す。
+     * @param name 再生する SFX 名 (= asset path)。
+     * @param volume_scale この voice の追加ゲイン [0, ~] (非有限または 0.0 以下で失敗)。
+     * @param pitch 再生ピッチ。非有限値は 1.0、範囲外は [0.25, 4] に制限する。
+     * @return 再生 voice ハンドル。不正引数、未結線、解決・ロード・再生失敗時は kInvalidAudioVoice。
+     */
+    FAudioVoiceHandle PlaySfxVoice(const char* name,
+                                   f32 volume_scale = 1.0f,
+                                   f32 pitch = 1.0f) noexcept;
+
+    /**
      * 短期間だけ BGM 音量を一時的に下げる (ダッキング)。
      *
      * @details 前後 kDuckFadeWindow 秒で線形 fade in/out が掛かる。新たな Duck() で既存
@@ -262,6 +277,26 @@ public:
                                const CSpatialAudio& spatial,
                                u32 source_id,
                                f32 pitch = 1.0f) noexcept;
+
+    /**
+     * 再生中 SFX voice へ要求単位の音量、3D 距離減衰、左右 pan、pitch を反映する。
+     *
+     * @details
+     * 音量は `EffectiveSfxVolume() * volume_scale *
+     * spatial.ComputeAttenuatedVolume(source_id)` を一度だけ合成し、有限な [0, 1] に制限する。
+     * 非有限または 0.0 以下の volume_scale は 0 として voice を消音する。その他の寿命、
+     * stale source、thread の契約は 4 引数版と同じ。
+     * @param voice `PlaySfxVoice` または `PlaySfxClip` で開始した SFX voice。
+     * @param spatial listener と 3D source を保持する scene 局所状態。
+     * @param source_id `spatial` が払い出した source ID。
+     * @param volume_scale この voice の追加ゲイン [0, ~]。
+     * @param pitch 再生比率。非有限値は 1、範囲外は [0.25, 4] に制限する。
+     */
+    void UpdateSpatialSfxVoice(FAudioVoiceHandle voice,
+                               const CSpatialAudio& spatial,
+                               u32 source_id,
+                               f32 volume_scale,
+                               f32 pitch) noexcept;
 
 private:
     /** BGM スロット 1 本の state (m_Bgm[0] = current、m_Bgm[1] = 遷移中の new)。 */

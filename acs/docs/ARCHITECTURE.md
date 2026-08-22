@@ -144,6 +144,96 @@ ACS の公開所有型契約を守り、`TArray<T>` 上の sparse-set 設計を�
 アセット（画像・glTF/FBX メッシュ・音声）は `FAssetRegistry` 経由で読み込まれ、
 非同期ロードも選べます。ImGui 統合は raw DX12 バックエンドだけを対象とします。
 
+`ALegacyScene3DAdapter` の3DスプライトGPU画像表は、描画owner threadでgraphと同期します。
+実行時のcomponent追加・除去・`SetImageAsset` による差し替えを次の描画前に反映し、node
+handleと画像の共有所有を対応付けるため、破棄済みcomponentの生ポインタを保持しません。
+同じnodeと同じ画像のframeでは既存textureを再利用し、`TexturePath` だけから暗黙に
+ファイルI/Oを始めません。未設定・別型・不正画像またはGPU生成失敗のスプライトだけを省き、
+他の3D描画は継続します。実行時に数が増えた場合は `CSprite3DRenderer::EnsureCapacity` が
+pipelineを保ったまま頂点領域だけを段階的に拡張します。
+
+D3D12 外部描画を ACS の 3D シーンへ組み込む場合は、
+`IRhiDevice::TryGetD3D12Interop(FRhiD3D12DeviceInterop&)` で借用した native
+device / graphics queue と、`IRhiCommandList::D3D12GraphicsCommandList()` の
+native command list を使います。これらのポインタは呼出し中だけ有効な借用値で、
+非 D3D12 backend では取得に失敗します。外部コマンドを記録した後は
+`RestoreStateAfterExternalCommands()` を呼び、ACS の後続描画に必要な追跡状態を
+再構築します。`ALegacyScene3DAdapter` の
+`OnRenderTransparent3D(const FScene3DTransparentRenderContext&)` は、雲と
+`Sprite3D` の後、SSR と post effect の前に HDR color を load 状態で bind して
+呼び出されます。フックが `true` を返した場合だけ基底が外部コマンド後の状態復旧を
+行い、render target の Begin/End は常に基底が管理します。
+
+3D シーンの画面空間間接光は `ALegacyScene3DAdapter::GlobalIllumination()` で設定します。
+既定の `Intensity=0` では無効で、正の値を設定すると `CSsgi` が完成済み HDR 色から
+次フレーム用の履歴を作り、PBR の `SetSsgi` へ一度だけ強さを渡します。法線・深度の共有
+前段は SSAO の有効状態から独立して用意され、履歴が無効、画面サイズが不一致、入力深度が
+無い場合は古い間接光を公開しません。現行の前段は動的 motion vector を生成しないため、
+SSGI はカメラ再投影を使います。
+
+3D シーンの天候による環境光変化は
+`ALegacyScene3DAdapter::SetEnvironmentLightMultiplier()` へ有限かつ 0 以上の倍率を渡します。
+既定値 1.0 は従来描画と同一で、`CWeatherSystem::AmbientLightMultiplier()` をそのまま接続できます。
+倍率は `CPbrShader::SetIblLightMultiplier()` から既存 `FrameCB::ibl_params.w` へ入り、IBL cubemap、
+SH9、光プローブ、IBL 未生成時の代替環境光だけへ適用されます。direct light、emissive、SSGI、
+lightmap、SSR、UI は暗くせず、雲による直射光の変化は既存のボリューム雲ワールド影が担当します。
+倍率の保存領域は両公開クラスの既存 alignment padding を利用し、class size、既存member offset、
+vtable slot を変更しません。NaN、無限大、負数は現在値を維持します。
+
+Legacy 3D のボリューム雲は、`Clouds().bAffectEnvironmentLighting` が true かつ雲が描けた場合、
+画面描画と同じ密度場、天候模様、照明、雲内部影を使う低解像度の環境 cubemap を GPU 上で作り、
+`CImageBasedLighting` の irradiance と prefilter だけを再生成します。見える空の cubemap は雲なしの
+物理大気のままなので、通常の画面雲合成やワールド雲影を二重適用しません。既定は true ですが、
+`Coverage=0` の既定場面は従来出力と同一で、false にすれば表示中の雲と雲影を保ったまま従来の
+雲なし IBL へ戻せます。
+
+初回有効化、無効化、既存の太陽方向しきい値を越えた変更は即時に再生成します。被覆、密度、風速、
+固定方向の太陽放射輝度、空色、大気透過率を含む連続変化は量子化した署名で追跡し、最大30成功雲
+frameごとの固定間隔へまとめます。連続する雲の移流時刻は署名へ含めません。雲だけの更新は大気画像の
+CPU readbackを行わず、毎frameの同期や無制御な焼き直しを避けます。一時cubemapまたは畳み込み資源を作れない場合は、雲なしの環境cubemapから
+派生マップを作る代替処理へ戻り、完成済みの環境光を空の資源で置換しません。
+
+Legacy 3D の物理大気による空気遠近は
+`ALegacyScene3DAdapter::SetAerialPerspectiveEnabled(true)` で明示的に有効化します。既定は無効で、
+従来の出力とfroxel計算負荷を維持します。有効時は既存`CSkyAtmosphere`の物理大気volumeを使い、
+不透明物と水面の完成深度へ `scene.rgb = scene.rgb * T + L` を一度だけ適用してから、同じvolumeを
+雲の実距離へ適用します。透過3D、SSGI、SSR、postはその後段です。`Fog()` は従来どおり
+`CPbrShader::SetFog()` のsurface fogとして独立し、AP volumeには混ぜないため、通常fogを二重積分
+しません。orthographic camera、深度不足、AP資源作成失敗ではpassを開かず従来描画へ戻ります。
+有効状態は既存alignment paddingに保持し、class sizeとvtable slotを変更しません。
+
+最終画面の空間アンチエイリアスは `ALegacyScene3DAdapter::PostParams()` の
+`FPostProcessParams::fxaa_enabled` で明示的に有効化できます。既定は無効で、既存の
+出力と TAA 利用時の負荷を変えません。有効時は HDR の完成色をトーンマップとガンマ補正で全解像度
+LDR 中間へ書き、その後 `CFxaa` を swapchain に一度だけ適用します。有効な TAA 解像結果
+があるフレームでは FXAA を重ねず、TAA 解像が失敗した場合だけ FXAA を代替処理にします。
+任意シェーダのコンパイルに失敗しても直接トーンマップを使い、空のフレームを公開しません。
+
+Legacy 3Dの操作対象は`ALegacyScene3DAdapter::SetSelectionHighlight()`へ`FNodeId`を渡すと、
+そのnode自身と可視・有効な子孫meshへ選択輪郭を表示できます。設定はruntime専用componentとして
+subtree rootが所有するため、adapterのclass size、member位置、vtable slotを変更しません。
+stale/未知handleや不正な色・強さ・幅は現在設定を維持して拒否し、`ClearSelectionHighlight()`で
+明示解除します。
+
+輪郭maskは既存`CMotionVector`のRGBA16F normal出力の未使用alphaへ書きます。同じ前段depthへ
+未選択meshも描くため、手前の物体で隠れた選択物を壁越しに表示しません。tonemap後、任意FXAA前に
+maskの外側だけを最大4 pixelへ広げ、HUDより前に合成します。TAA/FXAA、SSAO/SSR/SSGIはnormalの
+xyzだけを従来どおり利用します。hidden/disabled/destroyed node、前段・post資源失敗、空subtreeでは
+通常の完成済み3D表示へ戻り、選択輪郭のために別mask textureや同期readbackを追加しません。
+
+`ALegacyScene3DAdapter` のプレイヤー向け HUD は、HDR 3D と post/TAA-or-FXAA/トーンマップを
+完了した後に LDR swapchain を load で再バインドし、`AScene::OnDrawHud` を呼びます。
+`CSceneRenderResources::SpriteBatch` を共有し、`FRenderContext` と `Draw.h` の即時描画 context は
+HUD pass 中だけ公開します。SpriteBatch 初期化失敗時は pass を開かず完成済み 3D 画像を維持し、
+成功時は swapchain pass を明示的に閉じてから Framework のフェード等へ制御を戻します。
+
+骨格animationの状態切替は`CAnimationPlayer::BlendTo()`、または
+`ASkinnedMeshComponent3D::BlendTo()` / `BlendToByName()`で実姿勢をcross-fadeします。
+遷移中は切替元と切替先のclip時刻をともに進め、各boneのローカル平行移動とscaleを線形補間、
+rotationをslerpしてから親子階層を合成します。0秒指定と従来の`Play` / `PlayByName`は即時切替で、
+非有限・負の期間や無効なmesh、index、名前は現在の再生状態を変更しません。進行中の遷移へ
+別の遷移を重ねる要求も拒否し、現在の遷移完了後に再試行できる契約としています。
+
 ### ボリュメトリック雲の workload 診断
 
 `FVolumetricClouds::LastFrameWorkload()` は、直近のボリューム雲の計算処理と

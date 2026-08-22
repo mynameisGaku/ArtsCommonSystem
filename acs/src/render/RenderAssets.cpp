@@ -4,7 +4,9 @@
 #include "asset/ImageAsset.h"
 #include "asset/MeshAsset.h"
 #include "asset/SkinnedMesh.h"
+#include "foundation/Limits.h"
 #include "foundation/Move.h"
+#include "render/FormatTraits.h"
 
 namespace acs {
 
@@ -47,6 +49,19 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const AImageA
     const EFormat gpu_fmt = ToRhiFormat(img.Format());
     if (gpu_fmt == EFormat::Unknown)
         return ACS_ERR(Render, 81, "UploadTexture: unsupported pixel format");
+
+    const FFormatTraits traits = GetFormatTraits(gpu_fmt);
+    const u64 pixel_count = static_cast<u64>(img.Width()) * img.Height();
+    if (traits.bytes_per_block == 0u
+        || pixel_count > TNumLimits<u64>::Max() / traits.bytes_per_block) {
+        return ACS_ERR(Render, 83, "UploadTexture: pixel byte count overflows");
+    }
+    const u64 required_bytes = pixel_count * traits.bytes_per_block;
+    if (required_bytes > static_cast<u64>(TNumLimits<usize>::Max())
+        || img.PixelByteCount() != static_cast<usize>(required_bytes)) {
+        // backendへ不足した生ポインタを渡す前に止め、GPU upload中の範囲外読取りを防ぐ。
+        return ACS_ERR(Render, 83, "UploadTexture: pixel byte count does not match dimensions and format");
+    }
 
     // R8G8B8 (3ch) は GPU では 4ch にパディングが必要
     // 簡易対応: AImageAsset::Pixels() がそのまま 4ch でない場合はエラー

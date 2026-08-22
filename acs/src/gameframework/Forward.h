@@ -23,6 +23,9 @@ class CCollisionWorld2D;
 /** 旧公開名から正規二次元衝突世界型へ接続する互換別名。 */
 using FCollisionWorld2D = CCollisionWorld2D;
 
+/** 三次元衝突query shapeを管理する正規型。 */
+class CCollisionWorld3D;
+
 /** デバッグ線を管理する正規型。 */
 class CDebugDraw;
 /** 旧公開名から正規デバッグ線型へ接続する互換別名。 */

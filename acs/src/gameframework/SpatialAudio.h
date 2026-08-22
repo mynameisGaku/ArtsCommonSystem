@@ -311,6 +311,14 @@ public:
     u32  SourceCount() const noexcept;
 
     /**
+     * source ID が現在登録されているかを返す。
+     *
+     * @param id 確認する source ID。
+     * @return active な登録があれば true。0、削除済み、未登録なら false。
+     */
+    bool HasSource(u32 id) const noexcept;
+
+    /**
      * state を 1 フレーム進める。
      *
      * @details dt は更新契約として受け取るが、内部 state を変更しない no-op。
@@ -327,16 +335,6 @@ public:
 #endif
 
 private:
-    friend class CAudioDirector;
-
-    /**
-     * source ID が現在登録されているかを返す。
-     *
-     * @param id 確認する source ID。
-     * @return active な登録があれば true。0、削除済み、未登録なら false。
-     */
-    bool HasSource(u32 id) const noexcept;
-
     /**
      * source_id を index に線形検索で変換する。
      *

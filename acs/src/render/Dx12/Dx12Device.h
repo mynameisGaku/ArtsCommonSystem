@@ -247,6 +247,10 @@ public:
 
     bool IsOperational() const noexcept override;
 
+    /** D3D12 外部描画へ借用するデバイス、キュー、フレーム数を返す。 */
+    bool TryGetD3D12Interop(
+        FRhiD3D12DeviceInterop& out) const noexcept override;
+
     /** mip0/slice0 (3D は depth slice 0) を CPU へ読み戻す。 */
     bool ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept override;
 

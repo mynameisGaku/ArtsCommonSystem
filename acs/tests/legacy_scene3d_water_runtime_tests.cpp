@@ -7,6 +7,8 @@
 #include "gameframework/CameraComponent3D.h"
 #include "gameframework/LegacyScene3DAdapter.h"
 #include "gameframework/MeshComponent3D.h"
+#include "gameframework/Scene3DSerialize.h"
+#include "gameframework/SceneSerialize.h"
 #include "gameframework/WaterSurface3DComponent.h"
 #include "math/Mat.h"
 #include "math/Math.h"
@@ -15,12 +17,60 @@
 
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <limits>
+#include <string>
 
 using namespace acs;
 using namespace acs::game;
 
 namespace {
+
+/** 雲天候制御を含む現在のWin64公開配置。後続機能は既存余白内へ収める。 */
+constexpr usize kLegacyScene3DAdapterLayoutSize = 377408u;
+
+/** protected更新をcamera選択回帰から実行するLegacy 3D scene。 */
+class CCameraSelectionTestScene final : public ALegacyScene3DAdapter {
+public:
+    /** 一回の可変更新を実行する。 */
+    void UpdateForTest(f32 delta_seconds) noexcept { OnUpdate(delta_seconds); }
+};
+
+/** workspace内のcamera adapter headerをsource契約検査用に読む。 */
+std::string ReadLegacyCameraWorkspaceSource(const char* relative_path) {
+    const std::filesystem::path test_file{__FILE__};
+    const std::filesystem::path source_path =
+        test_file.parent_path().parent_path() /
+        std::filesystem::path{relative_path};
+    std::ifstream stream(source_path, std::ios::binary);
+    if (!stream) {
+        stream.open(
+            std::filesystem::path{"acs"} /
+            std::filesystem::path{relative_path},
+            std::ios::binary);
+    }
+    return std::string{
+        std::istreambuf_iterator<char>{stream},
+        std::istreambuf_iterator<char>{}};
+}
+
+/** 指定signatureの宣言行にvirtualが無ければtrueを返す。 */
+bool IsNonVirtualDeclarationLine(
+    const std::string& source,
+    const char* signature) {
+    const std::size_t declaration = source.find(signature);
+    if (declaration == std::string::npos) return false;
+    const std::size_t line_begin = source.rfind('\n', declaration);
+    const std::size_t line_end = source.find('\n', declaration);
+    const std::size_t begin =
+        line_begin == std::string::npos ? 0u : line_begin + 1u;
+    const std::size_t count =
+        line_end == std::string::npos
+            ? source.size() - begin : line_end - begin;
+    return source.substr(begin, count).find("virtual") == std::string::npos;
+}
 
 void ExpectVec3Near(FVec3 actual, FVec3 expected, f32 epsilon) noexcept {
     EXPECT_NEAR(actual.x, expected.x, epsilon);
@@ -58,6 +108,484 @@ TSharedPtr<AMeshAsset> MakePlanarTriangle() noexcept {
 }
 
 } // namespace
+
+ACS_TEST(LegacyScene3DCameraContract,
+         SelectionAccessorsRemainNonVirtualAndLayoutStable) {
+    const std::string header = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.h");
+    const std::string source = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.cpp");
+    EXPECT_FALSE(header.empty());
+    EXPECT_FALSE(source.empty());
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header, "void SetOrbitCameraActive(bool active) noexcept;"));
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header, "bool OrbitCameraActive() const noexcept"));
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header, "bool OrbitCameraOverrideActive() const noexcept;"));
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header, "bool AuthoredCameraOverrideActive() const noexcept;"));
+    EXPECT_TRUE(source.find(
+        "constexpr i32 kExplicitOrbitCameraNodeId =")
+        != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "m_ActiveCameraNodeId == kExplicitOrbitCameraNodeId")
+        != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "m_ActiveCameraNodeId != kExplicitOrbitCameraNodeId")
+        != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "m_ActiveCameraNodeId = kExplicitOrbitCameraNodeId;")
+        != std::string::npos);
+#if defined(_WIN64)
+    EXPECT_EQ(
+        sizeof(ALegacyScene3DAdapter),
+        kLegacyScene3DAdapterLayoutSize);
+#endif
+}
+
+ACS_TEST(LegacyScene3DSpriteRuntime,
+         SynchronizesBeforeDrawWithoutStaleComponentPointers) {
+    const std::string header = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.h");
+    const std::string source = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.cpp");
+    EXPECT_FALSE(header.empty());
+    EXPECT_FALSE(source.empty());
+
+    EXPECT_TRUE(header.find("TSharedPtr<AAsset> SourceImage;")
+        != std::string::npos);
+    EXPECT_TRUE(header.find(
+        "const ASprite3DComponent* Component = nullptr;")
+        == std::string::npos);
+    EXPECT_TRUE(header.find(
+        "bool SynchronizeGraphSprites_Internal(IRhiDevice& device) noexcept;")
+        != std::string::npos);
+
+    const std::size_t render = source.find(
+        "void ALegacyScene3DAdapter::OnRender(");
+    const std::size_t device_check = source.find(
+        "if (device == nullptr || swapchain == nullptr) return;", render);
+    const std::size_t synchronize = source.find(
+        "SynchronizeGraphSprites_Internal(*device)", device_check);
+    const std::size_t skinned = source.find(
+        "UpdateSkinnedMeshes(*device)", synchronize);
+    EXPECT_TRUE(render != std::string::npos);
+    EXPECT_TRUE(device_check != std::string::npos);
+    EXPECT_TRUE(synchronize != std::string::npos);
+    EXPECT_TRUE(skinned != std::string::npos);
+    EXPECT_TRUE(device_check < synchronize);
+    EXPECT_TRUE(synchronize < skinned);
+
+    const std::size_t sync_function = source.find(
+        "bool ALegacyScene3DAdapter::SynchronizeGraphSprites_Internal(");
+    const std::size_t unchanged = source.find(
+        "const bool unchanged =", sync_function);
+    const std::size_t unchanged_return = source.find(
+        "if (unchanged) {", unchanged);
+    const std::size_t upload = source.find(
+        "UploadTexture(device, *image)", unchanged_return);
+    const std::size_t texture_lookup = source.find(
+        "IRhiTexture* ALegacyScene3DAdapter::TextureFor(", upload);
+    EXPECT_TRUE(sync_function != std::string::npos);
+    EXPECT_TRUE(unchanged != std::string::npos);
+    EXPECT_TRUE(unchanged_return != std::string::npos);
+    EXPECT_TRUE(upload != std::string::npos);
+    EXPECT_TRUE(texture_lookup != std::string::npos);
+    EXPECT_TRUE(sync_function < unchanged);
+    EXPECT_TRUE(unchanged < unchanged_return);
+    EXPECT_TRUE(unchanged_return < upload);
+    EXPECT_TRUE(upload < texture_lookup);
+
+    const std::string sync_body = source.substr(
+        sync_function, texture_lookup - sync_function);
+    EXPECT_TRUE(sync_body.find("node->IsPendingDestroy()")
+        != std::string::npos);
+    EXPECT_TRUE(sync_body.find(
+        "previous.SourceImage.Get() == plan.SourceImage.Get()")
+        != std::string::npos);
+    EXPECT_TRUE(sync_body.find(
+        "Move(m_CustomSprites[plan.ExistingIndex].Texture)")
+        != std::string::npos);
+    EXPECT_TRUE(sync_body.find("TexturePath(") == std::string::npos);
+    EXPECT_TRUE(source.find(
+        "scene_features.has_sprites && !m_CustomSprites.IsEmpty()")
+        != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "if (texture == nullptr) continue;")
+        != std::string::npos);
+
+#if defined(_WIN64)
+    EXPECT_EQ(sizeof(ALegacyScene3DAdapter), kLegacyScene3DAdapterLayoutSize);
+#endif
+}
+
+ACS_TEST(LegacyScene3DAerialPerspective,
+         DefaultIsDisabledAndOptInPreservesLayout) {
+    ALegacyScene3DAdapter runtime;
+    EXPECT_FALSE(runtime.AerialPerspectiveEnabled());
+    runtime.SetAerialPerspectiveEnabled(true);
+    EXPECT_TRUE(runtime.AerialPerspectiveEnabled());
+    runtime.SetAerialPerspectiveEnabled(false);
+    EXPECT_FALSE(runtime.AerialPerspectiveEnabled());
+
+#if defined(_WIN64)
+    EXPECT_EQ(
+        sizeof(ALegacyScene3DAdapter),
+        kLegacyScene3DAdapterLayoutSize);
+#endif
+}
+
+ACS_TEST(LegacyScene3DAerialPerspective,
+         UsesPhysicalOnlyAtmosphereBetweenWaterAndClouds) {
+    const std::string header = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.h");
+    const std::string source = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.cpp");
+    EXPECT_FALSE(header.empty());
+    EXPECT_FALSE(source.empty());
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header,
+        "void SetAerialPerspectiveEnabled(bool enabled) noexcept"));
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header,
+        "bool AerialPerspectiveEnabled() const noexcept"));
+
+    const std::size_t render = source.find(
+        "void ALegacyScene3DAdapter::OnRender(");
+    const std::size_t volume_defaults = source.find(
+        "IRhiTexture* aerial_volume = nullptr;", render);
+    const std::size_t transmittance_default = source.find(
+        "IRhiTexture* aerial_transmittance = nullptr;", volume_defaults);
+    const std::size_t projection_check = source.find(
+        "const bool perspective_camera =", transmittance_default);
+    const std::size_t aerial_condition = source.find(
+        "if (m_AerialPerspectiveEnabled && perspective_camera",
+        projection_check);
+    const std::size_t build = source.find(
+        "aerial_volume = m_Atmosphere.BuildAerialPerspective(", render);
+    const std::size_t incomplete_volume_fallback = source.find(
+        "if (aerial_transmittance == nullptr) aerial_volume = nullptr;",
+        build);
+    const std::size_t water = source.find(
+        "DrawWaterScene(", build);
+    const std::size_t composite = source.find(
+        "m_Atmosphere.CompositeAerialPerspective(", water);
+    const std::size_t clouds = source.find(
+        "CompositeClouds(", composite);
+    const std::size_t transparent = source.find(
+        "OnRenderTransparent3D(", clouds);
+    const std::size_t post = source.find(
+        "m_Post.Render(", transparent);
+    EXPECT_TRUE(render != std::string::npos);
+    EXPECT_TRUE(volume_defaults != std::string::npos);
+    EXPECT_TRUE(transmittance_default != std::string::npos);
+    EXPECT_TRUE(projection_check != std::string::npos);
+    EXPECT_TRUE(aerial_condition != std::string::npos);
+    EXPECT_TRUE(build != std::string::npos);
+    EXPECT_TRUE(incomplete_volume_fallback != std::string::npos);
+    EXPECT_TRUE(water != std::string::npos);
+    EXPECT_TRUE(composite != std::string::npos);
+    EXPECT_TRUE(clouds != std::string::npos);
+    EXPECT_TRUE(transparent != std::string::npos);
+    EXPECT_TRUE(post != std::string::npos);
+    EXPECT_TRUE(volume_defaults < transmittance_default);
+    EXPECT_TRUE(transmittance_default < projection_check);
+    EXPECT_TRUE(projection_check < aerial_condition);
+    EXPECT_TRUE(aerial_condition < build);
+    EXPECT_TRUE(build < incomplete_volume_fallback);
+    EXPECT_TRUE(incomplete_volume_fallback < water);
+    EXPECT_TRUE(build < water);
+    EXPECT_TRUE(water < composite);
+    EXPECT_TRUE(composite < clouds);
+    EXPECT_TRUE(clouds < transparent);
+    EXPECT_TRUE(transparent < post);
+
+    if (projection_check != std::string::npos
+        && aerial_condition != std::string::npos) {
+        const std::string projection_gate = source.substr(
+            projection_check, aerial_condition - projection_check);
+        EXPECT_TRUE(projection_gate.find(
+            "EScene3DCameraProjection::Perspective")
+            != std::string::npos);
+        EXPECT_TRUE(projection_gate.find(
+            "ESceneProjectionMode::Perspective")
+            != std::string::npos);
+    }
+
+    // 空気遠近を作れない場合も、nullの体積を渡して通常の雲合成を続ける。
+    const std::size_t cloud_fallback_guard = source.rfind(
+        "if (depth != nullptr) {", clouds);
+    EXPECT_TRUE(cloud_fallback_guard != std::string::npos);
+    if (cloud_fallback_guard != std::string::npos
+        && clouds != std::string::npos) {
+        const std::string cloud_fallback = source.substr(
+            cloud_fallback_guard, clouds - cloud_fallback_guard);
+        EXPECT_TRUE(cloud_fallback.find("aerial_volume")
+                    == std::string::npos);
+        EXPECT_TRUE(cloud_fallback.find("aerial_transmittance")
+                    == std::string::npos);
+    }
+
+    const std::size_t build_end = source.find(
+        "if (aerial_volume != nullptr)", build);
+    EXPECT_TRUE(build_end != std::string::npos);
+    if (build != std::string::npos && build_end != std::string::npos) {
+        const std::string physical_build =
+            source.substr(build, build_end - build);
+        EXPECT_TRUE(physical_build.find("m_Fog") == std::string::npos);
+        EXPECT_TRUE(physical_build.find("FVolumetricFogParams")
+                    == std::string::npos);
+    }
+    EXPECT_TRUE(source.find(
+        "shader.SetFog(m_Fog.Color, m_Fog.Density")
+        != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "m_Clouds.Composite(\n"
+        "        command_list, scene_depth, width, height,\n"
+        "        aerial_volume, aerial_transmittance,")
+        != std::string::npos);
+}
+
+ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
+         DefaultsToCloudContributionWithoutChangingLayout) {
+    FScene3DClouds clouds{};
+    EXPECT_TRUE(clouds.bAffectEnvironmentLighting);
+    clouds.bAffectEnvironmentLighting = false;
+    EXPECT_FALSE(clouds.bAffectEnvironmentLighting);
+
+#if defined(_WIN64)
+    EXPECT_EQ(
+        sizeof(ALegacyScene3DAdapter),
+        kLegacyScene3DAdapterLayoutSize);
+#endif
+}
+
+ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
+         BuildsAfterCloudsAndFallsBackToVisibleSkyEnvironment) {
+    const std::string header = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.h");
+    const std::string source = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.cpp");
+    EXPECT_FALSE(header.empty());
+    EXPECT_FALSE(source.empty());
+    EXPECT_TRUE(header.find(
+        "bool bAffectEnvironmentLighting = true;")
+        != std::string::npos);
+
+    const std::size_t render = source.find(
+        "void ALegacyScene3DAdapter::OnRender(");
+    const std::size_t clouds = source.find(
+        "RenderClouds(*device, context.Cmd()", render);
+    const std::size_t environment = source.find(
+        "EnsureEnvironmentLighting(*device, context.Cmd())", clouds);
+    const std::size_t hdr = source.find(
+        "EnsureHdrFrameResources(", environment);
+    EXPECT_TRUE(render != std::string::npos);
+    EXPECT_TRUE(clouds != std::string::npos);
+    EXPECT_TRUE(environment != std::string::npos);
+    EXPECT_TRUE(hdr != std::string::npos);
+    EXPECT_TRUE(clouds < environment);
+    EXPECT_TRUE(environment < hdr);
+
+    const std::size_t ensure_begin = source.find(
+        "bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(");
+    const std::size_t ensure_end = source.find(
+        "bool ALegacyScene3DAdapter::EnsureShadowMap(", ensure_begin);
+    EXPECT_TRUE(ensure_begin != std::string::npos);
+    EXPECT_TRUE(ensure_end != std::string::npos);
+    if (ensure_begin != std::string::npos
+        && ensure_end != std::string::npos) {
+        const std::string ensure = source.substr(
+            ensure_begin, ensure_end - ensure_begin);
+        EXPECT_TRUE(ensure.find(
+            "m_CloudsDrawn && m_CloudParams.bAffectEnvironmentLighting")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "m_Clouds.EnvironmentLightingSignature(")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "cloud_signature == m_IblBakedCloudSignature")
+            != std::string::npos);
+        const std::size_t cadence_frame = ensure.find("m_Clouds.LastFrameWorkload().submission_index");
+        const std::size_t cadence_gate = ensure.find("CVolumetricClouds::IsEnvironmentLightingRefreshFrame(", cadence_frame);
+        const std::size_t cloud_build = ensure.find("m_Clouds.BuildEnvironmentCubemap(", cadence_gate);
+        EXPECT_TRUE(cadence_frame != std::string::npos);
+        EXPECT_TRUE(cadence_gate != std::string::npos);
+        EXPECT_TRUE(cloud_build != std::string::npos);
+        EXPECT_TRUE(cadence_frame < cadence_gate);
+        EXPECT_TRUE(cadence_gate < cloud_build);
+        EXPECT_TRUE(ensure.find("const bool cloud_mode_changed =") != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "if (rebuild_base_environment) {")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "m_Atmosphere.BakeEquirect(")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "m_Clouds.BuildEnvironmentCubemap(")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "m_Ibl.RebuildDerivedMapsFromEnvironment(")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "device, command_list, *base_environment);")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "m_IblBakedCloudSignature = cloud_signature;")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "m_CloudParams.Wind,\n                m_Time")
+            == std::string::npos);
+        EXPECT_TRUE(ensure.find("command_list.Submit(") == std::string::npos);
+    }
+
+    // 表示用EnvCubemapは雲なしのまま描き、画面用雲は従来の後段合成を一度だけ使う。
+    const std::size_t sky_begin = source.find(
+        "void ALegacyScene3DAdapter::RenderSky(");
+    const std::size_t lighting_begin = source.find(
+        "bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(",
+        sky_begin);
+    EXPECT_TRUE(sky_begin != std::string::npos);
+    EXPECT_TRUE(lighting_begin != std::string::npos);
+    if (sky_begin != std::string::npos
+        && lighting_begin != std::string::npos) {
+        const std::string sky = source.substr(
+            sky_begin, lighting_begin - sky_begin);
+        EXPECT_TRUE(sky.find("m_Ibl.DrawEnvSkyboxCameraRelative(")
+                    != std::string::npos);
+        EXPECT_TRUE(sky.find("cloud_environment")
+                    == std::string::npos);
+    }
+    EXPECT_TRUE(source.find(
+        "m_Clouds.Composite(\n"
+        "        command_list, scene_depth, width, height,")
+        != std::string::npos);
+}
+
+ACS_TEST(LegacyScene3DSelectionHighlight, PublicApiIsTransactionalDefaultOffAndLayoutStable) {
+    ALegacyScene3DAdapter runtime;
+    EXPECT_FALSE(runtime.SelectionHighlightNode().IsValid());
+
+    FScene3DSpawnResult parent = runtime.Graph().TrySpawn(FStringView("FocusParent"));
+    EXPECT_TRUE(parent.Succeeded());
+    FScene3DSpawnResult child = runtime.Graph().TrySpawn(FStringView("VisibleChild"), parent.Node);
+    EXPECT_TRUE(child.Succeeded());
+    child.Node->AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+
+    EXPECT_TRUE(runtime.SetSelectionHighlight(parent.Id));
+    EXPECT_TRUE(runtime.SelectionHighlightNode() == parent.Id);
+    EXPECT_TRUE(runtime.SetSelectionHighlight(child.Id, FVec3{0.2f, 0.7f, 1.0f}, 1.5f, 3.0f));
+    EXPECT_TRUE(runtime.SelectionHighlightNode() == child.Id);
+
+    const f32 invalid = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FALSE(runtime.SetSelectionHighlight(parent.Id, FVec3{invalid, 0.5f, 0.5f}, 1.0f, 2.0f));
+    EXPECT_FALSE(runtime.SetSelectionHighlight(parent.Id, FVec3{1.0f, 0.5f, 0.0f}, 0.0f, 2.0f));
+    EXPECT_FALSE(runtime.SetSelectionHighlight(parent.Id, FVec3{1.0f, 0.5f, 0.0f}, 1.0f, 4.1f));
+    EXPECT_TRUE(runtime.SelectionHighlightNode() == child.Id);
+
+    FScene3DSpawnResult stale = runtime.Graph().TrySpawn(FStringView("StaleFocus"));
+    EXPECT_TRUE(stale.Succeeded());
+    const FNodeId stale_id = stale.Id;
+    EXPECT_TRUE(runtime.Graph().Destroy(stale_id));
+    runtime.Graph().Update(0.0f);
+    EXPECT_FALSE(runtime.SetSelectionHighlight(stale_id));
+    EXPECT_TRUE(runtime.SelectionHighlightNode() == child.Id);
+
+    // Graph.Updateを待たず、破棄予約された選択nodeを公開しない。
+    EXPECT_TRUE(runtime.Graph().Destroy(child.Id));
+    EXPECT_FALSE(runtime.SelectionHighlightNode().IsValid());
+    EXPECT_FALSE(runtime.SetSelectionHighlight(child.Id));
+    runtime.Graph().Update(0.0f);
+    EXPECT_FALSE(runtime.SelectionHighlightNode().IsValid());
+
+    runtime.ClearSelectionHighlight();
+    EXPECT_FALSE(runtime.SelectionHighlightNode().IsValid());
+    runtime.ClearSelectionHighlight();
+    EXPECT_FALSE(runtime.SelectionHighlightNode().IsValid());
+
+#if defined(_WIN64)
+    EXPECT_EQ(sizeof(ALegacyScene3DAdapter), kLegacyScene3DAdapterLayoutSize);
+#endif
+}
+
+ACS_TEST(LegacyScene3DSelectionHighlight, RuntimeMarkerNeverEntersSceneArchives) {
+    ALegacyScene3DAdapter runtime;
+    const FScene3DSpawnResult selected =
+        runtime.Graph().TrySpawn(FStringView("ArchiveInvisibleSelection"));
+    EXPECT_TRUE(selected.Succeeded());
+    if (!selected.Succeeded()) return;
+
+    u8 binary_before[4096]{};
+    u8 binary_selected[4096]{};
+    char text_before[4096]{};
+    char text_selected[4096]{};
+    const FSceneSaveResult binary_without_marker =
+        TrySaveNodeTree(&runtime.Graph().Root(), binary_before, sizeof(binary_before));
+    const FScene3DSaveResult text_without_marker =
+        TrySaveScene3DText(runtime.Graph(), text_before, sizeof(text_before));
+    EXPECT_TRUE(binary_without_marker.Succeeded());
+    EXPECT_TRUE(text_without_marker.Succeeded());
+
+    EXPECT_TRUE(runtime.SetSelectionHighlight(selected.Id));
+    const FSceneSaveResult binary_with_marker =
+        TrySaveNodeTree(&runtime.Graph().Root(), binary_selected, sizeof(binary_selected));
+    const FScene3DSaveResult text_with_marker =
+        TrySaveScene3DText(runtime.Graph(), text_selected, sizeof(text_selected));
+    EXPECT_TRUE(binary_with_marker.Succeeded());
+    EXPECT_TRUE(text_with_marker.Succeeded());
+    EXPECT_EQ(binary_with_marker.BytesWritten, binary_without_marker.BytesWritten);
+    EXPECT_EQ(binary_with_marker.ComponentCount, binary_without_marker.ComponentCount);
+    EXPECT_EQ(text_with_marker.BytesWritten, text_without_marker.BytesWritten);
+    EXPECT_TRUE(std::memcmp(binary_selected, binary_before, binary_with_marker.BytesWritten) == 0);
+    EXPECT_TRUE(std::memcmp(text_selected, text_before, text_with_marker.BytesWritten) == 0);
+    EXPECT_TRUE(runtime.SelectionHighlightNode() == selected.Id);
+}
+
+ACS_TEST(LegacyScene3DSelectionHighlight, UsesDepthTestedSubtreeMaskBeforeFxaaAndHud) {
+    const std::string header = ReadLegacyCameraWorkspaceSource("src/gameframework/LegacyScene3DAdapter.h");
+    const std::string adapter = ReadLegacyCameraWorkspaceSource("src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string motion = ReadLegacyCameraWorkspaceSource("src/render/MotionVector.cpp");
+    const std::string post = ReadLegacyCameraWorkspaceSource("src/render/PostProcess.cpp");
+    EXPECT_FALSE(header.empty());
+    EXPECT_FALSE(adapter.empty());
+    EXPECT_FALSE(motion.empty());
+    EXPECT_FALSE(post.empty());
+
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(header, "bool SetSelectionHighlight("));
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(header, "void ClearSelectionHighlight() noexcept;"));
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(header, "FNodeId SelectionHighlightNode() const noexcept;"));
+    EXPECT_TRUE(adapter.find("class ASelectionHighlightMarker3D final : public AComponent") != std::string::npos);
+    EXPECT_TRUE(adapter.find("ACS_GAME_COMPONENT_KIND(ASelectionHighlightMarker3D)") == std::string::npos);
+    EXPECT_TRUE(adapter.find("return ComponentKindOf<ASelectionHighlightMarker3D>();") != std::string::npos);
+    EXPECT_TRUE(adapter.find("const char* ReflectName() const noexcept override { return nullptr; }") != std::string::npos);
+    EXPECT_TRUE(adapter.find("IsSelectionHighlightOwnerLive_Internal(Graph(), *owner)") != std::string::npos);
+    EXPECT_TRUE(adapter.find("marker == nullptr || owner == nullptr || !IsEffectivelyActive(*owner)") != std::string::npos);
+    EXPECT_TRUE(adapter.find("current = current->Parent();") != std::string::npos);
+    EXPECT_TRUE(adapter.find("|| selection_requested;") != std::string::npos);
+    EXPECT_TRUE(adapter.find("draw.SelectionHighlighted") != std::string::npos);
+    EXPECT_TRUE(motion.find("saturate(normal_row0.w)") != std::string::npos);
+    EXPECT_TRUE(motion.find("selection_mask ? 1.0f : 0.0f") != std::string::npos);
+    EXPECT_TRUE(post.find("Texture2D    selection_mask : register(t4);") != std::string::npos);
+    EXPECT_TRUE(post.find("saturate(neighbor_mask - center_mask)") != std::string::npos);
+    EXPECT_TRUE(post.find("pd.texture_slots = 5;") != std::string::npos);
+    EXPECT_TRUE(post.find("cmd.SetTexture(4, *selection_input);") != std::string::npos);
+
+    const std::size_t frame = adapter.find("void ALegacyScene3DAdapter::OnRender(");
+    const std::size_t mask = adapter.find("IRhiTexture* selection_mask =", frame);
+    const std::size_t outlined_post = adapter.find("selection_mask, selection_highlight->Color()", mask);
+    const std::size_t normal_post = adapter.find("m_Post.Render(command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams);", outlined_post + 1u);
+    const std::size_t hud = adapter.find("EnsureSpriteBatch(context)", normal_post);
+    EXPECT_TRUE(frame != std::string::npos);
+    EXPECT_TRUE(mask != std::string::npos);
+    EXPECT_TRUE(outlined_post != std::string::npos);
+    EXPECT_TRUE(normal_post != std::string::npos);
+    EXPECT_TRUE(hud != std::string::npos);
+    EXPECT_TRUE(frame < mask);
+    EXPECT_TRUE(mask < outlined_post);
+    EXPECT_TRUE(outlined_post < normal_post);
+    EXPECT_TRUE(normal_post < hud);
+}
 
 ACS_TEST(LegacyScene3DWaterRuntime, TransformedPlaneUsesExactWorldHit) {
     ALegacyScene3DAdapter runtime;
@@ -313,6 +841,163 @@ ACS_TEST(LegacyScene3DCameraRuntime,
     EXPECT_EQ(
         runtime.ProjectionMode(),
         ESceneProjectionMode::Perspective);
+}
+
+ACS_TEST(LegacyScene3DCameraRuntime,
+         ExplicitOrbitSelectionSurvivesAutomaticRefreshUntilReleased) {
+    constexpr char kScene[] =
+        "ACS3D v2\n"
+        "N3D 10 -1 -1 4 5 6 0 0 0 1 1 1 1 1 1 1 Authored\n"
+        "CAM3D 10 authored.main 1 5 1 45 18 0.2 4000\n";
+
+    CCameraSelectionTestScene runtime;
+    runtime.SetFreeCameraEnabled(false);
+    const FScene3DLoadResult loaded =
+        runtime.LoadText(kScene, sizeof(kScene) - 1u);
+    EXPECT_TRUE(loaded.Succeeded());
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() != nullptr);
+
+    EXPECT_TRUE(runtime.SetActiveCamera("authored.main"));
+    EXPECT_TRUE(runtime.AuthoredCameraOverrideActive());
+    runtime.SetOrbit(FVec3{1.0f, 2.0f, 3.0f}, 0.0f, 0.0f, 5.0f);
+    runtime.SetOrbitCameraActive(true);
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() == nullptr);
+    EXPECT_EQ(runtime.ProjectionMode(), ESceneProjectionMode::Perspective);
+    ExpectVec3Near(runtime.Camera().Eye(), FVec3{1.0f, 2.0f, -2.0f}, 1.0e-6f);
+
+    runtime.UpdateForTest(1.0f / 60.0f);
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() == nullptr);
+    EXPECT_FALSE(runtime.SetActiveCamera("missing.camera"));
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+
+    EXPECT_TRUE(runtime.SetActiveCamera(10));
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() != nullptr);
+    EXPECT_EQ(runtime.AuthoredCamera()->NodeId, 10);
+    ExpectVec3Near(runtime.Camera().Eye(), FVec3{4.0f, 5.0f, 6.0f}, 1.0e-6f);
+
+    runtime.SetOrbitCameraActive(true);
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.ClearActiveCameraOverride());
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    runtime.SetOrbitCameraActive(true);
+    EXPECT_TRUE(runtime.UseAutomaticCameraSelection());
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    runtime.SetOrbitCameraActive(true);
+    runtime.SetOrbitCameraActive(false);
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+}
+
+ACS_TEST(LegacyScene3DCameraRuntime,
+         AutomaticSelectionKeepsOrbitOnlyWhileNoAuthoredCameraExists) {
+    CCameraSelectionTestScene runtime;
+    runtime.SetFreeCameraEnabled(false);
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    runtime.SetOrbitCameraActive(true);
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    runtime.SetOrbitCameraActive(false);
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    runtime.SetOrbitCameraActive(true);
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+
+    FScene3DSpawnResult spawned =
+        runtime.Graph().TrySpawn(FStringView("RuntimeCamera"));
+    EXPECT_TRUE(spawned.Succeeded());
+    if (!spawned) return;
+    auto& camera = spawned.Node->AddComponent<ACameraComponent3D>();
+    FScene3DCameraState authored;
+    authored.IsAuthored = true;
+    authored.IsActivePreferred = true;
+    authored.Priority = 10;
+    std::memcpy(authored.StableId, "runtime.camera", 15u);
+    EXPECT_TRUE(camera.TrySetAuthoredState(authored));
+
+    runtime.UpdateForTest(1.0f / 60.0f);
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() == nullptr);
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+
+    runtime.SetOrbitCameraActive(false);
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() != nullptr);
+    EXPECT_EQ(runtime.AuthoredCamera()->NodeId, spawned.Node->SerialId());
+}
+
+ACS_TEST(LegacyScene3DCameraRuntime,
+         RuntimeStableIdOverrideDoesNotCollideWithExplicitOrbit) {
+    CCameraSelectionTestScene runtime;
+    runtime.SetFreeCameraEnabled(false);
+    FScene3DSpawnResult spawned =
+        runtime.Graph().TrySpawn(FStringView("RuntimeCamera"));
+    EXPECT_TRUE(spawned.Succeeded());
+    if (!spawned) return;
+    auto& camera = spawned.Node->AddComponent<ACameraComponent3D>();
+    FScene3DCameraState authored;
+    authored.IsAuthored = true;
+    authored.IsActivePreferred = true;
+    authored.Priority = 10;
+    std::memcpy(authored.StableId, "runtime.stable", 15u);
+    EXPECT_TRUE(camera.TrySetAuthoredState(authored));
+    EXPECT_EQ(spawned.Node->SerialId(), -1);
+
+    EXPECT_TRUE(runtime.SetActiveCamera("runtime.stable"));
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() != nullptr);
+    EXPECT_EQ(runtime.AuthoredCamera()->NodeId, -1);
+
+    runtime.UpdateForTest(1.0f / 60.0f);
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_EQ(runtime.AuthoredCamera()->NodeId, -1);
+    EXPECT_FALSE(runtime.SetActiveCamera("missing.runtime"));
+    EXPECT_FALSE(runtime.SetActiveCamera(nullptr));
+    EXPECT_FALSE(runtime.SetActiveCamera(""));
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(std::strcmp(
+        runtime.AuthoredCamera()->StableId, "runtime.stable") == 0);
+
+    runtime.SetOrbitCameraActive(true);
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.SetActiveCamera("runtime.stable"));
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCameraOverrideActive());
+
+    EXPECT_TRUE(runtime.ClearActiveCameraOverride());
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
 }
 
 ACS_TEST(LegacyScene3DCameraRuntime,

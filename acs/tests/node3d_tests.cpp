@@ -25,7 +25,12 @@
 #include "gameframework/Sprite3DComponent.h"
 #include "gameframework/WaterSurface3DComponent.h"
 #include "gameframework/Light2DComponent.h"
+#include "asset/ImageAsset.h"
 #include "asset/MeshAsset.h"
+#include "render/IRhiCommandList.h"
+#include "render/IRhiDevice.h"
+#include "render/IRhiTexture.h"
+#include "render/RenderAssets.h"
 #include "render/Sprite3DRenderer.h"
 #include "memory/SharedPtr.h"
 #include "math/Mat.h"
@@ -878,6 +883,52 @@ ACS_TEST(Scene3DRaycast, GeometryRangeRejectsMeshBoundsFalsePositive)
     EXPECT_NEAR(hit_t, 3.5f, 1.0e-5f);
 }
 
+ACS_TEST(Scene3DRaycast, ExactResultReturnsWorldPointAndNormalThroughHierarchy)
+{
+    CSceneNodeGraph scene;
+    ANode& parent = scene.Spawn(FStringView("Parent"));
+    parent.Local().position = FVec3{3.0f, -2.0f, 5.0f};
+    parent.Local().rotation = FQuat::AxisAngle(FVec3{0.0f, 0.0f, 1.0f}, 0.45f);
+    parent.Local().scale = FVec3{2.0f, 0.75f, 1.5f};
+    ANode& cube = scene.Spawn(FStringView("Cube"), &parent);
+    cube.Local().position = FVec3{1.0f, 2.0f, -0.5f};
+    cube.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+    const FMat4 world = cube.World().ToMat4();
+    const FVec3 expected_point = TransformPoint(FVec3{0.2f, 0.5f, -0.1f}, world);
+    const FVec3 expected_normal = Normalize(TransformVector(FVec3{0.0f, 1.0f, 0.0f}, Transpose(Inverse(world))));
+    const FRay3 ray{expected_point + expected_normal * 3.0f, -expected_normal};
+    FScene3DRaycastHit hit;
+
+    EXPECT_TRUE(scene.TryRaycastGeometryActiveRange(ray, 0.0f, 10.0f, hit));
+    EXPECT_TRUE(hit.Node == cube.Id());
+    EXPECT_NEAR(hit.T, 3.0f, 1.0e-4f);
+    ExpectVec3Near(hit.Point, expected_point, 1.0e-4f);
+    ExpectVec3Near(hit.Normal, expected_normal, 1.0e-4f);
+    EXPECT_TRUE(Dot(hit.Normal, ray.direction) <= 0.0f);
+}
+
+ACS_TEST(Scene3DRaycast, ExactResultPreservesOutputOnMissAndInvalidInput)
+{
+    CSceneNodeGraph scene;
+    ANode& hidden_parent = scene.Spawn(FStringView("HiddenParent"));
+    hidden_parent.SetVisible(false);
+    ANode& cube = scene.Spawn(FStringView("Cube"), &hidden_parent);
+    cube.AddComponent<AMeshComponent3D>(EMeshPrimitive3D::Cube);
+    const FScene3DRaycastHit preserved{cube.Id(), 17.0f, FVec3{1.0f, 2.0f, 3.0f}, FVec3{0.0f, 1.0f, 0.0f}};
+    FScene3DRaycastHit output = preserved;
+    const FRay3 ray{FVec3{0.0f, 5.0f, 0.0f}, FVec3{0.0f, -1.0f, 0.0f}};
+
+    EXPECT_FALSE(scene.TryRaycastGeometryActiveRange(ray, 0.0f, 10.0f, output));
+    EXPECT_TRUE(output.Node == preserved.Node);
+    EXPECT_NEAR(output.T, preserved.T, 0.0f);
+    ExpectVec3Near(output.Point, preserved.Point, 0.0f);
+    ExpectVec3Near(output.Normal, preserved.Normal, 0.0f);
+    EXPECT_FALSE(scene.TryRaycastGeometryActiveRange(FRay3{FVec3{}, FVec3{}}, 0.0f, 10.0f, output));
+    EXPECT_FALSE(scene.TryRaycastGeometryActiveRange(ray, 2.0f, 1.0f, output));
+    EXPECT_TRUE(output.Node == preserved.Node);
+    EXPECT_NEAR(output.T, preserved.T, 0.0f);
+}
+
 ACS_TEST(Scene3DRaycast, SpriteVisualOverridesUnderlyingMeshForCameraProbes)
 {
     /** 下地cubeを持つが実表示はローカルXY板になるスプライトnode。 */
@@ -893,6 +944,11 @@ ACS_TEST(Scene3DRaycast, SpriteVisualOverridesUnderlyingMeshForCameraProbes)
     EXPECT_NEAR(hit_t, 2.0f, 1.0e-5f);
     EXPECT_TRUE(scene.RaycastGeometryActiveRange(ray, 0.0f, 4.0f, &hit_t) == sprite.Id());
     EXPECT_NEAR(hit_t, 2.0f, 1.0e-5f);
+    FScene3DRaycastHit exact_hit;
+    EXPECT_TRUE(scene.TryRaycastGeometryActiveRange(ray, 0.0f, 4.0f, exact_hit));
+    EXPECT_TRUE(exact_hit.Node == sprite.Id());
+    ExpectVec3Near(exact_hit.Point, FVec3{0.0f, 0.0f, 0.0f}, 1.0e-5f);
+    ExpectVec3Near(exact_hit.Normal, FVec3{0.0f, 0.0f, 1.0f}, 1.0e-5f);
     EXPECT_TRUE(scene.SweepSphereActiveRange(ray, 0.25f, 0.0f, 4.0f, &hit_t) == sprite.Id());
     EXPECT_NEAR(hit_t, 1.75f, 1.0e-5f);
 }
@@ -1802,6 +1858,20 @@ ACS_TEST(Scene3DSerialize, RejectsInvalidOrDuplicateSpriteTransactionally)
     EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
 }
 
+ACS_TEST(Sprite3DRenderer, MissingOrNonImageAssetNeverPublishesImage)
+{
+    ASprite3DComponent sprite;
+    EXPECT_TRUE(sprite.Image() == nullptr);
+    EXPECT_TRUE(!sprite.HasImageAsset());
+
+    TSharedPtr<AMeshAsset> mesh = MakeShared<AMeshAsset>();
+    EXPECT_TRUE(static_cast<bool>(mesh));
+    if (!mesh) return;
+    sprite.SetImageAsset(TSharedPtr<AAsset>(mesh));
+    EXPECT_TRUE(sprite.HasImageAsset());
+    EXPECT_TRUE(sprite.Image() == nullptr);
+}
+
 ACS_TEST(Sprite3DRenderer, BuildsEditorCompatibleWorldVerticesAndUvs)
 {
     FTransform3D transform;
@@ -1846,6 +1916,117 @@ ACS_TEST(Sprite3DRenderer, RawDx12ShadersCompileWithoutGpu)
 #else
     EXPECT_TRUE(true);
 #endif
+}
+
+ACS_TEST(Sprite3DRenderer, RuntimeCapacityGrowthDrawsOnActiveBackend)
+{
+    FDeviceConfig configuration{};
+    configuration.enable_debug_layer = true;
+    auto device_result = CreateRhiDevice(configuration);
+    if (device_result.IsErr()) return;
+    auto device = Move(device_result.Value());
+
+    CSprite3DRenderer renderer;
+    EXPECT_TRUE(renderer.Init(
+        *device, EFormat::R8G8B8A8_UNorm,
+        EFormat::D32_Float, 1u).IsOk());
+    if (renderer.Pipeline() == nullptr) return;
+    EXPECT_TRUE(renderer.EnsureCapacity(*device, 3u).IsOk());
+    EXPECT_TRUE(renderer.EnsureCapacity(
+        *device, CSprite3DRenderer::kMaximumSpriteCount + 1u).IsErr());
+
+    constexpr u8 kRedPixel[4] = {255u, 0u, 0u, 255u};
+    FTextureDesc image_description{};
+    image_description.width = 1u;
+    image_description.height = 1u;
+    image_description.format = EFormat::R8G8B8A8_UNorm;
+    image_description.initial_data = kRedPixel;
+    image_description.initial_data_size = sizeof(kRedPixel);
+    auto image_result = CreateRhiTexture(*device, image_description);
+    EXPECT_TRUE(image_result.IsOk());
+
+    constexpr u32 kWidth = 64u;
+    constexpr u32 kHeight = 32u;
+    FTextureDesc color_description{};
+    color_description.width = kWidth;
+    color_description.height = kHeight;
+    color_description.format = EFormat::R8G8B8A8_UNorm;
+    color_description.is_render_target = true;
+    auto color_result = CreateRhiTexture(*device, color_description);
+    EXPECT_TRUE(color_result.IsOk());
+
+    FTextureDesc depth_description{};
+    depth_description.width = kWidth;
+    depth_description.height = kHeight;
+    depth_description.format = EFormat::D32_Float;
+    depth_description.is_depth_target = true;
+    auto depth_result = CreateRhiTexture(*device, depth_description);
+    EXPECT_TRUE(depth_result.IsOk());
+    auto command_result = CreateRhiCommandList(*device);
+    EXPECT_TRUE(command_result.IsOk());
+    if (image_result.IsErr() || color_result.IsErr()
+        || depth_result.IsErr() || command_result.IsErr()) {
+        return;
+    }
+
+    CSprite3DRenderer::FDraw draws[3]{};
+    constexpr f32 kPositions[3] = {-0.65f, 0.0f, 0.65f};
+    for (u32 index = 0u; index < 3u; ++index) {
+        FTransform3D transform;
+        transform.position = FVec3{kPositions[index], 0.0f, 0.25f};
+        transform.scale = FVec3{0.30f, 0.60f, 1.0f};
+        draws[index].World = transform.ToMat4();
+        draws[index].Texture = image_result.Value().Get();
+    }
+
+    auto command = Move(command_result.Value());
+    command->Begin();
+    command->BeginRenderToTexture(
+        *color_result.Value(), FClearColor{0, 0, 0, 1},
+        depth_result.Value().Get(), 1.0f);
+    FViewport viewport{};
+    viewport.width = static_cast<f32>(kWidth);
+    viewport.height = static_cast<f32>(kHeight);
+    command->SetViewport(viewport);
+    FScissorRect scissor{};
+    scissor.right = static_cast<i32>(kWidth);
+    scissor.bottom = static_cast<i32>(kHeight);
+    command->SetScissor(scissor);
+    EXPECT_TRUE(renderer.DrawBatch(
+        *command, FMat4::Identity(), draws, 3u));
+    command->EndRenderToTexture(*color_result.Value());
+    command->End();
+    EXPECT_TRUE(command->Submit());
+    device->WaitIdle();
+
+    u8 pixels[kWidth * kHeight * 4u]{};
+    EXPECT_TRUE(device->ReadTexture(
+        *color_result.Value(), pixels,
+        static_cast<u32>(sizeof(pixels))));
+    constexpr u32 kExpectedX[3] = {11u, 32u, 53u};
+    for (u32 index = 0u; index < 3u; ++index) {
+        const usize offset =
+            (16u * kWidth + kExpectedX[index]) * 4u;
+        EXPECT_TRUE(pixels[offset + 0u] >= 220u);
+        EXPECT_TRUE(pixels[offset + 1u] <= 32u);
+        EXPECT_TRUE(pixels[offset + 2u] <= 32u);
+        EXPECT_TRUE(pixels[offset + 3u] >= 220u);
+    }
+}
+
+ACS_TEST(Sprite3DRenderer, RejectsSpriteImageWithMismatchedPixelBytes)
+{
+    FDeviceConfig configuration{};
+    auto device_result = CreateRhiDevice(configuration);
+    if (device_result.IsErr()) return;
+
+    TArray<byte> pixels;
+    EXPECT_TRUE(pixels.TrySetNum(4u));
+    if (pixels.Num() != 4u) return;
+    AImageAsset malformed(
+        2u, 2u, EPixelFormat::R8G8B8A8, Move(pixels));
+    EXPECT_TRUE(UploadTexture(
+        *device_result.Value(), malformed).IsErr());
 }
 
 ACS_TEST(Scene3DSerialize, LoadsProceduralPolygonAsDeterministicRuntimeMesh)
