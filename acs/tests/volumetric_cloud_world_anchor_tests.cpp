@@ -351,11 +351,18 @@ f32 CloudBillowMaximumOffsetForTest(f32 height) noexcept {
         SmoothStepForTest(0.18f, 0.92f, SaturateForTest(height));
 }
 
-// 同分布の二領域を差し引き、平均偏りのない房状の形状移動量を求める。
-f32 CloudBillowOffsetForTest(
-    f32 detailA, f32 detailB, f32 height) noexcept {
-    return (detailA - detailB) *
-        CloudBillowMaximumOffsetForTest(height);
+// 合成された詳細値から、低周波成分を除いた中間帯域を復元する。
+f32 CloudDetailMiddleBandForTest(FVec2 detailBands) noexcept {
+    return SaturateForTest((detailBands.y - detailBands.x * 0.55f) * (1.0f / 0.45f));
+}
+
+// 同分布の二領域を差し引き、雲頂へ中間帯域を混ぜた房状の形状移動量を求める。
+f32 CloudBillowOffsetForTest(FVec2 detailA, FVec2 detailB, f32 height, f32 middleVisibility) noexcept {
+    const f32 topMiddleWeight = 0.48f * SmoothStepForTest(0.38f, 0.90f, SaturateForTest(height)) * SaturateForTest(middleVisibility);
+    const f32 coarseDifference = detailA.x - detailB.x;
+    const f32 middleDifference = CloudDetailMiddleBandForTest(detailA) - CloudDetailMiddleBandForTest(detailB);
+    const f32 difference = coarseDifference + (middleDifference - coarseDifference) * topMiddleWeight;
+    return difference * CloudBillowMaximumOffsetForTest(height);
 }
 
 // 二つの天候領域を混ぜた雲種を、三種類の高さ形状で使う範囲へ広げる。
@@ -460,16 +467,21 @@ f32 CloudWeatherVerticalBendForTest(
     return bend * (upperBand ? 0.25f : 1.0f);
 }
 
+// 詳細領域の一周期に対する採取間隔から、その帯域を安全に残せる割合を求める。
+f32 CloudDetailFrequencyVisibilityForTest(f32 sampleSpacing, f32 frequency, f32 fadeBegin, f32 fadeEnd) noexcept {
+    const f32 boundedSpacing = sampleSpacing > 0.0f ? sampleSpacing : 0.0f;
+    const f32 footprint = boundedSpacing * 0.00031f * frequency;
+    return 1.0f - SmoothStepForTest(fadeBegin, fadeEnd, footprint);
+}
+
 // レイの採取間隔から、低周波の房形状を安全に採取できる割合を求める。
 f32 CloudBillowVisibilityFromSampleSpacingForTest(f32 sampleSpacing) noexcept {
-    const f32 boundedSpacing = sampleSpacing > 0.0f ? sampleSpacing : 0.0f;
-    return 1.0f - SmoothStepForTest(120.0f, 620.0f, boundedSpacing);
+    return CloudDetailFrequencyVisibilityForTest(sampleSpacing, 4.0f, 0.15f, 0.52f);
 }
 
 // レイの採取間隔から、高周波の侵食形状を安全に採取できる割合を求める。
 f32 CloudErosionVisibilityFromSampleSpacingForTest(f32 sampleSpacing) noexcept {
-    const f32 boundedSpacing = sampleSpacing > 0.0f ? sampleSpacing : 0.0f;
-    return 1.0f - SmoothStepForTest(10.0f, 48.0f, boundedSpacing);
+    return CloudDetailFrequencyVisibilityForTest(sampleSpacing, 16.0f, 0.05f, 0.24f);
 }
 
 // 基本形状の一周期に対する採取間隔から、その帯域を安全に残せる割合を求める。
@@ -1396,17 +1408,18 @@ ACS_TEST(VolumetricClouds, DetailBandsFollowRaySampleSpacing) {
     EXPECT_TRUE(horizonNormal.hit);
     EXPECT_TRUE(vertical.fine_step < 10.0f);
     EXPECT_TRUE(horizon.fine_step > 120.0f);
-    EXPECT_TRUE(horizon.fine_step < 620.0f);
+    EXPECT_TRUE(horizon.fine_step < 420.0f);
     EXPECT_TRUE(horizonNormal.fine_step > horizon.fine_step);
+    EXPECT_TRUE(horizonNormal.fine_step > 419.0f);
     EXPECT_TRUE(horizonNormal.fine_step < 620.0f);
     EXPECT_NEAR(CloudBillowVisibilityFromSampleSpacingForTest(vertical.fine_step), 1.0f, 0.0f);
     EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(vertical.fine_step), 1.0f, 0.0f);
-    EXPECT_TRUE(CloudBillowVisibilityFromSampleSpacingForTest(horizon.fine_step) > 0.95f);
+    EXPECT_TRUE(CloudBillowVisibilityFromSampleSpacingForTest(horizon.fine_step) > 0.90f);
     EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(horizon.fine_step), 0.0f, 0.0f);
-    EXPECT_TRUE(CloudBillowVisibilityFromSampleSpacingForTest(horizonNormal.fine_step) > 0.30f);
+    EXPECT_NEAR(CloudBillowVisibilityFromSampleSpacingForTest(horizonNormal.fine_step), 0.0f, 0.0f);
     EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(horizonNormal.fine_step), 0.0f, 0.0f);
-    EXPECT_NEAR(CloudBillowVisibilityFromSampleSpacingForTest(370.0f), 0.5f, 1e-6f);
-    EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(29.0f), 0.5f, 1e-6f);
+    EXPECT_NEAR(CloudBillowVisibilityFromSampleSpacingForTest(270.1613f), 0.5f, 1e-5f);
+    EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(29.23387f), 0.5f, 1e-5f);
 
     f32 previousBillowVisibility = 1.0f;
     f32 previousErosionVisibility = 1.0f;
@@ -1424,8 +1437,20 @@ ACS_TEST(VolumetricClouds, DetailBandsFollowRaySampleSpacing) {
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
-    EXPECT_TRUE(Contains(shader, "floatcloudBillowVisibilityFromSampleSpacing(floatsampleSpacing){return1.0-smoothstep(120.0,620.0,max(sampleSpacing,0.0));}"));
-    EXPECT_TRUE(Contains(shader, "floatcloudErosionVisibilityFromSampleSpacing(floatsampleSpacing){return1.0-smoothstep(10.0,48.0,max(sampleSpacing,0.0));}"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcloudDetailFrequencyVisibility("
+        "floatsampleSpacing,floatfrequency,floatfadeBegin,floatfadeEnd){"
+        "floatfootprint=max(sampleSpacing,0.0)*0.00031*frequency;"
+        "return1.0-smoothstep(fadeBegin,fadeEnd,footprint);}"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "returncloudDetailFrequencyVisibility("
+        "sampleSpacing,4.0,0.15,0.52);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "returncloudDetailFrequencyVisibility("
+        "sampleSpacing,16.0,0.05,0.24);"));
     EXPECT_TRUE(Contains(shader, "detailDomainA=horizontal*0.00018+vertical*0.00014;"));
     EXPECT_TRUE(Contains(shader, "detailDomainB=horizontal*0.00031+vertical*0.00024;"));
     EXPECT_TRUE(Contains(shader, "floatbillowVisibility=cloudBillowVisibilityFromSampleSpacing(fineStep);"));
@@ -2659,7 +2684,8 @@ ACS_TEST(VolumetricClouds,
         "macro.heightThreshold=cloudHeightThresholdFromTarget(", profile);
     const std::size_t base = shader.find("floatbaseDensity=remapc(", threshold);
     const std::size_t billow = shader.find(
-        "floatbillowOffset=cloudBillowOffset(ndA.r,ndB.r,h);", base);
+        "floatbillowOffset=cloudBillowOffset("
+        "ndA,ndB,h,erosionVisibility);", base);
     const std::size_t billowedCoarse = shader.find(
         "floatbillowedCoarseDensity=saturate(billowedBaseDensity*densityScale);",
         billow);
@@ -2782,8 +2808,21 @@ ACS_TEST(VolumetricClouds,
         "returnlerp(0.018,0.130,smoothstep(0.18,0.92,saturate(height)));}"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatcloudBillowOffset(floatdetailA,floatdetailB,floatheight){"
-        "return(detailA-detailB)*cloudBillowMaximumOffset(height);}"));
+        "floatcloudDetailMiddleBand(float2detailBands){"
+        "returnsaturate((detailBands.g-detailBands.r*0.55)*(1.0/0.45));}"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcloudBillowOffset("
+        "float2detailA,float2detailB,floatheight,floatmiddleVisibility){"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floattopMiddleWeight=0.48*"
+        "smoothstep(0.38,0.90,saturate(height))*"
+        "saturate(middleVisibility);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "returnlerp(coarseDifference,middleDifference,topMiddleWeight)"
+        "*cloudBillowMaximumOffset(height);"));
     EXPECT_TRUE(Contains(
         shader,
         "detailDomainA=horizontal*0.00018+vertical*0.00014;"
@@ -2810,7 +2849,8 @@ ACS_TEST(VolumetricClouds,
         "heightThreshold,"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatbillowOffset=cloudBillowOffset(ndA.r,ndB.r,h);"));
+        "floatbillowOffset=cloudBillowOffset("
+        "ndA,ndB,h,erosionVisibility);"));
 
     constexpr f32 kThreshold = 0.60f;
     constexpr f32 kUpper = 0.82f;
@@ -2821,17 +2861,22 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(topLimit, 0.130f, 1.0e-6f);
     EXPECT_TRUE(topLimit > baseLimit);
 
-    const f32 expandedOffset =
-        CloudBillowOffsetForTest(1.0f, 0.0f, 1.0f);
-    const f32 erodedOffset =
-        CloudBillowOffsetForTest(0.0f, 1.0f, 1.0f);
-    const f32 unchangedOffset =
-        CloudBillowOffsetForTest(0.42f, 0.42f, 1.0f);
+    const f32 expandedOffset = CloudBillowOffsetForTest(FVec2{1.0f, 1.0f}, FVec2{0.0f, 0.0f}, 1.0f, 1.0f);
+    const f32 erodedOffset = CloudBillowOffsetForTest(FVec2{0.0f, 0.0f}, FVec2{1.0f, 1.0f}, 1.0f, 1.0f);
+    const f32 unchangedOffset = CloudBillowOffsetForTest(FVec2{0.42f, 0.42f}, FVec2{0.42f, 0.42f}, 1.0f, 1.0f);
     EXPECT_NEAR(expandedOffset, topLimit, 1.0e-6f);
     EXPECT_NEAR(erodedOffset, -topLimit, 1.0e-6f);
     EXPECT_NEAR(unchangedOffset, 0.0f, 0.0f);
     EXPECT_NEAR(
         expandedOffset + erodedOffset, 0.0f, 1.0e-6f);
+
+    EXPECT_NEAR(CloudDetailMiddleBandForTest(FVec2{0.40f, 0.5575f}), 0.75f, 1.0e-6f);
+    const FVec2 risingTopA{0.80f, 0.95f};
+    const FVec2 risingTopB{0.20f, 0.11f};
+    const f32 coarseOnlyTop = CloudBillowOffsetForTest(risingTopA, risingTopB, 1.0f, 0.0f);
+    const f32 detailedTop = CloudBillowOffsetForTest(risingTopA, risingTopB, 1.0f, 1.0f);
+    EXPECT_TRUE(detailedTop > coarseOnlyTop);
+    EXPECT_NEAR(CloudBillowOffsetForTest(risingTopA, risingTopB, 0.0f, 0.0f), CloudBillowOffsetForTest(risingTopA, risingTopB, 0.0f, 1.0f), 0.0f);
 
     const f32 original = RemapUnitRangeForTest(
         kEdgeNoise, kThreshold, kUpper);
@@ -2851,21 +2896,19 @@ ACS_TEST(VolumetricClouds,
         1.0f - topLimit, kThreshold, kUpper);
     EXPECT_NEAR(denseCore, 1.0f, 0.0f);
 
+    constexpr FVec2 kDetailSamples[]{FVec2{0.0f, 0.0f}, FVec2{1.0f, 0.55f}, FVec2{0.0f, 0.45f}, FVec2{1.0f, 1.0f}, FVec2{0.42f, 0.42f}, FVec2{0.70f, 0.65f}};
+    constexpr f32 kMiddleVisibilities[]{0.0f, 0.5f, 1.0f};
     for (u32 heightStep = 0u; heightStep <= 10u; ++heightStep) {
         const f32 height = static_cast<f32>(heightStep) * 0.1f;
         const f32 limit = CloudBillowMaximumOffsetForTest(height);
-        for (u32 aStep = 0u; aStep <= 10u; ++aStep) {
-            const f32 detailA = static_cast<f32>(aStep) * 0.1f;
-            for (u32 bStep = 0u; bStep <= 10u; ++bStep) {
-                const f32 detailB = static_cast<f32>(bStep) * 0.1f;
-                const f32 offset = CloudBillowOffsetForTest(
-                    detailA, detailB, height);
-                EXPECT_TRUE(offset >= -limit - 1.0e-6f);
-                EXPECT_TRUE(offset <= limit + 1.0e-6f);
-                EXPECT_NEAR(
-                    offset + CloudBillowOffsetForTest(
-                        detailB, detailA, height),
-                    0.0f, 1.0e-6f);
+        for (const f32 middleVisibility : kMiddleVisibilities) {
+            for (const FVec2 detailA : kDetailSamples) {
+                for (const FVec2 detailB : kDetailSamples) {
+                    const f32 offset = CloudBillowOffsetForTest(detailA, detailB, height, middleVisibility);
+                    EXPECT_TRUE(offset >= -limit - 1.0e-6f);
+                    EXPECT_TRUE(offset <= limit + 1.0e-6f);
+                    EXPECT_NEAR(offset + CloudBillowOffsetForTest(detailB, detailA, height, middleVisibility), 0.0f, 1.0e-6f);
+                }
             }
         }
     }

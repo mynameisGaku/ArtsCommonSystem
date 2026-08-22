@@ -783,9 +783,7 @@ void CSWeather(uint3 id : SV_DispatchThreadID) {
 }
 )";
 
-// Independent high-frequency erosion.  Keeping this volume separate from the
-// 128^3 base prevents the same cellular landmarks from appearing at both the
-// cloud-bank and cauliflower-edge scales.
+// 基本形状とは独立した縁の侵食体積。同じ細胞模様を雲塊と房の両方へ出さない。
 const char* kDetailGenCS = R"(
 RWTexture3D<float2> detailOut : register(u0);
 
@@ -817,9 +815,7 @@ void CSDetail(uint3 id : SV_DispatchThreadID) {
     float b=detailWorley(uvw*8.0,8.0,float3(89.0,29.0,53.0));
     float c=detailWorley(uvw*16.0,16.0,float3(11.0,97.0,37.0));
     float d=saturate(a*0.55+b*0.30+c*0.15);
-    // Runtime erosion uses only the first Worley octave and the combined
-    // detail value. Preserve those exact FP16 values in RG rather than paying
-    // for two dead channels on every light/view density sample.
+    // R は最初の Worley 帯域、G は三帯域の合成値。未使用成分を持たない RG16F に収める。
     detailOut[id]=float2(a,d);
 }
 )";
@@ -932,7 +928,7 @@ RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒッ�
 RWTexture3D<float2> cloudShadowOut : register(u2);
 Texture3D<float2> shapeNoise     : register(t0);   // (低周波形状, 全帯域形状)
 Texture2D    weatherMap          : register(t1);   // coverage/type/precipitation/warp
-Texture3D<float2> detailNoise    : register(t2);   // (first octave, combined erosion)
+Texture3D<float2> detailNoise    : register(t2);   // (低周波房, 三帯域侵食)
 Texture2D    curlNoise           : register(t3);   // independent world-space curl field
 // CSCloud は、現在フレームに生成した平均深さと二標本差を連続した t4 から読む。
 Texture3D<float2> cloudShadowCache : register(t4);
@@ -1302,10 +1298,18 @@ float cloudVerticalProfileShape(float sampledProfile){
 float cloudBillowMaximumOffset(float height){
     return lerp(0.018,0.130,smoothstep(0.18,0.92,saturate(height)));
 }
-// 同じ周辺分布を持つ二領域を差し引き、一方向の偏りを持たない膨張と侵食を両立する。
-// 後段の非線形なしきい値処理まで含めた平均密度が厳密に不変になる、という意味ではない。
-float cloudBillowOffset(float detailA,float detailB,float height){
-    return (detailA-detailB)*cloudBillowMaximumOffset(height);
+// 合成値 G から 2・3 段目だけを復元する。生成式は G=0.55R+0.30B+0.15C なので、
+// R を除いた値は (G-0.55R)/0.45 で求められ、追加の体積採取を必要としない。
+float cloudDetailMiddleBand(float2 detailBands){
+    return saturate((detailBands.g-detailBands.r*0.55)*(1.0/0.45));
+}
+// 雲底では大きな房を保ち、雲頂へ近づくほど中間帯域を混ぜて積雲の段階的な膨らみを作る。
+// 二領域の差と合計1の重みを使うため、既存の最大変形量は厳密な上限のまま保たれる。
+float cloudBillowOffset(float2 detailA,float2 detailB,float height,float middleVisibility){
+    float topMiddleWeight=0.48*smoothstep(0.38,0.90,saturate(height))*saturate(middleVisibility);
+    float coarseDifference=detailA.r-detailB.r;
+    float middleDifference=cloudDetailMiddleBand(detailA)-cloudDetailMiddleBand(detailB);
+    return lerp(coarseDifference,middleDifference,topMiddleWeight)*cloudBillowMaximumOffset(height);
 }
 // 高さ分布は基本形状のしきい値へ反映済みなので、最終密度では層端だけを閉じる。
 // 広い高さ重みを再度掛けると、視線が浅い地平線付近で水平な密度段差になる。
@@ -1694,13 +1698,19 @@ void cloudDetailDomains(
     detailDomainA=horizontal*0.00018+vertical*0.00014;
     detailDomainB=horizontal*0.00031+vertical*0.00024;
 }
-// 低周波の房は遠景の輪郭を決めるため、細かな侵食より粗い採取まで残す。
-float cloudBillowVisibilityFromSampleSpacing(float sampleSpacing){
-    return 1.0-smoothstep(120.0,620.0,max(sampleSpacing,0.0));
+// 最も細かい詳細領域 B のワールド尺度から、一標本が横切る模様の周期比を求める。
+// 手入力した距離ではなく、焼き込み周波数と領域尺度を使って LOD 境界を固定する。
+float cloudDetailFrequencyVisibility(float sampleSpacing,float frequency,float fadeBegin,float fadeEnd){
+    float footprint=max(sampleSpacing,0.0)*0.00031*frequency;
+    return 1.0-smoothstep(fadeBegin,fadeEnd,footprint);
 }
-// 高周波の侵食は採取間隔が最小形状の半周期を越える前に消し、ちらつきを防ぐ。
+// 低周波の房は画素輪郭を決めるため、半周期へ達する前まで残す。
+float cloudBillowVisibilityFromSampleSpacing(float sampleSpacing){
+    return cloudDetailFrequencyVisibility(sampleSpacing,4.0,0.15,0.52);
+}
+// 中間房と高周波侵食は一標本積分で揺れやすいため、最小周期の約4分の1までに消す。
 float cloudErosionVisibilityFromSampleSpacing(float sampleSpacing){
-    return 1.0-smoothstep(10.0,48.0,max(sampleSpacing,0.0));
+    return cloudDetailFrequencyVisibility(sampleSpacing,16.0,0.05,0.24);
 }
 // 距離減衰は完成済みのレイへ一括適用せず、各密度標本へ適用する。
 // 減衰区間が 0 の場合は smoothstep の同一端点による 0 除算を避ける。
@@ -1786,7 +1796,7 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                 float2 ndA=detailNoise.SampleLevel(detailNoise_sampler,detailDomainA+float3(0.19,0.67,0.41)+float3(cloudEvolution.z,cloudEvolution.w,-cloudEvolution.z),0);
                 float2 ndB=detailNoise.SampleLevel(detailNoise_sampler,detailDomainB+float3(0.73,0.23,0.59)+float3(-cloudEvolution.w,cloudEvolution.z,cloudEvolution.w),0);
                 // 同分布の差なので、領域全体を一方向へ膨張させず、動く房と谷を同時に作る。
-                float billowOffset=cloudBillowOffset(ndA.r,ndB.r,h);
+                float billowOffset=cloudBillowOffset(ndA,ndB,h,erosionVisibility);
                 float billowedBaseDensity=remapc(
                     cloudWeatheredBaseNoise(
                         macro.baseNoise+billowOffset,weatherMask),

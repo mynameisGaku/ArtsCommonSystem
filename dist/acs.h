@@ -59159,7 +59159,7 @@ private:
     bool                     m_DetailBaked = false;
     TUniquePtr<IRhiShader>   m_DetailCs;
     TUniquePtr<IRhiPipeline> m_DetailPipe;
-    TUniquePtr<IRhiTexture>  m_DetailTex;                // 64^3 RG16F independent Worley edge erosion
+    TUniquePtr<IRhiTexture>  m_DetailTex;                // 64^3 RG16F 独立 Worley 房・縁侵食
     bool                     m_CurlBaked = false;
     TUniquePtr<IRhiShader>   m_CurlCs;
     TUniquePtr<IRhiPipeline> m_CurlPipe;
