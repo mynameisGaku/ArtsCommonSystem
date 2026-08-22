@@ -1269,6 +1269,16 @@ float cloudHeightThreshold(float coverage,float profileShape){
     return cloudHeightThresholdFromTarget(
         cloudHeightThresholdTarget(coverage),profileShape);
 }
+// 詳細体積の二領域差が基本形状を動かせる最大量。
+// 雲頂ほど房状の盛り上がりを強くし、雲底は輪郭が沸騰しない範囲へ抑える。
+float cloudBillowMaximumOffset(float height){
+    return lerp(0.018,0.130,smoothstep(0.18,0.92,saturate(height)));
+}
+// 同じ周辺分布を持つ二領域を差し引き、一方向の偏りを持たない膨張と侵食を両立する。
+// 後段の非線形なしきい値処理まで含めた平均密度が厳密に不変になる、という意味ではない。
+float cloudBillowOffset(float detailA,float detailB,float height){
+    return (detailA-detailB)*cloudBillowMaximumOffset(height);
+}
 // 高さ分布は基本形状のしきい値へ反映済みなので、最終密度では層端だけを閉じる。
 // 広い高さ重みを再度掛けると、視線が浅い地平線付近で水平な密度段差になる。
 float cloudProfileTailClosure(float thresholdWeight){
@@ -1412,8 +1422,11 @@ CloudMacroSample sampleCloudMacro(float3 p,float4 coverageTerms,out float3 sampl
             macro.curl=cloudCurlOffset(p);
             sampleUvw=cloudUVW(
                 p,macro.weather,macro.curl,macro.height);
+            // 後段の詳細体積が外側へ膨らませられる最大量を早期棄却にも含める。
             cloudBaseShape(
-                sampleUvw,macro.heightThreshold,macro.baseNoise);
+                sampleUvw,
+                macro.heightThreshold-cloudBillowMaximumOffset(macro.height),
+                macro.baseNoise);
         }
     }
     return macro;
@@ -1450,7 +1463,8 @@ CloudMacroSample sampleCloudMacroLighting(float3 p,float weatherCoverage){
             cloudBaseShapeLighting(
                 cloudUVW(
                     p,macro.weather,macro.curl,macro.height),
-                macro.heightThreshold,macro.baseNoise);
+                macro.heightThreshold-cloudBillowMaximumOffset(macro.height),
+                macro.baseNoise);
         }
     }
     return macro;
@@ -1486,7 +1500,10 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeath
         macro.profileClosure=cloudProfileTailClosure(profileThresholdWeight);
         // 共有した天候と渦の変換は光円すい内で線形なので、視線側の座標から採取点を復元する。
         float3 lightingUvw=referenceUvw+float3((p.x-referenceP.x)*shapeScale,(macro.height-referenceHeight)*0.78,(p.z-referenceP.z)*shapeScale);
-        cloudBaseShapeLighting(lightingUvw,macro.heightThreshold,macro.baseNoise);
+        cloudBaseShapeLighting(
+            lightingUvw,
+            macro.heightThreshold-cloudBillowMaximumOffset(macro.height),
+            macro.baseNoise);
     }
     return macro;
 }
@@ -1538,9 +1555,12 @@ float2 sampleCloudFarLightingDensityAndScale(float3 p,float weatherCoverage,floa
 float cloudShapeFromPositiveWeatherMacro(CloudMacroSample macro){
     float shapeResult=0.0;
     if(macro.profileClosure>0.0){
+        // 詳細体積の最大膨張まで占有領域へ含め、房の外縁を採取前に捨てない。
+        float envelopeNoise=
+            macro.baseNoise+cloudBillowMaximumOffset(macro.height);
         // 高さ分布は基本形状のしきい値を決め、層端専用の重みは消失部分だけを閉じる。
         shapeResult=remapc(
-            macro.baseNoise,macro.heightThreshold,
+            envelopeNoise,macro.heightThreshold,
             min(macro.heightThreshold+0.22,0.98),0.0,1.0)
                    *macro.weatherMask*macro.profileClosure;
     }
@@ -1573,8 +1593,10 @@ void cloudDetailDomains(
         -detailXz.x*0.707+detailXz.y*0.566,
          detailXz.x*0.707+detailXz.y*0.566);
     float3 vertical=worldY*float3(0.800,-0.424,-0.424);
-    detailDomainA=horizontal*0.0011+vertical*0.0018;
-    detailDomainB=horizontal*0.0023+vertical*0.0030;
+    // 横方向より緩やかに高度を変え、雲層を通る積分で隆起と侵食が相殺されない房を作る。
+    // 高周波を含む G 成分はこの尺度でも十分な縦細部を保つ。
+    detailDomainA=horizontal*0.0011+vertical*0.00055;
+    detailDomainB=horizontal*0.0023+vertical*0.00115;
 }
 // 侵食体積は一つの詳細度しか持たない。採取間隔が細部の周期を越える前に寄与を消す。
 float cloudDetailVisibilityFromSampleSpacing(float sampleSpacing){
@@ -1617,18 +1639,24 @@ float cloudLowLodDensityFromPositiveWeatherMacro(CloudMacroSample macro,float he
     }
     return densityResult;
 }
-// 詳細表示用密度。採取できる帯域だけ侵食を適用し、粗い視線では基本形状へ戻す。
+// 詳細表示用密度。採取できる帯域では房状の膨張と侵食を適用し、粗い視線では基本形状へ戻す。
 float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float heightThreshold,float weatherMask,float detailFrequencyWeight,float detailVisibility){
     float densityResult=0.0;
     if(macro.profileClosure>0.0){
+        float h=saturate(macro.height);
         float baseDensity=remapc(macro.baseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0);
-        if(baseDensity>0.001){
-            float h=macro.height;
+        // 基本形状の外側でも、詳細体積が到達できる範囲だけは密度評価へ進める。
+        float envelopeBaseDensity=remapc(
+            macro.baseNoise+cloudBillowMaximumOffset(h),heightThreshold,
+            min(heightThreshold+0.22,0.98),0.0,1.0);
+        if(envelopeBaseDensity>0.001){
             // 高さ形状と被覆を含む実際の粗密度を先に確定し、その表面を侵食する。
             // 基本密度だけを先に侵食すると、値1の雲芯では細部が消えて滑らかな高さ面が残る。
+            float densityScale=
+                weatherMask*macro.profileClosure
+                *cloudHeightPrecipitationDensityScale(h,macro.weather.b);
             float coarseDensity=saturate(
-                baseDensity*weatherMask*macro.profileClosure
-                *cloudHeightPrecipitationDensityScale(h,macro.weather.b));
+                baseDensity*densityScale);
             float d=coarseDensity;
             detailVisibility=saturate(detailVisibility);
             [branch] if(detailVisibility>0.001){
@@ -1638,11 +1666,19 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                 cloudDetailDomains(detailXz,p.y,detailDomainA,detailDomainB);
                 float2 ndA=detailNoise.SampleLevel(detailNoise_sampler,detailDomainA+float3(0.19,0.67,0.41)+float3(cloudEvolution.z,cloudEvolution.w,-cloudEvolution.z),0);
                 float2 ndB=detailNoise.SampleLevel(detailNoise_sampler,detailDomainB+float3(0.73,0.23,0.59)+float3(-cloudEvolution.w,cloudEvolution.z,cloudEvolution.w),0);
+                // 同分布の差なので、領域全体を一方向へ膨張させず、動く房と谷を同時に作る。
+                float billowOffset=cloudBillowOffset(ndA.r,ndB.r,h);
+                float billowedBaseDensity=remapc(
+                    macro.baseNoise+billowOffset,heightThreshold,
+                    min(heightThreshold+0.22,0.98),0.0,1.0);
+                float billowedCoarseDensity=saturate(
+                    billowedBaseDensity*densityScale);
                 float detailNear=ndA.g*0.62+ndB.g*0.38;
                 float detailFar=ndA.r*0.62+ndB.r*0.38;
                 float detail=lerp(detailFar,detailNear,saturate(detailFrequencyWeight));
                 float erosion=lerp(0.10,0.24,smoothstep(0.18,0.92,h));
-                float eroded=remapc(coarseDensity,detail*erosion,1.0,0.0,1.0);
+                float eroded=remapc(
+                    billowedCoarseDensity,detail*erosion,1.0,0.0,1.0);
                 d=lerp(coarseDensity,eroded,detailVisibility);
             }
             densityResult=saturate(d);
@@ -2087,6 +2123,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float coneSin,coneCos;
             sincos(6.2831853*lightJitter,coneSin,coneCos);
             float lightDepth=0.0;
+            // 近距離3点だけの光路密度。詳細体積が作る局所自己影を高次散乱へ残す。
+            float detailedLightDepth=0.0;
             float lightStep=cloudLightStepFromBand(sampleUpperBand);
             lightStep*=lerp(0.72,1.28,lightJitter);
             float3 lp=p;
@@ -2133,6 +2171,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                        +previousConeCos*(-0.675490294);
                 lightStep*=1.8;
             }
+            detailedLightDepth=lightDepth;
             bool cachedFarTail=false;
             if(!lightTerminated && CLOUD_MAIN_SHADOW_CACHE_ENABLED){
                 float3 cachedTailSample=sampleCloudShadowTail(lp,density);
@@ -2184,6 +2223,13 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float beer=exp(-tauL);
             float multiContribution=cloudLightingPhase.w;
             float multiOcclusion=cloudLightingMulti.x;
+            // 遠距離では次数ごとに消散を弱めて光の回り込みを保つ。一方、詳細を採取した
+            // 近距離まで同じ割合で弱めると、房の自己影が高次散乱だけで埋まる。
+            // 近距離は一段前の縮小率を使い、追加採取なしで局所形状だけを保持する。
+            float detailedTauL=min(
+                detailedLightDepth*density*cloudLightingExtinction.y,tauL);
+            float farTauL=max(tauL-detailedTauL,0.0);
+            float secondDetailedOcclusion=sqrt(saturate(multiOcclusion));
             // 何度も散乱した光は向きを失うので、単散乱より等方に近い位相を使う。
             // 同じ位相を使うと、内部で回った光まで太陽方向へ偏って雲が薄く見える。
             float phaseMulti=12.566370*hg(cosA,cloudMultiPhase.x);
@@ -2207,11 +2253,13 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 1.0,inScatterProbability,cloudLightingExtinction.w);
             float singleScatter=beer*phase;
             float secondScatter=multiContribution
-                *exp(-tauL*multiOcclusion)*phaseMulti;
+                *exp(-(detailedTauL*secondDetailedOcclusion
+                      +farTauL*multiOcclusion))*phaseMulti;
             float thirdContribution=multiContribution*multiContribution;
             float thirdOcclusion=multiOcclusion*multiOcclusion;
             float thirdScatter=thirdContribution
-                *exp(-tauL*thirdOcclusion)*phaseMulti;
+                *exp(-(detailedTauL*multiOcclusion
+                      +farTauL*thirdOcclusion))*phaseMulti;
             float multipleScatter=(secondScatter+thirdScatter)
                                  *inScatterFactor;
             float scatterTerm=singleScatter+multipleScatter;
