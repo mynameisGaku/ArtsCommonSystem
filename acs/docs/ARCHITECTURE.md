@@ -144,6 +144,14 @@ ACS の公開所有型契約を守り、`TArray<T>` 上の sparse-set 設計を�
 アセット（画像・glTF/FBX メッシュ・音声）は `FAssetRegistry` 経由で読み込まれ、
 非同期ロードも選べます。ImGui 統合は raw DX12 バックエンドだけを対象とします。
 
+`ALegacyScene3DAdapter` の3DスプライトGPU画像表は、描画owner threadでgraphと同期します。
+実行時のcomponent追加・除去・`SetImageAsset` による差し替えを次の描画前に反映し、node
+handleと画像の共有所有を対応付けるため、破棄済みcomponentの生ポインタを保持しません。
+同じnodeと同じ画像のframeでは既存textureを再利用し、`TexturePath` だけから暗黙に
+ファイルI/Oを始めません。未設定・別型・不正画像またはGPU生成失敗のスプライトだけを省き、
+他の3D描画は継続します。実行時に数が増えた場合は `CSprite3DRenderer::EnsureCapacity` が
+pipelineを保ったまま頂点領域だけを段階的に拡張します。
+
 D3D12 外部描画を ACS の 3D シーンへ組み込む場合は、
 `IRhiDevice::TryGetD3D12Interop(FRhiD3D12DeviceInterop&)` で借用した native
 device / graphics queue と、`IRhiCommandList::D3D12GraphicsCommandList()` の

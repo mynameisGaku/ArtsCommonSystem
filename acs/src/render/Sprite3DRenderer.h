@@ -18,6 +18,9 @@ namespace acs {
 /** 固定向きのローカルXY板へ画像を透過描画する3Dスプライト描画器。 */
 class CSprite3DRenderer final {
 public:
+    /** 1回のbatchで受理する3Dスプライト数の上限。 */
+    static constexpr u32 kMaximumSpriteCount = 65536u;
+
     /** owner threadでのパイプライン生成を待つコンパイル済みシェーダ群。 */
     struct FCompiledShaders {
         TUniquePtr<IRhiShader> Vertex;
@@ -78,6 +81,16 @@ public:
      * @return 失敗時は既存資源を変更せずエラーを返す。
      */
     TResult<void> InitWithCompiledShaders(IRhiDevice& device, FCompiledShaders&& shaders, EFormat render_target_format, EFormat depth_format, u32 max_sprite_count) noexcept;
+
+    /**
+     * 実行時に増えた3Dスプライトを収容できるよう、頂点領域だけを拡張する。
+     *
+     * @details 既に十分な場合はGPU資源を作り直さない。失敗時は現在の頂点領域を保持する。
+     * @param device 頂点バッファを生成するデバイス。
+     * @param required_sprite_count 次のbatchに必要なスプライト数。
+     * @return 必要数を収容できる場合だけ成功。
+     */
+    TResult<void> EnsureCapacity(IRhiDevice& device, u32 required_sprite_count) noexcept;
 
     /** 全GPU資源とCPU作業領域を解放する。 */
     void Shutdown() noexcept;

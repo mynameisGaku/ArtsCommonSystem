@@ -60149,6 +60149,9 @@ namespace acs {
 /** 固定向きのローカルXY板へ画像を透過描画する3Dスプライト描画器。 */
 class CSprite3DRenderer final {
 public:
+    /** 1回のbatchで受理する3Dスプライト数の上限。 */
+    static constexpr u32 kMaximumSpriteCount = 65536u;
+
     /** owner threadでのパイプライン生成を待つコンパイル済みシェーダ群。 */
     struct FCompiledShaders {
         TUniquePtr<IRhiShader> Vertex;
@@ -60209,6 +60212,16 @@ public:
      * @return 失敗時は既存資源を変更せずエラーを返す。
      */
     TResult<void> InitWithCompiledShaders(IRhiDevice& device, FCompiledShaders&& shaders, EFormat render_target_format, EFormat depth_format, u32 max_sprite_count) noexcept;
+
+    /**
+     * 実行時に増えた3Dスプライトを収容できるよう、頂点領域だけを拡張する。
+     *
+     * @details 既に十分な場合はGPU資源を作り直さない。失敗時は現在の頂点領域を保持する。
+     * @param device 頂点バッファを生成するデバイス。
+     * @param required_sprite_count 次のbatchに必要なスプライト数。
+     * @return 必要数を収容できる場合だけ成功。
+     */
+    TResult<void> EnsureCapacity(IRhiDevice& device, u32 required_sprite_count) noexcept;
 
     /** 全GPU資源とCPU作業領域を解放する。 */
     void Shutdown() noexcept;
@@ -61948,8 +61961,11 @@ private:
 
     /** sceneコンポーネントと所有GPU画像の対応。 */
     struct FCustomGpuSprite {
-        /** 画像の所有元コンポーネント。 */
-        const ASprite3DComponent* Component = nullptr;
+        /** 画像を使うnode。世代を含むhandleなので破棄後の再利用と衝突しない。 */
+        FNodeId Node;
+
+        /** GPU画像の生成元。差し替え検出とCPU画像の寿命保持に使う。 */
+        TSharedPtr<AAsset> SourceImage;
 
         /** 描画アダプターが単独所有するGPU画像。 */
         TUniquePtr<IRhiTexture> Texture;
@@ -62067,7 +62083,10 @@ private:
         bool requested) noexcept;
     void AdvanceSpriteInitialization(IRhiDevice& device, EFormat depth_format, EGpuCommitSubsystem& frame_commit, bool requested) noexcept;
     bool UploadGraphMeshes(IRhiDevice& device) noexcept;
-    bool UploadGraphSprites(IRhiDevice& device) noexcept;
+    /** 現在のgraphとGPU画像表を登録順に線形比較し、同一ならtrueを返す。 */
+    bool SpriteResourcesMatchGraph_Internal(const ANode& node, usize& matched_count, u32 depth = 0u) const noexcept;
+    /** 3Dスプライトの追加・除去・画像差し替えをGPU画像表へ反映する。 */
+    bool SynchronizeGraphSprites_Internal(IRhiDevice& device) noexcept;
     void DrainAndReleaseGpu() noexcept;
     void ReleaseGpu() noexcept;
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
@@ -62372,7 +62391,7 @@ private:
     void ResetOrbitCameraPresentation_Internal() noexcept;
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
-    IRhiTexture* TextureFor(const ASprite3DComponent& component) const noexcept;
+    IRhiTexture* TextureFor(FNodeId node, const TSharedPtr<AAsset>& source_image) const noexcept;
     bool DrawSpriteScene(FRenderContext& context) noexcept;
     u32 CollectWaterDraws(
         FWaterDraw (&draws)[CWaterSurface3D::kMaxTrackedSurfaces],
@@ -86804,10 +86823,10 @@ public:
     /** 所有している画像アセットを返す。 */
     const TSharedPtr<AAsset>& ImageAsset() const noexcept;
 
-    /** デコード済み画像を所有している場合にtrueを返す。 */
+    /** 画像として指定されたアセット参照を所有している場合にtrueを返す。 */
     bool HasImageAsset() const noexcept;
 
-    /** 所有画像をAImageAssetとして返し、未設定ならnullptrを返す。 */
+    /** 所有画像をAImageAssetとして返し、未設定または別型ならnullptrを返す。 */
     AImageAsset* Image() const noexcept;
 
     /** ローカルXY単位板の最小座標と最大座標を返す。 */

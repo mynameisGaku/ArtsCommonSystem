@@ -141,6 +141,82 @@ ACS_TEST(LegacyScene3DCameraContract,
 #endif
 }
 
+ACS_TEST(LegacyScene3DSpriteRuntime,
+         SynchronizesBeforeDrawWithoutStaleComponentPointers) {
+    const std::string header = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.h");
+    const std::string source = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.cpp");
+    EXPECT_FALSE(header.empty());
+    EXPECT_FALSE(source.empty());
+
+    EXPECT_TRUE(header.find("TSharedPtr<AAsset> SourceImage;")
+        != std::string::npos);
+    EXPECT_TRUE(header.find(
+        "const ASprite3DComponent* Component = nullptr;")
+        == std::string::npos);
+    EXPECT_TRUE(header.find(
+        "bool SynchronizeGraphSprites_Internal(IRhiDevice& device) noexcept;")
+        != std::string::npos);
+
+    const std::size_t render = source.find(
+        "void ALegacyScene3DAdapter::OnRender(");
+    const std::size_t device_check = source.find(
+        "if (device == nullptr || swapchain == nullptr) return;", render);
+    const std::size_t synchronize = source.find(
+        "SynchronizeGraphSprites_Internal(*device)", device_check);
+    const std::size_t skinned = source.find(
+        "UpdateSkinnedMeshes(*device)", synchronize);
+    EXPECT_TRUE(render != std::string::npos);
+    EXPECT_TRUE(device_check != std::string::npos);
+    EXPECT_TRUE(synchronize != std::string::npos);
+    EXPECT_TRUE(skinned != std::string::npos);
+    EXPECT_TRUE(device_check < synchronize);
+    EXPECT_TRUE(synchronize < skinned);
+
+    const std::size_t sync_function = source.find(
+        "bool ALegacyScene3DAdapter::SynchronizeGraphSprites_Internal(");
+    const std::size_t unchanged = source.find(
+        "const bool unchanged =", sync_function);
+    const std::size_t unchanged_return = source.find(
+        "if (unchanged) {", unchanged);
+    const std::size_t upload = source.find(
+        "UploadTexture(device, *image)", unchanged_return);
+    const std::size_t texture_lookup = source.find(
+        "IRhiTexture* ALegacyScene3DAdapter::TextureFor(", upload);
+    EXPECT_TRUE(sync_function != std::string::npos);
+    EXPECT_TRUE(unchanged != std::string::npos);
+    EXPECT_TRUE(unchanged_return != std::string::npos);
+    EXPECT_TRUE(upload != std::string::npos);
+    EXPECT_TRUE(texture_lookup != std::string::npos);
+    EXPECT_TRUE(sync_function < unchanged);
+    EXPECT_TRUE(unchanged < unchanged_return);
+    EXPECT_TRUE(unchanged_return < upload);
+    EXPECT_TRUE(upload < texture_lookup);
+
+    const std::string sync_body = source.substr(
+        sync_function, texture_lookup - sync_function);
+    EXPECT_TRUE(sync_body.find("node->IsPendingDestroy()")
+        != std::string::npos);
+    EXPECT_TRUE(sync_body.find(
+        "previous.SourceImage.Get() == plan.SourceImage.Get()")
+        != std::string::npos);
+    EXPECT_TRUE(sync_body.find(
+        "Move(m_CustomSprites[plan.ExistingIndex].Texture)")
+        != std::string::npos);
+    EXPECT_TRUE(sync_body.find("TexturePath(") == std::string::npos);
+    EXPECT_TRUE(source.find(
+        "scene_features.has_sprites && !m_CustomSprites.IsEmpty()")
+        != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "if (texture == nullptr) continue;")
+        != std::string::npos);
+
+#if defined(_WIN64)
+    EXPECT_EQ(sizeof(ALegacyScene3DAdapter), static_cast<usize>(377360u));
+#endif
+}
+
 ACS_TEST(LegacyScene3DAerialPerspective,
          DefaultIsDisabledAndOptInPreservesLayout) {
     ALegacyScene3DAdapter runtime;

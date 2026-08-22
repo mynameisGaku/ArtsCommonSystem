@@ -1037,6 +1037,10 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     IRhiTexture* depth = renderer.DepthBuffer();
     if (device == nullptr || swapchain == nullptr) return;
 
+    // graph更新後、現在frameの描画命令を積む前にだけ同期する。変更が無いframeは
+    // node/image同一性の確認だけで、texture uploadやvertex buffer再生成を行わない。
+    (void)SynchronizeGraphSprites_Internal(*device);
+
     // 骨で動くメッシュを CPU で変形し、普通の頂点バッファへ入れ直す。**影も遮蔽も
     // この後のパスが読むので、必ず一番先に。** 遅らせると、影だけ前フレームの姿勢になる。
     (void)UpdateSkinnedMeshes(*device);
@@ -2576,7 +2580,7 @@ bool ALegacyScene3DAdapter::EnsureGpu(FRenderContext& context) noexcept {
     const TSharedPtr<AMeshAsset> sphere =
         Primitive::MakeSphere(0.5f, 48u, 24u);
     const TSharedPtr<AMeshAsset> plane = Primitive::MakePlane();
-    if (!cube || !sphere || !plane || UploadMesh(*device, *cube, m_Cube).IsErr() || UploadMesh(*device, *sphere, m_Sphere).IsErr() || UploadMesh(*device, *plane, m_Plane).IsErr() || !UploadGraphMeshes(*device) || !UploadGraphSprites(*device)) {
+    if (!cube || !sphere || !plane || UploadMesh(*device, *cube, m_Cube).IsErr() || UploadMesh(*device, *sphere, m_Sphere).IsErr() || UploadMesh(*device, *plane, m_Plane).IsErr() || !UploadGraphMeshes(*device)) {
         ACS_LOG_ERROR("LegacyScene3DAdapter: GPU mesh initialization failed");
         DrainAndReleaseGpu();
         m_GpuAttempted = true;
@@ -2603,7 +2607,9 @@ bool ALegacyScene3DAdapter::EnsureHdrFrameResources(
     const FSceneRenderFeatures scene_features =
         ScanSceneRenderFeatures(Graph().Root());
     const bool scene_has_water = scene_features.has_water;
-    const bool scene_has_sprites = scene_features.has_sprites;
+    // pathだけ、別型、未設定の画像は暗黙I/Oせず、画像が届いたframeから初期化する。
+    const bool scene_has_sprites =
+        scene_features.has_sprites && !m_CustomSprites.IsEmpty();
     // CSceneNodeGraph has no mutation revision yet. Scan alongside the existing
     // water feature query so retained Graph references, visibility changes
     // and runtime material edits take effect on the very next frame.
@@ -4260,44 +4266,150 @@ bool ALegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
     return true;
 }
 
-bool ALegacyScene3DAdapter::UploadGraphSprites(IRhiDevice& device) noexcept
+bool ALegacyScene3DAdapter::SpriteResourcesMatchGraph_Internal(
+    const ANode& node, usize& matched_count, u32 depth) const noexcept
 {
-    TArray<FCustomGpuSprite> uploaded(*m_CustomSprites.GetAllocator());
-    if (!uploaded.TryReserve(Graph().NodeCount())) return false;
-    TArray<ANode*> stack;
-    if (!stack.TryAdd(&Graph().Root())) return false;
-    while (!stack.IsEmpty()) {
-        ANode* node = stack.Last();
-        stack.Pop();
-        if (node == nullptr) continue;
-        const ASprite3DComponent* component = FindSprite(*node);
-        if (component != nullptr) {
-            AImageAsset* image = component->Image();
-            if (image == nullptr) return false;
-            auto texture = UploadTexture(device, *image);
-            if (texture.IsErr()) return false;
-            FCustomGpuSprite sprite;
-            sprite.Component = component;
-            sprite.Texture = Move(texture.Value());
-            if (!uploaded.TryAdd(Move(sprite))) return false;
+    if (depth > kNodeMaxTreeDepth) return false;
+    if (node.IsPendingDestroy()) return true;
+
+    const ASprite3DComponent* component = FindSprite(node);
+    if (component != nullptr && component->Image() != nullptr) {
+        const TSharedPtr<AAsset>& source = component->ImageAsset();
+        if (matched_count >= m_CustomSprites.Num()) return false;
+        const FCustomGpuSprite& sprite = m_CustomSprites[matched_count];
+        if (sprite.Node != node.Id()
+            || sprite.SourceImage.Get() != source.Get()) {
+            return false;
         }
-        for (u32 index = 0u; index < node->ChildCount(); ++index) {
-            if (!stack.TryAdd(node->Child(index))) return false;
-        }
+        ++matched_count;
     }
 
-    TArray<CSprite3DRenderer::FDraw> draws(*m_SpriteDraws.GetAllocator());
-    if (!draws.TryReserve(uploaded.Num())) return false;
-    m_CustomSprites = Move(uploaded);
-    m_SpriteDraws = Move(draws);
+    for (u32 index = 0u; index < node.ChildCount(); ++index) {
+        const ANode* child = node.Child(index);
+        if (child != nullptr
+            && !SpriteResourcesMatchGraph_Internal(
+                *child, matched_count, depth + 1u)) {
+            return false;
+        }
+    }
     return true;
 }
 
-IRhiTexture* ALegacyScene3DAdapter::TextureFor(const ASprite3DComponent& component) const noexcept
+bool ALegacyScene3DAdapter::SynchronizeGraphSprites_Internal(
+    IRhiDevice& device) noexcept
 {
-    for (u32 index = 0u; index < m_CustomSprites.Num(); ++index) {
-        if (m_CustomSprites[index].Component == &component)
-            return m_CustomSprites[index].Texture.Get();
+    usize matched_count = 0u;
+    const bool unchanged =
+        SpriteResourcesMatchGraph_Internal(
+            Graph().Root(), matched_count)
+        && matched_count == m_CustomSprites.Num();
+    if (unchanged) {
+        if (m_SpriteGpuState != EShaderGpuState::Ready) return true;
+        if (m_CustomSprites.Num()
+            > CSprite3DRenderer::kMaximumSpriteCount) {
+            return false;
+        }
+        return m_SpriteRenderer.EnsureCapacity(
+            device, static_cast<u32>(m_CustomSprites.Num())).IsOk();
+    }
+
+    /** 変更時だけ作る、旧GPU画像の再利用または新規uploadの計画。 */
+    struct FSpriteSyncPlan final {
+        /** 新しいgraph上の所有node。 */
+        FNodeId Node;
+        /** GPU画像の生成元を保持する共有参照。 */
+        TSharedPtr<AAsset> SourceImage;
+        /** 再利用する旧表の添字。無い場合は最大usize。 */
+        usize ExistingIndex = static_cast<usize>(-1);
+        /** 画像差し替え時に新規生成したGPU画像。失敗時はnull。 */
+        TUniquePtr<IRhiTexture> NewTexture;
+    };
+
+    constexpr usize kInvalidSpriteIndex = static_cast<usize>(-1);
+    TArray<FSpriteSyncPlan> plans(*m_CustomSprites.GetAllocator());
+    if (!plans.TryReserve(Graph().NodeCount())) return false;
+    TArray<ANode*> stack;
+    if (!stack.TryReserve(Graph().NodeCount())
+        || !stack.TryAdd(&Graph().Root())) {
+        return false;
+    }
+
+    while (!stack.IsEmpty()) {
+        ANode* node = stack.Last();
+        stack.Pop();
+        if (node == nullptr || node->IsPendingDestroy()) continue;
+        for (u32 index = node->ChildCount(); index > 0u; --index) {
+            if (!stack.TryAdd(node->Child(index - 1u))) return false;
+        }
+
+        const ASprite3DComponent* component = FindSprite(*node);
+        AImageAsset* image =
+            component != nullptr ? component->Image() : nullptr;
+        if (component == nullptr || image == nullptr) continue;
+        if (plans.Num() >= CSprite3DRenderer::kMaximumSpriteCount) {
+            return false;
+        }
+
+        FSpriteSyncPlan plan;
+        plan.Node = node->Id();
+        plan.SourceImage = component->ImageAsset();
+        for (usize index = 0u; index < m_CustomSprites.Num(); ++index) {
+            const FCustomGpuSprite& previous = m_CustomSprites[index];
+            if (previous.Node == plan.Node
+                && previous.SourceImage.Get() == plan.SourceImage.Get()) {
+                plan.ExistingIndex = index;
+                break;
+            }
+        }
+
+        if (plan.ExistingIndex == kInvalidSpriteIndex) {
+            auto texture = UploadTexture(device, *image);
+            if (texture.IsOk()) {
+                plan.NewTexture = Move(texture.Value());
+            } else {
+                // 失敗も画像同一性と一緒に記録し、同じ不正画像を毎frame再uploadしない。
+                ACS_LOG_WARN(
+                    "LegacyScene3DAdapter: Sprite3D image upload failed; "
+                    "the sprite stays hidden: %s",
+                    texture.Error().message);
+            }
+        }
+        if (!plans.TryAdd(Move(plan))) return false;
+    }
+
+    TArray<FCustomGpuSprite> synchronized(
+        *m_CustomSprites.GetAllocator());
+    if (!synchronized.TrySetNum(plans.Num())
+        || !m_SpriteDraws.TryReserve(plans.Num())) {
+        return false;
+    }
+
+    // これ以降は確保を伴わない。旧GPU画像を動かした後に失敗して半端な表を公開しない。
+    for (usize index = 0u; index < plans.Num(); ++index) {
+        FSpriteSyncPlan& plan = plans[index];
+        FCustomGpuSprite& sprite = synchronized[index];
+        sprite.Node = plan.Node;
+        sprite.SourceImage = Move(plan.SourceImage);
+        sprite.Texture = plan.ExistingIndex != kInvalidSpriteIndex
+            ? Move(m_CustomSprites[plan.ExistingIndex].Texture)
+            : Move(plan.NewTexture);
+    }
+    m_CustomSprites = Move(synchronized);
+
+    if (m_SpriteGpuState != EShaderGpuState::Ready) return true;
+    return m_SpriteRenderer.EnsureCapacity(
+        device, static_cast<u32>(m_CustomSprites.Num())).IsOk();
+}
+
+IRhiTexture* ALegacyScene3DAdapter::TextureFor(
+    FNodeId node, const TSharedPtr<AAsset>& source_image) const noexcept
+{
+    for (usize index = 0u; index < m_CustomSprites.Num(); ++index) {
+        const FCustomGpuSprite& sprite = m_CustomSprites[index];
+        if (sprite.Node == node
+            && sprite.SourceImage.Get() == source_image.Get()) {
+            return sprite.Texture.Get();
+        }
     }
     return nullptr;
 }
@@ -4318,8 +4430,11 @@ bool ALegacyScene3DAdapter::DrawSpriteScene(FRenderContext& context) noexcept
         if (!IsEffectivelyActive(*node)) continue;
         const ASprite3DComponent* component = FindSprite(*node);
         if (component == nullptr) continue;
-        IRhiTexture* texture = TextureFor(*component);
-        if (texture == nullptr || !m_SpriteDraws.TryAdd(CSprite3DRenderer::FDraw{node->World().ToMat4(), texture})) {
+        IRhiTexture* texture = TextureFor(
+            node->Id(), component->ImageAsset());
+        // 未設定・別型・upload失敗の1件だけを省き、他の3Dスプライトは描画する。
+        if (texture == nullptr) continue;
+        if (!m_SpriteDraws.TryAdd(CSprite3DRenderer::FDraw{node->World().ToMat4(), texture})) {
             return false;
         }
     }

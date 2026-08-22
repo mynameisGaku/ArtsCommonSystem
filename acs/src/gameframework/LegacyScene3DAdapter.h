@@ -849,8 +849,11 @@ private:
 
     /** sceneコンポーネントと所有GPU画像の対応。 */
     struct FCustomGpuSprite {
-        /** 画像の所有元コンポーネント。 */
-        const ASprite3DComponent* Component = nullptr;
+        /** 画像を使うnode。世代を含むhandleなので破棄後の再利用と衝突しない。 */
+        FNodeId Node;
+
+        /** GPU画像の生成元。差し替え検出とCPU画像の寿命保持に使う。 */
+        TSharedPtr<AAsset> SourceImage;
 
         /** 描画アダプターが単独所有するGPU画像。 */
         TUniquePtr<IRhiTexture> Texture;
@@ -968,7 +971,10 @@ private:
         bool requested) noexcept;
     void AdvanceSpriteInitialization(IRhiDevice& device, EFormat depth_format, EGpuCommitSubsystem& frame_commit, bool requested) noexcept;
     bool UploadGraphMeshes(IRhiDevice& device) noexcept;
-    bool UploadGraphSprites(IRhiDevice& device) noexcept;
+    /** 現在のgraphとGPU画像表を登録順に線形比較し、同一ならtrueを返す。 */
+    bool SpriteResourcesMatchGraph_Internal(const ANode& node, usize& matched_count, u32 depth = 0u) const noexcept;
+    /** 3Dスプライトの追加・除去・画像差し替えをGPU画像表へ反映する。 */
+    bool SynchronizeGraphSprites_Internal(IRhiDevice& device) noexcept;
     void DrainAndReleaseGpu() noexcept;
     void ReleaseGpu() noexcept;
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
@@ -1273,7 +1279,7 @@ private:
     void ResetOrbitCameraPresentation_Internal() noexcept;
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
-    IRhiTexture* TextureFor(const ASprite3DComponent& component) const noexcept;
+    IRhiTexture* TextureFor(FNodeId node, const TSharedPtr<AAsset>& source_image) const noexcept;
     bool DrawSpriteScene(FRenderContext& context) noexcept;
     u32 CollectWaterDraws(
         FWaterDraw (&draws)[CWaterSurface3D::kMaxTrackedSurfaces],
