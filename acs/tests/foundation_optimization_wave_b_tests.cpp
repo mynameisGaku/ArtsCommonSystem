@@ -42,6 +42,27 @@ static_assert(!CFileSystem::IsAscii(static_cast<wchar_t>(0x80)));
 
 namespace {
 
+/** 例外を送出し得る値操作を型判定で拒否できるか調べる値型。 */
+struct FPotentiallyThrowingMessageValue {
+    /** 例外を送出し得る既定構築。 */
+    FPotentiallyThrowingMessageValue() noexcept(false);
+    /** 例外を送出し得るムーブ構築。 */
+    FPotentiallyThrowingMessageValue(FPotentiallyThrowingMessageValue&&) noexcept(false);
+    /** 例外を送出し得るムーブ代入。 */
+    FPotentiallyThrowingMessageValue& operator=(FPotentiallyThrowingMessageValue&&) noexcept(false);
+    /** 例外を送出し得る破棄。 */
+    ~FPotentiallyThrowingMessageValue() noexcept(false);
+};
+
+static_assert(IsNothrowConstructibleV<u32>);
+static_assert(IsNothrowConstructibleV<u32, u32&&>);
+static_assert(IsNothrowAssignableV<u32&, u32&&>);
+static_assert(IsNothrowDestructibleV<u32>);
+static_assert(!IsNothrowConstructibleV<FPotentiallyThrowingMessageValue>);
+static_assert(!IsNothrowConstructibleV<FPotentiallyThrowingMessageValue, FPotentiallyThrowingMessageValue&&>);
+static_assert(!IsNothrowAssignableV<FPotentiallyThrowingMessageValue&, FPotentiallyThrowingMessageValue&&>);
+static_assert(!IsNothrowDestructibleV<FPotentiallyThrowingMessageValue>);
+
 /** worker を待機させて一括解放するテスト状態。 */
 struct FGateTaskContext {
     /** worker の待機を解除するフラグ。 */

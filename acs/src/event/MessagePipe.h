@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include "foundation/Types.h"
+#include "foundation/TypeTraits.h"
 #include "foundation/Move.h"
 #include "container/Array.h"
 #include "event/MessagePipePolicy.h"
@@ -9,8 +9,6 @@
 #include "threading/Mutex.h"
 #include "threading/ScopedLock.h"
 #include "threading/ConditionVar.h"
-
-#include <type_traits>
 
 namespace acs {
 
@@ -268,10 +266,10 @@ private:
 template<typename T, usize Capacity>
 class TMessagePipe<T, EMessagePipePolicy::Spsc, Capacity> {
     static_assert(kIsValidMessagePipeCapacity<Capacity>, "SPSC パイプ容量は 2 以上の 2 の累乗である必要があります");
-    static_assert(std::is_nothrow_default_constructible_v<T>, "SPSC パイプの値型は noexcept 既定構築可能である必要があります");
-    static_assert(std::is_nothrow_move_constructible_v<T>, "SPSC パイプの値型は noexcept ムーブ構築可能である必要があります");
-    static_assert(std::is_nothrow_move_assignable_v<T>, "SPSC パイプの値型は noexcept ムーブ代入可能である必要があります");
-    static_assert(std::is_nothrow_destructible_v<T>, "SPSC パイプの値型は noexcept 破棄可能である必要があります");
+    static_assert(IsNothrowConstructibleV<T>, "SPSC パイプの値型は noexcept 既定構築可能である必要があります");
+    static_assert(IsNothrowConstructibleV<T, T&&>, "SPSC パイプの値型は noexcept ムーブ構築可能である必要があります");
+    static_assert(IsNothrowAssignableV<T&, T&&>, "SPSC パイプの値型は noexcept ムーブ代入可能である必要があります");
+    static_assert(IsNothrowDestructibleV<T>, "SPSC パイプの値型は noexcept 破棄可能である必要があります");
 
 public:
     /** 空の固定容量パイプを構築する。 */

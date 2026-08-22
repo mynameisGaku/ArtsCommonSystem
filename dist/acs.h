@@ -662,6 +662,18 @@ template<typename T> inline constexpr bool IsStandardLayoutV        = __is_stand
 /** T が集約型なら true (コンパイラ組み込み __is_aggregate のラッパ)。 */
 template<typename T> inline constexpr bool IsAggregateV             = __is_aggregate(T);
 
+/** T が Args... から例外を送出せず構築可能なら true。 */
+template<typename T, typename... Args>
+inline constexpr bool IsNothrowConstructibleV = __is_nothrow_constructible(T, Args...);
+
+/** To へ From を例外を送出せず代入可能なら true。 */
+template<typename To, typename From>
+inline constexpr bool IsNothrowAssignableV = __is_nothrow_assignable(To, From);
+
+/** T を例外を送出せず破棄可能なら true。 */
+template<typename T>
+inline constexpr bool IsNothrowDestructibleV = __is_nothrow_destructible(T);
+
 /**
  * T をバイトコピーで再配置し、移動元のデストラクタを呼ばずに元領域を
  * 放棄できるかを表す。
@@ -26628,8 +26640,6 @@ private:
 
 } // namespace acs
 
-#include <type_traits>
-
 namespace acs {
 
 /**
@@ -26886,10 +26896,10 @@ private:
 template<typename T, usize Capacity>
 class TMessagePipe<T, EMessagePipePolicy::Spsc, Capacity> {
     static_assert(kIsValidMessagePipeCapacity<Capacity>, "SPSC パイプ容量は 2 以上の 2 の累乗である必要があります");
-    static_assert(std::is_nothrow_default_constructible_v<T>, "SPSC パイプの値型は noexcept 既定構築可能である必要があります");
-    static_assert(std::is_nothrow_move_constructible_v<T>, "SPSC パイプの値型は noexcept ムーブ構築可能である必要があります");
-    static_assert(std::is_nothrow_move_assignable_v<T>, "SPSC パイプの値型は noexcept ムーブ代入可能である必要があります");
-    static_assert(std::is_nothrow_destructible_v<T>, "SPSC パイプの値型は noexcept 破棄可能である必要があります");
+    static_assert(IsNothrowConstructibleV<T>, "SPSC パイプの値型は noexcept 既定構築可能である必要があります");
+    static_assert(IsNothrowConstructibleV<T, T&&>, "SPSC パイプの値型は noexcept ムーブ構築可能である必要があります");
+    static_assert(IsNothrowAssignableV<T&, T&&>, "SPSC パイプの値型は noexcept ムーブ代入可能である必要があります");
+    static_assert(IsNothrowDestructibleV<T>, "SPSC パイプの値型は noexcept 破棄可能である必要があります");
 
 public:
     /** 空の固定容量パイプを構築する。 */
