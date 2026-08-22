@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "foundation/TypeTraits.h"
+
 #include <cstddef>
-#include <type_traits>
 
 namespace acs {
 
@@ -27,8 +28,8 @@ static_assert(sizeof(FStorageStringBatchEntry) == sizeof(const char*) * 2u);
 static_assert(alignof(FStorageStringBatchEntry) == alignof(const char*));
 static_assert(offsetof(FStorageStringBatchEntry, key) == 0u);
 static_assert(offsetof(FStorageStringBatchEntry, value) == sizeof(const char*));
-static_assert(std::is_standard_layout_v<FStorageStringBatchEntry>);
-static_assert(std::is_trivially_copyable_v<FStorageStringBatchEntry>);
-static_assert(std::is_aggregate_v<FStorageStringBatchEntry>);
+static_assert(IsStandardLayoutV<FStorageStringBatchEntry>);
+static_assert(IsTriviallyCopyableV<FStorageStringBatchEntry>);
+static_assert(IsAggregateV<FStorageStringBatchEntry>);
 
 } // namespace acs

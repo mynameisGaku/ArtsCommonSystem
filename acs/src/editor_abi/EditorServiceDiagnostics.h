@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include "foundation/Types.h"
+#include "foundation/TypeTraits.h"
 
 #include <cstddef>
-#include <type_traits>
 
 namespace acs::editor_service_diagnostics {
 
@@ -89,8 +88,8 @@ struct FDiagnostic {
 
 static_assert(sizeof(FDiagnostic) == kDiagnosticSize);
 static_assert(alignof(FDiagnostic) == 4u);
-static_assert(std::is_standard_layout_v<FDiagnostic>);
-static_assert(std::is_trivially_copyable_v<FDiagnostic>);
+static_assert(IsStandardLayoutV<FDiagnostic>);
+static_assert(IsTriviallyCopyableV<FDiagnostic>);
 static_assert(offsetof(FDiagnostic, host_generation) == 24u);
 static_assert(offsetof(FDiagnostic, message_utf8) == 32u);
 static_assert(offsetof(FDiagnostic, error_domain) == kLegacyDiagnosticSize);

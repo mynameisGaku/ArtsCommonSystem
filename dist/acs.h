@@ -656,6 +656,12 @@ template<typename T> inline constexpr bool IsPointerV = TIsPointer<RemoveCVT<T>>
 /** T がトリビアルコピー可能なら true (コンパイラ組み込み __is_trivially_copyable のラッパ)。 */
 template<typename T> inline constexpr bool IsTriviallyCopyableV     = __is_trivially_copyable(T);
 
+/** T が標準配置型なら true (コンパイラ組み込み __is_standard_layout のラッパ)。 */
+template<typename T> inline constexpr bool IsStandardLayoutV        = __is_standard_layout(T);
+
+/** T が集約型なら true (コンパイラ組み込み __is_aggregate のラッパ)。 */
+template<typename T> inline constexpr bool IsAggregateV             = __is_aggregate(T);
+
 /**
  * T をバイトコピーで再配置し、移動元のデストラクタを呼ばずに元領域を
  * 放棄できるかを表す。
@@ -25353,7 +25359,6 @@ using FRegistry = CRegistry;
 
 
 #include <cstddef>
-#include <type_traits>
 
 namespace acs::editor_cloud_workload {
 
@@ -25453,7 +25458,7 @@ static_assert(offsetof(FSnapshotV2, base) == 0u);
 static_assert(offsetof(FSnapshotV2, world_shadow_dispatches) == 168u);
 static_assert(offsetof(FSnapshotV2, world_shadow_logical_invocations) == 176u);
 static_assert(offsetof(FSnapshotV2, maximum_world_shadow_samples) == 192u);
-static_assert(std::is_trivially_copyable_v<FSnapshotV2>);
+static_assert(IsTriviallyCopyableV<FSnapshotV2>);
 
 } // namespace acs::editor_cloud_workload
 
@@ -26310,7 +26315,6 @@ constexpr bool ShouldUseAnalyticLocalFog(
 
 
 #include <cstddef>
-#include <type_traits>
 
 namespace acs::editor_service_diagnostics {
 
@@ -26395,8 +26399,8 @@ struct FDiagnostic {
 
 static_assert(sizeof(FDiagnostic) == kDiagnosticSize);
 static_assert(alignof(FDiagnostic) == 4u);
-static_assert(std::is_standard_layout_v<FDiagnostic>);
-static_assert(std::is_trivially_copyable_v<FDiagnostic>);
+static_assert(IsStandardLayoutV<FDiagnostic>);
+static_assert(IsTriviallyCopyableV<FDiagnostic>);
 static_assert(offsetof(FDiagnostic, host_generation) == 24u);
 static_assert(offsetof(FDiagnostic, message_utf8) == 32u);
 static_assert(offsetof(FDiagnostic, error_domain) == kLegacyDiagnosticSize);
@@ -55481,7 +55485,6 @@ using FBlit = CBlit;
 
 
 #include <cstddef>
-#include <type_traits>
 
 namespace acs {
 
@@ -55812,10 +55815,10 @@ static_assert(offsetof(FShaderExpressionInstruction, parameter_id) == 12u);
 static_assert(offsetof(FShaderExpressionInstruction, texture_metadata) == 16u);
 static_assert(offsetof(FShaderExpressionInstruction, value) == 28u);
 static_assert(offsetof(FShaderExpressionInstruction, reserved) == 44u);
-static_assert(std::is_standard_layout_v<FShaderExpressionInstruction>);
-static_assert(std::is_trivially_copyable_v<FShaderExpressionInstruction>);
-static_assert(std::is_standard_layout_v<FShaderExpressionGraph>);
-static_assert(std::is_trivially_copyable_v<FShaderExpressionGraph>);
+static_assert(IsStandardLayoutV<FShaderExpressionInstruction>);
+static_assert(IsTriviallyCopyableV<FShaderExpressionInstruction>);
+static_assert(IsStandardLayoutV<FShaderExpressionGraph>);
+static_assert(IsTriviallyCopyableV<FShaderExpressionGraph>);
 
 } // namespace acs
 
@@ -101950,8 +101953,8 @@ using FInput = CInput;
 // ===================== platform/StorageStringBatchEntry.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
+
 #include <cstddef>
-#include <type_traits>
 
 namespace acs {
 
@@ -101976,9 +101979,9 @@ static_assert(sizeof(FStorageStringBatchEntry) == sizeof(const char*) * 2u);
 static_assert(alignof(FStorageStringBatchEntry) == alignof(const char*));
 static_assert(offsetof(FStorageStringBatchEntry, key) == 0u);
 static_assert(offsetof(FStorageStringBatchEntry, value) == sizeof(const char*));
-static_assert(std::is_standard_layout_v<FStorageStringBatchEntry>);
-static_assert(std::is_trivially_copyable_v<FStorageStringBatchEntry>);
-static_assert(std::is_aggregate_v<FStorageStringBatchEntry>);
+static_assert(IsStandardLayoutV<FStorageStringBatchEntry>);
+static_assert(IsTriviallyCopyableV<FStorageStringBatchEntry>);
+static_assert(IsAggregateV<FStorageStringBatchEntry>);
 
 } // namespace acs
 

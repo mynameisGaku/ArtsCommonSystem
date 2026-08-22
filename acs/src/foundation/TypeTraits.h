@@ -211,6 +211,12 @@ template<typename T> inline constexpr bool IsPointerV = TIsPointer<RemoveCVT<T>>
 /** T がトリビアルコピー可能なら true (コンパイラ組み込み __is_trivially_copyable のラッパ)。 */
 template<typename T> inline constexpr bool IsTriviallyCopyableV     = __is_trivially_copyable(T);
 
+/** T が標準配置型なら true (コンパイラ組み込み __is_standard_layout のラッパ)。 */
+template<typename T> inline constexpr bool IsStandardLayoutV        = __is_standard_layout(T);
+
+/** T が集約型なら true (コンパイラ組み込み __is_aggregate のラッパ)。 */
+template<typename T> inline constexpr bool IsAggregateV             = __is_aggregate(T);
+
 /**
  * T をバイトコピーで再配置し、移動元のデストラクタを呼ばずに元領域を
  * 放棄できるかを表す。

@@ -2,10 +2,9 @@
 // Bounded, typed expression graph shared by Substrate runtime and editor preview.
 #pragma once
 
-#include "foundation/Types.h"
+#include "foundation/TypeTraits.h"
 
 #include <cstddef>
-#include <type_traits>
 
 namespace acs {
 
@@ -336,9 +335,9 @@ static_assert(offsetof(FShaderExpressionInstruction, parameter_id) == 12u);
 static_assert(offsetof(FShaderExpressionInstruction, texture_metadata) == 16u);
 static_assert(offsetof(FShaderExpressionInstruction, value) == 28u);
 static_assert(offsetof(FShaderExpressionInstruction, reserved) == 44u);
-static_assert(std::is_standard_layout_v<FShaderExpressionInstruction>);
-static_assert(std::is_trivially_copyable_v<FShaderExpressionInstruction>);
-static_assert(std::is_standard_layout_v<FShaderExpressionGraph>);
-static_assert(std::is_trivially_copyable_v<FShaderExpressionGraph>);
+static_assert(IsStandardLayoutV<FShaderExpressionInstruction>);
+static_assert(IsTriviallyCopyableV<FShaderExpressionInstruction>);
+static_assert(IsStandardLayoutV<FShaderExpressionGraph>);
+static_assert(IsTriviallyCopyableV<FShaderExpressionGraph>);
 
 } // namespace acs

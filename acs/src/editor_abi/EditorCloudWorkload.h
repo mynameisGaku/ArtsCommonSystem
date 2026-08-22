@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include "foundation/Types.h"
+#include "foundation/TypeTraits.h"
 
 #include <cstddef>
-#include <type_traits>
 
 namespace acs::editor_cloud_workload {
 
@@ -104,6 +103,6 @@ static_assert(offsetof(FSnapshotV2, base) == 0u);
 static_assert(offsetof(FSnapshotV2, world_shadow_dispatches) == 168u);
 static_assert(offsetof(FSnapshotV2, world_shadow_logical_invocations) == 176u);
 static_assert(offsetof(FSnapshotV2, maximum_world_shadow_samples) == 192u);
-static_assert(std::is_trivially_copyable_v<FSnapshotV2>);
+static_assert(IsTriviallyCopyableV<FSnapshotV2>);
 
 } // namespace acs::editor_cloud_workload

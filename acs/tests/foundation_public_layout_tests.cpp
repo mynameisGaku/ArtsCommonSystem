@@ -72,8 +72,8 @@ static_assert(alignof(FSubscriptionHandle) == 4u, "購読ハンドルのalignmen
 static_assert(offsetof(FSubscriptionHandle, channel) == 0u, "購読ハンドルの通路位置が変わりました");
 static_assert(offsetof(FSubscriptionHandle, id) == 4u, "購読ハンドルの番号位置が変わりました");
 static_assert(offsetof(FSubscriptionHandle, generation) == 8u, "購読ハンドルの世代位置が変わりました");
-static_assert(std::is_aggregate_v<FSubscriptionHandle>, "購読ハンドルは集約型である必要があります");
-static_assert(std::is_standard_layout_v<FSubscriptionHandle>, "購読ハンドルは標準layoutである必要があります");
+static_assert(IsAggregateV<FSubscriptionHandle>, "購読ハンドルは集約型である必要があります");
+static_assert(IsStandardLayoutV<FSubscriptionHandle>, "購読ハンドルは標準layoutである必要があります");
 static_assert(IsTriviallyCopyableV<FSubscriptionHandle>, "購読ハンドルは単純にコピーできる必要があります");
 static_assert(sizeof(FTimerHandle) <= 8u, "タイマハンドルの2整数予算を超えました");
 static_assert(sizeof(FThreadPoolDiagnostics) <= 96u, "thread pool診断型の予算を超えました");
