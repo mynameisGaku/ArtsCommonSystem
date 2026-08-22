@@ -946,6 +946,10 @@ ACS_REF.modules.push({
       members: [
         { sig: "ESvc WantedServices() const", desc: "自由camera用のscene入力serviceを要求する。" },
         { sig: "void SetFreeCameraEnabled(bool enabled)", desc: "固定tickでWASD/QE/矢印/PageUp/PageDownを評価する自由cameraを切り替える。" },
+        { sig: "void SetOrbitCameraActive(bool active)", desc: "trueでauthored cameraの自動再選択を抑止してorbit cameraを明示選択し、falseでdeterministic自動選択へ戻す。" },
+        { sig: "bool OrbitCameraActive() const", desc: "明示選択またはauthored camera不在の自動代替により、現在orbit cameraを描画へ使っているならtrueを返す。" },
+        { sig: "bool OrbitCameraOverrideActive() const", desc: "authored camera不在の自動代替を除き、SetOrbitCameraActive(true)による明示orbit overrideだけを返す。" },
+        { sig: "bool AuthoredCameraOverrideActive() const", desc: "SetActiveCamera成功による明示authored overrideならtrueを返し、AuthoredCamera()-&gt;NodeIdと組み合わせて復元できる。" },
         { sig: "bool TrySetOrbitCameraObstructionSettings(const FOrbitCameraObstructionSettings3D& settings)", desc: "target近傍、camera余白、任意probe半径、外向き復帰速度を検証し、presentation-onlyのscene mesh障害物回避を設定する。" },
         { sig: "const FOrbitCameraObstructionSettings3D& OrbitCameraObstructionSettings() const", desc: "現在の検証済み障害物回避設定を返す。既定は無効。" },
         { sig: "bool TryCaptureOrbitCameraSnapshot(FOrbitCameraFixedStepSnapshot3D& output) const", desc: "自由cameraのprevious/current補間区間を検証して複製する。" },

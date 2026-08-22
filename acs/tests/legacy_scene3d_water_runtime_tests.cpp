@@ -15,12 +15,57 @@
 
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <limits>
+#include <string>
 
 using namespace acs;
 using namespace acs::game;
 
 namespace {
+
+/** protected更新をcamera選択回帰から実行するLegacy 3D scene。 */
+class CCameraSelectionTestScene final : public ALegacyScene3DAdapter {
+public:
+    /** 一回の可変更新を実行する。 */
+    void UpdateForTest(f32 delta_seconds) noexcept { OnUpdate(delta_seconds); }
+};
+
+/** workspace内のcamera adapter headerをsource契約検査用に読む。 */
+std::string ReadLegacyCameraWorkspaceSource(const char* relative_path) {
+    const std::filesystem::path test_file{__FILE__};
+    const std::filesystem::path source_path =
+        test_file.parent_path().parent_path() /
+        std::filesystem::path{relative_path};
+    std::ifstream stream(source_path, std::ios::binary);
+    if (!stream) {
+        stream.open(
+            std::filesystem::path{"acs"} /
+            std::filesystem::path{relative_path},
+            std::ios::binary);
+    }
+    return std::string{
+        std::istreambuf_iterator<char>{stream},
+        std::istreambuf_iterator<char>{}};
+}
+
+/** 指定signatureの宣言行にvirtualが無ければtrueを返す。 */
+bool IsNonVirtualDeclarationLine(
+    const std::string& source,
+    const char* signature) {
+    const std::size_t declaration = source.find(signature);
+    if (declaration == std::string::npos) return false;
+    const std::size_t line_begin = source.rfind('\n', declaration);
+    const std::size_t line_end = source.find('\n', declaration);
+    const std::size_t begin =
+        line_begin == std::string::npos ? 0u : line_begin + 1u;
+    const std::size_t count =
+        line_end == std::string::npos
+            ? source.size() - begin : line_end - begin;
+    return source.substr(begin, count).find("virtual") == std::string::npos;
+}
 
 void ExpectVec3Near(FVec3 actual, FVec3 expected, f32 epsilon) noexcept {
     EXPECT_NEAR(actual.x, expected.x, epsilon);
@@ -58,6 +103,26 @@ TSharedPtr<AMeshAsset> MakePlanarTriangle() noexcept {
 }
 
 } // namespace
+
+ACS_TEST(LegacyScene3DCameraContract,
+         SelectionAccessorsRemainNonVirtualAndLayoutStable) {
+    const std::string header = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.h");
+    EXPECT_FALSE(header.empty());
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header, "void SetOrbitCameraActive(bool active) noexcept;"));
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header, "bool OrbitCameraActive() const noexcept"));
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header, "bool OrbitCameraOverrideActive() const noexcept;"));
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header, "bool AuthoredCameraOverrideActive() const noexcept;"));
+#if defined(_WIN64)
+    EXPECT_EQ(
+        sizeof(ALegacyScene3DAdapter),
+        static_cast<usize>(377360u));
+#endif
+}
 
 ACS_TEST(LegacyScene3DWaterRuntime, TransformedPlaneUsesExactWorldHit) {
     ALegacyScene3DAdapter runtime;
@@ -313,6 +378,112 @@ ACS_TEST(LegacyScene3DCameraRuntime,
     EXPECT_EQ(
         runtime.ProjectionMode(),
         ESceneProjectionMode::Perspective);
+}
+
+ACS_TEST(LegacyScene3DCameraRuntime,
+         ExplicitOrbitSelectionSurvivesAutomaticRefreshUntilReleased) {
+    constexpr char kScene[] =
+        "ACS3D v2\n"
+        "N3D 10 -1 -1 4 5 6 0 0 0 1 1 1 1 1 1 1 Authored\n"
+        "CAM3D 10 authored.main 1 5 1 45 18 0.2 4000\n";
+
+    CCameraSelectionTestScene runtime;
+    runtime.SetFreeCameraEnabled(false);
+    const FScene3DLoadResult loaded =
+        runtime.LoadText(kScene, sizeof(kScene) - 1u);
+    EXPECT_TRUE(loaded.Succeeded());
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() != nullptr);
+
+    EXPECT_TRUE(runtime.SetActiveCamera("authored.main"));
+    EXPECT_TRUE(runtime.AuthoredCameraOverrideActive());
+    runtime.SetOrbit(FVec3{1.0f, 2.0f, 3.0f}, 0.0f, 0.0f, 5.0f);
+    runtime.SetOrbitCameraActive(true);
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() == nullptr);
+    EXPECT_EQ(runtime.ProjectionMode(), ESceneProjectionMode::Perspective);
+    ExpectVec3Near(runtime.Camera().Eye(), FVec3{1.0f, 2.0f, -2.0f}, 1.0e-6f);
+
+    runtime.UpdateForTest(1.0f / 60.0f);
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() == nullptr);
+    EXPECT_FALSE(runtime.SetActiveCamera("missing.camera"));
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+
+    EXPECT_TRUE(runtime.SetActiveCamera(10));
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() != nullptr);
+    EXPECT_EQ(runtime.AuthoredCamera()->NodeId, 10);
+    ExpectVec3Near(runtime.Camera().Eye(), FVec3{4.0f, 5.0f, 6.0f}, 1.0e-6f);
+
+    runtime.SetOrbitCameraActive(true);
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.ClearActiveCameraOverride());
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    runtime.SetOrbitCameraActive(true);
+    EXPECT_TRUE(runtime.UseAutomaticCameraSelection());
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    runtime.SetOrbitCameraActive(true);
+    runtime.SetOrbitCameraActive(false);
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+}
+
+ACS_TEST(LegacyScene3DCameraRuntime,
+         AutomaticSelectionKeepsOrbitOnlyWhileNoAuthoredCameraExists) {
+    CCameraSelectionTestScene runtime;
+    runtime.SetFreeCameraEnabled(false);
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    runtime.SetOrbitCameraActive(true);
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    runtime.SetOrbitCameraActive(false);
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    runtime.SetOrbitCameraActive(true);
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+
+    FScene3DSpawnResult spawned =
+        runtime.Graph().TrySpawn(FStringView("RuntimeCamera"));
+    EXPECT_TRUE(spawned.Succeeded());
+    if (!spawned) return;
+    auto& camera = spawned.Node->AddComponent<ACameraComponent3D>();
+    FScene3DCameraState authored;
+    authored.IsAuthored = true;
+    authored.IsActivePreferred = true;
+    authored.Priority = 10;
+    std::memcpy(authored.StableId, "runtime.camera", 15u);
+    EXPECT_TRUE(camera.TrySetAuthoredState(authored));
+
+    runtime.UpdateForTest(1.0f / 60.0f);
+    EXPECT_TRUE(runtime.OrbitCameraActive());
+    EXPECT_TRUE(runtime.OrbitCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() == nullptr);
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+
+    runtime.SetOrbitCameraActive(false);
+    EXPECT_FALSE(runtime.OrbitCameraActive());
+    EXPECT_FALSE(runtime.OrbitCameraOverrideActive());
+    EXPECT_FALSE(runtime.AuthoredCameraOverrideActive());
+    EXPECT_TRUE(runtime.AuthoredCamera() != nullptr);
+    EXPECT_EQ(runtime.AuthoredCamera()->NodeId, spawned.Node->SerialId());
 }
 
 ACS_TEST(LegacyScene3DCameraRuntime,

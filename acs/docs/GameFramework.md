@@ -338,6 +338,16 @@ probe半径0なら点ray、正値ならcamera本体の半径を保守的に扱�
 presentation距離だけを短縮する。外向き復帰速度は0なら従来互換の即時反映、正値なら明示した
 可変frame時間による指数復帰になり、障害物へ近づく方向は常に即時反映する。
 
+`ALegacyScene3DAdapter::SetOrbitCameraActive(true)`はscene graph内に有効な`ACameraComponent3D`が
+存在していてもorbit cameraを明示選択し、毎frameのauthored camera再選択では解除されない。
+`SetActiveCamera`の成功、`SetOrbitCameraActive(false)`、`ClearActiveCameraOverride`、
+`UseAutomaticCameraSelection`で明示選択を解除し、通常のdeterministic authored camera選択へ戻る。
+有効なauthored cameraが無い場合はorbit cameraが自動代替として残る。`OrbitCameraActive()`は
+明示選択と自動代替を区別せず、現在実際にorbit cameraを描画へ使っているかを返す。
+`OrbitCameraOverrideActive()`は明示選択だけを返すため、接続前の自動選択modeを厳密に復元できる。
+接続前が`SetActiveCamera`による明示authored選択だった場合は`AuthoredCameraOverrideActive()`と
+`AuthoredCamera()->NodeId`を保存し、接続解除時に`SetActiveCamera(NodeId)`で同じ選択へ戻せる。
+
 ### scene 遷移
 
 `ChangeScene`、`PushScene`、`PopScene` は要求を保留し、frame 境界で適用する。同じ境界までに

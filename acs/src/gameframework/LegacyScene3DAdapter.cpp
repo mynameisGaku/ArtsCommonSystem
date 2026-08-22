@@ -478,7 +478,21 @@ void ALegacyScene3DAdapter::AdoptLoadedCamera() noexcept {
     m_UseAuthoredCamera = RefreshAuthoredCameraPose();
 }
 
+bool ALegacyScene3DAdapter::HasExplicitOrbitCameraOverride_Internal() const noexcept {
+    return m_HasExplicitCameraOverride && m_ActiveCameraNodeId < 0;
+}
+
+void ALegacyScene3DAdapter::ResetOrbitCameraPresentation_Internal() noexcept {
+    m_PreviousOrbitCameraState = m_OrbitCameraState;
+    m_PresentedOrbitCameraState = m_OrbitCameraState;
+    m_IsOrbitCameraObstructionPresentationActive = false;
+}
+
 bool ALegacyScene3DAdapter::RefreshAuthoredCameraPose() noexcept {
+    if (HasExplicitOrbitCameraOverride_Internal()) {
+        m_UseAuthoredCamera = false;
+        return false;
+    }
     if (m_HasExplicitCameraOverride && m_ActiveCameraNodeId >= 0) {
         const ANode* node =
             Graph().Root().FindBySerialId(m_ActiveCameraNodeId);
@@ -524,6 +538,30 @@ bool ALegacyScene3DAdapter::RefreshAuthoredCameraPose() noexcept {
     return true;
 }
 
+void ALegacyScene3DAdapter::SetOrbitCameraActive(bool active) noexcept {
+    if (!active) {
+        ClearActiveCameraOverride();
+        return;
+    }
+    if (HasExplicitOrbitCameraOverride_Internal()) return;
+
+    m_HasExplicitCameraOverride = true;
+    m_ActiveCameraNodeId = -1;
+    m_UseAuthoredCamera = false;
+    m_AuthoredCamera = FScene3DCameraState{};
+    m_Projection = ESceneProjectionMode::Perspective;
+    ResetOrbitCameraPresentation_Internal();
+    UpdateCameraView();
+}
+
+bool ALegacyScene3DAdapter::OrbitCameraOverrideActive() const noexcept {
+    return HasExplicitOrbitCameraOverride_Internal();
+}
+
+bool ALegacyScene3DAdapter::AuthoredCameraOverrideActive() const noexcept {
+    return m_HasExplicitCameraOverride && m_ActiveCameraNodeId >= 0;
+}
+
 u32 ALegacyScene3DAdapter::CameraCount() const noexcept {
     return CountCamerasRecursive(Graph().Root());
 }
@@ -547,6 +585,8 @@ bool ALegacyScene3DAdapter::SetActiveCamera(const char* stable_id) noexcept {
         live.Projection == EScene3DCameraProjection::Orthographic
             ? ESceneProjectionMode::Orthographic
             : ESceneProjectionMode::Perspective;
+    ResetOrbitCameraPresentation_Internal();
+    UpdateCameraView();
     return true;
 }
 
@@ -567,12 +607,17 @@ bool ALegacyScene3DAdapter::SetActiveCamera(i32 node_id) noexcept {
         live.Projection == EScene3DCameraProjection::Orthographic
             ? ESceneProjectionMode::Orthographic
             : ESceneProjectionMode::Perspective;
+    ResetOrbitCameraPresentation_Internal();
+    UpdateCameraView();
     return true;
 }
 
 bool ALegacyScene3DAdapter::ClearActiveCameraOverride() noexcept {
     m_HasExplicitCameraOverride = false;
-    return RefreshAuthoredCameraPose();
+    const bool selected_authored_camera = RefreshAuthoredCameraPose();
+    ResetOrbitCameraPresentation_Internal();
+    UpdateCameraView();
+    return selected_authored_camera;
 }
 
 void ALegacyScene3DAdapter::FrameScene() noexcept {
@@ -4168,9 +4213,7 @@ void ALegacyScene3DAdapter::SetFreeCameraEnabled(bool enabled) noexcept
 {
     if (m_FreeCameraEnabled == enabled) return;
     m_FreeCameraEnabled = enabled;
-    m_PreviousOrbitCameraState = m_OrbitCameraState;
-    m_PresentedOrbitCameraState = m_OrbitCameraState;
-    m_IsOrbitCameraObstructionPresentationActive = false;
+    ResetOrbitCameraPresentation_Internal();
     UpdateCameraView();
 }
 

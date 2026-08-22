@@ -15319,8 +15319,8 @@ using FSkinnedMeshAsset = ASkinnedMeshAsset;
  * アニメーションを再生し、GPU 用ボーンパレットを計算するプレイヤ。
  *
  * @details
- * SetMesh でスキンメッシュを設定し Play でクリップを選択、Update で時刻を進め、
- * WritePalette で現在時刻の (world * inverse_bind) パレットを書き出す。
+ * SetMesh でスキンメッシュを設定し Play または BlendTo でクリップを選択、Update で
+ * 時刻を進め、WritePalette で現在時刻の (world * inverse_bind) パレットを書き出す。
  */
 class CAnimationPlayer {
 public:
@@ -15332,7 +15332,7 @@ public:
      *
      * @param mesh 参照するスキンメッシュ (所有はしない)。
      */
-    void SetMesh(const ASkinnedMeshAsset* mesh) noexcept { m_Mesh = mesh; m_Anim = -1; m_Time = 0; }
+    void SetMesh(const ASkinnedMeshAsset* mesh) noexcept;
 
     /**
      * 指定インデックスのアニメーションを先頭から再生する。
@@ -15343,28 +15343,46 @@ public:
      */
     void Play(u32 anim_index, bool loop = true) noexcept;
 
+    /**
+     * 現在姿勢から指定アニメーションの先頭へ滑らかに切り替える。
+     *
+     * @details 遷移中は切替元と切替先の時刻をともに進め、各ボーンのローカルTRSを
+     * 平行移動・スケールは線形、回転はslerpで混ぜてから親子階層を合成する。
+     * blend_seconds == 0 は Play と同じ即時切替になる。mesh未設定、範囲外index、
+     * 非有限または負の期間、非有限な現在時刻では何も変更せずfalseを返す。
+     * 進行中の遷移へ新しい遷移を重ねる要求も、現在の姿勢と再生状態を保ってfalseを返す。
+     * 呼び出し側は現在の遷移が完了した後に再試行できる。
+     * @param animation_index 切替先アニメーションのindex。
+     * @param blend_seconds 姿勢を混ぜる有限かつ0以上の秒数。
+     * @param loop 切替先を繰り返すならtrue。
+     * @return 切替要求を受理したらtrue。
+     */
+    bool BlendTo(u32 animation_index, f32 blend_seconds, bool loop = true) noexcept;
+
     /** 再生を一時停止する (時刻は保持)。 */
     void Pause() noexcept { m_Playing = false; }
 
     /** 一時停止した再生を再開する。 */
     void Resume() noexcept { m_Playing = true; }
 
-    /** 再生を停止し時刻を 0 に戻す。 */
-    void Stop() noexcept { m_Playing = false; m_Time = 0; }
+    /** 再生と姿勢遷移を停止し、切替先の時刻を0へ戻す。 */
+    void Stop() noexcept;
 
     /**
      * 再生時刻を直接設定する。
      *
+     * @details 有限値だけを受理する。姿勢遷移中は遷移を解除して切替先だけを残す。
+     * NaNと正負の無限大は現在時刻と姿勢遷移を変更しない。
      * @param t 設定する時刻 (秒)。
      */
-    void SetTime(f32 t) noexcept { m_Time = t; }
+    void SetTime(f32 t) noexcept;
 
     /**
      * 現在の再生時刻を返す。
      *
      * @return 現在の時刻 (秒)。
      */
-    f32  Time() const noexcept { return m_Time; }
+    f32  Time() const noexcept;
 
     /**
      * 再生中かどうかを返す。
@@ -15385,8 +15403,9 @@ public:
      * 現在時刻のボーンパレットを書き込み、書き込んだボーン数を返す。
      *
      * @details
-     * 各ボーンのアニメーション後ローカル TRS を求め、親から合成したワールド行列に
-     * inverse_bind を掛けたものを out_palette へ書く。アニメ無し (m_Anim==-1) ならバインド姿勢を使う。
+     * 各ボーンのアニメーション後ローカルTRSを求め、姿勢遷移中は階層合成より前に
+     * 切替元と切替先を混ぜる。親から合成したワールド行列にinverse_bindを掛けたものを
+     * out_paletteへ書く。アニメ無し (m_Anim==-1) ならバインド姿勢を使う。
      * @param out_palette 最大 max_count 個の FMat4 を書き込む領域。
      * @param max_count 書き込める最大ボーン数。
      * @return 実際に書き込んだボーン数。
@@ -15394,6 +15413,18 @@ public:
     u32 WritePalette(FMat4* out_palette, u32 max_count) const noexcept;
 
 private:
+    /** 姿勢遷移中ならtrueを返す。 */
+    bool IsBlending_Internal() const noexcept { return m_BlendDuration > 0.0f; }
+
+    /** 姿勢遷移の保存値を初期状態へ戻す。 */
+    void ClearBlend_Internal() noexcept;
+
+    /** packed値から切替元アニメーションのindexを返す。 */
+    u32 BlendSourceIndex_Internal() const noexcept;
+
+    /** packed値から切替元のloop指定を返す。 */
+    bool BlendSourceLoops_Internal() const noexcept { return m_BlendFromAnimation < 0; }
+
     /** 参照中のスキンメッシュ (所有しない)。 */
     const ASkinnedMeshAsset* m_Mesh    = nullptr;
 
@@ -15408,6 +15439,15 @@ private:
 
     /** 再生中フラグ。 */
     bool                    m_Playing = false;
+
+    /** 切替元index。負値はloop指定を兼ね、-index-1で格納する。 */
+    i32                     m_BlendFromAnimation = 0;
+
+    /** 姿勢遷移を開始した時点の切替元clip時刻。 */
+    f32                     m_BlendFromTime = 0.0f;
+
+    /** 姿勢を混ぜる総秒数。0なら遷移なし。 */
+    f32                     m_BlendDuration = 0.0f;
 };
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */
@@ -55640,6 +55680,19 @@ public:
     void Play(u32 index, bool loop = true) noexcept;
 
     /**
+     * 現在姿勢から指定番号のアニメーションへ滑らかに切り替える。
+     *
+     * @details 0秒はPlayと同じ即時切替。mesh未設定、範囲外index、非有限または負の期間では
+     * 現在の再生を変更しない。進行中の遷移へ新しい遷移を重ねる要求も拒否し、
+     * 現在の姿勢と再生状態を維持する。呼び出し側は遷移完了後に再試行できる。
+     * @param index 切替先のclip番号。
+     * @param blend_seconds 姿勢を混ぜる有限かつ0以上の秒数。
+     * @param loop 切替先を繰り返すならtrue。
+     * @return 切替要求を受理したらtrue。
+     */
+    bool BlendTo(u32 index, f32 blend_seconds, bool loop = true) noexcept;
+
+    /**
      * 名前でアニメーションを探して再生する。
      *
      * @details
@@ -55650,6 +55703,18 @@ public:
      * @return 見つかって再生を始めたら true。
      */
     bool PlayByName(FStringView name, bool loop = true) noexcept;
+
+    /**
+     * 名前でアニメーションを探し、現在姿勢から滑らかに切り替える。
+     *
+     * @details 進行中の遷移へ新しい遷移を重ねる要求は拒否し、現在の姿勢と再生状態を維持する。
+     * 呼び出し側は遷移完了後に再試行できる。
+     * @param name 切替先のclip名。
+     * @param blend_seconds 姿勢を混ぜる有限かつ0以上の秒数。
+     * @param loop 切替先を繰り返すならtrue。
+     * @return clipが見つかり、切替要求を受理したらtrue。
+     */
+    bool BlendToByName(FStringView name, f32 blend_seconds, bool loop = true) noexcept;
 
     /** 再生を止める (姿勢はその場に残る)。 */
     void Pause() noexcept;
@@ -55699,6 +55764,9 @@ public:
     bool IsAdvancing() const noexcept { return m_Advancing; }
 
 private:
+    /** 名前が一致するclip番号を探し、見つかった場合だけout_indexへ書く。 */
+    bool FindAnimationByName_Internal(FStringView name, u32& out_index) const noexcept;
+
     /** 骨付きメッシュ (所有を分け合う)。 */
     TSharedPtr<ASkinnedMeshAsset> m_Mesh;
 
@@ -61556,6 +61624,40 @@ public:
     /** Read-only standalone camera. */
     const CCamera& Camera() const noexcept { return m_Camera; }
 
+    /**
+     * authored cameraの有無にかかわらず、orbit cameraを明示的に選ぶかを設定する。
+     *
+     * @details trueでは毎frameのcamera再選択を抑止し、falseでは明示camera指定を解除して
+     * deterministic authored camera選択へ戻す。authored cameraが無い場合はorbit cameraを維持する。
+     * 切替時はorbit cameraの補間区間を現在状態へ揃え、古い表示区間を残さない。
+     * @param active orbit cameraを明示選択するならtrue。
+     */
+    void SetOrbitCameraActive(bool active) noexcept;
+
+    /**
+     * 現在の描画cameraがorbit cameraならtrueを返す。
+     *
+     * @details 明示選択だけでなく、authored cameraが無い自動代替もtrueになる。
+     * @return orbit cameraを使っているならtrue。
+     */
+    bool OrbitCameraActive() const noexcept { return !m_UseAuthoredCamera; }
+
+    /**
+     * orbit cameraを明示的に選択しているならtrueを返す。
+     *
+     * @details authored camera不在による自動代替はfalse。Bind前の選択modeを復元する用途で使う。
+     * @return SetOrbitCameraActive(true)による明示overrideが有効ならtrue。
+     */
+    bool OrbitCameraOverrideActive() const noexcept;
+
+    /**
+     * authored cameraをstable idまたはnode idで明示選択しているならtrueを返す。
+     *
+     * @details trueの場合はAuthoredCamera()->NodeIdを保存し、SetActiveCamera(NodeId)で復元できる。
+     * @return SetActiveCamera成功による明示overrideが有効ならtrue。
+     */
+    bool AuthoredCameraOverrideActive() const noexcept;
+
     /** Deterministically selected authored camera, or null for frame-scene fallback. */
     const FScene3DCameraState* AuthoredCamera() const noexcept {
         return m_UseAuthoredCamera ? &m_AuthoredCamera : nullptr;
@@ -62101,6 +62203,10 @@ private:
      */
     FVec3 SunColorForWater() const noexcept;
     void AdoptLoadedCamera() noexcept;
+    /** 明示的なorbit camera選択を保持しているならtrueを返す。 */
+    bool HasExplicitOrbitCameraOverride_Internal() const noexcept;
+    /** orbit cameraの補間履歴と障害物回避表示を現在状態へ揃える。 */
+    void ResetOrbitCameraPresentation_Internal() noexcept;
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
     IRhiTexture* TextureFor(const ASprite3DComponent& component) const noexcept;
@@ -87249,6 +87355,153 @@ private:
 
 }
 }
+
+// ===================== gameframework/collision/KinematicCharacterMovement3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== gameframework/collision/KinematicCharacterMovementInput3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 一回のkinematic character移動へ渡す操作入力とcollision filter。 */
+struct FKinematicCharacterMovementInput3D {
+    /** world X/Z軸へ適用する希望水平速度。xはworld X、yはworld Zを表す。 */
+    FVec2 DesiredHorizontalVelocity{};
+
+    /** queryから除外する自身の登録shape。無効またはstaleなら除外しない。 */
+    FCollisionShapeId3D SelfShape{};
+
+    /** 登録shapeのlayerとのANDが0でないshapeだけを対象にするmask。 */
+    u32 CollisionMask = 0xFFFFFFFFu;
+
+    /** 接地中かつJumpSpeedが0より大きい場合に上向き初速を与える要求。 */
+    bool JumpRequested = false;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/collision/KinematicCharacterMovementParams3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** sphere型kinematic characterの形状と移動調整値。 */
+struct FKinematicCharacterMovementParams3D {
+    /** characterを近似するsphere半径。有限かつ0より大きい値だけを受理する。 */
+    f32 Radius = 0.5f;
+
+    /** world -Y方向へ加える加速度。有限かつ0以上の値だけを受理する。 */
+    f32 GravityAcceleration = 9.80665f;
+
+    /** 接地中のjump要求で設定するworld +Y初速。有限かつ0以上で、0はjump無効を表す。 */
+    f32 JumpSpeed = 5.0f;
+
+    /** 接触後に法線方向へ離す距離。有限で0より大きく、Radius未満でなければならない。 */
+    f32 ContactOffset = 0.001f;
+
+    /** 接地確認でsphereを下へ調べる追加距離。有限かつ0以上の値だけを受理する。 */
+    f32 GroundProbeDistance = 0.05f;
+
+    /** 歩行可能とみなす接触法線Y成分の下限。有限な0以上1以下でなければならない。 */
+    f32 MinimumGroundNormalY = 0.7f;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/collision/KinematicCharacterMovementResult3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== gameframework/collision/KinematicCharacterState3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** sphereで近似するkinematic characterの一時刻分の状態。 */
+struct FKinematicCharacterState3D {
+    /** character sphere中心のworld座標。 */
+    FVec3 Position{};
+
+    /** 重力と接触面への投影を反映したworld速度。 */
+    FVec3 Velocity{};
+
+    /** 接地面のworld単位法線。非接地時は零ベクトル。 */
+    FVec3 GroundNormal{};
+
+    /** 歩行可能な面を直下または移動経路で検出していればtrue。 */
+    bool Grounded = false;
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/** 一回のkinematic character移動で確定した次状態と接触事象。 */
+struct FKinematicCharacterMovementResult3D {
+    /** 呼び出し側が次回入力として保持する確定済み状態。 */
+    FKinematicCharacterState3D NextState{};
+
+    /** 入力PositionからNextState.Positionまでのworld移動量。貫通解消を含む。 */
+    FVec3 Translation{};
+
+    /** 最後にsweepまたは接地確認で接触したshape。接触なしでは無効。 */
+    FCollisionShapeId3D LastCollisionShape{};
+
+    /** LastCollisionShapeからcharacterへ向くworld単位法線。接触なしでは零。 */
+    FVec3 LastCollisionNormal{};
+
+    /** 移動sweepと接地確認で検出した接触回数。 */
+    u32 CollisionCount = 0u;
+
+    /** 移動前後の貫通解消で実際に適用した分離回数の合計。 */
+    u32 DepenetrationIterationCount = 0u;
+
+    /** 接地中に0より大きいJumpSpeedでjump要求を受理した場合はtrue。 */
+    bool Jumped = false;
+
+    /** 一回以上の貫通分離を適用した場合はtrue。 */
+    bool Depenetrated = false;
+
+    /** 歩行可能な面へ接触または接地確認した場合はtrue。 */
+    bool HitGround = false;
+
+    /** 歩行可能面と天井以外へ接触した場合はtrue。 */
+    bool HitWall = false;
+
+    /** 下向き法線を持つ面へ接触した場合はtrue。 */
+    bool HitCeiling = false;
+
+    /** 4回のslide後にも未適用移動が残り、安全のため打ち切った場合はtrue。 */
+    bool SlideIterationLimitReached = false;
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/**
+ * 既存collision worldを変更せず、sphere型characterの次状態と接触事象を計算する。
+ *
+ * @details 移動前後の貫通解消は各4回、移動sweepと接触面slideは最大4回、接地確認は1回に
+ * 固定する。入力不正、非有限な中間値、または固定回数内に貫通を解消できない場合はfalseを返し、
+ * out_resultを変更しない。JumpSpeedが0ならjump要求を無効として接地を再確認する。
+ * world、state、input、paramsも変更しない。
+ * @param world AABBとsphereを登録済みの3D collision query world。
+ * @param input 希望水平速度、jump要求、layer mask、自己除外shape。
+ * @param state 現在のsphere中心、速度、接地状態。
+ * @param delta_time 進める有限かつ0以上の秒数。
+ * @param params sphere半径、重力、jump初速、接触調整値。
+ * @param out_result 次状態と接触事象の書き込み先。失敗時は変更しない。
+ * @return 入力検証、貫通解消、有限な次状態の確定に成功した場合だけtrue。
+ */
+bool TryMoveKinematicCharacter3D(const CCollisionWorld3D& world, const FKinematicCharacterMovementInput3D& input, const FKinematicCharacterState3D& state, f32 delta_time, const FKinematicCharacterMovementParams3D& params, FKinematicCharacterMovementResult3D& out_result) noexcept;
+
+} // namespace acs::game
 
 // ===================== gameframework/tools/animcurve/AnimCurveEditorPanel.h =====================
 // SPDX-License-Identifier: Apache-2.0

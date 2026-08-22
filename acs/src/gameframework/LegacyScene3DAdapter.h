@@ -619,6 +619,40 @@ public:
     /** Read-only standalone camera. */
     const CCamera& Camera() const noexcept { return m_Camera; }
 
+    /**
+     * authored cameraの有無にかかわらず、orbit cameraを明示的に選ぶかを設定する。
+     *
+     * @details trueでは毎frameのcamera再選択を抑止し、falseでは明示camera指定を解除して
+     * deterministic authored camera選択へ戻す。authored cameraが無い場合はorbit cameraを維持する。
+     * 切替時はorbit cameraの補間区間を現在状態へ揃え、古い表示区間を残さない。
+     * @param active orbit cameraを明示選択するならtrue。
+     */
+    void SetOrbitCameraActive(bool active) noexcept;
+
+    /**
+     * 現在の描画cameraがorbit cameraならtrueを返す。
+     *
+     * @details 明示選択だけでなく、authored cameraが無い自動代替もtrueになる。
+     * @return orbit cameraを使っているならtrue。
+     */
+    bool OrbitCameraActive() const noexcept { return !m_UseAuthoredCamera; }
+
+    /**
+     * orbit cameraを明示的に選択しているならtrueを返す。
+     *
+     * @details authored camera不在による自動代替はfalse。Bind前の選択modeを復元する用途で使う。
+     * @return SetOrbitCameraActive(true)による明示overrideが有効ならtrue。
+     */
+    bool OrbitCameraOverrideActive() const noexcept;
+
+    /**
+     * authored cameraをstable idまたはnode idで明示選択しているならtrueを返す。
+     *
+     * @details trueの場合はAuthoredCamera()->NodeIdを保存し、SetActiveCamera(NodeId)で復元できる。
+     * @return SetActiveCamera成功による明示overrideが有効ならtrue。
+     */
+    bool AuthoredCameraOverrideActive() const noexcept;
+
     /** Deterministically selected authored camera, or null for frame-scene fallback. */
     const FScene3DCameraState* AuthoredCamera() const noexcept {
         return m_UseAuthoredCamera ? &m_AuthoredCamera : nullptr;
@@ -1164,6 +1198,10 @@ private:
      */
     FVec3 SunColorForWater() const noexcept;
     void AdoptLoadedCamera() noexcept;
+    /** 明示的なorbit camera選択を保持しているならtrueを返す。 */
+    bool HasExplicitOrbitCameraOverride_Internal() const noexcept;
+    /** orbit cameraの補間履歴と障害物回避表示を現在状態へ揃える。 */
+    void ResetOrbitCameraPresentation_Internal() noexcept;
     bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
     IRhiTexture* TextureFor(const ASprite3DComponent& component) const noexcept;
