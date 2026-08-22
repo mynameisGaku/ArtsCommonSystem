@@ -752,6 +752,31 @@ ACS_TEST(PostEffects,
 }
 
 ACS_TEST(PostEffects,
+         SpriteBatchRestoresVertexStateAfterPartialUpload)
+{
+    const std::string source =
+        ReadWorkspaceSource("src/render/SpriteBatch.cpp");
+    const std::string flush = ExtractFunction(
+        source, "void CSpriteBatch::Flush() noexcept");
+    EXPECT_TRUE(!source.empty());
+    EXPECT_TRUE(!flush.empty());
+    if (flush.empty()) return;
+
+    // Diligent の UpdateBuffer が作る COPY_DEST 状態を、描画前に頂点状態へ戻す。
+    const std::size_t upload = flush.find(
+        "m_Vb->Update(m_VertexCpu + first_sprite * 4, byte_size, byte_offset);");
+    const std::size_t restore = flush.find(
+        "m_Cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));", upload);
+    const std::size_t draw = flush.find(
+        "m_Cl->DrawIndexed(count * 6, first_sprite * 6, 0);", restore);
+    EXPECT_TRUE(upload != std::string::npos);
+    EXPECT_TRUE(restore != std::string::npos);
+    EXPECT_TRUE(draw != std::string::npos);
+    EXPECT_TRUE(upload < restore);
+    EXPECT_TRUE(restore < draw);
+}
+
+ACS_TEST(PostEffects,
          LegacyScene3DGlobalIlluminationUsesSharedPrepassAndPreviousFrame)
 {
     const std::string adapter =
