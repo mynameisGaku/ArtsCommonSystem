@@ -1579,7 +1579,12 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
         float baseDensity=remapc(macro.baseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0);
         if(baseDensity>0.001){
             float h=macro.height;
-            float d=baseDensity;
+            // 高さ形状と被覆を含む実際の粗密度を先に確定し、その表面を侵食する。
+            // 基本密度だけを先に侵食すると、値1の雲芯では細部が消えて滑らかな高さ面が残る。
+            float coarseDensity=saturate(
+                baseDensity*weatherMask*macro.profileClosure
+                *cloudHeightPrecipitationDensityScale(h,macro.weather.b));
+            float d=coarseDensity;
             detailVisibility=saturate(detailVisibility);
             [branch] if(detailVisibility>0.001){
                 // 基本形状とは別のメートル基準領域を使い、雲塊と細部に同じ模様を出さない。
@@ -1592,10 +1597,10 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                 float detailFar=ndA.r*0.62+ndB.r*0.38;
                 float detail=lerp(detailFar,detailNear,saturate(detailFrequencyWeight));
                 float erosion=lerp(0.10,0.24,smoothstep(0.18,0.92,h));
-                float eroded=remapc(baseDensity,detail*erosion,1.0,0.0,1.0);
-                d=lerp(baseDensity,eroded,detailVisibility);
+                float eroded=remapc(coarseDensity,detail*erosion,1.0,0.0,1.0);
+                d=lerp(coarseDensity,eroded,detailVisibility);
             }
-            densityResult=saturate(d*weatherMask*macro.profileClosure*cloudHeightPrecipitationDensityScale(h,macro.weather.b));
+            densityResult=saturate(d);
         }
     }
     return densityResult;

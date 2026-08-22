@@ -332,6 +332,13 @@ f32 SaturateForTest(f32 value) noexcept {
     return value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
 }
 
+// 0～1 の値を指定区間から再配置し、シェーダーと同じ範囲へ収める。
+f32 RemapUnitRangeForTest(f32 value, f32 lower, f32 upper) noexcept {
+    const f32 width = upper - lower > 1.0e-5f
+        ? upper - lower : 1.0e-5f;
+    return SaturateForTest((value - lower) / width);
+}
+
 f32 SmoothStepForTest(f32 edge0, f32 edge1, f32 value) noexcept {
     const f32 t = SaturateForTest(
         (value - edge0) / (edge1 - edge0));
@@ -1300,7 +1307,7 @@ ACS_TEST(VolumetricClouds, DetailVisibilityFollowsRaySampleSpacing) {
     EXPECT_FALSE(Contains(shader, "floatdetailEnd=80000.0;"));
     const std::size_t detailBranch = shader.find("[branch]if(detailVisibility>0.001){");
     const std::size_t firstDetailRead = shader.find("detailNoise.SampleLevel(", detailBranch);
-    const std::size_t erosionBlend = shader.find("d=lerp(baseDensity,eroded,detailVisibility);", firstDetailRead);
+    const std::size_t erosionBlend = shader.find("d=lerp(coarseDensity,eroded,detailVisibility);", firstDetailRead);
     EXPECT_TRUE(detailBranch != std::string::npos);
     EXPECT_TRUE(firstDetailRead != std::string::npos);
     EXPECT_TRUE(erosionBlend != std::string::npos);
@@ -2350,7 +2357,7 @@ ACS_TEST(VolumetricClouds,
 }
 
 ACS_TEST(VolumetricClouds,
-         DetailErosionPrecedesSoftProfileAndWeatherAttenuation) {
+         DetailErosionShapesTheProfileAndWeatherSurface) {
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudCS"));
@@ -2361,19 +2368,50 @@ ACS_TEST(VolumetricClouds,
     const std::size_t threshold = shader.find(
         "macro.heightThreshold=cloudHeightThresholdFromTarget(", profile);
     const std::size_t base = shader.find("floatbaseDensity=remapc(", threshold);
+    const std::size_t coarse = shader.find(
+        "floatcoarseDensity=saturate(baseDensity*weatherMask*macro.profileClosure*cloudHeightPrecipitationDensityScale(h,macro.weather.b));",
+        base);
     const std::size_t erosion = shader.find(
-        "remapc(baseDensity,detail*erosion,1.0,0.0,1.0)");
-    const std::size_t attenuation = shader.find("d*weatherMask*macro.profileClosure", erosion);
+        "remapc(coarseDensity,detail*erosion,1.0,0.0,1.0)",
+        coarse);
+    const std::size_t finalDensity = shader.find(
+        "densityResult=saturate(d);", erosion);
     EXPECT_TRUE(profile != std::string::npos);
     EXPECT_TRUE(threshold != std::string::npos);
     EXPECT_TRUE(base != std::string::npos);
+    EXPECT_TRUE(coarse != std::string::npos);
     EXPECT_TRUE(erosion != std::string::npos);
-    EXPECT_TRUE(attenuation != std::string::npos);
+    EXPECT_TRUE(finalDensity != std::string::npos);
     EXPECT_TRUE(profile < threshold);
     EXPECT_TRUE(threshold < base);
-    EXPECT_TRUE(base < erosion);
-    EXPECT_TRUE(erosion < attenuation);
-    EXPECT_FALSE(Contains(shader, "eroded*weatherMask*macro.profileWeight"));
+    EXPECT_TRUE(base < coarse);
+    EXPECT_TRUE(coarse < erosion);
+    EXPECT_TRUE(erosion < finalDensity);
+    EXPECT_FALSE(Contains(
+        shader,
+        "remapc(baseDensity,detail*erosion,1.0,0.0,1.0)"));
+    EXPECT_FALSE(Contains(
+        shader,
+        "d*weatherMask*macro.profileClosure"));
+
+    // 基本密度が1でも、高さ形状で薄くなった実表面は詳細侵食の対象になる。
+    constexpr f32 kBaseDensity = 1.0f;
+    constexpr f32 kWeatherMask = 0.75f;
+    constexpr f32 kProfileClosure = 0.20f;
+    constexpr f32 kPrecipitationScale = 1.0f;
+    constexpr f32 kDetail = 0.60f;
+    constexpr f32 kErosion = 0.24f;
+    const f32 coarseDensity = SaturateForTest(
+        kBaseDensity * kWeatherMask * kProfileClosure *
+        kPrecipitationScale);
+    const f32 correctedDensity = RemapUnitRangeForTest(
+        coarseDensity, kDetail * kErosion, 1.0f);
+    const f32 formerDensity = RemapUnitRangeForTest(
+        kBaseDensity, kDetail * kErosion, 1.0f) *
+        kWeatherMask * kProfileClosure * kPrecipitationScale;
+    EXPECT_NEAR(coarseDensity, 0.15f, 1.0e-6f);
+    EXPECT_TRUE(correctedDensity < formerDensity * 0.10f);
+    EXPECT_NEAR(formerDensity, coarseDensity, 1.0e-6f);
 }
 
 ACS_TEST(VolumetricClouds, HeightProfileThresholdOnlyClosesTheExtremeTail) {
