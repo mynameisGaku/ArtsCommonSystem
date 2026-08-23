@@ -577,6 +577,14 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
 
     EXPECT_TRUE(Contains(source, "cached.y*density*cloudLightingExtinction.y"));
     EXPECT_TRUE(Contains(source, "lightDepth*density*cloudLightingExtinction.y>18.0"));
+    EXPECT_TRUE(Contains(source, "float cloudForwardPhaseWeight("));
+    EXPECT_TRUE(Contains(source, "*saturate(lightTransmittance)"));
+    EXPECT_TRUE(Contains(source, "*saturate(intervalTransmittance);"));
+    EXPECT_TRUE(Contains(source, "float forwardPhase=4.0*hg(cosA,cloudLightingPhase.x);"));
+    EXPECT_TRUE(Contains(source, "float backwardPhase=4.0*hg(cosA,cloudLightingPhase.y);"));
+    EXPECT_TRUE(Contains(source, "phaseBlend,beer,intervalTransmittance"));
+    EXPECT_TRUE(Contains(source, "float phase=lerp("));
+    EXPECT_TRUE(Contains(source, "backwardPhase,forwardPhase,forwardPhaseWeight"));
     EXPECT_TRUE(Contains(source, "float inScatterDepthExponent=lerp("));
     EXPECT_TRUE(Contains(source, "float lowLodDensity=cloudLowLodDensityFromMacro("));
     EXPECT_TRUE(Contains(source, "0.05+pow(saturate(lowLodDensity),inScatterDepthExponent)"));
@@ -598,6 +606,7 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_FALSE(Contains(source, "1.0-exp(-dens*cloudLightingExtinction.w)"));
     EXPECT_FALSE(Contains(source, "pow(saturate(shape),inScatterDepthExponent)"));
     EXPECT_FALSE(Contains(source, "beer*(1.0-multiWeight)*phase"));
+    EXPECT_FALSE(Contains(source, "hg(cosA,cloudLightingPhase.x)*phaseBlend"));
     EXPECT_FALSE(Contains(source, "density*4.2"));
 }
 
@@ -606,7 +615,8 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesReducedBoundaryOpticalDep
     /** GPU シェーダーを含む雲描画の実装。 */
     const std::string source = ReadRenderFile("Sky.cpp");
     /** 局所密度と層境界までの距離から空と地面の可視率を求める範囲。 */
-    const std::string ambientBlock = SliceBetween(source, "float ambientLocalDensity=", "float a=1.0-exp(");
+    const std::string ambientBlock = SliceBetween(
+        source, "float ambientLocalDensity=", "float a=1.0-intervalTransmittance;");
     EXPECT_TRUE(!ambientBlock.empty());
     EXPECT_TRUE(Contains(ambientBlock, "float ambientLocalDensity=max(lowLodDensity*density,0.0);"));
     EXPECT_FALSE(Contains(ambientBlock, "float ambientLocalDensity=saturate(lowLodDensity*density);"));

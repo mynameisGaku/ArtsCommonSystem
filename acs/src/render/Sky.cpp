@@ -954,6 +954,13 @@ SamplerState cloudShadowCache_sampler : register(s4); // clamp (finite cache foo
 float remapc(float v,float a,float b,float c,float d){ return c + saturate((v-a)/max(b-a,1e-5))*(d-c); }
 float hash13(float3 p){ p=frac(p*0.1031); p+=dot(p,p.zyx+31.32); return frac((p.x+p.y)*p.z); }
 float hg(float c,float g){ float g2=g*g; return (1.0-g2)/(12.566370*pow(max(1.0+g2-2.0*g*c,1e-3),1.5)); }
+// 光源までと現在区間の透過率が低い雲芯では前方散乱を弱め、後方散乱へ連続的に移す。
+// 二つの位相値自体はレイごとに一度だけ求めるため、密度標本ごとの pow は増やさない。
+float cloudForwardPhaseWeight(float authoredForwardWeight,float lightTransmittance,float intervalTransmittance){
+    return saturate(authoredForwardWeight)
+         *saturate(lightTransmittance)
+         *saturate(intervalTransmittance);
+}
 
 // The CPU-hoisted Duff/Frisvad basis is orthonormal, so
 // |sun + tangentOffset*a| is
@@ -2277,9 +2284,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float phaseBlend=cloudLightingPhase.z;
     // sunCol はPBRと同じ放射照度で、白い拡散面は E/PI になる。HGは既に1/(4PI)を
     // 含むため4倍だけして等方散乱をE/PIへ合わせる。4PI倍すると雲だけがPI倍明るくなる。
-    float phase=4.0*(hg(cosA,cloudLightingPhase.x)*phaseBlend
-               +hg(cosA,cloudLightingPhase.y)*(1.0-phaseBlend));
-    phase=clamp(phase,cloudLightingMulti.y,cloudLightingMulti.z);
+    // 前方・後方の位相はレイごとに固定し、標本ごとには混合率だけを変える。
+    float forwardPhase=4.0*hg(cosA,cloudLightingPhase.x);
+    float backwardPhase=4.0*hg(cosA,cloudLightingPhase.y);
     float3 lightTangent=cloudLightTangent.xyz;
     float3 lightBitangent=cloudLightBitangent.xyz;
     float4 coverageTerms=cloudCoverage;
@@ -2345,6 +2352,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             bool sampleUpperBand=macro.upperBand>0.5;
             float sampleOpticalDepthScale=
                 cloudOpticalDepthScaleFromBand(sampleUpperBand);
+            float viewSampleOpticalDepth=dens*stepLength
+                *sampleOpticalDepthScale*cloudLightingExtinction.x;
+            float intervalTransmittance=exp(-viewSampleOpticalDepth);
             // 指数的に間隔を広げる採取点で雲層全体を覆い、2 番目の Beer 項で
             // 高次の散乱を近似する。
             // 同じ視線内では黄金比の列で光採取の位相を巡回し、疎な積分誤差を層として揃えない。
@@ -2451,6 +2461,14 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             }
             float tauL=lightDepth*density*cloudLightingExtinction.y;
             float beer=exp(-tauL);
+            // 表面では作者指定の前方・後方混合を保ち、光源または現在区間から深い標本ほど
+            // 後方散乱へ寄せる。自己影が増えても同じ位相の灰色へ収束する状態を避ける。
+            float forwardPhaseWeight=cloudForwardPhaseWeight(
+                phaseBlend,beer,intervalTransmittance);
+            float phase=lerp(
+                backwardPhase,forwardPhase,forwardPhaseWeight);
+            phase=clamp(
+                phase,cloudLightingMulti.y,cloudLightingMulti.z);
             float multiContribution=cloudLightingPhase.w;
             float multiOcclusion=cloudLightingMulti.x;
             // 遠距離では次数ごとに消散を弱めて光の回り込みを保つ。一方、詳細を採取した
@@ -2527,9 +2545,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float bottomWeight=1.0-smoothstep(0.15,0.65,h);
             float3 groundL=cloudLightingGround.rgb*cloudLightingMulti.w
                           *bottomWeight*groundAmbientVisibility;
-            float a=1.0-exp(
-                -dens*stepLength*sampleOpticalDepthScale
-                *cloudLightingExtinction.x);
+            float a=1.0-intervalTransmittance;
             float sampleWeight=transmit*a;
             scatter += sampleWeight*(sunL+ambL+groundL);
             depthMoment += sampleWeight*sampleT;
