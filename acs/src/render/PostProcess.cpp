@@ -754,13 +754,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
         mapped = lerp(mapped, saturate(cas_params.yzw), saturate(outline * taa_params.x));
     }
 
-    // 6) Dither: 8-bit 量子化前に ±1 LSB の三角分布 (TPDF) ノイズを足し、空・bloom の裾・
-    //    vignette・グレーディングのシャドウに出る等高線状バンディングを消す。ほぼゼロコスト
+    // 6) ディザ: 8-bit量子化前に±1 LSBの三角分布 (TPDF) 雑音を足し、空・ブルームの裾・
+    //    ビネット・色調補正の暗部に出る等高線状の階調縞を消す。ほぼゼロコスト
     //    で「安っぽさ」に最も効く。2 つの IGN を独立化して足すと三角分布 (TPDF) になる。
-    //    ※ d2 は軸別オフセット + 別の時間位相にする。同一定数を両軸へ足すと IGN の滑らかな
-    //      勾配上を平行移動するだけで d1 と相関し、TPDF にならないため。
+    //    ※ d2 は画素座標を90度回転してから軸別オフセットと別の時間位相を与える。
+    //      同じ内積勾配を平行移動するだけでは d1 の位相違いになり、TPDF にならないため。
     float d1   = IGN(v.pos.xy, params3.x);
-    float d2   = IGN(v.pos.xy + float2(113.0, 71.0), params3.x * 0.37 + 0.5);
+    float d2   = IGN(float2(-v.pos.y, v.pos.x) + float2(113.0, 71.0), params3.x * 0.37 + 0.5);
     mapped += (d1 + d2 - 1.0) * (1.0 / 255.0);
 
     return float4(mapped, 1.0);

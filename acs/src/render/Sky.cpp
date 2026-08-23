@@ -25,7 +25,8 @@ cbuffer CSky : register(b0) {
     float4   camera_pos;          // xyz=eye
     float4   sun_dir;             // xyz=方向 (camera→sun)
     float4   sun_color;           // xyz=色
-    float4   sun_params;          // x=radius (1-cos), y=glow, zw=pad
+    // x=radius (1-cos), y=glow, z=出力ディザ強度, w=予約
+    float4   sun_params;
     float4   zenith_color;
     float4   horizon_color;
     float4   ground_color;
@@ -222,11 +223,12 @@ float4 PSMain(VSOut v) : SV_TARGET {
         sky = sky * (1.0 - cloudA) + scatter * hFade;     // 空の上に雲を合成
     }
 
-    // 5) Dither: 8-bit 出力時のグラデ縞を消す (HDR 出力時は ±1/255 で実質無影響)。
-    //    d2 は軸別オフセット + 別の時間位相で d1 と独立化し、足して TPDF にする。
+    // 5) ディザ: 8-bitへ直接描く場合だけ階調縞を消す。HDRでは最終トーンマッピング側へ一任する。
+    //    d2 は画素座標を90度回転してから軸別オフセットと別の時間位相を与え、
+    //    同じ内積勾配を平行移動しただけの相関系列にならないようにする。
     float d1 = SkyDither(v.pos.xy, cloud_params0.z);
-    float d2 = SkyDither(v.pos.xy + float2(113.0, 71.0), cloud_params0.z * 0.37 + 0.5);
-    sky += (d1 + d2 - 1.0) * (1.0 / 255.0);
+    float d2 = SkyDither(float2(-v.pos.y, v.pos.x) + float2(113.0, 71.0), cloud_params0.z * 0.37 + 0.5);
+    sky += (d1 + d2 - 1.0) * sun_params.z;
 
     return float4(sky, 1.0);
 }
@@ -248,7 +250,7 @@ struct FSkyCb {
     /** 太陽の色 (xyz)。 */
     FVec4 sun_color;
 
-    /** 太陽パラメータ (x=radius(1-cos), y=glow, zw=pad)。 */
+    /** 太陽パラメータ (x=radius(1-cos), y=glow, z=出力ディザ強度, w=予約)。 */
     FVec4 sun_params;
 
     /** 天頂の色。 */
@@ -569,12 +571,19 @@ TResult<void> CSky::InitWithCompiledShaders(
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());
     TUniquePtr<IRhiPipeline> candidate_pipeline = Move(pl_r.Value());
 
+    // HDRでは後段のトーンマッピングが8bit量子化直前にディザを加えるため、空側は無効にする。
+    const bool outputDitherEnabled =
+        rt_format == EFormat::R8G8B8A8_UNorm ||
+        rt_format == EFormat::R8G8B8A8_UNorm_sRGB ||
+        rt_format == EFormat::B8G8R8A8_UNorm;
+
     // Commit cannot fail. Release the old PSO before the resources it refers
     // to, then publish the replacement PSO last.
     m_Pipeline.Reset();
     m_Vs = Move(shaders.vertex);
     m_Ps = Move(shaders.pixel);
     m_Cb = Move(candidate_cb);
+    m_OutputDitherEnabled = outputDitherEnabled;
     m_Pipeline = Move(candidate_pipeline);
 
     return Ok();
@@ -642,7 +651,8 @@ void CSky::Render(IRhiCommandList& cl, const CCamera& camera) noexcept {
     cb.camera_pos = FVec4{eye.x, eye.y, eye.z, 1};
     cb.sun_dir    = FVec4{m_SunDir.x, m_SunDir.y, m_SunDir.z, 0};
     cb.sun_color  = FVec4{m_SunColor.x, m_SunColor.y, m_SunColor.z, 1};
-    cb.sun_params = FVec4{m_SunRadius, m_SunGlow, 0, 0};
+    cb.sun_params = FVec4{m_SunRadius, m_SunGlow,
+                          m_OutputDitherEnabled ? (1.0f / 255.0f) : 0.0f, 0.0f};
     cb.zenith     = FVec4{m_Zenith.x, m_Zenith.y, m_Zenith.z, 1};
     cb.horizon    = FVec4{m_Horizon.x, m_Horizon.y, m_Horizon.z, 1};
     cb.ground     = FVec4{m_Ground.x, m_Ground.y, m_Ground.z, 1};

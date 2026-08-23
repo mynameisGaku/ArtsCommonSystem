@@ -313,6 +313,9 @@ private:
     /** 低コスト fallback 雲を描画するか。 */
     bool m_FallbackCloudsEnabled = false;
 
+    /** 8bit描画先へ直接出力するときだけ、空側で量子化ディザを加える。 */
+    bool m_OutputDitherEnabled = true;
+
     /** 雲量 (0=快晴、1=全天曇り)。 */
     f32  m_FallbackCloudCoverage = 0.50f;
 

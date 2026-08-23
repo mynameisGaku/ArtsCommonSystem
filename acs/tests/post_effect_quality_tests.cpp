@@ -111,6 +111,17 @@ std::size_t CountOccurrences(const std::string& text, const char* needle)
     return count;
 }
 
+// GPUと同じIGNを評価し、出力ディザの2系列が独立に近いか数値検証する。
+f64 EvaluateDitherIgnForTest(f64 x, f64 y, f64 time)
+{
+    x += time * 5.588238;
+    y += time * 1.715728;
+    const f64 inner = x * 0.06711056 + y * 0.00583715;
+    const f64 innerFraction = inner - std::floor(inner);
+    const f64 outer = 52.9829189 * innerFraction;
+    return outer - std::floor(outer);
+}
+
 std::string ReadDrawScene3DSource()
 {
     const std::string source =
@@ -1102,6 +1113,88 @@ ACS_TEST(PostEffects, WaterAndBloomShadersKeepPhysicalSafetyContracts)
     EXPECT_TRUE(water_source.find(
         "m_ShadowPcfRadius = ClampFinite(pcf_radius, 0.0f, 0.0f, 8.0f);") !=
                 std::string::npos);
+}
+
+ACS_TEST(PostEffects, OutputDitherUsesIndependentTriangularSequences)
+{
+    const std::string postSource =
+        ReadWorkspaceSource("src/render/PostProcess.cpp");
+    const std::string skySource =
+        ReadWorkspaceSource("src/render/Sky.cpp");
+    const std::string tonemap =
+        ExtractRawShader(postSource, "const char* kTonemapPS");
+    const std::string sky =
+        ExtractRawShader(skySource, "const char* kSkyHLSL");
+    EXPECT_TRUE(!tonemap.empty());
+    EXPECT_TRUE(!sky.empty());
+    if (tonemap.empty() || sky.empty()) return;
+
+    const char* orthogonalSecond =
+        "float2(-v.pos.y, v.pos.x) + float2(113.0, 71.0)";
+    const char* translatedSecond =
+        "v.pos.xy + float2(113.0, 71.0)";
+    EXPECT_TRUE(tonemap.find(orthogonalSecond) != std::string::npos);
+    EXPECT_TRUE(sky.find(orthogonalSecond) != std::string::npos);
+    EXPECT_TRUE(tonemap.find(translatedSecond) == std::string::npos);
+    EXPECT_TRUE(sky.find(translatedSecond) == std::string::npos);
+    EXPECT_TRUE(sky.find("sky += (d1 + d2 - 1.0) * sun_params.z;") != std::string::npos);
+    const std::size_t formatBegin =
+        skySource.find("const bool outputDitherEnabled =");
+    const std::size_t formatEnd = skySource.find(';', formatBegin);
+    EXPECT_TRUE(formatBegin != std::string::npos);
+    EXPECT_TRUE(formatEnd != std::string::npos);
+    if (formatBegin != std::string::npos && formatEnd != std::string::npos) {
+        const std::string formatContract =
+            skySource.substr(formatBegin, formatEnd - formatBegin + 1);
+        EXPECT_TRUE(formatContract.find("EFormat::R8G8B8A8_UNorm ||") != std::string::npos);
+        EXPECT_TRUE(formatContract.find("EFormat::R8G8B8A8_UNorm_sRGB ||") != std::string::npos);
+        EXPECT_TRUE(formatContract.find("EFormat::B8G8R8A8_UNorm;") != std::string::npos);
+        EXPECT_TRUE(formatContract.find("EFormat::R16G16B16A16_Float") == std::string::npos);
+        EXPECT_EQ(CountOccurrences(formatContract, "EFormat::"), std::size_t{3u});
+    }
+    EXPECT_TRUE(skySource.find("m_OutputDitherEnabled = outputDitherEnabled;") != std::string::npos);
+
+    // 128x128画素の実画素中心を評価し、2系列の相関と合成後の三角分布分散を監査する。
+    constexpr i32 sampleSide = 128;
+    constexpr f64 sampleTime = 14.0;
+    f64 firstSum = 0.0;
+    f64 secondSum = 0.0;
+    f64 firstSquaredSum = 0.0;
+    f64 secondSquaredSum = 0.0;
+    f64 productSum = 0.0;
+    f64 triangularSum = 0.0;
+    f64 triangularSquaredSum = 0.0;
+    for (i32 y = 0; y < sampleSide; ++y) {
+        for (i32 x = 0; x < sampleSide; ++x) {
+            const f64 pixelX = static_cast<f64>(x) + 0.5;
+            const f64 pixelY = static_cast<f64>(y) + 0.5;
+            const f64 first =
+                EvaluateDitherIgnForTest(pixelX, pixelY, sampleTime);
+            const f64 second = EvaluateDitherIgnForTest(-pixelY + 113.0, pixelX + 71.0, sampleTime * 0.37 + 0.5);
+            const f64 triangular = first + second - 1.0;
+            firstSum += first;
+            secondSum += second;
+            firstSquaredSum += first * first;
+            secondSquaredSum += second * second;
+            productSum += first * second;
+            triangularSum += triangular;
+            triangularSquaredSum += triangular * triangular;
+        }
+    }
+    const f64 count = static_cast<f64>(sampleSide * sampleSide);
+    const f64 covariance = productSum - firstSum * secondSum / count;
+    const f64 firstVariance =
+        firstSquaredSum - firstSum * firstSum / count;
+    const f64 secondVariance =
+        secondSquaredSum - secondSum * secondSum / count;
+    const f64 correlation = covariance /
+        std::sqrt(firstVariance * secondVariance);
+    const f64 triangularMean = triangularSum / count;
+    const f64 triangularVariance =
+        triangularSquaredSum / count - triangularMean * triangularMean;
+    EXPECT_NEAR(correlation, 0.0, 0.02);
+    EXPECT_NEAR(triangularMean, 0.0, 0.01);
+    EXPECT_NEAR(triangularVariance, 1.0 / 6.0, 0.01);
 }
 
 ACS_TEST(PostEffects,
