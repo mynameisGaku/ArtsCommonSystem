@@ -2638,19 +2638,6 @@ uint2 CloudTemporalPhaseOffset4(uint2 blockQ,uint phaseIndex) {
 bool IsTemporalSuperResolution() {
     return temporal.w>3.5;
 }
-// 同じ出力画素の現在値と履歴値から、正確な位相標本だけに使う変化率を求める。
-float CloudTemporalSampleResponse(float currentAlpha,float historyAlpha) {
-    return smoothstep(0.015,0.12,abs(currentAlpha-historyAlpha));
-}
-// 静止画素でも古い体積履歴を長く残しすぎず、変化した雲縁を16位相の次周期までに追従させる。
-float CloudTemporalCurrentWeight(float currentAlpha,float historyAlpha,bool stationary) {
-    float currentWeight=0.70;
-    if(stationary) {
-        float changeResponse=CloudTemporalSampleResponse(currentAlpha,historyAlpha);
-        currentWeight=lerp(0.20,0.35,changeResponse);
-    }
-    return currentWeight;
-}
 bool IsScheduledFullPixel(uint2 pixel,uint2 phaseOffset) {
     return ((pixel.x&3u)==phaseOffset.x) &&
            ((pixel.y&3u)==phaseOffset.y);
@@ -2953,18 +2940,14 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                     abs(hist.a-seedDepth.y)<0.42;
                 if(depthOk && alphaOk) {
                     float4 histPacked=float4(hist.rgb*hist.a,hist.a);
-                    if(!temporalSuperRes || scheduled) {
+                    if(!temporalSuperRes) {
                         histPacked=CloudTemporalClipHistory(histPacked,neighborhoodMin,neighborhoodMax);
                     }
-                    float edgeConfidence=saturate(abs(refC.a-0.5)*2.0);
                     if(temporalSuperRes) {
                         if(scheduled) {
-                            // 等倍標本は16位相ごとにしか更新されない。古い体積位置を長く残すと
-                            // 等高線状の履歴差になるため、静止時も被覆差に応じて20～35%追従する。
-                            float currentWeight=CloudTemporalCurrentWeight(
-                                curA,hist.a,worldOrigin.w>0.5);
-                            resolved=lerp(
-                                histPacked,current,currentWeight);
+                            // 等倍標本はこの画素自身を現在時刻で積分した値なので、履歴は有効性判定だけに使う。
+                            // 16位相前の色を再混合すると古いぼけが次周期へ残るため、色、不透明度、深度を同時に置換する。
+                            resolved=current;
                             resolvedDepth=float2(curDepth,curA);
                         } else {
                             // 未採取画素は、他の15位相で得た等倍標本をワールド移動だけ補正して保つ。
@@ -2973,6 +2956,7 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                             resolvedDepth=float2(reprojectionDepth,histD.y);
                         }
                     } else {
+                        float edgeConfidence=saturate(abs(refC.a-0.5)*2.0);
                         float feedback=lerp(
                             0.76,0.91,edgeConfidence);
                         resolved=lerp(current,histPacked,feedback);

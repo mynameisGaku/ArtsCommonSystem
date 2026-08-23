@@ -370,19 +370,6 @@ f32 CloudExpandedTypeForTest(f32 blendedType) noexcept {
     return SmoothStepForTest(0.42f, 0.66f, blendedType);
 }
 
-// 同じ出力画素の現在値と履歴値から、正確な位相標本だけに使う変化率を求める。
-f32 CloudTemporalSampleResponseForTest(f32 currentAlpha, f32 historyAlpha) noexcept {
-    return SmoothStepForTest(0.015f, 0.12f, std::fabs(currentAlpha - historyAlpha));
-}
-
-// 被覆差が大きいほど、16位相前の古い体積履歴を早く現在値へ追従させる。
-f32 CloudTemporalCurrentWeightForTest(
-    f32 currentAlpha, f32 historyAlpha, bool stationary) noexcept {
-    if (!stationary) return 0.70f;
-    const f32 changeResponse = CloudTemporalSampleResponseForTest(currentAlpha, historyAlpha);
-    return 0.20f + (0.35f - 0.20f) * changeResponse;
-}
-
 // 履歴を使えない採取画素だけを、現在フレームの両側再構成へ戻す条件を表す。
 bool CloudTemporalUsesSpatialFallbackForTest(bool temporalSuperResolution, bool scheduled, bool historyAccepted) noexcept {
     return temporalSuperResolution && scheduled && !historyAccepted;
@@ -5577,11 +5564,22 @@ ACS_TEST(VolumetricClouds,
         resolveShader,
         "boolalphaOk=!occupancyMismatch&&"
         "abs(hist.a-seedDepth.y)<0.42;"));
+    const std::size_t scheduledBegin = resolveShader.find("if(scheduled){");
+    const std::size_t scheduledEnd = resolveShader.find("}else{", scheduledBegin);
+    EXPECT_TRUE(scheduledBegin != std::string::npos);
+    EXPECT_TRUE(scheduledEnd != std::string::npos);
+    const std::string scheduledPath = scheduledBegin != std::string::npos &&
+        scheduledEnd != std::string::npos
+        ? resolveShader.substr(scheduledBegin, scheduledEnd - scheduledBegin)
+        : std::string{};
     EXPECT_TRUE(Contains(
+        scheduledPath,
+        "resolved=current;"
+        "resolvedDepth=float2(curDepth,curA);"));
+    EXPECT_FALSE(Contains(scheduledPath, "CloudTemporalClipHistory"));
+    EXPECT_FALSE(Contains(
         resolveShader,
-        "floatcurrentWeight=CloudTemporalCurrentWeight("
-        "curA,hist.a,worldOrigin.w>0.5);"
-        "resolved=lerp(histPacked,current,currentWeight);"));
+        "resolved=lerp(histPacked,current,"));
     EXPECT_TRUE(Contains(
         resolveShader,
         "resolvedDepth=float2(curDepth,curA);"));
@@ -5643,37 +5641,23 @@ ACS_TEST(VolumetricClouds,
 }
 
 ACS_TEST(VolumetricClouds,
-         TemporalSuperResolutionRespondsToCoverageEvolution) {
-    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.60f, 0.60f, true), 0.20f, 0.0f);
-    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.60f, 0.585f, true), 0.20f, 1e-6f);
-    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.60f, 0.48f, true), 0.35f, 1e-6f);
-    EXPECT_NEAR(
-        CloudTemporalCurrentWeightForTest(0.60f, 0.60f, false),
-        0.70f, 0.0f);
-
-    // 静止時の重みは被覆差に対して単調に増え、常に許容範囲へ収まる。
-    f32 previousWeight = 0.0f;
-    for (u32 step = 0u; step <= 100u; ++step) {
-        const f32 difference = static_cast<f32>(step) / 100.0f;
-        const f32 weight = CloudTemporalCurrentWeightForTest(1.0f, 1.0f - difference, true);
-        EXPECT_TRUE(weight >= 0.20f && weight <= 0.35f);
-        EXPECT_TRUE(weight + 1e-6f >= previousWeight);
-        previousWeight = weight;
-    }
-
-    // 採取画素だけを抑制して更新し、未採取15画素は各自の正確な履歴を保つ。
+         TemporalSuperResolutionReplacesScheduledExactSample) {
+    // 採取画素は現在値へ一度で収束し、未採取15画素は各自の正確な履歴を保つ。
     const f32 currentAlpha = 0.80f;
     const f32 historyAlpha = 0.20f;
-    const f32 sampleResponse = CloudTemporalSampleResponseForTest(currentAlpha, historyAlpha);
-    const f32 scheduledWeight = CloudTemporalCurrentWeightForTest(currentAlpha, historyAlpha, true);
-    const f32 scheduledResult = historyAlpha +
-        (currentAlpha - historyAlpha) * scheduledWeight;
+    const f32 scheduledResult = currentAlpha;
     const f32 unscheduledResult = historyAlpha;
-    EXPECT_NEAR(sampleResponse, 1.0f, 0.0f);
-    EXPECT_NEAR(scheduledWeight, 0.35f, 1e-6f);
-    EXPECT_NEAR(scheduledResult, 0.41f, 1e-6f);
+    EXPECT_NEAR(scheduledResult, 0.80f, 0.0f);
     EXPECT_NEAR(unscheduledResult, 0.20f, 0.0f);
-    EXPECT_NEAR(scheduledResult - unscheduledResult, 0.21f, 1e-6f);
+    EXPECT_NEAR(currentAlpha - scheduledResult, 0.0f, 0.0f);
+    EXPECT_NEAR(scheduledResult - unscheduledResult, 0.60f, 1e-6f);
+
+    // 旧最小重み20%では、16フレーム周期を10回経ても誤差が10%以上残っていた。
+    f32 formerRetainedError = 1.0f;
+    for (u32 update = 0u; update < 10u; ++update) {
+        formerRetainedError *= 0.80f;
+    }
+    EXPECT_TRUE(formerRetainedError > 0.10f);
 
     // 未採取画素の空間再構成は別レイなので、正確な画素別履歴を棄却する根拠にしない。
     EXPECT_FALSE(CloudTemporalOccupancyMismatchForTest(0.0f, 0.8f, true, false));
@@ -5684,23 +5668,15 @@ ACS_TEST(VolumetricClouds,
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudResolveCS"));
-    EXPECT_TRUE(Contains(shader, "floatCloudTemporalSampleResponse(floatcurrentAlpha,floathistoryAlpha){returnsmoothstep(0.015,0.12,abs(currentAlpha-historyAlpha));}"));
-    EXPECT_TRUE(Contains(shader, "floatCloudTemporalCurrentWeight(floatcurrentAlpha,floathistoryAlpha,boolstationary){floatcurrentWeight=0.70;if(stationary){floatchangeResponse=CloudTemporalSampleResponse(currentAlpha,historyAlpha);currentWeight=lerp(0.20,0.35,changeResponse);}returncurrentWeight;}"));
+    EXPECT_FALSE(Contains(shader, "CloudTemporalSampleResponse"));
+    EXPECT_FALSE(Contains(shader, "CloudTemporalCurrentWeight"));
+    EXPECT_EQ(CountOccurrences(shader, "resolved=current;"), 2u);
+    EXPECT_FALSE(Contains(shader, "resolved=lerp(histPacked,current,"));
+    EXPECT_TRUE(Contains(shader, "if(!temporalSuperRes){histPacked=CloudTemporalClipHistory(histPacked,neighborhoodMin,neighborhoodMax);}"));
+    EXPECT_FALSE(Contains(shader, "if(!temporalSuperRes||scheduled){histPacked=CloudTemporalClipHistory"));
     EXPECT_TRUE(Contains(shader, "booloccupancyMismatch=(!temporalSuperRes||scheduled)&&((curA<0.02&&hist.a>0.08)||(curA>0.08&&hist.a<0.02));"));
     EXPECT_FALSE(Contains(shader, "CloudTemporalBlockResponse"));
     EXPECT_FALSE(Contains(shader, "CloudTemporalUnscheduledWeight"));
-    const std::size_t helperBegin = shader.find(
-        "floatCloudTemporalCurrentWeight(");
-    const std::size_t helperEnd = shader.find("returncurrentWeight;}", helperBegin);
-    EXPECT_TRUE(helperBegin != std::string::npos);
-    EXPECT_TRUE(helperEnd != std::string::npos);
-    if (helperBegin != std::string::npos &&
-        helperEnd != std::string::npos) {
-        const std::string helper = shader.substr(
-            helperBegin, helperEnd - helperBegin);
-        EXPECT_FALSE(Contains(helper, "SampleLevel("));
-        EXPECT_FALSE(Contains(helper, ".Load("));
-    }
 }
 
 ACS_TEST(VolumetricClouds, StableUnscheduledHistoryClipsOnlyCurrentNeighborhoodOutliers) {
