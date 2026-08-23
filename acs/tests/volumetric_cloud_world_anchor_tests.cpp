@@ -393,6 +393,31 @@ bool CloudTemporalOccupancyMismatchForTest(f32 currentAlpha, f32 historyAlpha, b
     return (!temporalSuperResolution || scheduled) && ((currentAlpha < 0.02f && historyAlpha > 0.08f) || (currentAlpha > 0.08f && historyAlpha < 0.02f));
 }
 
+// 現在近傍から外れた履歴成分だけを制限し、範囲内の細部は変更しない。
+f32 CloudTemporalClipChannelForTest(f32 historyValue, f32 currentMinimum, f32 currentMaximum, f32 minimumRange) noexcept {
+    const f32 measuredRange = currentMaximum - currentMinimum;
+    const f32 currentRange = measuredRange > minimumRange ? measuredRange : minimumRange;
+    const f32 lower = currentMinimum - currentRange * 0.35f;
+    const f32 upper = currentMaximum + currentRange * 0.35f;
+    return historyValue < lower ? lower : (historyValue > upper ? upper : historyValue);
+}
+
+// 視認できる差だけを十字近傍の確認対象にする。
+bool CloudTemporalNeedsNeighborhoodClipForTest(f32 historyValue, f32 currentValue, f32 minimumRange) noexcept {
+    const f32 difference = historyValue > currentValue ? historyValue - currentValue : currentValue - historyValue;
+    return difference > minimumRange;
+}
+
+// 近傍確認の8位相分散を描画側と同じ符号なし整数演算で再現する。
+bool CloudTemporalNeighborhoodClipScheduledForTest(u32 pixelX, u32 pixelY, u32 phaseIndex) noexcept {
+    u32 pixelHash = pixelX * 0x8da6b343u ^ pixelY * 0xd8163841u;
+    pixelHash ^= pixelHash >> 16u;
+    pixelHash *= 0x7feb352du;
+    pixelHash ^= pixelHash >> 15u;
+    const u32 scrambledPhase = (phaseIndex + (pixelHash & 15u)) & 15u;
+    return (scrambledPhase & 7u) == 0u;
+}
+
 f32 CloudWeatherMaskForTest(f32 weatherCoverage, f32 coverage) noexcept {
     const f32 threshold =
         0.72f + (0.36f - 0.72f) * SaturateForTest(coverage);
@@ -5678,6 +5703,57 @@ ACS_TEST(VolumetricClouds,
     }
 }
 
+ACS_TEST(VolumetricClouds, StableUnscheduledHistoryClipsOnlyCurrentNeighborhoodOutliers) {
+    EXPECT_NEAR(CloudTemporalClipChannelForTest(0.70f, 0.50f, 0.50f, 0.025f), 0.50875f, 1e-6f);
+    EXPECT_NEAR(CloudTemporalClipChannelForTest(0.30f, 0.50f, 0.50f, 0.025f), 0.49125f, 1e-6f);
+    EXPECT_NEAR(CloudTemporalClipChannelForTest(0.505f, 0.50f, 0.50f, 0.025f), 0.505f, 0.0f);
+    EXPECT_NEAR(CloudTemporalClipChannelForTest(0.10f, 0.20f, 0.80f, 0.025f), 0.10f, 0.0f);
+    EXPECT_FALSE(CloudTemporalNeedsNeighborhoodClipForTest(0.505f, 0.50f, 0.025f));
+    EXPECT_FALSE(CloudTemporalNeedsNeighborhoodClipForTest(0.520f, 0.50f, 0.025f));
+    EXPECT_TRUE(CloudTemporalNeedsNeighborhoodClipForTest(0.530f, 0.50f, 0.025f));
+    EXPECT_TRUE(CloudTemporalNeedsNeighborhoodClipForTest(0.520f, 0.50f, 0.015f));
+
+    constexpr u32 pixelCoordinates[] = {0u, 1u, 2u, 37u, 91u, 4095u};
+    for (const u32 pixelX : pixelCoordinates) {
+        for (const u32 pixelY : pixelCoordinates) {
+            u32 scheduledCount = 0u;
+            u32 maximumGap = 0u;
+            u32 firstPhase = 0u;
+            u32 previousPhase = 0u;
+            bool foundPrevious = false;
+            for (u32 phase = 0u; phase < 16u; ++phase) {
+                if (!CloudTemporalNeighborhoodClipScheduledForTest(pixelX, pixelY, phase)) continue;
+                if (!foundPrevious) firstPhase = phase;
+                if (foundPrevious) {
+                    const u32 gap = phase - previousPhase;
+                    if (gap > maximumGap) maximumGap = gap;
+                }
+                previousPhase = phase;
+                foundPrevious = true;
+                ++scheduledCount;
+            }
+            const u32 wrappedGap = firstPhase + 16u - previousPhase;
+            if (wrappedGap > maximumGap) maximumGap = wrappedGap;
+            EXPECT_EQ(scheduledCount, 2u);
+            EXPECT_TRUE(maximumGap <= 8u);
+        }
+    }
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudResolveCS"));
+    EXPECT_TRUE(Contains(shader, "float4CloudTemporalPackedCurrent(int2q){"));
+    EXPECT_TRUE(Contains(shader, "float4CloudTemporalClipHistory(float4historyPacked,float4currentMin,float4currentMax){"));
+    EXPECT_TRUE(Contains(shader, "boolCloudTemporalNeedsNeighborhoodClip(float4historyPacked,float4currentPacked){"));
+    EXPECT_TRUE(Contains(shader, "boolCloudTemporalNeighborhoodClipScheduled(uint2pixel,uintphaseIndex){"));
+    EXPECT_TRUE(Contains(shader, "returnalphaDifference>CLOUD_TEMPORAL_MIN_RANGE.a||luminanceDifference>CLOUD_TEMPORAL_MIN_RANGE.r;"));
+    EXPECT_TRUE(Contains(shader, "return(CloudTemporalBlockPhase4(pixel,phaseIndex)&7u)==0u;"));
+    EXPECT_TRUE(Contains(shader, "constint2stableOffsets[4]={int2(-1,0),int2(1,0),int2(0,-1),int2(0,1)};"));
+    EXPECT_TRUE(Contains(shader, "if(CloudTemporalNeighborhoodClipScheduled(tid.xy,phaseIndex)&&CloudTemporalNeedsNeighborhoodClip(stableHistPacked,stableReferencePacked)){"));
+    EXPECT_TRUE(Contains(shader, "stableHistPacked=CloudTemporalClipHistory(stableHistPacked,stableCurrentMin,stableCurrentMax);}" "resolved=stableHistPacked;"));
+    EXPECT_TRUE(Contains(shader, "resolvedDepth=float2(sameScreenDepth.x,stableHistPacked.a);"));
+    EXPECT_FALSE(Contains(shader, "resolved=float4(stableHist.rgb*stableHist.a,stableHist.a);"));
+}
+
 ACS_TEST(VolumetricClouds,
          SaturatedLightMarchStopsOnlyBelowSubPerceptualTransfer) {
     constexpr f32 cutoffOpticalDepth = 18.0f;
@@ -6282,8 +6358,8 @@ ACS_TEST(VolumetricClouds, StableHistoryStoresUnmaskedCloudUntilFinalComposite) 
 
     if (stableAccept != std::string::npos && fallbackGate != std::string::npos && stableAccept < fallbackGate) {
         const std::string stableAcceptPath = resolveShader.substr(stableAccept, fallbackGate - stableAccept);
-        EXPECT_TRUE(Contains(stableAcceptPath, "resolved=float4(stableHist.rgb*stableHist.a,stableHist.a);"));
-        EXPECT_TRUE(Contains(stableAcceptPath, "resolvedDepth=float2(sameScreenDepth.x,stableHist.a);"));
+        EXPECT_TRUE(Contains(stableAcceptPath, "stableHistPacked=CloudTemporalClipHistory(stableHistPacked,stableCurrentMin,stableCurrentMax);}" "resolved=stableHistPacked;"));
+        EXPECT_TRUE(Contains(stableAcceptPath, "resolvedDepth=float2(sameScreenDepth.x,stableHistPacked.a);"));
         EXPECT_TRUE(Contains(stableAcceptPath, "stableHistoryResolved=true;"));
         EXPECT_FALSE(Contains(stableAcceptPath, "historyColorOut[tid.xy]=stableHist;"));
         EXPECT_FALSE(Contains(stableAcceptPath, "return;"));

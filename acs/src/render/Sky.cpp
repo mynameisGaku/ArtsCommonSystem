@@ -2610,6 +2610,7 @@ SamplerState cloudDepth_sampler   : register(s1);
 SamplerState historyColor_sampler : register(s2);
 SamplerState historyDepth_sampler : register(s3);
 static const float CLOUD_PLANET_RADIUS=6360000.0;
+static const float4 CLOUD_TEMPORAL_MIN_RANGE=float4(0.015,0.015,0.015,0.025);
 float2 LowUv(int2 q) {
     q=clamp(q,int2(0,0),int2(dims.xy)-1);
     return (float2(q)+0.5)/dims.xy;
@@ -2675,6 +2676,27 @@ float3 ResolveViewDirection(float2 uv) {
     float lengthSquared=dot(candidate,candidate);
     return lengthSquared>1.0e-12&&lengthSquared<3.0e38
         ?candidate*rsqrt(lengthSquared):float3(0.0,0.0,1.0);
+}
+// 現在フレームの低解像度標本を、履歴と同じ乗算済み表現へ揃える。
+float4 CloudTemporalPackedCurrent(int2 q) {
+    q=clamp(q,int2(0,0),int2(dims.xy)-1);
+    float4 currentSample=cloudLow.Load(int3(q,0));
+    return float4(currentSample.rgb*currentSample.a,currentSample.a);
+}
+// 履歴を現在近傍の範囲へ収めるだけにし、現在値との平均化による細部の拡散を避ける。
+float4 CloudTemporalClipHistory(float4 historyPacked,float4 currentMin,float4 currentMax) {
+    float4 currentRange=max(currentMax-currentMin,CLOUD_TEMPORAL_MIN_RANGE);
+    return clamp(historyPacked,currentMin-currentRange*0.35,currentMax+currentRange*0.35);
+}
+// 8bitで視認できる不透明度または輝度差がある場合だけ、十字近傍の範囲を確認する。
+bool CloudTemporalNeedsNeighborhoodClip(float4 historyPacked,float4 currentPacked) {
+    float alphaDifference=abs(historyPacked.a-currentPacked.a);
+    float luminanceDifference=abs(dot(historyPacked.rgb-currentPacked.rgb,float3(0.2126,0.7152,0.0722)));
+    return alphaDifference>CLOUD_TEMPORAL_MIN_RANGE.a||luminanceDifference>CLOUD_TEMPORAL_MIN_RANGE.r;
+}
+// 近傍確認を画素ごとに8位相へ分散し、連続した格子を作らず最大8フレーム以内に外れを補正する。
+bool CloudTemporalNeighborhoodClipScheduled(uint2 pixel,uint phaseIndex) {
+    return (CloudTemporalBlockPhase4(pixel,phaseIndex)&7u)==0u;
 }
 
 [numthreads(8,8,1)]
@@ -2783,10 +2805,23 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                     bool stableAlphaOk=stableHist.a>0.08 &&
                         abs(stableHist.a-sameScreenDepth.y)<0.42;
                     if(stableDepthOk && stableAlphaOk) {
-                        resolved=float4(
-                            stableHist.rgb*stableHist.a,stableHist.a);
-                        resolvedDepth=float2(
-                            sameScreenDepth.x,stableHist.a);
+                        // 現在の十字近傍が示す範囲から外れた、古い16位相履歴だけを制限する。
+                        // 値は混ぜないため、広い雲縁や房の範囲内にある画素別の細部は維持する。
+                        float4 stableHistPacked=float4(stableHist.rgb*stableHist.a,stableHist.a);
+                        float4 stableReferencePacked=float4(refC.rgb*refC.a,refC.a);
+                        if(CloudTemporalNeighborhoodClipScheduled(tid.xy,phaseIndex) && CloudTemporalNeedsNeighborhoodClip(stableHistPacked,stableReferencePacked)) {
+                            float4 stableCurrentMin=stableReferencePacked;
+                            float4 stableCurrentMax=stableReferencePacked;
+                            const int2 stableOffsets[4]={int2(-1,0),int2(1,0),int2(0,-1),int2(0,1)};
+                            [unroll] for(int stableTap=0;stableTap<4;stableTap++) {
+                                float4 stableCurrent=CloudTemporalPackedCurrent(nearestQ+stableOffsets[stableTap]);
+                                stableCurrentMin=min(stableCurrentMin,stableCurrent);
+                                stableCurrentMax=max(stableCurrentMax,stableCurrent);
+                            }
+                            stableHistPacked=CloudTemporalClipHistory(stableHistPacked,stableCurrentMin,stableCurrentMax);
+                        }
+                        resolved=stableHistPacked;
+                        resolvedDepth=float2(sameScreenDepth.x,stableHistPacked.a);
                         stableHistoryResolved=true;
                     }
                 }
@@ -2917,13 +2952,7 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                 if(depthOk && alphaOk) {
                     float4 histPacked=float4(hist.rgb*hist.a,hist.a);
                     if(!temporalSuperRes || scheduled) {
-                        float4 currentRange=max(
-                            neighborhoodMax-neighborhoodMin,
-                            float4(0.015,0.015,0.015,0.025));
-                        neighborhoodMin-=currentRange*0.35;
-                        neighborhoodMax+=currentRange*0.35;
-                        histPacked=clamp(
-                            histPacked,neighborhoodMin,neighborhoodMax);
+                        histPacked=CloudTemporalClipHistory(histPacked,neighborhoodMin,neighborhoodMax);
                     }
                     float edgeConfidence=saturate(abs(refC.a-0.5)*2.0);
                     if(temporalSuperRes) {
