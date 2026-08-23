@@ -608,7 +608,8 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesReducedBoundaryOpticalDep
     /** 局所密度と層境界までの距離から空と地面の可視率を求める範囲。 */
     const std::string ambientBlock = SliceBetween(source, "float ambientLocalDensity=", "float a=1.0-exp(");
     EXPECT_TRUE(!ambientBlock.empty());
-    EXPECT_TRUE(Contains(ambientBlock, "float ambientLocalDensity=saturate(lowLodDensity*density);"));
+    EXPECT_TRUE(Contains(ambientBlock, "float ambientLocalDensity=max(lowLodDensity*density,0.0);"));
+    EXPECT_FALSE(Contains(ambientBlock, "float ambientLocalDensity=saturate(lowLodDensity*density);"));
     EXPECT_TRUE(Contains(ambientBlock, "float diffuseOcclusion=multiOcclusion*multiOcclusion;"));
     EXPECT_TRUE(Contains(ambientBlock, "float reducedAmbientExtinction=0.60*diffuseOcclusion"));
     EXPECT_TRUE(Contains(ambientBlock, "*cloudLightingExtinction.y;"));
@@ -635,9 +636,10 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesReducedBoundaryOpticalDep
         return value;
     };
     /** 局所密度、高さ、縮小消散率から入射側の可視率を求める対応式。 */
-    const auto visibility = [saturate](f32 lowLodDensity, f32 density, f32 height, f32 lightExtinction, f32 multiScatterOcclusion, bool fromSky) noexcept {
-        /** 密度倍率を適用して 0 から 1 へ収めた局所密度。 */
-        const f32 localDensity = saturate(lowLodDensity * density);
+    const auto visibility = [](f32 lowLodDensity, f32 density, f32 height, f32 lightExtinction, f32 multiScatterOcclusion, bool fromSky) noexcept {
+        /** 密度倍率の上限は失わず、負値だけを 0 へ収めた局所密度。 */
+        const f32 scaledDensity = lowLodDensity * density;
+        const f32 localDensity = scaledDensity > 0.0f ? scaledDensity : 0.0f;
         /** 空は雲頂まで、地面反射は雲底までの距離を表す係数。 */
         const f32 boundaryDistance = fromSky ? 1.0f - height : height;
         /** 層境界で完全な 0 にせず、採取点周辺の厚みを残した光学的深さ。 */
@@ -672,6 +674,8 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesReducedBoundaryOpticalDep
     EXPECT_NEAR(visibility(1.0f, 1.0f, 0.5f, 5.0f, 0.0f, true), 1.0f, 0.0f);
     EXPECT_NEAR(visibility(1.0f, 1.0f, 0.0f, 5.0f, 0.28f, true), 0.7904128f, 1.0e-6f);
     EXPECT_NEAR(visibility(1.0f, 1.0f, 1.0f, 5.0f, 0.28f, true), 0.9209772f, 1.0e-6f);
+    EXPECT_NEAR(visibility(1.0f, 2.1f, 0.0f, 5.0f, 0.28f, true), 0.6102296f, 1.0e-6f);
+    EXPECT_NEAR(visibility(1.0f, 2.1f, 1.0f, 5.0f, 0.28f, true), 0.8412453f, 1.0e-6f);
 
     /** 二点半球近似は雲底でも天頂色を、雲頂でも地平色を残す。 */
     const auto zenithWeight = [saturate](f32 height) noexcept {

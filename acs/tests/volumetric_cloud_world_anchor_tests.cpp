@@ -6524,6 +6524,12 @@ ACS_TEST(VolumetricClouds,
         ? shader.substr(ambientBegin, ambientEnd - ambientBegin) : std::string{};
     EXPECT_TRUE(Contains(
         ambient,
+        "floatambientLocalDensity=max(lowLodDensity*density,0.0);"));
+    EXPECT_FALSE(Contains(
+        ambient,
+        "floatambientLocalDensity=saturate(lowLodDensity*density);"));
+    EXPECT_TRUE(Contains(
+        ambient,
         "floatdiffuseOcclusion=multiOcclusion*multiOcclusion;"
         "floatreducedAmbientExtinction=0.60*diffuseOcclusion*"
         "cloudLightingExtinction.y;"
@@ -6542,7 +6548,8 @@ ACS_TEST(VolumetricClouds,
     const FVolumetricCloudLighting lighting{};
     const auto visibility = [&lighting](f32 lowLodDensity, f32 height, f32 density) noexcept {
         const f32 h = std::clamp(height, 0.0f, 1.0f);
-        const f32 localDensity = std::clamp(lowLodDensity * density, 0.0f, 1.0f);
+        const f32 scaledDensity = lowLodDensity * density;
+        const f32 localDensity = scaledDensity > 0.0f ? scaledDensity : 0.0f;
         const f32 localOpticalDepth = localDensity * (0.35f + 0.65f * (1.0f - h));
         const f32 diffuseOcclusion = lighting.MultiScatterOcclusion * lighting.MultiScatterOcclusion;
         const f32 reducedExtinction = 0.60f * diffuseOcclusion * lighting.LightExtinction;
@@ -6559,6 +6566,11 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(enclosed < 0.90f);
     EXPECT_TRUE(enclosedTop > enclosed);
     EXPECT_TRUE(enclosed > 0.0f);
+    // 作者指定の密度倍率が1を超えても環境光の光学的深さへ反映し、濃い雲芯を同じ明るさへ潰さない。
+    const f32 ordinaryCore = visibility(1.0f, 0.5f, 1.0f);
+    const f32 denseCore = visibility(1.0f, 0.5f, 2.1f);
+    EXPECT_TRUE(denseCore < ordinaryCore);
+    EXPECT_TRUE(denseCore > 0.0f);
     /** 旧二次散乱率では、既定の雲底環境光0.26が実効約0.11まで二重に暗くなっていた。 */
     const f32 formerBaseVisibility = std::exp(-0.60f * lighting.MultiScatterOcclusion * lighting.LightExtinction);
     const f32 correctedBaseVisibility = visibility(1.0f, 0.0f, 1.0f);
