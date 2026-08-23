@@ -534,6 +534,15 @@ f32 CloudErosionVisibilityFromSampleSpacingForTest(f32 sampleSpacing) noexcept {
     return CloudDetailFrequencyVisibilityForTest(sampleSpacing, 16.0f, 0.05f, 0.24f);
 }
 
+// 積分間隔と距離に応じた投影画素幅から、形状を安全に採取できる実幅を求める。
+f32 CloudProjectedSampleSpacingForTest(f32 integrationSpacing, f32 sampleDistance, f32 angularPixelFootprint) noexcept {
+    const f32 boundedSpacing = integrationSpacing > 0.0f ? integrationSpacing : 0.0f;
+    const f32 boundedDistance = sampleDistance > 0.0f ? sampleDistance : 0.0f;
+    const f32 boundedFootprint = angularPixelFootprint > 0.0f ? angularPixelFootprint : 0.0f;
+    const f32 projectedPixelWidth = boundedDistance * boundedFootprint;
+    return boundedSpacing > projectedPixelWidth ? boundedSpacing : projectedPixelWidth;
+}
+
 // 基本形状の一周期に対する採取間隔から、その帯域を安全に残せる割合を求める。
 f32 CloudShapeFrequencyVisibilityForTest(
     f32 sampleSpacing, f32 shapeScale,
@@ -1549,6 +1558,12 @@ ACS_TEST(VolumetricClouds, DetailBandsFollowRaySampleSpacing) {
     EXPECT_NEAR(CloudBillowVisibilityFromSampleSpacingForTest(270.1613f), 0.5f, 1e-5f);
     EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(29.23387f), 0.5f, 1e-5f);
 
+    EXPECT_NEAR(CloudProjectedSampleSpacingForTest(12.0f, 0.0f, 0.001f), 12.0f, 0.0f);
+    EXPECT_NEAR(CloudProjectedSampleSpacingForTest(12.0f, 8000.0f, 0.001f), 12.0f, 0.0f);
+    EXPECT_NEAR(CloudProjectedSampleSpacingForTest(12.0f, 30000.0f, 0.001f), 30.0f, 1e-5f);
+    EXPECT_NEAR(CloudProjectedSampleSpacingForTest(12.0f, 60000.0f, 0.001f), 60.0f, 1e-5f);
+    EXPECT_NEAR(CloudProjectedSampleSpacingForTest(-1.0f, -2.0f, -3.0f), 0.0f, 0.0f);
+
     f32 previousBillowVisibility = 1.0f;
     f32 previousErosionVisibility = 1.0f;
     for (u32 spacingStep = 0u; spacingStep <= 700u; spacingStep += 5u) {
@@ -1581,8 +1596,27 @@ ACS_TEST(VolumetricClouds, DetailBandsFollowRaySampleSpacing) {
         "sampleSpacing,16.0,0.05,0.24);"));
     EXPECT_TRUE(Contains(shader, "detailDomainA=horizontal*0.00018+vertical*0.00014;"));
     EXPECT_TRUE(Contains(shader, "detailDomainB=horizontal*0.00031+vertical*0.00024;"));
-    EXPECT_TRUE(Contains(shader, "floatbillowVisibility=cloudBillowVisibilityFromSampleSpacing(fineStep);"));
-    EXPECT_TRUE(Contains(shader, "floaterosionVisibility=cloudErosionVisibilityFromSampleSpacing(fineStep);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcloudProjectedSampleSpacing("
+        "floatintegrationSpacing,floatsampleDistance,floatangularPixelFootprint){"
+        "floatprojectedPixelWidth=max(sampleDistance,0.0)*"
+        "max(angularPixelFootprint,0.0);"
+        "returnmax(max(integrationSpacing,0.0),projectedPixelWidth);}"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatprojectedSampleSpacing=cloudProjectedSampleSpacing("
+        "fineStep,sampleT,angularPixelFootprint);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "float3xPixelDirection=CloudViewDirection("
+        "float2(xUv.x*2.0-1.0,-(xUv.y*2.0-1.0)));"
+        "float3yPixelDirection=CloudViewDirection("
+        "float2(yUv.x*2.0-1.0,-(yUv.y*2.0-1.0)));"
+        "floatangularPixelFootprint=max("
+        "length(xPixelDirection-dir),length(yPixelDirection-dir));"));
+    EXPECT_TRUE(Contains(shader, "floatbillowVisibility=cloudBillowVisibilityFromSampleSpacing(projectedSampleSpacing);"));
+    EXPECT_TRUE(Contains(shader, "floaterosionVisibility=cloudErosionVisibilityFromSampleSpacing(projectedSampleSpacing);"));
     EXPECT_FALSE(Contains(shader, "cloudBillowVisibilityFromSampleSpacing(stepLength)"));
     EXPECT_FALSE(Contains(shader, "cloudErosionVisibilityFromSampleSpacing(stepLength)"));
     EXPECT_FALSE(Contains(shader, "floatdetailStart=12000.0;"));
@@ -1659,7 +1693,8 @@ ACS_TEST(VolumetricClouds, BaseShapeLodRejectsUnresolvableFrequencies) {
     EXPECT_TRUE(Contains(
         shader,
         "CloudMacroSamplemacro=sampleCloudMacro("
-        "p,coverageTerms,fineStep,viewMacroUvw,densityHeightThreshold);"));
+        "p,coverageTerms,projectedSampleSpacing,"
+        "viewMacroUvw,densityHeightThreshold);"));
     EXPECT_TRUE(Contains(
         shader,
         "sampleCloudMacroLighting("
@@ -3726,7 +3761,7 @@ ACS_TEST(VolumetricClouds,
         "float3viewMacroUvw;"
         "floatdensityHeightThreshold;"
         "CloudMacroSamplemacro=sampleCloudMacro("
-        "p,coverageTerms,fineStep,"
+        "p,coverageTerms,projectedSampleSpacing,"
         "viewMacroUvw,densityHeightThreshold);"));
     EXPECT_TRUE(Contains(
         shader,

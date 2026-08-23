@@ -1407,6 +1407,54 @@ Editor ABIと管理側Editorは警告0・エラー0でビルドし、配置前�
 
 この修正は再構成の不要な軟化を除くものであり、密度場と散乱式そのものを完成扱いにはしない。
 
+## 雲層内と上空の遠距離へ画素未満の詳細を残していた問題の修正
+
+雲殻との交差は既に、カメラが雲層内にある場合の進入距離を`0`にし、局所視程も層厚から制限していた。
+しかし密度形状の帯域制限は、レイ全体で一定の細かな積分間隔だけを入力にしていた。雲層内では進入距離が
+常に`0`になるため、数十km先でもカメラ直前と同じ細部を残す。上空でも遠方の房が1画素より細かくなった後に
+密度テクスチャを採取し続け、白い点状の高周波と不安定な雲縁を作っていた。
+
+現在は各視線レイについて、横・縦の隣接画素との視線差を一度だけ求める。時間再構成では実出力画素、
+それ以外では実際の視線積分画素を使い、各標本で`sampleT * angularPixelFootprint`を投影画素幅とする。
+基本形状、房、侵食へ渡す採取間隔は次式のとおりである。
+
+`projectedSampleSpacing = max(fineStep, sampleT * angularPixelFootprint)`
+
+したがって雲層内のカメラ直前では従来の細部を保ち、距離とともに画素で識別できない帯域だけを連続的に
+弱める。負の入力は`0`へ制限し、最終区間が短い場合も`fineStep`を下回らない。CPU側の決定論的試験では、
+距離`0`と`8000 m`で`12 m`、`30000 m`で`30 m`、`60000 m`で`60 m`となること、HLSLが同じ式と
+実画素寸法を使うことを固定した。公開API、テクスチャ、密度・光の採取数は増やしていない。
+
+最終実行物は、地上、雲層内、上空斜視、上面を
+`C:\dev\acs_temp_builds\CloudProjectedFootprintCandidate-20260823`へ保存した。修正前後の上空遠景を
+同じ範囲で比較すると、周囲より20階調超明るい局所差は`75`から`40`、30階調超は`29`から`4`、
+40階調超は`4`から`0`へ減った。地上と上面の大きな雲塊、雲層内の中央の厚い房、周辺の薄い霧、青空への
+抜けは維持した。雲層内を2秒間隔で6秒追跡すると、最初と最後で平均絶対差`1.1063`階調、1階調超の変化
+`25.81%`、5階調超`3.06%`となり、灰色の固定面ではなく、房の移流と変形が続くことも確認した。
+
+品質計測は3視点すべて合格し、雲GPU平均は地平`3.22 ms`、天頂`3.42 ms`、上空`3.45 ms`、最大は
+`4.76 ms`だった。直前版の平均`3.28 / 3.83 / 3.51 ms`に対する退行はない。300 FPS目標は一部で
+未達のため、性能課題は完了扱いにしない。結果は
+`C:\Users\g0190\AppData\Local\Temp\acs-cloud-quality-20260823T035730018Z-a9a29e98e0ad4cfcb4d0f59b79c48cc2\cloud-quality-summary.json`
+へ保存した。
+
+ACS全体ビルド、単体試験、Editor ABI、管理側EditorはDebug・Releaseで合格した。`ACS.UnitTests`は
+Debugで`1508 / 1508`、Releaseで`1504 / 1504`だった。Debugの全CTestは`78`件中`75`件に合格し、
+失敗した`ACS.CppTypeRoleAuditSelfTest`、`ACS.CppTypeRoleAudit`、`ACS.CppPrefixConsumerAudit`は、今回変更して
+いない既存の型役割・互換名台帳の監査負債である。雲、描画、数値試験の新規失敗は0だった。
+
+ReleaseのEditor ABIと管理側Editorに配置したABIは、サイズ`3,961,344`バイト、SHA-256
+`8006A52A7EEEC69F42D3ABCC554639A8E5F54C80C901E6FEF207BF4274A9627E`で一致した。45ファイル、
+`1,255,484,853`バイトの隔離配布物
+`C:\dev\acs_temp_builds\CloudDistributionProjectedFootprint-20260823`は、manifest SHA-256
+`4467714E64728E3B44EFC1F2F6D41BED525CE918F2B17DBFCA346BAF5390BFAE`で固定した。配布フォルダー外へ
+出力した単一ヘッダーの通常C++利用者は、Debug・Releaseともコンパイル、リンク、実行に合格した。
+
+隔離したACS Framework `d5a4b6824132df0750ac8aa7d3b14f54bc3a3e34`へ同じ配布物を配置し、Debug・Releaseの
+全体ビルドに合格した。公式`Tools\RunUnitTests.ps1`は両構成とも`1451`件中、既知の
+`FWeather3DAppearance`契約差2件だけが失敗し、雲、描画、配布APIの新規失敗は0だった。本体差分には
+標準コンテナ、STLヘッダー、`std::`、`friend`、先頭が`_`の関数を追加していない。
+
 ## Quality-preserving optimization rules
 
 Ultra cloud optimization keeps the `0.25` trace scale, 384 view-sample ceiling,

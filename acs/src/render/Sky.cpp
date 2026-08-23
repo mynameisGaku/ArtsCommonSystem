@@ -1781,6 +1781,13 @@ float cloudBillowVisibilityFromSampleSpacing(float sampleSpacing){
 float cloudErosionVisibilityFromSampleSpacing(float sampleSpacing){
     return cloudDetailFrequencyVisibility(sampleSpacing,16.0,0.05,0.24);
 }
+// 積分間隔と投影画素幅のうち広い方を使い、画素より細かい形状を遠方へ残さない。
+// sampleDistance が 0 の雲内部でも積分間隔を下回らず、距離とともに単調に広がる。
+float cloudProjectedSampleSpacing(float integrationSpacing,float sampleDistance,float angularPixelFootprint){
+    float projectedPixelWidth=max(sampleDistance,0.0)
+                            *max(angularPixelFootprint,0.0);
+    return max(max(integrationSpacing,0.0),projectedPixelWidth);
+}
 // 距離減衰は完成済みのレイへ一括適用せず、各密度標本へ適用する。
 // 減衰区間が 0 の場合は smoothstep の同一端点による 0 除算を避ける。
 float cloudDistanceFade(float sampleDistance,float fadeStart,float maxDistance){
@@ -2223,6 +2230,16 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         cloudDepthOut[pixelQ]=float2(250001.0,0.0);
         return;
     }
+    // 隣接する視線積分画素の視線差を一度だけ求め、各採取距離で画素が覆う実幅へ変換する。
+    // 縮小描画では縮小画素、時間再構成では実出力画素の幅となるため、再構成方式とも一致する。
+    float2 pixelCenter=float2(rayPixel)+0.5;
+    float xOffset=rayPixel.x+1u<(uint)rayDimensions.x?1.0:-1.0;
+    float yOffset=rayPixel.y+1u<(uint)rayDimensions.y?1.0:-1.0;
+    float2 xUv=(pixelCenter+float2(xOffset,0.0))/rayDimensions;
+    float2 yUv=(pixelCenter+float2(0.0,yOffset))/rayDimensions;
+    float3 xPixelDirection=CloudViewDirection(float2(xUv.x*2.0-1.0,-(xUv.y*2.0-1.0)));
+    float3 yPixelDirection=CloudViewDirection(float2(yUv.x*2.0-1.0,-(yUv.y*2.0-1.0)));
+    float angularPixelFootprint=max(length(xPixelDirection-dir),length(yPixelDirection-dir));
     // Keep samples in world-distance space.  The previous fixed-count
     // (t1-t0)/N step sampled identical height fractions in every pixel and
     // produced the view-centred starburst visible in the editor.
@@ -2292,10 +2309,10 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         // カメラ位置を含む完全な標本位置はワールド座標である。ここでカメラの高さを
         // 再び引くと、Editor のカメラ移動に合わせて雲層まで動いてしまう。
         float3 p=camPos.xyz+dir*sampleT;
+        float projectedSampleSpacing=cloudProjectedSampleSpacing(fineStep,sampleT,angularPixelFootprint);
         float3 viewMacroUvw;
         float densityHeightThreshold;
-        CloudMacroSample macro=sampleCloudMacro(
-            p,coverageTerms,fineStep,viewMacroUvw,densityHeightThreshold);
+        CloudMacroSample macro=sampleCloudMacro(p,coverageTerms,projectedSampleSpacing,viewMacroUvw,densityHeightThreshold);
         float shape=cloudShapeFromMacro(macro);
         if(shape<=0.006){
             if(nearDensity && t<refineUntil) {
@@ -2317,10 +2334,10 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         }
         nearDensity=true;
         refineUntil=max(refineUntil,t+coarseStep);
-        // レイの刻み幅から採取可能な房と侵食の帯域を別々に求める。最後の短い区間で細部が再出現しないよう、
-        // 実際の区間長ではなくレイ全体で一定の fineStep を使う。
-        float billowVisibility=cloudBillowVisibilityFromSampleSpacing(fineStep);
-        float erosionVisibility=cloudErosionVisibilityFromSampleSpacing(fineStep);
+        // 積分間隔と現在距離の投影画素幅から、採取可能な房と侵食の帯域を別々に求める。
+        // 最後の短い区間でも projectedSampleSpacing は fineStep を下回らず、細部が再出現しない。
+        float billowVisibility=cloudBillowVisibilityFromSampleSpacing(projectedSampleSpacing);
+        float erosionVisibility=cloudErosionVisibilityFromSampleSpacing(projectedSampleSpacing);
         float viewWeatherMask=macro.densityWeatherMask;
         float distanceFade=cloudDistanceFade(sampleT,fadeStart,MAX_DISTANCE);
         float dens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,billowVisibility,erosionVisibility)*density*distanceFade;
