@@ -1422,6 +1422,39 @@ ACS_TEST(VolumetricClouds, CoarseOccupancyRewindPreservesTheFineSamplePhase) {
     EXPECT_FALSE(Contains(shader, "t=max(t-coarseStep,t0);"));
 }
 
+ACS_TEST(VolumetricClouds, InteriorMarchChecksTheCameraAdjacentFineInterval) {
+    constexpr f32 kInsideEnter = 0.0f;
+    constexpr f32 kInsideExit = 100.0f;
+    constexpr f32 kOutsideEnter = 100.0f;
+    constexpr f32 kFineStep = 6.0f;
+    constexpr f32 kCoarseStep = 12.0f;
+
+    for (u32 phaseStep = 0u; phaseStep <= 100u; ++phaseStep) {
+        const f32 jitter = static_cast<f32>(phaseStep) / 100.0f;
+        const bool startsInside = kInsideEnter <= 1e-4f;
+        const f32 insidePhaseSample =
+            kInsideEnter + jitter * (startsInside ? kFineStep : kCoarseStep);
+        const FCloudFineSampleForTest insideInterval = ResolveCloudFineSampleForTest(kInsideEnter, kInsideExit, insidePhaseSample, kFineStep, jitter);
+        const bool startsOutside = kOutsideEnter <= 1e-4f;
+        const f32 outsideSample = kOutsideEnter + jitter * (startsOutside ? kFineStep : kCoarseStep);
+        EXPECT_TRUE(insideInterval.valid);
+        EXPECT_NEAR(insideInterval.cell_start, kInsideEnter, 1e-6f);
+        EXPECT_NEAR(insideInterval.step_length, kFineStep, 1e-6f);
+        EXPECT_TRUE(insideInterval.sample_t >= kInsideEnter);
+        EXPECT_TRUE(insideInterval.sample_t <= kInsideEnter + kFineStep);
+        EXPECT_TRUE(outsideSample >= kOutsideEnter);
+        EXPECT_TRUE(outsideSample <= kOutsideEnter + kCoarseStep);
+    }
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(Contains(shader, "boolstartsInsideShell=t0<=1e-4;"));
+    EXPECT_TRUE(Contains(shader, "floatt=t0+jit*(startsInsideShell?fineStep:coarseStep);"));
+    EXPECT_TRUE(Contains(shader, "boolnearDensity=startsInsideShell;"));
+    EXPECT_TRUE(Contains(shader, "floatrefineUntil=startsInsideShell?min(t0+coarseStep,t1):t0;"));
+    EXPECT_FALSE(Contains(shader, "floatt=t0+jit*coarseStep;boolnearDensity=false;"));
+}
+
 ACS_TEST(VolumetricClouds, FineSamplePhaseOwnsTheCompleteIntegrationInterval) {
     constexpr f32 kIntervalStart = 100.0f;
     constexpr f32 kIntervalEnd = 110.0f;

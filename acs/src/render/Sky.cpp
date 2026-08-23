@@ -2269,9 +2269,12 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float transmit=1.0; float3 scatter=float3(0,0,0);
     float depthMoment=0.0;
     float finePhaseOffset=jit*fineStep;
-    float t=t0+jit*coarseStep;
-    bool nearDensity=false;
-    float refineUntil=t0;
+    // 雲殻内から始まるレイは、最初の粗い区間を飛ばすとカメラ直前の密度を積分できない。
+    // 最初の粗い区間だけ細密刻みで確認し、空なら従来の粗い探索へ戻す。
+    bool startsInsideShell=t0<=1e-4;
+    float t=t0+jit*(startsInsideShell?fineStep:coarseStep);
+    bool nearDensity=startsInsideShell;
+    float refineUntil=startsInsideShell?min(t0+coarseStep,t1):t0;
     [loop] for(int i=0;i<MAX_STEPS;i++){
         float sampleT=t;
         float stepLength=fineStep;
