@@ -248,10 +248,8 @@ internal static class EditorProfilerCaptureValidation
 }
 
 /// <summary>
-/// Builds and atomically publishes unattended profiler captures. Automation
-/// destinations are deliberately restricted to an explicit regular CSV below
-/// the process TEMP root. Every existing ancestor is checked for reparse
-/// points before the sibling-temp write and again before publication.
+/// 無人性能計測を組み立て、同じフォルダー内の一時ファイルから原子的に公開する。
+/// 出力先は検証済みルート配下の通常CSVに限り、既存の全親フォルダーを公開前にも再検証する。
 /// </summary>
 internal static class EditorProfilerCaptureFile
 {
@@ -932,8 +930,100 @@ internal static class EditorProfilerCaptureFile
             ? value.ToString("0.######", CultureInfo.InvariantCulture)
             : "N/A";
 
+    /// <summary>
+    /// 自動計測が書き込める既存ルートを正規化し、ファイルシステム直下と
+    /// 再解析ポイントを含む経路を拒否する。
+    /// </summary>
+    internal static bool TryNormalizeAutomationRoot(
+        string? requestedRoot,
+        out string root,
+        out string? error)
+    {
+        root = "";
+        error = null;
+        if (string.IsNullOrWhiteSpace(requestedRoot))
+        {
+            error = "性能計測の出力ルートには明示的なパスが必要です。";
+            return false;
+        }
+
+        try
+        {
+            root = Path.TrimEndingDirectorySeparator(
+                Path.GetFullPath(requestedRoot));
+            if (root.Length > MaximumDestinationCharacters)
+            {
+                error =
+                    $"性能計測の出力ルートが上限の " +
+                    $"{MaximumDestinationCharacters} 文字を超えています。";
+                return false;
+            }
+            string volumeRoot = Path.TrimEndingDirectorySeparator(
+                Path.GetPathRoot(root) ?? "");
+            if (string.IsNullOrEmpty(volumeRoot) ||
+                string.Equals(
+                    root,
+                    volumeRoot,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                error =
+                    "性能計測の出力ルートにドライブのルートは指定できません。";
+                return false;
+            }
+            if (!Directory.Exists(root))
+            {
+                error =
+                    "性能計測の出力ルートには既存フォルダーを指定してください。";
+                return false;
+            }
+
+            var current = new DirectoryInfo(root);
+            while (true)
+            {
+                if (!IsSafeDirectoryAttributes(current.Attributes))
+                {
+                    error =
+                        "性能計測の出力ルート経路に通常フォルダーではない場所があります: " +
+                        current.FullName;
+                    return false;
+                }
+                if (current.Parent == null)
+                    break;
+                current = current.Parent;
+            }
+            return true;
+        }
+        catch (Exception exception)
+            when (exception is ArgumentException or
+                  NotSupportedException or
+                  PathTooLongException or
+                  IOException or
+                  UnauthorizedAccessException)
+        {
+            root = "";
+            error =
+                "性能計測の出力ルートを使用できません: " +
+                exception.Message;
+            return false;
+        }
+    }
+
     internal static bool TryNormalizeAutomationDestination(
         string? requestedPath,
+        out string destination,
+        out string? error) =>
+        TryNormalizeAutomationDestination(
+            requestedPath,
+            Path.GetTempPath(),
+            out destination,
+            out error);
+
+    /// <summary>
+    /// 指定CSVが許可ルートの子であり、既存親経路に再解析ポイントがないことを検証する。
+    /// </summary>
+    internal static bool TryNormalizeAutomationDestination(
+        string? requestedPath,
+        string? requestedRoot,
         out string destination,
         out string? error)
     {
@@ -947,6 +1037,13 @@ internal static class EditorProfilerCaptureFile
 
         try
         {
+            if (!TryNormalizeAutomationRoot(
+                    requestedRoot,
+                    out string allowedRoot,
+                    out error))
+            {
+                return false;
+            }
             destination = Path.GetFullPath(requestedPath);
             if (destination.Length > MaximumDestinationCharacters)
             {
@@ -964,9 +1061,9 @@ internal static class EditorProfilerCaptureFile
                 return false;
             }
 
-            string tempRoot = Path.TrimEndingDirectorySeparator(
-                Path.GetFullPath(Path.GetTempPath()));
-            string relative = Path.GetRelativePath(tempRoot, destination);
+            string relative = Path.GetRelativePath(
+                allowedRoot,
+                destination);
             if (Path.IsPathRooted(relative) ||
                 relative == "." ||
                 relative == ".." ||
@@ -978,7 +1075,7 @@ internal static class EditorProfilerCaptureFile
                     StringComparison.Ordinal))
             {
                 error =
-                    "Profiler automation captures are restricted to the process TEMP root.";
+                    "自動性能計測の出力先は指定された出力ルート配下に限られます。";
                 return false;
             }
 
@@ -989,7 +1086,7 @@ internal static class EditorProfilerCaptureFile
                     "Profiler capture parent directory must already exist.";
                 return false;
             }
-            if (!TryValidateDirectoryChain(parent, tempRoot, out error))
+            if (!TryValidateDirectoryChain(parent, allowedRoot, out error))
                 return false;
 
             if (Directory.Exists(destination))
@@ -1026,6 +1123,22 @@ internal static class EditorProfilerCaptureFile
         string requestedPath,
         string csv,
         out string destination,
+        out string? error) =>
+        TryWriteAtomic(
+            requestedPath,
+            csv,
+            Path.GetTempPath(),
+            out destination,
+            out error);
+
+    /// <summary>
+    /// 許可ルートを再検証してから、同じフォルダー内の一時ファイルを原子的に公開する。
+    /// </summary>
+    internal static bool TryWriteAtomic(
+        string requestedPath,
+        string csv,
+        string requestedRoot,
+        out string destination,
         out string? error)
     {
         destination = "";
@@ -1035,6 +1148,7 @@ internal static class EditorProfilerCaptureFile
         {
             if (!TryNormalizeAutomationDestination(
                     requestedPath,
+                    requestedRoot,
                     out destination,
                     out error))
             {
@@ -1067,10 +1181,10 @@ internal static class EditorProfilerCaptureFile
                 stream.Flush(flushToDisk: true);
             }
 
-            // Re-evaluate the complete destination contract immediately
-            // before the same-directory rename.
+            // 同じフォルダー内で名前を変更する直前に、出力先の全条件を再検証する。
             if (!TryNormalizeAutomationDestination(
                     destination,
+                    requestedRoot,
                     out destination,
                     out error))
             {
@@ -1121,7 +1235,7 @@ internal static class EditorProfilerCaptureFile
 
     private static bool TryValidateDirectoryChain(
         string parent,
-        string tempRoot,
+        string allowedRoot,
         out string? error)
     {
         error = null;
@@ -1137,14 +1251,14 @@ internal static class EditorProfilerCaptureFile
             }
             if (string.Equals(
                     Path.TrimEndingDirectorySeparator(current.FullName),
-                    tempRoot,
+                    allowedRoot,
                     StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
             current = current.Parent ??
                 throw new IOException(
-                    "Profiler capture directory escaped the TEMP root.");
+                    "性能計測の出力フォルダーが指定された出力ルートを外れました。");
         }
     }
 

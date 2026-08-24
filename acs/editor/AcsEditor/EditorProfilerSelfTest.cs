@@ -114,7 +114,7 @@ internal static class EditorProfilerSelfTest
             OneTimeBakeLogicalInvocations = 2_637_824,
             OneTimeBakeLaunchedThreads = 2_637_824,
             ShadowCacheLogicalInvocations = 294_912,
-            ShadowCacheLaunchedThreads = 294_912,
+            ShadowCacheLaunchedThreads = 9_216,
             WorldShadowLogicalInvocations = 65_536,
             WorldShadowLaunchedThreads = 65_536,
             TotalLogicalInvocations = 3_014_592,
@@ -123,6 +123,12 @@ internal static class EditorProfilerSelfTest
             MaximumLightSamples = 2_949_120,
             MaximumWorldShadowSamples = 2_097_152,
         };
+        workload.TotalLaunchedThreads =
+            workload.TraceLaunchedThreads +
+            workload.ResolveLaunchedThreads +
+            workload.OneTimeBakeLaunchedThreads +
+            workload.ShadowCacheLaunchedThreads +
+            workload.WorldShadowLaunchedThreads;
         Check(
             EditorCloudWorkloadContract.ClassifyNativeResult(
                 1,
@@ -137,7 +143,7 @@ internal static class EditorProfilerSelfTest
             EditorCloudWorkloadFormatting.Invocations(
                 workload.TotalLogicalInvocations,
                 workload.TotalLaunchedThreads) ==
-                "3,014,592 logical / 3,014,592 launched" &&
+                "3,014,592 logical / 2,728,896 launched" &&
             EditorCloudWorkloadFormatting.OneTimeBake(workload) ==
                 "4 dispatch; 2,637,824 logical / 2,637,824 launched" &&
             EditorCloudWorkloadFormatting.History(workload) ==
@@ -152,7 +158,7 @@ internal static class EditorProfilerSelfTest
         referenceWorkload.TraceLogicalInvocations = 15_360;
         referenceWorkload.TraceLaunchedThreads = 15_360;
         referenceWorkload.TotalLogicalInvocations = 3_028_992;
-        referenceWorkload.TotalLaunchedThreads = 3_028_992;
+        referenceWorkload.TotalLaunchedThreads = 2_743_296;
         referenceWorkload.MaximumViewSamples = 7_864_320;
         referenceWorkload.MaximumLightSamples = 62_914_560;
         var unrecognizedViewCeiling = referenceWorkload;
@@ -307,6 +313,17 @@ internal static class EditorProfilerSelfTest
         Check(
             RejectsCloudSnapshot(launchedBelowLogical),
             "cloud workload v2 rejects launched-thread counts below logical work");
+
+        var shadowColumnsBelowCapacity = workload;
+        shadowColumnsBelowCapacity.ShadowCacheLaunchedThreads--;
+        shadowColumnsBelowCapacity.TotalLaunchedThreads--;
+        var excessShadowColumn = workload;
+        excessShadowColumn.ShadowCacheLaunchedThreads++;
+        excessShadowColumn.TotalLaunchedThreads++;
+        Check(
+            RejectsCloudSnapshot(shadowColumnsBelowCapacity) &&
+            RejectsCloudSnapshot(excessShadowColumn),
+            "cloud workload v2 requires exactly one shadow column thread per 32 logical heights");
 
         var zeroSubmittedDimension = workload;
         zeroSubmittedDimension.TraceWidth = 0;
@@ -985,11 +1002,46 @@ internal static class EditorProfilerSelfTest
                 normalizeError == null,
                 "automation capture accepts only an explicit regular CSV below the process TEMP root");
 
+            string explicitRoot = Path.Combine(
+                automationRoot,
+                "explicit-root");
+            Directory.CreateDirectory(explicitRoot);
+            string explicitDestination = Path.Combine(
+                explicitRoot,
+                "capture.csv");
+            string explicitRootEscape = Path.Combine(
+                automationRoot,
+                "outside-explicit-root.csv");
+            Check(
+                EditorProfilerCaptureFile.TryNormalizeAutomationRoot(
+                    explicitRoot,
+                    out string normalizedRoot,
+                    out string? rootError) &&
+                string.Equals(
+                    normalizedRoot,
+                    Path.GetFullPath(explicitRoot),
+                    StringComparison.OrdinalIgnoreCase) &&
+                rootError == null &&
+                EditorProfilerCaptureFile
+                    .TryNormalizeAutomationDestination(
+                        explicitDestination,
+                        normalizedRoot,
+                        out _,
+                        out _) &&
+                !EditorProfilerCaptureFile
+                    .TryNormalizeAutomationDestination(
+                        explicitRootEscape,
+                        normalizedRoot,
+                        out _,
+                        out _),
+                "automation capture accepts an explicit safe output root and rejects sibling escapes");
+
             File.WriteAllText(destination, "preserve-before-atomic-move");
             Check(
                 EditorProfilerCaptureFile.TryWriteAtomic(
                     destination,
                     automationCsv,
+                    automationRoot,
                     out string published,
                     out string? publishError) &&
                 string.Equals(
@@ -1011,6 +1063,7 @@ internal static class EditorProfilerSelfTest
                 !EditorProfilerCaptureFile.TryWriteAtomic(
                     destination,
                     oversized,
+                    automationRoot,
                     out _,
                     out string? oversizedError) &&
                 oversizedError != null &&
@@ -1025,6 +1078,11 @@ internal static class EditorProfilerSelfTest
                 !EditorProfilerCaptureFile
                     .TryNormalizeAutomationDestination(
                         outsideTemp,
+                        out _,
+                        out _) &&
+                !EditorProfilerCaptureFile
+                    .TryNormalizeAutomationRoot(
+                        Path.GetPathRoot(Path.GetTempPath()),
                         out _,
                         out _) &&
                 !EditorProfilerCaptureFile

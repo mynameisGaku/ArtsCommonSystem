@@ -936,6 +936,53 @@ public partial class App : Application
                 argument,
                 "--profiler-capture",
                 StringComparison.OrdinalIgnoreCase));
+        int automationOutputRootArgument = Array.FindIndex(
+            e.Args,
+            argument => string.Equals(
+                argument,
+                "--automation-output-root",
+                StringComparison.OrdinalIgnoreCase));
+        string profilerCaptureRoot = Path.GetTempPath();
+        if (automationOutputRootArgument >= 0)
+        {
+            if (!unattended || profilerCaptureArgument < 0)
+            {
+                Console.Error.WriteLine(
+                    "--automation-output-root には --unattended と " +
+                    "--profiler-capture が必要です。");
+                Shutdown(2);
+                return;
+            }
+            if (e.Args.Count(argument => string.Equals(
+                    argument,
+                    "--automation-output-root",
+                    StringComparison.OrdinalIgnoreCase)) != 1)
+            {
+                Console.Error.WriteLine(
+                    "--automation-output-root は一度だけ指定できます。");
+                Shutdown(2);
+                return;
+            }
+            if (automationOutputRootArgument + 1 >= e.Args.Length ||
+                e.Args[automationOutputRootArgument + 1].StartsWith(
+                    "--",
+                    StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine(
+                    "--automation-output-root には既存フォルダーを指定してください。");
+                Shutdown(2);
+                return;
+            }
+            if (!EditorProfilerCaptureFile.TryNormalizeAutomationRoot(
+                    e.Args[automationOutputRootArgument + 1],
+                    out profilerCaptureRoot,
+                    out string? outputRootError))
+            {
+                Console.Error.WriteLine(outputRootError);
+                Shutdown(2);
+                return;
+            }
+        }
         if (profilerCaptureArgument >= 0)
         {
             if (interactionSoakDuration == null)
@@ -961,12 +1008,13 @@ public partial class App : Application
                     StringComparison.Ordinal))
             {
                 Console.Error.WriteLine(
-                    "--profiler-capture requires an explicit TEMP CSV path.");
+                    "--profiler-capture には明示的な CSV パスが必要です。");
                 Shutdown(2);
                 return;
             }
             if (!EditorProfilerCaptureFile.TryNormalizeAutomationDestination(
                     e.Args[profilerCaptureArgument + 1],
+                    profilerCaptureRoot,
                     out profilerCapturePath,
                     out string? profilerCaptureError))
             {
@@ -1050,7 +1098,8 @@ public partial class App : Application
                     interactionSoakReport,
                     exitCode => Shutdown(exitCode),
                     interactionSoakRequiresRecovery,
-                    profilerCapturePath);
+                    profilerCapturePath,
+                    profilerCaptureRoot);
             }
             // Visual validation and secondary-monitor launches may need the
             // editor to become visible without interrupting the foreground

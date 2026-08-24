@@ -11,8 +11,8 @@ Editor scheduler 診断が揃わない限り失敗する。
 既定の 300 FPS 目標は品質 gate と分けて報告する。目標未達を終了 code へ反映するのは
 -RequireTargetFps を指定した場合だけである。
 
-生成物は現在の process の TEMP 配下だけへ置く。既存の report、capture、log、summary は
-上書きしない。
+生成物は既定で現在のプロセスの TEMP 配下へ置く。-OutputRoot を指定した場合は、その既存フォルダーの
+配下だけへ置く。既存の報告、計測結果、ログ、要約は上書きしない。
 
 .PARAMETER EditorExe
 AcsEditor.exe の path。
@@ -21,7 +21,10 @@ AcsEditor.exe の path。
 3D .acsproject fixture の path。
 
 .PARAMETER OutputDirectory
-TEMP 配下の実行専用 directory。省略時は重複しない directory を選ぶ。
+許可された出力ルート配下の実行専用フォルダー。省略時は重複しないフォルダーを選ぶ。
+
+.PARAMETER OutputRoot
+出力を許可する既存フォルダー。省略時は現在のプロセスの TEMP を使う。
 
 .PARAMETER SoakSeconds
 地平線、天頂、上空の各取得時間。
@@ -46,6 +49,7 @@ param(
     [string]$EditorExe,
     [string]$Project,
     [string]$OutputDirectory,
+    [string]$OutputRoot,
 
     [ValidateRange(5, 600)]
     [int]$SoakSeconds = 30,
@@ -71,13 +75,69 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $script:Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $script:Invariant = [System.Globalization.CultureInfo]::InvariantCulture
+$configuredOutputRoot = $OutputRoot
+if ([string]::IsNullOrWhiteSpace($configuredOutputRoot)) {
+    $configuredOutputRoot = $env:TEMP
+}
+if ([string]::IsNullOrWhiteSpace($configuredOutputRoot) -or
+    $configuredOutputRoot.Contains('"')) {
+    throw "OutputRoot には引用符を含まない空でないパスを指定してください。"
+}
+$script:AllowedOutputRoot =
+    [System.IO.Path]::GetFullPath($configuredOutputRoot)
+if (-not (Test-Path `
+        -LiteralPath $script:AllowedOutputRoot `
+        -PathType Container)) {
+    throw "OutputRoot には既存のフォルダーを指定してください: $script:AllowedOutputRoot"
+}
+$allowedVolumeRoot =
+    [System.IO.Path]::GetPathRoot($script:AllowedOutputRoot)
+if ($script:AllowedOutputRoot.TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar).Equals(
+            $allowedVolumeRoot.TrimEnd(
+                [System.IO.Path]::DirectorySeparatorChar,
+                [System.IO.Path]::AltDirectorySeparatorChar),
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "OutputRoot にドライブのルートは指定できません。"
+}
+$allowedRootAncestor = $script:AllowedOutputRoot
+while ($true) {
+    $allowedRootAncestorItem =
+        Get-Item -LiteralPath $allowedRootAncestor -Force
+    if (-not $allowedRootAncestorItem.PSIsContainer -or
+        ($allowedRootAncestorItem.Attributes -band
+            [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw (
+            "OutputRoot の経路に通常フォルダーではない場所があります: " +
+            $allowedRootAncestor)
+    }
+    if ($allowedRootAncestor.TrimEnd(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar).Equals(
+                $allowedVolumeRoot.TrimEnd(
+                    [System.IO.Path]::DirectorySeparatorChar,
+                    [System.IO.Path]::AltDirectorySeparatorChar),
+                [System.StringComparison]::OrdinalIgnoreCase)) {
+        break
+    }
+    $allowedRootAncestorParent =
+        [System.IO.Path]::GetDirectoryName($allowedRootAncestor)
+    if ([string]::IsNullOrWhiteSpace($allowedRootAncestorParent) -or
+        $allowedRootAncestorParent -eq $allowedRootAncestor) {
+        throw "OutputRoot の親経路がドライブのルートへ到達しませんでした。"
+    }
+    $allowedRootAncestor = $allowedRootAncestorParent
+}
 $script:ExpectedCloudScale = 0.25
 $script:ExpectedViewSamples = 384
 $script:ExpectedLightSamples = 8
 $script:ExpectedSteadyDispatches = 2
 $script:ExpectedShadowCacheDispatches = 1
 $script:ExpectedShadowCacheLogicalInvocations = 48 * 32 * 48
-$script:ExpectedShadowCacheLaunchedThreads = 48 * 32 * 48
+# 一つのGPUスレッドが同じXZ列の32高度を順に書く。
+$script:ExpectedShadowCacheLaunchedThreads = 48 * 48
+$script:ExpectedShadowCacheOutputsPerThread = 32
 $script:ExpectedWorldShadowDispatches = 1
 $script:ExpectedWorldShadowLogicalInvocations = 128 * 128
 $script:ExpectedWorldShadowLaunchedThreads = 128 * 128
@@ -1433,10 +1493,13 @@ function Test-CloudQualityReport {
             ConvertTo-CloudInt64 -Value $workload.TotalLogicalInvocations
         $totalLaunched =
             ConvertTo-CloudInt64 -Value $workload.TotalLaunchedThreads
+        # 影キャッシュだけは一つのスレッドが32個の論理出力を書く。
+        # 他の経路は一つの起動スレッドが最大一つの論理出力を担当する。
         if ($traceLaunched -lt $traceLogical -or
             $resolveLaunched -lt $resolveLogical -or
             $bakeLaunched -lt $bakeLogical -or
-            $shadowLaunched -lt $shadowLogical -or
+            $shadowLaunched * $script:ExpectedShadowCacheOutputsPerThread -lt
+                $shadowLogical -or
             $worldShadowLaunched -lt $worldShadowLogical) {
             Add-CloudFault `
                 -Faults $faults `
@@ -1887,10 +1950,12 @@ function Assert-SafeOutputDirectory {
         [switch]$Create
     )
 
-    $tempRoot = [System.IO.Path]::GetFullPath($env:TEMP)
+    $allowedRoot = $script:AllowedOutputRoot
     $candidate = [System.IO.Path]::GetFullPath($Path)
-    if (-not (Test-PathBelowRoot -Path $candidate -Root $tempRoot)) {
-        throw "OutputDirectory must be a child of TEMP: $tempRoot"
+    if (-not (Test-PathBelowRoot -Path $candidate -Root $allowedRoot)) {
+        throw (
+            "OutputDirectory は許可された出力ルートの子にしてください: " +
+            $allowedRoot)
     }
     if (Test-Path -LiteralPath $candidate -PathType Leaf) {
         throw "OutputDirectory resolves to a file: $candidate"
@@ -1911,16 +1976,16 @@ function Assert-SafeOutputDirectory {
             throw "Output path contains a reparse point: $existing"
         }
         if ($existing.Equals(
-                $tempRoot,
+                $allowedRoot,
                 [System.StringComparison]::OrdinalIgnoreCase)) {
             break
         }
-        if (-not (Test-PathBelowRoot -Path $existing -Root $tempRoot)) {
-            throw "Output ancestor escaped TEMP: $existing"
+        if (-not (Test-PathBelowRoot -Path $existing -Root $allowedRoot)) {
+            throw "OutputDirectory の親経路が許可された出力ルートを外れました: $existing"
         }
         $parent = [System.IO.Path]::GetDirectoryName($existing)
         if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $existing) {
-            throw "Output ancestor did not reach TEMP."
+            throw "OutputDirectory の親経路が許可された出力ルートへ到達しませんでした。"
         }
         $existing = $parent
     }
@@ -2047,6 +2112,8 @@ function Get-ScenarioArguments {
             "--unattended",
             "--show-profiler",
             "--hide-grid",
+            "--automation-output-root",
+            [string]$script:AllowedOutputRoot,
             "--interaction-soak",
             [string]$SoakSeconds,
             "--interaction-soak-report",
@@ -3321,24 +3388,27 @@ function Invoke-CloudProfilerSelfTest {
         "p95 interval conversion"
 
     $safeOutput = Join-Path `
-        $env:TEMP `
+        $script:AllowedOutputRoot `
         ("acs-cloud-selftest-" + [guid]::NewGuid().ToString("N"))
     $safeOutputResult =
         Assert-SafeOutputDirectory -Path $safeOutput
     Assert-CloudSelfTest `
         ($safeOutputResult -eq [System.IO.Path]::GetFullPath($safeOutput)) `
-        "TEMP output accepted without creation"
-    $outsideTemp = Join-Path `
-        ([System.IO.Path]::GetPathRoot($env:TEMP)) `
+        "許可された出力ルートを作成せずに受理する"
+    $outsideRoot = Join-Path `
+        ([System.IO.Directory]::GetParent(
+            $script:AllowedOutputRoot).FullName) `
         ("acs-cloud-outside-" + [guid]::NewGuid().ToString("N"))
     $outsideRejected = $false
     try {
-        [void](Assert-SafeOutputDirectory -Path $outsideTemp)
+        [void](Assert-SafeOutputDirectory -Path $outsideRoot)
     }
     catch {
         $outsideRejected = $true
     }
-    Assert-CloudSelfTest $outsideRejected "outside TEMP rejected"
+    Assert-CloudSelfTest `
+        $outsideRejected `
+        "許可された出力ルートの外側を拒否する"
     $existingOutputRejected = $false
     try {
         Assert-NewOutputPath -Path $PSCommandPath
@@ -3397,6 +3467,8 @@ function Invoke-CloudProfilerSelfTest {
         -Paths $argumentPaths
     Assert-CloudSelfTest `
         ($scenarioArguments -contains "--unattended" -and
+         $scenarioArguments -contains "--automation-output-root" -and
+         $scenarioArguments -contains $script:AllowedOutputRoot -and
          $scenarioArguments -contains "--camera3d" -and
          $scenarioArguments -contains "--interaction-soak-report" -and
             $scenarioArguments -contains "--profiler-capture") `
@@ -3408,7 +3480,7 @@ function Invoke-CloudProfilerSelfTest {
         "Windows trailing slash argument quoting"
 
     $processSelfTestRoot = Join-Path `
-        $env:TEMP `
+        $script:AllowedOutputRoot `
         ("acs-cloud-process-selftest-" + [guid]::NewGuid().ToString("N"))
     $processSelfTestCleanupPassed = $false
     $timeoutChildGone = $false
@@ -3639,7 +3711,7 @@ try {
                 "yyyyMMddTHHmmssfffZ",
                 $script:Invariant) +
             "-" + [guid]::NewGuid().ToString("N")
-        $OutputDirectory = Join-Path $env:TEMP $runName
+        $OutputDirectory = Join-Path $script:AllowedOutputRoot $runName
     }
     $runDirectory = Get-CanonicalPath `
         -Path $OutputDirectory `

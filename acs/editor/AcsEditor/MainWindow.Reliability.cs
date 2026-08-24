@@ -92,7 +92,8 @@ public partial class MainWindow
         DateTimeOffset RequestedUtc,
         long RequestedTimestamp,
         bool RequireRecoveryPrompt,
-        string? ProfilerCapturePath);
+        string? ProfilerCapturePath,
+        string? ProfilerCaptureRoot);
 
     private sealed record InteractionDiagnosticWorkItem(
         string Line,
@@ -160,7 +161,8 @@ public partial class MainWindow
         string? reportPath,
         Action<int> complete,
         bool requireRecoveryPrompt = false,
-        string? profilerCapturePath = null)
+        string? profilerCapturePath = null,
+        string? profilerCaptureRoot = null)
     {
         ArgumentNullException.ThrowIfNull(complete);
         if (!double.IsFinite(duration.TotalSeconds) ||
@@ -178,15 +180,32 @@ public partial class MainWindow
                 $"acs-editor-interaction-soak-{Environment.ProcessId}.json")
             : Path.GetFullPath(reportPath);
         string? captureOutput = null;
-        if (profilerCapturePath != null &&
-            !EditorProfilerCaptureFile.TryNormalizeAutomationDestination(
-                profilerCapturePath,
-                out captureOutput,
-                out string? captureError))
+        string? captureRoot = null;
+        if (profilerCapturePath != null)
         {
-            throw new ArgumentException(
-                captureError,
-                nameof(profilerCapturePath));
+            string requestedCaptureRoot =
+                string.IsNullOrWhiteSpace(profilerCaptureRoot)
+                    ? Path.GetTempPath()
+                    : profilerCaptureRoot;
+            if (!EditorProfilerCaptureFile.TryNormalizeAutomationRoot(
+                    requestedCaptureRoot,
+                    out captureRoot,
+                    out string? captureRootError))
+            {
+                throw new ArgumentException(
+                    captureRootError,
+                    nameof(profilerCaptureRoot));
+            }
+            if (!EditorProfilerCaptureFile.TryNormalizeAutomationDestination(
+                    profilerCapturePath,
+                    captureRoot,
+                    out captureOutput,
+                    out string? captureError))
+            {
+                throw new ArgumentException(
+                    captureError,
+                    nameof(profilerCapturePath));
+            }
         }
         _interactionSoak = new(
             duration,
@@ -195,7 +214,8 @@ public partial class MainWindow
             DateTimeOffset.UtcNow,
             Stopwatch.GetTimestamp(),
             requireRecoveryPrompt,
-            captureOutput);
+            captureOutput,
+            captureRoot);
     }
 
     private void OnInteractionDiagnosticsLoaded(object sender, RoutedEventArgs e)
@@ -438,6 +458,7 @@ public partial class MainWindow
                 if (!EditorProfilerCaptureFile.TryWriteAtomic(
                         soak.ProfilerCapturePath,
                         csv,
+                        soak.ProfilerCaptureRoot!,
                         out string publishedCapturePath,
                         out profilerCaptureError))
                 {

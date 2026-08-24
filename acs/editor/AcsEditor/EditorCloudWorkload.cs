@@ -81,6 +81,7 @@ internal static class EditorCloudWorkloadContract
     private const ulong ReferenceMaximumViewMarchSamples = 512;
     private const ulong MaximumLightMarchSamples = 8;
     private const ulong MaximumWorldShadowMarchSamples = 32;
+    private const ulong ShadowCacheOutputsPerThread = 32;
 
     internal static uint SnapshotSize =>
         checked((uint)Marshal.SizeOf<EditorCloudWorkloadSnapshot>());
@@ -214,15 +215,16 @@ internal static class EditorCloudWorkloadContract
                 snapshot.OneTimeBakeDispatches,
                 snapshot.OneTimeBakeLogicalInvocations,
                 snapshot.OneTimeBakeLaunchedThreads) ||
-            !InvocationComponentMatchesDispatches(
+            !BatchedInvocationComponentMatchesDispatches(
                 snapshot.ShadowCacheDispatches,
                 snapshot.ShadowCacheLogicalInvocations,
-                snapshot.ShadowCacheLaunchedThreads) ||
+                snapshot.ShadowCacheLaunchedThreads,
+                ShadowCacheOutputsPerThread) ||
             !InvocationComponentMatchesDispatches(
                 snapshot.WorldShadowDispatches,
                 snapshot.WorldShadowLogicalInvocations,
                 snapshot.WorldShadowLaunchedThreads) ||
-            !InvocationPairIsValid(
+            !InvocationPairIsPresent(
                 snapshot.TotalLogicalInvocations,
                 snapshot.TotalLaunchedThreads))
         {
@@ -343,6 +345,26 @@ internal static class EditorCloudWorkloadContract
         ulong launched) =>
         (logical == 0u) == (launched == 0u) &&
         launched >= logical;
+
+    // 影キャッシュは一つのスレッドが同じXZ列の32高度を必ず順に書く。
+    // 起動数と論理出力数を完全一致させ、欠落と余分な列の両方を拒否する。
+    private static bool BatchedInvocationComponentMatchesDispatches(
+        uint dispatches,
+        ulong logical,
+        ulong launched,
+        ulong outputsPerThread) =>
+        (dispatches == 0u) == (logical == 0u) &&
+        (logical == 0u
+            ? launched == 0u
+            : launched > 0u &&
+              SaturatingMultiply(launched, outputsPerThread) == logical);
+
+    // 合計値は列方式を含むため、起動スレッド数が論理出力数を下回り得る。
+    // 各構成要素との厳密な加算一致は呼び出し側で別に検証する。
+    private static bool InvocationPairIsPresent(
+        ulong logical,
+        ulong launched) =>
+        (logical == 0u) == (launched == 0u);
 
     private static bool InvocationComponentMatchesDispatches(
         uint dispatches,
