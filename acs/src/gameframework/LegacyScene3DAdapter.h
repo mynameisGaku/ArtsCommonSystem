@@ -797,6 +797,7 @@ public:
 
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
+    /** 基底更新を行い、派生sceneのOnTickを毎frame一度だけ呼ぶ。 */
     void OnUpdate(f32 dt) noexcept override;
     /** scene入力の6 actionから自由カメラを固定刻みで更新する。 */
     void OnFixedUpdate(f32 fixed_dt) noexcept override;

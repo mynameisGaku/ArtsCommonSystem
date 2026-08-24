@@ -995,6 +995,8 @@ void ALegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
     m_PostParams.delta_time =
         std::isfinite(dt) && dt > 0.0f ? dt : 0.0f;
     m_PostParams.grain_time += m_PostParams.delta_time;
+    // ALegacyScene3DAdapterがOnUpdateを上書きするため、AScene既定のOnTick転送をここで維持する。
+    OnTick(dt);
     // graph の tick は基底 AScene::Update_Internal が OnUpdate 後に必ず実行する。
     // ここで手動 tick すると二重更新になる。
     RefreshAuthoredCameraPose();

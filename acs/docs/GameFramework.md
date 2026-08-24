@@ -333,6 +333,8 @@ rollback 用 snapshot、失敗時の無入力化は [FixedStepRuntimeInput.md](F
 接続し、描画時だけ previous/current 状態を固定時計の補間率で混ぜる。契約と固定入力からの変換例は
 [OrbitCameraController3D.md](OrbitCameraController3D.md) に定める。rollbackでは固定runtime snapshotを
 先に戻し、orbit cameraのprevious/current snapshotを明示的なLegacyアダプターから復元する。
+`ALegacyScene3DAdapter` は独自の `OnUpdate` を持つため、派生sceneの `OnTick` は基底更新から毎frame一度だけ
+転送される。派生側で `OnUpdate` を上書きする場合は、基底更新を呼ばないとこのhookとcamera・水面更新が失われる。
 任意の障害物回避は `CSceneNodeGraph::SweepSphereActiveRange` でtarget近傍と無効meshを除外する。
 probe半径0なら点ray、正値ならcamera本体の半径を保守的に扱い、fixed tickのdesired距離を変えず
 presentation距離だけを短縮する。外向き復帰速度は0なら従来互換の即時反映、正値なら明示した

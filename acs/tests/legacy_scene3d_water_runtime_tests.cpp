@@ -36,6 +36,16 @@ class CCameraSelectionTestScene final : public ALegacyScene3DAdapter {
 public:
     /** 一回の可変更新を実行する。 */
     void UpdateForTest(f32 delta_seconds) noexcept { OnUpdate(delta_seconds); }
+
+    /** 派生sceneへ毎frame hookが届いた回数を返す。 */
+    int TickCount() const noexcept { return m_TickCount; }
+
+protected:
+    /** Legacy adapterの基底更新から呼ばれる毎frame hookを数える。 */
+    void OnTick(f32 /*delta_seconds*/) noexcept override { ++m_TickCount; }
+
+private:
+    int m_TickCount = 0;
 };
 
 /** workspace内のcamera adapter headerをsource契約検査用に読む。 */
@@ -142,6 +152,22 @@ ACS_TEST(LegacyScene3DCameraContract,
         sizeof(ALegacyScene3DAdapter),
         kLegacyScene3DAdapterLayoutSize);
 #endif
+}
+
+ACS_TEST(LegacyScene3DUpdate,
+         ForwardsEachVariableUpdateToDerivedTickHook) {
+    CCameraSelectionTestScene runtime;
+    constexpr char kScene[] =
+        "ACS3D v2\n"
+        "N3D 10 -1 -1 4 5 6 0 0 0 1 1 1 1 1 1 1 Authored\n"
+        "CAM3D 10 authored.main 1 5 1 45 18 0.2 4000\n";
+    runtime.SetFreeCameraEnabled(false);
+    EXPECT_TRUE(runtime.LoadText(kScene, sizeof(kScene) - 1u).Succeeded());
+    runtime.SetOrbitCameraActive(true);
+    runtime.UpdateForTest(1.0f / 60.0f);
+    EXPECT_EQ(runtime.TickCount(), 1);
+    runtime.UpdateForTest(1.0f / 60.0f);
+    EXPECT_EQ(runtime.TickCount(), 2);
 }
 
 ACS_TEST(LegacyScene3DSpriteRuntime,
