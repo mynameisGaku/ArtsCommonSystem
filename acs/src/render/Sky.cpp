@@ -2702,11 +2702,16 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float multipleScatter=(secondScatter+thirdScatter)
                                  *inScatterFactor;
             float h=macro.height;
+            // 形状勾配から得る表面確率は、雲の縁へ届く未解像光だけに使う。
+            // 芯まで同じ光を足すと、上空視点で厚みが消えて灰色の板に戻る。
+            float ambientSurfaceProbability=sqrt(
+                saturate(1.0-lowLodDensityAndProfile.y));
             // 上空から雲頂を見ると、太陽光は視線へ逆向きに戻るため単純な
             // 前方散乱だけでは暗くなりすぎる。未解像の微細な多重散乱を、
-            // 太陽高度・雲頂側・逆向き視線の三条件でだけ補う。
+            // 太陽高度・雲頂側・表面側・逆向き視線の四条件でだけ補う。
             float topSurfaceScatter=0.22*saturate(sun.y)
                 *smoothstep(0.35,0.90,h)
+                *ambientSurfaceProbability
                 *saturate(-cosA);
             float scatterTerm=singleScatter+multipleScatter
                              +beer*topSurfaceScatter;
@@ -2737,10 +2742,6 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 fallbackGroundAmbientDepth,
                 cachedAmbientDepth.z*ambientDensityScale,
                 cachedAmbientDepth.x);
-            // Nubis と同じく、降水・高度の増密前にある dimensional profile から
-            // 表面確率を求める。最終密度の飽和や距離フェードを混ぜると、雲底を黒くし遠端だけ明るくする。
-            float ambientSurfaceProbability=sqrt(
-                saturate(1.0-lowLodDensityAndProfile.y));
             float skyAmbientVisibility=ambientSurfaceProbability
                 *exp(-reducedAmbientExtinction*skyAmbientOpticalDepth);
             float groundAmbientVisibility=ambientSurfaceProbability

@@ -368,9 +368,11 @@ f32 SmoothStepForTest(f32 edge0, f32 edge1, f32 value) noexcept {
 
 // 雲頂を上空から見るときだけ加える未解像の拡散散乱を再現する。
 f32 CloudTopSurfaceScatterForTest(
-    f32 cosine, f32 sunHeight, f32 normalizedHeight) noexcept {
+    f32 cosine, f32 sunHeight, f32 normalizedHeight,
+    f32 surfaceProbability) noexcept {
     return 0.22f * SaturateForTest(sunHeight) *
         SmoothStepForTest(0.35f, 0.90f, normalizedHeight) *
+        SaturateForTest(surfaceProbability) *
         SaturateForTest(-cosine);
 }
 
@@ -6902,20 +6904,26 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(minimumPhase >= lighting.PhaseMin);
 
     const f32 topBackScatter =
-        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.90f);
+        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.90f, 1.0f);
     EXPECT_NEAR(topBackScatter, 0.22f, 1.0e-6f);
     EXPECT_NEAR(
-        CloudTopSurfaceScatterForTest(1.0f, 1.0f, 0.90f),
+        CloudTopSurfaceScatterForTest(1.0f, 1.0f, 0.90f, 1.0f),
         0.0f, 0.0f);
     EXPECT_NEAR(
-        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.20f),
+        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.20f, 1.0f),
         0.0f, 0.0f);
     EXPECT_NEAR(
-        CloudTopSurfaceScatterForTest(-1.0f, 0.0f, 0.90f),
+        CloudTopSurfaceScatterForTest(-1.0f, 0.0f, 0.90f, 1.0f),
+        0.0f, 0.0f);
+    EXPECT_NEAR(
+        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.90f, 0.0f),
         0.0f, 0.0f);
     EXPECT_TRUE(
-        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.80f) >
-        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.50f));
+        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.80f, 1.0f) >
+        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.50f, 1.0f));
+    EXPECT_TRUE(
+        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.80f, 1.0f) >
+        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.80f, 0.5f));
 
     // 表面では従来の作者指定混合と一致し、雲芯側では前方散乱だけを連続的に弱める。
     EXPECT_NEAR(CloudForwardPhaseWeightForTest(0.85f, 1.0f, 1.0f), 0.85f, 0.0f);
@@ -7009,7 +7017,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "floattopSurfaceScatter=0.22*saturate(sun.y)*"
-        "smoothstep(0.35,0.90,h)*saturate(-cosA);"));
+        "smoothstep(0.35,0.90,h)*ambientSurfaceProbability*"
+        "saturate(-cosA);"));
     EXPECT_TRUE(Contains(
         shader,
         "floatscatterTerm=singleScatter+multipleScatter+beer*topSurfaceScatter;"));
@@ -7110,12 +7119,16 @@ ACS_TEST(VolumetricClouds,
         "cachedAmbientDepth.x);"));
     EXPECT_TRUE(Contains(
         ambient,
-        "floatambientSurfaceProbability=sqrt("
-        "saturate(1.0-lowLodDensityAndProfile.y));"
         "floatskyAmbientVisibility=ambientSurfaceProbability*"
-        "exp(-reducedAmbientExtinction*skyAmbientOpticalDepth);"
+        "exp(-reducedAmbientExtinction*skyAmbientOpticalDepth);"));
+    EXPECT_TRUE(Contains(
+        ambient,
         "floatgroundAmbientVisibility=ambientSurfaceProbability*"
         "exp(-reducedAmbientExtinction*groundAmbientOpticalDepth);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatambientSurfaceProbability=sqrt("
+        "saturate(1.0-lowLodDensityAndProfile.y));"));
     EXPECT_FALSE(Contains(
         ambient,
         "saturate(1.0-lowLodDensity*distanceFade)"));

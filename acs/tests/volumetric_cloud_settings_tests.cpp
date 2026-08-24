@@ -623,8 +623,11 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(source, "float multipleScatter=(secondScatter+thirdScatter)"));
     EXPECT_TRUE(Contains(source, "*inScatterFactor;"));
     EXPECT_TRUE(Contains(source, "float h=macro.height;"));
+    EXPECT_TRUE(Contains(source, "float ambientSurfaceProbability=sqrt("));
+    EXPECT_TRUE(Contains(source, "saturate(1.0-lowLodDensityAndProfile.y)"));
     EXPECT_TRUE(Contains(source, "float topSurfaceScatter=0.22*saturate(sun.y)"));
     EXPECT_TRUE(Contains(source, "*smoothstep(0.35,0.90,h)"));
+    EXPECT_TRUE(Contains(source, "*ambientSurfaceProbability"));
     EXPECT_TRUE(Contains(source, "*saturate(-cosA);"));
     EXPECT_TRUE(Contains(source, "float scatterTerm=singleScatter+multipleScatter"));
     EXPECT_TRUE(Contains(source, "+beer*topSurfaceScatter;"));
@@ -658,8 +661,8 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesCachedColumnDepthAndSurfa
     EXPECT_TRUE(Contains(ambientBlock, "float3 cachedAmbientDepth=sampleCloudAmbientDepth(p);"));
     EXPECT_TRUE(Contains(ambientBlock, "cachedAmbientDepth.y*ambientDensityScale"));
     EXPECT_TRUE(Contains(ambientBlock, "cachedAmbientDepth.z*ambientDensityScale"));
-    EXPECT_TRUE(Contains(ambientBlock, "float ambientSurfaceProbability=sqrt("));
-    EXPECT_TRUE(Contains(ambientBlock, "saturate(1.0-lowLodDensityAndProfile.y)"));
+    EXPECT_TRUE(Contains(source, "float ambientSurfaceProbability=sqrt("));
+    EXPECT_TRUE(Contains(source, "saturate(1.0-lowLodDensityAndProfile.y)"));
     EXPECT_FALSE(Contains(ambientBlock, "lowLodDensity*distanceFade"));
     EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientVisibility=ambientSurfaceProbability"));
     EXPECT_TRUE(Contains(ambientBlock, "float groundAmbientVisibility=ambientSurfaceProbability"));
