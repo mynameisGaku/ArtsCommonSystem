@@ -1167,13 +1167,19 @@ float cloudProfileFromTypeWeights(
                  *lerp(0.64,1.0,middle.y);
     float profile=lerp(stratus,stratocumulus,typeWeights.x);
     profile=lerp(profile,cumulus,typeWeights.y);
-    float storm=rise.w*fall.w;
-    // 降水域の上部を横へ広げるため、塔の終端に薄いかなとこ形状を足す。
-    // 上端へ急に切らず、雲頂側の密度を残して高さの連続性を保つ。
-    float anvil=smoothstep(0.52,0.72,h)
-               *(1.0-smoothstep(0.84,0.99,h))*0.94;
-    storm=max(storm,anvil);
-    return saturate(lerp(profile,storm,precipitation*0.72));
+    // 積乱雲本体は中層で一度細くし、上部のかなとこを別の山として作る。
+    // 全高を同じ密度で埋めると、雲底から雲頂まで均一な筒になるため、
+    // 本体の上端を先に絞ってからかなとこへ滑らかにつなぐ。
+    float stormBody=smoothstep(0.06,0.22,h)
+                   *(1.0-0.42*smoothstep(0.48,0.82,h))
+                   *(1.0-smoothstep(0.84,0.98,h));
+    float anvil=smoothstep(0.58,0.72,h)
+               *(1.0-smoothstep(0.90,0.99,h))*0.84;
+    float storm=max(stormBody,anvil);
+    float stormMix=max(
+        precipitation*0.72,
+        cloudToweringStrength(typeWeights.y,precipitation)*0.92);
+    return saturate(lerp(profile,storm,stormMix));
 }
 float cloudProfile(float h,float cloudType,float precipitation){
     return cloudProfileFromTypeWeights(
@@ -1203,8 +1209,8 @@ float cloudWeatherCoverageEvolution(float4 weather){
 float cloudColumnHeightShift(float4 weather,float cloudInterior){
     float core=smoothstep(0.08,0.92,saturate(cloudInterior));
     float verticalType=saturate(max(weather.g,weather.b));
-    float amplitude=lerp(0.025,0.18,verticalType);
-    amplitude*=lerp(1.0,1.9,cloudToweringStrength(weather.g,weather.b));
+    float amplitude=lerp(0.018,0.11,verticalType);
+    amplitude*=lerp(1.0,1.35,cloudToweringStrength(weather.g,weather.b));
     float evolvingWarp=clamp(
         weather.a-0.5+cloudLocalConvectionPhase(weather)*0.45,-0.5,0.5);
     float signal=clamp(
@@ -1217,8 +1223,8 @@ float cloudColumnBaseLift(float4 weather,float cloudInterior){
     float verticalType=saturate(max(weather.g,weather.b));
     float broadPattern=smoothstep(0.18,0.82,weather.a);
     float edgePattern=1.0-smoothstep(0.08,0.86,saturate(cloudInterior));
-    float amplitude=lerp(0.045,0.12,verticalType);
-    amplitude*=lerp(1.0,2.0,cloudToweringStrength(weather.g,weather.b));
+    float amplitude=lerp(0.025,0.075,verticalType);
+    amplitude*=lerp(1.0,1.40,cloudToweringStrength(weather.g,weather.b));
     float signal=saturate(0.08+broadPattern*0.62+edgePattern*0.30);
     return amplitude*signal;
 }
@@ -1337,7 +1343,7 @@ float3 cloudUVW(
     // XZ follows physical world scale.  Y uses normalized altitude so lowering
     // the horizontal frequency cannot collapse the volume into one stretched
     // slice.
-    float canonicalY=cachedHeight*0.78
+    float canonicalY=cachedHeight*1.25
                     +weather.g*0.09+weather.a*0.05+0.07;
     return float3((xz.x+weatherWarp.x+curlWarp.x)*shapeScale,
                   canonicalY,
@@ -1718,7 +1724,7 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeath
                 macro.weatherMask,macro.height,upperBand);
         macro.heightProfile=saturate(sampledProfile);
         // 共有した天候と渦の変換は光円すい内で線形なので、視線側の座標から採取点を復元する。
-        float3 lightingUvw=referenceUvw+float3((p.x-referenceP.x)*shapeScale,(macro.height-referenceHeight)*0.78,(p.z-referenceP.z)*shapeScale);
+        float3 lightingUvw=referenceUvw+float3((p.x-referenceP.x)*shapeScale,(macro.height-referenceHeight)*1.25,(p.z-referenceP.z)*shapeScale);
         cloudBaseShapeLighting(
             lightingUvw,
             macro.heightThreshold-cloudBillowMaximumOffset(macro.height),
