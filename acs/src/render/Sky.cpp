@@ -1192,9 +1192,9 @@ float cloudProfileFromTypeWeights(
     // 積乱雲本体は上部まで密度を保ち、肩からかなとこへ段差なく遷移させる。
     // 以前の短い本体と弱いかなとこでは、実際の層厚があっても画面上は低い塊に
     // 見えたため、本体の減衰を上へ移し、かなとこの山を明確に重ねる。
-    float stormBody=smoothstep(0.045,0.16,h)
+    float stormBody=smoothstep(0.06,0.22,h)
                    *(1.0-smoothstep(0.40,0.70,h));
-    float stormShoulder=smoothstep(0.20,0.34,h)
+    float stormShoulder=smoothstep(0.24,0.36,h)
                        *(1.0-smoothstep(0.46,0.66,h))*0.62;
     float anvil=smoothstep(0.56,0.70,h)
                *(1.0-smoothstep(0.85,0.995,h))*0.82;
@@ -1426,10 +1426,18 @@ float cloudBillowOffset(float2 detailA,float2 detailB,float height,float middleV
     float middleDifference=cloudDetailMiddleBand(detailA)-cloudDetailMiddleBand(detailB);
     return lerp(coarseDifference,middleDifference,topMiddleWeight)*cloudBillowMaximumOffset(height);
 }
-// 低周波形状を雲体側へ満たしてから高さ分布で支える。平方根は0と1および空領域を保ち、
-// 線形密度の薄い内部だけを持ち上げるため、細部ノイズを雲体そのものにしない。
+// 低周波形状を雲体側へ満たしてから高さ分布で支える。平方根は雲体内部の薄い密度を
+// 持ち上げるが、雲底・雲頂の端では二乗側へ戻し、細部ノイズを長い垂れへ変えない。
+// 雲底の支持量も低い高さだけ二乗側へ寄せ、低周波形状の細い縦柱を尾にしない。
 float cloudDimensionalDensity(float baseDensity,float heightProfile){
-    return sqrt(saturate(baseDensity))*saturate(heightProfile);
+    float density=saturate(baseDensity);
+    float profile=saturate(heightProfile);
+    float interiorDensity=sqrt(density);
+    float edgeDensity=density*density;
+    float edgeWeight=1.0-smoothstep(0.35,0.78,profile);
+    float supportBlend=smoothstep(0.10,0.56,profile);
+    float profileSupport=profile*lerp(profile,1.0,supportBlend);
+    return lerp(interiorDensity,edgeDensity,edgeWeight)*profileSupport;
 }
 // 雲底では低密度の端を面へ収束させ、中層では細い縦筋を雲柱の中心へ収束させる。
 // かなとこ帯は対象外にして、上部の横方向の広がりと薄い縁を残す。

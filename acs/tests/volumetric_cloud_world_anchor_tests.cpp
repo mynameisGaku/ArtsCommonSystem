@@ -516,9 +516,9 @@ f32 CloudStormProfileForTest(f32 height, f32 cloudType, f32 precipitation) noexc
     const f32 precipitationTower = SmoothStepForTest(0.25f, 0.85f, precipitation);
     const f32 typeTower = SmoothStepForTest(0.72f, 0.98f, cloudType);
     const f32 toweringStrength = typeTower > precipitationTower ? typeTower : precipitationTower;
-    const f32 stormBody = SmoothStepForTest(0.045f, 0.16f, height) *
+    const f32 stormBody = SmoothStepForTest(0.06f, 0.22f, height) *
         (1.0f - SmoothStepForTest(0.40f, 0.70f, height));
-    const f32 stormShoulder = SmoothStepForTest(0.20f, 0.34f, height) *
+    const f32 stormShoulder = SmoothStepForTest(0.24f, 0.36f, height) *
         (1.0f - SmoothStepForTest(0.46f, 0.66f, height)) * 0.62f;
     const f32 anvil = SmoothStepForTest(0.56f, 0.70f, height) *
         (1.0f - SmoothStepForTest(0.85f, 0.995f, height)) * 0.82f;
@@ -606,8 +606,14 @@ f32 CloudConvectiveHeightForTest(f32 height, f32 columnShift, bool upperBand) no
 
 // 低周波形状を雲体側へ満たし、高さ形状で支えた密度を求める。
 f32 CloudDimensionalDensityForTest(f32 baseDensity, f32 heightProfile) noexcept {
-    return Sqrt(SaturateForTest(baseDensity)) *
-        SaturateForTest(heightProfile);
+    const f32 density = SaturateForTest(baseDensity);
+    const f32 profile = SaturateForTest(heightProfile);
+    const f32 interiorDensity = Sqrt(density);
+    const f32 edgeDensity = density * density;
+    const f32 edgeWeight = 1.0f - SmoothStepForTest(0.35f, 0.78f, profile);
+    const f32 supportBlend = SmoothStepForTest(0.10f, 0.56f, profile);
+    const f32 profileSupport = profile * (profile + (1.0f - profile) * supportBlend);
+    return (interiorDensity + (edgeDensity - interiorDensity) * edgeWeight) * profileSupport;
 }
 
 // 局所雲底より上の高さだけを再配置し、既存の対流形状を適用する。
@@ -3056,9 +3062,14 @@ ACS_TEST(VolumetricClouds,
     const f32 formerDensity = RemapUnitRangeForTest(
         kBaseDensity, kDetail * kErosion, 1.0f) *
         kHeightProfile * kPrecipitationScale;
-    EXPECT_NEAR(coarseDensity, 0.15f, 1.0e-6f);
+    const f32 expectedProfileSupport =
+        kHeightProfile * (
+            kHeightProfile +
+            (1.0f - kHeightProfile) *
+                SmoothStepForTest(0.10f, 0.56f, kHeightProfile));
+    EXPECT_NEAR(coarseDensity, expectedProfileSupport, 1.0e-6f);
     EXPECT_TRUE(correctedDensity < formerDensity * 0.10f);
-    EXPECT_NEAR(formerDensity, coarseDensity, 1.0e-6f);
+    EXPECT_TRUE(coarseDensity < formerDensity * 0.25f);
 }
 
 ACS_TEST(VolumetricClouds,
@@ -3242,13 +3253,23 @@ ACS_TEST(VolumetricClouds, DimensionalDensityFillsCloudBodyWithoutCreatingMatter
     }
     EXPECT_NEAR(CloudDimensionalDensityForTest(0.0f, 1.0f), 0.0f, 0.0f);
     EXPECT_NEAR(CloudDimensionalDensityForTest(0.25f, 1.0f), 0.5f, 1.0e-6f);
-    EXPECT_NEAR(CloudDimensionalDensityForTest(1.0f, 0.25f), 0.25f, 1.0e-6f);
+    EXPECT_TRUE(
+        CloudDimensionalDensityForTest(0.25f, 0.50f) <
+        CloudDimensionalDensityForTest(0.25f, 1.0f) * 0.50f);
+    EXPECT_TRUE(
+        CloudDimensionalDensityForTest(1.0f, 0.20f) < 0.20f * 0.35f);
+    const f32 quarterProfileSupport =
+        0.25f * (0.25f + 0.75f * SmoothStepForTest(0.10f, 0.56f, 0.25f));
+    EXPECT_NEAR(
+        CloudDimensionalDensityForTest(1.0f, 0.25f),
+        quarterProfileSupport,
+        1.0e-6f);
     EXPECT_NEAR(CloudDimensionalDensityForTest(1.0f, 1.0f), 1.0f, 0.0f);
     EXPECT_NEAR(CloudDimensionalDensityForTest(0.25f, 0.0f), 0.0f, 0.0f);
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
-    EXPECT_TRUE(Contains(shader, "floatcloudDimensionalDensity(" "floatbaseDensity,floatheightProfile){" "returnsqrt(saturate(baseDensity))*saturate(heightProfile);}"));
+    EXPECT_TRUE(Contains(shader, "floatcloudDimensionalDensity(" "floatbaseDensity,floatheightProfile){" "floatdensity=saturate(baseDensity);" "floatprofile=saturate(heightProfile);" "floatinteriorDensity=sqrt(density);" "floatedgeDensity=density*density;" "floatedgeWeight=1.0-smoothstep(0.35,0.78,profile);" "floatsupportBlend=smoothstep(0.10,0.56,profile);" "floatprofileSupport=profile*lerp(profile,1.0,supportBlend);" "returnlerp(interiorDensity,edgeDensity,edgeWeight)*profileSupport;}"));
     EXPECT_TRUE(Contains(shader, "macro.heightProfile=saturate(sampledProfile);"));
     EXPECT_TRUE(Contains(shader, "cloudDimensionalDensity(" "baseDensity,macro.heightProfile)*densityScale"));
     EXPECT_FALSE(Contains(shader, "*macro.weatherMask*macro.heightProfile"));
@@ -3486,9 +3507,9 @@ ACS_TEST(VolumetricClouds,
         "returnmax(typeTower,precipitationTower);}"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatstormBody=smoothstep(0.045,0.16,h)"
+        "floatstormBody=smoothstep(0.06,0.22,h)"
         "*(1.0-smoothstep(0.40,0.70,h));"
-        "floatstormShoulder=smoothstep(0.20,0.34,h)"
+        "floatstormShoulder=smoothstep(0.24,0.36,h)"
         "*(1.0-smoothstep(0.46,0.66,h))*0.62;"
         "floatanvil=smoothstep(0.56,0.70,h)"
         "*(1.0-smoothstep(0.85,0.995,h))*0.82;"
