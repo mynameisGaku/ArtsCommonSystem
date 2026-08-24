@@ -1416,10 +1416,10 @@ public static partial class ProjectManager
         "        if (fileSize.IsErr() || fileSize.Value() == 0 || fileSize.Value() > kScene3DSerializeMaxInputBytes)\n" +
         "            return EBootstrapSceneKind::Invalid;\n" +
         "        TArray<u8> bytes;\n" +
-        "        if (!bytes.TryResize(static_cast<usize>(fileSize.Value())) ||\n" +
-        "            pack.ReadFile(\"main.acscene\", bytes.Data(), fileSize.Value()).IsErr())\n" +
+        "        if (!bytes.TrySetNum(static_cast<usize>(fileSize.Value())) ||\n" +
+        "            pack.ReadFile(\"main.acscene\", bytes.GetData(), fileSize.Value()).IsErr())\n" +
         "            return EBootstrapSceneKind::Invalid;\n" +
-        "        return DetectBootstrapScene(bytes.Data(), fileSize.Value());\n" +
+        "        return DetectBootstrapScene(bytes.GetData(), fileSize.Value());\n" +
         "    }\n" +
         "    std::FILE* file = std::fopen(\"main.acscene\", \"rb\");\n" +
         "    if (file == nullptr) return EBootstrapSceneKind::Invalid;\n" +

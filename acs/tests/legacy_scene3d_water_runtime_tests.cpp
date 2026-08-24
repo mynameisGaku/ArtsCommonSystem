@@ -388,6 +388,16 @@ ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
     EXPECT_TRUE(clouds < environment);
     EXPECT_TRUE(environment < hdr);
 
+    const auto render_clouds_begin = source.find("void ALegacyScene3DAdapter::RenderClouds(");
+    const auto render_clouds_end = source.find("void ALegacyScene3DAdapter::CompositeClouds(", render_clouds_begin);
+    EXPECT_TRUE(render_clouds_begin != source.npos);
+    EXPECT_TRUE(render_clouds_end != source.npos);
+    if (render_clouds_begin != source.npos && render_clouds_end != source.npos) {
+        const auto render_clouds = source.substr(render_clouds_begin, render_clouds_end - render_clouds_begin);
+        EXPECT_TRUE(render_clouds.find("m_CloudsDrawn = m_Clouds.LastFrameWorkload().submitted;") != render_clouds.npos);
+        EXPECT_TRUE(render_clouds.find("m_CloudsDrawn = true;") == render_clouds.npos);
+    }
+
     const std::size_t ensure_begin = source.find(
         "bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(");
     const std::size_t ensure_end = source.find(
@@ -401,19 +411,23 @@ ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
         EXPECT_TRUE(ensure.find(
             "m_CloudsDrawn && m_CloudParams.bAffectEnvironmentLighting")
             != std::string::npos);
-        EXPECT_TRUE(ensure.find(
-            "m_Clouds.EnvironmentLightingSignature(")
-            != std::string::npos);
+        EXPECT_TRUE(ensure.find("m_Clouds.RenderedEnvironmentLightingUpdateSignature()") != ensure.npos);
         EXPECT_TRUE(ensure.find(
             "cloud_signature == m_IblBakedCloudSignature")
             != std::string::npos);
         const std::size_t cadence_frame = ensure.find("m_Clouds.LastFrameWorkload().submission_index");
+        const auto update_signature = ensure.find("m_Clouds.RenderedEnvironmentLightingUpdateSignature()", cadence_frame);
+        const auto duplicate_gate = ensure.find("cloud_signature == m_IblBakedCloudSignature", update_signature);
         const std::size_t cadence_gate = ensure.find("CVolumetricClouds::IsEnvironmentLightingRefreshFrame(", cadence_frame);
         const std::size_t cloud_build = ensure.find("m_Clouds.BuildEnvironmentCubemap(", cadence_gate);
         EXPECT_TRUE(cadence_frame != std::string::npos);
+        EXPECT_TRUE(update_signature != ensure.npos);
+        EXPECT_TRUE(duplicate_gate != ensure.npos);
         EXPECT_TRUE(cadence_gate != std::string::npos);
         EXPECT_TRUE(cloud_build != std::string::npos);
-        EXPECT_TRUE(cadence_frame < cadence_gate);
+        EXPECT_TRUE(cadence_frame < update_signature);
+        EXPECT_TRUE(update_signature < duplicate_gate);
+        EXPECT_TRUE(duplicate_gate < cadence_gate);
         EXPECT_TRUE(cadence_gate < cloud_build);
         EXPECT_TRUE(ensure.find("const bool cloud_mode_changed =") != std::string::npos);
         EXPECT_TRUE(ensure.find(

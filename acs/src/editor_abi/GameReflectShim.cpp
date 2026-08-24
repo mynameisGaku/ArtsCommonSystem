@@ -113,11 +113,11 @@ GR_API void* acs_game_scene_create() noexcept {
 GR_API int acs_game_scene_add_node(void* scene, int parent_idx) noexcept {
     auto* s = static_cast<FGamePlayScene*>(scene);
     if (s == nullptr || !s->root) return -1;
-    ANode* parent = (parent_idx >= 0 && static_cast<unsigned>(parent_idx) < s->nodes.Size())
+    ANode* parent = (parent_idx >= 0 && static_cast<unsigned>(parent_idx) < s->nodes.Num())
                           ? s->nodes[static_cast<u32>(parent_idx)] : s->root.Get();
     ANode& child = parent->AddChild(NewObject<ANode>());
     s->nodes.Add(&child);
-    return static_cast<int>(s->nodes.Size()) - 1;
+    return static_cast<int>(s->nodes.Num()) - 1;
 }
 
 /**
@@ -135,9 +135,9 @@ GR_API int acs_game_scene_add_node(void* scene, int parent_idx) noexcept {
 GR_API void acs_game_scene_set_parent(void* scene, int child_idx, int parent_idx) noexcept {
     auto* s = static_cast<FGamePlayScene*>(scene);
     if (s == nullptr || !s->root) return;
-    if (child_idx < 0 || static_cast<unsigned>(child_idx) >= s->nodes.Size()) return;
+    if (child_idx < 0 || static_cast<unsigned>(child_idx) >= s->nodes.Num()) return;
     ANode* child  = s->nodes[static_cast<u32>(child_idx)];
-    ANode* parent = (parent_idx >= 0 && static_cast<unsigned>(parent_idx) < s->nodes.Size())
+    ANode* parent = (parent_idx >= 0 && static_cast<unsigned>(parent_idx) < s->nodes.Num())
                           ? s->nodes[static_cast<u32>(parent_idx)] : s->root.Get();
     if (child == nullptr || parent == nullptr || child == parent) return;
     child->Reparent(*parent);
@@ -147,7 +147,7 @@ GR_API void acs_game_scene_set_parent(void* scene, int child_idx, int parent_idx
 /** ノードのローカル transform を設定する。 */
 GR_API void acs_game_scene_set_transform(void* scene, int idx, float x, float y, float rot, float sx, float sy) noexcept {
     auto* s = static_cast<FGamePlayScene*>(scene);
-    if (s == nullptr || idx < 0 || static_cast<unsigned>(idx) >= s->nodes.Size()) return;
+    if (s == nullptr || idx < 0 || static_cast<unsigned>(idx) >= s->nodes.Num()) return;
     s->nodes[static_cast<u32>(idx)]->SetLocal2D(
         FTransform2D{ FVec2{ x, y }, rot, FVec2{ sx, sy } });
 }
@@ -155,7 +155,7 @@ GR_API void acs_game_scene_set_transform(void* scene, int idx, float x, float y,
 /** ノードへ実コンポーネントを attach する (反射名で生成)。戻り値はコンポーネント slot (失敗 -1)。 */
 GR_API int acs_game_scene_add_component(void* scene, int idx, const char* type_name) noexcept {
     auto* s = static_cast<FGamePlayScene*>(scene);
-    if (s == nullptr || idx < 0 || static_cast<unsigned>(idx) >= s->nodes.Size() || type_name == nullptr) return -1;
+    if (s == nullptr || idx < 0 || static_cast<unsigned>(idx) >= s->nodes.Num() || type_name == nullptr) return -1;
     TUniquePtr<AComponent> comp = CreateComponentByName(type_name);
     if (!comp) return -1;
     ANode* n = s->nodes[static_cast<u32>(idx)];
@@ -166,7 +166,7 @@ GR_API int acs_game_scene_add_component(void* scene, int idx, const char* type_n
 /** コンポーネントのプロパティ (authored 値) を実メンバへ適用する。 */
 GR_API int acs_game_scene_set_prop(void* scene, int idx, int slot, const char* field, float x, float y, float z, float w) noexcept {
     auto* s = static_cast<FGamePlayScene*>(scene);
-    if (s == nullptr || idx < 0 || static_cast<unsigned>(idx) >= s->nodes.Size() || field == nullptr) return 0;
+    if (s == nullptr || idx < 0 || static_cast<unsigned>(idx) >= s->nodes.Num() || field == nullptr) return 0;
     AComponent* c = s->nodes[static_cast<u32>(idx)]->ComponentAt(static_cast<u32>(slot));
     if (c == nullptr) return 0;
     const FTypeDesc* d = CTypeRegistry::Get().FindByName(c->ReflectName());
@@ -181,11 +181,12 @@ GR_API void acs_game_scene_tick(void* scene, float dt) noexcept {
     if (s == nullptr || !s->root) return;
     if (s->services) {
         // AScene と同じ 2 段モデル: PreUpdate(Clock) → OnUpdate → PostUpdate(Tweens/Seq/Camera)。
-        s->services->PreUpdate_Internal(dt);
-        const float sdt = s->services->ScaledDt_Internal(dt);
+        auto update = s->services->UpdateAccess();
+        update.PreUpdate(dt);
+        const float sdt = update.ScaledDt(dt);
         s->root->UpdateTree(sdt);
         s->root->ResolveStructuralChanges();
-        s->services->PostUpdate_Internal(sdt);
+        update.PostUpdate(sdt);
     } else {
         s->root->UpdateTree(dt);
         s->root->ResolveStructuralChanges();
@@ -195,7 +196,7 @@ GR_API void acs_game_scene_tick(void* scene, float dt) noexcept {
 /** ノードのローカル transform を読み戻す (editor が描画へ反映する)。 */
 GR_API void acs_game_scene_get_transform(void* scene, int idx, float* x, float* y, float* rot, float* sx, float* sy) noexcept {
     auto* s = static_cast<FGamePlayScene*>(scene);
-    if (s == nullptr || idx < 0 || static_cast<unsigned>(idx) >= s->nodes.Size()) return;
+    if (s == nullptr || idx < 0 || static_cast<unsigned>(idx) >= s->nodes.Num()) return;
     const FTransform2D t = s->nodes[static_cast<u32>(idx)]->Local2D();
     if (x) *x = t.position.x; if (y) *y = t.position.y; if (rot) *rot = t.rotation;
     if (sx) *sx = t.scale.x;  if (sy) *sy = t.scale.y;

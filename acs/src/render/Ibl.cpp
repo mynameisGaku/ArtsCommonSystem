@@ -1376,10 +1376,8 @@ TResult<void> CImageBasedLighting::RebuildDerivedMapsFromEnvironment(
             "RebuildDerivedMapsFromEnvironment: cubemap is required");
     }
 
-    // 前frameが参照したmapだけを待つ。新しい候補は現在のcommand listへ順に記録し、
-    // 両方が完成するまで公開中の所有権を変えない。
-    if (m_IrradianceCube || m_PrefilterCube) device.WaitIdle();
-
+    // 新しい候補を現在のコマンドリストへ順に記録し、両方が完成するまで公開中の
+    // 所有権を変えない。置換した旧資源はRHIの完了フェンス付き遅延解放へ渡る。
     TUniquePtr<IRhiTexture> irradiance_candidate;
     auto irradiance_result = BuildIrradiance(
         device, cl, environment, irradiance_candidate);

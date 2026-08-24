@@ -5484,6 +5484,22 @@ u32 CVolumetricClouds::EnvironmentLightingSignature(
     return hash != 0u ? hash : 1u;
 }
 
+u32 CVolumetricClouds::EnvironmentLightingUpdateSignature(f32 coverage, f32 density, f32 wind, u64 submission_index) const noexcept {
+    // 連続時刻を直接混ぜず、固定間隔ごとの世代だけを設定署名へ加える。
+    const u64 updateGeneration = submission_index / kVolumetricCloudEnvironmentRefreshInterval;
+    u32 hash = EnvironmentLightingSignature(coverage, density, wind);
+    hash = HashCloudEnvironmentWord(hash, static_cast<u32>(updateGeneration));
+    hash = HashCloudEnvironmentWord(hash, static_cast<u32>(updateGeneration >> 32u));
+    return hash != 0u ? hash : 1u;
+}
+
+u32 CVolumetricClouds::RenderedEnvironmentLightingUpdateSignature() const noexcept {
+    if (!m_HistoryValid || !m_LastFrameWorkload.submitted || m_LastFrameWorkload.submission_index == 0u) {
+        return 0u;
+    }
+    return EnvironmentLightingUpdateSignature(m_PrevCoverage, m_PrevDensity, m_PrevWindSpeed, m_LastFrameWorkload.submission_index);
+}
+
 bool CVolumetricClouds::IsEnvironmentLightingRefreshFrame(u64 submission_index) noexcept {
     return submission_index != 0u && submission_index % kVolumetricCloudEnvironmentRefreshInterval == 0u;
 }

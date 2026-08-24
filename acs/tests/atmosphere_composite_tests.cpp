@@ -1201,9 +1201,7 @@ ACS_TEST(EditorLifecycle,
             : std::string{};
     };
 
-    const std::string retirement = body_between(
-        "void BeginSceneResourceRetirement(FEditorHost& h) noexcept {",
-        "void Pass_AtmosphereIbl(");
+    const auto retirement = body_between("void BeginSceneResourceRetirement(FEditorHost& h) noexcept {", "bool Pass_AtmosphereIbl(");
     const std::size_t increment = retirement.find(
         "++h.scene_resource_retirement_depth;");
     const std::size_t outer_only = retirement.find(
@@ -1385,14 +1383,12 @@ ACS_TEST(Atmosphere, CloudSunTransmittanceRespondsToElevationAndGroundOcclusion)
 
 ACS_TEST(Atmosphere, EditorCloudLightingUsesNormalizedLayerAndCurrentSky) {
     const std::string source = ReadEditorAbiSource();
-    const std::size_t helperBegin = source.find(
-        "void UpdateVolumetricCloudLighting_Internal(");
-    const std::size_t helperEnd = source.find(
-        "void DrawScene3D(", helperBegin);
-    const std::string helper =
-        helperBegin != std::string::npos && helperEnd != std::string::npos
+    const auto helperBegin = source.find("void UpdateVolumetricCloudLighting_Internal(");
+    const auto helperEnd = source.find("void ConfigureVolumetricCloudState_Internal(", helperBegin);
+    const auto helper =
+        helperBegin != source.npos && helperEnd != source.npos
             ? source.substr(helperBegin, helperEnd - helperBegin)
-            : std::string{};
+            : source.substr(0u, 0u);
     EXPECT_TRUE(!helper.empty());
     EXPECT_TRUE(Contains(
         helper,
@@ -1407,16 +1403,79 @@ ACS_TEST(Atmosphere, EditorCloudLightingUsesNormalizedLayerAndCurrentSky) {
     EXPECT_TRUE(Contains(helper, "lighting.GroundColor = host.sky_ground;"));
     EXPECT_TRUE(Contains(helper, "host.vclouds3d.SetLighting(lighting);"));
 
+    const auto configureBegin = helperEnd;
+    const auto configureEnd = source.find("void DrawScene3D(", configureBegin);
+    const auto configure =
+        configureBegin != source.npos && configureEnd != source.npos
+            ? source.substr(configureBegin, configureEnd - configureBegin)
+            : source.substr(0u, 0u);
+    EXPECT_TRUE(!configure.empty());
+    const auto setLayer = configure.find("host.vclouds3d.SetLayer(");
+    const auto updateLighting = configure.find("UpdateVolumetricCloudLighting_Internal(host);", setLayer);
+    EXPECT_TRUE(setLayer != configure.npos);
+    EXPECT_TRUE(updateLighting != configure.npos);
+    EXPECT_TRUE(setLayer < updateLighting);
+
     const std::size_t drawBegin = source.find("void DrawScene3D(");
     const std::string draw = drawBegin != std::string::npos
         ? source.substr(drawBegin) : std::string{};
-    const std::size_t setLayer = draw.find("h.vclouds3d.SetLayer(");
-    const std::size_t updateLighting = draw.find(
-        "UpdateVolumetricCloudLighting_Internal(h);", setLayer);
-    const std::size_t renderClouds = draw.find("h.vclouds3d.RenderComputeCameraRelative(", updateLighting);
-    EXPECT_TRUE(setLayer != std::string::npos);
-    EXPECT_TRUE(updateLighting != std::string::npos);
-    EXPECT_TRUE(renderClouds != std::string::npos);
-    EXPECT_TRUE(setLayer < updateLighting);
-    EXPECT_TRUE(updateLighting < renderClouds);
+    const auto configureState = draw.find("ConfigureVolumetricCloudState_Internal(h);");
+    const auto renderClouds = draw.find("h.vclouds3d.RenderComputeCameraRelative(", configureState);
+    EXPECT_TRUE(configureState != draw.npos);
+    EXPECT_TRUE(renderClouds != draw.npos);
+    EXPECT_TRUE(configureState < renderClouds);
+}
+
+ACS_TEST(Atmosphere, EditorCloudEnvironmentLightingUsesBoundedMotionGenerationWithoutGpuIdle)
+{
+    const auto source = ReadEditorAbiSource();
+    const auto helperBegin = source.find("void Pass_VolumetricCloudIbl_Internal(");
+    const auto helperEnd = source.find("// シャドウパスの出力", helperBegin);
+    const auto helper =
+        helperBegin != source.npos && helperEnd != source.npos
+            ? source.substr(helperBegin, helperEnd - helperBegin)
+            : source.substr(0u, 0u);
+    EXPECT_TRUE(!helper.empty());
+    EXPECT_TRUE(Contains(helper, "cloudsActive && !host.cloud_environment_source_ready"));
+    EXPECT_TRUE(Contains(helper, "host.vclouds3d.LastFrameWorkload().submission_index"));
+    EXPECT_TRUE(Contains(helper, "host.vclouds3d.ResolvedDepth() == nullptr"));
+    EXPECT_TRUE(Contains(helper, "host.vclouds3d.RenderedEnvironmentLightingUpdateSignature()"));
+    EXPECT_TRUE(Contains(helper, "cloudsActive && cloudSignature == 0u"));
+    EXPECT_TRUE(Contains(helper, "cloudSignature == host.ibl_baked_cloud_signature"));
+    EXPECT_TRUE(Contains(helper, "CVolumetricClouds::IsEnvironmentLightingRefreshFrame(cloudFrame)"));
+    const auto cloudBuild = helper.find("host.vclouds3d.BuildEnvironmentCubemap(");
+    const auto derivedBuild = helper.find("host.ibl3d.RebuildDerivedMapsFromEnvironment(", cloudBuild);
+    const auto publish = helper.find("host.ibl_baked_cloud_signature = cloudSignature;", derivedBuild);
+    EXPECT_TRUE(cloudBuild != helper.npos);
+    EXPECT_TRUE(derivedBuild != helper.npos);
+    EXPECT_TRUE(publish != helper.npos);
+    EXPECT_TRUE(cloudBuild < derivedBuild);
+    EXPECT_TRUE(derivedBuild < publish);
+    EXPECT_FALSE(Contains(helper, "WaitIdle("));
+
+    const auto drawBegin = source.find("void DrawScene3D(");
+    const auto draw = drawBegin != source.npos
+        ? source.substr(drawBegin) : source.substr(0u, 0u);
+    const auto baseUpdate = draw.find("baseEnvironmentUpdated = Pass_AtmosphereIbl(h, cl);");
+    const auto cloudIbl = draw.find("Pass_VolumetricCloudIbl_Internal(h, *cl, cloudsActive, baseEnvironmentUpdated);", baseUpdate);
+    const auto sourceReset = draw.find("h.cloud_environment_source_ready = false;", cloudIbl);
+    const auto beginScene = draw.find("cl->BeginRenderToTexture(*hdrRt", sourceReset);
+    const auto configureState = draw.find("ConfigureVolumetricCloudState_Internal(h);", beginScene);
+    const auto renderClouds = draw.find("h.vclouds3d.RenderComputeCameraRelative(", configureState);
+    const auto sourcePublish = draw.find("h.vclouds3d.LastFrameWorkload().submitted;", renderClouds);
+    EXPECT_TRUE(baseUpdate != draw.npos);
+    EXPECT_TRUE(configureState != draw.npos);
+    EXPECT_TRUE(cloudIbl != draw.npos);
+    EXPECT_TRUE(sourceReset != draw.npos);
+    EXPECT_TRUE(beginScene != draw.npos);
+    EXPECT_TRUE(renderClouds != draw.npos);
+    EXPECT_TRUE(sourcePublish != draw.npos);
+    EXPECT_TRUE(baseUpdate < configureState);
+    EXPECT_TRUE(baseUpdate < cloudIbl);
+    EXPECT_TRUE(cloudIbl < sourceReset);
+    EXPECT_TRUE(sourceReset < beginScene);
+    EXPECT_TRUE(beginScene < configureState);
+    EXPECT_TRUE(configureState < renderClouds);
+    EXPECT_TRUE(renderClouds < sourcePublish);
+    EXPECT_TRUE(Contains(source, "h.ibl_baked_cloud_signature = 0u;"));
 }

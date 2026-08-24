@@ -1096,15 +1096,15 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(editorSource, "h.q_cloud_type_influence=h.settings.GetFloat(\"Rendering\",\"CloudTypeInfluence\",0.0f);"));
     EXPECT_TRUE(Contains(editorSource, "h.q_cloud_precipitation=h.settings.GetFloat(\"Rendering\",\"CloudPrecipitation\",0.0f);"));
     EXPECT_TRUE(Contains(editorSource, "h.q_cloud_precipitation_influence=h.settings.GetFloat(\"Rendering\",\"CloudPrecipitationInfluence\",0.0f);"));
-    EXPECT_TRUE(Contains(editorSource, "cloudRange.MaxDistance=h.q_cloud_max_distance;"));
-    EXPECT_TRUE(Contains(editorSource, "cloudRange.FadeFraction=h.q_cloud_fade_fraction;"));
-    EXPECT_TRUE(Contains(editorSource, "cloudRange.StepGrowth=h.q_cloud_step_growth;"));
-    EXPECT_TRUE(Contains(editorSource, "h.vclouds3d.SetRange(cloudRange);"));
-    EXPECT_TRUE(Contains(editorSource, "cloudWeather.CloudType=h.q_cloud_type;"));
-    EXPECT_TRUE(Contains(editorSource, "cloudWeather.CloudTypeInfluence=h.q_cloud_type_influence;"));
-    EXPECT_TRUE(Contains(editorSource, "cloudWeather.Precipitation=h.q_cloud_precipitation;"));
-    EXPECT_TRUE(Contains(editorSource, "cloudWeather.PrecipitationInfluence=h.q_cloud_precipitation_influence;"));
-    EXPECT_TRUE(Contains(editorSource, "h.vclouds3d.SetWeather(cloudWeather);"));
+    EXPECT_TRUE(Contains(editorSource, "cloudRange.MaxDistance=host.q_cloud_max_distance;"));
+    EXPECT_TRUE(Contains(editorSource, "cloudRange.FadeFraction=host.q_cloud_fade_fraction;"));
+    EXPECT_TRUE(Contains(editorSource, "cloudRange.StepGrowth=host.q_cloud_step_growth;"));
+    EXPECT_TRUE(Contains(editorSource, "host.vclouds3d.SetRange(cloudRange);"));
+    EXPECT_TRUE(Contains(editorSource, "cloudWeather.CloudType=host.q_cloud_type;"));
+    EXPECT_TRUE(Contains(editorSource, "cloudWeather.CloudTypeInfluence=host.q_cloud_type_influence;"));
+    EXPECT_TRUE(Contains(editorSource, "cloudWeather.Precipitation=host.q_cloud_precipitation;"));
+    EXPECT_TRUE(Contains(editorSource, "cloudWeather.PrecipitationInfluence=host.q_cloud_precipitation_influence;"));
+    EXPECT_TRUE(Contains(editorSource, "host.vclouds3d.SetWeather(cloudWeather);"));
     EXPECT_TRUE(Contains(editorSource, "host.q_cloud_render_scale,host.q_cloud_reference);"));
 }
 

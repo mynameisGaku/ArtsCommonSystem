@@ -1489,7 +1489,9 @@ void ALegacyScene3DAdapter::RenderClouds(
 
     m_Clouds.RenderComputeCameraRelative(command_list, cloud_camera_relative_inverse_view_projection, m_Camera.Eye(), SunDirection(), sun_color, m_Sky.HorizonColor(), m_CloudParams.Coverage, m_CloudParams.Density, m_CloudParams.Wind, m_Time);
 
-    m_CloudsDrawn = true;
+    // 入力やGPU資源が不正で計算命令を積めなかった場合は、古い履歴を現在の雲として
+    // 合成せず、環境光にも反映しない。
+    m_CloudsDrawn = m_Clouds.LastFrameWorkload().submitted;
 }
 
 void ALegacyScene3DAdapter::CompositeClouds(
@@ -1533,12 +1535,11 @@ void ALegacyScene3DAdapter::RenderSky(
 bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
     IRhiDevice& device, IRhiCommandList& command_list) noexcept {
     const FVec3 sun = SunDirection();
+    // 成功した雲描画だけを数え、同じ描画を複数回焼かない更新世代へ変換する。
+    const u64 cloud_frame = m_Clouds.LastFrameWorkload().submission_index;
     const u32 cloud_signature =
         m_CloudsDrawn && m_CloudParams.bAffectEnvironmentLighting
-            ? m_Clouds.EnvironmentLightingSignature(
-                m_CloudParams.Coverage,
-                m_CloudParams.Density,
-                m_CloudParams.Wind)
+            ? m_Clouds.RenderedEnvironmentLightingUpdateSignature()
             : 0u;
 
     // 空本体は太陽が有意に動いたときだけ即時更新する。雲の有効・無効も表示との
@@ -1555,7 +1556,6 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
             if (cloud_signature == m_IblBakedCloudSignature) return true;
 
             const bool cloud_mode_changed = (cloud_signature == 0u) != (m_IblBakedCloudSignature == 0u);
-            const u64 cloud_frame = m_Clouds.LastFrameWorkload().submission_index;
             if (!cloud_mode_changed && !CVolumetricClouds::IsEnvironmentLightingRefreshFrame(cloud_frame)) {
                 return true;
             }

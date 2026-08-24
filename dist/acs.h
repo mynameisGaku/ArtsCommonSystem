@@ -54095,16 +54095,13 @@ public:
                                             const f32* rgba_float, u32 width, u32 height) noexcept;
 
     /**
-     * Excludes an analytic direct-light disc from diffuse/specular IBL
-     * convolution while keeping that disc visible in the environment skybox.
+     * 環境用skyboxの太陽円盤を残し、拡散・鏡面IBLの畳み込みから解析的な直接光だけを除く。
      *
-     * Finite convolution sequences sample a sub-pixel HDR sun disc as
-     * structured fireflies, and CPbrShader already evaluates the same sun via
-     * its directional-light BRDF.  Set cosine_half_angle > 1 to disable.
-     * Call this before EnsureIrradiance/EnsurePrefilter during an environment
-     * rebuild.  It does not destroy already-built GPU products; changing it
-     * after a build requires the existing safe sequence: wait for GPU idle,
-     * ResetEnvCubemap(), then rebuild.
+     * @details 有限個の標本で画素未満のHDR太陽を積分すると規則的な輝点になり、CPbrShaderも
+     * 同じ太陽を方向光BRDFで評価する。無効化する場合はcosine_half_angleへ1より大きい値を渡す。
+     * 環境を作り直すときはEnsureIrradiance／EnsurePrefilterより前に呼ぶ。生成済みのGPU資源は
+     * 直ちに壊さないため、変更後はResetEnvCubemapを呼んでから再生成する。旧資源の寿命はRHIが
+     * 送信完了まで保持するので、GPU全体の完了待ちは不要。
      */
     void SetDirectLightExclusion(FVec3 direction,
                                  f32 cosine_half_angle) noexcept;
@@ -54157,7 +54154,8 @@ public:
      *
      * @details 雲を一時的な環境cubemapへ描いた後、その形と照明をirradiance / prefilterへ
      * 反映するために使う。両方の候補が完成してから公開するため、途中で失敗した場合は
-     * 直前の間接光mapを維持する。既存mapを置き換える場合は内部でGPU完了を待つ。
+     * 直前の間接光地図を維持する。置換前の資源はRHIの完了フェンス付き遅延解放へ渡すため、
+     * 描画スレッドでGPU全体の完了を待たない。
      * @param device 描画資源を作る装置。
      * @param cl コマンドを積むコマンドリスト。
      * @param environment 6面を持つ読み取り可能なcubemap。
@@ -54232,8 +54230,7 @@ public:
      *
      * @details
      * CSky preset 切替などで env を作り直したいときに使い、BRDF LUT (sky 非依存) は残せる。
-     * 呼び出し前にデバイスの WaitIdle() を呼ぶこと: 前フレームの GPU 描画がまだこのテクスチャ
-     * を参照中だと UB になる。
+     * 解放した資源はRHIが現在の送信完了まで保持するため、呼び出し側のGPU全体待機は不要。
      */
     void ResetEnvCubemap() noexcept;
 
@@ -60230,8 +60227,30 @@ public:
      * @param wind 風速。
      * @return 比較用の32bit署名。0は予約値なので返さない。
      */
-    u32 EnvironmentLightingSignature(
-        f32 coverage, f32 density, f32 wind) const noexcept;
+    u32 EnvironmentLightingSignature(f32 coverage, f32 density, f32 wind) const noexcept;
+
+    /**
+     * 雲設定署名へ、費用上限付きの時間更新世代を加えた署名を返す。
+     *
+     * @details 成功した雲描画30回を1世代として扱う。同じ世代内では時刻だけで署名を
+     * 変えず、世代境界では風移流や対流だけで動く雲も環境光の更新対象にする。
+     * @param coverage 空を覆う割合。
+     * @param density 雲の濃さ。
+     * @param wind 風速。
+     * @param submission_index 成功した雲描画を数える番号。
+     * @return 設定と更新世代を表す32bit署名。0は予約値なので返さない。
+     */
+    u32 EnvironmentLightingUpdateSignature(f32 coverage, f32 density, f32 wind, u64 submission_index) const noexcept;
+
+    /**
+     * 直近に成功した雲描画と完全に対応する環境光更新署名を返す。
+     *
+     * @details BuildEnvironmentCubemap() が採取する内部状態と同じ被覆率、密度、風速、
+     * 成功描画番号を使う。直近の描画試行が失敗した場合は、古い履歴へ新しい署名を
+     * 付けないよう0を返す。
+     * @return 有効な直近雲の32bit署名。成功した雲描画がなければ0。
+     */
+    u32 RenderedEnvironmentLightingUpdateSignature() const noexcept;
 
     /**
      * 連続変化中の環境光を更新してよい固定間隔のframeかを返す。

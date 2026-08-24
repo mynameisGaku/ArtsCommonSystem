@@ -734,10 +734,14 @@ struct FEditorHost {
     acs::CVolumetricClouds   vclouds3d;
     bool                     vclouds_ready = false;    // Init 済み
     bool                     vclouds_tried = false;    // Init を一度試したか
+    /** 前フレームに成功した雲が、環境光の採取元として有効ならtrue。 */
+    bool                     cloud_environment_source_ready = false;
     f32                      vclouds_time  = 0.0f;     // 雲アニメ用時間
     bool                     ibl_ready = false;        // 全 cubemap 生成済み (true なら SetIbl、false なら SH9)
     bool                     ibl_tried = false;        // 一度試して失敗したか (毎フレーム再試行を避ける)
     bool                     ibl_dirty = true;         // 空(太陽/色)が変わった → env を再キャプチャ
+    /** 環境光へ最後に反映できた雲設定と固定間隔の更新世代。0は晴天空。 */
+    u32                      ibl_baked_cloud_signature = 0u;
     bool                     sh9_dirty = true;         // 空が変わった → SH9 環境光(拡散+鏡面)を再計算
     TUniquePtr<IRhiPipeline> grid_pipe;               // 無限グリッド (y=0 / ortho は z=0)
     TUniquePtr<IRhiShader>   grid_vs, grid_ps;
@@ -4324,7 +4328,8 @@ void BeginSceneResourceRetirement(FEditorHost& h) noexcept {
     }
 }
 
-void Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept;
+/** 晴天空の環境光を必要時だけ生成し、このフレームで更新できたかを返す。 */
+bool Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept;
 
 TSharedPtr<AMeshAsset> MakeEditorWaterGrid(u32 cells = 64u) noexcept {
     if (cells < 2u) cells = 2u;
@@ -5726,7 +5731,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
         h.renderer.BeginFrame(h.clear_color);
         IRhiCommandList* startup_cl = h.renderer.CommandList();
         if (startup_cl != nullptr) {
-            Pass_AtmosphereIbl(h, startup_cl);
+            (void)Pass_AtmosphereIbl(h, startup_cl);
         } else {
             h.ibl_tried = true;
             h.ibl_dirty = false;
@@ -9140,21 +9145,24 @@ void Pass_UpdateSh9(FEditorHost& h) noexcept {
     }
 }
 
-// IBL: CSky/物理大気を env cubemap 化 → irradiance + specular prefilter + BRDF-LUT を焼き CPbrShader へ。
-// per-slice cubemap 描画なので «描画パスの外» (BeginShadowPass より前) で呼ぶこと。
-void Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
+// CSkyまたは物理大気から環境キューブマップ、放射照度、鏡面事前畳み込み、BRDF表を作る。
+// 面ごとの描画を行うため、描画パスの外側かつ影パスより前に呼ぶ。
+bool Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
+    // 呼び出し側が同じフレームの雲入り環境光生成を重ねないための結果。
+    bool environmentUpdated = false;
     if (h.pbr3d_ready && h.sky3d_ready && (h.ibl_ready ? h.ibl_dirty : !h.ibl_tried)) {
         IRhiDevice* idev = h.renderer.Device();
         if (idev != nullptr) {
             h.sky3d.SetSunDirection(h.sun_dir);   // キャプチャ前に空を «現在のライティング» へ合わせる
             h.sky3d.SetSunColor(h.sun_color);
             h.sky3d.SetZenithColor(h.sky_zenith); h.sky3d.SetHorizonColor(h.sky_horizon); h.sky3d.SetGroundColor(h.sky_ground);
-            if (h.ibl_ready && h.ibl_dirty) { idev->WaitIdle(); h.ibl3d.ResetEnvCubemap(); }   // 空変更 → 再キャプチャ
-            // Procedural CSky still stores its analytic disc in the captured
-            // cubemap and must exclude it from indirect convolutions.  The
-            // physical-atmosphere bake is scattering-only: its solar disc is
-            // rendered analytically at display resolution below, so masking an
-            // arbitrary cone here would remove valid sky radiance.
+            if (h.ibl_ready && h.ibl_dirty) {
+                // 空の変更を、次の環境キューブマップ採取へ反映する。
+                h.ibl3d.ResetEnvCubemap();
+            }
+            // CSkyの採取結果には解析的な太陽円盤が含まれるため、間接光の畳み込みから除く。
+            // 物理大気は散乱成分だけを採取し、太陽円盤を最終解像度で後から描くので、
+            // ここで任意の円すいを除いて有効な空の放射輝度を失わないよう無効化する。
             h.ibl3d.SetDirectLightExclusion(
                 h.sun_dir,
                 h.q_sky_mode == 1
@@ -9201,10 +9209,75 @@ void Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
             h.ibl_ready = ok;
             h.ibl_dirty = false;
             if (!ok) { h.ibl_tried = true; ACS_LOG_WARN("[3D] IBL 生成失敗 (Diligent backend 必須?)。SH9 にフォールバック"); }
-            else       ACS_LOG_INFO("[3D] IBL 環境光 OK (%s→irradiance+prefilter %u mip+BRDF-LUT)",
-                                    h.q_sky_mode == 1 ? "物理大気" : "CSky", h.ibl3d.PrefilterMips());
+            else {
+                h.ibl_baked_cloud_signature = 0u;
+                environmentUpdated = true;
+                ACS_LOG_INFO("[3D] IBL 環境光 OK (%s→irradiance+prefilter %u mip+BRDF-LUT)", h.q_sky_mode == 1 ? "物理大気" : "CSky", h.ibl3d.PrefilterMips());
+            }
         }
     }
+    return environmentUpdated;
+}
+
+/**
+ * 直近の成功した雲を、固定間隔でEditorの拡散・鏡面環境光へ反映する。
+ *
+ * @param host 晴天空と雲の描画状態を持つEditor。
+ * @param commandList 現在の描画命令を記録するコマンドリスト。
+ * @param cloudsActive この視点で体積雲を描画できるならtrue。
+ * @param baseEnvironmentUpdated 同じフレームで晴天空を作り直したならtrue。
+ */
+void Pass_VolumetricCloudIbl_Internal(FEditorHost& host, IRhiCommandList& commandList, bool cloudsActive, bool baseEnvironmentUpdated) noexcept {
+    // 晴天空の生成直後は同じ命令列で派生地図を二重生成せず、次のフレームで雲を加える。
+    if (!host.ibl_ready || baseEnvironmentUpdated) return;
+
+    // 雲を無効にしていた期間や寸法変更の前に残った履歴へ、現在設定の署名を付けない。
+    // 現在設定の雲が一度完成した次フレームから採取する。
+    if (cloudsActive && !host.cloud_environment_source_ready) return;
+    const u64 cloudFrame = cloudsActive ? host.vclouds3d.LastFrameWorkload().submission_index : 0u;
+    // 初回または寸法変更直後は有効な3D密度履歴ができるまで、直前の環境光を保持する。
+    if (cloudsActive && (cloudFrame == 0u || host.vclouds3d.ResolvedDepth() == nullptr)) return;
+    const u32 cloudSignature = cloudsActive
+        ? host.vclouds3d.RenderedEnvironmentLightingUpdateSignature()
+        : 0u;
+    if (cloudsActive && cloudSignature == 0u) return;
+    if (cloudSignature == host.ibl_baked_cloud_signature) return;
+
+    // 有効・無効の切替は即時、同じ状態での形状変化は固定間隔だけで更新する。
+    const bool cloudModeChanged = (cloudSignature == 0u) != (host.ibl_baked_cloud_signature == 0u);
+    if (!cloudModeChanged && !CVolumetricClouds::IsEnvironmentLightingRefreshFrame(cloudFrame)) return;
+
+    // 雲を重ねる前の空と、GPU資源を作る装置。
+    IRhiTexture* const baseEnvironment = host.ibl3d.EnvCubemap();
+    if (baseEnvironment == nullptr) return;
+    IRhiDevice* const device = host.renderer.Device();
+    if (device == nullptr) return;
+
+    // 雲入り候補を作れない場合は、晴天空を畳み込み元として使う。
+    TUniquePtr<IRhiTexture> cloudEnvironment;
+    IRhiTexture* convolutionSource = baseEnvironment;
+    if (cloudSignature != 0u) {
+        auto cloudResult = host.vclouds3d.BuildEnvironmentCubemap(*device, commandList, *baseEnvironment);
+        if (cloudResult.IsOk()) {
+            cloudEnvironment = Move(cloudResult.Value());
+            convolutionSource = cloudEnvironment.Get();
+        } else {
+            ACS_LOG_WARN("[3D] 雲の環境キューブマップ生成に失敗したため、晴天空の環境光を維持します");
+        }
+    }
+
+    auto derivedResult = host.ibl3d.RebuildDerivedMapsFromEnvironment(*device, commandList, *convolutionSource);
+    if (derivedResult.IsErr() && convolutionSource != baseEnvironment) {
+        ACS_LOG_WARN("[3D] 雲入り環境光の畳み込みに失敗したため、晴天空で再生成します");
+        derivedResult = host.ibl3d.RebuildDerivedMapsFromEnvironment(*device, commandList, *baseEnvironment);
+    }
+    if (derivedResult.IsErr()) {
+        ACS_LOG_WARN("[3D] 環境光の更新に失敗したため、直前の派生地図を維持します");
+        return;
+    }
+
+    // 一時キューブマップはRHIの完了フェンス付き遅延解放へ渡るため、ここでGPU全体を待たない。
+    host.ibl_baked_cloud_signature = cloudSignature;
 }
 
 // シャドウパスの出力 (本体パスが PCF/CSM 比較に使う)。
@@ -9908,6 +9981,24 @@ void UpdateVolumetricCloudLighting_Internal(FEditorHost& host) noexcept {
     host.vclouds3d.SetLighting(lighting);
 }
 
+/** Editor設定を、主描画と環境光が共有する一つの雲状態へ反映する。 */
+void ConfigureVolumetricCloudState_Internal(FEditorHost& host) noexcept {
+    host.vclouds3d.SetReferenceMode(host.q_cloud_reference);
+    FVolumetricCloudRange cloudRange{};
+    cloudRange.MaxDistance = host.q_cloud_max_distance;
+    cloudRange.FadeFraction = host.q_cloud_fade_fraction;
+    cloudRange.StepGrowth = host.q_cloud_step_growth;
+    host.vclouds3d.SetRange(cloudRange);
+    FVolumetricCloudWeather cloudWeather{};
+    cloudWeather.CloudType = host.q_cloud_type;
+    cloudWeather.CloudTypeInfluence = host.q_cloud_type_influence;
+    cloudWeather.Precipitation = host.q_cloud_precipitation;
+    cloudWeather.PrecipitationInfluence = host.q_cloud_precipitation_influence;
+    host.vclouds3d.SetWeather(cloudWeather);
+    host.vclouds3d.SetLayer(FVolumetricCloudLayer{host.q_cloud_base, host.q_cloud_top, host.q_cloud_noise_scale});
+    UpdateVolumetricCloudLighting_Internal(host);
+}
+
 void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     if (!Ensure3D(h)) {
         InvalidateTemporalRenderHistories(h);
@@ -10086,12 +10177,14 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     //     同じ色を使うので金属の映り込みが背景と整合する。空が変わらない限り再計算しない (sh9_dirty)。
     Pass_UpdateSh9(h);
 
+    // 同じ命令列で晴天空と雲入り環境光を二重生成しないための結果。
+    bool baseEnvironmentUpdated = false;
     {
         editor_profiler::FCpuScope atmosphereScope(
             h.profiler_work.atmosphere_cpu_ms);
         FScopedRhiGpuTiming atmosphereGpuScope(
             cl, ERhiGpuTimingPass::Atmosphere);
-        Pass_AtmosphereIbl(h, cl);
+        baseEnvironmentUpdated = Pass_AtmosphereIbl(h, cl);
     }
 
     // --- シャドウパス (光源視点で深度を焼く)。出力 sh を本体パスが PCF/CSM 比較に使う ---
@@ -10533,15 +10626,22 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             // 雲は «空 pass を End → compute dispatch (pass 外で UAV→SRV 遷移が成立)» する。
             // compute をここ (pass 前) で dispatch すると、後段 composite の SRV 読みへの
             // UAV→SRV 遷移が pass を跨げず書込みが見えない (実測)。よってここでは gate のみ。
-            if (h.vclouds_ready) {
-                h.vclouds3d.SetReferenceMode(h.q_cloud_reference);
-            }
             if (h.vclouds_ready && h.vclouds3d.EnsureSize(*cdev, scW, scH, h.q_cloud_render_scale, h.q_cloud_reference)) {
                 cloudsActive = true;
             }
         }
     }
     h.profiler_work.clouds_active = cloudsActive;
+
+    // 前フレームで完成した雲を使い、描画パス外で環境光を更新する。主描画より1フレーム遅れるが、
+    // 現在記録中の雲UAVを読み戻さず、同じ固定間隔で拡散・鏡面反射を動かせる。
+    {
+        editor_profiler::FCpuScope cloudEnvironmentScope(h.profiler_work.cloud_cpu_ms);
+        FScopedRhiGpuTiming cloudEnvironmentGpuScope(cl, ERhiGpuTimingPass::Cloud);
+        Pass_VolumetricCloudIbl_Internal(h, *cl, cloudsActive, baseEnvironmentUpdated);
+    }
+    // この後の計算命令を送信できた場合だけ、次フレームの環境光採取を許可する。
+    h.cloud_environment_source_ready = false;
 
     if (hdrRt != nullptr)        cl->BeginRenderToTexture(*hdrRt, h.clear_color, h.renderer.DepthBuffer(), 1.0f);
     else if (scSwap != nullptr)  cl->BeginRenderToSwapchain(*scSwap, h.renderer.CurrentBuffer(), h.clear_color, h.renderer.DepthBuffer(), 1.0f);
@@ -10600,23 +10700,11 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     //     遅延し、完成した scene depth で実ジオメトリを除外する。
     if (cloudsActive && hdrRt != nullptr) {
         cl->EndRenderToTexture(*hdrRt);
+        // 環境光は直近の成功描画と同じ内部状態を採取済み。このフレームの設定は
+        // ここから反映し、前回の時刻やカメラと今回の層・天候を混在させない。
+        ConfigureVolumetricCloudState_Internal(h);
         // フレーム時間を積算した時刻を雲の移流へ渡す。
         h.vclouds_time = h.time;
-        FVolumetricCloudRange cloudRange{};
-        cloudRange.MaxDistance = h.q_cloud_max_distance;
-        cloudRange.FadeFraction = h.q_cloud_fade_fraction;
-        cloudRange.StepGrowth = h.q_cloud_step_growth;
-        h.vclouds3d.SetRange(cloudRange);
-        FVolumetricCloudWeather cloudWeather{};
-        cloudWeather.CloudType = h.q_cloud_type;
-        cloudWeather.CloudTypeInfluence = h.q_cloud_type_influence;
-        cloudWeather.Precipitation = h.q_cloud_precipitation;
-        cloudWeather.PrecipitationInfluence = h.q_cloud_precipitation_influence;
-        h.vclouds3d.SetWeather(cloudWeather);
-        h.vclouds3d.SetLayer(acs::FVolumetricCloudLayer{
-            h.q_cloud_base, h.q_cloud_top, h.q_cloud_noise_scale
-        });
-        UpdateVolumetricCloudLighting_Internal(h);
         const FVec3 sunC{ h.sun_color.x * h.sun_intensity, h.sun_color.y * h.sun_intensity, h.sun_color.z * h.sun_intensity };
         {
             editor_profiler::FCpuScope cloudScope(
@@ -10624,6 +10712,8 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             FScopedRhiGpuTiming cloudGpuScope(
                 cl, ERhiGpuTimingPass::Cloud);
             h.vclouds3d.RenderComputeCameraRelative(*cl, camera_relative_inv_vp, eye, h.sun_dir, sunC, h.sky_horizon, h.q_cloud_coverage, h.q_cloud_density, h.q_cloud_wind, h.vclouds_time);
+            h.cloud_environment_source_ready =
+                h.vclouds3d.LastFrameWorkload().submitted;
         }
         cl->BeginRenderToTextureLoad(*hdrRt, h.renderer.DepthBuffer());
         { FViewport rvp2{}; rvp2.width = static_cast<f32>(scW); rvp2.height = static_cast<f32>(scH); cl->SetViewport(rvp2);
@@ -12891,6 +12981,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     // GPU 物理大気を device より先に終了して解放後参照を防ぐ。
     host->sky_atmo.Shutdown();
     host->vclouds3d.Shutdown();  // GPU volumetric clouds (UAF 防止)
+    host->cloud_environment_source_ready = false;
     host->m3d_pipe.Reset(); host->m3d_overlay_pipe.Reset(); host->m3d_vs.Reset(); host->m3d_ps.Reset();
     host->sky_pipe.Reset(); host->sky_vs.Reset(); host->sky_ps.Reset(); host->sky_cb.Reset();
     host->grid_pipe.Reset(); host->grid_vs.Reset(); host->grid_ps.Reset(); host->grid_cb.Reset(); host->grid_vb.Reset();
@@ -12921,7 +13012,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->vxgi_pipe_clear.Reset(); host->vxgi_pipe_vox.Reset(); host->vxgi_pipe_res.Reset();
     host->vxgi_cs_clear.Reset(); host->vxgi_cs_vox.Reset(); host->vxgi_cs_res.Reset();
     host->vxgi_cb_vox.Reset(); host->vxgi_cb_res.Reset(); host->vxgi_ready = false;
-    host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true;
+    host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true; host->ibl_baked_cloud_signature = 0u;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Reset();
     // Per-node material and custom-mesh caches are component members; release

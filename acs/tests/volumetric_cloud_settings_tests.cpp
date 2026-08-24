@@ -458,6 +458,18 @@ ACS_TEST(VolumetricCloudSettings,
 
 ACS_TEST(VolumetricCloudSettings, EnvironmentLightingRefreshCadenceIsBoundedAndEventual)
 {
+    CVolumetricClouds clouds;
+    EXPECT_EQ(clouds.RenderedEnvironmentLightingUpdateSignature(), 0u);
+    const u32 firstGeneration = clouds.EnvironmentLightingUpdateSignature(0.55f, 1.6f, 1.0f, 1u);
+    EXPECT_TRUE(firstGeneration != 0u);
+    EXPECT_EQ(clouds.EnvironmentLightingUpdateSignature(0.55f, 1.6f, 1.0f, 29u), firstGeneration);
+    const u32 secondGeneration = clouds.EnvironmentLightingUpdateSignature(0.55f, 1.6f, 1.0f, 30u);
+    EXPECT_TRUE(secondGeneration != firstGeneration);
+    EXPECT_EQ(clouds.EnvironmentLightingUpdateSignature(0.55f, 1.6f, 1.0f, 31u), secondGeneration);
+    EXPECT_TRUE(clouds.EnvironmentLightingUpdateSignature(0.55f, 1.6f, 1.0f, 60u) != secondGeneration);
+    EXPECT_EQ(clouds.EnvironmentLightingUpdateSignature(0.55f, 1.6f, 1.0f, 30u), secondGeneration);
+    EXPECT_TRUE(clouds.EnvironmentLightingUpdateSignature(0.55f, 1.6f, 1.0f, ~u64{0}) != 0u);
+
     EXPECT_FALSE(CVolumetricClouds::IsEnvironmentLightingRefreshFrame(0u));
     for (u64 frame = 1u; frame < 30u; ++frame) {
         EXPECT_FALSE(CVolumetricClouds::IsEnvironmentLightingRefreshFrame(frame));
@@ -475,7 +487,7 @@ ACS_TEST(VolumetricCloudSettings,
     EXPECT_TRUE(!sky_source.empty());
     EXPECT_TRUE(!ibl_source.empty());
 
-    const std::string signature = SliceBetween(sky_source, "u32 CVolumetricClouds::EnvironmentLightingSignature(", "bool CVolumetricClouds::IsEnvironmentLightingRefreshFrame(");
+    const auto signature = SliceBetween(sky_source, "u32 CVolumetricClouds::EnvironmentLightingSignature(", "u32 CVolumetricClouds::EnvironmentLightingUpdateSignature(");
     EXPECT_TRUE(Contains(signature, "m_PrevSunColor.x"));
     EXPECT_TRUE(Contains(signature, "m_PrevSkyColor.x"));
     EXPECT_TRUE(Contains(signature, "m_Lighting.SunTransmittance.x"));
@@ -483,6 +495,16 @@ ACS_TEST(VolumetricCloudSettings,
     EXPECT_TRUE(Contains(signature, "HashCloudEnvironmentQuantizedFloat("));
     EXPECT_TRUE(Contains(signature, "ResolveVolumetricCloudViewDistance_Internal("));
     EXPECT_TRUE(Contains(signature, "kCloudEnvironmentViewDistanceSignatureStep"));
+
+    const auto update_signature = SliceBetween(sky_source, "u32 CVolumetricClouds::EnvironmentLightingUpdateSignature(", "u32 CVolumetricClouds::RenderedEnvironmentLightingUpdateSignature(");
+    EXPECT_TRUE(Contains(update_signature, "submission_index / kVolumetricCloudEnvironmentRefreshInterval"));
+    EXPECT_TRUE(Contains(update_signature, "HashCloudEnvironmentWord(hash, static_cast<u32>(updateGeneration))"));
+    EXPECT_TRUE(Contains(update_signature, "HashCloudEnvironmentWord(hash, static_cast<u32>(updateGeneration >> 32u))"));
+
+    const auto rendered_signature = SliceBetween(sky_source, "u32 CVolumetricClouds::RenderedEnvironmentLightingUpdateSignature(", "bool CVolumetricClouds::IsEnvironmentLightingRefreshFrame(");
+    EXPECT_TRUE(Contains(rendered_signature, "!m_LastFrameWorkload.submitted"));
+    EXPECT_TRUE(Contains(rendered_signature, "m_PrevCoverage, m_PrevDensity, m_PrevWindSpeed"));
+    EXPECT_TRUE(Contains(rendered_signature, "m_LastFrameWorkload.submission_index"));
 
     const std::string environment = SliceBetween(
         sky_source,
@@ -526,6 +548,7 @@ ACS_TEST(VolumetricCloudSettings,
     EXPECT_TRUE(irradiance_build < prefilter_build);
     EXPECT_TRUE(prefilter_build < irradiance_publish);
     EXPECT_TRUE(irradiance_publish < prefilter_publish);
+    EXPECT_FALSE(Contains(rebuild, "WaitIdle("));
 }
 
 ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)

@@ -82,16 +82,13 @@ public:
                                             const f32* rgba_float, u32 width, u32 height) noexcept;
 
     /**
-     * Excludes an analytic direct-light disc from diffuse/specular IBL
-     * convolution while keeping that disc visible in the environment skybox.
+     * 環境用skyboxの太陽円盤を残し、拡散・鏡面IBLの畳み込みから解析的な直接光だけを除く。
      *
-     * Finite convolution sequences sample a sub-pixel HDR sun disc as
-     * structured fireflies, and CPbrShader already evaluates the same sun via
-     * its directional-light BRDF.  Set cosine_half_angle > 1 to disable.
-     * Call this before EnsureIrradiance/EnsurePrefilter during an environment
-     * rebuild.  It does not destroy already-built GPU products; changing it
-     * after a build requires the existing safe sequence: wait for GPU idle,
-     * ResetEnvCubemap(), then rebuild.
+     * @details 有限個の標本で画素未満のHDR太陽を積分すると規則的な輝点になり、CPbrShaderも
+     * 同じ太陽を方向光BRDFで評価する。無効化する場合はcosine_half_angleへ1より大きい値を渡す。
+     * 環境を作り直すときはEnsureIrradiance／EnsurePrefilterより前に呼ぶ。生成済みのGPU資源は
+     * 直ちに壊さないため、変更後はResetEnvCubemapを呼んでから再生成する。旧資源の寿命はRHIが
+     * 送信完了まで保持するので、GPU全体の完了待ちは不要。
      */
     void SetDirectLightExclusion(FVec3 direction,
                                  f32 cosine_half_angle) noexcept;
@@ -144,7 +141,8 @@ public:
      *
      * @details 雲を一時的な環境cubemapへ描いた後、その形と照明をirradiance / prefilterへ
      * 反映するために使う。両方の候補が完成してから公開するため、途中で失敗した場合は
-     * 直前の間接光mapを維持する。既存mapを置き換える場合は内部でGPU完了を待つ。
+     * 直前の間接光地図を維持する。置換前の資源はRHIの完了フェンス付き遅延解放へ渡すため、
+     * 描画スレッドでGPU全体の完了を待たない。
      * @param device 描画資源を作る装置。
      * @param cl コマンドを積むコマンドリスト。
      * @param environment 6面を持つ読み取り可能なcubemap。
@@ -219,8 +217,7 @@ public:
      *
      * @details
      * CSky preset 切替などで env を作り直したいときに使い、BRDF LUT (sky 非依存) は残せる。
-     * 呼び出し前にデバイスの WaitIdle() を呼ぶこと: 前フレームの GPU 描画がまだこのテクスチャ
-     * を参照中だと UB になる。
+     * 解放した資源はRHIが現在の送信完了まで保持するため、呼び出し側のGPU全体待機は不要。
      */
     void ResetEnvCubemap() noexcept;
 

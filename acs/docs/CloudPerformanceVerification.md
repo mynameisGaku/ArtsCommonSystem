@@ -1738,6 +1738,27 @@ Framework本体はDebug・Releaseとも全体ビルドに合格した。公式�
 雲、環境光、配布API、ABI、リンクの新規失敗はなく、作業ツリーに元からある
 `ThirdParty/acs/README.md`の変更には触れていない。
 
+## 2026-08-25: 3D Build+Runの実経路と検証用プロジェクトの復旧
+
+検証用プロジェクトは`C:\dev\acs_temp_builds\acs-engine\CloudCumulusNormalDynamicAudit-20260825`を正本に固定した。
+再作成時に`Source/Game.cpp`とビルド定義が失われていたため、空の`.acs3d`だけを開くと、Editorは
+`ACS-BUILD-3D-PARITY-001`で3D Build+Runを正しく停止していた。これは雲描画の失敗ではなく、
+`FLegacyScene3DAdapter`起動経路の欠落だった。
+
+新規3Dプロジェクトの正規テンプレートを基に`Source/Game.cpp`を復旧した際、テンプレート側にも
+`TArray::TryResize/Data`と現行の`TrySetNum/GetData`、パック読込の2引数と現行3引数のAPIずれが見つかった。
+テンプレートを現行APIへ修正し、Editor ABIの`GameReflectShim`も配列の`Num()`と
+`CSceneServices::UpdateAccess()`アダプターを使うようにした。private内部関数への直接アクセスと
+`friend`は追加していない。
+
+修正後は、通常のC++コンパイラで3Dスタンドアロン実行ファイルとリフレクションDLLをReleaseで生成でき、
+EditorのBuild+Runログも`ACS.BUILD.SUCCEEDED`となった。EditorのGame表示は実行中状態へ入り、
+検証用の下層雲`2600～5200 m`、上層雲`7600～9800 m`、被覆`0.42`、濃さ`2.1`、風速`1.0`を
+明示した。ただし現行の空シーンと初期カメラでは雲の帯が画面上端に寄り、雲中・上空の厚みを十分に
+判定できる画角にはなっていない。このため、今回の画面検査は「3D実行経路が通る」ことの合格であり、
+「超高品質の雲が完成した」ことの合格にはしていない。次の品質作業では、地上・雲中・上空を固定した
+専用カメラの検証シーンを`acs-engine`配下の現行プロジェクトへ追加し、時間差画像とGPU時間を再計測する。
+
 ## Quality-preserving optimization rules
 
 Ultra cloud optimization keeps the `0.25` trace scale, 384 view-sample ceiling,

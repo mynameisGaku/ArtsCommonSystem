@@ -1320,8 +1320,30 @@ public:
      * @param wind 風速。
      * @return 比較用の32bit署名。0は予約値なので返さない。
      */
-    u32 EnvironmentLightingSignature(
-        f32 coverage, f32 density, f32 wind) const noexcept;
+    u32 EnvironmentLightingSignature(f32 coverage, f32 density, f32 wind) const noexcept;
+
+    /**
+     * 雲設定署名へ、費用上限付きの時間更新世代を加えた署名を返す。
+     *
+     * @details 成功した雲描画30回を1世代として扱う。同じ世代内では時刻だけで署名を
+     * 変えず、世代境界では風移流や対流だけで動く雲も環境光の更新対象にする。
+     * @param coverage 空を覆う割合。
+     * @param density 雲の濃さ。
+     * @param wind 風速。
+     * @param submission_index 成功した雲描画を数える番号。
+     * @return 設定と更新世代を表す32bit署名。0は予約値なので返さない。
+     */
+    u32 EnvironmentLightingUpdateSignature(f32 coverage, f32 density, f32 wind, u64 submission_index) const noexcept;
+
+    /**
+     * 直近に成功した雲描画と完全に対応する環境光更新署名を返す。
+     *
+     * @details BuildEnvironmentCubemap() が採取する内部状態と同じ被覆率、密度、風速、
+     * 成功描画番号を使う。直近の描画試行が失敗した場合は、古い履歴へ新しい署名を
+     * 付けないよう0を返す。
+     * @return 有効な直近雲の32bit署名。成功した雲描画がなければ0。
+     */
+    u32 RenderedEnvironmentLightingUpdateSignature() const noexcept;
 
     /**
      * 連続変化中の環境光を更新してよい固定間隔のframeかを返す。

@@ -2770,6 +2770,10 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
                 EXPECT_EQ(cloud_environment.Height(), 64u);
 #if WITH_RENDER_DILIGENT
                 CImageBasedLighting cloud_ibl;
+                EXPECT_TRUE(cloud_ibl.RebuildDerivedMapsFromEnvironment(device, *cloud_command, cloud_environment).IsOk());
+                EXPECT_TRUE(cloud_ibl.IrradianceMap() != nullptr);
+                EXPECT_TRUE(cloud_ibl.PrefilterMap() != nullptr);
+                // 公開中の派生地図を同じ命令列で置換し、GPU全体待機なしの遅延解放を実経路で通す。
                 EXPECT_TRUE(
                     cloud_ibl.RebuildDerivedMapsFromEnvironment(
                         device, *cloud_command, cloud_environment)
