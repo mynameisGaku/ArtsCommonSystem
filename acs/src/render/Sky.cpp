@@ -1945,6 +1945,35 @@ float cloudDensity(float3 p, float coverage, float detailWeight){
     return densityResult;
 }
 
+// 影キャッシュの第4標本は高周波侵食を解像できない一方、約0.8～1.8 kmの房は
+// まだ完全に解像できる。低詳細度のキャッシュ値へ同じ標本位置の房差分だけを足し、
+// 8標本の距離と低周波平均を変えずに雲頂の局所自己影を保つ。
+float cloudBillowLightDepthResidual(
+    float3 tailOrigin,float lightStep,float coverage,
+    float3 sun,float3 lightTangent,float3 lightBitangent,
+    float coneSin,float coneCos){
+    float residual=0.0;
+    float billowVisibility=
+        cloudBillowVisibilityFromSampleSpacing(lightStep);
+    [branch] if(billowVisibility>0.001){
+        float3 coneDir=cloudConeDirection(
+            sun,lightTangent,lightBitangent,
+            coneSin,coneCos,CLOUD_CONE_GEOMETRY[3]);
+        float3 samplePosition=tailOrigin+coneDir*(0.5*lightStep);
+        CloudMacroSample macro=
+            sampleCloudMacroLighting(samplePosition,coverage,lightStep);
+        float lowLodDensity=cloudLowLodDensityFromMacro(
+            macro,macro.heightThreshold,macro.weatherMask);
+        float billowedDensity=cloudDensityFromMacro(
+            samplePosition,macro,macro.heightThreshold,
+            macro.weatherMask,billowVisibility,0.0);
+        residual=(billowedDensity-lowLodDensity)*lightStep
+                *cloudOpticalDepthScaleFromBand(
+                    macro.upperBand>0.5);
+    }
+    return residual;
+}
+
 // 移流を除いた安定XZ座標と正規化高度から、現在の曲面雲層上の点を復元する。
 // 有理化した沈み量により地球半径同士の減算を避け、誤差を1画素未満に抑える。
 float3 cloudShadowWorldPosition(float3 uvw){
@@ -1962,7 +1991,7 @@ float3 cloudShadowWorldPosition(float3 uvw){
 }
 
 // キャッシュの各画素は、採取間隔に合わせて侵食帯域を制限した近距離3点の後へ対応する。
-// l=3..7だけを積分し、48 m以下で採取できる細部は視線側の近距離採取へ残す。
+// l=3..7の低詳細度基準を積分し、第4標本でまだ解像できる房だけは主描画の符号付き差分へ残す。
 float traceCloudShadowPattern(
     float3 lp,float patternJitter,float coverage,
     float3 sun,float3 lightTangent,float3 lightBitangent){
@@ -2432,7 +2461,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float coneSin,coneCos;
             sincos(6.2831853*lightJitter,coneSin,coneCos);
             float lightDepth=0.0;
-            // 近距離3点だけの光路密度。詳細体積が作る局所自己影を高次散乱へ残す。
+            // 近距離3点と第4標本の房差分による光路密度。
+            // 詳細体積が作る局所自己影を高次散乱へ残す。
             float detailedLightDepth=0.0;
             float lightStep=cloudLightStepFromBand(sampleUpperBand);
             lightStep*=lerp(0.72,1.28,lightJitter);
@@ -2452,7 +2482,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             // 8 個の光円すいは一定の黄金角で回し、上で求めた sin/cos を漸化式で再利用する。
             bool lightTerminated=false;
             // 近距離3点は実際の採取間隔で侵食帯域を減らす。既定層では4点目が最小でも
-            // 48 mを越えるため、後半5点へ進む前に侵食用の一時値を破棄する。
+            // 48 mを越えるため高周波侵食を破棄し、残る低周波の房は後段の差分で保持する。
             [loop] for(int l=0;l<3;l++){
                 float2 coneGeometry=CLOUD_CONE_GEOMETRY[l];
                 float3 coneDir=cloudConeDirection(
@@ -2481,7 +2511,15 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                        +previousConeCos*(-0.675490294);
                 lightStep*=1.8;
             }
-            detailedLightDepth=lightDepth;
+            // 影キャッシュの最初の低詳細度標本と同じ第4区間だけ、主描画側で房帯域の
+            // 差分を求める。標本を追加せず、キャッシュ内の低周波基準へ重ねる。
+            if(!lightTerminated){
+                lightDepth+=cloudBillowLightDepthResidual(
+                    lp,lightStep,coverage,sun,
+                    lightTangent,lightBitangent,
+                    coneSin,coneCos);
+            }
+            detailedLightDepth=max(lightDepth,0.0);
             bool cachedFarTail=false;
             if(!lightTerminated && CLOUD_MAIN_SHADOW_CACHE_ENABLED){
                 float3 cachedTailSample=sampleCloudShadowTail(lp,density);
@@ -2529,6 +2567,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 lightDepth=exactFarStart+lerp(
                     exactTail,cachedTailForBlend,cacheBlendWeight);
             }
+            lightDepth=max(lightDepth,0.0);
             float tauL=lightDepth*density*cloudLightingExtinction.y;
             float beer=exp(-tauL);
             // 表面では作者指定の前方・後方混合を保ち、光源または現在区間から深い標本ほど

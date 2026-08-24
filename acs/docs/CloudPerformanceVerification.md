@@ -1618,6 +1618,64 @@ Editorの時刻はフレーム差分を積算してから3D描画へ渡され、
 `C:\dev\acs_temp_builds\CloudMotionAudit-BeforeFix-20260823` と
 `C:\dev\acs_temp_builds\CloudMotionAudit-AfterFix-20260823` に保存した。
 
+## 太陽方向の第4標本だけが房状自己影を失っていた問題の修正
+
+上面が柔らかい白い面へ寄る原因を時間再構成と密度・照明に分けるため、同じ雲設定と上面カメラで
+通常描画と参照描画を比較した。参照描画は全画面解像度、視線上限512標本、時間再構成なしである。
+両者に同じ大きな房と同じ平坦な白色部が残り、通常描画だけに輪郭が広がる差はなかった。このため、
+1/4寸法や16位相再構成を再調整せず、視線密度と太陽方向密度の帯域を監査した。
+
+既定の2500 m層では、太陽方向の最初の刻みは乱数位相により`8.44～15.00 m`となり、標本ごとに
+1.8倍へ広がる。最初の3標本の後に来る第4区間は`49.21～87.48 m`である。この間隔では
+`cloudErosionVisibilityFromSampleSpacing`は全位相で0となる一方、約0.8～1.8 kmの房を制御する
+`cloudBillowVisibilityFromSampleSpacing`は全位相で1のままである。視線密度は房を保持していたが、
+太陽方向の遠距離5標本と影キャッシュは第4標本から低詳細度密度へ切り替え、解像できる房まで
+高周波侵食と一緒に捨てていた。形は立体でも、その形に対応する局所自己影だけが欠ける不整合である。
+
+現在は第4区間の同じ中央位置で、低詳細度密度`d_low`と、房だけを残して侵食を0にした密度
+`d_billow`を求め、次の符号付き差分を光学的深さへ加える。
+
+`delta_tau_4 = (d_billow - d_low) * step_4 * optical_scale`
+
+正確な遠距離積分では、従来の第4標本`d_low * step_4 * optical_scale`と足すと
+`d_billow * step_4 * optical_scale`へ厳密に戻る。差分を正値だけへ制限すると平均光学的深さが増え、
+晴天設定でも雲頂全体を暗くするため採用していない。符号付き差分後は光学的深さを0以上へ制限し、
+負の透過率指数を防ぐ。影キャッシュは水平方向1セルが房の最小尺度に近く、房密度そのものを保存すると
+格子状の別名雑音を作るため、従来の低詳細度基準だけを保持する。主描画側で現在画素の差分を重ねることで、
+影キャッシュの解像度、8標本の位置と担当距離、視線標本数、公開APIを変えていない。
+
+実行画像は`C:\dev\acs_temp_builds\CloudLightBandResidual-20260824`へ保存した。地上では青空の隙間と
+雲底の明暗を維持し、雲層内では明部、遮光された雲芯、薄い霧が一色へ収束していない。斜め上空と
+急角度の上面では、大きさの異なる房、谷、側面の陰影を保ち、細粒ノイズや曇天化は増えていない。
+斜め上空の`above-t0.jpg`と`above-t10.jpg`では房の位置と輪郭が変化し、動的な移流も継続した。
+直前証跡と同じ表示範囲を2画素間隔で比較した平均符号付きRGB差は、8ビット値で地上`-0.09`、
+雲層内`-1.99`、斜め上空`-1.07`だった。雲層内で5階調超暗くなった画素は`26.04%`、明るくなった
+画素も`16.08%`あり、画面全体を暗くする補正ではなく局所的な自己影差として働いている。
+
+10秒ずつの品質計測は3視点すべて合格し、雲GPU時間の平均／最大は地平`3.85 / 5.27 ms`、天頂
+`4.22 / 5.42 ms`、上空`4.16 / 5.57 ms`だった。直前の30秒計測`3.78 / 4.51 / 4.13 ms`と比べ、
+視点ごとの増減は計測揺らぎの範囲である。結果は
+`C:\dev\acs_temp_builds\CloudQualityLightBandResidual-20260824\cloud-quality-summary.json`へ保存した。
+
+ACS全体のC++ビルドと単体試験は、Debugで`1508 / 1508`、Releaseで`1504 / 1504`に合格し、
+管理側Editorも両構成で警告0・エラー0だった。Debugの全CTestは`78`件中`75`件に合格した。
+失敗した`ACS.CppTypeRoleAuditSelfTest`、`ACS.CppTypeRoleAudit`、`ACS.CppPrefixConsumerAudit`は、
+既存の`FTrueHdriLightData`型役割と互換名利用者台帳の監査負債であり、雲、描画、数値試験の新規失敗はない。
+ReleaseのEditor ABIと管理側Editor配置先は、`3,968,512`バイト、SHA-256
+`0E32DAF6F925EA1526258829E10A26DD8D2BC2AE78C4E07DCDD6879A26616FAB`で一致した。
+
+生成配布物は`C:\dev\acs_temp_builds\CloudDistributionLightBandResidual-20260824`へ置いた。全45ファイル、
+`1,255,502,882`バイトで、`acs-distribution.sha256`自体のSHA-256は
+`2AAFB3CA75272BD8E6C51D9AE5DDECA32064E5A716CC075934A81BE89C2B31AC`である。目録の名前、
+寸法、ハッシュを再照合し、この配布物だけを参照する通常C++利用者をDebug／Releaseで生成、ビルド、
+実行して両方とも合格した。
+
+外部ACS Frameworkは`C:\dev\acs_temp_builds\acs-framework-cloud-integration-20260823`の専用作業ツリーで、
+`AcsDistRoot`へ上記配布物を明示して検証した。Framework本体はDebug／Releaseとも警告0・エラー0である。
+公式単体試験は両構成とも`1451`件中`1449`件に合格し、失敗は既存の
+`FWeather3DAppearance / 壊れた状態では出力を変えない`に属する2件だけだった。今回の雲、配布ヘッダー、
+ABI、リンクに新規失敗はなく、作業ツリーに元からある`ThirdParty/acs/README.md`の変更は触れていない。
+
 ## Quality-preserving optimization rules
 
 Ultra cloud optimization keeps the `0.25` trace scale, 384 view-sample ceiling,

@@ -4096,6 +4096,12 @@ ACS_TEST(VolumetricClouds,
     const std::size_t pairedTrig = shader.find("floatconeSin,coneCos;" "sincos(6.2831853*lightJitter,coneSin,coneCos);", lightPhase);
     const std::size_t nearLightLoop =
         shader.find("[loop]for(intl=0;l<3;l++)", pairedTrig);
+    const auto billowResidualCall = shader.find(
+        "lightDepth+=cloudBillowLightDepthResidual("
+        "lp,lightStep,coverage,sun,"
+        "lightTangent,lightBitangent,"
+        "coneSin,coneCos);",
+        nearLightLoop);
     const std::size_t cacheCompileOut = shader.find(
         "if(!lightTerminated&&CLOUD_MAIN_SHADOW_CACHE_ENABLED){",
         nearLightLoop);
@@ -4173,7 +4179,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(nearDensity < lightAccumulate);
     EXPECT_TRUE(lightAccumulate < lightFinish);
     EXPECT_TRUE(lightFinish < recurrence);
-    EXPECT_TRUE(recurrence < cacheCompileOut);
+    EXPECT_TRUE(recurrence < billowResidualCall);
+    EXPECT_TRUE(billowResidualCall < cacheCompileOut);
     EXPECT_TRUE(cacheCompileOut < farLightLoop);
     EXPECT_TRUE(Contains(shader, "floatlightStep=cloudLightStepFromBand(sampleUpperBand);" "lightStep*=lerp(0.72,1.28,lightJitter);"));
     EXPECT_FALSE(Contains(shader, "lightStep*=lerp(0.72,1.28,jit);"));
@@ -4281,8 +4288,9 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
             oldFarthestMidpoint * 0.005f);
     }
 
-    // 既定層では近距離3点だけが8～49 mの侵食帯域へ入り、4点目は最小位相でも
-    // 48 mを越える。最高周波数を遠距離標本へ強制しない境界を固定する。
+    // 既定層では近距離3点だけが8～49 mの侵食帯域へ入る。4点目は最小位相でも
+    // 48 mを越えて高周波侵食が消える一方、低周波の房は全位相で完全に残る。
+    // 二つをまとめて低詳細度へ落とさない境界を固定する。
     f32 minimumDetailedStep =
         kBaseStep / layerCanonicalScale * kMinimumJitterScale;
     f32 maximumDetailedStep =
@@ -4302,6 +4310,38 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
         CloudErosionVisibilityFromSampleSpacingForTest(
             maximumDetailedStep / kStepGrowth),
         0.0f, 0.0f);
+    EXPECT_NEAR(
+        CloudErosionVisibilityFromSampleSpacingForTest(
+            minimumDetailedStep),
+        0.0f, 0.0f);
+    EXPECT_NEAR(
+        CloudErosionVisibilityFromSampleSpacingForTest(
+            maximumDetailedStep),
+        0.0f, 0.0f);
+    EXPECT_NEAR(
+        CloudBillowVisibilityFromSampleSpacingForTest(
+            minimumDetailedStep),
+        1.0f, 0.0f);
+    EXPECT_NEAR(
+        CloudBillowVisibilityFromSampleSpacingForTest(
+            maximumDetailedStep),
+        1.0f, 0.0f);
+
+    // キャッシュの低詳細度積分へ符号付き差分を足すと、同じ第4区間の房密度積分へ戻る。
+    // 正差だけを足す方式は平均密度を増やして雲頂全体を暗くするため採用しない。
+    constexpr f32 kLowLodDensity = 0.62f;
+    constexpr f32 kBillowedDensity = 0.27f;
+    constexpr f32 kOpticalScale = 0.00064f;
+    const f32 cachedFourthDepth =
+        kLowLodDensity * maximumDetailedStep * kOpticalScale;
+    const f32 billowResidual =
+        (kBillowedDensity - kLowLodDensity) *
+        maximumDetailedStep * kOpticalScale;
+    EXPECT_NEAR(
+        cachedFourthDepth + billowResidual,
+        kBillowedDensity * maximumDetailedStep * kOpticalScale,
+        1.0e-7f);
+    EXPECT_TRUE(billowResidual < 0.0f);
 
     f32 expandingStep =
         kBaseStep / layerCanonicalScale * kMaximumJitterScale;
@@ -4327,6 +4367,45 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
     const std::string compactSource = CompactShader(source);
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcloudBillowLightDepthResidual("
+        "float3tailOrigin,floatlightStep,floatcoverage,"
+        "float3sun,float3lightTangent,float3lightBitangent,"
+        "floatconeSin,floatconeCos){"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatbillowVisibility="
+        "cloudBillowVisibilityFromSampleSpacing(lightStep);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "float3samplePosition=tailOrigin+coneDir*(0.5*lightStep);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatbillowedDensity=cloudDensityFromMacro("
+        "samplePosition,macro,macro.heightThreshold,"
+        "macro.weatherMask,billowVisibility,0.0);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "residual=(billowedDensity-lowLodDensity)*lightStep*"
+        "cloudOpticalDepthScaleFromBand("
+        "macro.upperBand>0.5);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "lightDepth+=cloudBillowLightDepthResidual("
+        "lp,lightStep,coverage,sun,"
+        "lightTangent,lightBitangent,"
+        "coneSin,coneCos);"));
+    EXPECT_TRUE(Contains(
+        shader, "detailedLightDepth=max(lightDepth,0.0);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "if(blendCachedTail&&!lightTerminated){"
+        "floatexactTail=max(lightDepth-exactFarStart,0.0);"
+        "lightDepth=exactFarStart+lerp("
+        "exactTail,cachedTailForBlend,cacheBlendWeight);"
+        "}lightDepth=max(lightDepth,0.0);"
+        "floattauL=lightDepth*density*cloudLightingExtinction.y;"));
     EXPECT_TRUE(Contains(shader, "floatlightStep=0.0075/max(layer.w,1e-4);"));
     EXPECT_EQ(CountOccurrences(shader, "lightStep*=1.8;"), static_cast<std::size_t>(6));
     EXPECT_FALSE(Contains(shader, "lightStep*=1.65;"));
@@ -6597,9 +6676,9 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "floatlowLodDensity=lowLodDensityAndProfile.x;"));
     EXPECT_FALSE(Contains(shader, "pow(saturate(shape),inScatterDepthExponent)"));
     EXPECT_TRUE(Contains(shader, "floatdetailedLightDepth=0.0;"));
-    EXPECT_TRUE(Contains(shader, "detailedLightDepth=lightDepth;"));
+    EXPECT_TRUE(Contains(shader, "detailedLightDepth=max(lightDepth,0.0);"));
     EXPECT_EQ(
-        CountOccurrences(shader, "detailedLightDepth=lightDepth;"),
+        CountOccurrences(shader, "detailedLightDepth=max(lightDepth,0.0);"),
         static_cast<std::size_t>(1));
     EXPECT_TRUE(Contains(
         shader,
