@@ -855,8 +855,8 @@ ACS_TEST(Atmosphere,
         water_pass,
         "host.water3d.SetEnvironment(\n"
         "        host.sky_zenith, host.sky_horizon, host.sky_ground);"));
-    EXPECT_TRUE(Contains(water_pass, "host.water3d.DrawAdaptivePlane("));
-    EXPECT_TRUE(Contains(water_pass, "host.water3d.DrawMesh("));
+    EXPECT_TRUE(Contains(water_pass, "host.water3d.DrawAdaptivePlaneWithShadowCascades("));
+    EXPECT_TRUE(Contains(water_pass, "host.water3d.DrawMeshWithShadowCascades("));
     EXPECT_TRUE(Contains(water_pass, "reflection, surface_id, true,"));
     EXPECT_TRUE(Contains(
         water_pass,

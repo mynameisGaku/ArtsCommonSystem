@@ -38,6 +38,19 @@ Legacy場面は初期化を続け、既存Plane meshを`DrawMesh`へ渡す代替
 評価します。水中全体のfogや浮力volumeは水面rendererの所有外なので、必要なsceneでは
 別のvolume機能を組み合わせます。
 
+## 太陽影とCSM atlas
+
+通常の単一shadow mapは従来どおり`SetShadowMap`と既存の`DrawMesh`、
+`DrawAdaptivePlane`で利用できます。横方向へ最大4段を並べたCSM atlasでは、呼び出し元が
+`FShadowCascadeSet`へtexture、各light view-projection、view-space分割深度、bias、PCF半径を
+設定し、`DrawMeshWithShadowCascades`または`DrawAdaptivePlaneWithShadowCascades`へ渡します。
+descriptorはdraw中だけ参照され、textureの所有権と寿命は呼び出し元に残ります。
+
+shaderはpixelのview-space深度でcascadeを選び、末尾15%で次段へ混ぜます。PCF sampleは各段の
+half texel内側へ制限するため、隣接cascadeの無関係な深度が海面へ巨大な黒帯として漏れません。
+最遠段の末尾は受影なしへ滑らかに戻します。cascade数、atlas寸法、行列、分割深度が不正な場合も
+水面draw自体は続け、受影だけを無効にします。
+
 ## 用途別profile
 
 `FWaterSurface3DParams::ForProfile`は形状を所有せず、同じrendererへ渡す安全な初期値だけを
@@ -82,7 +95,7 @@ Editorはopaque geometryの後、大気・雲・local fogの前に水を描き�
 ## 検証
 
 `water3d_ripple_lifetime_tests.cpp`はsurface分離、capacity、寿命、航跡energy、profile、
-砕波、法線、適応格子の契約を検証します。適応格子のGPU upload、境界、profile既定値も
+砕波、法線、適応格子、CSM atlas境界の契約を検証します。適応格子のGPU upload、境界、profile既定値も
 同じ水面testで検証します。`legacy_scene3d_water_adaptive_contract_tests.cpp`は標準Planeの
 適応描画、任意XZ meshの形状維持、格子失敗時の代替処理、reload/release所有権を固定します。
 raw DX12とDiligentの実pipeline初期化により、embedded HLSLとRHI resource bindingを確認します。

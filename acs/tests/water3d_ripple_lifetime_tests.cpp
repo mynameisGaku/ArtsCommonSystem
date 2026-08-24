@@ -859,10 +859,13 @@ ACS_TEST(Water3DShaderContract,
         "command_list.SetTexture(0, *m_NormalMap);") !=
         std::string::npos);
     for (u32 slot = 1u; slot < 6u; ++slot) {
-        const std::string binding =
+        /** 複数行で記述したtexture slotのbind。 */
+        const std::string wrapped_binding =
             "command_list.SetTexture(\n        " +
             std::to_string(slot) + ",";
-        EXPECT_TRUE(source.find(binding) != std::string::npos);
+        /** 一行で記述したtexture slotのbind。 */
+        const std::string inline_binding = "command_list.SetTexture(" + std::to_string(slot) + ",";
+        EXPECT_TRUE(source.find(wrapped_binding) != std::string::npos || source.find(inline_binding) != std::string::npos);
     }
 }
 
@@ -899,9 +902,29 @@ ACS_TEST(Water3DEditorContract,
     EXPECT_TRUE(body.find(
         "record->material_normal_tex.Get()") !=
         std::string::npos);
-    EXPECT_TRUE(body.find("host.water3d.DrawAdaptivePlane(") != std::string::npos);
-    EXPECT_TRUE(body.find("host.water3d.DrawMesh(") != std::string::npos);
+    EXPECT_TRUE(body.find("host.water3d.DrawAdaptivePlaneWithShadowCascades(") != std::string::npos);
+    EXPECT_TRUE(body.find("host.water3d.DrawMeshWithShadowCascades(") != std::string::npos);
     EXPECT_TRUE(body.find("reflection, surface_id, true,") != std::string::npos);
+}
+
+ACS_TEST(Water3DShaderContract, CascadedShadowAtlasCannotLeakAcrossNeighborRanges) {
+    const std::string water =
+        ReadWaterRepositorySource("src/render/WaterSurface3D.cpp");
+    const std::string editor =
+        ReadWaterRepositorySource("src/editor_abi/EditorAbi.cpp");
+    EXPECT_TRUE(!water.empty());
+    EXPECT_TRUE(!editor.empty());
+    if (water.empty() || editor.empty()) return;
+
+    EXPECT_TRUE(water.find("float4x4 light_view_projection[4];") != std::string::npos);
+    EXPECT_TRUE(water.find("float4 shadow_cascade_splits;") != std::string::npos);
+    EXPECT_TRUE(water.find("float2 atlas_texel = float2(") != std::string::npos);
+    EXPECT_TRUE(water.find("clamp(shadow_uv + offset, min_uv, max_uv)") != std::string::npos);
+    EXPECT_TRUE(water.find("cascade末尾15%を次の解像度へ混ぜ") != std::string::npos);
+    EXPECT_TRUE(editor.find("requested_water_shadow_cascades >") != std::string::npos);
+    EXPECT_TRUE(editor.find("CWaterSurface3D::FShadowCascadeSet::kMaxCascades") != std::string::npos);
+    EXPECT_TRUE(editor.find("sh.csmActive ? sh.csmVps[cascade] : sh.lightVp") != std::string::npos);
+    EXPECT_TRUE(editor.find("sh.shadowOn && !sh.csmActive") == std::string::npos);
 }
 
 ACS_TEST(Water3DMeshContract, AcceptsFiniteLocalXzSurface) {
