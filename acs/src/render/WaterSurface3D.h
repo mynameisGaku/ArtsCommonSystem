@@ -11,6 +11,7 @@
 #include "render/IRhiShader.h"
 #include "render/RenderAssets.h"
 #include "render/RhiTypes.h"
+#include "render/WaterSurface3DParams.h"
 
 namespace acs {
 
@@ -20,81 +21,6 @@ class IRhiDevice;
 class IRhiPipeline;
 class IRhiTexture;
 class FMeshAsset;
-
-/**
- * Authoring parameters for FWaterSurface3D.
- *
- * @details
- * The surface is physically based around water IOR 1.333. Colors and absorption
- * describe the volume below the surface, while analytic waves and a generated
- * tileable normal map provide independent macro/micro detail. The renderer is
- * authored on the mesh-local XZ plane. DrawMesh derives an orthonormal
- * world-space surface frame from the model matrix, transforms the mesh's actual
- * vertex normals with an inverse-transpose matrix, and projects 3D disturbance
- * points into that frame. Translation, rotation, and non-uniform scale therefore
- * preserve displacement, normals, and ripple placement.
- */
-struct FWaterSurface3DParams {
-    /** Shallow-water in-scattering color. */
-    FVec3 shallow_color{0.055f, 0.38f, 0.50f};
-
-    /** Deep-water in-scattering color. */
-    FVec3 deep_color{0.008f, 0.055f, 0.16f};
-
-    /** Beer-Lambert absorption coefficient in inverse world units. */
-    FVec3 absorption{0.34f, 0.13f, 0.040f};
-
-    /** Homogeneous single-scattering coefficient in inverse world units. */
-    FVec3 scattering{0.018f, 0.050f, 0.085f};
-
-    /** Henyey-Greenstein phase anisotropy (-0.95..0.95). */
-    f32 phase_anisotropy = 0.62f;
-
-    /** Whitewater/contact-foam color. */
-    FVec3 foam_color{0.88f, 0.96f, 1.0f};
-
-    /** Main flow direction in the surface-local tangent/bitangent plane. */
-    FVec2 flow_direction{0.92f, 0.38f};
-
-    /** Microfacet roughness used by the water GGX lobe. */
-    f32 roughness = 0.105f;
-
-    /** Strength of the sampled normal map. */
-    f32 normal_strength = 0.82f;
-
-    /** World-space tiling density of the generated normal map. */
-    f32 normal_tiling = 0.075f;
-
-    /** Screen-space refraction strength. */
-    f32 refraction_strength = 0.72f;
-
-    /** Approximate optical depth when no explicit scene-depth texture is supplied. */
-    f32 optical_depth = 1.35f;
-
-    /** Analytic macro-wave displacement amplitude. */
-    f32 wave_amplitude = 0.105f;
-
-    /** Analytic macro-wave spatial scale. */
-    f32 wave_scale = 0.78f;
-
-    /** Analytic wave/normal-map animation speed. */
-    f32 wave_speed = 0.72f;
-
-    /** Dynamic ripple propagation speed in world units per second. */
-    f32 ripple_speed = 2.65f;
-
-    /** Dynamic ripple wavelength in world units. */
-    f32 ripple_wavelength = 0.52f;
-
-    /** Dynamic ripple lifetime in seconds. */
-    f32 ripple_lifetime = 4.0f;
-
-    /** Dynamic ripple amplitude damping coefficient. */
-    f32 ripple_damping = 0.78f;
-
-    /** Contact/crest foam multiplier. */
-    f32 foam_intensity = 0.82f;
-};
 
 /**
  * High-quality interactive 3D water renderer.
@@ -143,6 +69,9 @@ public:
     /** Slots reserved exclusively for directional wake disturbances. */
     static constexpr u32 kWakeRippleSlots = 48;
 
+    /** camera近傍へ密度を寄せる共有平面の既定分割数。 */
+    static constexpr u32 kAdaptivePlaneCells = 96;
+
     static_assert(kImpactRippleSlots + kWakeRippleSlots == kMaxRipples);
 
     FWaterSurface3D() noexcept;
@@ -171,6 +100,17 @@ public:
     /** Submit both shader stages without blocking on supporting backends. */
     static TResult<FCompiledShaders> BeginCompileShadersAsync(
         IRhiDevice& device) noexcept;
+
+    /**
+     * 連続LOD描画に使う正規化XZ格子を生成する。
+     * @param device 格子をuploadするRHI device。
+     * @param output 成功時だけ置き換える、呼び出し元所有のGPU mesh。
+     * @param cells 一辺の分割数。2から512までを受け付ける。
+     * @return 形状生成と両bufferのuploadが完了した場合は成功。
+     */
+    static TResult<void> CreateAdaptivePlaneMesh(
+        IRhiDevice& device, FGpuMesh& output,
+        u32 cells = kAdaptivePlaneCells) noexcept;
 
     /** Commit ready shader handles and all GPU resources on the render owner. */
     TResult<void> InitWithCompiledShaders(
@@ -407,6 +347,24 @@ public:
                   IRhiTexture* authored_normal_map = nullptr,
                   f32 authored_normal_strength = 1.0f) noexcept;
 
+    /**
+     * 正規化XZ格子をcamera近傍へ連続的に再配置して水面を描く。
+     * @param plane_mesh CreateAdaptivePlaneMeshで生成した格子。
+     * @param model 格子の全範囲を有限水域へ写すmodel行列。
+     * @details 頂点数は一定のまま近距離の波紋と遠距離の広い水域を覆う。
+     * 既存DrawMeshと同じ光学入力、surface ID、所有権契約を維持する。
+     */
+    void DrawAdaptivePlane(
+        IRhiCommandList& command_list, const FGpuMesh& plane_mesh,
+        const FMat4& model,
+        IRhiTexture* scene_color = nullptr,
+        IRhiTexture* scene_depth = nullptr,
+        IRhiTexture* screen_reflection = nullptr,
+        u64 surface_id = 0u,
+        bool hardware_depth_bound = false,
+        IRhiTexture* authored_normal_map = nullptr,
+        f32 authored_normal_strength = 1.0f) noexcept;
+
     IRhiPipeline* Pipeline() const noexcept { return m_Pipeline.Get(); }
     IRhiTexture* NormalTexture() const noexcept { return m_NormalMap.Get(); }
     f32 Time() const noexcept { return m_Time; }
@@ -454,6 +412,15 @@ private:
      */
     void DeactivateEventAtActivePosition(
         u32 active_position) noexcept;
+
+    /** 通常meshと連続LOD平面で共有する描画本体。 */
+    void DrawMesh_Internal(
+        IRhiCommandList& command_list, const FGpuMesh& mesh,
+        const FMat4& model, IRhiTexture* scene_color,
+        IRhiTexture* scene_depth, IRhiTexture* screen_reflection,
+        u64 surface_id, bool hardware_depth_bound,
+        IRhiTexture* authored_normal_map,
+        f32 authored_normal_strength, bool adaptive_plane) noexcept;
 
     IRhiDevice* m_Device = nullptr;
     TUniquePtr<IRhiShader> m_Vs;

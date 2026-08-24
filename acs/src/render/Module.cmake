@@ -37,17 +37,19 @@ set(_acsgen_render_sources
     Ssgi.cpp
     Ssr.cpp
     StandardShader.cpp
-    SubsurfaceScattering.cpp
     SubstrateExpression.cpp
     SubstrateMaterial.cpp
+    SubsurfaceScattering.cpp
     VertexScatter.cpp
     WaterSurface3D.cpp
+    WaterSurface3DParams.cpp
 )
 set(_acsgen_render_headers
     Atmosphere.h
     Blit.h
     BurnEffect.h
     DebugDraw.h
+    EWaterSurface3DProfile.h
     Font.h
     Fxaa.h
     HiZ.h
@@ -80,11 +82,13 @@ set(_acsgen_render_headers
     Ssgi.h
     Ssr.h
     StandardShader.h
-    SubsurfaceScattering.h
     SubstrateExpression.h
     SubstrateMaterial.h
+    SubsurfaceScattering.h
+    TemporalHistory.h
     VertexScatter.h
     WaterSurface3D.h
+    WaterSurface3DParams.h
 )
 set(_acsgen_render_public_deps
     Foundation

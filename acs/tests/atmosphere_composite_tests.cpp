@@ -857,8 +857,13 @@ ACS_TEST(Atmosphere,
         "        host.sky_zenith, host.sky_horizon, host.sky_ground);"));
     EXPECT_TRUE(Contains(
         water_pass,
-        "true, authored_normal_map,\n"
-        "            authored_normal_strength);"));
+        "host.water3d.DrawAdaptivePlane("));
+    EXPECT_TRUE(Contains(
+        water_pass,
+        "host.water3d.DrawMesh("));
+    EXPECT_TRUE(Contains(
+        water_pass,
+        "reflection, surface_id, true,"));
     EXPECT_TRUE(Contains(
         water_pass,
         "opaque PBR fallback remains active"));

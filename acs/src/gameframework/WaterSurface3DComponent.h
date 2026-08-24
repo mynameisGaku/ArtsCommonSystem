@@ -64,6 +64,33 @@ public:
     f32 opticalDepth = 1.35f;
     f32 foamIntensity = 0.82f;
 
+    /** 水域用途に合う値で全項目を上書きする。 */
+    void ApplyProfile(EWaterSurface3DProfile profile) noexcept {
+        /** 共通rendererが定義する用途別の安全な値。 */
+        const FWaterSurface3DParams params =
+            FWaterSurface3DParams::ForProfile(profile);
+        shallowColor = params.shallow_color;
+        deepColor = params.deep_color;
+        absorption = params.absorption;
+        scattering = params.scattering;
+        phaseAnisotropy = params.phase_anisotropy;
+        foamColor = params.foam_color;
+        roughness = params.roughness;
+        normalStrength = params.normal_strength;
+        normalTiling = params.normal_tiling;
+        flowDirection = params.flow_direction;
+        waveAmplitude = params.wave_amplitude;
+        waveScale = params.wave_scale;
+        waveSpeed = params.wave_speed;
+        rippleSpeed = params.ripple_speed;
+        rippleWavelength = params.ripple_wavelength;
+        rippleLifetime = params.ripple_lifetime;
+        rippleDamping = params.ripple_damping;
+        refractionStrength = params.refraction_strength;
+        opticalDepth = params.optical_depth;
+        foamIntensity = params.foam_intensity;
+    }
+
     FWaterSurface3DParams ToRenderParams() const noexcept {
         FWaterSurface3DParams params{};
         params.shallow_color = shallowColor;

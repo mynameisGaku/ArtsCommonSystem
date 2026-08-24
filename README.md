@@ -239,6 +239,7 @@ Root().AddChild(Move(player));
 
 - [`QUICKSTART.md`](acs/docs/QUICKSTART.md) — 初学者向けの導入
 - [`RECIPES.md`](acs/docs/RECIPES.md) — 3D描画・音・UIなどの逆引き
+- [`InteractiveWater3D.md`](acs/docs/InteractiveWater3D.md) — 海・川・プール・水たまりを共通化する3D水面
 - [`samples/README.md`](acs/samples/README.md) — 入門サンプルの学習ガイド
 - [`ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) — module構成と設計
 - [`StyleGuide.md`](acs/docs/StyleGuide.md) — F / A / T / I / E命名とcoding rule

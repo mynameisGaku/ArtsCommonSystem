@@ -582,6 +582,35 @@ ACS_REF.modules.push({
       ]
     },
     {
+      name: "EWaterSurface3DProfile",
+      kind: "列挙型", header: "render/EWaterSurface3DProfile.h",
+      summary: "共通3D水面へ用途別の安全な初期値を選ぶ。",
+      when: "水たまり、プール、川、湖、海のauthoring開始値を揃える時。",
+      members: [
+        { sig: "Puddle / Pool / River / Lake / Ocean", desc: "形状は所有せず、波・流れ・透明度・泡の初期値だけを選ぶ。" }
+      ]
+    },
+    {
+      name: "FWaterSurface3DParams",
+      kind: "構造体", header: "render/WaterSurface3DParams.h",
+      summary: "形状に依存しない3D水面の波、流れ、光学、泡の値。",
+      when: "FWaterSurface3DまたはAWaterSurface3DComponentへ水質を指定する時。",
+      members: [
+        { sig: "static FWaterSurface3DParams ForProfile(EWaterSurface3DProfile profile)", ret: "用途別の初期値", desc: "未知値ではLakeを返す。返した後に個別fieldを上書きできる。" }
+      ]
+    },
+    {
+      name: "FWaterSurface3D",
+      kind: "クラス", header: "render/WaterSurface3D.h",
+      summary: "3D水面の描画資源、反射、屈折、波、surface別interactionを管理する。",
+      when: "有限な矩形水面またはlocal XZの任意輪郭水面をsceneへ描画する時。",
+      members: [
+        { sig: "static TResult&lt;void&gt; CreateAdaptivePlaneMesh(IRhiDevice&, FGpuMesh&, u32 cells = 96)", desc: "camera近傍へ密度を寄せる正規化XZ格子を成功時だけ出力する。" },
+        { sig: "void DrawAdaptivePlane(...)", desc: "有限な全体寸法を保ったまま、矩形水面の格子密度をcamera近傍へ連続再配置して描く。" },
+        { sig: "void DrawMesh(...)", desc: "水たまりや蛇行する川など、local XZの任意輪郭meshを形状変更せず描く。" }
+      ]
+    },
+    {
       name: "FAtmosphere / FAtmosphereParams",
       kind: "クラス / 構造体", header: "render/Atmosphere.h",
       summary: "<b>物理大気散乱</b>(Rayleigh + Mie 単散乱)を CPU で評価して equirect 画像に焼く。結果を <code>FImageBasedLighting::LoadEquirectHdrFromMemory</code> に通せば、物理ベースの空から env→irradiance→prefilter の <t>IBL</t> 一式が組める。",
