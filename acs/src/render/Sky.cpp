@@ -1187,19 +1187,19 @@ float cloudProfileFromTypeWeights(
                  *lerp(0.64,1.0,middle.y);
     float profile=lerp(stratus,stratocumulus,typeWeights.x);
     profile=lerp(profile,cumulus,typeWeights.y);
-    // 積乱雲本体は中層で一度細くし、上部のかなとこを別の山として作る。
-    // 全高を同じ密度で埋めると、雲底から雲頂まで均一な筒になるため、
-    // 本体の上端を先に絞ってからかなとこへ滑らかにつなぐ。
-    float stormBody=smoothstep(0.06,0.18,h)
-                   *(1.0-smoothstep(0.42,0.68,h))*0.96;
-    float stormShoulder=smoothstep(0.18,0.30,h)
-                       *(1.0-smoothstep(0.46,0.62,h))*0.50;
-    float anvil=smoothstep(0.54,0.68,h)
-               *(1.0-smoothstep(0.84,0.99,h))*0.58;
+    // 積乱雲本体は上部まで密度を保ち、肩からかなとこへ段差なく遷移させる。
+    // 以前の短い本体と弱いかなとこでは、実際の層厚があっても画面上は低い塊に
+    // 見えたため、本体の減衰を上へ移し、かなとこの山を明確に重ねる。
+    float stormBody=smoothstep(0.045,0.16,h)
+                   *(1.0-smoothstep(0.40,0.70,h));
+    float stormShoulder=smoothstep(0.20,0.34,h)
+                       *(1.0-smoothstep(0.46,0.66,h))*0.62;
+    float anvil=smoothstep(0.56,0.70,h)
+               *(1.0-smoothstep(0.85,0.995,h))*0.82;
     float storm=max(stormBody,max(stormShoulder,anvil));
     float stormMix=max(
-        precipitation*0.52,
-        cloudToweringStrength(typeWeights.y,precipitation)*0.78);
+        precipitation*0.72,
+        cloudToweringStrength(typeWeights.y,precipitation)*0.92);
     return saturate(lerp(profile,storm,stormMix));
 }
 float cloudProfile(float h,float cloudType,float precipitation){

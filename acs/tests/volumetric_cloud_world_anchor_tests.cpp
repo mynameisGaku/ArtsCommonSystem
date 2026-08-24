@@ -511,16 +511,16 @@ f32 CloudStormProfileForTest(f32 height, f32 cloudType, f32 precipitation) noexc
     const f32 precipitationTower = SmoothStepForTest(0.25f, 0.85f, precipitation);
     const f32 typeTower = SmoothStepForTest(0.72f, 0.98f, cloudType);
     const f32 toweringStrength = typeTower > precipitationTower ? typeTower : precipitationTower;
-    const f32 stormBody = SmoothStepForTest(0.06f, 0.18f, height) *
-        (1.0f - SmoothStepForTest(0.42f, 0.68f, height)) * 0.96f;
-    const f32 stormShoulder = SmoothStepForTest(0.18f, 0.30f, height) *
-        (1.0f - SmoothStepForTest(0.46f, 0.62f, height)) * 0.50f;
-    const f32 anvil = SmoothStepForTest(0.54f, 0.68f, height) *
-        (1.0f - SmoothStepForTest(0.84f, 0.99f, height)) * 0.58f;
+    const f32 stormBody = SmoothStepForTest(0.045f, 0.16f, height) *
+        (1.0f - SmoothStepForTest(0.40f, 0.70f, height));
+    const f32 stormShoulder = SmoothStepForTest(0.20f, 0.34f, height) *
+        (1.0f - SmoothStepForTest(0.46f, 0.66f, height)) * 0.62f;
+    const f32 anvil = SmoothStepForTest(0.56f, 0.70f, height) *
+        (1.0f - SmoothStepForTest(0.85f, 0.995f, height)) * 0.82f;
     const f32 storm = stormBody > stormShoulder ? stormBody :
         (stormShoulder > anvil ? stormShoulder : anvil);
-    const f32 stormMix = precipitation * 0.52f > toweringStrength * 0.78f ?
-        precipitation * 0.52f : toweringStrength * 0.78f;
+    const f32 stormMix = precipitation * 0.72f > toweringStrength * 0.92f ?
+        precipitation * 0.72f : toweringStrength * 0.92f;
     const f32 baseProfile = typeWeight * SmoothStepForTest(0.13f, 0.62f, height);
     return (1.0f - stormMix) * baseProfile + stormMix * storm;
 }
@@ -3449,15 +3449,15 @@ ACS_TEST(VolumetricClouds,
         "returnmax(typeTower,precipitationTower);}"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatstormBody=smoothstep(0.06,0.18,h)"
-        "*(1.0-smoothstep(0.42,0.68,h))*0.96;"
-        "floatstormShoulder=smoothstep(0.18,0.30,h)"
-        "*(1.0-smoothstep(0.46,0.62,h))*0.50;"
-        "floatanvil=smoothstep(0.54,0.68,h)"
-        "*(1.0-smoothstep(0.84,0.99,h))*0.58;"
+        "floatstormBody=smoothstep(0.045,0.16,h)"
+        "*(1.0-smoothstep(0.40,0.70,h));"
+        "floatstormShoulder=smoothstep(0.20,0.34,h)"
+        "*(1.0-smoothstep(0.46,0.66,h))*0.62;"
+        "floatanvil=smoothstep(0.56,0.70,h)"
+        "*(1.0-smoothstep(0.85,0.995,h))*0.82;"
         "floatstorm=max(stormBody,max(stormShoulder,anvil));"
-        "floatstormMix=max(precipitation*0.52,"
-        "cloudToweringStrength(typeWeights.y,precipitation)*0.78);"));
+        "floatstormMix=max(precipitation*0.72,"
+        "cloudToweringStrength(typeWeights.y,precipitation)*0.92);"));
     EXPECT_TRUE(Contains(
         shader,
         "floatcloudConvectiveWaistScale(floatlayerHeight,floatcloudType,floatprecipitation){"
