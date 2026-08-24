@@ -1415,6 +1415,10 @@ ACS_TEST(Atmosphere, EditorCloudLightingUsesNormalizedLayerAndCurrentSky) {
     EXPECT_TRUE(setLayer != configure.npos);
     EXPECT_TRUE(updateLighting != configure.npos);
     EXPECT_TRUE(setLayer < updateLighting);
+    const auto setUpperLayer = configure.find("host.vclouds3d.SetUpperLayer(", setLayer);
+    EXPECT_TRUE(setUpperLayer != configure.npos);
+    EXPECT_TRUE(setLayer < setUpperLayer);
+    EXPECT_TRUE(setUpperLayer < updateLighting);
 
     const std::size_t drawBegin = source.find("void DrawScene3D(");
     const std::string draw = drawBegin != std::string::npos

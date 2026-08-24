@@ -379,6 +379,10 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
     const FSettingEntry* base = settings.Find("Rendering", "CloudBaseHeight");
     const FSettingEntry* top = settings.Find("Rendering", "CloudTopHeight");
     const FSettingEntry* scale = settings.Find("Rendering", "CloudNoiseScale");
+    const FSettingEntry* upper_base = settings.Find("Rendering", "CloudUpperBaseHeight");
+    const FSettingEntry* upper_top = settings.Find("Rendering", "CloudUpperTopHeight");
+    const FSettingEntry* upper_coverage = settings.Find("Rendering", "CloudUpperCoverageScale");
+    const FSettingEntry* upper_density = settings.Find("Rendering", "CloudUpperDensityScale");
     const FSettingEntry* max_distance = settings.Find("Rendering", "CloudMaxDistance");
     const FSettingEntry* fade_fraction = settings.Find("Rendering", "CloudFadeFraction");
     const FSettingEntry* step_growth = settings.Find("Rendering", "CloudStepGrowth");
@@ -394,6 +398,10 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
     EXPECT_TRUE(base != nullptr && base->builtin);
     EXPECT_TRUE(top != nullptr && top->builtin);
     EXPECT_TRUE(scale != nullptr && scale->builtin);
+    EXPECT_TRUE(upper_base != nullptr && upper_base->builtin);
+    EXPECT_TRUE(upper_top != nullptr && upper_top->builtin);
+    EXPECT_TRUE(upper_coverage != nullptr && upper_coverage->builtin);
+    EXPECT_TRUE(upper_density != nullptr && upper_density->builtin);
     EXPECT_TRUE(max_distance != nullptr && max_distance->builtin);
     EXPECT_TRUE(fade_fraction != nullptr && fade_fraction->builtin);
     EXPECT_TRUE(step_growth != nullptr && step_growth->builtin);
@@ -412,6 +420,10 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudBaseHeight", 0.0f), 1500.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudTopHeight", 0.0f), 4000.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudNoiseScale", 0.0f), 0.035f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudUpperBaseHeight", -1.0f), 0.0f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudUpperTopHeight", -1.0f), 0.0f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudUpperCoverageScale", 0.0f), 0.55f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudUpperDensityScale", 0.0f), 0.30f, 1e-5f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudMaxDistance", 0.0f), 60000.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudFadeFraction", 0.0f), 0.35f, 1e-5f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudStepGrowth", -1.0f), 0.0f, 1e-5f);
@@ -430,6 +442,10 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
         "CloudBaseHeight=240\n"
         "CloudTopHeight=315\n"
         "CloudNoiseScale=0.018\n"
+        "CloudUpperBaseHeight=7600\n"
+        "CloudUpperTopHeight=9800\n"
+        "CloudUpperCoverageScale=0.34\n"
+        "CloudUpperDensityScale=0.22\n"
         "CloudMaxDistance=120000\n"
         "CloudFadeFraction=0.5\n"
         "CloudStepGrowth=1.25\n"
@@ -448,6 +464,10 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudBaseHeight", 0.0f), 240.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudTopHeight", 0.0f), 315.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudNoiseScale", 0.0f), 0.018f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudUpperBaseHeight", 0.0f), 7600.0f, 1e-4f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudUpperTopHeight", 0.0f), 9800.0f, 1e-4f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudUpperCoverageScale", 0.0f), 0.34f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudUpperDensityScale", 0.0f), 0.22f, 1e-5f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudMaxDistance", 0.0f), 120000.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudFadeFraction", 0.0f), 0.5f, 1e-5f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudStepGrowth", 0.0f), 1.25f, 1e-5f);

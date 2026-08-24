@@ -1090,6 +1090,10 @@ ACS_TEST(VolumetricClouds,
         "cloudRenderScale>1.0f?1.0f:cloudRenderScale"));
     EXPECT_TRUE(Contains(editorSource, "h.q_cloud_reference=h.settings.GetBool(\"Rendering\",\"CloudReferenceMode\",false);"));
     EXPECT_TRUE(Contains(editorSource, "h.q_cloud_max_distance=h.settings.GetFloat(\"Rendering\",\"CloudMaxDistance\",60000.0f);"));
+    EXPECT_TRUE(Contains(editorSource, "h.q_cloud_upper_base=h.settings.GetFloat(\"Rendering\",\"CloudUpperBaseHeight\",0.0f);"));
+    EXPECT_TRUE(Contains(editorSource, "h.q_cloud_upper_top=h.settings.GetFloat(\"Rendering\",\"CloudUpperTopHeight\",0.0f);"));
+    EXPECT_TRUE(Contains(editorSource, "h.q_cloud_upper_coverage=h.settings.GetFloat(\"Rendering\",\"CloudUpperCoverageScale\",0.55f);"));
+    EXPECT_TRUE(Contains(editorSource, "h.q_cloud_upper_density=h.settings.GetFloat(\"Rendering\",\"CloudUpperDensityScale\",0.30f);"));
     EXPECT_TRUE(Contains(editorSource, "h.q_cloud_fade_fraction=h.settings.GetFloat(\"Rendering\",\"CloudFadeFraction\",0.35f);"));
     EXPECT_TRUE(Contains(editorSource, "h.q_cloud_step_growth=h.settings.GetFloat(\"Rendering\",\"CloudStepGrowth\",0.0f);"));
     EXPECT_TRUE(Contains(editorSource, "h.q_cloud_type=h.settings.GetFloat(\"Rendering\",\"CloudType\",0.78f);"));
@@ -1105,6 +1109,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(editorSource, "cloudWeather.Precipitation=host.q_cloud_precipitation;"));
     EXPECT_TRUE(Contains(editorSource, "cloudWeather.PrecipitationInfluence=host.q_cloud_precipitation_influence;"));
     EXPECT_TRUE(Contains(editorSource, "host.vclouds3d.SetWeather(cloudWeather);"));
+    EXPECT_TRUE(Contains(editorSource, "host.vclouds3d.SetUpperLayer(FVolumetricCloudUpperLayer{host.q_cloud_upper_base,host.q_cloud_upper_top,host.q_cloud_upper_coverage,host.q_cloud_upper_density});"));
     EXPECT_TRUE(Contains(editorSource, "host.q_cloud_render_scale,host.q_cloud_reference);"));
 }
 

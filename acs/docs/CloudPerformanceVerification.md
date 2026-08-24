@@ -776,6 +776,11 @@ Editor は `CloudMaxDistance=60000`、`CloudFadeFraction=0.35`、`CloudStepGrowt
 `CloudAmbientAtTop`、`CloudGroundContribution`で明示的に変更でき、通常C++では既存の
 `FVolumetricCloudLighting`を使う。
 
+Editorの上層雲は`CloudUpperBaseHeight`、`CloudUpperTopHeight`、`CloudUpperCoverageScale`、
+`CloudUpperDensityScale`で設定できる。上層の高さを下層の上へ置くと、薄い高層雲を同じ視線採取へ
+接続し、下層雲との間隔・重なり・空の抜けを一貫して確認できる。高さが無効な場合の既定値は従来どおり
+上層雲なしであり、既存プロジェクトの見た目と負荷を変えない。
+
 実画面で曇天感を支配していたのは雲量から天候場しきい値への非線形変換だった。同じ時刻、密度2.1、
 物理大気、参照描画で比較すると、雲量0.50は地平線に複数の大きな雲塊が連続し、0.35はほぼ快晴、
 0.42は青空を主体に独立した積雲を残した。このため新規プロジェクトの晴天既定値を0.50から0.42へ

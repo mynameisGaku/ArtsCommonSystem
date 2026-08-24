@@ -516,6 +516,11 @@ struct FEditorHost {
     // 診断時だけ等倍・512刻み・時間再構成なしにする。
     bool  q_cloud_reference = false;
     f32   q_cloud_base       = 1500.0f; f32 q_cloud_top = 4000.0f; f32 q_cloud_noise_scale = 0.035f; // world-space volumetric cloud layer
+    // 下層の上へ重ねる薄い高層雲。上層の高さが無効なら追加描画しない。
+    f32   q_cloud_upper_base = 0.0f;
+    f32   q_cloud_upper_top = 0.0f;
+    f32   q_cloud_upper_coverage = 0.55f;
+    f32   q_cloud_upper_density = 0.30f;
     // 地上向けの遠方雲を薄める距離設定。飛行場面では設定から広げられる。
     f32   q_cloud_max_distance = 60000.0f; f32 q_cloud_fade_fraction = 0.35f; f32 q_cloud_step_growth = 0.0f;
     // 雲種と降水成分を明示した天候へ寄せる設定。既定は手続き天候場を変更しない。
@@ -9996,6 +10001,11 @@ void ConfigureVolumetricCloudState_Internal(FEditorHost& host) noexcept {
     cloudWeather.PrecipitationInfluence = host.q_cloud_precipitation_influence;
     host.vclouds3d.SetWeather(cloudWeather);
     host.vclouds3d.SetLayer(FVolumetricCloudLayer{host.q_cloud_base, host.q_cloud_top, host.q_cloud_noise_scale});
+    host.vclouds3d.SetUpperLayer(FVolumetricCloudUpperLayer{
+        host.q_cloud_upper_base,
+        host.q_cloud_upper_top,
+        host.q_cloud_upper_coverage,
+        host.q_cloud_upper_density});
     UpdateVolumetricCloudLighting_Internal(host);
 }
 
@@ -12755,6 +12765,10 @@ static void ApplySettings(FEditorHost& h) noexcept {
     h.q_cloud_base     = h.settings.GetFloat("Rendering", "CloudBaseHeight", 1500.0f);
     h.q_cloud_top      = h.settings.GetFloat("Rendering", "CloudTopHeight", 4000.0f);
     h.q_cloud_noise_scale = h.settings.GetFloat("Rendering", "CloudNoiseScale", 0.035f);
+    h.q_cloud_upper_base = h.settings.GetFloat("Rendering", "CloudUpperBaseHeight", 0.0f);
+    h.q_cloud_upper_top = h.settings.GetFloat("Rendering", "CloudUpperTopHeight", 0.0f);
+    h.q_cloud_upper_coverage = h.settings.GetFloat("Rendering", "CloudUpperCoverageScale", 0.55f);
+    h.q_cloud_upper_density = h.settings.GetFloat("Rendering", "CloudUpperDensityScale", 0.30f);
     h.q_cloud_max_distance = h.settings.GetFloat("Rendering", "CloudMaxDistance", 60000.0f);
     h.q_cloud_fade_fraction = h.settings.GetFloat("Rendering", "CloudFadeFraction", 0.35f);
     h.q_cloud_step_growth = h.settings.GetFloat("Rendering", "CloudStepGrowth", 0.0f);
