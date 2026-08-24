@@ -486,7 +486,7 @@ f32 CloudColumnHeightShiftForTest(
     return signal * amplitude;
 }
 
-// 低周波天候模様から、物理層内に収まる柱ごとの雲底持ち上げ量を求める。
+// 低周波天候模様から、共通の凝結高度を崩さない柱ごとの雲底持ち上げ量を求める。
 f32 CloudColumnBaseLiftForTest(f32 cloudInterior, f32 cloudType, f32 precipitation, f32 warp) noexcept {
     const f32 verticalType = SaturateForTest(cloudType > precipitation ? cloudType : precipitation);
     const f32 broadPattern = SmoothStepForTest(0.18f, 0.82f, warp);
@@ -494,8 +494,8 @@ f32 CloudColumnBaseLiftForTest(f32 cloudInterior, f32 cloudType, f32 precipitati
     const f32 typeTower = SmoothStepForTest(0.72f, 0.98f, cloudType);
     const f32 precipitationTower = SmoothStepForTest(0.25f, 0.85f, precipitation);
     const f32 toweringStrength = typeTower > precipitationTower ? typeTower : precipitationTower;
-    f32 amplitude = 0.025f + (0.105f - 0.025f) * verticalType;
-    amplitude *= 1.0f + 0.55f * toweringStrength;
+    f32 amplitude = 0.025f + (0.045f - 0.025f) * verticalType;
+    amplitude *= 1.0f - 0.20f * toweringStrength;
     const f32 signal = SaturateForTest(0.08f + broadPattern * 0.62f + edgePattern * 0.30f);
     return amplitude * signal;
 }
@@ -3621,16 +3621,19 @@ ACS_TEST(VolumetricClouds,
     const f32 highPatternLift = CloudColumnBaseLiftForTest(1.0f, 1.0f, 0.0f, 1.0f);
     const f32 visibleEdgeLift = CloudColumnBaseLiftForTest(0.0f, 1.0f, 0.0f, 0.0f);
     const f32 stratusLift = CloudColumnBaseLiftForTest(1.0f, 0.0f, 0.0f, 1.0f);
-    EXPECT_NEAR(lowPatternLift, 0.01302f, 1e-6f);
-    EXPECT_NEAR(highPatternLift, 0.113925f, 1e-6f);
-    EXPECT_NEAR(visibleEdgeLift, 0.061845f, 1e-6f);
+    EXPECT_NEAR(lowPatternLift, 0.00288f, 1e-6f);
+    EXPECT_NEAR(highPatternLift, 0.0252f, 1e-6f);
+    EXPECT_NEAR(visibleEdgeLift, 0.01368f, 1e-6f);
     EXPECT_NEAR(stratusLift, 0.0175f, 1e-6f);
-    EXPECT_TRUE(highPatternLift > lowPatternLift + 0.04f);
+    EXPECT_TRUE(highPatternLift > lowPatternLift + 0.02f);
     EXPECT_TRUE(visibleEdgeLift > lowPatternLift);
     EXPECT_TRUE(stratusLift < highPatternLift);
 
+    // 9.4 kmの積乱雲層でも雲底差を約237 m以内へ抑え、上面変形の約1.4 kmと役割を分ける。
+    EXPECT_TRUE(highPatternLift * 9400.0f < 237.0f);
+
     // 同じ物理高度でも低周波模様の異なる柱は同時に立ち上がらず、共通の平面を作らない。
-    constexpr f32 lowerLayerHeight = 0.04f;
+    constexpr f32 lowerLayerHeight = 0.02f;
     EXPECT_TRUE(CloudColumnHeightForTest(lowerLayerHeight, 0.0f, lowPatternLift, false) > 0.0f);
     EXPECT_NEAR(CloudColumnHeightForTest(lowerLayerHeight, 0.0f, highPatternLift, false), 0.0f, 0.0f);
 
@@ -3654,8 +3657,8 @@ ACS_TEST(VolumetricClouds,
     }
 
     // 上層雲は同じ入力でも局所雲底差を抑え、薄い層を過度に削らない。
-    EXPECT_TRUE(CloudColumnHeightForTest(0.07f, 0.0f, highPatternLift, true) > 0.0f);
-    EXPECT_NEAR(CloudColumnHeightForTest(0.05f, 0.0f, highPatternLift, false), 0.0f, 0.0f);
+    EXPECT_TRUE(CloudColumnHeightForTest(0.02f, 0.0f, highPatternLift, true) > 0.0f);
+    EXPECT_NEAR(CloudColumnHeightForTest(0.02f, 0.0f, highPatternLift, false), 0.0f, 0.0f);
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
@@ -3667,8 +3670,8 @@ ACS_TEST(VolumetricClouds,
         "floatbroadPattern=smoothstep(0.18,0.82,weather.a);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatamplitude=lerp(0.025,0.105,verticalType);"
-        "amplitude*=lerp(1.0,1.55,cloudToweringStrength(weather.g,weather.b));"));
+        "floatamplitude=lerp(0.025,0.045,verticalType);"
+        "amplitude*=lerp(1.0,0.80,cloudToweringStrength(weather.g,weather.b));"));
     EXPECT_TRUE(Contains(
         shader,
         "floatcloudColumnHeight("

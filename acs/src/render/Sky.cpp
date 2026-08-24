@@ -1241,13 +1241,15 @@ float cloudColumnHeightShift(float4 weather,float cloudInterior){
     return signal*amplitude;
 }
 // 既存の低周波天候模様から、柱ごとに物理層内の雲底を少し持ち上げる。
-// 可視境界ほど持ち上げて下面の輪郭を崩し、層雲では変化量を小さく保つ。
+// 対流雲は共通の凝結高度へ底面が揃いやすいため、積乱雲ほど変化率を抑え、
+// 雲頂の高さ変形とは独立して長い下向きの尾を作らない。
 float cloudColumnBaseLift(float4 weather,float cloudInterior){
     float verticalType=saturate(max(weather.g,weather.b));
     float broadPattern=smoothstep(0.18,0.82,weather.a);
     float edgePattern=1.0-smoothstep(0.08,0.86,saturate(cloudInterior));
-    float amplitude=lerp(0.025,0.105,verticalType);
-    amplitude*=lerp(1.0,1.55,cloudToweringStrength(weather.g,weather.b));
+    float amplitude=lerp(0.025,0.045,verticalType);
+    amplitude*=lerp(
+        1.0,0.80,cloudToweringStrength(weather.g,weather.b));
     float signal=saturate(0.08+broadPattern*0.62+edgePattern*0.30);
     return amplitude*signal;
 }
