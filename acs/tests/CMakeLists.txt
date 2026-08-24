@@ -151,6 +151,7 @@ add_executable(acs_unit_tests
     node3d_tests.cpp
     skinned_mesh_animation_blend_tests.cpp
     legacy_scene3d_water_runtime_tests.cpp
+    legacy_scene3d_water_adaptive_contract_tests.cpp
     subsystem_tests.cpp
     provider_thread_safety_tests.cpp
     objectref_runtime_tests.cpp
