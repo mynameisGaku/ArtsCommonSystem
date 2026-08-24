@@ -2,6 +2,8 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "asset/MeshAsset.h"
+#include "gameframework/WaterSurface3DComponent.h"
+#include "render/IRhiDevice.h"
 #include "render/WaterSurface3D.h"
 
 #include <cmath>
@@ -147,6 +149,28 @@ ACS_TEST(Water3DRippleLifetime,
     EXPECT_EQ(accepted, 8u);
     EXPECT_EQ(water.ActiveRippleCountForSurface(42u), 8u);
     EXPECT_EQ(water.ActiveRippleCount(), 8u);
+}
+
+ACS_TEST(Water3DRippleLifetime, WakeEnergyDoesNotDependOnRequestedSampleSpacing) {
+    CWaterSurface3D water;
+    FWaterSurface3DParams params{};
+    params.wave_amplitude = 0.0f;
+    params.ripple_wavelength = 0.50f;
+    params.ripple_lifetime = 4.0f;
+    params.ripple_damping = 0.0f;
+    water.SetParams(params);
+
+    EXPECT_EQ(water.AddWakeSegmentForSurface(42u, FVec3{-2.0f, 0.0f, 0.0f}, FVec3{2.0f, 0.0f, 0.0f}, 0.20f, 0.25f, 0.24f, 0.22f), 16u);
+    const f32 dense_bound =
+        water.ConservativeDisplacementBoundForSurface(42u, params);
+
+    water.ClearDisturbances();
+    EXPECT_EQ(water.AddWakeSegmentForSurface(42u, FVec3{-2.0f, 0.0f, 0.0f}, FVec3{2.0f, 0.0f, 0.0f}, 0.20f, 0.50f, 0.24f, 0.22f), 8u);
+    const f32 sparse_bound =
+        water.ConservativeDisplacementBoundForSurface(42u, params);
+
+    EXPECT_NEAR(dense_bound, sparse_bound, 1e-5f);
+    EXPECT_TRUE(dense_bound < 1.0f);
 }
 
 ACS_TEST(Water3DRippleLifetime,
@@ -494,6 +518,109 @@ ACS_TEST(Water3DRippleLifetime, AuthoringParamsAreFiniteAndPhysical) {
                 1.0f, 1e-5f);
 }
 
+ACS_TEST(Water3DProfiles, ExistingDefaultsRemainSourceCompatible) {
+    /** profileを明示しない既存利用者が受け取る設定。 */
+    const FWaterSurface3DParams params{};
+
+    EXPECT_NEAR(params.shallow_color.x, 0.055f, 1e-6f);
+    EXPECT_NEAR(params.shallow_color.y, 0.38f, 1e-6f);
+    EXPECT_NEAR(params.deep_color.z, 0.16f, 1e-6f);
+    EXPECT_NEAR(params.wave_amplitude, 0.105f, 1e-6f);
+    EXPECT_NEAR(params.ripple_lifetime, 4.0f, 1e-6f);
+    EXPECT_NEAR(params.refraction_strength, 0.72f, 1e-6f);
+}
+
+ACS_TEST(Water3DProfiles, CoverPuddlePoolRiverLakeAndOceanScales) {
+    const FWaterSurface3DParams puddle = FWaterSurface3DParams::ForProfile(EWaterSurface3DProfile::Puddle);
+    const FWaterSurface3DParams pool = FWaterSurface3DParams::ForProfile(EWaterSurface3DProfile::Pool);
+    const FWaterSurface3DParams river = FWaterSurface3DParams::ForProfile(EWaterSurface3DProfile::River);
+    const FWaterSurface3DParams lake = FWaterSurface3DParams::ForProfile(EWaterSurface3DProfile::Lake);
+    const FWaterSurface3DParams ocean = FWaterSurface3DParams::ForProfile(EWaterSurface3DProfile::Ocean);
+
+    EXPECT_TRUE(puddle.wave_amplitude < pool.wave_amplitude);
+    EXPECT_TRUE(pool.wave_amplitude < river.wave_amplitude);
+    EXPECT_TRUE(river.wave_amplitude < lake.wave_amplitude);
+    EXPECT_TRUE(lake.wave_amplitude < ocean.wave_amplitude);
+    EXPECT_TRUE(puddle.wave_scale > pool.wave_scale);
+    EXPECT_TRUE(pool.wave_scale > river.wave_scale);
+    EXPECT_TRUE(river.wave_scale > lake.wave_scale);
+    EXPECT_TRUE(lake.wave_scale > ocean.wave_scale);
+    EXPECT_TRUE(puddle.optical_depth < pool.optical_depth);
+    EXPECT_TRUE(pool.optical_depth < ocean.optical_depth);
+    EXPECT_TRUE(river.wave_speed > lake.wave_speed);
+    EXPECT_NEAR(puddle.foam_intensity, 0.0f, 1e-6f);
+}
+
+ACS_TEST(Water3DProfiles, UnknownProfileFallsBackToLake) {
+    const FWaterSurface3DParams lake = FWaterSurface3DParams::ForProfile(EWaterSurface3DProfile::Lake);
+    const FWaterSurface3DParams unknown = FWaterSurface3DParams::ForProfile(static_cast<EWaterSurface3DProfile>(255u));
+
+    EXPECT_NEAR(unknown.wave_amplitude, lake.wave_amplitude, 1e-6f);
+    EXPECT_NEAR(unknown.wave_scale, lake.wave_scale, 1e-6f);
+    EXPECT_NEAR(unknown.optical_depth, lake.optical_depth, 1e-6f);
+}
+
+ACS_TEST(Water3DProfiles, ComponentAppliesSharedProfileWithoutFieldDrift) {
+    /** Frameworkがnodeへ所有させる既存component。 */
+    game::AWaterSurface3DComponent component;
+    component.ApplyProfile(EWaterSurface3DProfile::River);
+
+    /** Renderer側の同じRiver契約。 */
+    const FWaterSurface3DParams expected = FWaterSurface3DParams::ForProfile(EWaterSurface3DProfile::River);
+    /** Componentからrendererへ渡される既存field mapping。 */
+    const FWaterSurface3DParams actual = component.ToRenderParams();
+
+    EXPECT_EQ(component.shallowColor, expected.shallow_color);
+    EXPECT_EQ(component.deepColor, expected.deep_color);
+    EXPECT_NEAR(component.waveAmplitude, expected.wave_amplitude, 1e-6f);
+    EXPECT_NEAR(component.rippleLifetime, expected.ripple_lifetime, 1e-6f);
+    EXPECT_EQ(actual.flow_direction, expected.flow_direction);
+    EXPECT_NEAR(actual.normal_strength, expected.normal_strength, 1e-6f);
+    EXPECT_NEAR(actual.refraction_strength, expected.refraction_strength, 1e-6f);
+    EXPECT_NEAR(actual.foam_intensity, expected.foam_intensity, 1e-6f);
+}
+
+ACS_TEST(Water3DProfiles, PoolProfileKeepsTunedOpticalContract) {
+    /** poolへ適用する共通設定。 */
+    const FWaterSurface3DParams pool = FWaterSurface3DParams::ForProfile(EWaterSurface3DProfile::Pool);
+    /** Frameworkが直接公開する既存component。 */
+    game::AWaterSurface3DComponent component;
+    component.ApplyProfile(EWaterSurface3DProfile::Pool);
+
+    EXPECT_NEAR(pool.wave_amplitude, 0.010f, 1e-6f);
+    EXPECT_NEAR(pool.normal_strength, 0.48f, 1e-6f);
+    EXPECT_NEAR(pool.refraction_strength, 0.32f, 1e-6f);
+    EXPECT_NEAR(component.refractionStrength, 0.32f, 1e-6f);
+    EXPECT_NEAR(component.ToRenderParams().optical_depth, 1.80f, 1e-6f);
+}
+
+ACS_TEST(Water3DAdaptivePlane, UploadKeepsTopologyAndInvalidRequestIsTransactional) {
+    /** active backendで格子bufferを作る描画device設定。 */
+    FDeviceConfig configuration{};
+    /** active backendの描画device生成結果。 */
+    auto device_result = CreateRhiDevice(configuration);
+    if (device_result.IsErr()) return;
+
+    /** 成功後も不正入力で保持されるGPU格子。 */
+    FGpuMesh mesh{};
+    EXPECT_TRUE(CWaterSurface3D::CreateAdaptivePlaneMesh(*device_result.Value(), mesh, 2u).IsOk());
+    EXPECT_TRUE(mesh.vertex_buffer.Get() != nullptr);
+    EXPECT_TRUE(mesh.index_buffer.Get() != nullptr);
+    EXPECT_EQ(mesh.vertex_count, 9u);
+    EXPECT_EQ(mesh.index_count, 24u);
+    EXPECT_EQ(mesh.vertex_stride, static_cast<u32>(sizeof(FMeshVertex)));
+
+    /** 不正入力前に公開済みの頂点buffer。 */
+    IRhiBuffer* const vertex_buffer = mesh.vertex_buffer.Get();
+    /** 不正入力前に公開済みのindex buffer。 */
+    IRhiBuffer* const index_buffer = mesh.index_buffer.Get();
+    EXPECT_TRUE(CWaterSurface3D::CreateAdaptivePlaneMesh(*device_result.Value(), mesh, 1u).IsErr());
+    EXPECT_TRUE(mesh.vertex_buffer.Get() == vertex_buffer);
+    EXPECT_TRUE(mesh.index_buffer.Get() == index_buffer);
+    EXPECT_EQ(mesh.vertex_count, 9u);
+    EXPECT_EQ(mesh.index_count, 24u);
+}
+
 ACS_TEST(Water3DRippleLifetime, HugeFiniteFlowDirectionNormalizesWithoutOverflow) {
     CWaterSurface3D water;
     FWaterSurface3DParams params{};
@@ -669,12 +796,30 @@ ACS_TEST(Water3DShaderContract,
     EXPECT_TRUE(source.find(
         "EvaluateAmbientWaves(surface_position") !=
         std::string::npos);
+    EXPECT_TRUE(source.find("EvaluateAmbientWavesPixel(") != std::string::npos);
     EXPECT_TRUE(source.find(
         "EvaluateRipples(surface_position") !=
         std::string::npos);
-    EXPECT_TRUE(source.find(
-        "world.xyz += base_normal * (ambient_height + ripple_height);") !=
-        std::string::npos);
+    EXPECT_TRUE(source.find("world.xyz += tangent * ambient_horizontal.x") != std::string::npos);
+    EXPECT_TRUE(source.find("- tangent * ripple_gradient.x") != std::string::npos);
+    EXPECT_TRUE(source.find("- tangent * ambient_gradient.x") != std::string::npos);
+}
+
+ACS_TEST(Water3DShaderContract, AdaptivePlaneKeepsFiniteBoundsAndMovesDensityNearCamera) {
+    const std::string source =
+        ReadWaterRepositorySource("src/render/WaterSurface3D.cpp");
+    EXPECT_TRUE(!source.empty());
+    if (source.empty()) return;
+
+    EXPECT_TRUE(source.find("TryBuildAdaptivePlaneMesh_Internal(cells, cpu_mesh)") != std::string::npos);
+    EXPECT_TRUE(source.find("float WarpAdaptiveCoordinate(") != std::string::npos);
+    EXPECT_TRUE(source.find("float normalized_distance = saturate(abs(delta) / side_extent);") != std::string::npos);
+    EXPECT_TRUE(source.find("local_position.x = WarpAdaptiveCoordinate(") != std::string::npos);
+    EXPECT_TRUE(source.find("local_position.z = WarpAdaptiveCoordinate(") != std::string::npos);
+    EXPECT_TRUE(source.find("AdaptivePlaneCellCount_Internal(mesh)") != std::string::npos);
+    EXPECT_TRUE(source.find("surface.tangent_span, cells, params)") != std::string::npos);
+    EXPECT_TRUE(source.find("surface.bitangent_span, cells, params)") != std::string::npos);
+    EXPECT_TRUE(source.find("DrawMesh_Internal(") != std::string::npos);
 }
 
 ACS_TEST(Water3DShaderContract,
@@ -693,9 +838,8 @@ ACS_TEST(Water3DShaderContract,
     EXPECT_TRUE(source.find(
         "gradient += derivative * world_gradient;") !=
         std::string::npos);
-    EXPECT_TRUE(source.find(
-        "energy += max(wave, 0.0)") !=
-        std::string::npos);
+    EXPECT_TRUE(source.find("const float amplitude_limit = wavelength * 0.070;") != std::string::npos);
+    EXPECT_TRUE(source.find("energy += (max(wave, 0.0) + breaking_energy)") != std::string::npos);
 }
 
 ACS_TEST(Water3DShaderContract,
@@ -755,10 +899,9 @@ ACS_TEST(Water3DEditorContract,
     EXPECT_TRUE(body.find(
         "record->material_normal_tex.Get()") !=
         std::string::npos);
-    EXPECT_TRUE(body.find(
-        "true, authored_normal_map,\n"
-        "            authored_normal_strength);") !=
-        std::string::npos);
+    EXPECT_TRUE(body.find("host.water3d.DrawAdaptivePlane(") != std::string::npos);
+    EXPECT_TRUE(body.find("host.water3d.DrawMesh(") != std::string::npos);
+    EXPECT_TRUE(body.find("reflection, surface_id, true,") != std::string::npos);
 }
 
 ACS_TEST(Water3DMeshContract, AcceptsFiniteLocalXzSurface) {

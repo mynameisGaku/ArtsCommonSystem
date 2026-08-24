@@ -45,6 +45,7 @@ set(_acsgen_render_sources
     TransientUploadArena.cpp
     VertexScatter.cpp
     WaterSurface3D.cpp
+    WaterSurface3DParams.cpp
 )
 set(_acsgen_render_headers
     Atmosphere.h
@@ -53,6 +54,7 @@ set(_acsgen_render_headers
     DebugDraw.h
     DescriptorSlotPool.h
     DrawPacketSortKey.h
+    EWaterSurface3DProfile.h
     Font.h
     FormatAspect.h
     FormatTraits.h
@@ -104,6 +106,7 @@ set(_acsgen_render_headers
     TransientUploadArena.h
     VertexScatter.h
     WaterSurface3D.h
+    WaterSurface3DParams.h
 )
 set(_acsgen_render_public_deps
     Foundation

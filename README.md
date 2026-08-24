@@ -279,6 +279,7 @@ Engine は現在、学習用実行例を同梱していません。再導入候�
 - [`FixedStepClock.md`](acs/docs/FixedStepClock.md) — 値所有の固定更新時計と一括処理の安全契約
 - [`LearningSamplesMigrationPlan.md`](acs/docs/LearningSamplesMigrationPlan.md) — 学習用実行例の唯一のバックログ
 - [`RECIPES.md`](acs/docs/RECIPES.md) — 3D描画・音・UIなどの逆引き
+- [`InteractiveWater3D.md`](acs/docs/InteractiveWater3D.md) — 海・川・プール・水たまりを共通化する3D水面
 - [`ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) — module構成と設計
 - [`StyleGuide.md`](acs/docs/StyleGuide.md) — A / C / F / I / T / E命名とcoding rule
 - [`TypeRoleAudit.md`](acs/docs/TypeRoleAudit.md) — 公開型registry、互換alias、移行債務をexact照合する型役割監査
