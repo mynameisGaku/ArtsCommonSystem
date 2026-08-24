@@ -47,6 +47,8 @@
 - `parent=-1` のtop-level nodeを複数保持でき、runtimeでは1つの合成root配下へ接続する。
 - `N3D`、`MSH3D`、`FLG3D`、`EMPTY3D`、`MAT3D`、`CMP3D`、
   `CPROP3D`、`PLY3D`、`SPR3D`、`PFAB3D`、`PINS3D`、`PSID3D`、`POVR3D`、`PNOVR3D`、`PCOVR3D`、`CAM3D`、`SEL3D` を扱う。
+- 実行時へ渡す保存順では、対象のnodeと付随情報を先に出力し、正の `SEL3D` は最後に置く。
+  選択IDをnodeより先に置くと、実行時の厳密な読込処理が未出現IDとして拒否する。
 - `MAT3D` は従来のmetallic/roughness値または `.acsmat` パスを扱う。
 - `CMP3D` は反射factoryで事前生成し、`CPROP3D` を適用してからnodeへattachする。
 - `PLY3D <nodeId> <pointCount> <x0> <y0> ...` は既出の `Mesh` nodeへXY平面上の

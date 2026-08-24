@@ -18121,13 +18121,6 @@ ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap
     int cur = std::snprintf(out, static_cast<size_t>(cap), "ACS3D v2\n");
     if (cur < 0) { out[0] = '\0'; return 0; }
     if (cur >= cap) { out[0] = '\0'; return cur; }
-    if (host->sel3d >= 0) {                             // 選択ノード id (undo/redo/load で復元。2D の SEL 行と同様)
-        const int written = std::snprintf(
-            out + cur, static_cast<size_t>(cap - cur), "SEL3D %d\n", host->sel3d);
-        if (written < 0) { out[0] = '\0'; return 0; }
-        if (written >= cap - cur) { out[0] = '\0'; return cap; }
-        cur += written;
-    }
     TArray<game::ANode*> all; Dfs3DCollect(&host->scene3d.Root(), all);   // 親が子より先 (DFS pre-order)
     for (u32 i = 0; i < all.Num() && cur < cap; ++i) {
         bool ov = false;
@@ -18140,6 +18133,14 @@ ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap
     if (cur >= cap) {
         out[0] = '\0';
         return cap;
+    }
+    // 実行時の3Dローダーは選択対象が先に存在することを検証するため、選択行はノードの後へ置く。
+    if (host->sel3d >= 0) {
+        const int written = std::snprintf(
+            out + cur, static_cast<size_t>(cap - cur), "SEL3D %d\n", host->sel3d);
+        if (written < 0) { out[0] = '\0'; return 0; }
+        if (written >= cap - cur) { out[0] = '\0'; return cap; }
+        cur += written;
     }
     out[cur] = '\0';
     return cur;

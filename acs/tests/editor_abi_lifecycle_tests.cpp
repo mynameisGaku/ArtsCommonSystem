@@ -1513,6 +1513,27 @@ bool RunSceneDocumentStrictPreflight() noexcept
     return ok;
 }
 
+/** Editorが保存した3D選択行を実行時ローダーが先に現れるノードとして読める順序で出力する。 */
+bool RunScene3DSerializationKeepsSelectionAfterNodes() noexcept
+{
+    constexpr const char* kScene =
+        "ACS3D v2\n"
+        "N3D 41 -1 0 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 RuntimeScene\n"
+        "SEL3D 41\n";
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+    bool ok = acs_editor_scene3d_load_text(host, kScene) != 0;
+    char serialized[4096]{};
+    const int written = ok
+        ? acs_editor_scene3d_serialize(host, serialized, static_cast<int>(sizeof(serialized)))
+        : 0;
+    const char* node = written > 0 ? std::strstr(serialized, "N3D ") : nullptr;
+    const char* selection = written > 0 ? std::strstr(serialized, "SEL3D ") : nullptr;
+    ok = ok && node != nullptr && selection != nullptr && node < selection;
+    acs_editor_destroy(host);
+    return ok;
+}
+
 /** 3D subtree貼り付けは不正入力でsceneと履歴を変えず、成功時は1回のUndoで戻る。 */
 bool RunTransactionalScene3DSubtreePaste() noexcept
 {
@@ -3311,6 +3332,7 @@ int main()
     if (!RunScene3DSiblingReorderTransaction()) return 36;
     if (!RunScene3DWorldStableReparentTransaction()) return 37;
     if (!RunSceneDocumentStrictPreflight()) return 17;
+    if (!RunScene3DSerializationKeepsSelectionAfterNodes()) return 18;
     if (!RunTransactionalScene3DSubtreePaste()) return 29;
     if (!RunPrefabInstance3DRefreshTransaction()) return 30;
     if (!RunPrefabInstance3DStableIdentity()) return 31;
