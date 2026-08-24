@@ -566,12 +566,16 @@ f32 CloudWeatherMaskForLayerForTest(
     const f32 baseT = SaturateForTest(
         (weatherCoverage - threshold) * inverseTransitionWidth);
     const f32 baseMask = baseT * baseT * (3.0f - 2.0f * baseT);
-    const f32 anvilThreshold = threshold - CloudAnvilCoverageExpansionForTest(
+    const f32 narrowedBaseMask = baseMask * CloudConvectiveWaistScaleForTest(
         layerHeight, cloudType, precipitation);
+    const f32 expansion = CloudAnvilCoverageExpansionForTest(
+        layerHeight, cloudType, precipitation);
+    const f32 anvilThreshold = threshold - expansion;
     const f32 anvilT = SaturateForTest(
         (weatherCoverage - anvilThreshold) * inverseTransitionWidth);
     const f32 anvilMask = anvilT * anvilT * (3.0f - 2.0f * anvilT);
-    return baseMask > anvilMask ? baseMask : anvilMask;
+    const f32 anvilBlend = SaturateForTest(expansion * 6.25f);
+    return narrowedBaseMask + (anvilMask - narrowedBaseMask) * anvilBlend;
 }
 
 // 天候被覆の中間域だけに局所的な成長量を与える。
@@ -3407,6 +3411,19 @@ ACS_TEST(VolumetricClouds,
         CloudWeatherMaskForLayerForTest(
             0.50f, 0.54f, 1.0f / 0.14f, 0.20f, 1.0f, 1.0f));
 
+    // かなとこ拡張が0の中層でも未補正マスクへ戻らず、本体のくびれが実際の被覆へ残る。
+    const f32 stormLowerBodyMask = CloudWeatherMaskForLayerForTest(
+        0.60f, 0.54f, 1.0f / 0.14f, 0.20f, 0.88f, 0.62f);
+    const f32 stormWaistMask = CloudWeatherMaskForLayerForTest(
+        0.60f, 0.54f, 1.0f / 0.14f, 0.50f, 0.88f, 0.62f);
+    const f32 stormAnvilMask = CloudWeatherMaskForLayerForTest(
+        0.60f, 0.54f, 1.0f / 0.14f, 0.70f, 0.88f, 0.62f);
+    const f32 normalWaistMask = CloudWeatherMaskForLayerForTest(
+        0.60f, 0.54f, 1.0f / 0.14f, 0.50f, 0.50f, 0.0f);
+    EXPECT_TRUE(stormWaistMask < stormLowerBodyMask * 0.82f);
+    EXPECT_TRUE(stormAnvilMask > stormLowerBodyMask + 0.25f);
+    EXPECT_NEAR(normalWaistMask, stormLowerBodyMask, 1e-6f);
+
     // 本体の上端は絞り、かなとこ帯で再び広がる。全高が同じ密度にならないことを確認する。
     const f32 stormBody = CloudStormProfileForTest(0.36f, 0.88f, 0.62f);
     const f32 stormWaist = CloudStormProfileForTest(0.58f, 0.88f, 0.62f);
@@ -3553,7 +3570,12 @@ ACS_TEST(VolumetricClouds,
         "baseDensity=cloudConvectiveBodyDensity(baseDensity,sampleHeight,weather.g,weather.b);"));
     EXPECT_TRUE(Contains(
         shader,
-        "baseMask*=cloudConvectiveWaistScale(layerHeight,weather.g,weather.b);"));
+        "floatnarrowedBaseMask=baseMask*cloudConvectiveWaistScale("
+        "layerHeight,weather.g,weather.b);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatanvilBlend=saturate(expansion*6.25);"
+        "returnlerp(narrowedBaseMask,anvilMask,anvilBlend);"));
     EXPECT_TRUE(Contains(
         shader,
         "floatcloudAnvilCoverageExpansion(floatlayerHeight,floatcloudType,floatprecipitation){"

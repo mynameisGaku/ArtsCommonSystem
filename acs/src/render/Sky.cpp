@@ -1514,14 +1514,18 @@ float cloudWeatherMaskFromTermsForLayer(
     float layerHeight){
     float baseMask=cloudWeatherMaskFromTerms(
         weather,threshold,inverseTransitionWidth);
-    baseMask*=cloudConvectiveWaistScale(
+    float narrowedBaseMask=baseMask*cloudConvectiveWaistScale(
         layerHeight,weather.g,weather.b);
     float expansion=cloudAnvilCoverageExpansion(
         layerHeight,weather.g,weather.b);
     float anvilThreshold=threshold-expansion;
     float anvilMask=cloudWeatherMaskFromTerms(
         weather,anvilThreshold,inverseTransitionWidth);
-    return max(baseMask,anvilMask);
+    // かなとこ拡張量が0なら未補正のanvilMaskはbaseMaskと等しい。
+    // そこでmaxを取ると中層のくびれが常に打ち消されるため、拡張量を
+    // かなとこの混合率として使い、本体から上部の張り出しへ連続的に戻す。
+    float anvilBlend=saturate(expansion*6.25);
+    return lerp(narrowedBaseMask,anvilMask,anvilBlend);
 }
 float cloudWeatherMaskForLayer(float4 weather,float coverage,float layerHeight){
     float threshold=cloudWeatherThreshold(coverage);
