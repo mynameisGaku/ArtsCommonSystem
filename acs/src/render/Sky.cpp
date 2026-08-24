@@ -1449,12 +1449,13 @@ float cloudShapeFrequencyVisibility(
                     *domainScale*frequency;
     return 1.0-smoothstep(0.22,0.52,footprint);
 }
-// R の連続した低周波雲体を保ち、G の Perlin-Worley は近景の輪郭だけを侵食する。
-// 乗算なので G の空隙だけで雲を消さず、遠景では侵食を外して大きな形状だけを残す。
+// R の連続した低周波雲体を保ち、G の Perlin-Worley は近景の立体的な起伏を作る。
+// しきい値を焼き込み値の実分布へ合わせ、G の空隙を遠景へばらまかず、既存の雲体だけを
+// 最大侵食率の範囲で削る。追加の形状採取は行わないため、視線・光・雲影の経路を揃えられる。
 float cloudBaseShapeBand(float2 shapeBands,float sampleSpacing,float domainScale,float height){
     float fineVisibility=cloudShapeFrequencyVisibility(
         sampleSpacing,domainScale,32.0);
-    float fineSignal=smoothstep(0.01,0.28,saturate(shapeBands.g));
+    float fineSignal=smoothstep(0.18,0.70,saturate(shapeBands.g));
     float topDetail=smoothstep(0.35,0.90,saturate(height));
     float maximumErosion=fineVisibility*lerp(0.14,0.26,topDetail);
     return shapeBands.r*lerp(1.0-maximumErosion,1.0,fineSignal);

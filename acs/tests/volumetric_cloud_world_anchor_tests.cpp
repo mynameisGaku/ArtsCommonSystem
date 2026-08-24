@@ -2195,7 +2195,7 @@ ACS_TEST(VolumetricClouds,
         "td.format=EFormat::R16G16_Float;td.is_uav=true;"));
     const std::string compactMarch = CompactShader(shader);
     EXPECT_TRUE(Contains(compactMarch, "floatcloudBaseShapeBand(" "float2shapeBands,floatsampleSpacing,floatdomainScale,floatheight)"));
-    EXPECT_TRUE(Contains(compactMarch, "floatfineSignal=smoothstep(0.01,0.28,saturate(shapeBands.g));" "floattopDetail=smoothstep(0.35,0.90,saturate(height));" "floatmaximumErosion=fineVisibility*lerp(0.14,0.26,topDetail);" "returnshapeBands.r*lerp(" "1.0-maximumErosion,1.0,fineSignal);"));
+    EXPECT_TRUE(Contains(compactMarch, "floatfineSignal=smoothstep(0.18,0.70,saturate(shapeBands.g));" "floattopDetail=smoothstep(0.35,0.90,saturate(height));" "floatmaximumErosion=fineVisibility*lerp(0.14,0.26,topDetail);" "returnshapeBands.r*lerp(" "1.0-maximumErosion,1.0,fineSignal);"));
     EXPECT_TRUE(Contains(compactMarch, "floatdetailNear=ndA.g*0.62+ndB.g*0.38;"));
     EXPECT_TRUE(Contains(compactMarch, "floatdetailFar=ndA.r*0.62+ndB.r*0.38;"));
 
