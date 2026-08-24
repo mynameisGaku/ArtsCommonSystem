@@ -9,7 +9,8 @@
 
 3 回の実行は無人かつ直列で行う。既存 Editor の自動実行経路
 (`--show-profiler`、`--hide-grid`、`--interaction-soak`、
-`--profiler-capture`、`--camera3d`) を使うため、別の描画器や合成計測経路は持たない。
+`--automation-output-root`、`--profiler-capture`、`--camera3d`) を使うため、
+別の描画器や合成計測経路は持たない。
 
 ## Run
 
@@ -36,11 +37,23 @@ An explicit monitor index is also supported:
   -EditorExe $editor -Project $project -MonitorIndex 1
 ```
 
-The default output is a unique directory below `TEMP`. An explicit
-`-OutputDirectory` must also be a child of `TEMP`, because unattended profiler
-captures deliberately reject destinations outside the process temporary root.
-The harness rejects reparse-point ancestors and refuses to overwrite any
-existing report, capture, log, or summary.
+既定の出力先は `TEMP` 配下の重複しないフォルダーである。`-OutputRoot` には別の既存フォルダーを
+指定でき、その場合の `-OutputDirectory` は出力ルートの子でなければならない。検証処理は
+`--automation-output-root` で同じルートを Editor へ渡す。両プロセスが個別にドライブ直下、
+再解析ポイントを含む親経路、出力ルート外への経路を拒否する。既存の報告、計測結果、ログ、要約は
+上書きしない。
+
+この作業環境で検証物を `C:\dev\acs_temp_builds` へ集約する場合は、次のように明示する。
+
+```powershell
+$outputRoot = "C:\dev\acs_temp_builds"
+$output = Join-Path $outputRoot "CloudQualityCandidate-20260823"
+
+.\acs\scripts\profile_cloud_quality.ps1 `
+  -EditorExe $editor -Project $project `
+  -OutputRoot $outputRoot -OutputDirectory $output `
+  -Monitor none
+```
 
 The editor and project inputs must be non-empty regular files rather than
 reparse-point leaves. Input hashes are read without writer/delete sharing.
@@ -84,7 +97,8 @@ Each scenario must prove all of the following:
   計4回の計算ディスパッチと、合成描画1回だけであり、一度限りの雑音生成が計測区間へ
   混入していないこと。影テクスチャ自体は `96 x 32 x 96` と `256 x 256` を保ち、安定時の
   1回のディスパッチでは4位相のうち `48 x 32 x 48` と `128 x 128` を更新した処理量として
-  記録する。
+  記録する。内部影は一つの起動スレッドが同じXZ列の32高度を必ず書くため、論理出力
+  `48 x 32 x 48` に対する起動数は `48 x 48` でなければならない。
 - 有効呼び出し数、端数を含む起動スレッド数、視線・光・ワールド雲影の最大試料数が、
   各内訳と合計で一致すること。
 - native render, Dispatcher heartbeat, GPU retry/fallback, ready-after-retry,
@@ -495,12 +509,13 @@ GPU の標本数、テクスチャ採取数、定数バッファーの大きさ�
 地面から届く拡散光の代表経路ではない。これを流用すると、太陽が高いほど全天空光まで直接影と
 同じ形で失われ、厚い雲が一様な灰色へ沈む。
 
-現在は低詳細度の局所密度 `d`、正規化高度 `h`、高次散乱で縮小した環境光用消散率
-`sigma_ambient` から、各層境界までの鉛直経路を評価する。
+上下積算キャッシュを追加する前の局所近似では、低詳細度の局所密度 `d`、正規化高度 `h`、
+高次散乱で縮小した環境光用消散率 `sigma_ambient` から、各層境界までの鉛直経路を評価していた。
+この式は現在もキャッシュ範囲外と上層雲の代替処理にだけ使う。
 
 `d = max(lowLodDensity * Density, 0)`
 
-`sigma_ambient = 0.60 * MultiScatterOcclusion * LightExtinction`
+`sigma_ambient = 0.60 * MultiScatterOcclusion^2 * LightExtinction`
 
 `tau_sky = d * (0.35 + 0.65 * (1 - h))`
 
@@ -510,10 +525,10 @@ GPU の標本数、テクスチャ採取数、定数バッファーの大きさ�
 
 `V_ground = exp(-sigma_ambient * tau_ground)`
 
-既定の `LightExtinction=5` と `MultiScatterOcclusion=0.28` では、密度倍率1の空可視率は雲底で
+この局所近似は、既定の `LightExtinction=5` と `MultiScatterOcclusion=0.28`、密度倍率1では、空可視率が雲底で
 約 `0.7904`、雲頂で約 `0.9210` となる。消散係数を含めつつ、高次散乱で方向を失った光を直接光と
 同じ率では消さない。空の環境光には `V_sky`、地面反射には `V_ground` を掛け、太陽高度、
-`tau_light`、カメラ方向の累積透過率は含めない。追加のテクスチャ採取は発生しない。
+`tau_light`、カメラ方向の累積透過率は含めない。
 
 2026-08-23 の式監査では、視線と太陽方向の光学的深さが作者指定の `Density` をそのまま保持する一方、
 環境光だけが `saturate` により局所密度1で打ち切られていた。たとえば局所低詳細密度1、`Density=2.1`でも
@@ -600,9 +615,9 @@ GPU の標本数、テクスチャ採取数、定数バッファーの大きさ�
 ## 動的な自己遮蔽キャッシュ
 
 各視線標本から太陽方向へ採取する8点のうち、侵食の影響が大きい近距離3点は従来どおり正確に
-積分する。遠距離5点は、`96 x 32 x 96` の `RG16F` 3次元テクスチャへ先に積分した光学的深さを
-利用する。保存量は二つの採取模様から求めた平均深さと差であり、差がしきい値を超える場所、
-キャッシュ範囲外、上層雲では遠距離5点も正確な積分へ戻す。
+積分する。遠距離5点は、`96 x 32 x 96` の `RGBA16F` 3次元テクスチャへ先に積分した光学的深さを
+利用する。`RG`には二つの採取模様から求めた平均深さと差、`BA`には空・地面方向の積算密度を保存する。
+差がしきい値を超える場所、キャッシュ範囲外、上層雲では遠距離5点も正確な積分へ戻す。
 
 退避経路は各遠距離標本で天候、高さ分布、基本形状を再採取する。以前は視線標本の被覆と
 柱形状をそのまま使っていたため、光路が天候模様の雲縁を跨いでも同じ密度が続き、キャッシュを
@@ -612,8 +627,8 @@ GPU の標本数、テクスチャ採取数、定数バッファーの大きさ�
 密度場は風移流とは別に対流変形するため、キャッシュは毎フレーム更新する。初回、履歴無効、
 影の基準格子または投影地図の移動、参照描画では全体を更新する。連続した安定フレームでは
 XZまたはXYの偶奇位置を4位相で巡回し、各体積画素・画素を遅くとも3フレーム前までの密度へ
-更新する。1フレームの有効呼び出し数は全更新の4分の1になるが、テクスチャ解像度、各地点の
-密度採取数、光路長、密度式は変えない。描画を送信できなかった場合は両方の影を無効化し、
+更新する。1フレームの有効呼び出し数は全更新の4分の1になる。影の光路長と密度式は変えず、
+環境光の上下積算に限って各高度で粗密度を1回追加採取する。描画を送信できなかった場合は両方の影を無効化し、
 次の正常フレームで全体を更新する。
 
 2026-08-21の20秒計測では、同じ入力、同じ表示寸法、同じ視線・光の採取数を保ったまま品質判定を
@@ -1514,6 +1529,94 @@ Framework本体はDebugとReleaseの両方でビルドに合格した。全単�
 直接光、多重散乱、環境光を分離し、物理的な雲中視界を保ったまま局所差を失う項を絞り込む。
 
 - [Real-Time Samurai Cinema: Lighting, Atmosphere, and Tonemapping in Ghost of Tsushima](https://advances.realtimerendering.com/s2021/jpatry_advances2021/index.html)
+
+## 雲中環境光が現在地点の密度だけを見ていた問題の修正
+
+以前の環境光は、現在地点の低詳細度密度と層境界までの正規化距離だけで空側と地面側の遮蔽を
+近似していた。同じ局所密度なら、頭上に空への抜けがある房と、その上に厚い雲芯が続く房を
+区別できない。このため、直接光と多重散乱に差があっても中間層の環境光が近い値へ寄り、広い
+灰色面として見えやすかった。
+
+現在は動的自己遮蔽キャッシュを `RGBA16F` にし、太陽方向の平均深さと二標本差に加えて、各XZ列の
+空・地面方向の積算密度を保持する。キャッシュの一つのGPUスレッドは同じ列の32高度を下から順に
+評価する。層厚を `H`、粗密度を `d_i` とすると一セルの深さは次式になる。
+
+`delta_i = max(d_i, 0) * (H / 32) * (1.6 / H) = max(d_i, 0) * 1.6 / 32`
+
+各セル中心では現在セルの半分を上下へ分け、`tau_sky + tau_ground = sum(delta_i)` を必ず保つ。
+これにより高度ごとに上下へ別々のレイを積分せず、列当たり32回の粗密度評価で全高度の値を得る。
+シェーダーは `[numthreads(4,1,4)]` とし、安定時の論理出力 `48 x 32 x 48 = 73728` に対して
+起動スレッド数は `48 x 48 = 2304` である。管理側Editorと計測スクリプトも
+`起動数 x 32 = 論理出力数` の完全一致を要求し、不足だけでなく余分な列も契約違反として拒否する。
+
+視線積分では、キャッシュ内なら積算密度へ作者指定密度と距離減衰を掛け、範囲外と上層雲では従来の
+局所近似へ滑らかに戻す。さらにNubisの環境散乱確率に合わせ、降水・高度の増密を掛ける前の
+形状勾配を`d_profile`として、表面確率を
+`P_surface = sqrt(saturate(1 - d_profile))` とし、空・地面それぞれの可視率を
+`P_surface * exp(-sigma_reduced * tau)` とする。これは垂直二方向の近似であり、半球全体を追跡する
+経路追跡やGIそのものではない。追加した積算密度は「局所密度が同じなら同じ明るさ」という不整合を
+除くために使い、直接光、位相関数、視線標本数は変えていない。
+
+初期実装は`d_profile`の代わりに、雲底側の1.10倍、降水増密、距離減衰を含む最終低詳細度密度を
+使っていた。雲底では倍率後に1へ飽和して表面確率が0となる一方、描画終端では距離減衰により同じ形状が
+明るくなり、晴天積雲の暗部と遠端の光輪を同時に作る不整合だった。現在は同じ基本形状採取から倍率前の
+勾配を併記し、追加のテクスチャ採取なしで一次資料の変数と処理順へ合わせている。
+
+たとえば`d_profile=0.9`、降水0では、旧式の表面確率は雲底側の1.10倍で`0.10`、雲頂側の0.92倍で
+約`0.415`となり、同じ形状勾配だけで4倍以上変わっていた。修正後は両方とも`sqrt(0.1)`、約`0.316`である。
+高度と降水による実際の厚み差は上下積算密度の指数減衰へ残し、形状表面の確率へ二重適用しない。
+
+最終式の実行画像は `C:\dev\acs_temp_builds\CloudAmbientProfileCorrected-20260823` に保存した。
+`ground-t0.png` と `ground-t10.png` では青空を残したまま房が移動・変形する。`interior.png` では
+高度約3900 mの近い明部、遮光された雲芯、遠方の薄い霧、青空への抜けが別々に残り、指摘された
+一色の中間層へ戻っていない。`above.png` と `top.png` では白い雲頂と谷、側面の陰影を確認した。
+真上視点は広域形状と谷を読める一方、地上・雲中より細部が滑らかで厚みの尺度も弱い。これは合格扱いで
+隠さず、次段の高周波形状と上面自己遮蔽の改善対象にする。
+
+同じ最終式を30秒ずつ地平・天頂・上空で計測した結果は
+`C:\dev\acs_temp_builds\CloudQualityAmbientMotion-Corrected-20260823` に保存した。品質条件、入力不変性、
+操作継続性はいずれも合格し、障害コードと背景代替処理は0だった。雲GPU時間の平均／最大は地平
+`3.78 / 4.68 ms`、天頂`4.51 / 5.84 ms`、上空`4.13 / 5.41 ms`である。平均GPU時間から求めた
+処理可能速度は順に`261.84`、`224.28`、`245.12 FPS`で、任意目標の300 FPSには達していない。
+この目標は必須条件ではないため今回の正しさ判定には使わないが、上面細部の改善では同時に再計測する。
+
+Debug・Releaseを含む配布物は
+`C:\dev\acs_temp_builds\CloudDistributionAmbientMotion-20260824` へ生成した。実体44件とmanifestの
+計45ファイル、`1,255,498,798`バイトを集合・大きさ・SHA-256で照合し、manifest自体のSHA-256は
+`3E3967999677F020471FB5164514131D819104FC60BAEA0482A9702D8B9187FC`だった。配布treeを変更しない
+別出力フォルダーで`consumer_contract.cpp`をコンパイル・実行し、通常のC++利用はDebug・Releaseとも
+終了コード0だった。
+
+外部ACS Frameworkの隔離作業木`d5a4b6824132df0750ac8aa7d3b14f54bc3a3e34`も同じ配布物を明示参照し、
+Debug・Releaseの本体ビルドに成功した。全単体試験は両構成とも1451件中1449件が合格し、失敗は既知の
+`FWeather3DAppearance`「未知の天候を評価しない」と「既存出力を保つ」の2件だけだった。雲、描画、
+配布APIの新規失敗はない。作業木に元からある`ThirdParty/acs/README.md`の変更は保持し、配布物を
+作業木へ複製せず`AcsDistRoot`で参照した。
+
+- [Nubis, Evolved: Real-Time Volumetric Clouds for Skies, Environments, and VFX](https://advances.realtimerendering.com/s2022/SIGGRAPH2022-Advances-NubisEvolved-NoVideos.pdf)
+- [Nubis Cubed: Methods (and madness) to model clouds](https://d3d3g8mu99pzk9.cloudfront.net/AndrewSchneider/Nubis%20Cubed.pdf)
+
+## 既定風速の雲が静止して見えた問題の修正
+
+Editorの時刻はフレーム差分を積算してから3D描画へ渡され、ボリュメトリック雲も描画直前に同じ時刻を
+受け取っていた。原因は時刻停止ではなく、`CloudWind=1` の移流量が毎秒`2.5`ワールド単位しかなく、
+形状位相の周期も約3～8分と長かったことである。同じ地上カメラを固定した修正前画像では、10秒で
+1画素、30秒で2画素しか動かず、利用者からは静止と区別できなかった。
+
+現在は移流距離を一つの関数で `time * CloudWind * 12` と定義し、視線描画と環境キューブ生成で共有する。
+`CloudWind=1` は中層雲の毎秒12ワールド単位、`0`は水平移流なし、負値は逆方向である。無風でも対流に
+よる形状変化は継続する。入力時刻は正負10000000秒、風倍率は正負20へ制限し、非有限値は0にする。
+基本形状と細部の角速度も、隣接フレームでは微小な変化を保ったまま、既定風速で約2～6分の互いに
+割り切れない周期へ短縮した。
+
+同じEditorプロセスと固定カメラで比較すると、修正後の地上視点は5秒で3画素、10秒で5画素、30秒で
+11画素左へ移動した。最適な平行移動で位置合わせした後も、8ビット明度の平均絶対差は10秒で
+`7.6374`、30秒で`15.3064`残った。上空の10秒比較は7画素移動・位置合わせ後`6.5097`階調、雲中は
+近距離視差を含む40画素移動・位置合わせ後`8.6114`階調だった。したがって一枚の画像を滑らせただけで
+なく、房と内部濃淡が非剛体に変化している。地上、上空、雲中の連続画像に帯状の引き延ばし、格子、
+時間再投影の残像は確認していない。証跡は
+`C:\dev\acs_temp_builds\CloudMotionAudit-BeforeFix-20260823` と
+`C:\dev\acs_temp_builds\CloudMotionAudit-AfterFix-20260823` に保存した。
 
 ## Quality-preserving optimization rules
 

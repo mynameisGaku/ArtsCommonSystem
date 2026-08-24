@@ -59800,6 +59800,15 @@ FVolumetricCloudDensityFrameTerms ResolveVolumetricCloudDensityFrameTerms(
     const FVolumetricCloudLayer& layer, f32 wind_offset) noexcept;
 
 /**
+ * 経過秒と CloudWind から、雲全体が風下へ移流したワールド距離を求める。
+ *
+ * @details CloudWind の 1.0 は中層雲で視認できる毎秒 12 ワールド単位とする。
+ * 非有限値は 0 とし、時刻は -10000000～10000000、風速は -20～20 に収める。
+ */
+f32 ResolveVolumetricCloudAdvectionDistance(
+    f32 time, f32 wind_speed) noexcept;
+
+/**
  * 追加のテクスチャ採取なしで雲形状を時間変化させる位相ずれ。
  *
  * @details 基準となる基本形状と天候領域は固定し、独立した形状・渦・侵食領域だけを
@@ -59832,10 +59841,11 @@ FVolumetricCloudLightBasis ResolveVolumetricCloudLightBasis(
     FVec3 sun_direction) noexcept;
 
 /**
- * 遠方の太陽方向積分を置き換える、浅い光学的深さのキャッシュ。
+ * 遠方の太陽方向積分と、空・地面方向の積算密度を保持するキャッシュ。
  *
- * 現在の密度場から一つの3次元テクスチャへ生成する。近距離3点は正確な採取を残し、
- * キャッシュの信頼度が不足する場所では遠距離5点も正確な積分へ戻す。
+ * 現在の密度場から一つの3次元テクスチャへ生成する。同じXZ列の32高度を
+ * 一スレッドで積算し、雲中でも頭上の空隙と厚い雲芯を分ける。近距離3点は正確な採取を残し、
+ * 太陽方向キャッシュの信頼度が不足する場所では遠距離5点も正確な積分へ戻す。
  */
 inline constexpr bool kVolumetricCloudShadowCacheEnabled = true;
 
@@ -60336,7 +60346,7 @@ private:
     /** 浅い太陽方向光学的深さを生成するシェーダー。 */
     TUniquePtr<IRhiShader>   m_ShadowCs;
     TUniquePtr<IRhiPipeline> m_ShadowPipe;
-    /** 96x32x96の平均深さと二標本差。 */
+    /** 96x32x96の太陽方向深さ・二標本差・空と地面方向の積算密度。 */
     TUniquePtr<IRhiTexture>  m_ShadowTex;
     /** 立体物の直接光へ掛ける256角の雲透過率地図。 */
     TUniquePtr<IRhiShader>   m_WorldShadowCs;

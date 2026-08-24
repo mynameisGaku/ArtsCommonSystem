@@ -57,7 +57,7 @@ const FSettingDesc kSchema[] = {
     { "Rendering", "CloudDensity",  ESettingType::Float, "1.6",            nullptr,
       "雲の濃さ (輪郭の硬さ)。小さいほど薄くふわっと、大きいほど濃くくっきり" },
     { "Rendering", "CloudWind",     ESettingType::Float, "1.0",            nullptr,
-      "雲の流れる速さ。0=静止 / 大きいほど速く流れる" },
+      "雲の水平移流倍率。0=水平移流なし（対流変形は継続）、1.0=毎秒12ワールド単位" },
     { "Rendering", "CloudBaseHeight", ESettingType::Float, "1500",         nullptr,
       "ボリュメトリック雲レイヤー下面の world Y。カメラではなくワールドに固定される" },
     { "Rendering", "CloudTopHeight", ESettingType::Float, "4000",          nullptr,

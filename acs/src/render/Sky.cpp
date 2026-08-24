@@ -937,14 +937,14 @@ cbuffer CloudCB : register(b0) {
 };
 RWTexture2D<float4> cloudOut : register(u0);
 RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒット距離, y=アルファ信頼度
-// 平均深さと二標本差の書き込み先。
-RWTexture3D<float2> cloudShadowOut : register(u2);
+// xy=太陽方向の平均深さと二標本差、zw=空・地面方向の積算密度。
+RWTexture3D<float4> cloudShadowOut : register(u2);
 Texture3D<float2> shapeNoise     : register(t0);   // (低周波形状, 全帯域形状)
 Texture2D    weatherMap          : register(t1);   // coverage/type/precipitation/warp
 Texture3D<float2> detailNoise    : register(t2);   // (低周波房, 三帯域侵食)
 Texture2D    curlNoise           : register(t3);   // independent world-space curl field
 // CSCloud は、現在フレームに生成した平均深さと二標本差を連続した t4 から読む。
-Texture3D<float2> cloudShadowCache : register(t4);
+Texture3D<float4> cloudShadowCache : register(t4);
 SamplerState shapeNoise_sampler  : register(s0);   // wrap (tileable)
 SamplerState weatherMap_sampler  : register(s1);   // world-scale wrap
 SamplerState detailNoise_sampler : register(s2);   // wrap (tileable)
@@ -988,6 +988,8 @@ static const float2 CLOUD_CONE_GEOMETRY[8]={
     float2(0.08,0.996815279)};
 
 static const float CLOUD_PLANET_RADIUS=6360000.0;
+// CPU側の kVolumetricCloudShadowCacheHeight と一致させる。一つのスレッドが縦列を完結させる。
+static const uint CLOUD_SHADOW_CACHE_HEIGHT=32u;
 // 遠距離5点だけをキャッシュで置き換え、信頼度が不足する場所は正確な積分へ戻す。
 static const bool CLOUD_MAIN_SHADOW_CACHE_ENABLED=true;
 // All marched points are within MAX_DISTANCE (250 km) of the rebased tangent
@@ -1829,21 +1831,25 @@ float cloudRayIntervalPhase(float basePhase,int intervalIndex){
     }
     return samplePhase;
 }
-// 内部散乱確率用の低 LOD density。detail texture を読まず、最終 density と同じ
-// weather/profile scale を保つ。
-float cloudLowLodDensityFromPositiveWeatherMacro(CloudMacroSample macro,float heightThreshold,float weatherMask){
-    float densityResult=0.0;
+// 内部散乱用の低 LOD 密度と、Nubis の環境散乱確率に使う倍率前の形状勾配を返す。
+// x は降水・高度倍率を含む密度、y は詳細テクスチャと作者密度を含まない dimensional profile。
+float2 cloudLowLodDensityAndProfileFromPositiveWeatherMacro(CloudMacroSample macro,float heightThreshold,float weatherMask){
+    float2 result=float2(0.0,0.0);
     if(macro.heightProfile>0.0){
         float weatheredBaseNoise=cloudWeatheredBaseNoise(
             macro.baseNoise,weatherMask);
         float baseDensity=remapc(weatheredBaseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0);
-        float dimensionalDensity=cloudDimensionalDensity(baseDensity,macro.heightProfile);
-        if(dimensionalDensity>0.001){
+        result.y=cloudDimensionalDensity(baseDensity,macro.heightProfile);
+        if(result.y>0.001){
             float h=saturate(macro.height);
-            densityResult=saturate(dimensionalDensity*cloudHeightPrecipitationDensityScale(h,macro.weather.b));
+            result.x=saturate(result.y*cloudHeightPrecipitationDensityScale(h,macro.weather.b));
         }
     }
-    return densityResult;
+    return result;
+}
+float cloudLowLodDensityFromPositiveWeatherMacro(CloudMacroSample macro,float heightThreshold,float weatherMask){
+    return cloudLowLodDensityAndProfileFromPositiveWeatherMacro(
+        macro,heightThreshold,weatherMask).x;
 }
 // 詳細表示用密度。低周波の房と高周波の侵食を別々の採取限界で減衰させる。
 float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float heightThreshold,float weatherMask,float billowVisibility,float erosionVisibility){
@@ -1913,19 +1919,24 @@ float cloudDensityFromMacro(float3 p,CloudMacroSample macro,float heightThreshol
     }
     return densityResult;
 }
-// 高次散乱の周囲媒質判定用の低 LOD 密度。空間スキップ用の広い占有しきい値ではなく、
-// 詳細密度と同じ coverage・高さ threshold・上層倍率を使う。追加 texture fetch は無い。
-float cloudLowLodDensityFromMacro(CloudMacroSample macro,float heightThreshold,float weatherMask){
-    float densityResult=0.0;
+// 高次散乱の周囲媒質判定用密度と環境散乱用の形状勾配を同時に求める。
+// 空間スキップ用の広い占有しきい値ではなく、詳細密度と同じ被覆・高さしきい値を使う。
+float2 cloudLowLodDensityAndProfileFromMacro(CloudMacroSample macro,float heightThreshold,float weatherMask){
+    float2 result=float2(0.0,0.0);
     if(weatherMask>0.001){
         bool upperBand=macro.upperBand>0.5;
         // 詳細密度と同じ順序で被覆を飽和前へ適用する。
         if(upperBand) weatherMask*=cloudUpperTerms.x;
-        densityResult=cloudLowLodDensityFromPositiveWeatherMacro(macro,heightThreshold,weatherMask);
-        // 上層の濃さは飽和後へ適用し、光路と視線で同じ密度になるようにする。
-        if(upperBand) densityResult*=cloudUpperTerms.y;
+        result=cloudLowLodDensityAndProfileFromPositiveWeatherMacro(
+            macro,heightThreshold,weatherMask);
+        // 上層の濃さは最終密度だけへ適用する。形状勾配は作者密度から独立させる。
+        if(upperBand) result.x*=cloudUpperTerms.y;
     }
-    return densityResult;
+    return result;
+}
+float cloudLowLodDensityFromMacro(CloudMacroSample macro,float heightThreshold,float weatherMask){
+    return cloudLowLodDensityAndProfileFromMacro(
+        macro,heightThreshold,weatherMask).x;
 }
 float cloudDensity(float3 p, float coverage, float detailWeight){
     float densityResult=0.0;
@@ -2008,7 +2019,7 @@ float3 sampleCloudShadowTail(float3 lp,float density){
             min(edgeCells.x,edgeCells.y),edgeCells.z);
         if(minimumEdgeCells>1.5){
             float borderWeight=smoothstep(1.5,2.5,minimumEdgeCells);
-            float2 cached=cloudShadowCache.SampleLevel(
+            float4 cached=cloudShadowCache.SampleLevel(
                 cloudShadowCache_sampler,uvw,0);
             bool finiteValue=all(cached==cached)
                           && all(cached>=0.0)
@@ -2032,32 +2043,91 @@ float3 sampleCloudShadowTail(float3 lp,float density){
     return result;
 }
 
-[numthreads(4,4,4)]
+// 現在地点から空と地面までの積算密度と、キャッシュ境界の混合率を返す。
+// 上下方向はキャッシュの全高度を用いるため、局所密度だけの代替式と異なり頭上の空隙を反映できる。
+float3 sampleCloudAmbientDepth(float3 p){
+    float3 result=float3(0.0,0.0,0.0);
+    if(shadowState.x>0.5){
+        float2 q=p.xz-cloudWindWorld();
+        float altitude=cloudAltitude(p);
+        float h=(altitude-layer.x)/max(layer.y-layer.x,1e-4);
+        float2 uvwXz=float2(
+            (q.x-shadowGrid.x)*shadowGrid.z,
+            (q.y-shadowGrid.y)*shadowGrid.w);
+        float2 edgeCells=min(uvwXz,1.0-uvwXz)/shadowState.z;
+        float minimumEdgeCells=min(edgeCells.x,edgeCells.y);
+        if(h>=0.0&&h<=1.0&&minimumEdgeCells>1.5){
+            float borderWeight=smoothstep(1.5,2.5,minimumEdgeCells);
+            float4 cached=cloudShadowCache.SampleLevel(
+                cloudShadowCache_sampler,float3(uvwXz.x,h,uvwXz.y),0);
+            bool finiteValue=all(cached==cached)
+                          && all(cached>=0.0)
+                          && all(cached<65504.0);
+            if(finiteValue){
+                result=float3(borderWeight,cached.z,cached.w);
+            }
+        }
+    }
+    return result;
+}
+
+[numthreads(4,1,4)]
 void CSCloudShadow(uint3 tid : SV_DispatchThreadID){
     uint updateStride=max((uint)cloudShadowUpdate.z,1u);
-    uint3 outputVoxel=uint3(tid.x*updateStride+(uint)cloudShadowUpdate.x,tid.y,tid.z*updateStride+(uint)cloudShadowUpdate.y);
+    uint2 outputColumn=uint2(
+        tid.x*updateStride+(uint)cloudShadowUpdate.x,
+        tid.z*updateStride+(uint)cloudShadowUpdate.y);
     uint width,height,depth;
     cloudShadowOut.GetDimensions(width,height,depth);
-    if(any(outputVoxel>=uint3(width,height,depth))) return;
-    float3 uvw=(float3(outputVoxel)+0.5)/float3(width,height,depth);
-    float3 p=cloudShadowWorldPosition(uvw);
+    if(any(outputColumn>=uint2(width,depth))
+       ||height!=CLOUD_SHADOW_CACHE_HEIGHT) return;
     float3 sun=sunDir.xyz;
     float3 lightTangent=cloudLightTangent.xyz;
     float3 lightBitangent=cloudLightBitangent.xyz;
     float coverage=saturate(params.x);
-    float depthA=traceCloudShadowPattern(
-        p,0.211324865,coverage,sun,lightTangent,lightBitangent);
-    float depthB=traceCloudShadowPattern(
-        p,0.788675135,coverage,sun,lightTangent,lightBitangent);
-    float meanDepth=max(0.5*(depthA+depthB),0.0);
-    float disagreement=abs(depthA-depthB);
-    // 現在のRHIはt0..t3の連続配置を要求する。実行時に成立しない負の密度分岐へ置くことで、
-    // t2/s2を宣言へ残しつつ通常時のテクスチャ採取を発生させない。
-    if(params.y<0.0){
-        disagreement+=detailNoise.SampleLevel(
-            detailNoise_sampler,float3(0.5,0.5,0.5),0).x;
+    float columnSegmentDepth[CLOUD_SHADOW_CACHE_HEIGHT];
+    float totalColumnDepth=0.0;
+    float cellWorldStep=(layer.y-layer.x)/float(CLOUD_SHADOW_CACHE_HEIGHT);
+    // Nubis 2023と同じく、空方向の密度を事前積算する。同じXZ列は高度ごとに一度だけ評価し、
+    // 各高度から別々レイマーチする重複を避ける。
+    [loop] for(uint densityHeightIndex=0u;densityHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;++densityHeightIndex){
+        float3 uvw=(float3(outputColumn.x,densityHeightIndex,outputColumn.y)+0.5)
+                  /float3(width,height,depth);
+        float3 p=cloudShadowWorldPosition(uvw);
+        CloudMacroSample macro=sampleCloudMacroLighting(
+            p,coverage,cellWorldStep);
+        float columnDensity=cloudLowLodDensityFromMacro(
+            macro,macro.heightThreshold,macro.weatherMask);
+        float segmentDepth=max(columnDensity,0.0)
+            *cellWorldStep*layer.w;
+        columnSegmentDepth[densityHeightIndex]=segmentDepth;
+        totalColumnDepth+=segmentDepth;
     }
-    cloudShadowOut[outputVoxel]=float2(meanDepth,disagreement);
+    float groundDepth=0.0;
+    [loop] for(uint outputHeightIndex=0u;outputHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;++outputHeightIndex){
+        uint3 outputVoxel=uint3(outputColumn.x,outputHeightIndex,outputColumn.y);
+        float3 uvw=(float3(outputVoxel)+0.5)/float3(width,height,depth);
+        float3 p=cloudShadowWorldPosition(uvw);
+        float depthA=traceCloudShadowPattern(
+            p,0.211324865,coverage,sun,lightTangent,lightBitangent);
+        float depthB=traceCloudShadowPattern(
+            p,0.788675135,coverage,sun,lightTangent,lightBitangent);
+        float meanDepth=max(0.5*(depthA+depthB),0.0);
+        float disagreement=abs(depthA-depthB);
+        // 現在のRHIはt0..t3の連続配置を要求する。実行時に成立しない負の密度分岐へ置くことで、
+        // t2/s2を宣言へ残しつつ通常時のテクスチャ採取を発生させない。
+        if(params.y<0.0){
+            disagreement+=detailNoise.SampleLevel(
+                detailNoise_sampler,float3(0.5,0.5,0.5),0).x;
+        }
+        float halfSegmentDepth=0.5*columnSegmentDepth[outputHeightIndex];
+        float skyDepth=max(
+            totalColumnDepth-groundDepth-halfSegmentDepth,0.0);
+        float sampleGroundDepth=groundDepth+halfSegmentDepth;
+        cloudShadowOut[outputVoxel]=float4(
+            meanDepth,disagreement,skyDepth,sampleGroundDepth);
+        groundDepth+=columnSegmentDepth[outputHeightIndex];
+    }
 }
 
 [numthreads(8,8,1)]
@@ -2487,8 +2557,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             // CPU は散乱係数の縮小率を消散係数以下へ収め、各次数で散乱が消散を越えないようにする。
             // 一次散乱は現在の密度標本と区間不透明度で既に制限される。高次散乱は周囲の
             // 散乱源を必要とするため、低 LOD 密度と高さから求める確率をこちらだけへ掛ける。
-            float lowLodDensity=cloudLowLodDensityFromMacro(
+            float2 lowLodDensityAndProfile=cloudLowLodDensityAndProfileFromMacro(
                 macro,densityHeightThreshold,viewWeatherMask);
+            float lowLodDensity=lowLodDensityAndProfile.x;
             float inScatterDepthExponent=lerp(
                 0.5,2.0,saturate((macro.height-0.30)/0.55));
             float inScatterDepth=saturate(
@@ -2517,21 +2588,35 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float3 sunAtCloud=sunCol.rgb*cloudSunTransmittance.rgb;
             float3 sunL=sunAtCloud*cloudLightingExtinction.z*scatterTerm;
             float h=macro.height;
-            // 環境光の遮蔽はカメラまでの透過率ではなく、局所密度と入射側の層境界までの距離で近似する。
-            // 太陽方向の tauL は細い光円すいの経路であり、空半球や地面から届く拡散光の経路ではない。
-            // ここへ流用すると、太陽が高いほど全天空光まで直接影と同じ形で失われ、厚い雲が一様な灰色へ沈む。
-            // 視線と太陽の光学深さと同じく、環境光でも作者指定の密度倍率を失わない。
-            // 1で切ると濃い房がすべて同じ可視率になり、雲頂と雲中の厚み差が消える。
-            float ambientLocalDensity=max(lowLodDensity*density,0.0);
+            // 環境光は現在点の密度だけではなく、影キャッシュで積算した空・地面方向の密度を使う。
+            // キャッシュ外や上層雲では局所密度と境界距離の代替式へ滑らかに戻す。
+            float ambientDensityScale=max(density*distanceFade,0.0);
+            float ambientLocalDensity=max(
+                lowLodDensity*ambientDensityScale,0.0);
             // 空半球の環境光は大気と雲で既に何度も散乱して方向を失っているため、
             // 二次散乱用の遮蔽率をそのまま掛けると、公開された雲底係数をさらに半分以下へ落としてしまう。
             // 三次散乱と同じ縮小率で拡散輸送を近似し、追加採取なしで雲頂と雲底の明暗差を保つ。
             float diffuseOcclusion=multiOcclusion*multiOcclusion;
             float reducedAmbientExtinction=0.60*diffuseOcclusion*cloudLightingExtinction.y;
-            float skyAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*(1.0-h));
-            float groundAmbientOpticalDepth=ambientLocalDensity*(0.35+0.65*h);
-            float skyAmbientVisibility=exp(-reducedAmbientExtinction*skyAmbientOpticalDepth);
-            float groundAmbientVisibility=exp(-reducedAmbientExtinction*groundAmbientOpticalDepth);
+            float fallbackSkyAmbientDepth=ambientLocalDensity*(0.35+0.65*(1.0-h));
+            float fallbackGroundAmbientDepth=ambientLocalDensity*(0.35+0.65*h);
+            float3 cachedAmbientDepth=sampleCloudAmbientDepth(p);
+            float skyAmbientOpticalDepth=lerp(
+                fallbackSkyAmbientDepth,
+                cachedAmbientDepth.y*ambientDensityScale,
+                cachedAmbientDepth.x);
+            float groundAmbientOpticalDepth=lerp(
+                fallbackGroundAmbientDepth,
+                cachedAmbientDepth.z*ambientDensityScale,
+                cachedAmbientDepth.x);
+            // Nubis と同じく、降水・高度の増密前にある dimensional profile から
+            // 表面確率を求める。最終密度の飽和や距離フェードを混ぜると、雲底を黒くし遠端だけ明るくする。
+            float ambientSurfaceProbability=sqrt(
+                saturate(1.0-lowLodDensityAndProfile.y));
+            float skyAmbientVisibility=ambientSurfaceProbability
+                *exp(-reducedAmbientExtinction*skyAmbientOpticalDepth);
+            float groundAmbientVisibility=ambientSurfaceProbability
+                *exp(-reducedAmbientExtinction*groundAmbientOpticalDepth);
             // 地平色と天頂色を半球積分の二点近似として混ぜる。雲底でも天頂側の空を1/3含め、
             // 雲頂でも地平側を1/3残すことで、一点の灰色や青へ偏らせない。
             float skyAmbientZenithWeight=lerp(0.3333333,0.6666667,saturate(h));
@@ -4014,7 +4099,8 @@ FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload(
     if (plan.rebuild_shadow_cache) {
         out.shadow_cache_dispatches = 1u;
         const u64 logical = CloudLogicalInvocations3D(shadowCacheUpdateWidth, kVolumetricCloudShadowCacheHeight, shadowCacheUpdateDepth);
-        const u64 launched = CloudLaunchedThreads3D(shadowCacheUpdateWidth, kVolumetricCloudShadowCacheHeight, shadowCacheUpdateDepth, 4u, 4u, 4u);
+        // 一つのスレッドが32高度を書き、同じ縦列の環境光密度を一度だけ積算する。
+        const u64 launched = CloudLaunchedThreads2D(shadowCacheUpdateWidth, shadowCacheUpdateDepth, 4u, 4u);
         out.shadow_cache_logical_invocations = logical;
         out.shadow_cache_launched_threads = launched;
     }
@@ -4119,6 +4205,20 @@ FVolumetricCloudGroundHorizon ResolveVolumetricCloudGroundHorizon(
     return out;
 }
 
+f32 ResolveVolumetricCloudAdvectionDistance(
+    f32 time, f32 wind_speed) noexcept {
+    if (!std::isfinite(time)) time = 0.0f;
+    if (!std::isfinite(wind_speed)) wind_speed = 0.0f;
+    if (time < -10000000.0f) time = -10000000.0f;
+    if (time > 10000000.0f) time = 10000000.0f;
+    if (wind_speed < -20.0f) wind_speed = -20.0f;
+    if (wind_speed > 20.0f) wind_speed = 20.0f;
+
+    // CloudWind は作者が扱いやすい倍率であり、1.0 を中層雲で一般的な移流速度へ変換する。
+    constexpr f32 kWorldUnitsPerSecondAtUnitWind = 12.0f;
+    return time * wind_speed * kWorldUnitsPerSecondAtUnitWind;
+}
+
 FVec2 VolumetricCloudWindOffsetXZ(f32 wind_offset) noexcept {
     if (!std::isfinite(wind_offset)) wind_offset = 0.0f;
     return FVec2{wind_offset * 0.9284767f,
@@ -4166,13 +4266,14 @@ FVolumetricCloudEvolutionFrameTerms ResolveVolumetricCloudEvolutionFrameTerms(
         return static_cast<f32>(std::sin(angle));
     };
 
-    // 互いに割り切れない周期により、短い時間で同じ形へ戻る反復を避ける。
+    // 約2～6分の互いに割り切れない周期により、短い時間で同じ形へ戻る反復を避ける。
+    // 10～30秒でも輪郭変化を判別できる一方、隣接フレームでは微小な変化に留める。
     out.shape_phase = FVec2{
-        periodicSin(0.021) * 0.18f,
-        periodicSin(0.013) * 0.16f};
+        periodicSin(0.033) * 0.18f,
+        periodicSin(0.019) * 0.16f};
     out.fine_phase = FVec2{
-        periodicSin(0.037) * 0.11f,
-        periodicSin(0.029) * 0.09f};
+        periodicSin(0.057) * 0.11f,
+        periodicSin(0.043) * 0.09f};
     return out;
 }
 
@@ -4916,7 +5017,7 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
             td.width = kVolumetricCloudShadowCacheWidth;
             td.height = kVolumetricCloudShadowCacheHeight;
             td.depth = kVolumetricCloudShadowCacheDepth;
-            td.format = EFormat::R16G16_Float;
+            td.format = EFormat::R16G16B16A16_Float;
             td.is_uav = true;
             auto textureResult = CreateRhiTexture(device, td);
             if (textureResult.IsErr()) {
@@ -5398,7 +5499,8 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     m_WorldShadowCloudBaseAltitude = m_Layer.base_height;
     // 一つのワールド移流距離を天候、形状、侵食、渦、時間再投影で共有する。
     // 雑音の周波数とは分離し、各領域が風によって互いに滑ることを防ぐ。
-    const f32 windOffset = safeTime * safeWind * 2.5f;
+    const f32 windOffset = ResolveVolumetricCloudAdvectionDistance(
+        safeTime, safeWind);
 
     const FVolumetricCloudDensityFrameTerms densityFrameTerms =
         ResolveVolumetricCloudDensityFrameTerms(m_Layer, windOffset);
@@ -5792,7 +5894,7 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         cl.BindUav(2, *m_ShadowTex);
         const u32 updateWidth = CloudCeilDivisor(kVolumetricCloudShadowCacheWidth - shadowUpdateOffsetX, shadowUpdateDivisor);
         const u32 updateDepth = CloudCeilDivisor(kVolumetricCloudShadowCacheDepth - shadowUpdateOffsetY, shadowUpdateDivisor);
-        cl.Dispatch((updateWidth + 3u) / 4u, (kVolumetricCloudShadowCacheHeight + 3u) / 4u, (updateDepth + 3u) / 4u);
+        cl.Dispatch((updateWidth + 3u) / 4u, 1u, (updateDepth + 3u) / 4u);
         m_ShadowCacheValid = true;
         ++m_ShadowCacheDispatchCount;
     }
@@ -6023,7 +6125,8 @@ CVolumetricClouds::BuildEnvironmentCubemap(
         m_PrevTime, 0.0f, -10000000.0f, 10000000.0f);
     const f32 safe_wind = SanitizeCloudScalar(
         m_PrevWindSpeed, 0.0f, -20.0f, 20.0f);
-    const f32 wind_offset = safe_time * safe_wind * 2.5f;
+    const f32 wind_offset = ResolveVolumetricCloudAdvectionDistance(
+        safe_time, safe_wind);
     const FVec3 world_origin = RebaseVolumetricCloudWorldOrigin(m_PrevCamPos);
     const FVolumetricCloudDensityFrameTerms density_terms =
         ResolveVolumetricCloudDensityFrameTerms(m_Layer, wind_offset);
