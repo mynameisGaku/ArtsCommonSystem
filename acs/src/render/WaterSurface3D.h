@@ -48,6 +48,33 @@ public:
         EShaderStatus Status() const noexcept;
     };
 
+    /**
+     * 1枚の横並びatlasへ格納した有向光源shadow cascade群。
+     * 呼び出し元がtextureを所有し、この値は1回のdraw中だけ参照される。
+     */
+    struct FShadowCascadeSet {
+        /** 受け付けるcascadeの上限。 */
+        static constexpr u32 kMaxCascades = 4u;
+
+        /** 呼び出し元所有のshader可視depth atlas。nullなら受影を無効にする。 */
+        IRhiTexture* shadow_map = nullptr;
+
+        /** 各cascadeのworld-to-light clip変換。 */
+        FMat4 light_view_projection[kMaxCascades]{};
+
+        /** 各cascade末尾のview-space深度。使用しない要素は無視する。 */
+        f32 split_depth[kMaxCascades]{1.0e30f, 1.0e30f, 1.0e30f, 1.0e30f};
+
+        /** 有効なcascade数。1から4以外なら受影を無効にする。 */
+        u32 cascade_count = 0u;
+
+        /** light clip深度へ適用するreceiver bias。 */
+        f32 depth_bias = 0.0012f;
+
+        /** cascade内texel単位のPCF半径。 */
+        f32 pcf_radius = 1.5f;
+    };
+
     /** Maximum simultaneously visible disturbances. */
     static constexpr u32 kMaxRipples = 64;
 
@@ -344,6 +371,12 @@ public:
                   f32 authored_normal_strength = 1.0f) noexcept;
 
     /**
+     * CSM atlasを正しいcascade範囲で参照しながら従来のlocal XZ meshを描く。
+     * 不正な行列、分割深度、atlas寸法はdrawを維持したまま受影だけ無効にする。
+     */
+    void DrawMeshWithShadowCascades(IRhiCommandList& command_list, const FGpuMesh& mesh, const FMat4& model, const FShadowCascadeSet& shadow_cascades, IRhiTexture* scene_color = nullptr, IRhiTexture* scene_depth = nullptr, IRhiTexture* screen_reflection = nullptr, u64 surface_id = 0u, bool hardware_depth_bound = false, IRhiTexture* authored_normal_map = nullptr, f32 authored_normal_strength = 1.0f) noexcept;
+
+    /**
      * 正規化XZ格子をcamera近傍へ連続的に再配置して水面を描く。
      * @param plane_mesh CreateAdaptivePlaneMeshで生成した格子。
      * @param model 格子の全範囲を有限水域へ写すmodel行列。
@@ -351,6 +384,12 @@ public:
      * 既存DrawMeshと同じ光学入力、surface ID、所有権契約を維持する。
      */
     void DrawAdaptivePlane(IRhiCommandList& command_list, const FGpuMesh& plane_mesh, const FMat4& model, IRhiTexture* scene_color = nullptr, IRhiTexture* scene_depth = nullptr, IRhiTexture* screen_reflection = nullptr, u64 surface_id = 0u, bool hardware_depth_bound = false, IRhiTexture* authored_normal_map = nullptr, f32 authored_normal_strength = 1.0f) noexcept;
+
+    /**
+     * CSM atlasを正しく選択し、camera近傍へ連続再配置した共有平面を描く。
+     * 既存DrawAdaptivePlaneの所有権と失敗時挙動を維持する。
+     */
+    void DrawAdaptivePlaneWithShadowCascades(IRhiCommandList& command_list, const FGpuMesh& plane_mesh, const FMat4& model, const FShadowCascadeSet& shadow_cascades, IRhiTexture* scene_color = nullptr, IRhiTexture* scene_depth = nullptr, IRhiTexture* screen_reflection = nullptr, u64 surface_id = 0u, bool hardware_depth_bound = false, IRhiTexture* authored_normal_map = nullptr, f32 authored_normal_strength = 1.0f) noexcept;
 
     IRhiPipeline* Pipeline() const noexcept { return m_Pipeline.Get(); }
     IRhiTexture* NormalTexture() const noexcept { return m_NormalMap.Get(); }
@@ -401,7 +440,7 @@ private:
         u32 active_position) noexcept;
 
     /** 通常meshと連続LOD平面で共有する描画本体。 */
-    void DrawMesh_Internal(IRhiCommandList& command_list, const FGpuMesh& mesh, const FMat4& model, IRhiTexture* scene_color, IRhiTexture* scene_depth, IRhiTexture* screen_reflection, u64 surface_id, bool hardware_depth_bound, IRhiTexture* authored_normal_map, f32 authored_normal_strength, bool adaptive_plane) noexcept;
+    void DrawMesh_Internal(IRhiCommandList& command_list, const FGpuMesh& mesh, const FMat4& model, IRhiTexture* scene_color, IRhiTexture* scene_depth, IRhiTexture* screen_reflection, u64 surface_id, bool hardware_depth_bound, IRhiTexture* authored_normal_map, f32 authored_normal_strength, bool adaptive_plane, const FShadowCascadeSet* shadow_cascades) noexcept;
 
     IRhiDevice* m_Device = nullptr;
     TUniquePtr<IRhiShader> m_Vs;

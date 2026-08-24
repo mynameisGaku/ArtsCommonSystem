@@ -8108,11 +8108,7 @@ void DrawInteractiveWater3DPass(
     const FMat4& view_projection,
     FVec3 camera_position,
     FVec3 sun_color,
-    bool shadow_enabled,
-    IRhiTexture* shadow_map,
-    const FMat4& light_view_projection,
-    f32 shadow_bias,
-    f32 shadow_filter,
+    const CWaterSurface3D::FShadowCascadeSet& shadow_cascades,
     u32 width,
     u32 height) noexcept {
     bool any_water = false;
@@ -8205,9 +8201,6 @@ void DrawInteractiveWater3DPass(
     host.water3d.SetFrame(
         view_projection, camera_position,
         width, height, host.sun_dir, sun_color);
-    host.water3d.SetShadowMap(
-        shadow_enabled ? shadow_map : nullptr,
-        light_view_projection, shadow_bias, shadow_filter);
     IRhiTexture* reflection =
         host.ssr_computed
             ? host.ssr3d.OutputTexture() : nullptr;
@@ -8235,9 +8228,9 @@ void DrawInteractiveWater3DPass(
         /** 波紋を現在のEditor nodeへ隔離する安定ID。 */
         const u64 surface_id = static_cast<u64>(static_cast<u32>(record->id));
         if (mesh == &host.gm_water_plane) {
-            host.water3d.DrawAdaptivePlane(command_list, *mesh, node->World().ToMat4(), host.refr_bg.Get(), host.water3d_depth_copy.Get(), reflection, surface_id, true, authored_normal_map, authored_normal_strength);
+            host.water3d.DrawAdaptivePlaneWithShadowCascades(command_list, *mesh, node->World().ToMat4(), shadow_cascades, host.refr_bg.Get(), host.water3d_depth_copy.Get(), reflection, surface_id, true, authored_normal_map, authored_normal_strength);
         } else {
-            host.water3d.DrawMesh(command_list, *mesh, node->World().ToMat4(), host.refr_bg.Get(), host.water3d_depth_copy.Get(), reflection, surface_id, true, authored_normal_map, authored_normal_strength);
+            host.water3d.DrawMeshWithShadowCascades(command_list, *mesh, node->World().ToMat4(), shadow_cascades, host.refr_bg.Get(), host.water3d_depth_copy.Get(), reflection, surface_id, true, authored_normal_map, authored_normal_strength);
         }
     }
     command_list.EndRenderToTexture(hdr_target);
@@ -11129,15 +11122,28 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         // Water writes the live depth before any atmosphere composite. AP,
         // volumetric clouds, and local fog then terminate against the displaced
         // surface, while later DoF/TAA consume the same updated depth.
-        DrawInteractiveWater3DPass(
-            h, *cl, *hdrRt, all3d,
-            SceneMeshSubmissionMask(
-                h,
-                editor_frustum_culling::ESceneGeometryPass::
-                    InteractiveWaterDraw),
-            vp, eye, sunCol,
-            sh.shadowOn, h.shadow.DepthTexture(), sh.lightVp,
-            h.q_shadow_bias, h.q_shadow_filter, scW, scH);
+        /** 水面shaderへ同じCSM atlas配置と分割深度を渡す1 draw値。 */
+        CWaterSurface3D::FShadowCascadeSet water_shadow_cascades{};
+        if (sh.shadowOn && h.shadow.DepthTexture() != nullptr) {
+            water_shadow_cascades.shadow_map = h.shadow.DepthTexture();
+            water_shadow_cascades.depth_bias = h.q_shadow_bias;
+            water_shadow_cascades.pcf_radius = h.q_shadow_filter;
+            /** Editor shadow側が要求するcascade数。 */
+            const u32 requested_water_shadow_cascades = sh.csmActive
+                ? h.shadow.CascadeCount() : 1u;
+            water_shadow_cascades.cascade_count =
+                requested_water_shadow_cascades >
+                    CWaterSurface3D::FShadowCascadeSet::kMaxCascades
+                ? CWaterSurface3D::FShadowCascadeSet::kMaxCascades
+                : requested_water_shadow_cascades;
+            for (u32 cascade = 0u; cascade < water_shadow_cascades.cascade_count; ++cascade) {
+                water_shadow_cascades.light_view_projection[cascade] =
+                    sh.csmActive ? sh.csmVps[cascade] : sh.lightVp;
+                water_shadow_cascades.split_depth[cascade] =
+                    sh.csmActive ? sh.csmSplits[cascade] : 1.0e30f;
+            }
+        }
+        DrawInteractiveWater3DPass(h, *cl, *hdrRt, all3d, SceneMeshSubmissionMask(h, editor_frustum_culling::ESceneGeometryPass::InteractiveWaterDraw), vp, eye, sunCol, water_shadow_cascades, scW, scH);
 
         // --- 空気遠近法 + ボリューメトリックフォグ ---
         // Opaque + water の完成 depth で camera-volume を終端し、一度だけ

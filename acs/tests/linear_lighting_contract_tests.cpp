@@ -347,9 +347,11 @@ ACS_TEST(LinearLightingContract,
         ExtractRawShader(skinned_source, "const char* kSkinnedHLSL");
     const std::string standard_shadow = ExtractSection(
         standard, "float ComputeShadow(", "float4 PSMain(");
+    const std::string water_shadow_sample = ExtractSection(water, "float SampleSunShadowCascade(", "float ComputeSunShadow(");
     const std::string water_shadow = ExtractSection(
         water, "float ComputeSunShadow(", "float4 PSMain(");
     EXPECT_TRUE(!standard_shadow.empty());
+    EXPECT_TRUE(!water_shadow_sample.empty());
     EXPECT_TRUE(!water_shadow.empty());
 
     EXPECT_TRUE(Contains(
@@ -371,10 +373,10 @@ ACS_TEST(LinearLightingContract,
         static_cast<std::size_t>(1u));
     EXPECT_TRUE(Contains(
         water_shadow, "return shadow_result;"));
-    EXPECT_TRUE(Contains(
-        water_shadow, "light_clip.w > 1e-5"));
-    EXPECT_TRUE(Contains(
-        water_shadow, "max(abs(shadow_params.z), 1e-7)"));
+    EXPECT_TRUE(Contains(water_shadow_sample, "light_clip.w > 1e-5"));
+    EXPECT_TRUE(Contains(water_shadow_sample, "max(abs(shadow_params.z), 1e-7)"));
+    EXPECT_TRUE(Contains(water_shadow_sample, "clamp(shadow_uv + offset, min_uv, max_uv)"));
+    EXPECT_TRUE(Contains(water_shadow, "shadow_cascade_splits.x"));
 
     EXPECT_TRUE(Contains(standard, "blocker_sample_index"));
     EXPECT_TRUE(Contains(standard, "pcf_sample_index"));
