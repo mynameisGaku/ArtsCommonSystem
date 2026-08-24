@@ -1759,6 +1759,27 @@ EditorのBuild+Runログも`ACS.BUILD.SUCCEEDED`となった。EditorのGame表�
 「超高品質の雲が完成した」ことの合格にはしていない。次の品質作業では、地上・雲中・上空を固定した
 専用カメラの検証シーンを`acs-engine`配下の現行プロジェクトへ追加し、時間差画像とGPU時間を再計測する。
 
+## 2026-08-25: Game Viewの固定カメラと3視点検査
+
+空だけの`.acs3d`は、EditorのScene Viewでは雲を描けても、Game Viewにゲーム用カメラが無いと
+決定論的な原点付近の代替カメラへ落ちる。この状態では雲層の下を向くため、Game Viewが灰色の
+大気だけになり、雲描画の品質検査として不適切だった。
+
+検証用正本に`CloudAuditCamera`を追加して有効化し、`C:\dev\acs_temp_builds\acs-engine\CloudCumulusNormalDynamicAudit-20260825`
+の独立Git履歴へ保存した。履歴は、起動経路を保存した`71952d5`、地上視点を保存した`67ae9ae`、
+上空視点を保存した`ed73009`である。`Binaries`と`Temp`はGit管理から除外している。
+
+同じ下層雲`2600～5200 m`・上層雲`7600～9800 m`の設定で、EditorのBuild+Runを実行した。
+地上視点では雲塊の丸み・下面の陰影・遠方の層、雲中視点では前後の雲塊と透過、上空視点では
+雲の上面分布と連続性を確認でき、3視点ともGame Viewで雲が描画された。したがって「中層が
+グレー1色である」という初期の疑いは、カメラ未設定時の検査条件が作った見かけであり、現行の
+雲経路全体の単色化とは断定できない。ただし上空の陰影コントラストと雲中の密度変化は、実写に
+対する品質差が残るため、完成判定にはしていない。
+
+通常のC++経路では、同じ正本からReleaseのスタンドアロン実行ファイルとリフレクションDLLを
+生成できた。Editorの検査用Game Viewと通常C++経路は別のカメラ所有者を持つため、以後の画質比較は
+同じ視点・同じ天候値・同じ解像度を明示して行う。
+
 ## Quality-preserving optimization rules
 
 Ultra cloud optimization keeps the `0.25` trace scale, 384 view-sample ceiling,
