@@ -766,7 +766,8 @@ struct FEditorHost {
     u32          r3d_init_phase = 0;      // incremental startup phase
     bool         r3d_init_failed = false;
     FGpuMesh      gm_cube, gm_sphere, gm_plane;
-    FGpuMesh      gm_water_plane;                 // 64x64-cell displacement grid
+    // camera近傍へ再配置する96x96水面格子。
+    FGpuMesh      gm_water_plane;
     TSharedPtr<AMeshAsset> cpu_cube, cpu_sphere, cpu_plane;
     TSharedPtr<AMeshAsset> cpu_water_plane;
     TArray<game::ANode*> scene_mesh_nodes;
@@ -4336,7 +4337,7 @@ void BeginSceneResourceRetirement(FEditorHost& h) noexcept {
 /** 晴天空の環境光を必要時だけ生成し、このフレームで更新できたかを返す。 */
 bool Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept;
 
-TSharedPtr<AMeshAsset> MakeEditorWaterGrid(u32 cells = 64u) noexcept {
+TSharedPtr<AMeshAsset> MakeEditorWaterGrid(u32 cells = 96u) noexcept {
     if (cells < 2u) cells = 2u;
     if (cells > 256u) cells = 256u;
     auto mesh = MakeShared<AMeshAsset>();
@@ -5076,8 +5077,9 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
         UploadMesh(*dev, *sph,  h.gm_sphere).IsErr() ||
         UploadMesh(*dev, *pl,   h.gm_plane).IsErr()) { ACS_LOG_ERROR("[3D] メッシュアップロード失敗"); return false; }
     h.cpu_cube = cube; h.cpu_sphere = sph; h.cpu_plane = pl;
-    if (water_pl &&
-        UploadMesh(*dev, *water_pl, h.gm_water_plane).IsOk()) {
+    /** camera近傍へ密度を寄せる描画用格子の転送結果。 */
+    auto water_grid_upload = CWaterSurface3D::CreateAdaptivePlaneMesh(*dev, h.gm_water_plane, 96u);
+    if (water_pl && water_grid_upload.IsOk()) {
         h.cpu_water_plane = water_pl;
     } else {
         h.gm_water_plane = FGpuMesh{};
@@ -8230,14 +8232,13 @@ void DrawInteractiveWater3DPass(
         }
         host.water3d.SetParams(
             WaterSurface3DParamsFor(record));
-        host.water3d.DrawMesh(
-            command_list, *mesh, node->World().ToMat4(),
-            host.refr_bg.Get(), host.water3d_depth_copy.Get(),
-            reflection,
-            static_cast<u64>(
-                static_cast<u32>(record->id)),
-            true, authored_normal_map,
-            authored_normal_strength);
+        /** 波紋を現在のEditor nodeへ隔離する安定ID。 */
+        const u64 surface_id = static_cast<u64>(static_cast<u32>(record->id));
+        if (mesh == &host.gm_water_plane) {
+            host.water3d.DrawAdaptivePlane(command_list, *mesh, node->World().ToMat4(), host.refr_bg.Get(), host.water3d_depth_copy.Get(), reflection, surface_id, true, authored_normal_map, authored_normal_strength);
+        } else {
+            host.water3d.DrawMesh(command_list, *mesh, node->World().ToMat4(), host.refr_bg.Get(), host.water3d_depth_copy.Get(), reflection, surface_id, true, authored_normal_map, authored_normal_strength);
+        }
     }
     command_list.EndRenderToTexture(hdr_target);
 }

@@ -1060,9 +1060,9 @@ ACS_TEST(PostEffects, WaterAndBloomShadersKeepPhysicalSafetyContracts)
                 std::string::npos);
     EXPECT_TRUE(water.find(
         "input.normal.x * normal_row0.x") != std::string::npos);
-    EXPECT_TRUE(water.find(
-        "world.xyz += base_normal * (ambient_height + ripple_height);") !=
-                std::string::npos);
+    EXPECT_TRUE(water.find("world.xyz += tangent * ambient_horizontal.x") != std::string::npos);
+    EXPECT_TRUE(water.find("+ bitangent * ambient_horizontal.y") != std::string::npos);
+    EXPECT_TRUE(water.find("+ base_normal * (ambient_height + ripple_height);") != std::string::npos);
     EXPECT_TRUE(water.find(
         "EvaluateNormalMap(input.surface_position") != std::string::npos);
     EXPECT_TRUE(water.find(

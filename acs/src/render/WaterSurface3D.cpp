@@ -65,6 +65,8 @@ struct FWaterObjectCb {
     FVec4 surface_origin;
     FVec4 surface_tangent;
     FVec4 surface_bitangent;
+    /** xyに格子焦点、zwに軸ごとの指数密度率を格納する。 */
+    FVec4 adaptive_lod;
 };
 
 const char* kWaterSurface3DHlsl = R"(
@@ -106,6 +108,8 @@ cbuffer WaterObject : register(b1) {
     float4 surface_origin;
     float4 surface_tangent;
     float4 surface_bitangent;
+    // xyはカメラ焦点、zwは軸ごとの指数密度率。
+    float4 adaptive_lod;
 };
 
 Texture2D water_normal : register(t0);
@@ -145,33 +149,73 @@ float2 Rotate2(float2 p, float angle) {
     return float2(c * p.x - s * p.y, s * p.x + c * p.y);
 }
 
-void EvaluateAmbientWaves(float2 p, float time,
-                          out float height, out float2 gradient) {
+// 端点を固定したまま、正規化座標をカメラ焦点へ連続的に寄せる。
+float WarpAdaptiveCoordinate(float coordinate, float focus, float rate) {
+    if (rate <= 1e-4) return coordinate;
+    float delta = coordinate - focus;
+    float side_extent = delta < 0.0 ? focus + 0.5 : 0.5 - focus;
+    if (abs(delta) <= 1e-7 || side_extent <= 1e-7) return focus;
+    float normalized_distance = saturate(abs(delta) / side_extent);
+    float denominator = max(exp(rate) - 1.0, 1e-5);
+    float warped_distance = (exp(rate * normalized_distance) - 1.0) / denominator;
+    return focus + (delta < 0.0 ? -1.0 : 1.0) * side_extent * warped_distance;
+}
+
+void EvaluateAmbientWaves(float2 p, float time, out float height, out float2 gradient, out float2 horizontal_offset) {
     float2 flow = normalize(flow_params.xy + float2(1e-5, 0.0));
-    float2 side = float2(-flow.y, flow.x);
-    float2 directions[4] = {
-        normalize(flow + side * 0.18),
-        normalize(flow - side * 0.83),
-        normalize(-flow + side * 0.47),
-        normalize(flow + side * 1.71)
-    };
-    float frequencies[4] = { 0.72, 1.37, 2.51, 4.73 };
-    float amplitudes[4]  = { 0.52, 0.27, 0.145, 0.085 };
-    float velocities[4]  = { 0.87, 1.19, 0.63, 1.43 };
-    float phases[4]      = { 0.20, 1.73, 3.11, 5.02 };
+    float direction_angles[16] = {0.00, 0.16, -0.24, 0.39, -0.55, 0.71, -0.88, 1.05, -1.21, 1.42, -1.60, 1.82, -2.05, 2.28, -2.52, 2.83};
+    float frequencies[16] = {0.18, 0.24, 0.32, 0.43, 0.58, 0.78, 1.05, 1.41, 1.90, 2.55, 3.42, 4.59, 6.16, 8.26, 11.10, 14.90};
+    float amplitudes[16] = {0.170, 0.145, 0.120, 0.100, 0.085, 0.072, 0.061, 0.052, 0.044, 0.038, 0.032, 0.027, 0.023, 0.019, 0.017, 0.015};
+    float phases[16] = {0.20, 1.73, 3.11, 5.02, 2.37, 4.41, 0.91, 3.82, 5.67, 2.84, 0.47, 4.96, 1.28, 3.54, 6.07, 2.16};
+
+    height = 0.0;
+    gradient = 0.0;
+    horizontal_offset = 0.0;
+    float spatial_scale = max(wave_params.y, 0.01);
+    float animation_speed = wave_params.z;
+    const float gravity = 9.81;
+    [unroll]
+    for (int i = 0; i < 16; ++i) {
+        float2 direction = Rotate2(flow, direction_angles[i]);
+        float k = frequencies[i] * spatial_scale;
+        float angular_speed = sqrt(gravity * k);
+        float phase = dot(p, direction) * k - time * animation_speed * angular_speed + phases[i];
+        float amplitude = amplitudes[i] * wave_params.x;
+        float sine = sin(phase);
+        float cosine = cos(phase);
+        height += sine * amplitude;
+        gradient += cosine * amplitude * k * direction;
+        // Gerstner横変位を上限付きで加え、大きな波高でも格子を裏返さず山を尖らせる。
+        float choppiness = min(0.58, 0.32 / max(amplitude * k * 8.0, 0.01));
+        horizontal_offset += direction * (cosine * amplitude * choppiness);
+    }
+}
+
+// 画面上で表現できない周波数を除き、pixel用の解析波勾配を求める。
+void EvaluateAmbientWavesPixel(float2 p, float time, out float height, out float2 gradient) {
+    float2 flow = normalize(flow_params.xy + float2(1e-5, 0.0));
+    float direction_angles[16] = {0.00, 0.16, -0.24, 0.39, -0.55, 0.71, -0.88, 1.05, -1.21, 1.42, -1.60, 1.82, -2.05, 2.28, -2.52, 2.83};
+    float frequencies[16] = {0.18, 0.24, 0.32, 0.43, 0.58, 0.78, 1.05, 1.41, 1.90, 2.55, 3.42, 4.59, 6.16, 8.26, 11.10, 14.90};
+    float amplitudes[16] = {0.170, 0.145, 0.120, 0.100, 0.085, 0.072, 0.061, 0.052, 0.044, 0.038, 0.032, 0.027, 0.023, 0.019, 0.017, 0.015};
+    float phases[16] = {0.20, 1.73, 3.11, 5.02, 2.37, 4.41, 0.91, 3.82, 5.67, 2.84, 0.47, 4.96, 1.28, 3.54, 6.07, 2.16};
 
     height = 0.0;
     gradient = 0.0;
     float spatial_scale = max(wave_params.y, 0.01);
     float animation_speed = wave_params.z;
+    const float gravity = 9.81;
     [unroll]
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 16; ++i) {
+        float2 direction = Rotate2(flow, direction_angles[i]);
         float k = frequencies[i] * spatial_scale;
-        float phase = dot(p, directions[i]) * k
-                    - time * animation_speed * velocities[i] + phases[i];
-        float amplitude = amplitudes[i] * wave_params.x;
+        float angular_speed = sqrt(gravity * k);
+        float phase = dot(p, direction) * k
+                    - time * animation_speed * angular_speed + phases[i];
+        float footprint = max(abs(ddx(phase)), abs(ddy(phase)));
+        float detail_weight = 1.0 - smoothstep(0.72, 2.20, footprint);
+        float amplitude = amplitudes[i] * wave_params.x * detail_weight;
         height += sin(phase) * amplitude;
-        gradient += cos(phase) * amplitude * k * directions[i];
+        gradient += cos(phase) * amplitude * k * direction;
     }
 }
 
@@ -215,7 +259,14 @@ void EvaluateRipples(float2 p, out float height,
         envelope *= lerp(1.0, 0.24 + rear_mask * 0.76, wake_weight);
 
         float phase = radial * wave_number;
-        float amplitude = ripple_a[i].w;
+        // 波長に対して急すぎる入力は砕波として扱う。高さを滑らかに飽和させ、
+        // 小さな水面へ大きなstrengthを渡しても鋸歯状の面や水平法線を作らない。
+        const float amplitude_limit = wavelength * 0.070;
+        float submitted_amplitude = ripple_a[i].w;
+        float amplitude_ratio = submitted_amplitude
+                              / max(amplitude_limit, 1e-5);
+        float amplitude = amplitude_limit * amplitude_ratio
+                        / sqrt(1.0 + amplitude_ratio * amplitude_ratio);
         float wave = amplitude * cos(phase) * envelope;
         float derivative = amplitude * envelope
                          * (-wave_number * sin(phase)
@@ -228,16 +279,23 @@ void EvaluateRipples(float2 p, out float height,
 
         height += wave;
         gradient += derivative * world_gradient;
-        // Foam/roughness energy follows positive crests only.  Using the whole
-        // envelope produces an opaque white doughnut around every impact.
-        energy += max(wave, 0.0)
+        // 泡と粗さは正の波頭だけへ追従させ、衝撃点の周囲が白い輪になるのを防ぐ。
+        float breaking_energy = max(abs(submitted_amplitude) - amplitude_limit, 0.0) * envelope * 0.18;
+        energy += (max(wave, 0.0) + breaking_energy)
                 * lerp(0.68, 1.0, saturate(ripple_b[i].w));
     }
 }
 
 VSOut VSMain(VSIn input) {
     VSOut output;
-    float4 world = mul(float4(input.position, 1.0), model);
+    float3 local_position = input.position;
+    float2 authored_uv = input.uv;
+    if (adaptive_lod.z > 1e-4 || adaptive_lod.w > 1e-4) {
+        local_position.x = WarpAdaptiveCoordinate(local_position.x, adaptive_lod.x, adaptive_lod.z);
+        local_position.z = WarpAdaptiveCoordinate(local_position.z, adaptive_lod.y, adaptive_lod.w);
+        authored_uv = float2(local_position.x + 0.5, 0.5 - local_position.z);
+    }
+    float4 world = mul(float4(local_position, 1.0), model);
     float3 base_normal = float3(
         input.normal.x * normal_row0.x
             + input.normal.y * normal_row1.x
@@ -270,8 +328,8 @@ VSOut VSMain(VSIn input) {
 
     float ambient_height;
     float2 ambient_gradient;
-    EvaluateAmbientWaves(surface_position, camera_time.w,
-                         ambient_height, ambient_gradient);
+    float2 ambient_horizontal;
+    EvaluateAmbientWaves(surface_position, camera_time.w, ambient_height, ambient_gradient, ambient_horizontal);
 
     float ripple_height;
     float2 ripple_gradient;
@@ -279,20 +337,21 @@ VSOut VSMain(VSIn input) {
     EvaluateRipples(surface_position, ripple_height,
                     ripple_gradient, ripple_energy);
 
-    float2 total_gradient = ambient_gradient + ripple_gradient;
-    world.xyz += base_normal * (ambient_height + ripple_height);
+    world.xyz += tangent * ambient_horizontal.x
+              + bitangent * ambient_horizontal.y
+              + base_normal * (ambient_height + ripple_height);
     output.world_position = world.xyz;
     // Keep this vector unnormalized through interpolation. The pixel shader
     // adds texture-slope detail in the same tangent frame, then performs the
     // only normalization so mesh, analytic, and normal-map normals stay
     // coherent under rotated/non-uniformly-scaled models.
     output.world_normal = base_normal
-                        - tangent * total_gradient.x
-                        - bitangent * total_gradient.y;
+                        - tangent * ripple_gradient.x
+                        - bitangent * ripple_gradient.y;
     output.position = mul(world, view_projection);
-    output.uv = input.uv;
+    output.uv = authored_uv;
     output.ripple_energy = ripple_energy;
-    output.wave_height = ambient_height + ripple_height;
+    output.wave_height = ripple_height;
     output.surface_position = surface_position;
     output.surface_tangent = tangent;
     output.surface_bitangent = bitangent;
@@ -302,12 +361,10 @@ VSOut VSMain(VSIn input) {
 float4 SampleNormalLayer(float2 world_xz, float angle, float scale,
                          float2 scroll, out float detail_weight) {
     float2 uv = Rotate2(world_xz, angle) * scale + scroll;
-    // The generated map contains detail up to roughly 16 cycles per tile. Fade
-    // a layer before that frequency exceeds the pixel footprint's Nyquist
-    // limit. This avoids distant shimmer even on backends where the generated
-    // texture has only a base mip.
+    // 生成法線はtileあたり約32周期まで含む。pixel幅が表現できる上限を
+    // 超える前に各層を減衰し、base mipしかないbackendでも遠景のちらつきを防ぐ。
     float footprint = max(length(ddx(uv)), length(ddy(uv)));
-    float cycles_per_pixel = footprint * 16.0;
+    float cycles_per_pixel = footprint * 32.0;
     detail_weight = 1.0 - smoothstep(0.30, 0.68, cycles_per_pixel);
     return water_normal.Sample(water_normal_sampler, uv);
 }
@@ -568,6 +625,9 @@ float4 PSMain(VSOut input) : SV_TARGET {
     float normal_height;
     EvaluateNormalMap(input.surface_position, camera_time.w,
                       micro_slope, normal_height);
+    float ambient_height;
+    float2 ambient_gradient;
+    EvaluateAmbientWavesPixel(input.surface_position, camera_time.w, ambient_height, ambient_gradient);
     float3 authored_tangent_normal =
         EvaluateAuthoredNormal(input.uv);
 
@@ -580,7 +640,7 @@ float4 PSMain(VSOut input) : SV_TARGET {
     float3 bitangent = normalize(input.surface_bitangent);
     float3 view_direction =
         normalize(camera_time.xyz - input.world_position);
-    float3 geometric_surface_normal = normalize(input.world_normal);
+    float3 geometric_surface_normal = normalize(input.world_normal - tangent * ambient_gradient.x - bitangent * ambient_gradient.y);
     if (dot(geometric_surface_normal, view_direction) < 0.0)
         geometric_surface_normal = -geometric_surface_normal;
     float3 generated_detail_normal = normalize(
@@ -594,6 +654,11 @@ float4 PSMain(VSOut input) : SV_TARGET {
               tangent, bitangent)
         : generated_detail_normal;
     if (dot(normal, view_direction) < 0.0) normal = -normal;
+
+    // 画面上の法線変化を粗さへ移し、遠景の細かな反射が点滅しないようにする。
+    float base_roughness = clamp(shallow_roughness.w, 0.02, 0.72);
+    float normal_variance = min(max(dot(ddx(normal), ddx(normal)), dot(ddy(normal), ddy(normal))), 1.0);
+    float surface_roughness = clamp(sqrt(base_roughness * base_roughness + normal_variance * 0.18), 0.035, 0.72);
 
     float3 light_direction = normalize(sun_direction.xyz);
     float no_v = saturate(dot(normal, view_direction));
@@ -614,13 +679,13 @@ float4 PSMain(VSOut input) : SV_TARGET {
             input.world_position, refracted_direction);
     float refraction_strength = max(absorption_refraction.w, 0.0);
     float2 refract_uv_raw = screen_uv
-        + (projected_normal * 8.0 + projected_refracted_ray * 5.0)
+        + (projected_normal * 3.5 + projected_refracted_ray * 2.5)
         * screen_params.xy * refraction_strength;
     float refract_fade = SceneUvFade(refract_uv_raw);
     float2 refract_uv = clamp(refract_uv_raw,
                               screen_params.xy * 0.5,
                               1.0 - screen_params.xy * 0.5);
-    float blur_radius = lerp(0.45, 2.4, saturate(shallow_roughness.w));
+    float blur_radius = lerp(0.35, 2.2, surface_roughness);
     float3 captured_scene = SampleSceneFiltered(refract_uv, blur_radius);
 
     float optical_depth = max(surface_misc.x, 0.01);
@@ -700,8 +765,7 @@ float4 PSMain(VSOut input) : SV_TARGET {
         lerp(reflected_sky, reflected_screen.rgb, reflection_hit);
 
     float sun_alignment = saturate(dot(reflected_direction, light_direction));
-    float sun_disk_power = lerp(1400.0, 180.0,
-                                saturate(shallow_roughness.w * 2.2));
+    float sun_disk_power = lerp(1400.0, 180.0, saturate(surface_roughness * 2.2));
     float3 sun_reflection = sun_color.rgb
                           * pow(abs(sun_alignment), sun_disk_power)
                           * sun_visibility;
@@ -710,9 +774,7 @@ float4 PSMain(VSOut input) : SV_TARGET {
     float3 color = lerp(refracted_color, reflected_sky, fresnel);
 
     // Energy-conserving GGX sun lobe.
-    float roughness = clamp(shallow_roughness.w
-                            + saturate(input.ripple_energy) * 0.035,
-                            0.035, 0.72);
+    float roughness = clamp(surface_roughness + saturate(input.ripple_energy) * 0.035, 0.035, 0.72);
     float3 half_direction = normalize(view_direction + light_direction);
     float no_h = saturate(dot(normal, half_direction));
     float vo_h = saturate(dot(view_direction, half_direction));
@@ -732,9 +794,8 @@ float4 PSMain(VSOut input) : SV_TARGET {
     // analytic normal still had a finite contribution.
     float ripple_foam =
         1.0 - exp(-max(input.ripple_energy, 0.0) * 5.4);
-    float crest = smoothstep(wave_params.x * 0.68,
-                             max(wave_params.x * 1.22, 0.01),
-                             input.wave_height);
+    float combined_wave_height = ambient_height + input.wave_height;
+    float crest = smoothstep(wave_params.x * 0.68, max(wave_params.x * 1.22, 0.01), combined_wave_height);
     float detail_mask = smoothstep(0.52, 0.78, normal_height);
     float foam = saturate((ripple_foam * (0.16 + detail_mask * 0.34)
                          + crest * detail_mask * 0.16
@@ -814,6 +875,10 @@ struct FWaterSurfaceFrame {
     FVec3 bitangent{0.0f, 0.0f, 1.0f};
     FVec3 normal{0.0f, 1.0f, 0.0f};
     FMat4 normal_matrix = FMat4::Identity();
+    /** model変換後にlocal X軸が覆うworld距離。 */
+    f32 tangent_span = 1.0f;
+    /** model変換後にlocal Z軸が覆うworld距離。 */
+    f32 bitangent_span = 1.0f;
 };
 
 FVec3 Normalize3Or(FVec3 value, FVec3 fallback) noexcept {
@@ -847,15 +912,14 @@ FWaterSurfaceFrame BuildWaterSurfaceFrame(const FMat4& model) noexcept {
     transformed_tangent =
         transformed_tangent
         - result.normal * Dot(transformed_tangent, result.normal);
-    if (!IsFinite(transformed_tangent)
-        || std::hypot(
-               static_cast<f64>(transformed_tangent.x),
-               static_cast<f64>(transformed_tangent.y),
-               static_cast<f64>(transformed_tangent.z)) <= 1e-8) {
+    const f64 transformed_tangent_length = std::hypot(static_cast<f64>(transformed_tangent.x), static_cast<f64>(transformed_tangent.y), static_cast<f64>(transformed_tangent.z));
+    if (!IsFinite(transformed_tangent) || !std::isfinite(transformed_tangent_length) || transformed_tangent_length <= 1e-8) {
         // Choose the world axis least likely to be parallel to the normal.
         const FVec3 reference = std::abs(result.normal.z) < 0.9f
             ? FVec3::UnitZ() : FVec3::UnitX();
         transformed_tangent = Cross(result.normal, reference);
+    } else {
+        result.tangent_span = static_cast<f32>(transformed_tangent_length);
     }
     result.tangent =
         Normalize3Or(transformed_tangent, FVec3::UnitX());
@@ -870,7 +934,148 @@ FWaterSurfaceFrame BuildWaterSurfaceFrame(const FMat4& model) noexcept {
         && Dot(result.bitangent, transformed_bitangent) < 0.0f) {
         result.bitangent = -result.bitangent;
     }
+    const f32 bitangent_span = std::abs(Dot(result.bitangent, transformed_bitangent));
+    if (std::isfinite(bitangent_span) && bitangent_span > 1e-8f)
+        result.bitangent_span = bitangent_span;
     return result;
+}
+
+/**
+ * 水面の最短波長を保つため、格子中心付近へ必要な密度率を算出する。
+ * @param world_span 格子一軸のworld距離。
+ * @param cells 格子一軸の分割数。
+ * @param params 最短波長を決める水面設定。
+ * @return 0なら等間隔、正値なら格子中心へ寄せる指数率。
+ */
+f32 AdaptivePlaneWarpRate_Internal(f32 world_span, u32 cells, const FWaterSurface3DParams& params) noexcept {
+    if (!std::isfinite(world_span) || world_span <= 1e-6f) return 0.0f;
+    /** 大波の空間周波数倍率。 */
+    const f32 spatial_scale =
+        ClampFinite(params.wave_scale, 1.0f, 0.0001f, 1024.0f);
+    /** 解析的大波の最高周波数から得る最短波長。 */
+    const f32 shortest_macro_wavelength =
+        kTwoPi / (14.90f * spatial_scale);
+    /** 動的波紋が要求する波長。 */
+    const f32 ripple_wavelength =
+        ClampFinite(params.ripple_wavelength, 0.52f, 0.025f, 1024.0f);
+    /** 一つの格子cellで許容するworld距離。 */
+    const f32 target_cell = std::max(0.0025f, std::min(shortest_macro_wavelength * 0.20f, ripple_wavelength * 0.25f));
+    /** 等間隔格子での一cell距離。 */
+    const f32 regular_cell =
+        world_span / static_cast<f32>(cells);
+    /** 必要cell距離を等間隔cell距離で割った割合。 */
+    const f32 target_ratio =
+        ClampFinite(target_cell / regular_cell, 1.0f, 0.000001f, 1.0f);
+    if (target_ratio >= 0.80f) return 0.0f;
+    /** 指数配置へ変換する対数割合。 */
+    const f32 logarithmic_ratio = -std::log(target_ratio);
+    return std::min(14.0f, logarithmic_ratio + std::log(logarithmic_ratio + 1.0f));
+}
+
+/**
+ * GPU meshが共有水面格子のtopologyを持つか検証して分割数を返す。
+ * @param mesh CreateAdaptivePlaneMeshで生成した可能性があるmesh。
+ * @return 正方格子なら一軸の分割数、不正なtopologyなら0。
+ */
+u32 AdaptivePlaneCellCount_Internal(const FGpuMesh& mesh) noexcept {
+    if (mesh.index_count % 6u != 0u) return 0u;
+    /** 二triangleで構成する四角形の総数。 */
+    const u64 quad_count = static_cast<u64>(mesh.index_count / 6u);
+    /** 正方格子と仮定して求める一軸の分割数。 */
+    const u32 cells = static_cast<u32>(std::sqrt(static_cast<f64>(quad_count)));
+    if (cells < 2u || static_cast<u64>(cells) * cells != quad_count) {
+        return 0u;
+    }
+    /** 一軸の頂点数。 */
+    const u64 row = static_cast<u64>(cells) + 1u;
+    return row * row == static_cast<u64>(mesh.vertex_count)
+        ? cells : 0u;
+}
+
+/**
+ * world上のcamera位置から連続密度格子の焦点と軸ごとの密度率を作る。
+ * @param surface 水面local平面のworld座標系。
+ * @param camera_position cameraのworld位置。
+ * @param params 最短波長を決める水面設定。
+ * @param cells 格子一軸の分割数。2未満なら連続再配置を無効にする。
+ * @return xyに格子焦点、zwに軸ごとの指数密度率を持つ値。
+ */
+FVec4 BuildAdaptivePlaneLod_Internal(const FWaterSurfaceFrame& surface, FVec3 camera_position, const FWaterSurface3DParams& params, u32 cells) noexcept {
+    if (cells < 2u) return FVec4{};
+    /** 水面原点を基準にしたcamera位置。 */
+    const FVec3 relative_camera = camera_position - surface.origin;
+    /** 水面X軸上で端へ制限した焦点。 */
+    const f32 focus_x = ClampFinite(Dot(relative_camera, surface.tangent) / surface.tangent_span, 0.0f, -0.5f, 0.5f);
+    /** 水面Z軸上で端へ制限した焦点。 */
+    const f32 focus_z = ClampFinite(Dot(relative_camera, surface.bitangent) / surface.bitangent_span, 0.0f, -0.5f, 0.5f);
+    return FVec4{focus_x, focus_z, AdaptivePlaneWarpRate_Internal(surface.tangent_span, cells, params), AdaptivePlaneWarpRate_Internal(surface.bitangent_span, cells, params)};
+}
+
+/**
+ * 正規化XZ格子を確保し、GPU転送前のlocal meshへ構築する。
+ * @param cells 一軸あたりの分割数。公開入口で2から512へ検証済み。
+ * @param output 構築する呼び出し元所有mesh。
+ * @return 三配列をすべて確保して書き込めた場合はtrue。
+ */
+bool TryBuildAdaptivePlaneMesh_Internal(u32 cells, AMeshAsset& output) noexcept {
+    /** 一行あたりの頂点数。 */
+    const usize row = static_cast<usize>(cells) + 1u;
+    /** 格子全体の頂点数。 */
+    const usize vertex_count = row * row;
+    /** 全四角形を二つのtriangleへ分割したindex数。 */
+    const usize index_count = static_cast<usize>(cells) * static_cast<usize>(cells) * 6u;
+
+    /** 構築中の頂点配列。 */
+    TArray<FMeshVertex>& vertices = output.Vertices();
+    /** 構築中のindex配列。 */
+    TArray<u32>& indices = output.Indices();
+    /** 格子全体を覆う単一submesh配列。 */
+    TArray<FSubMesh>& submeshes = output.SubMeshes();
+    if (!vertices.TrySetNum(vertex_count) || !indices.TrySetNum(index_count) || !submeshes.TrySetNum(1u)) {
+        return false;
+    }
+
+    /** 全頂点で共有するlocal正Y法線。 */
+    const FVec3 up{0.0f, 1.0f, 0.0f};
+    for (u32 z = 0u; z <= cells; ++z) {
+        /** Z方向の0から1までの位置。 */
+        const f32 v = static_cast<f32>(z) / static_cast<f32>(cells);
+        for (u32 x = 0u; x <= cells; ++x) {
+            /** X方向の0から1までの位置。 */
+            const f32 u = static_cast<f32>(x) / static_cast<f32>(cells);
+            /** 行優先で現在位置を受け取る頂点。 */
+            FMeshVertex& vertex =
+                vertices[static_cast<usize>(z) * row + x];
+            vertex.position = FVec3{u - 0.5f, 0.0f, v - 0.5f};
+            vertex.normal = up;
+            vertex.u = u;
+            vertex.v = 1.0f - v;
+        }
+    }
+
+    /** 次に書き込むindex位置。 */
+    usize output_index = 0u;
+    for (u32 z = 0u; z < cells; ++z) {
+        for (u32 x = 0u; x < cells; ++x) {
+            /** 現在四角形の左上頂点。 */
+            const u32 top_left = static_cast<u32>(static_cast<usize>(z) * row + x);
+            /** 現在四角形の右上頂点。 */
+            const u32 top_right = top_left + 1u;
+            /** 現在四角形の左下頂点。 */
+            const u32 bottom_left =
+                static_cast<u32>(static_cast<usize>(top_left) + row);
+            /** 現在四角形の右下頂点。 */
+            const u32 bottom_right = bottom_left + 1u;
+            indices[output_index++] = top_left;
+            indices[output_index++] = top_right;
+            indices[output_index++] = bottom_right;
+            indices[output_index++] = top_left;
+            indices[output_index++] = bottom_right;
+            indices[output_index++] = bottom_left;
+        }
+    }
+    submeshes[0] = FSubMesh{0u, static_cast<u32>(index_count)};
+    return true;
 }
 
 FWaterSurface3DParams SanitizeParams(
@@ -949,12 +1154,27 @@ TResult<TUniquePtr<IRhiTexture>> CreateWaterNormalMap(IRhiDevice& device) noexce
         { -11.0f, 8.0f, 0.049f, 2.39f },
         { 13.0f, 11.0f, 0.039f, 0.57f },
         { 16.0f, -9.0f, 0.031f, 1.92f },
+        { -3.0f, -7.0f, 0.034f, 2.93f },
+        {  5.0f,  9.0f, 0.030f, 0.19f },
+        { -8.0f, -11.0f, 0.027f, 1.31f },
+        { 12.0f,  5.0f, 0.024f, 2.57f },
+        {-14.0f,  3.0f, 0.022f, 0.72f },
+        {  6.0f, -15.0f, 0.020f, 1.66f },
+        { 17.0f,  7.0f, 0.018f, 2.28f },
+        { -9.0f, 18.0f, 0.016f, 0.43f },
+        { 19.0f, -13.0f, 0.014f, 1.09f },
+        {-21.0f, -8.0f, 0.013f, 2.81f },
+        { 15.0f, 22.0f, 0.011f, 0.95f },
+        {-23.0f, 17.0f, 0.010f, 1.84f },
+        { 25.0f,  4.0f, 0.009f, 2.46f },
+        { -7.0f, -27.0f, 0.008f, 0.11f },
+        { 29.0f, -16.0f, 0.007f, 1.53f },
     };
     // Height is authored in normalized tile units, so the analytic derivative
     // includes 2*pi*frequency. This conversion keeps the resulting tangent
     // slope in a water-like range instead of allowing high-frequency layers to
     // produce near-horizontal normals.
-    constexpr f32 kNormalSlopeScale = 0.028f;
+    constexpr f32 kNormalSlopeScale = 0.018f;
 
     const auto to_byte = [](f32 value) noexcept -> u8 {
         if (value < 0.0f) value = 0.0f;
@@ -1245,6 +1465,31 @@ CWaterSurface3D::BeginCompileShadersAsync(
     }
     compiled.pixel = Move(pixel_result.Value());
     return TResult<FCompiledShaders>(OkInit, Move(compiled));
+}
+
+/**
+ * 連続密度水面用の正規化格子を作成して描画deviceへ転送する。
+ * @param device 格子を転送する描画device。
+ * @param output 成功時だけ生成格子へ置き換える出力。
+ * @param cells 一軸あたりの分割数。
+ * @return CPU構築と両GPU bufferの転送が完了した場合は成功。
+ */
+TResult<void> CWaterSurface3D::CreateAdaptivePlaneMesh(IRhiDevice& device, FGpuMesh& output, u32 cells) noexcept {
+    if (cells < 2u || cells > 512u) {
+        return ACS_ERR(Render, 716, "adaptive water plane cell count must be between 2 and 512");
+    }
+    /** 転送前の正規化XZ格子。 */
+    AMeshAsset cpu_mesh;
+    if (!TryBuildAdaptivePlaneMesh_Internal(cells, cpu_mesh)) {
+        return ACS_ERR(Render, 717, "adaptive water plane mesh allocation failed");
+    }
+    /** 全転送が成功するまでoutputから隔離する描画格子。 */
+    FGpuMesh staged_output{};
+    /** 頂点とindexを描画deviceへ転送した結果。 */
+    auto upload = UploadMesh(device, cpu_mesh, staged_output);
+    if (upload.IsErr()) return Err<void>(upload.Error());
+    output = Move(staged_output);
+    return Ok();
 }
 
 TResult<void> CWaterSurface3D::BeginInitWithCompiledShaders(
@@ -1825,6 +2070,20 @@ u32 CWaterSurface3D::AddWakeSegmentForSurface(
             1u, static_cast<u32>(requested_samples));
     }
 
+    // 低い更新頻度ほど同じ航跡へ多数の波束が重なる。各sampleの強さを
+    // 波束幅と実sample間隔の比で割り、更新頻度だけで巨大な溝が生じないようにする。
+    f64 overlap = 1.0;
+    if (sample_count > 1u) {
+        /** 実際に配置する隣接sample間の距離。 */
+        const f64 actual_spacing = visible_distance
+            / static_cast<f64>(sample_count);
+        /** 一つの波束が主に影響する進行方向の幅。 */
+        const f64 packet_span = static_cast<f64>(m_Params.ripple_wavelength) * 2.20;
+        overlap = std::max(1.0, packet_span / std::max(actual_spacing, 1e-5));
+    }
+    /** 重なりを除いて各sampleへ渡す強さ。 */
+    const f32 sample_strength = static_cast<f32>(static_cast<f64>(strength) / overlap);
+
     const f64 inverse_distance = 1.0 / distance;
     const f64 physical_speed = std::min(
         distance / static_cast<f64>(duration), 65504.0);
@@ -1856,7 +2115,7 @@ u32 CWaterSurface3D::AddWakeSegmentForSurface(
         };
         if (!AddWakeEventForSurface(
                 surface_id, point, velocity,
-                radius, strength,
+                radius, sample_strength,
                 static_cast<f32>(age))) {
             continue;
         }
@@ -1990,6 +2249,7 @@ void CWaterSurface3D::SetShadowMap(
     m_ShadowPcfRadius = ClampFinite(pcf_radius, 0.0f, 0.0f, 8.0f);
 }
 
+/** 従来のlocal XZ meshを形状変更せず共通描画本体へ渡す。 */
 void CWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
                                const FGpuMesh& mesh,
                                const FMat4& model,
@@ -2000,6 +2260,16 @@ void CWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
                                bool hardware_depth_bound,
                                IRhiTexture* authored_normal_map,
                                f32 authored_normal_strength) noexcept {
+    DrawMesh_Internal(command_list, mesh, model, scene_color, scene_depth, screen_reflection, surface_id, hardware_depth_bound, authored_normal_map, authored_normal_strength, false);
+}
+
+/** 正規化格子をcamera近傍へ連続再配置する共通描画本体へ渡す。 */
+void CWaterSurface3D::DrawAdaptivePlane(IRhiCommandList& command_list, const FGpuMesh& plane_mesh, const FMat4& model, IRhiTexture* scene_color, IRhiTexture* scene_depth, IRhiTexture* screen_reflection, u64 surface_id, bool hardware_depth_bound, IRhiTexture* authored_normal_map, f32 authored_normal_strength) noexcept {
+    DrawMesh_Internal(command_list, plane_mesh, model, scene_color, scene_depth, screen_reflection, surface_id, hardware_depth_bound, authored_normal_map, authored_normal_strength, true);
+}
+
+/** 通常meshと連続密度平面で共有する描画処理を実行する。 */
+void CWaterSurface3D::DrawMesh_Internal(IRhiCommandList& command_list, const FGpuMesh& mesh, const FMat4& model, IRhiTexture* scene_color, IRhiTexture* scene_depth, IRhiTexture* screen_reflection, u64 surface_id, bool hardware_depth_bound, IRhiTexture* authored_normal_map, f32 authored_normal_strength, bool adaptive_plane) noexcept {
     if (m_InitializationPending ||
         !m_Pipeline || !m_ManualDepthPipeline || !IsFinite(model)
         || !mesh.vertex_buffer || !mesh.index_buffer
@@ -2144,6 +2414,10 @@ void CWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
     object.surface_origin = FVec4{surface.origin, 1.0f};
     object.surface_tangent = FVec4{surface.tangent, 0.0f};
     object.surface_bitangent = FVec4{surface.bitangent, 0.0f};
+    /** 生成格子以外では連続再配置を無効にする安全な分割数。 */
+    const u32 adaptive_cells = adaptive_plane
+        ? AdaptivePlaneCellCount_Internal(mesh) : 0u;
+    object.adaptive_lod = BuildAdaptivePlaneLod_Internal(surface, m_CameraPos, m_Params, adaptive_cells);
     object_buffer->Update(&object, sizeof(object));
 
     IRhiPipeline* pipeline =
