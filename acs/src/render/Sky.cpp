@@ -934,6 +934,8 @@ cbuffer CloudCB : register(b0) {
     float4 cloudShadowUpdate;
     // xy=基準面上の左下XZ, z=1/範囲, w=基準面のワールドY
     float4 cloudWorldShadowMap;
+    // 前フレームの対流位相。時間再投影が形状変化を検出するために使う。
+    float4 cloudPreviousEvolution;
 };
 RWTexture2D<float4> cloudOut : register(u0);
 RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒット距離, y=アルファ信頼度
@@ -2837,6 +2839,29 @@ cbuffer CloudCB : register(b0) {
     float4 shadowGrid;
     float4 shadowState;
     float4 groundHorizon;// xyz=camera local up, w=ground tangent elevation; <-1 disables
+    float4 cloudFrameTerms;
+    float4 cloudLightTangent;
+    float4 cloudLightBitangent;
+    float4 cloudCoverage;
+    float4 cloudCoverageReciprocals;
+    float4 cloudShellRayOrigin;
+    float4 cloudShellTerms;
+    float4 cloudLightingExtinction;
+    float4 cloudLightingPhase;
+    float4 cloudLightingMulti;
+    float4 cloudLightingAmbient;
+    float4 cloudLightingGround;
+    float4 cloudSunTransmittance;
+    float4 cloudSkyZenith;
+    float4 cloudMultiPhase;
+    float4 cloudRange;
+    float4 cloudUpperLayer;
+    float4 cloudUpperTerms;
+    float4 cloudEvolution;
+    float4 cloudWeatherControl;
+    float4 cloudShadowUpdate;
+    float4 cloudWorldShadowMap;
+    float4 cloudPreviousEvolution;
 };
 Texture2D<float4> cloudLow     : register(t0);
 Texture2D<float2> cloudDepth   : register(t1);
@@ -2878,6 +2903,14 @@ bool IsTemporalSuperResolution() {
 bool IsScheduledFullPixel(uint2 pixel,uint2 phaseOffset) {
     return ((pixel.x&3u)==phaseOffset.x) &&
            ((pixel.y&3u)==phaseOffset.y);
+}
+// 対流位相が変わった画素では、前フレームの雲形状をそのまま再利用しない。
+// 位相差は局所形状の変化量を表し、履歴の再混合率へ連続的に反映する。
+float CloudTemporalEvolutionMismatch() {
+    float2 slowDelta=abs(cloudEvolution.xy-cloudPreviousEvolution.xy);
+    float2 fineDelta=abs(cloudEvolution.zw-cloudPreviousEvolution.zw);
+    float delta=max(max(slowDelta.x,slowDelta.y),max(fineDelta.x,fineDelta.y));
+    return saturate(delta*220.0);
 }
 float2 CurrentSamplePixel(int2 q,uint phaseIndex,bool temporalSuperRes) {
     q=clamp(q,int2(0,0),int2(dims.xy)-1);
@@ -2932,6 +2965,7 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     if(tid.x>=fullW || tid.y>=fullH) return;
     float2 uv=(float2(tid.xy)+0.5)/dims.zw;
     bool temporalSuperRes=IsTemporalSuperResolution();
+    float evolutionMismatch=CloudTemporalEvolutionMismatch();
     uint phaseIndex=(uint)temporal.z&15u;
     uint2 pixelBlock=min(tid.xy>>2u,uint2(dims.xy)-1u);
     uint2 phaseOffset=CloudTemporalPhaseOffset4(pixelBlock,phaseIndex);
@@ -2965,7 +2999,7 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     // empty pixels must reach the gather: one low texel represents a 4x4 phase
     // block and cannot conservatively classify a horizon edge by itself.
     bool stableUnscheduled=temporal.x>0.5 && temporalSuperRes &&
-        !scheduled && worldOrigin.w>0.5;
+        !scheduled && worldOrigin.w>0.5 && evolutionMismatch<0.08;
     if(stableUnscheduled) {
         float4 sameScreenColor=historyColor.Load(int3(tid.xy,0));
         float2 sameScreenDepth=historyDepth.Load(int3(tid.xy,0));
@@ -3189,15 +3223,17 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                         } else {
                             // 未採取画素は、他の15位相で得た等倍標本をワールド移動だけ補正して保つ。
                             // 4x4領域の代表レイを混ぜると、正確な履歴を低解像度補間へ毎回戻して雲頂差を面状に拡散する。
-                            resolved=histPacked;
+                            resolved=lerp(
+                                histPacked,current,evolutionMismatch);
                             resolvedDepth=float2(reprojectionDepth,histD.y);
                         }
                     } else {
                         float edgeConfidence=saturate(abs(refC.a-0.5)*2.0);
                         // 等倍追跡では現在フレームが全画素を持つため、履歴を強く混ぜると
                         // 移動する雲縁が前フレームへ引っ張られてぼやける。低解像度の時間再構成とは分ける。
-                        float feedback=lerp(
-                            0.42,0.62,edgeConfidence);
+                        float feedback=max(
+                            lerp(0.42,0.62,edgeConfidence),
+                            evolutionMismatch);
                         resolved=lerp(current,histPacked,feedback);
                     }
                     historyAccepted=true;
@@ -3276,6 +3312,13 @@ cbuffer CloudCB : register(b0) {
     float4 cloudMultiPhase;
     float4 cloudRange;
     float4 cloudUpperLayer;
+    float4 cloudUpperTerms;
+    float4 cloudEvolution;
+    float4 cloudWeatherControl;
+    float4 cloudShadowUpdate;
+    float4 cloudWorldShadowMap;
+    // 前フレームの対流位相。合成段階では使わないが、定数バッファの末尾を共通化する。
+    float4 cloudPreviousEvolution;
 };
 Texture2D<float4> cloudTex : register(t0);
 Texture2D<float> sceneDepth : register(t1);
@@ -3409,6 +3452,13 @@ cbuffer CloudCB : register(b0) {
     float4 cloudMultiPhase;
     float4 cloudRange;
     float4 cloudUpperLayer;
+    float4 cloudUpperTerms;
+    float4 cloudEvolution;
+    float4 cloudWeatherControl;
+    float4 cloudShadowUpdate;
+    float4 cloudWorldShadowMap;
+    // 前フレームの対流位相。合成段階では使わないが、定数バッファの末尾を共通化する。
+    float4 cloudPreviousEvolution;
 };
 cbuffer CloudAtmosphereCB : register(b1) {
     float4 atmosphereParams; // x=maximum camera-volume distance
@@ -3641,8 +3691,9 @@ struct FCloudCb {
     FVec4 cloudWeatherControl;
     FVec4 cloudShadowUpdate;
     FVec4 cloudWorldShadowMap;
+    FVec4 cloudPreviousEvolution;
 };
-static_assert(sizeof(FCloudCb) == 688, "CloudCB must match the HLSL layout");
+static_assert(sizeof(FCloudCb) == 704, "CloudCB must match the HLSL layout");
 static_assert(
     offsetof(FCloudCb, groundHorizon) == 320u,
     "CloudCB ground horizon must remain at HLSL register c20");
@@ -3677,6 +3728,7 @@ static_assert(
 static_assert(offsetof(FCloudCb, cloudWeatherControl) == 640u, "CloudCB の天候制御項は HLSL の c40 と一致させる");
 static_assert(offsetof(FCloudCb, cloudShadowUpdate) == 656u, "CloudCB の自己影更新項は HLSL の c41 と一致させる");
 static_assert(offsetof(FCloudCb, cloudWorldShadowMap) == 672u, "CloudCB の立体物用雲影座標は HLSL の c42 と一致させる");
+static_assert(offsetof(FCloudCb, cloudPreviousEvolution) == 688u, "CloudCB の前フレーム対流位相は HLSL の c43 と一致させる");
 static_assert(
     CBSize<FCloudCb>() == 768u,
     "CloudCB allocation must preserve DX12's 256-byte alignment");
@@ -5834,6 +5886,13 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     // phase sequence. Ping-pong ownership stays on m_FrameIndex, so resetting
     // reconstruction never changes resource selection or dispatch work.
     if (!historyValid) m_TemporalPhase = 0u;
+    // 対流位相の前フレーム値を別に保持し、風の平行移動だけでは表せない形状差を
+    // 時間再投影側で検出できるようにする。履歴が無いフレームは現在値で初期化する。
+    const FVolumetricCloudEvolutionFrameTerms previousEvolutionFrameTerms =
+        historyValid && std::isfinite(m_PrevTime)
+            ? ResolveVolumetricCloudEvolutionFrameTerms(
+                m_PrevTime, m_PrevWindSpeed)
+            : evolutionFrameTerms;
 
     const bool bakeShapeNoiseThisFrame =
         !m_NoiseBaked && m_NoisePipe && m_ShapeTex;
@@ -5974,6 +6033,11 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         evolutionFrameTerms.shape_phase.y,
         evolutionFrameTerms.fine_phase.x,
         evolutionFrameTerms.fine_phase.y};
+    cb.cloudPreviousEvolution = FVec4{
+        previousEvolutionFrameTerms.shape_phase.x,
+        previousEvolutionFrameTerms.shape_phase.y,
+        previousEvolutionFrameTerms.fine_phase.x,
+        previousEvolutionFrameTerms.fine_phase.y};
     cb.cloudWeatherControl = FVec4{
         m_Weather.CloudType,
         m_Weather.CloudTypeInfluence,
@@ -6408,6 +6472,7 @@ CVolumetricClouds::BuildEnvironmentCubemap(
         evolution_terms.shape_phase.y,
         evolution_terms.fine_phase.x,
         evolution_terms.fine_phase.y};
+    cb.cloudPreviousEvolution = cb.cloudEvolution;
     // 画面に見える雲種と降水形状を、環境光の採取にもそのまま反映する。
     cb.cloudWeatherControl = FVec4{
         m_Weather.CloudType,

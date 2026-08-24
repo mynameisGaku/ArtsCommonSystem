@@ -401,6 +401,16 @@ bool CloudTemporalOccupancyMismatchForTest(f32 currentAlpha, f32 historyAlpha, b
     return (!temporalSuperResolution || scheduled) && ((currentAlpha < 0.02f && historyAlpha > 0.08f) || (currentAlpha > 0.08f && historyAlpha < 0.02f));
 }
 
+// 現在と前フレームの対流位相差を、シェーダーと同じ履歴再混合率へ変換する。
+f32 CloudTemporalEvolutionMismatchForTest(FVec4 current, FVec4 previous) noexcept {
+    const f32 slowX = std::fabs(current.x - previous.x);
+    const f32 slowY = std::fabs(current.y - previous.y);
+    const f32 fineX = std::fabs(current.z - previous.z);
+    const f32 fineY = std::fabs(current.w - previous.w);
+    const f32 delta = std::max(std::max(slowX, slowY), std::max(fineX, fineY));
+    return SaturateForTest(delta * 220.0f);
+}
+
 // 現在近傍から外れた履歴成分だけを制限し、範囲内の細部は変更しない。
 f32 CloudTemporalClipChannelForTest(f32 historyValue, f32 currentMinimum, f32 currentMaximum, f32 minimumRange) noexcept {
     const f32 measuredRange = currentMaximum - currentMinimum;
@@ -5451,7 +5461,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         compactSource,
         "offsetof(FCloudCb,cloudShellTerms)==432u"));
-    EXPECT_TRUE(Contains(compactSource, "sizeof(FCloudCb)==688"));
+    EXPECT_TRUE(Contains(compactSource, "sizeof(FCloudCb)==704"));
     EXPECT_TRUE(Contains(
         compactSource,
         "constFVec3shellLocalOrigin{"
@@ -5629,7 +5639,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(shader, "normalize(sunDir.xyz)"));
     EXPECT_FALSE(Contains(shader, "cloudLightBasis("));
 
-    EXPECT_TRUE(Contains(compactSource, "sizeof(FCloudCb)==688"));
+    EXPECT_TRUE(Contains(compactSource, "sizeof(FCloudCb)==704"));
     EXPECT_TRUE(Contains(
         compactSource,
         "offsetof(FCloudCb,cloudFrameTerms)==336u"));
@@ -6043,7 +6053,7 @@ ACS_TEST(VolumetricClouds,
         "resolved=current;"
         "resolvedDepth=float2(curDepth,curA);"));
     EXPECT_FALSE(Contains(scheduledPath, "CloudTemporalClipHistory"));
-    EXPECT_FALSE(Contains(
+    EXPECT_TRUE(Contains(
         resolveShader,
         "resolved=lerp(histPacked,current,"));
     EXPECT_TRUE(Contains(
@@ -6051,7 +6061,7 @@ ACS_TEST(VolumetricClouds,
         "resolvedDepth=float2(curDepth,curA);"));
     EXPECT_TRUE(Contains(
         resolveShader,
-        "resolved=histPacked;"
+        "resolved=lerp(histPacked,current,evolutionMismatch);"
         "resolvedDepth=float2(reprojectionDepth,histD.y);"));
     EXPECT_TRUE(Contains(resolveShader, "float4spatialCurrent=float4(gatheredPremul,gatheredA);float2spatialDepth=float2(gatheredDepth,gatheredA);"));
     EXPECT_TRUE(Contains(resolveShader, "if(temporalSuperRes&&scheduled&&!historyAccepted){resolved=spatialCurrent;resolvedDepth=spatialDepth;}"));
@@ -6072,7 +6082,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         resolveShader,
         "boolstableUnscheduled=temporal.x>0.5&&temporalSuperRes&&"
-        "!scheduled&&worldOrigin.w>0.5;"));
+        "!scheduled&&worldOrigin.w>0.5&&evolutionMismatch<0.08;"));
     EXPECT_FALSE(Contains(resolveShader, "currentTracePixel"));
     EXPECT_FALSE(Contains(resolveShader, "currentTraceHistory"));
     EXPECT_FALSE(Contains(resolveShader, "blockResponse"));
@@ -6137,7 +6147,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(shader, "CloudTemporalSampleResponse"));
     EXPECT_FALSE(Contains(shader, "CloudTemporalCurrentWeight"));
     EXPECT_EQ(CountOccurrences(shader, "resolved=current;"), 2u);
-    EXPECT_FALSE(Contains(shader, "resolved=lerp(histPacked,current,"));
+    EXPECT_TRUE(Contains(shader, "resolved=lerp(histPacked,current,"));
     EXPECT_TRUE(Contains(shader, "if(!temporalSuperRes){histPacked=CloudTemporalClipHistory(histPacked,neighborhoodMin,neighborhoodMax);}"));
     EXPECT_FALSE(Contains(shader, "if(!temporalSuperRes||scheduled){histPacked=CloudTemporalClipHistory"));
     EXPECT_TRUE(Contains(shader, "booloccupancyMismatch=(!temporalSuperRes||scheduled)&&((curA<0.02&&hist.a>0.08)||(curA>0.08&&hist.a<0.02));"));
@@ -6145,7 +6155,24 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(shader, "CloudTemporalUnscheduledWeight"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatfeedback=lerp(0.42,0.62,edgeConfidence);"));
+        "floatfeedback=max(lerp(0.42,0.62,edgeConfidence),evolutionMismatch);"));
+    EXPECT_TRUE(Contains(shader, "floatCloudTemporalEvolutionMismatch(){"));
+    EXPECT_TRUE(Contains(shader, "float2slowDelta=abs(cloudEvolution.xy-cloudPreviousEvolution.xy);"));
+    EXPECT_TRUE(Contains(shader, "floatevolutionMismatch=CloudTemporalEvolutionMismatch();"));
+    EXPECT_TRUE(Contains(shader, "!scheduled&&worldOrigin.w>0.5&&evolutionMismatch<0.08"));
+    EXPECT_TRUE(Contains(shader, "resolved=lerp(histPacked,current,evolutionMismatch);"));
+    EXPECT_NEAR(
+        CloudTemporalEvolutionMismatchForTest(
+            FVec4{0.010f, 0.0f, 0.0f, 0.0f},
+            FVec4{0.0f, 0.0f, 0.0f, 0.0f}),
+        1.0f,
+        1e-6f);
+    EXPECT_NEAR(
+        CloudTemporalEvolutionMismatchForTest(
+            FVec4{0.0001f, -0.0001f, 0.0001f, -0.0001f},
+            FVec4{0.0f, 0.0f, 0.0f, 0.0f}),
+        0.022f,
+        1e-6f);
 }
 
 ACS_TEST(VolumetricClouds, StableUnscheduledHistoryClipsOnlyCurrentNeighborhoodOutliers) {
@@ -6561,7 +6588,7 @@ ACS_TEST(VolumetricClouds,
     const std::string compactSource = CompactShader(source);
     EXPECT_EQ(CountOccurrences(resolveShader, "float4groundHorizon;"), static_cast<std::size_t>(1));
     EXPECT_TRUE(Contains(compactSource, "offsetof(FCloudCb,groundHorizon)==320u"));
-    EXPECT_TRUE(Contains(compactSource, "sizeof(FCloudCb)==688"));
+    EXPECT_TRUE(Contains(compactSource, "sizeof(FCloudCb)==704"));
     EXPECT_TRUE(Contains(compactSource, "offsetof(FCloudCb,cloudFrameTerms)==336u"));
     EXPECT_TRUE(Contains(compactSource, "CBSize<FCloudCb>()==768u"));
     EXPECT_TRUE(Contains(resolveShader, "floatoutA=saturate(resolved.a);resolvedDepth.y=outA;"));
@@ -6793,7 +6820,7 @@ ACS_TEST(VolumetricClouds, StableHistoryStoresUnmaskedCloudUntilFinalComposite) 
 
     // 小さなカメラ移動で保持した履歴も、被覆前の値として一度だけ公開する。
     EXPECT_TRUE(Contains(compactSource, "constbooltemporalHistoryStationary=historyValid&&cameraDeltaSquared<=0.0025f&&matrixDelta<=0.002f;"));
-    EXPECT_TRUE(Contains(resolveShader, "boolstableUnscheduled=temporal.x>0.5&&temporalSuperRes&&!scheduled&&worldOrigin.w>0.5;"));
+    EXPECT_TRUE(Contains(resolveShader, "boolstableUnscheduled=temporal.x>0.5&&temporalSuperRes&&!scheduled&&worldOrigin.w>0.5&&evolutionMismatch<0.08;"));
 
     const std::size_t stableAccept = resolveShader.find("if(stableDepthOk&&stableAlphaOk){");
     const std::size_t fallbackGate = resolveShader.find("if(!stableHistoryResolved){", stableAccept);
